@@ -78,7 +78,10 @@ enum CardType {
     CARD_MIND_THEFT,
     CARD_AMNESIA,
     CARD_DISPEL,
-    CARD_TELEPORT
+    CARD_TELEPORT,
+    CARD_HASTEN,
+    CARD_REPLICATE,
+    CARD_WISDOM_BOON
 };
 
 enum DicePurpose {
@@ -191,7 +194,13 @@ struct Player {
     int shocksPlayedThisTurn = 0;
     bool isParalyzed = false;
     int paralysisHeadsCount = 0;
-
+    bool nextTurnD10AP = false;
+    bool nextTurnExtraDraw = false;
+    bool isReplicatePending = false;
+   
+   
+   
+    std::vector<Card> playedCardsPile;
     std::vector<Card> hand;
     std::vector<Card> deck;
     std::vector<Card> discardPile;
@@ -320,6 +329,20 @@ private:
     bool isWaitingForTeleportDice = false;
     int pendingTeleportRollResult = 0;
     glm::vec2 pendingTeleportTarget;
+
+     // --- WISDOM BOON STATE ---
+    bool isWisdomBoonMenuOpen = false;
+    int pendingWisdomBoonCardIndex = -1;
+    int pendingWisdomBoonTargetIndex = -1;
+    
+    // UI Rects
+    ofRectangle wisdomMenuRect;
+    ofRectangle wisdomBtnDamage;
+    ofRectangle wisdomBtnBlock;
+
+    // Helpers
+    void drawWisdomBoonUI();
+    void cancelWisdomBoon();
     
     // Data storage for the active action
     int pendingDispelCardIndex = -1;     // Which card in hand is being played

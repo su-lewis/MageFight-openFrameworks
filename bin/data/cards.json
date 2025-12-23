@@ -66,14 +66,15 @@
     "cost": 3,
     "targeting": "TARGET_ADJACENT_UNIT"
   },
-  {
+ {
     "id": 9,
     "name": "Amnesia",
     "type": "CARD_AMNESIA",
-    "cost": 3,
+    "cost": 2,
+    "value": 0,
     "targeting": "TARGET_ADJACENT_OR_SELF_UNIT",
     "numDice": 1,
-    "diceSides": 4
+    "diceSides": 6
   },
   {
     "id": 10,
@@ -130,5 +131,36 @@
     "targeting": "TARGET_EMPTY_TILE",
     "numDice": 3,
     "diceSides": 6
+  },
+  {
+    "id": 16,
+    "name": "Hasten",
+    "type": "CARD_HASTEN",
+    "cost": 1,
+    "value": 0,
+    "targeting": "TARGET_SELF",
+    "numDice": 0,
+    "diceSides": 0
+  },
+  {
+    "id": 17,
+    "name": "Replicate",
+    "type": "CARD_REPLICATE",
+    "cost": 4,
+    "value": 0,
+    "targeting": "TARGET_SELF",
+    "numDice": 0,
+    "diceSides": 0
+  },
+  {
+    "id": 18,
+    "name": "Wisdom Boon",
+    "type": "CARD_WISDOM_BOON",
+    "cost": 5,
+    "value": 0,
+    "targeting": "TARGET_ADJACENT_OR_SELF_UNIT",
+    "damageType": "DAMAGE_MAGIC",
+    "numDice": 0,
+    "diceSides": 0
   }
 ]

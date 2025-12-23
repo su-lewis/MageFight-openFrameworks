@@ -2186,12 +2186,16 @@ if (isShowingPileView && currentPileViewPlayerIndex != -1) {
 		ofSetColor(ofColor::white);
 		uiFont.drawString(tooltipText, tooltipX + padding, tooltipY + textHeight + padding / 2.0f);
 	}
-	// --- NEW: Draw Magic Blast Choice UI on top of everything else
-	 if (isMagicBlastChoiceActive) {
+	// --- DRAW OVERLAY UIs ---
+	   if (isMagicBlastChoiceActive) {
         drawMagicBlastChoiceUI();
     }
-     if (isDispelMenuOpen || isDispelTargeting || isDispelStatusSelectOpen) {
+    if (isDispelMenuOpen || isDispelTargeting || isDispelStatusSelectOpen) {
         drawDispelUI();
+    }
+    // ADD THIS:
+    if (isWisdomBoonMenuOpen) {
+        drawWisdomBoonUI();
     }
 	ofDrawBitmapString("FPS: " + ofToString(ofGetFrameRate(), 2), 10, 20);
 }
@@ -2348,25 +2352,22 @@ void ofApp::mouseMoved(int x, int y) {
 	}
     }
 }
-//--------------------------------------------------------------
+// ----------------- FULL mousePressed FUNCTION (Fixed Debug Menu) -----------------
 void ofApp::mousePressed(int x, int y, int button) {
-	// --- PHASE 1: MODAL UI INTERRUPTS ---
-	// These UIs must capture the click before any other game logic.
-	// They should run regardless of the current game state.
+	
+	// ==============================================================================
+	// PHASE 1: MODAL UI INTERRUPTS
+	// These screens block all other game logic. If a click happens here, we return immediately.
+	// ==============================================================================
 
+	// --- 1a. Magic Blast Choice Menu ---
 	if (isMagicBlastChoiceActive && button == OF_MOUSE_BUTTON_LEFT) {
 		bool choiceMade = false;
 		Player * targetPlayer = getPlayer(magicBlastTargetPlayerIndex);
 		
-		// Safety check: if player disconnected or invalid, abort
-		if (!targetPlayer) { 
-			isMagicBlastChoiceActive = false; 
-			return; 
-		}
+		if (!targetPlayer) { isMagicBlastChoiceActive = false; return; }
 
-		// Handle Buttons
 		if (magicBlastDamageButton.inside(x, y)) {
-			// Effect: Take 5 Damage
 			int damage = 5;
 			int wardDamage = std::min(targetPlayer->ward, damage);
 			targetPlayer->ward -= wardDamage; 
@@ -2375,43 +2376,34 @@ void ofApp::mousePressed(int x, int y, int button) {
 			ofLogNotice("MagicBlast") << "Player " << targetPlayer->playerID << " chose Damage.";
 			choiceMade = true;
 		} else if (magicBlastDiscardButton.inside(x, y)) {
-			// Effect: Discard top card
 			if (!targetPlayer->deck.empty()) {
 				targetPlayer->deck.pop_back();
 				ofLogNotice("MagicBlast") << "Player " << targetPlayer->playerID << " chose Discard.";
 			} else {
-				ofLogNotice("MagicBlast") << "Player " << targetPlayer->playerID << " has no cards to discard! (No effect)";
+				ofLogNotice("MagicBlast") << "Player " << targetPlayer->playerID << " has no cards to discard!";
 			}
 			choiceMade = true;
 		}
 
-		// Handle Queue Logic
 		if (choiceMade) {
 			magicBlastChoicesRemaining--;
-
-			// If current player is done with their choices...
 			if (magicBlastChoicesRemaining <= 0) {
-				
-				// Check if there are splash targets waiting in line
 				if (!magicBlastSplashTargetIndices.empty()) {
-					// Move to next target
 					magicBlastTargetPlayerIndex = magicBlastSplashTargetIndices.front();
 					magicBlastSplashTargetIndices.erase(magicBlastSplashTargetIndices.begin());
-					
-					// Splash targets ALWAYS get 1 choice
 					magicBlastChoicesRemaining = 1; 
-					ofLogNotice("MagicBlast") << "Moving to splash target: Player " << players[magicBlastTargetPlayerIndex].playerID;
+					ofLogNotice("MagicBlast") << "Moving to splash target...";
 				} else {
-					// Queue empty, all effects resolved
 					isMagicBlastChoiceActive = false;
 					magicBlastTargetPlayerIndex = -1;
 					ofLogNotice("MagicBlast") << "Sequence Complete.";
 				}
 			}
 		}
-		return; // Consume the click
+		return; 
 	}
 
+	// --- 1b. Dispel Menu (Phase 1: Choose Barrier/Purge) ---
 	if (isDispelMenuOpen && button == OF_MOUSE_BUTTON_LEFT) {
 		if (dispelBtnBarrier.inside(x, y)) {
 			isWaitingForBarrierDice = true;
@@ -2420,16 +2412,18 @@ void ofApp::mousePressed(int x, int y, int button) {
 			currentAP -= p.hand[pendingDispelCardIndex].cost;
 			p.discardPile.push_back(p.hand[pendingDispelCardIndex]);
 			p.hand.erase(p.hand.begin() + pendingDispelCardIndex);
+			ofLogNotice("Dispel") << "Rolling for Non-Physical Barrier...";
 			cancelDispel();
 		} else if (dispelBtnPurge.inside(x, y)) {
 			isDispelMenuOpen = false;
-			isDispelTargeting = true;
+			isDispelTargeting = true; 
 		} else if (!dispelMenuRect.inside(x, y)) {
 			cancelDispel();
 		}
-		return; // Consume the click
+		return; 
 	}
 
+	// --- 1c. Dispel Status Selection (Phase 3: Choose Status) ---
 	if (isDispelStatusSelectOpen && button == OF_MOUSE_BUTTON_LEFT) {
 		bool clickedOption = false;
 		for (size_t i = 0; i < statusSelectButtons.size(); i++) {
@@ -2442,9 +2436,10 @@ void ofApp::mousePressed(int x, int y, int button) {
 		if (!clickedOption && !statusSelectMenuRect.inside(x, y)) {
 			cancelDispel();
 		}
-		return; // Consume the click
+		return; 
 	}
 
+	// --- 1d. Dispel Targeting (Phase 2: Click Unit) ---
 	if (isDispelTargeting && button == OF_MOUSE_BUTTON_LEFT) {
 		ofVec2f boardPos = mouseToBoard(x, y);
 		int gx = floor(boardPos.x);
@@ -2463,18 +2458,158 @@ void ofApp::mousePressed(int x, int y, int button) {
 				}
 			}
 		}
-		if (!foundTarget) {
-			cancelDispel();
+		if (!foundTarget) cancelDispel();
+		return; 
+	}
+
+	// --- 1e. Wisdom Boon Menu ---
+	if (isWisdomBoonMenuOpen && button == OF_MOUSE_BUTTON_LEFT) {
+		Player* target = getPlayer(pendingWisdomBoonTargetIndex);
+		Player& caster = players[currentPlayerIndex];
+		if (!target) { cancelWisdomBoon(); return; }
+
+		bool choiceMade = false;
+		int effectValue = caster.deck.size(); 
+		bool isSelfTarget = (pendingWisdomBoonTargetIndex == currentPlayerIndex);
+
+		if (wisdomBtnDamage.inside(x, y)) {
+			if (isSelfTarget) {
+				ofLogNotice("Wisdom Boon") << "Granting " << effectValue << " Block to Self.";
+				target->block += effectValue;
+			} else {
+				ofLogNotice("Wisdom Boon") << "Dealing " << effectValue << " Magic Damage to Enemy.";
+				int dmg = effectValue;
+				// 1. Barrier
+				int barrierDmg = std::min(target->barrier, dmg);
+				target->barrier -= barrierDmg; dmg -= barrierDmg;
+				// 2. Ward
+				if (dmg > 0) {
+					int wardDmg = std::min(target->ward, dmg);
+					target->ward -= wardDmg; dmg -= wardDmg;
+				}
+				// 3. Health
+				if (dmg > 0) target->health -= dmg;
+			}
+			choiceMade = true;
+		} else if (!wisdomMenuRect.inside(x, y)) {
+			cancelWisdomBoon();
+			return;
 		}
-		return; // Consume the click
+
+		if (choiceMade) {
+			currentAP -= caster.hand[pendingWisdomBoonCardIndex].cost;
+			Card playedCard = caster.hand[pendingWisdomBoonCardIndex];
+			caster.playedCardsPile.push_back(playedCard);
+			
+			if (caster.isReplicatePending) {
+				Card dup = playedCard;
+				caster.playedCardsPile.push_back(dup);
+				ofLogNotice("Replicate") << "Wisdom Boon Replicated.";
+				caster.isReplicatePending = false;
+			}
+			caster.hand.erase(caster.hand.begin() + pendingWisdomBoonCardIndex);
+			cancelWisdomBoon();
+			calculateTargetHighlights();
+		}
+		return; 
+	}
+
+	// --- 1f. Amnesia Selection UI ---
+	if (isAmnesiaSelectionActive && button == OF_MOUSE_BUTTON_LEFT) {
+		float amnesiaCardWidth = 120;
+		float amnesiaCardHeight = amnesiaCardWidth * (585.0f / 409.0f);
+		float panelPadding = 20.0f;
+		float titleHeight = 60.0f;
+		float viewCardScale = 1.6f;
+		float availableHeight = ofGetHeight() - (2 * panelPadding) - titleHeight;
+		float availableWidth = ofGetWidth() * 0.8f;
+
+		while (viewCardScale > 0.5f) {
+			float cardW = amnesiaCardWidth * viewCardScale;
+			float cardH = amnesiaCardHeight * viewCardScale;
+			float padding = 15.0f * (viewCardScale / 1.6f);
+			int cols = std::max(2, (int)floor((availableWidth - padding) / (cardW + padding)));
+			int rows = ceil((float)amnesiaDeckCopy.size() / cols);
+			if (rows * (cardH + padding) - padding <= availableHeight) break; 
+			viewCardScale -= 0.1f;
+		}
+
+		float viewCardWidth = amnesiaCardWidth * viewCardScale;
+		float viewCardHeight = amnesiaCardHeight * viewCardScale;
+		float padding = 15.0f * (viewCardScale / 1.6f);
+		int gridWidthInCards = std::max(2, (int)floor((availableWidth - padding) / (viewCardWidth + padding)));
+		
+		int gridHeightInCards = ceil((float)amnesiaDeckCopy.size() / gridWidthInCards);
+		float totalContentWidth = (gridWidthInCards * viewCardWidth) + ((gridWidthInCards - 1) * padding);
+		float totalContentHeight = (gridHeightInCards * viewCardHeight) + ((gridHeightInCards - 1) * padding);
+		float panelWidth = totalContentWidth + 2 * panelPadding;
+		float panelHeight = totalContentHeight + titleHeight + 2 * panelPadding;
+		float panelX = ofGetWidth() / 2.0f - panelWidth / 2.0f;
+		float panelY = ofGetHeight() / 2.0f - panelHeight / 2.0f;
+
+		for (size_t i = 0; i < amnesiaDeckCopy.size(); ++i) {
+			int row = i / gridWidthInCards;
+			int col = i % gridWidthInCards;
+			ofRectangle cardRect(
+				panelX + panelPadding + col * (viewCardWidth + padding),
+				panelY + panelPadding + titleHeight + row * (viewCardHeight + padding),
+				viewCardWidth, viewCardHeight);
+
+			if (cardRect.inside(x, y)) {
+				int cardIndex = static_cast<int>(i);
+				auto it = std::find(amnesiaSelectedIndices.begin(), amnesiaSelectedIndices.end(), cardIndex);
+				if (it != amnesiaSelectedIndices.end()) {
+					amnesiaSelectedIndices.erase(it);
+				} else {
+					if (amnesiaSelectedIndices.size() < static_cast<size_t>(numCardsToRemove)) {
+						amnesiaSelectedIndices.push_back(cardIndex);
+					}
+				}
+
+				if (amnesiaSelectedIndices.size() == static_cast<size_t>(numCardsToRemove)) {
+					Player * targetPlayer = getPlayer(amnesiaTargetPlayerIndex);
+					if (targetPlayer) {
+						std::sort(amnesiaSelectedIndices.rbegin(), amnesiaSelectedIndices.rend());
+						for (int selectedIdx : amnesiaSelectedIndices) {
+							if (static_cast<size_t>(selectedIdx) < targetPlayer->deck.size()) {
+								Card selectedCard = targetPlayer->deck[selectedIdx];
+								RemovedCardAnimation anim;
+								anim.card = selectedCard;
+								anim.startPos = {
+									panelX + panelPadding + (selectedIdx % gridWidthInCards) * (viewCardWidth + padding) + viewCardWidth / 2,
+									panelY + panelPadding + titleHeight + (selectedIdx / gridWidthInCards) * (viewCardHeight + padding) + viewCardHeight / 2
+								};
+								anim.startTime = ofGetElapsedTimef();
+								activeRemovedCardAnimations.push_back(anim);
+								targetPlayer->deck.erase(targetPlayer->deck.begin() + selectedIdx);
+							}
+						}
+					}
+					isAmnesiaSelectionActive = false;
+					amnesiaSelectedIndices.clear();
+					amnesiaDeckCopy.clear();
+					amnesiaTargetPlayerIndex = -1;
+				}
+				return;
+			}
+		}
+		if (ofRectangle(panelX, panelY, panelWidth, panelHeight).inside(x, y)) return; 
 	}
     
+	// ==============================================================================
+	// PHASE 2: GLOBAL MOUSE TRACKING
+	// ==============================================================================
 	if (button != OF_MOUSE_BUTTON_LEFT && button != OF_MOUSE_BUTTON_RIGHT) return;
 	mouseDownPos.set(x, y);
 
-	// --- PHASE 2: STATE-DEPENDENT LOGIC ---
+	// ==============================================================================
+	// PHASE 3: STATE-DEPENDENT LOGIC
+	// ==============================================================================
 	switch (currentState) {
+	
 	case STATE_GAMEPLAY: {
+		
+		// 3a. Debug Spawn Logic
 		if (isSpawningUnit && button == OF_MOUSE_BUTTON_LEFT) {
 			ofVec2f boardPos = mouseToBoard(x, y);
 			int gx = floor(boardPos.x), gy = floor(boardPos.y);
@@ -2487,257 +2622,102 @@ void ofApp::mousePressed(int x, int y, int button) {
 					std::shuffle(newPlayer.deck.begin(), newPlayer.deck.end(), rng);
 					players.push_back(newPlayer);
 					board[gx][gy].hasPlayer = true;
-					ofLogNotice("Debug") << "Spawned new player at (" << gx << ", " << gy << ")";
+					ofLogNotice("Debug") << "Spawned new player.";
 				}
 			}
 			isSpawningUnit = false;
 			return;
 		}
 
-		// --- AMNESIA SELECTION LOGIC (Corrected) ---
-if (isAmnesiaSelectionActive && button == OF_MOUSE_BUTTON_LEFT) {
-    // --- 1. Recalculate UI Layout to find card positions ---
-    float amnesiaCardWidth = 120;
-    float amnesiaCardHeight = amnesiaCardWidth * (585.0f / 409.0f);
-    float panelPadding = 20.0f;
-    float titleHeight = 60.0f;
-    float viewCardScale = 1.6f;
-    float availableHeight = ofGetHeight() - (2 * panelPadding) - titleHeight;
-    float availableWidth = ofGetWidth() * 0.8f;
-    while (viewCardScale > 0.5f) {
-        float cardW = amnesiaCardWidth * viewCardScale;
-        float cardH = amnesiaCardHeight * viewCardScale;
-        float amnesiaPadding = 15.0f * (viewCardScale / 1.6f);
-        int cols = std::max(2, (int)floor((availableWidth - amnesiaPadding) / (cardW + amnesiaPadding)));
-        int rows = ceil((float)amnesiaDeckCopy.size() / cols);
-        if (rows * (cardH + amnesiaPadding) - amnesiaPadding <= availableHeight) { break; }
-        viewCardScale -= 0.1f;
-    }
-    float viewCardWidth = amnesiaCardWidth * viewCardScale;
-    float viewCardHeight = amnesiaCardHeight * viewCardScale;
-    float amnesiaPadding = 15.0f * (viewCardScale / 1.6f);
-    int gridWidthInCards = std::max(2, (int)floor((availableWidth - amnesiaPadding) / (viewCardWidth + amnesiaPadding)));
-    
-    // FIX: The following line was missing, causing the "not declared in this scope" error.
-    int gridHeightInCards = ceil((float)amnesiaDeckCopy.size() / gridWidthInCards);
-
-    float totalContentWidth = (gridWidthInCards * viewCardWidth) + ((gridWidthInCards - 1) * amnesiaPadding);
-    // This line now works because gridHeightInCards is defined above.
-    float totalContentHeight = (gridHeightInCards * viewCardHeight) + ((gridHeightInCards - 1) * amnesiaPadding);
-    float panelWidth = totalContentWidth + 2 * panelPadding;
-    float panelHeight = totalContentHeight + titleHeight + 2 * panelPadding;
-    float panelX = ofGetWidth() / 2.0f - panelWidth / 2.0f;
-    float panelY = ofGetHeight() / 2.0f - panelHeight / 2.0f;
-
-    // --- 2. Check for Clicks on Cards ---
-    for (size_t i = 0; i < amnesiaDeckCopy.size(); ++i) {
-        int row = i / gridWidthInCards;
-        int col = i % gridWidthInCards;
-        ofRectangle cardRect(
-            panelX + panelPadding + col * (viewCardWidth + amnesiaPadding),
-            panelY + panelPadding + titleHeight + row * (viewCardHeight + amnesiaPadding),
-            viewCardWidth, viewCardHeight);
-
-        if (cardRect.inside(x, y)) {
-            // FIX: Cast 'i' to an int for safe comparison with the vector of ints.
-            int cardIndex = static_cast<int>(i);
-
-            // Toggle selection
-            auto it = std::find(amnesiaSelectedIndices.begin(), amnesiaSelectedIndices.end(), cardIndex);
-            if (it != amnesiaSelectedIndices.end()) {
-                amnesiaSelectedIndices.erase(it); // Deselect if already selected
-            } else {
-                // Select if we have room
-                if (amnesiaSelectedIndices.size() < static_cast<size_t>(numCardsToRemove)) {
-                    amnesiaSelectedIndices.push_back(cardIndex);
-                }
-            }
-
-            // Check if selection is complete
-            if (amnesiaSelectedIndices.size() == static_cast<size_t>(numCardsToRemove)) {
-                ofLogNotice("Amnesia") << "Finalizing removal.";
-                Player * targetPlayer = getPlayer(amnesiaTargetPlayerIndex);
-                if (targetPlayer) {
-                    // Sort indices in reverse to prevent erasing wrong elements
-                    std::sort(amnesiaSelectedIndices.rbegin(), amnesiaSelectedIndices.rend());
-                    for (int selectedIdx : amnesiaSelectedIndices) {
-                        if (static_cast<size_t>(selectedIdx) < targetPlayer->deck.size()) {
-                            Card selectedCard = targetPlayer->deck[selectedIdx];
-                            
-                            // Create removal animation
-                            int r = selectedIdx / gridWidthInCards;
-                            int c = selectedIdx % gridWidthInCards;
-                            RemovedCardAnimation anim;
-                            anim.card = selectedCard;
-                            anim.startPos = {
-                                panelX + panelPadding + c * (viewCardWidth + amnesiaPadding) + viewCardWidth / 2,
-                                panelY + panelPadding + titleHeight + r * (viewCardHeight + amnesiaPadding) + viewCardHeight / 2
-                            };
-                            anim.startTime = ofGetElapsedTimef();
-                            activeRemovedCardAnimations.push_back(anim);
-
-                            // Erase the card from the actual deck
-                            targetPlayer->deck.erase(targetPlayer->deck.begin() + selectedIdx);
-                        }
-                    }
-                }
-                // Reset state and close UI
-                isAmnesiaSelectionActive = false;
-                amnesiaSelectedIndices.clear();
-                amnesiaDeckCopy.clear();
-                amnesiaTargetPlayerIndex = -1;
-            }
-            return; // Exit mousePressed after handling the click on a card
-        }
-    }
-
-
-			// If the click was inside the panel but not on a card, do nothing else
-			if (ofRectangle(panelX, panelY, panelWidth, panelHeight).inside(x, y)) {
-				return;
-			}
-		}
-
-		// All subsequent actions must be left-clicks
-		if (button != OF_MOUSE_BUTTON_LEFT) return;
-
-		if (players.empty() || currentPlayerIndex < 0) return;
-
-		
-if (isDebugMode) {
-
-			float panelWidth = 220;
-			float panelX = ofGetWidth() - panelWidth - 20;
-			float panelY = 40;
-			if (players.size() >= 2 && currentPlayerIndex != -1) {
-				panelY = p1_deckRect.getBottom() + 20;
-			}
-			float btnHeight = 45;
-			float padding = 10;
-			float currentY = panelY + padding + uiFont.getLineHeight() + padding;
-			debugDrawCardButton.set(panelX + padding, currentY, panelWidth - 2 * padding, btnHeight);
-			if (debugDrawCardButton.inside(x, y)) {
-				drawCard();
-				return;
-			}
-			currentY += btnHeight + padding;
-			debugSpawnCardButton.set(panelX + padding, currentY, panelWidth - 2 * padding, btnHeight);
-			if (debugSpawnCardButton.inside(x, y)) {
-				string cardName = ofSystemTextBoxDialog("Enter Card Name", "");
-				if (!cardName.empty()) {
-					bool foundCard = false;
-					for (const auto & card : allCards) {
-						if (ofToLower(card.name) == ofToLower(cardName)) {
-							players[currentPlayerIndex].hand.push_back(card);
-							players[currentPlayerIndex].hand.back().currentPos = ofVec2f(ofGetWidth() / 2, 0);
-							foundCard = true;
-							break;
-						}
-					}
-					if (!foundCard) ofSystemAlertDialog("Card '" + cardName + "' not found!");
-				}
-				return;
-			}
-			currentY += btnHeight + padding;
-			debugDiceDropdownButton.set(panelX + padding, currentY, panelWidth - 2 * padding, btnHeight);
-			if (debugDiceDropdownButton.inside(x, y)) {
-				isDebugDiceDropdownOpen = !isDebugDiceDropdownOpen;
-				return;
-			}
-			currentY += btnHeight + padding;
-			if (isDebugDiceDropdownOpen) {
-				// NOTE: We must re-calculate the positions here to match what was drawn.
-				
-				// Flip Coin
-				debugFlipCoinButton.set(panelX + padding, currentY, panelWidth - 2 * padding, btnHeight);
-				if (debugFlipCoinButton.inside(x, y)) {
-					startDiceRoll(1, 2, PURPOSE_DEBUG);
-					isDebugDiceDropdownOpen = false;
-					return;
-				}
-				currentY += btnHeight + padding;
-
-				// Roll 1D4
-				debugRollD4Button.set(panelX + padding, currentY, panelWidth - 2 * padding, btnHeight);
-				if (debugRollD4Button.inside(x, y)) {
-					startDiceRoll(1, 4, PURPOSE_DEBUG); // Corrected from 2 dice to 1
-					isDebugDiceDropdownOpen = false;
-					return;
-				}
-				currentY += btnHeight + padding;
-
-				// Roll 1D6
-				debugRollD6Button.set(panelX + padding, currentY, panelWidth - 2 * padding, btnHeight);
-				if (debugRollD6Button.inside(x, y)) {
-					startDiceRoll(1, 6, PURPOSE_DEBUG);
-					isDebugDiceDropdownOpen = false;
-					return;
-				}
-				currentY += btnHeight + padding;
-
-				// Roll 1D10
-				debugRollD10Button.set(panelX + padding, currentY, panelWidth - 2 * padding, btnHeight);
-				if (debugRollD10Button.inside(x, y)) {
-					startDiceRoll(1, 10, PURPOSE_DEBUG);
-					isDebugDiceDropdownOpen = false;
-					return;
-				}
-				currentY += btnHeight + padding;
-
-				// Roll 1D20
-				debugRollD20Button.set(panelX + padding, currentY, panelWidth - 2 * padding, btnHeight);
-				if (debugRollD20Button.inside(x, y)) {
-					startDiceRoll(1, 20, PURPOSE_DEBUG);
-					isDebugDiceDropdownOpen = false;
-					return;
-				}
-				currentY += btnHeight + padding;
-			}
-			debugSpawnUnitButton.set(panelX + padding, currentY, panelWidth - 2 * padding, btnHeight);
-			if (debugSpawnUnitButton.inside(x, y)) {
-				isSpawningUnit = !isSpawningUnit;
-				return;
-			}
-			currentY += btnHeight + padding;
-			debugUnlimitedAPButton.set(panelX + padding, currentY, panelWidth - 2 * padding, btnHeight);
-			if (debugUnlimitedAPButton.inside(x, y)) {
-				hasUnlimitedAP = !hasUnlimitedAP;
-				return;
-			}
-			currentY += btnHeight + padding;
-			debugForceEndTurnButton.set(panelX + padding, currentY, panelWidth - 2 * padding, btnHeight);
-			if (debugForceEndTurnButton.inside(x, y)) {
-				startNewTurn();
-				return;
-			}
+		// 3b. Debug UI Interactions (Buttons)
+		if (isDebugMode && button == OF_MOUSE_BUTTON_LEFT) {
 			if (debugPanel.inside(x, y)) {
-				isDebugDiceDropdownOpen = false;
-				return;
+				// Handle specific debug buttons
+				if (debugDrawCardButton.inside(x, y)) { drawCard(); return; }
+				
+				if (debugSpawnCardButton.inside(x, y)) {
+					string cardName = ofSystemTextBoxDialog("Enter Card Name", "");
+					if (!cardName.empty()) {
+						bool foundCard = false;
+						for (const auto & card : allCards) {
+							if (ofToLower(card.name) == ofToLower(cardName)) {
+								players[currentPlayerIndex].hand.push_back(card);
+								players[currentPlayerIndex].hand.back().currentPos = ofVec2f(ofGetWidth() / 2, 0);
+								foundCard = true;
+								break;
+							}
+						}
+						if (!foundCard) ofSystemAlertDialog("Card '" + cardName + "' not found!");
+					}
+					return;
+				}
+
+				if (debugDiceDropdownButton.inside(x, y)) { 
+					isDebugDiceDropdownOpen = !isDebugDiceDropdownOpen; 
+					return; 
+				}
+
+				// Only check dropdown buttons if open
+				if (isDebugDiceDropdownOpen) {
+					if (debugFlipCoinButton.inside(x, y)) { startDiceRoll(1, 2, PURPOSE_DEBUG); isDebugDiceDropdownOpen = false; return; }
+					if (debugRollD4Button.inside(x, y)) { startDiceRoll(1, 4, PURPOSE_DEBUG); isDebugDiceDropdownOpen = false; return; }
+					if (debugRollD6Button.inside(x, y)) { startDiceRoll(1, 6, PURPOSE_DEBUG); isDebugDiceDropdownOpen = false; return; }
+					if (debugRollD10Button.inside(x, y)) { startDiceRoll(1, 10, PURPOSE_DEBUG); isDebugDiceDropdownOpen = false; return; }
+					if (debugRollD20Button.inside(x, y)) { startDiceRoll(1, 20, PURPOSE_DEBUG); isDebugDiceDropdownOpen = false; return; }
+				}
+
+				if (debugSpawnUnitButton.inside(x, y)) { isSpawningUnit = !isSpawningUnit; return; }
+				if (debugUnlimitedAPButton.inside(x, y)) { hasUnlimitedAP = !hasUnlimitedAP; return; }
+				if (debugForceEndTurnButton.inside(x, y)) { startNewTurn(); return; }
+
+				return; // Clicked panel background
 			}
 		}
 
+		// 3c. Safety Checks (Input Lock)
+		if (players.empty() || currentPlayerIndex < 0) return;
 		Player & currentPlayer = players[currentPlayerIndex];
+		
 		bool isDiceSpinning = false;
 		for (const auto & roll : activeDiceRolls) { if (!roll.isFinishedVisual) { isDiceSpinning = true; break; } }
 		if (isPlayerAnimating || isDiceSpinning) return;
 
-		if (p0_deckRect.inside(x, y) && currentPlayerIndex == 0 && !hasDrawnCardsThisTurn) {
-			drawCard(); drawCard(); hasDrawnCardsThisTurn = true; return;
-		}
-		if (p1_deckRect.inside(x, y) && currentPlayerIndex == 1 && !hasDrawnCardsThisTurn) {
-			drawCard(); drawCard(); hasDrawnCardsThisTurn = true; return;
+		// 3d. Deck Clicking (Drawing Cards) - INCLUDES HASTEN LOGIC
+		if (button == OF_MOUSE_BUTTON_LEFT) {
+			// Player 0 Deck
+			if (p0_deckRect.inside(x, y) && currentPlayerIndex == 0 && !hasDrawnCardsThisTurn) {
+				int cardsToDraw = players[0].nextTurnExtraDraw ? 3 : 2;
+				if(players[0].nextTurnExtraDraw) ofLogNotice("Game") << "Hasten Effect: Drawing 3 cards!";
+				for(int i=0; i<cardsToDraw; i++) drawCard();
+				players[0].nextTurnExtraDraw = false; 
+				hasDrawnCardsThisTurn = true; 
+				return;
+			}
+			// Player 1 Deck
+			if (p1_deckRect.inside(x, y) && currentPlayerIndex == 1 && !hasDrawnCardsThisTurn) {
+				int cardsToDraw = players[1].nextTurnExtraDraw ? 3 : 2;
+				if(players[1].nextTurnExtraDraw) ofLogNotice("Game") << "Hasten Effect: Drawing 3 cards!";
+				for(int i=0; i<cardsToDraw; i++) drawCard();
+				players[1].nextTurnExtraDraw = false; 
+				hasDrawnCardsThisTurn = true; 
+				return;
+			}
 		}
 
-		int foundClickIndex = hoveredCardIndex;
-		if (foundClickIndex != -1) {
-			playerAction = NONE;
-			clearHighlights();
-			selectedCardIndex = (selectedCardIndex == foundClickIndex) ? -1 : foundClickIndex;
-			calculateTargetHighlights(selectedCardIndex);
-			return;
+		// 3e. Card Selection
+		if (button == OF_MOUSE_BUTTON_LEFT) {
+			int foundClickIndex = hoveredCardIndex;
+			if (foundClickIndex != -1) {
+				playerAction = NONE;
+				clearHighlights();
+				selectedCardIndex = (selectedCardIndex == foundClickIndex) ? -1 : foundClickIndex;
+				calculateTargetHighlights(selectedCardIndex);
+				return;
+			}
 		}
 
-		if (selectedCardIndex != -1) {
+		// 3f. Casting Spells (Card Selected + Click Board)
+		if (selectedCardIndex != -1 && button == OF_MOUSE_BUTTON_LEFT) {
 			ofVec2f boardPos = mouseToBoard(x, y);
 			int gridX = floor(boardPos.x), gridY = floor(boardPos.y);
 			if (gridX >= 0 && gridX < BOARD_WIDTH && gridY >= 0 && gridY < BOARD_HEIGHT && board[gridX][gridY].isTargetable) {
@@ -2748,52 +2728,63 @@ if (isDebugMode) {
 			}
 		}
 
-		if (endTurnButtonRect.inside(x, y)) {
+		// 3g. End Turn Button
+		if (endTurnButtonRect.inside(x, y) && button == OF_MOUSE_BUTTON_LEFT) {
 			startNewTurn();
 			return;
 		}
 
-		ofVec2f boardPos = mouseToBoard(x, y);
-		int gridX = floor(boardPos.x), gridY = floor(boardPos.y);
-		if (gridX < 0 || gridX >= BOARD_WIDTH || gridY < 0 || gridY >= BOARD_HEIGHT) {
-			selectedCardIndex = -1; playerAction = NONE; clearHighlights(); calculateTargetHighlights();
-			return;
-		}
-
-		if (board[gridX][gridY].hasPlayer && gridX == currentPlayer.x && gridY == currentPlayer.y) {
-			if (playerAction == PIECE_SELECTED) {
-				playerAction = NONE; clearHighlights();
-			} else {
-				selectedPieceGridX = currentPlayer.x; selectedPieceGridY = currentPlayer.y;
-				playerAction = PIECE_SELECTED; selectedCardIndex = -1;
-				calculateTargetHighlights(); calculateHighlights();
+		// 3h. Unit Movement Selection
+		if (button == OF_MOUSE_BUTTON_LEFT) {
+			ofVec2f boardPos = mouseToBoard(x, y);
+			int gridX = floor(boardPos.x), gridY = floor(boardPos.y);
+			
+			// Clicked Outside? Deselect everything.
+			if (gridX < 0 || gridX >= BOARD_WIDTH || gridY < 0 || gridY >= BOARD_HEIGHT) {
+				selectedCardIndex = -1; playerAction = NONE; clearHighlights(); calculateTargetHighlights();
+				return;
 			}
-			return;
-		}
 
-		if (playerAction == PIECE_SELECTED) {
-			if (board[gridX][gridY].isHighlighted && !hoverPath.empty()) {
-				int moveAPCost = static_cast<int>(hoverPath.size()) - 1;
-				if (currentAP >= moveAPCost) {
-					currentAP -= moveAPCost;
-					board[currentPlayer.x][currentPlayer.y].hasPlayer = false;
-					board[gridX][gridY].hasPlayer = true;
-					currentPlayer.x = gridX; currentPlayer.y = gridY;
-					animationPath.clear(); currentPathIndex = 0;
-					animationPath.push_back(playerVisualPos);
-					for (size_t p = 1; p < hoverPath.size(); ++p) {
-						animationPath.push_back(gridToWorld(hoverPath[p].x, hoverPath[p].y));
-					}
-					if (!animationPath.empty()) isPlayerAnimating = true;
-					invalidateTargetCache();
+			// Clicked Self? Select for Movement.
+			if (board[gridX][gridY].hasPlayer && gridX == currentPlayer.x && gridY == currentPlayer.y) {
+				if (playerAction == PIECE_SELECTED) {
+					playerAction = NONE; clearHighlights();
+				} else {
+					selectedPieceGridX = currentPlayer.x; selectedPieceGridY = currentPlayer.y;
+					playerAction = PIECE_SELECTED; selectedCardIndex = -1;
+					calculateTargetHighlights(); calculateHighlights();
 				}
+				return;
 			}
-			playerAction = NONE; clearHighlights();
-			return;
-		}
 
-		selectedCardIndex = -1;
-		calculateTargetHighlights();
+			// Clicked Move Destination?
+			if (playerAction == PIECE_SELECTED) {
+				if (board[gridX][gridY].isHighlighted && !hoverPath.empty()) {
+					int moveAPCost = static_cast<int>(hoverPath.size()) - 1;
+					if (currentAP >= moveAPCost) {
+						currentAP -= moveAPCost;
+						board[currentPlayer.x][currentPlayer.y].hasPlayer = false;
+						board[gridX][gridY].hasPlayer = true;
+						currentPlayer.x = gridX; currentPlayer.y = gridY;
+						
+						// Start Animation
+						animationPath.clear(); currentPathIndex = 0;
+						animationPath.push_back(playerVisualPos);
+						for (size_t p = 1; p < hoverPath.size(); ++p) {
+							animationPath.push_back(gridToWorld(hoverPath[p].x, hoverPath[p].y));
+						}
+						if (!animationPath.empty()) isPlayerAnimating = true;
+						invalidateTargetCache();
+					}
+				}
+				playerAction = NONE; clearHighlights();
+				return;
+			}
+
+			// Deselect if clicking random empty tile
+			selectedCardIndex = -1;
+			calculateTargetHighlights();
+		}
 		break;
 	}
 
@@ -3038,11 +3029,20 @@ void ofApp::startNewTurn() {
 	// --- 1. Handle the ENDING player's state ---
 	if (currentPlayerIndex != -1) {
 		Player & endingPlayer = players[currentPlayerIndex];
+		
+		// A. Move Hand to Discard
 		endingPlayer.discardPile.insert(endingPlayer.discardPile.end(), endingPlayer.hand.begin(), endingPlayer.hand.end());
 		endingPlayer.hand.clear();
 
+		// B. Move "Grey Area/Played" cards to Discard (Cleanup Step)
+		endingPlayer.discardPile.insert(endingPlayer.discardPile.end(), endingPlayer.playedCardsPile.begin(), endingPlayer.playedCardsPile.end());
+		endingPlayer.playedCardsPile.clear();
+
 		// Reset turn-specific counters
 		endingPlayer.shocksPlayedThisTurn = 0;
+		
+		// NOTE: We do NOT reset isReplicatePending here. 
+		// If they played Replicate but nothing else, it waits for the next card play.
 	}
 
 	// --- 2. Advance to the NEXT player ---
@@ -3051,24 +3051,22 @@ void ofApp::startNewTurn() {
 	Player & startingPlayer = players[currentPlayerIndex];
 
 	// --- 3. Expiry Checks (Reset Armor) ---
-	startingPlayer.block = 0;   // Physical shield expires
-	startingPlayer.ward = 0;    // Universal shield expires (NEW CHANGE)
-	startingPlayer.barrier = 0; // Magic shield expires
+	startingPlayer.block = 0;   
+	startingPlayer.ward = 0;    
+	startingPlayer.barrier = 0; 
 
 	// --- 4. NEW: PARALYSIS CHECK ---
 	if (startingPlayer.isParalyzed) {
 		ofLogNotice("Status") << "Player is Paralyzed! Flipping coin...";
-		// We assume 1 = Tails (Skip), 2 = Heads (Success)
 		startDiceRoll(1, 2, PURPOSE_COIN_FLIP);
 		isWaitingForParalysisCoin = true;
-		return; // HALT HERE. Update() will handle the result.
+		return; 
 	}
 
 	// --- 5. Fire Check ---
 	if (startingPlayer.onFire) {
 		ofLogNotice("On Fire") << "Player is burning! Rolling 1D6 for damage...";
 		isWaitingForOnFireDice = true;
-		// STORE RESULT HERE
 		pendingOnFireRollResult = startDiceRoll(1, 6, PURPOSE_DAMAGE);
 		return;
 	}
@@ -3078,8 +3076,6 @@ void ofApp::startNewTurn() {
 //--------------------------------------------------------------
 void ofApp::continueNewTurn() {
 	Player & startingPlayer = players[currentPlayerIndex];
-
-    // Armor reset is now handled in startNewTurn, so we don't need it here.
 
 	ofLogNotice("Game") << "Player " << startingPlayer.playerID << "'s turn begins.";
 	hasDrawnCardsThisTurn = false;
@@ -3093,11 +3089,17 @@ void ofApp::continueNewTurn() {
 	activeDiceRolls.clear();
 	currentAP = 0;
 
-	// --- NEW: Roll AP and add Bonus ---
-	startDiceRoll(1, 6, PURPOSE_AP);
+	// --- NEW: AP ROLL LOGIC (D6 or D10) ---
+	int apDiceSides = 6; // Default
+	
+	if (startingPlayer.nextTurnD10AP) {
+		apDiceSides = 10;
+		ofLogNotice("Game") << "Hasten Effect: Rolling D10 for AP!";
+		// Reset the flag immediately so it doesn't persist to the turn after next
+		startingPlayer.nextTurnD10AP = false; 
+	}
 
-	// We don't apply the bonus instantly here because the dice roll determines
-	// base AP asynchronously in update(). We will add the bonus there.
+	startDiceRoll(1, apDiceSides, PURPOSE_AP);
 }
 //--------------------------------------------------------------
 void ofApp::drawCard() {
@@ -3163,7 +3165,7 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 	Card playedCard = currentPlayer.hand[cardIndex];
 	if (currentAP < playedCard.cost) return;
 
-	// --- 1. DEFINE DAMAGE HELPER LAMBDA FIRST ---
+	// --- 1. DEFINE DAMAGE HELPER LAMBDA ---
 	auto applyDamage = [&](Player & target, int damage, DamageType type) -> bool {
 		string typeStr = "Physical";
 		if (type == DAMAGE_PIERCING) typeStr = "Piercing";
@@ -3174,40 +3176,40 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		ofLogNotice("Game") << "Dealing " << damage << " damage (" << typeStr << ") to Player " << target.playerID;
 
 		int initialHealth = target.health;
+		int remainingDmg = damage;
 
-		// --- DAMAGE ORDER OF OPERATIONS ---
-
-		// 1. BLOCK: First priority, absorbs ONLY Physical damage.
+		// --- LAYER 1: SPECIFIC MITIGATION ---
+		// Block stops Physical. Barrier stops Non-Physical (Magic/Fire/Electric).
+		
 		if (type == DAMAGE_PHYSICAL) {
-			int blockDamage = std::min(target.block, damage);
-			target.block -= blockDamage;
-			damage -= blockDamage;
-			if (blockDamage > 0) ofLogNotice("Game") << blockDamage << " damage absorbed by Block!";
-		} else {
-			// Log that other damage types bypass block
-			if (target.block > 0 && damage > 0) ofLogNotice("Game") << typeStr << " damage bypasses " << target.block << " Block!";
+			// Physical hits BLOCK
+			int absorb = std::min(target.block, remainingDmg);
+			target.block -= absorb;
+			remainingDmg -= absorb;
+			if (absorb > 0) ofLogNotice("Game") << "Block absorbed " << absorb;
+		} 
+		else if (type != DAMAGE_PIERCING) { 
+			// Non-Physical (and not Piercing) hits BARRIER
+			int absorb = std::min(target.barrier, remainingDmg);
+			target.barrier -= absorb;
+			remainingDmg -= absorb;
+			if (absorb > 0) ofLogNotice("Game") << "Non-Phys Barrier absorbed " << absorb;
+		}
+		// Note: DAMAGE_PIERCING bypasses Layer 1 entirely.
+
+		// --- LAYER 2: GENERIC MITIGATION ---
+		// Ward stops EVERYTHING (Least specific, always last shield)
+		if (remainingDmg > 0) {
+			int absorb = std::min(target.ward, remainingDmg);
+			target.ward -= absorb;
+			remainingDmg -= absorb;
+			if (absorb > 0) ofLogNotice("Game") << "Ward absorbed " << absorb;
 		}
 
-		// 2. BARRIER: Second priority, absorbs all NON-Physical damage.
-		if (damage > 0 && type != DAMAGE_PHYSICAL) {
-			int barrierDmg = std::min(target.barrier, damage);
-			target.barrier -= barrierDmg;
-			damage -= barrierDmg;
-			if (barrierDmg > 0) ofLogNotice("Game") << barrierDmg << " damage absorbed by Barrier!";
-		}
-
-		// 3. WARD: Third priority, absorbs any remaining damage of any type.
-		if (damage > 0) {
-			int wardDamage = std::min(target.ward, damage);
-			target.ward -= wardDamage;
-			damage -= wardDamage;
-			if (wardDamage > 0) ofLogNotice("Game") << wardDamage << " damage absorbed by Ward! (" << target.ward << " left)";
-		}
-
-		// 4. HEALTH: Takes all remaining damage.
-		if (damage > 0) {
-			target.health -= damage;
-			ofLogNotice("Game") << damage << " damage to Health! Health is now " << target.health;
+		// --- LAYER 3: HEALTH ---
+		if (remainingDmg > 0) {
+			target.health -= remainingDmg;
+			ofLogNotice("Game") << remainingDmg << " damage taken to Health! (HP: " << target.health << ")";
 		}
 		
 		if (target.health <= 0) ofLogNotice("Game") << "Player " << target.playerID << " defeated!";
@@ -3255,6 +3257,7 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 
 	// --- CASE: AMNESIA ---
 	case CARD_AMNESIA: {
+		// 1. Find the target unit
 		int targetIndex = -1;
 		for (size_t i = 0; i < players.size(); i++) {
 			if (players[i].x == targetX && players[i].y == targetY) {
@@ -3263,16 +3266,38 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 			}
 		}
 
-		Player * targetPlayer = getPlayer(targetIndex);
-
-		if (targetPlayer && !targetPlayer->deck.empty()) {
-			ofLogNotice("Amnesia") << "Targeting Player " << targetPlayer->playerID;
-			pendingAmnesiaRollResult = startDiceRoll(playedCard.numDice, playedCard.diceSides, PURPOSE_DAMAGE);
-			amnesiaTargetPlayerIndex = targetIndex;
-			isWaitingForAmnesiaDice = true;
-			
-			playedSuccessfully = true;
+		// 2. Validate Target Presence
+		if (targetIndex == -1) {
+			ofLogNotice("Amnesia") << "Cast failed! No unit at target.";
+			break; 
 		}
+
+		// 3. Validate Range (Self or Adjacent)
+		Player* targetP = getPlayer(targetIndex);
+		int dist = abs(targetP->x - currentPlayer.x) + abs(targetP->y - currentPlayer.y);
+		
+		if (dist > 1) {
+			ofLogNotice("Amnesia") << "Cast failed! Target must be Self or Adjacent.";
+			break;
+		}
+
+		// 4. Validate Deck Size
+		if (targetP->deck.empty()) {
+			ofLogNotice("Amnesia") << "Cast failed! Target has no cards in deck.";
+			break;
+		}
+
+		// 5. Execute
+		ofLogNotice("Amnesia") << "Targeting Player " << targetP->playerID << ". Rolling to see how many cards to remove...";
+		
+		// Store the target index so we know whose deck to modify later
+		amnesiaTargetPlayerIndex = targetIndex;
+		
+		// Start Dice Roll
+		pendingAmnesiaRollResult = startDiceRoll(playedCard.numDice, playedCard.diceSides, PURPOSE_DAMAGE);
+		isWaitingForAmnesiaDice = true;
+		
+		playedSuccessfully = true;
 		break;
 	}
 
@@ -3414,6 +3439,73 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
         break;
     }
 
+	// --- CASE: HASTEN ---
+	case CARD_HASTEN: {
+		// Apply buffs for the NEXT turn
+		currentPlayer.nextTurnD10AP = true;
+		currentPlayer.nextTurnExtraDraw = true;
+		
+		ofLogNotice("Hasten") << "Player " << currentPlayer.playerID << " feels faster! Next turn: D10 AP & Draw 3.";
+		playedSuccessfully = true;
+		break;
+	}
+
+	// --- CASE: REPLICATE ---
+	case CARD_REPLICATE: {
+		// Just set the flag. The cleanup step handles the card movement.
+		currentPlayer.isReplicatePending = true;
+		ofLogNotice("Replicate") << "Replicate Active! Next spell will be doubled.";
+		playedSuccessfully = true;
+		break;
+	}
+
+// --- CASE: WISDOM BOON ---
+	case CARD_WISDOM_BOON: {
+		// 1. Find the target unit
+		int targetIndex = -1;
+		for (size_t i = 0; i < players.size(); i++) {
+			if (players[i].x == targetX && players[i].y == targetY) {
+				targetIndex = (int)i;
+				break;
+			}
+		}
+
+		// 2. Validate Target
+		if (targetIndex == -1) {
+			ofLogNotice("Wisdom Boon") << "Failed: No target selected.";
+			break; 
+		}
+		
+		Player* t = getPlayer(targetIndex);
+		bool isSelf = (targetIndex == currentPlayerIndex);
+		bool isAdjacent = (abs(t->x - currentPlayer.x) + abs(t->y - currentPlayer.y) == 1);
+
+		// Enforce Rules: Must be Self OR Adjacent
+		if (!isSelf && !isAdjacent) {
+			ofLogNotice("Wisdom Boon") << "Failed: Target must be Self or Adjacent.";
+			break;
+		}
+
+		// 3. Setup Menu State
+		pendingWisdomBoonCardIndex = cardIndex;
+		pendingWisdomBoonTargetIndex = targetIndex;
+		isWisdomBoonMenuOpen = true;
+
+		// 4. Calculate Layout
+		float w = 600, h = 300;
+		float x = ofGetWidth()/2 - w/2, y = ofGetHeight()/2 - h/2;
+		wisdomMenuRect.set(x, y, w, h);
+		
+		// Single big button for the context-sensitive action
+		float btnW = 300, btnH = 80;
+		// We'll reuse 'wisdomBtnDamage' as the main action button
+		wisdomBtnDamage.set(x + (w - btnW)/2, y + 150, btnW, btnH);
+		// Hide the other button
+		wisdomBtnBlock.set(0,0,0,0); 
+
+		break; 
+	}
+
 	// --- CASE: STANDARD ATTACK ---
 	case CARD_ATTACK_SINGLE_TILE: {
 		int px = players[currentPlayerIndex].x;
@@ -3515,9 +3607,33 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 
 	// --- 3. COMMON CLEANUP ---
 	if (playedSuccessfully) {
+		// Pay Cost
 		currentAP -= playedCard.cost;
-		currentPlayer.discardPile.push_back(playedCard);
+
+		// 1. Move played card to "Grey Area" (playedCardsPile)
+		// It will stay here until end of turn.
+		currentPlayer.playedCardsPile.push_back(playedCard);
+		
+		// 2. Handle REPLICATE Effect
+		// If Replicate is pending (and we aren't just casting Replicate itself)
+		if (currentPlayer.isReplicatePending && playedCard.type != CARD_REPLICATE) {
+			
+			// Create a duplicate
+			Card duplicateCard = playedCard;
+			
+			// The duplicate ALSO goes into the Grey Area
+			currentPlayer.playedCardsPile.push_back(duplicateCard);
+			
+			ofLogNotice("Replicate") << "Replicated " << playedCard.name << ". Copy added to played pile.";
+			
+			// Consume the effect
+			currentPlayer.isReplicatePending = false;
+		}
+
+		// 3. Remove from Hand
 		currentPlayer.hand.erase(currentPlayer.hand.begin() + cardIndex);
+		
+		// 4. Visuals & Cache
 		activeCardDisplays.push_back({ playedCard, ofGetElapsedTimef() });
 		invalidateTargetCache();
 	}
@@ -3839,14 +3955,10 @@ int ofApp::startDiceRoll(int numDice, int sides, DicePurpose purpose) {
 			glm::quat rot180Y = glm::angleAxis(glm::radians(180.0f), glm::vec3(0, 1, 0));  // Spin 180
 
 			if (newRoll.result == 1) { // TAILS
-				// Show Top Face.
-				// Previous was rot180Y (Upside Down).
-				// FIX: No rotation (Identity) should make it upright.
+
 				faceRotation = glm::quat(1, 0, 0, 0); 
 			} else { // HEADS
-				// Show Bottom Face.
-				// Previous was flip180X (Upside Down).
-				// FIX: Flip X AND Spin Y.
+
 				faceRotation = flip180X * rot180Y;
 			}
 			
@@ -4072,9 +4184,12 @@ void ofApp::drawDispelUI() {
         ofSetColor(ofColor::hotPink);
         ofDrawRectRounded(dispelBtnBarrier, 10);
         ofSetColor(ofColor::black);
-        string bText = "Gain Barrier\n(1d20 vs Non-Phys)";
+        
+        // CHANGED: Renamed to Non-Physical Barrier
+        string bText = "Gain Non-Phys Barrier\n(1d20 vs Magic/Fire/etc)";
+        
         // Simple centering logic...
-        uiFont.drawString("Gain Barrier", dispelBtnBarrier.x + 20, dispelBtnBarrier.y + 40);
+        uiFont.drawString("Non-Phys Barrier", dispelBtnBarrier.x + 20, dispelBtnBarrier.y + 40);
         
         // Purge Button
         ofSetColor(ofColor::cyan);
@@ -4173,6 +4288,60 @@ void ofApp::applyDispelEffect(int statusIndex) {
     }
 
     cancelDispel(); // Close menus
+}
+// ----------------- WISDOM BOON HELPERS -----------------
+
+void ofApp::cancelWisdomBoon() {
+    isWisdomBoonMenuOpen = false;
+    pendingWisdomBoonCardIndex = -1;
+    pendingWisdomBoonTargetIndex = -1;
+    ofLogNotice("WisdomBoon") << "Cancelled.";
+}
+//--------------------------------------------------------------
+void ofApp::drawWisdomBoonUI() {
+    ofEnableBlendMode(OF_BLENDMODE_ALPHA);
+    
+    // 1. Dark Overlay
+    ofSetColor(0, 0, 0, 180);
+    ofDrawRectangle(0, 0, ofGetWidth(), ofGetHeight());
+
+    // 2. Menu Background
+    ofSetColor(40, 40, 80, 255);
+    ofDrawRectRounded(wisdomMenuRect, 15);
+
+    // 3. Determine Context
+    bool isSelfTarget = (pendingWisdomBoonTargetIndex == currentPlayerIndex);
+    int deckSize = 0;
+    if (currentPlayerIndex >= 0) deckSize = players[currentPlayerIndex].deck.size();
+
+    // 4. Title & Description
+    ofSetColor(ofColor::white);
+    string title = "Wisdom Boon";
+    string desc = "Effect Strength: " + ofToString(deckSize) + " (Your Deck Size)";
+    
+    ofRectangle titleBox = uiFont.getStringBoundingBox(title, 0, 0);
+    uiFont.drawString(title, wisdomMenuRect.getCenter().x - titleBox.width/2, wisdomMenuRect.y + 50);
+    
+    ofRectangle descBox = uiFont.getStringBoundingBox(desc, 0, 0);
+    uiFont.drawString(desc, wisdomMenuRect.getCenter().x - descBox.width/2, wisdomMenuRect.y + 90);
+
+    // 5. Draw Context-Sensitive Button
+    string btnText = "";
+    if (isSelfTarget) {
+        // BLOCK MODE
+        ofSetColor(ofColor::slateGray); // Grey for Block
+        btnText = "Gain Block";
+    } else {
+        // DAMAGE MODE
+        ofSetColor(ofColor::purple); // Purple for Magic
+        btnText = "Deal Magic Dmg";
+    }
+
+    ofDrawRectRounded(wisdomBtnDamage, 10);
+    
+    ofSetColor(ofColor::white);
+    ofRectangle btnBox = uiFont.getStringBoundingBox(btnText, 0, 0);
+    uiFont.drawString(btnText, wisdomBtnDamage.getCenter().x - btnBox.width/2, wisdomBtnDamage.getCenter().y + btnBox.height/2);
 }
 //--------------------------------------------------------------
 void ofApp::drawMagicBlastChoiceUI() {
@@ -4724,6 +4893,9 @@ CardType ofApp::stringToCardType(const std::string& str) {
 	if (str == "CARD_ROCK_CRUSH") return CARD_ROCK_CRUSH;
 	if (str == "CARD_DISPEL") return CARD_DISPEL;
 	if (str == "CARD_TELEPORT") return CARD_TELEPORT;
+	if (str == "CARD_HASTEN") return CARD_HASTEN;
+	if (str == "CARD_REPLICATE") return CARD_REPLICATE;
+	if (str == "CARD_WISDOM_BOON") return CARD_WISDOM_BOON;
     return CARD_NONE;
 }
 
