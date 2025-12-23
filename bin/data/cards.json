@@ -162,5 +162,16 @@
     "damageType": "DAMAGE_MAGIC",
     "numDice": 0,
     "diceSides": 0
+  },
+ {
+    "id": 19,
+    "name": "Ethereal Jolt",
+    "type": "CARD_ETHEREAL_JOLT",
+    "cost": 6,
+    "value": 7,
+    "targeting": "TARGET_LINE_OF_SIGHT_TILE",
+    "damageType": "DAMAGE_MAGIC",
+    "numDice": 1,
+    "diceSides": 20
   }
 ]

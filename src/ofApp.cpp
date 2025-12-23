@@ -872,6 +872,70 @@ void ofApp::setupGame() {
 		fireballTargetPlayerIndex = -1;
 	}
 
+// --- ETHEREAL JOLT RESOLUTION ---
+	if (isWaitingForJoltRangeDice && activeDiceRolls.empty()) {
+		isWaitingForJoltRangeDice = false;
+		Player & caster = players[currentPlayerIndex];
+		glm::vec2 casterTile = { (float)caster.x, (float)caster.y };
+
+		// 1. Calculate Max Range (5ft = 1.0 Unit)
+		float maxDistUnits = pendingJoltRangeResult / 5.0f;
+		
+		// 2. Calculate Required Distance (IGNORING WALLS)
+		// FIX: Do not use getFaceToFaceDistance here, because it checks for wall blocking.
+		// Jolt goes through walls, so we use pure Euclidean Edge-to-Edge distance.
+		// Distance = Center-to-Center minus 1.0 (The two half-tiles of radius)
+		float centerDist = glm::distance(casterTile, pendingJoltTargetTile);
+		float neededDist = std::max(0.0f, centerDist - 1.0f);
+
+		int requiredFeet = (int)ceil(neededDist * 5.0f);
+
+		ofLogNotice("Jolt") << "Rolled: " << pendingJoltRangeResult << "ft (" << maxDistUnits << "). Needed: " << requiredFeet << "ft.";
+
+		if (maxDistUnits >= neededDist - 0.001f) {
+			ofLogNotice("Jolt") << "Target Reached!";
+			
+			// Find Target
+			Player* target = nullptr;
+			for (auto & p : players) {
+				if (p.x == (int)pendingJoltTargetTile.x && p.y == (int)pendingJoltTargetTile.y) {
+					target = &p;
+					break;
+				}
+			}
+
+			if (target) {
+				// Effect 1: Deal 7 Magic Damage
+				int damage = 7;
+				int barrierDmg = std::min(target->barrier, damage);
+				target->barrier -= barrierDmg; 
+				damage -= barrierDmg;
+
+				if (damage > 0) {
+					int wardDmg = std::min(target->ward, damage);
+					target->ward -= wardDmg; 
+					damage -= wardDmg;
+				}
+
+				if (damage > 0) target->health -= damage;
+				ofLogNotice("Jolt") << "Dealt Damage. Health now: " << target->health;
+
+				// Effect 2: Paralyze
+				target->isParalyzed = true;
+				target->paralysisHeadsCount = 0;
+				ofLogNotice("Jolt") << "Target Paralyzed.";
+
+				// Effect 3: Mill Top Card
+				if (!target->deck.empty()) {
+					target->deck.pop_back();
+					ofLogNotice("Jolt") << "Target's top card removed.";
+				}
+			}
+		} else {
+			ofLogNotice("Jolt") << "Fell short! (Rolled " << pendingJoltRangeResult << "ft, needed " << requiredFeet << "ft)";
+		}
+	}
+
 // --- Dispel Barrier Dice ---
     if (isWaitingForBarrierDice && activeDiceRolls.empty()) {
         isWaitingForBarrierDice = false;
@@ -2352,12 +2416,12 @@ void ofApp::mouseMoved(int x, int y) {
 	}
     }
 }
-// ----------------- FULL mousePressed FUNCTION (Fixed Debug Menu) -----------------
+// ----------------- FULL mousePressed FUNCTION -----------------
+// ----------------- FULL mousePressed FUNCTION -----------------
 void ofApp::mousePressed(int x, int y, int button) {
 	
 	// ==============================================================================
 	// PHASE 1: MODAL UI INTERRUPTS
-	// These screens block all other game logic. If a click happens here, we return immediately.
 	// ==============================================================================
 
 	// --- 1a. Magic Blast Choice Menu ---
@@ -2403,7 +2467,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 		return; 
 	}
 
-	// --- 1b. Dispel Menu (Phase 1: Choose Barrier/Purge) ---
+	// --- 1b. Dispel Menu ---
 	if (isDispelMenuOpen && button == OF_MOUSE_BUTTON_LEFT) {
 		if (dispelBtnBarrier.inside(x, y)) {
 			isWaitingForBarrierDice = true;
@@ -2423,12 +2487,12 @@ void ofApp::mousePressed(int x, int y, int button) {
 		return; 
 	}
 
-	// --- 1c. Dispel Status Selection (Phase 3: Choose Status) ---
+	// --- 1c. Dispel Status Selection ---
 	if (isDispelStatusSelectOpen && button == OF_MOUSE_BUTTON_LEFT) {
 		bool clickedOption = false;
 		for (size_t i = 0; i < statusSelectButtons.size(); i++) {
 			if (statusSelectButtons[i].inside(x, y)) {
-				applyDispelEffect(i);
+				applyDispelEffect((int)i);
 				clickedOption = true;
 				break;
 			}
@@ -2439,7 +2503,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 		return; 
 	}
 
-	// --- 1d. Dispel Targeting (Phase 2: Click Unit) ---
+	// --- 1d. Dispel Targeting ---
 	if (isDispelTargeting && button == OF_MOUSE_BUTTON_LEFT) {
 		ofVec2f boardPos = mouseToBoard(x, y);
 		int gx = floor(boardPos.x);
@@ -2450,7 +2514,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 				if (players[i].x == gx && players[i].y == gy) {
 					Player& curr = players[currentPlayerIndex];
 					if (abs(curr.x - gx) + abs(curr.y - gy) <= 1) {
-						pendingDispelTargetIndex = i;
+						pendingDispelTargetIndex = (int)i;
 						determineStatusOptions(&players[i]);
 						foundTarget = true;
 					}
@@ -2469,7 +2533,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 		if (!target) { cancelWisdomBoon(); return; }
 
 		bool choiceMade = false;
-		int effectValue = caster.deck.size(); 
+		int effectValue = (int)caster.deck.size(); 
 		bool isSelfTarget = (pendingWisdomBoonTargetIndex == currentPlayerIndex);
 
 		if (wisdomBtnDamage.inside(x, y)) {
@@ -2479,15 +2543,12 @@ void ofApp::mousePressed(int x, int y, int button) {
 			} else {
 				ofLogNotice("Wisdom Boon") << "Dealing " << effectValue << " Magic Damage to Enemy.";
 				int dmg = effectValue;
-				// 1. Barrier
 				int barrierDmg = std::min(target->barrier, dmg);
 				target->barrier -= barrierDmg; dmg -= barrierDmg;
-				// 2. Ward
 				if (dmg > 0) {
 					int wardDmg = std::min(target->ward, dmg);
 					target->ward -= wardDmg; dmg -= wardDmg;
 				}
-				// 3. Health
 				if (dmg > 0) target->health -= dmg;
 			}
 			choiceMade = true;
@@ -2538,18 +2599,16 @@ void ofApp::mousePressed(int x, int y, int button) {
 		float viewCardHeight = amnesiaCardHeight * viewCardScale;
 		float padding = 15.0f * (viewCardScale / 1.6f);
 		int gridWidthInCards = std::max(2, (int)floor((availableWidth - padding) / (viewCardWidth + padding)));
-		
 		int gridHeightInCards = ceil((float)amnesiaDeckCopy.size() / gridWidthInCards);
 		float totalContentWidth = (gridWidthInCards * viewCardWidth) + ((gridWidthInCards - 1) * padding);
-		float totalContentHeight = (gridHeightInCards * viewCardHeight) + ((gridHeightInCards - 1) * padding);
 		float panelWidth = totalContentWidth + 2 * panelPadding;
-		float panelHeight = totalContentHeight + titleHeight + 2 * panelPadding;
+		float panelHeight = (gridHeightInCards * (viewCardHeight + padding)) + titleHeight + 2 * panelPadding;
 		float panelX = ofGetWidth() / 2.0f - panelWidth / 2.0f;
 		float panelY = ofGetHeight() / 2.0f - panelHeight / 2.0f;
 
 		for (size_t i = 0; i < amnesiaDeckCopy.size(); ++i) {
-			int row = i / gridWidthInCards;
-			int col = i % gridWidthInCards;
+			int row = (int)i / gridWidthInCards;
+			int col = (int)i % gridWidthInCards;
 			ofRectangle cardRect(
 				panelX + panelPadding + col * (viewCardWidth + padding),
 				panelY + panelPadding + titleHeight + row * (viewCardHeight + padding),
@@ -2617,7 +2676,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 				if (!board[gx][gy].hasWall && !board[gx][gy].hasPlayer) {
 					Player newPlayer;
 					newPlayer.x = gx; newPlayer.y = gy;
-					newPlayer.playerID = players.size();
+					newPlayer.playerID = (int)players.size();
 					newPlayer.deck = allCards;
 					std::shuffle(newPlayer.deck.begin(), newPlayer.deck.end(), rng);
 					players.push_back(newPlayer);
@@ -2771,7 +2830,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 						animationPath.clear(); currentPathIndex = 0;
 						animationPath.push_back(playerVisualPos);
 						for (size_t p = 1; p < hoverPath.size(); ++p) {
-							animationPath.push_back(gridToWorld(hoverPath[p].x, hoverPath[p].y));
+							animationPath.push_back(gridToWorld((int)hoverPath[p].x, (int)hoverPath[p].y));
 						}
 						if (!animationPath.empty()) isPlayerAnimating = true;
 						invalidateTargetCache();
@@ -3506,6 +3565,33 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		break; 
 	}
 
+// --- CASE: ETHEREAL JOLT ---
+	case CARD_ETHEREAL_JOLT: {
+		glm::vec2 casterTile = { (float)currentPlayer.x, (float)currentPlayer.y };
+		glm::vec2 targetTile = { (float)targetX, (float)targetY };
+
+		// Validate (using the special ignore-walls logic inside isLosTargetValid)
+		TargetInfo validationResult = isLosTargetValid(casterTile, targetTile, 20.0f, playedCard.type);
+
+		if (validationResult.reason != VALID) {
+			ofLogNotice("Jolt") << "Cast failed! Target invalid.";
+			break; 
+		}
+		
+		if (!board[targetX][targetY].hasPlayer) {
+			 ofLogNotice("Jolt") << "Cast failed! Must target a unit.";
+			 break;
+		}
+
+		ofLogNotice("Jolt") << "Casting Ethereal Jolt! Rolling 1d20 for range...";
+		pendingJoltRangeResult = startDiceRoll(1, 20, PURPOSE_RANGE);
+		isWaitingForJoltRangeDice = true;
+		pendingJoltTargetTile = targetTile;
+
+		playedSuccessfully = true;
+		break;
+	}
+
 	// --- CASE: STANDARD ATTACK ---
 	case CARD_ATTACK_SINGLE_TILE: {
 		int px = players[currentPlayerIndex].x;
@@ -3686,9 +3772,13 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
     int px = currentPlayer.x;
     int py = currentPlayer.y;
 
-   // --- 1. SPECIAL LOS LOGIC (Magic Blast / Fireball) ---
-	if (card.type == CARD_MAGIC_BLAST || card.type == CARD_FIREBALL) {
-		float maxRange = (card.type == CARD_MAGIC_BLAST) ? 20.0f : 12.0f; // Update ranges as needed
+   // --- 1. SPECIAL LOS LOGIC (Magic Blast / Fireball / Ethereal Jolt) ---
+	if (card.type == CARD_MAGIC_BLAST || card.type == CARD_FIREBALL || card.type == CARD_ETHEREAL_JOLT) {
+		float maxRange = 0.0f;
+		if (card.type == CARD_MAGIC_BLAST) maxRange = 20.0f;
+		else if (card.type == CARD_FIREBALL) maxRange = 12.0f;
+		else if (card.type == CARD_ETHEREAL_JOLT) maxRange = 20.0f; // 1d20 max
+
 		glm::vec2 casterTile = { (float)px, (float)py };
 		
 		for (int x = 0; x < BOARD_WIDTH; x++) {
@@ -4478,48 +4568,73 @@ bool ofApp::checkRayPhysics(glm::vec2 rayStart, glm::vec2 rayEnd) {
 	}
 	return true;
 }
-//--------------------------------------------------------------
+
+// ----------------- FIXED isLosTargetValid (With Ethereal Jolt Support) -----------------
 TargetInfo ofApp::isLosTargetValid(glm::vec2 casterTile, glm::vec2 targetTile, float maxRangeFeet, CardType cardType) {
 	TargetInfo result;
 
 	// --- RULE 0: Basic Checks ---
 	if (targetTile == casterTile) { result.reason = INVALID_SELF; return result; }
+	// Cannot aim inside a wall
 	if (board[(int)targetTile.x][(int)targetTile.y].hasWall) { result.reason = INVALID_OCCUPIED_BY_WALL; return result; }
 
-    // <--- ADD THIS BLOCK --->
-	// --- RULE 0.1: STRICT ORTHOGONAL BLOCK ---
-	if (isOrthogonalPathBlocked(casterTile, targetTile)) {
-		result.reason = INVALID_HARD_COVER;
-		return result;
-	}
-    // <--- END ADD --->
-	// --- RULE 0.5: DIAGONAL NEIGHBOR EXCEPTION ---
-	// Always allow targeting the immediate diagonal unless pinched by two WALLS.
 	int dx = abs((int)casterTile.x - (int)targetTile.x);
 	int dy = abs((int)casterTile.y - (int)targetTile.y);
+
+	// --- RULE 0.2: ORTHOGONAL NEIGHBOR EXCEPTION (FIX) ---
+	// If the tile is directly adjacent (Up/Down/Left/Right), it is ALWAYS physically reachable.
+	// We skip the complex face/ray math because the faces are touching.
+	if (dx + dy == 1) {
+		// Valid physical path. Now check target contents at bottom.
+		goto DETERMINE_TARGET_TYPE;
+	}
+
+	// --- RULE 0.5: DIAGONAL NEIGHBOR EXCEPTION ---
 	if (dx == 1 && dy == 1) {
-		if (isTileWall(casterTile.x, targetTile.y) && isTileWall(targetTile.x, casterTile.y)) {
+		if (isTileBlocked(casterTile.x, targetTile.y) && isTileBlocked(targetTile.x, casterTile.y)) {
 			result.reason = INVALID_HARD_COVER; return result;
 		}
-		// If not pinched by walls, it's valid.
 		goto DETERMINE_TARGET_TYPE;
+	}
+
+	// --- RULE 0.1: STRICT ORTHOGONAL BLOCK (Long Distance) ---
+	// If further away but in same row/col, check for walls in between.
+	if (isOrthogonalPathBlocked(casterTile, targetTile) && cardType != CARD_ETHEREAL_JOLT) {
+		result.reason = INVALID_HARD_COVER;
+		return result;
 	}
 
 	// --- MAIN LOGIC ---
 	{
 		float maxFaceDist = maxRangeFeet / 5.0f;
+		
+		// *** SPECIAL CASE: ETHEREAL JOLT ***
+		// Ignores Walls/Cover.
+		if (cardType == CARD_ETHEREAL_JOLT) {
+			// Use simple Euclidian edge-to-edge for range check
+			float centerDist = glm::distance(casterTile, targetTile);
+			float edgeDist = std::max(0.0f, centerDist - 1.0f);
+			
+			if (edgeDist > maxFaceDist + 0.001f) {
+				result.reason = INVALID_OUT_OF_RANGE;
+				return result;
+			}
+			goto DETERMINE_TARGET_TYPE;
+		}
+
 		glm::vec2 faceOffsets[] = { {0.5f, 0.0f}, {0.5f, 1.0f}, {0.0f, 0.5f}, {1.0f, 0.5f} };
 		glm::vec2 faceDirs[]    = { {0, -1},      {0, 1},       {-1, 0},      {1, 0}      };
 
 		// --- PHASE 1: THE COVER RULE ---
-		// Find closest face. If blocked by WALL, invalid.
+		// Find absolute minimum distance
 		float minGeoDist = std::numeric_limits<float>::max();
 		for(int j=0; j<4; j++) {
 			float d = glm::distance(casterTile + 0.5f, targetTile + faceOffsets[j]);
 			if(d < minGeoDist) minGeoDist = d;
 		}
 
-		std::vector<int> validTargetFaces;
+		// Check if ALL shortest faces are blocked
+		bool isCovered = true;
 		const float TOLERANCE = 0.001f;
 
 		for(int j=0; j<4; j++) {
@@ -4527,14 +4642,15 @@ TargetInfo ofApp::isLosTargetValid(glm::vec2 casterTile, glm::vec2 targetTile, f
 			if (d <= minGeoDist + TOLERANCE) {
 				int tx = (int)targetTile.x + (int)faceDirs[j].x;
 				int ty = (int)targetTile.y + (int)faceDirs[j].y;
-				if (!isTileWall(tx, ty)) validTargetFaces.push_back(j);
+				// If at least one shortest face is NOT a wall, the target is exposed.
+				if (!isTileWall(tx, ty)) {
+					isCovered = false;
+					break;
+				}
 			}
 		}
 
-		if (validTargetFaces.empty()) {
-			result.reason = INVALID_NO_LOS; 
-			return result;
-		}
+		if (isCovered) { result.reason = INVALID_NO_LOS; return result; }
 
 		// --- PHASE 2: FIND BEST PATH ---
 		float shortestPathDist = std::numeric_limits<float>::max();
@@ -4548,8 +4664,12 @@ TargetInfo ofApp::isLosTargetValid(glm::vec2 casterTile, glm::vec2 targetTile, f
 
 			glm::vec2 origin = casterTile + faceOffsets[i];
 
-			for (int tIdx : validTargetFaces) {
-				glm::vec2 dest = targetTile + faceOffsets[tIdx];
+			for (int j = 0; j < 4; j++) { 
+				int tx = (int)targetTile.x + (int)faceDirs[j].x;
+				int ty = (int)targetTile.y + (int)faceDirs[j].y;
+				if (isTileWall(tx, ty)) continue;
+
+				glm::vec2 dest = targetTile + faceOffsets[j];
 				float d = glm::distance(origin, dest);
 
 				if (d <= maxFaceDist + 0.001f) {
@@ -4573,12 +4693,14 @@ TargetInfo ofApp::isLosTargetValid(glm::vec2 casterTile, glm::vec2 targetTile, f
 	}
 
 	DETERMINE_TARGET_TYPE:
+	// --- RULE 5: VALIDATE TARGET CONTENTS ---
 	result.reason = VALID; 
 	bool isOccupied = board[(int)targetTile.x][(int)targetTile.y].hasPlayer;
 
 	if (isOccupied) {
 		result.isTargetable = true;
 	} else {
+		// Only Magic Blast targets empty squares if neighbors exist
 		if (cardType == CARD_MAGIC_BLAST) {
 			bool hasNeighbor = false;
 			glm::vec2 neighbors[] = {{1,0}, {-1,0}, {0,1}, {0,-1}};
@@ -4896,6 +5018,7 @@ CardType ofApp::stringToCardType(const std::string& str) {
 	if (str == "CARD_HASTEN") return CARD_HASTEN;
 	if (str == "CARD_REPLICATE") return CARD_REPLICATE;
 	if (str == "CARD_WISDOM_BOON") return CARD_WISDOM_BOON;
+	if (str == "CARD_ETHEREAL_JOLT") return CARD_ETHEREAL_JOLT;
     return CARD_NONE;
 }
 

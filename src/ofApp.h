@@ -81,7 +81,8 @@ enum CardType {
     CARD_TELEPORT,
     CARD_HASTEN,
     CARD_REPLICATE,
-    CARD_WISDOM_BOON
+    CARD_WISDOM_BOON,
+    CARD_ETHEREAL_JOLT
 };
 
 enum DicePurpose {
@@ -197,9 +198,7 @@ struct Player {
     bool nextTurnD10AP = false;
     bool nextTurnExtraDraw = false;
     bool isReplicatePending = false;
-   
-   
-   
+
     std::vector<Card> playedCardsPile;
     std::vector<Card> hand;
     std::vector<Card> deck;
@@ -319,6 +318,11 @@ private:
     glm::vec2 fireballImpactTile;
     int fireballTargetPlayerIndex = -1;
 
+    // --- Ethereal Jolt State ---
+    bool isWaitingForJoltRangeDice = false;
+    int pendingJoltRangeResult = 0;
+    glm::vec2 pendingJoltTargetTile;
+
     // --- Dispel & Barrier State ---
     // State Flags
     bool isDispelMenuOpen = false;       // Phase 1: Choose Barrier or Purge
@@ -343,7 +347,7 @@ private:
     // Helpers
     void drawWisdomBoonUI();
     void cancelWisdomBoon();
-    
+
     // Data storage for the active action
     int pendingDispelCardIndex = -1;     // Which card in hand is being played
     int pendingDispelTargetIndex = -1;   // Which player is being targeted for cure
