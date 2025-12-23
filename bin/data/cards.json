@@ -1,0 +1,134 @@
+[
+  {
+    "id": 1,
+    "name": "Punch",
+    "type": "CARD_ATTACK_SINGLE_TILE",
+    "cost": 1,
+    "value": 2,
+    "targeting": "TARGET_ADJACENT_UNIT"
+  },
+  {
+    "id": 2,
+    "name": "Kick",
+    "type": "CARD_ATTACK_SINGLE_TILE",
+    "cost": 3,
+    "value": 4,
+    "targeting": "TARGET_ADJACENT_UNIT"
+  },
+  {
+    "id": 3,
+    "name": "Hand Block",
+    "type": "CARD_GAIN_BLOCK",
+    "cost": 1,
+    "value": 2,
+    "targeting": "TARGET_SELF"
+  },
+  {
+    "id": 4,
+    "name": "Bash",
+    "type": "CARD_ATTACK_SINGLE_TILE",
+    "cost": 3,
+    "targeting": "TARGET_ADJACENT_UNIT",
+    "numDice": 2,
+    "diceSides": 4
+  },
+  {
+    "id": 5,
+    "name": "Ward",
+    "type": "CARD_GAIN_WARD",
+    "cost": 2,
+    "value": 5,
+    "targeting": "TARGET_SELF"
+  },
+  {
+    "id": 6,
+    "name": "Stab",
+    "type": "CARD_ATTACK_SINGLE_TILE",
+    "cost": 2,
+    "targeting": "TARGET_LINEAR_PIERCE",
+    "damageType": "DAMAGE_PIERCING",
+    "numDice": 1,
+    "diceSides": 6
+  },
+  {
+    "id": 7,
+    "name": "Slash",
+    "type": "CARD_ATTACK_SINGLE_TILE",
+    "cost": 2,
+    "targeting": "TARGET_CLEAVE_ADJACENT",
+    "numDice": 1,
+    "diceSides": 6
+  },
+  {
+    "id": 8,
+    "name": "Mind Theft",
+    "type": "CARD_MIND_THEFT",
+    "cost": 3,
+    "targeting": "TARGET_ADJACENT_UNIT"
+  },
+  {
+    "id": 9,
+    "name": "Amnesia",
+    "type": "CARD_AMNESIA",
+    "cost": 3,
+    "targeting": "TARGET_ADJACENT_OR_SELF_UNIT",
+    "numDice": 1,
+    "diceSides": 4
+  },
+  {
+    "id": 10,
+    "name": "Magic Blast",
+    "type": "CARD_MAGIC_BLAST",
+    "cost": 4,
+    "targeting": "TARGET_LINE_OF_SIGHT_TILE",
+    "damageType": "DAMAGE_MAGIC",
+    "numDice": 1,
+    "diceSides": 20
+  },
+  {
+    "id": 11,
+    "name": "Fireball",
+    "type": "CARD_FIREBALL",
+    "cost": 3,
+    "targeting": "TARGET_LINE_OF_SIGHT_TILE",
+    "damageType": "DAMAGE_FIRE",
+    "numDice": 2,
+    "diceSides": 6
+  },
+  {
+    "id": 12,
+    "name": "Shock",
+    "type": "CARD_SHOCK",
+    "cost": 2,
+    "value": 2,
+    "targeting": "TARGET_ADJACENT_UNIT",
+    "damageType": "DAMAGE_ELECTRIC"
+  },
+  {
+    "id": 13,
+    "name": "Rock Crush",
+    "type": "CARD_ROCK_CRUSH",
+    "cost": 4,
+    "targeting": "TARGET_ADJACENT_UNIT_OR_WALL",
+    "numDice": 2,
+    "diceSides": 10
+  },
+  {
+    "id": 14,
+    "name": "Dispel",
+    "type": "CARD_DISPEL",
+    "cost": 2,
+    "targeting": "TARGET_SELF",
+    "numDice": 1,
+    "diceSides": 20
+  },
+  {
+    "id": 15,
+    "name": "Teleport",
+    "type": "CARD_TELEPORT",
+    "cost": 5,
+    "targeting": "TARGET_EMPTY_TILE",
+    "numDice": 3,
+    "diceSides": 6
+  }
+]
