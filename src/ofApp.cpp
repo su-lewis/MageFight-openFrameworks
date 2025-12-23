@@ -3592,6 +3592,40 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		break;
 	}
 
+	// --- CASE: FLAME HIT ---
+	case CARD_FLAME_HIT: {
+		// 1. Find Target Unit
+		int targetIndex = -1;
+		for (size_t i = 0; i < players.size(); i++) {
+			if (players[i].x == targetX && players[i].y == targetY) {
+				targetIndex = (int)i;
+				break;
+			}
+		}
+
+		// 2. Validate
+		if (targetIndex == -1) {
+			ofLogNotice("Flame Hit") << "Cast failed! No unit at target.";
+			break;
+		}
+
+		// 3. Execute Damage
+		Player* target = getPlayer(targetIndex);
+		
+		// applyDamage returns TRUE if Health was reduced (bypassed shields)
+		bool healthHit = applyDamage(*target, playedCard.value, DAMAGE_FIRE);
+
+		if (healthHit) {
+			target->onFire = true;
+			ofLogNotice("Flame Hit") << "Target took health damage and caught Fire!";
+		} else {
+			ofLogNotice("Flame Hit") << "Damage absorbed by armor. Fire status NOT applied.";
+		}
+
+		playedSuccessfully = true;
+		break;
+	}
+
 	// --- CASE: STANDARD ATTACK ---
 	case CARD_ATTACK_SINGLE_TILE: {
 		int px = players[currentPlayerIndex].x;
@@ -5019,6 +5053,7 @@ CardType ofApp::stringToCardType(const std::string& str) {
 	if (str == "CARD_REPLICATE") return CARD_REPLICATE;
 	if (str == "CARD_WISDOM_BOON") return CARD_WISDOM_BOON;
 	if (str == "CARD_ETHEREAL_JOLT") return CARD_ETHEREAL_JOLT;
+	if (str == "CARD_FLAME_HIT") return CARD_FLAME_HIT;
     return CARD_NONE;
 }
 

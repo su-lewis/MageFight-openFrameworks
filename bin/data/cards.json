@@ -173,5 +173,16 @@
     "damageType": "DAMAGE_MAGIC",
     "numDice": 1,
     "diceSides": 20
+  },
+  {
+    "id": 20,
+    "name": "Flame Hit",
+    "type": "CARD_FLAME_HIT",
+    "cost": 2,
+    "value": 1,
+    "targeting": "TARGET_ADJACENT_UNIT",
+    "damageType": "DAMAGE_FIRE",
+    "numDice": 0,
+    "diceSides": 0
   }
 ]

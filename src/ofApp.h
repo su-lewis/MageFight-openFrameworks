@@ -82,7 +82,8 @@ enum CardType {
     CARD_HASTEN,
     CARD_REPLICATE,
     CARD_WISDOM_BOON,
-    CARD_ETHEREAL_JOLT
+    CARD_ETHEREAL_JOLT,
+    CARD_FLAME_HIT 
 };
 
 enum DicePurpose {
