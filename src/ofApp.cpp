@@ -3657,56 +3657,114 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		break;
 	}
 
-	// --- CASE: STANDARD ATTACK ---
+	// --- CASE: STANDARD ATTACK (Stab, Cleave, Pierce) ---
 	case CARD_ATTACK_SINGLE_TILE: {
 		int px = players[currentPlayerIndex].x;
 		int py = players[currentPlayerIndex].y;
 		pendingAttackTargetIndices.clear();
 
+		// 1. CLEAVE LOGIC (Arc)
 		if (playedCard.targeting == TARGET_CLEAVE_ADJACENT) {
 			glm::vec2 dir = { (float)(targetX - px), (float)(targetY - py) };
 			std::vector<Player *> targetsToHit = findCleaveTargets(dir);
 			for (auto * targetPlayer : targetsToHit) {
-				for (int i = 0; i < players.size(); i++) {
-					if (&players[i] == targetPlayer) pendingAttackTargetIndices.push_back(i);
+				for (size_t i = 0; i < players.size(); i++) {
+					if (&players[i] == targetPlayer) pendingAttackTargetIndices.push_back((int)i);
 				}
 			}
-		} else if (playedCard.targeting == TARGET_LINEAR_PIERCE) {
+		} 
+		// 2. PIERCE LOGIC (Line - e.g. Stab)
+		else if (playedCard.targeting == TARGET_LINEAR_PIERCE) {
+			// Calculate Direction based on where the player clicked relative to self
 			glm::vec2 dir = { (float)(targetX - px), (float)(targetY - py) };
-			if (abs(dir.x) > 0) dir.x /= abs(dir.x);
-			if (abs(dir.y) > 0) dir.y /= abs(dir.y);
-			glm::vec2 pos1 = { px + dir.x, py + dir.y };
-			glm::vec2 pos2 = { px + dir.x * 2, py + dir.y * 2 };
-			int frontIndex = -1;
-			int backIndex = -1;
-			for (int i = 0; i < players.size(); i++) {
-				if (players[i].x == pos1.x && players[i].y == pos1.y) frontIndex = i;
-				if (players[i].x == pos2.x && players[i].y == pos2.y) backIndex = i;
+			
+			// Normalize to get strict cardinal direction (1 tile step)
+			if (std::abs(dir.x) > std::abs(dir.y)) {
+				dir.x = (dir.x > 0) ? 1.0f : -1.0f;
+				dir.y = 0.0f;
+			} else {
+				dir.x = 0.0f;
+				dir.y = (dir.y > 0) ? 1.0f : -1.0f;
 			}
-			if (frontIndex != -1) pendingAttackTargetIndices.push_back(frontIndex);
-			if (backIndex != -1) pendingAttackTargetIndices.push_back(backIndex);
-		} else {
-			// Single target
-			for (int i = 0; i < players.size(); i++) {
-				if (players[i].x == targetX && players[i].y == targetY) {
-					pendingAttackTargetIndices.push_back(i);
-					break;
+
+			// Define the two tiles in the straight line
+			glm::vec2 pos1 = { px + dir.x, py + dir.y };       // Adjacent
+			glm::vec2 pos2 = { px + dir.x * 2, py + dir.y * 2 }; // Behind
+
+			// --- ADD TARGETS IN ORDER ---
+			// The updateGame logic uses the index to determine damage.
+			// Index 0 = Full Damage. Index 1+ = Half Damage (if type is PIERCING).
+
+			// A. Check Position 1 (Closest)
+			for (size_t i = 0; i < players.size(); i++) {
+				if (players[i].x == (int)pos1.x && players[i].y == (int)pos1.y) {
+					pendingAttackTargetIndices.push_back((int)i);
+					ofLogNotice("Attack") << "Hit front target: Player " << players[i].playerID;
+					break; 
 				}
+			}
+
+			// B. Check Position 2 (Behind)
+			// Only check if Position 1 is NOT a wall (walls block the stab)
+			if (!isTileWall((int)pos1.x, (int)pos1.y)) {
+				for (size_t i = 0; i < players.size(); i++) {
+					if (players[i].x == (int)pos2.x && players[i].y == (int)pos2.y) {
+						pendingAttackTargetIndices.push_back((int)i);
+						ofLogNotice("Attack") << "Hit back target: Player " << players[i].playerID;
+						break;
+					}
+				}
+			}
+		} 
+		// 3. STANDARD SINGLE TARGET
+		else {
+			// Use the standard LoS check to ensure valid reach (e.g. 5ft range)
+			glm::vec2 casterTile = { (float)px, (float)py };
+			glm::vec2 targetTile = { (float)targetX, (float)targetY };
+			
+			// Use range 5.0f (2 squares) for standard melee, or whatever the card says
+			TargetInfo info = isLosTargetValid(casterTile, targetTile, 5.0f, playedCard.type);
+			
+			if (info.reason == VALID && info.isTargetable) {
+				for (size_t i = 0; i < players.size(); i++) {
+					if (players[i].x == targetX && players[i].y == targetY) {
+						pendingAttackTargetIndices.push_back((int)i);
+						break;
+					}
+				}
+			} else {
+				ofLogNotice("Attack") << "Invalid Target (Blocked or Out of Range)";
 			}
 		}
 
+		if (pendingAttackTargetIndices.empty()) {
+			ofLogNotice("Attack") << "No valid targets hit. Action Cancelled.";
+			break; // Don't spend AP/Card if we hit nothing
+		}
+
+		// --- EXECUTE DAMAGE ---
+		// If the card has dice, we roll for damage.
 		if (playedCard.numDice > 0 && playedCard.diceSides > 0) {
 			pendingAttackRollResult = startDiceRoll(playedCard.numDice, playedCard.diceSides, PURPOSE_DAMAGE);
 			isWaitingForAttackDice = true;
 			pendingAttackDamageType = playedCard.damageType;
 		} else {
-			// Flat damage (No dice)
+			// If flat damage (no dice), apply immediately
 			int damage = playedCard.value;
-			for (int pIndex : pendingAttackTargetIndices) {
+			for (size_t i = 0; i < pendingAttackTargetIndices.size(); i++) {
+				int pIndex = pendingAttackTargetIndices[i];
 				Player * target = getPlayer(pIndex);
-				if (target) applyDamage(*target, damage, playedCard.damageType);
+				if (target) {
+					// Handle Piercing Halving (First target full, others half)
+					int finalDamage = damage;
+					if (playedCard.damageType == DAMAGE_PIERCING && i > 0) {
+						finalDamage /= 2;
+					}
+					applyDamage(*target, finalDamage, playedCard.damageType);
+				}
 			}
 		}
+		
 		playedSuccessfully = true;
 		break;
 	}
@@ -3871,17 +3929,49 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
             }
         }
     } 
-    else if (card.targeting == TARGET_LINEAR_PIERCE) {
+   else if (card.targeting == TARGET_LINEAR_PIERCE) {
+        // 4 Cardinal Directions
         glm::vec2 directions[4] = { { 0, 1 }, { 0, -1 }, { 1, 0 }, { -1, 0 } };
+        
         for (const auto & dir : directions) {
-            int tile1X = px + dir.x;
-            int tile1Y = py + dir.y;
-            // (Pierce logic omitted for brevity, keep your existing logic here)
-            if (tile1X >= 0 && tile1X < BOARD_WIDTH && tile1Y >= 0 && tile1Y < BOARD_HEIGHT) {
-                 if (!board[tile1X][tile1Y].hasWall && board[tile1X][tile1Y].hasPlayer) board[tile1X][tile1Y].isTargetable = true;
+            // Check Spot 1 (Adjacent)
+            int x1 = px + (int)dir.x;
+            int y1 = py + (int)dir.y;
+            
+            bool pos1Blocked = false;
+
+            if (x1 >= 0 && x1 < BOARD_WIDTH && y1 >= 0 && y1 < BOARD_HEIGHT) {
+                if (board[x1][y1].hasWall) {
+                    pos1Blocked = true; // Wall blocks line
+                } else {
+                    // It's open space or unit. 
+                    // Mark as valid target if it has a player (Red)
+                    // Or if clicked/selected, we can mark it Green to show range
+                    if (board[x1][y1].hasPlayer) {
+                        board[x1][y1].isTargetable = true;
+                    } else if (selectedCardIndex != -1) {
+                         // Optional: Mark empty path as targetable to show range
+                         // board[x1][y1].isTargetable = true; // Uncomment if you want to click empty space to stab
+                    }
+                }
+            }
+
+            // Check Spot 2 (2 Squares / 5ft away)
+            // Can only hit Spot 2 if Spot 1 wasn't a wall
+            if (!pos1Blocked) {
+                int x2 = px + (int)dir.x * 2;
+                int y2 = py + (int)dir.y * 2;
+                
+                if (x2 >= 0 && x2 < BOARD_WIDTH && y2 >= 0 && y2 < BOARD_HEIGHT) {
+                    if (!board[x2][y2].hasWall) {
+                        if (board[x2][y2].hasPlayer) {
+                            board[x2][y2].isTargetable = true;
+                        }
+                    }
+                }
             }
         }
-    } 
+    }
 	// --- SPECIAL LOGIC: TELEPORT ---
 	else if (card.type == CARD_TELEPORT) {
 		// Max range of 3d6 is 18.
