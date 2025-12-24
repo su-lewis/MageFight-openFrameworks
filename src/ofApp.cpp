@@ -38,9 +38,22 @@ void ofApp::setup() {
 	ofLoadImage(d10Texture, "d10SilverAlbedo.png"); 
 	skyboxImage.load("aircraft_workshop.jpg");
 
-    // Coin Texture
+    // Coin Texture (Use GL_NEAREST for sharp pixel art)
     ofLoadImage(coinFacesTexture, "CoinUKSilver.png"); 
     coinFacesTexture.setTextureMinMagFilter(GL_NEAREST, GL_NEAREST);
+
+  // --- LOAD FOOTSTEPS (step1.wav to step6.wav) ---
+    for (int i = 1; i <= 6; i++) {
+        ofSoundPlayer step;
+        // Construct filename: "step" + number + ".wav"
+        if (step.load("step" + ofToString(i) + ".wav")) {
+            step.setMultiPlay(true); // Allows rapid overlapping steps
+            step.setVolume(0.5f);    // Volume 50%
+            footstepSounds.push_back(step);
+        } else {
+            ofLogError("Sound") << "Could not load step" << i << ".wav";
+        }
+    }
 
 	// Programmatic Meshes (build them only once)
 	float wallSize = TILE_SIZE * 0.8f;
@@ -279,6 +292,7 @@ void ofApp::setup() {
     ofSetFullscreen(true);
 	applySettings();
 }
+
 //--------------------------------------------------------------
 Player * ofApp::getPlayer(int index) {
 	if (index >= 0 && index < static_cast<int>(players.size())) {
@@ -1096,11 +1110,28 @@ void ofApp::setupGame() {
 
 	if (isPlayerAnimating) {
 		glm::vec3 targetPos = animationPath[currentPathIndex];
-		float player_speed = 1.0 - pow(0.65, deltaTime * 60.0); // Player moves slightly faster
+		float player_speed = 1.0 - pow(0.65, deltaTime * 60.0);
 		playerVisualPos = glm::mix(playerVisualPos, targetPos, player_speed);
+		
+		// Check if unit arrived at the center of the tile (Distance < 0.05)
 		if (glm::distance(playerVisualPos, targetPos) < 0.05f) {
 			playerVisualPos = targetPos;
 			currentPathIndex++;
+
+            // --- PLAY RANDOM FOOTSTEP ---
+            // Only play if we are moving to another tile (not the final destination)
+            // and we successfully loaded sounds.
+            if (currentPathIndex < animationPath.size() && !footstepSounds.empty()) {
+                
+                // Pick a random index from 0 to 5
+                int idx = (int)ofRandom(0, footstepSounds.size());
+                
+                // Slight pitch variation (0.9 to 1.1) makes it sound more natural/less robotic
+                footstepSounds[idx].setSpeed(ofRandom(0.9f, 1.1f));
+                footstepSounds[idx].play();
+            }
+            // ---------------------------
+
 			if (currentPathIndex >= static_cast<int>(animationPath.size())) isPlayerAnimating = false;
 		}
 	}

@@ -523,6 +523,9 @@ private:
     std::mt19937 rng;
     glm::quat matchFaceToCamera(glm::vec3 faceNormal);
 
+    //Sound effects
+    std::vector<ofSoundPlayer> footstepSounds;
+
     // --- DEBUG VARIABLES ---
     bool isDebugMode = false;
     bool isSpawningUnit = false;
