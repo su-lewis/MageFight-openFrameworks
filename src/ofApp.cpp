@@ -3742,7 +3742,7 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 			break; // Don't spend AP/Card if we hit nothing
 		}
 
-		// --- EXECUTE DAMAGE ---b
+		// --- EXECUTE DAMAGE ---
 		// If the card has dice, we roll for damage.
 		if (playedCard.numDice > 0 && playedCard.diceSides > 0) {
 			pendingAttackRollResult = startDiceRoll(playedCard.numDice, playedCard.diceSides, PURPOSE_DAMAGE);
