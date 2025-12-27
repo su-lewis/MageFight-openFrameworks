@@ -24,23 +24,14 @@ void ofApp::setup() {
     cardSpriteSheet.load("UI/TTS_Sheet.png");
 
     // --- 2. UNITS ---
-    // Note: Paths now point to Units/ folder
     playerModel.load("Units/Player/player.obj");
     playerModel.setRotation(0, -90, 1, 0, 0);
     playerModel.setScale(0.008f, 0.008f, 0.008f);
 
     skeletonModel.load("Units/Skeleton/skeleton.fbx");
     ofLoadImage(skeletonTexture, "Units/Skeleton/base.png"); 
-    
-    // --- OLD CODE ---
-    // skeletonModel.setRotation(0, 180, 1, 0, 0); 
-    
-    // --- REPLACE WITH THIS ---
-    // 1. Rotate 180 on X (Stand Upright)
     skeletonModel.setRotation(0, 180, 1, 0, 0);
-    // 2. Rotate 180 on Y (Spin around to face North)
     skeletonModel.setRotation(1, 180, 0, 1, 0);
-    // ------------------------
 
     skeletonModel.setScale(0.008f, 0.008f, 0.008f);
     skeletonModel.disableMaterials();
