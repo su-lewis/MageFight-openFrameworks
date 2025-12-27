@@ -30,8 +30,18 @@ void ofApp::setup() {
     playerModel.setScale(0.008f, 0.008f, 0.008f);
 
     skeletonModel.load("Units/Skeleton/skeleton.fbx");
-    ofLoadImage(skeletonTexture, "Units/Skeleton/base.png"); // Manual texture load
-    skeletonModel.setRotation(0, 180, 1, 0, 0); 
+    ofLoadImage(skeletonTexture, "Units/Skeleton/base.png"); 
+    
+    // --- OLD CODE ---
+    // skeletonModel.setRotation(0, 180, 1, 0, 0); 
+    
+    // --- REPLACE WITH THIS ---
+    // 1. Rotate 180 on X (Stand Upright)
+    skeletonModel.setRotation(0, 180, 1, 0, 0);
+    // 2. Rotate 180 on Y (Spin around to face North)
+    skeletonModel.setRotation(1, 180, 0, 1, 0);
+    // ------------------------
+
     skeletonModel.setScale(0.008f, 0.008f, 0.008f);
     skeletonModel.disableMaterials();
 
@@ -1396,33 +1406,37 @@ void ofApp::drawGame() {
 	levelMesh.draw();
 	wallTexture.unbind();
 
-	// --- 5. OPAQUE DYNAMIC OBJECTS (Players & Dice) ---
+	    
+// --- 5. OPAQUE DYNAMIC OBJECTS (Players & Dice) ---
 
 	// Players
 	for (const auto & player : players) {
 		ofSetColor(255);
 		ofPushMatrix();
-		if (currentPlayerIndex >= 0 && player.playerID == players[currentPlayerIndex].playerID) {
-			ofTranslate(playerVisualPos.x, playerVisualPos.y + 0.1f, playerVisualPos.z);
-		} else {
-			glm::vec3 staticPos = gridToWorld(player.x, player.y);
-			ofTranslate(staticPos.x, staticPos.y + 0.1f, staticPos.z);
-		}
-		if (player.isSkeleton) {
-            ofSetColor(255); // Reset color to white so texture isn't tinted
-            
-            // Lift him up if he's buried in the floor
-            ofTranslate(0, 1.0f, 0); 
 
-            // 1. Bind the texture
+		// 1. Move to Board Position
+		if (currentPlayerIndex >= 0 && player.playerID == players[currentPlayerIndex].playerID) {
+			// Active Unit: Smooth Animation Position
+			ofTranslate(playerVisualPos.x, playerVisualPos.y, playerVisualPos.z);
+		} else {
+			// Inactive Unit: Static Grid Position
+			glm::vec3 staticPos = gridToWorld(player.x, player.y);
+			ofTranslate(staticPos.x, staticPos.y, staticPos.z);
+		}
+
+		// 2. Draw Specific Model
+		if (player.isSkeleton) {
+            ofSetColor(255); // Reset color to white for texture
+            
+            // FIX: Lift up by 2.5 units to stop floor clipping (Adjust this value if needed)
+            ofTranslate(0, 2.5f, 0); 
+            
             skeletonTexture.bind();
-            
-            // 2. Draw the model
             skeletonModel.drawFaces();
-            
-            // 3. Unbind the texture
             skeletonTexture.unbind();
         } else {
+            // Standard Player: Lift slightly (0.1) to avoid Z-fighting with floor
+            ofTranslate(0, 0.1f, 0);
             playerModel.drawFaces();
         }
         ofPopMatrix();
@@ -1432,6 +1446,8 @@ void ofApp::drawGame() {
 	diceMaterial.begin();
 
 	// --- Coin ---
+
+  
 	coinFacesTexture.bind();
 	for (auto & roll : activeDiceRolls) {
 		if (roll.sides != 2) continue;
@@ -1937,7 +1953,14 @@ void ofApp::drawGame() {
 		}
 
 		// 4. Draw AP Displays
-		string p0_apText = (currentPlayerIndex == 0) ? ofToString(currentAP) + " AP" : "0 AP";
+		
+		// FIX: Check Player ID (0), not Array Index
+		bool isP0Turn = false;
+		if (currentPlayerIndex >= 0 && currentPlayerIndex < players.size()) {
+			if (players[currentPlayerIndex].playerID == 0) isP0Turn = true;
+		}
+		string p0_apText = isP0Turn ? ofToString(currentAP) + " AP" : "0 AP";
+
 		float p0_apCenterX = 30 * scale + staticUICardWidth / 2;
 		float p0_apCenterY = ofGetHeight() - staticUICardHeight - (40 * scale) - staticUICardHeight - (40 * scale) - 60 * scale;
 		ofRectangle p0_apTextBox = titleFont.getStringBoundingBox(p0_apText, 0, 0);
@@ -1952,7 +1975,13 @@ void ofApp::drawGame() {
 		titleFont.drawString(p0_apText, -p0_apTextBox.getCenter().x, -p0_apTextBox.getCenter().y);
 		ofPopMatrix();
 
-		string p1_apText = (currentPlayerIndex == 1) ? ofToString(currentAP) + " AP" : "? AP";
+		// FIX: Check Player ID (1), not Array Index
+		bool isP1Turn = false;
+		if (currentPlayerIndex >= 0 && currentPlayerIndex < players.size()) {
+			if (players[currentPlayerIndex].playerID == 1) isP1Turn = true;
+		}
+		string p1_apText = isP1Turn ? ofToString(currentAP) + " AP" : "? AP";
+
 		float p1_apCenterX = ofGetWidth() - staticUICardWidth - (30 * scale) + staticUICardWidth / 2;
 		float p1_apCenterY = 40 * scale + staticUICardHeight + (40 * scale) + staticUICardHeight + 60 * scale;
 		ofRectangle p1_apTextBox = titleFont.getStringBoundingBox(p1_apText, 0, 0);
