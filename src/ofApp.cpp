@@ -19,19 +19,35 @@ void ofApp::setup() {
 	ofDisableArbTex();
 	ofSetCircleResolution(64);
 
-	// --- ONE-TIME UNIVERSAL SETUP ---
+	// --- LOAD FONTS & Cards ---
 	uiFont.load("Roboto-Regular.ttf", 24);
 	titleFont.load("Roboto-Bold.ttf", 72);
 	cardBackImage.load("card_back.png");
 	cardSpriteSheet.load("TTS_Sheet.png");
 
-	// --- ONE-TIME ASSET LOADING & MESH CREATION ---
-	playerModel.load("player.obj");
-	playerModel.setRotation(0, -90, 1, 0, 0);
-	playerModel.setScale(0.008f, 0.008f, 0.008f);
+    // --- PLAYER MODEL SETUP ---
+    playerModel.load("player.obj");
+    playerModel.setRotation(0, -90, 1, 0, 0);
+    playerModel.setScale(0.008f, 0.008f, 0.008f);
 
-	// Textures
-	ofLoadImage(wallTexture, "wallcartoon.png");
+
+ 	 // --- SKELETON SETUP ---
+    skeletonModel.load("units/skeleton.fbx");
+    
+    // Load Texture
+    ofLoadImage(skeletonTexture, "units/base.png");
+
+    // FIX: Rotate 180 on X-axis to stand upright
+    skeletonModel.setRotation(0, 180, 1, 0, 0); 
+    
+    // Scale down (adjust if he's too small/big, FBX is usually cm)
+    skeletonModel.setScale(0.008f, 0.008f, 0.008f); 
+
+    skeletonModel.disableMaterials();
+
+
+    // Textures
+    ofLoadImage(wallTexture, "wallcartoon.png");
 	ofLoadImage(d6Texture, "dice_texture_d6.png");
 	ofLoadImage(d4Texture, "Dice_d4_Albedo.png");
 	ofLoadImage(d20Texture, "d20_diffuse.png");
@@ -698,7 +714,16 @@ void ofApp::setupGame() {
 	float visibleY = 20 * scale;
 	float hiddenY = -100 * scale;
 
-	if (currentPlayerIndex == 0) {
+    // FIX: Check if it is Player 1's turn OR a Minion owned by Player 1
+    bool isPlayer1Turn = false;
+    if (currentPlayerIndex >= 0 && !players.empty()) {
+        int pid = players[currentPlayerIndex].playerID;
+        int oid = players[currentPlayerIndex].ownerID;
+        // Assuming Player 1 is ID 0. Minions owned by P1 have ownerID 0.
+        if (pid == 0 || oid == 0) isPlayer1Turn = true;
+    }
+
+	if (isPlayer1Turn) {
 		endTurnButtonTargetPos.set(ofGetWidth() / 2.0f - btnWidth / 2.0f, visibleY);
 	}
 	else {
@@ -751,6 +776,8 @@ void ofApp::setupGame() {
 		}
 	}
 
+
+	
 // --- MAGIC BLAST RESOLUTION ---
 	if (isWaitingForMagicBlastDice && activeDiceRolls.empty()) {
 		isWaitingForMagicBlastDice = false;
@@ -884,7 +911,77 @@ void ofApp::setupGame() {
 			}
 		}
 		fireballTargetPlayerIndex = -1;
-	}
+    } // <--- Paste AFTER this closing brace
+
+    // --- PASTE HERE ---
+    if (isWaitingForSummonHealth && activeDiceRolls.empty()) {
+        isWaitingForSummonHealth = false;
+        
+        // 1. Create Minion
+        Player minion;
+        minion.playerID = 100 + (int)players.size(); // Simple ID generation
+        minion.x = (int)pendingSummonTile.x;
+        minion.y = (int)pendingSummonTile.y;
+        minion.maxHealth = pendingSummonRollResult; // Result of the dice roll
+        minion.health = pendingSummonRollResult;
+        minion.isMinion = true;
+        minion.isSkeleton = true;
+        minion.hasRegeneration = true;
+        minion.ownerID = players[currentPlayerIndex].playerID; 
+
+        // 2. Build Minion Deck
+        for(const auto& c : allCards) {
+             if(c.name == "Punch") { minion.deck.push_back(c); minion.deck.push_back(c); }
+             if(c.name == "Hand Block") { minion.deck.push_back(c); minion.deck.push_back(c); }
+        }
+        std::shuffle(minion.deck.begin(), minion.deck.end(), rng);
+
+        // 3. Graveyard Interaction
+        int gIndex = -1;
+        for(size_t i=0; i<graveyard.size(); i++) {
+            if(graveyard[i].x == minion.x && graveyard[i].y == minion.y) {
+                if(globalTurnCounter - graveyard[i].turnDied <= 1) {
+                    gIndex = i;
+                    break;
+                }
+            }
+        }
+
+        if(gIndex != -1) {
+            if(!graveyard[gIndex].deck.empty()) {
+                int r = (int)ofRandom(0, graveyard[gIndex].deck.size());
+                minion.deck.push_back(graveyard[gIndex].deck[r]);
+                ofLogNotice("Raise Dead") << "Looted a card from the grave!";
+            }
+            graveyard.erase(graveyard.begin() + gIndex);
+        }
+
+        // 4. Add to Board
+        board[minion.x][minion.y].hasPlayer = true;
+        players.push_back(minion);
+
+        // 5. SORT TURN ORDER
+        int currentID = players[currentPlayerIndex].playerID;
+        std::sort(players.begin(), players.end(), [](const Player& a, const Player& b){
+            int ownerA = a.isMinion ? a.ownerID : a.playerID;
+            int ownerB = b.isMinion ? b.ownerID : b.playerID;
+            if (ownerA != ownerB) return ownerA < ownerB;
+            if (a.isMinion && !b.isMinion) return true; 
+            if (!a.isMinion && b.isMinion) return false;
+            return a.playerID < b.playerID;
+        });
+
+        // 6. Fix CurrentPlayerIndex
+        for(size_t i=0; i<players.size(); i++) {
+            if(players[i].playerID == currentID) {
+                currentPlayerIndex = i;
+                break;
+            }
+        }
+        
+        ofLogNotice("Raise Dead") << "Skeleton risen with " << minion.health << " HP.";
+        invalidateTargetCache(); 
+    }
 
 // --- ETHEREAL JOLT RESOLUTION ---
 	if (isWaitingForJoltRangeDice && activeDiceRolls.empty()) {
@@ -950,6 +1047,29 @@ void ofApp::setupGame() {
 		}
 	}
 
+	  // --- HEAL RESOLUTION ---
+    if (isWaitingForHealDice && activeDiceRolls.empty()) {
+        isWaitingForHealDice = false;
+        
+        Player* target = getPlayer(pendingHealTargetIndex);
+        if (target) {
+            int healAmount = pendingHealRollResult;
+            
+            // Apply Heal
+            target->health += healAmount;
+            
+            // Cap at Max Health
+            if (target->health > target->maxHealth) {
+                target->health = target->maxHealth;
+            }
+
+            ofLogNotice("Heal") << "Player " << target->playerID 
+                                << " healed for " << healAmount 
+                                << ". Current HP: " << target->health;
+        }
+        pendingHealTargetIndex = -1;
+    }
+
 // --- Dispel Barrier Dice ---
     if (isWaitingForBarrierDice && activeDiceRolls.empty()) {
         isWaitingForBarrierDice = false;
@@ -1008,9 +1128,8 @@ void ofApp::setupGame() {
 
 			// CORRECTED LOGIC: Check for DEBUG first. If it's not a debug roll,
 			// THEN execute all the game-related logic inside this block.
-			if (roll.purpose != PURPOSE_DEBUG) {
-				
-				if (roll.purpose == PURPOSE_AP) {
+			if (roll.purpose != PURPOSE_DEBUG && roll.purpose != PURPOSE_HP && roll.purpose != PURPOSE_HEALING) {
+         if (roll.purpose == PURPOSE_AP) {
 					currentAP = roll.result;
 					if (players[currentPlayerIndex].nextTurnAPBonus > 0) {
 						currentAP += players[currentPlayerIndex].nextTurnAPBonus;
@@ -1087,9 +1206,15 @@ void ofApp::setupGame() {
 	// Card Hand Animation
 	if (!players.empty() && currentPlayerIndex >= 0) {
 		Player & currentPlayer = players[currentPlayerIndex];
+        
+        // FIX: Determine Y position based on ownership (P1 vs P2)
+        // If it is Player 1 OR P1's Minion, draw hand at bottom. Otherwise top.
+        bool isP1 = (currentPlayer.playerID == 0 || currentPlayer.ownerID == 0);
+		float handCenterY = isP1 ? ofGetHeight() - 130 : 130;
+
 		float handBaseCardWidth = 120;
 		float handAreaWidth = ofGetWidth() * 0.4f;
-		float handCenterY = (currentPlayerIndex == 0) ? ofGetHeight() - 130 : 130;
+		
 		size_t numCards = currentPlayer.hand.size();
 		float totalCardWidths = numCards * handBaseCardWidth;
 		float padding = (numCards > 1) ? (handAreaWidth - totalCardWidths) / (numCards - 1) : 0;
@@ -1305,9 +1430,25 @@ void ofApp::drawGame() {
 			glm::vec3 staticPos = gridToWorld(player.x, player.y);
 			ofTranslate(staticPos.x, staticPos.y + 0.1f, staticPos.z);
 		}
-		playerModel.drawFaces();
-		ofPopMatrix();
-	}
+		if (player.isSkeleton) {
+            ofSetColor(255); // Reset color to white so texture isn't tinted
+            
+            // Lift him up if he's buried in the floor
+            ofTranslate(0, 1.0f, 0); 
+
+            // 1. Bind the texture
+            skeletonTexture.bind();
+            
+            // 2. Draw the model
+            skeletonModel.drawFaces();
+            
+            // 3. Unbind the texture
+            skeletonTexture.unbind();
+        } else {
+            playerModel.drawFaces();
+        }
+        ofPopMatrix();
+    }
 
 	// Dice (Batched)
 	diceMaterial.begin();
@@ -2448,7 +2589,6 @@ void ofApp::mouseMoved(int x, int y) {
     }
 }
 // ----------------- FULL mousePressed FUNCTION -----------------
-// ----------------- FULL mousePressed FUNCTION -----------------
 void ofApp::mousePressed(int x, int y, int button) {
 	
 	// ==============================================================================
@@ -2460,7 +2600,17 @@ void ofApp::mousePressed(int x, int y, int button) {
 		bool choiceMade = false;
 		Player * targetPlayer = getPlayer(magicBlastTargetPlayerIndex);
 		
-		if (!targetPlayer) { isMagicBlastChoiceActive = false; return; }
+		if (!targetPlayer) { 
+    // Logic to try and find the next splash target if the current one became invalid
+    if (!magicBlastSplashTargetIndices.empty()) {
+         magicBlastTargetPlayerIndex = magicBlastSplashTargetIndices.front();
+         magicBlastSplashTargetIndices.erase(magicBlastSplashTargetIndices.begin());
+         magicBlastChoicesRemaining = 1;
+         return;
+    }
+    isMagicBlastChoiceActive = false; 
+    return; 
+}
 
 		if (magicBlastDamageButton.inside(x, y)) {
 			int damage = 5;
@@ -3136,9 +3286,22 @@ void ofApp::startNewTurn() {
 	}
 
 	// --- 2. Advance to the NEXT player ---
-	currentPlayerIndex = (currentPlayerIndex + 1) % players.size();
-	ofLogNotice("Game") << "--- NEW TURN: Player " << players[currentPlayerIndex].playerID << " ---";
-	Player & startingPlayer = players[currentPlayerIndex];
+	 // Cycle index
+    currentPlayerIndex = (currentPlayerIndex + 1) % players.size();
+    
+    // Increment Global Turn Counter if we wrapped back to start (or P0)
+    if (currentPlayerIndex == 0) globalTurnCounter++;
+
+    Player & startingPlayer = players[currentPlayerIndex];
+    ofLogNotice("Game") << "--- START TURN: " << (startingPlayer.isMinion ? "Minion " : "Player ") << startingPlayer.playerID;
+
+    // --- REGENERATION ---
+    if (startingPlayer.hasRegeneration) {
+        if (startingPlayer.health < startingPlayer.maxHealth) {
+            startingPlayer.health++;
+            ofLogNotice("Regen") << "Regenerated 1 HP.";
+        }
+    }
 
 	// --- 3. Expiry Checks (Reset Armor) ---
 	startingPlayer.block = 0;   
@@ -3174,22 +3337,28 @@ void ofApp::continueNewTurn() {
 	playerAction = NONE;
 	clearHighlights();
 	calculateTargetHighlights();
+	
+    // FIX: Snap visual position instantly to the new unit so it doesn't "fly" across the board
 	playerVisualPos = gridToWorld(startingPlayer.x, startingPlayer.y);
+    animationPath.clear();
+    isPlayerAnimating = false;
 
 	activeDiceRolls.clear();
 	currentAP = 0;
 
-	// --- NEW: AP ROLL LOGIC (D6 or D10) ---
-	int apDiceSides = 6; // Default
-	
-	if (startingPlayer.nextTurnD10AP) {
-		apDiceSides = 10;
-		ofLogNotice("Game") << "Hasten Effect: Rolling D10 for AP!";
-		// Reset the flag immediately so it doesn't persist to the turn after next
-		startingPlayer.nextTurnD10AP = false; 
-	}
-
-	startDiceRoll(1, apDiceSides, PURPOSE_AP);
+    // --- AP ROLL LOGIC ---
+    // Minions roll 1d6. Players roll 1d6 (or 1d10 if Hastened).
+    if (startingPlayer.isMinion) {
+        startDiceRoll(1, 6, PURPOSE_AP);
+    } 
+    else {
+        int apDiceSides = 6;
+        if (startingPlayer.nextTurnD10AP) {
+            apDiceSides = 10;
+            startingPlayer.nextTurnD10AP = false; 
+        }
+        startDiceRoll(1, apDiceSides, PURPOSE_AP);
+    }
 }
 //--------------------------------------------------------------
 void ofApp::drawCard() {
@@ -3289,23 +3458,34 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 
 		// --- LAYER 2: GENERIC MITIGATION ---
 		// Ward stops EVERYTHING (Least specific, always last shield)
-		if (remainingDmg > 0) {
-			int absorb = std::min(target.ward, remainingDmg);
-			target.ward -= absorb;
-			remainingDmg -= absorb;
-			if (absorb > 0) ofLogNotice("Game") << "Ward absorbed " << absorb;
-		}
+		 if (remainingDmg > 0) {
+        target.health -= remainingDmg;
+        ofLogNotice("Game") << remainingDmg << " damage taken to Health! (HP: " << target.health << ")";
+    }
+    
+    // --- REPLACE THE OLD "if (target.health <= 0)" WITH THIS ---
+    if (target.health <= 0) {
+        ofLogNotice("Game") << "Player " << target.playerID << " defeated!";
 
-		// --- LAYER 3: HEALTH ---
-		if (remainingDmg > 0) {
-			target.health -= remainingDmg;
-			ofLogNotice("Game") << remainingDmg << " damage taken to Health! (HP: " << target.health << ")";
-		}
-		
-		if (target.health <= 0) ofLogNotice("Game") << "Player " << target.playerID << " defeated!";
+        // Graveyard Logic
+        DeathMarker death;
+        death.x = target.x;
+        death.y = target.y;
+        death.turnDied = globalTurnCounter;
+        death.deck = target.deck; // Save their deck for looting
+        graveyard.push_back(death);
+        
+        // Note: We don't remove them from the 'players' vector immediately 
+        // because that shifts indices and breaks the loop currently running.
+        // Usually, you mark them as dead and clean up at the start of the next turn,
+        // or move them to a "dead" state (x = -100).
+        board[target.x][target.y].hasPlayer = false; // Free up the tile immediately
+        target.x = -1000; // Move off screen
+    }
+    // -----------------------------------------------------------
 
-		return target.health < initialHealth;
-	};
+    return target.health < initialHealth;
+};
 
 	bool playedSuccessfully = false;
 
@@ -3383,7 +3563,7 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		// Store the target index so we know whose deck to modify later
 		amnesiaTargetPlayerIndex = targetIndex;
 		
-		// Start Dice Roll
+		// Start Dice Roll for CARD COUNT REMOVAL (Not healing)
 		pendingAmnesiaRollResult = startDiceRoll(playedCard.numDice, playedCard.diceSides, PURPOSE_DAMAGE);
 		isWaitingForAmnesiaDice = true;
 		
@@ -3550,51 +3730,89 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 	}
 
 // --- CASE: WISDOM BOON ---
-	case CARD_WISDOM_BOON: {
-		// 1. Find the target unit
-		int targetIndex = -1;
-		for (size_t i = 0; i < players.size(); i++) {
-			if (players[i].x == targetX && players[i].y == targetY) {
-				targetIndex = (int)i;
-				break;
-			}
-		}
+case CARD_WISDOM_BOON: {
+    // 1. Find the target unit
+    int targetIndex = -1;
+    for (size_t i = 0; i < players.size(); i++) {
+        if (players[i].x == targetX && players[i].y == targetY) {
+            targetIndex = (int)i;
+            break;
+        }
+    }
 
-		// 2. Validate Target
-		if (targetIndex == -1) {
-			ofLogNotice("Wisdom Boon") << "Failed: No target selected.";
-			break; 
-		}
-		
-		Player* t = getPlayer(targetIndex);
-		bool isSelf = (targetIndex == currentPlayerIndex);
-		bool isAdjacent = (abs(t->x - currentPlayer.x) + abs(t->y - currentPlayer.y) == 1);
+    // 2. Validate Target
+    if (targetIndex == -1) {
+        ofLogNotice("Wisdom Boon") << "Failed: No target selected.";
+        break; 
+    }
+    
+    Player* t = getPlayer(targetIndex);
+    bool isSelf = (targetIndex == currentPlayerIndex);
+    bool isAdjacent = (abs(t->x - currentPlayer.x) + abs(t->y - currentPlayer.y) == 1);
 
-		// Enforce Rules: Must be Self OR Adjacent
-		if (!isSelf && !isAdjacent) {
-			ofLogNotice("Wisdom Boon") << "Failed: Target must be Self or Adjacent.";
-			break;
-		}
+    // Enforce Rules: Must be Self OR Adjacent
+    if (!isSelf && !isAdjacent) {
+        ofLogNotice("Wisdom Boon") << "Failed: Target must be Self or Adjacent.";
+        break;
+    }
 
-		// 3. Setup Menu State
-		pendingWisdomBoonCardIndex = cardIndex;
-		pendingWisdomBoonTargetIndex = targetIndex;
-		isWisdomBoonMenuOpen = true;
+    // 3. Setup Menu State
+    pendingWisdomBoonCardIndex = cardIndex;
+    pendingWisdomBoonTargetIndex = targetIndex;
+    isWisdomBoonMenuOpen = true;
 
-		// 4. Calculate Layout
-		float w = 600, h = 300;
-		float x = ofGetWidth()/2 - w/2, y = ofGetHeight()/2 - h/2;
-		wisdomMenuRect.set(x, y, w, h);
-		
-		// Single big button for the context-sensitive action
-		float btnW = 300, btnH = 80;
-		// We'll reuse 'wisdomBtnDamage' as the main action button
-		wisdomBtnDamage.set(x + (w - btnW)/2, y + 150, btnW, btnH);
-		// Hide the other button
-		wisdomBtnBlock.set(0,0,0,0); 
+    // 4. Calculate Layout
+    float w = 600, h = 300;
+    float x = ofGetWidth()/2 - w/2, y = ofGetHeight()/2 - h/2;
+    wisdomMenuRect.set(x, y, w, h);
+    
+    // Single big button for the context-sensitive action
+    float btnW = 300, btnH = 80;
+    // We'll reuse 'wisdomBtnDamage' as the main action button
+    wisdomBtnDamage.set(x + (w - btnW)/2, y + 150, btnW, btnH);
+    // Hide the other button
+    wisdomBtnBlock.set(0,0,0,0); 
 
-		break; 
-	}
+    break; // <--- WISDOM BOON ENDS HERE
+}
+
+// --- CASE: HEAL ---
+case CARD_HEAL: {
+    // 1. Validate LoS again (using the 1000.0f range for unlimited)
+    glm::vec2 casterTile = { (float)currentPlayer.x, (float)currentPlayer.y };
+    glm::vec2 targetTile = { (float)targetX, (float)targetY };
+    TargetInfo validationResult = isLosTargetValid(casterTile, targetTile, 1000.0f, playedCard.type);
+
+    if (validationResult.reason != VALID) {
+        ofLogNotice("Heal") << "Cast failed! No Line of Sight.";
+        break;
+    }
+
+    // 2. Find Target Unit
+    int targetIndex = -1;
+    for (size_t i = 0; i < players.size(); i++) {
+        if (players[i].x == targetX && players[i].y == targetY) {
+            targetIndex = (int)i;
+            break;
+        }
+    }
+
+    if (targetIndex == -1) {
+        ofLogNotice("Heal") << "Cast failed! No unit at target.";
+        break;
+    }
+
+    // 3. Start Dice Roll
+    ofLogNotice("Heal") << "Casting Heal on Player " << players[targetIndex].playerID << "... Rolling 2d6.";
+    
+    pendingHealTargetIndex = targetIndex;
+    // We reuse PURPOSE_DAMAGE just so the number pops up visually
+    pendingHealRollResult = startDiceRoll(playedCard.numDice, playedCard.diceSides, PURPOSE_DAMAGE);
+    isWaitingForHealDice = true;
+
+    playedSuccessfully = true;
+    break; // <--- HEAL ENDS HERE
+}
 
 // --- CASE: ETHEREAL JOLT ---
 	case CARD_ETHEREAL_JOLT: {
@@ -3656,6 +3874,24 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		playedSuccessfully = true;
 		break;
 	}
+
+// --- CASE: RAISE DEAD ---
+    case CARD_RAISE_DEAD: {
+        // Double check target
+        if (board[targetX][targetY].hasWall || board[targetX][targetY].hasPlayer) {
+            ofLogNotice("Raise Dead") << "Invalid target.";
+            break;
+        }
+
+        ofLogNotice("Raise Dead") << "Raising Skeleton! Rolling 1d6 for HP...";
+        
+        pendingSummonTile = glm::vec2(targetX, targetY);
+        pendingSummonRollResult = startDiceRoll(1, 6, PURPOSE_HP); // Ensure this is NOT PURPOSE_COIN_FLIP or PURPOSE_AP
+    isWaitingForSummonHealth = true;
+
+        playedSuccessfully = true;
+        break;
+    }
 
 	// --- CASE: STANDARD ATTACK (Stab, Cleave, Pierce) ---
 	case CARD_ATTACK_SINGLE_TILE: {
@@ -3895,27 +4131,32 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
     int px = currentPlayer.x;
     int py = currentPlayer.y;
 
-   // --- 1. SPECIAL LOS LOGIC (Magic Blast / Fireball / Ethereal Jolt) ---
-	if (card.type == CARD_MAGIC_BLAST || card.type == CARD_FIREBALL || card.type == CARD_ETHEREAL_JOLT) {
-		float maxRange = 0.0f;
-		if (card.type == CARD_MAGIC_BLAST) maxRange = 20.0f;
-		else if (card.type == CARD_FIREBALL) maxRange = 12.0f;
-		else if (card.type == CARD_ETHEREAL_JOLT) maxRange = 20.0f; // 1d20 max
+    // --- 1. SPECIAL LOS LOGIC (Magic Blast / Fireball / Jolt / Heal) ---
+    // Added CARD_HEAL to this condition
+    if (card.type == CARD_MAGIC_BLAST || card.type == CARD_FIREBALL || 
+        card.type == CARD_ETHEREAL_JOLT || card.type == CARD_HEAL) {
+        
+        float maxRange = 0.0f;
+        if (card.type == CARD_MAGIC_BLAST) maxRange = 20.0f;
+        else if (card.type == CARD_FIREBALL) maxRange = 12.0f;
+        else if (card.type == CARD_ETHEREAL_JOLT) maxRange = 20.0f;
+        else if (card.type == CARD_HEAL) maxRange = 1000.0f; // <--- Unlimited Range
 
-		glm::vec2 casterTile = { (float)px, (float)py };
-		
-		for (int x = 0; x < BOARD_WIDTH; x++) {
-			for (int y = 0; y < BOARD_HEIGHT; y++) {
-				targetCache[x][y] = isLosTargetValid(casterTile, { (float)x, (float)y }, maxRange, card.type);
-				
+        glm::vec2 casterTile = { (float)px, (float)py };
+        
+        for (int x = 0; x < BOARD_WIDTH; x++) {
+            for (int y = 0; y < BOARD_HEIGHT; y++) {
+                // Determine if target is valid based on LoS and Range
+                targetCache[x][y] = isLosTargetValid(casterTile, { (float)x, (float)y }, maxRange, card.type);
+                
                 if(targetCache[x][y].reason == VALID) {
                     board[x][y].isTargetable = targetCache[x][y].isTargetable;
                 } else {
-					board[x][y].isTargetable = false;
-				}
-			}
-		}
-	}
+                    board[x][y].isTargetable = false;
+                }
+            }
+        }
+    }
     // --- 2. DIRECTIONAL LOGIC (Cleave / Pierce) ---
     else if (card.targeting == TARGET_CLEAVE_ADJACENT) {
         glm::vec2 directions[4] = { { 0, -1 }, { 0, 1 }, { -1, 0 }, { 1, 0 } };
@@ -4026,23 +4267,32 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
                     break;
                 }
                 // --- Rock Crush ---
-                case TARGET_ADJACENT_UNIT_OR_WALL: {
-                    int distance = abs(x - px) + abs(y - py);
-                    if (distance == 1) {
-                        if (board[x][y].hasWall || board[x][y].hasPlayer) {
-                            isValid = true;
-                        }
-                    }
-                    break;
-                }
-				
-                // --------------------------------------------
-                case TARGET_SELF:
-                    isValid = false; 
-                    break;
-                default:
-                    break;
-                }
+                 case TARGET_ADJACENT_UNIT_OR_WALL: {
+        int distance = abs(x - px) + abs(y - py);
+        if (distance == 1) {
+            if (board[x][y].hasWall || board[x][y].hasPlayer) {
+                isValid = true;
+            }
+        }
+        break;
+    }
+
+    // --- PASTE HERE ---
+    case TARGET_EMPTY_ADJACENT: {
+        int dist = abs(x - px) + abs(y - py);
+        if (dist == 1 && !board[x][y].hasWall && !board[x][y].hasPlayer) {
+            isValid = true;
+        }
+        break;
+    }
+    // ------------------
+
+    case TARGET_SELF:
+        isValid = false; 
+        break;
+    default:
+        break;
+}
 
                 if (isValid) {
                     board[x][y].isTargetable = true;
@@ -5175,6 +5425,8 @@ CardType ofApp::stringToCardType(const std::string& str) {
 	if (str == "CARD_WISDOM_BOON") return CARD_WISDOM_BOON;
 	if (str == "CARD_ETHEREAL_JOLT") return CARD_ETHEREAL_JOLT;
 	if (str == "CARD_FLAME_HIT") return CARD_FLAME_HIT;
+	if (str == "CARD_HEAL") return CARD_HEAL;
+	if (str == "CARD_RAISE_DEAD") return CARD_RAISE_DEAD;
     return CARD_NONE;
 }
 
@@ -5186,6 +5438,7 @@ TargetingType ofApp::stringToTargetingType(const std::string& str) {
     if (str == "TARGET_ADJACENT_OR_SELF_UNIT") return TARGET_ADJACENT_OR_SELF_UNIT;
     if (str == "TARGET_LINE_OF_SIGHT_TILE") return TARGET_LINE_OF_SIGHT_TILE;
 	if (str == "TARGET_ADJACENT_UNIT_OR_WALL") return TARGET_ADJACENT_UNIT_OR_WALL;
+	if (str == "TARGET_EMPTY_ADJACENT") return TARGET_EMPTY_ADJACENT;
     return TARGET_NONE;
 }
 

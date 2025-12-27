@@ -57,7 +57,8 @@ enum TargetingType {
     TARGET_ADJACENT_OR_SELF_UNIT,
     TARGET_LINE_OF_SIGHT_TILE,
     TARGET_BURST_AREA,
-    TARGET_ADJACENT_UNIT_OR_WALL
+    TARGET_ADJACENT_UNIT_OR_WALL,
+    TARGET_EMPTY_ADJACENT
 };
 
 enum CardType {
@@ -83,7 +84,9 @@ enum CardType {
     CARD_REPLICATE,
     CARD_WISDOM_BOON,
     CARD_ETHEREAL_JOLT,
-    CARD_FLAME_HIT 
+    CARD_FLAME_HIT,
+    CARD_HEAL,
+    CARD_RAISE_DEAD
 };
 
 enum DicePurpose {
@@ -92,7 +95,9 @@ enum DicePurpose {
     PURPOSE_RANGE,
     PURPOSE_COIN_FLIP,
     PURPOSE_DEBUG,
-    PURPOSE_BARRIER_GAIN //
+    PURPOSE_BARRIER_GAIN,
+    PURPOSE_HP,
+    PURPOSE_HEALING 
 };
 
 enum TargetValidity {
@@ -199,11 +204,23 @@ struct Player {
     bool nextTurnD10AP = false;
     bool nextTurnExtraDraw = false;
     bool isReplicatePending = false;
+     // --- New Minion Fields ---
+    bool isMinion = false;
+    bool isSkeleton = false; // For visuals
+    int ownerID = -1;        // Matches the playerID of the summoner
+    bool hasRegeneration = false; 
 
     std::vector<Card> playedCardsPile;
     std::vector<Card> hand;
     std::vector<Card> deck;
     std::vector<Card> discardPile;
+};
+
+struct DeathMarker {
+    int x;
+    int y;
+    int turnDied;
+    std::vector<Card> deck;
 };
 
 // --- THE MAIN APP CLASS ---
@@ -225,6 +242,20 @@ public:
     void dragEvent(ofDragInfo dragInfo);
     void gotMessage(ofMessage msg);
     void mouseScrolled(int x, int y, float scrollX, float scrollY);
+
+    // --- GRAVEYARD & GLOBAL STATE ---
+    int globalTurnCounter = 0;
+    std::vector<DeathMarker> graveyard;
+    
+    // --- SUMMON STATE ---
+    bool isWaitingForSummonHealth = false;
+    int pendingSummonRollResult = 0;
+    glm::vec2 pendingSummonTile;
+    
+    // --- ASSETS ---
+    ofxAssimpModelLoader skeletonModel;
+    ofTexture skeletonTexture; 
+
 
 private:
     // --- GAME LOGIC & STATE FUNCTIONS ---
@@ -339,6 +370,11 @@ private:
     bool isWisdomBoonMenuOpen = false;
     int pendingWisdomBoonCardIndex = -1;
     int pendingWisdomBoonTargetIndex = -1;
+
+     // --- Heal State ---
+    bool isWaitingForHealDice = false;
+    int pendingHealRollResult = 0;
+    int pendingHealTargetIndex = -1;
     
     // UI Rects
     ofRectangle wisdomMenuRect;

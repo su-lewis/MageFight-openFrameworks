@@ -184,5 +184,23 @@
     "damageType": "DAMAGE_FIRE",
     "numDice": 0,
     "diceSides": 0
-  }
+  },
+  {
+    "id": 21,
+    "name": "Heal",
+    "type": "CARD_HEAL",
+    "cost": 3,
+    "targeting": "TARGET_LINE_OF_SIGHT_TILE",
+    "numDice": 2,
+    "diceSides": 6
+  },
+  {
+    "id": 22,
+    "name": "Raise Dead",
+    "type": "CARD_RAISE_DEAD",
+    "cost": 2,
+    "targeting": "TARGET_EMPTY_ADJACENT",
+    "numDice": 1,
+    "diceSides": 6
+  },
 ]
