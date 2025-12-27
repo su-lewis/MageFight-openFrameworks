@@ -10,303 +10,281 @@
 
 //--------------------------------------------------------------
 void ofApp::setup() {
-	ofSetEscapeQuitsApp(false);
-	
-	// Default to VSync ON immediately
-	ofSetVerticalSync(true);
-	
-	ofSetBackgroundColor(22);
-	ofDisableArbTex();
-	ofSetCircleResolution(64);
+    ofSetEscapeQuitsApp(false);
+    ofSetVerticalSync(true);
+    ofSetBackgroundColor(22);
+    ofDisableArbTex();
+    ofSetCircleResolution(64);
 
-	// --- LOAD FONTS & Cards ---
-	uiFont.load("Roboto-Regular.ttf", 24);
-	titleFont.load("Roboto-Bold.ttf", 72);
-	cardBackImage.load("card_back.png");
-	cardSpriteSheet.load("TTS_Sheet.png");
+    // --- 1. UI & CONFIG ---
+    // Note: Paths now point to UI/ folder
+    uiFont.load("UI/Roboto-Regular.ttf", 24);
+    titleFont.load("UI/Roboto-Bold.ttf", 72);
+    cardBackImage.load("UI/card_back.png");
+    cardSpriteSheet.load("UI/TTS_Sheet.png");
 
-    // --- PLAYER MODEL SETUP ---
-    playerModel.load("player.obj");
+    // --- 2. UNITS ---
+    // Note: Paths now point to Units/ folder
+    playerModel.load("Units/Player/player.obj");
     playerModel.setRotation(0, -90, 1, 0, 0);
     playerModel.setScale(0.008f, 0.008f, 0.008f);
 
-
- 	 // --- SKELETON SETUP ---
-    skeletonModel.load("units/skeleton.fbx");
-    
-    // Load Texture
-    ofLoadImage(skeletonTexture, "units/base.png");
-
-    // FIX: Rotate 180 on X-axis to stand upright
+    skeletonModel.load("Units/Skeleton/skeleton.fbx");
+    ofLoadImage(skeletonTexture, "Units/Skeleton/base.png"); // Manual texture load
     skeletonModel.setRotation(0, 180, 1, 0, 0); 
-    
-    // Scale down (adjust if he's too small/big, FBX is usually cm)
-    skeletonModel.setScale(0.008f, 0.008f, 0.008f); 
-
+    skeletonModel.setScale(0.008f, 0.008f, 0.008f);
     skeletonModel.disableMaterials();
 
+    // --- 3. BOARD & SKYBOX ---
+    // Note: Paths point to Board/ folder
+    ofLoadImage(wallTexture, "Board/wallcartoon.png");
+    skyboxImage.load("Board/aircraft_workshop.jpg");
 
-    // Textures
-    ofLoadImage(wallTexture, "wallcartoon.png");
-	ofLoadImage(d6Texture, "dice_texture_d6.png");
-	ofLoadImage(d4Texture, "Dice_d4_Albedo.png");
-	ofLoadImage(d20Texture, "d20_diffuse.png");
-	ofLoadImage(d10Texture, "d10SilverAlbedo.png"); 
-	skyboxImage.load("aircraft_workshop.jpg");
-
-    // Coin Texture (Use GL_NEAREST for sharp pixel art)
-    ofLoadImage(coinFacesTexture, "CoinUKSilver.png"); 
+    // --- 4. DICE TEXTURES & COIN ---
+    // Note: Paths point to specific Dice/ subfolders
+	ofLoadImage(d4Texture, "Dice/D4/Dice_d4_Albedo.png");
+    ofLoadImage(d6Texture, "Dice/D6/dice_texture_d6.png");
+	ofLoadImage(d10Texture, "Dice/D10/d10SilverAlbedo.png"); 
+    ofLoadImage(d20Texture, "Dice/D20/d20_diffuse.png");
+    
+    ofLoadImage(coinFacesTexture, "Dice/Coin/CoinUKSilver.png"); 
     coinFacesTexture.setTextureMinMagFilter(GL_NEAREST, GL_NEAREST);
 
-  // --- LOAD FOOTSTEPS (step1.wav to step6.wav) ---
+    // --- 5. SOUNDS ---
+    // Note: Path points to Sounds/Player/
     for (int i = 1; i <= 6; i++) {
         ofSoundPlayer step;
-        // Construct filename: "step" + number + ".wav"
-        if (step.load("step" + ofToString(i) + ".wav")) {
-            step.setMultiPlay(true); // Allows rapid overlapping steps
-            step.setVolume(0.5f);    // Volume 50%
+        if (step.load("Sounds/Player/step" + ofToString(i) + ".wav")) {
+            step.setMultiPlay(true); 
+            step.setVolume(0.5f);    
             footstepSounds.push_back(step);
         } else {
-            ofLogError("Sound") << "Could not load step" << i << ".wav";
+            ofLogError("Sound") << "Could not load Sounds/Player/step" << i << ".wav";
         }
     }
 
-	// Programmatic Meshes (build them only once)
-	float wallSize = TILE_SIZE * 0.8f;
-	wallMesh.clear();
-	wallMesh.setMode(OF_PRIMITIVE_TRIANGLES);
-	wallMesh.addVertex(ofPoint(-wallSize / 2, 0, -wallSize / 2));
-	wallMesh.addVertex(ofPoint(wallSize / 2, 0, -wallSize / 2));
-	wallMesh.addVertex(ofPoint(wallSize / 2, 0, wallSize / 2));
-	wallMesh.addVertex(ofPoint(-wallSize / 2, 0, wallSize / 2));
-	wallMesh.addTexCoord(ofVec2f(0.4f, 0.4f));
-	wallMesh.addTexCoord(ofVec2f(0.6f, 0.4f));
-	wallMesh.addTexCoord(ofVec2f(0.6f, 0.6f));
-	wallMesh.addTexCoord(ofVec2f(0.4f, 0.6f));
-	for (int i = 0; i < 4; i++)
-		wallMesh.addNormal(ofPoint(0, 1, 0));
-	wallMesh.addIndex(0);
-	wallMesh.addIndex(1);
-	wallMesh.addIndex(2);
-	wallMesh.addIndex(0);
-	wallMesh.addIndex(2);
-	wallMesh.addIndex(3);
+    // --- 6. MESH GENERATION (Walls & Floor) ---
+    // (This code remains unchanged as it generates geometry programmatically)
+    float wallSize = TILE_SIZE * 0.8f;
+    wallMesh.clear();
+    wallMesh.setMode(OF_PRIMITIVE_TRIANGLES);
+    wallMesh.addVertex(ofPoint(-wallSize / 2, 0, -wallSize / 2));
+    wallMesh.addVertex(ofPoint(wallSize / 2, 0, -wallSize / 2));
+    wallMesh.addVertex(ofPoint(wallSize / 2, 0, wallSize / 2));
+    wallMesh.addVertex(ofPoint(-wallSize / 2, 0, wallSize / 2));
+    wallMesh.addTexCoord(ofVec2f(0.4f, 0.4f));
+    wallMesh.addTexCoord(ofVec2f(0.6f, 0.4f));
+    wallMesh.addTexCoord(ofVec2f(0.6f, 0.6f));
+    wallMesh.addTexCoord(ofVec2f(0.4f, 0.6f));
+    for (int i = 0; i < 4; i++) wallMesh.addNormal(ofPoint(0, 1, 0));
+    wallMesh.addIndex(0); wallMesh.addIndex(1); wallMesh.addIndex(2);
+    wallMesh.addIndex(0); wallMesh.addIndex(2); wallMesh.addIndex(3);
 
-	d6Mesh.clear();
-	d6Mesh.setMode(OF_PRIMITIVE_TRIANGLES);
-	float size = 1.0f;
-	const float atlasWidth = 333.0f, atlasHeight = 225.0f;
-	glm::vec2 uv_1_min(0.0f / atlasWidth, 0.0f / atlasHeight), uv_1_max(104.0f / atlasWidth, 104.0f / atlasHeight);
-	glm::vec2 uv_2_min(114.0f / atlasWidth, 0.0f / atlasHeight), uv_2_max(218.0f / atlasWidth, 104.0f / atlasHeight);
-	glm::vec2 uv_3_min(228.0f / atlasWidth, 0.0f / atlasHeight), uv_3_max(332.0f / atlasWidth, 104.0f / atlasHeight);
-	glm::vec2 uv_4_min(0.0f / atlasWidth, 120.0f / atlasHeight), uv_4_max(104.0f / atlasWidth, 224.0f / atlasHeight);
-	glm::vec2 uv_5_min(114.0f / atlasWidth, 120.0f / atlasHeight), uv_5_max(218.0f / atlasWidth, 224.0f / atlasHeight);
-	glm::vec2 uv_6_min(228.0f / atlasWidth, 120.0f / atlasHeight), uv_6_max(332.0f / atlasWidth, 224.0f / atlasHeight);
-	auto addFace = [&](glm::vec3 v1, glm::vec3 v2, glm::vec3 v3, glm::vec3 v4, glm::vec2 t_min, glm::vec2 t_max, glm::vec3 normal) {
-		int baseIndex = d6Mesh.getNumVertices();
-		d6Mesh.addVertex(v1 * size);
-		d6Mesh.addTexCoord({ t_min.x, t_max.y });
-		d6Mesh.addVertex(v2 * size);
-		d6Mesh.addTexCoord({ t_max.x, t_max.y });
-		d6Mesh.addVertex(v3 * size);
-		d6Mesh.addTexCoord({ t_max.x, t_min.y });
-		d6Mesh.addVertex(v4 * size);
-		d6Mesh.addTexCoord({ t_min.x, t_min.y });
-		for (int i = 0; i < 4; i++)
-			d6Mesh.addNormal(normal);
-		d6Mesh.addIndex(baseIndex);
-		d6Mesh.addIndex(baseIndex + 1);
-		d6Mesh.addIndex(baseIndex + 2);
-		d6Mesh.addIndex(baseIndex);
-		d6Mesh.addIndex(baseIndex + 2);
-		d6Mesh.addIndex(baseIndex + 3);
-	};
-	addFace({ -1, -1, 1 }, { 1, -1, 1 }, { 1, 1, 1 }, { -1, 1, 1 }, uv_1_min, uv_1_max, { 0, 0, 1 });
-	addFace({ 1, -1, -1 }, { -1, -1, -1 }, { -1, 1, -1 }, { 1, 1, -1 }, uv_6_min, uv_6_max, { 0, 0, -1 });
-	addFace({ -1, 1, 1 }, { 1, 1, 1 }, { 1, 1, -1 }, { -1, 1, -1 }, uv_2_min, uv_2_max, { 0, 1, 0 });
-	addFace({ -1, -1, -1 }, { 1, -1, -1 }, { 1, -1, 1 }, { -1, -1, 1 }, uv_5_min, uv_5_max, { 0, -1, 0 });
-	addFace({ 1, -1, 1 }, { 1, -1, -1 }, { 1, 1, -1 }, { 1, 1, 1 }, uv_3_min, uv_3_max, { 1, 0, 0 });
-	addFace({ -1, -1, -1 }, { -1, -1, 1 }, { -1, 1, 1 }, { -1, 1, -1 }, uv_4_min, uv_4_max, { -1, 0, 0 });
+    // D6 Mesh Gen
+    d6Mesh.clear();
+    d6Mesh.setMode(OF_PRIMITIVE_TRIANGLES);
+    float size = 1.0f;
+    const float atlasWidth = 333.0f, atlasHeight = 225.0f;
+    glm::vec2 uv_1_min(0.0f / atlasWidth, 0.0f / atlasHeight), uv_1_max(104.0f / atlasWidth, 104.0f / atlasHeight);
+    glm::vec2 uv_2_min(114.0f / atlasWidth, 0.0f / atlasHeight), uv_2_max(218.0f / atlasWidth, 104.0f / atlasHeight);
+    glm::vec2 uv_3_min(228.0f / atlasWidth, 0.0f / atlasHeight), uv_3_max(332.0f / atlasWidth, 104.0f / atlasHeight);
+    glm::vec2 uv_4_min(0.0f / atlasWidth, 120.0f / atlasHeight), uv_4_max(104.0f / atlasWidth, 224.0f / atlasHeight);
+    glm::vec2 uv_5_min(114.0f / atlasWidth, 120.0f / atlasHeight), uv_5_max(218.0f / atlasWidth, 224.0f / atlasHeight);
+    glm::vec2 uv_6_min(228.0f / atlasWidth, 120.0f / atlasHeight), uv_6_max(332.0f / atlasWidth, 224.0f / atlasHeight);
+    auto addFace = [&](glm::vec3 v1, glm::vec3 v2, glm::vec3 v3, glm::vec3 v4, glm::vec2 t_min, glm::vec2 t_max, glm::vec3 normal) {
+        int baseIndex = d6Mesh.getNumVertices();
+        d6Mesh.addVertex(v1 * size); d6Mesh.addTexCoord({ t_min.x, t_max.y });
+        d6Mesh.addVertex(v2 * size); d6Mesh.addTexCoord({ t_max.x, t_max.y });
+        d6Mesh.addVertex(v3 * size); d6Mesh.addTexCoord({ t_max.x, t_min.y });
+        d6Mesh.addVertex(v4 * size); d6Mesh.addTexCoord({ t_min.x, t_min.y });
+        for (int i = 0; i < 4; i++) d6Mesh.addNormal(normal);
+        d6Mesh.addIndex(baseIndex); d6Mesh.addIndex(baseIndex + 1); d6Mesh.addIndex(baseIndex + 2);
+        d6Mesh.addIndex(baseIndex); d6Mesh.addIndex(baseIndex + 2); d6Mesh.addIndex(baseIndex + 3);
+    };
+    addFace({ -1, -1, 1 }, { 1, -1, 1 }, { 1, 1, 1 }, { -1, 1, 1 }, uv_1_min, uv_1_max, { 0, 0, 1 });
+    addFace({ 1, -1, -1 }, { -1, -1, -1 }, { -1, 1, -1 }, { 1, 1, -1 }, uv_6_min, uv_6_max, { 0, 0, -1 });
+    addFace({ -1, 1, 1 }, { 1, 1, 1 }, { 1, 1, -1 }, { -1, 1, -1 }, uv_2_min, uv_2_max, { 0, 1, 0 });
+    addFace({ -1, -1, -1 }, { 1, -1, -1 }, { 1, -1, 1 }, { -1, -1, 1 }, uv_5_min, uv_5_max, { 0, -1, 0 });
+    addFace({ 1, -1, 1 }, { 1, -1, -1 }, { 1, 1, -1 }, { 1, 1, 1 }, uv_3_min, uv_3_max, { 1, 0, 0 });
+    addFace({ -1, -1, -1 }, { -1, -1, 1 }, { -1, 1, 1 }, { -1, 1, -1 }, uv_4_min, uv_4_max, { -1, 0, 0 });
 
-	ofxAssimpModelLoader tempLoader;
-	if (tempLoader.load("Dice_d4.obj")) {
-		d4Mesh = tempLoader.getMesh(0);
-		glm::vec3 meshCenter = d4Mesh.getCentroid();
-		for (auto & v : d4Mesh.getVertices()) v -= meshCenter;
-		float maxSize = 0.0f;
-		for (auto & v : d4Mesh.getVertices()) maxSize = std::max(maxSize, glm::length(v));
-		if (maxSize > 0) {
-			float scaleFactor = 1.0f / maxSize;
-			for (auto & v : d4Mesh.getVertices()) v *= scaleFactor;
-		}
-	}
-	if (tempLoader.load("d20.obj")) {
-		d20Mesh = tempLoader.getMesh(0);
-		glm::vec3 meshCenter = d20Mesh.getCentroid();
-		for (auto & v : d20Mesh.getVertices()) v -= meshCenter;
-		float maxSize = 0.0f;
-		for (auto & v : d20Mesh.getVertices()) maxSize = std::max(maxSize, glm::length(v));
-		if (maxSize > 0) {
-			float scaleFactor = 1.0f / maxSize;
-			for (auto & v : d20Mesh.getVertices()) v *= scaleFactor;
-		}
-	}
-	if (tempLoader.load("d10.obj")) {
-		d10Mesh = tempLoader.getMesh(0);
-		glm::vec3 meshCenter = d10Mesh.getCentroid();
-		for (auto & v : d10Mesh.getVertices()) v -= meshCenter;
-		float maxSize = 0.0f;
-		for (auto & v : d10Mesh.getVertices()) maxSize = std::max(maxSize, glm::length(v));
-		if (maxSize > 0) {
-			float scaleFactor = 1.0f / maxSize;
-			for (auto & v : d10Mesh.getVertices()) v *= scaleFactor;
-		}
-	}
+    // --- 7. DICE MODELS ---
+    ofxAssimpModelLoader tempLoader;
+    
+    // Load D4
+    if (tempLoader.load("Dice/D4/Dice_d4.obj")) {
+        d4Mesh = tempLoader.getMesh(0);
+        glm::vec3 meshCenter = d4Mesh.getCentroid();
+        for (auto & v : d4Mesh.getVertices()) v -= meshCenter;
+        float maxSize = 0.0f;
+        for (auto & v : d4Mesh.getVertices()) maxSize = std::max(maxSize, glm::length(v));
+        if (maxSize > 0) {
+            float scaleFactor = 1.0f / maxSize;
+            for (auto & v : d4Mesh.getVertices()) v *= scaleFactor;
+        }
+    }
+    // Load D10
+    if (tempLoader.load("Dice/D10/d10.obj")) {
+        d10Mesh = tempLoader.getMesh(0);
+        glm::vec3 meshCenter = d10Mesh.getCentroid();
+        for (auto & v : d10Mesh.getVertices()) v -= meshCenter;
+        float maxSize = 0.0f;
+        for (auto & v : d10Mesh.getVertices()) maxSize = std::max(maxSize, glm::length(v));
+        if (maxSize > 0) {
+            float scaleFactor = 1.0f / maxSize;
+            for (auto & v : d10Mesh.getVertices()) v *= scaleFactor;
+        }
+    }
+    // Load D20
+    if (tempLoader.load("Dice/D20/d20.obj")) {
+        d20Mesh = tempLoader.getMesh(0);
+        glm::vec3 meshCenter = d20Mesh.getCentroid();
+        for (auto & v : d20Mesh.getVertices()) v -= meshCenter;
+        float maxSize = 0.0f;
+        for (auto & v : d20Mesh.getVertices()) maxSize = std::max(maxSize, glm::length(v));
+        if (maxSize > 0) {
+            float scaleFactor = 1.0f / maxSize;
+            for (auto & v : d20Mesh.getVertices()) v *= scaleFactor;
+        }
+    }
+    
+    // Coin Mesh Gen
+    coinMesh.clear();
+    coinMesh.setMode(OF_PRIMITIVE_TRIANGLES);
+    const float coinRadius = 2.0f;
+    const float coinThickness = 0.2f;
+    const int coinResolution = 32;
+    ofRectangle headsUV(0.0f, 0.0f, 0.5f, 1.0f);
+    ofRectangle tailsUV(0.5f, 0.0f, 0.5f, 1.0f);
 
-	// Coin Mesh Creation
-	coinMesh.clear();
-	coinMesh.setMode(OF_PRIMITIVE_TRIANGLES);
-	const float coinRadius = 2.0f;
-	const float coinThickness = 0.2f;
-	const int coinResolution = 32;
-	ofRectangle headsUV(0.0f, 0.0f, 0.5f, 1.0f);
-	ofRectangle tailsUV(0.5f, 0.0f, 0.5f, 1.0f);
+    int topCenterIndex = coinMesh.getNumVertices();
+    coinMesh.addVertex({0, coinThickness / 2.0f, 0});
+    coinMesh.addNormal({0, 1, 0});
+    coinMesh.addTexCoord({headsUV.getCenter().x, headsUV.getCenter().y});
+    for (int i = 0; i <= coinResolution; i++) {
+        float angle = (float)i / coinResolution * TWO_PI;
+        coinMesh.addVertex({cos(angle) * coinRadius, coinThickness / 2.0f, sin(angle) * coinRadius});
+        coinMesh.addNormal({0, 1, 0});
+        coinMesh.addTexCoord({headsUV.x + headsUV.width * (0.5f + 0.5f * cos(angle)), headsUV.y + headsUV.height * (0.5f + 0.5f * sin(angle))});
+    }
+    for (int i = 0; i < coinResolution; i++) {
+        coinMesh.addIndex(topCenterIndex); coinMesh.addIndex(topCenterIndex + 1 + i); coinMesh.addIndex(topCenterIndex + 1 + i + 1);
+    }
 
-	// Top Face (Heads)
-	int topCenterIndex = coinMesh.getNumVertices();
-	coinMesh.addVertex({0, coinThickness / 2.0f, 0});
-	coinMesh.addNormal({0, 1, 0});
-	coinMesh.addTexCoord({headsUV.getCenter().x, headsUV.getCenter().y});
-	for (int i = 0; i <= coinResolution; i++) {
-		float angle = (float)i / coinResolution * TWO_PI;
-		coinMesh.addVertex({cos(angle) * coinRadius, coinThickness / 2.0f, sin(angle) * coinRadius});
-		coinMesh.addNormal({0, 1, 0});
-		coinMesh.addTexCoord({headsUV.x + headsUV.width * (0.5f + 0.5f * cos(angle)), headsUV.y + headsUV.height * (0.5f + 0.5f * sin(angle))});
-	}
-	for (int i = 0; i < coinResolution; i++) {
-		coinMesh.addIndex(topCenterIndex); coinMesh.addIndex(topCenterIndex + 1 + i); coinMesh.addIndex(topCenterIndex + 1 + i + 1);
-	}
+    int bottomCenterIndex = coinMesh.getNumVertices();
+    coinMesh.addVertex({0, -coinThickness / 2.0f, 0});
+    coinMesh.addNormal({0, -1, 0});
+    coinMesh.addTexCoord({tailsUV.getCenter().x, tailsUV.getCenter().y});
+    for (int i = 0; i <= coinResolution; i++) {
+        float angle = (float)i / coinResolution * TWO_PI;
+        coinMesh.addVertex({cos(angle) * coinRadius, -coinThickness / 2.0f, sin(angle) * coinRadius});
+        coinMesh.addNormal({0, -1, 0});
+        coinMesh.addTexCoord({tailsUV.x + tailsUV.width * (0.5f + 0.5f * cos(angle)), tailsUV.y + tailsUV.height * (0.5f + 0.5f * sin(angle))});
+    }
+    for (int i = 0; i < coinResolution; i++) {
+        coinMesh.addIndex(bottomCenterIndex); coinMesh.addIndex(bottomCenterIndex + 1 + i + 1); coinMesh.addIndex(bottomCenterIndex + 1 + i);
+    }
 
-	// Bottom Face (Tails)
-	int bottomCenterIndex = coinMesh.getNumVertices();
-	coinMesh.addVertex({0, -coinThickness / 2.0f, 0});
-	coinMesh.addNormal({0, -1, 0});
-	coinMesh.addTexCoord({tailsUV.getCenter().x, tailsUV.getCenter().y});
-	for (int i = 0; i <= coinResolution; i++) {
-		float angle = (float)i / coinResolution * TWO_PI;
-		coinMesh.addVertex({cos(angle) * coinRadius, -coinThickness / 2.0f, sin(angle) * coinRadius});
-		coinMesh.addNormal({0, -1, 0});
-		coinMesh.addTexCoord({tailsUV.x + tailsUV.width * (0.5f + 0.5f * cos(angle)), tailsUV.y + tailsUV.height * (0.5f + 0.5f * sin(angle))});
-	}
-	for (int i = 0; i < coinResolution; i++) {
-		coinMesh.addIndex(bottomCenterIndex); coinMesh.addIndex(bottomCenterIndex + 1 + i + 1); coinMesh.addIndex(bottomCenterIndex + 1 + i);
-	}
+    ofColor edgeColor = ofColor::goldenRod;
+    int edgeStartIndex = coinMesh.getNumVertices();
+    for (int i = 0; i <= coinResolution; i++) {
+        float angle = (float)i / coinResolution * TWO_PI;
+        glm::vec3 normal = glm::normalize(glm::vec3(cos(angle), 0, sin(angle)));
+        coinMesh.addVertex({cos(angle) * coinRadius,  coinThickness/2.0f, sin(angle) * coinRadius});
+        coinMesh.addNormal(normal); coinMesh.addColor(edgeColor);
+        coinMesh.addVertex({cos(angle) * coinRadius, -coinThickness/2.0f, sin(angle) * coinRadius});
+        coinMesh.addNormal(normal); coinMesh.addColor(edgeColor);
+    }
+    for (int i = 0; i < coinResolution; i++) {
+        int current = edgeStartIndex + i * 2; int next = edgeStartIndex + (i + 1) * 2;
+        coinMesh.addIndex(current); coinMesh.addIndex(next); coinMesh.addIndex(current + 1);
+        coinMesh.addIndex(next); coinMesh.addIndex(next + 1); coinMesh.addIndex(current + 1);
+    }
 
-	// Edge (using vertex colors)
-	ofColor edgeColor = ofColor::goldenRod;
-	int edgeStartIndex = coinMesh.getNumVertices();
-	for (int i = 0; i <= coinResolution; i++) {
-		float angle = (float)i / coinResolution * TWO_PI;
-		glm::vec3 normal = glm::normalize(glm::vec3(cos(angle), 0, sin(angle)));
-		coinMesh.addVertex({cos(angle) * coinRadius,  coinThickness/2.0f, sin(angle) * coinRadius});
-		coinMesh.addNormal(normal); coinMesh.addColor(edgeColor);
-		coinMesh.addVertex({cos(angle) * coinRadius, -coinThickness/2.0f, sin(angle) * coinRadius});
-		coinMesh.addNormal(normal); coinMesh.addColor(edgeColor);
-	}
-	for (int i = 0; i < coinResolution; i++) {
-		int current = edgeStartIndex + i * 2; int next = edgeStartIndex + (i + 1) * 2;
-		coinMesh.addIndex(current); coinMesh.addIndex(next); coinMesh.addIndex(current + 1);
-		coinMesh.addIndex(next); coinMesh.addIndex(next + 1); coinMesh.addIndex(current + 1);
-	}
+    // Sky Dome Gen
+    skyDomeMesh = ofMesh::sphere(50000, 128);
+    auto & normals = skyDomeMesh.getNormals();
+    for (auto & normal : normals) {
+        normal *= -1;
+    }
 
-	skyDomeMesh = ofMesh::sphere(50000, 128);
-	auto & normals = skyDomeMesh.getNormals();
-	for (auto & normal : normals) {
-		normal *= -1;
-	}
+    // --- 8. MATERIALS & LIGHTS ---
+    modelMaterial.setShininess(32);
+    modelMaterial.setSpecularColor(ofColor(128, 128, 128));
+    diceMaterial.setShininess(90);
+    diceMaterial.setSpecularColor(ofColor::white);
+    diceMaterial.setDiffuseColor(ofColor::white);
+    ofSetGlobalAmbientColor(ofColor(90, 90, 90));
+    
+    lights.clear();
+    ofLight keyLight;
+    keyLight.setup();
+    keyLight.setPointLight();
+    keyLight.setDiffuseColor(ofColor(255, 255, 255));
+    keyLight.setPosition(-40, 30, 40);
+    lights.push_back(keyLight);
+    
+    ofLight rimLight;
+    rimLight.setup();
+    rimLight.setPointLight();
+    rimLight.setDiffuseColor(ofColor(180, 180, 180));
+    rimLight.setPosition(40, 20, -30);
+    lights.push_back(rimLight);
+    
+    headlight.setup();
+    headlight.setPointLight();
+    headlight.setDiffuseColor(ofColor(80, 80, 80));
+    headlight.setAttenuation(1.0, 0.001, 0.001);
+    
+    cam.setupPerspective(false, 60, 0.1f, 100000);
+    cam.setFarClip(100000);
 
-	modelMaterial.setShininess(32);
-	modelMaterial.setSpecularColor(ofColor(128, 128, 128));
-	diceMaterial.setShininess(90);
-	diceMaterial.setSpecularColor(ofColor::white);
-	diceMaterial.setDiffuseColor(ofColor::white);
-	ofSetGlobalAmbientColor(ofColor(90, 90, 90));
-	lights.clear();
-	ofLight keyLight;
-	keyLight.setup();
-	keyLight.setPointLight();
-	keyLight.setDiffuseColor(ofColor(255, 255, 255));
-	keyLight.setPosition(-40, 30, 40);
-	lights.push_back(keyLight);
-	ofLight rimLight;
-	rimLight.setup();
-	rimLight.setPointLight();
-	rimLight.setDiffuseColor(ofColor(180, 180, 180));
-	rimLight.setPosition(40, 20, -30);
-	lights.push_back(rimLight);
-	headlight.setup();
-	headlight.setPointLight();
-	headlight.setDiffuseColor(ofColor(80, 80, 80));
-	headlight.setAttenuation(1.0, 0.001, 0.001);
-	cam.setupPerspective(false, 60, 0.1f, 100000);
-	cam.setFarClip(100000);
+    // --- 9. LOAD CARD DATA ---
+    // Note: Path points to Config/ folder
+    loadCardData("Config/cards.json");
 
-	loadCardData("cards.json");
-
-	availableResolutions = { { 1024, 768 }, { 1280, 720 }, { 1600, 900 }, { 1920, 1080 }, { 2560, 1440 } };
-	
-    // 1. Detect Native Resolution
-	int screenW = ofGetScreenWidth();
-	int screenH = ofGetScreenHeight();
-
+    // --- 10. SCREEN SETTINGS ---
+    availableResolutions = { { 1024, 768 }, { 1280, 720 }, { 1600, 900 }, { 1920, 1080 }, { 2560, 1440 } };
+    int screenW = ofGetScreenWidth();
+    int screenH = ofGetScreenHeight();
     bool found = false;
-	for (size_t i = 0; i < availableResolutions.size(); ++i) {
-		if (availableResolutions[i].x == screenW && availableResolutions[i].y == screenH) {
-			currentResolutionIndex = static_cast<int>(i);
+    for (size_t i = 0; i < availableResolutions.size(); ++i) {
+        if (availableResolutions[i].x == screenW && availableResolutions[i].y == screenH) {
+            currentResolutionIndex = static_cast<int>(i);
             found = true;
-			break;
-		}
-	}
+            break;
+        }
+    }
     if (!found) {
         availableResolutions.push_back(glm::vec2(screenW, screenH));
         currentResolutionIndex = availableResolutions.size() - 1;
     }
 
-	// 2. DETECT MONITOR REFRESH RATE
-	int monitorRefreshRate = 60; // Safe default
-	GLFWmonitor* primary = glfwGetPrimaryMonitor();
-	if (primary) {
-		const GLFWvidmode* mode = glfwGetVideoMode(primary);
-		monitorRefreshRate = mode->refreshRate;
-	}
+    int monitorRefreshRate = 60;
+    GLFWmonitor* primary = glfwGetPrimaryMonitor();
+    if (primary) {
+        const GLFWvidmode* mode = glfwGetVideoMode(primary);
+        monitorRefreshRate = mode->refreshRate;
+    }
 
-	// 3. BUILD FRAME RATES LIST
-	// We ensure standard ones + the detected one + Unlimited (0)
-	availableFramerates.clear();
-	availableFramerates.push_back(30);
-	availableFramerates.push_back(60);
-	
-	// Add native rate if it isn't 30 or 60 (e.g. 144, 180)
-	if (monitorRefreshRate != 30 && monitorRefreshRate != 60) {
-		availableFramerates.push_back(monitorRefreshRate);
-	}
-	
-	availableFramerates.push_back(0); // Unlimited
+    availableFramerates.clear();
+    availableFramerates.push_back(30);
+    availableFramerates.push_back(60);
+    if (monitorRefreshRate != 30 && monitorRefreshRate != 60) {
+        availableFramerates.push_back(monitorRefreshRate);
+    }
+    availableFramerates.push_back(0); 
 
-    // 4. Set Default to Native Refresh Rate
-	// Scan the list we just made to find the native rate index
-	for(size_t i = 0; i < availableFramerates.size(); i++) {
-		if (availableFramerates[i] == monitorRefreshRate) {
-			currentFramerateIndex = i;
-			break;
-		}
-	}
+    for(size_t i = 0; i < availableFramerates.size(); i++) {
+        if (availableFramerates[i] == monitorRefreshRate) {
+            currentFramerateIndex = i;
+            break;
+        }
+    }
 
-	isFullscreen = true;
-    
-    // 5. Apply immediately
+    isFullscreen = true;
     ofSetFullscreen(true);
-	applySettings();
+    applySettings();
 }
 
 //--------------------------------------------------------------
