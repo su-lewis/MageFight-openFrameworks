@@ -227,32 +227,53 @@ void ofApp::setup() {
     }
 
     // --- 8. MATERIALS & LIGHTS ---
-    modelMaterial.setShininess(32);
-    modelMaterial.setSpecularColor(ofColor(128, 128, 128));
+    
+    // 1. Material Settings
+    // Shininess: How focused the reflection is (High = Wet/Metal, Low = Dull/Stone)
+    modelMaterial.setShininess(12); 
+    
+    // Ambient Color: We set this to White so the object is CAPABLE of seeing ambient light.
+    // We will control the actual darkness using the Global Ambient setting below.
+    modelMaterial.setAmbientColor(ofColor(255, 255, 255));
+    
     diceMaterial.setShininess(90);
     diceMaterial.setSpecularColor(ofColor::white);
     diceMaterial.setDiffuseColor(ofColor::white);
-    ofSetGlobalAmbientColor(ofColor(90, 90, 90));
+    
+    // 2. GLOBAL AMBIENT (The "Base" Brightness)
+    // PREVIOUSLY: 180 (Bright Day)
+    // DUNGEON SETTING: 40 (Dark shadows, slight blue tint for atmosphere)
+    ofSetGlobalAmbientColor(ofColor(30, 30, 50)); 
     
     lights.clear();
-    ofLight keyLight;
-    keyLight.setup();
-    keyLight.setPointLight();
-    keyLight.setDiffuseColor(ofColor(255, 255, 255));
-    keyLight.setPosition(-40, 30, 40);
+    
+    // 3. KEY LIGHT (The Moon/Dungeon Main Source)
+    // Positioned high up to cast shadows downwards
+    ofLight keyLight; 
+    keyLight.setup(); 
+    keyLight.setPointLight(); 
+    keyLight.setDiffuseColor(ofColor(100, 100, 120)); // Cool blue/grey light
+    keyLight.setPosition(50, 400, 50); 
     lights.push_back(keyLight);
     
-    ofLight rimLight;
-    rimLight.setup();
-    rimLight.setPointLight();
-    rimLight.setDiffuseColor(ofColor(180, 180, 180));
-    rimLight.setPosition(40, 20, -30);
+    // 4. RIM LIGHT (Backlight)
+    // Helps separate objects from the dark background
+    ofLight rimLight; 
+    rimLight.setup(); 
+    rimLight.setPointLight(); 
+    rimLight.setDiffuseColor(ofColor(50, 0, 0)); // Faint red glow from "below/behind"
+    rimLight.setPosition(-100, 50, -100); 
     lights.push_back(rimLight);
     
-    headlight.setup();
-    headlight.setPointLight();
-    headlight.setDiffuseColor(ofColor(80, 80, 80));
-    headlight.setAttenuation(1.0, 0.001, 0.001);
+    // 5. HEADLIGHT (The Player's Torch)
+    // This is attached to the camera. It ensures that whatever you look at
+    // is lit up, even if the rest of the room is dark.
+    headlight.setup(); 
+    headlight.setPointLight(); 
+    headlight.setDiffuseColor(ofColor(200, 180, 140)); // Warm Torch color
+    // Attenuation: How fast the light fades over distance.
+    // 0.02 means it fades out after a medium distance (torch range)
+    headlight.setAttenuation(0.8, 0.005, 0.0); 
     
     cam.setupPerspective(false, 60, 0.1f, 100000);
     cam.setFarClip(100000);
