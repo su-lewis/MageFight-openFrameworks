@@ -3900,7 +3900,18 @@ case CARD_HEAL: {
         break;
     }
 
-    // 3. Start Dice Roll
+   // --- NEW FRIENDLY CHECK (VALIDATION) ---
+    Player* target = getPlayer(targetIndex);
+    int casterOwner = currentPlayer.isMinion ? currentPlayer.ownerID : currentPlayer.playerID;
+    int targetOwner = target->isMinion ? target->ownerID : target->playerID;
+
+    if (casterOwner != targetOwner) {
+        ofLogNotice("Heal") << "Cast failed! Cannot heal an enemy unit.";
+        break; // Exit the case
+    }
+    // --- END NEW FRIENDLY CHECK ---
+
+    // 3. Start Dice Roll (The rest of the function is correct)
     ofLogNotice("Heal") << "Casting Heal on Player " << players[targetIndex].playerID << "... Rolling 2d6.";
     
     pendingHealTargetIndex = targetIndex;
@@ -4238,7 +4249,38 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
         if (card.type == CARD_MAGIC_BLAST) maxRange = 20.0f;
         else if (card.type == CARD_FIREBALL) maxRange = 12.0f;
         else if (card.type == CARD_ETHEREAL_JOLT) maxRange = 20.0f;
-        else if (card.type == CARD_HEAL) maxRange = 1000.0f; // <--- Unlimited Range
+        else if (card.type == CARD_HEAL) {
+    // Heal is unlimited range, but ONLY for self or friendly units.
+    glm::vec2 casterTile = { (float)px, (float)py };
+    for (int x = 0; x < BOARD_WIDTH; x++) {
+        for (int y = 0; y < BOARD_HEIGHT; y++) {
+            // Find the unit on this tile, if any
+            Player* target = nullptr;
+            for (auto& p : players) {
+                if (p.x == x && p.y == y) {
+                    target = &p;
+                    break;
+                }
+            }
+
+            if (target) {
+                // --- NEW FRIENDLY CHECK ---
+                // Determine owner of caster and target
+                int casterOwner = currentPlayer.isMinion ? currentPlayer.ownerID : currentPlayer.playerID;
+                int targetOwner = target->isMinion ? target->ownerID : target->playerID;
+
+                if (casterOwner == targetOwner) {
+                    // It's a friendly target, now check Line of Sight
+                    TargetInfo validationResult = isLosTargetValid(casterTile, { (float)x, (float)y }, 1000.0f, card.type);
+                    if (validationResult.reason == VALID) {
+                        board[x][y].isTargetable = true;
+                    }
+                }
+            }
+        }
+    }
+    return; // Exit the function early as we handled this card type completely
+}
 
         glm::vec2 casterTile = { (float)px, (float)py };
         
