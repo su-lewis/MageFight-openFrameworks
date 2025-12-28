@@ -1454,10 +1454,10 @@ void ofApp::buildFloorMesh() {
 //-----------------------------
 void ofApp::drawGame() {
 	// --- 1. SETUP RENDER STATES ---
-	ofEnableDepthTest(); // Essential for 3D
-	ofDisableAlphaBlending(); // Disable blending for opaque objects (Walls/Floor)
-	ofDisableBlendMode(); // Ensure standard mode
-	ofSetColor(255); // Reset global color
+	ofEnableDepthTest();
+	ofDisableAlphaBlending();
+	ofDisableBlendMode();
+	ofSetColor(255);
 
 	cam.begin();
 
@@ -1470,51 +1470,34 @@ void ofApp::drawGame() {
 	headlight.enable();
 
 	// --- 4. OPAQUE GEOMETRY (Floor & Walls) ---
-    
-    // Draw Random Floor Tiles
     for(size_t i = 0; i < floorMeshes.size(); i++) {
-        if(i < floorTextures.size()) { // Safety check
+        if(i < floorTextures.size()) {
             floorTextures[i].bind();
             floorMeshes[i].draw();
             floorTextures[i].unbind();
         }
     }
-
-    // Draw Walls
     wallTexture.bind();
     levelMesh.draw();
     wallTexture.unbind();
 
-	    
-// --- 5. OPAQUE DYNAMIC OBJECTS (Players & Dice) ---
-
-	// Players
+	// --- 5. OPAQUE DYNAMIC OBJECTS (Players & Dice) ---
 	for (const auto & player : players) {
 		ofSetColor(255);
 		ofPushMatrix();
-
-		// 1. Move to Board Position
 		if (currentPlayerIndex >= 0 && player.playerID == players[currentPlayerIndex].playerID) {
-			// Active Unit: Smooth Animation Position
 			ofTranslate(playerVisualPos.x, playerVisualPos.y, playerVisualPos.z);
 		} else {
-			// Inactive Unit: Static Grid Position
 			glm::vec3 staticPos = gridToWorld(player.x, player.y);
 			ofTranslate(staticPos.x, staticPos.y, staticPos.z);
 		}
-
-		// 2. Draw Specific Model
 		if (player.isSkeleton) {
-            ofSetColor(255); // Reset color to white for texture
-            
-            // FIX: Lift up by 2.5 units to stop floor clipping (Adjust this value if needed)
+            ofSetColor(255);
             ofTranslate(0, 2.5f, 0); 
-            
             skeletonTexture.bind();
             skeletonModel.drawFaces();
             skeletonTexture.unbind();
         } else {
-            // Standard Player: Lift slightly (0.1) to avoid Z-fighting with floor
             ofTranslate(0, 0.1f, 0);
             playerModel.drawFaces();
         }
@@ -1684,16 +1667,10 @@ void ofApp::drawGame() {
 
 
 	// --- 6. TRANSPARENT GEOMETRY (Highlights) ---
-	// Now we enable blending. Objects drawn here will be transparent.
-	// They are drawn LAST in the 3D scene to blend correctly against the opaque walls behind them.
 	ofEnableAlphaBlending();
 
 	for (int x = 0; x < BOARD_WIDTH; x++) {
 		for (int y = 0; y < BOARD_HEIGHT; y++) {
-			// We redraw the tile base here ONLY if you want the grid to be distinct,
-			// otherwise relying on the floorMesh is better.
-			// Let's just draw the HIGHLIGHTS here.
-
 			glm::vec3 tileWorldPos = gridToWorld(x, y);
 			ofPushMatrix();
 			ofTranslate(tileWorldPos.x, 0, tileWorldPos.z);
@@ -1708,7 +1685,7 @@ void ofApp::drawGame() {
 				}
 				if (!isOnPath) {
 					ofDisableLighting();
-					ofSetColor(ofColor::yellow, 102); // Transparent yellow
+					ofSetColor(ofColor::yellow, 102);
 					ofPushMatrix();
 					ofTranslate(0, 0.05f, 0);
 					ofRotateXDeg(90);
@@ -1721,53 +1698,34 @@ void ofApp::drawGame() {
 			// Target Highlights
 			bool isLosCardSelected = false;
 			bool isLosCardHovered = false;
-			int cardToCheck = -1;
+            // --- FIX: Removed unused 'cardToCheck' variable ---
 
-			// Priority 1: Selected Card (Clicked)
-			if (!players.empty() && currentPlayerIndex >= 0 && selectedCardIndex >= 0 && selectedCardIndex < static_cast<int>(players[currentPlayerIndex].hand.size())) {
+			if (!players.empty() && currentPlayerIndex >= 0 && selectedCardIndex >= 0 && static_cast<size_t>(selectedCardIndex) < players[currentPlayerIndex].hand.size()) {
 				CardType type = players[currentPlayerIndex].hand[selectedCardIndex].type;
 				if (type == CARD_MAGIC_BLAST || type == CARD_FIREBALL) {
 					isLosCardSelected = true;
-					cardToCheck = selectedCardIndex;
 				}
 			}
-			// Priority 2: Hovered Card (Only if nothing selected)
-			else if (!players.empty() && currentPlayerIndex >= 0 && hoveredCardIndex >= 0 && hoveredCardIndex < static_cast<int>(players[currentPlayerIndex].hand.size())) {
+			else if (!players.empty() && currentPlayerIndex >= 0 && hoveredCardIndex >= 0 && static_cast<size_t>(hoveredCardIndex) < players[currentPlayerIndex].hand.size()) {
 				CardType type = players[currentPlayerIndex].hand[hoveredCardIndex].type;
 				if (type == CARD_MAGIC_BLAST || type == CARD_FIREBALL) {
 					isLosCardHovered = true;
-					cardToCheck = hoveredCardIndex;
 				}
 			}
 
-			// Do we need to draw specific LoS highlights?
 			if (isLosCardSelected || isLosCardHovered) {
-				// Ensure calculations are up to date for this specific tile/card
-				// (Assuming calculateTargetHighlights was called in mouseMoved/Pressed)
 				TargetInfo info = targetCache[x][y];
-
-				// Only draw if physically possible (VALID)
 				if (info.reason == VALID) {
-					
-					// COLOR LOGIC:
-					// 1. If it's a valid Target (Unit/Splash): RED
-					// 2. If it's just in Range/LoS but empty: GREEN (Only if Selected)
-					
 					ofColor highlightColor;
 					bool shouldDraw = false;
-
 					if (info.isTargetable) {
-						// It's a valid target (Unit here, or splashable) -> RED
 						highlightColor = ofColor(255, 0, 0, 180);
 						shouldDraw = true;
 					} 
 					else if (isLosCardSelected) {
-						// It's physically reachable but empty -> GREEN
-						// (Only show this when card is actually clicked/selected)
 						highlightColor = ofColor(0, 255, 0, 150);
 						shouldDraw = true;
 					}
-
 					if (shouldDraw) {
 						ofDisableLighting();
 						ofSetColor(highlightColor);
@@ -1776,7 +1734,6 @@ void ofApp::drawGame() {
 						ofPushMatrix();
 						ofTranslate(0, 0.06f, 0);
 						ofRotateXDeg(90);
-						// Draw box slightly smaller than tile
 						ofDrawRectangle(-TILE_SIZE * 0.45f, -TILE_SIZE * 0.45f, TILE_SIZE * 0.9f, TILE_SIZE * 0.9f);
 						ofPopMatrix();
 						ofFill();
@@ -1785,7 +1742,6 @@ void ofApp::drawGame() {
 					}
 				}
 			} 
-			// Fallback for standard targeting (Movement, other cards)
 			else if (board[x][y].isTargetable) {
 				ofDisableLighting();
 				ofSetColor(ofColor::red, 180);
@@ -1801,7 +1757,6 @@ void ofApp::drawGame() {
 				ofEnableLighting();
 			}
 
-			// Player Ring (Purple)
 			if (!players.empty() && currentPlayerIndex >= 0 && x == players[currentPlayerIndex].x && y == players[currentPlayerIndex].y) {
 				ofDisableLighting();
 				ofSetColor(ofColor::fromHex(0x9400D3));
@@ -1816,12 +1771,12 @@ void ofApp::drawGame() {
 				ofSetLineWidth(1);
 				ofEnableLighting();
 			}
-			ofPopMatrix(); // End Tile Translation
+			ofPopMatrix();
 		}
 	}
 
-	// Path Dots
 	if ((playerAction == PIECE_SELECTED) && !hoverPath.empty()) {
+		// --- FIX: Changed loop counter to size_t to resolve signed/unsigned warning ---
 		for (size_t i = 1; i < hoverPath.size(); i++) {
 			const auto & step = hoverPath[i];
 			glm::vec3 pathWorldPos = gridToWorld(step.x, step.y);
@@ -1843,14 +1798,14 @@ void ofApp::drawGame() {
 	headlight.disable();
 	ofDisableLighting();
 
-	cam.end(); // Stop 3D Camera
-	ofDisableDepthTest(); // CRITICAL for 2D UI to draw on top
-	ofEnableAlphaBlending(); // Ensure blending is on for UI transparency
+	cam.end();
+	ofDisableDepthTest();
+	ofEnableAlphaBlending();
 
-// --- 8. DRAW UI ---
+	// --- 8. DRAW UI ---
 	float designHeight = 1080.0f;
 	float scale = ofGetHeight() / designHeight;
-	float fontScale = scale * 0.5f; // DEFINED HERE FIRST
+	float fontScale = scale * 0.5f;
 
 	float handBaseCardWidth = 120;
 	float handCardAspectRatio = 585.0f / 409.0f;
@@ -1858,7 +1813,6 @@ void ofApp::drawGame() {
 	float staticUICardWidth = (handBaseCardWidth * 1.3f) * scale;
 	float staticUICardHeight = (baseCardHeight * 1.3f) * scale;
 
-	// --- DEFINE HELPER LAMBDA (Must come before we call it) ---
 	auto drawHealthBar = [&](Player & player, float x, float y, ofColor healthColor) {
 		float healthBarWidth = 220 * scale;
 		float healthBarHeight = 65 * scale;
@@ -1955,7 +1909,15 @@ void ofApp::drawGame() {
 	};
 
 	// --- MAIN UI DRAWING ---
-	if (players.size() >= 2) {
+	// --- FIX: Find the main players to prevent UI bugs with minions ---
+	Player* player0 = nullptr;
+	Player* player1 = nullptr;
+	for (auto& p : players) {
+		if (p.playerID == 0) player0 = &p;
+		if (p.playerID == 1) player1 = &p;
+	}
+
+	if (player0 && player1) {
 		// 1. Calculate positions first
 		float p0_deckX = 30 * scale;
 		float p0_deckY = ofGetHeight() - staticUICardHeight - (40 * scale) - staticUICardHeight - (40 * scale);
@@ -1973,11 +1935,11 @@ void ofApp::drawGame() {
 		float p1_deckY = p1_discardY + staticUICardHeight + (40 * scale);
 		p1_deckRect.set(p1_deckX, p1_deckY, staticUICardWidth, staticUICardHeight);
 
-		// 2. Draw Player 0 (Bottom)
-		drawHealthBar(players[0], ofGetWidth() - (220 * scale) - (50 * scale), ofGetHeight() - (65 * scale) - (40 * scale), ofColor::green);
-
+		// 2. Draw Player 0 (Bottom) UI
+		drawHealthBar(*player0, ofGetWidth() - (220 * scale) - (50 * scale), ofGetHeight() - (65 * scale) - (40 * scale), ofColor::green);
+		
 		// P0 Deck
-		if (!players[0].deck.empty()) {
+		if (!player0->deck.empty()) {
 			ofSetColor(ofColor::white);
 			cardBackImage.draw(p0_deckRect);
 		}
@@ -1986,7 +1948,7 @@ void ofApp::drawGame() {
 			ofDrawRectRounded(p0_deckRect, 10 * scale);
 		}
 
-		if (currentPlayerIndex == 0 && !hasDrawnCardsThisTurn) {
+		if (players[currentPlayerIndex].playerID == 0 && !hasDrawnCardsThisTurn) {
 			ofPushStyle();
 			ofNoFill();
 			ofSetColor(ofColor::yellow);
@@ -1996,8 +1958,8 @@ void ofApp::drawGame() {
 		}
 
 		// P0 Discard
-		if (!players[0].discardPile.empty()) {
-			const auto & discardRect = players[0].discardPile.back().textureRect;
+		if (!player0->discardPile.empty()) {
+			const auto & discardRect = player0->discardPile.back().textureRect;
 			cardSpriteSheet.drawSubsection(p0_discardRect.x, p0_discardRect.y, p0_discardRect.width, p0_discardRect.height,
 				discardRect.x, discardRect.y, discardRect.width, discardRect.height);
 		}
@@ -2006,12 +1968,12 @@ void ofApp::drawGame() {
 			ofDrawRectRounded(p0_discardRect, 10 * scale);
 		}
 
-		// 3. Draw Player 1 (Top)
-		drawHealthBar(players[1], 40 * scale, 40 * scale, ofColor::red);
+		// 3. Draw Player 1 (Top) UI
+		drawHealthBar(*player1, 40 * scale, 40 * scale, ofColor::red);
 
 		// P1 Discard
-		if (!players[1].discardPile.empty()) {
-			const auto & discardRect = players[1].discardPile.back().textureRect;
+		if (!player1->discardPile.empty()) {
+			 const auto & discardRect = player1->discardPile.back().textureRect;
 			cardSpriteSheet.drawSubsection(p1_discardRect.x, p1_discardRect.y, p1_discardRect.width, p1_discardRect.height,
 				discardRect.x, discardRect.y, discardRect.width, discardRect.height);
 		}
@@ -2021,7 +1983,7 @@ void ofApp::drawGame() {
 		}
 
 		// P1 Deck
-		if (!players[1].deck.empty()) {
+		if (!player1->deck.empty()) {
 			ofSetColor(ofColor::white);
 			cardBackImage.draw(p1_deckRect);
 		}
@@ -2030,7 +1992,7 @@ void ofApp::drawGame() {
 			ofDrawRectRounded(p1_deckRect, 10 * scale);
 		}
 
-		if (currentPlayerIndex == 1 && !hasDrawnCardsThisTurn) {
+		if (players[currentPlayerIndex].playerID == 1 && !hasDrawnCardsThisTurn) {
 			ofPushStyle();
 			ofNoFill();
 			ofSetColor(ofColor::yellow);
@@ -2039,15 +2001,23 @@ void ofApp::drawGame() {
 			ofPopStyle();
 		}
 
-		// 4. Draw AP Displays
-		
-		// FIX: Check Player ID (0), not Array Index
-		bool isP0Turn = false;
-		if (currentPlayerIndex >= 0 && currentPlayerIndex < players.size()) {
-			if (players[currentPlayerIndex].playerID == 0) isP0Turn = true;
-		}
-		string p0_apText = isP0Turn ? ofToString(currentAP) + " AP" : "0 AP";
+		// 4. Draw AP Displays (Corrected Logic)
+		string p0_apText = "0 AP";
+		string p1_apText = "? AP";
 
+		if (currentPlayerIndex >= 0 && !players.empty()) {
+			Player& currentPlayer = players[currentPlayerIndex];
+			// If it's Player 0's turn OR one of their minions' turns
+			if (currentPlayer.playerID == 0 || currentPlayer.ownerID == 0) {
+				p0_apText = ofToString(currentAP) + " AP";
+			}
+			// If it's Player 1's turn OR one of their minions' turns
+			else if (currentPlayer.playerID == 1 || currentPlayer.ownerID == 1) {
+				p1_apText = ofToString(currentAP) + " AP";
+			}
+		}
+
+		// Draw P0 AP Box
 		float p0_apCenterX = 30 * scale + staticUICardWidth / 2;
 		float p0_apCenterY = ofGetHeight() - staticUICardHeight - (40 * scale) - staticUICardHeight - (40 * scale) - 60 * scale;
 		ofRectangle p0_apTextBox = titleFont.getStringBoundingBox(p0_apText, 0, 0);
@@ -2061,14 +2031,8 @@ void ofApp::drawGame() {
 		ofScale(fontScale, fontScale);
 		titleFont.drawString(p0_apText, -p0_apTextBox.getCenter().x, -p0_apTextBox.getCenter().y);
 		ofPopMatrix();
-
-		// FIX: Check Player ID (1), not Array Index
-		bool isP1Turn = false;
-		if (currentPlayerIndex >= 0 && currentPlayerIndex < players.size()) {
-			if (players[currentPlayerIndex].playerID == 1) isP1Turn = true;
-		}
-		string p1_apText = isP1Turn ? ofToString(currentAP) + " AP" : "? AP";
-
+		
+		// Draw P1 AP Box
 		float p1_apCenterX = ofGetWidth() - staticUICardWidth - (30 * scale) + staticUICardWidth / 2;
 		float p1_apCenterY = 40 * scale + staticUICardHeight + (40 * scale) + staticUICardHeight + 60 * scale;
 		ofRectangle p1_apTextBox = titleFont.getStringBoundingBox(p1_apText, 0, 0);
@@ -2083,7 +2047,6 @@ void ofApp::drawGame() {
 		titleFont.drawString(p1_apText, -p1_apTextBox.getCenter().x, -p1_apTextBox.getCenter().y);
 		ofPopMatrix();
 	}
-
 // End Turn Button
 	float btnWidth_end = 250 * scale;
 	float btnHeight_end = 60 * scale;
@@ -3033,21 +2996,39 @@ void ofApp::mousePressed(int x, int y, int button) {
 
 		// 3d. Deck Clicking (Drawing Cards) - INCLUDES HASTEN LOGIC
 		if (button == OF_MOUSE_BUTTON_LEFT) {
-			// Player 0 Deck
-			if (p0_deckRect.inside(x, y) && currentPlayerIndex == 0 && !hasDrawnCardsThisTurn) {
-				int cardsToDraw = players[0].nextTurnExtraDraw ? 3 : 2;
-				if(players[0].nextTurnExtraDraw) ofLogNotice("Game") << "Hasten Effect: Drawing 3 cards!";
+			if (players.empty() || currentPlayerIndex < 0) return; // Safety check
+			
+			Player& activePlayer = players[currentPlayerIndex];
+
+			// --- FIX: Find player pointers locally and check affiliation ---
+			Player* player0 = nullptr;
+			Player* player1 = nullptr;
+			for (auto& p : players) {
+				if (p.playerID == 0) player0 = &p;
+				if (p.playerID == 1) player1 = &p;
+			}
+			
+			// If we can't find the main players for some reason, exit
+			if (!player0 || !player1) return;
+
+			// Player 0's Deck
+			bool isPlayer0sTurn = (activePlayer.playerID == 0 || activePlayer.ownerID == 0);
+			if (p0_deckRect.inside(x, y) && isPlayer0sTurn && !hasDrawnCardsThisTurn) {
+				int cardsToDraw = player0->nextTurnExtraDraw ? 3 : 2;
+				if(player0->nextTurnExtraDraw) ofLogNotice("Game") << "Hasten Effect: Drawing 3 cards!";
 				for(int i=0; i<cardsToDraw; i++) drawCard();
-				players[0].nextTurnExtraDraw = false; 
+				player0->nextTurnExtraDraw = false; 
 				hasDrawnCardsThisTurn = true; 
 				return;
 			}
-			// Player 1 Deck
-			if (p1_deckRect.inside(x, y) && currentPlayerIndex == 1 && !hasDrawnCardsThisTurn) {
-				int cardsToDraw = players[1].nextTurnExtraDraw ? 3 : 2;
-				if(players[1].nextTurnExtraDraw) ofLogNotice("Game") << "Hasten Effect: Drawing 3 cards!";
+			
+			// Player 1's Deck
+			bool isPlayer1sTurn = (activePlayer.playerID == 1 || activePlayer.ownerID == 1);
+			if (p1_deckRect.inside(x, y) && isPlayer1sTurn && !hasDrawnCardsThisTurn) {
+				int cardsToDraw = player1->nextTurnExtraDraw ? 3 : 2;
+				if(player1->nextTurnExtraDraw) ofLogNotice("Game") << "Hasten Effect: Drawing 3 cards!";
 				for(int i=0; i<cardsToDraw; i++) drawCard();
-				players[1].nextTurnExtraDraw = false; 
+				player1->nextTurnExtraDraw = false; 
 				hasDrawnCardsThisTurn = true; 
 				return;
 			}
