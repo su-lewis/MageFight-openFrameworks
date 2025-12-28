@@ -1264,65 +1264,94 @@ void ofApp::setupGame() {
 
 //----------------------------------------------------
 void ofApp::buildLevelMesh() {
-	levelMesh.clear();
-	levelMesh.setMode(OF_PRIMITIVE_TRIANGLES);
+    levelMesh.clear();
+    levelMesh.setMode(OF_PRIMITIVE_TRIANGLES);
 
-	float wallSize = TILE_SIZE * 0.8f;
-	float half = wallSize / 2.0f;
+    // 1. Settings
+    float size = TILE_SIZE;
+    float half = size / 2.0f;
+    
+    // --- CHANGE IS HERE ---
+    float height = TILE_SIZE * 0.5f; // 0.5f = Half Height. Try 0.3f for low walls, 0.8f for tall.
+    // ----------------------
 
-	// Loop through every tile
-	for (int x = 0; x < BOARD_WIDTH; x++) {
-		for (int y = 0; y < BOARD_HEIGHT; y++) {
+    // 2. Helper to add a 3D Block
+    auto addCube = [&](float x, float y, float z) {
+        int idx = levelMesh.getNumVertices();
+        
+        // Coordinates relative to center
+        // Base is at y=0, Top is at y=height
+        glm::vec3 p1(-half, height, -half); // Top Left Back
+        glm::vec3 p2( half, height, -half); // Top Right Back
+        glm::vec3 p3( half, height,  half); // Top Right Front
+        glm::vec3 p4(-half, height,  half); // Top Left Front
+        
+        glm::vec3 p5(-half, 0, -half); // Bot Left Back
+        glm::vec3 p6( half, 0, -half); // Bot Right Back
+        glm::vec3 p7( half, 0,  half); // Bot Right Front
+        glm::vec3 p8(-half, 0,  half); // Bot Left Front
 
-			// If this tile has a wall, add its geometry to the batch
-			if (board[x][y].hasWall) {
+        glm::vec3 offset(x, y, z);
 
-				// 1. Get the World Position of this tile
-				glm::vec3 center = gridToWorld(x, y);
+        // Standard UVs
+        glm::vec2 t00(0,0), t10(1,0), t11(1,1), t01(0,1);
 
-				// Apply the vertical offset (0.01f) you used in your old draw loop
-				center.y += 0.01f;
+        // --- TOP FACE ---
+        levelMesh.addVertex(p1+offset); levelMesh.addTexCoord(t00); levelMesh.addNormal({0,1,0});
+        levelMesh.addVertex(p2+offset); levelMesh.addTexCoord(t10); levelMesh.addNormal({0,1,0});
+        levelMesh.addVertex(p3+offset); levelMesh.addTexCoord(t11); levelMesh.addNormal({0,1,0});
+        levelMesh.addVertex(p4+offset); levelMesh.addTexCoord(t01); levelMesh.addNormal({0,1,0});
+        levelMesh.addIndex(idx); levelMesh.addIndex(idx+1); levelMesh.addIndex(idx+2);
+        levelMesh.addIndex(idx); levelMesh.addIndex(idx+2); levelMesh.addIndex(idx+3);
+        idx += 4;
 
-				// 2. Calculate the 4 corners relative to the center
-				glm::vec3 v1 = center + glm::vec3(-half, 0, -half);
-				glm::vec3 v2 = center + glm::vec3(half, 0, -half);
-				glm::vec3 v3 = center + glm::vec3(half, 0, half);
-				glm::vec3 v4 = center + glm::vec3(-half, 0, half);
+        // --- NORTH FACE ---
+        levelMesh.addVertex(p2+offset); levelMesh.addTexCoord(t00); levelMesh.addNormal({0,0,-1});
+        levelMesh.addVertex(p1+offset); levelMesh.addTexCoord(t10); levelMesh.addNormal({0,0,-1});
+        levelMesh.addVertex(p5+offset); levelMesh.addTexCoord(t11); levelMesh.addNormal({0,0,-1});
+        levelMesh.addVertex(p6+offset); levelMesh.addTexCoord(t01); levelMesh.addNormal({0,0,-1});
+        levelMesh.addIndex(idx); levelMesh.addIndex(idx+1); levelMesh.addIndex(idx+2);
+        levelMesh.addIndex(idx); levelMesh.addIndex(idx+2); levelMesh.addIndex(idx+3);
+        idx += 4;
 
-				// 3. Keep track of index count before adding new ones
-				int startIdx = levelMesh.getNumVertices();
+        // --- SOUTH FACE ---
+        levelMesh.addVertex(p4+offset); levelMesh.addTexCoord(t00); levelMesh.addNormal({0,0,1});
+        levelMesh.addVertex(p3+offset); levelMesh.addTexCoord(t10); levelMesh.addNormal({0,0,1});
+        levelMesh.addVertex(p7+offset); levelMesh.addTexCoord(t11); levelMesh.addNormal({0,0,1});
+        levelMesh.addVertex(p8+offset); levelMesh.addTexCoord(t01); levelMesh.addNormal({0,0,1});
+        levelMesh.addIndex(idx); levelMesh.addIndex(idx+1); levelMesh.addIndex(idx+2);
+        levelMesh.addIndex(idx); levelMesh.addIndex(idx+2); levelMesh.addIndex(idx+3);
+        idx += 4;
 
-				// 4. Add Vertices
-				levelMesh.addVertex(v1);
-				levelMesh.addVertex(v2);
-				levelMesh.addVertex(v3);
-				levelMesh.addVertex(v4);
+        // --- EAST FACE ---
+        levelMesh.addVertex(p3+offset); levelMesh.addTexCoord(t00); levelMesh.addNormal({1,0,0});
+        levelMesh.addVertex(p2+offset); levelMesh.addTexCoord(t10); levelMesh.addNormal({1,0,0});
+        levelMesh.addVertex(p6+offset); levelMesh.addTexCoord(t11); levelMesh.addNormal({1,0,0});
+        levelMesh.addVertex(p7+offset); levelMesh.addTexCoord(t01); levelMesh.addNormal({1,0,0});
+        levelMesh.addIndex(idx); levelMesh.addIndex(idx+1); levelMesh.addIndex(idx+2);
+        levelMesh.addIndex(idx); levelMesh.addIndex(idx+2); levelMesh.addIndex(idx+3);
+        idx += 4;
 
-				// 5. Add Texture Coordinates (Same as your setup logic)
-				levelMesh.addTexCoord(ofVec2f(0, 0)); 
-				levelMesh.addTexCoord(ofVec2f(1, 0)); 
-				levelMesh.addTexCoord(ofVec2f(1, 1)); 
-				levelMesh.addTexCoord(ofVec2f(0, 1));
+        // --- WEST FACE ---
+        levelMesh.addVertex(p1+offset); levelMesh.addTexCoord(t00); levelMesh.addNormal({-1,0,0});
+        levelMesh.addVertex(p4+offset); levelMesh.addTexCoord(t10); levelMesh.addNormal({-1,0,0});
+        levelMesh.addVertex(p8+offset); levelMesh.addTexCoord(t11); levelMesh.addNormal({-1,0,0});
+        levelMesh.addVertex(p5+offset); levelMesh.addTexCoord(t01); levelMesh.addNormal({-1,0,0});
+        levelMesh.addIndex(idx); levelMesh.addIndex(idx+1); levelMesh.addIndex(idx+2);
+        levelMesh.addIndex(idx); levelMesh.addIndex(idx+2); levelMesh.addIndex(idx+3);
+    };
 
-				// 6. Add Normals (Upward facing)
-				for (int i = 0; i < 4; i++)
-					levelMesh.addNormal(ofVec3f(0, 1, 0));
-
-				// 7. Add Indices (Two triangles make the square)
-				// Triangle 1
-				levelMesh.addIndex(startIdx + 0);
-				levelMesh.addIndex(startIdx + 1);
-				levelMesh.addIndex(startIdx + 2);
-
-				// Triangle 2
-				levelMesh.addIndex(startIdx + 0);
-				levelMesh.addIndex(startIdx + 2);
-				levelMesh.addIndex(startIdx + 3);
-			}
-		}
-	}
+    // 3. Loop through board
+    for (int x = 0; x < BOARD_WIDTH; x++) {
+        for (int y = 0; y < BOARD_HEIGHT; y++) {
+            if (board[x][y].hasWall) {
+                glm::vec3 pos = gridToWorld(x, y);
+                addCube(pos.x, 0, pos.z);
+            }
+        }
+    }
 }
-	//--------------------------------------------------------------
+//--------------------------------------------------------------
 void ofApp::buildFloorMesh() {
     // 1. Clear all floor meshes
     for(auto& mesh : floorMeshes) {
@@ -1330,115 +1359,149 @@ void ofApp::buildFloorMesh() {
         mesh.setMode(OF_PRIMITIVE_TRIANGLES);
     }
 
-    // Safety check
     if(floorTextures.empty()) return;
 
     float size = TILE_SIZE;
     float half = size / 2.0f;
     float thickness = 1.0f; 
 
-    // Helper to generate UV coordinates based on rotation (0, 1, 2, 3)
+    // --- LOGIC STRUCTS ---
+    struct TileBorders { bool n, e, s, w; };
+    
+    // DEFINITION OF YOUR TEXTURES (1 = Black Border, 0 = No Border)
+    // Indexes match: 0=A, 1=B, 2=C, 3=D, 4=E, 5=F
+    const vector<TileBorders> baseBorders = {
+        {0, 1, 0, 0}, // A: Right
+        {1, 0, 0, 1}, // B: Top, Left
+        {0, 0, 0, 0}, // C: (Assumed Clean/Empty)
+        {1, 1, 0, 0}, // D: Top, Right
+        {1, 1, 0, 0}, // E: Top, Right
+        {0, 1, 1, 0}  // F: Bottom, Right
+    };
+
+    // Helper: Rotate Borders (Clockwise)
+    auto getRotatedBorders = [&](int texIdx, int rot) {
+        TileBorders b = baseBorders[texIdx];
+        TileBorders res = b;
+        // 0 = 0deg, 1 = 90deg, 2 = 180deg, 3 = 270deg
+        for(int i=0; i<rot; i++) {
+            res.n = b.w; // West becomes North
+            res.e = b.n; // North becomes East
+            res.s = b.e; // East becomes South
+            res.w = b.s; // South becomes West
+            b = res; // Update for next iteration
+        }
+        return res;
+    };
+
+    // Helper: Get UVs based on rotation
     auto getRotatedUVs = [](int rotation) {
-        // Standard UVs: TL, TR, BR, BL
-        std::vector<glm::vec2> uvs = { {0,0}, {1,0}, {1,1}, {0,1} };
-        
-        // Rotate vector elements to rotate texture
-        // 0 = No rot, 1 = 90 deg, etc.
+        std::vector<glm::vec2> uvs = { {0,0}, {1,0}, {1,1}, {0,1} }; // TL, TR, BR, BL
         std::rotate(uvs.begin(), uvs.begin() + rotation, uvs.end());
         return uvs;
     };
 
-    // Helper to add a block
+    // Helper: Add Geometry
     auto addBlock = [&](ofMesh& mesh, float x, float y, float z, int rotation) {
         int idx = mesh.getNumVertices();
-        
-        // Geometry Coordinates
-        glm::vec3 p1(-half, 0, -half); // Top Left Back
-        glm::vec3 p2( half, 0, -half); // Top Right Back
-        glm::vec3 p3( half, 0,  half); // Top Right Front
-        glm::vec3 p4(-half, 0,  half); // Top Left Front
-        
-        // Bottom corners (for thickness)
-        glm::vec3 p5(-half, -thickness, -half);
-        glm::vec3 p6( half, -thickness, -half);
-        glm::vec3 p7( half, -thickness,  half);
-        glm::vec3 p8(-half, -thickness,  half);
-
-        glm::vec3 offset(x, y, z);
+        glm::vec3 p1(-half, 0, -half), p2(half, 0, -half), p3(half, 0, half), p4(-half, 0, half);
+        glm::vec3 p5(-half, -thickness, -half), p6(half, -thickness, -half), p7(half, -thickness, half), p8(-half, -thickness, half);
+        glm::vec3 off(x, y, z);
         std::vector<glm::vec2> uvs = getRotatedUVs(rotation);
 
-        // --- TOP FACE (The textured part) ---
-        mesh.addVertex(p1 + offset); mesh.addTexCoord(uvs[0]); mesh.addNormal({0,1,0});
-        mesh.addVertex(p2 + offset); mesh.addTexCoord(uvs[1]); mesh.addNormal({0,1,0});
-        mesh.addVertex(p3 + offset); mesh.addTexCoord(uvs[2]); mesh.addNormal({0,1,0});
-        mesh.addVertex(p4 + offset); mesh.addTexCoord(uvs[3]); mesh.addNormal({0,1,0});
-        
-        mesh.addIndex(idx+0); mesh.addIndex(idx+1); mesh.addIndex(idx+2);
-        mesh.addIndex(idx+0); mesh.addIndex(idx+2); mesh.addIndex(idx+3);
-        idx += 4;
+        // Top
+        mesh.addVertex(p1+off); mesh.addTexCoord(uvs[0]); mesh.addNormal({0,1,0});
+        mesh.addVertex(p2+off); mesh.addTexCoord(uvs[1]); mesh.addNormal({0,1,0});
+        mesh.addVertex(p3+off); mesh.addTexCoord(uvs[2]); mesh.addNormal({0,1,0});
+        mesh.addVertex(p4+off); mesh.addTexCoord(uvs[3]); mesh.addNormal({0,1,0});
+        mesh.addIndex(idx); mesh.addIndex(idx+1); mesh.addIndex(idx+2);
+        mesh.addIndex(idx); mesh.addIndex(idx+2); mesh.addIndex(idx+3);
+        idx+=4;
 
-        // --- SIDES (We just use standard UVs for sides, or you can rotate them too) ---
-        // Side UVs don't matter as much, using standard 0-1 mapping
-        
-        // North
-        mesh.addVertex(p2 + offset); mesh.addTexCoord({0, 0}); mesh.addNormal({0,0,-1});
-        mesh.addVertex(p1 + offset); mesh.addTexCoord({1, 0}); mesh.addNormal({0,0,-1});
-        mesh.addVertex(p5 + offset); mesh.addTexCoord({1, 1}); mesh.addNormal({0,0,-1});
-        mesh.addVertex(p6 + offset); mesh.addTexCoord({0, 1}); mesh.addNormal({0,0,-1});
-        mesh.addIndex(idx+0); mesh.addIndex(idx+1); mesh.addIndex(idx+2);
-        mesh.addIndex(idx+0); mesh.addIndex(idx+2); mesh.addIndex(idx+3);
-        idx += 4;
-
-        // South
-        mesh.addVertex(p4 + offset); mesh.addTexCoord({0, 0}); mesh.addNormal({0,0,1});
-        mesh.addVertex(p3 + offset); mesh.addTexCoord({1, 0}); mesh.addNormal({0,0,1});
-        mesh.addVertex(p7 + offset); mesh.addTexCoord({1, 1}); mesh.addNormal({0,0,1});
-        mesh.addVertex(p8 + offset); mesh.addTexCoord({0, 1}); mesh.addNormal({0,0,1});
-        mesh.addIndex(idx+0); mesh.addIndex(idx+1); mesh.addIndex(idx+2);
-        mesh.addIndex(idx+0); mesh.addIndex(idx+2); mesh.addIndex(idx+3);
-        idx += 4;
-
-        // East
-        mesh.addVertex(p3 + offset); mesh.addTexCoord({0, 0}); mesh.addNormal({1,0,0});
-        mesh.addVertex(p2 + offset); mesh.addTexCoord({1, 0}); mesh.addNormal({1,0,0});
-        mesh.addVertex(p6 + offset); mesh.addTexCoord({1, 1}); mesh.addNormal({1,0,0});
-        mesh.addVertex(p7 + offset); mesh.addTexCoord({0, 1}); mesh.addNormal({1,0,0});
-        mesh.addIndex(idx+0); mesh.addIndex(idx+1); mesh.addIndex(idx+2);
-        mesh.addIndex(idx+0); mesh.addIndex(idx+2); mesh.addIndex(idx+3);
-        idx += 4;
-
-        // West
-        mesh.addVertex(p1 + offset); mesh.addTexCoord({0, 0}); mesh.addNormal({-1,0,0});
-        mesh.addVertex(p4 + offset); mesh.addTexCoord({1, 0}); mesh.addNormal({-1,0,0});
-        mesh.addVertex(p8 + offset); mesh.addTexCoord({1, 1}); mesh.addNormal({-1,0,0});
-        mesh.addVertex(p5 + offset); mesh.addTexCoord({0, 1}); mesh.addNormal({-1,0,0});
-        mesh.addIndex(idx+0); mesh.addIndex(idx+1); mesh.addIndex(idx+2);
-        mesh.addIndex(idx+0); mesh.addIndex(idx+2); mesh.addIndex(idx+3);
+        // Sides (Using standard UVs for thickness to keep it simple)
+        auto addSide = [&](glm::vec3 a, glm::vec3 b, glm::vec3 c, glm::vec3 d, glm::vec3 n) {
+            mesh.addVertex(a+off); mesh.addTexCoord({0,0}); mesh.addNormal(n);
+            mesh.addVertex(b+off); mesh.addTexCoord({1,0}); mesh.addNormal(n);
+            mesh.addVertex(c+off); mesh.addTexCoord({1,1}); mesh.addNormal(n);
+            mesh.addVertex(d+off); mesh.addTexCoord({0,1}); mesh.addNormal(n);
+            mesh.addIndex(idx); mesh.addIndex(idx+1); mesh.addIndex(idx+2);
+            mesh.addIndex(idx); mesh.addIndex(idx+2); mesh.addIndex(idx+3);
+            idx+=4;
+        };
+        addSide(p2, p1, p5, p6, {0,0,-1}); // North
+        addSide(p4, p3, p7, p8, {0,0,1});  // South
+        addSide(p3, p2, p6, p7, {1,0,0});  // East
+        addSide(p1, p4, p8, p5, {-1,0,0}); // West
     };
 
-    // 2. Loop through board and assign randomness
-    // We use a Seed based on X/Y so the board looks the same every time we run.
-    // If you want it different every launch, remove 'seed' and just use ofRandom.
+    // --- MAIN GENERATION LOOP ---
     
+    // We need to store what we placed to check against it for the next tile
+    // [x][y]
+    std::vector<std::vector<TileBorders>> placedBorders(BOARD_WIDTH, std::vector<TileBorders>(BOARD_HEIGHT));
+
+    // Seed for deterministic board
+    std::mt19937 gen(12345); 
+
     for (int x = 0; x < BOARD_WIDTH; x++) {
         for (int y = 0; y < BOARD_HEIGHT; y++) {
             
-            // Deterministic Randomness
-            unsigned int seed = (x * 73856093) ^ (y * 19349663); 
-            std::mt19937 tileRng(seed);
-            
-            // Pick Texture Index (0 to 5)
-            std::uniform_int_distribution<int> texDist(0, (int)floorTextures.size() - 1);
-            int texIndex = texDist(tileRng);
+            // 1. Determine Constraints based on neighbors
+            // If the neighbor has a border facing us, we CANNOT have a border facing them.
+            bool forbiddenNorth = false;
+            bool forbiddenWest = false;
 
-            // Pick Rotation (0 to 3)
-            std::uniform_int_distribution<int> rotDist(0, 3);
-            int rotation = rotDist(tileRng);
+            // Check Left Neighbor (x-1)
+            if (x > 0) {
+                // If Left neighbor has an East border, I cannot have a West border
+                if (placedBorders[x-1][y].e) forbiddenWest = true;
+            }
 
-            glm::vec3 pos = gridToWorld(x, y);
-            
-            // Add block to the specific mesh matching the texture
-            addBlock(floorMeshes[texIndex], pos.x, 0, pos.z, rotation);
+            // Check Top Neighbor (y-1)
+            // Note: In 2D loop y-1 is "above" usually, but check your coordinate system. 
+            // Assuming loop goes top-down visually.
+            if (y > 0) {
+                // If Top neighbor has a South border, I cannot have a North border
+                if (placedBorders[x][y-1].s) forbiddenNorth = true;
+            }
+
+            // 2. Find all valid candidates
+            struct Candidate { int texIdx; int rot; TileBorders b; };
+            std::vector<Candidate> candidates;
+
+            for(int t=0; t < (int)floorTextures.size(); t++) {
+                for(int r=0; r<4; r++) {
+                    TileBorders b = getRotatedBorders(t, r);
+                    
+                    // Check Constraints
+                    if (forbiddenNorth && b.n) continue; // Invalid
+                    if (forbiddenWest && b.w) continue;  // Invalid
+                    
+                    // Optional: Avoid double-blank edges? 
+                    // No, usually NoBorder touching NoBorder is fine.
+                    
+                    candidates.push_back({t, r, b});
+                }
+            }
+
+            // 3. Pick one
+            if (!candidates.empty()) {
+                std::uniform_int_distribution<int> dist(0, candidates.size() - 1);
+                Candidate chosen = candidates[dist(gen)];
+                
+                // Store geometry
+                glm::vec3 pos = gridToWorld(x, y);
+                addBlock(floorMeshes[chosen.texIdx], pos.x, 0, pos.z, chosen.rot);
+                
+                // Save state for next iteration
+                placedBorders[x][y] = chosen.b;
+            } else {
+                // Fallback (Should rarely happen if 'C' (empty) is available)
+                // Just place 'C' (Index 2) with 0 rot
+                glm::vec3 pos = gridToWorld(x, y);
+                addBlock(floorMeshes[2], pos.x, 0, pos.z, 0);
+                placedBorders[x][y] = {0,0,0,0};
+            }
         }
     }
 }
