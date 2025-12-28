@@ -1525,15 +1525,15 @@ void ofApp::drawGame() {
 	diceMaterial.begin();
 
 	// --- Coin ---
-
-  
 	coinFacesTexture.bind();
 	for (auto & roll : activeDiceRolls) {
 		if (roll.sides != 2) continue;
 		ofPushMatrix();
 		int idx = &roll - &activeDiceRolls[0]; // Safer way to get index
 		float xOffset = (idx * 4.0f) - ((activeDiceRolls.size() - 1) * 2.0f);
-		ofTranslate(xOffset, 2.0f, 0);
+		
+		// --- FIX 1: Increased height from 2.0 to 4.5 ---
+		ofTranslate(xOffset, 4.5f, 0);
 
 		glm::quat finalDrawQuat;
 		float t = (ofGetElapsedTimef() - roll.startTime);
@@ -1542,10 +1542,10 @@ void ofApp::drawGame() {
 			float remainingSpin = (1.0f - t_ease) * 1080.0f;
 			glm::quat spin = glm::angleAxis(glm::radians(remainingSpin), roll.rotationAxis);
 			finalDrawQuat = spin * roll.finalQuat;
-			diceMaterial.setEmissiveColor(ofColor(40, 40, 40));
+			// --- FIX 2: Removed emissive color change ---
 		} else {
 			finalDrawQuat = roll.finalQuat;
-			diceMaterial.setEmissiveColor(ofColor(0, 0, 0));
+			// --- FIX 2: Removed emissive color change ---
 		}
 		ofMultMatrix(glm::toMat4(finalDrawQuat));
 		coinMesh.draw();
@@ -1560,7 +1560,9 @@ void ofApp::drawGame() {
 		ofPushMatrix();
 		int idx = &roll - &activeDiceRolls[0];
 		float xOffset = (idx * 4.0f) - ((activeDiceRolls.size() - 1) * 2.0f);
-		ofTranslate(xOffset, 2.0f, 0);
+		
+		// --- FIX 1: Increased height from 2.0 to 4.5 ---
+		ofTranslate(xOffset, 4.5f, 0);
 
 		glm::quat finalDrawQuat;
 		float t = (ofGetElapsedTimef() - roll.startTime);
@@ -1569,14 +1571,14 @@ void ofApp::drawGame() {
 			float remainingSpin = (1.0f - t_ease) * 550.0f;
 			glm::quat spin = glm::angleAxis(glm::radians(remainingSpin), roll.rotationAxis);
 			finalDrawQuat = spin * roll.finalQuat;
-			diceMaterial.setEmissiveColor(ofColor(40, 40, 40));
+			// --- FIX 2: Removed emissive color change ---
 		} else {
 			finalDrawQuat = roll.finalQuat;
-			diceMaterial.setEmissiveColor(ofColor(0, 0, 0));
+			// --- FIX 2: Removed emissive color change ---
 		}
 
 		ofMultMatrix(glm::toMat4(finalDrawQuat));
-		ofScale(1.2f, 1.2f, 1.2f); // <-- MADE D6 A BIT BIGGER
+		ofScale(1.2f, 1.2f, 1.2f);
 		d6Mesh.draw();
 		ofPopMatrix();
 	}
@@ -1590,7 +1592,9 @@ void ofApp::drawGame() {
 		ofPushMatrix();
 		int idx = &roll - &activeDiceRolls[0];
 		float xOffset = (idx * 4.0f) - ((activeDiceRolls.size() - 1) * 2.0f);
-		ofTranslate(xOffset, 2.0f, 0);
+
+		// --- FIX 1: Increased height from 2.0 to 4.5 ---
+		ofTranslate(xOffset, 4.5f, 0);
 
 		glm::quat finalDrawQuat;
 		float t = (ofGetElapsedTimef() - roll.startTime);
@@ -1599,14 +1603,14 @@ void ofApp::drawGame() {
 			float remainingSpin = (1.0f - t_ease) * 550.0f;
 			glm::quat spin = glm::angleAxis(glm::radians(remainingSpin), roll.rotationAxis);
 			finalDrawQuat = spin * roll.finalQuat;
-			diceMaterial.setEmissiveColor(ofColor(40, 40, 40));
+			// --- FIX 2: Removed emissive color change ---
 		} else {
 			finalDrawQuat = roll.finalQuat;
-			diceMaterial.setEmissiveColor(ofColor(0, 0, 0));
+			// --- FIX 2: Removed emissive color change ---
 		}
 
 		ofMultMatrix(glm::toMat4(finalDrawQuat));
-		ofScale(2.2f, 2.2f, 2.2f); // <-- UPDATED: Made Bigger (was 1.8)
+		ofScale(2.2f, 2.2f, 2.2f);
 		d4Mesh.draw();
 		ofPopMatrix();
 	}
@@ -1619,7 +1623,9 @@ void ofApp::drawGame() {
 		ofPushMatrix();
 		int idx = &roll - &activeDiceRolls[0];
 		float xOffset = (idx * 4.0f) - ((activeDiceRolls.size() - 1) * 2.0f);
-		ofTranslate(xOffset, 2.0f, 0);
+		
+		// --- FIX 1: Increased height from 2.0 to 4.5 ---
+		ofTranslate(xOffset, 4.5f, 0);
 		
 		glm::quat finalDrawQuat;
 		float t = (ofGetElapsedTimef() - roll.startTime);
@@ -1628,14 +1634,14 @@ void ofApp::drawGame() {
 			float remainingSpin = (1.0f - t_ease) * 550.0f;
 			glm::quat spin = glm::angleAxis(glm::radians(remainingSpin), roll.rotationAxis);
 			finalDrawQuat = spin * roll.finalQuat;
-			diceMaterial.setEmissiveColor(ofColor(40, 40, 40));
+			// --- FIX 2: Removed emissive color change ---
 		} else {
 			finalDrawQuat = roll.finalQuat;
-			diceMaterial.setEmissiveColor(ofColor(0, 0, 0));
+			// --- FIX 2: Removed emissive color change ---
 		}
 
 		ofMultMatrix(glm::toMat4(finalDrawQuat));
-		ofScale(2.1f, 2.1f, 2.1f); // <-- MADE D10 SMALLER
+		ofScale(2.1f, 2.1f, 2.1f);
 		d10Mesh.draw();
 		ofPopMatrix();
 	}
@@ -1648,7 +1654,9 @@ void ofApp::drawGame() {
 		ofPushMatrix();
 		int idx = &roll - &activeDiceRolls[0];
 		float xOffset = (idx * 4.0f) - ((activeDiceRolls.size() - 1) * 2.0f);
-		ofTranslate(xOffset, 2.0f, 0);
+		
+		// --- FIX 1: Increased height from 2.0 to 4.5 ---
+		ofTranslate(xOffset, 4.5f, 0);
 
 		glm::quat finalDrawQuat;
 		float t = (ofGetElapsedTimef() - roll.startTime);
@@ -1657,16 +1665,16 @@ void ofApp::drawGame() {
 			float remainingSpin = (1.0f - t_ease) * 550.0f;
 			glm::quat spin = glm::angleAxis(glm::radians(remainingSpin), roll.rotationAxis);
 			finalDrawQuat = spin * roll.finalQuat;
-			diceMaterial.setEmissiveColor(ofColor(40, 40, 40));
+			// --- FIX 2: Removed emissive color change ---
 		} else {
 			finalDrawQuat = roll.finalQuat;
-			diceMaterial.setEmissiveColor(ofColor(0, 0, 0));
+			// --- FIX 2: Removed emissive color change ---
 		}
 
 		ofNode d20Node;
 		d20Node.setOrientation(finalDrawQuat);
 		ofMultMatrix(d20Node.getGlobalTransformMatrix());
-		ofScale(2.4f, 2.4f, 2.4f); // <-- MADE D20 BIGGER
+		ofScale(2.4f, 2.4f, 2.4f);
 		d20Mesh.draw();
 		ofPopMatrix();
 	}
@@ -1839,7 +1847,7 @@ void ofApp::drawGame() {
 	ofDisableDepthTest(); // CRITICAL for 2D UI to draw on top
 	ofEnableAlphaBlending(); // Ensure blending is on for UI transparency
 
-	// --- 8. DRAW UI ---
+// --- 8. DRAW UI ---
 	float designHeight = 1080.0f;
 	float scale = ofGetHeight() / designHeight;
 	float fontScale = scale * 0.5f; // DEFINED HERE FIRST
@@ -2699,11 +2707,26 @@ void ofApp::mousePressed(int x, int y, int button) {
 }
 
 		if (magicBlastDamageButton.inside(x, y)) {
+			// --- FIX: Correctly apply magic damage, including Barrier check ---
 			int damage = 5;
-			int wardDamage = std::min(targetPlayer->ward, damage);
-			targetPlayer->ward -= wardDamage; 
-			damage -= wardDamage;
-			targetPlayer->health -= damage;
+			
+			// 1. Barrier absorbs non-physical damage
+			int barrierDamage = std::min(targetPlayer->barrier, damage);
+			targetPlayer->barrier -= barrierDamage; 
+			damage -= barrierDamage;
+
+			// 2. Ward absorbs any remaining damage
+			if (damage > 0) {
+				int wardDamage = std::min(targetPlayer->ward, damage);
+				targetPlayer->ward -= wardDamage; 
+				damage -= wardDamage;
+			}
+			
+			// 3. Health takes the final damage
+			if (damage > 0) {
+				targetPlayer->health -= damage;
+			}
+
 			ofLogNotice("MagicBlast") << "Player " << targetPlayer->playerID << " chose Damage.";
 			choiceMade = true;
 		} else if (magicBlastDiscardButton.inside(x, y)) {
@@ -3542,12 +3565,20 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		}
 		// Note: DAMAGE_PIERCING bypasses Layer 1 entirely.
 
-		// --- LAYER 2: GENERIC MITIGATION ---
+		// --- LAYER 2: GENERIC MITIGATION (FIXED) ---
 		// Ward stops EVERYTHING (Least specific, always last shield)
-		 if (remainingDmg > 0) {
-        target.health -= remainingDmg;
-        ofLogNotice("Game") << remainingDmg << " damage taken to Health! (HP: " << target.health << ")";
-    }
+		if (remainingDmg > 0) {
+			int wardAbsorb = std::min(target.ward, remainingDmg);
+			target.ward -= wardAbsorb;
+			remainingDmg -= wardAbsorb;
+			if (wardAbsorb > 0) ofLogNotice("Game") << "Ward absorbed " << wardAbsorb;
+		}
+
+		// --- FINAL HEALTH DAMAGE ---
+		if (remainingDmg > 0) {
+			target.health -= remainingDmg;
+			ofLogNotice("Game") << remainingDmg << " damage taken to Health! (HP: " << target.health << ")";
+		}
     
     // --- REPLACE THE OLD "if (target.health <= 0)" WITH THIS ---
     if (target.health <= 0) {
