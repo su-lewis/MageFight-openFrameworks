@@ -40,27 +40,27 @@ void ofApp::setup() {
     ofLoadImage(wallTexture, "Board/wall.png");
     wallTexture.setTextureMinMagFilter(GL_NEAREST, GL_NEAREST);
 
-    // Load Floor Textures (a through f)
+   // Load Floor Textures (Floor1.PNG to Floor6.PNG)
     floorTextures.clear();
     floorMeshes.clear();
     
-    std::vector<string> suffixes = {"a", "b", "c", "d", "e", "f"};
-    
-    for(const string& s : suffixes) {
+    // Loop from 1 to 6
+    for(int i = 1; i <= 6; i++) {
         ofTexture tex;
-        // Loads Board/floor_a.png, Board/floor_b.png, etc.
-        bool success = ofLoadImage(tex, "Board/floor_" + s + ".png");
+        // Construct filename: "Board/Floor1.PNG", etc.
+        // Note: .PNG is case-sensitive on some systems
+        string filename = "Board/Floor" + ofToString(i) + ".PNG";
         
-        if(success) {
-            tex.setTextureMinMagFilter(GL_NEAREST, GL_NEAREST); // Pixel art style
+        if(ofLoadImage(tex, filename)) {
+            tex.generateMipmap();
+            tex.setTextureMinMagFilter(GL_NEAREST_MIPMAP_NEAREST, GL_NEAREST);
             floorTextures.push_back(tex);
             
-            // Create a matching mesh for this texture
             ofMesh m;
             m.setMode(OF_PRIMITIVE_TRIANGLES);
             floorMeshes.push_back(m);
         } else {
-            ofLogError("Setup") << "Could not load floor_" << s << ".png";
+            ofLogError("Setup") << "Failed to load " << filename;
         }
     }
 
@@ -1365,65 +1365,42 @@ void ofApp::buildFloorMesh() {
     float half = size / 2.0f;
     float thickness = 1.0f; 
 
-    // --- LOGIC STRUCTS ---
-    struct TileBorders { bool n, e, s, w; };
-    
-    // DEFINITION OF YOUR TEXTURES (1 = Black Border, 0 = No Border)
-    // Indexes match: 0=A, 1=B, 2=C, 3=D, 4=E, 5=F
-    const vector<TileBorders> baseBorders = {
-        {0, 1, 0, 0}, // A: Right
-        {1, 0, 0, 1}, // B: Top, Left
-        {0, 0, 0, 0}, // C: (Assumed Clean/Empty)
-        {1, 1, 0, 0}, // D: Top, Right
-        {1, 1, 0, 0}, // E: Top, Right
-        {0, 1, 1, 0}  // F: Bottom, Right
-    };
-
-    // Helper: Rotate Borders (Clockwise)
-    auto getRotatedBorders = [&](int texIdx, int rot) {
-        TileBorders b = baseBorders[texIdx];
-        TileBorders res = b;
-        // 0 = 0deg, 1 = 90deg, 2 = 180deg, 3 = 270deg
-        for(int i=0; i<rot; i++) {
-            res.n = b.w; // West becomes North
-            res.e = b.n; // North becomes East
-            res.s = b.e; // East becomes South
-            res.w = b.s; // South becomes West
-            b = res; // Update for next iteration
-        }
-        return res;
-    };
-
-    // Helper: Get UVs based on rotation
-    auto getRotatedUVs = [](int rotation) {
-        std::vector<glm::vec2> uvs = { {0,0}, {1,0}, {1,1}, {0,1} }; // TL, TR, BR, BL
-        std::rotate(uvs.begin(), uvs.begin() + rotation, uvs.end());
-        return uvs;
-    };
-
-    // Helper: Add Geometry
-    auto addBlock = [&](ofMesh& mesh, float x, float y, float z, int rotation) {
+    // Helper to add a block (Rotation removed, standard UVs used)
+    auto addBlock = [&](ofMesh& mesh, float x, float y, float z) {
         int idx = mesh.getNumVertices();
-        glm::vec3 p1(-half, 0, -half), p2(half, 0, -half), p3(half, 0, half), p4(-half, 0, half);
-        glm::vec3 p5(-half, -thickness, -half), p6(half, -thickness, -half), p7(half, -thickness, half), p8(-half, -thickness, half);
-        glm::vec3 off(x, y, z);
-        std::vector<glm::vec2> uvs = getRotatedUVs(rotation);
+        
+        // Geometry Coordinates
+        glm::vec3 p1(-half, 0, -half); // Top Left Back
+        glm::vec3 p2( half, 0, -half); // Top Right Back
+        glm::vec3 p3( half, 0,  half); // Top Right Front
+        glm::vec3 p4(-half, 0,  half); // Top Left Front
+        
+        glm::vec3 p5(-half, -thickness, -half);
+        glm::vec3 p6( half, -thickness, -half);
+        glm::vec3 p7( half, -thickness,  half);
+        glm::vec3 p8(-half, -thickness,  half);
 
-        // Top
-        mesh.addVertex(p1+off); mesh.addTexCoord(uvs[0]); mesh.addNormal({0,1,0});
-        mesh.addVertex(p2+off); mesh.addTexCoord(uvs[1]); mesh.addNormal({0,1,0});
-        mesh.addVertex(p3+off); mesh.addTexCoord(uvs[2]); mesh.addNormal({0,1,0});
-        mesh.addVertex(p4+off); mesh.addTexCoord(uvs[3]); mesh.addNormal({0,1,0});
-        mesh.addIndex(idx); mesh.addIndex(idx+1); mesh.addIndex(idx+2);
-        mesh.addIndex(idx); mesh.addIndex(idx+2); mesh.addIndex(idx+3);
-        idx+=4;
+        glm::vec3 offset(x, y, z);
 
-        // Sides (Using standard UVs for thickness to keep it simple)
+        // Standard UVs (0 to 1) for Non-Rotated Textures
+        glm::vec2 t00(0,0), t10(1,0), t11(1,1), t01(0,1);
+
+        // --- TOP FACE (The textured part) ---
+        mesh.addVertex(p1 + offset); mesh.addTexCoord(t00); mesh.addNormal({0,1,0});
+        mesh.addVertex(p2 + offset); mesh.addTexCoord(t10); mesh.addNormal({0,1,0});
+        mesh.addVertex(p3 + offset); mesh.addTexCoord(t11); mesh.addNormal({0,1,0});
+        mesh.addVertex(p4 + offset); mesh.addTexCoord(t01); mesh.addNormal({0,1,0});
+        
+        mesh.addIndex(idx+0); mesh.addIndex(idx+1); mesh.addIndex(idx+2);
+        mesh.addIndex(idx+0); mesh.addIndex(idx+2); mesh.addIndex(idx+3);
+        idx += 4;
+
+        // --- SIDES ---
         auto addSide = [&](glm::vec3 a, glm::vec3 b, glm::vec3 c, glm::vec3 d, glm::vec3 n) {
-            mesh.addVertex(a+off); mesh.addTexCoord({0,0}); mesh.addNormal(n);
-            mesh.addVertex(b+off); mesh.addTexCoord({1,0}); mesh.addNormal(n);
-            mesh.addVertex(c+off); mesh.addTexCoord({1,1}); mesh.addNormal(n);
-            mesh.addVertex(d+off); mesh.addTexCoord({0,1}); mesh.addNormal(n);
+            mesh.addVertex(a+offset); mesh.addTexCoord(t00); mesh.addNormal(n);
+            mesh.addVertex(b+offset); mesh.addTexCoord(t10); mesh.addNormal(n);
+            mesh.addVertex(c+offset); mesh.addTexCoord(t11); mesh.addNormal(n);
+            mesh.addVertex(d+offset); mesh.addTexCoord(t01); mesh.addNormal(n);
             mesh.addIndex(idx); mesh.addIndex(idx+1); mesh.addIndex(idx+2);
             mesh.addIndex(idx); mesh.addIndex(idx+2); mesh.addIndex(idx+3);
             idx+=4;
@@ -1434,74 +1411,22 @@ void ofApp::buildFloorMesh() {
         addSide(p1, p4, p8, p5, {-1,0,0}); // West
     };
 
-    // --- MAIN GENERATION LOOP ---
-    
-    // We need to store what we placed to check against it for the next tile
-    // [x][y]
-    std::vector<std::vector<TileBorders>> placedBorders(BOARD_WIDTH, std::vector<TileBorders>(BOARD_HEIGHT));
-
-    // Seed for deterministic board
-    std::mt19937 gen(12345); 
-
+    // 2. Loop through board
     for (int x = 0; x < BOARD_WIDTH; x++) {
         for (int y = 0; y < BOARD_HEIGHT; y++) {
             
-            // 1. Determine Constraints based on neighbors
-            // If the neighbor has a border facing us, we CANNOT have a border facing them.
-            bool forbiddenNorth = false;
-            bool forbiddenWest = false;
+            // Deterministic Randomness based on coordinate
+            unsigned int seed = (x * 73856093) ^ (y * 19349663); 
+            std::mt19937 tileRng(seed);
+            
+            // Pick Random Texture Index (0 to 5)
+            std::uniform_int_distribution<int> texDist(0, (int)floorTextures.size() - 1);
+            int texIndex = texDist(tileRng);
 
-            // Check Left Neighbor (x-1)
-            if (x > 0) {
-                // If Left neighbor has an East border, I cannot have a West border
-                if (placedBorders[x-1][y].e) forbiddenWest = true;
-            }
-
-            // Check Top Neighbor (y-1)
-            // Note: In 2D loop y-1 is "above" usually, but check your coordinate system. 
-            // Assuming loop goes top-down visually.
-            if (y > 0) {
-                // If Top neighbor has a South border, I cannot have a North border
-                if (placedBorders[x][y-1].s) forbiddenNorth = true;
-            }
-
-            // 2. Find all valid candidates
-            struct Candidate { int texIdx; int rot; TileBorders b; };
-            std::vector<Candidate> candidates;
-
-            for(int t=0; t < (int)floorTextures.size(); t++) {
-                for(int r=0; r<4; r++) {
-                    TileBorders b = getRotatedBorders(t, r);
-                    
-                    // Check Constraints
-                    if (forbiddenNorth && b.n) continue; // Invalid
-                    if (forbiddenWest && b.w) continue;  // Invalid
-                    
-                    // Optional: Avoid double-blank edges? 
-                    // No, usually NoBorder touching NoBorder is fine.
-                    
-                    candidates.push_back({t, r, b});
-                }
-            }
-
-            // 3. Pick one
-            if (!candidates.empty()) {
-                std::uniform_int_distribution<int> dist(0, candidates.size() - 1);
-                Candidate chosen = candidates[dist(gen)];
-                
-                // Store geometry
-                glm::vec3 pos = gridToWorld(x, y);
-                addBlock(floorMeshes[chosen.texIdx], pos.x, 0, pos.z, chosen.rot);
-                
-                // Save state for next iteration
-                placedBorders[x][y] = chosen.b;
-            } else {
-                // Fallback (Should rarely happen if 'C' (empty) is available)
-                // Just place 'C' (Index 2) with 0 rot
-                glm::vec3 pos = gridToWorld(x, y);
-                addBlock(floorMeshes[2], pos.x, 0, pos.z, 0);
-                placedBorders[x][y] = {0,0,0,0};
-            }
+            glm::vec3 pos = gridToWorld(x, y);
+            
+            // Add block (No rotation passed)
+            addBlock(floorMeshes[texIndex], pos.x, 0, pos.z);
         }
     }
 }
