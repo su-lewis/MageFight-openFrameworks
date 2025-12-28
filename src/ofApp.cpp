@@ -37,9 +37,33 @@ void ofApp::setup() {
     skeletonModel.disableMaterials();
 
     // --- 3. BOARD & SKYBOX ---
-    // Note: Paths point to Board/ folder
-    ofLoadImage(wallTexture, "Board/wallcartoon.png");
-    skyboxImage.load("Board/aircraft_workshop.jpg");
+    ofLoadImage(wallTexture, "Board/wall.png");
+    wallTexture.setTextureMinMagFilter(GL_NEAREST, GL_NEAREST);
+
+    // Load Floor Textures (a through f)
+    floorTextures.clear();
+    floorMeshes.clear();
+    
+    std::vector<string> suffixes = {"a", "b", "c", "d", "e", "f"};
+    
+    for(const string& s : suffixes) {
+        ofTexture tex;
+        // Loads Board/floor_a.png, Board/floor_b.png, etc.
+        bool success = ofLoadImage(tex, "Board/floor_" + s + ".png");
+        
+        if(success) {
+            tex.setTextureMinMagFilter(GL_NEAREST, GL_NEAREST); // Pixel art style
+            floorTextures.push_back(tex);
+            
+            // Create a matching mesh for this texture
+            ofMesh m;
+            m.setMode(OF_PRIMITIVE_TRIANGLES);
+            floorMeshes.push_back(m);
+        } else {
+            ofLogError("Setup") << "Could not load floor_" << s << ".png";
+        }
+    }
+
 
     // --- 4. DICE TEXTURES & COIN ---
     // Note: Paths point to specific Dice/ subfolders
@@ -200,13 +224,6 @@ void ofApp::setup() {
         int current = edgeStartIndex + i * 2; int next = edgeStartIndex + (i + 1) * 2;
         coinMesh.addIndex(current); coinMesh.addIndex(next); coinMesh.addIndex(current + 1);
         coinMesh.addIndex(next); coinMesh.addIndex(next + 1); coinMesh.addIndex(current + 1);
-    }
-
-    // Sky Dome Gen
-    skyDomeMesh = ofMesh::sphere(50000, 128);
-    auto & normals = skyDomeMesh.getNormals();
-    for (auto & normal : normals) {
-        normal *= -1;
     }
 
     // --- 8. MATERIALS & LIGHTS ---
@@ -667,9 +684,6 @@ void ofApp::setupGame() {
 		lastWindowWidth = ofGetWidth();
 		lastWindowHeight = ofGetHeight();
 	}
-
-	skyRotation += 0.5f * deltaTime;
-	if (skyRotation > 360.0f) skyRotation -= 360.0f;
 
 	float frame_independent_smoothing = 1.0 - pow(0.6, deltaTime * 60.0);
 	cameraCurrentZoom = ofLerp(cameraCurrentZoom, cameraTargetZoom, frame_independent_smoothing);
@@ -1285,10 +1299,10 @@ void ofApp::buildLevelMesh() {
 				levelMesh.addVertex(v4);
 
 				// 5. Add Texture Coordinates (Same as your setup logic)
-				levelMesh.addTexCoord(ofVec2f(0.4f, 0.4f));
-				levelMesh.addTexCoord(ofVec2f(0.6f, 0.4f));
-				levelMesh.addTexCoord(ofVec2f(0.6f, 0.6f));
-				levelMesh.addTexCoord(ofVec2f(0.4f, 0.6f));
+				levelMesh.addTexCoord(ofVec2f(0, 0)); 
+				levelMesh.addTexCoord(ofVec2f(1, 0)); 
+				levelMesh.addTexCoord(ofVec2f(1, 1)); 
+				levelMesh.addTexCoord(ofVec2f(0, 1));
 
 				// 6. Add Normals (Upward facing)
 				for (int i = 0; i < 4; i++)
@@ -1310,52 +1324,123 @@ void ofApp::buildLevelMesh() {
 }
 	//--------------------------------------------------------------
 void ofApp::buildFloorMesh() {
-	floorMesh.clear();
-	floorMesh.setMode(OF_PRIMITIVE_TRIANGLES);
+    // 1. Clear all floor meshes
+    for(auto& mesh : floorMeshes) {
+        mesh.clear();
+        mesh.setMode(OF_PRIMITIVE_TRIANGLES);
+    }
 
-	float size = TILE_SIZE;
-	float half = size / 2.0f;
-	float thickness = 0.2f; // Matches your ofDrawBox height
+    // Safety check
+    if(floorTextures.empty()) return;
 
-	for (int x = 0; x < BOARD_WIDTH; x++) {
-		for (int y = 0; y < BOARD_HEIGHT; y++) {
+    float size = TILE_SIZE;
+    float half = size / 2.0f;
+    float thickness = 1.0f; 
 
-			glm::vec3 center = gridToWorld(x, y);
-			center.y -= 0.1f; // Adjust vertical alignment to match original box
+    // Helper to generate UV coordinates based on rotation (0, 1, 2, 3)
+    auto getRotatedUVs = [](int rotation) {
+        // Standard UVs: TL, TR, BR, BL
+        std::vector<glm::vec2> uvs = { {0,0}, {1,0}, {1,1}, {0,1} };
+        
+        // Rotate vector elements to rotate texture
+        // 0 = No rot, 1 = 90 deg, etc.
+        std::rotate(uvs.begin(), uvs.begin() + rotation, uvs.end());
+        return uvs;
+    };
 
-			// Determine Color (Checkerboard)
-			ofColor col;
-			if ((x + y) % 2 == 0)
-				col = ofColor::fromHex(0xCCCCCC);
-			else
-				col = ofColor::fromHex(0x888888);
+    // Helper to add a block
+    auto addBlock = [&](ofMesh& mesh, float x, float y, float z, int rotation) {
+        int idx = mesh.getNumVertices();
+        
+        // Geometry Coordinates
+        glm::vec3 p1(-half, 0, -half); // Top Left Back
+        glm::vec3 p2( half, 0, -half); // Top Right Back
+        glm::vec3 p3( half, 0,  half); // Top Right Front
+        glm::vec3 p4(-half, 0,  half); // Top Left Front
+        
+        // Bottom corners (for thickness)
+        glm::vec3 p5(-half, -thickness, -half);
+        glm::vec3 p6( half, -thickness, -half);
+        glm::vec3 p7( half, -thickness,  half);
+        glm::vec3 p8(-half, -thickness,  half);
 
-			// Add Top Face Geometry
-			int idx = floorMesh.getNumVertices();
+        glm::vec3 offset(x, y, z);
+        std::vector<glm::vec2> uvs = getRotatedUVs(rotation);
 
-			// 4 Corners of the tile
-			floorMesh.addVertex(center + glm::vec3(-half, thickness / 2, -half)); // Top Left
-			floorMesh.addVertex(center + glm::vec3(half, thickness / 2, -half)); // Top Right
-			floorMesh.addVertex(center + glm::vec3(half, thickness / 2, half)); // Bot Right
-			floorMesh.addVertex(center + glm::vec3(-half, thickness / 2, half)); // Bot Left
+        // --- TOP FACE (The textured part) ---
+        mesh.addVertex(p1 + offset); mesh.addTexCoord(uvs[0]); mesh.addNormal({0,1,0});
+        mesh.addVertex(p2 + offset); mesh.addTexCoord(uvs[1]); mesh.addNormal({0,1,0});
+        mesh.addVertex(p3 + offset); mesh.addTexCoord(uvs[2]); mesh.addNormal({0,1,0});
+        mesh.addVertex(p4 + offset); mesh.addTexCoord(uvs[3]); mesh.addNormal({0,1,0});
+        
+        mesh.addIndex(idx+0); mesh.addIndex(idx+1); mesh.addIndex(idx+2);
+        mesh.addIndex(idx+0); mesh.addIndex(idx+2); mesh.addIndex(idx+3);
+        idx += 4;
 
-			// Add Normals (Pointing Up)
-			for (int i = 0; i < 4; i++)
-				floorMesh.addNormal(glm::vec3(0, 1, 0));
+        // --- SIDES (We just use standard UVs for sides, or you can rotate them too) ---
+        // Side UVs don't matter as much, using standard 0-1 mapping
+        
+        // North
+        mesh.addVertex(p2 + offset); mesh.addTexCoord({0, 0}); mesh.addNormal({0,0,-1});
+        mesh.addVertex(p1 + offset); mesh.addTexCoord({1, 0}); mesh.addNormal({0,0,-1});
+        mesh.addVertex(p5 + offset); mesh.addTexCoord({1, 1}); mesh.addNormal({0,0,-1});
+        mesh.addVertex(p6 + offset); mesh.addTexCoord({0, 1}); mesh.addNormal({0,0,-1});
+        mesh.addIndex(idx+0); mesh.addIndex(idx+1); mesh.addIndex(idx+2);
+        mesh.addIndex(idx+0); mesh.addIndex(idx+2); mesh.addIndex(idx+3);
+        idx += 4;
 
-			// Add Colors
-			for (int i = 0; i < 4; i++)
-				floorMesh.addColor(col);
+        // South
+        mesh.addVertex(p4 + offset); mesh.addTexCoord({0, 0}); mesh.addNormal({0,0,1});
+        mesh.addVertex(p3 + offset); mesh.addTexCoord({1, 0}); mesh.addNormal({0,0,1});
+        mesh.addVertex(p7 + offset); mesh.addTexCoord({1, 1}); mesh.addNormal({0,0,1});
+        mesh.addVertex(p8 + offset); mesh.addTexCoord({0, 1}); mesh.addNormal({0,0,1});
+        mesh.addIndex(idx+0); mesh.addIndex(idx+1); mesh.addIndex(idx+2);
+        mesh.addIndex(idx+0); mesh.addIndex(idx+2); mesh.addIndex(idx+3);
+        idx += 4;
 
-			// Add Indices
-			floorMesh.addIndex(idx + 0);
-			floorMesh.addIndex(idx + 1);
-			floorMesh.addIndex(idx + 2);
-			floorMesh.addIndex(idx + 0);
-			floorMesh.addIndex(idx + 2);
-			floorMesh.addIndex(idx + 3);
-		}
-	}
+        // East
+        mesh.addVertex(p3 + offset); mesh.addTexCoord({0, 0}); mesh.addNormal({1,0,0});
+        mesh.addVertex(p2 + offset); mesh.addTexCoord({1, 0}); mesh.addNormal({1,0,0});
+        mesh.addVertex(p6 + offset); mesh.addTexCoord({1, 1}); mesh.addNormal({1,0,0});
+        mesh.addVertex(p7 + offset); mesh.addTexCoord({0, 1}); mesh.addNormal({1,0,0});
+        mesh.addIndex(idx+0); mesh.addIndex(idx+1); mesh.addIndex(idx+2);
+        mesh.addIndex(idx+0); mesh.addIndex(idx+2); mesh.addIndex(idx+3);
+        idx += 4;
+
+        // West
+        mesh.addVertex(p1 + offset); mesh.addTexCoord({0, 0}); mesh.addNormal({-1,0,0});
+        mesh.addVertex(p4 + offset); mesh.addTexCoord({1, 0}); mesh.addNormal({-1,0,0});
+        mesh.addVertex(p8 + offset); mesh.addTexCoord({1, 1}); mesh.addNormal({-1,0,0});
+        mesh.addVertex(p5 + offset); mesh.addTexCoord({0, 1}); mesh.addNormal({-1,0,0});
+        mesh.addIndex(idx+0); mesh.addIndex(idx+1); mesh.addIndex(idx+2);
+        mesh.addIndex(idx+0); mesh.addIndex(idx+2); mesh.addIndex(idx+3);
+    };
+
+    // 2. Loop through board and assign randomness
+    // We use a Seed based on X/Y so the board looks the same every time we run.
+    // If you want it different every launch, remove 'seed' and just use ofRandom.
+    
+    for (int x = 0; x < BOARD_WIDTH; x++) {
+        for (int y = 0; y < BOARD_HEIGHT; y++) {
+            
+            // Deterministic Randomness
+            unsigned int seed = (x * 73856093) ^ (y * 19349663); 
+            std::mt19937 tileRng(seed);
+            
+            // Pick Texture Index (0 to 5)
+            std::uniform_int_distribution<int> texDist(0, (int)floorTextures.size() - 1);
+            int texIndex = texDist(tileRng);
+
+            // Pick Rotation (0 to 3)
+            std::uniform_int_distribution<int> rotDist(0, 3);
+            int rotation = rotDist(tileRng);
+
+            glm::vec3 pos = gridToWorld(x, y);
+            
+            // Add block to the specific mesh matching the texture
+            addBlock(floorMeshes[texIndex], pos.x, 0, pos.z, rotation);
+        }
+    }
 }
 //-----------------------------
 void ofApp::drawGame() {
@@ -1367,18 +1452,6 @@ void ofApp::drawGame() {
 
 	cam.begin();
 
-	// --- 2. SKYBOX (Draw First) ---
-	ofDisableLighting(); // Skybox is self-illuminated
-	ofPushMatrix();
-	ofRotateXDeg(-60);
-	ofRotateYDeg(120);
-	ofRotateYDeg(skyRotation);
-	ofSetColor(255); // Ensure full white
-	skyboxImage.getTexture().bind();
-	skyDomeMesh.draw();
-	skyboxImage.getTexture().unbind();
-	ofPopMatrix();
-
 	// --- 3. LIGHTING ---
 	ofEnableLighting();
 	for (auto & light : lights) {
@@ -1388,14 +1461,20 @@ void ofApp::drawGame() {
 	headlight.enable();
 
 	// --- 4. OPAQUE GEOMETRY (Floor & Walls) ---
-	// Batch 1: Floor
-	ofSetColor(255);
-	floorMesh.draw();
+    
+    // Draw Random Floor Tiles
+    for(size_t i = 0; i < floorMeshes.size(); i++) {
+        if(i < floorTextures.size()) { // Safety check
+            floorTextures[i].bind();
+            floorMeshes[i].draw();
+            floorTextures[i].unbind();
+        }
+    }
 
-	// Batch 2: Walls
-	wallTexture.bind();
-	levelMesh.draw();
-	wallTexture.unbind();
+    // Draw Walls
+    wallTexture.bind();
+    levelMesh.draw();
+    wallTexture.unbind();
 
 	    
 // --- 5. OPAQUE DYNAMIC OBJECTS (Players & Dice) ---

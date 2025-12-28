@@ -425,8 +425,9 @@ private:
     int currentPlayerIndex = -1;
 
     // --- VBO Optimization ---
-    ofMesh levelMesh; // Updated to ofMesh to match .cpp calls (.addVertex)
-    ofMesh floorMesh; // Updated to ofMesh
+    ofMesh levelMesh; 
+    ofMesh floorMeshA; // <--- NEW
+    ofMesh floorMeshB; // <--- NEW
     void buildLevelMesh();
     void buildFloorMesh();
 
@@ -532,17 +533,22 @@ private:
 
     // 3D Assets
     ofxAssimpModelLoader playerModel;
-    ofTexture wallTexture;
     ofMesh wallMesh;
     std::vector<ofLight> lights;
     ofCamera cam;
-    ofImage skyboxImage;
-    ofMesh skyDomeMesh;
-    float skyRotation = 0.0f;
     ofLight headlight;
     ofMaterial modelMaterial;
     ofMaterial diceMaterial;
-
+    
+    // Textures
+    ofTexture wallTexture;
+    
+    // REPLACE floorTextureA/B with a vector
+    std::vector<ofTexture> floorTextures; 
+    
+    // REPLACE floorMeshA/B with a vector
+    std::vector<ofMesh> floorMeshes;
+    
     // Dice
     std::vector<DiceRoll> activeDiceRolls;
     float diceSpinSpeed = 1500.0f;
