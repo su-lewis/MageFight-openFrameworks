@@ -1,329 +1,366 @@
 #include "ofApp.h"
 #include "GLFW/glfw3.h"
 #include "ofAppGLFWWindow.h"
-#include <glm/gtx/intersect.hpp>
 #include <algorithm>
+#include <glm/gtx/intersect.hpp>
+#include <limits>
 #include <queue>
 #include <random>
 #include <set>
-#include <limits>
 
 //--------------------------------------------------------------
 void ofApp::setup() {
-    ofSetEscapeQuitsApp(false);
-    ofSetVerticalSync(true);
-    ofSetBackgroundColor(22);
-    ofDisableArbTex();
-    ofSetCircleResolution(64);
+	ofSetEscapeQuitsApp(false);
+	ofSetVerticalSync(true);
+	ofSetBackgroundColor(22);
+	ofDisableArbTex();
+	ofSetCircleResolution(64);
 
-    // --- 1. UI & CONFIG ---
-    // Note: Paths now point to UI/ folder
-    uiFont.load("UI/Roboto-Regular.ttf", 24);
-    titleFont.load("UI/Roboto-Bold.ttf", 72);
-    cardBackImage.load("UI/card_back.png");
-    cardSpriteSheet.load("UI/TTS_Sheet.png");
+	// --- 1. UI & CONFIG ---
+	// Note: Paths now point to UI/ folder
+	uiFont.load("UI/Roboto-Regular.ttf", 24);
+	titleFont.load("UI/Roboto-Bold.ttf", 72);
+	cardBackImage.load("UI/card_back.png");
+	cardSpriteSheet.load("UI/TTS_Sheet.png");
 
-    // --- 2. UNITS ---
-    playerModel.load("Units/Player/player.obj");
-    playerModel.setRotation(0, -90, 1, 0, 0);
-    playerModel.setScale(0.008f, 0.008f, 0.008f);
+	// --- 2. UNITS ---
+	playerModel.load("Units/Player/player.obj");
+	playerModel.setRotation(0, -90, 1, 0, 0);
+	playerModel.setScale(0.008f, 0.008f, 0.008f);
 
-    skeletonModel.load("Units/Skeleton/skeleton.fbx");
-    ofLoadImage(skeletonTexture, "Units/Skeleton/base.png"); 
-    skeletonModel.setRotation(0, 180, 1, 0, 0);
-    skeletonModel.setRotation(1, 180, 0, 1, 0);
+	skeletonModel.load("Units/Skeleton/skeleton.fbx");
+	ofLoadImage(skeletonTexture, "Units/Skeleton/base.png");
+	skeletonModel.setRotation(0, 180, 1, 0, 0);
+	skeletonModel.setRotation(1, 180, 0, 1, 0);
 
-    skeletonModel.setScale(0.008f, 0.008f, 0.008f);
-    skeletonModel.disableMaterials();
+	skeletonModel.setScale(0.008f, 0.008f, 0.008f);
+	skeletonModel.disableMaterials();
 
-    // --- 3. BOARD & SKYBOX ---
-    ofLoadImage(wallTexture, "Board/wall.png");
-    wallTexture.setTextureMinMagFilter(GL_NEAREST, GL_NEAREST);
+	// --- 3. BOARD & SKYBOX ---
+	ofLoadImage(wallTexture, "Board/wall.png");
+	wallTexture.setTextureMinMagFilter(GL_NEAREST, GL_NEAREST);
 
-   // Load Floor Textures (Floor1.PNG to Floor6.PNG)
-    floorTextures.clear();
-    floorMeshes.clear();
-    
-    // Loop from 1 to 6
-    for(int i = 1; i <= 6; i++) {
-        ofTexture tex;
-        // Construct filename: "Board/Floor1.PNG", etc.
-        // Note: .PNG is case-sensitive on some systems
-        string filename = "Board/Floor" + ofToString(i) + ".PNG";
-        
-        if(ofLoadImage(tex, filename)) {
-            tex.generateMipmap();
-            tex.setTextureMinMagFilter(GL_NEAREST_MIPMAP_NEAREST, GL_NEAREST);
-            floorTextures.push_back(tex);
-            
-            ofMesh m;
-            m.setMode(OF_PRIMITIVE_TRIANGLES);
-            floorMeshes.push_back(m);
-        } else {
-            ofLogError("Setup") << "Failed to load " << filename;
-        }
-    }
+	// Load Floor Textures (Floor1.PNG to Floor6.PNG)
+	floorTextures.clear();
+	floorMeshes.clear();
 
+	// Loop from 1 to 6
+	for (int i = 1; i <= 6; i++) {
+		ofTexture tex;
+		// Construct filename: "Board/Floor1.PNG", etc.
+		// Note: .PNG is case-sensitive on some systems
+		string filename = "Board/Floor" + ofToString(i) + ".PNG";
 
-    // --- 4. DICE TEXTURES & COIN ---
-    // Note: Paths point to specific Dice/ subfolders
+		if (ofLoadImage(tex, filename)) {
+			tex.generateMipmap();
+			tex.setTextureMinMagFilter(GL_NEAREST_MIPMAP_NEAREST, GL_NEAREST);
+			floorTextures.push_back(tex);
+
+			ofMesh m;
+			m.setMode(OF_PRIMITIVE_TRIANGLES);
+			floorMeshes.push_back(m);
+		} else {
+			ofLogError("Setup") << "Failed to load " << filename;
+		}
+	}
+
+	// --- 4. DICE TEXTURES & COIN ---
+	// Note: Paths point to specific Dice/ subfolders
 	ofLoadImage(d4Texture, "Dice/D4/Dice_d4_Albedo.png");
-    ofLoadImage(d6Texture, "Dice/D6/dice_texture_d6.png");
-	ofLoadImage(d10Texture, "Dice/D10/d10SilverAlbedo.png"); 
-    ofLoadImage(d20Texture, "Dice/D20/d20_diffuse.png");
-    
-    ofLoadImage(coinFacesTexture, "Dice/Coin/CoinUKSilver.png"); 
-    coinFacesTexture.setTextureMinMagFilter(GL_NEAREST, GL_NEAREST);
+	ofLoadImage(d6Texture, "Dice/D6/dice_texture_d6.png");
+	ofLoadImage(d10Texture, "Dice/D10/d10SilverAlbedo.png");
+	ofLoadImage(d20Texture, "Dice/D20/d20_diffuse.png");
 
-    // --- 5. SOUNDS ---
-    // Note: Path points to Sounds/Player/
-    for (int i = 1; i <= 6; i++) {
-        ofSoundPlayer step;
-        if (step.load("Sounds/Player/step" + ofToString(i) + ".wav")) {
-            step.setMultiPlay(true); 
-            step.setVolume(0.5f);    
-            footstepSounds.push_back(step);
-        } else {
-            ofLogError("Sound") << "Could not load Sounds/Player/step" << i << ".wav";
-        }
-    }
+	ofLoadImage(coinFacesTexture, "Dice/Coin/CoinUKSilver.png");
+	coinFacesTexture.setTextureMinMagFilter(GL_NEAREST, GL_NEAREST);
 
-    // --- 6. MESH GENERATION (Walls & Floor) ---
-    // (This code remains unchanged as it generates geometry programmatically)
-    float wallSize = TILE_SIZE * 0.8f;
-    wallMesh.clear();
-    wallMesh.setMode(OF_PRIMITIVE_TRIANGLES);
-    wallMesh.addVertex(ofPoint(-wallSize / 2, 0, -wallSize / 2));
-    wallMesh.addVertex(ofPoint(wallSize / 2, 0, -wallSize / 2));
-    wallMesh.addVertex(ofPoint(wallSize / 2, 0, wallSize / 2));
-    wallMesh.addVertex(ofPoint(-wallSize / 2, 0, wallSize / 2));
-    wallMesh.addTexCoord(ofVec2f(0.4f, 0.4f));
-    wallMesh.addTexCoord(ofVec2f(0.6f, 0.4f));
-    wallMesh.addTexCoord(ofVec2f(0.6f, 0.6f));
-    wallMesh.addTexCoord(ofVec2f(0.4f, 0.6f));
-    for (int i = 0; i < 4; i++) wallMesh.addNormal(ofPoint(0, 1, 0));
-    wallMesh.addIndex(0); wallMesh.addIndex(1); wallMesh.addIndex(2);
-    wallMesh.addIndex(0); wallMesh.addIndex(2); wallMesh.addIndex(3);
+	// --- 5. SOUNDS ---
+	// Note: Path points to Sounds/Player/
+	for (int i = 1; i <= 6; i++) {
+		ofSoundPlayer step;
+		if (step.load("Sounds/Player/step" + ofToString(i) + ".wav")) {
+			step.setMultiPlay(true);
+			step.setVolume(0.5f);
+			footstepSounds.push_back(step);
+		} else {
+			ofLogError("Sound") << "Could not load Sounds/Player/step" << i << ".wav";
+		}
+	}
 
-    // D6 Mesh Gen
-    d6Mesh.clear();
-    d6Mesh.setMode(OF_PRIMITIVE_TRIANGLES);
-    float size = 1.0f;
-    const float atlasWidth = 333.0f, atlasHeight = 225.0f;
-    glm::vec2 uv_1_min(0.0f / atlasWidth, 0.0f / atlasHeight), uv_1_max(104.0f / atlasWidth, 104.0f / atlasHeight);
-    glm::vec2 uv_2_min(114.0f / atlasWidth, 0.0f / atlasHeight), uv_2_max(218.0f / atlasWidth, 104.0f / atlasHeight);
-    glm::vec2 uv_3_min(228.0f / atlasWidth, 0.0f / atlasHeight), uv_3_max(332.0f / atlasWidth, 104.0f / atlasHeight);
-    glm::vec2 uv_4_min(0.0f / atlasWidth, 120.0f / atlasHeight), uv_4_max(104.0f / atlasWidth, 224.0f / atlasHeight);
-    glm::vec2 uv_5_min(114.0f / atlasWidth, 120.0f / atlasHeight), uv_5_max(218.0f / atlasWidth, 224.0f / atlasHeight);
-    glm::vec2 uv_6_min(228.0f / atlasWidth, 120.0f / atlasHeight), uv_6_max(332.0f / atlasWidth, 224.0f / atlasHeight);
-    auto addFace = [&](glm::vec3 v1, glm::vec3 v2, glm::vec3 v3, glm::vec3 v4, glm::vec2 t_min, glm::vec2 t_max, glm::vec3 normal) {
-        int baseIndex = d6Mesh.getNumVertices();
-        d6Mesh.addVertex(v1 * size); d6Mesh.addTexCoord({ t_min.x, t_max.y });
-        d6Mesh.addVertex(v2 * size); d6Mesh.addTexCoord({ t_max.x, t_max.y });
-        d6Mesh.addVertex(v3 * size); d6Mesh.addTexCoord({ t_max.x, t_min.y });
-        d6Mesh.addVertex(v4 * size); d6Mesh.addTexCoord({ t_min.x, t_min.y });
-        for (int i = 0; i < 4; i++) d6Mesh.addNormal(normal);
-        d6Mesh.addIndex(baseIndex); d6Mesh.addIndex(baseIndex + 1); d6Mesh.addIndex(baseIndex + 2);
-        d6Mesh.addIndex(baseIndex); d6Mesh.addIndex(baseIndex + 2); d6Mesh.addIndex(baseIndex + 3);
-    };
-    addFace({ -1, -1, 1 }, { 1, -1, 1 }, { 1, 1, 1 }, { -1, 1, 1 }, uv_1_min, uv_1_max, { 0, 0, 1 });
-    addFace({ 1, -1, -1 }, { -1, -1, -1 }, { -1, 1, -1 }, { 1, 1, -1 }, uv_6_min, uv_6_max, { 0, 0, -1 });
-    addFace({ -1, 1, 1 }, { 1, 1, 1 }, { 1, 1, -1 }, { -1, 1, -1 }, uv_2_min, uv_2_max, { 0, 1, 0 });
-    addFace({ -1, -1, -1 }, { 1, -1, -1 }, { 1, -1, 1 }, { -1, -1, 1 }, uv_5_min, uv_5_max, { 0, -1, 0 });
-    addFace({ 1, -1, 1 }, { 1, -1, -1 }, { 1, 1, -1 }, { 1, 1, 1 }, uv_3_min, uv_3_max, { 1, 0, 0 });
-    addFace({ -1, -1, -1 }, { -1, -1, 1 }, { -1, 1, 1 }, { -1, 1, -1 }, uv_4_min, uv_4_max, { -1, 0, 0 });
+	// --- 6. MESH GENERATION (Walls & Floor) ---
+	// (This code remains unchanged as it generates geometry programmatically)
+	float wallSize = TILE_SIZE * 0.8f;
+	wallMesh.clear();
+	wallMesh.setMode(OF_PRIMITIVE_TRIANGLES);
+	wallMesh.addVertex(ofPoint(-wallSize / 2, 0, -wallSize / 2));
+	wallMesh.addVertex(ofPoint(wallSize / 2, 0, -wallSize / 2));
+	wallMesh.addVertex(ofPoint(wallSize / 2, 0, wallSize / 2));
+	wallMesh.addVertex(ofPoint(-wallSize / 2, 0, wallSize / 2));
+	wallMesh.addTexCoord(ofVec2f(0.4f, 0.4f));
+	wallMesh.addTexCoord(ofVec2f(0.6f, 0.4f));
+	wallMesh.addTexCoord(ofVec2f(0.6f, 0.6f));
+	wallMesh.addTexCoord(ofVec2f(0.4f, 0.6f));
+	for (int i = 0; i < 4; i++)
+		wallMesh.addNormal(ofPoint(0, 1, 0));
+	wallMesh.addIndex(0);
+	wallMesh.addIndex(1);
+	wallMesh.addIndex(2);
+	wallMesh.addIndex(0);
+	wallMesh.addIndex(2);
+	wallMesh.addIndex(3);
 
-    // --- 7. DICE MODELS ---
-    ofxAssimpModelLoader tempLoader;
-    
-    // Load D4
-    if (tempLoader.load("Dice/D4/Dice_d4.obj")) {
-        d4Mesh = tempLoader.getMesh(0);
-        glm::vec3 meshCenter = d4Mesh.getCentroid();
-        for (auto & v : d4Mesh.getVertices()) v -= meshCenter;
-        float maxSize = 0.0f;
-        for (auto & v : d4Mesh.getVertices()) maxSize = std::max(maxSize, glm::length(v));
-        if (maxSize > 0) {
-            float scaleFactor = 1.0f / maxSize;
-            for (auto & v : d4Mesh.getVertices()) v *= scaleFactor;
-        }
-    }
-    // Load D10
-    if (tempLoader.load("Dice/D10/d10.obj")) {
-        d10Mesh = tempLoader.getMesh(0);
-        glm::vec3 meshCenter = d10Mesh.getCentroid();
-        for (auto & v : d10Mesh.getVertices()) v -= meshCenter;
-        float maxSize = 0.0f;
-        for (auto & v : d10Mesh.getVertices()) maxSize = std::max(maxSize, glm::length(v));
-        if (maxSize > 0) {
-            float scaleFactor = 1.0f / maxSize;
-            for (auto & v : d10Mesh.getVertices()) v *= scaleFactor;
-        }
-    }
-    // Load D20
-    if (tempLoader.load("Dice/D20/d20.obj")) {
-        d20Mesh = tempLoader.getMesh(0);
-        glm::vec3 meshCenter = d20Mesh.getCentroid();
-        for (auto & v : d20Mesh.getVertices()) v -= meshCenter;
-        float maxSize = 0.0f;
-        for (auto & v : d20Mesh.getVertices()) maxSize = std::max(maxSize, glm::length(v));
-        if (maxSize > 0) {
-            float scaleFactor = 1.0f / maxSize;
-            for (auto & v : d20Mesh.getVertices()) v *= scaleFactor;
-        }
-    }
-    
-    // Coin Mesh Gen
-    coinMesh.clear();
-    coinMesh.setMode(OF_PRIMITIVE_TRIANGLES);
-    const float coinRadius = 2.0f;
-    const float coinThickness = 0.2f;
-    const int coinResolution = 32;
-    ofRectangle headsUV(0.0f, 0.0f, 0.5f, 1.0f);
-    ofRectangle tailsUV(0.5f, 0.0f, 0.5f, 1.0f);
+	// D6 Mesh Gen
+	d6Mesh.clear();
+	d6Mesh.setMode(OF_PRIMITIVE_TRIANGLES);
+	float size = 1.0f;
+	const float atlasWidth = 333.0f, atlasHeight = 225.0f;
+	glm::vec2 uv_1_min(0.0f / atlasWidth, 0.0f / atlasHeight), uv_1_max(104.0f / atlasWidth, 104.0f / atlasHeight);
+	glm::vec2 uv_2_min(114.0f / atlasWidth, 0.0f / atlasHeight), uv_2_max(218.0f / atlasWidth, 104.0f / atlasHeight);
+	glm::vec2 uv_3_min(228.0f / atlasWidth, 0.0f / atlasHeight), uv_3_max(332.0f / atlasWidth, 104.0f / atlasHeight);
+	glm::vec2 uv_4_min(0.0f / atlasWidth, 120.0f / atlasHeight), uv_4_max(104.0f / atlasWidth, 224.0f / atlasHeight);
+	glm::vec2 uv_5_min(114.0f / atlasWidth, 120.0f / atlasHeight), uv_5_max(218.0f / atlasWidth, 224.0f / atlasHeight);
+	glm::vec2 uv_6_min(228.0f / atlasWidth, 120.0f / atlasHeight), uv_6_max(332.0f / atlasWidth, 224.0f / atlasHeight);
+	auto addFace = [&](glm::vec3 v1, glm::vec3 v2, glm::vec3 v3, glm::vec3 v4, glm::vec2 t_min, glm::vec2 t_max, glm::vec3 normal) {
+		int baseIndex = d6Mesh.getNumVertices();
+		d6Mesh.addVertex(v1 * size);
+		d6Mesh.addTexCoord({ t_min.x, t_max.y });
+		d6Mesh.addVertex(v2 * size);
+		d6Mesh.addTexCoord({ t_max.x, t_max.y });
+		d6Mesh.addVertex(v3 * size);
+		d6Mesh.addTexCoord({ t_max.x, t_min.y });
+		d6Mesh.addVertex(v4 * size);
+		d6Mesh.addTexCoord({ t_min.x, t_min.y });
+		for (int i = 0; i < 4; i++)
+			d6Mesh.addNormal(normal);
+		d6Mesh.addIndex(baseIndex);
+		d6Mesh.addIndex(baseIndex + 1);
+		d6Mesh.addIndex(baseIndex + 2);
+		d6Mesh.addIndex(baseIndex);
+		d6Mesh.addIndex(baseIndex + 2);
+		d6Mesh.addIndex(baseIndex + 3);
+	};
+	addFace({ -1, -1, 1 }, { 1, -1, 1 }, { 1, 1, 1 }, { -1, 1, 1 }, uv_1_min, uv_1_max, { 0, 0, 1 });
+	addFace({ 1, -1, -1 }, { -1, -1, -1 }, { -1, 1, -1 }, { 1, 1, -1 }, uv_6_min, uv_6_max, { 0, 0, -1 });
+	addFace({ -1, 1, 1 }, { 1, 1, 1 }, { 1, 1, -1 }, { -1, 1, -1 }, uv_2_min, uv_2_max, { 0, 1, 0 });
+	addFace({ -1, -1, -1 }, { 1, -1, -1 }, { 1, -1, 1 }, { -1, -1, 1 }, uv_5_min, uv_5_max, { 0, -1, 0 });
+	addFace({ 1, -1, 1 }, { 1, -1, -1 }, { 1, 1, -1 }, { 1, 1, 1 }, uv_3_min, uv_3_max, { 1, 0, 0 });
+	addFace({ -1, -1, -1 }, { -1, -1, 1 }, { -1, 1, 1 }, { -1, 1, -1 }, uv_4_min, uv_4_max, { -1, 0, 0 });
 
-    int topCenterIndex = coinMesh.getNumVertices();
-    coinMesh.addVertex({0, coinThickness / 2.0f, 0});
-    coinMesh.addNormal({0, 1, 0});
-    coinMesh.addTexCoord({headsUV.getCenter().x, headsUV.getCenter().y});
-    for (int i = 0; i <= coinResolution; i++) {
-        float angle = (float)i / coinResolution * TWO_PI;
-        coinMesh.addVertex({cos(angle) * coinRadius, coinThickness / 2.0f, sin(angle) * coinRadius});
-        coinMesh.addNormal({0, 1, 0});
-        coinMesh.addTexCoord({headsUV.x + headsUV.width * (0.5f + 0.5f * cos(angle)), headsUV.y + headsUV.height * (0.5f + 0.5f * sin(angle))});
-    }
-    for (int i = 0; i < coinResolution; i++) {
-        coinMesh.addIndex(topCenterIndex); coinMesh.addIndex(topCenterIndex + 1 + i); coinMesh.addIndex(topCenterIndex + 1 + i + 1);
-    }
+	// --- 7. DICE MODELS ---
+	ofxAssimpModelLoader tempLoader;
 
-    int bottomCenterIndex = coinMesh.getNumVertices();
-    coinMesh.addVertex({0, -coinThickness / 2.0f, 0});
-    coinMesh.addNormal({0, -1, 0});
-    coinMesh.addTexCoord({tailsUV.getCenter().x, tailsUV.getCenter().y});
-    for (int i = 0; i <= coinResolution; i++) {
-        float angle = (float)i / coinResolution * TWO_PI;
-        coinMesh.addVertex({cos(angle) * coinRadius, -coinThickness / 2.0f, sin(angle) * coinRadius});
-        coinMesh.addNormal({0, -1, 0});
-        coinMesh.addTexCoord({tailsUV.x + tailsUV.width * (0.5f + 0.5f * cos(angle)), tailsUV.y + tailsUV.height * (0.5f + 0.5f * sin(angle))});
-    }
-    for (int i = 0; i < coinResolution; i++) {
-        coinMesh.addIndex(bottomCenterIndex); coinMesh.addIndex(bottomCenterIndex + 1 + i + 1); coinMesh.addIndex(bottomCenterIndex + 1 + i);
-    }
+	// Load D4
+	if (tempLoader.load("Dice/D4/Dice_d4.obj")) {
+		d4Mesh = tempLoader.getMesh(0);
+		glm::vec3 meshCenter = d4Mesh.getCentroid();
+		for (auto & v : d4Mesh.getVertices())
+			v -= meshCenter;
+		float maxSize = 0.0f;
+		for (auto & v : d4Mesh.getVertices())
+			maxSize = std::max(maxSize, glm::length(v));
+		if (maxSize > 0) {
+			float scaleFactor = 1.0f / maxSize;
+			for (auto & v : d4Mesh.getVertices())
+				v *= scaleFactor;
+		}
+	}
+	// Load D10
+	if (tempLoader.load("Dice/D10/d10.obj")) {
+		d10Mesh = tempLoader.getMesh(0);
+		glm::vec3 meshCenter = d10Mesh.getCentroid();
+		for (auto & v : d10Mesh.getVertices())
+			v -= meshCenter;
+		float maxSize = 0.0f;
+		for (auto & v : d10Mesh.getVertices())
+			maxSize = std::max(maxSize, glm::length(v));
+		if (maxSize > 0) {
+			float scaleFactor = 1.0f / maxSize;
+			for (auto & v : d10Mesh.getVertices())
+				v *= scaleFactor;
+		}
+	}
+	// Load D20
+	if (tempLoader.load("Dice/D20/d20.obj")) {
+		d20Mesh = tempLoader.getMesh(0);
+		glm::vec3 meshCenter = d20Mesh.getCentroid();
+		for (auto & v : d20Mesh.getVertices())
+			v -= meshCenter;
+		float maxSize = 0.0f;
+		for (auto & v : d20Mesh.getVertices())
+			maxSize = std::max(maxSize, glm::length(v));
+		if (maxSize > 0) {
+			float scaleFactor = 1.0f / maxSize;
+			for (auto & v : d20Mesh.getVertices())
+				v *= scaleFactor;
+		}
+	}
 
-    ofColor edgeColor = ofColor::goldenRod;
-    int edgeStartIndex = coinMesh.getNumVertices();
-    for (int i = 0; i <= coinResolution; i++) {
-        float angle = (float)i / coinResolution * TWO_PI;
-        glm::vec3 normal = glm::normalize(glm::vec3(cos(angle), 0, sin(angle)));
-        coinMesh.addVertex({cos(angle) * coinRadius,  coinThickness/2.0f, sin(angle) * coinRadius});
-        coinMesh.addNormal(normal); coinMesh.addColor(edgeColor);
-        coinMesh.addVertex({cos(angle) * coinRadius, -coinThickness/2.0f, sin(angle) * coinRadius});
-        coinMesh.addNormal(normal); coinMesh.addColor(edgeColor);
-    }
-    for (int i = 0; i < coinResolution; i++) {
-        int current = edgeStartIndex + i * 2; int next = edgeStartIndex + (i + 1) * 2;
-        coinMesh.addIndex(current); coinMesh.addIndex(next); coinMesh.addIndex(current + 1);
-        coinMesh.addIndex(next); coinMesh.addIndex(next + 1); coinMesh.addIndex(current + 1);
-    }
+	// Coin Mesh Gen
+	coinMesh.clear();
+	coinMesh.setMode(OF_PRIMITIVE_TRIANGLES);
+	const float coinRadius = 2.0f;
+	const float coinThickness = 0.2f;
+	const int coinResolution = 32;
+	ofRectangle headsUV(0.0f, 0.0f, 0.5f, 1.0f);
+	ofRectangle tailsUV(0.5f, 0.0f, 0.5f, 1.0f);
 
-    // --- 8. MATERIALS & LIGHTS ---
-    
-    // 1. Material Settings
-    // Shininess: How focused the reflection is (High = Wet/Metal, Low = Dull/Stone)
-    modelMaterial.setShininess(12); 
-    
-    // Ambient Color: We set this to White so the object is CAPABLE of seeing ambient light.
-    // We will control the actual darkness using the Global Ambient setting below.
-    modelMaterial.setAmbientColor(ofColor(255, 255, 255));
-    
-    diceMaterial.setShininess(90);
-    diceMaterial.setSpecularColor(ofColor::white);
-    diceMaterial.setDiffuseColor(ofColor::white);
-    
-    // 2. GLOBAL AMBIENT (The "Base" Brightness)
-    // PREVIOUSLY: 180 (Bright Day)
-    // DUNGEON SETTING: 40 (Dark shadows, slight blue tint for atmosphere)
-    ofSetGlobalAmbientColor(ofColor(30, 30, 50)); 
-    
-    lights.clear();
-    
-    // 3. KEY LIGHT (The Moon/Dungeon Main Source)
-    // Positioned high up to cast shadows downwards
-    ofLight keyLight; 
-    keyLight.setup(); 
-    keyLight.setPointLight(); 
-    keyLight.setDiffuseColor(ofColor(100, 100, 120)); // Cool blue/grey light
-    keyLight.setPosition(50, 400, 50); 
-    lights.push_back(keyLight);
-    
-    // 4. RIM LIGHT (Backlight)
-    // Helps separate objects from the dark background
-    ofLight rimLight; 
-    rimLight.setup(); 
-    rimLight.setPointLight(); 
-    rimLight.setDiffuseColor(ofColor(50, 0, 0)); // Faint red glow from "below/behind"
-    rimLight.setPosition(-100, 50, -100); 
-    lights.push_back(rimLight);
-    
-    // 5. HEADLIGHT (The Player's Torch)
-    // This is attached to the camera. It ensures that whatever you look at
-    // is lit up, even if the rest of the room is dark.
-    headlight.setup(); 
-    headlight.setPointLight(); 
-    headlight.setDiffuseColor(ofColor(200, 180, 140)); // Warm Torch color
-    // Attenuation: How fast the light fades over distance.
-    // 0.02 means it fades out after a medium distance (torch range)
-    headlight.setAttenuation(0.8, 0.005, 0.0); 
-    
-    cam.setupPerspective(false, 60, 0.1f, 100000);
-    cam.setFarClip(100000);
+	int topCenterIndex = coinMesh.getNumVertices();
+	coinMesh.addVertex({ 0, coinThickness / 2.0f, 0 });
+	coinMesh.addNormal({ 0, 1, 0 });
+	coinMesh.addTexCoord({ headsUV.getCenter().x, headsUV.getCenter().y });
+	for (int i = 0; i <= coinResolution; i++) {
+		float angle = (float)i / coinResolution * TWO_PI;
+		coinMesh.addVertex({ cos(angle) * coinRadius, coinThickness / 2.0f, sin(angle) * coinRadius });
+		coinMesh.addNormal({ 0, 1, 0 });
+		coinMesh.addTexCoord({ headsUV.x + headsUV.width * (0.5f + 0.5f * cos(angle)), headsUV.y + headsUV.height * (0.5f + 0.5f * sin(angle)) });
+	}
+	for (int i = 0; i < coinResolution; i++) {
+		coinMesh.addIndex(topCenterIndex);
+		coinMesh.addIndex(topCenterIndex + 1 + i);
+		coinMesh.addIndex(topCenterIndex + 1 + i + 1);
+	}
 
-    // --- 9. LOAD CARD DATA ---
-    // Note: Path points to Config/ folder
-    loadCardData("Config/cards.json");
+	int bottomCenterIndex = coinMesh.getNumVertices();
+	coinMesh.addVertex({ 0, -coinThickness / 2.0f, 0 });
+	coinMesh.addNormal({ 0, -1, 0 });
+	coinMesh.addTexCoord({ tailsUV.getCenter().x, tailsUV.getCenter().y });
+	for (int i = 0; i <= coinResolution; i++) {
+		float angle = (float)i / coinResolution * TWO_PI;
+		coinMesh.addVertex({ cos(angle) * coinRadius, -coinThickness / 2.0f, sin(angle) * coinRadius });
+		coinMesh.addNormal({ 0, -1, 0 });
+		coinMesh.addTexCoord({ tailsUV.x + tailsUV.width * (0.5f + 0.5f * cos(angle)), tailsUV.y + tailsUV.height * (0.5f + 0.5f * sin(angle)) });
+	}
+	for (int i = 0; i < coinResolution; i++) {
+		coinMesh.addIndex(bottomCenterIndex);
+		coinMesh.addIndex(bottomCenterIndex + 1 + i + 1);
+		coinMesh.addIndex(bottomCenterIndex + 1 + i);
+	}
 
-    // --- 10. SCREEN SETTINGS ---
-    availableResolutions = { { 1024, 768 }, { 1280, 720 }, { 1600, 900 }, { 1920, 1080 }, { 2560, 1440 } };
-    int screenW = ofGetScreenWidth();
-    int screenH = ofGetScreenHeight();
-    bool found = false;
-    for (size_t i = 0; i < availableResolutions.size(); ++i) {
-        if (availableResolutions[i].x == screenW && availableResolutions[i].y == screenH) {
-            currentResolutionIndex = static_cast<int>(i);
-            found = true;
-            break;
-        }
-    }
-    if (!found) {
-        availableResolutions.push_back(glm::vec2(screenW, screenH));
-        currentResolutionIndex = availableResolutions.size() - 1;
-    }
+	ofColor edgeColor = ofColor::goldenRod;
+	int edgeStartIndex = coinMesh.getNumVertices();
+	for (int i = 0; i <= coinResolution; i++) {
+		float angle = (float)i / coinResolution * TWO_PI;
+		glm::vec3 normal = glm::normalize(glm::vec3(cos(angle), 0, sin(angle)));
+		coinMesh.addVertex({ cos(angle) * coinRadius, coinThickness / 2.0f, sin(angle) * coinRadius });
+		coinMesh.addNormal(normal);
+		coinMesh.addColor(edgeColor);
+		coinMesh.addVertex({ cos(angle) * coinRadius, -coinThickness / 2.0f, sin(angle) * coinRadius });
+		coinMesh.addNormal(normal);
+		coinMesh.addColor(edgeColor);
+	}
+	for (int i = 0; i < coinResolution; i++) {
+		int current = edgeStartIndex + i * 2;
+		int next = edgeStartIndex + (i + 1) * 2;
+		coinMesh.addIndex(current);
+		coinMesh.addIndex(next);
+		coinMesh.addIndex(current + 1);
+		coinMesh.addIndex(next);
+		coinMesh.addIndex(next + 1);
+		coinMesh.addIndex(current + 1);
+	}
 
-    int monitorRefreshRate = 60;
-    GLFWmonitor* primary = glfwGetPrimaryMonitor();
-    if (primary) {
-        const GLFWvidmode* mode = glfwGetVideoMode(primary);
-        monitorRefreshRate = mode->refreshRate;
-    }
+	// --- 8. MATERIALS & LIGHTS ---
 
-    availableFramerates.clear();
-    availableFramerates.push_back(30);
-    availableFramerates.push_back(60);
-    if (monitorRefreshRate != 30 && monitorRefreshRate != 60) {
-        availableFramerates.push_back(monitorRefreshRate);
-    }
-    availableFramerates.push_back(0); 
+	// 1. Material Settings
+	modelMaterial.setShininess(10);
+	modelMaterial.setSpecularColor(ofColor(50, 50, 50));
+	modelMaterial.setDiffuseColor(ofColor(255, 255, 255));
+	modelMaterial.setAmbientColor(ofColor(255, 255, 255));
 
-    for(size_t i = 0; i < availableFramerates.size(); i++) {
-        if (availableFramerates[i] == monitorRefreshRate) {
-            currentFramerateIndex = i;
-            break;
-        }
-    }
+	// 1. GLOBAL AMBIENT (Brightness Fix)
+	// Was (60, 60, 80). Changed to (100, 100, 100).
+	// This is a neutral grey (no purple tint) and significantly brighter.
+	ofSetGlobalAmbientColor(ofColor(70, 70, 70));
 
-    isFullscreen = true;
-    ofSetFullscreen(true);
-    applySettings();
+	lights.clear();
+
+	// 2. KEY LIGHT (Main Illumination)
+	keyLight.setup();
+	keyLight.setPointLight();
+	keyLight.setPosition(50, 150, 50); // Raised Y to 150 for better spread
+	// Neutral white light, boosted brightness
+	keyLight.setDiffuseColor(ofColor(140, 140, 140));
+	keyLight.setSpecularColor(ofColor(50, 50, 50));
+	keyLight.setAttenuation(1.0f, 0.005f, 0.0f);
+	lights.push_back(keyLight);
+
+	// 3. RIM LIGHT (Backlight)
+	rimLight.setup();
+	rimLight.setPointLight();
+	rimLight.setPosition(-50, 30, -50);
+	// Very subtle warm glow, not deep red
+	rimLight.setDiffuseColor(ofColor(80, 60, 50));
+	rimLight.setSpecularColor(ofColor(50, 0, 0));
+	lights.push_back(rimLight);
+
+	// 5. HEADLIGHT (Torch)
+	headlight.setup();
+	headlight.setPointLight();
+	headlight.setDiffuseColor(ofColor(220, 170, 100));
+	headlight.setSpecularColor(ofColor(255, 200, 150));
+	headlight.setAttenuation(1.0f, 0.001f, 0.0f);
+
+	cam.setupPerspective(false, 60, 0.1f, 100000);
+	cam.setFarClip(100000);
+
+	// --- SHADOW TEXTURE GENERATION ---
+	ofPixels pix;
+	pix.allocate(64, 64, OF_PIXELS_RGBA);
+	for (int x = 0; x < 64; x++) {
+		for (int y = 0; y < 64; y++) {
+			float dist = ofDist(x, y, 32, 32);
+			float alpha = ofMap(dist, 0, 32, 200, 0, true);
+			pix.setColor(x, y, ofColor(0, 0, 0, alpha));
+		}
+	}
+	shadowTexture.setFromPixels(pix);
+
+	// --- 9. LOAD CARD DATA ---
+	// Note: Path points to Config/ folder
+	loadCardData("Config/cards.json");
+
+	// --- 10. SCREEN SETTINGS ---
+	availableResolutions = { { 1024, 768 }, { 1280, 720 }, { 1600, 900 }, { 1920, 1080 }, { 2560, 1440 } };
+	int screenW = ofGetScreenWidth();
+	int screenH = ofGetScreenHeight();
+	bool found = false;
+	for (size_t i = 0; i < availableResolutions.size(); ++i) {
+		if (availableResolutions[i].x == screenW && availableResolutions[i].y == screenH) {
+			currentResolutionIndex = static_cast<int>(i);
+			found = true;
+			break;
+		}
+	}
+	if (!found) {
+		availableResolutions.push_back(glm::vec2(screenW, screenH));
+		currentResolutionIndex = availableResolutions.size() - 1;
+	}
+
+	int monitorRefreshRate = 60;
+	GLFWmonitor * primary = glfwGetPrimaryMonitor();
+	if (primary) {
+		const GLFWvidmode * mode = glfwGetVideoMode(primary);
+		monitorRefreshRate = mode->refreshRate;
+	}
+
+	availableFramerates.clear();
+	availableFramerates.push_back(30);
+	availableFramerates.push_back(60);
+	if (monitorRefreshRate != 30 && monitorRefreshRate != 60) {
+		availableFramerates.push_back(monitorRefreshRate);
+	}
+	availableFramerates.push_back(0);
+
+	for (size_t i = 0; i < availableFramerates.size(); i++) {
+		if (availableFramerates[i] == monitorRefreshRate) {
+			currentFramerateIndex = i;
+			break;
+		}
+	}
+
+	isFullscreen = true;
+	ofSetFullscreen(true);
+	applySettings();
 }
 
 //--------------------------------------------------------------
@@ -351,7 +388,7 @@ void ofApp::update() {
 	case STATE_GAMEPLAY:
 		updateGame();
 		break;
-	case STATE_PAUSED: 
+	case STATE_PAUSED:
 		break;
 	}
 }
@@ -493,25 +530,24 @@ void ofApp::drawSettingsMenu() {
 }
 //--------------------------------------------------------------
 void ofApp::applySettings() {
-    glm::vec2 res = availableResolutions[currentResolutionIndex];
+	glm::vec2 res = availableResolutions[currentResolutionIndex];
 
-    if (isFullscreen) {
-        if (ofGetWindowMode() != OF_FULLSCREEN) {
-            ofSetFullscreen(true);
-        }
-    } 
-    else {
-        if (ofGetWindowMode() == OF_FULLSCREEN) {
-            ofSetFullscreen(false);
-        }
-        ofSetWindowShape(res.x, res.y);
-        int screenW = ofGetScreenWidth();
-        int screenH = ofGetScreenHeight();
-        ofSetWindowPosition((screenW - res.x) / 2, (screenH - res.y) / 2);
-    }
+	if (isFullscreen) {
+		if (ofGetWindowMode() != OF_FULLSCREEN) {
+			ofSetFullscreen(true);
+		}
+	} else {
+		if (ofGetWindowMode() == OF_FULLSCREEN) {
+			ofSetFullscreen(false);
+		}
+		ofSetWindowShape(res.x, res.y);
+		int screenW = ofGetScreenWidth();
+		int screenH = ofGetScreenHeight();
+		ofSetWindowPosition((screenW - res.x) / 2, (screenH - res.y) / 2);
+	}
 
 	// Get target FPS (e.g., 180, 60, or 0)
-    int targetFPS = availableFramerates[currentFramerateIndex];
+	int targetFPS = availableFramerates[currentFramerateIndex];
 
 	if (targetFPS == 0) {
 		// Unlimited Mode
@@ -522,31 +558,31 @@ void ofApp::applySettings() {
 		ofSetVerticalSync(true); // Enforce monitor sync
 		ofSetFrameRate(targetFPS); // Also cap CPU loop to avoid spins
 	}
-    
-    recalculateUI(ofGetWidth(), ofGetHeight());
 
-    // --- RECALCULATE MAIN MENU BUTTONS ---
-    float btnWidth = 400;
-    float btnHeight = 80;
-    float centerX = ofGetWidth() / 2.0f;
-    float startY = ofGetHeight() / 2.0f - btnHeight;
-    
-    mainMenuPlayAIButton.set(centerX - btnWidth / 2, startY, btnWidth, btnHeight);
-    mainMenuMultiplayerButton.set(centerX - btnWidth / 2, startY + btnHeight + 20, btnWidth, btnHeight);
-    mainMenuSettingsButton.set(centerX - btnWidth / 2, startY + (btnHeight + 20) * 2, btnWidth, btnHeight);
-    mainMenuQuitButton.set(centerX - btnWidth / 2, startY + (btnHeight + 20) * 3, btnWidth, btnHeight);
+	recalculateUI(ofGetWidth(), ofGetHeight());
+
+	// --- RECALCULATE MAIN MENU BUTTONS ---
+	float btnWidth = 400;
+	float btnHeight = 80;
+	float centerX = ofGetWidth() / 2.0f;
+	float startY = ofGetHeight() / 2.0f - btnHeight;
+
+	mainMenuPlayAIButton.set(centerX - btnWidth / 2, startY, btnWidth, btnHeight);
+	mainMenuMultiplayerButton.set(centerX - btnWidth / 2, startY + btnHeight + 20, btnWidth, btnHeight);
+	mainMenuSettingsButton.set(centerX - btnWidth / 2, startY + (btnHeight + 20) * 2, btnWidth, btnHeight);
+	mainMenuQuitButton.set(centerX - btnWidth / 2, startY + (btnHeight + 20) * 3, btnWidth, btnHeight);
 
 	// --- 11. POST PROCESSING (Optional, used for 3D world only) ---
 	{
-		const GLubyte* vendor = glGetString(GL_VENDOR);
-		const GLubyte* renderer = glGetString(GL_RENDERER);
-		const GLubyte* version = glGetString(GL_VERSION);
-		const GLubyte* glsl = glGetString(GL_SHADING_LANGUAGE_VERSION);
+		const GLubyte * vendor = glGetString(GL_VENDOR);
+		const GLubyte * renderer = glGetString(GL_RENDERER);
+		const GLubyte * version = glGetString(GL_VERSION);
+		const GLubyte * glsl = glGetString(GL_SHADING_LANGUAGE_VERSION);
 		ofLogNotice("GL")
-			<< "Vendor: " << (vendor ? reinterpret_cast<const char*>(vendor) : "(null)")
-			<< " | Renderer: " << (renderer ? reinterpret_cast<const char*>(renderer) : "(null)")
-			<< " | Version: " << (version ? reinterpret_cast<const char*>(version) : "(null)")
-			<< " | GLSL: " << (glsl ? reinterpret_cast<const char*>(glsl) : "(null)");
+			<< "Vendor: " << (vendor ? reinterpret_cast<const char *>(vendor) : "(null)")
+			<< " | Renderer: " << (renderer ? reinterpret_cast<const char *>(renderer) : "(null)")
+			<< " | Version: " << (version ? reinterpret_cast<const char *>(version) : "(null)")
+			<< " | GLSL: " << (glsl ? reinterpret_cast<const char *>(glsl) : "(null)");
 	}
 
 	worldPostShaderLoaded = false;
@@ -629,21 +665,21 @@ void ofApp::drawPauseMenu() {
 }
 // Recalculate ui
 void ofApp::recalculateUI(int w, int h) {
-    // 1. Update Camera Aspect Ratio
-    cam.setAspectRatio((float)w / (float)h);
-    lastWindowWidth = w;
-    lastWindowHeight = h;
+	// 1. Update Camera Aspect Ratio
+	cam.setAspectRatio((float)w / (float)h);
+	lastWindowWidth = w;
+	lastWindowHeight = h;
 
-    // 2. Recalculate Main Menu Buttons
-    float btnWidth = 400;
-    float btnHeight = 80;
-    float centerX = w / 2.0f;
-    float startY = h / 2.0f - btnHeight;
+	// 2. Recalculate Main Menu Buttons
+	float btnWidth = 400;
+	float btnHeight = 80;
+	float centerX = w / 2.0f;
+	float startY = h / 2.0f - btnHeight;
 
-    mainMenuPlayAIButton.set(centerX - btnWidth / 2, startY, btnWidth, btnHeight);
-    mainMenuMultiplayerButton.set(centerX - btnWidth / 2, startY + btnHeight + 20, btnWidth, btnHeight);
-    mainMenuSettingsButton.set(centerX - btnWidth / 2, startY + (btnHeight + 20) * 2, btnWidth, btnHeight);
-    mainMenuQuitButton.set(centerX - btnWidth / 2, startY + (btnHeight + 20) * 3, btnWidth, btnHeight);
+	mainMenuPlayAIButton.set(centerX - btnWidth / 2, startY, btnWidth, btnHeight);
+	mainMenuMultiplayerButton.set(centerX - btnWidth / 2, startY + btnHeight + 20, btnWidth, btnHeight);
+	mainMenuSettingsButton.set(centerX - btnWidth / 2, startY + (btnHeight + 20) * 2, btnWidth, btnHeight);
+	mainMenuQuitButton.set(centerX - btnWidth / 2, startY + (btnHeight + 20) * 3, btnWidth, btnHeight);
 }
 //--------------------------------------------------------------
 void ofApp::setupGame() {
@@ -701,7 +737,7 @@ void ofApp::setupGame() {
 	board[7][4].hasWall = true;
 
 	buildLevelMesh();
-	buildFloorMesh(); 
+	buildFloorMesh();
 
 	// --- PLAYER CREATION ---
 	Player p1;
@@ -733,14 +769,14 @@ void ofApp::setupGame() {
 }
 
 //--------------------------------------------------------------
-	void ofApp::updateGame() {
+void ofApp::updateGame() {
 	// 1. UPDATE UI POSITIONS
 	updateDebugRects();
 
-	    // 2. Magic Blast / Dispel Freeze Check
-     if (isMagicBlastChoiceActive || isDispelMenuOpen || isDispelTargeting || isDispelStatusSelectOpen) {
-        return;
-    }
+	// 2. Magic Blast / Dispel Freeze Check
+	if (isMagicBlastChoiceActive || isDispelMenuOpen || isDispelTargeting || isDispelStatusSelectOpen) {
+		return;
+	}
 
 	// --- Pile View Hover Logic ---
 	if (isHoveringPile && !isShowingPileView) {
@@ -768,8 +804,7 @@ void ofApp::setupGame() {
 	glm::vec3 targetLookAt = cameraCurrentPan;
 	if (isTopDownView) {
 		targetPos = glm::vec3(cameraCurrentPan.x, cameraCurrentZoom, cameraCurrentPan.z);
-	}
-	else {
+	} else {
 		targetPos = glm::vec3(cameraCurrentPan.x, cameraCurrentZoom, cameraCurrentPan.z + cameraCurrentZoom * 0.5f);
 	}
 	cameraCurrentPos = glm::mix(cameraCurrentPos, targetPos, frame_independent_smoothing);
@@ -777,25 +812,51 @@ void ofApp::setupGame() {
 	cam.setPosition(cameraCurrentPos);
 	cam.lookAt(cameraCurrentLookAt);
 
+	// --- TORCH FLICKER LOGIC (SLOWER) ---
+	float time = ofGetElapsedTimef();
+	float flicker = ofNoise(time * 3.0f); // Speed
+
+	// 2. Intensity Mapping
+	// Map noise to a safe range (0.8 to 1.3)
+	float intensity = ofMap(flicker, 0, 1, 0.8f, 1.3f);
+
+	// 3. Position Wiggle (Slow sway)
+	float wiggleX = ofNoise(time * 1.0f, 0) * 15.0f - 7.5f;
+	float wiggleY = ofNoise(time * 1.0f, 100) * 10.0f - 5.0f;
+
+	// 4. Apply Color
+	// Base color is a warm orange/yellow.
+	// We multiply by intensity, then clamp with std::min to prevent color wrapping.
+	headlight.setDiffuseColor(ofColor(
+		std::min(255.0f, 220.0f * intensity),
+		std::min(255.0f, 160.0f * intensity),
+		std::min(255.0f, 100.0f * intensity)));
+
+	headlight.setSpecularColor(ofColor(255, 255, 255));
+
+	headlight.setPosition(cam.getPosition() + glm::vec3(wiggleX, wiggleY, 0));
+
+	// Ensure long range
+	headlight.setAttenuation(1.0f, 0.001f, 0.0f);
+
 	// --- UI Button Interpolation ---
 	float scale = ofGetHeight() / 1080.0f;
 	float btnWidth = 250 * scale;
 	float visibleY = 20 * scale;
 	float hiddenY = -100 * scale;
 
-    // FIX: Check if it is Player 1's turn OR a Minion owned by Player 1
-    bool isPlayer1Turn = false;
-    if (currentPlayerIndex >= 0 && !players.empty()) {
-        int pid = players[currentPlayerIndex].playerID;
-        int oid = players[currentPlayerIndex].ownerID;
-        // Assuming Player 1 is ID 0. Minions owned by P1 have ownerID 0.
-        if (pid == 0 || oid == 0) isPlayer1Turn = true;
-    }
+	// FIX: Check if it is Player 1's turn OR a Minion owned by Player 1
+	bool isPlayer1Turn = false;
+	if (currentPlayerIndex >= 0 && !players.empty()) {
+		int pid = players[currentPlayerIndex].playerID;
+		int oid = players[currentPlayerIndex].ownerID;
+		// Assuming Player 1 is ID 0. Minions owned by P1 have ownerID 0.
+		if (pid == 0 || oid == 0) isPlayer1Turn = true;
+	}
 
 	if (isPlayer1Turn) {
 		endTurnButtonTargetPos.set(ofGetWidth() / 2.0f - btnWidth / 2.0f, visibleY);
-	}
-	else {
+	} else {
 		endTurnButtonTargetPos.set(ofGetWidth() / 2.0f - btnWidth / 2.0f, hiddenY);
 	}
 	endTurnButtonCurrentPos = endTurnButtonCurrentPos.getInterpolated(endTurnButtonTargetPos, 0.2f);
@@ -806,7 +867,7 @@ void ofApp::setupGame() {
 		int baseDamage = pendingAttackRollResult;
 		for (size_t i = 0; i < pendingAttackTargetIndices.size(); i++) {
 			int pIndex = pendingAttackTargetIndices[i];
-			Player* target = getPlayer(pIndex);
+			Player * target = getPlayer(pIndex);
 			if (target) {
 				int appliedDamage = baseDamage;
 				if (pendingAttackDamageType == DAMAGE_PIERCING && i > 0) appliedDamage /= 2;
@@ -828,26 +889,22 @@ void ofApp::setupGame() {
 	// --- Amnesia Logic ---
 	if (isWaitingForAmnesiaDice && activeDiceRolls.empty()) {
 		isWaitingForAmnesiaDice = false;
-		Player* amnesiaTarget = getPlayer(amnesiaTargetPlayerIndex);
+		Player * amnesiaTarget = getPlayer(amnesiaTargetPlayerIndex);
 		if (amnesiaTarget) {
 			numCardsToRemove = std::min(pendingAmnesiaRollResult, (int)amnesiaTarget->deck.size());
 			if (numCardsToRemove > 0) {
 				isAmnesiaSelectionActive = true;
 				amnesiaDeckCopy = amnesiaTarget->deck;
 				amnesiaSelectedIndices.clear();
-			}
-			else {
+			} else {
 				amnesiaTargetPlayerIndex = -1;
 			}
-		}
-		else {
+		} else {
 			amnesiaTargetPlayerIndex = -1;
 		}
 	}
 
-
-	
-// --- MAGIC BLAST RESOLUTION ---
+	// --- MAGIC BLAST RESOLUTION ---
 	if (isWaitingForMagicBlastDice && activeDiceRolls.empty()) {
 		isWaitingForMagicBlastDice = false;
 		Player & caster = players[currentPlayerIndex];
@@ -855,10 +912,10 @@ void ofApp::setupGame() {
 
 		// 1. Calculate Max Range (5ft = 1.0 Unit)
 		float maxDistUnits = pendingMagicBlastRollResult / 5.0f;
-		
+
 		// 2. Calculate Required Distance (Face-to-Face)
 		float neededDist = getFaceToFaceDistance(casterTile, pendingMagicBlastTargetTile);
-		
+
 		// Log
 		int requiredFeet = (neededDist > 1000.0f) ? 999 : (int)ceil(neededDist * 5.0f);
 		ofLogNotice("MagicBlast") << "Rolled: " << pendingMagicBlastRollResult << "ft (" << maxDistUnits << "). Needed: " << requiredFeet << "ft.";
@@ -905,22 +962,20 @@ void ofApp::setupGame() {
 			// Scenario A: Direct Hit exists.
 			// Start with Direct Target -> 3 Choices.
 			isMagicBlastChoiceActive = true;
-			magicBlastChoicesRemaining = 3; 
-		} 
-		else if (!magicBlastSplashTargetIndices.empty()) {
+			magicBlastChoicesRemaining = 3;
+		} else if (!magicBlastSplashTargetIndices.empty()) {
 			// Scenario B: No Direct Hit (hit empty ground), but Splash targets exist.
 			// Pop the first splash target -> 1 Choice.
 			isMagicBlastChoiceActive = true;
 			magicBlastTargetPlayerIndex = magicBlastSplashTargetIndices.front();
 			magicBlastSplashTargetIndices.erase(magicBlastSplashTargetIndices.begin());
-			magicBlastChoicesRemaining = 1; 
-		} 
-		else {
+			magicBlastChoicesRemaining = 1;
+		} else {
 			ofLogNotice("MagicBlast") << "No targets hit.";
 		}
 	}
 
-// --- FIREBALL RANGE RESOLUTION ---
+	// --- FIREBALL RANGE RESOLUTION ---
 	if (isWaitingForFireballRangeDice && activeDiceRolls.empty()) {
 		isWaitingForFireballRangeDice = false;
 		Player & caster = players[currentPlayerIndex];
@@ -937,11 +992,11 @@ void ofApp::setupGame() {
 			fireballImpactTile = pendingFireballTargetTile;
 			ofLogNotice("Fireball") << "Direct Hit!";
 		} else {
-            ofLogNotice("Fireball") << "Fell short!";
-            glm::vec2 dir = pendingFireballTargetTile - casterTile;
-            if (glm::length(dir) > 0) dir = glm::normalize(dir);
-            glm::vec2 impactPos = casterTile + (dir * (maxDistUnits + 1.0f));
-            fireballImpactTile = { round(impactPos.x), round(impactPos.y) };
+			ofLogNotice("Fireball") << "Fell short!";
+			glm::vec2 dir = pendingFireballTargetTile - casterTile;
+			if (glm::length(dir) > 0) dir = glm::normalize(dir);
+			glm::vec2 impactPos = casterTile + (dir * (maxDistUnits + 1.0f));
+			fireballImpactTile = { round(impactPos.x), round(impactPos.y) };
 		}
 
 		// 4. Check for Impact on Unit
@@ -967,7 +1022,7 @@ void ofApp::setupGame() {
 	if (isWaitingForFireballDamageDice && activeDiceRolls.empty()) {
 		isWaitingForFireballDamageDice = false;
 		ofLogNotice("Fireball") << "Damage roll result: " << pendingFireballDamageResult;
-		Player* target = getPlayer(fireballTargetPlayerIndex);
+		Player * target = getPlayer(fireballTargetPlayerIndex);
 		if (target) {
 			int damage = pendingFireballDamageResult;
 			int initialHealth = target->health;
@@ -980,79 +1035,85 @@ void ofApp::setupGame() {
 			}
 		}
 		fireballTargetPlayerIndex = -1;
-    } // <--- Paste AFTER this closing brace
+	} // <--- Paste AFTER this closing brace
 
-    // --- PASTE HERE ---
-    if (isWaitingForSummonHealth && activeDiceRolls.empty()) {
-        isWaitingForSummonHealth = false;
-        
-        // 1. Create Minion
-        Player minion;
-        minion.playerID = 100 + (int)players.size(); // Simple ID generation
-        minion.x = (int)pendingSummonTile.x;
-        minion.y = (int)pendingSummonTile.y;
-        minion.maxHealth = pendingSummonRollResult; // Result of the dice roll
-        minion.health = pendingSummonRollResult;
-        minion.isMinion = true;
-        minion.isSkeleton = true;
-        minion.hasRegeneration = true;
-        minion.ownerID = players[currentPlayerIndex].playerID; 
+	// --- PASTE HERE ---
+	if (isWaitingForSummonHealth && activeDiceRolls.empty()) {
+		isWaitingForSummonHealth = false;
 
-        // 2. Build Minion Deck
-        for(const auto& c : allCards) {
-             if(c.name == "Punch") { minion.deck.push_back(c); minion.deck.push_back(c); }
-             if(c.name == "Hand Block") { minion.deck.push_back(c); minion.deck.push_back(c); }
-        }
-        std::shuffle(minion.deck.begin(), minion.deck.end(), rng);
+		// 1. Create Minion
+		Player minion;
+		minion.playerID = 100 + (int)players.size(); // Simple ID generation
+		minion.x = (int)pendingSummonTile.x;
+		minion.y = (int)pendingSummonTile.y;
+		minion.maxHealth = pendingSummonRollResult; // Result of the dice roll
+		minion.health = pendingSummonRollResult;
+		minion.isMinion = true;
+		minion.isSkeleton = true;
+		minion.hasRegeneration = true;
+		minion.ownerID = players[currentPlayerIndex].playerID;
 
-        // 3. Graveyard Interaction
-        int gIndex = -1;
-        for(size_t i=0; i<graveyard.size(); i++) {
-            if(graveyard[i].x == minion.x && graveyard[i].y == minion.y) {
-                if(globalTurnCounter - graveyard[i].turnDied <= 1) {
-                    gIndex = i;
-                    break;
-                }
-            }
-        }
+		// 2. Build Minion Deck
+		for (const auto & c : allCards) {
+			if (c.name == "Punch") {
+				minion.deck.push_back(c);
+				minion.deck.push_back(c);
+			}
+			if (c.name == "Hand Block") {
+				minion.deck.push_back(c);
+				minion.deck.push_back(c);
+			}
+		}
+		std::shuffle(minion.deck.begin(), minion.deck.end(), rng);
 
-        if(gIndex != -1) {
-            if(!graveyard[gIndex].deck.empty()) {
-                int r = (int)ofRandom(0, graveyard[gIndex].deck.size());
-                minion.deck.push_back(graveyard[gIndex].deck[r]);
-                ofLogNotice("Raise Dead") << "Looted a card from the grave!";
-            }
-            graveyard.erase(graveyard.begin() + gIndex);
-        }
+		// 3. Graveyard Interaction
+		int gIndex = -1;
+		for (size_t i = 0; i < graveyard.size(); i++) {
+			if (graveyard[i].x == minion.x && graveyard[i].y == minion.y) {
+				if (globalTurnCounter - graveyard[i].turnDied <= 1) {
+					gIndex = i;
+					break;
+				}
+			}
+		}
 
-        // 4. Add to Board
-        board[minion.x][minion.y].hasPlayer = true;
-        players.push_back(minion);
+		if (gIndex != -1) {
+			if (!graveyard[gIndex].deck.empty()) {
+				int r = (int)ofRandom(0, graveyard[gIndex].deck.size());
+				minion.deck.push_back(graveyard[gIndex].deck[r]);
+				ofLogNotice("Raise Dead") << "Looted a card from the grave!";
+			}
+			graveyard.erase(graveyard.begin() + gIndex);
+		}
 
-        // 5. SORT TURN ORDER
-        int currentID = players[currentPlayerIndex].playerID;
-        std::sort(players.begin(), players.end(), [](const Player& a, const Player& b){
-            int ownerA = a.isMinion ? a.ownerID : a.playerID;
-            int ownerB = b.isMinion ? b.ownerID : b.playerID;
-            if (ownerA != ownerB) return ownerA < ownerB;
-            if (a.isMinion && !b.isMinion) return true; 
-            if (!a.isMinion && b.isMinion) return false;
-            return a.playerID < b.playerID;
-        });
+		// 4. Add to Board
+		board[minion.x][minion.y].hasPlayer = true;
+		players.push_back(minion);
 
-        // 6. Fix CurrentPlayerIndex
-        for(size_t i=0; i<players.size(); i++) {
-            if(players[i].playerID == currentID) {
-                currentPlayerIndex = i;
-                break;
-            }
-        }
-        
-        ofLogNotice("Raise Dead") << "Skeleton risen with " << minion.health << " HP.";
-        invalidateTargetCache(); 
-    }
+		// 5. SORT TURN ORDER
+		int currentID = players[currentPlayerIndex].playerID;
+		std::sort(players.begin(), players.end(), [](const Player & a, const Player & b) {
+			int ownerA = a.isMinion ? a.ownerID : a.playerID;
+			int ownerB = b.isMinion ? b.ownerID : b.playerID;
+			if (ownerA != ownerB) return ownerA < ownerB;
+			if (a.isMinion && !b.isMinion) return true;
+			if (!a.isMinion && b.isMinion) return false;
+			return a.playerID < b.playerID;
+		});
 
-// --- ETHEREAL JOLT RESOLUTION ---
+		// 6. Fix CurrentPlayerIndex
+		for (size_t i = 0; i < players.size(); i++) {
+			if (players[i].playerID == currentID) {
+				currentPlayerIndex = i;
+				break;
+			}
+		}
+
+		ofLogNotice("Raise Dead") << "Skeleton risen with " << minion.health << " HP.";
+		invalidateTargetCache();
+	}
+
+	// --- ETHEREAL JOLT RESOLUTION ---
 	if (isWaitingForJoltRangeDice && activeDiceRolls.empty()) {
 		isWaitingForJoltRangeDice = false;
 		Player & caster = players[currentPlayerIndex];
@@ -1060,7 +1121,7 @@ void ofApp::setupGame() {
 
 		// 1. Calculate Max Range (5ft = 1.0 Unit)
 		float maxDistUnits = pendingJoltRangeResult / 5.0f;
-		
+
 		// 2. Calculate Required Distance (IGNORING WALLS)
 		// FIX: Do not use getFaceToFaceDistance here, because it checks for wall blocking.
 		// Jolt goes through walls, so we use pure Euclidean Edge-to-Edge distance.
@@ -1074,9 +1135,9 @@ void ofApp::setupGame() {
 
 		if (maxDistUnits >= neededDist - 0.001f) {
 			ofLogNotice("Jolt") << "Target Reached!";
-			
+
 			// Find Target
-			Player* target = nullptr;
+			Player * target = nullptr;
 			for (auto & p : players) {
 				if (p.x == (int)pendingJoltTargetTile.x && p.y == (int)pendingJoltTargetTile.y) {
 					target = &p;
@@ -1088,12 +1149,12 @@ void ofApp::setupGame() {
 				// Effect 1: Deal 7 Magic Damage
 				int damage = 7;
 				int barrierDmg = std::min(target->barrier, damage);
-				target->barrier -= barrierDmg; 
+				target->barrier -= barrierDmg;
 				damage -= barrierDmg;
 
 				if (damage > 0) {
 					int wardDmg = std::min(target->ward, damage);
-					target->ward -= wardDmg; 
+					target->ward -= wardDmg;
 					damage -= wardDmg;
 				}
 
@@ -1116,60 +1177,59 @@ void ofApp::setupGame() {
 		}
 	}
 
-	  // --- HEAL RESOLUTION ---
-    if (isWaitingForHealDice && activeDiceRolls.empty()) {
-        isWaitingForHealDice = false;
-        
-        Player* target = getPlayer(pendingHealTargetIndex);
-        if (target) {
-            int healAmount = pendingHealRollResult;
-            
-            // Apply Heal
-            target->health += healAmount;
-            
-            // Cap at Max Health
-            if (target->health > target->maxHealth) {
-                target->health = target->maxHealth;
-            }
+	// --- HEAL RESOLUTION ---
+	if (isWaitingForHealDice && activeDiceRolls.empty()) {
+		isWaitingForHealDice = false;
 
-            ofLogNotice("Heal") << "Player " << target->playerID 
-                                << " healed for " << healAmount 
-                                << ". Current HP: " << target->health;
-        }
-        pendingHealTargetIndex = -1;
-    }
+		Player * target = getPlayer(pendingHealTargetIndex);
+		if (target) {
+			int healAmount = pendingHealRollResult;
 
-// --- Dispel Barrier Dice ---
-    if (isWaitingForBarrierDice && activeDiceRolls.empty()) {
-        isWaitingForBarrierDice = false;
-        Player& p = players[currentPlayerIndex];
-        p.barrier += pendingDispelRollResult;
-        ofLogNotice("Dispel") << "Gained " << pendingDispelRollResult << " Barrier.";
-    }
+			// Apply Heal
+			target->health += healAmount;
 
-// --- Teleport Logic ---
+			// Cap at Max Health
+			if (target->health > target->maxHealth) {
+				target->health = target->maxHealth;
+			}
+
+			ofLogNotice("Heal") << "Player " << target->playerID
+								<< " healed for " << healAmount
+								<< ". Current HP: " << target->health;
+		}
+		pendingHealTargetIndex = -1;
+	}
+
+	// --- Dispel Barrier Dice ---
+	if (isWaitingForBarrierDice && activeDiceRolls.empty()) {
+		isWaitingForBarrierDice = false;
+		Player & p = players[currentPlayerIndex];
+		p.barrier += pendingDispelRollResult;
+		ofLogNotice("Dispel") << "Gained " << pendingDispelRollResult << " Barrier.";
+	}
+
+	// --- Teleport Logic ---
 	if (isWaitingForTeleportDice && activeDiceRolls.empty()) {
 		isWaitingForTeleportDice = false;
-		Player& p = players[currentPlayerIndex];
+		Player & p = players[currentPlayerIndex];
 		glm::vec2 startPos = glm::vec2(p.x, p.y);
 
 		float maxDistUnits = pendingTeleportRollResult / 5.0f;
 		float distUnits = getFaceToFaceDistance(startPos, pendingTeleportTarget);
 		int requiredFeet = (distUnits > 1000.0f) ? 999 : (int)ceil(distUnits * 5.0f);
-		
+
 		ofLogNotice("Teleport") << "Rolled: " << pendingTeleportRollResult << "ft. Required: " << requiredFeet << "ft.";
 
 		if (maxDistUnits >= distUnits - 0.001f) {
-            // ... (Success logic) ...
-            ofLogNotice("Teleport") << "Success!";
-            board[p.x][p.y].hasPlayer = false;
-            p.x = (int)pendingTeleportTarget.x;
-            p.y = (int)pendingTeleportTarget.y;
-            board[p.x][p.y].hasPlayer = true;
-            playerVisualPos = gridToWorld(p.x, p.y);
-            invalidateTargetCache();
-		} 
-		else {
+			// ... (Success logic) ...
+			ofLogNotice("Teleport") << "Success!";
+			board[p.x][p.y].hasPlayer = false;
+			p.x = (int)pendingTeleportTarget.x;
+			p.y = (int)pendingTeleportTarget.y;
+			board[p.x][p.y].hasPlayer = true;
+			playerVisualPos = gridToWorld(p.x, p.y);
+			invalidateTargetCache();
+		} else {
 			ofLogNotice("Teleport") << "Failed! Range too short or Blocked.";
 		}
 	}
@@ -1184,29 +1244,28 @@ void ofApp::setupGame() {
 		continueNewTurn();
 	}
 
-// --- CRITICAL FIX: DICE ROLL & ANIMATION UPDATES ---
+	// --- CRITICAL FIX: DICE ROLL & ANIMATION UPDATES ---
 	for (auto it = activeDiceRolls.begin(); it != activeDiceRolls.end();) {
 		DiceRoll & roll = *it;
 		float elapsedTime = ofGetElapsedTimef() - roll.startTime;
 		float spinDuration = 1.0f;
 		float hangTime = 1.0f;
 		roll.currentRotation += diceSpinSpeed * ofGetLastFrameTime();
-		
+
 		if (elapsedTime > spinDuration && !roll.isFinishedVisual) {
 			roll.isFinishedVisual = true;
 
 			// CORRECTED LOGIC: Check for DEBUG first. If it's not a debug roll,
 			// THEN execute all the game-related logic inside this block.
 			if (roll.purpose != PURPOSE_DEBUG && roll.purpose != PURPOSE_HP && roll.purpose != PURPOSE_HEALING) {
-         if (roll.purpose == PURPOSE_AP) {
+				if (roll.purpose == PURPOSE_AP) {
 					currentAP = roll.result;
 					if (players[currentPlayerIndex].nextTurnAPBonus > 0) {
 						currentAP += players[currentPlayerIndex].nextTurnAPBonus;
 						players[currentPlayerIndex].nextTurnAPBonus = 0;
 					}
 					ofLogNotice("Game") << "AP Roll Finished: " << currentAP << " AP awarded.";
-				}
-				else if (roll.purpose == PURPOSE_COIN_FLIP) {
+				} else if (roll.purpose == PURPOSE_COIN_FLIP) {
 					isWaitingForParalysisCoin = false;
 					int flipResult = roll.result;
 					Player & p = players[currentPlayerIndex];
@@ -1216,7 +1275,7 @@ void ofApp::setupGame() {
 						ofLogNotice("Paralysis") << "Heads! Paralysis is cured.";
 						p.isParalyzed = false;
 						p.paralysisHeadsCount = 0;
-						
+
 						// Continue turn...
 						if (p.onFire) {
 							isWaitingForOnFireDice = true;
@@ -1224,23 +1283,21 @@ void ofApp::setupGame() {
 						} else {
 							continueNewTurn();
 						}
-						return; 
-					}
-					else { // Rolled 1 (Tails)
+						return;
+					} else { // Rolled 1 (Tails)
 						ofLogNotice("Paralysis") << "Tails! Player remains paralyzed.";
 						// End turn immediately
 						startNewTurn();
-						return; 
+						return;
 					}
 				}
-			} 
+			}
 		}
 
 		// This part correctly removes the dice after their hang time.
 		if (elapsedTime > spinDuration + hangTime) {
 			it = activeDiceRolls.erase(it);
-		}
-		else {
+		} else {
 			++it;
 		}
 	}
@@ -1253,8 +1310,7 @@ void ofApp::setupGame() {
 			anim.currentPos = glm::mix(glm::vec2(cam.worldToScreen(anim.startPos)), anim.targetPos, t);
 			anim.currentScale = ofLerp(0.1f, 3.0f, t);
 			anim.currentAlpha = ofLerp(0, 255, t);
-		}
-		else {
+		} else {
 			anim.currentPos = anim.targetPos;
 			anim.currentScale = 3.0f;
 			anim.currentAlpha = 255;
@@ -1275,15 +1331,15 @@ void ofApp::setupGame() {
 	// Card Hand Animation
 	if (!players.empty() && currentPlayerIndex >= 0) {
 		Player & currentPlayer = players[currentPlayerIndex];
-        
-        // FIX: Determine Y position based on ownership (P1 vs P2)
-        // If it is Player 1 OR P1's Minion, draw hand at bottom. Otherwise top.
-        bool isP1 = (currentPlayer.playerID == 0 || currentPlayer.ownerID == 0);
+
+		// FIX: Determine Y position based on ownership (P1 vs P2)
+		// If it is Player 1 OR P1's Minion, draw hand at bottom. Otherwise top.
+		bool isP1 = (currentPlayer.playerID == 0 || currentPlayer.ownerID == 0);
 		float handCenterY = isP1 ? ofGetHeight() - 130 : 130;
 
 		float handBaseCardWidth = 120;
 		float handAreaWidth = ofGetWidth() * 0.4f;
-		
+
 		size_t numCards = currentPlayer.hand.size();
 		float totalCardWidths = numCards * handBaseCardWidth;
 		float padding = (numCards > 1) ? (handAreaWidth - totalCardWidths) / (numCards - 1) : 0;
@@ -1306,25 +1362,25 @@ void ofApp::setupGame() {
 		glm::vec3 targetPos = animationPath[currentPathIndex];
 		float player_speed = 1.0 - pow(0.65, deltaTime * 60.0);
 		playerVisualPos = glm::mix(playerVisualPos, targetPos, player_speed);
-		
+
 		// Check if unit arrived at the center of the tile (Distance < 0.05)
 		if (glm::distance(playerVisualPos, targetPos) < 0.05f) {
 			playerVisualPos = targetPos;
 			currentPathIndex++;
 
-            // --- PLAY RANDOM FOOTSTEP ---
-            // Only play if we are moving to another tile (not the final destination)
-            // and we successfully loaded sounds.
-            if (currentPathIndex < animationPath.size() && !footstepSounds.empty()) {
-                
-                // Pick a random index from 0 to 5
-                int idx = (int)ofRandom(0, footstepSounds.size());
-                
-                // Slight pitch variation (0.9 to 1.1) makes it sound more natural/less robotic
-                footstepSounds[idx].setSpeed(ofRandom(0.9f, 1.1f));
-                footstepSounds[idx].play();
-            }
-            // ---------------------------
+			// --- PLAY RANDOM FOOTSTEP ---
+			// Only play if we are moving to another tile (not the final destination)
+			// and we successfully loaded sounds.
+			if (currentPathIndex < animationPath.size() && !footstepSounds.empty()) {
+
+				// Pick a random index from 0 to 5
+				int idx = (int)ofRandom(0, footstepSounds.size());
+
+				// Slight pitch variation (0.9 to 1.1) makes it sound more natural/less robotic
+				footstepSounds[idx].setSpeed(ofRandom(0.9f, 1.1f));
+				footstepSounds[idx].play();
+			}
+			// ---------------------------
 
 			if (currentPathIndex >= static_cast<int>(animationPath.size())) isPlayerAnimating = false;
 		}
@@ -1340,171 +1396,255 @@ void ofApp::setupGame() {
 
 //----------------------------------------------------
 void ofApp::buildLevelMesh() {
-    levelMesh.clear();
-    levelMesh.setMode(OF_PRIMITIVE_TRIANGLES);
+	levelMesh.clear();
+	levelMesh.setMode(OF_PRIMITIVE_TRIANGLES);
 
-    // 1. Settings
-    float size = TILE_SIZE;
-    float half = size / 2.0f;
-    
-    // --- CHANGE IS HERE ---
-    float height = TILE_SIZE * 0.5f; // 0.5f = Half Height. Try 0.3f for low walls, 0.8f for tall.
-    // ----------------------
+	// 1. Settings
+	float size = TILE_SIZE;
+	float half = size / 2.0f;
 
-    // 2. Helper to add a 3D Block
-    auto addCube = [&](float x, float y, float z) {
-        int idx = levelMesh.getNumVertices();
-        
-        // Coordinates relative to center
-        // Base is at y=0, Top is at y=height
-        glm::vec3 p1(-half, height, -half); // Top Left Back
-        glm::vec3 p2( half, height, -half); // Top Right Back
-        glm::vec3 p3( half, height,  half); // Top Right Front
-        glm::vec3 p4(-half, height,  half); // Top Left Front
-        
-        glm::vec3 p5(-half, 0, -half); // Bot Left Back
-        glm::vec3 p6( half, 0, -half); // Bot Right Back
-        glm::vec3 p7( half, 0,  half); // Bot Right Front
-        glm::vec3 p8(-half, 0,  half); // Bot Left Front
+	// --- CHANGE IS HERE ---
+	float height = TILE_SIZE * 0.5f; // 0.5f = Half Height. Try 0.3f for low walls, 0.8f for tall.
+	// ----------------------
 
-        glm::vec3 offset(x, y, z);
+	// 2. Helper to add a 3D Block
+	auto addCube = [&](float x, float y, float z) {
+		int idx = levelMesh.getNumVertices();
 
-        // Standard UVs
-        glm::vec2 t00(0,0), t10(1,0), t11(1,1), t01(0,1);
+		// Coordinates relative to center
+		// Base is at y=0, Top is at y=height
+		glm::vec3 p1(-half, height, -half); // Top Left Back
+		glm::vec3 p2(half, height, -half); // Top Right Back
+		glm::vec3 p3(half, height, half); // Top Right Front
+		glm::vec3 p4(-half, height, half); // Top Left Front
 
-        // --- TOP FACE ---
-        levelMesh.addVertex(p1+offset); levelMesh.addTexCoord(t00); levelMesh.addNormal({0,1,0});
-        levelMesh.addVertex(p2+offset); levelMesh.addTexCoord(t10); levelMesh.addNormal({0,1,0});
-        levelMesh.addVertex(p3+offset); levelMesh.addTexCoord(t11); levelMesh.addNormal({0,1,0});
-        levelMesh.addVertex(p4+offset); levelMesh.addTexCoord(t01); levelMesh.addNormal({0,1,0});
-        levelMesh.addIndex(idx); levelMesh.addIndex(idx+1); levelMesh.addIndex(idx+2);
-        levelMesh.addIndex(idx); levelMesh.addIndex(idx+2); levelMesh.addIndex(idx+3);
-        idx += 4;
+		glm::vec3 p5(-half, 0, -half); // Bot Left Back
+		glm::vec3 p6(half, 0, -half); // Bot Right Back
+		glm::vec3 p7(half, 0, half); // Bot Right Front
+		glm::vec3 p8(-half, 0, half); // Bot Left Front
 
-        // --- NORTH FACE ---
-        levelMesh.addVertex(p2+offset); levelMesh.addTexCoord(t00); levelMesh.addNormal({0,0,-1});
-        levelMesh.addVertex(p1+offset); levelMesh.addTexCoord(t10); levelMesh.addNormal({0,0,-1});
-        levelMesh.addVertex(p5+offset); levelMesh.addTexCoord(t11); levelMesh.addNormal({0,0,-1});
-        levelMesh.addVertex(p6+offset); levelMesh.addTexCoord(t01); levelMesh.addNormal({0,0,-1});
-        levelMesh.addIndex(idx); levelMesh.addIndex(idx+1); levelMesh.addIndex(idx+2);
-        levelMesh.addIndex(idx); levelMesh.addIndex(idx+2); levelMesh.addIndex(idx+3);
-        idx += 4;
+		glm::vec3 offset(x, y, z);
 
-        // --- SOUTH FACE ---
-        levelMesh.addVertex(p4+offset); levelMesh.addTexCoord(t00); levelMesh.addNormal({0,0,1});
-        levelMesh.addVertex(p3+offset); levelMesh.addTexCoord(t10); levelMesh.addNormal({0,0,1});
-        levelMesh.addVertex(p7+offset); levelMesh.addTexCoord(t11); levelMesh.addNormal({0,0,1});
-        levelMesh.addVertex(p8+offset); levelMesh.addTexCoord(t01); levelMesh.addNormal({0,0,1});
-        levelMesh.addIndex(idx); levelMesh.addIndex(idx+1); levelMesh.addIndex(idx+2);
-        levelMesh.addIndex(idx); levelMesh.addIndex(idx+2); levelMesh.addIndex(idx+3);
-        idx += 4;
+		// Standard UVs
+		glm::vec2 t00(0, 0), t10(1, 0), t11(1, 1), t01(0, 1);
 
-        // --- EAST FACE ---
-        levelMesh.addVertex(p3+offset); levelMesh.addTexCoord(t00); levelMesh.addNormal({1,0,0});
-        levelMesh.addVertex(p2+offset); levelMesh.addTexCoord(t10); levelMesh.addNormal({1,0,0});
-        levelMesh.addVertex(p6+offset); levelMesh.addTexCoord(t11); levelMesh.addNormal({1,0,0});
-        levelMesh.addVertex(p7+offset); levelMesh.addTexCoord(t01); levelMesh.addNormal({1,0,0});
-        levelMesh.addIndex(idx); levelMesh.addIndex(idx+1); levelMesh.addIndex(idx+2);
-        levelMesh.addIndex(idx); levelMesh.addIndex(idx+2); levelMesh.addIndex(idx+3);
-        idx += 4;
+		// --- TOP FACE ---
+		levelMesh.addVertex(p1 + offset);
+		levelMesh.addTexCoord(t00);
+		levelMesh.addNormal({ 0, 1, 0 });
+		levelMesh.addVertex(p2 + offset);
+		levelMesh.addTexCoord(t10);
+		levelMesh.addNormal({ 0, 1, 0 });
+		levelMesh.addVertex(p3 + offset);
+		levelMesh.addTexCoord(t11);
+		levelMesh.addNormal({ 0, 1, 0 });
+		levelMesh.addVertex(p4 + offset);
+		levelMesh.addTexCoord(t01);
+		levelMesh.addNormal({ 0, 1, 0 });
+		levelMesh.addIndex(idx);
+		levelMesh.addIndex(idx + 1);
+		levelMesh.addIndex(idx + 2);
+		levelMesh.addIndex(idx);
+		levelMesh.addIndex(idx + 2);
+		levelMesh.addIndex(idx + 3);
+		idx += 4;
 
-        // --- WEST FACE ---
-        levelMesh.addVertex(p1+offset); levelMesh.addTexCoord(t00); levelMesh.addNormal({-1,0,0});
-        levelMesh.addVertex(p4+offset); levelMesh.addTexCoord(t10); levelMesh.addNormal({-1,0,0});
-        levelMesh.addVertex(p8+offset); levelMesh.addTexCoord(t11); levelMesh.addNormal({-1,0,0});
-        levelMesh.addVertex(p5+offset); levelMesh.addTexCoord(t01); levelMesh.addNormal({-1,0,0});
-        levelMesh.addIndex(idx); levelMesh.addIndex(idx+1); levelMesh.addIndex(idx+2);
-        levelMesh.addIndex(idx); levelMesh.addIndex(idx+2); levelMesh.addIndex(idx+3);
-    };
+		// --- NORTH FACE ---
+		levelMesh.addVertex(p2 + offset);
+		levelMesh.addTexCoord(t00);
+		levelMesh.addNormal({ 0, 0, -1 });
+		levelMesh.addVertex(p1 + offset);
+		levelMesh.addTexCoord(t10);
+		levelMesh.addNormal({ 0, 0, -1 });
+		levelMesh.addVertex(p5 + offset);
+		levelMesh.addTexCoord(t11);
+		levelMesh.addNormal({ 0, 0, -1 });
+		levelMesh.addVertex(p6 + offset);
+		levelMesh.addTexCoord(t01);
+		levelMesh.addNormal({ 0, 0, -1 });
+		levelMesh.addIndex(idx);
+		levelMesh.addIndex(idx + 1);
+		levelMesh.addIndex(idx + 2);
+		levelMesh.addIndex(idx);
+		levelMesh.addIndex(idx + 2);
+		levelMesh.addIndex(idx + 3);
+		idx += 4;
 
-    // 3. Loop through board
-    for (int x = 0; x < BOARD_WIDTH; x++) {
-        for (int y = 0; y < BOARD_HEIGHT; y++) {
-            if (board[x][y].hasWall) {
-                glm::vec3 pos = gridToWorld(x, y);
-                addCube(pos.x, 0, pos.z);
-            }
-        }
-    }
+		// --- SOUTH FACE ---
+		levelMesh.addVertex(p4 + offset);
+		levelMesh.addTexCoord(t00);
+		levelMesh.addNormal({ 0, 0, 1 });
+		levelMesh.addVertex(p3 + offset);
+		levelMesh.addTexCoord(t10);
+		levelMesh.addNormal({ 0, 0, 1 });
+		levelMesh.addVertex(p7 + offset);
+		levelMesh.addTexCoord(t11);
+		levelMesh.addNormal({ 0, 0, 1 });
+		levelMesh.addVertex(p8 + offset);
+		levelMesh.addTexCoord(t01);
+		levelMesh.addNormal({ 0, 0, 1 });
+		levelMesh.addIndex(idx);
+		levelMesh.addIndex(idx + 1);
+		levelMesh.addIndex(idx + 2);
+		levelMesh.addIndex(idx);
+		levelMesh.addIndex(idx + 2);
+		levelMesh.addIndex(idx + 3);
+		idx += 4;
+
+		// --- EAST FACE ---
+		levelMesh.addVertex(p3 + offset);
+		levelMesh.addTexCoord(t00);
+		levelMesh.addNormal({ 1, 0, 0 });
+		levelMesh.addVertex(p2 + offset);
+		levelMesh.addTexCoord(t10);
+		levelMesh.addNormal({ 1, 0, 0 });
+		levelMesh.addVertex(p6 + offset);
+		levelMesh.addTexCoord(t11);
+		levelMesh.addNormal({ 1, 0, 0 });
+		levelMesh.addVertex(p7 + offset);
+		levelMesh.addTexCoord(t01);
+		levelMesh.addNormal({ 1, 0, 0 });
+		levelMesh.addIndex(idx);
+		levelMesh.addIndex(idx + 1);
+		levelMesh.addIndex(idx + 2);
+		levelMesh.addIndex(idx);
+		levelMesh.addIndex(idx + 2);
+		levelMesh.addIndex(idx + 3);
+		idx += 4;
+
+		// --- WEST FACE ---
+		levelMesh.addVertex(p1 + offset);
+		levelMesh.addTexCoord(t00);
+		levelMesh.addNormal({ -1, 0, 0 });
+		levelMesh.addVertex(p4 + offset);
+		levelMesh.addTexCoord(t10);
+		levelMesh.addNormal({ -1, 0, 0 });
+		levelMesh.addVertex(p8 + offset);
+		levelMesh.addTexCoord(t11);
+		levelMesh.addNormal({ -1, 0, 0 });
+		levelMesh.addVertex(p5 + offset);
+		levelMesh.addTexCoord(t01);
+		levelMesh.addNormal({ -1, 0, 0 });
+		levelMesh.addIndex(idx);
+		levelMesh.addIndex(idx + 1);
+		levelMesh.addIndex(idx + 2);
+		levelMesh.addIndex(idx);
+		levelMesh.addIndex(idx + 2);
+		levelMesh.addIndex(idx + 3);
+	};
+
+	// 3. Loop through board
+	for (int x = 0; x < BOARD_WIDTH; x++) {
+		for (int y = 0; y < BOARD_HEIGHT; y++) {
+			if (board[x][y].hasWall) {
+				glm::vec3 pos = gridToWorld(x, y);
+				addCube(pos.x, 0, pos.z);
+			}
+		}
+	}
 }
 //--------------------------------------------------------------
 void ofApp::buildFloorMesh() {
-    // 1. Clear all floor meshes
-    for(auto& mesh : floorMeshes) {
-        mesh.clear();
-        mesh.setMode(OF_PRIMITIVE_TRIANGLES);
-    }
+	// 1. Clear all floor meshes
+	for (auto & mesh : floorMeshes) {
+		mesh.clear();
+		mesh.setMode(OF_PRIMITIVE_TRIANGLES);
+	}
 
-    if(floorTextures.empty()) return;
+	if (floorTextures.empty()) return;
 
-    float size = TILE_SIZE;
-    float half = size / 2.0f;
-    float thickness = 1.0f; 
+	float size = TILE_SIZE;
+	float half = size / 2.0f;
+	float thickness = 1.0f;
 
-    // Helper to add a block (Rotation removed, standard UVs used)
-    auto addBlock = [&](ofMesh& mesh, float x, float y, float z) {
-        int idx = mesh.getNumVertices();
-        
-        // Geometry Coordinates
-        glm::vec3 p1(-half, 0, -half); // Top Left Back
-        glm::vec3 p2( half, 0, -half); // Top Right Back
-        glm::vec3 p3( half, 0,  half); // Top Right Front
-        glm::vec3 p4(-half, 0,  half); // Top Left Front
-        
-        glm::vec3 p5(-half, -thickness, -half);
-        glm::vec3 p6( half, -thickness, -half);
-        glm::vec3 p7( half, -thickness,  half);
-        glm::vec3 p8(-half, -thickness,  half);
+	// Helper to add a block (Rotation removed, standard UVs used)
+	auto addBlock = [&](ofMesh & mesh, float x, float y, float z) {
+		int idx = mesh.getNumVertices();
 
-        glm::vec3 offset(x, y, z);
+		// Geometry Coordinates
+		glm::vec3 p1(-half, 0, -half); // Top Left Back
+		glm::vec3 p2(half, 0, -half); // Top Right Back
+		glm::vec3 p3(half, 0, half); // Top Right Front
+		glm::vec3 p4(-half, 0, half); // Top Left Front
 
-        // Standard UVs (0 to 1) for Non-Rotated Textures
-        glm::vec2 t00(0,0), t10(1,0), t11(1,1), t01(0,1);
+		glm::vec3 p5(-half, -thickness, -half);
+		glm::vec3 p6(half, -thickness, -half);
+		glm::vec3 p7(half, -thickness, half);
+		glm::vec3 p8(-half, -thickness, half);
 
-        // --- TOP FACE (The textured part) ---
-        mesh.addVertex(p1 + offset); mesh.addTexCoord(t00); mesh.addNormal({0,1,0});
-        mesh.addVertex(p2 + offset); mesh.addTexCoord(t10); mesh.addNormal({0,1,0});
-        mesh.addVertex(p3 + offset); mesh.addTexCoord(t11); mesh.addNormal({0,1,0});
-        mesh.addVertex(p4 + offset); mesh.addTexCoord(t01); mesh.addNormal({0,1,0});
-        
-        mesh.addIndex(idx+0); mesh.addIndex(idx+1); mesh.addIndex(idx+2);
-        mesh.addIndex(idx+0); mesh.addIndex(idx+2); mesh.addIndex(idx+3);
-        idx += 4;
+		glm::vec3 offset(x, y, z);
 
-        // --- SIDES ---
-        auto addSide = [&](glm::vec3 a, glm::vec3 b, glm::vec3 c, glm::vec3 d, glm::vec3 n) {
-            mesh.addVertex(a+offset); mesh.addTexCoord(t00); mesh.addNormal(n);
-            mesh.addVertex(b+offset); mesh.addTexCoord(t10); mesh.addNormal(n);
-            mesh.addVertex(c+offset); mesh.addTexCoord(t11); mesh.addNormal(n);
-            mesh.addVertex(d+offset); mesh.addTexCoord(t01); mesh.addNormal(n);
-            mesh.addIndex(idx); mesh.addIndex(idx+1); mesh.addIndex(idx+2);
-            mesh.addIndex(idx); mesh.addIndex(idx+2); mesh.addIndex(idx+3);
-            idx+=4;
-        };
-        addSide(p2, p1, p5, p6, {0,0,-1}); // North
-        addSide(p4, p3, p7, p8, {0,0,1});  // South
-        addSide(p3, p2, p6, p7, {1,0,0});  // East
-        addSide(p1, p4, p8, p5, {-1,0,0}); // West
-    };
+		// Standard UVs (0 to 1) for Non-Rotated Textures
+		glm::vec2 t00(0, 0), t10(1, 0), t11(1, 1), t01(0, 1);
 
-    // 2. Loop through board
-    for (int x = 0; x < BOARD_WIDTH; x++) {
-        for (int y = 0; y < BOARD_HEIGHT; y++) {
-            
-            // Deterministic Randomness based on coordinate
-            unsigned int seed = (x * 73856093) ^ (y * 19349663); 
-            std::mt19937 tileRng(seed);
-            
-            // Pick Random Texture Index (0 to 5)
-            std::uniform_int_distribution<int> texDist(0, (int)floorTextures.size() - 1);
-            int texIndex = texDist(tileRng);
+		// --- TOP FACE (The textured part) ---
+		mesh.addVertex(p1 + offset);
+		mesh.addTexCoord(t00);
+		mesh.addNormal({ 0, 1, 0 });
+		mesh.addVertex(p2 + offset);
+		mesh.addTexCoord(t10);
+		mesh.addNormal({ 0, 1, 0 });
+		mesh.addVertex(p3 + offset);
+		mesh.addTexCoord(t11);
+		mesh.addNormal({ 0, 1, 0 });
+		mesh.addVertex(p4 + offset);
+		mesh.addTexCoord(t01);
+		mesh.addNormal({ 0, 1, 0 });
 
-            glm::vec3 pos = gridToWorld(x, y);
-            
-            // Add block (No rotation passed)
-            addBlock(floorMeshes[texIndex], pos.x, 0, pos.z);
-        }
-    }
+		mesh.addIndex(idx + 0);
+		mesh.addIndex(idx + 1);
+		mesh.addIndex(idx + 2);
+		mesh.addIndex(idx + 0);
+		mesh.addIndex(idx + 2);
+		mesh.addIndex(idx + 3);
+		idx += 4;
+
+		// --- SIDES ---
+		auto addSide = [&](glm::vec3 a, glm::vec3 b, glm::vec3 c, glm::vec3 d, glm::vec3 n) {
+			mesh.addVertex(a + offset);
+			mesh.addTexCoord(t00);
+			mesh.addNormal(n);
+			mesh.addVertex(b + offset);
+			mesh.addTexCoord(t10);
+			mesh.addNormal(n);
+			mesh.addVertex(c + offset);
+			mesh.addTexCoord(t11);
+			mesh.addNormal(n);
+			mesh.addVertex(d + offset);
+			mesh.addTexCoord(t01);
+			mesh.addNormal(n);
+			mesh.addIndex(idx);
+			mesh.addIndex(idx + 1);
+			mesh.addIndex(idx + 2);
+			mesh.addIndex(idx);
+			mesh.addIndex(idx + 2);
+			mesh.addIndex(idx + 3);
+			idx += 4;
+		};
+		addSide(p2, p1, p5, p6, { 0, 0, -1 }); // North
+		addSide(p4, p3, p7, p8, { 0, 0, 1 }); // South
+		addSide(p3, p2, p6, p7, { 1, 0, 0 }); // East
+		addSide(p1, p4, p8, p5, { -1, 0, 0 }); // West
+	};
+
+	// 2. Loop through board
+	for (int x = 0; x < BOARD_WIDTH; x++) {
+		for (int y = 0; y < BOARD_HEIGHT; y++) {
+
+			// Deterministic Randomness based on coordinate
+			unsigned int seed = (x * 73856093) ^ (y * 19349663);
+			std::mt19937 tileRng(seed);
+
+			// Pick Random Texture Index (0 to 5)
+			std::uniform_int_distribution<int> texDist(0, (int)floorTextures.size() - 1);
+			int texIndex = texDist(tileRng);
+
+			glm::vec3 pos = gridToWorld(x, y);
+
+			// Add block (No rotation passed)
+			addBlock(floorMeshes[texIndex], pos.x, 0, pos.z);
+		}
+	}
 }
 //-----------------------------
 void ofApp::drawGame() {
@@ -1531,11 +1671,19 @@ void ofApp::drawGame() {
 
 		// --- 3. LIGHTING ---
 		ofEnableLighting();
+
+		// Explicitly enable your defined lights
+		keyLight.enable();
+		rimLight.enable();
+		headlight.enable(); // Camera torch
+
+		// If you still have other lights in the vector:
 		for (auto & light : lights) {
 			light.enable();
 		}
-		headlight.setPosition(cam.getGlobalPosition());
-		headlight.enable();
+
+		// Update Headlight Position to follow camera
+		headlight.setPosition(cam.getPosition());
 
 		// --- 4. OPAQUE GEOMETRY (Floor & Walls) ---
 		for (size_t i = 0; i < floorMeshes.size(); i++) {
@@ -1548,6 +1696,38 @@ void ofApp::drawGame() {
 		wallTexture.bind();
 		levelMesh.draw();
 		wallTexture.unbind();
+
+		// Inside renderWorld3D, AFTER drawing floor/walls but BEFORE drawing players:
+
+		ofDisableLighting(); // Shadows don't need to be lit
+		ofEnableAlphaBlending();
+		ofSetColor(255); // Reset color for texture drawing
+
+		for (const auto & player : players) {
+			ofPushMatrix();
+
+			// Position based on animation or grid
+			glm::vec3 drawPos;
+			if (currentPlayerIndex >= 0 && player.playerID == players[currentPlayerIndex].playerID) {
+				drawPos = playerVisualPos;
+			} else {
+				drawPos = gridToWorld(player.x, player.y);
+			}
+
+			// Draw slightly above floor (y=0.02) to avoid z-fighting
+			ofTranslate(drawPos.x, 0.02f, drawPos.z);
+			ofRotateXDeg(90); // Lay flat on floor
+
+			// Scale shadow based on unit type (D20 vs Player)
+			float shadowSize = TILE_SIZE * 0.8f;
+
+			shadowTexture.draw(-shadowSize / 2, -shadowSize / 2, shadowSize, shadowSize);
+
+			ofPopMatrix();
+		}
+		ofEnableLighting(); // Turn lighting back on for models
+		diceMaterial.setShininess(120); // Very shiny
+		diceMaterial.setSpecularColor(ofColor(255, 255, 255)); // Sharp white highlights
 
 		// --- 5. OPAQUE DYNAMIC OBJECTS (Players & Dice) ---
 		for (const auto & player : players) {
@@ -1727,133 +1907,130 @@ void ofApp::drawGame() {
 		ofEnableAlphaBlending();
 
 		for (int x = 0; x < BOARD_WIDTH; x++) {
-		for (int y = 0; y < BOARD_HEIGHT; y++) {
-			glm::vec3 tileWorldPos = gridToWorld(x, y);
-			ofPushMatrix();
-			ofTranslate(tileWorldPos.x, 0, tileWorldPos.z);
+			for (int y = 0; y < BOARD_HEIGHT; y++) {
+				glm::vec3 tileWorldPos = gridToWorld(x, y);
+				ofPushMatrix();
+				ofTranslate(tileWorldPos.x, 0, tileWorldPos.z);
 
-			if (board[x][y].isHighlighted) {
-				bool isOnPath = false;
-				for (const auto & step : hoverPath) {
-					if (step.x == x && step.y == y) {
-						isOnPath = true;
-						break;
+				if (board[x][y].isHighlighted) {
+					bool isOnPath = false;
+					for (const auto & step : hoverPath) {
+						if (step.x == x && step.y == y) {
+							isOnPath = true;
+							break;
+						}
 					}
-				}
-				if (!isOnPath) {
-					ofDisableLighting();
-					ofSetColor(ofColor::yellow, 102);
-					ofPushMatrix();
-					ofTranslate(0, 0.05f, 0);
-					ofRotateXDeg(90);
-					ofDrawCircle(0, 0, TILE_SIZE * 0.30f);
-					ofPopMatrix();
-					ofEnableLighting();
-				}
-			}
-
-			// Target Highlights
-			bool isLosCardSelected = false;
-			bool isLosCardHovered = false;
-            // --- FIX: Removed unused 'cardToCheck' variable ---
-
-			if (!players.empty() && currentPlayerIndex >= 0 && selectedCardIndex >= 0 && static_cast<size_t>(selectedCardIndex) < players[currentPlayerIndex].hand.size()) {
-				CardType type = players[currentPlayerIndex].hand[selectedCardIndex].type;
-				if (type == CARD_MAGIC_BLAST || type == CARD_FIREBALL) {
-					isLosCardSelected = true;
-				}
-			}
-			else if (!players.empty() && currentPlayerIndex >= 0 && hoveredCardIndex >= 0 && static_cast<size_t>(hoveredCardIndex) < players[currentPlayerIndex].hand.size()) {
-				CardType type = players[currentPlayerIndex].hand[hoveredCardIndex].type;
-				if (type == CARD_MAGIC_BLAST || type == CARD_FIREBALL) {
-					isLosCardHovered = true;
-				}
-			}
-
-			if (isLosCardSelected || isLosCardHovered) {
-				TargetInfo info = targetCache[x][y];
-				if (info.reason == VALID) {
-					ofColor highlightColor;
-					bool shouldDraw = false;
-					if (info.isTargetable) {
-						highlightColor = ofColor(255, 0, 0, 180);
-						shouldDraw = true;
-					} 
-					else if (isLosCardSelected) {
-						highlightColor = ofColor(0, 255, 0, 150);
-						shouldDraw = true;
-					}
-					if (shouldDraw) {
+					if (!isOnPath) {
 						ofDisableLighting();
-						ofSetColor(highlightColor);
-						ofNoFill();
-						ofSetLineWidth(3);
+						ofSetColor(ofColor::yellow, 102);
 						ofPushMatrix();
-						ofTranslate(0, 0.06f, 0);
+						ofTranslate(0, 0.05f, 0);
 						ofRotateXDeg(90);
-						ofDrawRectangle(-TILE_SIZE * 0.45f, -TILE_SIZE * 0.45f, TILE_SIZE * 0.9f, TILE_SIZE * 0.9f);
+						ofDrawCircle(0, 0, TILE_SIZE * 0.30f);
 						ofPopMatrix();
-						ofFill();
-						ofSetLineWidth(1);
 						ofEnableLighting();
 					}
 				}
-			} 
-			else if (board[x][y].isTargetable) {
-				ofDisableLighting();
-				ofSetColor(ofColor::red, 180);
-				ofNoFill();
-				ofSetLineWidth(3);
-				ofPushMatrix();
-				ofTranslate(0, 0.06f, 0);
-				ofRotateXDeg(90);
-				ofDrawRectangle(-TILE_SIZE * 0.4f, -TILE_SIZE * 0.4f, TILE_SIZE * 0.8f, TILE_SIZE * 0.8f);
+
+				// Target Highlights
+				bool isLosCardSelected = false;
+				bool isLosCardHovered = false;
+				// --- FIX: Removed unused 'cardToCheck' variable ---
+
+				if (!players.empty() && currentPlayerIndex >= 0 && selectedCardIndex >= 0 && static_cast<size_t>(selectedCardIndex) < players[currentPlayerIndex].hand.size()) {
+					CardType type = players[currentPlayerIndex].hand[selectedCardIndex].type;
+					if (type == CARD_MAGIC_BLAST || type == CARD_FIREBALL) {
+						isLosCardSelected = true;
+					}
+				} else if (!players.empty() && currentPlayerIndex >= 0 && hoveredCardIndex >= 0 && static_cast<size_t>(hoveredCardIndex) < players[currentPlayerIndex].hand.size()) {
+					CardType type = players[currentPlayerIndex].hand[hoveredCardIndex].type;
+					if (type == CARD_MAGIC_BLAST || type == CARD_FIREBALL) {
+						isLosCardHovered = true;
+					}
+				}
+
+				if (isLosCardSelected || isLosCardHovered) {
+					TargetInfo info = targetCache[x][y];
+					if (info.reason == VALID) {
+						ofColor highlightColor;
+						bool shouldDraw = false;
+						if (info.isTargetable) {
+							highlightColor = ofColor(255, 0, 0, 180);
+							shouldDraw = true;
+						} else if (isLosCardSelected) {
+							highlightColor = ofColor(0, 255, 0, 150);
+							shouldDraw = true;
+						}
+						if (shouldDraw) {
+							ofDisableLighting();
+							ofSetColor(highlightColor);
+							ofNoFill();
+							ofSetLineWidth(3);
+							ofPushMatrix();
+							ofTranslate(0, 0.06f, 0);
+							ofRotateXDeg(90);
+							ofDrawRectangle(-TILE_SIZE * 0.45f, -TILE_SIZE * 0.45f, TILE_SIZE * 0.9f, TILE_SIZE * 0.9f);
+							ofPopMatrix();
+							ofFill();
+							ofSetLineWidth(1);
+							ofEnableLighting();
+						}
+					}
+				} else if (board[x][y].isTargetable) {
+					ofDisableLighting();
+					ofSetColor(ofColor::red, 180);
+					ofNoFill();
+					ofSetLineWidth(3);
+					ofPushMatrix();
+					ofTranslate(0, 0.06f, 0);
+					ofRotateXDeg(90);
+					ofDrawRectangle(-TILE_SIZE * 0.4f, -TILE_SIZE * 0.4f, TILE_SIZE * 0.8f, TILE_SIZE * 0.8f);
+					ofPopMatrix();
+					ofFill();
+					ofSetLineWidth(1);
+					ofEnableLighting();
+				}
+
+				if (!players.empty() && currentPlayerIndex >= 0 && x == players[currentPlayerIndex].x && y == players[currentPlayerIndex].y) {
+					ofDisableLighting();
+					ofSetColor(ofColor::fromHex(0x9400D3));
+					ofNoFill();
+					ofSetLineWidth(4);
+					ofPushMatrix();
+					ofTranslate(0, 0.07f, 0);
+					ofRotateXDeg(90);
+					ofDrawCircle(0, 0, TILE_SIZE * 0.45f);
+					ofPopMatrix();
+					ofFill();
+					ofSetLineWidth(1);
+					ofEnableLighting();
+				}
 				ofPopMatrix();
-				ofFill();
-				ofSetLineWidth(1);
+			}
+		}
+
+		if ((playerAction == PIECE_SELECTED) && !hoverPath.empty()) {
+			// --- FIX: Changed loop counter to size_t to resolve signed/unsigned warning ---
+			for (size_t i = 1; i < hoverPath.size(); i++) {
+				const auto & step = hoverPath[i];
+				glm::vec3 pathWorldPos = gridToWorld(step.x, step.y);
+
+				ofDisableLighting();
+				ofSetColor(ofColor::green, 150);
+				ofPushMatrix();
+				ofTranslate(pathWorldPos.x, 0.05f, pathWorldPos.z);
+				ofRotateXDeg(90);
+				ofDrawCircle(0, 0, TILE_SIZE * 0.3f);
+				ofPopMatrix();
 				ofEnableLighting();
 			}
-
-			if (!players.empty() && currentPlayerIndex >= 0 && x == players[currentPlayerIndex].x && y == players[currentPlayerIndex].y) {
-				ofDisableLighting();
-				ofSetColor(ofColor::fromHex(0x9400D3));
-				ofNoFill();
-				ofSetLineWidth(4);
-				ofPushMatrix();
-				ofTranslate(0, 0.07f, 0);
-				ofRotateXDeg(90);
-				ofDrawCircle(0, 0, TILE_SIZE * 0.45f);
-				ofPopMatrix();
-				ofFill();
-				ofSetLineWidth(1);
-				ofEnableLighting();
-			}
-			ofPopMatrix();
 		}
-	}
 
-	if ((playerAction == PIECE_SELECTED) && !hoverPath.empty()) {
-		// --- FIX: Changed loop counter to size_t to resolve signed/unsigned warning ---
-		for (size_t i = 1; i < hoverPath.size(); i++) {
-			const auto & step = hoverPath[i];
-			glm::vec3 pathWorldPos = gridToWorld(step.x, step.y);
-
-			ofDisableLighting();
-			ofSetColor(ofColor::green, 150);
-			ofPushMatrix();
-			ofTranslate(pathWorldPos.x, 0.05f, pathWorldPos.z);
-			ofRotateXDeg(90);
-			ofDrawCircle(0, 0, TILE_SIZE * 0.3f);
-			ofPopMatrix();
-			ofEnableLighting();
-		}
-	}
-
-	// --- 7. TEARDOWN 3D / SETUP 2D ---
-	for (auto & light : lights)
-		light.disable();
-	headlight.disable();
-	ofDisableLighting();
+		// --- 7. TEARDOWN 3D / SETUP 2D ---
+		for (auto & light : lights)
+			light.disable();
+		headlight.disable();
+		ofDisableLighting();
 
 		cam.end();
 		ofDisableDepthTest();
@@ -1878,39 +2055,39 @@ void ofApp::drawGame() {
 				worldPostShaderLoaded = false;
 				renderWorld3D();
 			} else {
-			renderWorld3D();
-			if (isDebugMode) {
-				// Diagnostic: if you see this marker, the FBO -> postprocess path is working.
-				// If you see it but still no board/units, the issue is inside the 3D render pass.
+				renderWorld3D();
+				if (isDebugMode) {
+					// Diagnostic: if you see this marker, the FBO -> postprocess path is working.
+					// If you see it but still no board/units, the issue is inside the 3D render pass.
+					ofDisableDepthTest();
+					ofDisableLighting();
+					ofSetColor(255, 0, 0, 255);
+					ofDrawRectangle(20, 20, 220, 40);
+				}
+				worldFbo.end();
+
+				// 2D draw setup for presenting the world
+				ofDisableAlphaBlending();
+				ofDisableBlendMode();
+				ofSetColor(255);
 				ofDisableDepthTest();
-				ofDisableLighting();
-				ofSetColor(255, 0, 0, 255);
-				ofDrawRectangle(20, 20, 220, 40);
-			}
-			worldFbo.end();
+				ofPushView();
+				ofViewport(0, 0, ofGetWidth(), ofGetHeight(), false);
+				ofSetupScreenOrtho(ofGetWidth(), ofGetHeight(), -1, 1);
 
-			// 2D draw setup for presenting the world
-			ofDisableAlphaBlending();
-			ofDisableBlendMode();
-			ofSetColor(255);
-			ofDisableDepthTest();
-			ofPushView();
-			ofViewport(0, 0, ofGetWidth(), ofGetHeight(), false);
-			ofSetupScreenOrtho(ofGetWidth(), ofGetHeight(), -1, 1);
+				if (showWorldFboPreview) {
+					// Raw FBO debug (no shader)
+					worldFbo.getTexture().draw(0, 0, ofGetWidth(), ofGetHeight());
+				} else {
+					worldPostShader.begin();
+					worldPostShader.setUniformTexture("tex0", worldFbo.getTexture(), 0);
+					worldPostShader.setUniform2f("uResolution", ofGetWidth(), ofGetHeight());
+					// Draw using OF's texture quad (works on your setup in preview mode)
+					worldFbo.getTexture().draw(0, 0, ofGetWidth(), ofGetHeight());
+					worldPostShader.end();
+				}
 
-			if (showWorldFboPreview) {
-				// Raw FBO debug (no shader)
-				worldFbo.getTexture().draw(0, 0, ofGetWidth(), ofGetHeight());
-			} else {
-				worldPostShader.begin();
-				worldPostShader.setUniformTexture("tex0", worldFbo.getTexture(), 0);
-				worldPostShader.setUniform2f("uResolution", ofGetWidth(), ofGetHeight());
-				// Draw using OF's texture quad (works on your setup in preview mode)
-				worldFbo.getTexture().draw(0, 0, ofGetWidth(), ofGetHeight());
-				worldPostShader.end();
-			}
-
-			ofPopView();
+				ofPopView();
 			}
 		} else {
 			renderWorld3D();
@@ -1957,8 +2134,10 @@ void ofApp::drawGame() {
 		ofPopMatrix();
 
 		bool isTopAligned = y < ofGetHeight() / 2;
-		if (isTopAligned) nextBarY += healthBarHeight + (5 * scale);
-		else nextBarY -= 5 * scale;
+		if (isTopAligned)
+			nextBarY += healthBarHeight + (5 * scale);
+		else
+			nextBarY -= 5 * scale;
 
 		// 2. Block Bar (Grey)
 		if (player.block > 0) {
@@ -1977,8 +2156,10 @@ void ofApp::drawGame() {
 			titleFont.drawString(blockText, 0, 0);
 			ofPopMatrix();
 
-			if (isTopAligned) nextBarY += blockBarHeight + (5 * scale);
-			else nextBarY -= blockBarHeight + (5 * scale);
+			if (isTopAligned)
+				nextBarY += blockBarHeight + (5 * scale);
+			else
+				nextBarY -= blockBarHeight + (5 * scale);
 		}
 
 		// 3. BARRIER BAR (Now takes Ward's old color: Deep Purple/Indigo)
@@ -1987,7 +2168,7 @@ void ofApp::drawGame() {
 			float barrierY = isTopAligned ? nextBarY : nextBarY - barrierHeight;
 
 			// Old Ward Color (Indigo)
-			ofSetColor(ofColor::fromHex(0x480082)); 
+			ofSetColor(ofColor::fromHex(0x480082));
 			ofDrawRectangle(x, barrierY, healthBarWidth, barrierHeight);
 
 			ofSetColor(ofColor::white);
@@ -2001,19 +2182,21 @@ void ofApp::drawGame() {
 			titleFont.drawString(barrierText, 0, 0);
 			ofPopMatrix();
 
-			if (isTopAligned) nextBarY += barrierHeight + (5 * scale);
-			else nextBarY -= barrierHeight + (5 * scale);
+			if (isTopAligned)
+				nextBarY += barrierHeight + (5 * scale);
+			else
+				nextBarY -= barrierHeight + (5 * scale);
 		}
 
 		// 4. WARD BAR (Now Black)
 		if (player.ward > 0) {
 			float wardBarHeight = 50 * scale;
 			float wardBarY = isTopAligned ? nextBarY : nextBarY - wardBarHeight;
-			
+
 			// New Black Color
 			ofSetColor(ofColor::black);
 			ofDrawRectangle(x, wardBarY, healthBarWidth, wardBarHeight);
-			
+
 			ofSetColor(ofColor::white);
 			string wardText = ofToString(player.ward);
 			ofRectangle wardTextBox = titleFont.getStringBoundingBox(wardText, 0, 0);
@@ -2029,9 +2212,9 @@ void ofApp::drawGame() {
 
 	// --- MAIN UI DRAWING ---
 	// --- FIX: Find the main players to prevent UI bugs with minions ---
-	Player* player0 = nullptr;
-	Player* player1 = nullptr;
-	for (auto& p : players) {
+	Player * player0 = nullptr;
+	Player * player1 = nullptr;
+	for (auto & p : players) {
 		if (p.playerID == 0) player0 = &p;
 		if (p.playerID == 1) player1 = &p;
 	}
@@ -2056,13 +2239,12 @@ void ofApp::drawGame() {
 
 		// 2. Draw Player 0 (Bottom) UI
 		drawHealthBar(*player0, ofGetWidth() - (220 * scale) - (50 * scale), ofGetHeight() - (65 * scale) - (40 * scale), ofColor::green);
-		
+
 		// P0 Deck
 		if (!player0->deck.empty()) {
 			ofSetColor(ofColor::white);
 			cardBackImage.draw(p0_deckRect);
-		}
-		else {
+		} else {
 			ofSetColor(0, 0, 0, 150);
 			ofDrawRectRounded(p0_deckRect, 10 * scale);
 		}
@@ -2081,8 +2263,7 @@ void ofApp::drawGame() {
 			const auto & discardRect = player0->discardPile.back().textureRect;
 			cardSpriteSheet.drawSubsection(p0_discardRect.x, p0_discardRect.y, p0_discardRect.width, p0_discardRect.height,
 				discardRect.x, discardRect.y, discardRect.width, discardRect.height);
-		}
-		else {
+		} else {
 			ofSetColor(0, 0, 0, 150);
 			ofDrawRectRounded(p0_discardRect, 10 * scale);
 		}
@@ -2092,11 +2273,10 @@ void ofApp::drawGame() {
 
 		// P1 Discard
 		if (!player1->discardPile.empty()) {
-			 const auto & discardRect = player1->discardPile.back().textureRect;
+			const auto & discardRect = player1->discardPile.back().textureRect;
 			cardSpriteSheet.drawSubsection(p1_discardRect.x, p1_discardRect.y, p1_discardRect.width, p1_discardRect.height,
 				discardRect.x, discardRect.y, discardRect.width, discardRect.height);
-		}
-		else {
+		} else {
 			ofSetColor(0, 0, 0, 150);
 			ofDrawRectRounded(p1_discardRect, 10 * scale);
 		}
@@ -2105,8 +2285,7 @@ void ofApp::drawGame() {
 		if (!player1->deck.empty()) {
 			ofSetColor(ofColor::white);
 			cardBackImage.draw(p1_deckRect);
-		}
-		else {
+		} else {
 			ofSetColor(0, 0, 0, 150);
 			ofDrawRectRounded(p1_deckRect, 10 * scale);
 		}
@@ -2125,7 +2304,7 @@ void ofApp::drawGame() {
 		string p1_apText = "? AP";
 
 		if (currentPlayerIndex >= 0 && !players.empty()) {
-			Player& currentPlayer = players[currentPlayerIndex];
+			Player & currentPlayer = players[currentPlayerIndex];
 			// If it's Player 0's turn OR one of their minions' turns
 			if (currentPlayer.playerID == 0 || currentPlayer.ownerID == 0) {
 				p0_apText = ofToString(currentAP) + " AP";
@@ -2150,7 +2329,7 @@ void ofApp::drawGame() {
 		ofScale(fontScale, fontScale);
 		titleFont.drawString(p0_apText, -p0_apTextBox.getCenter().x, -p0_apTextBox.getCenter().y);
 		ofPopMatrix();
-		
+
 		// Draw P1 AP Box
 		float p1_apCenterX = ofGetWidth() - staticUICardWidth - (30 * scale) + staticUICardWidth / 2;
 		float p1_apCenterY = 40 * scale + staticUICardHeight + (40 * scale) + staticUICardHeight + 60 * scale;
@@ -2166,7 +2345,7 @@ void ofApp::drawGame() {
 		titleFont.drawString(p1_apText, -p1_apTextBox.getCenter().x, -p1_apTextBox.getCenter().y);
 		ofPopMatrix();
 	}
-// End Turn Button
+	// End Turn Button
 	float btnWidth_end = 250 * scale;
 	float btnHeight_end = 60 * scale;
 	endTurnButtonRect.set(endTurnButtonCurrentPos.x, endTurnButtonCurrentPos.y, btnWidth_end, btnHeight_end);
@@ -2286,101 +2465,100 @@ void ofApp::drawGame() {
 	}
 
 	// --- NEW: DRAW DECK/DISCARD HOVER VIEW ---
-if (isShowingPileView && currentPileViewPlayerIndex != -1) {
-    Player& viewPlayer = players[currentPileViewPlayerIndex];
-    string viewTitle;
-    
-   
-	// 1. Get the correct cards and apply sorting rules
-	if (currentPileView == VIEW_DECK) {
-		viewTitle = "Deck";
-		cardsToShowInView = viewPlayer.deck;
-		
-		// CHANGED: Sort by Cost (Low to High)
-		std::sort(cardsToShowInView.begin(), cardsToShowInView.end(), [](const Card& a, const Card& b) {
-			// Primary sort: Cost
-			if (a.cost != b.cost) {
-				return a.cost < b.cost;
+	if (isShowingPileView && currentPileViewPlayerIndex != -1) {
+		Player & viewPlayer = players[currentPileViewPlayerIndex];
+		string viewTitle;
+
+		// 1. Get the correct cards and apply sorting rules
+		if (currentPileView == VIEW_DECK) {
+			viewTitle = "Deck";
+			cardsToShowInView = viewPlayer.deck;
+
+			// CHANGED: Sort by Cost (Low to High)
+			std::sort(cardsToShowInView.begin(), cardsToShowInView.end(), [](const Card & a, const Card & b) {
+				// Primary sort: Cost
+				if (a.cost != b.cost) {
+					return a.cost < b.cost;
+				}
+				// Secondary sort: Name (keeps it tidy if costs are equal)
+				return a.name < b.name;
+			});
+		} else { // VIEW_DISCARD
+			viewTitle = "Discard Pile";
+			// The discard pile is already in chronological order, just copy it
+			cardsToShowInView = viewPlayer.discardPile;
+		}
+
+		viewTitle = "Player " + ofToString(viewPlayer.playerID) + "'s " + viewTitle;
+
+		if (!cardsToShowInView.empty()) {
+			float panelPadding = 20.0f;
+			float titleHeight = 40.0f;
+
+			// 2. Dynamically calculate layout to fit cards on screen
+			float viewCardScale = 1.6f;
+			float availableHeight = ofGetHeight() - (2 * panelPadding) - titleHeight;
+			float availableWidth = ofGetWidth() * 0.7f; // Use up to 70% of screen width
+
+			// Iteratively scale down cards until they fit
+			while (viewCardScale > 0.5f) {
+				float cardW = handBaseCardWidth * viewCardScale;
+				float cardH = baseCardHeight * viewCardScale;
+				float padding = 15.0f * (viewCardScale / 1.6f);
+				int cols = std::max(1, (int)floor((availableWidth - padding) / (cardW + padding)));
+				int rows = ceil((float)cardsToShowInView.size() / cols);
+				if (rows * (cardH + padding) - padding <= availableHeight) {
+					break; // This scale and layout fits
+				}
+				viewCardScale -= 0.1f;
 			}
-			// Secondary sort: Name (keeps it tidy if costs are equal)
-			return a.name < b.name;
-		});
-	} else { // VIEW_DISCARD
-        viewTitle = "Discard Pile";
-        // The discard pile is already in chronological order, just copy it
-        cardsToShowInView = viewPlayer.discardPile;
-    }
 
-    viewTitle = "Player " + ofToString(viewPlayer.playerID) + "'s " + viewTitle;
+			float viewCardWidth = handBaseCardWidth * viewCardScale;
+			float viewCardHeight = baseCardHeight * viewCardScale;
+			float padding = 15.0f * (viewCardScale / 1.6f);
+			int gridWidthInCards = std::max(1, (int)floor((availableWidth - padding) / (viewCardWidth + padding)));
+			int gridHeightInCards = ceil((float)cardsToShowInView.size() / gridWidthInCards);
+			float totalContentWidth = (gridWidthInCards * viewCardWidth) + ((gridWidthInCards - 1) * padding);
+			float totalContentHeight = (gridHeightInCards * viewCardHeight) + ((gridHeightInCards - 1) * padding);
 
-    if (!cardsToShowInView.empty()) {
-        float panelPadding = 20.0f;
-        float titleHeight = 40.0f;
+			// 3. Intelligently position the panel
+			float startX;
+			// If viewing player 0's (left side) piles, show panel to the right
+			if (currentPileViewPlayerIndex == 0) {
+				startX = p0_deckRect.getRight() + 30.0f;
+			}
+			// If viewing player 1's (right side) piles, show panel to the left
+			else {
+				startX = p1_deckRect.getLeft() - totalContentWidth - 30.0f - (2 * panelPadding);
+			}
+			float startY = ofGetHeight() / 2.0f - totalContentHeight / 2.0f;
 
-        // 2. Dynamically calculate layout to fit cards on screen
-        float viewCardScale = 1.6f;
-        float availableHeight = ofGetHeight() - (2 * panelPadding) - titleHeight;
-        float availableWidth = ofGetWidth() * 0.7f; // Use up to 70% of screen width
+			// 4. Update the main pileViewRect for hit-testing in mouseMoved
+			pileViewRect.set(startX, startY - titleHeight - panelPadding, totalContentWidth + 2 * panelPadding, totalContentHeight + titleHeight + 2 * panelPadding);
 
-        // Iteratively scale down cards until they fit
-        while (viewCardScale > 0.5f) {
-            float cardW = handBaseCardWidth * viewCardScale;
-            float cardH = baseCardHeight * viewCardScale;
-            float padding = 15.0f * (viewCardScale / 1.6f);
-            int cols = std::max(1, (int)floor((availableWidth - padding) / (cardW + padding)));
-            int rows = ceil((float)cardsToShowInView.size() / cols);
-            if (rows * (cardH + padding) - padding <= availableHeight) {
-                break; // This scale and layout fits
-            }
-            viewCardScale -= 0.1f;
-        }
+			// 5. Draw the panel and its contents
+			ofSetColor(20, 20, 20, 220);
+			ofDrawRectRounded(pileViewRect, 15);
 
-        float viewCardWidth = handBaseCardWidth * viewCardScale;
-        float viewCardHeight = baseCardHeight * viewCardScale;
-        float padding = 15.0f * (viewCardScale / 1.6f);
-        int gridWidthInCards = std::max(1, (int)floor((availableWidth - padding) / (viewCardWidth + padding)));
-        int gridHeightInCards = ceil((float)cardsToShowInView.size() / gridWidthInCards);
-        float totalContentWidth = (gridWidthInCards * viewCardWidth) + ((gridWidthInCards - 1) * padding);
-        float totalContentHeight = (gridHeightInCards * viewCardHeight) + ((gridHeightInCards - 1) * padding);
+			ofSetColor(ofColor::white);
+			uiFont.drawString(viewTitle + " (" + ofToString(cardsToShowInView.size()) + " cards)", startX + panelPadding, startY - 15);
 
-        // 3. Intelligently position the panel
-        float startX;
-        // If viewing player 0's (left side) piles, show panel to the right
-        if (currentPileViewPlayerIndex == 0) {
-            startX = p0_deckRect.getRight() + 30.0f;
-        }
-        // If viewing player 1's (right side) piles, show panel to the left
-        else {
-            startX = p1_deckRect.getLeft() - totalContentWidth - 30.0f - (2 * panelPadding);
-        }
-        float startY = ofGetHeight() / 2.0f - totalContentHeight / 2.0f;
-
-        // 4. Update the main pileViewRect for hit-testing in mouseMoved
-        pileViewRect.set(startX, startY - titleHeight - panelPadding, totalContentWidth + 2 * panelPadding, totalContentHeight + titleHeight + 2 * panelPadding);
-
-        // 5. Draw the panel and its contents
-        ofSetColor(20, 20, 20, 220);
-        ofDrawRectRounded(pileViewRect, 15);
-
-        ofSetColor(ofColor::white);
-        uiFont.drawString(viewTitle + " (" + ofToString(cardsToShowInView.size()) + " cards)", startX + panelPadding, startY - 15);
-
-        for (size_t i = 0; i < cardsToShowInView.size(); ++i) {
-            int row = i / gridWidthInCards;
-            int col = i % gridWidthInCards;
-            float drawX = startX + panelPadding + col * (viewCardWidth + padding);
-            float drawY = startY + row * (viewCardHeight + padding);
-            const Card& card = cardsToShowInView[i];
-            cardSpriteSheet.drawSubsection(drawX, drawY, viewCardWidth, viewCardHeight, card.textureRect.x, card.textureRect.y, card.textureRect.width, card.textureRect.height);
-        }
-    } else {
-        // If the pile is empty, ensure the view is hidden
-        isShowingPileView = false;
-    }
-} else {
-    // If view is not active, reset the rect to prevent accidental mouse interaction
-    pileViewRect.set(0, 0, 0, 0);
-}
+			for (size_t i = 0; i < cardsToShowInView.size(); ++i) {
+				int row = i / gridWidthInCards;
+				int col = i % gridWidthInCards;
+				float drawX = startX + panelPadding + col * (viewCardWidth + padding);
+				float drawY = startY + row * (viewCardHeight + padding);
+				const Card & card = cardsToShowInView[i];
+				cardSpriteSheet.drawSubsection(drawX, drawY, viewCardWidth, viewCardHeight, card.textureRect.x, card.textureRect.y, card.textureRect.width, card.textureRect.height);
+			}
+		} else {
+			// If the pile is empty, ensure the view is hidden
+			isShowingPileView = false;
+		}
+	} else {
+		// If view is not active, reset the rect to prevent accidental mouse interaction
+		pileViewRect.set(0, 0, 0, 0);
+	}
 
 	// --- Draw Amnesia Selection UI ---
 	if (isAmnesiaSelectionActive) {
@@ -2410,9 +2588,9 @@ if (isShowingPileView && currentPileViewPlayerIndex != -1) {
 		float padding = 15.0f * (viewCardScale / 1.6f);
 
 		int gridWidthInCards = std::max(2, (int)floor((availableWidth - padding) / (viewCardWidth + padding)));
-		
-        // CRITICAL FIX: The next line was likely missing or commented out in your file, causing the error.
-        int gridHeightInCards = ceil((float)amnesiaDeckCopy.size() / gridWidthInCards);
+
+		// CRITICAL FIX: The next line was likely missing or commented out in your file, causing the error.
+		int gridHeightInCards = ceil((float)amnesiaDeckCopy.size() / gridWidthInCards);
 
 		float totalContentWidth = (gridWidthInCards * viewCardWidth) + ((gridWidthInCards - 1) * padding);
 		float totalContentHeight = (gridHeightInCards * viewCardHeight) + ((gridHeightInCards - 1) * padding);
@@ -2599,16 +2777,16 @@ if (isShowingPileView && currentPileViewPlayerIndex != -1) {
 		uiFont.drawString(tooltipText, tooltipX + padding, tooltipY + textHeight + padding / 2.0f);
 	}
 	// --- DRAW OVERLAY UIs ---
-	   if (isMagicBlastChoiceActive) {
-        drawMagicBlastChoiceUI();
-    }
-    if (isDispelMenuOpen || isDispelTargeting || isDispelStatusSelectOpen) {
-        drawDispelUI();
-    }
-    // ADD THIS:
-    if (isWisdomBoonMenuOpen) {
-        drawWisdomBoonUI();
-    }
+	if (isMagicBlastChoiceActive) {
+		drawMagicBlastChoiceUI();
+	}
+	if (isDispelMenuOpen || isDispelTargeting || isDispelStatusSelectOpen) {
+		drawDispelUI();
+	}
+	// ADD THIS:
+	if (isWisdomBoonMenuOpen) {
+		drawWisdomBoonUI();
+	}
 	ofDrawBitmapString("FPS: " + ofToString(ofGetFrameRate(), 2), 10, 20);
 }
 //--------------------------------------------------------------
@@ -2654,7 +2832,7 @@ void ofApp::mouseMoved(int x, int y) {
 		float baseCardHeight = handBaseCardWidth * aspectRatio;
 
 		if (draggedCardIndex == -1) {
-            // FIX: Loop backwards safely from size()-1
+			// FIX: Loop backwards safely from size()-1
 			for (int i = static_cast<int>(currentPlayer.hand.size()) - 1; i >= 0; i--) {
 				Card & card = currentPlayer.hand[i];
 				ofRectangle cardRect(card.currentPos.x - handBaseCardWidth / 2, card.currentPos.y - baseCardHeight / 2, handBaseCardWidth, baseCardHeight);
@@ -2679,67 +2857,67 @@ void ofApp::mouseMoved(int x, int y) {
 		isShowingTooltip = false;
 
 		// --- REVISED: PILE HOVERING LOGIC (with Delay) ---
-        PileViewMode newHoveredPileType = VIEW_NONE;
-        int newHoveredPilePlayer = -1;
-        
-        if (p0_deckRect.inside(x, y)) {
-            newHoveredPileType = VIEW_DECK;
-            newHoveredPilePlayer = 0;
-        } else if (p0_discardRect.inside(x, y)) {
-            newHoveredPileType = VIEW_DISCARD;
-            newHoveredPilePlayer = 0;
-        } else if (p1_deckRect.inside(x, y)) {
-            newHoveredPileType = VIEW_DECK;
-            newHoveredPilePlayer = 1;
-        } else if (p1_discardRect.inside(x, y)) {
-            newHoveredPileType = VIEW_DISCARD;
-            newHoveredPilePlayer = 1;
-        }
-        
-        if (newHoveredPilePlayer != -1) {
-            if (!isHoveringPile || newHoveredPileType != hoveredPileType || newHoveredPilePlayer != hoveredPilePlayerIndex) {
-                isHoveringPile = true;
-                isShowingPileView = false; // Reset view flag on new hover
-                hoveredPileType = newHoveredPileType;
-                hoveredPilePlayerIndex = newHoveredPilePlayer;
-                pileHoverStartTime = ofGetElapsedTimef();
-            }
-        } else {
-            isHoveringPile = false;
-            // If mouse is not over a pile AND not over the view panel, hide the view
-            if (isShowingPileView && !pileViewRect.inside(x,y)) {
-                isShowingPileView = false;
-                currentPileViewPlayerIndex = -1;
-                currentPileView = VIEW_NONE;
-            }
-        }
-        
-        // Tooltip logic
-        isShowingTooltip = false;
-        if (!isShowingPileView && !isHoveringPile && players.size() >= 2) {
-            if (p0_deckRect.inside(x, y)) {
-                isShowingTooltip = true;
-                // FIX 2: Use direct assignment for glm::vec2 instead of .set()
-                tooltipPos = glm::vec2(x, y); 
-                tooltipText = ofToString(players[0].deck.size()) + " cards";
-            } else if (p0_discardRect.inside(x, y)) {
-                isShowingTooltip = true;
-                // FIX 2: Use direct assignment
-                tooltipPos = glm::vec2(x, y);
-                tooltipText = ofToString(players[0].discardPile.size()) + " cards";
-            } else if (p1_deckRect.inside(x, y)) {
-                isShowingTooltip = true;
-                // FIX 2: Use direct assignment
-                tooltipPos = glm::vec2(x, y);
-                tooltipText = ofToString(players[1].deck.size()) + " cards";
-            } else if (p1_discardRect.inside(x, y)) {
-                isShowingTooltip = true;
-                // FIX 2: Use direct assignment
-                tooltipPos = glm::vec2(x, y);
-                tooltipText = ofToString(players[1].discardPile.size()) + " cards";
-            }
-        }
-        break; // End of case STATE_GAMEPLAY
+		PileViewMode newHoveredPileType = VIEW_NONE;
+		int newHoveredPilePlayer = -1;
+
+		if (p0_deckRect.inside(x, y)) {
+			newHoveredPileType = VIEW_DECK;
+			newHoveredPilePlayer = 0;
+		} else if (p0_discardRect.inside(x, y)) {
+			newHoveredPileType = VIEW_DISCARD;
+			newHoveredPilePlayer = 0;
+		} else if (p1_deckRect.inside(x, y)) {
+			newHoveredPileType = VIEW_DECK;
+			newHoveredPilePlayer = 1;
+		} else if (p1_discardRect.inside(x, y)) {
+			newHoveredPileType = VIEW_DISCARD;
+			newHoveredPilePlayer = 1;
+		}
+
+		if (newHoveredPilePlayer != -1) {
+			if (!isHoveringPile || newHoveredPileType != hoveredPileType || newHoveredPilePlayer != hoveredPilePlayerIndex) {
+				isHoveringPile = true;
+				isShowingPileView = false; // Reset view flag on new hover
+				hoveredPileType = newHoveredPileType;
+				hoveredPilePlayerIndex = newHoveredPilePlayer;
+				pileHoverStartTime = ofGetElapsedTimef();
+			}
+		} else {
+			isHoveringPile = false;
+			// If mouse is not over a pile AND not over the view panel, hide the view
+			if (isShowingPileView && !pileViewRect.inside(x, y)) {
+				isShowingPileView = false;
+				currentPileViewPlayerIndex = -1;
+				currentPileView = VIEW_NONE;
+			}
+		}
+
+		// Tooltip logic
+		isShowingTooltip = false;
+		if (!isShowingPileView && !isHoveringPile && players.size() >= 2) {
+			if (p0_deckRect.inside(x, y)) {
+				isShowingTooltip = true;
+				// FIX 2: Use direct assignment for glm::vec2 instead of .set()
+				tooltipPos = glm::vec2(x, y);
+				tooltipText = ofToString(players[0].deck.size()) + " cards";
+			} else if (p0_discardRect.inside(x, y)) {
+				isShowingTooltip = true;
+				// FIX 2: Use direct assignment
+				tooltipPos = glm::vec2(x, y);
+				tooltipText = ofToString(players[0].discardPile.size()) + " cards";
+			} else if (p1_deckRect.inside(x, y)) {
+				isShowingTooltip = true;
+				// FIX 2: Use direct assignment
+				tooltipPos = glm::vec2(x, y);
+				tooltipText = ofToString(players[1].deck.size()) + " cards";
+			} else if (p1_discardRect.inside(x, y)) {
+				isShowingTooltip = true;
+				// FIX 2: Use direct assignment
+				tooltipPos = glm::vec2(x, y);
+				tooltipText = ofToString(players[1].discardPile.size()) + " cards";
+			}
+		}
+		break; // End of case STATE_GAMEPLAY
 	}
 	case STATE_MAIN_MENU: {
 		mainMenuHoveredIndex = -1;
@@ -2762,11 +2940,11 @@ void ofApp::mouseMoved(int x, int y) {
 		if (pauseMenuQuitButton.inside(x, y)) pauseMenuHoveredIndex = 2;
 		break;
 	}
-    }
+	}
 }
 // ----------------- FULL mousePressed FUNCTION -----------------
 void ofApp::mousePressed(int x, int y, int button) {
-	
+
 	// ==============================================================================
 	// PHASE 1: MODAL UI INTERRUPTS
 	// ==============================================================================
@@ -2775,35 +2953,35 @@ void ofApp::mousePressed(int x, int y, int button) {
 	if (isMagicBlastChoiceActive && button == OF_MOUSE_BUTTON_LEFT) {
 		bool choiceMade = false;
 		Player * targetPlayer = getPlayer(magicBlastTargetPlayerIndex);
-		
-		if (!targetPlayer) { 
-    // Logic to try and find the next splash target if the current one became invalid
-    if (!magicBlastSplashTargetIndices.empty()) {
-         magicBlastTargetPlayerIndex = magicBlastSplashTargetIndices.front();
-         magicBlastSplashTargetIndices.erase(magicBlastSplashTargetIndices.begin());
-         magicBlastChoicesRemaining = 1;
-         return;
-    }
-    isMagicBlastChoiceActive = false; 
-    return; 
-}
+
+		if (!targetPlayer) {
+			// Logic to try and find the next splash target if the current one became invalid
+			if (!magicBlastSplashTargetIndices.empty()) {
+				magicBlastTargetPlayerIndex = magicBlastSplashTargetIndices.front();
+				magicBlastSplashTargetIndices.erase(magicBlastSplashTargetIndices.begin());
+				magicBlastChoicesRemaining = 1;
+				return;
+			}
+			isMagicBlastChoiceActive = false;
+			return;
+		}
 
 		if (magicBlastDamageButton.inside(x, y)) {
 			// --- FIX: Correctly apply magic damage, including Barrier check ---
 			int damage = 5;
-			
+
 			// 1. Barrier absorbs non-physical damage
 			int barrierDamage = std::min(targetPlayer->barrier, damage);
-			targetPlayer->barrier -= barrierDamage; 
+			targetPlayer->barrier -= barrierDamage;
 			damage -= barrierDamage;
 
 			// 2. Ward absorbs any remaining damage
 			if (damage > 0) {
 				int wardDamage = std::min(targetPlayer->ward, damage);
-				targetPlayer->ward -= wardDamage; 
+				targetPlayer->ward -= wardDamage;
 				damage -= wardDamage;
 			}
-			
+
 			// 3. Health takes the final damage
 			if (damage > 0) {
 				targetPlayer->health -= damage;
@@ -2827,7 +3005,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 				if (!magicBlastSplashTargetIndices.empty()) {
 					magicBlastTargetPlayerIndex = magicBlastSplashTargetIndices.front();
 					magicBlastSplashTargetIndices.erase(magicBlastSplashTargetIndices.begin());
-					magicBlastChoicesRemaining = 1; 
+					magicBlastChoicesRemaining = 1;
 					ofLogNotice("MagicBlast") << "Moving to splash target...";
 				} else {
 					isMagicBlastChoiceActive = false;
@@ -2836,7 +3014,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 				}
 			}
 		}
-		return; 
+		return;
 	}
 
 	// --- 1b. Dispel Menu ---
@@ -2852,11 +3030,11 @@ void ofApp::mousePressed(int x, int y, int button) {
 			cancelDispel();
 		} else if (dispelBtnPurge.inside(x, y)) {
 			isDispelMenuOpen = false;
-			isDispelTargeting = true; 
+			isDispelTargeting = true;
 		} else if (!dispelMenuRect.inside(x, y)) {
 			cancelDispel();
 		}
-		return; 
+		return;
 	}
 
 	// --- 1c. Dispel Status Selection ---
@@ -2872,7 +3050,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 		if (!clickedOption && !statusSelectMenuRect.inside(x, y)) {
 			cancelDispel();
 		}
-		return; 
+		return;
 	}
 
 	// --- 1d. Dispel Targeting ---
@@ -2884,7 +3062,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 		if (gx >= 0 && gx < BOARD_WIDTH && gy >= 0 && gy < BOARD_HEIGHT) {
 			for (size_t i = 0; i < players.size(); i++) {
 				if (players[i].x == gx && players[i].y == gy) {
-					Player& curr = players[currentPlayerIndex];
+					Player & curr = players[currentPlayerIndex];
 					if (abs(curr.x - gx) + abs(curr.y - gy) <= 1) {
 						pendingDispelTargetIndex = (int)i;
 						determineStatusOptions(&players[i]);
@@ -2895,17 +3073,20 @@ void ofApp::mousePressed(int x, int y, int button) {
 			}
 		}
 		if (!foundTarget) cancelDispel();
-		return; 
+		return;
 	}
 
 	// --- 1e. Wisdom Boon Menu ---
 	if (isWisdomBoonMenuOpen && button == OF_MOUSE_BUTTON_LEFT) {
-		Player* target = getPlayer(pendingWisdomBoonTargetIndex);
-		Player& caster = players[currentPlayerIndex];
-		if (!target) { cancelWisdomBoon(); return; }
+		Player * target = getPlayer(pendingWisdomBoonTargetIndex);
+		Player & caster = players[currentPlayerIndex];
+		if (!target) {
+			cancelWisdomBoon();
+			return;
+		}
 
 		bool choiceMade = false;
-		int effectValue = (int)caster.deck.size(); 
+		int effectValue = (int)caster.deck.size();
 		bool isSelfTarget = (pendingWisdomBoonTargetIndex == currentPlayerIndex);
 
 		if (wisdomBtnDamage.inside(x, y)) {
@@ -2916,10 +3097,12 @@ void ofApp::mousePressed(int x, int y, int button) {
 				ofLogNotice("Wisdom Boon") << "Dealing " << effectValue << " Magic Damage to Enemy.";
 				int dmg = effectValue;
 				int barrierDmg = std::min(target->barrier, dmg);
-				target->barrier -= barrierDmg; dmg -= barrierDmg;
+				target->barrier -= barrierDmg;
+				dmg -= barrierDmg;
 				if (dmg > 0) {
 					int wardDmg = std::min(target->ward, dmg);
-					target->ward -= wardDmg; dmg -= wardDmg;
+					target->ward -= wardDmg;
+					dmg -= wardDmg;
 				}
 				if (dmg > 0) target->health -= dmg;
 			}
@@ -2933,7 +3116,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 			currentAP -= caster.hand[pendingWisdomBoonCardIndex].cost;
 			Card playedCard = caster.hand[pendingWisdomBoonCardIndex];
 			caster.playedCardsPile.push_back(playedCard);
-			
+
 			if (caster.isReplicatePending) {
 				Card dup = playedCard;
 				caster.playedCardsPile.push_back(dup);
@@ -2944,7 +3127,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 			cancelWisdomBoon();
 			calculateTargetHighlights();
 		}
-		return; 
+		return;
 	}
 
 	// --- 1f. Amnesia Selection UI ---
@@ -2963,7 +3146,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 			float padding = 15.0f * (viewCardScale / 1.6f);
 			int cols = std::max(2, (int)floor((availableWidth - padding) / (cardW + padding)));
 			int rows = ceil((float)amnesiaDeckCopy.size() / cols);
-			if (rows * (cardH + padding) - padding <= availableHeight) break; 
+			if (rows * (cardH + padding) - padding <= availableHeight) break;
 			viewCardScale -= 0.1f;
 		}
 
@@ -3024,9 +3207,9 @@ void ofApp::mousePressed(int x, int y, int button) {
 				return;
 			}
 		}
-		if (ofRectangle(panelX, panelY, panelWidth, panelHeight).inside(x, y)) return; 
+		if (ofRectangle(panelX, panelY, panelWidth, panelHeight).inside(x, y)) return;
 	}
-    
+
 	// ==============================================================================
 	// PHASE 2: GLOBAL MOUSE TRACKING
 	// ==============================================================================
@@ -3037,9 +3220,9 @@ void ofApp::mousePressed(int x, int y, int button) {
 	// PHASE 3: STATE-DEPENDENT LOGIC
 	// ==============================================================================
 	switch (currentState) {
-	
+
 	case STATE_GAMEPLAY: {
-		
+
 		// 3a. Debug Spawn Logic
 		if (isSpawningUnit && button == OF_MOUSE_BUTTON_LEFT) {
 			ofVec2f boardPos = mouseToBoard(x, y);
@@ -3047,7 +3230,8 @@ void ofApp::mousePressed(int x, int y, int button) {
 			if (gx >= 0 && gx < BOARD_WIDTH && gy >= 0 && gy < BOARD_HEIGHT) {
 				if (!board[gx][gy].hasWall && !board[gx][gy].hasPlayer) {
 					Player newPlayer;
-					newPlayer.x = gx; newPlayer.y = gy;
+					newPlayer.x = gx;
+					newPlayer.y = gy;
 					newPlayer.playerID = (int)players.size();
 					newPlayer.deck = allCards;
 					std::shuffle(newPlayer.deck.begin(), newPlayer.deck.end(), rng);
@@ -3064,8 +3248,11 @@ void ofApp::mousePressed(int x, int y, int button) {
 		if (isDebugMode && button == OF_MOUSE_BUTTON_LEFT) {
 			if (debugPanel.inside(x, y)) {
 				// Handle specific debug buttons
-				if (debugDrawCardButton.inside(x, y)) { drawCard(); return; }
-				
+				if (debugDrawCardButton.inside(x, y)) {
+					drawCard();
+					return;
+				}
+
 				if (debugSpawnCardButton.inside(x, y)) {
 					string cardName = ofSystemTextBoxDialog("Enter Card Name", "");
 					if (!cardName.empty()) {
@@ -3083,23 +3270,52 @@ void ofApp::mousePressed(int x, int y, int button) {
 					return;
 				}
 
-				if (debugDiceDropdownButton.inside(x, y)) { 
-					isDebugDiceDropdownOpen = !isDebugDiceDropdownOpen; 
-					return; 
+				if (debugDiceDropdownButton.inside(x, y)) {
+					isDebugDiceDropdownOpen = !isDebugDiceDropdownOpen;
+					return;
 				}
 
 				// Only check dropdown buttons if open
 				if (isDebugDiceDropdownOpen) {
-					if (debugFlipCoinButton.inside(x, y)) { startDiceRoll(1, 2, PURPOSE_DEBUG); isDebugDiceDropdownOpen = false; return; }
-					if (debugRollD4Button.inside(x, y)) { startDiceRoll(1, 4, PURPOSE_DEBUG); isDebugDiceDropdownOpen = false; return; }
-					if (debugRollD6Button.inside(x, y)) { startDiceRoll(1, 6, PURPOSE_DEBUG); isDebugDiceDropdownOpen = false; return; }
-					if (debugRollD10Button.inside(x, y)) { startDiceRoll(1, 10, PURPOSE_DEBUG); isDebugDiceDropdownOpen = false; return; }
-					if (debugRollD20Button.inside(x, y)) { startDiceRoll(1, 20, PURPOSE_DEBUG); isDebugDiceDropdownOpen = false; return; }
+					if (debugFlipCoinButton.inside(x, y)) {
+						startDiceRoll(1, 2, PURPOSE_DEBUG);
+						isDebugDiceDropdownOpen = false;
+						return;
+					}
+					if (debugRollD4Button.inside(x, y)) {
+						startDiceRoll(1, 4, PURPOSE_DEBUG);
+						isDebugDiceDropdownOpen = false;
+						return;
+					}
+					if (debugRollD6Button.inside(x, y)) {
+						startDiceRoll(1, 6, PURPOSE_DEBUG);
+						isDebugDiceDropdownOpen = false;
+						return;
+					}
+					if (debugRollD10Button.inside(x, y)) {
+						startDiceRoll(1, 10, PURPOSE_DEBUG);
+						isDebugDiceDropdownOpen = false;
+						return;
+					}
+					if (debugRollD20Button.inside(x, y)) {
+						startDiceRoll(1, 20, PURPOSE_DEBUG);
+						isDebugDiceDropdownOpen = false;
+						return;
+					}
 				}
 
-				if (debugSpawnUnitButton.inside(x, y)) { isSpawningUnit = !isSpawningUnit; return; }
-				if (debugUnlimitedAPButton.inside(x, y)) { hasUnlimitedAP = !hasUnlimitedAP; return; }
-				if (debugForceEndTurnButton.inside(x, y)) { startNewTurn(); return; }
+				if (debugSpawnUnitButton.inside(x, y)) {
+					isSpawningUnit = !isSpawningUnit;
+					return;
+				}
+				if (debugUnlimitedAPButton.inside(x, y)) {
+					hasUnlimitedAP = !hasUnlimitedAP;
+					return;
+				}
+				if (debugForceEndTurnButton.inside(x, y)) {
+					startNewTurn();
+					return;
+				}
 
 				return; // Clicked panel background
 			}
@@ -3108,25 +3324,30 @@ void ofApp::mousePressed(int x, int y, int button) {
 		// 3c. Safety Checks (Input Lock)
 		if (players.empty() || currentPlayerIndex < 0) return;
 		Player & currentPlayer = players[currentPlayerIndex];
-		
+
 		bool isDiceSpinning = false;
-		for (const auto & roll : activeDiceRolls) { if (!roll.isFinishedVisual) { isDiceSpinning = true; break; } }
+		for (const auto & roll : activeDiceRolls) {
+			if (!roll.isFinishedVisual) {
+				isDiceSpinning = true;
+				break;
+			}
+		}
 		if (isPlayerAnimating || isDiceSpinning) return;
 
 		// 3d. Deck Clicking (Drawing Cards) - INCLUDES HASTEN LOGIC
 		if (button == OF_MOUSE_BUTTON_LEFT) {
 			if (players.empty() || currentPlayerIndex < 0) return; // Safety check
-			
-			Player& activePlayer = players[currentPlayerIndex];
+
+			Player & activePlayer = players[currentPlayerIndex];
 
 			// --- FIX: Find player pointers locally and check affiliation ---
-			Player* player0 = nullptr;
-			Player* player1 = nullptr;
-			for (auto& p : players) {
+			Player * player0 = nullptr;
+			Player * player1 = nullptr;
+			for (auto & p : players) {
 				if (p.playerID == 0) player0 = &p;
 				if (p.playerID == 1) player1 = &p;
 			}
-			
+
 			// If we can't find the main players for some reason, exit
 			if (!player0 || !player1) return;
 
@@ -3134,21 +3355,23 @@ void ofApp::mousePressed(int x, int y, int button) {
 			bool isPlayer0sTurn = (activePlayer.playerID == 0 || activePlayer.ownerID == 0);
 			if (p0_deckRect.inside(x, y) && isPlayer0sTurn && !hasDrawnCardsThisTurn) {
 				int cardsToDraw = player0->nextTurnExtraDraw ? 3 : 2;
-				if(player0->nextTurnExtraDraw) ofLogNotice("Game") << "Hasten Effect: Drawing 3 cards!";
-				for(int i=0; i<cardsToDraw; i++) drawCard();
-				player0->nextTurnExtraDraw = false; 
-				hasDrawnCardsThisTurn = true; 
+				if (player0->nextTurnExtraDraw) ofLogNotice("Game") << "Hasten Effect: Drawing 3 cards!";
+				for (int i = 0; i < cardsToDraw; i++)
+					drawCard();
+				player0->nextTurnExtraDraw = false;
+				hasDrawnCardsThisTurn = true;
 				return;
 			}
-			
+
 			// Player 1's Deck
 			bool isPlayer1sTurn = (activePlayer.playerID == 1 || activePlayer.ownerID == 1);
 			if (p1_deckRect.inside(x, y) && isPlayer1sTurn && !hasDrawnCardsThisTurn) {
 				int cardsToDraw = player1->nextTurnExtraDraw ? 3 : 2;
-				if(player1->nextTurnExtraDraw) ofLogNotice("Game") << "Hasten Effect: Drawing 3 cards!";
-				for(int i=0; i<cardsToDraw; i++) drawCard();
-				player1->nextTurnExtraDraw = false; 
-				hasDrawnCardsThisTurn = true; 
+				if (player1->nextTurnExtraDraw) ofLogNotice("Game") << "Hasten Effect: Drawing 3 cards!";
+				for (int i = 0; i < cardsToDraw; i++)
+					drawCard();
+				player1->nextTurnExtraDraw = false;
+				hasDrawnCardsThisTurn = true;
 				return;
 			}
 		}
@@ -3187,21 +3410,28 @@ void ofApp::mousePressed(int x, int y, int button) {
 		if (button == OF_MOUSE_BUTTON_LEFT) {
 			ofVec2f boardPos = mouseToBoard(x, y);
 			int gridX = floor(boardPos.x), gridY = floor(boardPos.y);
-			
+
 			// Clicked Outside? Deselect everything.
 			if (gridX < 0 || gridX >= BOARD_WIDTH || gridY < 0 || gridY >= BOARD_HEIGHT) {
-				selectedCardIndex = -1; playerAction = NONE; clearHighlights(); calculateTargetHighlights();
+				selectedCardIndex = -1;
+				playerAction = NONE;
+				clearHighlights();
+				calculateTargetHighlights();
 				return;
 			}
 
 			// Clicked Self? Select for Movement.
 			if (board[gridX][gridY].hasPlayer && gridX == currentPlayer.x && gridY == currentPlayer.y) {
 				if (playerAction == PIECE_SELECTED) {
-					playerAction = NONE; clearHighlights();
+					playerAction = NONE;
+					clearHighlights();
 				} else {
-					selectedPieceGridX = currentPlayer.x; selectedPieceGridY = currentPlayer.y;
-					playerAction = PIECE_SELECTED; selectedCardIndex = -1;
-					calculateTargetHighlights(); calculateHighlights();
+					selectedPieceGridX = currentPlayer.x;
+					selectedPieceGridY = currentPlayer.y;
+					playerAction = PIECE_SELECTED;
+					selectedCardIndex = -1;
+					calculateTargetHighlights();
+					calculateHighlights();
 				}
 				return;
 			}
@@ -3214,10 +3444,12 @@ void ofApp::mousePressed(int x, int y, int button) {
 						currentAP -= moveAPCost;
 						board[currentPlayer.x][currentPlayer.y].hasPlayer = false;
 						board[gridX][gridY].hasPlayer = true;
-						currentPlayer.x = gridX; currentPlayer.y = gridY;
-						
+						currentPlayer.x = gridX;
+						currentPlayer.y = gridY;
+
 						// Start Animation
-						animationPath.clear(); currentPathIndex = 0;
+						animationPath.clear();
+						currentPathIndex = 0;
 						animationPath.push_back(playerVisualPos);
 						for (size_t p = 1; p < hoverPath.size(); ++p) {
 							animationPath.push_back(gridToWorld((int)hoverPath[p].x, (int)hoverPath[p].y));
@@ -3226,7 +3458,8 @@ void ofApp::mousePressed(int x, int y, int button) {
 						invalidateTargetCache();
 					}
 				}
-				playerAction = NONE; clearHighlights();
+				playerAction = NONE;
+				clearHighlights();
 				return;
 			}
 
@@ -3238,31 +3471,61 @@ void ofApp::mousePressed(int x, int y, int button) {
 	}
 
 	case STATE_MAIN_MENU: {
-		if (mainMenuPlayAIButton.inside(x, y)) { isLoadingGame = true; }
-		else if (mainMenuSettingsButton.inside(x, y)) { stateBeforeSettings = STATE_MAIN_MENU; currentState = STATE_SETTINGS; }
-		else if (mainMenuQuitButton.inside(x, y)) { ofExit(); }
+		if (mainMenuPlayAIButton.inside(x, y)) {
+			isLoadingGame = true;
+		} else if (mainMenuSettingsButton.inside(x, y)) {
+			stateBeforeSettings = STATE_MAIN_MENU;
+			currentState = STATE_SETTINGS;
+		} else if (mainMenuQuitButton.inside(x, y)) {
+			ofExit();
+		}
 		break;
 	}
 
 	case STATE_SETTINGS: {
-		if (settingsBackButton.inside(x, y)) { currentState = stateBeforeSettings; }
-		if (settingsResLeftButton.inside(x, y)) { currentResolutionIndex = std::max(0, currentResolutionIndex - 1); applySettings(); }
-		if (settingsResRightButton.inside(x, y)) { currentResolutionIndex = std::min(static_cast<int>(availableResolutions.size()) - 1, currentResolutionIndex + 1); applySettings(); }
-		if (settingsFrameLeftButton.inside(x, y)) { currentFramerateIndex = std::max(0, currentFramerateIndex - 1); applySettings(); }
-		if (settingsFrameRightButton.inside(x, y)) { currentFramerateIndex = std::min(static_cast<int>(availableFramerates.size()) - 1, currentFramerateIndex + 1); applySettings(); }
-		if (settingsFullscreenButton.inside(x, y)) { isFullscreen = !isFullscreen; applySettings(); }
+		if (settingsBackButton.inside(x, y)) {
+			currentState = stateBeforeSettings;
+		}
+		if (settingsResLeftButton.inside(x, y)) {
+			currentResolutionIndex = std::max(0, currentResolutionIndex - 1);
+			applySettings();
+		}
+		if (settingsResRightButton.inside(x, y)) {
+			currentResolutionIndex = std::min(static_cast<int>(availableResolutions.size()) - 1, currentResolutionIndex + 1);
+			applySettings();
+		}
+		if (settingsFrameLeftButton.inside(x, y)) {
+			currentFramerateIndex = std::max(0, currentFramerateIndex - 1);
+			applySettings();
+		}
+		if (settingsFrameRightButton.inside(x, y)) {
+			currentFramerateIndex = std::min(static_cast<int>(availableFramerates.size()) - 1, currentFramerateIndex + 1);
+			applySettings();
+		}
+		if (settingsFullscreenButton.inside(x, y)) {
+			isFullscreen = !isFullscreen;
+			applySettings();
+		}
 		break;
 	}
 
 	case STATE_PAUSED: {
-		if (pauseMenuResumeButton.inside(x, y)) { currentState = STATE_GAMEPLAY; }
-		if (pauseMenuSettingsButton.inside(x, y)) { stateBeforeSettings = STATE_PAUSED; currentState = STATE_SETTINGS; }
-		if (pauseMenuQuitButton.inside(x, y)) { cleanupGame(); currentState = STATE_MAIN_MENU; }
+		if (pauseMenuResumeButton.inside(x, y)) {
+			currentState = STATE_GAMEPLAY;
+		}
+		if (pauseMenuSettingsButton.inside(x, y)) {
+			stateBeforeSettings = STATE_PAUSED;
+			currentState = STATE_SETTINGS;
+		}
+		if (pauseMenuQuitButton.inside(x, y)) {
+			cleanupGame();
+			currentState = STATE_MAIN_MENU;
+		}
 		break;
 	}
 	}
 }
-	//--------------------------------------------------------------
+//--------------------------------------------------------------
 void ofApp::mouseDragged(int x, int y, int button) {
 	if (currentState != STATE_GAMEPLAY) return;
 
@@ -3409,25 +3672,25 @@ void ofApp::mouseScrolled(int x, int y, float scrollX, float scrollY) {
 void ofApp::keyPressed(int key) { }
 //--------------------------------------------------------------
 void ofApp::keyReleased(int key) {
-    // 1. Debug Toggle
-    if (key == '`') {
-        isDebugMode = !isDebugMode;
-    }
+	// 1. Debug Toggle
+	if (key == '`') {
+		isDebugMode = !isDebugMode;
+	}
 
-    // 2. Top-Down Camera Toggle
-    if (key == 't' || key == 'T') {
-        if (currentState == STATE_GAMEPLAY) {
-            isTopDownView = !isTopDownView;
-            if (isTopDownView) {
-                ofLogNotice("Camera") << "Toggled top-down view ON";
-                last3DZoom = cameraTargetZoom;
-                cameraTargetZoom = 60.0f;
-            } else {
-                ofLogNotice("Camera") << "Toggled top-down view OFF";
-                cameraTargetZoom = last3DZoom;
-            }
-        }
-    }
+	// 2. Top-Down Camera Toggle
+	if (key == 't' || key == 'T') {
+		if (currentState == STATE_GAMEPLAY) {
+			isTopDownView = !isTopDownView;
+			if (isTopDownView) {
+				ofLogNotice("Camera") << "Toggled top-down view ON";
+				last3DZoom = cameraTargetZoom;
+				cameraTargetZoom = 60.0f;
+			} else {
+				ofLogNotice("Camera") << "Toggled top-down view OFF";
+				cameraTargetZoom = last3DZoom;
+			}
+		}
+	}
 
 	// 2b. Post-processing toggles (debug)
 	if (key == 'p' || key == 'P') {
@@ -3439,33 +3702,33 @@ void ofApp::keyReleased(int key) {
 		ofLogNotice("Post") << "showWorldFboPreview=" << (showWorldFboPreview ? "true" : "false");
 	}
 
-    // 3. Escape Key Logic (Merged back inside the function)
-    if (key == OF_KEY_ESC) {
-        switch (currentState) {
-        case STATE_GAMEPLAY:
-            // First, check if any UI panel is active and close it.
-            if (isShowingPileView) {
-                isShowingPileView = false;
-                currentPileViewPlayerIndex = -1;
-                currentPileView = VIEW_NONE;
-            } else if (isAmnesiaSelectionActive) {
-                isAmnesiaSelectionActive = false; // Allow cancelling Amnesia
-            }
-            // If no UI was open, then pause the game.
-            else {
-                currentState = STATE_PAUSED;
-            }
-            break;
-        case STATE_PAUSED:
-            currentState = STATE_GAMEPLAY;
-            break;
-        case STATE_SETTINGS:
-            currentState = stateBeforeSettings;
-            break;
-        default:
-            break;
-        }
-    }
+	// 3. Escape Key Logic (Merged back inside the function)
+	if (key == OF_KEY_ESC) {
+		switch (currentState) {
+		case STATE_GAMEPLAY:
+			// First, check if any UI panel is active and close it.
+			if (isShowingPileView) {
+				isShowingPileView = false;
+				currentPileViewPlayerIndex = -1;
+				currentPileView = VIEW_NONE;
+			} else if (isAmnesiaSelectionActive) {
+				isAmnesiaSelectionActive = false; // Allow cancelling Amnesia
+			}
+			// If no UI was open, then pause the game.
+			else {
+				currentState = STATE_PAUSED;
+			}
+			break;
+		case STATE_PAUSED:
+			currentState = STATE_GAMEPLAY;
+			break;
+		case STATE_SETTINGS:
+			currentState = stateBeforeSettings;
+			break;
+		default:
+			break;
+		}
+	}
 }
 
 //--------------------------------------------------------------
@@ -3489,7 +3752,7 @@ void ofApp::startNewTurn() {
 	// --- 1. Handle the ENDING player's state ---
 	if (currentPlayerIndex != -1) {
 		Player & endingPlayer = players[currentPlayerIndex];
-		
+
 		// A. Move Hand to Discard
 		endingPlayer.discardPile.insert(endingPlayer.discardPile.end(), endingPlayer.hand.begin(), endingPlayer.hand.end());
 		endingPlayer.hand.clear();
@@ -3500,40 +3763,40 @@ void ofApp::startNewTurn() {
 
 		// Reset turn-specific counters
 		endingPlayer.shocksPlayedThisTurn = 0;
-		
-		// NOTE: We do NOT reset isReplicatePending here. 
+
+		// NOTE: We do NOT reset isReplicatePending here.
 		// If they played Replicate but nothing else, it waits for the next card play.
 	}
 
 	// --- 2. Advance to the NEXT player ---
-	 // Cycle index
-    currentPlayerIndex = (currentPlayerIndex + 1) % players.size();
-    
-    // Increment Global Turn Counter if we wrapped back to start (or P0)
-    if (currentPlayerIndex == 0) globalTurnCounter++;
+	// Cycle index
+	currentPlayerIndex = (currentPlayerIndex + 1) % players.size();
 
-    Player & startingPlayer = players[currentPlayerIndex];
-    ofLogNotice("Game") << "--- START TURN: " << (startingPlayer.isMinion ? "Minion " : "Player ") << startingPlayer.playerID;
+	// Increment Global Turn Counter if we wrapped back to start (or P0)
+	if (currentPlayerIndex == 0) globalTurnCounter++;
 
-    // --- REGENERATION ---
-    if (startingPlayer.hasRegeneration) {
-        if (startingPlayer.health < startingPlayer.maxHealth) {
-            startingPlayer.health++;
-            ofLogNotice("Regen") << "Regenerated 1 HP.";
-        }
-    }
+	Player & startingPlayer = players[currentPlayerIndex];
+	ofLogNotice("Game") << "--- START TURN: " << (startingPlayer.isMinion ? "Minion " : "Player ") << startingPlayer.playerID;
+
+	// --- REGENERATION ---
+	if (startingPlayer.hasRegeneration) {
+		if (startingPlayer.health < startingPlayer.maxHealth) {
+			startingPlayer.health++;
+			ofLogNotice("Regen") << "Regenerated 1 HP.";
+		}
+	}
 
 	// --- 3. Expiry Checks (Reset Armor) ---
-	startingPlayer.block = 0;   
-	startingPlayer.ward = 0;    
-	startingPlayer.barrier = 0; 
+	startingPlayer.block = 0;
+	startingPlayer.ward = 0;
+	startingPlayer.barrier = 0;
 
 	// --- 4. NEW: PARALYSIS CHECK ---
 	if (startingPlayer.isParalyzed) {
 		ofLogNotice("Status") << "Player is Paralyzed! Flipping coin...";
 		startDiceRoll(1, 2, PURPOSE_COIN_FLIP);
 		isWaitingForParalysisCoin = true;
-		return; 
+		return;
 	}
 
 	// --- 5. Fire Check ---
@@ -3557,28 +3820,27 @@ void ofApp::continueNewTurn() {
 	playerAction = NONE;
 	clearHighlights();
 	calculateTargetHighlights();
-	
-    // FIX: Snap visual position instantly to the new unit so it doesn't "fly" across the board
+
+	// FIX: Snap visual position instantly to the new unit so it doesn't "fly" across the board
 	playerVisualPos = gridToWorld(startingPlayer.x, startingPlayer.y);
-    animationPath.clear();
-    isPlayerAnimating = false;
+	animationPath.clear();
+	isPlayerAnimating = false;
 
 	activeDiceRolls.clear();
 	currentAP = 0;
 
-    // --- AP ROLL LOGIC ---
-    // Minions roll 1d6. Players roll 1d6 (or 1d10 if Hastened).
-    if (startingPlayer.isMinion) {
-        startDiceRoll(1, 6, PURPOSE_AP);
-    } 
-    else {
-        int apDiceSides = 6;
-        if (startingPlayer.nextTurnD10AP) {
-            apDiceSides = 10;
-            startingPlayer.nextTurnD10AP = false; 
-        }
-        startDiceRoll(1, apDiceSides, PURPOSE_AP);
-    }
+	// --- AP ROLL LOGIC ---
+	// Minions roll 1d6. Players roll 1d6 (or 1d10 if Hastened).
+	if (startingPlayer.isMinion) {
+		startDiceRoll(1, 6, PURPOSE_AP);
+	} else {
+		int apDiceSides = 6;
+		if (startingPlayer.nextTurnD10AP) {
+			apDiceSides = 10;
+			startingPlayer.nextTurnD10AP = false;
+		}
+		startDiceRoll(1, apDiceSides, PURPOSE_AP);
+	}
 }
 //--------------------------------------------------------------
 void ofApp::drawCard() {
@@ -3593,13 +3855,13 @@ void ofApp::drawCard() {
 		}
 
 		ofLogNotice("Game") << "Deck is empty. Reshuffling Discard Pile into Deck...";
-		
+
 		// Move Discard -> Deck
 		currentPlayer.deck = currentPlayer.discardPile;
-		
+
 		// Clear Discard (This causes the discard pile visual to disappear, which is correct)
 		currentPlayer.discardPile.clear();
-		
+
 		// Shuffle the new Deck
 		std::shuffle(currentPlayer.deck.begin(), currentPlayer.deck.end(), rng);
 	}
@@ -3659,15 +3921,14 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 
 		// --- LAYER 1: SPECIFIC MITIGATION ---
 		// Block stops Physical. Barrier stops Non-Physical (Magic/Fire/Electric).
-		
+
 		if (type == DAMAGE_PHYSICAL) {
 			// Physical hits BLOCK
 			int absorb = std::min(target.block, remainingDmg);
 			target.block -= absorb;
 			remainingDmg -= absorb;
 			if (absorb > 0) ofLogNotice("Game") << "Block absorbed " << absorb;
-		} 
-		else if (type != DAMAGE_PIERCING) { 
+		} else if (type != DAMAGE_PIERCING) {
 			// Non-Physical (and not Piercing) hits BARRIER
 			int absorb = std::min(target.barrier, remainingDmg);
 			target.barrier -= absorb;
@@ -3690,30 +3951,30 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 			target.health -= remainingDmg;
 			ofLogNotice("Game") << remainingDmg << " damage taken to Health! (HP: " << target.health << ")";
 		}
-    
-    // --- REPLACE THE OLD "if (target.health <= 0)" WITH THIS ---
-    if (target.health <= 0) {
-        ofLogNotice("Game") << "Player " << target.playerID << " defeated!";
 
-        // Graveyard Logic
-        DeathMarker death;
-        death.x = target.x;
-        death.y = target.y;
-        death.turnDied = globalTurnCounter;
-        death.deck = target.deck; // Save their deck for looting
-        graveyard.push_back(death);
-        
-        // Note: We don't remove them from the 'players' vector immediately 
-        // because that shifts indices and breaks the loop currently running.
-        // Usually, you mark them as dead and clean up at the start of the next turn,
-        // or move them to a "dead" state (x = -100).
-        board[target.x][target.y].hasPlayer = false; // Free up the tile immediately
-        target.x = -1000; // Move off screen
-    }
-    // -----------------------------------------------------------
+		// --- REPLACE THE OLD "if (target.health <= 0)" WITH THIS ---
+		if (target.health <= 0) {
+			ofLogNotice("Game") << "Player " << target.playerID << " defeated!";
 
-    return target.health < initialHealth;
-};
+			// Graveyard Logic
+			DeathMarker death;
+			death.x = target.x;
+			death.y = target.y;
+			death.turnDied = globalTurnCounter;
+			death.deck = target.deck; // Save their deck for looting
+			graveyard.push_back(death);
+
+			// Note: We don't remove them from the 'players' vector immediately
+			// because that shifts indices and breaks the loop currently running.
+			// Usually, you mark them as dead and clean up at the start of the next turn,
+			// or move them to a "dead" state (x = -100).
+			board[target.x][target.y].hasPlayer = false; // Free up the tile immediately
+			target.x = -1000; // Move off screen
+		}
+		// -----------------------------------------------------------
+
+		return target.health < initialHealth;
+	};
 
 	bool playedSuccessfully = false;
 
@@ -3767,13 +4028,13 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		// 2. Validate Target Presence
 		if (targetIndex == -1) {
 			ofLogNotice("Amnesia") << "Cast failed! No unit at target.";
-			break; 
+			break;
 		}
 
 		// 3. Validate Range (Self or Adjacent)
-		Player* targetP = getPlayer(targetIndex);
+		Player * targetP = getPlayer(targetIndex);
 		int dist = abs(targetP->x - currentPlayer.x) + abs(targetP->y - currentPlayer.y);
-		
+
 		if (dist > 1) {
 			ofLogNotice("Amnesia") << "Cast failed! Target must be Self or Adjacent.";
 			break;
@@ -3787,19 +4048,19 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 
 		// 5. Execute
 		ofLogNotice("Amnesia") << "Targeting Player " << targetP->playerID << ". Rolling to see how many cards to remove...";
-		
+
 		// Store the target index so we know whose deck to modify later
 		amnesiaTargetPlayerIndex = targetIndex;
-		
+
 		// Start Dice Roll for CARD COUNT REMOVAL (Not healing)
 		pendingAmnesiaRollResult = startDiceRoll(playedCard.numDice, playedCard.diceSides, PURPOSE_DAMAGE);
 		isWaitingForAmnesiaDice = true;
-		
+
 		playedSuccessfully = true;
 		break;
 	}
 
-// --- CASE: MAGIC BLAST ---
+		// --- CASE: MAGIC BLAST ---
 	case CARD_MAGIC_BLAST: {
 		glm::vec2 casterTile = { (float)currentPlayer.x, (float)currentPlayer.y };
 		glm::vec2 targetTile = { (float)targetX, (float)targetY };
@@ -3820,7 +4081,7 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		}
 		if (!hasValidUnit) {
 			glm::vec2 neighbors[4] = { { targetX + 1, targetY }, { targetX - 1, targetY }, { targetX, targetY + 1 }, { targetX, targetY - 1 } };
-			for (const auto& n : neighbors) {
+			for (const auto & n : neighbors) {
 				if (n.x >= 0 && n.x < BOARD_WIDTH && n.y >= 0 && n.y < BOARD_HEIGHT) {
 					if (board[(int)n.x][(int)n.y].hasPlayer) {
 						hasValidUnit = true;
@@ -3854,12 +4115,12 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 
 		if (validationResult.reason != VALID) {
 			ofLogNotice("Fireball") << "Cast failed! Target invalid.";
-			break; 
+			break;
 		}
-		
+
 		if (!board[targetX][targetY].hasPlayer) {
-			 ofLogNotice("Fireball") << "Cast failed! Must target a unit.";
-			 break;
+			ofLogNotice("Fireball") << "Cast failed! Must target a unit.";
+			break;
 		}
 
 		ofLogNotice("Fireball") << "Casting! Rolling for range...";
@@ -3900,49 +4161,49 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		break;
 	}
 
-	  // --- CASE: DISPEL ---
-    case CARD_DISPEL: {
-        // Don't execute yet. Just open the menu.
-        pendingDispelCardIndex = cardIndex;
-        isDispelMenuOpen = true;
-        
-        // Calculate menu geometry once
-        float w = 600, h = 300;
-        float x = ofGetWidth()/2 - w/2, y = ofGetHeight()/2 - h/2;
-        dispelMenuRect.set(x, y, w, h);
-        dispelBtnBarrier.set(x + 40, y + 100, 250, 100);
-        dispelBtnPurge.set(x + w - 290, y + 100, 250, 100);
+		// --- CASE: DISPEL ---
+	case CARD_DISPEL: {
+		// Don't execute yet. Just open the menu.
+		pendingDispelCardIndex = cardIndex;
+		isDispelMenuOpen = true;
 
-        // Do NOT set playedSuccessfully = true yet.
-        // We wait for user input.
-        break;
-    }
+		// Calculate menu geometry once
+		float w = 600, h = 300;
+		float x = ofGetWidth() / 2 - w / 2, y = ofGetHeight() / 2 - h / 2;
+		dispelMenuRect.set(x, y, w, h);
+		dispelBtnBarrier.set(x + 40, y + 100, 250, 100);
+		dispelBtnPurge.set(x + w - 290, y + 100, 250, 100);
+
+		// Do NOT set playedSuccessfully = true yet.
+		// We wait for user input.
+		break;
+	}
 
 	// --- CASE: TELEPORT ---
-    case CARD_TELEPORT: {
-        // Double check target is empty
-        if (board[targetX][targetY].hasWall || board[targetX][targetY].hasPlayer) {
-            ofLogNotice("Teleport") << "Invalid destination.";
-            break;
-        }
+	case CARD_TELEPORT: {
+		// Double check target is empty
+		if (board[targetX][targetY].hasWall || board[targetX][targetY].hasPlayer) {
+			ofLogNotice("Teleport") << "Invalid destination.";
+			break;
+		}
 
-        ofLogNotice("Teleport") << "Initiating Teleport... Rolling 3d6 for range.";
-        
-        // Setup State
-        pendingTeleportTarget = glm::vec2(targetX, targetY);
-        pendingTeleportRollResult = startDiceRoll(playedCard.numDice, playedCard.diceSides, PURPOSE_RANGE);
-        isWaitingForTeleportDice = true;
+		ofLogNotice("Teleport") << "Initiating Teleport... Rolling 3d6 for range.";
 
-        playedSuccessfully = true;
-        break;
-    }
+		// Setup State
+		pendingTeleportTarget = glm::vec2(targetX, targetY);
+		pendingTeleportRollResult = startDiceRoll(playedCard.numDice, playedCard.diceSides, PURPOSE_RANGE);
+		isWaitingForTeleportDice = true;
+
+		playedSuccessfully = true;
+		break;
+	}
 
 	// --- CASE: HASTEN ---
 	case CARD_HASTEN: {
 		// Apply buffs for the NEXT turn
 		currentPlayer.nextTurnD10AP = true;
 		currentPlayer.nextTurnExtraDraw = true;
-		
+
 		ofLogNotice("Hasten") << "Player " << currentPlayer.playerID << " feels faster! Next turn: D10 AP & Draw 3.";
 		playedSuccessfully = true;
 		break;
@@ -3957,103 +4218,103 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		break;
 	}
 
-// --- CASE: WISDOM BOON ---
-case CARD_WISDOM_BOON: {
-    // 1. Find the target unit
-    int targetIndex = -1;
-    for (size_t i = 0; i < players.size(); i++) {
-        if (players[i].x == targetX && players[i].y == targetY) {
-            targetIndex = (int)i;
-            break;
-        }
-    }
+	// --- CASE: WISDOM BOON ---
+	case CARD_WISDOM_BOON: {
+		// 1. Find the target unit
+		int targetIndex = -1;
+		for (size_t i = 0; i < players.size(); i++) {
+			if (players[i].x == targetX && players[i].y == targetY) {
+				targetIndex = (int)i;
+				break;
+			}
+		}
 
-    // 2. Validate Target
-    if (targetIndex == -1) {
-        ofLogNotice("Wisdom Boon") << "Failed: No target selected.";
-        break; 
-    }
-    
-    Player* t = getPlayer(targetIndex);
-    bool isSelf = (targetIndex == currentPlayerIndex);
-    bool isAdjacent = (abs(t->x - currentPlayer.x) + abs(t->y - currentPlayer.y) == 1);
+		// 2. Validate Target
+		if (targetIndex == -1) {
+			ofLogNotice("Wisdom Boon") << "Failed: No target selected.";
+			break;
+		}
 
-    // Enforce Rules: Must be Self OR Adjacent
-    if (!isSelf && !isAdjacent) {
-        ofLogNotice("Wisdom Boon") << "Failed: Target must be Self or Adjacent.";
-        break;
-    }
+		Player * t = getPlayer(targetIndex);
+		bool isSelf = (targetIndex == currentPlayerIndex);
+		bool isAdjacent = (abs(t->x - currentPlayer.x) + abs(t->y - currentPlayer.y) == 1);
 
-    // 3. Setup Menu State
-    pendingWisdomBoonCardIndex = cardIndex;
-    pendingWisdomBoonTargetIndex = targetIndex;
-    isWisdomBoonMenuOpen = true;
+		// Enforce Rules: Must be Self OR Adjacent
+		if (!isSelf && !isAdjacent) {
+			ofLogNotice("Wisdom Boon") << "Failed: Target must be Self or Adjacent.";
+			break;
+		}
 
-    // 4. Calculate Layout
-    float w = 600, h = 300;
-    float x = ofGetWidth()/2 - w/2, y = ofGetHeight()/2 - h/2;
-    wisdomMenuRect.set(x, y, w, h);
-    
-    // Single big button for the context-sensitive action
-    float btnW = 300, btnH = 80;
-    // We'll reuse 'wisdomBtnDamage' as the main action button
-    wisdomBtnDamage.set(x + (w - btnW)/2, y + 150, btnW, btnH);
-    // Hide the other button
-    wisdomBtnBlock.set(0,0,0,0); 
+		// 3. Setup Menu State
+		pendingWisdomBoonCardIndex = cardIndex;
+		pendingWisdomBoonTargetIndex = targetIndex;
+		isWisdomBoonMenuOpen = true;
 
-    break; // <--- WISDOM BOON ENDS HERE
-}
+		// 4. Calculate Layout
+		float w = 600, h = 300;
+		float x = ofGetWidth() / 2 - w / 2, y = ofGetHeight() / 2 - h / 2;
+		wisdomMenuRect.set(x, y, w, h);
 
-// --- CASE: HEAL ---
-case CARD_HEAL: {
-    // 1. Validate LoS again (using the 1000.0f range for unlimited)
-    glm::vec2 casterTile = { (float)currentPlayer.x, (float)currentPlayer.y };
-    glm::vec2 targetTile = { (float)targetX, (float)targetY };
-    TargetInfo validationResult = isLosTargetValid(casterTile, targetTile, 1000.0f, playedCard.type);
+		// Single big button for the context-sensitive action
+		float btnW = 300, btnH = 80;
+		// We'll reuse 'wisdomBtnDamage' as the main action button
+		wisdomBtnDamage.set(x + (w - btnW) / 2, y + 150, btnW, btnH);
+		// Hide the other button
+		wisdomBtnBlock.set(0, 0, 0, 0);
 
-    if (validationResult.reason != VALID) {
-        ofLogNotice("Heal") << "Cast failed! No Line of Sight.";
-        break;
-    }
+		break; // <--- WISDOM BOON ENDS HERE
+	}
 
-    // 2. Find Target Unit
-    int targetIndex = -1;
-    for (size_t i = 0; i < players.size(); i++) {
-        if (players[i].x == targetX && players[i].y == targetY) {
-            targetIndex = (int)i;
-            break;
-        }
-    }
+	// --- CASE: HEAL ---
+	case CARD_HEAL: {
+		// 1. Validate LoS again (using the 1000.0f range for unlimited)
+		glm::vec2 casterTile = { (float)currentPlayer.x, (float)currentPlayer.y };
+		glm::vec2 targetTile = { (float)targetX, (float)targetY };
+		TargetInfo validationResult = isLosTargetValid(casterTile, targetTile, 1000.0f, playedCard.type);
 
-    if (targetIndex == -1) {
-        ofLogNotice("Heal") << "Cast failed! No unit at target.";
-        break;
-    }
+		if (validationResult.reason != VALID) {
+			ofLogNotice("Heal") << "Cast failed! No Line of Sight.";
+			break;
+		}
 
-   // --- NEW FRIENDLY CHECK (VALIDATION) ---
-    Player* target = getPlayer(targetIndex);
-    int casterOwner = currentPlayer.isMinion ? currentPlayer.ownerID : currentPlayer.playerID;
-    int targetOwner = target->isMinion ? target->ownerID : target->playerID;
+		// 2. Find Target Unit
+		int targetIndex = -1;
+		for (size_t i = 0; i < players.size(); i++) {
+			if (players[i].x == targetX && players[i].y == targetY) {
+				targetIndex = (int)i;
+				break;
+			}
+		}
 
-    if (casterOwner != targetOwner) {
-        ofLogNotice("Heal") << "Cast failed! Cannot heal an enemy unit.";
-        break; // Exit the case
-    }
-    // --- END NEW FRIENDLY CHECK ---
+		if (targetIndex == -1) {
+			ofLogNotice("Heal") << "Cast failed! No unit at target.";
+			break;
+		}
 
-    // 3. Start Dice Roll (The rest of the function is correct)
-    ofLogNotice("Heal") << "Casting Heal on Player " << players[targetIndex].playerID << "... Rolling 2d6.";
-    
-    pendingHealTargetIndex = targetIndex;
-    // We reuse PURPOSE_DAMAGE just so the number pops up visually
-    pendingHealRollResult = startDiceRoll(playedCard.numDice, playedCard.diceSides, PURPOSE_DAMAGE);
-    isWaitingForHealDice = true;
+		// --- NEW FRIENDLY CHECK (VALIDATION) ---
+		Player * target = getPlayer(targetIndex);
+		int casterOwner = currentPlayer.isMinion ? currentPlayer.ownerID : currentPlayer.playerID;
+		int targetOwner = target->isMinion ? target->ownerID : target->playerID;
 
-    playedSuccessfully = true;
-    break; // <--- HEAL ENDS HERE
-}
+		if (casterOwner != targetOwner) {
+			ofLogNotice("Heal") << "Cast failed! Cannot heal an enemy unit.";
+			break; // Exit the case
+		}
+		// --- END NEW FRIENDLY CHECK ---
 
-// --- CASE: ETHEREAL JOLT ---
+		// 3. Start Dice Roll (The rest of the function is correct)
+		ofLogNotice("Heal") << "Casting Heal on Player " << players[targetIndex].playerID << "... Rolling 2d6.";
+
+		pendingHealTargetIndex = targetIndex;
+		// We reuse PURPOSE_DAMAGE just so the number pops up visually
+		pendingHealRollResult = startDiceRoll(playedCard.numDice, playedCard.diceSides, PURPOSE_DAMAGE);
+		isWaitingForHealDice = true;
+
+		playedSuccessfully = true;
+		break; // <--- HEAL ENDS HERE
+	}
+
+		// --- CASE: ETHEREAL JOLT ---
 	case CARD_ETHEREAL_JOLT: {
 		glm::vec2 casterTile = { (float)currentPlayer.x, (float)currentPlayer.y };
 		glm::vec2 targetTile = { (float)targetX, (float)targetY };
@@ -4063,12 +4324,12 @@ case CARD_HEAL: {
 
 		if (validationResult.reason != VALID) {
 			ofLogNotice("Jolt") << "Cast failed! Target invalid.";
-			break; 
+			break;
 		}
-		
+
 		if (!board[targetX][targetY].hasPlayer) {
-			 ofLogNotice("Jolt") << "Cast failed! Must target a unit.";
-			 break;
+			ofLogNotice("Jolt") << "Cast failed! Must target a unit.";
+			break;
 		}
 
 		ofLogNotice("Jolt") << "Casting Ethereal Jolt! Rolling 1d20 for range...";
@@ -4098,8 +4359,8 @@ case CARD_HEAL: {
 		}
 
 		// 3. Execute Damage
-		Player* target = getPlayer(targetIndex);
-		
+		Player * target = getPlayer(targetIndex);
+
 		// applyDamage returns TRUE if Health was reduced (bypassed shields)
 		bool healthHit = applyDamage(*target, playedCard.value, DAMAGE_FIRE);
 
@@ -4114,23 +4375,23 @@ case CARD_HEAL: {
 		break;
 	}
 
-// --- CASE: RAISE DEAD ---
-    case CARD_RAISE_DEAD: {
-        // Double check target
-        if (board[targetX][targetY].hasWall || board[targetX][targetY].hasPlayer) {
-            ofLogNotice("Raise Dead") << "Invalid target.";
-            break;
-        }
+		// --- CASE: RAISE DEAD ---
+	case CARD_RAISE_DEAD: {
+		// Double check target
+		if (board[targetX][targetY].hasWall || board[targetX][targetY].hasPlayer) {
+			ofLogNotice("Raise Dead") << "Invalid target.";
+			break;
+		}
 
-        ofLogNotice("Raise Dead") << "Raising Skeleton! Rolling 1d6 for HP...";
-        
-        pendingSummonTile = glm::vec2(targetX, targetY);
-        pendingSummonRollResult = startDiceRoll(1, 6, PURPOSE_HP); // Ensure this is NOT PURPOSE_COIN_FLIP or PURPOSE_AP
-    isWaitingForSummonHealth = true;
+		ofLogNotice("Raise Dead") << "Raising Skeleton! Rolling 1d6 for HP...";
 
-        playedSuccessfully = true;
-        break;
-    }
+		pendingSummonTile = glm::vec2(targetX, targetY);
+		pendingSummonRollResult = startDiceRoll(1, 6, PURPOSE_HP); // Ensure this is NOT PURPOSE_COIN_FLIP or PURPOSE_AP
+		isWaitingForSummonHealth = true;
+
+		playedSuccessfully = true;
+		break;
+	}
 
 	// --- CASE: STANDARD ATTACK (Stab, Cleave, Pierce) ---
 	case CARD_ATTACK_SINGLE_TILE: {
@@ -4147,12 +4408,12 @@ case CARD_HEAL: {
 					if (&players[i] == targetPlayer) pendingAttackTargetIndices.push_back((int)i);
 				}
 			}
-		} 
+		}
 		// 2. PIERCE LOGIC (Line - e.g. Stab)
 		else if (playedCard.targeting == TARGET_LINEAR_PIERCE) {
 			// Calculate Direction based on where the player clicked relative to self
 			glm::vec2 dir = { (float)(targetX - px), (float)(targetY - py) };
-			
+
 			// Normalize to get strict cardinal direction (1 tile step)
 			if (std::abs(dir.x) > std::abs(dir.y)) {
 				dir.x = (dir.x > 0) ? 1.0f : -1.0f;
@@ -4163,7 +4424,7 @@ case CARD_HEAL: {
 			}
 
 			// Define the two tiles in the straight line
-			glm::vec2 pos1 = { px + dir.x, py + dir.y };       // Adjacent
+			glm::vec2 pos1 = { px + dir.x, py + dir.y }; // Adjacent
 			glm::vec2 pos2 = { px + dir.x * 2, py + dir.y * 2 }; // Behind
 
 			// --- ADD TARGETS IN ORDER ---
@@ -4175,7 +4436,7 @@ case CARD_HEAL: {
 				if (players[i].x == (int)pos1.x && players[i].y == (int)pos1.y) {
 					pendingAttackTargetIndices.push_back((int)i);
 					ofLogNotice("Attack") << "Hit front target: Player " << players[i].playerID;
-					break; 
+					break;
 				}
 			}
 
@@ -4190,16 +4451,16 @@ case CARD_HEAL: {
 					}
 				}
 			}
-		} 
+		}
 		// 3. STANDARD SINGLE TARGET
 		else {
 			// Use the standard LoS check to ensure valid reach (e.g. 5ft range)
 			glm::vec2 casterTile = { (float)px, (float)py };
 			glm::vec2 targetTile = { (float)targetX, (float)targetY };
-			
+
 			// Use range 5.0f (2 squares) for standard melee, or whatever the card says
 			TargetInfo info = isLosTargetValid(casterTile, targetTile, 5.0f, playedCard.type);
-			
+
 			if (info.reason == VALID && info.isTargetable) {
 				for (size_t i = 0; i < players.size(); i++) {
 					if (players[i].x == targetX && players[i].y == targetY) {
@@ -4239,7 +4500,7 @@ case CARD_HEAL: {
 				}
 			}
 		}
-		
+
 		playedSuccessfully = true;
 		break;
 	}
@@ -4297,26 +4558,26 @@ case CARD_HEAL: {
 		// 1. Move played card to "Grey Area" (playedCardsPile)
 		// It will stay here until end of turn.
 		currentPlayer.playedCardsPile.push_back(playedCard);
-		
+
 		// 2. Handle REPLICATE Effect
 		// If Replicate is pending (and we aren't just casting Replicate itself)
 		if (currentPlayer.isReplicatePending && playedCard.type != CARD_REPLICATE) {
-			
+
 			// Create a duplicate
 			Card duplicateCard = playedCard;
-			
+
 			// The duplicate ALSO goes into the Grey Area
 			currentPlayer.playedCardsPile.push_back(duplicateCard);
-			
+
 			ofLogNotice("Replicate") << "Replicated " << playedCard.name << ". Copy added to played pile.";
-			
+
 			// Consume the effect
 			currentPlayer.isReplicatePending = false;
 		}
 
 		// 3. Remove from Hand
 		currentPlayer.hand.erase(currentPlayer.hand.begin() + cardIndex);
-		
+
 		// 4. Visuals & Cache
 		activeCardDisplays.push_back({ playedCard, ofGetElapsedTimef() });
 		invalidateTargetCache();
@@ -4356,139 +4617,140 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 	lastCachedCardIndex = cardToCalculate;
 	// --- END CACHING LOGIC ---
 
-	  // Clear old highlights
-    for (int x = 0; x < BOARD_WIDTH; x++) {
-        for (int y = 0; y < BOARD_HEIGHT; y++) {
-            board[x][y].isTargetable = false;
-            targetCache[x][y] = TargetInfo();
-        }
-    }
+	// Clear old highlights
+	for (int x = 0; x < BOARD_WIDTH; x++) {
+		for (int y = 0; y < BOARD_HEIGHT; y++) {
+			board[x][y].isTargetable = false;
+			targetCache[x][y] = TargetInfo();
+		}
+	}
 
-    if (cardToCalculate < 0 || cardToCalculate >= static_cast<int>(currentPlayer.hand.size())) return;
+	if (cardToCalculate < 0 || cardToCalculate >= static_cast<int>(currentPlayer.hand.size())) return;
 
-    Card & card = currentPlayer.hand[cardToCalculate];
-    int px = currentPlayer.x;
-    int py = currentPlayer.y;
+	Card & card = currentPlayer.hand[cardToCalculate];
+	int px = currentPlayer.x;
+	int py = currentPlayer.y;
 
-    // --- 1. SPECIAL LOS LOGIC (Magic Blast / Fireball / Jolt / Heal) ---
-    // Added CARD_HEAL to this condition
-    if (card.type == CARD_MAGIC_BLAST || card.type == CARD_FIREBALL || 
-        card.type == CARD_ETHEREAL_JOLT || card.type == CARD_HEAL) {
-        
-        float maxRange = 0.0f;
-        if (card.type == CARD_MAGIC_BLAST) maxRange = 20.0f;
-        else if (card.type == CARD_FIREBALL) maxRange = 12.0f;
-        else if (card.type == CARD_ETHEREAL_JOLT) maxRange = 20.0f;
-        else if (card.type == CARD_HEAL) {
-    // Heal is unlimited range, but ONLY for self or friendly units.
-    glm::vec2 casterTile = { (float)px, (float)py };
-    for (int x = 0; x < BOARD_WIDTH; x++) {
-        for (int y = 0; y < BOARD_HEIGHT; y++) {
-            // Find the unit on this tile, if any
-            Player* target = nullptr;
-            for (auto& p : players) {
-                if (p.x == x && p.y == y) {
-                    target = &p;
-                    break;
-                }
-            }
+	// --- 1. SPECIAL LOS LOGIC (Magic Blast / Fireball / Jolt / Heal) ---
+	// Added CARD_HEAL to this condition
+	if (card.type == CARD_MAGIC_BLAST || card.type == CARD_FIREBALL || card.type == CARD_ETHEREAL_JOLT || card.type == CARD_HEAL) {
 
-            if (target) {
-                // --- NEW FRIENDLY CHECK ---
-                // Determine owner of caster and target
-                int casterOwner = currentPlayer.isMinion ? currentPlayer.ownerID : currentPlayer.playerID;
-                int targetOwner = target->isMinion ? target->ownerID : target->playerID;
+		float maxRange = 0.0f;
+		if (card.type == CARD_MAGIC_BLAST)
+			maxRange = 20.0f;
+		else if (card.type == CARD_FIREBALL)
+			maxRange = 12.0f;
+		else if (card.type == CARD_ETHEREAL_JOLT)
+			maxRange = 20.0f;
+		else if (card.type == CARD_HEAL) {
+			// Heal is unlimited range, but ONLY for self or friendly units.
+			glm::vec2 casterTile = { (float)px, (float)py };
+			for (int x = 0; x < BOARD_WIDTH; x++) {
+				for (int y = 0; y < BOARD_HEIGHT; y++) {
+					// Find the unit on this tile, if any
+					Player * target = nullptr;
+					for (auto & p : players) {
+						if (p.x == x && p.y == y) {
+							target = &p;
+							break;
+						}
+					}
 
-                if (casterOwner == targetOwner) {
-                    // It's a friendly target, now check Line of Sight
-                    TargetInfo validationResult = isLosTargetValid(casterTile, { (float)x, (float)y }, 1000.0f, card.type);
-                    if (validationResult.reason == VALID) {
-                        board[x][y].isTargetable = true;
-                    }
-                }
-            }
-        }
-    }
-    return; // Exit the function early as we handled this card type completely
-}
+					if (target) {
+						// --- NEW FRIENDLY CHECK ---
+						// Determine owner of caster and target
+						int casterOwner = currentPlayer.isMinion ? currentPlayer.ownerID : currentPlayer.playerID;
+						int targetOwner = target->isMinion ? target->ownerID : target->playerID;
 
-        glm::vec2 casterTile = { (float)px, (float)py };
-        
-        for (int x = 0; x < BOARD_WIDTH; x++) {
-            for (int y = 0; y < BOARD_HEIGHT; y++) {
-                // Determine if target is valid based on LoS and Range
-                targetCache[x][y] = isLosTargetValid(casterTile, { (float)x, (float)y }, maxRange, card.type);
-                
-                if(targetCache[x][y].reason == VALID) {
-                    board[x][y].isTargetable = targetCache[x][y].isTargetable;
-                } else {
-                    board[x][y].isTargetable = false;
-                }
-            }
-        }
-    }
-    // --- 2. DIRECTIONAL LOGIC (Cleave / Pierce) ---
-    else if (card.targeting == TARGET_CLEAVE_ADJACENT) {
-        glm::vec2 directions[4] = { { 0, -1 }, { 0, 1 }, { -1, 0 }, { 1, 0 } };
-        for (const auto & dir : directions) {
-            std::vector<Player *> targets = findCleaveTargets(dir);
-            if (!targets.empty()) {
-                glm::vec2 centerTile = { (float)px + dir.x, (float)py + dir.y };
-                if (centerTile.x >= 0 && centerTile.x < BOARD_WIDTH && centerTile.y >= 0 && centerTile.y < BOARD_HEIGHT) {
-                    board[(int)centerTile.x][(int)centerTile.y].isTargetable = true;
-                }
-            }
-        }
-    } 
-   else if (card.targeting == TARGET_LINEAR_PIERCE) {
-        // 4 Cardinal Directions
-        glm::vec2 directions[4] = { { 0, 1 }, { 0, -1 }, { 1, 0 }, { -1, 0 } };
-        
-        for (const auto & dir : directions) {
-            // Check Spot 1 (Adjacent)
-            int x1 = px + (int)dir.x;
-            int y1 = py + (int)dir.y;
-            
-            bool pos1Blocked = false;
+						if (casterOwner == targetOwner) {
+							// It's a friendly target, now check Line of Sight
+							TargetInfo validationResult = isLosTargetValid(casterTile, { (float)x, (float)y }, 1000.0f, card.type);
+							if (validationResult.reason == VALID) {
+								board[x][y].isTargetable = true;
+							}
+						}
+					}
+				}
+			}
+			return; // Exit the function early as we handled this card type completely
+		}
 
-            if (x1 >= 0 && x1 < BOARD_WIDTH && y1 >= 0 && y1 < BOARD_HEIGHT) {
-                if (board[x1][y1].hasWall) {
-                    pos1Blocked = true; // Wall blocks line
-                } else {
-                    // It's open space or unit. 
-                    // Mark as valid target if it has a player (Red)
-                    // Or if clicked/selected, we can mark it Green to show range
-                    if (board[x1][y1].hasPlayer) {
-                        board[x1][y1].isTargetable = true;
-                    } else if (selectedCardIndex != -1) {
-                         // Optional: Mark empty path as targetable to show range
-                         // board[x1][y1].isTargetable = true; // Uncomment if you want to click empty space to stab
-                    }
-                }
-            }
+		glm::vec2 casterTile = { (float)px, (float)py };
 
-            // Check Spot 2 (2 Squares / 5ft away)
-            // Can only hit Spot 2 if Spot 1 wasn't a wall
-            if (!pos1Blocked) {
-                int x2 = px + (int)dir.x * 2;
-                int y2 = py + (int)dir.y * 2;
-                
-                if (x2 >= 0 && x2 < BOARD_WIDTH && y2 >= 0 && y2 < BOARD_HEIGHT) {
-                    if (!board[x2][y2].hasWall) {
-                        if (board[x2][y2].hasPlayer) {
-                            board[x2][y2].isTargetable = true;
-                        }
-                    }
-                }
-            }
-        }
-    }
+		for (int x = 0; x < BOARD_WIDTH; x++) {
+			for (int y = 0; y < BOARD_HEIGHT; y++) {
+				// Determine if target is valid based on LoS and Range
+				targetCache[x][y] = isLosTargetValid(casterTile, { (float)x, (float)y }, maxRange, card.type);
+
+				if (targetCache[x][y].reason == VALID) {
+					board[x][y].isTargetable = targetCache[x][y].isTargetable;
+				} else {
+					board[x][y].isTargetable = false;
+				}
+			}
+		}
+	}
+	// --- 2. DIRECTIONAL LOGIC (Cleave / Pierce) ---
+	else if (card.targeting == TARGET_CLEAVE_ADJACENT) {
+		glm::vec2 directions[4] = { { 0, -1 }, { 0, 1 }, { -1, 0 }, { 1, 0 } };
+		for (const auto & dir : directions) {
+			std::vector<Player *> targets = findCleaveTargets(dir);
+			if (!targets.empty()) {
+				glm::vec2 centerTile = { (float)px + dir.x, (float)py + dir.y };
+				if (centerTile.x >= 0 && centerTile.x < BOARD_WIDTH && centerTile.y >= 0 && centerTile.y < BOARD_HEIGHT) {
+					board[(int)centerTile.x][(int)centerTile.y].isTargetable = true;
+				}
+			}
+		}
+	} else if (card.targeting == TARGET_LINEAR_PIERCE) {
+		// 4 Cardinal Directions
+		glm::vec2 directions[4] = { { 0, 1 }, { 0, -1 }, { 1, 0 }, { -1, 0 } };
+
+		for (const auto & dir : directions) {
+			// Check Spot 1 (Adjacent)
+			int x1 = px + (int)dir.x;
+			int y1 = py + (int)dir.y;
+
+			bool pos1Blocked = false;
+
+			if (x1 >= 0 && x1 < BOARD_WIDTH && y1 >= 0 && y1 < BOARD_HEIGHT) {
+				if (board[x1][y1].hasWall) {
+					pos1Blocked = true; // Wall blocks line
+				} else {
+					// It's open space or unit.
+					// Mark as valid target if it has a player (Red)
+					// Or if clicked/selected, we can mark it Green to show range
+					if (board[x1][y1].hasPlayer) {
+						board[x1][y1].isTargetable = true;
+					} else if (selectedCardIndex != -1) {
+						// Optional: Mark empty path as targetable to show range
+						// board[x1][y1].isTargetable = true; // Uncomment if you want to click empty space to stab
+					}
+				}
+			}
+
+			// Check Spot 2 (2 Squares / 5ft away)
+			// Can only hit Spot 2 if Spot 1 wasn't a wall
+			if (!pos1Blocked) {
+				int x2 = px + (int)dir.x * 2;
+				int y2 = py + (int)dir.y * 2;
+
+				if (x2 >= 0 && x2 < BOARD_WIDTH && y2 >= 0 && y2 < BOARD_HEIGHT) {
+					if (!board[x2][y2].hasWall) {
+						if (board[x2][y2].hasPlayer) {
+							board[x2][y2].isTargetable = true;
+						}
+					}
+				}
+			}
+		}
+	}
 	// --- SPECIAL LOGIC: TELEPORT ---
 	else if (card.type == CARD_TELEPORT) {
 		// Max range of 3d6 is 18.
 		// We use Edge-to-Edge distance:
 		// Adjacent = 0ft, 1 Gap = 5ft, 2 Gaps = 10ft, 3 Gaps = 15ft.
-		
+
 		for (int x = 0; x < BOARD_WIDTH; x++) {
 			for (int y = 0; y < BOARD_HEIGHT; y++) {
 				if (x == px && y == py) continue; // Can't teleport to self
@@ -4508,68 +4770,68 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 			}
 		}
 	}
-    // --- 3. GENERAL TILE LOGIC (Everything else including Rock Crush) ---
-    else {
-        for (int x = 0; x < BOARD_WIDTH; x++) {
-            for (int y = 0; y < BOARD_HEIGHT; y++) {
-                bool isValid = false;
-                
-                switch (card.targeting) {
-                case TARGET_ANY_TILE:
-                    isValid = !board[x][y].hasWall;
-                    break;
-                case TARGET_EMPTY_TILE:
-                    isValid = !board[x][y].hasWall && !board[x][y].hasPlayer;
-                    break;
-                case TARGET_WALL:
-                    isValid = board[x][y].hasWall;
-                    break;
-                case TARGET_ADJACENT_UNIT: {
-                    bool hasUnit = board[x][y].hasPlayer;
-                    int distance = abs(x - px) + abs(y - py);
-                    isValid = hasUnit && (distance == 1);
-                    break;
-                }
-                case TARGET_ADJACENT_OR_SELF_UNIT: {
-                    bool hasUnit = board[x][y].hasPlayer;
-                    int distance = abs(x - px) + abs(y - py);
-                    isValid = hasUnit && (distance <= 1);
-                    break;
-                }
-                // --- Rock Crush ---
-                 case TARGET_ADJACENT_UNIT_OR_WALL: {
-        int distance = abs(x - px) + abs(y - py);
-        if (distance == 1) {
-            if (board[x][y].hasWall || board[x][y].hasPlayer) {
-                isValid = true;
-            }
-        }
-        break;
-    }
+	// --- 3. GENERAL TILE LOGIC (Everything else including Rock Crush) ---
+	else {
+		for (int x = 0; x < BOARD_WIDTH; x++) {
+			for (int y = 0; y < BOARD_HEIGHT; y++) {
+				bool isValid = false;
 
-    // --- PASTE HERE ---
-    case TARGET_EMPTY_ADJACENT: {
-        int dist = abs(x - px) + abs(y - py);
-        if (dist == 1 && !board[x][y].hasWall && !board[x][y].hasPlayer) {
-            isValid = true;
-        }
-        break;
-    }
-    // ------------------
+				switch (card.targeting) {
+				case TARGET_ANY_TILE:
+					isValid = !board[x][y].hasWall;
+					break;
+				case TARGET_EMPTY_TILE:
+					isValid = !board[x][y].hasWall && !board[x][y].hasPlayer;
+					break;
+				case TARGET_WALL:
+					isValid = board[x][y].hasWall;
+					break;
+				case TARGET_ADJACENT_UNIT: {
+					bool hasUnit = board[x][y].hasPlayer;
+					int distance = abs(x - px) + abs(y - py);
+					isValid = hasUnit && (distance == 1);
+					break;
+				}
+				case TARGET_ADJACENT_OR_SELF_UNIT: {
+					bool hasUnit = board[x][y].hasPlayer;
+					int distance = abs(x - px) + abs(y - py);
+					isValid = hasUnit && (distance <= 1);
+					break;
+				}
+					// --- Rock Crush ---
+				case TARGET_ADJACENT_UNIT_OR_WALL: {
+					int distance = abs(x - px) + abs(y - py);
+					if (distance == 1) {
+						if (board[x][y].hasWall || board[x][y].hasPlayer) {
+							isValid = true;
+						}
+					}
+					break;
+				}
 
-    case TARGET_SELF:
-        isValid = false; 
-        break;
-    default:
-        break;
-}
+				// --- PASTE HERE ---
+				case TARGET_EMPTY_ADJACENT: {
+					int dist = abs(x - px) + abs(y - py);
+					if (dist == 1 && !board[x][y].hasWall && !board[x][y].hasPlayer) {
+						isValid = true;
+					}
+					break;
+				}
+					// ------------------
 
-                if (isValid) {
-                    board[x][y].isTargetable = true;
-                }
-            }
-        }
-    }
+				case TARGET_SELF:
+					isValid = false;
+					break;
+				default:
+					break;
+				}
+
+				if (isValid) {
+					board[x][y].isTargetable = true;
+				}
+			}
+		}
+	}
 }
 //--------------------------------------------------------------
 void ofApp::invalidateTargetCache() {
@@ -4672,7 +4934,7 @@ void ofApp::calculateHighlights() {
 glm::quat ofApp::matchFaceToCamera(glm::vec3 faceNormal) {
 	// The target direction is UP (0, 1, 0)
 	glm::vec3 target(0, 1, 0);
-	
+
 	// Normalize just in case
 	faceNormal = glm::normalize(faceNormal);
 
@@ -4704,7 +4966,7 @@ int ofApp::startDiceRoll(int numDice, int sides, DicePurpose purpose) {
 		// SAFE AXIS GENERATION
 		std::uniform_real_distribution<float> axisDist(-1.0f, 1.0f);
 		glm::vec3 rndAxis(axisDist(rng), axisDist(rng), axisDist(rng));
-		if (glm::length(rndAxis) < 0.01f) rndAxis = glm::vec3(0, 1, 0); 
+		if (glm::length(rndAxis) < 0.01f) rndAxis = glm::vec3(0, 1, 0);
 		newRoll.rotationAxis = glm::normalize(rndAxis);
 
 		// RANDOM GENERATORS
@@ -4714,43 +4976,43 @@ int ofApp::startDiceRoll(int numDice, int sides, DicePurpose purpose) {
 		// --- 1. COIN FLIP (SIDES == 2) ---
 		if (sides == 2) {
 			glm::quat faceRotation;
-			
+
 			// Helpers
 			glm::quat flip180X = glm::angleAxis(glm::radians(180.0f), glm::vec3(1, 0, 0)); // Flip to Bottom
-			glm::quat rot180Y = glm::angleAxis(glm::radians(180.0f), glm::vec3(0, 1, 0));  // Spin 180
+			glm::quat rot180Y = glm::angleAxis(glm::radians(180.0f), glm::vec3(0, 1, 0)); // Spin 180
 
 			if (newRoll.result == 1) { // TAILS
 
-				faceRotation = glm::quat(1, 0, 0, 0); 
+				faceRotation = glm::quat(1, 0, 0, 0);
 			} else { // HEADS
 
 				faceRotation = flip180X * rot180Y;
 			}
-			
+
 			glm::quat randomYaw = glm::angleAxis(glm::radians(ofRandom(-15, 15)), glm::vec3(0, 1, 0));
 			newRoll.finalQuat = randomYaw * faceRotation;
 		}
-		
+
 		// --- 2. D4 LOGIC ---
 		else if (sides == 4) {
 			glm::vec3 faceVec;
-			float correctionDeg = 0.0f; 
+			float correctionDeg = 0.0f;
 
 			switch (newRoll.result) {
-			case 1: 
-				faceVec = glm::vec3(0, 1, 0); 
+			case 1:
+				faceVec = glm::vec3(0, 1, 0);
 				correctionDeg = 0.0f;
 				break;
-			case 2: 
-				faceVec = glm::vec3(-0.471f, -0.333f, -0.816f); 
+			case 2:
+				faceVec = glm::vec3(-0.471f, -0.333f, -0.816f);
 				correctionDeg = 180.0f;
 				break;
-			case 3: 
-				faceVec = glm::vec3(-0.471f, -0.333f, 0.816f); 
+			case 3:
+				faceVec = glm::vec3(-0.471f, -0.333f, 0.816f);
 				correctionDeg = 0.0f;
 				break;
-			case 4: 
-				faceVec = glm::vec3(0.943f, -0.333f, 0.0f); 
+			case 4:
+				faceVec = glm::vec3(0.943f, -0.333f, 0.0f);
 				correctionDeg = 180.0f;
 				break;
 			}
@@ -4764,32 +5026,66 @@ int ofApp::startDiceRoll(int numDice, int sides, DicePurpose purpose) {
 		else if (sides == 6) {
 			glm::quat faceRotation;
 			switch (newRoll.result) {
-			case 1: faceRotation = glm::angleAxis(glm::radians(-90.0f), glm::vec3(1, 0, 0)); break;
-			case 6: faceRotation = glm::angleAxis(glm::radians(90.0f), glm::vec3(1, 0, 0)); break;
-			case 2: faceRotation = glm::quat(1, 0, 0, 0); break;
-			case 5: faceRotation = glm::angleAxis(glm::radians(180.0f), glm::vec3(1, 0, 0)); break;
-			case 3: faceRotation = glm::angleAxis(glm::radians(90.0f), glm::vec3(0, 0, 1)); break;
-			case 4: faceRotation = glm::angleAxis(glm::radians(-90.0f), glm::vec3(0, 0, 1)); break;
+			case 1:
+				faceRotation = glm::angleAxis(glm::radians(-90.0f), glm::vec3(1, 0, 0));
+				break;
+			case 6:
+				faceRotation = glm::angleAxis(glm::radians(90.0f), glm::vec3(1, 0, 0));
+				break;
+			case 2:
+				faceRotation = glm::quat(1, 0, 0, 0);
+				break;
+			case 5:
+				faceRotation = glm::angleAxis(glm::radians(180.0f), glm::vec3(1, 0, 0));
+				break;
+			case 3:
+				faceRotation = glm::angleAxis(glm::radians(90.0f), glm::vec3(0, 0, 1));
+				break;
+			case 4:
+				faceRotation = glm::angleAxis(glm::radians(-90.0f), glm::vec3(0, 0, 1));
+				break;
 			}
 			glm::quat randomYaw = glm::angleAxis(glm::radians(spinDist(rng)), glm::vec3(0, 1, 0));
 			newRoll.finalQuat = randomYaw * faceRotation;
 		}
 		// --- 4. D10 LOGIC ---
 		else if (sides == 10) {
-			int n = newRoll.result; 
+			int n = newRoll.result;
 			glm::vec3 faceVec;
 			switch (n) {
-				case 2: faceVec = glm::vec3(cos(glm::radians(0.0f)),   1.0f, sin(glm::radians(0.0f))); break;
-				case 4: faceVec = glm::vec3(cos(glm::radians(72.0f)),  1.0f, sin(glm::radians(72.0f))); break;
-				case 6: faceVec = glm::vec3(cos(glm::radians(144.0f)), 1.0f, sin(glm::radians(144.0f))); break;
-				case 8: faceVec = glm::vec3(cos(glm::radians(216.0f)), 1.0f, sin(glm::radians(216.0f))); break;
-				case 10: faceVec = glm::vec3(cos(glm::radians(288.0f)), 1.0f, sin(glm::radians(288.0f))); break; 
-				case 1: faceVec = glm::vec3(cos(glm::radians(36.0f)),  -1.0f, sin(glm::radians(36.0f))); break;
-				case 3: faceVec = glm::vec3(cos(glm::radians(108.0f)), -1.0f, sin(glm::radians(108.0f))); break;
-				case 5: faceVec = glm::vec3(cos(glm::radians(180.0f)), -1.0f, sin(glm::radians(180.0f))); break;
-				case 7: faceVec = glm::vec3(cos(glm::radians(252.0f)), -1.0f, sin(glm::radians(252.0f))); break;
-				case 9: faceVec = glm::vec3(cos(glm::radians(324.0f)), -1.0f, sin(glm::radians(324.0f))); break;
-				default: faceVec = glm::vec3(0, 1, 0); break;
+			case 2:
+				faceVec = glm::vec3(cos(glm::radians(0.0f)), 1.0f, sin(glm::radians(0.0f)));
+				break;
+			case 4:
+				faceVec = glm::vec3(cos(glm::radians(72.0f)), 1.0f, sin(glm::radians(72.0f)));
+				break;
+			case 6:
+				faceVec = glm::vec3(cos(glm::radians(144.0f)), 1.0f, sin(glm::radians(144.0f)));
+				break;
+			case 8:
+				faceVec = glm::vec3(cos(glm::radians(216.0f)), 1.0f, sin(glm::radians(216.0f)));
+				break;
+			case 10:
+				faceVec = glm::vec3(cos(glm::radians(288.0f)), 1.0f, sin(glm::radians(288.0f)));
+				break;
+			case 1:
+				faceVec = glm::vec3(cos(glm::radians(36.0f)), -1.0f, sin(glm::radians(36.0f)));
+				break;
+			case 3:
+				faceVec = glm::vec3(cos(glm::radians(108.0f)), -1.0f, sin(glm::radians(108.0f)));
+				break;
+			case 5:
+				faceVec = glm::vec3(cos(glm::radians(180.0f)), -1.0f, sin(glm::radians(180.0f)));
+				break;
+			case 7:
+				faceVec = glm::vec3(cos(glm::radians(252.0f)), -1.0f, sin(glm::radians(252.0f)));
+				break;
+			case 9:
+				faceVec = glm::vec3(cos(glm::radians(324.0f)), -1.0f, sin(glm::radians(324.0f)));
+				break;
+			default:
+				faceVec = glm::vec3(0, 1, 0);
+				break;
 			}
 			glm::quat align = matchFaceToCamera(faceVec);
 			glm::quat randomYaw = glm::angleAxis(glm::radians(stableDist(rng)), glm::vec3(0, 1, 0));
@@ -4799,28 +5095,70 @@ int ofApp::startDiceRoll(int numDice, int sides, DicePurpose purpose) {
 		else if (sides == 20) {
 			int n = newRoll.result;
 			glm::vec3 v;
-			switch(n) {
-				case 20: v = glm::vec3(0, 1, 0); break; 
-				case 1:  v = glm::vec3(0, -1, 0); break; 
-				case 2:  v = glm::vec3(0.894, 0.447, 0.0); break;
-				case 8:  v = glm::vec3(0.276, 0.447, 0.851); break;
-				case 14: v = glm::vec3(-0.724, 0.447, 0.526); break;
-				case 12: v = glm::vec3(-0.724, 0.447, -0.526); break;
-				case 18: v = glm::vec3(0.276, 0.447, -0.851); break;
-				case 4:  v = glm::vec3(0.724, 0.1, 0.526); break;
-				case 6:  v = glm::vec3(-0.276, 0.1, 0.851); break;
-				case 10: v = glm::vec3(-0.894, 0.1, 0.0); break;
-				case 16: v = glm::vec3(-0.276, 0.1, -0.851); break;
-				case 19: v = glm::vec3(0.724, 0.1, -0.526); break;
-				case 17: v = glm::vec3(0.724, -0.1, 0.526); break;
-				case 15: v = glm::vec3(-0.276, -0.1, 0.851); break;
-				case 11: v = glm::vec3(-0.894, -0.1, 0.0); break;
-				case 5:  v = glm::vec3(-0.276, -0.1, -0.851); break;
-				case 3:  v = glm::vec3(0.724, -0.1, -0.526); break;
-				case 13: v = glm::vec3(0.276, -0.447, 0.851); break;
-				case 9:  v = glm::vec3(-0.724, -0.447, 0.526); break;
-				case 7:  v = glm::vec3(-0.724, -0.447, -0.526); break;
-				default: v = glm::vec3(0.894, -0.447, 0.0); break; 
+			switch (n) {
+			case 20:
+				v = glm::vec3(0, 1, 0);
+				break;
+			case 1:
+				v = glm::vec3(0, -1, 0);
+				break;
+			case 2:
+				v = glm::vec3(0.894, 0.447, 0.0);
+				break;
+			case 8:
+				v = glm::vec3(0.276, 0.447, 0.851);
+				break;
+			case 14:
+				v = glm::vec3(-0.724, 0.447, 0.526);
+				break;
+			case 12:
+				v = glm::vec3(-0.724, 0.447, -0.526);
+				break;
+			case 18:
+				v = glm::vec3(0.276, 0.447, -0.851);
+				break;
+			case 4:
+				v = glm::vec3(0.724, 0.1, 0.526);
+				break;
+			case 6:
+				v = glm::vec3(-0.276, 0.1, 0.851);
+				break;
+			case 10:
+				v = glm::vec3(-0.894, 0.1, 0.0);
+				break;
+			case 16:
+				v = glm::vec3(-0.276, 0.1, -0.851);
+				break;
+			case 19:
+				v = glm::vec3(0.724, 0.1, -0.526);
+				break;
+			case 17:
+				v = glm::vec3(0.724, -0.1, 0.526);
+				break;
+			case 15:
+				v = glm::vec3(-0.276, -0.1, 0.851);
+				break;
+			case 11:
+				v = glm::vec3(-0.894, -0.1, 0.0);
+				break;
+			case 5:
+				v = glm::vec3(-0.276, -0.1, -0.851);
+				break;
+			case 3:
+				v = glm::vec3(0.724, -0.1, -0.526);
+				break;
+			case 13:
+				v = glm::vec3(0.276, -0.447, 0.851);
+				break;
+			case 9:
+				v = glm::vec3(-0.724, -0.447, 0.526);
+				break;
+			case 7:
+				v = glm::vec3(-0.724, -0.447, -0.526);
+				break;
+			default:
+				v = glm::vec3(0.894, -0.447, 0.0);
+				break;
 			}
 			glm::quat align = matchFaceToCamera(v);
 			glm::quat randomYaw = glm::angleAxis(glm::radians(stableDist(rng)), glm::vec3(0, 1, 0));
@@ -4831,7 +5169,7 @@ int ofApp::startDiceRoll(int numDice, int sides, DicePurpose purpose) {
 	}
 	return totalRollResult;
 }
-		//--------------------------------------------------------------
+//--------------------------------------------------------------
 std::vector<Player *> ofApp::findCleaveTargets(glm::vec2 direction) {
 	std::vector<Player *> hittablePlayers;
 	if (players.empty() || currentPlayerIndex < 0) return hittablePlayers;
@@ -4917,196 +5255,196 @@ std::vector<Player *> ofApp::findCleaveTargets(glm::vec2 direction) {
 }
 //--------------------------------------------------------------
 void ofApp::cancelDispel() {
-    isDispelMenuOpen = false;
-    isDispelTargeting = false;
-    isDispelStatusSelectOpen = false;
-    pendingDispelCardIndex = -1;
-    pendingDispelTargetIndex = -1;
-    ofLogNotice("Dispel") << "Cancelled.";
+	isDispelMenuOpen = false;
+	isDispelTargeting = false;
+	isDispelStatusSelectOpen = false;
+	pendingDispelCardIndex = -1;
+	pendingDispelTargetIndex = -1;
+	ofLogNotice("Dispel") << "Cancelled.";
 }
 
 //--------------------------------------------------------------
 void ofApp::drawDispelUI() {
-    ofEnableBlendMode(OF_BLENDMODE_ALPHA);
-    
-    // --- PHASE 1: INITIAL CHOICE ---
-    if (isDispelMenuOpen) {
-        // Dark Overlay
-        ofSetColor(0, 0, 0, 180);
-        ofDrawRectangle(0, 0, ofGetWidth(), ofGetHeight());
+	ofEnableBlendMode(OF_BLENDMODE_ALPHA);
 
-        // Menu Background
-        ofSetColor(30, 30, 60, 255);
-        ofDrawRectRounded(dispelMenuRect, 15);
+	// --- PHASE 1: INITIAL CHOICE ---
+	if (isDispelMenuOpen) {
+		// Dark Overlay
+		ofSetColor(0, 0, 0, 180);
+		ofDrawRectangle(0, 0, ofGetWidth(), ofGetHeight());
 
-        // Text
-        ofSetColor(ofColor::white);
-        string title = "Choose Dispel Effect";
-        ofRectangle titleBox = uiFont.getStringBoundingBox(title, 0, 0);
-        uiFont.drawString(title, dispelMenuRect.getCenter().x - titleBox.width/2, dispelMenuRect.y + 60);
+		// Menu Background
+		ofSetColor(30, 30, 60, 255);
+		ofDrawRectRounded(dispelMenuRect, 15);
 
-        // Barrier Button
-        ofSetColor(ofColor::hotPink);
-        ofDrawRectRounded(dispelBtnBarrier, 10);
-        ofSetColor(ofColor::black);
-        
-        // CHANGED: Renamed to Non-Physical Barrier
-        string bText = "Gain Non-Phys Barrier\n(1d20 vs Magic/Fire/etc)";
-        
-        // Simple centering logic...
-        uiFont.drawString("Non-Phys Barrier", dispelBtnBarrier.x + 20, dispelBtnBarrier.y + 40);
-        
-        // Purge Button
-        ofSetColor(ofColor::cyan);
-        ofDrawRectRounded(dispelBtnPurge, 10);
-        ofSetColor(ofColor::black);
-        uiFont.drawString("Remove Status", dispelBtnPurge.x + 20, dispelBtnPurge.y + 40);
-    }
+		// Text
+		ofSetColor(ofColor::white);
+		string title = "Choose Dispel Effect";
+		ofRectangle titleBox = uiFont.getStringBoundingBox(title, 0, 0);
+		uiFont.drawString(title, dispelMenuRect.getCenter().x - titleBox.width / 2, dispelMenuRect.y + 60);
 
-    // --- PHASE 2: TARGETING ---
-    if (isDispelTargeting) {
-        // Just a text prompt at top of screen
-        ofSetColor(0, 0, 0, 200);
-        ofDrawRectRounded(ofGetWidth()/2 - 300, 50, 600, 60, 10);
-        ofSetColor(ofColor::white);
-        string text = "Select Self or Adjacent Unit to Cure";
-        uiFont.drawString(text, ofGetWidth()/2 - 200, 90);
-    }
+		// Barrier Button
+		ofSetColor(ofColor::hotPink);
+		ofDrawRectRounded(dispelBtnBarrier, 10);
+		ofSetColor(ofColor::black);
 
-    // --- PHASE 3: STATUS SELECTION ---
-    if (isDispelStatusSelectOpen) {
-        ofSetColor(0, 0, 0, 180);
-        ofDrawRectangle(0, 0, ofGetWidth(), ofGetHeight());
+		// CHANGED: Renamed to Non-Physical Barrier
+		string bText = "Gain Non-Phys Barrier\n(1d20 vs Magic/Fire/etc)";
 
-        ofSetColor(30, 30, 60, 255);
-        ofDrawRectRounded(statusSelectMenuRect, 15);
+		// Simple centering logic...
+		uiFont.drawString("Non-Phys Barrier", dispelBtnBarrier.x + 20, dispelBtnBarrier.y + 40);
 
-        ofSetColor(ofColor::white);
-        uiFont.drawString("Which status to remove?", statusSelectMenuRect.x + 20, statusSelectMenuRect.y + 40);
+		// Purge Button
+		ofSetColor(ofColor::cyan);
+		ofDrawRectRounded(dispelBtnPurge, 10);
+		ofSetColor(ofColor::black);
+		uiFont.drawString("Remove Status", dispelBtnPurge.x + 20, dispelBtnPurge.y + 40);
+	}
 
-        for (size_t i = 0; i < statusSelectButtons.size(); i++) {
-            ofSetColor(ofColor::orange);
-            ofDrawRectRounded(statusSelectButtons[i], 8);
-            ofSetColor(ofColor::black);
-            uiFont.drawString(statusSelectLabels[i], statusSelectButtons[i].x + 10, statusSelectButtons[i].y + 30);
-        }
-    }
+	// --- PHASE 2: TARGETING ---
+	if (isDispelTargeting) {
+		// Just a text prompt at top of screen
+		ofSetColor(0, 0, 0, 200);
+		ofDrawRectRounded(ofGetWidth() / 2 - 300, 50, 600, 60, 10);
+		ofSetColor(ofColor::white);
+		string text = "Select Self or Adjacent Unit to Cure";
+		uiFont.drawString(text, ofGetWidth() / 2 - 200, 90);
+	}
+
+	// --- PHASE 3: STATUS SELECTION ---
+	if (isDispelStatusSelectOpen) {
+		ofSetColor(0, 0, 0, 180);
+		ofDrawRectangle(0, 0, ofGetWidth(), ofGetHeight());
+
+		ofSetColor(30, 30, 60, 255);
+		ofDrawRectRounded(statusSelectMenuRect, 15);
+
+		ofSetColor(ofColor::white);
+		uiFont.drawString("Which status to remove?", statusSelectMenuRect.x + 20, statusSelectMenuRect.y + 40);
+
+		for (size_t i = 0; i < statusSelectButtons.size(); i++) {
+			ofSetColor(ofColor::orange);
+			ofDrawRectRounded(statusSelectButtons[i], 8);
+			ofSetColor(ofColor::black);
+			uiFont.drawString(statusSelectLabels[i], statusSelectButtons[i].x + 10, statusSelectButtons[i].y + 30);
+		}
+	}
 }
 
 //--------------------------------------------------------------
-void ofApp::determineStatusOptions(Player* target) {
-    statusSelectLabels.clear();
-    statusSelectButtons.clear();
+void ofApp::determineStatusOptions(Player * target) {
+	statusSelectLabels.clear();
+	statusSelectButtons.clear();
 
-    if (target->onFire) statusSelectLabels.push_back("Fire");
-    if (target->isParalyzed) statusSelectLabels.push_back("Paralysis");
-    // Add future statuses here
+	if (target->onFire) statusSelectLabels.push_back("Fire");
+	if (target->isParalyzed) statusSelectLabels.push_back("Paralysis");
+	// Add future statuses here
 
-    if (statusSelectLabels.empty()) {
-        ofSystemAlertDialog("Target has no status effects!");
-        cancelDispel();
-        return;
-    }
+	if (statusSelectLabels.empty()) {
+		ofSystemAlertDialog("Target has no status effects!");
+		cancelDispel();
+		return;
+	}
 
-    // If only one, apply immediately
-    if (statusSelectLabels.size() == 1) {
-        applyDispelEffect(0);
-        return;
-    }
+	// If only one, apply immediately
+	if (statusSelectLabels.size() == 1) {
+		applyDispelEffect(0);
+		return;
+	}
 
-    // Otherwise, build menu
-    float w = 400;
-    float h = 60 + (statusSelectLabels.size() * 60);
-    float x = ofGetWidth()/2 - w/2;
-    float y = ofGetHeight()/2 - h/2;
-    statusSelectMenuRect.set(x, y, w, h);
+	// Otherwise, build menu
+	float w = 400;
+	float h = 60 + (statusSelectLabels.size() * 60);
+	float x = ofGetWidth() / 2 - w / 2;
+	float y = ofGetHeight() / 2 - h / 2;
+	statusSelectMenuRect.set(x, y, w, h);
 
-    for (size_t i = 0; i < statusSelectLabels.size(); i++) {
-        statusSelectButtons.push_back(ofRectangle(x + 20, y + 60 + (i*60), w - 40, 50));
-    }
-    
-    isDispelTargeting = false;
-    isDispelStatusSelectOpen = true;
+	for (size_t i = 0; i < statusSelectLabels.size(); i++) {
+		statusSelectButtons.push_back(ofRectangle(x + 20, y + 60 + (i * 60), w - 40, 50));
+	}
+
+	isDispelTargeting = false;
+	isDispelStatusSelectOpen = true;
 }
 
 //--------------------------------------------------------------
 void ofApp::applyDispelEffect(int statusIndex) {
-    Player* target = getPlayer(pendingDispelTargetIndex);
-    if (!target) return;
+	Player * target = getPlayer(pendingDispelTargetIndex);
+	if (!target) return;
 
-    string statusToRemove = statusSelectLabels[statusIndex];
-    if (statusToRemove == "Fire") target->onFire = false;
-    if (statusToRemove == "Paralysis") {
-        target->isParalyzed = false;
-        target->paralysisHeadsCount = 0;
-    }
+	string statusToRemove = statusSelectLabels[statusIndex];
+	if (statusToRemove == "Fire") target->onFire = false;
+	if (statusToRemove == "Paralysis") {
+		target->isParalyzed = false;
+		target->paralysisHeadsCount = 0;
+	}
 
-    ofLogNotice("Dispel") << "Removed " << statusToRemove;
+	ofLogNotice("Dispel") << "Removed " << statusToRemove;
 
-    // FINALIZATION: Deduct AP and Card
-    if (pendingDispelCardIndex != -1) {
-        Player & p = players[currentPlayerIndex];
-        currentAP -= p.hand[pendingDispelCardIndex].cost;
-        p.discardPile.push_back(p.hand[pendingDispelCardIndex]);
-        p.hand.erase(p.hand.begin() + pendingDispelCardIndex);
-        calculateTargetHighlights(); // refresh UI
-    }
+	// FINALIZATION: Deduct AP and Card
+	if (pendingDispelCardIndex != -1) {
+		Player & p = players[currentPlayerIndex];
+		currentAP -= p.hand[pendingDispelCardIndex].cost;
+		p.discardPile.push_back(p.hand[pendingDispelCardIndex]);
+		p.hand.erase(p.hand.begin() + pendingDispelCardIndex);
+		calculateTargetHighlights(); // refresh UI
+	}
 
-    cancelDispel(); // Close menus
+	cancelDispel(); // Close menus
 }
 // ----------------- WISDOM BOON HELPERS -----------------
 
 void ofApp::cancelWisdomBoon() {
-    isWisdomBoonMenuOpen = false;
-    pendingWisdomBoonCardIndex = -1;
-    pendingWisdomBoonTargetIndex = -1;
-    ofLogNotice("WisdomBoon") << "Cancelled.";
+	isWisdomBoonMenuOpen = false;
+	pendingWisdomBoonCardIndex = -1;
+	pendingWisdomBoonTargetIndex = -1;
+	ofLogNotice("WisdomBoon") << "Cancelled.";
 }
 //--------------------------------------------------------------
 void ofApp::drawWisdomBoonUI() {
-    ofEnableBlendMode(OF_BLENDMODE_ALPHA);
-    
-    // 1. Dark Overlay
-    ofSetColor(0, 0, 0, 180);
-    ofDrawRectangle(0, 0, ofGetWidth(), ofGetHeight());
+	ofEnableBlendMode(OF_BLENDMODE_ALPHA);
 
-    // 2. Menu Background
-    ofSetColor(40, 40, 80, 255);
-    ofDrawRectRounded(wisdomMenuRect, 15);
+	// 1. Dark Overlay
+	ofSetColor(0, 0, 0, 180);
+	ofDrawRectangle(0, 0, ofGetWidth(), ofGetHeight());
 
-    // 3. Determine Context
-    bool isSelfTarget = (pendingWisdomBoonTargetIndex == currentPlayerIndex);
-    int deckSize = 0;
-    if (currentPlayerIndex >= 0) deckSize = players[currentPlayerIndex].deck.size();
+	// 2. Menu Background
+	ofSetColor(40, 40, 80, 255);
+	ofDrawRectRounded(wisdomMenuRect, 15);
 
-    // 4. Title & Description
-    ofSetColor(ofColor::white);
-    string title = "Wisdom Boon";
-    string desc = "Effect Strength: " + ofToString(deckSize) + " (Your Deck Size)";
-    
-    ofRectangle titleBox = uiFont.getStringBoundingBox(title, 0, 0);
-    uiFont.drawString(title, wisdomMenuRect.getCenter().x - titleBox.width/2, wisdomMenuRect.y + 50);
-    
-    ofRectangle descBox = uiFont.getStringBoundingBox(desc, 0, 0);
-    uiFont.drawString(desc, wisdomMenuRect.getCenter().x - descBox.width/2, wisdomMenuRect.y + 90);
+	// 3. Determine Context
+	bool isSelfTarget = (pendingWisdomBoonTargetIndex == currentPlayerIndex);
+	int deckSize = 0;
+	if (currentPlayerIndex >= 0) deckSize = players[currentPlayerIndex].deck.size();
 
-    // 5. Draw Context-Sensitive Button
-    string btnText = "";
-    if (isSelfTarget) {
-        // BLOCK MODE
-        ofSetColor(ofColor::slateGray); // Grey for Block
-        btnText = "Gain Block";
-    } else {
-        // DAMAGE MODE
-        ofSetColor(ofColor::purple); // Purple for Magic
-        btnText = "Deal Magic Dmg";
-    }
+	// 4. Title & Description
+	ofSetColor(ofColor::white);
+	string title = "Wisdom Boon";
+	string desc = "Effect Strength: " + ofToString(deckSize) + " (Your Deck Size)";
 
-    ofDrawRectRounded(wisdomBtnDamage, 10);
-    
-    ofSetColor(ofColor::white);
-    ofRectangle btnBox = uiFont.getStringBoundingBox(btnText, 0, 0);
-    uiFont.drawString(btnText, wisdomBtnDamage.getCenter().x - btnBox.width/2, wisdomBtnDamage.getCenter().y + btnBox.height/2);
+	ofRectangle titleBox = uiFont.getStringBoundingBox(title, 0, 0);
+	uiFont.drawString(title, wisdomMenuRect.getCenter().x - titleBox.width / 2, wisdomMenuRect.y + 50);
+
+	ofRectangle descBox = uiFont.getStringBoundingBox(desc, 0, 0);
+	uiFont.drawString(desc, wisdomMenuRect.getCenter().x - descBox.width / 2, wisdomMenuRect.y + 90);
+
+	// 5. Draw Context-Sensitive Button
+	string btnText = "";
+	if (isSelfTarget) {
+		// BLOCK MODE
+		ofSetColor(ofColor::slateGray); // Grey for Block
+		btnText = "Gain Block";
+	} else {
+		// DAMAGE MODE
+		ofSetColor(ofColor::purple); // Purple for Magic
+		btnText = "Deal Magic Dmg";
+	}
+
+	ofDrawRectRounded(wisdomBtnDamage, 10);
+
+	ofSetColor(ofColor::white);
+	ofRectangle btnBox = uiFont.getStringBoundingBox(btnText, 0, 0);
+	uiFont.drawString(btnText, wisdomBtnDamage.getCenter().x - btnBox.width / 2, wisdomBtnDamage.getCenter().y + btnBox.height / 2);
 }
 //--------------------------------------------------------------
 void ofApp::drawMagicBlastChoiceUI() {
@@ -5190,7 +5528,7 @@ bool ofApp::checkRayPhysics(glm::vec2 rayStart, glm::vec2 rayEnd) {
 			glm::vec2 wallCenter = current + 0.5f;
 			glm::vec2 closest = getClosestPointOnLineSegment(wallCenter, rayStart, rayEnd);
 			float dist = glm::distance(closest, wallCenter);
-			
+
 			// If the ray passes inside the circle (radius 0.5), it hits.
 			// 0.499f allows shooting exactly along the edge.
 			if (dist < 0.499f) return false;
@@ -5206,14 +5544,13 @@ bool ofApp::checkRayPhysics(glm::vec2 rayStart, glm::vec2 rayEnd) {
 				// Only block if BOTH corners are solid walls.
 				// (Squeezing between a Unit and a Wall is technically allowed by this logic,
 				// but Squeezing between two Walls is impossible).
-				if (isTileWall((int)current.x, (int)next.y) && 
-					isTileWall((int)next.x, (int)current.y)) {
-					return false; 
+				if (isTileWall((int)current.x, (int)next.y) && isTileWall((int)next.x, (int)current.y)) {
+					return false;
 				}
 
 				// Diagonal Gap Check (Choke Points)
-				glm::vec2 neighbors[] = { {current.x, next.y}, {next.x, current.y} };
-				for (auto& n : neighbors) {
+				glm::vec2 neighbors[] = { { current.x, next.y }, { next.x, current.y } };
+				for (auto & n : neighbors) {
 					if (isTileWall((int)n.x, (int)n.y)) continue;
 					if (n == glm::floor(rayStart) || n == glm::floor(rayEnd)) continue;
 
@@ -5249,9 +5586,15 @@ TargetInfo ofApp::isLosTargetValid(glm::vec2 casterTile, glm::vec2 targetTile, f
 	TargetInfo result;
 
 	// --- RULE 0: Basic Checks ---
-	if (targetTile == casterTile) { result.reason = INVALID_SELF; return result; }
+	if (targetTile == casterTile) {
+		result.reason = INVALID_SELF;
+		return result;
+	}
 	// Cannot aim inside a wall
-	if (board[(int)targetTile.x][(int)targetTile.y].hasWall) { result.reason = INVALID_OCCUPIED_BY_WALL; return result; }
+	if (board[(int)targetTile.x][(int)targetTile.y].hasWall) {
+		result.reason = INVALID_OCCUPIED_BY_WALL;
+		return result;
+	}
 
 	int dx = abs((int)casterTile.x - (int)targetTile.x);
 	int dy = abs((int)casterTile.y - (int)targetTile.y);
@@ -5267,7 +5610,8 @@ TargetInfo ofApp::isLosTargetValid(glm::vec2 casterTile, glm::vec2 targetTile, f
 	// --- RULE 0.5: DIAGONAL NEIGHBOR EXCEPTION ---
 	if (dx == 1 && dy == 1) {
 		if (isTileBlocked(casterTile.x, targetTile.y) && isTileBlocked(targetTile.x, casterTile.y)) {
-			result.reason = INVALID_HARD_COVER; return result;
+			result.reason = INVALID_HARD_COVER;
+			return result;
 		}
 		goto DETERMINE_TARGET_TYPE;
 	}
@@ -5282,14 +5626,14 @@ TargetInfo ofApp::isLosTargetValid(glm::vec2 casterTile, glm::vec2 targetTile, f
 	// --- MAIN LOGIC ---
 	{
 		float maxFaceDist = maxRangeFeet / 5.0f;
-		
+
 		// *** SPECIAL CASE: ETHEREAL JOLT ***
 		// Ignores Walls/Cover.
 		if (cardType == CARD_ETHEREAL_JOLT) {
 			// Use simple Euclidian edge-to-edge for range check
 			float centerDist = glm::distance(casterTile, targetTile);
 			float edgeDist = std::max(0.0f, centerDist - 1.0f);
-			
+
 			if (edgeDist > maxFaceDist + 0.001f) {
 				result.reason = INVALID_OUT_OF_RANGE;
 				return result;
@@ -5297,22 +5641,22 @@ TargetInfo ofApp::isLosTargetValid(glm::vec2 casterTile, glm::vec2 targetTile, f
 			goto DETERMINE_TARGET_TYPE;
 		}
 
-		glm::vec2 faceOffsets[] = { {0.5f, 0.0f}, {0.5f, 1.0f}, {0.0f, 0.5f}, {1.0f, 0.5f} };
-		glm::vec2 faceDirs[]    = { {0, -1},      {0, 1},       {-1, 0},      {1, 0}      };
+		glm::vec2 faceOffsets[] = { { 0.5f, 0.0f }, { 0.5f, 1.0f }, { 0.0f, 0.5f }, { 1.0f, 0.5f } };
+		glm::vec2 faceDirs[] = { { 0, -1 }, { 0, 1 }, { -1, 0 }, { 1, 0 } };
 
 		// --- PHASE 1: THE COVER RULE ---
 		// Find absolute minimum distance
 		float minGeoDist = std::numeric_limits<float>::max();
-		for(int j=0; j<4; j++) {
+		for (int j = 0; j < 4; j++) {
 			float d = glm::distance(casterTile + 0.5f, targetTile + faceOffsets[j]);
-			if(d < minGeoDist) minGeoDist = d;
+			if (d < minGeoDist) minGeoDist = d;
 		}
 
 		// Check if ALL shortest faces are blocked
 		bool isCovered = true;
 		const float TOLERANCE = 0.001f;
 
-		for(int j=0; j<4; j++) {
+		for (int j = 0; j < 4; j++) {
 			float d = glm::distance(casterTile + 0.5f, targetTile + faceOffsets[j]);
 			if (d <= minGeoDist + TOLERANCE) {
 				int tx = (int)targetTile.x + (int)faceDirs[j].x;
@@ -5325,11 +5669,14 @@ TargetInfo ofApp::isLosTargetValid(glm::vec2 casterTile, glm::vec2 targetTile, f
 			}
 		}
 
-		if (isCovered) { result.reason = INVALID_NO_LOS; return result; }
+		if (isCovered) {
+			result.reason = INVALID_NO_LOS;
+			return result;
+		}
 
 		// --- PHASE 2: FIND BEST PATH ---
 		float shortestPathDist = std::numeric_limits<float>::max();
-		glm::vec2 bestOrigin = {-1,-1}, bestDest = {-1,-1};
+		glm::vec2 bestOrigin = { -1, -1 }, bestDest = { -1, -1 };
 		bool foundPath = false;
 
 		for (int i = 0; i < 4; i++) {
@@ -5339,7 +5686,7 @@ TargetInfo ofApp::isLosTargetValid(glm::vec2 casterTile, glm::vec2 targetTile, f
 
 			glm::vec2 origin = casterTile + faceOffsets[i];
 
-			for (int j = 0; j < 4; j++) { 
+			for (int j = 0; j < 4; j++) {
 				int tx = (int)targetTile.x + (int)faceDirs[j].x;
 				int ty = (int)targetTile.y + (int)faceDirs[j].y;
 				if (isTileWall(tx, ty)) continue;
@@ -5367,9 +5714,9 @@ TargetInfo ofApp::isLosTargetValid(glm::vec2 casterTile, glm::vec2 targetTile, f
 		}
 	}
 
-	DETERMINE_TARGET_TYPE:
+DETERMINE_TARGET_TYPE:
 	// --- RULE 5: VALIDATE TARGET CONTENTS ---
-	result.reason = VALID; 
+	result.reason = VALID;
 	bool isOccupied = board[(int)targetTile.x][(int)targetTile.y].hasPlayer;
 
 	if (isOccupied) {
@@ -5378,10 +5725,10 @@ TargetInfo ofApp::isLosTargetValid(glm::vec2 casterTile, glm::vec2 targetTile, f
 		// Only Magic Blast targets empty squares if neighbors exist
 		if (cardType == CARD_MAGIC_BLAST) {
 			bool hasNeighbor = false;
-			glm::vec2 neighbors[] = {{1,0}, {-1,0}, {0,1}, {0,-1}};
-			for(auto n : neighbors) {
+			glm::vec2 neighbors[] = { { 1, 0 }, { -1, 0 }, { 0, 1 }, { 0, -1 } };
+			for (auto n : neighbors) {
 				int nx = (int)targetTile.x + n.x, ny = (int)targetTile.y + n.y;
-				if(nx >=0 && nx < BOARD_WIDTH && ny >=0 && ny < BOARD_HEIGHT && board[nx][ny].hasPlayer) {
+				if (nx >= 0 && nx < BOARD_WIDTH && ny >= 0 && ny < BOARD_HEIGHT && board[nx][ny].hasPlayer) {
 					hasNeighbor = true;
 					break;
 				}
@@ -5474,7 +5821,7 @@ bool ofApp::isTileWall(int x, int y) {
 int ofApp::isGapTile(glm::vec2 tile) {
 	int x = (int)tile.x;
 	int y = (int)tile.y;
-	if (board[x][y].hasWall) return 0; 
+	if (board[x][y].hasWall) return 0;
 
 	bool blockLeft = isTileBlocked(x - 1, y);
 	bool blockRight = isTileBlocked(x + 1, y);
@@ -5482,7 +5829,7 @@ int ofApp::isGapTile(glm::vec2 tile) {
 	bool blockDown = isTileBlocked(x, y + 1);
 
 	if (blockLeft && blockRight) return 1; // Vertical Choke
-	if (blockUp && blockDown) return 2;    // Horizontal Choke
+	if (blockUp && blockDown) return 2; // Horizontal Choke
 
 	return 0;
 }
@@ -5500,18 +5847,18 @@ glm::vec2 ofApp::getClosestPointOnLineSegment(glm::vec2 p, glm::vec2 start, glm:
 }
 //--------------------------------------------------------------
 float ofApp::getFaceToFaceDistance(glm::vec2 casterTile, glm::vec2 targetTile) {
-	glm::vec2 faceOffsets[] = { {0.5f, 0.0f}, {0.5f, 1.0f}, {0.0f, 0.5f}, {1.0f, 0.5f} };
-	glm::vec2 faceDirs[]    = { {0, -1},      {0, 1},       {-1, 0},      {1, 0}      };
+	glm::vec2 faceOffsets[] = { { 0.5f, 0.0f }, { 0.5f, 1.0f }, { 0.0f, 0.5f }, { 1.0f, 0.5f } };
+	glm::vec2 faceDirs[] = { { 0, -1 }, { 0, 1 }, { -1, 0 }, { 1, 0 } };
 
 	// 1. Identify Valid Target Faces (Using isTileBlocked)
 	float minGeoDist = std::numeric_limits<float>::max();
-	for(int j=0; j<4; j++) {
+	for (int j = 0; j < 4; j++) {
 		float d = glm::distance(casterTile + 0.5f, targetTile + faceOffsets[j]);
-		if(d < minGeoDist) minGeoDist = d;
+		if (d < minGeoDist) minGeoDist = d;
 	}
 
 	std::vector<int> validTargetFaces;
-	for(int j=0; j<4; j++) {
+	for (int j = 0; j < 4; j++) {
 		float d = glm::distance(casterTile + 0.5f, targetTile + faceOffsets[j]);
 		if (d <= minGeoDist + 0.001f) {
 			int tx = (int)targetTile.x + (int)faceDirs[j].x;
@@ -5526,14 +5873,14 @@ float ofApp::getFaceToFaceDistance(glm::vec2 casterTile, glm::vec2 targetTile) {
 	float shortestDist = std::numeric_limits<float>::max();
 	bool foundPath = false;
 
-	for (int i = 0; i < 4; i++) { 
+	for (int i = 0; i < 4; i++) {
 		int cx = (int)casterTile.x + (int)faceDirs[i].x;
 		int cy = (int)casterTile.y + (int)faceDirs[i].y;
 		if (isTileBlocked(cx, cy)) continue; // Blocked by Wall OR Unit
 
 		glm::vec2 origin = casterTile + faceOffsets[i];
 
-		for (int tIdx : validTargetFaces) { 
+		for (int tIdx : validTargetFaces) {
 			glm::vec2 dest = targetTile + faceOffsets[tIdx];
 			float d = glm::distance(origin, dest);
 			if (d < shortestDist) {
@@ -5542,41 +5889,41 @@ float ofApp::getFaceToFaceDistance(glm::vec2 casterTile, glm::vec2 targetTile) {
 			}
 		}
 	}
-	
+
 	if (!foundPath) return std::numeric_limits<float>::max();
 	return shortestDist;
 }
 //--------------------------------------------------------------
 bool ofApp::isOrthogonalPathBlocked(glm::vec2 start, glm::vec2 end) {
-    int x1 = (int)start.x;
-    int y1 = (int)start.y;
-    int x2 = (int)end.x;
-    int y2 = (int)end.y;
+	int x1 = (int)start.x;
+	int y1 = (int)start.y;
+	int x2 = (int)end.x;
+	int y2 = (int)end.y;
 
-    // 1. Vertical Check (Same Column)
-    if (x1 == x2) {
-        int minY = std::min(y1, y2);
-        int maxY = std::max(y1, y2);
-        // Check every tile strictly between start and end
-        for (int y = minY + 1; y < maxY; y++) {
-            if (isTileWall(x1, y)) return true; // Blocked!
-        }
-        return false; // Path clear
-    }
+	// 1. Vertical Check (Same Column)
+	if (x1 == x2) {
+		int minY = std::min(y1, y2);
+		int maxY = std::max(y1, y2);
+		// Check every tile strictly between start and end
+		for (int y = minY + 1; y < maxY; y++) {
+			if (isTileWall(x1, y)) return true; // Blocked!
+		}
+		return false; // Path clear
+	}
 
-    // 2. Horizontal Check (Same Row)
-    if (y1 == y2) {
-        int minX = std::min(x1, x2);
-        int maxX = std::max(x1, x2);
-        // Check every tile strictly between start and end
-        for (int x = minX + 1; x < maxX; x++) {
-            if (isTileWall(x, y1)) return true; // Blocked!
-        }
-        return false; // Path clear
-    }
+	// 2. Horizontal Check (Same Row)
+	if (y1 == y2) {
+		int minX = std::min(x1, x2);
+		int maxX = std::max(x1, x2);
+		// Check every tile strictly between start and end
+		for (int x = minX + 1; x < maxX; x++) {
+			if (isTileWall(x, y1)) return true; // Blocked!
+		}
+		return false; // Path clear
+	}
 
-    // Not orthogonal (Diagonal or Angled), so this check doesn't apply
-    return false; 
+	// Not orthogonal (Diagonal or Angled), so this check doesn't apply
+	return false;
 }
 //--------------------------------------------------------------
 void ofApp::updateDebugRects() {
@@ -5618,75 +5965,75 @@ void ofApp::updateDebugRects() {
 }
 //--------------------------------------------------------------
 void ofApp::cleanupGame() {
-    players.clear();
-    activeDiceRolls.clear();
-    activeCardDisplays.clear();
-    activeStolenCardAnimations.clear();
-    activeRemovedCardAnimations.clear();
+	players.clear();
+	activeDiceRolls.clear();
+	activeCardDisplays.clear();
+	activeStolenCardAnimations.clear();
+	activeRemovedCardAnimations.clear();
 
-    for (int x = 0; x < BOARD_WIDTH; ++x) {
-        for (int y = 0; y < BOARD_HEIGHT; ++y) {
-            board[x][y] = Tile(); // Reset each tile
-        }
-    }
+	for (int x = 0; x < BOARD_WIDTH; ++x) {
+		for (int y = 0; y < BOARD_HEIGHT; ++y) {
+			board[x][y] = Tile(); // Reset each tile
+		}
+	}
 
-    currentPlayerIndex = -1;
-    playerAction = NONE;
-    selectedCardIndex = -1;
-    draggedCardIndex = -1;
-    isPlayerAnimating = false;
-    isLoadingGame = false;
-    
-    ofLogNotice("Game") << "--- GAME SESSION CLEANED UP ---";
+	currentPlayerIndex = -1;
+	playerAction = NONE;
+	selectedCardIndex = -1;
+	draggedCardIndex = -1;
+	isPlayerAnimating = false;
+	isLoadingGame = false;
+
+	ofLogNotice("Game") << "--- GAME SESSION CLEANED UP ---";
 }
 //--------------------------------------------------------------
-void ofApp::loadCardData(const std::string& filePath) {
-    ofJson json;
-    if (!ofFile(filePath).exists()) {
-        ofLogError("ofApp::loadCardData") << "Could not find card data file: " << filePath;
-        return;
-    }
-    json = ofLoadJson(filePath);
+void ofApp::loadCardData(const std::string & filePath) {
+	ofJson json;
+	if (!ofFile(filePath).exists()) {
+		ofLogError("ofApp::loadCardData") << "Could not find card data file: " << filePath;
+		return;
+	}
+	json = ofLoadJson(filePath);
 
-    allCards.clear();
+	allCards.clear();
 
-    const int cardPixelWidth = 409, cardPixelHeight = 585;
+	const int cardPixelWidth = 409, cardPixelHeight = 585;
 	const int numCols = 10;
 
-    for (const auto& cardJson : json) {
-        Card newCard;
-        int cardId = cardJson.value("id", 0);
-        if (cardId == 0) continue;
+	for (const auto & cardJson : json) {
+		Card newCard;
+		int cardId = cardJson.value("id", 0);
+		if (cardId == 0) continue;
 
-        newCard.name = cardJson.value("name", "Unnamed");
-        newCard.type = stringToCardType(cardJson.value("type", "CARD_NONE"));
-        newCard.cost = cardJson.value("cost", 0);
-        newCard.value = cardJson.value("value", 0);
-        newCard.targeting = stringToTargetingType(cardJson.value("targeting", "TARGET_NONE"));
-        newCard.damageType = stringToDamageType(cardJson.value("damageType", "DAMAGE_PHYSICAL"));
-        newCard.numDice = cardJson.value("numDice", 0);
-        newCard.diceSides = cardJson.value("diceSides", 0);
+		newCard.name = cardJson.value("name", "Unnamed");
+		newCard.type = stringToCardType(cardJson.value("type", "CARD_NONE"));
+		newCard.cost = cardJson.value("cost", 0);
+		newCard.value = cardJson.value("value", 0);
+		newCard.targeting = stringToTargetingType(cardJson.value("targeting", "TARGET_NONE"));
+		newCard.damageType = stringToDamageType(cardJson.value("damageType", "DAMAGE_PHYSICAL"));
+		newCard.numDice = cardJson.value("numDice", 0);
+		newCard.diceSides = cardJson.value("diceSides", 0);
 
-        // Calculate texture coordinates from the sprite sheet based on ID
-        int index = cardId - 1;
-        int row = index / numCols;
-        int col = index % numCols;
-        newCard.textureRect = ofRectangle(col * cardPixelWidth, row * cardPixelHeight, cardPixelWidth, cardPixelHeight);
+		// Calculate texture coordinates from the sprite sheet based on ID
+		int index = cardId - 1;
+		int row = index / numCols;
+		int col = index % numCols;
+		newCard.textureRect = ofRectangle(col * cardPixelWidth, row * cardPixelHeight, cardPixelWidth, cardPixelHeight);
 
-        allCards.push_back(newCard);
-    }
-    ofLogNotice("ofApp::loadCardData") << "Loaded " << allCards.size() << " cards from JSON.";
+		allCards.push_back(newCard);
+	}
+	ofLogNotice("ofApp::loadCardData") << "Loaded " << allCards.size() << " cards from JSON.";
 }
 
-CardType ofApp::stringToCardType(const std::string& str) {
-    if (str == "CARD_ATTACK_SINGLE_TILE") return CARD_ATTACK_SINGLE_TILE;
+CardType ofApp::stringToCardType(const std::string & str) {
+	if (str == "CARD_ATTACK_SINGLE_TILE") return CARD_ATTACK_SINGLE_TILE;
 	if (str == "CARD_MIND_THEFT") return CARD_MIND_THEFT;
-    if (str == "CARD_AMNESIA") return CARD_AMNESIA; 
-    if (str == "CARD_GAIN_BLOCK") return CARD_GAIN_BLOCK;
-    if (str == "CARD_GAIN_WARD") return CARD_GAIN_WARD;
-    if (str == "CARD_MAGIC_BLAST") return CARD_MAGIC_BLAST;
-    if (str == "CARD_FIREBALL") return CARD_FIREBALL;
-    if (str == "CARD_SHOCK") return CARD_SHOCK;
+	if (str == "CARD_AMNESIA") return CARD_AMNESIA;
+	if (str == "CARD_GAIN_BLOCK") return CARD_GAIN_BLOCK;
+	if (str == "CARD_GAIN_WARD") return CARD_GAIN_WARD;
+	if (str == "CARD_MAGIC_BLAST") return CARD_MAGIC_BLAST;
+	if (str == "CARD_FIREBALL") return CARD_FIREBALL;
+	if (str == "CARD_SHOCK") return CARD_SHOCK;
 	if (str == "CARD_ROCK_CRUSH") return CARD_ROCK_CRUSH;
 	if (str == "CARD_DISPEL") return CARD_DISPEL;
 	if (str == "CARD_TELEPORT") return CARD_TELEPORT;
@@ -5697,25 +6044,25 @@ CardType ofApp::stringToCardType(const std::string& str) {
 	if (str == "CARD_FLAME_HIT") return CARD_FLAME_HIT;
 	if (str == "CARD_HEAL") return CARD_HEAL;
 	if (str == "CARD_RAISE_DEAD") return CARD_RAISE_DEAD;
-    return CARD_NONE;
+	return CARD_NONE;
 }
 
-TargetingType ofApp::stringToTargetingType(const std::string& str) {
-    if (str == "TARGET_ADJACENT_UNIT") return TARGET_ADJACENT_UNIT;
-    if (str == "TARGET_SELF") return TARGET_SELF;
-    if (str == "TARGET_LINEAR_PIERCE") return TARGET_LINEAR_PIERCE;
-    if (str == "TARGET_CLEAVE_ADJACENT") return TARGET_CLEAVE_ADJACENT;
-    if (str == "TARGET_ADJACENT_OR_SELF_UNIT") return TARGET_ADJACENT_OR_SELF_UNIT;
-    if (str == "TARGET_LINE_OF_SIGHT_TILE") return TARGET_LINE_OF_SIGHT_TILE;
+TargetingType ofApp::stringToTargetingType(const std::string & str) {
+	if (str == "TARGET_ADJACENT_UNIT") return TARGET_ADJACENT_UNIT;
+	if (str == "TARGET_SELF") return TARGET_SELF;
+	if (str == "TARGET_LINEAR_PIERCE") return TARGET_LINEAR_PIERCE;
+	if (str == "TARGET_CLEAVE_ADJACENT") return TARGET_CLEAVE_ADJACENT;
+	if (str == "TARGET_ADJACENT_OR_SELF_UNIT") return TARGET_ADJACENT_OR_SELF_UNIT;
+	if (str == "TARGET_LINE_OF_SIGHT_TILE") return TARGET_LINE_OF_SIGHT_TILE;
 	if (str == "TARGET_ADJACENT_UNIT_OR_WALL") return TARGET_ADJACENT_UNIT_OR_WALL;
 	if (str == "TARGET_EMPTY_ADJACENT") return TARGET_EMPTY_ADJACENT;
-    return TARGET_NONE;
+	return TARGET_NONE;
 }
 
-DamageType ofApp::stringToDamageType(const std::string& str) {
-    if (str == "DAMAGE_PIERCING") return DAMAGE_PIERCING;
-    if (str == "DAMAGE_MAGIC") return DAMAGE_MAGIC;
-    if (str == "DAMAGE_FIRE") return DAMAGE_FIRE;
-    if (str == "DAMAGE_ELECTRIC") return DAMAGE_ELECTRIC;
-    return DAMAGE_PHYSICAL;
+DamageType ofApp::stringToDamageType(const std::string & str) {
+	if (str == "DAMAGE_PIERCING") return DAMAGE_PIERCING;
+	if (str == "DAMAGE_MAGIC") return DAMAGE_MAGIC;
+	if (str == "DAMAGE_FIRE") return DAMAGE_FIRE;
+	if (str == "DAMAGE_ELECTRIC") return DAMAGE_ELECTRIC;
+	return DAMAGE_PHYSICAL;
 }

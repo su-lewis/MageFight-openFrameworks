@@ -294,10 +294,19 @@ private:
     int selectedPieceGridX = -1; int selectedPieceGridY = -1;
     int lastCachedPlayerX = -1, lastCachedPlayerY = -1; int lastCachedCardIndex = -1;
 
-    // --- CAMERA ---
+   // --- CAMERA ---
     ofCamera cam;
+    
+    // Define all lights here so we can access them in setup() and update()
     ofLight headlight;
-    std::vector<ofLight> lights;
+    ofLight keyLight; 
+    ofLight rimLight;
+    std::vector<ofLight> lights; // You can keep this if you still want a list, but we might not need it if we manage them individually
+    float lightNoiseOffset = 0.0f;
+    // Shadow texture
+    ofImage shadowTexture;
+
+
     float cameraTargetZoom = 35.0f;
     float cameraCurrentZoom = 35.0f;
     glm::vec3 cameraTargetPan = glm::vec3(0, 0, 0);
