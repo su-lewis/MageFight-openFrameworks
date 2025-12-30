@@ -458,6 +458,8 @@ private:
 	ofRectangle pileViewRect;
 	ofRectangle p0_deckRect, p0_discardRect;
 	ofRectangle p1_deckRect, p1_discardRect;
+	ofRectangle p0_apStatusRect;
+	ofRectangle p1_apStatusRect;
 
 	// --- CARD SPECIFIC VARIABLES ---
 

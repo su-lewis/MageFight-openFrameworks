@@ -2266,21 +2266,22 @@ void ofApp::drawGame() {
 	}
 
 	if (player0 && player1) {
-		// 1. Calculate positions first
-		float p0_deckX = 30 * scale;
-		float p0_deckY = ofGetHeight() - staticUICardHeight - (40 * scale) - staticUICardHeight - (40 * scale);
+		// 1. Calculate positions first (ADJUSTED FOR BOTH PLAYERS)
+		float p0_deckX = 20 * scale;
+		float p0_deckY = ofGetHeight() - staticUICardHeight - (20 * scale) - staticUICardHeight - (20 * scale);
 		p0_deckRect.set(p0_deckX, p0_deckY, staticUICardWidth, staticUICardHeight);
 
 		float p0_discardX = p0_deckX;
-		float p0_discardY = p0_deckY + staticUICardHeight + (40 * scale);
+		float p0_discardY = p0_deckY + staticUICardHeight + (20 * scale);
 		p0_discardRect.set(p0_discardX, p0_discardY, staticUICardWidth, staticUICardHeight);
 
-		float p1_discardX = ofGetWidth() - staticUICardWidth - (30 * scale);
-		float p1_discardY = 40 * scale;
+		// --- CHANGES ARE HERE ---
+		float p1_discardX = ofGetWidth() - staticUICardWidth - (20 * scale); // Was 30 (Moved right)
+		float p1_discardY = 20 * scale; // Was 40 (Moved up)
 		p1_discardRect.set(p1_discardX, p1_discardY, staticUICardWidth, staticUICardHeight);
 
 		float p1_deckX = p1_discardX;
-		float p1_deckY = p1_discardY + staticUICardHeight + (40 * scale);
+		float p1_deckY = p1_discardY + staticUICardHeight + (20 * scale); // Was 40 (Reduced gap)
 		p1_deckRect.set(p1_deckX, p1_deckY, staticUICardWidth, staticUICardHeight);
 
 		// 2. Draw Player 0 (Bottom) UI
@@ -2345,25 +2346,22 @@ void ofApp::drawGame() {
 			ofPopStyle();
 		}
 
-		// 4. Draw AP Displays (Corrected Logic)
+		// 4. Draw AP Displays & Statuses (UPDATED)
 		string p0_apText = "0 AP";
 		string p1_apText = "? AP";
 
 		if (currentPlayerIndex >= 0 && !players.empty()) {
 			Player & currentPlayer = players[currentPlayerIndex];
-			// If it's Player 0's turn OR one of their minions' turns
 			if (currentPlayer.playerID == 0 || currentPlayer.ownerID == 0) {
 				p0_apText = ofToString(currentAP) + " AP";
-			}
-			// If it's Player 1's turn OR one of their minions' turns
-			else if (currentPlayer.playerID == 1 || currentPlayer.ownerID == 1) {
+			} else if (currentPlayer.playerID == 1 || currentPlayer.ownerID == 1) {
 				p1_apText = ofToString(currentAP) + " AP";
 			}
 		}
 
-		// Draw P0 AP Box
-		float p0_apCenterX = 30 * scale + staticUICardWidth / 2;
-		float p0_apCenterY = ofGetHeight() - staticUICardHeight - (40 * scale) - staticUICardHeight - (40 * scale) - 60 * scale;
+		// --- Draw P0 AP Box ---
+		float p0_apCenterX = 20 * scale + staticUICardWidth / 2; // Was 30 (Moved left)
+		float p0_apCenterY = ofGetHeight() - staticUICardHeight - (20 * scale) - staticUICardHeight - (20 * scale) - 60 * scale; // Was 40 (Moved down)
 		ofRectangle p0_apTextBox = titleFont.getStringBoundingBox(p0_apText, 0, 0);
 		float p0_apRectWidth = (p0_apTextBox.width * fontScale) + (40 * scale);
 		float p0_apRectHeight = (p0_apTextBox.height * fontScale) + (20 * scale);
@@ -2376,9 +2374,36 @@ void ofApp::drawGame() {
 		titleFont.drawString(p0_apText, -p0_apTextBox.getCenter().x, -p0_apTextBox.getCenter().y);
 		ofPopMatrix();
 
-		// Draw P1 AP Box
-		float p1_apCenterX = ofGetWidth() - staticUICardWidth - (30 * scale) + staticUICardWidth / 2;
-		float p1_apCenterY = 40 * scale + staticUICardHeight + (40 * scale) + staticUICardHeight + 60 * scale;
+		// --- NEW: DRAW P0 STATUSES ---
+		float p0_statusY = p0_apCenterY + p0_apRectHeight / 2 + 10 * scale;
+		float smallFontScale = fontScale * 0.8f; // Slightly larger for better readability
+
+		if (player0->nextTurnAPBonus > 0) {
+			string bonusText = "+" + ofToString(player0->nextTurnAPBonus) + " AP";
+			ofRectangle bonusBox = titleFont.getStringBoundingBox(bonusText, 0, 0);
+			ofSetColor(ofColor::yellow);
+			ofPushMatrix();
+			ofTranslate(p0_apCenterX - (bonusBox.width * smallFontScale / 2), p0_statusY + (bonusBox.height * smallFontScale));
+			ofScale(smallFontScale, smallFontScale);
+			titleFont.drawString(bonusText, 0, 0);
+			ofPopMatrix();
+			p0_statusY += (bonusBox.height * smallFontScale) + (5 * scale);
+		}
+		if (player0->nextTurnD10AP) {
+			string d10Text = "D10 AP";
+			ofRectangle d10Box = titleFont.getStringBoundingBox(d10Text, 0, 0);
+			ofSetColor(ofColor::white); // Changed color to white
+			ofPushMatrix();
+			ofTranslate(p0_apCenterX - (d10Box.width * smallFontScale / 2), p0_statusY + (d10Box.height * smallFontScale));
+			ofScale(smallFontScale, smallFontScale);
+			titleFont.drawString(d10Text, 0, 0);
+			ofPopMatrix();
+		}
+
+		/// --- Draw P1 AP Box ---
+		float p1_apCenterX = ofGetWidth() - staticUICardWidth - (20 * scale) + staticUICardWidth / 2; // Adjusted X to match
+		// Adjusted Y to match new gap and vertical position
+		float p1_apCenterY = 20 * scale + staticUICardHeight + (20 * scale) + staticUICardHeight + 60 * scale;
 		ofRectangle p1_apTextBox = titleFont.getStringBoundingBox(p1_apText, 0, 0);
 		float p1_apRectWidth = (p1_apTextBox.width * fontScale) + (40 * scale);
 		float p1_apRectHeight = (p1_apTextBox.height * fontScale) + (20 * scale);
@@ -2390,7 +2415,33 @@ void ofApp::drawGame() {
 		ofScale(fontScale, fontScale);
 		titleFont.drawString(p1_apText, -p1_apTextBox.getCenter().x, -p1_apTextBox.getCenter().y);
 		ofPopMatrix();
+
+		// --- NEW: DRAW P1 STATUSES ---
+		float p1_statusY = p1_apCenterY - p1_apRectHeight / 2 - 10 * scale;
+
+		if (player1->nextTurnD10AP) {
+			string d10Text = "D10 AP";
+			ofRectangle d10Box = titleFont.getStringBoundingBox(d10Text, 0, 0);
+			ofSetColor(ofColor::white); // Changed color to white
+			ofPushMatrix();
+			ofTranslate(p1_apCenterX - (d10Box.width * smallFontScale / 2), p1_statusY);
+			ofScale(smallFontScale, smallFontScale);
+			titleFont.drawString(d10Text, 0, 0);
+			ofPopMatrix();
+			p1_statusY -= (d10Box.height * smallFontScale) + (5 * scale);
+		}
+		if (player1->nextTurnAPBonus > 0) {
+			string bonusText = "+" + ofToString(player1->nextTurnAPBonus) + " AP";
+			ofRectangle bonusBox = titleFont.getStringBoundingBox(bonusText, 0, 0);
+			ofSetColor(ofColor::yellow);
+			ofPushMatrix();
+			ofTranslate(p1_apCenterX - (bonusBox.width * smallFontScale / 2), p1_statusY);
+			ofScale(smallFontScale, smallFontScale);
+			titleFont.drawString(bonusText, 0, 0);
+			ofPopMatrix();
+		}
 	}
+
 	// End Turn Button
 	float btnWidth_end = 250 * scale;
 	float btnHeight_end = 60 * scale;
@@ -4606,6 +4657,12 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 
 	case CARD_GAIN_AP:
 		currentAP += playedCard.value;
+
+		// --- ADD THIS: YELLOW FLOATING TEXT ---
+		spawnFloatingText(gridToWorld(currentPlayer.x, currentPlayer.y),
+			"+" + ofToString(playedCard.value) + " AP",
+			ofColor::yellow);
+
 		playedSuccessfully = true;
 		break;
 
