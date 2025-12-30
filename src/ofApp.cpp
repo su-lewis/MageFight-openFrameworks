@@ -3506,8 +3506,10 @@ void ofApp::mousePressed(int x, int y, int button) {
 			for (const auto & ui : activeMinionUIs) {
 				// You can only draw from the deck of the currently active minion
 				if (ui.playerIndex == currentPlayerIndex && ui.deckRect.inside(x, y) && !hasDrawnCardsThisTurn) {
-					// Minions just draw 1 card for now
-					drawCard();
+					// FIX: Minions now draw 2 cards
+					for (int i = 0; i < 2; i++) {
+						drawCard();
+					}
 					hasDrawnCardsThisTurn = true;
 					return; // Exit to prevent other clicks
 				}
@@ -6287,31 +6289,26 @@ void ofApp::drawMinionManagerUI() {
 
 		// --- Render Model to FBO ---
 		modelFbo.begin();
-		ofClear(0, 0, 0, 0);
+		ofClear(0, 0, 0, 0); // Clear with transparency
 		ofEnableDepthTest();
 
-		// ADD LIGHTING FOR THE FBO
-		ofEnableLighting();
-		headlight.enable(); // Use the main headlight for a consistent look
+		// DO NOT ENABLE LIGHTING. This will make the model "Fullbright".
 
 		ofPushMatrix();
-		ofTranslate(modelFbo.getWidth() / 2, modelFbo.getHeight() / 2 + 40); // Adjusted Y position
+		// Center the model in the FBO viewport and move it down a bit
+		ofTranslate(modelFbo.getWidth() / 2, modelFbo.getHeight() / 2 + 35);
 
-		// FIX: Flip the model vertically and scale
-		ofScale(8, -8, 8); // Negative Y scale flips it
+		// FIX: Increased scale from 8 to 12 for a larger model
+		ofScale(12, -12, 12); // Negative Y scale flips it upright
 
 		ofRotateXDeg(-15);
-		ofRotateYDeg(ofGetElapsedTimef() * 30);
+		ofRotateYDeg(ofGetElapsedTimef() * 30); // Gentle spin
 
 		skeletonTexture.bind();
 		skeletonModel.drawFaces();
 		skeletonTexture.unbind();
 
 		ofPopMatrix();
-
-		// CLEANUP
-		headlight.disable();
-		ofDisableLighting();
 		ofDisableDepthTest();
 		modelFbo.end();
 
@@ -6329,10 +6326,13 @@ void ofApp::drawMinionManagerUI() {
 		// Draw Health/Status Bars
 		drawMinionStatusBars(minion, ui.bounds);
 
-		// Draw Deck/Discard Icons
-		float iconSize = 40 * scale;
-		ui.deckRect.set(ui.bounds.getRight() - (iconSize * 2 + 10 * scale), ui.bounds.getBottom() - (iconSize + 5 * scale), iconSize, iconSize);
-		ui.discardRect.set(ui.bounds.getRight() - (iconSize + 5 * scale), ui.bounds.getBottom() - (iconSize + 5 * scale), iconSize, iconSize);
+		// Draw Deck/Discard Icons (WITH ASPECT RATIO CORRECTION)
+		float iconHeight = 40 * scale;
+		float cardAspectRatio = cardBackImage.getWidth() / cardBackImage.getHeight();
+		float iconWidth = iconHeight * cardAspectRatio;
+
+		ui.deckRect.set(ui.bounds.getRight() - (iconWidth * 2 + 15 * scale), ui.bounds.getBottom() - (iconHeight + 10 * scale), iconWidth, iconHeight);
+		ui.discardRect.set(ui.bounds.getRight() - (iconWidth + 10 * scale), ui.bounds.getBottom() - (iconHeight + 10 * scale), iconWidth, iconHeight);
 
 		// Deck
 		if (!minion.deck.empty()) {
