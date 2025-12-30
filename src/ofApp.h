@@ -257,6 +257,8 @@ private:
     // -------------------------------------------------------------------------
     void buildLevelMesh();
     void buildFloorMesh();
+
+    void allocateWorldFbo(int w, int h);
     
     // Specific UI Drawers
     void drawMagicBlastChoiceUI();
@@ -321,6 +323,13 @@ private:
     std::vector<ofMesh> floorMeshes;
     ofTexture wallTexture;
     std::vector<ofTexture> floorTextures;
+
+    // --- POST PROCESSING ---
+    ofFbo worldFbo;
+    ofShader worldPostShader;
+    bool worldPostShaderLoaded = false;
+    bool enableWorldPostProcess = true;
+    bool showWorldFboPreview = false;
 
     // --- ANIMATIONS ---
     bool isPlayerAnimating = false;

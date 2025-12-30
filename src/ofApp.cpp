@@ -535,6 +535,61 @@ void ofApp::applySettings() {
     mainMenuMultiplayerButton.set(centerX - btnWidth / 2, startY + btnHeight + 20, btnWidth, btnHeight);
     mainMenuSettingsButton.set(centerX - btnWidth / 2, startY + (btnHeight + 20) * 2, btnWidth, btnHeight);
     mainMenuQuitButton.set(centerX - btnWidth / 2, startY + (btnHeight + 20) * 3, btnWidth, btnHeight);
+
+	// --- 11. POST PROCESSING (Optional, used for 3D world only) ---
+	{
+		const GLubyte* vendor = glGetString(GL_VENDOR);
+		const GLubyte* renderer = glGetString(GL_RENDERER);
+		const GLubyte* version = glGetString(GL_VERSION);
+		const GLubyte* glsl = glGetString(GL_SHADING_LANGUAGE_VERSION);
+		ofLogNotice("GL")
+			<< "Vendor: " << (vendor ? reinterpret_cast<const char*>(vendor) : "(null)")
+			<< " | Renderer: " << (renderer ? reinterpret_cast<const char*>(renderer) : "(null)")
+			<< " | Version: " << (version ? reinterpret_cast<const char*>(version) : "(null)")
+			<< " | GLSL: " << (glsl ? reinterpret_cast<const char*>(glsl) : "(null)");
+	}
+
+	worldPostShaderLoaded = false;
+	worldPostShader.unload();
+	const bool shaderVertOk = worldPostShader.setupShaderFromFile(GL_VERTEX_SHADER, "shaders/post.vert");
+	const bool shaderFragOk = worldPostShader.setupShaderFromFile(GL_FRAGMENT_SHADER, "shaders/post.frag");
+	if (shaderVertOk && shaderFragOk) {
+		// Critical on some systems: bind OF's default attribute locations (position/texcoord/etc)
+		// BEFORE linking, otherwise our fullscreen quad can end up with no valid attributes.
+		worldPostShader.bindDefaults();
+		worldPostShaderLoaded = worldPostShader.linkProgram();
+	}
+	if (!worldPostShaderLoaded) {
+		ofLogWarning("Setup") << "Post shader failed to compile/link. Continuing without post-processing.";
+	}
+	allocateWorldFbo(ofGetWidth(), ofGetHeight());
+}
+
+//--------------------------------------------------------------
+void ofApp::allocateWorldFbo(int w, int h) {
+	if (w <= 0 || h <= 0) return;
+
+	const int currentW = static_cast<int>(worldFbo.getWidth());
+	const int currentH = static_cast<int>(worldFbo.getHeight());
+	if (worldFbo.isAllocated() && currentW == w && currentH == h) return;
+
+	ofFbo::Settings settings;
+	settings.width = w;
+	settings.height = h;
+	settings.internalformat = GL_RGBA8;
+	settings.textureTarget = GL_TEXTURE_2D;
+	settings.useDepth = true;
+	settings.useStencil = false;
+	settings.depthStencilAsTexture = false;
+	settings.minFilter = GL_LINEAR;
+	settings.maxFilter = GL_LINEAR;
+
+	worldFbo.allocate(settings);
+	if (!worldFbo.isAllocated()) {
+		ofLogWarning("FBO") << "worldFbo failed to allocate at " << w << "x" << h;
+	} else {
+		ofLogNotice("FBO") << "worldFbo allocated " << w << "x" << h;
+	}
 }
 //--------------------------------------------------------------
 void ofApp::drawPauseMenu() {
@@ -1453,223 +1508,225 @@ void ofApp::buildFloorMesh() {
 }
 //-----------------------------
 void ofApp::drawGame() {
-	// --- 1. SETUP RENDER STATES ---
-	ofEnableDepthTest();
-	ofDisableAlphaBlending();
-	ofDisableBlendMode();
-	ofSetColor(255);
+	// Render the 3D world (and 3D highlights) into an offscreen buffer so we can post-process it
+	// without affecting the 2D UI.
+	auto renderWorld3D = [&]() {
+		static bool loggedWorldStats = false;
+		if (!loggedWorldStats) {
+			ofLogNotice("World")
+				<< "players=" << players.size()
+				<< " floorMeshes=" << floorMeshes.size()
+				<< " floorTextures=" << floorTextures.size()
+				<< " levelMeshVerts=" << levelMesh.getNumVertices();
+			loggedWorldStats = true;
+		}
 
-	cam.begin();
-
-	// --- 3. LIGHTING ---
-	ofEnableLighting();
-	for (auto & light : lights) {
-		light.enable();
-	}
-	headlight.setPosition(cam.getGlobalPosition());
-	headlight.enable();
-
-	// --- 4. OPAQUE GEOMETRY (Floor & Walls) ---
-    for(size_t i = 0; i < floorMeshes.size(); i++) {
-        if(i < floorTextures.size()) {
-            floorTextures[i].bind();
-            floorMeshes[i].draw();
-            floorTextures[i].unbind();
-        }
-    }
-    wallTexture.bind();
-    levelMesh.draw();
-    wallTexture.unbind();
-
-	// --- 5. OPAQUE DYNAMIC OBJECTS (Players & Dice) ---
-	for (const auto & player : players) {
+		// --- 1. SETUP RENDER STATES ---
+		ofEnableDepthTest();
+		ofDisableAlphaBlending();
+		ofDisableBlendMode();
 		ofSetColor(255);
-		ofPushMatrix();
-		if (currentPlayerIndex >= 0 && player.playerID == players[currentPlayerIndex].playerID) {
-			ofTranslate(playerVisualPos.x, playerVisualPos.y, playerVisualPos.z);
-		} else {
-			glm::vec3 staticPos = gridToWorld(player.x, player.y);
-			ofTranslate(staticPos.x, staticPos.y, staticPos.z);
+
+		cam.begin();
+
+		// --- 3. LIGHTING ---
+		ofEnableLighting();
+		for (auto & light : lights) {
+			light.enable();
 		}
-		if (player.isSkeleton) {
-            ofSetColor(255);
-            ofTranslate(0, 2.5f, 0); 
-            skeletonTexture.bind();
-            skeletonModel.drawFaces();
-            skeletonTexture.unbind();
-        } else {
-            ofTranslate(0, 0.1f, 0);
-            playerModel.drawFaces();
-        }
-        ofPopMatrix();
-    }
+		headlight.setPosition(cam.getGlobalPosition());
+		headlight.enable();
 
-	// Dice (Batched)
-	diceMaterial.begin();
-
-	// --- Coin ---
-	coinFacesTexture.bind();
-	for (auto & roll : activeDiceRolls) {
-		if (roll.sides != 2) continue;
-		ofPushMatrix();
-		int idx = &roll - &activeDiceRolls[0]; // Safer way to get index
-		float xOffset = (idx * 4.0f) - ((activeDiceRolls.size() - 1) * 2.0f);
-		
-		// --- FIX 1: Increased height from 2.0 to 4.5 ---
-		ofTranslate(xOffset, 4.5f, 0);
-
-		glm::quat finalDrawQuat;
-		float t = (ofGetElapsedTimef() - roll.startTime);
-		if (t < 1.0f) {
-			float t_ease = 1.0f - pow(1.0f - t, 4.0f);
-			float remainingSpin = (1.0f - t_ease) * 1080.0f;
-			glm::quat spin = glm::angleAxis(glm::radians(remainingSpin), roll.rotationAxis);
-			finalDrawQuat = spin * roll.finalQuat;
-			// --- FIX 2: Removed emissive color change ---
-		} else {
-			finalDrawQuat = roll.finalQuat;
-			// --- FIX 2: Removed emissive color change ---
+		// --- 4. OPAQUE GEOMETRY (Floor & Walls) ---
+		for (size_t i = 0; i < floorMeshes.size(); i++) {
+			if (i < floorTextures.size()) {
+				floorTextures[i].bind();
+				floorMeshes[i].draw();
+				floorTextures[i].unbind();
+			}
 		}
-		ofMultMatrix(glm::toMat4(finalDrawQuat));
-		coinMesh.draw();
-		ofPopMatrix();
-	}
-	coinFacesTexture.unbind();
-	
-	// --- D6 ---
-	d6Texture.bind();
-	for (auto & roll : activeDiceRolls) {
-		if (roll.sides != 6) continue;
-		ofPushMatrix();
-		int idx = &roll - &activeDiceRolls[0];
-		float xOffset = (idx * 4.0f) - ((activeDiceRolls.size() - 1) * 2.0f);
-		
-		// --- FIX 1: Increased height from 2.0 to 4.5 ---
-		ofTranslate(xOffset, 4.5f, 0);
+		wallTexture.bind();
+		levelMesh.draw();
+		wallTexture.unbind();
 
-		glm::quat finalDrawQuat;
-		float t = (ofGetElapsedTimef() - roll.startTime);
-		if (t < 1.0f) {
-			float t_ease = 1.0f - pow(1.0f - t, 4.0f);
-			float remainingSpin = (1.0f - t_ease) * 550.0f;
-			glm::quat spin = glm::angleAxis(glm::radians(remainingSpin), roll.rotationAxis);
-			finalDrawQuat = spin * roll.finalQuat;
-			// --- FIX 2: Removed emissive color change ---
-		} else {
-			finalDrawQuat = roll.finalQuat;
-			// --- FIX 2: Removed emissive color change ---
+		// --- 5. OPAQUE DYNAMIC OBJECTS (Players & Dice) ---
+		for (const auto & player : players) {
+			ofSetColor(255);
+			ofPushMatrix();
+			if (currentPlayerIndex >= 0 && player.playerID == players[currentPlayerIndex].playerID) {
+				ofTranslate(playerVisualPos.x, playerVisualPos.y, playerVisualPos.z);
+			} else {
+				glm::vec3 staticPos = gridToWorld(player.x, player.y);
+				ofTranslate(staticPos.x, staticPos.y, staticPos.z);
+			}
+			if (player.isSkeleton) {
+				ofSetColor(255);
+				ofTranslate(0, 2.5f, 0);
+				skeletonTexture.bind();
+				skeletonModel.drawFaces();
+				skeletonTexture.unbind();
+			} else {
+				ofTranslate(0, 0.1f, 0);
+				playerModel.drawFaces();
+			}
+			ofPopMatrix();
 		}
 
-		ofMultMatrix(glm::toMat4(finalDrawQuat));
-		ofScale(1.2f, 1.2f, 1.2f);
-		d6Mesh.draw();
-		ofPopMatrix();
-	}
-	d6Texture.unbind();
+		// Dice (Batched)
+		diceMaterial.begin();
 
-	// --- D4 ---
-	d4Texture.bind();
-	for (auto & roll : activeDiceRolls) {
-		if (roll.sides != 4) continue;
-		
-		ofPushMatrix();
-		int idx = &roll - &activeDiceRolls[0];
-		float xOffset = (idx * 4.0f) - ((activeDiceRolls.size() - 1) * 2.0f);
+		// --- Coin ---
+		coinFacesTexture.bind();
+		for (auto & roll : activeDiceRolls) {
+			if (roll.sides != 2) continue;
+			ofPushMatrix();
+			int idx = &roll - &activeDiceRolls[0]; // Safer way to get index
+			float xOffset = (idx * 4.0f) - ((activeDiceRolls.size() - 1) * 2.0f);
 
-		// --- FIX 1: Increased height from 2.0 to 4.5 ---
-		ofTranslate(xOffset, 4.5f, 0);
+			// --- FIX 1: Increased height from 2.0 to 4.5 ---
+			ofTranslate(xOffset, 4.5f, 0);
 
-		glm::quat finalDrawQuat;
-		float t = (ofGetElapsedTimef() - roll.startTime);
-		if (t < 1.0f) {
-			float t_ease = 1.0f - pow(1.0f - t, 4.0f);
-			float remainingSpin = (1.0f - t_ease) * 550.0f;
-			glm::quat spin = glm::angleAxis(glm::radians(remainingSpin), roll.rotationAxis);
-			finalDrawQuat = spin * roll.finalQuat;
-			// --- FIX 2: Removed emissive color change ---
-		} else {
-			finalDrawQuat = roll.finalQuat;
-			// --- FIX 2: Removed emissive color change ---
+			glm::quat finalDrawQuat;
+			float t = (ofGetElapsedTimef() - roll.startTime);
+			if (t < 1.0f) {
+				float t_ease = 1.0f - pow(1.0f - t, 4.0f);
+				float remainingSpin = (1.0f - t_ease) * 1080.0f;
+				glm::quat spin = glm::angleAxis(glm::radians(remainingSpin), roll.rotationAxis);
+				finalDrawQuat = spin * roll.finalQuat;
+			} else {
+				finalDrawQuat = roll.finalQuat;
+			}
+			ofMultMatrix(glm::toMat4(finalDrawQuat));
+			coinMesh.draw();
+			ofPopMatrix();
 		}
+		coinFacesTexture.unbind();
 
-		ofMultMatrix(glm::toMat4(finalDrawQuat));
-		ofScale(2.2f, 2.2f, 2.2f);
-		d4Mesh.draw();
-		ofPopMatrix();
-	}
-	d4Texture.unbind();
+		// --- D6 ---
+		d6Texture.bind();
+		for (auto & roll : activeDiceRolls) {
+			if (roll.sides != 6) continue;
+			ofPushMatrix();
+			int idx = &roll - &activeDiceRolls[0];
+			float xOffset = (idx * 4.0f) - ((activeDiceRolls.size() - 1) * 2.0f);
 
-	// --- D10 ---
-	d10Texture.bind();
-	for (auto & roll : activeDiceRolls) {
-		if (roll.sides != 10) continue;
-		ofPushMatrix();
-		int idx = &roll - &activeDiceRolls[0];
-		float xOffset = (idx * 4.0f) - ((activeDiceRolls.size() - 1) * 2.0f);
-		
-		// --- FIX 1: Increased height from 2.0 to 4.5 ---
-		ofTranslate(xOffset, 4.5f, 0);
-		
-		glm::quat finalDrawQuat;
-		float t = (ofGetElapsedTimef() - roll.startTime);
-		if (t < 1.0f) {
-			float t_ease = 1.0f - pow(1.0f - t, 4.0f);
-			float remainingSpin = (1.0f - t_ease) * 550.0f;
-			glm::quat spin = glm::angleAxis(glm::radians(remainingSpin), roll.rotationAxis);
-			finalDrawQuat = spin * roll.finalQuat;
-			// --- FIX 2: Removed emissive color change ---
-		} else {
-			finalDrawQuat = roll.finalQuat;
-			// --- FIX 2: Removed emissive color change ---
+			// --- FIX 1: Increased height from 2.0 to 4.5 ---
+			ofTranslate(xOffset, 4.5f, 0);
+
+			glm::quat finalDrawQuat;
+			float t = (ofGetElapsedTimef() - roll.startTime);
+			if (t < 1.0f) {
+				float t_ease = 1.0f - pow(1.0f - t, 4.0f);
+				float remainingSpin = (1.0f - t_ease) * 550.0f;
+				glm::quat spin = glm::angleAxis(glm::radians(remainingSpin), roll.rotationAxis);
+				finalDrawQuat = spin * roll.finalQuat;
+			} else {
+				finalDrawQuat = roll.finalQuat;
+			}
+
+			ofMultMatrix(glm::toMat4(finalDrawQuat));
+			ofScale(1.2f, 1.2f, 1.2f);
+			d6Mesh.draw();
+			ofPopMatrix();
 		}
+		d6Texture.unbind();
 
-		ofMultMatrix(glm::toMat4(finalDrawQuat));
-		ofScale(2.1f, 2.1f, 2.1f);
-		d10Mesh.draw();
-		ofPopMatrix();
-	}
-	d10Texture.unbind();
+		// --- D4 ---
+		d4Texture.bind();
+		for (auto & roll : activeDiceRolls) {
+			if (roll.sides != 4) continue;
 
-	// --- D20 ---
-	d20Texture.bind();
-	for (auto & roll : activeDiceRolls) {
-		if (roll.sides != 20) continue;
-		ofPushMatrix();
-		int idx = &roll - &activeDiceRolls[0];
-		float xOffset = (idx * 4.0f) - ((activeDiceRolls.size() - 1) * 2.0f);
-		
-		// --- FIX 1: Increased height from 2.0 to 4.5 ---
-		ofTranslate(xOffset, 4.5f, 0);
+			ofPushMatrix();
+			int idx = &roll - &activeDiceRolls[0];
+			float xOffset = (idx * 4.0f) - ((activeDiceRolls.size() - 1) * 2.0f);
 
-		glm::quat finalDrawQuat;
-		float t = (ofGetElapsedTimef() - roll.startTime);
-		if (t < 1.0f) {
-			float t_ease = 1.0f - pow(1.0f - t, 4.0f);
-			float remainingSpin = (1.0f - t_ease) * 550.0f;
-			glm::quat spin = glm::angleAxis(glm::radians(remainingSpin), roll.rotationAxis);
-			finalDrawQuat = spin * roll.finalQuat;
-			// --- FIX 2: Removed emissive color change ---
-		} else {
-			finalDrawQuat = roll.finalQuat;
-			// --- FIX 2: Removed emissive color change ---
+			// --- FIX 1: Increased height from 2.0 to 4.5 ---
+			ofTranslate(xOffset, 4.5f, 0);
+
+			glm::quat finalDrawQuat;
+			float t = (ofGetElapsedTimef() - roll.startTime);
+			if (t < 1.0f) {
+				float t_ease = 1.0f - pow(1.0f - t, 4.0f);
+				float remainingSpin = (1.0f - t_ease) * 550.0f;
+				glm::quat spin = glm::angleAxis(glm::radians(remainingSpin), roll.rotationAxis);
+				finalDrawQuat = spin * roll.finalQuat;
+			} else {
+				finalDrawQuat = roll.finalQuat;
+			}
+
+			ofMultMatrix(glm::toMat4(finalDrawQuat));
+			ofScale(2.2f, 2.2f, 2.2f);
+			d4Mesh.draw();
+			ofPopMatrix();
 		}
+		d4Texture.unbind();
 
-		ofNode d20Node;
-		d20Node.setOrientation(finalDrawQuat);
-		ofMultMatrix(d20Node.getGlobalTransformMatrix());
-		ofScale(2.4f, 2.4f, 2.4f);
-		d20Mesh.draw();
-		ofPopMatrix();
-	}
-	d20Texture.unbind();
+		// --- D10 ---
+		d10Texture.bind();
+		for (auto & roll : activeDiceRolls) {
+			if (roll.sides != 10) continue;
+			ofPushMatrix();
+			int idx = &roll - &activeDiceRolls[0];
+			float xOffset = (idx * 4.0f) - ((activeDiceRolls.size() - 1) * 2.0f);
 
-	diceMaterial.end();
+			// --- FIX 1: Increased height from 2.0 to 4.5 ---
+			ofTranslate(xOffset, 4.5f, 0);
 
+			glm::quat finalDrawQuat;
+			float t = (ofGetElapsedTimef() - roll.startTime);
+			if (t < 1.0f) {
+				float t_ease = 1.0f - pow(1.0f - t, 4.0f);
+				float remainingSpin = (1.0f - t_ease) * 550.0f;
+				glm::quat spin = glm::angleAxis(glm::radians(remainingSpin), roll.rotationAxis);
+				finalDrawQuat = spin * roll.finalQuat;
+			} else {
+				finalDrawQuat = roll.finalQuat;
+			}
 
-	// --- 6. TRANSPARENT GEOMETRY (Highlights) ---
-	ofEnableAlphaBlending();
+			ofMultMatrix(glm::toMat4(finalDrawQuat));
+			ofScale(2.1f, 2.1f, 2.1f);
+			d10Mesh.draw();
+			ofPopMatrix();
+		}
+		d10Texture.unbind();
 
-	for (int x = 0; x < BOARD_WIDTH; x++) {
+		// --- D20 ---
+		d20Texture.bind();
+		for (auto & roll : activeDiceRolls) {
+			if (roll.sides != 20) continue;
+			ofPushMatrix();
+			int idx = &roll - &activeDiceRolls[0];
+			float xOffset = (idx * 4.0f) - ((activeDiceRolls.size() - 1) * 2.0f);
+
+			// --- FIX 1: Increased height from 2.0 to 4.5 ---
+			ofTranslate(xOffset, 4.5f, 0);
+
+			glm::quat finalDrawQuat;
+			float t = (ofGetElapsedTimef() - roll.startTime);
+			if (t < 1.0f) {
+				float t_ease = 1.0f - pow(1.0f - t, 4.0f);
+				float remainingSpin = (1.0f - t_ease) * 550.0f;
+				glm::quat spin = glm::angleAxis(glm::radians(remainingSpin), roll.rotationAxis);
+				finalDrawQuat = spin * roll.finalQuat;
+			} else {
+				finalDrawQuat = roll.finalQuat;
+			}
+
+			ofNode d20Node;
+			d20Node.setOrientation(finalDrawQuat);
+			ofMultMatrix(d20Node.getGlobalTransformMatrix());
+			ofScale(2.4f, 2.4f, 2.4f);
+			d20Mesh.draw();
+			ofPopMatrix();
+		}
+		d20Texture.unbind();
+
+		diceMaterial.end();
+
+		// --- 6. TRANSPARENT GEOMETRY (Highlights) ---
+		ofEnableAlphaBlending();
+
+		for (int x = 0; x < BOARD_WIDTH; x++) {
 		for (int y = 0; y < BOARD_HEIGHT; y++) {
 			glm::vec3 tileWorldPos = gridToWorld(x, y);
 			ofPushMatrix();
@@ -1798,8 +1855,70 @@ void ofApp::drawGame() {
 	headlight.disable();
 	ofDisableLighting();
 
-	cam.end();
-	ofDisableDepthTest();
+		cam.end();
+		ofDisableDepthTest();
+	};
+
+	const bool usePost = (enableWorldPostProcess && worldPostShaderLoaded);
+	if (usePost) {
+		allocateWorldFbo(ofGetWidth(), ofGetHeight());
+		if (worldFbo.isAllocated()) {
+			worldFbo.begin();
+			// Some drivers/container stacks leave depth write disabled; glClear respects glDepthMask.
+			glDepthMask(GL_TRUE);
+			glClearDepth(1.0);
+			glClearColor(22.0f / 255.0f, 22.0f / 255.0f, 22.0f / 255.0f, 1.0f);
+			glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+
+			// If the FBO is incomplete, fall back to direct rendering.
+			GLenum fbStatus = glCheckFramebufferStatus(GL_FRAMEBUFFER);
+			if (fbStatus != GL_FRAMEBUFFER_COMPLETE) {
+				worldFbo.end();
+				ofLogWarning("FBO") << "worldFbo incomplete (status=" << (int)fbStatus << "). Falling back to direct rendering.";
+				worldPostShaderLoaded = false;
+				renderWorld3D();
+			} else {
+			renderWorld3D();
+			if (isDebugMode) {
+				// Diagnostic: if you see this marker, the FBO -> postprocess path is working.
+				// If you see it but still no board/units, the issue is inside the 3D render pass.
+				ofDisableDepthTest();
+				ofDisableLighting();
+				ofSetColor(255, 0, 0, 255);
+				ofDrawRectangle(20, 20, 220, 40);
+			}
+			worldFbo.end();
+
+			// 2D draw setup for presenting the world
+			ofDisableAlphaBlending();
+			ofDisableBlendMode();
+			ofSetColor(255);
+			ofDisableDepthTest();
+			ofPushView();
+			ofViewport(0, 0, ofGetWidth(), ofGetHeight(), false);
+			ofSetupScreenOrtho(ofGetWidth(), ofGetHeight(), -1, 1);
+
+			if (showWorldFboPreview) {
+				// Raw FBO debug (no shader)
+				worldFbo.getTexture().draw(0, 0, ofGetWidth(), ofGetHeight());
+			} else {
+				worldPostShader.begin();
+				worldPostShader.setUniformTexture("tex0", worldFbo.getTexture(), 0);
+				worldPostShader.setUniform2f("uResolution", ofGetWidth(), ofGetHeight());
+				// Draw using OF's texture quad (works on your setup in preview mode)
+				worldFbo.getTexture().draw(0, 0, ofGetWidth(), ofGetHeight());
+				worldPostShader.end();
+			}
+
+			ofPopView();
+			}
+		} else {
+			renderWorld3D();
+		}
+	} else {
+		renderWorld3D();
+	}
+
 	ofEnableAlphaBlending();
 
 	// --- 8. DRAW UI ---
@@ -3310,6 +3429,16 @@ void ofApp::keyReleased(int key) {
         }
     }
 
+	// 2b. Post-processing toggles (debug)
+	if (key == 'p' || key == 'P') {
+		enableWorldPostProcess = !enableWorldPostProcess;
+		ofLogNotice("Post") << "enableWorldPostProcess=" << (enableWorldPostProcess ? "true" : "false");
+	}
+	if (key == 'o' || key == 'O') {
+		showWorldFboPreview = !showWorldFboPreview;
+		ofLogNotice("Post") << "showWorldFboPreview=" << (showWorldFboPreview ? "true" : "false");
+	}
+
     // 3. Escape Key Logic (Merged back inside the function)
     if (key == OF_KEY_ESC) {
         switch (currentState) {
@@ -3348,6 +3477,7 @@ void ofApp::mouseExited(int x, int y) { }
 //--------------------------------------------------------------
 void ofApp::windowResized(int w, int h) {
 	recalculateUI(w, h);
+	allocateWorldFbo(w, h);
 }
 void ofApp::gotMessage(ofMessage msg) { }
 void ofApp::dragEvent(ofDragInfo dragInfo) { }
