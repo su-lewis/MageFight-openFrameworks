@@ -300,8 +300,14 @@ void ofApp::setup() {
 	headlight.setSpecularColor(ofColor(255, 200, 150));
 	headlight.setAttenuation(1.0f, 0.001f, 0.0f);
 
+	// 6. UI LIGHT (For FBOs)
+	uiLight.setup();
+	uiLight.setPointLight();
+	uiLight.setDiffuseColor(ofColor::white);
+	uiLight.setPosition(0, 100, 200); // Positioned in front and above
+	// END ADD
+
 	cam.setupPerspective(false, 60, 0.1f, 100000);
-	cam.setFarClip(100000);
 
 	// --- SHADOW TEXTURE GENERATION ---
 	ofPixels pix;
@@ -816,26 +822,39 @@ void ofApp::setupGame() {
 
 //--------------------------------------------------------------
 void ofApp::updateGame() {
+
 	// --- REBUILD MINION UI EVERY FRAME ---
 	activeMinionUIs.clear();
-	if (!players.empty() && currentPlayerIndex != -1) {
-		Player & turnPlayer = players[currentPlayerIndex];
-		int ownerID = turnPlayer.isMinion ? turnPlayer.ownerID : turnPlayer.playerID;
-
+	if (!players.empty()) {
 		float scale = ofGetHeight() / 1080.0f;
-		float panelWidth = 250 * scale; // Made slightly narrower
-		float entryHeight = 100 * scale; // Made less tall
-		float startX = 20 * scale;
-		float startY = (40 * scale) + (65 * scale) + (50 * scale) * 3 + (20 * scale);
+		float panelWidth = 250 * scale;
+		float entryHeight = 85 * scale;
 
-		int minionCount = 0;
+		// --- Build UI for Player 0's Minions (Left Side) ---
+		float p0_startX = 20 * scale;
+		float p0_startY = (40 * scale) + (65 * scale) + (50 * scale) * 3 + (20 * scale);
+		int p0_minionCount = 0;
 		for (int i = 0; i < players.size(); i++) {
-			if (players[i].isMinion && players[i].ownerID == ownerID) {
+			if (players[i].isMinion && players[i].ownerID == 0) {
 				MinionUI ui;
 				ui.playerIndex = i;
-				ui.bounds.set(startX, startY + (minionCount * (entryHeight + 10 * scale)), panelWidth, entryHeight);
+				ui.bounds.set(p0_startX, p0_startY + (p0_minionCount * (entryHeight + 10 * scale)), panelWidth, entryHeight);
 				activeMinionUIs.push_back(ui);
-				minionCount++;
+				p0_minionCount++;
+			}
+		}
+
+		// --- Build UI for Player 1's Minions (Right Side) ---
+		float p1_startX = ofGetWidth() - panelWidth - (20 * scale);
+		float p1_startY = (40 * scale) + (65 * scale) + (50 * scale) * 3 + (20 * scale);
+		int p1_minionCount = 0;
+		for (int i = 0; i < players.size(); i++) {
+			if (players[i].isMinion && players[i].ownerID == 1) {
+				MinionUI ui;
+				ui.playerIndex = i;
+				ui.bounds.set(p1_startX, p1_startY + (p1_minionCount * (entryHeight + 10 * scale)), panelWidth, entryHeight);
+				activeMinionUIs.push_back(ui);
+				p1_minionCount++;
 			}
 		}
 	}
@@ -2989,80 +3008,71 @@ void ofApp::mouseMoved(int x, int y) {
 
 		int activeCardForHighlight = (selectedCardIndex != -1) ? selectedCardIndex : hoveredCardIndex;
 		calculateTargetHighlights(activeCardForHighlight);
-
 		isHoveringEndTurn = endTurnButtonRect.inside(x, y);
 
-		isShowingTooltip = false;
-
+		// --- NEW, ROBUST PILE HOVER LOGIC ---
 		PileViewMode newHoveredPileType = VIEW_NONE;
-		int newHoveredPilePlayer = -1;
+		int newHoveredPileIndex = -1;
 
+		// 1. Check for hover on any UI element and get its index
+		// Minion UI has highest priority
 		for (const auto & ui : activeMinionUIs) {
 			if (ui.deckRect.inside(x, y)) {
 				newHoveredPileType = VIEW_DECK;
-				newHoveredPilePlayer = ui.playerIndex;
+				newHoveredPileIndex = ui.playerIndex;
 				break;
 			}
 			if (ui.discardRect.inside(x, y)) {
 				newHoveredPileType = VIEW_DISCARD;
-				newHoveredPilePlayer = ui.playerIndex;
+				newHoveredPileIndex = ui.playerIndex;
 				break;
 			}
 		}
-
-		if (newHoveredPilePlayer == -1) {
+		// If nothing found yet, check main player piles
+		if (newHoveredPileIndex == -1) {
 			if (p0_deckRect.inside(x, y)) {
 				newHoveredPileType = VIEW_DECK;
-				newHoveredPilePlayer = 0;
+				newHoveredPileIndex = 0; // Player 0 is always at index 0
 			} else if (p0_discardRect.inside(x, y)) {
 				newHoveredPileType = VIEW_DISCARD;
-				newHoveredPilePlayer = 0;
+				newHoveredPileIndex = 0;
 			} else if (p1_deckRect.inside(x, y)) {
 				newHoveredPileType = VIEW_DECK;
-				newHoveredPilePlayer = 1;
+				newHoveredPileIndex = 1; // Player 1 is always at index 1
 			} else if (p1_discardRect.inside(x, y)) {
 				newHoveredPileType = VIEW_DISCARD;
-				newHoveredPilePlayer = 1;
+				newHoveredPileIndex = 1;
 			}
 		}
 
-		if (newHoveredPilePlayer != -1) {
-			if (!isHoveringPile || newHoveredPileType != hoveredPileType || newHoveredPilePlayer != hoveredPilePlayerIndex) {
+		// 2. Update hover state based on findings
+		if (newHoveredPileIndex != -1) { // If we are hovering SOMETHING
+			if (!isHoveringPile || newHoveredPileIndex != hoveredPilePlayerIndex || newHoveredPileType != hoveredPileType) {
+				// Start a new hover if what we're hovering has changed
 				isHoveringPile = true;
 				isShowingPileView = false;
 				hoveredPileType = newHoveredPileType;
-				hoveredPilePlayerIndex = newHoveredPilePlayer;
+				hoveredPilePlayerIndex = newHoveredPileIndex;
 				pileHoverStartTime = ofGetElapsedTimef();
 			}
-		} else {
+		} else { // If we are hovering NOTHING
 			isHoveringPile = false;
+			// Hide the pile view if the mouse is not over the view itself
 			if (isShowingPileView && !pileViewRect.inside(x, y)) {
 				isShowingPileView = false;
-				currentPileViewPlayerIndex = -1;
 				currentPileView = VIEW_NONE;
+				currentPileViewPlayerIndex = -1;
 			}
 		}
 
+		// 3. Handle Tooltips
 		isShowingTooltip = false;
-		if (!isShowingPileView && !isHoveringPile && players.size() >= 2) {
-			Player * p0 = getPlayer(0);
-			Player * p1 = getPlayer(1);
-			if (p0 && p0_deckRect.inside(x, y)) {
+		if (isHoveringPile && !isShowingPileView) {
+			Player * hoveredPlayer = getPlayer(hoveredPilePlayerIndex);
+			if (hoveredPlayer) {
 				isShowingTooltip = true;
 				tooltipPos = glm::vec2(x, y);
-				tooltipText = ofToString(p0->deck.size()) + " cards";
-			} else if (p0 && p0_discardRect.inside(x, y)) {
-				isShowingTooltip = true;
-				tooltipPos = glm::vec2(x, y);
-				tooltipText = ofToString(p0->discardPile.size()) + " cards";
-			} else if (p1 && p1_deckRect.inside(x, y)) {
-				isShowingTooltip = true;
-				tooltipPos = glm::vec2(x, y);
-				tooltipText = ofToString(p1->deck.size()) + " cards";
-			} else if (p1 && p1_discardRect.inside(x, y)) {
-				isShowingTooltip = true;
-				tooltipPos = glm::vec2(x, y);
-				tooltipText = ofToString(p1->discardPile.size()) + " cards";
+				tooltipText = ofToString(hoveredPileType == VIEW_DECK ? hoveredPlayer->deck.size() : hoveredPlayer->discardPile.size()) + " cards";
 			}
 		}
 		break;
@@ -3087,7 +3097,7 @@ void ofApp::mouseMoved(int x, int y) {
 		if (pauseMenuQuitButton.inside(x, y)) pauseMenuHoveredIndex = 2;
 		break;
 	}
-	} // <-- THIS IS THE CORRECT LOCATION FOR THE CLOSING BRACE
+	}
 }
 // ----------------- FULL mousePressed FUNCTION -----------------
 void ofApp::mousePressed(int x, int y, int button) {
@@ -6237,109 +6247,122 @@ DamageType ofApp::stringToDamageType(const std::string & str) {
 	return DAMAGE_PHYSICAL;
 }
 // ----------------- MINION UI -----------------
-void ofApp::drawMinionStatusBars(Player & minion, ofRectangle bounds) {
+void ofApp::drawMinionStatusBars(Player & minion, const std::string & name, float textBlockX, float textBlockY) {
 	float scale = ofGetHeight() / 1080.0f;
-	float barHeight = 18 * scale;
-	float barWidth = bounds.width * 0.55f;
-	float startX = bounds.x + bounds.width * 0.4f;
-	float currentY = bounds.y + 30 * scale;
+	float fontScale = 0.8f; // Use the same font scale as the name for consistency
 
-	// Health
+	// 1. Calculate the width of the "Skeleton #" text to size the health bar
+	ofRectangle nameBounds = uiFont.getStringBoundingBox(name, 0, 0);
+	float barWidth = nameBounds.width * fontScale;
+	float barHeight = 18 * scale; // A good thickness for the bar
+
+	// 2. Draw Health Bar underneath the text's Y position
+	float barY = textBlockY + (nameBounds.height * fontScale) - (5 * scale);
 	ofSetColor(ofColor::darkRed);
-	ofDrawRectangle(startX, currentY, barWidth, barHeight);
+	ofDrawRectangle(textBlockX, barY, barWidth, barHeight);
 	float healthPercent = (float)minion.health / minion.maxHealth;
 	ofSetColor(ofColor::green);
-	ofDrawRectangle(startX, currentY, barWidth * healthPercent, barHeight);
-	ofSetColor(ofColor::white);
-	ofDrawBitmapString(ofToString(minion.health) + "/" + ofToString(minion.maxHealth), startX + 5, currentY + barHeight - 5);
-	currentY += barHeight + 5 * scale;
+	ofDrawRectangle(textBlockX, barY, barWidth * healthPercent, barHeight);
 
-	// Block
-	if (minion.block > 0) {
-		ofSetColor(ofColor::darkGray);
-		ofDrawRectangle(startX, currentY, barWidth, barHeight);
-		ofSetColor(ofColor::lightSlateGray);
-		ofDrawRectangle(startX, currentY, barWidth, barHeight);
-		ofSetColor(ofColor::white);
-		ofDrawBitmapString(ofToString(minion.block) + " Block", startX + 5, currentY + barHeight - 5);
-		currentY += barHeight + 5 * scale;
-	}
-	// Add Ward/Barrier here if minions can get them
+	// 3. Draw Health Text (e.g., "10/10")
+	string hpText = ofToString(minion.health) + "/" + ofToString(minion.maxHealth);
+	float hpFontScale = 0.5f;
+	ofRectangle hpBounds = uiFont.getStringBoundingBox(hpText, 0, 0);
+
+	ofPushMatrix();
+	// Center the HP text inside the health bar
+	ofTranslate(textBlockX + (barWidth / 2) - (hpBounds.width * hpFontScale / 2), barY + barHeight - (3 * scale));
+	ofScale(hpFontScale, hpFontScale);
+	ofSetColor(ofColor::white);
+	uiFont.drawString(hpText, 0, 0);
+	ofPopMatrix();
 }
-//--------------------------------------------------------------
+
 void ofApp::drawMinionManagerUI() {
 	if (activeMinionUIs.empty()) return;
 
 	float scale = ofGetHeight() / 1080.0f;
 
-	// --- 1. Draw Main Container ---
-	ofRectangle container = activeMinionUIs[0].bounds;
-	container.width += 20 * scale; // Add padding
-	container.x -= 10 * scale;
-	container.y -= 10 * scale;
-	container.height = (activeMinionUIs.size() * (activeMinionUIs[0].bounds.height + 10 * scale)) + 10 * scale;
-
-	ofSetColor(0, 0, 0, 150);
-	ofDrawRectRounded(container, 15 * scale);
-
-	// --- 2. Loop and Draw Each Minion Entry ---
-	for (int i = 0; i < activeMinionUIs.size(); i++) { // Changed to a standard for-loop
+	// --- Loop and Draw Each Minion Entry ---
+	for (int i = 0; i < activeMinionUIs.size(); i++) {
 		auto & ui = activeMinionUIs[i];
 		Player & minion = players[ui.playerIndex];
 
 		// --- Render Model to FBO ---
 		modelFbo.begin();
-		ofClear(0, 0, 0, 0); // Clear with transparency
+		ofClear(0, 0, 0, 0);
 		ofEnableDepthTest();
-
-		// DO NOT ENABLE LIGHTING. This will make the model "Fullbright".
+		ofEnableLighting();
+		uiLight.enable();
 
 		ofPushMatrix();
-		// Center the model in the FBO viewport and move it down a bit
-		ofTranslate(modelFbo.getWidth() / 2, modelFbo.getHeight() / 2 + 35);
+		// FIX: Y value dramatically increased to lift the model's body into view
+		ofTranslate(modelFbo.getWidth() / 2, modelFbo.getHeight() + 40);
 
-		// FIX: Increased scale from 8 to 12 for a larger model
-		ofScale(12, -12, 12); // Negative Y scale flips it upright
-
+		ofScale(24, -24, 24);
 		ofRotateXDeg(-15);
-		ofRotateYDeg(ofGetElapsedTimef() * 30); // Gentle spin
+		ofRotateYDeg(ofGetElapsedTimef() * 30);
 
 		skeletonTexture.bind();
 		skeletonModel.drawFaces();
 		skeletonTexture.unbind();
 
 		ofPopMatrix();
+
+		uiLight.disable();
+		ofDisableLighting();
 		ofDisableDepthTest();
 		modelFbo.end();
 
-		// --- Draw UI Elements ---
-		// Draw the model image
+		// --- Draw UI Panel (Shorter height) ---
+		ui.bounds.height = 85 * scale;
+		ofSetColor(0, 0, 0, 150);
+		ofDrawRectRounded(ui.bounds, 10 * scale);
+
+		// --- Draw Model Image ---
 		ofSetColor(255);
-		ui.modelViewport.set(ui.bounds.x, ui.bounds.y, ui.bounds.height, ui.bounds.height);
+		float modelViewportSize = ui.bounds.height - 10 * scale;
+		ui.modelViewport.set(
+			ui.bounds.x + 5 * scale,
+			ui.bounds.y + (ui.bounds.height - modelViewportSize) / 2, // Vertically center model
+			modelViewportSize,
+			modelViewportSize);
 		modelFbo.draw(ui.modelViewport);
 
-		// Draw Name
-		string name = "Skeleton " + ofToString(i + 1); // Now shows Skeleton 1, Skeleton 2, etc.
+		// --- Draw Text Block (Name + Health Bar) ---
+		string name = "Skeleton " + ofToString(i + 1);
+		float fontScale = 0.8f; // Increased text size slightly
+		float textBlockX = ui.modelViewport.getRight() + 10 * scale; // Moved further left
+		float textBlockY = ui.bounds.y + 20 * scale;
+
+		ofPushMatrix();
+		ofTranslate(textBlockX, textBlockY);
+		ofScale(fontScale, fontScale);
 		ofSetColor(ofColor::white);
-		uiFont.drawString(name, ui.bounds.x + ui.bounds.width * 0.4, ui.bounds.y + 25 * scale);
+		uiFont.drawString(name, 0, 0);
+		ofPopMatrix();
 
-		// Draw Health/Status Bars
-		drawMinionStatusBars(minion, ui.bounds);
+		drawMinionStatusBars(minion, name, textBlockX, textBlockY);
 
-		// Draw Deck/Discard Icons (WITH ASPECT RATIO CORRECTION)
-		float iconHeight = 40 * scale;
+		// --- Draw Deck/Discard Icons ---
+		float iconHeight = 35 * scale;
 		float cardAspectRatio = cardBackImage.getWidth() / cardBackImage.getHeight();
 		float iconWidth = iconHeight * cardAspectRatio;
 
-		ui.deckRect.set(ui.bounds.getRight() - (iconWidth * 2 + 15 * scale), ui.bounds.getBottom() - (iconHeight + 10 * scale), iconWidth, iconHeight);
-		ui.discardRect.set(ui.bounds.getRight() - (iconWidth + 10 * scale), ui.bounds.getBottom() - (iconHeight + 10 * scale), iconWidth, iconHeight);
+		// Vertically center the icons in the panel
+		float iconsY = ui.bounds.y + (ui.bounds.height - iconHeight) / 2;
+
+		// Anchor positions to the right edge of the panel to prevent cutoff
+		ui.discardRect.set(ui.bounds.getRight() - (iconWidth + 10 * scale), iconsY, iconWidth, iconHeight);
+		ui.deckRect.set(ui.bounds.getRight() - (iconWidth * 2 + 15 * scale), iconsY, iconWidth, iconHeight);
 
 		// Deck
+		ofSetColor(255);
 		if (!minion.deck.empty()) {
 			cardBackImage.draw(ui.deckRect);
 		} else {
 			ofSetColor(20, 20, 20, 200);
-			ofDrawRectRounded(ui.deckRect, 5);
+			ofDrawRectRounded(ui.deckRect, 3);
 		}
 
 		// Discard
@@ -6347,7 +6370,7 @@ void ofApp::drawMinionManagerUI() {
 			cardSpriteSheet.getTexture().drawSubsection(ui.discardRect, minion.discardPile.back().textureRect);
 		} else {
 			ofSetColor(20, 20, 20, 200);
-			ofDrawRectRounded(ui.discardRect, 5);
+			ofDrawRectRounded(ui.discardRect, 3);
 		}
 	}
 }

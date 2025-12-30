@@ -354,7 +354,7 @@ private:
 	void determineStatusOptions(Player * target);
 	void applyDispelEffect(int statusIndex);
 	void drawMinionManagerUI();
-	void drawMinionStatusBars(Player & minion, ofRectangle bounds);
+	void drawMinionStatusBars(Player & minion, const std::string & name, float x, float y);
 
 	// =========================================================================
 	//                            MEMBER VARIABLES
@@ -391,6 +391,7 @@ private:
 	ofLight headlight;
 	ofLight keyLight;
 	ofLight rimLight;
+	ofLight uiLight;
 	std::vector<ofLight> lights;
 	float lightNoiseOffset = 0.0f;
 
