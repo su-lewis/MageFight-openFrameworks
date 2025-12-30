@@ -420,6 +420,7 @@ private:
 	std::vector<StolenCardAnimation> activeStolenCardAnimations;
 	std::vector<RemovedCardAnimation> activeRemovedCardAnimations;
 
+	ofImage fireTexture;
 	// --- CARDS & DECK ---
 	ofImage cardSpriteSheet;
 	ofImage cardBackImage;

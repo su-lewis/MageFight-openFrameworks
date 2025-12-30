@@ -358,6 +358,41 @@ void ofApp::setup() {
 		}
 	}
 
+	// --- GENERATE PIXEL ART FIRE TEXTURE ---
+	// Creating a 4-frame sprite sheet (128x32 pixels, 4 frames of 32x32)
+	ofPixels firePix;
+	firePix.allocate(128, 32, OF_PIXELS_RGBA);
+
+	for (int f = 0; f < 4; f++) { // 4 Frames
+		int xOffset = f * 32;
+		for (int y = 0; y < 32; y++) {
+			for (int x = 0; x < 32; x++) {
+				// Procedural noise fire shape
+				float n = ofNoise(x * 0.1, y * 0.1, f * 0.5, ofGetElapsedTimef());
+				float centerDist = abs(x - 16) / 16.0f;
+				float heightFade = (32 - y) / 32.0f;
+
+				float alpha = 0;
+				if (n > 0.4 + centerDist && y > 5) {
+					alpha = 255;
+				}
+
+				// Pixel Art Colors (Yellow -> Orange -> Red)
+				ofColor c;
+				if (y > 20)
+					c = ofColor(255, 50, 0); // Red bottom
+				else if (y > 10)
+					c = ofColor(255, 150, 0); // Orange mid
+				else
+					c = ofColor(255, 255, 0); // Yellow top
+
+				firePix.setColor(xOffset + x, y, ofColor(c, alpha));
+			}
+		}
+	}
+	fireTexture.setFromPixels(firePix);
+	fireTexture.getTexture().setTextureMinMagFilter(GL_NEAREST, GL_NEAREST);
+
 	isFullscreen = true;
 	ofSetFullscreen(true);
 	applySettings();
@@ -424,6 +459,7 @@ void ofApp::draw() {
 
 //--------------------------------------------------------------
 void ofApp::drawMainMenu() {
+	ofDisableLighting();
 	ofSetColor(ofColor::white);
 	string title = "Mage Fight";
 	ofRectangle titleBox = titleFont.getStringBoundingBox(title, 0, 0);
@@ -459,6 +495,7 @@ void ofApp::drawMainMenu() {
 
 //--------------------------------------------------------------
 void ofApp::drawSettingsMenu() {
+	ofDisableLighting();
 	// Draw Title
 	ofSetColor(ofColor::white);
 	string title = "Settings";
@@ -866,45 +903,59 @@ void ofApp::updateGame() {
 		isWaitingForAttackDice = false;
 		int baseDamage = pendingAttackRollResult;
 
+		// Determine Label based on pending type
+		string typeLabel = "";
+		switch (pendingAttackDamageType) {
+		case DAMAGE_PHYSICAL:
+			typeLabel = " Physical";
+			break;
+		case DAMAGE_PIERCING:
+			typeLabel = " Piercing";
+			break;
+		case DAMAGE_MAGIC:
+			typeLabel = " Magic";
+			break;
+		case DAMAGE_ELECTRIC:
+			typeLabel = " Electric";
+			break;
+		case DAMAGE_FIRE:
+			typeLabel = " Fire";
+			break;
+		}
+
 		for (size_t i = 0; i < pendingAttackTargetIndices.size(); i++) {
 			int pIndex = pendingAttackTargetIndices[i];
 			Player * target = getPlayer(pIndex);
 			if (target) {
 				int appliedDamage = baseDamage;
 
-				// Handle Piercing (Half damage to secondary targets)
 				if (pendingAttackDamageType == DAMAGE_PIERCING && i > 0) appliedDamage /= 2;
 
-				// 1. Ward Logic
+				// Ward
 				int wardDmg = std::min(target->ward, appliedDamage);
 				target->ward -= wardDmg;
 				appliedDamage -= wardDmg;
 
-				// 2. Block Logic (Physical) or Barrier Logic (Magic/Elec/Fire)
+				// Block / Barrier
 				if (pendingAttackDamageType == DAMAGE_PHYSICAL) {
 					int blockDmg = std::min(target->block, appliedDamage);
 					target->block -= blockDmg;
 					appliedDamage -= blockDmg;
 				} else if (pendingAttackDamageType != DAMAGE_PIERCING) {
-					// Rock Crush might be physical, but if you have magic dice attacks, they hit Barrier
 					int barrierDmg = std::min(target->barrier, appliedDamage);
 					target->barrier -= barrierDmg;
 					appliedDamage -= barrierDmg;
 				}
 
-				// 3. Apply Health Damage & Spawn Text
+				// Apply & Text
 				glm::vec3 tPos = gridToWorld(target->x, target->y);
-
 				if (appliedDamage > 0) {
 					target->health -= appliedDamage;
-					// Red text for physical/generic damage
-					spawnFloatingText(tPos, "-" + ofToString(appliedDamage), ofColor::red);
+					// CHANGE: Red Text with Label
+					spawnFloatingText(tPos, "-" + ofToString(appliedDamage) + typeLabel, ofColor::red);
 				} else {
-					// Grey text if armor stopped it all
 					spawnFloatingText(tPos, "Blocked", ofColor::gray);
 				}
-
-				ofLogNotice("Combat") << "Hit Player " << target->playerID << " for " << appliedDamage << " damage.";
 			}
 		}
 		pendingAttackTargetIndices.clear();
@@ -941,7 +992,7 @@ void ofApp::updateGame() {
 		float neededDist = getFaceToFaceDistance(casterTile, pendingMagicBlastTargetTile);
 
 		// Log
-		int requiredFeet = (neededDist > 1000.0f) ? 999 : (int)ceil(neededDist * 5.0f);
+		int requiredFeet = (neededDist > 1000.0f) ? 999 : (int)round(neededDist * 5.0f);
 		ofLogNotice("MagicBlast") << "Rolled: " << pendingMagicBlastRollResult << "ft (" << maxDistUnits << "). Needed: " << requiredFeet << "ft.";
 
 		glm::vec2 impactTile;
@@ -1007,38 +1058,39 @@ void ofApp::updateGame() {
 
 		float maxDistUnits = pendingFireballRangeResult / 5.0f;
 		float neededDist = getFaceToFaceDistance(casterTile, pendingFireballTargetTile);
-
-		int requiredFeet = (neededDist > 1000.0f) ? 999 : (int)ceil(neededDist * 5.0f);
+		int requiredFeet = (neededDist > 1000.0f) ? 999 : (int)round(neededDist * 5.0f);
 
 		ofLogNotice("Fireball") << "Rolled: " << pendingFireballRangeResult << "ft (" << maxDistUnits << "). Needed: " << requiredFeet << "ft.";
 
+		// --- LOGIC FIX IS HERE ---
 		if (maxDistUnits >= neededDist - 0.001f) {
-			fireballImpactTile = pendingFireballTargetTile;
+			// SUCCESS PATH
 			ofLogNotice("Fireball") << "Direct Hit!";
-		} else {
-			ofLogNotice("Fireball") << "Fell short!";
-			glm::vec2 dir = pendingFireballTargetTile - casterTile;
-			if (glm::length(dir) > 0) dir = glm::normalize(dir);
-			glm::vec2 impactPos = casterTile + (dir * (maxDistUnits + 1.0f));
-			fireballImpactTile = { round(impactPos.x), round(impactPos.y) };
-		}
+			fireballImpactTile = pendingFireballTargetTile;
 
-		// 4. Check for Impact on Unit
-		fireballTargetPlayerIndex = -1;
-		for (size_t i = 0; i < players.size(); i++) {
-			if (players[i].x == (int)fireballImpactTile.x && players[i].y == (int)fireballImpactTile.y) {
-				fireballTargetPlayerIndex = (int)i;
-				break;
+			// Find the target on that tile
+			fireballTargetPlayerIndex = -1;
+			for (size_t i = 0; i < players.size(); i++) {
+				if (players[i].x == (int)fireballImpactTile.x && players[i].y == (int)fireballImpactTile.y) {
+					fireballTargetPlayerIndex = (int)i;
+					break;
+				}
 			}
-		}
 
-		// 5. Trigger Damage Roll
-		if (fireballTargetPlayerIndex != -1) {
-			ofLogNotice("Fireball") << "Hit Player " << players[fireballTargetPlayerIndex].playerID << "! Rolling Damage...";
-			pendingFireballDamageResult = startDiceRoll(2, 6, PURPOSE_DAMAGE);
-			isWaitingForFireballDamageDice = true;
+			// If a player was actually there, roll for damage.
+			if (fireballTargetPlayerIndex != -1) {
+				ofLogNotice("Fireball") << "Hit Player " << players[fireballTargetPlayerIndex].playerID << "! Rolling Damage...";
+				pendingFireballDamageResult = startDiceRoll(1, 6, PURPOSE_DAMAGE);
+				isWaitingForFireballDamageDice = true;
+			} else {
+				// This case should be rare since your targeting requires a unit, but it's good practice.
+				ofLogNotice("Fireball") << "Hit the tile, but the target had moved!";
+			}
+
 		} else {
-			ofLogNotice("Fireball") << "Missed! Landed on empty tile (" << fireballImpactTile.x << ", " << fireballImpactTile.y << ").";
+			// FAILURE PATH
+			ofLogNotice("Fireball") << "Fell short! The spell fizzles.";
+			// We do nothing else. The turn continues.
 		}
 	}
 
@@ -1064,22 +1116,19 @@ void ofApp::updateGame() {
 
 			// 1. Show Damage Number
 			if (damage > 0) {
-				spawnFloatingText(targetPos, "-" + ofToString(damage), ofColor::orange);
+				spawnFloatingText(targetPos, "-" + ofToString(damage) + " Fire", ofColor::red);
 			} else {
 				spawnFloatingText(targetPos, "Absorbed", ofColor::gray);
 			}
 
-			// 2. Apply Fire Status
+			// 2. Apply Fire Status (without the text)
 			if (target->health < initialHealth) {
 				target->onFire = true;
-				// Offset the text slightly higher so it doesn't overlap the damage number
-				spawnFloatingText(targetPos + glm::vec3(0, 0.8f, 0), "BURNING!", ofColor::red);
 			}
 			// --- VISUAL FEEDBACK END ---
 		}
 		fireballTargetPlayerIndex = -1;
 	}
-
 	// --- PASTE HERE ---
 	if (isWaitingForSummonHealth && activeDiceRolls.empty()) {
 		isWaitingForSummonHealth = false;
@@ -1207,7 +1256,8 @@ void ofApp::updateGame() {
 				// Health Damage & Text
 				if (damage > 0) {
 					target->health -= damage;
-					spawnFloatingText(targetPos, "-" + ofToString(damage), ofColor::cyan);
+					// CHANGE: Red Text + " Magic"
+					spawnFloatingText(targetPos, "-" + ofToString(damage) + " Magic", ofColor::red);
 				} else {
 					spawnFloatingText(targetPos, "Absorbed", ofColor::gray);
 				}
@@ -1266,10 +1316,10 @@ void ofApp::updateGame() {
 		Player & p = players[currentPlayerIndex];
 		p.barrier += pendingDispelRollResult;
 
-		// ADD THIS: Pinkish Text
+		// MATCH UI COLOR: Indigo/Deep Purple (0x480082)
 		spawnFloatingText(gridToWorld(p.x, p.y),
 			"+" + ofToString(pendingDispelRollResult) + " Barrier",
-			ofColor::hotPink);
+			ofColor::fromHex(0x480082));
 
 		ofLogNotice("Dispel") << "Gained " << pendingDispelRollResult << " Barrier.";
 	}
@@ -1304,8 +1354,18 @@ void ofApp::updateGame() {
 		isWaitingForOnFireDice = false;
 		int rollResult = pendingOnFireRollResult;
 		Player & burningPlayer = players[currentPlayerIndex];
+
 		burningPlayer.health -= rollResult;
-		if (rollResult == 1 || rollResult == 2) burningPlayer.onFire = false;
+
+		// CHANGE: Red Text + " Fire"
+		spawnFloatingText(gridToWorld(burningPlayer.x, burningPlayer.y),
+			"-" + ofToString(rollResult) + " Fire",
+			ofColor::red);
+
+		if (rollResult == 1 || rollResult == 2) {
+			burningPlayer.onFire = false;
+			spawnFloatingText(gridToWorld(burningPlayer.x, burningPlayer.y) + glm::vec3(0, 0.8f, 0), "Extinguished", ofColor::white);
+		}
 		continueNewTurn();
 	}
 
@@ -1727,41 +1787,24 @@ void ofApp::drawGame() {
 	// Render the 3D world (and 3D highlights) into an offscreen buffer so we can post-process it
 	// without affecting the 2D UI.
 	auto renderWorld3D = [&]() {
-		static bool loggedWorldStats = false;
-		if (!loggedWorldStats) {
-			ofLogNotice("World")
-				<< "players=" << players.size()
-				<< " floorMeshes=" << floorMeshes.size()
-				<< " floorTextures=" << floorTextures.size()
-				<< " levelMeshVerts=" << levelMesh.getNumVertices();
-			loggedWorldStats = true;
-		}
-
-		// --- 1. SETUP RENDER STATES ---
+		// --- SETUP ---
 		ofEnableDepthTest();
-		ofDisableAlphaBlending();
-		ofDisableBlendMode();
 		ofSetColor(255);
-
 		cam.begin();
 
-		// --- 3. LIGHTING ---
+		// --- LIGHTING ---
 		ofEnableLighting();
-
-		// Explicitly enable your defined lights
 		keyLight.enable();
 		rimLight.enable();
-		headlight.enable(); // Camera torch
-
-		// If you still have other lights in the vector:
-		for (auto & light : lights) {
-			light.enable();
-		}
-
-		// Update Headlight Position to follow camera
+		headlight.enable();
 		headlight.setPosition(cam.getPosition());
 
-		// --- 4. OPAQUE GEOMETRY (Floor & Walls) ---
+		// ===================================================================
+		//  PASS 1: DRAW ALL OPAQUE OBJECTS
+		//  (This correctly fills the depth buffer)
+		// ===================================================================
+
+		// --- OPAQUE GEOMETRY (Floor & Walls) ---
 		for (size_t i = 0; i < floorMeshes.size(); i++) {
 			if (i < floorTextures.size()) {
 				floorTextures[i].bind();
@@ -1773,41 +1816,8 @@ void ofApp::drawGame() {
 		levelMesh.draw();
 		wallTexture.unbind();
 
-		// Inside renderWorld3D, AFTER drawing floor/walls but BEFORE drawing players:
-
-		ofDisableLighting(); // Shadows don't need to be lit
-		ofEnableAlphaBlending();
-		ofSetColor(255); // Reset color for texture drawing
-
+		// --- OPAQUE DYNAMIC OBJECTS (Players & Dice) ---
 		for (const auto & player : players) {
-			ofPushMatrix();
-
-			// Position based on animation or grid
-			glm::vec3 drawPos;
-			if (currentPlayerIndex >= 0 && player.playerID == players[currentPlayerIndex].playerID) {
-				drawPos = playerVisualPos;
-			} else {
-				drawPos = gridToWorld(player.x, player.y);
-			}
-
-			// Draw slightly above floor (y=0.02) to avoid z-fighting
-			ofTranslate(drawPos.x, 0.02f, drawPos.z);
-			ofRotateXDeg(90); // Lay flat on floor
-
-			// Scale shadow based on unit type (D20 vs Player)
-			float shadowSize = TILE_SIZE * 0.8f;
-
-			shadowTexture.draw(-shadowSize / 2, -shadowSize / 2, shadowSize, shadowSize);
-
-			ofPopMatrix();
-		}
-		ofEnableLighting(); // Turn lighting back on for models
-		diceMaterial.setShininess(120); // Very shiny
-		diceMaterial.setSpecularColor(ofColor(255, 255, 255)); // Sharp white highlights
-
-		// --- 5. OPAQUE DYNAMIC OBJECTS (Players & Dice) ---
-		for (const auto & player : players) {
-			ofSetColor(255);
 			ofPushMatrix();
 			if (currentPlayerIndex >= 0 && player.playerID == players[currentPlayerIndex].playerID) {
 				ofTranslate(playerVisualPos.x, playerVisualPos.y, playerVisualPos.z);
@@ -1838,10 +1848,7 @@ void ofApp::drawGame() {
 			ofPushMatrix();
 			int idx = &roll - &activeDiceRolls[0]; // Safer way to get index
 			float xOffset = (idx * 4.0f) - ((activeDiceRolls.size() - 1) * 2.0f);
-
-			// --- FIX 1: Increased height from 2.0 to 4.5 ---
 			ofTranslate(xOffset, 4.5f, 0);
-
 			glm::quat finalDrawQuat;
 			float t = (ofGetElapsedTimef() - roll.startTime);
 			if (t < 1.0f) {
@@ -1865,10 +1872,7 @@ void ofApp::drawGame() {
 			ofPushMatrix();
 			int idx = &roll - &activeDiceRolls[0];
 			float xOffset = (idx * 4.0f) - ((activeDiceRolls.size() - 1) * 2.0f);
-
-			// --- FIX 1: Increased height from 2.0 to 4.5 ---
 			ofTranslate(xOffset, 4.5f, 0);
-
 			glm::quat finalDrawQuat;
 			float t = (ofGetElapsedTimef() - roll.startTime);
 			if (t < 1.0f) {
@@ -1879,7 +1883,6 @@ void ofApp::drawGame() {
 			} else {
 				finalDrawQuat = roll.finalQuat;
 			}
-
 			ofMultMatrix(glm::toMat4(finalDrawQuat));
 			ofScale(1.2f, 1.2f, 1.2f);
 			d6Mesh.draw();
@@ -1891,14 +1894,10 @@ void ofApp::drawGame() {
 		d4Texture.bind();
 		for (auto & roll : activeDiceRolls) {
 			if (roll.sides != 4) continue;
-
 			ofPushMatrix();
 			int idx = &roll - &activeDiceRolls[0];
 			float xOffset = (idx * 4.0f) - ((activeDiceRolls.size() - 1) * 2.0f);
-
-			// --- FIX 1: Increased height from 2.0 to 4.5 ---
 			ofTranslate(xOffset, 4.5f, 0);
-
 			glm::quat finalDrawQuat;
 			float t = (ofGetElapsedTimef() - roll.startTime);
 			if (t < 1.0f) {
@@ -1909,7 +1908,6 @@ void ofApp::drawGame() {
 			} else {
 				finalDrawQuat = roll.finalQuat;
 			}
-
 			ofMultMatrix(glm::toMat4(finalDrawQuat));
 			ofScale(2.2f, 2.2f, 2.2f);
 			d4Mesh.draw();
@@ -1924,10 +1922,7 @@ void ofApp::drawGame() {
 			ofPushMatrix();
 			int idx = &roll - &activeDiceRolls[0];
 			float xOffset = (idx * 4.0f) - ((activeDiceRolls.size() - 1) * 2.0f);
-
-			// --- FIX 1: Increased height from 2.0 to 4.5 ---
 			ofTranslate(xOffset, 4.5f, 0);
-
 			glm::quat finalDrawQuat;
 			float t = (ofGetElapsedTimef() - roll.startTime);
 			if (t < 1.0f) {
@@ -1938,7 +1933,6 @@ void ofApp::drawGame() {
 			} else {
 				finalDrawQuat = roll.finalQuat;
 			}
-
 			ofMultMatrix(glm::toMat4(finalDrawQuat));
 			ofScale(2.1f, 2.1f, 2.1f);
 			d10Mesh.draw();
@@ -1953,10 +1947,7 @@ void ofApp::drawGame() {
 			ofPushMatrix();
 			int idx = &roll - &activeDiceRolls[0];
 			float xOffset = (idx * 4.0f) - ((activeDiceRolls.size() - 1) * 2.0f);
-
-			// --- FIX 1: Increased height from 2.0 to 4.5 ---
 			ofTranslate(xOffset, 4.5f, 0);
-
 			glm::quat finalDrawQuat;
 			float t = (ofGetElapsedTimef() - roll.startTime);
 			if (t < 1.0f) {
@@ -1967,7 +1958,6 @@ void ofApp::drawGame() {
 			} else {
 				finalDrawQuat = roll.finalQuat;
 			}
-
 			ofNode d20Node;
 			d20Node.setOrientation(finalDrawQuat);
 			ofMultMatrix(d20Node.getGlobalTransformMatrix());
@@ -1979,9 +1969,54 @@ void ofApp::drawGame() {
 
 		diceMaterial.end();
 
-		// --- 6. TRANSPARENT GEOMETRY (Highlights) ---
-		ofEnableAlphaBlending();
+		// ===================================================================
+		//  PASS 2: DRAW ALL TRANSPARENT EFFECTS
+		//  (Disable depth writing to prevent artifacts)
+		// ===================================================================
+		glDepthMask(GL_FALSE); // Stop writing to the depth buffer
+		ofEnableBlendMode(OF_BLENDMODE_ALPHA);
 
+		// --- DRAW SHADOWS ---
+		ofDisableLighting();
+		ofSetColor(255);
+		for (const auto & player : players) {
+			glm::vec3 pos;
+			if (currentPlayerIndex >= 0 && player.playerID == players[currentPlayerIndex].playerID) {
+				pos = playerVisualPos;
+			} else {
+				pos = gridToWorld(player.x, player.y);
+			}
+			ofPushMatrix();
+			ofTranslate(pos.x, 0.02f, pos.z);
+			ofRotateXDeg(90);
+			float shadowSize = TILE_SIZE * 0.8f;
+			shadowTexture.draw(-shadowSize / 2, -shadowSize / 2, shadowSize, shadowSize);
+			ofPopMatrix();
+		}
+
+		// --- DRAW FIRE EFFECTS (Billboarded) ---
+		float time = ofGetElapsedTimef();
+		int fireFrame = (int)(time * 10) % 4;
+		for (const auto & player : players) {
+			if (player.onFire) {
+				glm::vec3 pos;
+				if (currentPlayerIndex >= 0 && player.playerID == players[currentPlayerIndex].playerID) {
+					pos = playerVisualPos;
+				} else {
+					pos = gridToWorld(player.x, player.y);
+				}
+				ofPushMatrix();
+				ofTranslate(pos.x, 2.5f, pos.z);
+				glm::vec3 camPos = cam.getPosition();
+				float angle = atan2(camPos.x - pos.x, camPos.z - pos.z) * RAD_TO_DEG;
+				ofRotateYDeg(angle);
+				float spriteSize = 4.0f;
+				fireTexture.drawSubsection(-spriteSize / 2, -spriteSize / 2, spriteSize, spriteSize, fireFrame * 32, 0, 32, 32);
+				ofPopMatrix();
+			}
+		}
+
+		// --- DRAW TILE HIGHLIGHTS ---
 		for (int x = 0; x < BOARD_WIDTH; x++) {
 			for (int y = 0; y < BOARD_HEIGHT; y++) {
 				glm::vec3 tileWorldPos = gridToWorld(x, y);
@@ -1997,63 +2032,16 @@ void ofApp::drawGame() {
 						}
 					}
 					if (!isOnPath) {
-						ofDisableLighting();
 						ofSetColor(ofColor::yellow, 102);
 						ofPushMatrix();
 						ofTranslate(0, 0.05f, 0);
 						ofRotateXDeg(90);
 						ofDrawCircle(0, 0, TILE_SIZE * 0.30f);
 						ofPopMatrix();
-						ofEnableLighting();
 					}
 				}
 
-				// Target Highlights
-				bool isLosCardSelected = false;
-				bool isLosCardHovered = false;
-				// --- FIX: Removed unused 'cardToCheck' variable ---
-
-				if (!players.empty() && currentPlayerIndex >= 0 && selectedCardIndex >= 0 && static_cast<size_t>(selectedCardIndex) < players[currentPlayerIndex].hand.size()) {
-					CardType type = players[currentPlayerIndex].hand[selectedCardIndex].type;
-					if (type == CARD_MAGIC_BLAST || type == CARD_FIREBALL) {
-						isLosCardSelected = true;
-					}
-				} else if (!players.empty() && currentPlayerIndex >= 0 && hoveredCardIndex >= 0 && static_cast<size_t>(hoveredCardIndex) < players[currentPlayerIndex].hand.size()) {
-					CardType type = players[currentPlayerIndex].hand[hoveredCardIndex].type;
-					if (type == CARD_MAGIC_BLAST || type == CARD_FIREBALL) {
-						isLosCardHovered = true;
-					}
-				}
-
-				if (isLosCardSelected || isLosCardHovered) {
-					TargetInfo info = targetCache[x][y];
-					if (info.reason == VALID) {
-						ofColor highlightColor;
-						bool shouldDraw = false;
-						if (info.isTargetable) {
-							highlightColor = ofColor(255, 0, 0, 180);
-							shouldDraw = true;
-						} else if (isLosCardSelected) {
-							highlightColor = ofColor(0, 255, 0, 150);
-							shouldDraw = true;
-						}
-						if (shouldDraw) {
-							ofDisableLighting();
-							ofSetColor(highlightColor);
-							ofNoFill();
-							ofSetLineWidth(3);
-							ofPushMatrix();
-							ofTranslate(0, 0.06f, 0);
-							ofRotateXDeg(90);
-							ofDrawRectangle(-TILE_SIZE * 0.45f, -TILE_SIZE * 0.45f, TILE_SIZE * 0.9f, TILE_SIZE * 0.9f);
-							ofPopMatrix();
-							ofFill();
-							ofSetLineWidth(1);
-							ofEnableLighting();
-						}
-					}
-				} else if (board[x][y].isTargetable) {
-					ofDisableLighting();
+				if (board[x][y].isTargetable) {
 					ofSetColor(ofColor::red, 180);
 					ofNoFill();
 					ofSetLineWidth(3);
@@ -2064,11 +2052,9 @@ void ofApp::drawGame() {
 					ofPopMatrix();
 					ofFill();
 					ofSetLineWidth(1);
-					ofEnableLighting();
 				}
 
 				if (!players.empty() && currentPlayerIndex >= 0 && x == players[currentPlayerIndex].x && y == players[currentPlayerIndex].y) {
-					ofDisableLighting();
 					ofSetColor(ofColor::fromHex(0x9400D3));
 					ofNoFill();
 					ofSetLineWidth(4);
@@ -2079,92 +2065,48 @@ void ofApp::drawGame() {
 					ofPopMatrix();
 					ofFill();
 					ofSetLineWidth(1);
-					ofEnableLighting();
 				}
 				ofPopMatrix();
 			}
 		}
 
 		if ((playerAction == PIECE_SELECTED) && !hoverPath.empty()) {
-			// --- FIX: Changed loop counter to size_t to resolve signed/unsigned warning ---
 			for (size_t i = 1; i < hoverPath.size(); i++) {
 				const auto & step = hoverPath[i];
 				glm::vec3 pathWorldPos = gridToWorld(step.x, step.y);
-
-				ofDisableLighting();
 				ofSetColor(ofColor::green, 150);
 				ofPushMatrix();
 				ofTranslate(pathWorldPos.x, 0.05f, pathWorldPos.z);
 				ofRotateXDeg(90);
 				ofDrawCircle(0, 0, TILE_SIZE * 0.3f);
 				ofPopMatrix();
-				ofEnableLighting();
 			}
 		}
 
-		// --- 7. TEARDOWN 3D / SETUP 2D ---
-		for (auto & light : lights)
-			light.disable();
-		headlight.disable();
-		ofDisableLighting();
+		glDepthMask(GL_TRUE); // Re-enable depth writing
+		ofEnableLighting();
 
+		// --- TEARDOWN ---
 		cam.end();
 		ofDisableDepthTest();
 	};
 
+	// --- POST PROCESSING & 2D UI DRAWING ---
 	const bool usePost = (enableWorldPostProcess && worldPostShaderLoaded);
 	if (usePost) {
 		allocateWorldFbo(ofGetWidth(), ofGetHeight());
 		if (worldFbo.isAllocated()) {
 			worldFbo.begin();
-			// Some drivers/container stacks leave depth write disabled; glClear respects glDepthMask.
-			glDepthMask(GL_TRUE);
-			glClearDepth(1.0);
-			glClearColor(22.0f / 255.0f, 22.0f / 255.0f, 22.0f / 255.0f, 1.0f);
 			glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+			renderWorld3D();
+			worldFbo.end();
 
-			// If the FBO is incomplete, fall back to direct rendering.
-			GLenum fbStatus = glCheckFramebufferStatus(GL_FRAMEBUFFER);
-			if (fbStatus != GL_FRAMEBUFFER_COMPLETE) {
-				worldFbo.end();
-				ofLogWarning("FBO") << "worldFbo incomplete (status=" << (int)fbStatus << "). Falling back to direct rendering.";
-				worldPostShaderLoaded = false;
-				renderWorld3D();
-			} else {
-				renderWorld3D();
-				if (isDebugMode) {
-					// Diagnostic: if you see this marker, the FBO -> postprocess path is working.
-					// If you see it but still no board/units, the issue is inside the 3D render pass.
-					ofDisableDepthTest();
-					ofDisableLighting();
-					ofSetColor(255, 0, 0, 255);
-					ofDrawRectangle(20, 20, 220, 40);
-				}
-				worldFbo.end();
-
-				// 2D draw setup for presenting the world
-				ofDisableAlphaBlending();
-				ofDisableBlendMode();
-				ofSetColor(255);
-				ofDisableDepthTest();
-				ofPushView();
-				ofViewport(0, 0, ofGetWidth(), ofGetHeight(), false);
-				ofSetupScreenOrtho(ofGetWidth(), ofGetHeight(), -1, 1);
-
-				if (showWorldFboPreview) {
-					// Raw FBO debug (no shader)
-					worldFbo.getTexture().draw(0, 0, ofGetWidth(), ofGetHeight());
-				} else {
-					worldPostShader.begin();
-					worldPostShader.setUniformTexture("tex0", worldFbo.getTexture(), 0);
-					worldPostShader.setUniform2f("uResolution", ofGetWidth(), ofGetHeight());
-					// Draw using OF's texture quad (works on your setup in preview mode)
-					worldFbo.getTexture().draw(0, 0, ofGetWidth(), ofGetHeight());
-					worldPostShader.end();
-				}
-
-				ofPopView();
-			}
+			ofDisableDepthTest();
+			worldPostShader.begin();
+			worldPostShader.setUniformTexture("tex0", worldFbo.getTexture(), 0);
+			worldPostShader.setUniform2f("uResolution", ofGetWidth(), ofGetHeight());
+			worldFbo.getTexture().draw(0, 0, ofGetWidth(), ofGetHeight());
+			worldPostShader.end();
 		} else {
 			renderWorld3D();
 		}
@@ -3089,8 +3031,8 @@ void ofApp::mousePressed(int x, int y, int button) {
 			// 3. Health takes the final damage
 			if (damage > 0) {
 				targetPlayer->health -= damage;
-				// ADD THIS:
-				spawnFloatingText(gridToWorld(targetPlayer->x, targetPlayer->y), "-" + ofToString(damage), ofColor::magenta);
+				// CHANGE: Red Text + " Magic"
+				spawnFloatingText(gridToWorld(targetPlayer->x, targetPlayer->y), "-" + ofToString(damage) + " Magic", ofColor::red);
 			}
 
 			ofLogNotice("MagicBlast") << "Player " << targetPlayer->playerID << " chose Damage.";
@@ -3223,8 +3165,8 @@ void ofApp::mousePressed(int x, int y, int button) {
 				// Health Interaction & Text
 				if (dmg > 0) {
 					target->health -= dmg;
-					// VISUAL: Magic Damage
-					spawnFloatingText(targetPos, "-" + ofToString(dmg), ofColor::purple);
+					// CHANGE: Red Text + " Magic"
+					spawnFloatingText(targetPos, "-" + ofToString(dmg) + " Magic", ofColor::red);
 				} else {
 					spawnFloatingText(targetPos, "Absorbed", ofColor::gray);
 				}
@@ -3876,64 +3818,62 @@ void ofApp::startNewTurn() {
 	if (currentPlayerIndex != -1) {
 		Player & endingPlayer = players[currentPlayerIndex];
 
-		// A. Move Hand to Discard
 		endingPlayer.discardPile.insert(endingPlayer.discardPile.end(), endingPlayer.hand.begin(), endingPlayer.hand.end());
 		endingPlayer.hand.clear();
 
-		// B. Move "Grey Area/Played" cards to Discard (Cleanup Step)
 		endingPlayer.discardPile.insert(endingPlayer.discardPile.end(), endingPlayer.playedCardsPile.begin(), endingPlayer.playedCardsPile.end());
 		endingPlayer.playedCardsPile.clear();
 
-		// Reset turn-specific counters
 		endingPlayer.shocksPlayedThisTurn = 0;
-
-		// NOTE: We do NOT reset isReplicatePending here.
-		// If they played Replicate but nothing else, it waits for the next card play.
 	}
 
 	// --- 2. Advance to the NEXT player ---
-	// Cycle index
 	currentPlayerIndex = (currentPlayerIndex + 1) % players.size();
 
-	// Increment Global Turn Counter if we wrapped back to start (or P0)
 	if (currentPlayerIndex == 0) globalTurnCounter++;
 
 	Player & startingPlayer = players[currentPlayerIndex];
 	ofLogNotice("Game") << "--- START TURN: " << (startingPlayer.isMinion ? "Minion " : "Player ") << startingPlayer.playerID;
 
-	// --- REGENERATION ---
+	// --- FIX IS HERE: SNAP VISUALS IMMEDIATELY ---
+	// Update the animated position to the new player's location BEFORE any checks.
+	// This prevents the "ghosting" and "wrong player on fire" bugs.
+	playerVisualPos = gridToWorld(startingPlayer.x, startingPlayer.y);
+	animationPath.clear();
+	isPlayerAnimating = false;
+	// --- END FIX ---
+
+	// --- 3. REGENERATION ---
 	if (startingPlayer.hasRegeneration) {
 		if (startingPlayer.health < startingPlayer.maxHealth) {
 			startingPlayer.health++;
-
-			// ADD THIS: Green Text
 			spawnFloatingText(gridToWorld(startingPlayer.x, startingPlayer.y), "+1 Regen", ofColor::green);
-
 			ofLogNotice("Regen") << "Regenerated 1 HP.";
 		}
 	}
 
-	// --- 3. Expiry Checks (Reset Armor) ---
+	// --- 4. Expiry Checks (Reset Armor) ---
 	startingPlayer.block = 0;
 	startingPlayer.ward = 0;
 	startingPlayer.barrier = 0;
 
-	// --- 4. NEW: PARALYSIS CHECK ---
+	// --- 5. PARALYSIS CHECK ---
 	if (startingPlayer.isParalyzed) {
 		ofLogNotice("Status") << "Player is Paralyzed! Flipping coin...";
 		startDiceRoll(1, 2, PURPOSE_COIN_FLIP);
 		isWaitingForParalysisCoin = true;
-		return;
+		return; // Interrupt the turn
 	}
 
-	// --- 5. Fire Check ---
+	// --- 6. FIRE CHECK ---
 	if (startingPlayer.onFire) {
-		ofLogNotice("On Fire") << "Player is burning! Rolling 1D6 for damage...";
+		ofLogNotice("On Fire") << "Player is burning! Rolling 1d6 for damage...";
 		isWaitingForOnFireDice = true;
 		pendingOnFireRollResult = startDiceRoll(1, 6, PURPOSE_DAMAGE);
-		return;
+		return; // Interrupt the turn
 	}
 
+	// If no status effects interrupted, continue the turn normally.
 	continueNewTurn();
 }
 //--------------------------------------------------------------
@@ -4035,37 +3975,45 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 
 	// --- 1. DEFINE DAMAGE HELPER LAMBDA ---
 	auto applyDamage = [&](Player & target, int damage, DamageType type) -> bool {
-		string typeStr = "Physical";
-		if (type == DAMAGE_PIERCING) typeStr = "Piercing";
-		if (type == DAMAGE_MAGIC) typeStr = "Magic";
-		if (type == DAMAGE_ELECTRIC) typeStr = "Electric";
-		if (type == DAMAGE_FIRE) typeStr = "Fire";
+		// Determine Label
+		string typeLabel = "";
+		switch (type) {
+		case DAMAGE_PHYSICAL:
+			typeLabel = " Physical";
+			break;
+		case DAMAGE_PIERCING:
+			typeLabel = " Piercing";
+			break;
+		case DAMAGE_MAGIC:
+			typeLabel = " Magic";
+			break;
+		case DAMAGE_ELECTRIC:
+			typeLabel = " Electric";
+			break;
+		case DAMAGE_FIRE:
+			typeLabel = " Fire";
+			break;
+		}
 
-		ofLogNotice("Game") << "Dealing " << damage << " damage (" << typeStr << ") to Player " << target.playerID;
+		ofLogNotice("Game") << "Dealing " << damage << " damage (" << typeLabel << ") to Player " << target.playerID;
 
 		int initialHealth = target.health;
 		int remainingDmg = damage;
 
 		// --- LAYER 1: SPECIFIC MITIGATION ---
-		// Block stops Physical. Barrier stops Non-Physical (Magic/Fire/Electric).
-
 		if (type == DAMAGE_PHYSICAL) {
-			// Physical hits BLOCK
 			int absorb = std::min(target.block, remainingDmg);
 			target.block -= absorb;
 			remainingDmg -= absorb;
 			if (absorb > 0) ofLogNotice("Game") << "Block absorbed " << absorb;
 		} else if (type != DAMAGE_PIERCING) {
-			// Non-Physical (and not Piercing) hits BARRIER
 			int absorb = std::min(target.barrier, remainingDmg);
 			target.barrier -= absorb;
 			remainingDmg -= absorb;
 			if (absorb > 0) ofLogNotice("Game") << "Non-Phys Barrier absorbed " << absorb;
 		}
-		// Note: DAMAGE_PIERCING bypasses Layer 1 entirely.
 
-		// --- LAYER 2: GENERIC MITIGATION (FIXED) ---
-		// Ward stops EVERYTHING (Least specific, always last shield)
+		// --- LAYER 2: GENERIC MITIGATION ---
 		if (remainingDmg > 0) {
 			int wardAbsorb = std::min(target.ward, remainingDmg);
 			target.ward -= wardAbsorb;
@@ -4074,33 +4022,29 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		}
 
 		// --- FINAL HEALTH DAMAGE ---
+		glm::vec3 targetPos = gridToWorld(target.x, target.y);
+
 		if (remainingDmg > 0) {
 			target.health -= remainingDmg;
-			glm::vec3 targetPos = gridToWorld(target.x, target.y);
-			spawnFloatingText(targetPos, "-" + ofToString(remainingDmg), ofColor::red);
-			ofLogNotice("Game") << remainingDmg << " damage taken to Health! (HP: " << target.health << ")";
+			// CHANGE: Red Text with Label
+			spawnFloatingText(targetPos, "-" + ofToString(remainingDmg) + typeLabel, ofColor::red);
+			ofLogNotice("Game") << remainingDmg << " damage taken to Health!";
+		} else {
+			spawnFloatingText(targetPos, "Blocked", ofColor::gray);
 		}
 
-		// --- REPLACE THE OLD "if (target.health <= 0)" WITH THIS ---
+		// Check Death
 		if (target.health <= 0) {
 			ofLogNotice("Game") << "Player " << target.playerID << " defeated!";
-
-			// Graveyard Logic
 			DeathMarker death;
 			death.x = target.x;
 			death.y = target.y;
 			death.turnDied = globalTurnCounter;
-			death.deck = target.deck; // Save their deck for looting
+			death.deck = target.deck;
 			graveyard.push_back(death);
-
-			// Note: We don't remove them from the 'players' vector immediately
-			// because that shifts indices and breaks the loop currently running.
-			// Usually, you mark them as dead and clean up at the start of the next turn,
-			// or move them to a "dead" state (x = -100).
-			board[target.x][target.y].hasPlayer = false; // Free up the tile immediately
-			target.x = -1000; // Move off screen
+			board[target.x][target.y].hasPlayer = false;
+			target.x = -1000;
 		}
-		// -----------------------------------------------------------
 
 		return target.health < initialHealth;
 	};
@@ -5734,145 +5678,99 @@ bool ofApp::checkRayPhysics(glm::vec2 rayStart, glm::vec2 rayEnd) {
 TargetInfo ofApp::isLosTargetValid(glm::vec2 casterTile, glm::vec2 targetTile, float maxRangeFeet, CardType cardType) {
 	TargetInfo result;
 
-	// --- RULE 0: Basic Checks ---
+	// --- RULE 0: Basic Sanity Checks ---
 	if (targetTile == casterTile) {
 		result.reason = INVALID_SELF;
 		return result;
 	}
-	// Cannot aim inside a wall
-	if (board[(int)targetTile.x][(int)targetTile.y].hasWall) {
+	if (isTileWall((int)targetTile.x, (int)targetTile.y)) {
 		result.reason = INVALID_OCCUPIED_BY_WALL;
 		return result;
 	}
 
-	int dx = abs((int)casterTile.x - (int)targetTile.x);
-	int dy = abs((int)casterTile.y - (int)targetTile.y);
+	// Using an if/else block to create separate, safe logical paths.
+	if (cardType == CARD_ETHEREAL_JOLT) {
+		// --- Path 1: Ethereal Jolt Logic (Ignores all walls) ---
+		float centerDist = glm::distance(casterTile, targetTile);
+		float edgeDist = std::max(0.0f, centerDist - 1.0f);
+		float neededFeet = round(edgeDist * 5.0f);
 
-	// --- RULE 0.2: ORTHOGONAL NEIGHBOR EXCEPTION (FIX) ---
-	// If the tile is directly adjacent (Up/Down/Left/Right), it is ALWAYS physically reachable.
-	// We skip the complex face/ray math because the faces are touching.
-	if (dx + dy == 1) {
-		// Valid physical path. Now check target contents at bottom.
-		goto DETERMINE_TARGET_TYPE;
-	}
-
-	// --- RULE 0.5: DIAGONAL NEIGHBOR EXCEPTION ---
-	if (dx == 1 && dy == 1) {
-		if (isTileBlocked(casterTile.x, targetTile.y) && isTileBlocked(targetTile.x, casterTile.y)) {
-			result.reason = INVALID_HARD_COVER;
+		if (neededFeet > maxRangeFeet) {
+			result.reason = INVALID_OUT_OF_RANGE;
 			return result;
 		}
-		goto DETERMINE_TARGET_TYPE;
-	}
+		// This path will now naturally fall through to the final checks at the end.
+	} else {
+		// --- Path 2: Standard Logic (Respects walls and cover) ---
 
-	// --- RULE 0.1: STRICT ORTHOGONAL BLOCK (Long Distance) ---
-	// If further away but in same row/col, check for walls in between.
-	if (isOrthogonalPathBlocked(casterTile, targetTile) && cardType != CARD_ETHEREAL_JOLT) {
-		result.reason = INVALID_HARD_COVER;
-		return result;
-	}
+		// RULE 1: THE "HARD COVER" RULE
+		{
+			glm::vec2 casterCenter = casterTile + 0.5f;
+			glm::vec2 targetFaces[] = { targetTile + glm::vec2(0.5f, 0.0f), targetTile + glm::vec2(0.5f, 1.0f), targetTile + glm::vec2(0.0f, 0.5f), targetTile + glm::vec2(1.0f, 0.5f) };
+			glm::vec2 targetFaceDirs[] = { { 0, -1 }, { 0, 1 }, { -1, 0 }, { 1, 0 } };
 
-	// --- MAIN LOGIC ---
-	{
-		float maxFaceDist = maxRangeFeet / 5.0f;
-
-		// *** SPECIAL CASE: ETHEREAL JOLT ***
-		// Ignores Walls/Cover.
-		if (cardType == CARD_ETHEREAL_JOLT) {
-			// Use simple Euclidian edge-to-edge for range check
-			float centerDist = glm::distance(casterTile, targetTile);
-			float edgeDist = std::max(0.0f, centerDist - 1.0f);
-
-			if (edgeDist > maxFaceDist + 0.001f) {
-				result.reason = INVALID_OUT_OF_RANGE;
-				return result;
+			std::vector<std::pair<float, int>> faceDistances;
+			for (int i = 0; i < 4; i++) {
+				faceDistances.push_back({ glm::distance(casterCenter, targetFaces[i]), i });
 			}
-			goto DETERMINE_TARGET_TYPE;
-		}
+			std::sort(faceDistances.begin(), faceDistances.end());
 
-		glm::vec2 faceOffsets[] = { { 0.5f, 0.0f }, { 0.5f, 1.0f }, { 0.0f, 0.5f }, { 1.0f, 0.5f } };
-		glm::vec2 faceDirs[] = { { 0, -1 }, { 0, 1 }, { -1, 0 }, { 1, 0 } };
-
-		// --- PHASE 1: THE COVER RULE ---
-		// Find absolute minimum distance
-		float minGeoDist = std::numeric_limits<float>::max();
-		for (int j = 0; j < 4; j++) {
-			float d = glm::distance(casterTile + 0.5f, targetTile + faceOffsets[j]);
-			if (d < minGeoDist) minGeoDist = d;
-		}
-
-		// Check if ALL shortest faces are blocked
-		bool isCovered = true;
-		const float TOLERANCE = 0.001f;
-
-		for (int j = 0; j < 4; j++) {
-			float d = glm::distance(casterTile + 0.5f, targetTile + faceOffsets[j]);
-			if (d <= minGeoDist + TOLERANCE) {
-				int tx = (int)targetTile.x + (int)faceDirs[j].x;
-				int ty = (int)targetTile.y + (int)faceDirs[j].y;
-				// If at least one shortest face is NOT a wall, the target is exposed.
-				if (!isTileWall(tx, ty)) {
-					isCovered = false;
-					break;
+			for (int i = 0; i < 2; i++) {
+				int faceIndex = faceDistances[i].second;
+				glm::vec2 adjacentTile = targetTile + targetFaceDirs[faceIndex];
+				if (isTileWall((int)adjacentTile.x, (int)adjacentTile.y)) {
+					result.reason = INVALID_HARD_COVER;
+					return result;
 				}
 			}
 		}
 
-		if (isCovered) {
-			result.reason = INVALID_NO_LOS;
-			return result;
-		}
+		// RULE 2: FIND SHORTEST VISIBLE PATH
+		float shortestVisiblePath = std::numeric_limits<float>::max(); // This is the variable the goto was skipping!
+		{
+			glm::vec2 casterFaces[] = { casterTile + glm::vec2(0.5f, 0.0f), casterTile + glm::vec2(0.5f, 1.0f), casterTile + glm::vec2(0.0f, 0.5f), casterTile + glm::vec2(1.0f, 0.5f) };
+			glm::vec2 casterFaceDirs[] = { { 0, -1 }, { 0, 1 }, { -1, 0 }, { 1, 0 } };
+			glm::vec2 targetFaces[] = { targetTile + glm::vec2(0.5f, 0.0f), targetTile + glm::vec2(0.5f, 1.0f), targetTile + glm::vec2(0.0f, 0.5f), targetTile + glm::vec2(1.0f, 0.5f) };
+			glm::vec2 targetFaceDirs[] = { { 0, -1 }, { 0, 1 }, { -1, 0 }, { 1, 0 } };
 
-		// --- PHASE 2: FIND BEST PATH ---
-		float shortestPathDist = std::numeric_limits<float>::max();
-		glm::vec2 bestOrigin = { -1, -1 }, bestDest = { -1, -1 };
-		bool foundPath = false;
+			for (int i = 0; i < 4; i++) {
+				glm::vec2 casterAdj = casterTile + casterFaceDirs[i];
+				if (isTileWall((int)casterAdj.x, (int)casterAdj.y)) continue;
 
-		for (int i = 0; i < 4; i++) {
-			int cx = (int)casterTile.x + (int)faceDirs[i].x;
-			int cy = (int)casterTile.y + (int)faceDirs[i].y;
-			if (isTileWall(cx, cy)) continue;
+				for (int j = 0; j < 4; j++) {
+					glm::vec2 targetAdj = targetTile + targetFaceDirs[j];
+					if (isTileWall((int)targetAdj.x, (int)targetAdj.y)) continue;
 
-			glm::vec2 origin = casterTile + faceOffsets[i];
-
-			for (int j = 0; j < 4; j++) {
-				int tx = (int)targetTile.x + (int)faceDirs[j].x;
-				int ty = (int)targetTile.y + (int)faceDirs[j].y;
-				if (isTileWall(tx, ty)) continue;
-
-				glm::vec2 dest = targetTile + faceOffsets[j];
-				float d = glm::distance(origin, dest);
-
-				if (d <= maxFaceDist + 0.001f) {
-					if (d < shortestPathDist) {
-						if (checkRayPhysics(origin, dest)) {
-							shortestPathDist = d;
-							bestOrigin = origin;
-							bestDest = dest;
-							foundPath = true;
-						}
+					if (checkRayPhysics(casterFaces[i], targetFaces[j])) {
+						shortestVisiblePath = std::min(shortestVisiblePath, glm::distance(casterFaces[i], targetFaces[j]));
 					}
 				}
 			}
 		}
 
-		if (!foundPath) {
-			float rawDist = getFaceToFaceDistance(casterTile, targetTile);
-			result.reason = (rawDist > maxFaceDist + 0.001f) ? INVALID_OUT_OF_RANGE : INVALID_HARD_COVER;
+		if (shortestVisiblePath > 1000.0f) {
+			result.reason = INVALID_NO_LOS;
+			return result;
+		}
+
+		// RULE 3: RANGE & DISTANCE CHECK
+		float neededFeet = round(shortestVisiblePath * 5.0f);
+		if (neededFeet > maxRangeFeet) {
+			result.reason = INVALID_OUT_OF_RANGE;
 			return result;
 		}
 	}
 
-DETERMINE_TARGET_TYPE:
-	// --- RULE 5: VALIDATE TARGET CONTENTS ---
+	// --- FINAL CHECK (shared by both paths): IS THE TARGET TYPE VALID? ---
 	result.reason = VALID;
 	bool isOccupied = board[(int)targetTile.x][(int)targetTile.y].hasPlayer;
 
-	if (isOccupied) {
-		result.isTargetable = true;
-	} else {
-		// Only Magic Blast targets empty squares if neighbors exist
-		if (cardType == CARD_MAGIC_BLAST) {
+	if (cardType == CARD_FIREBALL || cardType == CARD_ETHEREAL_JOLT) {
+		result.isTargetable = isOccupied;
+	} else if (cardType == CARD_MAGIC_BLAST) {
+		if (isOccupied) {
+			result.isTargetable = true;
+		} else {
 			bool hasNeighbor = false;
 			glm::vec2 neighbors[] = { { 1, 0 }, { -1, 0 }, { 0, 1 }, { 0, -1 } };
 			for (auto n : neighbors) {
@@ -5883,10 +5781,11 @@ DETERMINE_TARGET_TYPE:
 				}
 			}
 			result.isTargetable = hasNeighbor;
-		} else {
-			result.isTargetable = false;
 		}
+	} else {
+		result.isTargetable = isOccupied;
 	}
+
 	return result;
 }
 //--------------------------------------------------------------
@@ -5999,7 +5898,7 @@ float ofApp::getFaceToFaceDistance(glm::vec2 casterTile, glm::vec2 targetTile) {
 	glm::vec2 faceOffsets[] = { { 0.5f, 0.0f }, { 0.5f, 1.0f }, { 0.0f, 0.5f }, { 1.0f, 0.5f } };
 	glm::vec2 faceDirs[] = { { 0, -1 }, { 0, 1 }, { -1, 0 }, { 1, 0 } };
 
-	// 1. Identify Valid Target Faces (Using isTileBlocked)
+	// 1. Identify Valid Target Faces
 	float minGeoDist = std::numeric_limits<float>::max();
 	for (int j = 0; j < 4; j++) {
 		float d = glm::distance(casterTile + 0.5f, targetTile + faceOffsets[j]);
@@ -6012,7 +5911,8 @@ float ofApp::getFaceToFaceDistance(glm::vec2 casterTile, glm::vec2 targetTile) {
 		if (d <= minGeoDist + 0.001f) {
 			int tx = (int)targetTile.x + (int)faceDirs[j].x;
 			int ty = (int)targetTile.y + (int)faceDirs[j].y;
-			if (!isTileBlocked(tx, ty)) validTargetFaces.push_back(j);
+			// BUG FIX HERE: Changed from isTileBlocked to isTileWall
+			if (!isTileWall(tx, ty)) validTargetFaces.push_back(j);
 		}
 	}
 
@@ -6025,7 +5925,8 @@ float ofApp::getFaceToFaceDistance(glm::vec2 casterTile, glm::vec2 targetTile) {
 	for (int i = 0; i < 4; i++) {
 		int cx = (int)casterTile.x + (int)faceDirs[i].x;
 		int cy = (int)casterTile.y + (int)faceDirs[i].y;
-		if (isTileBlocked(cx, cy)) continue; // Blocked by Wall OR Unit
+		// BUG FIX HERE: Changed from isTileBlocked to isTileWall
+		if (isTileWall(cx, cy)) continue; // Now only blocked by Walls
 
 		glm::vec2 origin = casterTile + faceOffsets[i];
 
