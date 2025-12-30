@@ -865,21 +865,45 @@ void ofApp::updateGame() {
 	if (isWaitingForAttackDice && activeDiceRolls.empty()) {
 		isWaitingForAttackDice = false;
 		int baseDamage = pendingAttackRollResult;
+
 		for (size_t i = 0; i < pendingAttackTargetIndices.size(); i++) {
 			int pIndex = pendingAttackTargetIndices[i];
 			Player * target = getPlayer(pIndex);
 			if (target) {
 				int appliedDamage = baseDamage;
+
+				// Handle Piercing (Half damage to secondary targets)
 				if (pendingAttackDamageType == DAMAGE_PIERCING && i > 0) appliedDamage /= 2;
+
+				// 1. Ward Logic
 				int wardDmg = std::min(target->ward, appliedDamage);
 				target->ward -= wardDmg;
 				appliedDamage -= wardDmg;
+
+				// 2. Block Logic (Physical) or Barrier Logic (Magic/Elec/Fire)
 				if (pendingAttackDamageType == DAMAGE_PHYSICAL) {
 					int blockDmg = std::min(target->block, appliedDamage);
 					target->block -= blockDmg;
 					appliedDamage -= blockDmg;
+				} else if (pendingAttackDamageType != DAMAGE_PIERCING) {
+					// Rock Crush might be physical, but if you have magic dice attacks, they hit Barrier
+					int barrierDmg = std::min(target->barrier, appliedDamage);
+					target->barrier -= barrierDmg;
+					appliedDamage -= barrierDmg;
 				}
-				target->health -= appliedDamage;
+
+				// 3. Apply Health Damage & Spawn Text
+				glm::vec3 tPos = gridToWorld(target->x, target->y);
+
+				if (appliedDamage > 0) {
+					target->health -= appliedDamage;
+					// Red text for physical/generic damage
+					spawnFloatingText(tPos, "-" + ofToString(appliedDamage), ofColor::red);
+				} else {
+					// Grey text if armor stopped it all
+					spawnFloatingText(tPos, "Blocked", ofColor::gray);
+				}
+
 				ofLogNotice("Combat") << "Hit Player " << target->playerID << " for " << appliedDamage << " damage.";
 			}
 		}
@@ -1026,16 +1050,35 @@ void ofApp::updateGame() {
 		if (target) {
 			int damage = pendingFireballDamageResult;
 			int initialHealth = target->health;
+
+			// Apply Ward
 			int wardDamage = std::min(target->ward, damage);
 			target->ward -= wardDamage;
 			damage -= wardDamage;
+
+			// Apply Health Damage
 			target->health -= damage;
+
+			// --- VISUAL FEEDBACK START ---
+			glm::vec3 targetPos = gridToWorld(target->x, target->y);
+
+			// 1. Show Damage Number
+			if (damage > 0) {
+				spawnFloatingText(targetPos, "-" + ofToString(damage), ofColor::orange);
+			} else {
+				spawnFloatingText(targetPos, "Absorbed", ofColor::gray);
+			}
+
+			// 2. Apply Fire Status
 			if (target->health < initialHealth) {
 				target->onFire = true;
+				// Offset the text slightly higher so it doesn't overlap the damage number
+				spawnFloatingText(targetPos + glm::vec3(0, 0.8f, 0), "BURNING!", ofColor::red);
 			}
+			// --- VISUAL FEEDBACK END ---
 		}
 		fireballTargetPlayerIndex = -1;
-	} // <--- Paste AFTER this closing brace
+	}
 
 	// --- PASTE HERE ---
 	if (isWaitingForSummonHealth && activeDiceRolls.empty()) {
@@ -1123,9 +1166,7 @@ void ofApp::updateGame() {
 		float maxDistUnits = pendingJoltRangeResult / 5.0f;
 
 		// 2. Calculate Required Distance (IGNORING WALLS)
-		// FIX: Do not use getFaceToFaceDistance here, because it checks for wall blocking.
 		// Jolt goes through walls, so we use pure Euclidean Edge-to-Edge distance.
-		// Distance = Center-to-Center minus 1.0 (The two half-tiles of radius)
 		float centerDist = glm::distance(casterTile, pendingJoltTargetTile);
 		float neededDist = std::max(0.0f, centerDist - 1.0f);
 
@@ -1146,34 +1187,51 @@ void ofApp::updateGame() {
 			}
 
 			if (target) {
+				glm::vec3 targetPos = gridToWorld(target->x, target->y);
+
 				// Effect 1: Deal 7 Magic Damage
 				int damage = 7;
+
+				// Barrier Check
 				int barrierDmg = std::min(target->barrier, damage);
 				target->barrier -= barrierDmg;
 				damage -= barrierDmg;
 
+				// Ward Check
 				if (damage > 0) {
 					int wardDmg = std::min(target->ward, damage);
 					target->ward -= wardDmg;
 					damage -= wardDmg;
 				}
 
-				if (damage > 0) target->health -= damage;
+				// Health Damage & Text
+				if (damage > 0) {
+					target->health -= damage;
+					spawnFloatingText(targetPos, "-" + ofToString(damage), ofColor::cyan);
+				} else {
+					spawnFloatingText(targetPos, "Absorbed", ofColor::gray);
+				}
 				ofLogNotice("Jolt") << "Dealt Damage. Health now: " << target->health;
 
 				// Effect 2: Paralyze
 				target->isParalyzed = true;
 				target->paralysisHeadsCount = 0;
+				// Offset Y slightly so text doesn't overlap damage numbers
+				spawnFloatingText(targetPos + glm::vec3(0, 0.6f, 0), "PARALYZED!", ofColor::yellow);
 				ofLogNotice("Jolt") << "Target Paralyzed.";
 
 				// Effect 3: Mill Top Card
 				if (!target->deck.empty()) {
 					target->deck.pop_back();
+					// Offset Y even more
+					spawnFloatingText(targetPos + glm::vec3(0, 1.2f, 0), "Mind Rot!", ofColor::purple);
 					ofLogNotice("Jolt") << "Target's top card removed.";
 				}
 			}
 		} else {
 			ofLogNotice("Jolt") << "Fell short! (Rolled " << pendingJoltRangeResult << "ft, needed " << requiredFeet << "ft)";
+			glm::vec3 failPos = gridToWorld(pendingJoltTargetTile.x, pendingJoltTargetTile.y);
+			spawnFloatingText(failPos, "Out of Range", ofColor::white);
 		}
 	}
 
@@ -1193,9 +1251,11 @@ void ofApp::updateGame() {
 				target->health = target->maxHealth;
 			}
 
-			ofLogNotice("Heal") << "Player " << target->playerID
-								<< " healed for " << healAmount
-								<< ". Current HP: " << target->health;
+			// ADD THIS: Green Text
+			glm::vec3 tPos = gridToWorld(target->x, target->y);
+			spawnFloatingText(tPos, "+" + ofToString(healAmount) + " HP", ofColor::green);
+
+			ofLogNotice("Heal") << "Player " << target->playerID << " healed.";
 		}
 		pendingHealTargetIndex = -1;
 	}
@@ -1205,9 +1265,14 @@ void ofApp::updateGame() {
 		isWaitingForBarrierDice = false;
 		Player & p = players[currentPlayerIndex];
 		p.barrier += pendingDispelRollResult;
+
+		// ADD THIS: Pinkish Text
+		spawnFloatingText(gridToWorld(p.x, p.y),
+			"+" + ofToString(pendingDispelRollResult) + " Barrier",
+			ofColor::hotPink);
+
 		ofLogNotice("Dispel") << "Gained " << pendingDispelRollResult << " Barrier.";
 	}
-
 	// --- Teleport Logic ---
 	if (isWaitingForTeleportDice && activeDiceRolls.empty()) {
 		isWaitingForTeleportDice = false;
@@ -1301,7 +1366,18 @@ void ofApp::updateGame() {
 			++it;
 		}
 	}
+	// Update Floating Text
+	for (auto it = activeFloatingTexts.begin(); it != activeFloatingTexts.end();) {
+		float dt = ofGetLastFrameTime();
+		it->worldPos += it->velocity * dt;
+		it->velocity.y *= 0.95f; // Slow down upward movement (gravity drag)
 
+		if (ofGetElapsedTimef() - it->startTime > it->duration) {
+			it = activeFloatingTexts.erase(it);
+		} else {
+			++it;
+		}
+	}
 	// --- Animation Updates ---
 	for (auto & anim : activeStolenCardAnimations) {
 		float elapsedTime = ofGetElapsedTimef() - anim.startTime;
@@ -2209,7 +2285,35 @@ void ofApp::drawGame() {
 			ofPopMatrix();
 		}
 	};
+	// Draw Floating Text
+	for (const auto & ft : activeFloatingTexts) {
+		glm::vec2 screenPos = cam.worldToScreen(ft.worldPos);
 
+		// Fade out alpha
+		float life = (ofGetElapsedTimef() - ft.startTime) / ft.duration;
+		float alpha = 255 * (1.0f - pow(life, 3.0f));
+
+		ofSetColor(ft.color.r, ft.color.g, ft.color.b, alpha);
+
+		// Draw text centered with a simple black shadow
+		ofRectangle bounds = titleFont.getStringBoundingBox(ft.text, 0, 0);
+
+		ofPushMatrix();
+		ofTranslate(screenPos.x, screenPos.y);
+
+		// Scale up slightly as it spawns (pop effect)
+		float s = ofMap(life, 0.0, 0.1, 0.0, 0.5, true);
+		if (life > 0.1) s = 0.5;
+		ofScale(s, s);
+
+		ofSetColor(0, 0, 0, alpha);
+		titleFont.drawString(ft.text, -bounds.width / 2 + 2, -bounds.height / 2 + 2); // Shadow
+
+		ofSetColor(ft.color, alpha);
+		titleFont.drawString(ft.text, -bounds.width / 2, -bounds.height / 2); // Main
+
+		ofPopMatrix();
+	}
 	// --- MAIN UI DRAWING ---
 	// --- FIX: Find the main players to prevent UI bugs with minions ---
 	Player * player0 = nullptr;
@@ -2985,6 +3089,8 @@ void ofApp::mousePressed(int x, int y, int button) {
 			// 3. Health takes the final damage
 			if (damage > 0) {
 				targetPlayer->health -= damage;
+				// ADD THIS:
+				spawnFloatingText(gridToWorld(targetPlayer->x, targetPlayer->y), "-" + ofToString(damage), ofColor::magenta);
 			}
 
 			ofLogNotice("MagicBlast") << "Player " << targetPlayer->playerID << " chose Damage.";
@@ -3090,21 +3196,38 @@ void ofApp::mousePressed(int x, int y, int button) {
 		bool isSelfTarget = (pendingWisdomBoonTargetIndex == currentPlayerIndex);
 
 		if (wisdomBtnDamage.inside(x, y)) {
+			glm::vec3 targetPos = gridToWorld(target->x, target->y);
+
 			if (isSelfTarget) {
 				ofLogNotice("Wisdom Boon") << "Granting " << effectValue << " Block to Self.";
 				target->block += effectValue;
+
+				// CHANGE: From Cyan to Gray
+				spawnFloatingText(targetPos, "+" + ofToString(effectValue) + " Block", ofColor::gray);
 			} else {
 				ofLogNotice("Wisdom Boon") << "Dealing " << effectValue << " Magic Damage to Enemy.";
 				int dmg = effectValue;
+
+				// Barrier Interaction
 				int barrierDmg = std::min(target->barrier, dmg);
 				target->barrier -= barrierDmg;
 				dmg -= barrierDmg;
+
+				// Ward Interaction
 				if (dmg > 0) {
 					int wardDmg = std::min(target->ward, dmg);
 					target->ward -= wardDmg;
 					dmg -= wardDmg;
 				}
-				if (dmg > 0) target->health -= dmg;
+
+				// Health Interaction & Text
+				if (dmg > 0) {
+					target->health -= dmg;
+					// VISUAL: Magic Damage
+					spawnFloatingText(targetPos, "-" + ofToString(dmg), ofColor::purple);
+				} else {
+					spawnFloatingText(targetPos, "Absorbed", ofColor::gray);
+				}
 			}
 			choiceMade = true;
 		} else if (!wisdomMenuRect.inside(x, y)) {
@@ -3782,6 +3905,10 @@ void ofApp::startNewTurn() {
 	if (startingPlayer.hasRegeneration) {
 		if (startingPlayer.health < startingPlayer.maxHealth) {
 			startingPlayer.health++;
+
+			// ADD THIS: Green Text
+			spawnFloatingText(gridToWorld(startingPlayer.x, startingPlayer.y), "+1 Regen", ofColor::green);
+
 			ofLogNotice("Regen") << "Regenerated 1 HP.";
 		}
 	}
@@ -3949,6 +4076,8 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		// --- FINAL HEALTH DAMAGE ---
 		if (remainingDmg > 0) {
 			target.health -= remainingDmg;
+			glm::vec3 targetPos = gridToWorld(target.x, target.y);
+			spawnFloatingText(targetPos, "-" + ofToString(remainingDmg), ofColor::red);
 			ofLogNotice("Game") << remainingDmg << " damage taken to Health! (HP: " << target.health << ")";
 		}
 
@@ -4538,11 +4667,19 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 
 	case CARD_GAIN_BLOCK:
 		players[currentPlayerIndex].block += playedCard.value;
+		// ADD THIS: Grey Text
+		spawnFloatingText(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y),
+			"+" + ofToString(playedCard.value) + " Block",
+			ofColor::gray);
 		playedSuccessfully = true;
 		break;
 
 	case CARD_GAIN_WARD:
 		players[currentPlayerIndex].ward += playedCard.value;
+		// ADD THIS: Black Text
+		spawnFloatingText(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y),
+			"+" + ofToString(playedCard.value) + " Ward",
+			ofColor::black);
 		playedSuccessfully = true;
 		break;
 
@@ -4832,6 +4969,18 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 			}
 		}
 	}
+}
+//--------------------------------------------------------------
+void ofApp::spawnFloatingText(glm::vec3 pos, std::string text, ofColor color) {
+	FloatingText ft;
+	ft.text = text;
+	// Start slightly above the unit
+	ft.worldPos = pos + glm::vec3(0, 1.5f, 0);
+	// Random slight drift left/right, consistent drift up
+	ft.velocity = glm::vec3(ofRandom(-1.0f, 1.0f), 2.0f, ofRandom(-1.0f, 1.0f));
+	ft.startTime = ofGetElapsedTimef();
+	ft.color = color;
+	activeFloatingTexts.push_back(ft);
 }
 //--------------------------------------------------------------
 void ofApp::invalidateTargetCache() {

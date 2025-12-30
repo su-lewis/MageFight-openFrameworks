@@ -2,12 +2,12 @@
 
 #include "ofMain.h"
 #include "ofxAssimpModelLoader.h"
-#include <glm/gtx/intersect.hpp>
-#include <vector>
-#include <queue>
-#include <set>
-#include <random>
 #include <algorithm>
+#include <glm/gtx/intersect.hpp>
+#include <queue>
+#include <random>
+#include <set>
+#include <vector>
 
 // =================================================================================================
 //                                      CONSTANTS & ENUMS
@@ -17,155 +17,220 @@
 #define BOARD_HEIGHT 9
 // TILE_SIZE is defined as a const member in the class
 
-enum GameState { 
-    STATE_MAIN_MENU, STATE_SETTINGS, STATE_GAMEPLAY, STATE_PAUSED 
+enum GameState {
+	STATE_MAIN_MENU,
+	STATE_SETTINGS,
+	STATE_GAMEPLAY,
+	STATE_PAUSED
 };
 
-enum PlayerActionState { 
-    NONE, PIECE_SELECTED, PIECE_DRAGGING 
+enum PlayerActionState {
+	NONE,
+	PIECE_SELECTED,
+	PIECE_DRAGGING
 };
 
-enum GameplayState { 
-    AWAITING_INPUT, ANIMATING, WAITING_FOR_DICE, MODAL_CHOICE 
+enum GameplayState {
+	AWAITING_INPUT,
+	ANIMATING,
+	WAITING_FOR_DICE,
+	MODAL_CHOICE
 };
 
-enum DamageType { 
-    DAMAGE_PHYSICAL, DAMAGE_PIERCING, DAMAGE_MAGIC, DAMAGE_ELECTRIC, DAMAGE_FIRE 
+enum DamageType {
+	DAMAGE_PHYSICAL,
+	DAMAGE_PIERCING,
+	DAMAGE_MAGIC,
+	DAMAGE_ELECTRIC,
+	DAMAGE_FIRE
 };
 
-enum TargetingType { 
-    TARGET_NONE, TARGET_EMPTY_TILE, TARGET_ANY_TILE, TARGET_WALL, 
-    TARGET_ADJACENT_UNIT, TARGET_SELF, TARGET_LINEAR_PIERCE, 
-    TARGET_CLEAVE_ADJACENT, TARGET_ADJACENT_OR_SELF_UNIT, 
-    TARGET_LINE_OF_SIGHT_TILE, TARGET_BURST_AREA, 
-    TARGET_ADJACENT_UNIT_OR_WALL, TARGET_EMPTY_ADJACENT 
+enum TargetingType {
+	TARGET_NONE,
+	TARGET_EMPTY_TILE,
+	TARGET_ANY_TILE,
+	TARGET_WALL,
+	TARGET_ADJACENT_UNIT,
+	TARGET_SELF,
+	TARGET_LINEAR_PIERCE,
+	TARGET_CLEAVE_ADJACENT,
+	TARGET_ADJACENT_OR_SELF_UNIT,
+	TARGET_LINE_OF_SIGHT_TILE,
+	TARGET_BURST_AREA,
+	TARGET_ADJACENT_UNIT_OR_WALL,
+	TARGET_EMPTY_ADJACENT
 };
 
-enum CardType { 
-    CARD_NONE, CARD_MOVE, CARD_CREATE_WALL, CARD_ATTACK_SINGLE_TILE, 
-    CARD_ATTACK_AREA, CARD_DESTROY_WALL, CARD_GAIN_AP, CARD_GAIN_BLOCK, 
-    CARD_GAIN_WARD, CARD_MAGIC_BLAST, CARD_FIREBALL, CARD_ARCANE_BURST, 
-    CARD_SHOCK, CARD_ROCK_CRUSH, CARD_MIND_THEFT, CARD_AMNESIA, 
-    CARD_DISPEL, CARD_TELEPORT, CARD_HASTEN, CARD_REPLICATE, 
-    CARD_WISDOM_BOON, CARD_ETHEREAL_JOLT, CARD_FLAME_HIT, 
-    CARD_HEAL, CARD_RAISE_DEAD 
+enum CardType {
+	CARD_NONE,
+	CARD_MOVE,
+	CARD_CREATE_WALL,
+	CARD_ATTACK_SINGLE_TILE,
+	CARD_ATTACK_AREA,
+	CARD_DESTROY_WALL,
+	CARD_GAIN_AP,
+	CARD_GAIN_BLOCK,
+	CARD_GAIN_WARD,
+	CARD_MAGIC_BLAST,
+	CARD_FIREBALL,
+	CARD_ARCANE_BURST,
+	CARD_SHOCK,
+	CARD_ROCK_CRUSH,
+	CARD_MIND_THEFT,
+	CARD_AMNESIA,
+	CARD_DISPEL,
+	CARD_TELEPORT,
+	CARD_HASTEN,
+	CARD_REPLICATE,
+	CARD_WISDOM_BOON,
+	CARD_ETHEREAL_JOLT,
+	CARD_FLAME_HIT,
+	CARD_HEAL,
+	CARD_RAISE_DEAD
 };
 
-enum DicePurpose { 
-    PURPOSE_AP, PURPOSE_DAMAGE, PURPOSE_RANGE, PURPOSE_COIN_FLIP, 
-    PURPOSE_DEBUG, PURPOSE_BARRIER_GAIN, PURPOSE_HP, PURPOSE_HEALING 
+enum DicePurpose {
+	PURPOSE_AP,
+	PURPOSE_DAMAGE,
+	PURPOSE_RANGE,
+	PURPOSE_COIN_FLIP,
+	PURPOSE_DEBUG,
+	PURPOSE_BARRIER_GAIN,
+	PURPOSE_HP,
+	PURPOSE_HEALING
 };
 
-enum TargetValidity { 
-    VALID, INVALID_OUT_OF_RANGE, INVALID_NO_LOS, INVALID_HARD_COVER, 
-    INVALID_CHOKE_POINT, INVALID_OCCUPIED_BY_WALL, INVALID_SELF 
+enum TargetValidity {
+	VALID,
+	INVALID_OUT_OF_RANGE,
+	INVALID_NO_LOS,
+	INVALID_HARD_COVER,
+	INVALID_CHOKE_POINT,
+	INVALID_OCCUPIED_BY_WALL,
+	INVALID_SELF
 };
 
-enum PileViewMode { 
-    VIEW_NONE, VIEW_DECK, VIEW_DISCARD 
+enum PileViewMode {
+	VIEW_NONE,
+	VIEW_DECK,
+	VIEW_DISCARD
 };
 
 // =================================================================================================
 //                                          STRUCTS
 // =================================================================================================
 
-struct TargetInfo { 
-    bool isTargetable = false; 
-    TargetValidity reason = INVALID_OUT_OF_RANGE; 
+struct TargetInfo {
+	bool isTargetable = false;
+	TargetValidity reason = INVALID_OUT_OF_RANGE;
 };
 
-struct DiceRoll { 
-    DicePurpose purpose; 
-    int sides = 6; 
-    int result = 0; 
-    bool isFinishedVisual = false; 
-    float startTime = 0; 
-    glm::quat finalQuat; 
-    float currentRotation = 0; 
-    glm::vec3 rotationAxis; 
+struct DiceRoll {
+	DicePurpose purpose;
+	int sides = 6;
+	int result = 0;
+	bool isFinishedVisual = false;
+	float startTime = 0;
+	glm::quat finalQuat;
+	float currentRotation = 0;
+	glm::vec3 rotationAxis;
 };
 
-struct Card { 
-    std::string name; 
-    ofRectangle textureRect; 
-    float currentScale = 1.0f; 
-    float targetScale = 1.0f; 
-    ofVec2f currentPos; 
-    ofVec2f targetPos; 
-    CardType type = CARD_NONE; 
-    int value = 0; 
-    int numDice = 0; 
-    int diceSides = 0; 
-    DamageType damageType = DAMAGE_PHYSICAL; 
-    int cost = 1; 
-    TargetingType targeting = TARGET_ANY_TILE; 
+struct Card {
+	std::string name;
+	ofRectangle textureRect;
+	float currentScale = 1.0f;
+	float targetScale = 1.0f;
+	ofVec2f currentPos;
+	ofVec2f targetPos;
+	CardType type = CARD_NONE;
+	int value = 0;
+	int numDice = 0;
+	int diceSides = 0;
+	DamageType damageType = DAMAGE_PHYSICAL;
+	int cost = 1;
+	TargetingType targeting = TARGET_ANY_TILE;
 };
 
-struct PlayedCardDisplay { 
-    Card card; 
-    float startTime; 
+struct PlayedCardDisplay {
+	Card card;
+	float startTime;
 };
 
-struct StolenCardAnimation { 
-    Card card; 
-    float startTime; 
-    glm::vec3 startPos; 
-    glm::vec2 targetPos; 
-    glm::vec2 currentPos; 
-    float currentScale = 0.1f; 
-    float currentAlpha = 0.0f; 
+struct StolenCardAnimation {
+	Card card;
+	float startTime;
+	glm::vec3 startPos;
+	glm::vec2 targetPos;
+	glm::vec2 currentPos;
+	float currentScale = 0.1f;
+	float currentAlpha = 0.0f;
 };
 
-struct RemovedCardAnimation { 
-    Card card; 
-    glm::vec2 startPos; 
-    float startTime; 
-    float currentScale; 
-    float currentAlpha; 
+struct RemovedCardAnimation {
+	Card card;
+	glm::vec2 startPos;
+	float startTime;
+	float currentScale;
+	float currentAlpha;
 };
 
-struct Tile { 
-    bool hasPlayer = false; 
-    bool hasWall = false; 
-    bool isHighlighted = false; 
-    bool isTargetable = false; 
-    bool visited = false; 
-    glm::vec2 parent = { -1, -1 }; 
+struct Tile {
+	bool hasPlayer = false;
+	bool hasWall = false;
+	bool isHighlighted = false;
+	bool isTargetable = false;
+	bool visited = false;
+	glm::vec2 parent = { -1, -1 };
 };
 
-struct Player { 
-    int x; int y; 
-    int health = 15; int maxHealth = 15; 
-    int block = 0; int ward = 0; int barrier = 0; 
-    int playerID = 0; 
-    bool onFire = false;
+struct Player {
+	int x;
+	int y;
+	int health = 15;
+	int maxHealth = 15;
+	int block = 0;
+	int ward = 0;
+	int barrier = 0;
+	int playerID = 0;
+	bool onFire = false;
 
-    // Status & Buffs
-    int nextTurnAPBonus = 0; 
-    int shocksPlayedThisTurn = 0; 
-    bool isParalyzed = false; 
-    int paralysisHeadsCount = 0; 
-    bool nextTurnD10AP = false; 
-    bool nextTurnExtraDraw = false; 
-    bool isReplicatePending = false;
-    
-    // Minion Data
-    bool isMinion = false; 
-    bool isSkeleton = false; 
-    int ownerID = -1; 
-    bool hasRegeneration = false; 
+	// Status & Buffs
+	int nextTurnAPBonus = 0;
+	int shocksPlayedThisTurn = 0;
+	bool isParalyzed = false;
+	int paralysisHeadsCount = 0;
+	bool nextTurnD10AP = false;
+	bool nextTurnExtraDraw = false;
+	bool isReplicatePending = false;
 
-    // Piles
-    std::vector<Card> playedCardsPile; 
-    std::vector<Card> hand; 
-    std::vector<Card> deck; 
-    std::vector<Card> discardPile; 
+	// Minion Data
+	bool isMinion = false;
+	bool isSkeleton = false;
+	int ownerID = -1;
+	bool hasRegeneration = false;
+
+	// Piles
+	std::vector<Card> playedCardsPile;
+	std::vector<Card> hand;
+	std::vector<Card> deck;
+	std::vector<Card> discardPile;
 };
 
-struct DeathMarker { 
-    int x; int y; 
-    int turnDied; 
-    std::vector<Card> deck; 
+struct DeathMarker {
+	int x;
+	int y;
+	int turnDied;
+	std::vector<Card> deck;
+};
+
+struct FloatingText {
+	std::string text;
+	glm::vec3 worldPos; // Where it started in 3D
+	glm::vec3 velocity; // Upward drift
+	float startTime;
+	float duration = 1.5f;
+	ofColor color;
 };
 
 // =================================================================================================
@@ -174,354 +239,357 @@ struct DeathMarker {
 
 class ofApp : public ofBaseApp {
 public:
-    void setup();
-    void update();
-    void draw();
-    
-    void keyPressed(int key);
-    void keyReleased(int key);
-    void mouseMoved(int x, int y);
-    void mouseDragged(int x, int y, int button);
-    void mousePressed(int x, int y, int button);
-    void mouseReleased(int x, int y, int button);
-    void mouseEntered(int x, int y);
-    void mouseExited(int x, int y);
-    void windowResized(int w, int h);
-    void dragEvent(ofDragInfo dragInfo);
-    void gotMessage(ofMessage msg);
-    void mouseScrolled(int x, int y, float scrollX, float scrollY);
+	void setup();
+	void update();
+	void draw();
+
+	void keyPressed(int key);
+	void keyReleased(int key);
+	void mouseMoved(int x, int y);
+	void mouseDragged(int x, int y, int button);
+	void mousePressed(int x, int y, int button);
+	void mouseReleased(int x, int y, int button);
+	void mouseEntered(int x, int y);
+	void mouseExited(int x, int y);
+	void windowResized(int w, int h);
+	void dragEvent(ofDragInfo dragInfo);
+	void gotMessage(ofMessage msg);
+	void mouseScrolled(int x, int y, float scrollX, float scrollY);
 
 private:
-    // -------------------------------------------------------------------------
-    //                              CORE SYSTEMS
-    // -------------------------------------------------------------------------
-    void setupGame();
-    void updateGame();
-    void drawGame();
-    void cleanupGame();
-    
-    void startNewTurn();
-    void continueNewTurn();
-    
-    void drawMainMenu();
-    void drawSettingsMenu();
-    void drawPauseMenu();
-    void applySettings();
-    void recalculateUI(int w, int h);
-    void updateDebugRects();
+	// -------------------------------------------------------------------------
+	//                              CORE SYSTEMS
+	// -------------------------------------------------------------------------
+	void setupGame();
+	void updateGame();
+	void drawGame();
+	void cleanupGame();
 
-    // -------------------------------------------------------------------------
-    //                              GAMEPLAY LOGIC
-    // -------------------------------------------------------------------------
-    void drawCard();
-    void playCard(int cardIndex, int targetX, int targetY);
-    int startDiceRoll(int numDice, int sides, DicePurpose purpose);
-    
-    void calculateHighlights();
-    void calculateTargetHighlights(int cardToCalculate = -1);
-    void invalidateTargetCache();
-    void clearHighlights();
-    
-    // -------------------------------------------------------------------------
-    //                          DATA & HELPERS
-    // -------------------------------------------------------------------------
-    void loadCardData(const std::string& filePath);
-    
-    // Enum Converters
-    CardType stringToCardType(const std::string& str);
-    TargetingType stringToTargetingType(const std::string& str);
-    DamageType stringToDamageType(const std::string& str);
+	void startNewTurn();
+	void continueNewTurn();
 
-    // Math & Coordinates
-    ofVec2f mouseToBoard(int x, int y);
-    glm::vec2 worldToGrid(glm::vec3 worldPos);
-    glm::vec3 gridToWorld(int gridX, int gridY);
-    Player * getPlayer(int index);
-    std::vector<glm::vec2> findShortestPath(glm::vec2 start, glm::vec2 end);
-    glm::quat matchFaceToCamera(glm::vec3 faceNormal);
+	void drawMainMenu();
+	void drawSettingsMenu();
+	void drawPauseMenu();
+	void applySettings();
+	void recalculateUI(int w, int h);
+	void updateDebugRects();
 
-    // Targeting Algorithms
-    std::vector<Player *> findCleaveTargets(glm::vec2 direction);
-    TargetInfo isLosTargetValid(glm::vec2 casterTile, glm::vec2 targetTile, float maxRangeFeet, CardType cardType);
-    bool checkRayPhysics(glm::vec2 rayStart, glm::vec2 rayEnd);
-    int isGapTile(glm::vec2 tile);
-    bool isTileBlocked(int x, int y);
-    bool isTileWall(int x, int y);
-    bool isOrthogonalPathBlocked(glm::vec2 start, glm::vec2 end);
-    float getFaceToFaceDistance(glm::vec2 casterTile, glm::vec2 targetTile);
-    std::vector<glm::vec2> getLineOfSightPath(glm::vec2 start, glm::vec2 end);
-    glm::vec2 getClosestPointOnLineSegment(glm::vec2 p, glm::vec2 start, glm::vec2 end);
+	// -------------------------------------------------------------------------
+	//                              GAMEPLAY LOGIC
+	// -------------------------------------------------------------------------
+	void drawCard();
+	void playCard(int cardIndex, int targetX, int targetY);
+	int startDiceRoll(int numDice, int sides, DicePurpose purpose);
 
-    // -------------------------------------------------------------------------
-    //                          RENDERING & MESHES
-    // -------------------------------------------------------------------------
-    void buildLevelMesh();
-    void buildFloorMesh();
+	void calculateHighlights();
+	void calculateTargetHighlights(int cardToCalculate = -1);
+	void invalidateTargetCache();
+	void clearHighlights();
 
-    void allocateWorldFbo(int w, int h);
-    
-    // Specific UI Drawers
-    void drawMagicBlastChoiceUI();
-    void drawWisdomBoonUI();
-    void cancelWisdomBoon();
-    void drawDispelUI();
-    void cancelDispel();
-    void determineStatusOptions(Player* target);
-    void applyDispelEffect(int statusIndex);
+	// -------------------------------------------------------------------------
+	//                          DATA & HELPERS
+	// -------------------------------------------------------------------------
+	void loadCardData(const std::string & filePath);
 
-    // =========================================================================
-    //                            MEMBER VARIABLES
-    // =========================================================================
+	// Enum Converters
+	CardType stringToCardType(const std::string & str);
+	TargetingType stringToTargetingType(const std::string & str);
+	DamageType stringToDamageType(const std::string & str);
 
-    // --- GAME STATE ---
-    GameState currentState = STATE_MAIN_MENU;
-    GameState stateBeforeSettings = STATE_MAIN_MENU;
-    bool isLoadingGame = false;
-    int globalTurnCounter = 0;
+	// Math & Coordinates
+	ofVec2f mouseToBoard(int x, int y);
+	glm::vec2 worldToGrid(glm::vec3 worldPos);
+	glm::vec3 gridToWorld(int gridX, int gridY);
+	Player * getPlayer(int index);
+	std::vector<glm::vec2> findShortestPath(glm::vec2 start, glm::vec2 end);
+	glm::quat matchFaceToCamera(glm::vec3 faceNormal);
 
-    // --- BOARD & ENTITIES ---
-    const float TILE_SIZE = 5.0f;
-    Tile board[BOARD_WIDTH][BOARD_HEIGHT];
-    TargetInfo targetCache[BOARD_WIDTH][BOARD_HEIGHT];
-    std::vector<Player> players;
-    int currentPlayerIndex = -1;
-    std::vector<DeathMarker> graveyard;
+	// Targeting Algorithms
+	std::vector<Player *> findCleaveTargets(glm::vec2 direction);
+	TargetInfo isLosTargetValid(glm::vec2 casterTile, glm::vec2 targetTile, float maxRangeFeet, CardType cardType);
+	bool checkRayPhysics(glm::vec2 rayStart, glm::vec2 rayEnd);
+	int isGapTile(glm::vec2 tile);
+	bool isTileBlocked(int x, int y);
+	bool isTileWall(int x, int y);
+	bool isOrthogonalPathBlocked(glm::vec2 start, glm::vec2 end);
+	float getFaceToFaceDistance(glm::vec2 casterTile, glm::vec2 targetTile);
+	std::vector<glm::vec2> getLineOfSightPath(glm::vec2 start, glm::vec2 end);
+	glm::vec2 getClosestPointOnLineSegment(glm::vec2 p, glm::vec2 start, glm::vec2 end);
 
-    // --- LOGIC CACHE ---
-    int currentAP = 0;
-    bool hasDrawnCardsThisTurn = false;
-    PlayerActionState playerAction = NONE;
-    int selectedPieceGridX = -1; int selectedPieceGridY = -1;
-    int lastCachedPlayerX = -1, lastCachedPlayerY = -1; int lastCachedCardIndex = -1;
+	// -------------------------------------------------------------------------
+	//                          RENDERING & MESHES
+	// -------------------------------------------------------------------------
+	void buildLevelMesh();
+	void buildFloorMesh();
 
-   // --- CAMERA ---
-    ofCamera cam;
-    
-    // Define all lights here so we can access them in setup() and update()
-    ofLight headlight;
-    ofLight keyLight; 
-    ofLight rimLight;
-    std::vector<ofLight> lights; // You can keep this if you still want a list, but we might not need it if we manage them individually
-    float lightNoiseOffset = 0.0f;
-    // Shadow texture
-    ofImage shadowTexture;
+	void allocateWorldFbo(int w, int h);
 
+	// Specific UI Drawers
+	void drawMagicBlastChoiceUI();
+	void drawWisdomBoonUI();
+	void cancelWisdomBoon();
+	void drawDispelUI();
+	void cancelDispel();
+	void determineStatusOptions(Player * target);
+	void applyDispelEffect(int statusIndex);
 
-    float cameraTargetZoom = 35.0f;
-    float cameraCurrentZoom = 35.0f;
-    glm::vec3 cameraTargetPan = glm::vec3(0, 0, 0);
-    glm::vec3 cameraCurrentPan = glm::vec3(0, 0, 0);
-    bool isTopDownView = false;
-    glm::vec3 cameraCurrentPos;
-    glm::vec3 cameraCurrentLookAt;
-    float last3DZoom = 35.0f;
-    float lastWindowWidth = 0;
-    float lastWindowHeight = 0;
+	// =========================================================================
+	//                            MEMBER VARIABLES
+	// =========================================================================
 
-    // --- 3D ASSETS ---
-    ofxAssimpModelLoader playerModel;
-    ofxAssimpModelLoader skeletonModel;
-    ofTexture skeletonTexture; 
-    
-    ofMaterial modelMaterial;
-    ofMaterial diceMaterial;
-    
-    // --- ENVIRONMENT MESHES & TEXTURES ---
-    ofMesh levelMesh; 
-    ofMesh wallMesh; 
-    std::vector<ofMesh> floorMeshes;
-    ofTexture wallTexture;
-    std::vector<ofTexture> floorTextures;
+	// --- GAME STATE ---
+	GameState currentState = STATE_MAIN_MENU;
+	GameState stateBeforeSettings = STATE_MAIN_MENU;
+	bool isLoadingGame = false;
+	int globalTurnCounter = 0;
 
-    // --- POST PROCESSING ---
-    ofFbo worldFbo;
-    ofShader worldPostShader;
-    bool worldPostShaderLoaded = false;
-    bool enableWorldPostProcess = true;
-    bool showWorldFboPreview = false;
+	// --- BOARD & ENTITIES ---
+	const float TILE_SIZE = 5.0f;
+	Tile board[BOARD_WIDTH][BOARD_HEIGHT];
+	TargetInfo targetCache[BOARD_WIDTH][BOARD_HEIGHT];
+	std::vector<Player> players;
+	int currentPlayerIndex = -1;
+	std::vector<DeathMarker> graveyard;
+	std::vector<FloatingText> activeFloatingTexts;
+	void spawnFloatingText(glm::vec3 pos, std::string text, ofColor color);
 
-    // --- ANIMATIONS ---
-    bool isPlayerAnimating = false;
-    glm::vec3 playerVisualPos;
-    std::vector<glm::vec3> animationPath;
-    int currentPathIndex = 0;
-    std::vector<glm::vec2> hoverPath;
-    glm::vec2 lastHoverGridPos = { -1, -1 };
-    
-    std::vector<PlayedCardDisplay> activeCardDisplays;
-    std::vector<StolenCardAnimation> activeStolenCardAnimations;
-    std::vector<RemovedCardAnimation> activeRemovedCardAnimations;
+	// --- LOGIC CACHE ---
+	int currentAP = 0;
+	bool hasDrawnCardsThisTurn = false;
+	PlayerActionState playerAction = NONE;
+	int selectedPieceGridX = -1;
+	int selectedPieceGridY = -1;
+	int lastCachedPlayerX = -1, lastCachedPlayerY = -1;
+	int lastCachedCardIndex = -1;
 
-    // --- CARDS & DECK ---
-    ofImage cardSpriteSheet;
-    ofImage cardBackImage;
-    std::vector<Card> allCards;
+	// --- CAMERA ---
+	ofCamera cam;
 
-    // --- UI INTERACTION ---
-    int selectedCardIndex = -1;
-    int draggedCardIndex = -1;
-    int hoveredCardIndex = -1;
-    ofVec2f dragOffset;
-    ofVec2f mouseDownPos;
-    
-    ofRectangle endTurnButtonRect;
-    ofVec2f endTurnButtonCurrentPos;
-    ofVec2f endTurnButtonTargetPos;
-    bool isHoveringEndTurn = false;
-    
-    ofTrueTypeFont uiFont;
-    ofTrueTypeFont titleFont;
-    
-    // Tooltips & Piles
-    bool isShowingTooltip = false;
-    ofVec2f tooltipPos;
-    std::string tooltipText;
-    
-    bool isHoveringPile = false;
-    PileViewMode hoveredPileType = VIEW_NONE;
-    int hoveredPilePlayerIndex = -1; 
-    float pileHoverStartTime = 0.0f;
-    
-    bool isShowingPileView = false;
-    PileViewMode currentPileView = VIEW_NONE;
-    int currentPileViewPlayerIndex = -1;
-    std::vector<Card> cardsToShowInView;
-    ofRectangle pileViewRect;
-    ofRectangle p0_deckRect, p0_discardRect;
-    ofRectangle p1_deckRect, p1_discardRect;
+	// Define all lights here so we can access them in setup() and update()
+	ofLight headlight;
+	ofLight keyLight;
+	ofLight rimLight;
+	std::vector<ofLight> lights; // You can keep this if you still want a list, but we might not need it if we manage them individually
+	float lightNoiseOffset = 0.0f;
+	// Shadow texture
+	ofImage shadowTexture;
 
-    // --- CARD SPECIFIC VARIABLES ---
+	float cameraTargetZoom = 35.0f;
+	float cameraCurrentZoom = 35.0f;
+	glm::vec3 cameraTargetPan = glm::vec3(0, 0, 0);
+	glm::vec3 cameraCurrentPan = glm::vec3(0, 0, 0);
+	bool isTopDownView = false;
+	glm::vec3 cameraCurrentPos;
+	glm::vec3 cameraCurrentLookAt;
+	float last3DZoom = 35.0f;
+	float lastWindowWidth = 0;
+	float lastWindowHeight = 0;
 
-    // Attack
-    bool isWaitingForAttackDice = false;
-    int pendingAttackRollResult = 0;
-    DamageType pendingAttackDamageType;
-    std::vector<int> pendingAttackTargetIndices;
+	// --- 3D ASSETS ---
+	ofxAssimpModelLoader playerModel;
+	ofxAssimpModelLoader skeletonModel;
+	ofTexture skeletonTexture;
 
-    // Amnesia
-    bool isAmnesiaSelectionActive = false;
-    bool isWaitingForAmnesiaDice = false;
-    int pendingAmnesiaRollResult = 0;
-    int amnesiaTargetPlayerIndex = -1; 
-    int numCardsToRemove = 0;
-    std::vector<Card> amnesiaDeckCopy;
-    std::vector<int> amnesiaSelectedIndices;
-    std::vector<ofRectangle> amnesiaCardRects;
+	ofMaterial modelMaterial;
+	ofMaterial diceMaterial;
 
-    // Magic Blast
-    bool isWaitingForMagicBlastDice = false;
-    int pendingMagicBlastRollResult = 0;
-    glm::vec2 pendingMagicBlastTargetTile;
-    bool isMagicBlastChoiceActive = false;
-    int magicBlastTargetPlayerIndex = -1;
-    int magicBlastChoicesRemaining = 0;
-    std::vector<int> magicBlastSplashTargetIndices;
-    ofRectangle magicBlastDamageButton;
-    ofRectangle magicBlastDiscardButton;
+	// --- ENVIRONMENT MESHES & TEXTURES ---
+	ofMesh levelMesh;
+	ofMesh wallMesh;
+	std::vector<ofMesh> floorMeshes;
+	ofTexture wallTexture;
+	std::vector<ofTexture> floorTextures;
 
-    // Fireball
-    bool isWaitingForFireballRangeDice = false;
-    int pendingFireballRangeResult = 0;
-    glm::vec2 pendingFireballTargetTile;
-    bool isWaitingForFireballDamageDice = false;
-    int pendingFireballDamageResult = 0;
-    glm::vec2 fireballImpactTile;
-    int fireballTargetPlayerIndex = -1;
+	// --- POST PROCESSING ---
+	ofFbo worldFbo;
+	ofShader worldPostShader;
+	bool worldPostShaderLoaded = false;
+	bool enableWorldPostProcess = true;
+	bool showWorldFboPreview = false;
 
-    // Ethereal Jolt
-    bool isWaitingForJoltRangeDice = false;
-    int pendingJoltRangeResult = 0;
-    glm::vec2 pendingJoltTargetTile;
+	// --- ANIMATIONS ---
+	bool isPlayerAnimating = false;
+	glm::vec3 playerVisualPos;
+	std::vector<glm::vec3> animationPath;
+	int currentPathIndex = 0;
+	std::vector<glm::vec2> hoverPath;
+	glm::vec2 lastHoverGridPos = { -1, -1 };
 
-    // Dispel
-    bool isDispelMenuOpen = false;
-    bool isDispelTargeting = false;
-    bool isDispelStatusSelectOpen = false;
-    int pendingDispelCardIndex = -1;
-    int pendingDispelTargetIndex = -1;
-    int pendingDispelRollResult = 0;
-    bool isWaitingForBarrierDice = false;
-    ofRectangle dispelMenuRect;
-    ofRectangle dispelBtnBarrier;
-    ofRectangle dispelBtnPurge;
-    ofRectangle statusSelectMenuRect;
-    std::vector<ofRectangle> statusSelectButtons;
-    std::vector<std::string> statusSelectLabels;
+	std::vector<PlayedCardDisplay> activeCardDisplays;
+	std::vector<StolenCardAnimation> activeStolenCardAnimations;
+	std::vector<RemovedCardAnimation> activeRemovedCardAnimations;
 
-    // Teleport
-    bool isWaitingForTeleportDice = false;
-    int pendingTeleportRollResult = 0;
-    glm::vec2 pendingTeleportTarget;
+	// --- CARDS & DECK ---
+	ofImage cardSpriteSheet;
+	ofImage cardBackImage;
+	std::vector<Card> allCards;
 
-    // Wisdom Boon
-    bool isWisdomBoonMenuOpen = false;
-    int pendingWisdomBoonCardIndex = -1;
-    int pendingWisdomBoonTargetIndex = -1;
-    ofRectangle wisdomMenuRect;
-    ofRectangle wisdomBtnDamage;
-    ofRectangle wisdomBtnBlock;
+	// --- UI INTERACTION ---
+	int selectedCardIndex = -1;
+	int draggedCardIndex = -1;
+	int hoveredCardIndex = -1;
+	ofVec2f dragOffset;
+	ofVec2f mouseDownPos;
 
-    // Heal
-    bool isWaitingForHealDice = false;
-    int pendingHealRollResult = 0;
-    int pendingHealTargetIndex = -1;
+	ofRectangle endTurnButtonRect;
+	ofVec2f endTurnButtonCurrentPos;
+	ofVec2f endTurnButtonTargetPos;
+	bool isHoveringEndTurn = false;
 
-    // Summon (Raise Dead)
-    bool isWaitingForSummonHealth = false;
-    int pendingSummonRollResult = 0;
-    glm::vec2 pendingSummonTile;
+	ofTrueTypeFont uiFont;
+	ofTrueTypeFont titleFont;
 
-    // Status Effects
-    bool isWaitingForOnFireDice = false;
-    int pendingOnFireRollResult = 0; 
-    bool isWaitingForParalysisCoin = false;
+	// Tooltips & Piles
+	bool isShowingTooltip = false;
+	ofVec2f tooltipPos;
+	std::string tooltipText;
 
-    // --- MENU UI VARIABLES ---
-    ofRectangle mainMenuPlayAIButton;
-    ofRectangle mainMenuMultiplayerButton;
-    ofRectangle mainMenuSettingsButton;
-    ofRectangle mainMenuQuitButton;
-    int mainMenuHoveredIndex = -1; 
+	bool isHoveringPile = false;
+	PileViewMode hoveredPileType = VIEW_NONE;
+	int hoveredPilePlayerIndex = -1;
+	float pileHoverStartTime = 0.0f;
 
-    ofRectangle settingsBackButton;
-    ofRectangle settingsResLeftButton, settingsResRightButton;
-    ofRectangle settingsFrameLeftButton, settingsFrameRightButton;
-    ofRectangle settingsFullscreenButton;
-    int settingsHoveredIndex = -1; 
-    std::vector<glm::vec2> availableResolutions;
-    int currentResolutionIndex = 0;
-    std::vector<int> availableFramerates;
-    int currentFramerateIndex = 0;
-    bool isFullscreen = false;
+	bool isShowingPileView = false;
+	PileViewMode currentPileView = VIEW_NONE;
+	int currentPileViewPlayerIndex = -1;
+	std::vector<Card> cardsToShowInView;
+	ofRectangle pileViewRect;
+	ofRectangle p0_deckRect, p0_discardRect;
+	ofRectangle p1_deckRect, p1_discardRect;
 
-    ofRectangle pauseMenuResumeButton;
-    ofRectangle pauseMenuSettingsButton;
-    ofRectangle pauseMenuQuitButton;
-    int pauseMenuHoveredIndex = -1; 
+	// --- CARD SPECIFIC VARIABLES ---
 
-    // --- DICE & SOUND ---
-    std::vector<DiceRoll> activeDiceRolls;
-    float diceSpinSpeed = 1500.0f;
-    ofMesh d6Mesh, d4Mesh, d20Mesh, d10Mesh, coinMesh;             
-    ofTexture d6Texture, d4Texture, d20Texture, d10Texture, coinFacesTexture;  
-    std::mt19937 rng;
-    std::vector<ofSoundPlayer> footstepSounds; 
+	// Attack
+	bool isWaitingForAttackDice = false;
+	int pendingAttackRollResult = 0;
+	DamageType pendingAttackDamageType;
+	std::vector<int> pendingAttackTargetIndices;
 
-    // --- DEBUG ---
-    bool isDebugMode = false;
-    bool isSpawningUnit = false;
-    bool hasUnlimitedAP = false;
-    ofRectangle debugPanel;
-    ofRectangle debugDiceDropdownButton;
-    ofRectangle debugRollD6Button;
-    ofRectangle debugRollD4Button;
-    ofRectangle debugRollD20Button;
-    ofRectangle debugRollD10Button;
-    ofRectangle debugFlipCoinButton;
-    ofRectangle debugSpawnUnitButton;
-    ofRectangle debugSpawnCardButton;
-    ofRectangle debugDrawCardButton;
-    ofRectangle debugUnlimitedAPButton;
-    ofRectangle debugForceEndTurnButton;
-    bool isDebugDiceDropdownOpen = false;
+	// Amnesia
+	bool isAmnesiaSelectionActive = false;
+	bool isWaitingForAmnesiaDice = false;
+	int pendingAmnesiaRollResult = 0;
+	int amnesiaTargetPlayerIndex = -1;
+	int numCardsToRemove = 0;
+	std::vector<Card> amnesiaDeckCopy;
+	std::vector<int> amnesiaSelectedIndices;
+	std::vector<ofRectangle> amnesiaCardRects;
+
+	// Magic Blast
+	bool isWaitingForMagicBlastDice = false;
+	int pendingMagicBlastRollResult = 0;
+	glm::vec2 pendingMagicBlastTargetTile;
+	bool isMagicBlastChoiceActive = false;
+	int magicBlastTargetPlayerIndex = -1;
+	int magicBlastChoicesRemaining = 0;
+	std::vector<int> magicBlastSplashTargetIndices;
+	ofRectangle magicBlastDamageButton;
+	ofRectangle magicBlastDiscardButton;
+
+	// Fireball
+	bool isWaitingForFireballRangeDice = false;
+	int pendingFireballRangeResult = 0;
+	glm::vec2 pendingFireballTargetTile;
+	bool isWaitingForFireballDamageDice = false;
+	int pendingFireballDamageResult = 0;
+	glm::vec2 fireballImpactTile;
+	int fireballTargetPlayerIndex = -1;
+
+	// Ethereal Jolt
+	bool isWaitingForJoltRangeDice = false;
+	int pendingJoltRangeResult = 0;
+	glm::vec2 pendingJoltTargetTile;
+
+	// Dispel
+	bool isDispelMenuOpen = false;
+	bool isDispelTargeting = false;
+	bool isDispelStatusSelectOpen = false;
+	int pendingDispelCardIndex = -1;
+	int pendingDispelTargetIndex = -1;
+	int pendingDispelRollResult = 0;
+	bool isWaitingForBarrierDice = false;
+	ofRectangle dispelMenuRect;
+	ofRectangle dispelBtnBarrier;
+	ofRectangle dispelBtnPurge;
+	ofRectangle statusSelectMenuRect;
+	std::vector<ofRectangle> statusSelectButtons;
+	std::vector<std::string> statusSelectLabels;
+
+	// Teleport
+	bool isWaitingForTeleportDice = false;
+	int pendingTeleportRollResult = 0;
+	glm::vec2 pendingTeleportTarget;
+
+	// Wisdom Boon
+	bool isWisdomBoonMenuOpen = false;
+	int pendingWisdomBoonCardIndex = -1;
+	int pendingWisdomBoonTargetIndex = -1;
+	ofRectangle wisdomMenuRect;
+	ofRectangle wisdomBtnDamage;
+	ofRectangle wisdomBtnBlock;
+
+	// Heal
+	bool isWaitingForHealDice = false;
+	int pendingHealRollResult = 0;
+	int pendingHealTargetIndex = -1;
+
+	// Summon (Raise Dead)
+	bool isWaitingForSummonHealth = false;
+	int pendingSummonRollResult = 0;
+	glm::vec2 pendingSummonTile;
+
+	// Status Effects
+	bool isWaitingForOnFireDice = false;
+	int pendingOnFireRollResult = 0;
+	bool isWaitingForParalysisCoin = false;
+
+	// --- MENU UI VARIABLES ---
+	ofRectangle mainMenuPlayAIButton;
+	ofRectangle mainMenuMultiplayerButton;
+	ofRectangle mainMenuSettingsButton;
+	ofRectangle mainMenuQuitButton;
+	int mainMenuHoveredIndex = -1;
+
+	ofRectangle settingsBackButton;
+	ofRectangle settingsResLeftButton, settingsResRightButton;
+	ofRectangle settingsFrameLeftButton, settingsFrameRightButton;
+	ofRectangle settingsFullscreenButton;
+	int settingsHoveredIndex = -1;
+	std::vector<glm::vec2> availableResolutions;
+	int currentResolutionIndex = 0;
+	std::vector<int> availableFramerates;
+	int currentFramerateIndex = 0;
+	bool isFullscreen = false;
+
+	ofRectangle pauseMenuResumeButton;
+	ofRectangle pauseMenuSettingsButton;
+	ofRectangle pauseMenuQuitButton;
+	int pauseMenuHoveredIndex = -1;
+
+	// --- DICE & SOUND ---
+	std::vector<DiceRoll> activeDiceRolls;
+	float diceSpinSpeed = 1500.0f;
+	ofMesh d6Mesh, d4Mesh, d20Mesh, d10Mesh, coinMesh;
+	ofTexture d6Texture, d4Texture, d20Texture, d10Texture, coinFacesTexture;
+	std::mt19937 rng;
+	std::vector<ofSoundPlayer> footstepSounds;
+
+	// --- DEBUG ---
+	bool isDebugMode = false;
+	bool isSpawningUnit = false;
+	bool hasUnlimitedAP = false;
+	ofRectangle debugPanel;
+	ofRectangle debugDiceDropdownButton;
+	ofRectangle debugRollD6Button;
+	ofRectangle debugRollD4Button;
+	ofRectangle debugRollD20Button;
+	ofRectangle debugRollD10Button;
+	ofRectangle debugFlipCoinButton;
+	ofRectangle debugSpawnUnitButton;
+	ofRectangle debugSpawnCardButton;
+	ofRectangle debugDrawCardButton;
+	ofRectangle debugUnlimitedAPButton;
+	ofRectangle debugForceEndTurnButton;
+	bool isDebugDiceDropdownOpen = false;
 };
