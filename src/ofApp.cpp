@@ -393,6 +393,15 @@ void ofApp::setup() {
 	fireTexture.setFromPixels(firePix);
 	fireTexture.getTexture().setTextureMinMagFilter(GL_NEAREST, GL_NEAREST);
 
+	// --- ALLOCATE FBO FOR MINION UI ---
+	ofFbo::Settings fboSettings;
+	fboSettings.width = 128; // Small texture size for UI
+	fboSettings.height = 128;
+	fboSettings.internalformat = GL_RGBA;
+	fboSettings.useDepth = true; // We need a depth buffer to render a 3D model
+	modelFbo.allocate(fboSettings);
+
+	// --- FINAL APPLY SETTINGS ---
 	isFullscreen = true;
 	ofSetFullscreen(true);
 	applySettings();
@@ -807,6 +816,31 @@ void ofApp::setupGame() {
 
 //--------------------------------------------------------------
 void ofApp::updateGame() {
+	// --- REBUILD MINION UI EVERY FRAME ---
+	activeMinionUIs.clear();
+	if (!players.empty() && currentPlayerIndex != -1) {
+		Player & turnPlayer = players[currentPlayerIndex];
+		int ownerID = turnPlayer.isMinion ? turnPlayer.ownerID : turnPlayer.playerID;
+
+		float scale = ofGetHeight() / 1080.0f;
+		float panelWidth = 250 * scale; // Made slightly narrower
+		float entryHeight = 100 * scale; // Made less tall
+		float startX = 20 * scale;
+		float startY = (40 * scale) + (65 * scale) + (50 * scale) * 3 + (20 * scale);
+
+		int minionCount = 0;
+		for (int i = 0; i < players.size(); i++) {
+			if (players[i].isMinion && players[i].ownerID == ownerID) {
+				MinionUI ui;
+				ui.playerIndex = i;
+				ui.bounds.set(startX, startY + (minionCount * (entryHeight + 10 * scale)), panelWidth, entryHeight);
+				activeMinionUIs.push_back(ui);
+				minionCount++;
+			}
+		}
+	}
+	// --- END MINION UI REBUILD ---
+
 	// 1. UPDATE UI POSITIONS
 	updateDebugRects();
 
@@ -1790,10 +1824,13 @@ void ofApp::drawGame() {
 		// --- SETUP ---
 		ofEnableDepthTest();
 		ofSetColor(255);
+
+		// === FIX 1: ENABLE LIGHTING INSIDE LAMBDA ===
+		ofEnableLighting();
+
 		cam.begin();
 
 		// --- LIGHTING ---
-		ofEnableLighting();
 		keyLight.enable();
 		rimLight.enable();
 		headlight.enable();
@@ -2088,6 +2125,9 @@ void ofApp::drawGame() {
 
 		// --- TEARDOWN ---
 		cam.end();
+
+		// === FIX 2: DISABLE LIGHTING AT THE END OF LAMBDA ===
+		ofDisableLighting();
 		ofDisableDepthTest();
 	};
 
@@ -2116,7 +2156,12 @@ void ofApp::drawGame() {
 
 	ofEnableAlphaBlending();
 
+	// === FIX 3: ENSURE LIGHTING IS OFF BEFORE ANY UI ===
+	ofDisableLighting();
+
 	// --- 8. DRAW UI ---
+	drawMinionManagerUI(); // <-- ADD THIS LINE
+
 	float designHeight = 1080.0f;
 	float scale = ofGetHeight() / designHeight;
 	float fontScale = scale * 0.5f;
@@ -2235,9 +2280,6 @@ void ofApp::drawGame() {
 		float life = (ofGetElapsedTimef() - ft.startTime) / ft.duration;
 		float alpha = 255 * (1.0f - pow(life, 3.0f));
 
-		ofSetColor(ft.color.r, ft.color.g, ft.color.b, alpha);
-
-		// Draw text centered with a simple black shadow
 		ofRectangle bounds = titleFont.getStringBoundingBox(ft.text, 0, 0);
 
 		ofPushMatrix();
@@ -2248,11 +2290,13 @@ void ofApp::drawGame() {
 		if (life > 0.1) s = 0.5;
 		ofScale(s, s);
 
+		// Shadow (with vertical centering fix)
 		ofSetColor(0, 0, 0, alpha);
-		titleFont.drawString(ft.text, -bounds.width / 2 + 2, -bounds.height / 2 + 2); // Shadow
+		titleFont.drawString(ft.text, -bounds.width / 2 + 2, bounds.height / 2 + 2);
 
+		// Main Text (with vertical centering fix)
 		ofSetColor(ft.color, alpha);
-		titleFont.drawString(ft.text, -bounds.width / 2, -bounds.height / 2); // Main
+		titleFont.drawString(ft.text, -bounds.width / 2, bounds.height / 2);
 
 		ofPopMatrix();
 	}
@@ -2929,7 +2973,6 @@ void ofApp::mouseMoved(int x, int y) {
 		float baseCardHeight = handBaseCardWidth * aspectRatio;
 
 		if (draggedCardIndex == -1) {
-			// FIX: Loop backwards safely from size()-1
 			for (int i = static_cast<int>(currentPlayer.hand.size()) - 1; i >= 0; i--) {
 				Card & card = currentPlayer.hand[i];
 				ofRectangle cardRect(card.currentPos.x - handBaseCardWidth / 2, card.currentPos.y - baseCardHeight / 2, handBaseCardWidth, baseCardHeight);
@@ -2945,43 +2988,54 @@ void ofApp::mouseMoved(int x, int y) {
 		}
 
 		int activeCardForHighlight = (selectedCardIndex != -1) ? selectedCardIndex : hoveredCardIndex;
-		if (currentPlayerIndex == 0) {
-			calculateTargetHighlights(activeCardForHighlight);
-		}
+		calculateTargetHighlights(activeCardForHighlight);
 
 		isHoveringEndTurn = endTurnButtonRect.inside(x, y);
 
 		isShowingTooltip = false;
 
-		// --- REVISED: PILE HOVERING LOGIC (with Delay) ---
 		PileViewMode newHoveredPileType = VIEW_NONE;
 		int newHoveredPilePlayer = -1;
 
-		if (p0_deckRect.inside(x, y)) {
-			newHoveredPileType = VIEW_DECK;
-			newHoveredPilePlayer = 0;
-		} else if (p0_discardRect.inside(x, y)) {
-			newHoveredPileType = VIEW_DISCARD;
-			newHoveredPilePlayer = 0;
-		} else if (p1_deckRect.inside(x, y)) {
-			newHoveredPileType = VIEW_DECK;
-			newHoveredPilePlayer = 1;
-		} else if (p1_discardRect.inside(x, y)) {
-			newHoveredPileType = VIEW_DISCARD;
-			newHoveredPilePlayer = 1;
+		for (const auto & ui : activeMinionUIs) {
+			if (ui.deckRect.inside(x, y)) {
+				newHoveredPileType = VIEW_DECK;
+				newHoveredPilePlayer = ui.playerIndex;
+				break;
+			}
+			if (ui.discardRect.inside(x, y)) {
+				newHoveredPileType = VIEW_DISCARD;
+				newHoveredPilePlayer = ui.playerIndex;
+				break;
+			}
+		}
+
+		if (newHoveredPilePlayer == -1) {
+			if (p0_deckRect.inside(x, y)) {
+				newHoveredPileType = VIEW_DECK;
+				newHoveredPilePlayer = 0;
+			} else if (p0_discardRect.inside(x, y)) {
+				newHoveredPileType = VIEW_DISCARD;
+				newHoveredPilePlayer = 0;
+			} else if (p1_deckRect.inside(x, y)) {
+				newHoveredPileType = VIEW_DECK;
+				newHoveredPilePlayer = 1;
+			} else if (p1_discardRect.inside(x, y)) {
+				newHoveredPileType = VIEW_DISCARD;
+				newHoveredPilePlayer = 1;
+			}
 		}
 
 		if (newHoveredPilePlayer != -1) {
 			if (!isHoveringPile || newHoveredPileType != hoveredPileType || newHoveredPilePlayer != hoveredPilePlayerIndex) {
 				isHoveringPile = true;
-				isShowingPileView = false; // Reset view flag on new hover
+				isShowingPileView = false;
 				hoveredPileType = newHoveredPileType;
 				hoveredPilePlayerIndex = newHoveredPilePlayer;
 				pileHoverStartTime = ofGetElapsedTimef();
 			}
 		} else {
 			isHoveringPile = false;
-			// If mouse is not over a pile AND not over the view panel, hide the view
 			if (isShowingPileView && !pileViewRect.inside(x, y)) {
 				isShowingPileView = false;
 				currentPileViewPlayerIndex = -1;
@@ -2989,32 +3043,29 @@ void ofApp::mouseMoved(int x, int y) {
 			}
 		}
 
-		// Tooltip logic
 		isShowingTooltip = false;
 		if (!isShowingPileView && !isHoveringPile && players.size() >= 2) {
-			if (p0_deckRect.inside(x, y)) {
+			Player * p0 = getPlayer(0);
+			Player * p1 = getPlayer(1);
+			if (p0 && p0_deckRect.inside(x, y)) {
 				isShowingTooltip = true;
-				// FIX 2: Use direct assignment for glm::vec2 instead of .set()
 				tooltipPos = glm::vec2(x, y);
-				tooltipText = ofToString(players[0].deck.size()) + " cards";
-			} else if (p0_discardRect.inside(x, y)) {
+				tooltipText = ofToString(p0->deck.size()) + " cards";
+			} else if (p0 && p0_discardRect.inside(x, y)) {
 				isShowingTooltip = true;
-				// FIX 2: Use direct assignment
 				tooltipPos = glm::vec2(x, y);
-				tooltipText = ofToString(players[0].discardPile.size()) + " cards";
-			} else if (p1_deckRect.inside(x, y)) {
+				tooltipText = ofToString(p0->discardPile.size()) + " cards";
+			} else if (p1 && p1_deckRect.inside(x, y)) {
 				isShowingTooltip = true;
-				// FIX 2: Use direct assignment
 				tooltipPos = glm::vec2(x, y);
-				tooltipText = ofToString(players[1].deck.size()) + " cards";
-			} else if (p1_discardRect.inside(x, y)) {
+				tooltipText = ofToString(p1->deck.size()) + " cards";
+			} else if (p1 && p1_discardRect.inside(x, y)) {
 				isShowingTooltip = true;
-				// FIX 2: Use direct assignment
 				tooltipPos = glm::vec2(x, y);
-				tooltipText = ofToString(players[1].discardPile.size()) + " cards";
+				tooltipText = ofToString(p1->discardPile.size()) + " cards";
 			}
 		}
-		break; // End of case STATE_GAMEPLAY
+		break;
 	}
 	case STATE_MAIN_MENU: {
 		mainMenuHoveredIndex = -1;
@@ -3024,7 +3075,6 @@ void ofApp::mouseMoved(int x, int y) {
 		if (mainMenuQuitButton.inside(x, y)) mainMenuHoveredIndex = 3;
 		break;
 	}
-
 	case STATE_SETTINGS: {
 		settingsHoveredIndex = -1;
 		if (settingsBackButton.inside(x, y)) settingsHoveredIndex = 0;
@@ -3037,7 +3087,7 @@ void ofApp::mouseMoved(int x, int y) {
 		if (pauseMenuQuitButton.inside(x, y)) pauseMenuHoveredIndex = 2;
 		break;
 	}
-	}
+	} // <-- THIS IS THE CORRECT LOCATION FOR THE CLOSING BRACE
 }
 // ----------------- FULL mousePressed FUNCTION -----------------
 void ofApp::mousePressed(int x, int y, int button) {
@@ -3452,6 +3502,17 @@ void ofApp::mousePressed(int x, int y, int button) {
 
 		// 3d. Deck Clicking (Drawing Cards) - INCLUDES HASTEN LOGIC
 		if (button == OF_MOUSE_BUTTON_LEFT) {
+			// ADD THIS LOOP: Check for clicks on Minion Decks
+			for (const auto & ui : activeMinionUIs) {
+				// You can only draw from the deck of the currently active minion
+				if (ui.playerIndex == currentPlayerIndex && ui.deckRect.inside(x, y) && !hasDrawnCardsThisTurn) {
+					// Minions just draw 1 card for now
+					drawCard();
+					hasDrawnCardsThisTurn = true;
+					return; // Exit to prevent other clicks
+				}
+			}
+
 			if (players.empty() || currentPlayerIndex < 0) return; // Safety check
 
 			Player & activePlayer = players[currentPlayerIndex];
@@ -6172,4 +6233,121 @@ DamageType ofApp::stringToDamageType(const std::string & str) {
 	if (str == "DAMAGE_FIRE") return DAMAGE_FIRE;
 	if (str == "DAMAGE_ELECTRIC") return DAMAGE_ELECTRIC;
 	return DAMAGE_PHYSICAL;
+}
+// ----------------- MINION UI -----------------
+void ofApp::drawMinionStatusBars(Player & minion, ofRectangle bounds) {
+	float scale = ofGetHeight() / 1080.0f;
+	float barHeight = 18 * scale;
+	float barWidth = bounds.width * 0.55f;
+	float startX = bounds.x + bounds.width * 0.4f;
+	float currentY = bounds.y + 30 * scale;
+
+	// Health
+	ofSetColor(ofColor::darkRed);
+	ofDrawRectangle(startX, currentY, barWidth, barHeight);
+	float healthPercent = (float)minion.health / minion.maxHealth;
+	ofSetColor(ofColor::green);
+	ofDrawRectangle(startX, currentY, barWidth * healthPercent, barHeight);
+	ofSetColor(ofColor::white);
+	ofDrawBitmapString(ofToString(minion.health) + "/" + ofToString(minion.maxHealth), startX + 5, currentY + barHeight - 5);
+	currentY += barHeight + 5 * scale;
+
+	// Block
+	if (minion.block > 0) {
+		ofSetColor(ofColor::darkGray);
+		ofDrawRectangle(startX, currentY, barWidth, barHeight);
+		ofSetColor(ofColor::lightSlateGray);
+		ofDrawRectangle(startX, currentY, barWidth, barHeight);
+		ofSetColor(ofColor::white);
+		ofDrawBitmapString(ofToString(minion.block) + " Block", startX + 5, currentY + barHeight - 5);
+		currentY += barHeight + 5 * scale;
+	}
+	// Add Ward/Barrier here if minions can get them
+}
+//--------------------------------------------------------------
+void ofApp::drawMinionManagerUI() {
+	if (activeMinionUIs.empty()) return;
+
+	float scale = ofGetHeight() / 1080.0f;
+
+	// --- 1. Draw Main Container ---
+	ofRectangle container = activeMinionUIs[0].bounds;
+	container.width += 20 * scale; // Add padding
+	container.x -= 10 * scale;
+	container.y -= 10 * scale;
+	container.height = (activeMinionUIs.size() * (activeMinionUIs[0].bounds.height + 10 * scale)) + 10 * scale;
+
+	ofSetColor(0, 0, 0, 150);
+	ofDrawRectRounded(container, 15 * scale);
+
+	// --- 2. Loop and Draw Each Minion Entry ---
+	for (int i = 0; i < activeMinionUIs.size(); i++) { // Changed to a standard for-loop
+		auto & ui = activeMinionUIs[i];
+		Player & minion = players[ui.playerIndex];
+
+		// --- Render Model to FBO ---
+		modelFbo.begin();
+		ofClear(0, 0, 0, 0);
+		ofEnableDepthTest();
+
+		// ADD LIGHTING FOR THE FBO
+		ofEnableLighting();
+		headlight.enable(); // Use the main headlight for a consistent look
+
+		ofPushMatrix();
+		ofTranslate(modelFbo.getWidth() / 2, modelFbo.getHeight() / 2 + 40); // Adjusted Y position
+
+		// FIX: Flip the model vertically and scale
+		ofScale(8, -8, 8); // Negative Y scale flips it
+
+		ofRotateXDeg(-15);
+		ofRotateYDeg(ofGetElapsedTimef() * 30);
+
+		skeletonTexture.bind();
+		skeletonModel.drawFaces();
+		skeletonTexture.unbind();
+
+		ofPopMatrix();
+
+		// CLEANUP
+		headlight.disable();
+		ofDisableLighting();
+		ofDisableDepthTest();
+		modelFbo.end();
+
+		// --- Draw UI Elements ---
+		// Draw the model image
+		ofSetColor(255);
+		ui.modelViewport.set(ui.bounds.x, ui.bounds.y, ui.bounds.height, ui.bounds.height);
+		modelFbo.draw(ui.modelViewport);
+
+		// Draw Name
+		string name = "Skeleton " + ofToString(i + 1); // Now shows Skeleton 1, Skeleton 2, etc.
+		ofSetColor(ofColor::white);
+		uiFont.drawString(name, ui.bounds.x + ui.bounds.width * 0.4, ui.bounds.y + 25 * scale);
+
+		// Draw Health/Status Bars
+		drawMinionStatusBars(minion, ui.bounds);
+
+		// Draw Deck/Discard Icons
+		float iconSize = 40 * scale;
+		ui.deckRect.set(ui.bounds.getRight() - (iconSize * 2 + 10 * scale), ui.bounds.getBottom() - (iconSize + 5 * scale), iconSize, iconSize);
+		ui.discardRect.set(ui.bounds.getRight() - (iconSize + 5 * scale), ui.bounds.getBottom() - (iconSize + 5 * scale), iconSize, iconSize);
+
+		// Deck
+		if (!minion.deck.empty()) {
+			cardBackImage.draw(ui.deckRect);
+		} else {
+			ofSetColor(20, 20, 20, 200);
+			ofDrawRectRounded(ui.deckRect, 5);
+		}
+
+		// Discard
+		if (!minion.discardPile.empty()) {
+			cardSpriteSheet.getTexture().drawSubsection(ui.discardRect, minion.discardPile.back().textureRect);
+		} else {
+			ofSetColor(20, 20, 20, 200);
+			ofDrawRectRounded(ui.discardRect, 5);
+		}
+	}
 }

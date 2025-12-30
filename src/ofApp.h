@@ -217,6 +217,15 @@ struct Player {
 	std::vector<Card> discardPile;
 };
 
+struct MinionUI {
+	int playerIndex; // Which player in the main `players` vector this UI represents
+	ofRectangle bounds;
+	ofRectangle modelViewport;
+	ofRectangle healthBar;
+	ofRectangle deckRect;
+	ofRectangle discardRect;
+};
+
 struct DeathMarker {
 	int x;
 	int y;
@@ -230,6 +239,15 @@ struct FloatingText {
 	glm::vec3 velocity; // Upward drift
 	float startTime;
 	float duration = 1.5f;
+	ofColor color;
+};
+
+struct Particle {
+	glm::vec3 pos;
+	glm::vec3 vel;
+	float life; // 1.0 = born, 0.0 = dead
+	float decay; // How fast it dies (e.g., 0.02)
+	float size;
 	ofColor color;
 };
 
@@ -281,6 +299,8 @@ private:
 	void drawCard();
 	void playCard(int cardIndex, int targetX, int targetY);
 	int startDiceRoll(int numDice, int sides, DicePurpose purpose);
+	void spawnFloatingText(glm::vec3 pos, std::string text, ofColor color);
+	void spawnExplosion(glm::vec3 pos, int count, ofColor color);
 
 	void calculateHighlights();
 	void calculateTargetHighlights(int cardToCalculate = -1);
@@ -333,6 +353,8 @@ private:
 	void cancelDispel();
 	void determineStatusOptions(Player * target);
 	void applyDispelEffect(int statusIndex);
+	void drawMinionManagerUI();
+	void drawMinionStatusBars(Player & minion, ofRectangle bounds);
 
 	// =========================================================================
 	//                            MEMBER VARIABLES
@@ -352,7 +374,8 @@ private:
 	int currentPlayerIndex = -1;
 	std::vector<DeathMarker> graveyard;
 	std::vector<FloatingText> activeFloatingTexts;
-	void spawnFloatingText(glm::vec3 pos, std::string text, ofColor color);
+	std::vector<Particle> particles;
+	float screenShake = 0.0f;
 
 	// --- LOGIC CACHE ---
 	int currentAP = 0;
@@ -365,15 +388,11 @@ private:
 
 	// --- CAMERA ---
 	ofCamera cam;
-
-	// Define all lights here so we can access them in setup() and update()
 	ofLight headlight;
 	ofLight keyLight;
 	ofLight rimLight;
-	std::vector<ofLight> lights; // You can keep this if you still want a list, but we might not need it if we manage them individually
+	std::vector<ofLight> lights;
 	float lightNoiseOffset = 0.0f;
-	// Shadow texture
-	ofImage shadowTexture;
 
 	float cameraTargetZoom = 35.0f;
 	float cameraCurrentZoom = 35.0f;
@@ -397,9 +416,13 @@ private:
 	// --- ENVIRONMENT MESHES & TEXTURES ---
 	ofMesh levelMesh;
 	ofMesh wallMesh;
+	ofMesh roomMesh;
+	ofTexture roomTexture;
 	std::vector<ofMesh> floorMeshes;
 	ofTexture wallTexture;
 	std::vector<ofTexture> floorTextures;
+	ofImage shadowTexture;
+	ofImage fireTexture;
 
 	// --- POST PROCESSING ---
 	ofFbo worldFbo;
@@ -420,7 +443,6 @@ private:
 	std::vector<StolenCardAnimation> activeStolenCardAnimations;
 	std::vector<RemovedCardAnimation> activeRemovedCardAnimations;
 
-	ofImage fireTexture;
 	// --- CARDS & DECK ---
 	ofImage cardSpriteSheet;
 	ofImage cardBackImage;
@@ -440,6 +462,9 @@ private:
 
 	ofTrueTypeFont uiFont;
 	ofTrueTypeFont titleFont;
+
+	ofFbo modelFbo;
+	std::vector<MinionUI> activeMinionUIs;
 
 	// Tooltips & Piles
 	bool isShowingTooltip = false;
