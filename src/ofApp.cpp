@@ -18,8 +18,19 @@ void ofApp::setup() {
 
 	// --- 1. UI & CONFIG ---
 	// Note: Paths now point to UI/ folder
-	uiFont.load("UI/Roboto-Regular.ttf", 24);
-	titleFont.load("UI/Roboto-Bold.ttf", 72);
+
+	// Load the UI Font (m6x11 scaled up 2x)
+	// Used for menus, settings, and smaller UI text.
+	ofTrueTypeFontSettings uiSettings("UI/m6x11plus.ttf", 22); // Was 11. Now 11 * 2 = 22
+	uiSettings.antialiased = false;
+	uiFont.load(uiSettings);
+
+	// Load the Title Font (m6x11 scaled up 4x)
+	// Used for big titles, health bars, and AP counters.
+	ofTrueTypeFontSettings titleSettings("UI/m6x11plus.ttf", 44); // Was 33. Now 11 * 4 = 44
+	titleSettings.antialiased = false;
+	titleFont.load(titleSettings);
+
 	cardBackImage.load("UI/card_back.png");
 	cardSpriteSheet.load("UI/TTS_Sheet.png");
 
@@ -2183,7 +2194,7 @@ void ofApp::drawGame() {
 
 	float designHeight = 1080.0f;
 	float scale = ofGetHeight() / designHeight;
-	float fontScale = scale * 0.5f;
+	float fontScale = scale * 1.0f;
 
 	float handBaseCardWidth = 120;
 	float handCardAspectRatio = 585.0f / 409.0f;
@@ -3010,54 +3021,58 @@ void ofApp::mouseMoved(int x, int y) {
 		calculateTargetHighlights(activeCardForHighlight);
 		isHoveringEndTurn = endTurnButtonRect.inside(x, y);
 
-		// --- NEW, ROBUST PILE HOVER LOGIC ---
+		// --- UNIFIED PILE & TOOLTIP HOVER LOGIC (FIXED) ---
 		PileViewMode newHoveredPileType = VIEW_NONE;
-		int newHoveredPileIndex = -1;
+		int newHoveredPileIndex = -1; // Stores the INDEX of the player in the vector
+		bool foundHover = false;
 
-		// 1. Check for hover on any UI element and get its index
-		// Minion UI has highest priority
-		for (const auto & ui : activeMinionUIs) {
-			if (ui.deckRect.inside(x, y)) {
-				newHoveredPileType = VIEW_DECK;
-				newHoveredPileIndex = ui.playerIndex;
-				break;
-			}
-			if (ui.discardRect.inside(x, y)) {
-				newHoveredPileType = VIEW_DISCARD;
-				newHoveredPileIndex = ui.playerIndex;
-				break;
-			}
+		// 1. Check main player piles FIRST.
+		if (p0_deckRect.inside(x, y)) {
+			newHoveredPileType = VIEW_DECK;
+			// Find the index of the player with playerID 0
+			for (int i = 0; i < players.size(); i++)
+				if (players[i].playerID == 0) newHoveredPileIndex = i;
+		} else if (p0_discardRect.inside(x, y)) {
+			newHoveredPileType = VIEW_DISCARD;
+			for (int i = 0; i < players.size(); i++)
+				if (players[i].playerID == 0) newHoveredPileIndex = i;
+		} else if (p1_deckRect.inside(x, y)) {
+			newHoveredPileType = VIEW_DECK;
+			for (int i = 0; i < players.size(); i++)
+				if (players[i].playerID == 1) newHoveredPileIndex = i;
+		} else if (p1_discardRect.inside(x, y)) {
+			newHoveredPileType = VIEW_DISCARD;
+			for (int i = 0; i < players.size(); i++)
+				if (players[i].playerID == 1) newHoveredPileIndex = i;
 		}
-		// If nothing found yet, check main player piles
+
+		// 2. If no main pile was hovered, check minion UIs.
 		if (newHoveredPileIndex == -1) {
-			if (p0_deckRect.inside(x, y)) {
-				newHoveredPileType = VIEW_DECK;
-				newHoveredPileIndex = 0; // Player 0 is always at index 0
-			} else if (p0_discardRect.inside(x, y)) {
-				newHoveredPileType = VIEW_DISCARD;
-				newHoveredPileIndex = 0;
-			} else if (p1_deckRect.inside(x, y)) {
-				newHoveredPileType = VIEW_DECK;
-				newHoveredPileIndex = 1; // Player 1 is always at index 1
-			} else if (p1_discardRect.inside(x, y)) {
-				newHoveredPileType = VIEW_DISCARD;
-				newHoveredPileIndex = 1;
+			for (const auto & ui : activeMinionUIs) {
+				if (ui.deckRect.inside(x, y)) {
+					newHoveredPileType = VIEW_DECK;
+					newHoveredPileIndex = ui.playerIndex;
+					break;
+				}
+				if (ui.discardRect.inside(x, y)) {
+					newHoveredPileType = VIEW_DISCARD;
+					newHoveredPileIndex = ui.playerIndex;
+					break;
+				}
 			}
 		}
 
-		// 2. Update hover state based on findings
-		if (newHoveredPileIndex != -1) { // If we are hovering SOMETHING
+		// 3. Update hover state
+		if (newHoveredPileIndex != -1) {
 			if (!isHoveringPile || newHoveredPileIndex != hoveredPilePlayerIndex || newHoveredPileType != hoveredPileType) {
-				// Start a new hover if what we're hovering has changed
 				isHoveringPile = true;
 				isShowingPileView = false;
 				hoveredPileType = newHoveredPileType;
 				hoveredPilePlayerIndex = newHoveredPileIndex;
 				pileHoverStartTime = ofGetElapsedTimef();
 			}
-		} else { // If we are hovering NOTHING
+		} else {
 			isHoveringPile = false;
-			// Hide the pile view if the mouse is not over the view itself
 			if (isShowingPileView && !pileViewRect.inside(x, y)) {
 				isShowingPileView = false;
 				currentPileView = VIEW_NONE;
@@ -3065,7 +3080,7 @@ void ofApp::mouseMoved(int x, int y) {
 			}
 		}
 
-		// 3. Handle Tooltips
+		// 4. Handle Tooltips
 		isShowingTooltip = false;
 		if (isHoveringPile && !isShowingPileView) {
 			Player * hoveredPlayer = getPlayer(hoveredPilePlayerIndex);
@@ -3510,56 +3525,53 @@ void ofApp::mousePressed(int x, int y, int button) {
 		}
 		if (isPlayerAnimating || isDiceSpinning) return;
 
-		// 3d. Deck Clicking (Drawing Cards) - INCLUDES HASTEN LOGIC
+		// 3d. Deck Clicking (Drawing Cards) - INCLUDES HASTEN LOGIC (FIXED)
 		if (button == OF_MOUSE_BUTTON_LEFT) {
-			// ADD THIS LOOP: Check for clicks on Minion Decks
+			// First, check for clicks on Minion Decks (this part is correct)
 			for (const auto & ui : activeMinionUIs) {
-				// You can only draw from the deck of the currently active minion
 				if (ui.playerIndex == currentPlayerIndex && ui.deckRect.inside(x, y) && !hasDrawnCardsThisTurn) {
-					// FIX: Minions now draw 2 cards
-					for (int i = 0; i < 2; i++) {
+					for (int i = 0; i < 2; i++)
 						drawCard();
-					}
 					hasDrawnCardsThisTurn = true;
-					return; // Exit to prevent other clicks
+					return;
 				}
 			}
 
-			if (players.empty() || currentPlayerIndex < 0) return; // Safety check
+			if (players.empty() || currentPlayerIndex < 0) return;
 
-			Player & activePlayer = players[currentPlayerIndex];
-
-			// --- FIX: Find player pointers locally and check affiliation ---
-			Player * player0 = nullptr;
-			Player * player1 = nullptr;
+			// --- NEW LOGIC: FIND PLAYERS BY ID, NOT INDEX ---
+			Player * p0 = nullptr;
+			Player * p1 = nullptr;
 			for (auto & p : players) {
-				if (p.playerID == 0) player0 = &p;
-				if (p.playerID == 1) player1 = &p;
+				if (p.playerID == 0) p0 = &p;
+				if (p.playerID == 1) p1 = &p;
 			}
 
-			// If we can't find the main players for some reason, exit
-			if (!player0 || !player1) return;
+			// If we can't find the main players, exit
+			if (!p0 || !p1) return;
 
-			// Player 0's Deck
-			bool isPlayer0sTurn = (activePlayer.playerID == 0 || activePlayer.ownerID == 0);
-			if (p0_deckRect.inside(x, y) && isPlayer0sTurn && !hasDrawnCardsThisTurn) {
-				int cardsToDraw = player0->nextTurnExtraDraw ? 3 : 2;
-				if (player0->nextTurnExtraDraw) ofLogNotice("Game") << "Hasten Effect: Drawing 3 cards!";
+			Player & activePlayer = players[currentPlayerIndex];
+			bool isP0sTurn = (activePlayer.playerID == 0 || activePlayer.ownerID == 0);
+			bool isP1sTurn = (activePlayer.playerID == 1 || activePlayer.ownerID == 1);
+
+			// Player 0's Deck Click
+			if (p0_deckRect.inside(x, y) && isP0sTurn && !hasDrawnCardsThisTurn) {
+				int cardsToDraw = p0->nextTurnExtraDraw ? 3 : 2;
+				if (p0->nextTurnExtraDraw) ofLogNotice("Game") << "Hasten Effect: Drawing 3 cards!";
 				for (int i = 0; i < cardsToDraw; i++)
 					drawCard();
-				player0->nextTurnExtraDraw = false;
+				p0->nextTurnExtraDraw = false;
 				hasDrawnCardsThisTurn = true;
 				return;
 			}
 
-			// Player 1's Deck
-			bool isPlayer1sTurn = (activePlayer.playerID == 1 || activePlayer.ownerID == 1);
-			if (p1_deckRect.inside(x, y) && isPlayer1sTurn && !hasDrawnCardsThisTurn) {
-				int cardsToDraw = player1->nextTurnExtraDraw ? 3 : 2;
-				if (player1->nextTurnExtraDraw) ofLogNotice("Game") << "Hasten Effect: Drawing 3 cards!";
+			// Player 1's Deck Click
+			if (p1_deckRect.inside(x, y) && isP1sTurn && !hasDrawnCardsThisTurn) {
+				int cardsToDraw = p1->nextTurnExtraDraw ? 3 : 2;
+				if (p1->nextTurnExtraDraw) ofLogNotice("Game") << "Hasten Effect: Drawing 3 cards!";
 				for (int i = 0; i < cardsToDraw; i++)
 					drawCard();
-				player1->nextTurnExtraDraw = false;
+				p1->nextTurnExtraDraw = false;
 				hasDrawnCardsThisTurn = true;
 				return;
 			}
@@ -6249,7 +6261,7 @@ DamageType ofApp::stringToDamageType(const std::string & str) {
 // ----------------- MINION UI -----------------
 void ofApp::drawMinionStatusBars(Player & minion, const std::string & name, float textBlockX, float textBlockY) {
 	float scale = ofGetHeight() / 1080.0f;
-	float fontScale = 0.8f; // Use the same font scale as the name for consistency
+	float fontScale = 0.75f; // Use the same font scale as the name for consistency
 
 	// 1. Calculate the width of the "Skeleton #" text to size the health bar
 	ofRectangle nameBounds = uiFont.getStringBoundingBox(name, 0, 0);
@@ -6296,8 +6308,8 @@ void ofApp::drawMinionManagerUI() {
 		uiLight.enable();
 
 		ofPushMatrix();
-		// FIX: Y value dramatically increased to lift the model's body into view
-		ofTranslate(modelFbo.getWidth() / 2, modelFbo.getHeight() + 40);
+		// FIX: Y value increased again to lift the model's body into view
+		ofTranslate(modelFbo.getWidth() / 2, 150);
 
 		ofScale(24, -24, 24);
 		ofRotateXDeg(-15);
@@ -6314,7 +6326,7 @@ void ofApp::drawMinionManagerUI() {
 		ofDisableDepthTest();
 		modelFbo.end();
 
-		// --- Draw UI Panel (Shorter height) ---
+		// --- Draw UI Panel ---
 		ui.bounds.height = 85 * scale;
 		ofSetColor(0, 0, 0, 150);
 		ofDrawRectRounded(ui.bounds, 10 * scale);
@@ -6324,15 +6336,15 @@ void ofApp::drawMinionManagerUI() {
 		float modelViewportSize = ui.bounds.height - 10 * scale;
 		ui.modelViewport.set(
 			ui.bounds.x + 5 * scale,
-			ui.bounds.y + (ui.bounds.height - modelViewportSize) / 2, // Vertically center model
+			ui.bounds.y + (ui.bounds.height - modelViewportSize) / 2,
 			modelViewportSize,
 			modelViewportSize);
 		modelFbo.draw(ui.modelViewport);
 
 		// --- Draw Text Block (Name + Health Bar) ---
 		string name = "Skeleton " + ofToString(i + 1);
-		float fontScale = 0.8f; // Increased text size slightly
-		float textBlockX = ui.modelViewport.getRight() + 10 * scale; // Moved further left
+		float fontScale = 0.7f;
+		float textBlockX = ui.modelViewport.getRight() + 10 * scale;
 		float textBlockY = ui.bounds.y + 20 * scale;
 
 		ofPushMatrix();
@@ -6344,17 +6356,17 @@ void ofApp::drawMinionManagerUI() {
 
 		drawMinionStatusBars(minion, name, textBlockX, textBlockY);
 
-		// --- Draw Deck/Discard Icons ---
-		float iconHeight = 35 * scale;
+		// --- Draw Deck/Discard Icons (RESIZED & REPOSITIONED) ---
+		// FIX: Increased icon size
+		float iconHeight = 45 * scale;
 		float cardAspectRatio = cardBackImage.getWidth() / cardBackImage.getHeight();
 		float iconWidth = iconHeight * cardAspectRatio;
 
-		// Vertically center the icons in the panel
 		float iconsY = ui.bounds.y + (ui.bounds.height - iconHeight) / 2;
 
-		// Anchor positions to the right edge of the panel to prevent cutoff
-		ui.discardRect.set(ui.bounds.getRight() - (iconWidth + 10 * scale), iconsY, iconWidth, iconHeight);
-		ui.deckRect.set(ui.bounds.getRight() - (iconWidth * 2 + 15 * scale), iconsY, iconWidth, iconHeight);
+		// FIX: Increased the offset from the right edge to move them left
+		ui.discardRect.set(ui.bounds.getRight() - (iconWidth + 15 * scale), iconsY, iconWidth, iconHeight);
+		ui.deckRect.set(ui.bounds.getRight() - (iconWidth * 2 + 20 * scale), iconsY, iconWidth, iconHeight);
 
 		// Deck
 		ofSetColor(255);
