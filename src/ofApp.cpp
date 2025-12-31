@@ -6309,8 +6309,8 @@ void ofApp::drawMinionManagerUI() {
 
 		ofPushMatrix();
 		// FIX: Y value increased again to lift the model's body into view
-		ofTranslate(modelFbo.getWidth() / 2, 150);
-
+		ofTranslate(modelFbo.getWidth() / 2, 150); 
+		
 		ofScale(24, -24, 24);
 		ofRotateXDeg(-15);
 		ofRotateYDeg(ofGetElapsedTimef() * 30);
@@ -6335,17 +6335,18 @@ void ofApp::drawMinionManagerUI() {
 		ofSetColor(255);
 		float modelViewportSize = ui.bounds.height - 10 * scale;
 		ui.modelViewport.set(
-			ui.bounds.x + 5 * scale,
+			ui.bounds.x + 5 * scale, 
 			ui.bounds.y + (ui.bounds.height - modelViewportSize) / 2,
-			modelViewportSize,
-			modelViewportSize);
+			modelViewportSize, 
+			modelViewportSize
+		);
 		modelFbo.draw(ui.modelViewport);
 
 		// --- Draw Text Block (Name + Health Bar) ---
 		string name = "Skeleton " + ofToString(i + 1);
 		float fontScale = 0.7f;
-		float textBlockX = ui.modelViewport.getRight() + 10 * scale;
-		float textBlockY = ui.bounds.y + 20 * scale;
+        float textBlockX = ui.modelViewport.getRight() + 10 * scale;
+        float textBlockY = ui.bounds.y + 20 * scale;
 
 		ofPushMatrix();
 		ofTranslate(textBlockX, textBlockY);
@@ -6353,16 +6354,16 @@ void ofApp::drawMinionManagerUI() {
 		ofSetColor(ofColor::white);
 		uiFont.drawString(name, 0, 0);
 		ofPopMatrix();
-
+		
 		drawMinionStatusBars(minion, name, textBlockX, textBlockY);
 
 		// --- Draw Deck/Discard Icons (RESIZED & REPOSITIONED) ---
 		// FIX: Increased icon size
-		float iconHeight = 45 * scale;
+		float iconHeight = 45 * scale; 
 		float cardAspectRatio = cardBackImage.getWidth() / cardBackImage.getHeight();
 		float iconWidth = iconHeight * cardAspectRatio;
-
-		float iconsY = ui.bounds.y + (ui.bounds.height - iconHeight) / 2;
+        
+        float iconsY = ui.bounds.y + (ui.bounds.height - iconHeight) / 2;
 
 		// FIX: Increased the offset from the right edge to move them left
 		ui.discardRect.set(ui.bounds.getRight() - (iconWidth + 15 * scale), iconsY, iconWidth, iconHeight);
