@@ -66,7 +66,7 @@
     "cost": 3,
     "targeting": "TARGET_ADJACENT_UNIT"
   },
- {
+  {
     "id": 9,
     "name": "Amnesia",
     "type": "CARD_AMNESIA",
@@ -163,7 +163,7 @@
     "numDice": 0,
     "diceSides": 0
   },
- {
+  {
     "id": 19,
     "name": "Ethereal Jolt",
     "type": "CARD_ETHEREAL_JOLT",
@@ -202,5 +202,14 @@
     "targeting": "TARGET_EMPTY_ADJACENT",
     "numDice": 1,
     "diceSides": 6
+  },
+  {
+    "id": 23,
+    "name": "Summon Golem",
+    "type": "CARD_SUMMON_GOLEM",
+    "cost": 4,
+    "targeting": "TARGET_EMPTY_ADJACENT",
+    "numDice": 1,
+    "diceSides": 10
   }
 ]

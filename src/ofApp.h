@@ -86,7 +86,8 @@ enum CardType {
 	CARD_ETHEREAL_JOLT,
 	CARD_FLAME_HIT,
 	CARD_HEAL,
-	CARD_RAISE_DEAD
+	CARD_RAISE_DEAD,
+	CARD_SUMMON_GOLEM
 };
 
 enum DicePurpose {
@@ -207,10 +208,13 @@ struct Player {
 	// Minion Data
 	bool isMinion = false;
 	bool isSkeleton = false;
+	bool isGolem = false; // <--- ADD THIS
+	ofTexture * minionTexture = nullptr;
 	int ownerID = -1;
 	bool hasRegeneration = false;
 
 	// Piles
+	std::vector<CardType> cardsPlayedThisTurn;
 	std::vector<Card> playedCardsPile;
 	std::vector<Card> hand;
 	std::vector<Card> deck;
@@ -410,6 +414,10 @@ private:
 	ofxAssimpModelLoader playerModel;
 	ofxAssimpModelLoader skeletonModel;
 	ofTexture skeletonTexture;
+
+	// --- ADD GOLEM ASSETS ---
+	ofxAssimpModelLoader golemModel;
+	ofTexture golemTexBase, golemTexRock, golemTexFire, golemTexElectric;
 
 	ofMaterial modelMaterial;
 	ofMaterial diceMaterial;

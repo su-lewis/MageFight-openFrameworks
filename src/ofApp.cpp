@@ -35,10 +35,11 @@ void ofApp::setup() {
 	cardSpriteSheet.load("UI/TTS_Sheet.png");
 
 	// --- 2. UNITS ---
+	// Load Player Model
 	playerModel.load("Units/Player/player.obj");
 	playerModel.setRotation(0, -90, 1, 0, 0);
 	playerModel.setScale(0.008f, 0.008f, 0.008f);
-
+	// Load Skeleton
 	skeletonModel.load("Units/Skeleton/skeleton.fbx");
 	ofLoadImage(skeletonTexture, "Units/Skeleton/base.png");
 	skeletonModel.setRotation(0, 180, 1, 0, 0);
@@ -46,6 +47,17 @@ void ofApp::setup() {
 
 	skeletonModel.setScale(0.008f, 0.008f, 0.008f);
 	skeletonModel.disableMaterials();
+
+	// Load Golem
+	golemModel.load("Units/Golem/lava+golem+3d+model.fbx");
+	golemModel.setRotation(0, 180, 1, 0, 0);
+	golemModel.setScale(0.01f, 0.01f, 0.01f); // Adjust scale as needed
+	golemModel.disableMaterials();
+	// Load Golem Variants
+	ofLoadImage(golemTexBase, "Units/Golem/texture_base.png");
+	ofLoadImage(golemTexRock, "Units/Golem/texture_rock.png");
+	ofLoadImage(golemTexFire, "Units/Golem/texture_fire.png");
+	ofLoadImage(golemTexElectric, "Units/Golem/texture_electric.png");
 
 	// --- 3. BOARD & SKYBOX ---
 	ofLoadImage(wallTexture, "Board/wall.png");
@@ -1897,19 +1909,31 @@ void ofApp::drawGame() {
 				glm::vec3 staticPos = gridToWorld(player.x, player.y);
 				ofTranslate(staticPos.x, staticPos.y, staticPos.z);
 			}
+			// --- DRAW LOGIC ---
 			if (player.isSkeleton) {
 				ofSetColor(255);
 				ofTranslate(0, 2.5f, 0);
 				skeletonTexture.bind();
 				skeletonModel.drawFaces();
 				skeletonTexture.unbind();
-			} else {
+			}
+			// ADD THIS BLOCK:
+			else if (player.isGolem) {
+				ofSetColor(255);
+				ofTranslate(0, 0.5f, 0); // Golems might sit differently, adjust Y as needed
+
+				// Bind the specific texture chosen during summoning
+				if (player.minionTexture) player.minionTexture->bind();
+				golemModel.drawFaces();
+				if (player.minionTexture) player.minionTexture->unbind();
+			}
+			// END ADD
+			else {
 				ofTranslate(0, 0.1f, 0);
 				playerModel.drawFaces();
 			}
 			ofPopMatrix();
 		}
-
 		// Dice (Batched)
 		diceMaterial.begin();
 
@@ -3035,19 +3059,19 @@ void ofApp::mouseMoved(int x, int y) {
 		if (p0_deckRect.inside(x, y)) {
 			newHoveredPileType = VIEW_DECK;
 			// Find the index of the player with playerID 0
-			for (int i = 0; i < players.size(); i++)
+			for (int i = 0; i < (int)players.size(); i++)
 				if (players[i].playerID == 0) newHoveredPileIndex = i;
 		} else if (p0_discardRect.inside(x, y)) {
 			newHoveredPileType = VIEW_DISCARD;
-			for (int i = 0; i < players.size(); i++)
+			for (int i = 0; i < (int)players.size(); i++)
 				if (players[i].playerID == 0) newHoveredPileIndex = i;
 		} else if (p1_deckRect.inside(x, y)) {
 			newHoveredPileType = VIEW_DECK;
-			for (int i = 0; i < players.size(); i++)
+			for (int i = 0; i < (int)players.size(); i++)
 				if (players[i].playerID == 1) newHoveredPileIndex = i;
 		} else if (p1_discardRect.inside(x, y)) {
 			newHoveredPileType = VIEW_DISCARD;
-			for (int i = 0; i < players.size(); i++)
+			for (int i = 0; i < (int)players.size(); i++)
 				if (players[i].playerID == 1) newHoveredPileIndex = i;
 		}
 
@@ -3959,6 +3983,9 @@ void ofApp::startNewTurn() {
 	if (currentPlayerIndex != -1) {
 		Player & endingPlayer = players[currentPlayerIndex];
 
+		// ADD THIS: Clear the combo history
+		endingPlayer.cardsPlayedThisTurn.clear();
+
 		endingPlayer.discardPile.insert(endingPlayer.discardPile.end(), endingPlayer.hand.begin(), endingPlayer.hand.end());
 		endingPlayer.hand.clear();
 
@@ -4453,6 +4480,137 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		break;
 	}
 
+		// --- CASE: SUMMON GOLEM ---
+	case CARD_SUMMON_GOLEM: {
+		// 1. Validation
+		if (board[targetX][targetY].hasWall || board[targetX][targetY].hasPlayer) break;
+
+		// 2. Determine Golem Type
+		bool isElectric = false;
+		bool isFire = false;
+		bool isRock = false;
+
+		// Check history for combo triggers
+		for (CardType t : currentPlayer.cardsPlayedThisTurn) {
+			if (t == CARD_SHOCK || t == CARD_ARCANE_BURST) isElectric = true; // Added Arcane/Chain placeholder
+			if (t == CARD_FIREBALL || t == CARD_FLAME_HIT) isFire = true;
+			if (t == CARD_ROCK_CRUSH) isRock = true;
+		}
+
+		// 3. Setup Minion
+		Player minion;
+		minion.playerID = 200 + (int)players.size(); // 200+ ID for Golems
+		minion.x = targetX;
+		minion.y = targetY;
+		minion.isMinion = true;
+		minion.isGolem = true;
+		minion.ownerID = currentPlayer.playerID;
+
+		// 4. Apply Variant Stats & Deck
+		if (isElectric) {
+			ofLogNotice("Summon") << "Combo! Summoning ELECTRIC Golem.";
+			minion.minionTexture = &golemTexElectric; // Point to electric texture
+			minion.maxHealth = startDiceRoll(1, 6, PURPOSE_HP); // 1d6 HP
+
+			// Deck: 3x Shock, 2x Hand Block
+			for (const auto & c : allCards) {
+				if (c.type == CARD_SHOCK) {
+					minion.deck.push_back(c);
+					minion.deck.push_back(c);
+					minion.deck.push_back(c);
+				}
+				if (c.type == CARD_GAIN_BLOCK && c.name == "Hand Block") {
+					minion.deck.push_back(c);
+					minion.deck.push_back(c);
+				}
+			}
+		} else if (isFire) {
+			ofLogNotice("Summon") << "Combo! Summoning FIRE Golem.";
+			minion.minionTexture = &golemTexFire;
+			minion.maxHealth = startDiceRoll(1, 10, PURPOSE_HP); // 1d10 HP
+
+			// Deck: 1x Fireball, 2x Flame Hit, 2x Hand Block
+			for (const auto & c : allCards) {
+				if (c.type == CARD_FIREBALL) minion.deck.push_back(c);
+				if (c.type == CARD_FLAME_HIT) {
+					minion.deck.push_back(c);
+					minion.deck.push_back(c);
+				}
+				if (c.type == CARD_GAIN_BLOCK && c.name == "Hand Block") {
+					minion.deck.push_back(c);
+					minion.deck.push_back(c);
+				}
+			}
+		} else if (isRock) {
+			ofLogNotice("Summon") << "Combo! Summoning ROCK Golem.";
+			minion.minionTexture = &golemTexRock;
+			minion.maxHealth = startDiceRoll(1, 20, PURPOSE_HP); // 1d20 HP
+
+			// Deck: 2x Rock Crush, 3x Bash, 2x Hand Block
+			for (const auto & c : allCards) {
+				if (c.type == CARD_ROCK_CRUSH) {
+					minion.deck.push_back(c);
+					minion.deck.push_back(c);
+				}
+				if (c.name == "Bash") {
+					minion.deck.push_back(c);
+					minion.deck.push_back(c);
+					minion.deck.push_back(c);
+				}
+				if (c.type == CARD_GAIN_BLOCK && c.name == "Hand Block") {
+					minion.deck.push_back(c);
+					minion.deck.push_back(c);
+				}
+			}
+		} else {
+			ofLogNotice("Summon") << "Summoning Standard Golem.";
+			minion.minionTexture = &golemTexBase;
+			minion.maxHealth = startDiceRoll(1, 10, PURPOSE_HP); // 1d10 HP
+
+			// Deck: 3x Bash, 2x Hand Block
+			for (const auto & c : allCards) {
+				if (c.name == "Bash") {
+					minion.deck.push_back(c);
+					minion.deck.push_back(c);
+					minion.deck.push_back(c);
+				}
+				if (c.type == CARD_GAIN_BLOCK && c.name == "Hand Block") {
+					minion.deck.push_back(c);
+					minion.deck.push_back(c);
+				}
+			}
+		}
+
+		minion.health = minion.maxHealth;
+		std::shuffle(minion.deck.begin(), minion.deck.end(), rng);
+
+		// 5. Add to board
+		board[targetX][targetY].hasPlayer = true;
+		players.push_back(minion);
+
+		// Sort turn order (Minions first, then by ID)
+		int currentID = players[currentPlayerIndex].playerID;
+		std::sort(players.begin(), players.end(), [](const Player & a, const Player & b) {
+			int ownerA = a.isMinion ? a.ownerID : a.playerID;
+			int ownerB = b.isMinion ? b.ownerID : b.playerID;
+			if (ownerA != ownerB) return ownerA < ownerB;
+			if (a.isMinion && !b.isMinion) return true;
+			if (!a.isMinion && b.isMinion) return false;
+			return a.playerID < b.playerID;
+		});
+		// Fix index
+		for (size_t i = 0; i < players.size(); i++) {
+			if (players[i].playerID == currentID) {
+				currentPlayerIndex = i;
+				break;
+			}
+		}
+
+		invalidateTargetCache();
+		playedSuccessfully = true;
+		break;
+	}
+
 	// --- CASE: STANDARD ATTACK (Stab, Cleave, Pierce, Punch) ---
 	case CARD_ATTACK_SINGLE_TILE: {
 		int px = players[currentPlayerIndex].x;
@@ -4617,6 +4775,7 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		currentPlayer.hand.erase(currentPlayer.hand.begin() + cardIndex);
 		activeCardDisplays.push_back({ playedCard, ofGetElapsedTimef() });
 		invalidateTargetCache();
+		currentPlayer.cardsPlayedThisTurn.push_back(playedCard.type);
 	}
 }
 //--------------------------------------------------------------
@@ -6049,6 +6208,7 @@ CardType ofApp::stringToCardType(const std::string & str) {
 	if (str == "CARD_FLAME_HIT") return CARD_FLAME_HIT;
 	if (str == "CARD_HEAL") return CARD_HEAL;
 	if (str == "CARD_RAISE_DEAD") return CARD_RAISE_DEAD;
+	if (str == "CARD_SUMMON_GOLEM") return CARD_SUMMON_GOLEM;
 	return CARD_NONE;
 }
 
@@ -6171,17 +6331,18 @@ void ofApp::drawMinionManagerUI() {
 		modelFbo.begin();
 		ofClear(0, 0, 0, 0);
 		ofEnableDepthTest();
-		ofEnableLighting(); // No lighting for fullbright
+		ofEnableLighting();
 		uiLight.enable();
 		ofPushMatrix();
 		ofTranslate(modelFbo.getWidth() / 2, 120);
-		ofScale(40, -40, 40);
+		ofScale(24, -24, 24);
 		ofRotateXDeg(-15);
 		ofRotateYDeg(ofGetElapsedTimef() * 30);
 		skeletonTexture.bind();
 		skeletonModel.drawFaces();
 		skeletonTexture.unbind();
 		ofPopMatrix();
+		uiLight.disable();
 		ofDisableLighting();
 		ofDisableDepthTest();
 		modelFbo.end();
@@ -6191,54 +6352,17 @@ void ofApp::drawMinionManagerUI() {
 		ofSetColor(0, 0, 0, 150);
 		ofDrawRectRounded(ui.bounds, 10 * scale);
 
-		// --- 1. CALCULATE ICON POSITIONS FIRST ---
+		// --- 1. CALCULATE & DRAW ICONS (Right Side) ---
+		// We calculate these first so we know how much space is left for the Health Bar
 		float iconMargin = 8 * scale;
 		float iconHeight = ui.bounds.height - (iconMargin * 2);
 		float cardAspectRatio = cardBackImage.getWidth() / cardBackImage.getHeight();
 		float iconWidth = iconHeight * cardAspectRatio;
 		float iconsY = ui.bounds.y + iconMargin;
 
-		// Discard is at the far right
 		ui.discardRect.set(ui.bounds.getRight() - (iconWidth + iconMargin), iconsY, iconWidth, iconHeight);
-		// Deck is to the left of Discard
-		ui.deckRect.set(ui.discardRect.x - (iconWidth + 10 * scale), iconsY, iconWidth, iconHeight);
+		ui.deckRect.set(ui.bounds.getRight() - (iconWidth * 2 + iconMargin + 5 * scale), iconsY, iconWidth, iconHeight);
 
-		// --- 2. Draw Text Block & Status Bar ---
-		string name = "Skeleton " + ofToString(i + 1);
-		float fontScale = 0.9f;
-
-		float textBlockX = ui.bounds.x + 10 * scale;
-		float textBlockY = ui.bounds.y + 5 * scale;
-
-		// CALCULATE BAR WIDTH:
-		// Distance between text start (left) and deck start (right) minus padding
-		float availableWidth = ui.deckRect.x - textBlockX - (15 * scale);
-
-		ofRectangle nameBounds = uiFont.getStringBoundingBox(name, 0, 0);
-
-		ofPushMatrix();
-		ofTranslate(textBlockX, textBlockY + nameBounds.height * fontScale);
-		ofScale(fontScale, fontScale);
-		ofSetColor(ofColor::white);
-		uiFont.drawString(name, 0, 0);
-		ofPopMatrix();
-
-		// Pass the dynamic width to the bar drawer
-		drawMinionStatusBars(minion, name, textBlockX, textBlockY, availableWidth);
-
-		// --- 3. Draw Model Image ---
-		float textBlockBottom = textBlockY + (nameBounds.height * fontScale) + (28 * scale);
-		float modelAreaHeight = ui.bounds.getBottom() - textBlockBottom - (5 * scale);
-
-		ui.modelViewport.set(
-			textBlockX + 10 * scale,
-			textBlockBottom,
-			modelAreaHeight,
-			modelAreaHeight);
-		ofSetColor(255);
-		modelFbo.draw(ui.modelViewport);
-
-		// --- 4. Draw Deck/Discard Icons ---
 		// Deck
 		ofSetColor(255);
 		if (!minion.deck.empty()) {
@@ -6265,5 +6389,39 @@ void ofApp::drawMinionManagerUI() {
 			ofSetColor(20, 20, 20, 200);
 			ofDrawRectRounded(ui.discardRect, 3);
 		}
+
+		// --- 2. DRAW TEXT & HEALTH BAR (Top-Left) ---
+		string name = minion.isGolem ? "Golem " + ofToString(i + 1) : "Skeleton " + ofToString(i + 1);
+		float fontScale = 0.9f;
+
+		float textBlockX = ui.bounds.x + 10 * scale;
+		float textBlockY = ui.bounds.y + 5 * scale;
+
+		ofRectangle nameBounds = uiFont.getStringBoundingBox(name, 0, 0);
+
+		ofPushMatrix();
+		ofTranslate(textBlockX, textBlockY + nameBounds.height * fontScale);
+		ofScale(fontScale, fontScale);
+		ofSetColor(ofColor::white);
+		uiFont.drawString(name, 0, 0);
+		ofPopMatrix();
+
+		// FIX: Calculate available width based on Deck position
+		float availableWidth = ui.deckRect.x - textBlockX - (15 * scale);
+
+		// FIX: Pass the 5th argument (availableWidth)
+		drawMinionStatusBars(minion, name, textBlockX, textBlockY, availableWidth);
+
+		// --- 3. DRAW MODEL (Bottom-Left) ---
+		float textBlockBottom = textBlockY + (nameBounds.height * fontScale) + (25 * scale);
+		float modelAreaHeight = ui.bounds.getBottom() - textBlockBottom - (5 * scale);
+
+		ui.modelViewport.set(
+			textBlockX,
+			textBlockBottom,
+			modelAreaHeight,
+			modelAreaHeight);
+		ofSetColor(255);
+		modelFbo.draw(ui.modelViewport);
 	}
 }
