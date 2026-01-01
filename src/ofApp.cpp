@@ -4113,7 +4113,6 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 
 	// --- 1. DEFINE DAMAGE HELPER LAMBDA ---
 	auto applyDamage = [&](Player & target, int damage, DamageType type) -> bool {
-		// Determine Label
 		string typeLabel = "";
 		switch (type) {
 		case DAMAGE_PHYSICAL:
@@ -4133,7 +4132,7 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 			break;
 		}
 
-		ofLogNotice("Game") << "Dealing " << damage << " damage (" << typeLabel << ") to Player " << target.playerID;
+		ofLogNotice("Game") << "Dealing " << damage << " damage to Player " << target.playerID;
 
 		int initialHealth = target.health;
 		int remainingDmg = damage;
@@ -4164,9 +4163,7 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 
 		if (remainingDmg > 0) {
 			target.health -= remainingDmg;
-			// CHANGE: Red Text with Label
 			spawnFloatingText(targetPos, "-" + ofToString(remainingDmg) + typeLabel, ofColor::red);
-			ofLogNotice("Game") << remainingDmg << " damage taken to Health!";
 		} else {
 			spawnFloatingText(targetPos, "Blocked", ofColor::gray);
 		}
@@ -4206,12 +4203,10 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 
 		if (targetPlayer && !targetPlayer->deck.empty()) {
 			Card stolenCard = targetPlayer->deck.back();
-			ofLogNotice("Game") << "Mind Theft! Revealed '" << stolenCard.name << "'";
 			targetPlayer->deck.pop_back();
 			currentPlayer.deck.push_back(stolenCard);
 			std::shuffle(currentPlayer.deck.begin(), currentPlayer.deck.end(), rng);
 
-			// Animation
 			StolenCardAnimation newAnim;
 			newAnim.card = stolenCard;
 			newAnim.startTime = ofGetElapsedTimef();
@@ -4219,7 +4214,6 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 			newAnim.targetPos = { ofGetWidth() / 2.0f, ofGetHeight() / 2.0f };
 			newAnim.currentPos = cam.worldToScreen(newAnim.startPos);
 			activeStolenCardAnimations.push_back(newAnim);
-
 			playedSuccessfully = true;
 		}
 		break;
@@ -4227,7 +4221,6 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 
 	// --- CASE: AMNESIA ---
 	case CARD_AMNESIA: {
-		// 1. Find the target unit
 		int targetIndex = -1;
 		for (size_t i = 0; i < players.size(); i++) {
 			if (players[i].x == targetX && players[i].y == targetY) {
@@ -4235,83 +4228,43 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 				break;
 			}
 		}
+		if (targetIndex == -1) break;
 
-		// 2. Validate Target Presence
-		if (targetIndex == -1) {
-			ofLogNotice("Amnesia") << "Cast failed! No unit at target.";
-			break;
-		}
-
-		// 3. Validate Range (Self or Adjacent)
 		Player * targetP = getPlayer(targetIndex);
-		int dist = abs(targetP->x - currentPlayer.x) + abs(targetP->y - currentPlayer.y);
+		if (targetP->deck.empty()) break;
 
-		if (dist > 1) {
-			ofLogNotice("Amnesia") << "Cast failed! Target must be Self or Adjacent.";
-			break;
-		}
-
-		// 4. Validate Deck Size
-		if (targetP->deck.empty()) {
-			ofLogNotice("Amnesia") << "Cast failed! Target has no cards in deck.";
-			break;
-		}
-
-		// 5. Execute
-		ofLogNotice("Amnesia") << "Targeting Player " << targetP->playerID << ". Rolling to see how many cards to remove...";
-
-		// Store the target index so we know whose deck to modify later
 		amnesiaTargetPlayerIndex = targetIndex;
-
-		// Start Dice Roll for CARD COUNT REMOVAL (Not healing)
 		pendingAmnesiaRollResult = startDiceRoll(playedCard.numDice, playedCard.diceSides, PURPOSE_DAMAGE);
 		isWaitingForAmnesiaDice = true;
-
 		playedSuccessfully = true;
 		break;
 	}
 
-		// --- CASE: MAGIC BLAST ---
+	// --- CASE: MAGIC BLAST ---
 	case CARD_MAGIC_BLAST: {
 		glm::vec2 casterTile = { (float)currentPlayer.x, (float)currentPlayer.y };
 		glm::vec2 targetTile = { (float)targetX, (float)targetY };
-
-		// FIX: Added the 4th argument (playedCard.type) to the function call
-		// Also updated range to be based on the card's dice (e.g., 2d10 = 20ft max)
 		TargetInfo validationResult = isLosTargetValid(casterTile, targetTile, playedCard.numDice * 10.0f, playedCard.type);
 
-		if (validationResult.reason != VALID) {
-			ofLogNotice("Magic Blast") << "Cast failed! LOS Blocked or invalid target.";
-			break;
-		}
+		if (validationResult.reason != VALID) break;
 
-		// Re-validate that there is a unit to hit (directly or via splash)
+		// Validation: Must hit unit or have adjacent unit
 		bool hasValidUnit = false;
-		if (board[targetX][targetY].hasPlayer) {
-			hasValidUnit = true;
-		}
+		if (board[targetX][targetY].hasPlayer) hasValidUnit = true;
 		if (!hasValidUnit) {
 			glm::vec2 neighbors[4] = { { targetX + 1, targetY }, { targetX - 1, targetY }, { targetX, targetY + 1 }, { targetX, targetY - 1 } };
 			for (const auto & n : neighbors) {
-				if (n.x >= 0 && n.x < BOARD_WIDTH && n.y >= 0 && n.y < BOARD_HEIGHT) {
-					if (board[(int)n.x][(int)n.y].hasPlayer) {
-						hasValidUnit = true;
-						break;
-					}
+				if (n.x >= 0 && n.x < BOARD_WIDTH && n.y >= 0 && n.y < BOARD_HEIGHT && board[(int)n.x][(int)n.y].hasPlayer) {
+					hasValidUnit = true;
+					break;
 				}
 			}
 		}
+		if (!hasValidUnit) break;
 
-		if (!hasValidUnit) {
-			ofLogNotice("Magic Blast") << "Cast failed! No valid unit targets at that location.";
-			break;
-		}
-
-		ofLogNotice("Magic Blast") << "Casting! Rolling for range...";
 		pendingMagicBlastRollResult = startDiceRoll(playedCard.numDice, playedCard.diceSides, PURPOSE_RANGE);
 		isWaitingForMagicBlastDice = true;
 		pendingMagicBlastTargetTile = targetTile;
-
 		playedSuccessfully = true;
 		break;
 	}
@@ -4320,25 +4273,13 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 	case CARD_FIREBALL: {
 		glm::vec2 casterTile = { (float)currentPlayer.x, (float)currentPlayer.y };
 		glm::vec2 targetTile = { (float)targetX, (float)targetY };
-
-		// FIX: Added the 4th argument (playedCard.type) to the function call
 		TargetInfo validationResult = isLosTargetValid(casterTile, targetTile, playedCard.numDice * 6.0f, playedCard.type);
 
-		if (validationResult.reason != VALID) {
-			ofLogNotice("Fireball") << "Cast failed! Target invalid.";
-			break;
-		}
+		if (validationResult.reason != VALID || !board[targetX][targetY].hasPlayer) break;
 
-		if (!board[targetX][targetY].hasPlayer) {
-			ofLogNotice("Fireball") << "Cast failed! Must target a unit.";
-			break;
-		}
-
-		ofLogNotice("Fireball") << "Casting! Rolling for range...";
 		pendingFireballRangeResult = startDiceRoll(playedCard.numDice, playedCard.diceSides, PURPOSE_RANGE);
 		isWaitingForFireballRangeDice = true;
 		pendingFireballTargetTile = targetTile;
-
 		playedSuccessfully = true;
 		break;
 	}
@@ -4346,12 +4287,10 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 	// --- CASE: ROCK CRUSH ---
 	case CARD_ROCK_CRUSH: {
 		if (board[targetX][targetY].hasWall) {
-			ofLogNotice("Rock Crush") << "SMASH! Wall destroyed.";
 			board[targetX][targetY].hasWall = false;
-			buildLevelMesh(); // Rebuild visuals
+			buildLevelMesh();
 			playedSuccessfully = true;
 		} else {
-			// Check for Unit Hit
 			int targetIndex = -1;
 			for (size_t i = 0; i < players.size(); i++) {
 				if (players[i].x == targetX && players[i].y == targetY) {
@@ -4360,7 +4299,6 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 				}
 			}
 			if (targetIndex != -1) {
-				ofLogNotice("Rock Crush") << "Crushing Player " << players[targetIndex].playerID;
 				pendingAttackRollResult = startDiceRoll(playedCard.numDice, playedCard.diceSides, PURPOSE_DAMAGE);
 				isWaitingForAttackDice = true;
 				pendingAttackDamageType = playedCard.damageType;
@@ -4372,66 +4310,46 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		break;
 	}
 
-		// --- CASE: DISPEL ---
+	// --- CASE: DISPEL ---
 	case CARD_DISPEL: {
-		// Don't execute yet. Just open the menu.
 		pendingDispelCardIndex = cardIndex;
 		isDispelMenuOpen = true;
-
-		// Calculate menu geometry once
+		// Menu geometry setup
 		float w = 600, h = 300;
 		float x = ofGetWidth() / 2 - w / 2, y = ofGetHeight() / 2 - h / 2;
 		dispelMenuRect.set(x, y, w, h);
 		dispelBtnBarrier.set(x + 40, y + 100, 250, 100);
 		dispelBtnPurge.set(x + w - 290, y + 100, 250, 100);
-
-		// Do NOT set playedSuccessfully = true yet.
-		// We wait for user input.
 		break;
 	}
 
 	// --- CASE: TELEPORT ---
 	case CARD_TELEPORT: {
-		// Double check target is empty
-		if (board[targetX][targetY].hasWall || board[targetX][targetY].hasPlayer) {
-			ofLogNotice("Teleport") << "Invalid destination.";
-			break;
-		}
-
-		ofLogNotice("Teleport") << "Initiating Teleport... Rolling 3d6 for range.";
-
-		// Setup State
+		if (board[targetX][targetY].hasWall || board[targetX][targetY].hasPlayer) break;
 		pendingTeleportTarget = glm::vec2(targetX, targetY);
 		pendingTeleportRollResult = startDiceRoll(playedCard.numDice, playedCard.diceSides, PURPOSE_RANGE);
 		isWaitingForTeleportDice = true;
-
 		playedSuccessfully = true;
 		break;
 	}
 
 	// --- CASE: HASTEN ---
 	case CARD_HASTEN: {
-		// Apply buffs for the NEXT turn
 		currentPlayer.nextTurnD10AP = true;
 		currentPlayer.nextTurnExtraDraw = true;
-
-		ofLogNotice("Hasten") << "Player " << currentPlayer.playerID << " feels faster! Next turn: D10 AP & Draw 3.";
 		playedSuccessfully = true;
 		break;
 	}
 
 	// --- CASE: REPLICATE ---
 	case CARD_REPLICATE: {
-		// Just set the flag. The cleanup step handles the card movement.
 		currentPlayer.isReplicatePending = true;
-		ofLogNotice("Replicate") << "Replicate Active! Next spell will be doubled.";
 		playedSuccessfully = true;
 		break;
 	}
 
 	// --- CASE: WISDOM BOON ---
 	case CARD_WISDOM_BOON: {
-		// 1. Find the target unit
 		int targetIndex = -1;
 		for (size_t i = 0; i < players.size(); i++) {
 			if (players[i].x == targetX && players[i].y == targetY) {
@@ -4439,56 +4357,34 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 				break;
 			}
 		}
-
-		// 2. Validate Target
-		if (targetIndex == -1) {
-			ofLogNotice("Wisdom Boon") << "Failed: No target selected.";
-			break;
-		}
+		if (targetIndex == -1) break;
 
 		Player * t = getPlayer(targetIndex);
 		bool isSelf = (targetIndex == currentPlayerIndex);
 		bool isAdjacent = (abs(t->x - currentPlayer.x) + abs(t->y - currentPlayer.y) == 1);
 
-		// Enforce Rules: Must be Self OR Adjacent
-		if (!isSelf && !isAdjacent) {
-			ofLogNotice("Wisdom Boon") << "Failed: Target must be Self or Adjacent.";
-			break;
-		}
+		if (!isSelf && !isAdjacent) break;
 
-		// 3. Setup Menu State
 		pendingWisdomBoonCardIndex = cardIndex;
 		pendingWisdomBoonTargetIndex = targetIndex;
 		isWisdomBoonMenuOpen = true;
-
-		// 4. Calculate Layout
+		// Menu geometry
 		float w = 600, h = 300;
 		float x = ofGetWidth() / 2 - w / 2, y = ofGetHeight() / 2 - h / 2;
 		wisdomMenuRect.set(x, y, w, h);
-
-		// Single big button for the context-sensitive action
-		float btnW = 300, btnH = 80;
-		// We'll reuse 'wisdomBtnDamage' as the main action button
-		wisdomBtnDamage.set(x + (w - btnW) / 2, y + 150, btnW, btnH);
-		// Hide the other button
+		wisdomBtnDamage.set(x + (w - 300) / 2, y + 150, 300, 80);
 		wisdomBtnBlock.set(0, 0, 0, 0);
-
-		break; // <--- WISDOM BOON ENDS HERE
+		break;
 	}
 
 	// --- CASE: HEAL ---
 	case CARD_HEAL: {
-		// 1. Validate LoS again (using the 1000.0f range for unlimited)
 		glm::vec2 casterTile = { (float)currentPlayer.x, (float)currentPlayer.y };
 		glm::vec2 targetTile = { (float)targetX, (float)targetY };
 		TargetInfo validationResult = isLosTargetValid(casterTile, targetTile, 1000.0f, playedCard.type);
 
-		if (validationResult.reason != VALID) {
-			ofLogNotice("Heal") << "Cast failed! No Line of Sight.";
-			break;
-		}
+		if (validationResult.reason != VALID) break;
 
-		// 2. Find Target Unit
 		int targetIndex = -1;
 		for (size_t i = 0; i < players.size(); i++) {
 			if (players[i].x == targetX && players[i].y == targetY) {
@@ -4496,65 +4392,38 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 				break;
 			}
 		}
+		if (targetIndex == -1) break;
 
-		if (targetIndex == -1) {
-			ofLogNotice("Heal") << "Cast failed! No unit at target.";
-			break;
-		}
-
-		// --- NEW FRIENDLY CHECK (VALIDATION) ---
+		// Friendly Check
 		Player * target = getPlayer(targetIndex);
 		int casterOwner = currentPlayer.isMinion ? currentPlayer.ownerID : currentPlayer.playerID;
 		int targetOwner = target->isMinion ? target->ownerID : target->playerID;
-
-		if (casterOwner != targetOwner) {
-			ofLogNotice("Heal") << "Cast failed! Cannot heal an enemy unit.";
-			break; // Exit the case
-		}
-		// --- END NEW FRIENDLY CHECK ---
-
-		// 3. Start Dice Roll (The rest of the function is correct)
-		ofLogNotice("Heal") << "Casting Heal on Player " << players[targetIndex].playerID << "... Rolling 2d6.";
+		if (casterOwner != targetOwner) break;
 
 		pendingHealTargetIndex = targetIndex;
-		// We reuse PURPOSE_DAMAGE just so the number pops up visually
 		pendingHealRollResult = startDiceRoll(playedCard.numDice, playedCard.diceSides, PURPOSE_DAMAGE);
 		isWaitingForHealDice = true;
-
 		playedSuccessfully = true;
-		break; // <--- HEAL ENDS HERE
+		break;
 	}
 
-		// --- CASE: ETHEREAL JOLT ---
+	// --- CASE: ETHEREAL JOLT ---
 	case CARD_ETHEREAL_JOLT: {
 		glm::vec2 casterTile = { (float)currentPlayer.x, (float)currentPlayer.y };
 		glm::vec2 targetTile = { (float)targetX, (float)targetY };
-
-		// Validate (using the special ignore-walls logic inside isLosTargetValid)
 		TargetInfo validationResult = isLosTargetValid(casterTile, targetTile, 20.0f, playedCard.type);
 
-		if (validationResult.reason != VALID) {
-			ofLogNotice("Jolt") << "Cast failed! Target invalid.";
-			break;
-		}
+		if (validationResult.reason != VALID || !board[targetX][targetY].hasPlayer) break;
 
-		if (!board[targetX][targetY].hasPlayer) {
-			ofLogNotice("Jolt") << "Cast failed! Must target a unit.";
-			break;
-		}
-
-		ofLogNotice("Jolt") << "Casting Ethereal Jolt! Rolling 1d20 for range...";
 		pendingJoltRangeResult = startDiceRoll(1, 20, PURPOSE_RANGE);
 		isWaitingForJoltRangeDice = true;
 		pendingJoltTargetTile = targetTile;
-
 		playedSuccessfully = true;
 		break;
 	}
 
 	// --- CASE: FLAME HIT ---
 	case CARD_FLAME_HIT: {
-		// 1. Find Target Unit
 		int targetIndex = -1;
 		for (size_t i = 0; i < players.size(); i++) {
 			if (players[i].x == targetX && players[i].y == targetY) {
@@ -4562,55 +4431,32 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 				break;
 			}
 		}
+		if (targetIndex == -1) break;
 
-		// 2. Validate
-		if (targetIndex == -1) {
-			ofLogNotice("Flame Hit") << "Cast failed! No unit at target.";
-			break;
-		}
-
-		// 3. Execute Damage
 		Player * target = getPlayer(targetIndex);
-
-		// applyDamage returns TRUE if Health was reduced (bypassed shields)
 		bool healthHit = applyDamage(*target, playedCard.value, DAMAGE_FIRE);
-
-		if (healthHit) {
-			target->onFire = true;
-			ofLogNotice("Flame Hit") << "Target took health damage and caught Fire!";
-		} else {
-			ofLogNotice("Flame Hit") << "Damage absorbed by armor. Fire status NOT applied.";
-		}
-
+		if (healthHit) target->onFire = true;
 		playedSuccessfully = true;
 		break;
 	}
 
-		// --- CASE: RAISE DEAD ---
+	// --- CASE: RAISE DEAD ---
 	case CARD_RAISE_DEAD: {
-		// Double check target
-		if (board[targetX][targetY].hasWall || board[targetX][targetY].hasPlayer) {
-			ofLogNotice("Raise Dead") << "Invalid target.";
-			break;
-		}
-
-		ofLogNotice("Raise Dead") << "Raising Skeleton! Rolling 1d6 for HP...";
-
+		if (board[targetX][targetY].hasWall || board[targetX][targetY].hasPlayer) break;
 		pendingSummonTile = glm::vec2(targetX, targetY);
-		pendingSummonRollResult = startDiceRoll(1, 6, PURPOSE_HP); // Ensure this is NOT PURPOSE_COIN_FLIP or PURPOSE_AP
+		pendingSummonRollResult = startDiceRoll(1, 6, PURPOSE_HP);
 		isWaitingForSummonHealth = true;
-
 		playedSuccessfully = true;
 		break;
 	}
 
-	// --- CASE: STANDARD ATTACK (Stab, Cleave, Pierce) ---
+	// --- CASE: STANDARD ATTACK (Stab, Cleave, Pierce, Punch) ---
 	case CARD_ATTACK_SINGLE_TILE: {
 		int px = players[currentPlayerIndex].x;
 		int py = players[currentPlayerIndex].y;
 		pendingAttackTargetIndices.clear();
 
-		// 1. CLEAVE LOGIC (Arc)
+		// 1. CLEAVE LOGIC
 		if (playedCard.targeting == TARGET_CLEAVE_ADJACENT) {
 			glm::vec2 dir = { (float)(targetX - px), (float)(targetY - py) };
 			std::vector<Player *> targetsToHit = findCleaveTargets(dir);
@@ -4620,12 +4466,9 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 				}
 			}
 		}
-		// 2. PIERCE LOGIC (Line - e.g. Stab)
+		// 2. PIERCE LOGIC
 		else if (playedCard.targeting == TARGET_LINEAR_PIERCE) {
-			// Calculate Direction based on where the player clicked relative to self
 			glm::vec2 dir = { (float)(targetX - px), (float)(targetY - py) };
-
-			// Normalize to get strict cardinal direction (1 tile step)
 			if (std::abs(dir.x) > std::abs(dir.y)) {
 				dir.x = (dir.x > 0) ? 1.0f : -1.0f;
 				dir.y = 0.0f;
@@ -4634,108 +4477,101 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 				dir.y = (dir.y > 0) ? 1.0f : -1.0f;
 			}
 
-			// Define the two tiles in the straight line
-			glm::vec2 pos1 = { px + dir.x, py + dir.y }; // Adjacent
-			glm::vec2 pos2 = { px + dir.x * 2, py + dir.y * 2 }; // Behind
+			glm::vec2 pos1 = { px + dir.x, py + dir.y };
+			glm::vec2 pos2 = { px + dir.x * 2, py + dir.y * 2 };
 
-			// --- ADD TARGETS IN ORDER ---
-			// The updateGame logic uses the index to determine damage.
-			// Index 0 = Full Damage. Index 1+ = Half Damage (if type is PIERCING).
-
-			// A. Check Position 1 (Closest)
+			// A. Adjacent
 			for (size_t i = 0; i < players.size(); i++) {
 				if (players[i].x == (int)pos1.x && players[i].y == (int)pos1.y) {
 					pendingAttackTargetIndices.push_back((int)i);
-					ofLogNotice("Attack") << "Hit front target: Player " << players[i].playerID;
 					break;
 				}
 			}
-
-			// B. Check Position 2 (Behind)
-			// Only check if Position 1 is NOT a wall (walls block the stab)
+			// B. Behind (only if not blocked by wall)
 			if (!isTileWall((int)pos1.x, (int)pos1.y)) {
 				for (size_t i = 0; i < players.size(); i++) {
 					if (players[i].x == (int)pos2.x && players[i].y == (int)pos2.y) {
 						pendingAttackTargetIndices.push_back((int)i);
-						ofLogNotice("Attack") << "Hit back target: Player " << players[i].playerID;
 						break;
 					}
 				}
 			}
 		}
-		// 3. STANDARD SINGLE TARGET
+		// 3. STANDARD SINGLE TARGET (e.g., Punch)
 		else {
-			// Use the standard LoS check to ensure valid reach (e.g. 5ft range)
-			glm::vec2 casterTile = { (float)px, (float)py };
-			glm::vec2 targetTile = { (float)targetX, (float)targetY };
-
-			// Use range 5.0f (2 squares) for standard melee, or whatever the card says
-			TargetInfo info = isLosTargetValid(casterTile, targetTile, 5.0f, playedCard.type);
-
-			if (info.reason == VALID && info.isTargetable) {
-				for (size_t i = 0; i < players.size(); i++) {
-					if (players[i].x == targetX && players[i].y == targetY) {
-						pendingAttackTargetIndices.push_back((int)i);
-						break;
+			// FIX: Explicitly handle Adjacent targeting to avoid 5ft Range confusion
+			if (playedCard.targeting == TARGET_ADJACENT_UNIT) {
+				int dist = abs(targetX - px) + abs(targetY - py);
+				// Must be adjacent (distance 1) and occupied
+				if (dist == 1 && board[targetX][targetY].hasPlayer) {
+					for (size_t i = 0; i < players.size(); i++) {
+						if (players[i].x == targetX && players[i].y == targetY) {
+							pendingAttackTargetIndices.push_back((int)i);
+							break;
+						}
 					}
 				}
-			} else {
-				ofLogNotice("Attack") << "Invalid Target (Blocked or Out of Range)";
+			}
+			// Generic 5ft range fall back (for older cards)
+			else {
+				glm::vec2 casterTile = { (float)px, (float)py };
+				glm::vec2 targetTile = { (float)targetX, (float)targetY };
+				TargetInfo info = isLosTargetValid(casterTile, targetTile, 5.0f, playedCard.type);
+
+				if (info.reason == VALID && info.isTargetable) {
+					for (size_t i = 0; i < players.size(); i++) {
+						if (players[i].x == targetX && players[i].y == targetY) {
+							pendingAttackTargetIndices.push_back((int)i);
+							break;
+						}
+					}
+				}
 			}
 		}
 
 		if (pendingAttackTargetIndices.empty()) {
-			ofLogNotice("Attack") << "No valid targets hit. Action Cancelled.";
-			break; // Don't spend AP/Card if we hit nothing
+			ofLogNotice("Attack") << "No valid targets. Action Cancelled.";
+			break;
 		}
 
 		// --- EXECUTE DAMAGE ---
-		// If the card has dice, we roll for damage.
 		if (playedCard.numDice > 0 && playedCard.diceSides > 0) {
 			pendingAttackRollResult = startDiceRoll(playedCard.numDice, playedCard.diceSides, PURPOSE_DAMAGE);
 			isWaitingForAttackDice = true;
 			pendingAttackDamageType = playedCard.damageType;
 		} else {
-			// If flat damage (no dice), apply immediately
 			int damage = playedCard.value;
 			for (size_t i = 0; i < pendingAttackTargetIndices.size(); i++) {
 				int pIndex = pendingAttackTargetIndices[i];
 				Player * target = getPlayer(pIndex);
 				if (target) {
-					// Handle Piercing Halving (First target full, others half)
 					int finalDamage = damage;
-					if (playedCard.damageType == DAMAGE_PIERCING && i > 0) {
-						finalDamage /= 2;
-					}
+					if (playedCard.damageType == DAMAGE_PIERCING && i > 0) finalDamage /= 2;
 					applyDamage(*target, finalDamage, playedCard.damageType);
 				}
 			}
 		}
-
 		playedSuccessfully = true;
 		break;
 	}
 
 	// --- CASE: SHOCK ---
 	case CARD_SHOCK: {
-		Player * target = nullptr;
-		for (auto & p : players) {
-			if (p.x == targetX && p.y == targetY) {
-				target = &p;
+		int targetIndex = -1;
+		for (size_t i = 0; i < players.size(); i++) {
+			if (players[i].x == targetX && players[i].y == targetY) {
+				targetIndex = (int)i;
 				break;
 			}
 		}
-
-		if (target) {
+		if (targetIndex != -1) {
+			Player * target = getPlayer(targetIndex);
 			applyDamage(*target, playedCard.value, DAMAGE_ELECTRIC);
-			// Combo Check: If played 2nd time this turn -> Paralyze
 			if (currentPlayer.shocksPlayedThisTurn > 0 && !target->isParalyzed) {
-				ofLogNotice("Shock") << "Combo Triggered! Player " << target->playerID << " is now Paralyzed.";
 				target->isParalyzed = true;
-				target->paralysisHeadsCount = 0; // Reset the counter for their turn
+				target->paralysisHeadsCount = 0;
 			}
 		}
-
 		currentPlayer.nextTurnAPBonus += 2;
 		currentPlayer.shocksPlayedThisTurn++;
 		playedSuccessfully = true;
@@ -4744,30 +4580,19 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 
 	case CARD_GAIN_AP:
 		currentAP += playedCard.value;
-
-		// --- ADD THIS: YELLOW FLOATING TEXT ---
-		spawnFloatingText(gridToWorld(currentPlayer.x, currentPlayer.y),
-			"+" + ofToString(playedCard.value) + " AP",
-			ofColor::yellow);
-
+		spawnFloatingText(gridToWorld(currentPlayer.x, currentPlayer.y), "+" + ofToString(playedCard.value) + " AP", ofColor::yellow);
 		playedSuccessfully = true;
 		break;
 
 	case CARD_GAIN_BLOCK:
 		players[currentPlayerIndex].block += playedCard.value;
-		// ADD THIS: Grey Text
-		spawnFloatingText(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y),
-			"+" + ofToString(playedCard.value) + " Block",
-			ofColor::gray);
+		spawnFloatingText(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y), "+" + ofToString(playedCard.value) + " Block", ofColor::gray);
 		playedSuccessfully = true;
 		break;
 
 	case CARD_GAIN_WARD:
 		players[currentPlayerIndex].ward += playedCard.value;
-		// ADD THIS: Black Text
-		spawnFloatingText(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y),
-			"+" + ofToString(playedCard.value) + " Ward",
-			ofColor::black);
+		spawnFloatingText(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y), "+" + ofToString(playedCard.value) + " Ward", ofColor::black);
 		playedSuccessfully = true;
 		break;
 
@@ -4777,33 +4602,16 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 
 	// --- 3. COMMON CLEANUP ---
 	if (playedSuccessfully) {
-		// Pay Cost
 		currentAP -= playedCard.cost;
-
-		// 1. Move played card to "Grey Area" (playedCardsPile)
-		// It will stay here until end of turn.
 		currentPlayer.playedCardsPile.push_back(playedCard);
 
-		// 2. Handle REPLICATE Effect
-		// If Replicate is pending (and we aren't just casting Replicate itself)
 		if (currentPlayer.isReplicatePending && playedCard.type != CARD_REPLICATE) {
-
-			// Create a duplicate
 			Card duplicateCard = playedCard;
-
-			// The duplicate ALSO goes into the Grey Area
 			currentPlayer.playedCardsPile.push_back(duplicateCard);
-
-			ofLogNotice("Replicate") << "Replicated " << playedCard.name << ". Copy added to played pile.";
-
-			// Consume the effect
 			currentPlayer.isReplicatePending = false;
 		}
 
-		// 3. Remove from Hand
 		currentPlayer.hand.erase(currentPlayer.hand.begin() + cardIndex);
-
-		// 4. Visuals & Cache
 		activeCardDisplays.push_back({ playedCard, ofGetElapsedTimef() });
 		invalidateTargetCache();
 	}
