@@ -6360,7 +6360,6 @@ void ofApp::drawMinionStatusBars(Player & minion, const std::string & name, floa
 	}
 }
 //--------------------------------------------------------------
-//--------------------------------------------------------------
 void ofApp::drawMinionManagerUI() {
 	if (activeMinionUIs.empty()) return;
 
@@ -6375,7 +6374,7 @@ void ofApp::drawMinionManagerUI() {
 		ofClear(0, 0, 0, 0);
 		ofEnableDepthTest();
 
-		// Ensure lighting is OFF by default for the FBO so everything is "Full Bright"
+		// Ensure lighting is OFF by default so models are "Full Bright"
 		ofDisableLighting();
 		uiLight.disable();
 		ofSetColor(255);
@@ -6396,12 +6395,8 @@ void ofApp::drawMinionManagerUI() {
 
 		} else {
 			// --- SKELETON UI SETTINGS ---
-			// Explicitly ensure color is white (Full Bright)
 			ofSetColor(255);
-
 			ofTranslate(modelFbo.getWidth() / 2, 90);
-
-			// Keep the positive scale to keep him upright
 			ofScale(24, 24, 24);
 
 			ofRotateXDeg(-15);
@@ -6414,7 +6409,6 @@ void ofApp::drawMinionManagerUI() {
 
 		ofPopMatrix();
 
-		// Cleanup state
 		ofDisableDepthTest();
 		modelFbo.end();
 
@@ -6423,8 +6417,24 @@ void ofApp::drawMinionManagerUI() {
 		ofSetColor(0, 0, 0, 150);
 		ofDrawRectRounded(ui.bounds, 10 * scale);
 
-		// --- Name Text ---
-		string name = (minion.isGolem ? "Golem " : "Skeleton ") + ofToString(i + 1);
+		// --- DETERMINE NAME ---
+		string name = "";
+		if (minion.isGolem) {
+			if (minion.minionTexture == &golemTexElectric)
+				name = "Electric Golem ";
+			else if (minion.minionTexture == &golemTexFire)
+				name = "Fire Golem ";
+			else if (minion.minionTexture == &golemTexRock)
+				name = "Rock Golem ";
+			else
+				name = "Golem "; // Base Golem
+		} else {
+			name = "Skeleton ";
+		}
+		// Append number (1, 2, etc.)
+		name += ofToString(i + 1);
+
+		// --- Draw Name Text ---
 		float fontScale = 0.9f;
 		float textBlockX = ui.bounds.x + 10 * scale;
 		float textBlockY = ui.bounds.y + 5 * scale;
