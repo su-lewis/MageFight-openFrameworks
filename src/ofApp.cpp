@@ -838,11 +838,13 @@ void ofApp::updateGame() {
 	activeMinionUIs.clear();
 	if (!players.empty()) {
 		float scale = ofGetHeight() / 1080.0f;
+
+		// FIX: Increased width to 260 for more spacing
 		float panelWidth = 250 * scale;
-		float entryHeight = 85 * scale;
+		float entryHeight = 95 * scale;
 
 		// --- Build UI for Player 0's Minions (Left Side) ---
-		float p0_startX = 20 * scale;
+		float p0_startX = 10 * scale;
 		float p0_startY = (40 * scale) + (65 * scale) + (50 * scale) * 3 + (20 * scale);
 		int p0_minionCount = 0;
 		for (int i = 0; i < players.size(); i++) {
@@ -856,7 +858,7 @@ void ofApp::updateGame() {
 		}
 
 		// --- Build UI for Player 1's Minions (Right Side) ---
-		float p1_startX = ofGetWidth() - panelWidth - (20 * scale);
+		float p1_startX = ofGetWidth() - panelWidth - (10 * scale);
 		float p1_startY = (40 * scale) + (65 * scale) + (50 * scale) * 3 + (20 * scale);
 		int p1_minionCount = 0;
 		for (int i = 0; i < players.size(); i++) {
@@ -6261,41 +6263,39 @@ DamageType ofApp::stringToDamageType(const std::string & str) {
 // ----------------- MINION UI -----------------
 void ofApp::drawMinionStatusBars(Player & minion, const std::string & name, float textBlockX, float textBlockY) {
 	float scale = ofGetHeight() / 1080.0f;
-	float fontScale = 0.75f; // Use the same font scale as the name for consistency
+	// FIX: This now matches the larger font scale from the calling function
+	float fontScale = 1.2f;
 
-	// 1. Calculate the width of the "Skeleton #" text to size the health bar
 	ofRectangle nameBounds = uiFont.getStringBoundingBox(name, 0, 0);
 	float barWidth = nameBounds.width * fontScale;
-	float barHeight = 18 * scale; // A good thickness for the bar
+	float barHeight = 20 * scale;
 
-	// 2. Draw Health Bar underneath the text's Y position
-	float barY = textBlockY + (nameBounds.height * fontScale) - (5 * scale);
+	float barY = textBlockY + (nameBounds.height * fontScale) + (2 * scale);
+
 	ofSetColor(ofColor::darkRed);
 	ofDrawRectangle(textBlockX, barY, barWidth, barHeight);
 	float healthPercent = (float)minion.health / minion.maxHealth;
 	ofSetColor(ofColor::green);
 	ofDrawRectangle(textBlockX, barY, barWidth * healthPercent, barHeight);
 
-	// 3. Draw Health Text (e.g., "10/10")
 	string hpText = ofToString(minion.health) + "/" + ofToString(minion.maxHealth);
-	float hpFontScale = 0.5f;
+	// Keep the HP text itself at its previous size for clarity
+	float hpFontScale = 1.0f;
 	ofRectangle hpBounds = uiFont.getStringBoundingBox(hpText, 0, 0);
 
 	ofPushMatrix();
-	// Center the HP text inside the health bar
-	ofTranslate(textBlockX + (barWidth / 2) - (hpBounds.width * hpFontScale / 2), barY + barHeight - (3 * scale));
+	ofTranslate(textBlockX + (barWidth / 2) - (hpBounds.width * hpFontScale / 2), barY + barHeight - (2 * scale));
 	ofScale(hpFontScale, hpFontScale);
 	ofSetColor(ofColor::white);
 	uiFont.drawString(hpText, 0, 0);
 	ofPopMatrix();
 }
-
+//--------------------------------------------------------------
 void ofApp::drawMinionManagerUI() {
 	if (activeMinionUIs.empty()) return;
 
 	float scale = ofGetHeight() / 1080.0f;
 
-	// --- Loop and Draw Each Minion Entry ---
 	for (int i = 0; i < activeMinionUIs.size(); i++) {
 		auto & ui = activeMinionUIs[i];
 		Player & minion = players[ui.playerIndex];
@@ -6306,68 +6306,65 @@ void ofApp::drawMinionManagerUI() {
 		ofEnableDepthTest();
 		ofEnableLighting();
 		uiLight.enable();
-
 		ofPushMatrix();
-		// FIX: Y value increased again to lift the model's body into view
-		ofTranslate(modelFbo.getWidth() / 2, 150); 
-		
-		ofScale(24, -24, 24);
+		ofTranslate(modelFbo.getWidth() / 2, 120);
+		ofScale(40, -40, 40);
 		ofRotateXDeg(-15);
 		ofRotateYDeg(ofGetElapsedTimef() * 30);
-
 		skeletonTexture.bind();
 		skeletonModel.drawFaces();
 		skeletonTexture.unbind();
-
 		ofPopMatrix();
-
 		uiLight.disable();
 		ofDisableLighting();
 		ofDisableDepthTest();
 		modelFbo.end();
 
 		// --- Draw UI Panel ---
-		ui.bounds.height = 85 * scale;
+		ui.bounds.height = 95 * scale;
 		ofSetColor(0, 0, 0, 150);
 		ofDrawRectRounded(ui.bounds, 10 * scale);
 
-		// --- Draw Model Image ---
-		ofSetColor(255);
-		float modelViewportSize = ui.bounds.height - 10 * scale;
-		ui.modelViewport.set(
-			ui.bounds.x + 5 * scale, 
-			ui.bounds.y + (ui.bounds.height - modelViewportSize) / 2,
-			modelViewportSize, 
-			modelViewportSize
-		);
-		modelFbo.draw(ui.modelViewport);
-
-		// --- Draw Text Block (Name + Health Bar) ---
+		// --- 1. Draw Text Block (Name + Health) in TOP-LEFT ---
 		string name = "Skeleton " + ofToString(i + 1);
-		float fontScale = 0.7f;
-        float textBlockX = ui.modelViewport.getRight() + 10 * scale;
-        float textBlockY = ui.bounds.y + 20 * scale;
+		float fontScale = 0.9f;
+
+		float textBlockX = ui.bounds.x + 10 * scale;
+		float textBlockY = ui.bounds.y + 5 * scale;
+
+		ofRectangle nameBounds = uiFont.getStringBoundingBox(name, 0, 0);
 
 		ofPushMatrix();
-		ofTranslate(textBlockX, textBlockY);
+		ofTranslate(textBlockX, textBlockY + nameBounds.height * fontScale);
 		ofScale(fontScale, fontScale);
 		ofSetColor(ofColor::white);
 		uiFont.drawString(name, 0, 0);
 		ofPopMatrix();
-		
+
 		drawMinionStatusBars(minion, name, textBlockX, textBlockY);
 
-		// --- Draw Deck/Discard Icons (RESIZED & REPOSITIONED) ---
-		// FIX: Increased icon size
-		float iconHeight = 45 * scale; 
+		// --- 2. Draw Model Image in BOTTOM-LEFT ---
+		// FIX: Reduced padding from 25 to 15 to move the model UP
+		float textBlockBottom = textBlockY + (nameBounds.height * fontScale) + (15 * scale);
+		float modelAreaHeight = ui.bounds.getBottom() - textBlockBottom - (5 * scale);
+
+		ui.modelViewport.set(
+			textBlockX + 15 * scale, // FIX: Added +15 offset to move the model RIGHT
+			textBlockBottom,
+			modelAreaHeight,
+			modelAreaHeight);
+		ofSetColor(255);
+		modelFbo.draw(ui.modelViewport);
+
+		// --- 3. Draw Deck/Discard Icons on the RIGHT ---
+		float iconMargin = 8 * scale;
+		float iconHeight = ui.bounds.height - (iconMargin * 2);
 		float cardAspectRatio = cardBackImage.getWidth() / cardBackImage.getHeight();
 		float iconWidth = iconHeight * cardAspectRatio;
-        
-        float iconsY = ui.bounds.y + (ui.bounds.height - iconHeight) / 2;
+		float iconsY = ui.bounds.y + iconMargin;
 
-		// FIX: Increased the offset from the right edge to move them left
-		ui.discardRect.set(ui.bounds.getRight() - (iconWidth + 15 * scale), iconsY, iconWidth, iconHeight);
-		ui.deckRect.set(ui.bounds.getRight() - (iconWidth * 2 + 20 * scale), iconsY, iconWidth, iconHeight);
+		ui.discardRect.set(ui.bounds.getRight() - (iconWidth + iconMargin), iconsY, iconWidth, iconHeight);
+		ui.deckRect.set(ui.bounds.getRight() - (iconWidth * 2 + iconMargin + 5 * scale), iconsY, iconWidth, iconHeight);
 
 		// Deck
 		ofSetColor(255);
@@ -6376,6 +6373,16 @@ void ofApp::drawMinionManagerUI() {
 		} else {
 			ofSetColor(20, 20, 20, 200);
 			ofDrawRectRounded(ui.deckRect, 3);
+		}
+
+		// Highlight
+		if (ui.playerIndex == currentPlayerIndex && !hasDrawnCardsThisTurn) {
+			ofPushStyle();
+			ofNoFill();
+			ofSetColor(ofColor::yellow);
+			ofSetLineWidth(3 * scale);
+			ofDrawRectRounded(ui.deckRect, 5);
+			ofPopStyle();
 		}
 
 		// Discard
