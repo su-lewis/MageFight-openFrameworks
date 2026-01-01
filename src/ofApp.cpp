@@ -6085,7 +6085,7 @@ void drawStatText(ofTrueTypeFont & font, string text, float x, float y, float w,
 	font.drawString(text, 0, 0);
 	ofPopMatrix();
 }
-
+//--------------------------------------------------------------
 void ofApp::drawMinionStatusBars(Player & minion, const std::string & name, float x, float y, float totalWidth) {
 	float scale = ofGetHeight() / 1080.0f;
 	float fontScale = 0.9f;
@@ -6093,11 +6093,10 @@ void ofApp::drawMinionStatusBars(Player & minion, const std::string & name, floa
 	// 1. Bar Dimensions
 	float barHeight = 22 * scale;
 	ofRectangle nameBounds = uiFont.getStringBoundingBox(name, 0, 0);
-	// Position below the name text
 	float barY = y + (nameBounds.height * fontScale) + (4 * scale);
 
 	// 2. Define Segments (Health takes remaining space)
-	float statW = totalWidth * 0.20f; // 20% width for shields
+	float statW = totalWidth * 0.20f; // 20% width for each shield type
 	float usedWidth = 0;
 
 	if (minion.block > 0) usedWidth += statW;
@@ -6115,73 +6114,39 @@ void ofApp::drawMinionStatusBars(Player & minion, const std::string & name, floa
 	ofSetColor(ofColor::green);
 	ofDrawRectangle(currentX, barY, hpW * hpPct, barHeight);
 
-	// Draw HP Text
-	string hpText = ofToString(minion.health);
-	ofRectangle hpRect = uiFont.getStringBoundingBox(hpText, 0, 0);
-	ofPushMatrix();
-	// Center text in the green bar area
-	ofTranslate(currentX + (hpW / 2) - (hpRect.width * 0.6f / 2), barY + barHeight / 2 + (hpRect.height * 0.6f / 2));
-	ofScale(0.6f, 0.6f); // Scale text down to fit
-	ofSetColor(ofColor::white);
-	uiFont.drawString(hpText, 0, 0);
-	ofPopMatrix();
+	// Draw HP Text (Format: Current/Max)
+	string hpText = ofToString(minion.health) + "/" + ofToString(minion.maxHealth);
+
+	// We use the helper 'drawStatText' which we defined earlier
+	drawStatText(uiFont, hpText, currentX, barY, hpW, barHeight, ofColor::white);
 
 	currentX += hpW;
 
 	// --- BLOCK (Grey) ---
 	if (minion.block > 0) {
-		ofSetColor(0);
-		ofSetLineWidth(2);
-		ofDrawLine(currentX, barY, currentX, barY + barHeight); // Divider
+		// No divider line here for seamless look
 		ofSetColor(ofColor::gray);
 		ofDrawRectangle(currentX, barY, statW, barHeight);
 
-		string bText = ofToString(minion.block);
-		ofRectangle bRect = uiFont.getStringBoundingBox(bText, 0, 0);
-		ofPushMatrix();
-		ofTranslate(currentX + (statW / 2) - (bRect.width * 0.6f / 2), barY + barHeight / 2 + (bRect.height * 0.6f / 2));
-		ofScale(0.6f, 0.6f);
-		ofSetColor(ofColor::white);
-		uiFont.drawString(bText, 0, 0);
-		ofPopMatrix();
+		drawStatText(uiFont, ofToString(minion.block), currentX, barY, statW, barHeight, ofColor::white);
 		currentX += statW;
 	}
 
 	// --- BARRIER (Pink) ---
 	if (minion.barrier > 0) {
-		ofSetColor(0);
-		ofSetLineWidth(2);
-		ofDrawLine(currentX, barY, currentX, barY + barHeight);
 		ofSetColor(ofColor::hotPink);
 		ofDrawRectangle(currentX, barY, statW, barHeight);
 
-		string bText = ofToString(minion.barrier);
-		ofRectangle bRect = uiFont.getStringBoundingBox(bText, 0, 0);
-		ofPushMatrix();
-		ofTranslate(currentX + (statW / 2) - (bRect.width * 0.6f / 2), barY + barHeight / 2 + (bRect.height * 0.6f / 2));
-		ofScale(0.6f, 0.6f);
-		ofSetColor(ofColor::white);
-		uiFont.drawString(bText, 0, 0);
-		ofPopMatrix();
+		drawStatText(uiFont, ofToString(minion.barrier), currentX, barY, statW, barHeight, ofColor::white);
 		currentX += statW;
 	}
 
 	// --- WARD (Black) ---
 	if (minion.ward > 0) {
-		ofSetColor(0);
-		ofSetLineWidth(2);
-		ofDrawLine(currentX, barY, currentX, barY + barHeight);
 		ofSetColor(ofColor::black);
 		ofDrawRectangle(currentX, barY, statW, barHeight);
 
-		string wText = ofToString(minion.ward);
-		ofRectangle wRect = uiFont.getStringBoundingBox(wText, 0, 0);
-		ofPushMatrix();
-		ofTranslate(currentX + (statW / 2) - (wRect.width * 0.6f / 2), barY + barHeight / 2 + (wRect.height * 0.6f / 2));
-		ofScale(0.6f, 0.6f);
-		ofSetColor(ofColor::white);
-		uiFont.drawString(wText, 0, 0);
-		ofPopMatrix();
+		drawStatText(uiFont, ofToString(minion.ward), currentX, barY, statW, barHeight, ofColor::white);
 		currentX += statW;
 	}
 
