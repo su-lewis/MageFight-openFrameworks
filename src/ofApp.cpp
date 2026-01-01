@@ -4173,777 +4173,305 @@ void ofApp::startNewTurn() {
 
 	// --- 5. PARALYSIS CHECK ---
 	if (startingPlayer.isParalyzed) {
-		if (startingPlayer.isParalyzed) {
-			ofLogNotice("Status") << "Player is Paralyzed! Flipping coin...";
-			startDiceRoll(1, 2, PURPOSE_COIN_FLIP);
-			isWaitingForParalysisCoin = true;
-			return; // Interrupt the turn
-		}
-
-		// --- 6. FIRE CHECK ---
-		if (startingPlayer.onFire) {
-			ofLogNotice("On Fire") << "Player is burning! Rolling 1d6 for damage...";
-			isWaitingForOnFireDice = true;
-			pendingOnFireRollResult = startDiceRoll(1, 6, PURPOSE_DAMAGE);
-			return; // Interrupt the turn
-		}
-
-		// If no status effects interrupted, continue the turn normally.
-		continueNewTurn();
+		ofLogNotice("Status") << "Player is Paralyzed! Flipping coin...";
+		startDiceRoll(1, 2, PURPOSE_COIN_FLIP);
+		isWaitingForParalysisCoin = true;
+		return; // Interrupt the turn
 	}
-	//--------------------------------------------------------------
-	void ofApp::continueNewTurn() {
-		Player & startingPlayer = players[currentPlayerIndex];
 
-		ofLogNotice("Game") << "Player " << startingPlayer.playerID << "'s turn begins.";
-		hasDrawnCardsThisTurn = false;
-		selectedCardIndex = -1;
-		draggedCardIndex = -1;
-		playerAction = NONE;
-		clearHighlights();
-		calculateTargetHighlights();
-
-		// FIX: Snap visual position instantly to the new unit so it doesn't "fly" across the board
-		playerVisualPos = gridToWorld(startingPlayer.x, startingPlayer.y);
-		animationPath.clear();
-		isPlayerAnimating = false;
-
-		activeDiceRolls.clear();
-		currentAP = 0;
-
-		// --- AP ROLL LOGIC ---
-		// Minions roll 1d6. Players roll 1d6 (or 1d10 if Hastened).
-		if (startingPlayer.isMinion) {
-			startDiceRoll(1, 6, PURPOSE_AP);
-		} else {
-			int apDiceSides = 6;
-			if (startingPlayer.nextTurnD10AP) {
-				apDiceSides = 10;
-				startingPlayer.nextTurnD10AP = false;
-			}
-			startDiceRoll(1, apDiceSides, PURPOSE_AP);
-		}
+	// --- 6. FIRE CHECK ---
+	if (startingPlayer.onFire) {
+		ofLogNotice("On Fire") << "Player is burning! Rolling 1d6 for damage...";
+		isWaitingForOnFireDice = true;
+		pendingOnFireRollResult = startDiceRoll(1, 6, PURPOSE_DAMAGE);
+		return; // Interrupt the turn
 	}
-	//--------------------------------------------------------------
-	void ofApp::drawCard() {
-		if (players.empty() || currentPlayerIndex < 0) return;
-		Player & currentPlayer = players[currentPlayerIndex];
 
-		// --- PHASE 1: CHECK IF DECK NEEDS RESHUFFLE ---
-		if (currentPlayer.deck.empty()) {
-			if (currentPlayer.discardPile.empty()) {
-				ofLogNotice("Game") << "Cannot draw. Both Deck and Discard are empty.";
-				return;
-			}
+	// If no status effects interrupted, continue the turn normally.
+	continueNewTurn();
+}
+//--------------------------------------------------------------
+void ofApp::continueNewTurn() {
+	Player & startingPlayer = players[currentPlayerIndex];
 
-			ofLogNotice("Game") << "Deck is empty. Reshuffling Discard Pile into Deck...";
+	ofLogNotice("Game") << "Player " << startingPlayer.playerID << "'s turn begins.";
+	hasDrawnCardsThisTurn = false;
+	selectedCardIndex = -1;
+	draggedCardIndex = -1;
+	playerAction = NONE;
+	clearHighlights();
+	calculateTargetHighlights();
 
-			// Move Discard -> Deck
-			currentPlayer.deck = currentPlayer.discardPile;
+	// FIX: Snap visual position instantly to the new unit so it doesn't "fly" across the board
+	playerVisualPos = gridToWorld(startingPlayer.x, startingPlayer.y);
+	animationPath.clear();
+	isPlayerAnimating = false;
 
-			// Clear Discard (This causes the discard pile visual to disappear, which is correct)
-			currentPlayer.discardPile.clear();
+	activeDiceRolls.clear();
+	currentAP = 0;
 
-			// Shuffle the new Deck
-			std::shuffle(currentPlayer.deck.begin(), currentPlayer.deck.end(), rng);
+	// --- AP ROLL LOGIC ---
+	// Minions roll 1d6. Players roll 1d6 (or 1d10 if Hastened).
+	if (startingPlayer.isMinion) {
+		startDiceRoll(1, 6, PURPOSE_AP);
+	} else {
+		int apDiceSides = 6;
+		if (startingPlayer.nextTurnD10AP) {
+			apDiceSides = 10;
+			startingPlayer.nextTurnD10AP = false;
 		}
-
-		// --- PHASE 2: DRAW THE CARD ---
-		// We check empty() again because we might have just refilled it in Phase 1.
-		if (!currentPlayer.deck.empty()) {
-			Card newCard = currentPlayer.deck.back();
-			currentPlayer.deck.pop_back();
-
-			// --- Animation Setup ---
-			newCard.currentScale = 0.1f;
-			newCard.targetScale = 1.5f;
-
-			// Calculate Spawn Position (from Deck UI)
-			float scale = ofGetHeight() / 1080.0f;
-			float staticUICardWidth = (120 * 1.3f) * scale;
-			float staticUICardHeight = ((120 * (585.0f / 409.0f)) * 1.3f) * scale;
-
-			if (currentPlayerIndex == 0) {
-				float deckX = 30 * scale;
-				float deckY = ofGetHeight() - staticUICardHeight - (40 * scale) - staticUICardHeight - (40 * scale);
-				newCard.currentPos.set(deckX + staticUICardWidth / 2, deckY + staticUICardHeight / 2);
-			} else {
-				float discardX = ofGetWidth() - staticUICardWidth - (30 * scale);
-				float discardY = 40 * scale;
-				float deckX = discardX;
-				float deckY = discardY + staticUICardHeight + (40 * scale);
-				newCard.currentPos.set(deckX + staticUICardWidth / 2, deckY + staticUICardHeight / 2);
-			}
-
-			// Add to Hand
-			currentPlayer.hand.push_back(newCard);
-			ofLogNotice("Game") << "Drew card for Player " << currentPlayer.playerID << ": " << newCard.name;
-		}
+		startDiceRoll(1, apDiceSides, PURPOSE_AP);
 	}
-	//--------------------------------------------------------------
-	void ofApp::playCard(int cardIndex, int targetX, int targetY) {
-		Player & currentPlayer = players[currentPlayerIndex];
-		if (cardIndex < 0 || cardIndex >= static_cast<int>(currentPlayer.hand.size())) return;
-
-		Card playedCard = currentPlayer.hand[cardIndex];
-		if (currentAP < playedCard.cost) return;
-
-		// --- 1. DEFINE DAMAGE HELPER LAMBDA ---
-		auto applyDamage = [&](Player & target, int damage, DamageType type) -> bool {
-			string typeLabel = "";
-			switch (type) {
-			case DAMAGE_PHYSICAL:
-				typeLabel = " Physical";
-				break;
-			case DAMAGE_PIERCING:
-				typeLabel = " Piercing";
-				break;
-			case DAMAGE_MAGIC:
-				typeLabel = " Magic";
-				break;
-			case DAMAGE_ELECTRIC:
-				typeLabel = " Electric";
-				break;
-			case DAMAGE_FIRE:
-				typeLabel = " Fire";
-				break;
-			}
-
-			ofLogNotice("Game") << "Dealing " << damage << " damage to Player " << target.playerID;
-
-			int initialHealth = target.health;
-			int remainingDmg = damage;
-
-			// --- LAYER 1: SPECIFIC MITIGATION ---
-			if (type == DAMAGE_PHYSICAL) {
-				int absorb = std::min(target.block, remainingDmg);
-				target.block -= absorb;
-				remainingDmg -= absorb;
-				if (absorb > 0) ofLogNotice("Game") << "Block absorbed " << absorb;
-			} else if (type == DAMAGE_HOLY) {
-				int absorb = std::min(target.holyBlock, remainingDmg);
-				target.holyBlock -= absorb;
-				remainingDmg -= absorb;
-				if (absorb > 0) ofLogNotice("Game") << "Dark Shield absorbed " << absorb;
-			} else if (type != DAMAGE_PIERCING) {
-				int absorb = std::min(target.barrier, remainingDmg);
-				target.barrier -= absorb;
-				remainingDmg -= absorb;
-				if (absorb > 0) ofLogNotice("Game") << "Non-Phys Barrier absorbed " << absorb;
-			}
-
-			// --- LAYER 2: GENERIC MITIGATION ---
-			if (remainingDmg > 0) {
-				int wardAbsorb = std::min(target.ward, remainingDmg);
-				target.ward -= wardAbsorb;
-				remainingDmg -= wardAbsorb;
-				if (wardAbsorb > 0) ofLogNotice("Game") << "Ward absorbed " << wardAbsorb;
-			}
-
-			// --- FINAL HEALTH DAMAGE ---
-			glm::vec3 targetPos = gridToWorld(target.x, target.y);
-
-			if (remainingDmg > 0) {
-				target.health -= remainingDmg;
-				spawnFloatingText(targetPos, "-" + ofToString(remainingDmg) + typeLabel, ofColor::red);
-			} else {
-				spawnFloatingText(targetPos, "Blocked", ofColor::gray);
-			}
-
-			// Check Death
-			if (target.health <= 0) {
-				ofLogNotice("Game") << "Player " << target.playerID << " defeated!";
-				DeathMarker death;
-				death.x = target.x;
-				death.y = target.y;
-				death.turnDied = globalTurnCounter;
-				death.deck = target.deck;
-				graveyard.push_back(death);
-				board[target.x][target.y].hasPlayer = false;
-				target.x = -1000;
-			}
-
-			return target.health < initialHealth;
-		};
-
-		bool playedSuccessfully = false;
-
-		// --- 2. CARD LOGIC SWITCH ---
-		switch (playedCard.type) {
-
-		// --- CASE: MIND THEFT ---
-		case CARD_MIND_THEFT: {
-			int targetIndex = -1;
-			for (size_t i = 0; i < players.size(); i++) {
-				if (players[i].x == targetX && players[i].y == targetY) {
-					targetIndex = (int)i;
-					break;
-				}
-			}
-
-			Player * targetPlayer = getPlayer(targetIndex);
-
-			if (targetPlayer && !targetPlayer->deck.empty()) {
-				Card stolenCard = targetPlayer->deck.back();
-				targetPlayer->deck.pop_back();
-				currentPlayer.deck.push_back(stolenCard);
-				std::shuffle(currentPlayer.deck.begin(), currentPlayer.deck.end(), rng);
-
-				StolenCardAnimation newAnim;
-				newAnim.card = stolenCard;
-				newAnim.startTime = ofGetElapsedTimef();
-				newAnim.startPos = gridToWorld(targetPlayer->x, targetPlayer->y);
-				newAnim.targetPos = { ofGetWidth() / 2.0f, ofGetHeight() / 2.0f };
-				newAnim.currentPos = cam.worldToScreen(newAnim.startPos);
-				activeStolenCardAnimations.push_back(newAnim);
-				playedSuccessfully = true;
-			}
-			break;
-		}
-
-		// --- CASE: AMNESIA ---
-		case CARD_AMNESIA: {
-			int targetIndex = -1;
-			for (size_t i = 0; i < players.size(); i++) {
-				if (players[i].x == targetX && players[i].y == targetY) {
-					targetIndex = (int)i;
-					break;
-				}
-			}
-			if (targetIndex == -1) break;
-
-			Player * targetP = getPlayer(targetIndex);
-			if (targetP->deck.empty()) break;
-
-			amnesiaTargetPlayerIndex = targetIndex;
-			pendingAmnesiaRollResult = startDiceRoll(playedCard.numDice, playedCard.diceSides, PURPOSE_DAMAGE);
-			isWaitingForAmnesiaDice = true;
-			playedSuccessfully = true;
-			break;
-		}
-
-		// --- CASE: MAGIC BLAST ---
-		case CARD_MAGIC_BLAST: {
-			glm::vec2 casterTile = { (float)currentPlayer.x, (float)currentPlayer.y };
-			glm::vec2 targetTile = { (float)targetX, (float)targetY };
-			TargetInfo validationResult = isLosTargetValid(casterTile, targetTile, playedCard.numDice * 10.0f, playedCard.type);
-
-			if (validationResult.reason != VALID) break;
-
-			// Validation: Must hit unit or have adjacent unit
-			bool hasValidUnit = false;
-			if (board[targetX][targetY].hasPlayer) hasValidUnit = true;
-			if (!hasValidUnit) {
-				glm::vec2 neighbors[4] = { { targetX + 1, targetY }, { targetX - 1, targetY }, { targetX, targetY + 1 }, { targetX, targetY - 1 } };
-				for (const auto & n : neighbors) {
-					if (n.x >= 0 && n.x < BOARD_WIDTH && n.y >= 0 && n.y < BOARD_HEIGHT && board[(int)n.x][(int)n.y].hasPlayer) {
-						hasValidUnit = true;
-						break;
-					}
-				}
-			}
-			if (!hasValidUnit) break;
-
-			pendingMagicBlastRollResult = startDiceRoll(playedCard.numDice, playedCard.diceSides, PURPOSE_RANGE);
-			isWaitingForMagicBlastDice = true;
-			pendingMagicBlastTargetTile = targetTile;
-			playedSuccessfully = true;
-			break;
-		}
-
-		// --- CASE: FIREBALL ---
-		case CARD_FIREBALL: {
-			glm::vec2 casterTile = { (float)currentPlayer.x, (float)currentPlayer.y };
-			glm::vec2 targetTile = { (float)targetX, (float)targetY };
-			TargetInfo validationResult = isLosTargetValid(casterTile, targetTile, playedCard.numDice * 6.0f, playedCard.type);
-
-			if (validationResult.reason != VALID || !board[targetX][targetY].hasPlayer) break;
-
-			pendingFireballRangeResult = startDiceRoll(playedCard.numDice, playedCard.diceSides, PURPOSE_RANGE);
-			isWaitingForFireballRangeDice = true;
-			pendingFireballTargetTile = targetTile;
-			playedSuccessfully = true;
-			break;
-		}
-
-		// --- CASE: ROCK CRUSH ---
-		case CARD_ROCK_CRUSH: {
-			if (board[targetX][targetY].hasWall) {
-				board[targetX][targetY].hasWall = false;
-				buildLevelMesh();
-				playedSuccessfully = true;
-			} else {
-				int targetIndex = -1;
-				for (size_t i = 0; i < players.size(); i++) {
-					if (players[i].x == targetX && players[i].y == targetY) {
-						targetIndex = (int)i;
-						break;
-					}
-				}
-				if (targetIndex != -1) {
-					pendingAttackRollResult = startDiceRoll(playedCard.numDice, playedCard.diceSides, PURPOSE_DAMAGE);
-					isWaitingForAttackDice = true;
-					pendingAttackDamageType = playedCard.damageType;
-					pendingAttackTargetIndices.clear();
-					pendingAttackTargetIndices.push_back(targetIndex);
-					playedSuccessfully = true;
-				}
-			}
-			break;
-		}
-
-		// --- CASE: DISPEL ---
-		case CARD_DISPEL: {
-			pendingDispelCardIndex = cardIndex;
-			isDispelMenuOpen = true;
-			// Menu geometry setup
-			float w = 600, h = 300;
-			float x = ofGetWidth() / 2 - w / 2, y = ofGetHeight() / 2 - h / 2;
-			dispelMenuRect.set(x, y, w, h);
-			dispelBtnBarrier.set(x + 40, y + 100, 250, 100);
-			dispelBtnPurge.set(x + w - 290, y + 100, 250, 100);
-			break;
-		}
-
-		// --- CASE: TELEPORT ---
-		case CARD_TELEPORT: {
-			if (board[targetX][targetY].hasWall || board[targetX][targetY].hasPlayer) break;
-			pendingTeleportTarget = glm::vec2(targetX, targetY);
-			pendingTeleportRollResult = startDiceRoll(playedCard.numDice, playedCard.diceSides, PURPOSE_RANGE);
-			isWaitingForTeleportDice = true;
-			playedSuccessfully = true;
-			break;
-		}
-
-		// --- CASE: HASTEN ---
-		case CARD_HASTEN: {
-			currentPlayer.nextTurnD10AP = true;
-			currentPlayer.nextTurnExtraDraw = true;
-			playedSuccessfully = true;
-			break;
-		}
-
-		// --- CASE: REPLICATE ---
-		case CARD_REPLICATE: {
-			currentPlayer.isReplicatePending = true;
-			playedSuccessfully = true;
-			break;
-		}
-
-		// --- CASE: WISDOM BOON ---
-		case CARD_WISDOM_BOON: {
-			int targetIndex = -1;
-			for (size_t i = 0; i < players.size(); i++) {
-				if (players[i].x == targetX && players[i].y == targetY) {
-					targetIndex = (int)i;
-					break;
-				}
-			}
-			if (targetIndex == -1) break;
-
-			Player * t = getPlayer(targetIndex);
-			bool isSelf = (targetIndex == currentPlayerIndex);
-			bool isAdjacent = (abs(t->x - currentPlayer.x) + abs(t->y - currentPlayer.y) == 1);
-
-			if (!isSelf && !isAdjacent) break;
-
-			pendingWisdomBoonCardIndex = cardIndex;
-			pendingWisdomBoonTargetIndex = targetIndex;
-			isWisdomBoonMenuOpen = true;
-			// Menu geometry
-			float w = 600, h = 300;
-			float x = ofGetWidth() / 2 - w / 2, y = ofGetHeight() / 2 - h / 2;
-			wisdomMenuRect.set(x, y, w, h);
-			wisdomBtnDamage.set(x + (w - 300) / 2, y + 150, 300, 80);
-			wisdomBtnBlock.set(0, 0, 0, 0);
-			break;
-		}
-
-		// --- CASE: HEAL ---
-		case CARD_HEAL: {
-			glm::vec2 casterTile = { (float)currentPlayer.x, (float)currentPlayer.y };
-			glm::vec2 targetTile = { (float)targetX, (float)targetY };
-			TargetInfo validationResult = isLosTargetValid(casterTile, targetTile, 1000.0f, playedCard.type);
-
-			if (validationResult.reason != VALID) break;
-
-			int targetIndex = -1;
-			for (size_t i = 0; i < players.size(); i++) {
-				if (players[i].x == targetX && players[i].y == targetY) {
-					targetIndex = (int)i;
-					break;
-				}
-			}
-			if (targetIndex == -1) break;
-
-			// Friendly Check
-			Player * target = getPlayer(targetIndex);
-			int casterOwner = currentPlayer.isMinion ? currentPlayer.ownerID : currentPlayer.playerID;
-			int targetOwner = target->isMinion ? target->ownerID : target->playerID;
-			if (casterOwner != targetOwner) break;
-
-			pendingHealTargetIndex = targetIndex;
-			pendingHealRollResult = startDiceRoll(playedCard.numDice, playedCard.diceSides, PURPOSE_DAMAGE);
-			isWaitingForHealDice = true;
-			playedSuccessfully = true;
-			break;
-		}
-
-		// --- CASE: ETHEREAL JOLT ---
-		case CARD_ETHEREAL_JOLT: {
-			glm::vec2 casterTile = { (float)currentPlayer.x, (float)currentPlayer.y };
-			glm::vec2 targetTile = { (float)targetX, (float)targetY };
-			TargetInfo validationResult = isLosTargetValid(casterTile, targetTile, 20.0f, playedCard.type);
-
-			if (validationResult.reason != VALID || !board[targetX][targetY].hasPlayer) break;
-
-			pendingJoltRangeResult = startDiceRoll(1, 20, PURPOSE_RANGE);
-			isWaitingForJoltRangeDice = true;
-			pendingJoltTargetTile = targetTile;
-			playedSuccessfully = true;
-			break;
-		}
-
-		// --- CASE: FLAME HIT ---
-		case CARD_FLAME_HIT: {
-			int targetIndex = -1;
-			for (size_t i = 0; i < players.size(); i++) {
-				if (players[i].x == targetX && players[i].y == targetY) {
-					targetIndex = (int)i;
-					break;
-				}
-			}
-			if (targetIndex == -1) break;
-
-			Player * target = getPlayer(targetIndex);
-			bool healthHit = applyDamage(*target, playedCard.value, DAMAGE_FIRE);
-			if (healthHit) target->onFire = true;
-			playedSuccessfully = true;
-			break;
-		}
-
-		// --- CASE: RAISE DEAD ---
-		case CARD_RAISE_DEAD: {
-			if (board[targetX][targetY].hasWall || board[targetX][targetY].hasPlayer) break;
-
-			// 1. Roll for HP
-			pendingSummonTile = glm::vec2(targetX, targetY);
-			pendingSummonRollResult = startDiceRoll(1, 6, PURPOSE_HP);
-			isWaitingForSummonHealth = true;
-
-			// --- CRASH PREVENTION FIX ---
-			// Perform cleanup NOW before the players vector potentially changes
-			currentAP -= playedCard.cost;
-			currentPlayer.playedCardsPile.push_back(playedCard);
-
-			// Handle Replicate
-			if (currentPlayer.isReplicatePending) {
-				currentPlayer.playedCardsPile.push_back(playedCard);
-				currentPlayer.isReplicatePending = false;
-			}
-
-			currentPlayer.cardsPlayedThisTurn.push_back(playedCard.type);
-			currentPlayer.hand.erase(currentPlayer.hand.begin() + cardIndex);
-			activeCardDisplays.push_back({ playedCard, ofGetElapsedTimef() });
-			invalidateTargetCache();
-			// -----------------------------
-
-			// We set this to false because we handled the cleanup manually above.
-			// We don't want the bottom block to run again.
-			playedSuccessfully = false;
-
-			// Note: The actual summoning happens in updateGame() when the dice finishes,
-			// so we don't need to worry about vector resizing here.
-			break;
-		}
-
-			// --- CASE: SUMMON GOLEM ---
-		case CARD_SUMMON_GOLEM: {
-			// 1. Validation
-			if (board[targetX][targetY].hasWall || board[targetX][targetY].hasPlayer) break;
-
-			// 2. Determine Golem Type
-			bool isElectric = false;
-			bool isFire = false;
-			bool isRock = false;
-
-			for (CardType t : currentPlayer.cardsPlayedThisTurn) {
-				if (t == CARD_SHOCK || t == CARD_ARCANE_BURST) isElectric = true;
-				if (t == CARD_FIREBALL || t == CARD_FLAME_HIT) isFire = true;
-				if (t == CARD_ROCK_CRUSH) isRock = true;
-			}
-
-			// 3. Setup Minion Data
-			Player minion;
-			minion.playerID = 100 + (int)players.size();
-			minion.x = targetX;
-			minion.y = targetY;
-			minion.isMinion = true;
-			minion.isGolem = true;
-			minion.ownerID = currentPlayer.playerID;
-
-			// 4. Apply Variant Stats & Deck
-			if (isElectric) {
-				ofLogNotice("Summon") << "Combo! Summoning ELECTRIC Golem.";
-				minion.minionTexture = &golemTexElectric;
-				minion.maxHealth = startDiceRoll(1, 6, PURPOSE_HP);
-				for (const auto & c : allCards) {
-					if (c.type == CARD_SHOCK) {
-						minion.deck.push_back(c);
-						minion.deck.push_back(c);
-						minion.deck.push_back(c);
-					}
-					if (c.type == CARD_GAIN_BLOCK && c.name == "Hand Block") {
-						minion.deck.push_back(c);
-						minion.deck.push_back(c);
-					}
-				}
-			} else if (isFire) {
-				ofLogNotice("Summon") << "Combo! Summoning FIRE Golem.";
-				minion.minionTexture = &golemTexFire;
-				minion.maxHealth = startDiceRoll(1, 10, PURPOSE_HP);
-				for (const auto & c : allCards) {
-					if (c.type == CARD_FIREBALL) minion.deck.push_back(c);
-					if (c.type == CARD_FLAME_HIT) {
-						minion.deck.push_back(c);
-						minion.deck.push_back(c);
-					}
-					if (c.type == CARD_GAIN_BLOCK && c.name == "Hand Block") {
-						minion.deck.push_back(c);
-						minion.deck.push_back(c);
-					}
-				}
-			} else if (isRock) {
-				ofLogNotice("Summon") << "Combo! Summoning ROCK Golem.";
-				minion.minionTexture = &golemTexRock;
-				minion.maxHealth = startDiceRoll(1, 20, PURPOSE_HP);
-				for (const auto & c : allCards) {
-					if (c.type == CARD_ROCK_CRUSH) {
-						minion.deck.push_back(c);
-						minion.deck.push_back(c);
-					}
-					if (c.name == "Bash") {
-						minion.deck.push_back(c);
-						minion.deck.push_back(c);
-						minion.deck.push_back(c);
-					}
-					if (c.type == CARD_GAIN_BLOCK && c.name == "Hand Block") {
-						minion.deck.push_back(c);
-						minion.deck.push_back(c);
-					}
-				}
-			} else {
-				ofLogNotice("Summon") << "Summoning Standard Golem.";
-				minion.minionTexture = &golemTexBase;
-				minion.maxHealth = startDiceRoll(1, 10, PURPOSE_HP);
-				for (const auto & c : allCards) {
-					if (c.name == "Bash") {
-						minion.deck.push_back(c);
-						minion.deck.push_back(c);
-						minion.deck.push_back(c);
-					}
-					if (c.type == CARD_GAIN_BLOCK && c.name == "Hand Block") {
-						minion.deck.push_back(c);
-						minion.deck.push_back(c);
-					}
-				}
-			}
-
-			minion.health = minion.maxHealth;
-			std::shuffle(minion.deck.begin(), minion.deck.end(), rng);
-
-			// --- CRASH FIX START ---
-			// We perform the card cleanup NOW, before modifying the players vector.
-			// This ensures 'currentPlayer' is still valid.
-			int myID = currentPlayer.playerID; // Remember who we are
-
-			currentAP -= playedCard.cost;
-			currentPlayer.playedCardsPile.push_back(playedCard);
-			currentPlayer.cardsPlayedThisTurn.push_back(playedCard.type); // Track history
-			currentPlayer.hand.erase(currentPlayer.hand.begin() + cardIndex);
-
-			activeCardDisplays.push_back({ playedCard, ofGetElapsedTimef() });
-			invalidateTargetCache();
-			// --- CRASH FIX END ---
-
-			// 5. Add to board (This invalidates the 'currentPlayer' reference)
-			board[targetX][targetY].hasPlayer = true;
-			players.push_back(minion);
-
-			// Sort turn order
-			std::sort(players.begin(), players.end(), [](const Player & a, const Player & b) {
-				int ownerA = a.isMinion ? a.ownerID : a.playerID;
-				int ownerB = b.isMinion ? b.ownerID : b.playerID;
-				if (ownerA != ownerB) return ownerA < ownerB;
-				if (a.isMinion && !b.isMinion) return true;
-				if (!a.isMinion && b.isMinion) return false;
-				return a.playerID < b.playerID;
-			});
-
-			// Find our new index using the ID we saved
-			for (size_t i = 0; i < players.size(); i++) {
-				if (players[i].playerID == myID) {
-					currentPlayerIndex = i;
-					break;
-				}
-			}
-
-			// Return immediately so we don't hit the code at the bottom of the function
+}
+//--------------------------------------------------------------
+void ofApp::drawCard() {
+	if (players.empty() || currentPlayerIndex < 0) return;
+	Player & currentPlayer = players[currentPlayerIndex];
+
+	// --- PHASE 1: CHECK IF DECK NEEDS RESHUFFLE ---
+	if (currentPlayer.deck.empty()) {
+		if (currentPlayer.discardPile.empty()) {
+			ofLogNotice("Game") << "Cannot draw. Both Deck and Discard are empty.";
 			return;
 		}
 
-			// --- CASE: STRENGTHEN ELEMENTS ---
-		case CARD_STRENGTHEN_ELEMENTS: {
-			// Set duration to 3 (Current Turn + Next 2 Turns)
-			currentPlayer.strengthenElementsTurnsRemaining = 3;
+		ofLogNotice("Game") << "Deck is empty. Reshuffling Discard Pile into Deck...";
 
-			spawnFloatingText(gridToWorld(currentPlayer.x, currentPlayer.y), "Elemental Flow!", ofColor::orange);
-			ofLogNotice("Game") << "Player " << currentPlayer.playerID << " strengthened elements for 3 turns.";
+		// Move Discard -> Deck
+		currentPlayer.deck = currentPlayer.discardPile;
 
-			playedSuccessfully = true;
+		// Clear Discard (This causes the discard pile visual to disappear, which is correct)
+		currentPlayer.discardPile.clear();
+
+		// Shuffle the new Deck
+		std::shuffle(currentPlayer.deck.begin(), currentPlayer.deck.end(), rng);
+	}
+
+	// --- PHASE 2: DRAW THE CARD ---
+	// We check empty() again because we might have just refilled it in Phase 1.
+	if (!currentPlayer.deck.empty()) {
+		Card newCard = currentPlayer.deck.back();
+		currentPlayer.deck.pop_back();
+
+		// --- Animation Setup ---
+		newCard.currentScale = 0.1f;
+		newCard.targetScale = 1.5f;
+
+		// Calculate Spawn Position (from Deck UI)
+		float scale = ofGetHeight() / 1080.0f;
+		float staticUICardWidth = (120 * 1.3f) * scale;
+		float staticUICardHeight = ((120 * (585.0f / 409.0f)) * 1.3f) * scale;
+
+		if (currentPlayerIndex == 0) {
+			float deckX = 30 * scale;
+			float deckY = ofGetHeight() - staticUICardHeight - (40 * scale) - staticUICardHeight - (40 * scale);
+			newCard.currentPos.set(deckX + staticUICardWidth / 2, deckY + staticUICardHeight / 2);
+		} else {
+			float discardX = ofGetWidth() - staticUICardWidth - (30 * scale);
+			float discardY = 40 * scale;
+			float deckX = discardX;
+			float deckY = discardY + staticUICardHeight + (40 * scale);
+			newCard.currentPos.set(deckX + staticUICardWidth / 2, deckY + staticUICardHeight / 2);
+		}
+
+		// Add to Hand
+		currentPlayer.hand.push_back(newCard);
+		ofLogNotice("Game") << "Drew card for Player " << currentPlayer.playerID << ": " << newCard.name;
+	}
+}
+//--------------------------------------------------------------
+void ofApp::playCard(int cardIndex, int targetX, int targetY) {
+	Player & currentPlayer = players[currentPlayerIndex];
+	if (cardIndex < 0 || cardIndex >= static_cast<int>(currentPlayer.hand.size())) return;
+
+	Card playedCard = currentPlayer.hand[cardIndex];
+	if (currentAP < playedCard.cost) return;
+
+	// --- 1. DEFINE DAMAGE HELPER LAMBDA ---
+	auto applyDamage = [&](Player & target, int damage, DamageType type) -> bool {
+		string typeLabel = "";
+		switch (type) {
+		case DAMAGE_PHYSICAL:
+			typeLabel = " Physical";
+			break;
+		case DAMAGE_PIERCING:
+			typeLabel = " Piercing";
+			break;
+		case DAMAGE_MAGIC:
+			typeLabel = " Magic";
+			break;
+		case DAMAGE_ELECTRIC:
+			typeLabel = " Electric";
+			break;
+		case DAMAGE_FIRE:
+			typeLabel = " Fire";
 			break;
 		}
 
-			// --- CASE: SUMMON WALL ---
-		case CARD_CREATE_WALL: {
-			// Targeting already ensures the tile is empty and adjacent,
-			// but we can add a safety check.
-			if (!board[targetX][targetY].hasWall && !board[targetX][targetY].hasPlayer) {
+		ofLogNotice("Game") << "Dealing " << damage << " damage to Player " << target.playerID;
 
-				// Set the wall flag
-				board[targetX][targetY].hasWall = true;
+		int initialHealth = target.health;
+		int remainingDmg = damage;
 
-				// CRITICAL: Rebuild the 3D mesh to make the wall appear
-				buildLevelMesh();
-
-				// Invalidate pathing cache for all units
-				invalidateTargetCache();
-
-				playedSuccessfully = true;
-			}
-			break;
+		// --- LAYER 1: SPECIFIC MITIGATION ---
+		if (type == DAMAGE_PHYSICAL) {
+			int absorb = std::min(target.block, remainingDmg);
+			target.block -= absorb;
+			remainingDmg -= absorb;
+			if (absorb > 0) ofLogNotice("Game") << "Block absorbed " << absorb;
+		} else if (type == DAMAGE_HOLY) {
+			int absorb = std::min(target.holyBlock, remainingDmg);
+			target.holyBlock -= absorb;
+			remainingDmg -= absorb;
+			if (absorb > 0) ofLogNotice("Game") << "Dark Shield absorbed " << absorb;
+		} else if (type != DAMAGE_PIERCING) {
+			int absorb = std::min(target.barrier, remainingDmg);
+			target.barrier -= absorb;
+			remainingDmg -= absorb;
+			if (absorb > 0) ofLogNotice("Game") << "Non-Phys Barrier absorbed " << absorb;
 		}
 
-		case CARD_DARK_SHIELD: {
-			currentPlayer.holyBlock += playedCard.value; // value is 7
-			currentPlayer.nextTurnBonusDiceFromMinions = true;
-
-			spawnFloatingText(gridToWorld(currentPlayer.x, currentPlayer.y),
-				"+" + ofToString(playedCard.value) + " Holy Block",
-				ofColor::darkViolet); // A new color for the UI
-
-			ofLogNotice("Game") << "Gained Dark Shield and bonus dice next turn.";
-			playedSuccessfully = true;
-			break;
+		// --- LAYER 2: GENERIC MITIGATION ---
+		if (remainingDmg > 0) {
+			int wardAbsorb = std::min(target.ward, remainingDmg);
+			target.ward -= wardAbsorb;
+			remainingDmg -= wardAbsorb;
+			if (wardAbsorb > 0) ofLogNotice("Game") << "Ward absorbed " << wardAbsorb;
 		}
 
-		// --- CASE: STANDARD ATTACK (Stab, Cleave, Pierce, Punch) ---
-		case CARD_ATTACK_SINGLE_TILE: {
-			int px = players[currentPlayerIndex].x;
-			int py = players[currentPlayerIndex].y;
-			pendingAttackTargetIndices.clear();
+		// --- FINAL HEALTH DAMAGE ---
+		glm::vec3 targetPos = gridToWorld(target.x, target.y);
 
-			// 1. CLEAVE LOGIC
-			if (playedCard.targeting == TARGET_CLEAVE_ADJACENT) {
-				glm::vec2 dir = { (float)(targetX - px), (float)(targetY - py) };
-				std::vector<Player *> targetsToHit = findCleaveTargets(dir);
-				for (auto * targetPlayer : targetsToHit) {
-					for (size_t i = 0; i < players.size(); i++) {
-						if (&players[i] == targetPlayer) pendingAttackTargetIndices.push_back((int)i);
-					}
-				}
-			}
-			// 2. PIERCE LOGIC
-			else if (playedCard.targeting == TARGET_LINEAR_PIERCE) {
-				glm::vec2 dir = { (float)(targetX - px), (float)(targetY - py) };
-				if (std::abs(dir.x) > std::abs(dir.y)) {
-					dir.x = (dir.x > 0) ? 1.0f : -1.0f;
-					dir.y = 0.0f;
-				} else {
-					dir.x = 0.0f;
-					dir.y = (dir.y > 0) ? 1.0f : -1.0f;
-				}
+		if (remainingDmg > 0) {
+			target.health -= remainingDmg;
+			spawnFloatingText(targetPos, "-" + ofToString(remainingDmg) + typeLabel, ofColor::red);
+		} else {
+			spawnFloatingText(targetPos, "Blocked", ofColor::gray);
+		}
 
-				glm::vec2 pos1 = { px + dir.x, py + dir.y };
-				glm::vec2 pos2 = { px + dir.x * 2, py + dir.y * 2 };
+		// Check Death
+		if (target.health <= 0) {
+			ofLogNotice("Game") << "Player " << target.playerID << " defeated!";
+			DeathMarker death;
+			death.x = target.x;
+			death.y = target.y;
+			death.turnDied = globalTurnCounter;
+			death.deck = target.deck;
+			graveyard.push_back(death);
+			board[target.x][target.y].hasPlayer = false;
+			target.x = -1000;
+		}
 
-				// A. Adjacent
-				for (size_t i = 0; i < players.size(); i++) {
-					if (players[i].x == (int)pos1.x && players[i].y == (int)pos1.y) {
-						pendingAttackTargetIndices.push_back((int)i);
-						break;
-					}
-				}
-				// B. Behind (only if not blocked by wall)
-				if (!isTileWall((int)pos1.x, (int)pos1.y)) {
-					for (size_t i = 0; i < players.size(); i++) {
-						if (players[i].x == (int)pos2.x && players[i].y == (int)pos2.y) {
-							pendingAttackTargetIndices.push_back((int)i);
-							break;
-						}
-					}
-				}
-			}
-			// 3. STANDARD SINGLE TARGET (e.g., Punch)
-			else {
-				// FIX: Explicitly handle Adjacent targeting to avoid 5ft Range confusion
-				if (playedCard.targeting == TARGET_ADJACENT_UNIT) {
-					int dist = abs(targetX - px) + abs(targetY - py);
-					// Must be adjacent (distance 1) and occupied
-					if (dist == 1 && board[targetX][targetY].hasPlayer) {
-						for (size_t i = 0; i < players.size(); i++) {
-							if (players[i].x == targetX && players[i].y == targetY) {
-								pendingAttackTargetIndices.push_back((int)i);
-								break;
-							}
-						}
-					}
-				}
-				// Generic 5ft range fall back (for older cards)
-				else {
-					glm::vec2 casterTile = { (float)px, (float)py };
-					glm::vec2 targetTile = { (float)targetX, (float)targetY };
-					TargetInfo info = isLosTargetValid(casterTile, targetTile, 5.0f, playedCard.type);
+		return target.health < initialHealth;
+	};
 
-					if (info.reason == VALID && info.isTargetable) {
-						for (size_t i = 0; i < players.size(); i++) {
-							if (players[i].x == targetX && players[i].y == targetY) {
-								pendingAttackTargetIndices.push_back((int)i);
-								break;
-							}
-						}
-					}
-				}
-			}
+	bool playedSuccessfully = false;
 
-			if (pendingAttackTargetIndices.empty()) {
-				ofLogNotice("Attack") << "No valid targets. Action Cancelled.";
+	// --- 2. CARD LOGIC SWITCH ---
+	switch (playedCard.type) {
+
+	// --- CASE: MIND THEFT ---
+	case CARD_MIND_THEFT: {
+		int targetIndex = -1;
+		for (size_t i = 0; i < players.size(); i++) {
+			if (players[i].x == targetX && players[i].y == targetY) {
+				targetIndex = (int)i;
 				break;
 			}
-
-			// --- EXECUTE DAMAGE ---
-			if (playedCard.numDice > 0 && playedCard.diceSides > 0) {
-				pendingAttackRollResult = startDiceRoll(playedCard.numDice, playedCard.diceSides, PURPOSE_DAMAGE);
-				isWaitingForAttackDice = true;
-				pendingAttackDamageType = playedCard.damageType;
-			} else {
-				int damage = playedCard.value;
-				for (size_t i = 0; i < pendingAttackTargetIndices.size(); i++) {
-					int pIndex = pendingAttackTargetIndices[i];
-					Player * target = getPlayer(pIndex);
-					if (target) {
-						int finalDamage = damage;
-						if (playedCard.damageType == DAMAGE_PIERCING && i > 0) finalDamage /= 2;
-						applyDamage(*target, finalDamage, playedCard.damageType);
-					}
-				}
-			}
-			playedSuccessfully = true;
-			break;
 		}
 
-		// --- CASE: SHOCK ---
-		case CARD_SHOCK: {
+		Player * targetPlayer = getPlayer(targetIndex);
+
+		if (targetPlayer && !targetPlayer->deck.empty()) {
+			Card stolenCard = targetPlayer->deck.back();
+			targetPlayer->deck.pop_back();
+			currentPlayer.deck.push_back(stolenCard);
+			std::shuffle(currentPlayer.deck.begin(), currentPlayer.deck.end(), rng);
+
+			StolenCardAnimation newAnim;
+			newAnim.card = stolenCard;
+			newAnim.startTime = ofGetElapsedTimef();
+			newAnim.startPos = gridToWorld(targetPlayer->x, targetPlayer->y);
+			newAnim.targetPos = { ofGetWidth() / 2.0f, ofGetHeight() / 2.0f };
+			newAnim.currentPos = cam.worldToScreen(newAnim.startPos);
+			activeStolenCardAnimations.push_back(newAnim);
+			playedSuccessfully = true;
+		}
+		break;
+	}
+
+	// --- CASE: AMNESIA ---
+	case CARD_AMNESIA: {
+		int targetIndex = -1;
+		for (size_t i = 0; i < players.size(); i++) {
+			if (players[i].x == targetX && players[i].y == targetY) {
+				targetIndex = (int)i;
+				break;
+			}
+		}
+		if (targetIndex == -1) break;
+
+		Player * targetP = getPlayer(targetIndex);
+		if (targetP->deck.empty()) break;
+
+		amnesiaTargetPlayerIndex = targetIndex;
+		pendingAmnesiaRollResult = startDiceRoll(playedCard.numDice, playedCard.diceSides, PURPOSE_DAMAGE);
+		isWaitingForAmnesiaDice = true;
+		playedSuccessfully = true;
+		break;
+	}
+
+	// --- CASE: MAGIC BLAST ---
+	case CARD_MAGIC_BLAST: {
+		glm::vec2 casterTile = { (float)currentPlayer.x, (float)currentPlayer.y };
+		glm::vec2 targetTile = { (float)targetX, (float)targetY };
+		TargetInfo validationResult = isLosTargetValid(casterTile, targetTile, playedCard.numDice * 10.0f, playedCard.type);
+
+		if (validationResult.reason != VALID) break;
+
+		// Validation: Must hit unit or have adjacent unit
+		bool hasValidUnit = false;
+		if (board[targetX][targetY].hasPlayer) hasValidUnit = true;
+		if (!hasValidUnit) {
+			glm::vec2 neighbors[4] = { { targetX + 1, targetY }, { targetX - 1, targetY }, { targetX, targetY + 1 }, { targetX, targetY - 1 } };
+			for (const auto & n : neighbors) {
+				if (n.x >= 0 && n.x < BOARD_WIDTH && n.y >= 0 && n.y < BOARD_HEIGHT && board[(int)n.x][(int)n.y].hasPlayer) {
+					hasValidUnit = true;
+					break;
+				}
+			}
+		}
+		if (!hasValidUnit) break;
+
+		pendingMagicBlastRollResult = startDiceRoll(playedCard.numDice, playedCard.diceSides, PURPOSE_RANGE);
+		isWaitingForMagicBlastDice = true;
+		pendingMagicBlastTargetTile = targetTile;
+		playedSuccessfully = true;
+		break;
+	}
+
+	// --- CASE: FIREBALL ---
+	case CARD_FIREBALL: {
+		glm::vec2 casterTile = { (float)currentPlayer.x, (float)currentPlayer.y };
+		glm::vec2 targetTile = { (float)targetX, (float)targetY };
+		TargetInfo validationResult = isLosTargetValid(casterTile, targetTile, playedCard.numDice * 6.0f, playedCard.type);
+
+		if (validationResult.reason != VALID || !board[targetX][targetY].hasPlayer) break;
+
+		pendingFireballRangeResult = startDiceRoll(playedCard.numDice, playedCard.diceSides, PURPOSE_RANGE);
+		isWaitingForFireballRangeDice = true;
+		pendingFireballTargetTile = targetTile;
+		playedSuccessfully = true;
+		break;
+	}
+
+	// --- CASE: ROCK CRUSH ---
+	case CARD_ROCK_CRUSH: {
+		if (board[targetX][targetY].hasWall) {
+			board[targetX][targetY].hasWall = false;
+			buildLevelMesh();
+			playedSuccessfully = true;
+		} else {
 			int targetIndex = -1;
 			for (size_t i = 0; i < players.size(); i++) {
 				if (players[i].x == targetX && players[i].y == targetY) {
@@ -4952,1746 +4480,2217 @@ void ofApp::startNewTurn() {
 				}
 			}
 			if (targetIndex != -1) {
-				Player * target = getPlayer(targetIndex);
-				applyDamage(*target, playedCard.value, DAMAGE_ELECTRIC);
-				if (currentPlayer.shocksPlayedThisTurn > 0 && !target->isParalyzed) {
-					target->isParalyzed = true;
-					target->paralysisHeadsCount = 0;
+				pendingAttackRollResult = startDiceRoll(playedCard.numDice, playedCard.diceSides, PURPOSE_DAMAGE);
+				isWaitingForAttackDice = true;
+				pendingAttackDamageType = playedCard.damageType;
+				pendingAttackTargetIndices.clear();
+				pendingAttackTargetIndices.push_back(targetIndex);
+				playedSuccessfully = true;
+			}
+		}
+		break;
+	}
+
+	// --- CASE: DISPEL ---
+	case CARD_DISPEL: {
+		pendingDispelCardIndex = cardIndex;
+		isDispelMenuOpen = true;
+		// Menu geometry setup
+		float w = 600, h = 300;
+		float x = ofGetWidth() / 2 - w / 2, y = ofGetHeight() / 2 - h / 2;
+		dispelMenuRect.set(x, y, w, h);
+		dispelBtnBarrier.set(x + 40, y + 100, 250, 100);
+		dispelBtnPurge.set(x + w - 290, y + 100, 250, 100);
+		break;
+	}
+
+	// --- CASE: TELEPORT ---
+	case CARD_TELEPORT: {
+		if (board[targetX][targetY].hasWall || board[targetX][targetY].hasPlayer) break;
+		pendingTeleportTarget = glm::vec2(targetX, targetY);
+		pendingTeleportRollResult = startDiceRoll(playedCard.numDice, playedCard.diceSides, PURPOSE_RANGE);
+		isWaitingForTeleportDice = true;
+		playedSuccessfully = true;
+		break;
+	}
+
+	// --- CASE: HASTEN ---
+	case CARD_HASTEN: {
+		currentPlayer.nextTurnD10AP = true;
+		currentPlayer.nextTurnExtraDraw = true;
+		playedSuccessfully = true;
+		break;
+	}
+
+	// --- CASE: REPLICATE ---
+	case CARD_REPLICATE: {
+		currentPlayer.isReplicatePending = true;
+		playedSuccessfully = true;
+		break;
+	}
+
+	// --- CASE: WISDOM BOON ---
+	case CARD_WISDOM_BOON: {
+		int targetIndex = -1;
+		for (size_t i = 0; i < players.size(); i++) {
+			if (players[i].x == targetX && players[i].y == targetY) {
+				targetIndex = (int)i;
+				break;
+			}
+		}
+		if (targetIndex == -1) break;
+
+		Player * t = getPlayer(targetIndex);
+		bool isSelf = (targetIndex == currentPlayerIndex);
+		bool isAdjacent = (abs(t->x - currentPlayer.x) + abs(t->y - currentPlayer.y) == 1);
+
+		if (!isSelf && !isAdjacent) break;
+
+		pendingWisdomBoonCardIndex = cardIndex;
+		pendingWisdomBoonTargetIndex = targetIndex;
+		isWisdomBoonMenuOpen = true;
+		// Menu geometry
+		float w = 600, h = 300;
+		float x = ofGetWidth() / 2 - w / 2, y = ofGetHeight() / 2 - h / 2;
+		wisdomMenuRect.set(x, y, w, h);
+		wisdomBtnDamage.set(x + (w - 300) / 2, y + 150, 300, 80);
+		wisdomBtnBlock.set(0, 0, 0, 0);
+		break;
+	}
+
+	// --- CASE: HEAL ---
+	case CARD_HEAL: {
+		glm::vec2 casterTile = { (float)currentPlayer.x, (float)currentPlayer.y };
+		glm::vec2 targetTile = { (float)targetX, (float)targetY };
+		TargetInfo validationResult = isLosTargetValid(casterTile, targetTile, 1000.0f, playedCard.type);
+
+		if (validationResult.reason != VALID) break;
+
+		int targetIndex = -1;
+		for (size_t i = 0; i < players.size(); i++) {
+			if (players[i].x == targetX && players[i].y == targetY) {
+				targetIndex = (int)i;
+				break;
+			}
+		}
+		if (targetIndex == -1) break;
+
+		// Friendly Check
+		Player * target = getPlayer(targetIndex);
+		int casterOwner = currentPlayer.isMinion ? currentPlayer.ownerID : currentPlayer.playerID;
+		int targetOwner = target->isMinion ? target->ownerID : target->playerID;
+		if (casterOwner != targetOwner) break;
+
+		pendingHealTargetIndex = targetIndex;
+		pendingHealRollResult = startDiceRoll(playedCard.numDice, playedCard.diceSides, PURPOSE_DAMAGE);
+		isWaitingForHealDice = true;
+		playedSuccessfully = true;
+		break;
+	}
+
+	// --- CASE: ETHEREAL JOLT ---
+	case CARD_ETHEREAL_JOLT: {
+		glm::vec2 casterTile = { (float)currentPlayer.x, (float)currentPlayer.y };
+		glm::vec2 targetTile = { (float)targetX, (float)targetY };
+		TargetInfo validationResult = isLosTargetValid(casterTile, targetTile, 20.0f, playedCard.type);
+
+		if (validationResult.reason != VALID || !board[targetX][targetY].hasPlayer) break;
+
+		pendingJoltRangeResult = startDiceRoll(1, 20, PURPOSE_RANGE);
+		isWaitingForJoltRangeDice = true;
+		pendingJoltTargetTile = targetTile;
+		playedSuccessfully = true;
+		break;
+	}
+
+	// --- CASE: FLAME HIT ---
+	case CARD_FLAME_HIT: {
+		int targetIndex = -1;
+		for (size_t i = 0; i < players.size(); i++) {
+			if (players[i].x == targetX && players[i].y == targetY) {
+				targetIndex = (int)i;
+				break;
+			}
+		}
+		if (targetIndex == -1) break;
+
+		Player * target = getPlayer(targetIndex);
+		bool healthHit = applyDamage(*target, playedCard.value, DAMAGE_FIRE);
+		if (healthHit) target->onFire = true;
+		playedSuccessfully = true;
+		break;
+	}
+
+	// --- CASE: RAISE DEAD ---
+	case CARD_RAISE_DEAD: {
+		if (board[targetX][targetY].hasWall || board[targetX][targetY].hasPlayer) break;
+
+		// 1. Roll for HP
+		pendingSummonTile = glm::vec2(targetX, targetY);
+		pendingSummonRollResult = startDiceRoll(1, 6, PURPOSE_HP);
+		isWaitingForSummonHealth = true;
+
+		// --- CRASH PREVENTION FIX ---
+		// Perform cleanup NOW before the players vector potentially changes
+		currentAP -= playedCard.cost;
+		currentPlayer.playedCardsPile.push_back(playedCard);
+
+		// Handle Replicate
+		if (currentPlayer.isReplicatePending) {
+			currentPlayer.playedCardsPile.push_back(playedCard);
+			currentPlayer.isReplicatePending = false;
+		}
+
+		currentPlayer.cardsPlayedThisTurn.push_back(playedCard.type);
+		currentPlayer.hand.erase(currentPlayer.hand.begin() + cardIndex);
+		activeCardDisplays.push_back({ playedCard, ofGetElapsedTimef() });
+		invalidateTargetCache();
+		// -----------------------------
+
+		// We set this to false because we handled the cleanup manually above.
+		// We don't want the bottom block to run again.
+		playedSuccessfully = false;
+
+		// Note: The actual summoning happens in updateGame() when the dice finishes,
+		// so we don't need to worry about vector resizing here.
+		break;
+	}
+
+		// --- CASE: SUMMON GOLEM ---
+	case CARD_SUMMON_GOLEM: {
+		// 1. Validation
+		if (board[targetX][targetY].hasWall || board[targetX][targetY].hasPlayer) break;
+
+		// 2. Determine Golem Type
+		bool isElectric = false;
+		bool isFire = false;
+		bool isRock = false;
+
+		for (CardType t : currentPlayer.cardsPlayedThisTurn) {
+			if (t == CARD_SHOCK || t == CARD_ARCANE_BURST) isElectric = true;
+			if (t == CARD_FIREBALL || t == CARD_FLAME_HIT) isFire = true;
+			if (t == CARD_ROCK_CRUSH) isRock = true;
+		}
+
+		// 3. Setup Minion Data
+		Player minion;
+		minion.playerID = 100 + (int)players.size();
+		minion.x = targetX;
+		minion.y = targetY;
+		minion.isMinion = true;
+		minion.isGolem = true;
+		minion.ownerID = currentPlayer.playerID;
+
+		// 4. Apply Variant Stats & Deck
+		if (isElectric) {
+			ofLogNotice("Summon") << "Combo! Summoning ELECTRIC Golem.";
+			minion.minionTexture = &golemTexElectric;
+			minion.maxHealth = startDiceRoll(1, 6, PURPOSE_HP);
+			for (const auto & c : allCards) {
+				if (c.type == CARD_SHOCK) {
+					minion.deck.push_back(c);
+					minion.deck.push_back(c);
+					minion.deck.push_back(c);
+				}
+				if (c.type == CARD_GAIN_BLOCK && c.name == "Hand Block") {
+					minion.deck.push_back(c);
+					minion.deck.push_back(c);
 				}
 			}
-			currentPlayer.nextTurnAPBonus += 2;
-			currentPlayer.shocksPlayedThisTurn++;
-			playedSuccessfully = true;
-			break;
+		} else if (isFire) {
+			ofLogNotice("Summon") << "Combo! Summoning FIRE Golem.";
+			minion.minionTexture = &golemTexFire;
+			minion.maxHealth = startDiceRoll(1, 10, PURPOSE_HP);
+			for (const auto & c : allCards) {
+				if (c.type == CARD_FIREBALL) minion.deck.push_back(c);
+				if (c.type == CARD_FLAME_HIT) {
+					minion.deck.push_back(c);
+					minion.deck.push_back(c);
+				}
+				if (c.type == CARD_GAIN_BLOCK && c.name == "Hand Block") {
+					minion.deck.push_back(c);
+					minion.deck.push_back(c);
+				}
+			}
+		} else if (isRock) {
+			ofLogNotice("Summon") << "Combo! Summoning ROCK Golem.";
+			minion.minionTexture = &golemTexRock;
+			minion.maxHealth = startDiceRoll(1, 20, PURPOSE_HP);
+			for (const auto & c : allCards) {
+				if (c.type == CARD_ROCK_CRUSH) {
+					minion.deck.push_back(c);
+					minion.deck.push_back(c);
+				}
+				if (c.name == "Bash") {
+					minion.deck.push_back(c);
+					minion.deck.push_back(c);
+					minion.deck.push_back(c);
+				}
+				if (c.type == CARD_GAIN_BLOCK && c.name == "Hand Block") {
+					minion.deck.push_back(c);
+					minion.deck.push_back(c);
+				}
+			}
+		} else {
+			ofLogNotice("Summon") << "Summoning Standard Golem.";
+			minion.minionTexture = &golemTexBase;
+			minion.maxHealth = startDiceRoll(1, 10, PURPOSE_HP);
+			for (const auto & c : allCards) {
+				if (c.name == "Bash") {
+					minion.deck.push_back(c);
+					minion.deck.push_back(c);
+					minion.deck.push_back(c);
+				}
+				if (c.type == CARD_GAIN_BLOCK && c.name == "Hand Block") {
+					minion.deck.push_back(c);
+					minion.deck.push_back(c);
+				}
+			}
 		}
 
-		case CARD_GAIN_AP:
-			currentAP += playedCard.value;
-			spawnFloatingText(gridToWorld(currentPlayer.x, currentPlayer.y), "+" + ofToString(playedCard.value) + " AP", ofColor::yellow);
-			playedSuccessfully = true;
-			break;
+		minion.health = minion.maxHealth;
+		std::shuffle(minion.deck.begin(), minion.deck.end(), rng);
 
-		case CARD_GAIN_BLOCK:
-			players[currentPlayerIndex].block += playedCard.value;
-			spawnFloatingText(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y), "+" + ofToString(playedCard.value) + " Block", ofColor::gray);
-			playedSuccessfully = true;
-			break;
+		// --- CRASH FIX START ---
+		// We perform the card cleanup NOW, before modifying the players vector.
+		// This ensures 'currentPlayer' is still valid.
+		int myID = currentPlayer.playerID; // Remember who we are
 
-		case CARD_GAIN_WARD:
-			players[currentPlayerIndex].ward += playedCard.value;
-			spawnFloatingText(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y), "+" + ofToString(playedCard.value) + " Ward", ofColor::black);
-			playedSuccessfully = true;
-			break;
+		currentAP -= playedCard.cost;
+		currentPlayer.playedCardsPile.push_back(playedCard);
+		currentPlayer.cardsPlayedThisTurn.push_back(playedCard.type); // Track history
+		currentPlayer.hand.erase(currentPlayer.hand.begin() + cardIndex);
 
-		default:
-			break;
+		activeCardDisplays.push_back({ playedCard, ofGetElapsedTimef() });
+		invalidateTargetCache();
+		// --- CRASH FIX END ---
+
+		// 5. Add to board (This invalidates the 'currentPlayer' reference)
+		board[targetX][targetY].hasPlayer = true;
+		players.push_back(minion);
+
+		// Sort turn order
+		std::sort(players.begin(), players.end(), [](const Player & a, const Player & b) {
+			int ownerA = a.isMinion ? a.ownerID : a.playerID;
+			int ownerB = b.isMinion ? b.ownerID : b.playerID;
+			if (ownerA != ownerB) return ownerA < ownerB;
+			if (a.isMinion && !b.isMinion) return true;
+			if (!a.isMinion && b.isMinion) return false;
+			return a.playerID < b.playerID;
+		});
+
+		// Find our new index using the ID we saved
+		for (size_t i = 0; i < players.size(); i++) {
+			if (players[i].playerID == myID) {
+				currentPlayerIndex = i;
+				break;
+			}
 		}
 
-		// --- 3. COMMON CLEANUP ---
-		if (playedSuccessfully) {
-			currentAP -= playedCard.cost;
+		// Return immediately so we don't hit the code at the bottom of the function
+		return;
+	}
 
-			// --- STRENGTHEN ELEMENTS TRIGGER ---
-			// Check if buff is active AND card deals Fire or Electric damage
-			if (currentPlayer.strengthenElementsTurnsRemaining > 0) {
-				if (playedCard.damageType == DAMAGE_FIRE || playedCard.damageType == DAMAGE_ELECTRIC) {
+		// --- CASE: STRENGTHEN ELEMENTS ---
+	case CARD_STRENGTHEN_ELEMENTS: {
+		// Set duration to 3 (Current Turn + Next 2 Turns)
+		currentPlayer.strengthenElementsTurnsRemaining = 3;
 
-					// Don't trigger on the Strengthen card itself (safety check, though types differ)
-					if (playedCard.type != CARD_STRENGTHEN_ELEMENTS) {
+		spawnFloatingText(gridToWorld(currentPlayer.x, currentPlayer.y), "Elemental Flow!", ofColor::orange);
+		ofLogNotice("Game") << "Player " << currentPlayer.playerID << " strengthened elements for 3 turns.";
 
-						// Create a copy
-						Card copy = playedCard;
+		playedSuccessfully = true;
+		break;
+	}
 
-						// Add to Deck
-						currentPlayer.deck.push_back(copy);
+		// --- CASE: SUMMON WALL ---
+	case CARD_CREATE_WALL: {
+		// Targeting already ensures the tile is empty and adjacent,
+		// but we can add a safety check.
+		if (!board[targetX][targetY].hasWall && !board[targetX][targetY].hasPlayer) {
 
-						// Shuffle the deck to integrate the new card
-						std::shuffle(currentPlayer.deck.begin(), currentPlayer.deck.end(), rng);
+			// Set the wall flag
+			board[targetX][targetY].hasWall = true;
 
-						spawnFloatingText(gridToWorld(currentPlayer.x, currentPlayer.y) + glm::vec3(0, 0.5, 0), "Element Copied!", ofColor::cyan);
-						ofLogNotice("Game") << "Strengthen Elements triggered: Copied " << playedCard.name << " to deck.";
+			// CRITICAL: Rebuild the 3D mesh to make the wall appear
+			buildLevelMesh();
+
+			// Invalidate pathing cache for all units
+			invalidateTargetCache();
+
+			playedSuccessfully = true;
+		}
+		break;
+	}
+
+	case CARD_DARK_SHIELD: {
+		currentPlayer.holyBlock += playedCard.value; // value is 7
+		currentPlayer.nextTurnBonusDiceFromMinions = true;
+
+		spawnFloatingText(gridToWorld(currentPlayer.x, currentPlayer.y),
+			"+" + ofToString(playedCard.value) + " Holy Block",
+			ofColor::darkViolet); // A new color for the UI
+
+		ofLogNotice("Game") << "Gained Dark Shield and bonus dice next turn.";
+		playedSuccessfully = true;
+		break;
+	}
+
+	// --- CASE: STANDARD ATTACK (Stab, Cleave, Pierce, Punch) ---
+	case CARD_ATTACK_SINGLE_TILE: {
+		int px = players[currentPlayerIndex].x;
+		int py = players[currentPlayerIndex].y;
+		pendingAttackTargetIndices.clear();
+
+		// 1. CLEAVE LOGIC
+		if (playedCard.targeting == TARGET_CLEAVE_ADJACENT) {
+			glm::vec2 dir = { (float)(targetX - px), (float)(targetY - py) };
+			std::vector<Player *> targetsToHit = findCleaveTargets(dir);
+			for (auto * targetPlayer : targetsToHit) {
+				for (size_t i = 0; i < players.size(); i++) {
+					if (&players[i] == targetPlayer) pendingAttackTargetIndices.push_back((int)i);
+				}
+			}
+		}
+		// 2. PIERCE LOGIC
+		else if (playedCard.targeting == TARGET_LINEAR_PIERCE) {
+			glm::vec2 dir = { (float)(targetX - px), (float)(targetY - py) };
+			if (std::abs(dir.x) > std::abs(dir.y)) {
+				dir.x = (dir.x > 0) ? 1.0f : -1.0f;
+				dir.y = 0.0f;
+			} else {
+				dir.x = 0.0f;
+				dir.y = (dir.y > 0) ? 1.0f : -1.0f;
+			}
+
+			glm::vec2 pos1 = { px + dir.x, py + dir.y };
+			glm::vec2 pos2 = { px + dir.x * 2, py + dir.y * 2 };
+
+			// A. Adjacent
+			for (size_t i = 0; i < players.size(); i++) {
+				if (players[i].x == (int)pos1.x && players[i].y == (int)pos1.y) {
+					pendingAttackTargetIndices.push_back((int)i);
+					break;
+				}
+			}
+			// B. Behind (only if not blocked by wall)
+			if (!isTileWall((int)pos1.x, (int)pos1.y)) {
+				for (size_t i = 0; i < players.size(); i++) {
+					if (players[i].x == (int)pos2.x && players[i].y == (int)pos2.y) {
+						pendingAttackTargetIndices.push_back((int)i);
+						break;
 					}
 				}
 			}
-			// -----------------------------------
-
-			currentPlayer.playedCardsPile.push_back(playedCard);
-
-			if (currentPlayer.isReplicatePending && playedCard.type != CARD_REPLICATE) {
-				Card duplicateCard = playedCard;
-				currentPlayer.playedCardsPile.push_back(duplicateCard);
-				currentPlayer.isReplicatePending = false;
+		}
+		// 3. STANDARD SINGLE TARGET (e.g., Punch)
+		else {
+			// FIX: Explicitly handle Adjacent targeting to avoid 5ft Range confusion
+			if (playedCard.targeting == TARGET_ADJACENT_UNIT) {
+				int dist = abs(targetX - px) + abs(targetY - py);
+				// Must be adjacent (distance 1) and occupied
+				if (dist == 1 && board[targetX][targetY].hasPlayer) {
+					for (size_t i = 0; i < players.size(); i++) {
+						if (players[i].x == targetX && players[i].y == targetY) {
+							pendingAttackTargetIndices.push_back((int)i);
+							break;
+						}
+					}
+				}
 			}
+			// Generic 5ft range fall back (for older cards)
+			else {
+				glm::vec2 casterTile = { (float)px, (float)py };
+				glm::vec2 targetTile = { (float)targetX, (float)targetY };
+				TargetInfo info = isLosTargetValid(casterTile, targetTile, 5.0f, playedCard.type);
 
-			currentPlayer.hand.erase(currentPlayer.hand.begin() + cardIndex);
-			activeCardDisplays.push_back({ playedCard, ofGetElapsedTimef() });
-			invalidateTargetCache();
-			currentPlayer.cardsPlayedThisTurn.push_back(playedCard.type);
+				if (info.reason == VALID && info.isTargetable) {
+					for (size_t i = 0; i < players.size(); i++) {
+						if (players[i].x == targetX && players[i].y == targetY) {
+							pendingAttackTargetIndices.push_back((int)i);
+							break;
+						}
+					}
+				}
+			}
+		}
+
+		if (pendingAttackTargetIndices.empty()) {
+			ofLogNotice("Attack") << "No valid targets. Action Cancelled.";
+			break;
+		}
+
+		// --- EXECUTE DAMAGE ---
+		if (playedCard.numDice > 0 && playedCard.diceSides > 0) {
+			pendingAttackRollResult = startDiceRoll(playedCard.numDice, playedCard.diceSides, PURPOSE_DAMAGE);
+			isWaitingForAttackDice = true;
+			pendingAttackDamageType = playedCard.damageType;
+		} else {
+			int damage = playedCard.value;
+			for (size_t i = 0; i < pendingAttackTargetIndices.size(); i++) {
+				int pIndex = pendingAttackTargetIndices[i];
+				Player * target = getPlayer(pIndex);
+				if (target) {
+					int finalDamage = damage;
+					if (playedCard.damageType == DAMAGE_PIERCING && i > 0) finalDamage /= 2;
+					applyDamage(*target, finalDamage, playedCard.damageType);
+				}
+			}
+		}
+		playedSuccessfully = true;
+		break;
+	}
+
+	// --- CASE: SHOCK ---
+	case CARD_SHOCK: {
+		int targetIndex = -1;
+		for (size_t i = 0; i < players.size(); i++) {
+			if (players[i].x == targetX && players[i].y == targetY) {
+				targetIndex = (int)i;
+				break;
+			}
+		}
+		if (targetIndex != -1) {
+			Player * target = getPlayer(targetIndex);
+			applyDamage(*target, playedCard.value, DAMAGE_ELECTRIC);
+			if (currentPlayer.shocksPlayedThisTurn > 0 && !target->isParalyzed) {
+				target->isParalyzed = true;
+				target->paralysisHeadsCount = 0;
+			}
+		}
+		currentPlayer.nextTurnAPBonus += 2;
+		currentPlayer.shocksPlayedThisTurn++;
+		playedSuccessfully = true;
+		break;
+	}
+
+	case CARD_GAIN_AP:
+		currentAP += playedCard.value;
+		spawnFloatingText(gridToWorld(currentPlayer.x, currentPlayer.y), "+" + ofToString(playedCard.value) + " AP", ofColor::yellow);
+		playedSuccessfully = true;
+		break;
+
+	case CARD_GAIN_BLOCK:
+		players[currentPlayerIndex].block += playedCard.value;
+		spawnFloatingText(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y), "+" + ofToString(playedCard.value) + " Block", ofColor::gray);
+		playedSuccessfully = true;
+		break;
+
+	case CARD_GAIN_WARD:
+		players[currentPlayerIndex].ward += playedCard.value;
+		spawnFloatingText(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y), "+" + ofToString(playedCard.value) + " Ward", ofColor::black);
+		playedSuccessfully = true;
+		break;
+
+	default:
+		break;
+	}
+
+	// --- 3. COMMON CLEANUP ---
+	if (playedSuccessfully) {
+		currentAP -= playedCard.cost;
+
+		// --- STRENGTHEN ELEMENTS TRIGGER ---
+		// Check if buff is active AND card deals Fire or Electric damage
+		if (currentPlayer.strengthenElementsTurnsRemaining > 0) {
+			if (playedCard.damageType == DAMAGE_FIRE || playedCard.damageType == DAMAGE_ELECTRIC) {
+
+				// Don't trigger on the Strengthen card itself (safety check, though types differ)
+				if (playedCard.type != CARD_STRENGTHEN_ELEMENTS) {
+
+					// Create a copy
+					Card copy = playedCard;
+
+					// Add to Deck
+					currentPlayer.deck.push_back(copy);
+
+					// Shuffle the deck to integrate the new card
+					std::shuffle(currentPlayer.deck.begin(), currentPlayer.deck.end(), rng);
+
+					spawnFloatingText(gridToWorld(currentPlayer.x, currentPlayer.y) + glm::vec3(0, 0.5, 0), "Element Copied!", ofColor::cyan);
+					ofLogNotice("Game") << "Strengthen Elements triggered: Copied " << playedCard.name << " to deck.";
+				}
+			}
+		}
+		// -----------------------------------
+
+		currentPlayer.playedCardsPile.push_back(playedCard);
+
+		if (currentPlayer.isReplicatePending && playedCard.type != CARD_REPLICATE) {
+			Card duplicateCard = playedCard;
+			currentPlayer.playedCardsPile.push_back(duplicateCard);
+			currentPlayer.isReplicatePending = false;
+		}
+
+		currentPlayer.hand.erase(currentPlayer.hand.begin() + cardIndex);
+		activeCardDisplays.push_back({ playedCard, ofGetElapsedTimef() });
+		invalidateTargetCache();
+		currentPlayer.cardsPlayedThisTurn.push_back(playedCard.type);
+	}
+}
+//--------------------------------------------------------------
+ofVec2f ofApp::mouseToBoard(int x, int y) {
+	// No special hacks needed here anymore since the camera's state is always correct.
+	glm::vec3 planePoint(0, 0, 0);
+	glm::vec3 planeNormal(0, 1, 0);
+	glm::vec3 rayOrigin = cam.screenToWorld(glm::vec3(x, y, 0));
+	glm::vec3 rayDirection = cam.screenToWorld(glm::vec3(x, y, 1)) - rayOrigin;
+	float distance;
+	bool intersects = glm::intersectRayPlane(rayOrigin, rayDirection, planePoint, planeNormal, distance);
+	if (intersects) {
+		glm::vec3 intersectionPoint = rayOrigin + rayDirection * distance;
+		float gridX = (intersectionPoint.x / TILE_SIZE) + (BOARD_WIDTH / 2.0f);
+		float gridY = (intersectionPoint.z / TILE_SIZE) + (BOARD_HEIGHT / 2.0f);
+		return ofVec2f(gridX, gridY);
+	}
+	return ofVec2f(-1, -1);
+}
+
+//--------------------------------------------------------------
+void ofApp::calculateTargetHighlights(int cardToCalculate) {
+	// --- NEW CACHING LOGIC ---
+	// If nothing has changed that would affect targets, don't recalculate.
+	if (players.empty() || currentPlayerIndex < 0) return;
+	Player & currentPlayer = players[currentPlayerIndex];
+	if (currentPlayer.x == lastCachedPlayerX && currentPlayer.y == lastCachedPlayerY && cardToCalculate == lastCachedCardIndex) {
+		return; // The cache is still valid, do nothing.
+	}
+
+	// If we're here, something changed. Update the cache state.
+	lastCachedPlayerX = currentPlayer.x;
+	lastCachedPlayerY = currentPlayer.y;
+	lastCachedCardIndex = cardToCalculate;
+	// --- END CACHING LOGIC ---
+
+	// Clear old highlights
+	for (int x = 0; x < BOARD_WIDTH; x++) {
+		for (int y = 0; y < BOARD_HEIGHT; y++) {
+			board[x][y].isTargetable = false;
+			targetCache[x][y] = TargetInfo();
 		}
 	}
-	//--------------------------------------------------------------
-	ofVec2f ofApp::mouseToBoard(int x, int y) {
-		// No special hacks needed here anymore since the camera's state is always correct.
-		glm::vec3 planePoint(0, 0, 0);
-		glm::vec3 planeNormal(0, 1, 0);
-		glm::vec3 rayOrigin = cam.screenToWorld(glm::vec3(x, y, 0));
-		glm::vec3 rayDirection = cam.screenToWorld(glm::vec3(x, y, 1)) - rayOrigin;
-		float distance;
-		bool intersects = glm::intersectRayPlane(rayOrigin, rayDirection, planePoint, planeNormal, distance);
-		if (intersects) {
-			glm::vec3 intersectionPoint = rayOrigin + rayDirection * distance;
-			float gridX = (intersectionPoint.x / TILE_SIZE) + (BOARD_WIDTH / 2.0f);
-			float gridY = (intersectionPoint.z / TILE_SIZE) + (BOARD_HEIGHT / 2.0f);
-			return ofVec2f(gridX, gridY);
+
+	if (cardToCalculate < 0 || cardToCalculate >= static_cast<int>(currentPlayer.hand.size())) return;
+
+	Card & card = currentPlayer.hand[cardToCalculate];
+	int px = currentPlayer.x;
+	int py = currentPlayer.y;
+
+	// --- 1. SPECIAL LOS LOGIC (Magic Blast / Fireball / Jolt / Heal) ---
+	// Added CARD_HEAL to this condition
+	if (card.type == CARD_MAGIC_BLAST || card.type == CARD_FIREBALL || card.type == CARD_ETHEREAL_JOLT || card.type == CARD_HEAL) {
+
+		float maxRange = 0.0f;
+		if (card.type == CARD_MAGIC_BLAST)
+			maxRange = 20.0f;
+		else if (card.type == CARD_FIREBALL)
+			maxRange = 12.0f;
+		else if (card.type == CARD_ETHEREAL_JOLT)
+			maxRange = 20.0f;
+		else if (card.type == CARD_HEAL) {
+			// Heal is unlimited range, but ONLY for self or friendly units.
+			glm::vec2 casterTile = { (float)px, (float)py };
+			for (int x = 0; x < BOARD_WIDTH; x++) {
+				for (int y = 0; y < BOARD_HEIGHT; y++) {
+					// Find the unit on this tile, if any
+					Player * target = nullptr;
+					for (auto & p : players) {
+						if (p.x == x && p.y == y) {
+							target = &p;
+							break;
+						}
+					}
+
+					if (target) {
+						// --- NEW FRIENDLY CHECK ---
+						// Determine owner of caster and target
+						int casterOwner = currentPlayer.isMinion ? currentPlayer.ownerID : currentPlayer.playerID;
+						int targetOwner = target->isMinion ? target->ownerID : target->playerID;
+
+						if (casterOwner == targetOwner) {
+							// It's a friendly target, now check Line of Sight
+							TargetInfo validationResult = isLosTargetValid(casterTile, { (float)x, (float)y }, 1000.0f, card.type);
+							if (validationResult.reason == VALID) {
+								board[x][y].isTargetable = true;
+							}
+						}
+					}
+				}
+			}
+			return; // Exit the function early as we handled this card type completely
 		}
-		return ofVec2f(-1, -1);
-	}
 
-	//--------------------------------------------------------------
-	void ofApp::calculateTargetHighlights(int cardToCalculate) {
-		// --- NEW CACHING LOGIC ---
-		// If nothing has changed that would affect targets, don't recalculate.
-		if (players.empty() || currentPlayerIndex < 0) return;
-		Player & currentPlayer = players[currentPlayerIndex];
-		if (currentPlayer.x == lastCachedPlayerX && currentPlayer.y == lastCachedPlayerY && cardToCalculate == lastCachedCardIndex) {
-			return; // The cache is still valid, do nothing.
-		}
+		glm::vec2 casterTile = { (float)px, (float)py };
 
-		// If we're here, something changed. Update the cache state.
-		lastCachedPlayerX = currentPlayer.x;
-		lastCachedPlayerY = currentPlayer.y;
-		lastCachedCardIndex = cardToCalculate;
-		// --- END CACHING LOGIC ---
-
-		// Clear old highlights
 		for (int x = 0; x < BOARD_WIDTH; x++) {
 			for (int y = 0; y < BOARD_HEIGHT; y++) {
-				board[x][y].isTargetable = false;
-				targetCache[x][y] = TargetInfo();
-			}
-		}
+				// Determine if target is valid based on LoS and Range
+				targetCache[x][y] = isLosTargetValid(casterTile, { (float)x, (float)y }, maxRange, card.type);
 
-		if (cardToCalculate < 0 || cardToCalculate >= static_cast<int>(currentPlayer.hand.size())) return;
-
-		Card & card = currentPlayer.hand[cardToCalculate];
-		int px = currentPlayer.x;
-		int py = currentPlayer.y;
-
-		// --- 1. SPECIAL LOS LOGIC (Magic Blast / Fireball / Jolt / Heal) ---
-		// Added CARD_HEAL to this condition
-		if (card.type == CARD_MAGIC_BLAST || card.type == CARD_FIREBALL || card.type == CARD_ETHEREAL_JOLT || card.type == CARD_HEAL) {
-
-			float maxRange = 0.0f;
-			if (card.type == CARD_MAGIC_BLAST)
-				maxRange = 20.0f;
-			else if (card.type == CARD_FIREBALL)
-				maxRange = 12.0f;
-			else if (card.type == CARD_ETHEREAL_JOLT)
-				maxRange = 20.0f;
-			else if (card.type == CARD_HEAL) {
-				// Heal is unlimited range, but ONLY for self or friendly units.
-				glm::vec2 casterTile = { (float)px, (float)py };
-				for (int x = 0; x < BOARD_WIDTH; x++) {
-					for (int y = 0; y < BOARD_HEIGHT; y++) {
-						// Find the unit on this tile, if any
-						Player * target = nullptr;
-						for (auto & p : players) {
-							if (p.x == x && p.y == y) {
-								target = &p;
-								break;
-							}
-						}
-
-						if (target) {
-							// --- NEW FRIENDLY CHECK ---
-							// Determine owner of caster and target
-							int casterOwner = currentPlayer.isMinion ? currentPlayer.ownerID : currentPlayer.playerID;
-							int targetOwner = target->isMinion ? target->ownerID : target->playerID;
-
-							if (casterOwner == targetOwner) {
-								// It's a friendly target, now check Line of Sight
-								TargetInfo validationResult = isLosTargetValid(casterTile, { (float)x, (float)y }, 1000.0f, card.type);
-								if (validationResult.reason == VALID) {
-									board[x][y].isTargetable = true;
-								}
-							}
-						}
-					}
-				}
-				return; // Exit the function early as we handled this card type completely
-			}
-
-			glm::vec2 casterTile = { (float)px, (float)py };
-
-			for (int x = 0; x < BOARD_WIDTH; x++) {
-				for (int y = 0; y < BOARD_HEIGHT; y++) {
-					// Determine if target is valid based on LoS and Range
-					targetCache[x][y] = isLosTargetValid(casterTile, { (float)x, (float)y }, maxRange, card.type);
-
-					if (targetCache[x][y].reason == VALID) {
-						board[x][y].isTargetable = targetCache[x][y].isTargetable;
-					} else {
-						board[x][y].isTargetable = false;
-					}
+				if (targetCache[x][y].reason == VALID) {
+					board[x][y].isTargetable = targetCache[x][y].isTargetable;
+				} else {
+					board[x][y].isTargetable = false;
 				}
 			}
 		}
-		// --- 2. DIRECTIONAL LOGIC (Cleave / Pierce) ---
-		else if (card.targeting == TARGET_CLEAVE_ADJACENT) {
-			glm::vec2 directions[4] = { { 0, -1 }, { 0, 1 }, { -1, 0 }, { 1, 0 } };
-			for (const auto & dir : directions) {
-				std::vector<Player *> targets = findCleaveTargets(dir);
-				if (!targets.empty()) {
-					glm::vec2 centerTile = { (float)px + dir.x, (float)py + dir.y };
-					if (centerTile.x >= 0 && centerTile.x < BOARD_WIDTH && centerTile.y >= 0 && centerTile.y < BOARD_HEIGHT) {
-						board[(int)centerTile.x][(int)centerTile.y].isTargetable = true;
+	}
+	// --- 2. DIRECTIONAL LOGIC (Cleave / Pierce) ---
+	else if (card.targeting == TARGET_CLEAVE_ADJACENT) {
+		glm::vec2 directions[4] = { { 0, -1 }, { 0, 1 }, { -1, 0 }, { 1, 0 } };
+		for (const auto & dir : directions) {
+			std::vector<Player *> targets = findCleaveTargets(dir);
+			if (!targets.empty()) {
+				glm::vec2 centerTile = { (float)px + dir.x, (float)py + dir.y };
+				if (centerTile.x >= 0 && centerTile.x < BOARD_WIDTH && centerTile.y >= 0 && centerTile.y < BOARD_HEIGHT) {
+					board[(int)centerTile.x][(int)centerTile.y].isTargetable = true;
+				}
+			}
+		}
+	} else if (card.targeting == TARGET_LINEAR_PIERCE) {
+		// 4 Cardinal Directions
+		glm::vec2 directions[4] = { { 0, 1 }, { 0, -1 }, { 1, 0 }, { -1, 0 } };
+
+		for (const auto & dir : directions) {
+			// Check Spot 1 (Adjacent)
+			int x1 = px + (int)dir.x;
+			int y1 = py + (int)dir.y;
+
+			bool pos1Blocked = false;
+
+			if (x1 >= 0 && x1 < BOARD_WIDTH && y1 >= 0 && y1 < BOARD_HEIGHT) {
+				if (board[x1][y1].hasWall) {
+					pos1Blocked = true; // Wall blocks line
+				} else {
+					// It's open space or unit.
+					// Mark as valid target if it has a player (Red)
+					// Or if clicked/selected, we can mark it Green to show range
+					if (board[x1][y1].hasPlayer) {
+						board[x1][y1].isTargetable = true;
+					} else if (selectedCardIndex != -1) {
+						// Optional: Mark empty path as targetable to show range
+						// board[x1][y1].isTargetable = true; // Uncomment if you want to click empty space to stab
 					}
 				}
 			}
-		} else if (card.targeting == TARGET_LINEAR_PIERCE) {
-			// 4 Cardinal Directions
-			glm::vec2 directions[4] = { { 0, 1 }, { 0, -1 }, { 1, 0 }, { -1, 0 } };
 
-			for (const auto & dir : directions) {
-				// Check Spot 1 (Adjacent)
-				int x1 = px + (int)dir.x;
-				int y1 = py + (int)dir.y;
+			// Check Spot 2 (2 Squares / 5ft away)
+			// Can only hit Spot 2 if Spot 1 wasn't a wall
+			if (!pos1Blocked) {
+				int x2 = px + (int)dir.x * 2;
+				int y2 = py + (int)dir.y * 2;
 
-				bool pos1Blocked = false;
-
-				if (x1 >= 0 && x1 < BOARD_WIDTH && y1 >= 0 && y1 < BOARD_HEIGHT) {
-					if (board[x1][y1].hasWall) {
-						pos1Blocked = true; // Wall blocks line
-					} else {
-						// It's open space or unit.
-						// Mark as valid target if it has a player (Red)
-						// Or if clicked/selected, we can mark it Green to show range
-						if (board[x1][y1].hasPlayer) {
-							board[x1][y1].isTargetable = true;
-						} else if (selectedCardIndex != -1) {
-							// Optional: Mark empty path as targetable to show range
-							// board[x1][y1].isTargetable = true; // Uncomment if you want to click empty space to stab
-						}
-					}
-				}
-
-				// Check Spot 2 (2 Squares / 5ft away)
-				// Can only hit Spot 2 if Spot 1 wasn't a wall
-				if (!pos1Blocked) {
-					int x2 = px + (int)dir.x * 2;
-					int y2 = py + (int)dir.y * 2;
-
-					if (x2 >= 0 && x2 < BOARD_WIDTH && y2 >= 0 && y2 < BOARD_HEIGHT) {
-						if (!board[x2][y2].hasWall) {
-							if (board[x2][y2].hasPlayer) {
-								board[x2][y2].isTargetable = true;
-							}
+				if (x2 >= 0 && x2 < BOARD_WIDTH && y2 >= 0 && y2 < BOARD_HEIGHT) {
+					if (!board[x2][y2].hasWall) {
+						if (board[x2][y2].hasPlayer) {
+							board[x2][y2].isTargetable = true;
 						}
 					}
 				}
 			}
 		}
-		// --- SPECIAL LOGIC: TELEPORT ---
-		else if (card.type == CARD_TELEPORT) {
-			// Max range of 3d6 is 18.
-			// We use Edge-to-Edge distance:
-			// Adjacent = 0ft, 1 Gap = 5ft, 2 Gaps = 10ft, 3 Gaps = 15ft.
+	}
+	// --- SPECIAL LOGIC: TELEPORT ---
+	else if (card.type == CARD_TELEPORT) {
+		// Max range of 3d6 is 18.
+		// We use Edge-to-Edge distance:
+		// Adjacent = 0ft, 1 Gap = 5ft, 2 Gaps = 10ft, 3 Gaps = 15ft.
 
-			for (int x = 0; x < BOARD_WIDTH; x++) {
-				for (int y = 0; y < BOARD_HEIGHT; y++) {
-					if (x == px && y == py) continue; // Can't teleport to self
+		for (int x = 0; x < BOARD_WIDTH; x++) {
+			for (int y = 0; y < BOARD_HEIGHT; y++) {
+				if (x == px && y == py) continue; // Can't teleport to self
 
-					// Calculate Edge-to-Edge Distance
-					float delta_x = std::max(0.0f, std::max(px - (x + 1.0f), x - (px + 1.0f)));
-					float delta_y = std::max(0.0f, std::max(py - (y + 1.0f), y - (py + 1.0f)));
-					float distFeet = sqrt(delta_x * delta_x + delta_y * delta_y) * 5.0f;
+				// Calculate Edge-to-Edge Distance
+				float delta_x = std::max(0.0f, std::max(px - (x + 1.0f), x - (px + 1.0f)));
+				float delta_y = std::max(0.0f, std::max(py - (y + 1.0f), y - (py + 1.0f)));
+				float distFeet = sqrt(delta_x * delta_x + delta_y * delta_y) * 5.0f;
 
-					// 1. Check Distance (Max 18ft)
-					if (distFeet <= 18.0f) {
-						// 2. Check Valid Destination (Must be empty)
-						if (!board[x][y].hasWall && !board[x][y].hasPlayer) {
-							board[x][y].isTargetable = true;
-						}
-					}
-				}
-			}
-		}
-		// --- 3. GENERAL TILE LOGIC (Everything else including Rock Crush) ---
-		else {
-			for (int x = 0; x < BOARD_WIDTH; x++) {
-				for (int y = 0; y < BOARD_HEIGHT; y++) {
-					bool isValid = false;
-
-					switch (card.targeting) {
-					case TARGET_ANY_TILE:
-						isValid = !board[x][y].hasWall;
-						break;
-					case TARGET_EMPTY_TILE:
-						isValid = !board[x][y].hasWall && !board[x][y].hasPlayer;
-						break;
-					case TARGET_WALL:
-						isValid = board[x][y].hasWall;
-						break;
-					case TARGET_ADJACENT_UNIT: {
-						bool hasUnit = board[x][y].hasPlayer;
-						int distance = abs(x - px) + abs(y - py);
-						isValid = hasUnit && (distance == 1);
-						break;
-					}
-					case TARGET_ADJACENT_OR_SELF_UNIT: {
-						bool hasUnit = board[x][y].hasPlayer;
-						int distance = abs(x - px) + abs(y - py);
-						isValid = hasUnit && (distance <= 1);
-						break;
-					}
-						// --- Rock Crush ---
-					case TARGET_ADJACENT_UNIT_OR_WALL: {
-						int distance = abs(x - px) + abs(y - py);
-						if (distance == 1) {
-							if (board[x][y].hasWall || board[x][y].hasPlayer) {
-								isValid = true;
-							}
-						}
-						break;
-					}
-
-					// --- PASTE HERE ---
-					case TARGET_EMPTY_ADJACENT: {
-						int dist = abs(x - px) + abs(y - py);
-						if (dist == 1 && !board[x][y].hasWall && !board[x][y].hasPlayer) {
-							isValid = true;
-						}
-						break;
-					}
-						// ------------------
-
-					case TARGET_SELF:
-						isValid = false;
-						break;
-					default:
-						break;
-					}
-
-					if (isValid) {
+				// 1. Check Distance (Max 18ft)
+				if (distFeet <= 18.0f) {
+					// 2. Check Valid Destination (Must be empty)
+					if (!board[x][y].hasWall && !board[x][y].hasPlayer) {
 						board[x][y].isTargetable = true;
 					}
 				}
 			}
 		}
 	}
-	//--------------------------------------------------------------
-	void ofApp::spawnFloatingText(glm::vec3 pos, std::string text, ofColor color) {
-		FloatingText ft;
-		ft.text = text;
-		// Start slightly above the unit
-		ft.worldPos = pos + glm::vec3(0, 1.5f, 0);
-		// Random slight drift left/right, consistent drift up
-		ft.velocity = glm::vec3(ofRandom(-1.0f, 1.0f), 2.0f, ofRandom(-1.0f, 1.0f));
-		ft.startTime = ofGetElapsedTimef();
-		ft.color = color;
-		activeFloatingTexts.push_back(ft);
+	// --- 3. GENERAL TILE LOGIC (Everything else including Rock Crush) ---
+	else {
+		for (int x = 0; x < BOARD_WIDTH; x++) {
+			for (int y = 0; y < BOARD_HEIGHT; y++) {
+				bool isValid = false;
+
+				switch (card.targeting) {
+				case TARGET_ANY_TILE:
+					isValid = !board[x][y].hasWall;
+					break;
+				case TARGET_EMPTY_TILE:
+					isValid = !board[x][y].hasWall && !board[x][y].hasPlayer;
+					break;
+				case TARGET_WALL:
+					isValid = board[x][y].hasWall;
+					break;
+				case TARGET_ADJACENT_UNIT: {
+					bool hasUnit = board[x][y].hasPlayer;
+					int distance = abs(x - px) + abs(y - py);
+					isValid = hasUnit && (distance == 1);
+					break;
+				}
+				case TARGET_ADJACENT_OR_SELF_UNIT: {
+					bool hasUnit = board[x][y].hasPlayer;
+					int distance = abs(x - px) + abs(y - py);
+					isValid = hasUnit && (distance <= 1);
+					break;
+				}
+					// --- Rock Crush ---
+				case TARGET_ADJACENT_UNIT_OR_WALL: {
+					int distance = abs(x - px) + abs(y - py);
+					if (distance == 1) {
+						if (board[x][y].hasWall || board[x][y].hasPlayer) {
+							isValid = true;
+						}
+					}
+					break;
+				}
+
+				// --- PASTE HERE ---
+				case TARGET_EMPTY_ADJACENT: {
+					int dist = abs(x - px) + abs(y - py);
+					if (dist == 1 && !board[x][y].hasWall && !board[x][y].hasPlayer) {
+						isValid = true;
+					}
+					break;
+				}
+					// ------------------
+
+				case TARGET_SELF:
+					isValid = false;
+					break;
+				default:
+					break;
+				}
+
+				if (isValid) {
+					board[x][y].isTargetable = true;
+				}
+			}
+		}
 	}
-	//--------------------------------------------------------------
-	void ofApp::invalidateTargetCache() {
-		lastCachedPlayerX = -1;
-		lastCachedPlayerY = -1;
-		lastCachedCardIndex = -1;
+}
+//--------------------------------------------------------------
+void ofApp::spawnFloatingText(glm::vec3 pos, std::string text, ofColor color) {
+	FloatingText ft;
+	ft.text = text;
+	// Start slightly above the unit
+	ft.worldPos = pos + glm::vec3(0, 1.5f, 0);
+	// Random slight drift left/right, consistent drift up
+	ft.velocity = glm::vec3(ofRandom(-1.0f, 1.0f), 2.0f, ofRandom(-1.0f, 1.0f));
+	ft.startTime = ofGetElapsedTimef();
+	ft.color = color;
+	activeFloatingTexts.push_back(ft);
+}
+//--------------------------------------------------------------
+void ofApp::invalidateTargetCache() {
+	lastCachedPlayerX = -1;
+	lastCachedPlayerY = -1;
+	lastCachedCardIndex = -1;
+}
+//--------------------------------------------------------------
+void ofApp::clearHighlights() {
+	for (int x = 0; x < BOARD_WIDTH; x++)
+		for (int y = 0; y < BOARD_HEIGHT; y++)
+			board[x][y].isHighlighted = false;
+	hoverPath.clear();
+}
+
+//--------------------------------------------------------------
+std::vector<glm::vec2> ofApp::findShortestPath(glm::vec2 start, glm::vec2 end) {
+	std::vector<glm::vec2> path;
+	for (int i = 0; i < BOARD_WIDTH; i++)
+		for (int j = 0; j < BOARD_HEIGHT; j++) {
+			board[i][j].visited = false;
+			board[i][j].parent = { -1, -1 };
+		}
+	std::queue<glm::vec2> q;
+	q.push(start);
+	board[(int)start.x][(int)start.y].visited = true;
+	bool found = false;
+	while (!q.empty()) {
+		glm::vec2 current = q.front();
+		q.pop();
+		if (current.x == end.x && current.y == end.y) {
+			found = true;
+			break;
+		}
+		glm::vec2 neighbors[4] = { { current.x, current.y + 1 }, { current.x, current.y - 1 }, { current.x + 1, current.y }, { current.x - 1, current.y } };
+		for (auto & neighbor : neighbors) {
+			int nx = neighbor.x, ny = neighbor.y;
+			if (nx >= 0 && nx < BOARD_WIDTH && ny >= 0 && ny < BOARD_HEIGHT && !board[nx][ny].visited && !board[nx][ny].hasWall && !board[nx][ny].hasPlayer) {
+				board[nx][ny].visited = true;
+				board[nx][ny].parent = current;
+				q.push(neighbor);
+			}
+		}
 	}
-	//--------------------------------------------------------------
-	void ofApp::clearHighlights() {
-		for (int x = 0; x < BOARD_WIDTH; x++)
-			for (int y = 0; y < BOARD_HEIGHT; y++)
-				board[x][y].isHighlighted = false;
-		hoverPath.clear();
+	if (found) {
+		glm::vec2 current = end;
+		while (current.x != -1) {
+			path.push_back(current);
+			current = board[(int)current.x][(int)current.y].parent;
+		}
+		std::reverse(path.begin(), path.end());
+	}
+	return path;
+}
+
+//--------------------------------------------------------------
+glm::vec3 ofApp::gridToWorld(int gridX, int gridY) {
+	float worldX = (gridX - BOARD_WIDTH / 2.0f) * TILE_SIZE + (TILE_SIZE / 2.0f);
+	float worldZ = (gridY - BOARD_HEIGHT / 2.0f) * TILE_SIZE + (TILE_SIZE / 2.0f);
+	return glm::vec3(worldX, 0, worldZ);
+}
+
+//--------------------------------------------------------------
+void ofApp::calculateHighlights() {
+	for (int x = 0; x < BOARD_WIDTH; x++) {
+		for (int y = 0; y < BOARD_HEIGHT; y++) {
+			board[x][y].isHighlighted = false;
+			board[x][y].visited = false;
+		}
 	}
 
-	//--------------------------------------------------------------
-	std::vector<glm::vec2> ofApp::findShortestPath(glm::vec2 start, glm::vec2 end) {
-		std::vector<glm::vec2> path;
-		for (int i = 0; i < BOARD_WIDTH; i++)
-			for (int j = 0; j < BOARD_HEIGHT; j++) {
-				board[i][j].visited = false;
-				board[i][j].parent = { -1, -1 };
+	std::queue<std::pair<glm::vec2, int>> q;
+	glm::vec2 startPos = { (float)selectedPieceGridX, (float)selectedPieceGridY };
+
+	q.push({ startPos, 0 });
+	board[(int)startPos.x][(int)startPos.y].visited = true;
+
+	while (!q.empty()) {
+		auto current = q.front();
+		q.pop();
+		glm::vec2 currentPos = current.first;
+		int currentCost = current.second;
+
+		if (currentPos != startPos) {
+			board[(int)currentPos.x][(int)currentPos.y].isHighlighted = true;
+		}
+
+		glm::vec2 neighbors[4] = { { currentPos.x + 1, currentPos.y }, { currentPos.x - 1, currentPos.y }, { currentPos.x, currentPos.y + 1 }, { currentPos.x, currentPos.y - 1 } };
+		for (auto & neighbor : neighbors) {
+			int nx = neighbor.x, ny = neighbor.y;
+			int nextCost = currentCost + 1;
+			if (nx >= 0 && nx < BOARD_WIDTH && ny >= 0 && ny < BOARD_HEIGHT && !board[nx][ny].hasWall && !board[nx][ny].hasPlayer && !board[nx][ny].visited && nextCost <= currentAP) {
+				board[nx][ny].visited = true;
+				q.push({ neighbor, nextCost });
 			}
+		}
+	}
+}
+//--------------------------------------------------------------
+glm::quat ofApp::matchFaceToCamera(glm::vec3 faceNormal) {
+	// The target direction is UP (0, 1, 0)
+	glm::vec3 target(0, 1, 0);
+
+	// Normalize just in case
+	faceNormal = glm::normalize(faceNormal);
+
+	// Get rotation from Face Normal -> Target (Up)
+	return glm::rotation(faceNormal, target);
+}
+//--------------------------------------------------------------
+int ofApp::startDiceRoll(int numDice, int sides, DicePurpose purpose) {
+	int totalRollResult = 0;
+
+	for (int i = 0; i < numDice; ++i) {
+		DiceRoll newRoll;
+		newRoll.purpose = purpose;
+		newRoll.sides = sides;
+
+		std::uniform_int_distribution<int> dist(1, sides);
+		newRoll.result = dist(rng);
+		totalRollResult += newRoll.result;
+		newRoll.startTime = ofGetElapsedTimef();
+
+		// --- LOGGING ---
+		string diceName = (sides == 2) ? "Coin" : "D" + ofToString(sides);
+		string outcome = ofToString(newRoll.result);
+		if (sides == 2) {
+			outcome += (newRoll.result == 1) ? " (Tails)" : " (Heads)";
+		}
+		ofLogNotice("Dice") << diceName << " landed on: " << outcome;
+
+		// SAFE AXIS GENERATION
+		std::uniform_real_distribution<float> axisDist(-1.0f, 1.0f);
+		glm::vec3 rndAxis(axisDist(rng), axisDist(rng), axisDist(rng));
+		if (glm::length(rndAxis) < 0.01f) rndAxis = glm::vec3(0, 1, 0);
+		newRoll.rotationAxis = glm::normalize(rndAxis);
+
+		// RANDOM GENERATORS
+		std::uniform_real_distribution<float> spinDist(0.0f, 360.0f);
+		std::uniform_real_distribution<float> stableDist(-25.0f, 25.0f);
+
+		// --- 1. COIN FLIP (SIDES == 2) ---
+		if (sides == 2) {
+			glm::quat faceRotation;
+
+			// Helpers
+			glm::quat flip180X = glm::angleAxis(glm::radians(180.0f), glm::vec3(1, 0, 0)); // Flip to Bottom
+			glm::quat rot180Y = glm::angleAxis(glm::radians(180.0f), glm::vec3(0, 1, 0)); // Spin 180
+
+			if (newRoll.result == 1) { // TAILS
+
+				faceRotation = glm::quat(1, 0, 0, 0);
+			} else { // HEADS
+
+				faceRotation = flip180X * rot180Y;
+			}
+
+			glm::quat randomYaw = glm::angleAxis(glm::radians(ofRandom(-15, 15)), glm::vec3(0, 1, 0));
+			newRoll.finalQuat = randomYaw * faceRotation;
+		}
+
+		// --- 2. D4 LOGIC ---
+		else if (sides == 4) {
+			glm::vec3 faceVec;
+			float correctionDeg = 0.0f;
+
+			switch (newRoll.result) {
+			case 1:
+				faceVec = glm::vec3(0, 1, 0);
+				correctionDeg = 0.0f;
+				break;
+			case 2:
+				faceVec = glm::vec3(-0.471f, -0.333f, -0.816f);
+				correctionDeg = 180.0f;
+				break;
+			case 3:
+				faceVec = glm::vec3(-0.471f, -0.333f, 0.816f);
+				correctionDeg = 0.0f;
+				break;
+			case 4:
+				faceVec = glm::vec3(0.943f, -0.333f, 0.0f);
+				correctionDeg = 180.0f;
+				break;
+			}
+
+			glm::quat align = matchFaceToCamera(faceVec);
+			glm::quat manualRot = glm::angleAxis(glm::radians(correctionDeg), glm::vec3(0, 1, 0));
+			glm::quat wobble = glm::angleAxis(glm::radians(stableDist(rng)), glm::vec3(0, 1, 0));
+			newRoll.finalQuat = wobble * manualRot * align;
+		}
+		// --- 3. D6 LOGIC ---
+		else if (sides == 6) {
+			glm::quat faceRotation;
+			switch (newRoll.result) {
+			case 1:
+				faceRotation = glm::angleAxis(glm::radians(-90.0f), glm::vec3(1, 0, 0));
+				break;
+			case 6:
+				faceRotation = glm::angleAxis(glm::radians(90.0f), glm::vec3(1, 0, 0));
+				break;
+			case 2:
+				faceRotation = glm::quat(1, 0, 0, 0);
+				break;
+			case 5:
+				faceRotation = glm::angleAxis(glm::radians(180.0f), glm::vec3(1, 0, 0));
+				break;
+			case 3:
+				faceRotation = glm::angleAxis(glm::radians(90.0f), glm::vec3(0, 0, 1));
+				break;
+			case 4:
+				faceRotation = glm::angleAxis(glm::radians(-90.0f), glm::vec3(0, 0, 1));
+				break;
+			}
+			glm::quat randomYaw = glm::angleAxis(glm::radians(spinDist(rng)), glm::vec3(0, 1, 0));
+			newRoll.finalQuat = randomYaw * faceRotation;
+		}
+		// --- 4. D10 LOGIC ---
+		else if (sides == 10) {
+			int n = newRoll.result;
+			glm::vec3 faceVec;
+			switch (n) {
+			case 2:
+				faceVec = glm::vec3(cos(glm::radians(0.0f)), 1.0f, sin(glm::radians(0.0f)));
+				break;
+			case 4:
+				faceVec = glm::vec3(cos(glm::radians(72.0f)), 1.0f, sin(glm::radians(72.0f)));
+				break;
+			case 6:
+				faceVec = glm::vec3(cos(glm::radians(144.0f)), 1.0f, sin(glm::radians(144.0f)));
+				break;
+			case 8:
+				faceVec = glm::vec3(cos(glm::radians(216.0f)), 1.0f, sin(glm::radians(216.0f)));
+				break;
+			case 10:
+				faceVec = glm::vec3(cos(glm::radians(288.0f)), 1.0f, sin(glm::radians(288.0f)));
+				break;
+			case 1:
+				faceVec = glm::vec3(cos(glm::radians(36.0f)), -1.0f, sin(glm::radians(36.0f)));
+				break;
+			case 3:
+				faceVec = glm::vec3(cos(glm::radians(108.0f)), -1.0f, sin(glm::radians(108.0f)));
+				break;
+			case 5:
+				faceVec = glm::vec3(cos(glm::radians(180.0f)), -1.0f, sin(glm::radians(180.0f)));
+				break;
+			case 7:
+				faceVec = glm::vec3(cos(glm::radians(252.0f)), -1.0f, sin(glm::radians(252.0f)));
+				break;
+			case 9:
+				faceVec = glm::vec3(cos(glm::radians(324.0f)), -1.0f, sin(glm::radians(324.0f)));
+				break;
+			default:
+				faceVec = glm::vec3(0, 1, 0);
+				break;
+			}
+			glm::quat align = matchFaceToCamera(faceVec);
+			glm::quat randomYaw = glm::angleAxis(glm::radians(stableDist(rng)), glm::vec3(0, 1, 0));
+			newRoll.finalQuat = randomYaw * align;
+		}
+		// --- 5. D20 LOGIC ---
+		else if (sides == 20) {
+			int n = newRoll.result;
+			glm::vec3 v;
+			switch (n) {
+			case 20:
+				v = glm::vec3(0, 1, 0);
+				break;
+			case 1:
+				v = glm::vec3(0, -1, 0);
+				break;
+			case 2:
+				v = glm::vec3(0.894, 0.447, 0.0);
+				break;
+			case 8:
+				v = glm::vec3(0.276, 0.447, 0.851);
+				break;
+			case 14:
+				v = glm::vec3(-0.724, 0.447, 0.526);
+				break;
+			case 12:
+				v = glm::vec3(-0.724, 0.447, -0.526);
+				break;
+			case 18:
+				v = glm::vec3(0.276, 0.447, -0.851);
+				break;
+			case 4:
+				v = glm::vec3(0.724, 0.1, 0.526);
+				break;
+			case 6:
+				v = glm::vec3(-0.276, 0.1, 0.851);
+				break;
+			case 10:
+				v = glm::vec3(-0.894, 0.1, 0.0);
+				break;
+			case 16:
+				v = glm::vec3(-0.276, 0.1, -0.851);
+				break;
+			case 19:
+				v = glm::vec3(0.724, 0.1, -0.526);
+				break;
+			case 17:
+				v = glm::vec3(0.724, -0.1, 0.526);
+				break;
+			case 15:
+				v = glm::vec3(-0.276, -0.1, 0.851);
+				break;
+			case 11:
+				v = glm::vec3(-0.894, -0.1, 0.0);
+				break;
+			case 5:
+				v = glm::vec3(-0.276, -0.1, -0.851);
+				break;
+			case 3:
+				v = glm::vec3(0.724, -0.1, -0.526);
+				break;
+			case 13:
+				v = glm::vec3(0.276, -0.447, 0.851);
+				break;
+			case 9:
+				v = glm::vec3(-0.724, -0.447, 0.526);
+				break;
+			case 7:
+				v = glm::vec3(-0.724, -0.447, -0.526);
+				break;
+			default:
+				v = glm::vec3(0.894, -0.447, 0.0);
+				break;
+			}
+			glm::quat align = matchFaceToCamera(v);
+			glm::quat randomYaw = glm::angleAxis(glm::radians(stableDist(rng)), glm::vec3(0, 1, 0));
+			newRoll.finalQuat = randomYaw * align;
+		}
+
+		activeDiceRolls.push_back(newRoll);
+	}
+	return totalRollResult;
+}
+//--------------------------------------------------------------
+std::vector<Player *> ofApp::findCleaveTargets(glm::vec2 direction) {
+	std::vector<Player *> hittablePlayers;
+	if (players.empty() || currentPlayerIndex < 0) return hittablePlayers;
+
+	int px = players[currentPlayerIndex].x;
+	int py = players[currentPlayerIndex].y;
+
+	glm::vec2 centerTile = { px + direction.x, py + direction.y };
+	std::vector<glm::vec2> cleaveTiles;
+
+	if (direction.y != 0) { // Vertical
+		cleaveTiles.push_back({ centerTile.x - 1, centerTile.y });
+		cleaveTiles.push_back({ centerTile.x, centerTile.y });
+		cleaveTiles.push_back({ centerTile.x + 1, centerTile.y });
+	} else { // Horizontal
+		cleaveTiles.push_back({ centerTile.x, centerTile.y - 1 });
+		cleaveTiles.push_back({ centerTile.x, centerTile.y });
+		cleaveTiles.push_back({ centerTile.x, centerTile.y + 1 });
+	}
+
+	for (const auto & targetPos : cleaveTiles) {
+		int tx = targetPos.x;
+		int ty = targetPos.y;
+
+		bool isPotentialTarget = false;
+		if (tx >= 0 && tx < BOARD_WIDTH && ty >= 0 && ty < BOARD_HEIGHT && !board[tx][ty].hasWall) {
+			for (auto & p : players) {
+				if (p.x == tx && p.y == ty) {
+					isPotentialTarget = true;
+					break;
+				}
+			}
+		}
+		if (!isPotentialTarget) {
+			continue;
+		}
+
+		bool pathFound = false;
 		std::queue<glm::vec2> q;
-		q.push(start);
-		board[(int)start.x][(int)start.y].visited = true;
-		bool found = false;
+		auto comp = [](const glm::vec2 & a, const glm::vec2 & b) {
+			return a.x < b.x || (a.x == b.x && a.y < b.y);
+		};
+		std::set<glm::vec2, decltype(comp)> visited(comp);
+
+		q.push({ (float)px, (float)py });
+		visited.insert({ (float)px, (float)py });
+
 		while (!q.empty()) {
 			glm::vec2 current = q.front();
 			q.pop();
-			if (current.x == end.x && current.y == end.y) {
-				found = true;
+
+			if (current.x == tx && current.y == ty) {
+				pathFound = true;
 				break;
 			}
-			glm::vec2 neighbors[4] = { { current.x, current.y + 1 }, { current.x, current.y - 1 }, { current.x + 1, current.y }, { current.x - 1, current.y } };
-			for (auto & neighbor : neighbors) {
-				int nx = neighbor.x, ny = neighbor.y;
-				if (nx >= 0 && nx < BOARD_WIDTH && ny >= 0 && ny < BOARD_HEIGHT && !board[nx][ny].visited && !board[nx][ny].hasWall && !board[nx][ny].hasPlayer) {
-					board[nx][ny].visited = true;
-					board[nx][ny].parent = current;
+
+			int dist = abs(current.x - px) + abs(current.y - py);
+			if (dist >= 2) {
+				continue;
+			}
+
+			glm::vec2 neighbors[4] = { { current.x + 1, current.y }, { current.x - 1, current.y }, { current.x, current.y + 1 }, { current.x, current.y - 1 } };
+			for (const auto & neighbor : neighbors) {
+				int nx = neighbor.x;
+				int ny = neighbor.y;
+				if (nx >= 0 && nx < BOARD_WIDTH && ny >= 0 && ny < BOARD_HEIGHT && !board[nx][ny].hasWall && visited.find(neighbor) == visited.end()) {
+					visited.insert(neighbor);
 					q.push(neighbor);
 				}
 			}
 		}
-		if (found) {
-			glm::vec2 current = end;
-			while (current.x != -1) {
-				path.push_back(current);
-				current = board[(int)current.x][(int)current.y].parent;
-			}
-			std::reverse(path.begin(), path.end());
-		}
-		return path;
-	}
 
-	//--------------------------------------------------------------
-	glm::vec3 ofApp::gridToWorld(int gridX, int gridY) {
-		float worldX = (gridX - BOARD_WIDTH / 2.0f) * TILE_SIZE + (TILE_SIZE / 2.0f);
-		float worldZ = (gridY - BOARD_HEIGHT / 2.0f) * TILE_SIZE + (TILE_SIZE / 2.0f);
-		return glm::vec3(worldX, 0, worldZ);
-	}
-
-	//--------------------------------------------------------------
-	void ofApp::calculateHighlights() {
-		for (int x = 0; x < BOARD_WIDTH; x++) {
-			for (int y = 0; y < BOARD_HEIGHT; y++) {
-				board[x][y].isHighlighted = false;
-				board[x][y].visited = false;
-			}
-		}
-
-		std::queue<std::pair<glm::vec2, int>> q;
-		glm::vec2 startPos = { (float)selectedPieceGridX, (float)selectedPieceGridY };
-
-		q.push({ startPos, 0 });
-		board[(int)startPos.x][(int)startPos.y].visited = true;
-
-		while (!q.empty()) {
-			auto current = q.front();
-			q.pop();
-			glm::vec2 currentPos = current.first;
-			int currentCost = current.second;
-
-			if (currentPos != startPos) {
-				board[(int)currentPos.x][(int)currentPos.y].isHighlighted = true;
-			}
-
-			glm::vec2 neighbors[4] = { { currentPos.x + 1, currentPos.y }, { currentPos.x - 1, currentPos.y }, { currentPos.x, currentPos.y + 1 }, { currentPos.x, currentPos.y - 1 } };
-			for (auto & neighbor : neighbors) {
-				int nx = neighbor.x, ny = neighbor.y;
-				int nextCost = currentCost + 1;
-				if (nx >= 0 && nx < BOARD_WIDTH && ny >= 0 && ny < BOARD_HEIGHT && !board[nx][ny].hasWall && !board[nx][ny].hasPlayer && !board[nx][ny].visited && nextCost <= currentAP) {
-					board[nx][ny].visited = true;
-					q.push({ neighbor, nextCost });
+		if (pathFound) {
+			for (auto & p : players) {
+				if (p.x == tx && p.y == ty) {
+					hittablePlayers.push_back(&p);
+					break;
 				}
 			}
 		}
 	}
-	//--------------------------------------------------------------
-	glm::quat ofApp::matchFaceToCamera(glm::vec3 faceNormal) {
-		// The target direction is UP (0, 1, 0)
-		glm::vec3 target(0, 1, 0);
+	return hittablePlayers;
+}
+//--------------------------------------------------------------
+void ofApp::cancelDispel() {
+	isDispelMenuOpen = false;
+	isDispelTargeting = false;
+	isDispelStatusSelectOpen = false;
+	pendingDispelCardIndex = -1;
+	pendingDispelTargetIndex = -1;
+	ofLogNotice("Dispel") << "Cancelled.";
+}
 
-		// Normalize just in case
-		faceNormal = glm::normalize(faceNormal);
+//--------------------------------------------------------------
+void ofApp::drawDispelUI() {
+	ofEnableBlendMode(OF_BLENDMODE_ALPHA);
 
-		// Get rotation from Face Normal -> Target (Up)
-		return glm::rotation(faceNormal, target);
-	}
-	//--------------------------------------------------------------
-	int ofApp::startDiceRoll(int numDice, int sides, DicePurpose purpose) {
-		int totalRollResult = 0;
-
-		for (int i = 0; i < numDice; ++i) {
-			DiceRoll newRoll;
-			newRoll.purpose = purpose;
-			newRoll.sides = sides;
-
-			std::uniform_int_distribution<int> dist(1, sides);
-			newRoll.result = dist(rng);
-			totalRollResult += newRoll.result;
-			newRoll.startTime = ofGetElapsedTimef();
-
-			// --- LOGGING ---
-			string diceName = (sides == 2) ? "Coin" : "D" + ofToString(sides);
-			string outcome = ofToString(newRoll.result);
-			if (sides == 2) {
-				outcome += (newRoll.result == 1) ? " (Tails)" : " (Heads)";
-			}
-			ofLogNotice("Dice") << diceName << " landed on: " << outcome;
-
-			// SAFE AXIS GENERATION
-			std::uniform_real_distribution<float> axisDist(-1.0f, 1.0f);
-			glm::vec3 rndAxis(axisDist(rng), axisDist(rng), axisDist(rng));
-			if (glm::length(rndAxis) < 0.01f) rndAxis = glm::vec3(0, 1, 0);
-			newRoll.rotationAxis = glm::normalize(rndAxis);
-
-			// RANDOM GENERATORS
-			std::uniform_real_distribution<float> spinDist(0.0f, 360.0f);
-			std::uniform_real_distribution<float> stableDist(-25.0f, 25.0f);
-
-			// --- 1. COIN FLIP (SIDES == 2) ---
-			if (sides == 2) {
-				glm::quat faceRotation;
-
-				// Helpers
-				glm::quat flip180X = glm::angleAxis(glm::radians(180.0f), glm::vec3(1, 0, 0)); // Flip to Bottom
-				glm::quat rot180Y = glm::angleAxis(glm::radians(180.0f), glm::vec3(0, 1, 0)); // Spin 180
-
-				if (newRoll.result == 1) { // TAILS
-
-					faceRotation = glm::quat(1, 0, 0, 0);
-				} else { // HEADS
-
-					faceRotation = flip180X * rot180Y;
-				}
-
-				glm::quat randomYaw = glm::angleAxis(glm::radians(ofRandom(-15, 15)), glm::vec3(0, 1, 0));
-				newRoll.finalQuat = randomYaw * faceRotation;
-			}
-
-			// --- 2. D4 LOGIC ---
-			else if (sides == 4) {
-				glm::vec3 faceVec;
-				float correctionDeg = 0.0f;
-
-				switch (newRoll.result) {
-				case 1:
-					faceVec = glm::vec3(0, 1, 0);
-					correctionDeg = 0.0f;
-					break;
-				case 2:
-					faceVec = glm::vec3(-0.471f, -0.333f, -0.816f);
-					correctionDeg = 180.0f;
-					break;
-				case 3:
-					faceVec = glm::vec3(-0.471f, -0.333f, 0.816f);
-					correctionDeg = 0.0f;
-					break;
-				case 4:
-					faceVec = glm::vec3(0.943f, -0.333f, 0.0f);
-					correctionDeg = 180.0f;
-					break;
-				}
-
-				glm::quat align = matchFaceToCamera(faceVec);
-				glm::quat manualRot = glm::angleAxis(glm::radians(correctionDeg), glm::vec3(0, 1, 0));
-				glm::quat wobble = glm::angleAxis(glm::radians(stableDist(rng)), glm::vec3(0, 1, 0));
-				newRoll.finalQuat = wobble * manualRot * align;
-			}
-			// --- 3. D6 LOGIC ---
-			else if (sides == 6) {
-				glm::quat faceRotation;
-				switch (newRoll.result) {
-				case 1:
-					faceRotation = glm::angleAxis(glm::radians(-90.0f), glm::vec3(1, 0, 0));
-					break;
-				case 6:
-					faceRotation = glm::angleAxis(glm::radians(90.0f), glm::vec3(1, 0, 0));
-					break;
-				case 2:
-					faceRotation = glm::quat(1, 0, 0, 0);
-					break;
-				case 5:
-					faceRotation = glm::angleAxis(glm::radians(180.0f), glm::vec3(1, 0, 0));
-					break;
-				case 3:
-					faceRotation = glm::angleAxis(glm::radians(90.0f), glm::vec3(0, 0, 1));
-					break;
-				case 4:
-					faceRotation = glm::angleAxis(glm::radians(-90.0f), glm::vec3(0, 0, 1));
-					break;
-				}
-				glm::quat randomYaw = glm::angleAxis(glm::radians(spinDist(rng)), glm::vec3(0, 1, 0));
-				newRoll.finalQuat = randomYaw * faceRotation;
-			}
-			// --- 4. D10 LOGIC ---
-			else if (sides == 10) {
-				int n = newRoll.result;
-				glm::vec3 faceVec;
-				switch (n) {
-				case 2:
-					faceVec = glm::vec3(cos(glm::radians(0.0f)), 1.0f, sin(glm::radians(0.0f)));
-					break;
-				case 4:
-					faceVec = glm::vec3(cos(glm::radians(72.0f)), 1.0f, sin(glm::radians(72.0f)));
-					break;
-				case 6:
-					faceVec = glm::vec3(cos(glm::radians(144.0f)), 1.0f, sin(glm::radians(144.0f)));
-					break;
-				case 8:
-					faceVec = glm::vec3(cos(glm::radians(216.0f)), 1.0f, sin(glm::radians(216.0f)));
-					break;
-				case 10:
-					faceVec = glm::vec3(cos(glm::radians(288.0f)), 1.0f, sin(glm::radians(288.0f)));
-					break;
-				case 1:
-					faceVec = glm::vec3(cos(glm::radians(36.0f)), -1.0f, sin(glm::radians(36.0f)));
-					break;
-				case 3:
-					faceVec = glm::vec3(cos(glm::radians(108.0f)), -1.0f, sin(glm::radians(108.0f)));
-					break;
-				case 5:
-					faceVec = glm::vec3(cos(glm::radians(180.0f)), -1.0f, sin(glm::radians(180.0f)));
-					break;
-				case 7:
-					faceVec = glm::vec3(cos(glm::radians(252.0f)), -1.0f, sin(glm::radians(252.0f)));
-					break;
-				case 9:
-					faceVec = glm::vec3(cos(glm::radians(324.0f)), -1.0f, sin(glm::radians(324.0f)));
-					break;
-				default:
-					faceVec = glm::vec3(0, 1, 0);
-					break;
-				}
-				glm::quat align = matchFaceToCamera(faceVec);
-				glm::quat randomYaw = glm::angleAxis(glm::radians(stableDist(rng)), glm::vec3(0, 1, 0));
-				newRoll.finalQuat = randomYaw * align;
-			}
-			// --- 5. D20 LOGIC ---
-			else if (sides == 20) {
-				int n = newRoll.result;
-				glm::vec3 v;
-				switch (n) {
-				case 20:
-					v = glm::vec3(0, 1, 0);
-					break;
-				case 1:
-					v = glm::vec3(0, -1, 0);
-					break;
-				case 2:
-					v = glm::vec3(0.894, 0.447, 0.0);
-					break;
-				case 8:
-					v = glm::vec3(0.276, 0.447, 0.851);
-					break;
-				case 14:
-					v = glm::vec3(-0.724, 0.447, 0.526);
-					break;
-				case 12:
-					v = glm::vec3(-0.724, 0.447, -0.526);
-					break;
-				case 18:
-					v = glm::vec3(0.276, 0.447, -0.851);
-					break;
-				case 4:
-					v = glm::vec3(0.724, 0.1, 0.526);
-					break;
-				case 6:
-					v = glm::vec3(-0.276, 0.1, 0.851);
-					break;
-				case 10:
-					v = glm::vec3(-0.894, 0.1, 0.0);
-					break;
-				case 16:
-					v = glm::vec3(-0.276, 0.1, -0.851);
-					break;
-				case 19:
-					v = glm::vec3(0.724, 0.1, -0.526);
-					break;
-				case 17:
-					v = glm::vec3(0.724, -0.1, 0.526);
-					break;
-				case 15:
-					v = glm::vec3(-0.276, -0.1, 0.851);
-					break;
-				case 11:
-					v = glm::vec3(-0.894, -0.1, 0.0);
-					break;
-				case 5:
-					v = glm::vec3(-0.276, -0.1, -0.851);
-					break;
-				case 3:
-					v = glm::vec3(0.724, -0.1, -0.526);
-					break;
-				case 13:
-					v = glm::vec3(0.276, -0.447, 0.851);
-					break;
-				case 9:
-					v = glm::vec3(-0.724, -0.447, 0.526);
-					break;
-				case 7:
-					v = glm::vec3(-0.724, -0.447, -0.526);
-					break;
-				default:
-					v = glm::vec3(0.894, -0.447, 0.0);
-					break;
-				}
-				glm::quat align = matchFaceToCamera(v);
-				glm::quat randomYaw = glm::angleAxis(glm::radians(stableDist(rng)), glm::vec3(0, 1, 0));
-				newRoll.finalQuat = randomYaw * align;
-			}
-
-			activeDiceRolls.push_back(newRoll);
-		}
-		return totalRollResult;
-	}
-	//--------------------------------------------------------------
-	std::vector<Player *> ofApp::findCleaveTargets(glm::vec2 direction) {
-		std::vector<Player *> hittablePlayers;
-		if (players.empty() || currentPlayerIndex < 0) return hittablePlayers;
-
-		int px = players[currentPlayerIndex].x;
-		int py = players[currentPlayerIndex].y;
-
-		glm::vec2 centerTile = { px + direction.x, py + direction.y };
-		std::vector<glm::vec2> cleaveTiles;
-
-		if (direction.y != 0) { // Vertical
-			cleaveTiles.push_back({ centerTile.x - 1, centerTile.y });
-			cleaveTiles.push_back({ centerTile.x, centerTile.y });
-			cleaveTiles.push_back({ centerTile.x + 1, centerTile.y });
-		} else { // Horizontal
-			cleaveTiles.push_back({ centerTile.x, centerTile.y - 1 });
-			cleaveTiles.push_back({ centerTile.x, centerTile.y });
-			cleaveTiles.push_back({ centerTile.x, centerTile.y + 1 });
-		}
-
-		for (const auto & targetPos : cleaveTiles) {
-			int tx = targetPos.x;
-			int ty = targetPos.y;
-
-			bool isPotentialTarget = false;
-			if (tx >= 0 && tx < BOARD_WIDTH && ty >= 0 && ty < BOARD_HEIGHT && !board[tx][ty].hasWall) {
-				for (auto & p : players) {
-					if (p.x == tx && p.y == ty) {
-						isPotentialTarget = true;
-						break;
-					}
-				}
-			}
-			if (!isPotentialTarget) {
-				continue;
-			}
-
-			bool pathFound = false;
-			std::queue<glm::vec2> q;
-			auto comp = [](const glm::vec2 & a, const glm::vec2 & b) {
-				return a.x < b.x || (a.x == b.x && a.y < b.y);
-			};
-			std::set<glm::vec2, decltype(comp)> visited(comp);
-
-			q.push({ (float)px, (float)py });
-			visited.insert({ (float)px, (float)py });
-
-			while (!q.empty()) {
-				glm::vec2 current = q.front();
-				q.pop();
-
-				if (current.x == tx && current.y == ty) {
-					pathFound = true;
-					break;
-				}
-
-				int dist = abs(current.x - px) + abs(current.y - py);
-				if (dist >= 2) {
-					continue;
-				}
-
-				glm::vec2 neighbors[4] = { { current.x + 1, current.y }, { current.x - 1, current.y }, { current.x, current.y + 1 }, { current.x, current.y - 1 } };
-				for (const auto & neighbor : neighbors) {
-					int nx = neighbor.x;
-					int ny = neighbor.y;
-					if (nx >= 0 && nx < BOARD_WIDTH && ny >= 0 && ny < BOARD_HEIGHT && !board[nx][ny].hasWall && visited.find(neighbor) == visited.end()) {
-						visited.insert(neighbor);
-						q.push(neighbor);
-					}
-				}
-			}
-
-			if (pathFound) {
-				for (auto & p : players) {
-					if (p.x == tx && p.y == ty) {
-						hittablePlayers.push_back(&p);
-						break;
-					}
-				}
-			}
-		}
-		return hittablePlayers;
-	}
-	//--------------------------------------------------------------
-	void ofApp::cancelDispel() {
-		isDispelMenuOpen = false;
-		isDispelTargeting = false;
-		isDispelStatusSelectOpen = false;
-		pendingDispelCardIndex = -1;
-		pendingDispelTargetIndex = -1;
-		ofLogNotice("Dispel") << "Cancelled.";
-	}
-
-	//--------------------------------------------------------------
-	void ofApp::drawDispelUI() {
-		ofEnableBlendMode(OF_BLENDMODE_ALPHA);
-
-		// --- PHASE 1: INITIAL CHOICE ---
-		if (isDispelMenuOpen) {
-			// Dark Overlay
-			ofSetColor(0, 0, 0, 180);
-			ofDrawRectangle(0, 0, ofGetWidth(), ofGetHeight());
-
-			// Menu Background
-			ofSetColor(30, 30, 60, 255);
-			ofDrawRectRounded(dispelMenuRect, 15);
-
-			// Text
-			ofSetColor(ofColor::white);
-			string title = "Choose Dispel Effect";
-			ofRectangle titleBox = uiFont.getStringBoundingBox(title, 0, 0);
-			uiFont.drawString(title, dispelMenuRect.getCenter().x - titleBox.width / 2, dispelMenuRect.y + 60);
-
-			// Barrier Button
-			ofSetColor(ofColor::hotPink);
-			ofDrawRectRounded(dispelBtnBarrier, 10);
-			ofSetColor(ofColor::black);
-
-			// CHANGED: Renamed to Non-Physical Barrier
-			string bText = "Gain Non-Phys Barrier\n(1d20 vs Magic/Fire/etc)";
-
-			// Simple centering logic...
-			uiFont.drawString("Non-Phys Barrier", dispelBtnBarrier.x + 20, dispelBtnBarrier.y + 40);
-
-			// Purge Button
-			ofSetColor(ofColor::cyan);
-			ofDrawRectRounded(dispelBtnPurge, 10);
-			ofSetColor(ofColor::black);
-			uiFont.drawString("Remove Status", dispelBtnPurge.x + 20, dispelBtnPurge.y + 40);
-		}
-
-		// --- PHASE 2: TARGETING ---
-		if (isDispelTargeting) {
-			// Just a text prompt at top of screen
-			ofSetColor(0, 0, 0, 200);
-			ofDrawRectRounded(ofGetWidth() / 2 - 300, 50, 600, 60, 10);
-			ofSetColor(ofColor::white);
-			string text = "Select Self or Adjacent Unit to Cure";
-			uiFont.drawString(text, ofGetWidth() / 2 - 200, 90);
-		}
-
-		// --- PHASE 3: STATUS SELECTION ---
-		if (isDispelStatusSelectOpen) {
-			ofSetColor(0, 0, 0, 180);
-			ofDrawRectangle(0, 0, ofGetWidth(), ofGetHeight());
-
-			ofSetColor(30, 30, 60, 255);
-			ofDrawRectRounded(statusSelectMenuRect, 15);
-
-			ofSetColor(ofColor::white);
-			uiFont.drawString("Which status to remove?", statusSelectMenuRect.x + 20, statusSelectMenuRect.y + 40);
-
-			for (size_t i = 0; i < statusSelectButtons.size(); i++) {
-				ofSetColor(ofColor::orange);
-				ofDrawRectRounded(statusSelectButtons[i], 8);
-				ofSetColor(ofColor::black);
-				uiFont.drawString(statusSelectLabels[i], statusSelectButtons[i].x + 10, statusSelectButtons[i].y + 30);
-			}
-		}
-	}
-
-	//--------------------------------------------------------------
-	void ofApp::determineStatusOptions(Player * target) {
-		statusSelectLabels.clear();
-		statusSelectButtons.clear();
-
-		if (target->onFire) statusSelectLabels.push_back("Fire");
-		if (target->isParalyzed) statusSelectLabels.push_back("Paralysis");
-		// Add future statuses here
-
-		if (statusSelectLabels.empty()) {
-			ofSystemAlertDialog("Target has no status effects!");
-			cancelDispel();
-			return;
-		}
-
-		// If only one, apply immediately
-		if (statusSelectLabels.size() == 1) {
-			applyDispelEffect(0);
-			return;
-		}
-
-		// Otherwise, build menu
-		float w = 400;
-		float h = 60 + (statusSelectLabels.size() * 60);
-		float x = ofGetWidth() / 2 - w / 2;
-		float y = ofGetHeight() / 2 - h / 2;
-		statusSelectMenuRect.set(x, y, w, h);
-
-		for (size_t i = 0; i < statusSelectLabels.size(); i++) {
-			statusSelectButtons.push_back(ofRectangle(x + 20, y + 60 + (i * 60), w - 40, 50));
-		}
-
-		isDispelTargeting = false;
-		isDispelStatusSelectOpen = true;
-	}
-
-	//--------------------------------------------------------------
-	void ofApp::applyDispelEffect(int statusIndex) {
-		Player * target = getPlayer(pendingDispelTargetIndex);
-		if (!target) return;
-
-		string statusToRemove = statusSelectLabels[statusIndex];
-		if (statusToRemove == "Fire") target->onFire = false;
-		if (statusToRemove == "Paralysis") {
-			target->isParalyzed = false;
-			target->paralysisHeadsCount = 0;
-		}
-
-		ofLogNotice("Dispel") << "Removed " << statusToRemove;
-
-		// FINALIZATION: Deduct AP and Card
-		if (pendingDispelCardIndex != -1) {
-			Player & p = players[currentPlayerIndex];
-			currentAP -= p.hand[pendingDispelCardIndex].cost;
-			p.discardPile.push_back(p.hand[pendingDispelCardIndex]);
-			p.hand.erase(p.hand.begin() + pendingDispelCardIndex);
-			calculateTargetHighlights(); // refresh UI
-		}
-
-		cancelDispel(); // Close menus
-	}
-	// ----------------- WISDOM BOON HELPERS -----------------
-
-	void ofApp::cancelWisdomBoon() {
-		isWisdomBoonMenuOpen = false;
-		pendingWisdomBoonCardIndex = -1;
-		pendingWisdomBoonTargetIndex = -1;
-		ofLogNotice("WisdomBoon") << "Cancelled.";
-	}
-	//--------------------------------------------------------------
-	void ofApp::drawWisdomBoonUI() {
-		ofEnableBlendMode(OF_BLENDMODE_ALPHA);
-
-		// 1. Dark Overlay
+	// --- PHASE 1: INITIAL CHOICE ---
+	if (isDispelMenuOpen) {
+		// Dark Overlay
 		ofSetColor(0, 0, 0, 180);
 		ofDrawRectangle(0, 0, ofGetWidth(), ofGetHeight());
 
-		// 2. Menu Background
-		ofSetColor(40, 40, 80, 255);
-		ofDrawRectRounded(wisdomMenuRect, 15);
+		// Menu Background
+		ofSetColor(30, 30, 60, 255);
+		ofDrawRectRounded(dispelMenuRect, 15);
 
-		// 3. Determine Context
-		bool isSelfTarget = (pendingWisdomBoonTargetIndex == currentPlayerIndex);
-		int deckSize = 0;
-		if (currentPlayerIndex >= 0) deckSize = players[currentPlayerIndex].deck.size();
-
-		// 4. Title & Description
+		// Text
 		ofSetColor(ofColor::white);
-		string title = "Wisdom Boon";
-		string desc = "Effect Strength: " + ofToString(deckSize) + " (Your Deck Size)";
-
+		string title = "Choose Dispel Effect";
 		ofRectangle titleBox = uiFont.getStringBoundingBox(title, 0, 0);
-		uiFont.drawString(title, wisdomMenuRect.getCenter().x - titleBox.width / 2, wisdomMenuRect.y + 50);
+		uiFont.drawString(title, dispelMenuRect.getCenter().x - titleBox.width / 2, dispelMenuRect.y + 60);
 
-		ofRectangle descBox = uiFont.getStringBoundingBox(desc, 0, 0);
-		uiFont.drawString(desc, wisdomMenuRect.getCenter().x - descBox.width / 2, wisdomMenuRect.y + 90);
+		// Barrier Button
+		ofSetColor(ofColor::hotPink);
+		ofDrawRectRounded(dispelBtnBarrier, 10);
+		ofSetColor(ofColor::black);
 
-		// 5. Draw Context-Sensitive Button
-		string btnText = "";
-		if (isSelfTarget) {
-			// BLOCK MODE
-			ofSetColor(ofColor::slateGray); // Grey for Block
-			btnText = "Gain Block";
-		} else {
-			// DAMAGE MODE
-			ofSetColor(ofColor::purple); // Purple for Magic
-			btnText = "Deal Magic Dmg";
-		}
+		// CHANGED: Renamed to Non-Physical Barrier
+		string bText = "Gain Non-Phys Barrier\n(1d20 vs Magic/Fire/etc)";
 
-		ofDrawRectRounded(wisdomBtnDamage, 10);
+		// Simple centering logic...
+		uiFont.drawString("Non-Phys Barrier", dispelBtnBarrier.x + 20, dispelBtnBarrier.y + 40);
 
-		ofSetColor(ofColor::white);
-		ofRectangle btnBox = uiFont.getStringBoundingBox(btnText, 0, 0);
-		uiFont.drawString(btnText, wisdomBtnDamage.getCenter().x - btnBox.width / 2, wisdomBtnDamage.getCenter().y + btnBox.height / 2);
+		// Purge Button
+		ofSetColor(ofColor::cyan);
+		ofDrawRectRounded(dispelBtnPurge, 10);
+		ofSetColor(ofColor::black);
+		uiFont.drawString("Remove Status", dispelBtnPurge.x + 20, dispelBtnPurge.y + 40);
 	}
-	//--------------------------------------------------------------
-	void ofApp::drawMagicBlastChoiceUI() {
-		// Check if player index is valid
-		Player * targetPlayer = getPlayer(magicBlastTargetPlayerIndex);
-		if (!targetPlayer) return;
 
-		// Draw a semi-transparent overlay to focus the player
-		ofEnableBlendMode(OF_BLENDMODE_ALPHA);
+	// --- PHASE 2: TARGETING ---
+	if (isDispelTargeting) {
+		// Just a text prompt at top of screen
+		ofSetColor(0, 0, 0, 200);
+		ofDrawRectRounded(ofGetWidth() / 2 - 300, 50, 600, 60, 10);
+		ofSetColor(ofColor::white);
+		string text = "Select Self or Adjacent Unit to Cure";
+		uiFont.drawString(text, ofGetWidth() / 2 - 200, 90);
+	}
+
+	// --- PHASE 3: STATUS SELECTION ---
+	if (isDispelStatusSelectOpen) {
 		ofSetColor(0, 0, 0, 180);
 		ofDrawRectangle(0, 0, ofGetWidth(), ofGetHeight());
 
-		// Panel properties
-		float panelWidth = 800;
-		float panelHeight = 350;
-		float panelX = ofGetWidth() / 2.0f - panelWidth / 2.0f;
-		float panelY = ofGetHeight() / 2.0f - panelHeight / 2.0f;
+		ofSetColor(30, 30, 60, 255);
+		ofDrawRectRounded(statusSelectMenuRect, 15);
 
-		// Draw the panel background
-		ofSetColor(30, 30, 40, 240);
-		ofDrawRectRounded(panelX, panelY, panelWidth, panelHeight, 15);
-
-		// Draw the title/prompt
 		ofSetColor(ofColor::white);
-		string prompt = "Player " + ofToString(targetPlayer->playerID) + ", choose an effect:";
-		string choicesLeft = "Choices remaining: " + ofToString(magicBlastChoicesRemaining);
+		uiFont.drawString("Which status to remove?", statusSelectMenuRect.x + 20, statusSelectMenuRect.y + 40);
 
-		ofRectangle promptBox = uiFont.getStringBoundingBox(prompt, 0, 0);
-		uiFont.drawString(prompt, panelX + panelWidth / 2 - promptBox.getWidth() / 2, panelY + 60);
-
-		ofRectangle choicesBox = uiFont.getStringBoundingBox(choicesLeft, 0, 0);
-		uiFont.drawString(choicesLeft, panelX + panelWidth / 2 - choicesBox.getWidth() / 2, panelY + 100);
-
-		// Button properties
-		float btnWidth = 350;
-		float btnHeight = 100;
-		float btnY = panelY + panelHeight - btnHeight - 40;
-		float btnSpacing = 20;
-
-		// Define button rects for mouse interaction
-		magicBlastDamageButton.set(panelX + panelWidth / 2.0f - btnWidth - btnSpacing / 2.0f, btnY, btnWidth, btnHeight);
-		magicBlastDiscardButton.set(panelX + panelWidth / 2.0f + btnSpacing / 2.0f, btnY, btnWidth, btnHeight);
-
-		// Draw Damage Button
-		ofSetColor(ofColor::indianRed);
-		ofDrawRectRounded(magicBlastDamageButton, 10);
-		ofSetColor(ofColor::white);
-		string damageText = "Take 5 Damage";
-		ofRectangle damageTextBox = uiFont.getStringBoundingBox(damageText, 0, 0);
-		uiFont.drawString(damageText, magicBlastDamageButton.getCenter().x - damageTextBox.getWidth() / 2, magicBlastDamageButton.getCenter().y + damageTextBox.getHeight() / 2);
-
-		// Draw Discard Button
-		ofSetColor(ofColor::darkSlateBlue);
-		ofDrawRectRounded(magicBlastDiscardButton, 10);
-		ofSetColor(ofColor::white);
-		string discardText = "Remove Top Card of Deck";
-		ofRectangle discardTextBox = uiFont.getStringBoundingBox(discardText, 0, 0);
-		uiFont.drawString(discardText, magicBlastDiscardButton.getCenter().x - discardTextBox.getWidth() / 2, magicBlastDiscardButton.getCenter().y + discardTextBox.getHeight() / 2);
+		for (size_t i = 0; i < statusSelectButtons.size(); i++) {
+			ofSetColor(ofColor::orange);
+			ofDrawRectRounded(statusSelectButtons[i], 8);
+			ofSetColor(ofColor::black);
+			uiFont.drawString(statusSelectLabels[i], statusSelectButtons[i].x + 10, statusSelectButtons[i].y + 30);
+		}
 	}
-	//--------------------------------------------------------------
-	// --- NEW HELPER: Converts a specific point in world space back to grid coordinates ---
-	glm::vec2 ofApp::worldToGrid(glm::vec3 worldPos) {
-		float gridX = (worldPos.x / TILE_SIZE) + (BOARD_WIDTH / 2.0f);
-		float gridY = (worldPos.z / TILE_SIZE) + (BOARD_HEIGHT / 2.0f);
-		return glm::vec2(floor(gridX), floor(gridY));
+}
+
+//--------------------------------------------------------------
+void ofApp::determineStatusOptions(Player * target) {
+	statusSelectLabels.clear();
+	statusSelectButtons.clear();
+
+	if (target->onFire) statusSelectLabels.push_back("Fire");
+	if (target->isParalyzed) statusSelectLabels.push_back("Paralysis");
+	// Add future statuses here
+
+	if (statusSelectLabels.empty()) {
+		ofSystemAlertDialog("Target has no status effects!");
+		cancelDispel();
+		return;
 	}
 
-	//--------------------------------------------------------------
-	bool ofApp::checkRayPhysics(glm::vec2 rayStart, glm::vec2 rayEnd) {
-		auto path = getLineOfSightPath(rayStart, rayEnd);
-		if (path.empty()) return true;
-
-		for (size_t i = 0; i < path.size(); ++i) {
-			glm::vec2 current = path[i];
-			int cx = (int)current.x;
-			int cy = (int)current.y;
-
-			// --- 1. CIRCULAR WALL COLLISION ---
-			// This handles everything: adjacent walls, grazing shots, etc.
-			if (board[cx][cy].hasWall) {
-				glm::vec2 wallCenter = current + 0.5f;
-				glm::vec2 closest = getClosestPointOnLineSegment(wallCenter, rayStart, rayEnd);
-				float dist = glm::distance(closest, wallCenter);
-
-				// If the ray passes inside the circle (radius 0.5), it hits.
-				// 0.499f allows shooting exactly along the edge.
-				if (dist < 0.499f) return false;
-			}
-
-			bool isStart = (glm::distance(current, glm::floor(rayStart)) < 0.5f);
-			bool isEnd = (glm::distance(current, glm::floor(rayEnd)) < 0.5f);
-
-			// --- 2. DIAGONAL PINCH CHECK ---
-			if (i < path.size() - 1) {
-				glm::vec2 next = path[i + 1];
-				if ((int)current.x != (int)next.x && (int)current.y != (int)next.y) {
-					// Only block if BOTH corners are solid walls.
-					// (Squeezing between a Unit and a Wall is technically allowed by this logic,
-					// but Squeezing between two Walls is impossible).
-					if (isTileWall((int)current.x, (int)next.y) && isTileWall((int)next.x, (int)current.y)) {
-						return false;
-					}
-
-					// Diagonal Gap Check (Choke Points)
-					glm::vec2 neighbors[] = { { current.x, next.y }, { next.x, current.y } };
-					for (auto & n : neighbors) {
-						if (isTileWall((int)n.x, (int)n.y)) continue;
-						if (n == glm::floor(rayStart) || n == glm::floor(rayEnd)) continue;
-
-						int gapType = isGapTile(n);
-						if (gapType == 1 && std::abs(rayStart.x - rayEnd.x) > 0.01f) return false;
-						if (gapType == 2 && std::abs(rayStart.y - rayEnd.y) > 0.01f) return false;
-					}
-				}
-			}
-
-			// --- 3. STANDARD CHOKE POINT CHECK ---
-			if (!isStart && !isEnd && !board[cx][cy].hasWall) {
-				int gapType = isGapTile(current);
-				if (gapType == 1 && std::abs(rayStart.x - rayEnd.x) > 0.01f) return false;
-				if (gapType == 2 && std::abs(rayStart.y - rayEnd.y) > 0.01f) return false;
-			}
-
-			// --- 4. UNIT BLOCKING CHECK ---
-			if (!isStart && !isEnd) {
-				if (board[cx][cy].hasPlayer) {
-					glm::vec2 unitCenter = current + 0.5f;
-					glm::vec2 closest = getClosestPointOnLineSegment(unitCenter, rayStart, rayEnd);
-					// Units are slightly smaller (0.45) to be forgiving
-					if (glm::distance(closest, unitCenter) < 0.45f) return false;
-				}
-			}
-		}
-		return true;
+	// If only one, apply immediately
+	if (statusSelectLabels.size() == 1) {
+		applyDispelEffect(0);
+		return;
 	}
 
-	// ----------------- FIXED isLosTargetValid (With Ethereal Jolt Support) -----------------
-	TargetInfo ofApp::isLosTargetValid(glm::vec2 casterTile, glm::vec2 targetTile, float maxRangeFeet, CardType cardType) {
-		TargetInfo result;
+	// Otherwise, build menu
+	float w = 400;
+	float h = 60 + (statusSelectLabels.size() * 60);
+	float x = ofGetWidth() / 2 - w / 2;
+	float y = ofGetHeight() / 2 - h / 2;
+	statusSelectMenuRect.set(x, y, w, h);
 
-		// --- RULE 0: Basic Sanity Checks ---
-		if (targetTile == casterTile) {
-			result.reason = INVALID_SELF;
-			return result;
+	for (size_t i = 0; i < statusSelectLabels.size(); i++) {
+		statusSelectButtons.push_back(ofRectangle(x + 20, y + 60 + (i * 60), w - 40, 50));
+	}
+
+	isDispelTargeting = false;
+	isDispelStatusSelectOpen = true;
+}
+
+//--------------------------------------------------------------
+void ofApp::applyDispelEffect(int statusIndex) {
+	Player * target = getPlayer(pendingDispelTargetIndex);
+	if (!target) return;
+
+	string statusToRemove = statusSelectLabels[statusIndex];
+	if (statusToRemove == "Fire") target->onFire = false;
+	if (statusToRemove == "Paralysis") {
+		target->isParalyzed = false;
+		target->paralysisHeadsCount = 0;
+	}
+
+	ofLogNotice("Dispel") << "Removed " << statusToRemove;
+
+	// FINALIZATION: Deduct AP and Card
+	if (pendingDispelCardIndex != -1) {
+		Player & p = players[currentPlayerIndex];
+		currentAP -= p.hand[pendingDispelCardIndex].cost;
+		p.discardPile.push_back(p.hand[pendingDispelCardIndex]);
+		p.hand.erase(p.hand.begin() + pendingDispelCardIndex);
+		calculateTargetHighlights(); // refresh UI
+	}
+
+	cancelDispel(); // Close menus
+}
+// ----------------- WISDOM BOON HELPERS -----------------
+
+void ofApp::cancelWisdomBoon() {
+	isWisdomBoonMenuOpen = false;
+	pendingWisdomBoonCardIndex = -1;
+	pendingWisdomBoonTargetIndex = -1;
+	ofLogNotice("WisdomBoon") << "Cancelled.";
+}
+//--------------------------------------------------------------
+void ofApp::drawWisdomBoonUI() {
+	ofEnableBlendMode(OF_BLENDMODE_ALPHA);
+
+	// 1. Dark Overlay
+	ofSetColor(0, 0, 0, 180);
+	ofDrawRectangle(0, 0, ofGetWidth(), ofGetHeight());
+
+	// 2. Menu Background
+	ofSetColor(40, 40, 80, 255);
+	ofDrawRectRounded(wisdomMenuRect, 15);
+
+	// 3. Determine Context
+	bool isSelfTarget = (pendingWisdomBoonTargetIndex == currentPlayerIndex);
+	int deckSize = 0;
+	if (currentPlayerIndex >= 0) deckSize = players[currentPlayerIndex].deck.size();
+
+	// 4. Title & Description
+	ofSetColor(ofColor::white);
+	string title = "Wisdom Boon";
+	string desc = "Effect Strength: " + ofToString(deckSize) + " (Your Deck Size)";
+
+	ofRectangle titleBox = uiFont.getStringBoundingBox(title, 0, 0);
+	uiFont.drawString(title, wisdomMenuRect.getCenter().x - titleBox.width / 2, wisdomMenuRect.y + 50);
+
+	ofRectangle descBox = uiFont.getStringBoundingBox(desc, 0, 0);
+	uiFont.drawString(desc, wisdomMenuRect.getCenter().x - descBox.width / 2, wisdomMenuRect.y + 90);
+
+	// 5. Draw Context-Sensitive Button
+	string btnText = "";
+	if (isSelfTarget) {
+		// BLOCK MODE
+		ofSetColor(ofColor::slateGray); // Grey for Block
+		btnText = "Gain Block";
+	} else {
+		// DAMAGE MODE
+		ofSetColor(ofColor::purple); // Purple for Magic
+		btnText = "Deal Magic Dmg";
+	}
+
+	ofDrawRectRounded(wisdomBtnDamage, 10);
+
+	ofSetColor(ofColor::white);
+	ofRectangle btnBox = uiFont.getStringBoundingBox(btnText, 0, 0);
+	uiFont.drawString(btnText, wisdomBtnDamage.getCenter().x - btnBox.width / 2, wisdomBtnDamage.getCenter().y + btnBox.height / 2);
+}
+//--------------------------------------------------------------
+void ofApp::drawMagicBlastChoiceUI() {
+	// Check if player index is valid
+	Player * targetPlayer = getPlayer(magicBlastTargetPlayerIndex);
+	if (!targetPlayer) return;
+
+	// Draw a semi-transparent overlay to focus the player
+	ofEnableBlendMode(OF_BLENDMODE_ALPHA);
+	ofSetColor(0, 0, 0, 180);
+	ofDrawRectangle(0, 0, ofGetWidth(), ofGetHeight());
+
+	// Panel properties
+	float panelWidth = 800;
+	float panelHeight = 350;
+	float panelX = ofGetWidth() / 2.0f - panelWidth / 2.0f;
+	float panelY = ofGetHeight() / 2.0f - panelHeight / 2.0f;
+
+	// Draw the panel background
+	ofSetColor(30, 30, 40, 240);
+	ofDrawRectRounded(panelX, panelY, panelWidth, panelHeight, 15);
+
+	// Draw the title/prompt
+	ofSetColor(ofColor::white);
+	string prompt = "Player " + ofToString(targetPlayer->playerID) + ", choose an effect:";
+	string choicesLeft = "Choices remaining: " + ofToString(magicBlastChoicesRemaining);
+
+	ofRectangle promptBox = uiFont.getStringBoundingBox(prompt, 0, 0);
+	uiFont.drawString(prompt, panelX + panelWidth / 2 - promptBox.getWidth() / 2, panelY + 60);
+
+	ofRectangle choicesBox = uiFont.getStringBoundingBox(choicesLeft, 0, 0);
+	uiFont.drawString(choicesLeft, panelX + panelWidth / 2 - choicesBox.getWidth() / 2, panelY + 100);
+
+	// Button properties
+	float btnWidth = 350;
+	float btnHeight = 100;
+	float btnY = panelY + panelHeight - btnHeight - 40;
+	float btnSpacing = 20;
+
+	// Define button rects for mouse interaction
+	magicBlastDamageButton.set(panelX + panelWidth / 2.0f - btnWidth - btnSpacing / 2.0f, btnY, btnWidth, btnHeight);
+	magicBlastDiscardButton.set(panelX + panelWidth / 2.0f + btnSpacing / 2.0f, btnY, btnWidth, btnHeight);
+
+	// Draw Damage Button
+	ofSetColor(ofColor::indianRed);
+	ofDrawRectRounded(magicBlastDamageButton, 10);
+	ofSetColor(ofColor::white);
+	string damageText = "Take 5 Damage";
+	ofRectangle damageTextBox = uiFont.getStringBoundingBox(damageText, 0, 0);
+	uiFont.drawString(damageText, magicBlastDamageButton.getCenter().x - damageTextBox.getWidth() / 2, magicBlastDamageButton.getCenter().y + damageTextBox.getHeight() / 2);
+
+	// Draw Discard Button
+	ofSetColor(ofColor::darkSlateBlue);
+	ofDrawRectRounded(magicBlastDiscardButton, 10);
+	ofSetColor(ofColor::white);
+	string discardText = "Remove Top Card of Deck";
+	ofRectangle discardTextBox = uiFont.getStringBoundingBox(discardText, 0, 0);
+	uiFont.drawString(discardText, magicBlastDiscardButton.getCenter().x - discardTextBox.getWidth() / 2, magicBlastDiscardButton.getCenter().y + discardTextBox.getHeight() / 2);
+}
+//--------------------------------------------------------------
+// --- NEW HELPER: Converts a specific point in world space back to grid coordinates ---
+glm::vec2 ofApp::worldToGrid(glm::vec3 worldPos) {
+	float gridX = (worldPos.x / TILE_SIZE) + (BOARD_WIDTH / 2.0f);
+	float gridY = (worldPos.z / TILE_SIZE) + (BOARD_HEIGHT / 2.0f);
+	return glm::vec2(floor(gridX), floor(gridY));
+}
+
+//--------------------------------------------------------------
+bool ofApp::checkRayPhysics(glm::vec2 rayStart, glm::vec2 rayEnd) {
+	auto path = getLineOfSightPath(rayStart, rayEnd);
+	if (path.empty()) return true;
+
+	for (size_t i = 0; i < path.size(); ++i) {
+		glm::vec2 current = path[i];
+		int cx = (int)current.x;
+		int cy = (int)current.y;
+
+		// --- 1. CIRCULAR WALL COLLISION ---
+		// This handles everything: adjacent walls, grazing shots, etc.
+		if (board[cx][cy].hasWall) {
+			glm::vec2 wallCenter = current + 0.5f;
+			glm::vec2 closest = getClosestPointOnLineSegment(wallCenter, rayStart, rayEnd);
+			float dist = glm::distance(closest, wallCenter);
+
+			// If the ray passes inside the circle (radius 0.5), it hits.
+			// 0.499f allows shooting exactly along the edge.
+			if (dist < 0.499f) return false;
 		}
-		if (isTileWall((int)targetTile.x, (int)targetTile.y)) {
-			result.reason = INVALID_OCCUPIED_BY_WALL;
-			return result;
-		}
 
-		// Using an if/else block to create separate, safe logical paths.
-		if (cardType == CARD_ETHEREAL_JOLT) {
-			// --- Path 1: Ethereal Jolt Logic (Ignores all walls) ---
-			float centerDist = glm::distance(casterTile, targetTile);
-			float edgeDist = std::max(0.0f, centerDist - 1.0f);
-			float neededFeet = round(edgeDist * 5.0f);
+		bool isStart = (glm::distance(current, glm::floor(rayStart)) < 0.5f);
+		bool isEnd = (glm::distance(current, glm::floor(rayEnd)) < 0.5f);
 
-			if (neededFeet > maxRangeFeet) {
-				result.reason = INVALID_OUT_OF_RANGE;
-				return result;
-			}
-			// This path will now naturally fall through to the final checks at the end.
-		} else {
-			// --- Path 2: Standard Logic (Respects walls and cover) ---
-
-			// RULE 1: THE "HARD COVER" RULE
-			{
-				glm::vec2 casterCenter = casterTile + 0.5f;
-				glm::vec2 targetFaces[] = { targetTile + glm::vec2(0.5f, 0.0f), targetTile + glm::vec2(0.5f, 1.0f), targetTile + glm::vec2(0.0f, 0.5f), targetTile + glm::vec2(1.0f, 0.5f) };
-				glm::vec2 targetFaceDirs[] = { { 0, -1 }, { 0, 1 }, { -1, 0 }, { 1, 0 } };
-
-				std::vector<std::pair<float, int>> faceDistances;
-				for (int i = 0; i < 4; i++) {
-					faceDistances.push_back({ glm::distance(casterCenter, targetFaces[i]), i });
+		// --- 2. DIAGONAL PINCH CHECK ---
+		if (i < path.size() - 1) {
+			glm::vec2 next = path[i + 1];
+			if ((int)current.x != (int)next.x && (int)current.y != (int)next.y) {
+				// Only block if BOTH corners are solid walls.
+				// (Squeezing between a Unit and a Wall is technically allowed by this logic,
+				// but Squeezing between two Walls is impossible).
+				if (isTileWall((int)current.x, (int)next.y) && isTileWall((int)next.x, (int)current.y)) {
+					return false;
 				}
-				std::sort(faceDistances.begin(), faceDistances.end());
 
-				for (int i = 0; i < 2; i++) {
-					int faceIndex = faceDistances[i].second;
-					glm::vec2 adjacentTile = targetTile + targetFaceDirs[faceIndex];
-					if (isTileWall((int)adjacentTile.x, (int)adjacentTile.y)) {
-						result.reason = INVALID_HARD_COVER;
-						return result;
-					}
+				// Diagonal Gap Check (Choke Points)
+				glm::vec2 neighbors[] = { { current.x, next.y }, { next.x, current.y } };
+				for (auto & n : neighbors) {
+					if (isTileWall((int)n.x, (int)n.y)) continue;
+					if (n == glm::floor(rayStart) || n == glm::floor(rayEnd)) continue;
+
+					int gapType = isGapTile(n);
+					if (gapType == 1 && std::abs(rayStart.x - rayEnd.x) > 0.01f) return false;
+					if (gapType == 2 && std::abs(rayStart.y - rayEnd.y) > 0.01f) return false;
 				}
-			}
-
-			// RULE 2: FIND SHORTEST VISIBLE PATH
-			float shortestVisiblePath = std::numeric_limits<float>::max(); // This is the variable the goto was skipping!
-			{
-				glm::vec2 casterFaces[] = { casterTile + glm::vec2(0.5f, 0.0f), casterTile + glm::vec2(0.5f, 1.0f), casterTile + glm::vec2(0.0f, 0.5f), casterTile + glm::vec2(1.0f, 0.5f) };
-				glm::vec2 casterFaceDirs[] = { { 0, -1 }, { 0, 1 }, { -1, 0 }, { 1, 0 } };
-				glm::vec2 targetFaces[] = { targetTile + glm::vec2(0.5f, 0.0f), targetTile + glm::vec2(0.5f, 1.0f), targetTile + glm::vec2(0.0f, 0.5f), targetTile + glm::vec2(1.0f, 0.5f) };
-				glm::vec2 targetFaceDirs[] = { { 0, -1 }, { 0, 1 }, { -1, 0 }, { 1, 0 } };
-
-				for (int i = 0; i < 4; i++) {
-					glm::vec2 casterAdj = casterTile + casterFaceDirs[i];
-					if (isTileWall((int)casterAdj.x, (int)casterAdj.y)) continue;
-
-					for (int j = 0; j < 4; j++) {
-						glm::vec2 targetAdj = targetTile + targetFaceDirs[j];
-						if (isTileWall((int)targetAdj.x, (int)targetAdj.y)) continue;
-
-						if (checkRayPhysics(casterFaces[i], targetFaces[j])) {
-							shortestVisiblePath = std::min(shortestVisiblePath, glm::distance(casterFaces[i], targetFaces[j]));
-						}
-					}
-				}
-			}
-
-			if (shortestVisiblePath > 1000.0f) {
-				result.reason = INVALID_NO_LOS;
-				return result;
-			}
-
-			// RULE 3: RANGE & DISTANCE CHECK
-			float neededFeet = round(shortestVisiblePath * 5.0f);
-			if (neededFeet > maxRangeFeet) {
-				result.reason = INVALID_OUT_OF_RANGE;
-				return result;
 			}
 		}
 
-		// --- FINAL CHECK (shared by both paths): IS THE TARGET TYPE VALID? ---
-		result.reason = VALID;
-		bool isOccupied = board[(int)targetTile.x][(int)targetTile.y].hasPlayer;
-
-		if (cardType == CARD_FIREBALL || cardType == CARD_ETHEREAL_JOLT) {
-			result.isTargetable = isOccupied;
-		} else if (cardType == CARD_MAGIC_BLAST) {
-			if (isOccupied) {
-				result.isTargetable = true;
-			} else {
-				bool hasNeighbor = false;
-				glm::vec2 neighbors[] = { { 1, 0 }, { -1, 0 }, { 0, 1 }, { 0, -1 } };
-				for (auto n : neighbors) {
-					int nx = (int)targetTile.x + n.x, ny = (int)targetTile.y + n.y;
-					if (nx >= 0 && nx < BOARD_WIDTH && ny >= 0 && ny < BOARD_HEIGHT && board[nx][ny].hasPlayer) {
-						hasNeighbor = true;
-						break;
-					}
-				}
-				result.isTargetable = hasNeighbor;
-			}
-		} else {
-			result.isTargetable = isOccupied;
+		// --- 3. STANDARD CHOKE POINT CHECK ---
+		if (!isStart && !isEnd && !board[cx][cy].hasWall) {
+			int gapType = isGapTile(current);
+			if (gapType == 1 && std::abs(rayStart.x - rayEnd.x) > 0.01f) return false;
+			if (gapType == 2 && std::abs(rayStart.y - rayEnd.y) > 0.01f) return false;
 		}
 
+		// --- 4. UNIT BLOCKING CHECK ---
+		if (!isStart && !isEnd) {
+			if (board[cx][cy].hasPlayer) {
+				glm::vec2 unitCenter = current + 0.5f;
+				glm::vec2 closest = getClosestPointOnLineSegment(unitCenter, rayStart, rayEnd);
+				// Units are slightly smaller (0.45) to be forgiving
+				if (glm::distance(closest, unitCenter) < 0.45f) return false;
+			}
+		}
+	}
+	return true;
+}
+
+// ----------------- FIXED isLosTargetValid (With Ethereal Jolt Support) -----------------
+TargetInfo ofApp::isLosTargetValid(glm::vec2 casterTile, glm::vec2 targetTile, float maxRangeFeet, CardType cardType) {
+	TargetInfo result;
+
+	// --- RULE 0: Basic Sanity Checks ---
+	if (targetTile == casterTile) {
+		result.reason = INVALID_SELF;
 		return result;
 	}
-	//--------------------------------------------------------------
-	std::vector<glm::vec2> ofApp::getLineOfSightPath(glm::vec2 startPoint, glm::vec2 endPoint) {
-		std::vector<glm::vec2> path;
+	if (isTileWall((int)targetTile.x, (int)targetTile.y)) {
+		result.reason = INVALID_OCCUPIED_BY_WALL;
+		return result;
+	}
 
-		glm::vec2 startTile = { floor(startPoint.x), floor(startPoint.y) };
-		glm::vec2 endTile = { floor(endPoint.x), floor(endPoint.y) };
+	// Using an if/else block to create separate, safe logical paths.
+	if (cardType == CARD_ETHEREAL_JOLT) {
+		// --- Path 1: Ethereal Jolt Logic (Ignores all walls) ---
+		float centerDist = glm::distance(casterTile, targetTile);
+		float edgeDist = std::max(0.0f, centerDist - 1.0f);
+		float neededFeet = round(edgeDist * 5.0f);
 
-		path.push_back(startTile);
-
-		if (startTile.x == endTile.x && startTile.y == endTile.y) {
-			return path;
+		if (neededFeet > maxRangeFeet) {
+			result.reason = INVALID_OUT_OF_RANGE;
+			return result;
 		}
+		// This path will now naturally fall through to the final checks at the end.
+	} else {
+		// --- Path 2: Standard Logic (Respects walls and cover) ---
 
-		glm::vec2 dir = endPoint - startPoint;
-		if (dir.x == 0 && dir.y == 0) return path;
+		// RULE 1: THE "HARD COVER" RULE
+		{
+			glm::vec2 casterCenter = casterTile + 0.5f;
+			glm::vec2 targetFaces[] = { targetTile + glm::vec2(0.5f, 0.0f), targetTile + glm::vec2(0.5f, 1.0f), targetTile + glm::vec2(0.0f, 0.5f), targetTile + glm::vec2(1.0f, 0.5f) };
+			glm::vec2 targetFaceDirs[] = { { 0, -1 }, { 0, 1 }, { -1, 0 }, { 1, 0 } };
 
-		glm::vec2 step = { (dir.x >= 0) ? 1.0f : -1.0f, (dir.y >= 0) ? 1.0f : -1.0f };
-
-		float tMaxX, tMaxY, tDeltaX, tDeltaY;
-
-		if (dir.x == 0) {
-			tMaxX = std::numeric_limits<float>::infinity();
-			tDeltaX = std::numeric_limits<float>::infinity();
-		} else {
-			float nextBoundaryX = (step.x > 0) ? (startTile.x + 1.0f) : startTile.x;
-			tMaxX = (nextBoundaryX - startPoint.x) / dir.x;
-			tDeltaX = abs(1.0f / dir.x);
-		}
-
-		if (dir.y == 0) {
-			tMaxY = std::numeric_limits<float>::infinity();
-			tDeltaY = std::numeric_limits<float>::infinity();
-		} else {
-			float nextBoundaryY = (step.y > 0) ? (startTile.y + 1.0f) : startTile.y;
-			tMaxY = (nextBoundaryY - startPoint.y) / dir.y;
-			tDeltaY = abs(1.0f / dir.y);
-		}
-
-		glm::vec2 currentTile = startTile;
-
-		while (true) {
-			if (tMaxX < tMaxY) {
-				currentTile.x += step.x;
-				tMaxX += tDeltaX;
-			} else {
-				currentTile.y += step.y;
-				tMaxY += tDeltaY;
+			std::vector<std::pair<float, int>> faceDistances;
+			for (int i = 0; i < 4; i++) {
+				faceDistances.push_back({ glm::distance(casterCenter, targetFaces[i]), i });
 			}
+			std::sort(faceDistances.begin(), faceDistances.end());
 
-			path.push_back(currentTile);
-
-			if (currentTile.x == endTile.x && currentTile.y == endTile.y) {
-				break;
-			}
-
-			if (path.size() > (BOARD_WIDTH + BOARD_HEIGHT)) break;
-		}
-		return path;
-	}
-	// ----------------- HELPERS -----------------
-
-	// Returns true if the tile is a Wall, Unit, or Out of Bounds
-	bool ofApp::isTileBlocked(int x, int y) {
-		if (x < 0 || x >= BOARD_WIDTH || y < 0 || y >= BOARD_HEIGHT) return true;
-		if (board[x][y].hasWall) return true;
-		if (board[x][y].hasPlayer) return true;
-		return false;
-	}
-
-	// Returns true ONLY if the tile is a Wall or Out of Bounds (ignores Units)
-	bool ofApp::isTileWall(int x, int y) {
-		if (x < 0 || x >= BOARD_WIDTH || y < 0 || y >= BOARD_HEIGHT) return true;
-		return board[x][y].hasWall;
-	}
-
-	// 0 = Open
-	// 1 = Vertical Choke (Blocked Left & Right) -> Requires Vertical Shot
-	// 2 = Horizontal Choke (Blocked Up & Down) -> Requires Horizontal Shot
-	int ofApp::isGapTile(glm::vec2 tile) {
-		int x = (int)tile.x;
-		int y = (int)tile.y;
-		if (board[x][y].hasWall) return 0;
-
-		bool blockLeft = isTileBlocked(x - 1, y);
-		bool blockRight = isTileBlocked(x + 1, y);
-		bool blockUp = isTileBlocked(x, y - 1);
-		bool blockDown = isTileBlocked(x, y + 1);
-
-		if (blockLeft && blockRight) return 1; // Vertical Choke
-		if (blockUp && blockDown) return 2; // Horizontal Choke
-
-		return 0;
-	}
-	//--------------------------------------------------------------
-	glm::vec2 ofApp::getClosestPointOnLineSegment(glm::vec2 p, glm::vec2 start, glm::vec2 end) {
-		glm::vec2 lineVec = end - start;
-		float lenSq = glm::dot(lineVec, lineVec);
-		if (lenSq < 1e-5f) return start;
-
-		glm::vec2 pVec = p - start;
-		float t = glm::dot(pVec, lineVec) / lenSq;
-		t = std::max(0.0f, std::min(1.0f, t));
-
-		return start + lineVec * t;
-	}
-	//--------------------------------------------------------------
-	float ofApp::getFaceToFaceDistance(glm::vec2 casterTile, glm::vec2 targetTile) {
-		glm::vec2 faceOffsets[] = { { 0.5f, 0.0f }, { 0.5f, 1.0f }, { 0.0f, 0.5f }, { 1.0f, 0.5f } };
-		glm::vec2 faceDirs[] = { { 0, -1 }, { 0, 1 }, { -1, 0 }, { 1, 0 } };
-
-		// 1. Identify Valid Target Faces
-		float minGeoDist = std::numeric_limits<float>::max();
-		for (int j = 0; j < 4; j++) {
-			float d = glm::distance(casterTile + 0.5f, targetTile + faceOffsets[j]);
-			if (d < minGeoDist) minGeoDist = d;
-		}
-
-		std::vector<int> validTargetFaces;
-		for (int j = 0; j < 4; j++) {
-			float d = glm::distance(casterTile + 0.5f, targetTile + faceOffsets[j]);
-			if (d <= minGeoDist + 0.001f) {
-				int tx = (int)targetTile.x + (int)faceDirs[j].x;
-				int ty = (int)targetTile.y + (int)faceDirs[j].y;
-				// BUG FIX HERE: Changed from isTileBlocked to isTileWall
-				if (!isTileWall(tx, ty)) validTargetFaces.push_back(j);
-			}
-		}
-
-		if (validTargetFaces.empty()) return std::numeric_limits<float>::max();
-
-		// 2. Find shortest path
-		float shortestDist = std::numeric_limits<float>::max();
-		bool foundPath = false;
-
-		for (int i = 0; i < 4; i++) {
-			int cx = (int)casterTile.x + (int)faceDirs[i].x;
-			int cy = (int)casterTile.y + (int)faceDirs[i].y;
-			// BUG FIX HERE: Changed from isTileBlocked to isTileWall
-			if (isTileWall(cx, cy)) continue; // Now only blocked by Walls
-
-			glm::vec2 origin = casterTile + faceOffsets[i];
-
-			for (int tIdx : validTargetFaces) {
-				glm::vec2 dest = targetTile + faceOffsets[tIdx];
-				float d = glm::distance(origin, dest);
-				if (d < shortestDist) {
-					shortestDist = d;
-					foundPath = true;
+			for (int i = 0; i < 2; i++) {
+				int faceIndex = faceDistances[i].second;
+				glm::vec2 adjacentTile = targetTile + targetFaceDirs[faceIndex];
+				if (isTileWall((int)adjacentTile.x, (int)adjacentTile.y)) {
+					result.reason = INVALID_HARD_COVER;
+					return result;
 				}
 			}
 		}
 
-		if (!foundPath) return std::numeric_limits<float>::max();
-		return shortestDist;
-	}
-	//--------------------------------------------------------------
-	bool ofApp::isOrthogonalPathBlocked(glm::vec2 start, glm::vec2 end) {
-		int x1 = (int)start.x;
-		int y1 = (int)start.y;
-		int x2 = (int)end.x;
-		int y2 = (int)end.y;
+		// RULE 2: FIND SHORTEST VISIBLE PATH
+		float shortestVisiblePath = std::numeric_limits<float>::max(); // This is the variable the goto was skipping!
+		{
+			glm::vec2 casterFaces[] = { casterTile + glm::vec2(0.5f, 0.0f), casterTile + glm::vec2(0.5f, 1.0f), casterTile + glm::vec2(0.0f, 0.5f), casterTile + glm::vec2(1.0f, 0.5f) };
+			glm::vec2 casterFaceDirs[] = { { 0, -1 }, { 0, 1 }, { -1, 0 }, { 1, 0 } };
+			glm::vec2 targetFaces[] = { targetTile + glm::vec2(0.5f, 0.0f), targetTile + glm::vec2(0.5f, 1.0f), targetTile + glm::vec2(0.0f, 0.5f), targetTile + glm::vec2(1.0f, 0.5f) };
+			glm::vec2 targetFaceDirs[] = { { 0, -1 }, { 0, 1 }, { -1, 0 }, { 1, 0 } };
 
-		// 1. Vertical Check (Same Column)
-		if (x1 == x2) {
-			int minY = std::min(y1, y2);
-			int maxY = std::max(y1, y2);
-			// Check every tile strictly between start and end
-			for (int y = minY + 1; y < maxY; y++) {
-				if (isTileWall(x1, y)) return true; // Blocked!
-			}
-			return false; // Path clear
-		}
+			for (int i = 0; i < 4; i++) {
+				glm::vec2 casterAdj = casterTile + casterFaceDirs[i];
+				if (isTileWall((int)casterAdj.x, (int)casterAdj.y)) continue;
 
-		// 2. Horizontal Check (Same Row)
-		if (y1 == y2) {
-			int minX = std::min(x1, x2);
-			int maxX = std::max(x1, x2);
-			// Check every tile strictly between start and end
-			for (int x = minX + 1; x < maxX; x++) {
-				if (isTileWall(x, y1)) return true; // Blocked!
-			}
-			return false; // Path clear
-		}
+				for (int j = 0; j < 4; j++) {
+					glm::vec2 targetAdj = targetTile + targetFaceDirs[j];
+					if (isTileWall((int)targetAdj.x, (int)targetAdj.y)) continue;
 
-		// Not orthogonal (Diagonal or Angled), so this check doesn't apply
-		return false;
-	}
-	//--------------------------------------------------------------
-	void ofApp::updateDebugRects() {
-		if (!isDebugMode) return;
-		float panelWidth = 220;
-		float panelX = ofGetWidth() - panelWidth - 20;
-		float panelY = 40;
-		if (players.size() >= 2 && currentPlayerIndex != -1) {
-			panelY = p1_deckRect.getBottom() + 20;
-		}
-		float btnH = 45;
-		float pad = 10;
-		float curY = panelY + pad + uiFont.getLineHeight() + pad;
-
-		debugDrawCardButton.set(panelX + pad, curY, panelWidth - 2 * pad, btnH);
-		curY += btnH + pad;
-		debugSpawnCardButton.set(panelX + pad, curY, panelWidth - 2 * pad, btnH);
-		curY += btnH + pad;
-		debugDiceDropdownButton.set(panelX + pad, curY, panelWidth - 2 * pad, btnH);
-		curY += btnH + pad;
-
-		if (isDebugDiceDropdownOpen) {
-			debugRollD6Button.set(panelX + pad, curY, panelWidth - 2 * pad, btnH);
-			curY += btnH + pad;
-			debugRollD4Button.set(panelX + pad, curY, panelWidth - 2 * pad, btnH);
-			curY += btnH + pad;
-			debugRollD20Button.set(panelX + pad, curY, panelWidth - 2 * pad, btnH);
-			curY += btnH + pad;
-		}
-
-		debugSpawnUnitButton.set(panelX + pad, curY, panelWidth - 2 * pad, btnH);
-		curY += btnH + pad;
-		debugUnlimitedAPButton.set(panelX + pad, curY, panelWidth - 2 * pad, btnH);
-		curY += btnH + pad;
-		debugForceEndTurnButton.set(panelX + pad, curY, panelWidth - 2 * pad, btnH);
-		curY += btnH + pad;
-
-		debugPanel.set(panelX, panelY, panelWidth, curY - panelY);
-	}
-	//--------------------------------------------------------------
-	void ofApp::cleanupGame() {
-		players.clear();
-		activeDiceRolls.clear();
-		activeCardDisplays.clear();
-		activeStolenCardAnimations.clear();
-		activeRemovedCardAnimations.clear();
-
-		for (int x = 0; x < BOARD_WIDTH; ++x) {
-			for (int y = 0; y < BOARD_HEIGHT; ++y) {
-				board[x][y] = Tile(); // Reset each tile
+					if (checkRayPhysics(casterFaces[i], targetFaces[j])) {
+						shortestVisiblePath = std::min(shortestVisiblePath, glm::distance(casterFaces[i], targetFaces[j]));
+					}
+				}
 			}
 		}
 
-		currentPlayerIndex = -1;
-		playerAction = NONE;
-		selectedCardIndex = -1;
-		draggedCardIndex = -1;
-		isPlayerAnimating = false;
-		isLoadingGame = false;
-
-		ofLogNotice("Game") << "--- GAME SESSION CLEANED UP ---";
-	}
-	//--------------------------------------------------------------
-	void ofApp::loadCardData(const std::string & filePath) {
-		ofJson json;
-		if (!ofFile(filePath).exists()) {
-			ofLogError("ofApp::loadCardData") << "Could not find card data file: " << filePath;
-			return;
+		if (shortestVisiblePath > 1000.0f) {
+			result.reason = INVALID_NO_LOS;
+			return result;
 		}
-		json = ofLoadJson(filePath);
 
-		allCards.clear();
-
-		const int cardPixelWidth = 409, cardPixelHeight = 585;
-		const int numCols = 10;
-
-		for (const auto & cardJson : json) {
-			Card newCard;
-			int cardId = cardJson.value("id", 0);
-			if (cardId == 0) continue;
-
-			newCard.name = cardJson.value("name", "Unnamed");
-			newCard.type = stringToCardType(cardJson.value("type", "CARD_NONE"));
-			newCard.cost = cardJson.value("cost", 0);
-			newCard.value = cardJson.value("value", 0);
-			newCard.targeting = stringToTargetingType(cardJson.value("targeting", "TARGET_NONE"));
-			newCard.damageType = stringToDamageType(cardJson.value("damageType", "DAMAGE_PHYSICAL"));
-			newCard.numDice = cardJson.value("numDice", 0);
-			newCard.diceSides = cardJson.value("diceSides", 0);
-
-			// Calculate texture coordinates from the sprite sheet based on ID
-			int index = cardId - 1;
-			int row = index / numCols;
-			int col = index % numCols;
-			newCard.textureRect = ofRectangle(col * cardPixelWidth, row * cardPixelHeight, cardPixelWidth, cardPixelHeight);
-
-			allCards.push_back(newCard);
+		// RULE 3: RANGE & DISTANCE CHECK
+		float neededFeet = round(shortestVisiblePath * 5.0f);
+		if (neededFeet > maxRangeFeet) {
+			result.reason = INVALID_OUT_OF_RANGE;
+			return result;
 		}
-		ofLogNotice("ofApp::loadCardData") << "Loaded " << allCards.size() << " cards from JSON.";
 	}
 
-	CardType ofApp::stringToCardType(const std::string & str) {
-		if (str == "CARD_ATTACK_SINGLE_TILE") return CARD_ATTACK_SINGLE_TILE;
-		if (str == "CARD_MIND_THEFT") return CARD_MIND_THEFT;
-		if (str == "CARD_AMNESIA") return CARD_AMNESIA;
-		if (str == "CARD_GAIN_BLOCK") return CARD_GAIN_BLOCK;
-		if (str == "CARD_GAIN_WARD") return CARD_GAIN_WARD;
-		if (str == "CARD_MAGIC_BLAST") return CARD_MAGIC_BLAST;
-		if (str == "CARD_FIREBALL") return CARD_FIREBALL;
-		if (str == "CARD_SHOCK") return CARD_SHOCK;
-		if (str == "CARD_ROCK_CRUSH") return CARD_ROCK_CRUSH;
-		if (str == "CARD_DISPEL") return CARD_DISPEL;
-		if (str == "CARD_TELEPORT") return CARD_TELEPORT;
-		if (str == "CARD_HASTEN") return CARD_HASTEN;
-		if (str == "CARD_REPLICATE") return CARD_REPLICATE;
-		if (str == "CARD_WISDOM_BOON") return CARD_WISDOM_BOON;
-		if (str == "CARD_ETHEREAL_JOLT") return CARD_ETHEREAL_JOLT;
-		if (str == "CARD_FLAME_HIT") return CARD_FLAME_HIT;
-		if (str == "CARD_HEAL") return CARD_HEAL;
-		if (str == "CARD_RAISE_DEAD") return CARD_RAISE_DEAD;
-		if (str == "CARD_SUMMON_GOLEM") return CARD_SUMMON_GOLEM;
-		if (str == "CARD_STRENGTHEN_ELEMENTS") return CARD_STRENGTHEN_ELEMENTS;
-		if (str == "CARD_CREATE_WALL") return CARD_CREATE_WALL;
-		if (str == "CARD_DARK_SHIELD") return CARD_DARK_SHIELD;
-		return CARD_NONE;
+	// --- FINAL CHECK (shared by both paths): IS THE TARGET TYPE VALID? ---
+	result.reason = VALID;
+	bool isOccupied = board[(int)targetTile.x][(int)targetTile.y].hasPlayer;
+
+	if (cardType == CARD_FIREBALL || cardType == CARD_ETHEREAL_JOLT) {
+		result.isTargetable = isOccupied;
+	} else if (cardType == CARD_MAGIC_BLAST) {
+		if (isOccupied) {
+			result.isTargetable = true;
+		} else {
+			bool hasNeighbor = false;
+			glm::vec2 neighbors[] = { { 1, 0 }, { -1, 0 }, { 0, 1 }, { 0, -1 } };
+			for (auto n : neighbors) {
+				int nx = (int)targetTile.x + n.x, ny = (int)targetTile.y + n.y;
+				if (nx >= 0 && nx < BOARD_WIDTH && ny >= 0 && ny < BOARD_HEIGHT && board[nx][ny].hasPlayer) {
+					hasNeighbor = true;
+					break;
+				}
+			}
+			result.isTargetable = hasNeighbor;
+		}
+	} else {
+		result.isTargetable = isOccupied;
 	}
 
-	TargetingType ofApp::stringToTargetingType(const std::string & str) {
-		if (str == "TARGET_ADJACENT_UNIT") return TARGET_ADJACENT_UNIT;
-		if (str == "TARGET_SELF") return TARGET_SELF;
-		if (str == "TARGET_LINEAR_PIERCE") return TARGET_LINEAR_PIERCE;
-		if (str == "TARGET_CLEAVE_ADJACENT") return TARGET_CLEAVE_ADJACENT;
-		if (str == "TARGET_ADJACENT_OR_SELF_UNIT") return TARGET_ADJACENT_OR_SELF_UNIT;
-		if (str == "TARGET_LINE_OF_SIGHT_TILE") return TARGET_LINE_OF_SIGHT_TILE;
-		if (str == "TARGET_ADJACENT_UNIT_OR_WALL") return TARGET_ADJACENT_UNIT_OR_WALL;
-		if (str == "TARGET_EMPTY_ADJACENT") return TARGET_EMPTY_ADJACENT;
-		return TARGET_NONE;
+	return result;
+}
+//--------------------------------------------------------------
+std::vector<glm::vec2> ofApp::getLineOfSightPath(glm::vec2 startPoint, glm::vec2 endPoint) {
+	std::vector<glm::vec2> path;
+
+	glm::vec2 startTile = { floor(startPoint.x), floor(startPoint.y) };
+	glm::vec2 endTile = { floor(endPoint.x), floor(endPoint.y) };
+
+	path.push_back(startTile);
+
+	if (startTile.x == endTile.x && startTile.y == endTile.y) {
+		return path;
 	}
 
-	DamageType ofApp::stringToDamageType(const std::string & str) {
-		if (str == "DAMAGE_PIERCING") return DAMAGE_PIERCING;
-		if (str == "DAMAGE_MAGIC") return DAMAGE_MAGIC;
-		if (str == "DAMAGE_FIRE") return DAMAGE_FIRE;
-		if (str == "DAMAGE_ELECTRIC") return DAMAGE_ELECTRIC;
-		if (str == "DAMAGE_HOLY") return DAMAGE_HOLY;
-		return DAMAGE_PHYSICAL;
+	glm::vec2 dir = endPoint - startPoint;
+	if (dir.x == 0 && dir.y == 0) return path;
+
+	glm::vec2 step = { (dir.x >= 0) ? 1.0f : -1.0f, (dir.y >= 0) ? 1.0f : -1.0f };
+
+	float tMaxX, tMaxY, tDeltaX, tDeltaY;
+
+	if (dir.x == 0) {
+		tMaxX = std::numeric_limits<float>::infinity();
+		tDeltaX = std::numeric_limits<float>::infinity();
+	} else {
+		float nextBoundaryX = (step.x > 0) ? (startTile.x + 1.0f) : startTile.x;
+		tMaxX = (nextBoundaryX - startPoint.x) / dir.x;
+		tDeltaX = abs(1.0f / dir.x);
 	}
-	// ----------------- MINION UI -----------------
-	// Helper to draw centered text in a specific rectangle)
-	void drawStatText(ofTrueTypeFont & font, string text, float x, float y, float w, float h, ofColor color) {
-		if (text == "0") return;
-		float scale = 0.6f;
-		ofRectangle bounds = font.getStringBoundingBox(text, 0, 0);
+
+	if (dir.y == 0) {
+		tMaxY = std::numeric_limits<float>::infinity();
+		tDeltaY = std::numeric_limits<float>::infinity();
+	} else {
+		float nextBoundaryY = (step.y > 0) ? (startTile.y + 1.0f) : startTile.y;
+		tMaxY = (nextBoundaryY - startPoint.y) / dir.y;
+		tDeltaY = abs(1.0f / dir.y);
+	}
+
+	glm::vec2 currentTile = startTile;
+
+	while (true) {
+		if (tMaxX < tMaxY) {
+			currentTile.x += step.x;
+			tMaxX += tDeltaX;
+		} else {
+			currentTile.y += step.y;
+			tMaxY += tDeltaY;
+		}
+
+		path.push_back(currentTile);
+
+		if (currentTile.x == endTile.x && currentTile.y == endTile.y) {
+			break;
+		}
+
+		if (path.size() > (BOARD_WIDTH + BOARD_HEIGHT)) break;
+	}
+	return path;
+}
+// ----------------- HELPERS -----------------
+
+// Returns true if the tile is a Wall, Unit, or Out of Bounds
+bool ofApp::isTileBlocked(int x, int y) {
+	if (x < 0 || x >= BOARD_WIDTH || y < 0 || y >= BOARD_HEIGHT) return true;
+	if (board[x][y].hasWall) return true;
+	if (board[x][y].hasPlayer) return true;
+	return false;
+}
+
+// Returns true ONLY if the tile is a Wall or Out of Bounds (ignores Units)
+bool ofApp::isTileWall(int x, int y) {
+	if (x < 0 || x >= BOARD_WIDTH || y < 0 || y >= BOARD_HEIGHT) return true;
+	return board[x][y].hasWall;
+}
+
+// 0 = Open
+// 1 = Vertical Choke (Blocked Left & Right) -> Requires Vertical Shot
+// 2 = Horizontal Choke (Blocked Up & Down) -> Requires Horizontal Shot
+int ofApp::isGapTile(glm::vec2 tile) {
+	int x = (int)tile.x;
+	int y = (int)tile.y;
+	if (board[x][y].hasWall) return 0;
+
+	bool blockLeft = isTileBlocked(x - 1, y);
+	bool blockRight = isTileBlocked(x + 1, y);
+	bool blockUp = isTileBlocked(x, y - 1);
+	bool blockDown = isTileBlocked(x, y + 1);
+
+	if (blockLeft && blockRight) return 1; // Vertical Choke
+	if (blockUp && blockDown) return 2; // Horizontal Choke
+
+	return 0;
+}
+//--------------------------------------------------------------
+glm::vec2 ofApp::getClosestPointOnLineSegment(glm::vec2 p, glm::vec2 start, glm::vec2 end) {
+	glm::vec2 lineVec = end - start;
+	float lenSq = glm::dot(lineVec, lineVec);
+	if (lenSq < 1e-5f) return start;
+
+	glm::vec2 pVec = p - start;
+	float t = glm::dot(pVec, lineVec) / lenSq;
+	t = std::max(0.0f, std::min(1.0f, t));
+
+	return start + lineVec * t;
+}
+//--------------------------------------------------------------
+float ofApp::getFaceToFaceDistance(glm::vec2 casterTile, glm::vec2 targetTile) {
+	glm::vec2 faceOffsets[] = { { 0.5f, 0.0f }, { 0.5f, 1.0f }, { 0.0f, 0.5f }, { 1.0f, 0.5f } };
+	glm::vec2 faceDirs[] = { { 0, -1 }, { 0, 1 }, { -1, 0 }, { 1, 0 } };
+
+	// 1. Identify Valid Target Faces
+	float minGeoDist = std::numeric_limits<float>::max();
+	for (int j = 0; j < 4; j++) {
+		float d = glm::distance(casterTile + 0.5f, targetTile + faceOffsets[j]);
+		if (d < minGeoDist) minGeoDist = d;
+	}
+
+	std::vector<int> validTargetFaces;
+	for (int j = 0; j < 4; j++) {
+		float d = glm::distance(casterTile + 0.5f, targetTile + faceOffsets[j]);
+		if (d <= minGeoDist + 0.001f) {
+			int tx = (int)targetTile.x + (int)faceDirs[j].x;
+			int ty = (int)targetTile.y + (int)faceDirs[j].y;
+			// BUG FIX HERE: Changed from isTileBlocked to isTileWall
+			if (!isTileWall(tx, ty)) validTargetFaces.push_back(j);
+		}
+	}
+
+	if (validTargetFaces.empty()) return std::numeric_limits<float>::max();
+
+	// 2. Find shortest path
+	float shortestDist = std::numeric_limits<float>::max();
+	bool foundPath = false;
+
+	for (int i = 0; i < 4; i++) {
+		int cx = (int)casterTile.x + (int)faceDirs[i].x;
+		int cy = (int)casterTile.y + (int)faceDirs[i].y;
+		// BUG FIX HERE: Changed from isTileBlocked to isTileWall
+		if (isTileWall(cx, cy)) continue; // Now only blocked by Walls
+
+		glm::vec2 origin = casterTile + faceOffsets[i];
+
+		for (int tIdx : validTargetFaces) {
+			glm::vec2 dest = targetTile + faceOffsets[tIdx];
+			float d = glm::distance(origin, dest);
+			if (d < shortestDist) {
+				shortestDist = d;
+				foundPath = true;
+			}
+		}
+	}
+
+	if (!foundPath) return std::numeric_limits<float>::max();
+	return shortestDist;
+}
+//--------------------------------------------------------------
+bool ofApp::isOrthogonalPathBlocked(glm::vec2 start, glm::vec2 end) {
+	int x1 = (int)start.x;
+	int y1 = (int)start.y;
+	int x2 = (int)end.x;
+	int y2 = (int)end.y;
+
+	// 1. Vertical Check (Same Column)
+	if (x1 == x2) {
+		int minY = std::min(y1, y2);
+		int maxY = std::max(y1, y2);
+		// Check every tile strictly between start and end
+		for (int y = minY + 1; y < maxY; y++) {
+			if (isTileWall(x1, y)) return true; // Blocked!
+		}
+		return false; // Path clear
+	}
+
+	// 2. Horizontal Check (Same Row)
+	if (y1 == y2) {
+		int minX = std::min(x1, x2);
+		int maxX = std::max(x1, x2);
+		// Check every tile strictly between start and end
+		for (int x = minX + 1; x < maxX; x++) {
+			if (isTileWall(x, y1)) return true; // Blocked!
+		}
+		return false; // Path clear
+	}
+
+	// Not orthogonal (Diagonal or Angled), so this check doesn't apply
+	return false;
+}
+//--------------------------------------------------------------
+void ofApp::updateDebugRects() {
+	if (!isDebugMode) return;
+	float panelWidth = 220;
+	float panelX = ofGetWidth() - panelWidth - 20;
+	float panelY = 40;
+	if (players.size() >= 2 && currentPlayerIndex != -1) {
+		panelY = p1_deckRect.getBottom() + 20;
+	}
+	float btnH = 45;
+	float pad = 10;
+	float curY = panelY + pad + uiFont.getLineHeight() + pad;
+
+	debugDrawCardButton.set(panelX + pad, curY, panelWidth - 2 * pad, btnH);
+	curY += btnH + pad;
+	debugSpawnCardButton.set(panelX + pad, curY, panelWidth - 2 * pad, btnH);
+	curY += btnH + pad;
+	debugDiceDropdownButton.set(panelX + pad, curY, panelWidth - 2 * pad, btnH);
+	curY += btnH + pad;
+
+	if (isDebugDiceDropdownOpen) {
+		debugRollD6Button.set(panelX + pad, curY, panelWidth - 2 * pad, btnH);
+		curY += btnH + pad;
+		debugRollD4Button.set(panelX + pad, curY, panelWidth - 2 * pad, btnH);
+		curY += btnH + pad;
+		debugRollD20Button.set(panelX + pad, curY, panelWidth - 2 * pad, btnH);
+		curY += btnH + pad;
+	}
+
+	debugSpawnUnitButton.set(panelX + pad, curY, panelWidth - 2 * pad, btnH);
+	curY += btnH + pad;
+	debugUnlimitedAPButton.set(panelX + pad, curY, panelWidth - 2 * pad, btnH);
+	curY += btnH + pad;
+	debugForceEndTurnButton.set(panelX + pad, curY, panelWidth - 2 * pad, btnH);
+	curY += btnH + pad;
+
+	debugPanel.set(panelX, panelY, panelWidth, curY - panelY);
+}
+//--------------------------------------------------------------
+void ofApp::cleanupGame() {
+	players.clear();
+	activeDiceRolls.clear();
+	activeCardDisplays.clear();
+	activeStolenCardAnimations.clear();
+	activeRemovedCardAnimations.clear();
+
+	for (int x = 0; x < BOARD_WIDTH; ++x) {
+		for (int y = 0; y < BOARD_HEIGHT; ++y) {
+			board[x][y] = Tile(); // Reset each tile
+		}
+	}
+
+	currentPlayerIndex = -1;
+	playerAction = NONE;
+	selectedCardIndex = -1;
+	draggedCardIndex = -1;
+	isPlayerAnimating = false;
+	isLoadingGame = false;
+
+	ofLogNotice("Game") << "--- GAME SESSION CLEANED UP ---";
+}
+//--------------------------------------------------------------
+void ofApp::loadCardData(const std::string & filePath) {
+	ofJson json;
+	if (!ofFile(filePath).exists()) {
+		ofLogError("ofApp::loadCardData") << "Could not find card data file: " << filePath;
+		return;
+	}
+	json = ofLoadJson(filePath);
+
+	allCards.clear();
+
+	const int cardPixelWidth = 409, cardPixelHeight = 585;
+	const int numCols = 10;
+
+	for (const auto & cardJson : json) {
+		Card newCard;
+		int cardId = cardJson.value("id", 0);
+		if (cardId == 0) continue;
+
+		newCard.name = cardJson.value("name", "Unnamed");
+		newCard.type = stringToCardType(cardJson.value("type", "CARD_NONE"));
+		newCard.cost = cardJson.value("cost", 0);
+		newCard.value = cardJson.value("value", 0);
+		newCard.targeting = stringToTargetingType(cardJson.value("targeting", "TARGET_NONE"));
+		newCard.damageType = stringToDamageType(cardJson.value("damageType", "DAMAGE_PHYSICAL"));
+		newCard.numDice = cardJson.value("numDice", 0);
+		newCard.diceSides = cardJson.value("diceSides", 0);
+
+		// Calculate texture coordinates from the sprite sheet based on ID
+		int index = cardId - 1;
+		int row = index / numCols;
+		int col = index % numCols;
+		newCard.textureRect = ofRectangle(col * cardPixelWidth, row * cardPixelHeight, cardPixelWidth, cardPixelHeight);
+
+		allCards.push_back(newCard);
+	}
+	ofLogNotice("ofApp::loadCardData") << "Loaded " << allCards.size() << " cards from JSON.";
+}
+
+CardType ofApp::stringToCardType(const std::string & str) {
+	if (str == "CARD_ATTACK_SINGLE_TILE") return CARD_ATTACK_SINGLE_TILE;
+	if (str == "CARD_MIND_THEFT") return CARD_MIND_THEFT;
+	if (str == "CARD_AMNESIA") return CARD_AMNESIA;
+	if (str == "CARD_GAIN_BLOCK") return CARD_GAIN_BLOCK;
+	if (str == "CARD_GAIN_WARD") return CARD_GAIN_WARD;
+	if (str == "CARD_MAGIC_BLAST") return CARD_MAGIC_BLAST;
+	if (str == "CARD_FIREBALL") return CARD_FIREBALL;
+	if (str == "CARD_SHOCK") return CARD_SHOCK;
+	if (str == "CARD_ROCK_CRUSH") return CARD_ROCK_CRUSH;
+	if (str == "CARD_DISPEL") return CARD_DISPEL;
+	if (str == "CARD_TELEPORT") return CARD_TELEPORT;
+	if (str == "CARD_HASTEN") return CARD_HASTEN;
+	if (str == "CARD_REPLICATE") return CARD_REPLICATE;
+	if (str == "CARD_WISDOM_BOON") return CARD_WISDOM_BOON;
+	if (str == "CARD_ETHEREAL_JOLT") return CARD_ETHEREAL_JOLT;
+	if (str == "CARD_FLAME_HIT") return CARD_FLAME_HIT;
+	if (str == "CARD_HEAL") return CARD_HEAL;
+	if (str == "CARD_RAISE_DEAD") return CARD_RAISE_DEAD;
+	if (str == "CARD_SUMMON_GOLEM") return CARD_SUMMON_GOLEM;
+	if (str == "CARD_STRENGTHEN_ELEMENTS") return CARD_STRENGTHEN_ELEMENTS;
+	if (str == "CARD_CREATE_WALL") return CARD_CREATE_WALL;
+	if (str == "CARD_DARK_SHIELD") return CARD_DARK_SHIELD;
+	return CARD_NONE;
+}
+
+TargetingType ofApp::stringToTargetingType(const std::string & str) {
+	if (str == "TARGET_ADJACENT_UNIT") return TARGET_ADJACENT_UNIT;
+	if (str == "TARGET_SELF") return TARGET_SELF;
+	if (str == "TARGET_LINEAR_PIERCE") return TARGET_LINEAR_PIERCE;
+	if (str == "TARGET_CLEAVE_ADJACENT") return TARGET_CLEAVE_ADJACENT;
+	if (str == "TARGET_ADJACENT_OR_SELF_UNIT") return TARGET_ADJACENT_OR_SELF_UNIT;
+	if (str == "TARGET_LINE_OF_SIGHT_TILE") return TARGET_LINE_OF_SIGHT_TILE;
+	if (str == "TARGET_ADJACENT_UNIT_OR_WALL") return TARGET_ADJACENT_UNIT_OR_WALL;
+	if (str == "TARGET_EMPTY_ADJACENT") return TARGET_EMPTY_ADJACENT;
+	return TARGET_NONE;
+}
+
+DamageType ofApp::stringToDamageType(const std::string & str) {
+	if (str == "DAMAGE_PIERCING") return DAMAGE_PIERCING;
+	if (str == "DAMAGE_MAGIC") return DAMAGE_MAGIC;
+	if (str == "DAMAGE_FIRE") return DAMAGE_FIRE;
+	if (str == "DAMAGE_ELECTRIC") return DAMAGE_ELECTRIC;
+	if (str == "DAMAGE_HOLY") return DAMAGE_HOLY;
+	return DAMAGE_PHYSICAL;
+}
+// ----------------- MINION UI -----------------
+// Helper to draw centered text in a specific rectangle)
+void drawStatText(ofTrueTypeFont & font, string text, float x, float y, float w, float h, ofColor color) {
+	if (text == "0") return;
+	float scale = 0.6f;
+	ofRectangle bounds = font.getStringBoundingBox(text, 0, 0);
+	ofPushMatrix();
+	// Center the text in the rect
+	ofTranslate(x + (w - bounds.width * scale) / 2, y + (h + bounds.height * scale) / 2 - 2);
+	ofScale(scale, scale);
+	ofSetColor(color);
+	font.drawString(text, 0, 0);
+	ofPopMatrix();
+}
+//--------------------------------------------------------------
+void ofApp::drawMinionStatusBars(Player & minion, const std::string & name, float x, float y, float totalWidth) {
+	float scale = ofGetHeight() / 1080.0f;
+	float fontScale = 0.9f;
+
+	// 1. Bar Dimensions
+	float barHeight = 20 * scale;
+	ofRectangle nameBounds = uiFont.getStringBoundingBox(name, 0, 0);
+
+	// FIX: Position bar below the name text
+	float barY = y + (nameBounds.height * fontScale) + (4 * scale);
+
+	// 2. Define Segments (Health takes remaining space)
+	float statW = totalWidth * 0.20f; // 20% width for each shield type
+	float usedWidth = 0;
+
+	if (minion.block > 0) usedWidth += statW;
+	if (minion.barrier > 0) usedWidth += statW;
+	if (minion.ward > 0) usedWidth += statW;
+
+	float hpW = totalWidth - usedWidth;
+	float currentX = x;
+
+	// --- HEALTH (Green) ---
+	ofSetColor(40, 0, 0); // Dark Red BG
+	ofDrawRectangle(currentX, barY, hpW, barHeight);
+
+	float hpPct = (float)minion.health / minion.maxHealth;
+	ofSetColor(ofColor::green);
+	ofDrawRectangle(currentX, barY, hpW * hpPct, barHeight);
+
+	// Draw HP Text
+	string hpText = ofToString(minion.health) + "/" + ofToString(minion.maxHealth);
+	drawStatText(uiFont, hpText, currentX, barY, hpW, barHeight, ofColor::white);
+
+	currentX += hpW;
+
+	// --- BLOCK (Grey) ---
+	if (minion.block > 0) {
+		ofSetColor(ofColor::gray);
+		ofDrawRectangle(currentX, barY, statW, barHeight);
+		drawStatText(uiFont, ofToString(minion.block), currentX, barY, statW, barHeight, ofColor::white);
+		currentX += statW;
+	}
+
+	// --- BARRIER (Pink) ---
+	if (minion.barrier > 0) {
+		ofSetColor(ofColor::hotPink);
+		ofDrawRectangle(currentX, barY, statW, barHeight);
+		drawStatText(uiFont, ofToString(minion.barrier), currentX, barY, statW, barHeight, ofColor::white);
+		currentX += statW;
+	}
+
+	// --- WARD (Black) ---
+	if (minion.ward > 0) {
+		ofSetColor(ofColor::black);
+		ofDrawRectangle(currentX, barY, statW, barHeight);
+		drawStatText(uiFont, ofToString(minion.ward), currentX, barY, statW, barHeight, ofColor::white);
+		currentX += statW;
+	}
+}
+//--------------------------------------------------------------
+void ofApp::drawMinionManagerUI() {
+	if (activeMinionUIs.empty()) return;
+
+	float scale = ofGetHeight() / 1080.0f;
+
+	for (int i = 0; i < activeMinionUIs.size(); i++) {
+		auto & ui = activeMinionUIs[i];
+		Player & minion = players[ui.playerIndex];
+
+		// --- Render Model to FBO ---
+		modelFbo.begin();
+		ofClear(0, 0, 0, 0);
+		ofEnableDepthTest();
+		ofDisableLighting();
+		uiLight.disable();
+		ofSetColor(255);
+
 		ofPushMatrix();
-		// Center the text in the rect
-		ofTranslate(x + (w - bounds.width * scale) / 2, y + (h + bounds.height * scale) / 2 - 2);
-		ofScale(scale, scale);
-		ofSetColor(color);
-		font.drawString(text, 0, 0);
-		ofPopMatrix();
-	}
-	//--------------------------------------------------------------
-	void ofApp::drawMinionStatusBars(Player & minion, const std::string & name, float x, float y, float totalWidth) {
-		float scale = ofGetHeight() / 1080.0f;
-		float fontScale = 0.9f;
 
-		// 1. Bar Dimensions
-		float barHeight = 20 * scale;
+		if (minion.isGolem) {
+			// --- GOLEM UI SETTINGS ---
+			ofTranslate(modelFbo.getWidth() / 2, 100);
+			ofScale(24, 24, 24);
+			ofRotateXDeg(-15);
+			ofRotateYDeg(ofGetElapsedTimef() * 30);
+			if (minion.minionTexture) minion.minionTexture->bind();
+			golemModel.drawFaces();
+			if (minion.minionTexture) minion.minionTexture->unbind();
+
+		} else {
+			// --- SKELETON UI SETTINGS ---
+			ofSetColor(255);
+			ofTranslate(modelFbo.getWidth() / 2, 90);
+
+			// FIX: Reverted to negative Y-scale to flip skeleton upright
+			ofScale(24, -24, 24);
+
+			ofRotateXDeg(-15);
+			ofRotateYDeg(ofGetElapsedTimef() * 30);
+			skeletonTexture.bind();
+			skeletonModel.drawFaces();
+			skeletonTexture.unbind();
+		}
+
+		ofPopMatrix();
+		ofDisableDepthTest();
+		modelFbo.end();
+
+		// --- Draw UI Panel ---
+		ofSetColor(0, 0, 0, 150);
+		ofDrawRectRounded(ui.bounds, 10 * scale);
+
+		// --- DETERMINE NAME (using new displayNumber) ---
+		string name = "";
+		if (minion.isGolem) {
+			if (minion.minionTexture == &golemTexElectric)
+				name = "Electric Golem ";
+			else if (minion.minionTexture == &golemTexFire)
+				name = "Fire Golem ";
+			else if (minion.minionTexture == &golemTexRock)
+				name = "Rock Golem ";
+			else
+				name = "Golem ";
+		} else {
+			name = "Skeleton ";
+		}
+		name += ofToString(ui.displayNumber); // Use the pre-calculated number
+
+		// --- Draw Name Text ---
+		float fontScale = 0.9f;
+		float textBlockX = ui.bounds.x + 10 * scale;
+		float textBlockY = ui.bounds.y + 5 * scale;
 		ofRectangle nameBounds = uiFont.getStringBoundingBox(name, 0, 0);
 
-		// FIX: Position bar below the name text
-		float barY = y + (nameBounds.height * fontScale) + (4 * scale);
+		ofPushMatrix();
+		ofTranslate(textBlockX, textBlockY + nameBounds.height * fontScale);
+		ofScale(fontScale, fontScale);
+		ofSetColor(ofColor::white);
+		uiFont.drawString(name, 0, 0);
+		ofPopMatrix();
 
-		// 2. Define Segments (Health takes remaining space)
-		float statW = totalWidth * 0.20f; // 20% width for each shield type
-		float usedWidth = 0;
+		// --- Draw Model FBO ---
+		float textBlockBottom = textBlockY + (nameBounds.height * fontScale) + (25 * scale);
+		float modelAreaHeight = ui.bounds.getBottom() - textBlockBottom - (5 * scale);
 
-		if (minion.block > 0) usedWidth += statW;
-		if (minion.barrier > 0) usedWidth += statW;
-		if (minion.ward > 0) usedWidth += statW;
+		ui.modelViewport.set(
+			textBlockX + 15 * scale,
+			textBlockBottom,
+			modelAreaHeight,
+			modelAreaHeight);
+		ofSetColor(255);
+		modelFbo.draw(ui.modelViewport);
 
-		float hpW = totalWidth - usedWidth;
-		float currentX = x;
+		// --- Draw Icons ---
+		float iconMargin = 8 * scale;
+		float iconHeight = ui.bounds.height - (iconMargin * 2);
+		float cardAspectRatio = cardBackImage.getWidth() / cardBackImage.getHeight();
+		float iconWidth = iconHeight * cardAspectRatio;
+		float iconsY = ui.bounds.y + iconMargin;
 
-		// --- HEALTH (Green) ---
-		ofSetColor(40, 0, 0); // Dark Red BG
-		ofDrawRectangle(currentX, barY, hpW, barHeight);
+		ui.discardRect.set(ui.bounds.getRight() - (iconWidth + iconMargin), iconsY, iconWidth, iconHeight);
+		ui.deckRect.set(ui.bounds.getRight() - (iconWidth * 2 + iconMargin + 5 * scale), iconsY, iconWidth, iconHeight);
 
-		float hpPct = (float)minion.health / minion.maxHealth;
-		ofSetColor(ofColor::green);
-		ofDrawRectangle(currentX, barY, hpW * hpPct, barHeight);
+		// --- Status Bars ---
+		float availableWidth = ui.deckRect.x - textBlockX - (15 * scale);
+		drawMinionStatusBars(minion, name, textBlockX, textBlockY, availableWidth);
 
-		// Draw HP Text
-		string hpText = ofToString(minion.health) + "/" + ofToString(minion.maxHealth);
-		drawStatText(uiFont, hpText, currentX, barY, hpW, barHeight, ofColor::white);
-
-		currentX += hpW;
-
-		// --- BLOCK (Grey) ---
-		if (minion.block > 0) {
-			ofSetColor(ofColor::gray);
-			ofDrawRectangle(currentX, barY, statW, barHeight);
-			drawStatText(uiFont, ofToString(minion.block), currentX, barY, statW, barHeight, ofColor::white);
-			currentX += statW;
+		// Deck
+		ofSetColor(255);
+		if (!minion.deck.empty()) {
+			cardBackImage.draw(ui.deckRect);
+		} else {
+			ofSetColor(20, 20, 20, 200);
+			ofDrawRectRounded(ui.deckRect, 3);
+		}
+		if (ui.playerIndex == currentPlayerIndex && !hasDrawnCardsThisTurn) {
+			ofPushStyle();
+			ofNoFill();
+			ofSetColor(ofColor::yellow);
+			ofSetLineWidth(3 * scale);
+			ofDrawRectRounded(ui.deckRect, 5);
+			ofPopStyle();
 		}
 
-		// --- BARRIER (Pink) ---
-		if (minion.barrier > 0) {
-			ofSetColor(ofColor::hotPink);
-			ofDrawRectangle(currentX, barY, statW, barHeight);
-			drawStatText(uiFont, ofToString(minion.barrier), currentX, barY, statW, barHeight, ofColor::white);
-			currentX += statW;
-		}
-
-		// --- WARD (Black) ---
-		if (minion.ward > 0) {
-			ofSetColor(ofColor::black);
-			ofDrawRectangle(currentX, barY, statW, barHeight);
-			drawStatText(uiFont, ofToString(minion.ward), currentX, barY, statW, barHeight, ofColor::white);
-			currentX += statW;
-		}
-	}
-	//--------------------------------------------------------------
-	void ofApp::drawMinionManagerUI() {
-		if (activeMinionUIs.empty()) return;
-
-		float scale = ofGetHeight() / 1080.0f;
-
-		for (int i = 0; i < activeMinionUIs.size(); i++) {
-			auto & ui = activeMinionUIs[i];
-			Player & minion = players[ui.playerIndex];
-
-			// --- Render Model to FBO ---
-			modelFbo.begin();
-			ofClear(0, 0, 0, 0);
-			ofEnableDepthTest();
-			ofDisableLighting();
-			uiLight.disable();
-			ofSetColor(255);
-
-			ofPushMatrix();
-
-			if (minion.isGolem) {
-				// --- GOLEM UI SETTINGS ---
-				ofTranslate(modelFbo.getWidth() / 2, 100);
-				ofScale(24, 24, 24);
-				ofRotateXDeg(-15);
-				ofRotateYDeg(ofGetElapsedTimef() * 30);
-				if (minion.minionTexture) minion.minionTexture->bind();
-				golemModel.drawFaces();
-				if (minion.minionTexture) minion.minionTexture->unbind();
-
-			} else {
-				// --- SKELETON UI SETTINGS ---
-				ofSetColor(255);
-				ofTranslate(modelFbo.getWidth() / 2, 90);
-
-				// FIX: Reverted to negative Y-scale to flip skeleton upright
-				ofScale(24, -24, 24);
-
-				ofRotateXDeg(-15);
-				ofRotateYDeg(ofGetElapsedTimef() * 30);
-				skeletonTexture.bind();
-				skeletonModel.drawFaces();
-				skeletonTexture.unbind();
-			}
-
-			ofPopMatrix();
-			ofDisableDepthTest();
-			modelFbo.end();
-
-			// --- Draw UI Panel ---
-			ofSetColor(0, 0, 0, 150);
-			ofDrawRectRounded(ui.bounds, 10 * scale);
-
-			// --- DETERMINE NAME (using new displayNumber) ---
-			string name = "";
-			if (minion.isGolem) {
-				if (minion.minionTexture == &golemTexElectric)
-					name = "Electric Golem ";
-				else if (minion.minionTexture == &golemTexFire)
-					name = "Fire Golem ";
-				else if (minion.minionTexture == &golemTexRock)
-					name = "Rock Golem ";
-				else
-					name = "Golem ";
-			} else {
-				name = "Skeleton ";
-			}
-			name += ofToString(ui.displayNumber); // Use the pre-calculated number
-
-			// --- Draw Name Text ---
-			float fontScale = 0.9f;
-			float textBlockX = ui.bounds.x + 10 * scale;
-			float textBlockY = ui.bounds.y + 5 * scale;
-			ofRectangle nameBounds = uiFont.getStringBoundingBox(name, 0, 0);
-
-			ofPushMatrix();
-			ofTranslate(textBlockX, textBlockY + nameBounds.height * fontScale);
-			ofScale(fontScale, fontScale);
-			ofSetColor(ofColor::white);
-			uiFont.drawString(name, 0, 0);
-			ofPopMatrix();
-
-			// --- Draw Model FBO ---
-			float textBlockBottom = textBlockY + (nameBounds.height * fontScale) + (25 * scale);
-			float modelAreaHeight = ui.bounds.getBottom() - textBlockBottom - (5 * scale);
-
-			ui.modelViewport.set(
-				textBlockX + 15 * scale,
-				textBlockBottom,
-				modelAreaHeight,
-				modelAreaHeight);
-			ofSetColor(255);
-			modelFbo.draw(ui.modelViewport);
-
-			// --- Draw Icons ---
-			float iconMargin = 8 * scale;
-			float iconHeight = ui.bounds.height - (iconMargin * 2);
-			float cardAspectRatio = cardBackImage.getWidth() / cardBackImage.getHeight();
-			float iconWidth = iconHeight * cardAspectRatio;
-			float iconsY = ui.bounds.y + iconMargin;
-
-			ui.discardRect.set(ui.bounds.getRight() - (iconWidth + iconMargin), iconsY, iconWidth, iconHeight);
-			ui.deckRect.set(ui.bounds.getRight() - (iconWidth * 2 + iconMargin + 5 * scale), iconsY, iconWidth, iconHeight);
-
-			// --- Status Bars ---
-			float availableWidth = ui.deckRect.x - textBlockX - (15 * scale);
-			drawMinionStatusBars(minion, name, textBlockX, textBlockY, availableWidth);
-
-			// Deck
-			ofSetColor(255);
-			if (!minion.deck.empty()) {
-				cardBackImage.draw(ui.deckRect);
-			} else {
-				ofSetColor(20, 20, 20, 200);
-				ofDrawRectRounded(ui.deckRect, 3);
-			}
-			if (ui.playerIndex == currentPlayerIndex && !hasDrawnCardsThisTurn) {
-				ofPushStyle();
-				ofNoFill();
-				ofSetColor(ofColor::yellow);
-				ofSetLineWidth(3 * scale);
-				ofDrawRectRounded(ui.deckRect, 5);
-				ofPopStyle();
-			}
-
-			// Discard
-			if (!minion.discardPile.empty()) {
-				cardSpriteSheet.getTexture().drawSubsection(ui.discardRect, minion.discardPile.back().textureRect);
-			} else {
-				ofSetColor(20, 20, 20, 200);
-				ofDrawRectRounded(ui.discardRect, 3);
-			}
+		// Discard
+		if (!minion.discardPile.empty()) {
+			cardSpriteSheet.getTexture().drawSubsection(ui.discardRect, minion.discardPile.back().textureRect);
+		} else {
+			ofSetColor(20, 20, 20, 200);
+			ofDrawRectRounded(ui.discardRect, 3);
 		}
 	}
+}
