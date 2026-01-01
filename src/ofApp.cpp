@@ -1924,19 +1924,16 @@ void ofApp::drawGame() {
 			else if (player.isGolem) {
 				ofSetColor(255);
 
-				// FIX 1: HEIGHT
-				// Lowered from 8.0f to 2.0f so he isn't floating
+				// FIX 1: Lift up from floor (0.0f -> 6.0f)
 				ofTranslate(0, 2.0f, 0);
 
-				// FIX 2: ROTATION
-				// 1. Face the correct direction on the board
+				// Keep upright rotation
+				ofRotateXDeg(180);
+
+				// FIX 2: Rotate to North (225 -> 45)
+				// Rotating 180 degrees from South-East should point North-West/North
 				ofRotateYDeg(-90);
 
-				// 2. Stand up (Fix "Lying on side")
-				// If feet are facing Right, rotating Z -90 puts feet Down.
-				ofRotateZDeg(-90);
-
-				// FIX 3: TEXTURE BINDING
 				if (player.minionTexture) {
 					player.minionTexture->bind();
 				}
@@ -4550,7 +4547,7 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 
 		// 3. Setup Minion Data
 		Player minion;
-		minion.playerID = 200 + (int)players.size();
+		minion.playerID = 100 + (int)players.size();
 		minion.x = targetX;
 		minion.y = targetY;
 		minion.isMinion = true;
@@ -6363,6 +6360,7 @@ void ofApp::drawMinionStatusBars(Player & minion, const std::string & name, floa
 	}
 }
 //--------------------------------------------------------------
+//--------------------------------------------------------------
 void ofApp::drawMinionManagerUI() {
 	if (activeMinionUIs.empty()) return;
 
@@ -6376,16 +6374,18 @@ void ofApp::drawMinionManagerUI() {
 		modelFbo.begin();
 		ofClear(0, 0, 0, 0);
 		ofEnableDepthTest();
-		ofEnableLighting();
-		uiLight.enable();
+
+		// Ensure lighting is OFF by default for the FBO so everything is "Full Bright"
+		ofDisableLighting();
+		uiLight.disable();
+		ofSetColor(255);
 
 		ofPushMatrix();
 
 		if (minion.isGolem) {
 			// --- GOLEM UI SETTINGS ---
-			// Moved up slightly (100) and Scaled UP (24) to match Skeleton
 			ofTranslate(modelFbo.getWidth() / 2, 100);
-			ofScale(24, -24, 24);
+			ofScale(24, 24, 24);
 
 			ofRotateXDeg(-15);
 			ofRotateYDeg(ofGetElapsedTimef() * 30);
@@ -6393,11 +6393,16 @@ void ofApp::drawMinionManagerUI() {
 			if (minion.minionTexture) minion.minionTexture->bind();
 			golemModel.drawFaces();
 			if (minion.minionTexture) minion.minionTexture->unbind();
+
 		} else {
 			// --- SKELETON UI SETTINGS ---
-			// FIX: Changed Y from 120 to 90 to move it UPWARDS
+			// Explicitly ensure color is white (Full Bright)
+			ofSetColor(255);
+
 			ofTranslate(modelFbo.getWidth() / 2, 90);
-			ofScale(24, -24, 24);
+
+			// Keep the positive scale to keep him upright
+			ofScale(24, 24, 24);
 
 			ofRotateXDeg(-15);
 			ofRotateYDeg(ofGetElapsedTimef() * 30);
@@ -6408,8 +6413,8 @@ void ofApp::drawMinionManagerUI() {
 		}
 
 		ofPopMatrix();
-		uiLight.disable();
-		ofDisableLighting();
+
+		// Cleanup state
 		ofDisableDepthTest();
 		modelFbo.end();
 
@@ -6418,13 +6423,11 @@ void ofApp::drawMinionManagerUI() {
 		ofSetColor(0, 0, 0, 150);
 		ofDrawRectRounded(ui.bounds, 10 * scale);
 
-		// --- 1. Draw Text Block (Name + Health) in TOP-LEFT ---
+		// --- Name Text ---
 		string name = (minion.isGolem ? "Golem " : "Skeleton ") + ofToString(i + 1);
 		float fontScale = 0.9f;
-
 		float textBlockX = ui.bounds.x + 10 * scale;
 		float textBlockY = ui.bounds.y + 5 * scale;
-
 		ofRectangle nameBounds = uiFont.getStringBoundingBox(name, 0, 0);
 
 		ofPushMatrix();
@@ -6434,9 +6437,7 @@ void ofApp::drawMinionManagerUI() {
 		uiFont.drawString(name, 0, 0);
 		ofPopMatrix();
 
-		drawMinionStatusBars(minion, name, textBlockX, textBlockY, 0); // (0 width arg is temp, we recalculate below)
-
-		// --- 2. Draw Model Image in BOTTOM-LEFT ---
+		// --- Draw Model FBO ---
 		float textBlockBottom = textBlockY + (nameBounds.height * fontScale) + (25 * scale);
 		float modelAreaHeight = ui.bounds.getBottom() - textBlockBottom - (5 * scale);
 
@@ -6448,7 +6449,7 @@ void ofApp::drawMinionManagerUI() {
 		ofSetColor(255);
 		modelFbo.draw(ui.modelViewport);
 
-		// --- 3. Draw Deck/Discard Icons on the RIGHT ---
+		// --- Draw Icons ---
 		float iconMargin = 8 * scale;
 		float iconHeight = ui.bounds.height - (iconMargin * 2);
 		float cardAspectRatio = cardBackImage.getWidth() / cardBackImage.getHeight();
@@ -6458,7 +6459,7 @@ void ofApp::drawMinionManagerUI() {
 		ui.discardRect.set(ui.bounds.getRight() - (iconWidth + iconMargin), iconsY, iconWidth, iconHeight);
 		ui.deckRect.set(ui.bounds.getRight() - (iconWidth * 2 + iconMargin + 5 * scale), iconsY, iconWidth, iconHeight);
 
-		// Recalculate bar width now that we have deck position
+		// --- Status Bars ---
 		float availableWidth = ui.deckRect.x - textBlockX - (15 * scale);
 		drawMinionStatusBars(minion, name, textBlockX, textBlockY, availableWidth);
 
@@ -6470,8 +6471,6 @@ void ofApp::drawMinionManagerUI() {
 			ofSetColor(20, 20, 20, 200);
 			ofDrawRectRounded(ui.deckRect, 3);
 		}
-
-		// Highlight
 		if (ui.playerIndex == currentPlayerIndex && !hasDrawnCardsThisTurn) {
 			ofPushStyle();
 			ofNoFill();
