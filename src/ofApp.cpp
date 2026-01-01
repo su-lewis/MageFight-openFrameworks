@@ -38,20 +38,20 @@ void ofApp::setup() {
 	// Load Player Model
 	playerModel.load("Units/Player/player.obj");
 	playerModel.setRotation(0, -90, 1, 0, 0);
-	playerModel.setScale(0.008f, 0.008f, 0.008f);
+	playerModel.setScale(0.003f, 0.003f, 0.003f);
 	// Load Skeleton
 	skeletonModel.load("Units/Skeleton/skeleton.fbx");
 	ofLoadImage(skeletonTexture, "Units/Skeleton/base.png");
 	skeletonModel.setRotation(0, 180, 1, 0, 0);
 	skeletonModel.setRotation(1, 180, 0, 1, 0);
 
-	skeletonModel.setScale(0.008f, 0.008f, 0.008f);
+	skeletonModel.setScale(0.003f, 0.003f, 0.003f);
 	skeletonModel.disableMaterials();
 
 	// Load Golem
 	golemModel.load("Units/Golem/lava+golem+3d+model.fbx");
 	// Remove the setRotation here. We will handle rotation in draw() so it's easier to tweak.
-	golemModel.setScale(0.01f, 0.01f, 0.01f);
+	golemModel.setScale(0.005f, 0.005f, 0.005f);
 
 	// FIX: Disable both Materials AND Textures to allow manual overrides
 	golemModel.disableMaterials();
@@ -333,7 +333,10 @@ void ofApp::setup() {
 	uiLight.setPosition(0, 100, 200); // Positioned in front and above
 	// END ADD
 
-	cam.setupPerspective(false, 60, 0.1f, 100000);
+	// Adjust FOV based on aspect ratio to maintain consistent scale
+	float aspectRatio = (float)ofGetWidth() / (float)ofGetHeight();
+	float fov = 60.0f * (aspectRatio / 1.333f); // 1.333 is the original 1024/768 ratio
+	cam.setupPerspective(false, fov, 0.1f, 100000);
 
 	// --- SHADOW TEXTURE GENERATION ---
 	ofPixels pix;
@@ -435,7 +438,7 @@ void ofApp::setup() {
 
 	// --- FINAL APPLY SETTINGS ---
 	isFullscreen = true;
-	ofSetFullscreen(true);
+	// Fullscreen is now set in main.cpp
 	applySettings();
 }
 
@@ -6583,7 +6586,7 @@ void ofApp::drawMinionManagerUI() {
 		if (minion.isGolem) {
 			// --- GOLEM UI SETTINGS ---
 			ofTranslate(modelFbo.getWidth() / 2, 100);
-			ofScale(24, 24, 24);
+			ofScale(18, 18, 18);
 			ofRotateXDeg(-15);
 			ofRotateYDeg(ofGetElapsedTimef() * 30);
 			if (minion.minionTexture) minion.minionTexture->bind();
@@ -6596,7 +6599,7 @@ void ofApp::drawMinionManagerUI() {
 			ofTranslate(modelFbo.getWidth() / 2, 90);
 
 			// FIX: Reverted to negative Y-scale to flip skeleton upright
-			ofScale(24, -24, 24);
+			ofScale(18, -18, 18);
 
 			ofRotateXDeg(-15);
 			ofRotateYDeg(ofGetElapsedTimef() * 30);

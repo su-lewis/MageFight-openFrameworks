@@ -1,9 +1,10 @@
-#include "ofMain.h"
 #include "ofApp.h"
+#include "ofMain.h"
 
-int main( ){
-    // Start as a small window to ensure the app initializes safely.
-    // We will switch to Fullscreen immediately in setup().
-	ofSetupOpenGL(1024, 768, OF_WINDOW);
+int main() {
+	ofGLFWWindowSettings settings;
+	settings.windowMode = OF_GAME_MODE;
+
+	auto window = ofCreateWindow(settings);
 	ofRunApp(new ofApp());
 }
