@@ -42,7 +42,8 @@ enum DamageType {
 	DAMAGE_PIERCING,
 	DAMAGE_MAGIC,
 	DAMAGE_ELECTRIC,
-	DAMAGE_FIRE
+	DAMAGE_FIRE,
+	DAMAGE_HOLY
 };
 
 enum TargetingType {
@@ -89,6 +90,7 @@ enum CardType {
 	CARD_RAISE_DEAD,
 	CARD_SUMMON_GOLEM,
 	CARD_STRENGTHEN_ELEMENTS,
+	CARD_DARK_SHIELD
 };
 
 enum DicePurpose {
@@ -99,7 +101,8 @@ enum DicePurpose {
 	PURPOSE_DEBUG,
 	PURPOSE_BARRIER_GAIN,
 	PURPOSE_HP,
-	PURPOSE_HEALING
+	PURPOSE_HEALING,
+	PURPOSE_BONUS_AP
 };
 
 enum TargetValidity {
@@ -194,6 +197,7 @@ struct Player {
 	int block = 0;
 	int ward = 0;
 	int barrier = 0;
+	int holyBlock = 0;
 	int playerID = 0;
 	bool onFire = false;
 
@@ -205,11 +209,13 @@ struct Player {
 	bool nextTurnD10AP = false;
 	bool nextTurnExtraDraw = false;
 	bool isReplicatePending = false;
+	bool nextTurnBonusDiceFromMinions = false;
 	int strengthenElementsTurnsRemaining = 0;
 	// Minion Data
 	bool isMinion = false;
 	bool isSkeleton = false;
-	bool isGolem = false; // <--- ADD THIS
+	bool isGolem = false;
+	bool isHellhound = false;
 	ofTexture * minionTexture = nullptr;
 	int ownerID = -1;
 	bool hasRegeneration = false;

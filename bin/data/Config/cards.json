@@ -225,5 +225,13 @@
     "type": "CARD_CREATE_WALL",
     "cost": 2,
     "targeting": "TARGET_EMPTY_ADJACENT"
+  },
+  {
+    "id": 26,
+    "name": "Dark Shield",
+    "type": "CARD_DARK_SHIELD",
+    "cost": 2,
+    "value": 7,
+    "targeting": "TARGET_SELF"
   }
 ]
