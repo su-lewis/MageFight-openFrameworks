@@ -88,7 +88,7 @@ enum CardType {
 	CARD_HEAL,
 	CARD_RAISE_DEAD,
 	CARD_SUMMON_GOLEM,
-	CARD_STRENGTHEN_ELEMENTS
+	CARD_STRENGTHEN_ELEMENTS,
 };
 
 enum DicePurpose {
@@ -224,6 +224,7 @@ struct Player {
 
 struct MinionUI {
 	int playerIndex; // Which player in the main `players` vector this UI represents
+	int displayNumber;
 	ofRectangle bounds;
 	ofRectangle modelViewport;
 	ofRectangle healthBar;

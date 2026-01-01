@@ -855,52 +855,63 @@ void ofApp::updateGame() {
 		float scale = ofGetHeight() / 1080.0f;
 		float panelWidth = 260 * scale;
 		float entryHeight = 95 * scale;
-
-		// --- Helper to recalculate card height for UI spacing ---
-		// (Same formula used in drawGame)
 		float handBaseCardWidth = 120;
 		float handCardAspectRatio = 585.0f / 409.0f;
 		float baseCardHeight = handBaseCardWidth * handCardAspectRatio;
 		float staticUICardHeight = (baseCardHeight * 1.3f) * scale;
 
+		// --- Counters for Player 0's Minions ---
+		int p0_skeleton_count = 0;
+		int p0_golem_count = 0;
+
 		// --- Build UI for Player 0's Minions (Left Side) ---
 		float p0_startX = 10 * scale;
-		// Positioned below Player 1's Health Bar (Top Left)
 		float p0_startY = (40 * scale) + (65 * scale) + (50 * scale) * 3 + (20 * scale);
-
-		int p0_minionCount = 0;
+		int p0_minion_ui_count = 0; // for vertical positioning
 		for (int i = 0; i < players.size(); i++) {
 			if (players[i].isMinion && players[i].ownerID == 0) {
 				MinionUI ui;
 				ui.playerIndex = i;
-				ui.bounds.set(p0_startX, p0_startY + (p0_minionCount * (entryHeight + 10 * scale)), panelWidth, entryHeight);
+
+				// Determine and set the correct display number
+				if (players[i].isSkeleton) {
+					ui.displayNumber = ++p0_skeleton_count;
+				} else if (players[i].isGolem) {
+					ui.displayNumber = ++p0_golem_count;
+				}
+
+				ui.bounds.set(p0_startX, p0_startY + (p0_minion_ui_count * (entryHeight + 10 * scale)), panelWidth, entryHeight);
 				activeMinionUIs.push_back(ui);
-				p0_minionCount++;
+				p0_minion_ui_count++;
 			}
 		}
 
-		// --- Build UI for Player 1's Minions (Right Side) ---
-		// Align to the Right edge
-		float p1_startX = ofGetWidth() - panelWidth - (10 * scale);
+		// --- Counters for Player 1's Minions ---
+		int p1_skeleton_count = 0;
+		int p1_golem_count = 0;
 
-		// Calculate Y Position:
-		// P1 has Discard (Top) + Deck (Below Discard) + AP Counter (Below Deck).
-		// We want Minions to start BELOW the AP Counter.
+		// --- Build UI for Player 1's Minions (Right Side) ---
+		float p1_startX = ofGetWidth() - panelWidth - (10 * scale);
 		float p1_discardY = 20 * scale;
 		float p1_deckY = p1_discardY + staticUICardHeight + (20 * scale);
 		float p1_apCenterY = p1_deckY + staticUICardHeight + (60 * scale);
-
-		// Start minions 50px below the AP Counter center
 		float p1_startY = p1_apCenterY + (50 * scale);
-
-		int p1_minionCount = 0;
+		int p1_minion_ui_count = 0; // for vertical positioning
 		for (int i = 0; i < players.size(); i++) {
 			if (players[i].isMinion && players[i].ownerID == 1) {
 				MinionUI ui;
 				ui.playerIndex = i;
-				ui.bounds.set(p1_startX, p1_startY + (p1_minionCount * (entryHeight + 10 * scale)), panelWidth, entryHeight);
+
+				// Determine and set the correct display number
+				if (players[i].isSkeleton) {
+					ui.displayNumber = ++p1_skeleton_count;
+				} else if (players[i].isGolem) {
+					ui.displayNumber = ++p1_golem_count;
+				}
+
+				ui.bounds.set(p1_startX, p1_startY + (p1_minion_ui_count * (entryHeight + 10 * scale)), panelWidth, entryHeight);
 				activeMinionUIs.push_back(ui);
-				p1_minionCount++;
+				p1_minion_ui_count++;
 			}
 		}
 	}
@@ -2757,8 +2768,12 @@ void ofApp::drawGame() {
 			});
 		} else { // VIEW_DISCARD
 			viewTitle = "Discard Pile";
-			// The discard pile is already in chronological order, just copy it
+
+			// Copy the discard pile
 			cardsToShowInView = viewPlayer.discardPile;
+
+			// FIX: Reverse the temporary list so the newest card (back of discard) is now at the front for drawing.
+			std::reverse(cardsToShowInView.begin(), cardsToShowInView.end());
 		}
 
 		viewTitle = "Player " + ofToString(viewPlayer.playerID) + "'s " + viewTitle;
@@ -4733,6 +4748,26 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		break;
 	}
 
+		// --- CASE: SUMMON WALL ---
+	case CARD_CREATE_WALL: {
+		// Targeting already ensures the tile is empty and adjacent,
+		// but we can add a safety check.
+		if (!board[targetX][targetY].hasWall && !board[targetX][targetY].hasPlayer) {
+
+			// Set the wall flag
+			board[targetX][targetY].hasWall = true;
+
+			// CRITICAL: Rebuild the 3D mesh to make the wall appear
+			buildLevelMesh();
+
+			// Invalidate pathing cache for all units
+			invalidateTargetCache();
+
+			playedSuccessfully = true;
+		}
+		break;
+	}
+
 	// --- CASE: STANDARD ATTACK (Stab, Cleave, Pierce, Punch) ---
 	case CARD_ATTACK_SINGLE_TILE: {
 		int px = players[currentPlayerIndex].x;
@@ -6357,6 +6392,7 @@ CardType ofApp::stringToCardType(const std::string & str) {
 	if (str == "CARD_RAISE_DEAD") return CARD_RAISE_DEAD;
 	if (str == "CARD_SUMMON_GOLEM") return CARD_SUMMON_GOLEM;
 	if (str == "CARD_STRENGTHEN_ELEMENTS") return CARD_STRENGTHEN_ELEMENTS;
+	if (str == "CARD_CREATE_WALL") return CARD_CREATE_WALL;
 	return CARD_NONE;
 }
 
@@ -6468,8 +6504,6 @@ void ofApp::drawMinionManagerUI() {
 		modelFbo.begin();
 		ofClear(0, 0, 0, 0);
 		ofEnableDepthTest();
-
-		// Ensure lighting is OFF by default so models are "Full Bright"
 		ofDisableLighting();
 		uiLight.disable();
 		ofSetColor(255);
@@ -6480,10 +6514,8 @@ void ofApp::drawMinionManagerUI() {
 			// --- GOLEM UI SETTINGS ---
 			ofTranslate(modelFbo.getWidth() / 2, 100);
 			ofScale(24, 24, 24);
-
 			ofRotateXDeg(-15);
 			ofRotateYDeg(ofGetElapsedTimef() * 30);
-
 			if (minion.minionTexture) minion.minionTexture->bind();
 			golemModel.drawFaces();
 			if (minion.minionTexture) minion.minionTexture->unbind();
@@ -6492,27 +6524,26 @@ void ofApp::drawMinionManagerUI() {
 			// --- SKELETON UI SETTINGS ---
 			ofSetColor(255);
 			ofTranslate(modelFbo.getWidth() / 2, 90);
-			ofScale(24, 24, 24);
+
+			// FIX: Reverted to negative Y-scale to flip skeleton upright
+			ofScale(24, -24, 24);
 
 			ofRotateXDeg(-15);
 			ofRotateYDeg(ofGetElapsedTimef() * 30);
-
 			skeletonTexture.bind();
 			skeletonModel.drawFaces();
 			skeletonTexture.unbind();
 		}
 
 		ofPopMatrix();
-
 		ofDisableDepthTest();
 		modelFbo.end();
 
 		// --- Draw UI Panel ---
-		ui.bounds.height = 95 * scale;
 		ofSetColor(0, 0, 0, 150);
 		ofDrawRectRounded(ui.bounds, 10 * scale);
 
-		// --- DETERMINE NAME ---
+		// --- DETERMINE NAME (using new displayNumber) ---
 		string name = "";
 		if (minion.isGolem) {
 			if (minion.minionTexture == &golemTexElectric)
@@ -6522,12 +6553,11 @@ void ofApp::drawMinionManagerUI() {
 			else if (minion.minionTexture == &golemTexRock)
 				name = "Rock Golem ";
 			else
-				name = "Golem "; // Base Golem
+				name = "Golem ";
 		} else {
 			name = "Skeleton ";
 		}
-		// Append number (1, 2, etc.)
-		name += ofToString(i + 1);
+		name += ofToString(ui.displayNumber); // Use the pre-calculated number
 
 		// --- Draw Name Text ---
 		float fontScale = 0.9f;

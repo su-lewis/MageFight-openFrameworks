@@ -218,5 +218,12 @@
     "type": "CARD_STRENGTHEN_ELEMENTS",
     "cost": 3,
     "targeting": "TARGET_SELF"
+  },
+  {
+    "id": 25,
+    "name": "Summon Wall",
+    "type": "CARD_CREATE_WALL",
+    "cost": 2,
+    "targeting": "TARGET_EMPTY_ADJACENT"
   }
 ]
