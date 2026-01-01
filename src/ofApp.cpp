@@ -853,14 +853,21 @@ void ofApp::updateGame() {
 	activeMinionUIs.clear();
 	if (!players.empty()) {
 		float scale = ofGetHeight() / 1080.0f;
-
-		// FIX: Increased width to 260 for more spacing
-		float panelWidth = 250 * scale;
+		float panelWidth = 260 * scale;
 		float entryHeight = 95 * scale;
+
+		// --- Helper to recalculate card height for UI spacing ---
+		// (Same formula used in drawGame)
+		float handBaseCardWidth = 120;
+		float handCardAspectRatio = 585.0f / 409.0f;
+		float baseCardHeight = handBaseCardWidth * handCardAspectRatio;
+		float staticUICardHeight = (baseCardHeight * 1.3f) * scale;
 
 		// --- Build UI for Player 0's Minions (Left Side) ---
 		float p0_startX = 10 * scale;
+		// Positioned below Player 1's Health Bar (Top Left)
 		float p0_startY = (40 * scale) + (65 * scale) + (50 * scale) * 3 + (20 * scale);
+
 		int p0_minionCount = 0;
 		for (int i = 0; i < players.size(); i++) {
 			if (players[i].isMinion && players[i].ownerID == 0) {
@@ -873,8 +880,19 @@ void ofApp::updateGame() {
 		}
 
 		// --- Build UI for Player 1's Minions (Right Side) ---
+		// Align to the Right edge
 		float p1_startX = ofGetWidth() - panelWidth - (10 * scale);
-		float p1_startY = (40 * scale) + (65 * scale) + (50 * scale) * 3 + (20 * scale);
+
+		// Calculate Y Position:
+		// P1 has Discard (Top) + Deck (Below Discard) + AP Counter (Below Deck).
+		// We want Minions to start BELOW the AP Counter.
+		float p1_discardY = 20 * scale;
+		float p1_deckY = p1_discardY + staticUICardHeight + (20 * scale);
+		float p1_apCenterY = p1_deckY + staticUICardHeight + (60 * scale);
+
+		// Start minions 50px below the AP Counter center
+		float p1_startY = p1_apCenterY + (50 * scale);
+
 		int p1_minionCount = 0;
 		for (int i = 0; i < players.size(); i++) {
 			if (players[i].isMinion && players[i].ownerID == 1) {
@@ -2509,6 +2527,21 @@ void ofApp::drawGame() {
 			ofPopMatrix();
 			p0_statusY += (bonusBox.height * smallFontScale) + (5 * scale);
 		}
+
+		// --- INSERT START ---
+		if (player0->strengthenElementsTurnsRemaining > 0) {
+			string elemText = "Elem Buff (" + ofToString(player0->strengthenElementsTurnsRemaining) + ")";
+			ofRectangle elemBox = titleFont.getStringBoundingBox(elemText, 0, 0);
+			ofSetColor(ofColor::orange);
+			ofPushMatrix();
+			ofTranslate(p0_apCenterX - (elemBox.width * smallFontScale / 2), p0_statusY + (elemBox.height * smallFontScale));
+			ofScale(smallFontScale, smallFontScale);
+			titleFont.drawString(elemText, 0, 0);
+			ofPopMatrix();
+			p0_statusY += (elemBox.height * smallFontScale) + (5 * scale);
+		}
+		// --- INSERT END ---
+
 		if (player0->nextTurnD10AP) {
 			string d10Text = "D10 AP";
 			ofRectangle d10Box = titleFont.getStringBoundingBox(d10Text, 0, 0);
@@ -2550,6 +2583,21 @@ void ofApp::drawGame() {
 			ofPopMatrix();
 			p1_statusY -= (d10Box.height * smallFontScale) + (5 * scale);
 		}
+
+		// --- INSERT START ---
+		if (player1->strengthenElementsTurnsRemaining > 0) {
+			string elemText = "Elem Buff (" + ofToString(player1->strengthenElementsTurnsRemaining) + ")";
+			ofRectangle elemBox = titleFont.getStringBoundingBox(elemText, 0, 0);
+			ofSetColor(ofColor::orange);
+			ofPushMatrix();
+			ofTranslate(p1_apCenterX - (elemBox.width * smallFontScale / 2), p1_statusY);
+			ofScale(smallFontScale, smallFontScale);
+			titleFont.drawString(elemText, 0, 0);
+			ofPopMatrix();
+			p1_statusY -= (elemBox.height * smallFontScale) + (5 * scale);
+		}
+		// --- INSERT END ---
+
 		if (player1->nextTurnAPBonus > 0) {
 			string bonusText = "+" + ofToString(player1->nextTurnAPBonus) + " AP";
 			ofRectangle bonusBox = titleFont.getStringBoundingBox(bonusText, 0, 0);
@@ -4007,6 +4055,16 @@ void ofApp::startNewTurn() {
 	if (currentPlayerIndex != -1) {
 		Player & endingPlayer = players[currentPlayerIndex];
 
+		// --- NEW LOCATION: DECREMENT BUFF TIMERS HERE ---
+		// Decrement the player who just finished their turn.
+		if (endingPlayer.strengthenElementsTurnsRemaining > 0) {
+			endingPlayer.strengthenElementsTurnsRemaining--;
+			if (endingPlayer.strengthenElementsTurnsRemaining == 0) {
+				spawnFloatingText(gridToWorld(endingPlayer.x, endingPlayer.y), "Elements Faded", ofColor::gray);
+			}
+		}
+		// ------------------------------------------------
+
 		// ADD THIS: Clear the combo history
 		endingPlayer.cardsPlayedThisTurn.clear();
 
@@ -4027,13 +4085,10 @@ void ofApp::startNewTurn() {
 	Player & startingPlayer = players[currentPlayerIndex];
 	ofLogNotice("Game") << "--- START TURN: " << (startingPlayer.isMinion ? "Minion " : "Player ") << startingPlayer.playerID;
 
-	// --- FIX IS HERE: SNAP VISUALS IMMEDIATELY ---
-	// Update the animated position to the new player's location BEFORE any checks.
-	// This prevents the "ghosting" and "wrong player on fire" bugs.
+	// --- FIX: Snap visuals immediately ---
 	playerVisualPos = gridToWorld(startingPlayer.x, startingPlayer.y);
 	animationPath.clear();
 	isPlayerAnimating = false;
-	// --- END FIX ---
 
 	// --- 3. REGENERATION ---
 	if (startingPlayer.hasRegeneration) {
@@ -4048,6 +4103,8 @@ void ofApp::startNewTurn() {
 	startingPlayer.block = 0;
 	startingPlayer.ward = 0;
 	startingPlayer.barrier = 0;
+
+	// --- REMOVED: Decrement logic was here. It is now at the top of the function. ---
 
 	// --- 5. PARALYSIS CHECK ---
 	if (startingPlayer.isParalyzed) {
@@ -4664,6 +4721,18 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		return;
 	}
 
+		// --- CASE: STRENGTHEN ELEMENTS ---
+	case CARD_STRENGTHEN_ELEMENTS: {
+		// Set duration to 3 (Current Turn + Next 2 Turns)
+		currentPlayer.strengthenElementsTurnsRemaining = 3;
+
+		spawnFloatingText(gridToWorld(currentPlayer.x, currentPlayer.y), "Elemental Flow!", ofColor::orange);
+		ofLogNotice("Game") << "Player " << currentPlayer.playerID << " strengthened elements for 3 turns.";
+
+		playedSuccessfully = true;
+		break;
+	}
+
 	// --- CASE: STANDARD ATTACK (Stab, Cleave, Pierce, Punch) ---
 	case CARD_ATTACK_SINGLE_TILE: {
 		int px = players[currentPlayerIndex].x;
@@ -4817,6 +4886,31 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 	// --- 3. COMMON CLEANUP ---
 	if (playedSuccessfully) {
 		currentAP -= playedCard.cost;
+
+		// --- STRENGTHEN ELEMENTS TRIGGER ---
+		// Check if buff is active AND card deals Fire or Electric damage
+		if (currentPlayer.strengthenElementsTurnsRemaining > 0) {
+			if (playedCard.damageType == DAMAGE_FIRE || playedCard.damageType == DAMAGE_ELECTRIC) {
+
+				// Don't trigger on the Strengthen card itself (safety check, though types differ)
+				if (playedCard.type != CARD_STRENGTHEN_ELEMENTS) {
+
+					// Create a copy
+					Card copy = playedCard;
+
+					// Add to Deck
+					currentPlayer.deck.push_back(copy);
+
+					// Shuffle the deck to integrate the new card
+					std::shuffle(currentPlayer.deck.begin(), currentPlayer.deck.end(), rng);
+
+					spawnFloatingText(gridToWorld(currentPlayer.x, currentPlayer.y) + glm::vec3(0, 0.5, 0), "Element Copied!", ofColor::cyan);
+					ofLogNotice("Game") << "Strengthen Elements triggered: Copied " << playedCard.name << " to deck.";
+				}
+			}
+		}
+		// -----------------------------------
+
 		currentPlayer.playedCardsPile.push_back(playedCard);
 
 		if (currentPlayer.isReplicatePending && playedCard.type != CARD_REPLICATE) {
@@ -6262,6 +6356,7 @@ CardType ofApp::stringToCardType(const std::string & str) {
 	if (str == "CARD_HEAL") return CARD_HEAL;
 	if (str == "CARD_RAISE_DEAD") return CARD_RAISE_DEAD;
 	if (str == "CARD_SUMMON_GOLEM") return CARD_SUMMON_GOLEM;
+	if (str == "CARD_STRENGTHEN_ELEMENTS") return CARD_STRENGTHEN_ELEMENTS;
 	return CARD_NONE;
 }
 

@@ -87,7 +87,8 @@ enum CardType {
 	CARD_FLAME_HIT,
 	CARD_HEAL,
 	CARD_RAISE_DEAD,
-	CARD_SUMMON_GOLEM
+	CARD_SUMMON_GOLEM,
+	CARD_STRENGTHEN_ELEMENTS
 };
 
 enum DicePurpose {
@@ -204,7 +205,7 @@ struct Player {
 	bool nextTurnD10AP = false;
 	bool nextTurnExtraDraw = false;
 	bool isReplicatePending = false;
-
+	int strengthenElementsTurnsRemaining = 0;
 	// Minion Data
 	bool isMinion = false;
 	bool isSkeleton = false;

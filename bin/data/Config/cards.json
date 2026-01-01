@@ -211,5 +211,12 @@
     "targeting": "TARGET_EMPTY_ADJACENT",
     "numDice": 1,
     "diceSides": 10
+  },
+  {
+    "id": 24,
+    "name": "Strengthen Elements",
+    "type": "CARD_STRENGTHEN_ELEMENTS",
+    "cost": 3,
+    "targeting": "TARGET_SELF"
   }
 ]
