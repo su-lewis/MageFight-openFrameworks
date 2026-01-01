@@ -354,7 +354,7 @@ private:
 	void determineStatusOptions(Player * target);
 	void applyDispelEffect(int statusIndex);
 	void drawMinionManagerUI();
-	void drawMinionStatusBars(Player & minion, const std::string & name, float x, float y);
+	void drawMinionStatusBars(Player & minion, const std::string & name, float x, float y, float totalWidth);
 
 	// =========================================================================
 	//                            MEMBER VARIABLES

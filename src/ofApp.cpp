@@ -1857,12 +1857,15 @@ void ofApp::drawGame() {
 		ofEnableDepthTest();
 		ofSetColor(255);
 
-		// === FIX 1: ENABLE LIGHTING INSIDE LAMBDA ===
-		ofEnableLighting();
+		ofEnableLighting(); // Turn the lighting system on
 
 		cam.begin();
 
 		// --- LIGHTING ---
+		// FIX: Force the UI light OFF so it doesn't affect the board
+		uiLight.disable();
+
+		// Enable the lights we actually want for the board
 		keyLight.enable();
 		rimLight.enable();
 		headlight.enable();
@@ -6069,34 +6072,125 @@ DamageType ofApp::stringToDamageType(const std::string & str) {
 	return DAMAGE_PHYSICAL;
 }
 // ----------------- MINION UI -----------------
-void ofApp::drawMinionStatusBars(Player & minion, const std::string & name, float textBlockX, float textBlockY) {
-	float scale = ofGetHeight() / 1080.0f;
-	// FIX: This now matches the larger font scale from the calling function
-	float fontScale = 1.2f;
-
-	ofRectangle nameBounds = uiFont.getStringBoundingBox(name, 0, 0);
-	float barWidth = nameBounds.width * fontScale;
-	float barHeight = 20 * scale;
-
-	float barY = textBlockY + (nameBounds.height * fontScale) + (2 * scale);
-
-	ofSetColor(ofColor::darkRed);
-	ofDrawRectangle(textBlockX, barY, barWidth, barHeight);
-	float healthPercent = (float)minion.health / minion.maxHealth;
-	ofSetColor(ofColor::green);
-	ofDrawRectangle(textBlockX, barY, barWidth * healthPercent, barHeight);
-
-	string hpText = ofToString(minion.health) + "/" + ofToString(minion.maxHealth);
-	// Keep the HP text itself at its previous size for clarity
-	float hpFontScale = 1.0f;
-	ofRectangle hpBounds = uiFont.getStringBoundingBox(hpText, 0, 0);
-
+// Helper to draw centered text in a specific rectangle)
+void drawStatText(ofTrueTypeFont & font, string text, float x, float y, float w, float h, ofColor color) {
+	if (text == "0") return;
+	float scale = 0.6f;
+	ofRectangle bounds = font.getStringBoundingBox(text, 0, 0);
 	ofPushMatrix();
-	ofTranslate(textBlockX + (barWidth / 2) - (hpBounds.width * hpFontScale / 2), barY + barHeight - (2 * scale));
-	ofScale(hpFontScale, hpFontScale);
+	// Center the text in the rect
+	ofTranslate(x + (w - bounds.width * scale) / 2, y + (h + bounds.height * scale) / 2 - 2);
+	ofScale(scale, scale);
+	ofSetColor(color);
+	font.drawString(text, 0, 0);
+	ofPopMatrix();
+}
+
+void ofApp::drawMinionStatusBars(Player & minion, const std::string & name, float x, float y, float totalWidth) {
+	float scale = ofGetHeight() / 1080.0f;
+	float fontScale = 0.9f;
+
+	// 1. Bar Dimensions
+	float barHeight = 22 * scale;
+	ofRectangle nameBounds = uiFont.getStringBoundingBox(name, 0, 0);
+	// Position below the name text
+	float barY = y + (nameBounds.height * fontScale) + (4 * scale);
+
+	// 2. Define Segments (Health takes remaining space)
+	float statW = totalWidth * 0.20f; // 20% width for shields
+	float usedWidth = 0;
+
+	if (minion.block > 0) usedWidth += statW;
+	if (minion.barrier > 0) usedWidth += statW;
+	if (minion.ward > 0) usedWidth += statW;
+
+	float hpW = totalWidth - usedWidth;
+	float currentX = x;
+
+	// --- HEALTH (Green) ---
+	ofSetColor(40, 0, 0); // Dark Red BG
+	ofDrawRectangle(currentX, barY, hpW, barHeight);
+
+	float hpPct = (float)minion.health / minion.maxHealth;
+	ofSetColor(ofColor::green);
+	ofDrawRectangle(currentX, barY, hpW * hpPct, barHeight);
+
+	// Draw HP Text
+	string hpText = ofToString(minion.health);
+	ofRectangle hpRect = uiFont.getStringBoundingBox(hpText, 0, 0);
+	ofPushMatrix();
+	// Center text in the green bar area
+	ofTranslate(currentX + (hpW / 2) - (hpRect.width * 0.6f / 2), barY + barHeight / 2 + (hpRect.height * 0.6f / 2));
+	ofScale(0.6f, 0.6f); // Scale text down to fit
 	ofSetColor(ofColor::white);
 	uiFont.drawString(hpText, 0, 0);
 	ofPopMatrix();
+
+	currentX += hpW;
+
+	// --- BLOCK (Grey) ---
+	if (minion.block > 0) {
+		ofSetColor(0);
+		ofSetLineWidth(2);
+		ofDrawLine(currentX, barY, currentX, barY + barHeight); // Divider
+		ofSetColor(ofColor::gray);
+		ofDrawRectangle(currentX, barY, statW, barHeight);
+
+		string bText = ofToString(minion.block);
+		ofRectangle bRect = uiFont.getStringBoundingBox(bText, 0, 0);
+		ofPushMatrix();
+		ofTranslate(currentX + (statW / 2) - (bRect.width * 0.6f / 2), barY + barHeight / 2 + (bRect.height * 0.6f / 2));
+		ofScale(0.6f, 0.6f);
+		ofSetColor(ofColor::white);
+		uiFont.drawString(bText, 0, 0);
+		ofPopMatrix();
+		currentX += statW;
+	}
+
+	// --- BARRIER (Pink) ---
+	if (minion.barrier > 0) {
+		ofSetColor(0);
+		ofSetLineWidth(2);
+		ofDrawLine(currentX, barY, currentX, barY + barHeight);
+		ofSetColor(ofColor::hotPink);
+		ofDrawRectangle(currentX, barY, statW, barHeight);
+
+		string bText = ofToString(minion.barrier);
+		ofRectangle bRect = uiFont.getStringBoundingBox(bText, 0, 0);
+		ofPushMatrix();
+		ofTranslate(currentX + (statW / 2) - (bRect.width * 0.6f / 2), barY + barHeight / 2 + (bRect.height * 0.6f / 2));
+		ofScale(0.6f, 0.6f);
+		ofSetColor(ofColor::white);
+		uiFont.drawString(bText, 0, 0);
+		ofPopMatrix();
+		currentX += statW;
+	}
+
+	// --- WARD (Black) ---
+	if (minion.ward > 0) {
+		ofSetColor(0);
+		ofSetLineWidth(2);
+		ofDrawLine(currentX, barY, currentX, barY + barHeight);
+		ofSetColor(ofColor::black);
+		ofDrawRectangle(currentX, barY, statW, barHeight);
+
+		string wText = ofToString(minion.ward);
+		ofRectangle wRect = uiFont.getStringBoundingBox(wText, 0, 0);
+		ofPushMatrix();
+		ofTranslate(currentX + (statW / 2) - (wRect.width * 0.6f / 2), barY + barHeight / 2 + (wRect.height * 0.6f / 2));
+		ofScale(0.6f, 0.6f);
+		ofSetColor(ofColor::white);
+		uiFont.drawString(wText, 0, 0);
+		ofPopMatrix();
+		currentX += statW;
+	}
+
+	// --- Main Outline ---
+	ofNoFill();
+	ofSetColor(0);
+	ofSetLineWidth(2);
+	ofDrawRectangle(x, barY, totalWidth, barHeight);
+	ofFill();
 }
 //--------------------------------------------------------------
 void ofApp::drawMinionManagerUI() {
@@ -6112,7 +6206,7 @@ void ofApp::drawMinionManagerUI() {
 		modelFbo.begin();
 		ofClear(0, 0, 0, 0);
 		ofEnableDepthTest();
-		ofEnableLighting();
+		ofEnableLighting(); // No lighting for fullbright
 		uiLight.enable();
 		ofPushMatrix();
 		ofTranslate(modelFbo.getWidth() / 2, 120);
@@ -6123,7 +6217,6 @@ void ofApp::drawMinionManagerUI() {
 		skeletonModel.drawFaces();
 		skeletonTexture.unbind();
 		ofPopMatrix();
-		uiLight.disable();
 		ofDisableLighting();
 		ofDisableDepthTest();
 		modelFbo.end();
@@ -6133,12 +6226,28 @@ void ofApp::drawMinionManagerUI() {
 		ofSetColor(0, 0, 0, 150);
 		ofDrawRectRounded(ui.bounds, 10 * scale);
 
-		// --- 1. Draw Text Block (Name + Health) in TOP-LEFT ---
+		// --- 1. CALCULATE ICON POSITIONS FIRST ---
+		float iconMargin = 8 * scale;
+		float iconHeight = ui.bounds.height - (iconMargin * 2);
+		float cardAspectRatio = cardBackImage.getWidth() / cardBackImage.getHeight();
+		float iconWidth = iconHeight * cardAspectRatio;
+		float iconsY = ui.bounds.y + iconMargin;
+
+		// Discard is at the far right
+		ui.discardRect.set(ui.bounds.getRight() - (iconWidth + iconMargin), iconsY, iconWidth, iconHeight);
+		// Deck is to the left of Discard
+		ui.deckRect.set(ui.discardRect.x - (iconWidth + 10 * scale), iconsY, iconWidth, iconHeight);
+
+		// --- 2. Draw Text Block & Status Bar ---
 		string name = "Skeleton " + ofToString(i + 1);
 		float fontScale = 0.9f;
 
 		float textBlockX = ui.bounds.x + 10 * scale;
 		float textBlockY = ui.bounds.y + 5 * scale;
+
+		// CALCULATE BAR WIDTH:
+		// Distance between text start (left) and deck start (right) minus padding
+		float availableWidth = ui.deckRect.x - textBlockX - (15 * scale);
 
 		ofRectangle nameBounds = uiFont.getStringBoundingBox(name, 0, 0);
 
@@ -6149,31 +6258,22 @@ void ofApp::drawMinionManagerUI() {
 		uiFont.drawString(name, 0, 0);
 		ofPopMatrix();
 
-		drawMinionStatusBars(minion, name, textBlockX, textBlockY);
+		// Pass the dynamic width to the bar drawer
+		drawMinionStatusBars(minion, name, textBlockX, textBlockY, availableWidth);
 
-		// --- 2. Draw Model Image in BOTTOM-LEFT ---
-		// FIX: Reduced padding from 25 to 15 to move the model UP
-		float textBlockBottom = textBlockY + (nameBounds.height * fontScale) + (15 * scale);
+		// --- 3. Draw Model Image ---
+		float textBlockBottom = textBlockY + (nameBounds.height * fontScale) + (28 * scale);
 		float modelAreaHeight = ui.bounds.getBottom() - textBlockBottom - (5 * scale);
 
 		ui.modelViewport.set(
-			textBlockX + 15 * scale, // FIX: Added +15 offset to move the model RIGHT
+			textBlockX + 10 * scale,
 			textBlockBottom,
 			modelAreaHeight,
 			modelAreaHeight);
 		ofSetColor(255);
 		modelFbo.draw(ui.modelViewport);
 
-		// --- 3. Draw Deck/Discard Icons on the RIGHT ---
-		float iconMargin = 8 * scale;
-		float iconHeight = ui.bounds.height - (iconMargin * 2);
-		float cardAspectRatio = cardBackImage.getWidth() / cardBackImage.getHeight();
-		float iconWidth = iconHeight * cardAspectRatio;
-		float iconsY = ui.bounds.y + iconMargin;
-
-		ui.discardRect.set(ui.bounds.getRight() - (iconWidth + iconMargin), iconsY, iconWidth, iconHeight);
-		ui.deckRect.set(ui.bounds.getRight() - (iconWidth * 2 + iconMargin + 5 * scale), iconsY, iconWidth, iconHeight);
-
+		// --- 4. Draw Deck/Discard Icons ---
 		// Deck
 		ofSetColor(255);
 		if (!minion.deck.empty()) {
