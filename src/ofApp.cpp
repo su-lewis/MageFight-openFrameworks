@@ -62,22 +62,33 @@ void ofApp::setup() {
 	ofLoadImage(golemTexFire, "Units/Golem/texture_fire.png");
 	ofLoadImage(golemTexElectric, "Units/Golem/texture_electric.png");
 
-	// Load Wolf (.glb)
-	if (wolfModel.load("Units/Wolf/model.glb")) {
-		// GLB files are usually in Meters.
-		// Since your Tile Size is 5.0, a 1-meter wolf needs to be scaled up slightly.
-		// Try 2.5f first. If it's huge, try 0.025f.
-		wolfModel.setScale(2.5f, 2.5f, 2.5f);
+	// Load Wolf (.gltf)
+	if (wolfModel.load("Units/Wolf/scene.gltf")) {
 
-		// GLB usually faces +Z and is Y-up.
-		// In OF, we often need to flip it to stand upright.
-		wolfModel.setRotation(0, 180, 1, 0, 0);
+		// 1. Reset Position/Rotation
+		wolfModel.setPosition(0, 0, 0);
+		wolfModel.setRotation(0, 180, 1, 0, 0); // 180 degrees on X usually fixes upright orientation
 
-		// ENABLE materials so the internal textures show up
+		// 2. Enable Materials/Textures
+		// This tells Assimp to look in the "textures" folder and apply "baseColor.png" etc.
 		wolfModel.enableMaterials();
 		wolfModel.enableTextures();
+
+		// 3. Auto-Scale Logic
+		// Calculates size and scales it to fit the tile (~1.5 units)
+		glm::vec3 minPt = wolfModel.getSceneMin();
+		glm::vec3 maxPt = wolfModel.getSceneMax();
+		float currentSize = glm::distance(minPt, maxPt);
+
+		if (currentSize > 0) {
+			float targetSize = 1.5f;
+			float scaleFactor = targetSize / currentSize;
+			wolfModel.setScale(scaleFactor, scaleFactor, scaleFactor);
+			ofLogNotice("Setup") << "Wolf scaled by: " << scaleFactor;
+		}
+
 	} else {
-		ofLogError("Setup") << "Failed to load Wolf GLB";
+		ofLogError("Setup") << "Failed to load Wolf GLTF";
 	}
 	// --- 3. BOARD & SKYBOX ---
 	ofLoadImage(wallTexture, "Board/wall.png");
@@ -2098,13 +2109,20 @@ void ofApp::drawGame() {
 			}
 			// --- WOLF RENDERING ---
 			else if (player.isWolf) {
-				ofSetColor(255);
+				ofSetColor(255); // Draw white so textures show natural colors
+				ofTranslate(0, 0.0f, 0);
 
-				// Lift slightly to not clip into floor
-				ofTranslate(0, 0.1f, 0);
+				// FIX 1: PBR models often have "Alpha = 0" on the body. Disable alpha to force it solid.
+				ofDisableAlphaBlending();
 
-				// Draw using internal materials
+				// FIX 2: Disable Culling to ensure we see the mesh from all angles
+				glDisable(GL_CULL_FACE);
+
 				wolfModel.drawFaces();
+
+				// RESTORE DEFAULTS
+				glEnable(GL_CULL_FACE);
+				ofEnableAlphaBlending();
 			}
 			// ---------------------------
 			else {
@@ -7127,16 +7145,22 @@ void ofApp::drawMinionManagerUI() {
 
 		} else if (minion.isWolf) {
 			// --- WOLF UI SETTINGS ---
-			ofTranslate(modelFbo.getWidth() / 2, 100);
-
-			// GLB needs different UI scaling usually
-			ofScale(45, 45, 45);
-
+			ofTranslate(modelFbo.getWidth() / 2, 85);
+			ofScale(45, 45, 45); // You might need to tweak this number based on the GLTF scale
 			ofRotateXDeg(-15);
 			ofRotateYDeg(180 + ofGetElapsedTimef() * 30);
 
-			// No manual texture binding needed
+			// FORCE VISIBILITY
+			ofDisableAlphaBlending();
+			glDisable(GL_CULL_FACE);
+
 			wolfModel.drawFaces();
+
+			// CLEANUP
+			ofDisableLighting();
+			glEnable(GL_CULL_FACE);
+			ofEnableAlphaBlending();
+
 		} else {
 			// --- SKELETON UI SETTINGS ---
 			ofSetColor(255);
