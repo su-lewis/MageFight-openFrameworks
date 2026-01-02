@@ -241,5 +241,12 @@
     "cost": 2,
     "value": 2,
     "targeting": "TARGET_ADJACENT_UNIT"
+  },
+  {
+    "id": 28,
+    "name": "Double Handed",
+    "type": "CARD_DOUBLE_HANDED",
+    "cost": 2,
+    "targeting": "TARGET_ADJACENT_OR_SELF_UNIT"
   }
 ]

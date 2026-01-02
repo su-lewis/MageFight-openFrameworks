@@ -3105,6 +3105,9 @@ void ofApp::drawGame() {
 	if (isWisdomBoonMenuOpen) {
 		drawWisdomBoonUI();
 	}
+	if (isDoubleHandedMenuOpen) {
+		drawDoubleHandedUI();
+	}
 	ofDrawBitmapString("FPS: " + ofToString(ofGetFrameRate(), 2), 10, 20);
 }
 //--------------------------------------------------------------
@@ -3467,8 +3470,19 @@ void ofApp::mousePressed(int x, int y, int button) {
 		}
 		return;
 	}
-
-	// --- 1f. Amnesia Selection UI ---
+	// --- 1f. Double-Handed Menu ---
+	if (isDoubleHandedMenuOpen && button == OF_MOUSE_BUTTON_LEFT) {
+		if (btnAddPunches.inside(x, y)) {
+			resolveDoubleHanded("Punch");
+		} else if (btnAddBlocks.inside(x, y)) {
+			resolveDoubleHanded("Hand Block");
+		} else if (!doubleHandedMenuRect.inside(x, y)) {
+			// Clicked outside menu -> Cancel
+			cancelDoubleHanded();
+		}
+		return; // Stop other mouse interactions
+	}
+	// --- 1g. Amnesia Selection UI ---
 	if (isAmnesiaSelectionActive && button == OF_MOUSE_BUTTON_LEFT) {
 		float amnesiaCardWidth = 120;
 		float amnesiaCardHeight = amnesiaCardWidth * (585.0f / 409.0f);
@@ -4893,6 +4907,39 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		break;
 	}
 
+		// --- CASE: DOUBLE HANDED ---
+	case CARD_DOUBLE_HANDED: {
+		int targetIndex = -1;
+		for (size_t i = 0; i < players.size(); i++) {
+			if (players[i].x == targetX && players[i].y == targetY) {
+				targetIndex = (int)i;
+				break;
+			}
+		}
+
+		// Safety check: Ensure target exists
+		if (targetIndex == -1) break;
+
+		// Open the Choice UI
+		pendingDoubleHandedCardIndex = cardIndex;
+		pendingDoubleHandedTargetIndex = targetIndex;
+		isDoubleHandedMenuOpen = true;
+
+		// Setup UI Geometry
+		float w = 500, h = 250;
+		float x = ofGetWidth() / 2 - w / 2, y = ofGetHeight() / 2 - h / 2;
+		doubleHandedMenuRect.set(x, y, w, h);
+
+		float btnW = 200, btnH = 80;
+		float spacing = 40;
+		btnAddPunches.set(x + (w - (btnW * 2 + spacing)) / 2, y + 120, btnW, btnH);
+		btnAddBlocks.set(btnAddPunches.getRight() + spacing, y + 120, btnW, btnH);
+
+		// Do NOT set playedSuccessfully = true yet.
+		// We wait for the user to click a button.
+		break;
+	}
+
 	// --- CASE: STANDARD ATTACK (Stab, Cleave, Pierce, Punch) ---
 	case CARD_ATTACK_SINGLE_TILE: {
 		int px = players[currentPlayerIndex].x;
@@ -5844,7 +5891,91 @@ void ofApp::drawDispelUI() {
 		}
 	}
 }
+//--------------------------------------------------------------
+// Draw the Menu
+void ofApp::drawDoubleHandedUI() {
+	ofEnableBlendMode(OF_BLENDMODE_ALPHA);
 
+	// Dark Overlay
+	ofSetColor(0, 0, 0, 180);
+	ofDrawRectangle(0, 0, ofGetWidth(), ofGetHeight());
+
+	// Background
+	ofSetColor(50, 50, 50, 255);
+	ofDrawRectRounded(doubleHandedMenuRect, 15);
+
+	// Title
+	ofSetColor(ofColor::white);
+	string title = "Double Handed: Choose Cards";
+	ofRectangle titleBox = uiFont.getStringBoundingBox(title, 0, 0);
+	uiFont.drawString(title, doubleHandedMenuRect.getCenter().x - titleBox.width / 2, doubleHandedMenuRect.y + 60);
+
+	// Punch Button
+	ofSetColor(ofColor::indianRed);
+	ofDrawRectRounded(btnAddPunches, 10);
+	ofSetColor(ofColor::white);
+	uiFont.drawString("Add 2x Punch", btnAddPunches.x + 20, btnAddPunches.getCenter().y + 5);
+
+	// Block Button
+	ofSetColor(ofColor::slateGray);
+	ofDrawRectRounded(btnAddBlocks, 10);
+	ofSetColor(ofColor::white);
+	uiFont.drawString("Add 2x Hand Block", btnAddBlocks.x + 10, btnAddBlocks.getCenter().y + 5);
+}
+
+// Cancel Helper
+void ofApp::cancelDoubleHanded() {
+	isDoubleHandedMenuOpen = false;
+	pendingDoubleHandedCardIndex = -1;
+	pendingDoubleHandedTargetIndex = -1;
+}
+
+// Resolve Logic (Adds cards and consumes AP)
+void ofApp::resolveDoubleHanded(std::string cardName) {
+	Player * target = getPlayer(pendingDoubleHandedTargetIndex);
+	Player & caster = players[currentPlayerIndex];
+
+	if (target) {
+		// 1. Find the Card Data
+		Card cardToAdd;
+		bool found = false;
+		for (const auto & c : allCards) {
+			if (c.name == cardName) {
+				cardToAdd = c;
+				found = true;
+				break;
+			}
+		}
+
+		if (found) {
+			// 2. Add 2 copies to deck
+			target->deck.push_back(cardToAdd);
+			target->deck.push_back(cardToAdd);
+
+			// 3. Shuffle
+			std::shuffle(target->deck.begin(), target->deck.end(), rng);
+
+			// 4. Visual Feedback
+			spawnFloatingText(gridToWorld(target->x, target->y), "Added 2x " + cardName, ofColor::cyan);
+			ofLogNotice("Double Handed") << "Shuffled 2x " << cardName << " into Player " << target->playerID << "'s deck.";
+
+			// 5. Finalize Play (Cost AP, Remove Card)
+			if (pendingDoubleHandedCardIndex != -1) {
+				Card & playedCard = caster.hand[pendingDoubleHandedCardIndex];
+				currentAP -= playedCard.cost;
+				caster.playedCardsPile.push_back(playedCard);
+				// Handle Replicate if active
+				if (caster.isReplicatePending) {
+					caster.playedCardsPile.push_back(playedCard);
+					caster.isReplicatePending = false;
+				}
+				caster.hand.erase(caster.hand.begin() + pendingDoubleHandedCardIndex);
+				calculateTargetHighlights();
+			}
+		}
+	}
+	cancelDoubleHanded();
+}
 //--------------------------------------------------------------
 void ofApp::determineStatusOptions(Player * target) {
 	statusSelectLabels.clear();
@@ -6520,6 +6651,7 @@ CardType ofApp::stringToCardType(const std::string & str) {
 	if (str == "CARD_CREATE_WALL") return CARD_CREATE_WALL;
 	if (str == "CARD_DARK_SHIELD") return CARD_DARK_SHIELD;
 	if (str == "CARD_DRAIN_PUNCH") return CARD_DRAIN_PUNCH;
+	if (str == "CARD_DOUBLE_HANDED") return CARD_DOUBLE_HANDED;
 	return CARD_NONE;
 }
 

@@ -91,7 +91,8 @@ enum CardType {
 	CARD_SUMMON_GOLEM,
 	CARD_STRENGTHEN_ELEMENTS,
 	CARD_DARK_SHIELD,
-	CARD_DRAIN_PUNCH
+	CARD_DRAIN_PUNCH,
+	CARD_DOUBLE_HANDED
 };
 
 enum DicePurpose {
@@ -584,6 +585,19 @@ private:
 	bool isWaitingForSummonHealth = false;
 	int pendingSummonRollResult = 0;
 	glm::vec2 pendingSummonTile;
+
+	// --- Double Handed Menu Variables ---
+	bool isDoubleHandedMenuOpen = false;
+	int pendingDoubleHandedCardIndex = -1;
+	int pendingDoubleHandedTargetIndex = -1;
+	ofRectangle doubleHandedMenuRect;
+	ofRectangle btnAddPunches;
+	ofRectangle btnAddBlocks;
+
+	// Helper functions
+	void drawDoubleHandedUI();
+	void cancelDoubleHanded();
+	void resolveDoubleHanded(std::string cardName);
 
 	// Status Effects
 	bool isWaitingForOnFireDice = false;
