@@ -62,16 +62,23 @@ void ofApp::setup() {
 	ofLoadImage(golemTexFire, "Units/Golem/texture_fire.png");
 	ofLoadImage(golemTexElectric, "Units/Golem/texture_electric.png");
 
-	// Load Wolf
-	if (wolfModel.load("Units/Wolf/model.dae")) {
-		// FIX: Much smaller scale
-		wolfModel.setScale(0.001f, 0.001f, 0.001f);
+	// Load Wolf (.glb)
+	if (wolfModel.load("Units/Wolf/model.glb")) {
+		// GLB files are usually in Meters.
+		// Since your Tile Size is 5.0, a 1-meter wolf needs to be scaled up slightly.
+		// Try 2.5f first. If it's huge, try 0.025f.
+		wolfModel.setScale(2.5f, 2.5f, 2.5f);
 
-		// FIX: Reset rotation. If it was upside down, 0 should fix it.
-		// If it's still wrong, try (0, -90, 1, 0, 0).
-		wolfModel.setRotation(0, 0, 1, 0, 0);
+		// GLB usually faces +Z and is Y-up.
+		// In OF, we often need to flip it to stand upright.
+		wolfModel.setRotation(0, 180, 1, 0, 0);
+
+		// ENABLE materials so the internal textures show up
+		wolfModel.enableMaterials();
+		wolfModel.enableTextures();
+	} else {
+		ofLogError("Setup") << "Failed to load Wolf GLB";
 	}
-
 	// --- 3. BOARD & SKYBOX ---
 	ofLoadImage(wallTexture, "Board/wall.png");
 	wallTexture.setTextureMinMagFilter(GL_NEAREST, GL_NEAREST);
@@ -2093,17 +2100,11 @@ void ofApp::drawGame() {
 			else if (player.isWolf) {
 				ofSetColor(255);
 
-				// Lift slightly
-				ofTranslate(0, 0.5f, 0);
+				// Lift slightly to not clip into floor
+				ofTranslate(0, 0.1f, 0);
 
-				// If the model faces the wrong way (e.g. sideways), rotate Y here.
-				// ofRotateYDeg(90);
-
-				// REMOVED: if (wolfTexture.isAllocated()) wolfTexture.bind();
-
+				// Draw using internal materials
 				wolfModel.drawFaces();
-
-				// REMOVED: if (wolfTexture.isAllocated()) wolfTexture.unbind();
 			}
 			// ---------------------------
 			else {
@@ -7126,16 +7127,16 @@ void ofApp::drawMinionManagerUI() {
 
 		} else if (minion.isWolf) {
 			// --- WOLF UI SETTINGS ---
-			ofTranslate(modelFbo.getWidth() / 2, 85);
-			// Scale up for UI
-			ofScale(6, 6, 6);
+			ofTranslate(modelFbo.getWidth() / 2, 100);
+
+			// GLB needs different UI scaling usually
+			ofScale(45, 45, 45);
+
 			ofRotateXDeg(-15);
-			ofRotateYDeg(ofGetElapsedTimef() * 30);
+			ofRotateYDeg(180 + ofGetElapsedTimef() * 30);
 
-			if (wolfTexture.isAllocated()) wolfTexture.bind();
+			// No manual texture binding needed
 			wolfModel.drawFaces();
-			if (wolfTexture.isAllocated()) wolfTexture.unbind();
-
 		} else {
 			// --- SKELETON UI SETTINGS ---
 			ofSetColor(255);
