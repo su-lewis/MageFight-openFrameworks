@@ -233,5 +233,13 @@
     "cost": 2,
     "value": 7,
     "targeting": "TARGET_SELF"
+  },
+  {
+    "id": 27,
+    "name": "Drain Punch",
+    "type": "CARD_DRAIN_PUNCH",
+    "cost": 2,
+    "value": 2,
+    "targeting": "TARGET_ADJACENT_UNIT"
   }
 ]

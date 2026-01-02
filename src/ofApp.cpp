@@ -51,7 +51,7 @@ void ofApp::setup() {
 	// Load Golem
 	golemModel.load("Units/Golem/lava+golem+3d+model.fbx");
 	// Remove the setRotation here. We will handle rotation in draw() so it's easier to tweak.
-	golemModel.setScale(0.005f, 0.005f, 0.005f);
+	golemModel.setScale(0.004f, 0.004f, 0.004f);
 
 	// FIX: Disable both Materials AND Textures to allow manual overrides
 	golemModel.disableMaterials();
@@ -4839,6 +4839,60 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		break;
 	}
 
+	// --- CASE: DRAIN PUNCH ---
+	case CARD_DRAIN_PUNCH: {
+		int targetIndex = -1;
+		for (size_t i = 0; i < players.size(); i++) {
+			if (players[i].x == targetX && players[i].y == targetY) {
+				targetIndex = (int)i;
+				break;
+			}
+		}
+
+		if (targetIndex != -1) {
+			Player * target = getPlayer(targetIndex);
+
+			// 1. Calculate Damage
+			int damage = playedCard.value; // Base damage (2)
+
+			// Check playedCardsPile for previous "hand-related" attacks this turn
+			for (const auto & c : currentPlayer.playedCardsPile) {
+				if (c.name == "Punch" || c.name == "Bash") {
+					damage += 2;
+				}
+			}
+
+			// 2. Track Health Before Impact
+			int hpBefore = target->health;
+
+			// 3. Apply Damage
+			applyDamage(*target, damage, DAMAGE_PHYSICAL);
+
+			// 4. Calculate Lifesteal (Actual HP lost by enemy)
+			int hpAfter = target->health;
+			int actualDamageDealt = hpBefore - hpAfter;
+
+			// 5. Heal Caster
+			if (actualDamageDealt > 0) {
+				currentPlayer.health += actualDamageDealt;
+				if (currentPlayer.health > currentPlayer.maxHealth) {
+					currentPlayer.health = currentPlayer.maxHealth;
+				}
+
+				// Visual Feedback for Heal
+				spawnFloatingText(
+					gridToWorld(currentPlayer.x, currentPlayer.y),
+					"+" + ofToString(actualDamageDealt) + " HP",
+					ofColor::green);
+
+				ofLogNotice("Drain Punch") << "Healed player for " << actualDamageDealt;
+			}
+
+			playedSuccessfully = true;
+		}
+		break;
+	}
+
 	// --- CASE: STANDARD ATTACK (Stab, Cleave, Pierce, Punch) ---
 	case CARD_ATTACK_SINGLE_TILE: {
 		int px = players[currentPlayerIndex].x;
@@ -6465,6 +6519,7 @@ CardType ofApp::stringToCardType(const std::string & str) {
 	if (str == "CARD_STRENGTHEN_ELEMENTS") return CARD_STRENGTHEN_ELEMENTS;
 	if (str == "CARD_CREATE_WALL") return CARD_CREATE_WALL;
 	if (str == "CARD_DARK_SHIELD") return CARD_DARK_SHIELD;
+	if (str == "CARD_DRAIN_PUNCH") return CARD_DRAIN_PUNCH;
 	return CARD_NONE;
 }
 
