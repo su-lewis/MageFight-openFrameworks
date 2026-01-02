@@ -2099,9 +2099,11 @@ void ofApp::drawGame() {
 				// If the model faces the wrong way (e.g. sideways), rotate Y here.
 				// ofRotateYDeg(90);
 
-				if (wolfTexture.isAllocated()) wolfTexture.bind();
+				// REMOVED: if (wolfTexture.isAllocated()) wolfTexture.bind();
+
 				wolfModel.drawFaces();
-				if (wolfTexture.isAllocated()) wolfTexture.unbind();
+
+				// REMOVED: if (wolfTexture.isAllocated()) wolfTexture.unbind();
 			}
 			// ---------------------------
 			else {
