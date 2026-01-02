@@ -4456,18 +4456,15 @@ void ofApp::startNewTurn() {
 	if (currentPlayerIndex != -1) {
 		Player & endingPlayer = players[currentPlayerIndex];
 
-		// --- CHECK FOR BONUS TURNS ---
-		if (endingPlayer.bonusTurns > 0) {
-			endingPlayer.bonusTurns--;
-			ofLogNotice("Time Vortex") << "Bonus Turn! " << (endingPlayer.isMinion ? "Minion " : "Player ") << endingPlayer.playerID << " goes again. " << endingPlayer.bonusTurns << " remaining.";
+		// --- A. CLEANUP HAND & BUFFS ---
+		// This happens at the end of EVERY turn, bonus or not.
+		endingPlayer.discardPile.insert(endingPlayer.discardPile.end(), endingPlayer.hand.begin(), endingPlayer.hand.end());
+		endingPlayer.hand.clear();
+		endingPlayer.discardPile.insert(endingPlayer.discardPile.end(), endingPlayer.playedCardsPile.begin(), endingPlayer.playedCardsPile.end());
+		endingPlayer.playedCardsPile.clear();
+		endingPlayer.shocksPlayedThisTurn = 0;
 
-			// Give the same player another turn
-			continueNewTurn();
-			return; // STOP here to prevent advancing to the next player
-		}
-		// --- END BONUS TURN CHECK ---
-
-		// Decrement buff timers for the player who just finished
+		// Decrement buff timers
 		if (endingPlayer.strengthenElementsTurnsRemaining > 0) {
 			endingPlayer.strengthenElementsTurnsRemaining--;
 			if (endingPlayer.strengthenElementsTurnsRemaining == 0) {
@@ -4475,18 +4472,47 @@ void ofApp::startNewTurn() {
 			}
 		}
 
-		endingPlayer.cardsPlayedThisTurn.clear();
+		// --- B. CHECK FOR BONUS TURNS ---
+		if (endingPlayer.bonusTurns > 0) {
+			endingPlayer.bonusTurns--;
+			ofLogNotice("Time Vortex") << "Bonus Turn! " << (endingPlayer.isMinion ? "Minion " : "Player ") << endingPlayer.playerID << " goes again. " << endingPlayer.bonusTurns << " remaining.";
 
-		endingPlayer.discardPile.insert(endingPlayer.discardPile.end(), endingPlayer.hand.begin(), endingPlayer.hand.end());
-		endingPlayer.hand.clear();
+			// The current player is STILL the ending player. We just reset their state.
+			Player & startingPlayer = endingPlayer; // Use a clearer name
 
-		endingPlayer.discardPile.insert(endingPlayer.discardPile.end(), endingPlayer.playedCardsPile.begin(), endingPlayer.playedCardsPile.end());
-		endingPlayer.playedCardsPile.clear();
+			// --- C. RESET STATE FOR BONUS TURN ---
+			// Regeneration
+			if (startingPlayer.hasRegeneration) {
+				if (startingPlayer.health < startingPlayer.maxHealth) {
+					startingPlayer.health++;
+					spawnFloatingText(gridToWorld(startingPlayer.x, startingPlayer.y), "+1 Regen", ofColor::green);
+				}
+			}
+			// Armor Expiry
+			startingPlayer.block = 0;
+			startingPlayer.ward = 0;
+			startingPlayer.barrier = 0;
+			startingPlayer.holyBlock = 0;
 
-		endingPlayer.shocksPlayedThisTurn = 0;
+			// --- D. CHECK STATUS EFFECTS FOR BONUS TURN ---
+			if (startingPlayer.isParalyzed) {
+				startDiceRoll(1, 2, PURPOSE_COIN_FLIP);
+				isWaitingForParalysisCoin = true;
+				return;
+			}
+			if (startingPlayer.onFire) {
+				isWaitingForOnFireDice = true;
+				pendingOnFireRollResult = startDiceRoll(1, 6, PURPOSE_DAMAGE);
+				return;
+			}
+
+			// If no status effects, start the bonus turn
+			continueNewTurn();
+			return; // STOP here to prevent advancing to the next player
+		}
 	}
 
-	// --- 2. Advance to the NEXT player (Normal Turn Order) ---
+	// --- 2. ADVANCE TO THE NEXT PLAYER (NORMAL TURN) ---
 	currentPlayerIndex = (currentPlayerIndex + 1) % players.size();
 
 	if (currentPlayerIndex == 0) globalTurnCounter++;
@@ -4494,48 +4520,37 @@ void ofApp::startNewTurn() {
 	Player & startingPlayer = players[currentPlayerIndex];
 	ofLogNotice("Game") << "--- START TURN: " << (startingPlayer.isMinion ? "Minion " : "Player ") << startingPlayer.playerID;
 
-	// Snap visuals
+	// --- C. RESET STATE FOR NORMAL TURN ---
 	playerVisualPos = gridToWorld(startingPlayer.x, startingPlayer.y);
 	animationPath.clear();
 	isPlayerAnimating = false;
 
-	// --- 3. REGENERATION ---
 	if (startingPlayer.hasRegeneration) {
 		if (startingPlayer.health < startingPlayer.maxHealth) {
 			startingPlayer.health++;
 			spawnFloatingText(gridToWorld(startingPlayer.x, startingPlayer.y), "+1 Regen", ofColor::green);
 		}
 	}
-
-	// --- 4. Expiry Checks (Reset Armor) ---
 	startingPlayer.block = 0;
 	startingPlayer.ward = 0;
 	startingPlayer.barrier = 0;
 	startingPlayer.holyBlock = 0;
 
-	// --- Handle Bonus Dice ---
 	if (startingPlayer.nextTurnBonusDiceFromMinions) {
 		int minionCount = 0;
 		for (const auto & p : players) {
-			if (p.isSkeleton || p.isHellhound) {
-				minionCount++;
-			}
+			if (p.isSkeleton || p.isHellhound) minionCount++;
 		}
-
-		if (minionCount > 0) {
-			startDiceRoll(minionCount, 6, PURPOSE_BONUS_AP);
-		}
+		if (minionCount > 0) startDiceRoll(minionCount, 6, PURPOSE_BONUS_AP);
 		startingPlayer.nextTurnBonusDiceFromMinions = false;
 	}
 
-	// --- 5. PARALYSIS CHECK ---
+	// --- D. CHECK STATUS EFFECTS FOR NORMAL TURN ---
 	if (startingPlayer.isParalyzed) {
 		startDiceRoll(1, 2, PURPOSE_COIN_FLIP);
 		isWaitingForParalysisCoin = true;
 		return;
 	}
-
-	// --- 6. FIRE CHECK ---
 	if (startingPlayer.onFire) {
 		isWaitingForOnFireDice = true;
 		pendingOnFireRollResult = startDiceRoll(1, 6, PURPOSE_DAMAGE);
@@ -5397,6 +5412,83 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		// Don't apply the turns yet. We wait for the dice animation.
 
 		playedSuccessfully = true;
+		break;
+	}
+
+						 // --- CASE: MASTER FIST ---
+	case CARD_MASTER_FIST: {
+		int targetIndex = -1;
+		for (size_t i = 0; i < players.size(); i++) {
+			if (players[i].x == targetX && players[i].y == targetY) {
+				targetIndex = (int)i;
+				break;
+			}
+		}
+
+		if (targetIndex != -1) {
+			Player * target = getPlayer(targetIndex);
+
+			// --- 1. Calculate Combo Damage ---
+			int damage = playedCard.value; // Base damage (2)
+			int handCardsInDiscard = 0;
+
+			// Define which cards count as "hand-related"
+			std::vector<std::string> handAttackNames = { "Punch", "Bash", "Drain Punch" };
+
+			// Count matching cards in the caster's discard pile
+			for (const auto & cardInPile : currentPlayer.discardPile) {
+				for (const auto & name : handAttackNames) {
+					if (cardInPile.name == name) {
+						handCardsInDiscard++;
+						break; // Move to next card in pile
+					}
+				}
+			}
+
+			damage += (handCardsInDiscard * 2);
+			ofLogNotice("Master Fist") << "Found " << handCardsInDiscard << " hand cards in discard. Total damage: " << damage;
+
+			// --- 2. Apply Damage ---
+			applyDamage(*target, damage, DAMAGE_PHYSICAL);
+
+			// --- 3. Mill Target's Top Card ---
+			if (!target->deck.empty()) {
+				// We need the card data for the animation
+				Card removedCard = target->deck.back();
+				target->deck.pop_back();
+
+				// Reuse the Amnesia removal animation
+				RemovedCardAnimation anim;
+				anim.card = removedCard;
+				// Animate from the center of the screen
+				anim.startPos = { ofGetWidth() / 2.0f, ofGetHeight() / 2.0f };
+				anim.startTime = ofGetElapsedTimef();
+				activeRemovedCardAnimations.push_back(anim);
+
+				spawnFloatingText(gridToWorld(target->x, target->y), "Mind Shatter!", ofColor::purple);
+				ofLogNotice("Master Fist") << "Target's top card was removed.";
+			}
+
+			// --- 4. Buff the Caster ---
+			// +1 Luck
+			currentPlayer.luck++;
+			spawnFloatingText(
+				gridToWorld(currentPlayer.x, currentPlayer.y),
+				"+1 LUCK!",
+				ofColor::gold);
+
+			// +1 Max HP (and heal for 1)
+			currentPlayer.maxHealth++;
+			currentPlayer.health++;
+			spawnFloatingText(
+				gridToWorld(currentPlayer.x, currentPlayer.y),
+				"+1 Max HP!",
+				ofColor::limeGreen);
+
+			ofLogNotice("Master Fist") << "Caster gained +1 Luck and +1 Max HP.";
+
+			playedSuccessfully = true;
+		}
 		break;
 	}
 
@@ -7176,6 +7268,8 @@ CardType ofApp::stringToCardType(const std::string & str) {
 	if (str == "CARD_CALL_FOR_WOLVES") return CARD_CALL_FOR_WOLVES;
 	if (str == "CARD_NECRO_BLESSING") return CARD_NECRO_BLESSING;
 	if (str == "CARD_TIME_VORTEX") return CARD_TIME_VORTEX;
+	if (str == "CARD_MASTER_FIST") return CARD_MASTER_FIST;
+
 	return CARD_NONE;
 }
 

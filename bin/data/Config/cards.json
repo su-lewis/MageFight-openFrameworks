@@ -271,5 +271,13 @@
     "targeting": "TARGET_SELF",
     "numDice": 1,
     "diceSides": 4
+  },
+  {
+    "id": 33,
+    "name": "Master Fist",
+    "type": "CARD_MASTER_FIST",
+    "cost": 2,
+    "value": 2,
+    "targeting": "TARGET_ADJACENT_UNIT"
   }
 ]
