@@ -423,12 +423,11 @@ private:
 	// --- 3D ASSETS ---
 	ofxAssimpModelLoader playerModel;
 	ofxAssimpModelLoader skeletonModel;
+	ofxAssimpModelLoader wolfModel;
+	ofxAssimpModelLoader golemModel;
 	ofTexture skeletonTexture;
 
-	// --- ADD GOLEM ASSETS ---
-	ofxAssimpModelLoader golemModel;
 	ofTexture golemTexBase, golemTexRock, golemTexFire, golemTexElectric;
-
 	ofMaterial modelMaterial;
 	ofMaterial diceMaterial;
 

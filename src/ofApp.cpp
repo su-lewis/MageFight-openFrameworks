@@ -61,7 +61,15 @@ void ofApp::setup() {
 	ofLoadImage(golemTexRock, "Units/Golem/texture_rock.png");
 	ofLoadImage(golemTexFire, "Units/Golem/texture_fire.png");
 	ofLoadImage(golemTexElectric, "Units/Golem/texture_electric.png");
-
+	// Load the wolf
+	// Note: We do NOT call disableMaterials() or disableTextures() here.
+	// We want Assimp to try and find the textures automatically.
+	if (wolfModel.load("Units/Wolf/model.dae")) {
+		wolfModel.setScale(0.004f, 0.004f, 0.004f);
+		wolfModel.setRotation(0, 180, 1, 0, 0); // Tweak rotation as needed
+	} else {
+		ofLogError() << "Failed to load Wolf model";
+	}
 	// --- 3. BOARD & SKYBOX ---
 	ofLoadImage(wallTexture, "Board/wall.png");
 	wallTexture.setTextureMinMagFilter(GL_NEAREST, GL_NEAREST);
