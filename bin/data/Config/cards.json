@@ -248,5 +248,12 @@
     "type": "CARD_DOUBLE_HANDED",
     "cost": 2,
     "targeting": "TARGET_ADJACENT_OR_SELF_UNIT"
+  },
+  {
+    "id": 30,
+    "name": "Call for Wolves",
+    "type": "CARD_CALL_FOR_WOLVES",
+    "cost": 7,
+    "targeting": "TARGET_SELF"
   }
 ]

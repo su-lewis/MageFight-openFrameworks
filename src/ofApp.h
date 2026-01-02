@@ -92,7 +92,8 @@ enum CardType {
 	CARD_STRENGTHEN_ELEMENTS,
 	CARD_DARK_SHIELD,
 	CARD_DRAIN_PUNCH,
-	CARD_DOUBLE_HANDED
+	CARD_DOUBLE_HANDED,
+	CARD_CALL_FOR_WOLVES
 };
 
 enum DicePurpose {
@@ -218,6 +219,7 @@ struct Player {
 	bool isSkeleton = false;
 	bool isGolem = false;
 	bool isHellhound = false;
+	bool isWolf = false;
 	ofTexture * minionTexture = nullptr;
 	int ownerID = -1;
 	bool hasRegeneration = false;
@@ -425,9 +427,11 @@ private:
 	ofxAssimpModelLoader skeletonModel;
 	ofxAssimpModelLoader wolfModel;
 	ofxAssimpModelLoader golemModel;
-	ofTexture skeletonTexture;
 
+	ofTexture skeletonTexture;
+	ofTexture wolfTexture;
 	ofTexture golemTexBase, golemTexRock, golemTexFire, golemTexElectric;
+
 	ofMaterial modelMaterial;
 	ofMaterial diceMaterial;
 
@@ -592,6 +596,15 @@ private:
 	ofRectangle doubleHandedMenuRect;
 	ofRectangle btnAddPunches;
 	ofRectangle btnAddBlocks;
+
+	// --- Call For Wolves State ---
+	bool isWaitingForWolfCoin = false;
+	bool isPlacingWolves = false;
+	int wolvesRemainingToPlace = 0;
+	int wolfPlacementSourceX = -1; // Where the summoner is standing
+	int wolfPlacementSourceY = -1;
+	int wolfSummonCount = 0; // To track "Wolf 1", "Wolf 2"
+	int wolfSummonStage = 0; // 0=None, 1=First Wolf, 2=Second Wolf
 
 	// Helper functions
 	void drawDoubleHandedUI();

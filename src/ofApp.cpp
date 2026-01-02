@@ -61,15 +61,17 @@ void ofApp::setup() {
 	ofLoadImage(golemTexRock, "Units/Golem/texture_rock.png");
 	ofLoadImage(golemTexFire, "Units/Golem/texture_fire.png");
 	ofLoadImage(golemTexElectric, "Units/Golem/texture_electric.png");
-	// Load the wolf
-	// Note: We do NOT call disableMaterials() or disableTextures() here.
-	// We want Assimp to try and find the textures automatically.
+
+	// Load Wolf
 	if (wolfModel.load("Units/Wolf/model.dae")) {
-		wolfModel.setScale(0.004f, 0.004f, 0.004f);
-		wolfModel.setRotation(0, 180, 1, 0, 0); // Tweak rotation as needed
-	} else {
-		ofLogError() << "Failed to load Wolf model";
+		// FIX: Much smaller scale
+		wolfModel.setScale(0.001f, 0.001f, 0.001f);
+
+		// FIX: Reset rotation. If it was upside down, 0 should fix it.
+		// If it's still wrong, try (0, -90, 1, 0, 0).
+		wolfModel.setRotation(0, 0, 1, 0, 0);
 	}
+
 	// --- 3. BOARD & SKYBOX ---
 	ofLoadImage(wallTexture, "Board/wall.png");
 	wallTexture.setTextureMinMagFilter(GL_NEAREST, GL_NEAREST);
@@ -871,24 +873,27 @@ void ofApp::updateGame() {
 		float baseCardHeight = handBaseCardWidth * handCardAspectRatio;
 		float staticUICardHeight = (baseCardHeight * 1.3f) * scale;
 
-		// --- Counters for Player 0's Minions ---
+		// --- Counters for Player 0 ---
 		int p0_skeleton_count = 0;
 		int p0_golem_count = 0;
+		int p0_wolf_count = 0; // <--- ADDED
 
-		// --- Build UI for Player 0's Minions (Left Side) ---
+		// --- Build UI for Player 0 (Left Side) ---
 		float p0_startX = 10 * scale;
 		float p0_startY = (40 * scale) + (65 * scale) + (50 * scale) * 3 + (20 * scale);
-		int p0_minion_ui_count = 0; // for vertical positioning
+		int p0_minion_ui_count = 0;
+
 		for (int i = 0; i < players.size(); i++) {
 			if (players[i].isMinion && players[i].ownerID == 0) {
 				MinionUI ui;
 				ui.playerIndex = i;
 
-				// Determine and set the correct display number
 				if (players[i].isSkeleton) {
 					ui.displayNumber = ++p0_skeleton_count;
 				} else if (players[i].isGolem) {
 					ui.displayNumber = ++p0_golem_count;
+				} else if (players[i].isWolf) { // <--- ADDED
+					ui.displayNumber = ++p0_wolf_count;
 				}
 
 				ui.bounds.set(p0_startX, p0_startY + (p0_minion_ui_count * (entryHeight + 10 * scale)), panelWidth, entryHeight);
@@ -897,27 +902,30 @@ void ofApp::updateGame() {
 			}
 		}
 
-		// --- Counters for Player 1's Minions ---
+		// --- Counters for Player 1 ---
 		int p1_skeleton_count = 0;
 		int p1_golem_count = 0;
+		int p1_wolf_count = 0; // <--- ADDED
 
-		// --- Build UI for Player 1's Minions (Right Side) ---
+		// --- Build UI for Player 1 (Right Side) ---
 		float p1_startX = ofGetWidth() - panelWidth - (10 * scale);
 		float p1_discardY = 20 * scale;
 		float p1_deckY = p1_discardY + staticUICardHeight + (20 * scale);
 		float p1_apCenterY = p1_deckY + staticUICardHeight + (60 * scale);
 		float p1_startY = p1_apCenterY + (50 * scale);
-		int p1_minion_ui_count = 0; // for vertical positioning
+		int p1_minion_ui_count = 0;
+
 		for (int i = 0; i < players.size(); i++) {
 			if (players[i].isMinion && players[i].ownerID == 1) {
 				MinionUI ui;
 				ui.playerIndex = i;
 
-				// Determine and set the correct display number
 				if (players[i].isSkeleton) {
 					ui.displayNumber = ++p1_skeleton_count;
 				} else if (players[i].isGolem) {
 					ui.displayNumber = ++p1_golem_count;
+				} else if (players[i].isWolf) { // <--- ADDED
+					ui.displayNumber = ++p1_wolf_count;
 				}
 
 				ui.bounds.set(p1_startX, p1_startY + (p1_minion_ui_count * (entryHeight + 10 * scale)), panelWidth, entryHeight);
@@ -1518,29 +1526,123 @@ void ofApp::updateGame() {
 						ofColor::yellow);
 					ofLogNotice("Game") << "Bonus Dice Finished: " << roll.result << " AP awarded.";
 				} else if (roll.purpose == PURPOSE_COIN_FLIP) {
-					isWaitingForParalysisCoin = false;
-					int flipResult = roll.result;
-					Player & p = players[currentPlayerIndex];
+					// 1. Resolve Paralysis Flip
+					if (isWaitingForParalysisCoin) {
+						isWaitingForParalysisCoin = false;
+						int flipResult = roll.result;
+						Player & p = players[currentPlayerIndex];
 
-					// Check for 2 (Heads) to escape paralysis
-					if (flipResult == 2) {
-						ofLogNotice("Paralysis") << "Heads! Paralysis is cured.";
-						p.isParalyzed = false;
-						p.paralysisHeadsCount = 0;
+						// Check for 2 (Heads) to escape paralysis
+						if (flipResult == 2) {
+							ofLogNotice("Paralysis") << "Heads! Paralysis is cured.";
+							p.isParalyzed = false;
+							p.paralysisHeadsCount = 0;
 
-						// Continue turn...
-						if (p.onFire) {
-							isWaitingForOnFireDice = true;
-							pendingOnFireRollResult = startDiceRoll(1, 6, PURPOSE_DAMAGE);
-						} else {
-							continueNewTurn();
+							// Continue turn...
+							if (p.onFire) {
+								isWaitingForOnFireDice = true;
+								pendingOnFireRollResult = startDiceRoll(1, 6, PURPOSE_DAMAGE);
+							} else {
+								continueNewTurn();
+							}
+							return;
+						} else { // Rolled 1 (Tails)
+							ofLogNotice("Paralysis") << "Tails! Player remains paralyzed.";
+							// End turn immediately
+							startNewTurn();
+							return;
 						}
-						return;
-					} else { // Rolled 1 (Tails)
-						ofLogNotice("Paralysis") << "Tails! Player remains paralyzed.";
-						// End turn immediately
-						startNewTurn();
-						return;
+					}
+					// 2. Resolve Wolf Summoning Flip
+					else if (isWaitingForWolfCoin) {
+						isWaitingForWolfCoin = false;
+						int flipResult = roll.result; // 1=Tails, 2=Heads
+
+						// Find Summoner for Text Position
+						Player * summoner = nullptr;
+						for (auto & p : players) {
+							if (p.x == wolfPlacementSourceX && p.y == wolfPlacementSourceY) {
+								summoner = &p;
+								break;
+							}
+						}
+						glm::vec3 textPos = summoner ? gridToWorld(summoner->x, summoner->y) : glm::vec3(0, 0, 0);
+
+						if (flipResult == 1) {
+							// TAILS: FAIL
+							ofLogNotice("Wolves") << "Tails! The call fizzles.";
+							spawnFloatingText(textPos, "Fizzles...", ofColor::gray);
+
+							// End the sequence
+							isPlacingWolves = false;
+							wolfSummonStage = 0;
+
+							// --- CRITICAL FIX: CAPTURE ID BEFORE SORT ---
+							int myID = players[currentPlayerIndex].playerID;
+
+							// Cleanup Turn Order
+							std::sort(players.begin(), players.end(), [](const Player & a, const Player & b) {
+								int ownerA = a.isMinion ? a.ownerID : a.playerID;
+								int ownerB = b.isMinion ? b.ownerID : b.playerID;
+								if (ownerA != ownerB) return ownerA < ownerB;
+								if (a.isMinion && !b.isMinion) return true;
+								if (!a.isMinion && b.isMinion) return false;
+								return a.playerID < b.playerID;
+							});
+
+							// Fix index
+							for (size_t i = 0; i < players.size(); i++) {
+								if (players[i].playerID == myID) {
+									currentPlayerIndex = i;
+									break;
+								}
+							}
+						} else {
+							// HEADS: Check if we have space for the 2nd wolf
+							bool hasSpace = false;
+							glm::vec2 adj[] = { { 1, 0 }, { -1, 0 }, { 0, 1 }, { 0, -1 } };
+							for (auto & d : adj) {
+								int nx = wolfPlacementSourceX + (int)d.x;
+								int ny = wolfPlacementSourceY + (int)d.y;
+								if (nx >= 0 && nx < BOARD_WIDTH && ny >= 0 && ny < BOARD_HEIGHT) {
+									if (!board[nx][ny].hasWall && !board[nx][ny].hasPlayer) {
+										hasSpace = true;
+										break;
+									}
+								}
+							}
+
+							if (hasSpace) {
+								// SUCCESS
+								ofLogNotice("Wolves") << "Heads! You can place another wolf.";
+								spawnFloatingText(textPos, "Double Summon!", ofColor::gold);
+								wolfSummonStage = 2; // Advance stage to Wolf 2
+							} else {
+								// HEADS BUT BLOCKED
+								ofLogNotice("Wolves") << "Heads, but no space for 2nd wolf.";
+								spawnFloatingText(textPos, "No Space!", ofColor::red);
+								isPlacingWolves = false;
+								wolfSummonStage = 0;
+
+								// --- CRITICAL FIX: CAPTURE ID BEFORE SORT ---
+								int myID = players[currentPlayerIndex].playerID;
+
+								std::sort(players.begin(), players.end(), [](const Player & a, const Player & b) {
+									int ownerA = a.isMinion ? a.ownerID : a.playerID;
+									int ownerB = b.isMinion ? b.ownerID : b.playerID;
+									if (ownerA != ownerB) return ownerA < ownerB;
+									if (a.isMinion && !b.isMinion) return true;
+									if (!a.isMinion && b.isMinion) return false;
+									return a.playerID < b.playerID;
+								});
+								for (size_t i = 0; i < players.size(); i++) {
+									if (players[i].playerID == myID) {
+										currentPlayerIndex = i;
+										break;
+									}
+								}
+							}
+						}
 					}
 				}
 			}
@@ -1656,7 +1758,6 @@ void ofApp::updateGame() {
 
 	if (hasUnlimitedAP) currentAP = 99;
 }
-
 //----------------------------------------------------
 void ofApp::buildLevelMesh() {
 	levelMesh.clear();
@@ -1958,6 +2059,7 @@ void ofApp::drawGame() {
 				glm::vec3 staticPos = gridToWorld(player.x, player.y);
 				ofTranslate(staticPos.x, staticPos.y, staticPos.z);
 			}
+
 			// --- DRAW LOGIC ---
 			if (player.isSkeleton) {
 				ofSetColor(255);
@@ -1965,19 +2067,16 @@ void ofApp::drawGame() {
 				skeletonTexture.bind();
 				skeletonModel.drawFaces();
 				skeletonTexture.unbind();
-			}
-			// ADD THIS BLOCK:
-			else if (player.isGolem) {
+			} else if (player.isGolem) {
 				ofSetColor(255);
 
-				// FIX 1: Lift up from floor (0.0f -> 6.0f)
+				// Lift up from floor
 				ofTranslate(0, 2.0f, 0);
 
 				// Keep upright rotation
 				ofRotateXDeg(180);
 
-				// FIX 2: Rotate to North (225 -> 45)
-				// Rotating 180 degrees from South-East should point North-West/North
+				// Rotate to North
 				ofRotateYDeg(-90);
 
 				if (player.minionTexture) {
@@ -1990,8 +2089,23 @@ void ofApp::drawGame() {
 					player.minionTexture->unbind();
 				}
 			}
-			// END ADD
+			// --- WOLF RENDERING ---
+			else if (player.isWolf) {
+				ofSetColor(255);
+
+				// Lift slightly
+				ofTranslate(0, 0.5f, 0);
+
+				// If the model faces the wrong way (e.g. sideways), rotate Y here.
+				// ofRotateYDeg(90);
+
+				if (wolfTexture.isAllocated()) wolfTexture.bind();
+				wolfModel.drawFaces();
+				if (wolfTexture.isAllocated()) wolfTexture.unbind();
+			}
+			// ---------------------------
 			else {
+				// Default Player
 				ofTranslate(0, 0.1f, 0);
 				playerModel.drawFaces();
 			}
@@ -2770,18 +2884,38 @@ void ofApp::drawGame() {
 			ofPopStyle();
 		}
 
-		int otherPlayerIndex = (currentPlayerIndex + 1) % 2;
-		Player & otherPlayer = players[otherPlayerIndex];
-		if (!otherPlayer.hand.empty()) {
-			float p_staticCardWidth = staticUICardWidth * 0.6f;
-			float p_staticCardHeight = staticUICardHeight * 0.6f;
-			float p_cardOverlap = p_staticCardWidth * 0.75f;
-			float handY = (otherPlayerIndex == 0) ? ofGetHeight() - p_staticCardHeight - 20 * scale : 20 * scale;
-			size_t otherNumCards = otherPlayer.hand.size();
-			float totalHandWidth = p_staticCardWidth + (otherNumCards - 1) * (p_staticCardWidth - p_cardOverlap);
-			float startX = (ofGetWidth() - totalHandWidth) / 2.0f;
-			for (size_t i = 0; i < otherNumCards; ++i) {
-				cardBackImage.draw(startX + i * (p_staticCardWidth - p_cardOverlap), handY, p_staticCardWidth, p_staticCardHeight);
+		// --- DRAW OTHER HUMAN PLAYER'S HAND (Top Screen) ---
+		// Determine ID of current human (or owner of current minion)
+		int currentID = players[currentPlayerIndex].playerID;
+		if (players[currentPlayerIndex].isMinion) currentID = players[currentPlayerIndex].ownerID;
+
+		// Opponent is the other ID (0 vs 1)
+		int opponentID = (currentID == 0) ? 1 : 0;
+		int opponentIndex = -1;
+
+		// Find the index of the opponent in the vector
+		for (size_t i = 0; i < players.size(); ++i) {
+			if (players[i].playerID == opponentID) {
+				opponentIndex = i;
+				break;
+			}
+		}
+
+		if (opponentIndex != -1) {
+			Player & otherPlayer = players[opponentIndex];
+			if (!otherPlayer.hand.empty()) {
+				float p_staticCardWidth = staticUICardWidth * 0.6f;
+				float p_staticCardHeight = staticUICardHeight * 0.6f;
+				float p_cardOverlap = p_staticCardWidth * 0.75f;
+				float handY = 20 * scale; // Always top
+
+				size_t otherNumCards = otherPlayer.hand.size();
+				float totalHandWidth = p_staticCardWidth + (otherNumCards - 1) * (p_staticCardWidth - p_cardOverlap);
+				float startX = (ofGetWidth() - totalHandWidth) / 2.0f;
+
+				for (size_t i = 0; i < otherNumCards; ++i) {
+					cardBackImage.draw(startX + i * (p_staticCardWidth - p_cardOverlap), handY, p_staticCardWidth, p_staticCardHeight);
+				}
 			}
 		}
 	}
@@ -3115,6 +3249,31 @@ void ofApp::drawGame() {
 	}
 	if (isDoubleHandedMenuOpen) {
 		drawDoubleHandedUI();
+	}
+	// --- TOP INSTRUCTION TEXT (Wolf Placement) ---
+	if (isPlacingWolves && !isWaitingForWolfCoin) {
+		string msg = "Choose Wolf Spawn Square";
+
+		// Optional: Change text if it's the second wolf
+		if (wolfSummonStage == 2) msg = "Heads! Choose 2nd Wolf Spawn Square";
+
+		// Calculate center position
+		ofRectangle bbox = titleFont.getStringBoundingBox(msg, 0, 0);
+		float tx = (ofGetWidth() / 2.0f) - (bbox.width / 2.0f);
+
+		// MOVED LOWER: 25% down the screen
+		float ty = ofGetHeight() * 0.25f;
+
+		// Draw Text Shadow/Outline for visibility
+		ofSetColor(0, 0, 0, 255);
+		titleFont.drawString(msg, tx + 2, ty + 2);
+		titleFont.drawString(msg, tx - 2, ty - 2);
+		titleFont.drawString(msg, tx + 2, ty - 2);
+		titleFont.drawString(msg, tx - 2, ty + 2);
+
+		// Draw Main Text
+		ofSetColor(ofColor::white);
+		titleFont.drawString(msg, tx, ty);
 	}
 	ofDrawBitmapString("FPS: " + ofToString(ofGetFrameRate(), 2), 10, 20);
 }
@@ -3583,6 +3742,84 @@ void ofApp::mousePressed(int x, int y, int button) {
 
 	case STATE_GAMEPLAY: {
 
+		// --- WOLF PLACEMENT LOGIC ---
+		if (isPlacingWolves && !isWaitingForWolfCoin && button == OF_MOUSE_BUTTON_LEFT) {
+			ofVec2f boardPos = mouseToBoard(x, y);
+			int gx = floor(boardPos.x), gy = floor(boardPos.y);
+
+			// Validation: In bounds, Empty, Adjacent to Summoner
+			if (gx >= 0 && gx < BOARD_WIDTH && gy >= 0 && gy < BOARD_HEIGHT) {
+				if (!board[gx][gy].hasWall && !board[gx][gy].hasPlayer) {
+					int dist = abs(gx - wolfPlacementSourceX) + abs(gy - wolfPlacementSourceY);
+					if (dist == 1) {
+
+						// --- SPAWN THE WOLF ---
+						wolfSummonCount++; // Increment name counter (Wolf 1, Wolf 2)
+
+						Player wolf;
+						wolf.playerID = 200 + (int)players.size();
+						wolf.x = gx;
+						wolf.y = gy;
+						wolf.maxHealth = 4;
+						wolf.health = 4;
+						wolf.isMinion = true;
+						wolf.isWolf = true;
+						wolf.ownerID = players[currentPlayerIndex].playerID;
+
+						// Build Deck (3x Slash, 1x Call for Wolves)
+						Card slashCard, callCard;
+						for (const auto & c : allCards) {
+							if (c.name == "Slash") slashCard = c;
+							if (c.type == CARD_CALL_FOR_WOLVES) callCard = c;
+						}
+						wolf.deck = { slashCard, slashCard, slashCard, callCard };
+						std::shuffle(wolf.deck.begin(), wolf.deck.end(), rng);
+
+						// Add to board
+						board[gx][gy].hasPlayer = true;
+						players.push_back(wolf);
+						ofLogNotice("Summon") << "Summoned Wolf " << wolfSummonCount;
+
+						// --- HANDLE LOGIC FLOW ---
+
+						if (wolfSummonStage == 1) {
+							// First wolf placed. Now flip the coin.
+							ofLogNotice("Wolves") << "Wolf 1 placed. Flipping coin for 2nd...";
+							startDiceRoll(1, 2, PURPOSE_COIN_FLIP);
+							isWaitingForWolfCoin = true;
+							// Do NOT turn off isPlacingWolves yet.
+						} else if (wolfSummonStage == 2) {
+							// Second wolf placed. We are done.
+							isPlacingWolves = false;
+							wolfSummonStage = 0;
+
+							// --- CRITICAL FIX: CAPTURE ID BEFORE SORT ---
+							int myID = players[currentPlayerIndex].playerID;
+
+							// Re-sort turn order
+							std::sort(players.begin(), players.end(), [](const Player & a, const Player & b) {
+								int ownerA = a.isMinion ? a.ownerID : a.playerID;
+								int ownerB = b.isMinion ? b.ownerID : b.playerID;
+								if (ownerA != ownerB) return ownerA < ownerB;
+								if (a.isMinion && !b.isMinion) return true;
+								if (!a.isMinion && b.isMinion) return false;
+								return a.playerID < b.playerID;
+							});
+
+							// Fix current player index
+							for (size_t i = 0; i < players.size(); i++) {
+								if (players[i].playerID == myID) {
+									currentPlayerIndex = i;
+									break;
+								}
+							}
+						}
+
+						return; // Click handled
+					}
+				}
+			}
+		}
 		// 3a. Debug Spawn Logic
 		if (isSpawningUnit && button == OF_MOUSE_BUTTON_LEFT) {
 			ofVec2f boardPos = mouseToBoard(x, y);
@@ -4236,10 +4473,14 @@ void ofApp::continueNewTurn() {
 	currentAP = 0;
 
 	// --- AP ROLL LOGIC ---
-	// Minions roll 1d6. Players roll 1d6 (or 1d10 if Hastened).
-	if (startingPlayer.isMinion) {
+	if (startingPlayer.isWolf) {
+		// Wolves specifically roll D10
+		startDiceRoll(1, 10, PURPOSE_AP);
+	} else if (startingPlayer.isMinion) {
+		// Other minions (Skeletons/Golems) roll D6
 		startDiceRoll(1, 6, PURPOSE_AP);
 	} else {
+		// Players
 		int apDiceSides = 6;
 		if (startingPlayer.nextTurnD10AP) {
 			apDiceSides = 10;
@@ -4333,10 +4574,37 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 			break;
 		}
 
-		ofLogNotice("Game") << "Dealing " << damage << " damage to Player " << target.playerID;
+		int calculatedDamage = damage;
+
+		// --- CHECK CALL FOR WOLVES VULNERABILITY ---
+		// Any unit with "Call for Wolves" in their deck/hand/discard takes double Piercing damage
+		if (type == DAMAGE_PIERCING) {
+			bool hasWolfCall = false;
+
+			// Check Hand
+			for (const auto & c : target.hand)
+				if (c.type == CARD_CALL_FOR_WOLVES) hasWolfCall = true;
+			// Check Deck
+			for (const auto & c : target.deck)
+				if (c.type == CARD_CALL_FOR_WOLVES) hasWolfCall = true;
+			// Check Discard
+			for (const auto & c : target.discardPile)
+				if (c.type == CARD_CALL_FOR_WOLVES) hasWolfCall = true;
+			// Check Played Pile (active turn)
+			for (const auto & c : target.playedCardsPile)
+				if (c.type == CARD_CALL_FOR_WOLVES) hasWolfCall = true;
+
+			if (hasWolfCall) {
+				calculatedDamage *= 2;
+				ofLogNotice("Damage") << "Double Piercing Damage due to Call for Wolves curse!";
+				spawnFloatingText(gridToWorld(target.x, target.y), "Curse: x2 Dmg!", ofColor::orange);
+			}
+		}
+
+		ofLogNotice("Game") << "Dealing " << calculatedDamage << " damage to Player " << target.playerID;
 
 		int initialHealth = target.health;
-		int remainingDmg = damage;
+		int remainingDmg = calculatedDamage;
 
 		// --- LAYER 1: SPECIFIC MITIGATION ---
 		if (type == DAMAGE_PHYSICAL) {
@@ -4686,13 +4954,10 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		// We set this to false because we handled the cleanup manually above.
 		// We don't want the bottom block to run again.
 		playedSuccessfully = false;
-
-		// Note: The actual summoning happens in updateGame() when the dice finishes,
-		// so we don't need to worry about vector resizing here.
 		break;
 	}
 
-		// --- CASE: SUMMON GOLEM ---
+	// --- CASE: SUMMON GOLEM ---
 	case CARD_SUMMON_GOLEM: {
 		// 1. Validation
 		if (board[targetX][targetY].hasWall || board[targetX][targetY].hasPlayer) break;
@@ -4788,9 +5053,7 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		std::shuffle(minion.deck.begin(), minion.deck.end(), rng);
 
 		// --- CRASH FIX START ---
-		// We perform the card cleanup NOW, before modifying the players vector.
-		// This ensures 'currentPlayer' is still valid.
-		int myID = currentPlayer.playerID; // Remember who we are
+		int myID = currentPlayer.playerID;
 
 		currentAP -= playedCard.cost;
 		currentPlayer.playedCardsPile.push_back(playedCard);
@@ -4801,7 +5064,7 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		invalidateTargetCache();
 		// --- CRASH FIX END ---
 
-		// 5. Add to board (This invalidates the 'currentPlayer' reference)
+		// 5. Add to board
 		board[targetX][targetY].hasPlayer = true;
 		players.push_back(minion);
 
@@ -4815,19 +5078,62 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 			return a.playerID < b.playerID;
 		});
 
-		// Find our new index using the ID we saved
+		// Find our new index
 		for (size_t i = 0; i < players.size(); i++) {
 			if (players[i].playerID == myID) {
 				currentPlayerIndex = i;
 				break;
 			}
 		}
-
-		// Return immediately so we don't hit the code at the bottom of the function
 		return;
 	}
 
-		// --- CASE: STRENGTHEN ELEMENTS ---
+	// --- CASE: CALL FOR WOLVES ---
+	case CARD_CALL_FOR_WOLVES: {
+		// 1. Check for valid adjacent space BEFORE playing
+		bool hasSpace = false;
+		int cx = currentPlayer.x;
+		int cy = currentPlayer.y;
+		glm::vec2 adj[] = { { 1, 0 }, { -1, 0 }, { 0, 1 }, { 0, -1 } };
+		for (auto & d : adj) {
+			int nx = cx + (int)d.x;
+			int ny = cy + (int)d.y;
+			if (nx >= 0 && nx < BOARD_WIDTH && ny >= 0 && ny < BOARD_HEIGHT) {
+				if (!board[nx][ny].hasWall && !board[nx][ny].hasPlayer) {
+					hasSpace = true;
+					break;
+				}
+			}
+		}
+
+		if (!hasSpace) {
+			ofLogNotice("Wolves") << "No adjacent space to summon wolves!";
+			spawnFloatingText(gridToWorld(cx, cy), "No Space!", ofColor::red);
+			break; // Cancel card play
+		}
+
+		// 2. Pay Cost & Cleanup Hand
+		currentAP -= playedCard.cost;
+		currentPlayer.playedCardsPile.push_back(playedCard);
+		if (currentPlayer.isReplicatePending) {
+			currentPlayer.playedCardsPile.push_back(playedCard);
+			currentPlayer.isReplicatePending = false;
+		}
+		currentPlayer.hand.erase(currentPlayer.hand.begin() + cardIndex);
+
+		// 3. Setup State for Wolf #1
+		wolfPlacementSourceX = currentPlayer.x;
+		wolfPlacementSourceY = currentPlayer.y;
+
+		isPlacingWolves = true;
+		wolfSummonStage = 1; // Start with the first wolf
+
+		playedSuccessfully = false; // Cleanup handled manually
+		invalidateTargetCache();
+		break;
+	}
+
+	// --- CASE: STRENGTHEN ELEMENTS ---
 	case CARD_STRENGTHEN_ELEMENTS: {
 		// Set duration to 3 (Current Turn + Next 2 Turns)
 		currentPlayer.strengthenElementsTurnsRemaining = 3;
@@ -4839,21 +5145,12 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		break;
 	}
 
-		// --- CASE: SUMMON WALL ---
+	// --- CASE: SUMMON WALL ---
 	case CARD_CREATE_WALL: {
-		// Targeting already ensures the tile is empty and adjacent,
-		// but we can add a safety check.
 		if (!board[targetX][targetY].hasWall && !board[targetX][targetY].hasPlayer) {
-
-			// Set the wall flag
 			board[targetX][targetY].hasWall = true;
-
-			// CRITICAL: Rebuild the 3D mesh to make the wall appear
 			buildLevelMesh();
-
-			// Invalidate pathing cache for all units
 			invalidateTargetCache();
-
 			playedSuccessfully = true;
 		}
 		break;
@@ -4865,7 +5162,7 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 
 		spawnFloatingText(gridToWorld(currentPlayer.x, currentPlayer.y),
 			"+" + ofToString(playedCard.value) + " Holy Block",
-			ofColor::darkViolet); // A new color for the UI
+			ofColor::darkViolet);
 
 		ofLogNotice("Game") << "Gained Dark Shield and bonus dice next turn.";
 		playedSuccessfully = true;
@@ -4926,7 +5223,7 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		break;
 	}
 
-		// --- CASE: DOUBLE HANDED ---
+	// --- CASE: DOUBLE HANDED ---
 	case CARD_DOUBLE_HANDED: {
 		int targetIndex = -1;
 		for (size_t i = 0; i < players.size(); i++) {
@@ -6697,6 +6994,7 @@ CardType ofApp::stringToCardType(const std::string & str) {
 	if (str == "CARD_DARK_SHIELD") return CARD_DARK_SHIELD;
 	if (str == "CARD_DRAIN_PUNCH") return CARD_DRAIN_PUNCH;
 	if (str == "CARD_DOUBLE_HANDED") return CARD_DOUBLE_HANDED;
+	if (str == "CARD_CALL_FOR_WOLVES") return CARD_CALL_FOR_WOLVES;
 	return CARD_NONE;
 }
 
@@ -6816,7 +7114,6 @@ void ofApp::drawMinionManagerUI() {
 		ofPushMatrix();
 
 		if (minion.isGolem) {
-			// --- GOLEM UI SETTINGS ---
 			ofTranslate(modelFbo.getWidth() / 2, 100);
 			ofScale(18, 18, 18);
 			ofRotateXDeg(-15);
@@ -6825,14 +7122,23 @@ void ofApp::drawMinionManagerUI() {
 			golemModel.drawFaces();
 			if (minion.minionTexture) minion.minionTexture->unbind();
 
+		} else if (minion.isWolf) {
+			// --- WOLF UI SETTINGS ---
+			ofTranslate(modelFbo.getWidth() / 2, 85);
+			// Scale up for UI
+			ofScale(6, 6, 6);
+			ofRotateXDeg(-15);
+			ofRotateYDeg(ofGetElapsedTimef() * 30);
+
+			if (wolfTexture.isAllocated()) wolfTexture.bind();
+			wolfModel.drawFaces();
+			if (wolfTexture.isAllocated()) wolfTexture.unbind();
+
 		} else {
 			// --- SKELETON UI SETTINGS ---
 			ofSetColor(255);
 			ofTranslate(modelFbo.getWidth() / 2, 90);
-
-			// FIX: Reverted to negative Y-scale to flip skeleton upright
 			ofScale(18, -18, 18);
-
 			ofRotateXDeg(-15);
 			ofRotateYDeg(ofGetElapsedTimef() * 30);
 			skeletonTexture.bind();
@@ -6848,7 +7154,7 @@ void ofApp::drawMinionManagerUI() {
 		ofSetColor(0, 0, 0, 150);
 		ofDrawRectRounded(ui.bounds, 10 * scale);
 
-		// --- DETERMINE NAME (using new displayNumber) ---
+		// --- DETERMINE NAME ---
 		string name = "";
 		if (minion.isGolem) {
 			if (minion.minionTexture == &golemTexElectric)
@@ -6859,10 +7165,12 @@ void ofApp::drawMinionManagerUI() {
 				name = "Rock Golem ";
 			else
 				name = "Golem ";
+		} else if (minion.isWolf) {
+			name = "Wolf ";
 		} else {
 			name = "Skeleton ";
 		}
-		name += ofToString(ui.displayNumber); // Use the pre-calculated number
+		name += ofToString(ui.displayNumber);
 
 		// --- Draw Name Text ---
 		float fontScale = 0.9f;
