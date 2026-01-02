@@ -4512,15 +4512,26 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 	case CARD_DISPEL: {
 		pendingDispelCardIndex = cardIndex;
 		isDispelMenuOpen = true;
-		// Menu geometry setup
+
+		// 1. Setup Panel Geometry (Standardized Size)
 		float w = 600, h = 300;
 		float x = ofGetWidth() / 2 - w / 2, y = ofGetHeight() / 2 - h / 2;
 		dispelMenuRect.set(x, y, w, h);
-		dispelBtnBarrier.set(x + 40, y + 100, 250, 100);
-		dispelBtnPurge.set(x + w - 290, y + 100, 250, 100);
+
+		// 2. Setup Button Geometry (Centered, wider buttons)
+		float btnWidth = 260; // Wider to fit "Non-Phys Barrier"
+		float btnHeight = 80;
+		float spacing = 30;
+
+		// Calculate X to center the group of buttons
+		float totalBtnWidth = (btnWidth * 2) + spacing;
+		float startX = x + (w - totalBtnWidth) / 2;
+		float btnY = y + 130;
+
+		dispelBtnBarrier.set(startX, btnY, btnWidth, btnHeight);
+		dispelBtnPurge.set(startX + btnWidth + spacing, btnY, btnWidth, btnHeight);
 		break;
 	}
-
 	// --- CASE: TELEPORT ---
 	case CARD_TELEPORT: {
 		if (board[targetX][targetY].hasWall || board[targetX][targetY].hasPlayer) break;
@@ -5830,69 +5841,95 @@ void ofApp::drawDispelUI() {
 
 	// --- PHASE 1: INITIAL CHOICE ---
 	if (isDispelMenuOpen) {
-		// Dark Overlay
+		// 1. Dark Overlay
 		ofSetColor(0, 0, 0, 180);
 		ofDrawRectangle(0, 0, ofGetWidth(), ofGetHeight());
 
-		// Menu Background
-		ofSetColor(30, 30, 60, 255);
+		// 2. Menu Background (Matching Double Handed Theme)
+		ofSetColor(50, 50, 50, 255);
 		ofDrawRectRounded(dispelMenuRect, 15);
 
-		// Text
+		// 3. Title
 		ofSetColor(ofColor::white);
 		string title = "Choose Dispel Effect";
 		ofRectangle titleBox = uiFont.getStringBoundingBox(title, 0, 0);
 		uiFont.drawString(title, dispelMenuRect.getCenter().x - titleBox.width / 2, dispelMenuRect.y + 60);
 
-		// Barrier Button
+		// 4. Barrier Button (Hot Pink)
 		ofSetColor(ofColor::hotPink);
 		ofDrawRectRounded(dispelBtnBarrier, 10);
-		ofSetColor(ofColor::black);
 
-		// CHANGED: Renamed to Non-Physical Barrier
-		string bText = "Gain Non-Phys Barrier\n(1d20 vs Magic/Fire/etc)";
+		// Barrier Text (Centered)
+		ofSetColor(ofColor::white); // White text looks cleaner on pink
+		string bText = "Non-Phys Barrier";
+		string bSubText = "(1d20 vs Magic/Fire)";
 
-		// Simple centering logic...
-		uiFont.drawString("Non-Phys Barrier", dispelBtnBarrier.x + 20, dispelBtnBarrier.y + 40);
+		ofRectangle bBox = uiFont.getStringBoundingBox(bText, 0, 0);
+		uiFont.drawString(bText, dispelBtnBarrier.getCenter().x - bBox.width / 2, dispelBtnBarrier.getCenter().y - 5);
 
-		// Purge Button
+		// Barrier Subtext (Smaller/Lower)
+		float smallScale = 0.8f;
+		ofRectangle bSubBox = uiFont.getStringBoundingBox(bSubText, 0, 0);
+		ofPushMatrix();
+		ofTranslate(dispelBtnBarrier.getCenter().x - (bSubBox.width * smallScale) / 2, dispelBtnBarrier.getCenter().y + 20);
+		ofScale(smallScale, smallScale);
+		uiFont.drawString(bSubText, 0, 0);
+		ofPopMatrix();
+
+		// 5. Purge Button (Cyan)
 		ofSetColor(ofColor::cyan);
 		ofDrawRectRounded(dispelBtnPurge, 10);
-		ofSetColor(ofColor::black);
-		uiFont.drawString("Remove Status", dispelBtnPurge.x + 20, dispelBtnPurge.y + 40);
+
+		// Purge Text (Centered)
+		ofSetColor(ofColor::black); // Black text looks better on bright Cyan
+		string pText = "Remove Status";
+		ofRectangle pBox = uiFont.getStringBoundingBox(pText, 0, 0);
+		uiFont.drawString(pText, dispelBtnPurge.getCenter().x - pBox.width / 2, dispelBtnPurge.getCenter().y + pBox.height / 2 - 3); // -3 for visual alignment
 	}
 
-	// --- PHASE 2: TARGETING ---
+	// --- PHASE 2: TARGETING (Top Prompt) ---
 	if (isDispelTargeting) {
-		// Just a text prompt at top of screen
+		float promptW = 600;
+		float promptX = ofGetWidth() / 2 - promptW / 2;
+
 		ofSetColor(0, 0, 0, 200);
-		ofDrawRectRounded(ofGetWidth() / 2 - 300, 50, 600, 60, 10);
+		ofDrawRectRounded(promptX, 50, promptW, 60, 10);
+
 		ofSetColor(ofColor::white);
 		string text = "Select Self or Adjacent Unit to Cure";
-		uiFont.drawString(text, ofGetWidth() / 2 - 200, 90);
+		ofRectangle textBox = uiFont.getStringBoundingBox(text, 0, 0);
+		uiFont.drawString(text, ofGetWidth() / 2 - textBox.width / 2, 90);
 	}
 
 	// --- PHASE 3: STATUS SELECTION ---
 	if (isDispelStatusSelectOpen) {
+		// Overlay
 		ofSetColor(0, 0, 0, 180);
 		ofDrawRectangle(0, 0, ofGetWidth(), ofGetHeight());
 
-		ofSetColor(30, 30, 60, 255);
+		// Background
+		ofSetColor(50, 50, 50, 255);
 		ofDrawRectRounded(statusSelectMenuRect, 15);
 
+		// Title
 		ofSetColor(ofColor::white);
-		uiFont.drawString("Which status to remove?", statusSelectMenuRect.x + 20, statusSelectMenuRect.y + 40);
+		string title = "Select Status to Remove";
+		ofRectangle titleBox = uiFont.getStringBoundingBox(title, 0, 0);
+		uiFont.drawString(title, statusSelectMenuRect.getCenter().x - titleBox.width / 2, statusSelectMenuRect.y + 45);
 
+		// Buttons
 		for (size_t i = 0; i < statusSelectButtons.size(); i++) {
 			ofSetColor(ofColor::orange);
-			ofDrawRectRounded(statusSelectButtons[i], 8);
+			ofDrawRectRounded(statusSelectButtons[i], 10);
+
 			ofSetColor(ofColor::black);
-			uiFont.drawString(statusSelectLabels[i], statusSelectButtons[i].x + 10, statusSelectButtons[i].y + 30);
+			string label = statusSelectLabels[i];
+			ofRectangle labelBox = uiFont.getStringBoundingBox(label, 0, 0);
+			uiFont.drawString(label, statusSelectButtons[i].getCenter().x - labelBox.width / 2, statusSelectButtons[i].getCenter().y + labelBox.height / 2);
 		}
 	}
 }
 //--------------------------------------------------------------
-// Draw the Menu
 void ofApp::drawDoubleHandedUI() {
 	ofEnableBlendMode(OF_BLENDMODE_ALPHA);
 
