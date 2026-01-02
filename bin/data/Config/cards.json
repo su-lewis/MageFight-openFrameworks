@@ -255,5 +255,21 @@
     "type": "CARD_CALL_FOR_WOLVES",
     "cost": 7,
     "targeting": "TARGET_SELF"
+  },
+  {
+    "id": 31,
+    "name": "Necromancer's Blessing",
+    "type": "CARD_NECRO_BLESSING",
+    "cost": 3,
+    "targeting": "TARGET_SELF"
+  },
+  {
+    "id": 32,
+    "name": "Time Vortex",
+    "type": "CARD_TIME_VORTEX",
+    "cost": 7,
+    "targeting": "TARGET_SELF",
+    "numDice": 1,
+    "diceSides": 4
   }
 ]

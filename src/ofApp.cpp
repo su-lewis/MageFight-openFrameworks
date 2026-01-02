@@ -487,6 +487,14 @@ void ofApp::update() {
 		return;
 	}
 
+	// ADD THIS CHECK to prevent other actions while dice are rolling
+	if (isWaitingForTimeVortexDice) {
+		// Only update the dice animation, nothing else
+		// (Assuming your dice animation update is inside updateGame)
+		updateGame();
+		return;
+	}
+
 	switch (currentState) {
 	case STATE_MAIN_MENU:
 		break;
@@ -1455,6 +1463,24 @@ void ofApp::updateGame() {
 			ofLogNotice("Heal") << "Player " << target->playerID << " healed.";
 		}
 		pendingHealTargetIndex = -1;
+	}
+
+	// --- Time Vortex Logic ---
+	if (isWaitingForTimeVortexDice && activeDiceRolls.empty()) {
+		isWaitingForTimeVortexDice = false; // Stop waiting
+
+		Player & currentPlayer = players[currentPlayerIndex];
+		int turnsGained = pendingTimeVortexResult;
+
+		// Add the bonus turns to the current player/minion
+		currentPlayer.bonusTurns += turnsGained;
+
+		spawnFloatingText(
+			gridToWorld(currentPlayer.x, currentPlayer.y),
+			"+" + ofToString(turnsGained) + " Extra Turns!",
+			ofColor::cyan);
+
+		ofLogNotice("Time Vortex") << "Unit " << currentPlayer.playerID << " gained " << turnsGained << " bonus turns.";
 	}
 
 	// --- Dispel Barrier Dice ---
@@ -2683,8 +2709,8 @@ void ofApp::drawGame() {
 		}
 
 		// --- Draw P0 AP Box ---
-		float p0_apCenterX = 20 * scale + staticUICardWidth / 2; // Was 30 (Moved left)
-		float p0_apCenterY = ofGetHeight() - staticUICardHeight - (20 * scale) - staticUICardHeight - (20 * scale) - 60 * scale; // Was 40 (Moved down)
+		float p0_apCenterX = 20 * scale + staticUICardWidth / 2;
+		float p0_apCenterY = ofGetHeight() - staticUICardHeight - (20 * scale) - staticUICardHeight - (20 * scale) - 60 * scale;
 		ofRectangle p0_apTextBox = titleFont.getStringBoundingBox(p0_apText, 0, 0);
 		float p0_apRectWidth = (p0_apTextBox.width * fontScale) + (40 * scale);
 		float p0_apRectHeight = (p0_apTextBox.height * fontScale) + (20 * scale);
@@ -2697,9 +2723,24 @@ void ofApp::drawGame() {
 		titleFont.drawString(p0_apText, -p0_apTextBox.getCenter().x, -p0_apTextBox.getCenter().y);
 		ofPopMatrix();
 
-		// --- NEW: DRAW P0 STATUSES ---
+		// --- NEW: DRAW LUCK INDICATOR (PLAYER 0) ---
+		if (player0->luck > 0) {
+			string luckText = "+" + ofToString(player0->luck) + " Luck";
+			ofRectangle luckBox = uiFont.getStringBoundingBox(luckText, 0, 0);
+			float luckX = p0_apCenterX - (luckBox.width * 0.9f / 2); // Use smaller font scale for centering
+			float luckY = p0_apCenterY - p0_apRectHeight / 2 - (luckBox.height * 0.9f) - (5 * scale);
+
+			ofSetColor(ofColor::darkGreen);
+			ofPushMatrix();
+			ofTranslate(luckX, luckY);
+			ofScale(0.9f, 0.9f); // Slightly smaller than AP text
+			uiFont.drawString(luckText, 0, 0);
+			ofPopMatrix();
+		}
+
+		// --- DRAW P0 STATUSES ---
 		float p0_statusY = p0_apCenterY + p0_apRectHeight / 2 + 10 * scale;
-		float smallFontScale = fontScale * 0.8f; // Slightly larger for better readability
+		float smallFontScale = fontScale * 0.8f;
 
 		if (player0->nextTurnAPBonus > 0) {
 			string bonusText = "+" + ofToString(player0->nextTurnAPBonus) + " AP";
@@ -2713,7 +2754,6 @@ void ofApp::drawGame() {
 			p0_statusY += (bonusBox.height * smallFontScale) + (5 * scale);
 		}
 
-		// --- INSERT START ---
 		if (player0->strengthenElementsTurnsRemaining > 0) {
 			string elemText = "Elem Buff (" + ofToString(player0->strengthenElementsTurnsRemaining) + ")";
 			ofRectangle elemBox = titleFont.getStringBoundingBox(elemText, 0, 0);
@@ -2725,12 +2765,11 @@ void ofApp::drawGame() {
 			ofPopMatrix();
 			p0_statusY += (elemBox.height * smallFontScale) + (5 * scale);
 		}
-		// --- INSERT END ---
 
 		if (player0->nextTurnD10AP) {
 			string d10Text = "D10 AP";
 			ofRectangle d10Box = titleFont.getStringBoundingBox(d10Text, 0, 0);
-			ofSetColor(ofColor::white); // Changed color to white
+			ofSetColor(ofColor::white);
 			ofPushMatrix();
 			ofTranslate(p0_apCenterX - (d10Box.width * smallFontScale / 2), p0_statusY + (d10Box.height * smallFontScale));
 			ofScale(smallFontScale, smallFontScale);
@@ -2739,8 +2778,7 @@ void ofApp::drawGame() {
 		}
 
 		/// --- Draw P1 AP Box ---
-		float p1_apCenterX = ofGetWidth() - staticUICardWidth - (20 * scale) + staticUICardWidth / 2; // Adjusted X to match
-		// Adjusted Y to match new gap and vertical position
+		float p1_apCenterX = ofGetWidth() - staticUICardWidth - (20 * scale) + staticUICardWidth / 2;
 		float p1_apCenterY = 20 * scale + staticUICardHeight + (20 * scale) + staticUICardHeight + 60 * scale;
 		ofRectangle p1_apTextBox = titleFont.getStringBoundingBox(p1_apText, 0, 0);
 		float p1_apRectWidth = (p1_apTextBox.width * fontScale) + (40 * scale);
@@ -2754,13 +2792,28 @@ void ofApp::drawGame() {
 		titleFont.drawString(p1_apText, -p1_apTextBox.getCenter().x, -p1_apTextBox.getCenter().y);
 		ofPopMatrix();
 
-		// --- NEW: DRAW P1 STATUSES ---
+		// --- NEW: DRAW LUCK INDICATOR (PLAYER 1) ---
+		if (player1->luck > 0) {
+			string luckText = "+" + ofToString(player1->luck) + " Luck";
+			ofRectangle luckBox = uiFont.getStringBoundingBox(luckText, 0, 0);
+			float luckX = p1_apCenterX - (luckBox.width * 0.9f / 2);
+			float luckY = p1_apCenterY + p1_apRectHeight / 2 + (5 * scale);
+
+			ofSetColor(ofColor::darkGreen);
+			ofPushMatrix();
+			ofTranslate(luckX, luckY);
+			ofScale(0.9f, 0.9f);
+			uiFont.drawString(luckText, 0, 0);
+			ofPopMatrix();
+		}
+
+		// --- DRAW P1 STATUSES ---
 		float p1_statusY = p1_apCenterY - p1_apRectHeight / 2 - 10 * scale;
 
 		if (player1->nextTurnD10AP) {
 			string d10Text = "D10 AP";
 			ofRectangle d10Box = titleFont.getStringBoundingBox(d10Text, 0, 0);
-			ofSetColor(ofColor::white); // Changed color to white
+			ofSetColor(ofColor::white);
 			ofPushMatrix();
 			ofTranslate(p1_apCenterX - (d10Box.width * smallFontScale / 2), p1_statusY);
 			ofScale(smallFontScale, smallFontScale);
@@ -2769,7 +2822,6 @@ void ofApp::drawGame() {
 			p1_statusY -= (d10Box.height * smallFontScale) + (5 * scale);
 		}
 
-		// --- INSERT START ---
 		if (player1->strengthenElementsTurnsRemaining > 0) {
 			string elemText = "Elem Buff (" + ofToString(player1->strengthenElementsTurnsRemaining) + ")";
 			ofRectangle elemBox = titleFont.getStringBoundingBox(elemText, 0, 0);
@@ -2781,7 +2833,6 @@ void ofApp::drawGame() {
 			ofPopMatrix();
 			p1_statusY -= (elemBox.height * smallFontScale) + (5 * scale);
 		}
-		// --- INSERT END ---
 
 		if (player1->nextTurnAPBonus > 0) {
 			string bonusText = "+" + ofToString(player1->nextTurnAPBonus) + " AP";
@@ -3296,6 +3347,30 @@ void ofApp::drawGame() {
 		ofSetColor(ofColor::white);
 		titleFont.drawString(msg, tx, ty);
 	}
+	// --- BONUS TURNS COUNTER ---
+	if (currentPlayerIndex != -1) {
+		Player & currentPlayer = players[currentPlayerIndex];
+		if (currentPlayer.bonusTurns > 0) {
+			string msg = "Extra Turns: " + ofToString(currentPlayer.bonusTurns);
+
+			// Calculate position to the right of the End Turn button
+			ofRectangle bbox = titleFont.getStringBoundingBox(msg, 0, 0);
+			float tx = endTurnButtonRect.getRight() + 20 * scale;
+			float ty = endTurnButtonRect.getCenter().y + bbox.height / 2;
+
+			// Draw shadow/outline for visibility
+			ofSetColor(0, 0, 0, 255);
+			titleFont.drawString(msg, tx + 2, ty + 2);
+			titleFont.drawString(msg, tx - 2, ty - 2);
+			titleFont.drawString(msg, tx + 2, ty - 2);
+			titleFont.drawString(msg, tx - 2, ty + 2);
+
+			// Draw main text
+			ofSetColor(ofColor::white);
+			titleFont.drawString(msg, tx, ty);
+		}
+	}
+
 	ofDrawBitmapString("FPS: " + ofToString(ofGetFrameRate(), 2), 10, 20);
 }
 //--------------------------------------------------------------
@@ -4381,17 +4456,25 @@ void ofApp::startNewTurn() {
 	if (currentPlayerIndex != -1) {
 		Player & endingPlayer = players[currentPlayerIndex];
 
-		// --- NEW LOCATION: DECREMENT BUFF TIMERS HERE ---
-		// Decrement the player who just finished their turn.
+		// --- CHECK FOR BONUS TURNS ---
+		if (endingPlayer.bonusTurns > 0) {
+			endingPlayer.bonusTurns--;
+			ofLogNotice("Time Vortex") << "Bonus Turn! " << (endingPlayer.isMinion ? "Minion " : "Player ") << endingPlayer.playerID << " goes again. " << endingPlayer.bonusTurns << " remaining.";
+
+			// Give the same player another turn
+			continueNewTurn();
+			return; // STOP here to prevent advancing to the next player
+		}
+		// --- END BONUS TURN CHECK ---
+
+		// Decrement buff timers for the player who just finished
 		if (endingPlayer.strengthenElementsTurnsRemaining > 0) {
 			endingPlayer.strengthenElementsTurnsRemaining--;
 			if (endingPlayer.strengthenElementsTurnsRemaining == 0) {
 				spawnFloatingText(gridToWorld(endingPlayer.x, endingPlayer.y), "Elements Faded", ofColor::gray);
 			}
 		}
-		// ------------------------------------------------
 
-		// ADD THIS: Clear the combo history
 		endingPlayer.cardsPlayedThisTurn.clear();
 
 		endingPlayer.discardPile.insert(endingPlayer.discardPile.end(), endingPlayer.hand.begin(), endingPlayer.hand.end());
@@ -4403,7 +4486,7 @@ void ofApp::startNewTurn() {
 		endingPlayer.shocksPlayedThisTurn = 0;
 	}
 
-	// --- 2. Advance to the NEXT player ---
+	// --- 2. Advance to the NEXT player (Normal Turn Order) ---
 	currentPlayerIndex = (currentPlayerIndex + 1) % players.size();
 
 	if (currentPlayerIndex == 0) globalTurnCounter++;
@@ -4411,7 +4494,7 @@ void ofApp::startNewTurn() {
 	Player & startingPlayer = players[currentPlayerIndex];
 	ofLogNotice("Game") << "--- START TURN: " << (startingPlayer.isMinion ? "Minion " : "Player ") << startingPlayer.playerID;
 
-	// --- FIX: Snap visuals immediately ---
+	// Snap visuals
 	playerVisualPos = gridToWorld(startingPlayer.x, startingPlayer.y);
 	animationPath.clear();
 	isPlayerAnimating = false;
@@ -4421,7 +4504,6 @@ void ofApp::startNewTurn() {
 		if (startingPlayer.health < startingPlayer.maxHealth) {
 			startingPlayer.health++;
 			spawnFloatingText(gridToWorld(startingPlayer.x, startingPlayer.y), "+1 Regen", ofColor::green);
-			ofLogNotice("Regen") << "Regenerated 1 HP.";
 		}
 	}
 
@@ -4431,46 +4513,35 @@ void ofApp::startNewTurn() {
 	startingPlayer.barrier = 0;
 	startingPlayer.holyBlock = 0;
 
-	// --- Handle Bonus Dice From Minions (Corrected Logic) ---
+	// --- Handle Bonus Dice ---
 	if (startingPlayer.nextTurnBonusDiceFromMinions) {
 		int minionCount = 0;
 		for (const auto & p : players) {
-			// This will count skeletons and future hellhounds, friend or foe
 			if (p.isSkeleton || p.isHellhound) {
 				minionCount++;
 			}
 		}
 
-		// FIX: Only call startDiceRoll if there are minions to count.
 		if (minionCount > 0) {
-			ofLogNotice("Dark Shield") << "Rolling " << minionCount << "d6 for bonus AP.";
 			startDiceRoll(minionCount, 6, PURPOSE_BONUS_AP);
-		} else {
-			// Optional: Log that the effect fizzled for clarity.
-			ofLogNotice("Dark Shield") << "Bonus AP buff expired with no valid minions on board.";
 		}
-
-		// Always consume the buff, whether dice were rolled or not.
 		startingPlayer.nextTurnBonusDiceFromMinions = false;
 	}
 
 	// --- 5. PARALYSIS CHECK ---
 	if (startingPlayer.isParalyzed) {
-		ofLogNotice("Status") << "Player is Paralyzed! Flipping coin...";
 		startDiceRoll(1, 2, PURPOSE_COIN_FLIP);
 		isWaitingForParalysisCoin = true;
-		return; // Interrupt the turn
+		return;
 	}
 
 	// --- 6. FIRE CHECK ---
 	if (startingPlayer.onFire) {
-		ofLogNotice("On Fire") << "Player is burning! Rolling 1d6 for damage...";
 		isWaitingForOnFireDice = true;
 		pendingOnFireRollResult = startDiceRoll(1, 6, PURPOSE_DAMAGE);
-		return; // Interrupt the turn
+		return;
 	}
 
-	// If no status effects interrupted, continue the turn normally.
 	continueNewTurn();
 }
 //--------------------------------------------------------------
@@ -5277,6 +5348,58 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		break;
 	}
 
+						 // --- CASE: NECROMANCER'S BLESSING ---
+	case CARD_NECRO_BLESSING: {
+		int skeletonCount = 0;
+
+		// Determine the owner of the unit playing the card
+		int ownerID = currentPlayer.isMinion ? currentPlayer.ownerID : currentPlayer.playerID;
+
+		// Count skeletons owned by that player
+		for (const auto & p : players) {
+			if (p.isSkeleton) {
+				int skeletonOwnerID = p.isMinion ? p.ownerID : p.playerID;
+				if (skeletonOwnerID == ownerID) {
+					skeletonCount++;
+				}
+			}
+		}
+
+		// Apply luck to the unit that played the card (even if it's 0)
+		currentPlayer.luck += skeletonCount;
+
+		if (skeletonCount > 0) {
+			// Visual Feedback for gaining luck
+			spawnFloatingText(
+				gridToWorld(currentPlayer.x, currentPlayer.y),
+				"+" + ofToString(skeletonCount) + " LUCK!",
+				ofColor::purple);
+			ofLogNotice("NecroBlessing") << "Unit " << currentPlayer.playerID << " gained " << skeletonCount << " luck.";
+		} else {
+			// Visual Feedback for gaining 0 luck
+			spawnFloatingText(
+				gridToWorld(currentPlayer.x, currentPlayer.y),
+				"No Skeletons! (+0 Luck)",
+				ofColor::gray);
+			ofLogNotice("NecroBlessing") << "No skeletons found, no luck gained.";
+		}
+
+		playedSuccessfully = true;
+		break;
+	}
+
+						// --- CASE: TIME VORTEX ---
+	case CARD_TIME_VORTEX: {
+		// Start the dice roll and set the waiting flag
+		isWaitingForTimeVortexDice = true;
+		pendingTimeVortexResult = startDiceRoll(playedCard.numDice, playedCard.diceSides, PURPOSE_TIME_VORTEX);
+
+		// Don't apply the turns yet. We wait for the dice animation.
+
+		playedSuccessfully = true;
+		break;
+	}
+
 	// --- CASE: STANDARD ATTACK (Stab, Cleave, Pierce, Punch) ---
 	case CARD_ATTACK_SINGLE_TILE: {
 		int px = players[currentPlayerIndex].x;
@@ -5843,23 +5966,40 @@ glm::quat ofApp::matchFaceToCamera(glm::vec3 faceNormal) {
 int ofApp::startDiceRoll(int numDice, int sides, DicePurpose purpose) {
 	int totalRollResult = 0;
 
+	// Determine the caster's luck *before* rolling
+	int luckBonus = 0;
+	if (currentPlayerIndex != -1) {
+		luckBonus = players[currentPlayerIndex].luck;
+	}
+
 	for (int i = 0; i < numDice; ++i) {
 		DiceRoll newRoll;
 		newRoll.purpose = purpose;
 		newRoll.sides = sides;
 
+		// --- ROLL THE DIE ---
 		std::uniform_int_distribution<int> dist(1, sides);
-		newRoll.result = dist(rng);
-		totalRollResult += newRoll.result;
+		int rawRoll = dist(rng);
+
+		// --- APPLY LUCK TO THIS INDIVIDUAL DIE ---
+		int finalRoll = rawRoll + luckBonus;
+
+		// Add this single die's final result to the total
+		totalRollResult += finalRoll;
+
+		// Store the final (luck-adjusted) result in the DiceRoll struct for display/logic
+		newRoll.result = finalRoll;
 		newRoll.startTime = ofGetElapsedTimef();
 
 		// --- LOGGING ---
 		string diceName = (sides == 2) ? "Coin" : "D" + ofToString(sides);
-		string outcome = ofToString(newRoll.result);
+		string outcome = ofToString(finalRoll);
 		if (sides == 2) {
-			outcome += (newRoll.result == 1) ? " (Tails)" : " (Heads)";
+			outcome += (finalRoll >= 2) ? " (Heads)" : " (Tails)";
 		}
-		ofLogNotice("Dice") << diceName << " landed on: " << outcome;
+
+		string luckString = (luckBonus > 0) ? " (Raw: " + ofToString(rawRoll) + ", Luck: +" + ofToString(luckBonus) + ")" : "";
+		ofLogNotice("Dice") << diceName << " landed on: " << outcome << luckString;
 
 		// SAFE AXIS GENERATION
 		std::uniform_real_distribution<float> axisDist(-1.0f, 1.0f);
@@ -5879,11 +6019,10 @@ int ofApp::startDiceRoll(int numDice, int sides, DicePurpose purpose) {
 			glm::quat flip180X = glm::angleAxis(glm::radians(180.0f), glm::vec3(1, 0, 0)); // Flip to Bottom
 			glm::quat rot180Y = glm::angleAxis(glm::radians(180.0f), glm::vec3(0, 1, 0)); // Spin 180
 
-			if (newRoll.result == 1) { // TAILS
-
+			// With luck, a 1 can become 2. So we check >= 2 for Heads.
+			if (newRoll.result <= 1) { // TAILS
 				faceRotation = glm::quat(1, 0, 0, 0);
 			} else { // HEADS
-
 				faceRotation = flip180X * rot180Y;
 			}
 
@@ -5892,11 +6031,15 @@ int ofApp::startDiceRoll(int numDice, int sides, DicePurpose purpose) {
 		}
 
 		// --- 2. D4 LOGIC ---
+		// --- ADD THIS BLOCK ---
 		else if (sides == 4) {
 			glm::vec3 faceVec;
 			float correctionDeg = 0.0f;
 
-			switch (newRoll.result) {
+			// Note: The result might be > 4 due to luck. We cap it visually.
+			int visualResult = std::min(sides, newRoll.result);
+
+			switch (visualResult) {
 			case 1:
 				faceVec = glm::vec3(0, 1, 0);
 				correctionDeg = 0.0f;
@@ -5910,6 +6053,7 @@ int ofApp::startDiceRoll(int numDice, int sides, DicePurpose purpose) {
 				correctionDeg = 0.0f;
 				break;
 			case 4:
+			default: // Default to 4 if luck pushes it higher
 				faceVec = glm::vec3(0.943f, -0.333f, 0.0f);
 				correctionDeg = 180.0f;
 				break;
@@ -5920,6 +6064,8 @@ int ofApp::startDiceRoll(int numDice, int sides, DicePurpose purpose) {
 			glm::quat wobble = glm::angleAxis(glm::radians(stableDist(rng)), glm::vec3(0, 1, 0));
 			newRoll.finalQuat = wobble * manualRot * align;
 		}
+		// --- END OF ADDED BLOCK ---
+
 		// --- 3. D6 LOGIC ---
 		else if (sides == 6) {
 			glm::quat faceRotation;
@@ -6065,6 +6211,18 @@ int ofApp::startDiceRoll(int numDice, int sides, DicePurpose purpose) {
 
 		activeDiceRolls.push_back(newRoll);
 	}
+
+	// Show the floating text for luck just once, even if multiple dice were rolled
+	if (luckBonus > 0) {
+		Player & caster = players[currentPlayerIndex];
+		spawnFloatingText(
+			gridToWorld(caster.x, caster.y),
+			"+" + ofToString(luckBonus) + " Luck!",
+			ofColor::gold);
+	}
+
+	ofLogNotice("Dice") << "Final total result for " << numDice << "d" << sides << ": " << totalRollResult;
+
 	return totalRollResult;
 }
 //--------------------------------------------------------------
@@ -7016,6 +7174,8 @@ CardType ofApp::stringToCardType(const std::string & str) {
 	if (str == "CARD_DRAIN_PUNCH") return CARD_DRAIN_PUNCH;
 	if (str == "CARD_DOUBLE_HANDED") return CARD_DOUBLE_HANDED;
 	if (str == "CARD_CALL_FOR_WOLVES") return CARD_CALL_FOR_WOLVES;
+	if (str == "CARD_NECRO_BLESSING") return CARD_NECRO_BLESSING;
+	if (str == "CARD_TIME_VORTEX") return CARD_TIME_VORTEX;
 	return CARD_NONE;
 }
 
@@ -7212,6 +7372,22 @@ void ofApp::drawMinionManagerUI() {
 		uiFont.drawString(name, 0, 0);
 		ofPopMatrix();
 
+		// --- ADD THIS BLOCK: DRAW MINION LUCK ---
+		if (minion.luck > 0) {
+			string luckText = "+" + ofToString(minion.luck) + " Luck";
+			ofRectangle luckBounds = uiFont.getStringBoundingBox(luckText, 0, 0);
+			float luckX = textBlockX + nameBounds.width * fontScale + (10 * scale);
+			float luckY = textBlockY + nameBounds.height * fontScale;
+
+			ofSetColor(ofColor::darkGreen);
+			ofPushMatrix();
+			ofTranslate(luckX, luckY);
+			ofScale(fontScale * 0.9f, fontScale * 0.9f); // Slightly smaller
+			uiFont.drawString(luckText, 0, 0);
+			ofPopMatrix();
+		}
+		// --- END OF ADDED BLOCK ---
+		// 
 		// --- Draw Model FBO ---
 		float textBlockBottom = textBlockY + (nameBounds.height * fontScale) + (25 * scale);
 		float modelAreaHeight = ui.bounds.getBottom() - textBlockBottom - (5 * scale);

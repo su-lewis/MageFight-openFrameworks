@@ -1,46 +1,21 @@
-# --- Compiled Object Files & Libraries ---
-obj/
-*.o
-*.obj
-*.lib
-*.a
-*.pdb
-*.ilk
-*.exp
-*.d
-
-# --- Executables ---
-# Ignore everything in bin...
-bin/*
-# ...Except the data folder (Assets are here)
-!bin/data/
-# ...And except necessary dynamic libraries (if on Windows/Linux)
-!bin/*.dll
-!bin/*.so
-!bin/*.dylib
-
-# --- OS Generated Files ---
-.DS_Store
-Thumbs.db
-
-# --- IDE / Editors ---
+# Visual Studio Code
 .vscode/
-.idea/
-*.layout
-*.depend
-*.cbp
-*.workspace
-*.sln
+
+# Visual Studio
+*.sln.docstates
 *.suo
 *.user
-*.vcxproj
-*.xcodeproj/
-xcuserdata/
-derivedData/
-
-# --- Build Folders ---
-build/
-DerivedData/
+*.vcxproj.user
+*.vcxproj.filters
+ipch/
 x64/
+Win32/
 Debug/
 Release/
+obj/
+bin/
+**/[Oo]bj/
+**/[Bb]in/
+
+# CRITICAL FIX - Ignore the .vs folder
+/.vs/

@@ -93,7 +93,9 @@ enum CardType {
 	CARD_DARK_SHIELD,
 	CARD_DRAIN_PUNCH,
 	CARD_DOUBLE_HANDED,
-	CARD_CALL_FOR_WOLVES
+	CARD_CALL_FOR_WOLVES,
+	CARD_NECRO_BLESSING,
+	CARD_TIME_VORTEX
 };
 
 enum DicePurpose {
@@ -105,7 +107,8 @@ enum DicePurpose {
 	PURPOSE_BARRIER_GAIN,
 	PURPOSE_HP,
 	PURPOSE_HEALING,
-	PURPOSE_BONUS_AP
+	PURPOSE_BONUS_AP,
+	PURPOSE_TIME_VORTEX
 };
 
 enum TargetValidity {
@@ -201,6 +204,8 @@ struct Player {
 	int ward = 0;
 	int barrier = 0;
 	int holyBlock = 0;
+	int luck = 0;
+	int bonusTurns = 0;
 	int playerID = 0;
 	bool onFire = false;
 
@@ -605,6 +610,10 @@ private:
 	int wolfPlacementSourceY = -1;
 	int wolfSummonCount = 0; // To track "Wolf 1", "Wolf 2"
 	int wolfSummonStage = 0; // 0=None, 1=First Wolf, 2=Second Wolf
+
+	  // Time Vortex
+	bool isWaitingForTimeVortexDice = false;
+	int pendingTimeVortexResult = 0;
 
 	// Helper functions
 	void drawDoubleHandedUI();
