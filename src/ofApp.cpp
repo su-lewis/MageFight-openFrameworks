@@ -495,6 +495,12 @@ void ofApp::update() {
 		return;
 	}
 
+	// Check for any "waiting" state that should lock player input
+	if (isWaitingForTimeVortexDice || isWaitingForMagicBoltRange) {
+		updateGame();
+		return;
+	}
+
 	switch (currentState) {
 	case STATE_MAIN_MENU:
 		break;
@@ -1284,7 +1290,7 @@ void ofApp::updateGame() {
 		}
 		fireballTargetPlayerIndex = -1;
 	}
-	// --- PASTE HERE ---
+	// --- 
 	if (isWaitingForSummonHealth && activeDiceRolls.empty()) {
 		isWaitingForSummonHealth = false;
 
@@ -1481,6 +1487,126 @@ void ofApp::updateGame() {
 			ofColor::cyan);
 
 		ofLogNotice("Time Vortex") << "Unit " << currentPlayer.playerID << " gained " << turnsGained << " bonus turns.";
+	}
+
+	// --- MAGIC BOLT RESOLUTION ---
+	if (isWaitingForMagicBoltRange && activeDiceRolls.empty()) {
+		isWaitingForMagicBoltRange = false;
+
+		Player & caster = players[currentPlayerIndex];
+		glm::vec2 casterTile = { (float)caster.x, (float)caster.y };
+
+		// 1. Calculate Distances (Ignores walls)
+		float maxDistUnits = pendingMagicBoltRangeResult / 5.0f;
+		float neededDistUnits = glm::distance(casterTile, pendingMagicBoltTargetTile);
+
+		ofLogNotice("Magic Bolt") << "Rolled Range: " << pendingMagicBoltRangeResult << "ft. Needed: " << (neededDistUnits * 5.0f) << "ft.";
+
+		// 2. Determine Impact Tile
+		glm::vec2 impactTile;
+		if (maxDistUnits >= neededDistUnits) {
+			// SUCCESS: We reached the target tile
+			impactTile = pendingMagicBoltTargetTile;
+			ofLogNotice("Magic Bolt") << "Target Reached.";
+		} else {
+			// FAILURE: Fell short. Calculate where it landed.
+			glm::vec2 dir = pendingMagicBoltTargetTile - casterTile;
+			if (glm::length(dir) > 0) dir = glm::normalize(dir);
+
+			// Calculate the path of the bolt and find the first wall it hits
+			bool hitWall = false;
+			std::vector<glm::vec2> path = getLineOfSightPath(casterTile + 0.5f, pendingMagicBoltTargetTile + 0.5f);
+			for (const auto & step : path) {
+				float distToStep = glm::distance(casterTile, step);
+				if (distToStep > maxDistUnits) break; // We passed the max range without hitting a wall
+
+				if (isTileWall((int)step.x, (int)step.y)) {
+					impactTile = step;
+					hitWall = true;
+					break;
+				}
+			}
+
+			// If no wall was in the way, it lands on the ground
+			if (!hitWall) {
+				glm::vec2 impactPos = casterTile + (dir * maxDistUnits);
+				impactTile = { floor(impactPos.x), floor(impactPos.y) };
+			}
+			ofLogNotice("Magic Bolt") << "Fell short! Impact at (" << impactTile.x << ", " << impactTile.y << ")";
+		}
+
+		// 3. APPLY EFFECTS
+
+		// Check if impact was inside a wall
+		if (isTileWall((int)impactTile.x, (int)impactTile.y)) {
+			ofLogNotice("Magic Bolt") << "Bolt fizzled inside a wall. No AOE.";
+			spawnFloatingText(gridToWorld((int)impactTile.x, (int)impactTile.y), "Fizzle!", ofColor::gray);
+		} else {
+			// --- PRIMARY DAMAGE (1d20 Magic) ---
+			int primaryDamage = startDiceRoll(1, 20, PURPOSE_DAMAGE);
+
+			// Find if a unit was on the impact tile
+			Player * directHitTarget = nullptr;
+			for (auto & p : players) {
+				if (p.x == (int)impactTile.x && p.y == (int)impactTile.y) {
+					directHitTarget = &p;
+					break;
+				}
+			}
+
+			if (directHitTarget) {
+				ofLogNotice("Magic Bolt") << "Direct Hit! Dealing " << primaryDamage << " Magic damage.";
+				// The applyDamage lambda is inside playCard, so we need to replicate its logic here
+				int dmg = primaryDamage;
+				int barrierDmg = std::min(directHitTarget->barrier, dmg);
+				directHitTarget->barrier -= barrierDmg;
+				dmg -= barrierDmg;
+				int wardDmg = std::min(directHitTarget->ward, dmg);
+				directHitTarget->ward -= wardDmg;
+				dmg -= wardDmg;
+
+				if (dmg > 0) {
+					directHitTarget->health -= dmg;
+					spawnFloatingText(gridToWorld(directHitTarget->x, directHitTarget->y), "-" + ofToString(dmg) + " Magic", ofColor::red);
+				} else {
+					spawnFloatingText(gridToWorld(directHitTarget->x, directHitTarget->y), "Absorbed", ofColor::gray);
+				}
+			} else {
+				// Bolt hit empty ground, just a visual effect
+				spawnFloatingText(gridToWorld((int)impactTile.x, (int)impactTile.y), ofToString(primaryDamage) + "!", ofColor::purple);
+			}
+
+			// --- SECONDARY AOE (3 Electric Damage, 1d20ft radius) ---
+			int aoeRadiusFeet = startDiceRoll(1, 20, PURPOSE_RANGE);
+			float aoeRadiusUnits = aoeRadiusFeet / 5.0f;
+			ofLogNotice("Magic Bolt") << "AOE Radius: " << aoeRadiusFeet << "ft.";
+
+			for (auto & p : players) {
+				// Don't hit the direct target again
+				if (&p == directHitTarget) continue;
+
+				// Check distance from center of impact tile to center of unit's tile
+				float distToTarget = glm::distance(impactTile, glm::vec2(p.x, p.y));
+				if (distToTarget <= aoeRadiusUnits) {
+					ofLogNotice("Magic Bolt") << "AOE Hit! Dealing 3 Electric damage to unit " << p.playerID;
+
+					int dmg = 3;
+					int barrierDmg = std::min(p.barrier, dmg);
+					p.barrier -= barrierDmg;
+					dmg -= barrierDmg;
+					int wardDmg = std::min(p.ward, dmg);
+					p.ward -= wardDmg;
+					dmg -= wardDmg;
+
+					if (dmg > 0) {
+						p.health -= dmg;
+						spawnFloatingText(gridToWorld(p.x, p.y), "-" + ofToString(dmg) + " Electric", ofColor::yellow);
+					} else {
+						spawnFloatingText(gridToWorld(p.x, p.y), "Absorbed", ofColor::gray);
+					}
+				}
+			}
+		}
 	}
 
 	// --- Dispel Barrier Dice ---
@@ -5492,6 +5618,27 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		break;
 	}
 
+						 // --- CASE: MAGIC BOLT ---
+	case CARD_MAGIC_BOLT: {
+		// This card targets through walls, so we don't need a Line of Sight check here.
+		// We just need to check if the target tile is within the max possible range to be valid.
+		float maxRange = playedCard.numDice * playedCard.diceSides; // 2 * 20 = 40ft
+		float dist = glm::distance(glm::vec2(currentPlayer.x, currentPlayer.y), glm::vec2(targetX, targetY));
+
+		if (dist * 5.0f > maxRange + 5.0f) { // Add a buffer
+			ofLogNotice("Magic Bolt") << "Target is too far.";
+			break;
+		}
+
+		// Start the range roll
+		pendingMagicBoltTargetTile = glm::vec2(targetX, targetY);
+		isWaitingForMagicBoltRange = true;
+		pendingMagicBoltRangeResult = startDiceRoll(playedCard.numDice, playedCard.diceSides, PURPOSE_RANGE);
+
+		playedSuccessfully = true;
+		break;
+	}
+
 	// --- CASE: STANDARD ATTACK (Stab, Cleave, Pierce, Punch) ---
 	case CARD_ATTACK_SINGLE_TILE: {
 		int px = players[currentPlayerIndex].x;
@@ -7269,6 +7416,7 @@ CardType ofApp::stringToCardType(const std::string & str) {
 	if (str == "CARD_NECRO_BLESSING") return CARD_NECRO_BLESSING;
 	if (str == "CARD_TIME_VORTEX") return CARD_TIME_VORTEX;
 	if (str == "CARD_MASTER_FIST") return CARD_MASTER_FIST;
+	if (str == "CARD_MAGIC_BOLT") return CARD_MAGIC_BOLT;
 
 	return CARD_NONE;
 }

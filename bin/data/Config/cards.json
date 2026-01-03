@@ -279,5 +279,15 @@
     "cost": 2,
     "value": 2,
     "targeting": "TARGET_ADJACENT_UNIT"
+  },
+  {
+    "id": 34,
+    "name": "Magic Bolt",
+    "type": "CARD_MAGIC_BOLT",
+    "cost": 6,
+    "targeting": "TARGET_LINE_OF_SIGHT_TILE",
+    "damageType": "DAMAGE_MAGIC",
+    "numDice": 2,
+    "diceSides": 20
   }
 ]

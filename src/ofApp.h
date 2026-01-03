@@ -96,7 +96,8 @@ enum CardType {
 	CARD_CALL_FOR_WOLVES,
 	CARD_NECRO_BLESSING,
 	CARD_TIME_VORTEX,
-	CARD_MASTER_FIST
+	CARD_MASTER_FIST,
+	CARD_MAGIC_BOLT
 };
 
 enum DicePurpose {
@@ -615,6 +616,11 @@ private:
 	  // Time Vortex
 	bool isWaitingForTimeVortexDice = false;
 	int pendingTimeVortexResult = 0;
+
+	  // --- Magic Bolt State ---
+	bool isWaitingForMagicBoltRange = false;
+	int pendingMagicBoltRangeResult = 0;
+	glm::vec2 pendingMagicBoltTargetTile;
 
 	// Helper functions
 	void drawDoubleHandedUI();
