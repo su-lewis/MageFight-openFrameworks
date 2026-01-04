@@ -1,6 +1,3 @@
-# Visual Studio Code
-.vscode/
-
 # Visual Studio
 *.sln.docstates
 *.suo
@@ -12,10 +9,20 @@ x64/
 Win32/
 Debug/
 Release/
-obj/
-bin/
 **/[Oo]bj/
 **/[Bb]in/
-
-# CRITICAL FIX - Ignore the .vs folder
 /.vs/
+*.VC.db
+*.VC.VC.opendb
+
+# VS Code
+.vscode/
+
+# macOS
+.DS_Store
+
+# Linux/Makefile
+obj/
+bin/
+MageFight # (The executable file)
+MageFight_debug
