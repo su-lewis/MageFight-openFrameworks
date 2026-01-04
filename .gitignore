@@ -1,3 +1,37 @@
+#
+# OF Project/.gitignore
+#
+
+# General
+.DS_Store
+
+# openFrameworks build files
+libs/
+export/
+project/
+obj/
+
+# Executable files
+MageFight
+MageFight_debug
+MageFight.exe
+MageFight_debug.exe
+
+# We want to track the data folder.
+# To do this, we explicitly ignore specific files INSTEAD of the whole bin folder.
+# This ensures your assets in bin/data/ are NOT ignored.
+/bin/*.dll
+/bin/*.so
+/bin/*.pdb
+
+# Code::Blocks
+*.cbp
+*.depend
+*.layout
+
+# VS Code
+.vscode/
+
 # Visual Studio
 *.sln.docstates
 *.suo
@@ -9,20 +43,6 @@ x64/
 Win32/
 Debug/
 Release/
-**/[Oo]bj/
-**/[Bb]in/
 /.vs/
 *.VC.db
 *.VC.VC.opendb
-
-# VS Code
-.vscode/
-
-# macOS
-.DS_Store
-
-# Linux/Makefile
-obj/
-bin/
-MageFight # (The executable file)
-MageFight_debug
