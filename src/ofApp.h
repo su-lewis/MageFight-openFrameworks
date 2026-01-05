@@ -193,6 +193,7 @@ struct Tile {
 	bool hasWall = false;
 	bool isHighlighted = false;
 	bool isTargetable = false;
+	bool isTargetPreview = false;
 	bool visited = false;
 	glm::vec2 parent = { -1, -1 };
 };
@@ -613,11 +614,11 @@ private:
 	int wolfSummonCount = 0; // To track "Wolf 1", "Wolf 2"
 	int wolfSummonStage = 0; // 0=None, 1=First Wolf, 2=Second Wolf
 
-	  // Time Vortex
+	// Time Vortex
 	bool isWaitingForTimeVortexDice = false;
 	int pendingTimeVortexResult = 0;
 
-	  // --- Magic Bolt State ---
+	// --- Magic Bolt State ---
 	bool isWaitingForMagicBoltRange = false;
 	int pendingMagicBoltRangeResult = 0;
 	glm::vec2 pendingMagicBoltTargetTile;
