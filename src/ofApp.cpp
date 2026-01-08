@@ -4010,7 +4010,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 	if (isAmnesiaMenuOpen && button == OF_MOUSE_BUTTON_LEFT) {
 		Player & caster = players[currentPlayerIndex];
 		Card & amnesiaCard = caster.hand[pendingAmnesiaCardIndex];
-		
+
 		if (amnesiaBtnSelf.inside(x, y)) {
 			// Use on self - directly start dice roll
 			isAmnesiaMenuOpen = false;
@@ -4062,7 +4062,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 				// Teleport to target tile
 				Player & caster = players[currentPlayerIndex];
 				Card & teleportCard = caster.hand[pendingTeleportCardIndex];
-				
+
 				// Move player
 				board[caster.x][caster.y].hasPlayer = false;
 				caster.x = gx;
@@ -4070,7 +4070,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 				board[gx][gy].hasPlayer = true;
 				playerVisualPos = gridToWorld(gx, gy);
 				invalidateTargetCache();
-				
+
 				// Consume AP and discard card
 				currentAP -= teleportCard.cost;
 				caster.playedCardsPile.push_back(teleportCard);
@@ -4079,10 +4079,10 @@ void ofApp::mousePressed(int x, int y, int button) {
 					caster.isReplicatePending = false;
 				}
 				caster.hand.erase(caster.hand.begin() + pendingTeleportCardIndex);
-				
+
 				spawnFloatingText(gridToWorld(gx, gy), "Teleport!", ofColor::cyan);
 				ofLogNotice("Teleport") << "Teleported to (" << gx << ", " << gy << ")";
-				
+
 				// Clean up state
 				isTargetingTeleport = false;
 				pendingTeleportCardIndex = -1;
@@ -6281,7 +6281,9 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 	glm::vec2 casterPos(px, py);
 
 	// Check if player has enough AP to play this card
-	bool hasEnoughAP = (currentAP >= card.cost);
+	// When in targeting mode, we've already verified AP so always allow
+	bool inTargetingMode = isTargetingAmnesia || isTargetingDoubleHanded || isTargetingTeleport || isTargetingMagicBolt;
+	bool hasEnoughAP = inTargetingMode || (currentAP >= card.cost);
 
 	// --- MOUSE HOVER CALCULATION ---
 	glm::vec2 mouseTile = mouseToBoard(ofGetMouseX(), ofGetMouseY());
@@ -6431,7 +6433,7 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 				} else {
 					maxRangeFeet = card.numDice * card.diceSides * 5.0f;
 				}
-				
+
 				float distFeetFromCaster = getFaceToFaceDistance(casterPos, targetPos) * 5.0f;
 				if (distFeetFromCaster <= maxRangeFeet + 0.1f) {
 					isPreview = true;

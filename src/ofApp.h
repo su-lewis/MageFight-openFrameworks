@@ -577,7 +577,7 @@ private:
 
 	// Teleport
 	bool isWaitingForTeleportDice = false;
-	bool isTargetingTeleport = false;  // After dice roll, waiting for target click
+	bool isTargetingTeleport = false; // After dice roll, waiting for target click
 	int pendingTeleportCardIndex = -1;
 	int pendingTeleportRollResult = 0;
 	glm::vec2 pendingTeleportTarget;
@@ -611,8 +611,8 @@ private:
 	ofRectangle btnAddBlocks;
 
 	// --- Amnesia State ---
-	bool isAmnesiaMenuOpen = false;      // Choosing Self vs Adjacent
-	bool isTargetingAmnesia = false;     // Waiting for adjacent target click
+	bool isAmnesiaMenuOpen = false; // Choosing Self vs Adjacent
+	bool isTargetingAmnesia = false; // Waiting for adjacent target click
 	int pendingAmnesiaCardIndex = -1;
 	ofRectangle amnesiaMenuRect;
 	ofRectangle amnesiaBtnSelf;
