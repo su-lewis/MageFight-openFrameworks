@@ -1,0 +1,46 @@
+# Blender MTL File
+# Material Count: 4
+
+newmtl HairCards_Mat
+Ns 250.000000
+Ka 0.2 0.2 0.2
+Kd 1.0 1.0 1.0
+Ks 0.5 0.5 0.5
+Ke 0.0 0.0 0.0
+Ni 1.500000
+d 1.000000
+illum 2
+map_Kd fur.png
+
+newmtl SkinMaterial_body
+Ns 250.000000
+Ka 0.2 0.2 0.2
+Kd 1.0 1.0 1.0
+Ks 0.5 0.5 0.5
+Ke 0.0 0.0 0.0
+Ni 1.500000
+d 1.000000
+illum 2
+map_Kd body.png
+
+newmtl SkinMaterial_face
+Ns 250.000000
+Ka 0.2 0.2 0.2
+Kd 1.0 1.0 1.0
+Ks 0.5 0.5 0.5
+Ke 0.0 0.0 0.0
+Ni 1.500000
+d 1.000000
+illum 2
+map_Kd face.png
+
+newmtl SkinMaterial_hands_feet
+Ns 250.000000
+Ka 0.2 0.2 0.2
+Kd 1.0 1.0 1.0
+Ks 0.5 0.5 0.5
+Ke 0.0 0.0 0.0
+Ni 1.500000
+d 1.000000
+illum 2
+map_Kd hands.png

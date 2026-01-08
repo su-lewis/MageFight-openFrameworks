@@ -39,21 +39,18 @@ void ofApp::setup() {
 	playerModel.load("Units/Player/player.obj");
 	playerModel.setRotation(0, -90, 1, 0, 0);
 	playerModel.setScale(0.003f, 0.003f, 0.003f);
+
 	// Load Skeleton
 	skeletonModel.load("Units/Skeleton/skeleton.fbx");
 	ofLoadImage(skeletonTexture, "Units/Skeleton/base.png");
 	skeletonModel.setRotation(0, 180, 1, 0, 0);
 	skeletonModel.setRotation(1, 180, 0, 1, 0);
-
 	skeletonModel.setScale(0.003f, 0.003f, 0.003f);
 	skeletonModel.disableMaterials();
 
 	// Load Golem
 	golemModel.load("Units/Golem/lava+golem+3d+model.fbx");
-	// Remove the setRotation here. We will handle rotation in draw() so it's easier to tweak.
 	golemModel.setScale(0.004f, 0.004f, 0.004f);
-
-	// FIX: Disable both Materials AND Textures to allow manual overrides
 	golemModel.disableMaterials();
 	golemModel.disableTextures();
 	// Load Golem Variants
@@ -62,34 +59,18 @@ void ofApp::setup() {
 	ofLoadImage(golemTexFire, "Units/Golem/texture_fire.png");
 	ofLoadImage(golemTexElectric, "Units/Golem/texture_electric.png");
 
-	// Load Wolf (.gltf)
-	if (wolfModel.load("Units/Wolf/scene.gltf")) {
+	// Load Wolf
+	if (wolfModel.load("Units/Wolf/wolf.obj")) {
+		wolfModel.setRotation(0, 180, 1, 0, 0);
 
-		// 1. Reset Position/Rotation
-		wolfModel.setPosition(0, 0, 0);
-		wolfModel.setRotation(0, 180, 1, 0, 0); // 180 degrees on X usually fixes upright orientation
+		// Large scale for the board
+		wolfModel.setScale(0.035f, 0.035f, 0.035f);
 
-		// 2. Enable Materials/Textures
-		// This tells Assimp to look in the "textures" folder and apply "baseColor.png" etc.
 		wolfModel.enableMaterials();
 		wolfModel.enableTextures();
-
-		// 3. Auto-Scale Logic
-		// Calculates size and scales it to fit the tile (~1.5 units)
-		glm::vec3 minPt = wolfModel.getSceneMin();
-		glm::vec3 maxPt = wolfModel.getSceneMax();
-		float currentSize = glm::distance(minPt, maxPt);
-
-		if (currentSize > 0) {
-			float targetSize = 1.5f;
-			float scaleFactor = targetSize / currentSize;
-			wolfModel.setScale(scaleFactor, scaleFactor, scaleFactor);
-			ofLogNotice("Setup") << "Wolf scaled by: " << scaleFactor;
-		}
-
-	} else {
-		ofLogError("Setup") << "Failed to load Wolf GLTF";
+		wolfModel.setScaleNormalization(false);
 	}
+
 	// --- 3. BOARD & SKYBOX ---
 	ofLoadImage(wallTexture, "Board/wall.png");
 	wallTexture.setTextureMinMagFilter(GL_NEAREST, GL_NEAREST);
@@ -2272,18 +2253,19 @@ void ofApp::drawGame() {
 			}
 			// --- WOLF RENDERING ---
 			else if (player.isWolf) {
-				ofSetColor(255); // Draw white so textures show natural colors
+				ofSetColor(255);
 				ofTranslate(0, 0.0f, 0);
 
-				// FIX 1: PBR models often have "Alpha = 0" on the body. Disable alpha to force it solid.
+				// 1. Disable Alpha to fix "Ghost" issues
 				ofDisableAlphaBlending();
 
-				// FIX 2: Disable Culling to ensure we see the mesh from all angles
+				// 2. Disable Culling (Draws both sides of the mesh)
+				// This fixes the "Invisible Body" if normals are flipped
 				glDisable(GL_CULL_FACE);
 
 				wolfModel.drawFaces();
 
-				// RESTORE DEFAULTS
+				// 3. Reset settings
 				glEnable(GL_CULL_FACE);
 				ofEnableAlphaBlending();
 			}
@@ -7665,19 +7647,23 @@ void ofApp::drawMinionManagerUI() {
 
 		} else if (minion.isWolf) {
 			// --- WOLF UI SETTINGS ---
-			ofTranslate(modelFbo.getWidth() / 2, 85);
-			ofScale(45, 45, 45); // You might need to tweak this number based on the GLTF scale
+			// Move to center of FBO
+			ofTranslate(modelFbo.getWidth() / 2, modelFbo.getHeight() / 2 + 20); // Moved down slightly
+
+			// SCALE: Since we made the base model huge (0.035), we need to shrink it for the UI
+			ofScale(35.0f, 35.0f, 35.0f); // Try 35.0. If too big, try 25.0.
+
 			ofRotateXDeg(-15);
 			ofRotateYDeg(180 + ofGetElapsedTimef() * 30);
 
-			// FORCE VISIBILITY
+			// Ensure faces are drawn solid
 			ofDisableAlphaBlending();
 			glDisable(GL_CULL_FACE);
 
+			// Draw (Textures are handled automatically by .mtl now)
 			wolfModel.drawFaces();
 
-			// CLEANUP
-			ofDisableLighting();
+			// Restore settings
 			glEnable(GL_CULL_FACE);
 			ofEnableAlphaBlending();
 
