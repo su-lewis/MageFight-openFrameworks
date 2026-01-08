@@ -5118,8 +5118,7 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 
 		amnesiaTargetPlayerIndex = targetIndex;
 
-		pendingAmnesiaRollResult = startDiceRoll(playedCard.numDice, playedCard.diceSides, PURPOSE_DAMAGE, "Amnesia: Cards to Remove");
-
+		pendingAmnesiaRollResult = startDiceRoll(playedCard.numDice, playedCard.diceSides, PURPOSE_DEBUG, "Amnesia: Cards to Remove");
 		isWaitingForAmnesiaDice = true;
 		playedSuccessfully = true;
 		break;
@@ -6362,6 +6361,9 @@ int ofApp::startDiceRoll(int numDice, int sides, DicePurpose purpose, std::strin
 			break;
 		case PURPOSE_RANGE:
 			currentDiceLabel = "Rolling Range";
+			break;
+		case PURPOSE_BARRIER_GAIN:
+			currentDiceLabel = "Rolling Barrier";
 			break;
 		case PURPOSE_COIN_FLIP:
 			currentDiceLabel = "Flipping Coin";
