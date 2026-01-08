@@ -4341,8 +4341,13 @@ void ofApp::mousePressed(int x, int y, int button) {
 			}
 		}
 
-		// 3g. End Turn Button
+		// 3g. End Turn Button (blocked during pending actions)
 		if (endTurnButtonRect.inside(x, y) && button == OF_MOUSE_BUTTON_LEFT) {
+			// Block end turn if there's a pending action that must be completed
+			bool hasPendingAction = isPlacingWolves || isWaitingForWolfCoin || isWaitingForMagicBoltRange || isTargetingMagicBolt || isWaitingForAttackDice || isWaitingForAmnesiaDice || isWaitingForMagicBlastDice || isWaitingForFireballRangeDice || isWaitingForFireballDamageDice || isWaitingForJoltRangeDice || isWaitingForBarrierDice || isWaitingForTeleportDice || isWaitingForHealDice || isWaitingForSummonHealth || isWaitingForTimeVortexDice || isWaitingForOnFireDice || isWaitingForParalysisCoin;
+			if (hasPendingAction) {
+				return; // Can't end turn during pending actions
+			}
 			startNewTurn();
 			return;
 		}
@@ -6066,6 +6071,22 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 			board[x][y].isTargetPreview = false; // Red
 			board[x][y].isTargetable = false; // Green
 		}
+	}
+
+	// --- WOLF PLACEMENT HIGHLIGHTING ---
+	if (isPlacingWolves && !isWaitingForWolfCoin) {
+		// Highlight adjacent empty tiles around the wolf summoner
+		std::vector<glm::vec2> dirs = { { 0, 1 }, { 0, -1 }, { 1, 0 }, { -1, 0 } };
+		for (auto & dir : dirs) {
+			int nx = wolfPlacementSourceX + (int)dir.x;
+			int ny = wolfPlacementSourceY + (int)dir.y;
+			if (nx >= 0 && nx < BOARD_WIDTH && ny >= 0 && ny < BOARD_HEIGHT) {
+				if (!board[nx][ny].hasWall && !board[nx][ny].hasPlayer) {
+					board[nx][ny].isTargetable = true;
+				}
+			}
+		}
+		return; // Skip normal card-based highlighting during wolf placement
 	}
 
 	if (players.empty() || currentPlayerIndex < 0) return;
