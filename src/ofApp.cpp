@@ -1621,30 +1621,13 @@ void ofApp::updateGame() {
 
 		ofLogNotice("Dispel") << "Gained " << pendingDispelRollResult << " Barrier.";
 	}
-	// --- Teleport Logic ---
+	// --- Teleport Logic: After dice roll, enter targeting mode ---
 	if (isWaitingForTeleportDice && activeDiceRolls.empty()) {
 		isWaitingForTeleportDice = false;
-		Player & p = players[currentPlayerIndex];
-		glm::vec2 startPos = glm::vec2(p.x, p.y);
-
-		float maxDistUnits = pendingTeleportRollResult / 5.0f;
-		float distUnits = getFaceToFaceDistance(startPos, pendingTeleportTarget);
-		int requiredFeet = (distUnits > 1000.0f) ? 999 : (int)ceil(distUnits * 5.0f);
-
-		ofLogNotice("Teleport") << "Rolled: " << pendingTeleportRollResult << "ft. Required: " << requiredFeet << "ft.";
-
-		if (maxDistUnits >= distUnits - 0.001f) {
-			// ... (Success logic) ...
-			ofLogNotice("Teleport") << "Success!";
-			board[p.x][p.y].hasPlayer = false;
-			p.x = (int)pendingTeleportTarget.x;
-			p.y = (int)pendingTeleportTarget.y;
-			board[p.x][p.y].hasPlayer = true;
-			playerVisualPos = gridToWorld(p.x, p.y);
-			invalidateTargetCache();
-		} else {
-			ofLogNotice("Teleport") << "Failed! Range too short or Blocked.";
-		}
+		// Now enter targeting mode - player will click where to teleport
+		isTargetingTeleport = true;
+		ofLogNotice("Teleport") << "Rolled: " << pendingTeleportRollResult << "ft. Choose destination.";
+		calculateTargetHighlights(pendingTeleportCardIndex);
 	}
 
 	// --- On Fire Logic ---
@@ -3499,6 +3482,9 @@ void ofApp::drawGame() {
 	if (isDoubleHandedMenuOpen) {
 		drawDoubleHandedUI();
 	}
+	if (isAmnesiaMenuOpen) {
+		drawAmnesiaMenuUI();
+	}
 	// --- TOP INSTRUCTION TEXT (Wolf Placement) ---
 	if (isPlacingWolves && !isWaitingForWolfCoin) {
 		string msg = "Choose Wolf Spawn Square";
@@ -3535,6 +3521,42 @@ void ofApp::drawGame() {
 		ofSetColor(0, 0, 0, 255);
 		titleFont.drawString(msg, tx + 2, ty + 2);
 		// Text
+		ofSetColor(ofColor::cyan);
+		titleFont.drawString(msg, tx, ty);
+	}
+	// --- DOUBLE HANDED TARGETING INSTRUCTION TEXT ---
+	if (isTargetingDoubleHanded) {
+		string msg = "Choose Target for Double Handed (2x " + pendingDoubleHandedChoice + ")";
+		ofRectangle bbox = titleFont.getStringBoundingBox(msg, 0, 0);
+		float tx = (ofGetWidth() / 2.0f) - (bbox.width / 2.0f);
+		float ty = ofGetHeight() * 0.25f;
+
+		ofSetColor(0, 0, 0, 255);
+		titleFont.drawString(msg, tx + 2, ty + 2);
+		ofSetColor(ofColor::yellow);
+		titleFont.drawString(msg, tx, ty);
+	}
+	// --- AMNESIA TARGETING INSTRUCTION TEXT ---
+	if (isTargetingAmnesia) {
+		string msg = "Choose Adjacent Unit for Amnesia";
+		ofRectangle bbox = titleFont.getStringBoundingBox(msg, 0, 0);
+		float tx = (ofGetWidth() / 2.0f) - (bbox.width / 2.0f);
+		float ty = ofGetHeight() * 0.25f;
+
+		ofSetColor(0, 0, 0, 255);
+		titleFont.drawString(msg, tx + 2, ty + 2);
+		ofSetColor(ofColor::magenta);
+		titleFont.drawString(msg, tx, ty);
+	}
+	// --- TELEPORT TARGETING INSTRUCTION TEXT ---
+	if (isTargetingTeleport) {
+		string msg = "Choose Teleport Destination (Range: " + ofToString(pendingTeleportRollResult) + " ft)";
+		ofRectangle bbox = titleFont.getStringBoundingBox(msg, 0, 0);
+		float tx = (ofGetWidth() / 2.0f) - (bbox.width / 2.0f);
+		float ty = ofGetHeight() * 0.25f;
+
+		ofSetColor(0, 0, 0, 255);
+		titleFont.drawString(msg, tx + 2, ty + 2);
 		ofSetColor(ofColor::cyan);
 		titleFont.drawString(msg, tx, ty);
 	}
@@ -3945,14 +3967,130 @@ void ofApp::mousePressed(int x, int y, int button) {
 	// --- 1f. Double-Handed Menu ---
 	if (isDoubleHandedMenuOpen && button == OF_MOUSE_BUTTON_LEFT) {
 		if (btnAddPunches.inside(x, y)) {
-			resolveDoubleHanded("Punch");
+			// Store choice and enter targeting mode
+			pendingDoubleHandedChoice = "Punch";
+			isDoubleHandedMenuOpen = false;
+			isTargetingDoubleHanded = true;
+			calculateTargetHighlights(pendingDoubleHandedCardIndex);
 		} else if (btnAddBlocks.inside(x, y)) {
-			resolveDoubleHanded("Hand Block");
+			// Store choice and enter targeting mode
+			pendingDoubleHandedChoice = "Hand Block";
+			isDoubleHandedMenuOpen = false;
+			isTargetingDoubleHanded = true;
+			calculateTargetHighlights(pendingDoubleHandedCardIndex);
 		} else if (!doubleHandedMenuRect.inside(x, y)) {
 			// Clicked outside menu -> Cancel
 			cancelDoubleHanded();
 		}
 		return; // Stop other mouse interactions
+	}
+	// --- 1f2. Double-Handed Targeting ---
+	if (isTargetingDoubleHanded && button == OF_MOUSE_BUTTON_LEFT) {
+		ofVec2f boardPos = mouseToBoard(x, y);
+		int gx = floor(boardPos.x), gy = floor(boardPos.y);
+		if (gx >= 0 && gx < BOARD_WIDTH && gy >= 0 && gy < BOARD_HEIGHT) {
+			if (board[gx][gy].isTargetable) {
+				// Find target player
+				int targetIndex = -1;
+				for (size_t i = 0; i < players.size(); i++) {
+					if (players[i].x == gx && players[i].y == gy) {
+						targetIndex = (int)i;
+						break;
+					}
+				}
+				if (targetIndex != -1) {
+					pendingDoubleHandedTargetIndex = targetIndex;
+					resolveDoubleHanded(pendingDoubleHandedChoice);
+				}
+			}
+		}
+		return;
+	}
+	// --- 1f3. Amnesia Menu ---
+	if (isAmnesiaMenuOpen && button == OF_MOUSE_BUTTON_LEFT) {
+		Player & caster = players[currentPlayerIndex];
+		Card & amnesiaCard = caster.hand[pendingAmnesiaCardIndex];
+		
+		if (amnesiaBtnSelf.inside(x, y)) {
+			// Use on self - directly start dice roll
+			isAmnesiaMenuOpen = false;
+			amnesiaTargetPlayerIndex = currentPlayerIndex;
+			pendingAmnesiaRollResult = startDiceRoll(amnesiaCard.numDice, amnesiaCard.diceSides, PURPOSE_DEBUG, "Amnesia: Cards to Remove");
+			isWaitingForAmnesiaDice = true;
+			// Consume AP and discard card now
+			currentAP -= amnesiaCard.cost;
+			caster.playedCardsPile.push_back(amnesiaCard);
+			if (caster.isReplicatePending) {
+				caster.playedCardsPile.push_back(amnesiaCard);
+				caster.isReplicatePending = false;
+			}
+			caster.hand.erase(caster.hand.begin() + pendingAmnesiaCardIndex);
+			pendingAmnesiaCardIndex = -1;
+		} else if (amnesiaBtnAdjacent.inside(x, y)) {
+			// Enter targeting mode for adjacent units
+			isAmnesiaMenuOpen = false;
+			isTargetingAmnesia = true;
+			calculateTargetHighlights(pendingAmnesiaCardIndex);
+		} else if (!amnesiaMenuRect.inside(x, y)) {
+			// Clicked outside menu -> Cancel
+			isAmnesiaMenuOpen = false;
+			pendingAmnesiaCardIndex = -1;
+		}
+		return;
+	}
+	// --- 1f4. Amnesia Targeting ---
+	if (isTargetingAmnesia && button == OF_MOUSE_BUTTON_LEFT) {
+		ofVec2f boardPos = mouseToBoard(x, y);
+		int gx = floor(boardPos.x), gy = floor(boardPos.y);
+		if (gx >= 0 && gx < BOARD_WIDTH && gy >= 0 && gy < BOARD_HEIGHT) {
+			if (board[gx][gy].isTargetable) {
+				// Play amnesia on target (this triggers the dice roll in playCard)
+				playCard(pendingAmnesiaCardIndex, gx, gy);
+				isTargetingAmnesia = false;
+				pendingAmnesiaCardIndex = -1;
+				calculateTargetHighlights();
+			}
+		}
+		return;
+	}
+	// --- 1f5. Teleport Targeting ---
+	if (isTargetingTeleport && button == OF_MOUSE_BUTTON_LEFT) {
+		ofVec2f boardPos = mouseToBoard(x, y);
+		int gx = floor(boardPos.x), gy = floor(boardPos.y);
+		if (gx >= 0 && gx < BOARD_WIDTH && gy >= 0 && gy < BOARD_HEIGHT) {
+			if (board[gx][gy].isTargetable) {
+				// Teleport to target tile
+				Player & caster = players[currentPlayerIndex];
+				Card & teleportCard = caster.hand[pendingTeleportCardIndex];
+				
+				// Move player
+				board[caster.x][caster.y].hasPlayer = false;
+				caster.x = gx;
+				caster.y = gy;
+				board[gx][gy].hasPlayer = true;
+				playerVisualPos = gridToWorld(gx, gy);
+				invalidateTargetCache();
+				
+				// Consume AP and discard card
+				currentAP -= teleportCard.cost;
+				caster.playedCardsPile.push_back(teleportCard);
+				if (caster.isReplicatePending) {
+					caster.playedCardsPile.push_back(teleportCard);
+					caster.isReplicatePending = false;
+				}
+				caster.hand.erase(caster.hand.begin() + pendingTeleportCardIndex);
+				
+				spawnFloatingText(gridToWorld(gx, gy), "Teleport!", ofColor::cyan);
+				ofLogNotice("Teleport") << "Teleported to (" << gx << ", " << gy << ")";
+				
+				// Clean up state
+				isTargetingTeleport = false;
+				pendingTeleportCardIndex = -1;
+				pendingTeleportRollResult = 0;
+				calculateTargetHighlights();
+			}
+		}
+		return;
 	}
 	// --- 1g. Amnesia Selection UI ---
 	if (isAmnesiaSelectionActive && button == OF_MOUSE_BUTTON_LEFT) {
@@ -4344,7 +4482,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 		// 3g. End Turn Button (blocked during pending actions)
 		if (endTurnButtonRect.inside(x, y) && button == OF_MOUSE_BUTTON_LEFT) {
 			// Block end turn if there's a pending action that must be completed
-			bool hasPendingAction = isPlacingWolves || isWaitingForWolfCoin || isWaitingForMagicBoltRange || isTargetingMagicBolt || isWaitingForAttackDice || isWaitingForAmnesiaDice || isWaitingForMagicBlastDice || isWaitingForFireballRangeDice || isWaitingForFireballDamageDice || isWaitingForJoltRangeDice || isWaitingForBarrierDice || isWaitingForTeleportDice || isWaitingForHealDice || isWaitingForSummonHealth || isWaitingForTimeVortexDice || isWaitingForOnFireDice || isWaitingForParalysisCoin;
+			bool hasPendingAction = isPlacingWolves || isWaitingForWolfCoin || isWaitingForMagicBoltRange || isTargetingMagicBolt || isWaitingForAttackDice || isWaitingForAmnesiaDice || isWaitingForMagicBlastDice || isWaitingForFireballRangeDice || isWaitingForFireballDamageDice || isWaitingForJoltRangeDice || isWaitingForBarrierDice || isWaitingForTeleportDice || isTargetingTeleport || isWaitingForHealDice || isWaitingForSummonHealth || isWaitingForTimeVortexDice || isWaitingForOnFireDice || isWaitingForParalysisCoin || isDoubleHandedMenuOpen || isTargetingDoubleHanded || isAmnesiaMenuOpen || isTargetingAmnesia;
 			if (hasPendingAction) {
 				return; // Can't end turn during pending actions
 			}
@@ -4620,17 +4758,34 @@ void ofApp::mouseReleased(int x, int y, int button) {
 							return;
 						}
 
-						// --- C. AMNESIA: ENTER TARGETING MODE ---
+						// --- C. AMNESIA: SHOW MENU (Self vs Adjacent) ---
 						if (playedCard.type == CARD_AMNESIA) {
-							isTargetingAmnesia = true;
 							pendingAmnesiaCardIndex = draggedCardIndex;
+							isAmnesiaMenuOpen = true;
+							// Setup UI Geometry
+							float w = 500, h = 250;
+							float mx = ofGetWidth() / 2 - w / 2, my = ofGetHeight() / 2 - h / 2;
+							amnesiaMenuRect.set(mx, my, w, h);
+							float btnW = 200, btnH = 80;
+							float spacing = 40;
+							amnesiaBtnSelf.set(mx + (w - (btnW * 2 + spacing)) / 2, my + 120, btnW, btnH);
+							amnesiaBtnAdjacent.set(amnesiaBtnSelf.getRight() + spacing, my + 120, btnW, btnH);
 							draggedCardIndex = -1;
 							selectedCardIndex = -1;
-							calculateTargetHighlights(pendingAmnesiaCardIndex);
 							return;
 						}
 
-						// --- D. STANDARD PLAY ---
+						// --- D. TELEPORT: ROLL DICE FIRST, THEN TARGET ---
+						if (playedCard.type == CARD_TELEPORT) {
+							pendingTeleportCardIndex = draggedCardIndex;
+							pendingTeleportRollResult = startDiceRoll(playedCard.numDice, playedCard.diceSides, PURPOSE_RANGE, "Teleport: Range");
+							isWaitingForTeleportDice = true;
+							draggedCardIndex = -1;
+							selectedCardIndex = -1;
+							return;
+						}
+
+						// --- E. STANDARD PLAY ---
 						if (playedCard.targeting == TARGET_SELF) {
 							playCard(draggedCardIndex, -1, -1);
 						} else {
@@ -5277,15 +5432,10 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		dispelBtnPurge.set(startX + btnWidth + spacing, btnY, btnWidth, btnHeight);
 		break;
 	}
-	// --- CASE: TELEPORT ---
+	// --- CASE: TELEPORT (Now handled via drag -> dice roll -> targeting) ---
 	case CARD_TELEPORT: {
-		if (board[targetX][targetY].hasWall || board[targetX][targetY].hasPlayer) break;
-		pendingTeleportTarget = glm::vec2(targetX, targetY);
-
-		pendingTeleportRollResult = startDiceRoll(playedCard.numDice, playedCard.diceSides, PURPOSE_RANGE, "Teleport: Range Check");
-
-		isWaitingForTeleportDice = true;
-		playedSuccessfully = true;
+		// Teleport is now initiated from mouseReleased, not playCard
+		// This case should not be reached in normal gameplay
 		break;
 	}
 
@@ -6213,11 +6363,19 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 			// --- CASE: ADJACENT OR SELF ---
 			case TARGET_ADJACENT_OR_SELF_UNIT: {
 				int distGrid = abs(x - px) + abs(y - py);
-				// Self tile or adjacent tiles with a player
-				if (distGrid == 0 || distGrid == 1) {
-					if (board[x][y].hasPlayer && !board[x][y].hasWall) {
+				// When in Amnesia targeting mode (chose "Adjacent"), only show adjacent (not self)
+				if (isTargetingAmnesia) {
+					if (distGrid == 1 && board[x][y].hasPlayer && !board[x][y].hasWall) {
 						isPreview = true;
 						isValidTarget = true;
+					}
+				} else {
+					// Normal: Self tile or adjacent tiles with a player
+					if (distGrid == 0 || distGrid == 1) {
+						if (board[x][y].hasPlayer && !board[x][y].hasWall) {
+							isPreview = true;
+							isValidTarget = true;
+						}
 					}
 				}
 				break;
@@ -6265,8 +6423,17 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 
 			// --- CASE: TELEPORT ---
 			case TARGET_EMPTY_TILE: {
-				float maxRange = card.numDice * card.diceSides;
-				if (distEuclideanFeet <= maxRange + 0.1f) {
+				// If targeting teleport after dice roll, use the rolled range
+				// Otherwise use max possible range for preview
+				float maxRangeFeet;
+				if (isTargetingTeleport && pendingTeleportRollResult > 0) {
+					maxRangeFeet = (float)pendingTeleportRollResult;
+				} else {
+					maxRangeFeet = card.numDice * card.diceSides * 5.0f;
+				}
+				
+				float distFeetFromCaster = getFaceToFaceDistance(casterPos, targetPos) * 5.0f;
+				if (distFeetFromCaster <= maxRangeFeet + 0.1f) {
 					isPreview = true;
 					if (!board[x][y].hasWall && !board[x][y].hasPlayer) {
 						isValidTarget = true;
@@ -6924,12 +7091,49 @@ void ofApp::drawDoubleHandedUI() {
 	ofSetColor(ofColor::white);
 	uiFont.drawString("Add 2x Hand Block", btnAddBlocks.x + 10, btnAddBlocks.getCenter().y + 5);
 }
+//--------------------------------------------------------------
+void ofApp::drawAmnesiaMenuUI() {
+	ofEnableBlendMode(OF_BLENDMODE_ALPHA);
+
+	// Dark Overlay
+	ofSetColor(0, 0, 0, 180);
+	ofDrawRectangle(0, 0, ofGetWidth(), ofGetHeight());
+
+	// Background
+	ofSetColor(50, 50, 50, 255);
+	ofDrawRectRounded(amnesiaMenuRect, 15);
+
+	// Title
+	ofSetColor(ofColor::white);
+	string title = "Amnesia: Choose Target";
+	ofRectangle titleBox = uiFont.getStringBoundingBox(title, 0, 0);
+	uiFont.drawString(title, amnesiaMenuRect.getCenter().x - titleBox.width / 2, amnesiaMenuRect.y + 60);
+
+	// Self Button
+	ofSetColor(ofColor::magenta);
+	ofDrawRectRounded(amnesiaBtnSelf, 10);
+	ofSetColor(ofColor::white);
+	string selfLabel = "Self";
+	ofRectangle selfBox = uiFont.getStringBoundingBox(selfLabel, 0, 0);
+	uiFont.drawString(selfLabel, amnesiaBtnSelf.getCenter().x - selfBox.width / 2, amnesiaBtnSelf.getCenter().y + 5);
+
+	// Adjacent Button
+	ofSetColor(ofColor::purple);
+	ofDrawRectRounded(amnesiaBtnAdjacent, 10);
+	ofSetColor(ofColor::white);
+	string adjLabel = "Adjacent Unit";
+	ofRectangle adjBox = uiFont.getStringBoundingBox(adjLabel, 0, 0);
+	uiFont.drawString(adjLabel, amnesiaBtnAdjacent.getCenter().x - adjBox.width / 2, amnesiaBtnAdjacent.getCenter().y + 5);
+}
 
 // Cancel Helper
 void ofApp::cancelDoubleHanded() {
 	isDoubleHandedMenuOpen = false;
+	isTargetingDoubleHanded = false;
 	pendingDoubleHandedCardIndex = -1;
 	pendingDoubleHandedTargetIndex = -1;
+	pendingDoubleHandedChoice = "";
+	calculateTargetHighlights();
 }
 
 // Resolve Logic (Adds cards and consumes AP)

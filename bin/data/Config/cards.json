@@ -74,7 +74,7 @@
     "value": 0,
     "targeting": "TARGET_ADJACENT_OR_SELF_UNIT",
     "numDice": 1,
-    "diceSides": 6
+    "diceSides": 4
   },
   {
     "id": 10,
