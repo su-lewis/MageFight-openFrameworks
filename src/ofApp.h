@@ -598,13 +598,19 @@ private:
 	int pendingSummonRollResult = 0;
 	glm::vec2 pendingSummonTile;
 
-	// --- Double Handed Menu Variables ---
+	// --- Double Handed State ---
 	bool isDoubleHandedMenuOpen = false;
+	bool isTargetingDoubleHanded = false; // Waiting for target click
 	int pendingDoubleHandedCardIndex = -1;
 	int pendingDoubleHandedTargetIndex = -1;
+	std::string pendingDoubleHandedChoice = ""; // "Punch" or "Hand Block"
 	ofRectangle doubleHandedMenuRect;
 	ofRectangle btnAddPunches;
 	ofRectangle btnAddBlocks;
+
+	// --- Amnesia Targeting State ---
+	bool isTargetingAmnesia = false;
+	int pendingAmnesiaCardIndex = -1;
 
 	// --- Call For Wolves State ---
 	bool isWaitingForWolfCoin = false;

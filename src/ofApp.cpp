@@ -4602,7 +4602,35 @@ void ofApp::mouseReleased(int x, int y, int button) {
 							return; // Wait for next click
 						}
 
-						// --- B. STANDARD PLAY ---
+						// --- B. DOUBLE HANDED: SHOW MENU FIRST ---
+						if (playedCard.type == CARD_DOUBLE_HANDED) {
+							pendingDoubleHandedCardIndex = draggedCardIndex;
+							isDoubleHandedMenuOpen = true;
+							pendingDoubleHandedChoice = "";
+							// Setup UI Geometry
+							float w = 500, h = 250;
+							float mx = ofGetWidth() / 2 - w / 2, my = ofGetHeight() / 2 - h / 2;
+							doubleHandedMenuRect.set(mx, my, w, h);
+							float btnW = 200, btnH = 80;
+							float spacing = 40;
+							btnAddPunches.set(mx + (w - (btnW * 2 + spacing)) / 2, my + 120, btnW, btnH);
+							btnAddBlocks.set(btnAddPunches.getRight() + spacing, my + 120, btnW, btnH);
+							draggedCardIndex = -1;
+							selectedCardIndex = -1;
+							return;
+						}
+
+						// --- C. AMNESIA: ENTER TARGETING MODE ---
+						if (playedCard.type == CARD_AMNESIA) {
+							isTargetingAmnesia = true;
+							pendingAmnesiaCardIndex = draggedCardIndex;
+							draggedCardIndex = -1;
+							selectedCardIndex = -1;
+							calculateTargetHighlights(pendingAmnesiaCardIndex);
+							return;
+						}
+
+						// --- D. STANDARD PLAY ---
 						if (playedCard.targeting == TARGET_SELF) {
 							playCard(draggedCardIndex, -1, -1);
 						} else {
@@ -6178,6 +6206,18 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 								}
 							}
 						}
+					}
+				}
+				break;
+			}
+			// --- CASE: ADJACENT OR SELF ---
+			case TARGET_ADJACENT_OR_SELF_UNIT: {
+				int distGrid = abs(x - px) + abs(y - py);
+				// Self tile or adjacent tiles with a player
+				if (distGrid == 0 || distGrid == 1) {
+					if (board[x][y].hasPlayer && !board[x][y].hasWall) {
+						isPreview = true;
+						isValidTarget = true;
 					}
 				}
 				break;
