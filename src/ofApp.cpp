@@ -61,14 +61,24 @@ void ofApp::setup() {
 
 	// Load Wolf
 	if (wolfModel.load("Units/Wolf/wolf.obj")) {
-		wolfModel.setRotation(0, 180, 1, 0, 0);
-
-		// Large scale for the board
-		wolfModel.setScale(0.035f, 0.035f, 0.035f);
-
-		wolfModel.enableMaterials();
-		wolfModel.enableTextures();
+		// Disable materials and textures - we'll manually bind textures per mesh
+		// Note: setScale/setRotation don't work because we draw cachedMesh directly
+		wolfModel.disableMaterials();
+		wolfModel.disableTextures();
 		wolfModel.setScaleNormalization(false);
+
+		// Load wolf textures manually with linear filtering for smooth appearance
+		ofLoadImage(wolfBodyTex, "Units/Wolf/body.png");
+		ofLoadImage(wolfFaceTex, "Units/Wolf/face.png");
+		ofLoadImage(wolfHandsTex, "Units/Wolf/hands.png");
+		ofLoadImage(wolfFurTex, "Units/Wolf/fur.png");
+
+		// Enable smooth texture filtering (not pixelated)
+		wolfBodyTex.setTextureMinMagFilter(GL_LINEAR, GL_LINEAR);
+		wolfFaceTex.setTextureMinMagFilter(GL_LINEAR, GL_LINEAR);
+		wolfFurTex.setTextureMinMagFilter(GL_LINEAR, GL_LINEAR);
+
+		ofLogNotice() << "Wolf model loaded with " << wolfModel.getMeshCount() << " meshes";
 	}
 
 	// --- 3. BOARD & SKYBOX ---
@@ -2254,20 +2264,48 @@ void ofApp::drawGame() {
 			// --- WOLF RENDERING ---
 			else if (player.isWolf) {
 				ofSetColor(255);
-				ofTranslate(0, 0.0f, 0);
 
-				// 1. Disable Alpha to fix "Ghost" issues
-				ofDisableAlphaBlending();
+				// Lift wolf up from floor slightly
+				ofTranslate(0, 0.5f, 0);
 
-				// 2. Disable Culling (Draws both sides of the mesh)
-				// This fixes the "Invisible Body" if normals are flipped
-				glDisable(GL_CULL_FACE);
+				// Apply scale manually (cachedMesh bypasses model transforms)
+				ofScale(0.018f, 0.018f, 0.018f);
 
-				wolfModel.drawFaces();
+				// Enable smooth shading
+				glShadeModel(GL_SMOOTH);
 
-				// 3. Reset settings
-				glEnable(GL_CULL_FACE);
-				ofEnableAlphaBlending();
+				// Draw skin meshes first (body, hands, face)
+				// Mesh 6: SkinMaterial_body
+				// Mesh 7: SkinMaterial_hands_feet (use body texture - wolf paws are same as body)
+				// Mesh 8-9: SkinMaterial_face
+				for (unsigned int i = 6; i < wolfModel.getMeshCount(); i++) {
+					ofTexture * tex = nullptr;
+					if (i == 6 || i == 7) {
+						tex = &wolfBodyTex; // Body and hands/feet use same texture
+					} else {
+						tex = &wolfFaceTex;
+					}
+
+					if (tex && tex->isAllocated()) {
+						tex->bind();
+					}
+					wolfModel.getMeshHelper(i).cachedMesh.drawFaces();
+					if (tex && tex->isAllocated()) {
+						tex->unbind();
+					}
+				}
+
+				// Draw fur meshes on top with alpha blending
+				glDepthMask(GL_FALSE);
+				glEnable(GL_BLEND);
+				glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+				wolfFurTex.bind();
+				for (unsigned int i = 0; i <= 5; i++) {
+					wolfModel.getMeshHelper(i).cachedMesh.drawFaces();
+				}
+				wolfFurTex.unbind();
+				glDisable(GL_BLEND);
+				glDepthMask(GL_TRUE);
 			}
 			// ---------------------------
 			else {
@@ -2587,7 +2625,29 @@ void ofApp::drawGame() {
 	ofDisableLighting();
 
 	// --- 8. DRAW UI ---
-	drawMinionManagerUI(); // <-- ADD THIS LINE
+
+	// NUCLEAR GRAPHICS RESET
+	ofDisableLighting();
+	glDisable(GL_LIGHTING);
+	ofDisableDepthTest();
+	glDisable(GL_DEPTH_TEST);
+
+	// Reset Colors
+	ofSetColor(255, 255, 255, 255);
+	glColor4f(1.0f, 1.0f, 1.0f, 1.0f);
+
+	// Reset Textures & Materials
+	glBindTexture(GL_TEXTURE_2D, 0);
+	glDisable(GL_COLOR_MATERIAL);
+
+	// Reset OpenGL Material State to White
+	float defaultMat[] = { 1.0f, 1.0f, 1.0f, 1.0f };
+	glMaterialfv(GL_FRONT_AND_BACK, GL_AMBIENT, defaultMat);
+	glMaterialfv(GL_FRONT_AND_BACK, GL_DIFFUSE, defaultMat);
+
+	ofEnableAlphaBlending();
+
+	drawMinionManagerUI();
 
 	float designHeight = 1080.0f;
 	float scale = ofGetHeight() / designHeight;
@@ -4055,7 +4115,10 @@ void ofApp::mousePressed(int x, int y, int button) {
 						wolf.health = 4;
 						wolf.isMinion = true;
 						wolf.isWolf = true;
-						wolf.ownerID = players[currentPlayerIndex].playerID;
+						// FIX: If current player is a minion, use its owner's ID instead
+						wolf.ownerID = players[currentPlayerIndex].isMinion
+							? players[currentPlayerIndex].ownerID
+							: players[currentPlayerIndex].playerID;
 
 						// Build Deck (3x Slash, 1x Call for Wolves)
 						Card slashCard, callCard;
@@ -4077,7 +4140,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 							// First wolf placed. Now flip the coin.
 							ofLogNotice("Wolves") << "Wolf 1 placed. Flipping coin for 2nd...";
 
-							startDiceRoll(1, 2, PURPOSE_COIN_FLIP, "Paralysis Check (Heads to Cure)");
+							startDiceRoll(1, 2, PURPOSE_COIN_FLIP, "Flip for 2nd Wolf");
 
 							isWaitingForWolfCoin = true;
 							// Do NOT turn off isPlacingWolves yet.
@@ -7647,25 +7710,43 @@ void ofApp::drawMinionManagerUI() {
 
 		} else if (minion.isWolf) {
 			// --- WOLF UI SETTINGS ---
-			// Move to center of FBO
-			ofTranslate(modelFbo.getWidth() / 2, modelFbo.getHeight() / 2 + 20); // Moved down slightly
-
-			// SCALE: Since we made the base model huge (0.035), we need to shrink it for the UI
-			ofScale(35.0f, 35.0f, 35.0f); // Try 35.0. If too big, try 25.0.
-
+			ofTranslate(modelFbo.getWidth() / 2, modelFbo.getHeight() / 2 + 20);
+			ofScale(2.2f, 2.2f, 2.2f); // Slightly smaller
 			ofRotateXDeg(-15);
 			ofRotateYDeg(180 + ofGetElapsedTimef() * 30);
 
-			// Ensure faces are drawn solid
-			ofDisableAlphaBlending();
-			glDisable(GL_CULL_FACE);
+			// Enable smooth shading
+			glShadeModel(GL_SMOOTH);
 
-			// Draw (Textures are handled automatically by .mtl now)
-			wolfModel.drawFaces();
+			// Draw skin meshes first
+			for (unsigned int i = 6; i < wolfModel.getMeshCount(); i++) {
+				ofTexture * tex = nullptr;
+				if (i == 6 || i == 7) {
+					tex = &wolfBodyTex; // Body and hands/feet use same texture
+				} else {
+					tex = &wolfFaceTex;
+				}
 
-			// Restore settings
-			glEnable(GL_CULL_FACE);
-			ofEnableAlphaBlending();
+				if (tex && tex->isAllocated()) {
+					tex->bind();
+				}
+				wolfModel.getMeshHelper(i).cachedMesh.drawFaces();
+				if (tex && tex->isAllocated()) {
+					tex->unbind();
+				}
+			}
+
+			// Draw fur meshes on top with alpha blending
+			glDepthMask(GL_FALSE);
+			glEnable(GL_BLEND);
+			glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+			wolfFurTex.bind();
+			for (unsigned int i = 0; i <= 5; i++) {
+				wolfModel.getMeshHelper(i).cachedMesh.drawFaces();
+			}
+			wolfFurTex.unbind();
+			glDisable(GL_BLEND);
+			glDepthMask(GL_TRUE);
 
 		} else {
 			// --- SKELETON UI SETTINGS ---

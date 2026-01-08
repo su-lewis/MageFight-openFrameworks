@@ -1,46 +1,42 @@
 # Blender MTL File
-# Material Count: 4
+# Fixed material names to match OBJ file
 
-newmtl HairCards_Mat
-Ns 250.000000
-Ka 0.2 0.2 0.2
-Kd 1.0 1.0 1.0
-Ks 0.5 0.5 0.5
-Ke 0.0 0.0 0.0
-Ni 1.500000
-d 1.000000
-illum 2
-map_Kd fur.png
-
+# --- BODY ---
 newmtl SkinMaterial_body
-Ns 250.000000
-Ka 0.2 0.2 0.2
+Ns 0
+Ka 1.0 1.0 1.0
 Kd 1.0 1.0 1.0
-Ks 0.5 0.5 0.5
-Ke 0.0 0.0 0.0
-Ni 1.500000
-d 1.000000
-illum 2
+Ks 0.0 0.0 0.0
+d 1.0
+illum 1
 map_Kd body.png
 
-newmtl SkinMaterial_face
-Ns 250.000000
-Ka 0.2 0.2 0.2
+# --- HANDS & FEET ---
+newmtl SkinMaterial_hands_feet
+Ns 0
+Ka 1.0 1.0 1.0
 Kd 1.0 1.0 1.0
-Ks 0.5 0.5 0.5
-Ke 0.0 0.0 0.0
-Ni 1.500000
-d 1.000000
-illum 2
+Ks 0.0 0.0 0.0
+d 1.0
+illum 1
+map_Kd hands.png
+
+# --- HEAD/FACE ---
+newmtl SkinMaterial_face
+Ns 0
+Ka 1.0 1.0 1.0
+Kd 1.0 1.0 1.0
+Ks 0.0 0.0 0.0
+d 1.0
+illum 1
 map_Kd face.png
 
-newmtl SkinMaterial_hands_feet
-Ns 250.000000
-Ka 0.2 0.2 0.2
+# --- FUR/HAIR ---
+newmtl HairCards_Mat
+Ns 0
+Ka 1.0 1.0 1.0
 Kd 1.0 1.0 1.0
-Ks 0.5 0.5 0.5
-Ke 0.0 0.0 0.0
-Ni 1.500000
-d 1.000000
-illum 2
-map_Kd hands.png
+Ks 0.0 0.0 0.0
+d 1.0
+illum 1
+map_Kd fur.png
