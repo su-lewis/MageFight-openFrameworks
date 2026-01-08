@@ -621,6 +621,8 @@ private:
 	// --- Magic Bolt State ---
 	bool isWaitingForMagicBoltRange = false;
 	int pendingMagicBoltRangeResult = 0;
+	bool isTargetingMagicBolt = false;
+	int magicBoltCardIndex = -1; // To remember which card in hand is being used
 	glm::vec2 pendingMagicBoltTargetTile;
 
 	// Helper functions

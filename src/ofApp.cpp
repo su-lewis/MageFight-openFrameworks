@@ -985,8 +985,10 @@ void ofApp::updateGame() {
 		}
 	}
 
+	// --- DELTA TIME CLAMP FIX ---
 	float deltaTime = ofGetLastFrameTime();
-	if (deltaTime > 0.1f) deltaTime = 1.0f / 60.0f; // CORRECTED: Proper delta time cap
+	// If we lagged more than 100ms (e.g. Alt-Tab), pretend it was just 16ms
+	if (deltaTime > 0.1f) deltaTime = 0.016f;
 
 	// --- Camera & Skybox Logic ---
 	if (ofGetWidth() != lastWindowWidth || ofGetHeight() != lastWindowHeight) {
@@ -3025,55 +3027,65 @@ void ofApp::drawGame() {
 	titleFont.drawString(endTurnButtonText, 0, 0);
 	ofPopMatrix();
 
-	// --- OPTIMIZED HAND DRAWING (No Matrix Ops) ---
+	    
+// --- OPTIMIZED HAND DRAWING ---
 	if (!players.empty() && currentPlayerIndex >= 0) {
 		Player & currentPlayer = players[currentPlayerIndex];
 		size_t numCards = currentPlayer.hand.size();
 
-		// 1. Determine Ownership (Player 0/Bottom or Player 1/Top)
-		// This fixes the bug: We check ID, not Index.
 		bool isBottomPlayer = (currentPlayer.playerID == 0 || currentPlayer.ownerID == 0);
 		float hoverDirection = isBottomPlayer ? -120.0f : 120.0f;
 
+		// 1. Determine which card should be drawn LAST (On Top)
+		// Priority: Dragged > Selected > Hovered
+		int indexToDrawLast = -1;
+		if (draggedCardIndex != -1)
+			indexToDrawLast = draggedCardIndex;
+		else if (selectedCardIndex != -1)
+			indexToDrawLast = selectedCardIndex;
+		else if (hoveredCardIndex != -1)
+			indexToDrawLast = hoveredCardIndex;
+
+		// 2. PASS 1: Draw all cards BEHIND the active one
 		for (size_t i = 0; i < numCards; i++) {
-			if (i == selectedCardIndex || i == hoveredCardIndex || i == draggedCardIndex) continue;
+			if (static_cast<int>(i) == indexToDrawLast) continue; // Skip the top card
 
 			Card & card = currentPlayer.hand[i];
 			float w = handBaseCardWidth * card.currentScale;
 			float h = baseCardHeight * card.currentScale;
-			float x = card.currentPos.x - w / 2;
-			float y = card.currentPos.y - h / 2;
 
-			cardSpriteSheet.drawSubsection(x, y, w, h, card.textureRect.x, card.textureRect.y, card.textureRect.width, card.textureRect.height);
-		}
-
-		if (selectedCardIndex != -1 && selectedCardIndex < numCards && selectedCardIndex != hoveredCardIndex && selectedCardIndex != draggedCardIndex) {
-			Card & card = currentPlayer.hand[selectedCardIndex];
-			float w = handBaseCardWidth * card.currentScale;
-			float h = baseCardHeight * card.currentScale;
-			float x = card.currentPos.x - w / 2;
-			float y = card.currentPos.y - h / 2;
-
-			cardSpriteSheet.drawSubsection(x, y, w, h, card.textureRect.x, card.textureRect.y, card.textureRect.width, card.textureRect.height);
-			ofPushStyle();
-			ofNoFill();
-			ofSetColor(ofColor::yellow);
-			ofSetLineWidth(4);
-			ofDrawRectangle(x, y, w, h);
-			ofPopStyle();
-		}
-
-		if (hoveredCardIndex != -1 && hoveredCardIndex < numCards && hoveredCardIndex != draggedCardIndex) {
-			Card & card = currentPlayer.hand[hoveredCardIndex];
-			float w = handBaseCardWidth * card.currentScale;
-			float h = baseCardHeight * card.currentScale;
-
-			// FIX: Use the stable direction calculated above
-			float drawY = (card.currentPos.y - h / 2) + hoverDirection;
+			// Draw at standard position
 			float drawX = card.currentPos.x - w / 2;
+			float drawY = card.currentPos.y - h / 2;
 
 			cardSpriteSheet.drawSubsection(drawX, drawY, w, h, card.textureRect.x, card.textureRect.y, card.textureRect.width, card.textureRect.height);
-			if (hoveredCardIndex == selectedCardIndex) {
+		}
+
+		// 3. PASS 2: Draw the "Top" card
+		if (indexToDrawLast != -1 && indexToDrawLast < numCards) {
+			Card & card = currentPlayer.hand[indexToDrawLast];
+			float w = handBaseCardWidth * card.currentScale;
+			float h = baseCardHeight * card.currentScale;
+
+			float drawX = card.currentPos.x - w / 2;
+			float drawY = card.currentPos.y - h / 2;
+
+			// Apply offsets based on state
+			if (indexToDrawLast == draggedCardIndex) {
+				// Dragged follows mouse exactly
+				drawX = card.currentPos.x - w / 2;
+				drawY = card.currentPos.y - h / 2;
+			}
+			// FIX: Only apply pop-up offset if HOVERED.
+			// Selected cards sits flat unless the mouse is currently over them.
+			else if (indexToDrawLast == hoveredCardIndex) {
+				drawY += hoverDirection;
+			}
+
+			cardSpriteSheet.drawSubsection(drawX, drawY, w, h, card.textureRect.x, card.textureRect.y, card.textureRect.width, card.textureRect.height);
+
+			// Draw Yellow Outline if Selected
+			if (indexToDrawLast == selectedCardIndex || indexToDrawLast == draggedCardIndex) {
 				ofPushStyle();
 				ofNoFill();
 				ofSetColor(ofColor::yellow);
@@ -3083,37 +3095,16 @@ void ofApp::drawGame() {
 			}
 		}
 
-		if (draggedCardIndex != -1 && draggedCardIndex < numCards) {
-			Card & card = currentPlayer.hand[draggedCardIndex];
-			float w = handBaseCardWidth * card.currentScale;
-			float h = baseCardHeight * card.currentScale;
-
-			// FIX: Use the stable direction calculated above
-			float drawY = (card.currentPos.y - h / 2) + hoverDirection;
-			float drawX = card.currentPos.x - w / 2;
-
-			cardSpriteSheet.drawSubsection(drawX, drawY, w, h, card.textureRect.x, card.textureRect.y, card.textureRect.width, card.textureRect.height);
-			ofPushStyle();
-			ofNoFill();
-			ofSetColor(ofColor::yellow);
-			ofSetLineWidth(4);
-			ofDrawRectangle(drawX, drawY, w, h);
-			ofPopStyle();
-		}
-
 		// --- DRAW OTHER HUMAN PLAYER'S HAND (Top Screen) ---
-		// Determine ID of current human (or owner of current minion)
 		int currentID = players[currentPlayerIndex].playerID;
 		if (players[currentPlayerIndex].isMinion) currentID = players[currentPlayerIndex].ownerID;
 
-		// Opponent is the other ID (0 vs 1)
 		int opponentID = (currentID == 0) ? 1 : 0;
 		int opponentIndex = -1;
 
-		// Find the index of the opponent in the vector
 		for (size_t i = 0; i < players.size(); ++i) {
 			if (players[i].playerID == opponentID) {
-				opponentIndex = i;
+				opponentIndex = (int)i;
 				break;
 			}
 		}
@@ -3124,7 +3115,7 @@ void ofApp::drawGame() {
 				float p_staticCardWidth = staticUICardWidth * 0.6f;
 				float p_staticCardHeight = staticUICardHeight * 0.6f;
 				float p_cardOverlap = p_staticCardWidth * 0.75f;
-				float handY = 20 * scale; // Always top
+				float handY = 20 * scale;
 
 				size_t otherNumCards = otherPlayer.hand.size();
 				float totalHandWidth = p_staticCardWidth + (otherNumCards - 1) * (p_staticCardWidth - p_cardOverlap);
@@ -3136,6 +3127,8 @@ void ofApp::drawGame() {
 			}
 		}
 	}
+
+  
 
 	// --- NEW: DRAW DECK/DISCARD HOVER VIEW ---
 	if (isShowingPileView && currentPileViewPlayerIndex != -1) {
@@ -3492,6 +3485,20 @@ void ofApp::drawGame() {
 		ofSetColor(ofColor::white);
 		titleFont.drawString(msg, tx, ty);
 	}
+	// --- MAGIC BOLT INSTRUCTION TEXT ---
+	if (isTargetingMagicBolt) {
+		string msg = "Choose Target Tile for Magic Bolt";
+		ofRectangle bbox = titleFont.getStringBoundingBox(msg, 0, 0);
+		float tx = (ofGetWidth() / 2.0f) - (bbox.width / 2.0f);
+		float ty = ofGetHeight() * 0.25f;
+
+		// Shadow
+		ofSetColor(0, 0, 0, 255);
+		titleFont.drawString(msg, tx + 2, ty + 2);
+		// Text
+		ofSetColor(ofColor::cyan);
+		titleFont.drawString(msg, tx, ty);
+	}
 	// --- BONUS TURNS COUNTER ---
 	if (currentPlayerIndex != -1) {
 		Player & currentPlayer = players[currentPlayerIndex];
@@ -3572,7 +3579,7 @@ void ofApp::mouseMoved(int x, int y) {
 		}
 		hoveredCardIndex = foundHoverIndex;
 		for (size_t i = 0; i < currentPlayer.hand.size(); i++) {
-			currentPlayer.hand[i].targetScale = (static_cast<int>(i) == hoveredCardIndex) ? 2.5f : 1.5f;
+			currentPlayer.hand[i].targetScale = (static_cast<int>(i) == hoveredCardIndex) ? 2.0f : 1.5f;
 		}
 
 		int activeCardForHighlight = (selectedCardIndex != -1) ? selectedCardIndex : hoveredCardIndex;
@@ -3969,7 +3976,31 @@ void ofApp::mousePressed(int x, int y, int button) {
 		}
 		if (ofRectangle(panelX, panelY, panelWidth, panelHeight).inside(x, y)) return;
 	}
+	// --- 1h. Magic Bolt Targeting Click ---
+	if (isTargetingMagicBolt && button == OF_MOUSE_BUTTON_LEFT) {
+		ofVec2f boardPos = mouseToBoard(x, y);
+		int gx = floor(boardPos.x);
+		int gy = floor(boardPos.y);
 
+		// Clicked valid target?
+		if (gx >= 0 && gx < BOARD_WIDTH && gy >= 0 && gy < BOARD_HEIGHT) {
+			if (board[gx][gy].isTargetable) {
+				playCard(magicBoltCardIndex, gx, gy);
+
+				// Reset State
+				isTargetingMagicBolt = false;
+				magicBoltCardIndex = -1;
+				clearHighlights();
+				return;
+			}
+		}
+
+		// Clicked invalid? Cancel.
+		isTargetingMagicBolt = false;
+		magicBoltCardIndex = -1;
+		clearHighlights();
+		return;
+	}
 	// ==============================================================================
 	// PHASE 2: GLOBAL MOUSE TRACKING
 	// ==============================================================================
@@ -4465,63 +4496,74 @@ void ofApp::mouseReleased(int x, int y, int button) {
 			selectedCardIndex = -1;
 			draggedCardIndex = -1;
 			playerAction = NONE;
+
+			// Cancel Magic Bolt Mode
+			if (isTargetingMagicBolt) {
+				isTargetingMagicBolt = false;
+				magicBoltCardIndex = -1;
+			}
+
 			clearHighlights();
 			calculateTargetHighlights();
 		}
+		return;
 	}
 
 	if (button == OF_MOUSE_BUTTON_LEFT) {
 		if (players.empty() || currentPlayerIndex < 0) return;
+
+		Player & currentPlayer = players[currentPlayerIndex];
 		const float dragThreshold = 5.0f;
 		float dist = mouseDownPos.distance(ofVec2f(x, y));
-		Player & currentPlayer = players[currentPlayerIndex];
 
 		if (draggedCardIndex != -1) {
 			if (dist > dragThreshold) {
 				Card & playedCard = currentPlayer.hand[draggedCardIndex];
 				float playZoneY = ofGetHeight() * 0.7f;
+
 				if (y < playZoneY) {
 					if (currentAP >= playedCard.cost) {
 
-						// --- NEW LOGIC FOR DRAG-AND-RELEASE SPELLS ---
+						// --- A. MAGIC BOLT: ENTER TARGETING MODE ---
 						if (playedCard.type == CARD_MAGIC_BOLT) {
-							ofVec2f boardPos = mouseToBoard(x, y);
-							int gridX = floor(boardPos.x);
-							int gridY = floor(boardPos.y);
-
-							// Check if the click was on a valid board tile
-							if (gridX >= 0 && gridX < BOARD_WIDTH && gridY >= 0 && gridY < BOARD_HEIGHT) {
-								playCard(draggedCardIndex, gridX, gridY);
-							}
+							isTargetingMagicBolt = true;
+							magicBoltCardIndex = draggedCardIndex;
+							draggedCardIndex = -1; // Stop dragging
+							selectedCardIndex = -1;
+							// Show highlights for the bolt immediately
+							calculateTargetHighlights(magicBoltCardIndex);
+							return; // Wait for next click
 						}
-						// --- FALLBACK TO STANDARD TARGETING ---
-						else if (playedCard.targeting == TARGET_SELF) {
+
+						// --- B. STANDARD PLAY ---
+						if (playedCard.targeting == TARGET_SELF) {
 							playCard(draggedCardIndex, -1, -1);
 						} else {
-							std::vector<glm::vec2> validTargets;
-							for (int tx = 0; tx < BOARD_WIDTH; tx++) {
-								for (int ty = 0; ty < BOARD_HEIGHT; ty++) {
-									if (board[tx][ty].isTargetable) {
-										validTargets.push_back({ tx, ty });
-									}
+							ofVec2f boardPos = mouseToBoard(x, y);
+							int gx = floor(boardPos.x);
+							int gy = floor(boardPos.y);
+
+							if (gx >= 0 && gx < BOARD_WIDTH && gy >= 0 && gy < BOARD_HEIGHT) {
+								// Only play if green highlight is active
+								if (board[gx][gy].isTargetable) {
+									playCard(draggedCardIndex, gx, gy);
 								}
 							}
-							if (validTargets.size() == 1) {
-								playCard(draggedCardIndex, validTargets[0].x, validTargets[0].y);
-							}
 						}
+
 					} else {
 						ofLogNotice("Game") << "Not enough AP!";
 					}
 				}
 			}
+
+			// Cleanup if not Magic Bolt
 			selectedCardIndex = -1;
-			calculateTargetHighlights();
 			draggedCardIndex = -1;
+			calculateTargetHighlights();
 		}
 	}
 }
-
 //--------------------------------------------------------------
 void ofApp::mouseScrolled(int x, int y, float scrollX, float scrollY) {
 	if (currentState != STATE_GAMEPLAY) return;
@@ -4599,9 +4641,58 @@ void ofApp::mouseEntered(int x, int y) { }
 void ofApp::mouseExited(int x, int y) { }
 
 //--------------------------------------------------------------
+//--------------------------------------------------------------
 void ofApp::windowResized(int w, int h) {
 	recalculateUI(w, h);
 	allocateWorldFbo(w, h);
+
+	// --- FIX: Snap UI elements immediately to prevent "flying in" visual glitches ---
+
+	// 1. Snap End Turn Button
+	float scale = h / 1080.0f;
+	float btnWidth = 250 * scale;
+	float visibleY = 20 * scale;
+	float hiddenY = -100 * scale;
+
+	bool isPlayer1Turn = false;
+	if (currentPlayerIndex >= 0 && !players.empty()) {
+		int pid = players[currentPlayerIndex].playerID;
+		int oid = players[currentPlayerIndex].ownerID;
+		if (pid == 0 || oid == 0) isPlayer1Turn = true;
+	}
+
+	if (isPlayer1Turn) {
+		endTurnButtonTargetPos.set(w / 2.0f - btnWidth / 2.0f, visibleY);
+	} else {
+		endTurnButtonTargetPos.set(w / 2.0f - btnWidth / 2.0f, hiddenY);
+	}
+	// Force current to target
+	endTurnButtonCurrentPos = endTurnButtonTargetPos;
+
+	// 2. Snap Cards in Hand
+	if (!players.empty() && currentPlayerIndex >= 0) {
+		Player & currentPlayer = players[currentPlayerIndex];
+
+		bool isP1 = (currentPlayer.playerID == 0 || currentPlayer.ownerID == 0);
+		float handCenterY = isP1 ? h - 130 : 130;
+		float handBaseCardWidth = 120;
+		float handAreaWidth = w * 0.4f;
+
+		size_t numCards = currentPlayer.hand.size();
+		float totalCardWidths = numCards * handBaseCardWidth;
+		float padding = (numCards > 1) ? (handAreaWidth - totalCardWidths) / (numCards - 1) : 0;
+		padding = std::min(padding, 20.0f);
+		float totalHandWidth = (numCards * handBaseCardWidth) + ((numCards - 1) * padding);
+		float startX = (w - totalHandWidth) / 2.0f;
+
+		for (size_t i = 0; i < numCards; i++) {
+			float cardCenterX = startX + i * (handBaseCardWidth + padding) + (handBaseCardWidth / 2.0f);
+			currentPlayer.hand[i].targetPos = ofVec2f(cardCenterX, handCenterY);
+
+			// FORCE SNAP
+			currentPlayer.hand[i].currentPos = currentPlayer.hand[i].targetPos;
+		}
+	}
 }
 void ofApp::gotMessage(ofMessage msg) { }
 void ofApp::dragEvent(ofDragInfo dragInfo) { }
@@ -5878,7 +5969,7 @@ ofVec2f ofApp::mouseToBoard(int x, int y) {
 
 //--------------------------------------------------------------
 void ofApp::calculateTargetHighlights(int cardToCalculate) {
-	// Clear previous target previews
+	// 1. Reset Board
 	for (int x = 0; x < BOARD_WIDTH; x++) {
 		for (int y = 0; y < BOARD_HEIGHT; y++) {
 			board[x][y].isTargetPreview = false;
@@ -5890,133 +5981,143 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 	Player & currentPlayer = players[currentPlayerIndex];
 
 	int activeCardIndex = (selectedCardIndex != -1) ? selectedCardIndex : cardToCalculate;
-	if (activeCardIndex < 0 || activeCardIndex >= currentPlayer.hand.size()) return;
+	if (isTargetingMagicBolt) activeCardIndex = magicBoltCardIndex;
+
+	if (activeCardIndex < 0 || activeCardIndex >= (int)currentPlayer.hand.size()) return;
 
 	Card & card = currentPlayer.hand[activeCardIndex];
 	int px = currentPlayer.x;
 	int py = currentPlayer.y;
+	glm::vec2 casterPos(px, py);
 
-	// Pre-calculate Line of Sight for all tiles for performance
-	TargetInfo losCache[BOARD_WIDTH][BOARD_HEIGHT];
-	bool isEthereal = (card.type == CARD_ETHEREAL_JOLT || card.type == CARD_MAGIC_BOLT);
-
-	if (card.targeting == TARGET_LINE_OF_SIGHT_TILE || isEthereal) {
-		for (int x = 0; x < BOARD_WIDTH; x++) {
-			for (int y = 0; y < BOARD_HEIGHT; y++) {
-				losCache[x][y] = isLosTargetValid({ (float)px, (float)py }, { (float)x, (float)y }, 9999.0f, card.type);
+	// --- MOUSE HOVER CALCULATION ---
+	glm::vec2 mouseTile = mouseToBoard(ofGetMouseX(), ofGetMouseY());
+	glm::vec2 aimDir = { 0, 0 };
+	if (mouseTile.x >= 0 && mouseTile.x < BOARD_WIDTH && mouseTile.y >= 0 && mouseTile.y < BOARD_HEIGHT) {
+		if (mouseTile != casterPos) {
+			glm::vec2 rawDir = mouseTile - casterPos;
+			if (std::abs(rawDir.x) > std::abs(rawDir.y)) {
+				aimDir = { (rawDir.x > 0 ? 1.0f : -1.0f), 0.0f };
+			} else {
+				aimDir = { 0.0f, (rawDir.y > 0 ? 1.0f : -1.0f) };
 			}
 		}
 	}
 
-	// Loop through every tile to see if it's a potential target
 	for (int x = 0; x < BOARD_WIDTH; x++) {
 		for (int y = 0; y < BOARD_HEIGHT; y++) {
-			bool isValidPreview = false;
-			bool isCurrentlyTargetable = false;
+			bool isPreview = false;
+			bool isValidTarget = false;
+			glm::vec2 targetPos(x, y);
+
+			float distEuclideanFeet = glm::distance(casterPos, targetPos) * 5.0f;
 
 			switch (card.targeting) {
-			case TARGET_ADJACENT_UNIT:
-			case TARGET_ADJACENT_UNIT_OR_WALL:
-			case TARGET_EMPTY_ADJACENT:
-			case TARGET_ADJACENT_OR_SELF_UNIT: {
-				int dist = abs(x - px) + abs(y - py);
-				int maxDist = (card.targeting == TARGET_ADJACENT_OR_SELF_UNIT) ? 1 : 1;
-				if (dist <= maxDist && !(x == px && y == py && card.targeting != TARGET_ADJACENT_OR_SELF_UNIT)) {
-					isValidPreview = true;
-				}
-				break;
-			}
 
-			case TARGET_LINEAR_PIERCE: // Stab
-			{
-				glm::vec2 directions[] = { { 0, 1 }, { 0, -1 }, { 1, 0 }, { -1, 0 } };
-				for (const auto & dir : directions) {
-					if ((x == px + dir.x && y == py + dir.y) || (x == px + dir.x * 2 && y == py + dir.y * 2)) {
-						isValidPreview = true;
+			case TARGET_CLEAVE_ADJACENT: {
+				if (aimDir.x != 0 || aimDir.y != 0) {
+					std::vector<glm::vec2> arcTiles;
+					glm::vec2 center = casterPos + aimDir;
+					arcTiles.push_back(center);
+					if (aimDir.x != 0) {
+						arcTiles.push_back({ center.x, center.y - 1 });
+						arcTiles.push_back({ center.x, center.y + 1 });
+					} else {
+						arcTiles.push_back({ center.x - 1, center.y });
+						arcTiles.push_back({ center.x + 1, center.y });
 					}
-				}
-				break;
-			}
-
-			case TARGET_CLEAVE_ADJACENT: // Slash
-			{
-				glm::vec2 directions[] = { { 0, 1 }, { 0, -1 }, { 1, 0 }, { -1, 0 } };
-				for (const auto & dir : directions) {
-					if (dir.y != 0) { // Vertical
-						if ((x >= px - 1 && x <= px + 1 && y == py + dir.y)) isValidPreview = true;
-					} else { // Horizontal
-						if ((y >= py - 1 && y <= py + 1 && x == px + dir.x)) isValidPreview = true;
-					}
-				}
-				break;
-			}
-
-			case TARGET_EMPTY_TILE: // Teleport
-				isValidPreview = true; // All tiles are potential previews
-				break;
-
-			case TARGET_LINE_OF_SIGHT_TILE: // Fireball, Heal, Ethereal Jolt, Magic Bolt
-			{
-				float maxRange = card.numDice * card.diceSides;
-				// Heal has infinite range
-				if (card.type == CARD_HEAL) maxRange = 9999.0f;
-
-				// Use the pre-calculated LoS cache
-				if (losCache[x][y].reason == VALID) {
-					float distFeet = getFaceToFaceDistance({ (float)px, (float)py }, { (float)x, (float)y }) * 5.0f;
-					if (isEthereal) {
-						distFeet = glm::distance(glm::vec2(px, py), glm::vec2(x, y)) * 5.0f;
-					}
-
-					if (distFeet <= maxRange + 0.1f) {
-						isValidPreview = true;
-					}
-				}
-				break;
-			}
-			default:
-				break;
-			}
-
-			if (isValidPreview) {
-				board[x][y].isTargetPreview = true;
-
-				// Now, check if it's a *currently valid* target (Green highlight)
-				if (card.targeting == TARGET_ADJACENT_UNIT) {
-					if (board[x][y].hasPlayer && (abs(x - px) + abs(y - py) == 1)) isCurrentlyTargetable = true;
-				} else if (card.targeting == TARGET_LINEAR_PIERCE) {
-					if (board[x][y].hasPlayer) isCurrentlyTargetable = true;
-				} else if (card.targeting == TARGET_ADJACENT_UNIT_OR_WALL) {
-					if (board[x][y].hasPlayer || board[x][y].hasWall) isCurrentlyTargetable = true;
-				} else if (card.targeting == TARGET_EMPTY_ADJACENT || card.type == CARD_CALL_FOR_WOLVES) {
-					if (!board[x][y].hasPlayer && !board[x][y].hasWall && (abs(x - px) + abs(y - py) == 1)) isCurrentlyTargetable = true;
-				} else if (card.targeting == TARGET_CLEAVE_ADJACENT) {
-					glm::vec2 dir = { (float)(x - px), (float)(y - py) };
-					if (glm::length(dir) == 1) {
-						if (!findCleaveTargets(dir).empty()) isCurrentlyTargetable = true;
-					}
-				} else if (card.targeting == TARGET_EMPTY_TILE) { // Teleport
-					if (!board[x][y].hasPlayer && !board[x][y].hasWall) isCurrentlyTargetable = true;
-				} else if (card.type == CARD_MAGIC_BOLT) {
-					isCurrentlyTargetable = true; // Can target anything
-				} else if (card.type == CARD_FIREBALL || card.type == CARD_ETHEREAL_JOLT) {
-					if (losCache[x][y].isTargetable) isCurrentlyTargetable = true;
-				} else if (card.type == CARD_HEAL) {
-					if (board[x][y].hasPlayer && losCache[x][y].reason == VALID) {
-						// Check if friendly
-						int casterOwner = currentPlayer.isMinion ? currentPlayer.ownerID : currentPlayer.playerID;
-						for (const auto & p : players) {
-							if (p.x == x && p.y == y) {
-								int targetOwner = p.isMinion ? p.ownerID : p.playerID;
-								if (casterOwner == targetOwner) isCurrentlyTargetable = true;
-								break;
+					for (auto & tile : arcTiles) {
+						if (tile.x == x && tile.y == y) {
+							isPreview = true;
+							if (board[x][y].hasPlayer && !board[x][y].hasWall) {
+								bool blocked = false;
+								if (px != x && py != y) {
+									if (isTileWall(px, y) && isTileWall(x, py)) blocked = true;
+								}
+								if (!blocked) isValidTarget = true;
 							}
 						}
 					}
 				}
-
-				board[x][y].isTargetable = isCurrentlyTargetable;
+				break;
 			}
+			case TARGET_ADJACENT_UNIT:
+			case TARGET_ADJACENT_UNIT_OR_WALL:
+			case TARGET_EMPTY_ADJACENT: {
+				int distGrid = abs(x - px) + abs(y - py);
+				if (distGrid == 1) {
+					isPreview = true;
+					if (card.type == CARD_ROCK_CRUSH) {
+						if (board[x][y].hasWall || board[x][y].hasPlayer) isValidTarget = true;
+					} else if (card.type == CARD_CALL_FOR_WOLVES || card.type == CARD_SUMMON_GOLEM || card.type == CARD_RAISE_DEAD || card.type == CARD_CREATE_WALL) {
+						if (!board[x][y].hasWall && !board[x][y].hasPlayer) isValidTarget = true;
+					} else {
+						if (board[x][y].hasPlayer && !board[x][y].hasWall) isValidTarget = true;
+					}
+				}
+				break;
+			}
+			case TARGET_LINEAR_PIERCE: {
+				glm::vec2 dirs[] = { { 1, 0 }, { -1, 0 }, { 0, 1 }, { 0, -1 } };
+				for (auto & d : dirs) {
+					glm::vec2 t1 = casterPos + d;
+					glm::vec2 t2 = casterPos + (d * 2.0f);
+					if ((x == (int)t1.x && y == (int)t1.y) || (x == (int)t2.x && y == (int)t2.y)) {
+						isPreview = true;
+						if (board[x][y].hasPlayer && !board[x][y].hasWall) {
+							if (x == (int)t2.x && y == (int)t2.y) {
+								if (!isTileWall((int)t1.x, (int)t1.y)) isValidTarget = true;
+							} else {
+								isValidTarget = true;
+							}
+						}
+					}
+				}
+				break;
+			}
+			case TARGET_EMPTY_TILE: {
+				float maxRange = card.numDice * card.diceSides;
+				if (distEuclideanFeet <= maxRange + 0.1f) {
+					isPreview = true;
+					if (!board[x][y].hasWall && !board[x][y].hasPlayer) {
+						isValidTarget = true;
+					}
+				}
+				break;
+			}
+
+			// --- CASE: LINE OF SIGHT (Magic Bolt, Fireball, Heal) ---
+			case TARGET_LINE_OF_SIGHT_TILE: {
+				float maxRange = card.numDice * card.diceSides;
+				if (card.type == CARD_HEAL) maxRange = 9999.0f;
+
+				// FIX: Do not assume preview just based on distance. Check visibility!
+				TargetInfo info = isLosTargetValid(casterPos, targetPos, maxRange, card.type);
+
+				// Red Preview Logic:
+				// Must be: Not a wall (unless specific), Visible (LOS), and In Range.
+				bool isWall = board[x][y].hasWall;
+				bool isVisible = (info.reason != INVALID_NO_LOS);
+				bool isInRange = (info.reason != INVALID_OUT_OF_RANGE);
+
+				if (!isWall && isVisible && isInRange) {
+					isPreview = true;
+				}
+
+				// Green Target Logic:
+				if (info.isTargetable) {
+					isValidTarget = true;
+					isPreview = true; // Ensure targetable implies visible preview
+				}
+				break;
+			}
+
+			default:
+				break;
+			}
+
+			if (isPreview) board[x][y].isTargetPreview = true;
+			if (isValidTarget) board[x][y].isTargetable = true;
 		}
 	}
 }
@@ -6414,80 +6515,66 @@ std::vector<Player *> ofApp::findCleaveTargets(glm::vec2 direction) {
 	int px = players[currentPlayerIndex].x;
 	int py = players[currentPlayerIndex].y;
 
+	// 1. Determine the 3 tiles in the swipe arc
 	glm::vec2 centerTile = { px + direction.x, py + direction.y };
 	std::vector<glm::vec2> cleaveTiles;
 
-	if (direction.y != 0) { // Vertical
-		cleaveTiles.push_back({ centerTile.x - 1, centerTile.y });
-		cleaveTiles.push_back({ centerTile.x, centerTile.y });
-		cleaveTiles.push_back({ centerTile.x + 1, centerTile.y });
-	} else { // Horizontal
-		cleaveTiles.push_back({ centerTile.x, centerTile.y - 1 });
-		cleaveTiles.push_back({ centerTile.x, centerTile.y });
-		cleaveTiles.push_back({ centerTile.x, centerTile.y + 1 });
+	if (direction.y != 0) { // Vertical Aim
+		cleaveTiles.push_back({ centerTile.x - 1, centerTile.y }); // Left side
+		cleaveTiles.push_back({ centerTile.x, centerTile.y }); // Center
+		cleaveTiles.push_back({ centerTile.x + 1, centerTile.y }); // Right side
+	} else { // Horizontal Aim
+		cleaveTiles.push_back({ centerTile.x, centerTile.y - 1 }); // Top side
+		cleaveTiles.push_back({ centerTile.x, centerTile.y }); // Center
+		cleaveTiles.push_back({ centerTile.x, centerTile.y + 1 }); // Bottom side
 	}
 
+	// 2. Iterate through potential target tiles
 	for (const auto & targetPos : cleaveTiles) {
-		int tx = targetPos.x;
-		int ty = targetPos.y;
+		int tx = (int)targetPos.x;
+		int ty = (int)targetPos.y;
 
-		bool isPotentialTarget = false;
-		if (tx >= 0 && tx < BOARD_WIDTH && ty >= 0 && ty < BOARD_HEIGHT && !board[tx][ty].hasWall) {
-			for (auto & p : players) {
-				if (p.x == tx && p.y == ty) {
-					isPotentialTarget = true;
-					break;
-				}
-			}
-		}
-		if (!isPotentialTarget) {
-			continue;
-		}
+		// A. Basic Validation: Bounds and Target-Tile-Is-Not-Wall
+		if (tx < 0 || tx >= BOARD_WIDTH || ty < 0 || ty >= BOARD_HEIGHT) continue;
+		if (board[tx][ty].hasWall) continue;
 
-		bool pathFound = false;
-		std::queue<glm::vec2> q;
-		auto comp = [](const glm::vec2 & a, const glm::vec2 & b) {
-			return a.x < b.x || (a.x == b.x && a.y < b.y);
-		};
-		std::set<glm::vec2, decltype(comp)> visited(comp);
-
-		q.push({ (float)px, (float)py });
-		visited.insert({ (float)px, (float)py });
-
-		while (!q.empty()) {
-			glm::vec2 current = q.front();
-			q.pop();
-
-			if (current.x == tx && current.y == ty) {
-				pathFound = true;
+		// B. Check if a player is actually on this tile
+		Player * foundTarget = nullptr;
+		for (auto & p : players) {
+			if (p.x == tx && p.y == ty) {
+				foundTarget = &p;
 				break;
 			}
-
-			int dist = abs(current.x - px) + abs(current.y - py);
-			if (dist >= 2) {
-				continue;
-			}
-
-			glm::vec2 neighbors[4] = { { current.x + 1, current.y }, { current.x - 1, current.y }, { current.x, current.y + 1 }, { current.x, current.y - 1 } };
-			for (const auto & neighbor : neighbors) {
-				int nx = neighbor.x;
-				int ny = neighbor.y;
-				if (nx >= 0 && nx < BOARD_WIDTH && ny >= 0 && ny < BOARD_HEIGHT && !board[nx][ny].hasWall && visited.find(neighbor) == visited.end()) {
-					visited.insert(neighbor);
-					q.push(neighbor);
-				}
-			}
 		}
 
-		if (pathFound) {
-			for (auto & p : players) {
-				if (p.x == tx && p.y == ty) {
-					hittablePlayers.push_back(&p);
-					break;
-				}
+		// If no player here, skip logic
+		if (!foundTarget) continue;
+
+		// C. PATH BLOCKING LOGIC (Merged from isSwipePathBlocked)
+		bool isBlocked = false;
+
+		// If target is Diagonal from caster (Side targets), check for Pinch
+		if (px != tx && py != ty) {
+			// Check the two shared neighbors (the corners)
+			// Neighbor 1: (CasterX, TargetY)
+			// Neighbor 2: (TargetX, CasterY)
+			bool wall1 = isTileWall(px, ty);
+			bool wall2 = isTileWall(tx, py);
+
+			// If BOTH shared neighbors are walls, you cannot swing diagonally
+			if (wall1 && wall2) {
+				isBlocked = true;
 			}
+		}
+		// If target is Orthogonal (Center target), it's reachable because
+		// we already confirmed the target tile itself is not a wall.
+
+		// D. Add to list if path is clear
+		if (!isBlocked) {
+			hittablePlayers.push_back(foundTarget);
 		}
 	}
+
 	return hittablePlayers;
 }
 //--------------------------------------------------------------
@@ -6860,68 +6947,53 @@ glm::vec2 ofApp::worldToGrid(glm::vec3 worldPos) {
 }
 
 //--------------------------------------------------------------
+// Returns true if the ray is clear, false if blocked
 bool ofApp::checkRayPhysics(glm::vec2 rayStart, glm::vec2 rayEnd) {
+	// 1. Get the list of tiles the ray passes through
 	auto path = getLineOfSightPath(rayStart, rayEnd);
 	if (path.empty()) return true;
 
+	// 2. Iterate through the path
 	for (size_t i = 0; i < path.size(); ++i) {
 		glm::vec2 current = path[i];
 		int cx = (int)current.x;
 		int cy = (int)current.y;
 
-		// --- 1. CIRCULAR WALL COLLISION ---
-		// This handles everything: adjacent walls, grazing shots, etc.
-		if (board[cx][cy].hasWall) {
-			glm::vec2 wallCenter = current + 0.5f;
-			glm::vec2 closest = getClosestPointOnLineSegment(wallCenter, rayStart, rayEnd);
-			float dist = glm::distance(closest, wallCenter);
+		// SKIP start and end tiles (we don't block visibility based on where we stand or who we target)
+		bool isStart = (cx == (int)rayStart.x && cy == (int)rayStart.y);
+		bool isEnd = (cx == (int)rayEnd.x && cy == (int)rayEnd.y);
 
-			// If the ray passes inside the circle (radius 0.5), it hits.
-			// 0.499f allows shooting exactly along the edge.
-			if (dist < 0.499f) return false;
+		// --- DIRECT BLOCKING ---
+		// If the tile itself contains a Wall or a Unit (and isn't start/end), it blocks.
+		if (!isStart && !isEnd) {
+			if (isTileBlocked(cx, cy)) return false;
 		}
 
-		bool isStart = (glm::distance(current, glm::floor(rayStart)) < 0.5f);
-		bool isEnd = (glm::distance(current, glm::floor(rayEnd)) < 0.5f);
-
-		// --- 2. DIAGONAL PINCH CHECK ---
+		// --- DIAGONAL BARRIER (PINCH) CHECK ---
+		// If we step diagonally, check if we are squeezing through two obstacles.
 		if (i < path.size() - 1) {
 			glm::vec2 next = path[i + 1];
-			if ((int)current.x != (int)next.x && (int)current.y != (int)next.y) {
-				// Only block if BOTH corners are solid walls.
-				// (Squeezing between a Unit and a Wall is technically allowed by this logic,
-				// but Squeezing between two Walls is impossible).
-				if (isTileWall((int)current.x, (int)next.y) && isTileWall((int)next.x, (int)current.y)) {
-					return false;
+			int nx = (int)next.x;
+			int ny = (int)next.y;
+
+			// Check if movement is diagonal
+			if (cx != nx && cy != ny) {
+				// Determine the two shared neighbors
+				// e.g., moving (0,0) to (1,1), neighbors are (1,0) and (0,1)
+				int n1x = nx;
+				int n1y = cy;
+
+				int n2x = cx;
+				int n2y = ny;
+
+				// RULE: If BOTH orthogonal neighbors are blocked, the diagonal gap is closed.
+				// "if they are diagonal to another wall / unit... they form a barrier"
+				bool block1 = isTileBlocked(n1x, n1y);
+				bool block2 = isTileBlocked(n2x, n2y);
+
+				if (block1 && block2) {
+					return false; // Ray is pinched
 				}
-
-				// Diagonal Gap Check (Choke Points)
-				glm::vec2 neighbors[] = { { current.x, next.y }, { next.x, current.y } };
-				for (auto & n : neighbors) {
-					if (isTileWall((int)n.x, (int)n.y)) continue;
-					if (n == glm::floor(rayStart) || n == glm::floor(rayEnd)) continue;
-
-					int gapType = isGapTile(n);
-					if (gapType == 1 && std::abs(rayStart.x - rayEnd.x) > 0.01f) return false;
-					if (gapType == 2 && std::abs(rayStart.y - rayEnd.y) > 0.01f) return false;
-				}
-			}
-		}
-
-		// --- 3. STANDARD CHOKE POINT CHECK ---
-		if (!isStart && !isEnd && !board[cx][cy].hasWall) {
-			int gapType = isGapTile(current);
-			if (gapType == 1 && std::abs(rayStart.x - rayEnd.x) > 0.01f) return false;
-			if (gapType == 2 && std::abs(rayStart.y - rayEnd.y) > 0.01f) return false;
-		}
-
-		// --- 4. UNIT BLOCKING CHECK ---
-		if (!isStart && !isEnd) {
-			if (board[cx][cy].hasPlayer) {
-				glm::vec2 unitCenter = current + 0.5f;
-				glm::vec2 closest = getClosestPointOnLineSegment(unitCenter, rayStart, rayEnd);
-				// Units are slightly smaller (0.45) to be forgiving
-				if (glm::distance(closest, unitCenter) < 0.45f) return false;
 			}
 		}
 	}
@@ -6931,9 +7003,10 @@ bool ofApp::checkRayPhysics(glm::vec2 rayStart, glm::vec2 rayEnd) {
 // ----------------- FIXED isLosTargetValid (With Ethereal Jolt Support) -----------------
 TargetInfo ofApp::isLosTargetValid(glm::vec2 casterTile, glm::vec2 targetTile, float maxRangeFeet, CardType cardType) {
 	TargetInfo result;
+	result.reason = VALID;
 
-	// --- RULE 0: Basic Sanity Checks ---
-	if (targetTile == casterTile) {
+	// --- 0. BASIC SANITY CHECKS ---
+	if (casterTile == targetTile) {
 		result.reason = INVALID_SELF;
 		return result;
 	}
@@ -6942,93 +7015,87 @@ TargetInfo ofApp::isLosTargetValid(glm::vec2 casterTile, glm::vec2 targetTile, f
 		return result;
 	}
 
-	// Using an if/else block to create separate, safe logical paths.
-	if (cardType == CARD_ETHEREAL_JOLT) {
-		// --- Path 1: Ethereal Jolt Logic (Ignores all walls) ---
-		float centerDist = glm::distance(casterTile, targetTile);
-		float edgeDist = std::max(0.0f, centerDist - 1.0f);
-		float neededFeet = round(edgeDist * 5.0f);
+	// --- 1. DETERMINE FIRING ORIGINS (VISIBILITY) ---
+	std::vector<glm::vec2> firingOrigins;
+	glm::vec2 casterCenter = casterTile + 0.5f;
 
-		if (neededFeet > maxRangeFeet) {
-			result.reason = INVALID_OUT_OF_RANGE;
-			return result;
-		}
-		// This path will now naturally fall through to the final checks at the end.
-	} else {
-		// --- Path 2: Standard Logic (Respects walls and cover) ---
+	// Neighbors: East, West, South, North
+	glm::vec2 neighbors[] = { { 1, 0 }, { -1, 0 }, { 0, 1 }, { 0, -1 } };
 
-		// RULE 1: THE "HARD COVER" RULE
-		{
-			glm::vec2 casterCenter = casterTile + 0.5f;
-			glm::vec2 targetFaces[] = { targetTile + glm::vec2(0.5f, 0.0f), targetTile + glm::vec2(0.5f, 1.0f), targetTile + glm::vec2(0.0f, 0.5f), targetTile + glm::vec2(1.0f, 0.5f) };
-			glm::vec2 targetFaceDirs[] = { { 0, -1 }, { 0, 1 }, { -1, 0 }, { 1, 0 } };
-
-			std::vector<std::pair<float, int>> faceDistances;
-			for (int i = 0; i < 4; i++) {
-				faceDistances.push_back({ glm::distance(casterCenter, targetFaces[i]), i });
-			}
-			std::sort(faceDistances.begin(), faceDistances.end());
-
-			for (int i = 0; i < 2; i++) {
-				int faceIndex = faceDistances[i].second;
-				glm::vec2 adjacentTile = targetTile + targetFaceDirs[faceIndex];
-				if (isTileWall((int)adjacentTile.x, (int)adjacentTile.y)) {
-					result.reason = INVALID_HARD_COVER;
-					return result;
-				}
-			}
-		}
-
-		// RULE 2: FIND SHORTEST VISIBLE PATH
-		float shortestVisiblePath = std::numeric_limits<float>::max(); // This is the variable the goto was skipping!
-		{
-			glm::vec2 casterFaces[] = { casterTile + glm::vec2(0.5f, 0.0f), casterTile + glm::vec2(0.5f, 1.0f), casterTile + glm::vec2(0.0f, 0.5f), casterTile + glm::vec2(1.0f, 0.5f) };
-			glm::vec2 casterFaceDirs[] = { { 0, -1 }, { 0, 1 }, { -1, 0 }, { 1, 0 } };
-			glm::vec2 targetFaces[] = { targetTile + glm::vec2(0.5f, 0.0f), targetTile + glm::vec2(0.5f, 1.0f), targetTile + glm::vec2(0.0f, 0.5f), targetTile + glm::vec2(1.0f, 0.5f) };
-			glm::vec2 targetFaceDirs[] = { { 0, -1 }, { 0, 1 }, { -1, 0 }, { 1, 0 } };
-
-			for (int i = 0; i < 4; i++) {
-				glm::vec2 casterAdj = casterTile + casterFaceDirs[i];
-				if (isTileWall((int)casterAdj.x, (int)casterAdj.y)) continue;
-
-				for (int j = 0; j < 4; j++) {
-					glm::vec2 targetAdj = targetTile + targetFaceDirs[j];
-					if (isTileWall((int)targetAdj.x, (int)targetAdj.y)) continue;
-
-					if (checkRayPhysics(casterFaces[i], targetFaces[j])) {
-						shortestVisiblePath = std::min(shortestVisiblePath, glm::distance(casterFaces[i], targetFaces[j]));
-					}
-				}
-			}
-		}
-
-		if (shortestVisiblePath > 1000.0f) {
-			result.reason = INVALID_NO_LOS;
-			return result;
-		}
-
-		// RULE 3: RANGE & DISTANCE CHECK
-		float neededFeet = round(shortestVisiblePath * 5.0f);
-		if (neededFeet > maxRangeFeet) {
-			result.reason = INVALID_OUT_OF_RANGE;
-			return result;
+	bool adjacentToWall = false;
+	for (auto n : neighbors) {
+		int nx = (int)casterTile.x + (int)n.x;
+		int ny = (int)casterTile.y + (int)n.y;
+		if (isTileWall(nx, ny)) {
+			adjacentToWall = true;
+			break;
 		}
 	}
 
-	// --- FINAL CHECK (shared by both paths): IS THE TARGET TYPE VALID? ---
-	result.reason = VALID;
+	if (!adjacentToWall) {
+		// Standard: Shoot from Center
+		firingOrigins.push_back(casterCenter);
+	} else {
+		// Peeking: Shoot from centers of faces NOT blocked by walls
+		glm::vec2 faceOffsets[] = { { 0.5f, 0 }, { -0.5f, 0 }, { 0, 0.5f }, { 0, -0.5f } };
+
+		for (int i = 0; i < 4; i++) {
+			int nx = (int)casterTile.x + (int)neighbors[i].x;
+			int ny = (int)casterTile.y + (int)neighbors[i].y;
+
+			// If this face is not pressed against a wall, we can shoot from it
+			if (!isTileWall(nx, ny)) {
+				firingOrigins.push_back(casterCenter + faceOffsets[i]);
+			}
+		}
+	}
+
+	// --- 2. CHECK VISIBILITY (Raycast to Target Center) ---
+	bool hasLineOfSight = false;
+	glm::vec2 targetCenter = targetTile + 0.5f;
+
+	// FIX: Magic Bolt and Ethereal Jolt ignore walls for visibility
+	if (cardType == CARD_ETHEREAL_JOLT || cardType == CARD_MAGIC_BOLT) {
+		hasLineOfSight = true;
+	} else {
+		for (const auto & origin : firingOrigins) {
+			if (checkRayPhysics(origin, targetCenter)) {
+				hasLineOfSight = true;
+				break;
+			}
+		}
+	}
+
+	if (!hasLineOfSight) {
+		result.reason = INVALID_NO_LOS;
+		return result;
+	}
+
+	// --- 3. CHECK RANGE ---
+	float distFeet = getFaceToFaceDistance(casterTile, targetTile) * 5.0f;
+
+	// Magic Bolt uses direct Euclidean center-to-center for range check logic
+	if (cardType == CARD_MAGIC_BOLT) {
+		distFeet = glm::distance(casterTile, targetTile) * 5.0f;
+	}
+
+	if (distFeet > maxRangeFeet + 0.05f) {
+		result.reason = INVALID_OUT_OF_RANGE;
+		return result;
+	}
+
+	// --- 4. TARGET VALIDATION ---
 	bool isOccupied = board[(int)targetTile.x][(int)targetTile.y].hasPlayer;
 
-	if (cardType == CARD_FIREBALL || cardType == CARD_ETHEREAL_JOLT) {
-		result.isTargetable = isOccupied;
-	} else if (cardType == CARD_MAGIC_BLAST) {
+	if (cardType == CARD_MAGIC_BOLT) {
+		// Magic Bolt: Can hit unit OR ground if it can splash a nearby unit
 		if (isOccupied) {
 			result.isTargetable = true;
 		} else {
 			bool hasNeighbor = false;
-			glm::vec2 neighbors[] = { { 1, 0 }, { -1, 0 }, { 0, 1 }, { 0, -1 } };
 			for (auto n : neighbors) {
-				int nx = (int)targetTile.x + n.x, ny = (int)targetTile.y + n.y;
+				int nx = (int)targetTile.x + (int)n.x;
+				int ny = (int)targetTile.y + (int)n.y;
 				if (nx >= 0 && nx < BOARD_WIDTH && ny >= 0 && ny < BOARD_HEIGHT && board[nx][ny].hasPlayer) {
 					hasNeighbor = true;
 					break;
@@ -7036,7 +7103,11 @@ TargetInfo ofApp::isLosTargetValid(glm::vec2 casterTile, glm::vec2 targetTile, f
 			}
 			result.isTargetable = hasNeighbor;
 		}
+	} else if (cardType == CARD_HEAL) {
+		// Heal: Must target unit
+		result.isTargetable = isOccupied;
 	} else {
+		// Fireball / Attacks: Must target unit
 		result.isTargetable = isOccupied;
 	}
 
@@ -7106,6 +7177,7 @@ std::vector<glm::vec2> ofApp::getLineOfSightPath(glm::vec2 startPoint, glm::vec2
 // Returns true if the tile is a Wall, Unit, or Out of Bounds
 bool ofApp::isTileBlocked(int x, int y) {
 	if (x < 0 || x >= BOARD_WIDTH || y < 0 || y >= BOARD_HEIGHT) return true;
+	// Both Walls AND Players block Line of Sight
 	if (board[x][y].hasWall) return true;
 	if (board[x][y].hasPlayer) return true;
 	return false;
@@ -7149,52 +7221,32 @@ glm::vec2 ofApp::getClosestPointOnLineSegment(glm::vec2 p, glm::vec2 start, glm:
 }
 //--------------------------------------------------------------
 float ofApp::getFaceToFaceDistance(glm::vec2 casterTile, glm::vec2 targetTile) {
-	glm::vec2 faceOffsets[] = { { 0.5f, 0.0f }, { 0.5f, 1.0f }, { 0.0f, 0.5f }, { 1.0f, 0.5f } };
-	glm::vec2 faceDirs[] = { { 0, -1 }, { 0, 1 }, { -1, 0 }, { 1, 0 } };
+	// 1. Get Centers
+	glm::vec2 cCenter = casterTile + 0.5f;
+	glm::vec2 tCenter = targetTile + 0.5f;
 
-	// 1. Identify Valid Target Faces
-	float minGeoDist = std::numeric_limits<float>::max();
-	for (int j = 0; j < 4; j++) {
-		float d = glm::distance(casterTile + 0.5f, targetTile + faceOffsets[j]);
-		if (d < minGeoDist) minGeoDist = d;
-	}
+	// 2. Define offsets from center to face midpoints
+	glm::vec2 faceOffsets[] = {
+		{ 0.5f, 0.0f }, // East
+		{ -0.5f, 0.0f }, // West
+		{ 0.0f, 0.5f }, // South
+		{ 0.0f, -0.5f } // North
+	};
 
-	std::vector<int> validTargetFaces;
-	for (int j = 0; j < 4; j++) {
-		float d = glm::distance(casterTile + 0.5f, targetTile + faceOffsets[j]);
-		if (d <= minGeoDist + 0.001f) {
-			int tx = (int)targetTile.x + (int)faceDirs[j].x;
-			int ty = (int)targetTile.y + (int)faceDirs[j].y;
-			// BUG FIX HERE: Changed from isTileBlocked to isTileWall
-			if (!isTileWall(tx, ty)) validTargetFaces.push_back(j);
-		}
-	}
-
-	if (validTargetFaces.empty()) return std::numeric_limits<float>::max();
-
-	// 2. Find shortest path
 	float shortestDist = std::numeric_limits<float>::max();
-	bool foundPath = false;
 
+	// Loop through all 4 faces of the Caster
 	for (int i = 0; i < 4; i++) {
-		int cx = (int)casterTile.x + (int)faceDirs[i].x;
-		int cy = (int)casterTile.y + (int)faceDirs[i].y;
-		// BUG FIX HERE: Changed from isTileBlocked to isTileWall
-		if (isTileWall(cx, cy)) continue; // Now only blocked by Walls
+		glm::vec2 cFace = cCenter + faceOffsets[i];
+		for (int j = 0; j < 4; j++) {
+			glm::vec2 tFace = tCenter + faceOffsets[j];
 
-		glm::vec2 origin = casterTile + faceOffsets[i];
-
-		for (int tIdx : validTargetFaces) {
-			glm::vec2 dest = targetTile + faceOffsets[tIdx];
-			float d = glm::distance(origin, dest);
-			if (d < shortestDist) {
-				shortestDist = d;
-				foundPath = true;
-			}
+			float d = glm::distance(cFace, tFace);
+			if (d < shortestDist) shortestDist = d;
 		}
 	}
 
-	if (!foundPath) return std::numeric_limits<float>::max();
+	// Adjacent tiles share a face -> distance 0
 	return shortestDist;
 }
 //--------------------------------------------------------------
