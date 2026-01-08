@@ -2509,8 +2509,8 @@ void ofApp::drawGame() {
 					}
 				}
 
-				// 2. Red Preview (Potential Targets)
-				if (board[x][y].isTargetPreview) {
+				// 2. Red Preview (Potential Targets) - Skip walls and already targetable tiles
+				if (board[x][y].isTargetPreview && !board[x][y].hasWall && !board[x][y].isTargetable) {
 					ofSetColor(ofColor::red, 80);
 					ofPushMatrix();
 					ofTranslate(0, highlight_y, 0); // Dynamic Height
@@ -6102,6 +6102,9 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 	int py = currentPlayer.y;
 	glm::vec2 casterPos(px, py);
 
+	// Check if player has enough AP to play this card
+	bool hasEnoughAP = (currentAP >= card.cost);
+
 	// --- MOUSE HOVER CALCULATION ---
 	glm::vec2 mouseTile = mouseToBoard(ofGetMouseX(), ofGetMouseY());
 	glm::vec2 aimDir = { 0, 0 };
@@ -6234,10 +6237,11 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 
 			// --- CASE: LINE OF SIGHT ---
 			case TARGET_LINE_OF_SIGHT_TILE: {
-				float maxRange = card.numDice * card.diceSides;
-				if (card.type == CARD_HEAL) maxRange = 9999.0f;
+				// Range is numDice * diceSides tiles, convert to feet (* 5)
+				float maxRangeFeet = card.numDice * card.diceSides * 5.0f;
+				if (card.type == CARD_HEAL) maxRangeFeet = 9999.0f;
 
-				TargetInfo info = isLosTargetValid(casterPos, targetPos, maxRange, card.type);
+				TargetInfo info = isLosTargetValid(casterPos, targetPos, maxRangeFeet, card.type);
 
 				// Red Preview: Visible + In Range + Not Wall
 				if (info.reason != INVALID_NO_LOS && info.reason != INVALID_OUT_OF_RANGE && !board[x][y].hasWall) {
@@ -6256,7 +6260,8 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 			}
 
 			if (isPreview) board[x][y].isTargetPreview = true;
-			if (isValidTarget) board[x][y].isTargetable = true;
+			// Only show green if player has enough AP
+			if (isValidTarget && hasEnoughAP) board[x][y].isTargetable = true;
 		}
 	}
 }
