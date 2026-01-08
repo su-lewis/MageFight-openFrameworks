@@ -322,7 +322,8 @@ private:
 	// -------------------------------------------------------------------------
 	void drawCard();
 	void playCard(int cardIndex, int targetX, int targetY);
-	int startDiceRoll(int numDice, int sides, DicePurpose purpose);
+	std::string currentDiceLabel = "";
+	int startDiceRoll(int numDice, int sides, DicePurpose purpose, std::string label = "");
 	void spawnFloatingText(glm::vec3 pos, std::string text, ofColor color);
 	void spawnExplosion(glm::vec3 pos, int count, ofColor color);
 

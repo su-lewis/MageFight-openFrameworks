@@ -1243,7 +1243,7 @@ void ofApp::updateGame() {
 			// If a player was actually there, roll for damage.
 			if (fireballTargetPlayerIndex != -1) {
 				ofLogNotice("Fireball") << "Hit Player " << players[fireballTargetPlayerIndex].playerID << "! Rolling Damage...";
-				pendingFireballDamageResult = startDiceRoll(1, 6, PURPOSE_DAMAGE);
+				pendingFireballDamageResult = startDiceRoll(1, 6, PURPOSE_DAMAGE, "Fireball: Damage");
 				isWaitingForFireballDamageDice = true;
 			} else {
 				// This case should be rare since your targeting requires a unit, but it's good practice.
@@ -1492,35 +1492,37 @@ void ofApp::updateGame() {
 	}
 
 	// --- MAGIC BOLT RESOLUTION ---
+
 	if (isWaitingForMagicBoltRange && activeDiceRolls.empty()) {
 		isWaitingForMagicBoltRange = false;
 
 		Player & caster = players[currentPlayerIndex];
 		glm::vec2 casterTile = { (float)caster.x, (float)caster.y };
 
-		// 1. Calculate Distances (Ignores walls)
+		// 1. Calculate Distances
+		// FIX: Use Face-To-Face distance. Adjacent squares now require 0ft range.
 		float maxDistUnits = pendingMagicBoltRangeResult / 5.0f;
-		float neededDistUnits = glm::distance(casterTile, pendingMagicBoltTargetTile);
+		float neededDistUnits = getFaceToFaceDistance(casterTile, pendingMagicBoltTargetTile);
 
 		ofLogNotice("Magic Bolt") << "Rolled Range: " << pendingMagicBoltRangeResult << "ft. Needed: " << (neededDistUnits * 5.0f) << "ft.";
 
 		// 2. Determine Impact Tile
 		glm::vec2 impactTile;
-		if (maxDistUnits >= neededDistUnits) {
-			// SUCCESS: We reached the target tile
+		if (maxDistUnits >= neededDistUnits - 0.01f) {
+			// SUCCESS
 			impactTile = pendingMagicBoltTargetTile;
 			ofLogNotice("Magic Bolt") << "Target Reached.";
 		} else {
-			// FAILURE: Fell short. Calculate where it landed.
+			// FAILURE: Fell short.
 			glm::vec2 dir = pendingMagicBoltTargetTile - casterTile;
 			if (glm::length(dir) > 0) dir = glm::normalize(dir);
 
-			// Calculate the path of the bolt and find the first wall it hits
 			bool hitWall = false;
 			std::vector<glm::vec2> path = getLineOfSightPath(casterTile + 0.5f, pendingMagicBoltTargetTile + 0.5f);
 			for (const auto & step : path) {
-				float distToStep = glm::distance(casterTile, step);
-				if (distToStep > maxDistUnits) break; // We passed the max range without hitting a wall
+				// Stop if we exceed max rolled distance
+				float distToStep = getFaceToFaceDistance(casterTile, step);
+				if (distToStep > maxDistUnits) break;
 
 				if (isTileWall((int)step.x, (int)step.y)) {
 					impactTile = step;
@@ -1529,8 +1531,8 @@ void ofApp::updateGame() {
 				}
 			}
 
-			// If no wall was in the way, it lands on the ground
 			if (!hitWall) {
+				// Landed on ground at max range
 				glm::vec2 impactPos = casterTile + (dir * maxDistUnits);
 				impactTile = { floor(impactPos.x), floor(impactPos.y) };
 			}
@@ -1544,8 +1546,8 @@ void ofApp::updateGame() {
 			ofLogNotice("Magic Bolt") << "Bolt fizzled inside a wall. No AOE.";
 			spawnFloatingText(gridToWorld((int)impactTile.x, (int)impactTile.y), "Fizzle!", ofColor::gray);
 		} else {
-			// --- PRIMARY DAMAGE (1d20 Magic) ---
-			int primaryDamage = startDiceRoll(1, 20, PURPOSE_DAMAGE);
+			// Primary Damage
+			int primaryDamage = startDiceRoll(1, 20, PURPOSE_DAMAGE, "Magic Bolt: Primary Damage");
 
 			// Find if a unit was on the impact tile
 			Player * directHitTarget = nullptr;
@@ -1558,7 +1560,7 @@ void ofApp::updateGame() {
 
 			if (directHitTarget) {
 				ofLogNotice("Magic Bolt") << "Direct Hit! Dealing " << primaryDamage << " Magic damage.";
-				// The applyDamage lambda is inside playCard, so we need to replicate its logic here
+
 				int dmg = primaryDamage;
 				int barrierDmg = std::min(directHitTarget->barrier, dmg);
 				directHitTarget->barrier -= barrierDmg;
@@ -1574,23 +1576,30 @@ void ofApp::updateGame() {
 					spawnFloatingText(gridToWorld(directHitTarget->x, directHitTarget->y), "Absorbed", ofColor::gray);
 				}
 			} else {
-				// Bolt hit empty ground, just a visual effect
 				spawnFloatingText(gridToWorld((int)impactTile.x, (int)impactTile.y), ofToString(primaryDamage) + "!", ofColor::purple);
 			}
 
-			// --- SECONDARY AOE (3 Electric Damage, 1d20ft radius) ---
-			int aoeRadiusFeet = startDiceRoll(1, 20, PURPOSE_RANGE);
-			float aoeRadiusUnits = aoeRadiusFeet / 5.0f;
-			ofLogNotice("Magic Bolt") << "AOE Radius: " << aoeRadiusFeet << "ft.";
+			// --- SECONDARY AOE (3 Electric Damage) ---
+			// FIX: Changed to 2d20 as requested
+			// AOE Roll (2d20)
+			int diceRoll = startDiceRoll(2, 20, PURPOSE_RANGE, "Magic Bolt: AOE Radius");
+
+			// FIX: Add automatic 3ft buffer
+			int aoeRadiusFeet = diceRoll + 3;
+
+			ofLogNotice("Magic Bolt") << "AOE Roll: " << diceRoll << " + 3ft = " << aoeRadiusFeet << "ft Radius.";
 
 			for (auto & p : players) {
 				// Don't hit the direct target again
 				if (&p == directHitTarget) continue;
 
-				// Check distance from center of impact tile to center of unit's tile
-				float distToTarget = glm::distance(impactTile, glm::vec2(p.x, p.y));
-				if (distToTarget <= aoeRadiusUnits) {
-					ofLogNotice("Magic Bolt") << "AOE Hit! Dealing 3 Electric damage to unit " << p.playerID;
+				// Calculate Distance from Impact Center to Unit Center
+				float distToTargetUnits = glm::distance(impactTile, glm::vec2(p.x, p.y));
+				float distToTargetFeet = distToTargetUnits * 5.0f;
+
+				// Check Radius
+				if (distToTargetFeet <= aoeRadiusFeet + 0.01f) {
+					ofLogNotice("Magic Bolt") << "AOE Hit on Unit " << p.playerID << " (Dist: " << distToTargetFeet << ")";
 
 					int dmg = 3;
 					int barrierDmg = std::min(p.barrier, dmg);
@@ -2286,17 +2295,23 @@ void ofApp::drawGame() {
 			}
 			ofPopMatrix();
 		}
-		// Dice (Batched)
+		// Dice Roll Rendering
 		diceMaterial.begin();
+
+		// Helper to calculate X offset to prevent overlap
+		auto getDiceOffset = [&](int index, int total) {
+			// Increased spacing from 4.0f to 6.0f
+			return (index * 6.0f) - ((total - 1) * 3.0f);
+		};
 
 		// --- Coin ---
 		coinFacesTexture.bind();
-		for (auto & roll : activeDiceRolls) {
+		for (int i = 0; i < activeDiceRolls.size(); i++) {
+			auto & roll = activeDiceRolls[i];
 			if (roll.sides != 2) continue;
 			ofPushMatrix();
-			int idx = &roll - &activeDiceRolls[0]; // Safer way to get index
-			float xOffset = (idx * 4.0f) - ((activeDiceRolls.size() - 1) * 2.0f);
-			ofTranslate(xOffset, 4.5f, 0);
+			ofTranslate(getDiceOffset(i, activeDiceRolls.size()), 4.5f, 0);
+			// ... [Rotation logic remains the same] ...
 			glm::quat finalDrawQuat;
 			float t = (ofGetElapsedTimef() - roll.startTime);
 			if (t < 1.0f) {
@@ -2315,12 +2330,12 @@ void ofApp::drawGame() {
 
 		// --- D6 ---
 		d6Texture.bind();
-		for (auto & roll : activeDiceRolls) {
+		for (int i = 0; i < activeDiceRolls.size(); i++) {
+			auto & roll = activeDiceRolls[i];
 			if (roll.sides != 6) continue;
 			ofPushMatrix();
-			int idx = &roll - &activeDiceRolls[0];
-			float xOffset = (idx * 4.0f) - ((activeDiceRolls.size() - 1) * 2.0f);
-			ofTranslate(xOffset, 4.5f, 0);
+			ofTranslate(getDiceOffset(i, activeDiceRolls.size()), 4.5f, 0);
+			// ... [Rotation logic] ...
 			glm::quat finalDrawQuat;
 			float t = (ofGetElapsedTimef() - roll.startTime);
 			if (t < 1.0f) {
@@ -2340,12 +2355,12 @@ void ofApp::drawGame() {
 
 		// --- D4 ---
 		d4Texture.bind();
-		for (auto & roll : activeDiceRolls) {
+		for (int i = 0; i < activeDiceRolls.size(); i++) {
+			auto & roll = activeDiceRolls[i];
 			if (roll.sides != 4) continue;
 			ofPushMatrix();
-			int idx = &roll - &activeDiceRolls[0];
-			float xOffset = (idx * 4.0f) - ((activeDiceRolls.size() - 1) * 2.0f);
-			ofTranslate(xOffset, 4.5f, 0);
+			ofTranslate(getDiceOffset(i, activeDiceRolls.size()), 4.5f, 0);
+			// ... [Rotation logic] ...
 			glm::quat finalDrawQuat;
 			float t = (ofGetElapsedTimef() - roll.startTime);
 			if (t < 1.0f) {
@@ -2365,12 +2380,12 @@ void ofApp::drawGame() {
 
 		// --- D10 ---
 		d10Texture.bind();
-		for (auto & roll : activeDiceRolls) {
+		for (int i = 0; i < activeDiceRolls.size(); i++) {
+			auto & roll = activeDiceRolls[i];
 			if (roll.sides != 10) continue;
 			ofPushMatrix();
-			int idx = &roll - &activeDiceRolls[0];
-			float xOffset = (idx * 4.0f) - ((activeDiceRolls.size() - 1) * 2.0f);
-			ofTranslate(xOffset, 4.5f, 0);
+			ofTranslate(getDiceOffset(i, activeDiceRolls.size()), 4.5f, 0);
+			// ... [Rotation logic] ...
 			glm::quat finalDrawQuat;
 			float t = (ofGetElapsedTimef() - roll.startTime);
 			if (t < 1.0f) {
@@ -2390,12 +2405,12 @@ void ofApp::drawGame() {
 
 		// --- D20 ---
 		d20Texture.bind();
-		for (auto & roll : activeDiceRolls) {
+		for (int i = 0; i < activeDiceRolls.size(); i++) {
+			auto & roll = activeDiceRolls[i];
 			if (roll.sides != 20) continue;
 			ofPushMatrix();
-			int idx = &roll - &activeDiceRolls[0];
-			float xOffset = (idx * 4.0f) - ((activeDiceRolls.size() - 1) * 2.0f);
-			ofTranslate(xOffset, 4.5f, 0);
+			ofTranslate(getDiceOffset(i, activeDiceRolls.size()), 4.5f, 0);
+			// ... [Rotation logic] ...
 			glm::quat finalDrawQuat;
 			float t = (ofGetElapsedTimef() - roll.startTime);
 			if (t < 1.0f) {
@@ -3027,8 +3042,7 @@ void ofApp::drawGame() {
 	titleFont.drawString(endTurnButtonText, 0, 0);
 	ofPopMatrix();
 
-	    
-// --- OPTIMIZED HAND DRAWING ---
+	// --- OPTIMIsED HAND DRAWING ---
 	if (!players.empty() && currentPlayerIndex >= 0) {
 		Player & currentPlayer = players[currentPlayerIndex];
 		size_t numCards = currentPlayer.hand.size();
@@ -3037,16 +3051,15 @@ void ofApp::drawGame() {
 		float hoverDirection = isBottomPlayer ? -120.0f : 120.0f;
 
 		// 1. Determine which card should be drawn LAST (On Top)
-		// Priority: Dragged > Selected > Hovered
+		// FIX: Selected card is NOT drawn last unless it is also hovered or dragged.
+		// This ensures it sits back in the deck stack when mouse leaves it.
 		int indexToDrawLast = -1;
 		if (draggedCardIndex != -1)
 			indexToDrawLast = draggedCardIndex;
-		else if (selectedCardIndex != -1)
-			indexToDrawLast = selectedCardIndex;
 		else if (hoveredCardIndex != -1)
 			indexToDrawLast = hoveredCardIndex;
 
-		// 2. PASS 1: Draw all cards BEHIND the active one
+		// 2. PASS 1: Draw all standard cards (includes Selected-but-not-Hovered)
 		for (size_t i = 0; i < numCards; i++) {
 			if (static_cast<int>(i) == indexToDrawLast) continue; // Skip the top card
 
@@ -3054,15 +3067,25 @@ void ofApp::drawGame() {
 			float w = handBaseCardWidth * card.currentScale;
 			float h = baseCardHeight * card.currentScale;
 
-			// Draw at standard position
 			float drawX = card.currentPos.x - w / 2;
 			float drawY = card.currentPos.y - h / 2;
 
+			// Draw Card
 			cardSpriteSheet.drawSubsection(drawX, drawY, w, h, card.textureRect.x, card.textureRect.y, card.textureRect.width, card.textureRect.height);
+
+			// Draw Yellow Outline (for Selected-but-not-Hovered)
+			if (static_cast<int>(i) == selectedCardIndex) {
+				ofPushStyle();
+				ofNoFill();
+				ofSetColor(ofColor::yellow);
+				ofSetLineWidth(4);
+				ofDrawRectangle(drawX, drawY, w, h);
+				ofPopStyle();
+			}
 		}
 
-		// 3. PASS 2: Draw the "Top" card
-		if (indexToDrawLast != -1 && indexToDrawLast < numCards) {
+		// 3. PASS 2: Draw the "Top" card (Hovered or Dragged)
+		if (indexToDrawLast != -1 && indexToDrawLast < static_cast<int>(numCards)) {
 			Card & card = currentPlayer.hand[indexToDrawLast];
 			float w = handBaseCardWidth * card.currentScale;
 			float h = baseCardHeight * card.currentScale;
@@ -3075,10 +3098,8 @@ void ofApp::drawGame() {
 				// Dragged follows mouse exactly
 				drawX = card.currentPos.x - w / 2;
 				drawY = card.currentPos.y - h / 2;
-			}
-			// FIX: Only apply pop-up offset if HOVERED.
-			// Selected cards sits flat unless the mouse is currently over them.
-			else if (indexToDrawLast == hoveredCardIndex) {
+			} else if (indexToDrawLast == hoveredCardIndex) {
+				// Apply the pop-up offset ONLY for Hover
 				drawY += hoverDirection;
 			}
 
@@ -3127,8 +3148,6 @@ void ofApp::drawGame() {
 			}
 		}
 	}
-
-  
 
 	// --- NEW: DRAW DECK/DISCARD HOVER VIEW ---
 	if (isShowingPileView && currentPileViewPlayerIndex != -1) {
@@ -3522,7 +3541,23 @@ void ofApp::drawGame() {
 			titleFont.drawString(msg, tx, ty);
 		}
 	}
+	// --- DRAW DICE LABEL ---
+	if (!activeDiceRolls.empty()) {
+		ofPushMatrix();
+		// Center of screen, slightly above center
+		float cx = ofGetWidth() / 2.0f;
+		float cy = ofGetHeight() * 0.35f;
 
+		// Draw Shadow
+		ofSetColor(0, 0, 0, 255);
+		ofRectangle bounds = titleFont.getStringBoundingBox(currentDiceLabel, 0, 0);
+		titleFont.drawString(currentDiceLabel, cx - bounds.width / 2 + 3, cy + 3);
+
+		// Draw Text (Gold color)
+		ofSetColor(255, 215, 0);
+		titleFont.drawString(currentDiceLabel, cx - bounds.width / 2, cy);
+		ofPopMatrix();
+	}
 	ofDrawBitmapString("FPS: " + ofToString(ofGetFrameRate(), 2), 10, 20);
 }
 //--------------------------------------------------------------
@@ -4830,11 +4865,9 @@ void ofApp::continueNewTurn() {
 
 	// --- AP ROLL LOGIC ---
 	if (startingPlayer.isWolf) {
-		// Wolves specifically roll D10
-		startDiceRoll(1, 10, PURPOSE_AP);
+		startDiceRoll(1, 10, PURPOSE_AP, "Wolf AP Roll");
 	} else if (startingPlayer.isMinion) {
-		// Other minions (Skeletons/Golems) roll D6
-		startDiceRoll(1, 6, PURPOSE_AP);
+		startDiceRoll(1, 6, PURPOSE_AP, "Minion AP Roll");
 	} else {
 		// Players
 		int apDiceSides = 6;
@@ -4842,7 +4875,19 @@ void ofApp::continueNewTurn() {
 			apDiceSides = 10;
 			startingPlayer.nextTurnD10AP = false;
 		}
-		startDiceRoll(1, apDiceSides, PURPOSE_AP);
+		startDiceRoll(1, apDiceSides, PURPOSE_AP, "Player AP Roll");
+	}
+
+	// In startNewTurn() (Paralysis/Fire)
+	if (startingPlayer.isParalyzed) {
+		startDiceRoll(1, 2, PURPOSE_COIN_FLIP, "Paralysis Check (Heads to Cure)");
+		isWaitingForParalysisCoin = true;
+		return;
+	}
+	if (startingPlayer.onFire) {
+		isWaitingForOnFireDice = true;
+		pendingOnFireRollResult = startDiceRoll(1, 6, PURPOSE_DAMAGE, "Fire Damage Roll");
+		return;
 	}
 }
 //--------------------------------------------------------------
@@ -5107,7 +5152,7 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 
 		if (validationResult.reason != VALID || !board[targetX][targetY].hasPlayer) break;
 
-		pendingFireballRangeResult = startDiceRoll(playedCard.numDice, playedCard.diceSides, PURPOSE_RANGE);
+		pendingFireballRangeResult = startDiceRoll(playedCard.numDice, playedCard.diceSides, PURPOSE_RANGE, "Fireball: Range Check");
 		isWaitingForFireballRangeDice = true;
 		pendingFireballTargetTile = targetTile;
 		playedSuccessfully = true;
@@ -5751,7 +5796,7 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		// Start the range roll
 		pendingMagicBoltTargetTile = glm::vec2(targetX, targetY);
 		isWaitingForMagicBoltRange = true;
-		pendingMagicBoltRangeResult = startDiceRoll(playedCard.numDice, playedCard.diceSides, PURPOSE_RANGE);
+		pendingMagicBoltRangeResult = startDiceRoll(playedCard.numDice, playedCard.diceSides, PURPOSE_RANGE, "Magic Bolt: Range Check");
 
 		playedSuccessfully = true;
 		break;
@@ -5972,8 +6017,8 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 	// 1. Reset Board
 	for (int x = 0; x < BOARD_WIDTH; x++) {
 		for (int y = 0; y < BOARD_HEIGHT; y++) {
-			board[x][y].isTargetPreview = false;
-			board[x][y].isTargetable = false;
+			board[x][y].isTargetPreview = false; // Red
+			board[x][y].isTargetable = false; // Green
 		}
 	}
 
@@ -5993,8 +6038,11 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 	// --- MOUSE HOVER CALCULATION ---
 	glm::vec2 mouseTile = mouseToBoard(ofGetMouseX(), ofGetMouseY());
 	glm::vec2 aimDir = { 0, 0 };
+	bool isAimingOnBoard = false;
+
 	if (mouseTile.x >= 0 && mouseTile.x < BOARD_WIDTH && mouseTile.y >= 0 && mouseTile.y < BOARD_HEIGHT) {
 		if (mouseTile != casterPos) {
+			isAimingOnBoard = true;
 			glm::vec2 rawDir = mouseTile - casterPos;
 			if (std::abs(rawDir.x) > std::abs(rawDir.y)) {
 				aimDir = { (rawDir.x > 0 ? 1.0f : -1.0f), 0.0f };
@@ -6010,37 +6058,61 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 			bool isValidTarget = false;
 			glm::vec2 targetPos(x, y);
 
+			float distFeet = getFaceToFaceDistance(casterPos, targetPos) * 5.0f;
 			float distEuclideanFeet = glm::distance(casterPos, targetPos) * 5.0f;
 
 			switch (card.targeting) {
 
+			// --- CASE: SWIPE / CLEAVE ---
 			case TARGET_CLEAVE_ADJACENT: {
-				if (aimDir.x != 0 || aimDir.y != 0) {
+				// List of directions to render previews for
+				std::vector<glm::vec2> dirsToCheck;
+
+				if (isAimingOnBoard) {
+					// Specific aim: check only that direction
+					dirsToCheck.push_back(aimDir);
+				} else {
+					// General hover: check ALL 4 cardinal directions
+					dirsToCheck.push_back({ 0, 1 });
+					dirsToCheck.push_back({ 0, -1 });
+					dirsToCheck.push_back({ 1, 0 });
+					dirsToCheck.push_back({ -1, 0 });
+				}
+
+				for (auto & dir : dirsToCheck) {
 					std::vector<glm::vec2> arcTiles;
-					glm::vec2 center = casterPos + aimDir;
+					glm::vec2 center = casterPos + dir;
 					arcTiles.push_back(center);
-					if (aimDir.x != 0) {
+
+					if (dir.x != 0) { // Horizontal Aim -> Add Top/Bottom
 						arcTiles.push_back({ center.x, center.y - 1 });
 						arcTiles.push_back({ center.x, center.y + 1 });
-					} else {
+					} else { // Vertical Aim -> Add Left/Right
 						arcTiles.push_back({ center.x - 1, center.y });
 						arcTiles.push_back({ center.x + 1, center.y });
 					}
+
 					for (auto & tile : arcTiles) {
 						if (tile.x == x && tile.y == y) {
 							isPreview = true;
-							if (board[x][y].hasPlayer && !board[x][y].hasWall) {
-								bool blocked = false;
-								if (px != x && py != y) {
-									if (isTileWall(px, y) && isTileWall(x, py)) blocked = true;
+
+							// Only calculate Green Target status if we are actually aiming there
+							if (isAimingOnBoard && dir == aimDir) {
+								if (board[x][y].hasPlayer && !board[x][y].hasWall) {
+									bool blocked = false;
+									// Pinch check
+									if (px != x && py != y) {
+										if (isTileWall(px, y) && isTileWall(x, py)) blocked = true;
+									}
+									if (!blocked) isValidTarget = true;
 								}
-								if (!blocked) isValidTarget = true;
 							}
 						}
 					}
 				}
 				break;
 			}
+			// --- CASE: ADJACENT ---
 			case TARGET_ADJACENT_UNIT:
 			case TARGET_ADJACENT_UNIT_OR_WALL:
 			case TARGET_EMPTY_ADJACENT: {
@@ -6057,13 +6129,18 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 				}
 				break;
 			}
+
+			// --- CASE: STAB ---
 			case TARGET_LINEAR_PIERCE: {
+				// Always show previews for all 4 directions if generic, or specific if aiming
+				// (Stab usually shows all 4 in games, keeping your previous all-4 logic)
 				glm::vec2 dirs[] = { { 1, 0 }, { -1, 0 }, { 0, 1 }, { 0, -1 } };
 				for (auto & d : dirs) {
 					glm::vec2 t1 = casterPos + d;
 					glm::vec2 t2 = casterPos + (d * 2.0f);
 					if ((x == (int)t1.x && y == (int)t1.y) || (x == (int)t2.x && y == (int)t2.y)) {
 						isPreview = true;
+						// Green Check
 						if (board[x][y].hasPlayer && !board[x][y].hasWall) {
 							if (x == (int)t2.x && y == (int)t2.y) {
 								if (!isTileWall((int)t1.x, (int)t1.y)) isValidTarget = true;
@@ -6075,6 +6152,8 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 				}
 				break;
 			}
+
+			// --- CASE: TELEPORT ---
 			case TARGET_EMPTY_TILE: {
 				float maxRange = card.numDice * card.diceSides;
 				if (distEuclideanFeet <= maxRange + 0.1f) {
@@ -6086,28 +6165,21 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 				break;
 			}
 
-			// --- CASE: LINE OF SIGHT (Magic Bolt, Fireball, Heal) ---
+			// --- CASE: LINE OF SIGHT ---
 			case TARGET_LINE_OF_SIGHT_TILE: {
 				float maxRange = card.numDice * card.diceSides;
 				if (card.type == CARD_HEAL) maxRange = 9999.0f;
 
-				// FIX: Do not assume preview just based on distance. Check visibility!
 				TargetInfo info = isLosTargetValid(casterPos, targetPos, maxRange, card.type);
 
-				// Red Preview Logic:
-				// Must be: Not a wall (unless specific), Visible (LOS), and In Range.
-				bool isWall = board[x][y].hasWall;
-				bool isVisible = (info.reason != INVALID_NO_LOS);
-				bool isInRange = (info.reason != INVALID_OUT_OF_RANGE);
-
-				if (!isWall && isVisible && isInRange) {
+				// Red Preview: Visible + In Range + Not Wall
+				if (info.reason != INVALID_NO_LOS && info.reason != INVALID_OUT_OF_RANGE && !board[x][y].hasWall) {
 					isPreview = true;
 				}
 
-				// Green Target Logic:
 				if (info.isTargetable) {
 					isValidTarget = true;
-					isPreview = true; // Ensure targetable implies visible preview
+					isPreview = true;
 				}
 				break;
 			}
@@ -6245,31 +6317,57 @@ glm::quat ofApp::matchFaceToCamera(glm::vec3 faceNormal) {
 	return glm::rotation(faceNormal, target);
 }
 //--------------------------------------------------------------
-int ofApp::startDiceRoll(int numDice, int sides, DicePurpose purpose) {
+int ofApp::startDiceRoll(int numDice, int sides, DicePurpose purpose, std::string label) {
 	int totalRollResult = 0;
-
-	// Determine the caster's luck *before* rolling
 	int luckBonus = 0;
 	if (currentPlayerIndex != -1) {
 		luckBonus = players[currentPlayerIndex].luck;
+	}
+
+	// --- SET LABEL ---
+	if (label != "") {
+		currentDiceLabel = label;
+	} else {
+		// Default labels if none provided
+		switch (purpose) {
+		case PURPOSE_AP:
+			currentDiceLabel = "Rolling for Action Points";
+			break;
+		case PURPOSE_DAMAGE:
+			currentDiceLabel = "Rolling Damage";
+			break;
+		case PURPOSE_RANGE:
+			currentDiceLabel = "Rolling Range";
+			break;
+		case PURPOSE_COIN_FLIP:
+			currentDiceLabel = "Flipping Coin";
+			break;
+		case PURPOSE_HP:
+			currentDiceLabel = "Rolling Health";
+			break;
+		case PURPOSE_HEALING:
+			currentDiceLabel = "Rolling Heal Amount";
+			break;
+		case PURPOSE_BONUS_AP:
+			currentDiceLabel = "Rolling Bonus AP";
+			break;
+		case PURPOSE_TIME_VORTEX:
+			currentDiceLabel = "Rolling Extra Turns";
+			break;
+		default:
+			currentDiceLabel = "Rolling Dice...";
+			break;
+		}
 	}
 
 	for (int i = 0; i < numDice; ++i) {
 		DiceRoll newRoll;
 		newRoll.purpose = purpose;
 		newRoll.sides = sides;
-
-		// --- ROLL THE DIE ---
 		std::uniform_int_distribution<int> dist(1, sides);
 		int rawRoll = dist(rng);
-
-		// --- APPLY LUCK TO THIS INDIVIDUAL DIE ---
 		int finalRoll = rawRoll + luckBonus;
-
-		// Add this single die's final result to the total
 		totalRollResult += finalRoll;
-
-		// Store the final (luck-adjusted) result in the DiceRoll struct for display/logic
 		newRoll.result = finalRoll;
 		newRoll.startTime = ofGetElapsedTimef();
 
