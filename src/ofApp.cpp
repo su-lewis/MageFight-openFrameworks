@@ -1626,8 +1626,17 @@ void ofApp::updateGame() {
 		isWaitingForTeleportDice = false;
 		// Now enter targeting mode - player will click where to teleport
 		isTargetingTeleport = true;
-		ofLogNotice("Teleport") << "Rolled: " << pendingTeleportRollResult << "ft. Choose destination.";
+		ofLogNotice("Teleport") << "Rolled: " << pendingTeleportRollResult << "ft. Choose destination. CardIdx=" << pendingTeleportCardIndex;
 		calculateTargetHighlights(pendingTeleportCardIndex);
+
+		// Debug: count highlighted tiles
+		int targetableCount = 0;
+		for (int x = 0; x < BOARD_WIDTH; x++) {
+			for (int y = 0; y < BOARD_HEIGHT; y++) {
+				if (board[x][y].isTargetable) targetableCount++;
+			}
+		}
+		ofLogNotice("Teleport") << "Targetable tiles after calculateTargetHighlights: " << targetableCount;
 	}
 
 	// --- On Fire Logic ---
@@ -3659,7 +3668,21 @@ void ofApp::mouseMoved(int x, int y) {
 			currentPlayer.hand[i].targetScale = (static_cast<int>(i) == hoveredCardIndex) ? 2.0f : 1.5f;
 		}
 
-		int activeCardForHighlight = (selectedCardIndex != -1) ? selectedCardIndex : hoveredCardIndex;
+		// Determine active card for highlighting - prioritize targeting modes
+		int activeCardForHighlight = -1;
+		if (isTargetingTeleport) {
+			activeCardForHighlight = pendingTeleportCardIndex;
+		} else if (isTargetingAmnesia) {
+			activeCardForHighlight = pendingAmnesiaCardIndex;
+		} else if (isTargetingDoubleHanded) {
+			activeCardForHighlight = pendingDoubleHandedCardIndex;
+		} else if (isTargetingMagicBolt) {
+			activeCardForHighlight = magicBoltCardIndex;
+		} else if (selectedCardIndex != -1) {
+			activeCardForHighlight = selectedCardIndex;
+		} else {
+			activeCardForHighlight = hoveredCardIndex;
+		}
 		calculateTargetHighlights(activeCardForHighlight);
 		isHoveringEndTurn = endTurnButtonRect.inside(x, y);
 
@@ -3758,6 +3781,11 @@ void ofApp::mouseMoved(int x, int y) {
 }
 // ----------------- FULL mousePressed FUNCTION -----------------
 void ofApp::mousePressed(int x, int y, int button) {
+
+	// Debug: Log all mouse presses when targeting teleport
+	if (isTargetingTeleport) {
+		ofLogNotice("Teleport") << "mousePressed called! x=" << x << " y=" << y << " button=" << button;
+	}
 
 	// ==============================================================================
 	// PHASE 1: MODAL UI INTERRUPTS
@@ -4053,6 +4081,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 		}
 		return;
 	}
+
 	// --- 1f5. Teleport Targeting ---
 	if (isTargetingTeleport && button == OF_MOUSE_BUTTON_LEFT) {
 		ofVec2f boardPos = mouseToBoard(x, y);
@@ -4092,6 +4121,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 		}
 		return;
 	}
+
 	// --- 1g. Amnesia Selection UI ---
 	if (isAmnesiaSelectionActive && button == OF_MOUSE_BUTTON_LEFT) {
 		float amnesiaCardWidth = 120;
@@ -4777,7 +4807,9 @@ void ofApp::mouseReleased(int x, int y, int button) {
 
 						// --- D. TELEPORT: ROLL DICE FIRST, THEN TARGET ---
 						if (playedCard.type == CARD_TELEPORT) {
+							ofLogNotice("Teleport") << "Triggered! draggedCardIndex=" << draggedCardIndex << " handSize=" << currentPlayer.hand.size();
 							pendingTeleportCardIndex = draggedCardIndex;
+							// Roll dice - result IS the range in feet (3d6 = 3-18ft)
 							pendingTeleportRollResult = startDiceRoll(playedCard.numDice, playedCard.diceSides, PURPOSE_RANGE, "Teleport: Range");
 							isWaitingForTeleportDice = true;
 							draggedCardIndex = -1;
@@ -5438,7 +5470,6 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		// This case should not be reached in normal gameplay
 		break;
 	}
-
 	// --- CASE: HASTEN ---
 	case CARD_HASTEN: {
 		currentPlayer.nextTurnD10AP = true;
@@ -6253,7 +6284,6 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 
 	// --- WOLF PLACEMENT HIGHLIGHTING ---
 	if (isPlacingWolves && !isWaitingForWolfCoin) {
-		// Highlight adjacent empty tiles around the wolf summoner
 		std::vector<glm::vec2> dirs = { { 0, 1 }, { 0, -1 }, { 1, 0 }, { -1, 0 } };
 		for (auto & dir : dirs) {
 			int nx = wolfPlacementSourceX + (int)dir.x;
@@ -6264,24 +6294,41 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 				}
 			}
 		}
-		return; // Skip normal card-based highlighting during wolf placement
+		return;
 	}
 
 	if (players.empty() || currentPlayerIndex < 0) return;
 	Player & currentPlayer = players[currentPlayerIndex];
 
 	int activeCardIndex = (selectedCardIndex != -1) ? selectedCardIndex : cardToCalculate;
-	if (isTargetingMagicBolt) activeCardIndex = magicBoltCardIndex;
 
-	if (activeCardIndex < 0 || activeCardIndex >= (int)currentPlayer.hand.size()) return;
+	// Override card index for targeting modes
+	if (isTargetingMagicBolt) activeCardIndex = magicBoltCardIndex;
+	if (isTargetingTeleport) activeCardIndex = pendingTeleportCardIndex;
+	if (isTargetingAmnesia) activeCardIndex = pendingAmnesiaCardIndex;
+	if (isTargetingDoubleHanded) activeCardIndex = pendingDoubleHandedCardIndex;
+
+	if (activeCardIndex < 0 || activeCardIndex >= (int)currentPlayer.hand.size()) {
+		if (isTargetingTeleport) {
+			ofLogNotice("Teleport") << "EARLY RETURN: activeCardIndex=" << activeCardIndex << " handSize=" << currentPlayer.hand.size();
+		}
+		return;
+	}
 
 	Card & card = currentPlayer.hand[activeCardIndex];
 	int px = currentPlayer.x;
 	int py = currentPlayer.y;
 	glm::vec2 casterPos(px, py);
 
-	// Check if player has enough AP to play this card
-	// When in targeting mode, we've already verified AP so always allow
+	// Debug teleport targeting
+	if (isTargetingTeleport) {
+		ofLogNotice("Teleport") << "In calculateTargetHighlights: card.targeting=" << card.targeting
+								<< " TARGET_EMPTY_TILE=" << TARGET_EMPTY_TILE
+								<< " pendingTeleportRollResult=" << pendingTeleportRollResult
+								<< " casterPos=(" << px << "," << py << ")";
+	}
+
+	// Check AP
 	bool inTargetingMode = isTargetingAmnesia || isTargetingDoubleHanded || isTargetingTeleport || isTargetingMagicBolt;
 	bool hasEnoughAP = inTargetingMode || (currentAP >= card.cost);
 
@@ -6313,16 +6360,13 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 
 			switch (card.targeting) {
 
-			// --- CASE: SWIPE / CLEAVE ---
 			case TARGET_CLEAVE_ADJACENT: {
 				// List of directions to render previews for
 				std::vector<glm::vec2> dirsToCheck;
 
 				if (isAimingOnBoard) {
-					// Specific aim: check only that direction
 					dirsToCheck.push_back(aimDir);
 				} else {
-					// General hover: check ALL 4 cardinal directions
 					dirsToCheck.push_back({ 0, 1 });
 					dirsToCheck.push_back({ 0, -1 });
 					dirsToCheck.push_back({ 1, 0 });
@@ -6334,10 +6378,10 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 					glm::vec2 center = casterPos + dir;
 					arcTiles.push_back(center);
 
-					if (dir.x != 0) { // Horizontal Aim -> Add Top/Bottom
+					if (dir.x != 0) {
 						arcTiles.push_back({ center.x, center.y - 1 });
 						arcTiles.push_back({ center.x, center.y + 1 });
-					} else { // Vertical Aim -> Add Left/Right
+					} else {
 						arcTiles.push_back({ center.x - 1, center.y });
 						arcTiles.push_back({ center.x + 1, center.y });
 					}
@@ -6345,12 +6389,9 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 					for (auto & tile : arcTiles) {
 						if (tile.x == x && tile.y == y) {
 							isPreview = true;
-
-							// Only calculate Green Target status if we are actually aiming there
 							if (isAimingOnBoard && dir == aimDir) {
 								if (board[x][y].hasPlayer && !board[x][y].hasWall) {
 									bool blocked = false;
-									// Pinch check
 									if (px != x && py != y) {
 										if (isTileWall(px, y) && isTileWall(x, py)) blocked = true;
 									}
@@ -6362,17 +6403,14 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 				}
 				break;
 			}
-			// --- CASE: ADJACENT OR SELF ---
 			case TARGET_ADJACENT_OR_SELF_UNIT: {
 				int distGrid = abs(x - px) + abs(y - py);
-				// When in Amnesia targeting mode (chose "Adjacent"), only show adjacent (not self)
 				if (isTargetingAmnesia) {
 					if (distGrid == 1 && board[x][y].hasPlayer && !board[x][y].hasWall) {
 						isPreview = true;
 						isValidTarget = true;
 					}
 				} else {
-					// Normal: Self tile or adjacent tiles with a player
 					if (distGrid == 0 || distGrid == 1) {
 						if (board[x][y].hasPlayer && !board[x][y].hasWall) {
 							isPreview = true;
@@ -6382,7 +6420,6 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 				}
 				break;
 			}
-			// --- CASE: ADJACENT ---
 			case TARGET_ADJACENT_UNIT:
 			case TARGET_ADJACENT_UNIT_OR_WALL:
 			case TARGET_EMPTY_ADJACENT: {
@@ -6399,18 +6436,13 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 				}
 				break;
 			}
-
-			// --- CASE: STAB ---
 			case TARGET_LINEAR_PIERCE: {
-				// Always show previews for all 4 directions if generic, or specific if aiming
-				// (Stab usually shows all 4 in games, keeping your previous all-4 logic)
 				glm::vec2 dirs[] = { { 1, 0 }, { -1, 0 }, { 0, 1 }, { 0, -1 } };
 				for (auto & d : dirs) {
 					glm::vec2 t1 = casterPos + d;
 					glm::vec2 t2 = casterPos + (d * 2.0f);
 					if ((x == (int)t1.x && y == (int)t1.y) || (x == (int)t2.x && y == (int)t2.y)) {
 						isPreview = true;
-						// Green Check
 						if (board[x][y].hasPlayer && !board[x][y].hasWall) {
 							if (x == (int)t2.x && y == (int)t2.y) {
 								if (!isTileWall((int)t1.x, (int)t1.y)) isValidTarget = true;
@@ -6422,20 +6454,16 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 				}
 				break;
 			}
-
-			// --- CASE: TELEPORT ---
 			case TARGET_EMPTY_TILE: {
-				// If targeting teleport after dice roll, use the rolled range
-				// Otherwise use max possible range for preview
 				float maxRangeFeet;
 				if (isTargetingTeleport && pendingTeleportRollResult > 0) {
 					maxRangeFeet = (float)pendingTeleportRollResult;
 				} else {
-					maxRangeFeet = card.numDice * card.diceSides * 5.0f;
+					maxRangeFeet = (float)(card.numDice * card.diceSides * 5); // Default estimate
 				}
 
-				float distFeetFromCaster = getFaceToFaceDistance(casterPos, targetPos) * 5.0f;
-				if (distFeetFromCaster <= maxRangeFeet + 0.1f) {
+				// Use face-to-face distance for range calculation
+				if (distFeet <= maxRangeFeet + 0.1f) {
 					isPreview = true;
 					if (!board[x][y].hasWall && !board[x][y].hasPlayer) {
 						isValidTarget = true;
@@ -6443,33 +6471,26 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 				}
 				break;
 			}
-
-			// --- CASE: LINE OF SIGHT ---
 			case TARGET_LINE_OF_SIGHT_TILE: {
-				// Range is numDice * diceSides tiles, convert to feet (* 5)
 				float maxRangeFeet = card.numDice * card.diceSides * 5.0f;
 				if (card.type == CARD_HEAL) maxRangeFeet = 9999.0f;
 
 				TargetInfo info = isLosTargetValid(casterPos, targetPos, maxRangeFeet, card.type);
 
-				// Red Preview: Visible + In Range + Not Wall
 				if (info.reason != INVALID_NO_LOS && info.reason != INVALID_OUT_OF_RANGE && !board[x][y].hasWall) {
 					isPreview = true;
 				}
-
 				if (info.isTargetable) {
 					isValidTarget = true;
 					isPreview = true;
 				}
 				break;
 			}
-
 			default:
 				break;
 			}
 
 			if (isPreview) board[x][y].isTargetPreview = true;
-			// Only show green if player has enough AP
 			if (isValidTarget && hasEnoughAP) board[x][y].isTargetable = true;
 		}
 	}
