@@ -6454,17 +6454,23 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 				}
 				break;
 			}
+				// --- UPDATE THIS CASE ---
 			case TARGET_EMPTY_TILE: {
 				float maxRangeFeet;
+
+				// If we are actively targeting teleport, use the actual dice roll
 				if (isTargetingTeleport && pendingTeleportRollResult > 0) {
 					maxRangeFeet = (float)pendingTeleportRollResult;
 				} else {
-					maxRangeFeet = (float)(card.numDice * card.diceSides * 5); // Default estimate
+					// Preview mode (in hand): Estimate max potential (e.g. 3 * 6 * 5 = 90ft)
+					maxRangeFeet = (float)(card.numDice * card.diceSides * 5);
 				}
 
-				// Use face-to-face distance for range calculation
+				// Check Face-to-Face Range
+				// 0.1f buffer deals with floating point inaccuracies
 				if (distFeet <= maxRangeFeet + 0.1f) {
 					isPreview = true;
+					// Can only teleport to empty tiles (no walls, no players)
 					if (!board[x][y].hasWall && !board[x][y].hasPlayer) {
 						isValidTarget = true;
 					}
@@ -7864,6 +7870,7 @@ TargetingType ofApp::stringToTargetingType(const std::string & str) {
 	if (str == "TARGET_LINE_OF_SIGHT_TILE") return TARGET_LINE_OF_SIGHT_TILE;
 	if (str == "TARGET_ADJACENT_UNIT_OR_WALL") return TARGET_ADJACENT_UNIT_OR_WALL;
 	if (str == "TARGET_EMPTY_ADJACENT") return TARGET_EMPTY_ADJACENT;
+	if (str == "TARGET_EMPTY_TILE") return TARGET_EMPTY_TILE;
 	return TARGET_NONE;
 }
 
