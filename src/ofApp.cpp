@@ -59,21 +59,18 @@ void ofApp::setup() {
 	ofLoadImage(golemTexFire, "Units/Golem/texture_fire.png");
 	ofLoadImage(golemTexElectric, "Units/Golem/texture_electric.png");
 
-	// Load Wolf
+	// Load Wolf (OBJ with manual texture binding)
 	if (wolfModel.load("Units/Wolf/wolf.obj")) {
-		// Disable materials and textures - we'll manually bind textures per mesh
-		// Note: setScale/setRotation don't work because we draw cachedMesh directly
 		wolfModel.disableMaterials();
 		wolfModel.disableTextures();
 		wolfModel.setScaleNormalization(false);
 
-		// Load wolf textures manually with linear filtering for smooth appearance
+		// Load wolf textures manually
 		ofLoadImage(wolfBodyTex, "Units/Wolf/body.png");
 		ofLoadImage(wolfFaceTex, "Units/Wolf/face.png");
-		ofLoadImage(wolfHandsTex, "Units/Wolf/hands.png");
 		ofLoadImage(wolfFurTex, "Units/Wolf/fur.png");
 
-		// Enable smooth texture filtering (not pixelated)
+		// Smooth texture filtering
 		wolfBodyTex.setTextureMinMagFilter(GL_LINEAR, GL_LINEAR);
 		wolfFaceTex.setTextureMinMagFilter(GL_LINEAR, GL_LINEAR);
 		wolfFurTex.setTextureMinMagFilter(GL_LINEAR, GL_LINEAR);
@@ -2267,44 +2264,25 @@ void ofApp::drawGame() {
 
 				// Lift wolf up from floor slightly
 				ofTranslate(0, 0.5f, 0);
+				ofScale(0.022f, 0.022f, 0.022f);
 
-				// Apply scale manually (cachedMesh bypasses model transforms)
-				ofScale(0.018f, 0.018f, 0.018f);
-
-				// Enable smooth shading
-				glShadeModel(GL_SMOOTH);
-
-				// Draw skin meshes first (body, hands, face)
-				// Mesh 6: SkinMaterial_body
-				// Mesh 7: SkinMaterial_hands_feet (use body texture - wolf paws are same as body)
-				// Mesh 8-9: SkinMaterial_face
+				// Draw skin meshes (body=6, hands=7, face=8+)
 				for (unsigned int i = 6; i < wolfModel.getMeshCount(); i++) {
-					ofTexture * tex = nullptr;
-					if (i == 6 || i == 7) {
-						tex = &wolfBodyTex; // Body and hands/feet use same texture
-					} else {
-						tex = &wolfFaceTex;
-					}
-
-					if (tex && tex->isAllocated()) {
-						tex->bind();
-					}
+					ofTexture * tex = (i == 6 || i == 7) ? &wolfBodyTex : &wolfFaceTex;
+					if (tex->isAllocated()) tex->bind();
 					wolfModel.getMeshHelper(i).cachedMesh.drawFaces();
-					if (tex && tex->isAllocated()) {
-						tex->unbind();
-					}
+					if (tex->isAllocated()) tex->unbind();
 				}
 
-				// Draw fur meshes on top with alpha blending
+				// Draw fur on top with alpha blending
 				glDepthMask(GL_FALSE);
-				glEnable(GL_BLEND);
-				glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+				ofEnableAlphaBlending();
 				wolfFurTex.bind();
 				for (unsigned int i = 0; i <= 5; i++) {
 					wolfModel.getMeshHelper(i).cachedMesh.drawFaces();
 				}
 				wolfFurTex.unbind();
-				glDisable(GL_BLEND);
+				ofDisableAlphaBlending();
 				glDepthMask(GL_TRUE);
 			}
 			// ---------------------------
@@ -7711,41 +7689,27 @@ void ofApp::drawMinionManagerUI() {
 		} else if (minion.isWolf) {
 			// --- WOLF UI SETTINGS ---
 			ofTranslate(modelFbo.getWidth() / 2, modelFbo.getHeight() / 2 + 20);
-			ofScale(2.2f, 2.2f, 2.2f); // Slightly smaller
+			ofScale(3.5f, 3.5f, 3.5f);
 			ofRotateXDeg(-15);
 			ofRotateYDeg(180 + ofGetElapsedTimef() * 30);
 
-			// Enable smooth shading
-			glShadeModel(GL_SMOOTH);
-
-			// Draw skin meshes first
+			// Draw skin meshes
 			for (unsigned int i = 6; i < wolfModel.getMeshCount(); i++) {
-				ofTexture * tex = nullptr;
-				if (i == 6 || i == 7) {
-					tex = &wolfBodyTex; // Body and hands/feet use same texture
-				} else {
-					tex = &wolfFaceTex;
-				}
-
-				if (tex && tex->isAllocated()) {
-					tex->bind();
-				}
+				ofTexture * tex = (i == 6 || i == 7) ? &wolfBodyTex : &wolfFaceTex;
+				if (tex->isAllocated()) tex->bind();
 				wolfModel.getMeshHelper(i).cachedMesh.drawFaces();
-				if (tex && tex->isAllocated()) {
-					tex->unbind();
-				}
+				if (tex->isAllocated()) tex->unbind();
 			}
 
-			// Draw fur meshes on top with alpha blending
+			// Draw fur on top
 			glDepthMask(GL_FALSE);
-			glEnable(GL_BLEND);
-			glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+			ofEnableAlphaBlending();
 			wolfFurTex.bind();
 			for (unsigned int i = 0; i <= 5; i++) {
 				wolfModel.getMeshHelper(i).cachedMesh.drawFaces();
 			}
 			wolfFurTex.unbind();
-			glDisable(GL_BLEND);
+			ofDisableAlphaBlending();
 			glDepthMask(GL_TRUE);
 
 		} else {

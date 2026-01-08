@@ -438,8 +438,7 @@ private:
 	ofxAssimpModelLoader golemModel;
 
 	ofTexture skeletonTexture;
-	ofTexture wolfTexture; // Not used - wolf uses multiple textures below
-	ofTexture wolfBodyTex, wolfFaceTex, wolfHandsTex, wolfFurTex;
+	ofTexture wolfBodyTex, wolfFaceTex, wolfFurTex;
 	ofTexture golemTexBase, golemTexRock, golemTexFire, golemTexElectric;
 
 	ofMaterial modelMaterial;
