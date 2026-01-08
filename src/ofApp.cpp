@@ -3795,7 +3795,9 @@ void ofApp::mousePressed(int x, int y, int button) {
 	if (isDispelMenuOpen && button == OF_MOUSE_BUTTON_LEFT) {
 		if (dispelBtnBarrier.inside(x, y)) {
 			isWaitingForBarrierDice = true;
-			pendingDispelRollResult = startDiceRoll(1, 20, PURPOSE_BARRIER_GAIN);
+
+			pendingDispelRollResult = startDiceRoll(1, 20, PURPOSE_BARRIER_GAIN, "Dispel: Barrier Amount");
+
 			Player & p = players[currentPlayerIndex];
 			currentAP -= p.hand[pendingDispelCardIndex].cost;
 			p.discardPile.push_back(p.hand[pendingDispelCardIndex]);
@@ -4092,7 +4094,9 @@ void ofApp::mousePressed(int x, int y, int button) {
 						if (wolfSummonStage == 1) {
 							// First wolf placed. Now flip the coin.
 							ofLogNotice("Wolves") << "Wolf 1 placed. Flipping coin for 2nd...";
-							startDiceRoll(1, 2, PURPOSE_COIN_FLIP);
+
+							startDiceRoll(1, 2, PURPOSE_COIN_FLIP, "Paralysis Check (Heads to Cure)");
+
 							isWaitingForWolfCoin = true;
 							// Do NOT turn off isPlacingWolves yet.
 						} else if (wolfSummonStage == 2) {
@@ -4182,27 +4186,27 @@ void ofApp::mousePressed(int x, int y, int button) {
 				// Only check dropdown buttons if open
 				if (isDebugDiceDropdownOpen) {
 					if (debugFlipCoinButton.inside(x, y)) {
-						startDiceRoll(1, 2, PURPOSE_DEBUG);
+						startDiceRoll(1, 2, PURPOSE_DEBUG, "Debug Coin");
 						isDebugDiceDropdownOpen = false;
 						return;
 					}
 					if (debugRollD4Button.inside(x, y)) {
-						startDiceRoll(1, 4, PURPOSE_DEBUG);
+						startDiceRoll(1, 4, PURPOSE_DEBUG, "Debug D4");
 						isDebugDiceDropdownOpen = false;
 						return;
 					}
 					if (debugRollD6Button.inside(x, y)) {
-						startDiceRoll(1, 6, PURPOSE_DEBUG);
+						startDiceRoll(1, 6, PURPOSE_DEBUG, "Debug D6");
 						isDebugDiceDropdownOpen = false;
 						return;
 					}
 					if (debugRollD10Button.inside(x, y)) {
-						startDiceRoll(1, 10, PURPOSE_DEBUG);
+						startDiceRoll(1, 10, PURPOSE_DEBUG, "Debug D10");
 						isDebugDiceDropdownOpen = false;
 						return;
 					}
 					if (debugRollD20Button.inside(x, y)) {
-						startDiceRoll(1, 20, PURPOSE_DEBUG);
+						startDiceRoll(1, 20, PURPOSE_DEBUG, "Debug D20");
 						isDebugDiceDropdownOpen = false;
 						return;
 					}
@@ -4786,7 +4790,9 @@ void ofApp::startNewTurn() {
 			}
 			if (startingPlayer.onFire) {
 				isWaitingForOnFireDice = true;
-				pendingOnFireRollResult = startDiceRoll(1, 6, PURPOSE_DAMAGE);
+
+				pendingOnFireRollResult = startDiceRoll(1, 6, PURPOSE_DAMAGE, "Fire Status Damage");
+
 				return;
 			}
 
@@ -4825,13 +4831,15 @@ void ofApp::startNewTurn() {
 		for (const auto & p : players) {
 			if (p.isSkeleton || p.isHellhound) minionCount++;
 		}
-		if (minionCount > 0) startDiceRoll(minionCount, 6, PURPOSE_BONUS_AP);
+
+		if (minionCount > 0) startDiceRoll(minionCount, 6, PURPOSE_BONUS_AP, "Minion Bonus AP");
+
 		startingPlayer.nextTurnBonusDiceFromMinions = false;
 	}
 
 	// --- D. CHECK STATUS EFFECTS FOR NORMAL TURN ---
 	if (startingPlayer.isParalyzed) {
-		startDiceRoll(1, 2, PURPOSE_COIN_FLIP);
+		startDiceRoll(1, 2, PURPOSE_COIN_FLIP, "Call for Wolves: 2nd Wolf Chance");
 		isWaitingForParalysisCoin = true;
 		return;
 	}
@@ -5109,7 +5117,9 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		if (targetP->deck.empty()) break;
 
 		amnesiaTargetPlayerIndex = targetIndex;
-		pendingAmnesiaRollResult = startDiceRoll(playedCard.numDice, playedCard.diceSides, PURPOSE_DAMAGE);
+
+		pendingAmnesiaRollResult = startDiceRoll(playedCard.numDice, playedCard.diceSides, PURPOSE_DAMAGE, "Amnesia: Cards to Remove");
+
 		isWaitingForAmnesiaDice = true;
 		playedSuccessfully = true;
 		break;
@@ -5137,7 +5147,8 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		}
 		if (!hasValidUnit) break;
 
-		pendingMagicBlastRollResult = startDiceRoll(playedCard.numDice, playedCard.diceSides, PURPOSE_RANGE);
+		pendingMagicBlastRollResult = startDiceRoll(playedCard.numDice, playedCard.diceSides, PURPOSE_RANGE, "Magic Blast: Range Check");
+
 		isWaitingForMagicBlastDice = true;
 		pendingMagicBlastTargetTile = targetTile;
 		playedSuccessfully = true;
@@ -5174,7 +5185,9 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 				}
 			}
 			if (targetIndex != -1) {
-				pendingAttackRollResult = startDiceRoll(playedCard.numDice, playedCard.diceSides, PURPOSE_DAMAGE);
+
+				pendingAttackRollResult = startDiceRoll(playedCard.numDice, playedCard.diceSides, PURPOSE_DAMAGE, "Rock Crush: Damage");
+
 				isWaitingForAttackDice = true;
 				pendingAttackDamageType = playedCard.damageType;
 				pendingAttackTargetIndices.clear();
@@ -5213,7 +5226,9 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 	case CARD_TELEPORT: {
 		if (board[targetX][targetY].hasWall || board[targetX][targetY].hasPlayer) break;
 		pendingTeleportTarget = glm::vec2(targetX, targetY);
-		pendingTeleportRollResult = startDiceRoll(playedCard.numDice, playedCard.diceSides, PURPOSE_RANGE);
+
+		pendingTeleportRollResult = startDiceRoll(playedCard.numDice, playedCard.diceSides, PURPOSE_RANGE, "Teleport: Range Check");
+
 		isWaitingForTeleportDice = true;
 		playedSuccessfully = true;
 		break;
@@ -5287,7 +5302,9 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		if (casterOwner != targetOwner) break;
 
 		pendingHealTargetIndex = targetIndex;
-		pendingHealRollResult = startDiceRoll(playedCard.numDice, playedCard.diceSides, PURPOSE_DAMAGE);
+
+		pendingHealRollResult = startDiceRoll(playedCard.numDice, playedCard.diceSides, PURPOSE_DAMAGE, "Heal: HP Amount");
+
 		isWaitingForHealDice = true;
 		playedSuccessfully = true;
 		break;
@@ -5297,7 +5314,8 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 	case CARD_ETHEREAL_JOLT: {
 		glm::vec2 targetTile = { (float)targetX, (float)targetY };
 
-		pendingJoltRangeResult = startDiceRoll(1, 20, PURPOSE_RANGE);
+		pendingJoltRangeResult = startDiceRoll(1, 20, PURPOSE_RANGE, "Ethereal Jolt: Range Check");
+
 		isWaitingForJoltRangeDice = true;
 		pendingJoltTargetTile = targetTile;
 		playedSuccessfully = true;
@@ -5328,7 +5346,9 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 
 		// 1. Roll for HP
 		pendingSummonTile = glm::vec2(targetX, targetY);
-		pendingSummonRollResult = startDiceRoll(1, 6, PURPOSE_HP);
+
+		pendingSummonRollResult = startDiceRoll(1, 6, PURPOSE_HP, "Raise Dead: Skeleton HP");
+
 		isWaitingForSummonHealth = true;
 
 		// --- CRASH PREVENTION FIX ---
@@ -5383,7 +5403,7 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		if (isElectric) {
 			ofLogNotice("Summon") << "Combo! Summoning ELECTRIC Golem.";
 			minion.minionTexture = &golemTexElectric;
-			minion.maxHealth = startDiceRoll(1, 6, PURPOSE_HP);
+			minion.maxHealth = startDiceRoll(1, 6, PURPOSE_HP, "Electric Golem: HP");
 			for (const auto & c : allCards) {
 				if (c.type == CARD_SHOCK) {
 					minion.deck.push_back(c);
@@ -5398,7 +5418,7 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		} else if (isFire) {
 			ofLogNotice("Summon") << "Combo! Summoning FIRE Golem.";
 			minion.minionTexture = &golemTexFire;
-			minion.maxHealth = startDiceRoll(1, 10, PURPOSE_HP);
+			minion.maxHealth = startDiceRoll(1, 10, PURPOSE_HP, "Fire Golem: HP");
 			for (const auto & c : allCards) {
 				if (c.type == CARD_FIREBALL) minion.deck.push_back(c);
 				if (c.type == CARD_FLAME_HIT) {
@@ -5413,7 +5433,7 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		} else if (isRock) {
 			ofLogNotice("Summon") << "Combo! Summoning ROCK Golem.";
 			minion.minionTexture = &golemTexRock;
-			minion.maxHealth = startDiceRoll(1, 20, PURPOSE_HP);
+			minion.maxHealth = startDiceRoll(1, 20, PURPOSE_HP, "Rock Golem: HP");
 			for (const auto & c : allCards) {
 				if (c.type == CARD_ROCK_CRUSH) {
 					minion.deck.push_back(c);
@@ -5432,7 +5452,7 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		} else {
 			ofLogNotice("Summon") << "Summoning Standard Golem.";
 			minion.minionTexture = &golemTexBase;
-			minion.maxHealth = startDiceRoll(1, 10, PURPOSE_HP);
+			minion.maxHealth = startDiceRoll(1, 10, PURPOSE_HP, "Standard Golem: HP");
 			for (const auto & c : allCards) {
 				if (c.name == "Bash") {
 					minion.deck.push_back(c);
@@ -5697,7 +5717,8 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 	case CARD_TIME_VORTEX: {
 		// Start the dice roll and set the waiting flag
 		isWaitingForTimeVortexDice = true;
-		pendingTimeVortexResult = startDiceRoll(playedCard.numDice, playedCard.diceSides, PURPOSE_TIME_VORTEX);
+
+		pendingTimeVortexResult = startDiceRoll(playedCard.numDice, playedCard.diceSides, PURPOSE_TIME_VORTEX, "Time Vortex: Extra Turns");
 
 		// Don't apply the turns yet. We wait for the dice animation.
 
@@ -5796,6 +5817,7 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		// Start the range roll
 		pendingMagicBoltTargetTile = glm::vec2(targetX, targetY);
 		isWaitingForMagicBoltRange = true;
+
 		pendingMagicBoltRangeResult = startDiceRoll(playedCard.numDice, playedCard.diceSides, PURPOSE_RANGE, "Magic Bolt: Range Check");
 
 		playedSuccessfully = true;
@@ -5888,7 +5910,9 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 
 		// --- EXECUTE DAMAGE ---
 		if (playedCard.numDice > 0 && playedCard.diceSides > 0) {
-			pendingAttackRollResult = startDiceRoll(playedCard.numDice, playedCard.diceSides, PURPOSE_DAMAGE);
+
+			pendingAttackRollResult = startDiceRoll(playedCard.numDice, playedCard.diceSides, PURPOSE_DAMAGE, playedCard.name + ": Damage");
+
 			isWaitingForAttackDice = true;
 			pendingAttackDamageType = playedCard.damageType;
 		} else {
