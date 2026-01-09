@@ -5367,11 +5367,15 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		break;
 	}
 
-	// --- CASE: MAGIC BLAST ---
+	// --- CASE: MAGIC BLAST (Confirming fix from previous step) ---
 	case CARD_MAGIC_BLAST: {
 		glm::vec2 casterTile = { (float)currentPlayer.x, (float)currentPlayer.y };
 		glm::vec2 targetTile = { (float)targetX, (float)targetY };
-		TargetInfo validationResult = isLosTargetValid(casterTile, targetTile, playedCard.numDice * 10.0f, playedCard.type);
+
+		// FIX: Range is numDice * diceSides (e.g. 1 * 20 = 20ft)
+		float maxRange = (float)(playedCard.numDice * playedCard.diceSides);
+
+		TargetInfo validationResult = isLosTargetValid(casterTile, targetTile, maxRange, playedCard.type);
 
 		if (validationResult.reason != VALID) break;
 
@@ -5397,11 +5401,15 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		break;
 	}
 
-	// --- CASE: FIREBALL ---
+		// --- CASE: FIREBALL (Confirming fix from previous step) ---
 	case CARD_FIREBALL: {
 		glm::vec2 casterTile = { (float)currentPlayer.x, (float)currentPlayer.y };
 		glm::vec2 targetTile = { (float)targetX, (float)targetY };
-		TargetInfo validationResult = isLosTargetValid(casterTile, targetTile, playedCard.numDice * 6.0f, playedCard.type);
+
+		// FIX: Range is numDice * diceSides (e.g. 2 * 6 = 12ft)
+		float maxRange = (float)(playedCard.numDice * playedCard.diceSides);
+
+		TargetInfo validationResult = isLosTargetValid(casterTile, targetTile, maxRange, playedCard.type);
 
 		if (validationResult.reason != VALID || !board[targetX][targetY].hasPlayer) break;
 
@@ -5514,14 +5522,20 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		break;
 	}
 
-	// --- CASE: HEAL ---
+		// --- CASE: HEAL ---
 	case CARD_HEAL: {
 		glm::vec2 casterTile = { (float)currentPlayer.x, (float)currentPlayer.y };
 		glm::vec2 targetTile = { (float)targetX, (float)targetY };
-		TargetInfo validationResult = isLosTargetValid(casterTile, targetTile, 1000.0f, playedCard.type);
+
+		// FIX: Heal has infinite range (Line of Sight only)
+		float maxRange = 9999.0f;
+
+		// This function will still fail if there is a Wall blocking the view
+		TargetInfo validationResult = isLosTargetValid(casterTile, targetTile, maxRange, playedCard.type);
 
 		if (validationResult.reason != VALID) break;
 
+		// Find Target Unit
 		int targetIndex = -1;
 		for (size_t i = 0; i < players.size(); i++) {
 			if (players[i].x == targetX && players[i].y == targetY) {
@@ -5531,15 +5545,21 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		}
 		if (targetIndex == -1) break;
 
-		// Friendly Check
+		// Friendly Check (Cannot heal enemies)
 		Player * target = getPlayer(targetIndex);
 		int casterOwner = currentPlayer.isMinion ? currentPlayer.ownerID : currentPlayer.playerID;
 		int targetOwner = target->isMinion ? target->ownerID : target->playerID;
-		if (casterOwner != targetOwner) break;
 
+		if (casterOwner != targetOwner) {
+			ofLogNotice("Heal") << "Cannot heal enemies!";
+			break;
+		}
+
+		// Apply
 		pendingHealTargetIndex = targetIndex;
 
-		pendingHealRollResult = startDiceRoll(playedCard.numDice, playedCard.diceSides, PURPOSE_DAMAGE, "Heal: HP Amount");
+		// Roll for Amount (Not Range)
+		pendingHealRollResult = startDiceRoll(playedCard.numDice, playedCard.diceSides, PURPOSE_HEALING, "Heal: HP Amount");
 
 		isWaitingForHealDice = true;
 		playedSuccessfully = true;
@@ -5549,8 +5569,18 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 	// --- CASE: ETHEREAL JOLT ---
 	case CARD_ETHEREAL_JOLT: {
 		glm::vec2 targetTile = { (float)targetX, (float)targetY };
+		glm::vec2 casterTile = { (float)currentPlayer.x, (float)currentPlayer.y };
 
-		pendingJoltRangeResult = startDiceRoll(1, 20, PURPOSE_RANGE, "Ethereal Jolt: Range Check");
+		// FIX: Range is numDice * diceSides (e.g. 1 * 20 = 20ft)
+		float maxRange = (float)(playedCard.numDice * playedCard.diceSides);
+
+		// Validation Check (Reduces red error messages if you click too far)
+		// Pass the card type so it knows to ignore walls for LOS
+		TargetInfo validationResult = isLosTargetValid(casterTile, targetTile, maxRange, playedCard.type);
+
+		if (validationResult.reason != VALID) break;
+
+		pendingJoltRangeResult = startDiceRoll(playedCard.numDice, playedCard.diceSides, PURPOSE_RANGE, "Ethereal Jolt: Range Check");
 
 		isWaitingForJoltRangeDice = true;
 		pendingJoltTargetTile = targetTile;
@@ -6041,11 +6071,23 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		// --- CASE: MAGIC BOLT ---
 	case CARD_MAGIC_BOLT: {
 		// This card targets through walls, so we don't need a Line of Sight check here.
-		// We just need to check if the target tile is within the max possible range to be valid.
-		float maxRange = playedCard.numDice * playedCard.diceSides; // 2 * 20 = 40ft
-		float dist = glm::distance(glm::vec2(currentPlayer.x, currentPlayer.y), glm::vec2(targetX, targetY));
+		// We just need to check if the target tile is within the max possible range.
 
-		if (dist * 5.0f > maxRange + 5.0f) { // Add a buffer
+		// FIX: Range is numDice * diceSides (e.g. 2 * 20 = 40ft)
+		float maxRangeFeet = (float)(playedCard.numDice * playedCard.diceSides);
+
+		// Calculate Distance in Feet (Face-to-Face logic)
+		// We calculate distance from Caster to Target Tile
+		glm::vec2 cPos((float)currentPlayer.x, (float)currentPlayer.y);
+		glm::vec2 tPos((float)targetX, (float)targetY);
+
+		// Use standard Euclidean distance * 5 for Magic Bolt (since it flies over walls)
+		// Or getFaceToFaceDistance if you want grid logic.
+		// Using Euclidean here as it's a projectile over walls.
+		float distFeet = glm::distance(cPos, tPos) * 5.0f;
+
+		// Add 3ft buffer for center-to-edge calculation
+		if (distFeet > maxRangeFeet + 3.0f) {
 			ofLogNotice("Magic Bolt") << "Target is too far.";
 			break;
 		}
@@ -6291,6 +6333,8 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 			if (nx >= 0 && nx < BOARD_WIDTH && ny >= 0 && ny < BOARD_HEIGHT) {
 				if (!board[nx][ny].hasWall && !board[nx][ny].hasPlayer) {
 					board[nx][ny].isTargetable = true;
+					// Also make it green outline for visibility
+					board[nx][ny].isTargetPreview = true;
 				}
 			}
 		}
@@ -6300,35 +6344,24 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 	if (players.empty() || currentPlayerIndex < 0) return;
 	Player & currentPlayer = players[currentPlayerIndex];
 
+	// Determine which card is active
 	int activeCardIndex = (selectedCardIndex != -1) ? selectedCardIndex : cardToCalculate;
 
-	// Override card index for targeting modes
+	// OVERRIDE index if we are in a specific targeting mode
 	if (isTargetingMagicBolt) activeCardIndex = magicBoltCardIndex;
 	if (isTargetingTeleport) activeCardIndex = pendingTeleportCardIndex;
 	if (isTargetingAmnesia) activeCardIndex = pendingAmnesiaCardIndex;
 	if (isTargetingDoubleHanded) activeCardIndex = pendingDoubleHandedCardIndex;
 
-	if (activeCardIndex < 0 || activeCardIndex >= (int)currentPlayer.hand.size()) {
-		if (isTargetingTeleport) {
-			ofLogNotice("Teleport") << "EARLY RETURN: activeCardIndex=" << activeCardIndex << " handSize=" << currentPlayer.hand.size();
-		}
-		return;
-	}
+	// Safety Check
+	if (activeCardIndex < 0 || activeCardIndex >= (int)currentPlayer.hand.size()) return;
 
 	Card & card = currentPlayer.hand[activeCardIndex];
 	int px = currentPlayer.x;
 	int py = currentPlayer.y;
 	glm::vec2 casterPos(px, py);
 
-	// Debug teleport targeting
-	if (isTargetingTeleport) {
-		ofLogNotice("Teleport") << "In calculateTargetHighlights: card.targeting=" << card.targeting
-								<< " TARGET_EMPTY_TILE=" << TARGET_EMPTY_TILE
-								<< " pendingTeleportRollResult=" << pendingTeleportRollResult
-								<< " casterPos=(" << px << "," << py << ")";
-	}
-
-	// Check AP
+	// Check AP (Targeting modes imply AP check passed already)
 	bool inTargetingMode = isTargetingAmnesia || isTargetingDoubleHanded || isTargetingTeleport || isTargetingMagicBolt;
 	bool hasEnoughAP = inTargetingMode || (currentAP >= card.cost);
 
@@ -6349,14 +6382,17 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 		}
 	}
 
+	// --- ITERATE BOARD ---
 	for (int x = 0; x < BOARD_WIDTH; x++) {
 		for (int y = 0; y < BOARD_HEIGHT; y++) {
 			bool isPreview = false;
 			bool isValidTarget = false;
 			glm::vec2 targetPos(x, y);
 
+			// 1. Calculate Distance in Feet
+			// Face-to-Face Units * 5 = Feet
+			// Example: 4 tiles away -> 3 gaps -> 3.0 units -> 15 ft.
 			float distFeet = getFaceToFaceDistance(casterPos, targetPos) * 5.0f;
-			float distEuclideanFeet = glm::distance(casterPos, targetPos) * 5.0f;
 
 			switch (card.targeting) {
 
@@ -6454,32 +6490,48 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 				}
 				break;
 			}
-				// --- UPDATE THIS CASE ---
+				// --- FIXED TELEPORT LOGIC ---
 			case TARGET_EMPTY_TILE: {
 				float maxRangeFeet;
 
-				// If we are actively targeting teleport, use the actual dice roll
-				if (isTargetingTeleport && pendingTeleportRollResult > 0) {
+				if (isTargetingTeleport) {
+					// Actual Targeting: Use the dice roll directly
+					// e.g., Rolled 15 = 15 ft range
 					maxRangeFeet = (float)pendingTeleportRollResult;
 				} else {
-					// Preview mode (in hand): Estimate max potential (e.g. 3 * 6 * 5 = 90ft)
-					maxRangeFeet = (float)(card.numDice * card.diceSides * 5);
+					// Preview: Use Max Possible Roll
+					// e.g., 3d6 = 18 ft max
+					maxRangeFeet = (float)(card.numDice * card.diceSides);
 				}
 
-				// Check Face-to-Face Range
-				// 0.1f buffer deals with floating point inaccuracies
+				// Range Check (Face-to-Face)
 				if (distFeet <= maxRangeFeet + 0.1f) {
 					isPreview = true;
-					// Can only teleport to empty tiles (no walls, no players)
 					if (!board[x][y].hasWall && !board[x][y].hasPlayer) {
 						isValidTarget = true;
 					}
 				}
 				break;
 			}
+
+			// --- FIXED SPELL RANGES (Magic Blast, Fireball, Jolt) ---
 			case TARGET_LINE_OF_SIGHT_TILE: {
-				float maxRangeFeet = card.numDice * card.diceSides * 5.0f;
-				if (card.type == CARD_HEAL) maxRangeFeet = 9999.0f;
+				float maxRangeFeet;
+
+				// 1. Magic Bolt Logic (Active Targeting)
+				if (card.type == CARD_MAGIC_BOLT && isTargetingMagicBolt && pendingMagicBoltRangeResult > 0) {
+					maxRangeFeet = (float)pendingMagicBoltRangeResult;
+				}
+				// 2. HEAL OVERRIDE (Infinite Range)
+				// This prevents the visual preview from being limited to 12ft (2d6)
+				else if (card.type == CARD_HEAL) {
+					maxRangeFeet = 9999.0f;
+				}
+				// 3. Standard Range Spells (Magic Blast, Fireball, etc)
+				// These use the dice to determine max range (e.g., 1d20 = 20ft)
+				else {
+					maxRangeFeet = (float)(card.numDice * card.diceSides);
+				}
 
 				TargetInfo info = isLosTargetValid(casterPos, targetPos, maxRangeFeet, card.type);
 
@@ -6496,8 +6548,8 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 				break;
 			}
 
-			if (isPreview) board[x][y].isTargetPreview = true;
-			if (isValidTarget && hasEnoughAP) board[x][y].isTargetable = true;
+			if (isPreview) board[x][y].isTargetPreview = true; // Red
+			if (isValidTarget && hasEnoughAP) board[x][y].isTargetable = true; // Green
 		}
 	}
 }
