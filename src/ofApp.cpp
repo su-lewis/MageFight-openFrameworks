@@ -2458,7 +2458,7 @@ void ofApp::drawGame() {
 				// 2. LIFT MODEL UP
 				// Was 0.1f. Changing to 2.5f to lift it out of the floor.
 				// (Adjust this number: Higher = Higher in air, Lower = Lower in floor)
-				ofTranslate(0, 2.5f, 0);
+				ofTranslate(0, 2.0f, 0);
 
 				if (playerTexture.isAllocated()) {
 					playerTexture.bind();
