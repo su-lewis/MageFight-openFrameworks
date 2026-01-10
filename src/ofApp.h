@@ -97,7 +97,8 @@ enum CardType {
 	CARD_NECRO_BLESSING,
 	CARD_TIME_VORTEX,
 	CARD_MASTER_FIST,
-	CARD_MAGIC_BOLT
+	CARD_MAGIC_BOLT,
+	CARD_FLAIL
 };
 
 enum DicePurpose {
@@ -638,6 +639,10 @@ private:
 	bool isTargetingMagicBolt = false;
 	int magicBoltCardIndex = -1; // To remember which card in hand is being used
 	glm::vec2 pendingMagicBoltTargetTile;
+
+	// Flail
+	bool isWaitingForFlailDice = false;
+	int pendingFlailRollResult = 0;
 
 	// Helper functions
 	void drawDoubleHandedUI();

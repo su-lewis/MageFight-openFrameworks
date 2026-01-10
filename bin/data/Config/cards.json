@@ -289,5 +289,15 @@
     "damageType": "DAMAGE_MAGIC",
     "numDice": 2,
     "diceSides": 20
+  },
+  {
+    "id": 35,
+    "name": "Flail",
+    "type": "CARD_FLAIL",
+    "cost": 3,
+    "targeting": "TARGET_SELF",
+    "damageType": "DAMAGE_PHYSICAL",
+    "numDice": 1,
+    "diceSides": 6
   }
 ]

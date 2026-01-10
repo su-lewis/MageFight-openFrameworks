@@ -918,7 +918,6 @@ void ofApp::updateGame() {
 		// 3. HELPER LAMBDA TO BUILD UI LIST
 		auto buildMinionList = [&](const std::vector<int> & indices, float startX, int & skelCount, int & golemCount, int & wolfCount) {
 			// A. Calculate Dynamic Scaling
-			// How tall would the list be at full size?
 			float totalRequiredHeight = indices.size() * (standardEntryHeight + gap);
 
 			// If it's too tall, shrink the entry height to fit
@@ -926,7 +925,6 @@ void ofApp::updateGame() {
 			float actualGap = gap;
 
 			if (totalRequiredHeight > availableHeight && !indices.empty()) {
-				// Calculate scale factor (0.0 to 1.0)
 				float shrinkFactor = availableHeight / totalRequiredHeight;
 				actualEntryHeight = standardEntryHeight * shrinkFactor;
 				actualGap = gap * shrinkFactor;
@@ -938,7 +936,6 @@ void ofApp::updateGame() {
 				MinionUI ui;
 				ui.playerIndex = pIndex;
 
-				// Determine display number (e.g. Wolf 1, Wolf 2)
 				if (players[pIndex].isSkeleton)
 					ui.displayNumber = ++skelCount;
 				else if (players[pIndex].isGolem)
@@ -946,7 +943,6 @@ void ofApp::updateGame() {
 				else if (players[pIndex].isWolf)
 					ui.displayNumber = ++wolfCount;
 
-				// Calculate Y position
 				float currentY = topLimitY + (i * (actualEntryHeight + actualGap));
 
 				ui.bounds.set(startX, currentY, panelWidth, actualEntryHeight);
@@ -954,12 +950,9 @@ void ofApp::updateGame() {
 			}
 		};
 
-		// 4. BUILD LEFT SIDE (Player 0 Minions)
-		// Position: Left edge + padding
+		// 4. BUILD LISTS
 		buildMinionList(p0_minionIndices, 10 * scale, p0_skeleton, p0_golem, p0_wolf);
 
-		// 5. BUILD RIGHT SIDE (Player 1 Minions)
-		// Position: Right edge - panel width - padding
 		float p1_startX = ofGetWidth() - panelWidth - (10 * scale);
 		buildMinionList(p1_minionIndices, p1_startX, p1_skeleton, p1_golem, p1_wolf);
 	}
@@ -1612,6 +1605,84 @@ void ofApp::updateGame() {
 					} else {
 						spawnFloatingText(gridToWorld(p.x, p.y), "Absorbed", ofColor::gray);
 					}
+				}
+			}
+		}
+	}
+
+	// --- FLAIL RESOLUTION ---
+	if (isWaitingForFlailDice && activeDiceRolls.empty()) {
+		isWaitingForFlailDice = false;
+
+		Player & caster = players[currentPlayerIndex];
+		int damage = pendingFlailRollResult + 2; // 1d6 + 2
+
+		// Define local damage applier (Since applyDamage is local to playCard)
+		auto hitTarget = [&](Player & t, int dmg) {
+			int finalDmg = dmg;
+			// Block
+			int blockDmg = std::min(t.block, finalDmg);
+			t.block -= blockDmg;
+			finalDmg -= blockDmg;
+			// Barrier
+			int barrierDmg = std::min(t.barrier, finalDmg);
+			t.barrier -= barrierDmg;
+			finalDmg -= barrierDmg;
+			// Ward
+			if (finalDmg > 0) {
+				int wardDmg = std::min(t.ward, finalDmg);
+				t.ward -= wardDmg;
+				finalDmg -= wardDmg;
+			}
+			// Health
+			if (finalDmg > 0) {
+				t.health -= finalDmg;
+				spawnFloatingText(gridToWorld(t.x, t.y), "-" + ofToString(finalDmg) + " Physical", ofColor::red);
+
+				// Check Death (Simple check)
+				if (t.health <= 0) {
+					DeathMarker death;
+					death.x = t.x;
+					death.y = t.y;
+					death.turnDied = globalTurnCounter;
+					death.deck = t.deck;
+					graveyard.push_back(death);
+					board[t.x][t.y].hasPlayer = false;
+					t.x = -1000;
+				}
+			} else {
+				spawnFloatingText(gridToWorld(t.x, t.y), "Blocked", ofColor::gray);
+			}
+		};
+
+		// Iterate all players to find neighbors
+		// (We iterate players instead of tiles because it's slightly faster/safer)
+		for (auto & target : players) {
+			if (&target == &caster) continue; // Don't hit self
+			if (target.health <= 0) continue; // Skip dead
+
+			int dx = target.x - caster.x;
+			int dy = target.y - caster.y;
+
+			// Check if neighbor (Chebyshev distance == 1)
+			if (std::max(abs(dx), abs(dy)) == 1) {
+
+				bool isBlocked = false;
+
+				// Diagonal Pinch Check
+				if (abs(dx) == 1 && abs(dy) == 1) {
+					// If both shared orthogonal tiles are walls, the diagonal is blocked
+					if (isTileWall(caster.x + dx, caster.y) && isTileWall(caster.x, caster.y + dy)) {
+						isBlocked = true;
+					}
+				}
+
+				// Also check if target is inside a wall (shouldn't happen, but safety)
+				if (isTileWall(target.x, target.y)) isBlocked = true;
+
+				if (!isBlocked) {
+					ofLogNotice("Flail") << "Hit unit at " << target.x << "," << target.y;
+					hitTarget(target, damage);
 				}
 			}
 		}
@@ -3618,26 +3689,23 @@ void ofApp::drawGame() {
 	if (!activeDiceRolls.empty()) {
 		ofPushMatrix();
 
-		// 1. Calculate Position relative to End Turn Button
-		// The button rect is 'endTurnButtonRect'
-		float cx = endTurnButtonRect.getCenter().x;
+		// FIXED POSITION CALCULATION:
+		// Use visible button Y (20 * scale) + button height (60) + padding (50)
+		// This keeps the text static even if the button flies up.
+		float fixedY = (20 * scale) + (60 * scale) + (50 * scale);
+		float fixedX = ofGetWidth() / 2.0f;
 
-		// Position it 50 pixels below the bottom of the button
-		float cy = endTurnButtonRect.getBottom() + 50 * scale;
-
-		// 2. Draw Shadow
+		// Draw Shadow
 		ofSetColor(0, 0, 0, 255);
 		ofRectangle bounds = titleFont.getStringBoundingBox(currentDiceLabel, 0, 0);
-
-		// Scale the text down slightly so it fits nicely
 		float textScale = 0.8f;
 
-		ofTranslate(cx, cy);
+		ofTranslate(fixedX, fixedY);
 		ofScale(textScale, textScale);
 
-		titleFont.drawString(currentDiceLabel, -bounds.width / 2 + 3, 3); // Shadow offset
+		titleFont.drawString(currentDiceLabel, -bounds.width / 2 + 3, 3);
 
-		// 3. Draw Main Text (Gold color)
+		// Draw Main Text (Gold)
 		ofSetColor(255, 215, 0);
 		titleFont.drawString(currentDiceLabel, -bounds.width / 2, 0);
 
@@ -6136,6 +6204,15 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		break;
 	}
 
+		// --- CASE: FLAIL ---
+	case CARD_FLAIL: {
+		// Roll 1d6. We will add +2 in the update loop.
+		pendingFlailRollResult = startDiceRoll(playedCard.numDice, playedCard.diceSides, PURPOSE_DAMAGE, "Flail: Swing Damage");
+		isWaitingForFlailDice = true;
+		playedSuccessfully = true;
+		break;
+	}
+
 	// --- CASE: STANDARD ATTACK (Stab, Cleave, Pierce, Punch) ---
 	case CARD_ATTACK_SINGLE_TILE: {
 		int px = players[currentPlayerIndex].x;
@@ -6430,6 +6507,55 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 
 			switch (card.targeting) {
 
+			// --- FLAIL HIGHLIGHTING ---
+			case TARGET_SELF: {
+				if (card.type == CARD_FLAIL) {
+					int dx = x - px;
+					int dy = y - py;
+
+					// 1. Check Neighbors
+					if (std::max(abs(dx), abs(dy)) == 1) {
+						bool blocked = false;
+
+						if (board[x][y].hasWall) blocked = true;
+
+						// Diagonal Pinch Check
+						if (!blocked && abs(dx) == 1 && abs(dy) == 1) {
+							if (isTileWall(px + dx, py) && isTileWall(px, py + dy)) {
+								blocked = true;
+							}
+						}
+
+						if (!blocked) {
+							isPreview = true; // Red Square on ground
+							if (board[x][y].hasPlayer) {
+								isValidTarget = true; // Green Outline for enemies
+							}
+						}
+					}
+
+					// 2. Handle Caster (Self)
+					// We mark isTargetable = true so the click registers (to cast the spell),
+					// BUT we explicitly do NOT set isValidTarget/isPreview here so it doesn't glow green/red.
+					if (x == px && y == py) {
+						if (hasEnoughAP) board[x][y].isTargetable = true;
+						// Note: We deliberately skip setting 'isValidTarget = true'
+						// because that triggers the Green drawing logic at the bottom of the loop.
+						// Setting board[x][y].isTargetable directly allows the click logic to work
+						// without the visual feedback.
+						continue; // Skip the bottom drawing logic for this specific tile
+					}
+				}
+				// Default TARGET_SELF behavior for other cards (Buffs, etc)
+				else {
+					if (x == px && y == py) {
+						isPreview = true;
+						isValidTarget = true;
+					}
+				}
+				break;
+			}
+
 			case TARGET_CLEAVE_ADJACENT: {
 				// List of directions to render previews for
 				std::vector<glm::vec2> dirsToCheck;
@@ -6473,6 +6599,7 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 				}
 				break;
 			}
+
 			case TARGET_ADJACENT_OR_SELF_UNIT: {
 				int distGrid = abs(x - px) + abs(y - py);
 				if (isTargetingAmnesia) {
@@ -6506,6 +6633,7 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 				}
 				break;
 			}
+
 			case TARGET_LINEAR_PIERCE: {
 				glm::vec2 dirs[] = { { 1, 0 }, { -1, 0 }, { 0, 1 }, { 0, -1 } };
 				for (auto & d : dirs) {
@@ -6524,6 +6652,7 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 				}
 				break;
 			}
+
 				// --- FIXED TELEPORT LOGIC ---
 			case TARGET_EMPTY_TILE: {
 				float maxRangeFeet;
@@ -6578,6 +6707,7 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 				}
 				break;
 			}
+
 			default:
 				break;
 			}
@@ -7943,6 +8073,7 @@ CardType ofApp::stringToCardType(const std::string & str) {
 	if (str == "CARD_TIME_VORTEX") return CARD_TIME_VORTEX;
 	if (str == "CARD_MASTER_FIST") return CARD_MASTER_FIST;
 	if (str == "CARD_MAGIC_BOLT") return CARD_MAGIC_BOLT;
+	if (str == "CARD_FLAIL") return CARD_FLAIL;
 
 	return CARD_NONE;
 }
