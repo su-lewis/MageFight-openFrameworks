@@ -887,72 +887,83 @@ void ofApp::updateGame() {
 	if (!players.empty()) {
 		float scale = ofGetHeight() / 1080.0f;
 		float panelWidth = 260 * scale;
-		float entryHeight = 95 * scale;
-		float handBaseCardWidth = 120;
-		float handCardAspectRatio = 585.0f / 409.0f;
-		float baseCardHeight = handBaseCardWidth * handCardAspectRatio;
-		float staticUICardHeight = (baseCardHeight * 1.3f) * scale;
 
-		// --- Counters for Player 0 ---
-		int p0_skeleton_count = 0;
-		int p0_golem_count = 0;
-		int p0_wolf_count = 0; // <--- ADDED
+		// Standard (Max) size for a minion entry
+		float standardEntryHeight = 95 * scale;
+		float gap = 10 * scale;
 
-		// --- Build UI for Player 0 (Left Side) ---
-		float p0_startX = 10 * scale;
-		float p0_startY = (40 * scale) + (65 * scale) + (50 * scale) * 3 + (20 * scale);
-		int p0_minion_ui_count = 0;
+		// 1. DEFINE VERTICAL BOUNDARIES
+		// Top Limit: Directly under Enemy HP (approx 160px down)
+		float topLimitY = 160 * scale;
+
+		// Bottom Limit: Directly above Player AP/Deck (approx 300px from bottom)
+		float bottomLimitY = ofGetHeight() - (300 * scale);
+
+		// Calculate total available height for the list
+		float availableHeight = bottomLimitY - topLimitY;
+
+		// 2. SEPARATE MINIONS BY OWNER
+		std::vector<int> p0_minionIndices;
+		std::vector<int> p1_minionIndices;
+		int p0_skeleton = 0, p0_golem = 0, p0_wolf = 0;
+		int p1_skeleton = 0, p1_golem = 0, p1_wolf = 0;
 
 		for (int i = 0; i < players.size(); i++) {
-			if (players[i].isMinion && players[i].ownerID == 0) {
-				MinionUI ui;
-				ui.playerIndex = i;
-
-				if (players[i].isSkeleton) {
-					ui.displayNumber = ++p0_skeleton_count;
-				} else if (players[i].isGolem) {
-					ui.displayNumber = ++p0_golem_count;
-				} else if (players[i].isWolf) { // <--- ADDED
-					ui.displayNumber = ++p0_wolf_count;
-				}
-
-				ui.bounds.set(p0_startX, p0_startY + (p0_minion_ui_count * (entryHeight + 10 * scale)), panelWidth, entryHeight);
-				activeMinionUIs.push_back(ui);
-				p0_minion_ui_count++;
+			if (players[i].isMinion) {
+				if (players[i].ownerID == 0)
+					p0_minionIndices.push_back(i);
+				else
+					p1_minionIndices.push_back(i);
 			}
 		}
 
-		// --- Counters for Player 1 ---
-		int p1_skeleton_count = 0;
-		int p1_golem_count = 0;
-		int p1_wolf_count = 0; // <--- ADDED
+		// 3. HELPER LAMBDA TO BUILD UI LIST
+		auto buildMinionList = [&](const std::vector<int> & indices, float startX, int & skelCount, int & golemCount, int & wolfCount) {
+			// A. Calculate Dynamic Scaling
+			// How tall would the list be at full size?
+			float totalRequiredHeight = indices.size() * (standardEntryHeight + gap);
 
-		// --- Build UI for Player 1 (Right Side) ---
+			// If it's too tall, shrink the entry height to fit
+			float actualEntryHeight = standardEntryHeight;
+			float actualGap = gap;
+
+			if (totalRequiredHeight > availableHeight && !indices.empty()) {
+				// Calculate scale factor (0.0 to 1.0)
+				float shrinkFactor = availableHeight / totalRequiredHeight;
+				actualEntryHeight = standardEntryHeight * shrinkFactor;
+				actualGap = gap * shrinkFactor;
+			}
+
+			// B. Create UIs
+			for (int i = 0; i < indices.size(); ++i) {
+				int pIndex = indices[i];
+				MinionUI ui;
+				ui.playerIndex = pIndex;
+
+				// Determine display number (e.g. Wolf 1, Wolf 2)
+				if (players[pIndex].isSkeleton)
+					ui.displayNumber = ++skelCount;
+				else if (players[pIndex].isGolem)
+					ui.displayNumber = ++golemCount;
+				else if (players[pIndex].isWolf)
+					ui.displayNumber = ++wolfCount;
+
+				// Calculate Y position
+				float currentY = topLimitY + (i * (actualEntryHeight + actualGap));
+
+				ui.bounds.set(startX, currentY, panelWidth, actualEntryHeight);
+				activeMinionUIs.push_back(ui);
+			}
+		};
+
+		// 4. BUILD LEFT SIDE (Player 0 Minions)
+		// Position: Left edge + padding
+		buildMinionList(p0_minionIndices, 10 * scale, p0_skeleton, p0_golem, p0_wolf);
+
+		// 5. BUILD RIGHT SIDE (Player 1 Minions)
+		// Position: Right edge - panel width - padding
 		float p1_startX = ofGetWidth() - panelWidth - (10 * scale);
-		float p1_discardY = 20 * scale;
-		float p1_deckY = p1_discardY + staticUICardHeight + (20 * scale);
-		float p1_apCenterY = p1_deckY + staticUICardHeight + (60 * scale);
-		float p1_startY = p1_apCenterY + (50 * scale);
-		int p1_minion_ui_count = 0;
-
-		for (int i = 0; i < players.size(); i++) {
-			if (players[i].isMinion && players[i].ownerID == 1) {
-				MinionUI ui;
-				ui.playerIndex = i;
-
-				if (players[i].isSkeleton) {
-					ui.displayNumber = ++p1_skeleton_count;
-				} else if (players[i].isGolem) {
-					ui.displayNumber = ++p1_golem_count;
-				} else if (players[i].isWolf) { // <--- ADDED
-					ui.displayNumber = ++p1_wolf_count;
-				}
-
-				ui.bounds.set(p1_startX, p1_startY + (p1_minion_ui_count * (entryHeight + 10 * scale)), panelWidth, entryHeight);
-				activeMinionUIs.push_back(ui);
-				p1_minion_ui_count++;
-			}
-		}
+		buildMinionList(p1_minionIndices, p1_startX, p1_skeleton, p1_golem, p1_wolf);
 	}
 	// --- END MINION UI REBUILD ---
 
