@@ -437,6 +437,7 @@ private:
 	ofxAssimpModelLoader wolfModel;
 	ofxAssimpModelLoader golemModel;
 
+	ofTexture playerTexture;
 	ofTexture skeletonTexture;
 	ofTexture wolfBodyTex, wolfFaceTex, wolfFurTex;
 	ofTexture golemTexBase, golemTexRock, golemTexFire, golemTexElectric;

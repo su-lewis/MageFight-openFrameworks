@@ -17,16 +17,13 @@ void ofApp::setup() {
 	ofSetCircleResolution(64);
 
 	// --- 1. UI & CONFIG ---
-	// Note: Paths now point to UI/ folder
 
 	// Load the UI Font (m6x11 scaled up 2x)
-	// Used for menus, settings, and smaller UI text.
 	ofTrueTypeFontSettings uiSettings("UI/m6x11plus.ttf", 22); // Was 11. Now 11 * 2 = 22
 	uiSettings.antialiased = false;
 	uiFont.load(uiSettings);
 
 	// Load the Title Font (m6x11 scaled up 4x)
-	// Used for big titles, health bars, and AP counters.
 	ofTrueTypeFontSettings titleSettings("UI/m6x11plus.ttf", 44); // Was 33. Now 11 * 4 = 44
 	titleSettings.antialiased = false;
 	titleFont.load(titleSettings);
@@ -34,11 +31,12 @@ void ofApp::setup() {
 	cardBackImage.load("UI/card_back.png");
 	cardSpriteSheet.load("UI/TTS_Sheet.png");
 
-	// --- 2. UNITS ---
-	// Load Player Model
-	playerModel.load("Units/Player/player.obj");
-	playerModel.setRotation(0, -90, 1, 0, 0);
-	playerModel.setScale(0.003f, 0.003f, 0.003f);
+	// --- Load Player Model ---
+	if (playerModel.load("Units/Player/model.glb")) {
+		playerModel.disableMaterials();
+		playerModel.setScale(0.0035f, 0.0025f, 0.0025f);
+		playerModel.setRotation(0, 180, 0, 0, 1);
+	}
 
 	// Load Skeleton
 	skeletonModel.load("Units/Skeleton/skeleton.fbx");
@@ -2291,8 +2289,21 @@ void ofApp::drawGame() {
 			// ---------------------------
 			else {
 				// Default Player
-				ofTranslate(0, 0.1f, 0);
+
+				// 2. LIFT MODEL UP
+				// Was 0.1f. Changing to 2.5f to lift it out of the floor.
+				// (Adjust this number: Higher = Higher in air, Lower = Lower in floor)
+				ofTranslate(0, 2.5f, 0);
+
+				if (playerTexture.isAllocated()) {
+					playerTexture.bind();
+				}
+
 				playerModel.drawFaces();
+
+				if (playerTexture.isAllocated()) {
+					playerTexture.unbind();
+				}
 			}
 			ofPopMatrix();
 		}
