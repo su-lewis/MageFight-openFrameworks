@@ -299,5 +299,14 @@
     "damageType": "DAMAGE_PHYSICAL",
     "numDice": 1,
     "diceSides": 6
+  },
+  {
+    "id": 36,
+    "name": "Summon Hellhound",
+    "type": "CARD_SUMMON_HELLHOUND",
+    "cost": 5,
+    "targeting": "TARGET_EMPTY_ADJACENT",
+    "numDice": 2,
+    "diceSides": 6
   }
 ]

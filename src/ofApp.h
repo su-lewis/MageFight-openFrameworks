@@ -98,7 +98,8 @@ enum CardType {
 	CARD_TIME_VORTEX,
 	CARD_MASTER_FIST,
 	CARD_MAGIC_BOLT,
-	CARD_FLAIL
+	CARD_FLAIL,
+	CARD_SUMMON_HELLHOUND
 };
 
 enum DicePurpose {
@@ -212,6 +213,7 @@ struct Player {
 	int bonusTurns = 0;
 	int playerID = 0;
 	bool onFire = false;
+	bool hasRegeneration = false;
 
 	// Status & Buffs
 	int nextTurnAPBonus = 0;
@@ -223,15 +225,16 @@ struct Player {
 	bool isReplicatePending = false;
 	bool nextTurnBonusDiceFromMinions = false;
 	int strengthenElementsTurnsRemaining = 0;
+
 	// Minion Data
 	bool isMinion = false;
 	bool isSkeleton = false;
 	bool isGolem = false;
 	bool isHellhound = false;
 	bool isWolf = false;
+
 	ofTexture * minionTexture = nullptr;
 	int ownerID = -1;
-	bool hasRegeneration = false;
 
 	// Piles
 	std::vector<CardType> cardsPlayedThisTurn;
@@ -437,6 +440,7 @@ private:
 	ofxAssimpModelLoader skeletonModel;
 	ofxAssimpModelLoader wolfModel;
 	ofxAssimpModelLoader golemModel;
+	ofxAssimpModelLoader hellhoundModel;
 
 	ofTexture playerTexture;
 	ofTexture skeletonTexture;
@@ -643,6 +647,11 @@ private:
 	// Flail
 	bool isWaitingForFlailDice = false;
 	int pendingFlailRollResult = 0;
+
+	// Hellhound Summoning
+	bool isWaitingForHellhoundHP = false;
+	bool isTargetingHellhound = false; // <--- Add this
+	int hellhoundCardIndex = -1; // <--- Add this
 
 	// Helper functions
 	void drawDoubleHandedUI();

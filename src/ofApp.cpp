@@ -76,6 +76,23 @@ void ofApp::setup() {
 		ofLogNotice() << "Wolf model loaded with " << wolfModel.getMeshCount() << " meshes";
 	}
 
+	// --- Load Hellhound ---
+	if (hellhoundModel.load("Units/Hellhound/hellhound.glb")) {
+		hellhoundModel.disableMaterials(); // Prevent lighting artifacts
+
+		// GLB Fixes (Similar to Player)
+		// 1. Flip Vertical
+		hellhoundModel.setRotation(0, 180, 0, 0, 1);
+
+		// 2. Scale (Hellhounds are usually bulky, maybe slightly larger than the player)
+		// Player was 0.0035f. Let's try 0.004f for the beast.
+		hellhoundModel.setScale(0.004f, 0.004f, 0.004f);
+
+		ofLogNotice("Setup") << "Hellhound model loaded.";
+	} else {
+		ofLogError("Setup") << "Failed to load hellhound.glb";
+	}
+
 	// --- 3. BOARD & SKYBOX ---
 	ofLoadImage(wallTexture, "Board/wall.png");
 	wallTexture.setTextureMinMagFilter(GL_NEAREST, GL_NEAREST);
@@ -903,8 +920,9 @@ void ofApp::updateGame() {
 		// 2. SEPARATE MINIONS BY OWNER
 		std::vector<int> p0_minionIndices;
 		std::vector<int> p1_minionIndices;
-		int p0_skeleton = 0, p0_golem = 0, p0_wolf = 0;
-		int p1_skeleton = 0, p1_golem = 0, p1_wolf = 0;
+		// Counters for minion types
+		int p0_skeleton = 0, p0_golem = 0, p0_wolf = 0, p0_hound = 0;
+		int p1_skeleton = 0, p1_golem = 0, p1_wolf = 0, p1_hound = 0;
 
 		for (int i = 0; i < players.size(); i++) {
 			if (players[i].isMinion) {
@@ -916,11 +934,10 @@ void ofApp::updateGame() {
 		}
 
 		// 3. HELPER LAMBDA TO BUILD UI LIST
-		auto buildMinionList = [&](const std::vector<int> & indices, float startX, int & skelCount, int & golemCount, int & wolfCount) {
+		// FIX: Added ", int& houndCount" to the end of the parameters here
+		auto buildMinionList = [&](const std::vector<int> & indices, float startX, int & skelCount, int & golemCount, int & wolfCount, int & houndCount) {
 			// A. Calculate Dynamic Scaling
 			float totalRequiredHeight = indices.size() * (standardEntryHeight + gap);
-
-			// If it's too tall, shrink the entry height to fit
 			float actualEntryHeight = standardEntryHeight;
 			float actualGap = gap;
 
@@ -942,6 +959,8 @@ void ofApp::updateGame() {
 					ui.displayNumber = ++golemCount;
 				else if (players[pIndex].isWolf)
 					ui.displayNumber = ++wolfCount;
+				else if (players[pIndex].isHellhound)
+					ui.displayNumber = ++houndCount; // <--- Increment logic
 
 				float currentY = topLimitY + (i * (actualEntryHeight + actualGap));
 
@@ -950,11 +969,11 @@ void ofApp::updateGame() {
 			}
 		};
 
-		// 4. BUILD LISTS
-		buildMinionList(p0_minionIndices, 10 * scale, p0_skeleton, p0_golem, p0_wolf);
+		// 4. BUILD LISTS (Now these calls with 6 arguments will work)
+		buildMinionList(p0_minionIndices, 10 * scale, p0_skeleton, p0_golem, p0_wolf, p0_hound);
 
 		float p1_startX = ofGetWidth() - panelWidth - (10 * scale);
-		buildMinionList(p1_minionIndices, p1_startX, p1_skeleton, p1_golem, p1_wolf);
+		buildMinionList(p1_minionIndices, p1_startX, p1_skeleton, p1_golem, p1_wolf, p1_hound);
 	}
 	// --- END MINION UI REBUILD ---
 
@@ -1608,6 +1627,71 @@ void ofApp::updateGame() {
 				}
 			}
 		}
+	}
+
+	// --- HELLHOUND SUMMON RESOLUTION ---
+	if (isWaitingForHellhoundHP && activeDiceRolls.empty()) {
+		isWaitingForHellhoundHP = false;
+
+		// 1. Create Unit
+		Player minion;
+		minion.playerID = 1000 + (int)players.size();
+		minion.x = (int)pendingSummonTile.x;
+		minion.y = (int)pendingSummonTile.y;
+		minion.maxHealth = pendingSummonRollResult;
+		minion.health = pendingSummonRollResult;
+
+		minion.isMinion = true;
+		minion.isHellhound = true;
+		minion.ownerID = players[currentPlayerIndex].playerID;
+
+		// 2. Build Deck
+		for (const auto & c : allCards) {
+			if (c.name == "Slash") {
+				minion.deck.push_back(c);
+				minion.deck.push_back(c);
+			}
+			if (c.type == CARD_FLAME_HIT) {
+				minion.deck.push_back(c);
+				minion.deck.push_back(c);
+			}
+			if (c.type == CARD_FIREBALL) {
+				minion.deck.push_back(c);
+				minion.deck.push_back(c);
+			}
+			if (c.type == CARD_DARK_SHIELD) {
+				minion.deck.push_back(c);
+				minion.deck.push_back(c);
+				minion.deck.push_back(c);
+			}
+		}
+		std::shuffle(minion.deck.begin(), minion.deck.end(), rng);
+
+		// 3. Add to Board
+		board[minion.x][minion.y].hasPlayer = true;
+		players.push_back(minion);
+
+		ofLogNotice("Summon") << "Hellhound summoned with " << minion.health << " HP.";
+
+		// 4. Sort Turn Order
+		int currentID = players[currentPlayerIndex].playerID;
+		std::sort(players.begin(), players.end(), [](const Player & a, const Player & b) {
+			int ownerA = a.isMinion ? a.ownerID : a.playerID;
+			int ownerB = b.isMinion ? b.ownerID : b.playerID;
+			if (ownerA != ownerB) return ownerA < ownerB;
+			if (a.isMinion && !b.isMinion) return true;
+			if (!a.isMinion && b.isMinion) return false;
+			return a.playerID < b.playerID;
+		});
+
+		// 5. Restore Index
+		for (size_t i = 0; i < players.size(); i++) {
+			if (players[i].playerID == currentID) {
+				currentPlayerIndex = i;
+				break;
+			}
+		}
+		invalidateTargetCache();
 	}
 
 	// --- FLAIL RESOLUTION ---
@@ -2356,6 +2440,20 @@ void ofApp::drawGame() {
 				wolfFurTex.unbind();
 				ofDisableAlphaBlending();
 				glDepthMask(GL_TRUE);
+			}
+
+			// --- HELLHOUND RENDERING ---
+			else if (player.isHellhound) {
+				ofSetColor(255);
+
+				// Lift up slightly if clipping into floor (Adjust Y as needed)
+				ofTranslate(0, 2.5f, 0);
+
+				// Rotate to face the correct game direction
+				// (Adjust this -90 if he's facing sideways)
+				ofRotateYDeg(-90);
+
+				hellhoundModel.drawFaces();
 			}
 			// ---------------------------
 			else {
@@ -3570,6 +3668,7 @@ void ofApp::drawGame() {
 		ofSetColor(ofColor::white);
 		uiFont.drawString(tooltipText, tooltipX + padding, tooltipY + textHeight + padding / 2.0f);
 	}
+
 	// --- DRAW OVERLAY UIs ---
 	if (isMagicBlastChoiceActive) {
 		drawMagicBlastChoiceUI();
@@ -3587,6 +3686,7 @@ void ofApp::drawGame() {
 	if (isAmnesiaMenuOpen) {
 		drawAmnesiaMenuUI();
 	}
+
 	// --- TOP INSTRUCTION TEXT (Wolf Placement) ---
 	if (isPlacingWolves && !isWaitingForWolfCoin) {
 		string msg = "Choose Wolf Spawn Square";
@@ -3612,6 +3712,7 @@ void ofApp::drawGame() {
 		ofSetColor(ofColor::white);
 		titleFont.drawString(msg, tx, ty);
 	}
+
 	// --- MAGIC BOLT INSTRUCTION TEXT ---
 	if (isTargetingMagicBolt) {
 		string msg = "Choose Target Tile for Magic Bolt";
@@ -3626,6 +3727,7 @@ void ofApp::drawGame() {
 		ofSetColor(ofColor::cyan);
 		titleFont.drawString(msg, tx, ty);
 	}
+
 	// --- DOUBLE HANDED TARGETING INSTRUCTION TEXT ---
 	if (isTargetingDoubleHanded) {
 		string msg = "Choose Target for Double Handed (2x " + pendingDoubleHandedChoice + ")";
@@ -3638,6 +3740,7 @@ void ofApp::drawGame() {
 		ofSetColor(ofColor::yellow);
 		titleFont.drawString(msg, tx, ty);
 	}
+
 	// --- AMNESIA TARGETING INSTRUCTION TEXT ---
 	if (isTargetingAmnesia) {
 		string msg = "Choose Adjacent Unit for Amnesia";
@@ -3650,6 +3753,22 @@ void ofApp::drawGame() {
 		ofSetColor(ofColor::magenta);
 		titleFont.drawString(msg, tx, ty);
 	}
+
+	// --- HELLHOUND INSTRUCTION TEXT ---
+	if (isTargetingHellhound) {
+		string msg = "Choose Adjacent Tile for Hellhound";
+		ofRectangle bbox = titleFont.getStringBoundingBox(msg, 0, 0);
+		float tx = (ofGetWidth() / 2.0f) - (bbox.width / 2.0f);
+		float ty = ofGetHeight() * 0.25f;
+
+		// Shadow
+		ofSetColor(0, 0, 0, 255);
+		titleFont.drawString(msg, tx + 2, ty + 2);
+		// Text (Orange for fire/hell)
+		ofSetColor(ofColor::orangeRed);
+		titleFont.drawString(msg, tx, ty);
+	}
+
 	// --- TELEPORT TARGETING INSTRUCTION TEXT ---
 	if (isTargetingTeleport) {
 		string msg = "Choose Teleport Destination (Range: " + ofToString(pendingTeleportRollResult) + " ft)";
@@ -3662,6 +3781,7 @@ void ofApp::drawGame() {
 		ofSetColor(ofColor::cyan);
 		titleFont.drawString(msg, tx, ty);
 	}
+
 	// --- BONUS TURNS COUNTER ---
 	if (currentPlayerIndex != -1) {
 		Player & currentPlayer = players[currentPlayerIndex];
@@ -3685,6 +3805,7 @@ void ofApp::drawGame() {
 			titleFont.drawString(msg, tx, ty);
 		}
 	}
+
 	// --- DRAW DICE LABEL ---
 	if (!activeDiceRolls.empty()) {
 		ofPushMatrix();
@@ -3774,6 +3895,8 @@ void ofApp::mouseMoved(int x, int y) {
 		int activeCardForHighlight = -1;
 		if (isTargetingTeleport) {
 			activeCardForHighlight = pendingTeleportCardIndex;
+		} else if (isTargetingHellhound) {
+			activeCardForHighlight = hellhoundCardIndex;
 		} else if (isTargetingAmnesia) {
 			activeCardForHighlight = pendingAmnesiaCardIndex;
 		} else if (isTargetingDoubleHanded) {
@@ -4303,6 +4426,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 		}
 		if (ofRectangle(panelX, panelY, panelWidth, panelHeight).inside(x, y)) return;
 	}
+
 	// --- 1h. Magic Bolt Targeting Click ---
 	if (isTargetingMagicBolt && button == OF_MOUSE_BUTTON_LEFT) {
 		ofVec2f boardPos = mouseToBoard(x, y);
@@ -4325,6 +4449,33 @@ void ofApp::mousePressed(int x, int y, int button) {
 		// Clicked invalid? Cancel.
 		isTargetingMagicBolt = false;
 		magicBoltCardIndex = -1;
+		clearHighlights();
+		return;
+	}
+
+	// --- 1i. Hellhound Targeting Click ---
+	if (isTargetingHellhound && button == OF_MOUSE_BUTTON_LEFT) {
+		ofVec2f boardPos = mouseToBoard(x, y);
+		int gx = floor(boardPos.x);
+		int gy = floor(boardPos.y);
+
+		// Clicked valid target?
+		if (gx >= 0 && gx < BOARD_WIDTH && gy >= 0 && gy < BOARD_HEIGHT) {
+			if (board[gx][gy].isTargetable) {
+				// This calls the playCard logic we wrote earlier (which rolls dice)
+				playCard(hellhoundCardIndex, gx, gy);
+
+				// Reset State
+				isTargetingHellhound = false;
+				hellhoundCardIndex = -1;
+				clearHighlights();
+				return;
+			}
+		}
+
+		// Clicked invalid? Cancel.
+		isTargetingHellhound = false;
+		hellhoundCardIndex = -1;
 		clearHighlights();
 		return;
 	}
@@ -4919,7 +5070,17 @@ void ofApp::mouseReleased(int x, int y, int button) {
 							return;
 						}
 
-						// --- E. STANDARD PLAY ---
+						// --- HELLHOUND TARGETING ---
+						if (playedCard.type == CARD_SUMMON_HELLHOUND) {
+							isTargetingHellhound = true;
+							hellhoundCardIndex = draggedCardIndex;
+							draggedCardIndex = -1;
+							selectedCardIndex = -1;
+							calculateTargetHighlights(hellhoundCardIndex);
+							return;
+						}
+
+						// --- STANDARD PLAY ---
 						if (playedCard.targeting == TARGET_SELF) {
 							playCard(draggedCardIndex, -1, -1);
 						} else {
@@ -5219,6 +5380,10 @@ void ofApp::continueNewTurn() {
 	// --- AP ROLL LOGIC ---
 	if (startingPlayer.isWolf) {
 		startDiceRoll(1, 10, PURPOSE_AP, "Wolf AP Roll");
+	}
+	// --- HELLHOUND AP (2d6) ---
+	else if (startingPlayer.isHellhound) {
+		startDiceRoll(2, 6, PURPOSE_AP, "Hellhound AP Roll");
 	} else if (startingPlayer.isMinion) {
 		startDiceRoll(1, 6, PURPOSE_AP, "Minion AP Roll");
 	} else {
@@ -5330,7 +5495,13 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 
 		int calculatedDamage = damage;
 
-		// --- CHECK CALL FOR WOLVES VULNERABILITY ---
+		// --- 1. Hellhound Vulnerability ---
+		// Hellhounds take double Holy damage
+		if (target.isHellhound && type == DAMAGE_HOLY) {
+			calculatedDamage *= 2;
+			spawnFloatingText(gridToWorld(target.x, target.y), "Vulnerable! (x2)", ofColor::orange);
+		}
+		// --- 2. Call for Wolves vulnerability ---
 		// Any unit with "Call for Wolves" in their deck/hand/discard takes double Piercing damage
 		if (type == DAMAGE_PIERCING) {
 			bool hasWolfCall = false;
@@ -5918,6 +6089,28 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		break;
 	}
 
+		// --- CASE: SUMMON HELLHOUND ---
+	case CARD_SUMMON_HELLHOUND: {
+		if (board[targetX][targetY].hasWall || board[targetX][targetY].hasPlayer) break;
+
+		pendingSummonTile = glm::vec2(targetX, targetY);
+		// Important: This must match the variable checked in updateGame
+		pendingSummonRollResult = startDiceRoll(playedCard.numDice, playedCard.diceSides, PURPOSE_HP, "Hellhound HP");
+		isWaitingForHellhoundHP = true;
+
+		// Cleanup Logic
+		currentAP -= playedCard.cost;
+		currentPlayer.playedCardsPile.push_back(playedCard);
+		// ... (Replicate logic) ...
+		currentPlayer.cardsPlayedThisTurn.push_back(playedCard.type);
+		currentPlayer.hand.erase(currentPlayer.hand.begin() + cardIndex);
+		activeCardDisplays.push_back({ playedCard, ofGetElapsedTimef() });
+		invalidateTargetCache();
+
+		playedSuccessfully = false; // Prevent double cleanup
+		break;
+	}
+
 	// --- CASE: STRENGTHEN ELEMENTS ---
 	case CARD_STRENGTHEN_ELEMENTS: {
 		// Set duration to 3 (Current Turn + Next 2 Turns)
@@ -6463,6 +6656,7 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 	if (isTargetingTeleport) activeCardIndex = pendingTeleportCardIndex;
 	if (isTargetingAmnesia) activeCardIndex = pendingAmnesiaCardIndex;
 	if (isTargetingDoubleHanded) activeCardIndex = pendingDoubleHandedCardIndex;
+	if (isTargetingHellhound) activeCardIndex = hellhoundCardIndex;
 
 	// Safety Check
 	if (activeCardIndex < 0 || activeCardIndex >= (int)currentPlayer.hand.size()) return;
@@ -6473,7 +6667,8 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 	glm::vec2 casterPos(px, py);
 
 	// Check AP (Targeting modes imply AP check passed already)
-	bool inTargetingMode = isTargetingAmnesia || isTargetingDoubleHanded || isTargetingTeleport || isTargetingMagicBolt;
+	bool inTargetingMode = isTargetingAmnesia || isTargetingDoubleHanded || isTargetingTeleport || isTargetingMagicBolt || isTargetingHellhound;
+
 	bool hasEnoughAP = inTargetingMode || (currentAP >= card.cost);
 
 	// --- MOUSE HOVER CALCULATION ---
@@ -6625,9 +6820,14 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 					isPreview = true;
 					if (card.type == CARD_ROCK_CRUSH) {
 						if (board[x][y].hasWall || board[x][y].hasPlayer) isValidTarget = true;
-					} else if (card.type == CARD_CALL_FOR_WOLVES || card.type == CARD_SUMMON_GOLEM || card.type == CARD_RAISE_DEAD || card.type == CARD_CREATE_WALL) {
+					}
+					// --- FIX IS HERE: Add CARD_SUMMON_HELLHOUND to this list ---
+					else if (card.type == CARD_CALL_FOR_WOLVES || card.type == CARD_SUMMON_GOLEM || card.type == CARD_RAISE_DEAD || card.type == CARD_CREATE_WALL || card.type == CARD_SUMMON_HELLHOUND) { // <--- ADDED THIS
+
 						if (!board[x][y].hasWall && !board[x][y].hasPlayer) isValidTarget = true;
+
 					} else {
+						// Default attack logic (requires player)
 						if (board[x][y].hasPlayer && !board[x][y].hasWall) isValidTarget = true;
 					}
 				}
@@ -8074,6 +8274,7 @@ CardType ofApp::stringToCardType(const std::string & str) {
 	if (str == "CARD_MASTER_FIST") return CARD_MASTER_FIST;
 	if (str == "CARD_MAGIC_BOLT") return CARD_MAGIC_BOLT;
 	if (str == "CARD_FLAIL") return CARD_FLAIL;
+	if (str == "CARD_SUMMON_HELLHOUND") return CARD_SUMMON_HELLHOUND;
 
 	return CARD_NONE;
 }
@@ -8229,7 +8430,17 @@ void ofApp::drawMinionManagerUI() {
 			ofDisableAlphaBlending();
 			glDepthMask(GL_TRUE);
 
-		} else {
+		}
+		// --- ADD HELLHOUND PREVIEW ---
+		else if (minion.isHellhound) {
+			ofTranslate(modelFbo.getWidth() / 2, modelFbo.getHeight() / 2 + 20);
+			ofScale(18, 18, 18); // Adjust scale for UI box
+			ofRotateXDeg(-15);
+			ofRotateYDeg(180 + ofGetElapsedTimef() * 30);
+			hellhoundModel.drawFaces();
+		}
+
+		else {
 			// --- SKELETON UI SETTINGS ---
 			ofSetColor(255);
 			ofTranslate(modelFbo.getWidth() / 2, 90);
@@ -8262,6 +8473,8 @@ void ofApp::drawMinionManagerUI() {
 				name = "Golem ";
 		} else if (minion.isWolf) {
 			name = "Wolf ";
+		} else if (minion.isHellhound) {
+			name = "Hellhound ";
 		} else {
 			name = "Skeleton ";
 		}
