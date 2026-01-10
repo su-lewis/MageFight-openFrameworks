@@ -34,7 +34,7 @@ void ofApp::setup() {
 	// --- Load Player Model ---
 	if (playerModel.load("Units/Player/model.glb")) {
 		playerModel.disableMaterials();
-		playerModel.setScale(0.0035f, 0.0025f, 0.0025f);
+		playerModel.setScale(0.0025f, 0.0025f, 0.0025f);
 		playerModel.setRotation(0, 180, 0, 0, 1);
 	}
 
@@ -43,7 +43,7 @@ void ofApp::setup() {
 	ofLoadImage(skeletonTexture, "Units/Skeleton/base.png");
 	skeletonModel.setRotation(0, 180, 1, 0, 0);
 	skeletonModel.setRotation(1, 180, 0, 1, 0);
-	skeletonModel.setScale(0.003f, 0.003f, 0.003f);
+	skeletonModel.setScale(0.0025f, 0.0025f, 0.0025f);
 	skeletonModel.disableMaterials();
 
 	// Load Golem
@@ -78,19 +78,15 @@ void ofApp::setup() {
 
 	// --- Load Hellhound ---
 	if (hellhoundModel.load("Units/Hellhound/hellhound.glb")) {
-		hellhoundModel.disableMaterials(); // Prevent lighting artifacts
+		hellhoundModel.disableMaterials();
 
-		// GLB Fixes (Similar to Player)
-		// 1. Flip Vertical
-		hellhoundModel.setRotation(0, 180, 0, 0, 1);
+		// FIX: Rotate -90 around X to lift face off the ground
+		hellhoundModel.setRotation(0, 90, 1, 0, 0);
 
-		// 2. Scale (Hellhounds are usually bulky, maybe slightly larger than the player)
-		// Player was 0.0035f. Let's try 0.004f for the beast.
-		hellhoundModel.setScale(0.004f, 0.004f, 0.004f);
+		// Scale
+		hellhoundModel.setScale(0.0045f, 0.0045f, 0.0045f);
 
 		ofLogNotice("Setup") << "Hellhound model loaded.";
-	} else {
-		ofLogError("Setup") << "Failed to load hellhound.glb";
 	}
 
 	// --- 3. BOARD & SKYBOX ---
@@ -2388,7 +2384,7 @@ void ofApp::drawGame() {
 			// --- DRAW LOGIC ---
 			if (player.isSkeleton) {
 				ofSetColor(255);
-				ofTranslate(0, 2.5f, 0);
+				ofTranslate(0, 2.0f, 0);
 				skeletonTexture.bind();
 				skeletonModel.drawFaces();
 				skeletonTexture.unbind();
@@ -2396,13 +2392,13 @@ void ofApp::drawGame() {
 				ofSetColor(255);
 
 				// Lift up from floor
-				ofTranslate(0, 2.0f, 0);
+				ofTranslate(0, 3.0f, 0);
 
 				// Keep upright rotation
 				ofRotateXDeg(180);
 
 				// Rotate to North
-				ofRotateYDeg(-90);
+				ofRotateYDeg(90);
 
 				if (player.minionTexture) {
 					player.minionTexture->bind();
@@ -2419,8 +2415,8 @@ void ofApp::drawGame() {
 				ofSetColor(255);
 
 				// Lift wolf up from floor slightly
-				ofTranslate(0, 0.5f, 0);
-				ofScale(0.022f, 0.022f, 0.022f);
+				ofTranslate(0, 0.4f, 0);
+				ofScale(0.015f, 0.015f, 0.015f);
 
 				// Draw skin meshes (body=6, hands=7, face=8+)
 				for (unsigned int i = 6; i < wolfModel.getMeshCount(); i++) {
@@ -2446,12 +2442,12 @@ void ofApp::drawGame() {
 			else if (player.isHellhound) {
 				ofSetColor(255);
 
-				// Lift up slightly if clipping into floor (Adjust Y as needed)
-				ofTranslate(0, 2.5f, 0);
+				// FIX: Lowered from 2.5f to 0.1f (Floor level)
+				ofTranslate(0, 0.1f, 0);
 
-				// Rotate to face the correct game direction
-				// (Adjust this -90 if he's facing sideways)
-				ofRotateYDeg(-90);
+				// FIX: Changed from -90 to 180 to rotate it West->North (90 degrees)
+				// If this makes it face South, try 0 instead.
+				ofRotateYDeg(180);
 
 				hellhoundModel.drawFaces();
 			}
@@ -3811,20 +3807,22 @@ void ofApp::drawGame() {
 		ofPushMatrix();
 
 		// FIXED POSITION CALCULATION:
-		// Use visible button Y (20 * scale) + button height (60) + padding (50)
-		// This keeps the text static even if the button flies up.
+		// We calculate position based on the screen top, not the button.
+		// Button sits at 20*scale. Height is 60. Padding 50.
 		float fixedY = (20 * scale) + (60 * scale) + (50 * scale);
 		float fixedX = ofGetWidth() / 2.0f;
 
 		// Draw Shadow
 		ofSetColor(0, 0, 0, 255);
 		ofRectangle bounds = titleFont.getStringBoundingBox(currentDiceLabel, 0, 0);
+
+		// Scale text
 		float textScale = 0.8f;
 
 		ofTranslate(fixedX, fixedY);
 		ofScale(textScale, textScale);
 
-		titleFont.drawString(currentDiceLabel, -bounds.width / 2 + 3, 3);
+		titleFont.drawString(currentDiceLabel, -bounds.width / 2 + 3, 3); // Shadow offset
 
 		// Draw Main Text (Gold)
 		ofSetColor(255, 215, 0);
@@ -8406,8 +8404,11 @@ void ofApp::drawMinionManagerUI() {
 
 		} else if (minion.isWolf) {
 			// --- WOLF UI SETTINGS ---
-			ofTranslate(modelFbo.getWidth() / 2, modelFbo.getHeight() / 2 + 20);
-			ofScale(3.5f, 3.5f, 3.5f);
+			ofTranslate(modelFbo.getWidth() / 2, modelFbo.getHeight() / 2 + 10);
+
+			// FIX: Negative Y to flip upright. Reduced size from 3.5 to 2.2
+			ofScale(2.2f, -2.2f, 2.2f);
+
 			ofRotateXDeg(-15);
 			ofRotateYDeg(180 + ofGetElapsedTimef() * 30);
 
@@ -8419,7 +8420,7 @@ void ofApp::drawMinionManagerUI() {
 				if (tex->isAllocated()) tex->unbind();
 			}
 
-			// Draw fur on top
+			// Draw fur
 			glDepthMask(GL_FALSE);
 			ofEnableAlphaBlending();
 			wolfFurTex.bind();
@@ -8431,10 +8432,13 @@ void ofApp::drawMinionManagerUI() {
 			glDepthMask(GL_TRUE);
 
 		}
-		// --- ADD HELLHOUND PREVIEW ---
+		// --- HELLHOUND PREVIEW ---
 		else if (minion.isHellhound) {
-			ofTranslate(modelFbo.getWidth() / 2, modelFbo.getHeight() / 2 + 20);
-			ofScale(18, 18, 18); // Adjust scale for UI box
+			ofTranslate(modelFbo.getWidth() / 2, modelFbo.getHeight() / 2 + 10);
+
+			// FIX: Negative Y to flip upright.
+			ofScale(18, -18, 18);
+
 			ofRotateXDeg(-15);
 			ofRotateYDeg(180 + ofGetElapsedTimef() * 30);
 			hellhoundModel.drawFaces();
