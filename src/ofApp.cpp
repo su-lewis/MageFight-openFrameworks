@@ -696,8 +696,8 @@ void ofApp::applySettings() {
 
 	worldPostShaderLoaded = false;
 	worldPostShader.unload();
-	const bool shaderVertOk = worldPostShader.setupShaderFromFile(GL_VERTEX_SHADER, "shaders/post.vert");
-	const bool shaderFragOk = worldPostShader.setupShaderFromFile(GL_FRAGMENT_SHADER, "shaders/post.frag");
+	const bool shaderVertOk = worldPostShader.setupShaderFromFile(GL_VERTEX_SHADER, "Shaders/post.vert");
+	const bool shaderFragOk = worldPostShader.setupShaderFromFile(GL_FRAGMENT_SHADER, "Shaders/post.frag");
 	if (shaderVertOk && shaderFragOk) {
 		// Critical on some systems: bind OF's default attribute locations (position/texcoord/etc)
 		// BEFORE linking, otherwise our fullscreen quad can end up with no valid attributes.
@@ -3617,18 +3617,30 @@ void ofApp::drawGame() {
 	// --- DRAW DICE LABEL ---
 	if (!activeDiceRolls.empty()) {
 		ofPushMatrix();
-		// Center of screen, slightly above center
-		float cx = ofGetWidth() / 2.0f;
-		float cy = ofGetHeight() * 0.35f;
 
-		// Draw Shadow
+		// 1. Calculate Position relative to End Turn Button
+		// The button rect is 'endTurnButtonRect'
+		float cx = endTurnButtonRect.getCenter().x;
+
+		// Position it 50 pixels below the bottom of the button
+		float cy = endTurnButtonRect.getBottom() + 50 * scale;
+
+		// 2. Draw Shadow
 		ofSetColor(0, 0, 0, 255);
 		ofRectangle bounds = titleFont.getStringBoundingBox(currentDiceLabel, 0, 0);
-		titleFont.drawString(currentDiceLabel, cx - bounds.width / 2 + 3, cy + 3);
 
-		// Draw Text (Gold color)
+		// Scale the text down slightly so it fits nicely
+		float textScale = 0.8f;
+
+		ofTranslate(cx, cy);
+		ofScale(textScale, textScale);
+
+		titleFont.drawString(currentDiceLabel, -bounds.width / 2 + 3, 3); // Shadow offset
+
+		// 3. Draw Main Text (Gold color)
 		ofSetColor(255, 215, 0);
-		titleFont.drawString(currentDiceLabel, cx - bounds.width / 2, cy);
+		titleFont.drawString(currentDiceLabel, -bounds.width / 2, 0);
+
 		ofPopMatrix();
 	}
 	ofDrawBitmapString("FPS: " + ofToString(ofGetFrameRate(), 2), 10, 20);
