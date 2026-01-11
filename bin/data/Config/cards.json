@@ -308,5 +308,14 @@
     "targeting": "TARGET_EMPTY_ADJACENT",
     "numDice": 2,
     "diceSides": 6
+  },
+  {
+    "id": 37,
+    "name": "Death",
+    "type": "CARD_DEATH",
+    "cost": 8,
+    "targeting": "TARGET_LINE_OF_SIGHT_TILE",
+    "numDice": 1,
+    "diceSides": 20
   }
 ]

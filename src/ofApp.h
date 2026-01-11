@@ -99,7 +99,8 @@ enum CardType {
 	CARD_MASTER_FIST,
 	CARD_MAGIC_BOLT,
 	CARD_FLAIL,
-	CARD_SUMMON_HELLHOUND
+	CARD_SUMMON_HELLHOUND,
+	CARD_DEATH
 };
 
 enum DicePurpose {
@@ -112,7 +113,9 @@ enum DicePurpose {
 	PURPOSE_HP,
 	PURPOSE_HEALING,
 	PURPOSE_BONUS_AP,
-	PURPOSE_TIME_VORTEX
+	PURPOSE_TIME_VORTEX,
+	PURPOSE_DEATH_CHECK,
+	PURPOSE_SLEEP_DURATION
 };
 
 enum TargetValidity {
@@ -225,6 +228,7 @@ struct Player {
 	bool isReplicatePending = false;
 	bool nextTurnBonusDiceFromMinions = false;
 	int strengthenElementsTurnsRemaining = 0;
+	int sleepTurnsRemaining = 0;
 
 	// Minion Data
 	bool isMinion = false;
@@ -608,17 +612,17 @@ private:
 
 	// --- Double Handed State ---
 	bool isDoubleHandedMenuOpen = false;
-	bool isTargetingDoubleHanded = false; // Waiting for target click
+	bool isTargetingDoubleHanded = false;
 	int pendingDoubleHandedCardIndex = -1;
 	int pendingDoubleHandedTargetIndex = -1;
-	std::string pendingDoubleHandedChoice = ""; // "Punch" or "Hand Block"
+	std::string pendingDoubleHandedChoice = "";
 	ofRectangle doubleHandedMenuRect;
 	ofRectangle btnAddPunches;
 	ofRectangle btnAddBlocks;
 
 	// --- Amnesia State ---
 	bool isAmnesiaMenuOpen = false; // Choosing Self vs Adjacent
-	bool isTargetingAmnesia = false; // Waiting for adjacent target click
+	bool isTargetingAmnesia = false;
 	int pendingAmnesiaCardIndex = -1;
 	ofRectangle amnesiaMenuRect;
 	ofRectangle amnesiaBtnSelf;
@@ -641,7 +645,7 @@ private:
 	bool isWaitingForMagicBoltRange = false;
 	int pendingMagicBoltRangeResult = 0;
 	bool isTargetingMagicBolt = false;
-	int magicBoltCardIndex = -1; // To remember which card in hand is being used
+	int magicBoltCardIndex = -1;
 	glm::vec2 pendingMagicBoltTargetTile;
 
 	// Flail
@@ -650,8 +654,14 @@ private:
 
 	// Hellhound Summoning
 	bool isWaitingForHellhoundHP = false;
-	bool isTargetingHellhound = false; // <--- Add this
-	int hellhoundCardIndex = -1; // <--- Add this
+	bool isTargetingHellhound = false;
+	int hellhoundCardIndex = -1;
+
+	// Death Card Logic
+	bool isWaitingForDeathDice = false;
+	bool isWaitingForSleepDuration = false;
+	int pendingDeathTargetIndex = -1;
+	int pendingDeathRollResult = 0;
 
 	// Helper functions
 	void drawDoubleHandedUI();

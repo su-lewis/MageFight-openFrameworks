@@ -1373,6 +1373,46 @@ void ofApp::updateGame() {
 		invalidateTargetCache();
 	}
 
+	// --- DEATH RESOLUTION ---
+	if (isWaitingForDeathDice && activeDiceRolls.empty()) {
+		isWaitingForDeathDice = false;
+
+		Player * target = getPlayer(pendingDeathTargetIndex);
+		if (target) {
+			int roll = pendingDeathRollResult;
+
+			if (roll > target->health) {
+				// SUCCESS: DEATH
+				spawnFloatingText(gridToWorld(target->x, target->y), "Executed!", ofColor::red);
+
+				DeathMarker death;
+				death.x = target->x;
+				death.y = target->y;
+				death.turnDied = globalTurnCounter;
+				death.deck = target->deck;
+				graveyard.push_back(death);
+				board[target->x][target->y].hasPlayer = false;
+				target->x = -1000;
+				target->health = 0;
+			} else {
+				// FAIL: SLEEP (Roll Duration)
+				spawnFloatingText(gridToWorld(target->x, target->y), "Sleep...", ofColor::cyan);
+
+				// Roll 1d6 for duration
+				startDiceRoll(1, 6, PURPOSE_SLEEP_DURATION, "Sleep Duration");
+				isWaitingForSleepDuration = true;
+				// Note: pendingDeathTargetIndex is still valid
+			}
+		} else {
+			pendingDeathTargetIndex = -1;
+		}
+	}
+
+	// --- SLEEP DURATION RESOLUTION ---
+	if (isWaitingForSleepDuration && activeDiceRolls.empty()) {
+		isWaitingForSleepDuration = false;
+	}
+
 	// --- ETHEREAL JOLT RESOLUTION ---
 	if (isWaitingForJoltRangeDice && activeDiceRolls.empty()) {
 		isWaitingForJoltRangeDice = false;
@@ -1816,6 +1856,13 @@ void ofApp::updateGame() {
 			burningPlayer.onFire = false;
 			spawnFloatingText(gridToWorld(burningPlayer.x, burningPlayer.y) + glm::vec3(0, 0.8f, 0), "Extinguished", ofColor::white);
 		}
+		// CHECK SLEEP AFTER FIRE
+		Player & p = players[currentPlayerIndex];
+		if (p.sleepTurnsRemaining > 0) {
+			startNewTurn(); // Skip turn because sleeping
+			return;
+		}
+
 		continueNewTurn();
 	}
 
@@ -1840,6 +1887,16 @@ void ofApp::updateGame() {
 						players[currentPlayerIndex].nextTurnAPBonus = 0;
 					}
 					ofLogNotice("Game") << "AP Roll Finished: " << currentAP << " AP awarded.";
+				} else if (roll.purpose == PURPOSE_SLEEP_DURATION) {
+					Player * t = getPlayer(pendingDeathTargetIndex);
+					if (t) {
+						t->sleepTurnsRemaining = roll.result;
+						spawnFloatingText(gridToWorld(t->x, t->y), ofToString(roll.result) + " Turns Sleep", ofColor::cyan);
+					}
+					pendingDeathTargetIndex = -1;
+				} else if (roll.purpose == PURPOSE_DEATH_CHECK) {
+					pendingDeathRollResult = roll.result;
+					// Logic is handled in the separate updateGame block
 				} else if (roll.purpose == PURPOSE_BONUS_AP) {
 					currentAP += roll.result;
 					spawnFloatingText(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y),
@@ -2638,20 +2695,137 @@ void ofApp::drawGame() {
 		float time = ofGetElapsedTimef();
 		int fireFrame = (int)(time * 10) % 4;
 		for (const auto & player : players) {
-			if (player.onFire) {
-				glm::vec3 pos;
-				if (currentPlayerIndex >= 0 && player.playerID == players[currentPlayerIndex].playerID) {
-					pos = playerVisualPos;
-				} else {
-					pos = gridToWorld(player.x, player.y);
+			// 1. Determine Base World Position
+			glm::vec3 pos;
+			if (currentPlayerIndex >= 0 && player.playerID == players[currentPlayerIndex].playerID) {
+				pos = playerVisualPos;
+			} else {
+				pos = gridToWorld(player.x, player.y);
+			}
+
+			// Define a height offset for status effects based on unit type
+			float headHeight = 4.0f; // Default (Player/Skeleton)
+
+			// --- RENDER UNIT MESH (Isolated Matrix) ---
+			ofPushMatrix();
+
+			// Move to grid tile
+			if (player.isSkeleton) {
+				ofTranslate(pos.x, 0.1f, pos.z); // Grid Pos + Floor Offset
+				ofTranslate(0, 2.0f, 0); // Model specific offset
+				skeletonTexture.bind();
+				skeletonModel.drawFaces();
+				skeletonTexture.unbind();
+			} else if (player.isGolem) {
+				headHeight = 5.5f; // Golems are tall
+				ofTranslate(pos.x, 0.1f, pos.z);
+				ofTranslate(0, 3.0f, 0);
+				ofRotateXDeg(180);
+				ofRotateYDeg(90);
+				if (player.minionTexture) player.minionTexture->bind();
+				golemModel.drawFaces();
+				if (player.minionTexture) player.minionTexture->unbind();
+			} else if (player.isWolf) {
+				headHeight = 2.0f; // Wolves are short
+				ofTranslate(pos.x, 0.1f, pos.z);
+				ofTranslate(0, 0.4f, 0);
+				ofScale(0.015f, 0.015f, 0.015f); // This scale WON'T affect status effects now
+
+				for (unsigned int i = 6; i < wolfModel.getMeshCount(); i++) {
+					ofTexture * tex = (i == 6 || i == 7) ? &wolfBodyTex : &wolfFaceTex;
+					if (tex->isAllocated()) tex->bind();
+					wolfModel.getMeshHelper(i).cachedMesh.drawFaces();
+					if (tex->isAllocated()) tex->unbind();
 				}
+				glDepthMask(GL_FALSE);
+				ofEnableAlphaBlending();
+				wolfFurTex.bind();
+				for (unsigned int i = 0; i <= 5; i++) {
+					wolfModel.getMeshHelper(i).cachedMesh.drawFaces();
+				}
+				wolfFurTex.unbind();
+				ofDisableAlphaBlending();
+				glDepthMask(GL_TRUE);
+			} else if (player.isHellhound) {
+				headHeight = 2.5f; // Hellhounds are medium-low
+				ofTranslate(pos.x, 0.1f, pos.z);
+				ofTranslate(0, 2.5f, 0); // Model offset
+				ofRotateYDeg(180);
+				hellhoundModel.drawFaces();
+			} else {
+				// Default Player
+				ofTranslate(pos.x, 0.1f, pos.z);
+				ofTranslate(0, 2.0f, 0);
+				if (playerTexture.isAllocated()) playerTexture.bind();
+				playerModel.drawFaces();
+				if (playerTexture.isAllocated()) playerTexture.unbind();
+			}
+
+			ofPopMatrix();
+			// ^^^ IMPORTANT: This closes the specific unit transformations.
+			// We are now back to clean World Space coordinates.
+
+			// --- RENDER STATUS EFFECTS (Clean Matrix) ---
+
+			// 1. FIRE
+			if (player.onFire) {
 				ofPushMatrix();
-				ofTranslate(pos.x, 2.5f, pos.z);
+				ofTranslate(pos.x, 2.5f, pos.z); // Fire always at same height
 				glm::vec3 camPos = cam.getPosition();
 				float angle = atan2(camPos.x - pos.x, camPos.z - pos.z) * RAD_TO_DEG;
 				ofRotateYDeg(angle);
 				float spriteSize = 4.0f;
 				fireTexture.drawSubsection(-spriteSize / 2, -spriteSize / 2, spriteSize, spriteSize, fireFrame * 32, 0, 32, 32);
+				ofPopMatrix();
+			}
+
+			// 2. SLEEP INDICATOR (Floating Zs)
+			if (player.sleepTurnsRemaining > 0) {
+				ofPushMatrix();
+				// Use the custom headHeight we calculated above
+				ofTranslate(pos.x, headHeight, pos.z);
+
+				float slowTime = time * 0.8f;
+				for (int z = 0; z < 3; z++) {
+					float offset = (z * 2.0f) + slowTime;
+					float yFloat = fmod(offset, 1.5f);
+					float alpha = 1.0f - (yFloat / 1.5f);
+
+					ofPushMatrix();
+					ofTranslate(sin(slowTime + z) * 0.2f, yFloat, 0);
+
+					glm::vec3 camPos = cam.getPosition();
+					float angle = atan2(camPos.x - pos.x, camPos.z - pos.z) * RAD_TO_DEG;
+					ofRotateYDeg(angle);
+					ofScale(0.02f, 0.02f, 0.02f);
+
+					ofSetColor(0, 255, 255, alpha * 255);
+					uiFont.drawString("z", 0, 0);
+					ofPopMatrix();
+				}
+				ofPopMatrix();
+			}
+
+			// 3. PARALYSIS INDICATOR (Swirl)
+			if (player.isParalyzed) {
+				ofPushMatrix();
+				// Use headHeight to place swirl roughly around the head/upper body
+				ofTranslate(pos.x, headHeight - 0.5f, pos.z);
+
+				ofPolyline swirl;
+				float swirlSpeed = time * 2.0f;
+				for (int i = 0; i < 20; i++) {
+					float t = i / 20.0f;
+					float angle = (t * TWO_PI * 1.5f) + swirlSpeed;
+					float radius = 0.3f;
+					float height = t * 0.4f;
+					swirl.addVertex(cos(angle) * radius, height, sin(angle) * radius);
+				}
+
+				ofSetColor(255, 255, 0);
+				ofSetLineWidth(2);
+				swirl.draw();
+				ofSetLineWidth(1);
 				ofPopMatrix();
 			}
 		}
@@ -3103,6 +3277,43 @@ void ofApp::drawGame() {
 		float p0_statusY = p0_apCenterY + p0_apRectHeight / 2 + 10 * scale;
 		float smallFontScale = fontScale * 0.8f;
 
+		// --- NEW STATUSES ---
+		if (player0->sleepTurnsRemaining > 0) {
+			string txt = "Sleeping (" + ofToString(player0->sleepTurnsRemaining) + ")";
+			ofRectangle b = titleFont.getStringBoundingBox(txt, 0, 0);
+			ofSetColor(ofColor::cyan);
+			ofPushMatrix();
+			ofTranslate(p0_apCenterX - (b.width * smallFontScale / 2), p0_statusY + (b.height * smallFontScale));
+			ofScale(smallFontScale, smallFontScale);
+			titleFont.drawString(txt, 0, 0);
+			ofPopMatrix();
+			p0_statusY += (b.height * smallFontScale) + (5 * scale);
+		}
+
+		if (player0->isParalyzed) {
+			string txt = "Paralyzed";
+			ofRectangle b = titleFont.getStringBoundingBox(txt, 0, 0);
+			ofSetColor(ofColor::yellow);
+			ofPushMatrix();
+			ofTranslate(p0_apCenterX - (b.width * smallFontScale / 2), p0_statusY + (b.height * smallFontScale));
+			ofScale(smallFontScale, smallFontScale);
+			titleFont.drawString(txt, 0, 0);
+			ofPopMatrix();
+			p0_statusY += (b.height * smallFontScale) + (5 * scale);
+		}
+
+		if (player0->onFire) {
+			string txt = "On Fire";
+			ofRectangle b = titleFont.getStringBoundingBox(txt, 0, 0);
+			ofSetColor(ofColor::orangeRed);
+			ofPushMatrix();
+			ofTranslate(p0_apCenterX - (b.width * smallFontScale / 2), p0_statusY + (b.height * smallFontScale));
+			ofScale(smallFontScale, smallFontScale);
+			titleFont.drawString(txt, 0, 0);
+			ofPopMatrix();
+			p0_statusY += (b.height * smallFontScale) + (5 * scale);
+		}
+
 		if (player0->nextTurnAPBonus > 0) {
 			string bonusText = "+" + ofToString(player0->nextTurnAPBonus) + " AP";
 			ofRectangle bonusBox = titleFont.getStringBoundingBox(bonusText, 0, 0);
@@ -3170,6 +3381,43 @@ void ofApp::drawGame() {
 
 		// --- DRAW P1 STATUSES ---
 		float p1_statusY = p1_apCenterY - p1_apRectHeight / 2 - 10 * scale;
+
+		// --- NEW STATUSES ---
+		if (player1->sleepTurnsRemaining > 0) {
+			string txt = "Sleeping (" + ofToString(player1->sleepTurnsRemaining) + ")";
+			ofRectangle b = titleFont.getStringBoundingBox(txt, 0, 0);
+			ofSetColor(ofColor::cyan);
+			ofPushMatrix();
+			ofTranslate(p1_apCenterX - (b.width * smallFontScale / 2), p1_statusY);
+			ofScale(smallFontScale, smallFontScale);
+			titleFont.drawString(txt, 0, 0);
+			ofPopMatrix();
+			p1_statusY -= (b.height * smallFontScale) + (5 * scale);
+		}
+
+		if (player1->isParalyzed) {
+			string txt = "Paralyzed";
+			ofRectangle b = titleFont.getStringBoundingBox(txt, 0, 0);
+			ofSetColor(ofColor::yellow);
+			ofPushMatrix();
+			ofTranslate(p1_apCenterX - (b.width * smallFontScale / 2), p1_statusY);
+			ofScale(smallFontScale, smallFontScale);
+			titleFont.drawString(txt, 0, 0);
+			ofPopMatrix();
+			p1_statusY -= (b.height * smallFontScale) + (5 * scale);
+		}
+
+		if (player1->onFire) {
+			string txt = "On Fire";
+			ofRectangle b = titleFont.getStringBoundingBox(txt, 0, 0);
+			ofSetColor(ofColor::orangeRed);
+			ofPushMatrix();
+			ofTranslate(p1_apCenterX - (b.width * smallFontScale / 2), p1_statusY);
+			ofScale(smallFontScale, smallFontScale);
+			titleFont.drawString(txt, 0, 0);
+			ofPopMatrix();
+			p1_statusY -= (b.height * smallFontScale) + (5 * scale);
+		}
 
 		if (player1->nextTurnD10AP) {
 			string d10Text = "D10 AP";
@@ -5374,8 +5622,24 @@ void ofApp::continueNewTurn() {
 
 	activeDiceRolls.clear();
 	currentAP = 0;
+	// --- 1. SLEEP CHECK (New Status) ---
+	if (startingPlayer.sleepTurnsRemaining > 0) {
+		startingPlayer.sleepTurnsRemaining--;
+		spawnFloatingText(gridToWorld(startingPlayer.x, startingPlayer.y), "Zzz...", ofColor::cyan);
 
-	// --- AP ROLL LOGIC ---
+		// If on fire while sleeping, roll damage first, then the update loop will end the turn
+		if (startingPlayer.onFire) {
+			isWaitingForOnFireDice = true;
+			pendingOnFireRollResult = startDiceRoll(1, 6, PURPOSE_DAMAGE, "Sleeping Fire Damage");
+			return;
+		}
+
+		// If not on fire, skip turn immediately
+		startNewTurn();
+		return;
+	}
+
+	// --- 2. AP ROLL LOGIC (Only if Awake) ---
 	if (startingPlayer.isWolf) {
 		startDiceRoll(1, 10, PURPOSE_AP, "Wolf AP Roll");
 	}
@@ -5394,7 +5658,9 @@ void ofApp::continueNewTurn() {
 		startDiceRoll(1, apDiceSides, PURPOSE_AP, "Player AP Roll");
 	}
 
-	// In startNewTurn() (Paralysis/Fire)
+	// --- 3. OTHER STATUS CHECKS (Paralysis/Fire) ---
+	// Only run these if we are awake (Sleep check returned early if true)
+
 	if (startingPlayer.isParalyzed) {
 		startDiceRoll(1, 2, PURPOSE_COIN_FLIP, "Paralysis Check (Heads to Cure)");
 		isWaitingForParalysisCoin = true;
@@ -6106,6 +6372,55 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		invalidateTargetCache();
 
 		playedSuccessfully = false; // Prevent double cleanup
+		break;
+	}
+
+		// --- CASE: DEATH ---
+	case CARD_DEATH: {
+		// Range Check (Infinite / LOS)
+		glm::vec2 casterTile = { (float)currentPlayer.x, (float)currentPlayer.y };
+		glm::vec2 targetTile = { (float)targetX, (float)targetY };
+		TargetInfo validationResult = isLosTargetValid(casterTile, targetTile, 9999.0f, playedCard.type);
+
+		if (validationResult.reason != VALID) break;
+
+		// Find Target
+		int targetIndex = -1;
+		for (size_t i = 0; i < players.size(); i++) {
+			if (players[i].x == targetX && players[i].y == targetY) {
+				targetIndex = (int)i;
+				break;
+			}
+		}
+		if (targetIndex == -1) break;
+
+		Player * target = getPlayer(targetIndex);
+		pendingDeathTargetIndex = targetIndex;
+
+		// 1. Check if already asleep -> INSTANT DEATH
+		if (target->sleepTurnsRemaining > 0) {
+			spawnFloatingText(gridToWorld(target->x, target->y), "Nightmare!", ofColor::darkRed);
+
+			// Kill logic
+			DeathMarker death;
+			death.x = target->x;
+			death.y = target->y;
+			death.turnDied = globalTurnCounter;
+			death.deck = target->deck;
+			graveyard.push_back(death);
+			board[target->x][target->y].hasPlayer = false;
+			target->x = -1000;
+			target->health = 0;
+
+			playedSuccessfully = true;
+		}
+		// 2. Otherwise -> Roll Death Check
+		else {
+			// Roll 1d20
+			pendingDeathRollResult = startDiceRoll(1, 20, PURPOSE_DEATH_CHECK, "Death Check");
+			isWaitingForDeathDice = true;
+			playedSuccessfully = true;
+		}
 		break;
 	}
 
@@ -6885,7 +7200,7 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 				}
 				// 2. HEAL OVERRIDE (Infinite Range)
 				// This prevents the visual preview from being limited to 12ft (2d6)
-				else if (card.type == CARD_HEAL) {
+				else if (card.type == CARD_HEAL || card.type == CARD_DEATH) {
 					maxRangeFeet = 9999.0f;
 				}
 				// 3. Standard Range Spells (Magic Blast, Fireball, etc)
@@ -8273,6 +8588,7 @@ CardType ofApp::stringToCardType(const std::string & str) {
 	if (str == "CARD_MAGIC_BOLT") return CARD_MAGIC_BOLT;
 	if (str == "CARD_FLAIL") return CARD_FLAIL;
 	if (str == "CARD_SUMMON_HELLHOUND") return CARD_SUMMON_HELLHOUND;
+	if (str == "CARD_DEATH") return CARD_DEATH;
 
 	return CARD_NONE;
 }
