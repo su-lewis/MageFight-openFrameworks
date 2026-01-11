@@ -1310,7 +1310,9 @@ void ofApp::updateGame() {
 		minion.health = pendingSummonRollResult;
 		minion.isMinion = true;
 		minion.isSkeleton = true;
+		minion.isSummoningSickness = true;
 		minion.hasRegeneration = true;
+
 		minion.ownerID = players[currentPlayerIndex].playerID;
 
 		// 2. Build Minion Deck
@@ -1679,6 +1681,8 @@ void ofApp::updateGame() {
 
 		minion.isMinion = true;
 		minion.isHellhound = true;
+		minion.isSummoningSickness = true;
+
 		minion.ownerID = players[currentPlayerIndex].playerID;
 
 		// 2. Build Deck
@@ -2695,7 +2699,7 @@ void ofApp::drawGame() {
 		float time = ofGetElapsedTimef();
 		int fireFrame = (int)(time * 10) % 4;
 		for (const auto & player : players) {
-			// 1. Determine Base World Position
+			// 1. Determine Base Position
 			glm::vec3 pos;
 			if (currentPlayerIndex >= 0 && player.playerID == players[currentPlayerIndex].playerID) {
 				pos = playerVisualPos;
@@ -2703,21 +2707,22 @@ void ofApp::drawGame() {
 				pos = gridToWorld(player.x, player.y);
 			}
 
-			// Define a height offset for status effects based on unit type
-			float headHeight = 4.0f; // Default (Player/Skeleton)
+			float headHeight = 4.0f; // Default height for status effects
 
-			// --- RENDER UNIT MESH (Isolated Matrix) ---
+			// --- RENDER UNIT MESH ---
 			ofPushMatrix();
 
-			// Move to grid tile
 			if (player.isSkeleton) {
-				ofTranslate(pos.x, 0.1f, pos.z); // Grid Pos + Floor Offset
-				ofTranslate(0, 2.0f, 0); // Model specific offset
+				// SKELETON
+				headHeight = 4.0f;
+				ofTranslate(pos.x, 0.1f, pos.z);
+				ofTranslate(0, 2.0f, 0);
 				skeletonTexture.bind();
 				skeletonModel.drawFaces();
 				skeletonTexture.unbind();
 			} else if (player.isGolem) {
-				headHeight = 5.5f; // Golems are tall
+				// GOLEM
+				headHeight = 5.5f;
 				ofTranslate(pos.x, 0.1f, pos.z);
 				ofTranslate(0, 3.0f, 0);
 				ofRotateXDeg(180);
@@ -2726,17 +2731,20 @@ void ofApp::drawGame() {
 				golemModel.drawFaces();
 				if (player.minionTexture) player.minionTexture->unbind();
 			} else if (player.isWolf) {
-				headHeight = 2.0f; // Wolves are short
+				// WOLF
+				headHeight = 2.0f;
 				ofTranslate(pos.x, 0.1f, pos.z);
 				ofTranslate(0, 0.4f, 0);
-				ofScale(0.015f, 0.015f, 0.015f); // This scale WON'T affect status effects now
+				ofScale(0.015f, 0.015f, 0.015f);
 
+				// Draw Skin
 				for (unsigned int i = 6; i < wolfModel.getMeshCount(); i++) {
 					ofTexture * tex = (i == 6 || i == 7) ? &wolfBodyTex : &wolfFaceTex;
 					if (tex->isAllocated()) tex->bind();
 					wolfModel.getMeshHelper(i).cachedMesh.drawFaces();
 					if (tex->isAllocated()) tex->unbind();
 				}
+				// Draw Fur
 				glDepthMask(GL_FALSE);
 				ofEnableAlphaBlending();
 				wolfFurTex.bind();
@@ -2747,30 +2755,31 @@ void ofApp::drawGame() {
 				ofDisableAlphaBlending();
 				glDepthMask(GL_TRUE);
 			} else if (player.isHellhound) {
-				headHeight = 2.5f; // Hellhounds are medium-low
+				// HELLHOUND
+				headHeight = 2.5f;
 				ofTranslate(pos.x, 0.1f, pos.z);
-				ofTranslate(0, 2.5f, 0); // Model offset
 				ofRotateYDeg(180);
 				hellhoundModel.drawFaces();
 			} else {
-				// Default Player
+				// DEFAULT PLAYER (Only if none of the above matches)
+				headHeight = 4.0f;
 				ofTranslate(pos.x, 0.1f, pos.z);
 				ofTranslate(0, 2.0f, 0);
+
 				if (playerTexture.isAllocated()) playerTexture.bind();
 				playerModel.drawFaces();
 				if (playerTexture.isAllocated()) playerTexture.unbind();
 			}
 
 			ofPopMatrix();
-			// ^^^ IMPORTANT: This closes the specific unit transformations.
-			// We are now back to clean World Space coordinates.
+			// End of Unit Drawing
 
-			// --- RENDER STATUS EFFECTS (Clean Matrix) ---
+			// --- RENDER STATUS EFFECTS (Using headHeight) ---
 
 			// 1. FIRE
 			if (player.onFire) {
 				ofPushMatrix();
-				ofTranslate(pos.x, 2.5f, pos.z); // Fire always at same height
+				ofTranslate(pos.x, 2.5f, pos.z);
 				glm::vec3 camPos = cam.getPosition();
 				float angle = atan2(camPos.x - pos.x, camPos.z - pos.z) * RAD_TO_DEG;
 				ofRotateYDeg(angle);
@@ -2779,26 +2788,21 @@ void ofApp::drawGame() {
 				ofPopMatrix();
 			}
 
-			// 2. SLEEP INDICATOR (Floating Zs)
+			// 2. SLEEP
 			if (player.sleepTurnsRemaining > 0) {
 				ofPushMatrix();
-				// Use the custom headHeight we calculated above
 				ofTranslate(pos.x, headHeight, pos.z);
-
 				float slowTime = time * 0.8f;
 				for (int z = 0; z < 3; z++) {
 					float offset = (z * 2.0f) + slowTime;
 					float yFloat = fmod(offset, 1.5f);
 					float alpha = 1.0f - (yFloat / 1.5f);
-
 					ofPushMatrix();
 					ofTranslate(sin(slowTime + z) * 0.2f, yFloat, 0);
-
 					glm::vec3 camPos = cam.getPosition();
 					float angle = atan2(camPos.x - pos.x, camPos.z - pos.z) * RAD_TO_DEG;
 					ofRotateYDeg(angle);
 					ofScale(0.02f, 0.02f, 0.02f);
-
 					ofSetColor(0, 255, 255, alpha * 255);
 					uiFont.drawString("z", 0, 0);
 					ofPopMatrix();
@@ -2806,12 +2810,10 @@ void ofApp::drawGame() {
 				ofPopMatrix();
 			}
 
-			// 3. PARALYSIS INDICATOR (Swirl)
+			// 3. PARALYSIS
 			if (player.isParalyzed) {
 				ofPushMatrix();
-				// Use headHeight to place swirl roughly around the head/upper body
 				ofTranslate(pos.x, headHeight - 0.5f, pos.z);
-
 				ofPolyline swirl;
 				float swirlSpeed = time * 2.0f;
 				for (int i = 0; i < 20; i++) {
@@ -2821,7 +2823,6 @@ void ofApp::drawGame() {
 					float height = t * 0.4f;
 					swirl.addVertex(cos(angle) * radius, height, sin(angle) * radius);
 				}
-
 				ofSetColor(255, 255, 0);
 				ofSetLineWidth(2);
 				swirl.draw();
@@ -4760,6 +4761,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 						wolf.health = 4;
 						wolf.isMinion = true;
 						wolf.isWolf = true;
+						wolf.isSummoningSickness = true;
 						// FIX: If current player is a minion, use its owner's ID instead
 						wolf.ownerID = players[currentPlayerIndex].isMinion
 							? players[currentPlayerIndex].ownerID
@@ -5497,7 +5499,6 @@ void ofApp::startNewTurn() {
 		Player & endingPlayer = players[currentPlayerIndex];
 
 		// --- A. CLEANUP HAND & BUFFS ---
-		// This happens at the end of EVERY turn, bonus or not.
 		endingPlayer.discardPile.insert(endingPlayer.discardPile.end(), endingPlayer.hand.begin(), endingPlayer.hand.end());
 		endingPlayer.hand.clear();
 		endingPlayer.discardPile.insert(endingPlayer.discardPile.end(), endingPlayer.playedCardsPile.begin(), endingPlayer.playedCardsPile.end());
@@ -5518,23 +5519,21 @@ void ofApp::startNewTurn() {
 			ofLogNotice("Time Vortex") << "Bonus Turn! " << (endingPlayer.isMinion ? "Minion " : "Player ") << endingPlayer.playerID << " goes again. " << endingPlayer.bonusTurns << " remaining.";
 
 			// The current player is STILL the ending player. We just reset their state.
-			Player & startingPlayer = endingPlayer; // Use a clearer name
+			Player & startingPlayer = endingPlayer;
 
-			// --- C. RESET STATE FOR BONUS TURN ---
-			// Regeneration
+			// Reset Stats for Bonus Turn
 			if (startingPlayer.hasRegeneration) {
 				if (startingPlayer.health < startingPlayer.maxHealth) {
 					startingPlayer.health++;
 					spawnFloatingText(gridToWorld(startingPlayer.x, startingPlayer.y), "+1 Regen", ofColor::green);
 				}
 			}
-			// Armor Expiry
 			startingPlayer.block = 0;
 			startingPlayer.ward = 0;
 			startingPlayer.barrier = 0;
 			startingPlayer.holyBlock = 0;
 
-			// --- D. CHECK STATUS EFFECTS FOR BONUS TURN ---
+			// Check Status Effects
 			if (startingPlayer.isParalyzed) {
 				startDiceRoll(1, 2, PURPOSE_COIN_FLIP);
 				isWaitingForParalysisCoin = true;
@@ -5542,22 +5541,36 @@ void ofApp::startNewTurn() {
 			}
 			if (startingPlayer.onFire) {
 				isWaitingForOnFireDice = true;
-
 				pendingOnFireRollResult = startDiceRoll(1, 6, PURPOSE_DAMAGE, "Fire Status Damage");
-
 				return;
 			}
 
-			// If no status effects, start the bonus turn
 			continueNewTurn();
-			return; // STOP here to prevent advancing to the next player
+			return;
 		}
 	}
 
 	// --- 2. ADVANCE TO THE NEXT PLAYER (NORMAL TURN) ---
-	currentPlayerIndex = (currentPlayerIndex + 1) % players.size();
+	// We use a loop to skip anyone with Summoning Sickness
+	while (true) {
+		currentPlayerIndex = (currentPlayerIndex + 1) % players.size();
 
-	if (currentPlayerIndex == 0) globalTurnCounter++;
+		if (currentPlayerIndex == 0) globalTurnCounter++;
+
+		if (players[currentPlayerIndex].isSummoningSickness) {
+			ofLogNotice("Turn") << "Skipping Player " << players[currentPlayerIndex].playerID << " (Summoning Sickness)";
+
+			// Remove the sickness so they act next time
+			players[currentPlayerIndex].isSummoningSickness = false;
+
+			spawnFloatingText(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y), "Waiting...", ofColor::gray);
+
+			// Loop continues to next player...
+		} else {
+			// Found a valid player
+			break;
+		}
+	}
 
 	Player & startingPlayer = players[currentPlayerIndex];
 	ofLogNotice("Game") << "--- START TURN: " << (startingPlayer.isMinion ? "Minion " : "Player ") << startingPlayer.playerID;
@@ -5590,8 +5603,25 @@ void ofApp::startNewTurn() {
 	}
 
 	// --- D. CHECK STATUS EFFECTS FOR NORMAL TURN ---
+
+	// 1. SLEEP CHECK
+	if (startingPlayer.sleepTurnsRemaining > 0) {
+		startingPlayer.sleepTurnsRemaining--;
+		spawnFloatingText(gridToWorld(startingPlayer.x, startingPlayer.y), "Zzz...", ofColor::cyan);
+
+		if (startingPlayer.onFire) {
+			isWaitingForOnFireDice = true;
+			pendingOnFireRollResult = startDiceRoll(1, 6, PURPOSE_DAMAGE, "Sleeping Fire Damage");
+			return;
+		}
+
+		startNewTurn(); // Skip turn immediately
+		return;
+	}
+
+	// 2. PARALYSIS / FIRE
 	if (startingPlayer.isParalyzed) {
-		startDiceRoll(1, 2, PURPOSE_COIN_FLIP, "Call for Wolves: 2nd Wolf Chance");
+		startDiceRoll(1, 2, PURPOSE_COIN_FLIP, "Paralysis Check");
 		isWaitingForParalysisCoin = true;
 		return;
 	}
@@ -6200,6 +6230,8 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		minion.y = targetY;
 		minion.isMinion = true;
 		minion.isGolem = true;
+		minion.isSummoningSickness = true;
+
 		minion.ownerID = currentPlayer.playerID;
 
 		// 4. Apply Variant Stats & Deck
@@ -8879,5 +8911,85 @@ void ofApp::drawMinionManagerUI() {
 			ofSetColor(20, 20, 20, 200);
 			ofDrawRectRounded(ui.discardRect, 3);
 		}
-	}
+
+		// --- NEW: DRAW MINION STATUS EFFECTS (Above Panel) ---
+
+		float statusX = ui.bounds.x;
+		// Start drawing text slightly above the top of the UI panel
+		float statusY = ui.bounds.y - (5 * scale);
+		float fontS = 0.7f * scale; // Small text
+		float lineHeight = 15 * scale;
+
+		// 1. SLEEP
+		if (minion.sleepTurnsRemaining > 0) {
+			string txt = "Sleep (" + ofToString(minion.sleepTurnsRemaining) + ")";
+			ofSetColor(ofColor::cyan);
+			ofPushMatrix();
+			ofTranslate(statusX, statusY);
+			ofScale(fontS, fontS);
+			uiFont.drawString(txt, 0, 0);
+			ofPopMatrix();
+			statusY -= lineHeight; // Move up for next line
+		}
+
+		// 2. PARALYSIS
+		if (minion.isParalyzed) {
+			string txt = "Paralyzed";
+			ofSetColor(ofColor::yellow);
+			ofPushMatrix();
+			ofTranslate(statusX, statusY);
+			ofScale(fontS, fontS);
+			uiFont.drawString(txt, 0, 0);
+			ofPopMatrix();
+			statusY -= lineHeight;
+		}
+
+		// 3. FIRE
+		if (minion.onFire) {
+			string txt = "On Fire";
+			ofSetColor(ofColor::orangeRed);
+			ofPushMatrix();
+			ofTranslate(statusX, statusY);
+			ofScale(fontS, fontS);
+			uiFont.drawString(txt, 0, 0);
+			ofPopMatrix();
+			statusY -= lineHeight;
+		}
+
+		// 4. NEXT TURN AP BONUS
+		if (minion.nextTurnAPBonus > 0) {
+			string txt = "+" + ofToString(minion.nextTurnAPBonus) + " AP Next";
+			ofSetColor(ofColor::limeGreen);
+			ofPushMatrix();
+			ofTranslate(statusX, statusY);
+			ofScale(fontS, fontS);
+			uiFont.drawString(txt, 0, 0);
+			ofPopMatrix();
+			statusY -= lineHeight;
+		}
+
+		// 5. D10 AP
+		if (minion.nextTurnD10AP) {
+			string txt = "D10 AP Next";
+			ofSetColor(ofColor::white);
+			ofPushMatrix();
+			ofTranslate(statusX, statusY);
+			ofScale(fontS, fontS);
+			uiFont.drawString(txt, 0, 0);
+			ofPopMatrix();
+			statusY -= lineHeight;
+		}
+
+		// 6. SUMMONING SICKNESS
+		if (minion.isSummoningSickness) {
+			string txt = "Summoning Sickness";
+			ofSetColor(ofColor::gray);
+			ofPushMatrix();
+			ofTranslate(statusX, statusY);
+			ofScale(fontS, fontS);
+			uiFont.drawString(txt, 0, 0);
+			ofPopMatrix();
+			statusY -= lineHeight;
+		}
+	} // End of loop
 }

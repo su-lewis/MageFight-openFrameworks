@@ -230,6 +230,9 @@ struct Player {
 	int strengthenElementsTurnsRemaining = 0;
 	int sleepTurnsRemaining = 0;
 
+	// Turn Logic
+	bool isSummoningSickness = false;
+	
 	// Minion Data
 	bool isMinion = false;
 	bool isSkeleton = false;
