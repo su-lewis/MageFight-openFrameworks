@@ -984,14 +984,27 @@ void ofApp::updateGame() {
 
 	float p1_startX = ofGetWidth() - panelWidth - (10 * scale);
 	buildMinionList(p1_minionIndices, p1_startX, p1_skeleton, p1_golem, p1_wolf, p1_hound, p1_demon);
-		if (ofGetElapsedTimef() - pileHoverStartTime > 0.6f) { // Reduced hover time
-			isShowingPileView = true;
-			currentPileView = hoveredPileType;
-			currentPileViewPlayerIndex = hoveredPilePlayerIndex;
-		}
-	}
+}
+// --- END MINION UI REBUILD ---
 
-	// --- DELTA TIME CLAMP FIX ---
+// 1. UPDATE UI POSITIONS
+updateDebugRects();
+
+// 2. Magic Blast / Dispel Freeze Check
+if (isMagicBlastChoiceActive || isDispelMenuOpen || isDispelTargeting || isDispelStatusSelectOpen) {
+	return;
+}
+
+// --- Pile View Hover Logic ---
+if (isHoveringPile && !isShowingPileView) {
+	if (ofGetElapsedTimef() - pileHoverStartTime > 0.6f) { // Reduced hover time
+		isShowingPileView = true;
+		currentPileView = hoveredPileType;
+		currentPileViewPlayerIndex = hoveredPilePlayerIndex;
+	}
+}
+
+// --- DELTA TIME CLAMP FIX ---
 	float deltaTime = ofGetLastFrameTime();
 	// If we lagged more than 100ms (e.g. Alt-Tab), pretend it was just 16ms
 	if (deltaTime > 0.1f) deltaTime = 0.016f;

@@ -332,6 +332,6 @@
     "name": "Shield Bash",
     "type": "CARD_SHIELD_BASH",
     "cost": 3,
-    "targeting": "TARGET_ADJACENT_UNIT",
+    "targeting": "TARGET_ADJACENT_UNIT"
   }
 ]
