@@ -101,7 +101,8 @@ enum CardType {
 	CARD_FLAIL,
 	CARD_SUMMON_HELLHOUND,
 	CARD_DEATH,
-	CARD_SUMMON_DEMON
+	CARD_SUMMON_DEMON,
+	CARD_SHIELD_BASH
 };
 
 enum DicePurpose {
@@ -232,7 +233,8 @@ struct Player {
 	int sleepTurnsRemaining = 0;
 
 	// Turn Logic
-	bool isSummoningSickness = false;
+	int summonedOnTurnCycle = -1; // -1 means not summoned this cycle, otherwise stores globalTurnCounter
+	int summonOrder = 0; // Tracks the order minions were summoned for turn ordering
 
 	// Minion Data
 	bool isMinion = false;
@@ -403,6 +405,7 @@ private:
 	GameState stateBeforeSettings = STATE_MAIN_MENU;
 	bool isLoadingGame = false;
 	int globalTurnCounter = 0;
+	int nextSummonOrder = 0; // Global counter for minion summon ordering
 
 	// --- BOARD & ENTITIES ---
 	const float TILE_SIZE = 5.0f;

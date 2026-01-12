@@ -326,5 +326,12 @@
     "targeting": "TARGET_EMPTY_ADJACENT",
     "numDice": 3,
     "diceSides": 10
+  },
+  {
+    "id": 39,
+    "name": "Shield Bash",
+    "type": "CARD_SHIELD_BASH",
+    "cost": 3,
+    "targeting": "TARGET_ADJACENT_UNIT",
   }
 ]

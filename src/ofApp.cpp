@@ -929,8 +929,8 @@ void ofApp::updateGame() {
 		std::vector<int> p0_minionIndices;
 		std::vector<int> p1_minionIndices;
 		// Counters for minion types
-		int p0_skeleton = 0, p0_golem = 0, p0_wolf = 0, p0_hound = 0;
-		int p1_skeleton = 0, p1_golem = 0, p1_wolf = 0, p1_hound = 0;
+		int p0_skeleton = 0, p0_golem = 0, p0_wolf = 0, p0_hound = 0, p0_demon = 0;
+		int p1_skeleton = 0, p1_golem = 0, p1_wolf = 0, p1_hound = 0, p1_demon = 0;
 
 		for (int i = 0; i < players.size(); i++) {
 			if (players[i].isMinion) {
@@ -942,8 +942,7 @@ void ofApp::updateGame() {
 		}
 
 		// 3. HELPER LAMBDA TO BUILD UI LIST
-		// FIX: Added ", int& houndCount" to the end of the parameters here
-		auto buildMinionList = [&](const std::vector<int> & indices, float startX, int & skelCount, int & golemCount, int & wolfCount, int & houndCount) {
+		auto buildMinionList = [&](const std::vector<int> & indices, float startX, int & skelCount, int & golemCount, int & wolfCount, int & houndCount, int & demonCount) {
 			// A. Calculate Dynamic Scaling
 			float totalRequiredHeight = indices.size() * (standardEntryHeight + gap);
 			float actualEntryHeight = standardEntryHeight;
@@ -968,33 +967,23 @@ void ofApp::updateGame() {
 				else if (players[pIndex].isWolf)
 					ui.displayNumber = ++wolfCount;
 				else if (players[pIndex].isHellhound)
-					ui.displayNumber = ++houndCount; // <--- Increment logic
+				ui.displayNumber = ++houndCount;
+			else if (players[pIndex].isDemon)
+				ui.displayNumber = ++demonCount;
 
-				float currentY = topLimitY + (i * (actualEntryHeight + actualGap));
+			float currentY = topLimitY + (i * (actualEntryHeight + actualGap));
 
-				ui.bounds.set(startX, currentY, panelWidth, actualEntryHeight);
-				activeMinionUIs.push_back(ui);
-			}
-		};
+			ui.bounds.set(startX, currentY, panelWidth, actualEntryHeight);
+			activeMinionUIs.push_back(ui);
+		}
+	};
 
-		// 4. BUILD LISTS (Now these calls with 6 arguments will work)
-		buildMinionList(p0_minionIndices, 10 * scale, p0_skeleton, p0_golem, p0_wolf, p0_hound);
+	// 4. BUILD LISTS
+	float p0_startX = 10 * scale;
+	buildMinionList(p0_minionIndices, p0_startX, p0_skeleton, p0_golem, p0_wolf, p0_hound, p0_demon);
 
-		float p1_startX = ofGetWidth() - panelWidth - (10 * scale);
-		buildMinionList(p1_minionIndices, p1_startX, p1_skeleton, p1_golem, p1_wolf, p1_hound);
-	}
-	// --- END MINION UI REBUILD ---
-
-	// 1. UPDATE UI POSITIONS
-	updateDebugRects();
-
-	// 2. Magic Blast / Dispel Freeze Check
-	if (isMagicBlastChoiceActive || isDispelMenuOpen || isDispelTargeting || isDispelStatusSelectOpen) {
-		return;
-	}
-
-	// --- Pile View Hover Logic ---
-	if (isHoveringPile && !isShowingPileView) {
+	float p1_startX = ofGetWidth() - panelWidth - (10 * scale);
+	buildMinionList(p1_minionIndices, p1_startX, p1_skeleton, p1_golem, p1_wolf, p1_hound, p1_demon);
 		if (ofGetElapsedTimef() - pileHoverStartTime > 0.6f) { // Reduced hover time
 			isShowingPileView = true;
 			currentPileView = hoveredPileType;
@@ -1322,10 +1311,12 @@ void ofApp::updateGame() {
 		minion.health = pendingSummonRollResult;
 		minion.isMinion = true;
 		minion.isSkeleton = true;
-		minion.isSummoningSickness = players[currentPlayerIndex].isMinion; // Only if summoned during minion phase
 		minion.hasRegeneration = true;
 
-		minion.ownerID = players[currentPlayerIndex].playerID;
+		// Set owner and summoning sickness
+		minion.ownerID = players[currentPlayerIndex].isMinion ? players[currentPlayerIndex].ownerID : players[currentPlayerIndex].playerID;
+		minion.summonedOnTurnCycle = players[currentPlayerIndex].isMinion ? globalTurnCounter : -1;
+		minion.summonOrder = ++nextSummonOrder;
 
 		// 2. Build Minion Deck
 		for (const auto & c : allCards) {
@@ -1372,7 +1363,7 @@ void ofApp::updateGame() {
 			if (ownerA != ownerB) return ownerA < ownerB;
 			if (a.isMinion && !b.isMinion) return true;
 			if (!a.isMinion && b.isMinion) return false;
-			return a.playerID < b.playerID;
+			return a.summonOrder < b.summonOrder;
 		});
 
 		// 6. Fix CurrentPlayerIndex
@@ -1693,9 +1684,11 @@ void ofApp::updateGame() {
 
 		minion.isMinion = true;
 		minion.isHellhound = true;
-		minion.isSummoningSickness = players[currentPlayerIndex].isMinion; // Only if summoned during minion phase
 
-		minion.ownerID = players[currentPlayerIndex].playerID;
+		// Set owner and summoning sickness
+		minion.ownerID = players[currentPlayerIndex].isMinion ? players[currentPlayerIndex].ownerID : players[currentPlayerIndex].playerID;
+		minion.summonedOnTurnCycle = players[currentPlayerIndex].isMinion ? globalTurnCounter : -1;
+		minion.summonOrder = ++nextSummonOrder;
 
 		// 2. Build Deck
 		for (const auto & c : allCards) {
@@ -1733,7 +1726,7 @@ void ofApp::updateGame() {
 			if (ownerA != ownerB) return ownerA < ownerB;
 			if (a.isMinion && !b.isMinion) return true;
 			if (!a.isMinion && b.isMinion) return false;
-			return a.playerID < b.playerID;
+			return a.summonOrder < b.summonOrder;
 		});
 
 		// 5. Restore Index
@@ -1759,8 +1752,11 @@ void ofApp::updateGame() {
 
 		minion.isMinion = true;
 		minion.isDemon = true; // Flag for drawing/AP/Weakness
-		minion.isSummoningSickness = players[currentPlayerIndex].isMinion; // Only if summoned during minion phase
-		minion.ownerID = players[currentPlayerIndex].playerID;
+		
+		// Set owner and summoning sickness
+		minion.ownerID = players[currentPlayerIndex].isMinion ? players[currentPlayerIndex].ownerID : players[currentPlayerIndex].playerID;
+		minion.summonedOnTurnCycle = players[currentPlayerIndex].isMinion ? globalTurnCounter : -1;
+		minion.summonOrder = ++nextSummonOrder;
 
 		// Deck: 2x Death, 2x Flail, 2x Fireball, 1x Summon Hellhound, 3x Dark Shield
 		for (const auto & c : allCards) {
@@ -1800,7 +1796,7 @@ void ofApp::updateGame() {
 			if (ownerA != ownerB) return ownerA < ownerB;
 			if (a.isMinion && !b.isMinion) return true;
 			if (!a.isMinion && b.isMinion) return false;
-			return a.playerID < b.playerID;
+			return a.summonOrder < b.summonOrder;
 		});
 
 		// Restore Index
@@ -2049,7 +2045,7 @@ void ofApp::updateGame() {
 								if (ownerA != ownerB) return ownerA < ownerB;
 								if (a.isMinion && !b.isMinion) return true;
 								if (!a.isMinion && b.isMinion) return false;
-								return a.playerID < b.playerID;
+								return a.summonOrder < b.summonOrder;
 							});
 
 							// Fix index
@@ -2095,7 +2091,7 @@ void ofApp::updateGame() {
 									if (ownerA != ownerB) return ownerA < ownerB;
 									if (a.isMinion && !b.isMinion) return true;
 									if (!a.isMinion && b.isMinion) return false;
-									return a.playerID < b.playerID;
+									return a.summonOrder < b.summonOrder;
 								});
 								for (size_t i = 0; i < players.size(); i++) {
 									if (players[i].playerID == myID) {
@@ -4734,13 +4730,10 @@ void ofApp::mousePressed(int x, int y, int button) {
 						wolf.health = 4;
 						wolf.isMinion = true;
 						wolf.isWolf = true;
-						wolf.isSummoningSickness = players[currentPlayerIndex].isMinion; // Only if summoned during minion phase
-						// FIX: If current player is a minion, use its owner's ID instead
-						wolf.ownerID = players[currentPlayerIndex].isMinion
-							? players[currentPlayerIndex].ownerID
-							: players[currentPlayerIndex].playerID;
-
-						// Build Deck (3x Slash, 1x Call for Wolves)
+							
+							// Set owner and summoning sickness
+							wolf.ownerID = players[currentPlayerIndex].isMinion ? players[currentPlayerIndex].ownerID : players[currentPlayerIndex].playerID;
+							wolf.summonedOnTurnCycle = players[currentPlayerIndex].isMinion ? globalTurnCounter : -1;
 						Card slashCard, callCard;
 						for (const auto & c : allCards) {
 							if (c.name == "Slash") slashCard = c;
@@ -4779,7 +4772,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 								if (ownerA != ownerB) return ownerA < ownerB;
 								if (a.isMinion && !b.isMinion) return true;
 								if (!a.isMinion && b.isMinion) return false;
-								return a.playerID < b.playerID;
+								return a.summonOrder < b.summonOrder;
 							});
 
 							// Fix current player index
@@ -4907,13 +4900,26 @@ void ofApp::mousePressed(int x, int y, int button) {
 		}
 		if (isPlayerAnimating || isDiceSpinning) return;
 
-		// 3d. Deck Clicking (Drawing Cards) - INCLUDES HASTEN LOGIC (FIXED)
+		// 3d. Deck Clicking (Drawing Cards)
 		if (button == OF_MOUSE_BUTTON_LEFT) {
-			// First, check for clicks on Minion Decks (this part is correct)
+
+			// --- FIX: Check Minion Type for Draw Count ---
 			for (const auto & ui : activeMinionUIs) {
 				if (ui.playerIndex == currentPlayerIndex && ui.deckRect.inside(x, y) && !hasDrawnCardsThisTurn) {
-					for (int i = 0; i < 2; i++)
+					Player & p = players[ui.playerIndex];
+
+					// Default 2, Demon 3
+					int drawCount = p.isDemon ? 3 : 2;
+
+					// Handle Hasten buff if applicable
+					if (p.nextTurnExtraDraw) {
+						drawCount++;
+						p.nextTurnExtraDraw = false;
+					}
+
+					for (int i = 0; i < drawCount; i++)
 						drawCard();
+
 					hasDrawnCardsThisTurn = true;
 					return;
 				}
@@ -5598,11 +5604,8 @@ void ofApp::continueNewTurn() {
 	Player & startingPlayer = players[currentPlayerIndex];
 
 	// --- 0. SUMMONING SICKNESS CHECK (New Logic) ---
-	if (startingPlayer.isSummoningSickness) {
-		// Clear the flag so they can act NEXT time they come up in rotation
-		startingPlayer.isSummoningSickness = false;
-
-		ofLogNotice("Turn") << "Skipping Player " << startingPlayer.playerID << " (Summoning Sickness)";
+	if (startingPlayer.summonedOnTurnCycle == globalTurnCounter) {
+		ofLogNotice("Turn") << "Skipping Player " << startingPlayer.playerID << " (Summoning Sickness - Turn Cycle " << globalTurnCounter << ")";
 		spawnFloatingText(gridToWorld(startingPlayer.x, startingPlayer.y), "Waiting...", ofColor::gray);
 
 		// Immediately end this turn and go to the next unit
@@ -6202,9 +6205,11 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		minion.y = targetY;
 		minion.isMinion = true;
 		minion.isGolem = true;
-		minion.isSummoningSickness = currentPlayer.isMinion; // Only if summoned during minion phase
 
-		minion.ownerID = currentPlayer.playerID;
+		// Set owner and summoning sickness
+		minion.ownerID = currentPlayer.isMinion ? currentPlayer.ownerID : currentPlayer.playerID;
+		minion.summonedOnTurnCycle = currentPlayer.isMinion ? globalTurnCounter : -1;
+		minion.summonOrder = ++nextSummonOrder;
 
 		// 4. Apply Variant Stats & Deck
 		if (isElectric) {
@@ -6299,7 +6304,7 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 			if (ownerA != ownerB) return ownerA < ownerB;
 			if (a.isMinion && !b.isMinion) return true;
 			if (!a.isMinion && b.isMinion) return false;
-			return a.playerID < b.playerID;
+			return a.summonOrder < b.summonOrder;
 		});
 
 		// Find our new index
@@ -6462,6 +6467,45 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		ofLogNotice("Game") << "Player " << currentPlayer.playerID << " strengthened elements for 3 turns.";
 
 		playedSuccessfully = true;
+		break;
+	}
+
+		// --- CASE: SHIELD BASH ---
+	case CARD_SHIELD_BASH: {
+		int targetIndex = -1;
+		for (size_t i = 0; i < players.size(); i++) {
+			if (players[i].x == targetX && players[i].y == targetY) {
+				targetIndex = (int)i;
+				break;
+			}
+		}
+
+		// Validation: Must have a valid target (and usually must have block, but we allow 0 dmg hit)
+		if (targetIndex != -1) {
+			Player * target = getPlayer(targetIndex);
+
+			// 1. Calculate Total Block
+			int totalBlock = currentPlayer.block + currentPlayer.barrier + currentPlayer.ward + currentPlayer.holyBlock;
+
+			// 2. Deal Damage based on Total Block
+			// Note: Even if 0 block, the card plays (wasting AP), consistent with other mechanics
+			if (totalBlock > 0) {
+				ofLogNotice("Shield Bash") << "Converting " << totalBlock << " total block into damage.";
+				applyDamage(*target, totalBlock, DAMAGE_PHYSICAL);
+			} else {
+				spawnFloatingText(gridToWorld(target->x, target->y), "0 Damage", ofColor::gray);
+			}
+
+			// 3. Remove All Block from Caster
+			currentPlayer.block = 0;
+			currentPlayer.barrier = 0;
+			currentPlayer.ward = 0;
+			currentPlayer.holyBlock = 0;
+
+			spawnFloatingText(gridToWorld(currentPlayer.x, currentPlayer.y), "Shields Broken!", ofColor::yellow);
+
+			playedSuccessfully = true;
+		}
 		break;
 	}
 
@@ -8618,6 +8662,7 @@ CardType ofApp::stringToCardType(const std::string & str) {
 	if (str == "CARD_SUMMON_HELLHOUND") return CARD_SUMMON_HELLHOUND;
 	if (str == "CARD_DEATH") return CARD_DEATH;
 	if (str == "CARD_SUMMON_DEMON") return CARD_SUMMON_DEMON;
+	if (str == "CARD_SHIELD_BASH") return CARD_SHIELD_BASH;
 
 	return CARD_NONE;
 }
@@ -8988,7 +9033,7 @@ void ofApp::drawMinionManagerUI() {
 		}
 
 		// 6. SUMMONING SICKNESS
-		if (minion.isSummoningSickness) {
+		if (minion.summonedOnTurnCycle == globalTurnCounter) {
 			string txt = "Summoning Sickness";
 			ofSetColor(ofColor::gray);
 			ofPushMatrix();
