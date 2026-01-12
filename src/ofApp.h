@@ -106,7 +106,8 @@ enum CardType {
 	CARD_SHIELD_BASH,
 	CARD_CHAIN_LIGHTNING,
 	CARD_CONSUME_HEALTH_POTION,
-	CARD_ADD_POISON
+	CARD_ADD_POISON,
+	CARD_FLURRY_OF_FISTS
 };
 
 enum DicePurpose {
@@ -227,6 +228,7 @@ struct Player {
 	// Status & Buffs
 	int nextTurnAPBonus = 0;
 	int shocksPlayedThisTurn = 0;
+	bool flurryOfFistsActive = false; // Double hand-related damage, 0 AP cost for drawn hand cards
 	bool isParalyzed = false;
 	int paralysisHeadsCount = 0;
 	bool isPoisoned = false;
@@ -550,6 +552,7 @@ private:
 	int pendingAttackRollResult = 0;
 	DamageType pendingAttackDamageType;
 	std::vector<int> pendingAttackTargetIndices;
+	std::string pendingAttackCardName = ""; // For flurry damage doubling
 
 	// Poison (from Add Poison card)
 	bool isWaitingForPoisonAttackDice = false;

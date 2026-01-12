@@ -357,5 +357,12 @@
     "type": "CARD_ADD_POISON",
     "cost": 2,
     "targeting": "TARGET_SELF"
+  },
+  {
+    "id": 45,
+    "name": "Flurry of Fists",
+    "type": "CARD_FLURRY_OF_FISTS",
+    "cost": 3,
+    "targeting": "TARGET_ADJACENT_UNIT"
   }
 ]

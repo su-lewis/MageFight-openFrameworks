@@ -1086,6 +1086,12 @@ void ofApp::updateGame() {
 		int baseDamage = pendingAttackRollResult;
 		Player & attacker = players[currentPlayerIndex];
 
+		// Double damage for Bash if Flurry of Fists is active
+		if (pendingAttackCardName == "Bash" && attacker.flurryOfFistsActive) {
+			baseDamage *= 2;
+		}
+		pendingAttackCardName = ""; // Clear for next attack
+
 		// Determine Label based on pending type
 		string typeLabel = "";
 		switch (pendingAttackDamageType) {
@@ -5828,6 +5834,7 @@ void ofApp::startNewTurn() {
 		endingPlayer.playedCardsPile.clear();
 		endingPlayer.shocksPlayedThisTurn = 0;
 		endingPlayer.nextAttackAddPoison = false; // Clear poison buff at end of turn
+		endingPlayer.flurryOfFistsActive = false; // Clear flurry buff at end of turn
 
 		// Decrement buff timers
 		if (endingPlayer.strengthenElementsTurnsRemaining > 0) {
@@ -6904,6 +6911,74 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		break;
 	}
 
+	case CARD_FLURRY_OF_FISTS: {
+		// Find adjacent target
+		int targetIndex = -1;
+		for (size_t i = 0; i < players.size(); i++) {
+			if (players[i].x == targetX && players[i].y == targetY) {
+				targetIndex = (int)i;
+				break;
+			}
+		}
+		if (targetIndex == -1) break;
+
+		Player * target = getPlayer(targetIndex);
+
+		// 1. Deal 2 physical damage (doubled if flurry already active)
+		int damage = currentPlayer.flurryOfFistsActive ? 4 : 2;
+		applyDamage(*target, damage, DAMAGE_PHYSICAL);
+
+		// 2. Activate flurry buff for this turn
+		currentPlayer.flurryOfFistsActive = true;
+		spawnFloatingText(gridToWorld(currentPlayer.x, currentPlayer.y), "Flurry!", ofColor::orange);
+
+		// 3. Draw a card for free (without using draw action)
+		if (!currentPlayer.deck.empty()) {
+			Card drawnCard = currentPlayer.deck.back();
+			currentPlayer.deck.pop_back();
+			
+			// Check if drawn card is hand-related
+			bool isHandRelated = (drawnCard.name == "Punch" || drawnCard.name == "Hand Block" || 
+				drawnCard.name == "Bash" || drawnCard.name == "Drain Punch" || 
+				drawnCard.name == "Double Handed" || drawnCard.name == "Master Fist" ||
+				drawnCard.name == "Flurry of Fists");
+			
+			if (isHandRelated) {
+				// Make it cost 0 AP this turn
+				drawnCard.cost = 0;
+				spawnFloatingText(gridToWorld(currentPlayer.x, currentPlayer.y) + glm::vec3(0, 0.5f, 0), 
+					drawnCard.name + " (0 AP)!", ofColor::yellow);
+			}
+			
+			currentPlayer.hand.push_back(drawnCard);
+			ofLogNotice("Flurry of Fists") << "Drew " << drawnCard.name << (isHandRelated ? " (free this turn)" : "");
+		} else if (!currentPlayer.discardPile.empty()) {
+			// Reshuffle discard into deck first
+			currentPlayer.deck = currentPlayer.discardPile;
+			currentPlayer.discardPile.clear();
+			std::shuffle(currentPlayer.deck.begin(), currentPlayer.deck.end(), rng);
+			
+			Card drawnCard = currentPlayer.deck.back();
+			currentPlayer.deck.pop_back();
+			
+			bool isHandRelated = (drawnCard.name == "Punch" || drawnCard.name == "Hand Block" || 
+				drawnCard.name == "Bash" || drawnCard.name == "Drain Punch" || 
+				drawnCard.name == "Double Handed" || drawnCard.name == "Master Fist" ||
+				drawnCard.name == "Flurry of Fists");
+			
+			if (isHandRelated) {
+				drawnCard.cost = 0;
+				spawnFloatingText(gridToWorld(currentPlayer.x, currentPlayer.y) + glm::vec3(0, 0.5f, 0), 
+					drawnCard.name + " (0 AP)!", ofColor::yellow);
+			}
+			
+			currentPlayer.hand.push_back(drawnCard);
+		}
+
+		playedSuccessfully = true;
+		break;
+	}
+
 	// --- CASE: SUMMON WALL ---
 	case CARD_CREATE_WALL: {
 		if (!board[targetX][targetY].hasWall && !board[targetX][targetY].hasPlayer) {
@@ -6945,10 +7020,18 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 			int damage = playedCard.value; // Base damage (2)
 
 			// Check playedCardsPile for previous "hand-related" attacks this turn
+			// Hand-related attack cards: Punch, Bash, Drain Punch, Master Fist, Flurry of Fists
+			// (Double Handed and Hand Block are NOT attacks)
 			for (const auto & c : currentPlayer.playedCardsPile) {
-				if (c.name == "Punch" || c.name == "Bash") {
+				if (c.name == "Punch" || c.name == "Bash" || c.name == "Drain Punch" || 
+					c.name == "Master Fist" || c.name == "Flurry of Fists") {
 					damage += 2;
 				}
+			}
+
+			// Double damage if Flurry of Fists is active
+			if (currentPlayer.flurryOfFistsActive) {
+				damage *= 2;
 			}
 
 			// Check if Add Poison buff is active
@@ -7103,8 +7186,9 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 			int damage = playedCard.value; // Base damage (2)
 			int handCardsInDiscard = 0;
 
-			// Define which cards count as "hand-related"
-			std::vector<std::string> handAttackNames = { "Punch", "Bash", "Drain Punch" };
+			// Define which cards count as "hand-related" attack cards
+			// (Double Handed and Hand Block are NOT attacks)
+			std::vector<std::string> handAttackNames = { "Punch", "Bash", "Drain Punch", "Master Fist", "Flurry of Fists" };
 
 			// Count matching cards in the caster's discard pile
 			for (const auto & cardInPile : currentPlayer.discardPile) {
@@ -7118,6 +7202,12 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 
 			damage += (handCardsInDiscard * 2);
 			ofLogNotice("Master Fist") << "Found " << handCardsInDiscard << " hand cards in discard. Total damage: " << damage;
+
+			// Double damage if Flurry of Fists is active
+			if (currentPlayer.flurryOfFistsActive) {
+				damage *= 2;
+				ofLogNotice("Master Fist") << "Flurry doubled damage to: " << damage;
+			}
 
 			// Check if Add Poison buff is active
 			bool applyPoisonBuff = currentPlayer.nextAttackAddPoison;
@@ -7311,11 +7401,17 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		if (playedCard.numDice > 0 && playedCard.diceSides > 0) {
 
 			pendingAttackRollResult = startDiceRoll(playedCard.numDice, playedCard.diceSides, PURPOSE_DAMAGE, playedCard.name + ": Damage");
+			pendingAttackCardName = playedCard.name; // Store for flurry doubling
 
 			isWaitingForAttackDice = true;
 			pendingAttackDamageType = playedCard.damageType;
 				} else {
 			int damage = playedCard.value;
+			
+			// Double damage for Punch if Flurry of Fists is active
+			if ((playedCard.name == "Punch") && currentPlayer.flurryOfFistsActive) {
+				damage *= 2;
+			}
 			
 			// Check if Add Poison buff is active for physical/piercing damage
 			bool applyPoisonBuff = currentPlayer.nextAttackAddPoison && 
@@ -7384,11 +7480,17 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		playedSuccessfully = true;
 		break;
 
-	case CARD_GAIN_BLOCK:
-		players[currentPlayerIndex].block += playedCard.value;
-		spawnFloatingText(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y), "+" + ofToString(playedCard.value) + " Block", ofColor::gray);
+	case CARD_GAIN_BLOCK: {
+		int blockValue = playedCard.value;
+		// Double block for Hand Block if Flurry of Fists is active
+		if (playedCard.name == "Hand Block" && currentPlayer.flurryOfFistsActive) {
+			blockValue *= 2;
+		}
+		players[currentPlayerIndex].block += blockValue;
+		spawnFloatingText(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y), "+" + ofToString(blockValue) + " Block", ofColor::gray);
 		playedSuccessfully = true;
 		break;
+	}
 
 	case CARD_GAIN_WARD:
 		players[currentPlayerIndex].ward += playedCard.value;
@@ -8483,16 +8585,18 @@ void ofApp::resolveDoubleHanded(std::string cardName) {
 		}
 
 		if (found) {
-			// 2. Add 2 copies to deck
-			target->deck.push_back(cardToAdd);
-			target->deck.push_back(cardToAdd);
+			// 2. Add copies to deck (4 if Flurry of Fists is active, otherwise 2)
+			int copiesToAdd = caster.flurryOfFistsActive ? 4 : 2;
+			for (int i = 0; i < copiesToAdd; i++) {
+				target->deck.push_back(cardToAdd);
+			}
 
 			// 3. Shuffle
 			std::shuffle(target->deck.begin(), target->deck.end(), rng);
 
 			// 4. Visual Feedback
-			spawnFloatingText(gridToWorld(target->x, target->y), "Added 2x " + cardName, ofColor::cyan);
-			ofLogNotice("Double Handed") << "Shuffled 2x " << cardName << " into Player " << target->playerID << "'s deck.";
+			spawnFloatingText(gridToWorld(target->x, target->y), "Added " + ofToString(copiesToAdd) + "x " + cardName, ofColor::cyan);
+			ofLogNotice("Double Handed") << "Shuffled " << copiesToAdd << "x " << cardName << " into Player " << target->playerID << "'s deck.";
 
 			// 5. Finalize Play (Cost AP, Remove Card)
 			if (pendingDoubleHandedCardIndex != -1) {
@@ -9165,6 +9269,7 @@ CardType ofApp::stringToCardType(const std::string & str) {
 	if (str == "CARD_CHAIN_LIGHTNING") return CARD_CHAIN_LIGHTNING;
 	if (str == "CARD_CONSUME_HEALTH_POTION") return CARD_CONSUME_HEALTH_POTION;
 	if (str == "CARD_ADD_POISON") return CARD_ADD_POISON;
+	if (str == "CARD_FLURRY_OF_FISTS") return CARD_FLURRY_OF_FISTS;
 
 	return CARD_NONE;
 }
