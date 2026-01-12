@@ -102,7 +102,8 @@ enum CardType {
 	CARD_SUMMON_HELLHOUND,
 	CARD_DEATH,
 	CARD_SUMMON_DEMON,
-	CARD_SHIELD_BASH
+	CARD_SHIELD_BASH,
+	CARD_CHAIN_LIGHTNING
 };
 
 enum DicePurpose {
@@ -578,6 +579,15 @@ private:
 	bool isWaitingForJoltRangeDice = false;
 	int pendingJoltRangeResult = 0;
 	glm::vec2 pendingJoltTargetTile;
+
+	// Chain Lightning
+	bool isTargetingChainLightning = false;
+	int chainLightningCardIndex = -1;
+	bool isWaitingForChainLightningRange = false;
+	bool isWaitingForChainLightningDamage = false;
+	int pendingChainLightningRangeResult = 0;
+	int pendingChainLightningDamageResult = 0;
+	glm::vec2 pendingChainLightningTargetTile;
 
 	// Dispel
 	bool isDispelMenuOpen = false;

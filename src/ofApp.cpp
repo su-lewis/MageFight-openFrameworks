@@ -967,44 +967,44 @@ void ofApp::updateGame() {
 				else if (players[pIndex].isWolf)
 					ui.displayNumber = ++wolfCount;
 				else if (players[pIndex].isHellhound)
-				ui.displayNumber = ++houndCount;
-			else if (players[pIndex].isDemon)
-				ui.displayNumber = ++demonCount;
+					ui.displayNumber = ++houndCount;
+				else if (players[pIndex].isDemon)
+					ui.displayNumber = ++demonCount;
 
-			float currentY = topLimitY + (i * (actualEntryHeight + actualGap));
+				float currentY = topLimitY + (i * (actualEntryHeight + actualGap));
 
-			ui.bounds.set(startX, currentY, panelWidth, actualEntryHeight);
-			activeMinionUIs.push_back(ui);
-		}
-	};
+				ui.bounds.set(startX, currentY, panelWidth, actualEntryHeight);
+				activeMinionUIs.push_back(ui);
+			}
+		};
 
-	// 4. BUILD LISTS
-	float p0_startX = 10 * scale;
-	buildMinionList(p0_minionIndices, p0_startX, p0_skeleton, p0_golem, p0_wolf, p0_hound, p0_demon);
+		// 4. BUILD LISTS
+		float p0_startX = 10 * scale;
+		buildMinionList(p0_minionIndices, p0_startX, p0_skeleton, p0_golem, p0_wolf, p0_hound, p0_demon);
 
-	float p1_startX = ofGetWidth() - panelWidth - (10 * scale);
-	buildMinionList(p1_minionIndices, p1_startX, p1_skeleton, p1_golem, p1_wolf, p1_hound, p1_demon);
-}
-// --- END MINION UI REBUILD ---
-
-// 1. UPDATE UI POSITIONS
-updateDebugRects();
-
-// 2. Magic Blast / Dispel Freeze Check
-if (isMagicBlastChoiceActive || isDispelMenuOpen || isDispelTargeting || isDispelStatusSelectOpen) {
-	return;
-}
-
-// --- Pile View Hover Logic ---
-if (isHoveringPile && !isShowingPileView) {
-	if (ofGetElapsedTimef() - pileHoverStartTime > 0.6f) { // Reduced hover time
-		isShowingPileView = true;
-		currentPileView = hoveredPileType;
-		currentPileViewPlayerIndex = hoveredPilePlayerIndex;
+		float p1_startX = ofGetWidth() - panelWidth - (10 * scale);
+		buildMinionList(p1_minionIndices, p1_startX, p1_skeleton, p1_golem, p1_wolf, p1_hound, p1_demon);
 	}
-}
+	// --- END MINION UI REBUILD ---
 
-// --- DELTA TIME CLAMP FIX ---
+	// 1. UPDATE UI POSITIONS
+	updateDebugRects();
+
+	// 2. Magic Blast / Dispel Freeze Check
+	if (isMagicBlastChoiceActive || isDispelMenuOpen || isDispelTargeting || isDispelStatusSelectOpen) {
+		return;
+	}
+
+	// --- Pile View Hover Logic ---
+	if (isHoveringPile && !isShowingPileView) {
+		if (ofGetElapsedTimef() - pileHoverStartTime > 0.6f) { // Reduced hover time
+			isShowingPileView = true;
+			currentPileView = hoveredPileType;
+			currentPileViewPlayerIndex = hoveredPilePlayerIndex;
+		}
+	}
+
+	// --- DELTA TIME CLAMP FIX ---
 	float deltaTime = ofGetLastFrameTime();
 	// If we lagged more than 100ms (e.g. Alt-Tab), pretend it was just 16ms
 	if (deltaTime > 0.1f) deltaTime = 0.016f;
@@ -1765,7 +1765,7 @@ if (isHoveringPile && !isShowingPileView) {
 
 		minion.isMinion = true;
 		minion.isDemon = true; // Flag for drawing/AP/Weakness
-		
+
 		// Set owner and summoning sickness
 		minion.ownerID = players[currentPlayerIndex].isMinion ? players[currentPlayerIndex].ownerID : players[currentPlayerIndex].playerID;
 		minion.summonedOnTurnCycle = players[currentPlayerIndex].isMinion ? globalTurnCounter : -1;
@@ -1820,6 +1820,114 @@ if (isHoveringPile && !isShowingPileView) {
 			}
 		}
 		invalidateTargetCache();
+	}
+
+	// --- CHAIN LIGHTNING: RANGE RESOLUTION ---
+	if (isWaitingForChainLightningRange && activeDiceRolls.empty()) {
+		isWaitingForChainLightningRange = false;
+
+		Player & caster = players[currentPlayerIndex];
+		glm::vec2 casterTile(caster.x, caster.y);
+
+		// 1. Check Range (Face-to-Face)
+		float distFeet = getFaceToFaceDistance(casterTile, pendingChainLightningTargetTile) * 5.0f;
+		float maxRange = (float)pendingChainLightningRangeResult;
+
+		ofLogNotice("ChainLightning") << "Range Roll: " << maxRange << "ft. Needed: " << distFeet << "ft.";
+
+		if (distFeet <= maxRange + 0.1f) {
+			// SUCCESS: Roll Damage (1d10)
+			pendingChainLightningDamageResult = startDiceRoll(1, 10, PURPOSE_DAMAGE, "Chain Lightning: Damage");
+			isWaitingForChainLightningDamage = true;
+		} else {
+			// FAIL
+			glm::vec3 failPos = gridToWorld(pendingChainLightningTargetTile.x, pendingChainLightningTargetTile.y);
+			spawnFloatingText(failPos, "Fizzle (Range)", ofColor::gray);
+		}
+	}
+
+	// --- CHAIN LIGHTNING: DAMAGE RESOLUTION ---
+	if (isWaitingForChainLightningDamage && activeDiceRolls.empty()) {
+		isWaitingForChainLightningDamage = false;
+
+		Player & caster = players[currentPlayerIndex];
+		int damage = pendingChainLightningDamageResult;
+		int unitsHitCount = 0;
+
+		// 1. Grant AP Bonus
+		caster.nextTurnAPBonus += 3;
+		spawnFloatingText(gridToWorld(caster.x, caster.y) + glm::vec3(0, 0.5f, 0), "+3 AP Next Turn", ofColor::limeGreen);
+
+		// 2. Identify AOE Tiles (Center + 8 neighbors)
+		std::vector<glm::vec2> validTiles;
+		int tx = (int)pendingChainLightningTargetTile.x;
+		int ty = (int)pendingChainLightningTargetTile.y;
+
+		for (int dx = -1; dx <= 1; dx++) {
+			for (int dy = -1; dy <= 1; dy++) {
+				int nx = tx + dx;
+				int ny = ty + dy;
+
+				// Physics Check (Pinch) from Target Center to Neighbor
+				// This prevents lightning "leaking" through blocked diagonals
+				bool blocked = false;
+				if (isTileWall(nx, ny)) blocked = true;
+
+				if (!blocked && abs(dx) == 1 && abs(dy) == 1) {
+					if (isTileWall(tx + dx, ty) && isTileWall(tx, ty + dy)) blocked = true;
+				}
+
+				if (!blocked) {
+					validTiles.push_back({ nx, ny });
+					// Visual Zap
+					spawnFloatingText(gridToWorld(nx, ny), "ZAP!", ofColor::yellow);
+				}
+			}
+		}
+
+		// 3. Apply Damage
+		std::set<int> hitPlayerIDs; // Track who we hit to apply paralysis later
+
+		for (const auto & tile : validTiles) {
+			for (auto & p : players) {
+				if (p.x == tile.x && p.y == tile.y) {
+					// Apply Electric Damage (using local damage logic since applyDamage is in playCard)
+					int finalDmg = damage;
+					// Barrier
+					int barrierDmg = std::min(p.barrier, finalDmg);
+					p.barrier -= barrierDmg;
+					finalDmg -= barrierDmg;
+					// Ward
+					if (finalDmg > 0) {
+						int wardDmg = std::min(p.ward, finalDmg);
+						p.ward -= wardDmg;
+						finalDmg -= wardDmg;
+					}
+
+					if (finalDmg > 0) {
+						p.health -= finalDmg;
+						spawnFloatingText(gridToWorld(p.x, p.y), "-" + ofToString(finalDmg) + " Electric", ofColor::cyan);
+					} else {
+						spawnFloatingText(gridToWorld(p.x, p.y), "Absorbed", ofColor::gray);
+					}
+
+					hitPlayerIDs.insert(p.playerID);
+				}
+			}
+		}
+
+		// 4. Conditional Paralysis (If > 1 unit hit)
+		if (hitPlayerIDs.size() > 1) {
+			for (auto & p : players) {
+				if (hitPlayerIDs.count(p.playerID)) {
+					if (!p.isParalyzed) {
+						p.isParalyzed = true;
+						p.paralysisHeadsCount = 0;
+						spawnFloatingText(gridToWorld(p.x, p.y) + glm::vec3(0, 1.0f, 0), "Paralyzed!", ofColor::yellow);
+					}
+				}
+			}
+		}
 	}
 
 	// --- FLAIL RESOLUTION ---
@@ -2003,11 +2111,19 @@ if (isHoveringPile && !isShowingPileView) {
 						int flipResult = roll.result;
 						Player & p = players[currentPlayerIndex];
 
-						// Check for 2 (Heads) to escape paralysis
+						// Check for 2 (Heads)
 						if (flipResult == 2) {
-							ofLogNotice("Paralysis") << "Heads! Paralysis is cured.";
-							p.isParalyzed = false;
-							p.paralysisHeadsCount = 0;
+							// Increment heads count
+							p.paralysisHeadsCount++;
+							
+							// If 2 heads in a row, cure paralysis
+							if (p.paralysisHeadsCount >= 2) {
+								ofLogNotice("Paralysis") << "2nd Heads! Paralysis is cured.";
+								p.isParalyzed = false;
+								p.paralysisHeadsCount = 0;
+							} else {
+								ofLogNotice("Paralysis") << "Heads! Can play this turn (" << p.paralysisHeadsCount << "/2 heads).";
+							}
 
 							// Continue turn...
 							if (p.onFire) {
@@ -2018,7 +2134,9 @@ if (isHoveringPile && !isShowingPileView) {
 							}
 							return;
 						} else { // Rolled 1 (Tails)
-							ofLogNotice("Paralysis") << "Tails! Player remains paralyzed.";
+							ofLogNotice("Paralysis") << "Tails! Player remains paralyzed and skips turn.";
+							// Reset heads count
+							p.paralysisHeadsCount = 0;
 							// End turn immediately
 							startNewTurn();
 							return;
@@ -3679,6 +3797,18 @@ void ofApp::drawGame() {
 		pileViewRect.set(0, 0, 0, 0);
 	}
 
+	// --- Draw Chain Lightning Targeting UI ---
+	if (isTargetingChainLightning) {
+		string msg = "Choose Target for Chain Lightning (2d10 Range)";
+		ofRectangle bbox = titleFont.getStringBoundingBox(msg, 0, 0);
+		float tx = (ofGetWidth() / 2.0f) - (bbox.width / 2.0f);
+		float ty = ofGetHeight() * 0.25f;
+		ofSetColor(0, 0, 0, 255);
+		titleFont.drawString(msg, tx + 2, ty + 2);
+		ofSetColor(ofColor::yellow); // Electric Color
+		titleFont.drawString(msg, tx, ty);
+	}
+
 	// --- Draw Amnesia Selection UI ---
 	if (isAmnesiaSelectionActive) {
 		// This uses the same dynamic layout logic
@@ -4126,6 +4256,8 @@ void ofApp::mouseMoved(int x, int y) {
 			activeCardForHighlight = pendingTeleportCardIndex;
 		} else if (isTargetingHellhound) {
 			activeCardForHighlight = hellhoundCardIndex;
+		} else if (isTargetingChainLightning) {
+			activeCardForHighlight = chainLightningCardIndex;
 		} else if (isTargetingAmnesia) {
 			activeCardForHighlight = pendingAmnesiaCardIndex;
 		} else if (isTargetingDoubleHanded) {
@@ -4708,6 +4840,46 @@ void ofApp::mousePressed(int x, int y, int button) {
 		clearHighlights();
 		return;
 	}
+
+	// --- 1j. Chain Lightning Click ---
+	if (isTargetingChainLightning && button == OF_MOUSE_BUTTON_LEFT) {
+		ofVec2f boardPos = mouseToBoard(x, y);
+		int gx = floor(boardPos.x);
+		int gy = floor(boardPos.y);
+
+		if (gx >= 0 && gx < BOARD_WIDTH && gy >= 0 && gy < BOARD_HEIGHT) {
+			if (board[gx][gy].isTargetable) {
+				// 1. Consume Resources
+				Player & caster = players[currentPlayerIndex];
+				Card & c = caster.hand[chainLightningCardIndex];
+
+				currentAP -= c.cost;
+				caster.playedCardsPile.push_back(c);
+				if (caster.isReplicatePending) {
+					caster.playedCardsPile.push_back(c);
+					caster.isReplicatePending = false;
+				}
+				caster.cardsPlayedThisTurn.push_back(c.type);
+				caster.hand.erase(caster.hand.begin() + chainLightningCardIndex);
+
+				// 2. Start Range Roll (2d10)
+				pendingChainLightningTargetTile = glm::vec2(gx, gy);
+				pendingChainLightningRangeResult = startDiceRoll(2, 10, PURPOSE_RANGE, "Chain Lightning: Range");
+				isWaitingForChainLightningRange = true;
+
+				// 3. Reset State
+				isTargetingChainLightning = false;
+				chainLightningCardIndex = -1;
+				clearHighlights();
+				return;
+			}
+		}
+		// Cancel if clicked invalid
+		isTargetingChainLightning = false;
+		chainLightningCardIndex = -1;
+		clearHighlights();
+		return;
+	}
 	// ==============================================================================
 	// PHASE 2: GLOBAL MOUSE TRACKING
 	// ==============================================================================
@@ -4743,10 +4915,10 @@ void ofApp::mousePressed(int x, int y, int button) {
 						wolf.health = 4;
 						wolf.isMinion = true;
 						wolf.isWolf = true;
-							
-							// Set owner and summoning sickness
-							wolf.ownerID = players[currentPlayerIndex].isMinion ? players[currentPlayerIndex].ownerID : players[currentPlayerIndex].playerID;
-							wolf.summonedOnTurnCycle = players[currentPlayerIndex].isMinion ? globalTurnCounter : -1;
+
+						// Set owner and summoning sickness
+						wolf.ownerID = players[currentPlayerIndex].isMinion ? players[currentPlayerIndex].ownerID : players[currentPlayerIndex].playerID;
+						wolf.summonedOnTurnCycle = players[currentPlayerIndex].isMinion ? globalTurnCounter : -1;
 						Card slashCard, callCard;
 						for (const auto & c : allCards) {
 							if (c.name == "Slash") slashCard = c;
@@ -5309,6 +5481,16 @@ void ofApp::mouseReleased(int x, int y, int button) {
 							isWaitingForTeleportDice = true;
 							draggedCardIndex = -1;
 							selectedCardIndex = -1;
+							return;
+						}
+
+						// --- CHAIN LIGHTNING ---
+						if (playedCard.type == CARD_CHAIN_LIGHTNING) {
+							isTargetingChainLightning = true;
+							chainLightningCardIndex = draggedCardIndex;
+							draggedCardIndex = -1;
+							selectedCardIndex = -1;
+							calculateTargetHighlights(chainLightningCardIndex);
 							return;
 						}
 
@@ -7279,29 +7461,72 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 			case TARGET_LINE_OF_SIGHT_TILE: {
 				float maxRangeFeet;
 
-				// 1. Magic Bolt Logic (Active Targeting)
+				// --- Determine Max Range based on current card/state ---
 				if (card.type == CARD_MAGIC_BOLT && isTargetingMagicBolt && pendingMagicBoltRangeResult > 0) {
 					maxRangeFeet = (float)pendingMagicBoltRangeResult;
-				}
-				// 2. HEAL OVERRIDE (Infinite Range)
-				// This prevents the visual preview from being limited to 12ft (2d6)
-				else if (card.type == CARD_HEAL || card.type == CARD_DEATH) {
-					maxRangeFeet = 9999.0f;
-				}
-				// 3. Standard Range Spells (Magic Blast, Fireball, etc)
-				// These use the dice to determine max range (e.g., 1d20 = 20ft)
-				else {
+				} else if (card.type == CARD_HEAL || card.type == CARD_DEATH) {
+					maxRangeFeet = 9999.0f; // Infinite range
+				} else {
+					// Default: Max potential roll (e.g. 1d20 -> 20ft)
 					maxRangeFeet = (float)(card.numDice * card.diceSides);
 				}
 
 				TargetInfo info = isLosTargetValid(casterPos, targetPos, maxRangeFeet, card.type);
 
+				// --- Determine Red Preview (is it in range and visible?) ---
 				if (info.reason != INVALID_NO_LOS && info.reason != INVALID_OUT_OF_RANGE && !board[x][y].hasWall) {
 					isPreview = true;
 				}
-				if (info.isTargetable) {
+
+				// --- Determine Green Outline (is it a valid final target?) ---
+				bool canBeClicked = false;
+
+				// --- ADD THIS BLOCK: Special logic for Chain Lightning ---
+				if (card.type == CARD_CHAIN_LIGHTNING) {
+					if (isPreview) { // Only check valid previews
+						// A. Can click if a unit is on the tile
+						if (board[x][y].hasPlayer) {
+							canBeClicked = true;
+						}
+						// B. Can also click if tile is EMPTY but adjacent to a unit
+						else {
+							// Check 8 neighbors
+							for (int dx = -1; dx <= 1; dx++) {
+								for (int dy = -1; dy <= 1; dy++) {
+									if (dx == 0 && dy == 0) continue; // Skip self
+									int nx = x + dx;
+									int ny = y + dy;
+
+									if (nx >= 0 && nx < BOARD_WIDTH && ny >= 0 && ny < BOARD_HEIGHT && board[nx][ny].hasPlayer) {
+										// Found a unit. Check for pinch physics on diagonal.
+										bool blocked = false;
+										if (abs(dx) == 1 && abs(dy) == 1) { // Diagonal check
+											if (isTileWall(x + dx, y) && isTileWall(x, y + dy)) {
+												blocked = true;
+											}
+										}
+										if (!blocked) {
+											canBeClicked = true;
+											break; // Found one valid neighbor, no need to check others
+										}
+									}
+								}
+								if (canBeClicked) break;
+							}
+						}
+					}
+				}
+				// --- END OF CHAIN LIGHTNING BLOCK ---
+				else {
+					// Default logic for other spells
+					if (info.isTargetable) {
+						canBeClicked = true;
+					}
+				}
+
+				if (canBeClicked) {
 					isValidTarget = true;
-					isPreview = true;
+					isPreview = true; // Ensure it's also red if it's green
 				}
 				break;
 			}
@@ -8676,6 +8901,7 @@ CardType ofApp::stringToCardType(const std::string & str) {
 	if (str == "CARD_DEATH") return CARD_DEATH;
 	if (str == "CARD_SUMMON_DEMON") return CARD_SUMMON_DEMON;
 	if (str == "CARD_SHIELD_BASH") return CARD_SHIELD_BASH;
+	if (str == "CARD_CHAIN_LIGHTNING") return CARD_CHAIN_LIGHTNING;
 
 	return CARD_NONE;
 }

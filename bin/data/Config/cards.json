@@ -333,5 +333,15 @@
     "type": "CARD_SHIELD_BASH",
     "cost": 3,
     "targeting": "TARGET_ADJACENT_UNIT"
+  },
+  {
+    "id": 41,
+    "name": "Chain Lightning",
+    "type": "CARD_CHAIN_LIGHTNING",
+    "cost": 3,
+    "targeting": "TARGET_LINE_OF_SIGHT_TILE",
+    "damageType": "DAMAGE_ELECTRIC",
+    "numDice": 2,
+    "diceSides": 10
   }
 ]
