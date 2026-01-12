@@ -34,7 +34,7 @@ void ofApp::setup() {
 	// --- Load Player Model ---
 	if (playerModel.load("Units/Player/model.glb")) {
 		playerModel.disableMaterials();
-		playerModel.setScale(0.0025f, 0.0025f, 0.0025f);
+		playerModel.setScale(0.0021f, 0.0021f, 0.0021f);
 		playerModel.setRotation(0, 180, 0, 0, 1);
 	}
 
@@ -48,7 +48,7 @@ void ofApp::setup() {
 
 	// Load Golem
 	golemModel.load("Units/Golem/lava+golem+3d+model.fbx");
-	golemModel.setScale(0.004f, 0.004f, 0.004f);
+	golemModel.setScale(0.0036f, 0.0036f, 0.0036f);
 	golemModel.disableMaterials();
 	golemModel.disableTextures();
 	// Load Golem Variants
@@ -87,6 +87,18 @@ void ofApp::setup() {
 		hellhoundModel.setScale(0.0045f, 0.0045f, 0.0045f);
 
 		ofLogNotice("Setup") << "Hellhound model loaded.";
+	}
+
+	// --- Load Demon ---
+	if (demonModel.load("Units/Demon/demonic_horned_horror_knight.glb")) {
+		demonModel.disableMaterials();
+		// Standard GLB fix
+		demonModel.setRotation(0, 180, 0, 0, 1);
+		// Demon should be large
+		demonModel.setScale(0.00575f, 0.00575f, 0.00575f);
+		ofLogNotice("Setup") << "Demon model loaded.";
+	} else {
+		ofLogError("Setup") << "Failed to load demon model.";
 	}
 
 	// --- 3. BOARD & SKYBOX ---
@@ -1310,7 +1322,7 @@ void ofApp::updateGame() {
 		minion.health = pendingSummonRollResult;
 		minion.isMinion = true;
 		minion.isSkeleton = true;
-		minion.isSummoningSickness = true;
+		minion.isSummoningSickness = players[currentPlayerIndex].isMinion; // Only if summoned during minion phase
 		minion.hasRegeneration = true;
 
 		minion.ownerID = players[currentPlayerIndex].playerID;
@@ -1681,7 +1693,7 @@ void ofApp::updateGame() {
 
 		minion.isMinion = true;
 		minion.isHellhound = true;
-		minion.isSummoningSickness = true;
+		minion.isSummoningSickness = players[currentPlayerIndex].isMinion; // Only if summoned during minion phase
 
 		minion.ownerID = players[currentPlayerIndex].playerID;
 
@@ -1725,6 +1737,73 @@ void ofApp::updateGame() {
 		});
 
 		// 5. Restore Index
+		for (size_t i = 0; i < players.size(); i++) {
+			if (players[i].playerID == currentID) {
+				currentPlayerIndex = i;
+				break;
+			}
+		}
+		invalidateTargetCache();
+	}
+
+	// --- DEMON SUMMON RESOLUTION ---
+	if (isWaitingForDemonHP && activeDiceRolls.empty()) {
+		isWaitingForDemonHP = false;
+
+		Player minion;
+		minion.playerID = 2000 + (int)players.size();
+		minion.x = (int)pendingSummonTile.x;
+		minion.y = (int)pendingSummonTile.y;
+		minion.maxHealth = pendingSummonRollResult;
+		minion.health = pendingSummonRollResult;
+
+		minion.isMinion = true;
+		minion.isDemon = true; // Flag for drawing/AP/Weakness
+		minion.isSummoningSickness = players[currentPlayerIndex].isMinion; // Only if summoned during minion phase
+		minion.ownerID = players[currentPlayerIndex].playerID;
+
+		// Deck: 2x Death, 2x Flail, 2x Fireball, 1x Summon Hellhound, 3x Dark Shield
+		for (const auto & c : allCards) {
+			if (c.type == CARD_DEATH) {
+				minion.deck.push_back(c);
+				minion.deck.push_back(c);
+			}
+			if (c.type == CARD_FLAIL) {
+				minion.deck.push_back(c);
+				minion.deck.push_back(c);
+			}
+			if (c.type == CARD_FIREBALL) {
+				minion.deck.push_back(c);
+				minion.deck.push_back(c);
+			}
+			if (c.type == CARD_SUMMON_HELLHOUND) {
+				minion.deck.push_back(c);
+			}
+			if (c.type == CARD_DARK_SHIELD) {
+				minion.deck.push_back(c);
+				minion.deck.push_back(c);
+				minion.deck.push_back(c);
+			}
+		}
+		std::shuffle(minion.deck.begin(), minion.deck.end(), rng);
+
+		board[minion.x][minion.y].hasPlayer = true;
+		players.push_back(minion);
+
+		ofLogNotice("Summon") << "Demon summoned with " << minion.health << " HP.";
+
+		// Sort Turn Order
+		int currentID = players[currentPlayerIndex].playerID;
+		std::sort(players.begin(), players.end(), [](const Player & a, const Player & b) {
+			int ownerA = a.isMinion ? a.ownerID : a.playerID;
+			int ownerB = b.isMinion ? b.ownerID : b.playerID;
+			if (ownerA != ownerB) return ownerA < ownerB;
+			if (a.isMinion && !b.isMinion) return true;
+			if (!a.isMinion && b.isMinion) return false;
+			return a.playerID < b.playerID;
+		});
+
+		// Restore Index
 		for (size_t i = 0; i < players.size(); i++) {
 			if (players[i].playerID == currentID) {
 				currentPlayerIndex = i;
@@ -2400,24 +2479,19 @@ void ofApp::drawGame() {
 		// --- SETUP ---
 		ofEnableDepthTest();
 		ofSetColor(255);
-
-		ofEnableLighting(); // Turn the lighting system on
+		ofEnableLighting();
 
 		cam.begin();
 
 		// --- LIGHTING ---
-		// FIX: Force the UI light OFF so it doesn't affect the board
 		uiLight.disable();
-
-		// Enable the lights we actually want for the board
 		keyLight.enable();
 		rimLight.enable();
 		headlight.enable();
 		headlight.setPosition(cam.getPosition());
 
 		// ===================================================================
-		//  PASS 1: DRAW ALL OPAQUE OBJECTS
-		//  (This correctly fills the depth buffer)
+		//  PASS 1: DRAW ALL OPAQUE OBJECTS (Models & Dice)
 		// ===================================================================
 
 		// --- OPAQUE GEOMETRY (Floor & Walls) ---
@@ -2432,62 +2506,48 @@ void ofApp::drawGame() {
 		levelMesh.draw();
 		wallTexture.unbind();
 
-		// --- OPAQUE DYNAMIC OBJECTS (Players & Dice) ---
+		// --- OPAQUE DYNAMIC OBJECTS (Players) ---
 		for (const auto & player : players) {
-			ofPushMatrix();
+			// 1. Determine Position
+			glm::vec3 pos;
 			if (currentPlayerIndex >= 0 && player.playerID == players[currentPlayerIndex].playerID) {
-				ofTranslate(playerVisualPos.x, playerVisualPos.y, playerVisualPos.z);
+				pos = playerVisualPos;
 			} else {
-				glm::vec3 staticPos = gridToWorld(player.x, player.y);
-				ofTranslate(staticPos.x, staticPos.y, staticPos.z);
+				pos = gridToWorld(player.x, player.y);
 			}
+
+			ofPushMatrix();
 
 			// --- DRAW LOGIC ---
 			if (player.isSkeleton) {
-				ofSetColor(255);
+				ofTranslate(pos.x, 0.1f, pos.z);
 				ofTranslate(0, 2.0f, 0);
 				skeletonTexture.bind();
 				skeletonModel.drawFaces();
 				skeletonTexture.unbind();
 			} else if (player.isGolem) {
-				ofSetColor(255);
-
-				// Lift up from floor
+				ofTranslate(pos.x, 0.1f, pos.z);
 				ofTranslate(0, 3.0f, 0);
-
-				// Keep upright rotation
 				ofRotateXDeg(180);
-
-				// Rotate to North
 				ofRotateYDeg(90);
 
-				if (player.minionTexture) {
-					player.minionTexture->bind();
-				}
-
+				if (player.minionTexture) player.minionTexture->bind();
 				golemModel.drawFaces();
-
-				if (player.minionTexture) {
-					player.minionTexture->unbind();
-				}
-			}
-			// --- WOLF RENDERING ---
-			else if (player.isWolf) {
-				ofSetColor(255);
-
-				// Lift wolf up from floor slightly
+				if (player.minionTexture) player.minionTexture->unbind();
+			} else if (player.isWolf) {
+				ofTranslate(pos.x, 0.1f, pos.z);
 				ofTranslate(0, 0.4f, 0);
-				ofScale(0.015f, 0.015f, 0.015f);
+				// Increased scale by 20% (from 0.015 to 0.018)
+				ofScale(0.018f, 0.018f, 0.018f);
 
-				// Draw skin meshes (body=6, hands=7, face=8+)
+				// Draw Skin
 				for (unsigned int i = 6; i < wolfModel.getMeshCount(); i++) {
 					ofTexture * tex = (i == 6 || i == 7) ? &wolfBodyTex : &wolfFaceTex;
 					if (tex->isAllocated()) tex->bind();
 					wolfModel.getMeshHelper(i).cachedMesh.drawFaces();
 					if (tex->isAllocated()) tex->unbind();
 				}
-
-				// Draw fur on top with alpha blending
+				// Draw Fur (Alpha handled here for simplicity, or move to pass 2)
 				glDepthMask(GL_FALSE);
 				ofEnableAlphaBlending();
 				wolfFurTex.bind();
@@ -2497,59 +2557,43 @@ void ofApp::drawGame() {
 				wolfFurTex.unbind();
 				ofDisableAlphaBlending();
 				glDepthMask(GL_TRUE);
-			}
-
-			// --- HELLHOUND RENDERING ---
-			else if (player.isHellhound) {
-				ofSetColor(255);
-
-				// FIX: Lowered from 2.5f to 0.1f (Floor level)
-				ofTranslate(0, 0.1f, 0);
-
-				// FIX: Changed from -90 to 180 to rotate it West->North (90 degrees)
-				// If this makes it face South, try 0 instead.
+			} else if (player.isHellhound) {
+				ofTranslate(pos.x, 0.1f, pos.z);
 				ofRotateYDeg(180);
-
 				hellhoundModel.drawFaces();
-			}
-			// ---------------------------
-			else {
+			} else if (player.isDemon) {
+				ofTranslate(pos.x, 0.1f, pos.z);
+				// Raised from 2.5f to 3.5f to prevent clipping
+				ofTranslate(0, 3.5f, 0);
+				// Changed from 180 (West) to 90 (North)
+				ofRotateYDeg(90);
+				demonModel.drawFaces();
+			} else {
 				// Default Player
-
-				// 2. LIFT MODEL UP
-				// Was 0.1f. Changing to 2.5f to lift it out of the floor.
-				// (Adjust this number: Higher = Higher in air, Lower = Lower in floor)
+				ofTranslate(pos.x, 0.1f, pos.z);
 				ofTranslate(0, 2.0f, 0);
 
-				if (playerTexture.isAllocated()) {
-					playerTexture.bind();
-				}
-
+				if (playerTexture.isAllocated()) playerTexture.bind();
 				playerModel.drawFaces();
-
-				if (playerTexture.isAllocated()) {
-					playerTexture.unbind();
-				}
+				if (playerTexture.isAllocated()) playerTexture.unbind();
 			}
 			ofPopMatrix();
 		}
-		// Dice Roll Rendering
-		diceMaterial.begin();
 
-		// Helper to calculate X offset to prevent overlap
+		// --- DICE RENDERING ---
+		diceMaterial.begin();
 		auto getDiceOffset = [&](int index, int total) {
-			// Increased spacing from 4.0f to 6.0f
 			return (index * 6.0f) - ((total - 1) * 3.0f);
 		};
 
-		// --- Coin ---
+		// Coin
 		coinFacesTexture.bind();
 		for (int i = 0; i < activeDiceRolls.size(); i++) {
 			auto & roll = activeDiceRolls[i];
 			if (roll.sides != 2) continue;
 			ofPushMatrix();
 			ofTranslate(getDiceOffset(i, activeDiceRolls.size()), 4.5f, 0);
-			// ... [Rotation logic remains the same] ...
+
 			glm::quat finalDrawQuat;
 			float t = (ofGetElapsedTimef() - roll.startTime);
 			if (t < 1.0f) {
@@ -2566,14 +2610,14 @@ void ofApp::drawGame() {
 		}
 		coinFacesTexture.unbind();
 
-		// --- D6 ---
+		// D6
 		d6Texture.bind();
 		for (int i = 0; i < activeDiceRolls.size(); i++) {
 			auto & roll = activeDiceRolls[i];
 			if (roll.sides != 6) continue;
 			ofPushMatrix();
 			ofTranslate(getDiceOffset(i, activeDiceRolls.size()), 4.5f, 0);
-			// ... [Rotation logic] ...
+
 			glm::quat finalDrawQuat;
 			float t = (ofGetElapsedTimef() - roll.startTime);
 			if (t < 1.0f) {
@@ -2591,14 +2635,14 @@ void ofApp::drawGame() {
 		}
 		d6Texture.unbind();
 
-		// --- D4 ---
+		// D4
 		d4Texture.bind();
 		for (int i = 0; i < activeDiceRolls.size(); i++) {
 			auto & roll = activeDiceRolls[i];
 			if (roll.sides != 4) continue;
 			ofPushMatrix();
 			ofTranslate(getDiceOffset(i, activeDiceRolls.size()), 4.5f, 0);
-			// ... [Rotation logic] ...
+
 			glm::quat finalDrawQuat;
 			float t = (ofGetElapsedTimef() - roll.startTime);
 			if (t < 1.0f) {
@@ -2616,14 +2660,14 @@ void ofApp::drawGame() {
 		}
 		d4Texture.unbind();
 
-		// --- D10 ---
+		// D10
 		d10Texture.bind();
 		for (int i = 0; i < activeDiceRolls.size(); i++) {
 			auto & roll = activeDiceRolls[i];
 			if (roll.sides != 10) continue;
 			ofPushMatrix();
 			ofTranslate(getDiceOffset(i, activeDiceRolls.size()), 4.5f, 0);
-			// ... [Rotation logic] ...
+
 			glm::quat finalDrawQuat;
 			float t = (ofGetElapsedTimef() - roll.startTime);
 			if (t < 1.0f) {
@@ -2641,14 +2685,14 @@ void ofApp::drawGame() {
 		}
 		d10Texture.unbind();
 
-		// --- D20 ---
+		// D20
 		d20Texture.bind();
 		for (int i = 0; i < activeDiceRolls.size(); i++) {
 			auto & roll = activeDiceRolls[i];
 			if (roll.sides != 20) continue;
 			ofPushMatrix();
 			ofTranslate(getDiceOffset(i, activeDiceRolls.size()), 4.5f, 0);
-			// ... [Rotation logic] ...
+
 			glm::quat finalDrawQuat;
 			float t = (ofGetElapsedTimef() - roll.startTime);
 			if (t < 1.0f) {
@@ -2667,131 +2711,64 @@ void ofApp::drawGame() {
 			ofPopMatrix();
 		}
 		d20Texture.unbind();
-
 		diceMaterial.end();
 
 		// ===================================================================
 		//  PASS 2: DRAW ALL TRANSPARENT EFFECTS
 		//  (Disable depth writing to prevent artifacts)
 		// ===================================================================
-		glDepthMask(GL_FALSE); // Stop writing to the depth buffer
+		glDepthMask(GL_FALSE);
 		ofEnableBlendMode(OF_BLENDMODE_ALPHA);
 
-		// --- DRAW SHADOWS ---
-		ofDisableLighting();
-		ofSetColor(255);
 		for (const auto & player : players) {
+			// 1. Determine Position
 			glm::vec3 pos;
 			if (currentPlayerIndex >= 0 && player.playerID == players[currentPlayerIndex].playerID) {
 				pos = playerVisualPos;
 			} else {
 				pos = gridToWorld(player.x, player.y);
 			}
+
+			// 2. Determine Head Height for Status Effects (Used in this loop)
+			float headHeight = 4.0f; // Default
+			if (player.isGolem)
+				headHeight = 5.5f;
+			else if (player.isWolf)
+				headHeight = 2.0f;
+			else if (player.isHellhound)
+				headHeight = 2.5f;
+			else if (player.isDemon)
+				headHeight = 6.0f;
+
+			// 3. DRAW SHADOW
 			ofPushMatrix();
 			ofTranslate(pos.x, 0.02f, pos.z);
 			ofRotateXDeg(90);
 			float shadowSize = TILE_SIZE * 0.8f;
+			if (player.isDemon) shadowSize *= 1.5f;
 			shadowTexture.draw(-shadowSize / 2, -shadowSize / 2, shadowSize, shadowSize);
 			ofPopMatrix();
-		}
 
-		// --- DRAW FIRE EFFECTS (Billboarded) ---
-		float time = ofGetElapsedTimef();
-		int fireFrame = (int)(time * 10) % 4;
-		for (const auto & player : players) {
-			// 1. Determine Base Position
-			glm::vec3 pos;
-			if (currentPlayerIndex >= 0 && player.playerID == players[currentPlayerIndex].playerID) {
-				pos = playerVisualPos;
-			} else {
-				pos = gridToWorld(player.x, player.y);
-			}
-
-			float headHeight = 4.0f; // Default height for status effects
-
-			// --- RENDER UNIT MESH ---
-			ofPushMatrix();
-
-			if (player.isSkeleton) {
-				// SKELETON
-				headHeight = 4.0f;
-				ofTranslate(pos.x, 0.1f, pos.z);
-				ofTranslate(0, 2.0f, 0);
-				skeletonTexture.bind();
-				skeletonModel.drawFaces();
-				skeletonTexture.unbind();
-			} else if (player.isGolem) {
-				// GOLEM
-				headHeight = 5.5f;
-				ofTranslate(pos.x, 0.1f, pos.z);
-				ofTranslate(0, 3.0f, 0);
-				ofRotateXDeg(180);
-				ofRotateYDeg(90);
-				if (player.minionTexture) player.minionTexture->bind();
-				golemModel.drawFaces();
-				if (player.minionTexture) player.minionTexture->unbind();
-			} else if (player.isWolf) {
-				// WOLF
-				headHeight = 2.0f;
-				ofTranslate(pos.x, 0.1f, pos.z);
-				ofTranslate(0, 0.4f, 0);
-				ofScale(0.015f, 0.015f, 0.015f);
-
-				// Draw Skin
-				for (unsigned int i = 6; i < wolfModel.getMeshCount(); i++) {
-					ofTexture * tex = (i == 6 || i == 7) ? &wolfBodyTex : &wolfFaceTex;
-					if (tex->isAllocated()) tex->bind();
-					wolfModel.getMeshHelper(i).cachedMesh.drawFaces();
-					if (tex->isAllocated()) tex->unbind();
-				}
-				// Draw Fur
-				glDepthMask(GL_FALSE);
-				ofEnableAlphaBlending();
-				wolfFurTex.bind();
-				for (unsigned int i = 0; i <= 5; i++) {
-					wolfModel.getMeshHelper(i).cachedMesh.drawFaces();
-				}
-				wolfFurTex.unbind();
-				ofDisableAlphaBlending();
-				glDepthMask(GL_TRUE);
-			} else if (player.isHellhound) {
-				// HELLHOUND
-				headHeight = 2.5f;
-				ofTranslate(pos.x, 0.1f, pos.z);
-				ofRotateYDeg(180);
-				hellhoundModel.drawFaces();
-			} else {
-				// DEFAULT PLAYER (Only if none of the above matches)
-				headHeight = 4.0f;
-				ofTranslate(pos.x, 0.1f, pos.z);
-				ofTranslate(0, 2.0f, 0);
-
-				if (playerTexture.isAllocated()) playerTexture.bind();
-				playerModel.drawFaces();
-				if (playerTexture.isAllocated()) playerTexture.unbind();
-			}
-
-			ofPopMatrix();
-			// End of Unit Drawing
-
-			// --- RENDER STATUS EFFECTS (Using headHeight) ---
-
-			// 1. FIRE
+			// 4. DRAW FIRE
 			if (player.onFire) {
 				ofPushMatrix();
 				ofTranslate(pos.x, 2.5f, pos.z);
 				glm::vec3 camPos = cam.getPosition();
 				float angle = atan2(camPos.x - pos.x, camPos.z - pos.z) * RAD_TO_DEG;
 				ofRotateYDeg(angle);
+				float time = ofGetElapsedTimef();
+				int fireFrame = (int)(time * 10) % 4;
 				float spriteSize = 4.0f;
 				fireTexture.drawSubsection(-spriteSize / 2, -spriteSize / 2, spriteSize, spriteSize, fireFrame * 32, 0, 32, 32);
 				ofPopMatrix();
 			}
 
-			// 2. SLEEP
+			// 5. DRAW SLEEP (Zs)
 			if (player.sleepTurnsRemaining > 0) {
 				ofPushMatrix();
 				ofTranslate(pos.x, headHeight, pos.z);
+
+				float time = ofGetElapsedTimef();
 				float slowTime = time * 0.8f;
 				for (int z = 0; z < 3; z++) {
 					float offset = (z * 2.0f) + slowTime;
@@ -2810,11 +2787,12 @@ void ofApp::drawGame() {
 				ofPopMatrix();
 			}
 
-			// 3. PARALYSIS
+			// 6. DRAW PARALYSIS (Swirl)
 			if (player.isParalyzed) {
 				ofPushMatrix();
 				ofTranslate(pos.x, headHeight - 0.5f, pos.z);
 				ofPolyline swirl;
+				float time = ofGetElapsedTimef();
 				float swirlSpeed = time * 2.0f;
 				for (int i = 0; i < 20; i++) {
 					float t = i / 20.0f;
@@ -2831,6 +2809,9 @@ void ofApp::drawGame() {
 			}
 		}
 
+		// Diable Lighting for Highlights
+		ofDisableLighting();
+
 		// --- DRAW TILE HIGHLIGHTS ---
 		for (int x = 0; x < BOARD_WIDTH; x++) {
 			for (int y = 0; y < BOARD_HEIGHT; y++) {
@@ -2838,13 +2819,11 @@ void ofApp::drawGame() {
 				ofPushMatrix();
 				ofTranslate(tileWorldPos.x, 0, tileWorldPos.z);
 
-				// Determine Height: Floor level or Wall level
-				float highlight_y = 0.06f; // Default (just above floor)
+				float highlight_y = 0.06f;
 				if (board[x][y].hasWall) {
-					highlight_y = (TILE_SIZE * 0.5f) + 0.06f; // On top of wall
+					highlight_y = (TILE_SIZE * 0.5f) + 0.06f;
 				}
 
-				// 1. Movement Highlights (Yellow) - Always on floor
 				if (board[x][y].isHighlighted) {
 					bool isOnPath = false;
 					for (const auto & step : hoverPath) {
@@ -2856,30 +2835,28 @@ void ofApp::drawGame() {
 					if (!isOnPath) {
 						ofSetColor(ofColor::yellow, 102);
 						ofPushMatrix();
-						ofTranslate(0, 0.05f, 0); // Keep movement on floor
+						ofTranslate(0, 0.05f, 0);
 						ofRotateXDeg(90);
 						ofDrawCircle(0, 0, TILE_SIZE * 0.30f);
 						ofPopMatrix();
 					}
 				}
 
-				// 2. Red Preview (Potential Targets) - Skip walls and already targetable tiles
 				if (board[x][y].isTargetPreview && !board[x][y].hasWall && !board[x][y].isTargetable) {
 					ofSetColor(ofColor::red, 80);
 					ofPushMatrix();
-					ofTranslate(0, highlight_y, 0); // Dynamic Height
+					ofTranslate(0, highlight_y, 0);
 					ofRotateXDeg(90);
 					ofDrawRectangle(-TILE_SIZE * 0.45f, -TILE_SIZE * 0.45f, TILE_SIZE * 0.9f, TILE_SIZE * 0.9f);
 					ofPopMatrix();
 				}
 
-				// 3. Green Outline (Valid Targets)
 				if (board[x][y].isTargetable) {
 					ofSetColor(ofColor::green, 180);
 					ofNoFill();
 					ofSetLineWidth(3);
 					ofPushMatrix();
-					ofTranslate(0, highlight_y + 0.01f, 0); // Dynamic Height (+ tiny offset to prevent Z-fighting with red)
+					ofTranslate(0, highlight_y + 0.01f, 0);
 					ofRotateXDeg(90);
 					ofDrawRectangle(-TILE_SIZE * 0.4f, -TILE_SIZE * 0.4f, TILE_SIZE * 0.8f, TILE_SIZE * 0.8f);
 					ofPopMatrix();
@@ -2887,13 +2864,12 @@ void ofApp::drawGame() {
 					ofSetLineWidth(1);
 				}
 
-				// 4. Selected Player Circle (Purple)
 				if (!players.empty() && currentPlayerIndex >= 0 && x == players[currentPlayerIndex].x && y == players[currentPlayerIndex].y) {
 					ofSetColor(ofColor::fromHex(0x9400D3));
 					ofNoFill();
 					ofSetLineWidth(4);
 					ofPushMatrix();
-					ofTranslate(0, 0.07f, 0); // Always on floor (players aren't inside walls)
+					ofTranslate(0, 0.07f, 0);
 					ofRotateXDeg(90);
 					ofDrawCircle(0, 0, TILE_SIZE * 0.45f);
 					ofPopMatrix();
@@ -2917,13 +2893,9 @@ void ofApp::drawGame() {
 			}
 		}
 
-		glDepthMask(GL_TRUE); // Re-enable depth writing
+		glDepthMask(GL_TRUE);
 		ofEnableLighting();
-
-		// --- TEARDOWN ---
 		cam.end();
-
-		// === FIX 2: DISABLE LIGHTING AT THE END OF LAMBDA ===
 		ofDisableLighting();
 		ofDisableDepthTest();
 	};
@@ -4761,7 +4733,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 						wolf.health = 4;
 						wolf.isMinion = true;
 						wolf.isWolf = true;
-						wolf.isSummoningSickness = true;
+						wolf.isSummoningSickness = players[currentPlayerIndex].isMinion; // Only if summoned during minion phase
 						// FIX: If current player is a minion, use its owner's ID instead
 						wolf.ownerID = players[currentPlayerIndex].isMinion
 							? players[currentPlayerIndex].ownerID
@@ -4963,9 +4935,10 @@ void ofApp::mousePressed(int x, int y, int button) {
 			bool isP0sTurn = (activePlayer.playerID == 0 || activePlayer.ownerID == 0);
 			bool isP1sTurn = (activePlayer.playerID == 1 || activePlayer.ownerID == 1);
 
-			// Player 0's Deck Click
+			// Player 0 Deck Click
 			if (p0_deckRect.inside(x, y) && isP0sTurn && !hasDrawnCardsThisTurn) {
-				int cardsToDraw = p0->nextTurnExtraDraw ? 3 : 2;
+				int baseDraw = p0->isDemon ? 3 : 2;
+				int cardsToDraw = p0->nextTurnExtraDraw ? (baseDraw + 1) : baseDraw;
 				if (p0->nextTurnExtraDraw) ofLogNotice("Game") << "Hasten Effect: Drawing 3 cards!";
 				for (int i = 0; i < cardsToDraw; i++)
 					drawCard();
@@ -4974,9 +4947,10 @@ void ofApp::mousePressed(int x, int y, int button) {
 				return;
 			}
 
-			// Player 1's Deck Click
+			// Player 1 Deck Click
 			if (p1_deckRect.inside(x, y) && isP1sTurn && !hasDrawnCardsThisTurn) {
-				int cardsToDraw = p1->nextTurnExtraDraw ? 3 : 2;
+				int baseDraw = p1->isDemon ? 3 : 2;
+				int cardsToDraw = p1->nextTurnExtraDraw ? (baseDraw + 1) : baseDraw;
 				if (p1->nextTurnExtraDraw) ofLogNotice("Game") << "Hasten Effect: Drawing 3 cards!";
 				for (int i = 0; i < cardsToDraw; i++)
 					drawCard();
@@ -5551,26 +5525,11 @@ void ofApp::startNewTurn() {
 	}
 
 	// --- 2. ADVANCE TO THE NEXT PLAYER (NORMAL TURN) ---
-	// We use a loop to skip anyone with Summoning Sickness
-	while (true) {
-		currentPlayerIndex = (currentPlayerIndex + 1) % players.size();
+	// FIX: Removed the while loop. We just increment once.
+	// Sickness is now handled inside continueNewTurn to ensure correct timing.
+	currentPlayerIndex = (currentPlayerIndex + 1) % players.size();
 
-		if (currentPlayerIndex == 0) globalTurnCounter++;
-
-		if (players[currentPlayerIndex].isSummoningSickness) {
-			ofLogNotice("Turn") << "Skipping Player " << players[currentPlayerIndex].playerID << " (Summoning Sickness)";
-
-			// Remove the sickness so they act next time
-			players[currentPlayerIndex].isSummoningSickness = false;
-
-			spawnFloatingText(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y), "Waiting...", ofColor::gray);
-
-			// Loop continues to next player...
-		} else {
-			// Found a valid player
-			break;
-		}
-	}
+	if (currentPlayerIndex == 0) globalTurnCounter++;
 
 	Player & startingPlayer = players[currentPlayerIndex];
 	ofLogNotice("Game") << "--- START TURN: " << (startingPlayer.isMinion ? "Minion " : "Player ") << startingPlayer.playerID;
@@ -5637,6 +5596,19 @@ void ofApp::startNewTurn() {
 void ofApp::continueNewTurn() {
 	Player & startingPlayer = players[currentPlayerIndex];
 
+	// --- 0. SUMMONING SICKNESS CHECK (New Logic) ---
+	if (startingPlayer.isSummoningSickness) {
+		// Clear the flag so they can act NEXT time they come up in rotation
+		startingPlayer.isSummoningSickness = false;
+
+		ofLogNotice("Turn") << "Skipping Player " << startingPlayer.playerID << " (Summoning Sickness)";
+		spawnFloatingText(gridToWorld(startingPlayer.x, startingPlayer.y), "Waiting...", ofColor::gray);
+
+		// Immediately end this turn and go to the next unit
+		startNewTurn();
+		return;
+	}
+
 	ofLogNotice("Game") << "Player " << startingPlayer.playerID << "'s turn begins.";
 	hasDrawnCardsThisTurn = false;
 	selectedCardIndex = -1;
@@ -5652,6 +5624,7 @@ void ofApp::continueNewTurn() {
 
 	activeDiceRolls.clear();
 	currentAP = 0;
+
 	// --- 1. SLEEP CHECK (New Status) ---
 	if (startingPlayer.sleepTurnsRemaining > 0) {
 		startingPlayer.sleepTurnsRemaining--;
@@ -5669,14 +5642,21 @@ void ofApp::continueNewTurn() {
 		return;
 	}
 
-	// --- 2. AP ROLL LOGIC (Only if Awake) ---
+	// --- AP ROLL LOGIC ---
+	// Wolf AP: 1d10
 	if (startingPlayer.isWolf) {
 		startDiceRoll(1, 10, PURPOSE_AP, "Wolf AP Roll");
 	}
-	// --- HELLHOUND AP (2d6) ---
+	// HELLHOUND AP: 2d6
 	else if (startingPlayer.isHellhound) {
 		startDiceRoll(2, 6, PURPOSE_AP, "Hellhound AP Roll");
-	} else if (startingPlayer.isMinion) {
+	}
+	// Demon AP: 4d4
+	else if (startingPlayer.isDemon) {
+		startDiceRoll(4, 4, PURPOSE_AP, "Demon AP Roll");
+	}
+	// Skeleton AP: 1d6
+	else if (startingPlayer.isMinion) {
 		startDiceRoll(1, 6, PURPOSE_AP, "Minion AP Roll");
 	} else {
 		// Players
@@ -5789,9 +5769,9 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 
 		int calculatedDamage = damage;
 
-		// --- 1. Hellhound Vulnerability ---
-		// Hellhounds take double Holy damage
-		if (target.isHellhound && type == DAMAGE_HOLY) {
+		// --- 1. Hellhound & Demon Vulnerability ---
+		// Both take double Holy damage
+		if ((target.isHellhound || target.isDemon) && type == DAMAGE_HOLY) {
 			calculatedDamage *= 2;
 			spawnFloatingText(gridToWorld(target.x, target.y), "Vulnerable! (x2)", ofColor::orange);
 		}
@@ -6230,7 +6210,7 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		minion.y = targetY;
 		minion.isMinion = true;
 		minion.isGolem = true;
-		minion.isSummoningSickness = true;
+		minion.isSummoningSickness = currentPlayer.isMinion; // Only if summoned during minion phase
 
 		minion.ownerID = currentPlayer.playerID;
 
@@ -6404,6 +6384,31 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		invalidateTargetCache();
 
 		playedSuccessfully = false; // Prevent double cleanup
+		break;
+	}
+
+		// --- CASE: SUMMON DEMON ---
+	case CARD_SUMMON_DEMON: {
+		if (board[targetX][targetY].hasWall || board[targetX][targetY].hasPlayer) break;
+
+		pendingSummonTile = glm::vec2(targetX, targetY);
+		// Roll 3d10 for HP
+		pendingSummonRollResult = startDiceRoll(playedCard.numDice, playedCard.diceSides, PURPOSE_HP, "Demon HP");
+		isWaitingForDemonHP = true;
+
+		// Cleanup
+		currentAP -= playedCard.cost;
+		currentPlayer.playedCardsPile.push_back(playedCard);
+		if (currentPlayer.isReplicatePending) {
+			currentPlayer.playedCardsPile.push_back(playedCard);
+			currentPlayer.isReplicatePending = false;
+		}
+		currentPlayer.cardsPlayedThisTurn.push_back(playedCard.type);
+		currentPlayer.hand.erase(currentPlayer.hand.begin() + cardIndex);
+		activeCardDisplays.push_back({ playedCard, ofGetElapsedTimef() });
+		invalidateTargetCache();
+
+		playedSuccessfully = false;
 		break;
 	}
 
@@ -7167,10 +7172,9 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 						if (board[x][y].hasWall || board[x][y].hasPlayer) isValidTarget = true;
 					}
 					// --- FIX IS HERE: Add CARD_SUMMON_HELLHOUND to this list ---
-					else if (card.type == CARD_CALL_FOR_WOLVES || card.type == CARD_SUMMON_GOLEM || card.type == CARD_RAISE_DEAD || card.type == CARD_CREATE_WALL || card.type == CARD_SUMMON_HELLHOUND) { // <--- ADDED THIS
+					else if (card.type == CARD_CALL_FOR_WOLVES || card.type == CARD_SUMMON_GOLEM || card.type == CARD_RAISE_DEAD || card.type == CARD_CREATE_WALL || card.type == CARD_SUMMON_HELLHOUND || card.type == CARD_SUMMON_DEMON) {
 
 						if (!board[x][y].hasWall && !board[x][y].hasPlayer) isValidTarget = true;
-
 					} else {
 						// Default attack logic (requires player)
 						if (board[x][y].hasPlayer && !board[x][y].hasWall) isValidTarget = true;
@@ -7198,7 +7202,7 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 				break;
 			}
 
-				// --- FIXED TELEPORT LOGIC ---
+				// --- TELEPORT LOGIC ---
 			case TARGET_EMPTY_TILE: {
 				float maxRangeFeet;
 
@@ -8621,6 +8625,7 @@ CardType ofApp::stringToCardType(const std::string & str) {
 	if (str == "CARD_FLAIL") return CARD_FLAIL;
 	if (str == "CARD_SUMMON_HELLHOUND") return CARD_SUMMON_HELLHOUND;
 	if (str == "CARD_DEATH") return CARD_DEATH;
+	if (str == "CARD_SUMMON_DEMON") return CARD_SUMMON_DEMON;
 
 	return CARD_NONE;
 }
@@ -8742,7 +8747,8 @@ void ofApp::drawMinionManagerUI() {
 		ofPushMatrix();
 
 		if (minion.isGolem) {
-			ofTranslate(modelFbo.getWidth() / 2, 100);
+			// GOLEM: Raised position (100 -> 80)
+			ofTranslate(modelFbo.getWidth() / 2, 80);
 			ofScale(18, 18, 18);
 			ofRotateXDeg(-15);
 			ofRotateYDeg(ofGetElapsedTimef() * 30);
@@ -8751,11 +8757,9 @@ void ofApp::drawMinionManagerUI() {
 			if (minion.minionTexture) minion.minionTexture->unbind();
 
 		} else if (minion.isWolf) {
-			// --- WOLF UI SETTINGS ---
-			ofTranslate(modelFbo.getWidth() / 2, modelFbo.getHeight() / 2 + 10);
-
-			// FIX: Negative Y to flip upright. Reduced size from 3.5 to 2.2
-			ofScale(2.2f, -2.2f, 2.2f);
+			// WOLF: Decreased scale by 50% (2.2 -> 1.1), Lowered position (+10 -> +30)
+			ofTranslate(modelFbo.getWidth() / 2, modelFbo.getHeight() / 2 + 30);
+			ofScale(1.1f, -1.1f, 1.1f);
 
 			ofRotateXDeg(-15);
 			ofRotateYDeg(180 + ofGetElapsedTimef() * 30);
@@ -8784,19 +8788,28 @@ void ofApp::drawMinionManagerUI() {
 		else if (minion.isHellhound) {
 			ofTranslate(modelFbo.getWidth() / 2, modelFbo.getHeight() / 2 + 10);
 
-			// FIX: Negative Y to flip upright.
-			ofScale(18, -18, 18);
+			// HELLHOUND: Increased scale (18 -> 22)
+			ofScale(22, -22, 22);
 
 			ofRotateXDeg(-15);
 			ofRotateYDeg(180 + ofGetElapsedTimef() * 30);
 			hellhoundModel.drawFaces();
 		}
-
+		// --- DEMON PREVIEW ---
+		else if (minion.isDemon) {
+			ofTranslate(modelFbo.getWidth() / 2, modelFbo.getHeight() / 2 + 10);
+			// DEMON: Increased scale (12 -> 16)
+			ofScale(16, -16, 16);
+			ofRotateXDeg(-15);
+			ofRotateYDeg(180 + ofGetElapsedTimef() * 30);
+			demonModel.drawFaces();
+		}
+		// --- SKELETON PREVIEW ---
 		else {
-			// --- SKELETON UI SETTINGS ---
 			ofSetColor(255);
 			ofTranslate(modelFbo.getWidth() / 2, 90);
-			ofScale(18, -18, 18);
+			// SKELETON: Increased scale by 20% (18 -> 22)
+			ofScale(22, -22, 22);
 			ofRotateXDeg(-15);
 			ofRotateYDeg(ofGetElapsedTimef() * 30);
 			skeletonTexture.bind();
@@ -8827,6 +8840,8 @@ void ofApp::drawMinionManagerUI() {
 			name = "Wolf ";
 		} else if (minion.isHellhound) {
 			name = "Hellhound ";
+		} else if (minion.isDemon) {
+			name = "Demon ";
 		} else {
 			name = "Skeleton ";
 		}

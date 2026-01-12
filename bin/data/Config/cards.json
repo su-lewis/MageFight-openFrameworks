@@ -317,5 +317,14 @@
     "targeting": "TARGET_LINE_OF_SIGHT_TILE",
     "numDice": 1,
     "diceSides": 20
+  },
+  {
+    "id": 38,
+    "name": "Summon Demon",
+    "type": "CARD_SUMMON_DEMON",
+    "cost": 10,
+    "targeting": "TARGET_EMPTY_ADJACENT",
+    "numDice": 3,
+    "diceSides": 10
   }
 ]

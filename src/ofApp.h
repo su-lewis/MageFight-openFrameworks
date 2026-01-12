@@ -100,7 +100,8 @@ enum CardType {
 	CARD_MAGIC_BOLT,
 	CARD_FLAIL,
 	CARD_SUMMON_HELLHOUND,
-	CARD_DEATH
+	CARD_DEATH,
+	CARD_SUMMON_DEMON
 };
 
 enum DicePurpose {
@@ -232,13 +233,14 @@ struct Player {
 
 	// Turn Logic
 	bool isSummoningSickness = false;
-	
+
 	// Minion Data
 	bool isMinion = false;
 	bool isSkeleton = false;
 	bool isGolem = false;
 	bool isHellhound = false;
 	bool isWolf = false;
+	bool isDemon = false;
 
 	ofTexture * minionTexture = nullptr;
 	int ownerID = -1;
@@ -448,6 +450,7 @@ private:
 	ofxAssimpModelLoader wolfModel;
 	ofxAssimpModelLoader golemModel;
 	ofxAssimpModelLoader hellhoundModel;
+	ofxAssimpModelLoader demonModel;
 
 	ofTexture playerTexture;
 	ofTexture skeletonTexture;
@@ -659,6 +662,8 @@ private:
 	bool isWaitingForHellhoundHP = false;
 	bool isTargetingHellhound = false;
 	int hellhoundCardIndex = -1;
+
+	bool isWaitingForDemonHP = false;
 
 	// Death Card Logic
 	bool isWaitingForDeathDice = false;
