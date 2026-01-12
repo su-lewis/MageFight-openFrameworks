@@ -101,6 +101,22 @@ void ofApp::setup() {
 		ofLogError("Setup") << "Failed to load demon model.";
 	}
 
+	// --- Load Tortoise ---
+	if (tortoiseModel.load("Units/Tortoise/Turtle_Kaiju_01.fbx")) {
+		tortoiseModel.disableMaterials();
+		tortoiseModel.disableTextures();
+		// FBX typically needs rotation fix
+		tortoiseModel.setRotation(0, -90, 1, 0, 0);
+		// Scale - adjust as needed
+		tortoiseModel.setScale(0.004f, 0.004f, 0.004f);
+		// Load texture
+		ofLoadImage(tortoiseTexture, "Units/Tortoise/Turtle_01_albedo.jpg");
+		tortoiseTexture.setTextureMinMagFilter(GL_LINEAR, GL_LINEAR);
+		ofLogNotice("Setup") << "Tortoise model loaded.";
+	} else {
+		ofLogError("Setup") << "Failed to load tortoise model.";
+	}
+
 	// --- 3. BOARD & SKYBOX ---
 	ofLoadImage(wallTexture, "Board/wall.png");
 	wallTexture.setTextureMinMagFilter(GL_NEAREST, GL_NEAREST);
@@ -1119,9 +1135,8 @@ void ofApp::updateGame() {
 		}
 
 		// Check if Add Poison buff is active for physical/piercing damage
-		bool applyPoisonBuff = attacker.nextAttackAddPoison && 
-			(pendingAttackDamageType == DAMAGE_PHYSICAL || pendingAttackDamageType == DAMAGE_PIERCING);
-		
+		bool applyPoisonBuff = attacker.nextAttackAddPoison && (pendingAttackDamageType == DAMAGE_PHYSICAL || pendingAttackDamageType == DAMAGE_PIERCING);
+
 		if (applyPoisonBuff) {
 			attacker.nextAttackAddPoison = false; // Consume the buff
 			pendingPoisonTargetIndices.clear();
@@ -2134,8 +2149,8 @@ void ofApp::updateGame() {
 			spawnFloatingText(gridToWorld(poisonedPlayer.x, poisonedPlayer.y),
 				"-" + ofToString(actualDamage) + " Poison",
 				ofColor::green);
-			ofLogNotice("Poison") << "Player " << poisonedPlayer.playerID << " took " << actualDamage 
-				<< " poison damage (rolled " << rollResult << " - " << poisonedPlayer.poisonReduction << " reduction)";
+			ofLogNotice("Poison") << "Player " << poisonedPlayer.playerID << " took " << actualDamage
+								  << " poison damage (rolled " << rollResult << " - " << poisonedPlayer.poisonReduction << " reduction)";
 		} else {
 			spawnFloatingText(gridToWorld(poisonedPlayer.x, poisonedPlayer.y), "Poison Fading", ofColor::gray);
 		}
@@ -2203,7 +2218,7 @@ void ofApp::updateGame() {
 						if (flipResult == 2) {
 							// Increment heads count
 							p.paralysisHeadsCount++;
-							
+
 							// If 2 heads in a row, cure paralysis
 							if (p.paralysisHeadsCount >= 2) {
 								ofLogNotice("Paralysis") << "2nd Heads! Paralysis is cured.";
@@ -3031,7 +3046,7 @@ void ofApp::drawGame() {
 				glm::vec3 camPos = cam.getPosition();
 				float angle = atan2(camPos.x - pos.x, camPos.z - pos.z) * RAD_TO_DEG;
 				ofRotateYDeg(angle);
-				
+
 				// Draw a simple poison bottle icon using text
 				float time = ofGetElapsedTimef();
 				float pulse = 0.8f + 0.2f * sin(time * 3.0f);
@@ -4666,7 +4681,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 		int maxSuggestions = std::min((int)filteredCards.size(), 8);
 		float totalHeight = barHeight + (filteredCards.empty() ? 0 : suggestionHeight * maxSuggestions + 15);
 		ofRectangle fullArea(barX, barY, barWidth, totalHeight);
-		
+
 		if (!fullArea.inside(x, y)) {
 			isCardSpawnerOpen = false;
 		}
@@ -7084,7 +7099,7 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 			if (totalBlock > 0) {
 				ofLogNotice("Shield Bash") << "Converting " << totalBlock << " total block into damage.";
 				applyDamage(*target, totalBlock, DAMAGE_PHYSICAL);
-				
+
 				// Apply poison if buff was active
 				if (applyPoisonBuff) {
 					target->isPoisoned = true;
@@ -7156,20 +7171,17 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		if (!currentPlayer.deck.empty()) {
 			Card drawnCard = currentPlayer.deck.back();
 			currentPlayer.deck.pop_back();
-			
+
 			// Check if drawn card is hand-related
-			bool isHandRelated = (drawnCard.name == "Punch" || drawnCard.name == "Hand Block" || 
-				drawnCard.name == "Bash" || drawnCard.name == "Drain Punch" || 
-				drawnCard.name == "Double Handed" || drawnCard.name == "Master Fist" ||
-				drawnCard.name == "Flurry of Fists");
-			
+			bool isHandRelated = (drawnCard.name == "Punch" || drawnCard.name == "Hand Block" || drawnCard.name == "Bash" || drawnCard.name == "Drain Punch" || drawnCard.name == "Double Handed" || drawnCard.name == "Master Fist" || drawnCard.name == "Flurry of Fists");
+
 			if (isHandRelated) {
 				// Make it cost 0 AP this turn
 				drawnCard.cost = 0;
-				spawnFloatingText(gridToWorld(currentPlayer.x, currentPlayer.y) + glm::vec3(0, 0.5f, 0), 
+				spawnFloatingText(gridToWorld(currentPlayer.x, currentPlayer.y) + glm::vec3(0, 0.5f, 0),
 					drawnCard.name + " (0 AP)!", ofColor::yellow);
 			}
-			
+
 			currentPlayer.hand.push_back(drawnCard);
 			ofLogNotice("Flurry of Fists") << "Drew " << drawnCard.name << (isHandRelated ? " (free this turn)" : "");
 		} else if (!currentPlayer.discardPile.empty()) {
@@ -7177,21 +7189,18 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 			currentPlayer.deck = currentPlayer.discardPile;
 			currentPlayer.discardPile.clear();
 			std::shuffle(currentPlayer.deck.begin(), currentPlayer.deck.end(), rng);
-			
+
 			Card drawnCard = currentPlayer.deck.back();
 			currentPlayer.deck.pop_back();
-			
-			bool isHandRelated = (drawnCard.name == "Punch" || drawnCard.name == "Hand Block" || 
-				drawnCard.name == "Bash" || drawnCard.name == "Drain Punch" || 
-				drawnCard.name == "Double Handed" || drawnCard.name == "Master Fist" ||
-				drawnCard.name == "Flurry of Fists");
-			
+
+			bool isHandRelated = (drawnCard.name == "Punch" || drawnCard.name == "Hand Block" || drawnCard.name == "Bash" || drawnCard.name == "Drain Punch" || drawnCard.name == "Double Handed" || drawnCard.name == "Master Fist" || drawnCard.name == "Flurry of Fists");
+
 			if (isHandRelated) {
 				drawnCard.cost = 0;
-				spawnFloatingText(gridToWorld(currentPlayer.x, currentPlayer.y) + glm::vec3(0, 0.5f, 0), 
+				spawnFloatingText(gridToWorld(currentPlayer.x, currentPlayer.y) + glm::vec3(0, 0.5f, 0),
 					drawnCard.name + " (0 AP)!", ofColor::yellow);
 			}
-			
+
 			currentPlayer.hand.push_back(drawnCard);
 		}
 
@@ -7243,8 +7252,7 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 			// Hand-related attack cards: Punch, Bash, Drain Punch, Master Fist, Flurry of Fists
 			// (Double Handed and Hand Block are NOT attacks)
 			for (const auto & c : currentPlayer.playedCardsPile) {
-				if (c.name == "Punch" || c.name == "Bash" || c.name == "Drain Punch" || 
-					c.name == "Master Fist" || c.name == "Flurry of Fists") {
+				if (c.name == "Punch" || c.name == "Bash" || c.name == "Drain Punch" || c.name == "Master Fist" || c.name == "Flurry of Fists") {
 					damage += 2;
 				}
 			}
@@ -7625,23 +7633,22 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 
 			isWaitingForAttackDice = true;
 			pendingAttackDamageType = playedCard.damageType;
-				} else {
+		} else {
 			int damage = playedCard.value;
-			
+
 			// Double damage for Punch if Flurry of Fists is active
 			if ((playedCard.name == "Punch") && currentPlayer.flurryOfFistsActive) {
 				damage *= 2;
 			}
-			
+
 			// Check if Add Poison buff is active for physical/piercing damage
-			bool applyPoisonBuff = currentPlayer.nextAttackAddPoison && 
-				(playedCard.damageType == DAMAGE_PHYSICAL || playedCard.damageType == DAMAGE_PIERCING);
-			
+			bool applyPoisonBuff = currentPlayer.nextAttackAddPoison && (playedCard.damageType == DAMAGE_PHYSICAL || playedCard.damageType == DAMAGE_PIERCING);
+
 			if (applyPoisonBuff) {
 				currentPlayer.nextAttackAddPoison = false; // Consume the buff
 				pendingPoisonTargetIndices.clear();
 			}
-			
+
 			for (size_t i = 0; i < pendingAttackTargetIndices.size(); i++) {
 				int pIndex = pendingAttackTargetIndices[i];
 				Player * target = getPlayer(pIndex);
@@ -7649,7 +7656,7 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 					int finalDamage = damage;
 					if (playedCard.damageType == DAMAGE_PIERCING && i > 0) finalDamage /= 2;
 					applyDamage(*target, finalDamage, playedCard.damageType);
-					
+
 					// Apply poison if buff was active
 					if (applyPoisonBuff) {
 						pendingPoisonTargetIndices.push_back(pIndex);
@@ -7660,7 +7667,7 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 					}
 				}
 			}
-			
+
 			// If we applied poison, roll the extra poison damage
 			if (applyPoisonBuff && !pendingPoisonTargetIndices.empty()) {
 				pendingPoisonAttackRollResult = startDiceRoll(1, 6, PURPOSE_DAMAGE, "Poison Damage");
@@ -8883,7 +8890,7 @@ void ofApp::drawCardSpawnerUI() {
 
 		for (int i = 0; i < maxSuggestions; i++) {
 			float itemY = suggestionY + 5 + i * suggestionHeight;
-			
+
 			// Highlight on hover - check if mouse is over this item
 			ofRectangle itemRect(barX + 5, itemY, inputWidth - 10, suggestionHeight - 2);
 			if (itemRect.inside(ofGetMouseX(), ofGetMouseY())) {
@@ -9013,7 +9020,7 @@ void ofApp::drawCardEncyclopediaUI() {
 		// Show scroll bar
 		float scrollBarHeight = contentHeight * (contentHeight / totalContentHeight);
 		float scrollBarY = contentY + (encyclopediaScrollOffset / (totalContentHeight - contentHeight)) * (contentHeight - scrollBarHeight);
-		
+
 		ofSetColor(80, 80, 80);
 		ofDrawRectRounded(panelX + panelWidth - 15, scrollBarY, 10, scrollBarHeight, 5);
 	}

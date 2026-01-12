@@ -463,11 +463,13 @@ private:
 	ofxAssimpModelLoader golemModel;
 	ofxAssimpModelLoader hellhoundModel;
 	ofxAssimpModelLoader demonModel;
+	ofxAssimpModelLoader tortoiseModel;
 
 	ofTexture playerTexture;
 	ofTexture skeletonTexture;
 	ofTexture wolfBodyTex, wolfFaceTex, wolfFurTex;
 	ofTexture golemTexBase, golemTexRock, golemTexFire, golemTexElectric;
+	ofTexture tortoiseTexture;
 
 	ofMaterial modelMaterial;
 	ofMaterial diceMaterial;
