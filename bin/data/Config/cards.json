@@ -343,5 +343,12 @@
     "damageType": "DAMAGE_ELECTRIC",
     "numDice": 2,
     "diceSides": 10
+  },
+  {
+    "id": 43,
+    "name": "Consume Health Potion",
+    "type": "CARD_CONSUME_HEALTH_POTION",
+    "cost": 2,
+    "targeting": "TARGET_SELF"
   }
 ]

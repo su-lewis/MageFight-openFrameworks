@@ -6704,6 +6704,15 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		break;
 	}
 
+	case CARD_CONSUME_HEALTH_POTION: {
+		// Increase max HP by 1 (does not heal to it)
+		currentPlayer.maxHealth++;
+		spawnFloatingText(gridToWorld(currentPlayer.x, currentPlayer.y), "+1 Max HP", ofColor::cyan);
+		ofLogNotice("Consume Health Potion") << "Player " << currentPlayer.playerID << " increased max HP to " << currentPlayer.maxHealth;
+		playedSuccessfully = true;
+		break;
+	}
+
 	// --- CASE: SUMMON WALL ---
 	case CARD_CREATE_WALL: {
 		if (!board[targetX][targetY].hasWall && !board[targetX][targetY].hasPlayer) {
@@ -8902,6 +8911,7 @@ CardType ofApp::stringToCardType(const std::string & str) {
 	if (str == "CARD_SUMMON_DEMON") return CARD_SUMMON_DEMON;
 	if (str == "CARD_SHIELD_BASH") return CARD_SHIELD_BASH;
 	if (str == "CARD_CHAIN_LIGHTNING") return CARD_CHAIN_LIGHTNING;
+	if (str == "CARD_CONSUME_HEALTH_POTION") return CARD_CONSUME_HEALTH_POTION;
 
 	return CARD_NONE;
 }
