@@ -364,5 +364,12 @@
     "type": "CARD_FLURRY_OF_FISTS",
     "cost": 3,
     "targeting": "TARGET_ADJACENT_UNIT"
+  },
+  {
+    "id": 46,
+    "name": "Form of Tortoise",
+    "type": "CARD_FORM_OF_TORTOISE",
+    "cost": 5,
+    "targeting": "TARGET_SELF"
   }
 ]

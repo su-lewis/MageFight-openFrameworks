@@ -105,10 +105,10 @@ void ofApp::setup() {
 	if (tortoiseModel.load("Units/Tortoise/Turtle_Kaiju_01.fbx")) {
 		tortoiseModel.disableMaterials();
 		tortoiseModel.disableTextures();
-		// FBX typically needs rotation fix
+		// FBX typically needs rotation fix - rotate to stand upright
 		tortoiseModel.setRotation(0, -90, 1, 0, 0);
-		// Scale - adjust as needed
-		tortoiseModel.setScale(0.004f, 0.004f, 0.004f);
+		// Scale - reduced by 25% from original
+		tortoiseModel.setScale(0.003f, 0.003f, 0.003f);
 		// Load texture
 		ofLoadImage(tortoiseTexture, "Units/Tortoise/Turtle_01_albedo.jpg");
 		tortoiseTexture.setTextureMinMagFilter(GL_LINEAR, GL_LINEAR);
@@ -2088,6 +2088,9 @@ void ofApp::updateGame() {
 			ofColor::fromHex(0x480082));
 
 		ofLogNotice("Dispel") << "Gained " << pendingDispelRollResult << " Barrier.";
+
+		// Trigger Shell Spike if in Tortoise Form
+		tryTriggerShellSpike();
 	}
 	// --- Teleport Logic: After dice roll, enter targeting mode ---
 	if (isWaitingForTeleportDice && activeDiceRolls.empty()) {
@@ -2799,6 +2802,15 @@ void ofApp::drawGame() {
 				// Changed from 180 (West) to 90 (North)
 				ofRotateYDeg(90);
 				demonModel.drawFaces();
+			} else if (player.inTortoiseForm) {
+				// Tortoise Form (overrides normal model)
+				ofTranslate(pos.x, 0.1f, pos.z);
+				ofTranslate(0, 1.5f, 0); // Raised slightly
+				ofRotateYDeg(0); // Face north
+				ofRotateXDeg(-90); // Tilt back 90 degrees to stand upright
+				if (tortoiseTexture.isAllocated()) tortoiseTexture.bind();
+				tortoiseModel.drawFaces();
+				if (tortoiseTexture.isAllocated()) tortoiseTexture.unbind();
 			} else {
 				// Default Player
 				ofTranslate(pos.x, 0.1f, pos.z);
@@ -4287,6 +4299,19 @@ void ofApp::drawGame() {
 		titleFont.drawString(msg, tx, ty);
 	}
 
+	// --- TORTOISE DAMAGE TARGETING INSTRUCTION TEXT ---
+	if (isTargetingTortoiseDamage) {
+		string msg = "Shell Spike: Choose Adjacent Unit";
+		ofRectangle bbox = titleFont.getStringBoundingBox(msg, 0, 0);
+		float tx = (ofGetWidth() / 2.0f) - (bbox.width / 2.0f);
+		float ty = ofGetHeight() * 0.25f;
+
+		ofSetColor(0, 0, 0, 255);
+		titleFont.drawString(msg, tx + 2, ty + 2);
+		ofSetColor(ofColor::darkGreen);
+		titleFont.drawString(msg, tx, ty);
+	}
+
 	// --- HELLHOUND INSTRUCTION TEXT ---
 	if (isTargetingHellhound) {
 		string msg = "Choose Adjacent Tile for Hellhound";
@@ -4884,6 +4909,12 @@ void ofApp::mousePressed(int x, int y, int button) {
 				caster.isReplicatePending = false;
 			}
 			caster.hand.erase(caster.hand.begin() + pendingWisdomBoonCardIndex);
+
+			// Trigger Shell Spike if in Tortoise Form (only for self-target which gives block)
+			if (isSelfTarget) {
+				tryTriggerShellSpike();
+			}
+
 			cancelWisdomBoon();
 			calculateTargetHighlights();
 		}
@@ -4963,6 +4994,81 @@ void ofApp::mousePressed(int x, int y, int button) {
 		}
 		return;
 	}
+
+	// --- 1f4b. Tortoise Damage Targeting ---
+	if (isTargetingTortoiseDamage && button == OF_MOUSE_BUTTON_LEFT) {
+		ofVec2f boardPos = mouseToBoard(x, y);
+		int gx = floor(boardPos.x), gy = floor(boardPos.y);
+		if (gx >= 0 && gx < BOARD_WIDTH && gy >= 0 && gy < BOARD_HEIGHT) {
+			Player & caster = players[currentPlayerIndex];
+
+			// Check if clicking on an adjacent unit (any unit, including allies)
+			int dx = abs(gx - caster.x);
+			int dy = abs(gy - caster.y);
+			bool isAdjacent = (dx <= 1 && dy <= 1) && (dx + dy > 0);
+
+			if (isAdjacent) {
+				// Find target at this position
+				for (size_t i = 0; i < players.size(); i++) {
+					Player & target = players[i];
+					if (target.x == gx && target.y == gy) {
+						// Allow targeting ANY adjacent unit (including friendly units)
+						// Deal 3 physical damage
+						int damage = 3;
+
+						// Block mitigation
+						int blockAbsorb = std::min(target.block, damage);
+						target.block -= blockAbsorb;
+						damage -= blockAbsorb;
+
+						// Ward mitigation
+						int wardAbsorb = std::min(target.ward, damage);
+						target.ward -= wardAbsorb;
+						damage -= wardAbsorb;
+
+						// Apply to health
+						if (damage > 0) {
+							target.health -= damage;
+							spawnFloatingText(gridToWorld(target.x, target.y),
+								"-" + ofToString(damage) + " Shell Spike", ofColor::red);
+
+							// Tortoise form damage tracking on target if they have it
+							if (target.inTortoiseForm) {
+								target.tortoiseDamageTaken += damage;
+								if (target.tortoiseDamageTaken >= 5) {
+									target.inTortoiseForm = false;
+									target.tortoiseDamageTaken = 0;
+									target.discardPile.push_back(target.tortoiseFormCard);
+									spawnFloatingText(gridToWorld(target.x, target.y) + glm::vec3(0, 0.5f, 0),
+										"Form Ended!", ofColor::darkGreen);
+								}
+							}
+
+							// Check death
+							if (target.health <= 0) {
+								DeathMarker death;
+								death.x = target.x;
+								death.y = target.y;
+								death.turnDied = globalTurnCounter;
+								death.deck = target.deck;
+								graveyard.push_back(death);
+								board[target.x][target.y].hasPlayer = false;
+								target.x = -1000;
+							}
+						} else {
+							spawnFloatingText(gridToWorld(target.x, target.y), "Blocked", ofColor::gray);
+						}
+
+						isTargetingTortoiseDamage = false;
+						ofLogNotice("Tortoise Form") << "Shell Spike dealt damage to adjacent unit.";
+						return;
+					}
+				}
+			}
+		}
+		return;
+	}
+
 	// --- 1f4. Amnesia Targeting ---
 	if (isTargetingAmnesia && button == OF_MOUSE_BUTTON_LEFT) {
 		ofVec2f boardPos = mouseToBoard(x, y);
@@ -5481,7 +5587,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 		// 3g. End Turn Button (blocked during pending actions)
 		if (endTurnButtonRect.inside(x, y) && button == OF_MOUSE_BUTTON_LEFT) {
 			// Block end turn if there's a pending action that must be completed
-			bool hasPendingAction = isPlacingWolves || isWaitingForWolfCoin || isWaitingForMagicBoltRange || isTargetingMagicBolt || isWaitingForAttackDice || isWaitingForAmnesiaDice || isWaitingForMagicBlastDice || isWaitingForFireballRangeDice || isWaitingForFireballDamageDice || isWaitingForJoltRangeDice || isWaitingForBarrierDice || isWaitingForTeleportDice || isTargetingTeleport || isWaitingForHealDice || isWaitingForSummonHealth || isWaitingForTimeVortexDice || isWaitingForOnFireDice || isWaitingForParalysisCoin || isDoubleHandedMenuOpen || isTargetingDoubleHanded || isAmnesiaMenuOpen || isTargetingAmnesia;
+			bool hasPendingAction = isPlacingWolves || isWaitingForWolfCoin || isWaitingForMagicBoltRange || isTargetingMagicBolt || isWaitingForAttackDice || isWaitingForAmnesiaDice || isWaitingForMagicBlastDice || isWaitingForFireballRangeDice || isWaitingForFireballDamageDice || isWaitingForJoltRangeDice || isWaitingForBarrierDice || isWaitingForTeleportDice || isTargetingTeleport || isWaitingForHealDice || isWaitingForSummonHealth || isWaitingForTimeVortexDice || isWaitingForOnFireDice || isWaitingForParalysisCoin || isDoubleHandedMenuOpen || isTargetingDoubleHanded || isAmnesiaMenuOpen || isTargetingAmnesia || isTargetingTortoiseDamage;
 			if (hasPendingAction) {
 				return; // Can't end turn during pending actions
 			}
@@ -6094,10 +6200,13 @@ void ofApp::startNewTurn() {
 					spawnFloatingText(gridToWorld(startingPlayer.x, startingPlayer.y), "+1 Regen", ofColor::green);
 				}
 			}
-			startingPlayer.block = 0;
-			startingPlayer.ward = 0;
-			startingPlayer.barrier = 0;
-			startingPlayer.holyBlock = 0;
+			// Tortoise form: ALL defensive stats don't expire
+			if (!startingPlayer.inTortoiseForm) {
+				startingPlayer.block = 0;
+				startingPlayer.holyBlock = 0;
+				startingPlayer.ward = 0;
+				startingPlayer.barrier = 0;
+			}
 
 			// Check Status Effects
 			if (startingPlayer.isParalyzed) {
@@ -6142,10 +6251,13 @@ void ofApp::startNewTurn() {
 			spawnFloatingText(gridToWorld(startingPlayer.x, startingPlayer.y), "+1 Regen", ofColor::green);
 		}
 	}
-	startingPlayer.block = 0;
-	startingPlayer.ward = 0;
-	startingPlayer.barrier = 0;
-	startingPlayer.holyBlock = 0;
+	// Tortoise form: ALL defensive stats don't expire
+	if (!startingPlayer.inTortoiseForm) {
+		startingPlayer.block = 0;
+		startingPlayer.holyBlock = 0;
+		startingPlayer.ward = 0;
+		startingPlayer.barrier = 0;
+	}
 
 	if (startingPlayer.nextTurnBonusDiceFromMinions) {
 		int minionCount = 0;
@@ -6433,6 +6545,24 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		if (remainingDmg > 0) {
 			target.health -= remainingDmg;
 			spawnFloatingText(targetPos, "-" + ofToString(remainingDmg) + typeLabel, ofColor::red);
+
+			// --- TORTOISE FORM: Track HP damage taken ---
+			if (target.inTortoiseForm) {
+				target.tortoiseDamageTaken += remainingDmg;
+				ofLogNotice("Tortoise Form") << "Damage taken: " << target.tortoiseDamageTaken << "/5";
+
+				if (target.tortoiseDamageTaken >= 5) {
+					// End tortoise form
+					target.inTortoiseForm = false;
+					target.tortoiseDamageTaken = 0;
+
+					// Move card to discard
+					target.discardPile.push_back(target.tortoiseFormCard);
+
+					spawnFloatingText(targetPos + glm::vec3(0, 0.5f, 0), "Form Ended!", ofColor::darkGreen);
+					ofLogNotice("Tortoise Form") << "Player " << target.playerID << " tortoise form ended.";
+				}
+			}
 		} else {
 			spawnFloatingText(targetPos, "Blocked", ofColor::gray);
 		}
@@ -7208,6 +7338,79 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		break;
 	}
 
+	// --- CASE: FORM OF TORTOISE ---
+	case CARD_FORM_OF_TORTOISE: {
+		// Cannot enter form if already in form
+		if (currentPlayer.inTortoiseForm) {
+			ofLogNotice("Form of Tortoise") << "Already in tortoise form!";
+			break;
+		}
+
+		// 1. Store original model type for later restoration
+		if (currentPlayer.isSkeleton)
+			currentPlayer.originalModelType = "skeleton";
+		else if (currentPlayer.isGolem)
+			currentPlayer.originalModelType = "golem";
+		else if (currentPlayer.isWolf)
+			currentPlayer.originalModelType = "wolf";
+		else if (currentPlayer.isHellhound)
+			currentPlayer.originalModelType = "hellhound";
+		else if (currentPlayer.isDemon)
+			currentPlayer.originalModelType = "demon";
+		else
+			currentPlayer.originalModelType = "player";
+
+		// 2. Activate tortoise form
+		currentPlayer.inTortoiseForm = true;
+		currentPlayer.tortoiseDamageTaken = 0;
+		currentPlayer.tortoiseFormCard = playedCard;
+
+		// 3. +5 max HP
+		currentPlayer.maxHealth += 5;
+		spawnFloatingText(gridToWorld(currentPlayer.x, currentPlayer.y), "+5 Max HP!", ofColor::limeGreen);
+
+		// 4. Heal 5 HP
+		int healAmount = std::min(5, currentPlayer.maxHealth - currentPlayer.health);
+		currentPlayer.health += healAmount;
+		if (healAmount > 0) {
+			spawnFloatingText(gridToWorld(currentPlayer.x, currentPlayer.y) + glm::vec3(0, 0.3f, 0),
+				"+" + ofToString(healAmount) + " HP", ofColor::green);
+		}
+
+		// 5. Shuffle 2x Dispel into deck
+		Card dispelCard;
+		bool foundDispel = false;
+		for (const auto & c : allCards) {
+			if (c.type == CARD_DISPEL) {
+				dispelCard = c;
+				foundDispel = true;
+				break;
+			}
+		}
+		if (foundDispel) {
+			currentPlayer.deck.push_back(dispelCard);
+			currentPlayer.deck.push_back(dispelCard);
+			std::shuffle(currentPlayer.deck.begin(), currentPlayer.deck.end(), rng);
+			spawnFloatingText(gridToWorld(currentPlayer.x, currentPlayer.y) + glm::vec3(0, 0.6f, 0),
+				"+2 Dispel", ofColor::cyan);
+		}
+
+		// 6. Visual feedback
+		spawnFloatingText(gridToWorld(currentPlayer.x, currentPlayer.y) + glm::vec3(0, 0.9f, 0),
+			"TORTOISE FORM!", ofColor::darkGreen);
+
+		ofLogNotice("Form of Tortoise") << "Player " << currentPlayer.playerID << " entered tortoise form.";
+
+		// Card does NOT go to discard - stays "in play" until form ends
+		// We handle this specially - don't add to playedCardsPile
+		currentAP -= playedCard.cost;
+		currentPlayer.hand.erase(currentPlayer.hand.begin() + cardIndex);
+		activeCardDisplays.push_back({ playedCard, ofGetElapsedTimef() });
+		invalidateTargetCache();
+		currentPlayer.cardsPlayedThisTurn.push_back(playedCard.type);
+		return; // Skip normal cleanup since we handled AP and removal
+	}
+
 	// --- CASE: SUMMON WALL ---
 	case CARD_CREATE_WALL: {
 		if (!board[targetX][targetY].hasWall && !board[targetX][targetY].hasPlayer) {
@@ -7757,6 +7960,40 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		}
 		// -----------------------------------
 
+		// --- TORTOISE FORM: Deal 3 damage to adjacent after block/heal/ward ---
+		// Note: CARD_DISPEL and CARD_WISDOM_BOON trigger Shell Spike after their menu choice is made
+		if (currentPlayer.inTortoiseForm) {
+			bool isDefensiveCard = (playedCard.type == CARD_GAIN_BLOCK) || (playedCard.type == CARD_HEAL) || (playedCard.type == CARD_GAIN_WARD) || (playedCard.type == CARD_DARK_SHIELD);
+
+			if (isDefensiveCard) {
+				// Check if there are any adjacent units (ANY unit, including allies)
+				bool hasAdjacentUnit = false;
+
+				for (const auto & p : players) {
+					if (p.x < 0) continue; // Dead
+					if (&p == &currentPlayer) continue; // Self
+
+					// Check adjacency
+					int dx = abs(p.x - currentPlayer.x);
+					int dy = abs(p.y - currentPlayer.y);
+					if ((dx <= 1 && dy <= 1) && (dx + dy > 0)) {
+						hasAdjacentUnit = true;
+						break;
+					}
+				}
+
+				if (hasAdjacentUnit) {
+					// Enter tortoise damage targeting mode
+					isTargetingTortoiseDamage = true;
+					calculateTargetHighlights(); // Show green highlights on valid targets
+					spawnFloatingText(gridToWorld(currentPlayer.x, currentPlayer.y) + glm::vec3(0, 1.0f, 0),
+						"Shell Spike!", ofColor::darkGreen);
+					ofLogNotice("Tortoise Form") << "Triggered damage - choose adjacent target.";
+				}
+			}
+		}
+		// -----------------------------------
+
 		currentPlayer.playedCardsPile.push_back(playedCard);
 
 		if (currentPlayer.isReplicatePending && playedCard.type != CARD_REPLICATE) {
@@ -7810,6 +8047,29 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 					board[nx][ny].isTargetable = true;
 					// Also make it green outline for visibility
 					board[nx][ny].isTargetPreview = true;
+				}
+			}
+		}
+		return;
+	}
+
+	// --- TORTOISE DAMAGE TARGETING HIGHLIGHTING ---
+	if (isTargetingTortoiseDamage) {
+		Player & caster = players[currentPlayerIndex];
+		// Highlight all adjacent tiles with units
+		for (int dx = -1; dx <= 1; dx++) {
+			for (int dy = -1; dy <= 1; dy++) {
+				if (dx == 0 && dy == 0) continue; // Skip self
+				int nx = caster.x + dx;
+				int ny = caster.y + dy;
+				if (nx >= 0 && nx < BOARD_WIDTH && ny >= 0 && ny < BOARD_HEIGHT) {
+					// Check if there's a unit here (any unit, including allies)
+					for (const auto & p : players) {
+						if (p.x == nx && p.y == ny) {
+							board[nx][ny].isTargetable = true; // Green highlight
+							break;
+						}
+					}
 				}
 			}
 		}
@@ -8616,6 +8876,38 @@ std::vector<Player *> ofApp::findCleaveTargets(glm::vec2 direction) {
 	return hittablePlayers;
 }
 //--------------------------------------------------------------
+void ofApp::tryTriggerShellSpike() {
+	if (currentPlayerIndex < 0 || currentPlayerIndex >= (int)players.size()) return;
+	Player & currentPlayer = players[currentPlayerIndex];
+
+	if (!currentPlayer.inTortoiseForm) return;
+
+	// Check if there are any adjacent units (ANY unit, including allies)
+	bool hasAdjacentUnit = false;
+
+	for (const auto & p : players) {
+		if (p.x < 0) continue; // Dead
+		if (&p == &currentPlayer) continue; // Self
+
+		// Check adjacency
+		int dx = abs(p.x - currentPlayer.x);
+		int dy = abs(p.y - currentPlayer.y);
+		if ((dx <= 1 && dy <= 1) && (dx + dy > 0)) {
+			hasAdjacentUnit = true;
+			break;
+		}
+	}
+
+	if (hasAdjacentUnit) {
+		// Enter tortoise damage targeting mode
+		isTargetingTortoiseDamage = true;
+		calculateTargetHighlights(); // Show green highlights on valid targets
+		spawnFloatingText(gridToWorld(currentPlayer.x, currentPlayer.y) + glm::vec3(0, 1.0f, 0),
+			"Shell Spike!", ofColor::darkGreen);
+		ofLogNotice("Tortoise Form") << "Triggered Shell Spike damage - choose adjacent target.";
+	}
+}
+//--------------------------------------------------------------
 void ofApp::cancelDispel() {
 	isDispelMenuOpen = false;
 	isDispelTargeting = false;
@@ -9142,6 +9434,9 @@ void ofApp::applyDispelEffect(int statusIndex) {
 		p.hand.erase(p.hand.begin() + pendingDispelCardIndex);
 		calculateTargetHighlights(); // refresh UI
 	}
+
+	// Trigger Shell Spike if in Tortoise Form
+	tryTriggerShellSpike();
 
 	cancelDispel(); // Close menus
 }
@@ -9739,6 +10034,7 @@ CardType ofApp::stringToCardType(const std::string & str) {
 	if (str == "CARD_CONSUME_HEALTH_POTION") return CARD_CONSUME_HEALTH_POTION;
 	if (str == "CARD_ADD_POISON") return CARD_ADD_POISON;
 	if (str == "CARD_FLURRY_OF_FISTS") return CARD_FLURRY_OF_FISTS;
+	if (str == "CARD_FORM_OF_TORTOISE") return CARD_FORM_OF_TORTOISE;
 
 	return CARD_NONE;
 }
@@ -9860,7 +10156,16 @@ void ofApp::drawMinionManagerUI() {
 
 		ofPushMatrix();
 
-		if (minion.isGolem) {
+		// --- TORTOISE FORM PREVIEW (overrides normal model) ---
+		if (minion.inTortoiseForm) {
+			ofTranslate(modelFbo.getWidth() / 2, modelFbo.getHeight() / 2 + 10);
+			ofScale(14, -14, 14);
+			ofRotateXDeg(-15);
+			ofRotateYDeg(180 + ofGetElapsedTimef() * 30);
+			if (tortoiseTexture.isAllocated()) tortoiseTexture.bind();
+			tortoiseModel.drawFaces();
+			if (tortoiseTexture.isAllocated()) tortoiseTexture.unbind();
+		} else if (minion.isGolem) {
 			// GOLEM: Raised position (100 -> 80)
 			ofTranslate(modelFbo.getWidth() / 2, 80);
 			ofScale(18, 18, 18);

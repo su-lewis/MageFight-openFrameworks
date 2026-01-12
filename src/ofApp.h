@@ -107,7 +107,8 @@ enum CardType {
 	CARD_CHAIN_LIGHTNING,
 	CARD_CONSUME_HEALTH_POTION,
 	CARD_ADD_POISON,
-	CARD_FLURRY_OF_FISTS
+	CARD_FLURRY_OF_FISTS,
+	CARD_FORM_OF_TORTOISE
 };
 
 enum DicePurpose {
@@ -253,6 +254,14 @@ struct Player {
 	bool isWolf = false;
 	bool isDemon = false;
 
+	// Tortoise Form
+	bool inTortoiseForm = false;
+	int tortoiseDamageTaken = 0; // Tracks HP damage while in form, ends at 5
+	Card tortoiseFormCard; // The card to discard when form ends
+	std::string originalModelType = ""; // To restore original model
+	bool pendingTortoiseDamage = false; // If we need to deal damage to adjacent after block/heal
+	int pendingTortoiseDamageValue = 3;
+
 	ofTexture * minionTexture = nullptr;
 	int ownerID = -1;
 
@@ -350,6 +359,7 @@ private:
 	int startDiceRoll(int numDice, int sides, DicePurpose purpose, std::string label = "");
 	void spawnFloatingText(glm::vec3 pos, std::string text, ofColor color);
 	void spawnExplosion(glm::vec3 pos, int count, ofColor color);
+	void tryTriggerShellSpike(); // Tortoise Form: trigger 3 damage to adjacent unit
 
 	void calculateHighlights();
 	void calculateTargetHighlights(int cardToCalculate = -1);
@@ -662,6 +672,9 @@ private:
 	ofRectangle amnesiaMenuRect;
 	ofRectangle amnesiaBtnSelf;
 	ofRectangle amnesiaBtnAdjacent;
+
+	// --- Tortoise Form Targeting State ---
+	bool isTargetingTortoiseDamage = false;
 
 	// --- Call For Wolves State ---
 	bool isWaitingForWolfCoin = false;
