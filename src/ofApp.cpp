@@ -1084,6 +1084,7 @@ void ofApp::updateGame() {
 	if (isWaitingForAttackDice && activeDiceRolls.empty()) {
 		isWaitingForAttackDice = false;
 		int baseDamage = pendingAttackRollResult;
+		Player & attacker = players[currentPlayerIndex];
 
 		// Determine Label based on pending type
 		string typeLabel = "";
@@ -1103,6 +1104,21 @@ void ofApp::updateGame() {
 		case DAMAGE_FIRE:
 			typeLabel = " Fire";
 			break;
+		case DAMAGE_HOLY:
+			typeLabel = " Holy";
+			break;
+		case DAMAGE_POISON:
+			typeLabel = " Poison";
+			break;
+		}
+
+		// Check if Add Poison buff is active for physical/piercing damage
+		bool applyPoisonBuff = attacker.nextAttackAddPoison && 
+			(pendingAttackDamageType == DAMAGE_PHYSICAL || pendingAttackDamageType == DAMAGE_PIERCING);
+		
+		if (applyPoisonBuff) {
+			attacker.nextAttackAddPoison = false; // Consume the buff
+			pendingPoisonTargetIndices.clear();
 		}
 
 		for (size_t i = 0; i < pendingAttackTargetIndices.size(); i++) {
@@ -1138,9 +1154,40 @@ void ofApp::updateGame() {
 				} else {
 					spawnFloatingText(tPos, "Blocked", ofColor::gray);
 				}
+
+				// Apply poison if buff was active
+				if (applyPoisonBuff) {
+					pendingPoisonTargetIndices.push_back(pIndex);
+					target->isPoisoned = true;
+					target->poisonReduction = 0; // First turn = full damage
+					spawnFloatingText(tPos + glm::vec3(0, 0.5f, 0), "Poisoned!", ofColor::green);
+				}
 			}
 		}
 		pendingAttackTargetIndices.clear();
+
+		// If we applied poison, roll the extra poison damage
+		if (applyPoisonBuff && !pendingPoisonTargetIndices.empty()) {
+			pendingPoisonAttackRollResult = startDiceRoll(1, 6, PURPOSE_DAMAGE, "Poison Damage");
+			isWaitingForPoisonAttackDice = true;
+		}
+	}
+
+	// --- Poison Attack Damage Resolution ---
+	if (isWaitingForPoisonAttackDice && activeDiceRolls.empty()) {
+		isWaitingForPoisonAttackDice = false;
+		int poisonDamage = pendingPoisonAttackRollResult;
+
+		for (int pIndex : pendingPoisonTargetIndices) {
+			Player * target = getPlayer(pIndex);
+			if (target) {
+				target->health -= poisonDamage;
+				glm::vec3 tPos = gridToWorld(target->x, target->y);
+				spawnFloatingText(tPos, "-" + ofToString(poisonDamage) + " Poison", ofColor::green);
+				ofLogNotice("Poison") << "Dealt " << poisonDamage << " poison damage to Player " << target->playerID;
+			}
+		}
+		pendingPoisonTargetIndices.clear();
 	}
 
 	// --- Amnesia Logic ---
@@ -2067,6 +2114,41 @@ void ofApp::updateGame() {
 		return;
 	}
 
+	// --- Poison Status Logic ---
+	if (isWaitingForPoisonDice && activeDiceRolls.empty()) {
+		isWaitingForPoisonDice = false;
+		int rollResult = pendingPoisonRollResult;
+		Player & poisonedPlayer = players[currentPlayerIndex];
+
+		// Calculate actual damage: 1d6 - poisonReduction (minimum 0)
+		int actualDamage = std::max(0, rollResult - poisonedPlayer.poisonReduction);
+
+		if (actualDamage > 0) {
+			poisonedPlayer.health -= actualDamage;
+			spawnFloatingText(gridToWorld(poisonedPlayer.x, poisonedPlayer.y),
+				"-" + ofToString(actualDamage) + " Poison",
+				ofColor::green);
+			ofLogNotice("Poison") << "Player " << poisonedPlayer.playerID << " took " << actualDamage 
+				<< " poison damage (rolled " << rollResult << " - " << poisonedPlayer.poisonReduction << " reduction)";
+		} else {
+			spawnFloatingText(gridToWorld(poisonedPlayer.x, poisonedPlayer.y), "Poison Fading", ofColor::gray);
+		}
+
+		// Increase reduction for next turn
+		poisonedPlayer.poisonReduction++;
+
+		// Check if poison has worn off (reduction reaches 6)
+		if (poisonedPlayer.poisonReduction >= 6) {
+			poisonedPlayer.isPoisoned = false;
+			poisonedPlayer.poisonReduction = 0;
+			spawnFloatingText(gridToWorld(poisonedPlayer.x, poisonedPlayer.y) + glm::vec3(0, 0.8f, 0), "Poison Cured!", ofColor::white);
+			ofLogNotice("Poison") << "Player " << poisonedPlayer.playerID << " is no longer poisoned.";
+		}
+
+		continueNewTurn();
+		return;
+	}
+
 	// --- CRITICAL FIX: DICE ROLL & ANIMATION UPDATES ---
 	for (auto it = activeDiceRolls.begin(); it != activeDiceRolls.end();) {
 		DiceRoll & roll = *it;
@@ -2935,6 +3017,23 @@ void ofApp::drawGame() {
 				ofSetLineWidth(1);
 				ofPopMatrix();
 			}
+
+			// 7. DRAW POISON (Skull Icon)
+			if (player.isPoisoned) {
+				ofPushMatrix();
+				ofTranslate(pos.x, headHeight + 0.3f, pos.z);
+				glm::vec3 camPos = cam.getPosition();
+				float angle = atan2(camPos.x - pos.x, camPos.z - pos.z) * RAD_TO_DEG;
+				ofRotateYDeg(angle);
+				
+				// Draw a simple poison bottle icon using text
+				float time = ofGetElapsedTimef();
+				float pulse = 0.8f + 0.2f * sin(time * 3.0f);
+				ofScale(0.015f * pulse, 0.015f * pulse, 0.015f * pulse);
+				ofSetColor(0, 200, 0); // Green for poison
+				uiFont.drawString("[X]", -20, 0); // Simple skull representation
+				ofPopMatrix();
+			}
 		}
 
 		// Diable Lighting for Highlights
@@ -3448,6 +3547,30 @@ void ofApp::drawGame() {
 			ofScale(smallFontScale, smallFontScale);
 			titleFont.drawString(d10Text, 0, 0);
 			ofPopMatrix();
+			p0_statusY += (d10Box.height * smallFontScale) + (5 * scale);
+		}
+
+		if (player0->nextAttackAddPoison) {
+			string poisonText = "Poison Ready";
+			ofRectangle poisonBox = titleFont.getStringBoundingBox(poisonText, 0, 0);
+			ofSetColor(ofColor::green);
+			ofPushMatrix();
+			ofTranslate(p0_apCenterX - (poisonBox.width * smallFontScale / 2), p0_statusY + (poisonBox.height * smallFontScale));
+			ofScale(smallFontScale, smallFontScale);
+			titleFont.drawString(poisonText, 0, 0);
+			ofPopMatrix();
+			p0_statusY += (poisonBox.height * smallFontScale) + (5 * scale);
+		}
+
+		if (player0->isPoisoned) {
+			string txt = "Poisoned (-" + ofToString(player0->poisonReduction) + ")";
+			ofRectangle b = titleFont.getStringBoundingBox(txt, 0, 0);
+			ofSetColor(ofColor::green);
+			ofPushMatrix();
+			ofTranslate(p0_apCenterX - (b.width * smallFontScale / 2), p0_statusY + (b.height * smallFontScale));
+			ofScale(smallFontScale, smallFontScale);
+			titleFont.drawString(txt, 0, 0);
+			ofPopMatrix();
 		}
 
 		/// --- Draw P1 AP Box ---
@@ -3552,6 +3675,30 @@ void ofApp::drawGame() {
 			ofTranslate(p1_apCenterX - (bonusBox.width * smallFontScale / 2), p1_statusY);
 			ofScale(smallFontScale, smallFontScale);
 			titleFont.drawString(bonusText, 0, 0);
+			ofPopMatrix();
+			p1_statusY -= (bonusBox.height * smallFontScale) + (5 * scale);
+		}
+
+		if (player1->nextAttackAddPoison) {
+			string poisonText = "Poison Ready";
+			ofRectangle poisonBox = titleFont.getStringBoundingBox(poisonText, 0, 0);
+			ofSetColor(ofColor::green);
+			ofPushMatrix();
+			ofTranslate(p1_apCenterX - (poisonBox.width * smallFontScale / 2), p1_statusY);
+			ofScale(smallFontScale, smallFontScale);
+			titleFont.drawString(poisonText, 0, 0);
+			ofPopMatrix();
+			p1_statusY -= (poisonBox.height * smallFontScale) + (5 * scale);
+		}
+
+		if (player1->isPoisoned) {
+			string txt = "Poisoned (-" + ofToString(player1->poisonReduction) + ")";
+			ofRectangle b = titleFont.getStringBoundingBox(txt, 0, 0);
+			ofSetColor(ofColor::green);
+			ofPushMatrix();
+			ofTranslate(p1_apCenterX - (b.width * smallFontScale / 2), p1_statusY);
+			ofScale(smallFontScale, smallFontScale);
+			titleFont.drawString(txt, 0, 0);
 			ofPopMatrix();
 		}
 	}
@@ -5680,6 +5827,7 @@ void ofApp::startNewTurn() {
 		endingPlayer.discardPile.insert(endingPlayer.discardPile.end(), endingPlayer.playedCardsPile.begin(), endingPlayer.playedCardsPile.end());
 		endingPlayer.playedCardsPile.clear();
 		endingPlayer.shocksPlayedThisTurn = 0;
+		endingPlayer.nextAttackAddPoison = false; // Clear poison buff at end of turn
 
 		// Decrement buff timers
 		if (endingPlayer.strengthenElementsTurnsRemaining > 0) {
@@ -5718,6 +5866,11 @@ void ofApp::startNewTurn() {
 			if (startingPlayer.onFire) {
 				isWaitingForOnFireDice = true;
 				pendingOnFireRollResult = startDiceRoll(1, 6, PURPOSE_DAMAGE, "Fire Status Damage");
+				return;
+			}
+			if (startingPlayer.isPoisoned) {
+				isWaitingForPoisonDice = true;
+				pendingPoisonRollResult = startDiceRoll(1, 6, PURPOSE_DAMAGE, "Poison Status Damage");
 				return;
 			}
 
@@ -5780,7 +5933,7 @@ void ofApp::startNewTurn() {
 		return;
 	}
 
-	// 2. PARALYSIS / FIRE
+	// 2. PARALYSIS / FIRE / POISON
 	if (startingPlayer.isParalyzed) {
 		startDiceRoll(1, 2, PURPOSE_COIN_FLIP, "Paralysis Check");
 		isWaitingForParalysisCoin = true;
@@ -5789,6 +5942,11 @@ void ofApp::startNewTurn() {
 	if (startingPlayer.onFire) {
 		isWaitingForOnFireDice = true;
 		pendingOnFireRollResult = startDiceRoll(1, 6, PURPOSE_DAMAGE);
+		return;
+	}
+	if (startingPlayer.isPoisoned) {
+		isWaitingForPoisonDice = true;
+		pendingPoisonRollResult = startDiceRoll(1, 6, PURPOSE_DAMAGE, "Poison Status Damage");
 		return;
 	}
 
@@ -5954,6 +6112,12 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 			break;
 		case DAMAGE_FIRE:
 			typeLabel = " Fire";
+			break;
+		case DAMAGE_POISON:
+			typeLabel = " Poison";
+			break;
+		case DAMAGE_HOLY:
+			typeLabel = " Holy";
 			break;
 		}
 
@@ -6682,11 +6846,29 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 			// 1. Calculate Total Block
 			int totalBlock = currentPlayer.block + currentPlayer.barrier + currentPlayer.ward + currentPlayer.holyBlock;
 
+			// Check if Add Poison buff is active
+			bool applyPoisonBuff = currentPlayer.nextAttackAddPoison;
+			if (applyPoisonBuff) {
+				currentPlayer.nextAttackAddPoison = false;
+			}
+
 			// 2. Deal Damage based on Total Block
 			// Note: Even if 0 block, the card plays (wasting AP), consistent with other mechanics
 			if (totalBlock > 0) {
 				ofLogNotice("Shield Bash") << "Converting " << totalBlock << " total block into damage.";
 				applyDamage(*target, totalBlock, DAMAGE_PHYSICAL);
+				
+				// Apply poison if buff was active
+				if (applyPoisonBuff) {
+					target->isPoisoned = true;
+					target->poisonReduction = 0;
+					glm::vec3 tPos = gridToWorld(target->x, target->y);
+					spawnFloatingText(tPos + glm::vec3(0, 0.5f, 0), "Poisoned!", ofColor::green);
+					pendingPoisonTargetIndices.clear();
+					pendingPoisonTargetIndices.push_back(targetIndex);
+					pendingPoisonAttackRollResult = startDiceRoll(1, 6, PURPOSE_DAMAGE, "Poison Damage");
+					isWaitingForPoisonAttackDice = true;
+				}
 			} else {
 				spawnFloatingText(gridToWorld(target->x, target->y), "0 Damage", ofColor::gray);
 			}
@@ -6709,6 +6891,15 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		currentPlayer.maxHealth++;
 		spawnFloatingText(gridToWorld(currentPlayer.x, currentPlayer.y), "+1 Max HP", ofColor::cyan);
 		ofLogNotice("Consume Health Potion") << "Player " << currentPlayer.playerID << " increased max HP to " << currentPlayer.maxHealth;
+		playedSuccessfully = true;
+		break;
+	}
+
+	case CARD_ADD_POISON: {
+		// Buff: next physical/piercing damage card this turn adds 1d6 poison damage
+		currentPlayer.nextAttackAddPoison = true;
+		spawnFloatingText(gridToWorld(currentPlayer.x, currentPlayer.y), "Poison Ready!", ofColor::green);
+		ofLogNotice("Add Poison") << "Player " << currentPlayer.playerID << " primed next attack with poison.";
 		playedSuccessfully = true;
 		break;
 	}
@@ -6760,13 +6951,31 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 				}
 			}
 
+			// Check if Add Poison buff is active
+			bool applyPoisonBuff = currentPlayer.nextAttackAddPoison;
+			if (applyPoisonBuff) {
+				currentPlayer.nextAttackAddPoison = false;
+			}
+
 			// 2. Track Health Before Impact
 			int hpBefore = target->health;
 
 			// 3. Apply Damage
 			applyDamage(*target, damage, DAMAGE_PHYSICAL);
 
-			// 4. Calculate Lifesteal (Actual HP lost by enemy)
+			// 4. Apply poison if buff was active
+			if (applyPoisonBuff) {
+				target->isPoisoned = true;
+				target->poisonReduction = 0;
+				glm::vec3 tPos = gridToWorld(target->x, target->y);
+				spawnFloatingText(tPos + glm::vec3(0, 0.5f, 0), "Poisoned!", ofColor::green);
+				pendingPoisonTargetIndices.clear();
+				pendingPoisonTargetIndices.push_back(targetIndex);
+				pendingPoisonAttackRollResult = startDiceRoll(1, 6, PURPOSE_DAMAGE, "Poison Damage");
+				isWaitingForPoisonAttackDice = true;
+			}
+
+			// 5. Calculate Lifesteal (Actual HP lost by enemy)
 			int hpAfter = target->health;
 			int actualDamageDealt = hpBefore - hpAfter;
 
@@ -6910,8 +7119,26 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 			damage += (handCardsInDiscard * 2);
 			ofLogNotice("Master Fist") << "Found " << handCardsInDiscard << " hand cards in discard. Total damage: " << damage;
 
+			// Check if Add Poison buff is active
+			bool applyPoisonBuff = currentPlayer.nextAttackAddPoison;
+			if (applyPoisonBuff) {
+				currentPlayer.nextAttackAddPoison = false;
+			}
+
 			// --- 2. Apply Damage ---
 			applyDamage(*target, damage, DAMAGE_PHYSICAL);
+
+			// Apply poison if buff was active
+			if (applyPoisonBuff) {
+				target->isPoisoned = true;
+				target->poisonReduction = 0;
+				glm::vec3 tPos = gridToWorld(target->x, target->y);
+				spawnFloatingText(tPos + glm::vec3(0, 0.5f, 0), "Poisoned!", ofColor::green);
+				pendingPoisonTargetIndices.clear();
+				pendingPoisonTargetIndices.push_back(targetIndex);
+				pendingPoisonAttackRollResult = startDiceRoll(1, 6, PURPOSE_DAMAGE, "Poison Damage");
+				isWaitingForPoisonAttackDice = true;
+			}
 
 			// --- 3. Mill Target's Top Card ---
 			if (!target->deck.empty()) {
@@ -7087,8 +7314,18 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 
 			isWaitingForAttackDice = true;
 			pendingAttackDamageType = playedCard.damageType;
-		} else {
+				} else {
 			int damage = playedCard.value;
+			
+			// Check if Add Poison buff is active for physical/piercing damage
+			bool applyPoisonBuff = currentPlayer.nextAttackAddPoison && 
+				(playedCard.damageType == DAMAGE_PHYSICAL || playedCard.damageType == DAMAGE_PIERCING);
+			
+			if (applyPoisonBuff) {
+				currentPlayer.nextAttackAddPoison = false; // Consume the buff
+				pendingPoisonTargetIndices.clear();
+			}
+			
 			for (size_t i = 0; i < pendingAttackTargetIndices.size(); i++) {
 				int pIndex = pendingAttackTargetIndices[i];
 				Player * target = getPlayer(pIndex);
@@ -7096,7 +7333,22 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 					int finalDamage = damage;
 					if (playedCard.damageType == DAMAGE_PIERCING && i > 0) finalDamage /= 2;
 					applyDamage(*target, finalDamage, playedCard.damageType);
+					
+					// Apply poison if buff was active
+					if (applyPoisonBuff) {
+						pendingPoisonTargetIndices.push_back(pIndex);
+						target->isPoisoned = true;
+						target->poisonReduction = 0;
+						glm::vec3 tPos = gridToWorld(target->x, target->y);
+						spawnFloatingText(tPos + glm::vec3(0, 0.5f, 0), "Poisoned!", ofColor::green);
+					}
 				}
+			}
+			
+			// If we applied poison, roll the extra poison damage
+			if (applyPoisonBuff && !pendingPoisonTargetIndices.empty()) {
+				pendingPoisonAttackRollResult = startDiceRoll(1, 6, PURPOSE_DAMAGE, "Poison Damage");
+				isWaitingForPoisonAttackDice = true;
 			}
 		}
 		playedSuccessfully = true;
@@ -8912,6 +9164,7 @@ CardType ofApp::stringToCardType(const std::string & str) {
 	if (str == "CARD_SHIELD_BASH") return CARD_SHIELD_BASH;
 	if (str == "CARD_CHAIN_LIGHTNING") return CARD_CHAIN_LIGHTNING;
 	if (str == "CARD_CONSUME_HEALTH_POTION") return CARD_CONSUME_HEALTH_POTION;
+	if (str == "CARD_ADD_POISON") return CARD_ADD_POISON;
 
 	return CARD_NONE;
 }
@@ -8935,6 +9188,7 @@ DamageType ofApp::stringToDamageType(const std::string & str) {
 	if (str == "DAMAGE_FIRE") return DAMAGE_FIRE;
 	if (str == "DAMAGE_ELECTRIC") return DAMAGE_ELECTRIC;
 	if (str == "DAMAGE_HOLY") return DAMAGE_HOLY;
+	if (str == "DAMAGE_POISON") return DAMAGE_POISON;
 	return DAMAGE_PHYSICAL;
 }
 // ----------------- MINION UI -----------------

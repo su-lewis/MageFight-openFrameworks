@@ -350,5 +350,12 @@
     "type": "CARD_CONSUME_HEALTH_POTION",
     "cost": 2,
     "targeting": "TARGET_SELF"
+  },
+  {
+    "id": 44,
+    "name": "Add Poison",
+    "type": "CARD_ADD_POISON",
+    "cost": 2,
+    "targeting": "TARGET_SELF"
   }
 ]

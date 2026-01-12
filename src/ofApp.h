@@ -43,7 +43,8 @@ enum DamageType {
 	DAMAGE_MAGIC,
 	DAMAGE_ELECTRIC,
 	DAMAGE_FIRE,
-	DAMAGE_HOLY
+	DAMAGE_HOLY,
+	DAMAGE_POISON
 };
 
 enum TargetingType {
@@ -104,7 +105,8 @@ enum CardType {
 	CARD_SUMMON_DEMON,
 	CARD_SHIELD_BASH,
 	CARD_CHAIN_LIGHTNING,
-	CARD_CONSUME_HEALTH_POTION
+	CARD_CONSUME_HEALTH_POTION,
+	CARD_ADD_POISON
 };
 
 enum DicePurpose {
@@ -227,6 +229,9 @@ struct Player {
 	int shocksPlayedThisTurn = 0;
 	bool isParalyzed = false;
 	int paralysisHeadsCount = 0;
+	bool isPoisoned = false;
+	int poisonReduction = 0; // 0 = first turn (full 1d6), then 1, 2, 3, 4, 5, 6 (cured)
+	bool nextAttackAddPoison = false; // Buff from Add Poison card
 	bool nextTurnD10AP = false;
 	bool nextTurnExtraDraw = false;
 	bool isReplicatePending = false;
@@ -546,6 +551,11 @@ private:
 	DamageType pendingAttackDamageType;
 	std::vector<int> pendingAttackTargetIndices;
 
+	// Poison (from Add Poison card)
+	bool isWaitingForPoisonAttackDice = false;
+	int pendingPoisonAttackRollResult = 0;
+	std::vector<int> pendingPoisonTargetIndices;
+
 	// Amnesia
 	bool isAmnesiaSelectionActive = false;
 	bool isWaitingForAmnesiaDice = false;
@@ -695,6 +705,8 @@ private:
 	bool isWaitingForOnFireDice = false;
 	int pendingOnFireRollResult = 0;
 	bool isWaitingForParalysisCoin = false;
+	bool isWaitingForPoisonDice = false;
+	int pendingPoisonRollResult = 0;
 
 	// --- MENU UI VARIABLES ---
 	ofRectangle mainMenuPlayAIButton;
