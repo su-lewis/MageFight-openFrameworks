@@ -703,6 +703,8 @@ private:
 	void cancelDoubleHanded();
 	void resolveDoubleHanded(std::string cardName);
 	void drawAmnesiaMenuUI();
+	void drawCardSpawnerUI();
+	void drawCardEncyclopediaUI();
 
 	// Status Effects
 	bool isWaitingForOnFireDice = false;
@@ -759,4 +761,19 @@ private:
 	ofRectangle debugUnlimitedAPButton;
 	ofRectangle debugForceEndTurnButton;
 	bool isDebugDiceDropdownOpen = false;
+
+	// --- Debug Card Spawner UI (KRunner-style) ---
+	bool isCardSpawnerOpen = false;
+	bool isCardEncyclopediaOpen = false;
+	std::string cardSpawnerInput = "";
+	int cardSpawnerQuantity = 1;
+	std::vector<Card> filteredCards; // Cards matching current input
+	int encyclopediaScrollOffset = 0;
+	ofRectangle cardSpawnerInputRect;
+	ofRectangle cardSpawnerPlusButton;
+	ofRectangle cardSpawnerMinusButton;
+	ofRectangle cardSpawnerEncyclopediaButton;
+	ofRectangle cardSpawnerCloseButton;
+	ofRectangle encyclopediaCloseButton;
+	ofRectangle encyclopediaRect;
 };

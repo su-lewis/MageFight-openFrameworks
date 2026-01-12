@@ -4197,6 +4197,14 @@ void ofApp::drawGame() {
 		drawAmnesiaMenuUI();
 	}
 
+	// --- Debug Card Spawner UI (KRunner-style) ---
+	if (isCardSpawnerOpen) {
+		drawCardSpawnerUI();
+	}
+	if (isCardEncyclopediaOpen) {
+		drawCardEncyclopediaUI();
+	}
+
 	// --- TOP INSTRUCTION TEXT (Wolf Placement) ---
 	if (isPlacingWolves && !isWaitingForWolfCoin) {
 		string msg = "Choose Wolf Spawn Square";
@@ -4529,6 +4537,141 @@ void ofApp::mousePressed(int x, int y, int button) {
 	// ==============================================================================
 	// PHASE 1: MODAL UI INTERRUPTS
 	// ==============================================================================
+
+	// --- Card Encyclopedia UI ---
+	if (isCardEncyclopediaOpen && button == OF_MOUSE_BUTTON_LEFT) {
+		if (encyclopediaCloseButton.inside(x, y)) {
+			isCardEncyclopediaOpen = false;
+			return;
+		}
+
+		// Check if clicking on a card in the encyclopedia
+		if (encyclopediaRect.inside(x, y)) {
+			const float kBaseCardWidth = 120.0f;
+			const float kCardAspectRatio = 1.4f;
+			const float kBaseCardHeight = kBaseCardWidth * kCardAspectRatio;
+
+			float panelX = encyclopediaRect.x;
+			float panelY = encyclopediaRect.y;
+			float contentY = panelY + 60;
+			float contentHeight = encyclopediaRect.height - 70;
+			float cardScale = 1.2f;
+			float cardW = kBaseCardWidth * cardScale;
+			float cardH = kBaseCardHeight * cardScale;
+			float padding = 15.0f;
+
+			int cols = std::max(1, (int)floor((encyclopediaRect.width - 2 * padding) / (cardW + padding)));
+			float startX = panelX + padding + ((encyclopediaRect.width - 2 * padding) - (cols * (cardW + padding) - padding)) / 2.0f;
+
+			// Sort cards same as in draw
+			std::vector<Card> sortedCards = allCards;
+			std::sort(sortedCards.begin(), sortedCards.end(), [](const Card & a, const Card & b) {
+				if (a.cost != b.cost) return a.cost < b.cost;
+				return a.name < b.name;
+			});
+
+			int row = 0;
+			int col = 0;
+			for (size_t i = 0; i < sortedCards.size(); i++) {
+				float drawX = startX + col * (cardW + padding);
+				float drawY = contentY + row * (cardH + padding) - encyclopediaScrollOffset;
+
+				if (drawY >= contentY && drawY + cardH <= contentY + contentHeight) {
+					ofRectangle cardRect(drawX, drawY, cardW, cardH);
+					if (cardRect.inside(x, y)) {
+						// Add this card to current player's hand
+						for (int q = 0; q < cardSpawnerQuantity; q++) {
+							players[currentPlayerIndex].hand.push_back(sortedCards[i]);
+							players[currentPlayerIndex].hand.back().currentPos = ofVec2f(ofGetWidth() / 2, 0);
+						}
+						spawnFloatingText(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y),
+							"+" + ofToString(cardSpawnerQuantity) + "x " + sortedCards[i].name, ofColor::cyan);
+						return;
+					}
+				}
+
+				col++;
+				if (col >= cols) {
+					col = 0;
+					row++;
+				}
+			}
+		}
+
+		// Clicked outside - close
+		if (!encyclopediaRect.inside(x, y)) {
+			isCardEncyclopediaOpen = false;
+		}
+		return;
+	}
+
+	// --- Card Spawner UI ---
+	if (isCardSpawnerOpen && button == OF_MOUSE_BUTTON_LEFT) {
+		if (cardSpawnerCloseButton.inside(x, y)) {
+			isCardSpawnerOpen = false;
+			return;
+		}
+
+		if (cardSpawnerPlusButton.inside(x, y)) {
+			cardSpawnerQuantity = std::min(cardSpawnerQuantity + 1, 99);
+			return;
+		}
+
+		if (cardSpawnerMinusButton.inside(x, y)) {
+			cardSpawnerQuantity = std::max(cardSpawnerQuantity - 1, 1);
+			return;
+		}
+
+		if (cardSpawnerEncyclopediaButton.inside(x, y)) {
+			isCardEncyclopediaOpen = true;
+			encyclopediaScrollOffset = 0;
+			return;
+		}
+
+		// Check if clicking on a suggestion
+		if (!cardSpawnerInput.empty() && !filteredCards.empty()) {
+			float barWidth = 600.0f;
+			float barHeight = 50.0f;
+			float barX = (ofGetWidth() - barWidth) / 2.0f;
+			float barY = ofGetHeight() * 0.15f;
+			float inputWidth = barWidth - 180.0f;
+			float suggestionY = barY + barHeight + 5.0f;
+			float suggestionHeight = 35.0f;
+			int maxSuggestions = std::min((int)filteredCards.size(), 8);
+
+			for (int i = 0; i < maxSuggestions; i++) {
+				float itemY = suggestionY + 5 + i * suggestionHeight;
+				ofRectangle itemRect(barX + 5, itemY, inputWidth - 10, suggestionHeight - 2);
+				if (itemRect.inside(x, y)) {
+					// Add this card
+					for (int q = 0; q < cardSpawnerQuantity; q++) {
+						players[currentPlayerIndex].hand.push_back(filteredCards[i]);
+						players[currentPlayerIndex].hand.back().currentPos = ofVec2f(ofGetWidth() / 2, 0);
+					}
+					spawnFloatingText(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y),
+						"+" + ofToString(cardSpawnerQuantity) + "x " + filteredCards[i].name, ofColor::cyan);
+					isCardSpawnerOpen = false;
+					return;
+				}
+			}
+		}
+
+		// Don't close when clicking inside the bar area
+		float barWidth = 600.0f;
+		float barHeight = 50.0f;
+		float barX = (ofGetWidth() - barWidth) / 2.0f;
+		float barY = ofGetHeight() * 0.15f;
+		float inputWidth = barWidth - 180.0f;
+		float suggestionHeight = 35.0f;
+		int maxSuggestions = std::min((int)filteredCards.size(), 8);
+		float totalHeight = barHeight + (filteredCards.empty() ? 0 : suggestionHeight * maxSuggestions + 15);
+		ofRectangle fullArea(barX, barY, barWidth, totalHeight);
+		
+		if (!fullArea.inside(x, y)) {
+			isCardSpawnerOpen = false;
+		}
+		return;
+	}
 
 	// --- 1a. Magic Blast Choice Menu ---
 	if (isMagicBlastChoiceActive && button == OF_MOUSE_BUTTON_LEFT) {
@@ -5158,19 +5301,10 @@ void ofApp::mousePressed(int x, int y, int button) {
 				}
 
 				if (debugSpawnCardButton.inside(x, y)) {
-					string cardName = ofSystemTextBoxDialog("Enter Card Name", "");
-					if (!cardName.empty()) {
-						bool foundCard = false;
-						for (const auto & card : allCards) {
-							if (ofToLower(card.name) == ofToLower(cardName)) {
-								players[currentPlayerIndex].hand.push_back(card);
-								players[currentPlayerIndex].hand.back().currentPos = ofVec2f(ofGetWidth() / 2, 0);
-								foundCard = true;
-								break;
-							}
-						}
-						if (!foundCard) ofSystemAlertDialog("Card '" + cardName + "' not found!");
-					}
+					// Open the in-game card spawner UI
+					isCardSpawnerOpen = true;
+					cardSpawnerInput = "";
+					filteredCards.clear();
 					return;
 				}
 
@@ -5690,11 +5824,97 @@ void ofApp::mouseReleased(int x, int y, int button) {
 void ofApp::mouseScrolled(int x, int y, float scrollX, float scrollY) {
 	if (currentState != STATE_GAMEPLAY) return;
 
+	// Handle encyclopedia scrolling
+	if (isCardEncyclopediaOpen && encyclopediaRect.inside(x, y)) {
+		const float kBaseCardWidth = 120.0f;
+		const float kCardAspectRatio = 1.4f;
+		const float kBaseCardHeight = kBaseCardWidth * kCardAspectRatio;
+
+		float cardScale = 1.2f;
+		float cardH = kBaseCardHeight * cardScale;
+		float padding = 15.0f;
+		int cols = std::max(1, (int)floor((encyclopediaRect.width - 2 * padding) / (kBaseCardWidth * cardScale + padding)));
+		int totalRows = (allCards.size() + cols - 1) / cols;
+		float totalContentHeight = totalRows * (cardH + padding);
+		float contentHeight = encyclopediaRect.height - 70;
+		float maxScroll = std::max(0.0f, totalContentHeight - contentHeight);
+
+		encyclopediaScrollOffset -= scrollY * 40.0f;
+		encyclopediaScrollOffset = ofClamp(encyclopediaScrollOffset, 0.0f, maxScroll);
+		return;
+	}
+
 	cameraTargetZoom -= scrollY * 4.0f;
 	cameraTargetZoom = ofClamp(cameraTargetZoom, 20.0f, 150.0f);
 }
 //--------------------------------------------------------------
-void ofApp::keyPressed(int key) { }
+void ofApp::keyPressed(int key) {
+	// Handle Card Spawner text input
+	if (isCardSpawnerOpen && !isCardEncyclopediaOpen) {
+		if (key == OF_KEY_RETURN) {
+			// Add the first matching card (or exact match)
+			if (!filteredCards.empty()) {
+				for (int q = 0; q < cardSpawnerQuantity; q++) {
+					players[currentPlayerIndex].hand.push_back(filteredCards[0]);
+					players[currentPlayerIndex].hand.back().currentPos = ofVec2f(ofGetWidth() / 2, 0);
+				}
+				spawnFloatingText(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y),
+					"+" + ofToString(cardSpawnerQuantity) + "x " + filteredCards[0].name, ofColor::cyan);
+				isCardSpawnerOpen = false;
+			}
+		} else if (key == OF_KEY_BACKSPACE) {
+			if (!cardSpawnerInput.empty()) {
+				cardSpawnerInput = cardSpawnerInput.substr(0, cardSpawnerInput.size() - 1);
+				// Update filtered cards
+				filteredCards.clear();
+				if (!cardSpawnerInput.empty()) {
+					std::string lowerInput = ofToLower(cardSpawnerInput);
+					for (const auto & card : allCards) {
+						if (ofToLower(card.name).find(lowerInput) != std::string::npos) {
+							filteredCards.push_back(card);
+						}
+					}
+					// Sort by how early the match appears
+					std::sort(filteredCards.begin(), filteredCards.end(), [&lowerInput](const Card & a, const Card & b) {
+						size_t posA = ofToLower(a.name).find(lowerInput);
+						size_t posB = ofToLower(b.name).find(lowerInput);
+						if (posA != posB) return posA < posB;
+						return a.name < b.name;
+					});
+				}
+			}
+		} else if (key == OF_KEY_ESC) {
+			isCardSpawnerOpen = false;
+		} else if (key >= 32 && key <= 126) {
+			// Printable ASCII characters
+			cardSpawnerInput += (char)key;
+			// Update filtered cards
+			filteredCards.clear();
+			std::string lowerInput = ofToLower(cardSpawnerInput);
+			for (const auto & card : allCards) {
+				if (ofToLower(card.name).find(lowerInput) != std::string::npos) {
+					filteredCards.push_back(card);
+				}
+			}
+			// Sort by how early the match appears
+			std::sort(filteredCards.begin(), filteredCards.end(), [&lowerInput](const Card & a, const Card & b) {
+				size_t posA = ofToLower(a.name).find(lowerInput);
+				size_t posB = ofToLower(b.name).find(lowerInput);
+				if (posA != posB) return posA < posB;
+				return a.name < b.name;
+			});
+		}
+		return; // Consume all keys when spawner is open
+	}
+
+	// Handle Encyclopedia scrolling
+	if (isCardEncyclopediaOpen) {
+		if (key == OF_KEY_ESC) {
+			isCardEncyclopediaOpen = false;
+		}
+		return;
+	}
+}
 //--------------------------------------------------------------
 void ofApp::keyReleased(int key) {
 	// 1. Debug Toggle
@@ -8555,6 +8775,248 @@ void ofApp::drawAmnesiaMenuUI() {
 	string adjLabel = "Adjacent Unit";
 	ofRectangle adjBox = uiFont.getStringBoundingBox(adjLabel, 0, 0);
 	uiFont.drawString(adjLabel, amnesiaBtnAdjacent.getCenter().x - adjBox.width / 2, amnesiaBtnAdjacent.getCenter().y + 5);
+}
+
+//--------------------------------------------------------------
+void ofApp::drawCardSpawnerUI() {
+	ofEnableBlendMode(OF_BLENDMODE_ALPHA);
+
+	// Semi-transparent dark overlay
+	ofSetColor(0, 0, 0, 150);
+	ofDrawRectangle(0, 0, ofGetWidth(), ofGetHeight());
+
+	// KRunner-style bar - centered horizontally, near top
+	float barWidth = 600.0f;
+	float barHeight = 50.0f;
+	float barX = (ofGetWidth() - barWidth) / 2.0f;
+	float barY = ofGetHeight() * 0.15f;
+
+	// Main input bar background
+	ofSetColor(30, 30, 30, 250);
+	ofDrawRectRounded(barX, barY, barWidth, barHeight, 8);
+
+	// Input area (left side)
+	float inputWidth = barWidth - 180.0f; // Room for buttons
+	cardSpawnerInputRect.set(barX, barY, inputWidth, barHeight);
+
+	// Draw input border
+	ofSetColor(80, 80, 80);
+	ofNoFill();
+	ofSetLineWidth(2);
+	ofDrawRectRounded(barX + 2, barY + 2, inputWidth - 4, barHeight - 4, 6);
+	ofFill();
+
+	// Draw input text
+	ofSetColor(ofColor::white);
+	string displayText = cardSpawnerInput;
+	if (displayText.empty()) {
+		ofSetColor(120, 120, 120);
+		displayText = "Type card name...";
+	}
+	// Add blinking cursor
+	if (!cardSpawnerInput.empty() || (int)(ofGetElapsedTimef() * 2) % 2 == 0) {
+		if (cardSpawnerInput.empty()) {
+			displayText = "|";
+			ofSetColor(ofColor::white);
+		} else {
+			displayText += "|";
+		}
+	}
+	uiFont.drawString(displayText, barX + 15, barY + barHeight / 2 + 6);
+
+	// Quantity display and +/- buttons
+	float btnSize = 30.0f;
+	float btnY = barY + (barHeight - btnSize) / 2.0f;
+	float quantityX = barX + inputWidth + 10.0f;
+
+	// Minus button
+	cardSpawnerMinusButton.set(quantityX, btnY, btnSize, btnSize);
+	ofSetColor(60, 60, 60);
+	ofDrawRectRounded(cardSpawnerMinusButton, 5);
+	ofSetColor(ofColor::white);
+	uiFont.drawString("-", quantityX + 10, btnY + btnSize / 2 + 6);
+
+	// Quantity number
+	ofSetColor(ofColor::white);
+	string qtyStr = ofToString(cardSpawnerQuantity);
+	uiFont.drawString(qtyStr, quantityX + btnSize + 12, btnY + btnSize / 2 + 6);
+
+	// Plus button
+	cardSpawnerPlusButton.set(quantityX + btnSize + 35, btnY, btnSize, btnSize);
+	ofSetColor(60, 60, 60);
+	ofDrawRectRounded(cardSpawnerPlusButton, 5);
+	ofSetColor(ofColor::white);
+	uiFont.drawString("+", quantityX + btnSize + 44, btnY + btnSize / 2 + 6);
+
+	// Encyclopedia button
+	float encBtnWidth = 40.0f;
+	cardSpawnerEncyclopediaButton.set(barX + barWidth - encBtnWidth - 45, btnY, encBtnWidth, btnSize);
+	ofSetColor(70, 50, 100);
+	ofDrawRectRounded(cardSpawnerEncyclopediaButton, 5);
+	// Draw 3 horizontal lines (hamburger menu icon)
+	ofSetColor(ofColor::white);
+	float lineX = cardSpawnerEncyclopediaButton.x + 10;
+	float lineWidth = 20;
+	float lineY1 = btnY + 8;
+	float lineY2 = btnY + btnSize / 2;
+	float lineY3 = btnY + btnSize - 8;
+	ofSetLineWidth(2);
+	ofDrawLine(lineX, lineY1, lineX + lineWidth, lineY1);
+	ofDrawLine(lineX, lineY2, lineX + lineWidth, lineY2);
+	ofDrawLine(lineX, lineY3, lineX + lineWidth, lineY3);
+
+	// Close button (X)
+	cardSpawnerCloseButton.set(barX + barWidth - 40, btnY, btnSize, btnSize);
+	ofSetColor(100, 40, 40);
+	ofDrawRectRounded(cardSpawnerCloseButton, 5);
+	ofSetColor(ofColor::white);
+	uiFont.drawString("X", cardSpawnerCloseButton.x + 9, btnY + btnSize / 2 + 6);
+
+	// Draw filtered card suggestions below the bar
+	if (!cardSpawnerInput.empty() && !filteredCards.empty()) {
+		float suggestionY = barY + barHeight + 5.0f;
+		float suggestionHeight = 35.0f;
+		int maxSuggestions = std::min((int)filteredCards.size(), 8);
+
+		ofSetColor(40, 40, 40, 245);
+		ofDrawRectRounded(barX, suggestionY, inputWidth, suggestionHeight * maxSuggestions + 10, 8);
+
+		for (int i = 0; i < maxSuggestions; i++) {
+			float itemY = suggestionY + 5 + i * suggestionHeight;
+			
+			// Highlight on hover - check if mouse is over this item
+			ofRectangle itemRect(barX + 5, itemY, inputWidth - 10, suggestionHeight - 2);
+			if (itemRect.inside(ofGetMouseX(), ofGetMouseY())) {
+				ofSetColor(70, 70, 100);
+				ofDrawRectRounded(itemRect, 4);
+			}
+
+			ofSetColor(ofColor::white);
+			string cardInfo = filteredCards[i].name + " (Cost: " + ofToString(filteredCards[i].cost) + ")";
+			uiFont.drawString(cardInfo, barX + 15, itemY + suggestionHeight / 2 + 5);
+		}
+	}
+
+	// Instructions text
+	ofSetColor(180, 180, 180);
+	string helpText = "Press ENTER to add card | ESC to close";
+	ofRectangle helpBox = uiFont.getStringBoundingBox(helpText, 0, 0);
+	uiFont.drawString(helpText, (ofGetWidth() - helpBox.width) / 2, barY + barHeight + (filteredCards.empty() ? 30 : 35 * std::min((int)filteredCards.size(), 8) + 45));
+}
+
+//--------------------------------------------------------------
+void ofApp::drawCardEncyclopediaUI() {
+	ofEnableBlendMode(OF_BLENDMODE_ALPHA);
+
+	// Full overlay
+	ofSetColor(0, 0, 0, 200);
+	ofDrawRectangle(0, 0, ofGetWidth(), ofGetHeight());
+
+	// Encyclopedia panel
+	float panelWidth = ofGetWidth() * 0.85f;
+	float panelHeight = ofGetHeight() * 0.85f;
+	float panelX = (ofGetWidth() - panelWidth) / 2.0f;
+	float panelY = (ofGetHeight() - panelHeight) / 2.0f;
+
+	encyclopediaRect.set(panelX, panelY, panelWidth, panelHeight);
+
+	ofSetColor(25, 25, 30, 250);
+	ofDrawRectRounded(encyclopediaRect, 15);
+
+	// Title bar
+	ofSetColor(40, 40, 50);
+	ofDrawRectRounded(panelX, panelY, panelWidth, 50, 15);
+	// Fix bottom corners of title bar
+	ofDrawRectangle(panelX, panelY + 35, panelWidth, 15);
+
+	ofSetColor(ofColor::white);
+	string title = "Card Encyclopedia - Click to Add (x" + ofToString(cardSpawnerQuantity) + ")";
+	ofRectangle titleBox = uiFont.getStringBoundingBox(title, 0, 0);
+	uiFont.drawString(title, panelX + (panelWidth - titleBox.width) / 2, panelY + 32);
+
+	// Close button
+	encyclopediaCloseButton.set(panelX + panelWidth - 45, panelY + 10, 30, 30);
+	ofSetColor(100, 40, 40);
+	ofDrawRectRounded(encyclopediaCloseButton, 5);
+	ofSetColor(ofColor::white);
+	uiFont.drawString("X", encyclopediaCloseButton.x + 9, encyclopediaCloseButton.y + 22);
+
+	// Card grid
+	const float kBaseCardWidth = 120.0f;
+	const float kCardAspectRatio = 1.4f;
+	const float kBaseCardHeight = kBaseCardWidth * kCardAspectRatio;
+
+	float contentY = panelY + 60;
+	float contentHeight = panelHeight - 70;
+	float cardScale = 1.2f;
+	float cardW = kBaseCardWidth * cardScale;
+	float cardH = kBaseCardHeight * cardScale;
+	float padding = 15.0f;
+
+	int cols = std::max(1, (int)floor((panelWidth - 2 * padding) / (cardW + padding)));
+	float startX = panelX + padding + ((panelWidth - 2 * padding) - (cols * (cardW + padding) - padding)) / 2.0f;
+
+	// Sort cards by cost for display
+	std::vector<Card> sortedCards = allCards;
+	std::sort(sortedCards.begin(), sortedCards.end(), [](const Card & a, const Card & b) {
+		if (a.cost != b.cost) return a.cost < b.cost;
+		return a.name < b.name;
+	});
+
+	int row = 0;
+	int col = 0;
+	for (size_t i = 0; i < sortedCards.size(); i++) {
+		float drawX = startX + col * (cardW + padding);
+		float drawY = contentY + row * (cardH + padding) - encyclopediaScrollOffset;
+
+		// Only draw if visible
+		if (drawY + cardH > contentY && drawY < contentY + contentHeight) {
+			const Card & card = sortedCards[i];
+
+			// Check if mouse is hovering
+			ofRectangle cardRect(drawX, drawY, cardW, cardH);
+			bool isHovered = cardRect.inside(ofGetMouseX(), ofGetMouseY()) && drawY >= contentY;
+
+			if (isHovered) {
+				// Glow effect
+				ofSetColor(100, 150, 255, 100);
+				ofDrawRectRounded(drawX - 3, drawY - 3, cardW + 6, cardH + 6, 8);
+			}
+
+			ofSetColor(255);
+			cardSpriteSheet.drawSubsection(drawX, drawY, cardW, cardH,
+				card.textureRect.x, card.textureRect.y,
+				card.textureRect.width, card.textureRect.height);
+
+			// Draw card name below (for easier identification)
+			if (isHovered) {
+				ofSetColor(255, 255, 100);
+			} else {
+				ofSetColor(200, 200, 200);
+			}
+			string shortName = card.name;
+			if (shortName.length() > 15) shortName = shortName.substr(0, 12) + "...";
+			uiFont.drawString(shortName, drawX, drawY + cardH + 18);
+		}
+
+		col++;
+		if (col >= cols) {
+			col = 0;
+			row++;
+		}
+	}
+
+	// Scroll indicators
+	int totalRows = (sortedCards.size() + cols - 1) / cols;
+	float totalContentHeight = totalRows * (cardH + padding);
+	if (totalContentHeight > contentHeight) {
+		// Show scroll bar
+		float scrollBarHeight = contentHeight * (contentHeight / totalContentHeight);
+		float scrollBarY = contentY + (encyclopediaScrollOffset / (totalContentHeight - contentHeight)) * (contentHeight - scrollBarHeight);
+		
+		ofSetColor(80, 80, 80);
+		ofDrawRectRounded(panelX + panelWidth - 15, scrollBarY, 10, scrollBarHeight, 5);
+	}
 }
 
 // Cancel Helper
