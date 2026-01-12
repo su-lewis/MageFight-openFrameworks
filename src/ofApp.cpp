@@ -105,10 +105,8 @@ void ofApp::setup() {
 	if (tortoiseModel.load("Units/Tortoise/Turtle_Kaiju_01.fbx")) {
 		tortoiseModel.disableMaterials();
 		tortoiseModel.disableTextures();
-		// FBX typically needs rotation fix - rotate to stand upright
-		tortoiseModel.setRotation(0, -90, 1, 0, 0);
-		// Scale - reduced by 25% from original
-		tortoiseModel.setScale(0.003f, 0.003f, 0.003f);
+		// Scale - reduced by 15% more (0.003 * 0.85 = 0.00255)
+		tortoiseModel.setScale(0.00255f, 0.00255f, 0.00255f);
 		// Load texture
 		ofLoadImage(tortoiseTexture, "Units/Tortoise/Turtle_01_albedo.jpg");
 		tortoiseTexture.setTextureMinMagFilter(GL_LINEAR, GL_LINEAR);
@@ -2805,9 +2803,9 @@ void ofApp::drawGame() {
 			} else if (player.inTortoiseForm) {
 				// Tortoise Form (overrides normal model)
 				ofTranslate(pos.x, 0.1f, pos.z);
-				ofTranslate(0, 1.5f, 0); // Raised slightly
+				ofTranslate(0, 0.5f, 0); // Lowered closer to ground
 				ofRotateYDeg(0); // Face north
-				ofRotateXDeg(-90); // Tilt back 90 degrees to stand upright
+				ofRotateXDeg(180); // Flip 180 degrees
 				if (tortoiseTexture.isAllocated()) tortoiseTexture.bind();
 				tortoiseModel.drawFaces();
 				if (tortoiseTexture.isAllocated()) tortoiseTexture.unbind();
