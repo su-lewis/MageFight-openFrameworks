@@ -34,7 +34,7 @@ void ofApp::setup() {
 	// --- Load Player Model ---
 	if (playerModel.load("Units/Player/model.glb")) {
 		playerModel.disableMaterials();
-		playerModel.setScale(0.0021f, 0.0021f, 0.0021f);
+		playerModel.setScale(0.0025f, 0.0025f, 0.0025f);
 		playerModel.setRotation(0, 180, 0, 0, 1);
 	}
 
@@ -43,7 +43,7 @@ void ofApp::setup() {
 	ofLoadImage(skeletonTexture, "Units/Skeleton/base.png");
 	skeletonModel.setRotation(0, 180, 1, 0, 0);
 	skeletonModel.setRotation(1, 180, 0, 1, 0);
-	skeletonModel.setScale(0.0025f, 0.0025f, 0.0025f);
+	skeletonModel.setScale(0.0021f, 0.0021f, 0.0021f);
 	skeletonModel.disableMaterials();
 
 	// Load Golem
@@ -1947,6 +1947,7 @@ void ofApp::updateGame() {
 		}
 
 		continueNewTurn();
+		return;
 	}
 
 	// --- CRITICAL FIX: DICE ROLL & ANIMATION UPDATES ---
@@ -5669,18 +5670,9 @@ void ofApp::continueNewTurn() {
 	}
 
 	// --- 3. OTHER STATUS CHECKS (Paralysis/Fire) ---
-	// Only run these if we are awake (Sleep check returned early if true)
-
-	if (startingPlayer.isParalyzed) {
-		startDiceRoll(1, 2, PURPOSE_COIN_FLIP, "Paralysis Check (Heads to Cure)");
-		isWaitingForParalysisCoin = true;
-		return;
-	}
-	if (startingPlayer.onFire) {
-		isWaitingForOnFireDice = true;
-		pendingOnFireRollResult = startDiceRoll(1, 6, PURPOSE_DAMAGE, "Fire Damage Roll");
-		return;
-	}
+	// These are already handled in startNewTurn() before continueNewTurn() is called.
+	// Fire/Paralysis checks would have returned early in startNewTurn() and resolved
+	// before reaching here, so no need to check again.
 }
 //--------------------------------------------------------------
 void ofApp::drawCard() {
