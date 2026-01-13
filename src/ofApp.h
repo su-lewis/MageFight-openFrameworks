@@ -223,6 +223,7 @@ struct Player {
 	int luck = 0;
 	int bonusTurns = 0;
 	int playerID = 0;
+	float facingAngle = 0.0f; // 0 = North, 90 = East, 180 = South, 270 = West
 	bool onFire = false;
 	bool hasRegeneration = false;
 
@@ -505,6 +506,7 @@ private:
 	// --- ANIMATIONS ---
 	bool isPlayerAnimating = false;
 	glm::vec3 playerVisualPos;
+	float playerFacingAngle = 0.0f; // 0 = North, 90 = East, 180 = South, 270 = West
 	std::vector<glm::vec3> animationPath;
 	int currentPathIndex = 0;
 	std::vector<glm::vec2> hoverPath;

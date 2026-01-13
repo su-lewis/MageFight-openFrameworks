@@ -2419,6 +2419,20 @@ void ofApp::updateGame() {
 	if (isPlayerAnimating) {
 		glm::vec3 targetPos = animationPath[currentPathIndex];
 		float player_speed = 1.0 - pow(0.65, deltaTime * 60.0);
+
+		// Calculate facing direction based on movement and store it on the player
+		glm::vec3 direction = targetPos - playerVisualPos;
+		if (glm::length(glm::vec2(direction.x, direction.z)) > 0.01f) {
+			// atan2 gives angle in radians, convert to degrees
+			// In our coordinate system: +Z is South, -Z is North, +X is East, -X is West
+			// Add 180 to flip the direction so units face the way they're going
+			playerFacingAngle = glm::degrees(atan2(direction.x, direction.z)) + 180.0f;
+			// Store on the player so it persists after movement
+			if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) {
+				players[currentPlayerIndex].facingAngle = playerFacingAngle;
+			}
+		}
+
 		playerVisualPos = glm::mix(playerVisualPos, targetPos, player_speed);
 
 		// Check if unit arrived at the center of the tile (Distance < 0.05)
@@ -2751,23 +2765,29 @@ void ofApp::drawGame() {
 			ofPushMatrix();
 
 			// --- DRAW LOGIC ---
+			// Use each unit's stored facing angle
+			float unitFacingAngle = player.facingAngle;
+
 			if (player.isSkeleton) {
 				ofTranslate(pos.x, 0.1f, pos.z);
+				ofRotateYDeg(unitFacingAngle);
 				ofTranslate(0, 2.0f, 0);
 				skeletonTexture.bind();
 				skeletonModel.drawFaces();
 				skeletonTexture.unbind();
 			} else if (player.isGolem) {
 				ofTranslate(pos.x, 0.1f, pos.z);
+				ofRotateYDeg(unitFacingAngle); // Dynamic facing
 				ofTranslate(0, 3.0f, 0);
 				ofRotateXDeg(180);
-				ofRotateYDeg(90);
+				ofRotateYDeg(90); // Base orientation
 
 				if (player.minionTexture) player.minionTexture->bind();
 				golemModel.drawFaces();
 				if (player.minionTexture) player.minionTexture->unbind();
 			} else if (player.isWolf) {
 				ofTranslate(pos.x, 0.1f, pos.z);
+				ofRotateYDeg(unitFacingAngle); // Dynamic facing
 				ofTranslate(0, 0.4f, 0);
 				// Increased scale by 20% (from 0.015 to 0.018)
 				ofScale(0.018f, 0.018f, 0.018f);
@@ -2791,20 +2811,21 @@ void ofApp::drawGame() {
 				glDepthMask(GL_TRUE);
 			} else if (player.isHellhound) {
 				ofTranslate(pos.x, 0.1f, pos.z);
-				ofRotateYDeg(180);
+				ofRotateYDeg(unitFacingAngle + 180); // Dynamic facing + base orientation
 				hellhoundModel.drawFaces();
 			} else if (player.isDemon) {
 				ofTranslate(pos.x, 0.1f, pos.z);
+				ofRotateYDeg(unitFacingAngle); // Dynamic facing
 				// Raised from 2.5f to 3.5f to prevent clipping
 				ofTranslate(0, 3.5f, 0);
-				// Changed from 180 (West) to 90 (North)
+				// Base orientation
 				ofRotateYDeg(90);
 				demonModel.drawFaces();
 			} else if (player.inTortoiseForm) {
 				// Tortoise Form (overrides normal model)
 				ofTranslate(pos.x, 0.1f, pos.z);
+				ofRotateYDeg(unitFacingAngle); // Dynamic facing
 				ofTranslate(0, 0.5f, 0); // Lowered closer to ground
-				ofRotateYDeg(0); // Face north
 				ofRotateXDeg(180); // Flip 180 degrees
 				if (tortoiseTexture.isAllocated()) tortoiseTexture.bind();
 				tortoiseModel.drawFaces();
@@ -2812,6 +2833,7 @@ void ofApp::drawGame() {
 			} else {
 				// Default Player
 				ofTranslate(pos.x, 0.1f, pos.z);
+				ofRotateYDeg(unitFacingAngle); // Dynamic facing
 				ofTranslate(0, 2.0f, 0);
 
 				if (playerTexture.isAllocated()) playerTexture.bind();
