@@ -6948,7 +6948,7 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		bool isRock = false;
 
 		for (CardType t : currentPlayer.cardsPlayedThisTurn) {
-			if (t == CARD_SHOCK || t == CARD_ARCANE_BURST) isElectric = true;
+			if (t == CARD_SHOCK || t == CARD_CHAIN_LIGHTNING) isElectric = true;
 			if (t == CARD_FIREBALL || t == CARD_FLAME_HIT) isFire = true;
 			if (t == CARD_ROCK_CRUSH) isRock = true;
 		}
