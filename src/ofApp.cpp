@@ -929,15 +929,18 @@ void ofApp::updateGame() {
 		float standardEntryHeight = 95 * scale;
 		float gap = 10 * scale;
 
-		// 1. DEFINE VERTICAL BOUNDARIES
-		// Top Limit: Directly under Enemy HP (approx 160px down)
-		float topLimitY = 160 * scale;
+		// 1. DEFINE VERTICAL BOUNDARIES FOR EACH PLAYER
+		// Player 0 (left side): Below P1's HP bar (top left), above P0's AP counter (middle left)
+		// P0 AP center is at: ofGetHeight() - cardHeight - 20 - cardHeight - 20 - 60 = ofGetHeight() - ~546 * scale
+		// Luck text is above that, so bottom limit should be around ofGetHeight() - 600 * scale
+		float p0_topLimitY = 140 * scale; // Below P1's HP bar (top left) - reduced gap
+		float p0_bottomLimitY = ofGetHeight() - (600 * scale); // Above P0's AP counter and luck text - raised up
 
-		// Bottom Limit: Directly above Player AP/Deck (approx 300px from bottom)
-		float bottomLimitY = ofGetHeight() - (300 * scale);
-
-		// Calculate total available height for the list
-		float availableHeight = bottomLimitY - topLimitY;
+		// Player 1 (right side): Below P1's AP counter (and luck text), above P0's HP bar
+		// P1 AP center is at: 20 + cardHeight + 20 + cardHeight + 60 = ~546 * scale
+		// Plus half AP box height (~40) + luck text = ~620 * scale minimum
+		float p1_topLimitY = 580 * scale; // Below P1's AP counter and luck text
+		float p1_bottomLimitY = ofGetHeight() - (140 * scale); // Above P0's HP bar (slight gap reduction)
 
 		// 2. SEPARATE MINIONS BY OWNER
 		std::vector<int> p0_minionIndices;
@@ -955,15 +958,16 @@ void ofApp::updateGame() {
 			}
 		}
 
-		// 3. HELPER LAMBDA TO BUILD UI LIST
-		auto buildMinionList = [&](const std::vector<int> & indices, float startX, int & skelCount, int & golemCount, int & wolfCount, int & houndCount, int & demonCount) {
+		// 3. HELPER LAMBDA TO BUILD UI LIST (now takes top/bottom limits)
+		auto buildMinionList = [&](const std::vector<int> & indices, float startX, float topLimit, float bottomLimit, int & skelCount, int & golemCount, int & wolfCount, int & houndCount, int & demonCount) {
 			// A. Calculate Dynamic Scaling
+			float localAvailableHeight = bottomLimit - topLimit;
 			float totalRequiredHeight = indices.size() * (standardEntryHeight + gap);
 			float actualEntryHeight = standardEntryHeight;
 			float actualGap = gap;
 
-			if (totalRequiredHeight > availableHeight && !indices.empty()) {
-				float shrinkFactor = availableHeight / totalRequiredHeight;
+			if (totalRequiredHeight > localAvailableHeight && !indices.empty()) {
+				float shrinkFactor = localAvailableHeight / totalRequiredHeight;
 				actualEntryHeight = standardEntryHeight * shrinkFactor;
 				actualGap = gap * shrinkFactor;
 			}
@@ -985,19 +989,19 @@ void ofApp::updateGame() {
 				else if (players[pIndex].isDemon)
 					ui.displayNumber = ++demonCount;
 
-				float currentY = topLimitY + (i * (actualEntryHeight + actualGap));
+				float currentY = topLimit + (i * (actualEntryHeight + actualGap));
 
 				ui.bounds.set(startX, currentY, panelWidth, actualEntryHeight);
 				activeMinionUIs.push_back(ui);
 			}
 		};
 
-		// 4. BUILD LISTS
+		// 4. BUILD LISTS WITH PLAYER-SPECIFIC BOUNDARIES
 		float p0_startX = 10 * scale;
-		buildMinionList(p0_minionIndices, p0_startX, p0_skeleton, p0_golem, p0_wolf, p0_hound, p0_demon);
+		buildMinionList(p0_minionIndices, p0_startX, p0_topLimitY, p0_bottomLimitY, p0_skeleton, p0_golem, p0_wolf, p0_hound, p0_demon);
 
 		float p1_startX = ofGetWidth() - panelWidth - (10 * scale);
-		buildMinionList(p1_minionIndices, p1_startX, p1_skeleton, p1_golem, p1_wolf, p1_hound, p1_demon);
+		buildMinionList(p1_minionIndices, p1_startX, p1_topLimitY, p1_bottomLimitY, p1_skeleton, p1_golem, p1_wolf, p1_hound, p1_demon);
 	}
 	// --- END MINION UI REBUILD ---
 
