@@ -3305,6 +3305,29 @@ void ofApp::drawGame() {
 				nextBarY -= blockBarHeight + (5 * scale);
 		}
 
+		// 2b. Fortification Bar (Darker Grey)
+		if (player.fortification > 0) {
+			float fortY = isTopAligned ? nextBarY : nextBarY - blockBarHeight;
+			ofSetColor(50, 50, 50); // Darker than standard block
+			ofDrawRectangle(x, fortY, healthBarWidth, blockBarHeight);
+
+			ofSetColor(ofColor::white);
+			string fortText = ofToString(player.fortification);
+			ofRectangle fortTextBox = titleFont.getStringBoundingBox(fortText, 0, 0);
+			float fTextX = x + (healthBarWidth / 2) - (fortTextBox.width * fontScale / 2);
+			float fTextY = fortY + (blockBarHeight / 2) + (fortTextBox.height * fontScale / 2);
+			ofPushMatrix();
+			ofTranslate(fTextX, fTextY);
+			ofScale(fontScale, fontScale);
+			titleFont.drawString(fortText, 0, 0);
+			ofPopMatrix();
+
+			if (isTopAligned)
+				nextBarY += blockBarHeight + (5 * scale);
+			else
+				nextBarY -= blockBarHeight + (5 * scale);
+		}
+
 		// 3. BARRIER BAR
 		if (player.barrier > 0) {
 			float barrierY = isTopAligned ? nextBarY : nextBarY - barrierHeight;
@@ -6229,6 +6252,7 @@ void ofApp::startNewTurn() {
 				startingPlayer.block = 0;
 				startingPlayer.holyBlock = 0;
 				startingPlayer.ward = 0;
+				startingPlayer.fortification = 0;
 				startingPlayer.barrier = 0;
 			}
 
@@ -6280,6 +6304,7 @@ void ofApp::startNewTurn() {
 		startingPlayer.block = 0;
 		startingPlayer.holyBlock = 0;
 		startingPlayer.ward = 0;
+		startingPlayer.fortification = 0;
 		startingPlayer.barrier = 0;
 	}
 
@@ -6538,6 +6563,14 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		int remainingDmg = calculatedDamage;
 
 		// --- LAYER 1: SPECIFIC MITIGATION ---
+		// Fortification absorbs physical and piercing first
+		if (type == DAMAGE_PHYSICAL || type == DAMAGE_PIERCING) {
+			int fortAbsorb = std::min(target.fortification, remainingDmg);
+			target.fortification -= fortAbsorb;
+			remainingDmg -= fortAbsorb;
+			if (fortAbsorb > 0) ofLogNotice("Game") << "Fortification absorbed " << fortAbsorb;
+		}
+
 		if (type == DAMAGE_PHYSICAL) {
 			int absorb = std::min(target.block, remainingDmg);
 			target.block -= absorb;
@@ -7446,6 +7479,77 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		break;
 	}
 
+	// --- CASE: FORTIFY ---
+	case CARD_FORTIFY: {
+		// Must target a wall tile
+		if (!board[targetX][targetY].hasWall) break;
+
+		// Flood-fill connected walls using 8-neighbor connectivity
+		std::vector<glm::ivec2> stack;
+		std::set<std::pair<int, int>> visited;
+		stack.push_back({ targetX, targetY });
+
+		while (!stack.empty()) {
+			glm::ivec2 t = stack.back();
+			stack.pop_back();
+			int tx = t.x, ty = t.y;
+			if (tx < 0 || tx >= BOARD_WIDTH || ty < 0 || ty >= BOARD_HEIGHT) continue;
+			if (!board[tx][ty].hasWall) continue;
+			if (visited.count({ tx, ty })) continue;
+			visited.insert({ tx, ty });
+
+			// push 8 neighbors
+			for (int dx = -1; dx <= 1; dx++) {
+				for (int dy = -1; dy <= 1; dy++) {
+					if (dx == 0 && dy == 0) continue;
+					int nx = tx + dx, ny = ty + dy;
+					if (nx >= 0 && nx < BOARD_WIDTH && ny >= 0 && ny < BOARD_HEIGHT) {
+						if (board[nx][ny].hasWall && !visited.count({ nx, ny })) {
+							stack.push_back({ nx, ny });
+						}
+					}
+				}
+			}
+		}
+
+		int linkedCount = (int)visited.size();
+		if (linkedCount <= 0) break;
+
+		// Grant fortification equal to number of linked walls
+		currentPlayer.fortification += linkedCount;
+		spawnFloatingText(gridToWorld(currentPlayer.x, currentPlayer.y), "+" + ofToString(linkedCount) + " Fortify", ofColor::lightGray);
+		ofLogNotice("Fortify") << "Player " << currentPlayer.playerID << " gained " << linkedCount << " fortification.";
+
+		// Damage any other unit adjacent to any of the linked walls (once each)
+		std::set<int> damagedIndices;
+		for (const auto & p : visited) {
+			int wx = p.first, wy = p.second;
+			for (int dx = -1; dx <= 1; dx++) {
+				for (int dy = -1; dy <= 1; dy++) {
+					if (dx == 0 && dy == 0) continue;
+					int ux = wx + dx, uy = wy + dy;
+					if (ux < 0 || ux >= BOARD_WIDTH || uy < 0 || uy >= BOARD_HEIGHT) continue;
+					for (size_t i = 0; i < players.size(); i++) {
+						if (players[i].x == ux && players[i].y == uy) {
+							if (players[i].playerID == currentPlayer.playerID) continue; // skip caster
+							damagedIndices.insert((int)i);
+						}
+					}
+				}
+			}
+		}
+
+		for (int idx : damagedIndices) {
+			Player * target = getPlayer(idx);
+			if (target) {
+				applyDamage(*target, 3, DAMAGE_PHYSICAL);
+			}
+		}
+
+		playedSuccessfully = true;
+		break;
+	}
+
 	case CARD_DARK_SHIELD: {
 		currentPlayer.holyBlock += playedCard.value; // value is 7
 		currentPlayer.nextTurnBonusDiceFromMinions = true;
@@ -7987,7 +8091,7 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		// --- TORTOISE FORM: Deal 3 damage to adjacent after block/heal/ward ---
 		// Note: CARD_DISPEL and CARD_WISDOM_BOON trigger Shell Spike after their menu choice is made
 		if (currentPlayer.inTortoiseForm) {
-			bool isDefensiveCard = (playedCard.type == CARD_GAIN_BLOCK) || (playedCard.type == CARD_HEAL) || (playedCard.type == CARD_GAIN_WARD) || (playedCard.type == CARD_DARK_SHIELD);
+			bool isDefensiveCard = (playedCard.type == CARD_GAIN_BLOCK) || (playedCard.type == CARD_HEAL) || (playedCard.type == CARD_GAIN_WARD) || (playedCard.type == CARD_DARK_SHIELD) || (playedCard.type == CARD_FORTIFY);
 
 			if (isDefensiveCard) {
 				// Check if there are any adjacent units (ANY unit, including allies)
@@ -8273,7 +8377,7 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 				int distGrid = abs(x - px) + abs(y - py);
 				if (distGrid == 1) {
 					isPreview = true;
-					if (card.type == CARD_ROCK_CRUSH) {
+					if (card.type == CARD_ROCK_CRUSH || card.type == CARD_FORTIFY) {
 						if (board[x][y].hasWall || board[x][y].hasPlayer) isValidTarget = true;
 					}
 					// --- FIX IS HERE: Add CARD_SUMMON_HELLHOUND to this list ---
@@ -10041,6 +10145,7 @@ CardType ofApp::stringToCardType(const std::string & str) {
 	if (str == "CARD_SUMMON_GOLEM") return CARD_SUMMON_GOLEM;
 	if (str == "CARD_STRENGTHEN_ELEMENTS") return CARD_STRENGTHEN_ELEMENTS;
 	if (str == "CARD_CREATE_WALL") return CARD_CREATE_WALL;
+	if (str == "CARD_FORTIFY") return CARD_FORTIFY;
 	if (str == "CARD_DARK_SHIELD") return CARD_DARK_SHIELD;
 	if (str == "CARD_DRAIN_PUNCH") return CARD_DRAIN_PUNCH;
 	if (str == "CARD_DOUBLE_HANDED") return CARD_DOUBLE_HANDED;
@@ -10116,6 +10221,7 @@ void ofApp::drawMinionStatusBars(Player & minion, const std::string & name, floa
 	float usedWidth = 0;
 
 	if (minion.block > 0) usedWidth += statW;
+	if (minion.fortification > 0) usedWidth += statW;
 	if (minion.barrier > 0) usedWidth += statW;
 	if (minion.ward > 0) usedWidth += statW;
 
@@ -10141,6 +10247,14 @@ void ofApp::drawMinionStatusBars(Player & minion, const std::string & name, floa
 		ofSetColor(ofColor::gray);
 		ofDrawRectangle(currentX, barY, statW, barHeight);
 		drawStatText(uiFont, ofToString(minion.block), currentX, barY, statW, barHeight, ofColor::white);
+		currentX += statW;
+	}
+
+	// --- FORTIFICATION (Dark Grey) ---
+	if (minion.fortification > 0) {
+		ofSetColor(50, 50, 50); // Darker grey than standard block
+		ofDrawRectangle(currentX, barY, statW, barHeight);
+		drawStatText(uiFont, ofToString(minion.fortification), currentX, barY, statW, barHeight, ofColor::white);
 		currentX += statW;
 	}
 
@@ -10430,6 +10544,18 @@ void ofApp::drawMinionManagerUI() {
 		if (minion.nextTurnD10AP) {
 			string txt = "D10 AP Next";
 			ofSetColor(ofColor::white);
+			ofPushMatrix();
+			ofTranslate(statusX, statusY);
+			ofScale(fontS, fontS);
+			uiFont.drawString(txt, 0, 0);
+			ofPopMatrix();
+			statusY -= lineHeight;
+		}
+
+		// 6. FORTIFICATION
+		if (minion.fortification > 0) {
+			string txt = "+" + ofToString(minion.fortification) + " Fortify";
+			ofSetColor(200, 200, 200); // Visible text color
 			ofPushMatrix();
 			ofTranslate(statusX, statusY);
 			ofScale(fontS, fontS);

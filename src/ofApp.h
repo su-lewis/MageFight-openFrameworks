@@ -67,6 +67,7 @@ enum CardType {
 	CARD_NONE,
 	CARD_MOVE,
 	CARD_CREATE_WALL,
+	CARD_FORTIFY,
 	CARD_ATTACK_SINGLE_TILE,
 	CARD_ATTACK_AREA,
 	CARD_DESTROY_WALL,
@@ -217,6 +218,7 @@ struct Player {
 	int maxHealth = 15;
 	int block = 0;
 	int ward = 0;
+	int fortification = 0; // Temporary fortify from Fortify card (blocks physical/piercing)
 	int barrier = 0;
 	int holyBlock = 0;
 	int luck = 0;

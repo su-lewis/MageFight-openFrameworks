@@ -371,5 +371,12 @@
     "type": "CARD_FORM_OF_TORTOISE",
     "cost": 5,
     "targeting": "TARGET_SELF"
+  },
+  {
+    "id": 47,
+    "name": "Fortify",
+    "type": "CARD_FORTIFY",
+    "cost": 3,
+    "targeting": "TARGET_ADJACENT_UNIT_OR_WALL"
   }
 ]
