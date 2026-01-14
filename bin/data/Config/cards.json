@@ -378,5 +378,14 @@
     "type": "CARD_FORTIFY",
     "cost": 3,
     "targeting": "TARGET_ADJACENT_UNIT_OR_WALL"
+  },
+  {
+    "id": 48,
+    "name": "Vampire Bite",
+    "type": "CARD_VAMPIRE_BITE",
+    "cost": 3,
+    "value": 3,
+    "damageType": "DAMAGE_PHYSICAL",
+    "targeting": "TARGET_ADJACENT_UNIT"
   }
 ]

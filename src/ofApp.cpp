@@ -6532,6 +6532,29 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 			calculatedDamage *= 2;
 			spawnFloatingText(gridToWorld(target.x, target.y), "Vulnerable! (x2)", ofColor::orange);
 		}
+
+		// --- Vampire Bite vulnerability ---
+		// If a player has Vampire Bite in their deck or discard pile, they take double Holy damage
+		if (type == DAMAGE_HOLY) {
+			bool hasVampireBite = false;
+			for (const auto & c : target.deck)
+				if (c.type == CARD_VAMPIRE_BITE) {
+					hasVampireBite = true;
+					break;
+				}
+			if (!hasVampireBite) {
+				for (const auto & c : target.discardPile)
+					if (c.type == CARD_VAMPIRE_BITE) {
+						hasVampireBite = true;
+						break;
+					}
+			}
+			if (hasVampireBite) {
+				calculatedDamage *= 2;
+				ofLogNotice("Damage") << "Double Holy Damage due to Vampire Bite curse!";
+				spawnFloatingText(gridToWorld(target.x, target.y), "Vampire Curse: x2 Holy", ofColor::orange);
+			}
+		}
 		// --- 2. Call for Wolves vulnerability ---
 		// Any unit with "Call for Wolves" in their deck/hand/discard takes double Piercing damage
 		if (type == DAMAGE_PIERCING) {
@@ -7635,6 +7658,52 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 					ofColor::green);
 
 				ofLogNotice("Drain Punch") << "Healed player for " << actualDamageDealt;
+			}
+
+			playedSuccessfully = true;
+		}
+		break;
+	}
+
+	// --- CASE: VAMPIRE BITE ---
+	case CARD_VAMPIRE_BITE: {
+		int targetIndex = -1;
+		for (size_t i = 0; i < players.size(); i++) {
+			if (players[i].x == targetX && players[i].y == targetY) {
+				targetIndex = (int)i;
+				break;
+			}
+		}
+
+		if (targetIndex != -1) {
+			Player * target = getPlayer(targetIndex);
+
+			// 1. Deal flat physical damage (value from card JSON)
+			bool healthHit = applyDamage(*target, playedCard.value, DAMAGE_PHYSICAL);
+
+			// 2. If the unit took HP damage, heal caster 2 HP and shuffle 1x Vampire Bite into that unit's deck
+			if (healthHit) {
+				currentPlayer.health += 2;
+				if (currentPlayer.health > currentPlayer.maxHealth) currentPlayer.health = currentPlayer.maxHealth;
+				spawnFloatingText(gridToWorld(currentPlayer.x, currentPlayer.y), "+2 HP", ofColor::green);
+
+				// Find the card template in allCards
+				Card cardToAdd;
+				bool found = false;
+				for (const auto & c : allCards) {
+					if (c.type == CARD_VAMPIRE_BITE) {
+						cardToAdd = c;
+						found = true;
+						break;
+					}
+				}
+
+				if (found) {
+					target->deck.push_back(cardToAdd);
+					std::shuffle(target->deck.begin(), target->deck.end(), rng);
+					spawnFloatingText(gridToWorld(target->x, target->y), "Shuffled 1x Vampire Bite", ofColor::magenta);
+					ofLogNotice("Vampire Bite") << "Shuffled a Vampire Bite into Player " << target->playerID << "'s deck.";
+				}
 			}
 
 			playedSuccessfully = true;
@@ -10146,6 +10215,7 @@ CardType ofApp::stringToCardType(const std::string & str) {
 	if (str == "CARD_STRENGTHEN_ELEMENTS") return CARD_STRENGTHEN_ELEMENTS;
 	if (str == "CARD_CREATE_WALL") return CARD_CREATE_WALL;
 	if (str == "CARD_FORTIFY") return CARD_FORTIFY;
+	if (str == "CARD_VAMPIRE_BITE") return CARD_VAMPIRE_BITE;
 	if (str == "CARD_DARK_SHIELD") return CARD_DARK_SHIELD;
 	if (str == "CARD_DRAIN_PUNCH") return CARD_DRAIN_PUNCH;
 	if (str == "CARD_DOUBLE_HANDED") return CARD_DOUBLE_HANDED;
