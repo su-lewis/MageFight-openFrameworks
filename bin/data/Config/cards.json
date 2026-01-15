@@ -396,5 +396,12 @@
     "numDice": 1,
     "diceSides": 4,
     "targeting": "TARGET_SELF"
+  },
+  {
+    "id": 50,
+    "name": "Demolition",
+    "type": "CARD_DEMOLITION",
+    "cost": 6,
+    "targeting": "TARGET_ADJACENT_UNIT_OR_WALL"
   }
 ]

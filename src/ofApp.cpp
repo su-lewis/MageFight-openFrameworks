@@ -3652,7 +3652,7 @@ void ofApp::drawGame() {
 		}
 
 		if (player0->nextTurnAPBonus > 0) {
-			string bonusText = "+" + ofToString(player0->nextTurnAPBonus) + " AP";
+			string bonusText = "+" + ofToString(player0->nextTurnAPBonus) + " AP Next Turn";
 			ofRectangle bonusBox = titleFont.getStringBoundingBox(bonusText, 0, 0);
 			ofSetColor(ofColor::yellow);
 			ofPushMatrix();
@@ -3805,7 +3805,7 @@ void ofApp::drawGame() {
 		}
 
 		if (player1->nextTurnAPBonus > 0) {
-			string bonusText = "+" + ofToString(player1->nextTurnAPBonus) + " AP";
+			string bonusText = "+" + ofToString(player1->nextTurnAPBonus) + " AP Next Turn";
 			ofRectangle bonusBox = titleFont.getStringBoundingBox(bonusText, 0, 0);
 			ofSetColor(ofColor::yellow);
 			ofPushMatrix();
@@ -7004,6 +7004,22 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		break;
 	}
 
+	// --- CASE: DEMOLITION ---
+	case CARD_DEMOLITION: {
+		// Only allow targeted adjacent walls (player must click an adjacent tile)
+		int manhattan = abs(targetX - currentPlayer.x) + abs(targetY - currentPlayer.y);
+		if (manhattan != 1) break;
+		if (board[targetX][targetY].hasWall) {
+			board[targetX][targetY].hasWall = false;
+			buildLevelMesh();
+			// Grant +6 AP next turn
+			currentPlayer.nextTurnAPBonus += 6;
+			spawnFloatingText(gridToWorld(currentPlayer.x, currentPlayer.y), "+6 AP Next Turn", ofColor::yellow);
+			playedSuccessfully = true;
+		}
+		break;
+	}
+
 	// --- CASE: DISPEL ---
 	case CARD_DISPEL: {
 		pendingDispelCardIndex = cardIndex;
@@ -8711,7 +8727,7 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 				int distGrid = abs(x - px) + abs(y - py);
 				if (distGrid == 1) {
 					isPreview = true;
-					if (card.type == CARD_ROCK_CRUSH || card.type == CARD_FORTIFY) {
+					if (card.type == CARD_ROCK_CRUSH || card.type == CARD_FORTIFY || card.type == CARD_DEMOLITION) {
 						if (board[x][y].hasWall || board[x][y].hasPlayer) isValidTarget = true;
 					}
 					// --- FIX IS HERE: Add CARD_SUMMON_HELLHOUND to this list ---
@@ -10467,6 +10483,7 @@ CardType ofApp::stringToCardType(const std::string & str) {
 	if (str == "CARD_FIREBALL") return CARD_FIREBALL;
 	if (str == "CARD_SHOCK") return CARD_SHOCK;
 	if (str == "CARD_ROCK_CRUSH") return CARD_ROCK_CRUSH;
+	if (str == "CARD_DEMOLITION") return CARD_DEMOLITION;
 	if (str == "CARD_DISPEL") return CARD_DISPEL;
 	if (str == "CARD_TELEPORT") return CARD_TELEPORT;
 	if (str == "CARD_HASTEN") return CARD_HASTEN;
