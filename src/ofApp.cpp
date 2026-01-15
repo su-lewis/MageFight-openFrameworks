@@ -3874,7 +3874,7 @@ void ofApp::drawGame() {
 	titleFont.drawString(endTurnButtonText, 0, 0);
 	ofPopMatrix();
 
-	// --- OPTIMIsED HAND DRAWING ---
+	// --- OPTIMIsED HAND DRAWING (With Integrated Outlines) ---
 	if (!players.empty() && currentPlayerIndex >= 0) {
 		Player & currentPlayer = players[currentPlayerIndex];
 		size_t numCards = currentPlayer.hand.size();
@@ -3883,75 +3883,87 @@ void ofApp::drawGame() {
 		float hoverDirection = isBottomPlayer ? -120.0f : 120.0f;
 
 		// 1. Determine which card should be drawn LAST (On Top)
-		// FIX: Selected card is NOT drawn last unless it is also hovered or dragged.
-		// This ensures it sits back in the deck stack when mouse leaves it.
 		int indexToDrawLast = -1;
 		if (draggedCardIndex != -1)
 			indexToDrawLast = draggedCardIndex;
 		else if (hoveredCardIndex != -1)
 			indexToDrawLast = hoveredCardIndex;
 
-		// 2. PASS 1: Draw all standard cards (includes Selected-but-not-Hovered)
-		for (size_t i = 0; i < numCards; i++) {
-			if (static_cast<int>(i) == indexToDrawLast) continue; // Skip the top card
-
-			Card & card = currentPlayer.hand[i];
+		// --- HELPER LAMBDA TO DRAW CARD + OUTLINE ---
+		auto drawHandCard = [&](int index, bool isTopCard) {
+			Card & card = currentPlayer.hand[index];
 			float w = handBaseCardWidth * card.currentScale;
 			float h = baseCardHeight * card.currentScale;
 
 			float drawX = card.currentPos.x - w / 2;
 			float drawY = card.currentPos.y - h / 2;
 
-			// Draw Card
+			if (isTopCard) {
+				if (index == draggedCardIndex) {
+					drawX = card.currentPos.x - w / 2;
+					drawY = card.currentPos.y - h / 2;
+				} else if (index == hoveredCardIndex) {
+					drawY += hoverDirection;
+				}
+			}
+
+			// A. Draw Sprite
+			// If selecting for Renewed Inspiration and card is a copy, tint it grey (ghostly)
+			if (isSelectingRenewedInspiration && card.isCopied) {
+				ofSetColor(150, 150, 180); // Bluish-Grey tint
+			} else {
+				ofSetColor(255); // Normal white
+			}
+
 			cardSpriteSheet.drawSubsection(drawX, drawY, w, h, card.textureRect.x, card.textureRect.y, card.textureRect.width, card.textureRect.height);
 
-			// Draw Yellow Outline (for Selected-but-not-Hovered)
-			if (static_cast<int>(i) == selectedCardIndex) {
-				ofPushStyle();
-				ofNoFill();
-				ofSetColor(ofColor::yellow);
-				ofSetLineWidth(4);
-				ofDrawRectangle(drawX, drawY, w, h);
-				ofPopStyle();
+			// B. Draw Overlays (Outlines/Dims)
+			if (isSelectingRenewedInspiration) {
+				bool isEligible = (card.drawnThisTurn || card.isCopied);
+				bool isSelected = false;
+				for (int sel : renewedSelectedHandIndices)
+					if (sel == index) isSelected = true;
+
+				if (isSelected) {
+					// Green Border for Selected
+					ofPushStyle();
+					ofNoFill();
+					ofSetColor(ofColor::limeGreen);
+					ofSetLineWidth(6);
+					ofDrawRectangle(drawX, drawY, w, h);
+					ofPopStyle();
+				} else if (!isEligible) {
+					// Dim non-eligible cards
+					ofSetColor(0, 0, 0, 180);
+					ofDrawRectangle(drawX, drawY, w, h);
+				}
+			} else {
+				// Normal Gameplay Selection (Yellow)
+				if (index == selectedCardIndex || (isTopCard && index == draggedCardIndex)) {
+					ofPushStyle();
+					ofNoFill();
+					ofSetColor(ofColor::yellow);
+					ofSetLineWidth(4);
+					ofDrawRectangle(drawX, drawY, w, h);
+					ofPopStyle();
+				}
 			}
+		};
+
+		// 2. PASS 1: Draw standard cards
+		for (size_t i = 0; i < numCards; i++) {
+			if (static_cast<int>(i) == indexToDrawLast) continue;
+			drawHandCard(i, false);
 		}
 
-		// 3. PASS 2: Draw the "Top" card (Hovered or Dragged)
+		// 3. PASS 2: Draw the "Top" card
 		if (indexToDrawLast != -1 && indexToDrawLast < static_cast<int>(numCards)) {
-			Card & card = currentPlayer.hand[indexToDrawLast];
-			float w = handBaseCardWidth * card.currentScale;
-			float h = baseCardHeight * card.currentScale;
-
-			float drawX = card.currentPos.x - w / 2;
-			float drawY = card.currentPos.y - h / 2;
-
-			// Apply offsets based on state
-			if (indexToDrawLast == draggedCardIndex) {
-				// Dragged follows mouse exactly
-				drawX = card.currentPos.x - w / 2;
-				drawY = card.currentPos.y - h / 2;
-			} else if (indexToDrawLast == hoveredCardIndex) {
-				// Apply the pop-up offset ONLY for Hover
-				drawY += hoverDirection;
-			}
-
-			cardSpriteSheet.drawSubsection(drawX, drawY, w, h, card.textureRect.x, card.textureRect.y, card.textureRect.width, card.textureRect.height);
-
-			// Draw Yellow Outline if Selected
-			if (indexToDrawLast == selectedCardIndex || indexToDrawLast == draggedCardIndex) {
-				ofPushStyle();
-				ofNoFill();
-				ofSetColor(ofColor::yellow);
-				ofSetLineWidth(4);
-				ofDrawRectangle(drawX, drawY, w, h);
-				ofPopStyle();
-			}
+			drawHandCard(indexToDrawLast, true);
 		}
 
 		// --- DRAW OTHER HUMAN PLAYER'S HAND (Top Screen) ---
 		int currentID = players[currentPlayerIndex].playerID;
 		if (players[currentPlayerIndex].isMinion) currentID = players[currentPlayerIndex].ownerID;
-
 		int opponentID = (currentID == 0) ? 1 : 0;
 		int opponentIndex = -1;
 
@@ -4328,72 +4340,6 @@ void ofApp::drawGame() {
 		drawAmnesiaMenuUI();
 	}
 
-	// --- RENEWED INSPIRATION UI OVERLAY ---
-	if (isSelectingRenewedInspiration && !players.empty()) {
-		Player & p = players[currentPlayerIndex];
-
-		// 1. Draw Selection Outlines & Dims
-		float handBaseCardWidth = 120;
-		float aspectRatio = 585.0f / 409.0f;
-		float baseCardHeight = handBaseCardWidth * aspectRatio;
-
-		for (int i = 0; i < (int)p.hand.size(); ++i) {
-			Card & c = p.hand[i];
-			bool isEligible = (c.drawnThisTurn || c.isCopied);
-			bool isSelected = false;
-			for (int sel : renewedSelectedHandIndices)
-				if (sel == i) isSelected = true;
-
-			float w = handBaseCardWidth * c.currentScale;
-			float h = baseCardHeight * c.currentScale;
-			float x = c.currentPos.x - w / 2;
-			float y = c.currentPos.y - h / 2;
-
-			if (isSelected) {
-				// Bright Green Border for Selected Cards
-				ofPushStyle();
-				ofNoFill();
-				ofSetColor(ofColor::limeGreen);
-				ofSetLineWidth(6);
-				ofDrawRectangle(x, y, w, h);
-				ofPopStyle();
-			} else if (!isEligible) {
-				// Dim out cards that cannot be selected
-				ofSetColor(0, 0, 0, 180);
-				ofDrawRectangle(x, y, w, h);
-			}
-		}
-
-		// 2. Draw Instruction Text Background
-		string instr = "Select cards to discard (Draw 2 each)";
-		ofRectangle instrBox = uiFont.getStringBoundingBox(instr, 0, 0);
-		float cx = ofGetWidth() / 2.0f;
-
-		ofSetColor(0, 0, 0, 220);
-		ofDrawRectRounded(cx - instrBox.width / 2 - 10, riConfirmBtn.y - 45, instrBox.width + 20, 35, 8);
-
-		ofSetColor(255);
-		uiFont.drawString(instr, cx - instrBox.width / 2, riConfirmBtn.y - 20);
-
-		// 3. Draw Confirm Button
-		ofSetColor(0, 180, 0); // Green
-		if (riConfirmBtn.inside(ofGetMouseX(), ofGetMouseY())) ofSetColor(0, 220, 0);
-		ofDrawRectRounded(riConfirmBtn, 8);
-
-		ofSetColor(255);
-		ofRectangle cBox = uiFont.getStringBoundingBox("Confirm", 0, 0);
-		uiFont.drawString("Confirm", riConfirmBtn.getCenter().x - cBox.width / 2, riConfirmBtn.getCenter().y + cBox.height / 2);
-
-		// 4. Draw Cancel Button
-		ofSetColor(180, 0, 0); // Red
-		if (riCancelBtn.inside(ofGetMouseX(), ofGetMouseY())) ofSetColor(220, 0, 0);
-		ofDrawRectRounded(riCancelBtn, 8);
-
-		ofSetColor(255);
-		ofRectangle xBox = uiFont.getStringBoundingBox("Cancel", 0, 0);
-		uiFont.drawString("Cancel", riCancelBtn.getCenter().x - xBox.width / 2, riCancelBtn.getCenter().y + xBox.height / 2);
-	}
-
 	// --- Debug Card Spawner UI (KRunner-style) ---
 	if (isCardSpawnerOpen) {
 		drawCardSpawnerUI();
@@ -4562,6 +4508,50 @@ void ofApp::drawGame() {
 
 		ofPopMatrix();
 	}
+
+	// --- RENEWED INSPIRATION UI (Text & Buttons) ---
+	if (isSelectingRenewedInspiration) {
+		// 1. Draw Top Instruction Text
+		string msg = "Select cards to discard (Draw 2 each)";
+		ofRectangle bbox = titleFont.getStringBoundingBox(msg, 0, 0);
+		float tx = (ofGetWidth() / 2.0f) - (bbox.width / 2.0f);
+		float ty = ofGetHeight() * 0.25f;
+
+		// Shadow
+		ofSetColor(0, 0, 0, 255);
+		titleFont.drawString(msg, tx + 2, ty + 2);
+		// Text
+		ofSetColor(ofColor::lightGreen);
+		titleFont.drawString(msg, tx, ty);
+
+		// 2. Draw Control Panel (Background for Buttons)
+		float panelW = 240;
+		float panelH = 70;
+		float panelX = riConfirmBtn.x - 20;
+		float panelY = riConfirmBtn.y - 10;
+
+		ofSetColor(50, 50, 50, 240); // Grey background
+		ofDrawRectRounded(panelX, panelY, panelW, panelH, 10);
+
+		// 3. Draw Confirm Button
+		ofSetColor(0, 180, 0); // Green
+		if (riConfirmBtn.inside(ofGetMouseX(), ofGetMouseY())) ofSetColor(0, 220, 0);
+		ofDrawRectRounded(riConfirmBtn, 8);
+
+		ofSetColor(255);
+		ofRectangle cBox = uiFont.getStringBoundingBox("Accept", 0, 0);
+		uiFont.drawString("Accept", riConfirmBtn.getCenter().x - cBox.width / 2, riConfirmBtn.getCenter().y + cBox.height / 2);
+
+		// 4. Draw Cancel Button
+		ofSetColor(180, 0, 0); // Red
+		if (riCancelBtn.inside(ofGetMouseX(), ofGetMouseY())) ofSetColor(220, 0, 0);
+		ofDrawRectRounded(riCancelBtn, 8);
+
+		ofSetColor(255);
+		ofRectangle xBox = uiFont.getStringBoundingBox("Cancel", 0, 0);
+		uiFont.drawString("Cancel", riCancelBtn.getCenter().x - xBox.width / 2, riCancelBtn.getCenter().y + xBox.height / 2);
+	}
+	// --- DEBUG: DRAW FPS ---
 	ofDrawBitmapString("FPS: " + ofToString(ofGetFrameRate(), 2), 10, 20);
 }
 //--------------------------------------------------------------
@@ -8165,40 +8155,51 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 
 		// --- CASE: RENEWED INSPIRATION ---
 	case CARD_RENEWED_INSPIRATION: {
-		// 1. Pay Cost & Setup
+		// 1. Pay Cost
 		currentAP -= playedCard.cost;
-		currentPlayer.playedCardsPile.push_back(playedCard);
 
-		// Handle Replicate
+		// 2. Handle Replicate (BEFORE removing original from hand)
+		// If Replicate is pending, we create a copy and put it directly into the HAND
+		// so it can be selected for the discard effect.
 		if (currentPlayer.isReplicatePending) {
-			currentPlayer.playedCardsPile.push_back(playedCard);
+			Card copy = playedCard; // Copy data
+			copy.isCopied = true; // Mark as copied (making it eligible)
+
+			// Init position to match the card being played for a smooth visual pop-in
+			// (We access hand[cardIndex] safely because we haven't erased it yet)
+			copy.currentPos = currentPlayer.hand[cardIndex].currentPos;
+			copy.targetPos = currentPlayer.hand[cardIndex].targetPos;
+			copy.currentScale = currentPlayer.hand[cardIndex].currentScale;
+
+			currentPlayer.hand.push_back(copy);
 			currentPlayer.isReplicatePending = false;
+
+			spawnFloatingText(gridToWorld(currentPlayer.x, currentPlayer.y), "Replicated!", ofColor::cyan);
 		}
+
+		// 3. Move Original to Played Pile
+		currentPlayer.playedCardsPile.push_back(playedCard);
 		currentPlayer.cardsPlayedThisTurn.push_back(playedCard.type);
 
-		// 2. Remove the played card from hand immediately
-		// (So you don't accidentally select it to discard)
+		// 4. Remove Original from Hand
 		currentPlayer.hand.erase(currentPlayer.hand.begin() + cardIndex);
 
-		// 3. Enter Selection Mode
+		// 5. Enter Selection Mode
 		isSelectingRenewedInspiration = true;
 		renewedSelectedHandIndices.clear();
 
-		// 4. Setup UI Buttons (Positioned above the hand area)
-		// Adjust Y based on screen height to sit just above cards
+		// 6. Setup UI Buttons
 		float cx = ofGetWidth() / 2.0f;
-		float cy = ofGetHeight() - 300.0f;
-
-		// If it's Player 1 (top of screen), flip position
-		if (currentPlayer.playerID == 1) cy = 300.0f;
+		float cy = ofGetHeight() - 450.0f;
+		if (currentPlayer.playerID == 1) cy = 350.0f;
 
 		riConfirmBtn.set(cx - 110, cy, 100, 50);
 		riCancelBtn.set(cx + 10, cy, 100, 50);
 
-		// 5. Visuals & prevent auto-cleanup
+		// 7. Visuals & prevent auto-cleanup
 		activeCardDisplays.push_back({ playedCard, ofGetElapsedTimef() });
 		invalidateTargetCache();
-		playedSuccessfully = false; // We handle cleanup manually here to prevent crash
+		playedSuccessfully = false;
 		break;
 	}
 
