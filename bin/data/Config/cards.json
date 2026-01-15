@@ -410,5 +410,14 @@
     "type": "CARD_RENEWED_INSPIRATION",
     "cost": 2,
     "targeting": "TARGET_SELF"
+  },
+  {
+    "id": 52,
+    "name": "Inspiration",
+    "type": "CARD_INSPIRATION",
+    "cost": 3,
+    "targeting": "TARGET_SELF",
+    "numDice": 1,
+    "diceSides": 4
   }
 ]

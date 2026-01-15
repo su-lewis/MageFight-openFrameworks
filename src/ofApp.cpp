@@ -1641,7 +1641,6 @@ void ofApp::updateGame() {
 	}
 
 	// --- MAGIC BOLT RESOLUTION ---
-
 	if (isWaitingForMagicBoltRange && activeDiceRolls.empty()) {
 		isWaitingForMagicBoltRange = false;
 
@@ -2092,6 +2091,24 @@ void ofApp::updateGame() {
 				}
 			}
 		}
+	}
+
+	// --- INSPIRATION RESOLUTION ---
+	if (isWaitingForInspirationDice && activeDiceRolls.empty()) {
+		isWaitingForInspirationDice = false;
+
+		int cardsToDraw = pendingInspirationRollResult;
+		Player & p = players[currentPlayerIndex];
+
+		ofLogNotice("Inspiration") << "Rolled a " << cardsToDraw << ". Drawing cards...";
+
+		// Loop to draw the specific number of cards
+		// Your drawCard() function already handles deck reshuffling automatically.
+		for (int i = 0; i < cardsToDraw; i++) {
+			drawCard();
+		}
+
+		spawnFloatingText(gridToWorld(p.x, p.y), "+" + ofToString(cardsToDraw) + " Cards", ofColor::cyan);
 	}
 
 	// --- Dispel Barrier Dice ---
@@ -6053,7 +6070,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 		// 3g. End Turn Button (blocked during pending actions)
 		if (endTurnButtonRect.inside(x, y) && button == OF_MOUSE_BUTTON_LEFT) {
 			// Block end turn if there's a pending action that must be completed
-			bool hasPendingAction = isPlacingWolves || isWaitingForWolfCoin || isPlacingKobolds || isWaitingForKoboldDice || isWaitingForMagicBoltRange || isTargetingMagicBolt || isWaitingForAttackDice || isWaitingForAmnesiaDice || isWaitingForMagicBlastDice || isWaitingForFireballRangeDice || isWaitingForFireballDamageDice || isWaitingForJoltRangeDice || isWaitingForBarrierDice || isWaitingForTeleportDice || isTargetingTeleport || isWaitingForHealDice || isWaitingForSummonHealth || isWaitingForTimeVortexDice || isWaitingForOnFireDice || isWaitingForParalysisCoin || isDoubleHandedMenuOpen || isTargetingDoubleHanded || isAmnesiaMenuOpen || isTargetingAmnesia || isTargetingTortoiseDamage;
+			bool hasPendingAction = isPlacingWolves || isWaitingForWolfCoin || isPlacingKobolds || isWaitingForKoboldDice || isWaitingForMagicBoltRange || isTargetingMagicBolt || isWaitingForAttackDice || isWaitingForAmnesiaDice || isWaitingForMagicBlastDice || isWaitingForFireballRangeDice || isWaitingForFireballDamageDice || isWaitingForJoltRangeDice || isWaitingForBarrierDice || isWaitingForTeleportDice || isTargetingTeleport || isWaitingForHealDice || isWaitingForSummonHealth || isWaitingForTimeVortexDice || isWaitingForOnFireDice || isWaitingForParalysisCoin || isDoubleHandedMenuOpen || isTargetingDoubleHanded || isAmnesiaMenuOpen || isWaitingForInspirationDice || isTargetingAmnesia || isTargetingTortoiseDamage;
 			if (hasPendingAction) {
 				return; // Can't end turn during pending actions
 			}
@@ -8642,6 +8659,15 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		break;
 	}
 
+		// --- CASE: INSPIRATION ---
+	case CARD_INSPIRATION: {
+		// Roll 1d4 (defined in JSON)
+		pendingInspirationRollResult = startDiceRoll(playedCard.numDice, playedCard.diceSides, PURPOSE_INSPIRATION_DRAW, "Inspiration: Draw Cards");
+		isWaitingForInspirationDice = true;
+		playedSuccessfully = true;
+		break;
+	}
+
 	case CARD_GAIN_AP:
 		currentAP += playedCard.value;
 		spawnFloatingText(gridToWorld(currentPlayer.x, currentPlayer.y), "+" + ofToString(playedCard.value) + " AP", ofColor::yellow);
@@ -10794,6 +10820,7 @@ CardType ofApp::stringToCardType(const std::string & str) {
 	if (str == "CARD_FLURRY_OF_FISTS") return CARD_FLURRY_OF_FISTS;
 	if (str == "CARD_FORM_OF_TORTOISE") return CARD_FORM_OF_TORTOISE;
 	if (str == "CARD_RENEWED_INSPIRATION") return CARD_RENEWED_INSPIRATION;
+	if (str == "CARD_INSPIRATION") return CARD_INSPIRATION;
 
 	return CARD_NONE;
 }

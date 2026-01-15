@@ -112,7 +112,8 @@ enum CardType {
 	CARD_FLURRY_OF_FISTS,
 	CARD_FORM_OF_TORTOISE,
 	CARD_CALL_FOR_KOBOLDS,
-	CARD_RENEWED_INSPIRATION
+	CARD_RENEWED_INSPIRATION,
+	CARD_INSPIRATION
 };
 
 enum DicePurpose {
@@ -128,7 +129,8 @@ enum DicePurpose {
 	PURPOSE_TIME_VORTEX,
 	PURPOSE_DEATH_CHECK,
 	PURPOSE_SLEEP_DURATION,
-	PURPOSE_SUMMON_KOBOLDS
+	PURPOSE_SUMMON_KOBOLDS,
+	PURPOSE_INSPIRATION_DRAW
 };
 
 enum TargetValidity {
@@ -732,6 +734,7 @@ private:
 	bool isTargetingHellhound = false;
 	int hellhoundCardIndex = -1;
 
+	// Demon Summoning
 	bool isWaitingForDemonHP = false;
 
 	// Death Card Logic
@@ -739,6 +742,10 @@ private:
 	bool isWaitingForSleepDuration = false;
 	int pendingDeathTargetIndex = -1;
 	int pendingDeathRollResult = 0;
+
+	// --- Inspiration Logic ---
+	bool isWaitingForInspirationDice = false;
+	int pendingInspirationRollResult = 0;
 
 	// Helper functions
 	void drawDoubleHandedUI();
