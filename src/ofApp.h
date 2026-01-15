@@ -111,7 +111,8 @@ enum CardType {
 	CARD_ADD_POISON,
 	CARD_FLURRY_OF_FISTS,
 	CARD_FORM_OF_TORTOISE,
-	CARD_CALL_FOR_KOBOLDS
+	CARD_CALL_FOR_KOBOLDS,
+	CARD_RENEWED_INSPIRATION
 };
 
 enum DicePurpose {
@@ -180,6 +181,8 @@ struct Card {
 	DamageType damageType = DAMAGE_PHYSICAL;
 	int cost = 1;
 	TargetingType targeting = TARGET_ANY_TILE;
+	bool drawnThisTurn = false; // Add this
+	bool isCopied = false;
 };
 
 struct PlayedCardDisplay {
@@ -681,6 +684,12 @@ private:
 	ofRectangle amnesiaMenuRect;
 	ofRectangle amnesiaBtnSelf;
 	ofRectangle amnesiaBtnAdjacent;
+
+	// --- Renewed Inspiration State (REAL-TIME) ---
+	bool isSelectingRenewedInspiration = false;
+	std::vector<int> renewedSelectedHandIndices; // Indices of cards currently selected in hand
+	ofRectangle riConfirmBtn;
+	ofRectangle riCancelBtn;
 
 	// --- Tortoise Form Targeting State ---
 	bool isTargetingTortoiseDamage = false;

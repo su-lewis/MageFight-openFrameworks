@@ -403,5 +403,12 @@
     "type": "CARD_DEMOLITION",
     "cost": 6,
     "targeting": "TARGET_ADJACENT_UNIT_OR_WALL"
+  },
+  {
+    "id": 51,
+    "name": "Renewed Inspiration",
+    "type": "CARD_RENEWED_INSPIRATION",
+    "cost": 2,
+    "targeting": "TARGET_SELF"
   }
 ]

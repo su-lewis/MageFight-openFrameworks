@@ -4328,6 +4328,72 @@ void ofApp::drawGame() {
 		drawAmnesiaMenuUI();
 	}
 
+	// --- RENEWED INSPIRATION UI OVERLAY ---
+	if (isSelectingRenewedInspiration && !players.empty()) {
+		Player & p = players[currentPlayerIndex];
+
+		// 1. Draw Selection Outlines & Dims
+		float handBaseCardWidth = 120;
+		float aspectRatio = 585.0f / 409.0f;
+		float baseCardHeight = handBaseCardWidth * aspectRatio;
+
+		for (int i = 0; i < (int)p.hand.size(); ++i) {
+			Card & c = p.hand[i];
+			bool isEligible = (c.drawnThisTurn || c.isCopied);
+			bool isSelected = false;
+			for (int sel : renewedSelectedHandIndices)
+				if (sel == i) isSelected = true;
+
+			float w = handBaseCardWidth * c.currentScale;
+			float h = baseCardHeight * c.currentScale;
+			float x = c.currentPos.x - w / 2;
+			float y = c.currentPos.y - h / 2;
+
+			if (isSelected) {
+				// Bright Green Border for Selected Cards
+				ofPushStyle();
+				ofNoFill();
+				ofSetColor(ofColor::limeGreen);
+				ofSetLineWidth(6);
+				ofDrawRectangle(x, y, w, h);
+				ofPopStyle();
+			} else if (!isEligible) {
+				// Dim out cards that cannot be selected
+				ofSetColor(0, 0, 0, 180);
+				ofDrawRectangle(x, y, w, h);
+			}
+		}
+
+		// 2. Draw Instruction Text Background
+		string instr = "Select cards to discard (Draw 2 each)";
+		ofRectangle instrBox = uiFont.getStringBoundingBox(instr, 0, 0);
+		float cx = ofGetWidth() / 2.0f;
+
+		ofSetColor(0, 0, 0, 220);
+		ofDrawRectRounded(cx - instrBox.width / 2 - 10, riConfirmBtn.y - 45, instrBox.width + 20, 35, 8);
+
+		ofSetColor(255);
+		uiFont.drawString(instr, cx - instrBox.width / 2, riConfirmBtn.y - 20);
+
+		// 3. Draw Confirm Button
+		ofSetColor(0, 180, 0); // Green
+		if (riConfirmBtn.inside(ofGetMouseX(), ofGetMouseY())) ofSetColor(0, 220, 0);
+		ofDrawRectRounded(riConfirmBtn, 8);
+
+		ofSetColor(255);
+		ofRectangle cBox = uiFont.getStringBoundingBox("Confirm", 0, 0);
+		uiFont.drawString("Confirm", riConfirmBtn.getCenter().x - cBox.width / 2, riConfirmBtn.getCenter().y + cBox.height / 2);
+
+		// 4. Draw Cancel Button
+		ofSetColor(180, 0, 0); // Red
+		if (riCancelBtn.inside(ofGetMouseX(), ofGetMouseY())) ofSetColor(220, 0, 0);
+		ofDrawRectRounded(riCancelBtn, 8);
+
+		ofSetColor(255);
+		ofRectangle xBox = uiFont.getStringBoundingBox("Cancel", 0, 0);
+		uiFont.drawString("Cancel", riCancelBtn.getCenter().x - xBox.width / 2, riCancelBtn.getCenter().y + xBox.height / 2);
+	}
+
 	// --- Debug Card Spawner UI (KRunner-style) ---
 	if (isCardSpawnerOpen) {
 		drawCardSpawnerUI();
@@ -5164,6 +5230,88 @@ void ofApp::mousePressed(int x, int y, int button) {
 		return;
 	}
 
+	// --- RENEWED INSPIRATION: REAL-TIME SELECTION ---
+	if (isSelectingRenewedInspiration && button == OF_MOUSE_BUTTON_LEFT) {
+
+		// 1. Check Confirm Button
+		if (riConfirmBtn.inside(x, y)) {
+			Player & p = players[currentPlayerIndex];
+
+			// Sort indices descending so we can delete safely from back to front
+			std::sort(renewedSelectedHandIndices.begin(), renewedSelectedHandIndices.end(), std::greater<int>());
+
+			int cardsToDraw = 0;
+			for (int idx : renewedSelectedHandIndices) {
+				if (idx < (int)p.hand.size()) {
+					// Discard
+					p.discardPile.push_back(p.hand[idx]);
+					p.hand.erase(p.hand.begin() + idx);
+					cardsToDraw += 2;
+				}
+			}
+
+			// Draw new cards
+			for (int i = 0; i < cardsToDraw; i++)
+				drawCard();
+
+			// Visual feedback
+			spawnFloatingText(gridToWorld(p.x, p.y), "+" + ofToString(cardsToDraw) + " Cards", ofColor::cyan);
+
+			isSelectingRenewedInspiration = false;
+			return;
+		}
+
+		// 2. Check Cancel Button (Undo)
+		if (riCancelBtn.inside(x, y)) {
+			Player & p = players[currentPlayerIndex];
+			// Refund AP
+			currentAP += 2;
+
+			// Return card to hand (pop from played pile, push back to hand)
+			if (!p.playedCardsPile.empty()) {
+				Card c = p.playedCardsPile.back();
+				p.playedCardsPile.pop_back();
+				p.hand.push_back(c);
+			}
+
+			isSelectingRenewedInspiration = false;
+			return;
+		}
+
+		// 3. Check Clicking Cards in Hand (Toggle Selection)
+		Player & p = players[currentPlayerIndex];
+		float handBaseCardWidth = 120;
+		float aspectRatio = 585.0f / 409.0f;
+		float baseCardHeight = handBaseCardWidth * aspectRatio;
+
+		// Reverse loop to check top-most cards first (standard UI practice)
+		for (int i = (int)p.hand.size() - 1; i >= 0; --i) {
+			Card & card = p.hand[i];
+
+			// Use the CURRENT position (includes hover animation) for accurate clicking
+			float w = handBaseCardWidth * card.currentScale;
+			float h = baseCardHeight * card.currentScale;
+			ofRectangle cardRect(card.currentPos.x - w / 2, card.currentPos.y - h / 2, w, h);
+
+			if (cardRect.inside(x, y)) {
+				// Check eligibility (Drawn this turn OR Copied)
+				if (!card.drawnThisTurn && !card.isCopied) {
+					spawnFloatingText(gridToWorld(p.x, p.y), "Must be drawn this turn", ofColor::red);
+					return;
+				}
+
+				// Toggle selection
+				auto it = std::find(renewedSelectedHandIndices.begin(), renewedSelectedHandIndices.end(), i);
+				if (it != renewedSelectedHandIndices.end()) {
+					renewedSelectedHandIndices.erase(it); // Deselect
+				} else {
+					renewedSelectedHandIndices.push_back(i); // Select
+				}
+				return; // Stop checking other cards
+			}
+		}
+		return; // Consume click so we don't move/attack while selecting
+	}
 	// --- 1f4b. Tortoise Damage Targeting ---
 	if (isTargetingTortoiseDamage && button == OF_MOUSE_BUTTON_LEFT) {
 		ofVec2f boardPos = mouseToBoard(x, y);
@@ -5725,7 +5873,88 @@ void ofApp::mousePressed(int x, int y, int button) {
 				return; // Clicked panel background
 			}
 		}
+		// --- RENEWED INSPIRATION: REAL-TIME SELECTION ---
+		if (isSelectingRenewedInspiration && button == OF_MOUSE_BUTTON_LEFT) {
 
+			// 1. Check Confirm Button
+			if (riConfirmBtn.inside(x, y)) {
+				Player & p = players[currentPlayerIndex];
+
+				// Sort indices descending so we can delete safely
+				std::sort(renewedSelectedHandIndices.begin(), renewedSelectedHandIndices.end(), std::greater<int>());
+
+				int cardsToDraw = 0;
+				for (int idx : renewedSelectedHandIndices) {
+					if (idx < p.hand.size()) {
+						// Discard
+						p.discardPile.push_back(p.hand[idx]);
+						p.hand.erase(p.hand.begin() + idx);
+						cardsToDraw += 2;
+					}
+				}
+
+				// Draw new cards
+				for (int i = 0; i < cardsToDraw; i++)
+					drawCard();
+
+				// Visual feedback
+				spawnFloatingText(gridToWorld(p.x, p.y), "Inspiration! +" + ofToString(cardsToDraw) + " Cards", ofColor::cyan);
+
+				isSelectingRenewedInspiration = false;
+				return;
+			}
+
+			// 2. Check Cancel Button (Undo)
+			if (riCancelBtn.inside(x, y)) {
+				Player & p = players[currentPlayerIndex];
+				// Refund AP
+				currentAP += 2; // Assuming cost is 2
+
+				// Return card to hand (pop from played, push to hand)
+				if (!p.playedCardsPile.empty()) {
+					Card c = p.playedCardsPile.back();
+					p.playedCardsPile.pop_back();
+					p.hand.push_back(c); // Put it back
+				}
+
+				isSelectingRenewedInspiration = false;
+				return;
+			}
+
+			// 3. Check Clicking Cards in Hand (Toggle Selection)
+			Player & p = players[currentPlayerIndex];
+			float handBaseCardWidth = 120;
+			float aspectRatio = 585.0f / 409.0f;
+			float baseCardHeight = handBaseCardWidth * aspectRatio;
+
+			// Reverse loop to check top-most cards first (same as draw order)
+			for (int i = (int)p.hand.size() - 1; i >= 0; --i) {
+				Card & card = p.hand[i];
+
+				// Use the CURRENT position (which includes hover offset) for accurate clicking
+				float w = handBaseCardWidth * card.currentScale;
+				float h = baseCardHeight * card.currentScale;
+				ofRectangle cardRect(card.currentPos.x - w / 2, card.currentPos.y - h / 2, w, h);
+
+				if (cardRect.inside(x, y)) {
+					// Check eligibility (Drawn this turn OR Copied)
+					if (!card.drawnThisTurn && !card.isCopied) {
+						spawnFloatingText(gridToWorld(p.x, p.y), "Not eligible", ofColor::red);
+						return;
+					}
+
+					// Toggle logic
+					auto it = std::find(renewedSelectedHandIndices.begin(), renewedSelectedHandIndices.end(), i);
+					if (it != renewedSelectedHandIndices.end()) {
+						renewedSelectedHandIndices.erase(it); // Deselect
+					} else {
+						renewedSelectedHandIndices.push_back(i); // Select
+					}
+					return; // Stop checking other cards
+				}
+			}
+			return; // Consume click so we don't accidentally move/attack while selecting
+		}
 		// 3c. Safety Checks (Input Lock)
 		if (players.empty() || currentPlayerIndex < 0) return;
 		Player & currentPlayer = players[currentPlayerIndex];
@@ -6689,7 +6918,11 @@ void ofApp::drawCard() {
 
 		// Add to Hand
 		currentPlayer.hand.push_back(newCard);
-		ofLogNotice("Game") << "Drew card for Player " << currentPlayer.playerID << ": " << newCard.name;
+
+		// ADD THIS LINE:
+		currentPlayer.hand.back().drawnThisTurn = true;
+
+		ofLogNotice("Game") << "Drew card: " << newCard.name;
 	}
 }
 //--------------------------------------------------------------
@@ -7602,7 +7835,7 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		}
 		break;
 	}
-
+		// --- CASE: CONSUME HEALTH POTION ---
 	case CARD_CONSUME_HEALTH_POTION: {
 		// Increase max HP by 1 (does not heal to it)
 		currentPlayer.maxHealth++;
@@ -7611,7 +7844,7 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		playedSuccessfully = true;
 		break;
 	}
-
+		// --- CASE: ADD POISON ---
 	case CARD_ADD_POISON: {
 		// Buff: next physical/piercing damage card this turn adds 1d6 poison damage
 		currentPlayer.nextAttackAddPoison = true;
@@ -7620,7 +7853,7 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		playedSuccessfully = true;
 		break;
 	}
-
+		// --- CASE: FLURRY OF FISTS ---
 	case CARD_FLURRY_OF_FISTS: {
 		// Find adjacent target
 		int targetIndex = -1;
@@ -7837,7 +8070,7 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		playedSuccessfully = true;
 		break;
 	}
-
+		// --- CASE: DARK SHIELD ---
 	case CARD_DARK_SHIELD: {
 		currentPlayer.holyBlock += playedCard.value; // value is 7
 		currentPlayer.nextTurnBonusDiceFromMinions = true;
@@ -7927,6 +8160,45 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 
 			playedSuccessfully = true;
 		}
+		break;
+	}
+
+		// --- CASE: RENEWED INSPIRATION ---
+	case CARD_RENEWED_INSPIRATION: {
+		// 1. Pay Cost & Setup
+		currentAP -= playedCard.cost;
+		currentPlayer.playedCardsPile.push_back(playedCard);
+
+		// Handle Replicate
+		if (currentPlayer.isReplicatePending) {
+			currentPlayer.playedCardsPile.push_back(playedCard);
+			currentPlayer.isReplicatePending = false;
+		}
+		currentPlayer.cardsPlayedThisTurn.push_back(playedCard.type);
+
+		// 2. Remove the played card from hand immediately
+		// (So you don't accidentally select it to discard)
+		currentPlayer.hand.erase(currentPlayer.hand.begin() + cardIndex);
+
+		// 3. Enter Selection Mode
+		isSelectingRenewedInspiration = true;
+		renewedSelectedHandIndices.clear();
+
+		// 4. Setup UI Buttons (Positioned above the hand area)
+		// Adjust Y based on screen height to sit just above cards
+		float cx = ofGetWidth() / 2.0f;
+		float cy = ofGetHeight() - 300.0f;
+
+		// If it's Player 1 (top of screen), flip position
+		if (currentPlayer.playerID == 1) cy = 300.0f;
+
+		riConfirmBtn.set(cx - 110, cy, 100, 50);
+		riCancelBtn.set(cx + 10, cy, 100, 50);
+
+		// 5. Visuals & prevent auto-cleanup
+		activeCardDisplays.push_back({ playedCard, ofGetElapsedTimef() });
+		invalidateTargetCache();
+		playedSuccessfully = false; // We handle cleanup manually here to prevent crash
 		break;
 	}
 
@@ -10517,6 +10789,7 @@ CardType ofApp::stringToCardType(const std::string & str) {
 	if (str == "CARD_ADD_POISON") return CARD_ADD_POISON;
 	if (str == "CARD_FLURRY_OF_FISTS") return CARD_FLURRY_OF_FISTS;
 	if (str == "CARD_FORM_OF_TORTOISE") return CARD_FORM_OF_TORTOISE;
+	if (str == "CARD_RENEWED_INSPIRATION") return CARD_RENEWED_INSPIRATION;
 
 	return CARD_NONE;
 }
