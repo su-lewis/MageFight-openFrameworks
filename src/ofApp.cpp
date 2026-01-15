@@ -76,6 +76,20 @@ void ofApp::setup() {
 		ofLogNotice() << "Wolf model loaded with " << wolfModel.getMeshCount() << " meshes";
 	}
 
+	// --- Load Kobold ---
+	// Try lowercase path first (some platforms/filesystems are case-sensitive)
+	std::string koboldPath1 = "Units/kobold/kobold1/goblin_bastard.glb";
+	std::string koboldPath2 = "Units/Kobold/Kobold1/goblin_bastard.glb";
+	if (koboldModel.load(koboldPath1) || koboldModel.load(koboldPath2)) {
+		koboldModel.disableMaterials();
+		koboldModel.setRotation(0, 180, 0, 0, 1);
+		// Scale down by ~30% to make kobold visually smaller
+		koboldModel.setScale(0.00245f, 0.00245f, 0.00245f);
+		ofLogNotice("Setup") << "Kobold model loaded.";
+	} else {
+		ofLogNotice("Setup") << "Kobold model failed to load (optional). Tried: " << koboldPath1 << " and " << koboldPath2;
+	}
+
 	// --- Load Hellhound ---
 	if (hellhoundModel.load("Units/Hellhound/hellhound.glb")) {
 		hellhoundModel.disableMaterials();
@@ -946,8 +960,8 @@ void ofApp::updateGame() {
 		std::vector<int> p0_minionIndices;
 		std::vector<int> p1_minionIndices;
 		// Counters for minion types
-		int p0_skeleton = 0, p0_golem = 0, p0_wolf = 0, p0_hound = 0, p0_demon = 0;
-		int p1_skeleton = 0, p1_golem = 0, p1_wolf = 0, p1_hound = 0, p1_demon = 0;
+		int p0_skeleton = 0, p0_golem = 0, p0_wolf = 0, p0_hound = 0, p0_demon = 0, p0_kobold = 0;
+		int p1_skeleton = 0, p1_golem = 0, p1_wolf = 0, p1_hound = 0, p1_demon = 0, p1_kobold = 0;
 
 		for (int i = 0; i < players.size(); i++) {
 			if (players[i].isMinion) {
@@ -959,7 +973,7 @@ void ofApp::updateGame() {
 		}
 
 		// 3. HELPER LAMBDA TO BUILD UI LIST (now takes top/bottom limits)
-		auto buildMinionList = [&](const std::vector<int> & indices, float startX, float topLimit, float bottomLimit, int & skelCount, int & golemCount, int & wolfCount, int & houndCount, int & demonCount) {
+		auto buildMinionList = [&](const std::vector<int> & indices, float startX, float topLimit, float bottomLimit, int & skelCount, int & golemCount, int & wolfCount, int & houndCount, int & demonCount, int & koboldCount) {
 			// A. Calculate Dynamic Scaling
 			float localAvailableHeight = bottomLimit - topLimit;
 			float totalRequiredHeight = indices.size() * (standardEntryHeight + gap);
@@ -988,6 +1002,8 @@ void ofApp::updateGame() {
 					ui.displayNumber = ++houndCount;
 				else if (players[pIndex].isDemon)
 					ui.displayNumber = ++demonCount;
+				else if (players[pIndex].isKobold)
+					ui.displayNumber = ++koboldCount;
 
 				float currentY = topLimit + (i * (actualEntryHeight + actualGap));
 
@@ -998,10 +1014,10 @@ void ofApp::updateGame() {
 
 		// 4. BUILD LISTS WITH PLAYER-SPECIFIC BOUNDARIES
 		float p0_startX = 10 * scale;
-		buildMinionList(p0_minionIndices, p0_startX, p0_topLimitY, p0_bottomLimitY, p0_skeleton, p0_golem, p0_wolf, p0_hound, p0_demon);
+		buildMinionList(p0_minionIndices, p0_startX, p0_topLimitY, p0_bottomLimitY, p0_skeleton, p0_golem, p0_wolf, p0_hound, p0_demon, p0_kobold);
 
 		float p1_startX = ofGetWidth() - panelWidth - (10 * scale);
-		buildMinionList(p1_minionIndices, p1_startX, p1_topLimitY, p1_bottomLimitY, p1_skeleton, p1_golem, p1_wolf, p1_hound, p1_demon);
+		buildMinionList(p1_minionIndices, p1_startX, p1_topLimitY, p1_bottomLimitY, p1_skeleton, p1_golem, p1_wolf, p1_hound, p1_demon, p1_kobold);
 	}
 	// --- END MINION UI REBUILD ---
 
@@ -2212,6 +2228,40 @@ void ofApp::updateGame() {
 						"+" + ofToString(roll.result) + " Bonus AP",
 						ofColor::yellow);
 					ofLogNotice("Game") << "Bonus Dice Finished: " << roll.result << " AP awarded.";
+				} else if (roll.purpose == PURPOSE_SUMMON_KOBOLDS) {
+					// Resolve Call for Kobolds roll
+					isWaitingForKoboldDice = false;
+					int count = roll.result;
+					if (count <= 0) {
+						spawnFloatingText(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y), "No Kobolds!", ofColor::gray);
+						isPlacingKobolds = false;
+					} else {
+						// Count available adjacent empty tiles
+						int avail = 0;
+						glm::vec2 adj[] = { { 1, 0 }, { -1, 0 }, { 0, 1 }, { 0, -1 } };
+						for (auto & d : adj) {
+							int nx = koboldPlacementSourceX + (int)d.x;
+							int ny = koboldPlacementSourceY + (int)d.y;
+							if (nx >= 0 && nx < BOARD_WIDTH && ny >= 0 && ny < BOARD_HEIGHT) {
+								if (!board[nx][ny].hasWall && !board[nx][ny].hasPlayer) avail++;
+							}
+						}
+						int allowed = std::min<int>(count, std::min(avail, 4));
+						if (allowed <= 0) {
+							spawnFloatingText(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y), "No Space!", ofColor::red);
+							isPlacingKobolds = false;
+						} else {
+							koboldsRemainingToPlace = allowed;
+							koboldSummonCount = 0;
+							isPlacingKobolds = true;
+							// Instruction UI
+							tooltipText = "Place Kobold: click an adjacent empty tile";
+							isShowingTooltip = true;
+							spawnFloatingText(gridToWorld(koboldPlacementSourceX, koboldPlacementSourceY), ofToString(koboldsRemainingToPlace) + " Kobolds!", ofColor::gold);
+							invalidateTargetCache();
+						}
+					}
+					return;
 				} else if (roll.purpose == PURPOSE_COIN_FLIP) {
 					// 1. Resolve Paralysis Flip
 					if (isWaitingForParalysisCoin) {
@@ -2834,6 +2884,13 @@ void ofApp::drawGame() {
 				if (tortoiseTexture.isAllocated()) tortoiseTexture.bind();
 				tortoiseModel.drawFaces();
 				if (tortoiseTexture.isAllocated()) tortoiseTexture.unbind();
+				// KOBOLD: draw kobold model if minion is kobold
+			} else if (player.isKobold) {
+				ofTranslate(pos.x, 0.1f, pos.z);
+				ofRotateYDeg(unitFacingAngle);
+				ofTranslate(0, 0.6f, 0);
+				// Use model loader if available
+				koboldModel.drawFaces();
 			} else {
 				// Default Player
 				ofTranslate(pos.x, 0.1f, pos.z);
@@ -4445,6 +4502,8 @@ void ofApp::drawGame() {
 void ofApp::mouseMoved(int x, int y) {
 	switch (currentState) {
 	case STATE_GAMEPLAY: {
+
+		// Kobold placement is handled in mousePressed() (mirrors wolf behavior)
 		bool isDiceSpinning = false;
 		for (const auto & roll : activeDiceRolls) {
 			if (!roll.isFinishedVisual) {
@@ -4523,7 +4582,6 @@ void ofApp::mouseMoved(int x, int y) {
 		// --- UNIFIED PILE & TOOLTIP HOVER LOGIC (FIXED) ---
 		PileViewMode newHoveredPileType = VIEW_NONE;
 		int newHoveredPileIndex = -1; // Stores the INDEX of the player in the vector
-		bool foundHover = false;
 
 		// 1. Check main player piles FIRST.
 		if (p0_deckRect.inside(x, y)) {
@@ -4619,6 +4677,71 @@ void ofApp::mousePressed(int x, int y, int button) {
 	// Debug: Log all mouse presses when targeting teleport
 	if (isTargetingTeleport) {
 		ofLogNotice("Teleport") << "mousePressed called! x=" << x << " y=" << y << " button=" << button;
+	}
+
+	// --- EARLY HANDLER: KOBOLD PLACEMENT (take precedence like wolves) ---
+	if (isPlacingKobolds && !isWaitingForKoboldDice) {
+		// Only allow placement clicks; swallow all other clicks while placing kobolds
+		if (button == OF_MOUSE_BUTTON_LEFT) {
+			ofVec2f boardPos = mouseToBoard(x, y);
+			int gx = floor(boardPos.x), gy = floor(boardPos.y);
+			if (gx >= 0 && gx < BOARD_WIDTH && gy >= 0 && gy < BOARD_HEIGHT) {
+				if (!board[gx][gy].hasWall && !board[gx][gy].hasPlayer) {
+					int dist = abs(gx - koboldPlacementSourceX) + abs(gy - koboldPlacementSourceY);
+					if (dist == 1) {
+						// Spawn kobold (mirrors the placement logic in the main handler)
+						koboldSummonCount++;
+						Player kobold;
+						kobold.playerID = 300 + (int)players.size();
+						kobold.x = gx;
+						kobold.y = gy;
+						kobold.maxHealth = 1;
+						kobold.health = 1;
+						kobold.isMinion = true;
+						kobold.isKobold = true;
+						kobold.isSkeleton = false;
+						kobold.ownerID = players[currentPlayerIndex].isMinion ? players[currentPlayerIndex].ownerID : players[currentPlayerIndex].playerID;
+						// Give summoned kobolds summoning sickness this cycle and record ordering
+						kobold.summonedOnTurnCycle = globalTurnCounter;
+						kobold.summonOrder = ++nextSummonOrder;
+						Card hb, pu, callCard;
+						for (const auto & c : allCards) {
+							if (c.name == "Hand Block") hb = c;
+							if (c.name == "Punch") pu = c;
+							if (c.type == CARD_CALL_FOR_KOBOLDS) callCard = c;
+						}
+						kobold.deck = { hb, hb, pu, callCard };
+						std::shuffle(kobold.deck.begin(), kobold.deck.end(), rng);
+						board[gx][gy].hasPlayer = true;
+						players.push_back(kobold);
+						ofLogNotice("Summon") << "Summoned Kobold " << koboldSummonCount;
+						koboldsRemainingToPlace--;
+						if (koboldsRemainingToPlace <= 0) {
+							isPlacingKobolds = false;
+							int myID = players[currentPlayerIndex].playerID;
+							std::sort(players.begin(), players.end(), [](const Player & a, const Player & b) {
+								int ownerA = a.isMinion ? a.ownerID : a.playerID;
+								int ownerB = b.isMinion ? b.ownerID : b.playerID;
+								if (ownerA != ownerB) return ownerA < ownerB;
+								if (a.isMinion && !b.isMinion) return true;
+								if (!a.isMinion && b.isMinion) return false;
+								return a.summonOrder < b.summonOrder;
+							});
+							for (size_t i = 0; i < players.size(); i++) {
+								if (players[i].playerID == myID) {
+									currentPlayerIndex = i;
+									break;
+								}
+							}
+						}
+						invalidateTargetCache();
+						return; // Click handled
+					}
+				}
+			}
+			// Click ignored while placing kobolds
+			return;
+		}
 	}
 
 	// ==============================================================================
@@ -4748,7 +4871,6 @@ void ofApp::mousePressed(int x, int y, int button) {
 		float barHeight = 50.0f;
 		float barX = (ofGetWidth() - barWidth) / 2.0f;
 		float barY = ofGetHeight() * 0.15f;
-		float inputWidth = barWidth - 180.0f;
 		float suggestionHeight = 35.0f;
 		int maxSuggestions = std::min((int)filteredCards.size(), 8);
 		float totalHeight = barHeight + (filteredCards.empty() ? 0 : suggestionHeight * maxSuggestions + 15);
@@ -5436,6 +5558,83 @@ void ofApp::mousePressed(int x, int y, int button) {
 						return; // Click handled
 					}
 				}
+
+				// --- KOBOLD PLACEMENT LOGIC ---
+				if (isPlacingKobolds && !isWaitingForKoboldDice && button == OF_MOUSE_BUTTON_LEFT) {
+					ofVec2f boardPos = mouseToBoard(x, y);
+					int gx = floor(boardPos.x), gy = floor(boardPos.y);
+
+					// Validation: In bounds, Empty, Adjacent to Summoner
+					if (gx >= 0 && gx < BOARD_WIDTH && gy >= 0 && gy < BOARD_HEIGHT) {
+						if (!board[gx][gy].hasWall && !board[gx][gy].hasPlayer) {
+							int dist = abs(gx - koboldPlacementSourceX) + abs(gy - koboldPlacementSourceY);
+							if (dist == 1) {
+
+								// --- SPAWN THE KOBOLD ---
+								koboldSummonCount++; // Increment name counter
+
+								Player kobold;
+								kobold.playerID = 300 + (int)players.size();
+								kobold.x = gx;
+								kobold.y = gy;
+								kobold.maxHealth = 1;
+								kobold.health = 1;
+								kobold.isMinion = true;
+								kobold.isKobold = true;
+								kobold.isSkeleton = false;
+
+								// Set owner and summoning sickness
+								kobold.ownerID = players[currentPlayerIndex].isMinion ? players[currentPlayerIndex].ownerID : players[currentPlayerIndex].playerID;
+								kobold.summonedOnTurnCycle = globalTurnCounter;
+								kobold.summonOrder = ++nextSummonOrder;
+								Card hb, pu, callCard;
+								for (const auto & c : allCards) {
+									if (c.name == "Hand Block") hb = c;
+									if (c.name == "Punch") pu = c;
+									if (c.type == CARD_CALL_FOR_KOBOLDS) callCard = c;
+								}
+								kobold.deck = { hb, hb, pu, callCard };
+								std::shuffle(kobold.deck.begin(), kobold.deck.end(), rng);
+
+								// Add to board
+								board[gx][gy].hasPlayer = true;
+								players.push_back(kobold);
+								ofLogNotice("Summon") << "Summoned Kobold " << koboldSummonCount;
+
+								// --- HANDLE LOGIC FLOW --
+								koboldsRemainingToPlace--;
+								if (koboldsRemainingToPlace > 0) {
+									// still placing
+								} else {
+									isPlacingKobolds = false;
+									koboldSummonStage = 0;
+									// --- CRITICAL FIX: CAPTURE ID BEFORE SORT ---
+									int myID = players[currentPlayerIndex].playerID;
+
+									// Re-sort turn order
+									std::sort(players.begin(), players.end(), [](const Player & a, const Player & b) {
+										int ownerA = a.isMinion ? a.ownerID : a.playerID;
+										int ownerB = b.isMinion ? b.ownerID : b.playerID;
+										if (ownerA != ownerB) return ownerA < ownerB;
+										if (a.isMinion && !b.isMinion) return true;
+										if (!a.isMinion && b.isMinion) return false;
+										return a.summonOrder < b.summonOrder;
+									});
+
+									// Fix current player index
+									for (size_t i = 0; i < players.size(); i++) {
+										if (players[i].playerID == myID) {
+											currentPlayerIndex = i;
+											break;
+										}
+									}
+								}
+
+								return; // Click handled
+							}
+						}
+					}
+				}
 			}
 		}
 		// 3a. Debug Spawn Logic
@@ -5634,7 +5833,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 		// 3g. End Turn Button (blocked during pending actions)
 		if (endTurnButtonRect.inside(x, y) && button == OF_MOUSE_BUTTON_LEFT) {
 			// Block end turn if there's a pending action that must be completed
-			bool hasPendingAction = isPlacingWolves || isWaitingForWolfCoin || isWaitingForMagicBoltRange || isTargetingMagicBolt || isWaitingForAttackDice || isWaitingForAmnesiaDice || isWaitingForMagicBlastDice || isWaitingForFireballRangeDice || isWaitingForFireballDamageDice || isWaitingForJoltRangeDice || isWaitingForBarrierDice || isWaitingForTeleportDice || isTargetingTeleport || isWaitingForHealDice || isWaitingForSummonHealth || isWaitingForTimeVortexDice || isWaitingForOnFireDice || isWaitingForParalysisCoin || isDoubleHandedMenuOpen || isTargetingDoubleHanded || isAmnesiaMenuOpen || isTargetingAmnesia || isTargetingTortoiseDamage;
+			bool hasPendingAction = isPlacingWolves || isWaitingForWolfCoin || isPlacingKobolds || isWaitingForKoboldDice || isWaitingForMagicBoltRange || isTargetingMagicBolt || isWaitingForAttackDice || isWaitingForAmnesiaDice || isWaitingForMagicBlastDice || isWaitingForFireballRangeDice || isWaitingForFireballDamageDice || isWaitingForJoltRangeDice || isWaitingForBarrierDice || isWaitingForTeleportDice || isTargetingTeleport || isWaitingForHealDice || isWaitingForSummonHealth || isWaitingForTimeVortexDice || isWaitingForOnFireDice || isWaitingForParalysisCoin || isDoubleHandedMenuOpen || isTargetingDoubleHanded || isAmnesiaMenuOpen || isTargetingAmnesia || isTargetingTortoiseDamage;
 			if (hasPendingAction) {
 				return; // Can't end turn during pending actions
 			}
@@ -6415,6 +6614,10 @@ void ofApp::continueNewTurn() {
 	else if (startingPlayer.isDemon) {
 		startDiceRoll(4, 4, PURPOSE_AP, "Demon AP Roll");
 	}
+	// Kobold AP: 1d4 (distinct from generic minions)
+	else if (startingPlayer.isKobold) {
+		startDiceRoll(1, 4, PURPOSE_AP, "Kobold AP Roll");
+	}
 	// Skeleton AP: 1d6
 	else if (startingPlayer.isMinion) {
 		startDiceRoll(1, 6, PURPOSE_AP, "Minion AP Roll");
@@ -7167,6 +7370,52 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 
 		isPlacingWolves = true;
 		wolfSummonStage = 1; // Start with the first wolf
+
+		playedSuccessfully = false; // Cleanup handled manually
+		invalidateTargetCache();
+		break;
+	}
+
+		// --- CASE: CALL FOR KOBOLDS ---
+	case CARD_CALL_FOR_KOBOLDS: {
+		// 1. Check for valid adjacent space BEFORE playing
+		bool hasSpace = false;
+		int cx = currentPlayer.x;
+		int cy = currentPlayer.y;
+		glm::vec2 adj[] = { { 1, 0 }, { -1, 0 }, { 0, 1 }, { 0, -1 } };
+		for (auto & d : adj) {
+			int nx = cx + (int)d.x;
+			int ny = cy + (int)d.y;
+			if (nx >= 0 && nx < BOARD_WIDTH && ny >= 0 && ny < BOARD_HEIGHT) {
+				if (!board[nx][ny].hasWall && !board[nx][ny].hasPlayer) {
+					hasSpace = true;
+					break;
+				}
+			}
+		}
+
+		if (!hasSpace) {
+			ofLogNotice("Kobolds") << "No adjacent space to summon kobolds!";
+			spawnFloatingText(gridToWorld(cx, cy), "No Space!", ofColor::red);
+			break; // Cancel card play
+		}
+
+		// 2. Pay Cost & Cleanup Hand
+		currentAP -= playedCard.cost;
+		currentPlayer.playedCardsPile.push_back(playedCard);
+		if (currentPlayer.isReplicatePending) {
+			currentPlayer.playedCardsPile.push_back(playedCard);
+			currentPlayer.isReplicatePending = false;
+		}
+		currentPlayer.hand.erase(currentPlayer.hand.begin() + cardIndex);
+
+		// 3. Setup State for Kobold roll and placement
+		koboldPlacementSourceX = currentPlayer.x;
+		koboldPlacementSourceY = currentPlayer.y;
+
+		// Roll 1d4 for number of kobolds
+		pendingSummonRollResult = startDiceRoll(1, 4, PURPOSE_SUMMON_KOBOLDS, "Call for Kobolds");
+		isWaitingForKoboldDice = true;
 
 		playedSuccessfully = false; // Cleanup handled manually
 		invalidateTargetCache();
@@ -8243,6 +8492,22 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 				if (!board[nx][ny].hasWall && !board[nx][ny].hasPlayer) {
 					board[nx][ny].isTargetable = true;
 					// Also make it green outline for visibility
+					board[nx][ny].isTargetPreview = true;
+				}
+			}
+		}
+		return;
+	}
+
+	// --- KOBOLD PLACEMENT HIGHLIGHTING ---
+	if (isPlacingKobolds && !isWaitingForKoboldDice) {
+		std::vector<glm::vec2> dirs = { { 0, 1 }, { 0, -1 }, { 1, 0 }, { -1, 0 } };
+		for (auto & dir : dirs) {
+			int nx = koboldPlacementSourceX + (int)dir.x;
+			int ny = koboldPlacementSourceY + (int)dir.y;
+			if (nx >= 0 && nx < BOARD_WIDTH && ny >= 0 && ny < BOARD_HEIGHT) {
+				if (!board[nx][ny].hasWall && !board[nx][ny].hasPlayer) {
+					board[nx][ny].isTargetable = true;
 					board[nx][ny].isTargetPreview = true;
 				}
 			}
@@ -10220,6 +10485,7 @@ CardType ofApp::stringToCardType(const std::string & str) {
 	if (str == "CARD_DRAIN_PUNCH") return CARD_DRAIN_PUNCH;
 	if (str == "CARD_DOUBLE_HANDED") return CARD_DOUBLE_HANDED;
 	if (str == "CARD_CALL_FOR_WOLVES") return CARD_CALL_FOR_WOLVES;
+	if (str == "CARD_CALL_FOR_KOBOLDS") return CARD_CALL_FOR_KOBOLDS;
 	if (str == "CARD_NECRO_BLESSING") return CARD_NECRO_BLESSING;
 	if (str == "CARD_TIME_VORTEX") return CARD_TIME_VORTEX;
 	if (str == "CARD_MASTER_FIST") return CARD_MASTER_FIST;
@@ -10350,7 +10616,7 @@ void ofApp::drawMinionManagerUI() {
 
 	float scale = ofGetHeight() / 1080.0f;
 
-	for (int i = 0; i < activeMinionUIs.size(); i++) {
+	for (size_t i = 0; i < activeMinionUIs.size(); i++) {
 		auto & ui = activeMinionUIs[i];
 		Player & minion = players[ui.playerIndex];
 
@@ -10411,6 +10677,15 @@ void ofApp::drawMinionManagerUI() {
 			glDepthMask(GL_TRUE);
 
 		}
+		// --- KOBOLD PREVIEW ---
+		else if (minion.isKobold) {
+			ofTranslate(modelFbo.getWidth() / 2, modelFbo.getHeight() / 2 + 30);
+			// Preview scale reduced by ~30%
+			ofScale(4.55f, -4.55f, 4.55f);
+			ofRotateXDeg(-15);
+			ofRotateYDeg(180 + ofGetElapsedTimef() * 30);
+			koboldModel.drawFaces();
+		}
 		// --- HELLHOUND PREVIEW ---
 		else if (minion.isHellhound) {
 			ofTranslate(modelFbo.getWidth() / 2, modelFbo.getHeight() / 2 + 10);
@@ -10469,6 +10744,8 @@ void ofApp::drawMinionManagerUI() {
 			name = "Hellhound ";
 		} else if (minion.isDemon) {
 			name = "Demon ";
+		} else if (minion.isKobold) {
+			name = "Kobold ";
 		} else {
 			name = "Skeleton ";
 		}

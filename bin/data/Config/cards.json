@@ -387,5 +387,14 @@
     "value": 3,
     "damageType": "DAMAGE_PHYSICAL",
     "targeting": "TARGET_ADJACENT_UNIT"
+  },
+  {
+    "id": 49,
+    "name": "Call for Kobolds",
+    "type": "CARD_CALL_FOR_KOBOLDS",
+    "cost": 4,
+    "numDice": 1,
+    "diceSides": 4,
+    "targeting": "TARGET_SELF"
   }
 ]

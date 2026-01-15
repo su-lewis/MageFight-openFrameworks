@@ -96,6 +96,7 @@ enum CardType {
 	CARD_DRAIN_PUNCH,
 	CARD_DOUBLE_HANDED,
 	CARD_CALL_FOR_WOLVES,
+	CARD_CALL_FOR_KOBOLDS,
 	CARD_NECRO_BLESSING,
 	CARD_TIME_VORTEX,
 	CARD_MASTER_FIST,
@@ -124,7 +125,8 @@ enum DicePurpose {
 	PURPOSE_BONUS_AP,
 	PURPOSE_TIME_VORTEX,
 	PURPOSE_DEATH_CHECK,
-	PURPOSE_SLEEP_DURATION
+	PURPOSE_SLEEP_DURATION,
+	PURPOSE_SUMMON_KOBOLDS
 };
 
 enum TargetValidity {
@@ -255,6 +257,7 @@ struct Player {
 	bool isGolem = false;
 	bool isHellhound = false;
 	bool isWolf = false;
+	bool isKobold = false;
 	bool isDemon = false;
 
 	// Tortoise Form
@@ -473,6 +476,7 @@ private:
 	ofxAssimpModelLoader playerModel;
 	ofxAssimpModelLoader skeletonModel;
 	ofxAssimpModelLoader wolfModel;
+	ofxAssimpModelLoader koboldModel;
 	ofxAssimpModelLoader golemModel;
 	ofxAssimpModelLoader hellhoundModel;
 	ofxAssimpModelLoader demonModel;
@@ -688,6 +692,15 @@ private:
 	int wolfPlacementSourceY = -1;
 	int wolfSummonCount = 0; // To track "Wolf 1", "Wolf 2"
 	int wolfSummonStage = 0; // 0=None, 1=First Wolf, 2=Second Wolf
+
+	// --- Call For Kobolds State ---
+	bool isWaitingForKoboldDice = false;
+	bool isPlacingKobolds = false;
+	int koboldsRemainingToPlace = 0;
+	int koboldPlacementSourceX = -1;
+	int koboldPlacementSourceY = -1;
+	int koboldSummonCount = 0;
+	int koboldSummonStage = 0;
 
 	// Time Vortex
 	bool isWaitingForTimeVortexDice = false;
