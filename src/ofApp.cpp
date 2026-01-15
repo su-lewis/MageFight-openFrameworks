@@ -3898,6 +3898,7 @@ void ofApp::drawGame() {
 			float drawX = card.currentPos.x - w / 2;
 			float drawY = card.currentPos.y - h / 2;
 
+			// Apply hover offsets
 			if (isTopCard) {
 				if (index == draggedCardIndex) {
 					drawX = card.currentPos.x - w / 2;
@@ -3908,16 +3909,16 @@ void ofApp::drawGame() {
 			}
 
 			// A. Draw Sprite
-			// If selecting for Renewed Inspiration and card is a copy, tint it grey (ghostly)
+			// Ghostly tint for copied cards in Renewed Inspiration mode
 			if (isSelectingRenewedInspiration && card.isCopied) {
-				ofSetColor(150, 150, 180); // Bluish-Grey tint
+				ofSetColor(200, 200, 255); // Subtle Blue-White tint
 			} else {
-				ofSetColor(255); // Normal white
+				ofSetColor(255); // Normal
 			}
 
 			cardSpriteSheet.drawSubsection(drawX, drawY, w, h, card.textureRect.x, card.textureRect.y, card.textureRect.width, card.textureRect.height);
 
-			// B. Draw Overlays (Outlines/Dims)
+			// B. Draw Overlays (Outlines/Dims) at the same depth as the card
 			if (isSelectingRenewedInspiration) {
 				bool isEligible = (card.drawnThisTurn || card.isCopied);
 				bool isSelected = false;
@@ -3925,11 +3926,11 @@ void ofApp::drawGame() {
 					if (sel == index) isSelected = true;
 
 				if (isSelected) {
-					// Green Border for Selected
+					// MATCH NORMAL GAMEPLAY: Yellow Selection
 					ofPushStyle();
 					ofNoFill();
-					ofSetColor(ofColor::limeGreen);
-					ofSetLineWidth(6);
+					ofSetColor(ofColor::yellow);
+					ofSetLineWidth(4);
 					ofDrawRectangle(drawX, drawY, w, h);
 					ofPopStyle();
 				} else if (!isEligible) {
@@ -8159,18 +8160,18 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		currentAP -= playedCard.cost;
 
 		// 2. Handle Replicate (BEFORE removing original from hand)
-		// If Replicate is pending, we create a copy and put it directly into the HAND
-		// so it can be selected for the discard effect.
+		// If Replicate is active, we create a copy, mark it as copied,
+		// and put it in the hand immediately so it can be discarded for value.
 		if (currentPlayer.isReplicatePending) {
 			Card copy = playedCard; // Copy data
-			copy.isCopied = true; // Mark as copied (making it eligible)
+			copy.isCopied = true; // Mark as copied (Essential for eligibility)
 
 			// Init position to match the card being played for a smooth visual pop-in
-			// (We access hand[cardIndex] safely because we haven't erased it yet)
 			copy.currentPos = currentPlayer.hand[cardIndex].currentPos;
 			copy.targetPos = currentPlayer.hand[cardIndex].targetPos;
 			copy.currentScale = currentPlayer.hand[cardIndex].currentScale;
 
+			// Add to hand
 			currentPlayer.hand.push_back(copy);
 			currentPlayer.isReplicatePending = false;
 
@@ -8181,8 +8182,10 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		currentPlayer.playedCardsPile.push_back(playedCard);
 		currentPlayer.cardsPlayedThisTurn.push_back(playedCard.type);
 
-		// 4. Remove Original from Hand
-		currentPlayer.hand.erase(currentPlayer.hand.begin() + cardIndex);
+		// 4. Remove Original from Hand (Using iterator to be safe)
+		if (cardIndex < currentPlayer.hand.size()) {
+			currentPlayer.hand.erase(currentPlayer.hand.begin() + cardIndex);
+		}
 
 		// 5. Enter Selection Mode
 		isSelectingRenewedInspiration = true;
