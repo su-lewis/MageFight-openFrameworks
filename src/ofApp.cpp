@@ -4751,21 +4751,25 @@ void ofApp::drawGame() {
 	ofDrawBitmapString("FPS: " + ofToString(ofGetFrameRate(), 2), 10, 20);
 }
 //--------------------------------------------------------------
-//--------------------------------------------------------------
 void ofApp::mouseMoved(int x, int y) {
 	// 1. Reset to default at the start of the check
 	currentCursor = CURSOR_DEFAULT;
 
-	// 2. Check for "Clickable" things (Buttons, Cards in Hand)
-	// Note: You may want to add other buttons here (like debug buttons, etc.)
+	// 2. Check for "Clickable" things (Buttons)
 	if (endTurnButtonRect.inside(x, y) || mainMenuPlayAIButton.inside(x, y) || mainMenuMultiplayerButton.inside(x, y) || mainMenuSettingsButton.inside(x, y) || mainMenuQuitButton.inside(x, y) || settingsBackButton.inside(x, y) || settingsResLeftButton.inside(x, y) || settingsResRightButton.inside(x, y) || settingsFrameLeftButton.inside(x, y) || settingsFrameRightButton.inside(x, y) || settingsFullscreenButton.inside(x, y) || pauseMenuResumeButton.inside(x, y) || pauseMenuSettingsButton.inside(x, y) || pauseMenuQuitButton.inside(x, y) ||
-		// Check deck/discard rects if they are clickable
-		p0_deckRect.inside(x, y) || p0_discardRect.inside(x, y) || p1_deckRect.inside(x, y) || p1_discardRect.inside(x, y)) {
+		// Check deck/discard rects
+		p0_deckRect.inside(x, y) || p0_discardRect.inside(x, y) || p1_deckRect.inside(x, y) || p1_discardRect.inside(x, y) ||
+		// Check Minion UI Decks/Discards
+		[&]() {
+			for (const auto & ui : activeMinionUIs) {
+				if (ui.deckRect.inside(x, y) || ui.discardRect.inside(x, y)) return true;
+			}
+			return false;
+		}()) {
 		currentCursor = CURSOR_CLICK;
 	}
 
-	// 3. Check for "Draggable" things (Cards in hand that can be played)
-	// Note: Since dragging overrides hovering, check this carefully
+	// 3. Check for "Draggable" things (Cards in hand)
 	if (!players.empty() && currentPlayerIndex >= 0) {
 		Player & p = players[currentPlayerIndex];
 		float handBaseCardWidth = 120;
@@ -4773,22 +4777,56 @@ void ofApp::mouseMoved(int x, int y) {
 		float baseCardHeight = handBaseCardWidth * aspectRatio;
 
 		for (Card & c : p.hand) {
-			// Calculate card bounds using current pos and scale for accuracy
 			float w = handBaseCardWidth * c.currentScale;
 			float h = baseCardHeight * c.currentScale;
 			ofRectangle cardRect(c.currentPos.x - w / 2, c.currentPos.y - h / 2, w, h);
 
 			if (cardRect.inside(x, y)) {
-				currentCursor = CURSOR_GRAB; // Show open hand when hovering a card
-				// Cards override buttons for cursor priority if overlapping
+				currentCursor = CURSOR_GRAB;
 			}
 		}
 	}
 
+	// 4. Check Board Interactions (Strict)
+	if (currentState == STATE_GAMEPLAY && currentCursor == CURSOR_DEFAULT) {
+		ofVec2f boardPos = mouseToBoard(x, y);
+		int gx = floor(boardPos.x);
+		int gy = floor(boardPos.y);
+
+		if (gx >= 0 && gx < BOARD_WIDTH && gy >= 0 && gy < BOARD_HEIGHT) {
+
+			bool isTargetingMode = (draggedCardIndex != -1) || (selectedCardIndex != -1) || isTargetingMagicBolt || isTargetingTeleport || isTargetingHellhound || isTargetingChainLightning || isTargetingAmnesia || isTargetingDoubleHanded || isTargetingTortoiseDamage;
+
+			bool isMovingMode = (playerAction == PIECE_SELECTED);
+
+			// 1. UNIT SELECT (Only if not targeting)
+			if (!isTargetingMode && !players.empty() && currentPlayerIndex >= 0) {
+				Player & p = players[currentPlayerIndex];
+				if (p.x == gx && p.y == gy) {
+					currentCursor = CURSOR_CLICK;
+					goto cursor_check_done; // Found match, exit logic
+				}
+			}
+
+			// 2. MOVEMENT (Only if unit is selected AND tile is yellow)
+			if (isMovingMode && board[gx][gy].isHighlighted) {
+				currentCursor = CURSOR_CLICK;
+				goto cursor_check_done;
+			}
+
+			// 3. TARGETING (Only if holding card AND tile is green)
+			if (isTargetingMode && board[gx][gy].isTargetable) {
+				currentCursor = CURSOR_CLICK;
+				goto cursor_check_done;
+			}
+		}
+	}
+cursor_check_done:;
+
+	// --- LOGIC UPDATES ---
 	switch (currentState) {
 	case STATE_GAMEPLAY: {
-
-		// Kobold placement is handled in mousePressed() (mirrors wolf behavior)
+		// ... (Keep existing Kobold logic) ...
 		bool isDiceSpinning = false;
 		for (const auto & roll : activeDiceRolls) {
 			if (!roll.isFinishedVisual) {
@@ -8269,20 +8307,19 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		spawnFloatingText(gridToWorld(currentPlayer.x, currentPlayer.y), "+" + ofToString(linkedCount) + " Fortify", ofColor::lightGray);
 		ofLogNotice("Fortify") << "Player " << currentPlayer.playerID << " gained " << linkedCount << " fortification.";
 
-		// Damage any other unit adjacent to any of the linked walls (once each)
+		// Damage any other unit orthogonally adjacent to any of the linked walls (no diagonals, skip caster)
 		std::set<int> damagedIndices;
 		for (const auto & p : visited) {
 			int wx = p.first, wy = p.second;
-			for (int dx = -1; dx <= 1; dx++) {
-				for (int dy = -1; dy <= 1; dy++) {
-					if (dx == 0 && dy == 0) continue;
-					int ux = wx + dx, uy = wy + dy;
-					if (ux < 0 || ux >= BOARD_WIDTH || uy < 0 || uy >= BOARD_HEIGHT) continue;
-					for (size_t i = 0; i < players.size(); i++) {
-						if (players[i].x == ux && players[i].y == uy) {
-							if (players[i].playerID == currentPlayer.playerID) continue; // skip caster
-							damagedIndices.insert((int)i);
-						}
+			// Only orthogonal directions
+			const int ortho[4][2] = { { 1, 0 }, { -1, 0 }, { 0, 1 }, { 0, -1 } };
+			for (int d = 0; d < 4; ++d) {
+				int ux = wx + ortho[d][0], uy = wy + ortho[d][1];
+				if (ux < 0 || ux >= BOARD_WIDTH || uy < 0 || uy >= BOARD_HEIGHT) continue;
+				for (size_t i = 0; i < players.size(); i++) {
+					if (players[i].x == ux && players[i].y == uy) {
+						if (players[i].playerID == currentPlayer.playerID) continue; // skip caster
+						damagedIndices.insert((int)i);
 					}
 				}
 			}
