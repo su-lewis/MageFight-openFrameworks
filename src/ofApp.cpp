@@ -7353,10 +7353,12 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 				spawnFloatingText(gridToWorld(target.x, target.y), "Magic Wall: x2 Magic", ofColor::purple);
 			}
 		} else if (type == DAMAGE_PHYSICAL && wallEffectCount > 0) {
-			// Halve for each wall effect, always round down, minimum 1 if original > 0
+			// Halve for each wall effect.
+			// Integer division automatically rounds down (floor).
+			// 2 -> 1 -> 0.
 			for (int i = 0; i < wallEffectCount; ++i) {
-				int before = calculatedDamage;
-				calculatedDamage = (calculatedDamage > 1) ? (calculatedDamage / 2) : 1;
+				calculatedDamage /= 2; // Simple integer division
+
 				// Show floating text for both attacker and defender if both are near a wall
 				if (i == 0 && targetNearWall)
 					spawnFloatingText(gridToWorld(target.x, target.y), "Magic Wall: 1/2 Phys", ofColor::purple);
