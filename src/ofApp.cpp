@@ -2394,12 +2394,19 @@ void ofApp::updateGame() {
 			// THEN execute all the game-related logic inside this block.
 			if (roll.purpose != PURPOSE_DEBUG && roll.purpose != PURPOSE_HP && roll.purpose != PURPOSE_HEALING) {
 				if (roll.purpose == PURPOSE_AP) {
-					currentAP = roll.result;
+					// Sum all finished AP dice rolls for this AP event
+					int apSum = 0;
+					for (const auto & r : activeDiceRolls) {
+						if (r.purpose == PURPOSE_AP && r.isFinishedVisual) {
+							apSum += r.result;
+						}
+					}
+					currentAP = apSum;
 					if (players[currentPlayerIndex].nextTurnAPBonus > 0) {
 						currentAP += players[currentPlayerIndex].nextTurnAPBonus;
 						players[currentPlayerIndex].nextTurnAPBonus = 0;
 					}
-					ofLogNotice("Game") << "AP Roll Finished: " << currentAP << " AP awarded.";
+					ofLogNotice("Game") << "AP Roll Finished: " << currentAP << " AP awarded (sum of all dice).";
 				} else if (roll.purpose == PURPOSE_SLEEP_DURATION) {
 					Player * t = getPlayer(pendingDeathTargetIndex);
 					if (t) {
