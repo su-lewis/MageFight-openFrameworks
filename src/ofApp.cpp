@@ -4756,10 +4756,19 @@ void ofApp::mouseMoved(int x, int y) {
 	currentCursor = CURSOR_DEFAULT;
 
 	// 2. Check for "Clickable" things (Buttons)
-	if (endTurnButtonRect.inside(x, y) || mainMenuPlayAIButton.inside(x, y) || mainMenuMultiplayerButton.inside(x, y) || mainMenuSettingsButton.inside(x, y) || mainMenuQuitButton.inside(x, y) || settingsBackButton.inside(x, y) || settingsResLeftButton.inside(x, y) || settingsResRightButton.inside(x, y) || settingsFrameLeftButton.inside(x, y) || settingsFrameRightButton.inside(x, y) || settingsFullscreenButton.inside(x, y) || pauseMenuResumeButton.inside(x, y) || pauseMenuSettingsButton.inside(x, y) || pauseMenuQuitButton.inside(x, y) ||
-		// Check deck/discard rects
-		p0_deckRect.inside(x, y) || p0_discardRect.inside(x, y) || p1_deckRect.inside(x, y) || p1_discardRect.inside(x, y) ||
-		// Check Minion UI Decks/Discards
+	bool overPauseMenuButton = false;
+	bool overMainMenuButton = false;
+	bool overSettingsButton = false;
+	if (currentState == STATE_PAUSED) {
+		overPauseMenuButton = pauseMenuResumeButton.inside(x, y) || pauseMenuSettingsButton.inside(x, y) || pauseMenuQuitButton.inside(x, y);
+	}
+	if (currentState == STATE_MAIN_MENU) {
+		overMainMenuButton = mainMenuPlayAIButton.inside(x, y) || mainMenuMultiplayerButton.inside(x, y) || mainMenuSettingsButton.inside(x, y) || mainMenuQuitButton.inside(x, y);
+	}
+	if (currentState == STATE_SETTINGS) {
+		overSettingsButton = settingsBackButton.inside(x, y) || settingsResLeftButton.inside(x, y) || settingsResRightButton.inside(x, y) || settingsFrameLeftButton.inside(x, y) || settingsFrameRightButton.inside(x, y) || settingsFullscreenButton.inside(x, y);
+	}
+	if (endTurnButtonRect.inside(x, y) || overMainMenuButton || overSettingsButton || overPauseMenuButton || p0_deckRect.inside(x, y) || p0_discardRect.inside(x, y) || p1_deckRect.inside(x, y) || p1_discardRect.inside(x, y) ||
 		[&]() {
 			for (const auto & ui : activeMinionUIs) {
 				if (ui.deckRect.inside(x, y) || ui.discardRect.inside(x, y)) return true;
@@ -4794,9 +4803,7 @@ void ofApp::mouseMoved(int x, int y) {
 		int gy = floor(boardPos.y);
 
 		if (gx >= 0 && gx < BOARD_WIDTH && gy >= 0 && gy < BOARD_HEIGHT) {
-
 			bool isTargetingMode = (draggedCardIndex != -1) || (selectedCardIndex != -1) || isTargetingMagicBolt || isTargetingTeleport || isTargetingHellhound || isTargetingChainLightning || isTargetingAmnesia || isTargetingDoubleHanded || isTargetingTortoiseDamage;
-
 			bool isMovingMode = (playerAction == PIECE_SELECTED);
 
 			// 1. UNIT SELECT (Only if not targeting)
@@ -4814,7 +4821,7 @@ void ofApp::mouseMoved(int x, int y) {
 				goto cursor_check_done;
 			}
 
-			// 3. TARGETING (Only if holding card AND tile is green)
+			// 3. TARGETING (Only if holding card AND tile is a valid (green) target)
 			if (isTargetingMode && board[gx][gy].isTargetable) {
 				currentCursor = CURSOR_CLICK;
 				goto cursor_check_done;
