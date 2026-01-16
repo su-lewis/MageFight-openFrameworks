@@ -1761,9 +1761,7 @@ void ofApp::updateGame() {
 					activeRemovedCardAnimations.push_back(anim);
 
 					removedCount++;
-				} else {
-					break; // Deck empty
-				}
+				} // If deck is empty, do nothing (no card removed)
 			}
 
 			if (removedCount > 0) {
@@ -6907,6 +6905,14 @@ void ofApp::startNewTurn() {
 		endingPlayer.nextAttackAddPoison = false; // Clear poison buff at end of turn
 		endingPlayer.flurryOfFistsActive = false; // Clear flurry buff at end of turn
 
+		// --- C. RESHUFFLE DISCARD INTO DECK IF DECK IS EMPTY ---
+		if (endingPlayer.deck.empty() && !endingPlayer.discardPile.empty()) {
+			endingPlayer.deck = endingPlayer.discardPile;
+			std::shuffle(endingPlayer.deck.begin(), endingPlayer.deck.end(), rng);
+			endingPlayer.discardPile.clear();
+			ofLogNotice("Deck") << "Reshuffled discard into deck for player " << endingPlayer.playerID;
+		}
+
 		// Decrement buff timers
 		if (endingPlayer.strengthenElementsTurnsRemaining > 0) {
 			endingPlayer.strengthenElementsTurnsRemaining--;
@@ -8676,38 +8682,29 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 				// We need the card data for the animation
 				Card removedCard = target->deck.back();
 				target->deck.pop_back();
+			} // If deck is empty, do nothing
 
-				// Reuse the Amnesia removal animation
-				RemovedCardAnimation anim;
-				anim.card = removedCard;
-				// Animate from the center of the screen
-				anim.startPos = { ofGetWidth() / 2.0f, ofGetHeight() / 2.0f };
-				anim.startTime = ofGetElapsedTimef();
-				activeRemovedCardAnimations.push_back(anim);
-
-				spawnFloatingText(gridToWorld(target->x, target->y), "Mind Shatter!", ofColor::purple);
-				ofLogNotice("Master Fist") << "Target's top card was removed.";
-			}
-
-			// --- 4. Buff the Caster ---
-			// +1 Luck
-			currentPlayer.luck++;
-			spawnFloatingText(
-				gridToWorld(currentPlayer.x, currentPlayer.y),
-				"+1 LUCK!",
-				ofColor::gold);
-
-			// +1 Max HP (and heal for 1)
-			currentPlayer.maxHealth++;
-			spawnFloatingText(
-				gridToWorld(currentPlayer.x, currentPlayer.y),
-				"+1 Max HP!",
-				ofColor::limeGreen);
-
-			ofLogNotice("Master Fist") << "Caster gained +1 Luck and +1 Max HP.";
-
-			playedSuccessfully = true;
+			// (Animation and floating text only inside the if-block above)
 		}
+
+		// --- 4. Buff the Caster ---
+		// +1 Luck
+		currentPlayer.luck++;
+		spawnFloatingText(
+			gridToWorld(currentPlayer.x, currentPlayer.y),
+			"+1 LUCK!",
+			ofColor::gold);
+
+		// +1 Max HP (and heal for 1)
+		currentPlayer.maxHealth++;
+		spawnFloatingText(
+			gridToWorld(currentPlayer.x, currentPlayer.y),
+			"+1 Max HP!",
+			ofColor::limeGreen);
+
+		ofLogNotice("Master Fist") << "Caster gained +1 Luck and +1 Max HP.";
+
+		playedSuccessfully = true;
 		break;
 	}
 

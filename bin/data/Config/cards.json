@@ -70,7 +70,7 @@
     "id": 9,
     "name": "Amnesia",
     "type": "CARD_AMNESIA",
-    "cost": 2,
+    "cost": 3,
     "value": 0,
     "targeting": "TARGET_ADJACENT_OR_SELF_UNIT",
     "numDice": 1,
