@@ -33,6 +33,14 @@
     "diceSides": 4
   },
   {
+    "id": 54,
+    "name": "Summon Magic Wall",
+    "type": "CARD_CREATE_WALL",
+    "cost": 2,
+    "targeting": "TARGET_EMPTY_ADJACENT",
+    "effect": "You choose an adjacent empty space or wall. It turns the wall, or creates a wall, and any units adjacent or diagonal to it take and deal double magic damage and half physical damage. The wall has a purple sheen."
+  },
+  {
     "id": 5,
     "name": "Ward",
     "type": "CARD_GAIN_WARD",

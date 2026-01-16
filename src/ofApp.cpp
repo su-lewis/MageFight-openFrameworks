@@ -1614,8 +1614,32 @@ void ofApp::updateGame() {
 			if (target) {
 				glm::vec3 targetPos = gridToWorld(target->x, target->y);
 
-				// Effect 1: Deal 7 Magic Damage
-				int damage = 7;
+				// Effect 1: Deal 7 Magic Damage (with Magic Wall stacking)
+				int baseDamage = 7;
+				// Check both caster and target for adjacency to magic wall
+				auto isAdjacentOrDiagonalToMagicWall = [&](int x, int y) {
+					for (int dx = -1; dx <= 1; ++dx) {
+						for (int dy = -1; dy <= 1; ++dy) {
+							if (dx == 0 && dy == 0) continue;
+							int nx = x + dx, ny = y + dy;
+							if (nx >= 0 && nx < BOARD_WIDTH && ny >= 0 && ny < BOARD_HEIGHT) {
+								if (board[nx][ny].hasWall && board[nx][ny].isMagicWall) return true;
+							}
+						}
+					}
+					return false;
+				};
+				int wallEffectCount = 0;
+				// Caster is currentPlayerIndex
+				if (isAdjacentOrDiagonalToMagicWall(target->x, target->y)) wallEffectCount++;
+				if (isAdjacentOrDiagonalToMagicWall(players[currentPlayerIndex].x, players[currentPlayerIndex].y)) wallEffectCount++;
+				int damage = baseDamage;
+				if (wallEffectCount > 0) {
+					damage *= (1 << wallEffectCount); // x2 for each
+					for (int i = 0; i < wallEffectCount; ++i) {
+						spawnFloatingText(targetPos, "Magic Wall: x2 Magic", ofColor::purple);
+					}
+				}
 
 				// Barrier Check
 				int barrierDmg = std::min(target->barrier, damage);
@@ -3338,6 +3362,58 @@ void ofApp::drawGame() {
 				float highlight_y = 0.06f;
 				if (board[x][y].hasWall) {
 					highlight_y = (TILE_SIZE * 0.5f) + 0.06f;
+
+					// 1. Draw the Wall Mesh
+					ofPushMatrix();
+					// Note: If wallMesh was built with Y-up, this rotate might be why.
+					// Adjusting to ensure sheen matches wallMesh exactly is tricky without seeing wallMesh gen.
+					// Assuming wallMesh uses Y-up from 0 to height.
+
+					// Using your exact transform from previous code:
+					ofTranslate(0, highlight_y - (TILE_SIZE * 0.4f), 0);
+					// The previous code had ofRotateXDeg(-90) here?
+					// If wallMesh was built "flat" on XY plane, that makes sense.
+					// But buildLevelMesh builds it XZ plane with Y height?
+					// Let's stick to the wallMesh draw code you provided, it works.
+					wallTexture.bind();
+					wallMesh.draw();
+					wallTexture.unbind();
+					ofPopMatrix();
+
+					// 2. Draw animated purple sheen overlay for magic wall
+					if (board[x][y].isMagicWall) {
+						float sheenAlpha = 90 + 60 * sin(ofGetElapsedTimef() * 2.0f + x * 0.7f + y * 0.5f);
+						ofFloatColor sheenColor(148.0f / 255.0f, 0.0f, 211.0f / 255.0f, sheenAlpha / 255.0f);
+
+						float wallW = TILE_SIZE;
+						float wallH = TILE_SIZE * 0.5f;
+						float epsilon = 0.02f;
+
+						// Overlap size to hide edge gaps
+						float overlap = epsilon * 4.0f;
+
+						ofTranslate(0, 0, 0);
+
+						// Top Face
+						ofPushMatrix();
+						ofTranslate(0, wallH + epsilon, 0);
+						ofRotateXDeg(90);
+						ofSetColor(sheenColor);
+						// Make rectangle slightly larger than the wall to cover edges
+						ofDrawRectangle(-(wallW + overlap) / 2, -(wallW + overlap) / 2, wallW + overlap, wallW + overlap);
+						ofPopMatrix();
+
+						// Side Faces
+						for (int i = 0; i < 4; ++i) {
+							ofPushMatrix();
+							ofRotateYDeg(i * 90.0f);
+							ofTranslate(0, wallH / 2, wallW / 2 + epsilon);
+							ofSetColor(sheenColor);
+							// Make rectangle slightly wider and taller
+							ofDrawRectangle(-(wallW + overlap) / 2, -(wallH + overlap) / 2, wallW + overlap, wallH + overlap);
+							ofPopMatrix();
+						}
+					}
 				}
 
 				if (board[x][y].isHighlighted) {
@@ -7194,6 +7270,29 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 	Card playedCard = currentPlayer.hand[cardIndex];
 	if (currentAP < playedCard.cost) return;
 
+	// --- Magic Wall Placement/Transformation ---
+	if (playedCard.type == CARD_CREATE_WALL && playedCard.name == "Summon Magic Wall") {
+		// Allow placing on empty adjacent tile or transforming an adjacent wall
+		if (targetX >= 0 && targetX < BOARD_WIDTH && targetY >= 0 && targetY < BOARD_HEIGHT) {
+			Tile & tile = board[targetX][targetY];
+			if (!tile.hasWall && !tile.hasPlayer) {
+				tile.hasWall = true;
+				tile.isMagicWall = true;
+				buildLevelMesh();
+				invalidateTargetCache();
+			} else if (tile.hasWall) {
+				tile.isMagicWall = true;
+				buildLevelMesh();
+				invalidateTargetCache();
+			}
+		}
+		// Remove card from hand and pay cost
+		currentAP -= playedCard.cost;
+		currentPlayer.playedCardsPile.push_back(playedCard);
+		currentPlayer.hand.erase(currentPlayer.hand.begin() + cardIndex);
+		return;
+	}
+
 	// --- 1. DEFINE DAMAGE HELPER LAMBDA ---
 	auto applyDamage = [&](Player & target, int damage, DamageType type) -> bool {
 		string typeLabel = "";
@@ -7222,6 +7321,49 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		}
 
 		int calculatedDamage = damage;
+
+		// --- Magic Wall Effect: double magic, half physical damage for adjacent/diagonal ---
+		auto isAdjacentOrDiagonalToMagicWall = [&](int x, int y) {
+			for (int dx = -1; dx <= 1; ++dx) {
+				for (int dy = -1; dy <= 1; ++dy) {
+					if (dx == 0 && dy == 0) continue;
+					int nx = x + dx, ny = y + dy;
+					if (nx >= 0 && nx < BOARD_WIDTH && ny >= 0 && ny < BOARD_HEIGHT) {
+						if (board[nx][ny].hasWall && board[nx][ny].isMagicWall) return true;
+					}
+				}
+			}
+			return false;
+		};
+		// Check both attacker and target for adjacency to magic wall
+		int wallEffectCount = 0;
+		Player * attackerPtr = nullptr;
+		if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) {
+			attackerPtr = &players[currentPlayerIndex];
+		}
+		bool targetNearWall = isAdjacentOrDiagonalToMagicWall(target.x, target.y);
+		bool attackerNearWall = false;
+		if (attackerPtr && attackerPtr != &target) {
+			attackerNearWall = isAdjacentOrDiagonalToMagicWall(attackerPtr->x, attackerPtr->y);
+		}
+		wallEffectCount = (targetNearWall ? 1 : 0) + (attackerNearWall ? 1 : 0);
+		if (type == DAMAGE_MAGIC && wallEffectCount > 0) {
+			calculatedDamage *= (1 << wallEffectCount); // x2 for each
+			for (int i = 0; i < wallEffectCount; ++i) {
+				spawnFloatingText(gridToWorld(target.x, target.y), "Magic Wall: x2 Magic", ofColor::purple);
+			}
+		} else if (type == DAMAGE_PHYSICAL && wallEffectCount > 0) {
+			// Halve for each wall effect, always round down, minimum 1 if original > 0
+			for (int i = 0; i < wallEffectCount; ++i) {
+				int before = calculatedDamage;
+				calculatedDamage = (calculatedDamage > 1) ? (calculatedDamage / 2) : 1;
+				// Show floating text for both attacker and defender if both are near a wall
+				if (i == 0 && targetNearWall)
+					spawnFloatingText(gridToWorld(target.x, target.y), "Magic Wall: 1/2 Phys", ofColor::purple);
+				else if (i == 1 && attackerNearWall)
+					spawnFloatingText(gridToWorld(attackerPtr->x, attackerPtr->y), "Magic Wall: 1/2 Phys", ofColor::purple);
+			}
+		}
 
 		// --- 1. Hellhound & Demon Vulnerability ---
 		// Both take double Holy damage
@@ -9308,15 +9450,24 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 				int distGrid = abs(x - px) + abs(y - py);
 				if (distGrid == 1) {
 					isPreview = true;
-					if (card.type == CARD_ROCK_CRUSH || card.type == CARD_FORTIFY || card.type == CARD_DEMOLITION) {
+
+					// 1. Special Case: Summon Magic Wall
+					// Can target empty tile OR existing wall to transform it
+					if (card.name == "Summon Magic Wall") {
+						if ((!board[x][y].hasWall && !board[x][y].hasPlayer) || board[x][y].hasWall) {
+							isValidTarget = true;
+						}
+					}
+					// 2. Wall Destruction / Fortification
+					else if (card.type == CARD_ROCK_CRUSH || card.type == CARD_FORTIFY || card.type == CARD_DEMOLITION) {
 						if (board[x][y].hasWall || board[x][y].hasPlayer) isValidTarget = true;
 					}
-					// --- FIX IS HERE: Add CARD_SUMMON_HELLHOUND to this list ---
+					// 3. Standard Summoning / Creation (Must be empty)
 					else if (card.type == CARD_CALL_FOR_WOLVES || card.type == CARD_SUMMON_GOLEM || card.type == CARD_RAISE_DEAD || card.type == CARD_CREATE_WALL || card.type == CARD_SUMMON_HELLHOUND || card.type == CARD_SUMMON_DEMON) {
-
 						if (!board[x][y].hasWall && !board[x][y].hasPlayer) isValidTarget = true;
-					} else {
-						// Default attack logic (requires player)
+					}
+					// 4. Default Attack (Must have unit)
+					else {
 						if (board[x][y].hasPlayer && !board[x][y].hasWall) isValidTarget = true;
 					}
 				}

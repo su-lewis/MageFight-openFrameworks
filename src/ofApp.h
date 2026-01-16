@@ -224,6 +224,7 @@ struct RemovedCardAnimation {
 struct Tile {
 	bool hasPlayer = false;
 	bool hasWall = false;
+	bool isMagicWall = false; // New: true if this wall is a magic wall
 	bool isHighlighted = false;
 	bool isTargetable = false;
 	bool isTargetPreview = false;
