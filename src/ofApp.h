@@ -1,5 +1,6 @@
 #pragma once
-
+#define GLFW_INCLUDE_NONE
+#include "GLFW/glfw3.h"
 #include "ofMain.h"
 #include "ofxAssimpModelLoader.h"
 #include <algorithm>
@@ -150,6 +151,13 @@ enum PileViewMode {
 	VIEW_NONE,
 	VIEW_DECK,
 	VIEW_DISCARD
+};
+
+enum CursorState {
+	CURSOR_DEFAULT, // Standard arrow
+	CURSOR_CLICK, // Pointing finger (hovering buttons/cards)
+	CURSOR_GRAB, // Open hand (hovering draggable items)
+	CURSOR_HOLD // Closed fist (actively dragging)
 };
 
 // =================================================================================================
@@ -835,4 +843,16 @@ private:
 	ofRectangle cardSpawnerCloseButton;
 	ofRectangle encyclopediaCloseButton;
 	ofRectangle encyclopediaRect;
+
+	// We still load the sheet to generate the data
+	ofImage cursorSheet;
+
+	// Store pointers to the OS cursors
+	GLFWcursor * glfwArrow = nullptr;
+	GLFWcursor * glfwHandPoint = nullptr;
+	GLFWcursor * glfwHandOpen = nullptr;
+	GLFWcursor * glfwHandClosed = nullptr;
+
+	CursorState currentCursor = CURSOR_DEFAULT;
+	CursorState previousCursor = CURSOR_DEFAULT; // To track changes
 };

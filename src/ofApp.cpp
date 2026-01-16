@@ -9,6 +9,43 @@
 #include <set>
 
 //--------------------------------------------------------------
+ofPixels scalePixelsNearest(ofPixels & src, int scale) {
+	int w = src.getWidth();
+	int h = src.getHeight();
+	int newW = w * scale;
+	int newH = h * scale;
+
+	ofPixels dst;
+	dst.allocate(newW, newH, OF_PIXELS_RGBA);
+
+	for (int y = 0; y < newH; y++) {
+		for (int x = 0; x < newW; x++) {
+			// Sample the nearest original pixel
+			dst.setColor(x, y, src.getColor(x / scale, y / scale));
+		}
+	}
+	return dst;
+}
+//--------------------------------------------------------------
+// Add this helper to create the GLFW cursor
+GLFWcursor * createHardwareCursor(ofImage & sheet, int x, int y, int w, int h, int xHot, int yHot, int scale) {
+	// 1. Crop
+	ofImage temp;
+	temp.cropFrom(sheet, x, y, w, h);
+
+	// 2. Scale up (Nearest Neighbor)
+	ofPixels scaledPix = scalePixelsNearest(temp.getPixels(), scale);
+
+	// 3. Convert to GLFW format
+	GLFWimage glfwImg;
+	glfwImg.width = scaledPix.getWidth();
+	glfwImg.height = scaledPix.getHeight();
+	glfwImg.pixels = scaledPix.getData();
+
+	// 4. Create (Hotspot also needs scaling)
+	return glfwCreateCursor(&glfwImg, xHot * scale, yHot * scale);
+}
+//--------------------------------------------------------------
 void ofApp::setup() {
 	ofSetEscapeQuitsApp(false);
 	ofSetVerticalSync(true);
@@ -507,8 +544,29 @@ void ofApp::setup() {
 	isFullscreen = true;
 	// Fullscreen is now set in main.cpp
 	applySettings();
-}
 
+	// 1. Load Sheet
+	cursorSheet.load("UI/cursors.png"); // Use your path
+
+	// 2. Create Hardware Cursors (Scale 2x)
+	// Args: Sheet, cropX, cropY, w, h, hotSpotX, hotSpotY, scale
+
+	// Arrow (Hotspot top-left: 0,0)
+	glfwArrow = createHardwareCursor(cursorSheet, 0, 0, 16, 16, 0, 0, 2);
+
+	// Pointing Hand (Hotspot tip of finger: approx 4,0)
+	glfwHandPoint = createHardwareCursor(cursorSheet, 16, 48, 16, 16, 4, 0, 2);
+
+	// Open Hand (Hotspot center: 8,8)
+	glfwHandOpen = createHardwareCursor(cursorSheet, 48, 48, 16, 16, 8, 8, 2);
+
+	// Closed Fist (Hotspot center: 8,8)
+	glfwHandClosed = createHardwareCursor(cursorSheet, 64, 48, 16, 16, 8, 8, 2);
+
+	// 3. Set Initial
+	GLFWwindow * window = (GLFWwindow *)ofGetWindowPtr()->getWindowContext();
+	glfwSetCursor(window, glfwArrow);
+}
 //--------------------------------------------------------------
 Player * ofApp::getPlayer(int index) {
 	if (index >= 0 && index < static_cast<int>(players.size())) {
@@ -550,6 +608,30 @@ void ofApp::update() {
 		break;
 	case STATE_PAUSED:
 		break;
+	}
+
+	// --- PASTE THIS HERE: HARDWARE CURSOR UPDATE ---
+	if (currentCursor != previousCursor) {
+		// Get the underlying GLFW window
+		GLFWwindow * window = (GLFWwindow *)ofGetWindowPtr()->getWindowContext();
+
+		if (window) {
+			switch (currentCursor) {
+			case CURSOR_DEFAULT:
+				glfwSetCursor(window, glfwArrow);
+				break;
+			case CURSOR_CLICK:
+				glfwSetCursor(window, glfwHandPoint);
+				break;
+			case CURSOR_GRAB:
+				glfwSetCursor(window, glfwHandOpen);
+				break;
+			case CURSOR_HOLD:
+				glfwSetCursor(window, glfwHandClosed);
+				break;
+			}
+		}
+		previousCursor = currentCursor;
 	}
 }
 //--------------------------------------------------------------
@@ -4662,7 +4744,40 @@ void ofApp::drawGame() {
 	ofDrawBitmapString("FPS: " + ofToString(ofGetFrameRate(), 2), 10, 20);
 }
 //--------------------------------------------------------------
+//--------------------------------------------------------------
 void ofApp::mouseMoved(int x, int y) {
+	// 1. Reset to default at the start of the check
+	currentCursor = CURSOR_DEFAULT;
+
+	// 2. Check for "Clickable" things (Buttons, Cards in Hand)
+	// Note: You may want to add other buttons here (like debug buttons, etc.)
+	if (endTurnButtonRect.inside(x, y) || mainMenuPlayAIButton.inside(x, y) || mainMenuMultiplayerButton.inside(x, y) || mainMenuSettingsButton.inside(x, y) || mainMenuQuitButton.inside(x, y) || settingsBackButton.inside(x, y) || settingsResLeftButton.inside(x, y) || settingsResRightButton.inside(x, y) || settingsFrameLeftButton.inside(x, y) || settingsFrameRightButton.inside(x, y) || settingsFullscreenButton.inside(x, y) || pauseMenuResumeButton.inside(x, y) || pauseMenuSettingsButton.inside(x, y) || pauseMenuQuitButton.inside(x, y) ||
+		// Check deck/discard rects if they are clickable
+		p0_deckRect.inside(x, y) || p0_discardRect.inside(x, y) || p1_deckRect.inside(x, y) || p1_discardRect.inside(x, y)) {
+		currentCursor = CURSOR_CLICK;
+	}
+
+	// 3. Check for "Draggable" things (Cards in hand that can be played)
+	// Note: Since dragging overrides hovering, check this carefully
+	if (!players.empty() && currentPlayerIndex >= 0) {
+		Player & p = players[currentPlayerIndex];
+		float handBaseCardWidth = 120;
+		float aspectRatio = 585.0f / 409.0f;
+		float baseCardHeight = handBaseCardWidth * aspectRatio;
+
+		for (Card & c : p.hand) {
+			// Calculate card bounds using current pos and scale for accuracy
+			float w = handBaseCardWidth * c.currentScale;
+			float h = baseCardHeight * c.currentScale;
+			ofRectangle cardRect(c.currentPos.x - w / 2, c.currentPos.y - h / 2, w, h);
+
+			if (cardRect.inside(x, y)) {
+				currentCursor = CURSOR_GRAB; // Show open hand when hovering a card
+				// Cards override buttons for cursor priority if overlapping
+			}
+		}
+	}
+
 	switch (currentState) {
 	case STATE_GAMEPLAY: {
 
@@ -4791,6 +4906,8 @@ void ofApp::mouseMoved(int x, int y) {
 				hoveredPilePlayerIndex = newHoveredPileIndex;
 				pileHoverStartTime = ofGetElapsedTimef();
 			}
+			// Add cursor change for pile interaction
+			currentCursor = CURSOR_CLICK;
 		} else {
 			isHoveringPile = false;
 			if (isShowingPileView && !pileViewRect.inside(x, y)) {
@@ -6288,6 +6405,10 @@ void ofApp::mousePressed(int x, int y, int button) {
 }
 //--------------------------------------------------------------
 void ofApp::mouseDragged(int x, int y, int button) {
+	// If we are actively dragging a card, change to the closed fist
+	if (draggedCardIndex != -1) {
+		currentCursor = CURSOR_HOLD;
+	}
 	if (currentState != STATE_GAMEPLAY) return;
 
 	if (button == OF_MOUSE_BUTTON_RIGHT) {
@@ -6362,6 +6483,9 @@ void ofApp::mouseDragged(int x, int y, int button) {
 
 //--------------------------------------------------------------
 void ofApp::mouseReleased(int x, int y, int button) {
+	// Reset to default or check hover state again
+	currentCursor = CURSOR_DEFAULT;
+
 	if (currentState != STATE_GAMEPLAY) return;
 
 	bool isDiceSpinning = false;
