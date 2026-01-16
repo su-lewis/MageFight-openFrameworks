@@ -27,23 +27,19 @@ ofPixels scalePixelsNearest(ofPixels & src, int scale) {
 	return dst;
 }
 //--------------------------------------------------------------
-// Add this helper to create the GLFW cursor
-GLFWcursor * createHardwareCursor(ofImage & sheet, int x, int y, int w, int h, int xHot, int yHot, int scale) {
-	// 1. Crop
-	ofImage temp;
-	temp.cropFrom(sheet, x, y, w, h);
-
-	// 2. Scale up (Nearest Neighbor)
-	ofPixels scaledPix = scalePixelsNearest(temp.getPixels(), scale);
-
-	// 3. Convert to GLFW format
+// Helper to create a GLFW cursor from a PNG file
+GLFWcursor * createGLFWCursorFromPNG(const std::string & path, int xHot, int yHot) {
+	ofImage img;
+	if (!img.load(path)) {
+		ofLogError("Cursor") << "Failed to load cursor: " << path;
+		return nullptr;
+	}
+	img.setImageType(OF_IMAGE_COLOR_ALPHA);
 	GLFWimage glfwImg;
-	glfwImg.width = scaledPix.getWidth();
-	glfwImg.height = scaledPix.getHeight();
-	glfwImg.pixels = scaledPix.getData();
-
-	// 4. Create (Hotspot also needs scaling)
-	return glfwCreateCursor(&glfwImg, xHot * scale, yHot * scale);
+	glfwImg.width = img.getWidth();
+	glfwImg.height = img.getHeight();
+	glfwImg.pixels = img.getPixels().getData();
+	return glfwCreateCursor(&glfwImg, xHot, yHot);
 }
 //--------------------------------------------------------------
 void ofApp::setup() {
@@ -545,27 +541,15 @@ void ofApp::setup() {
 	// Fullscreen is now set in main.cpp
 	applySettings();
 
-	// 1. Load Sheet
-	cursorSheet.load("UI/cursors.png"); // Use your path
+	// Load PNG cursors from UI folder
+	glfwArrow = createGLFWCursorFromPNG("UI/pointer.png", 0, 0); // pointer.png, hotspot top-left
+	glfwHandPoint = createGLFWCursorFromPNG("UI/link.png", 0, 0); // link.png, hotspot top-left
+	glfwHandOpen = createGLFWCursorFromPNG("UI/grab_hover.png", 8, 8); // grab_hover.png, hotspot center
+	glfwHandClosed = createGLFWCursorFromPNG("UI/grab.png", 8, 8); // grab.png, hotspot center
 
-	// 2. Create Hardware Cursors (Scale 2x)
-	// Args: Sheet, cropX, cropY, w, h, hotSpotX, hotSpotY, scale
-
-	// Arrow (Hotspot top-left: 0,0)
-	glfwArrow = createHardwareCursor(cursorSheet, 0, 0, 16, 16, 0, 0, 2);
-
-	// Pointing Hand (Hotspot tip of finger: approx 4,0)
-	glfwHandPoint = createHardwareCursor(cursorSheet, 16, 48, 16, 16, 4, 0, 2);
-
-	// Open Hand (Hotspot center: 8,8)
-	glfwHandOpen = createHardwareCursor(cursorSheet, 48, 48, 16, 16, 8, 8, 2);
-
-	// Closed Fist (Hotspot center: 8,8)
-	glfwHandClosed = createHardwareCursor(cursorSheet, 64, 48, 16, 16, 8, 8, 2);
-
-	// 3. Set Initial
+	// Set initial cursor
 	GLFWwindow * window = (GLFWwindow *)ofGetWindowPtr()->getWindowContext();
-	glfwSetCursor(window, glfwArrow);
+	if (glfwArrow) glfwSetCursor(window, glfwArrow);
 }
 //--------------------------------------------------------------
 Player * ofApp::getPlayer(int index) {
@@ -612,22 +596,20 @@ void ofApp::update() {
 
 	// --- PASTE THIS HERE: HARDWARE CURSOR UPDATE ---
 	if (currentCursor != previousCursor) {
-		// Get the underlying GLFW window
 		GLFWwindow * window = (GLFWwindow *)ofGetWindowPtr()->getWindowContext();
-
 		if (window) {
 			switch (currentCursor) {
 			case CURSOR_DEFAULT:
-				glfwSetCursor(window, glfwArrow);
+				if (glfwArrow) glfwSetCursor(window, glfwArrow);
 				break;
 			case CURSOR_CLICK:
-				glfwSetCursor(window, glfwHandPoint);
+				if (glfwHandPoint) glfwSetCursor(window, glfwHandPoint);
 				break;
 			case CURSOR_GRAB:
-				glfwSetCursor(window, glfwHandOpen);
+				if (glfwHandOpen) glfwSetCursor(window, glfwHandOpen);
 				break;
 			case CURSOR_HOLD:
-				glfwSetCursor(window, glfwHandClosed);
+				if (glfwHandClosed) glfwSetCursor(window, glfwHandClosed);
 				break;
 			}
 		}
