@@ -1622,6 +1622,95 @@ void ofApp::updateGame() {
 		pendingHealTargetIndex = -1;
 	}
 
+	// --- PSIONIC WAVE: RANGE RESOLUTION ---
+	if (isWaitingForPsionicRange && activeDiceRolls.empty()) {
+		isWaitingForPsionicRange = false;
+
+		// 1. Calculate Radius
+		// "Automatically have at least 3 range" -> Roll + 3 feet
+		// Note: 2d20 minimum is 2. 2+3 = 5ft. This covers adjacent squares (distance 0 to 5ft).
+		int radiusFeet = pendingPsionicRangeResult + 3;
+		float radiusUnits = radiusFeet / 5.0f;
+
+		Player & caster = players[currentPlayerIndex];
+		glm::vec2 casterTile((float)caster.x, (float)caster.y);
+
+		psionicWaveTargetIndices.clear();
+
+		ofLogNotice("Psionic") << "Range Roll: " << pendingPsionicRangeResult << " + 3 = " << radiusFeet << "ft radius.";
+
+		// 2. Identify Targets (Circular, Through Walls)
+		for (size_t i = 0; i < players.size(); ++i) {
+			// Skip Self
+			if ((int)i == currentPlayerIndex) continue;
+
+			// Check Distance
+			// Psionic Wave goes through walls, so use standard Euclidean distance between tiles
+			// Convert tiles to feet: * 5.0f
+			float distFeet = glm::distance(casterTile, glm::vec2(players[i].x, players[i].y)) * 5.0f;
+
+			// Allow hit if center-to-center distance is within radius
+			// (Using 0.1 buffer for float errors)
+			if (distFeet <= radiusFeet + 0.1f) {
+				psionicWaveTargetIndices.push_back((int)i);
+
+				// Visual feedback for being targeted
+				glm::vec3 tPos = gridToWorld(players[i].x, players[i].y);
+				spawnFloatingText(tPos, "Targeted!", ofColor::magenta);
+			}
+		}
+
+		if (psionicWaveTargetIndices.empty()) {
+			spawnFloatingText(gridToWorld(caster.x, caster.y), "No Targets in Range", ofColor::gray);
+		} else {
+			// 3. Roll for Effect (2d4 Cards)
+			pendingPsionicAmountResult = startDiceRoll(2, 4, PURPOSE_PSIONIC_WAVE_AMOUNT, "Psionic Wave: Cards to Remove");
+			isWaitingForPsionicAmount = true;
+		}
+	}
+
+	// --- PSIONIC WAVE: EFFECT RESOLUTION ---
+	if (isWaitingForPsionicAmount && activeDiceRolls.empty()) {
+		isWaitingForPsionicAmount = false;
+
+		int cardsToRemove = pendingPsionicAmountResult;
+		ofLogNotice("Psionic") << "Removing " << cardsToRemove << " cards from " << psionicWaveTargetIndices.size() << " targets.";
+
+		for (int pIndex : psionicWaveTargetIndices) {
+			Player * target = getPlayer(pIndex);
+			if (!target) continue;
+
+			int removedCount = 0;
+			// Remove top cards
+			for (int k = 0; k < cardsToRemove; k++) {
+				if (!target->deck.empty()) {
+					// Logic to remove
+					Card c = target->deck.back();
+					target->deck.pop_back();
+
+					// Spawn animation for visual feedback (Flying card disappearing)
+					RemovedCardAnimation anim;
+					anim.card = c;
+					anim.startPos = gridToWorld(target->x, target->y); // Fly from unit
+					anim.startTime = ofGetElapsedTimef();
+					anim.currentScale = 1.0f;
+					activeRemovedCardAnimations.push_back(anim);
+
+					removedCount++;
+				} else {
+					break; // Deck empty
+				}
+			}
+
+			if (removedCount > 0) {
+				spawnFloatingText(gridToWorld(target->x, target->y), "-" + ofToString(removedCount) + " Cards", ofColor::purple);
+			} else {
+				spawnFloatingText(gridToWorld(target->x, target->y), "Deck Empty!", ofColor::gray);
+			}
+		}
+		psionicWaveTargetIndices.clear();
+	}
+
 	// --- Time Vortex Logic ---
 	if (isWaitingForTimeVortexDice && activeDiceRolls.empty()) {
 		isWaitingForTimeVortexDice = false; // Stop waiting
@@ -6070,7 +6159,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 		// 3g. End Turn Button (blocked during pending actions)
 		if (endTurnButtonRect.inside(x, y) && button == OF_MOUSE_BUTTON_LEFT) {
 			// Block end turn if there's a pending action that must be completed
-			bool hasPendingAction = isPlacingWolves || isWaitingForWolfCoin || isPlacingKobolds || isWaitingForKoboldDice || isWaitingForMagicBoltRange || isTargetingMagicBolt || isWaitingForAttackDice || isWaitingForAmnesiaDice || isWaitingForMagicBlastDice || isWaitingForFireballRangeDice || isWaitingForFireballDamageDice || isWaitingForJoltRangeDice || isWaitingForBarrierDice || isWaitingForTeleportDice || isTargetingTeleport || isWaitingForHealDice || isWaitingForSummonHealth || isWaitingForTimeVortexDice || isWaitingForOnFireDice || isWaitingForParalysisCoin || isDoubleHandedMenuOpen || isTargetingDoubleHanded || isAmnesiaMenuOpen || isWaitingForInspirationDice || isTargetingAmnesia || isTargetingTortoiseDamage;
+			bool hasPendingAction = isPlacingWolves || isWaitingForWolfCoin || isPlacingKobolds || isWaitingForKoboldDice || isWaitingForMagicBoltRange || isTargetingMagicBolt || isWaitingForAttackDice || isWaitingForAmnesiaDice || isWaitingForMagicBlastDice || isWaitingForFireballRangeDice || isWaitingForFireballDamageDice || isWaitingForJoltRangeDice || isWaitingForBarrierDice || isWaitingForTeleportDice || isTargetingTeleport || isWaitingForHealDice || isWaitingForSummonHealth || isWaitingForTimeVortexDice || isWaitingForOnFireDice || isWaitingForParalysisCoin || isDoubleHandedMenuOpen || isTargetingDoubleHanded || isAmnesiaMenuOpen || isWaitingForInspirationDice || isTargetingAmnesia || isTargetingTortoiseDamage || isWaitingForPsionicRange || isWaitingForPsionicAmount;
 			if (hasPendingAction) {
 				return; // Can't end turn during pending actions
 			}
@@ -8092,6 +8181,15 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		break;
 	}
 
+		// --- CASE: PSIONIC WAVE ---
+	case CARD_PSIONIC_WAVE: {
+		// Roll 2d20 for Range
+		pendingPsionicRangeResult = startDiceRoll(playedCard.numDice, playedCard.diceSides, PURPOSE_PSIONIC_WAVE_RANGE, "Psionic Wave: Range");
+		isWaitingForPsionicRange = true;
+		playedSuccessfully = true;
+		break;
+	}
+
 	// --- CASE: DRAIN PUNCH ---
 	case CARD_DRAIN_PUNCH: {
 		int targetIndex = -1;
@@ -8915,7 +9013,33 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 
 			// --- FLAIL HIGHLIGHTING ---
 			case TARGET_SELF: {
-				if (card.type == CARD_FLAIL) {
+				// Special handling for Psionic Wave which uses TARGET_SELF but affects area
+				if (card.type == CARD_PSIONIC_WAVE) {
+					// 1. Calculate Max Possible Radius
+					// Max roll on 2d20 is 40. +3 base = 43 feet.
+					// Convert to grid units: 43 / 5 = 8.6 tiles radius.
+					float maxRadiusFeet = 43.0f;
+
+					// 2. Calculate Distance (Euclidean, ignores walls)
+					// We use center-to-center distance for the circular wave check
+					float distFeet = glm::distance(casterPos, targetPos) * 5.0f;
+
+					// 3. Highlight Logic
+					if (distFeet <= maxRadiusFeet + 0.1f) {
+						isPreview = true; // Red Square (Potential Range)
+
+						// If a unit is here (and not self), it's a valid target
+						if (board[x][y].hasPlayer && (x != px || y != py)) {
+							isValidTarget = true; // Green Outline (Potential Hit)
+						}
+					}
+
+					// Ensure caster tile handles clicks correctly
+					if (x == px && y == py) {
+						if (hasEnoughAP) board[x][y].isTargetable = true;
+						continue;
+					}
+				} else if (card.type == CARD_FLAIL) {
 					int dx = x - px;
 					int dy = y - py;
 
@@ -9023,6 +9147,7 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 				}
 				break;
 			}
+
 			case TARGET_ADJACENT_UNIT:
 			case TARGET_ADJACENT_UNIT_OR_WALL:
 			case TARGET_EMPTY_ADJACENT: {
@@ -10821,6 +10946,7 @@ CardType ofApp::stringToCardType(const std::string & str) {
 	if (str == "CARD_FORM_OF_TORTOISE") return CARD_FORM_OF_TORTOISE;
 	if (str == "CARD_RENEWED_INSPIRATION") return CARD_RENEWED_INSPIRATION;
 	if (str == "CARD_INSPIRATION") return CARD_INSPIRATION;
+	if (str == "CARD_PSIONIC_WAVE") return CARD_PSIONIC_WAVE;
 
 	return CARD_NONE;
 }

@@ -113,7 +113,8 @@ enum CardType {
 	CARD_FORM_OF_TORTOISE,
 	CARD_CALL_FOR_KOBOLDS,
 	CARD_RENEWED_INSPIRATION,
-	CARD_INSPIRATION
+	CARD_INSPIRATION,
+	CARD_PSIONIC_WAVE
 };
 
 enum DicePurpose {
@@ -130,7 +131,9 @@ enum DicePurpose {
 	PURPOSE_DEATH_CHECK,
 	PURPOSE_SLEEP_DURATION,
 	PURPOSE_SUMMON_KOBOLDS,
-	PURPOSE_INSPIRATION_DRAW
+	PURPOSE_INSPIRATION_DRAW,
+	PURPOSE_PSIONIC_WAVE_RANGE,
+	PURPOSE_PSIONIC_WAVE_AMOUNT
 };
 
 enum TargetValidity {
@@ -605,6 +608,13 @@ private:
 	std::vector<int> magicBlastSplashTargetIndices;
 	ofRectangle magicBlastDamageButton;
 	ofRectangle magicBlastDiscardButton;
+
+	// --- Psionic Wave ---
+	bool isWaitingForPsionicRange = false;
+	int pendingPsionicRangeResult = 0;
+	bool isWaitingForPsionicAmount = false;
+	int pendingPsionicAmountResult = 0;
+	std::vector<int> psionicWaveTargetIndices; // Store who got hit by the range check
 
 	// Fireball
 	bool isWaitingForFireballRangeDice = false;

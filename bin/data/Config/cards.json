@@ -419,5 +419,14 @@
     "targeting": "TARGET_SELF",
     "numDice": 1,
     "diceSides": 4
+  },
+  {
+    "id": 53,
+    "name": "Psionic Wave",
+    "type": "CARD_PSIONIC_WAVE",
+    "cost": 8,
+    "targeting": "TARGET_SELF",
+    "numDice": 2,
+    "diceSides": 20
   }
 ]
