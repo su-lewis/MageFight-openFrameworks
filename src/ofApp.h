@@ -116,7 +116,8 @@ enum CardType {
 	CARD_CALL_FOR_KOBOLDS,
 	CARD_RENEWED_INSPIRATION,
 	CARD_INSPIRATION,
-	CARD_PSIONIC_WAVE
+	CARD_PSIONIC_WAVE,
+	CARD_EARTHQUAKE
 };
 
 enum DicePurpose {
@@ -135,7 +136,9 @@ enum DicePurpose {
 	PURPOSE_SUMMON_KOBOLDS,
 	PURPOSE_INSPIRATION_DRAW,
 	PURPOSE_PSIONIC_WAVE_RANGE,
-	PURPOSE_PSIONIC_WAVE_AMOUNT
+	PURPOSE_PSIONIC_WAVE_AMOUNT,
+	PURPOSE_EARTHQUAKE_DISTANCE,
+	PURPOSE_EARTHQUAKE_DAMAGE
 };
 
 enum TargetValidity {
@@ -179,6 +182,7 @@ struct DiceRoll {
 	glm::quat finalQuat;
 	float currentRotation = 0;
 	glm::vec3 rotationAxis;
+	int associatedUnit = -1; // optional: which unit this roll belongs to (earthquake)
 };
 
 struct Card {
@@ -670,6 +674,26 @@ private:
 	int pendingTeleportCardIndex = -1;
 	int pendingTeleportRollResult = 0;
 	glm::vec2 pendingTeleportTarget;
+
+	// --- EARTHQUAKE SYSTEM ---
+	struct EarthquakeState {
+		int playerIndex;
+		int tilesToMove; // Result of d4
+		int originalDistance; // The original dice distance rolled (for arrows/visuals)
+		int diceIndex; // Index into activeDiceRolls for this unit's quake roll
+		glm::ivec2 direction; // (0,1), (-1,0), etc.
+		glm::ivec2 startGrid; // Where they started this step
+		glm::ivec2 nextGrid; // Where they want to go
+		glm::vec3 visualPos; // For smooth animation
+		bool isMoving; // False if hit wall/unit
+		bool crashed; // True if took damage
+	};
+
+	bool isEarthquakeActive = false;
+	bool isEarthquakeDiceRolling = false; // Phase 1: Dice
+	bool isEarthquakeAnimatingStep = false; // Phase 2: Movement
+	float earthquakeT = 0.0f; // 0.0 to 1.0 for interpolation
+	std::vector<EarthquakeState> earthquakeUnits;
 
 	// Wisdom Boon
 	bool isWisdomBoonMenuOpen = false;

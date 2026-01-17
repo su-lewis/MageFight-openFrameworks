@@ -435,5 +435,12 @@
     "type": "CARD_CREATE_WALL",
     "cost": 2,
     "targeting": "TARGET_EMPTY_ADJACENT"
+  },
+  {
+    "id": 55,
+    "name": "Earthquake",
+    "type": "CARD_EARTHQUAKE",
+    "cost": 5,
+    "targeting": "TARGET_SELF"
   }
 ]

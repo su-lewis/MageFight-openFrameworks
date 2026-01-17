@@ -2190,6 +2190,194 @@ void ofApp::updateGame() {
 		}
 	}
 
+	// --- EARTHQUAKE LOGIC ---
+	if (isEarthquakeActive) {
+
+		// PHASE 1: WAIT FOR DICE
+		if (isEarthquakeDiceRolling) {
+			// Check per-unit dice indices recorded when we started the quake.
+			bool ready = true;
+			for (auto & unit : earthquakeUnits) {
+				if (unit.diceIndex < 0 || unit.diceIndex >= (int)activeDiceRolls.size() || !activeDiceRolls[unit.diceIndex].isFinishedVisual) {
+					ready = false;
+					break;
+				}
+			}
+
+			if (ready) {
+				// Capture results and remove those dice from activeDiceRolls
+				std::vector<int> toErase;
+				for (auto & unit : earthquakeUnits) {
+					if (unit.diceIndex >= 0 && unit.diceIndex < (int)activeDiceRolls.size()) {
+						int result = activeDiceRolls[unit.diceIndex].result;
+						unit.tilesToMove = result;
+						unit.originalDistance = result;
+						unit.nextGrid = unit.startGrid + unit.direction;
+						unit.isMoving = (result > 0);
+						toErase.push_back(unit.diceIndex);
+						unit.diceIndex = -1;
+					}
+				}
+
+				// Erase in descending order
+				sort(toErase.begin(), toErase.end(), std::greater<int>());
+				for (int idx : toErase)
+					activeDiceRolls.erase(activeDiceRolls.begin() + idx);
+
+				isEarthquakeDiceRolling = false;
+				isEarthquakeAnimatingStep = true;
+				earthquakeT = 0.0f;
+			}
+			// Do NOT return here; allow the main dice update/erasure loop to run this frame.
+		}
+
+		// PHASE 2: ANIMATION STEP (Simultaneous Movement)
+		if (isEarthquakeAnimatingStep) {
+			float speed = 2.0f * ofGetLastFrameTime(); // Slow motion
+			earthquakeT += speed;
+
+			bool anyStillMoving = false;
+
+			// Update Visuals
+			for (auto & unit : earthquakeUnits) {
+				if (!unit.isMoving || unit.tilesToMove <= 0) {
+					unit.isMoving = false;
+					continue;
+				}
+
+				anyStillMoving = true;
+
+				// --- COLLISION PREDICTION (The "Bounce" Logic) ---
+				if (earthquakeT <= speed) { // Do check only at start of step
+					bool willCrash = false;
+					glm::ivec2 target = unit.nextGrid;
+
+					// 1. Wall/Board Edge Check
+					if (target.x < 0 || target.x >= BOARD_WIDTH || target.y < 0 || target.y >= BOARD_HEIGHT || board[target.x][target.y].hasWall) {
+						willCrash = true;
+					} else {
+						// 2. Unit Collision Check
+						for (auto & other : earthquakeUnits) {
+							if (unit.playerIndex == other.playerIndex) continue;
+
+							// Head-on collision (Swap)
+							if (other.nextGrid == unit.startGrid && other.startGrid == unit.nextGrid) {
+								willCrash = true;
+							}
+							// Merging collision (Trying to enter same tile)
+							if (other.nextGrid == target) {
+								willCrash = true;
+							}
+							// Rear-end collision (Hitting a stopped unit)
+							if (!other.isMoving && other.startGrid == target) {
+								willCrash = true;
+							}
+						}
+					}
+
+					if (willCrash) {
+						unit.crashed = true;
+						unit.tilesToMove = 0; // Stop further movement
+						// Start a visual d4 for crash damage and associate it with this unit
+						if (unit.diceIndex == -1 || true) {
+							int beforeIdx = (int)activeDiceRolls.size();
+							startDiceRoll(1, 4, PURPOSE_EARTHQUAKE_DAMAGE, "Crash");
+							int afterIdx = (int)activeDiceRolls.size();
+							if (afterIdx > beforeIdx) {
+								int newIdx = afterIdx - 1;
+								activeDiceRolls[newIdx].associatedUnit = unit.playerIndex;
+							}
+						}
+					}
+				}
+
+				// --- LERP ---
+				glm::vec3 pStart = gridToWorld(unit.startGrid.x, unit.startGrid.y);
+				glm::vec3 pEnd = gridToWorld(unit.nextGrid.x, unit.nextGrid.y);
+
+				if (unit.crashed) {
+					// Bounce animation: Go halfway then return
+					float t = earthquakeT;
+					if (t < 0.5f)
+						unit.visualPos = glm::mix(pStart, pEnd, t); // To wall
+					else
+						unit.visualPos = glm::mix(pEnd, pStart, t); // Back
+				} else {
+					// Normal move
+					unit.visualPos = glm::mix(pStart, pEnd, earthquakeT);
+				}
+			}
+
+			// --- END OF STEP ---
+			if (earthquakeT >= 1.0f) {
+				earthquakeT = 0.0f;
+				bool roundComplete = true;
+
+				for (auto & unit : earthquakeUnits) {
+					if (!unit.isMoving || unit.tilesToMove <= 0) {
+						unit.isMoving = false;
+						continue;
+					}
+
+					if (unit.crashed) {
+						// Stop them here
+						unit.isMoving = false;
+						unit.tilesToMove = 0;
+						// Deal Damage
+						players[unit.playerIndex].health -= ofRandom(1, 5); // 1d4
+						spawnFloatingText(gridToWorld(unit.startGrid.x, unit.startGrid.y), "-1d4 Crash!", ofColor::red);
+					} else {
+						// Successful move
+						// Update board occupancy: clear old, set new
+						int oldX = unit.startGrid.x;
+						int oldY = unit.startGrid.y;
+						int newX = unit.nextGrid.x;
+						int newY = unit.nextGrid.y;
+						if (oldX >= 0 && oldX < BOARD_WIDTH && oldY >= 0 && oldY < BOARD_HEIGHT) board[oldX][oldY].hasPlayer = false;
+						if (newX >= 0 && newX < BOARD_WIDTH && newY >= 0 && newY < BOARD_HEIGHT) board[newX][newY].hasPlayer = true;
+
+						unit.startGrid = unit.nextGrid;
+						unit.nextGrid = unit.startGrid + unit.direction;
+						unit.tilesToMove--;
+
+						// Update actual player data
+						players[unit.playerIndex].x = unit.startGrid.x;
+						players[unit.playerIndex].y = unit.startGrid.y;
+
+						// Continue if they have moves left
+						if (unit.tilesToMove > 0) {
+							roundComplete = false;
+						} else {
+							unit.isMoving = false;
+						}
+					}
+				}
+
+				// If everyone is stopped or out of moves, end earthquake
+				if (roundComplete) {
+					isEarthquakeActive = false;
+					invalidateTargetCache();
+				}
+			}
+
+			// Override global playerVisualPos for the active player so camera follows smoothly
+			if (currentPlayerIndex >= 0) {
+				// Find the earthquake state for current player
+				for (auto & u : earthquakeUnits) {
+					if (u.playerIndex == players[currentPlayerIndex].playerID) {
+						// Note: This assumes playerID matches index, safer to loop
+						// Actually, we stored `playerIndex` directly in the struct:
+						if (u.playerIndex == currentPlayerIndex) {
+							playerVisualPos = u.visualPos;
+						}
+					}
+				}
+			}
+
+			return; // Skip rest of update
+		}
+	}
+
 	// --- FLAIL RESOLUTION ---
 	if (isWaitingForFlailDice && activeDiceRolls.empty()) {
 		isWaitingForFlailDice = false;
@@ -2421,6 +2609,14 @@ void ofApp::updateGame() {
 				} else if (roll.purpose == PURPOSE_DEATH_CHECK) {
 					pendingDeathRollResult = roll.result;
 					// Logic is handled in the separate updateGame block
+				} else if (roll.purpose == PURPOSE_EARTHQUAKE_DAMAGE) {
+					// Find associated unit and apply damage now (during animation)
+					int uidx = roll.associatedUnit;
+					if (uidx >= 0 && uidx < (int)players.size()) {
+						players[uidx].health -= roll.result;
+						spawnFloatingText(gridToWorld(players[uidx].x, players[uidx].y), "-" + ofToString(roll.result) + " Quake!", ofColor::red);
+						ofLogNotice("Earthquake") << "Player " << uidx << " took " << roll.result << " quake damage.";
+					}
 				} else if (roll.purpose == PURPOSE_BONUS_AP) {
 					currentAP += roll.result;
 					spawnFloatingText(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y),
@@ -3005,14 +3201,77 @@ void ofApp::drawGame() {
 		levelMesh.draw();
 		wallTexture.unbind();
 
+		// --- EARTHQUAKE ARROWS ---
+		if (isEarthquakeActive) {
+			// Disable depth test so arrows draw on top of floor cleanly?
+			// Or just lift them slightly.
+
+			for (const auto & eq : earthquakeUnits) {
+				// Draw arrows for all units that rolled for earthquake, even if stopped (show their intended distance)
+				if (eq.originalDistance > 0 || eq.crashed) {
+					// Anchor arrows at the unit's start grid so they don't form a long line during animation
+					glm::vec3 pos = gridToWorld(eq.startGrid.x, eq.startGrid.y);
+
+					ofSetColor(255, 255, 0, 200); // Transparent Yellow
+
+					ofPushMatrix();
+					// Move to tile center, slightly above floor
+					ofTranslate(pos.x, 0.05f, pos.z);
+					// Offset to bottom-right of tile (small margin)
+					ofTranslate(TILE_SIZE * 0.2f, 0, -TILE_SIZE * 0.2f);
+					ofRotateXDeg(90); // Lay flat on floor
+
+					// Rotate based on direction
+					float angle = 0;
+					if (eq.direction.x == 1) angle = 90; // East
+					if (eq.direction.x == -1) angle = 270; // West
+					if (eq.direction.y == 1) angle = 180; // South (Z+)
+					// North is default 0
+					ofRotateZDeg(angle);
+
+					// Draw arrows for the original dice roll (distance attempted)
+					int arrowCount = eq.crashed ? 1 : std::max(1, eq.originalDistance);
+					float spacing = 0.4f;
+					float totalHeight = (arrowCount - 1) * spacing;
+
+					for (int i = 0; i < arrowCount; i++) {
+						ofPushMatrix();
+						ofTranslate(0, -totalHeight / 2.0f + (i * spacing), 0);
+						ofDrawTriangle(0, -0.3f, -0.3f, 0.0f, 0.3f, 0.0f); // Head
+						ofDrawRectangle(-0.1f, 0.0f, 0.2f, 0.3f); // Shaft
+						ofPopMatrix();
+					}
+
+					ofPopMatrix();
+				}
+			}
+		}
+
 		// --- OPAQUE DYNAMIC OBJECTS (Players) ---
+		// Ensure color reset (arrows or other effects may have changed it)
+		ofSetColor(255);
 		for (const auto & player : players) {
 			// 1. Determine Position
 			glm::vec3 pos;
-			if (currentPlayerIndex >= 0 && player.playerID == players[currentPlayerIndex].playerID) {
-				pos = playerVisualPos;
-			} else {
-				pos = gridToWorld(player.x, player.y);
+
+			// --- NEW: EARTHQUAKE OVERRIDE ---
+			bool foundEq = false;
+			if (isEarthquakeActive) {
+				for (const auto & eq : earthquakeUnits) {
+					if (eq.playerIndex == &player - &players[0]) { // Pointer math to get index
+						pos = eq.visualPos;
+						foundEq = true;
+						break;
+					}
+				}
+			}
+
+			if (!foundEq) {
+				if (currentPlayerIndex >= 0 && player.playerID == players[currentPlayerIndex].playerID) {
+					pos = playerVisualPos;
+				} else {
+					pos = gridToWorld(player.x, player.y);
+				}
 			}
 
 			ofPushMatrix();
@@ -3105,135 +3364,104 @@ void ofApp::drawGame() {
 
 		// --- DICE RENDERING ---
 		diceMaterial.begin();
-		auto getDiceOffset = [&](int index, int total) {
-			return (index * 6.0f) - ((total - 1) * 3.0f);
+
+		// Helper to position dice
+		auto setDiceTransform = [&](int i, DiceRoll & roll) {
+			ofPushMatrix();
+
+			bool placed = false;
+			// EARTHQUAKE OVERRIDE: If this roll belongs to a unit (associatedUnit), place above that unit
+			if (roll.associatedUnit >= 0) {
+				for (const auto & u : earthquakeUnits) {
+					if (u.playerIndex == roll.associatedUnit) {
+						glm::vec3 unitPos = gridToWorld(u.startGrid.x, u.startGrid.y);
+						ofTranslate(unitPos.x, 4.0f, unitPos.z);
+						placed = true;
+						break;
+					}
+				}
+			}
+
+			// Default placement: spread atop board
+			if (!placed) {
+				float offset = (i * 6.0f) - ((activeDiceRolls.size() - 1) * 3.0f);
+				ofTranslate(offset, 4.5f, 0);
+			}
+
+			// Apply Rotation
+			glm::quat finalDrawQuat;
+			float t = (ofGetElapsedTimef() - roll.startTime);
+			if (t < 1.0f) {
+				float t_ease = 1.0f - pow(1.0f - t, 4.0f);
+				float remainingSpin = (1.0f - t_ease) * 1080.0f; // Spin amount
+				if (roll.sides == 4) remainingSpin *= 0.5f; // D4 spins less violently
+				glm::quat spin = glm::angleAxis(glm::radians(remainingSpin), roll.rotationAxis);
+				finalDrawQuat = spin * roll.finalQuat;
+			} else {
+				finalDrawQuat = roll.finalQuat;
+			}
+			ofMultMatrix(glm::toMat4(finalDrawQuat));
 		};
 
-		// Coin
-		coinFacesTexture.bind();
-		for (int i = 0; i < activeDiceRolls.size(); i++) {
-			auto & roll = activeDiceRolls[i];
-			if (roll.sides != 2) continue;
-			ofPushMatrix();
-			ofTranslate(getDiceOffset(i, activeDiceRolls.size()), 4.5f, 0);
-
-			glm::quat finalDrawQuat;
-			float t = (ofGetElapsedTimef() - roll.startTime);
-			if (t < 1.0f) {
-				float t_ease = 1.0f - pow(1.0f - t, 4.0f);
-				float remainingSpin = (1.0f - t_ease) * 1080.0f;
-				glm::quat spin = glm::angleAxis(glm::radians(remainingSpin), roll.rotationAxis);
-				finalDrawQuat = spin * roll.finalQuat;
-			} else {
-				finalDrawQuat = roll.finalQuat;
-			}
-			ofMultMatrix(glm::toMat4(finalDrawQuat));
-			coinMesh.draw();
-			ofPopMatrix();
-		}
-		coinFacesTexture.unbind();
-
-		// D6
-		d6Texture.bind();
-		for (int i = 0; i < activeDiceRolls.size(); i++) {
-			auto & roll = activeDiceRolls[i];
-			if (roll.sides != 6) continue;
-			ofPushMatrix();
-			ofTranslate(getDiceOffset(i, activeDiceRolls.size()), 4.5f, 0);
-
-			glm::quat finalDrawQuat;
-			float t = (ofGetElapsedTimef() - roll.startTime);
-			if (t < 1.0f) {
-				float t_ease = 1.0f - pow(1.0f - t, 4.0f);
-				float remainingSpin = (1.0f - t_ease) * 550.0f;
-				glm::quat spin = glm::angleAxis(glm::radians(remainingSpin), roll.rotationAxis);
-				finalDrawQuat = spin * roll.finalQuat;
-			} else {
-				finalDrawQuat = roll.finalQuat;
-			}
-			ofMultMatrix(glm::toMat4(finalDrawQuat));
-			ofScale(1.2f, 1.2f, 1.2f);
-			d6Mesh.draw();
-			ofPopMatrix();
-		}
-		d6Texture.unbind();
-
-		// D4
+		// 1. D4
 		d4Texture.bind();
 		for (int i = 0; i < activeDiceRolls.size(); i++) {
-			auto & roll = activeDiceRolls[i];
-			if (roll.sides != 4) continue;
-			ofPushMatrix();
-			ofTranslate(getDiceOffset(i, activeDiceRolls.size()), 4.5f, 0);
-
-			glm::quat finalDrawQuat;
-			float t = (ofGetElapsedTimef() - roll.startTime);
-			if (t < 1.0f) {
-				float t_ease = 1.0f - pow(1.0f - t, 4.0f);
-				float remainingSpin = (1.0f - t_ease) * 550.0f;
-				glm::quat spin = glm::angleAxis(glm::radians(remainingSpin), roll.rotationAxis);
-				finalDrawQuat = spin * roll.finalQuat;
-			} else {
-				finalDrawQuat = roll.finalQuat;
+			if (activeDiceRolls[i].sides == 4) {
+				setDiceTransform(i, activeDiceRolls[i]);
+				ofScale(2.2f, 2.2f, 2.2f);
+				d4Mesh.draw();
+				ofPopMatrix();
 			}
-			ofMultMatrix(glm::toMat4(finalDrawQuat));
-			ofScale(2.2f, 2.2f, 2.2f);
-			d4Mesh.draw();
-			ofPopMatrix();
 		}
 		d4Texture.unbind();
 
-		// D10
+		// 2. Coin
+		coinFacesTexture.bind();
+		for (int i = 0; i < activeDiceRolls.size(); i++) {
+			if (activeDiceRolls[i].sides == 2) {
+				setDiceTransform(i, activeDiceRolls[i]);
+				coinMesh.draw();
+				ofPopMatrix();
+			}
+		}
+		coinFacesTexture.unbind();
+
+		// 3. D6
+		d6Texture.bind();
+		for (int i = 0; i < activeDiceRolls.size(); i++) {
+			if (activeDiceRolls[i].sides == 6) {
+				setDiceTransform(i, activeDiceRolls[i]);
+				ofScale(1.2f, 1.2f, 1.2f);
+				d6Mesh.draw();
+				ofPopMatrix();
+			}
+		}
+		d6Texture.unbind();
+
+		// 4. D10
 		d10Texture.bind();
 		for (int i = 0; i < activeDiceRolls.size(); i++) {
-			auto & roll = activeDiceRolls[i];
-			if (roll.sides != 10) continue;
-			ofPushMatrix();
-			ofTranslate(getDiceOffset(i, activeDiceRolls.size()), 4.5f, 0);
-
-			glm::quat finalDrawQuat;
-			float t = (ofGetElapsedTimef() - roll.startTime);
-			if (t < 1.0f) {
-				float t_ease = 1.0f - pow(1.0f - t, 4.0f);
-				float remainingSpin = (1.0f - t_ease) * 550.0f;
-				glm::quat spin = glm::angleAxis(glm::radians(remainingSpin), roll.rotationAxis);
-				finalDrawQuat = spin * roll.finalQuat;
-			} else {
-				finalDrawQuat = roll.finalQuat;
+			if (activeDiceRolls[i].sides == 10) {
+				setDiceTransform(i, activeDiceRolls[i]);
+				ofScale(2.1f, 2.1f, 2.1f);
+				d10Mesh.draw();
+				ofPopMatrix();
 			}
-			ofMultMatrix(glm::toMat4(finalDrawQuat));
-			ofScale(2.1f, 2.1f, 2.1f);
-			d10Mesh.draw();
-			ofPopMatrix();
 		}
 		d10Texture.unbind();
 
-		// D20
+		// 5. D20
 		d20Texture.bind();
 		for (int i = 0; i < activeDiceRolls.size(); i++) {
-			auto & roll = activeDiceRolls[i];
-			if (roll.sides != 20) continue;
-			ofPushMatrix();
-			ofTranslate(getDiceOffset(i, activeDiceRolls.size()), 4.5f, 0);
-
-			glm::quat finalDrawQuat;
-			float t = (ofGetElapsedTimef() - roll.startTime);
-			if (t < 1.0f) {
-				float t_ease = 1.0f - pow(1.0f - t, 4.0f);
-				float remainingSpin = (1.0f - t_ease) * 550.0f;
-				glm::quat spin = glm::angleAxis(glm::radians(remainingSpin), roll.rotationAxis);
-				finalDrawQuat = spin * roll.finalQuat;
-			} else {
-				finalDrawQuat = roll.finalQuat;
+			if (activeDiceRolls[i].sides == 20) {
+				setDiceTransform(i, activeDiceRolls[i]);
+				ofScale(2.4f, 2.4f, 2.4f);
+				d20Mesh.draw();
+				ofPopMatrix();
 			}
-			ofNode d20Node;
-			d20Node.setOrientation(finalDrawQuat);
-			ofMultMatrix(d20Node.getGlobalTransformMatrix());
-			ofScale(2.4f, 2.4f, 2.4f);
-			d20Mesh.draw();
-			ofPopMatrix();
 		}
 		d20Texture.unbind();
+
 		diceMaterial.end();
 
 		// ===================================================================
@@ -8747,6 +8975,62 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		break;
 	}
 
+	// --- CASE: EARTHQUAKE ---
+	case CARD_EARTHQUAKE: {
+		// 1. Pay Cost & Cleanup Hand
+		currentAP -= playedCard.cost;
+		currentPlayer.playedCardsPile.push_back(playedCard);
+		// (Handle Replicate logic here if you want)
+		currentPlayer.cardsPlayedThisTurn.push_back(playedCard.type);
+		currentPlayer.hand.erase(currentPlayer.hand.begin() + cardIndex);
+
+		// 2. Initialize Earthquake System
+		isEarthquakeActive = true;
+		isEarthquakeDiceRolling = true;
+		isEarthquakeAnimatingStep = false;
+		earthquakeUnits.clear();
+
+		// 3. Setup Units & Roll Dice
+		// We assign a random direction NOW, but distance comes from dice later
+		for (int i = 0; i < players.size(); ++i) {
+			EarthquakeState state;
+			state.playerIndex = i;
+			state.startGrid = { players[i].x, players[i].y };
+			state.visualPos = gridToWorld(players[i].x, players[i].y);
+			state.isMoving = true;
+			state.crashed = false;
+			state.tilesToMove = 0;
+			state.originalDistance = 0;
+
+			// Random Direction (N, E, S, W)
+			int r = (int)ofRandom(0, 4);
+			if (r == 0)
+				state.direction = { 0, 1 }; // South
+			else if (r == 1)
+				state.direction = { 0, -1 }; // North
+			else if (r == 2)
+				state.direction = { 1, 0 }; // East
+			else
+				state.direction = { -1, 0 }; // West
+
+			// Roll 1d4 for this unit and record which dice slot we created
+			int before = (int)activeDiceRolls.size();
+			startDiceRoll(1, 4, PURPOSE_EARTHQUAKE_DISTANCE, "Quake Dist");
+			int after = (int)activeDiceRolls.size();
+			if (after > before) {
+				state.diceIndex = after - 1;
+				// mark associated unit on the dice so resolution can find it reliably
+				activeDiceRolls[state.diceIndex].associatedUnit = i;
+			} else {
+				state.diceIndex = -1;
+			}
+			earthquakeUnits.push_back(state);
+		}
+
+		playedSuccessfully = false; // Cleanup handled above
+		break;
+	}
+
 		// --- CASE: TIME VORTEX ---
 	case CARD_TIME_VORTEX: {
 		// Start the dice roll and set the waiting flag
@@ -11254,6 +11538,7 @@ CardType ofApp::stringToCardType(const std::string & str) {
 	if (str == "CARD_RENEWED_INSPIRATION") return CARD_RENEWED_INSPIRATION;
 	if (str == "CARD_INSPIRATION") return CARD_INSPIRATION;
 	if (str == "CARD_PSIONIC_WAVE") return CARD_PSIONIC_WAVE;
+	if (str == "CARD_EARTHQUAKE") return CARD_EARTHQUAKE;
 
 	return CARD_NONE;
 }
