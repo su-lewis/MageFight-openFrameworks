@@ -7,6 +7,7 @@
 #include <queue>
 #include <random>
 #include <set>
+#include <unordered_map>
 
 //--------------------------------------------------------------
 ofPixels scalePixelsNearest(ofPixels & src, int scale) {
@@ -109,448 +110,447 @@ void ofApp::setup() {
 		ofLogNotice() << "Wolf model loaded with " << wolfModel.getMeshCount() << " meshes";
 	}
 
-	// --- Load Kobold ---
-	// Try lowercase path first (some platforms/filesystems are case-sensitive)
-	std::string koboldPath1 = "Units/kobold/kobold1/goblin_bastard.glb";
-	std::string koboldPath2 = "Units/Kobold/Kobold1/goblin_bastard.glb";
-	if (koboldModel.load(koboldPath1) || koboldModel.load(koboldPath2)) {
-		koboldModel.disableMaterials();
-		koboldModel.setRotation(0, 180, 0, 0, 1);
-		// Scale down by ~30% to make kobold visually smaller
-		koboldModel.setScale(0.00245f, 0.00245f, 0.00245f);
-		ofLogNotice("Setup") << "Kobold model loaded.";
-	} else {
-		ofLogNotice("Setup") << "Kobold model failed to load (optional). Tried: " << koboldPath1 << " and " << koboldPath2;
-	}
+	// --- EARTHQUAKE ARROWS ---
+	if (isEarthquakeActive) {
+		for (const auto & eq : earthquakeUnits) {
+			// Draw arrows when there is remaining distance or if crashed (show 1)
+			int tilesLeft = eq.tilesToMove;
+			if (tilesLeft > 0 || eq.crashed) {
+				// Anchor arrows at the unit's start grid so they update per-square (tile-based)
+				glm::vec3 pos = gridToWorld(eq.startGrid.x, eq.startGrid.y);
 
-	// --- Load Hellhound ---
-	if (hellhoundModel.load("Units/Hellhound/hellhound.glb")) {
-		hellhoundModel.disableMaterials();
+				// Brighter, fully opaque yellow for clearer visibility
+				ofSetColor(255, 240, 0, 255);
 
-		// FIX: Rotate -90 around X to lift face off the ground
-		hellhoundModel.setRotation(0, 90, 1, 0, 0);
+				ofPushMatrix();
+				// Move to tile center, slightly above floor
+				ofTranslate(pos.x, 0.05f, pos.z);
+				// Offset to bottom-right of tile (small margin)
+				ofTranslate(TILE_SIZE * 0.2f, 0, -TILE_SIZE * 0.2f);
+				ofRotateXDeg(90); // Lay flat on floor
 
-		// Scale
-		hellhoundModel.setScale(0.0045f, 0.0045f, 0.0045f);
+				// Rotate based on direction
+				float angle = 0;
+				if (eq.direction.x == 1) angle = 90; // East
+				if (eq.direction.x == -1) angle = 270; // West
+				if (eq.direction.y == 1) angle = 180; // South (Z+)
+				// North is default 0
+				ofRotateZDeg(angle);
 
-		ofLogNotice("Setup") << "Hellhound model loaded.";
-	}
+				// Draw arrows for the remaining tiles (decreasing as they move)
+				int arrowCount = eq.crashed ? 1 : std::max(0, tilesLeft);
+				float spacing = 0.5f; // slightly increased spacing for clarity
+				float totalHeight = (arrowCount > 0) ? (arrowCount - 1) * spacing : 0.0f;
 
-	// --- Load Demon ---
-	if (demonModel.load("Units/Demon/demonic_horned_horror_knight.glb")) {
-		demonModel.disableMaterials();
-		// Standard GLB fix
-		demonModel.setRotation(0, 180, 0, 0, 1);
-		// Demon should be large
-		demonModel.setScale(0.00575f, 0.00575f, 0.00575f);
-		ofLogNotice("Setup") << "Demon model loaded.";
-	} else {
-		ofLogError("Setup") << "Failed to load demon model.";
-	}
-
-	// --- Load Tortoise ---
-	if (tortoiseModel.load("Units/Tortoise/Turtle_Kaiju_01.fbx")) {
-		tortoiseModel.disableMaterials();
-		tortoiseModel.disableTextures();
-		// Scale - reduced by 15% more (0.003 * 0.85 = 0.00255)
-		tortoiseModel.setScale(0.00255f, 0.00255f, 0.00255f);
-		// Load texture
-		ofLoadImage(tortoiseTexture, "Units/Tortoise/Turtle_01_albedo.jpg");
-		tortoiseTexture.setTextureMinMagFilter(GL_LINEAR, GL_LINEAR);
-		ofLogNotice("Setup") << "Tortoise model loaded.";
-	} else {
-		ofLogError("Setup") << "Failed to load tortoise model.";
-	}
-
-	// --- 3. BOARD & SKYBOX ---
-	ofLoadImage(wallTexture, "Board/wall.png");
-	wallTexture.setTextureMinMagFilter(GL_NEAREST, GL_NEAREST);
-
-	// Load Floor Textures (Floor1.PNG to Floor6.PNG)
-	floorTextures.clear();
-	floorMeshes.clear();
-
-	// Loop from 1 to 6
-	for (int i = 1; i <= 6; i++) {
-		ofTexture tex;
-		// Construct filename: "Board/Floor1.PNG", etc.
-		// Note: .PNG is case-sensitive on some systems
-		string filename = "Board/Floor" + ofToString(i) + ".PNG";
-
-		if (ofLoadImage(tex, filename)) {
-			tex.generateMipmap();
-			tex.setTextureMinMagFilter(GL_NEAREST_MIPMAP_NEAREST, GL_NEAREST);
-			floorTextures.push_back(tex);
-
-			ofMesh m;
-			m.setMode(OF_PRIMITIVE_TRIANGLES);
-			floorMeshes.push_back(m);
-		} else {
-			ofLogError("Setup") << "Failed to load " << filename;
-		}
-	}
-
-	// --- 4. DICE TEXTURES & COIN ---
-	// Note: Paths point to specific Dice/ subfolders
-	ofLoadImage(d4Texture, "Dice/D4/Dice_d4_Albedo.png");
-	ofLoadImage(d6Texture, "Dice/D6/dice_texture_d6.png");
-	ofLoadImage(d10Texture, "Dice/D10/d10SilverAlbedo.png");
-	ofLoadImage(d20Texture, "Dice/D20/d20_diffuse.png");
-
-	ofLoadImage(coinFacesTexture, "Dice/Coin/CoinUKSilver.png");
-	// Use linear filtering and mipmaps for a smooth coin appearance
-	coinFacesTexture.generateMipmap();
-	coinFacesTexture.setTextureMinMagFilter(GL_LINEAR_MIPMAP_LINEAR, GL_LINEAR);
-
-	// --- 5. SOUNDS ---
-	// Note: Path points to Sounds/Player/
-	for (int i = 1; i <= 6; i++) {
-		ofSoundPlayer step;
-		if (step.load("Sounds/Player/step" + ofToString(i) + ".wav")) {
-			step.setMultiPlay(true);
-			step.setVolume(0.5f);
-			footstepSounds.push_back(step);
-		} else {
-			ofLogError("Sound") << "Could not load Sounds/Player/step" << i << ".wav";
-		}
-	}
-
-	// --- 6. MESH GENERATION (Walls & Floor) ---
-	// (This code remains unchanged as it generates geometry programmatically)
-	float wallSize = TILE_SIZE * 0.8f;
-	wallMesh.clear();
-	wallMesh.setMode(OF_PRIMITIVE_TRIANGLES);
-	wallMesh.addVertex(ofPoint(-wallSize / 2, 0, -wallSize / 2));
-	wallMesh.addVertex(ofPoint(wallSize / 2, 0, -wallSize / 2));
-	wallMesh.addVertex(ofPoint(wallSize / 2, 0, wallSize / 2));
-	wallMesh.addVertex(ofPoint(-wallSize / 2, 0, wallSize / 2));
-	wallMesh.addTexCoord(ofVec2f(0.4f, 0.4f));
-	wallMesh.addTexCoord(ofVec2f(0.6f, 0.4f));
-	wallMesh.addTexCoord(ofVec2f(0.6f, 0.6f));
-	wallMesh.addTexCoord(ofVec2f(0.4f, 0.6f));
-	for (int i = 0; i < 4; i++)
-		wallMesh.addNormal(ofPoint(0, 1, 0));
-	wallMesh.addIndex(0);
-	wallMesh.addIndex(1);
-	wallMesh.addIndex(2);
-	wallMesh.addIndex(0);
-	wallMesh.addIndex(2);
-	wallMesh.addIndex(3);
-
-	// D6 Mesh Gen
-	d6Mesh.clear();
-	d6Mesh.setMode(OF_PRIMITIVE_TRIANGLES);
-	float size = 1.0f;
-	const float atlasWidth = 333.0f, atlasHeight = 225.0f;
-	glm::vec2 uv_1_min(0.0f / atlasWidth, 0.0f / atlasHeight), uv_1_max(104.0f / atlasWidth, 104.0f / atlasHeight);
-	glm::vec2 uv_2_min(114.0f / atlasWidth, 0.0f / atlasHeight), uv_2_max(218.0f / atlasWidth, 104.0f / atlasHeight);
-	glm::vec2 uv_3_min(228.0f / atlasWidth, 0.0f / atlasHeight), uv_3_max(332.0f / atlasWidth, 104.0f / atlasHeight);
-	glm::vec2 uv_4_min(0.0f / atlasWidth, 120.0f / atlasHeight), uv_4_max(104.0f / atlasWidth, 224.0f / atlasHeight);
-	glm::vec2 uv_5_min(114.0f / atlasWidth, 120.0f / atlasHeight), uv_5_max(218.0f / atlasWidth, 224.0f / atlasHeight);
-	glm::vec2 uv_6_min(228.0f / atlasWidth, 120.0f / atlasHeight), uv_6_max(332.0f / atlasWidth, 224.0f / atlasHeight);
-	auto addFace = [&](glm::vec3 v1, glm::vec3 v2, glm::vec3 v3, glm::vec3 v4, glm::vec2 t_min, glm::vec2 t_max, glm::vec3 normal) {
-		int baseIndex = d6Mesh.getNumVertices();
-		d6Mesh.addVertex(v1 * size);
-		d6Mesh.addTexCoord({ t_min.x, t_max.y });
-		d6Mesh.addVertex(v2 * size);
-		d6Mesh.addTexCoord({ t_max.x, t_max.y });
-		d6Mesh.addVertex(v3 * size);
-		d6Mesh.addTexCoord({ t_max.x, t_min.y });
-		d6Mesh.addVertex(v4 * size);
-		d6Mesh.addTexCoord({ t_min.x, t_min.y });
-		for (int i = 0; i < 4; i++)
-			d6Mesh.addNormal(normal);
-		d6Mesh.addIndex(baseIndex);
-		d6Mesh.addIndex(baseIndex + 1);
-		d6Mesh.addIndex(baseIndex + 2);
-		d6Mesh.addIndex(baseIndex);
-		d6Mesh.addIndex(baseIndex + 2);
-		d6Mesh.addIndex(baseIndex + 3);
-	};
-	addFace({ -1, -1, 1 }, { 1, -1, 1 }, { 1, 1, 1 }, { -1, 1, 1 }, uv_1_min, uv_1_max, { 0, 0, 1 });
-	addFace({ 1, -1, -1 }, { -1, -1, -1 }, { -1, 1, -1 }, { 1, 1, -1 }, uv_6_min, uv_6_max, { 0, 0, -1 });
-	addFace({ -1, 1, 1 }, { 1, 1, 1 }, { 1, 1, -1 }, { -1, 1, -1 }, uv_2_min, uv_2_max, { 0, 1, 0 });
-	addFace({ -1, -1, -1 }, { 1, -1, -1 }, { 1, -1, 1 }, { -1, -1, 1 }, uv_5_min, uv_5_max, { 0, -1, 0 });
-	addFace({ 1, -1, 1 }, { 1, -1, -1 }, { 1, 1, -1 }, { 1, 1, 1 }, uv_3_min, uv_3_max, { 1, 0, 0 });
-	addFace({ -1, -1, -1 }, { -1, -1, 1 }, { -1, 1, 1 }, { -1, 1, -1 }, uv_4_min, uv_4_max, { -1, 0, 0 });
-
-	// --- 7. DICE MODELS ---
-	ofxAssimpModelLoader tempLoader;
-
-	// Load D4
-	if (tempLoader.load("Dice/D4/Dice_d4.obj")) {
-		d4Mesh = tempLoader.getMesh(0);
-		glm::vec3 meshCenter = d4Mesh.getCentroid();
-		for (auto & v : d4Mesh.getVertices())
-			v -= meshCenter;
-		float maxSize = 0.0f;
-		for (auto & v : d4Mesh.getVertices())
-			maxSize = std::max(maxSize, glm::length(v));
-		if (maxSize > 0) {
-			float scaleFactor = 1.0f / maxSize;
-			for (auto & v : d4Mesh.getVertices())
-				v *= scaleFactor;
-		}
-	}
-	// Load D10
-	if (tempLoader.load("Dice/D10/d10.obj")) {
-		d10Mesh = tempLoader.getMesh(0);
-		glm::vec3 meshCenter = d10Mesh.getCentroid();
-		for (auto & v : d10Mesh.getVertices())
-			v -= meshCenter;
-		float maxSize = 0.0f;
-		for (auto & v : d10Mesh.getVertices())
-			maxSize = std::max(maxSize, glm::length(v));
-		if (maxSize > 0) {
-			float scaleFactor = 1.0f / maxSize;
-			for (auto & v : d10Mesh.getVertices())
-				v *= scaleFactor;
-		}
-	}
-	// Load D20
-	if (tempLoader.load("Dice/D20/d20.obj")) {
-		d20Mesh = tempLoader.getMesh(0);
-		glm::vec3 meshCenter = d20Mesh.getCentroid();
-		for (auto & v : d20Mesh.getVertices())
-			v -= meshCenter;
-		float maxSize = 0.0f;
-		for (auto & v : d20Mesh.getVertices())
-			maxSize = std::max(maxSize, glm::length(v));
-		if (maxSize > 0) {
-			float scaleFactor = 1.0f / maxSize;
-			for (auto & v : d20Mesh.getVertices())
-				v *= scaleFactor;
-		}
-	}
-
-	// Coin Mesh Gen
-	coinMesh.clear();
-	coinMesh.setMode(OF_PRIMITIVE_TRIANGLES);
-	const float coinRadius = 2.0f;
-	const float coinThickness = 0.2f;
-	const int coinResolution = 32;
-	ofRectangle headsUV(0.0f, 0.0f, 0.5f, 1.0f);
-	ofRectangle tailsUV(0.5f, 0.0f, 0.5f, 1.0f);
-
-	int topCenterIndex = coinMesh.getNumVertices();
-	coinMesh.addVertex({ 0, coinThickness / 2.0f, 0 });
-	coinMesh.addNormal({ 0, 1, 0 });
-	coinMesh.addTexCoord({ headsUV.getCenter().x, headsUV.getCenter().y });
-	for (int i = 0; i <= coinResolution; i++) {
-		float angle = (float)i / coinResolution * TWO_PI;
-		coinMesh.addVertex({ cos(angle) * coinRadius, coinThickness / 2.0f, sin(angle) * coinRadius });
-		coinMesh.addNormal({ 0, 1, 0 });
-		coinMesh.addTexCoord({ headsUV.x + headsUV.width * (0.5f + 0.5f * cos(angle)), headsUV.y + headsUV.height * (0.5f + 0.5f * sin(angle)) });
-	}
-	for (int i = 0; i < coinResolution; i++) {
-		coinMesh.addIndex(topCenterIndex);
-		coinMesh.addIndex(topCenterIndex + 1 + i);
-		coinMesh.addIndex(topCenterIndex + 1 + i + 1);
-	}
-
-	int bottomCenterIndex = coinMesh.getNumVertices();
-	coinMesh.addVertex({ 0, -coinThickness / 2.0f, 0 });
-	coinMesh.addNormal({ 0, -1, 0 });
-	coinMesh.addTexCoord({ tailsUV.getCenter().x, tailsUV.getCenter().y });
-	for (int i = 0; i <= coinResolution; i++) {
-		float angle = (float)i / coinResolution * TWO_PI;
-		coinMesh.addVertex({ cos(angle) * coinRadius, -coinThickness / 2.0f, sin(angle) * coinRadius });
-		coinMesh.addNormal({ 0, -1, 0 });
-		coinMesh.addTexCoord({ tailsUV.x + tailsUV.width * (0.5f + 0.5f * cos(angle)), tailsUV.y + tailsUV.height * (0.5f + 0.5f * sin(angle)) });
-	}
-	for (int i = 0; i < coinResolution; i++) {
-		coinMesh.addIndex(bottomCenterIndex);
-		coinMesh.addIndex(bottomCenterIndex + 1 + i + 1);
-		coinMesh.addIndex(bottomCenterIndex + 1 + i);
-	}
-
-	ofColor edgeColor = ofColor::goldenRod;
-	int edgeStartIndex = coinMesh.getNumVertices();
-	for (int i = 0; i <= coinResolution; i++) {
-		float angle = (float)i / coinResolution * TWO_PI;
-		glm::vec3 normal = glm::normalize(glm::vec3(cos(angle), 0, sin(angle)));
-		coinMesh.addVertex({ cos(angle) * coinRadius, coinThickness / 2.0f, sin(angle) * coinRadius });
-		coinMesh.addNormal(normal);
-		coinMesh.addColor(edgeColor);
-		coinMesh.addVertex({ cos(angle) * coinRadius, -coinThickness / 2.0f, sin(angle) * coinRadius });
-		coinMesh.addNormal(normal);
-		coinMesh.addColor(edgeColor);
-	}
-	for (int i = 0; i < coinResolution; i++) {
-		int current = edgeStartIndex + i * 2;
-		int next = edgeStartIndex + (i + 1) * 2;
-		coinMesh.addIndex(current);
-		coinMesh.addIndex(next);
-		coinMesh.addIndex(current + 1);
-		coinMesh.addIndex(next);
-		coinMesh.addIndex(next + 1);
-		coinMesh.addIndex(current + 1);
-	}
-
-	// --- 8. MATERIALS & LIGHTS ---
-
-	// 1. Material Settings
-	modelMaterial.setShininess(10);
-	modelMaterial.setSpecularColor(ofColor(50, 50, 50));
-	modelMaterial.setDiffuseColor(ofColor(255, 255, 255));
-	modelMaterial.setAmbientColor(ofColor(255, 255, 255));
-
-	// 1. GLOBAL AMBIENT
-	// Make the ambient slightly darker so the board isn't too bright
-	ofSetGlobalAmbientColor(ofColor(50, 50, 50));
-
-	lights.clear();
-
-	// 2. KEY LIGHT (Main Illumination)
-	keyLight.setup();
-	keyLight.setPointLight();
-	keyLight.setPosition(50, 150, 50); // Raised Y to 150 for better spread
-	// Neutral white light, boosted brightness
-	keyLight.setDiffuseColor(ofColor(140, 140, 140));
-	keyLight.setSpecularColor(ofColor(50, 50, 50));
-	keyLight.setAttenuation(1.0f, 0.005f, 0.0f);
-	lights.push_back(keyLight);
-
-	// 3. RIM LIGHT (Backlight)
-	rimLight.setup();
-	rimLight.setPointLight();
-	rimLight.setPosition(-50, 30, -50);
-	// Very subtle warm glow, not deep red
-	rimLight.setDiffuseColor(ofColor(80, 60, 50));
-	rimLight.setSpecularColor(ofColor(50, 0, 0));
-	lights.push_back(rimLight);
-
-	// 5. HEADLIGHT (Torch)
-	headlight.setup();
-	headlight.setPointLight();
-	headlight.setDiffuseColor(ofColor(220, 170, 100));
-	headlight.setSpecularColor(ofColor(255, 200, 150));
-	headlight.setAttenuation(1.0f, 0.001f, 0.0f);
-
-	// 6. UI LIGHT (For FBOs)
-	uiLight.setup();
-	uiLight.setPointLight();
-	uiLight.setDiffuseColor(ofColor::white);
-	uiLight.setPosition(0, 100, 200); // Positioned in front and above
-	// END ADD
-
-	// Adjust FOV based on aspect ratio to maintain consistent scale
-	float aspectRatio = (float)ofGetWidth() / (float)ofGetHeight();
-	float fov = 60.0f * (aspectRatio / 1.333f); // 1.333 is the original 1024/768 ratio
-	cam.setupPerspective(false, fov, 0.1f, 100000);
-
-	// --- SHADOW TEXTURE GENERATION ---
-	ofPixels pix;
-	pix.allocate(64, 64, OF_PIXELS_RGBA);
-	for (int x = 0; x < 64; x++) {
-		for (int y = 0; y < 64; y++) {
-			float dist = ofDist(x, y, 32, 32);
-			float alpha = ofMap(dist, 0, 32, 200, 0, true);
-			pix.setColor(x, y, ofColor(0, 0, 0, alpha));
-		}
-	}
-	shadowTexture.setFromPixels(pix);
-
-	// --- 9. LOAD CARD DATA ---
-	// Note: Path points to Config/ folder
-	loadCardData("Config/cards.json");
-
-	// --- 10. SCREEN SETTINGS ---
-	availableResolutions = { { 1024, 768 }, { 1280, 720 }, { 1600, 900 }, { 1920, 1080 }, { 2560, 1440 } };
-	int screenW = ofGetScreenWidth();
-	int screenH = ofGetScreenHeight();
-	bool found = false;
-	for (size_t i = 0; i < availableResolutions.size(); ++i) {
-		if (availableResolutions[i].x == screenW && availableResolutions[i].y == screenH) {
-			currentResolutionIndex = static_cast<int>(i);
-			found = true;
-			break;
-		}
-	}
-	if (!found) {
-		availableResolutions.push_back(glm::vec2(screenW, screenH));
-		currentResolutionIndex = availableResolutions.size() - 1;
-	}
-
-	int monitorRefreshRate = 60;
-	GLFWmonitor * primary = glfwGetPrimaryMonitor();
-	if (primary) {
-		const GLFWvidmode * mode = glfwGetVideoMode(primary);
-		monitorRefreshRate = mode->refreshRate;
-	}
-
-	availableFramerates.clear();
-	availableFramerates.push_back(30);
-	availableFramerates.push_back(60);
-	if (monitorRefreshRate != 30 && monitorRefreshRate != 60) {
-		availableFramerates.push_back(monitorRefreshRate);
-	}
-	availableFramerates.push_back(0);
-
-	for (size_t i = 0; i < availableFramerates.size(); i++) {
-		if (availableFramerates[i] == monitorRefreshRate) {
-			currentFramerateIndex = i;
-			break;
-		}
-	}
-
-	// --- GENERATE PIXEL ART FIRE TEXTURE ---
-	// Creating a 4-frame sprite sheet (128x32 pixels, 4 frames of 32x32)
-	ofPixels firePix;
-	firePix.allocate(128, 32, OF_PIXELS_RGBA);
-
-	for (int f = 0; f < 4; f++) { // 4 Frames
-		int xOffset = f * 32;
-		for (int y = 0; y < 32; y++) {
-			for (int x = 0; x < 32; x++) {
-				// Procedural noise fire shape
-				float n = ofNoise(x * 0.1, y * 0.1, f * 0.5, ofGetElapsedTimef());
-				float centerDist = abs(x - 16) / 16.0f;
-				float heightFade = (32 - y) / 32.0f;
-
-				float alpha = 0;
-				if (n > 0.4 + centerDist && y > 5) {
-					alpha = 255;
+				for (int i = 0; i < arrowCount; i++) {
+					ofPushMatrix();
+					ofTranslate(0, -totalHeight / 2.0f + (i * spacing), 0);
+					ofDrawTriangle(0, -0.3f, -0.3f, 0.0f, 0.3f, 0.0f); // Head
+					ofDrawRectangle(-0.1f, 0.0f, 0.2f, 0.3f); // Shaft
+					ofPopMatrix();
 				}
 
-				// Pixel Art Colors (Yellow -> Orange -> Red)
-				ofColor c;
-				if (y > 20)
-					c = ofColor(255, 50, 0); // Red bottom
-				else if (y > 10)
-					c = ofColor(255, 150, 0); // Orange mid
-				else
-					c = ofColor(255, 255, 0); // Yellow top
-
-				firePix.setColor(xOffset + x, y, ofColor(c, alpha));
+				ofPopMatrix();
 			}
 		}
+
+		// Re-enable lighting for subsequent objects
+		ofEnableLighting();
 	}
-	fireTexture.setFromPixels(firePix);
-	fireTexture.getTexture().setTextureMinMagFilter(GL_NEAREST, GL_NEAREST);
+}
+else {
+	ofLogError("Setup") << "Failed to load tortoise model.";
+}
 
-	// --- ALLOCATE FBO FOR MINION UI ---
-	ofFbo::Settings fboSettings;
-	fboSettings.width = 128; // Small texture size for UI
-	fboSettings.height = 128;
-	fboSettings.internalformat = GL_RGBA;
-	fboSettings.useDepth = true; // We need a depth buffer to render a 3D model
-	modelFbo.allocate(fboSettings);
+// --- 3. BOARD & SKYBOX ---
+ofLoadImage(wallTexture, "Board/wall.png");
+wallTexture.setTextureMinMagFilter(GL_NEAREST, GL_NEAREST);
 
-	// --- FINAL APPLY SETTINGS ---
-	isFullscreen = true;
-	// Fullscreen is now set in main.cpp
-	applySettings();
+// Load Floor Textures (Floor1.PNG to Floor6.PNG)
+floorTextures.clear();
+floorMeshes.clear();
 
-	// Load PNG cursors from UI folder
-	glfwArrow = createGLFWCursorFromPNG("UI/pointer.png", 0, 0); // pointer.png, hotspot top-left
-	glfwHandPoint = createGLFWCursorFromPNG("UI/link.png", 0, 0); // link.png, hotspot top-left
-	glfwHandOpen = createGLFWCursorFromPNG("UI/grab_hover.png", 8, 8); // grab_hover.png, hotspot center
-	glfwHandClosed = createGLFWCursorFromPNG("UI/grab.png", 8, 8); // grab.png, hotspot center
+// Loop from 1 to 6
+for (int i = 1; i <= 6; i++) {
+	ofTexture tex;
+	// Construct filename: "Board/Floor1.PNG", etc.
+	// Note: .PNG is case-sensitive on some systems
+	string filename = "Board/Floor" + ofToString(i) + ".PNG";
 
-	// Set initial cursor
-	GLFWwindow * window = (GLFWwindow *)ofGetWindowPtr()->getWindowContext();
-	if (glfwArrow) glfwSetCursor(window, glfwArrow);
+	if (ofLoadImage(tex, filename)) {
+		tex.generateMipmap();
+		tex.setTextureMinMagFilter(GL_NEAREST_MIPMAP_NEAREST, GL_NEAREST);
+		floorTextures.push_back(tex);
+
+		ofMesh m;
+		m.setMode(OF_PRIMITIVE_TRIANGLES);
+		floorMeshes.push_back(m);
+	} else {
+		ofLogError("Setup") << "Failed to load " << filename;
+	}
+}
+
+// --- 4. DICE TEXTURES & COIN ---
+// Note: Paths point to specific Dice/ subfolders
+ofLoadImage(d4Texture, "Dice/D4/Dice_d4_Albedo.png");
+ofLoadImage(d6Texture, "Dice/D6/dice_texture_d6.png");
+ofLoadImage(d10Texture, "Dice/D10/d10SilverAlbedo.png");
+ofLoadImage(d20Texture, "Dice/D20/d20_diffuse.png");
+
+ofLoadImage(coinFacesTexture, "Dice/Coin/CoinUKSilver.png");
+// Use linear filtering and mipmaps for a smooth coin appearance
+coinFacesTexture.generateMipmap();
+coinFacesTexture.setTextureMinMagFilter(GL_LINEAR_MIPMAP_LINEAR, GL_LINEAR);
+
+// --- 5. SOUNDS ---
+// Note: Path points to Sounds/Player/
+for (int i = 1; i <= 6; i++) {
+	ofSoundPlayer step;
+	if (step.load("Sounds/Player/step" + ofToString(i) + ".wav")) {
+		step.setMultiPlay(true);
+		step.setVolume(0.5f);
+		footstepSounds.push_back(step);
+	} else {
+		ofLogError("Sound") << "Could not load Sounds/Player/step" << i << ".wav";
+	}
+}
+
+// --- 6. MESH GENERATION (Walls & Floor) ---
+// (This code remains unchanged as it generates geometry programmatically)
+float wallSize = TILE_SIZE * 0.8f;
+wallMesh.clear();
+wallMesh.setMode(OF_PRIMITIVE_TRIANGLES);
+wallMesh.addVertex(ofPoint(-wallSize / 2, 0, -wallSize / 2));
+wallMesh.addVertex(ofPoint(wallSize / 2, 0, -wallSize / 2));
+wallMesh.addVertex(ofPoint(wallSize / 2, 0, wallSize / 2));
+wallMesh.addVertex(ofPoint(-wallSize / 2, 0, wallSize / 2));
+wallMesh.addTexCoord(ofVec2f(0.4f, 0.4f));
+wallMesh.addTexCoord(ofVec2f(0.6f, 0.4f));
+wallMesh.addTexCoord(ofVec2f(0.6f, 0.6f));
+wallMesh.addTexCoord(ofVec2f(0.4f, 0.6f));
+for (int i = 0; i < 4; i++)
+	wallMesh.addNormal(ofPoint(0, 1, 0));
+wallMesh.addIndex(0);
+wallMesh.addIndex(1);
+wallMesh.addIndex(2);
+wallMesh.addIndex(0);
+wallMesh.addIndex(2);
+wallMesh.addIndex(3);
+
+// D6 Mesh Gen
+d6Mesh.clear();
+d6Mesh.setMode(OF_PRIMITIVE_TRIANGLES);
+float size = 1.0f;
+const float atlasWidth = 333.0f, atlasHeight = 225.0f;
+glm::vec2 uv_1_min(0.0f / atlasWidth, 0.0f / atlasHeight), uv_1_max(104.0f / atlasWidth, 104.0f / atlasHeight);
+glm::vec2 uv_2_min(114.0f / atlasWidth, 0.0f / atlasHeight), uv_2_max(218.0f / atlasWidth, 104.0f / atlasHeight);
+glm::vec2 uv_3_min(228.0f / atlasWidth, 0.0f / atlasHeight), uv_3_max(332.0f / atlasWidth, 104.0f / atlasHeight);
+glm::vec2 uv_4_min(0.0f / atlasWidth, 120.0f / atlasHeight), uv_4_max(104.0f / atlasWidth, 224.0f / atlasHeight);
+glm::vec2 uv_5_min(114.0f / atlasWidth, 120.0f / atlasHeight), uv_5_max(218.0f / atlasWidth, 224.0f / atlasHeight);
+glm::vec2 uv_6_min(228.0f / atlasWidth, 120.0f / atlasHeight), uv_6_max(332.0f / atlasWidth, 224.0f / atlasHeight);
+auto addFace = [&](glm::vec3 v1, glm::vec3 v2, glm::vec3 v3, glm::vec3 v4, glm::vec2 t_min, glm::vec2 t_max, glm::vec3 normal) {
+	int baseIndex = d6Mesh.getNumVertices();
+	d6Mesh.addVertex(v1 * size);
+	d6Mesh.addTexCoord({ t_min.x, t_max.y });
+	d6Mesh.addVertex(v2 * size);
+	d6Mesh.addTexCoord({ t_max.x, t_max.y });
+	d6Mesh.addVertex(v3 * size);
+	d6Mesh.addTexCoord({ t_max.x, t_min.y });
+	d6Mesh.addVertex(v4 * size);
+	d6Mesh.addTexCoord({ t_min.x, t_min.y });
+	for (int i = 0; i < 4; i++)
+		d6Mesh.addNormal(normal);
+	d6Mesh.addIndex(baseIndex);
+	d6Mesh.addIndex(baseIndex + 1);
+	d6Mesh.addIndex(baseIndex + 2);
+	d6Mesh.addIndex(baseIndex);
+	d6Mesh.addIndex(baseIndex + 2);
+	d6Mesh.addIndex(baseIndex + 3);
+};
+addFace({ -1, -1, 1 }, { 1, -1, 1 }, { 1, 1, 1 }, { -1, 1, 1 }, uv_1_min, uv_1_max, { 0, 0, 1 });
+addFace({ 1, -1, -1 }, { -1, -1, -1 }, { -1, 1, -1 }, { 1, 1, -1 }, uv_6_min, uv_6_max, { 0, 0, -1 });
+addFace({ -1, 1, 1 }, { 1, 1, 1 }, { 1, 1, -1 }, { -1, 1, -1 }, uv_2_min, uv_2_max, { 0, 1, 0 });
+addFace({ -1, -1, -1 }, { 1, -1, -1 }, { 1, -1, 1 }, { -1, -1, 1 }, uv_5_min, uv_5_max, { 0, -1, 0 });
+addFace({ 1, -1, 1 }, { 1, -1, -1 }, { 1, 1, -1 }, { 1, 1, 1 }, uv_3_min, uv_3_max, { 1, 0, 0 });
+addFace({ -1, -1, -1 }, { -1, -1, 1 }, { -1, 1, 1 }, { -1, 1, -1 }, uv_4_min, uv_4_max, { -1, 0, 0 });
+
+// --- 7. DICE MODELS ---
+ofxAssimpModelLoader tempLoader;
+
+// Load D4
+if (tempLoader.load("Dice/D4/Dice_d4.obj")) {
+	d4Mesh = tempLoader.getMesh(0);
+	glm::vec3 meshCenter = d4Mesh.getCentroid();
+	for (auto & v : d4Mesh.getVertices())
+		v -= meshCenter;
+	float maxSize = 0.0f;
+	for (auto & v : d4Mesh.getVertices())
+		maxSize = std::max(maxSize, glm::length(v));
+	if (maxSize > 0) {
+		float scaleFactor = 1.0f / maxSize;
+		for (auto & v : d4Mesh.getVertices())
+			v *= scaleFactor;
+	}
+}
+// Load D10
+if (tempLoader.load("Dice/D10/d10.obj")) {
+	d10Mesh = tempLoader.getMesh(0);
+	glm::vec3 meshCenter = d10Mesh.getCentroid();
+	for (auto & v : d10Mesh.getVertices())
+		v -= meshCenter;
+	float maxSize = 0.0f;
+	for (auto & v : d10Mesh.getVertices())
+		maxSize = std::max(maxSize, glm::length(v));
+	if (maxSize > 0) {
+		float scaleFactor = 1.0f / maxSize;
+		for (auto & v : d10Mesh.getVertices())
+			v *= scaleFactor;
+	}
+}
+// Load D20
+if (tempLoader.load("Dice/D20/d20.obj")) {
+	d20Mesh = tempLoader.getMesh(0);
+	glm::vec3 meshCenter = d20Mesh.getCentroid();
+	for (auto & v : d20Mesh.getVertices())
+		v -= meshCenter;
+	float maxSize = 0.0f;
+	for (auto & v : d20Mesh.getVertices())
+		maxSize = std::max(maxSize, glm::length(v));
+	if (maxSize > 0) {
+		float scaleFactor = 1.0f / maxSize;
+		for (auto & v : d20Mesh.getVertices())
+			v *= scaleFactor;
+	}
+}
+
+// Coin Mesh Gen
+coinMesh.clear();
+coinMesh.setMode(OF_PRIMITIVE_TRIANGLES);
+const float coinRadius = 2.0f;
+const float coinThickness = 0.2f;
+const int coinResolution = 32;
+ofRectangle headsUV(0.0f, 0.0f, 0.5f, 1.0f);
+ofRectangle tailsUV(0.5f, 0.0f, 0.5f, 1.0f);
+
+int topCenterIndex = coinMesh.getNumVertices();
+coinMesh.addVertex({ 0, coinThickness / 2.0f, 0 });
+coinMesh.addNormal({ 0, 1, 0 });
+coinMesh.addTexCoord({ headsUV.getCenter().x, headsUV.getCenter().y });
+for (int i = 0; i <= coinResolution; i++) {
+	float angle = (float)i / coinResolution * TWO_PI;
+	coinMesh.addVertex({ cos(angle) * coinRadius, coinThickness / 2.0f, sin(angle) * coinRadius });
+	coinMesh.addNormal({ 0, 1, 0 });
+	coinMesh.addTexCoord({ headsUV.x + headsUV.width * (0.5f + 0.5f * cos(angle)), headsUV.y + headsUV.height * (0.5f + 0.5f * sin(angle)) });
+}
+for (int i = 0; i < coinResolution; i++) {
+	coinMesh.addIndex(topCenterIndex);
+	coinMesh.addIndex(topCenterIndex + 1 + i);
+	coinMesh.addIndex(topCenterIndex + 1 + i + 1);
+}
+
+int bottomCenterIndex = coinMesh.getNumVertices();
+coinMesh.addVertex({ 0, -coinThickness / 2.0f, 0 });
+coinMesh.addNormal({ 0, -1, 0 });
+coinMesh.addTexCoord({ tailsUV.getCenter().x, tailsUV.getCenter().y });
+for (int i = 0; i <= coinResolution; i++) {
+	float angle = (float)i / coinResolution * TWO_PI;
+	coinMesh.addVertex({ cos(angle) * coinRadius, -coinThickness / 2.0f, sin(angle) * coinRadius });
+	coinMesh.addNormal({ 0, -1, 0 });
+	coinMesh.addTexCoord({ tailsUV.x + tailsUV.width * (0.5f + 0.5f * cos(angle)), tailsUV.y + tailsUV.height * (0.5f + 0.5f * sin(angle)) });
+}
+for (int i = 0; i < coinResolution; i++) {
+	coinMesh.addIndex(bottomCenterIndex);
+	coinMesh.addIndex(bottomCenterIndex + 1 + i + 1);
+	coinMesh.addIndex(bottomCenterIndex + 1 + i);
+}
+
+ofColor edgeColor = ofColor::goldenRod;
+int edgeStartIndex = coinMesh.getNumVertices();
+for (int i = 0; i <= coinResolution; i++) {
+	float angle = (float)i / coinResolution * TWO_PI;
+	glm::vec3 normal = glm::normalize(glm::vec3(cos(angle), 0, sin(angle)));
+	coinMesh.addVertex({ cos(angle) * coinRadius, coinThickness / 2.0f, sin(angle) * coinRadius });
+	coinMesh.addNormal(normal);
+	coinMesh.addColor(edgeColor);
+	coinMesh.addVertex({ cos(angle) * coinRadius, -coinThickness / 2.0f, sin(angle) * coinRadius });
+	coinMesh.addNormal(normal);
+	coinMesh.addColor(edgeColor);
+}
+for (int i = 0; i < coinResolution; i++) {
+	int current = edgeStartIndex + i * 2;
+	int next = edgeStartIndex + (i + 1) * 2;
+	coinMesh.addIndex(current);
+	coinMesh.addIndex(next);
+	coinMesh.addIndex(current + 1);
+	coinMesh.addIndex(next);
+	coinMesh.addIndex(next + 1);
+	coinMesh.addIndex(current + 1);
+}
+
+// --- 8. MATERIALS & LIGHTS ---
+
+// 1. Material Settings
+modelMaterial.setShininess(10);
+modelMaterial.setSpecularColor(ofColor(50, 50, 50));
+modelMaterial.setDiffuseColor(ofColor(255, 255, 255));
+modelMaterial.setAmbientColor(ofColor(255, 255, 255));
+
+// 1. GLOBAL AMBIENT
+// Make the ambient slightly darker so the board isn't too bright
+ofSetGlobalAmbientColor(ofColor(50, 50, 50));
+
+lights.clear();
+
+// 2. KEY LIGHT (Main Illumination)
+keyLight.setup();
+keyLight.setPointLight();
+keyLight.setPosition(50, 150, 50); // Raised Y to 150 for better spread
+// Neutral white light, boosted brightness
+keyLight.setDiffuseColor(ofColor(140, 140, 140));
+keyLight.setSpecularColor(ofColor(50, 50, 50));
+keyLight.setAttenuation(1.0f, 0.005f, 0.0f);
+lights.push_back(keyLight);
+
+// 3. RIM LIGHT (Backlight)
+rimLight.setup();
+rimLight.setPointLight();
+rimLight.setPosition(-50, 30, -50);
+// Very subtle warm glow, not deep red
+rimLight.setDiffuseColor(ofColor(80, 60, 50));
+rimLight.setSpecularColor(ofColor(50, 0, 0));
+lights.push_back(rimLight);
+
+// 5. HEADLIGHT (Torch)
+headlight.setup();
+headlight.setPointLight();
+headlight.setDiffuseColor(ofColor(220, 170, 100));
+headlight.setSpecularColor(ofColor(255, 200, 150));
+headlight.setAttenuation(1.0f, 0.001f, 0.0f);
+
+// 6. UI LIGHT (For FBOs)
+uiLight.setup();
+uiLight.setPointLight();
+uiLight.setDiffuseColor(ofColor::white);
+uiLight.setPosition(0, 100, 200); // Positioned in front and above
+// END ADD
+
+// Adjust FOV based on aspect ratio to maintain consistent scale
+float aspectRatio = (float)ofGetWidth() / (float)ofGetHeight();
+float fov = 60.0f * (aspectRatio / 1.333f); // 1.333 is the original 1024/768 ratio
+cam.setupPerspective(false, fov, 0.1f, 100000);
+
+// --- SHADOW TEXTURE GENERATION ---
+ofPixels pix;
+pix.allocate(64, 64, OF_PIXELS_RGBA);
+for (int x = 0; x < 64; x++) {
+	for (int y = 0; y < 64; y++) {
+		float dist = ofDist(x, y, 32, 32);
+		float alpha = ofMap(dist, 0, 32, 200, 0, true);
+		pix.setColor(x, y, ofColor(0, 0, 0, alpha));
+	}
+}
+shadowTexture.setFromPixels(pix);
+
+// --- 9. LOAD CARD DATA ---
+// Note: Path points to Config/ folder
+loadCardData("Config/cards.json");
+
+// --- 10. SCREEN SETTINGS ---
+availableResolutions = { { 1024, 768 }, { 1280, 720 }, { 1600, 900 }, { 1920, 1080 }, { 2560, 1440 } };
+int screenW = ofGetScreenWidth();
+int screenH = ofGetScreenHeight();
+bool found = false;
+for (size_t i = 0; i < availableResolutions.size(); ++i) {
+	if (availableResolutions[i].x == screenW && availableResolutions[i].y == screenH) {
+		currentResolutionIndex = static_cast<int>(i);
+		found = true;
+		break;
+	}
+}
+if (!found) {
+	availableResolutions.push_back(glm::vec2(screenW, screenH));
+	currentResolutionIndex = availableResolutions.size() - 1;
+}
+
+int monitorRefreshRate = 60;
+GLFWmonitor * primary = glfwGetPrimaryMonitor();
+if (primary) {
+	const GLFWvidmode * mode = glfwGetVideoMode(primary);
+	monitorRefreshRate = mode->refreshRate;
+}
+
+availableFramerates.clear();
+availableFramerates.push_back(30);
+availableFramerates.push_back(60);
+if (monitorRefreshRate != 30 && monitorRefreshRate != 60) {
+	availableFramerates.push_back(monitorRefreshRate);
+}
+availableFramerates.push_back(0);
+
+for (size_t i = 0; i < availableFramerates.size(); i++) {
+	if (availableFramerates[i] == monitorRefreshRate) {
+		currentFramerateIndex = i;
+		break;
+	}
+}
+
+// --- GENERATE PIXEL ART FIRE TEXTURE ---
+// Creating a 4-frame sprite sheet (128x32 pixels, 4 frames of 32x32)
+ofPixels firePix;
+firePix.allocate(128, 32, OF_PIXELS_RGBA);
+
+for (int f = 0; f < 4; f++) { // 4 Frames
+	int xOffset = f * 32;
+	for (int y = 0; y < 32; y++) {
+		for (int x = 0; x < 32; x++) {
+			// Procedural noise fire shape
+			float n = ofNoise(x * 0.1, y * 0.1, f * 0.5, ofGetElapsedTimef());
+			float centerDist = abs(x - 16) / 16.0f;
+			float heightFade = (32 - y) / 32.0f;
+
+			float alpha = 0;
+			if (n > 0.4 + centerDist && y > 5) {
+				alpha = 255;
+			}
+
+			// Pixel Art Colors (Yellow -> Orange -> Red)
+			ofColor c;
+			if (y > 20)
+				c = ofColor(255, 50, 0); // Red bottom
+			else if (y > 10)
+				c = ofColor(255, 150, 0); // Orange mid
+			else
+				c = ofColor(255, 255, 0); // Yellow top
+
+			firePix.setColor(xOffset + x, y, ofColor(c, alpha));
+		}
+	}
+}
+fireTexture.setFromPixels(firePix);
+fireTexture.getTexture().setTextureMinMagFilter(GL_NEAREST, GL_NEAREST);
+
+// --- ALLOCATE FBO FOR MINION UI ---
+ofFbo::Settings fboSettings;
+fboSettings.width = 128; // Small texture size for UI
+fboSettings.height = 128;
+fboSettings.internalformat = GL_RGBA;
+fboSettings.useDepth = true; // We need a depth buffer to render a 3D model
+modelFbo.allocate(fboSettings);
+
+// --- FINAL APPLY SETTINGS ---
+isFullscreen = true;
+// Fullscreen is now set in main.cpp
+applySettings();
+
+// Load PNG cursors from UI folder
+glfwArrow = createGLFWCursorFromPNG("UI/pointer.png", 0, 0); // pointer.png, hotspot top-left
+glfwHandPoint = createGLFWCursorFromPNG("UI/link.png", 0, 0); // link.png, hotspot top-left
+glfwHandOpen = createGLFWCursorFromPNG("UI/grab_hover.png", 8, 8); // grab_hover.png, hotspot center
+glfwHandClosed = createGLFWCursorFromPNG("UI/grab.png", 8, 8); // grab.png, hotspot center
+
+// Set initial cursor
+GLFWwindow * window = (GLFWwindow *)ofGetWindowPtr()->getWindowContext();
+if (glfwArrow) glfwSetCursor(window, glfwArrow);
 }
 //--------------------------------------------------------------
 Player * ofApp::getPlayer(int index) {
@@ -570,7 +570,7 @@ void ofApp::update() {
 	}
 
 	// ADD THIS CHECK to prevent other actions while dice are rolling
-	if (isWaitingForTimeVortexDice) {
+	if (isWaitingForTimeVortexDice || isWaitingForMagicBoltRange) {
 		// Only update the dice animation, nothing else
 		// (Assuming your dice animation update is inside updateGame)
 		updateGame();
@@ -912,6 +912,7 @@ void ofApp::recalculateUI(int w, int h) {
 void ofApp::setupGame() {
 	// --- RESET CORE GAME STATE (Fast Operations Only) ---
 	players.clear();
+	activeDiceRolls.clear();
 	activeDiceRolls.clear();
 	for (int x = 0; x < BOARD_WIDTH; ++x) {
 		for (int y = 0; y < BOARD_HEIGHT; ++y) {
@@ -2255,6 +2256,105 @@ void ofApp::updateGame() {
 
 			bool anyStillMoving = false;
 
+			// --- PRE-STEP COLLISION RESOLUTION (Two-phase) ---
+			if (earthquakeT <= speed) {
+				int n = (int)earthquakeUnits.size();
+				std::vector<bool> willCrash(n, false);
+
+				// Map target key to list of indices wanting that tile
+				std::unordered_map<int, std::vector<int>> targetMap;
+				auto keyFor = [](const glm::ivec2 & g) { return (g.x << 8) | (g.y & 0xFF); };
+
+				// Phase A: wall/edge checks and populate targetMap
+				for (int i = 0; i < n; ++i) {
+					auto & u = earthquakeUnits[i];
+					if (!u.isMoving || u.tilesToMove <= 0) continue;
+					glm::ivec2 t = u.nextGrid;
+					if (t.x < 0 || t.x >= BOARD_WIDTH || t.y < 0 || t.y >= BOARD_HEIGHT || board[t.x][t.y].hasWall) {
+						willCrash[i] = true;
+					} else {
+						targetMap[keyFor(t)].push_back(i);
+					}
+				}
+
+				// Phase B: multiple movers into same tile -> all crash
+				for (const auto & kv : targetMap) {
+					if (kv.second.size() > 1) {
+						for (int idx : kv.second)
+							willCrash[idx] = true;
+					}
+				}
+
+				// Phase C: head-on swaps and stationary rear-ends
+				for (int i = 0; i < n; ++i) {
+					auto & u = earthquakeUnits[i];
+					if (!u.isMoving || u.tilesToMove <= 0) continue;
+					glm::ivec2 targ = u.nextGrid;
+
+					for (int j = 0; j < n; ++j) {
+						if (i == j) continue;
+						auto & v = earthquakeUnits[j];
+						// Head-on swap
+						if (v.nextGrid == u.startGrid && v.startGrid == u.nextGrid) {
+							willCrash[i] = true;
+							willCrash[j] = true;
+						}
+						// Rear-end: target occupied by stationary unit
+						if (!v.isMoving && v.startGrid == targ) {
+							willCrash[i] = true;
+							// Spawn crash dice for stationary unit once per step
+							if (v.crashDiceLastStep != earthquakeStep) {
+								// Spawn a visible 1d4 crash die; damage will be applied when it resolves
+								int beforeIdx2 = (int)activeDiceRolls.size();
+								startDiceRoll(1, 4, PURPOSE_EARTHQUAKE_DAMAGE, "");
+								int afterIdx2 = (int)activeDiceRolls.size();
+								if (afterIdx2 > beforeIdx2) {
+									int newIdx2 = afterIdx2 - 1;
+									activeDiceRolls[newIdx2].associatedUnit = v.playerIndex;
+									v.crashDiceLastStep = earthquakeStep;
+								}
+								FloatingText cft;
+								cft.text = "Crash!";
+								cft.worldPos = gridToWorld(v.startGrid.x, v.startGrid.y) + glm::vec3(0, 1.5f, 0);
+								cft.velocity = glm::vec3(0, 0.8f, 0);
+								cft.startTime = ofGetElapsedTimef();
+								cft.duration = 0.6f;
+								cft.color = ofColor::red;
+								activeFloatingTexts.push_back(cft);
+							}
+						}
+					}
+				}
+
+				// Phase D: spawn crash dice for moving units that will crash
+				for (int i = 0; i < n; ++i) {
+					if (willCrash[i] && !earthquakeUnits[i].crashed) {
+						earthquakeUnits[i].crashed = true;
+						earthquakeUnits[i].tilesToMove = 0;
+
+						// Spawn a visible 1d4 crash die; damage will be applied when it resolves
+						int beforeIdx = (int)activeDiceRolls.size();
+						startDiceRoll(1, 4, PURPOSE_EARTHQUAKE_DAMAGE, "");
+						int afterIdx = (int)activeDiceRolls.size();
+						if (afterIdx > beforeIdx) {
+							int newIdx = afterIdx - 1;
+							activeDiceRolls[newIdx].associatedUnit = earthquakeUnits[i].playerIndex;
+						}
+
+						// Mark this unit as having had a crash-dice this step and show Crash!
+						earthquakeUnits[i].crashDiceLastStep = earthquakeStep;
+						FloatingText cft;
+						cft.text = "Crash!";
+						cft.worldPos = gridToWorld(earthquakeUnits[i].startGrid.x, earthquakeUnits[i].startGrid.y) + glm::vec3(0, 1.5f, 0);
+						cft.velocity = glm::vec3(0, 0.8f, 0);
+						cft.startTime = ofGetElapsedTimef();
+						cft.duration = 0.6f;
+						cft.color = ofColor::red;
+						activeFloatingTexts.push_back(cft);
+					}
+				}
+			}
+
 			// Update Visuals
 			for (auto & unit : earthquakeUnits) {
 				if (!unit.isMoving || unit.tilesToMove <= 0) {
@@ -2263,50 +2363,6 @@ void ofApp::updateGame() {
 				}
 
 				anyStillMoving = true;
-
-				// --- COLLISION PREDICTION (The "Bounce" Logic) ---
-				if (earthquakeT <= speed) { // Do check only at start of step
-					bool willCrash = false;
-					glm::ivec2 target = unit.nextGrid;
-
-					// 1. Wall/Board Edge Check
-					if (target.x < 0 || target.x >= BOARD_WIDTH || target.y < 0 || target.y >= BOARD_HEIGHT || board[target.x][target.y].hasWall) {
-						willCrash = true;
-					} else {
-						// 2. Unit Collision Check
-						for (auto & other : earthquakeUnits) {
-							if (unit.playerIndex == other.playerIndex) continue;
-
-							// Head-on collision (Swap)
-							if (other.nextGrid == unit.startGrid && other.startGrid == unit.nextGrid) {
-								willCrash = true;
-							}
-							// Merging collision (Trying to enter same tile)
-							if (other.nextGrid == target) {
-								willCrash = true;
-							}
-							// Rear-end collision (Hitting a stopped unit)
-							if (!other.isMoving && other.startGrid == target) {
-								willCrash = true;
-							}
-						}
-					}
-
-					if (willCrash) {
-						unit.crashed = true;
-						unit.tilesToMove = 0; // Stop further movement
-						// Start a visual d4 for crash damage and associate it with this unit
-						if (unit.diceIndex == -1 || true) {
-							int beforeIdx = (int)activeDiceRolls.size();
-							startDiceRoll(1, 4, PURPOSE_EARTHQUAKE_DAMAGE, "Crash");
-							int afterIdx = (int)activeDiceRolls.size();
-							if (afterIdx > beforeIdx) {
-								int newIdx = afterIdx - 1;
-								activeDiceRolls[newIdx].associatedUnit = unit.playerIndex;
-							}
-						}
-					}
-				}
 
 				// --- LERP ---
 				glm::vec3 pStart = gridToWorld(unit.startGrid.x, unit.startGrid.y);
@@ -2328,6 +2384,7 @@ void ofApp::updateGame() {
 			// --- END OF STEP ---
 			if (earthquakeT >= 1.0f) {
 				earthquakeT = 0.0f;
+				earthquakeStep++; // advance step counter so per-step crash dice gating works
 				bool roundComplete = true;
 
 				for (auto & unit : earthquakeUnits) {
@@ -2340,9 +2397,7 @@ void ofApp::updateGame() {
 						// Stop them here
 						unit.isMoving = false;
 						unit.tilesToMove = 0;
-						// Deal Damage
-						players[unit.playerIndex].health -= ofRandom(1, 5); // 1d4
-						spawnFloatingText(gridToWorld(unit.startGrid.x, unit.startGrid.y), "-1d4 Crash!", ofColor::red);
+						// Damage is applied by the associated crash dice when it resolves
 					} else {
 						// Successful move
 						// Update board occupancy: clear old, set new
@@ -2631,7 +2686,7 @@ void ofApp::updateGame() {
 					int uidx = roll.associatedUnit;
 					if (uidx >= 0 && uidx < (int)players.size()) {
 						players[uidx].health -= roll.result;
-						spawnFloatingText(gridToWorld(players[uidx].x, players[uidx].y), "-" + ofToString(roll.result) + " Quake!", ofColor::red);
+						spawnFloatingText(gridToWorld(players[uidx].x, players[uidx].y), "-" + ofToString(roll.result), ofColor::red);
 						ofLogNotice("Earthquake") << "Player " << uidx << " took " << roll.result << " quake damage.";
 					}
 				} else if (roll.purpose == PURPOSE_BONUS_AP) {
@@ -2927,6 +2982,66 @@ void ofApp::updateGame() {
 	const float cardDisplayDuration = 2.5f;
 	while (!activeCardDisplays.empty() && (ofGetElapsedTimef() - activeCardDisplays.front().startTime > cardDisplayDuration)) {
 		activeCardDisplays.erase(activeCardDisplays.begin());
+	}
+
+	// --- IMMEDIATE DEATH / NO-CARDS CHECK ---
+	// Remove units instantly if they have 0 HP or no cards anywhere (deck+discard+hand)
+	std::vector<int> removeIndices;
+	for (int i = 0; i < (int)players.size(); ++i) {
+		bool noCards = players[i].deck.empty() && players[i].discardPile.empty() && players[i].hand.empty();
+		if (players[i].health <= 0 || noCards) {
+			removeIndices.push_back(i);
+		}
+	}
+
+	if (!removeIndices.empty()) {
+		std::sort(removeIndices.begin(), removeIndices.end(), std::greater<int>());
+		for (int idx : removeIndices) {
+			if (idx < 0 || idx >= (int)players.size()) continue;
+
+			DeathMarker death;
+			death.x = players[idx].x;
+			death.y = players[idx].y;
+			death.turnDied = globalTurnCounter;
+			death.deck = players[idx].deck;
+			graveyard.push_back(death);
+
+			if (players[idx].x >= 0 && players[idx].x < BOARD_WIDTH && players[idx].y >= 0 && players[idx].y < BOARD_HEIGHT) {
+				board[players[idx].x][players[idx].y].hasPlayer = false;
+			}
+
+			// Update active dice associations
+			for (auto & r : activeDiceRolls) {
+				if (r.associatedUnit == idx)
+					r.associatedUnit = -1;
+				else if (r.associatedUnit > idx)
+					r.associatedUnit -= 1;
+			}
+
+			// Remove or adjust earthquake unit entries
+			for (auto it = earthquakeUnits.begin(); it != earthquakeUnits.end();) {
+				if (it->playerIndex == idx) {
+					it = earthquakeUnits.erase(it);
+				} else {
+					if (it->playerIndex > idx) it->playerIndex -= 1;
+					++it;
+				}
+			}
+
+			players.erase(players.begin() + idx);
+
+			if (players.empty()) {
+				currentPlayerIndex = -1;
+			} else {
+				if (currentPlayerIndex == idx) {
+					currentPlayerIndex = std::min<int>(idx, (int)players.size() - 1);
+				} else if (currentPlayerIndex > idx) {
+					currentPlayerIndex -= 1;
+				}
+			}
+		}
+
+		invalidateTargetCache();
 	}
 
 	if (hasUnlimitedAP) currentAP = 99;
@@ -3492,10 +3607,24 @@ void ofApp::drawGame() {
 		for (const auto & player : players) {
 			// 1. Determine Position
 			glm::vec3 pos;
-			if (currentPlayerIndex >= 0 && player.playerID == players[currentPlayerIndex].playerID) {
-				pos = playerVisualPos;
-			} else {
-				pos = gridToWorld(player.x, player.y);
+			bool foundEq = false;
+			if (isEarthquakeActive) {
+				int pIndex = (int)(&player - &players[0]);
+				for (const auto & eq : earthquakeUnits) {
+					if (eq.playerIndex == pIndex) {
+						pos = eq.visualPos;
+						foundEq = true;
+						break;
+					}
+				}
+			}
+
+			if (!foundEq) {
+				if (currentPlayerIndex >= 0 && player.playerID == players[currentPlayerIndex].playerID) {
+					pos = playerVisualPos;
+				} else {
+					pos = gridToWorld(player.x, player.y);
+				}
 			}
 
 			// 2. Determine Head Height for Status Effects (Used in this loop)

@@ -687,6 +687,7 @@ private:
 		glm::vec3 visualPos; // For smooth animation
 		bool isMoving; // False if hit wall/unit
 		bool crashed; // True if took damage
+		int crashDiceLastStep = -1; // Prevent spawning multiple crash dice in same step
 	};
 
 	bool isEarthquakeActive = false;
@@ -694,6 +695,7 @@ private:
 	bool isEarthquakeAnimatingStep = false; // Phase 2: Movement
 	float earthquakeT = 0.0f; // 0.0 to 1.0 for interpolation
 	std::vector<EarthquakeState> earthquakeUnits;
+	int earthquakeStep = 0; // Incremented each earthquake animation step
 	// Waiting state between dice resolution and movement
 	bool isEarthquakeWaiting = false; // Phase between dice and movement
 	float earthquakeWaitTimer = 0.0f; // seconds remaining
