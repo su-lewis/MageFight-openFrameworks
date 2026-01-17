@@ -2512,6 +2512,31 @@ void ofApp::updateGame() {
 				}
 			}
 
+			// While animating earthquake steps we still want crash dice to resolve
+			// so spawn/rolls for PURPOSE_EARTHQUAKE_DAMAGE are processed immediately.
+			for (auto & roll : activeDiceRolls) {
+				float elapsedTime = ofGetElapsedTimef() - roll.startTime;
+				float spinDuration = 1.0f;
+				if (elapsedTime > spinDuration && !roll.isFinishedVisual) {
+					roll.isFinishedVisual = true;
+					if (roll.purpose == PURPOSE_EARTHQUAKE_DAMAGE) {
+						int uidx = roll.associatedUnit;
+						if (uidx >= 0 && uidx < (int)players.size()) {
+							players[uidx].health -= roll.result;
+							glm::vec3 textPos = gridToWorld(players[uidx].x, players[uidx].y);
+							for (const auto & eu : earthquakeUnits) {
+								if (eu.playerIndex == uidx) {
+									textPos = eu.visualPos;
+									break;
+								}
+							}
+							spawnFloatingText(textPos + glm::vec3(0, 0.8f, 0), "-" + ofToString(roll.result), ofColor::red);
+							ofLogNotice("Earthquake") << "Player " << uidx << " took " << roll.result << " quake damage.";
+						}
+					}
+				}
+			}
+
 			return; // Skip rest of update
 		}
 	}
