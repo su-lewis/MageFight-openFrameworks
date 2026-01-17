@@ -3229,7 +3229,8 @@ void ofApp::drawGame() {
 					// Anchor arrows at the unit's start grid so they don't form a long line during animation
 					glm::vec3 pos = gridToWorld(eq.startGrid.x, eq.startGrid.y);
 
-					ofSetColor(255, 255, 0, 200); // Transparent Yellow
+					// Brighter, fully opaque yellow for clearer visibility
+					ofSetColor(255, 220, 0, 255);
 
 					ofPushMatrix();
 					// Move to tile center, slightly above floor
