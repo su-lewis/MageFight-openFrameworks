@@ -687,6 +687,7 @@ private:
 		glm::vec3 visualPos; // For smooth animation
 		bool isMoving; // False if hit wall/unit
 		bool crashed; // True if took damage
+		bool crashDamageApplied = false; // True if we've applied immediate crash damage (for head-on)
 		int crashDiceLastStep = -1; // Prevent spawning multiple crash dice in same step
 	};
 
