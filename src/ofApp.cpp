@@ -198,7 +198,9 @@ void ofApp::setup() {
 	ofLoadImage(d20Texture, "Dice/D20/d20_diffuse.png");
 
 	ofLoadImage(coinFacesTexture, "Dice/Coin/CoinUKSilver.png");
-	coinFacesTexture.setTextureMinMagFilter(GL_NEAREST, GL_NEAREST);
+	// Use linear filtering and mipmaps for a smooth coin appearance
+	coinFacesTexture.generateMipmap();
+	coinFacesTexture.setTextureMinMagFilter(GL_LINEAR_MIPMAP_LINEAR, GL_LINEAR);
 
 	// --- 5. SOUNDS ---
 	// Note: Path points to Sounds/Player/
@@ -393,10 +395,9 @@ void ofApp::setup() {
 	modelMaterial.setDiffuseColor(ofColor(255, 255, 255));
 	modelMaterial.setAmbientColor(ofColor(255, 255, 255));
 
-	// 1. GLOBAL AMBIENT (Brightness Fix)
-	// Was (60, 60, 80). Changed to (100, 100, 100).
-	// This is a neutral grey (no purple tint) and significantly brighter.
-	ofSetGlobalAmbientColor(ofColor(70, 70, 70));
+	// 1. GLOBAL AMBIENT
+	// Make the ambient slightly darker so the board isn't too bright
+	ofSetGlobalAmbientColor(ofColor(50, 50, 50));
 
 	lights.clear();
 
@@ -1131,15 +1132,16 @@ void ofApp::updateGame() {
 
 	// --- TORCH FLICKER LOGIC (SLOWER) ---
 	float time = ofGetElapsedTimef();
-	float flicker = ofNoise(time * 3.0f); // Speed
+	// Lower the noise frequency so flicker is slower and less frantic
+	float flicker = ofNoise(time * 0.6f); // Slower speed
 
 	// 2. Intensity Mapping
 	// Map noise to a safe range (0.8 to 1.3)
 	float intensity = ofMap(flicker, 0, 1, 0.8f, 1.3f);
 
 	// 3. Position Wiggle (Slow sway)
-	float wiggleX = ofNoise(time * 1.0f, 0) * 15.0f - 7.5f;
-	float wiggleY = ofNoise(time * 1.0f, 100) * 10.0f - 5.0f;
+	float wiggleX = ofNoise(time * 0.4f, 0) * 15.0f - 7.5f;
+	float wiggleY = ofNoise(time * 0.4f, 100) * 10.0f - 5.0f;
 
 	// 4. Apply Color
 	// Base color is a warm orange/yellow.
