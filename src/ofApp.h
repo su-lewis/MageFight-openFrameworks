@@ -694,6 +694,9 @@ private:
 	bool isEarthquakeAnimatingStep = false; // Phase 2: Movement
 	float earthquakeT = 0.0f; // 0.0 to 1.0 for interpolation
 	std::vector<EarthquakeState> earthquakeUnits;
+	// Waiting state between dice resolution and movement
+	bool isEarthquakeWaiting = false; // Phase between dice and movement
+	float earthquakeWaitTimer = 0.0f; // seconds remaining
 
 	// Wisdom Boon
 	bool isWisdomBoonMenuOpen = false;

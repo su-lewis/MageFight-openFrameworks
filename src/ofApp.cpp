@@ -2227,15 +2227,30 @@ void ofApp::updateGame() {
 					activeDiceRolls.erase(activeDiceRolls.begin() + idx);
 
 				isEarthquakeDiceRolling = false;
-				isEarthquakeAnimatingStep = true;
+				// Start a short delay before movement so results are visible
+				isEarthquakeWaiting = true;
+				earthquakeWaitTimer = 2.0f; // 2 seconds delay
+				isEarthquakeAnimatingStep = false;
 				earthquakeT = 0.0f;
 			}
 			// Do NOT return here; allow the main dice update/erasure loop to run this frame.
 		}
 
+		// PHASE 1.5: WAIT BEFORE ANIMATION
+		if (isEarthquakeWaiting) {
+			earthquakeWaitTimer -= ofGetLastFrameTime();
+			if (earthquakeWaitTimer <= 0.0f) {
+				isEarthquakeWaiting = false;
+				isEarthquakeAnimatingStep = true;
+				earthquakeT = 0.0f;
+			}
+		}
+
 		// PHASE 2: ANIMATION STEP (Simultaneous Movement)
 		if (isEarthquakeAnimatingStep) {
-			float speed = 2.0f * ofGetLastFrameTime(); // Slow motion
+			// Scale earthquake animation speed (0.2 = one-fifth of previous speed)
+			float earthquakeSpeedScale = 0.2f;
+			float speed = 2.0f * ofGetLastFrameTime() * earthquakeSpeedScale; // Slow motion
 			earthquakeT += speed;
 
 			bool anyStillMoving = false;
