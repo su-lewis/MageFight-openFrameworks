@@ -561,6 +561,45 @@ Player * ofApp::getPlayer(int index) {
 	return nullptr;
 }
 //--------------------------------------------------------------
+// Build a human-friendly display name for a player/minion
+std::string ofApp::getPlayerDisplayName(int index) {
+	Player * p = getPlayer(index);
+	if (!p) return "";
+
+	// Non-minion players: "Player N" (1-based playerID)
+	if (!p->isMinion) {
+		return "Player " + ofToString(p->playerID + 1);
+	}
+
+	// Minions: try to pick a species prefix
+	std::string prefix = "Minion";
+	if (p->isKobold)
+		prefix = "Kobold";
+	else if (p->isWolf)
+		prefix = "Wolf";
+	else if (p->isHellhound)
+		prefix = "Hellhound";
+	else if (p->isGolem)
+		prefix = "Golem";
+	else if (p->isSkeleton)
+		prefix = "Skeleton";
+	else if (p->isDemon)
+		prefix = "Demon";
+
+	// Derive a simple ordinal by counting same-type minions for the same owner
+	int ord = 1;
+	for (int i = 0; i < (int)players.size(); ++i) {
+		if (i == index) break;
+		Player & other = players[i];
+		if (!other.isMinion) continue;
+		if ((prefix == "Kobold" && other.isKobold) || (prefix == "Wolf" && other.isWolf) || (prefix == "Hellhound" && other.isHellhound) || (prefix == "Golem" && other.isGolem) || (prefix == "Skeleton" && other.isSkeleton) || (prefix == "Demon" && other.isDemon)) {
+			if (other.ownerID == p->ownerID) ord++;
+		}
+	}
+
+	return prefix + " " + ofToString(ord);
+}
+//--------------------------------------------------------------
 void ofApp::update() {
 	// --- LOADING LOGIC ---
 	if (isLoadingGame) {
@@ -624,9 +663,8 @@ void ofApp::draw() {
 	if (isLoadingGame) {
 		ofBackground(0);
 		ofSetColor(255);
-		string loadText = "Loading...";
-		ofRectangle bbox = titleFont.getStringBoundingBox(loadText, 0, 0);
-		titleFont.drawString(loadText, ofGetWidth() / 2 - bbox.width / 2, ofGetHeight() / 2);
+		// Minimal loading indicator
+		uiFont.drawString("Loading...", ofGetWidth() / 2 - 60, ofGetHeight() / 2);
 		return;
 	}
 
@@ -644,6 +682,9 @@ void ofApp::draw() {
 	case STATE_PAUSED:
 		drawGame();
 		drawPauseMenu();
+		break;
+	default:
+		drawMainMenu();
 		break;
 	}
 }
@@ -2287,13 +2328,71 @@ void ofApp::updateGame() {
 							auto & mu = earthquakeUnits[idx];
 							// Spawn a visible 1d4 crash die for this mover (once per step)
 							if (mu.crashDiceLastStep != earthquakeStep) {
+								std::uniform_int_distribution<int> d4dist(1, 4);
+								int dmg = d4dist(rng);
 								int beforeIdx = (int)activeDiceRolls.size();
 								startDiceRoll(1, 4, PURPOSE_EARTHQUAKE_DAMAGE, "");
 								int afterIdx = (int)activeDiceRolls.size();
 								if (afterIdx > beforeIdx) {
 									int newIdx = afterIdx - 1;
 									activeDiceRolls[newIdx].associatedUnit = mu.playerIndex;
+									// Force the visible die to show our roll so the UX matches damage
+									activeDiceRolls[newIdx].result = dmg;
+									// Recompute a reasonable final orientation for the D4 face
+									int visualResult = std::min(4, activeDiceRolls[newIdx].result);
+									glm::vec3 faceVec;
+									float correctionDeg = 0.0f;
+									switch (visualResult) {
+									case 1:
+										faceVec = glm::vec3(0, 1, 0);
+										correctionDeg = 0.0f;
+										break;
+									case 2:
+										faceVec = glm::vec3(-0.471f, -0.333f, -0.816f);
+										correctionDeg = 180.0f;
+										break;
+									case 3:
+										faceVec = glm::vec3(-0.471f, -0.333f, 0.816f);
+										correctionDeg = 0.0f;
+										break;
+									case 4:
+									default:
+										faceVec = glm::vec3(0.943f, -0.333f, 0.0f);
+										correctionDeg = 180.0f;
+										break;
+									}
+									glm::quat align = matchFaceToCamera(faceVec);
+									std::uniform_real_distribution<float> wobbleDist(-25.0f, 25.0f);
+									glm::quat manualRot = glm::angleAxis(glm::radians(correctionDeg), glm::vec3(0, 1, 0));
+									glm::quat wobble = glm::angleAxis(glm::radians(wobbleDist(rng)), glm::vec3(0, 1, 0));
+									activeDiceRolls[newIdx].finalQuat = wobble * manualRot * align;
+
 									mu.crashDiceLastStep = earthquakeStep;
+
+									// Apply physical damage (respect block/barrier/ward)
+									if (mu.playerIndex >= 0 && mu.playerIndex < (int)players.size()) {
+										Player & tgt = players[mu.playerIndex];
+										int finalDmg = dmg;
+										int blockDmg = std::min(tgt.block, finalDmg);
+										tgt.block -= blockDmg;
+										finalDmg -= blockDmg;
+										int barrierDmg = std::min(tgt.barrier, finalDmg);
+										tgt.barrier -= barrierDmg;
+										finalDmg -= barrierDmg;
+										if (finalDmg > 0) {
+											int wardDmg = std::min(tgt.ward, finalDmg);
+											tgt.ward -= wardDmg;
+											finalDmg -= wardDmg;
+										}
+										if (finalDmg > 0) {
+											tgt.health -= finalDmg;
+											spawnFloatingText(mu.visualPos + glm::vec3(0, 0.8f, 0), "-" + ofToString(finalDmg), ofColor::red);
+										} else {
+											spawnFloatingText(mu.visualPos + glm::vec3(0, 0.8f, 0), "Blocked", ofColor::gray);
+										}
+										mu.crashDamageApplied = true;
+										ofLogNotice("Earthquake") << "(Immediate) Player " << mu.playerIndex << " took " << dmg << " quake damage (processed).";
+									}
 								}
 								FloatingText cft;
 								cft.text = "Crash!";
@@ -2324,12 +2423,70 @@ void ofApp::updateGame() {
 
 							// Spawn crash dice for both participants (once per step)
 							if (u.crashDiceLastStep != earthquakeStep) {
+								std::uniform_int_distribution<int> d4dist(1, 4);
+								int dmg = d4dist(rng);
 								int beforeIdx = (int)activeDiceRolls.size();
 								startDiceRoll(1, 4, PURPOSE_EARTHQUAKE_DAMAGE, "");
 								int afterIdx = (int)activeDiceRolls.size();
 								if (afterIdx > beforeIdx) {
-									activeDiceRolls[afterIdx - 1].associatedUnit = u.playerIndex;
+									int newIdx = afterIdx - 1;
+									activeDiceRolls[newIdx].associatedUnit = u.playerIndex;
+									activeDiceRolls[newIdx].result = dmg;
+									// Recompute finalQuat for the d4 so the face matches
+									int visualResult = std::min(4, activeDiceRolls[newIdx].result);
+									glm::vec3 faceVec;
+									float correctionDeg = 0.0f;
+									switch (visualResult) {
+									case 1:
+										faceVec = glm::vec3(0, 1, 0);
+										correctionDeg = 0.0f;
+										break;
+									case 2:
+										faceVec = glm::vec3(-0.471f, -0.333f, -0.816f);
+										correctionDeg = 180.0f;
+										break;
+									case 3:
+										faceVec = glm::vec3(-0.471f, -0.333f, 0.816f);
+										correctionDeg = 0.0f;
+										break;
+									case 4:
+									default:
+										faceVec = glm::vec3(0.943f, -0.333f, 0.0f);
+										correctionDeg = 180.0f;
+										break;
+									}
+									glm::quat align = matchFaceToCamera(faceVec);
+									std::uniform_real_distribution<float> wobbleDist(-25.0f, 25.0f);
+									glm::quat manualRot = glm::angleAxis(glm::radians(correctionDeg), glm::vec3(0, 1, 0));
+									glm::quat wobble = glm::angleAxis(glm::radians(wobbleDist(rng)), glm::vec3(0, 1, 0));
+									activeDiceRolls[newIdx].finalQuat = wobble * manualRot * align;
+
 									u.crashDiceLastStep = earthquakeStep;
+
+									// Apply physical damage
+									if (u.playerIndex >= 0 && u.playerIndex < (int)players.size()) {
+										Player & tgt = players[u.playerIndex];
+										int finalDmg = dmg;
+										int blockDmg = std::min(tgt.block, finalDmg);
+										tgt.block -= blockDmg;
+										finalDmg -= blockDmg;
+										int barrierDmg = std::min(tgt.barrier, finalDmg);
+										tgt.barrier -= barrierDmg;
+										finalDmg -= barrierDmg;
+										if (finalDmg > 0) {
+											int wardDmg = std::min(tgt.ward, finalDmg);
+											tgt.ward -= wardDmg;
+											finalDmg -= wardDmg;
+										}
+										if (finalDmg > 0) {
+											tgt.health -= finalDmg;
+											spawnFloatingText(u.visualPos + glm::vec3(0, 0.8f, 0), "-" + ofToString(finalDmg), ofColor::red);
+										} else {
+											spawnFloatingText(u.visualPos + glm::vec3(0, 0.8f, 0), "Blocked", ofColor::gray);
+										}
+										u.crashDamageApplied = true;
+										ofLogNotice("Earthquake") << "(Immediate) Player " << u.playerIndex << " took " << dmg << " quake damage (processed).";
+									}
 								}
 								FloatingText cftu;
 								cftu.text = "Crash!";
@@ -2341,12 +2498,67 @@ void ofApp::updateGame() {
 								activeFloatingTexts.push_back(cftu);
 							}
 							if (v.crashDiceLastStep != earthquakeStep) {
+								std::uniform_int_distribution<int> d4dist(1, 4);
+								int dmg = d4dist(rng);
 								int beforeIdx = (int)activeDiceRolls.size();
 								startDiceRoll(1, 4, PURPOSE_EARTHQUAKE_DAMAGE, "");
 								int afterIdx = (int)activeDiceRolls.size();
 								if (afterIdx > beforeIdx) {
-									activeDiceRolls[afterIdx - 1].associatedUnit = v.playerIndex;
+									int newIdx = afterIdx - 1;
+									activeDiceRolls[newIdx].associatedUnit = v.playerIndex;
+									activeDiceRolls[newIdx].result = dmg;
+									int visualResult = std::min(4, activeDiceRolls[newIdx].result);
+									glm::vec3 faceVec;
+									float correctionDeg = 0.0f;
+									switch (visualResult) {
+									case 1:
+										faceVec = glm::vec3(0, 1, 0);
+										correctionDeg = 0.0f;
+										break;
+									case 2:
+										faceVec = glm::vec3(-0.471f, -0.333f, -0.816f);
+										correctionDeg = 180.0f;
+										break;
+									case 3:
+										faceVec = glm::vec3(-0.471f, -0.333f, 0.816f);
+										correctionDeg = 0.0f;
+										break;
+									case 4:
+									default:
+										faceVec = glm::vec3(0.943f, -0.333f, 0.0f);
+										correctionDeg = 180.0f;
+										break;
+									}
+									glm::quat align = matchFaceToCamera(faceVec);
+									std::uniform_real_distribution<float> wobbleDist(-25.0f, 25.0f);
+									glm::quat manualRot = glm::angleAxis(glm::radians(correctionDeg), glm::vec3(0, 1, 0));
+									glm::quat wobble = glm::angleAxis(glm::radians(wobbleDist(rng)), glm::vec3(0, 1, 0));
+									activeDiceRolls[newIdx].finalQuat = wobble * manualRot * align;
 									v.crashDiceLastStep = earthquakeStep;
+									// Apply physical damage
+									if (v.playerIndex >= 0 && v.playerIndex < (int)players.size()) {
+										Player & tgt = players[v.playerIndex];
+										int finalDmg = dmg;
+										int blockDmg = std::min(tgt.block, finalDmg);
+										tgt.block -= blockDmg;
+										finalDmg -= blockDmg;
+										int barrierDmg = std::min(tgt.barrier, finalDmg);
+										tgt.barrier -= barrierDmg;
+										finalDmg -= barrierDmg;
+										if (finalDmg > 0) {
+											int wardDmg = std::min(tgt.ward, finalDmg);
+											tgt.ward -= wardDmg;
+											finalDmg -= wardDmg;
+										}
+										if (finalDmg > 0) {
+											tgt.health -= finalDmg;
+											spawnFloatingText(v.visualPos + glm::vec3(0, 0.8f, 0), "-" + ofToString(finalDmg), ofColor::red);
+										} else {
+											spawnFloatingText(v.visualPos + glm::vec3(0, 0.8f, 0), "Blocked", ofColor::gray);
+										}
+										v.crashDamageApplied = true;
+										ofLogNotice("Earthquake") << "(Immediate) Player " << v.playerIndex << " took " << dmg << " quake damage (processed).";
+									}
 								}
 								FloatingText cftv;
 								cftv.text = "Crash!";
@@ -2363,12 +2575,69 @@ void ofApp::updateGame() {
 							willCrash[i] = true;
 							// Moving unit: spawn crash die once per step
 							if (u.crashDiceLastStep != earthquakeStep) {
+								std::uniform_int_distribution<int> d4dist(1, 4);
+								int dmg = d4dist(rng);
 								int beforeIdx = (int)activeDiceRolls.size();
 								startDiceRoll(1, 4, PURPOSE_EARTHQUAKE_DAMAGE, "");
 								int afterIdx = (int)activeDiceRolls.size();
 								if (afterIdx > beforeIdx) {
-									activeDiceRolls[afterIdx - 1].associatedUnit = u.playerIndex;
+									int newIdx = afterIdx - 1;
+									activeDiceRolls[newIdx].associatedUnit = u.playerIndex;
+									activeDiceRolls[newIdx].result = dmg;
+									int visualResult = std::min(4, activeDiceRolls[newIdx].result);
+									glm::vec3 faceVec;
+									float correctionDeg = 0.0f;
+									switch (visualResult) {
+									case 1:
+										faceVec = glm::vec3(0, 1, 0);
+										correctionDeg = 0.0f;
+										break;
+									case 2:
+										faceVec = glm::vec3(-0.471f, -0.333f, -0.816f);
+										correctionDeg = 180.0f;
+										break;
+									case 3:
+										faceVec = glm::vec3(-0.471f, -0.333f, 0.816f);
+										correctionDeg = 0.0f;
+										break;
+									case 4:
+									default:
+										faceVec = glm::vec3(0.943f, -0.333f, 0.0f);
+										correctionDeg = 180.0f;
+										break;
+									}
+									glm::quat align = matchFaceToCamera(faceVec);
+									std::uniform_real_distribution<float> wobbleDist(-25.0f, 25.0f);
+									glm::quat manualRot = glm::angleAxis(glm::radians(correctionDeg), glm::vec3(0, 1, 0));
+									glm::quat wobble = glm::angleAxis(glm::radians(wobbleDist(rng)), glm::vec3(0, 1, 0));
+									activeDiceRolls[newIdx].finalQuat = wobble * manualRot * align;
+
 									u.crashDiceLastStep = earthquakeStep;
+
+									// Apply physical damage
+									if (u.playerIndex >= 0 && u.playerIndex < (int)players.size()) {
+										Player & tgt = players[u.playerIndex];
+										int finalDmg = dmg;
+										int blockDmg = std::min(tgt.block, finalDmg);
+										tgt.block -= blockDmg;
+										finalDmg -= blockDmg;
+										int barrierDmg = std::min(tgt.barrier, finalDmg);
+										tgt.barrier -= barrierDmg;
+										finalDmg -= barrierDmg;
+										if (finalDmg > 0) {
+											int wardDmg = std::min(tgt.ward, finalDmg);
+											tgt.ward -= wardDmg;
+											finalDmg -= wardDmg;
+										}
+										if (finalDmg > 0) {
+											tgt.health -= finalDmg;
+											spawnFloatingText(u.visualPos + glm::vec3(0, 0.8f, 0), "-" + ofToString(finalDmg), ofColor::red);
+										} else {
+											spawnFloatingText(u.visualPos + glm::vec3(0, 0.8f, 0), "Blocked", ofColor::gray);
+										}
+										u.crashDamageApplied = true;
+										ofLogNotice("Earthquake") << "(Immediate) Player " << u.playerIndex << " took " << dmg << " quake damage (processed).";
+									}
 								}
 								FloatingText cftu;
 								cftu.text = "Crash!";
@@ -2381,12 +2650,67 @@ void ofApp::updateGame() {
 							}
 							// Stationary unit: spawn crash die once per step
 							if (v.crashDiceLastStep != earthquakeStep) {
+								std::uniform_int_distribution<int> d4dist(1, 4);
+								int dmg = d4dist(rng);
 								int beforeIdx = (int)activeDiceRolls.size();
 								startDiceRoll(1, 4, PURPOSE_EARTHQUAKE_DAMAGE, "");
 								int afterIdx = (int)activeDiceRolls.size();
 								if (afterIdx > beforeIdx) {
-									activeDiceRolls[afterIdx - 1].associatedUnit = v.playerIndex;
+									int newIdx = afterIdx - 1;
+									activeDiceRolls[newIdx].associatedUnit = v.playerIndex;
+									activeDiceRolls[newIdx].result = dmg;
+									int visualResult = std::min(4, activeDiceRolls[newIdx].result);
+									glm::vec3 faceVec;
+									float correctionDeg = 0.0f;
+									switch (visualResult) {
+									case 1:
+										faceVec = glm::vec3(0, 1, 0);
+										correctionDeg = 0.0f;
+										break;
+									case 2:
+										faceVec = glm::vec3(-0.471f, -0.333f, -0.816f);
+										correctionDeg = 180.0f;
+										break;
+									case 3:
+										faceVec = glm::vec3(-0.471f, -0.333f, 0.816f);
+										correctionDeg = 0.0f;
+										break;
+									case 4:
+									default:
+										faceVec = glm::vec3(0.943f, -0.333f, 0.0f);
+										correctionDeg = 180.0f;
+										break;
+									}
+									glm::quat align = matchFaceToCamera(faceVec);
+									std::uniform_real_distribution<float> wobbleDist(-25.0f, 25.0f);
+									glm::quat manualRot = glm::angleAxis(glm::radians(correctionDeg), glm::vec3(0, 1, 0));
+									glm::quat wobble = glm::angleAxis(glm::radians(wobbleDist(rng)), glm::vec3(0, 1, 0));
+									activeDiceRolls[newIdx].finalQuat = wobble * manualRot * align;
 									v.crashDiceLastStep = earthquakeStep;
+									// Apply physical damage
+									if (v.playerIndex >= 0 && v.playerIndex < (int)players.size()) {
+										Player & tgt = players[v.playerIndex];
+										int finalDmg = dmg;
+										int blockDmg = std::min(tgt.block, finalDmg);
+										tgt.block -= blockDmg;
+										finalDmg -= blockDmg;
+										int barrierDmg = std::min(tgt.barrier, finalDmg);
+										tgt.barrier -= barrierDmg;
+										finalDmg -= barrierDmg;
+										if (finalDmg > 0) {
+											int wardDmg = std::min(tgt.ward, finalDmg);
+											tgt.ward -= wardDmg;
+											finalDmg -= wardDmg;
+										}
+										if (finalDmg > 0) {
+											tgt.health -= finalDmg;
+											spawnFloatingText(v.visualPos + glm::vec3(0, 0.8f, 0), "-" + ofToString(finalDmg), ofColor::red);
+										} else {
+											spawnFloatingText(v.visualPos + glm::vec3(0, 0.8f, 0), "Blocked", ofColor::gray);
+										}
+										v.crashDamageApplied = true;
+										ofLogNotice("Earthquake") << "(Immediate) Player " << v.playerIndex << " took " << dmg << " quake damage (processed).";
+									}
 								}
 								FloatingText cftv;
 								cftv.text = "Crash!";
@@ -2406,6 +2730,16 @@ void ofApp::updateGame() {
 					if (willCrash[i] && !earthquakeUnits[i].crashed) {
 						earthquakeUnits[i].crashed = true;
 						earthquakeUnits[i].tilesToMove = 0;
+						// Immediately cancel further movement for this unit
+						earthquakeUnits[i].isMoving = false;
+						// If the crashing unit is the currently selected/active player,
+						// clear the selection so UI highlights (purple circle) are removed
+						if (earthquakeUnits[i].playerIndex >= 0 && earthquakeUnits[i].playerIndex == currentPlayerIndex) {
+							playerAction = NONE;
+							selectedPieceGridX = -1;
+							selectedPieceGridY = -1;
+							hoverPath.clear();
+						}
 
 						// Show Crash! (damage for unit-unit crashes applied immediately earlier)
 						earthquakeUnits[i].crashDiceLastStep = earthquakeStep;
@@ -2776,17 +3110,30 @@ void ofApp::updateGame() {
 					// Find associated unit and apply damage now (during animation)
 					int uidx = roll.associatedUnit;
 					if (uidx >= 0 && uidx < (int)players.size()) {
-						players[uidx].health -= roll.result;
-						// Prefer visualPos (unit may be mid-move). Find earthquake unit entry if present.
-						glm::vec3 textPos = gridToWorld(players[uidx].x, players[uidx].y);
+						// If we already applied immediate crash damage for this earthquake unit,
+						// don't apply again here (pre-spawn logic may have applied it).
+						bool alreadyApplied = false;
 						for (const auto & eu : earthquakeUnits) {
-							if (eu.playerIndex == uidx) {
-								textPos = eu.visualPos;
+							if (eu.playerIndex == uidx && eu.crashDamageApplied) {
+								alreadyApplied = true;
 								break;
 							}
 						}
-						spawnFloatingText(textPos + glm::vec3(0, 0.8f, 0), "-" + ofToString(roll.result), ofColor::red);
-						ofLogNotice("Earthquake") << "Player " << uidx << " took " << roll.result << " quake damage.";
+						if (!alreadyApplied) {
+							players[uidx].health -= roll.result;
+							// Prefer visualPos (unit may be mid-move). Find earthquake unit entry if present.
+							glm::vec3 textPos = gridToWorld(players[uidx].x, players[uidx].y);
+							for (const auto & eu : earthquakeUnits) {
+								if (eu.playerIndex == uidx) {
+									textPos = eu.visualPos;
+									break;
+								}
+							}
+							spawnFloatingText(textPos + glm::vec3(0, 0.8f, 0), "-" + ofToString(roll.result), ofColor::red);
+							ofLogNotice("Earthquake") << "Player " << uidx << " took " << roll.result << " quake damage.";
+						} else {
+							ofLogNotice("Earthquake") << "Skipping duplicate quake damage for Player " << uidx << ".";
+						}
 					}
 				} else if (roll.purpose == PURPOSE_BONUS_AP) {
 					currentAP += roll.result;
@@ -3432,56 +3779,7 @@ void ofApp::drawGame() {
 		levelMesh.draw();
 		wallTexture.unbind();
 
-		// --- EARTHQUAKE ARROWS ---
-		if (isEarthquakeActive) {
-			// Disable depth test so arrows draw on top of floor cleanly?
-			// Or just lift them slightly.
-
-			for (const auto & eq : earthquakeUnits) {
-				// Draw arrows for all units that rolled for earthquake, even if stopped (show their intended distance)
-				if (eq.originalDistance > 0 || eq.crashed) {
-					// Anchor arrows at the unit's start grid so they don't form a long line during animation
-					glm::vec3 pos = gridToWorld(eq.startGrid.x, eq.startGrid.y);
-
-					// Bright green, fully opaque for clear visibility
-					ofDisableLighting();
-					ofSetColor(0, 255, 0, 255);
-
-					ofPushMatrix();
-					// Move to tile center, slightly above floor
-					ofTranslate(pos.x, 0.05f, pos.z);
-					// Offset to bottom-right of tile (small margin)
-					ofTranslate(TILE_SIZE * 0.2f, 0, -TILE_SIZE * 0.2f);
-					ofRotateXDeg(90); // Lay flat on floor
-
-					// Rotate based on direction
-					float angle = 0;
-					if (eq.direction.x == 1) angle = 90; // East
-					if (eq.direction.x == -1) angle = 270; // West
-					if (eq.direction.y == 1) angle = 180; // South (Z+)
-					// North is default 0
-					ofRotateZDeg(angle);
-
-					// Draw arrows for the remaining tiles (decreasing as they move)
-					int arrowCount = eq.crashed ? 1 : std::max(0, eq.tilesToMove);
-					float spacing = 0.5f; // slightly increased spacing for clarity
-					float totalHeight = (arrowCount > 0) ? (arrowCount - 1) * spacing : 0.0f;
-
-					for (int i = 0; i < arrowCount; i++) {
-						ofPushMatrix();
-						ofTranslate(0, -totalHeight / 2.0f + (i * spacing), 0);
-						ofDrawTriangle(0, -0.3f, -0.3f, 0.0f, 0.3f, 0.0f); // Head
-						ofDrawRectangle(-0.1f, 0.0f, 0.2f, 0.3f); // Shaft
-						ofPopMatrix();
-					}
-					// Restore lighting after arrows
-					ofEnableLighting();
-
-					ofPopMatrix();
-				}
-			}
-		}
-
+		// Earthquake arrows are now drawn above each unit's head within the transparent effects pass
 		// --- OPAQUE DYNAMIC OBJECTS (Players) ---
 		// Ensure color reset (arrows or other effects may have changed it)
 		ofSetColor(255);
@@ -3558,7 +3856,7 @@ void ofApp::drawGame() {
 				glDepthMask(GL_TRUE);
 			} else if (player.isHellhound) {
 				ofTranslate(pos.x, 0.1f, pos.z);
-				ofRotateYDeg(unitFacingAngle + 180); // Dynamic facing + base orientation
+				// --- FIX: Round the drawing position to avoid blurry text ---
 				hellhoundModel.drawFaces();
 			} else if (player.isDemon) {
 				ofTranslate(pos.x, 0.1f, pos.z);
@@ -3825,6 +4123,35 @@ void ofApp::drawGame() {
 				uiFont.drawString("[X]", -20, 0); // Simple skull representation
 				ofPopMatrix();
 			}
+
+			// 8. EARTHQUAKE DIRECTION ARROWS (above head, follow unit)
+			{
+				int pIndex = (int)(&player - &players[0]);
+				if (isEarthquakeActive) {
+					for (const auto & eq : earthquakeUnits) {
+						if (eq.playerIndex == pIndex && (eq.originalDistance > 0 || eq.crashed)) {
+							int arrowCount = eq.crashed ? 0 : std::max(0, eq.tilesToMove);
+							float spacing = 0.6f;
+							for (int i = 0; i < arrowCount; ++i) {
+								ofPushMatrix();
+								// Stack arrows above head so they are clearly visible
+								ofTranslate(pos.x, headHeight + 1.0f + i * spacing, pos.z);
+								// Face camera
+								glm::vec3 camPos = cam.getPosition();
+								float angle = atan2(camPos.x - pos.x, camPos.z - pos.z) * RAD_TO_DEG;
+								ofRotateYDeg(angle);
+								// Draw arrow (head + shaft) in local XY
+								ofSetColor(0, 255, 0, 255);
+								float w = 0.6f;
+								float h = 0.45f;
+								ofDrawTriangle(0, -h, -w / 2.0f, 0.0f, w / 2.0f, 0.0f);
+								ofDrawRectangle(-w / 8.0f, 0.0f, w / 4.0f, h);
+								ofPopMatrix();
+							}
+						}
+					}
+				}
+			}
 		}
 
 		// Diable Lighting for Highlights
@@ -3935,13 +4262,33 @@ void ofApp::drawGame() {
 				}
 
 				if (!players.empty() && currentPlayerIndex >= 0 && x == players[currentPlayerIndex].x && y == players[currentPlayerIndex].y) {
-					ofSetColor(ofColor::fromHex(0x9400D3));
-					ofNoFill();
-					ofSetLineWidth(4);
+					// Improved active-unit highlight: pulsing soft ring + subtle glow
+					float t = ofGetElapsedTimef();
+					float pulse = 0.5f + 0.5f * sin(t * 3.0f); // 0..1
+					float glowAlpha = 120 + 100 * pulse;
+					float ringAlpha = 190;
+					float outerRadius = TILE_SIZE * (0.48f + 0.06f * pulse);
+					float innerRadius = TILE_SIZE * (0.32f + 0.03f * pulse);
+
+					ofFloatColor glowCol = ofFloatColor(0.45f, 0.25f, 0.95f, glowAlpha / 255.0f);
+					ofEnableBlendMode(OF_BLENDMODE_ADD);
+					ofSetColor(glowCol);
 					ofPushMatrix();
 					ofTranslate(0, 0.07f, 0);
 					ofRotateXDeg(90);
-					ofDrawCircle(0, 0, TILE_SIZE * 0.45f);
+					// Big soft disc for glow
+					ofDrawCircle(0, 0, outerRadius * 1.35f);
+					ofPopMatrix();
+					ofEnableBlendMode(OF_BLENDMODE_ALPHA);
+
+					// Draw ring outline
+					ofSetColor(120, 90, 255, (int)ringAlpha);
+					ofNoFill();
+					ofSetLineWidth(3 + 2 * pulse);
+					ofPushMatrix();
+					ofTranslate(0, 0.07f, 0);
+					ofRotateXDeg(90);
+					ofDrawCircle(0, 0, innerRadius);
 					ofPopMatrix();
 					ofFill();
 					ofSetLineWidth(1);
@@ -5504,13 +5851,44 @@ cursor_check_done:;
 		}
 
 		// 4. Handle Tooltips
+		// Unit hover detection (separate from pile hover)
+		ofVec2f boardPosForTooltip = mouseToBoard(x, y);
+		int tooltipGX = floor(boardPosForTooltip.x);
+		int tooltipGY = floor(boardPosForTooltip.y);
+		int unitIndexAtMouse = -1;
+		if (tooltipGX >= 0 && tooltipGX < BOARD_WIDTH && tooltipGY >= 0 && tooltipGY < BOARD_HEIGHT) {
+			if (board[tooltipGX][tooltipGY].hasPlayer) {
+				for (int i = 0; i < (int)players.size(); ++i) {
+					if (players[i].x == tooltipGX && players[i].y == tooltipGY) {
+						unitIndexAtMouse = i;
+						break;
+					}
+				}
+			}
+		}
+
+		if (unitIndexAtMouse != hoveredUnitIndex) {
+			hoveredUnitIndex = unitIndexAtMouse;
+			isHoveringUnit = (hoveredUnitIndex != -1);
+			unitHoverStartTime = isHoveringUnit ? ofGetElapsedTimef() : 0.0f;
+		}
+
 		isShowingTooltip = false;
+		// Prioritise pile hover (same behaviour as before)
 		if (isHoveringPile && !isShowingPileView) {
 			Player * hoveredPlayer = getPlayer(hoveredPilePlayerIndex);
 			if (hoveredPlayer) {
 				isShowingTooltip = true;
 				tooltipPos = glm::vec2(x, y);
 				tooltipText = ofToString(hoveredPileType == VIEW_DECK ? hoveredPlayer->deck.size() : hoveredPlayer->discardPile.size()) + " cards";
+			}
+		} else if (hoveredUnitIndex != -1 && !isHoveringPile) {
+			// Instant unit hover tooltip (no delay)
+			Player * up = getPlayer(hoveredUnitIndex);
+			if (up) {
+				isShowingTooltip = true;
+				tooltipPos = glm::vec2(x, y);
+				tooltipText = getPlayerDisplayName(hoveredUnitIndex);
 			}
 		}
 		break;

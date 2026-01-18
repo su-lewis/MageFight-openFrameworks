@@ -410,6 +410,7 @@ private:
 	glm::vec2 worldToGrid(glm::vec3 worldPos);
 	glm::vec3 gridToWorld(int gridX, int gridY);
 	Player * getPlayer(int index);
+	std::string getPlayerDisplayName(int index);
 	std::vector<glm::vec2> findShortestPath(glm::vec2 start, glm::vec2 end);
 	glm::quat matchFaceToCamera(glm::vec3 faceNormal);
 
@@ -575,6 +576,11 @@ private:
 
 	bool isHoveringPile = false;
 	PileViewMode hoveredPileType = VIEW_NONE;
+
+	// Unit hover tooltip
+	bool isHoveringUnit = false;
+	float unitHoverStartTime = 0.0f;
+	int hoveredUnitIndex = -1; // index into players vector or -1
 	int hoveredPilePlayerIndex = -1;
 	float pileHoverStartTime = 0.0f;
 
