@@ -1238,7 +1238,7 @@ void ofApp::updateGame() {
 	}
 	endTurnButtonCurrentPos = endTurnButtonCurrentPos.getInterpolated(endTurnButtonTargetPos, 0.2f);
 
-	// --- Delayed Attack Logic ---
+	// --- Delayed Attack Logic (Rock Crush, Stab with Dice, etc.) ---
 	if (isWaitingForAttackDice && activeDiceRolls.empty()) {
 		isWaitingForAttackDice = false;
 		int baseDamage = pendingAttackRollResult;
@@ -1248,9 +1248,8 @@ void ofApp::updateGame() {
 		if (pendingAttackCardName == "Bash" && attacker.flurryOfFistsActive) {
 			baseDamage *= 2;
 		}
-		pendingAttackCardName = ""; // Clear for next attack
+		pendingAttackCardName = ""; // Clear
 
-		// Determine Label based on pending type
 		string typeLabel = "";
 		switch (pendingAttackDamageType) {
 		case DAMAGE_PHYSICAL:
@@ -1276,11 +1275,10 @@ void ofApp::updateGame() {
 			break;
 		}
 
-		// Check if Add Poison buff is active for physical/piercing damage
 		bool applyPoisonBuff = attacker.nextAttackAddPoison && (pendingAttackDamageType == DAMAGE_PHYSICAL || pendingAttackDamageType == DAMAGE_PIERCING);
 
 		if (applyPoisonBuff) {
-			attacker.nextAttackAddPoison = false; // Consume the buff
+			attacker.nextAttackAddPoison = false;
 			pendingPoisonTargetIndices.clear();
 		}
 
@@ -1291,6 +1289,20 @@ void ofApp::updateGame() {
 				int appliedDamage = baseDamage;
 
 				if (pendingAttackDamageType == DAMAGE_PIERCING && i > 0) appliedDamage /= 2;
+
+				// --- GHOST FORM CHECK ---
+				// FIXED: target is a pointer, use ->
+				if (target->inGhostForm) {
+					if (pendingAttackDamageType == DAMAGE_PHYSICAL || pendingAttackDamageType == DAMAGE_PIERCING) {
+						appliedDamage = 0;
+						spawnFloatingText(gridToWorld(target->x, target->y), "Phased!", ofColor::cyan);
+					}
+					if (pendingAttackDamageType == DAMAGE_HOLY) {
+						appliedDamage *= 2;
+						spawnFloatingText(gridToWorld(target->x, target->y), "Ghost: x2 Holy", ofColor::orange);
+					}
+				}
+				// ------------------------
 
 				// Ward
 				int wardDmg = std::min(target->ward, appliedDamage);
@@ -1312,24 +1324,42 @@ void ofApp::updateGame() {
 				glm::vec3 tPos = gridToWorld(target->x, target->y);
 				if (appliedDamage > 0) {
 					target->health -= appliedDamage;
-					// CHANGE: Red Text with Label
 					spawnFloatingText(tPos, "-" + ofToString(appliedDamage) + typeLabel, ofColor::red);
+
+					// Ghost Break Logic
+					if (target->inGhostForm) {
+						target->ghostDamageTaken += appliedDamage;
+						if (target->ghostDamageTaken >= 4) {
+							target->inGhostForm = false;
+							target->ghostDamageTaken = 0;
+							// FIXED: Use -> to access member
+							target->discardPile.push_back(target->ghostFormCard);
+							spawnFloatingText(tPos + glm::vec3(0, 0.5f, 0), "Ghost Form Broken!", ofColor::white);
+
+							if (board[target->x][target->y].hasWall) {
+								target->health = 0;
+								spawnFloatingText(tPos + glm::vec3(0, 1.0f, 0), "Materialized in Wall!", ofColor::red);
+							}
+						}
+					}
 				} else {
-					spawnFloatingText(tPos, "Blocked", ofColor::gray);
+					// Only show "Blocked" if they weren't phased
+					if (!target->inGhostForm || appliedDamage > 0) {
+						spawnFloatingText(tPos, "Blocked", ofColor::gray);
+					}
 				}
 
-				// Apply poison if buff was active
-				if (applyPoisonBuff) {
+				// Apply poison if damage was dealt (or if logic allows poison on block, strictly appliedDamage > 0 is safer)
+				if (applyPoisonBuff && !target->inGhostForm) {
 					pendingPoisonTargetIndices.push_back(pIndex);
 					target->isPoisoned = true;
-					target->poisonReduction = 0; // First turn = full damage
+					target->poisonReduction = 0;
 					spawnFloatingText(tPos + glm::vec3(0, 0.5f, 0), "Poisoned!", ofColor::green);
 				}
 			}
 		}
 		pendingAttackTargetIndices.clear();
 
-		// If we applied poison, roll the extra poison damage
 		if (applyPoisonBuff && !pendingPoisonTargetIndices.empty()) {
 			pendingPoisonAttackRollResult = startDiceRoll(1, 6, PURPOSE_DAMAGE, "Poison Damage");
 			isWaitingForPoisonAttackDice = true;
@@ -2605,9 +2635,17 @@ void ofApp::updateGame() {
 		Player & caster = players[currentPlayerIndex];
 		int damage = pendingFlailRollResult + 2; // 1d6 + 2
 
-		// Define local damage applier (Since applyDamage is local to playCard)
+		// Define local damage applier
 		auto hitTarget = [&](Player & t, int dmg) {
 			int finalDmg = dmg;
+
+			// --- GHOST CHECK (Flail is Physical) ---
+			if (t.inGhostForm) {
+				finalDmg = 0;
+				spawnFloatingText(gridToWorld(t.x, t.y), "Phased!", ofColor::cyan);
+			}
+			// ---------------------------------------
+
 			// Block
 			int blockDmg = std::min(t.block, finalDmg);
 			t.block -= blockDmg;
@@ -3538,15 +3576,14 @@ void ofApp::drawGame() {
 				// CHECK IF IN WALL:
 				if (player.x >= 0 && player.x < BOARD_WIDTH && player.y >= 0 && player.y < BOARD_HEIGHT) {
 					if (board[player.x][player.y].hasWall) {
-						// Lowered offset so it floats "inside/through" the top of the wall
 						floatY += 1.5f;
 					}
 				}
 
 				ofTranslate(0, floatY, 0);
 
-				// CORRECTION: +270 (or -90) degrees fixes the West->North offset
-				ofRotateYDeg(player.facingAngle + 270);
+				// FLIP FIX: Changed +270 to +90 to flip it 180 degrees
+				ofRotateYDeg(player.facingAngle + 90);
 
 				ofRotateXDeg(0);
 
@@ -9684,10 +9721,8 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		}
 		// 3. STANDARD SINGLE TARGET (e.g., Punch)
 		else {
-			// FIX: Explicitly handle Adjacent targeting to avoid 5ft Range confusion
 			if (playedCard.targeting == TARGET_ADJACENT_UNIT) {
 				int dist = abs(targetX - px) + abs(targetY - py);
-				// Must be adjacent (distance 1) and occupied
 				if (dist == 1 && board[targetX][targetY].hasPlayer) {
 					for (size_t i = 0; i < players.size(); i++) {
 						if (players[i].x == targetX && players[i].y == targetY) {
@@ -9696,9 +9731,7 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 						}
 					}
 				}
-			}
-			// Generic 5ft range fall back (for older cards)
-			else {
+			} else {
 				glm::vec2 casterTile = { (float)px, (float)py };
 				glm::vec2 targetTile = { (float)targetX, (float)targetY };
 				TargetInfo info = isLosTargetValid(casterTile, targetTile, 5.0f, playedCard.type);
@@ -9721,25 +9754,24 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 
 		// --- EXECUTE DAMAGE ---
 		if (playedCard.numDice > 0 && playedCard.diceSides > 0) {
-
+			// DICE PATH (Rock Crush, etc) -> Handled in updateGame loop
 			pendingAttackRollResult = startDiceRoll(playedCard.numDice, playedCard.diceSides, PURPOSE_DAMAGE, playedCard.name + ": Damage");
-			pendingAttackCardName = playedCard.name; // Store for flurry doubling
+			pendingAttackCardName = playedCard.name;
 
 			isWaitingForAttackDice = true;
 			pendingAttackDamageType = playedCard.damageType;
 		} else {
+			// INSTANT PATH (Punch, Kick) -> Handled immediately via applyDamage
 			int damage = playedCard.value;
 
-			// Double damage for Punch if Flurry of Fists is active
 			if ((playedCard.name == "Punch") && currentPlayer.flurryOfFistsActive) {
 				damage *= 2;
 			}
 
-			// Check if Add Poison buff is active for physical/piercing damage
 			bool applyPoisonBuff = currentPlayer.nextAttackAddPoison && (playedCard.damageType == DAMAGE_PHYSICAL || playedCard.damageType == DAMAGE_PIERCING);
 
 			if (applyPoisonBuff) {
-				currentPlayer.nextAttackAddPoison = false; // Consume the buff
+				currentPlayer.nextAttackAddPoison = false;
 				pendingPoisonTargetIndices.clear();
 			}
 
@@ -9749,20 +9781,24 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 				if (target) {
 					int finalDamage = damage;
 					if (playedCard.damageType == DAMAGE_PIERCING && i > 0) finalDamage /= 2;
+
+					// applyDamage handles Ghost immunity automatically
 					applyDamage(*target, finalDamage, playedCard.damageType);
 
-					// Apply poison if buff was active
 					if (applyPoisonBuff) {
-						pendingPoisonTargetIndices.push_back(pIndex);
-						target->isPoisoned = true;
-						target->poisonReduction = 0;
-						glm::vec3 tPos = gridToWorld(target->x, target->y);
-						spawnFloatingText(tPos + glm::vec3(0, 0.5f, 0), "Poisoned!", ofColor::green);
+						// Only apply poison if not phased (damage check handled inside dice logic usually,
+						// but here we just check immunity directly for instant attacks)
+						if (!target->inGhostForm) {
+							pendingPoisonTargetIndices.push_back(pIndex);
+							target->isPoisoned = true;
+							target->poisonReduction = 0;
+							glm::vec3 tPos = gridToWorld(target->x, target->y);
+							spawnFloatingText(tPos + glm::vec3(0, 0.5f, 0), "Poisoned!", ofColor::green);
+						}
 					}
 				}
 			}
 
-			// If we applied poison, roll the extra poison damage
 			if (applyPoisonBuff && !pendingPoisonTargetIndices.empty()) {
 				pendingPoisonAttackRollResult = startDiceRoll(1, 6, PURPOSE_DAMAGE, "Poison Damage");
 				isWaitingForPoisonAttackDice = true;
