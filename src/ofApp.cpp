@@ -4134,13 +4134,16 @@ void ofApp::drawGame() {
 							float spacing = 0.6f;
 							for (int i = 0; i < arrowCount; ++i) {
 								ofPushMatrix();
-								// Stack arrows above head so they are clearly visible
-								ofTranslate(pos.x, headHeight + 1.0f + i * spacing, pos.z);
-								// Face camera
-								glm::vec3 camPos = cam.getPosition();
-								float angle = atan2(camPos.x - pos.x, camPos.z - pos.z) * RAD_TO_DEG;
-								ofRotateYDeg(angle);
-								// Draw arrow (head + shaft) in local XY
+								// Stack arrows above head so they are clearly visible, but lay flat on XZ plane
+								ofTranslate(pos.x, headHeight + 0.6f + i * 0.25f, pos.z);
+								ofRotateXDeg(90); // Lay flat
+								// Rotate based on earthquake direction to point the arrow correctly
+								float dirAngle = 0.0f; // default North
+								if (eq.direction.x == 1) dirAngle = 90.0f; // East
+								if (eq.direction.x == -1) dirAngle = 270.0f; // West
+								if (eq.direction.y == 1) dirAngle = 180.0f; // South
+								ofRotateZDeg(dirAngle);
+								// Draw arrow (head + shaft) in local XY (now lying on XZ)
 								ofSetColor(0, 255, 0, 255);
 								float w = 0.6f;
 								float h = 0.45f;
@@ -7447,8 +7450,8 @@ void ofApp::mouseDragged(int x, int y, int button) {
 
 //--------------------------------------------------------------
 void ofApp::mouseReleased(int x, int y, int button) {
-	// Reset to default or check hover state again
-	currentCursor = CURSOR_DEFAULT;
+	// Recompute hover state immediately so cursor stays correct while stationary
+	mouseMoved(x, y);
 
 	if (currentState != STATE_GAMEPLAY) return;
 
