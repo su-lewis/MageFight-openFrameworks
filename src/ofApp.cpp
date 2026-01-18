@@ -4265,33 +4265,32 @@ void ofApp::drawGame() {
 				}
 
 				if (!players.empty() && currentPlayerIndex >= 0 && x == players[currentPlayerIndex].x && y == players[currentPlayerIndex].y) {
-					// Improved active-unit highlight: pulsing soft ring + subtle glow
+					// Active-unit highlight: soft radial floor glow with subtle inner ring
 					float t = ofGetElapsedTimef();
-					float pulse = 0.5f + 0.5f * sin(t * 3.0f); // 0..1
-					float glowAlpha = 120 + 100 * pulse;
-					float ringAlpha = 190;
-					float outerRadius = TILE_SIZE * (0.48f + 0.06f * pulse);
-					float innerRadius = TILE_SIZE * (0.32f + 0.03f * pulse);
-
-					ofFloatColor glowCol = ofFloatColor(0.45f, 0.25f, 0.95f, glowAlpha / 255.0f);
+					float pulse = 0.85f + 0.15f * sin(t * 2.5f);
+					float baseRadius = TILE_SIZE * 0.32f;
+					float glowRadius = TILE_SIZE * 0.9f;
+					// Draw additive soft glow (multiple concentric discs)
 					ofEnableBlendMode(OF_BLENDMODE_ADD);
-					ofSetColor(glowCol);
 					ofPushMatrix();
-					ofTranslate(0, 0.07f, 0);
+					ofTranslate(0, 0.06f, 0);
 					ofRotateXDeg(90);
-					// Big soft disc for glow
-					ofDrawCircle(0, 0, outerRadius * 1.35f);
+					for (int ring = 3; ring >= 1; --ring) {
+						float r = baseRadius + (glowRadius - baseRadius) * (ring / 3.0f);
+						int alpha = (int)(30.0f * ring * pulse);
+						ofSetColor(100, 70, 255, alpha);
+						ofDrawCircle(0, 0, r);
+					}
 					ofPopMatrix();
 					ofEnableBlendMode(OF_BLENDMODE_ALPHA);
-
-					// Draw ring outline
-					ofSetColor(120, 90, 255, (int)ringAlpha);
+					// Inner subtle outline
 					ofNoFill();
-					ofSetLineWidth(3 + 2 * pulse);
+					ofSetLineWidth(2);
 					ofPushMatrix();
-					ofTranslate(0, 0.07f, 0);
+					ofTranslate(0, 0.06f, 0);
 					ofRotateXDeg(90);
-					ofDrawCircle(0, 0, innerRadius);
+					ofSetColor(160, 130, 255, 200);
+					ofDrawCircle(0, 0, baseRadius);
 					ofPopMatrix();
 					ofFill();
 					ofSetLineWidth(1);
