@@ -4130,26 +4130,47 @@ void ofApp::drawGame() {
 				if (isEarthquakeActive) {
 					for (const auto & eq : earthquakeUnits) {
 						if (eq.playerIndex == pIndex && (eq.originalDistance > 0 || eq.crashed)) {
-							int arrowCount = eq.crashed ? 0 : std::max(0, eq.tilesToMove);
-							float spacing = 0.6f;
-							for (int i = 0; i < arrowCount; ++i) {
-								ofPushMatrix();
-								// Stack arrows above head so they are clearly visible, but lay flat on XZ plane
-								ofTranslate(pos.x, headHeight + 0.6f + i * 0.25f, pos.z);
-								ofRotateXDeg(90); // Lay flat
-								// Rotate based on earthquake direction to point the arrow correctly
-								float dirAngle = 0.0f; // default North
-								if (eq.direction.x == 1) dirAngle = 90.0f; // East
-								if (eq.direction.x == -1) dirAngle = 270.0f; // West
-								if (eq.direction.y == 1) dirAngle = 180.0f; // South
-								ofRotateZDeg(dirAngle);
-								// Draw arrow (head + shaft) in local XY (now lying on XZ)
-								ofSetColor(0, 255, 0, 255);
-								float w = 0.6f;
-								float h = 0.45f;
-								ofDrawTriangle(0, -h, -w / 2.0f, 0.0f, w / 2.0f, 0.0f);
-								ofDrawRectangle(-w / 8.0f, 0.0f, w / 4.0f, h);
-								ofPopMatrix();
+							// Determine displayed remaining tiles: decrement once the step progress crosses halfway
+							int displayedRemaining = 0;
+							if (eq.crashed) displayedRemaining = 0;
+							else {
+								int base = std::max(0, eq.tilesToMove);
+								if (isEarthquakeAnimatingStep && earthquakeT >= 0.5f) base = std::max(0, base - 1);
+								displayedRemaining = base;
+							}
+
+							if (displayedRemaining > 0) {
+								// Compute world-space forward direction for this unit
+								glm::vec3 startWorld = gridToWorld(eq.startGrid.x, eq.startGrid.y);
+								glm::vec3 nextWorld = gridToWorld(eq.startGrid.x + eq.direction.x, eq.startGrid.y + eq.direction.y);
+								glm::vec3 dirWorld = nextWorld - startWorld;
+								if (glm::length(dirWorld) > 0.0001f) dirWorld = glm::normalize(dirWorld);
+								// Arrow spacing along direction (slightly ahead of unit)
+								float stepOffset = TILE_SIZE * 0.55f;
+								// Bright yellow
+								ofColor arrowCol = ofColor(255, 235, 59);
+
+								for (int i = 0; i < displayedRemaining; ++i) {
+									glm::vec3 arrowPos = pos + dirWorld * ((i + 1) * stepOffset);
+									ofPushMatrix();
+									// Position slightly above head
+									ofTranslate(arrowPos.x, headHeight + 0.6f, arrowPos.z);
+									// Lay flat on XZ
+									ofRotateXDeg(90);
+									// Rotate based on dirWorld to point correctly
+									float dirAngle = 0.0f;
+									if (eq.direction.x == 1) dirAngle = 90.0f;
+									if (eq.direction.x == -1) dirAngle = 270.0f;
+									if (eq.direction.y == 1) dirAngle = 180.0f;
+									ofRotateZDeg(dirAngle);
+									// Draw arrow
+									ofSetColor(arrowCol);
+									float w = 0.5f;
+									float h = 0.35f;
+									ofDrawTriangle(0, -h, -w / 2.0f, 0.0f, w / 2.0f, 0.0f);
+									ofDrawRectangle(-w / 10.0f, 0.0f, w / 5.0f, h);
+									ofPopMatrix();
+								}
 							}
 						}
 					}
@@ -4265,35 +4286,13 @@ void ofApp::drawGame() {
 				}
 
 				if (!players.empty() && currentPlayerIndex >= 0 && x == players[currentPlayerIndex].x && y == players[currentPlayerIndex].y) {
-					// Active-unit highlight: soft radial floor glow with subtle inner ring
-					float t = ofGetElapsedTimef();
-					float pulse = 0.85f + 0.15f * sin(t * 2.5f);
-					float baseRadius = TILE_SIZE * 0.32f;
-					float glowRadius = TILE_SIZE * 0.9f;
-					// Draw additive soft glow (multiple concentric discs)
-					ofEnableBlendMode(OF_BLENDMODE_ADD);
+					// Active-player: color whole tile with translucent green
 					ofPushMatrix();
-					ofTranslate(0, 0.06f, 0);
+					ofTranslate(0, highlight_y + 0.01f, 0);
 					ofRotateXDeg(90);
-					for (int ring = 3; ring >= 1; --ring) {
-						float r = baseRadius + (glowRadius - baseRadius) * (ring / 3.0f);
-						int alpha = (int)(30.0f * ring * pulse);
-						ofSetColor(100, 70, 255, alpha);
-						ofDrawCircle(0, 0, r);
-					}
+					ofSetColor(120, 150, 140, 60); // Less green, more transparent
+					ofDrawRectangle(-TILE_SIZE * 0.5f, -TILE_SIZE * 0.5f, TILE_SIZE, TILE_SIZE);
 					ofPopMatrix();
-					ofEnableBlendMode(OF_BLENDMODE_ALPHA);
-					// Inner subtle outline
-					ofNoFill();
-					ofSetLineWidth(2);
-					ofPushMatrix();
-					ofTranslate(0, 0.06f, 0);
-					ofRotateXDeg(90);
-					ofSetColor(160, 130, 255, 200);
-					ofDrawCircle(0, 0, baseRadius);
-					ofPopMatrix();
-					ofFill();
-					ofSetLineWidth(1);
 				}
 				ofPopMatrix();
 			}
