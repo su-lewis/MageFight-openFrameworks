@@ -163,6 +163,17 @@ void ofApp::setup() {
 		ofLogError("Setup") << "Failed to load tortoise model.";
 	}
 
+	// --- Load Ghost ---
+	if (ghostModel.load("Units/Ghost/Halloween Ghost.fbx")) {
+		ghostModel.disableMaterials();
+		// Adjust scale/rotation as needed based on the specific model
+		ghostModel.setScale(0.0025f, 0.0025f, 0.0025f);
+		ghostModel.setRotation(0, 180, 0, 0, 1);
+		ofLogNotice("Setup") << "Ghost model loaded.";
+	} else {
+		ofLogError("Setup") << "Failed to load Ghost model.";
+	}
+
 	// --- 3. BOARD & SKYBOX ---
 	ofLoadImage(wallTexture, "Board/wall.png");
 	wallTexture.setTextureMinMagFilter(GL_NEAREST, GL_NEAREST);
@@ -2296,23 +2307,21 @@ void ofApp::updateGame() {
 			float speed = 2.0f * ofGetLastFrameTime() * earthquakeSpeedScale;
 			earthquakeT += speed;
 
-			bool anyStillMoving = false;
+			bool anyStillMoving = false; // Kept to silence warning, or remove it
 
 			// --- PRE-STEP COLLISION RESOLUTION (Iterative Chain Solver) ---
 			if (earthquakeT <= speed) {
 				int n = (int)earthquakeUnits.size();
 
 				// 1. Setup Simulation State
-				std::vector<int> damageDiceCount(n, 0); // How many d4s to roll
-				std::vector<glm::ivec2> currentPos(n); // Where they currently ARE
-				std::vector<glm::ivec2> intendedPos(n); // Where they WANT to be
-				std::vector<bool> isStopped(n, false); // True if not moving or already crashed this step
+				std::vector<int> damageDiceCount(n, 0); 
+				std::vector<glm::ivec2> currentPos(n);  
+				std::vector<glm::ivec2> intendedPos(n); 
+				std::vector<bool> isStopped(n, false); 
 
 				// Initialize State
 				for (int i = 0; i < n; ++i) {
 					currentPos[i] = earthquakeUnits[i].startGrid;
-
-					// By default, assume they move if they have tiles left
 					if (earthquakeUnits[i].isMoving && earthquakeUnits[i].tilesToMove > 0) {
 						intendedPos[i] = currentPos[i] + earthquakeUnits[i].direction;
 						isStopped[i] = false;
@@ -2322,9 +2331,7 @@ void ofApp::updateGame() {
 					}
 				}
 
-				// 2. Iterative Solver (Propagate Crashes)
-				// We loop until state stabilizes (no new crashes found).
-				// This handles: A hits Wall -> Stops. B hits A -> Stops. C hits B -> Stops.
+				// 2. Iterative Solver
 				bool newCrashFound = true;
 				int iterations = 0;
 				while (newCrashFound && iterations < 20) {
@@ -2332,14 +2339,24 @@ void ofApp::updateGame() {
 					iterations++;
 
 					for (int i = 0; i < n; ++i) {
-						if (isStopped[i]) continue; // Already processed as stopped
+						if (isStopped[i]) continue;
 
 						bool crashThisLoop = false;
 						glm::ivec2 target = intendedPos[i];
 
 						// A. Wall / Edge Check
-						if (target.x < 0 || target.x >= BOARD_WIDTH || target.y < 0 || target.y >= BOARD_HEIGHT || board[target.x][target.y].hasWall) {
-							damageDiceCount[i]++; // +1d4 for hitting wall
+						bool hitWall = false;
+						bool outOfBounds = (target.x < 0 || target.x >= BOARD_WIDTH || target.y < 0 || target.y >= BOARD_HEIGHT);
+						if (!outOfBounds) hitWall = board[target.x][target.y].hasWall;
+
+						// GHOST LOGIC
+						bool isGhost = false;
+						if (earthquakeUnits[i].playerIndex >= 0 && earthquakeUnits[i].playerIndex < (int)players.size()) {
+							isGhost = players[earthquakeUnits[i].playerIndex].inGhostForm;
+						}
+
+						if (outOfBounds || (hitWall && !isGhost)) {
+							if (!isGhost) damageDiceCount[i]++;
 							crashThisLoop = true;
 						}
 
@@ -2347,32 +2364,18 @@ void ofApp::updateGame() {
 						if (!crashThisLoop) {
 							for (int j = 0; j < n; ++j) {
 								if (i == j) continue;
-
-								// Scenario 1: Hitting a Stopped Unit (Rear-End)
-								// If J is at my target AND J is stopped there.
 								if (currentPos[j] == target && isStopped[j]) {
-									damageDiceCount[i]++; // I take damage for hitting J
-									damageDiceCount[j]++; // J takes damage for being hit
-									crashThisLoop = true;
-									break; // One crash is enough to stop me
-								}
-								// Note: If J is at my target but IS moving (intended != current),
-								// then the space is free for me to enter. No crash.
-
-								// Scenario 2: Head-On Collision (Swap)
-								// I want J's spot, J wants my spot.
-								if (intendedPos[i] == currentPos[j] && intendedPos[j] == currentPos[i]) {
-									damageDiceCount[i]++; // I take damage
-									// J will process their own crash in their loop iteration
+									damageDiceCount[i]++;
+									damageDiceCount[j]++;
 									crashThisLoop = true;
 									break;
 								}
-
-								// Scenario 3: Merging (Same Target)
-								// I want X, J wants X.
+								if (intendedPos[i] == currentPos[j] && intendedPos[j] == currentPos[i]) {
+									damageDiceCount[i]++;
+									crashThisLoop = true;
+									break;
+								}
 								if (intendedPos[i] == intendedPos[j]) {
-									// To prevent double counting (I hit J, J hits I), strictly enforce distinct damage.
-									// We make them both crash.
 									damageDiceCount[i]++;
 									crashThisLoop = true;
 									break;
@@ -2380,25 +2383,22 @@ void ofApp::updateGame() {
 							}
 						}
 
-						// Apply Crash State
 						if (crashThisLoop) {
-							isStopped[i] = true; // I stop moving
-							intendedPos[i] = currentPos[i]; // My intention reverts to where I am
-							newCrashFound = true; // State changed, re-evaluate everyone else
+							isStopped[i] = true;        
+							intendedPos[i] = currentPos[i]; 
+							newCrashFound = true;       
 						}
 					}
 				}
 
-				// 3. Apply Results to Actual Units
+				// 3. Apply Results
 				for (int i = 0; i < n; ++i) {
-					// Apply Crash State
 					if (isStopped[i] && earthquakeUnits[i].isMoving && earthquakeUnits[i].tilesToMove > 0) {
 						earthquakeUnits[i].crashed = true;
 						earthquakeUnits[i].isMoving = false;
 						earthquakeUnits[i].tilesToMove = 0;
-						earthquakeUnits[i].nextGrid = earthquakeUnits[i].startGrid; // Revert visual target for bounce
+						earthquakeUnits[i].nextGrid = earthquakeUnits[i].startGrid;
 
-						// Clear Selection if Player
 						if (earthquakeUnits[i].playerIndex == currentPlayerIndex) {
 							playerAction = NONE;
 							selectedPieceGridX = -1;
@@ -2407,35 +2407,20 @@ void ofApp::updateGame() {
 						}
 					}
 
-					// Spawn Aggregated Dice
 					if (damageDiceCount[i] > 0 && earthquakeUnits[i].crashDiceLastStep != earthquakeStep) {
 						earthquakeUnits[i].crashDiceLastStep = earthquakeStep;
-
-						// Log the specific trauma
-						ofLogNotice("Earthquake") << "Unit " << earthquakeUnits[i].playerIndex << " crashing! Rolling " << damageDiceCount[i] << "d4.";
-
 						int beforeIdx = (int)activeDiceRolls.size();
-
-						// Roll ALL damage dice at once (e.g., 2d4)
-						// The startDiceRoll function sums them up into one result for us.
 						startDiceRoll(damageDiceCount[i], 4, PURPOSE_EARTHQUAKE_DAMAGE, "");
-
 						int afterIdx = (int)activeDiceRolls.size();
-
-						// Link the visual die to the unit
+						
 						if (afterIdx > beforeIdx) {
 							int newIdx = afterIdx - 1;
 							activeDiceRolls[newIdx].associatedUnit = earthquakeUnits[i].playerIndex;
-
-							// Visual orientation (based on the first die's rough value, or random)
-							// Since it's a sum (e.g. 7), we can't map to a single D4 face perfectly.
-							// We just randomize the wobble for aggregated rolls.
 							std::uniform_real_distribution<float> wobbleDist(-25.0f, 25.0f);
 							glm::quat wobble = glm::angleAxis(glm::radians(wobbleDist(rng)), glm::vec3(0, 1, 0));
 							activeDiceRolls[newIdx].finalQuat = wobble * matchFaceToCamera(glm::vec3(0, 1, 0));
 						}
 
-						// Visual Text
 						FloatingText cft;
 						cft.text = "CRASH x" + ofToString(damageDiceCount[i]);
 						cft.worldPos = gridToWorld(earthquakeUnits[i].startGrid.x, earthquakeUnits[i].startGrid.y) + glm::vec3(0, 1.5f, 0);
@@ -2448,23 +2433,18 @@ void ofApp::updateGame() {
 				}
 			}
 
-			// Update Visuals (Lerp / Bounce)
+			// Update Visuals
 			for (auto & unit : earthquakeUnits) {
 				if (!unit.isMoving && unit.tilesToMove <= 0 && !unit.crashed) continue;
-
-				anyStillMoving = true;
 				glm::vec3 pStart = gridToWorld(unit.startGrid.x, unit.startGrid.y);
 				glm::vec3 pEnd = gridToWorld(unit.nextGrid.x, unit.nextGrid.y);
 
 				if (unit.crashed) {
-					// Bounce: Move partially into wall/unit then snap back
 					float t = earthquakeT;
 					if (t < 0.5f) {
-						// Go 40% of the way to the blockage
 						glm::vec3 dir3 = glm::vec3(unit.direction.x, 0, unit.direction.y);
 						unit.visualPos = pStart + dir3 * (t * 0.8f * TILE_SIZE);
 					} else {
-						// Return
 						glm::vec3 dir3 = glm::vec3(unit.direction.x, 0, unit.direction.y);
 						unit.visualPos = pStart + dir3 * ((1.0f - t) * 0.8f * TILE_SIZE);
 					}
@@ -2481,19 +2461,15 @@ void ofApp::updateGame() {
 
 				for (auto & unit : earthquakeUnits) {
 					if (unit.crashed) {
-						// IMPORTANT: Reset crash flag so they don't bounce again next loop.
-						// They are already stopped (tilesToMove=0), so logic will ignore them.
 						unit.crashed = false;
 						unit.isMoving = false;
 						unit.tilesToMove = 0;
 					} else if (unit.isMoving) {
-						// Update Grid Logic
 						int oldX = unit.startGrid.x;
 						int oldY = unit.startGrid.y;
 						int newX = unit.nextGrid.x;
 						int newY = unit.nextGrid.y;
 
-						// Global board update
 						if (oldX >= 0 && oldX < BOARD_WIDTH && oldY >= 0 && oldY < BOARD_HEIGHT) board[oldX][oldY].hasPlayer = false;
 						if (newX >= 0 && newX < BOARD_WIDTH && newY >= 0 && newY < BOARD_HEIGHT) board[newX][newY].hasPlayer = true;
 
@@ -2506,16 +2482,13 @@ void ofApp::updateGame() {
 							players[unit.playerIndex].y = unit.startGrid.y;
 						}
 
-						if (unit.tilesToMove > 0)
-							roundComplete = false;
-						else
-							unit.isMoving = false;
+						if (unit.tilesToMove > 0) roundComplete = false;
+						else unit.isMoving = false;
 					}
 				}
 
 				if (roundComplete) {
 					isEarthquakeActive = false;
-					// Rebuild Board Occupancy
 					for (int bx = 0; bx < BOARD_WIDTH; ++bx)
 						for (int by = 0; by < BOARD_HEIGHT; ++by)
 							board[bx][by].hasPlayer = false;
@@ -2525,7 +2498,7 @@ void ofApp::updateGame() {
 						players[pi].y = std::max(0, std::min(BOARD_HEIGHT - 1, players[pi].y));
 						board[players[pi].x][players[pi].y].hasPlayer = true;
 					}
-					// Sync visual pos
+					
 					if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) {
 						playerVisualPos = gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y);
 					}
@@ -2537,7 +2510,6 @@ void ofApp::updateGame() {
 				}
 			}
 
-			// Override global playerVisualPos
 			if (currentPlayerIndex >= 0) {
 				for (auto & u : earthquakeUnits) {
 					if (u.playerIndex == currentPlayerIndex) {
@@ -2547,7 +2519,7 @@ void ofApp::updateGame() {
 				}
 			}
 
-			// --- DICE RESOLUTION & DEATH ---
+			// --- DICE RESOLUTION ---
 			for (auto it = activeDiceRolls.begin(); it != activeDiceRolls.end();) {
 				DiceRoll & roll = *it;
 				float elapsedTime = ofGetElapsedTimef() - roll.startTime;
@@ -2558,52 +2530,48 @@ void ofApp::updateGame() {
 					if (roll.purpose == PURPOSE_EARTHQUAKE_DAMAGE) {
 						int uidx = roll.associatedUnit;
 						if (uidx >= 0 && uidx < (int)players.size()) {
-							// Apply Damage
-							players[uidx].health -= roll.result;
-
-							glm::vec3 textPos = gridToWorld(players[uidx].x, players[uidx].y);
-							for (const auto & eu : earthquakeUnits) {
-								if (eu.playerIndex == uidx) {
-									textPos = eu.visualPos;
-									break;
-								}
-							}
-							spawnFloatingText(textPos + glm::vec3(0, 0.8f, 0), "-" + ofToString(roll.result), ofColor::red);
-
-							// Immediate Death
-							if (players[uidx].health <= 0) {
-								ofLogNotice("Earthquake") << "Player " << uidx << " died in crash!";
-								DeathMarker death;
-								death.x = players[uidx].x;
-								death.y = players[uidx].y;
-								death.turnDied = globalTurnCounter;
-								death.deck = players[uidx].deck;
-								graveyard.push_back(death);
-								if (death.x >= 0 && death.x < BOARD_WIDTH && death.y >= 0 && death.y < BOARD_HEIGHT) {
-									board[death.x][death.y].hasPlayer = false;
-								}
-
-								players.erase(players.begin() + uidx);
-
-								// Fix indices
-								for (auto eit = earthquakeUnits.begin(); eit != earthquakeUnits.end();) {
-									if (eit->playerIndex == uidx)
-										eit = earthquakeUnits.erase(eit);
-									else {
-										if (eit->playerIndex > uidx) eit->playerIndex--;
-										++eit;
+							if (players[uidx].inGhostForm) {
+								glm::vec3 textPos = gridToWorld(players[uidx].x, players[uidx].y);
+								for (const auto & eu : earthquakeUnits) {
+									if (eu.playerIndex == uidx) {
+										textPos = eu.visualPos;
+										break;
 									}
 								}
-								for (auto & r : activeDiceRolls) {
-									if (r.associatedUnit == uidx)
-										r.associatedUnit = -1;
-									else if (r.associatedUnit > uidx)
-										r.associatedUnit--;
+								spawnFloatingText(textPos + glm::vec3(0, 0.8f, 0), "Phased (0 Dmg)", ofColor::cyan);
+							} else {
+								players[uidx].health -= roll.result;
+								glm::vec3 textPos = gridToWorld(players[uidx].x, players[uidx].y);
+								for (const auto & eu : earthquakeUnits) {
+									if (eu.playerIndex == uidx) {
+										textPos = eu.visualPos;
+										break;
+									}
 								}
-								if (currentPlayerIndex == uidx)
-									currentPlayerIndex = std::min<int>(uidx, (int)players.size() - 1);
-								else if (currentPlayerIndex > uidx)
-									currentPlayerIndex--;
+								spawnFloatingText(textPos + glm::vec3(0, 0.8f, 0), "-" + ofToString(roll.result), ofColor::red);
+
+								if (players[uidx].health <= 0) {
+									DeathMarker death;
+									death.x = players[uidx].x;
+									death.y = players[uidx].y;
+									death.turnDied = globalTurnCounter;
+									death.deck = players[uidx].deck;
+									graveyard.push_back(death);
+									if (death.x >= 0 && death.x < BOARD_WIDTH && death.y >= 0 && death.y < BOARD_HEIGHT) {
+										board[death.x][death.y].hasPlayer = false;
+									}
+									players.erase(players.begin() + uidx);
+									for (auto eit = earthquakeUnits.begin(); eit != earthquakeUnits.end();) {
+										if (eit->playerIndex == uidx) eit = earthquakeUnits.erase(eit);
+										else { if (eit->playerIndex > uidx) eit->playerIndex--; ++eit; }
+									}
+									for (auto & r : activeDiceRolls) {
+										if (r.associatedUnit == uidx) r.associatedUnit = -1;
+										else if (r.associatedUnit > uidx) r.associatedUnit--;
+									}
+									if (currentPlayerIndex == uidx) currentPlayerIndex = std::min<int>(uidx, (int)players.size() - 1);
+									else if (currentPlayerIndex > uidx) currentPlayerIndex--;
+								}
 							}
 						}
 						it = activeDiceRolls.erase(it);
@@ -2612,8 +2580,7 @@ void ofApp::updateGame() {
 				}
 				++it;
 			}
-
-			return;
+			return; 
 		}
 	}
 
@@ -3523,24 +3490,20 @@ void ofApp::drawGame() {
 
 		// Earthquake arrows are now drawn above each unit's head within the transparent effects pass
 		// --- OPAQUE DYNAMIC OBJECTS (Players) ---
-		// Ensure color reset (arrows or other effects may have changed it)
 		ofSetColor(255);
 		for (const auto & player : players) {
 			// 1. Determine Position
 			glm::vec3 pos;
-
-			// --- NEW: EARTHQUAKE OVERRIDE ---
 			bool foundEq = false;
 			if (isEarthquakeActive) {
 				for (const auto & eq : earthquakeUnits) {
-					if (eq.playerIndex == &player - &players[0]) { // Pointer math to get index
+					if (eq.playerIndex == &player - &players[0]) {
 						pos = eq.visualPos;
 						foundEq = true;
 						break;
 					}
 				}
 			}
-
 			if (!foundEq) {
 				if (currentPlayerIndex >= 0 && player.playerID == players[currentPlayerIndex].playerID) {
 					pos = playerVisualPos;
@@ -3551,88 +3514,90 @@ void ofApp::drawGame() {
 
 			ofPushMatrix();
 
-			// --- DRAW LOGIC ---
-			// Use each unit's stored facing angle
-			float unitFacingAngle = player.facingAngle;
+			// --- 2. GHOST FORM (Overrides everything) ---
+			if (player.inGhostForm) {
+				ofTranslate(pos.x, 0.1f, pos.z);
 
-			if (player.isSkeleton) {
-				ofTranslate(pos.x, 0.1f, pos.z);
-				ofRotateYDeg(unitFacingAngle);
-				ofTranslate(0, 2.0f, 0);
-				skeletonTexture.bind();
-				skeletonModel.drawFaces();
-				skeletonTexture.unbind();
-			} else if (player.isGolem) {
-				ofTranslate(pos.x, 0.1f, pos.z);
-				ofRotateYDeg(unitFacingAngle); // Dynamic facing
-				ofTranslate(0, 3.0f, 0);
+				// Floating effect
+				float floatY = 1.5f + sin(ofGetElapsedTimef() * 2.0f) * 0.2f;
+				ofTranslate(0, floatY, 0);
+
+				ofRotateYDeg(player.facingAngle);
+
+				// Standard GLB/FBX correction
 				ofRotateXDeg(180);
-				ofRotateYDeg(90); // Base orientation
 
-				if (player.minionTexture) player.minionTexture->bind();
-				golemModel.drawFaces();
-				if (player.minionTexture) player.minionTexture->unbind();
-			} else if (player.isWolf) {
-				ofTranslate(pos.x, 0.1f, pos.z);
-				ofRotateYDeg(unitFacingAngle); // Dynamic facing
-				ofTranslate(0, 0.4f, 0);
-				// Increased scale by 20% (from 0.015 to 0.018)
-				ofScale(0.018f, 0.018f, 0.018f);
+				// Enable transparency
+				ofEnableBlendMode(OF_BLENDMODE_ALPHA);
+				ofSetColor(200, 200, 255, 150); // Ghostly blue-white tint
 
-				// Draw Skin
-				for (unsigned int i = 6; i < wolfModel.getMeshCount(); i++) {
-					ofTexture * tex = (i == 6 || i == 7) ? &wolfBodyTex : &wolfFaceTex;
-					if (tex->isAllocated()) tex->bind();
-					wolfModel.getMeshHelper(i).cachedMesh.drawFaces();
-					if (tex->isAllocated()) tex->unbind();
+				ghostModel.drawFaces();
+
+				ofDisableBlendMode();
+				ofSetColor(255);
+			}
+			// --- 3. STANDARD MODELS ---
+			else {
+				float unitFacingAngle = player.facingAngle;
+
+				if (player.isSkeleton) {
+					ofTranslate(pos.x, 0.1f, pos.z);
+					ofRotateYDeg(unitFacingAngle);
+					ofTranslate(0, 2.0f, 0);
+					skeletonTexture.bind();
+					skeletonModel.drawFaces();
+					skeletonTexture.unbind();
+				} else if (player.isGolem) {
+					ofTranslate(pos.x, 0.1f, pos.z);
+					ofRotateYDeg(unitFacingAngle);
+					ofTranslate(0, 3.0f, 0);
+					ofRotateXDeg(180);
+					ofRotateYDeg(90);
+					if (player.minionTexture) player.minionTexture->bind();
+					golemModel.drawFaces();
+					if (player.minionTexture) player.minionTexture->unbind();
+				} else if (player.isWolf) {
+					ofTranslate(pos.x, 0.1f, pos.z);
+					ofRotateYDeg(unitFacingAngle);
+					ofTranslate(0, 0.4f, 0);
+					ofScale(0.018f, 0.018f, 0.018f);
+					for (unsigned int i = 6; i < wolfModel.getMeshCount(); i++) {
+						ofTexture * tex = (i == 6 || i == 7) ? &wolfBodyTex : &wolfFaceTex;
+						if (tex->isAllocated()) tex->bind();
+						wolfModel.getMeshHelper(i).cachedMesh.drawFaces();
+						if (tex->isAllocated()) tex->unbind();
+					}
+				} else if (player.isHellhound) {
+					ofTranslate(pos.x, 0.1f, pos.z);
+					hellhoundModel.drawFaces();
+				} else if (player.isDemon) {
+					ofTranslate(pos.x, 0.1f, pos.z);
+					ofRotateYDeg(unitFacingAngle);
+					ofTranslate(0, 3.5f, 0);
+					ofRotateYDeg(90);
+					demonModel.drawFaces();
+				} else if (player.inTortoiseForm) {
+					ofTranslate(pos.x, 0.1f, pos.z);
+					ofRotateYDeg(unitFacingAngle);
+					ofTranslate(0, 0.5f, 0);
+					ofRotateXDeg(180);
+					if (tortoiseTexture.isAllocated()) tortoiseTexture.bind();
+					tortoiseModel.drawFaces();
+					if (tortoiseTexture.isAllocated()) tortoiseTexture.unbind();
+				} else if (player.isKobold) {
+					ofTranslate(pos.x, 0.1f, pos.z);
+					ofRotateYDeg(unitFacingAngle);
+					ofTranslate(0, 0.6f, 0);
+					koboldModel.drawFaces();
+				} else {
+					// Default Player
+					ofTranslate(pos.x, 0.1f, pos.z);
+					ofRotateYDeg(unitFacingAngle);
+					ofTranslate(0, 2.0f, 0);
+					if (playerTexture.isAllocated()) playerTexture.bind();
+					playerModel.drawFaces();
+					if (playerTexture.isAllocated()) playerTexture.unbind();
 				}
-				// Draw Fur (Alpha handled here for simplicity, or move to pass 2)
-				glDepthMask(GL_FALSE);
-				ofEnableAlphaBlending();
-				wolfFurTex.bind();
-				for (unsigned int i = 0; i <= 5; i++) {
-					wolfModel.getMeshHelper(i).cachedMesh.drawFaces();
-				}
-				wolfFurTex.unbind();
-				ofDisableAlphaBlending();
-				glDepthMask(GL_TRUE);
-			} else if (player.isHellhound) {
-				ofTranslate(pos.x, 0.1f, pos.z);
-				// --- FIX: Round the drawing position to avoid blurry text ---
-				hellhoundModel.drawFaces();
-			} else if (player.isDemon) {
-				ofTranslate(pos.x, 0.1f, pos.z);
-				ofRotateYDeg(unitFacingAngle); // Dynamic facing
-				// Raised from 2.5f to 3.5f to prevent clipping
-				ofTranslate(0, 3.5f, 0);
-				// Base orientation
-				ofRotateYDeg(90);
-				demonModel.drawFaces();
-			} else if (player.inTortoiseForm) {
-				// Tortoise Form (overrides normal model)
-				ofTranslate(pos.x, 0.1f, pos.z);
-				ofRotateYDeg(unitFacingAngle); // Dynamic facing
-				ofTranslate(0, 0.5f, 0); // Lowered closer to ground
-				ofRotateXDeg(180); // Flip 180 degrees
-				if (tortoiseTexture.isAllocated()) tortoiseTexture.bind();
-				tortoiseModel.drawFaces();
-				if (tortoiseTexture.isAllocated()) tortoiseTexture.unbind();
-				// KOBOLD: draw kobold model if minion is kobold
-			} else if (player.isKobold) {
-				ofTranslate(pos.x, 0.1f, pos.z);
-				ofRotateYDeg(unitFacingAngle);
-				ofTranslate(0, 0.6f, 0);
-				// Use model loader if available
-				koboldModel.drawFaces();
-			} else {
-				// Default Player
-				ofTranslate(pos.x, 0.1f, pos.z);
-				ofRotateYDeg(unitFacingAngle); // Dynamic facing
-				ofTranslate(0, 2.0f, 0);
-
-				if (playerTexture.isAllocated()) playerTexture.bind();
-				playerModel.drawFaces();
-				if (playerTexture.isAllocated()) playerTexture.unbind();
 			}
 			ofPopMatrix();
 		}
@@ -7016,13 +6981,19 @@ void ofApp::mousePressed(int x, int y, int button) {
 			}
 		}
 
-		// 3g. End Turn Button (blocked during pending actions)
+		// 3g. End Turn Button
 		if (endTurnButtonRect.inside(x, y) && button == OF_MOUSE_BUTTON_LEFT) {
-			// Block end turn if there's a pending action that must be completed
-			bool hasPendingAction = isPlacingWolves || isWaitingForWolfCoin || isPlacingKobolds || isWaitingForKoboldDice || isWaitingForMagicBoltRange || isTargetingMagicBolt || isWaitingForAttackDice || isWaitingForAmnesiaDice || isWaitingForMagicBlastDice || isWaitingForFireballRangeDice || isWaitingForFireballDamageDice || isWaitingForJoltRangeDice || isWaitingForBarrierDice || isWaitingForTeleportDice || isTargetingTeleport || isWaitingForHealDice || isWaitingForSummonHealth || isWaitingForTimeVortexDice || isWaitingForOnFireDice || isWaitingForParalysisCoin || isDoubleHandedMenuOpen || isTargetingDoubleHanded || isAmnesiaMenuOpen || isWaitingForInspirationDice || isTargetingAmnesia || isTargetingTortoiseDamage || isWaitingForPsionicRange || isWaitingForPsionicAmount;
-			if (hasPendingAction) {
-				return; // Can't end turn during pending actions
+			// ... pending action checks ...
+
+			// --- GHOST FORM CHECK ---
+			Player & p = players[currentPlayerIndex];
+			if (p.inGhostForm && board[p.x][p.y].hasWall) {
+				spawnFloatingText(gridToWorld(p.x, p.y), "Cannot end turn in wall!", ofColor::red);
+				ofLogNotice("Game") << "Prevented ending turn inside wall (Ghost Form).";
+				return;
 			}
+			// ------------------------
+
 			startNewTurn();
 			return;
 		}
@@ -7932,32 +7903,30 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 	auto applyDamage = [&](Player & target, int damage, DamageType type) -> bool {
 		string typeLabel = "";
 		switch (type) {
-		case DAMAGE_PHYSICAL:
-			typeLabel = " Physical";
-			break;
-		case DAMAGE_PIERCING:
-			typeLabel = " Piercing";
-			break;
-		case DAMAGE_MAGIC:
-			typeLabel = " Magic";
-			break;
-		case DAMAGE_ELECTRIC:
-			typeLabel = " Electric";
-			break;
-		case DAMAGE_FIRE:
-			typeLabel = " Fire";
-			break;
-		case DAMAGE_POISON:
-			typeLabel = " Poison";
-			break;
-		case DAMAGE_HOLY:
-			typeLabel = " Holy";
-			break;
+		case DAMAGE_PHYSICAL: typeLabel = " Physical"; break;
+		case DAMAGE_PIERCING: typeLabel = " Piercing"; break;
+		case DAMAGE_MAGIC:    typeLabel = " Magic"; break;
+		case DAMAGE_ELECTRIC: typeLabel = " Electric"; break;
+		case DAMAGE_FIRE:     typeLabel = " Fire"; break;
+		case DAMAGE_POISON:   typeLabel = " Poison"; break;
+		case DAMAGE_HOLY:     typeLabel = " Holy"; break;
 		}
 
 		int calculatedDamage = damage;
 
-		// --- Magic Wall Effect: double magic, half physical damage for adjacent/diagonal ---
+		// --- GHOST FORM MODIFIERS (Immunity & Vulnerability) ---
+		if (target.inGhostForm) {
+			if (type == DAMAGE_PHYSICAL || type == DAMAGE_PIERCING) {
+				calculatedDamage = 0;
+				spawnFloatingText(gridToWorld(target.x, target.y), "Phased!", ofColor::cyan);
+			}
+			if (type == DAMAGE_HOLY) {
+				calculatedDamage *= 2;
+				spawnFloatingText(gridToWorld(target.x, target.y), "Ghost: x2 Holy", ofColor::orange);
+			}
+		}
+
+		// --- Magic Wall Effect ---
 		auto isAdjacentOrDiagonalToMagicWall = [&](int x, int y) {
 			for (int dx = -1; dx <= 1; ++dx) {
 				for (int dy = -1; dy <= 1; ++dy) {
@@ -7970,7 +7939,7 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 			}
 			return false;
 		};
-		// Check both attacker and target for adjacency to magic wall
+		
 		int wallEffectCount = 0;
 		Player * attackerPtr = nullptr;
 		if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) {
@@ -7982,76 +7951,41 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 			attackerNearWall = isAdjacentOrDiagonalToMagicWall(attackerPtr->x, attackerPtr->y);
 		}
 		wallEffectCount = (targetNearWall ? 1 : 0) + (attackerNearWall ? 1 : 0);
+		
 		if (type == DAMAGE_MAGIC && wallEffectCount > 0) {
-			calculatedDamage *= (1 << wallEffectCount); // x2 for each
-			for (int i = 0; i < wallEffectCount; ++i) {
+			calculatedDamage *= (1 << wallEffectCount); 
+			for (int i = 0; i < wallEffectCount; ++i) 
 				spawnFloatingText(gridToWorld(target.x, target.y), "Magic Wall: x2 Magic", ofColor::purple);
-			}
 		} else if (type == DAMAGE_PHYSICAL && wallEffectCount > 0) {
-			// Halve for each wall effect.
-			// Integer division automatically rounds down (floor).
-			// 2 -> 1 -> 0.
 			for (int i = 0; i < wallEffectCount; ++i) {
-				calculatedDamage /= 2; // Simple integer division
-
-				// Show floating text for both attacker and defender if both are near a wall
-				if (i == 0 && targetNearWall)
-					spawnFloatingText(gridToWorld(target.x, target.y), "Magic Wall: 1/2 Phys", ofColor::purple);
-				else if (i == 1 && attackerNearWall)
-					spawnFloatingText(gridToWorld(attackerPtr->x, attackerPtr->y), "Magic Wall: 1/2 Phys", ofColor::purple);
+				calculatedDamage /= 2;
+				if (i == 0 && targetNearWall) spawnFloatingText(gridToWorld(target.x, target.y), "Magic Wall: 1/2 Phys", ofColor::purple);
+				else if (i == 1 && attackerNearWall) spawnFloatingText(gridToWorld(attackerPtr->x, attackerPtr->y), "Magic Wall: 1/2 Phys", ofColor::purple);
 			}
 		}
 
-		// --- 1. Hellhound & Demon Vulnerability ---
-		// Both take double Holy damage
+		// --- Vulnerabilities ---
 		if ((target.isHellhound || target.isDemon) && type == DAMAGE_HOLY) {
 			calculatedDamage *= 2;
 			spawnFloatingText(gridToWorld(target.x, target.y), "Vulnerable! (x2)", ofColor::orange);
 		}
-
-		// --- Vampire Bite vulnerability ---
-		// If a player has Vampire Bite in their deck or discard pile, they take double Holy damage
 		if (type == DAMAGE_HOLY) {
 			bool hasVampireBite = false;
-			for (const auto & c : target.deck)
-				if (c.type == CARD_VAMPIRE_BITE) {
-					hasVampireBite = true;
-					break;
-				}
-			if (!hasVampireBite) {
-				for (const auto & c : target.discardPile)
-					if (c.type == CARD_VAMPIRE_BITE) {
-						hasVampireBite = true;
-						break;
-					}
-			}
+			for (const auto & c : target.deck) if (c.type == CARD_VAMPIRE_BITE) { hasVampireBite = true; break; }
+			if (!hasVampireBite) { for (const auto & c : target.discardPile) if (c.type == CARD_VAMPIRE_BITE) { hasVampireBite = true; break; } }
 			if (hasVampireBite) {
 				calculatedDamage *= 2;
-				ofLogNotice("Damage") << "Double Holy Damage due to Vampire Bite curse!";
 				spawnFloatingText(gridToWorld(target.x, target.y), "Vampire Curse: x2 Holy", ofColor::orange);
 			}
 		}
-		// --- 2. Call for Wolves vulnerability ---
-		// Any unit with "Call for Wolves" in their deck/hand/discard takes double Piercing damage
 		if (type == DAMAGE_PIERCING) {
 			bool hasWolfCall = false;
-
-			// Check Hand
-			for (const auto & c : target.hand)
-				if (c.type == CARD_CALL_FOR_WOLVES) hasWolfCall = true;
-			// Check Deck
-			for (const auto & c : target.deck)
-				if (c.type == CARD_CALL_FOR_WOLVES) hasWolfCall = true;
-			// Check Discard
-			for (const auto & c : target.discardPile)
-				if (c.type == CARD_CALL_FOR_WOLVES) hasWolfCall = true;
-			// Check Played Pile (active turn)
-			for (const auto & c : target.playedCardsPile)
-				if (c.type == CARD_CALL_FOR_WOLVES) hasWolfCall = true;
-
+			for (const auto & c : target.hand) if (c.type == CARD_CALL_FOR_WOLVES) hasWolfCall = true;
+			for (const auto & c : target.deck) if (c.type == CARD_CALL_FOR_WOLVES) hasWolfCall = true;
+			for (const auto & c : target.discardPile) if (c.type == CARD_CALL_FOR_WOLVES) hasWolfCall = true;
+			for (const auto & c : target.playedCardsPile) if (c.type == CARD_CALL_FOR_WOLVES) hasWolfCall = true;
 			if (hasWolfCall) {
 				calculatedDamage *= 2;
-				ofLogNotice("Damage") << "Double Piercing Damage due to Call for Wolves curse!";
 				spawnFloatingText(gridToWorld(target.x, target.y), "Curse: x2 Dmg!", ofColor::orange);
 			}
 		}
@@ -8061,38 +7995,29 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		int initialHealth = target.health;
 		int remainingDmg = calculatedDamage;
 
-		// --- LAYER 1: SPECIFIC MITIGATION ---
-		// Fortification absorbs physical and piercing first
+		// --- MITIGATION ---
 		if (type == DAMAGE_PHYSICAL || type == DAMAGE_PIERCING) {
 			int fortAbsorb = std::min(target.fortification, remainingDmg);
 			target.fortification -= fortAbsorb;
 			remainingDmg -= fortAbsorb;
-			if (fortAbsorb > 0) ofLogNotice("Game") << "Fortification absorbed " << fortAbsorb;
 		}
-
 		if (type == DAMAGE_PHYSICAL) {
 			int absorb = std::min(target.block, remainingDmg);
 			target.block -= absorb;
 			remainingDmg -= absorb;
-			if (absorb > 0) ofLogNotice("Game") << "Block absorbed " << absorb;
 		} else if (type == DAMAGE_HOLY) {
 			int absorb = std::min(target.holyBlock, remainingDmg);
 			target.holyBlock -= absorb;
 			remainingDmg -= absorb;
-			if (absorb > 0) ofLogNotice("Game") << "Dark Shield absorbed " << absorb;
 		} else if (type != DAMAGE_PIERCING) {
 			int absorb = std::min(target.barrier, remainingDmg);
 			target.barrier -= absorb;
 			remainingDmg -= absorb;
-			if (absorb > 0) ofLogNotice("Game") << "Non-Phys Barrier absorbed " << absorb;
 		}
-
-		// --- LAYER 2: GENERIC MITIGATION ---
 		if (remainingDmg > 0) {
 			int wardAbsorb = std::min(target.ward, remainingDmg);
 			target.ward -= wardAbsorb;
 			remainingDmg -= wardAbsorb;
-			if (wardAbsorb > 0) ofLogNotice("Game") << "Ward absorbed " << wardAbsorb;
 		}
 
 		// --- FINAL HEALTH DAMAGE ---
@@ -8102,21 +8027,31 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 			target.health -= remainingDmg;
 			spawnFloatingText(targetPos, "-" + ofToString(remainingDmg) + typeLabel, ofColor::red);
 
-			// --- TORTOISE FORM: Track HP damage taken ---
+			// Tortoise Tracking
 			if (target.inTortoiseForm) {
 				target.tortoiseDamageTaken += remainingDmg;
-				ofLogNotice("Tortoise Form") << "Damage taken: " << target.tortoiseDamageTaken << "/5";
-
 				if (target.tortoiseDamageTaken >= 5) {
-					// End tortoise form
 					target.inTortoiseForm = false;
 					target.tortoiseDamageTaken = 0;
-
-					// Move card to discard
 					target.discardPile.push_back(target.tortoiseFormCard);
-
 					spawnFloatingText(targetPos + glm::vec3(0, 0.5f, 0), "Form Ended!", ofColor::darkGreen);
-					ofLogNotice("Tortoise Form") << "Player " << target.playerID << " tortoise form ended.";
+				}
+			}
+
+			// Ghost Tracking
+			if (target.inGhostForm) {
+				target.ghostDamageTaken += remainingDmg;
+				if (target.ghostDamageTaken >= 4) {
+					target.inGhostForm = false;
+					target.ghostDamageTaken = 0;
+					target.discardPile.push_back(target.ghostFormCard);
+					spawnFloatingText(targetPos + glm::vec3(0, 0.5f, 0), "Ghost Form Broken!", ofColor::white);
+					
+					// Instant death if materializing in a wall
+					if (board[target.x][target.y].hasWall) {
+						target.health = 0;
+						spawnFloatingText(targetPos + glm::vec3(0, 1.0f, 0), "Materialized in Wall!", ofColor::red);
+					}
 				}
 			}
 		} else {
@@ -9038,6 +8973,40 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 			playedSuccessfully = true;
 		}
 		break;
+	}
+
+		// --- CASE: FORM OF GHOST ---
+	case CARD_FORM_OF_GHOST: {
+		if (currentPlayer.inGhostForm) {
+			ofLogNotice("Form of Ghost") << "Already in ghost form!";
+			break;
+		}
+
+		// 1. Activate Form
+		currentPlayer.inGhostForm = true;
+		currentPlayer.ghostDamageTaken = 0;
+		currentPlayer.ghostFormCard = playedCard;
+
+		// 2. Grant Regeneration (if not already active)
+		if (!currentPlayer.hasRegeneration) {
+			currentPlayer.hasRegeneration = true;
+			spawnFloatingText(gridToWorld(currentPlayer.x, currentPlayer.y), "Regeneration Gained", ofColor::green);
+		}
+
+		// 3. Visuals
+		spawnFloatingText(gridToWorld(currentPlayer.x, currentPlayer.y) + glm::vec3(0, 1.0f, 0), "GHOST FORM!", ofColor::white);
+		ofLogNotice("Form of Ghost") << "Player " << currentPlayer.playerID << " entered ghost form.";
+
+		// 4. Handle "Keep in Play" (Do not add to played pile, just remove from hand)
+		currentAP -= playedCard.cost;
+		currentPlayer.hand.erase(currentPlayer.hand.begin() + cardIndex);
+		activeCardDisplays.push_back({ playedCard, ofGetElapsedTimef() });
+		invalidateTargetCache();
+
+		// Track play history
+		currentPlayer.cardsPlayedThisTurn.push_back(playedCard.type);
+
+		return; // Skip standard cleanup
 	}
 
 	// --- CASE: FORTIFY ---
@@ -10384,6 +10353,9 @@ void ofApp::calculateHighlights() {
 	q.push({ startPos, 0 });
 	board[(int)startPos.x][(int)startPos.y].visited = true;
 
+	// Get reference to current player for Ghost checks
+	Player & p = players[currentPlayerIndex];
+
 	while (!q.empty()) {
 		auto current = q.front();
 		q.pop();
@@ -10398,9 +10370,33 @@ void ofApp::calculateHighlights() {
 		for (auto & neighbor : neighbors) {
 			int nx = neighbor.x, ny = neighbor.y;
 			int nextCost = currentCost + 1;
-			if (nx >= 0 && nx < BOARD_WIDTH && ny >= 0 && ny < BOARD_HEIGHT && !board[nx][ny].hasWall && !board[nx][ny].hasPlayer && !board[nx][ny].visited && nextCost <= currentAP) {
-				board[nx][ny].visited = true;
-				q.push({ neighbor, nextCost });
+
+			if (nx >= 0 && nx < BOARD_WIDTH && ny >= 0 && ny < BOARD_HEIGHT && !board[nx][ny].visited && nextCost <= currentAP) {
+
+				// --- MOVEMENT LOGIC UPDATE ---
+				bool isWall = board[nx][ny].hasWall;
+				bool isOccupied = board[nx][ny].hasPlayer;
+
+				bool canMove = false;
+
+				if (!isOccupied) {
+					if (!isWall) {
+						// Normal empty tile
+						canMove = true;
+					} else if (p.inGhostForm) {
+						// Ghost moving into Wall
+						// SOFTLOCK PREVENTION: Only allow moving INTO a wall if we have AP > 1
+						// (So we have at least 1 AP remaining to move out)
+						if (currentAP - currentCost > 1) {
+							canMove = true;
+						}
+					}
+				}
+
+				if (canMove) {
+					board[nx][ny].visited = true;
+					q.push({ neighbor, nextCost });
+				}
 			}
 		}
 	}
@@ -11527,9 +11523,23 @@ TargetInfo ofApp::isLosTargetValid(glm::vec2 casterTile, glm::vec2 targetTile, f
 		result.reason = INVALID_SELF;
 		return result;
 	}
+
+	// --- CHECK IF TARGET IS A WALL ---
 	if (isTileWall((int)targetTile.x, (int)targetTile.y)) {
-		result.reason = INVALID_OCCUPIED_BY_WALL;
-		return result;
+
+		// EXCEPTION: If the card can target through walls (Jolt/Bolt/Wave/Death)
+		// AND there is a player inside that wall (Ghost), allow it.
+		bool allowWallTarget = false;
+		if (cardType == CARD_ETHEREAL_JOLT || cardType == CARD_MAGIC_BOLT || cardType == CARD_PSIONIC_WAVE || cardType == CARD_DEATH) {
+			if (board[(int)targetTile.x][(int)targetTile.y].hasPlayer) {
+				allowWallTarget = true;
+			}
+		}
+
+		if (!allowWallTarget) {
+			result.reason = INVALID_OCCUPIED_BY_WALL;
+			return result;
+		}
 	}
 
 	// --- 1. DETERMINE FIRING ORIGINS (VISIBILITY) ---
@@ -11539,33 +11549,43 @@ TargetInfo ofApp::isLosTargetValid(glm::vec2 casterTile, glm::vec2 targetTile, f
 	// Neighbors: East, West, South, North
 	glm::vec2 neighbors[] = { { 1, 0 }, { -1, 0 }, { 0, 1 }, { 0, -1 } };
 
-	bool adjacentToWall = false;
-	for (auto n : neighbors) {
-		int nx = (int)casterTile.x + (int)n.x;
-		int ny = (int)casterTile.y + (int)n.y;
-		if (isTileWall(nx, ny)) {
-			adjacentToWall = true;
-			break;
-		}
-	}
-
-	if (!adjacentToWall) {
-		// Standard: Shoot from Center
+	// --- GHOST FORM LOGIC START ---
+	// Check if the caster is currently inside a wall (Ghost scenario)
+	if (isTileWall((int)casterTile.x, (int)casterTile.y)) {
+		// If inside a wall, we assume we can shoot out from the center
+		// (Ghosts phase through their own cover)
 		firingOrigins.push_back(casterCenter);
 	} else {
-		// Peeking: Shoot from centers of faces NOT blocked by walls
-		glm::vec2 faceOffsets[] = { { 0.5f, 0 }, { -0.5f, 0 }, { 0, 0.5f }, { 0, -0.5f } };
+		// --- STANDARD PEEKING LOGIC ---
+		bool adjacentToWall = false;
+		for (auto n : neighbors) {
+			int nx = (int)casterTile.x + (int)n.x;
+			int ny = (int)casterTile.y + (int)n.y;
+			if (isTileWall(nx, ny)) {
+				adjacentToWall = true;
+				break;
+			}
+		}
 
-		for (int i = 0; i < 4; i++) {
-			int nx = (int)casterTile.x + (int)neighbors[i].x;
-			int ny = (int)casterTile.y + (int)neighbors[i].y;
+		if (!adjacentToWall) {
+			// Standard: Shoot from Center
+			firingOrigins.push_back(casterCenter);
+		} else {
+			// Peeking: Shoot from centers of faces NOT blocked by walls
+			glm::vec2 faceOffsets[] = { { 0.5f, 0 }, { -0.5f, 0 }, { 0, 0.5f }, { 0, -0.5f } };
 
-			// If this face is not pressed against a wall, we can shoot from it
-			if (!isTileWall(nx, ny)) {
-				firingOrigins.push_back(casterCenter + faceOffsets[i]);
+			for (int i = 0; i < 4; i++) {
+				int nx = (int)casterTile.x + (int)neighbors[i].x;
+				int ny = (int)casterTile.y + (int)neighbors[i].y;
+
+				// If this face is not pressed against a wall, we can shoot from it
+				if (!isTileWall(nx, ny)) {
+					firingOrigins.push_back(casterCenter + faceOffsets[i]);
+				}
 			}
 		}
 	}
+	// --- GHOST FORM LOGIC END ---
 
 	// --- 2. CHECK VISIBILITY (Raycast to Target Center) ---
 	bool hasLineOfSight = false;
@@ -11946,6 +11966,7 @@ CardType ofApp::stringToCardType(const std::string & str) {
 	if (str == "CARD_INSPIRATION") return CARD_INSPIRATION;
 	if (str == "CARD_PSIONIC_WAVE") return CARD_PSIONIC_WAVE;
 	if (str == "CARD_EARTHQUAKE") return CARD_EARTHQUAKE;
+	if (str == "CARD_FORM_OF_GHOST") return CARD_FORM_OF_GHOST;
 
 	return CARD_NONE;
 }

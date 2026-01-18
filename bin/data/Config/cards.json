@@ -442,5 +442,12 @@
     "type": "CARD_EARTHQUAKE",
     "cost": 5,
     "targeting": "TARGET_SELF"
+  },
+  {
+    "id": 56,
+    "name": "Form of Ghost",
+    "type": "CARD_FORM_OF_GHOST",
+    "cost": 7,
+    "targeting": "TARGET_SELF"
   }
 ]
