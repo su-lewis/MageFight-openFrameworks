@@ -42,6 +42,19 @@ GLFWcursor * createGLFWCursorFromPNG(const std::string & path, int xHot, int yHo
 	glfwImg.pixels = img.getPixels().getData();
 	return glfwCreateCursor(&glfwImg, xHot, yHot);
 }
+// ----------------------------------
+void drawStatText(ofTrueTypeFont & font, string text, float x, float y, float w, float h, ofColor color) {
+	if (text == "0") return;
+	float scale = 0.6f;
+	ofRectangle bounds = font.getStringBoundingBox(text, 0, 0);
+	ofPushMatrix();
+	// Center the text in the rect
+	ofTranslate(x + (w - bounds.width * scale) / 2, y + (h + bounds.height * scale) / 2 - 2);
+	ofScale(scale, scale);
+	ofSetColor(color);
+	font.drawString(text, 0, 0);
+	ofPopMatrix();
+}
 //--------------------------------------------------------------
 void ofApp::setup() {
 	ofSetEscapeQuitsApp(false);
@@ -4191,146 +4204,95 @@ void ofApp::drawGame() {
 		float healthBarHeight = 65 * scale;
 		float nextBarY = y;
 
-		// --- FIX: Define all bar heights here to avoid scope issues ---
-		float blockBarHeight = 50 * scale;
-		float barrierHeight = 50 * scale;
-		float holyBlockHeight = 50 * scale;
-		float wardBarHeight = 50 * scale;
-
-		// 1. Health Bar
-		ofSetColor(healthColor.getLerped(ofColor::black, 0.5));
-		ofDrawRectangle(x, y, healthBarWidth, healthBarHeight);
-		float healthPercent = (float)player.health / player.maxHealth;
-		ofSetColor(healthColor);
-		ofDrawRectangle(x, y, healthBarWidth * healthPercent, healthBarHeight);
-
-		// Health Text
-		ofSetColor(ofColor::white);
-		string healthText = ofToString(player.health) + " / " + ofToString(player.maxHealth);
-		ofRectangle healthTextBox = titleFont.getStringBoundingBox(healthText, 0, 0);
-		float textX = x + (healthBarWidth / 2) - (healthTextBox.width * fontScale / 2);
-		float textY = y + (healthBarHeight / 2) + (healthTextBox.height * fontScale / 2);
-		ofPushMatrix();
-		ofTranslate(textX, textY);
-		ofScale(fontScale, fontScale);
-		titleFont.drawString(healthText, 0, 0);
-		ofPopMatrix();
-
+		// Determine layout direction
 		bool isTopAligned = y < ofGetHeight() / 2;
-		if (isTopAligned)
-			nextBarY += healthBarHeight + (5 * scale);
-		else
-			nextBarY -= 5 * scale;
 
-		// 2. Block Bar (Grey)
-		if (player.block > 0) {
-			float blockBarY = isTopAligned ? nextBarY : nextBarY - blockBarHeight;
-			ofSetColor(ofColor::lightSlateGray);
-			ofDrawRectangle(x, blockBarY, healthBarWidth, blockBarHeight);
-			ofSetColor(ofColor::white);
-			string blockText = ofToString(player.block);
-			ofRectangle blockTextBox = titleFont.getStringBoundingBox(blockText, 0, 0);
-			float bTextX = x + (healthBarWidth / 2) - (blockTextBox.width * fontScale / 2);
-			float bTextY = blockBarY + (blockBarHeight / 2) + (blockTextBox.height * fontScale / 2);
-			ofPushMatrix();
-			ofTranslate(bTextX, bTextY);
-			ofScale(fontScale, fontScale);
-			titleFont.drawString(blockText, 0, 0);
-			ofPopMatrix();
+		// --- FORM BARS (Still separate, above/below main bar) ---
+		float formBarHeight = 30 * scale;
 
-			if (isTopAligned)
-				nextBarY += blockBarHeight + (5 * scale);
+		if (player.inTortoiseForm) {
+			float formY = isTopAligned ? nextBarY + healthBarHeight + (5 * scale) : nextBarY - formBarHeight - (5 * scale);
+			int rem = 5 - player.tortoiseDamageTaken;
+			ofSetColor(20, 40, 20);
+			ofDrawRectangle(x, formY, healthBarWidth, formBarHeight);
+			ofSetColor(ofColor::darkGreen);
+			ofDrawRectangle(x, formY, healthBarWidth * (rem / 5.0f), formBarHeight);
+			string txt = "Tortoise: " + ofToString(rem) + "/5";
+			drawStatText(uiFont, txt, x, formY, healthBarWidth, formBarHeight, ofColor::white);
+			// Push Y for main bar if bottom aligned, otherwise next content pushed down
+			if (!isTopAligned)
+				nextBarY -= (formBarHeight + 5 * scale);
 			else
-				nextBarY -= blockBarHeight + (5 * scale);
+				nextBarY += (formBarHeight + 5 * scale); // Fix: Top aligned needs push too for subsequent elements?
+			// Actually, "nextBarY" was tracking the bottom edge for top-aligned. Let's keep it simple.
+			// The logic below uses nextBarY as the Top Y of the main bar.
+			// If Top Aligned: Bar is at Y. Form bar is at Y + Height + 5.
+			// If Bottom Aligned: Bar is at Y. Form bar is at Y - FormHeight - 5.
+			// Let's reset nextBarY to be the MAIN BAR Y position.
+		}
+		if (player.inGhostForm) {
+			float formY = isTopAligned ? nextBarY + healthBarHeight + (5 * scale) : nextBarY - formBarHeight - (5 * scale);
+			// Adjust if Tortoise was also active? (Unlikely to be both)
+			// Assuming mutually exclusive or just overlapping visuals for now.
+
+			int rem = 4 - player.ghostDamageTaken;
+			ofSetColor(30, 30, 50);
+			ofDrawRectangle(x, formY, healthBarWidth, formBarHeight);
+			ofSetColor(150, 150, 255);
+			ofDrawRectangle(x, formY, healthBarWidth * (rem / 4.0f), formBarHeight);
+			string txt = "Ghost: " + ofToString(rem) + "/4";
+			drawStatText(uiFont, txt, x, formY, healthBarWidth, formBarHeight, ofColor::white);
 		}
 
-		// 2b. Fortification Bar (Darker Grey)
-		if (player.fortification > 0) {
-			float fortY = isTopAligned ? nextBarY : nextBarY - blockBarHeight;
-			ofSetColor(50, 50, 50); // Darker than standard block
-			ofDrawRectangle(x, fortY, healthBarWidth, blockBarHeight);
+		// --- MAIN COMBINED STATS BAR ---
+		// 1. Calculate Widths
+		float statW = healthBarWidth * 0.15f; // 15% width for shields
+		float usedWidth = 0;
+		if (player.block > 0) usedWidth += statW;
+		if (player.fortification > 0) usedWidth += statW;
+		if (player.barrier > 0) usedWidth += statW;
+		if (player.holyBlock > 0) usedWidth += statW;
+		if (player.ward > 0) usedWidth += statW;
 
-			ofSetColor(ofColor::white);
-			string fortText = ofToString(player.fortification);
-			ofRectangle fortTextBox = titleFont.getStringBoundingBox(fortText, 0, 0);
-			float fTextX = x + (healthBarWidth / 2) - (fortTextBox.width * fontScale / 2);
-			float fTextY = fortY + (blockBarHeight / 2) + (fortTextBox.height * fontScale / 2);
-			ofPushMatrix();
-			ofTranslate(fTextX, fTextY);
-			ofScale(fontScale, fontScale);
-			titleFont.drawString(fortText, 0, 0);
-			ofPopMatrix();
+		float hpW = healthBarWidth - usedWidth;
+		float currentX = x;
 
-			if (isTopAligned)
-				nextBarY += blockBarHeight + (5 * scale);
-			else
-				nextBarY -= blockBarHeight + (5 * scale);
-		}
+		// 2. Health Segment
+		ofSetColor(healthColor.getLerped(ofColor::black, 0.5));
+		ofDrawRectangle(currentX, y, hpW, healthBarHeight);
+		float hpPct = (float)player.health / player.maxHealth;
+		ofSetColor(healthColor);
+		ofDrawRectangle(currentX, y, hpW * hpPct, healthBarHeight);
+		string hpText = ofToString(player.health) + "/" + ofToString(player.maxHealth);
+		drawStatText(titleFont, hpText, currentX, y, hpW, healthBarHeight, ofColor::white);
 
-		// 3. BARRIER BAR
-		if (player.barrier > 0) {
-			float barrierY = isTopAligned ? nextBarY : nextBarY - barrierHeight;
-			ofSetColor(ofColor::fromHex(0x480082));
-			ofDrawRectangle(x, barrierY, healthBarWidth, barrierHeight);
+		currentX += hpW;
 
-			ofSetColor(ofColor::white);
-			string barrierText = ofToString(player.barrier);
-			ofRectangle box = titleFont.getStringBoundingBox(barrierText, 0, 0);
-			float bx = x + (healthBarWidth / 2) - (box.width * fontScale / 2);
-			float by = barrierY + (barrierHeight / 2) + (box.height * fontScale / 2);
-			ofPushMatrix();
-			ofTranslate(bx, by);
-			ofScale(fontScale, fontScale);
-			titleFont.drawString(barrierText, 0, 0);
-			ofPopMatrix();
+		// 3. Shield Segments
+		auto drawSeg = [&](int val, ofColor c, string label) {
+			if (val > 0) {
+				ofSetColor(c);
+				ofDrawRectangle(currentX, y, statW, healthBarHeight);
+				drawStatText(titleFont, ofToString(val), currentX, y, statW, healthBarHeight, (c.getBrightness() > 200 ? ofColor::black : ofColor::white));
 
-			if (isTopAligned)
-				nextBarY += barrierHeight + (5 * scale);
-			else
-				nextBarY -= barrierHeight + (5 * scale);
-		}
+				// Tooltip Check
+				if (ofRectangle(currentX, y, statW, healthBarHeight).inside(ofGetMouseX(), ofGetMouseY())) {
+					isShowingTooltip = true;
+					tooltipPos = { (float)ofGetMouseX(), (float)ofGetMouseY() };
+					tooltipText = label;
+				}
 
-		// 4. HOLY BLOCK BAR (Yellow)
-		if (player.holyBlock > 0) {
-			float holyBlockY = isTopAligned ? nextBarY : nextBarY - holyBlockHeight;
-			ofSetColor(ofColor::yellow);
-			ofDrawRectangle(x, holyBlockY, healthBarWidth, holyBlockHeight);
+				currentX += statW;
+			}
+		};
 
-			ofSetColor(ofColor::black);
-			string holyBlockText = ofToString(player.holyBlock);
-			ofRectangle box = titleFont.getStringBoundingBox(holyBlockText, 0, 0);
-			float bx = x + (healthBarWidth / 2) - (box.width * fontScale / 2);
-			float by = holyBlockY + (holyBlockHeight / 2) + (box.height * fontScale / 2);
-			ofPushMatrix();
-			ofTranslate(bx, by);
-			ofScale(fontScale, fontScale);
-			titleFont.drawString(holyBlockText, 0, 0);
-			ofPopMatrix();
-
-			if (isTopAligned)
-				nextBarY += holyBlockHeight + (5 * scale);
-			else
-				nextBarY -= holyBlockHeight + (5 * scale);
-		}
-
-		// 5. WARD BAR (Black)
-		if (player.ward > 0) {
-			float wardBarY = isTopAligned ? nextBarY : nextBarY - wardBarHeight;
-			ofSetColor(ofColor::black);
-			ofDrawRectangle(x, wardBarY, healthBarWidth, wardBarHeight);
-
-			ofSetColor(ofColor::white);
-			string wardText = ofToString(player.ward);
-			ofRectangle wardTextBox = titleFont.getStringBoundingBox(wardText, 0, 0);
-			float wTextX = x + (healthBarWidth / 2) - (wardTextBox.width * fontScale / 2);
-			float wTextY = wardBarY + (wardBarHeight / 2) + (wardTextBox.height * fontScale / 2);
-			ofPushMatrix();
-			ofTranslate(wTextX, wTextY);
-			ofScale(fontScale, fontScale);
-			titleFont.drawString(wardText, 0, 0);
-			ofPopMatrix();
-		}
+		drawSeg(player.block, ofColor::gray, "Block (Physical)");
+		drawSeg(player.fortification, ofColor(50, 50, 50), "Fortification (Phys/Pierce)");
+		drawSeg(player.barrier, ofColor::hotPink, "Barrier (Non-Physical)");
+		drawSeg(player.holyBlock, ofColor::yellow, "Holy Block (Holy)");
+		drawSeg(player.ward, ofColor::black, "Ward (All Damage)");
 	};
+
 	// Draw Floating Text
 	for (const auto & ft : activeFloatingTexts) {
 		glm::vec2 screenPos = cam.worldToScreen(ft.worldPos);
@@ -5441,6 +5403,7 @@ void ofApp::drawGame() {
 void ofApp::mouseMoved(int x, int y) {
 	// 1. Reset to default at the start of the check
 	currentCursor = CURSOR_DEFAULT;
+	isShowingTooltip = false; // Reset tooltip state every frame
 
 	// 2. Check for "Clickable" things (Buttons)
 	bool overPauseMenuButton = false;
@@ -5493,22 +5456,17 @@ void ofApp::mouseMoved(int x, int y) {
 			bool isTargetingMode = (draggedCardIndex != -1) || (selectedCardIndex != -1) || isTargetingMagicBolt || isTargetingTeleport || isTargetingHellhound || isTargetingChainLightning || isTargetingAmnesia || isTargetingDoubleHanded || isTargetingTortoiseDamage;
 			bool isMovingMode = (playerAction == PIECE_SELECTED);
 
-			// 1. UNIT SELECT (Only if not targeting)
 			if (!isTargetingMode && !players.empty() && currentPlayerIndex >= 0) {
 				Player & p = players[currentPlayerIndex];
 				if (p.x == gx && p.y == gy) {
 					currentCursor = CURSOR_CLICK;
-					goto cursor_check_done; // Found match, exit logic
+					goto cursor_check_done;
 				}
 			}
-
-			// 2. MOVEMENT (Only if unit is selected AND tile is yellow)
 			if (isMovingMode && board[gx][gy].isHighlighted) {
 				currentCursor = CURSOR_CLICK;
 				goto cursor_check_done;
 			}
-
-			// 3. TARGETING (Only if holding card AND tile is a valid (green) target)
 			if (isTargetingMode && board[gx][gy].isTargetable) {
 				currentCursor = CURSOR_CLICK;
 				goto cursor_check_done;
@@ -5520,7 +5478,6 @@ cursor_check_done:;
 	// --- LOGIC UPDATES ---
 	switch (currentState) {
 	case STATE_GAMEPLAY: {
-		// ... (Keep existing Kobold logic) ...
 		bool isDiceSpinning = false;
 		for (const auto & roll : activeDiceRolls) {
 			if (!roll.isFinishedVisual) {
@@ -5574,36 +5531,33 @@ cursor_check_done:;
 			currentPlayer.hand[i].targetScale = (static_cast<int>(i) == hoveredCardIndex) ? 2.0f : 1.5f;
 		}
 
-		// Determine active card for highlighting - prioritize targeting modes
 		int activeCardForHighlight = -1;
-		if (isTargetingTeleport) {
+		if (isTargetingTeleport)
 			activeCardForHighlight = pendingTeleportCardIndex;
-		} else if (isTargetingHellhound) {
+		else if (isTargetingHellhound)
 			activeCardForHighlight = hellhoundCardIndex;
-		} else if (isTargetingChainLightning) {
+		else if (isTargetingChainLightning)
 			activeCardForHighlight = chainLightningCardIndex;
-		} else if (isTargetingAmnesia) {
+		else if (isTargetingAmnesia)
 			activeCardForHighlight = pendingAmnesiaCardIndex;
-		} else if (isTargetingDoubleHanded) {
+		else if (isTargetingDoubleHanded)
 			activeCardForHighlight = pendingDoubleHandedCardIndex;
-		} else if (isTargetingMagicBolt) {
+		else if (isTargetingMagicBolt)
 			activeCardForHighlight = magicBoltCardIndex;
-		} else if (selectedCardIndex != -1) {
+		else if (selectedCardIndex != -1)
 			activeCardForHighlight = selectedCardIndex;
-		} else {
+		else
 			activeCardForHighlight = hoveredCardIndex;
-		}
+
 		calculateTargetHighlights(activeCardForHighlight);
 		isHoveringEndTurn = endTurnButtonRect.inside(x, y);
 
-		// --- UNIFIED PILE & TOOLTIP HOVER LOGIC (FIXED) ---
+		// --- HOVER LOGIC (Piles & Tooltips) ---
 		PileViewMode newHoveredPileType = VIEW_NONE;
-		int newHoveredPileIndex = -1; // Stores the INDEX of the player in the vector
+		int newHoveredPileIndex = -1;
 
-		// 1. Check main player piles FIRST.
 		if (p0_deckRect.inside(x, y)) {
 			newHoveredPileType = VIEW_DECK;
-			// Find the index of the player with playerID 0
 			for (int i = 0; i < (int)players.size(); i++)
 				if (players[i].playerID == 0) newHoveredPileIndex = i;
 		} else if (p0_discardRect.inside(x, y)) {
@@ -5620,7 +5574,6 @@ cursor_check_done:;
 				if (players[i].playerID == 1) newHoveredPileIndex = i;
 		}
 
-		// 2. If no main pile was hovered, check minion UIs.
 		if (newHoveredPileIndex == -1) {
 			for (const auto & ui : activeMinionUIs) {
 				if (ui.deckRect.inside(x, y)) {
@@ -5636,7 +5589,6 @@ cursor_check_done:;
 			}
 		}
 
-		// 3. Update hover state
 		if (newHoveredPileIndex != -1) {
 			if (!isHoveringPile || newHoveredPileIndex != hoveredPilePlayerIndex || newHoveredPileType != hoveredPileType) {
 				isHoveringPile = true;
@@ -5645,7 +5597,6 @@ cursor_check_done:;
 				hoveredPilePlayerIndex = newHoveredPileIndex;
 				pileHoverStartTime = ofGetElapsedTimef();
 			}
-			// Add cursor change for pile interaction
 			currentCursor = CURSOR_CLICK;
 		} else {
 			isHoveringPile = false;
@@ -5656,8 +5607,7 @@ cursor_check_done:;
 			}
 		}
 
-		// 4. Handle Tooltips
-		// Unit hover detection (separate from pile hover)
+		// --- TOOLTIP LOGIC ---
 		ofVec2f boardPosForTooltip = mouseToBoard(x, y);
 		int tooltipGX = floor(boardPosForTooltip.x);
 		int tooltipGY = floor(boardPosForTooltip.y);
@@ -5679,8 +5629,7 @@ cursor_check_done:;
 			unitHoverStartTime = isHoveringUnit ? ofGetElapsedTimef() : 0.0f;
 		}
 
-		isShowingTooltip = false;
-		// Prioritise pile hover (same behaviour as before)
+		// 1. Pile Tooltip
 		if (isHoveringPile && !isShowingPileView) {
 			Player * hoveredPlayer = getPlayer(hoveredPilePlayerIndex);
 			if (hoveredPlayer) {
@@ -5688,13 +5637,114 @@ cursor_check_done:;
 				tooltipPos = glm::vec2(x, y);
 				tooltipText = ofToString(hoveredPileType == VIEW_DECK ? hoveredPlayer->deck.size() : hoveredPlayer->discardPile.size()) + " cards";
 			}
-		} else if (hoveredUnitIndex != -1 && !isHoveringPile) {
-			// Instant unit hover tooltip (no delay)
+		}
+		// 2. Unit Tooltip
+		else if (hoveredUnitIndex != -1 && !isHoveringPile) {
 			Player * up = getPlayer(hoveredUnitIndex);
 			if (up) {
 				isShowingTooltip = true;
 				tooltipPos = glm::vec2(x, y);
 				tooltipText = getPlayerDisplayName(hoveredUnitIndex);
+				if (up->inTortoiseForm) {
+					int rem = 5 - up->tortoiseDamageTaken;
+					tooltipText += " [Tortoise: " + ofToString(rem) + "/5 HP]";
+				}
+				if (up->inGhostForm) {
+					int rem = 4 - up->ghostDamageTaken;
+					tooltipText += " [Ghost: " + ofToString(rem) + "/4 HP]";
+				}
+			}
+		}
+		// 3. SHIELD BAR SEGMENT TOOLTIP (Global Check for P0, P1, and Minions)
+		else {
+			// Helper to check hover against cached shield rects (requires rect storage in Player or finding UI coords)
+			// Since Player struct is data-only, we rely on checking if mouse is inside the visual areas calculated in draw.
+			// Ideally, store these rects in ofApp member variables during draw(), or recalculate them here.
+			// For simplicity and performance, we'll iterate activeMinionUIs (minions) and manually check P0/P1 rects.
+
+			// Note: This requires 'shieldRects' vector in MinionUI or similar storage.
+			// Assuming we add a temporary check mechanism here using the same math as drawHealthBar/drawMinionStatusBars.
+
+			float scale = ofGetHeight() / 1080.0f;
+
+			// A. Check Main Players (P0/P1)
+			auto checkMainPlayerShields = [&](Player & p, float x, float y) {
+				float barW = 220 * scale;
+				float barH = 50 * scale; // shield bar height
+				float fontScale = 1.0f;
+
+				// Reconstruct Position (Matches drawHealthBar)
+				// P0 (Green) is bottom right: ofGetWidth() - (220 * scale) - (50 * scale), ofGetHeight() - (65 * scale) - (40 * scale)
+				// P1 (Red) is top left: 40 * scale, 40 * scale
+
+				float startX, startY;
+				bool isTop = (p.playerID == 1 || (p.playerID > 1 && p.ownerID == 1 && !p.isMinion)); // Simple heuristic for P1
+				if (p.playerID == 0) { // P0
+					startX = ofGetWidth() - (220 * scale) - (50 * scale);
+					float hpY = ofGetHeight() - (65 * scale) - (40 * scale);
+					startY = hpY - 5 * scale; // Bar grows UP from HP
+					// Need to account for form bar pushing it further?
+					if (p.inGhostForm || p.inTortoiseForm) startY -= (45 * scale) + (5 * scale);
+				} else { // P1
+					startX = 40 * scale;
+					float hpY = 40 * scale;
+					startY = hpY + (65 * scale) + (5 * scale); // Bar grows DOWN from HP
+					if (p.inGhostForm || p.inTortoiseForm) startY += (45 * scale) + (5 * scale);
+				}
+
+				// The 'combined' bar logic isn't in drawHealthBar yet (it draws separate bars).
+				// We need to implement the COMBINED bar in drawHealthBar first to make this hover logic match.
+				// Since we haven't updated drawHealthBar yet, this section is a placeholder.
+				// See Step 2 below where we implement the combined bar drawing.
+			};
+
+			// B. Check Minions
+			for (const auto & ui : activeMinionUIs) {
+				if (ui.healthBar.inside(x, y)) { // Using the rect stored in drawMinionManagerUI
+					// Calculate segments based on player stats
+					Player & p = players[ui.playerIndex];
+					float totalW = ui.healthBar.width;
+					float segW = totalW * 0.20f;
+					float localX = x - ui.healthBar.x;
+
+					// Skip HP segment (first segment)
+					float hpW = totalW - (segW * ((p.block > 0) + (p.fortification > 0) + (p.barrier > 0) + (p.ward > 0)));
+					if (localX < hpW) continue; // Hovering HP
+
+					float checkX = hpW;
+					if (p.block > 0) {
+						if (x >= ui.healthBar.x + checkX && x < ui.healthBar.x + checkX + segW) {
+							isShowingTooltip = true;
+							tooltipPos = { (float)x, (float)y };
+							tooltipText = "Block (Physical)";
+						}
+						checkX += segW;
+					}
+					if (p.fortification > 0) {
+						if (x >= ui.healthBar.x + checkX && x < ui.healthBar.x + checkX + segW) {
+							isShowingTooltip = true;
+							tooltipPos = { (float)x, (float)y };
+							tooltipText = "Fortification (Physical/Piercing)";
+						}
+						checkX += segW;
+					}
+					if (p.barrier > 0) {
+						if (x >= ui.healthBar.x + checkX && x < ui.healthBar.x + checkX + segW) {
+							isShowingTooltip = true;
+							tooltipPos = { (float)x, (float)y };
+							tooltipText = "Barrier (Non-Physical)";
+						}
+						checkX += segW;
+					}
+					if (p.ward > 0) {
+						if (x >= ui.healthBar.x + checkX && x < ui.healthBar.x + checkX + segW) {
+							isShowingTooltip = true;
+							tooltipPos = { (float)x, (float)y };
+							tooltipText = "Ward (All Damage)";
+						}
+						checkX += segW;
+					}
+				}
 			}
 		}
 		break;
@@ -12125,34 +12175,18 @@ DamageType ofApp::stringToDamageType(const std::string & str) {
 	if (str == "DAMAGE_POISON") return DAMAGE_POISON;
 	return DAMAGE_PHYSICAL;
 }
-// ----------------- MINION UI -----------------
-// Helper to draw centered text in a specific rectangle)
-void drawStatText(ofTrueTypeFont & font, string text, float x, float y, float w, float h, ofColor color) {
-	if (text == "0") return;
-	float scale = 0.6f;
-	ofRectangle bounds = font.getStringBoundingBox(text, 0, 0);
-	ofPushMatrix();
-	// Center the text in the rect
-	ofTranslate(x + (w - bounds.width * scale) / 2, y + (h + bounds.height * scale) / 2 - 2);
-	ofScale(scale, scale);
-	ofSetColor(color);
-	font.drawString(text, 0, 0);
-	ofPopMatrix();
-}
+
 //--------------------------------------------------------------
 void ofApp::drawMinionStatusBars(Player & minion, const std::string & name, float x, float y, float totalWidth) {
 	float scale = ofGetHeight() / 1080.0f;
 	float fontScale = 0.9f;
 
-	// 1. Bar Dimensions
+	// 1. Main Stats Bar
 	float barHeight = 20 * scale;
 	ofRectangle nameBounds = uiFont.getStringBoundingBox(name, 0, 0);
-
-	// FIX: Position bar below the name text
 	float barY = y + (nameBounds.height * fontScale) + (4 * scale);
 
-	// 2. Define Segments (Health takes remaining space)
-	float statW = totalWidth * 0.20f; // 20% width for each shield type
+	float statW = totalWidth * 0.20f;
 	float usedWidth = 0;
 
 	if (minion.block > 0) usedWidth += statW;
@@ -12163,50 +12197,58 @@ void ofApp::drawMinionStatusBars(Player & minion, const std::string & name, floa
 	float hpW = totalWidth - usedWidth;
 	float currentX = x;
 
-	// --- HEALTH (Green) ---
-	ofSetColor(40, 0, 0); // Dark Red BG
+	// --- HEALTH ---
+	ofSetColor(40, 0, 0);
 	ofDrawRectangle(currentX, barY, hpW, barHeight);
-
 	float hpPct = (float)minion.health / minion.maxHealth;
 	ofSetColor(ofColor::green);
 	ofDrawRectangle(currentX, barY, hpW * hpPct, barHeight);
-
-	// Draw HP Text
 	string hpText = ofToString(minion.health) + "/" + ofToString(minion.maxHealth);
 	drawStatText(uiFont, hpText, currentX, barY, hpW, barHeight, ofColor::white);
-
 	currentX += hpW;
 
-	// --- BLOCK (Grey) ---
-	if (minion.block > 0) {
-		ofSetColor(ofColor::gray);
-		ofDrawRectangle(currentX, barY, statW, barHeight);
-		drawStatText(uiFont, ofToString(minion.block), currentX, barY, statW, barHeight, ofColor::white);
-		currentX += statW;
-	}
+	// --- SHIELDS (With Tooltips) ---
+	auto drawSeg = [&](int val, ofColor c, string label) {
+		if (val > 0) {
+			ofSetColor(c);
+			ofDrawRectangle(currentX, barY, statW, barHeight);
+			drawStatText(uiFont, ofToString(val), currentX, barY, statW, barHeight, ofColor::white);
 
-	// --- FORTIFICATION (Dark Grey) ---
-	if (minion.fortification > 0) {
-		ofSetColor(50, 50, 50); // Darker grey than standard block
-		ofDrawRectangle(currentX, barY, statW, barHeight);
-		drawStatText(uiFont, ofToString(minion.fortification), currentX, barY, statW, barHeight, ofColor::white);
-		currentX += statW;
-	}
+			// Tooltip Check
+			if (ofRectangle(currentX, barY, statW, barHeight).inside(ofGetMouseX(), ofGetMouseY())) {
+				isShowingTooltip = true;
+				tooltipPos = { (float)ofGetMouseX(), (float)ofGetMouseY() };
+				tooltipText = label;
+			}
+			currentX += statW;
+		}
+	};
 
-	// --- BARRIER (Pink) ---
-	if (minion.barrier > 0) {
-		ofSetColor(ofColor::hotPink);
-		ofDrawRectangle(currentX, barY, statW, barHeight);
-		drawStatText(uiFont, ofToString(minion.barrier), currentX, barY, statW, barHeight, ofColor::white);
-		currentX += statW;
-	}
+	drawSeg(minion.block, ofColor::gray, "Block (Physical)");
+	drawSeg(minion.fortification, ofColor(50, 50, 50), "Fortification (Phys/Pierce)");
+	drawSeg(minion.barrier, ofColor::hotPink, "Barrier (Non-Physical)");
+	drawSeg(minion.ward, ofColor::black, "Ward (All Damage)");
 
-	// --- WARD (Black) ---
-	if (minion.ward > 0) {
-		ofSetColor(ofColor::black);
-		ofDrawRectangle(currentX, barY, statW, barHeight);
-		drawStatText(uiFont, ofToString(minion.ward), currentX, barY, statW, barHeight, ofColor::white);
-		currentX += statW;
+	// --- FORM BARS ---
+	if (minion.inTortoiseForm || minion.inGhostForm) {
+		float formY = barY + barHeight + (2 * scale);
+		float formHeight = 15 * scale;
+
+		if (minion.inTortoiseForm) {
+			int rem = 5 - minion.tortoiseDamageTaken;
+			ofSetColor(20, 40, 20);
+			ofDrawRectangle(x, formY, totalWidth, formHeight);
+			ofSetColor(ofColor::darkGreen);
+			ofDrawRectangle(x, formY, totalWidth * (rem / 5.0f), formHeight);
+			drawStatText(uiFont, "Tortoise: " + ofToString(rem) + "/5", x, formY, totalWidth, formHeight, ofColor::white);
+		} else if (minion.inGhostForm) {
+			int rem = 4 - minion.ghostDamageTaken;
+			ofSetColor(30, 30, 50);
+			ofDrawRectangle(x, formY, totalWidth, formHeight);
+			ofSetColor(150, 150, 255);
+			ofDrawRectangle(x, formY, totalWidth * (rem / 4.0f), formHeight);
+			drawStatText(uiFont, "Ghost: " + ofToString(rem) + "/4", x, formY, totalWidth, formHeight, ofColor::black);
+		}
 	}
 }
 //--------------------------------------------------------------
