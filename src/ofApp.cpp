@@ -2298,523 +2298,158 @@ void ofApp::updateGame() {
 
 			bool anyStillMoving = false;
 
-			// --- PRE-STEP COLLISION RESOLUTION (Two-phase) ---
+			// --- PRE-STEP COLLISION RESOLUTION (Simultaneous Logic) ---
+			// This block runs exactly once at the very start of the visual step (when T is near 0)
 			if (earthquakeT <= speed) {
 				int n = (int)earthquakeUnits.size();
+
+				// 1. Calculate Intentions
+				// We map where everyone WANTS to be at the end of this step.
+				std::vector<glm::ivec2> intendedPos(n);
+				for (int i = 0; i < n; ++i) {
+					if (earthquakeUnits[i].isMoving && earthquakeUnits[i].tilesToMove > 0) {
+						intendedPos[i] = earthquakeUnits[i].startGrid + earthquakeUnits[i].direction;
+					} else {
+						intendedPos[i] = earthquakeUnits[i].startGrid;
+					}
+				}
+
+				// 2. Define and Determine Crashes
 				std::vector<bool> willCrash(n, false);
 
-				// Map target key to list of indices wanting that tile
-				std::unordered_map<int, std::vector<int>> targetMap;
-				auto keyFor = [](const glm::ivec2 & g) { return (g.x << 8) | (g.y & 0xFF); };
-
-				// Phase A: wall/edge checks and populate targetMap
 				for (int i = 0; i < n; ++i) {
-					auto & u = earthquakeUnits[i];
-					if (!u.isMoving || u.tilesToMove <= 0) continue;
-					glm::ivec2 t = u.nextGrid;
-					bool blocked = false;
+					if (!earthquakeUnits[i].isMoving || earthquakeUnits[i].tilesToMove <= 0) continue;
+
+					// A. Wall / Edge Check
+					glm::ivec2 t = intendedPos[i];
 					if (t.x < 0 || t.x >= BOARD_WIDTH || t.y < 0 || t.y >= BOARD_HEIGHT || board[t.x][t.y].hasWall) {
-						blocked = true;
-					} else if (board[t.x][t.y].hasPlayer) {
-						// Any occupied tile is considered blocked for the purposes of
-						// earthquake movement. Movers DO NOT step into tiles even if the
-						// occupant is also moving away this step — they crash and remain
-						// on their original tile.
-						blocked = true;
-					}
-
-					if (blocked) {
 						willCrash[i] = true;
-					} else {
-						targetMap[keyFor(t)].push_back(i);
+						continue;
 					}
-				}
 
-				// Phase B: multiple movers into same tile -> all crash
-				for (const auto & kv : targetMap) {
-					if (kv.second.size() > 1) {
-						// All movers collide into same target: mark crash and apply immediate damage to each mover
-						for (int idx : kv.second) {
-							willCrash[idx] = true;
-							auto & mu = earthquakeUnits[idx];
-							// Spawn a visible 1d4 crash die for this mover (once per step)
-							if (mu.crashDiceLastStep != earthquakeStep) {
-								std::uniform_int_distribution<int> d4dist(1, 4);
-								int dmg = d4dist(rng);
-								int beforeIdx = (int)activeDiceRolls.size();
-								startDiceRoll(1, 4, PURPOSE_EARTHQUAKE_DAMAGE, "");
-								int afterIdx = (int)activeDiceRolls.size();
-								if (afterIdx > beforeIdx) {
-									int newIdx = afterIdx - 1;
-									activeDiceRolls[newIdx].associatedUnit = mu.playerIndex;
-									// Force the visible die to show our roll so the UX matches damage
-									activeDiceRolls[newIdx].result = dmg;
-									// Recompute a reasonable final orientation for the D4 face
-									int visualResult = std::min(4, activeDiceRolls[newIdx].result);
-									glm::vec3 faceVec;
-									float correctionDeg = 0.0f;
-									switch (visualResult) {
-									case 1:
-										faceVec = glm::vec3(0, 1, 0);
-										correctionDeg = 0.0f;
-										break;
-									case 2:
-										faceVec = glm::vec3(-0.471f, -0.333f, -0.816f);
-										correctionDeg = 180.0f;
-										break;
-									case 3:
-										faceVec = glm::vec3(-0.471f, -0.333f, 0.816f);
-										correctionDeg = 0.0f;
-										break;
-									case 4:
-									default:
-										faceVec = glm::vec3(0.943f, -0.333f, 0.0f);
-										correctionDeg = 180.0f;
-										break;
-									}
-									glm::quat align = matchFaceToCamera(faceVec);
-									std::uniform_real_distribution<float> wobbleDist(-25.0f, 25.0f);
-									glm::quat manualRot = glm::angleAxis(glm::radians(correctionDeg), glm::vec3(0, 1, 0));
-									glm::quat wobble = glm::angleAxis(glm::radians(wobbleDist(rng)), glm::vec3(0, 1, 0));
-									activeDiceRolls[newIdx].finalQuat = wobble * manualRot * align;
-
-									mu.crashDiceLastStep = earthquakeStep;
-
-									// Apply physical damage (respect block/barrier/ward)
-									if (mu.playerIndex >= 0 && mu.playerIndex < (int)players.size()) {
-										Player & tgt = players[mu.playerIndex];
-										int finalDmg = dmg;
-										int blockDmg = std::min(tgt.block, finalDmg);
-										tgt.block -= blockDmg;
-										finalDmg -= blockDmg;
-										int barrierDmg = std::min(tgt.barrier, finalDmg);
-										tgt.barrier -= barrierDmg;
-										finalDmg -= barrierDmg;
-										if (finalDmg > 0) {
-											int wardDmg = std::min(tgt.ward, finalDmg);
-											tgt.ward -= wardDmg;
-											finalDmg -= wardDmg;
-										}
-										if (finalDmg > 0) {
-											tgt.health -= finalDmg;
-											spawnFloatingText(mu.visualPos + glm::vec3(0, 0.8f, 0), "-" + ofToString(finalDmg), ofColor::red);
-										} else {
-											spawnFloatingText(mu.visualPos + glm::vec3(0, 0.8f, 0), "Blocked", ofColor::gray);
-										}
-										mu.crashDamageApplied = true;
-										ofLogNotice("Earthquake") << "(Immediate) Player " << mu.playerIndex << " took " << dmg << " quake damage (processed).";
-									}
-								}
-								FloatingText cft;
-								cft.text = "Crash!";
-								cft.worldPos = gridToWorld(mu.startGrid.x, mu.startGrid.y) + glm::vec3(0, 1.5f, 0);
-								cft.velocity = glm::vec3(0, 0.8f, 0);
-								cft.startTime = ofGetElapsedTimef();
-								cft.duration = 0.6f;
-								cft.color = ofColor::red;
-								activeFloatingTexts.push_back(cft);
-							}
-						}
-					}
-				}
-
-				// Phase C: head-on swaps and stationary rear-ends
-				for (int i = 0; i < n; ++i) {
-					auto & u = earthquakeUnits[i];
-					if (!u.isMoving || u.tilesToMove <= 0) continue;
-					glm::ivec2 targ = u.nextGrid;
-
+					// B. Unit-to-Unit Checks
 					for (int j = 0; j < n; ++j) {
 						if (i == j) continue;
-						auto & v = earthquakeUnits[j];
-						// Head-on swap: both immediately roll 1d4 and take damage now
-						if (v.nextGrid == u.startGrid && v.startGrid == u.nextGrid) {
+
+						// Crash Type 1: Merging / Congestion (Same target tile)
+						if (intendedPos[i] == intendedPos[j]) {
 							willCrash[i] = true;
-							willCrash[j] = true;
-
-							// Spawn crash dice for both participants (once per step)
-							if (u.crashDiceLastStep != earthquakeStep) {
-								std::uniform_int_distribution<int> d4dist(1, 4);
-								int dmg = d4dist(rng);
-								int beforeIdx = (int)activeDiceRolls.size();
-								startDiceRoll(1, 4, PURPOSE_EARTHQUAKE_DAMAGE, "");
-								int afterIdx = (int)activeDiceRolls.size();
-								if (afterIdx > beforeIdx) {
-									int newIdx = afterIdx - 1;
-									activeDiceRolls[newIdx].associatedUnit = u.playerIndex;
-									activeDiceRolls[newIdx].result = dmg;
-									// Recompute finalQuat for the d4 so the face matches
-									int visualResult = std::min(4, activeDiceRolls[newIdx].result);
-									glm::vec3 faceVec;
-									float correctionDeg = 0.0f;
-									switch (visualResult) {
-									case 1:
-										faceVec = glm::vec3(0, 1, 0);
-										correctionDeg = 0.0f;
-										break;
-									case 2:
-										faceVec = glm::vec3(-0.471f, -0.333f, -0.816f);
-										correctionDeg = 180.0f;
-										break;
-									case 3:
-										faceVec = glm::vec3(-0.471f, -0.333f, 0.816f);
-										correctionDeg = 0.0f;
-										break;
-									case 4:
-									default:
-										faceVec = glm::vec3(0.943f, -0.333f, 0.0f);
-										correctionDeg = 180.0f;
-										break;
-									}
-									glm::quat align = matchFaceToCamera(faceVec);
-									std::uniform_real_distribution<float> wobbleDist(-25.0f, 25.0f);
-									glm::quat manualRot = glm::angleAxis(glm::radians(correctionDeg), glm::vec3(0, 1, 0));
-									glm::quat wobble = glm::angleAxis(glm::radians(wobbleDist(rng)), glm::vec3(0, 1, 0));
-									activeDiceRolls[newIdx].finalQuat = wobble * manualRot * align;
-
-									u.crashDiceLastStep = earthquakeStep;
-
-									// Apply physical damage
-									if (u.playerIndex >= 0 && u.playerIndex < (int)players.size()) {
-										Player & tgt = players[u.playerIndex];
-										int finalDmg = dmg;
-										int blockDmg = std::min(tgt.block, finalDmg);
-										tgt.block -= blockDmg;
-										finalDmg -= blockDmg;
-										int barrierDmg = std::min(tgt.barrier, finalDmg);
-										tgt.barrier -= barrierDmg;
-										finalDmg -= barrierDmg;
-										if (finalDmg > 0) {
-											int wardDmg = std::min(tgt.ward, finalDmg);
-											tgt.ward -= wardDmg;
-											finalDmg -= wardDmg;
-										}
-										if (finalDmg > 0) {
-											tgt.health -= finalDmg;
-											spawnFloatingText(u.visualPos + glm::vec3(0, 0.8f, 0), "-" + ofToString(finalDmg), ofColor::red);
-										} else {
-											spawnFloatingText(u.visualPos + glm::vec3(0, 0.8f, 0), "Blocked", ofColor::gray);
-										}
-										u.crashDamageApplied = true;
-										ofLogNotice("Earthquake") << "(Immediate) Player " << u.playerIndex << " took " << dmg << " quake damage (processed).";
-									}
-								}
-								FloatingText cftu;
-								cftu.text = "Crash!";
-								cftu.worldPos = gridToWorld(u.startGrid.x, u.startGrid.y) + glm::vec3(0, 1.5f, 0);
-								cftu.velocity = glm::vec3(0, 0.8f, 0);
-								cftu.startTime = ofGetElapsedTimef();
-								cftu.duration = 0.6f;
-								cftu.color = ofColor::red;
-								activeFloatingTexts.push_back(cftu);
-							}
-							if (v.crashDiceLastStep != earthquakeStep) {
-								std::uniform_int_distribution<int> d4dist(1, 4);
-								int dmg = d4dist(rng);
-								int beforeIdx = (int)activeDiceRolls.size();
-								startDiceRoll(1, 4, PURPOSE_EARTHQUAKE_DAMAGE, "");
-								int afterIdx = (int)activeDiceRolls.size();
-								if (afterIdx > beforeIdx) {
-									int newIdx = afterIdx - 1;
-									activeDiceRolls[newIdx].associatedUnit = v.playerIndex;
-									activeDiceRolls[newIdx].result = dmg;
-									int visualResult = std::min(4, activeDiceRolls[newIdx].result);
-									glm::vec3 faceVec;
-									float correctionDeg = 0.0f;
-									switch (visualResult) {
-									case 1:
-										faceVec = glm::vec3(0, 1, 0);
-										correctionDeg = 0.0f;
-										break;
-									case 2:
-										faceVec = glm::vec3(-0.471f, -0.333f, -0.816f);
-										correctionDeg = 180.0f;
-										break;
-									case 3:
-										faceVec = glm::vec3(-0.471f, -0.333f, 0.816f);
-										correctionDeg = 0.0f;
-										break;
-									case 4:
-									default:
-										faceVec = glm::vec3(0.943f, -0.333f, 0.0f);
-										correctionDeg = 180.0f;
-										break;
-									}
-									glm::quat align = matchFaceToCamera(faceVec);
-									std::uniform_real_distribution<float> wobbleDist(-25.0f, 25.0f);
-									glm::quat manualRot = glm::angleAxis(glm::radians(correctionDeg), glm::vec3(0, 1, 0));
-									glm::quat wobble = glm::angleAxis(glm::radians(wobbleDist(rng)), glm::vec3(0, 1, 0));
-									activeDiceRolls[newIdx].finalQuat = wobble * manualRot * align;
-									v.crashDiceLastStep = earthquakeStep;
-									// Apply physical damage
-									if (v.playerIndex >= 0 && v.playerIndex < (int)players.size()) {
-										Player & tgt = players[v.playerIndex];
-										int finalDmg = dmg;
-										int blockDmg = std::min(tgt.block, finalDmg);
-										tgt.block -= blockDmg;
-										finalDmg -= blockDmg;
-										int barrierDmg = std::min(tgt.barrier, finalDmg);
-										tgt.barrier -= barrierDmg;
-										finalDmg -= barrierDmg;
-										if (finalDmg > 0) {
-											int wardDmg = std::min(tgt.ward, finalDmg);
-											tgt.ward -= wardDmg;
-											finalDmg -= wardDmg;
-										}
-										if (finalDmg > 0) {
-											tgt.health -= finalDmg;
-											spawnFloatingText(v.visualPos + glm::vec3(0, 0.8f, 0), "-" + ofToString(finalDmg), ofColor::red);
-										} else {
-											spawnFloatingText(v.visualPos + glm::vec3(0, 0.8f, 0), "Blocked", ofColor::gray);
-										}
-										v.crashDamageApplied = true;
-										ofLogNotice("Earthquake") << "(Immediate) Player " << v.playerIndex << " took " << dmg << " quake damage (processed).";
-									}
-								}
-								FloatingText cftv;
-								cftv.text = "Crash!";
-								cftv.worldPos = gridToWorld(v.startGrid.x, v.startGrid.y) + glm::vec3(0, 1.5f, 0);
-								cftv.velocity = glm::vec3(0, 0.8f, 0);
-								cftv.startTime = ofGetElapsedTimef();
-								cftv.duration = 0.6f;
-								cftv.color = ofColor::red;
-								activeFloatingTexts.push_back(cftv);
-							}
 						}
-						// Rear-end: target occupied by stationary unit -> both take immediate damage
-						if (!v.isMoving && v.startGrid == targ) {
+
+						// Crash Type 2: Rear-Ending
+						// Moving into a tile occupied by a unit that is NOT moving out of it.
+						if (intendedPos[i] == earthquakeUnits[j].startGrid && !earthquakeUnits[j].isMoving) {
 							willCrash[i] = true;
-							// Moving unit: spawn crash die once per step
-							if (u.crashDiceLastStep != earthquakeStep) {
-								std::uniform_int_distribution<int> d4dist(1, 4);
-								int dmg = d4dist(rng);
-								int beforeIdx = (int)activeDiceRolls.size();
-								startDiceRoll(1, 4, PURPOSE_EARTHQUAKE_DAMAGE, "");
-								int afterIdx = (int)activeDiceRolls.size();
-								if (afterIdx > beforeIdx) {
-									int newIdx = afterIdx - 1;
-									activeDiceRolls[newIdx].associatedUnit = u.playerIndex;
-									activeDiceRolls[newIdx].result = dmg;
-									int visualResult = std::min(4, activeDiceRolls[newIdx].result);
-									glm::vec3 faceVec;
-									float correctionDeg = 0.0f;
-									switch (visualResult) {
-									case 1:
-										faceVec = glm::vec3(0, 1, 0);
-										correctionDeg = 0.0f;
-										break;
-									case 2:
-										faceVec = glm::vec3(-0.471f, -0.333f, -0.816f);
-										correctionDeg = 180.0f;
-										break;
-									case 3:
-										faceVec = glm::vec3(-0.471f, -0.333f, 0.816f);
-										correctionDeg = 0.0f;
-										break;
-									case 4:
-									default:
-										faceVec = glm::vec3(0.943f, -0.333f, 0.0f);
-										correctionDeg = 180.0f;
-										break;
-									}
-									glm::quat align = matchFaceToCamera(faceVec);
-									std::uniform_real_distribution<float> wobbleDist(-25.0f, 25.0f);
-									glm::quat manualRot = glm::angleAxis(glm::radians(correctionDeg), glm::vec3(0, 1, 0));
-									glm::quat wobble = glm::angleAxis(glm::radians(wobbleDist(rng)), glm::vec3(0, 1, 0));
-									activeDiceRolls[newIdx].finalQuat = wobble * manualRot * align;
+						}
 
-									u.crashDiceLastStep = earthquakeStep;
-
-									// Apply physical damage
-									if (u.playerIndex >= 0 && u.playerIndex < (int)players.size()) {
-										Player & tgt = players[u.playerIndex];
-										int finalDmg = dmg;
-										int blockDmg = std::min(tgt.block, finalDmg);
-										tgt.block -= blockDmg;
-										finalDmg -= blockDmg;
-										int barrierDmg = std::min(tgt.barrier, finalDmg);
-										tgt.barrier -= barrierDmg;
-										finalDmg -= barrierDmg;
-										if (finalDmg > 0) {
-											int wardDmg = std::min(tgt.ward, finalDmg);
-											tgt.ward -= wardDmg;
-											finalDmg -= wardDmg;
-										}
-										if (finalDmg > 0) {
-											tgt.health -= finalDmg;
-											spawnFloatingText(u.visualPos + glm::vec3(0, 0.8f, 0), "-" + ofToString(finalDmg), ofColor::red);
-										} else {
-											spawnFloatingText(u.visualPos + glm::vec3(0, 0.8f, 0), "Blocked", ofColor::gray);
-										}
-										u.crashDamageApplied = true;
-										ofLogNotice("Earthquake") << "(Immediate) Player " << u.playerIndex << " took " << dmg << " quake damage (processed).";
-									}
-								}
-								FloatingText cftu;
-								cftu.text = "Crash!";
-								cftu.worldPos = gridToWorld(u.startGrid.x, u.startGrid.y) + glm::vec3(0, 1.5f, 0);
-								cftu.velocity = glm::vec3(0, 0.8f, 0);
-								cftu.startTime = ofGetElapsedTimef();
-								cftu.duration = 0.6f;
-								cftu.color = ofColor::red;
-								activeFloatingTexts.push_back(cftu);
-							}
-							// Stationary unit: spawn crash die once per step
-							if (v.crashDiceLastStep != earthquakeStep) {
-								std::uniform_int_distribution<int> d4dist(1, 4);
-								int dmg = d4dist(rng);
-								int beforeIdx = (int)activeDiceRolls.size();
-								startDiceRoll(1, 4, PURPOSE_EARTHQUAKE_DAMAGE, "");
-								int afterIdx = (int)activeDiceRolls.size();
-								if (afterIdx > beforeIdx) {
-									int newIdx = afterIdx - 1;
-									activeDiceRolls[newIdx].associatedUnit = v.playerIndex;
-									activeDiceRolls[newIdx].result = dmg;
-									int visualResult = std::min(4, activeDiceRolls[newIdx].result);
-									glm::vec3 faceVec;
-									float correctionDeg = 0.0f;
-									switch (visualResult) {
-									case 1:
-										faceVec = glm::vec3(0, 1, 0);
-										correctionDeg = 0.0f;
-										break;
-									case 2:
-										faceVec = glm::vec3(-0.471f, -0.333f, -0.816f);
-										correctionDeg = 180.0f;
-										break;
-									case 3:
-										faceVec = glm::vec3(-0.471f, -0.333f, 0.816f);
-										correctionDeg = 0.0f;
-										break;
-									case 4:
-									default:
-										faceVec = glm::vec3(0.943f, -0.333f, 0.0f);
-										correctionDeg = 180.0f;
-										break;
-									}
-									glm::quat align = matchFaceToCamera(faceVec);
-									std::uniform_real_distribution<float> wobbleDist(-25.0f, 25.0f);
-									glm::quat manualRot = glm::angleAxis(glm::radians(correctionDeg), glm::vec3(0, 1, 0));
-									glm::quat wobble = glm::angleAxis(glm::radians(wobbleDist(rng)), glm::vec3(0, 1, 0));
-									activeDiceRolls[newIdx].finalQuat = wobble * manualRot * align;
-									v.crashDiceLastStep = earthquakeStep;
-									// Apply physical damage
-									if (v.playerIndex >= 0 && v.playerIndex < (int)players.size()) {
-										Player & tgt = players[v.playerIndex];
-										int finalDmg = dmg;
-										int blockDmg = std::min(tgt.block, finalDmg);
-										tgt.block -= blockDmg;
-										finalDmg -= blockDmg;
-										int barrierDmg = std::min(tgt.barrier, finalDmg);
-										tgt.barrier -= barrierDmg;
-										finalDmg -= barrierDmg;
-										if (finalDmg > 0) {
-											int wardDmg = std::min(tgt.ward, finalDmg);
-											tgt.ward -= wardDmg;
-											finalDmg -= wardDmg;
-										}
-										if (finalDmg > 0) {
-											tgt.health -= finalDmg;
-											spawnFloatingText(v.visualPos + glm::vec3(0, 0.8f, 0), "-" + ofToString(finalDmg), ofColor::red);
-										} else {
-											spawnFloatingText(v.visualPos + glm::vec3(0, 0.8f, 0), "Blocked", ofColor::gray);
-										}
-										v.crashDamageApplied = true;
-										ofLogNotice("Earthquake") << "(Immediate) Player " << v.playerIndex << " took " << dmg << " quake damage (processed).";
-									}
-								}
-								FloatingText cftv;
-								cftv.text = "Crash!";
-								cftv.worldPos = gridToWorld(v.startGrid.x, v.startGrid.y) + glm::vec3(0, 1.5f, 0);
-								cftv.velocity = glm::vec3(0, 0.8f, 0);
-								cftv.startTime = ofGetElapsedTimef();
-								cftv.duration = 0.6f;
-								cftv.color = ofColor::red;
-								activeFloatingTexts.push_back(cftv);
-							}
+						// Crash Type 3: Head-On Collision (Swapping places)
+						if (intendedPos[i] == earthquakeUnits[j].startGrid && intendedPos[j] == earthquakeUnits[i].startGrid) {
+							willCrash[i] = true;
 						}
 					}
 				}
 
-				// Phase D: spawn crash dice for moving units that will crash
+				// 3. Process Crashes (Apply Damage & Stop Movement)
 				for (int i = 0; i < n; ++i) {
 					if (willCrash[i] && !earthquakeUnits[i].crashed) {
-						// If the unit was mid-move, decide whether they can occupy the target tile.
-						glm::ivec2 oldStart = earthquakeUnits[i].startGrid;
-						glm::ivec2 target = earthquakeUnits[i].nextGrid;
-
-						// For any crash (wall, edge, or collision with another mover),
-						// the unit remains on its original tile (oldStart). Do NOT move
-						// them into the target tile.
-						if (oldStart.x >= 0 && oldStart.x < BOARD_WIDTH && oldStart.y >= 0 && oldStart.y < BOARD_HEIGHT) {
-							board[oldStart.x][oldStart.y].hasPlayer = true;
-						}
-						earthquakeUnits[i].startGrid = oldStart;
-						int pid = earthquakeUnits[i].playerIndex;
-						if (pid >= 0 && pid < (int)players.size()) {
-							players[pid].x = oldStart.x;
-							players[pid].y = oldStart.y;
-						}
-
-						// Ensure the crash spawns a 1d4 damage roll if not already spawned this step
-						if (earthquakeUnits[i].crashDiceLastStep != earthquakeStep) {
-							int beforeIdx = (int)activeDiceRolls.size();
-							startDiceRoll(1, 4, PURPOSE_EARTHQUAKE_DAMAGE, "");
-							int afterIdx = (int)activeDiceRolls.size();
-							if (afterIdx > beforeIdx) {
-								int newIdx = afterIdx - 1;
-								activeDiceRolls[newIdx].associatedUnit = earthquakeUnits[i].playerIndex;
-							}
-							earthquakeUnits[i].crashDiceLastStep = earthquakeStep;
-						}
-
+						// Mark as crashed
 						earthquakeUnits[i].crashed = true;
-						earthquakeUnits[i].tilesToMove = 0;
-						// Immediately cancel further movement for this unit
 						earthquakeUnits[i].isMoving = false;
-						// If the crashing unit is the currently selected/active player,
-						// clear the selection so UI highlights are removed
-						if (earthquakeUnits[i].playerIndex >= 0 && earthquakeUnits[i].playerIndex == currentPlayerIndex) {
+						earthquakeUnits[i].tilesToMove = 0;
+
+						// IMPORTANT: The unit stays at startGrid.
+						// We reset nextGrid to startGrid so interpolation bounces back/stays put.
+						earthquakeUnits[i].nextGrid = earthquakeUnits[i].startGrid;
+
+						// Clear UI selection if this was the active player
+						if (earthquakeUnits[i].playerIndex == currentPlayerIndex) {
 							playerAction = NONE;
 							selectedPieceGridX = -1;
 							selectedPieceGridY = -1;
 							hoverPath.clear();
 						}
 
-						// Show Crash! (damage for unit-unit crashes applied immediately earlier)
-						earthquakeUnits[i].crashDiceLastStep = earthquakeStep;
-						FloatingText cft;
-						cft.text = "Crash!";
-						cft.worldPos = gridToWorld(earthquakeUnits[i].startGrid.x, earthquakeUnits[i].startGrid.y) + glm::vec3(0, 1.5f, 0);
-						cft.velocity = glm::vec3(0, 0.8f, 0);
-						cft.startTime = ofGetElapsedTimef();
-						cft.duration = 0.6f;
-						cft.color = ofColor::red;
-						activeFloatingTexts.push_back(cft);
+						// Spawn Damage Dice (Once per crash step)
+						if (earthquakeUnits[i].crashDiceLastStep != earthquakeStep) {
+							earthquakeUnits[i].crashDiceLastStep = earthquakeStep;
+
+							// Spawn 1d4 Damage Roll
+							int beforeIdx = (int)activeDiceRolls.size();
+							startDiceRoll(1, 4, PURPOSE_EARTHQUAKE_DAMAGE, "");
+							int afterIdx = (int)activeDiceRolls.size();
+
+							// Link die to unit
+							if (afterIdx > beforeIdx) {
+								int newIdx = afterIdx - 1;
+								activeDiceRolls[newIdx].associatedUnit = earthquakeUnits[i].playerIndex;
+
+								// Force visual D4 orientation (Cosmetic)
+								int visualResult = std::min(4, activeDiceRolls[newIdx].result);
+								glm::vec3 faceVec = glm::vec3(0, 1, 0);
+								float correctionDeg = 0.0f;
+								if (visualResult == 2) {
+									faceVec = glm::vec3(-0.471f, -0.333f, -0.816f);
+									correctionDeg = 180.0f;
+								} else if (visualResult == 3) {
+									faceVec = glm::vec3(-0.471f, -0.333f, 0.816f);
+									correctionDeg = 0.0f;
+								} else if (visualResult == 4) {
+									faceVec = glm::vec3(0.943f, -0.333f, 0.0f);
+									correctionDeg = 180.0f;
+								}
+
+								glm::quat align = matchFaceToCamera(faceVec);
+								std::uniform_real_distribution<float> wobbleDist(-25.0f, 25.0f);
+								glm::quat manualRot = glm::angleAxis(glm::radians(correctionDeg), glm::vec3(0, 1, 0));
+								glm::quat wobble = glm::angleAxis(glm::radians(wobbleDist(rng)), glm::vec3(0, 1, 0));
+								activeDiceRolls[newIdx].finalQuat = wobble * manualRot * align;
+							}
+
+							// Visual Text "Crash!"
+							FloatingText cft;
+							cft.text = "Crash!";
+							cft.worldPos = gridToWorld(earthquakeUnits[i].startGrid.x, earthquakeUnits[i].startGrid.y) + glm::vec3(0, 1.5f, 0);
+							cft.velocity = glm::vec3(0, 0.8f, 0);
+							cft.startTime = ofGetElapsedTimef();
+							cft.duration = 0.6f;
+							cft.color = ofColor::red;
+							activeFloatingTexts.push_back(cft);
+						}
 					}
 				}
 			}
 
-			// Update Visuals
+			// Update Visuals (Lerp)
 			for (auto & unit : earthquakeUnits) {
-				if (!unit.isMoving || unit.tilesToMove <= 0) {
-					unit.isMoving = false;
-					continue;
+				if (!unit.isMoving && unit.tilesToMove <= 0 && !unit.crashed) {
+					continue; // Already processed as stopped
 				}
 
 				anyStillMoving = true;
 
-				// --- LERP ---
 				glm::vec3 pStart = gridToWorld(unit.startGrid.x, unit.startGrid.y);
 				glm::vec3 pEnd = gridToWorld(unit.nextGrid.x, unit.nextGrid.y);
 
 				if (unit.crashed) {
-					// Bounce animation: Go halfway then return
+					// Bounce animation: Go halfway to wall then return
 					float t = earthquakeT;
 					if (t < 0.5f)
-						unit.visualPos = glm::mix(pStart, pEnd, t); // To wall
+						unit.visualPos = glm::mix(pStart, pEnd, t); // To wall (halfway since nextGrid==startGrid is handled above? No, logic above sets next=start)
+					// Actually, for a bounce, we need to fake pEnd slightly towards the obstacle.
+					// But for simplicity, if nextGrid == startGrid, mix returns pStart.
+					// To see a bounce, we can add a small offset based on direction:
 					else
-						unit.visualPos = glm::mix(pEnd, pStart, t); // Back
+						unit.visualPos = pStart; // Reset
+
+					// Slight visual nudge for bounce impact
+					if (t < 0.5f) {
+						glm::vec3 dir3 = glm::vec3(unit.direction.x, 0, unit.direction.y);
+						unit.visualPos = pStart + dir3 * (t * 0.5f * TILE_SIZE);
+					} else {
+						glm::vec3 dir3 = glm::vec3(unit.direction.x, 0, unit.direction.y);
+						unit.visualPos = pStart + dir3 * ((1.0f - t) * 0.5f * TILE_SIZE);
+					}
+
 				} else {
 					// Normal move
 					unit.visualPos = glm::mix(pStart, pEnd, earthquakeT);
@@ -2824,39 +2459,35 @@ void ofApp::updateGame() {
 			// --- END OF STEP ---
 			if (earthquakeT >= 1.0f) {
 				earthquakeT = 0.0f;
-				earthquakeStep++; // advance step counter so per-step crash dice gating works
+				earthquakeStep++; // advance step counter
 				bool roundComplete = true;
 
 				for (auto & unit : earthquakeUnits) {
-					if (!unit.isMoving || unit.tilesToMove <= 0) {
-						unit.isMoving = false;
-						continue;
-					}
-
 					if (unit.crashed) {
-						// Stop them here
 						unit.isMoving = false;
 						unit.tilesToMove = 0;
-						// Damage is applied by the associated crash dice when it resolves
-					} else {
-						// Successful move
-						// Update board occupancy: clear old, set new
+					} else if (unit.isMoving) {
+						// Successful move: Update Grid Logic
 						int oldX = unit.startGrid.x;
 						int oldY = unit.startGrid.y;
 						int newX = unit.nextGrid.x;
 						int newY = unit.nextGrid.y;
+
+						// Update global board occupancy
 						if (oldX >= 0 && oldX < BOARD_WIDTH && oldY >= 0 && oldY < BOARD_HEIGHT) board[oldX][oldY].hasPlayer = false;
 						if (newX >= 0 && newX < BOARD_WIDTH && newY >= 0 && newY < BOARD_HEIGHT) board[newX][newY].hasPlayer = true;
 
+						// Shift Grid
 						unit.startGrid = unit.nextGrid;
 						unit.nextGrid = unit.startGrid + unit.direction;
 						unit.tilesToMove--;
 
 						// Update actual player data
-						players[unit.playerIndex].x = unit.startGrid.x;
-						players[unit.playerIndex].y = unit.startGrid.y;
+						if (unit.playerIndex >= 0 && unit.playerIndex < (int)players.size()) {
+							players[unit.playerIndex].x = unit.startGrid.x;
+							players[unit.playerIndex].y = unit.startGrid.y;
+						}
 
-						// Continue if they have moves left
 						if (unit.tilesToMove > 0) {
 							roundComplete = false;
 						} else {
@@ -2865,59 +2496,47 @@ void ofApp::updateGame() {
 					}
 				}
 
-				// If everyone is stopped or out of moves, end earthquake
+				// If everyone is stopped, end earthquake
 				if (roundComplete) {
 					isEarthquakeActive = false;
 
-					// 1) Clear board occupancy
+					// Rebuild board occupancy strictly from final positions
 					for (int bx = 0; bx < BOARD_WIDTH; ++bx) {
 						for (int by = 0; by < BOARD_HEIGHT; ++by)
 							board[bx][by].hasPlayer = false;
 					}
 
-					// 2) Place players onto the board according to their existing logical positions.
 					for (size_t pi = 0; pi < players.size(); ++pi) {
-						// Clamp positions to board bounds
 						players[pi].x = std::max(0, std::min(BOARD_WIDTH - 1, players[pi].x));
 						players[pi].y = std::max(0, std::min(BOARD_HEIGHT - 1, players[pi].y));
-
-						// Mark occupancy
 						board[players[pi].x][players[pi].y].hasPlayer = true;
 					}
 
-					// --- FIX START: Sync Active Player Visuals ---
+					// --- SYNC FIX: Update Visual Pos to prevent teleporting ---
 					if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) {
-						// Force the visual position to match the final grid destination immediately.
-						// This prevents the unit from snapping back to where they started.
 						playerVisualPos = gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y);
 					}
-					// --- FIX END ---
 
-					// Cancel any ongoing player animation path
+					// Cleanup
 					animationPath.clear();
 					currentPathIndex = 0;
 					isPlayerAnimating = false;
-
 					earthquakeUnits.clear();
 					invalidateTargetCache();
 				}
 			}
+
 			// Override global playerVisualPos for the active player so camera follows smoothly
 			if (currentPlayerIndex >= 0) {
-				// Find the earthquake state for current player
 				for (auto & u : earthquakeUnits) {
-					if (u.playerIndex == players[currentPlayerIndex].playerID) {
-						// Note: This assumes playerID matches index, safer to loop
-						// Actually, we stored `playerIndex` directly in the struct:
-						if (u.playerIndex == currentPlayerIndex) {
-							playerVisualPos = u.visualPos;
-						}
+					if (u.playerIndex == currentPlayerIndex) {
+						playerVisualPos = u.visualPos;
+						break;
 					}
 				}
 			}
 
-			// While animating earthquake steps we still want crash dice to resolve
-			// so spawn/rolls for PURPOSE_EARTHQUAKE_DAMAGE are processed immediately.
+			// Apply Damage from Dice (Animation Sync)
 			for (auto it = activeDiceRolls.begin(); it != activeDiceRolls.end();) {
 				DiceRoll & roll = *it;
 				float elapsedTime = ofGetElapsedTimef() - roll.startTime;
@@ -2927,20 +2546,34 @@ void ofApp::updateGame() {
 					if (roll.purpose == PURPOSE_EARTHQUAKE_DAMAGE) {
 						int uidx = roll.associatedUnit;
 						if (uidx >= 0 && uidx < (int)players.size()) {
-							players[uidx].health -= roll.result;
-							glm::vec3 textPos = gridToWorld(players[uidx].x, players[uidx].y);
-							for (const auto & eu : earthquakeUnits) {
-								if (eu.playerIndex == uidx) {
-									textPos = eu.visualPos;
+							// Only apply if not already applied (prevents double damage issues)
+							bool alreadyApplied = false;
+							for (auto & eu : earthquakeUnits) {
+								if (eu.playerIndex == uidx && eu.crashDamageApplied) {
+									alreadyApplied = true;
 									break;
 								}
 							}
-							spawnFloatingText(textPos + glm::vec3(0, 0.8f, 0), "-" + ofToString(roll.result), ofColor::red);
-							ofLogNotice("Earthquake") << "Player " << uidx << " took " << roll.result << " quake damage.";
+
+							if (!alreadyApplied) {
+								players[uidx].health -= roll.result;
+
+								// Find visual position for text
+								glm::vec3 textPos = gridToWorld(players[uidx].x, players[uidx].y);
+								for (auto & eu : earthquakeUnits) {
+									if (eu.playerIndex == uidx) {
+										textPos = eu.visualPos;
+										eu.crashDamageApplied = true; // Mark as done
+										break;
+									}
+								}
+								spawnFloatingText(textPos + glm::vec3(0, 0.8f, 0), "-" + ofToString(roll.result), ofColor::red);
+								ofLogNotice("Earthquake") << "Player " << uidx << " took " << roll.result << " quake damage.";
+							}
 						}
-						// Remove earthquake damage dice immediately after applying to avoid lingering dice visuals
+						// Remove immediately
 						it = activeDiceRolls.erase(it);
-						continue; // Continue loop with updated iterator
+						continue;
 					}
 				}
 				++it;
