@@ -1304,7 +1304,6 @@ void ofApp::updateGame() {
 				if (pendingAttackDamageType == DAMAGE_PIERCING && i > 0) appliedDamage /= 2;
 
 				// --- GHOST FORM CHECK ---
-				// FIXED: target is a pointer, use ->
 				if (target->inGhostForm) {
 					if (pendingAttackDamageType == DAMAGE_PHYSICAL || pendingAttackDamageType == DAMAGE_PIERCING) {
 						appliedDamage = 0;
@@ -1317,20 +1316,41 @@ void ofApp::updateGame() {
 				}
 				// ------------------------
 
-				// Ward
-				int wardDmg = std::min(target->ward, appliedDamage);
-				target->ward -= wardDmg;
-				appliedDamage -= wardDmg;
+				// --- MITIGATION (Specific Order) ---
 
-				// Block / Barrier
+				// 1. Holy Block
+				if (pendingAttackDamageType == DAMAGE_HOLY) {
+					int absorb = std::min(target->holyBlock, appliedDamage);
+					target->holyBlock -= absorb;
+					appliedDamage -= absorb;
+				}
+
+				// 2. Block
 				if (pendingAttackDamageType == DAMAGE_PHYSICAL) {
-					int blockDmg = std::min(target->block, appliedDamage);
-					target->block -= blockDmg;
-					appliedDamage -= blockDmg;
-				} else if (pendingAttackDamageType != DAMAGE_PIERCING) {
-					int barrierDmg = std::min(target->barrier, appliedDamage);
-					target->barrier -= barrierDmg;
-					appliedDamage -= barrierDmg;
+					int absorb = std::min(target->block, appliedDamage);
+					target->block -= absorb;
+					appliedDamage -= absorb;
+				}
+
+				// 3. Fortification
+				if (pendingAttackDamageType == DAMAGE_PHYSICAL || pendingAttackDamageType == DAMAGE_PIERCING) {
+					int absorb = std::min(target->fortification, appliedDamage);
+					target->fortification -= absorb;
+					appliedDamage -= absorb;
+				}
+
+				// 4. Barrier
+				if (pendingAttackDamageType != DAMAGE_PHYSICAL) {
+					int absorb = std::min(target->barrier, appliedDamage);
+					target->barrier -= absorb;
+					appliedDamage -= absorb;
+				}
+
+				// 5. Ward
+				if (appliedDamage > 0) {
+					int absorb = std::min(target->ward, appliedDamage);
+					target->ward -= absorb;
+					appliedDamage -= absorb;
 				}
 
 				// Apply & Text
@@ -1345,7 +1365,6 @@ void ofApp::updateGame() {
 						if (target->ghostDamageTaken >= 4) {
 							target->inGhostForm = false;
 							target->ghostDamageTaken = 0;
-							// FIXED: Use -> to access member
 							target->discardPile.push_back(target->ghostFormCard);
 							spawnFloatingText(tPos + glm::vec3(0, 0.5f, 0), "Ghost Form Broken!", ofColor::white);
 
@@ -1355,6 +1374,18 @@ void ofApp::updateGame() {
 							}
 						}
 					}
+
+					// Tortoise Break Logic (was missing in this block before)
+					if (target->inTortoiseForm) {
+						target->tortoiseDamageTaken += appliedDamage;
+						if (target->tortoiseDamageTaken >= 5) {
+							target->inTortoiseForm = false;
+							target->tortoiseDamageTaken = 0;
+							target->discardPile.push_back(target->tortoiseFormCard);
+							spawnFloatingText(tPos + glm::vec3(0, 0.5f, 0), "Form Ended!", ofColor::darkGreen);
+						}
+					}
+
 				} else {
 					// Only show "Blocked" if they weren't phased
 					if (!target->inGhostForm || appliedDamage > 0) {
@@ -1391,6 +1422,28 @@ void ofApp::updateGame() {
 				glm::vec3 tPos = gridToWorld(target->x, target->y);
 				spawnFloatingText(tPos, "-" + ofToString(poisonDamage) + " Poison", ofColor::green);
 				ofLogNotice("Poison") << "Dealt " << poisonDamage << " poison damage to Player " << target->playerID;
+
+				// Add Form break checks here too for completeness?
+				// Yes, poison breaks forms.
+				if (target->inTortoiseForm) {
+					target->tortoiseDamageTaken += poisonDamage;
+					if (target->tortoiseDamageTaken >= 5) {
+						target->inTortoiseForm = false;
+						target->tortoiseDamageTaken = 0;
+						target->discardPile.push_back(target->tortoiseFormCard);
+						spawnFloatingText(tPos + glm::vec3(0, 0.5f, 0), "Form Ended!", ofColor::darkGreen);
+					}
+				}
+				if (target->inGhostForm) {
+					target->ghostDamageTaken += poisonDamage;
+					if (target->ghostDamageTaken >= 4) {
+						target->inGhostForm = false;
+						target->ghostDamageTaken = 0;
+						target->discardPile.push_back(target->ghostFormCard);
+						spawnFloatingText(tPos + glm::vec3(0, 0.5f, 0), "Ghost Form Broken!", ofColor::white);
+						if (board[target->x][target->y].hasWall) target->health = 0;
+					}
+				}
 			}
 		}
 		pendingPoisonTargetIndices.clear();
@@ -2785,57 +2838,97 @@ void ofApp::updateGame() {
 		int rollResult = pendingOnFireRollResult;
 		Player & burningPlayer = players[currentPlayerIndex];
 
+		// Apply Damage
 		burningPlayer.health -= rollResult;
+		spawnFloatingText(gridToWorld(burningPlayer.x, burningPlayer.y), "-" + ofToString(rollResult) + " Fire", ofColor::red);
 
-		// CHANGE: Red Text + " Fire"
-		spawnFloatingText(gridToWorld(burningPlayer.x, burningPlayer.y),
-			"-" + ofToString(rollResult) + " Fire",
-			ofColor::red);
+		// --- FORM TRACKING (TORTOISE/GHOST) ---
+		if (burningPlayer.inTortoiseForm) {
+			burningPlayer.tortoiseDamageTaken += rollResult;
+			if (burningPlayer.tortoiseDamageTaken >= 5) {
+				burningPlayer.inTortoiseForm = false;
+				burningPlayer.tortoiseDamageTaken = 0;
+				burningPlayer.discardPile.push_back(burningPlayer.tortoiseFormCard);
+				spawnFloatingText(gridToWorld(burningPlayer.x, burningPlayer.y) + glm::vec3(0, 0.5f, 0), "Form Ended!", ofColor::darkGreen);
+			}
+		}
+		if (burningPlayer.inGhostForm) {
+			burningPlayer.ghostDamageTaken += rollResult;
+			if (burningPlayer.ghostDamageTaken >= 4) {
+				burningPlayer.inGhostForm = false;
+				burningPlayer.ghostDamageTaken = 0;
+				burningPlayer.discardPile.push_back(burningPlayer.ghostFormCard);
+				spawnFloatingText(gridToWorld(burningPlayer.x, burningPlayer.y) + glm::vec3(0, 0.5f, 0), "Ghost Form Broken!", ofColor::white);
+
+				if (board[burningPlayer.x][burningPlayer.y].hasWall) {
+					burningPlayer.health = 0;
+					spawnFloatingText(gridToWorld(burningPlayer.x, burningPlayer.y) + glm::vec3(0, 1.0f, 0), "Materialized in Wall!", ofColor::red);
+				}
+			}
+		}
+		// --------------------------------------
 
 		if (rollResult == 1 || rollResult == 2) {
 			burningPlayer.onFire = false;
 			spawnFloatingText(gridToWorld(burningPlayer.x, burningPlayer.y) + glm::vec3(0, 0.8f, 0), "Extinguished", ofColor::white);
 		}
+
 		// CHECK SLEEP AFTER FIRE
-		Player & p = players[currentPlayerIndex];
-		if (p.sleepTurnsRemaining > 0) {
-			startNewTurn(); // Skip turn because sleeping
+		if (burningPlayer.sleepTurnsRemaining > 0) {
+			startNewTurn();
 			return;
 		}
 
 		continueNewTurn();
 		return;
 	}
-
 	// --- Poison Status Logic ---
 	if (isWaitingForPoisonDice && activeDiceRolls.empty()) {
 		isWaitingForPoisonDice = false;
 		int rollResult = pendingPoisonRollResult;
 		Player & poisonedPlayer = players[currentPlayerIndex];
 
-		// Calculate actual damage: 1d6 - poisonReduction (minimum 0)
 		int actualDamage = std::max(0, rollResult - poisonedPlayer.poisonReduction);
 
 		if (actualDamage > 0) {
 			poisonedPlayer.health -= actualDamage;
-			spawnFloatingText(gridToWorld(poisonedPlayer.x, poisonedPlayer.y),
-				"-" + ofToString(actualDamage) + " Poison",
-				ofColor::green);
-			ofLogNotice("Poison") << "Player " << poisonedPlayer.playerID << " took " << actualDamage
-								  << " poison damage (rolled " << rollResult << " - " << poisonedPlayer.poisonReduction << " reduction)";
+			spawnFloatingText(gridToWorld(poisonedPlayer.x, poisonedPlayer.y), "-" + ofToString(actualDamage) + " Poison", ofColor::green);
+
+			// --- FORM TRACKING (TORTOISE/GHOST) ---
+			if (poisonedPlayer.inTortoiseForm) {
+				poisonedPlayer.tortoiseDamageTaken += actualDamage;
+				if (poisonedPlayer.tortoiseDamageTaken >= 5) {
+					poisonedPlayer.inTortoiseForm = false;
+					poisonedPlayer.tortoiseDamageTaken = 0;
+					poisonedPlayer.discardPile.push_back(poisonedPlayer.tortoiseFormCard);
+					spawnFloatingText(gridToWorld(poisonedPlayer.x, poisonedPlayer.y) + glm::vec3(0, 0.5f, 0), "Form Ended!", ofColor::darkGreen);
+				}
+			}
+			if (poisonedPlayer.inGhostForm) {
+				poisonedPlayer.ghostDamageTaken += actualDamage;
+				if (poisonedPlayer.ghostDamageTaken >= 4) {
+					poisonedPlayer.inGhostForm = false;
+					poisonedPlayer.ghostDamageTaken = 0;
+					poisonedPlayer.discardPile.push_back(poisonedPlayer.ghostFormCard);
+					spawnFloatingText(gridToWorld(poisonedPlayer.x, poisonedPlayer.y) + glm::vec3(0, 0.5f, 0), "Ghost Form Broken!", ofColor::white);
+
+					if (board[poisonedPlayer.x][poisonedPlayer.y].hasWall) {
+						poisonedPlayer.health = 0;
+						spawnFloatingText(gridToWorld(poisonedPlayer.x, poisonedPlayer.y) + glm::vec3(0, 1.0f, 0), "Materialized in Wall!", ofColor::red);
+					}
+				}
+			}
+			// --------------------------------------
 		} else {
 			spawnFloatingText(gridToWorld(poisonedPlayer.x, poisonedPlayer.y), "Poison Fading", ofColor::gray);
 		}
 
-		// Increase reduction for next turn
 		poisonedPlayer.poisonReduction++;
 
-		// Check if poison has worn off (reduction reaches 6)
 		if (poisonedPlayer.poisonReduction >= 6) {
 			poisonedPlayer.isPoisoned = false;
 			poisonedPlayer.poisonReduction = 0;
 			spawnFloatingText(gridToWorld(poisonedPlayer.x, poisonedPlayer.y) + glm::vec3(0, 0.8f, 0), "Poison Cured!", ofColor::white);
-			ofLogNotice("Poison") << "Player " << poisonedPlayer.playerID << " is no longer poisoned.";
 		}
 
 		continueNewTurn();
@@ -4219,21 +4312,25 @@ void ofApp::drawGame() {
 			ofDrawRectangle(x, formY, healthBarWidth * (rem / 5.0f), formBarHeight);
 			string txt = "Tortoise: " + ofToString(rem) + "/5";
 			drawStatText(uiFont, txt, x, formY, healthBarWidth, formBarHeight, ofColor::white);
-			// Push Y for main bar if bottom aligned, otherwise next content pushed down
-			if (!isTopAligned)
-				nextBarY -= (formBarHeight + 5 * scale);
-			else
-				nextBarY += (formBarHeight + 5 * scale); // Fix: Top aligned needs push too for subsequent elements?
-			// Actually, "nextBarY" was tracking the bottom edge for top-aligned. Let's keep it simple.
-			// The logic below uses nextBarY as the Top Y of the main bar.
-			// If Top Aligned: Bar is at Y. Form bar is at Y + Height + 5.
-			// If Bottom Aligned: Bar is at Y. Form bar is at Y - FormHeight - 5.
-			// Let's reset nextBarY to be the MAIN BAR Y position.
+
+			// Tooltip
+			if (ofRectangle(x, formY, healthBarWidth, formBarHeight).inside(ofGetMouseX(), ofGetMouseY())) {
+				isShowingTooltip = true;
+				tooltipPos = { (float)ofGetMouseX(), (float)ofGetMouseY() };
+				tooltipText = "Tortoise Form: Buffer HP";
+			}
+
+			if (!isTopAligned) nextBarY -= (formBarHeight + 5 * scale);
 		}
+
 		if (player.inGhostForm) {
 			float formY = isTopAligned ? nextBarY + healthBarHeight + (5 * scale) : nextBarY - formBarHeight - (5 * scale);
-			// Adjust if Tortoise was also active? (Unlikely to be both)
-			// Assuming mutually exclusive or just overlapping visuals for now.
+
+			// Adjust Y if Tortoise was also active (stacking)
+			if (player.inTortoiseForm) {
+				formY = isTopAligned ? formY + formBarHeight + (5 * scale) : formY - formBarHeight - (5 * scale);
+				if (!isTopAligned) nextBarY -= (formBarHeight + 5 * scale);
+			}
 
 			int rem = 4 - player.ghostDamageTaken;
 			ofSetColor(30, 30, 50);
@@ -4242,6 +4339,15 @@ void ofApp::drawGame() {
 			ofDrawRectangle(x, formY, healthBarWidth * (rem / 4.0f), formBarHeight);
 			string txt = "Ghost: " + ofToString(rem) + "/4";
 			drawStatText(uiFont, txt, x, formY, healthBarWidth, formBarHeight, ofColor::white);
+
+			// Tooltip
+			if (ofRectangle(x, formY, healthBarWidth, formBarHeight).inside(ofGetMouseX(), ofGetMouseY())) {
+				isShowingTooltip = true;
+				tooltipPos = { (float)ofGetMouseX(), (float)ofGetMouseY() };
+				tooltipText = "Ghost Form: Immune to Physical/Piercing";
+			}
+
+			if (!isTopAligned) nextBarY -= (formBarHeight + 5 * scale);
 		}
 
 		// --- MAIN COMBINED STATS BAR ---
@@ -6000,37 +6106,51 @@ void ofApp::mousePressed(int x, int y, int button) {
 		}
 
 		if (magicBlastDamageButton.inside(x, y)) {
-			// --- FIX: Correctly apply magic damage, including Barrier check ---
 			int damage = 5;
 
-			// 1. Barrier absorbs non-physical damage
+			// --- MITIGATION LOGIC (Magic) ---
+			// 1. Barrier (Blocks Magic)
 			int barrierDamage = std::min(targetPlayer->barrier, damage);
 			targetPlayer->barrier -= barrierDamage;
 			damage -= barrierDamage;
 
-			// 2. Ward absorbs any remaining damage
+			// 2. Ward (Blocks Everything)
 			if (damage > 0) {
 				int wardDamage = std::min(targetPlayer->ward, damage);
 				targetPlayer->ward -= wardDamage;
 				damage -= wardDamage;
 			}
 
-			// 3. Health takes the final damage
+			// 3. Health
 			if (damage > 0) {
 				targetPlayer->health -= damage;
-				// CHANGE: Red Text + " Magic"
 				spawnFloatingText(gridToWorld(targetPlayer->x, targetPlayer->y), "-" + ofToString(damage) + " Magic", ofColor::red);
+
+				// Form tracking
+				if (targetPlayer->inTortoiseForm) {
+					targetPlayer->tortoiseDamageTaken += damage;
+					if (targetPlayer->tortoiseDamageTaken >= 5) {
+						targetPlayer->inTortoiseForm = false;
+						targetPlayer->tortoiseDamageTaken = 0;
+						targetPlayer->discardPile.push_back(targetPlayer->tortoiseFormCard);
+						spawnFloatingText(gridToWorld(targetPlayer->x, targetPlayer->y) + glm::vec3(0, 0.5f, 0), "Form Ended!", ofColor::darkGreen);
+					}
+				}
+				if (targetPlayer->inGhostForm) {
+					targetPlayer->ghostDamageTaken += damage;
+					if (targetPlayer->ghostDamageTaken >= 4) {
+						targetPlayer->inGhostForm = false;
+						targetPlayer->ghostDamageTaken = 0;
+						targetPlayer->discardPile.push_back(targetPlayer->ghostFormCard);
+						spawnFloatingText(gridToWorld(targetPlayer->x, targetPlayer->y) + glm::vec3(0, 0.5f, 0), "Ghost Form Broken!", ofColor::white);
+						if (board[targetPlayer->x][targetPlayer->y].hasWall) targetPlayer->health = 0;
+					}
+				}
+			} else {
+				spawnFloatingText(gridToWorld(targetPlayer->x, targetPlayer->y), "Absorbed", ofColor::gray);
 			}
 
-			ofLogNotice("MagicBlast") << "Player " << targetPlayer->playerID << " chose Damage.";
-			choiceMade = true;
-		} else if (magicBlastDiscardButton.inside(x, y)) {
-			if (!targetPlayer->deck.empty()) {
-				targetPlayer->deck.pop_back();
-				ofLogNotice("MagicBlast") << "Player " << targetPlayer->playerID << " chose Discard.";
-			} else {
-				ofLogNotice("MagicBlast") << "Player " << targetPlayer->playerID << " has no cards to discard!";
-			}
+			ofLogNotice("MagicBlast") << "Player " << targetPlayer->playerID << " chose Damage (Magic).";
 			choiceMade = true;
 		}
 
@@ -6441,32 +6561,23 @@ void ofApp::mousePressed(int x, int y, int button) {
 		ofVec2f boardPos = mouseToBoard(x, y);
 		int gx = floor(boardPos.x), gy = floor(boardPos.y);
 		if (gx >= 0 && gx < BOARD_WIDTH && gy >= 0 && gy < BOARD_HEIGHT) {
+
+			// Use the board flag which we set in calculateTargetHighlights
 			if (board[gx][gy].isTargetable) {
-				// Teleport to target tile
 				Player & caster = players[currentPlayerIndex];
-				Card & teleportCard = caster.hand[pendingTeleportCardIndex];
 
 				// Move player
 				board[caster.x][caster.y].hasPlayer = false;
 				caster.x = gx;
 				caster.y = gy;
-				board[gx][gy].hasPlayer = true;
+				board[gx][gy].hasPlayer = true; // Set occupancy (even if wall)
 				playerVisualPos = gridToWorld(gx, gy);
 				invalidateTargetCache();
-
-				// Consume AP and discard card
-				currentAP -= teleportCard.cost;
-				caster.playedCardsPile.push_back(teleportCard);
-				if (caster.isReplicatePending) {
-					caster.playedCardsPile.push_back(teleportCard);
-					caster.isReplicatePending = false;
-				}
-				caster.hand.erase(caster.hand.begin() + pendingTeleportCardIndex);
 
 				spawnFloatingText(gridToWorld(gx, gy), "Teleport!", ofColor::cyan);
 				ofLogNotice("Teleport") << "Teleported to (" << gx << ", " << gy << ")";
 
-				// Clean up state
+				// Clean up state (AP was already deducted when card was first clicked)
 				isTargetingTeleport = false;
 				pendingTeleportCardIndex = -1;
 				pendingTeleportRollResult = 0;
@@ -8079,9 +8190,13 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 
 		// --- Magic Wall Effect ---
 		auto isAdjacentOrDiagonalToMagicWall = [&](int x, int y) {
+			// Check Center (Ghost inside wall)
+			if (board[x][y].hasWall && board[x][y].isMagicWall) return true;
+
+			// Check Neighbors
 			for (int dx = -1; dx <= 1; ++dx) {
 				for (int dy = -1; dy <= 1; ++dy) {
-					if (dx == 0 && dy == 0) continue;
+					if (dx == 0 && dy == 0) continue; // Skip center (already checked above)
 					int nx = x + dx, ny = y + dy;
 					if (nx >= 0 && nx < BOARD_WIDTH && ny >= 0 && ny < BOARD_HEIGHT) {
 						if (board[nx][ny].hasWall && board[nx][ny].isMagicWall) return true;
@@ -8162,29 +8277,47 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		int initialHealth = target.health;
 		int remainingDmg = calculatedDamage;
 
-		// --- MITIGATION ---
-		if (type == DAMAGE_PHYSICAL || type == DAMAGE_PIERCING) {
-			int fortAbsorb = std::min(target.fortification, remainingDmg);
-			target.fortification -= fortAbsorb;
-			remainingDmg -= fortAbsorb;
+		// --- MITIGATION (Specific Order) ---
+
+		// 1. Holy Block (Protects against Holy)
+		if (type == DAMAGE_HOLY) {
+			int absorb = std::min(target.holyBlock, remainingDmg);
+			target.holyBlock -= absorb;
+			remainingDmg -= absorb;
+			if (absorb > 0) ofLogNotice("Game") << "Holy Block absorbed " << absorb;
 		}
+
+		// 2. Block (Protects against Physical)
 		if (type == DAMAGE_PHYSICAL) {
 			int absorb = std::min(target.block, remainingDmg);
 			target.block -= absorb;
 			remainingDmg -= absorb;
-		} else if (type == DAMAGE_HOLY) {
-			int absorb = std::min(target.holyBlock, remainingDmg);
-			target.holyBlock -= absorb;
+			if (absorb > 0) ofLogNotice("Game") << "Block absorbed " << absorb;
+		}
+
+		// 3. Fortification (Protects against Physical & Piercing)
+		if (type == DAMAGE_PHYSICAL || type == DAMAGE_PIERCING) {
+			int absorb = std::min(target.fortification, remainingDmg);
+			target.fortification -= absorb;
 			remainingDmg -= absorb;
-		} else if (type != DAMAGE_PIERCING) {
+			if (absorb > 0) ofLogNotice("Game") << "Fortification absorbed " << absorb;
+		}
+
+		// 4. Barrier (Protects against EVERYTHING except Physical)
+		// Note: This means it blocks Piercing, Magic, Fire, etc.
+		if (type != DAMAGE_PHYSICAL) {
 			int absorb = std::min(target.barrier, remainingDmg);
 			target.barrier -= absorb;
 			remainingDmg -= absorb;
+			if (absorb > 0) ofLogNotice("Game") << "Barrier absorbed " << absorb;
 		}
+
+		// 5. Ward (Protects against Everything)
 		if (remainingDmg > 0) {
-			int wardAbsorb = std::min(target.ward, remainingDmg);
-			target.ward -= wardAbsorb;
-			remainingDmg -= wardAbsorb;
+			int absorb = std::min(target.ward, remainingDmg);
+			target.ward -= absorb;
+			remainingDmg -= absorb;
+			if (absorb > 0) ofLogNotice("Game") << "Ward absorbed " << absorb;
 		}
 
 		// --- FINAL HEALTH DAMAGE ---
@@ -10321,25 +10454,35 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 				break;
 			}
 
-				// --- TELEPORT LOGIC ---
+			// --- TELEPORT LOGIC ---
 			case TARGET_EMPTY_TILE: {
 				float maxRangeFeet;
-
-				if (isTargetingTeleport) {
-					// Actual Targeting: Use the dice roll directly
-					// e.g., Rolled 15 = 15 ft range
+				if (isTargetingTeleport)
 					maxRangeFeet = (float)pendingTeleportRollResult;
-				} else {
-					// Preview: Use Max Possible Roll
-					// e.g., 3d6 = 18 ft max
+				else
 					maxRangeFeet = (float)(card.numDice * card.diceSides);
-				}
 
-				// Range Check (Face-to-Face)
 				if (distFeet <= maxRangeFeet + 0.1f) {
 					isPreview = true;
-					if (!board[x][y].hasWall && !board[x][y].hasPlayer) {
-						isValidTarget = true;
+
+					bool isWall = board[x][y].hasWall;
+					bool isOccupied = board[x][y].hasPlayer;
+
+					if (!isOccupied) {
+						if (!isWall) {
+							isValidTarget = true;
+						}
+						// GHOST LOGIC: Can teleport into wall IF they have AP left after casting
+						// Teleport cost is usually 5. If currentAP > 5, they have 1 left.
+						else if (currentPlayer.inGhostForm) {
+							// Check remaining AP (currentAP - cardCost)
+							// Card cost is already deducted? No, playCard only deducts if played successfully.
+							// But for Teleport, we ALREADY deducted AP in playCard before entering targeting mode.
+							// So currentAP is the *remaining* AP.
+							if (currentAP >= 1) {
+								isValidTarget = true;
+							}
+						}
 					}
 				}
 				break;
@@ -12208,11 +12351,14 @@ void ofApp::drawMinionStatusBars(Player & minion, const std::string & name, floa
 	currentX += hpW;
 
 	// --- SHIELDS (With Tooltips) ---
-	auto drawSeg = [&](int val, ofColor c, string label) {
+	// Since we can't use lambdas with captures easily without recompiling the helper,
+	// we just inline the logic here.
+
+	auto drawMinionSeg = [&](int val, ofColor c, string label) {
 		if (val > 0) {
 			ofSetColor(c);
 			ofDrawRectangle(currentX, barY, statW, barHeight);
-			drawStatText(uiFont, ofToString(val), currentX, barY, statW, barHeight, ofColor::white);
+			drawStatText(uiFont, ofToString(val), currentX, barY, statW, barHeight, (c.getBrightness() > 200 ? ofColor::black : ofColor::white));
 
 			// Tooltip Check
 			if (ofRectangle(currentX, barY, statW, barHeight).inside(ofGetMouseX(), ofGetMouseY())) {
@@ -12224,10 +12370,10 @@ void ofApp::drawMinionStatusBars(Player & minion, const std::string & name, floa
 		}
 	};
 
-	drawSeg(minion.block, ofColor::gray, "Block (Physical)");
-	drawSeg(minion.fortification, ofColor(50, 50, 50), "Fortification (Phys/Pierce)");
-	drawSeg(minion.barrier, ofColor::hotPink, "Barrier (Non-Physical)");
-	drawSeg(minion.ward, ofColor::black, "Ward (All Damage)");
+	drawMinionSeg(minion.block, ofColor::gray, "Block (Physical)");
+	drawMinionSeg(minion.fortification, ofColor(50, 50, 50), "Fortification (Phys/Pierce)");
+	drawMinionSeg(minion.barrier, ofColor::hotPink, "Barrier (Non-Physical)");
+	drawMinionSeg(minion.ward, ofColor::black, "Ward (All Damage)");
 
 	// --- FORM BARS ---
 	if (minion.inTortoiseForm || minion.inGhostForm) {
@@ -12241,13 +12387,32 @@ void ofApp::drawMinionStatusBars(Player & minion, const std::string & name, floa
 			ofSetColor(ofColor::darkGreen);
 			ofDrawRectangle(x, formY, totalWidth * (rem / 5.0f), formHeight);
 			drawStatText(uiFont, "Tortoise: " + ofToString(rem) + "/5", x, formY, totalWidth, formHeight, ofColor::white);
-		} else if (minion.inGhostForm) {
+
+			// Tooltip
+			if (ofRectangle(x, formY, totalWidth, formHeight).inside(ofGetMouseX(), ofGetMouseY())) {
+				isShowingTooltip = true;
+				tooltipPos = { (float)ofGetMouseX(), (float)ofGetMouseY() };
+				tooltipText = "Tortoise Form: Buffer HP";
+			}
+
+			// Stack next bar if needed
+			formY += formHeight + (2 * scale);
+		}
+
+		if (minion.inGhostForm) {
 			int rem = 4 - minion.ghostDamageTaken;
 			ofSetColor(30, 30, 50);
 			ofDrawRectangle(x, formY, totalWidth, formHeight);
 			ofSetColor(150, 150, 255);
 			ofDrawRectangle(x, formY, totalWidth * (rem / 4.0f), formHeight);
 			drawStatText(uiFont, "Ghost: " + ofToString(rem) + "/4", x, formY, totalWidth, formHeight, ofColor::black);
+
+			// Tooltip
+			if (ofRectangle(x, formY, totalWidth, formHeight).inside(ofGetMouseX(), ofGetMouseY())) {
+				isShowingTooltip = true;
+				tooltipPos = { (float)ofGetMouseX(), (float)ofGetMouseY() };
+				tooltipText = "Ghost Form: Immune to Physical/Piercing";
+			}
 		}
 	}
 }
