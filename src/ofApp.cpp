@@ -192,15 +192,24 @@ void ofApp::setup() {
 	}
 
 	// --- Load Wall Unit ---
-	if (wallUnitModel.load("Units/Wall/big_guy.fbx")) {
+	// Prefer GLB (may contain embedded PBR textures). Fall back to FBX + external diffuse.
+	if (wallUnitModel.load("Units/Wall/big_guy.glb")) {
+		wallUnitModel.disableMaterials();
+		// Keep model textures enabled so embedded GLB textures render
+		wallUnitModel.setScaleNormalization(false);
+		// Adjust scale/orientation for GLB
+		// Make GLB even smaller to better fit the tile
+		wallUnitModel.setScale(0.00025f, 0.00025f, 0.00025f);
+		wallUnitModel.setRotation(0, 180, 0, 0, 1);
+		wallUnitModel.setRotation(1, -90, 1, 0, 0);
+		ofLogNotice("Setup") << "Wall Unit GLB model loaded.";
+	} else if (wallUnitModel.load("Units/Wall/big_guy.fbx")) {
 		wallUnitModel.disableMaterials();
 		wallUnitModel.disableTextures(); // We will bind the model's diffuse manually
 		// Adjust scale and orientation so the model stands upright and fits the tile
-		// Shrink more to avoid overwhelming the tile
+		// Further reduce FBX fallback scale
 		wallUnitModel.setScale(0.0002f, 0.0002f, 0.0002f);
-		// Yaw 180 so it faces the expected direction
 		wallUnitModel.setRotation(0, 180, 0, 0, 1);
-		// Rotate -90 around X so it isn't lying on its back
 		wallUnitModel.setRotation(1, -90, 1, 0, 0);
 		wallUnitModel.setScaleNormalization(false);
 
@@ -215,7 +224,7 @@ void ofApp::setup() {
 			// Use repeat wrapping in case UVs tile >1 to avoid edge stretching
 			wallUnitTexture.setTextureWrap(GL_REPEAT, GL_REPEAT);
 		}
-		ofLogNotice("Setup") << "Wall Unit model loaded.";
+		ofLogNotice("Setup") << "Wall Unit FBX model loaded.";
 	} else {
 		ofLogNotice("Setup") << "Wall Unit model failed to load.";
 	}
@@ -1129,8 +1138,8 @@ void ofApp::updateGame() {
 		std::vector<int> p0_minionIndices;
 		std::vector<int> p1_minionIndices;
 		// Counters for minion types
-		int p0_skeleton = 0, p0_golem = 0, p0_wolf = 0, p0_hound = 0, p0_demon = 0, p0_kobold = 0;
-		int p1_skeleton = 0, p1_golem = 0, p1_wolf = 0, p1_hound = 0, p1_demon = 0, p1_kobold = 0;
+		int p0_skeleton = 0, p0_golem = 0, p0_wolf = 0, p0_hound = 0, p0_demon = 0, p0_kobold = 0, p0_wall = 0;
+		int p1_skeleton = 0, p1_golem = 0, p1_wolf = 0, p1_hound = 0, p1_demon = 0, p1_kobold = 0, p1_wall = 0;
 
 		for (int i = 0; i < players.size(); i++) {
 			if (players[i].isMinion) {
@@ -1142,7 +1151,7 @@ void ofApp::updateGame() {
 		}
 
 		// 3. HELPER LAMBDA TO BUILD UI LIST (now takes top/bottom limits)
-		auto buildMinionList = [&](const std::vector<int> & indices, float startX, float topLimit, float bottomLimit, int & skelCount, int & golemCount, int & wolfCount, int & houndCount, int & demonCount, int & koboldCount) {
+		auto buildMinionList = [&](const std::vector<int> & indices, float startX, float topLimit, float bottomLimit, int & skelCount, int & golemCount, int & wolfCount, int & houndCount, int & demonCount, int & koboldCount, int & wallCount) {
 			// A. Calculate Dynamic Scaling
 			float localAvailableHeight = bottomLimit - topLimit;
 			float totalRequiredHeight = indices.size() * (standardEntryHeight + gap);
@@ -1173,6 +1182,8 @@ void ofApp::updateGame() {
 					ui.displayNumber = ++demonCount;
 				else if (players[pIndex].isKobold)
 					ui.displayNumber = ++koboldCount;
+				else if (players[pIndex].isWallUnit)
+					ui.displayNumber = ++wallCount;
 
 				float currentY = topLimit + (i * (actualEntryHeight + actualGap));
 
@@ -1183,10 +1194,10 @@ void ofApp::updateGame() {
 
 		// 4. BUILD LISTS WITH PLAYER-SPECIFIC BOUNDARIES
 		float p0_startX = 10 * scale;
-		buildMinionList(p0_minionIndices, p0_startX, p0_topLimitY, p0_bottomLimitY, p0_skeleton, p0_golem, p0_wolf, p0_hound, p0_demon, p0_kobold);
+		buildMinionList(p0_minionIndices, p0_startX, p0_topLimitY, p0_bottomLimitY, p0_skeleton, p0_golem, p0_wolf, p0_hound, p0_demon, p0_kobold, p0_wall);
 
 		float p1_startX = ofGetWidth() - panelWidth - (10 * scale);
-		buildMinionList(p1_minionIndices, p1_startX, p1_topLimitY, p1_bottomLimitY, p1_skeleton, p1_golem, p1_wolf, p1_hound, p1_demon, p1_kobold);
+		buildMinionList(p1_minionIndices, p1_startX, p1_topLimitY, p1_bottomLimitY, p1_skeleton, p1_golem, p1_wolf, p1_hound, p1_demon, p1_kobold, p1_wall);
 	}
 	// --- END MINION UI REBUILD ---
 
@@ -3963,18 +3974,18 @@ void ofApp::drawGame() {
 					// Standard FBX upright correction (if needed)
 					// ofRotateXDeg(0);
 
-					// Bind the wall-unit's diffuse if available, else fallback to board wall texture
-					if (wallUnitTexture.isAllocated())
+					// If we have an external wall unit texture, bind it; otherwise let the model's own textures render (GLB)
+					if (wallUnitTexture.isAllocated()) {
 						wallUnitTexture.bind();
-					else
-						wallTexture.bind();
-					// Raise model so it sits on the ground and not intersect the floor
-					ofTranslate(0, TILE_SIZE * 0.14f, 0);
-					wallUnitModel.drawFaces();
-					if (wallUnitTexture.isAllocated())
+						// Raise model so it sits on the ground and not intersect the floor
+						ofTranslate(0, TILE_SIZE * 0.14f, 0);
+						wallUnitModel.drawFaces();
 						wallUnitTexture.unbind();
-					else
-						wallTexture.unbind();
+					} else {
+						// No external texture: draw model with its embedded textures (GLB) or material colors
+						ofTranslate(0, TILE_SIZE * 0.14f, 0);
+						wallUnitModel.drawFaces();
+					}
 
 					// If Magic Wall Unit, apply a simple purple tint visual
 					if (player.isMagicWallUnit) {
@@ -8868,8 +8879,7 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 
 		pendingAmnesiaRollResult = startDiceRoll(playedCard.numDice, playedCard.diceSides, PURPOSE_DEBUG, "Amnesia: Cards to Remove");
 		isWaitingForAmnesiaDice = true;
-		playedSuccessfully = true;
-		break;
+		return; // We've already handled cleanup above
 	}
 
 	// --- CASE: MAGIC BLAST (Confirming fix from previous step) ---
@@ -9298,11 +9308,19 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 
 		// --- CASE: TRANSFORM WALL ---
 	case CARD_TRANSFORM_WALL: {
+		// Debug: log attempted transform target and wall state
+		ofLogNotice("Transform") << "Attempting Transform Wall at (" << targetX << "," << targetY << ") hasWall=" << (board[targetX][targetY].hasWall ? "true" : "false");
 		// Must be a wall
-		if (!board[targetX][targetY].hasWall) break;
+		if (!board[targetX][targetY].hasWall) {
+			spawnFloatingText(gridToWorld(targetX, targetY), "No wall to transform", ofColor::red);
+			break;
+		}
 
 		// 1. Determine Type (Magic vs Normal)
 		bool isMagic = board[targetX][targetY].isMagicWall;
+
+		// Save current player's id safely (in case vector reallocates and indices shift)
+		int savedCurrentID = (currentPlayerIndex >= 0 && currentPlayerIndex < players.size()) ? players[currentPlayerIndex].playerID : -1;
 
 		// 2. Create Unit
 		Player minion;
@@ -9322,37 +9340,45 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		minion.minionTexture = wallUnitTexture.isAllocated() ? &wallUnitTexture : nullptr;
 
 		// 3. Stats & Deck
+		auto findCardByType = [&](CardType t) -> Card {
+			for (const auto & c : allCards)
+				if (c.type == t) return c;
+			return Card();
+		};
+
 		if (isMagic) {
 			minion.maxHealth = 7;
 			minion.health = 7;
 			// Deck: 2x Fortify, 2x Magic Blast, 1x Summon Wall
-			for (const auto & c : allCards) {
-				if (c.type == CARD_FORTIFY) {
-					minion.deck.push_back(c);
-					minion.deck.push_back(c);
-				}
-				if (c.type == CARD_MAGIC_BLAST) {
-					minion.deck.push_back(c);
-					minion.deck.push_back(c);
-				}
-				if (c.type == CARD_CREATE_WALL) minion.deck.push_back(c);
+			Card fort = findCardByType(CARD_FORTIFY);
+			Card mblast = findCardByType(CARD_MAGIC_BLAST);
+			Card createWall = findCardByType(CARD_CREATE_WALL);
+			if (fort.type != CARD_NONE) {
+				minion.deck.push_back(fort);
+				minion.deck.push_back(fort);
 			}
+			if (mblast.type != CARD_NONE) {
+				minion.deck.push_back(mblast);
+				minion.deck.push_back(mblast);
+			}
+			if (createWall.type != CARD_NONE) minion.deck.push_back(createWall);
 			ofLogNotice("Transform") << "Created Magic Wall Unit (7 HP).";
 		} else {
 			minion.maxHealth = 5;
 			minion.health = 5;
 			// Deck: 2x Fortify, 2x Ward, 1x Summon Wall
-			for (const auto & c : allCards) {
-				if (c.type == CARD_FORTIFY) {
-					minion.deck.push_back(c);
-					minion.deck.push_back(c);
-				}
-				if (c.type == CARD_GAIN_WARD) {
-					minion.deck.push_back(c);
-					minion.deck.push_back(c);
-				}
-				if (c.type == CARD_CREATE_WALL) minion.deck.push_back(c);
+			Card fort = findCardByType(CARD_FORTIFY);
+			Card ward = findCardByType(CARD_GAIN_WARD);
+			Card createWall = findCardByType(CARD_CREATE_WALL);
+			if (fort.type != CARD_NONE) {
+				minion.deck.push_back(fort);
+				minion.deck.push_back(fort);
 			}
+			if (ward.type != CARD_NONE) {
+				minion.deck.push_back(ward);
+				minion.deck.push_back(ward);
+			}
+			if (createWall.type != CARD_NONE) minion.deck.push_back(createWall);
 			ofLogNotice("Transform") << "Created Wall Unit (5 HP).";
 		}
 		std::shuffle(minion.deck.begin(), minion.deck.end(), rng);
@@ -9365,11 +9391,26 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		// Update Mesh (to remove the static wall visually)
 		buildLevelMesh();
 
-		// Add to players list
+		// --- CRASH FIX: PERFORM CLEANUP NOW ---
+		// We do this BEFORE pushing back to 'players' because push_back might reallocate the vector,
+		// invalidating the 'currentPlayer' reference used in cleanup.
+		currentAP -= playedCard.cost;
+		currentPlayer.playedCardsPile.push_back(playedCard);
+
+		if (currentPlayer.isReplicatePending) {
+			currentPlayer.playedCardsPile.push_back(playedCard);
+			currentPlayer.isReplicatePending = false;
+		}
+
+		currentPlayer.cardsPlayedThisTurn.push_back(playedCard.type);
+		currentPlayer.hand.erase(currentPlayer.hand.begin() + cardIndex);
+		activeCardDisplays.push_back({ playedCard, ofGetElapsedTimef() });
+
+		// --- NOW SAFE TO MODIFY VECTOR ---
 		players.push_back(minion);
 
-		// 5. Cleanup / Sort Turn Order
-		int currentID = players[currentPlayerIndex].playerID;
+		// 5. Sort Turn Order
+		int currentID = savedCurrentID;
 		std::sort(players.begin(), players.end(), [](const Player & a, const Player & b) {
 			int ownerA = a.isMinion ? a.ownerID : a.playerID;
 			int ownerB = b.isMinion ? b.ownerID : b.playerID;
@@ -9388,7 +9429,8 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		}
 		invalidateTargetCache();
 
-		playedSuccessfully = true;
+		// Set to FALSE so the common cleanup block at the end of playCard (which uses the now-unsafe reference) is skipped
+		playedSuccessfully = false;
 		break;
 	}
 
@@ -13222,6 +13264,18 @@ void ofApp::drawMinionManagerUI() {
 			demonModel.drawFaces();
 		}
 		// --- SKELETON PREVIEW ---
+		// --- WALL PREVIEW ---
+		else if (minion.isWallUnit) {
+			ofTranslate(modelFbo.getWidth() / 2, modelFbo.getHeight() / 2 + 10);
+			// Reasonable preview scale for wall unit (tweakable)
+			ofScale(6.0f, -6.0f, 6.0f);
+			ofRotateXDeg(-15);
+			ofRotateYDeg(180 + ofGetElapsedTimef() * 30);
+			if (minion.minionTexture && minion.minionTexture->isAllocated()) minion.minionTexture->bind();
+			wallUnitModel.drawFaces();
+			if (minion.minionTexture && minion.minionTexture->isAllocated()) minion.minionTexture->unbind();
+		}
+		// --- SKELETON PREVIEW ---
 		else {
 			ofSetColor(255);
 			ofTranslate(modelFbo.getWidth() / 2, 90);
@@ -13261,6 +13315,11 @@ void ofApp::drawMinionManagerUI() {
 			name = "Demon ";
 		} else if (minion.isKobold) {
 			name = "Kobold ";
+		} else if (minion.isWallUnit) {
+			if (minion.isMagicWallUnit)
+				name = "Magic Wall ";
+			else
+				name = "Wall ";
 		} else {
 			name = "Skeleton ";
 		}
