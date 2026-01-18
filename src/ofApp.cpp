@@ -2312,7 +2312,24 @@ void ofApp::updateGame() {
 					auto & u = earthquakeUnits[i];
 					if (!u.isMoving || u.tilesToMove <= 0) continue;
 					glm::ivec2 t = u.nextGrid;
+					bool blocked = false;
 					if (t.x < 0 || t.x >= BOARD_WIDTH || t.y < 0 || t.y >= BOARD_HEIGHT || board[t.x][t.y].hasWall) {
+						blocked = true;
+					} else if (board[t.x][t.y].hasPlayer) {
+						// If the tile is occupied by a player who is NOT moving away this step,
+						// consider it blocked (rear-end). If an earthquake unit currently on
+						// that tile is moving away this step, allow targeting it (it vacates).
+						bool occupantMovingAway = false;
+						for (const auto & ou : earthquakeUnits) {
+							if (ou.startGrid == t && ou.isMoving && ou.tilesToMove > 0) {
+								occupantMovingAway = true;
+								break;
+							}
+						}
+						if (!occupantMovingAway) blocked = true;
+					}
+
+					if (blocked) {
 						willCrash[i] = true;
 					} else {
 						targetMap[keyFor(t)].push_back(i);
@@ -2728,12 +2745,34 @@ void ofApp::updateGame() {
 				// Phase D: spawn crash dice for moving units that will crash
 				for (int i = 0; i < n; ++i) {
 					if (willCrash[i] && !earthquakeUnits[i].crashed) {
+						// If the unit was mid-move, finalize their position on the target tile
+						glm::ivec2 oldStart = earthquakeUnits[i].startGrid;
+						glm::ivec2 target = earthquakeUnits[i].nextGrid;
+
+						// Update board occupancy: clear old and set new (if valid)
+						if (oldStart.x >= 0 && oldStart.x < BOARD_WIDTH && oldStart.y >= 0 && oldStart.y < BOARD_HEIGHT) {
+							board[oldStart.x][oldStart.y].hasPlayer = false;
+						}
+						if (target.x >= 0 && target.x < BOARD_WIDTH && target.y >= 0 && target.y < BOARD_HEIGHT) {
+							board[target.x][target.y].hasPlayer = true;
+						}
+
+						// Move the earthquake unit's logical start to the target so it remains "on" that tile
+						earthquakeUnits[i].startGrid = target;
+
+						// Also update the real player position so other systems see them there
+						int pid = earthquakeUnits[i].playerIndex;
+						if (pid >= 0 && pid < (int)players.size()) {
+							players[pid].x = target.x;
+							players[pid].y = target.y;
+						}
+
 						earthquakeUnits[i].crashed = true;
 						earthquakeUnits[i].tilesToMove = 0;
 						// Immediately cancel further movement for this unit
 						earthquakeUnits[i].isMoving = false;
 						// If the crashing unit is the currently selected/active player,
-						// clear the selection so UI highlights (purple circle) are removed
+						// clear the selection so UI highlights are removed
 						if (earthquakeUnits[i].playerIndex >= 0 && earthquakeUnits[i].playerIndex == currentPlayerIndex) {
 							playerAction = NONE;
 							selectedPieceGridX = -1;
@@ -2828,6 +2867,18 @@ void ofApp::updateGame() {
 				// If everyone is stopped or out of moves, end earthquake
 				if (roundComplete) {
 					isEarthquakeActive = false;
+					// Ensure visuals are snapped to logical positions and clear earthquake state
+					for (size_t pi = 0; pi < players.size(); ++pi) {
+						players[pi].x = players[pi].x; // no-op but keeps intent
+					}
+					// Snap visual positions for all players so models don't appear at old positions
+					for (size_t pi = 0; pi < players.size(); ++pi) {
+						// Use gridToWorld to set visual positions
+						// If this player is the active player, also update playerVisualPos
+						glm::vec3 snapPos = gridToWorld(players[pi].x, players[pi].y);
+						if (currentPlayerIndex >= 0 && (int)pi == currentPlayerIndex) playerVisualPos = snapPos;
+					}
+					earthquakeUnits.clear();
 					invalidateTargetCache();
 				}
 			}
@@ -3909,7 +3960,9 @@ void ofApp::drawGame() {
 					if (u.playerIndex == roll.associatedUnit) {
 						// Use visualPos so dice follow moving/bouncing units
 						glm::vec3 unitPos = u.visualPos;
-						ofTranslate(unitPos.x, unitPos.y + 1.5f, unitPos.z);
+						float raise = 1.5f;
+						if (roll.purpose == PURPOSE_EARTHQUAKE_DISTANCE) raise = 2.6f; // raise distance-dice higher to avoid clipping
+						ofTranslate(unitPos.x, unitPos.y + raise, unitPos.z);
 						placed = true;
 						break;
 					}
@@ -4132,7 +4185,8 @@ void ofApp::drawGame() {
 						if (eq.playerIndex == pIndex && (eq.originalDistance > 0 || eq.crashed)) {
 							// Determine displayed remaining tiles: decrement once the step progress crosses halfway
 							int displayedRemaining = 0;
-							if (eq.crashed) displayedRemaining = 0;
+							if (eq.crashed)
+								displayedRemaining = 0;
 							else {
 								int base = std::max(0, eq.tilesToMove);
 								if (isEarthquakeAnimatingStep && earthquakeT >= 0.5f) base = std::max(0, base - 1);
@@ -4145,11 +4199,14 @@ void ofApp::drawGame() {
 								glm::vec3 nextWorld = gridToWorld(eq.startGrid.x + eq.direction.x, eq.startGrid.y + eq.direction.y);
 								glm::vec3 dirWorld = nextWorld - startWorld;
 								if (glm::length(dirWorld) > 0.0001f) dirWorld = glm::normalize(dirWorld);
-								// Arrow spacing along direction (slightly ahead of unit)
-								float stepOffset = TILE_SIZE * 0.55f;
+								// Arrow spacing along direction (much smaller spacing so arrows are close together)
+								float stepOffset = TILE_SIZE * 0.08f;
 								// Bright yellow
 								ofColor arrowCol = ofColor(255, 235, 59);
 
+								// Draw arrows without lighting so they appear bright and unaffected by scene lights
+								ofPushStyle();
+								ofDisableLighting();
 								for (int i = 0; i < displayedRemaining; ++i) {
 									glm::vec3 arrowPos = pos + dirWorld * ((i + 1) * stepOffset);
 									ofPushMatrix();
@@ -4171,6 +4228,8 @@ void ofApp::drawGame() {
 									ofDrawRectangle(-w / 10.0f, 0.0f, w / 5.0f, h);
 									ofPopMatrix();
 								}
+								ofPopStyle();
+								ofEnableLighting();
 							}
 						}
 					}
@@ -4285,14 +4344,35 @@ void ofApp::drawGame() {
 					ofSetLineWidth(1);
 				}
 
-				if (!players.empty() && currentPlayerIndex >= 0 && x == players[currentPlayerIndex].x && y == players[currentPlayerIndex].y) {
-					// Active-player: color whole tile with translucent green
-					ofPushMatrix();
-					ofTranslate(0, highlight_y + 0.01f, 0);
-					ofRotateXDeg(90);
-					ofSetColor(120, 150, 140, 60); // Less green, more transparent
-					ofDrawRectangle(-TILE_SIZE * 0.5f, -TILE_SIZE * 0.5f, TILE_SIZE, TILE_SIZE);
-					ofPopMatrix();
+				if (!players.empty() && currentPlayerIndex >= 0) {
+					// Active-player: follow the active unit's visual grid position while moving
+					int highlightX = players[currentPlayerIndex].x;
+					int highlightY = players[currentPlayerIndex].y;
+					if (isPlayerAnimating) {
+						// Follow the player's animated visual position while moving along a path
+						glm::vec2 g = worldToGrid(playerVisualPos);
+						highlightX = (int)g.x;
+						highlightY = (int)g.y;
+					} else if (isEarthquakeActive) {
+						// find earthquake record for this player (so visualPos tracks animated movement)
+						for (const auto & eq : earthquakeUnits) {
+							if (eq.playerIndex == currentPlayerIndex) {
+								glm::vec2 g = worldToGrid(eq.visualPos);
+								highlightX = (int)g.x;
+								highlightY = (int)g.y;
+								break;
+							}
+						}
+					}
+					if (x == highlightX && y == highlightY) {
+						// Active-player: color whole tile with a brighter translucent green
+						ofPushMatrix();
+						ofTranslate(0, highlight_y + 0.01f, 0);
+						ofRotateXDeg(90);
+						ofSetColor(40, 200, 80, 160); // Brighter green, more visible
+						ofDrawRectangle(-TILE_SIZE * 0.5f, -TILE_SIZE * 0.5f, TILE_SIZE, TILE_SIZE);
+						ofPopMatrix();
+					}
 				}
 				ofPopMatrix();
 			}
