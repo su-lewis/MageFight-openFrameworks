@@ -3528,14 +3528,25 @@ void ofApp::drawGame() {
 			if (player.inGhostForm) {
 				ofTranslate(pos.x, 0.1f, pos.z);
 
-				// Floating effect
+				// Base floating height
 				float floatY = 1.5f + sin(ofGetElapsedTimef() * 2.0f) * 0.2f;
+
+				// CHECK IF IN WALL: Raise up by wall height (approx 2.5 units) if inside one
+				// We check the board at the player's grid coordinates
+				if (player.x >= 0 && player.x < BOARD_WIDTH && player.y >= 0 && player.y < BOARD_HEIGHT) {
+					if (board[player.x][player.y].hasWall) {
+						floatY += (TILE_SIZE * 0.5f) + 0.5f; // Wall height + buffer
+					}
+				}
+
 				ofTranslate(0, floatY, 0);
 
 				ofRotateYDeg(player.facingAngle);
 
-				// Standard GLB/FBX correction
-				ofRotateXDeg(180);
+				// FLIP FIX: Removed ofRotateXDeg(180) so it stands upright.
+				// If it is still wrong, try ofRotateXDeg(0) or ofRotateXDeg(90).
+				// usually FBX are 0, GLB are 180.
+				ofRotateXDeg(0);
 
 				// Enable transparency
 				ofEnableBlendMode(OF_BLENDMODE_ALPHA);
@@ -3920,63 +3931,50 @@ void ofApp::drawGame() {
 				ofPushMatrix();
 				ofTranslate(tileWorldPos.x, 0, tileWorldPos.z);
 
-				float highlight_y = 0.06f;
+				// Calculate the top surface height for this tile
+				float surfaceY = 0.06f; // Floor height
 				if (board[x][y].hasWall) {
-					highlight_y = (TILE_SIZE * 0.5f) + 0.06f;
+					surfaceY = (TILE_SIZE * 0.5f) + 0.06f; // Top of wall height
+				}
 
-					// 1. Draw the Wall Mesh
+				// 1. Draw Walls
+				if (board[x][y].hasWall) {
 					ofPushMatrix();
-					// Note: If wallMesh was built with Y-up, this rotate might be why.
-					// Adjusting to ensure sheen matches wallMesh exactly is tricky without seeing wallMesh gen.
-					// Assuming wallMesh uses Y-up from 0 to height.
-
-					// Using your exact transform from previous code:
-					ofTranslate(0, highlight_y - (TILE_SIZE * 0.4f), 0);
-					// The previous code had ofRotateXDeg(-90) here?
-					// If wallMesh was built "flat" on XY plane, that makes sense.
-					// But buildLevelMesh builds it XZ plane with Y height?
-					// Let's stick to the wallMesh draw code you provided, it works.
+					ofTranslate(0, surfaceY - (TILE_SIZE * 0.4f), 0);
 					wallTexture.bind();
 					wallMesh.draw();
 					wallTexture.unbind();
 					ofPopMatrix();
 
-					// 2. Draw animated purple sheen overlay for magic wall
+					// Magic Wall Sheen
 					if (board[x][y].isMagicWall) {
 						float sheenAlpha = 90 + 60 * sin(ofGetElapsedTimef() * 2.0f + x * 0.7f + y * 0.5f);
 						ofFloatColor sheenColor(148.0f / 255.0f, 0.0f, 211.0f / 255.0f, sheenAlpha / 255.0f);
-
 						float wallW = TILE_SIZE;
 						float wallH = TILE_SIZE * 0.5f;
 						float epsilon = 0.02f;
-
-						// Overlap size to hide edge gaps
 						float overlap = epsilon * 4.0f;
 
-						ofTranslate(0, 0, 0);
-
-						// Top Face
+						ofTranslate(0, 0, 0); // Reset local for sheen
 						ofPushMatrix();
 						ofTranslate(0, wallH + epsilon, 0);
 						ofRotateXDeg(90);
 						ofSetColor(sheenColor);
-						// Make rectangle slightly larger than the wall to cover edges
 						ofDrawRectangle(-(wallW + overlap) / 2, -(wallW + overlap) / 2, wallW + overlap, wallW + overlap);
 						ofPopMatrix();
 
-						// Side Faces
 						for (int i = 0; i < 4; ++i) {
 							ofPushMatrix();
 							ofRotateYDeg(i * 90.0f);
 							ofTranslate(0, wallH / 2, wallW / 2 + epsilon);
 							ofSetColor(sheenColor);
-							// Make rectangle slightly wider and taller
 							ofDrawRectangle(-(wallW + overlap) / 2, -(wallH + overlap) / 2, wallW + overlap, wallH + overlap);
 							ofPopMatrix();
 						}
 					}
 				}
 
+				// 2. Draw Yellow Movement Highlight (FIXED HEIGHT)
 				if (board[x][y].isHighlighted) {
 					bool isOnPath = false;
 					for (const auto & step : hoverPath) {
@@ -3988,17 +3986,19 @@ void ofApp::drawGame() {
 					if (!isOnPath) {
 						ofSetColor(ofColor::yellow, 102);
 						ofPushMatrix();
-						ofTranslate(0, 0.05f, 0);
+						// USE surfaceY to draw ON TOP of wall or floor
+						ofTranslate(0, surfaceY + 0.01f, 0);
 						ofRotateXDeg(90);
 						ofDrawCircle(0, 0, TILE_SIZE * 0.30f);
 						ofPopMatrix();
 					}
 				}
 
-				if (board[x][y].isTargetPreview && !board[x][y].hasWall && !board[x][y].isTargetable) {
+				// 3. Draw Target Previews (Red/Green) (FIXED HEIGHT)
+				if (board[x][y].isTargetPreview && !board[x][y].isTargetable) {
 					ofSetColor(ofColor::red, 80);
 					ofPushMatrix();
-					ofTranslate(0, highlight_y, 0);
+					ofTranslate(0, surfaceY + 0.01f, 0);
 					ofRotateXDeg(90);
 					ofDrawRectangle(-TILE_SIZE * 0.45f, -TILE_SIZE * 0.45f, TILE_SIZE * 0.9f, TILE_SIZE * 0.9f);
 					ofPopMatrix();
@@ -4009,7 +4009,7 @@ void ofApp::drawGame() {
 					ofNoFill();
 					ofSetLineWidth(3);
 					ofPushMatrix();
-					ofTranslate(0, highlight_y + 0.01f, 0);
+					ofTranslate(0, surfaceY + 0.02f, 0);
 					ofRotateXDeg(90);
 					ofDrawRectangle(-TILE_SIZE * 0.4f, -TILE_SIZE * 0.4f, TILE_SIZE * 0.8f, TILE_SIZE * 0.8f);
 					ofPopMatrix();
@@ -4017,17 +4017,17 @@ void ofApp::drawGame() {
 					ofSetLineWidth(1);
 				}
 
+				// 4. Active Player Selection Square
 				if (!players.empty() && currentPlayerIndex >= 0) {
-					// Active-player: follow the active unit's visual grid position while moving
 					int highlightX = players[currentPlayerIndex].x;
 					int highlightY = players[currentPlayerIndex].y;
+
+					// ... (Existing animation/earthquake check logic) ...
 					if (isPlayerAnimating) {
-						// Follow the player's animated visual position while moving along a path
 						glm::vec2 g = worldToGrid(playerVisualPos);
 						highlightX = (int)g.x;
 						highlightY = (int)g.y;
 					} else if (isEarthquakeActive) {
-						// find earthquake record for this player (so visualPos tracks animated movement)
 						for (const auto & eq : earthquakeUnits) {
 							if (eq.playerIndex == currentPlayerIndex) {
 								glm::vec2 g = worldToGrid(eq.visualPos);
@@ -4037,12 +4037,12 @@ void ofApp::drawGame() {
 							}
 						}
 					}
+
 					if (x == highlightX && y == highlightY) {
-						// Active-player: color whole tile with a brighter translucent green
 						ofPushMatrix();
-						ofTranslate(0, highlight_y + 0.01f, 0);
+						ofTranslate(0, surfaceY + 0.01f, 0);
 						ofRotateXDeg(90);
-						ofSetColor(40, 200, 80, 160); // Brighter green, more visible
+						ofSetColor(40, 200, 80, 160);
 						ofDrawRectangle(-TILE_SIZE * 0.5f, -TILE_SIZE * 0.5f, TILE_SIZE, TILE_SIZE);
 						ofPopMatrix();
 					}
@@ -4051,13 +4051,21 @@ void ofApp::drawGame() {
 			}
 		}
 
+		// 5. Draw Path Highlights (Green Circles) (FIXED HEIGHT)
 		if ((playerAction == PIECE_SELECTED) && !hoverPath.empty()) {
 			for (size_t i = 1; i < hoverPath.size(); i++) {
 				const auto & step = hoverPath[i];
 				glm::vec3 pathWorldPos = gridToWorld(step.x, step.y);
+
+				// Calculate height for THIS specific step
+				float pathY = 0.05f;
+				if (board[(int)step.x][(int)step.y].hasWall) {
+					pathY = (TILE_SIZE * 0.5f) + 0.05f;
+				}
+
 				ofSetColor(ofColor::green, 150);
 				ofPushMatrix();
-				ofTranslate(pathWorldPos.x, 0.05f, pathWorldPos.z);
+				ofTranslate(pathWorldPos.x, pathY, pathWorldPos.z);
 				ofRotateXDeg(90);
 				ofDrawCircle(0, 0, TILE_SIZE * 0.3f);
 				ofPopMatrix();
