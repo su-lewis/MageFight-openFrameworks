@@ -449,5 +449,12 @@
     "type": "CARD_FORM_OF_GHOST",
     "cost": 7,
     "targeting": "TARGET_SELF"
+  },
+  {
+    "id": 57,
+    "name": "Giant Magic Hand",
+    "type": "CARD_GIANT_MAGIC_HAND",
+    "cost": 2,
+    "targeting": "TARGET_ADJACENT_WALL"
   }
 ]

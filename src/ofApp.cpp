@@ -1467,6 +1467,146 @@ void ofApp::updateGame() {
 		}
 	}
 
+	// --- MAGIC HAND DAMAGE & DISPLACEMENT ---
+	if (isWaitingForMagicHandDamage && activeDiceRolls.empty()) {
+		isWaitingForMagicHandDamage = false;
+
+		// 1. Execute Move of Caster and Wall (Visuals)
+		Player & caster = players[currentPlayerIndex];
+		glm::ivec2 wallOldPos = magicHandTargetTile;
+		glm::ivec2 wallNewPos = magicHandTargetTile + magicHandPushDir;
+
+		// Move Wall
+		bool wasMagic = board[wallOldPos.x][wallOldPos.y].isMagicWall;
+		board[wallOldPos.x][wallOldPos.y].hasWall = false;
+		board[wallNewPos.x][wallNewPos.y].hasWall = true;
+		board[wallNewPos.x][wallNewPos.y].isMagicWall = wasMagic;
+
+		// Move Caster
+		board[caster.x][caster.y].hasPlayer = false;
+		caster.x = wallOldPos.x;
+		caster.y = wallOldPos.y;
+		board[caster.x][caster.y].hasPlayer = true;
+		playerVisualPos = gridToWorld(caster.x, caster.y);
+
+		buildLevelMesh();
+
+		// 2. Handle Pushed Unit
+		Player * victim = getPlayer(magicHandPushedUnitIndex);
+		if (victim) {
+			int dmg = pendingMagicHandRollResult;
+
+			// --- GHOST IMMUNITY ---
+			if (victim->inGhostForm) {
+				dmg = 0;
+				spawnFloatingText(gridToWorld(victim->x, victim->y), "Phased!", ofColor::cyan);
+			}
+			// ----------------------
+
+			// Apply Physical Mitigation (Block, Fortification, Ward)
+			int block = std::min(victim->block, dmg);
+			victim->block -= block;
+			dmg -= block;
+			int fort = std::min(victim->fortification, dmg);
+			victim->fortification -= fort;
+			dmg -= fort;
+			int ward = std::min(victim->ward, dmg);
+			victim->ward -= ward;
+			dmg -= ward;
+
+			if (dmg > 0) {
+				victim->health -= dmg;
+				spawnFloatingText(gridToWorld(victim->x, victim->y), "-" + ofToString(dmg) + " Phys", ofColor::red);
+
+				// Form break logic
+				if (victim->inGhostForm) {
+					victim->ghostDamageTaken += dmg;
+					if (victim->ghostDamageTaken >= 4) {
+						victim->inGhostForm = false;
+						victim->ghostDamageTaken = 0;
+						victim->discardPile.push_back(victim->ghostFormCard);
+						spawnFloatingText(gridToWorld(victim->x, victim->y), "Form Broken!", ofColor::white);
+					}
+				}
+				if (victim->inTortoiseForm) {
+					victim->tortoiseDamageTaken += dmg;
+					if (victim->tortoiseDamageTaken >= 5) {
+						victim->inTortoiseForm = false;
+						victim->tortoiseDamageTaken = 0;
+						victim->discardPile.push_back(victim->tortoiseFormCard);
+						spawnFloatingText(gridToWorld(victim->x, victim->y), "Form Broken!", ofColor::darkGreen);
+					}
+				}
+			}
+
+			// --- DISPLACEMENT LOGIC ---
+			// Try pushing back: WallNewPos + Dir
+			glm::ivec2 pushDest1 = wallNewPos + magicHandPushDir;
+			glm::ivec2 side1, side2;
+
+			// Calc sides relative to push dir
+			if (magicHandPushDir.x != 0) { // Moving Horiz, sides are Vert
+				side1 = wallNewPos + glm::ivec2(0, 1);
+				side2 = wallNewPos + glm::ivec2(0, -1);
+			} else { // Moving Vert, sides are Horiz
+				side1 = wallNewPos + glm::ivec2(1, 0);
+				side2 = wallNewPos + glm::ivec2(-1, 0);
+			}
+
+			auto isValid = [&](glm::ivec2 p) {
+				if (p.x < 0 || p.x >= BOARD_WIDTH || p.y < 0 || p.y >= BOARD_HEIGHT) return false;
+				if (board[p.x][p.y].hasWall || board[p.x][p.y].hasPlayer) return false;
+				return true;
+			};
+
+			glm::ivec2 finalDest = { -1, -1 };
+
+			if (isValid(pushDest1))
+				finalDest = pushDest1;
+			else if (isValid(side1))
+				finalDest = side1;
+			else if (isValid(side2))
+				finalDest = side2;
+
+			if (finalDest.x != -1) {
+				// Move Victim
+				board[victim->x][victim->y].hasPlayer = false;
+				victim->x = finalDest.x;
+				victim->y = finalDest.y;
+				board[victim->x][victim->y].hasPlayer = true;
+				spawnFloatingText(gridToWorld(victim->x, victim->y), "Pushed!", ofColor::yellow);
+			} else {
+				// SQUISH
+				spawnFloatingText(gridToWorld(victim->x, victim->y), "CRUSHED!", ofColor::darkRed);
+				victim->health = 0;
+			}
+
+			// Death Check
+			if (victim->health <= 0) {
+				// Standard death logic (create grave, remove from vector, fix indices)
+				// (Copy existing death logic here or extract to function)
+				DeathMarker death;
+				death.x = victim->x;
+				death.y = victim->y;
+				death.turnDied = globalTurnCounter;
+				death.deck = victim->deck;
+				graveyard.push_back(death);
+				board[victim->x][victim->y].hasPlayer = false;
+
+				// Erase Logic... (See previous earthquake death logic for reference)
+				players.erase(players.begin() + magicHandPushedUnitIndex);
+				if (currentPlayerIndex == magicHandPushedUnitIndex)
+					currentPlayerIndex = std::min<int>(magicHandPushedUnitIndex, (int)players.size() - 1);
+				else if (currentPlayerIndex > magicHandPushedUnitIndex)
+					currentPlayerIndex--;
+				// Note: if multiple units die or indices shift, this gets complex.
+				// For simplified single target push, this suffices.
+			}
+		}
+
+		invalidateTargetCache();
+	}
+
 	// --- MAGIC BLAST RESOLUTION ---
 	if (isWaitingForMagicBlastDice && activeDiceRolls.empty()) {
 		isWaitingForMagicBlastDice = false;
@@ -5108,6 +5248,11 @@ void ofApp::drawGame() {
 		titleFont.drawString(msg, tx, ty);
 	}
 
+	// --- Draw Magic Hand UI ---
+	if (isMagicHandMenuOpen) {
+		drawMagicHandUI();
+	}
+
 	// --- Draw Amnesia Selection UI ---
 	if (isAmnesiaSelectionActive) {
 		// This uses the same dynamic layout logic
@@ -6400,6 +6545,28 @@ void ofApp::mousePressed(int x, int y, int button) {
 					resolveDoubleHanded(pendingDoubleHandedChoice);
 				}
 			}
+		}
+		return;
+	}
+
+	// --- Giant Magic Hand Menu ---
+	if (isMagicHandMenuOpen && button == OF_MOUSE_BUTTON_LEFT) {
+		float w = 500, h = 250;
+		float mx = ofGetWidth() / 2 - w / 2, my = ofGetHeight() / 2 - h / 2;
+		float btnW = 200, btnH = 80;
+		float spacing = 40;
+		float startX = mx + (w - (btnW * 2 + spacing)) / 2;
+		float btnY = my + 120;
+
+		ofRectangle btnPush(startX, btnY, btnW, btnH);
+		ofRectangle btnPull(startX + btnW + spacing, btnY, btnW, btnH);
+
+		if (btnPush.inside(x, y)) {
+			resolveMagicHandPush();
+		} else if (btnPull.inside(x, y)) {
+			resolveMagicHandPull();
+		} else if (!wisdomMenuRect.inside(x, y)) {
+			cancelMagicHand();
 		}
 		return;
 	}
@@ -9772,6 +9939,26 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		break;
 	}
 
+		// --- CASE: GIANT MAGIC HAND ---
+	case CARD_GIANT_MAGIC_HAND: {
+		// Must target a wall
+		if (!board[targetX][targetY].hasWall) break;
+
+		// Save state and open UI
+		pendingMagicHandCardIndex = cardIndex;
+		magicHandTargetTile = { targetX, targetY };
+		isMagicHandMenuOpen = true;
+
+		// Define UI Rect
+		float w = 500, h = 250;
+		float mx = ofGetWidth() / 2 - w / 2, my = ofGetHeight() / 2 - h / 2;
+		// Re-use wisdom menu rect variable or create new one. Let's reuse wisdomMenuRect for layout simplicity
+		wisdomMenuRect.set(mx, my, w, h);
+
+		// Do not set playedSuccessfully yet
+		break;
+	}
+
 		// --- CASE: MASTER FIST ---
 	case CARD_MASTER_FIST: {
 		int targetIndex = -1;
@@ -10535,6 +10722,17 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 								isValidTarget = true;
 							}
 						}
+					}
+				}
+				break;
+			}
+
+			case TARGET_ADJACENT_WALL: {
+				int dist = abs(x - px) + abs(y - py);
+				if (dist == 1) {
+					if (board[x][y].hasWall) {
+						isPreview = true;
+						isValidTarget = true;
 					}
 				}
 				break;
@@ -11351,7 +11549,57 @@ void ofApp::drawAmnesiaMenuUI() {
 	ofRectangle adjBox = uiFont.getStringBoundingBox(adjLabel, 0, 0);
 	uiFont.drawString(adjLabel, amnesiaBtnAdjacent.getCenter().x - adjBox.width / 2, amnesiaBtnAdjacent.getCenter().y + 5);
 }
+//--------------------------------------------------------------
+void ofApp::drawMagicHandUI() {
+	ofEnableBlendMode(OF_BLENDMODE_ALPHA);
+	ofSetColor(0, 0, 0, 180);
+	ofDrawRectangle(0, 0, ofGetWidth(), ofGetHeight());
 
+	ofSetColor(60, 40, 20, 255); // Earthy brown background
+	ofDrawRectRounded(wisdomMenuRect, 15);
+
+	ofSetColor(ofColor::white);
+	string title = "Giant Magic Hand";
+	ofRectangle titleBox = uiFont.getStringBoundingBox(title, 0, 0);
+	uiFont.drawString(title, wisdomMenuRect.getCenter().x - titleBox.width / 2, wisdomMenuRect.y + 50);
+
+	// Calculate Buttons
+	float btnW = 200, btnH = 80;
+	float spacing = 40;
+	float startX = wisdomMenuRect.x + (wisdomMenuRect.width - (btnW * 2 + spacing)) / 2;
+	float btnY = wisdomMenuRect.y + 120;
+
+	// We can reuse existing button rects from other menus or define temporary ones for click detection
+	ofRectangle btnPush(startX, btnY, btnW, btnH);
+	ofRectangle btnPull(startX + btnW + spacing, btnY, btnW, btnH);
+
+	// Draw Push
+	ofSetColor(ofColor::indianRed);
+	ofDrawRectRounded(btnPush, 10);
+	ofSetColor(ofColor::white);
+	string pushTxt = "PUSH";
+	ofRectangle pBox = uiFont.getStringBoundingBox(pushTxt, 0, 0);
+	uiFont.drawString(pushTxt, btnPush.getCenter().x - pBox.width / 2, btnPush.getCenter().y + pBox.height / 2);
+
+	// Draw Pull
+	ofSetColor(ofColor::royalBlue);
+	ofDrawRectRounded(btnPull, 10);
+	ofSetColor(ofColor::white);
+	string pullTxt = "PULL";
+	ofRectangle plBox = uiFont.getStringBoundingBox(pullTxt, 0, 0);
+	uiFont.drawString(pullTxt, btnPull.getCenter().x - plBox.width / 2, btnPull.getCenter().y + plBox.height / 2);
+
+	// Subtext
+	ofSetColor(200, 200, 200);
+	string sub = "Push: Dmg units behind | Pull: Move back";
+	ofRectangle sBox = uiFont.getStringBoundingBox(sub, 0, 0);
+	// Scale down
+	ofPushMatrix();
+	ofTranslate(wisdomMenuRect.getCenter().x - (sBox.width * 0.7) / 2, wisdomMenuRect.y + 90);
+	ofScale(0.7, 0.7);
+	uiFont.drawString(sub, 0, 0);
+	ofPopMatrix();
+}
 //--------------------------------------------------------------
 void ofApp::drawCardSpawnerUI() {
 	ofEnableBlendMode(OF_BLENDMODE_ALPHA);
@@ -12344,6 +12592,7 @@ CardType ofApp::stringToCardType(const std::string & str) {
 	if (str == "CARD_PSIONIC_WAVE") return CARD_PSIONIC_WAVE;
 	if (str == "CARD_EARTHQUAKE") return CARD_EARTHQUAKE;
 	if (str == "CARD_FORM_OF_GHOST") return CARD_FORM_OF_GHOST;
+	if (str == "CARD_GIANT_MAGIC_HAND") return CARD_GIANT_MAGIC_HAND;
 
 	return CARD_NONE;
 }
@@ -12358,6 +12607,7 @@ TargetingType ofApp::stringToTargetingType(const std::string & str) {
 	if (str == "TARGET_ADJACENT_UNIT_OR_WALL") return TARGET_ADJACENT_UNIT_OR_WALL;
 	if (str == "TARGET_EMPTY_ADJACENT") return TARGET_EMPTY_ADJACENT;
 	if (str == "TARGET_EMPTY_TILE") return TARGET_EMPTY_TILE;
+	if (str == "TARGET_ADJACENT_WALL") return TARGET_ADJACENT_WALL;
 	return TARGET_NONE;
 }
 
@@ -12784,4 +13034,131 @@ void ofApp::drawMinionManagerUI() {
 			statusY -= lineHeight;
 		}
 	} // End of loop
+}
+//--------------------------------------------------------------
+void ofApp::cancelMagicHand() {
+	isMagicHandMenuOpen = false;
+	pendingMagicHandCardIndex = -1;
+}
+
+void ofApp::resolveMagicHandPull() {
+	Player & caster = players[currentPlayerIndex];
+	glm::ivec2 wallPos = magicHandTargetTile;
+	glm::ivec2 casterPos = { caster.x, caster.y };
+
+	// Direction from Caster -> Wall
+	glm::ivec2 dir = wallPos - casterPos;
+
+	// Position BEHIND caster
+	glm::ivec2 backPos = casterPos - dir;
+
+	// Check bounds and occupancy for backPos
+	bool isValid = true;
+	if (backPos.x < 0 || backPos.x >= BOARD_WIDTH || backPos.y < 0 || backPos.y >= BOARD_HEIGHT)
+		isValid = false;
+	else if (board[backPos.x][backPos.y].hasWall || board[backPos.x][backPos.y].hasPlayer)
+		isValid = false;
+
+	if (!isValid) {
+		spawnFloatingText(gridToWorld(caster.x, caster.y), "Blocked Behind!", ofColor::red);
+		return; // Don't close menu, allow retry or cancel
+	}
+
+	// Execute Pull
+	// 1. Move Caster to BackPos
+	board[caster.x][caster.y].hasPlayer = false;
+	caster.x = backPos.x;
+	caster.y = backPos.y;
+	board[caster.x][caster.y].hasPlayer = true;
+	playerVisualPos = gridToWorld(caster.x, caster.y);
+
+	// 2. Move Wall to Caster's Old Pos
+	board[wallPos.x][wallPos.y].hasWall = false;
+	board[casterPos.x][casterPos.y].hasWall = true;
+	if (board[wallPos.x][wallPos.y].isMagicWall) {
+		board[casterPos.x][casterPos.y].isMagicWall = true;
+		board[wallPos.x][wallPos.y].isMagicWall = false;
+	}
+
+	// 3. Finalize
+	buildLevelMesh();
+
+	currentAP -= players[currentPlayerIndex].hand[pendingMagicHandCardIndex].cost;
+	players[currentPlayerIndex].playedCardsPile.push_back(players[currentPlayerIndex].hand[pendingMagicHandCardIndex]);
+	players[currentPlayerIndex].hand.erase(players[currentPlayerIndex].hand.begin() + pendingMagicHandCardIndex);
+
+	isMagicHandMenuOpen = false;
+	invalidateTargetCache();
+}
+
+void ofApp::resolveMagicHandPush() {
+	Player & caster = players[currentPlayerIndex];
+	glm::ivec2 wallPos = magicHandTargetTile;
+	glm::ivec2 casterPos = { caster.x, caster.y };
+	glm::ivec2 dir = wallPos - casterPos;
+	glm::ivec2 targetPos = wallPos + dir; // Where the wall goes
+
+	// Check bounds
+	if (targetPos.x < 0 || targetPos.x >= BOARD_WIDTH || targetPos.y < 0 || targetPos.y >= BOARD_HEIGHT) {
+		spawnFloatingText(gridToWorld(wallPos.x, wallPos.y), "Edge of World!", ofColor::red);
+		return;
+	}
+
+	// Check if target has another wall
+	if (board[targetPos.x][targetPos.y].hasWall) {
+		spawnFloatingText(gridToWorld(wallPos.x, wallPos.y), "Blocked by Wall!", ofColor::red);
+		return;
+	}
+
+	// Check for Unit
+	if (board[targetPos.x][targetPos.y].hasPlayer) {
+		// Find the unit
+		for (size_t i = 0; i < players.size(); i++) {
+			if (players[i].x == targetPos.x && players[i].y == targetPos.y) {
+				magicHandPushedUnitIndex = (int)i;
+				break;
+			}
+		}
+
+		// Start Damage Roll (2d4 Physical)
+		magicHandPushDir = dir;
+		pendingMagicHandRollResult = startDiceRoll(2, 4, PURPOSE_MAGIC_HAND_DAMAGE, "Magic Hand Crush");
+		isWaitingForMagicHandDamage = true;
+
+		// Pay cost now
+		currentAP -= caster.hand[pendingMagicHandCardIndex].cost;
+		caster.playedCardsPile.push_back(caster.hand[pendingMagicHandCardIndex]);
+		caster.hand.erase(caster.hand.begin() + pendingMagicHandCardIndex);
+
+		isMagicHandMenuOpen = false;
+
+		// Move Caster and Wall happens AFTER dice logic to sync animations
+		return;
+	}
+
+	// Empty Space: Just Move
+	board[caster.x][caster.y].hasPlayer = false;
+
+	// Move Caster to Wall Pos
+	caster.x = wallPos.x;
+	caster.y = wallPos.y;
+	board[caster.x][caster.y].hasPlayer = true;
+	playerVisualPos = gridToWorld(caster.x, caster.y);
+
+	// Move Wall to Target Pos
+	board[wallPos.x][wallPos.y].hasWall = false;
+	board[targetPos.x][targetPos.y].hasWall = true;
+	if (board[wallPos.x][wallPos.y].isMagicWall) {
+		board[targetPos.x][targetPos.y].isMagicWall = true;
+		board[wallPos.x][wallPos.y].isMagicWall = false;
+	}
+
+	buildLevelMesh();
+
+	currentAP -= caster.hand[pendingMagicHandCardIndex].cost;
+	caster.playedCardsPile.push_back(caster.hand[pendingMagicHandCardIndex]);
+	caster.hand.erase(caster.hand.begin() + pendingMagicHandCardIndex);
+
+	isMagicHandMenuOpen = false;
+	invalidateTargetCache();
 }

@@ -71,7 +71,8 @@ enum TargetingType {
 	TARGET_LINE_OF_SIGHT_TILE,
 	TARGET_BURST_AREA,
 	TARGET_ADJACENT_UNIT_OR_WALL,
-	TARGET_EMPTY_ADJACENT
+	TARGET_EMPTY_ADJACENT,
+	TARGET_ADJACENT_WALL
 };
 
 enum CardType {
@@ -127,7 +128,8 @@ enum CardType {
 	CARD_INSPIRATION,
 	CARD_PSIONIC_WAVE,
 	CARD_EARTHQUAKE,
-	CARD_FORM_OF_GHOST
+	CARD_FORM_OF_GHOST,
+	CARD_GIANT_MAGIC_HAND
 };
 
 enum DicePurpose {
@@ -148,7 +150,8 @@ enum DicePurpose {
 	PURPOSE_PSIONIC_WAVE_RANGE,
 	PURPOSE_PSIONIC_WAVE_AMOUNT,
 	PURPOSE_EARTHQUAKE_DISTANCE,
-	PURPOSE_EARTHQUAKE_DAMAGE
+	PURPOSE_EARTHQUAKE_DAMAGE,
+	PURPOSE_MAGIC_HAND_DAMAGE
 };
 
 enum TargetValidity {
@@ -798,6 +801,15 @@ private:
 	int magicBoltCardIndex = -1;
 	glm::vec2 pendingMagicBoltTargetTile;
 
+	// --- Giant Magic Hand ---
+	bool isMagicHandMenuOpen = false;
+	glm::ivec2 magicHandTargetTile;
+	int pendingMagicHandCardIndex = -1;
+	bool isWaitingForMagicHandDamage = false;
+	int magicHandPushedUnitIndex = -1;
+	glm::ivec2 magicHandPushDir;
+	int pendingMagicHandRollResult = 0;
+
 	// Flail
 	bool isWaitingForFlailDice = false;
 	int pendingFlailRollResult = 0;
@@ -827,6 +839,11 @@ private:
 	void drawAmnesiaMenuUI();
 	void drawCardSpawnerUI();
 	void drawCardEncyclopediaUI();
+	// UI Functions
+	void drawMagicHandUI();
+	void resolveMagicHandPull();
+	void resolveMagicHandPush();
+	void cancelMagicHand();
 
 	// Status Effects
 	bool isWaitingForOnFireDice = false;
