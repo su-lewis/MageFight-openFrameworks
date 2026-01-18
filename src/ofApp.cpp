@@ -9375,7 +9375,7 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 			currentPlayer.deck.pop_back();
 
 			// Check if drawn card is hand-related
-			bool isHandRelated = (drawnCard.name == "Punch" || drawnCard.name == "Hand Block" || drawnCard.name == "Bash" || drawnCard.name == "Drain Punch" || drawnCard.name == "Double Handed" || drawnCard.name == "Master Fist" || drawnCard.name == "Flurry of Fists");
+			bool isHandRelated = (drawnCard.name == "Punch" || drawnCard.name == "Hand Block" || drawnCard.name == "Bash" || drawnCard.name == "Drain Punch" || drawnCard.name == "Double Handed" || drawnCard.name == "Master Fist" || drawnCard.name == "Flurry of Fists" || drawnCard.name == "Giant Magic Hand");
 
 			if (isHandRelated) {
 				// Make it cost 0 AP this turn
@@ -9395,7 +9395,7 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 			Card drawnCard = currentPlayer.deck.back();
 			currentPlayer.deck.pop_back();
 
-			bool isHandRelated = (drawnCard.name == "Punch" || drawnCard.name == "Hand Block" || drawnCard.name == "Bash" || drawnCard.name == "Drain Punch" || drawnCard.name == "Double Handed" || drawnCard.name == "Master Fist" || drawnCard.name == "Flurry of Fists");
+			bool isHandRelated = (drawnCard.name == "Punch" || drawnCard.name == "Hand Block" || drawnCard.name == "Bash" || drawnCard.name == "Drain Punch" || drawnCard.name == "Double Handed" || drawnCard.name == "Master Fist" || drawnCard.name == "Flurry of Fists" || drawnCard.name == "Giant Magic Hand");
 
 			if (isHandRelated) {
 				drawnCard.cost = 0;
@@ -9640,7 +9640,7 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 			// Hand-related attack cards: Punch, Bash, Drain Punch, Master Fist, Flurry of Fists
 			// (Double Handed and Hand Block are NOT attacks)
 			for (const auto & c : currentPlayer.playedCardsPile) {
-				if (c.name == "Punch" || c.name == "Bash" || c.name == "Drain Punch" || c.name == "Master Fist" || c.name == "Flurry of Fists") {
+				if (c.name == "Punch" || c.name == "Bash" || c.name == "Drain Punch" || c.name == "Master Fist" || c.name == "Flurry of Fists" || c.name == "Giant Magic Hand") {
 					damage += 2;
 				}
 			}
@@ -9973,24 +9973,23 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 			Player * target = getPlayer(targetIndex);
 
 			// --- 1. Calculate Combo Damage ---
-			int damage = playedCard.value; // Base damage (2)
+			int damage = 0; // Starts at 0 (Removed base 2)
 			int handCardsInDiscard = 0;
 
 			// Define which cards count as "hand-related" attack cards
-			// (Double Handed and Hand Block are NOT attacks)
-			std::vector<std::string> handAttackNames = { "Punch", "Bash", "Drain Punch", "Master Fist", "Flurry of Fists" };
+			std::vector<std::string> handAttackNames = { "Punch", "Bash", "Drain Punch", "Master Fist", "Flurry of Fists", "Giant Magic Hand" };
 
 			// Count matching cards in the caster's discard pile
 			for (const auto & cardInPile : currentPlayer.discardPile) {
 				for (const auto & name : handAttackNames) {
 					if (cardInPile.name == name) {
 						handCardsInDiscard++;
-						break; // Move to next card in pile
+						break;
 					}
 				}
 			}
 
-			damage += (handCardsInDiscard * 2);
+			damage = (handCardsInDiscard * 2);
 			ofLogNotice("Master Fist") << "Found " << handCardsInDiscard << " hand cards in discard. Total damage: " << damage;
 
 			// Double damage if Flurry of Fists is active
@@ -10006,7 +10005,11 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 			}
 
 			// --- 2. Apply Damage ---
-			applyDamage(*target, damage, DAMAGE_PHYSICAL);
+			if (damage > 0) {
+				applyDamage(*target, damage, DAMAGE_PHYSICAL);
+			} else {
+				spawnFloatingText(gridToWorld(target->x, target->y), "0 Damage (Empty Discard)", ofColor::gray);
+			}
 
 			// Apply poison if buff was active
 			if (applyPoisonBuff) {
@@ -10022,30 +10025,33 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 
 			// --- 3. Mill Target's Top Card ---
 			if (!target->deck.empty()) {
-				// We need the card data for the animation
 				Card removedCard = target->deck.back();
 				target->deck.pop_back();
-			} // If deck is empty, do nothing
 
-			// (Animation and floating text only inside the if-block above)
+				// Visuals for Mill
+				RemovedCardAnimation anim;
+				anim.card = removedCard;
+				anim.startPos = gridToWorld(target->x, target->y);
+				anim.startTime = ofGetElapsedTimef();
+				anim.currentScale = 1.0f;
+				activeRemovedCardAnimations.push_back(anim);
+
+				spawnFloatingText(gridToWorld(target->x, target->y) + glm::vec3(0, 1.0f, 0), "Milled!", ofColor::purple);
+			}
 		}
 
 		// --- 4. Buff the Caster ---
-		// +1 Luck
 		currentPlayer.luck++;
 		spawnFloatingText(
 			gridToWorld(currentPlayer.x, currentPlayer.y),
 			"+1 LUCK!",
 			ofColor::gold);
 
-		// +1 Max HP (and heal for 1)
 		currentPlayer.maxHealth++;
 		spawnFloatingText(
 			gridToWorld(currentPlayer.x, currentPlayer.y),
 			"+1 Max HP!",
 			ofColor::limeGreen);
-
-		ofLogNotice("Master Fist") << "Caster gained +1 Luck and +1 Max HP.";
 
 		playedSuccessfully = true;
 		break;
