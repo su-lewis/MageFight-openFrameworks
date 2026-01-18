@@ -2314,10 +2314,10 @@ void ofApp::updateGame() {
 				int n = (int)earthquakeUnits.size();
 
 				// 1. Setup Simulation State
-				std::vector<int> damageDiceCount(n, 0); 
-				std::vector<glm::ivec2> currentPos(n);  
-				std::vector<glm::ivec2> intendedPos(n); 
-				std::vector<bool> isStopped(n, false); 
+				std::vector<int> damageDiceCount(n, 0);
+				std::vector<glm::ivec2> currentPos(n);
+				std::vector<glm::ivec2> intendedPos(n);
+				std::vector<bool> isStopped(n, false);
 
 				// Initialize State
 				for (int i = 0; i < n; ++i) {
@@ -2384,9 +2384,9 @@ void ofApp::updateGame() {
 						}
 
 						if (crashThisLoop) {
-							isStopped[i] = true;        
-							intendedPos[i] = currentPos[i]; 
-							newCrashFound = true;       
+							isStopped[i] = true;
+							intendedPos[i] = currentPos[i];
+							newCrashFound = true;
 						}
 					}
 				}
@@ -2412,7 +2412,7 @@ void ofApp::updateGame() {
 						int beforeIdx = (int)activeDiceRolls.size();
 						startDiceRoll(damageDiceCount[i], 4, PURPOSE_EARTHQUAKE_DAMAGE, "");
 						int afterIdx = (int)activeDiceRolls.size();
-						
+
 						if (afterIdx > beforeIdx) {
 							int newIdx = afterIdx - 1;
 							activeDiceRolls[newIdx].associatedUnit = earthquakeUnits[i].playerIndex;
@@ -2482,8 +2482,10 @@ void ofApp::updateGame() {
 							players[unit.playerIndex].y = unit.startGrid.y;
 						}
 
-						if (unit.tilesToMove > 0) roundComplete = false;
-						else unit.isMoving = false;
+						if (unit.tilesToMove > 0)
+							roundComplete = false;
+						else
+							unit.isMoving = false;
 					}
 				}
 
@@ -2498,7 +2500,7 @@ void ofApp::updateGame() {
 						players[pi].y = std::max(0, std::min(BOARD_HEIGHT - 1, players[pi].y));
 						board[players[pi].x][players[pi].y].hasPlayer = true;
 					}
-					
+
 					if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) {
 						playerVisualPos = gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y);
 					}
@@ -2562,15 +2564,23 @@ void ofApp::updateGame() {
 									}
 									players.erase(players.begin() + uidx);
 									for (auto eit = earthquakeUnits.begin(); eit != earthquakeUnits.end();) {
-										if (eit->playerIndex == uidx) eit = earthquakeUnits.erase(eit);
-										else { if (eit->playerIndex > uidx) eit->playerIndex--; ++eit; }
+										if (eit->playerIndex == uidx)
+											eit = earthquakeUnits.erase(eit);
+										else {
+											if (eit->playerIndex > uidx) eit->playerIndex--;
+											++eit;
+										}
 									}
 									for (auto & r : activeDiceRolls) {
-										if (r.associatedUnit == uidx) r.associatedUnit = -1;
-										else if (r.associatedUnit > uidx) r.associatedUnit--;
+										if (r.associatedUnit == uidx)
+											r.associatedUnit = -1;
+										else if (r.associatedUnit > uidx)
+											r.associatedUnit--;
 									}
-									if (currentPlayerIndex == uidx) currentPlayerIndex = std::min<int>(uidx, (int)players.size() - 1);
-									else if (currentPlayerIndex > uidx) currentPlayerIndex--;
+									if (currentPlayerIndex == uidx)
+										currentPlayerIndex = std::min<int>(uidx, (int)players.size() - 1);
+									else if (currentPlayerIndex > uidx)
+										currentPlayerIndex--;
 								}
 							}
 						}
@@ -2580,7 +2590,7 @@ void ofApp::updateGame() {
 				}
 				++it;
 			}
-			return; 
+			return;
 		}
 	}
 
@@ -7031,23 +7041,48 @@ void ofApp::mousePressed(int x, int y, int button) {
 			// Clicked Move Destination?
 			if (playerAction == PIECE_SELECTED) {
 				if (board[gridX][gridY].isHighlighted && !hoverPath.empty()) {
-					int moveAPCost = static_cast<int>(hoverPath.size()) - 1;
-					if (currentAP >= moveAPCost) {
-						currentAP -= moveAPCost;
-						board[currentPlayer.x][currentPlayer.y].hasPlayer = false;
-						board[gridX][gridY].hasPlayer = true;
-						currentPlayer.x = gridX;
-						currentPlayer.y = gridY;
 
-						// Start Animation
-						animationPath.clear();
-						currentPathIndex = 0;
-						animationPath.push_back(playerVisualPos);
-						for (size_t p = 1; p < hoverPath.size(); ++p) {
-							animationPath.push_back(gridToWorld((int)hoverPath[p].x, (int)hoverPath[p].y));
+					// --- GHOST WALL LOGIC: Check if destination is valid ---
+					bool isWall = board[gridX][gridY].hasWall;
+					bool canEnter = !isWall; // Normal units can't enter walls
+
+					// Ghosts can enter walls IF they have enough AP to exit (AP > 1)
+					// or if it's just a pass-through (handled by pathfinding).
+					// But for the final click, we rely on isHighlighted (which already checks AP logic).
+					if (currentPlayer.inGhostForm) canEnter = true;
+
+					if (canEnter) {
+						int moveAPCost = static_cast<int>(hoverPath.size()) - 1;
+
+						if (currentAP >= moveAPCost) {
+							currentAP -= moveAPCost;
+
+							// Update Board Occupancy
+							// If we leave a wall, we don't clear the wall flag, just the player flag
+							board[currentPlayer.x][currentPlayer.y].hasPlayer = false;
+
+							// If we enter a wall, we don't overwrite the wall flag, just add the player flag
+							// Note: board[x][y].hasPlayer doesn't conflict with hasWall logic elsewhere for Ghosts
+							board[gridX][gridY].hasPlayer = true;
+
+							currentPlayer.x = gridX;
+							currentPlayer.y = gridY;
+
+							// Start Animation
+							animationPath.clear();
+							currentPathIndex = 0;
+							animationPath.push_back(playerVisualPos);
+							for (size_t p = 1; p < hoverPath.size(); ++p) {
+								animationPath.push_back(gridToWorld((int)hoverPath[p].x, (int)hoverPath[p].y));
+							}
+							if (!animationPath.empty()) isPlayerAnimating = true;
+
+							// Ghost Death Check: If ending turn in wall (handled in End Turn button),
+							// but here we just moved. If they run out of AP inside a wall, they might be stuck.
+							// The highlight logic prevents entering if AP <= 1, so they should be safe.
+
+							invalidateTargetCache();
 						}
-						if (!animationPath.empty()) isPlayerAnimating = true;
-						invalidateTargetCache();
 					}
 				}
 				playerAction = NONE;
@@ -7903,13 +7938,27 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 	auto applyDamage = [&](Player & target, int damage, DamageType type) -> bool {
 		string typeLabel = "";
 		switch (type) {
-		case DAMAGE_PHYSICAL: typeLabel = " Physical"; break;
-		case DAMAGE_PIERCING: typeLabel = " Piercing"; break;
-		case DAMAGE_MAGIC:    typeLabel = " Magic"; break;
-		case DAMAGE_ELECTRIC: typeLabel = " Electric"; break;
-		case DAMAGE_FIRE:     typeLabel = " Fire"; break;
-		case DAMAGE_POISON:   typeLabel = " Poison"; break;
-		case DAMAGE_HOLY:     typeLabel = " Holy"; break;
+		case DAMAGE_PHYSICAL:
+			typeLabel = " Physical";
+			break;
+		case DAMAGE_PIERCING:
+			typeLabel = " Piercing";
+			break;
+		case DAMAGE_MAGIC:
+			typeLabel = " Magic";
+			break;
+		case DAMAGE_ELECTRIC:
+			typeLabel = " Electric";
+			break;
+		case DAMAGE_FIRE:
+			typeLabel = " Fire";
+			break;
+		case DAMAGE_POISON:
+			typeLabel = " Poison";
+			break;
+		case DAMAGE_HOLY:
+			typeLabel = " Holy";
+			break;
 		}
 
 		int calculatedDamage = damage;
@@ -7939,7 +7988,7 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 			}
 			return false;
 		};
-		
+
 		int wallEffectCount = 0;
 		Player * attackerPtr = nullptr;
 		if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) {
@@ -7951,16 +8000,18 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 			attackerNearWall = isAdjacentOrDiagonalToMagicWall(attackerPtr->x, attackerPtr->y);
 		}
 		wallEffectCount = (targetNearWall ? 1 : 0) + (attackerNearWall ? 1 : 0);
-		
+
 		if (type == DAMAGE_MAGIC && wallEffectCount > 0) {
-			calculatedDamage *= (1 << wallEffectCount); 
-			for (int i = 0; i < wallEffectCount; ++i) 
+			calculatedDamage *= (1 << wallEffectCount);
+			for (int i = 0; i < wallEffectCount; ++i)
 				spawnFloatingText(gridToWorld(target.x, target.y), "Magic Wall: x2 Magic", ofColor::purple);
 		} else if (type == DAMAGE_PHYSICAL && wallEffectCount > 0) {
 			for (int i = 0; i < wallEffectCount; ++i) {
 				calculatedDamage /= 2;
-				if (i == 0 && targetNearWall) spawnFloatingText(gridToWorld(target.x, target.y), "Magic Wall: 1/2 Phys", ofColor::purple);
-				else if (i == 1 && attackerNearWall) spawnFloatingText(gridToWorld(attackerPtr->x, attackerPtr->y), "Magic Wall: 1/2 Phys", ofColor::purple);
+				if (i == 0 && targetNearWall)
+					spawnFloatingText(gridToWorld(target.x, target.y), "Magic Wall: 1/2 Phys", ofColor::purple);
+				else if (i == 1 && attackerNearWall)
+					spawnFloatingText(gridToWorld(attackerPtr->x, attackerPtr->y), "Magic Wall: 1/2 Phys", ofColor::purple);
 			}
 		}
 
@@ -7971,8 +8022,18 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		}
 		if (type == DAMAGE_HOLY) {
 			bool hasVampireBite = false;
-			for (const auto & c : target.deck) if (c.type == CARD_VAMPIRE_BITE) { hasVampireBite = true; break; }
-			if (!hasVampireBite) { for (const auto & c : target.discardPile) if (c.type == CARD_VAMPIRE_BITE) { hasVampireBite = true; break; } }
+			for (const auto & c : target.deck)
+				if (c.type == CARD_VAMPIRE_BITE) {
+					hasVampireBite = true;
+					break;
+				}
+			if (!hasVampireBite) {
+				for (const auto & c : target.discardPile)
+					if (c.type == CARD_VAMPIRE_BITE) {
+						hasVampireBite = true;
+						break;
+					}
+			}
 			if (hasVampireBite) {
 				calculatedDamage *= 2;
 				spawnFloatingText(gridToWorld(target.x, target.y), "Vampire Curse: x2 Holy", ofColor::orange);
@@ -7980,10 +8041,14 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		}
 		if (type == DAMAGE_PIERCING) {
 			bool hasWolfCall = false;
-			for (const auto & c : target.hand) if (c.type == CARD_CALL_FOR_WOLVES) hasWolfCall = true;
-			for (const auto & c : target.deck) if (c.type == CARD_CALL_FOR_WOLVES) hasWolfCall = true;
-			for (const auto & c : target.discardPile) if (c.type == CARD_CALL_FOR_WOLVES) hasWolfCall = true;
-			for (const auto & c : target.playedCardsPile) if (c.type == CARD_CALL_FOR_WOLVES) hasWolfCall = true;
+			for (const auto & c : target.hand)
+				if (c.type == CARD_CALL_FOR_WOLVES) hasWolfCall = true;
+			for (const auto & c : target.deck)
+				if (c.type == CARD_CALL_FOR_WOLVES) hasWolfCall = true;
+			for (const auto & c : target.discardPile)
+				if (c.type == CARD_CALL_FOR_WOLVES) hasWolfCall = true;
+			for (const auto & c : target.playedCardsPile)
+				if (c.type == CARD_CALL_FOR_WOLVES) hasWolfCall = true;
 			if (hasWolfCall) {
 				calculatedDamage *= 2;
 				spawnFloatingText(gridToWorld(target.x, target.y), "Curse: x2 Dmg!", ofColor::orange);
@@ -8046,7 +8111,7 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 					target.ghostDamageTaken = 0;
 					target.discardPile.push_back(target.ghostFormCard);
 					spawnFloatingText(targetPos + glm::vec3(0, 0.5f, 0), "Ghost Form Broken!", ofColor::white);
-					
+
 					// Instant death if materializing in a wall
 					if (board[target.x][target.y].hasWall) {
 						target.health = 0;
@@ -10294,14 +10359,22 @@ void ofApp::clearHighlights() {
 //--------------------------------------------------------------
 std::vector<glm::vec2> ofApp::findShortestPath(glm::vec2 start, glm::vec2 end) {
 	std::vector<glm::vec2> path;
+
+	// Reset
 	for (int i = 0; i < BOARD_WIDTH; i++)
 		for (int j = 0; j < BOARD_HEIGHT; j++) {
 			board[i][j].visited = false;
 			board[i][j].parent = { -1, -1 };
 		}
+
 	std::queue<glm::vec2> q;
 	q.push(start);
 	board[(int)start.x][(int)start.y].visited = true;
+
+	// Ghost Check
+	Player & p = players[currentPlayerIndex];
+	bool isGhost = p.inGhostForm;
+
 	bool found = false;
 	while (!q.empty()) {
 		glm::vec2 current = q.front();
@@ -10313,10 +10386,18 @@ std::vector<glm::vec2> ofApp::findShortestPath(glm::vec2 start, glm::vec2 end) {
 		glm::vec2 neighbors[4] = { { current.x, current.y + 1 }, { current.x, current.y - 1 }, { current.x + 1, current.y }, { current.x - 1, current.y } };
 		for (auto & neighbor : neighbors) {
 			int nx = neighbor.x, ny = neighbor.y;
-			if (nx >= 0 && nx < BOARD_WIDTH && ny >= 0 && ny < BOARD_HEIGHT && !board[nx][ny].visited && !board[nx][ny].hasWall && !board[nx][ny].hasPlayer) {
-				board[nx][ny].visited = true;
-				board[nx][ny].parent = current;
-				q.push(neighbor);
+			if (nx >= 0 && nx < BOARD_WIDTH && ny >= 0 && ny < BOARD_HEIGHT && !board[nx][ny].visited) {
+
+				// --- WALL CHECK ---
+				bool isBlocked = false;
+				if (board[nx][ny].hasPlayer) isBlocked = true; // Still blocked by other units
+				if (board[nx][ny].hasWall && !isGhost) isBlocked = true; // Blocked by wall if not Ghost
+
+				if (!isBlocked) {
+					board[nx][ny].visited = true;
+					board[nx][ny].parent = current;
+					q.push(neighbor);
+				}
 			}
 		}
 	}
@@ -10353,8 +10434,7 @@ void ofApp::calculateHighlights() {
 	q.push({ startPos, 0 });
 	board[(int)startPos.x][(int)startPos.y].visited = true;
 
-	// Get reference to current player for Ghost checks
-	Player & p = players[currentPlayerIndex];
+	Player & p = players[currentPlayerIndex]; // Get current player
 
 	while (!q.empty()) {
 		auto current = q.front();
@@ -10371,29 +10451,30 @@ void ofApp::calculateHighlights() {
 			int nx = neighbor.x, ny = neighbor.y;
 			int nextCost = currentCost + 1;
 
+			// Basic Bounds Check
 			if (nx >= 0 && nx < BOARD_WIDTH && ny >= 0 && ny < BOARD_HEIGHT && !board[nx][ny].visited && nextCost <= currentAP) {
 
-				// --- MOVEMENT LOGIC UPDATE ---
+				// --- GHOST WALL LOGIC ---
 				bool isWall = board[nx][ny].hasWall;
-				bool isOccupied = board[nx][ny].hasPlayer;
+				bool isOccupied = board[nx][ny].hasPlayer; // Occupied by another unit
 
-				bool canMove = false;
+				bool canEnter = false;
 
 				if (!isOccupied) {
 					if (!isWall) {
-						// Normal empty tile
-						canMove = true;
+						canEnter = true; // Normal empty tile
 					} else if (p.inGhostForm) {
-						// Ghost moving into Wall
-						// SOFTLOCK PREVENTION: Only allow moving INTO a wall if we have AP > 1
-						// (So we have at least 1 AP remaining to move out)
-						if (currentAP - currentCost > 1) {
-							canMove = true;
+						// Ghost entering wall: Allowed ONLY if they have > 1 AP remaining
+						// This ensures they can move *out* of the wall next step
+						// Current AP is total. nextCost is cost to reach *this* wall tile.
+						// So remaining AP = currentAP - nextCost.
+						if ((currentAP - nextCost) >= 1) {
+							canEnter = true;
 						}
 					}
 				}
 
-				if (canMove) {
+				if (canEnter) {
 					board[nx][ny].visited = true;
 					q.push({ neighbor, nextCost });
 				}
