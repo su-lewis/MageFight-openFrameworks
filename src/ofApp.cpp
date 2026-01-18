@@ -207,6 +207,10 @@ void ofApp::setup() {
 	ofLoadImage(wallTexture, "Board/wall.png");
 	wallTexture.setTextureMinMagFilter(GL_NEAREST, GL_NEAREST);
 
+	// Dark variant used when there's a wall to the north within 2 tiles
+	ofLoadImage(wallDarkTexture, "Board/wallDark.png");
+	wallDarkTexture.setTextureMinMagFilter(GL_NEAREST, GL_NEAREST);
+
 	// Load Floor Textures (Floor1.PNG to Floor6.PNG)
 	floorTextures.clear();
 	floorMeshes.clear();
@@ -3515,6 +3519,8 @@ void ofApp::updateGame() {
 void ofApp::buildLevelMesh() {
 	levelMesh.clear();
 	levelMesh.setMode(OF_PRIMITIVE_TRIANGLES);
+	levelMeshDark.clear();
+	levelMeshDark.setMode(OF_PRIMITIVE_TRIANGLES);
 
 	// 1. Settings
 	float size = TILE_SIZE;
@@ -3524,138 +3530,150 @@ void ofApp::buildLevelMesh() {
 	float height = TILE_SIZE * 0.5f; // 0.5f = Half Height. Try 0.3f for low walls, 0.8f for tall.
 	// ----------------------
 
-	// 2. Helper to add a 3D Block
-	auto addCube = [&](float x, float y, float z) {
-		int idx = levelMesh.getNumVertices();
-
-		// Coordinates relative to center
-		// Base is at y=0, Top is at y=height
-		glm::vec3 p1(-half, height, -half); // Top Left Back
-		glm::vec3 p2(half, height, -half); // Top Right Back
-		glm::vec3 p3(half, height, half); // Top Right Front
-		glm::vec3 p4(-half, height, half); // Top Left Front
-
-		glm::vec3 p5(-half, 0, -half); // Bot Left Back
-		glm::vec3 p6(half, 0, -half); // Bot Right Back
-		glm::vec3 p7(half, 0, half); // Bot Right Front
-		glm::vec3 p8(-half, 0, half); // Bot Left Front
-
+	// 2. Helpers to add top or side faces into a specific mesh
+	auto addTopTo = [&](ofMesh & meshTarget, float x, float y, float z) {
+		int idx = meshTarget.getNumVertices();
 		glm::vec3 offset(x, y, z);
-
-		// Standard UVs
+		glm::vec3 p1(-half, height, -half);
+		glm::vec3 p2(half, height, -half);
+		glm::vec3 p3(half, height, half);
+		glm::vec3 p4(-half, height, half);
 		glm::vec2 t00(0, 0), t10(1, 0), t11(1, 1), t01(0, 1);
-
-		// --- TOP FACE ---
-		levelMesh.addVertex(p1 + offset);
-		levelMesh.addTexCoord(t00);
-		levelMesh.addNormal({ 0, 1, 0 });
-		levelMesh.addVertex(p2 + offset);
-		levelMesh.addTexCoord(t10);
-		levelMesh.addNormal({ 0, 1, 0 });
-		levelMesh.addVertex(p3 + offset);
-		levelMesh.addTexCoord(t11);
-		levelMesh.addNormal({ 0, 1, 0 });
-		levelMesh.addVertex(p4 + offset);
-		levelMesh.addTexCoord(t01);
-		levelMesh.addNormal({ 0, 1, 0 });
-		levelMesh.addIndex(idx);
-		levelMesh.addIndex(idx + 1);
-		levelMesh.addIndex(idx + 2);
-		levelMesh.addIndex(idx);
-		levelMesh.addIndex(idx + 2);
-		levelMesh.addIndex(idx + 3);
-		idx += 4;
-
-		// --- NORTH FACE ---
-		levelMesh.addVertex(p2 + offset);
-		levelMesh.addTexCoord(t00);
-		levelMesh.addNormal({ 0, 0, -1 });
-		levelMesh.addVertex(p1 + offset);
-		levelMesh.addTexCoord(t10);
-		levelMesh.addNormal({ 0, 0, -1 });
-		levelMesh.addVertex(p5 + offset);
-		levelMesh.addTexCoord(t11);
-		levelMesh.addNormal({ 0, 0, -1 });
-		levelMesh.addVertex(p6 + offset);
-		levelMesh.addTexCoord(t01);
-		levelMesh.addNormal({ 0, 0, -1 });
-		levelMesh.addIndex(idx);
-		levelMesh.addIndex(idx + 1);
-		levelMesh.addIndex(idx + 2);
-		levelMesh.addIndex(idx);
-		levelMesh.addIndex(idx + 2);
-		levelMesh.addIndex(idx + 3);
-		idx += 4;
-
-		// --- SOUTH FACE ---
-		levelMesh.addVertex(p4 + offset);
-		levelMesh.addTexCoord(t00);
-		levelMesh.addNormal({ 0, 0, 1 });
-		levelMesh.addVertex(p3 + offset);
-		levelMesh.addTexCoord(t10);
-		levelMesh.addNormal({ 0, 0, 1 });
-		levelMesh.addVertex(p7 + offset);
-		levelMesh.addTexCoord(t11);
-		levelMesh.addNormal({ 0, 0, 1 });
-		levelMesh.addVertex(p8 + offset);
-		levelMesh.addTexCoord(t01);
-		levelMesh.addNormal({ 0, 0, 1 });
-		levelMesh.addIndex(idx);
-		levelMesh.addIndex(idx + 1);
-		levelMesh.addIndex(idx + 2);
-		levelMesh.addIndex(idx);
-		levelMesh.addIndex(idx + 2);
-		levelMesh.addIndex(idx + 3);
-		idx += 4;
-
-		// --- EAST FACE ---
-		levelMesh.addVertex(p3 + offset);
-		levelMesh.addTexCoord(t00);
-		levelMesh.addNormal({ 1, 0, 0 });
-		levelMesh.addVertex(p2 + offset);
-		levelMesh.addTexCoord(t10);
-		levelMesh.addNormal({ 1, 0, 0 });
-		levelMesh.addVertex(p6 + offset);
-		levelMesh.addTexCoord(t11);
-		levelMesh.addNormal({ 1, 0, 0 });
-		levelMesh.addVertex(p7 + offset);
-		levelMesh.addTexCoord(t01);
-		levelMesh.addNormal({ 1, 0, 0 });
-		levelMesh.addIndex(idx);
-		levelMesh.addIndex(idx + 1);
-		levelMesh.addIndex(idx + 2);
-		levelMesh.addIndex(idx);
-		levelMesh.addIndex(idx + 2);
-		levelMesh.addIndex(idx + 3);
-		idx += 4;
-
-		// --- WEST FACE ---
-		levelMesh.addVertex(p1 + offset);
-		levelMesh.addTexCoord(t00);
-		levelMesh.addNormal({ -1, 0, 0 });
-		levelMesh.addVertex(p4 + offset);
-		levelMesh.addTexCoord(t10);
-		levelMesh.addNormal({ -1, 0, 0 });
-		levelMesh.addVertex(p8 + offset);
-		levelMesh.addTexCoord(t11);
-		levelMesh.addNormal({ -1, 0, 0 });
-		levelMesh.addVertex(p5 + offset);
-		levelMesh.addTexCoord(t01);
-		levelMesh.addNormal({ -1, 0, 0 });
-		levelMesh.addIndex(idx);
-		levelMesh.addIndex(idx + 1);
-		levelMesh.addIndex(idx + 2);
-		levelMesh.addIndex(idx);
-		levelMesh.addIndex(idx + 2);
-		levelMesh.addIndex(idx + 3);
+		meshTarget.addVertex(p1 + offset);
+		meshTarget.addTexCoord(t00);
+		meshTarget.addNormal({ 0, 1, 0 });
+		meshTarget.addVertex(p2 + offset);
+		meshTarget.addTexCoord(t10);
+		meshTarget.addNormal({ 0, 1, 0 });
+		meshTarget.addVertex(p3 + offset);
+		meshTarget.addTexCoord(t11);
+		meshTarget.addNormal({ 0, 1, 0 });
+		meshTarget.addVertex(p4 + offset);
+		meshTarget.addTexCoord(t01);
+		meshTarget.addNormal({ 0, 1, 0 });
+		meshTarget.addIndex(idx);
+		meshTarget.addIndex(idx + 1);
+		meshTarget.addIndex(idx + 2);
+		meshTarget.addIndex(idx);
+		meshTarget.addIndex(idx + 2);
+		meshTarget.addIndex(idx + 3);
 	};
 
-	// 3. Loop through board
+	auto addSidesTo = [&](ofMesh & meshTarget, float x, float y, float z) {
+		int idx = meshTarget.getNumVertices();
+		glm::vec3 offset(x, y, z);
+		glm::vec3 p1(-half, height, -half);
+		glm::vec3 p2(half, height, -half);
+		glm::vec3 p3(half, height, half);
+		glm::vec3 p4(-half, height, half);
+		glm::vec3 p5(-half, 0, -half);
+		glm::vec3 p6(half, 0, -half);
+		glm::vec3 p7(half, 0, half);
+		glm::vec3 p8(-half, 0, half);
+		glm::vec2 t00(0, 0), t10(1, 0), t11(1, 1), t01(0, 1);
+
+		// NORTH
+		meshTarget.addVertex(p2 + offset);
+		meshTarget.addTexCoord(t00);
+		meshTarget.addNormal({ 0, 0, -1 });
+		meshTarget.addVertex(p1 + offset);
+		meshTarget.addTexCoord(t10);
+		meshTarget.addNormal({ 0, 0, -1 });
+		meshTarget.addVertex(p5 + offset);
+		meshTarget.addTexCoord(t11);
+		meshTarget.addNormal({ 0, 0, -1 });
+		meshTarget.addVertex(p6 + offset);
+		meshTarget.addTexCoord(t01);
+		meshTarget.addNormal({ 0, 0, -1 });
+		meshTarget.addIndex(idx);
+		meshTarget.addIndex(idx + 1);
+		meshTarget.addIndex(idx + 2);
+		meshTarget.addIndex(idx);
+		meshTarget.addIndex(idx + 2);
+		meshTarget.addIndex(idx + 3);
+		idx += 4;
+
+		// SOUTH
+		meshTarget.addVertex(p4 + offset);
+		meshTarget.addTexCoord(t00);
+		meshTarget.addNormal({ 0, 0, 1 });
+		meshTarget.addVertex(p3 + offset);
+		meshTarget.addTexCoord(t10);
+		meshTarget.addNormal({ 0, 0, 1 });
+		meshTarget.addVertex(p7 + offset);
+		meshTarget.addTexCoord(t11);
+		meshTarget.addNormal({ 0, 0, 1 });
+		meshTarget.addVertex(p8 + offset);
+		meshTarget.addTexCoord(t01);
+		meshTarget.addNormal({ 0, 0, 1 });
+		meshTarget.addIndex(idx);
+		meshTarget.addIndex(idx + 1);
+		meshTarget.addIndex(idx + 2);
+		meshTarget.addIndex(idx);
+		meshTarget.addIndex(idx + 2);
+		meshTarget.addIndex(idx + 3);
+		idx += 4;
+
+		// EAST
+		meshTarget.addVertex(p3 + offset);
+		meshTarget.addTexCoord(t00);
+		meshTarget.addNormal({ 1, 0, 0 });
+		meshTarget.addVertex(p2 + offset);
+		meshTarget.addTexCoord(t10);
+		meshTarget.addNormal({ 1, 0, 0 });
+		meshTarget.addVertex(p6 + offset);
+		meshTarget.addTexCoord(t11);
+		meshTarget.addNormal({ 1, 0, 0 });
+		meshTarget.addVertex(p7 + offset);
+		meshTarget.addTexCoord(t01);
+		meshTarget.addNormal({ 1, 0, 0 });
+		meshTarget.addIndex(idx);
+		meshTarget.addIndex(idx + 1);
+		meshTarget.addIndex(idx + 2);
+		meshTarget.addIndex(idx);
+		meshTarget.addIndex(idx + 2);
+		meshTarget.addIndex(idx + 3);
+		idx += 4;
+
+		// WEST
+		meshTarget.addVertex(p1 + offset);
+		meshTarget.addTexCoord(t00);
+		meshTarget.addNormal({ -1, 0, 0 });
+		meshTarget.addVertex(p4 + offset);
+		meshTarget.addTexCoord(t10);
+		meshTarget.addNormal({ -1, 0, 0 });
+		meshTarget.addVertex(p8 + offset);
+		meshTarget.addTexCoord(t11);
+		meshTarget.addNormal({ -1, 0, 0 });
+		meshTarget.addVertex(p5 + offset);
+		meshTarget.addTexCoord(t01);
+		meshTarget.addNormal({ -1, 0, 0 });
+		meshTarget.addIndex(idx);
+		meshTarget.addIndex(idx + 1);
+		meshTarget.addIndex(idx + 2);
+		meshTarget.addIndex(idx);
+		meshTarget.addIndex(idx + 2);
+		meshTarget.addIndex(idx + 3);
+	};
+
+	// 3. Loop through board and add cubes to appropriate mesh (dark when north wall within 2 tiles)
 	for (int x = 0; x < BOARD_WIDTH; x++) {
 		for (int y = 0; y < BOARD_HEIGHT; y++) {
 			if (board[x][y].hasWall) {
 				glm::vec3 pos = gridToWorld(x, y);
-				addCube(pos.x, 0, pos.z);
+
+				// Always add sides into the dark mesh
+				addSidesTo(levelMeshDark, pos.x, 0, pos.z);
+
+				// Top face: dark only if an adjacent wall exists immediately to the north
+				bool northAdjacent = false;
+				int ny = y - 1;
+				if (ny >= 0 && ny < BOARD_HEIGHT) northAdjacent = board[x][ny].hasWall;
+
+				if (northAdjacent)
+					addTopTo(levelMeshDark, pos.x, 0, pos.z);
+				else
+					addTopTo(levelMesh, pos.x, 0, pos.z);
 			}
 		}
 	}
@@ -3794,9 +3812,16 @@ void ofApp::drawGame() {
 				floorTextures[i].unbind();
 			}
 		}
-		wallTexture.bind();
-		levelMesh.draw();
-		wallTexture.unbind();
+		if (levelMesh.getNumVertices() > 0) {
+			wallTexture.bind();
+			levelMesh.draw();
+			wallTexture.unbind();
+		}
+		if (levelMeshDark.getNumVertices() > 0) {
+			wallDarkTexture.bind();
+			levelMeshDark.draw();
+			wallDarkTexture.unbind();
+		}
 
 		// Earthquake arrows are now drawn above each unit's head within the transparent effects pass
 		// --- OPAQUE DYNAMIC OBJECTS (Players) ---
@@ -4320,9 +4345,14 @@ void ofApp::drawGame() {
 				if (board[x][y].hasWall) {
 					ofPushMatrix();
 					ofTranslate(0, surfaceY - (TILE_SIZE * 0.4f), 0);
-					wallTexture.bind();
+					// Choose dark texture for the top decal only if immediate north neighbor has a wall
+					bool northAdjacent = false;
+					int ny = y - 1;
+					if (ny >= 0 && ny < BOARD_HEIGHT) northAdjacent = board[x][ny].hasWall;
+					ofTexture * tex = northAdjacent ? &wallDarkTexture : &wallTexture;
+					tex->bind();
 					wallMesh.draw();
-					wallTexture.unbind();
+					tex->unbind();
 					ofPopMatrix();
 
 					// Magic Wall Sheen

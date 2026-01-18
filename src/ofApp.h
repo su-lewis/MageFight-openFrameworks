@@ -544,11 +544,13 @@ private:
 
 	// --- ENVIRONMENT MESHES & TEXTURES ---
 	ofMesh levelMesh;
+	ofMesh levelMeshDark;
 	ofMesh wallMesh;
 	ofMesh roomMesh;
 	ofTexture roomTexture;
 	std::vector<ofMesh> floorMeshes;
 	ofTexture wallTexture;
+	ofTexture wallDarkTexture;
 	std::vector<ofTexture> floorTextures;
 	ofImage shadowTexture;
 	ofImage fireTexture;
