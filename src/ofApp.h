@@ -527,6 +527,7 @@ private:
 	ofTexture wolfBodyTex, wolfFaceTex, wolfFurTex;
 	ofTexture golemTexBase, golemTexRock, golemTexFire, golemTexElectric;
 	ofTexture tortoiseTexture;
+	ofTexture ghostBaseTex;
 
 	ofMaterial modelMaterial;
 	ofMaterial diceMaterial;

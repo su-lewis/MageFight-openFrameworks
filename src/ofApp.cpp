@@ -166,9 +166,13 @@ void ofApp::setup() {
 	// --- Load Ghost ---
 	if (ghostModel.load("Units/Ghost/Halloween Ghost.fbx")) {
 		ghostModel.disableMaterials();
-		// Adjust scale/rotation as needed based on the specific model
+		ghostModel.disableTextures(); // We will bind manually
 		ghostModel.setScale(0.0025f, 0.0025f, 0.0025f);
 		ghostModel.setRotation(0, 180, 0, 0, 1);
+
+		// Load the texture provided in the zip
+		ofLoadImage(ghostBaseTex, "Units/Ghost/Ghost_BaseColor.png");
+
 		ofLogNotice("Setup") << "Ghost model loaded.";
 	} else {
 		ofLogError("Setup") << "Failed to load Ghost model.";
@@ -3529,34 +3533,37 @@ void ofApp::drawGame() {
 				ofTranslate(pos.x, 0.1f, pos.z);
 
 				// Base floating height
-				float floatY = 1.5f + sin(ofGetElapsedTimef() * 2.0f) * 0.2f;
+				float floatY = 1.0f + sin(ofGetElapsedTimef() * 2.0f) * 0.2f;
 
-				// CHECK IF IN WALL: Raise up by wall height (approx 2.5 units) if inside one
-				// We check the board at the player's grid coordinates
+				// CHECK IF IN WALL:
 				if (player.x >= 0 && player.x < BOARD_WIDTH && player.y >= 0 && player.y < BOARD_HEIGHT) {
 					if (board[player.x][player.y].hasWall) {
-						floatY += (TILE_SIZE * 0.5f) + 0.5f; // Wall height + buffer
+						// Lowered offset so it floats "inside/through" the top of the wall
+						floatY += 1.5f;
 					}
 				}
 
 				ofTranslate(0, floatY, 0);
 
-				ofRotateYDeg(player.facingAngle);
+				// CORRECTION: +270 (or -90) degrees fixes the West->North offset
+				ofRotateYDeg(player.facingAngle + 270);
 
-				// FLIP FIX: Removed ofRotateXDeg(180) so it stands upright.
-				// If it is still wrong, try ofRotateXDeg(0) or ofRotateXDeg(90).
-				// usually FBX are 0, GLB are 180.
 				ofRotateXDeg(0);
 
 				// Enable transparency
 				ofEnableBlendMode(OF_BLENDMODE_ALPHA);
-				ofSetColor(200, 200, 255, 150); // Ghostly blue-white tint
 
+				ofSetColor(255, 255, 255, 150);
+
+				// Bind Texture
+				if (ghostBaseTex.isAllocated()) ghostBaseTex.bind();
 				ghostModel.drawFaces();
+				if (ghostBaseTex.isAllocated()) ghostBaseTex.unbind();
 
 				ofDisableBlendMode();
 				ofSetColor(255);
 			}
+
 			// --- 3. STANDARD MODELS ---
 			else {
 				float unitFacingAngle = player.facingAngle;
