@@ -3935,6 +3935,49 @@ void ofApp::drawGame() {
 			shadowTexture.draw(-shadowSize / 2, -shadowSize / 2, shadowSize, shadowSize);
 			ofPopMatrix();
 
+			// --- REGENERATION (Tiny Pixel Heart) ---
+			if (player.hasRegeneration) {
+				ofPushMatrix();
+
+				float bob = sin(ofGetElapsedTimef() * 1.5f) * 0.15f;
+				ofTranslate(pos.x, headHeight + 1.4f + bob, pos.z);
+
+				glm::vec3 camPos = cam.getPosition();
+				float angle = atan2(camPos.x - pos.x, camPos.z - pos.z) * RAD_TO_DEG;
+				ofRotateYDeg(angle);
+
+				float pulse = 1.0f + 0.1f * sin(ofGetElapsedTimef() * 3.0f);
+				float scale = 0.06f * pulse; // Slightly larger scale since grid is smaller
+				ofScale(scale, -scale, scale);
+
+				// Compact 5x5 Heart
+				static const int grid[5][5] = {
+					{ 0, 1, 0, 1, 0 }, // Lobes
+					{ 1, 2, 1, 1, 1 }, // Upper body + Shine (2)
+					{ 1, 1, 1, 1, 1 }, // Middle body
+					{ 0, 1, 1, 1, 0 }, // Lower body
+					{ 0, 0, 1, 0, 0 } // Tip
+				};
+
+				float pxSize = 1.0f;
+				float startX = -(5 * pxSize) / 2.0f;
+				float startY = -(5 * pxSize) / 2.0f;
+
+				for (int r = 0; r < 5; r++) {
+					for (int c = 0; c < 5; c++) {
+						int val = grid[r][c];
+						if (val != 0) {
+							if (val == 2)
+								ofSetColor(255, 200, 200, 255); // Highlight
+							else
+								ofSetColor(220, 20, 60, 240); // Red
+							ofDrawRectangle(startX + c * pxSize, startY + r * pxSize, pxSize * 1.05f, pxSize * 1.05f);
+						}
+					}
+				}
+				ofPopMatrix();
+			}
+			
 			// 4. DRAW FIRE
 			if (player.onFire) {
 				ofPushMatrix();
