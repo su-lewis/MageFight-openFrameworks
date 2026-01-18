@@ -5830,6 +5830,31 @@ cursor_check_done:;
 			}
 		}
 		hoveredCardIndex = foundHoverIndex;
+		// --- DYNAMIC CARD TOOLTIP LOGIC ---
+		if (hoveredCardIndex != -1) {
+			Card & c = currentPlayer.hand[hoveredCardIndex];
+
+			if (c.type == CARD_MASTER_FIST) {
+				// Calculate potential damage
+				int dmg = 0;
+				std::vector<std::string> handAttackNames = { "Punch", "Bash", "Drain Punch", "Master Fist", "Flurry of Fists", "Giant Magic Hand" };
+				for (const auto & pileCard : currentPlayer.discardPile) {
+					for (const auto & name : handAttackNames) {
+						if (pileCard.name == name) {
+							dmg += 2;
+							break;
+						}
+					}
+				}
+				if (currentPlayer.flurryOfFistsActive) dmg *= 2;
+
+				// Show as tooltip
+				isShowingTooltip = true;
+				tooltipPos = glm::vec2(x, y - 40); // Slightly above cursor
+				tooltipText = "Current Damage: " + ofToString(dmg) + " Phys";
+			}
+		}
+
 		for (size_t i = 0; i < currentPlayer.hand.size(); i++) {
 			currentPlayer.hand[i].targetScale = (static_cast<int>(i) == hoveredCardIndex) ? 2.0f : 1.5f;
 		}
@@ -10735,9 +10760,13 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 
 			case TARGET_ADJACENT_WALL: {
 				int dist = abs(x - px) + abs(y - py);
+
+				// Red Highlight (Preview) for any adjacent tile to show range
 				if (dist == 1) {
+					isPreview = true;
+
+					// Green Highlight (Valid Target) ONLY if it is a wall
 					if (board[x][y].hasWall) {
-						isPreview = true;
 						isValidTarget = true;
 					}
 				}
