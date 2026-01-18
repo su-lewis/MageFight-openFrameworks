@@ -2316,17 +2316,11 @@ void ofApp::updateGame() {
 					if (t.x < 0 || t.x >= BOARD_WIDTH || t.y < 0 || t.y >= BOARD_HEIGHT || board[t.x][t.y].hasWall) {
 						blocked = true;
 					} else if (board[t.x][t.y].hasPlayer) {
-						// If the tile is occupied by a player who is NOT moving away this step,
-						// consider it blocked (rear-end). If an earthquake unit currently on
-						// that tile is moving away this step, allow targeting it (it vacates).
-						bool occupantMovingAway = false;
-						for (const auto & ou : earthquakeUnits) {
-							if (ou.startGrid == t && ou.isMoving && ou.tilesToMove > 0) {
-								occupantMovingAway = true;
-								break;
-							}
-						}
-						if (!occupantMovingAway) blocked = true;
+						// Any occupied tile is considered blocked for the purposes of
+						// earthquake movement. Movers DO NOT step into tiles even if the
+						// occupant is also moving away this step — they crash and remain
+						// on their original tile.
+						blocked = true;
 					}
 
 					if (blocked) {
@@ -2745,26 +2739,33 @@ void ofApp::updateGame() {
 				// Phase D: spawn crash dice for moving units that will crash
 				for (int i = 0; i < n; ++i) {
 					if (willCrash[i] && !earthquakeUnits[i].crashed) {
-						// If the unit was mid-move, finalize their position on the target tile
+						// If the unit was mid-move, decide whether they can occupy the target tile.
 						glm::ivec2 oldStart = earthquakeUnits[i].startGrid;
 						glm::ivec2 target = earthquakeUnits[i].nextGrid;
 
-						// Update board occupancy: clear old and set new (if valid)
+						// For any crash (wall, edge, or collision with another mover),
+						// the unit remains on its original tile (oldStart). Do NOT move
+						// them into the target tile.
 						if (oldStart.x >= 0 && oldStart.x < BOARD_WIDTH && oldStart.y >= 0 && oldStart.y < BOARD_HEIGHT) {
-							board[oldStart.x][oldStart.y].hasPlayer = false;
+							board[oldStart.x][oldStart.y].hasPlayer = true;
 						}
-						if (target.x >= 0 && target.x < BOARD_WIDTH && target.y >= 0 && target.y < BOARD_HEIGHT) {
-							board[target.x][target.y].hasPlayer = true;
-						}
-
-						// Move the earthquake unit's logical start to the target so it remains "on" that tile
-						earthquakeUnits[i].startGrid = target;
-
-						// Also update the real player position so other systems see them there
+						earthquakeUnits[i].startGrid = oldStart;
 						int pid = earthquakeUnits[i].playerIndex;
 						if (pid >= 0 && pid < (int)players.size()) {
-							players[pid].x = target.x;
-							players[pid].y = target.y;
+							players[pid].x = oldStart.x;
+							players[pid].y = oldStart.y;
+						}
+
+						// Ensure the crash spawns a 1d4 damage roll if not already spawned this step
+						if (earthquakeUnits[i].crashDiceLastStep != earthquakeStep) {
+							int beforeIdx = (int)activeDiceRolls.size();
+							startDiceRoll(1, 4, PURPOSE_EARTHQUAKE_DAMAGE, "");
+							int afterIdx = (int)activeDiceRolls.size();
+							if (afterIdx > beforeIdx) {
+								int newIdx = afterIdx - 1;
+								activeDiceRolls[newIdx].associatedUnit = earthquakeUnits[i].playerIndex;
+							}
+							earthquakeUnits[i].crashDiceLastStep = earthquakeStep;
 						}
 
 						earthquakeUnits[i].crashed = true;
@@ -2868,16 +2869,50 @@ void ofApp::updateGame() {
 				if (roundComplete) {
 					isEarthquakeActive = false;
 					// Ensure visuals are snapped to logical positions and clear earthquake state
-					for (size_t pi = 0; pi < players.size(); ++pi) {
-						players[pi].x = players[pi].x; // no-op but keeps intent
+					// Rebuild board occupancy from authoritative `players` positions and
+					// fix any out-of-bounds or overlapping positions by relocating to
+					// the nearest empty tile.
+					// 1) Clear board occupancy
+					for (int bx = 0; bx < BOARD_WIDTH; ++bx) {
+						for (int by = 0; by < BOARD_HEIGHT; ++by)
+							board[bx][by].hasPlayer = false;
 					}
-					// Snap visual positions for all players so models don't appear at old positions
+
+					// 2) Place players onto the board according to authoritative positions.
+					// If an earthquake entry exists for a player, use its `startGrid` (which
+					// reflects the final logical tile after movement/crash). Clamp any
+					// out-of-bounds coordinates to board extents (do NOT relocate to a
+					// different empty tile — units should end where they are meant to be).
 					for (size_t pi = 0; pi < players.size(); ++pi) {
-						// Use gridToWorld to set visual positions
-						// If this player is the active player, also update playerVisualPos
-						glm::vec3 snapPos = gridToWorld(players[pi].x, players[pi].y);
-						if (currentPlayerIndex >= 0 && (int)pi == currentPlayerIndex) playerVisualPos = snapPos;
+						bool foundEq = false;
+						for (const auto & eu : earthquakeUnits) {
+							if (eu.playerIndex == (int)pi || eu.playerIndex == players[pi].playerID) {
+								// Use earthquake state's startGrid as the authoritative final tile
+								players[pi].x = eu.startGrid.x;
+								players[pi].y = eu.startGrid.y;
+								foundEq = true;
+								break;
+							}
+						}
+
+						// Clamp positions to board bounds to avoid off-board coordinates
+						players[pi].x = std::max(0, std::min(BOARD_WIDTH - 1, players[pi].x));
+						players[pi].y = std::max(0, std::min(BOARD_HEIGHT - 1, players[pi].y));
+
+						// Mark occupancy (allow overlaps if they occurred logically)
+						board[players[pi].x][players[pi].y].hasPlayer = true;
 					}
+
+					// Snap visual positions for the active player so models don't appear at old positions
+					if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) {
+						playerVisualPos = gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y);
+					}
+
+					// Cancel any ongoing player animation path to prevent post-earthquake movements
+					animationPath.clear();
+					currentPathIndex = 0;
+					isPlayerAnimating = false;
+
 					earthquakeUnits.clear();
 					invalidateTargetCache();
 				}
@@ -2899,7 +2934,8 @@ void ofApp::updateGame() {
 
 			// While animating earthquake steps we still want crash dice to resolve
 			// so spawn/rolls for PURPOSE_EARTHQUAKE_DAMAGE are processed immediately.
-			for (auto & roll : activeDiceRolls) {
+			for (auto it = activeDiceRolls.begin(); it != activeDiceRolls.end();) {
+				DiceRoll & roll = *it;
 				float elapsedTime = ofGetElapsedTimef() - roll.startTime;
 				float spinDuration = 1.0f;
 				if (elapsedTime > spinDuration && !roll.isFinishedVisual) {
@@ -2918,8 +2954,12 @@ void ofApp::updateGame() {
 							spawnFloatingText(textPos + glm::vec3(0, 0.8f, 0), "-" + ofToString(roll.result), ofColor::red);
 							ofLogNotice("Earthquake") << "Player " << uidx << " took " << roll.result << " quake damage.";
 						}
+						// Remove earthquake damage dice immediately after applying to avoid lingering dice visuals
+						it = activeDiceRolls.erase(it);
+						continue; // Continue loop with updated iterator
 					}
 				}
+				++it;
 			}
 
 			return; // Skip rest of update
