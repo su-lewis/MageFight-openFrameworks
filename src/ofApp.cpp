@@ -4001,7 +4001,14 @@ void ofApp::drawGame() {
 						// Use visualPos so dice follow moving/bouncing units
 						glm::vec3 unitPos = u.visualPos;
 						float raise = 1.5f;
-						if (roll.purpose == PURPOSE_EARTHQUAKE_DISTANCE) raise = 2.6f; // raise distance-dice higher to avoid clipping
+						// Raise earthquake-related dice higher so they clear the unit models.
+						if (roll.purpose == PURPOSE_EARTHQUAKE_DISTANCE || roll.purpose == PURPOSE_EARTHQUAKE_DAMAGE) {
+							// D4s are flatter and tend to clip more; lift them further.
+							if (roll.sides == 4)
+								raise = 3.6f;
+							else
+								raise = 3.2f;
+						}
 						ofTranslate(unitPos.x, unitPos.y + raise, unitPos.z);
 						placed = true;
 						break;
