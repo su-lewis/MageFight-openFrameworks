@@ -194,10 +194,27 @@ void ofApp::setup() {
 	// --- Load Wall Unit ---
 	if (wallUnitModel.load("Units/Wall/big_guy.fbx")) {
 		wallUnitModel.disableMaterials();
-		wallUnitModel.disableTextures(); // We will bind wallTexture manually
-		// Adjust scale based on your specific model file (Start small)
-		wallUnitModel.setScale(0.003f, 0.003f, 0.003f);
+		wallUnitModel.disableTextures(); // We will bind the model's diffuse manually
+		// Adjust scale and orientation so the model stands upright and fits the tile
+		// Shrink more to avoid overwhelming the tile
+		wallUnitModel.setScale(0.0002f, 0.0002f, 0.0002f);
+		// Yaw 180 so it faces the expected direction
 		wallUnitModel.setRotation(0, 180, 0, 0, 1);
+		// Rotate -90 around X so it isn't lying on its back
+		wallUnitModel.setRotation(1, -90, 1, 0, 0);
+		wallUnitModel.setScaleNormalization(false);
+
+		// Load model's diffuse via an ofImage so we can fix orientation and wrapping
+		ofImage tmpImg;
+		if (tmpImg.load("Units/Wall/big_guy_d.jpg")) {
+			// Flip vertically to match model UV orientation if needed
+			tmpImg.mirror(false, true);
+			wallUnitTexture.loadData(tmpImg.getPixels());
+			wallUnitTexture.generateMipmap();
+			wallUnitTexture.setTextureMinMagFilter(GL_LINEAR_MIPMAP_LINEAR, GL_LINEAR);
+			// Use repeat wrapping in case UVs tile >1 to avoid edge stretching
+			wallUnitTexture.setTextureWrap(GL_REPEAT, GL_REPEAT);
+		}
 		ofLogNotice("Setup") << "Wall Unit model loaded.";
 	} else {
 		ofLogNotice("Setup") << "Wall Unit model failed to load.";
@@ -3946,10 +3963,18 @@ void ofApp::drawGame() {
 					// Standard FBX upright correction (if needed)
 					// ofRotateXDeg(0);
 
-					// Bind the standard Wall Texture
-					wallTexture.bind();
+					// Bind the wall-unit's diffuse if available, else fallback to board wall texture
+					if (wallUnitTexture.isAllocated())
+						wallUnitTexture.bind();
+					else
+						wallTexture.bind();
+					// Raise model so it sits on the ground and not intersect the floor
+					ofTranslate(0, TILE_SIZE * 0.14f, 0);
 					wallUnitModel.drawFaces();
-					wallTexture.unbind();
+					if (wallUnitTexture.isAllocated())
+						wallUnitTexture.unbind();
+					else
+						wallTexture.unbind();
 
 					// If Magic Wall Unit, apply a simple purple tint visual
 					if (player.isMagicWallUnit) {
@@ -9292,6 +9317,9 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		minion.ownerID = currentPlayer.isMinion ? currentPlayer.ownerID : currentPlayer.playerID;
 		minion.summonedOnTurnCycle = currentPlayer.isMinion ? globalTurnCounter : -1;
 		minion.summonOrder = ++nextSummonOrder;
+
+		// Attach wall unit diffuse so rendering uses model texture
+		minion.minionTexture = wallUnitTexture.isAllocated() ? &wallUnitTexture : nullptr;
 
 		// 3. Stats & Deck
 		if (isMagic) {

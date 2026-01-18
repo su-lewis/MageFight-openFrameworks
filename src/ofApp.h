@@ -550,6 +550,7 @@ private:
 	ofTexture roomTexture;
 	std::vector<ofMesh> floorMeshes;
 	ofTexture wallTexture;
+	ofTexture wallUnitTexture;
 	ofTexture wallDarkTexture;
 	std::vector<ofTexture> floorTextures;
 	ofImage shadowTexture;
