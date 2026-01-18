@@ -3787,15 +3787,24 @@ void ofApp::drawGame() {
 					if (u.playerIndex == roll.associatedUnit) {
 						// Use visualPos so dice follow moving/bouncing units
 						glm::vec3 unitPos = u.visualPos;
-						float raise = 1.5f;
-						// Raise earthquake-related dice higher so they clear the unit models.
+
+						// Default raise
+						float raise = 3.0f;
+
+						// Raise significantly higher for earthquake rolls to clear the head/text
 						if (roll.purpose == PURPOSE_EARTHQUAKE_DISTANCE || roll.purpose == PURPOSE_EARTHQUAKE_DAMAGE) {
-							// D4s are flatter and tend to clip more; lift them further.
-							if (roll.sides == 4)
-								raise = 3.6f;
-							else
-								raise = 3.2f;
+							// Determine head height dynamically based on unit type to ensure clearance
+							Player & p = players[u.playerIndex];
+							float headOffset = 4.0f;
+							if (p.isGolem || p.isDemon)
+								headOffset = 6.5f;
+							else if (p.isWolf || p.isHellhound)
+								headOffset = 3.5f;
+
+							// Dice sits above head
+							raise = headOffset + 2.5f;
 						}
+
 						ofTranslate(unitPos.x, unitPos.y + raise, unitPos.z);
 						placed = true;
 						break;
