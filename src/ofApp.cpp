@@ -199,7 +199,8 @@ void ofApp::setup() {
 		wallUnitModel.setScaleNormalization(false);
 		// Adjust scale/orientation for GLB
 		// Make GLB even smaller to better fit the tile
-		wallUnitModel.setScale(0.00025f, 0.00025f, 0.00025f);
+		// Halved: original 0.00025 -> 0.000125 to reduce wall unit size by 50%
+		wallUnitModel.setScale(0.000125f, 0.000125f, 0.000125f);
 		wallUnitModel.setRotation(0, 180, 0, 0, 1);
 		wallUnitModel.setRotation(1, -90, 1, 0, 0);
 		ofLogNotice("Setup") << "Wall Unit GLB model loaded.";
@@ -207,8 +208,8 @@ void ofApp::setup() {
 		wallUnitModel.disableMaterials();
 		wallUnitModel.disableTextures(); // We will bind the model's diffuse manually
 		// Adjust scale and orientation so the model stands upright and fits the tile
-		// Further reduce FBX fallback scale
-		wallUnitModel.setScale(0.0002f, 0.0002f, 0.0002f);
+		// Further reduce FBX fallback scale (halved from 0.0002 -> 0.0001)
+		wallUnitModel.setScale(0.0001f, 0.0001f, 0.0001f);
 		wallUnitModel.setRotation(0, 180, 0, 0, 1);
 		wallUnitModel.setRotation(1, -90, 1, 0, 0);
 		wallUnitModel.setScaleNormalization(false);
@@ -8140,6 +8141,12 @@ void ofApp::keyPressed(int key) {
 }
 //--------------------------------------------------------------
 void ofApp::keyReleased(int key) {
+	// If the Card Spawner input is open, consume key releases so typing
+	// (e.g. pressing 't') doesn't trigger global hotkeys like top-down view.
+	if (isCardSpawnerOpen && !isCardEncyclopediaOpen) {
+		return;
+	}
+
 	// 1. Debug Toggle
 	if (key == '`') {
 		isDebugMode = !isDebugMode;
@@ -13190,7 +13197,7 @@ void ofApp::drawMinionManagerUI() {
 		// --- TORTOISE FORM PREVIEW (overrides normal model) ---
 		if (minion.inTortoiseForm) {
 			ofTranslate(modelFbo.getWidth() / 2, modelFbo.getHeight() / 2 + 10);
-			ofScale(14, -14, 14);
+			ofScale(21, -21, 21);
 			ofRotateXDeg(-15);
 			ofRotateYDeg(180 + ofGetElapsedTimef() * 30);
 			if (tortoiseTexture.isAllocated()) tortoiseTexture.bind();
@@ -13199,7 +13206,7 @@ void ofApp::drawMinionManagerUI() {
 		} else if (minion.isGolem) {
 			// GOLEM: Raised position (100 -> 80)
 			ofTranslate(modelFbo.getWidth() / 2, 80);
-			ofScale(18, 18, 18);
+			ofScale(27, 27, 27);
 			ofRotateXDeg(-15);
 			ofRotateYDeg(ofGetElapsedTimef() * 30);
 			if (minion.minionTexture) minion.minionTexture->bind();
