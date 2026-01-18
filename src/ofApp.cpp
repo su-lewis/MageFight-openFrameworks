@@ -2868,47 +2868,32 @@ void ofApp::updateGame() {
 				// If everyone is stopped or out of moves, end earthquake
 				if (roundComplete) {
 					isEarthquakeActive = false;
-					// Ensure visuals are snapped to logical positions and clear earthquake state
-					// Rebuild board occupancy from authoritative `players` positions and
-					// fix any out-of-bounds or overlapping positions by relocating to
-					// the nearest empty tile.
+
 					// 1) Clear board occupancy
 					for (int bx = 0; bx < BOARD_WIDTH; ++bx) {
 						for (int by = 0; by < BOARD_HEIGHT; ++by)
 							board[bx][by].hasPlayer = false;
 					}
 
-					// 2) Place players onto the board according to authoritative positions.
-					// If an earthquake entry exists for a player, use its `startGrid` (which
-					// reflects the final logical tile after movement/crash). Clamp any
-					// out-of-bounds coordinates to board extents (do NOT relocate to a
-					// different empty tile — units should end where they are meant to be).
+					// 2) Place players onto the board according to their existing logical positions.
 					for (size_t pi = 0; pi < players.size(); ++pi) {
-						bool foundEq = false;
-						for (const auto & eu : earthquakeUnits) {
-							if (eu.playerIndex == (int)pi || eu.playerIndex == players[pi].playerID) {
-								// Use earthquake state's startGrid as the authoritative final tile
-								players[pi].x = eu.startGrid.x;
-								players[pi].y = eu.startGrid.y;
-								foundEq = true;
-								break;
-							}
-						}
-
-						// Clamp positions to board bounds to avoid off-board coordinates
+						// Clamp positions to board bounds
 						players[pi].x = std::max(0, std::min(BOARD_WIDTH - 1, players[pi].x));
 						players[pi].y = std::max(0, std::min(BOARD_HEIGHT - 1, players[pi].y));
 
-						// Mark occupancy (allow overlaps if they occurred logically)
+						// Mark occupancy
 						board[players[pi].x][players[pi].y].hasPlayer = true;
 					}
 
-					// Snap visual positions for the active player so models don't appear at old positions
+					// --- FIX START: Sync Active Player Visuals ---
 					if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) {
+						// Force the visual position to match the final grid destination immediately.
+						// This prevents the unit from snapping back to where they started.
 						playerVisualPos = gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y);
 					}
+					// --- FIX END ---
 
-					// Cancel any ongoing player animation path to prevent post-earthquake movements
+					// Cancel any ongoing player animation path
 					animationPath.clear();
 					currentPathIndex = 0;
 					isPlayerAnimating = false;
@@ -2917,7 +2902,6 @@ void ofApp::updateGame() {
 					invalidateTargetCache();
 				}
 			}
-
 			// Override global playerVisualPos for the active player so camera follows smoothly
 			if (currentPlayerIndex >= 0) {
 				// Find the earthquake state for current player
