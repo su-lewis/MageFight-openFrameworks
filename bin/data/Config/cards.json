@@ -472,5 +472,12 @@
     "targeting": "TARGET_LINE_OF_SIGHT_TILE",
     "numDice": 1,
     "diceSides": 6
+  },
+  {
+    "id": 60,
+    "name": "Transform Wall",
+    "type": "CARD_TRANSFORM_WALL",
+    "cost": 5,
+    "targeting": "TARGET_ADJACENT_WALL"
   }
 ]

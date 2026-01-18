@@ -191,6 +191,18 @@ void ofApp::setup() {
 		ofLogError("Setup") << "Failed to load Ghost model.";
 	}
 
+	// --- Load Wall Unit ---
+	if (wallUnitModel.load("Units/Wall/big_guy.fbx")) {
+		wallUnitModel.disableMaterials();
+		wallUnitModel.disableTextures(); // We will bind wallTexture manually
+		// Adjust scale based on your specific model file (Start small)
+		wallUnitModel.setScale(0.003f, 0.003f, 0.003f);
+		wallUnitModel.setRotation(0, 180, 0, 0, 1);
+		ofLogNotice("Setup") << "Wall Unit model loaded.";
+	} else {
+		ofLogNotice("Setup") << "Wall Unit model failed to load.";
+	}
+
 	// --- 3. BOARD & SKYBOX ---
 	ofLoadImage(wallTexture, "Board/wall.png");
 	wallTexture.setTextureMinMagFilter(GL_NEAREST, GL_NEAREST);
@@ -3900,6 +3912,31 @@ void ofApp::drawGame() {
 					ofRotateYDeg(unitFacingAngle);
 					ofTranslate(0, 0.6f, 0);
 					koboldModel.drawFaces();
+				}
+				// --- WALL UNIT ---
+				else if (player.isWallUnit) {
+					ofTranslate(pos.x, 0.1f, pos.z);
+					ofRotateYDeg(unitFacingAngle);
+					ofTranslate(0, 0.0f, 0); // Adjust based on model pivot
+					// Standard FBX upright correction (if needed)
+					// ofRotateXDeg(0);
+
+					// Bind the standard Wall Texture
+					wallTexture.bind();
+					wallUnitModel.drawFaces();
+					wallTexture.unbind();
+
+					// If Magic Wall Unit, apply a simple purple tint visual
+					if (player.isMagicWallUnit) {
+						// Draw a slightly larger transparent purple box around it to mimic the sheen
+						ofEnableBlendMode(OF_BLENDMODE_ALPHA);
+						ofSetColor(148, 0, 211, 80); // Purple, low alpha
+						// Adjust size based on your model size
+						float s = TILE_SIZE * 0.8f;
+						ofDrawBox(0, s / 2, 0, s);
+						ofSetColor(255);
+						ofDisableBlendMode();
+					}
 				} else {
 					// Default Player
 					ofTranslate(pos.x, 0.1f, pos.z);
@@ -8375,9 +8412,17 @@ void ofApp::continueNewTurn() {
 	else if (startingPlayer.isDemon) {
 		startDiceRoll(4, 4, PURPOSE_AP, "Demon AP Roll");
 	}
-	// Kobold AP: 1d4 (distinct from generic minions)
+	// Kobold AP: 1d4
 	else if (startingPlayer.isKobold) {
 		startDiceRoll(1, 4, PURPOSE_AP, "Kobold AP Roll");
+	}
+	// Wall Unit AP: 1d4 or 1d6
+	else if (startingPlayer.isWallUnit) {
+		if (startingPlayer.isMagicWallUnit) {
+			startDiceRoll(1, 6, PURPOSE_AP, "Magic Wall Unit AP");
+		} else {
+			startDiceRoll(1, 4, PURPOSE_AP, "Wall Unit AP");
+		}
 	}
 	// Skeleton AP: 1d6
 	else if (startingPlayer.isMinion) {
@@ -9194,6 +9239,99 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 			}
 		}
 		return;
+	}
+
+		// --- CASE: TRANSFORM WALL ---
+	case CARD_TRANSFORM_WALL: {
+		// Must be a wall
+		if (!board[targetX][targetY].hasWall) break;
+
+		// 1. Determine Type (Magic vs Normal)
+		bool isMagic = board[targetX][targetY].isMagicWall;
+
+		// 2. Create Unit
+		Player minion;
+		minion.playerID = 3000 + (int)players.size();
+		minion.x = targetX;
+		minion.y = targetY;
+		minion.isMinion = true;
+		minion.isWallUnit = true;
+		minion.isMagicWallUnit = isMagic;
+
+		// Owner/Summon Logic
+		minion.ownerID = currentPlayer.isMinion ? currentPlayer.ownerID : currentPlayer.playerID;
+		minion.summonedOnTurnCycle = currentPlayer.isMinion ? globalTurnCounter : -1;
+		minion.summonOrder = ++nextSummonOrder;
+
+		// 3. Stats & Deck
+		if (isMagic) {
+			minion.maxHealth = 7;
+			minion.health = 7;
+			// Deck: 2x Fortify, 2x Magic Blast, 1x Summon Wall
+			for (const auto & c : allCards) {
+				if (c.type == CARD_FORTIFY) {
+					minion.deck.push_back(c);
+					minion.deck.push_back(c);
+				}
+				if (c.type == CARD_MAGIC_BLAST) {
+					minion.deck.push_back(c);
+					minion.deck.push_back(c);
+				}
+				if (c.type == CARD_CREATE_WALL) minion.deck.push_back(c);
+			}
+			ofLogNotice("Transform") << "Created Magic Wall Unit (7 HP).";
+		} else {
+			minion.maxHealth = 5;
+			minion.health = 5;
+			// Deck: 2x Fortify, 2x Ward, 1x Summon Wall
+			for (const auto & c : allCards) {
+				if (c.type == CARD_FORTIFY) {
+					minion.deck.push_back(c);
+					minion.deck.push_back(c);
+				}
+				if (c.type == CARD_GAIN_WARD) {
+					minion.deck.push_back(c);
+					minion.deck.push_back(c);
+				}
+				if (c.type == CARD_CREATE_WALL) minion.deck.push_back(c);
+			}
+			ofLogNotice("Transform") << "Created Wall Unit (5 HP).";
+		}
+		std::shuffle(minion.deck.begin(), minion.deck.end(), rng);
+
+		// 4. Transform Board State
+		board[targetX][targetY].hasWall = false; // Remove static wall
+		board[targetX][targetY].isMagicWall = false; // Clear flag (unit carries property now)
+		board[targetX][targetY].hasPlayer = true; // Add unit
+
+		// Update Mesh (to remove the static wall visually)
+		buildLevelMesh();
+
+		// Add to players list
+		players.push_back(minion);
+
+		// 5. Cleanup / Sort Turn Order
+		int currentID = players[currentPlayerIndex].playerID;
+		std::sort(players.begin(), players.end(), [](const Player & a, const Player & b) {
+			int ownerA = a.isMinion ? a.ownerID : a.playerID;
+			int ownerB = b.isMinion ? b.ownerID : b.playerID;
+			if (ownerA != ownerB) return ownerA < ownerB;
+			if (a.isMinion && !b.isMinion) return true;
+			if (!a.isMinion && b.isMinion) return false;
+			return a.summonOrder < b.summonOrder;
+		});
+
+		// Restore Index
+		for (size_t i = 0; i < players.size(); i++) {
+			if (players[i].playerID == currentID) {
+				currentPlayerIndex = i;
+				break;
+			}
+		}
+		invalidateTargetCache();
+
+		playedSuccessfully = true;
+		break;
 	}
 
 	// --- CASE: CALL FOR WOLVES ---
@@ -12800,6 +12938,7 @@ CardType ofApp::stringToCardType(const std::string & str) {
 	if (str == "CARD_GIANT_MAGIC_HAND") return CARD_GIANT_MAGIC_HAND;
 	if (str == "CARD_CONSUME_LARGE_HEALTH_POTION") return CARD_CONSUME_LARGE_HEALTH_POTION;
 	if (str == "CARD_LESSER_HEAL") return CARD_LESSER_HEAL;
+	if (str == "CARD_TRANSFORM_WALL") return CARD_TRANSFORM_WALL;
 
 	return CARD_NONE;
 }

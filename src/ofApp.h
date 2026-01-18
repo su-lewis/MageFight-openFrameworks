@@ -131,7 +131,8 @@ enum CardType {
 	CARD_FORM_OF_GHOST,
 	CARD_GIANT_MAGIC_HAND,
 	CARD_CONSUME_LARGE_HEALTH_POTION,
-	CARD_LESSER_HEAL
+	CARD_LESSER_HEAL,
+	CARD_TRANSFORM_WALL
 };
 
 enum DicePurpose {
@@ -298,6 +299,8 @@ struct Player {
 	bool isWolf = false;
 	bool isKobold = false;
 	bool isDemon = false;
+	bool isWallUnit = false;
+	bool isMagicWallUnit = false;
 
 	// Tortoise Form
 	bool inTortoiseForm = false;
@@ -527,6 +530,7 @@ private:
 	ofxAssimpModelLoader demonModel;
 	ofxAssimpModelLoader tortoiseModel;
 	ofxAssimpModelLoader ghostModel;
+	ofxAssimpModelLoader wallUnitModel;
 
 	ofTexture playerTexture;
 	ofTexture skeletonTexture;
