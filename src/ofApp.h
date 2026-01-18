@@ -129,7 +129,9 @@ enum CardType {
 	CARD_PSIONIC_WAVE,
 	CARD_EARTHQUAKE,
 	CARD_FORM_OF_GHOST,
-	CARD_GIANT_MAGIC_HAND
+	CARD_GIANT_MAGIC_HAND,
+	CARD_CONSUME_LARGE_HEALTH_POTION,
+	CARD_LESSER_HEAL
 };
 
 enum DicePurpose {
@@ -151,7 +153,8 @@ enum DicePurpose {
 	PURPOSE_PSIONIC_WAVE_AMOUNT,
 	PURPOSE_EARTHQUAKE_DISTANCE,
 	PURPOSE_EARTHQUAKE_DAMAGE,
-	PURPOSE_MAGIC_HAND_DAMAGE
+	PURPOSE_MAGIC_HAND_DAMAGE,
+	PURPOSE_LESSER_HEAL
 };
 
 enum TargetValidity {
@@ -588,6 +591,13 @@ private:
 
 	ofFbo modelFbo;
 	std::vector<MinionUI> activeMinionUIs;
+
+	// --- Targeting States ---
+	bool isTargetingDeath = false;
+	int deathCardIndex = -1;
+
+	bool isTargetingHeal = false;
+	int healCardIndex = -1;
 
 	// Tooltips & Piles
 	bool isShowingTooltip = false;

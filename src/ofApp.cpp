@@ -5537,6 +5537,31 @@ void ofApp::drawGame() {
 		titleFont.drawString(msg, tx, ty);
 	}
 
+	// --- DEATH INSTRUCTION ---
+	if (isTargetingDeath) {
+		string msg = "Select Target for Death";
+		// ... standard text drawing code (copy from magic bolt) ...
+		ofRectangle bbox = titleFont.getStringBoundingBox(msg, 0, 0);
+		float tx = (ofGetWidth() / 2.0f) - (bbox.width / 2.0f);
+		float ty = ofGetHeight() * 0.25f;
+		ofSetColor(0, 0, 0, 255);
+		titleFont.drawString(msg, tx + 2, ty + 2);
+		ofSetColor(ofColor::red);
+		titleFont.drawString(msg, tx, ty);
+	}
+
+	// --- HEAL INSTRUCTION ---
+	if (isTargetingHeal) {
+		string msg = "Select Target to Heal (Self or Ally)";
+		ofRectangle bbox = titleFont.getStringBoundingBox(msg, 0, 0);
+		float tx = (ofGetWidth() / 2.0f) - (bbox.width / 2.0f);
+		float ty = ofGetHeight() * 0.25f;
+		ofSetColor(0, 0, 0, 255);
+		titleFont.drawString(msg, tx + 2, ty + 2);
+		ofSetColor(ofColor::green);
+		titleFont.drawString(msg, tx, ty);
+	}
+
 	// --- DOUBLE HANDED TARGETING INSTRUCTION TEXT ---
 	if (isTargetingDoubleHanded) {
 		string msg = "Choose Target for Double Handed (2x " + pendingDoubleHandedChoice + ")";
@@ -5872,6 +5897,11 @@ cursor_check_done:;
 			activeCardForHighlight = pendingDoubleHandedCardIndex;
 		else if (isTargetingMagicBolt)
 			activeCardForHighlight = magicBoltCardIndex;
+		else if (isTargetingDeath)
+			activeCardForHighlight = deathCardIndex;
+		else if (isTargetingHeal)
+			activeCardForHighlight = healCardIndex;
+		// ---------------------
 		else if (selectedCardIndex != -1)
 			activeCardForHighlight = selectedCardIndex;
 		else
@@ -7003,6 +7033,45 @@ void ofApp::mousePressed(int x, int y, int button) {
 		clearHighlights();
 		return;
 	}
+	// --- 1k. Death Targeting Click ---
+	if (isTargetingDeath && button == OF_MOUSE_BUTTON_LEFT) {
+		ofVec2f boardPos = mouseToBoard(x, y);
+		int gx = floor(boardPos.x), gy = floor(boardPos.y);
+		if (gx >= 0 && gx < BOARD_WIDTH && gy >= 0 && gy < BOARD_HEIGHT) {
+			if (board[gx][gy].isTargetable) {
+				playCard(deathCardIndex, gx, gy);
+				isTargetingDeath = false;
+				deathCardIndex = -1;
+				clearHighlights();
+				return;
+			}
+		}
+		// Cancel
+		isTargetingDeath = false;
+		deathCardIndex = -1;
+		clearHighlights();
+		return;
+	}
+
+	// --- 1l. Heal Targeting Click ---
+	if (isTargetingHeal && button == OF_MOUSE_BUTTON_LEFT) {
+		ofVec2f boardPos = mouseToBoard(x, y);
+		int gx = floor(boardPos.x), gy = floor(boardPos.y);
+		if (gx >= 0 && gx < BOARD_WIDTH && gy >= 0 && gy < BOARD_HEIGHT) {
+			if (board[gx][gy].isTargetable) {
+				playCard(healCardIndex, gx, gy);
+				isTargetingHeal = false;
+				healCardIndex = -1;
+				clearHighlights();
+				return;
+			}
+		}
+		// Cancel
+		isTargetingHeal = false;
+		healCardIndex = -1;
+		clearHighlights();
+		return;
+	}
 	// ==============================================================================
 	// PHASE 2: GLOBAL MOUSE TRACKING
 	// ==============================================================================
@@ -7262,6 +7331,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 				return; // Clicked panel background
 			}
 		}
+
 		// --- RENEWED INSPIRATION: REAL-TIME SELECTION ---
 		if (isSelectingRenewedInspiration && button == OF_MOUSE_BUTTON_LEFT) {
 
@@ -7714,6 +7784,14 @@ void ofApp::mouseReleased(int x, int y, int button) {
 				isTargetingMagicBolt = false;
 				magicBoltCardIndex = -1;
 			}
+			if (isTargetingDeath) {
+				isTargetingDeath = false;
+				deathCardIndex = -1;
+			}
+			if (isTargetingHeal) {
+				isTargetingHeal = false;
+				healCardIndex = -1;
+			}
 
 			clearHighlights();
 			calculateTargetHighlights();
@@ -7791,6 +7869,25 @@ void ofApp::mouseReleased(int x, int y, int button) {
 							isWaitingForTeleportDice = true;
 							draggedCardIndex = -1;
 							selectedCardIndex = -1;
+							return;
+						}
+						// --- E. DEATH TARGETING ---
+						if (playedCard.type == CARD_DEATH) {
+							isTargetingDeath = true;
+							deathCardIndex = draggedCardIndex;
+							draggedCardIndex = -1;
+							selectedCardIndex = -1;
+							calculateTargetHighlights(deathCardIndex);
+							return;
+						}
+
+						// --- F. HEAL / LESSER HEAL TARGETING ---
+						if (playedCard.type == CARD_HEAL || playedCard.type == CARD_LESSER_HEAL) {
+							isTargetingHeal = true;
+							healCardIndex = draggedCardIndex;
+							draggedCardIndex = -1;
+							selectedCardIndex = -1;
+							calculateTargetHighlights(healCardIndex);
 							return;
 						}
 
@@ -10125,6 +10222,64 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		break;
 	}
 
+		// --- CASE: CONSUME LARGE HEALTH POTION ---
+	case CARD_CONSUME_LARGE_HEALTH_POTION: {
+		// +3 Max HP
+		currentPlayer.maxHealth += 3;
+		spawnFloatingText(gridToWorld(currentPlayer.x, currentPlayer.y), "+3 Max HP", ofColor::limeGreen);
+
+		// Heal 1 HP
+		if (currentPlayer.health < currentPlayer.maxHealth) {
+			currentPlayer.health += 1;
+			spawnFloatingText(gridToWorld(currentPlayer.x, currentPlayer.y) + glm::vec3(0, 0.5f, 0), "+1 HP", ofColor::green);
+		}
+
+		ofLogNotice("Potion") << "Player " << currentPlayer.playerID << " consumed large potion.";
+		playedSuccessfully = true;
+		break;
+	}
+
+	// --- CASE: LESSER HEAL ---
+	case CARD_LESSER_HEAL: {
+		// Range Check (Line of Sight)
+		glm::vec2 casterTile = { (float)currentPlayer.x, (float)currentPlayer.y };
+		glm::vec2 targetTile = { (float)targetX, (float)targetY };
+
+		// Validate LOS (Infinite Range)
+		TargetInfo validationResult = isLosTargetValid(casterTile, targetTile, 9999.0f, playedCard.type);
+
+		// Allow SELF targeting for heals (isLosTargetValid usually blocks self)
+		bool isSelf = (currentPlayer.x == targetX && currentPlayer.y == targetY);
+
+		if (!isSelf && validationResult.reason != VALID) break;
+
+		// Find Target
+		int targetIndex = -1;
+		for (size_t i = 0; i < players.size(); i++) {
+			if (players[i].x == targetX && players[i].y == targetY) {
+				targetIndex = (int)i;
+				break;
+			}
+		}
+		if (targetIndex == -1) break;
+
+		// Friendly Check
+		Player * target = getPlayer(targetIndex);
+		int casterOwner = currentPlayer.isMinion ? currentPlayer.ownerID : currentPlayer.playerID;
+		int targetOwner = target->isMinion ? target->ownerID : target->playerID;
+		if (casterOwner != targetOwner) {
+			ofLogNotice("Heal") << "Cannot heal enemies!";
+			break;
+		}
+
+		// Start Dice Roll
+		pendingHealTargetIndex = targetIndex;
+		pendingHealRollResult = startDiceRoll(playedCard.numDice, playedCard.diceSides, PURPOSE_HEALING, "Lesser Heal"); // Reusing PURPOSE_HEALING logic
+		isWaitingForHealDice = true;
+		playedSuccessfully = true;
+		break;
+	}
+
 	// --- CASE: STANDARD ATTACK (Stab, Cleave, Pierce, Punch) ---
 	case CARD_ATTACK_SINGLE_TILE: {
 		int px = players[currentPlayerIndex].x;
@@ -10773,15 +10928,17 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 				break;
 			}
 
-			// --- FIXED SPELL RANGES (Magic Blast, Fireball, Jolt) ---
+			// --- FIXED SPELL RANGES (Magic Blast, Fireball, Jolt, Death, Heal) ---
 			case TARGET_LINE_OF_SIGHT_TILE: {
 				float maxRangeFeet;
 
 				// --- Determine Max Range based on current card/state ---
 				if (card.type == CARD_MAGIC_BOLT && isTargetingMagicBolt && pendingMagicBoltRangeResult > 0) {
 					maxRangeFeet = (float)pendingMagicBoltRangeResult;
-				} else if (card.type == CARD_HEAL || card.type == CARD_DEATH) {
-					maxRangeFeet = 9999.0f; // Infinite range
+				}
+				// Infinite Range Cards
+				else if (card.type == CARD_HEAL || card.type == CARD_DEATH || card.type == CARD_LESSER_HEAL) {
+					maxRangeFeet = 9999.0f;
 				} else {
 					// Default: Max potential roll (e.g. 1d20 -> 20ft)
 					maxRangeFeet = (float)(card.numDice * card.diceSides);
@@ -10796,34 +10953,28 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 
 				// --- Determine Green Outline (is it a valid final target?) ---
 				bool canBeClicked = false;
+				bool isOccupied = board[x][y].hasPlayer;
 
-				// --- ADD THIS BLOCK: Special logic for Chain Lightning ---
+				// --- CHAIN LIGHTNING LOGIC ---
 				if (card.type == CARD_CHAIN_LIGHTNING) {
-					if (isPreview) { // Only check valid previews
-						// A. Can click if a unit is on the tile
-						if (board[x][y].hasPlayer) {
+					if (isPreview) {
+						if (isOccupied) {
 							canBeClicked = true;
-						}
-						// B. Can also click if tile is EMPTY but adjacent to a unit
-						else {
+						} else {
 							// Check 8 neighbors
 							for (int dx = -1; dx <= 1; dx++) {
 								for (int dy = -1; dy <= 1; dy++) {
-									if (dx == 0 && dy == 0) continue; // Skip self
+									if (dx == 0 && dy == 0) continue;
 									int nx = x + dx;
 									int ny = y + dy;
-
 									if (nx >= 0 && nx < BOARD_WIDTH && ny >= 0 && ny < BOARD_HEIGHT && board[nx][ny].hasPlayer) {
-										// Found a unit. Check for pinch physics on diagonal.
 										bool blocked = false;
 										if (abs(dx) == 1 && abs(dy) == 1) { // Diagonal check
-											if (isTileWall(x + dx, y) && isTileWall(x, y + dy)) {
-												blocked = true;
-											}
+											if (isTileWall(x + dx, y) && isTileWall(x, y + dy)) blocked = true;
 										}
 										if (!blocked) {
 											canBeClicked = true;
-											break; // Found one valid neighbor, no need to check others
+											break;
 										}
 									}
 								}
@@ -10832,9 +10983,27 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 						}
 					}
 				}
-				// --- END OF CHAIN LIGHTNING BLOCK ---
+				// --- HEAL / LESSER HEAL / DEATH LOGIC ---
+				else if (card.type == CARD_HEAL || card.type == CARD_LESSER_HEAL || card.type == CARD_DEATH) {
+					// Must target a unit (Self included for Heal)
+					if (isOccupied) {
+						// Note: Friendly/Enemy checks usually happen in playCard,
+						// but strictly speaking any unit is a "valid click" for targeting purposes
+						canBeClicked = true;
+					}
+				}
+				// --- MAGIC BOLT LOGIC ---
+				else if (card.type == CARD_MAGIC_BOLT) {
+					if (isOccupied)
+						canBeClicked = true;
+					else {
+						// Splash check (simplified)
+						// Actually isLosTargetValid already sets info.isTargetable for Magic Bolt splashes
+						if (info.isTargetable) canBeClicked = true;
+					}
+				}
+				// --- DEFAULT LOGIC ---
 				else {
-					// Default logic for other spells
 					if (info.isTargetable) {
 						canBeClicked = true;
 					}
@@ -10842,7 +11011,7 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 
 				if (canBeClicked) {
 					isValidTarget = true;
-					isPreview = true; // Ensure it's also red if it's green
+					isPreview = true;
 				}
 				break;
 			}
@@ -11587,12 +11756,15 @@ void ofApp::drawAmnesiaMenuUI() {
 //--------------------------------------------------------------
 void ofApp::drawMagicHandUI() {
 	ofEnableBlendMode(OF_BLENDMODE_ALPHA);
+	// 1. Dark Overlay
 	ofSetColor(0, 0, 0, 180);
 	ofDrawRectangle(0, 0, ofGetWidth(), ofGetHeight());
 
-	ofSetColor(60, 40, 20, 255); // Earthy brown background
+	// 2. Menu Background (Matching Wisdom Boon theme)
+	ofSetColor(40, 40, 80, 255);
 	ofDrawRectRounded(wisdomMenuRect, 15);
 
+	// 3. Title
 	ofSetColor(ofColor::white);
 	string title = "Giant Magic Hand";
 	ofRectangle titleBox = uiFont.getStringBoundingBox(title, 0, 0);
@@ -11604,11 +11776,11 @@ void ofApp::drawMagicHandUI() {
 	float startX = wisdomMenuRect.x + (wisdomMenuRect.width - (btnW * 2 + spacing)) / 2;
 	float btnY = wisdomMenuRect.y + 120;
 
-	// We can reuse existing button rects from other menus or define temporary ones for click detection
+	// Use temp rects for drawing (input handling uses same math in mousePressed)
 	ofRectangle btnPush(startX, btnY, btnW, btnH);
 	ofRectangle btnPull(startX + btnW + spacing, btnY, btnW, btnH);
 
-	// Draw Push
+	// Draw Push (Reddish)
 	ofSetColor(ofColor::indianRed);
 	ofDrawRectRounded(btnPush, 10);
 	ofSetColor(ofColor::white);
@@ -11616,7 +11788,7 @@ void ofApp::drawMagicHandUI() {
 	ofRectangle pBox = uiFont.getStringBoundingBox(pushTxt, 0, 0);
 	uiFont.drawString(pushTxt, btnPush.getCenter().x - pBox.width / 2, btnPush.getCenter().y + pBox.height / 2);
 
-	// Draw Pull
+	// Draw Pull (Blueish)
 	ofSetColor(ofColor::royalBlue);
 	ofDrawRectRounded(btnPull, 10);
 	ofSetColor(ofColor::white);
@@ -11628,7 +11800,6 @@ void ofApp::drawMagicHandUI() {
 	ofSetColor(200, 200, 200);
 	string sub = "Push: Dmg units behind | Pull: Move back";
 	ofRectangle sBox = uiFont.getStringBoundingBox(sub, 0, 0);
-	// Scale down
 	ofPushMatrix();
 	ofTranslate(wisdomMenuRect.getCenter().x - (sBox.width * 0.7) / 2, wisdomMenuRect.y + 90);
 	ofScale(0.7, 0.7);
@@ -12300,8 +12471,7 @@ TargetInfo ofApp::isLosTargetValid(glm::vec2 casterTile, glm::vec2 targetTile, f
 			}
 			result.isTargetable = hasNeighbor;
 		}
-	} else if (cardType == CARD_HEAL) {
-		// Heal: Must target unit
+	} else if (cardType == CARD_HEAL || cardType == CARD_LESSER_HEAL) {
 		result.isTargetable = isOccupied;
 	} else {
 		// Fireball / Attacks: Must target unit
@@ -12628,6 +12798,8 @@ CardType ofApp::stringToCardType(const std::string & str) {
 	if (str == "CARD_EARTHQUAKE") return CARD_EARTHQUAKE;
 	if (str == "CARD_FORM_OF_GHOST") return CARD_FORM_OF_GHOST;
 	if (str == "CARD_GIANT_MAGIC_HAND") return CARD_GIANT_MAGIC_HAND;
+	if (str == "CARD_CONSUME_LARGE_HEALTH_POTION") return CARD_CONSUME_LARGE_HEALTH_POTION;
+	if (str == "CARD_LESSER_HEAL") return CARD_LESSER_HEAL;
 
 	return CARD_NONE;
 }

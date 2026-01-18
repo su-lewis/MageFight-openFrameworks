@@ -456,5 +456,21 @@
     "type": "CARD_GIANT_MAGIC_HAND",
     "cost": 2,
     "targeting": "TARGET_ADJACENT_WALL"
+  },
+  {
+    "id": 58,
+    "name": "Consume Large Health Potion",
+    "type": "CARD_CONSUME_LARGE_HEALTH_POTION",
+    "cost": 4,
+    "targeting": "TARGET_SELF"
+  },
+  {
+    "id": 59,
+    "name": "Lesser Heal",
+    "type": "CARD_LESSER_HEAL",
+    "cost": 1,
+    "targeting": "TARGET_LINE_OF_SIGHT_TILE",
+    "numDice": 1,
+    "diceSides": 6
   }
 ]
