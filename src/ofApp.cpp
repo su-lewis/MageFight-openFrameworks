@@ -3977,7 +3977,7 @@ void ofApp::drawGame() {
 				}
 				ofPopMatrix();
 			}
-			
+
 			// 4. DRAW FIRE
 			if (player.onFire) {
 				ofPushMatrix();
@@ -12375,9 +12375,11 @@ void ofApp::drawMinionStatusBars(Player & minion, const std::string & name, floa
 	float statW = totalWidth * 0.20f;
 	float usedWidth = 0;
 
+	// --- FIX: Add holyBlock to width calculation ---
 	if (minion.block > 0) usedWidth += statW;
 	if (minion.fortification > 0) usedWidth += statW;
 	if (minion.barrier > 0) usedWidth += statW;
+	if (minion.holyBlock > 0) usedWidth += statW; // <--- ADDED
 	if (minion.ward > 0) usedWidth += statW;
 
 	float hpW = totalWidth - usedWidth;
@@ -12394,9 +12396,6 @@ void ofApp::drawMinionStatusBars(Player & minion, const std::string & name, floa
 	currentX += hpW;
 
 	// --- SHIELDS (With Tooltips) ---
-	// Since we can't use lambdas with captures easily without recompiling the helper,
-	// we just inline the logic here.
-
 	auto drawMinionSeg = [&](int val, ofColor c, string label) {
 		if (val > 0) {
 			ofSetColor(c);
@@ -12416,6 +12415,10 @@ void ofApp::drawMinionStatusBars(Player & minion, const std::string & name, floa
 	drawMinionSeg(minion.block, ofColor::gray, "Block (Physical)");
 	drawMinionSeg(minion.fortification, ofColor(50, 50, 50), "Fortification (Phys/Pierce)");
 	drawMinionSeg(minion.barrier, ofColor::hotPink, "Barrier (Non-Physical)");
+
+	// --- FIX: Add Holy Block Drawing ---
+	drawMinionSeg(minion.holyBlock, ofColor::yellow, "Holy Block (Holy)"); // <--- ADDED
+
 	drawMinionSeg(minion.ward, ofColor::black, "Ward (All Damage)");
 
 	// --- FORM BARS ---
