@@ -192,42 +192,49 @@ void ofApp::setup() {
 	}
 
 	// --- Load Wall Unit ---
-	// Prefer GLB (may contain embedded PBR textures). Fall back to FBX + external diffuse.
-	if (wallUnitModel.load("Units/Wall/big_guy.glb")) {
+	// Prefer the GLB model (wallman.glb) and apply the pixel-art wall texture from Board/wall.png
+	if (wallUnitModel.load("Units/Wall/wallman.glb")) {
+		// Disable embedded materials/textures so we can bind our pixel-art texture
 		wallUnitModel.disableMaterials();
-		// Keep model textures enabled so embedded GLB textures render
+		wallUnitModel.disableTextures();
 		wallUnitModel.setScaleNormalization(false);
-		// Adjust scale/orientation for GLB
-		// Make GLB even smaller to better fit the tile
-		// Halved: original 0.00025 -> 0.000125 to reduce wall unit size by 50%
-		wallUnitModel.setScale(0.000125f, 0.000125f, 0.000125f);
+		wallUnitModel.setScale(0.035f, 0.035f, 0.035f);
 		wallUnitModel.setRotation(0, 180, 0, 0, 1);
-		wallUnitModel.setRotation(1, -90, 1, 0, 0);
-		ofLogNotice("Setup") << "Wall Unit GLB model loaded.";
-	} else if (wallUnitModel.load("Units/Wall/big_guy.fbx")) {
-		wallUnitModel.disableMaterials();
-		wallUnitModel.disableTextures(); // We will bind the model's diffuse manually
-		// Adjust scale and orientation so the model stands upright and fits the tile
-		// Further reduce FBX fallback scale (halved from 0.0002 -> 0.0001)
-		wallUnitModel.setScale(0.0001f, 0.0001f, 0.0001f);
-		wallUnitModel.setRotation(0, 180, 0, 0, 1);
-		wallUnitModel.setRotation(1, -90, 1, 0, 0);
-		wallUnitModel.setScaleNormalization(false);
+		wallUnitModel.setRotation(1, 180, 1, 0, 0);
 
-		// Load model's diffuse via an ofImage so we can fix orientation and wrapping
+		// Load pixel-art wall texture from Board and set nearest filtering to avoid blurring
 		ofImage tmpImg;
-		if (tmpImg.load("Units/Wall/big_guy_d.jpg")) {
-			// Flip vertically to match model UV orientation if needed
-			tmpImg.mirror(false, true);
+		if (tmpImg.load("Board/wall.png")) {
 			wallUnitTexture.loadData(tmpImg.getPixels());
 			wallUnitTexture.generateMipmap();
-			wallUnitTexture.setTextureMinMagFilter(GL_LINEAR_MIPMAP_LINEAR, GL_LINEAR);
-			// Use repeat wrapping in case UVs tile >1 to avoid edge stretching
+			wallUnitTexture.setTextureMinMagFilter(GL_NEAREST, GL_NEAREST);
+			wallUnitTexture.setTextureWrap(GL_REPEAT, GL_REPEAT);
+		} else {
+			ofLogError("Setup") << "Failed to load Board/wall.png for wall unit.";
+		}
+
+		ofLogNotice("Setup") << "Wall Unit GLB model loaded and texture applied.";
+	} else if (wallUnitModel.load("Units/Wall/big_guy.fbx")) {
+		// Fallback to FBX if GLB not available
+		wallUnitModel.disableMaterials();
+		wallUnitModel.disableTextures();
+		wallUnitModel.setScaleNormalization(false);
+		wallUnitModel.setScale(0.035f, 0.035f, 0.035f);
+		wallUnitModel.setRotation(0, 180, 0, 0, 1);
+		wallUnitModel.setRotation(1, 180, 1, 0, 0);
+
+		// Ensure the same wall texture is available
+		ofImage tmpImg;
+		if (tmpImg.load("Board/wall.png")) {
+			wallUnitTexture.loadData(tmpImg.getPixels());
+			wallUnitTexture.generateMipmap();
+			wallUnitTexture.setTextureMinMagFilter(GL_NEAREST, GL_NEAREST);
 			wallUnitTexture.setTextureWrap(GL_REPEAT, GL_REPEAT);
 		}
-		ofLogNotice("Setup") << "Wall Unit FBX model loaded.";
+
+		ofLogNotice("Setup") << "Wall Unit FBX fallback loaded and texture applied.";
 	} else {
-		ofLogNotice("Setup") << "Wall Unit model failed to load.";
+		ofLogError("Setup") << "Wall Unit model failed to load.";
 	}
 
 	// --- 3. BOARD & SKYBOX ---
@@ -644,6 +651,8 @@ std::string ofApp::getPlayerDisplayName(int index) {
 
 	// Minions: try to pick a species prefix
 	std::string prefix = "Minion";
+	if (p->isWallUnit)
+		prefix = "Wall";
 	if (p->isKobold)
 		prefix = "Kobold";
 	else if (p->isWolf)
@@ -663,7 +672,7 @@ std::string ofApp::getPlayerDisplayName(int index) {
 		if (i == index) break;
 		Player & other = players[i];
 		if (!other.isMinion) continue;
-		if ((prefix == "Kobold" && other.isKobold) || (prefix == "Wolf" && other.isWolf) || (prefix == "Hellhound" && other.isHellhound) || (prefix == "Golem" && other.isGolem) || (prefix == "Skeleton" && other.isSkeleton) || (prefix == "Demon" && other.isDemon)) {
+		if ((prefix == "Kobold" && other.isKobold) || (prefix == "Wolf" && other.isWolf) || (prefix == "Hellhound" && other.isHellhound) || (prefix == "Golem" && other.isGolem) || (prefix == "Skeleton" && other.isSkeleton) || (prefix == "Demon" && other.isDemon) || (prefix == "Wall" && other.isWallUnit)) {
 			if (other.ownerID == p->ownerID) ord++;
 		}
 	}
@@ -3980,22 +3989,35 @@ void ofApp::drawGame() {
 						wallUnitTexture.bind();
 						// Raise model so it sits on the ground and not intersect the floor
 						ofTranslate(0, TILE_SIZE * 0.14f, 0);
+						// Use flat shading while drawing the wall unit to avoid smooth shading
+						glShadeModel(GL_FLAT);
 						wallUnitModel.drawFaces();
+						glShadeModel(GL_SMOOTH);
 						wallUnitTexture.unbind();
 					} else {
 						// No external texture: draw model with its embedded textures (GLB) or material colors
 						ofTranslate(0, TILE_SIZE * 0.14f, 0);
+						// Draw GLB with flat shading to turn off smooth shading
+						glShadeModel(GL_FLAT);
 						wallUnitModel.drawFaces();
+						glShadeModel(GL_SMOOTH);
 					}
 
-					// If Magic Wall Unit, apply a simple purple tint visual
+					// If Magic Wall Unit, apply a pulsing purple tint visual that matches tile sheen
 					if (player.isMagicWallUnit) {
-						// Draw a slightly larger transparent purple box around it to mimic the sheen
-						ofEnableBlendMode(OF_BLENDMODE_ALPHA);
-						ofSetColor(148, 0, 211, 80); // Purple, low alpha
-						// Adjust size based on your model size
-						float s = TILE_SIZE * 0.8f;
-						ofDrawBox(0, s / 2, 0, s);
+						// Pulse alpha in the same way the tile sheen does so the unit also glows
+						float pulseAlpha = 90.0f + 60.0f * sin(ofGetElapsedTimef() * 2.0f + player.x * 0.7f + player.y * 0.5f);
+						int alpha = static_cast<int>(ofClamp(pulseAlpha, 0.0f, 255.0f));
+						ofEnableBlendMode(OF_BLENDMODE_ADD);
+						ofSetColor(148, 0, 211, alpha);
+						// Avoid z-fighting by offsetting polygons slightly
+						glEnable(GL_POLYGON_OFFSET_FILL);
+						glPolygonOffset(-1.0f, -1.0f);
+						ofPushMatrix();
+						// Draw the whole model again in purple so the glow follows model curves exactly
+						wallUnitModel.drawFaces();
+						ofPopMatrix();
+						glDisable(GL_POLYGON_OFFSET_FILL);
 						ofSetColor(255);
 						ofDisableBlendMode();
 					}
@@ -10924,6 +10946,22 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 		}
 	}
 
+	// Small helper: some edge cases can leave `board[x][y].hasWall` false
+	// while the level mesh still contains wall geometry. Provide a
+	// cheap fallback check to detect wall geometry at a grid cell.
+	auto meshHasWallAt = [&](int tx, int ty) {
+		if (tx < 0 || tx >= BOARD_WIDTH || ty < 0 || ty >= BOARD_HEIGHT) return false;
+		glm::vec3 center = gridToWorld(tx, ty);
+		float thresh = TILE_SIZE * 0.4f; // area to consider
+		for (const auto & v : levelMesh.getVertices()) {
+			// Compare XZ distance only (ignore Y vertex height)
+			float dx = v.x - center.x;
+			float dz = v.z - center.z;
+			if ((dx * dx + dz * dz) <= (thresh * thresh)) return true;
+		}
+		return false;
+	};
+
 	// --- ITERATE BOARD ---
 	for (int x = 0; x < BOARD_WIDTH; x++) {
 		for (int y = 0; y < BOARD_HEIGHT; y++) {
@@ -11166,7 +11204,7 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 					isPreview = true;
 
 					// Green Highlight (Valid Target) ONLY if it is a wall
-					if (board[x][y].hasWall) {
+					if (board[x][y].hasWall || meshHasWallAt(x, y)) {
 						isValidTarget = true;
 					}
 				}
@@ -13281,6 +13319,22 @@ void ofApp::drawMinionManagerUI() {
 			if (minion.minionTexture && minion.minionTexture->isAllocated()) minion.minionTexture->bind();
 			wallUnitModel.drawFaces();
 			if (minion.minionTexture && minion.minionTexture->isAllocated()) minion.minionTexture->unbind();
+
+			// If this wall unit was created from a Magic Wall, draw a mesh-based purple glow
+			if (minion.isMagicWallUnit) {
+				ofEnableBlendMode(OF_BLENDMODE_ADD);
+				ofSetColor(148, 0, 211, 120);
+				glEnable(GL_POLYGON_OFFSET_FILL);
+				glPolygonOffset(-1.0f, -1.0f);
+				ofPushMatrix();
+				// Draw at the preview model's scale so the glow matches the mesh
+				// Draw the whole preview model again in purple so the glow follows model curves exactly
+				wallUnitModel.drawFaces();
+				ofPopMatrix();
+				glDisable(GL_POLYGON_OFFSET_FILL);
+				ofSetColor(255);
+				ofDisableBlendMode();
+			}
 		}
 		// --- SKELETON PREVIEW ---
 		else {
@@ -13481,16 +13535,7 @@ void ofApp::drawMinionManagerUI() {
 		}
 
 		// 6. FORTIFICATION
-		if (minion.fortification > 0) {
-			string txt = "+" + ofToString(minion.fortification) + " Fortify";
-			ofSetColor(200, 200, 200); // Visible text color
-			ofPushMatrix();
-			ofTranslate(statusX, statusY);
-			ofScale(fontS, fontS);
-			uiFont.drawString(txt, 0, 0);
-			ofPopMatrix();
-			statusY -= lineHeight;
-		}
+		// Fortification is shown in the status bars above, no separate text needed.
 
 		// 6. SUMMONING SICKNESS
 		if (minion.summonedOnTurnCycle == globalTurnCounter) {
