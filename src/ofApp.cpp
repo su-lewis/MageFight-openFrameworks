@@ -214,25 +214,6 @@ void ofApp::setup() {
 		}
 
 		ofLogNotice("Setup") << "Wall Unit GLB model loaded and texture applied.";
-	} else if (wallUnitModel.load("Units/Wall/big_guy.fbx")) {
-		// Fallback to FBX if GLB not available
-		wallUnitModel.disableMaterials();
-		wallUnitModel.disableTextures();
-		wallUnitModel.setScaleNormalization(false);
-		wallUnitModel.setScale(0.035f, 0.035f, 0.035f);
-		wallUnitModel.setRotation(0, 180, 0, 0, 1);
-		wallUnitModel.setRotation(1, 180, 1, 0, 0);
-
-		// Ensure the same wall texture is available
-		ofImage tmpImg;
-		if (tmpImg.load("Board/wall.png")) {
-			wallUnitTexture.loadData(tmpImg.getPixels());
-			wallUnitTexture.generateMipmap();
-			wallUnitTexture.setTextureMinMagFilter(GL_NEAREST, GL_NEAREST);
-			wallUnitTexture.setTextureWrap(GL_REPEAT, GL_REPEAT);
-		}
-
-		ofLogNotice("Setup") << "Wall Unit FBX fallback loaded and texture applied.";
 	} else {
 		ofLogError("Setup") << "Wall Unit model failed to load.";
 	}
