@@ -1029,8 +1029,8 @@ void ofApp::setupGame() {
 
 	// --- CAMERA RESET ---
 	// More zoomed out (45 vs 35) and a higher angle (0.8 vs 0.5)
-	cameraTargetZoom = 45.0f;
-	cameraCurrentZoom = 45.0f;
+	cameraTargetZoom = 37.0f;
+	cameraCurrentZoom = 37.0f;
 	cameraTargetPan = glm::vec3(0, 0, 0);
 	cameraCurrentPan = glm::vec3(0, 0, 0);
 	isTopDownView = false;
