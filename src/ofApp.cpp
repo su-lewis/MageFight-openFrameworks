@@ -1034,7 +1034,11 @@ void ofApp::setupGame() {
 	cameraTargetPan = glm::vec3(0, 0, 0);
 	cameraCurrentPan = glm::vec3(0, 0, 0);
 	isTopDownView = false;
-	cam.setPosition(0, cameraCurrentZoom, cameraCurrentZoom * 0.8f);
+	// Middle-ground: slightly raised Y with a moderate Z offset so the
+	// camera looks down more than the original but not as steeply as before.
+	// Keep the runtime Z a bit further back so bottom UI cards don't occlude.
+	// Y = 1.18x, Z = 0.70x (slightly more top-down than before).
+	cam.setPosition(0, cameraCurrentZoom * 1.18f, cameraCurrentZoom * 0.70f);
 	cam.lookAt(cameraCurrentPan);
 	cameraCurrentPos = cam.getPosition();
 	cameraCurrentLookAt = cameraCurrentPan;
@@ -1227,9 +1231,12 @@ void ofApp::updateGame() {
 	glm::vec3 targetPos;
 	glm::vec3 targetLookAt = cameraCurrentPan;
 	if (isTopDownView) {
-		targetPos = glm::vec3(cameraCurrentPan.x, cameraCurrentZoom, cameraCurrentPan.z);
+		// Top-down should be more zoomed-in: lower the camera height multiplier.
+		targetPos = glm::vec3(cameraCurrentPan.x, cameraCurrentZoom * 0.6f, cameraCurrentPan.z);
 	} else {
-		targetPos = glm::vec3(cameraCurrentPan.x, cameraCurrentZoom, cameraCurrentPan.z + cameraCurrentZoom * 0.5f);
+		// Use updated multipliers at runtime target: raise Y a bit to look more
+		// top-down while keeping the same Z back offset.
+		targetPos = glm::vec3(cameraCurrentPan.x, cameraCurrentZoom * 1.18f, cameraCurrentPan.z + cameraCurrentZoom * 0.70f);
 	}
 	cameraCurrentPos = glm::mix(cameraCurrentPos, targetPos, frame_independent_smoothing);
 	cameraCurrentLookAt = glm::mix(cameraCurrentLookAt, targetLookAt, frame_independent_smoothing);
