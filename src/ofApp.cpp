@@ -3122,7 +3122,7 @@ void ofApp::updateGame() {
 		DiceRoll & roll = *it;
 		float elapsedTime = ofGetElapsedTimef() - roll.startTime;
 		float spinDuration = 1.0f;
-		float hangTime = 1.0f;
+		float hangTime = 2.5f;
 		roll.currentRotation += diceSpinSpeed * ofGetLastFrameTime();
 
 		if (elapsedTime > spinDuration && !roll.isFinishedVisual) {
