@@ -6965,6 +6965,11 @@ void ofApp::mousePressed(int x, int y, int button) {
 				spawnFloatingText(gridToWorld(gx, gy), "Teleport!", ofColor::cyan);
 				ofLogNotice("Teleport") << "Teleported to (" << gx << ", " << gy << ")";
 
+				// Remove teleport card from hand
+				if (pendingTeleportCardIndex >= 0 && pendingTeleportCardIndex < players[currentPlayerIndex].hand.size()) {
+					players[currentPlayerIndex].hand.erase(players[currentPlayerIndex].hand.begin() + pendingTeleportCardIndex);
+				}
+
 				// Clean up state (AP was already deducted when card was first clicked)
 				isTargetingTeleport = false;
 				pendingTeleportCardIndex = -1;
@@ -7172,7 +7177,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 		ofVec2f boardPos = mouseToBoard(x, y);
 		int gx = floor(boardPos.x), gy = floor(boardPos.y);
 		if (gx >= 0 && gx < BOARD_WIDTH && gy >= 0 && gy < BOARD_HEIGHT) {
-			if (board[gx][gy].isTargetable) {
+			if (board[gx][gy].isTargetable || (gx == players[currentPlayerIndex].x && gy == players[currentPlayerIndex].y)) {
 				playCard(healCardIndex, gx, gy);
 				isTargetingHeal = false;
 				healCardIndex = -1;
