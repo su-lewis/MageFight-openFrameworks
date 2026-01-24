@@ -4026,7 +4026,8 @@ void ofApp::drawGame() {
 
 					// Raise the king so its base doesn't clip through the floor
 					// Use TILE_SIZE so the offset scales with board size
-					ofTranslate(0, TILE_SIZE * 0.3f, 0);
+					// Increased to 0.6 to ensure feet clear the board
+					ofTranslate(0, TILE_SIZE * 0.6f, 0);
 
 					// Ensure white color so texture isn't tinted
 					ofSetColor(255);
