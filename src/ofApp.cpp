@@ -1377,6 +1377,29 @@ void ofApp::updateGame() {
 						spawnFloatingText(gridToWorld(target->x, target->y), "Ghost: x2 Holy", ofColor::orange);
 					}
 				}
+				// --- VULNERABILITIES ---
+				if ((target->isHellhound || target->isDemon || target->isSkeleton) && pendingAttackDamageType == DAMAGE_HOLY) {
+					appliedDamage *= 2;
+					spawnFloatingText(gridToWorld(target->x, target->y), "Vulnerable: Holy (x2)", ofColor::orange);
+				}
+				if (pendingAttackDamageType == DAMAGE_PIERCING) {
+					bool hasWolfCall = false;
+					for (const auto & c : target->deck)
+						if (c.type == CARD_CALL_FOR_WOLVES) {
+							hasWolfCall = true;
+							break;
+						}
+					if (!hasWolfCall)
+						for (const auto & c : target->discardPile)
+							if (c.type == CARD_CALL_FOR_WOLVES) {
+								hasWolfCall = true;
+								break;
+							}
+					if (hasWolfCall) {
+						appliedDamage *= 2;
+						spawnFloatingText(gridToWorld(target->x, target->y), "Vulnerable: Piercing (x2)", ofColor::orange);
+					}
+				}
 				// ------------------------
 
 				// --- MITIGATION (Specific Order) ---
@@ -1510,6 +1533,60 @@ void ofApp::updateGame() {
 			}
 		}
 		pendingPoisonTargetIndices.clear();
+
+		// Immediate death cleanup after poison resolution to avoid index/turn desync
+		std::vector<int> removePoisoned;
+		for (int i = 0; i < (int)players.size(); ++i) {
+			if (players[i].health <= 0) removePoisoned.push_back(i);
+		}
+		if (!removePoisoned.empty()) {
+			std::sort(removePoisoned.begin(), removePoisoned.end(), std::greater<int>());
+			for (int idx : removePoisoned) {
+				if (idx < 0 || idx >= (int)players.size()) continue;
+
+				DeathMarker death;
+				death.x = players[idx].x;
+				death.y = players[idx].y;
+				death.turnDied = globalTurnCounter;
+				death.deck = players[idx].deck;
+				graveyard.push_back(death);
+
+				if (players[idx].x >= 0 && players[idx].x < BOARD_WIDTH && players[idx].y >= 0 && players[idx].y < BOARD_HEIGHT) {
+					board[players[idx].x][players[idx].y].hasPlayer = false;
+				}
+
+				// Update active dice associations
+				for (auto & r : activeDiceRolls) {
+					if (r.associatedUnit == idx)
+						r.associatedUnit = -1;
+					else if (r.associatedUnit > idx)
+						r.associatedUnit -= 1;
+				}
+
+				// Remove earthquake unit entries referencing this index
+				for (auto it = earthquakeUnits.begin(); it != earthquakeUnits.end();) {
+					if (it->playerIndex == idx)
+						it = earthquakeUnits.erase(it);
+					else {
+						if (it->playerIndex > idx) it->playerIndex -= 1;
+						++it;
+					}
+				}
+
+				players.erase(players.begin() + idx);
+
+				if (players.empty()) {
+					currentPlayerIndex = -1;
+				} else {
+					if (currentPlayerIndex == idx) {
+						currentPlayerIndex = std::min<int>(idx, (int)players.size() - 1);
+					} else if (currentPlayerIndex > idx) {
+						currentPlayerIndex -= 1;
+					}
+				}
+			}
+			invalidateTargetCache();
+		}
 	}
 
 	// --- Amnesia Logic ---
@@ -4684,62 +4761,93 @@ void ofApp::drawGame() {
 	float staticUICardWidth = (handBaseCardWidth * 1.3f) * scale;
 	float staticUICardHeight = (baseCardHeight * 1.3f) * scale;
 
+	// Health bar dimensions (used both by drawHealthBar lambda and by anchored status text)
+	float healthBarHeight = 65 * scale;
+
+	// Form bar dimensions and spacing for stacking (shared with status positioning)
+	float formBarHeight = 30 * scale;
+	float formSpacing = 5 * scale;
+
 	auto drawHealthBar = [&](Player & player, float x, float y, ofColor healthColor) {
 		float healthBarWidth = 220 * scale;
-		float healthBarHeight = 65 * scale;
+		// Use outer healthBarHeight, formBarHeight, formSpacing for consistent stacking
 		float nextBarY = y;
 
 		// Determine layout direction
 		bool isTopAligned = y < ofGetHeight() / 2;
 
-		// --- FORM BARS (Still separate, above/below main bar) ---
-		float formBarHeight = 30 * scale;
-
-		if (player.inTortoiseForm) {
-			float formY = isTopAligned ? nextBarY + healthBarHeight + (5 * scale) : nextBarY - formBarHeight - (5 * scale);
-			int rem = 5 - player.tortoiseDamageTaken;
-			ofSetColor(20, 40, 20);
-			ofDrawRectangle(x, formY, healthBarWidth, formBarHeight);
-			ofSetColor(ofColor::darkGreen);
-			ofDrawRectangle(x, formY, healthBarWidth * (rem / 5.0f), formBarHeight);
-			string txt = "Tortoise: " + ofToString(rem) + "/5";
-			drawStatText(uiFont, txt, x, formY, healthBarWidth, formBarHeight, ofColor::white);
-
-			// Tooltip
-			if (ofRectangle(x, formY, healthBarWidth, formBarHeight).inside(ofGetMouseX(), ofGetMouseY())) {
-				isShowingTooltip = true;
-				tooltipPos = { (float)ofGetMouseX(), (float)ofGetMouseY() };
-				tooltipText = "Tortoise Form: Buffer HP";
-			}
-
-			if (!isTopAligned) nextBarY -= (formBarHeight + 5 * scale);
-		}
-
-		if (player.inGhostForm) {
-			float formY = isTopAligned ? nextBarY + healthBarHeight + (5 * scale) : nextBarY - formBarHeight - (5 * scale);
-
-			// Adjust Y if Tortoise was also active (stacking)
+		if (isTopAligned) {
+			// Stack forms below the main bar
+			float bottomOfMain = y + healthBarHeight;
+			float nextY = bottomOfMain;
 			if (player.inTortoiseForm) {
-				formY = isTopAligned ? formY + formBarHeight + (5 * scale) : formY - formBarHeight - (5 * scale);
-				if (!isTopAligned) nextBarY -= (formBarHeight + 5 * scale);
+				float formY = nextY + formSpacing;
+				int rem = 5 - player.tortoiseDamageTaken;
+				ofSetColor(20, 40, 20);
+				ofDrawRectangle(x, formY, healthBarWidth, formBarHeight);
+				ofSetColor(ofColor::darkGreen);
+				ofDrawRectangle(x, formY, healthBarWidth * (rem / 5.0f), formBarHeight);
+				string txt = "Tortoise: " + ofToString(rem) + "/5";
+				drawStatText(uiFont, txt, x, formY, healthBarWidth, formBarHeight, ofColor::white);
+				if (ofRectangle(x, formY, healthBarWidth, formBarHeight).inside(ofGetMouseX(), ofGetMouseY())) {
+					isShowingTooltip = true;
+					tooltipPos = { (float)ofGetMouseX(), (float)ofGetMouseY() };
+					tooltipText = "Tortoise Form: Buffer HP";
+				}
+				nextY = formY + formBarHeight;
 			}
-
-			int rem = 4 - player.ghostDamageTaken;
-			ofSetColor(30, 30, 50);
-			ofDrawRectangle(x, formY, healthBarWidth, formBarHeight);
-			ofSetColor(150, 150, 255);
-			ofDrawRectangle(x, formY, healthBarWidth * (rem / 4.0f), formBarHeight);
-			string txt = "Ghost: " + ofToString(rem) + "/4";
-			drawStatText(uiFont, txt, x, formY, healthBarWidth, formBarHeight, ofColor::white);
-
-			// Tooltip
-			if (ofRectangle(x, formY, healthBarWidth, formBarHeight).inside(ofGetMouseX(), ofGetMouseY())) {
-				isShowingTooltip = true;
-				tooltipPos = { (float)ofGetMouseX(), (float)ofGetMouseY() };
-				tooltipText = "Ghost Form: Immune to Physical/Piercing";
+			if (player.inGhostForm) {
+				float formY = nextY + formSpacing;
+				int rem = 4 - player.ghostDamageTaken;
+				ofSetColor(30, 30, 50);
+				ofDrawRectangle(x, formY, healthBarWidth, formBarHeight);
+				ofSetColor(150, 150, 255);
+				ofDrawRectangle(x, formY, healthBarWidth * (rem / 4.0f), formBarHeight);
+				string txt = "Ghost: " + ofToString(rem) + "/4";
+				drawStatText(uiFont, txt, x, formY, healthBarWidth, formBarHeight, ofColor::white);
+				if (ofRectangle(x, formY, healthBarWidth, formBarHeight).inside(ofGetMouseX(), ofGetMouseY())) {
+					isShowingTooltip = true;
+					tooltipPos = { (float)ofGetMouseX(), (float)ofGetMouseY() };
+					tooltipText = "Ghost Form: Immune to Physical/Piercing";
+				}
+				nextY = formY + formBarHeight;
 			}
-
-			if (!isTopAligned) nextBarY -= (formBarHeight + 5 * scale);
+		} else {
+			// Stack forms above the main bar
+			float topOfMain = y;
+			float nextYUp = topOfMain;
+			if (player.inTortoiseForm) {
+				float formY = nextYUp - formSpacing - formBarHeight;
+				int rem = 5 - player.tortoiseDamageTaken;
+				ofSetColor(20, 40, 20);
+				ofDrawRectangle(x, formY, healthBarWidth, formBarHeight);
+				ofSetColor(ofColor::darkGreen);
+				ofDrawRectangle(x, formY, healthBarWidth * (rem / 5.0f), formBarHeight);
+				string txt = "Tortoise: " + ofToString(rem) + "/5";
+				drawStatText(uiFont, txt, x, formY, healthBarWidth, formBarHeight, ofColor::white);
+				if (ofRectangle(x, formY, healthBarWidth, formBarHeight).inside(ofGetMouseX(), ofGetMouseY())) {
+					isShowingTooltip = true;
+					tooltipPos = { (float)ofGetMouseX(), (float)ofGetMouseY() };
+					tooltipText = "Tortoise Form: Buffer HP";
+				}
+				nextYUp = formY;
+			}
+			if (player.inGhostForm) {
+				float formY = nextYUp - formSpacing - formBarHeight;
+				int rem = 4 - player.ghostDamageTaken;
+				ofSetColor(30, 30, 50);
+				ofDrawRectangle(x, formY, healthBarWidth, formBarHeight);
+				ofSetColor(150, 150, 255);
+				ofDrawRectangle(x, formY, healthBarWidth * (rem / 4.0f), formBarHeight);
+				string txt = "Ghost: " + ofToString(rem) + "/4";
+				drawStatText(uiFont, txt, x, formY, healthBarWidth, formBarHeight, ofColor::white);
+				if (ofRectangle(x, formY, healthBarWidth, formBarHeight).inside(ofGetMouseX(), ofGetMouseY())) {
+					isShowingTooltip = true;
+					tooltipPos = { (float)ofGetMouseX(), (float)ofGetMouseY() };
+					tooltipText = "Ghost Form: Immune to Physical/Piercing";
+				}
+				nextYUp = formY;
+			}
 		}
 
 		// --- MAIN COMBINED STATS BAR ---
@@ -4848,7 +4956,9 @@ void ofApp::drawGame() {
 		p1_deckRect.set(p1_deckX, p1_deckY, staticUICardWidth, staticUICardHeight);
 
 		// 2. Draw Player 0 (Bottom) UI
-		drawHealthBar(*player0, ofGetWidth() - (220 * scale) - (50 * scale), ofGetHeight() - (65 * scale) - (40 * scale), ofColor::green);
+		float p0_healthX = ofGetWidth() - (220 * scale) - (50 * scale);
+		float p0_healthY = ofGetHeight() - (65 * scale) - (40 * scale);
+		drawHealthBar(*player0, p0_healthX, p0_healthY, ofColor::green);
 
 		// P0 Deck
 		if (!player0->deck.empty()) {
@@ -4879,7 +4989,9 @@ void ofApp::drawGame() {
 		}
 
 		// 3. Draw Player 1 (Top) UI
-		drawHealthBar(*player1, 40 * scale, 40 * scale, ofColor::red);
+		float p1_healthX = 40 * scale;
+		float p1_healthY = 40 * scale;
+		drawHealthBar(*player1, p1_healthX, p1_healthY, ofColor::red);
 
 		// P1 Discard
 		if (!player1->discardPile.empty()) {
@@ -4937,60 +5049,28 @@ void ofApp::drawGame() {
 		titleFont.drawString(p0_apText, -p0_apTextBox.getCenter().x, -p0_apTextBox.getCenter().y);
 		ofPopMatrix();
 
-		// --- NEW: DRAW LUCK INDICATOR (PLAYER 0) ---
-		if (player0->luck > 0) {
-			string luckText = "+" + ofToString(player0->luck) + " Luck";
-			ofRectangle luckBox = uiFont.getStringBoundingBox(luckText, 0, 0);
-			float luckX = p0_apCenterX - (luckBox.width * 0.9f / 2); // Use smaller font scale for centering
-			float luckY = p0_apCenterY - p0_apRectHeight / 2 - (luckBox.height * 0.9f) - (5 * scale);
-
-			ofSetColor(ofColor::darkGreen);
-			ofPushMatrix();
-			ofTranslate(luckX, luckY);
-			ofScale(0.9f, 0.9f); // Slightly smaller than AP text
-			uiFont.drawString(luckText, 0, 0);
-			ofPopMatrix();
-		}
-
 		// --- DRAW P0 STATUSES ---
-		float p0_statusY = p0_apCenterY + p0_apRectHeight / 2 + 10 * scale;
+		// Position these relative to the Player0 health bar: bottom-right, stacked above the HP counter
+		float p0_statusXStart = p0_healthX + 5 * scale;
+		// Account for stacked form bars above the health bar so statuses sit on top
+		int p0_formsAbove = (player0->inTortoiseForm ? 1 : 0) + (player0->inGhostForm ? 1 : 0);
+		float p0_totalFormsHeight = p0_formsAbove * (formBarHeight + formSpacing);
+		float p0_statusY = p0_healthY - 10 * scale - p0_totalFormsHeight; // start above the topmost form
 		float smallFontScale = fontScale * 0.8f;
 
 		// --- NEW STATUSES ---
-		if (player0->sleepTurnsRemaining > 0) {
-			string txt = "Sleeping (" + ofToString(player0->sleepTurnsRemaining) + ")";
-			ofRectangle b = titleFont.getStringBoundingBox(txt, 0, 0);
-			ofSetColor(ofColor::cyan);
-			ofPushMatrix();
-			ofTranslate(p0_apCenterX - (b.width * smallFontScale / 2), p0_statusY + (b.height * smallFontScale));
-			ofScale(smallFontScale, smallFontScale);
-			titleFont.drawString(txt, 0, 0);
-			ofPopMatrix();
-			p0_statusY += (b.height * smallFontScale) + (5 * scale);
-		}
 
-		if (player0->isParalyzed) {
-			string txt = "Paralyzed";
-			ofRectangle b = titleFont.getStringBoundingBox(txt, 0, 0);
-			ofSetColor(ofColor::yellow);
+		// Draw Luck above HP for Player 0 (left-aligned)
+		if (player0->luck > 0) {
+			string luckText = "+" + ofToString(player0->luck) + " Luck";
+			ofRectangle luckBox = titleFont.getStringBoundingBox(luckText, 0, 0);
+			ofSetColor(ofColor::darkGreen);
 			ofPushMatrix();
-			ofTranslate(p0_apCenterX - (b.width * smallFontScale / 2), p0_statusY + (b.height * smallFontScale));
+			ofTranslate(p0_statusXStart, p0_statusY);
 			ofScale(smallFontScale, smallFontScale);
-			titleFont.drawString(txt, 0, 0);
+			titleFont.drawString(luckText, 0, 0);
 			ofPopMatrix();
-			p0_statusY += (b.height * smallFontScale) + (5 * scale);
-		}
-
-		if (player0->onFire) {
-			string txt = "On Fire";
-			ofRectangle b = titleFont.getStringBoundingBox(txt, 0, 0);
-			ofSetColor(ofColor::orangeRed);
-			ofPushMatrix();
-			ofTranslate(p0_apCenterX - (b.width * smallFontScale / 2), p0_statusY + (b.height * smallFontScale));
-			ofScale(smallFontScale, smallFontScale);
-			titleFont.drawString(txt, 0, 0);
-			ofPopMatrix();
-			p0_statusY += (b.height * smallFontScale) + (5 * scale);
+			p0_statusY -= (luckBox.height * smallFontScale) + (5 * scale);
 		}
 
 		if (player0->nextTurnAPBonus > 0) {
@@ -4998,11 +5078,11 @@ void ofApp::drawGame() {
 			ofRectangle bonusBox = titleFont.getStringBoundingBox(bonusText, 0, 0);
 			ofSetColor(ofColor::yellow);
 			ofPushMatrix();
-			ofTranslate(p0_apCenterX - (bonusBox.width * smallFontScale / 2), p0_statusY + (bonusBox.height * smallFontScale));
+			ofTranslate(p0_statusXStart, p0_statusY);
 			ofScale(smallFontScale, smallFontScale);
 			titleFont.drawString(bonusText, 0, 0);
 			ofPopMatrix();
-			p0_statusY += (bonusBox.height * smallFontScale) + (5 * scale);
+			p0_statusY -= (bonusBox.height * smallFontScale) + (5 * scale);
 		}
 
 		if (player0->strengthenElementsTurnsRemaining > 0) {
@@ -5010,11 +5090,11 @@ void ofApp::drawGame() {
 			ofRectangle elemBox = titleFont.getStringBoundingBox(elemText, 0, 0);
 			ofSetColor(ofColor::orange);
 			ofPushMatrix();
-			ofTranslate(p0_apCenterX - (elemBox.width * smallFontScale / 2), p0_statusY + (elemBox.height * smallFontScale));
+			ofTranslate(p0_statusXStart, p0_statusY);
 			ofScale(smallFontScale, smallFontScale);
 			titleFont.drawString(elemText, 0, 0);
 			ofPopMatrix();
-			p0_statusY += (elemBox.height * smallFontScale) + (5 * scale);
+			p0_statusY -= (elemBox.height * smallFontScale) + (5 * scale);
 		}
 
 		if (player0->nextTurnD10AP) {
@@ -5022,35 +5102,16 @@ void ofApp::drawGame() {
 			ofRectangle d10Box = titleFont.getStringBoundingBox(d10Text, 0, 0);
 			ofSetColor(ofColor::white);
 			ofPushMatrix();
-			ofTranslate(p0_apCenterX - (d10Box.width * smallFontScale / 2), p0_statusY + (d10Box.height * smallFontScale));
+			ofTranslate(p0_statusXStart, p0_statusY);
 			ofScale(smallFontScale, smallFontScale);
 			titleFont.drawString(d10Text, 0, 0);
 			ofPopMatrix();
-			p0_statusY += (d10Box.height * smallFontScale) + (5 * scale);
+			p0_statusY -= (d10Box.height * smallFontScale) + (5 * scale);
 		}
 
-		if (player0->nextAttackAddPoison) {
-			string poisonText = "Poison Ready";
-			ofRectangle poisonBox = titleFont.getStringBoundingBox(poisonText, 0, 0);
-			ofSetColor(ofColor::green);
-			ofPushMatrix();
-			ofTranslate(p0_apCenterX - (poisonBox.width * smallFontScale / 2), p0_statusY + (poisonBox.height * smallFontScale));
-			ofScale(smallFontScale, smallFontScale);
-			titleFont.drawString(poisonText, 0, 0);
-			ofPopMatrix();
-			p0_statusY += (poisonBox.height * smallFontScale) + (5 * scale);
-		}
-
-		if (player0->isPoisoned) {
-			string txt = "Poisoned (-" + ofToString(player0->poisonReduction) + ")";
-			ofRectangle b = titleFont.getStringBoundingBox(txt, 0, 0);
-			ofSetColor(ofColor::green);
-			ofPushMatrix();
-			ofTranslate(p0_apCenterX - (b.width * smallFontScale / 2), p0_statusY + (b.height * smallFontScale));
-			ofScale(smallFontScale, smallFontScale);
-			titleFont.drawString(txt, 0, 0);
-			ofPopMatrix();
-		}
+		// Note: 'On Fire', 'Sleeping', 'Paralyzed', 'Poison Ready', and 'Poisoned'
+		// are intentionally not shown next to the AP counter — those statuses
+		// are represented with in-world effects/icons already.
 
 		/// --- Draw P1 AP Box ---
 		float p1_apCenterX = ofGetWidth() - staticUICardWidth - (20 * scale) + staticUICardWidth / 2;
@@ -5067,71 +5128,40 @@ void ofApp::drawGame() {
 		titleFont.drawString(p1_apText, -p1_apTextBox.getCenter().x, -p1_apTextBox.getCenter().y);
 		ofPopMatrix();
 
-		// --- NEW: DRAW LUCK INDICATOR (PLAYER 1) ---
+		// --- DRAW P1 STATUSES ---
+		// Position these relative to the Player1 health bar: top-left, stacked below the HP counter
+		// Left-align P1 statuses to the health bar start (top-left area)
+		float p1_statusXStart = p1_healthX + 5 * scale;
+		// Account for stacked form bars below the health bar so statuses sit on top of them
+		int p1_formsBelow = (player1->inTortoiseForm ? 1 : 0) + (player1->inGhostForm ? 1 : 0);
+		float p1_totalFormsHeight = p1_formsBelow * (formBarHeight + formSpacing);
+		float p1_statusY = p1_healthY + healthBarHeight + 10 * scale + p1_totalFormsHeight;
+
+		// Draw Luck below HP for Player 1 (left-aligned)
 		if (player1->luck > 0) {
 			string luckText = "+" + ofToString(player1->luck) + " Luck";
-			ofRectangle luckBox = uiFont.getStringBoundingBox(luckText, 0, 0);
-			float luckX = p1_apCenterX - (luckBox.width * 0.9f / 2);
-			float luckY = p1_apCenterY + p1_apRectHeight / 2 + (5 * scale);
-
+			ofRectangle luckBox = titleFont.getStringBoundingBox(luckText, 0, 0);
 			ofSetColor(ofColor::darkGreen);
 			ofPushMatrix();
-			ofTranslate(luckX, luckY);
-			ofScale(0.9f, 0.9f);
-			uiFont.drawString(luckText, 0, 0);
+			ofTranslate(p1_statusXStart, p1_statusY + (luckBox.height * smallFontScale));
+			ofScale(smallFontScale, smallFontScale);
+			titleFont.drawString(luckText, 0, 0);
 			ofPopMatrix();
+			p1_statusY += (luckBox.height * smallFontScale) + (5 * scale);
 		}
-
-		// --- DRAW P1 STATUSES ---
-		float p1_statusY = p1_apCenterY - p1_apRectHeight / 2 - 10 * scale;
 
 		// --- NEW STATUSES ---
-		if (player1->sleepTurnsRemaining > 0) {
-			string txt = "Sleeping (" + ofToString(player1->sleepTurnsRemaining) + ")";
-			ofRectangle b = titleFont.getStringBoundingBox(txt, 0, 0);
-			ofSetColor(ofColor::cyan);
-			ofPushMatrix();
-			ofTranslate(p1_apCenterX - (b.width * smallFontScale / 2), p1_statusY);
-			ofScale(smallFontScale, smallFontScale);
-			titleFont.drawString(txt, 0, 0);
-			ofPopMatrix();
-			p1_statusY -= (b.height * smallFontScale) + (5 * scale);
-		}
-
-		if (player1->isParalyzed) {
-			string txt = "Paralyzed";
-			ofRectangle b = titleFont.getStringBoundingBox(txt, 0, 0);
-			ofSetColor(ofColor::yellow);
-			ofPushMatrix();
-			ofTranslate(p1_apCenterX - (b.width * smallFontScale / 2), p1_statusY);
-			ofScale(smallFontScale, smallFontScale);
-			titleFont.drawString(txt, 0, 0);
-			ofPopMatrix();
-			p1_statusY -= (b.height * smallFontScale) + (5 * scale);
-		}
-
-		if (player1->onFire) {
-			string txt = "On Fire";
-			ofRectangle b = titleFont.getStringBoundingBox(txt, 0, 0);
-			ofSetColor(ofColor::orangeRed);
-			ofPushMatrix();
-			ofTranslate(p1_apCenterX - (b.width * smallFontScale / 2), p1_statusY);
-			ofScale(smallFontScale, smallFontScale);
-			titleFont.drawString(txt, 0, 0);
-			ofPopMatrix();
-			p1_statusY -= (b.height * smallFontScale) + (5 * scale);
-		}
 
 		if (player1->nextTurnD10AP) {
 			string d10Text = "D10 AP";
 			ofRectangle d10Box = titleFont.getStringBoundingBox(d10Text, 0, 0);
 			ofSetColor(ofColor::white);
 			ofPushMatrix();
-			ofTranslate(p1_apCenterX - (d10Box.width * smallFontScale / 2), p1_statusY);
+			ofTranslate(p1_statusXStart, p1_statusY + (d10Box.height * smallFontScale));
 			ofScale(smallFontScale, smallFontScale);
 			titleFont.drawString(d10Text, 0, 0);
 			ofPopMatrix();
-			p1_statusY -= (d10Box.height * smallFontScale) + (5 * scale);
+			p1_statusY += (d10Box.height * smallFontScale) + (5 * scale);
 		}
 
 		if (player1->strengthenElementsTurnsRemaining > 0) {
@@ -5139,11 +5169,11 @@ void ofApp::drawGame() {
 			ofRectangle elemBox = titleFont.getStringBoundingBox(elemText, 0, 0);
 			ofSetColor(ofColor::orange);
 			ofPushMatrix();
-			ofTranslate(p1_apCenterX - (elemBox.width * smallFontScale / 2), p1_statusY);
+			ofTranslate(p1_statusXStart, p1_statusY + (elemBox.height * smallFontScale));
 			ofScale(smallFontScale, smallFontScale);
 			titleFont.drawString(elemText, 0, 0);
 			ofPopMatrix();
-			p1_statusY -= (elemBox.height * smallFontScale) + (5 * scale);
+			p1_statusY += (elemBox.height * smallFontScale) + (5 * scale);
 		}
 
 		if (player1->nextTurnAPBonus > 0) {
@@ -5151,35 +5181,14 @@ void ofApp::drawGame() {
 			ofRectangle bonusBox = titleFont.getStringBoundingBox(bonusText, 0, 0);
 			ofSetColor(ofColor::yellow);
 			ofPushMatrix();
-			ofTranslate(p1_apCenterX - (bonusBox.width * smallFontScale / 2), p1_statusY);
+			ofTranslate(p1_statusXStart, p1_statusY + (bonusBox.height * smallFontScale));
 			ofScale(smallFontScale, smallFontScale);
 			titleFont.drawString(bonusText, 0, 0);
 			ofPopMatrix();
-			p1_statusY -= (bonusBox.height * smallFontScale) + (5 * scale);
+			p1_statusY += (bonusBox.height * smallFontScale) + (5 * scale);
 		}
 
-		if (player1->nextAttackAddPoison) {
-			string poisonText = "Poison Ready";
-			ofRectangle poisonBox = titleFont.getStringBoundingBox(poisonText, 0, 0);
-			ofSetColor(ofColor::green);
-			ofPushMatrix();
-			ofTranslate(p1_apCenterX - (poisonBox.width * smallFontScale / 2), p1_statusY);
-			ofScale(smallFontScale, smallFontScale);
-			titleFont.drawString(poisonText, 0, 0);
-			ofPopMatrix();
-			p1_statusY -= (poisonBox.height * smallFontScale) + (5 * scale);
-		}
-
-		if (player1->isPoisoned) {
-			string txt = "Poisoned (-" + ofToString(player1->poisonReduction) + ")";
-			ofRectangle b = titleFont.getStringBoundingBox(txt, 0, 0);
-			ofSetColor(ofColor::green);
-			ofPushMatrix();
-			ofTranslate(p1_apCenterX - (b.width * smallFontScale / 2), p1_statusY);
-			ofScale(smallFontScale, smallFontScale);
-			titleFont.drawString(txt, 0, 0);
-			ofPopMatrix();
-		}
+		// Note: see comment above — remove in-AP status texts for these effects.
 	}
 
 	// End Turn Button
@@ -5288,6 +5297,16 @@ void ofApp::drawGame() {
 					ofSetColor(ofColor::yellow);
 					ofSetLineWidth(4);
 					ofDrawRectangle(drawX, drawY, w, h);
+					ofPopStyle();
+				}
+
+				// If Add Poison is primed for this player, highlight physical/piercing cards
+				if (currentPlayer.nextAttackAddPoison && (card.damageType == DAMAGE_PHYSICAL || card.damageType == DAMAGE_PIERCING)) {
+					ofPushStyle();
+					ofNoFill();
+					ofSetColor(255, 140, 0); // Orange glow
+					ofSetLineWidth(4);
+					ofDrawRectangle(drawX - 2, drawY - 2, w + 4, h + 4);
 					ofPopStyle();
 				}
 			}
@@ -6210,6 +6229,85 @@ cursor_check_done:;
 				if (up->inGhostForm) {
 					int rem = 4 - up->ghostDamageTaken;
 					tooltipText += " [Ghost: " + ofToString(rem) + "/4 HP]";
+				}
+
+				// Show AP-adjacent, status effects, and weaknesses for any unit (minions and players)
+				{
+					std::vector<std::string> unitStatusLines;
+					// AP-adjacent/status buffs
+					if (up->nextTurnAPBonus > 0) unitStatusLines.push_back(std::string("+") + ofToString(up->nextTurnAPBonus) + " AP Next Turn");
+					if (up->nextTurnD10AP) unitStatusLines.push_back("D10 AP");
+					if (up->strengthenElementsTurnsRemaining > 0) unitStatusLines.push_back(std::string("Elem Buff (") + ofToString(up->strengthenElementsTurnsRemaining) + ")");
+					if (up->luck > 0) unitStatusLines.push_back(std::string("+") + ofToString(up->luck) + " Luck");
+
+					// Status effects
+					if (up->sleepTurnsRemaining > 0) unitStatusLines.push_back(std::string("Sleep (") + ofToString(up->sleepTurnsRemaining) + ")");
+					if (up->isParalyzed) unitStatusLines.push_back(std::string("Paralyzed"));
+					if (up->onFire) unitStatusLines.push_back(std::string("On Fire"));
+					if (up->isPoisoned) unitStatusLines.push_back(std::string("Poisoned"));
+					if (up->summonedOnTurnCycle == globalTurnCounter) unitStatusLines.push_back(std::string("Summoning Sickness"));
+
+					// Regeneration
+					if (up->hasRegeneration) unitStatusLines.push_back(std::string("Regeneration"));
+
+					// Weaknesses / vulnerabilities
+					if (up->isHellhound || up->isDemon || up->isSkeleton) unitStatusLines.push_back(std::string("Vulnerable: Holy (x2)"));
+					if (up->inGhostForm) unitStatusLines.push_back(std::string("Vulnerable: Holy (x2) (Ghost)"));
+					// Call for Wolves: if present in deck or discard, unit takes x2 Piercing
+					bool hasCallForWolves = false;
+					for (const auto & c : up->deck)
+						if (c.type == CARD_CALL_FOR_WOLVES) {
+							hasCallForWolves = true;
+							break;
+						}
+					if (!hasCallForWolves)
+						for (const auto & c : up->discardPile)
+							if (c.type == CARD_CALL_FOR_WOLVES) {
+								hasCallForWolves = true;
+								break;
+							}
+					if (hasCallForWolves) unitStatusLines.push_back(std::string("Vulnerable: Piercing (x2) (Call for Wolves)"));
+					// Vampire bite vulnerability: if unit has Vampire Bite card in deck/discard
+					bool hasVampireBite = false;
+					for (const auto & c : up->deck)
+						if (c.type == CARD_VAMPIRE_BITE) {
+							hasVampireBite = true;
+							break;
+						}
+					if (!hasVampireBite)
+						for (const auto & c : up->discardPile)
+							if (c.type == CARD_VAMPIRE_BITE) {
+								hasVampireBite = true;
+								break;
+							}
+					if (hasVampireBite) unitStatusLines.push_back(std::string("Vulnerable: Holy (Vampire)"));
+
+					if (!unitStatusLines.empty()) {
+						tooltipText += " [";
+						for (size_t si = 0; si < unitStatusLines.size(); ++si) {
+							if (si > 0) tooltipText += ", ";
+							tooltipText += unitStatusLines[si];
+						}
+						tooltipText += "]";
+					}
+				}
+
+				// If unit (minion or player) has regeneration, inject into tooltip
+				if (up->hasRegeneration) {
+					size_t openPos = tooltipText.find('[');
+					if (openPos != std::string::npos) {
+						size_t closePos = tooltipText.rfind(']');
+						if (closePos != std::string::npos) {
+							if (closePos > openPos + 1) // already has contents
+								tooltipText.insert(closePos, ", Regeneration");
+							else // empty brackets
+								tooltipText.insert(closePos, "Regeneration");
+						} else {
+							tooltipText += " [Regeneration]";
+						}
+					} else {
+						tooltipText += " [Regeneration]";
+					}
 				}
 			}
 		}
@@ -8797,9 +8895,9 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		}
 
 		// --- Vulnerabilities ---
-		if ((target.isHellhound || target.isDemon) && type == DAMAGE_HOLY) {
+		if ((target.isHellhound || target.isDemon || target.isSkeleton) && type == DAMAGE_HOLY) {
 			calculatedDamage *= 2;
-			spawnFloatingText(gridToWorld(target.x, target.y), "Vulnerable! (x2)", ofColor::orange);
+			spawnFloatingText(gridToWorld(target.x, target.y), "Vulnerable: Holy (x2)", ofColor::orange);
 		}
 		if (type == DAMAGE_HOLY) {
 			bool hasVampireBite = false;
@@ -8821,18 +8919,22 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 			}
 		}
 		if (type == DAMAGE_PIERCING) {
+			// Call for Wolves only in deck or discard triggers x2 Piercing
 			bool hasWolfCall = false;
-			for (const auto & c : target.hand)
-				if (c.type == CARD_CALL_FOR_WOLVES) hasWolfCall = true;
 			for (const auto & c : target.deck)
-				if (c.type == CARD_CALL_FOR_WOLVES) hasWolfCall = true;
-			for (const auto & c : target.discardPile)
-				if (c.type == CARD_CALL_FOR_WOLVES) hasWolfCall = true;
-			for (const auto & c : target.playedCardsPile)
-				if (c.type == CARD_CALL_FOR_WOLVES) hasWolfCall = true;
+				if (c.type == CARD_CALL_FOR_WOLVES) {
+					hasWolfCall = true;
+					break;
+				}
+			if (!hasWolfCall)
+				for (const auto & c : target.discardPile)
+					if (c.type == CARD_CALL_FOR_WOLVES) {
+						hasWolfCall = true;
+						break;
+					}
 			if (hasWolfCall) {
 				calculatedDamage *= 2;
-				spawnFloatingText(gridToWorld(target.x, target.y), "Curse: x2 Dmg!", ofColor::orange);
+				spawnFloatingText(gridToWorld(target.x, target.y), "Vulnerable: Piercing (x2)", ofColor::orange);
 			}
 		}
 
@@ -10991,10 +11093,10 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 					if (p.x < 0) continue; // Dead
 					if (&p == &currentPlayer) continue; // Self
 
-					// Check adjacency
+					// Check adjacency (orthogonal only — no diagonals)
 					int dx = abs(p.x - currentPlayer.x);
 					int dy = abs(p.y - currentPlayer.y);
-					if ((dx <= 1 && dy <= 1) && (dx + dy > 0)) {
+					if ((dx + dy) == 1) {
 						hasAdjacentUnit = true;
 						break;
 					}
@@ -13631,21 +13733,7 @@ void ofApp::drawMinionManagerUI() {
 		uiFont.drawString(name, 0, 0);
 		ofPopMatrix();
 
-		// --- ADD THIS BLOCK: DRAW MINION LUCK ---
-		if (minion.luck > 0) {
-			string luckText = "+" + ofToString(minion.luck) + " Luck";
-			ofRectangle luckBounds = uiFont.getStringBoundingBox(luckText, 0, 0);
-			float luckX = textBlockX + nameBounds.width * fontScale + (10 * scale);
-			float luckY = textBlockY + nameBounds.height * fontScale;
-
-			ofSetColor(ofColor::darkGreen);
-			ofPushMatrix();
-			ofTranslate(luckX, luckY);
-			ofScale(fontScale * 0.9f, fontScale * 0.9f); // Slightly smaller
-			uiFont.drawString(luckText, 0, 0);
-			ofPopMatrix();
-		}
-		// --- END OF ADDED BLOCK ---
+		// (Minion luck/status moved to hover tooltip; no inline luck shown here)
 		//
 		// --- Draw Model FBO ---
 		float textBlockBottom = textBlockY + (nameBounds.height * fontScale) + (25 * scale);
@@ -13698,88 +13786,7 @@ void ofApp::drawMinionManagerUI() {
 			ofDrawRectRounded(ui.discardRect, 3);
 		}
 
-		// --- NEW: DRAW MINION STATUS EFFECTS (Above Panel) ---
-
-		float statusX = ui.bounds.x;
-		// Start drawing text slightly above the top of the UI panel
-		float statusY = ui.bounds.y - (5 * scale);
-		float fontS = 0.7f * scale; // Small text
-		float lineHeight = 15 * scale;
-
-		// 1. SLEEP
-		if (minion.sleepTurnsRemaining > 0) {
-			string txt = "Sleep (" + ofToString(minion.sleepTurnsRemaining) + ")";
-			ofSetColor(ofColor::cyan);
-			ofPushMatrix();
-			ofTranslate(statusX, statusY);
-			ofScale(fontS, fontS);
-			uiFont.drawString(txt, 0, 0);
-			ofPopMatrix();
-			statusY -= lineHeight; // Move up for next line
-		}
-
-		// 2. PARALYSIS
-		if (minion.isParalyzed) {
-			string txt = "Paralyzed";
-			ofSetColor(ofColor::yellow);
-			ofPushMatrix();
-			ofTranslate(statusX, statusY);
-			ofScale(fontS, fontS);
-			uiFont.drawString(txt, 0, 0);
-			ofPopMatrix();
-			statusY -= lineHeight;
-		}
-
-		// 3. FIRE
-		if (minion.onFire) {
-			string txt = "On Fire";
-			ofSetColor(ofColor::orangeRed);
-			ofPushMatrix();
-			ofTranslate(statusX, statusY);
-			ofScale(fontS, fontS);
-			uiFont.drawString(txt, 0, 0);
-			ofPopMatrix();
-			statusY -= lineHeight;
-		}
-
-		// 4. NEXT TURN AP BONUS
-		if (minion.nextTurnAPBonus > 0) {
-			string txt = "+" + ofToString(minion.nextTurnAPBonus) + " AP Next";
-			ofSetColor(ofColor::limeGreen);
-			ofPushMatrix();
-			ofTranslate(statusX, statusY);
-			ofScale(fontS, fontS);
-			uiFont.drawString(txt, 0, 0);
-			ofPopMatrix();
-			statusY -= lineHeight;
-		}
-
-		// 5. D10 AP
-		if (minion.nextTurnD10AP) {
-			string txt = "D10 AP Next";
-			ofSetColor(ofColor::white);
-			ofPushMatrix();
-			ofTranslate(statusX, statusY);
-			ofScale(fontS, fontS);
-			uiFont.drawString(txt, 0, 0);
-			ofPopMatrix();
-			statusY -= lineHeight;
-		}
-
-		// 6. FORTIFICATION
-		// Fortification is shown in the status bars above, no separate text needed.
-
-		// 6. SUMMONING SICKNESS
-		if (minion.summonedOnTurnCycle == globalTurnCounter) {
-			string txt = "Summoning Sickness";
-			ofSetColor(ofColor::gray);
-			ofPushMatrix();
-			ofTranslate(statusX, statusY);
-			ofScale(fontS, fontS);
-			uiFont.drawString(txt, 0, 0);
-			ofPopMatrix();
-			statusY -= lineHeight;
-		}
+		// (Minion status effects are shown only in the hover tooltip above the unit)
 	} // End of loop
 }
 //--------------------------------------------------------------
