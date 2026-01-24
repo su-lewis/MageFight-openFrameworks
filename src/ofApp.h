@@ -132,7 +132,9 @@ enum CardType {
 	CARD_GIANT_MAGIC_HAND,
 	CARD_CONSUME_LARGE_HEALTH_POTION,
 	CARD_LESSER_HEAL,
-	CARD_TRANSFORM_WALL
+	CARD_TRANSFORM_WALL,
+	CARD_SUMMON_KOBOLD_KING, // Add this
+	CARD_FULL_RESTORE
 };
 
 enum DicePurpose {
@@ -301,6 +303,7 @@ struct Player {
 	bool isDemon = false;
 	bool isWallUnit = false;
 	bool isMagicWallUnit = false;
+	bool isKoboldKing = false;
 
 	// Tortoise Form
 	bool inTortoiseForm = false;
@@ -531,6 +534,7 @@ private:
 	ofxAssimpModelLoader tortoiseModel;
 	ofxAssimpModelLoader ghostModel;
 	ofxAssimpModelLoader wallUnitModel;
+	ofxAssimpModelLoader koboldKingModel;
 
 	ofTexture playerTexture;
 	ofTexture skeletonTexture;
@@ -538,6 +542,7 @@ private:
 	ofTexture golemTexBase, golemTexRock, golemTexFire, golemTexElectric;
 	ofTexture tortoiseTexture;
 	ofTexture ghostBaseTex;
+	ofTexture koboldKingTexture;
 
 	ofMaterial modelMaterial;
 	ofMaterial diceMaterial;

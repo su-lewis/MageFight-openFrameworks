@@ -137,6 +137,27 @@ void ofApp::setup() {
 		ofLogNotice("Setup") << "Kobold model failed to load (optional). Tried: " << koboldPath1 << " and " << koboldPath2;
 	}
 
+	// --- Load Kobold King ---
+	if (koboldKingModel.load("Units/KoboldKing/goblin_king.fbx")) {
+		koboldKingModel.disableMaterials();
+
+		// 1. Rotation: Keep the Z flip if it was needed to make it upright
+		koboldKingModel.setRotation(0, 180, 0, 0, 1);
+
+		// 2. Scale: Reduced from 0.06 to 0.0042 (Approx 1.5x size of Player)
+		// Reduce further by 15% to avoid clipping and better fit tile
+		koboldKingModel.setScale(0.003f, 0.003f, 0.003f);
+
+		if (ofLoadImage(koboldKingTexture, "Units/KoboldKing/01391eaa.dds")) {
+			koboldKingTexture.setTextureMinMagFilter(GL_LINEAR, GL_LINEAR);
+			ofLogNotice("Setup") << "Kobold King texture loaded.";
+		} else {
+			ofLogError("Setup") << "Failed to load Units/KoboldKing/01391eaa.dds";
+		}
+
+		ofLogNotice("Setup") << "Kobold King model loaded.";
+	}
+
 	// --- Load Hellhound ---
 	if (hellhoundModel.load("Units/Hellhound/hellhound.glb")) {
 		hellhoundModel.disableMaterials();
@@ -144,8 +165,8 @@ void ofApp::setup() {
 		// FIX: Rotate -90 around X to lift face off the ground
 		hellhoundModel.setRotation(0, 90, 1, 0, 0);
 
-		// Scale
-		hellhoundModel.setScale(0.0045f, 0.0045f, 0.0045f);
+		// Scale: increase model scale by 15% for more presence
+		hellhoundModel.setScale(0.005175f, 0.005175f, 0.005175f);
 
 		ofLogNotice("Setup") << "Hellhound model loaded.";
 	}
@@ -1647,6 +1668,30 @@ void ofApp::updateGame() {
 		}
 
 		invalidateTargetCache();
+	}
+
+	// --- KOBOLD KING DYNAMIC HP LOGIC ---
+	// 1. Count current Kobolds
+	int globalKoboldCount = 0;
+	for (const auto & p : players) {
+		if (p.isKobold && p.health > 0) globalKoboldCount++;
+	}
+
+	// 2. Update Kings
+	for (auto & p : players) {
+		if (p.isKoboldKing) {
+			int newMax = globalKoboldCount + 1;
+
+			// Only update if changed
+			if (p.maxHealth != newMax) {
+				p.maxHealth = newMax;
+				// If health is now higher than max, clamp it down.
+				// Do NOT heal up if max increases.
+				if (p.health > p.maxHealth) {
+					p.health = p.maxHealth;
+				}
+			}
+		}
 	}
 
 	// --- MAGIC BLAST RESOLUTION ---
@@ -3943,6 +3988,11 @@ void ofApp::drawGame() {
 					}
 				} else if (player.isHellhound) {
 					ofTranslate(pos.x, 0.1f, pos.z);
+					// Face movement direction like other minions
+					// Hellhound's model forward is reversed; add 180 degrees
+					ofRotateYDeg(unitFacingAngle + 180.0f);
+					// Slight vertical offset so paws/mesh clear the floor
+					ofTranslate(0, 0.6f, 0);
 					hellhoundModel.drawFaces();
 				} else if (player.isDemon) {
 					ofTranslate(pos.x, 0.1f, pos.z);
@@ -3963,6 +4013,37 @@ void ofApp::drawGame() {
 					ofRotateYDeg(unitFacingAngle);
 					ofTranslate(0, 0.6f, 0);
 					koboldModel.drawFaces();
+				}
+				// --- KOBOLD KING ---
+				else if (player.isKoboldKing) {
+					ofTranslate(pos.x, 0.1f, pos.z);
+
+					// 1. Apply Game Facing Logic
+					ofRotateYDeg(unitFacingAngle);
+
+					// 2. Apply Model Correction (West -> North)
+					ofRotateYDeg(-90);
+
+					// Raise the king so its base doesn't clip through the floor
+					// Use TILE_SIZE so the offset scales with board size
+					ofTranslate(0, TILE_SIZE * 0.3f, 0);
+
+					// Ensure white color so texture isn't tinted
+					ofSetColor(255);
+
+					bool texBound = false;
+					if (koboldKingTexture.isAllocated()) {
+						koboldKingTexture.bind();
+						texBound = true;
+					}
+
+					glDisable(GL_CULL_FACE);
+					koboldKingModel.drawFaces();
+					glEnable(GL_CULL_FACE);
+
+					if (texBound) {
+						koboldKingTexture.unbind();
+					}
 				}
 				// --- WALL UNIT ---
 				else if (player.isWallUnit) {
@@ -4565,25 +4646,29 @@ void ofApp::drawGame() {
 
 	// --- 8. DRAW UI ---
 
-	// NUCLEAR GRAPHICS RESET
+	// === NUCLEAR GRAPHICS RESET ===
 	ofDisableLighting();
-	glDisable(GL_LIGHTING);
 	ofDisableDepthTest();
-	glDisable(GL_DEPTH_TEST);
+	ofDisableBlendMode(); // Reset blend mode
 
-	// Reset Colors
-	ofSetColor(255, 255, 255, 255);
-	glColor4f(1.0f, 1.0f, 1.0f, 1.0f);
-
-	// Reset Textures & Materials
+	// 1. Reset Texture
 	glBindTexture(GL_TEXTURE_2D, 0);
+
+	// 2. Reset Colors
+	ofSetColor(255, 255, 255, 255);
+
+	// 3. Reset Materials (The likely cause of the grey UI)
 	glDisable(GL_COLOR_MATERIAL);
+	glDisable(GL_LIGHTING);
+	glDisable(GL_CULL_FACE); // Ensure culling is off for 2D
 
-	// Reset OpenGL Material State to White
-	float defaultMat[] = { 1.0f, 1.0f, 1.0f, 1.0f };
-	glMaterialfv(GL_FRONT_AND_BACK, GL_AMBIENT, defaultMat);
-	glMaterialfv(GL_FRONT_AND_BACK, GL_DIFFUSE, defaultMat);
+	// Reset standard material properties to defaults just in case
+	float defaultAmbient[] = { 0.2f, 0.2f, 0.2f, 1.0f };
+	float defaultDiffuse[] = { 0.8f, 0.8f, 0.8f, 1.0f };
+	glMaterialfv(GL_FRONT_AND_BACK, GL_AMBIENT, defaultAmbient);
+	glMaterialfv(GL_FRONT_AND_BACK, GL_DIFFUSE, defaultDiffuse);
 
+	// 4. Re-enable Alpha for UI
 	ofEnableAlphaBlending();
 
 	drawMinionManagerUI();
@@ -8512,6 +8597,10 @@ void ofApp::continueNewTurn() {
 			startDiceRoll(1, 4, PURPOSE_AP, "Wall Unit AP");
 		}
 	}
+	// Kobold King AP: 1d6
+	else if (startingPlayer.isKoboldKing) {
+		startDiceRoll(1, 6, PURPOSE_AP, "Kobold King AP");
+	}
 	// Skeleton AP: 1d6
 	else if (startingPlayer.isMinion) {
 		startDiceRoll(1, 6, PURPOSE_AP, "Minion AP Roll");
@@ -9190,6 +9279,130 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		// We set this to false because we handled the cleanup manually above.
 		// We don't want the bottom block to run again.
 		playedSuccessfully = false;
+		break;
+	}
+
+	// --- CASE: SUMMON KOBOLD KING ---
+	case CARD_SUMMON_KOBOLD_KING: {
+		// Validation: Must be empty adjacent tile
+		if (board[targetX][targetY].hasWall || board[targetX][targetY].hasPlayer) break;
+
+		// 1. Calculate Stats based on existing Kobolds
+		int koboldCount = 0;
+		for (const auto & p : players) {
+			if (p.isKobold) koboldCount++;
+		}
+		int kingHP = koboldCount + 1;
+
+		// 2. Create Unit
+		Player minion;
+		minion.playerID = 4000 + (int)players.size(); // 4000 series for Kings
+		minion.x = targetX;
+		minion.y = targetY;
+		minion.maxHealth = kingHP;
+		minion.health = kingHP; // Starts full
+
+		minion.isMinion = true;
+		minion.isKoboldKing = true;
+		minion.isKobold = false; // Explicitly NOT a kobold
+
+		// Owner logic
+		minion.ownerID = currentPlayer.isMinion ? currentPlayer.ownerID : currentPlayer.playerID;
+		minion.summonedOnTurnCycle = currentPlayer.isMinion ? globalTurnCounter : -1;
+		minion.summonOrder = ++nextSummonOrder;
+
+		// 3. Build Deck
+		auto findCard = [&](string name, CardType type) -> Card {
+			// Prefer exact name match first (so multiple cards sharing the same type
+			// like Slash and Stab are distinguishable). Fall back to first matching
+			// type if name isn't found.
+			for (const auto & c : allCards) {
+				if (c.name == name) return c;
+			}
+			for (const auto & c : allCards) {
+				if (c.type == type) return c;
+			}
+			return Card();
+		};
+
+		Card slash = findCard("Slash", CARD_ATTACK_SINGLE_TILE);
+		Card stab = findCard("Stab", CARD_ATTACK_SINGLE_TILE);
+		Card fullRestore = findCard("Full Restore", CARD_FULL_RESTORE);
+		Card callKobolds = findCard("Call for Kobolds", CARD_CALL_FOR_KOBOLDS);
+
+		// Deck: 2x Slash, 2x Stab, 2x Full Restore, 1x Call for Kobolds
+		minion.deck = { slash, slash, stab, stab, fullRestore, fullRestore, callKobolds };
+		std::shuffle(minion.deck.begin(), minion.deck.end(), rng);
+
+		// --- CRITICAL FIX START ---
+		// We must modify 'currentPlayer' BEFORE we push_back to 'players'.
+		// Pushing back might resize the vector, invalidating the 'currentPlayer' reference.
+
+		int myID = currentPlayer.playerID; // Save ID to find index later
+
+		currentAP -= playedCard.cost;
+		currentPlayer.playedCardsPile.push_back(playedCard);
+
+		if (currentPlayer.isReplicatePending) {
+			currentPlayer.playedCardsPile.push_back(playedCard);
+			currentPlayer.isReplicatePending = false;
+		}
+
+		currentPlayer.cardsPlayedThisTurn.push_back(playedCard.type);
+		currentPlayer.hand.erase(currentPlayer.hand.begin() + cardIndex);
+
+		activeCardDisplays.push_back({ playedCard, ofGetElapsedTimef() });
+		invalidateTargetCache();
+		// --- CRITICAL FIX END ---
+
+		// 4. Add to Board (Now safe to resize vector)
+		board[targetX][targetY].hasPlayer = true;
+		players.push_back(minion);
+
+		ofLogNotice("Summon") << "Kobold King summoned with " << kingHP << " HP.";
+
+		// 5. Sort turn order
+		std::sort(players.begin(), players.end(), [](const Player & a, const Player & b) {
+			int ownerA = a.isMinion ? a.ownerID : a.playerID;
+			int ownerB = b.isMinion ? b.ownerID : b.playerID;
+			if (ownerA != ownerB) return ownerA < ownerB;
+			if (a.isMinion && !b.isMinion) return true;
+			if (!a.isMinion && b.isMinion) return false;
+			return a.summonOrder < b.summonOrder;
+		});
+
+		// 6. Restore Index (Find where the current player moved to after sorting)
+		for (size_t i = 0; i < players.size(); i++) {
+			if (players[i].playerID == myID) {
+				currentPlayerIndex = i;
+				break;
+			}
+		}
+
+		playedSuccessfully = false; // Cleanup handled manually above
+		break;
+	}
+
+	// --- CASE: FULL RESTORE ---
+	case CARD_FULL_RESTORE: {
+		// Target is Self
+		Player & target = currentPlayer; // Since targeting is TARGET_SELF
+
+		// 1. Heal to Max
+		target.health = target.maxHealth;
+
+		// 2. Remove Status Effects
+		target.onFire = false;
+		target.isPoisoned = false;
+		target.poisonReduction = 0;
+		target.isParalyzed = false;
+		target.paralysisHeadsCount = 0;
+		target.sleepTurnsRemaining = 0;
+
+		spawnFloatingText(gridToWorld(target.x, target.y), "Fully Restored!", ofColor::gold);
+		ofLogNotice("Full Restore") << "Unit " << target.playerID << " healed to " << target.maxHealth << " and cured.";
+
+		playedSuccessfully = true;
 		break;
 	}
 
@@ -11125,7 +11338,9 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 						if (board[x][y].hasWall || board[x][y].hasPlayer) isValidTarget = true;
 					}
 					// 3. Standard Summoning / Creation (Must be empty)
-					else if (card.type == CARD_CALL_FOR_WOLVES || card.type == CARD_SUMMON_GOLEM || card.type == CARD_RAISE_DEAD || card.type == CARD_CREATE_WALL || card.type == CARD_SUMMON_HELLHOUND || card.type == CARD_SUMMON_DEMON) {
+					// ADD CARD_SUMMON_KOBOLD_KING TO THIS LIST:
+					else if (card.type == CARD_CALL_FOR_WOLVES || card.type == CARD_SUMMON_GOLEM || card.type == CARD_RAISE_DEAD || card.type == CARD_CREATE_WALL || card.type == CARD_SUMMON_HELLHOUND || card.type == CARD_SUMMON_DEMON || card.type == CARD_SUMMON_KOBOLD_KING) // <--- ADDED HERE
+					{
 						if (!board[x][y].hasWall && !board[x][y].hasPlayer) isValidTarget = true;
 					}
 					// 4. Default Attack (Must have unit)
@@ -13077,6 +13292,8 @@ CardType ofApp::stringToCardType(const std::string & str) {
 	if (str == "CARD_CONSUME_LARGE_HEALTH_POTION") return CARD_CONSUME_LARGE_HEALTH_POTION;
 	if (str == "CARD_LESSER_HEAL") return CARD_LESSER_HEAL;
 	if (str == "CARD_TRANSFORM_WALL") return CARD_TRANSFORM_WALL;
+	if (str == "CARD_SUMMON_KOBOLD_KING") return CARD_SUMMON_KOBOLD_KING; // Add
+	if (str == "CARD_FULL_RESTORE") return CARD_FULL_RESTORE; //
 
 	return CARD_NONE;
 }
@@ -13272,6 +13489,24 @@ void ofApp::drawMinionManagerUI() {
 			glDepthMask(GL_TRUE);
 
 		}
+		// --- KOBOLD KING PREVIEW ---
+		else if (minion.isKoboldKing) {
+			ofTranslate(modelFbo.getWidth() / 2, modelFbo.getHeight() / 2 + 30);
+
+			// Reduced from 30.0f to 2.5f (since model is now 0.0042f)
+			ofScale(2.5f, -2.5f, 2.5f);
+
+			ofRotateXDeg(-15);
+			ofRotateYDeg(180 + ofGetElapsedTimef() * 30);
+
+			// CORRECTION HERE TOO if needed in UI
+			ofRotateYDeg(-90);
+
+			ofSetColor(255);
+			if (koboldKingTexture.isAllocated()) koboldKingTexture.bind();
+			koboldKingModel.drawFaces();
+			if (koboldKingTexture.isAllocated()) koboldKingTexture.unbind();
+		}
 		// --- KOBOLD PREVIEW ---
 		else if (minion.isKobold) {
 			ofTranslate(modelFbo.getWidth() / 2, modelFbo.getHeight() / 2 + 30);
@@ -13367,7 +13602,10 @@ void ofApp::drawMinionManagerUI() {
 			name = "Hellhound ";
 		} else if (minion.isDemon) {
 			name = "Demon ";
+		} else if (minion.isKoboldKing) {
+			name = "Kobold King ";
 		} else if (minion.isKobold) {
+
 			name = "Kobold ";
 		} else if (minion.isWallUnit) {
 			if (minion.isMagicWallUnit)

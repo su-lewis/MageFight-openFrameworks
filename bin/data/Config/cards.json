@@ -479,5 +479,19 @@
     "type": "CARD_TRANSFORM_WALL",
     "cost": 5,
     "targeting": "TARGET_ADJACENT_WALL"
+  },
+  {
+    "id": 61,
+    "name": "Summon Kobold King",
+    "type": "CARD_SUMMON_KOBOLD_KING",
+    "cost": 4,
+    "targeting": "TARGET_EMPTY_ADJACENT"
+  },
+  {
+    "id": 66,
+    "name": "Full Restore",
+    "type": "CARD_FULL_RESTORE",
+    "cost": 4,
+    "targeting": "TARGET_SELF"
   }
 ]
