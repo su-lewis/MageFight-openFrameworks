@@ -307,7 +307,8 @@ void ofApp::setup() {
 			keyAnimSequence = { 0, 1, 3, 2, 3, 1 };
 		} else {
 			// Fallback: just loop whatever was loaded
-			for (int i = 0; i < (int)keyTextures.size(); ++i) keyAnimSequence.push_back(i);
+			for (int i = 0; i < (int)keyTextures.size(); ++i)
+				keyAnimSequence.push_back(i);
 		}
 		keyAnimSeqPos = 0;
 		keyAnimTimer = 0.0f;
@@ -4065,18 +4066,36 @@ void ofApp::drawGame() {
 				float halfW = widthWorld * 0.5f;
 				float halfH = heightWorld * 0.5f;
 
-				// Fixed horizontal facing (world X axis) so it doesn't follow side-to-side camera movement
-				glm::vec3 right = glm::vec3(1, 0, 0);
-
-				// Compute camera pitch only (ignore camera XZ rotation)
+				// Decide horizontal facing: when camera is near top-down, rotate to face camera; otherwise keep fixed X axis
 				ofVec3f camP = cam.getPosition();
 				glm::vec3 camPos(camP.x, camP.y, camP.z);
 				glm::vec3 forward = camPos - pos;
+				float forwardLen = glm::length(forward);
+				glm::vec3 right;
+
+				// compute camera pitch angle
 				float forwardLenXZ = sqrtf(forward.x * forward.x + forward.z * forward.z);
 				if (forwardLenXZ < 1e-4f) forwardLenXZ = 1e-4f;
 				float pitch = atan2f(forward.y, forwardLenXZ); // radians
 
-				// Apply a scaled pitch tilt (clamped) so billboard tilts up/down with camera
+				// Threshold to switch to camera-facing horizontally (when nearly top-down)
+				const float pitchThreshold = glm::radians(60.0f);
+				if (fabs(pitch) > pitchThreshold) {
+					// face camera horizontally (use XZ direction toward camera)
+					glm::vec3 toCamXZ = camPos - pos;
+					toCamXZ.y = 0.0f;
+					if (glm::length(toCamXZ) < 1e-4f) toCamXZ = glm::vec3(0, 0, 1);
+					toCamXZ = glm::normalize(toCamXZ);
+					glm::vec3 upVec(0, 1, 0);
+					right = glm::normalize(glm::cross(upVec, toCamXZ));
+				} else {
+					// fixed horizontal facing (world X axis)
+					right = glm::vec3(1, 0, 0);
+				}
+
+				if (glm::length(right) < 0.001f) right = glm::vec3(1, 0, 0);
+
+				// Apply camera pitch as tilt (clamped)
 				float maxTilt = glm::radians(60.0f);
 				float tilt = std::clamp(pitch * 0.8f, -maxTilt, maxTilt);
 				glm::quat tiltQ = glm::angleAxis(-tilt, right);
@@ -4101,8 +4120,12 @@ void ofApp::drawGame() {
 				quad.addVertex(p3);
 				quad.addTexCoord(glm::vec2(0, 0));
 
-				quad.addIndex(0); quad.addIndex(1); quad.addIndex(2);
-				quad.addIndex(0); quad.addIndex(2); quad.addIndex(3);
+				quad.addIndex(0);
+				quad.addIndex(1);
+				quad.addIndex(2);
+				quad.addIndex(0);
+				quad.addIndex(2);
+				quad.addIndex(3);
 
 				// Alpha-test: don't write depth for transparent pixels so occluders can show
 				glEnable(GL_ALPHA_TEST);
@@ -4129,7 +4152,6 @@ void ofApp::drawGame() {
 		// Earthquake arrows are now drawn above each unit's head within the transparent effects pass
 		// --- OPAQUE DYNAMIC OBJECTS (Players) ---
 
-		
 		ofSetColor(255);
 		for (const auto & player : players) {
 			// 1. Determine Position
