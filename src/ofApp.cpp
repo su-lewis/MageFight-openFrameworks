@@ -282,16 +282,16 @@ void ofApp::setup() {
 		}
 	}
 
-	// --- Load Floating Key Frames (Board/keys_1_1.png etc.) ---
+	// --- Load Floating Key Frames (gold/silver/bronze sets) ---
 	keyTextures.clear();
+	keyTexturesSilver.clear();
+	keyTexturesBronze.clear();
 	keyAnimSequence.clear();
 	{
-		std::vector<std::string> keyFiles = { "Board/keys_1_1.png", "Board/keys_1_2.png", "Board/keys_1_3.png", "Board/keys_1_4.png" };
-		for (const auto & f : keyFiles) {
+		std::vector<std::string> goldFiles = { "Board/keys_1_1.png", "Board/keys_1_2.png", "Board/keys_1_3.png", "Board/keys_1_4.png" };
+		for (const auto & f : goldFiles) {
 			ofTexture t;
 			if (ofLoadImage(t, f)) {
-				// Pixel-art: use nearest filtering and clamp to edge to avoid interpolation
-				// Do not generate mipmaps for sharp pixel appearance
 				t.setTextureMinMagFilter(GL_NEAREST, GL_NEAREST);
 				t.setTextureWrap(GL_CLAMP_TO_EDGE, GL_CLAMP_TO_EDGE);
 				keyTextures.push_back(t);
@@ -301,28 +301,56 @@ void ofApp::setup() {
 			}
 		}
 
-		// Sequence: 1_1, 1_2, 1_4, 1_3, 1_4, 1_2, 1_1
+		std::vector<std::string> silverFiles = { "Board/keys_2_1.png", "Board/keys_2_2.png", "Board/keys_2_3.png", "Board/keys_2_4.png" };
+		for (const auto & f : silverFiles) {
+			ofTexture t;
+			if (ofLoadImage(t, f)) {
+				t.setTextureMinMagFilter(GL_NEAREST, GL_NEAREST);
+				t.setTextureWrap(GL_CLAMP_TO_EDGE, GL_CLAMP_TO_EDGE);
+				keyTexturesSilver.push_back(t);
+				ofLogNotice("Setup") << "Loaded silver key frame: " << f;
+			}
+		}
+
+		std::vector<std::string> bronzeFiles = { "Board/keys_3_1.png", "Board/keys_3_2.png", "Board/keys_3_3.png", "Board/keys_3_4.png" };
+		for (const auto & f : bronzeFiles) {
+			ofTexture t;
+			if (ofLoadImage(t, f)) {
+				t.setTextureMinMagFilter(GL_NEAREST, GL_NEAREST);
+				t.setTextureWrap(GL_CLAMP_TO_EDGE, GL_CLAMP_TO_EDGE);
+				keyTexturesBronze.push_back(t);
+				ofLogNotice("Setup") << "Loaded bronze key frame: " << f;
+			}
+		}
+
+		// Sequence: 1_1, 1_2, 1_4, 1_3, 1_4, 1_2 (use gold frames count as reference)
 		if (keyTextures.size() >= 4) {
-			// Remove trailing duplicate of frame 0 to avoid showing frame 1_1 twice in a row
 			keyAnimSequence = { 0, 1, 3, 2, 3, 1 };
 		} else {
-			// Fallback: just loop whatever was loaded
 			for (int i = 0; i < (int)keyTextures.size(); ++i)
 				keyAnimSequence.push_back(i);
 		}
 		keyAnimSeqPos = 0;
 		keyAnimTimer = 0.0f;
 
-		// Initialize three gold keys at requested board coordinates
-		// keys_1_* (already loaded above) are gold; place at (4,4), (6,6), (8,8)
-		floatingKeyPositions.clear();
-		floatingKeyPositions.push_back(glm::ivec2(4, 4));
-		floatingKeyPositions.push_back(glm::ivec2(6, 4));
-		floatingKeyPositions.push_back(glm::ivec2(8, 4));
-		// Keep legacy single-key coordinates in sync with first key
-		if (!floatingKeyPositions.empty()) {
-			keyAnimTileX = floatingKeyPositions[0].x;
-			keyAnimTileY = floatingKeyPositions[0].y;
+		// Initialize floating key instances: gold keys (set=1)
+		floatingKeyInstances.clear();
+		floatingKeyInstances.push_back({ glm::ivec2(4, 4), 1 });
+		floatingKeyInstances.push_back({ glm::ivec2(6, 4), 1 });
+		floatingKeyInstances.push_back({ glm::ivec2(8, 4), 1 });
+
+		// Silver keys (set=2) per user request
+		floatingKeyInstances.push_back({ glm::ivec2(0, 0), 2 });
+		floatingKeyInstances.push_back({ glm::ivec2(6, 1), 2 });
+		floatingKeyInstances.push_back({ glm::ivec2(12, 4), 2 });
+		floatingKeyInstances.push_back({ glm::ivec2(12, 8), 2 });
+		floatingKeyInstances.push_back({ glm::ivec2(6, 7), 2 });
+		floatingKeyInstances.push_back({ glm::ivec2(0, 4), 2 });
+
+		// Keep legacy single-key coordinates in sync with first instance (if any)
+		if (!floatingKeyInstances.empty()) {
+			keyAnimTileX = floatingKeyInstances[0].pos.x;
+			keyAnimTileY = floatingKeyInstances[0].pos.y;
 		}
 	}
 
@@ -4065,80 +4093,80 @@ void ofApp::drawGame() {
 		}
 
 		// --- DRAW FLOATING KEYS AS 3D VERTICAL BILLBOARDS (so walls/units occlude them) ---
-		if (!keyAnimSequence.empty() && !keyTextures.empty() && !floatingKeyPositions.empty()) {
+		if (!keyAnimSequence.empty() && !floatingKeyInstances.empty()) {
 			int seqIdx = keyAnimSequence[keyAnimSeqPos];
-			if (seqIdx >= 0 && seqIdx < (int)keyTextures.size()) {
-				for (const auto & kp : floatingKeyPositions) {
-					glm::vec3 worldPos = gridToWorld(kp.x, kp.y);
-					// Raise the key a bit more so its bottom isn't sunk into the floor
-					glm::vec3 pos = worldPos + glm::vec3(0, 0.9f, 0);
+			for (const auto & inst : floatingKeyInstances) {
+				const std::vector<ofTexture> * setTex = nullptr;
+				if (inst.set == 1)
+					setTex = &keyTextures;
+				else if (inst.set == 2)
+					setTex = &keyTexturesSilver;
+				else if (inst.set == 3)
+					setTex = &keyTexturesBronze;
+				if (!setTex || setTex->empty()) continue;
+				if (seqIdx < 0 || seqIdx >= (int)setTex->size()) continue;
+				glm::vec3 worldPos = gridToWorld(inst.pos.x, inst.pos.y);
+				glm::vec3 pos = worldPos + glm::vec3(0, 0.9f, 0);
 
-					// Preserve aspect and avoid horizontal tracking: fix right vector to world X, only apply camera pitch
-					float texW = (float)keyTextures[seqIdx].getWidth();
-					float texH = (float)keyTextures[seqIdx].getHeight();
-					float aspect = (texH > 0.0f) ? (texW / texH) : 1.0f;
+				float texW = (float)(*setTex)[seqIdx].getWidth();
+				float texH = (float)(*setTex)[seqIdx].getHeight();
+				float aspect = (texH > 0.0f) ? (texW / texH) : 1.0f;
 
-					// desired world height and width (keep natural proportions)
-					float heightWorld = TILE_SIZE * 0.9f;
-					float widthWorld = heightWorld * aspect;
-					float halfW = widthWorld * 0.5f;
-					float halfH = heightWorld * 0.5f;
+				// Apply configurable render scale to key world height
+				float heightWorld = TILE_SIZE * 0.9f * keyRenderScale;
+				float widthWorld = heightWorld * aspect;
+				float halfW = widthWorld * 0.5f;
+				float halfH = heightWorld * 0.5f;
 
-					// Use fixed horizontal facing (world X axis); apply camera pitch only
-					glm::vec3 right = glm::vec3(1, 0, 0);
+				glm::vec3 right = glm::vec3(1, 0, 0);
 
-					ofVec3f camP = cam.getPosition();
-					glm::vec3 camPos(camP.x, camP.y, camP.z);
-					glm::vec3 forward = camPos - pos;
-					float forwardLenXZ = sqrtf(forward.x * forward.x + forward.z * forward.z);
-					if (forwardLenXZ < 1e-4f) forwardLenXZ = 1e-4f;
-					float pitch = atan2f(forward.y, forwardLenXZ); // radians
+				ofVec3f camP = cam.getPosition();
+				glm::vec3 camPos(camP.x, camP.y, camP.z);
+				glm::vec3 forward = camPos - pos;
+				float forwardLenXZ = sqrtf(forward.x * forward.x + forward.z * forward.z);
+				if (forwardLenXZ < 1e-4f) forwardLenXZ = 1e-4f;
+				float pitch = atan2f(forward.y, forwardLenXZ);
 
-					// Apply camera pitch as tilt (clamped)
-					float maxTilt = glm::radians(60.0f);
-					float tilt = std::clamp(pitch * 0.8f, -maxTilt, maxTilt);
-					glm::quat tiltQ = glm::angleAxis(-tilt, right);
+				float maxTilt = glm::radians(60.0f);
+				float tilt = std::clamp(pitch * 0.8f, -maxTilt, maxTilt);
+				glm::quat tiltQ = glm::angleAxis(-tilt, right);
 
-					glm::vec3 upVec(0, 1, 0);
-					glm::vec3 upTilt = tiltQ * upVec;
-					glm::vec3 rightTilt = tiltQ * right;
+				glm::vec3 upVec(0, 1, 0);
+				glm::vec3 upTilt = tiltQ * upVec;
+				glm::vec3 rightTilt = tiltQ * right;
 
-					glm::vec3 p0 = pos - rightTilt * halfW - upTilt * halfH;
-					glm::vec3 p1 = pos + rightTilt * halfW - upTilt * halfH;
-					glm::vec3 p2 = pos + rightTilt * halfW + upTilt * halfH;
-					glm::vec3 p3 = pos - rightTilt * halfW + upTilt * halfH;
+				glm::vec3 p0 = pos - rightTilt * halfW - upTilt * halfH;
+				glm::vec3 p1 = pos + rightTilt * halfW - upTilt * halfH;
+				glm::vec3 p2 = pos + rightTilt * halfW + upTilt * halfH;
+				glm::vec3 p3 = pos - rightTilt * halfW + upTilt * halfH;
 
-					ofMesh quad;
-					quad.setMode(OF_PRIMITIVE_TRIANGLES);
-					quad.addVertex(p0);
-					quad.addTexCoord(glm::vec2(0, 1));
-					quad.addVertex(p1);
-					quad.addTexCoord(glm::vec2(1, 1));
-					quad.addVertex(p2);
-					quad.addTexCoord(glm::vec2(1, 0));
-					quad.addVertex(p3);
-					quad.addTexCoord(glm::vec2(0, 0));
+				ofMesh quad;
+				quad.setMode(OF_PRIMITIVE_TRIANGLES);
+				quad.addVertex(p0);
+				quad.addTexCoord(glm::vec2(0, 1));
+				quad.addVertex(p1);
+				quad.addTexCoord(glm::vec2(1, 1));
+				quad.addVertex(p2);
+				quad.addTexCoord(glm::vec2(1, 0));
+				quad.addVertex(p3);
+				quad.addTexCoord(glm::vec2(0, 0));
 
-					quad.addIndex(0);
-					quad.addIndex(1);
-					quad.addIndex(2);
-					quad.addIndex(0);
-					quad.addIndex(2);
-					quad.addIndex(3);
+				quad.addIndex(0);
+				quad.addIndex(1);
+				quad.addIndex(2);
+				quad.addIndex(0);
+				quad.addIndex(2);
+				quad.addIndex(3);
 
-					// Alpha-test: don't write depth for transparent pixels so occluders can show
-					glEnable(GL_ALPHA_TEST);
-					glAlphaFunc(GL_GREATER, 0.05f);
+				glEnable(GL_ALPHA_TEST);
+				glAlphaFunc(GL_GREATER, 0.05f);
 
-					// Draw the key unlit so its pixel-art colors remain bright
-					// (lighting would darken the vertical billboard when the main light is above)
-					ofDisableLighting();
-					keyTextures[seqIdx].bind();
-					quad.draw();
-					keyTextures[seqIdx].unbind();
-					ofEnableLighting();
-					glDisable(GL_ALPHA_TEST);
-				}
+				ofDisableLighting();
+				(*setTex)[seqIdx].bind();
+				quad.draw();
+				(*setTex)[seqIdx].unbind();
+				ofEnableLighting();
+				glDisable(GL_ALPHA_TEST);
 			}
 		}
 		if (levelMesh.getNumVertices() > 0) {
@@ -6639,10 +6667,13 @@ cursor_check_done:;
 					// Regeneration
 					if (up->hasRegeneration) unitStatusLines.push_back(std::string("Regeneration"));
 
-					// Weaknesses / vulnerabilities
-					if (up->isHellhound || up->isDemon || up->isSkeleton) unitStatusLines.push_back(std::string("Vulnerable: Holy (x2)"));
-					if (up->inGhostForm) unitStatusLines.push_back(std::string("Vulnerable: Holy (x2) (Ghost)"));
-					// Call for Wolves: if present in deck or discard, unit takes x2 Piercing
+					// Weaknesses / vulnerabilities (aggregate, max 2x per damage type)
+					bool vulnHoly = false;
+					bool vulnPiercing = false;
+					// Sources: unit types and cards in deck/discard
+					if (up->isHellhound || up->isDemon || up->isSkeleton) vulnHoly = true;
+					if (up->inGhostForm) vulnHoly = true;
+					// Call for Wolves -> Piercing
 					bool hasCallForWolves = false;
 					for (const auto & c : up->deck)
 						if (c.type == CARD_CALL_FOR_WOLVES) {
@@ -6655,8 +6686,8 @@ cursor_check_done:;
 								hasCallForWolves = true;
 								break;
 							}
-					if (hasCallForWolves) unitStatusLines.push_back(std::string("Vulnerable: Piercing (x2) (Call for Wolves)"));
-					// Vampire bite vulnerability: if unit has Vampire Bite card in deck/discard
+					if (hasCallForWolves) vulnPiercing = true;
+					// Vampire Bite -> Holy
 					bool hasVampireBite = false;
 					for (const auto & c : up->deck)
 						if (c.type == CARD_VAMPIRE_BITE) {
@@ -6669,7 +6700,20 @@ cursor_check_done:;
 								hasVampireBite = true;
 								break;
 							}
-					if (hasVampireBite) unitStatusLines.push_back(std::string("Vulnerable: Holy (Vampire)"));
+					if (hasVampireBite) vulnHoly = true;
+
+					if (vulnHoly || vulnPiercing) {
+						std::vector<std::string> vulnNames;
+						if (vulnPiercing) vulnNames.push_back("Piercing");
+						if (vulnHoly) vulnNames.push_back("Holy");
+						// Format: "Weakness 2x: Piercing, Holy"
+						std::string s = std::string("Weakness 2x: ");
+						for (size_t vi = 0; vi < vulnNames.size(); ++vi) {
+							if (vi > 0) s += ", ";
+							s += vulnNames[vi];
+						}
+						unitStatusLines.push_back(s);
+					}
 
 					if (!unitStatusLines.empty()) {
 						tooltipText += " [";
@@ -8709,9 +8753,13 @@ void ofApp::mouseScrolled(int x, int y, float scrollX, float scrollY) {
 	}
 
 	cameraTargetZoom -= scrollY * 4.0f;
-	// Restrict how far the player can zoom out (smaller max)
-	// and allow the camera to zoom in a bit closer than before.
-	cameraTargetZoom = ofClamp(cameraTargetZoom, 10.0f, 50.0f);
+	// Restrict how far the player can zoom out normally, but allow more
+	// zoom-out when in top-down mode so the player can see more of the board.
+	if (isTopDownView) {
+		cameraTargetZoom = ofClamp(cameraTargetZoom, 10.0f, 100.0f);
+	} else {
+		cameraTargetZoom = ofClamp(cameraTargetZoom, 10.0f, 50.0f);
+	}
 }
 //--------------------------------------------------------------
 void ofApp::keyPressed(int key) {

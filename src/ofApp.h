@@ -509,19 +509,29 @@ private:
 
 	// --- KEY ANIMATION (Floating Key on Floor) ---
 	std::vector<ofTexture> keyTextures; // loaded from Board/keys_1_*.png
+	std::vector<ofTexture> keyTexturesSilver; // loaded from Board/keys_2_*.png
+	std::vector<ofTexture> keyTexturesBronze; // loaded from Board/keys_3_*.png
 	std::vector<int> keyAnimSequence; // order to play frames (indices into keyTextures)
 	int keyAnimSeqPos = 0;
 	float keyAnimTimer = 0.0f;
 	float keyAnimInterval = 1.0f / 6.0f; // base interval (seconds) -> 6 fps
 	// Speed presets: multiplier applied to base interval. >1.0 = slower, <1.0 = faster
 	// Default to 1.5x (50% slower)
-	std::vector<float> keyAnimSpeedPresets = { 1.5f };
+	// Multiplier applied to base interval; larger = slower animation
+	std::vector<float> keyAnimSpeedPresets = { 2.0f };
 	int keyAnimSpeedIndex = 0; // index into presets (only one preset)
 	int keyAnimTileX = BOARD_WIDTH / 2;
 	int keyAnimTileY = BOARD_HEIGHT / 2;
 
-	// Multiple floating keys: list of grid coordinates to draw the animated key at
-	std::vector<glm::ivec2> floatingKeyPositions;
+	// Multiple floating keys: list of grid coordinates and their type (1=gold,2=silver,3=bronze)
+	struct FloatingKey {
+		glm::ivec2 pos;
+		int set;
+	};
+	std::vector<FloatingKey> floatingKeyInstances;
+
+	// Render scale for floating keys (multiplies the base world height)
+	float keyRenderScale = 0.75f;
 
 	// --- LOGIC CACHE ---
 	int currentAP = 0;
