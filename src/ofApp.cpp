@@ -1180,9 +1180,11 @@ void ofApp::updateGame() {
 
 	// --- Update floating key animation (advance by real time, tied to game update loop) ---
 	if (!keyAnimSequence.empty() && !keyTextures.empty()) {
+		// Use base interval scaled by the selected preset multiplier
+		float effectiveInterval = keyAnimInterval * keyAnimSpeedPresets[std::clamp(keyAnimSpeedIndex, 0, (int)keyAnimSpeedPresets.size()-1)];
 		keyAnimTimer += ofGetLastFrameTime();
-		if (keyAnimTimer >= keyAnimInterval) {
-			keyAnimTimer -= keyAnimInterval;
+		if (keyAnimTimer >= effectiveInterval) {
+			keyAnimTimer -= effectiveInterval;
 			keyAnimSeqPos = (keyAnimSeqPos + 1) % (int)keyAnimSequence.size();
 		}
 	}
@@ -4362,7 +4364,7 @@ void ofApp::drawGame() {
 				else if (player.isAssistant) {
 					ofTranslate(pos.x, 0.1f, pos.z);
 					ofRotateYDeg(unitFacingAngle);
-					ofTranslate(0, 1.5f, 0);
+					ofTranslate(0, 1.7f, 0);
 					ofScale(1.0f, 1.0f, 1.0f); // Adjust based on model size
 
 					// Optional: Tint blue/purple to look magical
@@ -8775,6 +8777,8 @@ void ofApp::keyPressed(int key) {
 		}
 		return;
 	}
+
+	// (key-based speed control removed; preset is fixed to 1.5x)
 }
 //--------------------------------------------------------------
 void ofApp::keyReleased(int key) {

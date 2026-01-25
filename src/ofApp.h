@@ -512,7 +512,11 @@ private:
 	std::vector<int> keyAnimSequence; // order to play frames (indices into keyTextures)
 	int keyAnimSeqPos = 0;
 	float keyAnimTimer = 0.0f;
-	float keyAnimInterval = 1.0f / 6.0f; // default 6 updates per second
+	float keyAnimInterval = 1.0f / 6.0f; // base interval (seconds) -> 6 fps
+	// Speed presets: multiplier applied to base interval. >1.0 = slower, <1.0 = faster
+	// Default to 1.5x (50% slower)
+	std::vector<float> keyAnimSpeedPresets = { 1.5f };
+	int keyAnimSpeedIndex = 0; // index into presets (only one preset)
 	int keyAnimTileX = BOARD_WIDTH / 2;
 	int keyAnimTileY = BOARD_HEIGHT / 2;
 
