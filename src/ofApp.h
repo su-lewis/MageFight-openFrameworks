@@ -423,7 +423,8 @@ private:
 	void drawCard();
 	void playCard(int cardIndex, int targetX, int targetY);
 	std::string currentDiceLabel = "";
-	int startDiceRoll(int numDice, int sides, DicePurpose purpose, std::string label = "");
+	int startDiceRoll(int numDice, int sides, DicePurpose purpose, std::string label = "", int ownerIndex = -1);
+	void recalcTempLuck();
 	void spawnFloatingText(glm::vec3 pos, std::string text, ofColor color);
 	void spawnExplosion(glm::vec3 pos, int count, ofColor color);
 	void tryTriggerShellSpike(); // Tortoise Form: trigger 3 damage to adjacent unit

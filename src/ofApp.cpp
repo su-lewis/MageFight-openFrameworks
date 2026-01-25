@@ -1142,25 +1142,9 @@ void ofApp::updateGame() {
 
 	// --- REBUILD MINION UI EVERY FRAME ---
 	activeMinionUIs.clear();
-
 	// --- LUCK AURA RECALCULATION ---
-	for (auto & p : players)
-		p.tempLuck = 0; // Reset temp luck
-
-	for (const auto & assistant : players) {
-		if (assistant.isAssistant && assistant.health > 0) {
-			// Find the summoner
-			for (auto & summoner : players) {
-				if (summoner.playerID == assistant.directSummonerID) {
-					// Check Adjacency
-					int dist = abs(assistant.x - summoner.x) + abs(assistant.y - summoner.y);
-					if (dist <= 1) {
-						summoner.tempLuck += 1;
-					}
-				}
-			}
-		}
-	}
+	// Keep temp luck accurate every frame
+	recalcTempLuck();
 
 	if (!players.empty()) {
 		float scale = ofGetHeight() / 1080.0f;
@@ -1528,7 +1512,8 @@ void ofApp::updateGame() {
 		pendingAttackTargetIndices.clear();
 
 		if (applyPoisonBuff && !pendingPoisonTargetIndices.empty()) {
-			pendingPoisonAttackRollResult = startDiceRoll(1, 6, PURPOSE_DAMAGE, "Poison Damage");
+			// Poison applied from player's attack: use attacker's luck
+			pendingPoisonAttackRollResult = startDiceRoll(1, 6, PURPOSE_DAMAGE, "Poison Damage", currentPlayerIndex);
 			isWaitingForPoisonAttackDice = true;
 		}
 	}
@@ -1909,7 +1894,7 @@ void ofApp::updateGame() {
 			// If a player was actually there, roll for damage.
 			if (fireballTargetPlayerIndex != -1) {
 				ofLogNotice("Fireball") << "Hit Player " << players[fireballTargetPlayerIndex].playerID << "! Rolling Damage...";
-				pendingFireballDamageResult = startDiceRoll(1, 6, PURPOSE_DAMAGE, "Fireball: Damage");
+				pendingFireballDamageResult = startDiceRoll(1, 6, PURPOSE_DAMAGE, "Fireball: Damage", currentPlayerIndex);
 				isWaitingForFireballDamageDice = true;
 			} else {
 				// This case should be rare since your targeting requires a unit, but it's good practice.
@@ -2367,7 +2352,7 @@ void ofApp::updateGame() {
 			spawnFloatingText(gridToWorld((int)impactTile.x, (int)impactTile.y), "Fizzle!", ofColor::gray);
 		} else {
 			// Primary Damage
-			int primaryDamage = startDiceRoll(1, 20, PURPOSE_DAMAGE, "Magic Bolt: Primary Damage");
+			int primaryDamage = startDiceRoll(1, 20, PURPOSE_DAMAGE, "Magic Bolt: Primary Damage", currentPlayerIndex);
 
 			// Find if a unit was on the impact tile
 			Player * directHitTarget = nullptr;
@@ -2594,7 +2579,7 @@ void ofApp::updateGame() {
 
 		if (distFeet <= maxRange + 0.1f) {
 			// SUCCESS: Roll Damage (1d10)
-			pendingChainLightningDamageResult = startDiceRoll(1, 10, PURPOSE_DAMAGE, "Chain Lightning: Damage");
+			pendingChainLightningDamageResult = startDiceRoll(1, 10, PURPOSE_DAMAGE, "Chain Lightning: Damage", currentPlayerIndex);
 			isWaitingForChainLightningDamage = true;
 		} else {
 			// FAIL
@@ -3315,7 +3300,12 @@ void ofApp::updateGame() {
 									a.assistantRerollUsedThisTurn = true;
 									int rerollNum = lastAPDiceNum > 0 ? lastAPDiceNum : 1;
 									int rerollSides = lastAPDiceSides > 0 ? lastAPDiceSides : 6;
-									startDiceRoll(rerollNum, rerollSides, PURPOSE_BONUS_AP, "Assistant Auto Reroll");
+									// Mark any previous AP dice as debug so they won't be included twice
+									for (auto & oldR : activeDiceRolls) {
+										if (oldR.purpose == PURPOSE_AP) oldR.purpose = PURPOSE_DEBUG;
+									}
+									// Start a bonus AP roll (added on top of the original result)
+									startDiceRoll(rerollNum, rerollSides, PURPOSE_BONUS_AP, "Assistant Auto Reroll", currentPlayerIndex);
 									spawnFloatingText(gridToWorld(a.x, a.y), "Assistant Reroll!", ofColor::gold);
 								}
 							}
@@ -8040,7 +8030,12 @@ void ofApp::mousePressed(int x, int y, int button) {
 				// Assistant reroll: use same dice configuration as the original AP roll
 				int rerollNum = lastAPDiceNum > 0 ? lastAPDiceNum : 1;
 				int rerollSides = lastAPDiceSides > 0 ? lastAPDiceSides : 6;
-				startDiceRoll(rerollNum, rerollSides, PURPOSE_BONUS_AP, "Assistant Reroll");
+				// Mark any previous AP dice as debug so they won't be included twice
+				for (auto & oldR : activeDiceRolls) {
+					if (oldR.purpose == PURPOSE_AP) oldR.purpose = PURPOSE_DEBUG;
+				}
+				// Start a bonus AP roll (added on top of the original result)
+				startDiceRoll(rerollNum, rerollSides, PURPOSE_BONUS_AP, "Assistant Reroll", currentPlayerIndex);
 
 				spawnFloatingText(gridToWorld(players[assistantIndex].x, players[assistantIndex].y), "Reroll!", ofColor::gold);
 			}
@@ -8783,6 +8778,9 @@ void ofApp::startNewTurn() {
 	Player & startingPlayer = players[currentPlayerIndex];
 	ofLogNotice("Game") << "--- START TURN: " << (startingPlayer.isMinion ? "Minion " : "Player ") << startingPlayer.playerID;
 
+	// Ensure temp luck is correct for the starting player before AP is rolled
+	recalcTempLuck();
+
 	// --- C. RESET STATE FOR NORMAL TURN ---
 	playerVisualPos = gridToWorld(startingPlayer.x, startingPlayer.y);
 	animationPath.clear();
@@ -8854,6 +8852,9 @@ void ofApp::startNewTurn() {
 void ofApp::continueNewTurn() {
 	Player & startingPlayer = players[currentPlayerIndex];
 
+	// Ensure temp luck is correct for the starting player before AP is rolled
+	recalcTempLuck();
+
 	// Reset assistant abilities if it's the assistant's turn
 	if (startingPlayer.isAssistant) {
 		startingPlayer.assistantRerollUsedThisTurn = false;
@@ -8908,50 +8909,43 @@ void ofApp::continueNewTurn() {
 	if (startingPlayer.isWolf) {
 		lastAPDiceNum = 1;
 		lastAPDiceSides = 10;
-		startDiceRoll(1, 10, PURPOSE_AP, "Wolf AP Roll");
+		startDiceRoll(1, 10, PURPOSE_AP, "Wolf AP Roll", currentPlayerIndex);
 	}
 	// HELLHOUND AP: 2d6
 	else if (startingPlayer.isHellhound) {
 		lastAPDiceNum = 2;
 		lastAPDiceSides = 6;
-		startDiceRoll(2, 6, PURPOSE_AP, "Hellhound AP Roll");
+		startDiceRoll(2, 6, PURPOSE_AP, "Hellhound AP Roll", currentPlayerIndex);
 	}
 	// Demon AP: 4d4
 	else if (startingPlayer.isDemon) {
 		lastAPDiceNum = 4;
 		lastAPDiceSides = 4;
-		startDiceRoll(4, 4, PURPOSE_AP, "Demon AP Roll");
+		startDiceRoll(4, 4, PURPOSE_AP, "Demon AP Roll", currentPlayerIndex);
 	}
 	// Kobold AP: 1d4
 	else if (startingPlayer.isKobold) {
 		lastAPDiceNum = 1;
 		lastAPDiceSides = 4;
-		startDiceRoll(1, 4, PURPOSE_AP, "Kobold AP Roll");
+		startDiceRoll(1, 4, PURPOSE_AP, "Kobold AP Roll", currentPlayerIndex);
 	}
 	// Wall Unit AP: 1d4 or 1d6
 	else if (startingPlayer.isWallUnit) {
 		if (startingPlayer.isMagicWallUnit) {
 			lastAPDiceNum = 1;
 			lastAPDiceSides = 6;
-			startDiceRoll(1, 6, PURPOSE_AP, "Magic Wall Unit AP");
+			startDiceRoll(1, 6, PURPOSE_AP, "Magic Wall Unit AP", currentPlayerIndex);
 		} else {
 			lastAPDiceNum = 1;
 			lastAPDiceSides = 4;
-			startDiceRoll(1, 4, PURPOSE_AP, "Wall Unit AP");
+			startDiceRoll(1, 4, PURPOSE_AP, "Wall Unit AP", currentPlayerIndex);
 		}
 	}
 	// Kobold King AP: 1d6
 	else if (startingPlayer.isKoboldKing) {
 		lastAPDiceNum = 1;
 		lastAPDiceSides = 6;
-		startDiceRoll(1, 6, PURPOSE_AP, "Kobold King AP");
-	}
-	// Skeleton / generic minion AP: 1d6
-	else if (startingPlayer.isMinion) {
-		// Use the minion's display name (eg. "Golem 1") in the roll description
-		lastAPDiceNum = 1;
-		lastAPDiceSides = 6;
-		startDiceRoll(1, 6, PURPOSE_AP, getPlayerDisplayName(currentPlayerIndex) + " AP Roll");
+		startDiceRoll(1, 6, PURPOSE_AP, "Kobold King AP", currentPlayerIndex);
 	}
 	// Assistant AP: Coinflip (Heads=2, Tails=1)
 	else if (startingPlayer.isAssistant) {
@@ -8960,7 +8954,14 @@ void ofApp::continueNewTurn() {
 		// We will interpret 1 as 1 AP, 2 as 2 AP.
 		lastAPDiceNum = 1;
 		lastAPDiceSides = 2;
-		startDiceRoll(1, 2, PURPOSE_AP, "Assistant AP (Coin)");
+		startDiceRoll(1, 2, PURPOSE_AP, "Assistant AP (Coin)", currentPlayerIndex);
+	}
+	// Skeleton / generic minion AP: 1d6
+	else if (startingPlayer.isMinion) {
+		// Use the minion's display name (eg. "Golem 1") in the roll description
+		lastAPDiceNum = 1;
+		lastAPDiceSides = 6;
+		startDiceRoll(1, 6, PURPOSE_AP, getPlayerDisplayName(currentPlayerIndex) + " AP Roll", currentPlayerIndex);
 	} else {
 		// Players
 		int apDiceSides = 6;
@@ -8970,13 +8971,28 @@ void ofApp::continueNewTurn() {
 		}
 		lastAPDiceNum = 1;
 		lastAPDiceSides = apDiceSides;
-		startDiceRoll(1, apDiceSides, PURPOSE_AP, "Player AP Roll");
+		startDiceRoll(1, apDiceSides, PURPOSE_AP, "Player AP Roll", currentPlayerIndex);
 	}
 
 	// --- 3. OTHER STATUS CHECKS (Paralysis/Fire) ---
 	// These are already handled in startNewTurn() before continueNewTurn() is called.
 	// Fire/Paralysis checks would have returned early in startNewTurn() and resolved
 	// before reaching here, so no need to check again.
+}
+
+void ofApp::recalcTempLuck() {
+	for (auto & p : players)
+		p.tempLuck = 0;
+	for (const auto & assistant : players) {
+		if (assistant.isAssistant && assistant.health > 0) {
+			for (auto & summoner : players) {
+				if (summoner.playerID == assistant.directSummonerID) {
+					int dist = abs(assistant.x - summoner.x) + abs(assistant.y - summoner.y);
+					if (dist <= 1) summoner.tempLuck += 1;
+				}
+			}
+		}
+	}
 }
 //--------------------------------------------------------------
 void ofApp::drawCard() {
@@ -9425,7 +9441,7 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 			}
 			if (targetIndex != -1) {
 
-				pendingAttackRollResult = startDiceRoll(playedCard.numDice, playedCard.diceSides, PURPOSE_DAMAGE, "Rock Crush: Damage");
+				pendingAttackRollResult = startDiceRoll(playedCard.numDice, playedCard.diceSides, PURPOSE_DAMAGE, "Rock Crush: Damage", currentPlayerIndex);
 
 				isWaitingForAttackDice = true;
 				pendingAttackDamageType = playedCard.damageType;
@@ -10342,7 +10358,7 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 					spawnFloatingText(tPos + glm::vec3(0, 0.5f, 0), "Poisoned!", ofColor::green);
 					pendingPoisonTargetIndices.clear();
 					pendingPoisonTargetIndices.push_back(targetIndex);
-					pendingPoisonAttackRollResult = startDiceRoll(1, 6, PURPOSE_DAMAGE, "Poison Damage");
+					pendingPoisonAttackRollResult = startDiceRoll(1, 6, PURPOSE_DAMAGE, "Poison Damage", currentPlayerIndex);
 					isWaitingForPoisonAttackDice = true;
 				}
 			} else {
@@ -10702,7 +10718,7 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 				spawnFloatingText(tPos + glm::vec3(0, 0.5f, 0), "Poisoned!", ofColor::green);
 				pendingPoisonTargetIndices.clear();
 				pendingPoisonTargetIndices.push_back(targetIndex);
-				pendingPoisonAttackRollResult = startDiceRoll(1, 6, PURPOSE_DAMAGE, "Poison Damage");
+				pendingPoisonAttackRollResult = startDiceRoll(1, 6, PURPOSE_DAMAGE, "Poison Damage", currentPlayerIndex);
 				isWaitingForPoisonAttackDice = true;
 			}
 
@@ -11126,7 +11142,7 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		// --- CASE: FLAIL ---
 	case CARD_FLAIL: {
 		// Roll 1d6. We will add +2 in the update loop.
-		pendingFlailRollResult = startDiceRoll(playedCard.numDice, playedCard.diceSides, PURPOSE_DAMAGE, "Flail: Swing Damage");
+		pendingFlailRollResult = startDiceRoll(playedCard.numDice, playedCard.diceSides, PURPOSE_DAMAGE, "Flail: Swing Damage", currentPlayerIndex);
 		isWaitingForFlailDice = true;
 		playedSuccessfully = true;
 		break;
@@ -11273,7 +11289,7 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		// --- EXECUTE DAMAGE ---
 		if (playedCard.numDice > 0 && playedCard.diceSides > 0) {
 			// DICE PATH (Rock Crush, etc) -> Handled in updateGame loop
-			pendingAttackRollResult = startDiceRoll(playedCard.numDice, playedCard.diceSides, PURPOSE_DAMAGE, playedCard.name + ": Damage");
+			pendingAttackRollResult = startDiceRoll(playedCard.numDice, playedCard.diceSides, PURPOSE_DAMAGE, playedCard.name + ": Damage", currentPlayerIndex);
 			pendingAttackCardName = playedCard.name;
 
 			isWaitingForAttackDice = true;
@@ -12120,12 +12136,14 @@ glm::quat ofApp::matchFaceToCamera(glm::vec3 faceNormal) {
 	return glm::rotation(faceNormal, target);
 }
 //--------------------------------------------------------------
-int ofApp::startDiceRoll(int numDice, int sides, DicePurpose purpose, std::string label) {
+int ofApp::startDiceRoll(int numDice, int sides, DicePurpose purpose, std::string label, int ownerIndex) {
 	int totalRollResult = 0;
 	int luckBonus = 0;
-	if (currentPlayerIndex != -1) {
+	// If an explicit ownerIndex is provided, use that unit's luck. Otherwise fall back to currentPlayerIndex.
+	int luckOwner = (ownerIndex >= 0 && ownerIndex < (int)players.size()) ? ownerIndex : currentPlayerIndex;
+	if (luckOwner != -1) {
 		// COMBINE PERMANENT AND TEMP LUCK
-		luckBonus = players[currentPlayerIndex].luck + players[currentPlayerIndex].tempLuck;
+		luckBonus = players[luckOwner].luck + players[luckOwner].tempLuck;
 	}
 
 	// --- SET LABEL ---
