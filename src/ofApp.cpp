@@ -347,6 +347,16 @@ void ofApp::setup() {
 		floatingKeyInstances.push_back({ glm::ivec2(6, 7), 2 });
 		floatingKeyInstances.push_back({ glm::ivec2(0, 4), 2 });
 
+		// Bronze keys (set=3) per user request
+		floatingKeyInstances.push_back({ glm::ivec2(4, 0), 3 });
+		floatingKeyInstances.push_back({ glm::ivec2(8, 0), 3 });
+		floatingKeyInstances.push_back({ glm::ivec2(11, 3), 3 });
+		floatingKeyInstances.push_back({ glm::ivec2(11, 5), 3 });
+		floatingKeyInstances.push_back({ glm::ivec2(8, 8), 3 });
+		floatingKeyInstances.push_back({ glm::ivec2(4, 8), 3 });
+		floatingKeyInstances.push_back({ glm::ivec2(1, 3), 3 });
+		floatingKeyInstances.push_back({ glm::ivec2(1, 5), 3 });
+
 		// Keep legacy single-key coordinates in sync with first instance (if any)
 		if (!floatingKeyInstances.empty()) {
 			keyAnimTileX = floatingKeyInstances[0].pos.x;
@@ -4158,14 +4168,38 @@ void ofApp::drawGame() {
 				quad.addIndex(2);
 				quad.addIndex(3);
 
+				// Alpha-test: don't write depth for transparent pixels so occluders can show
 				glEnable(GL_ALPHA_TEST);
 				glAlphaFunc(GL_GREATER, 0.05f);
 
+				// Cross-fade between current and next frame based on fractional progress
+				float effectiveInterval = keyAnimInterval * keyAnimSpeedPresets[std::clamp(keyAnimSpeedIndex, 0, (int)keyAnimSpeedPresets.size() - 1)];
+				float frac = 0.0f;
+				if (effectiveInterval > 1e-6f) frac = ofClamp(keyAnimTimer / effectiveInterval, 0.0f, 1.0f);
+
+				int setSize = (int)setTex->size();
+				int curIdx = seqIdx % setSize;
+				int nextIdx = (curIdx + 1) % setSize;
+
+				// Draw both frames with blending; keep depth test but disable depth writes
+				glEnable(GL_BLEND);
+				glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+				glDepthMask(GL_FALSE);
 				ofDisableLighting();
-				(*setTex)[seqIdx].bind();
+				// Current frame (fade out)
+				ofSetColor(255, 255, 255, (unsigned char)((1.0f - frac) * 255.0f));
+				(*setTex)[curIdx].bind();
 				quad.draw();
-				(*setTex)[seqIdx].unbind();
+				(*setTex)[curIdx].unbind();
+				// Next frame (fade in)
+				ofSetColor(255, 255, 255, (unsigned char)(frac * 255.0f));
+				(*setTex)[nextIdx].bind();
+				quad.draw();
+				(*setTex)[nextIdx].unbind();
+				ofSetColor(255); // reset color
 				ofEnableLighting();
+				glDepthMask(GL_TRUE);
+				glDisable(GL_BLEND);
 				glDisable(GL_ALPHA_TEST);
 			}
 		}
