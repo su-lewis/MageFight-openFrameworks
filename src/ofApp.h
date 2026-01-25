@@ -518,7 +518,8 @@ private:
 	// Speed presets: multiplier applied to base interval. >1.0 = slower, <1.0 = faster
 	// Default to 1.5x (50% slower)
 	// Multiplier applied to base interval; larger = slower animation
-	std::vector<float> keyAnimSpeedPresets = { 2.0f };
+	// Increased to slow animation further because current speed was too fast
+	std::vector<float> keyAnimSpeedPresets = { 4.0f };
 	int keyAnimSpeedIndex = 0; // index into presets (only one preset)
 	int keyAnimTileX = BOARD_WIDTH / 2;
 	int keyAnimTileY = BOARD_HEIGHT / 2;
@@ -531,7 +532,8 @@ private:
 	std::vector<FloatingKey> floatingKeyInstances;
 
 	// Render scale for floating keys (multiplies the base world height)
-	float keyRenderScale = 0.75f;
+	// Render scale for floating keys. Increased so keys are more visible.
+	float keyRenderScale = 1.0f;
 
 	// --- LOGIC CACHE ---
 	int currentAP = 0;

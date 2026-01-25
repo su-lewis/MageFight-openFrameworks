@@ -4102,7 +4102,20 @@ void ofApp::drawGame() {
 			}
 		}
 
-		// --- DRAW FLOATING KEYS AS 3D VERTICAL BILLBOARDS (so walls/units occlude them) ---
+		if (levelMesh.getNumVertices() > 0) {
+			wallTexture.bind();
+			levelMesh.draw();
+			wallTexture.unbind();
+		}
+		if (levelMeshDark.getNumVertices() > 0) {
+			wallDarkTexture.bind();
+			levelMeshDark.draw();
+			wallDarkTexture.unbind();
+		}
+
+		// --- DRAW FLOATING KEYS AS 3D VERTICAL BILLBOARDS ---
+		// Draw after walls so depth buffer contains wall depths and keys are
+		// correctly occluded when behind walls.
 		if (!keyAnimSequence.empty() && !floatingKeyInstances.empty()) {
 			int seqIdx = keyAnimSequence[keyAnimSeqPos];
 			for (const auto & inst : floatingKeyInstances) {
@@ -4116,14 +4129,15 @@ void ofApp::drawGame() {
 				if (!setTex || setTex->empty()) continue;
 				if (seqIdx < 0 || seqIdx >= (int)setTex->size()) continue;
 				glm::vec3 worldPos = gridToWorld(inst.pos.x, inst.pos.y);
-				glm::vec3 pos = worldPos + glm::vec3(0, 0.9f, 0);
+				// Place keys closer to the floor so they sit visually nearer ground tiles
+				glm::vec3 pos = worldPos + glm::vec3(0, 0.75f, 0);
 
 				float texW = (float)(*setTex)[seqIdx].getWidth();
 				float texH = (float)(*setTex)[seqIdx].getHeight();
 				float aspect = (texH > 0.0f) ? (texW / texH) : 1.0f;
 
-				// Apply configurable render scale to key world height
-				float heightWorld = TILE_SIZE * 0.9f * keyRenderScale;
+				// Apply configurable render scale to key world height (lowered to sit closer to floor)
+				float heightWorld = TILE_SIZE * 0.65f * keyRenderScale;
 				float widthWorld = heightWorld * aspect;
 				float halfW = widthWorld * 0.5f;
 				float halfH = heightWorld * 0.5f;
@@ -4172,46 +4186,23 @@ void ofApp::drawGame() {
 				glEnable(GL_ALPHA_TEST);
 				glAlphaFunc(GL_GREATER, 0.05f);
 
-				// Cross-fade between current and next frame based on fractional progress
-				float effectiveInterval = keyAnimInterval * keyAnimSpeedPresets[std::clamp(keyAnimSpeedIndex, 0, (int)keyAnimSpeedPresets.size() - 1)];
-				float frac = 0.0f;
-				if (effectiveInterval > 1e-6f) frac = ofClamp(keyAnimTimer / effectiveInterval, 0.0f, 1.0f);
-
+				// Draw the current frame only (no cross-fade). Draw after walls so
+				// walls in front occlude keys; keep depth test but disable depth writes
 				int setSize = (int)setTex->size();
-				int curIdx = seqIdx % setSize;
-				int nextIdx = (curIdx + 1) % setSize;
+				int curIdx = keyAnimSequence[keyAnimSeqPos] % setSize;
 
-				// Draw both frames with blending; keep depth test but disable depth writes
-				glEnable(GL_BLEND);
-				glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+				// Ensure depth testing is enabled so keys are tested against wall depth
+				glEnable(GL_DEPTH_TEST);
 				glDepthMask(GL_FALSE);
 				ofDisableLighting();
-				// Current frame (fade out)
-				ofSetColor(255, 255, 255, (unsigned char)((1.0f - frac) * 255.0f));
+				ofSetColor(255, 200);
 				(*setTex)[curIdx].bind();
 				quad.draw();
 				(*setTex)[curIdx].unbind();
-				// Next frame (fade in)
-				ofSetColor(255, 255, 255, (unsigned char)(frac * 255.0f));
-				(*setTex)[nextIdx].bind();
-				quad.draw();
-				(*setTex)[nextIdx].unbind();
-				ofSetColor(255); // reset color
 				ofEnableLighting();
 				glDepthMask(GL_TRUE);
-				glDisable(GL_BLEND);
 				glDisable(GL_ALPHA_TEST);
 			}
-		}
-		if (levelMesh.getNumVertices() > 0) {
-			wallTexture.bind();
-			levelMesh.draw();
-			wallTexture.unbind();
-		}
-		if (levelMeshDark.getNumVertices() > 0) {
-			wallDarkTexture.bind();
-			levelMeshDark.draw();
-			wallDarkTexture.unbind();
 		}
 
 		// Earthquake arrows are now drawn above each unit's head within the transparent effects pass
