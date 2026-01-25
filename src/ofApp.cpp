@@ -4063,6 +4063,16 @@ void ofApp::drawGame() {
 						wolfModel.getMeshHelper(i).cachedMesh.drawFaces();
 						if (tex->isAllocated()) tex->unbind();
 					}
+					// Draw fur layers (meshes 0..5) using fur texture with alpha blending
+					glDepthMask(GL_FALSE);
+					ofEnableAlphaBlending();
+					if (wolfFurTex.isAllocated()) wolfFurTex.bind();
+					for (unsigned int i = 0; i <= 5 && i < wolfModel.getMeshCount(); i++) {
+						wolfModel.getMeshHelper(i).cachedMesh.drawFaces();
+					}
+					if (wolfFurTex.isAllocated()) wolfFurTex.unbind();
+					ofDisableAlphaBlending();
+					glDepthMask(GL_TRUE);
 				} else if (player.isHellhound) {
 					ofTranslate(pos.x, 0.1f, pos.z);
 					// Face movement direction like other minions
