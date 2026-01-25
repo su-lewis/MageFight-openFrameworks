@@ -532,8 +532,8 @@ private:
 	std::vector<FloatingKey> floatingKeyInstances;
 
 	// Render scale for floating keys (multiplies the base world height)
-	// Render scale for floating keys. Increased so keys are more visible.
-	float keyRenderScale = 1.0f;
+	// Render scale for floating keys. Slightly reduced for less prominence.
+	float keyRenderScale = 0.8f;
 
 	// --- LOGIC CACHE ---
 	int currentAP = 0;

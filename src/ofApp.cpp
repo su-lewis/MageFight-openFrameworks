@@ -4137,7 +4137,7 @@ void ofApp::drawGame() {
 				float aspect = (texH > 0.0f) ? (texW / texH) : 1.0f;
 
 				// Apply configurable render scale to key world height (lowered to sit closer to floor)
-				float heightWorld = TILE_SIZE * 0.65f * keyRenderScale;
+				float heightWorld = TILE_SIZE * keyRenderScale;
 				float widthWorld = heightWorld * aspect;
 				float halfW = widthWorld * 0.5f;
 				float halfH = heightWorld * 0.5f;
