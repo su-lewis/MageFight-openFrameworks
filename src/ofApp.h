@@ -134,6 +134,7 @@ enum CardType {
 	CARD_LESSER_HEAL,
 	CARD_TRANSFORM_WALL,
 	CARD_SUMMON_KOBOLD_KING, // Add this
+	CARD_SUMMON_ASSISTANT,
 	CARD_FULL_RESTORE
 };
 
@@ -305,6 +306,12 @@ struct Player {
 	bool isMagicWallUnit = false;
 	bool isKoboldKing = false;
 
+	// --- ASSISTANT VARIABLES ---
+	bool isAssistant = false;
+	int directSummonerID = -1; // ID of the specific unit that summoned this minion
+	bool assistantRerollUsedThisTurn = false; // Track the "once per turn" usage
+	int tempLuck = 0; // Luck from auras (recalculated every frame)
+
 	// Tortoise Form
 	bool inTortoiseForm = false;
 	int tortoiseDamageTaken = 0; // Tracks HP damage while in form, ends at 5
@@ -391,6 +398,10 @@ private:
 	// -------------------------------------------------------------------------
 	//                              CORE SYSTEMS
 	// -------------------------------------------------------------------------
+
+	// Last AP roll parameters (used for assistant auto-reroll)
+	int lastAPDiceNum = 0;
+	int lastAPDiceSides = 0;
 	void setupGame();
 	void updateGame();
 	void drawGame();
@@ -535,6 +546,7 @@ private:
 	ofxAssimpModelLoader ghostModel;
 	ofxAssimpModelLoader wallUnitModel;
 	ofxAssimpModelLoader koboldKingModel;
+	ofxAssimpModelLoader assistantModel;
 
 	ofTexture playerTexture;
 	ofTexture skeletonTexture;
@@ -594,6 +606,7 @@ private:
 	ofVec2f mouseDownPos;
 
 	ofRectangle endTurnButtonRect;
+	ofRectangle rerollButtonRect;
 	ofVec2f endTurnButtonCurrentPos;
 	ofVec2f endTurnButtonTargetPos;
 	bool isHoveringEndTurn = false;

@@ -239,6 +239,17 @@ void ofApp::setup() {
 		ofLogError("Setup") << "Wall Unit model failed to load.";
 	}
 
+	// --- Load Assistant ---
+	if (assistantModel.load("Units/Assistant/free_battlemage_wizard.glb")) {
+		assistantModel.disableMaterials();
+		assistantModel.setRotation(0, 180, 0, 0, 1);
+		// Adjust scale as needed, usually GLBs need around 0.0025 to 0.0045
+		assistantModel.setScale(0.0035f, 0.0035f, 0.0035f);
+		ofLogNotice("Setup") << "Assistant model loaded.";
+	} else {
+		ofLogError("Setup") << "Failed to load Assistant model.";
+	}
+
 	// --- 3. BOARD & SKYBOX ---
 	ofLoadImage(wallTexture, "Board/wall.png");
 	wallTexture.setTextureMinMagFilter(GL_NEAREST, GL_NEAREST);
@@ -657,6 +668,8 @@ std::string ofApp::getPlayerDisplayName(int index) {
 		prefix = "Wall";
 	if (p->isKobold)
 		prefix = "Kobold";
+	else if (p->isAssistant)
+		prefix = "Assistant";
 	else if (p->isWolf)
 		prefix = "Wolf";
 	else if (p->isHellhound)
@@ -1129,6 +1142,26 @@ void ofApp::updateGame() {
 
 	// --- REBUILD MINION UI EVERY FRAME ---
 	activeMinionUIs.clear();
+
+	// --- LUCK AURA RECALCULATION ---
+	for (auto & p : players)
+		p.tempLuck = 0; // Reset temp luck
+
+	for (const auto & assistant : players) {
+		if (assistant.isAssistant && assistant.health > 0) {
+			// Find the summoner
+			for (auto & summoner : players) {
+				if (summoner.playerID == assistant.directSummonerID) {
+					// Check Adjacency
+					int dist = abs(assistant.x - summoner.x) + abs(assistant.y - summoner.y);
+					if (dist <= 1) {
+						summoner.tempLuck += 1;
+					}
+				}
+			}
+		}
+	}
+
 	if (!players.empty()) {
 		float scale = ofGetHeight() / 1080.0f;
 		float panelWidth = 260 * scale;
@@ -1157,7 +1190,7 @@ void ofApp::updateGame() {
 		int p0_skeleton = 0, p0_golem = 0, p0_wolf = 0, p0_hound = 0, p0_demon = 0, p0_kobold = 0, p0_wall = 0;
 		int p1_skeleton = 0, p1_golem = 0, p1_wolf = 0, p1_hound = 0, p1_demon = 0, p1_kobold = 0, p1_wall = 0;
 
-		for (int i = 0; i < players.size(); i++) {
+		for (int i = 0; i < (int)players.size(); i++) {
 			if (players[i].isMinion) {
 				if (players[i].ownerID == 0)
 					p0_minionIndices.push_back(i);
@@ -1167,7 +1200,7 @@ void ofApp::updateGame() {
 		}
 
 		// 3. HELPER LAMBDA TO BUILD UI LIST (now takes top/bottom limits)
-		auto buildMinionList = [&](const std::vector<int> & indices, float startX, float topLimit, float bottomLimit, int & skelCount, int & golemCount, int & wolfCount, int & houndCount, int & demonCount, int & koboldCount, int & wallCount) {
+		auto buildMinionList = [&](const std::vector<int> & indices, float startX, float topLimit, float bottomLimit, int & skelCount, int & golemCount, int & wolfCount, int & houndCount, int & demonCount, int & koboldCount, int & assistantCount, int & wallCount) {
 			// A. Calculate Dynamic Scaling
 			float localAvailableHeight = bottomLimit - topLimit;
 			float totalRequiredHeight = indices.size() * (standardEntryHeight + gap);
@@ -1196,6 +1229,8 @@ void ofApp::updateGame() {
 					ui.displayNumber = ++houndCount;
 				else if (players[pIndex].isDemon)
 					ui.displayNumber = ++demonCount;
+				else if (players[pIndex].isAssistant)
+					ui.displayNumber = ++assistantCount;
 				else if (players[pIndex].isKobold)
 					ui.displayNumber = ++koboldCount;
 				else if (players[pIndex].isWallUnit)
@@ -1210,10 +1245,12 @@ void ofApp::updateGame() {
 
 		// 4. BUILD LISTS WITH PLAYER-SPECIFIC BOUNDARIES
 		float p0_startX = 10 * scale;
-		buildMinionList(p0_minionIndices, p0_startX, p0_topLimitY, p0_bottomLimitY, p0_skeleton, p0_golem, p0_wolf, p0_hound, p0_demon, p0_kobold, p0_wall);
+		int p0_assistant = 0;
+		buildMinionList(p0_minionIndices, p0_startX, p0_topLimitY, p0_bottomLimitY, p0_skeleton, p0_golem, p0_wolf, p0_hound, p0_demon, p0_kobold, p0_assistant, p0_wall);
 
 		float p1_startX = ofGetWidth() - panelWidth - (10 * scale);
-		buildMinionList(p1_minionIndices, p1_startX, p1_topLimitY, p1_bottomLimitY, p1_skeleton, p1_golem, p1_wolf, p1_hound, p1_demon, p1_kobold, p1_wall);
+		int p1_assistant = 0;
+		buildMinionList(p1_minionIndices, p1_startX, p1_topLimitY, p1_bottomLimitY, p1_skeleton, p1_golem, p1_wolf, p1_hound, p1_demon, p1_kobold, p1_assistant, p1_wall);
 	}
 	// --- END MINION UI REBUILD ---
 
@@ -3266,6 +3303,23 @@ void ofApp::updateGame() {
 						currentAP += players[currentPlayerIndex].nextTurnAPBonus;
 						players[currentPlayerIndex].nextTurnAPBonus = 0;
 					}
+
+					// If AP is zero, check for adjacent assistants belonging to this unit
+					if (currentAP == 0) {
+						Player &actor = players[currentPlayerIndex];
+						for (auto & a : players) {
+							if (a.isAssistant && a.health > 0 && a.directSummonerID == actor.playerID && !a.assistantRerollUsedThisTurn) {
+								int dist = abs(a.x - actor.x) + abs(a.y - actor.y);
+								if (dist <= 1) {
+									// consume assistant's reroll and grant a bonus reroll matching last AP dice sides
+									a.assistantRerollUsedThisTurn = true;
+									int rerollSides = lastAPDiceSides > 0 ? lastAPDiceSides : 6;
+									startDiceRoll(1, rerollSides, PURPOSE_BONUS_AP, "Assistant Auto Reroll");
+									spawnFloatingText(gridToWorld(a.x, a.y), "Assistant Reroll!", ofColor::gold);
+								}
+							}
+						}
+					}
 					ofLogNotice("Game") << "AP Roll Finished: " << currentAP << " AP awarded (sum of all dice).";
 				} else if (roll.purpose == PURPOSE_SLEEP_DURATION) {
 					Player * t = getPlayer(pendingDeathTargetIndex);
@@ -4178,6 +4232,19 @@ void ofApp::drawGame() {
 						ofSetColor(255);
 						ofDisableBlendMode();
 					}
+				}
+				// --- ASSISTANT ---
+				else if (player.isAssistant) {
+					ofTranslate(pos.x, 0.1f, pos.z);
+					ofRotateYDeg(unitFacingAngle);
+					ofTranslate(0, 0.5f, 0);
+					// Scale adjustment
+					ofScale(1.0f, 1.0f, 1.0f); // Adjust based on model size
+
+					// Optional: Tint blue/purple to look magical
+					ofSetColor(200, 200, 255);
+					assistantModel.drawFaces();
+					ofSetColor(255);
 				} else {
 					// Default Player
 					ofTranslate(pos.x, 0.1f, pos.z);
@@ -5003,11 +5070,10 @@ void ofApp::drawGame() {
 		float p1_healthY = 40 * scale;
 		drawHealthBar(*player1, p1_healthX, p1_healthY, ofColor::red);
 
-		// P1 Discard
+		// P1 Discard -- hide opponent's card face; show card back instead
 		if (!player1->discardPile.empty()) {
-			const auto & discardRect = player1->discardPile.back().textureRect;
-			cardSpriteSheet.drawSubsection(p1_discardRect.x, p1_discardRect.y, p1_discardRect.width, p1_discardRect.height,
-				discardRect.x, discardRect.y, discardRect.width, discardRect.height);
+			ofSetColor(ofColor::white);
+			cardBackImage.draw(p1_discardRect);
 		} else {
 			ofSetColor(0, 0, 0, 150);
 			ofDrawRectRounded(p1_discardRect, 10 * scale);
@@ -5081,6 +5147,19 @@ void ofApp::drawGame() {
 			titleFont.drawString(luckText, 0, 0);
 			ofPopMatrix();
 			p0_statusY -= (luckBox.height * smallFontScale) + (5 * scale);
+		}
+
+		// Draw Temp Luck (if any)
+		if (player0->tempLuck > 0) {
+			string tLuckText = "+" + ofToString(player0->tempLuck) + " Temp Luck";
+			ofRectangle tLuckBox = titleFont.getStringBoundingBox(tLuckText, 0, 0);
+			ofSetColor(ofColor::lightGreen);
+			ofPushMatrix();
+			ofTranslate(p0_statusXStart, p0_statusY);
+			ofScale(smallFontScale, smallFontScale);
+			titleFont.drawString(tLuckText, 0, 0);
+			ofPopMatrix();
+			p0_statusY -= (tLuckBox.height * smallFontScale) + (5 * scale);
 		}
 
 		if (player0->nextTurnAPBonus > 0) {
@@ -5160,6 +5239,19 @@ void ofApp::drawGame() {
 			p1_statusY += (luckBox.height * smallFontScale) + (5 * scale);
 		}
 
+		// Draw Temp Luck (if any)
+		if (player1->tempLuck > 0) {
+			string tLuckText = "+" + ofToString(player1->tempLuck) + " Temp Luck";
+			ofRectangle tLuckBox = titleFont.getStringBoundingBox(tLuckText, 0, 0);
+			ofSetColor(ofColor::lightGreen);
+			ofPushMatrix();
+			ofTranslate(p1_statusXStart, p1_statusY + (tLuckBox.height * smallFontScale));
+			ofScale(smallFontScale, smallFontScale);
+			titleFont.drawString(tLuckText, 0, 0);
+			ofPopMatrix();
+			p1_statusY += (tLuckBox.height * smallFontScale) + (5 * scale);
+		}
+
 		// --- NEW STATUSES ---
 
 		if (player1->nextTurnD10AP) {
@@ -5235,7 +5327,70 @@ void ofApp::drawGame() {
 	titleFont.drawString(endTurnButtonText, 0, 0);
 	ofPopMatrix();
 
-	// --- OPTIMIsED HAND DRAWING (With Integrated Outlines) ---
+	// --- ASSISTANT AP REROLL BUTTON ---
+	if (players.size() > 0 && currentPlayerIndex != -1) {
+		Player & curr = players[currentPlayerIndex];
+
+		// Only show if 0 AP
+		if (currentAP == 0) {
+			bool canReroll = false;
+
+			// Check for adjacent unused assistants owned by this unit
+			for (const auto & p : players) {
+				if (p.isAssistant && p.health > 0) {
+					if (p.directSummonerID == curr.playerID && !p.assistantRerollUsedThisTurn) {
+						int dist = abs(p.x - curr.x) + abs(p.y - curr.y);
+						if (dist <= 1) {
+							canReroll = true;
+							break;
+						}
+					}
+				}
+			}
+
+			if (canReroll) {
+				float scale = ofGetHeight() / 1080.0f;
+				float btnW = 200 * scale;
+				float btnH = 50 * scale;
+				// Position to the right of Player0's AP counter
+				// Recompute P0 AP box metrics (same as earlier) so we can anchor the reroll button
+				float staticUICardWidth = (handBaseCardWidth * 1.3f) * scale;
+				float staticUICardHeight = (baseCardHeight * 1.3f) * scale;
+				float p0_apCenterX = 20 * scale + staticUICardWidth / 2;
+				float p0_apCenterY = ofGetHeight() - staticUICardHeight - (20 * scale) - staticUICardHeight - (20 * scale) - 60 * scale;
+				string p0_apText = "0 AP";
+				if (currentPlayerIndex >= 0 && !players.empty()) {
+					Player & currentPlayer = players[currentPlayerIndex];
+					if (currentPlayer.playerID == 0 || currentPlayer.ownerID == 0) {
+						p0_apText = ofToString(currentAP) + " AP";
+					} else if (currentPlayer.playerID == 1 || currentPlayer.ownerID == 1) {
+						p0_apText = ofToString(currentAP) + " AP";
+					}
+				}
+				ofRectangle p0_apTextBox = titleFont.getStringBoundingBox(p0_apText, 0, 0);
+				float p0_apRectWidth = (p0_apTextBox.width * fontScale) + (40 * scale);
+				float margin = 10 * scale;
+				float btnX = p0_apCenterX + p0_apRectWidth / 2 + margin;
+				float btnY = p0_apCenterY - (btnH / 2);
+
+				rerollButtonRect.set(btnX, btnY, btnW, btnH);
+
+				ofSetColor(ofColor::gold);
+				ofDrawRectRounded(rerollButtonRect, 8);
+
+				ofSetColor(ofColor::black);
+				string txt = "Reroll AP";
+				ofRectangle b = uiFont.getStringBoundingBox(txt, 0, 0);
+				uiFont.drawString(txt, btnX + (btnW - b.width) / 2, btnY + (btnH + b.height) / 2);
+			} else {
+				rerollButtonRect.set(-1000, -1000, 0, 0);
+			}
+		} else {
+			rerollButtonRect.set(-1000, -1000, 0, 0);
+		}
+	}
+
+	// --- OPTIMIsED HAND DRAWING ...
 	if (!players.empty() && currentPlayerIndex >= 0) {
 		Player & currentPlayer = players[currentPlayerIndex];
 		size_t numCards = currentPlayer.hand.size();
@@ -6139,6 +6294,10 @@ cursor_check_done:;
 		calculateTargetHighlights(activeCardForHighlight);
 		isHoveringEndTurn = endTurnButtonRect.inside(x, y);
 
+		if (rerollButtonRect.inside(x, y)) {
+			currentCursor = CURSOR_CLICK;
+		}
+
 		// --- HOVER LOGIC (Piles & Tooltips) ---
 		PileViewMode newHoveredPileType = VIEW_NONE;
 		int newHoveredPileIndex = -1;
@@ -6249,6 +6408,7 @@ cursor_check_done:;
 					if (up->nextTurnD10AP) unitStatusLines.push_back("D10 AP");
 					if (up->strengthenElementsTurnsRemaining > 0) unitStatusLines.push_back(std::string("Elem Buff (") + ofToString(up->strengthenElementsTurnsRemaining) + ")");
 					if (up->luck > 0) unitStatusLines.push_back(std::string("+") + ofToString(up->luck) + " Luck");
+					if (up->tempLuck > 0) unitStatusLines.push_back(std::string("+") + ofToString(up->tempLuck) + " Temp Luck");
 
 					// Status effects
 					if (up->sleepTurnsRemaining > 0) unitStatusLines.push_back(std::string("Sleep (") + ofToString(up->sleepTurnsRemaining) + ")");
@@ -7160,7 +7320,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 				ofLogNotice("Teleport") << "Teleported to (" << gx << ", " << gy << ")";
 
 				// Remove teleport card from hand
-				if (pendingTeleportCardIndex >= 0 && pendingTeleportCardIndex < players[currentPlayerIndex].hand.size()) {
+				if (pendingTeleportCardIndex >= 0 && pendingTeleportCardIndex < (int)players[currentPlayerIndex].hand.size()) {
 					players[currentPlayerIndex].hand.erase(players[currentPlayerIndex].hand.begin() + pendingTeleportCardIndex);
 				}
 
@@ -7657,7 +7817,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 
 				int cardsToDraw = 0;
 				for (int idx : renewedSelectedHandIndices) {
-					if (idx < p.hand.size()) {
+					if (idx >= 0 && idx < (int)p.hand.size()) {
 						// Discard
 						p.discardPile.push_back(p.hand[idx]);
 						p.hand.erase(p.hand.begin() + idx);
@@ -7831,9 +7991,38 @@ void ofApp::mousePressed(int x, int y, int button) {
 			}
 		}
 
+		// 3g-ALT. Reroll Button
+		if (rerollButtonRect.inside(x, y) && button == OF_MOUSE_BUTTON_LEFT) {
+			Player & curr = players[currentPlayerIndex];
+
+			// Find the assistant to consume
+			int assistantIndex = -1;
+			for (int i = 0; i < (int)players.size(); i++) {
+				Player & p = players[i];
+				if (p.isAssistant && p.health > 0 && p.directSummonerID == curr.playerID && !p.assistantRerollUsedThisTurn) {
+					int dist = abs(p.x - curr.x) + abs(p.y - curr.y);
+					if (dist <= 1) {
+						assistantIndex = i;
+						break;
+					}
+				}
+			}
+
+			if (assistantIndex != -1) {
+				// Mark used
+				players[assistantIndex].assistantRerollUsedThisTurn = true;
+
+				// Assistant reroll: coinflip (1d2 -> 1 or 2 AP)
+				startDiceRoll(1, 2, PURPOSE_BONUS_AP, "Assistant Reroll (Coin)");
+
+				spawnFloatingText(gridToWorld(players[assistantIndex].x, players[assistantIndex].y), "Reroll!", ofColor::gold);
+			}
+			return;
+		}
+		// --- PASTE HERE END ---
+
 		// 3g. End Turn Button
 		if (endTurnButtonRect.inside(x, y) && button == OF_MOUSE_BUTTON_LEFT) {
-			// ... pending action checks ...
 
 			// --- GHOST FORM CHECK ---
 			Player & p = players[currentPlayerIndex];
@@ -8638,7 +8827,13 @@ void ofApp::startNewTurn() {
 void ofApp::continueNewTurn() {
 	Player & startingPlayer = players[currentPlayerIndex];
 
-	// --- 0. SUMMONING SICKNESS CHECK (New Logic) ---
+	// Reset assistant abilities if it's the assistant's turn
+	if (startingPlayer.isAssistant) {
+		startingPlayer.assistantRerollUsedThisTurn = false;
+		// AP for assistants will be handled in the AP roll logic below.
+	}
+
+	// --- 0. SUMMONING SICKNESS CHECK .
 	if (startingPlayer.summonedOnTurnCycle == globalTurnCounter) {
 		ofLogNotice("Turn") << "Skipping Player " << startingPlayer.playerID << " (Summoning Sickness - Turn Cycle " << globalTurnCounter << ")";
 		spawnFloatingText(gridToWorld(startingPlayer.x, startingPlayer.y), "Waiting...", ofColor::gray);
@@ -8684,35 +8879,52 @@ void ofApp::continueNewTurn() {
 	// --- AP ROLL LOGIC ---
 	// Wolf AP: 1d10
 	if (startingPlayer.isWolf) {
+		lastAPDiceNum = 1; lastAPDiceSides = 10;
 		startDiceRoll(1, 10, PURPOSE_AP, "Wolf AP Roll");
 	}
 	// HELLHOUND AP: 2d6
 	else if (startingPlayer.isHellhound) {
+		lastAPDiceNum = 2; lastAPDiceSides = 6;
 		startDiceRoll(2, 6, PURPOSE_AP, "Hellhound AP Roll");
 	}
 	// Demon AP: 4d4
 	else if (startingPlayer.isDemon) {
+		lastAPDiceNum = 4; lastAPDiceSides = 4;
 		startDiceRoll(4, 4, PURPOSE_AP, "Demon AP Roll");
 	}
 	// Kobold AP: 1d4
 	else if (startingPlayer.isKobold) {
+		lastAPDiceNum = 1; lastAPDiceSides = 4;
 		startDiceRoll(1, 4, PURPOSE_AP, "Kobold AP Roll");
 	}
 	// Wall Unit AP: 1d4 or 1d6
 	else if (startingPlayer.isWallUnit) {
 		if (startingPlayer.isMagicWallUnit) {
+			lastAPDiceNum = 1; lastAPDiceSides = 6;
 			startDiceRoll(1, 6, PURPOSE_AP, "Magic Wall Unit AP");
 		} else {
+			lastAPDiceNum = 1; lastAPDiceSides = 4;
 			startDiceRoll(1, 4, PURPOSE_AP, "Wall Unit AP");
 		}
 	}
 	// Kobold King AP: 1d6
 	else if (startingPlayer.isKoboldKing) {
+		lastAPDiceNum = 1; lastAPDiceSides = 6;
 		startDiceRoll(1, 6, PURPOSE_AP, "Kobold King AP");
 	}
-	// Skeleton AP: 1d6
+	// Skeleton / generic minion AP: 1d6
 	else if (startingPlayer.isMinion) {
-		startDiceRoll(1, 6, PURPOSE_AP, "Minion AP Roll");
+		// Use the minion's display name (eg. "Golem 1") in the roll description
+		lastAPDiceNum = 1; lastAPDiceSides = 6;
+		startDiceRoll(1, 6, PURPOSE_AP, getPlayerDisplayName(currentPlayerIndex) + " AP Roll");
+	}
+	// Assistant AP: Coinflip (Heads=2, Tails=1)
+	else if (startingPlayer.isAssistant) {
+		// We define a custom roll logic here or use startDiceRoll
+		// Since startDiceRoll handles the visual dice, let's use a Coin (1d2).
+		// We will interpret 1 as 1 AP, 2 as 2 AP.
+		lastAPDiceNum = 1; lastAPDiceSides = 2;
+		startDiceRoll(1, 2, PURPOSE_AP, "Assistant AP (Coin)");
 	} else {
 		// Players
 		int apDiceSides = 6;
@@ -8720,6 +8932,7 @@ void ofApp::continueNewTurn() {
 			apDiceSides = 10;
 			startingPlayer.nextTurnD10AP = false;
 		}
+		lastAPDiceNum = 1; lastAPDiceSides = apDiceSides;
 		startDiceRoll(1, apDiceSides, PURPOSE_AP, "Player AP Roll");
 	}
 
@@ -9496,6 +9709,80 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		break;
 	}
 
+		// --- CASE: SUMMON ASSISTANT ---
+	case CARD_SUMMON_ASSISTANT: {
+		if (board[targetX][targetY].hasWall || board[targetX][targetY].hasPlayer) break;
+
+		// 1. Create Unit
+		Player minion;
+		minion.playerID = 5000 + (int)players.size();
+		minion.x = targetX;
+		minion.y = targetY;
+		minion.maxHealth = 1;
+		minion.health = 1;
+		minion.isMinion = true;
+		minion.isAssistant = true;
+
+		// 2. Link to Summoner (Critical for Luck Aura/Reroll)
+		minion.directSummonerID = currentPlayer.playerID;
+
+		// Standard Owner/Turn logic
+		minion.ownerID = currentPlayer.isMinion ? currentPlayer.ownerID : currentPlayer.playerID;
+		minion.summonedOnTurnCycle = currentPlayer.isMinion ? globalTurnCounter : -1;
+		minion.summonOrder = ++nextSummonOrder;
+
+		// 3. Deck: 1x Lesser Heal, 4x Hand Block
+		auto findCard = [&](string name, CardType type) -> Card {
+			for (const auto & c : allCards) {
+				if (c.type == type) return c;
+				if (c.name == name) return c;
+			}
+			return Card();
+		};
+		Card lesserHeal = findCard("Lesser Heal", CARD_LESSER_HEAL);
+		Card handBlock = findCard("Hand Block", CARD_GAIN_BLOCK);
+
+		minion.deck = { lesserHeal, handBlock, handBlock, handBlock, handBlock };
+		std::shuffle(minion.deck.begin(), minion.deck.end(), rng);
+
+		// 4. Cleanup & Add
+		int myID = currentPlayer.playerID;
+		currentAP -= playedCard.cost;
+		currentPlayer.playedCardsPile.push_back(playedCard);
+		if (currentPlayer.isReplicatePending) {
+			currentPlayer.playedCardsPile.push_back(playedCard);
+			currentPlayer.isReplicatePending = false;
+		}
+		currentPlayer.cardsPlayedThisTurn.push_back(playedCard.type);
+		currentPlayer.hand.erase(currentPlayer.hand.begin() + cardIndex);
+		activeCardDisplays.push_back({ playedCard, ofGetElapsedTimef() });
+		invalidateTargetCache();
+
+		board[targetX][targetY].hasPlayer = true;
+		players.push_back(minion);
+
+		ofLogNotice("Summon") << "Assistant summoned.";
+
+		// Sort & Restore Index
+		std::sort(players.begin(), players.end(), [](const Player & a, const Player & b) {
+			int ownerA = a.isMinion ? a.ownerID : a.playerID;
+			int ownerB = b.isMinion ? b.ownerID : b.playerID;
+			if (ownerA != ownerB) return ownerA < ownerB;
+			if (a.isMinion && !b.isMinion) return true;
+			if (!a.isMinion && b.isMinion) return false;
+			return a.summonOrder < b.summonOrder;
+		});
+		for (size_t i = 0; i < players.size(); i++) {
+			if (players[i].playerID == myID) {
+				currentPlayerIndex = i;
+				break;
+			}
+		}
+
+		playedSuccessfully = false;
+		break;
+	}
+
 	// --- CASE: FULL RESTORE ---
 	case CARD_FULL_RESTORE: {
 		// Target is Self
@@ -9668,7 +9955,7 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		bool isMagic = board[targetX][targetY].isMagicWall;
 
 		// Save current player's id safely (in case vector reallocates and indices shift)
-		int savedCurrentID = (currentPlayerIndex >= 0 && currentPlayerIndex < players.size()) ? players[currentPlayerIndex].playerID : -1;
+		int savedCurrentID = (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) ? players[currentPlayerIndex].playerID : -1;
 
 		// 2. Create Unit
 		Player minion;
@@ -10436,7 +10723,7 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		currentPlayer.cardsPlayedThisTurn.push_back(playedCard.type);
 
 		// 4. Remove Original from Hand (Using iterator to be safe)
-		if (cardIndex < currentPlayer.hand.size()) {
+		if (cardIndex >= 0 && cardIndex < (int)currentPlayer.hand.size()) {
 			currentPlayer.hand.erase(currentPlayer.hand.begin() + cardIndex);
 		}
 
@@ -10595,7 +10882,7 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 
 		// 3. Setup Units & Roll Dice
 		// We assign a random direction NOW, but distance comes from dice later
-		for (int i = 0; i < players.size(); ++i) {
+		for (int i = 0; i < (int)players.size(); ++i) {
 			EarthquakeState state;
 			state.playerIndex = i;
 			state.startGrid = { players[i].x, players[i].y };
@@ -11452,7 +11739,7 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 					}
 					// 3. Standard Summoning / Creation (Must be empty)
 					// ADD CARD_SUMMON_KOBOLD_KING TO THIS LIST:
-					else if (card.type == CARD_CALL_FOR_WOLVES || card.type == CARD_SUMMON_GOLEM || card.type == CARD_RAISE_DEAD || card.type == CARD_CREATE_WALL || card.type == CARD_SUMMON_HELLHOUND || card.type == CARD_SUMMON_DEMON || card.type == CARD_SUMMON_KOBOLD_KING) // <--- ADDED HERE
+					else if (card.type == CARD_CALL_FOR_WOLVES || card.type == CARD_SUMMON_GOLEM || card.type == CARD_RAISE_DEAD || card.type == CARD_CREATE_WALL || card.type == CARD_SUMMON_HELLHOUND || card.type == CARD_SUMMON_DEMON || card.type == CARD_SUMMON_KOBOLD_KING || card.type == CARD_SUMMON_ASSISTANT) // <--- Add this
 					{
 						if (!board[x][y].hasWall && !board[x][y].hasPlayer) isValidTarget = true;
 					}
@@ -11800,7 +12087,8 @@ int ofApp::startDiceRoll(int numDice, int sides, DicePurpose purpose, std::strin
 	int totalRollResult = 0;
 	int luckBonus = 0;
 	if (currentPlayerIndex != -1) {
-		luckBonus = players[currentPlayerIndex].luck;
+		// COMBINE PERMANENT AND TEMP LUCK
+		luckBonus = players[currentPlayerIndex].luck + players[currentPlayerIndex].tempLuck;
 	}
 
 	// --- SET LABEL ---
@@ -11848,7 +12136,13 @@ int ofApp::startDiceRoll(int numDice, int sides, DicePurpose purpose, std::strin
 		newRoll.sides = sides;
 		std::uniform_int_distribution<int> dist(1, sides);
 		int rawRoll = dist(rng);
-		int finalRoll = rawRoll + luckBonus;
+		int finalRoll;
+		// Coins (sides == 2) are a pure 1/2 flip and should NOT be modified by luck.
+		if (sides == 2) {
+			finalRoll = rawRoll;
+		} else {
+			finalRoll = rawRoll + luckBonus;
+		}
 		totalRollResult += finalRoll;
 		newRoll.result = finalRoll;
 		newRoll.startTime = ofGetElapsedTimef();
@@ -13406,6 +13700,7 @@ CardType ofApp::stringToCardType(const std::string & str) {
 	if (str == "CARD_LESSER_HEAL") return CARD_LESSER_HEAL;
 	if (str == "CARD_TRANSFORM_WALL") return CARD_TRANSFORM_WALL;
 	if (str == "CARD_SUMMON_KOBOLD_KING") return CARD_SUMMON_KOBOLD_KING; // Add
+	if (str == "CARD_SUMMON_ASSISTANT") return CARD_SUMMON_ASSISTANT;
 	if (str == "CARD_FULL_RESTORE") return CARD_FULL_RESTORE; //
 
 	return CARD_NONE;
@@ -13677,6 +13972,14 @@ void ofApp::drawMinionManagerUI() {
 				ofDisableBlendMode();
 			}
 		}
+		// --- ASSISTANT PREVIEW ---
+		else if (minion.isAssistant) {
+			ofTranslate(modelFbo.getWidth() / 2, modelFbo.getHeight() / 2 + 20);
+			ofScale(35.0f, -35.0f, 35.0f);
+			ofRotateXDeg(-15);
+			ofRotateYDeg(180 + ofGetElapsedTimef() * 30);
+			assistantModel.drawFaces();
+		}
 		// --- SKELETON PREVIEW ---
 		else {
 			ofSetColor(255);
@@ -13725,6 +14028,8 @@ void ofApp::drawMinionManagerUI() {
 				name = "Magic Wall ";
 			else
 				name = "Wall ";
+		} else if (minion.isAssistant) {
+			name = "Assistant ";
 		} else {
 			name = "Skeleton ";
 		}

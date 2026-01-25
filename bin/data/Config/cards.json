@@ -488,6 +488,13 @@
     "targeting": "TARGET_EMPTY_ADJACENT"
   },
   {
+    "id": 62,
+    "name": "Summon Assistant",
+    "type": "CARD_SUMMON_ASSISTANT",
+    "cost": 4,
+    "targeting": "TARGET_EMPTY_ADJACENT"
+  },
+  {
     "id": 66,
     "name": "Full Restore",
     "type": "CARD_FULL_RESTORE",
