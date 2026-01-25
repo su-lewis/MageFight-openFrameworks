@@ -3306,15 +3306,16 @@ void ofApp::updateGame() {
 
 					// If AP is zero, check for adjacent assistants belonging to this unit
 					if (currentAP == 0) {
-						Player &actor = players[currentPlayerIndex];
+						Player & actor = players[currentPlayerIndex];
 						for (auto & a : players) {
 							if (a.isAssistant && a.health > 0 && a.directSummonerID == actor.playerID && !a.assistantRerollUsedThisTurn) {
 								int dist = abs(a.x - actor.x) + abs(a.y - actor.y);
 								if (dist <= 1) {
-									// consume assistant's reroll and grant a bonus reroll matching last AP dice sides
+									// consume assistant's reroll and grant a bonus reroll matching the original AP dice
 									a.assistantRerollUsedThisTurn = true;
+									int rerollNum = lastAPDiceNum > 0 ? lastAPDiceNum : 1;
 									int rerollSides = lastAPDiceSides > 0 ? lastAPDiceSides : 6;
-									startDiceRoll(1, rerollSides, PURPOSE_BONUS_AP, "Assistant Auto Reroll");
+									startDiceRoll(rerollNum, rerollSides, PURPOSE_BONUS_AP, "Assistant Auto Reroll");
 									spawnFloatingText(gridToWorld(a.x, a.y), "Assistant Reroll!", ofColor::gold);
 								}
 							}
@@ -5304,7 +5305,22 @@ void ofApp::drawGame() {
 
 	// 2. Draw Yellow Highlight (New Logic)
 	// If no AP left AND player has already used their draw, suggest ending turn.
-	if (currentAP <= 0 && hasDrawnCardsThisTurn) {
+	// But do not highlight if an assistant reroll is possible.
+	bool rerollAvailable = false;
+	if (players.size() > 0 && currentPlayerIndex != -1 && currentAP == 0) {
+		Player & curr = players[currentPlayerIndex];
+		for (const auto & p : players) {
+			if (p.isAssistant && p.health > 0 && p.directSummonerID == curr.playerID && !p.assistantRerollUsedThisTurn) {
+				int dist = abs(p.x - curr.x) + abs(p.y - curr.y);
+				if (dist <= 1) {
+					rerollAvailable = true;
+					break;
+				}
+			}
+		}
+	}
+
+	if (currentAP <= 0 && hasDrawnCardsThisTurn && !rerollAvailable) {
 		ofPushStyle();
 		ofNoFill();
 		ofSetColor(ofColor::yellow);
@@ -5349,9 +5365,9 @@ void ofApp::drawGame() {
 			}
 
 			if (canReroll) {
-				float scale = ofGetHeight() / 1080.0f;
-				float btnW = 200 * scale;
-				float btnH = 50 * scale;
+				float uiScale = ofGetHeight() / 1080.0f;
+				float btnW = 130 * uiScale; // shorter button
+				float btnH = 44 * uiScale;
 				// Position to the right of Player0's AP counter
 				// Recompute P0 AP box metrics (same as earlier) so we can anchor the reroll button
 				float staticUICardWidth = (handBaseCardWidth * 1.3f) * scale;
@@ -5375,10 +5391,19 @@ void ofApp::drawGame() {
 
 				rerollButtonRect.set(btnX, btnY, btnW, btnH);
 
-				ofSetColor(ofColor::gold);
+				// Dark background like End Turn, cyan text like AP counter
+				ofSetColor(ofColor::darkSlateGray);
 				ofDrawRectRounded(rerollButtonRect, 8);
 
-				ofSetColor(ofColor::black);
+				// Yellow outline to indicate availability
+				ofPushStyle();
+				ofNoFill();
+				ofSetColor(ofColor::yellow);
+				ofSetLineWidth(3 * scale);
+				ofDrawRectRounded(rerollButtonRect, 8);
+				ofPopStyle();
+
+				ofSetColor(ofColor::cyan);
 				string txt = "Reroll AP";
 				ofRectangle b = uiFont.getStringBoundingBox(txt, 0, 0);
 				uiFont.drawString(txt, btnX + (btnW - b.width) / 2, btnY + (btnH + b.height) / 2);
@@ -8012,8 +8037,10 @@ void ofApp::mousePressed(int x, int y, int button) {
 				// Mark used
 				players[assistantIndex].assistantRerollUsedThisTurn = true;
 
-				// Assistant reroll: coinflip (1d2 -> 1 or 2 AP)
-				startDiceRoll(1, 2, PURPOSE_BONUS_AP, "Assistant Reroll (Coin)");
+				// Assistant reroll: use same dice configuration as the original AP roll
+				int rerollNum = lastAPDiceNum > 0 ? lastAPDiceNum : 1;
+				int rerollSides = lastAPDiceSides > 0 ? lastAPDiceSides : 6;
+				startDiceRoll(rerollNum, rerollSides, PURPOSE_BONUS_AP, "Assistant Reroll");
 
 				spawnFloatingText(gridToWorld(players[assistantIndex].x, players[assistantIndex].y), "Reroll!", ofColor::gold);
 			}
@@ -8879,43 +8906,51 @@ void ofApp::continueNewTurn() {
 	// --- AP ROLL LOGIC ---
 	// Wolf AP: 1d10
 	if (startingPlayer.isWolf) {
-		lastAPDiceNum = 1; lastAPDiceSides = 10;
+		lastAPDiceNum = 1;
+		lastAPDiceSides = 10;
 		startDiceRoll(1, 10, PURPOSE_AP, "Wolf AP Roll");
 	}
 	// HELLHOUND AP: 2d6
 	else if (startingPlayer.isHellhound) {
-		lastAPDiceNum = 2; lastAPDiceSides = 6;
+		lastAPDiceNum = 2;
+		lastAPDiceSides = 6;
 		startDiceRoll(2, 6, PURPOSE_AP, "Hellhound AP Roll");
 	}
 	// Demon AP: 4d4
 	else if (startingPlayer.isDemon) {
-		lastAPDiceNum = 4; lastAPDiceSides = 4;
+		lastAPDiceNum = 4;
+		lastAPDiceSides = 4;
 		startDiceRoll(4, 4, PURPOSE_AP, "Demon AP Roll");
 	}
 	// Kobold AP: 1d4
 	else if (startingPlayer.isKobold) {
-		lastAPDiceNum = 1; lastAPDiceSides = 4;
+		lastAPDiceNum = 1;
+		lastAPDiceSides = 4;
 		startDiceRoll(1, 4, PURPOSE_AP, "Kobold AP Roll");
 	}
 	// Wall Unit AP: 1d4 or 1d6
 	else if (startingPlayer.isWallUnit) {
 		if (startingPlayer.isMagicWallUnit) {
-			lastAPDiceNum = 1; lastAPDiceSides = 6;
+			lastAPDiceNum = 1;
+			lastAPDiceSides = 6;
 			startDiceRoll(1, 6, PURPOSE_AP, "Magic Wall Unit AP");
 		} else {
-			lastAPDiceNum = 1; lastAPDiceSides = 4;
+			lastAPDiceNum = 1;
+			lastAPDiceSides = 4;
 			startDiceRoll(1, 4, PURPOSE_AP, "Wall Unit AP");
 		}
 	}
 	// Kobold King AP: 1d6
 	else if (startingPlayer.isKoboldKing) {
-		lastAPDiceNum = 1; lastAPDiceSides = 6;
+		lastAPDiceNum = 1;
+		lastAPDiceSides = 6;
 		startDiceRoll(1, 6, PURPOSE_AP, "Kobold King AP");
 	}
 	// Skeleton / generic minion AP: 1d6
 	else if (startingPlayer.isMinion) {
 		// Use the minion's display name (eg. "Golem 1") in the roll description
-		lastAPDiceNum = 1; lastAPDiceSides = 6;
+		lastAPDiceNum = 1;
+		lastAPDiceSides = 6;
 		startDiceRoll(1, 6, PURPOSE_AP, getPlayerDisplayName(currentPlayerIndex) + " AP Roll");
 	}
 	// Assistant AP: Coinflip (Heads=2, Tails=1)
@@ -8923,7 +8958,8 @@ void ofApp::continueNewTurn() {
 		// We define a custom roll logic here or use startDiceRoll
 		// Since startDiceRoll handles the visual dice, let's use a Coin (1d2).
 		// We will interpret 1 as 1 AP, 2 as 2 AP.
-		lastAPDiceNum = 1; lastAPDiceSides = 2;
+		lastAPDiceNum = 1;
+		lastAPDiceSides = 2;
 		startDiceRoll(1, 2, PURPOSE_AP, "Assistant AP (Coin)");
 	} else {
 		// Players
@@ -8932,7 +8968,8 @@ void ofApp::continueNewTurn() {
 			apDiceSides = 10;
 			startingPlayer.nextTurnD10AP = false;
 		}
-		lastAPDiceNum = 1; lastAPDiceSides = apDiceSides;
+		lastAPDiceNum = 1;
+		lastAPDiceSides = apDiceSides;
 		startDiceRoll(1, apDiceSides, PURPOSE_AP, "Player AP Roll");
 	}
 
