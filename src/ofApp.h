@@ -533,7 +533,7 @@ private:
 
 	// Render scale for floating keys (multiplies the base world height)
 	// Render scale for floating keys. Slightly reduced for less prominence.
-	float keyRenderScale = 0.8f;
+	float keyRenderScale = 0.75f;
 
 	// --- LOGIC CACHE ---
 	int currentAP = 0;
