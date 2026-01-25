@@ -5516,43 +5516,10 @@ void ofApp::drawGame() {
 
 				// If Add Poison is primed for this player, highlight only direct physical/piercing cards
 				if (currentPlayer.nextAttackAddPoison && (card.damageType == DAMAGE_PHYSICAL || card.damageType == DAMAGE_PIERCING)) {
-					bool isDirectDamageCard = (
-						card.targeting == TARGET_ADJACENT_UNIT ||
-						card.targeting == TARGET_ADJACENT_OR_SELF_UNIT ||
-						card.targeting == TARGET_SELF ||
-						card.targeting == TARGET_LINEAR_PIERCE ||
-						card.targeting == TARGET_CLEAVE_ADJACENT ||
-						card.targeting == TARGET_ADJACENT_UNIT_OR_WALL
-					);
+					bool isDirectDamageCard = (card.targeting == TARGET_ADJACENT_UNIT || card.targeting == TARGET_ADJACENT_OR_SELF_UNIT || card.targeting == TARGET_SELF || card.targeting == TARGET_LINEAR_PIERCE || card.targeting == TARGET_CLEAVE_ADJACENT || card.targeting == TARGET_ADJACENT_UNIT_OR_WALL);
 
 					// Exclude specific non-damaging / indirect cards from being highlighted
-					bool isExcluded = (
-						card.type == CARD_INSPIRATION ||
-						card.type == CARD_GAIN_BLOCK ||
-						card.type == CARD_FORM_OF_TORTOISE ||
-						card.type == CARD_FORM_OF_GHOST ||
-						card.type == CARD_STRENGTHEN_ELEMENTS ||
-						card.type == CARD_DEMOLITION ||
-						card.type == CARD_PSIONIC_WAVE ||
-						card.type == CARD_EARTHQUAKE ||
-						card.type == CARD_DOUBLE_HANDED ||
-						card.type == CARD_ADD_POISON ||
-						card.type == CARD_RENEWED_INSPIRATION ||
-						card.type == CARD_REPLICATE ||
-						card.type == CARD_FULL_RESTORE ||
-						card.type == CARD_NECRO_BLESSING ||
-						card.type == CARD_HASTEN ||
-						card.type == CARD_CALL_FOR_WOLVES ||
-						card.type == CARD_AMNESIA ||
-						card.type == CARD_DARK_SHIELD ||
-						card.type == CARD_CONSUME_LARGE_HEALTH_POTION ||
-						card.type == CARD_CALL_FOR_KOBOLDS ||
-						card.type == CARD_TIME_VORTEX ||
-						card.type == CARD_GAIN_WARD ||
-						card.type == CARD_CONSUME_HEALTH_POTION ||
-						card.type == CARD_DISPEL ||
-						card.type == CARD_FORTIFY
-					);
+					bool isExcluded = (card.type == CARD_INSPIRATION || card.type == CARD_GAIN_BLOCK || card.type == CARD_FORM_OF_TORTOISE || card.type == CARD_FORM_OF_GHOST || card.type == CARD_STRENGTHEN_ELEMENTS || card.type == CARD_DEMOLITION || card.type == CARD_PSIONIC_WAVE || card.type == CARD_EARTHQUAKE || card.type == CARD_DOUBLE_HANDED || card.type == CARD_ADD_POISON || card.type == CARD_RENEWED_INSPIRATION || card.type == CARD_REPLICATE || card.type == CARD_FULL_RESTORE || card.type == CARD_NECRO_BLESSING || card.type == CARD_HASTEN || card.type == CARD_CALL_FOR_WOLVES || card.type == CARD_AMNESIA || card.type == CARD_DARK_SHIELD || card.type == CARD_CONSUME_LARGE_HEALTH_POTION || card.type == CARD_CALL_FOR_KOBOLDS || card.type == CARD_TIME_VORTEX || card.type == CARD_GAIN_WARD || card.type == CARD_CONSUME_HEALTH_POTION || card.type == CARD_DISPEL || card.type == CARD_FORTIFY);
 
 					if (isDirectDamageCard && !isExcluded) {
 						ofPushStyle();
@@ -6579,18 +6546,18 @@ cursor_check_done:;
 				if (up->hasRegeneration) {
 					// Avoid duplicate "Regeneration" if it was already added to unitStatusLines
 					if (tooltipText.find("Regeneration") == std::string::npos) {
-					size_t openPos = tooltipText.find('[');
-					if (openPos != std::string::npos) {
-						size_t closePos = tooltipText.rfind(']');
-						if (closePos != std::string::npos) {
-							if (closePos > openPos + 1) // already has contents
-								tooltipText.insert(closePos, ", Regeneration");
-							else // empty brackets
-								tooltipText.insert(closePos, "Regeneration");
-						} else {
-							tooltipText += " [Regeneration]";
-						}
-					} // end check for existing Regeneration
+						size_t openPos = tooltipText.find('[');
+						if (openPos != std::string::npos) {
+							size_t closePos = tooltipText.rfind(']');
+							if (closePos != std::string::npos) {
+								if (closePos > openPos + 1) // already has contents
+									tooltipText.insert(closePos, ", Regeneration");
+								else // empty brackets
+									tooltipText.insert(closePos, "Regeneration");
+							} else {
+								tooltipText += " [Regeneration]";
+							}
+						} // end check for existing Regeneration
 					} // end hasRegeneration
 				}
 			}
