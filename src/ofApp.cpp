@@ -4228,9 +4228,7 @@ void ofApp::drawGame() {
 				else if (player.isAssistant) {
 					ofTranslate(pos.x, 0.1f, pos.z);
 					ofRotateYDeg(unitFacingAngle);
-					// Raise assistant up a bit so it doesn't clip into the floor
-					ofTranslate(0, 1.2f, 0);
-					// Scale adjustment
+					ofTranslate(0, 1.5f, 0);
 					ofScale(1.0f, 1.0f, 1.0f); // Adjust based on model size
 
 					// Optional: Tint blue/purple to look magical
