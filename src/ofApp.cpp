@@ -3276,10 +3276,10 @@ void ofApp::updateGame() {
 			// THEN execute all the game-related logic inside this block.
 			if (roll.purpose != PURPOSE_DEBUG && roll.purpose != PURPOSE_HP && roll.purpose != PURPOSE_HEALING) {
 				if (roll.purpose == PURPOSE_AP) {
-					// Sum all finished AP dice rolls for this AP event
+					// Sum all finished AP and BONUS_AP dice rolls belonging to the current unit
 					int apSum = 0;
 					for (const auto & r : activeDiceRolls) {
-						if (r.purpose == PURPOSE_AP && r.isFinishedVisual) {
+						if ((r.purpose == PURPOSE_AP || r.purpose == PURPOSE_BONUS_AP) && r.isFinishedVisual && r.associatedUnit == currentPlayerIndex) {
 							apSum += r.result;
 						}
 					}
@@ -4228,7 +4228,8 @@ void ofApp::drawGame() {
 				else if (player.isAssistant) {
 					ofTranslate(pos.x, 0.1f, pos.z);
 					ofRotateYDeg(unitFacingAngle);
-					ofTranslate(0, 0.5f, 0);
+					// Raise assistant up a bit so it doesn't clip into the floor
+					ofTranslate(0, 1.2f, 0);
 					// Scale adjustment
 					ofScale(1.0f, 1.0f, 1.0f); // Adjust based on model size
 
@@ -5061,10 +5062,11 @@ void ofApp::drawGame() {
 		float p1_healthY = 40 * scale;
 		drawHealthBar(*player1, p1_healthX, p1_healthY, ofColor::red);
 
-		// P1 Discard -- hide opponent's card face; show card back instead
+		// P1 Discard -- show opponent's top card face
 		if (!player1->discardPile.empty()) {
-			ofSetColor(ofColor::white);
-			cardBackImage.draw(p1_discardRect);
+			const auto & discardRect = player1->discardPile.back().textureRect;
+			cardSpriteSheet.drawSubsection(p1_discardRect.x, p1_discardRect.y, p1_discardRect.width, p1_discardRect.height,
+				discardRect.x, discardRect.y, discardRect.width, discardRect.height);
 		} else {
 			ofSetColor(0, 0, 0, 150);
 			ofDrawRectRounded(p1_discardRect, 10 * scale);
@@ -5092,12 +5094,26 @@ void ofApp::drawGame() {
 		string p0_apText = "0 AP";
 		string p1_apText = "? AP";
 
-		if (currentPlayerIndex >= 0 && !players.empty()) {
+		// Compute displayed AP for the active unit by summing finished AP/BONUS_AP rolls
+		int displayedAP = 0;
+		if (currentPlayerIndex >= 0) {
+			for (const auto & r : activeDiceRolls) {
+				if ((r.purpose == PURPOSE_AP || r.purpose == PURPOSE_BONUS_AP) && r.isFinishedVisual) {
+					// Only count dice that belong to the current unit (associatedUnit)
+					if (r.associatedUnit == currentPlayerIndex) displayedAP += r.result;
+				}
+			}
+			if (players[currentPlayerIndex].nextTurnAPBonus > 0) displayedAP += players[currentPlayerIndex].nextTurnAPBonus;
+
+			// Prefer the authoritative `currentAP` value when it's positive to avoid
+			// transient visual mismatches after movements or rerolls.
+			if (currentAP > 0) displayedAP = std::max(displayedAP, currentAP);
+
 			Player & currentPlayer = players[currentPlayerIndex];
 			if (currentPlayer.playerID == 0 || currentPlayer.ownerID == 0) {
-				p0_apText = ofToString(currentAP) + " AP";
+				p0_apText = ofToString(displayedAP) + " AP";
 			} else if (currentPlayer.playerID == 1 || currentPlayer.ownerID == 1) {
-				p1_apText = ofToString(currentAP) + " AP";
+				p1_apText = ofToString(displayedAP) + " AP";
 			}
 		}
 
@@ -5107,14 +5123,19 @@ void ofApp::drawGame() {
 		ofRectangle p0_apTextBox = titleFont.getStringBoundingBox(p0_apText, 0, 0);
 		float p0_apRectWidth = (p0_apTextBox.width * fontScale) + (40 * scale);
 		float p0_apRectHeight = (p0_apTextBox.height * fontScale) + (20 * scale);
-		ofSetColor(0, 0, 0, 150);
-		ofDrawRectRounded(p0_apCenterX - p0_apRectWidth / 2, p0_apCenterY - p0_apRectHeight / 2, p0_apRectWidth, p0_apRectHeight, 10 * scale);
-		ofSetColor(ofColor::cyan);
-		ofPushMatrix();
-		ofTranslate(p0_apCenterX, p0_apCenterY);
-		ofScale(fontScale, fontScale);
-		titleFont.drawString(p0_apText, -p0_apTextBox.getCenter().x, -p0_apTextBox.getCenter().y);
-		ofPopMatrix();
+		// Hide opponent AP when it's the current player's turn (don't show P0 AP if current player is player 1)
+		bool skipDrawP0AP = false;
+		if (currentPlayerIndex >= 0 && players[currentPlayerIndex].playerID == 1) skipDrawP0AP = true;
+		if (!skipDrawP0AP) {
+			ofSetColor(0, 0, 0, 150);
+			ofDrawRectRounded(p0_apCenterX - p0_apRectWidth / 2, p0_apCenterY - p0_apRectHeight / 2, p0_apRectWidth, p0_apRectHeight, 10 * scale);
+			ofSetColor(ofColor::cyan);
+			ofPushMatrix();
+			ofTranslate(p0_apCenterX, p0_apCenterY);
+			ofScale(fontScale, fontScale);
+			titleFont.drawString(p0_apText, -p0_apTextBox.getCenter().x, -p0_apTextBox.getCenter().y);
+			ofPopMatrix();
+		}
 
 		// --- DRAW P0 STATUSES ---
 		// Position these relative to the Player0 health bar: bottom-right, stacked above the HP counter
@@ -5199,14 +5220,19 @@ void ofApp::drawGame() {
 		ofRectangle p1_apTextBox = titleFont.getStringBoundingBox(p1_apText, 0, 0);
 		float p1_apRectWidth = (p1_apTextBox.width * fontScale) + (40 * scale);
 		float p1_apRectHeight = (p1_apTextBox.height * fontScale) + (20 * scale);
-		ofSetColor(0, 0, 0, 150);
-		ofDrawRectRounded(p1_apCenterX - p1_apRectWidth / 2, p1_apCenterY - p1_apRectHeight / 2, p1_apRectWidth, p1_apRectHeight, 10 * scale);
-		ofSetColor(ofColor::cyan);
-		ofPushMatrix();
-		ofTranslate(p1_apCenterX, p1_apCenterY);
-		ofScale(fontScale, fontScale);
-		titleFont.drawString(p1_apText, -p1_apTextBox.getCenter().x, -p1_apTextBox.getCenter().y);
-		ofPopMatrix();
+		// Hide opponent AP when it's the current player's turn (don't show P1 AP if current player is player 0)
+		bool skipDrawP1AP = false;
+		if (currentPlayerIndex >= 0 && players[currentPlayerIndex].playerID == 0) skipDrawP1AP = true;
+		if (!skipDrawP1AP) {
+			ofSetColor(0, 0, 0, 150);
+			ofDrawRectRounded(p1_apCenterX - p1_apRectWidth / 2, p1_apCenterY - p1_apRectHeight / 2, p1_apRectWidth, p1_apRectHeight, 10 * scale);
+			ofSetColor(ofColor::cyan);
+			ofPushMatrix();
+			ofTranslate(p1_apCenterX, p1_apCenterY);
+			ofScale(fontScale, fontScale);
+			titleFont.drawString(p1_apText, -p1_apTextBox.getCenter().x, -p1_apTextBox.getCenter().y);
+			ofPopMatrix();
+		}
 
 		// --- DRAW P1 STATUSES ---
 		// Position these relative to the Player1 health bar: top-left, stacked below the HP counter
@@ -5296,11 +5322,26 @@ void ofApp::drawGame() {
 	// 2. Draw Yellow Highlight (New Logic)
 	// If no AP left AND player has already used their draw, suggest ending turn.
 	// But do not highlight if an assistant reroll is possible.
+	// Determine displayed AP for current unit (again) and whether an AP roll animation is active
+	int displayedAPForCurrent = 0;
+	bool apRollActive = false;
+	if (currentPlayerIndex >= 0) {
+		for (const auto & r : activeDiceRolls) {
+			if (r.purpose == PURPOSE_AP || r.purpose == PURPOSE_BONUS_AP) {
+				if (!r.isFinishedVisual && r.associatedUnit == currentPlayerIndex) apRollActive = true;
+				if (r.isFinishedVisual && r.associatedUnit == currentPlayerIndex) displayedAPForCurrent += r.result;
+			}
+		}
+		if (players[currentPlayerIndex].nextTurnAPBonus > 0) displayedAPForCurrent += players[currentPlayerIndex].nextTurnAPBonus;
+		// If `currentAP` has already been updated elsewhere (dice resolution), prefer it when positive
+		if (currentAP > 0) displayedAPForCurrent = std::max(displayedAPForCurrent, currentAP);
+	}
+
 	bool rerollAvailable = false;
-	if (players.size() > 0 && currentPlayerIndex != -1 && currentAP == 0) {
+	if (players.size() > 0 && currentPlayerIndex != -1 && displayedAPForCurrent == 0 && currentAP == 0) {
 		Player & curr = players[currentPlayerIndex];
 		for (const auto & p : players) {
-			if (p.isAssistant && p.health > 0 && p.directSummonerID == curr.playerID && !p.assistantRerollUsedThisTurn) {
+			if (p.isAssistant && p.health > 0 && p.directSummonerID == (curr.isMinion ? curr.ownerID : curr.playerID) && !p.assistantRerollUsedThisTurn) {
 				int dist = abs(p.x - curr.x) + abs(p.y - curr.y);
 				if (dist <= 1) {
 					rerollAvailable = true;
@@ -5310,7 +5351,7 @@ void ofApp::drawGame() {
 		}
 	}
 
-	if (currentAP <= 0 && hasDrawnCardsThisTurn && !rerollAvailable) {
+	if (displayedAPForCurrent <= 0 && hasDrawnCardsThisTurn && !rerollAvailable) {
 		ofPushStyle();
 		ofNoFill();
 		ofSetColor(ofColor::yellow);
@@ -5337,8 +5378,8 @@ void ofApp::drawGame() {
 	if (players.size() > 0 && currentPlayerIndex != -1) {
 		Player & curr = players[currentPlayerIndex];
 
-		// Only show if 0 AP
-		if (currentAP == 0) {
+		// Only show if 0 displayed AP, no active AP roll animation, and currentAP is 0
+		if (displayedAPForCurrent == 0 && currentAP == 0 && !apRollActive) {
 			bool canReroll = false;
 
 			// Check for adjacent unused assistants owned by this unit
@@ -5366,12 +5407,7 @@ void ofApp::drawGame() {
 				float p0_apCenterY = ofGetHeight() - staticUICardHeight - (20 * scale) - staticUICardHeight - (20 * scale) - 60 * scale;
 				string p0_apText = "0 AP";
 				if (currentPlayerIndex >= 0 && !players.empty()) {
-					Player & currentPlayer = players[currentPlayerIndex];
-					if (currentPlayer.playerID == 0 || currentPlayer.ownerID == 0) {
-						p0_apText = ofToString(currentAP) + " AP";
-					} else if (currentPlayer.playerID == 1 || currentPlayer.ownerID == 1) {
-						p0_apText = ofToString(currentAP) + " AP";
-					}
+					p0_apText = ofToString(displayedAPForCurrent) + " AP";
 				}
 				ofRectangle p0_apTextBox = titleFont.getStringBoundingBox(p0_apText, 0, 0);
 				float p0_apRectWidth = (p0_apTextBox.width * fontScale) + (40 * scale);
@@ -8807,7 +8843,7 @@ void ofApp::startNewTurn() {
 			if (p.isSkeleton || p.isHellhound) minionCount++;
 		}
 
-		if (minionCount > 0) startDiceRoll(minionCount, 6, PURPOSE_BONUS_AP, "Minion Bonus AP");
+		if (minionCount > 0) startDiceRoll(minionCount, 6, PURPOSE_BONUS_AP, "Minion Bonus AP", currentPlayerIndex);
 
 		startingPlayer.nextTurnBonusDiceFromMinions = false;
 	}
@@ -12199,18 +12235,23 @@ int ofApp::startDiceRoll(int numDice, int sides, DicePurpose purpose, std::strin
 			finalRoll = rawRoll + luckBonus;
 		}
 		totalRollResult += finalRoll;
+		// Store both raw and final values. `result` keeps the final value for game logic,
+		// while `rawResult` is used for visual face selection so dice show the raw roll.
 		newRoll.result = finalRoll;
+		newRoll.rawResult = rawRoll;
 		newRoll.startTime = ofGetElapsedTimef();
+		// Associate this roll with the owner unit (if provided) so UI can attribute AP to the correct unit
+		newRoll.associatedUnit = ownerIndex;
 
 		// --- LOGGING ---
 		string diceName = (sides == 2) ? "Coin" : "D" + ofToString(sides);
-		string outcome = ofToString(finalRoll);
+		string outcome = ofToString(rawRoll); // show raw in the primary message (visual)
 		if (sides == 2) {
 			outcome += (finalRoll >= 2) ? " (Heads)" : " (Tails)";
 		}
 
-		string luckString = (luckBonus > 0) ? " (Raw: " + ofToString(rawRoll) + ", Luck: +" + ofToString(luckBonus) + ")" : "";
-		ofLogNotice("Dice") << diceName << " landed on: " << outcome << luckString;
+		string luckString = (luckBonus > 0) ? " (Final: " + ofToString(finalRoll) + ", Luck: +" + ofToString(luckBonus) + ")" : "";
+		ofLogNotice("Dice") << diceName << " landed on (raw): " << outcome << luckString;
 
 		// SAFE AXIS GENERATION
 		std::uniform_real_distribution<float> axisDist(-1.0f, 1.0f);
@@ -12247,8 +12288,8 @@ int ofApp::startDiceRoll(int numDice, int sides, DicePurpose purpose, std::strin
 			glm::vec3 faceVec;
 			float correctionDeg = 0.0f;
 
-			// Note: The result might be > 4 due to luck. We cap it visually.
-			int visualResult = std::min(sides, newRoll.result);
+			// Use the raw die for visuals; cap to available faces
+			int visualResult = std::min(sides, newRoll.rawResult);
 
 			switch (visualResult) {
 			case 1:
@@ -12280,7 +12321,8 @@ int ofApp::startDiceRoll(int numDice, int sides, DicePurpose purpose, std::strin
 		// --- 3. D6 LOGIC ---
 		else if (sides == 6) {
 			glm::quat faceRotation;
-			switch (newRoll.result) {
+			int visualResult = std::min(sides, newRoll.rawResult);
+			switch (visualResult) {
 			case 1:
 				faceRotation = glm::angleAxis(glm::radians(-90.0f), glm::vec3(1, 0, 0));
 				break;
@@ -12305,7 +12347,7 @@ int ofApp::startDiceRoll(int numDice, int sides, DicePurpose purpose, std::strin
 		}
 		// --- 4. D10 LOGIC ---
 		else if (sides == 10) {
-			int n = newRoll.result;
+			int n = std::min(sides, newRoll.rawResult);
 			glm::vec3 faceVec;
 			switch (n) {
 			case 2:
@@ -12348,7 +12390,7 @@ int ofApp::startDiceRoll(int numDice, int sides, DicePurpose purpose, std::strin
 		}
 		// --- 5. D20 LOGIC ---
 		else if (sides == 20) {
-			int n = newRoll.result;
+			int n = std::min(sides, newRoll.rawResult);
 			glm::vec3 v;
 			switch (n) {
 			case 20:

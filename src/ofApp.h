@@ -196,7 +196,8 @@ struct TargetInfo {
 struct DiceRoll {
 	DicePurpose purpose;
 	int sides = 6;
-	int result = 0;
+	int result = 0; // final result (includes luck when applicable)
+	int rawResult = 0; // the raw die value before luck is added (used for visual face)
 	bool isFinishedVisual = false;
 	float startTime = 0;
 	glm::quat finalQuat;
