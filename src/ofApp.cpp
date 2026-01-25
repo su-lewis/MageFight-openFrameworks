@@ -43,9 +43,9 @@ GLFWcursor * createGLFWCursorFromPNG(const std::string & path, int xHot, int yHo
 	return glfwCreateCursor(&glfwImg, xHot, yHot);
 }
 // ----------------------------------
-void drawStatText(ofTrueTypeFont & font, string text, float x, float y, float w, float h, ofColor color) {
+void drawStatText(ofTrueTypeFont & font, string text, float x, float y, float w, float h, ofColor color, float textScale = 0.6f) {
 	if (text == "0") return;
-	float scale = 0.6f;
+	float scale = textScale;
 	ofRectangle bounds = font.getStringBoundingBox(text, 0, 0);
 	ofPushMatrix();
 	// Center the text in the rect
@@ -1181,7 +1181,7 @@ void ofApp::updateGame() {
 	// --- Update floating key animation (advance by real time, tied to game update loop) ---
 	if (!keyAnimSequence.empty() && !keyTextures.empty()) {
 		// Use base interval scaled by the selected preset multiplier
-		float effectiveInterval = keyAnimInterval * keyAnimSpeedPresets[std::clamp(keyAnimSpeedIndex, 0, (int)keyAnimSpeedPresets.size()-1)];
+		float effectiveInterval = keyAnimInterval * keyAnimSpeedPresets[std::clamp(keyAnimSpeedIndex, 0, (int)keyAnimSpeedPresets.size() - 1)];
 		keyAnimTimer += ofGetLastFrameTime();
 		if (keyAnimTimer >= effectiveInterval) {
 			keyAnimTimer -= effectiveInterval;
@@ -5075,7 +5075,7 @@ void ofApp::drawGame() {
 		ofSetColor(healthColor);
 		ofDrawRectangle(currentX, y, hpW * hpPct, healthBarHeight);
 		string hpText = ofToString(player.health) + "/" + ofToString(player.maxHealth);
-		drawStatText(titleFont, hpText, currentX, y, hpW, healthBarHeight, ofColor::white);
+		drawStatText(titleFont, hpText, currentX, y, hpW, healthBarHeight, ofColor::white, 1.0f);
 
 		currentX += hpW;
 
@@ -5084,7 +5084,7 @@ void ofApp::drawGame() {
 			if (val > 0) {
 				ofSetColor(c);
 				ofDrawRectangle(currentX, y, statW, healthBarHeight);
-				drawStatText(titleFont, ofToString(val), currentX, y, statW, healthBarHeight, (c.getBrightness() > 200 ? ofColor::black : ofColor::white));
+				drawStatText(titleFont, ofToString(val), currentX, y, statW, healthBarHeight, (c.getBrightness() > 200 ? ofColor::black : ofColor::white), 1.0f);
 
 				// Tooltip Check
 				if (ofRectangle(currentX, y, statW, healthBarHeight).inside(ofGetMouseX(), ofGetMouseY())) {
