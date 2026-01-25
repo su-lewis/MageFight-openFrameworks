@@ -507,6 +507,15 @@ private:
 	std::vector<Particle> particles;
 	float screenShake = 0.0f;
 
+	// --- KEY ANIMATION (Floating Key on Floor) ---
+	std::vector<ofTexture> keyTextures; // loaded from Board/keys_1_*.png
+	std::vector<int> keyAnimSequence; // order to play frames (indices into keyTextures)
+	int keyAnimSeqPos = 0;
+	float keyAnimTimer = 0.0f;
+	float keyAnimInterval = 1.0f / 6.0f; // default 6 updates per second
+	int keyAnimTileX = BOARD_WIDTH / 2;
+	int keyAnimTileY = BOARD_HEIGHT / 2;
+
 	// --- LOGIC CACHE ---
 	int currentAP = 0;
 	bool hasDrawnCardsThisTurn = false;

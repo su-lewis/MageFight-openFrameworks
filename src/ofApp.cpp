@@ -282,6 +282,37 @@ void ofApp::setup() {
 		}
 	}
 
+	// --- Load Floating Key Frames (Board/keys_1_1.png etc.) ---
+	keyTextures.clear();
+	keyAnimSequence.clear();
+	{
+		std::vector<std::string> keyFiles = { "Board/keys_1_1.png", "Board/keys_1_2.png", "Board/keys_1_3.png", "Board/keys_1_4.png" };
+		for (const auto & f : keyFiles) {
+			ofTexture t;
+			if (ofLoadImage(t, f)) {
+				// Pixel-art: use nearest filtering and clamp to edge to avoid interpolation
+				// Do not generate mipmaps for sharp pixel appearance
+				t.setTextureMinMagFilter(GL_NEAREST, GL_NEAREST);
+				t.setTextureWrap(GL_CLAMP_TO_EDGE, GL_CLAMP_TO_EDGE);
+				keyTextures.push_back(t);
+				ofLogNotice("Setup") << "Loaded key frame: " << f;
+			} else {
+				ofLogError("Setup") << "Failed to load key frame: " << f;
+			}
+		}
+
+		// Sequence: 1_1, 1_2, 1_4, 1_3, 1_4, 1_2, 1_1
+		if (keyTextures.size() >= 4) {
+			// Remove trailing duplicate of frame 0 to avoid showing frame 1_1 twice in a row
+			keyAnimSequence = { 0, 1, 3, 2, 3, 1 };
+		} else {
+			// Fallback: just loop whatever was loaded
+			for (int i = 0; i < (int)keyTextures.size(); ++i) keyAnimSequence.push_back(i);
+		}
+		keyAnimSeqPos = 0;
+		keyAnimTimer = 0.0f;
+	}
+
 	// --- 4. DICE TEXTURES & COIN ---
 	// Note: Paths point to specific Dice/ subfolders
 	ofLoadImage(d4Texture, "Dice/D4/Dice_d4_Albedo.png");
@@ -1145,6 +1176,15 @@ void ofApp::updateGame() {
 	// --- LUCK AURA RECALCULATION ---
 	// Keep temp luck accurate every frame
 	recalcTempLuck();
+
+	// --- Update floating key animation (advance by real time, tied to game update loop) ---
+	if (!keyAnimSequence.empty() && !keyTextures.empty()) {
+		keyAnimTimer += ofGetLastFrameTime();
+		if (keyAnimTimer >= keyAnimInterval) {
+			keyAnimTimer -= keyAnimInterval;
+			keyAnimSeqPos = (keyAnimSeqPos + 1) % (int)keyAnimSequence.size();
+		}
+	}
 
 	if (!players.empty()) {
 		float scale = ofGetHeight() / 1080.0f;
@@ -4005,6 +4045,76 @@ void ofApp::drawGame() {
 				floorTextures[i].unbind();
 			}
 		}
+
+		// --- DRAW FLOATING KEY AS 3D VERTICAL BILLBOARD (so walls/units occlude it) ---
+		if (!keyAnimSequence.empty() && !keyTextures.empty()) {
+			int seqIdx = keyAnimSequence[keyAnimSeqPos];
+			if (seqIdx >= 0 && seqIdx < (int)keyTextures.size()) {
+				glm::vec3 worldPos = gridToWorld(keyAnimTileX, keyAnimTileY);
+				// Raise the key a bit more so its bottom isn't sunk into the floor
+				glm::vec3 pos = worldPos + glm::vec3(0, 0.9f, 0);
+
+				// Preserve aspect and avoid horizontal tracking: fix right vector to world X, only apply camera pitch
+				float texW = (float)keyTextures[seqIdx].getWidth();
+				float texH = (float)keyTextures[seqIdx].getHeight();
+				float aspect = (texH > 0.0f) ? (texW / texH) : 1.0f;
+
+				// desired world height and width (keep natural proportions)
+				float heightWorld = TILE_SIZE * 0.9f;
+				float widthWorld = heightWorld * aspect;
+				float halfW = widthWorld * 0.5f;
+				float halfH = heightWorld * 0.5f;
+
+				// Fixed horizontal facing (world X axis) so it doesn't follow side-to-side camera movement
+				glm::vec3 right = glm::vec3(1, 0, 0);
+
+				// Compute camera pitch only (ignore camera XZ rotation)
+				ofVec3f camP = cam.getPosition();
+				glm::vec3 camPos(camP.x, camP.y, camP.z);
+				glm::vec3 forward = camPos - pos;
+				float forwardLenXZ = sqrtf(forward.x * forward.x + forward.z * forward.z);
+				if (forwardLenXZ < 1e-4f) forwardLenXZ = 1e-4f;
+				float pitch = atan2f(forward.y, forwardLenXZ); // radians
+
+				// Apply a scaled pitch tilt (clamped) so billboard tilts up/down with camera
+				float maxTilt = glm::radians(60.0f);
+				float tilt = std::clamp(pitch * 0.8f, -maxTilt, maxTilt);
+				glm::quat tiltQ = glm::angleAxis(-tilt, right);
+
+				glm::vec3 upVec(0, 1, 0);
+				glm::vec3 upTilt = tiltQ * upVec;
+				glm::vec3 rightTilt = tiltQ * right;
+
+				glm::vec3 p0 = pos - rightTilt * halfW - upTilt * halfH;
+				glm::vec3 p1 = pos + rightTilt * halfW - upTilt * halfH;
+				glm::vec3 p2 = pos + rightTilt * halfW + upTilt * halfH;
+				glm::vec3 p3 = pos - rightTilt * halfW + upTilt * halfH;
+
+				ofMesh quad;
+				quad.setMode(OF_PRIMITIVE_TRIANGLES);
+				quad.addVertex(p0);
+				quad.addTexCoord(glm::vec2(0, 1));
+				quad.addVertex(p1);
+				quad.addTexCoord(glm::vec2(1, 1));
+				quad.addVertex(p2);
+				quad.addTexCoord(glm::vec2(1, 0));
+				quad.addVertex(p3);
+				quad.addTexCoord(glm::vec2(0, 0));
+
+				quad.addIndex(0); quad.addIndex(1); quad.addIndex(2);
+				quad.addIndex(0); quad.addIndex(2); quad.addIndex(3);
+
+				// Alpha-test: don't write depth for transparent pixels so occluders can show
+				glEnable(GL_ALPHA_TEST);
+				glAlphaFunc(GL_GREATER, 0.05f);
+
+				ofEnableDepthTest();
+				keyTextures[seqIdx].bind();
+				quad.draw();
+				keyTextures[seqIdx].unbind();
+				glDisable(GL_ALPHA_TEST);
+			}
+		}
 		if (levelMesh.getNumVertices() > 0) {
 			wallTexture.bind();
 			levelMesh.draw();
@@ -4018,6 +4128,8 @@ void ofApp::drawGame() {
 
 		// Earthquake arrows are now drawn above each unit's head within the transparent effects pass
 		// --- OPAQUE DYNAMIC OBJECTS (Players) ---
+
+		
 		ofSetColor(255);
 		for (const auto & player : players) {
 			// 1. Determine Position
@@ -4815,6 +4927,8 @@ void ofApp::drawGame() {
 
 	// 4. Re-enable Alpha for UI
 	ofEnableAlphaBlending();
+
+	// (floating key is rendered as a vertical 3D billboard in the world pass so it can be occluded)
 
 	drawMinionManagerUI();
 
