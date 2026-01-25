@@ -6472,8 +6472,10 @@ cursor_check_done:;
 					} else if (up->isKobold) {
 						unitStatusLines.push_back("AP: 1d4");
 					} else if (up->isWallUnit) {
-						if (up->isMagicWallUnit) unitStatusLines.push_back("AP: 1d6 (Magic Wall)");
-						else unitStatusLines.push_back("AP: 1d4 (Wall Unit)");
+						if (up->isMagicWallUnit)
+							unitStatusLines.push_back("AP: 1d6 (Magic Wall)");
+						else
+							unitStatusLines.push_back("AP: 1d4 (Wall Unit)");
 					} else if (up->isKoboldKing) {
 						unitStatusLines.push_back("AP: 1d6 (Kobold King)");
 					} else if (up->isMinion) {
@@ -8010,8 +8012,10 @@ void ofApp::mousePressed(int x, int y, int button) {
 			if (!p0 || !p1) return;
 
 			Player & activePlayer = players[currentPlayerIndex];
-			bool isP0sTurn = (activePlayer.playerID == 0 || activePlayer.ownerID == 0);
-			bool isP1sTurn = (activePlayer.playerID == 1 || activePlayer.ownerID == 1);
+			// Only consider it P0/P1's turn for main-deck clicks when the active unit
+			// is the actual player (not a minion). Minions must click their own UI deck.
+			bool isP0sTurn = (activePlayer.playerID == 0 && !activePlayer.isMinion);
+			bool isP1sTurn = (activePlayer.playerID == 1 && !activePlayer.isMinion);
 
 			// Player 0 Deck Click
 			if (p0_deckRect.inside(x, y) && isP0sTurn && !hasDrawnCardsThisTurn) {
@@ -14135,6 +14139,16 @@ void ofApp::drawMinionManagerUI() {
 		// --- Draw UI Panel ---
 		ofSetColor(0, 0, 0, 150);
 		ofDrawRectRounded(ui.bounds, 10 * scale);
+
+		// Outline the UI panel when the mouse is hovering over that minion (quick visual mapping)
+		if (hoveredUnitIndex == ui.playerIndex) {
+			ofPushStyle();
+			ofNoFill();
+			ofSetColor(ofColor::yellow);
+			ofSetLineWidth(3 * scale);
+			ofDrawRectRounded(ui.bounds, 10 * scale);
+			ofPopStyle();
+		}
 
 		// --- DETERMINE NAME ---
 		string name = "";
