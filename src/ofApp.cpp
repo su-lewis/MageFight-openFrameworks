@@ -6460,6 +6460,27 @@ cursor_check_done:;
 					// Assistants do not grant +AP via temp luck; don't display for them
 					if (up->tempLuck > 0 && !up->isAssistant) unitStatusLines.push_back(std::string("+") + ofToString(up->tempLuck) + " Temp Luck");
 
+					// Minion/Unit AP roll hints
+					if (up->isAssistant) {
+						unitStatusLines.push_back("AP: Coinflip");
+					} else if (up->isWolf) {
+						unitStatusLines.push_back("AP: 1d10");
+					} else if (up->isHellhound) {
+						unitStatusLines.push_back("AP: 2d6");
+					} else if (up->isDemon) {
+						unitStatusLines.push_back("AP: 4d4");
+					} else if (up->isKobold) {
+						unitStatusLines.push_back("AP: 1d4");
+					} else if (up->isWallUnit) {
+						if (up->isMagicWallUnit) unitStatusLines.push_back("AP: 1d6 (Magic Wall)");
+						else unitStatusLines.push_back("AP: 1d4 (Wall Unit)");
+					} else if (up->isKoboldKing) {
+						unitStatusLines.push_back("AP: 1d6 (Kobold King)");
+					} else if (up->isMinion) {
+						// Generic minion fallback
+						unitStatusLines.push_back("AP: 1d6");
+					}
+
 					// Status effects
 					if (up->sleepTurnsRemaining > 0) unitStatusLines.push_back(std::string("Sleep (") + ofToString(up->sleepTurnsRemaining) + ")");
 					if (up->isParalyzed) unitStatusLines.push_back(std::string("Paralyzed"));
@@ -9115,6 +9136,11 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		// Allow placing on empty adjacent tile or transforming an adjacent wall
 		if (targetX >= 0 && targetX < BOARD_WIDTH && targetY >= 0 && targetY < BOARD_HEIGHT) {
 			Tile & tile = board[targetX][targetY];
+			// Do not allow turning an already-magic wall into a magic wall again
+			if (tile.hasWall && tile.isMagicWall) {
+				spawnFloatingText(gridToWorld(targetX, targetY), "Already Magic Wall", ofColor::red);
+				return;
+			}
 			if (!tile.hasWall && !tile.hasPlayer) {
 				tile.hasWall = true;
 				tile.isMagicWall = true;
