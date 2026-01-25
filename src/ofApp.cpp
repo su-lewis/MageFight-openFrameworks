@@ -312,6 +312,18 @@ void ofApp::setup() {
 		}
 		keyAnimSeqPos = 0;
 		keyAnimTimer = 0.0f;
+
+		// Initialize three gold keys at requested board coordinates
+		// keys_1_* (already loaded above) are gold; place at (4,4), (6,6), (8,8)
+		floatingKeyPositions.clear();
+		floatingKeyPositions.push_back(glm::ivec2(4, 4));
+		floatingKeyPositions.push_back(glm::ivec2(6, 4));
+		floatingKeyPositions.push_back(glm::ivec2(8, 4));
+		// Keep legacy single-key coordinates in sync with first key
+		if (!floatingKeyPositions.empty()) {
+			keyAnimTileX = floatingKeyPositions[0].x;
+			keyAnimTileY = floatingKeyPositions[0].y;
+		}
 	}
 
 	// --- 4. DICE TEXTURES & COIN ---
@@ -1245,6 +1257,7 @@ void ofApp::updateGame() {
 				int pIndex = indices[i];
 				MinionUI ui;
 				ui.playerIndex = pIndex;
+				ui.displayNumber = 0;
 
 				if (players[pIndex].isSkeleton)
 					ui.displayNumber = ++skelCount;
@@ -1258,6 +1271,8 @@ void ofApp::updateGame() {
 					ui.displayNumber = ++demonCount;
 				else if (players[pIndex].isAssistant)
 					ui.displayNumber = ++assistantCount;
+				else if (players[pIndex].isKoboldKing)
+					ui.displayNumber = ++koboldCount;
 				else if (players[pIndex].isKobold)
 					ui.displayNumber = ++koboldCount;
 				else if (players[pIndex].isWallUnit)
@@ -4049,95 +4064,78 @@ void ofApp::drawGame() {
 			}
 		}
 
-		// --- DRAW FLOATING KEY AS 3D VERTICAL BILLBOARD (so walls/units occlude it) ---
-		if (!keyAnimSequence.empty() && !keyTextures.empty()) {
+		// --- DRAW FLOATING KEYS AS 3D VERTICAL BILLBOARDS (so walls/units occlude them) ---
+		if (!keyAnimSequence.empty() && !keyTextures.empty() && !floatingKeyPositions.empty()) {
 			int seqIdx = keyAnimSequence[keyAnimSeqPos];
 			if (seqIdx >= 0 && seqIdx < (int)keyTextures.size()) {
-				glm::vec3 worldPos = gridToWorld(keyAnimTileX, keyAnimTileY);
-				// Raise the key a bit more so its bottom isn't sunk into the floor
-				glm::vec3 pos = worldPos + glm::vec3(0, 0.9f, 0);
+				for (const auto & kp : floatingKeyPositions) {
+					glm::vec3 worldPos = gridToWorld(kp.x, kp.y);
+					// Raise the key a bit more so its bottom isn't sunk into the floor
+					glm::vec3 pos = worldPos + glm::vec3(0, 0.9f, 0);
 
-				// Preserve aspect and avoid horizontal tracking: fix right vector to world X, only apply camera pitch
-				float texW = (float)keyTextures[seqIdx].getWidth();
-				float texH = (float)keyTextures[seqIdx].getHeight();
-				float aspect = (texH > 0.0f) ? (texW / texH) : 1.0f;
+					// Preserve aspect and avoid horizontal tracking: fix right vector to world X, only apply camera pitch
+					float texW = (float)keyTextures[seqIdx].getWidth();
+					float texH = (float)keyTextures[seqIdx].getHeight();
+					float aspect = (texH > 0.0f) ? (texW / texH) : 1.0f;
 
-				// desired world height and width (keep natural proportions)
-				float heightWorld = TILE_SIZE * 0.9f;
-				float widthWorld = heightWorld * aspect;
-				float halfW = widthWorld * 0.5f;
-				float halfH = heightWorld * 0.5f;
+					// desired world height and width (keep natural proportions)
+					float heightWorld = TILE_SIZE * 0.9f;
+					float widthWorld = heightWorld * aspect;
+					float halfW = widthWorld * 0.5f;
+					float halfH = heightWorld * 0.5f;
 
-				// Decide horizontal facing: when camera is near top-down, rotate to face camera; otherwise keep fixed X axis
-				ofVec3f camP = cam.getPosition();
-				glm::vec3 camPos(camP.x, camP.y, camP.z);
-				glm::vec3 forward = camPos - pos;
-				float forwardLen = glm::length(forward);
-				glm::vec3 right;
+					// Use fixed horizontal facing (world X axis); apply camera pitch only
+					glm::vec3 right = glm::vec3(1, 0, 0);
 
-				// compute camera pitch angle
-				float forwardLenXZ = sqrtf(forward.x * forward.x + forward.z * forward.z);
-				if (forwardLenXZ < 1e-4f) forwardLenXZ = 1e-4f;
-				float pitch = atan2f(forward.y, forwardLenXZ); // radians
+					ofVec3f camP = cam.getPosition();
+					glm::vec3 camPos(camP.x, camP.y, camP.z);
+					glm::vec3 forward = camPos - pos;
+					float forwardLenXZ = sqrtf(forward.x * forward.x + forward.z * forward.z);
+					if (forwardLenXZ < 1e-4f) forwardLenXZ = 1e-4f;
+					float pitch = atan2f(forward.y, forwardLenXZ); // radians
 
-				// Threshold to switch to camera-facing horizontally (when nearly top-down)
-				const float pitchThreshold = glm::radians(60.0f);
-				if (fabs(pitch) > pitchThreshold) {
-					// face camera horizontally (use XZ direction toward camera)
-					glm::vec3 toCamXZ = camPos - pos;
-					toCamXZ.y = 0.0f;
-					if (glm::length(toCamXZ) < 1e-4f) toCamXZ = glm::vec3(0, 0, 1);
-					toCamXZ = glm::normalize(toCamXZ);
+					// Apply camera pitch as tilt (clamped)
+					float maxTilt = glm::radians(60.0f);
+					float tilt = std::clamp(pitch * 0.8f, -maxTilt, maxTilt);
+					glm::quat tiltQ = glm::angleAxis(-tilt, right);
+
 					glm::vec3 upVec(0, 1, 0);
-					right = glm::normalize(glm::cross(upVec, toCamXZ));
-				} else {
-					// fixed horizontal facing (world X axis)
-					right = glm::vec3(1, 0, 0);
+					glm::vec3 upTilt = tiltQ * upVec;
+					glm::vec3 rightTilt = tiltQ * right;
+
+					glm::vec3 p0 = pos - rightTilt * halfW - upTilt * halfH;
+					glm::vec3 p1 = pos + rightTilt * halfW - upTilt * halfH;
+					glm::vec3 p2 = pos + rightTilt * halfW + upTilt * halfH;
+					glm::vec3 p3 = pos - rightTilt * halfW + upTilt * halfH;
+
+					ofMesh quad;
+					quad.setMode(OF_PRIMITIVE_TRIANGLES);
+					quad.addVertex(p0);
+					quad.addTexCoord(glm::vec2(0, 1));
+					quad.addVertex(p1);
+					quad.addTexCoord(glm::vec2(1, 1));
+					quad.addVertex(p2);
+					quad.addTexCoord(glm::vec2(1, 0));
+					quad.addVertex(p3);
+					quad.addTexCoord(glm::vec2(0, 0));
+
+					quad.addIndex(0);
+					quad.addIndex(1);
+					quad.addIndex(2);
+					quad.addIndex(0);
+					quad.addIndex(2);
+					quad.addIndex(3);
+
+					// Alpha-test: don't write depth for transparent pixels so occluders can show
+					glEnable(GL_ALPHA_TEST);
+					glAlphaFunc(GL_GREATER, 0.05f);
+
+					ofEnableDepthTest();
+					keyTextures[seqIdx].bind();
+					quad.draw();
+					keyTextures[seqIdx].unbind();
+					glDisable(GL_ALPHA_TEST);
 				}
-
-				if (glm::length(right) < 0.001f) right = glm::vec3(1, 0, 0);
-
-				// Apply camera pitch as tilt (clamped)
-				float maxTilt = glm::radians(60.0f);
-				float tilt = std::clamp(pitch * 0.8f, -maxTilt, maxTilt);
-				glm::quat tiltQ = glm::angleAxis(-tilt, right);
-
-				glm::vec3 upVec(0, 1, 0);
-				glm::vec3 upTilt = tiltQ * upVec;
-				glm::vec3 rightTilt = tiltQ * right;
-
-				glm::vec3 p0 = pos - rightTilt * halfW - upTilt * halfH;
-				glm::vec3 p1 = pos + rightTilt * halfW - upTilt * halfH;
-				glm::vec3 p2 = pos + rightTilt * halfW + upTilt * halfH;
-				glm::vec3 p3 = pos - rightTilt * halfW + upTilt * halfH;
-
-				ofMesh quad;
-				quad.setMode(OF_PRIMITIVE_TRIANGLES);
-				quad.addVertex(p0);
-				quad.addTexCoord(glm::vec2(0, 1));
-				quad.addVertex(p1);
-				quad.addTexCoord(glm::vec2(1, 1));
-				quad.addVertex(p2);
-				quad.addTexCoord(glm::vec2(1, 0));
-				quad.addVertex(p3);
-				quad.addTexCoord(glm::vec2(0, 0));
-
-				quad.addIndex(0);
-				quad.addIndex(1);
-				quad.addIndex(2);
-				quad.addIndex(0);
-				quad.addIndex(2);
-				quad.addIndex(3);
-
-				// Alpha-test: don't write depth for transparent pixels so occluders can show
-				glEnable(GL_ALPHA_TEST);
-				glAlphaFunc(GL_GREATER, 0.05f);
-
-				ofEnableDepthTest();
-				keyTextures[seqIdx].bind();
-				quad.draw();
-				keyTextures[seqIdx].unbind();
-				glDisable(GL_ALPHA_TEST);
 			}
 		}
 		if (levelMesh.getNumVertices() > 0) {

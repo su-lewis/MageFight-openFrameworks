@@ -520,6 +520,9 @@ private:
 	int keyAnimTileX = BOARD_WIDTH / 2;
 	int keyAnimTileY = BOARD_HEIGHT / 2;
 
+	// Multiple floating keys: list of grid coordinates to draw the animated key at
+	std::vector<glm::ivec2> floatingKeyPositions;
+
 	// --- LOGIC CACHE ---
 	int currentAP = 0;
 	bool hasDrawnCardsThisTurn = false;
