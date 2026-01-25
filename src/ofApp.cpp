@@ -4130,10 +4130,13 @@ void ofApp::drawGame() {
 					glEnable(GL_ALPHA_TEST);
 					glAlphaFunc(GL_GREATER, 0.05f);
 
-					ofEnableDepthTest();
+					// Draw the key unlit so its pixel-art colors remain bright
+					// (lighting would darken the vertical billboard when the main light is above)
+					ofDisableLighting();
 					keyTextures[seqIdx].bind();
 					quad.draw();
 					keyTextures[seqIdx].unbind();
+					ofEnableLighting();
 					glDisable(GL_ALPHA_TEST);
 				}
 			}
@@ -8706,7 +8709,9 @@ void ofApp::mouseScrolled(int x, int y, float scrollX, float scrollY) {
 	}
 
 	cameraTargetZoom -= scrollY * 4.0f;
-	cameraTargetZoom = ofClamp(cameraTargetZoom, 20.0f, 150.0f);
+	// Restrict how far the player can zoom out (smaller max)
+	// and allow the camera to zoom in a bit closer than before.
+	cameraTargetZoom = ofClamp(cameraTargetZoom, 10.0f, 50.0f);
 }
 //--------------------------------------------------------------
 void ofApp::keyPressed(int key) {
