@@ -6459,7 +6459,8 @@ cursor_check_done:;
 					if (up->nextTurnD10AP) unitStatusLines.push_back("D10 AP");
 					if (up->strengthenElementsTurnsRemaining > 0) unitStatusLines.push_back(std::string("Elem Buff (") + ofToString(up->strengthenElementsTurnsRemaining) + ")");
 					if (up->luck > 0) unitStatusLines.push_back(std::string("+") + ofToString(up->luck) + " Luck");
-					if (up->tempLuck > 0) unitStatusLines.push_back(std::string("+") + ofToString(up->tempLuck) + " Temp Luck");
+					// Assistants do not grant +AP via temp luck; don't display for them
+					if (up->tempLuck > 0 && !up->isAssistant) unitStatusLines.push_back(std::string("+") + ofToString(up->tempLuck) + " Temp Luck");
 
 					// Status effects
 					if (up->sleepTurnsRemaining > 0) unitStatusLines.push_back(std::string("Sleep (") + ofToString(up->sleepTurnsRemaining) + ")");
@@ -8141,8 +8142,21 @@ void ofApp::mousePressed(int x, int y, int button) {
 					if (canEnter) {
 						int moveAPCost = static_cast<int>(hoverPath.size()) - 1;
 
-						if (currentAP >= moveAPCost) {
-							currentAP -= moveAPCost;
+						// Recompute available AP from any dice that have finished spinning this frame
+						int apNow = 0;
+						for (const auto & r : activeDiceRolls) {
+							if ((r.purpose == PURPOSE_AP || r.purpose == PURPOSE_BONUS_AP) && r.isFinishedVisual && r.associatedUnit == currentPlayerIndex) {
+								apNow += r.result;
+							}
+						}
+						if (players[currentPlayerIndex].nextTurnAPBonus > 0) {
+							apNow += players[currentPlayerIndex].nextTurnAPBonus;
+							players[currentPlayerIndex].nextTurnAPBonus = 0;
+						}
+						if (currentAP > 0) apNow = std::max(apNow, currentAP);
+
+						if (apNow >= moveAPCost) {
+							currentAP = apNow - moveAPCost;
 
 							// Update Board Occupancy
 							// If we leave a wall, we don't clear the wall flag, just the player flag
