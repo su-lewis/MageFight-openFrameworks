@@ -136,6 +136,7 @@ enum CardType {
 	CARD_SUMMON_KOBOLD_KING, // Add this
 	CARD_SUMMON_ASSISTANT,
 	CARD_FOUR_LEAF_CLOVER,
+	CARD_SPRINT,
 	CARD_FULL_RESTORE
 };
 
@@ -312,6 +313,7 @@ struct Player {
 	bool isAssistant = false;
 	int directSummonerID = -1; // ID of the specific unit that summoned this minion
 	bool assistantRerollUsedThisTurn = false; // Track the "once per turn" usage
+	int freeKickTurns = 0; // Number of turns (including current) that Kick costs 0
 
 	// Tortoise Form
 	bool inTortoiseForm = false;

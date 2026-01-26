@@ -6644,6 +6644,9 @@ cursor_check_done:;
 					int totalLuck = up->luck + passive;
 					if (totalLuck > 0) unitStatusLines.push_back(std::string("+") + ofToString(totalLuck) + " Luck");
 
+					// Sprint: Kick free indicator
+					if (up->freeKickTurns > 0) unitStatusLines.push_back(std::string("Kick: Free (") + ofToString(up->freeKickTurns) + ")");
+
 					// Minion/Unit AP roll hints
 					if (up->isAssistant) {
 						unitStatusLines.push_back("AP: Coinflip");
@@ -9004,6 +9007,14 @@ void ofApp::startNewTurn() {
 			}
 		}
 
+		// Decrement Sprint's Kick-free counter
+		if (endingPlayer.freeKickTurns > 0) {
+			endingPlayer.freeKickTurns--;
+			if (endingPlayer.freeKickTurns == 0) {
+				spawnFloatingText(gridToWorld(endingPlayer.x, endingPlayer.y), "Kick Normal Cost", ofColor::white);
+			}
+		}
+
 		// --- B. CHECK FOR BONUS TURNS ---
 		if (endingPlayer.bonusTurns > 0) {
 			endingPlayer.bonusTurns--;
@@ -9355,7 +9366,10 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 	if (cardIndex < 0 || cardIndex >= static_cast<int>(currentPlayer.hand.size())) return;
 
 	Card playedCard = currentPlayer.hand[cardIndex];
-	if (currentAP < playedCard.cost) return;
+	// Determine effective cost (Kick may be free due to Sprint)
+	int costToPay = playedCard.cost;
+	if (playedCard.name == "Kick" && currentPlayer.freeKickTurns > 0) costToPay = 0;
+	if (currentAP < costToPay) return;
 
 	// --- Magic Wall Placement/Transformation ---
 	if (playedCard.type == CARD_CREATE_WALL && playedCard.name == "Summon Magic Wall") {
@@ -9379,7 +9393,7 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 			}
 		}
 		// Remove card from hand and pay cost
-		currentAP -= playedCard.cost;
+		currentAP -= costToPay;
 		currentPlayer.playedCardsPile.push_back(playedCard);
 		currentPlayer.hand.erase(currentPlayer.hand.begin() + cardIndex);
 		return;
@@ -9626,6 +9640,19 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		// Normal TARGET_SELF behavior: apply to current player regardless of release coords
 		currentPlayer.luck += 1;
 		spawnFloatingText(gridToWorld(currentPlayer.x, currentPlayer.y), "+1 Luck!", ofColor::green);
+		playedSuccessfully = true;
+		break;
+	}
+
+	// --- CASE: SPRINT ---
+	case CARD_SPRINT: {
+		// Immediate +2 AP and +2 AP next turn. Also make Kick cost-free until end of next turn.
+		currentAP += 2;
+		currentPlayer.nextTurnAPBonus += 2;
+		currentPlayer.freeKickTurns = 2; // Current turn + next turn
+		spawnFloatingText(gridToWorld(currentPlayer.x, currentPlayer.y), "+2 AP Now", ofColor::yellow);
+		spawnFloatingText(gridToWorld(currentPlayer.x, currentPlayer.y) + glm::vec3(0, 0.5f, 0), "+2 AP Next Turn", ofColor::yellow);
+		spawnFloatingText(gridToWorld(currentPlayer.x, currentPlayer.y) + glm::vec3(0, 1.0f, 0), "Kick is Free!", ofColor::cyan);
 		playedSuccessfully = true;
 		break;
 	}
@@ -9949,7 +9976,7 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 
 		// --- CRASH PREVENTION FIX ---
 		// Perform cleanup NOW before the players vector potentially changes
-		currentAP -= playedCard.cost;
+		currentAP -= costToPay;
 		currentPlayer.playedCardsPile.push_back(playedCard);
 
 		// Handle Replicate
@@ -10028,7 +10055,7 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 
 		int myID = currentPlayer.playerID; // Save ID to find index later
 
-		currentAP -= playedCard.cost;
+		currentAP -= costToPay;
 		currentPlayer.playedCardsPile.push_back(playedCard);
 
 		if (currentPlayer.isReplicatePending) {
@@ -10109,7 +10136,7 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 
 		// 4. Cleanup & Add
 		int myID = currentPlayer.playerID;
-		currentAP -= playedCard.cost;
+		currentAP -= costToPay;
 		currentPlayer.playedCardsPile.push_back(playedCard);
 		if (currentPlayer.isReplicatePending) {
 			currentPlayer.playedCardsPile.push_back(playedCard);
@@ -10270,7 +10297,7 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		// --- CRASH FIX START ---
 		int myID = currentPlayer.playerID;
 
-		currentAP -= playedCard.cost;
+		currentAP -= costToPay;
 		currentPlayer.playedCardsPile.push_back(playedCard);
 		currentPlayer.cardsPlayedThisTurn.push_back(playedCard.type); // Track history
 		currentPlayer.hand.erase(currentPlayer.hand.begin() + cardIndex);
@@ -10391,7 +10418,7 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		// --- CRASH FIX: PERFORM CLEANUP NOW ---
 		// We do this BEFORE pushing back to 'players' because push_back might reallocate the vector,
 		// invalidating the 'currentPlayer' reference used in cleanup.
-		currentAP -= playedCard.cost;
+		currentAP -= costToPay;
 		currentPlayer.playedCardsPile.push_back(playedCard);
 
 		if (currentPlayer.isReplicatePending) {
@@ -10456,7 +10483,7 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		}
 
 		// 2. Pay Cost & Cleanup Hand
-		currentAP -= playedCard.cost;
+		currentAP -= costToPay;
 		currentPlayer.playedCardsPile.push_back(playedCard);
 		if (currentPlayer.isReplicatePending) {
 			currentPlayer.playedCardsPile.push_back(playedCard);
@@ -10501,7 +10528,7 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		}
 
 		// 2. Pay Cost & Cleanup Hand
-		currentAP -= playedCard.cost;
+		currentAP -= costToPay;
 		currentPlayer.playedCardsPile.push_back(playedCard);
 		if (currentPlayer.isReplicatePending) {
 			currentPlayer.playedCardsPile.push_back(playedCard);
@@ -10532,7 +10559,7 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		isWaitingForHellhoundHP = true;
 
 		// Cleanup Logic
-		currentAP -= playedCard.cost;
+		currentAP -= costToPay;
 		currentPlayer.playedCardsPile.push_back(playedCard);
 		// ... (Replicate logic) ...
 		currentPlayer.cardsPlayedThisTurn.push_back(playedCard.type);
@@ -10554,7 +10581,7 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		isWaitingForDemonHP = true;
 
 		// Cleanup
-		currentAP -= playedCard.cost;
+		currentAP -= costToPay;
 		currentPlayer.playedCardsPile.push_back(playedCard);
 		if (currentPlayer.isReplicatePending) {
 			currentPlayer.playedCardsPile.push_back(playedCard);
@@ -10832,7 +10859,7 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 
 		// Card does NOT go to discard - stays "in play" until form ends
 		// We handle this specially - don't add to playedCardsPile
-		currentAP -= playedCard.cost;
+		currentAP -= costToPay;
 		currentPlayer.hand.erase(currentPlayer.hand.begin() + cardIndex);
 		activeCardDisplays.push_back({ playedCard, ofGetElapsedTimef() });
 		invalidateTargetCache();
@@ -10874,7 +10901,7 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		ofLogNotice("Form of Ghost") << "Player " << currentPlayer.playerID << " entered ghost form.";
 
 		// 4. Handle "Keep in Play" (Do not add to played pile, just remove from hand)
-		currentAP -= playedCard.cost;
+		currentAP -= costToPay;
 		currentPlayer.hand.erase(currentPlayer.hand.begin() + cardIndex);
 		activeCardDisplays.push_back({ playedCard, ofGetElapsedTimef() });
 		invalidateTargetCache();
@@ -11059,7 +11086,7 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		// --- CASE: RENEWED INSPIRATION ---
 	case CARD_RENEWED_INSPIRATION: {
 		// 1. Pay Cost
-		currentAP -= playedCard.cost;
+		currentAP -= costToPay;
 
 		// 2. Handle Replicate (BEFORE removing original from hand)
 		// If Replicate is active, we create a copy, mark it as copied,
@@ -11229,8 +11256,8 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 
 	// --- CASE: EARTHQUAKE ---
 	case CARD_EARTHQUAKE: {
-		// 1. Pay Cost & Cleanup Hand
-		currentAP -= playedCard.cost;
+		// 2. Pay Cost & Cleanup Hand
+		currentAP -= costToPay;
 		currentPlayer.playedCardsPile.push_back(playedCard);
 		// (Handle Replicate logic here if you want)
 		currentPlayer.cardsPlayedThisTurn.push_back(playedCard.type);
@@ -11713,7 +11740,7 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 
 	// --- 3. COMMON CLEANUP ---
 	if (playedSuccessfully) {
-		currentAP -= playedCard.cost;
+		currentAP -= costToPay;
 
 		// --- STRENGTHEN ELEMENTS TRIGGER ---
 		// Check if buff is active AND card deals Fire or Electric damage
@@ -13360,7 +13387,9 @@ void ofApp::resolveDoubleHanded(std::string cardName) {
 			// 5. Finalize Play (Cost AP, Remove Card)
 			if (pendingDoubleHandedCardIndex != -1) {
 				Card & playedCard = caster.hand[pendingDoubleHandedCardIndex];
-				currentAP -= playedCard.cost;
+				int dhCost = playedCard.cost;
+				if (playedCard.name == "Kick" && caster.freeKickTurns > 0) dhCost = 0;
+				currentAP -= dhCost;
 				caster.playedCardsPile.push_back(playedCard);
 				// Handle Replicate if active
 				if (caster.isReplicatePending) {
@@ -14072,6 +14101,7 @@ CardType ofApp::stringToCardType(const std::string & str) {
 	if (str == "CARD_SUMMON_KOBOLD_KING") return CARD_SUMMON_KOBOLD_KING; // Add
 	if (str == "CARD_SUMMON_ASSISTANT") return CARD_SUMMON_ASSISTANT;
 	if (str == "CARD_FOUR_LEAF_CLOVER") return CARD_FOUR_LEAF_CLOVER;
+	if (str == "CARD_SPRINT") return CARD_SPRINT;
 	if (str == "CARD_FULL_RESTORE") return CARD_FULL_RESTORE; //
 
 	return CARD_NONE;

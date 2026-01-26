@@ -503,6 +503,13 @@
     "description": "Passive: While this card is in your draw pile (not in discard or drawn) you have +1 temporary luck. When played on self, gain +1 permanent luck for the rest of the game."
   },
   {
+    "id": 65,
+    "name": "Sprint",
+    "type": "CARD_SPRINT",
+    "cost": 0,
+    "targeting": "TARGET_SELF"
+  },
+  {
     "id": 66,
     "name": "Full Restore",
     "type": "CARD_FULL_RESTORE",
