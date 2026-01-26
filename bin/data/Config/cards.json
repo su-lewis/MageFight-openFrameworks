@@ -515,5 +515,14 @@
     "type": "CARD_FULL_RESTORE",
     "cost": 4,
     "targeting": "TARGET_SELF"
+  },
+  {
+    "id": 67,
+    "name": "Smite",
+    "type": "CARD_SMITE",
+    "cost": 3,
+    "value": 5,
+    "targeting": "TARGET_ADJACENT_UNIT",
+    "damageType": "DAMAGE_HOLY"
   }
 ]

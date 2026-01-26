@@ -9657,6 +9657,27 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		break;
 	}
 
+	// --- CASE: SMITE ---
+	case CARD_SMITE: {
+		// Target an adjacent unit and deal 5 holy damage
+		int targetIndex = -1;
+		for (size_t i = 0; i < players.size(); i++) {
+			if (players[i].x == targetX && players[i].y == targetY) {
+				targetIndex = (int)i;
+				break;
+			}
+		}
+		if (targetIndex != -1) {
+			Player * target = getPlayer(targetIndex);
+			if (target) {
+				applyDamage(*target, 5, DAMAGE_HOLY);
+				spawnFloatingText(gridToWorld(target->x, target->y), "5 Holy", ofColor::white);
+				playedSuccessfully = true;
+			}
+		}
+		break;
+	}
+
 	// --- CASE: MIND THEFT ---
 	case CARD_MIND_THEFT: {
 		int targetIndex = -1;
@@ -14102,6 +14123,7 @@ CardType ofApp::stringToCardType(const std::string & str) {
 	if (str == "CARD_SUMMON_ASSISTANT") return CARD_SUMMON_ASSISTANT;
 	if (str == "CARD_FOUR_LEAF_CLOVER") return CARD_FOUR_LEAF_CLOVER;
 	if (str == "CARD_SPRINT") return CARD_SPRINT;
+	if (str == "CARD_SMITE") return CARD_SMITE;
 	if (str == "CARD_FULL_RESTORE") return CARD_FULL_RESTORE; //
 
 	return CARD_NONE;
