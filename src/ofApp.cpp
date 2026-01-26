@@ -5338,9 +5338,14 @@ void ofApp::drawGame() {
 
 		// --- NEW STATUSES ---
 
-		// Draw Luck above HP for Player 0 (left-aligned)
-		if (player0->luck > 0) {
-			string luckText = "+" + ofToString(player0->luck) + " Luck";
+		// Draw combined Luck (permanent + passive)
+		int p0Index = -1;
+		for (int i = 0; i < (int)players.size(); ++i)
+			if (players[i].playerID == 0) p0Index = i;
+		int p0Passive = (p0Index >= 0) ? computePassiveLuck(p0Index) : 0;
+		int p0TotalLuck = player0->luck + p0Passive;
+		if (p0TotalLuck > 0) {
+			string luckText = "+" + ofToString(p0TotalLuck) + " Luck";
 			ofRectangle luckBox = titleFont.getStringBoundingBox(luckText, 0, 0);
 			ofSetColor(ofColor::darkGreen);
 			ofPushMatrix();
@@ -5349,19 +5354,6 @@ void ofApp::drawGame() {
 			titleFont.drawString(luckText, 0, 0);
 			ofPopMatrix();
 			p0_statusY -= (luckBox.height * smallFontScale) + (5 * scale);
-		}
-
-		// Draw Temp Luck (if any)
-		if (player0->tempLuck > 0) {
-			string tLuckText = "+" + ofToString(player0->tempLuck) + " Temp Luck";
-			ofRectangle tLuckBox = titleFont.getStringBoundingBox(tLuckText, 0, 0);
-			ofSetColor(ofColor::lightGreen);
-			ofPushMatrix();
-			ofTranslate(p0_statusXStart, p0_statusY);
-			ofScale(smallFontScale, smallFontScale);
-			titleFont.drawString(tLuckText, 0, 0);
-			ofPopMatrix();
-			p0_statusY -= (tLuckBox.height * smallFontScale) + (5 * scale);
 		}
 
 		if (player0->nextTurnAPBonus > 0) {
@@ -5433,9 +5425,14 @@ void ofApp::drawGame() {
 		float p1_totalFormsHeight = p1_formsBelow * (formBarHeight + formSpacing);
 		float p1_statusY = p1_healthY + healthBarHeight + 10 * scale + p1_totalFormsHeight;
 
-		// Draw Luck below HP for Player 1 (left-aligned)
-		if (player1->luck > 0) {
-			string luckText = "+" + ofToString(player1->luck) + " Luck";
+		// Draw combined Luck (permanent + passive) for Player 1
+		int p1Index = -1;
+		for (int i = 0; i < (int)players.size(); ++i)
+			if (players[i].playerID == 1) p1Index = i;
+		int p1Passive = (p1Index >= 0) ? computePassiveLuck(p1Index) : 0;
+		int p1TotalLuck = player1->luck + p1Passive;
+		if (p1TotalLuck > 0) {
+			string luckText = "+" + ofToString(p1TotalLuck) + " Luck";
 			ofRectangle luckBox = titleFont.getStringBoundingBox(luckText, 0, 0);
 			ofSetColor(ofColor::darkGreen);
 			ofPushMatrix();
@@ -5444,19 +5441,6 @@ void ofApp::drawGame() {
 			titleFont.drawString(luckText, 0, 0);
 			ofPopMatrix();
 			p1_statusY += (luckBox.height * smallFontScale) + (5 * scale);
-		}
-
-		// Draw Temp Luck (if any)
-		if (player1->tempLuck > 0) {
-			string tLuckText = "+" + ofToString(player1->tempLuck) + " Temp Luck";
-			ofRectangle tLuckBox = titleFont.getStringBoundingBox(tLuckText, 0, 0);
-			ofSetColor(ofColor::lightGreen);
-			ofPushMatrix();
-			ofTranslate(p1_statusXStart, p1_statusY + (tLuckBox.height * smallFontScale));
-			ofScale(smallFontScale, smallFontScale);
-			titleFont.drawString(tLuckText, 0, 0);
-			ofPopMatrix();
-			p1_statusY += (tLuckBox.height * smallFontScale) + (5 * scale);
 		}
 
 		// --- NEW STATUSES ---
@@ -6655,9 +6639,10 @@ cursor_check_done:;
 					if (up->nextTurnAPBonus > 0) unitStatusLines.push_back(std::string("+") + ofToString(up->nextTurnAPBonus) + " AP Next Turn");
 					if (up->nextTurnD10AP) unitStatusLines.push_back("D10 AP");
 					if (up->strengthenElementsTurnsRemaining > 0) unitStatusLines.push_back(std::string("Elem Buff (") + ofToString(up->strengthenElementsTurnsRemaining) + ")");
-					if (up->luck > 0) unitStatusLines.push_back(std::string("+") + ofToString(up->luck) + " Luck");
-					// Assistants do not grant +AP via temp luck; don't display for them
-					if (up->tempLuck > 0 && !up->isAssistant) unitStatusLines.push_back(std::string("+") + ofToString(up->tempLuck) + " Temp Luck");
+					// Show combined luck (permanent + passive)
+					int passive = computePassiveLuck(hoveredUnitIndex);
+					int totalLuck = up->luck + passive;
+					if (totalLuck > 0) unitStatusLines.push_back(std::string("+") + ofToString(totalLuck) + " Luck");
 
 					// Minion/Unit AP roll hints
 					if (up->isAssistant) {
@@ -9278,18 +9263,31 @@ void ofApp::continueNewTurn() {
 }
 
 void ofApp::recalcTempLuck() {
-	for (auto & p : players)
-		p.tempLuck = 0;
+	// No-op: passive luck is computed on-demand via computePassiveLuck().
+}
+
+int ofApp::computePassiveLuck(int playerIndex) {
+	if (playerIndex < 0 || playerIndex >= (int)players.size()) return 0;
+	int count = 0;
+
+	// Assistant auras: for each assistant alive adjacent to its summoner, add +1 to the summoner
 	for (const auto & assistant : players) {
-		if (assistant.isAssistant && assistant.health > 0) {
-			for (auto & summoner : players) {
-				if (summoner.playerID == assistant.directSummonerID) {
-					int dist = abs(assistant.x - summoner.x) + abs(assistant.y - summoner.y);
-					if (dist <= 1) summoner.tempLuck += 1;
-				}
+		if (!assistant.isAssistant || assistant.health <= 0) continue;
+		// find summoner index
+		for (const auto & summoner : players) {
+			if (summoner.playerID == assistant.directSummonerID) {
+				int dist = abs(assistant.x - summoner.x) + abs(assistant.y - summoner.y);
+				if (dist <= 1 && summoner.playerID == players[playerIndex].playerID) count++;
 			}
 		}
 	}
+
+	// Four-leaf clover cards in deck: each copy grants +1 passive luck
+	for (const auto & c : players[playerIndex].deck) {
+		if (c.type == CARD_FOUR_LEAF_CLOVER) count++;
+	}
+
+	return count;
 }
 //--------------------------------------------------------------
 void ofApp::drawCard() {
@@ -9622,6 +9620,15 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 
 	// --- 2. CARD LOGIC SWITCH ---
 	switch (playedCard.type) {
+
+	// --- CASE: FOUR-LEAF CLOVER ---
+	case CARD_FOUR_LEAF_CLOVER: {
+		// Normal TARGET_SELF behavior: apply to current player regardless of release coords
+		currentPlayer.luck += 1;
+		spawnFloatingText(gridToWorld(currentPlayer.x, currentPlayer.y), "+1 Luck!", ofColor::green);
+		playedSuccessfully = true;
+		break;
+	}
 
 	// --- CASE: MIND THEFT ---
 	case CARD_MIND_THEFT: {
@@ -12444,8 +12451,8 @@ int ofApp::startDiceRoll(int numDice, int sides, DicePurpose purpose, std::strin
 	// If an explicit ownerIndex is provided, use that unit's luck. Otherwise fall back to currentPlayerIndex.
 	int luckOwner = (ownerIndex >= 0 && ownerIndex < (int)players.size()) ? ownerIndex : currentPlayerIndex;
 	if (luckOwner != -1) {
-		// COMBINE PERMANENT AND TEMP LUCK
-		luckBonus = players[luckOwner].luck + players[luckOwner].tempLuck;
+		// COMBINE PERMANENT AND PASSIVE LUCK (computed on-demand)
+		luckBonus = players[luckOwner].luck + computePassiveLuck(luckOwner);
 	}
 
 	// --- SET LABEL ---
@@ -14064,6 +14071,7 @@ CardType ofApp::stringToCardType(const std::string & str) {
 	if (str == "CARD_TRANSFORM_WALL") return CARD_TRANSFORM_WALL;
 	if (str == "CARD_SUMMON_KOBOLD_KING") return CARD_SUMMON_KOBOLD_KING; // Add
 	if (str == "CARD_SUMMON_ASSISTANT") return CARD_SUMMON_ASSISTANT;
+	if (str == "CARD_FOUR_LEAF_CLOVER") return CARD_FOUR_LEAF_CLOVER;
 	if (str == "CARD_FULL_RESTORE") return CARD_FULL_RESTORE; //
 
 	return CARD_NONE;

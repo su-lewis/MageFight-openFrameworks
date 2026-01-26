@@ -135,6 +135,7 @@ enum CardType {
 	CARD_TRANSFORM_WALL,
 	CARD_SUMMON_KOBOLD_KING, // Add this
 	CARD_SUMMON_ASSISTANT,
+	CARD_FOUR_LEAF_CLOVER,
 	CARD_FULL_RESTORE
 };
 
@@ -311,7 +312,6 @@ struct Player {
 	bool isAssistant = false;
 	int directSummonerID = -1; // ID of the specific unit that summoned this minion
 	bool assistantRerollUsedThisTurn = false; // Track the "once per turn" usage
-	int tempLuck = 0; // Luck from auras (recalculated every frame)
 
 	// Tortoise Form
 	bool inTortoiseForm = false;
@@ -426,6 +426,9 @@ private:
 	std::string currentDiceLabel = "";
 	int startDiceRoll(int numDice, int sides, DicePurpose purpose, std::string label = "", int ownerIndex = -1);
 	void recalcTempLuck();
+
+	// Returns passive luck (from assistant auras and cards in deck) for the given player index.
+	int computePassiveLuck(int playerIndex);
 	void spawnFloatingText(glm::vec3 pos, std::string text, ofColor color);
 	void spawnExplosion(glm::vec3 pos, int count, ofColor color);
 	void tryTriggerShellSpike(); // Tortoise Form: trigger 3 damage to adjacent unit
