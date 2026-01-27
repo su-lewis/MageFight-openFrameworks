@@ -13423,7 +13423,7 @@ void ofApp::determineStatusOptions(Player * target) {
 		if (target) {
 			spawnFloatingText(gridToWorld(target->x, target->y), "Target has no status effects!", ofColor::yellow);
 		} else {
-			spawnFloatingText(glm::vec3(ofGetWidth()/2, ofGetHeight()/2, 0), "Target has no status effects!", ofColor::yellow);
+			spawnFloatingText(glm::vec3(ofGetWidth() / 2, ofGetHeight() / 2, 0), "Target has no status effects!", ofColor::yellow);
 		}
 		cancelDispel();
 		return;
