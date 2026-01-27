@@ -138,6 +138,7 @@ enum CardType {
 	CARD_FOUR_LEAF_CLOVER,
 	CARD_SPRINT,
 	CARD_SMITE,
+	CARD_BURST_OF_LIGHT,
 	CARD_FULL_RESTORE
 };
 
@@ -483,6 +484,11 @@ private:
 	// Specific UI Drawers
 	void drawMagicBlastChoiceUI();
 	void drawWisdomBoonUI();
+	void cancelBurst();
+	void drawBurstUI();
+
+	// General damage application helper (used by multiple flows)
+	bool applyDamageTo(Player & target, int damage, DamageType type, int attackerIndex = -1);
 	void cancelWisdomBoon();
 	void drawDispelUI();
 	void cancelDispel();
@@ -638,6 +644,7 @@ private:
 	int selectedCardIndex = -1;
 	int draggedCardIndex = -1;
 	int hoveredCardIndex = -1;
+	int lastHoveredCardIndex = -1;
 	ofVec2f dragOffset;
 	ofVec2f mouseDownPos;
 
@@ -805,6 +812,15 @@ private:
 	ofRectangle wisdomMenuRect;
 	ofRectangle wisdomBtnDamage;
 	ofRectangle wisdomBtnBlock;
+
+	// Burst of Light (choice UI + targeting)
+	bool isBurstMenuOpen = false;
+	int pendingBurstCardIndex = -1;
+	bool isTargetingBurst = false; // true while choosing target after menu
+	int burstChoice = 0; // 0 = Damage, 1 = Heal
+	ofRectangle burstMenuRect;
+	ofRectangle burstBtnDamage;
+	ofRectangle burstBtnHeal;
 
 	// Heal
 	bool isWaitingForHealDice = false;

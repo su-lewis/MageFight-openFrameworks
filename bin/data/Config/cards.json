@@ -524,5 +524,12 @@
     "value": 5,
     "targeting": "TARGET_ADJACENT_UNIT",
     "damageType": "DAMAGE_HOLY"
+  },
+  {
+    "id": 68,
+    "name": "Burst of Light",
+    "type": "CARD_BURST_OF_LIGHT",
+    "cost": 3,
+    "targeting": "TARGET_LINE_OF_SIGHT_TILE"
   }
 ]
