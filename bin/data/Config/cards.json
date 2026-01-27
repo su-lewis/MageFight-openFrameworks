@@ -499,8 +499,7 @@
     "name": "Four-leaf clover",
     "type": "CARD_FOUR_LEAF_CLOVER",
     "cost": 10,
-    "targeting": "TARGET_SELF",
-    "description": "Passive: While this card is in your draw pile (not in discard or drawn) you have +1 temporary luck. When played on self, gain +1 permanent luck for the rest of the game."
+    "targeting": "TARGET_SELF"
   },
   {
     "id": 65,
@@ -531,5 +530,14 @@
     "type": "CARD_BURST_OF_LIGHT",
     "cost": 3,
     "targeting": "TARGET_LINE_OF_SIGHT_TILE"
+  },
+  {
+    "id": 69,
+    "name": "Shoot Arrow",
+    "type": "CARD_SHOOT_ARROW",
+    "cost": 3,
+    "targeting": "TARGET_LINE_OF_SIGHT_TILE",
+    "numDice": 2,
+    "diceSides": 20
   }
 ]

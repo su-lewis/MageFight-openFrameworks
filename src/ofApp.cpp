@@ -786,14 +786,6 @@ void ofApp::update() {
 		return;
 	}
 
-	// ADD THIS CHECK to prevent other actions while dice are rolling
-	if (isWaitingForTimeVortexDice || isWaitingForMagicBoltRange) {
-		// Only update the dice animation, nothing else
-		// (Assuming your dice animation update is inside updateGame)
-		updateGame();
-		return;
-	}
-
 	// Check for any "waiting" state that should lock player input
 	if (isWaitingForTimeVortexDice || isWaitingForMagicBoltRange) {
 		updateGame();
@@ -1439,8 +1431,11 @@ void ofApp::updateGame() {
 		int baseDamage = pendingAttackRollResult;
 		Player & attacker = players[currentPlayerIndex];
 
+		// Preserve the card name for special-resolution effects (e.g., Shoot Arrow)
+		string resolvedAttackCardName = pendingAttackCardName;
+
 		// Double damage for Bash if Flurry of Fists is active
-		if (pendingAttackCardName == "Bash" && attacker.flurryOfFistsActive) {
+		if (resolvedAttackCardName == "Bash" && attacker.flurryOfFistsActive) {
 			baseDamage *= 2;
 		}
 		pendingAttackCardName = ""; // Clear
@@ -1588,6 +1583,60 @@ void ofApp::updateGame() {
 							target->tortoiseDamageTaken = 0;
 							target->discardPile.push_back(target->tortoiseFormCard);
 							spawnFloatingText(tPos + glm::vec3(0, 0.5f, 0), "Form Ended!", ofColor::darkGreen);
+						}
+					}
+
+					// --- SPECIAL RESOLUTION FOR SHOOT ARROW ---
+					if (resolvedAttackCardName == "Shoot Arrow") {
+						Player & attackerRef = players[currentPlayerIndex];
+						if (!attackerRef.deck.empty()) {
+							Card revealed = attackerRef.deck.back();
+							attackerRef.deck.pop_back();
+							attackerRef.discardPile.push_back(revealed);
+
+							// 1. Reveal Animation: Fly from Deck to Screen Center
+							StolenCardAnimation newAnim;
+							newAnim.card = revealed;
+							newAnim.startTime = ofGetElapsedTimef();
+							newAnim.startPos = gridToWorld(attackerRef.x, attackerRef.y);
+							newAnim.targetPos = { ofGetWidth() / 2.0f, ofGetHeight() / 2.0f };
+							newAnim.currentPos = cam.worldToScreen(newAnim.startPos);
+							activeStolenCardAnimations.push_back(newAnim);
+
+							// 2. Destroy Animation: Shrink/Fade at Screen Center (Starts later)
+							RemovedCardAnimation rem;
+							rem.card = revealed;
+							rem.startPos = newAnim.targetPos; // Center screen
+							rem.startTime = ofGetElapsedTimef() + 0.9f; // Start after fly arrival (~0.8s)
+							rem.currentScale = 3.0f; // Start big (revealed size)
+							rem.currentAlpha = 255;
+							activeRemovedCardAnimations.push_back(rem);
+
+							// 3. Conditional Effects
+							std::uniform_int_distribution<int> d6(1, 6);
+							int extra = d6(rng);
+
+							if (revealed.type == CARD_SHOCK) {
+								applyDamageTo(*target, extra, DAMAGE_ELECTRIC, currentPlayerIndex);
+								target->isParalyzed = true;
+								target->paralysisHeadsCount = 0;
+								spawnFloatingText(tPos + glm::vec3(0, 0.6f, 0), "-" + ofToString(extra) + " Electric", ofColor::orange);
+								spawnFloatingText(tPos + glm::vec3(0, 1.0f, 0), "PARALYZED!", ofColor::yellow);
+							} else if (revealed.type == CARD_FLAME_HIT) {
+								applyDamageTo(*target, extra, DAMAGE_FIRE, currentPlayerIndex);
+								target->onFire = true;
+								spawnFloatingText(tPos + glm::vec3(0, 0.6f, 0), "-" + ofToString(extra) + " Fire", ofColor::red);
+								spawnFloatingText(tPos + glm::vec3(0, 1.0f, 0), "ON FIRE!", ofColor::orange);
+							} else if (revealed.type == CARD_ADD_POISON) {
+								applyDamageTo(*target, extra, DAMAGE_POISON, currentPlayerIndex);
+								target->isPoisoned = true;
+								target->poisonReduction = 0;
+								spawnFloatingText(tPos + glm::vec3(0, 0.6f, 0), "-" + ofToString(extra) + " Poison", ofColor::green);
+								spawnFloatingText(tPos + glm::vec3(0, 1.0f, 0), "POISONED!", ofColor::green);
+							}
+						} else {
+							spawnFloatingText(gridToWorld(attackerRef.x, attackerRef.y), "Deck Empty", ofColor::gray);
+							ofLogNotice("ShootArrow") << "Attacker had no cards to reveal.";
 						}
 					}
 
@@ -2521,6 +2570,36 @@ void ofApp::updateGame() {
 				}
 			}
 		}
+	}
+
+	// --- SHOOT ARROW HIT RESOLUTION ---
+	if (isWaitingForShootArrow && activeDiceRolls.empty()) {
+		isWaitingForShootArrow = false;
+		Player & caster = players[currentPlayerIndex];
+		glm::vec2 casterTile = { (float)caster.x, (float)caster.y };
+
+		float maxDistUnits = pendingShootArrowHitResult / 5.0f;
+		float neededDistUnits = getFaceToFaceDistance(casterTile, pendingShootArrowTargetTile);
+
+		ofLogNotice("ShootArrow") << "Rolled Range: " << pendingShootArrowHitResult << "ft. Needed: " << (neededDistUnits * 5.0f) << "ft.";
+
+		if (maxDistUnits >= neededDistUnits - 0.01f) {
+			// Hit: start damage roll 1d6 piercing and queue attack resolution
+			pendingAttackRollResult = startDiceRoll(1, 6, PURPOSE_DAMAGE, "Shoot Arrow: Damage", currentPlayerIndex);
+			isWaitingForAttackDice = true;
+			pendingAttackDamageType = DAMAGE_PIERCING;
+			pendingAttackTargetIndices.clear();
+			pendingAttackTargetIndices.push_back(pendingShootArrowTargetIndex);
+			pendingAttackCardName = "Shoot Arrow";
+			ofLogNotice("ShootArrow") << "Hit confirmed. Rolling damage.";
+		} else {
+			// Miss: notify
+			spawnFloatingText(gridToWorld((int)pendingShootArrowTargetTile.x, (int)pendingShootArrowTargetTile.y), "Missed!", ofColor::gray);
+			ofLogNotice("ShootArrow") << "Shoot Arrow fell short.";
+		}
+
+		// Clear pending target
+		pendingShootArrowTargetIndex = -1;
 	}
 
 	// --- HELLHOUND SUMMON RESOLUTION ---
@@ -3659,12 +3738,22 @@ void ofApp::updateGame() {
 
 	for (auto & anim : activeRemovedCardAnimations) {
 		float elapsedTime = ofGetElapsedTimef() - anim.startTime;
-		if (elapsedTime < 0.5f) {
+
+		// Only update if start time has passed
+		if (elapsedTime >= 0.0f && elapsedTime < 0.5f) {
 			float t = elapsedTime / 0.5f;
-			anim.currentScale = ofLerp(1.6f, 0.1f, t);
+			anim.currentScale = ofLerp(1.6f, 0.1f, t); // Shrink
+			// If it came from Shoot Arrow (Scale 3.0), we might want to scale down from that
+			if (anim.currentScale > 1.6f) anim.currentScale = ofLerp(3.0f, 0.1f, t);
+
 			anim.currentAlpha = ofLerp(255, 0, t);
 		}
+		// Keep hidden if waiting for delay
+		if (elapsedTime < 0.0f) {
+			anim.currentAlpha = 0;
+		}
 	}
+	// Remove only if finished
 	activeRemovedCardAnimations.erase(std::remove_if(activeRemovedCardAnimations.begin(), activeRemovedCardAnimations.end(), [](const RemovedCardAnimation & anim) { return (ofGetElapsedTimef() - anim.startTime) >= 0.5f; }), activeRemovedCardAnimations.end());
 
 	// Card Hand Animation
@@ -9675,6 +9764,35 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		break;
 	}
 
+		// --- CASE: SHOOT ARROW ---
+	case CARD_SHOOT_ARROW: {
+		// Line-of-sight ranged attack (range = 2 * 20 = 40 ft). Choose target first (handled by click), then roll 1d6 piercing.
+		glm::vec2 casterTile = { (float)currentPlayer.x, (float)currentPlayer.y };
+		glm::vec2 targetTile = { (float)targetX, (float)targetY };
+		float maxRange = 2.0f * 20.0f; // 2d20 ft
+
+		TargetInfo validationResult = isLosTargetValid(casterTile, targetTile, maxRange, playedCard.type);
+		if (validationResult.reason != VALID) break;
+
+		// Must target a unit tile
+		int targetIndex = -1;
+		for (size_t i = 0; i < players.size(); i++) {
+			if (players[i].x == targetX && players[i].y == targetY) {
+				targetIndex = (int)i;
+				break;
+			}
+		}
+		if (targetIndex == -1) break;
+
+		// Start hit roll first (2d20) to determine if arrow reaches target
+		pendingShootArrowHitResult = startDiceRoll(2, 20, PURPOSE_RANGE, "Shoot Arrow: Range", currentPlayerIndex);
+		isWaitingForShootArrow = true;
+		pendingShootArrowTargetTile = targetTile;
+		pendingShootArrowTargetIndex = targetIndex;
+		playedSuccessfully = true;
+		break;
+	}
+
 	// --- CASE: MIND THEFT ---
 	case CARD_MIND_THEFT: {
 		int targetIndex = -1;
@@ -12242,7 +12360,7 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 				break;
 			}
 
-			// --- FIXED SPELL RANGES (Magic Blast, Fireball, Jolt, Death, Heal) ---
+				// --- FIXED SPELL RANGES (Magic Blast, Fireball, Jolt, Death, Heal) ---
 			case TARGET_LINE_OF_SIGHT_TILE: {
 				float maxRangeFeet;
 
@@ -12254,8 +12372,13 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 				else if (card.type == CARD_HEAL || card.type == CARD_DEATH || card.type == CARD_LESSER_HEAL || card.type == CARD_BURST_OF_LIGHT) {
 					maxRangeFeet = 9999.0f;
 				} else {
-					// Default: Max potential roll (e.g. 1d20 -> 20ft)
-					maxRangeFeet = (float)(card.numDice * card.diceSides);
+					// Special-case Shoot Arrow: fixed max range = 2 * 20 = 40 ft
+					if (card.type == CARD_SHOOT_ARROW) {
+						maxRangeFeet = 2.0f * 20.0f;
+					} else {
+						// Default: Max potential roll (e.g. 1d20 -> 20ft)
+						maxRangeFeet = (float)(card.numDice * card.diceSides);
+					}
 				}
 
 				TargetInfo info = isLosTargetValid(casterPos, targetPos, maxRangeFeet, card.type);
@@ -12329,6 +12452,14 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 				if (canBeClicked) {
 					isValidTarget = true;
 					isPreview = true;
+				}
+
+				// Shoot Arrow: only allow unit tiles (occupied) to be valid click targets
+				if (card.type == CARD_SHOOT_ARROW) {
+					if (!(isPreview && isOccupied)) {
+						// clear clickability if not an occupied preview tile
+						isValidTarget = false;
+					}
 				}
 				break;
 			}
@@ -14384,6 +14515,7 @@ CardType ofApp::stringToCardType(const std::string & str) {
 	if (str == "CARD_SPRINT") return CARD_SPRINT;
 	if (str == "CARD_SMITE") return CARD_SMITE;
 	if (str == "CARD_BURST_OF_LIGHT") return CARD_BURST_OF_LIGHT;
+	if (str == "CARD_SHOOT_ARROW") return CARD_SHOOT_ARROW;
 	if (str == "CARD_FULL_RESTORE") return CARD_FULL_RESTORE; //
 
 	return CARD_NONE;

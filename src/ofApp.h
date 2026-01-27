@@ -139,6 +139,7 @@ enum CardType {
 	CARD_SPRINT,
 	CARD_SMITE,
 	CARD_BURST_OF_LIGHT,
+	CARD_SHOOT_ARROW,
 	CARD_FULL_RESTORE
 };
 
@@ -900,6 +901,12 @@ private:
 	bool isTargetingMagicBolt = false;
 	int magicBoltCardIndex = -1;
 	glm::vec2 pendingMagicBoltTargetTile;
+
+	// Shoot Arrow State
+	bool isWaitingForShootArrow = false;
+	int pendingShootArrowHitResult = 0;
+	glm::vec2 pendingShootArrowTargetTile;
+	int pendingShootArrowTargetIndex = -1;
 
 	// --- Giant Magic Hand ---
 	bool isMagicHandMenuOpen = false;
