@@ -1726,14 +1726,51 @@ void ofApp::updateGame() {
 		}
 		pendingPoisonTargetIndices.clear();
 
-		// Immediate death cleanup after poison resolution to avoid index/turn desync
+		// --- Enhanced Death Cleanup: Faerie Resurrection Logic ---
 		std::vector<int> removePoisoned;
 		for (int i = 0; i < (int)players.size(); ++i) {
 			if (players[i].health <= 0) removePoisoned.push_back(i);
 		}
 		if (!removePoisoned.empty()) {
-			std::sort(removePoisoned.begin(), removePoisoned.end(), std::greater<int>());
+			// For each dying unit, check if adjacent to ANY faerie (even if the faerie is dying)
+			std::vector<int> finalRemove;
 			for (int idx : removePoisoned) {
+				bool resurrected = false;
+				int x = players[idx].x;
+				int y = players[idx].y;
+				// Only non-faerie units can be resurrected by faerie
+				// Only non-faerie units can be resurrected by faerie (no graveyard loot)
+				// Graveyard loot is only for Raise Dead, not faerie resurrection
+				if (!players[idx].isFaerie) {
+					for (int dx = -1; dx <= 1 && !resurrected; ++dx) {
+						for (int dy = -1; dy <= 1 && !resurrected; ++dy) {
+							if (dx == 0 && dy == 0) continue;
+							int nx = x + dx;
+							int ny = y + dy;
+							if (nx < 0 || nx >= BOARD_WIDTH || ny < 0 || ny >= BOARD_HEIGHT) continue;
+							for (int j = 0; j < (int)players.size(); ++j) {
+								if (players[j].isFaerie && players[j].x == nx && players[j].y == ny) {
+									int d4 = 1 + (rng() % 4); // 1d4 roll
+									float healF = players[idx].maxHealth * 0.25f * d4;
+									int heal = (int)healF;
+									if (heal > players[idx].maxHealth) heal = players[idx].maxHealth;
+									if (heal >= 1) {
+										players[idx].health = heal;
+										spawnFloatingText(gridToWorld(players[idx].x, players[idx].y), "Faerie Resurrection! +" + ofToString(heal) + " HP", ofColor::aqua);
+										resurrected = true;
+									}
+								}
+							}
+						}
+					}
+				}
+				if (!resurrected) {
+					finalRemove.push_back(idx);
+				}
+			}
+
+			std::sort(finalRemove.begin(), finalRemove.end(), std::greater<int>());
+			for (int idx : finalRemove) {
 				if (idx < 0 || idx >= (int)players.size()) continue;
 
 				DeathMarker death;
@@ -2147,6 +2184,8 @@ void ofApp::updateGame() {
 		std::shuffle(minion.deck.begin(), minion.deck.end(), rng);
 
 		// 3. Graveyard Interaction
+
+		// Prevent multiple resurrections from the same graveyard entry in the same turn
 		int gIndex = -1;
 		for (size_t i = 0; i < graveyard.size(); i++) {
 			if (graveyard[i].x == minion.x && graveyard[i].y == minion.y) {
@@ -2158,12 +2197,14 @@ void ofApp::updateGame() {
 		}
 
 		if (gIndex != -1) {
-			if (!graveyard[gIndex].deck.empty()) {
-				int r = (int)ofRandom(0, graveyard[gIndex].deck.size());
-				minion.deck.push_back(graveyard[gIndex].deck[r]);
+			// Copy deck before erasing to avoid issues if multiple minions are summoned in the same frame
+			std::vector<Card> graveDeck = graveyard[gIndex].deck;
+			graveyard.erase(graveyard.begin() + gIndex);
+			if (!graveDeck.empty()) {
+				int r = (int)ofRandom(0, graveDeck.size());
+				minion.deck.push_back(graveDeck[r]);
 				ofLogNotice("Raise Dead") << "Looted a card from the grave!";
 			}
-			graveyard.erase(graveyard.begin() + gIndex);
 		}
 
 		// 4. Add to Board
