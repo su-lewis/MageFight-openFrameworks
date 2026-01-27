@@ -487,6 +487,19 @@ private:
 	void cancelBurst();
 	void drawBurstUI();
 
+	// Standardized card-choice panel helper
+	void drawCardChoicePanel(const ofRectangle & panelRect,
+		const std::string & title,
+		const std::string & desc,
+		ofRectangle & primaryRect,
+		ofRectangle & secondaryRect,
+		const std::string & primaryLabel,
+		const std::string & secondaryLabel,
+		ofColor primaryAccent,
+		ofColor secondaryAccent,
+		bool primaryEnabled = true,
+		bool secondaryEnabled = true);
+
 	// General damage application helper (used by multiple flows)
 	bool applyDamageTo(Player & target, int damage, DamageType type, int attackerIndex = -1);
 	void cancelWisdomBoon();

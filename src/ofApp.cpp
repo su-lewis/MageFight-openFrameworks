@@ -12942,46 +12942,10 @@ void ofApp::drawDispelUI() {
 		ofSetColor(0, 0, 0, 180);
 		ofDrawRectangle(0, 0, ofGetWidth(), ofGetHeight());
 
-		// 2. Menu Background (Matching Double Handed Theme)
-		ofSetColor(50, 50, 50, 255);
-		ofDrawRectRounded(dispelMenuRect, 15);
-
-		// 3. Title
-		ofSetColor(ofColor::white);
-		string title = "Choose Dispel Effect";
-		ofRectangle titleBox = uiFont.getStringBoundingBox(title, 0, 0);
-		uiFont.drawString(title, dispelMenuRect.getCenter().x - titleBox.width / 2, dispelMenuRect.y + 60);
-
-		// 4. Barrier Button (Hot Pink)
-		ofSetColor(ofColor::hotPink);
-		ofDrawRectRounded(dispelBtnBarrier, 10);
-
-		// Barrier Text (Centered)
-		ofSetColor(ofColor::white); // White text looks cleaner on pink
-		string bText = "Non-Phys Barrier";
-		string bSubText = "(1d20 vs Magic/Fire)";
-
-		ofRectangle bBox = uiFont.getStringBoundingBox(bText, 0, 0);
-		uiFont.drawString(bText, dispelBtnBarrier.getCenter().x - bBox.width / 2, dispelBtnBarrier.getCenter().y - 5);
-
-		// Barrier Subtext (Smaller/Lower)
-		float smallScale = 0.8f;
-		ofRectangle bSubBox = uiFont.getStringBoundingBox(bSubText, 0, 0);
-		ofPushMatrix();
-		ofTranslate(dispelBtnBarrier.getCenter().x - (bSubBox.width * smallScale) / 2, dispelBtnBarrier.getCenter().y + 20);
-		ofScale(smallScale, smallScale);
-		uiFont.drawString(bSubText, 0, 0);
-		ofPopMatrix();
-
-		// 5. Purge Button (Cyan)
-		ofSetColor(ofColor::cyan);
-		ofDrawRectRounded(dispelBtnPurge, 10);
-
-		// Purge Text (Centered)
-		ofSetColor(ofColor::black); // Black text looks better on bright Cyan
-		string pText = "Remove Status";
-		ofRectangle pBox = uiFont.getStringBoundingBox(pText, 0, 0);
-		uiFont.drawString(pText, dispelBtnPurge.getCenter().x - pBox.width / 2, dispelBtnPurge.getCenter().y + pBox.height / 2 - 3); // -3 for visual alignment
+		// Use standardized panel helper (Barrier = hotPink, Purge = cyan)
+		drawCardChoicePanel(dispelMenuRect, "Choose Dispel Effect", "(1d20 vs Magic/Fire)",
+			dispelBtnBarrier, dispelBtnPurge, "Non-Phys Barrier", "Remove Status",
+			ofColor::hotPink, ofColor::cyan, true, true);
 	}
 
 	// --- PHASE 2: TARGETING (Top Prompt) ---
@@ -13455,7 +13419,12 @@ void ofApp::determineStatusOptions(Player * target) {
 	// Add future statuses here
 
 	if (statusSelectLabels.empty()) {
-		ofSystemAlertDialog("Target has no status effects!");
+		// Use in-game floating text instead of a system dialog (preserves fullscreen)
+		if (target) {
+			spawnFloatingText(gridToWorld(target->x, target->y), "Target has no status effects!", ofColor::yellow);
+		} else {
+			spawnFloatingText(glm::vec3(ofGetWidth()/2, ofGetHeight()/2, 0), "Target has no status effects!", ofColor::yellow);
+		}
 		cancelDispel();
 		return;
 	}
@@ -13534,8 +13503,6 @@ void ofApp::drawWisdomBoonUI() {
 	ofDrawRectangle(0, 0, ofGetWidth(), ofGetHeight());
 
 	// 2. Menu Background
-	ofSetColor(40, 40, 80, 255);
-	ofDrawRectRounded(wisdomMenuRect, 15);
 
 	// 3. Determine Context
 	bool isSelfTarget = (pendingWisdomBoonTargetIndex == currentPlayerIndex);
@@ -13543,33 +13510,18 @@ void ofApp::drawWisdomBoonUI() {
 	if (currentPlayerIndex >= 0) deckSize = players[currentPlayerIndex].deck.size();
 
 	// 4. Title & Description
-	ofSetColor(ofColor::white);
 	string title = "Wisdom Boon";
 	string desc = "Effect Strength: " + ofToString(deckSize) + " (Your Deck Size)";
 
-	ofRectangle titleBox = uiFont.getStringBoundingBox(title, 0, 0);
-	uiFont.drawString(title, wisdomMenuRect.getCenter().x - titleBox.width / 2, wisdomMenuRect.y + 50);
+	// Choose accent colors: block = slateGray, magic = lighter purple
+	ofColor magicAccent(180, 140, 230);
+	ofColor blockAccent(120, 120, 120);
 
-	ofRectangle descBox = uiFont.getStringBoundingBox(desc, 0, 0);
-	uiFont.drawString(desc, wisdomMenuRect.getCenter().x - descBox.width / 2, wisdomMenuRect.y + 90);
-
-	// 5. Draw Context-Sensitive Button
-	string btnText = "";
 	if (isSelfTarget) {
-		// BLOCK MODE
-		ofSetColor(ofColor::slateGray); // Grey for Block
-		btnText = "Gain Block";
+		drawCardChoicePanel(wisdomMenuRect, title, desc, wisdomBtnDamage, wisdomBtnBlock, "Gain Block", "", blockAccent, blockAccent, true, false);
 	} else {
-		// DAMAGE MODE
-		ofSetColor(ofColor::purple); // Purple for Magic
-		btnText = "Deal Magic Dmg";
+		drawCardChoicePanel(wisdomMenuRect, title, desc, wisdomBtnDamage, wisdomBtnBlock, "Deal Magic Dmg", "", magicAccent, magicAccent, true, false);
 	}
-
-	ofDrawRectRounded(wisdomBtnDamage, 10);
-
-	ofSetColor(ofColor::white);
-	ofRectangle btnBox = uiFont.getStringBoundingBox(btnText, 0, 0);
-	uiFont.drawString(btnText, wisdomBtnDamage.getCenter().x - btnBox.width / 2, wisdomBtnDamage.getCenter().y + btnBox.height / 2);
 }
 //--------------------------------------------------------------
 void ofApp::drawBurstUI() {
@@ -13577,16 +13529,14 @@ void ofApp::drawBurstUI() {
 	ofSetColor(0, 0, 0, 180);
 	ofDrawRectangle(0, 0, ofGetWidth(), ofGetHeight());
 
-	ofSetColor(40, 40, 80, 255);
-	ofDrawRectRounded(burstMenuRect, 12);
-
-	ofSetColor(ofColor::white);
 	string title = "Burst of Light";
 	string desc = "Choose an effect:";
-	ofRectangle titleBox = uiFont.getStringBoundingBox(title, 0, 0);
-	uiFont.drawString(title, burstMenuRect.getCenter().x - titleBox.width / 2, burstMenuRect.y + 50);
-	ofRectangle descBox = uiFont.getStringBoundingBox(desc, 0, 0);
-	uiFont.drawString(desc, burstMenuRect.getCenter().x - descBox.width / 2, burstMenuRect.y + 90);
+
+	// Accent colors: holy = yellow, heal = light green
+	ofColor holyAccent(255, 213, 79); // golden yellow
+	ofColor healAccent(144, 238, 144); // light green
+
+	ofRectangle panelRect = burstMenuRect;
 
 	// --- CHECK FOR VALID ENEMIES ---
 	bool hasValidEnemy = false;
@@ -13608,30 +13558,10 @@ void ofApp::drawBurstUI() {
 		}
 	}
 
-	// --- DRAW DAMAGE BUTTON ---
-	if (hasValidEnemy) {
-		ofSetColor(ofColor::orange); // Active Color
-	} else {
-		ofSetColor(100, 100, 100); // Disabled Color (Gray)
-	}
-	ofDrawRectRounded(burstBtnDamage, 10);
-
-	ofSetColor(ofColor::white);
-	string dmgText = hasValidEnemy ? "Deal 3 Holy" : "No Enemy in Sight";
-	ofRectangle dBox = uiFont.getStringBoundingBox(dmgText, 0, 0);
-	uiFont.drawString(dmgText, burstBtnDamage.getCenter().x - dBox.width / 2, burstBtnDamage.getCenter().y + dBox.height / 2);
-
-	// --- DRAW HEAL BUTTON (Always available, can target self) ---
-	float btnW = 300, btnH = 80;
-	float spacing = 20;
-	burstBtnHeal.set(burstMenuRect.getCenter().x - btnW / 2, burstBtnDamage.y + btnH + spacing, btnW, btnH);
-
-	ofSetColor(ofColor::green);
-	ofDrawRectRounded(burstBtnHeal, 10);
-	string healText = "Heal 3 HP";
-	ofSetColor(ofColor::white);
-	ofRectangle hBox = uiFont.getStringBoundingBox(healText, 0, 0);
-	uiFont.drawString(healText, burstBtnHeal.getCenter().x - hBox.width / 2, burstBtnHeal.getCenter().y + hBox.height / 2);
+	// Use standardized helper to draw primary (Deal 3 Holy) and secondary (Heal 3 HP).
+	drawCardChoicePanel(panelRect, title, desc, burstBtnDamage, burstBtnHeal,
+		hasValidEnemy ? "Deal 3 Holy" : "No Enemy in Sight", "Heal 3 HP",
+		holyAccent, healAccent, hasValidEnemy, true);
 }
 
 // Helper: member equivalent of the local applyDamage lambda used in playCard
@@ -13850,46 +13780,84 @@ void ofApp::drawMagicBlastChoiceUI() {
 	float panelX = ofGetWidth() / 2.0f - panelWidth / 2.0f;
 	float panelY = ofGetHeight() / 2.0f - panelHeight / 2.0f;
 
-	// Draw the panel background
-	ofSetColor(30, 30, 40, 240);
-	ofDrawRectRounded(panelX, panelY, panelWidth, panelHeight, 15);
+	ofRectangle panelRect(panelX, panelY, panelWidth, panelHeight);
 
-	// Draw the title/prompt
-	ofSetColor(ofColor::white);
+	// Title/desc strings
 	string prompt = "Player " + ofToString(targetPlayer->playerID) + ", choose an effect:";
 	string choicesLeft = "Choices remaining: " + ofToString(magicBlastChoicesRemaining);
 
-	ofRectangle promptBox = uiFont.getStringBoundingBox(prompt, 0, 0);
-	uiFont.drawString(prompt, panelX + panelWidth / 2 - promptBox.getWidth() / 2, panelY + 60);
+	// Use standardized panel helper (Damage = red, Discard = slate blue)
+	drawCardChoicePanel(panelRect, prompt, choicesLeft, magicBlastDamageButton, magicBlastDiscardButton,
+		"Take 5 Damage", "Remove Top Card of Deck", ofColor::indianRed, ofColor::darkSlateBlue, true, true);
+}
 
-	ofRectangle choicesBox = uiFont.getStringBoundingBox(choicesLeft, 0, 0);
-	uiFont.drawString(choicesLeft, panelX + panelWidth / 2 - choicesBox.getWidth() / 2, panelY + 100);
+//------------------------------------------------------------------------
+// Standardized card-choice panel helper
+// Draws a panel and one or two buttons with consistent styling.
+void ofApp::drawCardChoicePanel(const ofRectangle & panelRect,
+	const std::string & title,
+	const std::string & desc,
+	ofRectangle & primaryRect,
+	ofRectangle & secondaryRect,
+	const std::string & primaryLabel,
+	const std::string & secondaryLabel,
+	ofColor primaryAccent,
+	ofColor secondaryAccent,
+	bool primaryEnabled,
+	bool secondaryEnabled) {
+	float pad = 24;
+	float titleY = panelRect.y + 48;
+	float descY = panelRect.y + 88;
+	float btnH = 80;
+	float spacing = 24;
+	// Compute button layout: if no secondary label, center primary
+	if (secondaryLabel.empty()) {
+		float btnW = std::min(420.0f, panelRect.width - pad * 2);
+		primaryRect.set(panelRect.getCenter().x - btnW / 2, panelRect.y + panelRect.getHeight() - pad - btnH, btnW, btnH);
+	} else {
+		float availableW = panelRect.width - pad * 2 - spacing;
+		float btnW = std::min(420.0f, availableW / 2.0f);
+		primaryRect.set(panelRect.x + pad, panelRect.y + panelRect.getHeight() - pad - btnH, btnW, btnH);
+		secondaryRect.set(panelRect.x + pad + btnW + spacing, panelRect.y + panelRect.getHeight() - pad - btnH, btnW, btnH);
+	}
 
-	// Button properties
-	float btnWidth = 350;
-	float btnHeight = 100;
-	float btnY = panelY + panelHeight - btnHeight - 40;
-	float btnSpacing = 20;
+	// Panel background (caller is expected to draw overlay if desired)
+	ofSetColor(30, 30, 40, 240);
+	ofDrawRectRounded(panelRect, 12);
 
-	// Define button rects for mouse interaction
-	magicBlastDamageButton.set(panelX + panelWidth / 2.0f - btnWidth - btnSpacing / 2.0f, btnY, btnWidth, btnHeight);
-	magicBlastDiscardButton.set(panelX + panelWidth / 2.0f + btnSpacing / 2.0f, btnY, btnWidth, btnHeight);
-
-	// Draw Damage Button
-	ofSetColor(ofColor::indianRed);
-	ofDrawRectRounded(magicBlastDamageButton, 10);
+	// Title
 	ofSetColor(ofColor::white);
-	string damageText = "Take 5 Damage";
-	ofRectangle damageTextBox = uiFont.getStringBoundingBox(damageText, 0, 0);
-	uiFont.drawString(damageText, magicBlastDamageButton.getCenter().x - damageTextBox.getWidth() / 2, magicBlastDamageButton.getCenter().y + damageTextBox.getHeight() / 2);
+	ofRectangle titleBox = uiFont.getStringBoundingBox(title, 0, 0);
+	uiFont.drawString(title, panelRect.getCenter().x - titleBox.getWidth() / 2, titleY);
 
-	// Draw Discard Button
-	ofSetColor(ofColor::darkSlateBlue);
-	ofDrawRectRounded(magicBlastDiscardButton, 10);
-	ofSetColor(ofColor::white);
-	string discardText = "Remove Top Card of Deck";
-	ofRectangle discardTextBox = uiFont.getStringBoundingBox(discardText, 0, 0);
-	uiFont.drawString(discardText, magicBlastDiscardButton.getCenter().x - discardTextBox.getWidth() / 2, magicBlastDiscardButton.getCenter().y + discardTextBox.getHeight() / 2);
+	// Description
+	if (!desc.empty()) {
+		ofSetColor(ofColor::white);
+		ofRectangle descBox = uiFont.getStringBoundingBox(desc, 0, 0);
+		uiFont.drawString(desc, panelRect.getCenter().x - descBox.getWidth() / 2, descY);
+	}
+
+	// Primary Button
+	if (primaryEnabled)
+		ofSetColor(primaryAccent);
+	else
+		ofSetColor(90, 90, 90);
+	ofDrawRectRounded(primaryRect, 10);
+	ofSetColor((primaryEnabled && primaryAccent.getBrightness() > 200) ? ofColor::black : ofColor::white);
+	ofRectangle pBox = uiFont.getStringBoundingBox(primaryLabel, 0, 0);
+	uiFont.drawString(primaryLabel, primaryRect.getCenter().x - pBox.getWidth() / 2, primaryRect.getCenter().y + pBox.getHeight() / 2);
+
+	// Secondary Button (if any)
+	if (!secondaryLabel.empty()) {
+		if (secondaryEnabled)
+			ofSetColor(secondaryAccent);
+		else
+			ofSetColor(90, 90, 90);
+		ofDrawRectRounded(secondaryRect, 10);
+		ofSetColor((secondaryEnabled && secondaryAccent.getBrightness() > 200) ? ofColor::black : ofColor::white);
+		ofRectangle sBox = uiFont.getStringBoundingBox(secondaryLabel, 0, 0);
+		uiFont.drawString(secondaryLabel, secondaryRect.getCenter().x - sBox.getWidth() / 2, secondaryRect.getCenter().y + sBox.getHeight() / 2);
+	}
 }
 //--------------------------------------------------------------
 // --- NEW HELPER: Converts a specific point in world space back to grid coordinates ---
