@@ -539,5 +539,12 @@
     "targeting": "TARGET_LINE_OF_SIGHT_TILE",
     "numDice": 2,
     "diceSides": 20
+  },
+  {
+    "id": 70,
+    "name": "Summon Faerie",
+    "type": "CARD_SUMMON_FAERIE",
+    "cost": 4,
+    "targeting": "TARGET_EMPTY_ADJACENT"
   }
 ]

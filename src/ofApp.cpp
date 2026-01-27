@@ -57,6 +57,7 @@ void drawStatText(ofTrueTypeFont & font, string text, float x, float y, float w,
 }
 //--------------------------------------------------------------
 void ofApp::setup() {
+
 	ofSetEscapeQuitsApp(false);
 	ofSetVerticalSync(true);
 	ofSetBackgroundColor(22);
@@ -248,6 +249,22 @@ void ofApp::setup() {
 		ofLogNotice("Setup") << "Assistant model loaded.";
 	} else {
 		ofLogError("Setup") << "Failed to load Assistant model.";
+	}
+
+	// --- Load Faerie ---
+	if (faerieModel.load("Units/Faerie/Highly_detailed_3D_mo_1031064951_texture.glb")) {
+		faerieModel.disableMaterials();
+		faerieModel.setScale(0.0032f, 0.0032f, 0.0032f); // Adjust as needed for tile fit
+		faerieModel.setRotation(0, 180, 0, 0, 1);
+		if (ofLoadImage(faerieTexture, "Units/Faerie/gltf_embedded_0.jpeg")) {
+			faerieTexture.setTextureMinMagFilter(GL_LINEAR, GL_LINEAR);
+			ofLogNotice("Setup") << "Faerie texture loaded.";
+		} else {
+			ofLogError("Setup") << "Failed to load Units/Faerie/gltf_embedded_0.jpeg for faerie.";
+		}
+		ofLogNotice("Setup") << "Faerie model loaded.";
+	} else {
+		ofLogError("Setup") << "Failed to load Faerie model.";
 	}
 
 	// --- 3. BOARD & SKYBOX ---
@@ -746,9 +763,11 @@ std::string ofApp::getPlayerDisplayName(int index) {
 
 	// Minions: try to pick a species prefix
 	std::string prefix = "Minion";
-	if (p->isWallUnit)
+	if (p->isFaerie)
+		prefix = "Faerie";
+	else if (p->isWallUnit)
 		prefix = "Wall";
-	if (p->isKobold)
+	else if (p->isKobold)
 		prefix = "Kobold";
 	else if (p->isAssistant)
 		prefix = "Assistant";
@@ -769,7 +788,7 @@ std::string ofApp::getPlayerDisplayName(int index) {
 		if (i == index) break;
 		Player & other = players[i];
 		if (!other.isMinion) continue;
-		if ((prefix == "Kobold" && other.isKobold) || (prefix == "Wolf" && other.isWolf) || (prefix == "Hellhound" && other.isHellhound) || (prefix == "Golem" && other.isGolem) || (prefix == "Skeleton" && other.isSkeleton) || (prefix == "Demon" && other.isDemon) || (prefix == "Wall" && other.isWallUnit)) {
+		if ((prefix == "Faerie" && other.isFaerie) || (prefix == "Kobold" && other.isKobold) || (prefix == "Wolf" && other.isWolf) || (prefix == "Hellhound" && other.isHellhound) || (prefix == "Golem" && other.isGolem) || (prefix == "Skeleton" && other.isSkeleton) || (prefix == "Demon" && other.isDemon) || (prefix == "Wall" && other.isWallUnit)) {
 			if (other.ownerID == p->ownerID) ord++;
 		}
 	}
@@ -1271,7 +1290,7 @@ void ofApp::updateGame() {
 		}
 
 		// 3. HELPER LAMBDA TO BUILD UI LIST (now takes top/bottom limits)
-		auto buildMinionList = [&](const std::vector<int> & indices, float startX, float topLimit, float bottomLimit, int & skelCount, int & golemCount, int & wolfCount, int & houndCount, int & demonCount, int & koboldCount, int & assistantCount, int & wallCount) {
+		auto buildMinionList = [&](const std::vector<int> & indices, float startX, float topLimit, float bottomLimit, int & skelCount, int & golemCount, int & wolfCount, int & houndCount, int & demonCount, int & koboldCount, int & assistantCount, int & wallCount, int & faerieCount) {
 			// A. Calculate Dynamic Scaling
 			float localAvailableHeight = bottomLimit - topLimit;
 			float totalRequiredHeight = indices.size() * (standardEntryHeight + gap);
@@ -1309,6 +1328,8 @@ void ofApp::updateGame() {
 					ui.displayNumber = ++koboldCount;
 				else if (players[pIndex].isWallUnit)
 					ui.displayNumber = ++wallCount;
+				else if (players[pIndex].isFaerie)
+					ui.displayNumber = ++faerieCount;
 
 				float currentY = topLimit + (i * (actualEntryHeight + actualGap));
 
@@ -1320,11 +1341,13 @@ void ofApp::updateGame() {
 		// 4. BUILD LISTS WITH PLAYER-SPECIFIC BOUNDARIES
 		float p0_startX = 10 * scale;
 		int p0_assistant = 0;
-		buildMinionList(p0_minionIndices, p0_startX, p0_topLimitY, p0_bottomLimitY, p0_skeleton, p0_golem, p0_wolf, p0_hound, p0_demon, p0_kobold, p0_assistant, p0_wall);
+		int p0_faerie = 0;
+		buildMinionList(p0_minionIndices, p0_startX, p0_topLimitY, p0_bottomLimitY, p0_skeleton, p0_golem, p0_wolf, p0_hound, p0_demon, p0_kobold, p0_assistant, p0_wall, p0_faerie);
 
 		float p1_startX = ofGetWidth() - panelWidth - (10 * scale);
 		int p1_assistant = 0;
-		buildMinionList(p1_minionIndices, p1_startX, p1_topLimitY, p1_bottomLimitY, p1_skeleton, p1_golem, p1_wolf, p1_hound, p1_demon, p1_kobold, p1_assistant, p1_wall);
+		int p1_faerie = 0;
+		buildMinionList(p1_minionIndices, p1_startX, p1_topLimitY, p1_bottomLimitY, p1_skeleton, p1_golem, p1_wolf, p1_hound, p1_demon, p1_kobold, p1_assistant, p1_wall, p1_faerie);
 	}
 	// --- END MINION UI REBUILD ---
 
@@ -1603,11 +1626,11 @@ void ofApp::updateGame() {
 							newAnim.currentPos = cam.worldToScreen(newAnim.startPos);
 							activeStolenCardAnimations.push_back(newAnim);
 
-							// 2. Destroy Animation: Shrink/Fade at Screen Center (Starts later)
+							// 2. Destroy Animation: Shrink/Fade at Screen Center (Starts sooner)
 							RemovedCardAnimation rem;
 							rem.card = revealed;
 							rem.startPos = newAnim.targetPos; // Center screen
-							rem.startTime = ofGetElapsedTimef() + 0.9f; // Start after fly arrival (~0.8s)
+							rem.startTime = ofGetElapsedTimef() + 0.5f; // Start after fly arrival (shorter delay)
 							rem.currentScale = 3.0f; // Start big (revealed size)
 							rem.currentAlpha = 255;
 							activeRemovedCardAnimations.push_back(rem);
@@ -3839,6 +3862,68 @@ void ofApp::updateGame() {
 	for (int i = 0; i < (int)players.size(); ++i) {
 		bool noCards = players[i].deck.empty() && players[i].discardPile.empty() && players[i].hand.empty();
 		if (players[i].health <= 0 || noCards) {
+			// --- Faerie Resurrection Mechanic ---
+			Player & dying = players[i];
+			if (!dying.isFaerie && dying.x >= 0 && dying.y >= 0) {
+				// Check for adjacent faerie
+				bool resurrected = false;
+				for (int dx = -1; dx <= 1 && !resurrected; ++dx) {
+					for (int dy = -1; dy <= 1 && !resurrected; ++dy) {
+						if ((dx != 0 || dy != 0) && abs(dx) + abs(dy) == 1) { // orthogonal only
+							int nx = dying.x + dx, ny = dying.y + dy;
+							if (nx >= 0 && nx < BOARD_WIDTH && ny >= 0 && ny < BOARD_HEIGHT) {
+								for (auto & p : players) {
+									if (p.isFaerie && p.x == nx && p.y == ny && p.health > 0) {
+										// Roll 1d4, resurrect at 25% * roll * maxHealth
+										int roll = (int)ofRandom(1, 5); // 1-4
+										int hp = (int)std::floor(dying.maxHealth * 0.25f * roll);
+										if (hp < 1) hp = 1;
+										dying.health = hp;
+										dying.onFire = false;
+										dying.isPoisoned = false;
+										dying.poisonReduction = 0;
+										dying.isParalyzed = false;
+										dying.paralysisHeadsCount = 0;
+										dying.sleepTurnsRemaining = 0;
+										dying.ward = 0;
+										dying.block = 0;
+										dying.fortification = 0;
+										dying.barrier = 0;
+										dying.holyBlock = 0;
+										dying.luck = 0;
+										dying.isReplicatePending = false;
+										dying.nextTurnAPBonus = 0;
+										dying.shocksPlayedThisTurn = 0;
+										dying.flurryOfFistsActive = false;
+										dying.isParalyzed = false;
+										dying.isPoisoned = false;
+										dying.poisonReduction = 0;
+										dying.nextAttackAddPoison = false;
+										dying.nextTurnD10AP = false;
+										dying.nextTurnExtraDraw = false;
+										dying.nextTurnBonusDiceFromMinions = false;
+										dying.strengthenElementsTurnsRemaining = 0;
+										dying.sleepTurnsRemaining = 0;
+										dying.inTortoiseForm = false;
+										dying.tortoiseDamageTaken = 0;
+										dying.pendingTortoiseDamage = false;
+										dying.pendingTortoiseDamageValue = 3;
+										dying.inGhostForm = false;
+										dying.ghostDamageTaken = 0;
+										dying.cardsPlayedThisTurn.clear();
+										dying.playedCardsPile.clear();
+										dying.summonedOnTurnCycle = globalTurnCounter;
+										spawnFloatingText(gridToWorld(dying.x, dying.y), "Faerie Resurrection!", ofColor::aqua);
+										ofLogNotice("Faerie") << "Unit " << dying.playerID << " resurrected by faerie at " << nx << "," << ny << " for " << hp << " HP.";
+										resurrected = true;
+									}
+								}
+							}
+						}
+					}
+				}
+				if (resurrected) continue; // skip normal death logic
+			}
 			removeIndices.push_back(i);
 		}
 	}
@@ -4458,6 +4543,16 @@ void ofApp::drawGame() {
 					if (texBound) {
 						koboldKingTexture.unbind();
 					}
+				}
+				// --- FAERIE ---
+				else if (player.isFaerie) {
+					ofTranslate(pos.x, 0.1f, pos.z);
+					ofRotateYDeg(unitFacingAngle);
+					// Model is already rotated in setup
+					ofTranslate(0, 1.0f, 0); // Adjust vertical offset as needed
+					if (faerieTexture.isAllocated()) faerieTexture.bind();
+					faerieModel.drawFaces();
+					if (faerieTexture.isAllocated()) faerieTexture.unbind();
 				}
 				// --- WALL UNIT ---
 				else if (player.isWallUnit) {
@@ -9548,6 +9643,12 @@ void ofApp::continueNewTurn() {
 		lastAPDiceSides = 2;
 		startDiceRoll(1, 2, PURPOSE_AP, "Assistant AP (Coin)", currentPlayerIndex);
 	}
+	// Faerie AP: 1d4
+	else if (startingPlayer.isFaerie) {
+		lastAPDiceNum = 1;
+		lastAPDiceSides = 4;
+		startDiceRoll(1, 4, PURPOSE_AP, "Faerie AP Roll", currentPlayerIndex);
+	}
 	// Skeleton / generic minion AP: 1d6
 	else if (startingPlayer.isMinion) {
 		// Use the minion's display name (eg. "Golem 1") in the roll description
@@ -10234,7 +10335,7 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		break;
 	}
 
-		// --- CASE: SUMMON ASSISTANT ---
+	// --- CASE: SUMMON ASSISTANT ---
 	case CARD_SUMMON_ASSISTANT: {
 		if (board[targetX][targetY].hasWall || board[targetX][targetY].hasPlayer) break;
 
@@ -10287,6 +10388,87 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		players.push_back(minion);
 
 		ofLogNotice("Summon") << "Assistant summoned.";
+
+		// Sort & Restore Index
+		std::sort(players.begin(), players.end(), [](const Player & a, const Player & b) {
+			int ownerA = a.isMinion ? a.ownerID : a.playerID;
+			int ownerB = b.isMinion ? b.ownerID : b.playerID;
+			if (ownerA != ownerB) return ownerA < ownerB;
+			if (a.isMinion && !b.isMinion) return true;
+			if (!a.isMinion && b.isMinion) return false;
+			return a.summonOrder < b.summonOrder;
+		});
+		for (size_t i = 0; i < players.size(); i++) {
+			if (players[i].playerID == myID) {
+				currentPlayerIndex = i;
+				break;
+			}
+		}
+
+		playedSuccessfully = false;
+		break;
+	}
+
+	// --- CASE: SUMMON FAERIE ---
+	case CARD_SUMMON_FAERIE: {
+		if (board[targetX][targetY].hasWall || board[targetX][targetY].hasPlayer) break;
+
+		// 1. Create Faerie Unit
+		Player minion;
+		minion.playerID = 6000 + (int)players.size();
+		minion.x = targetX;
+		minion.y = targetY;
+		minion.maxHealth = 5;
+		minion.health = 5;
+		minion.isMinion = true;
+		minion.isFaerie = true;
+		minion.hasRegeneration = true;
+		minion.originalModelType = "Faerie";
+
+		// Faerie AP: 1d4 per turn (handled in AP logic)
+
+		// 2. Link to Summoner
+		minion.directSummonerID = currentPlayer.playerID;
+		minion.ownerID = currentPlayer.isMinion ? currentPlayer.ownerID : currentPlayer.playerID;
+		minion.summonedOnTurnCycle = currentPlayer.isMinion ? globalTurnCounter : -1;
+		minion.summonOrder = ++nextSummonOrder;
+
+		// 3. Deck: 2x Dispel, 2x Lesser Heal, 1x Magic Blast
+		auto findCard = [&](string name, CardType type) -> Card {
+			for (const auto & c : allCards) {
+				if (c.type == type && c.name == name) return c;
+			}
+			for (const auto & c : allCards) {
+				if (c.type == type) return c;
+			}
+			for (const auto & c : allCards) {
+				if (c.name == name) return c;
+			}
+			return Card();
+		};
+		Card dispel = findCard("Dispel", CARD_DISPEL);
+		Card lesserHeal = findCard("Lesser Heal", CARD_LESSER_HEAL);
+		Card magicBlast = findCard("Magic Blast", CARD_MAGIC_BLAST);
+		minion.deck = { dispel, dispel, lesserHeal, lesserHeal, magicBlast };
+		std::shuffle(minion.deck.begin(), minion.deck.end(), rng);
+
+		// 4. Cleanup & Add
+		int myID = currentPlayer.playerID;
+		currentAP -= costToPay;
+		currentPlayer.playedCardsPile.push_back(playedCard);
+		if (currentPlayer.isReplicatePending) {
+			currentPlayer.playedCardsPile.push_back(playedCard);
+			currentPlayer.isReplicatePending = false;
+		}
+		currentPlayer.cardsPlayedThisTurn.push_back(playedCard.type);
+		currentPlayer.hand.erase(currentPlayer.hand.begin() + cardIndex);
+		activeCardDisplays.push_back({ playedCard, ofGetElapsedTimef() });
+		invalidateTargetCache();
+
+		board[targetX][targetY].hasPlayer = true;
+		players.push_back(minion);
+
+		ofLogNotice("Summon") << "Faerie summoned.";
 
 		// Sort & Restore Index
 		std::sort(players.begin(), players.end(), [](const Player & a, const Player & b) {
@@ -12280,7 +12462,7 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 					}
 					// 3. Standard Summoning / Creation (Must be empty)
 					// ADD CARD_SUMMON_KOBOLD_KING TO THIS LIST:
-					else if (card.type == CARD_CALL_FOR_WOLVES || card.type == CARD_SUMMON_GOLEM || card.type == CARD_RAISE_DEAD || card.type == CARD_CREATE_WALL || card.type == CARD_SUMMON_HELLHOUND || card.type == CARD_SUMMON_DEMON || card.type == CARD_SUMMON_KOBOLD_KING || card.type == CARD_SUMMON_ASSISTANT) // <--- Add this
+					else if (card.type == CARD_CALL_FOR_WOLVES || card.type == CARD_SUMMON_GOLEM || card.type == CARD_RAISE_DEAD || card.type == CARD_CREATE_WALL || card.type == CARD_SUMMON_HELLHOUND || card.type == CARD_SUMMON_DEMON || card.type == CARD_SUMMON_KOBOLD_KING || card.type == CARD_SUMMON_ASSISTANT || card.type == CARD_SUMMON_FAERIE) // <--- Add this
 					{
 						if (!board[x][y].hasWall && !board[x][y].hasPlayer) isValidTarget = true;
 					}
@@ -14511,6 +14693,7 @@ CardType ofApp::stringToCardType(const std::string & str) {
 	if (str == "CARD_TRANSFORM_WALL") return CARD_TRANSFORM_WALL;
 	if (str == "CARD_SUMMON_KOBOLD_KING") return CARD_SUMMON_KOBOLD_KING; // Add
 	if (str == "CARD_SUMMON_ASSISTANT") return CARD_SUMMON_ASSISTANT;
+	if (str == "CARD_SUMMON_FAERIE") return CARD_SUMMON_FAERIE;
 	if (str == "CARD_FOUR_LEAF_CLOVER") return CARD_FOUR_LEAF_CLOVER;
 	if (str == "CARD_SPRINT") return CARD_SPRINT;
 	if (str == "CARD_SMITE") return CARD_SMITE;
@@ -14759,7 +14942,6 @@ void ofApp::drawMinionManagerUI() {
 			ofRotateYDeg(180 + ofGetElapsedTimef() * 30);
 			demonModel.drawFaces();
 		}
-		// --- SKELETON PREVIEW ---
 		// --- WALL PREVIEW ---
 		else if (minion.isWallUnit) {
 			ofTranslate(modelFbo.getWidth() / 2, modelFbo.getHeight() / 2 + 10);
@@ -14795,7 +14977,18 @@ void ofApp::drawMinionManagerUI() {
 			ofRotateYDeg(180 + ofGetElapsedTimef() * 30);
 			assistantModel.drawFaces();
 		}
-		// --- SKELETON PREVIEW ---
+		// --- FAERIE PREVIEW ---
+		else if (minion.isFaerie) {
+			ofTranslate(modelFbo.getWidth() / 2, modelFbo.getHeight() / 2 + 20);
+			// Faerie is likely small, so scale up slightly more than standard units
+			ofScale(30.0f, -30.0f, 30.0f);
+			ofRotateXDeg(-15);
+			ofRotateYDeg(180 + ofGetElapsedTimef() * 30);
+			if (faerieTexture.isAllocated()) faerieTexture.bind();
+			faerieModel.drawFaces();
+			if (faerieTexture.isAllocated()) faerieTexture.unbind();
+		}
+		// --- SKELETON PREVIEW --- Default
 		else {
 			ofSetColor(255);
 			ofTranslate(modelFbo.getWidth() / 2, 90);
@@ -14855,6 +15048,8 @@ void ofApp::drawMinionManagerUI() {
 				name = "Wall ";
 		} else if (minion.isAssistant) {
 			name = "Assistant ";
+		} else if (minion.isFaerie) {
+			name = "Faerie ";
 		} else {
 			name = "Skeleton ";
 		}

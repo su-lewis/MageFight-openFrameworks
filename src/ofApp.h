@@ -135,6 +135,7 @@ enum CardType {
 	CARD_TRANSFORM_WALL,
 	CARD_SUMMON_KOBOLD_KING, // Add this
 	CARD_SUMMON_ASSISTANT,
+	CARD_SUMMON_FAERIE,
 	CARD_FOUR_LEAF_CLOVER,
 	CARD_SPRINT,
 	CARD_SMITE,
@@ -311,6 +312,7 @@ struct Player {
 	bool isWallUnit = false;
 	bool isMagicWallUnit = false;
 	bool isKoboldKing = false;
+	bool isFaerie = false;
 
 	// --- ASSISTANT VARIABLES ---
 	bool isAssistant = false;
@@ -603,6 +605,10 @@ private:
 	ofxAssimpModelLoader wallUnitModel;
 	ofxAssimpModelLoader koboldKingModel;
 	ofxAssimpModelLoader assistantModel;
+
+	// Faerie assets
+	ofxAssimpModelLoader faerieModel;
+	ofTexture faerieTexture;
 
 	ofTexture playerTexture;
 	ofTexture skeletonTexture;
