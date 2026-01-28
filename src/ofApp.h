@@ -127,7 +127,7 @@ enum CardType {
 	CARD_FORM_OF_TORTOISE,
 	CARD_CALL_FOR_KOBOLDS,
 	CARD_RENEWED_INSPIRATION,
-	CARD_INSPIRATION,
+	CARD_SPARK_OF_GENIUS,
 	CARD_PSIONIC_WAVE,
 	CARD_EARTHQUAKE,
 	CARD_FORM_OF_GHOST,
@@ -163,7 +163,7 @@ enum DicePurpose {
 	PURPOSE_DEATH_CHECK,
 	PURPOSE_SLEEP_DURATION,
 	PURPOSE_SUMMON_KOBOLDS,
-	PURPOSE_INSPIRATION_DRAW,
+	PURPOSE_SPARK_OF_GENIUS_DRAW,
 	PURPOSE_PSIONIC_WAVE_RANGE,
 	PURPOSE_PSIONIC_WAVE_AMOUNT,
 	PURPOSE_EARTHQUAKE_DISTANCE,
@@ -994,9 +994,9 @@ private:
 	int pendingDeathTargetIndex = -1;
 	int pendingDeathRollResult = 0;
 
-	// --- Inspiration Logic ---
-	bool isWaitingForInspirationDice = false;
-	int pendingInspirationRollResult = 0;
+	// --- Spark of genius Logic ---
+	bool isWaitingForSparkOfGeniusDice = false;
+	int pendingSparkOfGeniusRollResult = 0;
 
 	// Helper functions
 	void drawDoubleHandedUI();

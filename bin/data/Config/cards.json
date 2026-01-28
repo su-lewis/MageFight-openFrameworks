@@ -485,8 +485,8 @@
   },
   {
     "id": 52,
-    "name": "Inspiration",
-    "type": "CARD_INSPIRATION",
+    "name": "Spark of genius",
+    "type": "CARD_SPARK_OF_GENIUS",
     "cost": 3,
     "targeting": "TARGET_SELF",
     "numDice": 1,

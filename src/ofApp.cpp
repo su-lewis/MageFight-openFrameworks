@@ -3415,14 +3415,14 @@ void ofApp::updateGame() {
 		}
 	}
 
-	// --- INSPIRATION RESOLUTION ---
-	if (isWaitingForInspirationDice && activeDiceRolls.empty()) {
-		isWaitingForInspirationDice = false;
+	// --- SPARK OF GENIUS RESOLUTION ---
+	if (isWaitingForSparkOfGeniusDice && activeDiceRolls.empty()) {
+		isWaitingForSparkOfGeniusDice = false;
 
-		int cardsToDraw = pendingInspirationRollResult;
+		int cardsToDraw = pendingSparkOfGeniusRollResult;
 		Player & p = players[currentPlayerIndex];
 
-		ofLogNotice("Inspiration") << "Rolled a " << cardsToDraw << ". Drawing cards...";
+		ofLogNotice("Spark of Genius") << "Rolled a " << cardsToDraw << ". Drawing cards...";
 
 		// Loop to draw the specific number of cards
 		// Your drawCard() function already handles deck reshuffling automatically.
@@ -3430,7 +3430,7 @@ void ofApp::updateGame() {
 			drawCard();
 		}
 
-		spawnFloatingText(gridToWorld(p.x, p.y), "+" + ofToString(cardsToDraw) + " Cards", ofColor::cyan);
+		spawnFloatingText(gridToWorld(p.x, p.y), "Spark of Genius! +" + ofToString(cardsToDraw) + " Cards", ofColor::cyan);
 	}
 
 	// --- Dispel Barrier Dice ---
@@ -6164,7 +6164,7 @@ void ofApp::drawGame() {
 					bool isDirectDamageCard = (card.targeting == TARGET_ADJACENT_UNIT || card.targeting == TARGET_ADJACENT_OR_SELF_UNIT || card.targeting == TARGET_SELF || card.targeting == TARGET_LINEAR_PIERCE || card.targeting == TARGET_CLEAVE_ADJACENT || card.targeting == TARGET_ADJACENT_UNIT_OR_WALL);
 
 					// Exclude specific non-damaging / indirect cards from being highlighted
-					bool isExcluded = (card.type == CARD_INSPIRATION || card.type == CARD_GAIN_BLOCK || card.type == CARD_FORM_OF_TORTOISE || card.type == CARD_FORM_OF_GHOST || card.type == CARD_STRENGTHEN_ELEMENTS || card.type == CARD_DEMOLITION || card.type == CARD_PSIONIC_WAVE || card.type == CARD_EARTHQUAKE || card.type == CARD_DOUBLE_HANDED || card.type == CARD_ADD_POISON || card.type == CARD_RENEWED_INSPIRATION || card.type == CARD_REPLICATE || card.type == CARD_FULL_RESTORE || card.type == CARD_NECRO_BLESSING || card.type == CARD_HASTEN || card.type == CARD_CALL_FOR_WOLVES || card.type == CARD_AMNESIA || card.type == CARD_DARK_SHIELD || card.type == CARD_CONSUME_LARGE_HEALTH_POTION || card.type == CARD_CALL_FOR_KOBOLDS || card.type == CARD_TIME_VORTEX || card.type == CARD_GAIN_WARD || card.type == CARD_CONSUME_HEALTH_POTION || card.type == CARD_DISPEL || card.type == CARD_FORTIFY);
+					bool isExcluded = (card.type == CARD_SPARK_OF_GENIUS || card.type == CARD_GAIN_BLOCK || card.type == CARD_FORM_OF_TORTOISE || card.type == CARD_FORM_OF_GHOST || card.type == CARD_STRENGTHEN_ELEMENTS || card.type == CARD_DEMOLITION || card.type == CARD_PSIONIC_WAVE || card.type == CARD_EARTHQUAKE || card.type == CARD_DOUBLE_HANDED || card.type == CARD_ADD_POISON || card.type == CARD_RENEWED_INSPIRATION || card.type == CARD_REPLICATE || card.type == CARD_FULL_RESTORE || card.type == CARD_NECRO_BLESSING || card.type == CARD_HASTEN || card.type == CARD_CALL_FOR_WOLVES || card.type == CARD_AMNESIA || card.type == CARD_DARK_SHIELD || card.type == CARD_CONSUME_LARGE_HEALTH_POTION || card.type == CARD_CALL_FOR_KOBOLDS || card.type == CARD_TIME_VORTEX || card.type == CARD_GAIN_WARD || card.type == CARD_CONSUME_HEALTH_POTION || card.type == CARD_DISPEL || card.type == CARD_FORTIFY);
 
 					if (isDirectDamageCard && !isExcluded) {
 						ofPushStyle();
@@ -8918,7 +8918,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 					drawCard();
 
 				// Visual feedback
-				spawnFloatingText(gridToWorld(p.x, p.y), "Inspiration! +" + ofToString(cardsToDraw) + " Cards", ofColor::cyan);
+				spawnFloatingText(gridToWorld(p.x, p.y), "Spark of Genius! +" + ofToString(cardsToDraw) + " Cards", ofColor::cyan);
 
 				isSelectingRenewedInspiration = false;
 				return;
@@ -12586,11 +12586,11 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		break;
 	}
 
-		// --- CASE: INSPIRATION ---
-	case CARD_INSPIRATION: {
+		// --- CASE: SPARK OF GENIUS ---
+	case CARD_SPARK_OF_GENIUS: {
 		// Roll 1d4 (defined in JSON)
-		pendingInspirationRollResult = startDiceRoll(playedCard.numDice, playedCard.diceSides, PURPOSE_INSPIRATION_DRAW, "Inspiration: Draw Cards");
-		isWaitingForInspirationDice = true;
+		pendingSparkOfGeniusRollResult = startDiceRoll(playedCard.numDice, playedCard.diceSides, PURPOSE_SPARK_OF_GENIUS_DRAW, "Spark of Genius: Draw Cards");
+		isWaitingForSparkOfGeniusDice = true;
 		playedSuccessfully = true;
 		break;
 	}
@@ -15287,7 +15287,7 @@ CardType ofApp::stringToCardType(const std::string & str) {
 	if (str == "CARD_FLURRY_OF_FISTS") return CARD_FLURRY_OF_FISTS;
 	if (str == "CARD_FORM_OF_TORTOISE") return CARD_FORM_OF_TORTOISE;
 	if (str == "CARD_RENEWED_INSPIRATION") return CARD_RENEWED_INSPIRATION;
-	if (str == "CARD_INSPIRATION") return CARD_INSPIRATION;
+	if (str == "CARD_SPARK_OF_GENIUS") return CARD_SPARK_OF_GENIUS;
 	if (str == "CARD_PSIONIC_WAVE") return CARD_PSIONIC_WAVE;
 	if (str == "CARD_EARTHQUAKE") return CARD_EARTHQUAKE;
 	if (str == "CARD_FORM_OF_GHOST") return CARD_FORM_OF_GHOST;
