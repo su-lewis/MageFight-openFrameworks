@@ -801,7 +801,7 @@ void ofApp::update() {
 	if (isLoadingGame) {
 		setupGame();
 		isLoadingGame = false;
-		currentState = STATE_GAMEPLAY;
+		// NOTE: setupGame now sets state to STATE_INITIATIVE_ROLL, so we don't force GAMEPLAY here
 		return;
 	}
 
@@ -816,6 +816,59 @@ void ofApp::update() {
 		break;
 	case STATE_SETTINGS:
 		break;
+
+	// --- NEW: INITIATIVE ROLL STATE ---
+	case STATE_INITIATIVE_ROLL: {
+		// Wait for dice to finish spinning
+		bool allFinished = true;
+		if (activeDiceRolls.size() < 2) allFinished = false; // Waiting for start
+		for (auto & d : activeDiceRolls)
+			if (!d.isFinishedVisual) allFinished = false;
+
+		if (allFinished) {
+			initiativeTimer += ofGetLastFrameTime();
+			if (initiativeTimer > 2.0f) {
+				// Determine Winner
+				int p1Roll = activeDiceRolls[0].result;
+				int p2Roll = activeDiceRolls[1].result;
+
+				activeDiceRolls.clear(); // Clear visual dice
+
+				if (p1Roll > p2Roll) {
+					draftPlayerIndex = 0; // P1 Wins
+					currentState = STATE_DRAFTING;
+					draftStage = 0;
+					generateDraftOptions(1); // Start Class 1
+					ofLogNotice("Initiative") << "Player 1 Wins Initiative";
+				} else if (p2Roll > p1Roll) {
+					draftPlayerIndex = 1; // P2 Wins
+					currentState = STATE_DRAFTING;
+					draftStage = 0;
+					generateDraftOptions(1);
+					ofLogNotice("Initiative") << "Player 2 Wins Initiative";
+				} else {
+					// TIE - Reroll
+					startDiceRoll(1, 6, PURPOSE_DEBUG, "P1 Reroll");
+					startDiceRoll(1, 6, PURPOSE_DEBUG, "P2 Reroll");
+					initiativeTimer = 0.0f;
+					ofLogNotice("Initiative") << "Tie! Rerolling...";
+				}
+			}
+		}
+
+		// Update dice visuals (Simple rotation)
+		for (auto & d : activeDiceRolls) {
+			d.currentRotation += diceSpinSpeed * ofGetLastFrameTime();
+			if (ofGetElapsedTimef() - d.startTime > 1.0f) d.isFinishedVisual = true;
+		}
+		break;
+	}
+
+	// --- NEW: DRAFTING STATE ---
+	case STATE_DRAFTING:
+		// Logic is primarily handled in mousePressed (card selection)
+		break;
+
 	case STATE_GAMEPLAY:
 		updateGame();
 		break;
@@ -857,6 +910,9 @@ void ofApp::draw() {
 	}
 
 	ofBackground(22);
+
+	// REMOVED: The dark overlay block for STATE_INITIATIVE_ROLL / DRAFTING
+
 	switch (currentState) {
 	case STATE_MAIN_MENU:
 		drawMainMenu();
@@ -868,15 +924,24 @@ void ofApp::draw() {
 		drawGame();
 		break;
 	case STATE_PAUSED:
-		drawGame();
+		drawGame(); // Draw game underneath
+		// If we paused during draft or initiative, draw those underneath the pause menu too
+		if (pausedFromState == STATE_INITIATIVE_ROLL) drawInitiativeRoll();
+		if (pausedFromState == STATE_DRAFTING) drawDraftScreen();
 		drawPauseMenu();
+		break;
+	case STATE_INITIATIVE_ROLL:
+		drawGame(); // Draw 3D world + dice
+		drawInitiativeRoll(); // Draw labels on top
+		break;
+	case STATE_DRAFTING:
+		drawGame(); // Draw 3D world background
+		drawDraftScreen(); // Draw cards and text on top
 		break;
 	default:
 		drawMainMenu();
 		break;
 	}
-
-	// Additional logic for drawing UI elements can be added here
 }
 
 //--------------------------------------------------------------
@@ -1145,7 +1210,6 @@ void ofApp::setupGame() {
 	// --- RESET CORE GAME STATE (Fast Operations Only) ---
 	players.clear();
 	activeDiceRolls.clear();
-	activeDiceRolls.clear();
 	for (int x = 0; x < BOARD_WIDTH; ++x) {
 		for (int y = 0; y < BOARD_HEIGHT; ++y) {
 			board[x][y] = Tile(); // Reset each tile
@@ -1203,30 +1267,34 @@ void ofApp::setupGame() {
 	buildLevelMesh();
 	buildFloorMesh();
 
-	// --- PLAYER CREATION ---
+	// --- PLAYER CREATION (INITIALIZE WITH EMPTY DECKS) ---
 	Player p1;
 	p1.x = 0;
 	p1.y = BOARD_HEIGHT - 1;
 	p1.playerID = 0;
-	p1.deck = allCards; // Use the pre-loaded allCards vector
-	std::shuffle(p1.deck.begin(), p1.deck.end(), rng);
+	p1.deck.clear(); // Deck starts empty for drafting
 	players.push_back(p1);
 
 	Player p2;
 	p2.x = BOARD_WIDTH - 1;
 	p2.y = 0;
 	p2.playerID = 1;
-	p2.deck = allCards; // Use the pre-loaded allCards vector
-	std::shuffle(p2.deck.begin(), p2.deck.end(), rng);
+	p2.deck.clear(); // Deck starts empty for drafting
 	players.push_back(p2);
 
 	board[p1.x][p1.y].hasPlayer = true;
 	board[p2.x][p2.y].hasPlayer = true;
 
-	// --- FINAL GAME STATE INITIALIZATION ---
-	ofLogNotice("Game") << "--- GAME SESSION STARTING ---";
-	currentPlayerIndex = -1;
-	startNewTurn();
+	// --- START INITIATIVE PHASE ---
+	currentState = STATE_INITIATIVE_ROLL;
+	isInitiativeRolling = true;
+	initiativeTimer = 0.0f;
+
+	// Pass empty strings "" so no generic label is stored
+	startDiceRoll(1, 6, PURPOSE_DEBUG, "");
+	startDiceRoll(1, 6, PURPOSE_DEBUG, "");
+
+	ofLogNotice("Game") << "--- INITIATIVE ROLL STARTED ---";
 
 	// Set initial camera viewport
 	cam.setAspectRatio((float)ofGetWidth() / (float)ofGetHeight());
@@ -5083,7 +5151,7 @@ void ofApp::drawGame() {
 						}
 					}
 					if (!isOnPath) {
-						ofSetColor(ofColor::yellow, 102);
+						ofSetColor(ofColor::green, 102);
 						ofPushMatrix();
 						// USE surfaceY to draw ON TOP of wall or floor
 						ofTranslate(0, surfaceY + 0.01f, 0);
@@ -5455,10 +5523,11 @@ void ofApp::drawGame() {
 			ofDrawRectRounded(p0_deckRect, 10 * scale);
 		}
 
-		if (players[currentPlayerIndex].playerID == 0 && !hasDrawnCardsThisTurn) {
+		// Only highlight deck if in gameplay state and player's turn
+		if (currentState == STATE_GAMEPLAY && players[currentPlayerIndex].playerID == 0 && !hasDrawnCardsThisTurn) {
 			ofPushStyle();
 			ofNoFill();
-			ofSetColor(ofColor::yellow);
+			ofSetColor(ofColor::green);
 			ofSetLineWidth(4 * scale);
 			ofDrawRectangle(p0_deckRect);
 			ofPopStyle();
@@ -5498,10 +5567,11 @@ void ofApp::drawGame() {
 			ofDrawRectRounded(p1_deckRect, 10 * scale);
 		}
 
-		if (players[currentPlayerIndex].playerID == 1 && !hasDrawnCardsThisTurn) {
+		// Only highlight deck if in gameplay state and player's turn
+		if (currentState == STATE_GAMEPLAY && players[currentPlayerIndex].playerID == 1 && !hasDrawnCardsThisTurn) {
 			ofPushStyle();
 			ofNoFill();
-			ofSetColor(ofColor::yellow);
+			ofSetColor(ofColor::green);
 			ofSetLineWidth(4 * scale);
 			ofDrawRectangle(p1_deckRect);
 			ofPopStyle();
@@ -5586,7 +5656,7 @@ void ofApp::drawGame() {
 		if (player0->nextTurnAPBonus > 0) {
 			string bonusText = "+" + ofToString(player0->nextTurnAPBonus) + " AP Next Turn";
 			ofRectangle bonusBox = titleFont.getStringBoundingBox(bonusText, 0, 0);
-			ofSetColor(ofColor::yellow);
+			ofSetColor(ofColor::green);
 			ofPushMatrix();
 			ofTranslate(p0_statusXStart, p0_statusY);
 			ofScale(smallFontScale, smallFontScale);
@@ -5699,7 +5769,7 @@ void ofApp::drawGame() {
 		if (player1->nextTurnAPBonus > 0) {
 			string bonusText = "+" + ofToString(player1->nextTurnAPBonus) + " AP Next Turn";
 			ofRectangle bonusBox = titleFont.getStringBoundingBox(bonusText, 0, 0);
-			ofSetColor(ofColor::yellow);
+			ofSetColor(ofColor::green);
 			ofPushMatrix();
 			ofTranslate(p1_statusXStart, p1_statusY + (bonusBox.height * smallFontScale));
 			ofScale(smallFontScale, smallFontScale);
@@ -5755,7 +5825,7 @@ void ofApp::drawGame() {
 	if (displayedAPForCurrent <= 0 && hasDrawnCardsThisTurn && !rerollAvailable) {
 		ofPushStyle();
 		ofNoFill();
-		ofSetColor(ofColor::yellow);
+		ofSetColor(ofColor::green);
 		ofSetLineWidth(4 * scale);
 		ofDrawRectRounded(endTurnButtonRect, 10 * scale);
 		ofPopStyle();
@@ -5825,7 +5895,7 @@ void ofApp::drawGame() {
 				// Yellow outline to indicate availability
 				ofPushStyle();
 				ofNoFill();
-				ofSetColor(ofColor::yellow);
+				ofSetColor(ofColor::green);
 				ofSetLineWidth(3 * scale);
 				ofDrawRectRounded(rerollButtonRect, 8);
 				ofPopStyle();
@@ -5897,7 +5967,7 @@ void ofApp::drawGame() {
 					// MATCH NORMAL GAMEPLAY: Yellow Selection
 					ofPushStyle();
 					ofNoFill();
-					ofSetColor(ofColor::yellow);
+					ofSetColor(ofColor::green);
 					ofSetLineWidth(4);
 					ofDrawRectangle(drawX, drawY, w, h);
 					ofPopStyle();
@@ -5911,7 +5981,7 @@ void ofApp::drawGame() {
 				if (index == selectedCardIndex || (isTopCard && index == draggedCardIndex)) {
 					ofPushStyle();
 					ofNoFill();
-					ofSetColor(ofColor::yellow);
+					ofSetColor(ofColor::green);
 					ofSetLineWidth(4);
 					ofDrawRectangle(drawX, drawY, w, h);
 					ofPopStyle();
@@ -6163,7 +6233,7 @@ void ofApp::drawGame() {
 			if (isSelected) {
 				ofPushStyle();
 				ofNoFill();
-				ofSetColor(ofColor::yellow);
+				ofSetColor(ofColor::green);
 				ofSetLineWidth(5);
 				ofDrawRectangle(drawX, drawY, viewCardWidth, viewCardHeight);
 				ofPopStyle();
@@ -6418,7 +6488,7 @@ void ofApp::drawGame() {
 
 		ofSetColor(0, 0, 0, 255);
 		titleFont.drawString(msg, tx + 2, ty + 2);
-		ofSetColor(ofColor::yellow);
+		ofSetColor(ofColor::green);
 		titleFont.drawString(msg, tx, ty);
 	}
 
@@ -6514,7 +6584,8 @@ void ofApp::drawGame() {
 	}
 
 	// --- DRAW DICE LABEL ---
-	if (!activeDiceRolls.empty()) {
+	// Only draw the generic bottom label if NOT in initiative roll (since that has custom text)
+	if (!activeDiceRolls.empty() && currentState != STATE_INITIATIVE_ROLL) {
 		ofPushMatrix();
 
 		// FIXED POSITION CALCULATION:
@@ -7132,7 +7203,49 @@ cursor_check_done:;
 }
 // ----------------- FULL mousePressed FUNCTION -----------------
 void ofApp::mousePressed(int x, int y, int button) {
+	if (currentState == STATE_DRAFTING && button == OF_MOUSE_BUTTON_LEFT) {
+		// Match the new larger card size in drawDraftScreen
+		float cardW = 340;
+		float cardH = cardW * 1.4f;
+		float spacing = 60;
+		float startX = (ofGetWidth() - (3 * cardW + 2 * spacing)) / 2;
+		float startY = ofGetHeight() / 2 - cardH / 2;
 
+		// Card selection logic
+		for (int i = 0; i < draftOptions.size(); ++i) {
+			float cx = startX + i * (cardW + spacing);
+			if (ofRectangle(cx, startY, cardW, cardH).inside(x, y)) {
+				auto it = std::find(selectedDraftIndices.begin(), selectedDraftIndices.end(), i);
+				if (it != selectedDraftIndices.end()) {
+					selectedDraftIndices.erase(it);
+				} else {
+					int maxSelections = (draftStage == 0) ? 2 : 1;
+					if ((int)selectedDraftIndices.size() < maxSelections) {
+						selectedDraftIndices.push_back(i);
+					}
+				}
+				return;
+			}
+		}
+
+		// Accept button logic
+		int required = (draftStage == 0) ? 2 : 1;
+		// Calculate Accept button rect (must match drawDraftScreen)
+		float acceptBtnW = 220;
+		float acceptBtnH = 70;
+		float acceptBtnX = (ofGetWidth() - acceptBtnW) / 2;
+		float acceptBtnY = ofGetHeight() * 0.80f;
+		ofRectangle draftAcceptButtonRect(acceptBtnX, acceptBtnY, acceptBtnW, acceptBtnH);
+		if ((int)selectedDraftIndices.size() == required && draftAcceptButtonRect.inside(x, y)) {
+			std::vector<int> toPick = selectedDraftIndices;
+			std::sort(toPick.begin(), toPick.end(), std::greater<int>());
+			for (int idx : toPick) {
+				onCardPicked(idx);
+			}
+			selectedDraftIndices.clear();
+			return;
+		}
+	}
 	// Debug: Log all mouse presses when targeting teleport
 	if (isTargetingTeleport) {
 		ofLogNotice("Teleport") << "mousePressed called! x=" << x << " y=" << y << " button=" << button;
@@ -7142,7 +7255,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 	if (currentState == STATE_PAUSED) {
 		if (button == OF_MOUSE_BUTTON_LEFT) {
 			if (pauseMenuResumeButton.inside(x, y)) {
-				currentState = STATE_GAMEPLAY;
+				currentState = pausedFromState;
 				return;
 			}
 			if (pauseMenuSettingsButton.inside(x, y)) {
@@ -9317,26 +9430,39 @@ void ofApp::keyReleased(int key) {
 		ofLogNotice("Post") << "showWorldFboPreview=" << (showWorldFboPreview ? "true" : "false");
 	}
 
-	// 3. Escape Key Logic (Merged back inside the function)
+	// 3. Escape Key Logic
 	if (key == OF_KEY_ESC) {
 		switch (currentState) {
 		case STATE_GAMEPLAY:
-			// First, check if any UI panel is active and close it.
+			// Check UI panels first
 			if (isShowingPileView) {
 				isShowingPileView = false;
 				currentPileViewPlayerIndex = -1;
 				currentPileView = VIEW_NONE;
 			} else if (isAmnesiaSelectionActive) {
-				isAmnesiaSelectionActive = false; // Allow cancelling Amnesia
-			}
-			// If no UI was open, then pause the game.
-			else {
+				isAmnesiaSelectionActive = false;
+			} else {
+				// Pause Game
+				pausedFromState = STATE_GAMEPLAY; // Remember where we came from
 				currentState = STATE_PAUSED;
 			}
 			break;
-		case STATE_PAUSED:
-			currentState = STATE_GAMEPLAY;
+
+		case STATE_INITIATIVE_ROLL:
+			pausedFromState = STATE_INITIATIVE_ROLL;
+			currentState = STATE_PAUSED;
 			break;
+
+		case STATE_DRAFTING:
+			pausedFromState = STATE_DRAFTING;
+			currentState = STATE_PAUSED;
+			break;
+
+		case STATE_PAUSED:
+			// Return to whatever state we paused from
+			currentState = pausedFromState;
+			break;
+
 		case STATE_SETTINGS:
 			currentState = stateBeforeSettings;
 			break;
@@ -14650,6 +14776,9 @@ void ofApp::loadCardData(const std::string & filePath) {
 	json = ofLoadJson(filePath);
 
 	allCards.clear();
+	class1Cards.clear();
+	class2Cards.clear();
+	class3Cards.clear();
 
 	const int cardPixelWidth = 409, cardPixelHeight = 585;
 	const int numCols = 10;
@@ -14668,6 +14797,9 @@ void ofApp::loadCardData(const std::string & filePath) {
 		newCard.numDice = cardJson.value("numDice", 0);
 		newCard.diceSides = cardJson.value("diceSides", 0);
 
+		// Parse Class (Default to 1 if missing)
+		newCard.cardClass = cardJson.value("class", 1);
+
 		// Calculate texture coordinates from the sprite sheet based on ID
 		int index = cardId - 1;
 		int row = index / numCols;
@@ -14675,8 +14807,17 @@ void ofApp::loadCardData(const std::string & filePath) {
 		newCard.textureRect = ofRectangle(col * cardPixelWidth, row * cardPixelHeight, cardPixelWidth, cardPixelHeight);
 
 		allCards.push_back(newCard);
+
+		// Sort into Class Buckets
+		if (newCard.cardClass == 1)
+			class1Cards.push_back(newCard);
+		else if (newCard.cardClass == 2)
+			class2Cards.push_back(newCard);
+		else if (newCard.cardClass == 3)
+			class3Cards.push_back(newCard);
 	}
 	ofLogNotice("ofApp::loadCardData") << "Loaded " << allCards.size() << " cards from JSON.";
+	ofLogNotice("ofApp::loadCardData") << "Class Distribution - C1: " << class1Cards.size() << ", C2: " << class2Cards.size() << ", C3: " << class3Cards.size();
 }
 
 CardType ofApp::stringToCardType(const std::string & str) {
@@ -15054,7 +15195,7 @@ void ofApp::drawMinionManagerUI() {
 		if (hoveredUnitIndex == ui.playerIndex) {
 			ofPushStyle();
 			ofNoFill();
-			ofSetColor(ofColor::yellow);
+			ofSetColor(ofColor::green);
 			ofSetLineWidth(3 * scale);
 			ofDrawRectRounded(ui.bounds, 10 * scale);
 			ofPopStyle();
@@ -15148,7 +15289,7 @@ void ofApp::drawMinionManagerUI() {
 		if (ui.playerIndex == currentPlayerIndex && !hasDrawnCardsThisTurn) {
 			ofPushStyle();
 			ofNoFill();
-			ofSetColor(ofColor::yellow);
+			ofSetColor(ofColor::green);
 			ofSetLineWidth(3 * scale);
 			ofDrawRectRounded(ui.deckRect, 5);
 			ofPopStyle();
@@ -15291,4 +15432,261 @@ void ofApp::resolveMagicHandPush() {
 
 	isMagicHandMenuOpen = false;
 	invalidateTargetCache();
+}
+//--------------------------------------------------------------
+void ofApp::generateDraftOptions(int classTier) {
+	draftOptions.clear();
+	const std::vector<Card> * pool = &class1Cards;
+	if (classTier == 2) pool = &class2Cards;
+	if (classTier == 3) pool = &class3Cards;
+
+	if (pool->empty()) return;
+
+	// Pick 3 unique random cards
+	std::vector<int> indices(pool->size());
+	std::iota(indices.begin(), indices.end(), 0);
+	std::shuffle(indices.begin(), indices.end(), rng);
+
+	for (int i = 0; i < 3 && i < (int)indices.size(); ++i) {
+		draftOptions.push_back((*pool)[indices[i]]);
+	}
+
+	// Set pick count based on rules
+	if (classTier == 1)
+		draftPicksRemaining = 2; // Pick 2
+	else
+		draftPicksRemaining = 1; // Pick 1
+}
+
+void ofApp::onCardPicked(int optionIndex) {
+	if (optionIndex < 0 || optionIndex >= (int)draftOptions.size()) return;
+
+	Player & p = players[draftPlayerIndex];
+	Card picked = draftOptions[optionIndex];
+
+	// Add copies based on stage
+	int copies = (draftStage == 0) ? 2 : 1;
+	for (int i = 0; i < copies; ++i) {
+		p.deck.push_back(picked);
+	}
+
+	// Remove picked card from options so it can't be picked again this round
+	draftOptions.erase(draftOptions.begin() + optionIndex);
+
+	draftPicksRemaining--;
+
+	if (draftPicksRemaining <= 0) {
+		// Stage Complete
+		draftStage++;
+		if (draftStage == 1) {
+			// Move to Class 2
+			generateDraftOptions(2);
+		} else {
+			// Player Finished Drafting
+			// Check if both players drafted
+			// The logic: Winner goes first. If P1 went, check if P2 deck empty.
+			int otherPlayer = (draftPlayerIndex + 1) % 2;
+			if (players[otherPlayer].deck.empty()) {
+				// Switch to other player
+				draftPlayerIndex = otherPlayer;
+				draftStage = 0;
+				generateDraftOptions(1);
+			} else {
+				// Both done! Start Game.
+
+				// Shuffle decks
+				for (auto & pl : players) {
+					std::shuffle(pl.deck.begin(), pl.deck.end(), rng);
+				}
+
+				// Determine who starts based on initiative winner (who drafted first)
+				// If P1 won initiative, current player index should be 0.
+				// Reset active player to the initiative winner
+				// We stored the winner in `draftPlayerIndex` initially, but it swapped.
+				// The winner was the *first* to draft.
+				// If players[0].deck was filled first, P1 won.
+				// A simple heuristic: check who drafted first (we can infer or store it).
+				// Let's just set the turn to the initiative winner.
+				// If we just finished drafting P2, and P1 drafted before, P1 was first.
+				// So currentPlayerIndex = 0.
+				// If we just finished P1, and P2 drafted before, P2 was first.
+				// Let's store `initiativeWinner` in a variable to be safe, or just use the logic:
+				// The loop structure:
+				// 1. Initiative Win -> Set `draftPlayerIndex` = Winner.
+				// 2. Winner drafts.
+				// 3. Switch `draftPlayerIndex` to Loser.
+				// 4. Loser drafts.
+				// 5. Game Start. `currentPlayerIndex` should be Winner.
+				// So `currentPlayerIndex` = `draftPlayerIndex` (the one who JUST finished) is wrong.
+				// It should be `(draftPlayerIndex + 1) % 2`.
+
+				currentPlayerIndex = (draftPlayerIndex + 1) % 2;
+
+				// FINAL SETUP
+				currentState = STATE_GAMEPLAY;
+				startNewTurn();
+			}
+		}
+	}
+}
+//--------------------------------------------------------------
+void ofApp::drawInitiativeRoll() {
+	if (activeDiceRolls.size() >= 2) {
+
+		// Use default world positions for dice label alignment (meshPosition does not exist)
+		glm::vec3 p1PosWorld(-6.0f, 7.0f, 0.0f);
+		glm::vec3 p2PosWorld(6.0f, 7.0f, 0.0f);
+		glm::vec2 p1Screen = cam.worldToScreen(p1PosWorld);
+		glm::vec2 p2Screen = cam.worldToScreen(p2PosWorld);
+
+		// Standardized Text Drawer (Smaller scale)
+		auto drawLabel = [&](string text, float x, float y, ofColor col) {
+			float fontScale = 0.7f; // Smaller size
+			ofRectangle bbox = titleFont.getStringBoundingBox(text, 0, 0);
+			float tx = x - (bbox.width * fontScale / 2.0f);
+			float ty = y;
+
+			ofPushMatrix();
+			ofTranslate(tx, ty);
+			ofScale(fontScale, fontScale);
+
+			// Shadow
+			ofSetColor(0, 0, 0, 255);
+			titleFont.drawString(text, 3, 3);
+
+			// Main Text (Standard UI White/Gold/Grey scheme)
+			ofSetColor(col);
+			titleFont.drawString(text, 0, 0);
+
+			ofPopMatrix();
+		};
+
+		// Use distinct colors for Player 1 and Player 2
+		drawLabel("Player 1", p1Screen.x, p1Screen.y, ofColor(70, 160, 255)); // Blue
+		drawLabel("Player 2", p2Screen.x, p2Screen.y, ofColor(255, 80, 80)); // Red
+
+		// Draw Result Message
+		if (activeDiceRolls[0].isFinishedVisual && activeDiceRolls[1].isFinishedVisual) {
+			string msg = "";
+
+			if (activeDiceRolls[0].result > activeDiceRolls[1].result)
+				msg = "Player 1 Wins!";
+			else if (activeDiceRolls[1].result > activeDiceRolls[0].result)
+				msg = "Player 2 Wins!";
+			else
+				msg = "Tie! Rerolling...";
+
+			// Draw in Instruction Area (Top Center)
+			ofRectangle mBox = titleFont.getStringBoundingBox(msg, 0, 0);
+			float tx = (ofGetWidth() / 2.0f) - (mBox.width / 2.0f);
+			float ty = ofGetHeight() * 0.25f;
+
+			ofSetColor(0, 0, 0, 255);
+			titleFont.drawString(msg, tx + 2, ty + 2);
+			ofSetColor(ofColor::gold);
+			titleFont.drawString(msg, tx, ty);
+		}
+	}
+}
+
+void ofApp::drawDraftScreen() {
+	// 1. Construct Specific Instruction Text
+	string pName = (draftPlayerIndex == 0) ? "Player 1" : "Player 2";
+	string msg = "";
+
+	if (draftStage == 0) {
+		msg = pName + " - Class 1: Choose 2 (Get 2 Copies)";
+	} else {
+		msg = pName + " - Class 2: Choose 1";
+	}
+
+	// 2. Draw Instruction Text (Top Center, Shadowed)
+	ofRectangle bbox = titleFont.getStringBoundingBox(msg, 0, 0);
+	float tx = (ofGetWidth() / 2.0f) - (bbox.width / 2.0f);
+	float ty = ofGetHeight() * 0.25f; // Standard instruction height
+
+	ofSetColor(0, 0, 0, 255);
+	titleFont.drawString(msg, tx + 2, ty + 2);
+	ofSetColor(ofColor::white);
+	titleFont.drawString(msg, tx, ty);
+
+	// 2b. Draw Class Tier Text Below Prompt
+	std::string classTierText = "";
+	ofColor classTierColor = ofColor::white;
+	if (draftStage == 0) {
+		classTierText = "Class 1";
+		classTierColor = ofColor(205, 127, 50); // Bronze
+	} else if (draftStage == 1) {
+		classTierText = "Class 2";
+		classTierColor = ofColor(192, 192, 192); // Silver
+	} else if (draftStage == 2) {
+		classTierText = "Class 3";
+		classTierColor = ofColor(255, 215, 0); // Gold
+	}
+	if (!classTierText.empty()) {
+		ofRectangle classBox = titleFont.getStringBoundingBox(classTierText, 0, 0);
+		float classTx = (ofGetWidth() / 2.0f) - (classBox.width / 2.0f);
+		float classTy = ty + bbox.height + 18; // 18px below main prompt
+		ofSetColor(0, 0, 0, 255);
+		titleFont.drawString(classTierText, classTx + 2, classTy + 2);
+		ofSetColor(classTierColor);
+		titleFont.drawString(classTierText, classTx, classTy);
+	}
+
+	// 3. Draw Cards
+	// Make draft cards much larger for better visibility
+	float cardW = 340; // Increased from 200
+	float cardH = cardW * 1.4f;
+	float spacing = 60; // Slightly increased spacing
+	float startX = (ofGetWidth() - (3 * cardW + 2 * spacing)) / 2;
+	float startY = ofGetHeight() / 2 - cardH / 2;
+
+	for (int i = 0; i < draftOptions.size(); ++i) {
+		float x = startX + i * (cardW + spacing);
+		ofRectangle cardRect(x, startY, cardW, cardH);
+
+		// Check Selection
+		bool isSelected = false;
+		for (int sel : selectedDraftIndices) {
+			if (sel == i) isSelected = true;
+		}
+
+		// Selection Highlight (Yellow)
+		if (isSelected) {
+			ofPushStyle();
+			ofNoFill();
+			ofSetColor(ofColor::yellow);
+			ofSetLineWidth(6); // Thicker for selection
+			ofDrawRectRounded(x - 8, startY - 8, cardW + 16, cardH + 16, 12);
+			ofPopStyle();
+		}
+		// Hover Highlight (White/Subtle)
+		else if (cardRect.inside(ofGetMouseX(), ofGetMouseY())) {
+			ofPushStyle();
+			ofNoFill();
+			ofSetColor(ofColor::white);
+			ofSetLineWidth(3);
+			ofDrawRectRounded(x - 5, startY - 5, cardW + 10, cardH + 10, 10);
+			ofPopStyle();
+		}
+
+		// Draw Card Sprite
+		ofSetColor(255);
+		cardSpriteSheet.drawSubsection(x, startY, cardW, cardH,
+			draftOptions[i].textureRect.x, draftOptions[i].textureRect.y,
+			draftOptions[i].textureRect.width, draftOptions[i].textureRect.height);
+	}
+
+	// Draw Accept Button (centered below cards)
+	float acceptBtnW = 220;
+	float acceptBtnH = 70;
+	float acceptBtnX = (ofGetWidth() - acceptBtnW) / 2;
+	float acceptBtnY = ofGetHeight() * 0.80f;
+	ofRectangle draftAcceptButtonRect(acceptBtnX, acceptBtnY, acceptBtnW, acceptBtnH);
+	bool enabled = ((int)selectedDraftIndices.size() == ((draftStage == 0) ? 2 : 1));
+	ofSetColor(enabled ? ofColor(0, 180, 0) : ofColor(90, 90, 90));
+	ofDrawRectRounded(draftAcceptButtonRect, 12);
+	ofSetColor(ofColor::white);
+	ofRectangle btnTextBox = titleFont.getStringBoundingBox("Accept", 0, 0);
+	titleFont.drawString("Accept", draftAcceptButtonRect.getCenter().x - btnTextBox.getWidth() / 2, draftAcceptButtonRect.getCenter().y + btnTextBox.getHeight() / 2);
 }

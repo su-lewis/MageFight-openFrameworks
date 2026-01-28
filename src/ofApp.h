@@ -32,7 +32,9 @@ enum GameState {
 	STATE_MAIN_MENU,
 	STATE_SETTINGS,
 	STATE_GAMEPLAY,
-	STATE_PAUSED
+	STATE_PAUSED,
+	STATE_INITIATIVE_ROLL, // <--- New
+	STATE_DRAFTING // <--- New
 };
 
 enum PlayerActionState {
@@ -45,7 +47,7 @@ enum GameplayState {
 	AWAITING_INPUT,
 	ANIMATING,
 	WAITING_FOR_DICE,
-	MODAL_CHOICE
+	MODAL_CHOICE,
 };
 
 enum DamageType {
@@ -228,6 +230,7 @@ struct Card {
 	TargetingType targeting = TARGET_ANY_TILE;
 	bool drawnThisTurn = false; // Add this
 	bool isCopied = false;
+	int cardClass = 1;
 };
 
 struct PlayedCardDisplay {
@@ -476,6 +479,24 @@ private:
 	std::vector<glm::vec2> getLineOfSightPath(glm::vec2 start, glm::vec2 end);
 	glm::vec2 getClosestPointOnLineSegment(glm::vec2 p, glm::vec2 start, glm::vec2 end);
 
+	// --- DRAFTING & INITIATIVE ---
+	int initiativeRolls[2] = { 0, 0 };
+	bool isInitiativeRolling = false;
+	float initiativeTimer = 0.0f;
+	int draftPlayerIndex = 0; // The player currently drafting
+	int draftStage = 0; // 0 = Class 1 (Pick 2), 1 = Class 2 (Pick 1)
+	int draftPicksRemaining = 0;
+	std::vector<int> selectedDraftIndices; // Tracks indices of cards currently highlighted in draft
+	std::vector<Card> draftOptions; // The 3 cards currently shown
+	std::vector<Card> class1Cards;
+	std::vector<Card> class2Cards;
+	std::vector<Card> class3Cards;
+
+	void generateDraftOptions(int classTier);
+	void onCardPicked(int optionIndex);
+	void drawInitiativeRoll();
+	void drawDraftScreen();
+
 	// -------------------------------------------------------------------------
 	//                          RENDERING & MESHES
 	// -------------------------------------------------------------------------
@@ -520,6 +541,7 @@ private:
 	// --- GAME STATE ---
 	GameState currentState = STATE_MAIN_MENU;
 	GameState stateBeforeSettings = STATE_MAIN_MENU;
+	GameState pausedFromState = STATE_GAMEPLAY; // Default fallback
 	bool isLoadingGame = false;
 	int globalTurnCounter = 0;
 	int nextSummonOrder = 0; // Global counter for minion summon ordering

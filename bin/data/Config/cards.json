@@ -5,7 +5,8 @@
     "type": "CARD_ATTACK_SINGLE_TILE",
     "cost": 1,
     "value": 2,
-    "targeting": "TARGET_ADJACENT_UNIT"
+    "targeting": "TARGET_ADJACENT_UNIT",
+    "class": 1
   },
   {
     "id": 2,
@@ -13,7 +14,8 @@
     "type": "CARD_ATTACK_SINGLE_TILE",
     "cost": 3,
     "value": 4,
-    "targeting": "TARGET_ADJACENT_UNIT"
+    "targeting": "TARGET_ADJACENT_UNIT",
+    "class": 1
   },
   {
     "id": 3,
@@ -21,7 +23,8 @@
     "type": "CARD_GAIN_BLOCK",
     "cost": 1,
     "value": 2,
-    "targeting": "TARGET_SELF"
+    "targeting": "TARGET_SELF",
+    "class": 1
   },
   {
     "id": 4,
@@ -30,7 +33,8 @@
     "cost": 3,
     "targeting": "TARGET_ADJACENT_UNIT",
     "numDice": 2,
-    "diceSides": 4
+    "diceSides": 4,
+    "class": 1
   },
   {
     "id": 5,
@@ -38,7 +42,8 @@
     "type": "CARD_GAIN_WARD",
     "cost": 2,
     "value": 5,
-    "targeting": "TARGET_SELF"
+    "targeting": "TARGET_SELF",
+    "class": 1
   },
   {
     "id": 6,
@@ -48,7 +53,8 @@
     "targeting": "TARGET_LINEAR_PIERCE",
     "damageType": "DAMAGE_PIERCING",
     "numDice": 1,
-    "diceSides": 6
+    "diceSides": 6,
+    "class": 1
   },
   {
     "id": 7,
@@ -57,14 +63,16 @@
     "cost": 2,
     "targeting": "TARGET_CLEAVE_ADJACENT",
     "numDice": 1,
-    "diceSides": 6
+    "diceSides": 6,
+    "class": 1
   },
   {
     "id": 8,
     "name": "Mind Theft",
     "type": "CARD_MIND_THEFT",
     "cost": 3,
-    "targeting": "TARGET_ADJACENT_UNIT"
+    "targeting": "TARGET_ADJACENT_UNIT",
+    "class": 2
   },
   {
     "id": 9,
@@ -74,7 +82,8 @@
     "value": 0,
     "targeting": "TARGET_ADJACENT_OR_SELF_UNIT",
     "numDice": 1,
-    "diceSides": 4
+    "diceSides": 4,
+    "class": 2
   },
   {
     "id": 10,
@@ -84,7 +93,8 @@
     "targeting": "TARGET_LINE_OF_SIGHT_TILE",
     "damageType": "DAMAGE_MAGIC",
     "numDice": 1,
-    "diceSides": 20
+    "diceSides": 20,
+    "class": 2
   },
   {
     "id": 11,
@@ -94,7 +104,8 @@
     "targeting": "TARGET_LINE_OF_SIGHT_TILE",
     "damageType": "DAMAGE_FIRE",
     "numDice": 2,
-    "diceSides": 6
+    "diceSides": 6,
+    "class": 2
   },
   {
     "id": 12,
@@ -103,7 +114,8 @@
     "cost": 2,
     "value": 2,
     "targeting": "TARGET_ADJACENT_UNIT",
-    "damageType": "DAMAGE_ELECTRIC"
+    "damageType": "DAMAGE_ELECTRIC",
+    "class": 1
   },
   {
     "id": 13,
@@ -112,7 +124,8 @@
     "cost": 4,
     "targeting": "TARGET_ADJACENT_UNIT_OR_WALL",
     "numDice": 2,
-    "diceSides": 10
+    "diceSides": 10,
+    "class": 2
   },
   {
     "id": 14,
@@ -121,7 +134,8 @@
     "cost": 2,
     "targeting": "TARGET_SELF",
     "numDice": 1,
-    "diceSides": 20
+    "diceSides": 20,
+    "class": 2
   },
   {
     "id": 15,
@@ -130,7 +144,8 @@
     "cost": 5,
     "targeting": "TARGET_EMPTY_TILE",
     "numDice": 3,
-    "diceSides": 6
+    "diceSides": 6,
+    "class": 2
   },
   {
     "id": 16,
@@ -140,7 +155,8 @@
     "value": 0,
     "targeting": "TARGET_SELF",
     "numDice": 0,
-    "diceSides": 0
+    "diceSides": 0,
+    "class": 1
   },
   {
     "id": 17,
@@ -150,7 +166,8 @@
     "value": 0,
     "targeting": "TARGET_SELF",
     "numDice": 0,
-    "diceSides": 0
+    "diceSides": 0,
+    "class": 2
   },
   {
     "id": 18,
@@ -161,7 +178,8 @@
     "targeting": "TARGET_ADJACENT_OR_SELF_UNIT",
     "damageType": "DAMAGE_MAGIC",
     "numDice": 0,
-    "diceSides": 0
+    "diceSides": 0,
+    "class": 2
   },
   {
     "id": 19,
@@ -172,7 +190,8 @@
     "targeting": "TARGET_LINE_OF_SIGHT_TILE",
     "damageType": "DAMAGE_MAGIC",
     "numDice": 1,
-    "diceSides": 20
+    "diceSides": 20,
+    "class": 3
   },
   {
     "id": 20,
@@ -183,7 +202,8 @@
     "targeting": "TARGET_ADJACENT_UNIT",
     "damageType": "DAMAGE_FIRE",
     "numDice": 0,
-    "diceSides": 0
+    "diceSides": 0,
+    "class": 1
   },
   {
     "id": 21,
@@ -192,7 +212,8 @@
     "cost": 3,
     "targeting": "TARGET_LINE_OF_SIGHT_TILE",
     "numDice": 2,
-    "diceSides": 6
+    "diceSides": 6,
+    "class": 2
   },
   {
     "id": 22,
@@ -201,7 +222,8 @@
     "cost": 2,
     "targeting": "TARGET_EMPTY_ADJACENT",
     "numDice": 1,
-    "diceSides": 6
+    "diceSides": 6,
+    "class": 2
   },
   {
     "id": 23,
@@ -210,21 +232,24 @@
     "cost": 4,
     "targeting": "TARGET_EMPTY_ADJACENT",
     "numDice": 1,
-    "diceSides": 10
+    "diceSides": 10,
+    "class": 2
   },
   {
     "id": 24,
     "name": "Strengthen Elements",
     "type": "CARD_STRENGTHEN_ELEMENTS",
     "cost": 3,
-    "targeting": "TARGET_SELF"
+    "targeting": "TARGET_SELF",
+    "class": 2
   },
   {
     "id": 25,
     "name": "Summon Wall",
     "type": "CARD_CREATE_WALL",
     "cost": 2,
-    "targeting": "TARGET_EMPTY_ADJACENT"
+    "targeting": "TARGET_EMPTY_ADJACENT",
+    "class": 1
   },
   {
     "id": 26,
@@ -232,7 +257,8 @@
     "type": "CARD_DARK_SHIELD",
     "cost": 2,
     "value": 7,
-    "targeting": "TARGET_SELF"
+    "targeting": "TARGET_SELF",
+    "class": 2
   },
   {
     "id": 27,
@@ -240,28 +266,32 @@
     "type": "CARD_DRAIN_PUNCH",
     "cost": 2,
     "value": 2,
-    "targeting": "TARGET_ADJACENT_UNIT"
+    "targeting": "TARGET_ADJACENT_UNIT",
+    "class": 1
   },
   {
     "id": 28,
     "name": "Double Handed",
     "type": "CARD_DOUBLE_HANDED",
     "cost": 2,
-    "targeting": "TARGET_ADJACENT_OR_SELF_UNIT"
+    "targeting": "TARGET_ADJACENT_OR_SELF_UNIT",
+    "class": 1
   },
   {
     "id": 30,
     "name": "Call for Wolves",
     "type": "CARD_CALL_FOR_WOLVES",
     "cost": 7,
-    "targeting": "TARGET_SELF"
+    "targeting": "TARGET_SELF",
+    "class": 3
   },
   {
     "id": 31,
     "name": "Necromancer's Blessing",
     "type": "CARD_NECRO_BLESSING",
     "cost": 3,
-    "targeting": "TARGET_SELF"
+    "targeting": "TARGET_SELF",
+    "class": 2
   },
   {
     "id": 32,
@@ -270,7 +300,8 @@
     "cost": 7,
     "targeting": "TARGET_SELF",
     "numDice": 1,
-    "diceSides": 4
+    "diceSides": 4,
+    "class": 3
   },
   {
     "id": 33,
@@ -278,7 +309,8 @@
     "type": "CARD_MASTER_FIST",
     "cost": 2,
     "value": 2,
-    "targeting": "TARGET_ADJACENT_UNIT"
+    "targeting": "TARGET_ADJACENT_UNIT",
+    "class": 2
   },
   {
     "id": 34,
@@ -288,7 +320,8 @@
     "targeting": "TARGET_LINE_OF_SIGHT_TILE",
     "damageType": "DAMAGE_MAGIC",
     "numDice": 2,
-    "diceSides": 20
+    "diceSides": 20,
+    "class": 3
   },
   {
     "id": 35,
@@ -298,7 +331,8 @@
     "targeting": "TARGET_SELF",
     "damageType": "DAMAGE_PHYSICAL",
     "numDice": 1,
-    "diceSides": 6
+    "diceSides": 6,
+    "class": 1
   },
   {
     "id": 36,
@@ -307,7 +341,8 @@
     "cost": 5,
     "targeting": "TARGET_EMPTY_ADJACENT",
     "numDice": 2,
-    "diceSides": 6
+    "diceSides": 6,
+    "class": 2
   },
   {
     "id": 37,
@@ -316,7 +351,8 @@
     "cost": 8,
     "targeting": "TARGET_LINE_OF_SIGHT_TILE",
     "numDice": 1,
-    "diceSides": 20
+    "diceSides": 20,
+    "class": 3
   },
   {
     "id": 38,
@@ -325,14 +361,16 @@
     "cost": 10,
     "targeting": "TARGET_EMPTY_ADJACENT",
     "numDice": 3,
-    "diceSides": 10
+    "diceSides": 10,
+    "class": 3
   },
   {
     "id": 39,
     "name": "Shield Bash",
     "type": "CARD_SHIELD_BASH",
     "cost": 3,
-    "targeting": "TARGET_ADJACENT_UNIT"
+    "targeting": "TARGET_ADJACENT_UNIT",
+    "class": 1
   },
   {
     "id": 41,
@@ -342,42 +380,48 @@
     "targeting": "TARGET_LINE_OF_SIGHT_TILE",
     "damageType": "DAMAGE_ELECTRIC",
     "numDice": 2,
-    "diceSides": 10
+    "diceSides": 10,
+    "class": 2
   },
   {
     "id": 43,
     "name": "Consume Health Potion",
     "type": "CARD_CONSUME_HEALTH_POTION",
     "cost": 2,
-    "targeting": "TARGET_SELF"
+    "targeting": "TARGET_SELF",
+    "class": 1
   },
   {
     "id": 44,
     "name": "Add Poison",
     "type": "CARD_ADD_POISON",
     "cost": 2,
-    "targeting": "TARGET_SELF"
+    "targeting": "TARGET_SELF",
+    "class": 1
   },
   {
     "id": 45,
     "name": "Flurry of Fists",
     "type": "CARD_FLURRY_OF_FISTS",
     "cost": 3,
-    "targeting": "TARGET_ADJACENT_UNIT"
+    "targeting": "TARGET_ADJACENT_UNIT",
+    "class": 2
   },
   {
     "id": 46,
     "name": "Form of Tortoise",
     "type": "CARD_FORM_OF_TORTOISE",
     "cost": 5,
-    "targeting": "TARGET_SELF"
+    "targeting": "TARGET_SELF",
+    "class": 3
   },
   {
     "id": 47,
     "name": "Fortify",
     "type": "CARD_FORTIFY",
     "cost": 3,
-    "targeting": "TARGET_ADJACENT_UNIT_OR_WALL"
+    "targeting": "TARGET_ADJACENT_UNIT_OR_WALL",
+    "class": 2
   },
   {
     "id": 48,
@@ -386,7 +430,8 @@
     "cost": 3,
     "value": 3,
     "damageType": "DAMAGE_PHYSICAL",
-    "targeting": "TARGET_ADJACENT_UNIT"
+    "targeting": "TARGET_ADJACENT_UNIT",
+    "class": 2
   },
   {
     "id": 49,
@@ -395,21 +440,24 @@
     "cost": 4,
     "numDice": 1,
     "diceSides": 4,
-    "targeting": "TARGET_SELF"
+    "targeting": "TARGET_SELF",
+    "class": 2
   },
   {
     "id": 50,
     "name": "Demolition",
     "type": "CARD_DEMOLITION",
     "cost": 6,
-    "targeting": "TARGET_ADJACENT_UNIT_OR_WALL"
+    "targeting": "TARGET_ADJACENT_UNIT_OR_WALL",
+    "class": 2
   },
   {
     "id": 51,
     "name": "Renewed Inspiration",
     "type": "CARD_RENEWED_INSPIRATION",
     "cost": 2,
-    "targeting": "TARGET_SELF"
+    "targeting": "TARGET_SELF",
+    "class": 2
   },
   {
     "id": 52,
@@ -418,7 +466,8 @@
     "cost": 3,
     "targeting": "TARGET_SELF",
     "numDice": 1,
-    "diceSides": 4
+    "diceSides": 4,
+    "class": 1
   },
   {
     "id": 53,
@@ -427,42 +476,48 @@
     "cost": 8,
     "targeting": "TARGET_SELF",
     "numDice": 2,
-    "diceSides": 20
+    "diceSides": 20,
+    "class": 3
   },
   {
     "id": 54,
     "name": "Summon Magic Wall",
     "type": "CARD_CREATE_WALL",
     "cost": 2,
-    "targeting": "TARGET_EMPTY_ADJACENT"
+    "targeting": "TARGET_EMPTY_ADJACENT",
+    "class": 1
   },
   {
     "id": 55,
     "name": "Earthquake",
     "type": "CARD_EARTHQUAKE",
     "cost": 5,
-    "targeting": "TARGET_SELF"
+    "targeting": "TARGET_SELF",
+    "class": 3
   },
   {
     "id": 56,
     "name": "Form of Ghost",
     "type": "CARD_FORM_OF_GHOST",
     "cost": 7,
-    "targeting": "TARGET_SELF"
+    "targeting": "TARGET_SELF",
+    "class": 3
   },
   {
     "id": 57,
     "name": "Giant Magic Hand",
     "type": "CARD_GIANT_MAGIC_HAND",
     "cost": 2,
-    "targeting": "TARGET_ADJACENT_WALL"
+    "targeting": "TARGET_ADJACENT_WALL",
+    "class": 2
   },
   {
     "id": 58,
     "name": "Consume Large Health Potion",
     "type": "CARD_CONSUME_LARGE_HEALTH_POTION",
     "cost": 4,
-    "targeting": "TARGET_SELF"
+    "targeting": "TARGET_SELF",
+    "class": 2
   },
   {
     "id": 59,
@@ -471,49 +526,56 @@
     "cost": 1,
     "targeting": "TARGET_LINE_OF_SIGHT_TILE",
     "numDice": 1,
-    "diceSides": 6
+    "diceSides": 6,
+    "class": 1
   },
   {
     "id": 60,
     "name": "Transform Wall",
     "type": "CARD_TRANSFORM_WALL",
     "cost": 5,
-    "targeting": "TARGET_ADJACENT_WALL"
+    "targeting": "TARGET_ADJACENT_WALL",
+    "class": 3
   },
   {
     "id": 61,
     "name": "Summon Kobold King",
     "type": "CARD_SUMMON_KOBOLD_KING",
     "cost": 4,
-    "targeting": "TARGET_EMPTY_ADJACENT"
+    "targeting": "TARGET_EMPTY_ADJACENT",
+    "class": 2
   },
   {
     "id": 62,
     "name": "Summon Assistant",
     "type": "CARD_SUMMON_ASSISTANT",
     "cost": 4,
-    "targeting": "TARGET_EMPTY_ADJACENT"
+    "targeting": "TARGET_EMPTY_ADJACENT",
+    "class": 1
   },
   {
     "id": 64,
     "name": "Four-leaf clover",
     "type": "CARD_FOUR_LEAF_CLOVER",
     "cost": 10,
-    "targeting": "TARGET_SELF"
+    "targeting": "TARGET_SELF",
+    "class": 3
   },
   {
     "id": 65,
     "name": "Sprint",
     "type": "CARD_SPRINT",
     "cost": 0,
-    "targeting": "TARGET_SELF"
+    "targeting": "TARGET_SELF",
+    "class": 1
   },
   {
     "id": 66,
     "name": "Full Restore",
     "type": "CARD_FULL_RESTORE",
     "cost": 4,
-    "targeting": "TARGET_SELF"
+    "targeting": "TARGET_SELF",
+    "class": 2
   },
   {
     "id": 67,
@@ -522,14 +584,16 @@
     "cost": 3,
     "value": 5,
     "targeting": "TARGET_ADJACENT_UNIT",
-    "damageType": "DAMAGE_HOLY"
+    "damageType": "DAMAGE_HOLY",
+    "class": 2
   },
   {
     "id": 68,
     "name": "Burst of Light",
     "type": "CARD_BURST_OF_LIGHT",
     "cost": 3,
-    "targeting": "TARGET_LINE_OF_SIGHT_TILE"
+    "targeting": "TARGET_LINE_OF_SIGHT_TILE",
+    "class": 2
   },
   {
     "id": 69,
@@ -538,13 +602,15 @@
     "cost": 3,
     "targeting": "TARGET_LINE_OF_SIGHT_TILE",
     "numDice": 2,
-    "diceSides": 20
+    "diceSides": 20,
+    "class": 2
   },
   {
     "id": 70,
     "name": "Summon Faerie",
     "type": "CARD_SUMMON_FAERIE",
     "cost": 4,
-    "targeting": "TARGET_EMPTY_ADJACENT"
+    "targeting": "TARGET_EMPTY_ADJACENT",
+    "class": 2
   }
 ]
