@@ -145,7 +145,8 @@ enum CardType {
 	CARD_SHOOT_ARROW,
 	CARD_FULL_RESTORE,
 	CARD_TRAIN, // <--- Add
-	CARD_STUDY
+	CARD_STUDY,
+	CARD_BLOCKING_BOON
 };
 
 enum DicePurpose {
@@ -168,7 +169,9 @@ enum DicePurpose {
 	PURPOSE_EARTHQUAKE_DISTANCE,
 	PURPOSE_EARTHQUAKE_DAMAGE,
 	PURPOSE_MAGIC_HAND_DAMAGE,
-	PURPOSE_LESSER_HEAL
+	PURPOSE_LESSER_HEAL,
+	PURPOSE_BLOCKING_BOON_COIN, // <--- Add
+	PURPOSE_BLOCKING_BOON_D20
 };
 
 enum TargetValidity {
@@ -762,6 +765,10 @@ private:
 	std::vector<Card> amnesiaDeckCopy;
 	std::vector<int> amnesiaSelectedIndices;
 	std::vector<ofRectangle> amnesiaCardRects;
+
+	// Blocking Boon
+	std::vector<int> pendingDraftQueue; // Stores class IDs (1, 2, or 3) for chained drafts
+	int blockingBoonTargetIndex = -1; // Stores target for the "Tails" effect
 
 	// Magic Blast
 	bool isWaitingForMagicBlastDice = false;

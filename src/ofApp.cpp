@@ -3666,6 +3666,45 @@ void ofApp::updateGame() {
 						"+" + ofToString(roll.result) + " Bonus AP",
 						ofColor::yellow);
 					ofLogNotice("Game") << "Bonus Dice Finished: " << roll.result << " AP awarded.";
+				} else if (roll.purpose == PURPOSE_BLOCKING_BOON_COIN) {
+					// Result 2 = Heads, 1 = Tails
+					// Heads: Raise Max HP
+					// Tails: Lower Target Max HP
+					if (roll.result >= 2) {
+						// Heads
+						players[currentPlayerIndex].maxHealth++;
+						// Visual only: don't spawn 50 texts, maybe just log or small sparkle?
+						// Actually, let's spawn small text, it might look chaotic but cool.
+						spawnFloatingText(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y), "+1 Max HP", ofColor::green);
+					} else {
+						// Tails
+						Player * t = getPlayer(blockingBoonTargetIndex);
+						if (t) {
+							t->maxHealth = std::max(1, t->maxHealth - 1);
+							// Clamp current health if it exceeds new max
+							if (t->health > t->maxHealth) t->health = t->maxHealth;
+							spawnFloatingText(gridToWorld(t->x, t->y), "-1 Max HP", ofColor::darkRed);
+						}
+					}
+				} else if (roll.purpose == PURPOSE_BLOCKING_BOON_D20) {
+					// Result includes Luck
+					int val = roll.result;
+					int classReward = 0;
+
+					if (val >= 20)
+						classReward = 3;
+					else if (val >= 16)
+						classReward = 2;
+					else if (val >= 10)
+						classReward = 1;
+
+					if (classReward > 0) {
+						pendingDraftQueue.push_back(classReward);
+						spawnFloatingText(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y), "Draft C" + ofToString(classReward), ofColor::cyan);
+					} else {
+						// Fail (1-9)
+						spawnFloatingText(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y), "Fizzle", ofColor::gray);
+					}
 				} else if (roll.purpose == PURPOSE_SUMMON_KOBOLDS) {
 					// Resolve Call for Kobolds roll
 					isWaitingForKoboldDice = false;
@@ -3839,9 +3878,32 @@ void ofApp::updateGame() {
 		} else {
 			++it;
 		}
+	} // <--- THIS IS THE END OF THE DICE LOOP
+
+	// ================== PASTE YOUR NEW CODE HERE ==================
+	// Check if we need to start a chained draft
+	if (currentState == STATE_GAMEPLAY && activeDiceRolls.empty() && !pendingDraftQueue.empty()) {
+		// Sort queue for better UX? (High class first?)
+		std::sort(pendingDraftQueue.begin(), pendingDraftQueue.end(), std::greater<int>());
+
+		int nextClass = pendingDraftQueue.front();
+		pendingDraftQueue.erase(pendingDraftQueue.begin());
+
+		isInGameDraft = true;
+		draftPlayerIndex = currentPlayerIndex;
+		generateDraftOptions(nextClass);
+		draftPicksRemaining = 1;
+		selectedDraftIndices.clear();
+		draftStage = 0;
+		currentState = STATE_DRAFTING;
+
+		ofLogNotice("Blocking Boon") << "Starting chained draft for Class " << nextClass << ". Remaining in queue: " << pendingDraftQueue.size();
 	}
+	// ==============================================================
+
 	// Update Floating Text
 	for (auto it = activeFloatingTexts.begin(); it != activeFloatingTexts.end();) {
+
 		float dt = ofGetLastFrameTime();
 		it->worldPos += it->velocity * dt;
 		it->velocity.y *= 0.95f; // Slow down upward movement (gravity drag)
@@ -4817,10 +4879,23 @@ void ofApp::drawGame() {
 				}
 			}
 
-			// Default placement: spread atop board
+			// Default placement: Grid layout for massive amounts of dice
 			if (!placed) {
-				float offset = (i * 6.0f) - ((activeDiceRolls.size() - 1) * 3.0f);
-				ofTranslate(offset, 4.5f, 0);
+				int rowLength = 10; // 10 dice per row
+				float spacing = 3.0f;
+
+				int row = i / rowLength;
+				int col = i % rowLength;
+
+				// Center the grid roughly
+				float totalW = rowLength * spacing;
+				float startX = -(totalW / 2.0f);
+
+				float offsetX = startX + (col * spacing);
+				float offsetZ = (row * spacing); // Stack rows in depth
+				float offsetY = 4.5f;
+
+				ofTranslate(offsetX, offsetY, offsetZ);
 			}
 
 			// Apply Rotation
@@ -7346,6 +7421,36 @@ void ofApp::mousePressed(int x, int y, int button) {
 	// Debug: Log all mouse presses when targeting teleport
 	if (isTargetingTeleport) {
 		ofLogNotice("Teleport") << "mousePressed called! x=" << x << " y=" << y << " button=" << button;
+	}
+
+	// --- BRANCH: IN-GAME KEY DRAFT / CHAINED DRAFT ---
+	if (isInGameDraft) {
+		// Reference drafting player
+		Player & p = players[draftPlayerIndex];
+
+		// Shuffle deck
+		std::shuffle(p.deck.begin(), p.deck.end(), rng);
+
+		// CHECK QUEUE: Are there more drafts pending?
+		if (!pendingDraftQueue.empty()) {
+			// Pop next and stay in drafting
+			int nextClass = pendingDraftQueue.front();
+			pendingDraftQueue.erase(pendingDraftQueue.begin());
+
+			generateDraftOptions(nextClass);
+			draftPicksRemaining = 1;
+			selectedDraftIndices.clear();
+			// draftPlayerIndex stays same
+			// currentState stays STATE_DRAFTING
+
+			ofLogNotice("Draft") << "Continuing chain. Next Class: " << nextClass;
+			return;
+		}
+
+		// No more drafts, return to game
+		isInGameDraft = false;
+		currentState = STATE_GAMEPLAY;
+		return;
 	}
 
 	// If paused, handle pause-menu clicks immediately and ignore gameplay handlers.
@@ -10117,6 +10222,45 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		currentPlayer.luck += 1;
 		spawnFloatingText(gridToWorld(currentPlayer.x, currentPlayer.y), "+1 Luck!", ofColor::green);
 		playedSuccessfully = true;
+		break;
+	}
+
+		// --- CASE: BLOCKING BOON ---
+	case CARD_BLOCKING_BOON: {
+		// Target must be adjacent unit (for the Tails effect)
+		int targetIndex = -1;
+		for (size_t i = 0; i < players.size(); i++) {
+			if (players[i].x == targetX && players[i].y == targetY) {
+				targetIndex = (int)i;
+				break;
+			}
+		}
+
+		if (targetIndex != -1) {
+			blockingBoonTargetIndex = targetIndex;
+
+			// 1. Physical Block -> Coins
+			int physBlock = currentPlayer.block; // Only physical block
+			if (physBlock > 0) {
+				ofLogNotice("Blocking Boon") << "Rolling " << physBlock << " coins for Physical Block.";
+				startDiceRoll(physBlock, 2, PURPOSE_BLOCKING_BOON_COIN, "Boon: Phys Flip", currentPlayerIndex);
+			}
+
+			// 2. Non-Physical Block -> D20s
+			// "all blocking types added up except for physical block" -> Holy + Barrier + Ward
+			int nonPhys = currentPlayer.holyBlock + currentPlayer.barrier + currentPlayer.ward;
+			if (nonPhys > 0) {
+				ofLogNotice("Blocking Boon") << "Rolling " << nonPhys << " D20s for Non-Phys Block.";
+				// Note: D20s are affected by Luck inside startDiceRoll
+				startDiceRoll(nonPhys, 20, PURPOSE_BLOCKING_BOON_D20, "Boon: Magic Roll", currentPlayerIndex);
+			}
+
+			if (physBlock == 0 && nonPhys == 0) {
+				spawnFloatingText(gridToWorld(currentPlayer.x, currentPlayer.y), "No Block!", ofColor::gray);
+			} else {
+				playedSuccessfully = true;
+			}
+		}
 		break;
 	}
 
@@ -15090,6 +15234,7 @@ CardType ofApp::stringToCardType(const std::string & str) {
 	if (str == "CARD_FULL_RESTORE") return CARD_FULL_RESTORE;
 	if (str == "CARD_TRAIN") return CARD_TRAIN;
 	if (str == "CARD_STUDY") return CARD_STUDY;
+	if (str == "CARD_BLOCKING_BOON") return CARD_BLOCKING_BOON;
 
 	return CARD_NONE;
 }
@@ -15803,7 +15948,7 @@ void ofApp::drawInitiativeRoll() {
 		}
 	}
 }
-
+//--------------------------------------------------------------
 void ofApp::drawDraftScreen() {
 	// 1. Construct Specific Instruction Text
 	string pName = (draftPlayerIndex == 0) ? "Player 1" : "Player 2";
@@ -15817,7 +15962,7 @@ void ofApp::drawDraftScreen() {
 		msg = pName + " - Class 2: Choose 1 (Get 1 Copy)";
 	}
 
-	// 2. Draw Instruction Text
+	// 2. Draw Instruction Text (Top Center, Shadowed)
 	ofRectangle bbox = titleFont.getStringBoundingBox(msg, 0, 0);
 	float tx = (ofGetWidth() / 2.0f) - (bbox.width / 2.0f);
 	float ty = ofGetHeight() * 0.25f;
@@ -15830,20 +15975,20 @@ void ofApp::drawDraftScreen() {
 	// 2b. Draw Class Tier Text Below Prompt
 	std::string classTierText = "";
 	ofColor classTierColor = ofColor::white;
-	if (draftStage == 0) {
-		classTierText = "Class 1";
-		classTierColor = ofColor(205, 127, 50); // Bronze
-	} else if (draftStage == 1) {
-		classTierText = "Class 2";
-		classTierColor = ofColor(192, 192, 192); // Silver
-	} else if (draftStage == 2) {
-		classTierText = "Class 3";
-		classTierColor = ofColor(255, 215, 0); // Gold
+	if (!isInGameDraft) {
+		if (draftStage == 0) {
+			classTierText = "Class 1";
+			classTierColor = ofColor(205, 127, 50); // Bronze
+		} else if (draftStage == 1) {
+			classTierText = "Class 2";
+			classTierColor = ofColor(192, 192, 192); // Silver
+		}
 	}
+
 	if (!classTierText.empty()) {
 		ofRectangle classBox = titleFont.getStringBoundingBox(classTierText, 0, 0);
 		float classTx = (ofGetWidth() / 2.0f) - (classBox.width / 2.0f);
-		float classTy = ty + bbox.height + 18; // 18px below main prompt
+		float classTy = ty + bbox.height + 18;
 		ofSetColor(0, 0, 0, 255);
 		titleFont.drawString(classTierText, classTx + 2, classTy + 2);
 		ofSetColor(classTierColor);
@@ -15851,21 +15996,20 @@ void ofApp::drawDraftScreen() {
 	}
 
 	// 3. Draw Cards
-	// Make draft cards much larger for better visibility
-	float cardW = 340; // Increased from 200
+	float cardW = 340;
 	float cardH = cardW * 1.4f;
-	float spacing = 60; // Slightly increased spacing
+	float spacing = 60;
 	float startX = (ofGetWidth() - (3 * cardW + 2 * spacing)) / 2;
 	float startY = ofGetHeight() / 2 - cardH / 2;
 
-	for (int i = 0; i < draftOptions.size(); ++i) {
+	for (size_t i = 0; i < draftOptions.size(); ++i) {
 		float x = startX + i * (cardW + spacing);
 		ofRectangle cardRect(x, startY, cardW, cardH);
 
 		// Check Selection
 		bool isSelected = false;
 		for (int sel : selectedDraftIndices) {
-			if (sel == i) isSelected = true;
+			if (sel == (int)i) isSelected = true;
 		}
 
 		// Selection Highlight (Yellow)
@@ -15873,7 +16017,7 @@ void ofApp::drawDraftScreen() {
 			ofPushStyle();
 			ofNoFill();
 			ofSetColor(ofColor::yellow);
-			ofSetLineWidth(6); // Thicker for selection
+			ofSetLineWidth(6);
 			ofDrawRectRounded(x - 8, startY - 8, cardW + 16, cardH + 16, 12);
 			ofPopStyle();
 		}
@@ -15895,7 +16039,6 @@ void ofApp::drawDraftScreen() {
 	}
 
 	// 4. Draw Accept Button
-	// Determine required picks: Setup Stage 0 needs 2, everything else (Stage 1 or In-Game) needs 1.
 	int required = 1;
 	if (!isInGameDraft && draftStage == 0) required = 2;
 
@@ -15903,9 +16046,8 @@ void ofApp::drawDraftScreen() {
 
 	float btnW = 220, btnH = 60;
 	float btnX = (ofGetWidth() - btnW) / 2.0f;
-	float btnY = startY + (cardW * 1.4f) + 40; // positioned below cards
+	float btnY = startY + cardH + 40;
 
-	// FIX: Update the global variable using .set(), do not redeclare 'ofRectangle'
 	draftAcceptButtonRect.set(btnX, btnY, btnW, btnH);
 
 	ofSetColor(canAccept ? ofColor(70, 160, 255) : ofColor(100, 100, 100));

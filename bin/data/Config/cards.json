@@ -278,6 +278,14 @@
     "class": 1
   },
   {
+    "id": 29,
+    "name": "Blocking Boon",
+    "type": "CARD_BLOCKING_BOON",
+    "cost": 3,
+    "targeting": "TARGET_ADJACENT_UNIT",
+    "class": 1
+  },
+  {
     "id": 30,
     "name": "Call for Wolves",
     "type": "CARD_CALL_FOR_WOLVES",
