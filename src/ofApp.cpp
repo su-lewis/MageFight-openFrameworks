@@ -3922,14 +3922,10 @@ void ofApp::updateGame() {
 		glm::vec3 targetPos = animationPath[currentPathIndex];
 		float player_speed = 1.0 - pow(0.65, deltaTime * 60.0);
 
-		// Calculate facing direction based on movement and store it on the player
+		// Calculate facing direction
 		glm::vec3 direction = targetPos - playerVisualPos;
 		if (glm::length(glm::vec2(direction.x, direction.z)) > 0.01f) {
-			// atan2 gives angle in radians, convert to degrees
-			// In our coordinate system: +Z is South, -Z is North, +X is East, -X is West
-			// Add 180 to flip the direction so units face the way they're going
 			playerFacingAngle = glm::degrees(atan2(direction.x, direction.z)) + 180.0f;
-			// Store on the player so it persists after movement
 			if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) {
 				players[currentPlayerIndex].facingAngle = playerFacingAngle;
 			}
@@ -3937,24 +3933,73 @@ void ofApp::updateGame() {
 
 		playerVisualPos = glm::mix(playerVisualPos, targetPos, player_speed);
 
-		// Check if unit arrived at the center of the tile (Distance < 0.05)
+		// Check if unit arrived at the center of the tile
 		if (glm::distance(playerVisualPos, targetPos) < 0.05f) {
-			playerVisualPos = targetPos;
+			playerVisualPos = targetPos; // Snap to exact position
+
+			// --- KEY PICKUP LOGIC START ---
+			glm::vec2 currentGridPos = worldToGrid(playerVisualPos);
+			int cx = (int)currentGridPos.x;
+			int cy = (int)currentGridPos.y;
+
+			for (int k = 0; k < (int)floatingKeyInstances.size(); ++k) {
+				if (floatingKeyInstances[k].pos.x == cx && floatingKeyInstances[k].pos.y == cy) {
+					// KEY FOUND
+					int keySet = floatingKeyInstances[k].set;
+
+					// Remove the key immediately
+					floatingKeyInstances.erase(floatingKeyInstances.begin() + k);
+
+					// Map Key Color to Card Class
+					// Set 3 (Bronze) = Class 1
+					// Set 2 (Silver) = Class 2
+					// Set 1 (Gold)   = Class 3
+					int classToDraft = 1;
+					if (keySet == 3)
+						classToDraft = 1;
+					else if (keySet == 2)
+						classToDraft = 2;
+					else if (keySet == 1)
+						classToDraft = 3;
+
+					// Identify Owner (If minion steps on key, Summoner gets the card)
+					Player & mover = players[currentPlayerIndex];
+					int ownerID = mover.isMinion ? mover.ownerID : mover.playerID;
+
+					int ownerIndex = -1;
+					for (int p = 0; p < (int)players.size(); ++p) {
+						if (players[p].playerID == ownerID && !players[p].isMinion) {
+							ownerIndex = p;
+							break;
+						}
+					}
+
+					if (ownerIndex != -1) {
+						// Setup In-Game Draft State
+						isInGameDraft = true;
+						draftPlayerIndex = ownerIndex;
+						generateDraftOptions(classToDraft);
+						draftPicksRemaining = 1; // Keys always give 1 pick
+						selectedDraftIndices.clear(); // Reset UI selection
+						currentState = STATE_DRAFTING;
+
+						spawnFloatingText(gridToWorld(cx, cy), "Key Found!", ofColor::gold);
+						ofLogNotice("Key") << "Player " << ownerID << " picked up key (Class " << classToDraft << ")";
+						return; // Stop update to freeze game/animation until draft is done
+					}
+					break;
+				}
+			}
+			// --- KEY PICKUP LOGIC END ---
+
 			currentPathIndex++;
 
-			// --- PLAY RANDOM FOOTSTEP ---
-			// Only play if we are moving to another tile (not the final destination)
-			// and we successfully loaded sounds.
+			// Play Footstep Sound
 			if (currentPathIndex < animationPath.size() && !footstepSounds.empty()) {
-
-				// Pick a random index from 0 to 5
 				int idx = (int)ofRandom(0, footstepSounds.size());
-
-				// Slight pitch variation (0.9 to 1.1) makes it sound more natural/less robotic
 				footstepSounds[idx].setSpeed(ofRandom(0.9f, 1.1f));
 				footstepSounds[idx].play();
 			}
-			// ---------------------------
 
 			if (currentPathIndex >= static_cast<int>(animationPath.size())) isPlayerAnimating = false;
 		}
@@ -7204,23 +7249,26 @@ cursor_check_done:;
 // ----------------- FULL mousePressed FUNCTION -----------------
 void ofApp::mousePressed(int x, int y, int button) {
 	if (currentState == STATE_DRAFTING && button == OF_MOUSE_BUTTON_LEFT) {
-		// Match the new larger card size in drawDraftScreen
+		// Card Dimensions (Must match drawDraftScreen)
 		float cardW = 340;
 		float cardH = cardW * 1.4f;
 		float spacing = 60;
 		float startX = (ofGetWidth() - (3 * cardW + 2 * spacing)) / 2;
 		float startY = ofGetHeight() / 2 - cardH / 2;
 
-		// Card selection logic
+		// Determine logic for this draft phase
+		int requiredPicks = 1;
+		if (!isInGameDraft && draftStage == 0) requiredPicks = 2; // Setup Class 1 needs 2 picks
+
+		// 1. Card Clicking
 		for (int i = 0; i < draftOptions.size(); ++i) {
 			float cx = startX + i * (cardW + spacing);
 			if (ofRectangle(cx, startY, cardW, cardH).inside(x, y)) {
 				auto it = std::find(selectedDraftIndices.begin(), selectedDraftIndices.end(), i);
 				if (it != selectedDraftIndices.end()) {
-					selectedDraftIndices.erase(it);
+					selectedDraftIndices.erase(it); // Deselect
 				} else {
-					int maxSelections = (draftStage == 0) ? 2 : 1;
-					if ((int)selectedDraftIndices.size() < maxSelections) {
+					if ((int)selectedDraftIndices.size() < requiredPicks) {
 						selectedDraftIndices.push_back(i);
 					}
 				}
@@ -7228,23 +7276,63 @@ void ofApp::mousePressed(int x, int y, int button) {
 			}
 		}
 
-		// Accept button logic
-		int required = (draftStage == 0) ? 2 : 1;
-		// Calculate Accept button rect (must match drawDraftScreen)
-		float acceptBtnW = 220;
-		float acceptBtnH = 70;
-		float acceptBtnX = (ofGetWidth() - acceptBtnW) / 2;
-		float acceptBtnY = ofGetHeight() * 0.80f;
-		ofRectangle draftAcceptButtonRect(acceptBtnX, acceptBtnY, acceptBtnW, acceptBtnH);
-		if ((int)selectedDraftIndices.size() == required && draftAcceptButtonRect.inside(x, y)) {
-			std::vector<int> toPick = selectedDraftIndices;
-			std::sort(toPick.begin(), toPick.end(), std::greater<int>());
-			for (int idx : toPick) {
-				onCardPicked(idx);
+		// 2. Accept Button Clicking
+		if ((int)selectedDraftIndices.size() == requiredPicks && draftAcceptButtonRect.inside(x, y)) {
+
+			Player & p = players[draftPlayerIndex];
+
+			// Determine copies per card
+			int copiesPerCard = 1;
+			if (!isInGameDraft && draftStage == 0) copiesPerCard = 2; // Setup Class 1 gets 2 copies
+
+			// Add cards to deck
+			for (int pickedIndex : selectedDraftIndices) {
+				for (int k = 0; k < copiesPerCard; k++) {
+					p.deck.push_back(draftOptions[pickedIndex]);
+				}
 			}
+
+			// FIX: Shuffle new cards into deck immediately
+			std::shuffle(p.deck.begin(), p.deck.end(), rng);
+
+			// Cleanup UI state
 			selectedDraftIndices.clear();
+			draftOptions.clear();
+
+			// Logic: In-Game Draft (Key Pickup)
+			if (isInGameDraft) {
+				isInGameDraft = false;
+				currentState = STATE_GAMEPLAY;
+				return;
+			}
+
+			// Logic: Setup Draft
+			draftStage++;
+			if (draftStage == 1) {
+				generateDraftOptions(2); // Move to Class 2
+			} else {
+				// Current player finished
+				int nextPlayerIdx = (draftPlayerIndex + 1) % 2;
+
+				if (players[nextPlayerIdx].deck.empty()) {
+					// Other player needs to draft
+					draftPlayerIndex = nextPlayerIdx;
+					draftStage = 0;
+					generateDraftOptions(1); // Start Class 1
+				} else {
+					// Both done. Start Game.
+					// (Decks already shuffled by the immediate shuffle above)
+
+					// Winner of initiative starts (The one who drafted first, which is NOT the one currently finishing)
+					currentPlayerIndex = nextPlayerIdx;
+
+					currentState = STATE_GAMEPLAY;
+					startNewTurn();
+				}
+			}
 			return;
 		}
+		return;
 	}
 	// Debug: Log all mouse presses when targeting teleport
 	if (isTargetingTeleport) {
@@ -15464,12 +15552,19 @@ void ofApp::onCardPicked(int optionIndex) {
 	Player & p = players[draftPlayerIndex];
 	Card picked = draftOptions[optionIndex];
 
-	// Add copies based on stage
-	int copies = (draftStage == 0) ? 2 : 1;
-	for (int i = 0; i < copies; ++i) {
+	// IN-GAME DRAFT LOGIC
+	if (isInGameDraft) {
 		p.deck.push_back(picked);
-	}
+		// Shuffle deck to include new card
+		std::shuffle(p.deck.begin(), p.deck.end(), rng);
 
+		draftOptions.clear();
+		isInGameDraft = false;
+
+		// Return to game
+		currentState = STATE_GAMEPLAY;
+		return;
+	}
 	// Remove picked card from options so it can't be picked again this round
 	draftOptions.erase(draftOptions.begin() + optionIndex);
 
@@ -15594,16 +15689,18 @@ void ofApp::drawDraftScreen() {
 	string pName = (draftPlayerIndex == 0) ? "Player 1" : "Player 2";
 	string msg = "";
 
-	if (draftStage == 0) {
+	if (isInGameDraft) {
+		msg = pName + ": Key Found! Choose 1 Card (Get 1 Copy)";
+	} else if (draftStage == 0) {
 		msg = pName + " - Class 1: Choose 2 (Get 2 Copies)";
 	} else {
-		msg = pName + " - Class 2: Choose 1";
+		msg = pName + " - Class 2: Choose 1 (Get 1 Copy)";
 	}
 
-	// 2. Draw Instruction Text (Top Center, Shadowed)
+	// 2. Draw Instruction Text
 	ofRectangle bbox = titleFont.getStringBoundingBox(msg, 0, 0);
 	float tx = (ofGetWidth() / 2.0f) - (bbox.width / 2.0f);
-	float ty = ofGetHeight() * 0.25f; // Standard instruction height
+	float ty = ofGetHeight() * 0.25f;
 
 	ofSetColor(0, 0, 0, 255);
 	titleFont.drawString(msg, tx + 2, ty + 2);
@@ -15677,16 +15774,24 @@ void ofApp::drawDraftScreen() {
 			draftOptions[i].textureRect.width, draftOptions[i].textureRect.height);
 	}
 
-	// Draw Accept Button (centered below cards)
-	float acceptBtnW = 220;
-	float acceptBtnH = 70;
-	float acceptBtnX = (ofGetWidth() - acceptBtnW) / 2;
-	float acceptBtnY = ofGetHeight() * 0.80f;
-	ofRectangle draftAcceptButtonRect(acceptBtnX, acceptBtnY, acceptBtnW, acceptBtnH);
-	bool enabled = ((int)selectedDraftIndices.size() == ((draftStage == 0) ? 2 : 1));
-	ofSetColor(enabled ? ofColor(0, 180, 0) : ofColor(90, 90, 90));
+	// 4. Draw Accept Button
+	// Determine required picks: Setup Stage 0 needs 2, everything else (Stage 1 or In-Game) needs 1.
+	int required = 1;
+	if (!isInGameDraft && draftStage == 0) required = 2;
+
+	bool canAccept = ((int)selectedDraftIndices.size() == required);
+
+	float btnW = 220, btnH = 60;
+	float btnX = (ofGetWidth() - btnW) / 2.0f;
+	float btnY = startY + (cardW * 1.4f) + 40; // positioned below cards
+
+	// FIX: Update the global variable using .set(), do not redeclare 'ofRectangle'
+	draftAcceptButtonRect.set(btnX, btnY, btnW, btnH);
+
+	ofSetColor(canAccept ? ofColor(70, 160, 255) : ofColor(100, 100, 100));
 	ofDrawRectRounded(draftAcceptButtonRect, 12);
+
 	ofSetColor(ofColor::white);
-	ofRectangle btnTextBox = titleFont.getStringBoundingBox("Accept", 0, 0);
-	titleFont.drawString("Accept", draftAcceptButtonRect.getCenter().x - btnTextBox.getWidth() / 2, draftAcceptButtonRect.getCenter().y + btnTextBox.getHeight() / 2);
+	ofRectangle acceptTextBox = uiFont.getStringBoundingBox("Accept", 0, 0);
+	uiFont.drawString("Accept", btnX + (btnW - acceptTextBox.width) / 2, btnY + (btnH + acceptTextBox.height) / 2 - 6);
 }

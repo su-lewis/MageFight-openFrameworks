@@ -480,12 +480,15 @@ private:
 	glm::vec2 getClosestPointOnLineSegment(glm::vec2 p, glm::vec2 start, glm::vec2 end);
 
 	// --- DRAFTING & INITIATIVE ---
+	ofRectangle draftAcceptButtonRect;
+
 	int initiativeRolls[2] = { 0, 0 };
 	bool isInitiativeRolling = false;
 	float initiativeTimer = 0.0f;
 	int draftPlayerIndex = 0; // The player currently drafting
 	int draftStage = 0; // 0 = Class 1 (Pick 2), 1 = Class 2 (Pick 1)
 	int draftPicksRemaining = 0;
+	bool isInGameDraft = false;
 	std::vector<int> selectedDraftIndices; // Tracks indices of cards currently highlighted in draft
 	std::vector<Card> draftOptions; // The 3 cards currently shown
 	std::vector<Card> class1Cards;
