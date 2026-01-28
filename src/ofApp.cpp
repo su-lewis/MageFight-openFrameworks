@@ -3673,8 +3673,6 @@ void ofApp::updateGame() {
 					if (roll.result >= 2) {
 						// Heads
 						players[currentPlayerIndex].maxHealth++;
-						// Visual only: don't spawn 50 texts, maybe just log or small sparkle?
-						// Actually, let's spawn small text, it might look chaotic but cool.
 						spawnFloatingText(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y), "+1 Max HP", ofColor::green);
 					} else {
 						// Tails
@@ -3692,19 +3690,22 @@ void ofApp::updateGame() {
 						pendingBlockingBoonCoinsRemaining = std::max(0, pendingBlockingBoonCoinsRemaining - 1);
 						// Decrement combined outstanding counter as well
 						pendingBlockingBoonTotal = std::max(0, pendingBlockingBoonTotal - 1);
+
+						// --- START FIX ---
+						// This block is now simplified. It ONLY updates the state.
+						// The startDiceRoll() call has been moved outside the loop.
 						if (pendingBlockingBoonCoinsRemaining == 0) {
-							// All coin flips finished; roll D20s if any were queued
+							// All coin flips have finished processing.
+							// Set the flag to false so the next stage can be triggered outside this loop.
 							isWaitingForBlockingBoonCoins = false;
-							if (pendingBlockingBoonNonPhys > 0) {
-								ofLogNotice("Blocking Boon") << "Coins finished; now rolling " << pendingBlockingBoonNonPhys << " D20s for Non-Phys Block.";
-								startDiceRoll(pendingBlockingBoonNonPhys, 20, PURPOSE_BLOCKING_BOON_D20, "Boon: Magic Roll", currentPlayerIndex);
-								pendingBlockingBoonNonPhys = 0;
-							}
+
 							// If our combined counter says everything's done, clear the active guard.
+							// This happens if there were only coin rolls and no D20s.
 							if (pendingBlockingBoonTotal == 0) {
 								blockingBoonActive = false;
 							}
 						}
+						// --- END FIX ---
 					}
 				} else if (roll.purpose == PURPOSE_BLOCKING_BOON_D20) {
 					// Result includes Luck
@@ -3903,7 +3904,17 @@ void ofApp::updateGame() {
 		} else {
 			++it;
 		}
-	} // <--- THIS IS THE END OF THE DICE LOOP
+	} // This is the closing brace of the "for (auto it = activeDiceRolls.begin()..." loop
+
+	// --- START FIX: Blocking Boon Stage Transition ---
+	// After iterating through dice, check if the coin stage just finished and the D20 stage is queued.
+	// This safely starts the next set of dice rolls without modifying the vector during iteration.
+	if (!isWaitingForBlockingBoonCoins && pendingBlockingBoonNonPhys > 0) {
+		ofLogNotice("Blocking Boon") << "Coins finished; now rolling " << pendingBlockingBoonNonPhys << " D20s for Non-Phys Block.";
+		startDiceRoll(pendingBlockingBoonNonPhys, 20, PURPOSE_BLOCKING_BOON_D20, "Boon: Magic Roll", currentPlayerIndex);
+		pendingBlockingBoonNonPhys = 0; // Mark as rolled
+	}
+	// --- END FIX ---
 
 	// ================== PASTE YOUR NEW CODE HERE ==================
 	// Check if we need to start a chained draft
