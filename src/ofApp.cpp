@@ -10350,6 +10350,37 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		break;
 	}
 
+	// --- CASE: CONSTITUTION BOON ---
+	case CARD_CONSTITUTION_BOON: {
+		// When played, grants a chained draft based on the caster's max HP:
+		// 16-20 => Class 1, 21-25 => Class 2, 26-30 => Class 3, >30 => immediate win
+		int mh = currentPlayer.maxHealth;
+		int tier = 0;
+		if (mh >= 16 && mh <= 20)
+			tier = 1;
+		else if (mh >= 21 && mh <= 25)
+			tier = 2;
+		else if (mh >= 26 && mh <= 30)
+			tier = 3;
+
+		if (mh > 30) {
+			// Win condition: show message and return to main menu
+			spawnFloatingText(gridToWorld(currentPlayer.x, currentPlayer.y), "You Win!", ofColor::gold);
+			ofLogNotice("Constitution Boon") << "Player " << currentPlayer.playerID << " triggered instant win via Constitution Boon.";
+			currentState = STATE_MAIN_MENU;
+			playedSuccessfully = true;
+		} else if (tier > 0) {
+			pendingDraftQueue.push_back(tier);
+			spawnFloatingText(gridToWorld(currentPlayer.x, currentPlayer.y), "Draft Class " + ofToString(tier), ofColor::cyan);
+			ofLogNotice("Constitution Boon") << "Player " << currentPlayer.playerID << " queued draft Class " << tier;
+			playedSuccessfully = true;
+		} else {
+			spawnFloatingText(gridToWorld(currentPlayer.x, currentPlayer.y), "No Effect", ofColor::gray);
+		}
+
+		break;
+	}
+
 	// --- CASE: SPRINT ---
 	case CARD_SPRINT: {
 		// Immediate +2 AP and +2 AP next turn. Also make Kick cost-free until end of next turn.
@@ -15329,6 +15360,7 @@ CardType ofApp::stringToCardType(const std::string & str) {
 	if (str == "CARD_TRAIN") return CARD_TRAIN;
 	if (str == "CARD_STUDY") return CARD_STUDY;
 	if (str == "CARD_BLOCKING_BOON") return CARD_BLOCKING_BOON;
+	if (str == "CARD_CONSTITUTION_BOON") return CARD_CONSTITUTION_BOON;
 
 	return CARD_NONE;
 }

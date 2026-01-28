@@ -9,6 +9,14 @@
     "class": 1
   },
   {
+    "id": 63,
+    "name": "Constitution Boon",
+    "type": "CARD_CONSTITUTION_BOON",
+    "cost": 4,
+    "targeting": "TARGET_SELF",
+    "class": 3
+  },
+  {
     "id": 2,
     "name": "Kick",
     "type": "CARD_ATTACK_SINGLE_TILE",
