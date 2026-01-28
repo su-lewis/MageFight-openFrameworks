@@ -4881,21 +4881,48 @@ void ofApp::drawGame() {
 
 			// Default placement: Grid layout for massive amounts of dice
 			if (!placed) {
-				int rowLength = 10; // 10 dice per row
-				float spacing = 3.0f;
+				int rowLength = 10; // max dice per row
+				// Use TILE_SIZE-based spacing so dice scale with board scale
+				float spacing = TILE_SIZE * 1.2f;
 
 				int row = i / rowLength;
 				int col = i % rowLength;
 
-				// Center the grid roughly
-				float totalW = rowLength * spacing;
-				float startX = -(totalW / 2.0f);
+				// Special-case: Initiative roll shows exactly two dice; place them
+				// left/right for clear comparison (matches drawInitiativeRoll labels).
+				if (currentState == STATE_INITIATIVE_ROLL && (int)activeDiceRolls.size() >= 2) {
+					if (i == 0) {
+						ofTranslate(-6.0f, 7.0f, 0.0f);
+					} else if (i == 1) {
+						ofTranslate(6.0f, 7.0f, 0.0f);
+					} else {
+						// Fallback for extra dice: continue with normal grid
+						int totalDice = (int)activeDiceRolls.size();
+						int itemsInThisRow = std::min(rowLength, std::max(0, totalDice - row * rowLength));
+						float totalW = itemsInThisRow * spacing;
+						float startX = -(totalW / 2.0f) + (spacing / 2.0f);
+						float offsetX = startX + (col * spacing);
+						float offsetZ = (row * spacing);
+						float offsetY = 4.5f;
+						ofTranslate(offsetX, offsetY, offsetZ);
+					}
+				} else {
+					// Calculate how many items are in this particular row so
+					// we can center the row based on the actual dice count
+					int totalDice = (int)activeDiceRolls.size();
+					int itemsInThisRow = std::min(rowLength, std::max(0, totalDice - row * rowLength));
 
-				float offsetX = startX + (col * spacing);
-				float offsetZ = (row * spacing); // Stack rows in depth
-				float offsetY = 4.5f;
+					float totalW = itemsInThisRow * spacing;
+					// Start so that the row is centered around X=0. Add half-spacing
+					// so a single die sits exactly at X=0.
+					float startX = -(totalW / 2.0f) + (spacing / 2.0f);
 
-				ofTranslate(offsetX, offsetY, offsetZ);
+					float offsetX = startX + (col * spacing);
+					float offsetZ = (row * spacing); // Stack rows in depth
+					float offsetY = 4.5f;
+
+					ofTranslate(offsetX, offsetY, offsetZ);
+				}
 			}
 
 			// Apply Rotation
