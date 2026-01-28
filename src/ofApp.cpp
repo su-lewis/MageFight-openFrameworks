@@ -3686,6 +3686,26 @@ void ofApp::updateGame() {
 							spawnFloatingText(gridToWorld(t->x, t->y), "-1 Max HP", ofColor::darkRed);
 						}
 					}
+
+					// If we're resolving a staged Blocking Boon, decrement the outstanding coin count
+					if (isWaitingForBlockingBoonCoins) {
+						pendingBlockingBoonCoinsRemaining = std::max(0, pendingBlockingBoonCoinsRemaining - 1);
+						// Decrement combined outstanding counter as well
+						pendingBlockingBoonTotal = std::max(0, pendingBlockingBoonTotal - 1);
+						if (pendingBlockingBoonCoinsRemaining == 0) {
+							// All coin flips finished; roll D20s if any were queued
+							isWaitingForBlockingBoonCoins = false;
+							if (pendingBlockingBoonNonPhys > 0) {
+								ofLogNotice("Blocking Boon") << "Coins finished; now rolling " << pendingBlockingBoonNonPhys << " D20s for Non-Phys Block.";
+								startDiceRoll(pendingBlockingBoonNonPhys, 20, PURPOSE_BLOCKING_BOON_D20, "Boon: Magic Roll", currentPlayerIndex);
+								pendingBlockingBoonNonPhys = 0;
+							}
+							// If our combined counter says everything's done, clear the active guard.
+							if (pendingBlockingBoonTotal == 0) {
+								blockingBoonActive = false;
+							}
+						}
+					}
 				} else if (roll.purpose == PURPOSE_BLOCKING_BOON_D20) {
 					// Result includes Luck
 					int val = roll.result;
@@ -3705,6 +3725,11 @@ void ofApp::updateGame() {
 						// Fail (1-9)
 						spawnFloatingText(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y), "Fizzle", ofColor::gray);
 					}
+
+					// After processing a D20 result, clear active flag if there are no UNPROCESSED blocking-boon dice left
+					// Decrement combined outstanding counter and clear guard if finished
+					pendingBlockingBoonTotal = std::max(0, pendingBlockingBoonTotal - 1);
+					if (pendingBlockingBoonTotal == 0) blockingBoonActive = false;
 				} else if (roll.purpose == PURPOSE_SUMMON_KOBOLDS) {
 					// Resolve Call for Kobolds roll
 					isWaitingForKoboldDice = false;
@@ -9535,6 +9560,16 @@ void ofApp::mouseReleased(int x, int y, int button) {
 							int gy = floor(boardPos.y);
 
 							if (gx >= 0 && gx < BOARD_WIDTH && gy >= 0 && gy < BOARD_HEIGHT) {
+								// Special-case: allow drag-release to play Blocking Boon even without a highlighted tile
+								if (playedCard.type == CARD_BLOCKING_BOON) {
+									playCard(draggedCardIndex, -1, -1);
+									// Clear drag/selection state like other handlers
+									draggedCardIndex = -1;
+									selectedCardIndex = -1;
+									calculateTargetHighlights();
+									return;
+								}
+
 								// Only play if green highlight is active
 								if (board[gx][gy].isTargetable) {
 									playCard(draggedCardIndex, gx, gy);
@@ -10254,7 +10289,12 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 
 		// --- CASE: BLOCKING BOON ---
 	case CARD_BLOCKING_BOON: {
-		// Target must be adjacent unit (for the Tails effect)
+		// Prevent re-entry if a Blocking Boon is already resolving
+		if (blockingBoonActive) {
+			spawnFloatingText(gridToWorld(currentPlayer.x, currentPlayer.y), "Blocking Boon already resolving", ofColor::gray);
+			break;
+		}
+		// Allow playing without an adjacent target: target is optional for the Tails effect.
 		int targetIndex = -1;
 		for (size_t i = 0; i < players.size(); i++) {
 			if (players[i].x == targetX && players[i].y == targetY) {
@@ -10262,32 +10302,37 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 				break;
 			}
 		}
+		blockingBoonTargetIndex = targetIndex; // may be -1 (no target)
 
-		if (targetIndex != -1) {
-			blockingBoonTargetIndex = targetIndex;
+		// 1. Physical Block -> Coins (resolve first)
+		int physBlock = currentPlayer.block; // Only physical block
+		int nonPhys = currentPlayer.holyBlock + currentPlayer.barrier + currentPlayer.ward;
 
-			// 1. Physical Block -> Coins
-			int physBlock = currentPlayer.block; // Only physical block
-			if (physBlock > 0) {
-				ofLogNotice("Blocking Boon") << "Rolling " << physBlock << " coins for Physical Block.";
-				startDiceRoll(physBlock, 2, PURPOSE_BLOCKING_BOON_COIN, "Boon: Phys Flip", currentPlayerIndex);
-			}
-
-			// 2. Non-Physical Block -> D20s
-			// "all blocking types added up except for physical block" -> Holy + Barrier + Ward
-			int nonPhys = currentPlayer.holyBlock + currentPlayer.barrier + currentPlayer.ward;
+		if (physBlock > 0) {
+			ofLogNotice("Blocking Boon") << "Rolling " << physBlock << " coins for Physical Block (resolve first).";
+			// Start coin flips and track them; D20s will be queued until coins complete.
+			startDiceRoll(physBlock, 2, PURPOSE_BLOCKING_BOON_COIN, "Boon: Phys Flip", currentPlayerIndex);
+			isWaitingForBlockingBoonCoins = true;
+			pendingBlockingBoonCoinsRemaining = physBlock;
+			pendingBlockingBoonNonPhys = nonPhys; // roll these after coins finish
+			pendingBlockingBoonTotal = physBlock + nonPhys;
+			blockingBoonActive = true;
+			playedSuccessfully = true;
+		} else {
+			// No coins to flip, roll D20s immediately (if any)
 			if (nonPhys > 0) {
-				ofLogNotice("Blocking Boon") << "Rolling " << nonPhys << " D20s for Non-Phys Block.";
-				// Note: D20s are affected by Luck inside startDiceRoll
+				ofLogNotice("Blocking Boon") << "No physical block; Rolling " << nonPhys << " D20s for Non-Phys Block.";
 				startDiceRoll(nonPhys, 20, PURPOSE_BLOCKING_BOON_D20, "Boon: Magic Roll", currentPlayerIndex);
-			}
-
-			if (physBlock == 0 && nonPhys == 0) {
-				spawnFloatingText(gridToWorld(currentPlayer.x, currentPlayer.y), "No Block!", ofColor::gray);
-			} else {
+				// Mark non-phys as already handled so coins finishing later won't re-roll them
+				pendingBlockingBoonNonPhys = 0;
+				pendingBlockingBoonTotal = nonPhys;
+				blockingBoonActive = true;
 				playedSuccessfully = true;
+			} else {
+				spawnFloatingText(gridToWorld(currentPlayer.x, currentPlayer.y), "No Block!", ofColor::gray);
 			}
 		}
+
 		break;
 	}
 

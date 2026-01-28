@@ -770,6 +770,15 @@ private:
 	std::vector<int> pendingDraftQueue; // Stores class IDs (1, 2, or 3) for chained drafts
 	int blockingBoonTargetIndex = -1; // Stores target for the "Tails" effect
 
+	// Blocking Boon staged resolution
+	bool isWaitingForBlockingBoonCoins = false; // true while coin flips are resolving
+	int pendingBlockingBoonCoinsRemaining = 0; // number of coin flips outstanding
+	int pendingBlockingBoonNonPhys = 0; // number of D20s to roll after coins
+	int pendingBlockingBoonTotal = 0; // total outstanding blocking-boon dice (coins + D20s)
+
+	// Prevent duplicate plays while a Blocking Boon is resolving
+	bool blockingBoonActive = false;
+
 	// Magic Blast
 	bool isWaitingForMagicBlastDice = false;
 	int pendingMagicBlastRollResult = 0;
