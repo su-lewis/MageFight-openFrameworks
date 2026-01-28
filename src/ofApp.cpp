@@ -10316,8 +10316,11 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		blockingBoonTargetIndex = targetIndex; // may be -1 (no target)
 
 		// 1. Physical Block -> Coins (resolve first)
-		int physBlock = currentPlayer.block; // Only physical block
-		int nonPhys = currentPlayer.holyBlock + currentPlayer.barrier + currentPlayer.ward;
+		// Note: `ward` counts toward BOTH physical and non-physical blocking.
+		// Also include `fortification` (from Fortify) as a physical/piercing block source.
+		int physBlock = currentPlayer.block + currentPlayer.fortification + currentPlayer.ward;
+		// Fortification reduces both physical and piercing damage; count it for non-physical resolution too
+		int nonPhys = currentPlayer.holyBlock + currentPlayer.barrier + currentPlayer.ward + currentPlayer.fortification;
 
 		if (physBlock > 0) {
 			ofLogNotice("Blocking Boon") << "Rolling " << physBlock << " coins for Physical Block (resolve first).";
@@ -14580,35 +14583,43 @@ bool ofApp::applyDamageTo(Player & target, int damage, DamageType type, int atta
 	int initialHealth = target.health;
 	int remainingDmg = calculatedDamage;
 
-	if (type == DAMAGE_HOLY) {
-		int absorb = std::min(target.holyBlock, remainingDmg);
-		target.holyBlock -= absorb;
-		remainingDmg -= absorb;
-		if (absorb > 0) ofLogNotice("Game") << "Holy Block absorbed " << absorb;
-	}
-	if (type == DAMAGE_PHYSICAL) {
-		int absorb = std::min(target.block, remainingDmg);
-		target.block -= absorb;
-		remainingDmg -= absorb;
-		if (absorb > 0) ofLogNotice("Game") << "Block absorbed " << absorb;
-	}
-	if (type == DAMAGE_PHYSICAL || type == DAMAGE_PIERCING) {
-		int absorb = std::min(target.fortification, remainingDmg);
-		target.fortification -= absorb;
-		remainingDmg -= absorb;
-		if (absorb > 0) ofLogNotice("Game") << "Fortification absorbed " << absorb;
-	}
-	if (type != DAMAGE_PHYSICAL) {
-		int absorb = std::min(target.barrier, remainingDmg);
-		target.barrier -= absorb;
-		remainingDmg -= absorb;
-		if (absorb > 0) ofLogNotice("Game") << "Barrier absorbed " << absorb;
-	}
-	if (remainingDmg > 0) {
-		int absorb = std::min(target.ward, remainingDmg);
-		target.ward -= absorb;
-		remainingDmg -= absorb;
-		if (absorb > 0) ofLogNotice("Game") << "Ward absorbed " << absorb;
+	// Absorb damage from the most-specific block types first.
+	// Order is chosen per `DamageType` to prefer specific buffers:
+	// - Holy: holyBlock -> barrier -> ward
+	// - Physical: block -> fortification -> ward
+	// - Piercing: fortification -> ward
+	// - Other non-physical (magic, electric, fire, poison): barrier -> ward
+	auto absorbFrom = [&](int & source, int & remaining, const char * name) {
+		int a = std::min(source, remaining);
+		source -= a;
+		remaining -= a;
+		if (a > 0) ofLogNotice("Game") << name << " absorbed " << a;
+	};
+
+	switch (type) {
+	case DAMAGE_HOLY:
+		absorbFrom(target.holyBlock, remainingDmg, "Holy Block");
+		absorbFrom(target.barrier, remainingDmg, "Barrier");
+		absorbFrom(target.ward, remainingDmg, "Ward");
+		break;
+
+	case DAMAGE_PHYSICAL:
+		absorbFrom(target.block, remainingDmg, "Block");
+		absorbFrom(target.fortification, remainingDmg, "Fortification");
+		absorbFrom(target.ward, remainingDmg, "Ward");
+		break;
+
+	case DAMAGE_PIERCING:
+		// Piercing bypasses normal `block`, but is reduced by `fortification`.
+		absorbFrom(target.fortification, remainingDmg, "Fortification");
+		absorbFrom(target.ward, remainingDmg, "Ward");
+		break;
+
+	default:
+		// MAGIC, ELECTRIC, FIRE, POISON and others
+		absorbFrom(target.barrier, remainingDmg, "Barrier");
+		absorbFrom(target.ward, remainingDmg, "Ward");
+		break;
 	}
 
 	glm::vec3 targetPos = gridToWorld(target.x, target.y);
