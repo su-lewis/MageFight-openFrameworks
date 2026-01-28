@@ -143,7 +143,9 @@ enum CardType {
 	CARD_SMITE,
 	CARD_BURST_OF_LIGHT,
 	CARD_SHOOT_ARROW,
-	CARD_FULL_RESTORE
+	CARD_FULL_RESTORE,
+	CARD_TRAIN, // <--- Add
+	CARD_STUDY
 };
 
 enum DicePurpose {
@@ -801,6 +803,16 @@ private:
 	int pendingChainLightningRangeResult = 0;
 	int pendingChainLightningDamageResult = 0;
 	glm::vec2 pendingChainLightningTargetTile;
+
+	// Train Menu UI
+	bool isTrainMenuOpen = false;
+	int pendingTrainCardIndex = -1;
+	ofRectangle trainMenuRect;
+	ofRectangle trainBtnAP;
+	ofRectangle trainBtnDraft;
+
+	// Function Declaration
+	void drawTrainMenuUI();
 
 	// Dispel
 	bool isDispelMenuOpen = false;

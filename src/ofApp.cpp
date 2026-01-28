@@ -6211,6 +6211,11 @@ void ofApp::drawGame() {
 		drawMagicHandUI();
 	}
 
+	// --- Draw Train Menu UI ---
+	if (isTrainMenuOpen) {
+		drawTrainMenuUI();
+	}
+
 	// --- Draw Amnesia Selection UI ---
 	if (isAmnesiaSelectionActive) {
 		// This uses the same dynamic layout logic
@@ -7244,6 +7249,10 @@ cursor_check_done:;
 		if (pauseMenuQuitButton.inside(x, y)) pauseMenuHoveredIndex = 2;
 		break;
 	}
+	case STATE_INITIATIVE_ROLL:
+	case STATE_DRAFTING:
+		// No specific hover logic needed here yet, or handled elsewhere
+		break;
 	}
 }
 // ----------------- FULL mousePressed FUNCTION -----------------
@@ -7722,6 +7731,48 @@ void ofApp::mousePressed(int x, int y, int button) {
 			}
 		}
 		if (!foundTarget) cancelDispel();
+		return;
+	}
+
+	// --- Train Menu Interaction ---
+	if (isTrainMenuOpen && button == OF_MOUSE_BUTTON_LEFT) {
+		Player & p = players[currentPlayerIndex];
+
+		if (trainBtnAP.inside(x, y)) {
+			// Option A: +3 AP Next Turn
+			p.nextTurnAPBonus += 3;
+			spawnFloatingText(gridToWorld(p.x, p.y), "Training: AP", ofColor::yellow);
+
+			// Pay cost & cleanup
+			currentAP -= p.hand[pendingTrainCardIndex].cost;
+			p.playedCardsPile.push_back(p.hand[pendingTrainCardIndex]);
+			// (Replicate check could go here if standard logic isn't used)
+			p.hand.erase(p.hand.begin() + pendingTrainCardIndex);
+
+			isTrainMenuOpen = false;
+			pendingTrainCardIndex = -1;
+			calculateTargetHighlights();
+		} else if (trainBtnDraft.inside(x, y)) {
+			// Option B: Draft Class 1
+			// Pay cost first
+			currentAP -= p.hand[pendingTrainCardIndex].cost;
+			p.playedCardsPile.push_back(p.hand[pendingTrainCardIndex]);
+			p.hand.erase(p.hand.begin() + pendingTrainCardIndex);
+
+			isTrainMenuOpen = false;
+			pendingTrainCardIndex = -1;
+
+			// Setup Draft
+			isInGameDraft = true;
+			draftPlayerIndex = currentPlayerIndex;
+			generateDraftOptions(1); // Class 1
+			draftPicksRemaining = 1;
+			selectedDraftIndices.clear();
+			draftStage = 0;
+
+			currentState = STATE_DRAFTING;
+		}
+		// Click outside does not cancel (must choose)
 		return;
 	}
 
@@ -9540,7 +9591,6 @@ void ofApp::keyReleased(int key) {
 			pausedFromState = STATE_INITIATIVE_ROLL;
 			currentState = STATE_PAUSED;
 			break;
-
 		case STATE_DRAFTING:
 			pausedFromState = STATE_DRAFTING;
 			currentState = STATE_PAUSED;
@@ -10079,6 +10129,52 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		spawnFloatingText(gridToWorld(currentPlayer.x, currentPlayer.y), "+2 AP Now", ofColor::yellow);
 		spawnFloatingText(gridToWorld(currentPlayer.x, currentPlayer.y) + glm::vec3(0, 0.5f, 0), "+2 AP Next Turn", ofColor::yellow);
 		spawnFloatingText(gridToWorld(currentPlayer.x, currentPlayer.y) + glm::vec3(0, 1.0f, 0), "Kick is Free!", ofColor::cyan);
+		playedSuccessfully = true;
+		break;
+	}
+
+		// --- CASE: TRAIN ---
+	case CARD_TRAIN: {
+		pendingTrainCardIndex = cardIndex;
+		isTrainMenuOpen = true;
+
+		// Setup UI Geometry
+		float w = 600, h = 300;
+		float x = ofGetWidth() / 2 - w / 2, y = ofGetHeight() / 2 - h / 2;
+		trainMenuRect.set(x, y, w, h);
+
+		// Button positioning handled in drawTrainMenuUI logic usually,
+		// but we define rects here for mouse detection consistency
+		float btnW = 260, btnH = 80, spacing = 30;
+		float startX = x + (w - (btnW * 2 + spacing)) / 2;
+		float btnY = y + 130;
+
+		trainBtnAP.set(startX, btnY, btnW, btnH);
+		trainBtnDraft.set(startX + btnW + spacing, btnY, btnW, btnH);
+
+		// Don't set playedSuccessfully yet; waiting for menu choice
+		break;
+	}
+
+	// --- CASE: STUDY ---
+	case CARD_STUDY: {
+		// 1. Apply "Draw Extra Card Next Turn"
+		// Note: We need to ensure this stacks or handles existing flags.
+		// For now, setting it to true works.
+		currentPlayer.nextTurnExtraDraw = true;
+		spawnFloatingText(gridToWorld(currentPlayer.x, currentPlayer.y), "Studying...", ofColor::blue);
+
+		// 2. Trigger Draft (Class 2)
+		isInGameDraft = true;
+		draftPlayerIndex = currentPlayerIndex; // The current unit gets the card
+		generateDraftOptions(2); // Class 2
+		draftPicksRemaining = 1;
+		selectedDraftIndices.clear();
+		draftStage = 0; // Context reset
+
+		// 3. Switch State
+		currentState = STATE_DRAFTING;
+
 		playedSuccessfully = true;
 		break;
 	}
@@ -14320,6 +14416,28 @@ bool ofApp::applyDamageTo(Player & target, int damage, DamageType type, int atta
 
 	if (target.health <= 0) {
 		ofLogNotice("Game") << "Player " << target.playerID << " defeated!";
+
+		// --- NEW: DEMON KILL REWARD ---
+		if (target.isDemon && attackerIndex != -1) {
+			// Attacker drafts a Class 3 Card
+			isInGameDraft = true;
+			draftPlayerIndex = attackerIndex;
+			generateDraftOptions(3); // Class 3
+			draftPicksRemaining = 1;
+			selectedDraftIndices.clear();
+			draftStage = 0;
+
+			// Switch state immediately
+			currentState = STATE_DRAFTING;
+
+			// Visual feedback
+			Player * attacker = getPlayer(attackerIndex);
+			if (attacker) {
+				spawnFloatingText(gridToWorld(attacker->x, attacker->y), "Demon Slayer!", ofColor::gold);
+			}
+		}
+		// -----------------------------
+
 		DeathMarker death;
 		death.x = target.x;
 		death.y = target.y;
@@ -14969,7 +15087,9 @@ CardType ofApp::stringToCardType(const std::string & str) {
 	if (str == "CARD_SMITE") return CARD_SMITE;
 	if (str == "CARD_BURST_OF_LIGHT") return CARD_BURST_OF_LIGHT;
 	if (str == "CARD_SHOOT_ARROW") return CARD_SHOOT_ARROW;
-	if (str == "CARD_FULL_RESTORE") return CARD_FULL_RESTORE; //
+	if (str == "CARD_FULL_RESTORE") return CARD_FULL_RESTORE;
+	if (str == "CARD_TRAIN") return CARD_TRAIN;
+	if (str == "CARD_STUDY") return CARD_STUDY;
 
 	return CARD_NONE;
 }
@@ -15794,4 +15914,35 @@ void ofApp::drawDraftScreen() {
 	ofSetColor(ofColor::white);
 	ofRectangle acceptTextBox = uiFont.getStringBoundingBox("Accept", 0, 0);
 	uiFont.drawString("Accept", btnX + (btnW - acceptTextBox.width) / 2, btnY + (btnH + acceptTextBox.height) / 2 - 6);
+}
+//--------------------------------------------------------------
+void ofApp::drawTrainMenuUI() {
+	ofEnableBlendMode(OF_BLENDMODE_ALPHA);
+	// Dark Overlay
+	ofSetColor(0, 0, 0, 180);
+	ofDrawRectangle(0, 0, ofGetWidth(), ofGetHeight());
+
+	// Title & Desc
+	string title = "Train";
+	string desc = "Choose your training path:";
+
+	// Colors: Yellow for AP, Bronze/Orange for Class 1 Draft
+	ofColor apColor(255, 215, 0);
+	ofColor draftColor(205, 127, 50);
+
+	// Ensure buttons are positioned if not already set (safety check)
+	if (trainMenuRect.width == 0) {
+		float w = 600, h = 300;
+		float x = ofGetWidth() / 2 - w / 2, y = ofGetHeight() / 2 - h / 2;
+		trainMenuRect.set(x, y, w, h);
+		float btnW = 260, btnH = 80, spacing = 30;
+		float startX = x + (w - (btnW * 2 + spacing)) / 2;
+		float btnY = y + 130;
+		trainBtnAP.set(startX, btnY, btnW, btnH);
+		trainBtnDraft.set(startX + btnW + spacing, btnY, btnW, btnH);
+	}
+
+	drawCardChoicePanel(trainMenuRect, title, desc, trainBtnAP, trainBtnDraft,
+		"+3 AP Next Turn", "Draft Class 1",
+		apColor, draftColor, true, true);
 }

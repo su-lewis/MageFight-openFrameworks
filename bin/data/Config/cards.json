@@ -72,7 +72,7 @@
     "type": "CARD_MIND_THEFT",
     "cost": 3,
     "targeting": "TARGET_ADJACENT_UNIT",
-    "class": 2
+    "class": 1
   },
   {
     "id": 9,
@@ -94,7 +94,7 @@
     "damageType": "DAMAGE_MAGIC",
     "numDice": 1,
     "diceSides": 20,
-    "class": 2
+    "class": 3
   },
   {
     "id": 11,
@@ -135,7 +135,7 @@
     "targeting": "TARGET_SELF",
     "numDice": 1,
     "diceSides": 20,
-    "class": 2
+    "class": 1
   },
   {
     "id": 15,
@@ -145,7 +145,7 @@
     "targeting": "TARGET_EMPTY_TILE",
     "numDice": 3,
     "diceSides": 6,
-    "class": 2
+    "class": 1
   },
   {
     "id": 16,
@@ -156,7 +156,7 @@
     "targeting": "TARGET_SELF",
     "numDice": 0,
     "diceSides": 0,
-    "class": 1
+    "class": 2
   },
   {
     "id": 17,
@@ -179,7 +179,7 @@
     "damageType": "DAMAGE_MAGIC",
     "numDice": 0,
     "diceSides": 0,
-    "class": 2
+    "class": 1
   },
   {
     "id": 19,
@@ -191,7 +191,7 @@
     "damageType": "DAMAGE_MAGIC",
     "numDice": 1,
     "diceSides": 20,
-    "class": 3
+    "class": 2
   },
   {
     "id": 20,
@@ -213,7 +213,7 @@
     "targeting": "TARGET_LINE_OF_SIGHT_TILE",
     "numDice": 2,
     "diceSides": 6,
-    "class": 2
+    "class": 1
   },
   {
     "id": 22,
@@ -233,7 +233,7 @@
     "targeting": "TARGET_EMPTY_ADJACENT",
     "numDice": 1,
     "diceSides": 10,
-    "class": 2
+    "class": 3
   },
   {
     "id": 24,
@@ -241,7 +241,7 @@
     "type": "CARD_STRENGTHEN_ELEMENTS",
     "cost": 3,
     "targeting": "TARGET_SELF",
-    "class": 2
+    "class": 3
   },
   {
     "id": 25,
@@ -283,7 +283,7 @@
     "type": "CARD_CALL_FOR_WOLVES",
     "cost": 7,
     "targeting": "TARGET_SELF",
-    "class": 3
+    "class": 2
   },
   {
     "id": 31,
@@ -291,7 +291,7 @@
     "type": "CARD_NECRO_BLESSING",
     "cost": 3,
     "targeting": "TARGET_SELF",
-    "class": 2
+    "class": 3
   },
   {
     "id": 32,
@@ -310,7 +310,7 @@
     "cost": 2,
     "value": 2,
     "targeting": "TARGET_ADJACENT_UNIT",
-    "class": 2
+    "class": 3
   },
   {
     "id": 34,
@@ -332,7 +332,7 @@
     "damageType": "DAMAGE_PHYSICAL",
     "numDice": 1,
     "diceSides": 6,
-    "class": 1
+    "class": 2
   },
   {
     "id": 36,
@@ -342,7 +342,7 @@
     "targeting": "TARGET_EMPTY_ADJACENT",
     "numDice": 2,
     "diceSides": 6,
-    "class": 2
+    "class": 3
   },
   {
     "id": 37,
@@ -373,6 +373,14 @@
     "class": 1
   },
   {
+    "id": 40,
+    "name": "Train",
+    "type": "CARD_TRAIN",
+    "cost": 3,
+    "targeting": "TARGET_SELF",
+    "class": 1
+  },
+  {
     "id": 41,
     "name": "Chain Lightning",
     "type": "CARD_CHAIN_LIGHTNING",
@@ -382,6 +390,14 @@
     "numDice": 2,
     "diceSides": 10,
     "class": 2
+  },
+  {
+    "id": 42,
+    "name": "Study",
+    "type": "CARD_STUDY",
+    "cost": 6,
+    "targeting": "TARGET_SELF",
+    "class": 1
   },
   {
     "id": 43,
@@ -431,7 +447,7 @@
     "value": 3,
     "damageType": "DAMAGE_PHYSICAL",
     "targeting": "TARGET_ADJACENT_UNIT",
-    "class": 2
+    "class": 1
   },
   {
     "id": 49,
@@ -449,7 +465,7 @@
     "type": "CARD_DEMOLITION",
     "cost": 6,
     "targeting": "TARGET_ADJACENT_UNIT_OR_WALL",
-    "class": 2
+    "class": 1
   },
   {
     "id": 51,
@@ -457,7 +473,7 @@
     "type": "CARD_RENEWED_INSPIRATION",
     "cost": 2,
     "targeting": "TARGET_SELF",
-    "class": 2
+    "class": 1
   },
   {
     "id": 52,
@@ -467,7 +483,7 @@
     "targeting": "TARGET_SELF",
     "numDice": 1,
     "diceSides": 4,
-    "class": 1
+    "class": 2
   },
   {
     "id": 53,
@@ -485,7 +501,7 @@
     "type": "CARD_CREATE_WALL",
     "cost": 2,
     "targeting": "TARGET_EMPTY_ADJACENT",
-    "class": 1
+    "class": 2
   },
   {
     "id": 55,
@@ -493,7 +509,7 @@
     "type": "CARD_EARTHQUAKE",
     "cost": 5,
     "targeting": "TARGET_SELF",
-    "class": 3
+    "class": 2
   },
   {
     "id": 56,
@@ -543,7 +559,7 @@
     "type": "CARD_SUMMON_KOBOLD_KING",
     "cost": 4,
     "targeting": "TARGET_EMPTY_ADJACENT",
-    "class": 2
+    "class": 3
   },
   {
     "id": 62,
@@ -559,7 +575,7 @@
     "type": "CARD_FOUR_LEAF_CLOVER",
     "cost": 10,
     "targeting": "TARGET_SELF",
-    "class": 3
+    "class": 2
   },
   {
     "id": 65,
@@ -567,7 +583,7 @@
     "type": "CARD_SPRINT",
     "cost": 0,
     "targeting": "TARGET_SELF",
-    "class": 1
+    "class": 2
   },
   {
     "id": 66,
@@ -593,7 +609,7 @@
     "type": "CARD_BURST_OF_LIGHT",
     "cost": 3,
     "targeting": "TARGET_LINE_OF_SIGHT_TILE",
-    "class": 2
+    "class": 1
   },
   {
     "id": 69,
@@ -603,7 +619,7 @@
     "targeting": "TARGET_LINE_OF_SIGHT_TILE",
     "numDice": 2,
     "diceSides": 20,
-    "class": 2
+    "class": 1
   },
   {
     "id": 70,
