@@ -2,6 +2,10 @@
 #define GLFW_INCLUDE_NONE
 
 #include "GLFW/glfw3.h"
+#include "NetworkData.h" // <--- ADD THIS LINE
+#include "NetworkData.h"
+#include "SteamManager.h" // <--- ADD THIS LINE
+#include "SteamManager.h"
 #include "ofMain.h"
 #include "ofxAssimpModelLoader.h"
 
@@ -397,6 +401,7 @@ public:
 	void setup();
 	void update();
 	void draw();
+	void exit();
 
 	void keyPressed(int key);
 	void keyReleased(int key);
@@ -410,6 +415,17 @@ public:
 	void dragEvent(ofDragInfo dragInfo);
 	void gotMessage(ofMessage msg);
 	void mouseScrolled(int x, int y, float scrollX, float scrollY);
+
+	// Networking logic
+	void processNetworkPackets();
+	void sendActionPacket(int cardIndex, int tx, int ty, int cost);
+	void executeAction(const ActionPacket & pkt);
+	long long calculateChecksum();
+
+	// Steam
+	SteamManager steamManager;
+	bool isMultiplayer = false;
+	int myLocalPlayerID = 0; // 0 = Host, 1 = Client
 
 private:
 	// -------------------------------------------------------------------------
@@ -554,6 +570,13 @@ private:
 	bool isLoadingGame = false;
 	int globalTurnCounter = 0;
 	int nextSummonOrder = 0; // Global counter for minion summon ordering
+
+	// Menu UI Rectangles
+	ofRectangle mainMenuHostButton;
+	ofRectangle mainMenuInviteButton;
+
+	// Helper to know if we are waiting in a lobby
+	bool isInLobby = false;
 
 	// --- BOARD & ENTITIES ---
 	const float TILE_SIZE = 5.0f;

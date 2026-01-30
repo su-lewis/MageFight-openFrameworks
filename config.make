@@ -1,6 +1,17 @@
 ################################################################################
 # CONFIGURE PROJECT MAKEFILE (optional)
-#   This file is where we make project specific configurations.
+
+# 1. Tell the compiler where the "root" of your includes is.
+# Because we moved the files into a "steam" subfolder in Step 1,
+# this path allows the code #include "steam/steam_api.h" to work.
+USER_CFLAGS = -I$(PROJECT_ROOT)/libs/steam/include
+
+# 2. Link against the library file.
+# IMPORTANT: Ensure 'libsteam_api.so' is actually inside your 'bin' folder!
+USER_LDFLAGS = -L$(PROJECT_ROOT)/bin -lsteam_api
+
+# 3. Tell the executable to look in the current folder (.) for the .so file at runtime.
+USER_LDFLAGS += -Wl,-rpath,.
 ################################################################################
 
 ################################################################################
@@ -139,3 +150,5 @@
 ################################################################################
 # PROJECT_CXX = 
 # PROJECT_CC = 
+
+

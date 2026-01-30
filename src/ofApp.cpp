@@ -57,6 +57,7 @@ void drawStatText(ofTrueTypeFont & font, string text, float x, float y, float w,
 }
 //--------------------------------------------------------------
 void ofApp::setup() {
+	steamManager.setup();
 
 	ofSetEscapeQuitsApp(false);
 	ofSetVerticalSync(true);
@@ -797,6 +798,8 @@ std::string ofApp::getPlayerDisplayName(int index) {
 }
 //--------------------------------------------------------------
 void ofApp::update() {
+	steamManager.update();
+	processNetworkPackets();
 	// --- LOADING LOGIC ---
 	if (isLoadingGame) {
 		setupGame();
@@ -948,14 +951,32 @@ void ofApp::draw() {
 void ofApp::drawMainMenu() {
 	ofDisableLighting();
 	ofSetColor(ofColor::white);
+
+	// Draw Title
 	string title = "Mage Fight";
 	ofRectangle titleBox = titleFont.getStringBoundingBox(title, 0, 0);
-	// --- FIX: Round the drawing position to avoid blurry text ---
 	float titleX = round(ofGetWidth() / 2.0f - titleBox.getWidth() / 2.0f);
 	float titleY = round(ofGetHeight() * 0.25f);
 	titleFont.drawString(title, titleX, titleY);
 
-	// --- Draw Buttons ---
+	// --- RECALCULATE BUTTON POSITIONS (Do this here or in windowResized) ---
+	float btnWidth = 400;
+	float btnHeight = 80;
+	float centerX = ofGetWidth() / 2.0f;
+	float startY = ofGetHeight() / 2.0f - btnHeight;
+
+	// Standard Buttons
+	mainMenuPlayAIButton.set(centerX - btnWidth / 2, startY, btnWidth, btnHeight);
+
+	// Split the Multiplayer slot into two buttons: Host and Invite
+	float halfWidth = (btnWidth / 2) - 10;
+	mainMenuHostButton.set(centerX - btnWidth / 2, startY + btnHeight + 20, halfWidth, btnHeight);
+	mainMenuInviteButton.set(centerX + 10, startY + btnHeight + 20, halfWidth, btnHeight);
+
+	mainMenuSettingsButton.set(centerX - btnWidth / 2, startY + (btnHeight + 20) * 2, btnWidth, btnHeight);
+	mainMenuQuitButton.set(centerX - btnWidth / 2, startY + (btnHeight + 20) * 3, btnWidth, btnHeight);
+
+	// --- DRAW BUTTONS ---
 	auto drawButton = [&](const ofRectangle & rect, const string & text, bool isHovered) {
 		ofSetColor(isHovered ? ofColor::lightGray : ofColor::white);
 		ofFill();
@@ -967,19 +988,34 @@ void ofApp::drawMainMenu() {
 		ofDrawRectRounded(rect, 15);
 		ofFill();
 
+		ofSetColor(ofColor::black); // Text color
 		ofRectangle textBox = uiFont.getStringBoundingBox(text, 0, 0);
-		// --- FIX: Round the drawing position for button text too ---
 		float textX = round(rect.getCenter().x - textBox.getWidth() / 2.0f);
 		float textY = round(rect.getCenter().y + textBox.getHeight() / 2.0f);
 		uiFont.drawString(text, textX, textY);
 	};
 
 	drawButton(mainMenuPlayAIButton, "Play vs AI", mainMenuHoveredIndex == 0);
-	drawButton(mainMenuMultiplayerButton, "Multiplayer (Disabled)", mainMenuHoveredIndex == 1);
+
+	// Logic: If we are already in a lobby, show "Invite", otherwise show "Host"
+	if (!steamManager.isConnected()) {
+		drawButton(mainMenuHostButton, "Host Steam", mainMenuHoveredIndex == 1);
+		// Draw a grayed out invite button
+		ofSetColor(100);
+		ofDrawRectRounded(mainMenuInviteButton, 15);
+	} else {
+		// We are connected/hosting
+		ofSetColor(ofColor::green); // Highlight that we are online
+		ofDrawRectRounded(mainMenuHostButton, 15);
+		ofSetColor(ofColor::black);
+		uiFont.drawString("Lobby Active", mainMenuHostButton.x + 20, mainMenuHostButton.getCenter().y);
+
+		drawButton(mainMenuInviteButton, "Invite Friend", mainMenuHoveredIndex == 4);
+	}
+
 	drawButton(mainMenuSettingsButton, "Settings", mainMenuHoveredIndex == 2);
 	drawButton(mainMenuQuitButton, "Quit", mainMenuHoveredIndex == 3);
 }
-
 //--------------------------------------------------------------
 void ofApp::drawSettingsMenu() {
 	ofDisableLighting();
@@ -1207,6 +1243,16 @@ void ofApp::recalculateUI(int w, int h) {
 }
 //--------------------------------------------------------------
 void ofApp::setupGame() {
+
+	if (isMultiplayer && steamManager.isHost()) {
+		uint32_t seed = (uint32_t)time(nullptr);
+		rng.seed(seed);
+
+		HandshakePacket pkt;
+		pkt.type = PKT_HANDSHAKE;
+		pkt.seed = seed;
+		steamManager.sendPacket(&pkt, sizeof(pkt));
+	}
 	// --- RESET CORE GAME STATE (Fast Operations Only) ---
 	players.clear();
 	activeDiceRolls.clear();
@@ -7369,7 +7415,18 @@ cursor_check_done:;
 	}
 	case STATE_MAIN_MENU: {
 		mainMenuHoveredIndex = -1;
-		if (mainMenuPlayAIButton.inside(x, y)) mainMenuHoveredIndex = 0;
+		if (mainMenuPlayAIButton.inside(x, y))
+			mainMenuHoveredIndex = 0;
+		else if (mainMenuHostButton.inside(x, y))
+			mainMenuHoveredIndex = 1;
+		else if (mainMenuSettingsButton.inside(x, y))
+			mainMenuHoveredIndex = 2;
+		else if (mainMenuQuitButton.inside(x, y))
+			mainMenuHoveredIndex = 3;
+		else if (mainMenuInviteButton.inside(x, y))
+			mainMenuHoveredIndex = 4;
+		else
+			mainMenuHoveredIndex = -1;
 		if (mainMenuMultiplayerButton.inside(x, y)) mainMenuHoveredIndex = 1;
 		if (mainMenuSettingsButton.inside(x, y)) mainMenuHoveredIndex = 2;
 		if (mainMenuQuitButton.inside(x, y)) mainMenuHoveredIndex = 3;
@@ -9250,6 +9307,15 @@ void ofApp::mousePressed(int x, int y, int button) {
 	case STATE_MAIN_MENU: {
 		if (mainMenuPlayAIButton.inside(x, y)) {
 			isLoadingGame = true;
+			isMultiplayer = false; // Ensure single player mode
+		}
+		// ADD STEAM HOST LOGIC
+		else if (mainMenuHostButton.inside(x, y)) {
+			if (!steamManager.isConnected()) steamManager.createLobby();
+		}
+		// ADD STEAM INVITE LOGIC
+		else if (mainMenuInviteButton.inside(x, y)) {
+			if (steamManager.isConnected()) steamManager.openFriendOverlay();
 		} else if (mainMenuSettingsButton.inside(x, y)) {
 			stateBeforeSettings = STATE_MAIN_MENU;
 			currentState = STATE_SETTINGS;
@@ -9564,7 +9630,13 @@ void ofApp::mouseReleased(int x, int y, int button) {
 
 						// --- STANDARD PLAY ---
 						if (playedCard.targeting == TARGET_SELF) {
-							playCard(draggedCardIndex, -1, -1);
+							if (isMultiplayer) {
+								// SEND PACKET INSTEAD OF PLAYING
+								sendActionPacket(draggedCardIndex, -1, -1, playedCard.cost);
+							} else {
+								// NORMAL SINGLE PLAYER
+								playCard(draggedCardIndex, -1, -1);
+							}
 						} else {
 							ofVec2f boardPos = mouseToBoard(x, y);
 							int gx = floor(boardPos.x);
@@ -9583,11 +9655,16 @@ void ofApp::mouseReleased(int x, int y, int button) {
 
 								// Only play if green highlight is active
 								if (board[gx][gy].isTargetable) {
-									playCard(draggedCardIndex, gx, gy);
+									if (isMultiplayer) {
+										// Send to network (which also executes locally)
+										sendActionPacket(draggedCardIndex, gx, gy, playedCard.cost);
+									} else {
+										// Single Player
+										playCard(draggedCardIndex, gx, gy);
+									}
 								}
 							}
 						}
-
 					} else {
 						// Show user feedback and clear drag state so they don't get stuck
 						spawnFloatingText(gridToWorld(currentPlayer.x, currentPlayer.y), "Not enough AP", ofColor::red);
@@ -9853,6 +9930,22 @@ void ofApp::dragEvent(ofDragInfo dragInfo) { }
 
 //--------------------------------------------------------------
 void ofApp::startNewTurn() {
+	// If it was MY turn and I am ending it:
+	if (isMultiplayer && players[currentPlayerIndex].playerID == myLocalPlayerID) {
+		// 1. Send End Turn
+		PacketHeader pkt;
+		pkt.type = PKT_END_TURN;
+		pkt.playerID = myLocalPlayerID;
+		steamManager.sendPacket(&pkt, sizeof(pkt));
+
+		// 2. Send Checksum to verify we ended in the same state
+		ChecksumPacket sumPkt;
+		sumPkt.type = PKT_CHECKSUM_CHECK;
+		sumPkt.playerID = myLocalPlayerID;
+		sumPkt.checksum = calculateChecksum();
+		steamManager.sendPacket(&sumPkt, sizeof(sumPkt));
+	}
+
 	if (players.empty()) return;
 
 	// --- 1. Handle the ENDING player's state ---
@@ -16213,4 +16306,96 @@ void ofApp::drawTrainMenuUI() {
 	drawCardChoicePanel(trainMenuRect, title, desc, trainBtnAP, trainBtnDraft,
 		"+3 AP Next Turn", "Draft Class 1",
 		apColor, draftColor, true, true);
+}
+//--------------------------------------------------------------
+void ofApp::exit() {
+	steamManager.cleanup();
+}
+// --------------------------------------------------------------
+void ofApp::processNetworkPackets() {
+	while (!steamManager.packetQueue.empty()) {
+		std::vector<char> buffer = steamManager.packetQueue.front();
+		steamManager.packetQueue.pop();
+
+		if (buffer.size() < sizeof(PacketHeader)) continue;
+
+		PacketHeader * header = (PacketHeader *)buffer.data();
+
+		if (header->type == PKT_HANDSHAKE) {
+			HandshakePacket * pkt = (HandshakePacket *)header;
+			ofLogNotice("Net") << "Handshake received. Seed: " << pkt->seed;
+
+			// Sync RNG
+			rng.seed(pkt->seed);
+
+			// Set Player IDs
+			if (steamManager.isHost()) {
+				myLocalPlayerID = 0;
+			} else {
+				myLocalPlayerID = 1;
+				// Client usually needs to reload game/board state here to match fresh seed
+				setupGame();
+			}
+			isMultiplayer = true;
+			isLoadingGame = false;
+		} else if (header->type == PKT_ACTION) {
+			ActionPacket * pkt = (ActionPacket *)header;
+			ofLogNotice("Net") << "Opponent Action: Card " << pkt->cardIndex;
+			// Execute the move locally
+			executeAction(*pkt);
+		} else if (header->type == PKT_END_TURN) {
+			ofLogNotice("Net") << "Opponent ended turn.";
+			startNewTurn(); // This will flip control to you
+		} else if (header->type == PKT_CHECKSUM_CHECK) {
+			ChecksumPacket * pkt = (ChecksumPacket *)header;
+			long long mySum = calculateChecksum();
+			if (mySum != pkt->checksum) {
+				ofLogError("Net") << "DESYNC DETECTED! Local: " << mySum << " Remote: " << pkt->checksum;
+				spawnFloatingText(glm::vec3(0, 5, 0), "SYNC ERROR", ofColor::red);
+			}
+		}
+	}
+}
+
+// When I click a card
+void ofApp::sendActionPacket(int cardIndex, int tx, int ty, int cost) {
+	// 1. Validate it is actually my turn
+	if (players[currentPlayerIndex].playerID != myLocalPlayerID) {
+		spawnFloatingText(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y), "Not your turn!", ofColor::red);
+		return;
+	}
+
+	// 2. Prepare Packet
+	ActionPacket pkt;
+	pkt.type = PKT_ACTION;
+	pkt.playerID = myLocalPlayerID;
+	pkt.cardIndex = cardIndex;
+	pkt.targetX = tx;
+	pkt.targetY = ty;
+	pkt.cost = cost;
+
+	// 3. Send to Opponent
+	steamManager.sendPacket(&pkt, sizeof(pkt));
+
+	// 4. Execute Locally Immediately (Prediction)
+	executeAction(pkt);
+}
+
+// Executes a move (Used by both Local input and Network input)
+void ofApp::executeAction(const ActionPacket & pkt) {
+	// This calls your existing logic
+	playCard(pkt.cardIndex, pkt.targetX, pkt.targetY);
+}
+
+// Verify sync
+long long ofApp::calculateChecksum() {
+	long long hash = 0;
+	for (const auto & p : players) {
+		// Hash critical gameplay state
+		hash += p.health * 1000;
+		hash += p.x * 100 + p.y;
+		hash += p.block * 50;
+		hash += p.deck.size();
+	}
+	return hash;
 }
