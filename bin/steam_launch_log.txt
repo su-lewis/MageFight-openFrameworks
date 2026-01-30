@@ -1,0 +1,41 @@
+ERROR: ld.so: object '/usr/lib/extest/libextest.so' from LD_PRELOAD cannot be preloaded (cannot open shared object file): ignored.
+ERROR: ld.so: object '/var/home/lewis/.local/share/Steam/ubuntu12_32/gameoverlayrenderer.so' from LD_PRELOAD cannot be preloaded (wrong ELF class: ELFCLASS32): ignored.
+--- run.sh script started at Fri Jan 30 03:39:07 GMT 2026 ---
+Script directory: /home/lewis/of_workspace/openFrameworks/apps/myApps/MageFight/bin
+Log file: /home/lewis/of_workspace/openFrameworks/apps/myApps/MageFight/bin/steam_launch_log.txt
+pid 1229367 != 1229363, skipping destruction (fork without exec?)
+LD_LIBRARY_PATH after host inheritance: /usr/lib::
+pid 1229399 != 1229363, skipping destruction (fork without exec?)
+Working directory changed to: /home/lewis/of_workspace/openFrameworks/apps/myApps/MageFight/bin
+Attempting to execute: ./MageFight 
+ERROR: ld.so: object '/usr/lib/extest/libextest.so' from LD_PRELOAD cannot be preloaded (cannot open shared object file): ignored.
+ERROR: ld.so: object '/var/home/lewis/.local/share/Steam/ubuntu12_32/gameoverlayrenderer.so' from LD_PRELOAD cannot be preloaded (wrong ELF class: ELFCLASS32): ignored.
+ERROR: ld.so: object '/usr/lib/extest/libextest.so' from LD_PRELOAD cannot be preloaded (cannot open shared object file): ignored.
+ERROR: ld.so: object '/var/home/lewis/.local/share/Steam/ubuntu12_32/gameoverlayrenderer.so' from LD_PRELOAD cannot be preloaded (wrong ELF class: ELFCLASS32): ignored.
+ERROR: ld.so: object '/usr/lib/extest/libextest.so' from LD_PRELOAD cannot be preloaded (cannot open shared object file): ignored.
+ERROR: ld.so: object '/var/home/lewis/.local/share/Steam/ubuntu12_32/gameoverlayrenderer.so' from LD_PRELOAD cannot be preloaded (wrong ELF class: ELFCLASS32): ignored.
+ERROR: ld.so: object '/usr/lib/extest/libextest.so' from LD_PRELOAD cannot be preloaded (cannot open shared object file): ignored.
+ERROR: ld.so: object '/var/home/lewis/.local/share/Steam/ubuntu12_32/gameoverlayrenderer.so' from LD_PRELOAD cannot be preloaded (wrong ELF class: ELFCLASS32): ignored.
+pid 1229404 != 1229400, skipping destruction (fork without exec?)
+ERROR: ld.so: object '/usr/lib/extest/libextest.so' from LD_PRELOAD cannot be preloaded (cannot open shared object file): ignored.
+ERROR: ld.so: object '/var/home/lewis/.local/share/Steam/ubuntu12_32/gameoverlayrenderer.so' from LD_PRELOAD cannot be preloaded (wrong ELF class: ELFCLASS32): ignored.
+ERROR: ld.so: object '/usr/lib/extest/libextest.so' from LD_PRELOAD cannot be preloaded (cannot open shared object file): ignored.
+ERROR: ld.so: object '/var/home/lewis/.local/share/Steam/ubuntu12_32/gameoverlayrenderer.so' from LD_PRELOAD cannot be preloaded (wrong ELF class: ELFCLASS32): ignored.
+ERROR: ld.so: object '/usr/lib/extest/libextest.so' from LD_PRELOAD cannot be preloaded (cannot open shared object file): ignored.
+ERROR: ld.so: object '/var/home/lewis/.local/share/Steam/ubuntu12_32/gameoverlayrenderer.so' from LD_PRELOAD cannot be preloaded (wrong ELF class: ELFCLASS32): ignored.
+pid 1229407 != 1229400, skipping destruction (fork without exec?)
+pid 1229406 != 1229400, skipping destruction (fork without exec?)
+pid 1229416 != 1229400, skipping destruction (fork without exec?)
+ERROR: ld.so: object '/usr/lib/extest/libextest.so' from LD_PRELOAD cannot be preloaded (cannot open shared object file): ignored.
+ERROR: ld.so: object '/var/home/lewis/.local/share/Steam/ubuntu12_32/gameoverlayrenderer.so' from LD_PRELOAD cannot be preloaded (wrong ELF class: ELFCLASS32): ignored.
+pid 1229415 != 1229400, skipping destruction (fork without exec?)
+ERROR: ld.so: object '/usr/lib/extest/libextest.so' from LD_PRELOAD cannot be preloaded (cannot open shared object file): ignored.
+ERROR: ld.so: object '/var/home/lewis/.local/share/Steam/ubuntu12_32/gameoverlayrenderer.so' from LD_PRELOAD cannot be preloaded (wrong ELF class: ELFCLASS32): ignored.
+ERROR: ld.so: object '/usr/lib/extest/libextest.so' from LD_PRELOAD cannot be preloaded (cannot open shared object file): ignored.
+ERROR: ld.so: object '/var/home/lewis/.local/share/Steam/ubuntu12_32/gameoverlayrenderer.so' from LD_PRELOAD cannot be preloaded (wrong ELF class: ELFCLASS32): ignored.
+ERROR: ld.so: object '/usr/lib/extest/libextest.so' from LD_PRELOAD cannot be preloaded (cannot open shared object file): ignored.
+ERROR: ld.so: object '/var/home/lewis/.local/share/Steam/ubuntu12_32/gameoverlayrenderer.so' from LD_PRELOAD cannot be preloaded (wrong ELF class: ELFCLASS32): ignored.
+./MageFight: error while loading shared libraries: libGLEW.so.2.2: cannot open shared object file: No such file or directory
+ERROR: ld.so: object '/usr/lib/extest/libextest.so' from LD_PRELOAD cannot be preloaded (cannot open shared object file): ignored.
+ERROR: ld.so: object '/var/home/lewis/.local/share/Steam/ubuntu12_32/gameoverlayrenderer.so' from LD_PRELOAD cannot be preloaded (wrong ELF class: ELFCLASS32): ignored.
+--- run.sh script finished at Fri Jan 30 03:39:08 GMT 2026 ---
