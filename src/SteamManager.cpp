@@ -1,6 +1,9 @@
 #include "SteamManager.h"
 #include "ofMain.h"
-
+// --- ADD THIS BLOCK FOR WINDOWS BUILDS ---
+#ifdef _WIN32
+	#pragma comment(lib, "steam_api64.lib")
+#endif
 // Initialize the callbacks manually. This tells Steam "Call THIS function on THIS object"
 SteamManager::SteamManager()
 	: m_bInitialized(false)

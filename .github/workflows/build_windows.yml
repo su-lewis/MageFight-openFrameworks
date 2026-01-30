@@ -27,24 +27,40 @@ jobs:
           7z x of.zip -o${{ github.workspace }} -y
           ren ${{ github.workspace }}\of_v${{ env.OF_VER }}_vs_release openFrameworks
 
-      - name: Copy Steam Libs (Hack)
-        # We need to make sure the Steam SDK is where your project expects it.
-        # Since you probably have it in your repo, we ensure it's in the right place relative to OF.
+      - name: Download Project Generator
         run: |
-          echo "Assuming libs/steam is inside your repo..."
+          curl -L -o pg.zip https://github.com/openframeworks/projectGenerator/releases/download/of_v2.6.0/projectGenerator-vs_v2.6.0.zip
+          7z x pg.zip -o${{ github.workspace }} -y
+
+      - name: Generate Project Files (The Magic Step)
+        run: |
+          # This command creates MageFight.sln and MageFight.vcxproj automatically
+          ${{ github.workspace }}\projectGenerator-vs\projectGenerator.exe /ofPath:"${{ env.OF_ROOT }}" /platforms:vs "${{ env.OF_ROOT }}\apps\myApps\MageFight"
+
+      - name: Inject Steam Headers & Libs (The Hack)
+        # Since we can't edit project properties, we copy Steam files into the global OF folders
+        # so Visual Studio finds them automatically.
+        run: |
+          echo "Copying Steam Headers..."
+          xcopy "${{ env.OF_ROOT }}\apps\myApps\MageFight\libs\steam\include\steam" "${{ env.OF_ROOT }}\libs\openFrameworks\steam\" /E /I /Y
+          
+          echo "Copying Steam Lib..."
+          copy "${{ env.OF_ROOT }}\apps\myApps\MageFight\libs\steam\lib\win64\steam_api64.lib" "${{ env.OF_ROOT }}\libs\openFrameworksCompiled\lib\vs\x64\"
 
       - name: Build
         working-directory: ${{ env.OF_ROOT }}/apps/myApps/MageFight
         run: |
-          # This builds the Visual Studio Solution automatically
           msbuild MageFight.sln /p:configuration=Release /p:platform=x64
 
       - name: Collect Artifacts
         run: |
           mkdir ReleaseBuild
           copy ${{ env.OF_ROOT }}\apps\myApps\MageFight\bin\MageFight.exe ReleaseBuild\
-          copy ${{ env.OF_ROOT }}\apps\myApps\MageFight\bin\steam_api64.dll ReleaseBuild\
+          # We need the DLL next to the EXE
+          copy ${{ env.OF_ROOT }}\apps\myApps\MageFight\libs\steam\lib\win64\steam_api64.dll ReleaseBuild\
           copy ${{ env.OF_ROOT }}\apps\myApps\MageFight\bin\steam_appid.txt ReleaseBuild\
+          # Important: Standard OF DLLs required for Windows
+          copy ${{ env.OF_ROOT }}\export\vs\x64\*.dll ReleaseBuild\
           xcopy ${{ env.OF_ROOT }}\apps\myApps\MageFight\bin\data ReleaseBuild\data /E /I
 
       - name: Upload Build
