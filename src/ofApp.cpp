@@ -801,9 +801,12 @@ void ofApp::update() {
 	steamManager.update();
 	processNetworkPackets();
 
-	// CONNECT TRIGGER
-	// This will now only fire when m_OpponentID is valid (handshake complete)
-	if (currentState == STATE_MAIN_MENU && steamManager.isConnected()) {
+	// ============================================================
+	// 1. STEAM CONNECTION TRIGGER
+	// ============================================================
+	// CRITICAL CHANGE: We check hasOpponent() instead of isConnected()
+	// This ensures we don't start until the second player is actually here.
+	if (currentState == STATE_MAIN_MENU && steamManager.hasOpponent()) {
 		ofLogNotice("Network") << "Opponent verified! Starting game...";
 		setupGame();
 		return;

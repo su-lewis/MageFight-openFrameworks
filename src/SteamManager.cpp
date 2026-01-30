@@ -63,7 +63,13 @@ void SteamManager::cleanup() {
 // ----------------------------------------------------------------------------------
 
 bool SteamManager::isConnected() const {
-	// Only return true if we have actually connected to an opponent.
+	// UI CHECK: Returns true if we are in a lobby OR have an opponent.
+	// This makes the "Host Game" button turn Green immediately.
+	return m_LobbyID.IsValid() || m_OpponentID.IsValid();
+}
+
+bool SteamManager::hasOpponent() const {
+	// GAME START CHECK: Returns true ONLY when Player 2 connects.
 	// This prevents the Host from starting the game alone.
 	return m_OpponentID.IsValid();
 }

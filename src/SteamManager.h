@@ -16,8 +16,9 @@ public:
 	void cleanup();
 
 	// --- State Queries ---
-	bool isConnected() const; // Logic: Returns true only if we have a valid opponent
-	bool isHost() const; // True if we created the lobby
+	bool isConnected() const; // For UI: Are we in a lobby?
+	bool hasOpponent() const; // For Game Logic: Do we have a player 2?
+	bool isHost() const;
 
 	// --- Actions ---
 	void createLobby();
