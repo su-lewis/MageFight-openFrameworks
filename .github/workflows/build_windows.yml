@@ -28,41 +28,33 @@ jobs:
           7z x of.zip -o"${{ github.workspace }}" -y
           ren "${{ github.workspace }}\of_v${{ env.OF_VER }}_vs_release" openFrameworks
 
-      - name: Move Game into OpenFrameworks (Crucial Step)
+      - name: Move Game into OpenFrameworks
         shell: cmd
         run: |
           echo Moving game code into the engine structure...
           mkdir "${{ env.OF_ROOT }}\apps\myApps\MageFight"
           robocopy "${{ github.workspace }}\temp_game_code" "${{ env.OF_ROOT }}\apps\myApps\MageFight" /E /MOVE /NFL /NDL /NJH /NJS || ver > nul
-          echo Game moved successfully.
 
       - name: Download Project Generator
         shell: cmd
         run: |
+          :: Download to a dedicated temp folder to avoid confusion
+          mkdir pg_temp
+          cd pg_temp
           curl -L -o pg.zip https://github.com/openframeworks/projectGenerator/releases/download/nightly/projectGenerator-vs.zip
-          7z x pg.zip -o"${{ github.workspace }}" -y
-          
-          echo DEBUG: Listing workspace to find PG folder...
-          dir "${{ github.workspace }}"
-          
-          :: Rename whatever it extracted to 'projectGenerator' for consistency
-          if exist "${{ github.workspace }}\projectGenerator-vs" (
-             ren "${{ github.workspace }}\projectGenerator-vs" projectGenerator
-          )
+          7z x pg.zip -y
 
-      - name: Generate Project Files
+      - name: Generate Project Files (Dynamic Search)
         shell: cmd
         run: |
-          echo Generating Solution files...
+          :: Find the .exe wherever it extracted
+          cd pg_temp
+          for /f "delims=" %%F in ('dir /s /b projectGenerator.exe') do set "PG_EXE=%%F"
           
-          :: Check if the executable exists before running
-          if not exist "${{ github.workspace }}\projectGenerator\projectGenerator.exe" (
-             echo ERROR: projectGenerator.exe not found!
-             dir "${{ github.workspace }}\projectGenerator" /s
-             exit 1
-          )
-
-          "${{ github.workspace }}\projectGenerator\projectGenerator.exe" /ofPath:"${{ env.OF_ROOT }}" /platforms:vs "${{ env.OF_ROOT }}\apps\myApps\MageFight"
+          echo Found Project Generator at: %PG_EXE%
+          
+          :: Run it using the found path
+          "%PG_EXE%" /ofPath:"${{ env.OF_ROOT }}" /platforms:vs "${{ env.OF_ROOT }}\apps\myApps\MageFight"
 
       - name: Inject Steam Headers & Libs
         shell: cmd
@@ -77,4 +69,20 @@ jobs:
         working-directory: ${{ env.OF_ROOT }}\apps\myApps\MageFight
         shell: cmd
         run: |
-          msbuild MageFight
+          msbuild MageFight.sln /p:configuration=Release /p:platform=x64
+
+      - name: Collect Artifacts
+        shell: cmd
+        run: |
+          mkdir ReleaseBuild
+          copy "${{ env.OF_ROOT }}\apps\myApps\MageFight\bin\MageFight.exe" ReleaseBuild\
+          copy "${{ env.OF_ROOT }}\apps\myApps\MageFight\libs\steam\lib\win64\steam_api64.dll" ReleaseBuild\
+          copy "${{ env.OF_ROOT }}\apps\myApps\MageFight\bin\steam_appid.txt" ReleaseBuild\
+          copy "${{ env.OF_ROOT }}\export\vs\x64\*.dll" ReleaseBuild\
+          xcopy "${{ env.OF_ROOT }}\apps\myApps\MageFight\bin\data" ReleaseBuild\data /E /I
+
+      - name: Upload Build
+        uses: actions/upload-artifact@v4
+        with:
+          name: MageFight_Windows
+          path: ReleaseBuild/
