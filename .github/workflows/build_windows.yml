@@ -43,16 +43,21 @@ jobs:
           curl -L -o pg.zip https://github.com/openframeworks/projectGenerator/releases/download/nightly/projectGenerator-vs.zip
           7z x pg.zip -y
 
-      - name: Generate Project Files (Fixed Flags)
+      - name: Generate Project Files (Env Var Fix)
         shell: cmd
+        # KEY FIX: Set the path as an Environment Variable to avoid CLI parsing errors
+        env:
+          PG_OF_PATH: ${{ env.OF_ROOT }}
         run: |
           cd pg_temp
           for /f "delims=" %%F in ('dir /s /b projectGenerator.exe') do set "PG_EXE=%%F"
           
-          echo Found Project Generator at: %PG_EXE%
+          echo Found Project Generator at: "%PG_EXE%"
+          echo OF_ROOT is set to: "%PG_OF_PATH%"
           
-          :: We use -o for the path and -p for platform (Universal Syntax)
-          "%PG_EXE%" -o "${{ env.OF_ROOT }}" -p vs "${{ env.OF_ROOT }}\apps\myApps\MageFight"
+          :: Run PG without -o, using the Env Var instead. 
+          :: We use -p vs for the platform.
+          "%PG_EXE%" -p vs "${{ env.OF_ROOT }}\apps\myApps\MageFight"
 
       - name: Inject Steam Headers & Libs
         shell: cmd
