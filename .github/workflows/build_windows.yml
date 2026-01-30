@@ -1,0 +1,54 @@
+name: Build Windows
+
+on:
+  push:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+env:
+  OF_VER: 0.12.0
+  OF_ROOT: ${{ github.workspace }}/openFrameworks
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout Your Game
+        uses: actions/checkout@v3
+        with:
+          path: apps/myApps/MageFight
+
+      - name: Setup MSBuild
+        uses: microsoft/setup-msbuild@v1.1
+
+      - name: Download OpenFrameworks
+        run: |
+          curl -L -o of.zip https://github.com/openframeworks/openFrameworks/releases/download/${{ env.OF_VER }}/of_v${{ env.OF_VER }}_vs_release.zip
+          7z x of.zip -o${{ github.workspace }} -y
+          ren ${{ github.workspace }}\of_v${{ env.OF_VER }}_vs_release openFrameworks
+
+      - name: Copy Steam Libs (Hack)
+        # We need to make sure the Steam SDK is where your project expects it.
+        # Since you probably have it in your repo, we ensure it's in the right place relative to OF.
+        run: |
+          echo "Assuming libs/steam is inside your repo..."
+
+      - name: Build
+        working-directory: ${{ env.OF_ROOT }}/apps/myApps/MageFight
+        run: |
+          # This builds the Visual Studio Solution automatically
+          msbuild MageFight.sln /p:configuration=Release /p:platform=x64
+
+      - name: Collect Artifacts
+        run: |
+          mkdir ReleaseBuild
+          copy ${{ env.OF_ROOT }}\apps\myApps\MageFight\bin\MageFight.exe ReleaseBuild\
+          copy ${{ env.OF_ROOT }}\apps\myApps\MageFight\bin\steam_api64.dll ReleaseBuild\
+          copy ${{ env.OF_ROOT }}\apps\myApps\MageFight\bin\steam_appid.txt ReleaseBuild\
+          xcopy ${{ env.OF_ROOT }}\apps\myApps\MageFight\bin\data ReleaseBuild\data /E /I
+
+      - name: Upload Build
+        uses: actions/upload-artifact@v4
+        with:
+          name: MageFight_Windows
+          path: ReleaseBuild/
