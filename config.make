@@ -8,7 +8,10 @@ USER_CFLAGS = -I$(PROJECT_ROOT)/libs/steam/include
 
 # 2. Link against the library file.
 # IMPORTANT: Ensure 'libsteam_api.so' is actually inside your 'bin' folder!
-USER_LDFLAGS = -L$(PROJECT_ROOT)/bin -lsteam_api
+USER_LDFLAGS = -L$(PROJECT_ROOT)/libs/steam/lib/linux64 -lsteam_api
+
+# ...but tell the executable to look in 'bin' (current dir) when running
+USER_LDFLAGS += -Wl,-rpath,.
 
 # 3. Tell the executable to look in the current folder (.) for the .so file at runtime.
 USER_LDFLAGS += -Wl,-rpath,.
