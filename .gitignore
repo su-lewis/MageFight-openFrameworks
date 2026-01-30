@@ -1,4 +1,3 @@
-#
 # OF Project/.gitignore
 #
 
@@ -6,7 +5,7 @@
 .DS_Store
 
 # openFrameworks build files
-libs/
+# libs/  <-- I REMOVED THIS so your Steam files will upload!
 export/
 project/
 obj/
@@ -17,12 +16,12 @@ MageFight_debug
 MageFight.exe
 MageFight_debug.exe
 
-# We want to track the data folder.
-# To do this, we explicitly ignore specific files INSTEAD of the whole bin folder.
-# This ensures your assets in bin/data/ are NOT ignored.
+# Ignore the heavy system files in bin, but KEEP the data folder
 /bin/*.dll
 /bin/*.so
 /bin/*.pdb
+/bin/*.exp
+/bin/*.lib
 
 # Code::Blocks
 *.cbp
@@ -32,7 +31,7 @@ MageFight_debug.exe
 # VS Code
 .vscode/
 
-# Visual Studio
+# Visual Studio (Windows junk)
 *.sln.docstates
 *.suo
 *.user
@@ -43,6 +42,7 @@ x64/
 Win32/
 Debug/
 Release/
-/.vs/
+.vs/
 *.VC.db
-*.VC.VC.opendb
+*.VC.opendb
+*.aps
