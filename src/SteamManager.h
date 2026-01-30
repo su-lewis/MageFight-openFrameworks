@@ -1,54 +1,55 @@
 #pragma once
+
+#include "ofMain.h"
 #include "steam/steam_api.h"
 #include <queue>
-#include <string>
-#include <vector>
 
 class SteamManager {
 public:
-    SteamManager();
-    ~SteamManager();
+	SteamManager();
+	~SteamManager();
 
-    void setup();
-    void update();
-    void cleanup();
+	void setup();
+	void update();
+	void cleanup();
 
-    bool isConnected();
-    bool isHost();
-    uint64_t getMySteamID();
+	// Game Logic Methods
+	bool isConnected();
+	bool isHost();
+	void createLobby();
+	void openFriendOverlay();
+	void sendPacket(void * data, int size);
+	uint64_t getMySteamID();
 
-    void createLobby();
-    void openFriendOverlay();
-
-    // P2P Networking
-    void sendPacket(void * data, int size);
-    std::queue<std::vector<char>> packetQueue;
+	// Packet Queue for ofApp to read
+	std::queue<std::vector<char>> packetQueue;
 
 private:
-    bool m_bInitialized;
-    CSteamID m_LobbyId;
-    CSteamID m_OpponentId;
-    bool m_bIsHost;
+	bool m_bInitialized;
+	bool m_bIsHost;
+	CSteamID m_LobbyId;
+	CSteamID m_OpponentId;
 
-    // --- MANUAL CALLBACK DEFINITIONS (Fixes Constructor Error) ---
-    
-    // 1. Overlay Activated
-    CCallback<SteamManager, GameOverlayActivated_t> m_cbGameOverlayActivated;
-    void OnGameOverlayActivated(GameOverlayActivated_t * pCallback);
+	// ---------------------- STEAM CALLBACKS ----------------------
 
-    // 2. Lobby Created
-    CCallback<SteamManager, LobbyCreated_t> m_cbLobbyCreated;
-    void OnLobbyCreated(LobbyCreated_t * pCallback);
+	// 1. Overlay Activated (Shift+Tab)
+	STEAM_CALLBACK(SteamManager, OnGameOverlayActivated, GameOverlayActivated_t);
 
-    // 3. Join Request (Friend Invite)
-    CCallback<SteamManager, GameLobbyJoinRequested_t> m_cbGameLobbyJoinRequested;
-    void OnGameLobbyJoinRequested(GameLobbyJoinRequested_t * pCallback);
+	// 2. Lobby Created (Async CallResult)
+	// NOTE: This uses CCallResult, so we declare the handler function manually
+	void OnLobbyCreated(LobbyCreated_t * pCallback, bool bIOFailure);
+	CCallResult<SteamManager, LobbyCreated_t> m_cbLobbyCreated;
 
-    // 4. Lobby Entered
-    CCallback<SteamManager, LobbyEnter_t> m_cbLobbyEnter;
-    void OnLobbyEnter(LobbyEnter_t * pCallback);
+	// 3. Join Request (Standard "Invite Friend" Button)
+	STEAM_CALLBACK(SteamManager, OnGameLobbyJoinRequested, GameLobbyJoinRequested_t);
 
-    // 5. P2P Request
-    CCallback<SteamManager, P2PSessionRequest_t> m_cbP2PSessionRequest;
-    void OnP2PSessionRequest(P2PSessionRequest_t * pCallback);
+	// 4. Join Request (Rich Presence / Spacewar Fix)
+	// This handles when someone clicks "Join Game" on your profile
+	STEAM_CALLBACK(SteamManager, OnGameJoinRequested, GameRichPresenceJoinRequested_t);
+
+	// 5. Lobby Entered (Success)
+	STEAM_CALLBACK(SteamManager, OnLobbyEnter, LobbyEnter_t);
+
+	// 6. Networking (P2P Request)
+	STEAM_CALLBACK(SteamManager, OnP2PSessionRequest, P2PSessionRequest_t);
 };

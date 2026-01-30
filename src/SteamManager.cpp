@@ -1,21 +1,21 @@
 #include "SteamManager.h"
-#include "ofMain.h"
-// --- ADD THIS BLOCK FOR WINDOWS BUILDS ---
+
+// --- WINDOWS LINKING FIX ---
 #ifdef _WIN32
 	#pragma comment(lib, "steam_api64.lib")
 #endif
-// Initialize the callbacks manually. This tells Steam "Call THIS function on THIS object"
+// ---------------------------
+
 SteamManager::SteamManager()
 	: m_bInitialized(false)
-	, m_bIsHost(false)
-	, m_cbGameOverlayActivated(this, &SteamManager::OnGameOverlayActivated)
-	, m_cbLobbyCreated(this, &SteamManager::OnLobbyCreated)
-	, m_cbGameLobbyJoinRequested(this, &SteamManager::OnGameLobbyJoinRequested)
-	, m_cbLobbyEnter(this, &SteamManager::OnLobbyEnter)
-	, m_cbP2PSessionRequest(this, &SteamManager::OnP2PSessionRequest) {
+	, m_bIsHost(false) {
+	// CCallResult members (like m_cbLobbyCreated) don't need init in constructor list
+	// STEAM_CALLBACK macros handle their own initialization automatically
 }
 
-SteamManager::~SteamManager() { cleanup(); }
+SteamManager::~SteamManager() {
+	cleanup();
+}
 
 void SteamManager::setup() {
 	if (SteamAPI_Init()) {
@@ -29,16 +29,17 @@ void SteamManager::setup() {
 void SteamManager::update() {
 	if (!m_bInitialized) return;
 
-	// Run callbacks (This triggers OnLobbyCreated etc.)
+	// Run callbacks (This triggers OnLobbyCreated, OnGameJoinRequested, etc.)
 	SteamAPI_RunCallbacks();
 
-	// Read incoming packets
+	// Read incoming P2P packets
 	uint32 packetSize;
 	while (SteamNetworking()->IsP2PPacketAvailable(&packetSize)) {
 		std::vector<char> buffer(packetSize);
 		CSteamID sender;
 
 		if (SteamNetworking()->ReadP2PPacket(buffer.data(), packetSize, &packetSize, &sender)) {
+			// Auto-detect opponent if we don't have one yet
 			if (m_OpponentId == CSteamID()) {
 				m_OpponentId = sender;
 				ofLogNotice("Steam") << "Opponent Connected: " << sender.ConvertToUint64();
@@ -57,7 +58,9 @@ bool SteamManager::isConnected() {
 	return m_OpponentId.IsValid() || (m_bIsHost && m_LobbyId.IsValid());
 }
 
-bool SteamManager::isHost() { return m_bIsHost; }
+bool SteamManager::isHost() {
+	return m_bIsHost;
+}
 
 uint64_t SteamManager::getMySteamID() {
 	if (!m_bInitialized) return 0;
@@ -66,8 +69,12 @@ uint64_t SteamManager::getMySteamID() {
 
 void SteamManager::createLobby() {
 	if (!m_bInitialized) return;
+
 	ofLogNotice("Steam") << "Requesting Lobby creation...";
-	SteamMatchmaking()->CreateLobby(k_ELobbyTypeFriendsOnly, 2);
+
+	// CreateLobby is an async call. We get a handle, and set the callback.
+	SteamAPICall_t hSteamAPICall = SteamMatchmaking()->CreateLobby(k_ELobbyTypeFriendsOnly, 2);
+	m_cbLobbyCreated.Set(hSteamAPICall, this, &SteamManager::OnLobbyCreated);
 }
 
 void SteamManager::openFriendOverlay() {
@@ -82,21 +89,52 @@ void SteamManager::sendPacket(void * data, int size) {
 
 // ---------------------- CALLBACK IMPLEMENTATIONS ----------------------
 
-void SteamManager::OnGameOverlayActivated(GameOverlayActivated_t * pCallback) { }
+void SteamManager::OnGameOverlayActivated(GameOverlayActivated_t * pCallback) {
+	// Optional: Pause game here if needed
+}
 
-void SteamManager::OnLobbyCreated(LobbyCreated_t * pCallback) {
-	if (pCallback->m_eResult == k_EResultOK) {
-		m_LobbyId = pCallback->m_ulSteamIDLobby;
-		m_bIsHost = true;
-		ofLogNotice("Steam") << "Lobby Created! ID: " << m_LobbyId.ConvertToUint64();
-	} else {
-		ofLogError("Steam") << "Lobby Creation Failed. Error: " << pCallback->m_eResult;
+// NOTE: This signature now matches the Header (includes bIOFailure)
+void SteamManager::OnLobbyCreated(LobbyCreated_t * pCallback, bool bIOFailure) {
+	if (pCallback->m_eResult != k_EResultOK || bIOFailure) {
+		ofLogNotice() << "Steam: Lobby creation failed!";
+		return;
 	}
+
+	CSteamID lobbyID = CSteamID(pCallback->m_ulSteamIDLobby);
+	ofLogNotice() << "Steam: Lobby Created! ID: " << lobbyID.ConvertToUint64();
+
+	// --- RICH PRESENCE FIX FOR SPACEWAR (AppID 480) ---
+	// This tells Steam: "If someone clicks Join on my profile, send them this Lobby ID"
+	// Without this, 'Join Game' does nothing on AppID 480.
+	string connectString = "+connect_lobby " + to_string(lobbyID.ConvertToUint64());
+	SteamFriends()->SetRichPresence("connect", connectString.c_str());
+	// --------------------------------------------------
 }
 
 void SteamManager::OnGameLobbyJoinRequested(GameLobbyJoinRequested_t * pCallback) {
-	ofLogNotice("Steam") << "Join Request received. Joining " << pCallback->m_steamIDLobby.ConvertToUint64();
+	ofLogNotice("Steam") << "Join Request received (Invite). Joining " << pCallback->m_steamIDLobby.ConvertToUint64();
 	SteamMatchmaking()->JoinLobby(pCallback->m_steamIDLobby);
+}
+
+// This handles the "Right Click -> Join Game" action
+void SteamManager::OnGameJoinRequested(GameRichPresenceJoinRequested_t * pCallback) {
+	ofLogNotice() << "Steam: Join Game Requested via Overlay (Rich Presence)!";
+
+	// The "connect" string we set in OnLobbyCreated comes back to us here
+	// It looks like "+connect_lobby 12345..."
+	string cmd = pCallback->m_rgchConnect;
+
+	// Parse the ID out of the string
+	size_t split = cmd.find(" ");
+	if (split != string::npos) {
+		string idStr = cmd.substr(split + 1);
+
+		// Use stoull to safely convert string to uint64
+		CSteamID lobbyID(std::stoull(idStr));
+
+		ofLogNotice() << "Steam: Joining Lobby " << lobbyID.ConvertToUint64();
+		SteamMatchmaking()->JoinLobby(lobbyID);
+	}
 }
 
 void SteamManager::OnLobbyEnter(LobbyEnter_t * pCallback) {

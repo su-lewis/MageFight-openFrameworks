@@ -1,8 +1,8 @@
 ERROR: ld.so: object '/usr/lib/extest/libextest.so' from LD_PRELOAD cannot be preloaded (cannot open shared object file): ignored.
 ERROR: ld.so: object '/var/home/lewis/.local/share/Steam/ubuntu12_32/gameoverlayrenderer.so' from LD_PRELOAD cannot be preloaded (wrong ELF class: ELFCLASS32): ignored.
---- run.sh script started at Fri Jan 30 08:31:40 GMT 2026 ---
+--- run.sh script started at Fri Jan 30 16:36:48 GMT 2026 ---
 Script directory: /home/lewis/of_workspace/openFrameworks/apps/myApps/MageFight/bin
-pid 1298029 != 1298025, skipping destruction (fork without exec?)
+pid 1382135 != 1382131, skipping destruction (fork without exec?)
 Working directory changed to: /home/lewis/of_workspace/openFrameworks/apps/myApps/MageFight/bin
 LD_LIBRARY_PATH is: .:
 Attempting to execute: ./MageFight
@@ -90,9 +90,6 @@ SteamInternal_SetMinidumpSteamID:  Caching Steam ID:  76561198261715869 [API loa
 [notice ] ofApp::loadCardData: Class Distribution - C1: 30, C2: 24, C3: 16
 [notice ] GL: Vendor: AMD | Renderer: AMD Radeon RX 9070 XT (radeonsi, gfx1201, LLVM 21.1.6, DRM 3.64, 6.17.7-ba25.fc43.x86_64) | Version: 4.6 (Compatibility Profile) Mesa 25.3.1-arch1.2 | GLSL: 4.60
 [notice ] FBO: worldFbo allocated 2560x1440
-[notice ] Steam: Requesting Lobby creation...
-[notice ] Steam: Lobby Created! ID: 109775242314979398
-[notice ] Steam: Entered Lobby as Host.
 ERROR: ld.so: object '/usr/lib/extest/libextest.so' from LD_PRELOAD cannot be preloaded (cannot open shared object file): ignored.
 ERROR: ld.so: object '/var/home/lewis/.local/share/Steam/ubuntu12_32/gameoverlayrenderer.so' from LD_PRELOAD cannot be preloaded (wrong ELF class: ELFCLASS32): ignored.
---- run.sh script finished at Fri Jan 30 08:32:38 GMT 2026 ---
+--- run.sh script finished at Fri Jan 30 16:38:54 GMT 2026 ---
