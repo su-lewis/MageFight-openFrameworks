@@ -419,11 +419,14 @@ public:
 	void sendActionPacket(int cardIndex, int tx, int ty, int cost);
 	void executeAction(const ActionPacket & pkt);
 	long long calculateChecksum();
+	float lastHandshakeRequestTime = 0.0f;
+	uint32_t currentMapSeed = 0;
 
 	// Steam
 	SteamManager steamManager;
 	bool isMultiplayer = false;
 	int myLocalPlayerID = 0; // 0 = Host, 1 = Client
+	bool hasReceivedHandshake = false;
 
 private:
 	// -------------------------------------------------------------------------

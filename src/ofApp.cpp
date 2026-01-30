@@ -802,14 +802,41 @@ void ofApp::update() {
 	processNetworkPackets();
 
 	// ============================================================
-	// 1. STEAM CONNECTION TRIGGER
+	// 1. STEAM CONNECTION TRIGGER (SYNCED)
 	// ============================================================
-	// CRITICAL CHANGE: We check hasOpponent() instead of isConnected()
-	// This ensures we don't start until the second player is actually here.
 	if (currentState == STATE_MAIN_MENU && steamManager.hasOpponent()) {
-		ofLogNotice("Network") << "Opponent verified! Starting game...";
-		setupGame();
-		return;
+
+		// CASE A: I AM THE HOST
+		if (steamManager.isHost()) {
+			if (!isMultiplayer) { // Ensure we only run this once
+				ofLogNotice("Network") << "Host: Opponent found. Starting game & sending seed.";
+				isMultiplayer = true;
+				myLocalPlayerID = 0; // Host is always Player 0
+				setupGame(); // Generates seed and sends PKT_HANDSHAKE
+			}
+		}
+
+		// CASE B: I AM THE CLIENT
+		else {
+			if (!isMultiplayer) {
+				// 1. Log status (visual feedback)
+				static bool loggedWait = false;
+				if (!loggedWait) {
+					ofLogNotice("Network") << "Client: Connected. Requesting Host seed...";
+					loggedWait = true;
+				}
+
+				// 2. "KEEP ASKING" LOOP (Robust Fix)
+				// Every 1.0 seconds, send a "REQ_SEED" packet to the Host.
+				// This ensures that if the first packet was dropped, we ask again.
+				if (ofGetElapsedTimef() - lastHandshakeRequestTime > 1.0f) {
+					string req = "REQ_SEED";
+					steamManager.sendPacket(req.c_str(), req.size());
+					lastHandshakeRequestTime = ofGetElapsedTimef();
+					ofLogNotice("Network") << "Sent Seed Request...";
+				}
+			}
+		}
 	}
 	// ============================================================
 
@@ -1256,16 +1283,26 @@ void ofApp::recalculateUI(int w, int h) {
 //--------------------------------------------------------------
 void ofApp::setupGame() {
 
+	// HOST LOGIC: Generate Seed and Send it
 	if (isMultiplayer && steamManager.isHost()) {
-		uint32_t seed = (uint32_t)time(nullptr);
-		rng.seed(seed);
+		currentMapSeed = (uint32_t)time(nullptr); // Store it!
+		rng.seed(currentMapSeed);
+		ofLogNotice("Setup") << "Host generated seed: " << currentMapSeed;
 
 		HandshakePacket pkt;
 		pkt.type = PKT_HANDSHAKE;
-		pkt.seed = seed;
+		pkt.seed = currentMapSeed; // Use stored value
 		steamManager.sendPacket(&pkt, sizeof(pkt));
 	}
-	// --- RESET CORE GAME STATE (Fast Operations Only) ---
+
+	// CLIENT LOGIC: We already set the seed in processNetworkPackets, so we do nothing here.
+	// SINGLE PLAYER: We need to generate a seed.
+	else if (!isMultiplayer) {
+		std::random_device rd;
+		rng.seed(rd());
+	}
+
+	// --- RESET CORE GAME STATE ---
 	players.clear();
 	activeDiceRolls.clear();
 	for (int x = 0; x < BOARD_WIDTH; ++x) {
@@ -16331,6 +16368,22 @@ void ofApp::processNetworkPackets() {
 		std::vector<char> buffer = steamManager.packetQueue.front();
 		steamManager.packetQueue.pop();
 
+		// --- NEW BLOCK: CHECK FOR SEED REQUEST (Before casting to Header) ---
+		// If we received the string "REQ_SEED", we must resend the handshake.
+		if (buffer.size() == 8) {
+			string msg(buffer.begin(), buffer.end());
+			if (msg == "REQ_SEED" && steamManager.isHost()) {
+				ofLogNotice("Network") << "Host: Received Seed Request. Resending Seed: " << currentMapSeed;
+
+				HandshakePacket pkt;
+				pkt.type = PKT_HANDSHAKE;
+				pkt.seed = currentMapSeed; // Use the stored seed!
+				steamManager.sendPacket(&pkt, sizeof(pkt));
+				continue; // Done with this packet
+			}
+		}
+		// -------------------------------------------------------------------
+
 		if (buffer.size() < sizeof(PacketHeader)) continue;
 
 		PacketHeader * header = (PacketHeader *)buffer.data();
@@ -16339,18 +16392,21 @@ void ofApp::processNetworkPackets() {
 			HandshakePacket * pkt = (HandshakePacket *)header;
 			ofLogNotice("Net") << "Handshake received. Seed: " << pkt->seed;
 
-			// Sync RNG
+			// 1. Sync RNG with Host
 			rng.seed(pkt->seed);
 
-			// Set Player IDs
-			if (steamManager.isHost()) {
-				myLocalPlayerID = 0;
-			} else {
-				myLocalPlayerID = 1;
-				// Client usually needs to reload game/board state here to match fresh seed
-				setupGame();
-			}
+			// 2. Set Identity
+			// If I received a handshake, I am definitely the Client (Player 1)
+			myLocalPlayerID = 1;
 			isMultiplayer = true;
+			hasReceivedHandshake = true;
+
+			// 3. START THE GAME (Client Side)
+			// This ensures we build the exact same board as the Host
+			setupGame();
+
+			// 4. Force State Switch
+			// setupGame() sets state to INITIATIVE_ROLL, but we ensure loading is done
 			isLoadingGame = false;
 		} else if (header->type == PKT_ACTION) {
 			ActionPacket * pkt = (ActionPacket *)header;
