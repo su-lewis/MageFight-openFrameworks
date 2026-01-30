@@ -7,7 +7,7 @@ on:
 
 env:
   OF_VER: 0.12.0
-  OF_ROOT: ${{ github.workspace }}/openFrameworks
+  OF_ROOT: ${{ github.workspace }}\openFrameworks
 
 jobs:
   build-windows:
@@ -16,7 +16,7 @@ jobs:
       - name: Checkout Your Game
         uses: actions/checkout@v3
         with:
-          path: apps/myApps/MageFight
+          path: temp_game_code
 
       - name: Setup MSBuild
         uses: microsoft/setup-msbuild@v1.1
@@ -25,25 +25,43 @@ jobs:
         shell: cmd
         run: |
           curl -L -o of.zip https://github.com/openframeworks/openFrameworks/releases/download/${{ env.OF_VER }}/of_v${{ env.OF_VER }}_vs_release.zip
-          7z x of.zip -o${{ github.workspace }} -y
-          ren ${{ github.workspace }}\of_v${{ env.OF_VER }}_vs_release openFrameworks
+          7z x of.zip -o"${{ github.workspace }}" -y
+          ren "${{ github.workspace }}\of_v${{ env.OF_VER }}_vs_release" openFrameworks
 
-      - name: Download Project Generator (FIXED)
+      - name: Move Game into OpenFrameworks (Crucial Step)
         shell: cmd
         run: |
-          :: Use the official nightly link for the command line tool
+          echo Moving game code into the engine structure...
+          mkdir "${{ env.OF_ROOT }}\apps\myApps\MageFight"
+          robocopy "${{ github.workspace }}\temp_game_code" "${{ env.OF_ROOT }}\apps\myApps\MageFight" /E /MOVE /NFL /NDL /NJH /NJS || ver > nul
+          echo Game moved successfully.
+
+      - name: Download Project Generator
+        shell: cmd
+        run: |
           curl -L -o pg.zip https://github.com/openframeworks/projectGenerator/releases/download/nightly/projectGenerator-vs.zip
-          7z x pg.zip -o${{ github.workspace }} -y
+          7z x pg.zip -o"${{ github.workspace }}" -y
           
-          :: Rename the extracted folder safely using batch syntax
+          echo DEBUG: Listing workspace to find PG folder...
+          dir "${{ github.workspace }}"
+          
+          :: Rename whatever it extracted to 'projectGenerator' for consistency
           if exist "${{ github.workspace }}\projectGenerator-vs" (
-            ren "${{ github.workspace }}\projectGenerator-vs" projectGenerator
+             ren "${{ github.workspace }}\projectGenerator-vs" projectGenerator
           )
 
       - name: Generate Project Files
         shell: cmd
         run: |
-          :: The executable is now inside the 'projectGenerator' folder we just renamed
+          echo Generating Solution files...
+          
+          :: Check if the executable exists before running
+          if not exist "${{ github.workspace }}\projectGenerator\projectGenerator.exe" (
+             echo ERROR: projectGenerator.exe not found!
+             dir "${{ github.workspace }}\projectGenerator" /s
+             exit 1
+          )
+
           "${{ github.workspace }}\projectGenerator\projectGenerator.exe" /ofPath:"${{ env.OF_ROOT }}" /platforms:vs "${{ env.OF_ROOT }}\apps\myApps\MageFight"
 
       - name: Inject Steam Headers & Libs
@@ -56,23 +74,7 @@ jobs:
           copy "${{ env.OF_ROOT }}\apps\myApps\MageFight\libs\steam\lib\win64\steam_api64.lib" "${{ env.OF_ROOT }}\libs\openFrameworksCompiled\lib\vs\x64\"
 
       - name: Build
-        working-directory: ${{ env.OF_ROOT }}/apps/myApps/MageFight
+        working-directory: ${{ env.OF_ROOT }}\apps\myApps\MageFight
         shell: cmd
         run: |
-          msbuild MageFight.sln /p:configuration=Release /p:platform=x64
-
-      - name: Collect Artifacts
-        shell: cmd
-        run: |
-          mkdir ReleaseBuild
-          copy "${{ env.OF_ROOT }}\apps\myApps\MageFight\bin\MageFight.exe" ReleaseBuild\
-          copy "${{ env.OF_ROOT }}\apps\myApps\MageFight\libs\steam\lib\win64\steam_api64.dll" ReleaseBuild\
-          copy "${{ env.OF_ROOT }}\apps\myApps\MageFight\bin\steam_appid.txt" ReleaseBuild\
-          copy "${{ env.OF_ROOT }}\export\vs\x64\*.dll" ReleaseBuild\
-          xcopy "${{ env.OF_ROOT }}\apps\myApps\MageFight\bin\data" ReleaseBuild\data /E /I
-
-      - name: Upload Build
-        uses: actions/upload-artifact@v4
-        with:
-          name: MageFight_Windows
-          path: ReleaseBuild/
+          msbuild MageFight
