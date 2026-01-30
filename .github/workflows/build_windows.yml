@@ -22,47 +22,54 @@ jobs:
         uses: microsoft/setup-msbuild@v1.1
 
       - name: Download OpenFrameworks
+        shell: cmd
         run: |
           curl -L -o of.zip https://github.com/openframeworks/openFrameworks/releases/download/${{ env.OF_VER }}/of_v${{ env.OF_VER }}_vs_release.zip
           7z x of.zip -o${{ github.workspace }} -y
           ren ${{ github.workspace }}\of_v${{ env.OF_VER }}_vs_release openFrameworks
 
       - name: Download Project Generator (FIXED)
+        shell: cmd
         run: |
-          # Use the official nightly link for the command line tool
+          :: Use the official nightly link for the command line tool
           curl -L -o pg.zip https://github.com/openframeworks/projectGenerator/releases/download/nightly/projectGenerator-vs.zip
           7z x pg.zip -o${{ github.workspace }} -y
-          # It extracts to a folder named 'projectGenerator-vs'. We rename it for simplicity.
+          
+          :: Rename the extracted folder safely using batch syntax
           if exist "${{ github.workspace }}\projectGenerator-vs" (
             ren "${{ github.workspace }}\projectGenerator-vs" projectGenerator
           )
 
       - name: Generate Project Files
+        shell: cmd
         run: |
-          # The executable is now inside the 'projectGenerator' folder we just renamed
-          ${{ github.workspace }}\projectGenerator\projectGenerator.exe /ofPath:"${{ env.OF_ROOT }}" /platforms:vs "${{ env.OF_ROOT }}\apps\myApps\MageFight"
+          :: The executable is now inside the 'projectGenerator' folder we just renamed
+          "${{ github.workspace }}\projectGenerator\projectGenerator.exe" /ofPath:"${{ env.OF_ROOT }}" /platforms:vs "${{ env.OF_ROOT }}\apps\myApps\MageFight"
 
       - name: Inject Steam Headers & Libs
+        shell: cmd
         run: |
-          echo "Copying Steam Headers..."
+          echo Copying Steam Headers...
           xcopy "${{ env.OF_ROOT }}\apps\myApps\MageFight\libs\steam\include\steam" "${{ env.OF_ROOT }}\libs\openFrameworks\steam\" /E /I /Y
-
-          echo "Copying Steam Lib..."
+          
+          echo Copying Steam Lib...
           copy "${{ env.OF_ROOT }}\apps\myApps\MageFight\libs\steam\lib\win64\steam_api64.lib" "${{ env.OF_ROOT }}\libs\openFrameworksCompiled\lib\vs\x64\"
 
       - name: Build
         working-directory: ${{ env.OF_ROOT }}/apps/myApps/MageFight
+        shell: cmd
         run: |
           msbuild MageFight.sln /p:configuration=Release /p:platform=x64
 
       - name: Collect Artifacts
+        shell: cmd
         run: |
           mkdir ReleaseBuild
-          copy ${{ env.OF_ROOT }}\apps\myApps\MageFight\bin\MageFight.exe ReleaseBuild\
-          copy ${{ env.OF_ROOT }}\apps\myApps\MageFight\libs\steam\lib\win64\steam_api64.dll ReleaseBuild\
-          copy ${{ env.OF_ROOT }}\apps\myApps\MageFight\bin\steam_appid.txt ReleaseBuild\
-          copy ${{ env.OF_ROOT }}\export\vs\x64\*.dll ReleaseBuild\
-          xcopy ${{ env.OF_ROOT }}\apps\myApps\MageFight\bin\data ReleaseBuild\data /E /I
+          copy "${{ env.OF_ROOT }}\apps\myApps\MageFight\bin\MageFight.exe" ReleaseBuild\
+          copy "${{ env.OF_ROOT }}\apps\myApps\MageFight\libs\steam\lib\win64\steam_api64.dll" ReleaseBuild\
+          copy "${{ env.OF_ROOT }}\apps\myApps\MageFight\bin\steam_appid.txt" ReleaseBuild\
+          copy "${{ env.OF_ROOT }}\export\vs\x64\*.dll" ReleaseBuild\
+          xcopy "${{ env.OF_ROOT }}\apps\myApps\MageFight\bin\data" ReleaseBuild\data /E /I
 
       - name: Upload Build
         uses: actions/upload-artifact@v4
