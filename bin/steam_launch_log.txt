@@ -1,8 +1,8 @@
 ERROR: ld.so: object '/usr/lib/extest/libextest.so' from LD_PRELOAD cannot be preloaded (cannot open shared object file): ignored.
 ERROR: ld.so: object '/var/home/lewis/.local/share/Steam/ubuntu12_32/gameoverlayrenderer.so' from LD_PRELOAD cannot be preloaded (wrong ELF class: ELFCLASS32): ignored.
---- run.sh script started at Fri Jan 30 16:36:48 GMT 2026 ---
+--- run.sh script started at Fri Jan 30 17:01:55 GMT 2026 ---
 Script directory: /home/lewis/of_workspace/openFrameworks/apps/myApps/MageFight/bin
-pid 1382135 != 1382131, skipping destruction (fork without exec?)
+pid 1389566 != 1389562, skipping destruction (fork without exec?)
 Working directory changed to: /home/lewis/of_workspace/openFrameworks/apps/myApps/MageFight/bin
 LD_LIBRARY_PATH is: .:
 Attempting to execute: ./MageFight
@@ -90,6 +90,90 @@ SteamInternal_SetMinidumpSteamID:  Caching Steam ID:  76561198261715869 [API loa
 [notice ] ofApp::loadCardData: Class Distribution - C1: 30, C2: 24, C3: 16
 [notice ] GL: Vendor: AMD | Renderer: AMD Radeon RX 9070 XT (radeonsi, gfx1201, LLVM 21.1.6, DRM 3.64, 6.17.7-ba25.fc43.x86_64) | Version: 4.6 (Compatibility Profile) Mesa 25.3.1-arch1.2 | GLSL: 4.60
 [notice ] FBO: worldFbo allocated 2560x1440
+[notice ] Steam: Join Request received (Invite). Joining 109775242354022741
+[notice ] Steam: Joined Lobby. Host is 76561198743068920
+[notice ] Network: Opponent found via Steam! Starting game...
+[notice ] Dice: D6 landed on (raw): 4
+[notice ] Dice: Final total result for 1d6: 4
+[notice ] Dice: D6 landed on (raw): 4
+[notice ] Dice: Final total result for 1d6: 4
+[notice ] Game: --- INITIATIVE ROLL STARTED ---
+[notice ] Dice: D6 landed on (raw): 1
+[notice ] Dice: Final total result for 1d6: 1
+[notice ] Dice: D6 landed on (raw): 3
+[notice ] Dice: Final total result for 1d6: 3
+[notice ] Initiative: Tie! Rerolling...
+[notice ] Initiative: Player 2 Wins Initiative
+[notice ] Game: --- START TURN: Player 0
+[notice ] Game: Player 0's turn begins.
+[notice ] Dice: D6 landed on (raw): 2
+[notice ] Dice: Final total result for 1d6: 2
+[notice ] Game: AP Roll Finished: 2 AP awarded (sum of all dice).
+[notice ] Game: Drew card: Flame Hit
+[notice ] Game: Drew card: Flame Hit
+[notice ] Game: --- START TURN: Player 1
+[notice ] Game: Player 1's turn begins.
+[notice ] Dice: D6 landed on (raw): 1
+[notice ] Dice: Final total result for 1d6: 1
+[notice ] Game: AP Roll Finished: 1 AP awarded (sum of all dice).
+[notice ] Game: Drew card: Shoot Arrow
+[notice ] Game: Drew card: Shoot Arrow
+[notice ] Game: --- GAME SESSION CLEANED UP ---
+[notice ] Network: Opponent found via Steam! Starting game...
+[notice ] Dice: D6 landed on (raw): 6
+[notice ] Dice: Final total result for 1d6: 6
+[notice ] Dice: D6 landed on (raw): 6
+[notice ] Dice: Final total result for 1d6: 6
+[notice ] Game: --- INITIATIVE ROLL STARTED ---
+[notice ] Game: --- GAME SESSION CLEANED UP ---
+[notice ] Network: Opponent found via Steam! Starting game...
+[notice ] Dice: D6 landed on (raw): 1
+[notice ] Dice: Final total result for 1d6: 1
+[notice ] Dice: D6 landed on (raw): 1
+[notice ] Dice: Final total result for 1d6: 1
+[notice ] Game: --- INITIATIVE ROLL STARTED ---
+[notice ] Game: --- GAME SESSION CLEANED UP ---
+[notice ] Network: Opponent found via Steam! Starting game...
+[notice ] Dice: D6 landed on (raw): 3
+[notice ] Dice: Final total result for 1d6: 3
+[notice ] Dice: D6 landed on (raw): 4
+[notice ] Dice: Final total result for 1d6: 4
+[notice ] Game: --- INITIATIVE ROLL STARTED ---
+[notice ] Game: --- GAME SESSION CLEANED UP ---
+[notice ] Network: Opponent found via Steam! Starting game...
+[notice ] Dice: D6 landed on (raw): 6
+[notice ] Dice: Final total result for 1d6: 6
+[notice ] Dice: D6 landed on (raw): 4
+[notice ] Dice: Final total result for 1d6: 4
+[notice ] Game: --- INITIATIVE ROLL STARTED ---
+[notice ] Initiative: Player 1 Wins Initiative
+[notice ] Game: --- GAME SESSION CLEANED UP ---
+[notice ] Network: Opponent found via Steam! Starting game...
+[notice ] Dice: D6 landed on (raw): 1
+[notice ] Dice: Final total result for 1d6: 1
+[notice ] Dice: D6 landed on (raw): 4
+[notice ] Dice: Final total result for 1d6: 4
+[notice ] Game: --- INITIATIVE ROLL STARTED ---
+[notice ] Game: --- GAME SESSION CLEANED UP ---
+[notice ] Network: Opponent found via Steam! Starting game...
+[notice ] Dice: D6 landed on (raw): 5
+[notice ] Dice: Final total result for 1d6: 5
+[notice ] Dice: D6 landed on (raw): 5
+[notice ] Dice: Final total result for 1d6: 5
+[notice ] Game: --- INITIATIVE ROLL STARTED ---
+[notice ] Dice: D6 landed on (raw): 4
+[notice ] Dice: Final total result for 1d6: 4
+[notice ] Dice: D6 landed on (raw): 1
+[notice ] Dice: Final total result for 1d6: 1
+[notice ] Initiative: Tie! Rerolling...
+[notice ] Initiative: Player 1 Wins Initiative
+[notice ] Game: --- GAME SESSION CLEANED UP ---
+[notice ] Network: Opponent found via Steam! Starting game...
+[notice ] Dice: D6 landed on (raw): 3
+[notice ] Dice: Final total result for 1d6: 3
+[notice ] Dice: D6 landed on (raw): 1
+[notice ] Dice: Final total result for 1d6: 1
+[notice ] Game: --- INITIATIVE ROLL STARTED ---
 ERROR: ld.so: object '/usr/lib/extest/libextest.so' from LD_PRELOAD cannot be preloaded (cannot open shared object file): ignored.
 ERROR: ld.so: object '/var/home/lewis/.local/share/Steam/ubuntu12_32/gameoverlayrenderer.so' from LD_PRELOAD cannot be preloaded (wrong ELF class: ELFCLASS32): ignored.
---- run.sh script finished at Fri Jan 30 16:38:54 GMT 2026 ---
+--- run.sh script finished at Fri Jan 30 17:03:50 GMT 2026 ---

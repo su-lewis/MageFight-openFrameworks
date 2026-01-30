@@ -9,8 +9,6 @@
 SteamManager::SteamManager()
 	: m_bInitialized(false)
 	, m_bIsHost(false) {
-	// CCallResult members (like m_cbLobbyCreated) don't need init in constructor list
-	// STEAM_CALLBACK macros handle their own initialization automatically
 }
 
 SteamManager::~SteamManager() {
@@ -20,61 +18,81 @@ SteamManager::~SteamManager() {
 void SteamManager::setup() {
 	if (SteamAPI_Init()) {
 		m_bInitialized = true;
-		ofLogNotice("Steam") << "Steam API Initialized. My ID: " << SteamUser()->GetSteamID().ConvertToUint64();
+		ofLogNotice("Steam") << "API Initialized. User ID: " << SteamUser()->GetSteamID().ConvertToUint64();
 	} else {
-		ofLogError("Steam") << "Steam API failed to init. Is Steam running? Is steam_appid.txt present?";
+		ofLogError("Steam") << "Steam API failed to init. Is Steam running?";
 	}
 }
 
 void SteamManager::update() {
 	if (!m_bInitialized) return;
 
-	// Run callbacks (This triggers OnLobbyCreated, OnGameJoinRequested, etc.)
+	// 1. Process Steam Events
 	SteamAPI_RunCallbacks();
 
-	// Read incoming P2P packets
+	// 2. Read Incoming Packets
 	uint32 packetSize;
 	while (SteamNetworking()->IsP2PPacketAvailable(&packetSize)) {
-		std::vector<char> buffer(packetSize);
-		CSteamID sender;
 
-		if (SteamNetworking()->ReadP2PPacket(buffer.data(), packetSize, &packetSize, &sender)) {
-			// Auto-detect opponent if we don't have one yet
-			if (m_OpponentId == CSteamID()) {
-				m_OpponentId = sender;
-				ofLogNotice("Steam") << "Opponent Connected: " << sender.ConvertToUint64();
+		std::vector<char> buffer(packetSize);
+		uint32 bytesRead = 0;
+		CSteamID senderID;
+
+		if (SteamNetworking()->ReadP2PPacket(buffer.data(), packetSize, &bytesRead, &senderID)) {
+
+			// If we don't have an opponent ID yet, save it now.
+			if (!m_OpponentID.IsValid()) {
+				m_OpponentID = senderID;
+				ofLogNotice("Steam") << "Connection established with Opponent: " << m_OpponentID.ConvertToUint64();
 			}
+
 			packetQueue.push(buffer);
 		}
 	}
 }
 
 void SteamManager::cleanup() {
-	if (m_bInitialized) SteamAPI_Shutdown();
+	if (m_bInitialized) {
+		SteamAPI_Shutdown();
+		m_bInitialized = false;
+	}
 }
 
-// Logic: Connected if we have an opponent OR if we are hosting a valid lobby
-bool SteamManager::isConnected() {
-	return m_OpponentId.IsValid() || (m_bIsHost && m_LobbyId.IsValid());
+// ----------------------------------------------------------------------------------
+// GAME LOGIC HELPERS
+// ----------------------------------------------------------------------------------
+
+bool SteamManager::isConnected() const {
+	// Only return true if we have actually connected to an opponent.
+	// This prevents the Host from starting the game alone.
+	return m_OpponentID.IsValid();
 }
 
-bool SteamManager::isHost() {
+bool SteamManager::isHost() const {
 	return m_bIsHost;
-}
-
-uint64_t SteamManager::getMySteamID() {
-	if (!m_bInitialized) return 0;
-	return SteamUser()->GetSteamID().ConvertToUint64();
 }
 
 void SteamManager::createLobby() {
 	if (!m_bInitialized) return;
 
 	ofLogNotice("Steam") << "Requesting Lobby creation...";
-
-	// CreateLobby is an async call. We get a handle, and set the callback.
 	SteamAPICall_t hSteamAPICall = SteamMatchmaking()->CreateLobby(k_ELobbyTypeFriendsOnly, 2);
 	m_cbLobbyCreated.Set(hSteamAPICall, this, &SteamManager::OnLobbyCreated);
+}
+
+void SteamManager::leaveLobby() {
+	if (m_LobbyID.IsValid()) {
+		SteamMatchmaking()->LeaveLobby(m_LobbyID);
+		ofLogNotice("Steam") << "Left Lobby: " << m_LobbyID.ConvertToUint64();
+	}
+	// Reset all networking state
+	m_LobbyID = CSteamID();
+	m_OpponentID = CSteamID(); // Clears isConnected() status
+	m_bIsHost = false;
+
+	// Clear any pending packets
+	while (!packetQueue.empty())
+		packetQueue.pop();
 }
 
 void SteamManager::openFriendOverlay() {
@@ -82,82 +100,95 @@ void SteamManager::openFriendOverlay() {
 	SteamFriends()->ActivateGameOverlay("LobbyInvite");
 }
 
-void SteamManager::sendPacket(void * data, int size) {
-	if (!m_OpponentId.IsValid()) return;
-	SteamNetworking()->SendP2PPacket(m_OpponentId, data, size, k_EP2PSendReliable);
+void SteamManager::sendPacket(const void * data, uint32_t size) {
+	if (!m_bInitialized) return;
+
+	if (m_OpponentID.IsValid()) {
+		SteamNetworking()->SendP2PPacket(m_OpponentID, data, size, k_EP2PSendReliable);
+	} else {
+		ofLogWarning("Steam") << "Attempted to send packet, but no opponent connected yet.";
+	}
 }
 
-// ---------------------- CALLBACK IMPLEMENTATIONS ----------------------
+// ----------------------------------------------------------------------------------
+// CALLBACK IMPLEMENTATIONS
+// ----------------------------------------------------------------------------------
 
 void SteamManager::OnGameOverlayActivated(GameOverlayActivated_t * pCallback) {
-	// Optional: Pause game here if needed
+	// Optional logic when overlay opens/closes
 }
 
-// NOTE: This signature now matches the Header (includes bIOFailure)
 void SteamManager::OnLobbyCreated(LobbyCreated_t * pCallback, bool bIOFailure) {
 	if (pCallback->m_eResult != k_EResultOK || bIOFailure) {
-		ofLogNotice() << "Steam: Lobby creation failed!";
+		ofLogError("Steam") << "Lobby creation failed!";
 		return;
 	}
 
-	CSteamID lobbyID = CSteamID(pCallback->m_ulSteamIDLobby);
-	ofLogNotice() << "Steam: Lobby Created! ID: " << lobbyID.ConvertToUint64();
+	m_LobbyID = CSteamID(pCallback->m_ulSteamIDLobby);
+	m_bIsHost = true;
+	// Reset opponent so isConnected() returns false until they join
+	m_OpponentID = CSteamID();
 
-	// --- RICH PRESENCE FIX FOR SPACEWAR (AppID 480) ---
-	// This tells Steam: "If someone clicks Join on my profile, send them this Lobby ID"
-	// Without this, 'Join Game' does nothing on AppID 480.
-	string connectString = "+connect_lobby " + to_string(lobbyID.ConvertToUint64());
+	ofLogNotice("Steam") << "Lobby Created! ID: " << m_LobbyID.ConvertToUint64();
+
+	// RICH PRESENCE FIX (Required for Spacewar AppID 480)
+	string connectString = "+connect_lobby " + std::to_string(m_LobbyID.ConvertToUint64());
 	SteamFriends()->SetRichPresence("connect", connectString.c_str());
-	// --------------------------------------------------
 }
 
 void SteamManager::OnGameLobbyJoinRequested(GameLobbyJoinRequested_t * pCallback) {
-	ofLogNotice("Steam") << "Join Request received (Invite). Joining " << pCallback->m_steamIDLobby.ConvertToUint64();
+	ofLogNotice("Steam") << "Join Request via Invite. Joining " << pCallback->m_steamIDLobby.ConvertToUint64();
 	SteamMatchmaking()->JoinLobby(pCallback->m_steamIDLobby);
 }
 
-// This handles the "Right Click -> Join Game" action
 void SteamManager::OnGameJoinRequested(GameRichPresenceJoinRequested_t * pCallback) {
-	ofLogNotice() << "Steam: Join Game Requested via Overlay (Rich Presence)!";
+	ofLogNotice("Steam") << "Join Request via Rich Presence Overlay.";
 
-	// The "connect" string we set in OnLobbyCreated comes back to us here
-	// It looks like "+connect_lobby 12345..."
 	string cmd = pCallback->m_rgchConnect;
-
-	// Parse the ID out of the string
 	size_t split = cmd.find(" ");
+
 	if (split != string::npos) {
 		string idStr = cmd.substr(split + 1);
-
-		// Use stoull to safely convert string to uint64
-		CSteamID lobbyID(std::stoull(idStr));
-
-		ofLogNotice() << "Steam: Joining Lobby " << lobbyID.ConvertToUint64();
-		SteamMatchmaking()->JoinLobby(lobbyID);
+		try {
+			unsigned long long idLong = std::stoull(idStr);
+			CSteamID lobbyID(idLong);
+			ofLogNotice("Steam") << "Joining Lobby ID: " << lobbyID.ConvertToUint64();
+			SteamMatchmaking()->JoinLobby(lobbyID);
+		} catch (...) {
+			ofLogError("Steam") << "Failed to parse Lobby ID.";
+		}
 	}
 }
 
 void SteamManager::OnLobbyEnter(LobbyEnter_t * pCallback) {
-	m_LobbyId = pCallback->m_ulSteamIDLobby;
+	if (pCallback->m_EChatRoomEnterResponse != k_EChatRoomEnterResponseSuccess) {
+		ofLogError("Steam") << "Failed to enter lobby.";
+		return;
+	}
 
-	// Determine if we are owner
-	m_bIsHost = (SteamMatchmaking()->GetLobbyOwner(m_LobbyId) == SteamUser()->GetSteamID());
+	m_LobbyID = CSteamID(pCallback->m_ulSteamIDLobby);
+	CSteamID owner = SteamMatchmaking()->GetLobbyOwner(m_LobbyID);
 
-	if (m_bIsHost) {
+	if (owner == SteamUser()->GetSteamID()) {
+		m_bIsHost = true;
 		ofLogNotice("Steam") << "Entered Lobby as Host.";
 	} else {
-		// We are the client, send a hello packet to Host so they know our ID
-		m_OpponentId = SteamMatchmaking()->GetLobbyOwner(m_LobbyId);
+		m_bIsHost = false;
+		m_OpponentID = owner; // Clients know the opponent immediately
+		ofLogNotice("Steam") << "Joined Lobby. Host is " << m_OpponentID.ConvertToUint64();
 
-		string hello = "Hello";
-		sendPacket((void *)hello.c_str(), hello.size());
-
-		ofLogNotice("Steam") << "Joined Lobby. Host is " << m_OpponentId.ConvertToUint64();
+		// Send Hello packet to Host so they know our ID (P2P Handshake)
+		std::string hello = "HELLO_HOST";
+		sendPacket(hello.c_str(), hello.size());
 	}
 }
 
 void SteamManager::OnP2PSessionRequest(P2PSessionRequest_t * pCallback) {
-	// Auto-accept connection from anyone
-	ofLogNotice("Steam") << "P2P Connection request from " << pCallback->m_steamIDRemote.ConvertToUint64();
-	SteamNetworking()->AcceptP2PSessionWithUser(pCallback->m_steamIDRemote);
+	CSteamID remoteID = pCallback->m_steamIDRemote;
+	ofLogNotice("Steam") << "P2P Connection Requested by: " << remoteID.ConvertToUint64();
+	SteamNetworking()->AcceptP2PSessionWithUser(remoteID);
+}
+
+void SteamManager::OnP2PSessionConnectFail(P2PSessionConnectFail_t * pCallback) {
+	ofLogError("Steam") << "P2P Connection Failed.";
 }

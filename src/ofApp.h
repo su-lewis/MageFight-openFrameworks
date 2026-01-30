@@ -2,9 +2,7 @@
 #define GLFW_INCLUDE_NONE
 
 #include "GLFW/glfw3.h"
-#include "NetworkData.h" // <--- ADD THIS LINE
 #include "NetworkData.h"
-#include "SteamManager.h" // <--- ADD THIS LINE
 #include "SteamManager.h"
 #include "ofMain.h"
 #include "ofxAssimpModelLoader.h"

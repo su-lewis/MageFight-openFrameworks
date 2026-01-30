@@ -800,11 +800,20 @@ std::string ofApp::getPlayerDisplayName(int index) {
 void ofApp::update() {
 	steamManager.update();
 	processNetworkPackets();
+
+	// CONNECT TRIGGER
+	// This will now only fire when m_OpponentID is valid (handshake complete)
+	if (currentState == STATE_MAIN_MENU && steamManager.isConnected()) {
+		ofLogNotice("Network") << "Opponent verified! Starting game...";
+		setupGame();
+		return;
+	}
+	// ============================================================
+
 	// --- LOADING LOGIC ---
 	if (isLoadingGame) {
 		setupGame();
 		isLoadingGame = false;
-		// NOTE: setupGame now sets state to STATE_INITIATIVE_ROLL, so we don't force GAMEPLAY here
 		return;
 	}
 
@@ -820,7 +829,7 @@ void ofApp::update() {
 	case STATE_SETTINGS:
 		break;
 
-	// --- NEW: INITIATIVE ROLL STATE ---
+	// --- INITIATIVE ROLL STATE ---
 	case STATE_INITIATIVE_ROLL: {
 		// Wait for dice to finish spinning
 		bool allFinished = true;
@@ -867,7 +876,7 @@ void ofApp::update() {
 		break;
 	}
 
-	// --- NEW: DRAFTING STATE ---
+	// --- DRAFTING STATE ---
 	case STATE_DRAFTING:
 		// Logic is primarily handled in mousePressed (card selection)
 		break;
@@ -879,7 +888,7 @@ void ofApp::update() {
 		break;
 	}
 
-	// --- PASTE THIS HERE: HARDWARE CURSOR UPDATE ---
+	// --- HARDWARE CURSOR UPDATE ---
 	if (currentCursor != previousCursor) {
 		GLFWwindow * window = (GLFWwindow *)ofGetWindowPtr()->getWindowContext();
 		if (window) {
@@ -7586,9 +7595,11 @@ void ofApp::mousePressed(int x, int y, int button) {
 				return;
 			}
 			if (pauseMenuQuitButton.inside(x, y)) {
+				// 1. Disconnect from Steam (Stops the auto-join loop)
+				steamManager.leaveLobby();
+				isMultiplayer = false;
 				cleanupGame();
 				currentState = STATE_MAIN_MENU;
-				return;
 			}
 		}
 		// For other buttons or mouse buttons, swallow the click so gameplay handlers don't run
