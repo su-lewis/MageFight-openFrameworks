@@ -1283,16 +1283,24 @@ void ofApp::recalculateUI(int w, int h) {
 //--------------------------------------------------------------
 void ofApp::setupGame() {
 
-	// HOST LOGIC: Generate Seed and Send it
+	 // --- MULTIPLAYER SYNC ---
 	if (isMultiplayer && steamManager.isHost()) {
-		currentMapSeed = (uint32_t)time(nullptr); // Store it!
-		rng.seed(currentMapSeed);
+		currentMapSeed = (uint32_t)time(nullptr);
+
+		// CRITICAL: Seed the gameplay RNG, not the old rng
+		gameplayRNG.seed(currentMapSeed);
+
 		ofLogNotice("Setup") << "Host generated seed: " << currentMapSeed;
 
 		HandshakePacket pkt;
 		pkt.type = PKT_HANDSHAKE;
-		pkt.seed = currentMapSeed; // Use stored value
+		pkt.seed = currentMapSeed;
 		steamManager.sendPacket(&pkt, sizeof(pkt));
+	}
+	// SINGLE PLAYER:
+	else if (!isMultiplayer) {
+		std::random_device rd;
+		gameplayRNG.seed(rd()); // Seed gameplay RNG locally
 	}
 
 	// CLIENT LOGIC: We already set the seed in processNetworkPackets, so we do nothing here.
@@ -2344,7 +2352,7 @@ void ofApp::updateGame() {
 				minion.deck.push_back(c);
 			}
 		}
-		std::shuffle(minion.deck.begin(), minion.deck.end(), rng);
+		shuffleGameVector(minion.deck);
 
 		// 3. Graveyard Interaction
 
@@ -2869,7 +2877,7 @@ void ofApp::updateGame() {
 				minion.deck.push_back(c);
 			}
 		}
-		std::shuffle(minion.deck.begin(), minion.deck.end(), rng);
+		shuffleGameVector(minion.deck);
 
 		// 3. Add to Board
 		board[minion.x][minion.y].hasPlayer = true;
@@ -2940,7 +2948,7 @@ void ofApp::updateGame() {
 				minion.deck.push_back(c);
 			}
 		}
-		std::shuffle(minion.deck.begin(), minion.deck.end(), rng);
+		shuffleGameVector(minion.deck);
 
 		board[minion.x][minion.y].hasPlayer = true;
 		players.push_back(minion);
@@ -7546,7 +7554,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 			}
 
 			// FIX: Shuffle new cards into deck immediately
-			std::shuffle(p.deck.begin(), p.deck.end(), rng);
+			shuffleGameVector(p.deck);
 
 			// Cleanup UI state
 			selectedDraftIndices.clear();
@@ -7598,7 +7606,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 		Player & p = players[draftPlayerIndex];
 
 		// Shuffle deck
-		std::shuffle(p.deck.begin(), p.deck.end(), rng);
+		shuffleGameVector(p.deck);
 
 		// CHECK QUEUE: Are there more drafts pending?
 		if (!pendingDraftQueue.empty()) {
@@ -7678,7 +7686,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 							if (c.type == CARD_CALL_FOR_KOBOLDS) callCard = c;
 						}
 						kobold.deck = { hb, hb, pu, callCard };
-						std::shuffle(kobold.deck.begin(), kobold.deck.end(), rng);
+						shuffleGameVector(kobold.deck);
 						board[gx][gy].hasPlayer = true;
 						players.push_back(kobold);
 						ofLogNotice("Summon") << "Summoned Kobold " << koboldSummonCount;
@@ -8797,7 +8805,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 							if (c.type == CARD_CALL_FOR_WOLVES) callCard = c;
 						}
 						wolf.deck = { slashCard, slashCard, slashCard, callCard };
-						std::shuffle(wolf.deck.begin(), wolf.deck.end(), rng);
+						shuffleGameVector(wolf.deck);
 
 						// Add to board
 						board[gx][gy].hasPlayer = true;
@@ -8880,7 +8888,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 									if (c.type == CARD_CALL_FOR_KOBOLDS) callCard = c;
 								}
 								kobold.deck = { hb, hb, pu, callCard };
-								std::shuffle(kobold.deck.begin(), kobold.deck.end(), rng);
+								shuffleGameVector(kobold.deck);
 
 								// Add to board
 								board[gx][gy].hasPlayer = true;
@@ -8934,7 +8942,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 					newPlayer.y = gy;
 					newPlayer.playerID = (int)players.size();
 					newPlayer.deck = allCards;
-					std::shuffle(newPlayer.deck.begin(), newPlayer.deck.end(), rng);
+					shuffleGameVector(newPlayer.deck);
 					players.push_back(newPlayer);
 					board[gx][gy].hasPlayer = true;
 					ofLogNotice("Debug") << "Spawned new player.";
@@ -10015,7 +10023,7 @@ void ofApp::startNewTurn() {
 		// --- C. RESHUFFLE DISCARD INTO DECK IF DECK IS EMPTY ---
 		if (endingPlayer.deck.empty() && !endingPlayer.discardPile.empty()) {
 			endingPlayer.deck = endingPlayer.discardPile;
-			std::shuffle(endingPlayer.deck.begin(), endingPlayer.deck.end(), rng);
+			shuffleGameVector(endingPlayer.deck);
 			endingPlayer.discardPile.clear();
 			ofLogNotice("Deck") << "Reshuffled discard into deck for player " << endingPlayer.playerID;
 		}
@@ -10348,7 +10356,7 @@ void ofApp::drawCard() {
 		currentPlayer.discardPile.clear();
 
 		// Shuffle the new Deck
-		std::shuffle(currentPlayer.deck.begin(), currentPlayer.deck.end(), rng);
+		shuffleGameVector(currentPlayer.deck);
 	}
 
 	// --- PHASE 2: DRAW THE CARD ---
@@ -10666,7 +10674,7 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 			Card stolenCard = targetPlayer->deck.back();
 			targetPlayer->deck.pop_back();
 			currentPlayer.deck.push_back(stolenCard);
-			std::shuffle(currentPlayer.deck.begin(), currentPlayer.deck.end(), rng);
+			shuffleGameVector(currentPlayer.deck);
 
 			StolenCardAnimation newAnim;
 			newAnim.card = stolenCard;
@@ -11040,7 +11048,7 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 
 		// Deck: 2x Slash, 2x Stab, 2x Full Restore, 1x Call for Kobolds
 		minion.deck = { slash, slash, stab, stab, fullRestore, fullRestore, callKobolds };
-		std::shuffle(minion.deck.begin(), minion.deck.end(), rng);
+		shuffleGameVector(minion.deck);
 
 		// --- CRITICAL FIX START ---
 		// We must modify 'currentPlayer' BEFORE we push_back to 'players'.
@@ -11125,7 +11133,7 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		Card handBlock = findCard("Hand Block", CARD_GAIN_BLOCK);
 
 		minion.deck = { lesserHeal, handBlock, handBlock, handBlock, handBlock };
-		std::shuffle(minion.deck.begin(), minion.deck.end(), rng);
+		shuffleGameVector(minion.deck);
 
 		// 4. Cleanup & Add
 		int myID = currentPlayer.playerID;
@@ -11206,7 +11214,7 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		Card lesserHeal = findCard("Lesser Heal", CARD_LESSER_HEAL);
 		Card magicBlast = findCard("Magic Blast", CARD_MAGIC_BLAST);
 		minion.deck = { dispel, dispel, lesserHeal, lesserHeal, magicBlast };
-		std::shuffle(minion.deck.begin(), minion.deck.end(), rng);
+		shuffleGameVector(minion.deck);
 
 		// 4. Cleanup & Add
 		int myID = currentPlayer.playerID;
@@ -11366,7 +11374,7 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		}
 
 		minion.health = minion.maxHealth;
-		std::shuffle(minion.deck.begin(), minion.deck.end(), rng);
+		shuffleGameVector(minion.deck);
 
 		// --- CRASH FIX START ---
 		int myID = currentPlayer.playerID;
@@ -11479,7 +11487,7 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 			if (createWall.type != CARD_NONE) minion.deck.push_back(createWall);
 			ofLogNotice("Transform") << "Created Wall Unit (5 HP).";
 		}
-		std::shuffle(minion.deck.begin(), minion.deck.end(), rng);
+		shuffleGameVector(minion.deck);
 
 		// 4. Transform Board State
 		board[targetX][targetY].hasWall = false; // Remove static wall
@@ -11848,7 +11856,7 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 			// Reshuffle discard into deck first
 			currentPlayer.deck = currentPlayer.discardPile;
 			currentPlayer.discardPile.clear();
-			std::shuffle(currentPlayer.deck.begin(), currentPlayer.deck.end(), rng);
+			shuffleGameVector(currentPlayer.deck);
 
 			Card drawnCard = currentPlayer.deck.back();
 			currentPlayer.deck.pop_back();
@@ -11920,7 +11928,7 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		if (foundDispel) {
 			currentPlayer.deck.push_back(dispelCard);
 			currentPlayer.deck.push_back(dispelCard);
-			std::shuffle(currentPlayer.deck.begin(), currentPlayer.deck.end(), rng);
+			shuffleGameVector(currentPlayer.deck);
 			spawnFloatingText(gridToWorld(currentPlayer.x, currentPlayer.y) + glm::vec3(0, 0.6f, 0),
 				"+2 Dispel", ofColor::cyan);
 		}
@@ -12244,7 +12252,7 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 
 				if (found) {
 					target->deck.push_back(cardToAdd);
-					std::shuffle(target->deck.begin(), target->deck.end(), rng);
+					shuffleGameVector(target->deck);
 					spawnFloatingText(gridToWorld(target->x, target->y), "Shuffled 1x Vampire Bite", ofColor::magenta);
 					ofLogNotice("Vampire Bite") << "Shuffled a Vampire Bite into Player " << target->playerID << "'s deck.";
 				}
@@ -12831,7 +12839,7 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 					currentPlayer.deck.push_back(copy);
 
 					// Shuffle the deck to integrate the new card
-					std::shuffle(currentPlayer.deck.begin(), currentPlayer.deck.end(), rng);
+					shuffleGameVector(currentPlayer.deck);
 
 					spawnFloatingText(gridToWorld(currentPlayer.x, currentPlayer.y) + glm::vec3(0, 0.5, 0), "Element Copied!", ofColor::cyan);
 					ofLogNotice("Game") << "Strengthen Elements triggered: Copied " << playedCard.name << " to deck.";
@@ -13581,10 +13589,10 @@ glm::quat ofApp::matchFaceToCamera(glm::vec3 faceNormal) {
 int ofApp::startDiceRoll(int numDice, int sides, DicePurpose purpose, std::string label, int ownerIndex) {
 	int totalRollResult = 0;
 	int luckBonus = 0;
-	// If an explicit ownerIndex is provided, use that unit's luck. Otherwise fall back to currentPlayerIndex.
+
+	// 1. Calculate Luck Bonus (Deterministic Logic)
 	int luckOwner = (ownerIndex >= 0 && ownerIndex < (int)players.size()) ? ownerIndex : currentPlayerIndex;
 	if (luckOwner != -1) {
-		// COMBINE PERMANENT AND PASSIVE LUCK (computed on-demand)
 		luckBonus = players[luckOwner].luck + computePassiveLuck(luckOwner);
 	}
 
@@ -13593,11 +13601,10 @@ int ofApp::startDiceRoll(int numDice, int sides, DicePurpose purpose, std::strin
 		luckBonus = 0;
 	}
 
-	// --- SET LABEL ---
+	// 2. Set UI Label
 	if (label != "") {
 		currentDiceLabel = label;
 	} else {
-		// Default labels if none provided
 		switch (purpose) {
 		case PURPOSE_AP:
 			currentDiceLabel = "Rolling for Action Points";
@@ -13632,77 +13639,63 @@ int ofApp::startDiceRoll(int numDice, int sides, DicePurpose purpose, std::strin
 		}
 	}
 
+	// 3. Loop through dice
 	for (int i = 0; i < numDice; ++i) {
 		DiceRoll newRoll;
 		newRoll.purpose = purpose;
 		newRoll.sides = sides;
-		std::uniform_int_distribution<int> dist(1, sides);
-		int rawRoll = dist(rng);
+		newRoll.startTime = ofGetElapsedTimef();
+		newRoll.associatedUnit = ownerIndex;
+
+		// --- CORE DETERMINISM (GAMEPLAY LOGIC) ---
+		// 1. Get the synced random number
+		int rawRoll = getGameRandom(1, sides);
+
+		// 2. Apply game logic (Luck)
 		int finalRoll;
-		// Coins (sides == 2) are a pure 1/2 flip and should NOT be modified by luck.
 		if (sides == 2) {
-			finalRoll = rawRoll;
+			finalRoll = rawRoll; // Luck doesn't change coin raw value logic, just headers
 		} else {
 			finalRoll = rawRoll + luckBonus;
 		}
+
 		totalRollResult += finalRoll;
-		// Store both raw and final values. `result` keeps the final value for game logic,
-		// while `rawResult` is used for visual face selection so dice show the raw roll.
-		newRoll.result = finalRoll;
-		newRoll.rawResult = rawRoll;
-		newRoll.startTime = ofGetElapsedTimef();
-		// Associate this roll with the owner unit (if provided) so UI can attribute AP to the correct unit
-		newRoll.associatedUnit = ownerIndex;
+		newRoll.result = finalRoll; // The number used for damage/AP/etc
+		newRoll.rawResult = rawRoll; // The number shown on the visual 3D die
+		// -----------------------------------------
 
-		// --- LOGGING ---
-		string diceName = (sides == 2) ? "Coin" : "D" + ofToString(sides);
-		string outcome = ofToString(rawRoll); // show raw in the primary message (visual)
-		if (sides == 2) {
-			outcome += (finalRoll >= 2) ? " (Heads)" : " (Tails)";
-		}
+		// --- VISUALS (CAN BE UNSYNCED/RANDOM) ---
+		// Use ofRandom for visual flair (spin axis, wobble)
+		newRoll.rotationAxis = glm::normalize(glm::vec3(ofRandom(-1.0f, 1.0f), ofRandom(-1.0f, 1.0f), ofRandom(-1.0f, 1.0f)));
+		if (glm::length(newRoll.rotationAxis) < 0.01f) newRoll.rotationAxis = glm::vec3(0, 1, 0);
 
-		string luckString = (luckBonus > 0) ? " (Final: " + ofToString(finalRoll) + ", Luck: +" + ofToString(luckBonus) + ")" : "";
-		ofLogNotice("Dice") << diceName << " landed on (raw): " << outcome << luckString;
+		// --- ROTATION MATH (Visuals) ---
+		// This sets the 3D rotation so 'rawResult' faces the camera.
 
-		// SAFE AXIS GENERATION
-		std::uniform_real_distribution<float> axisDist(-1.0f, 1.0f);
-		glm::vec3 rndAxis(axisDist(rng), axisDist(rng), axisDist(rng));
-		if (glm::length(rndAxis) < 0.01f) rndAxis = glm::vec3(0, 1, 0);
-		newRoll.rotationAxis = glm::normalize(rndAxis);
-
-		// RANDOM GENERATORS
-		std::uniform_real_distribution<float> spinDist(0.0f, 360.0f);
-		std::uniform_real_distribution<float> stableDist(-25.0f, 25.0f);
-
-		// --- 1. COIN FLIP (SIDES == 2) ---
+		// 1. COIN (2 Sides)
 		if (sides == 2) {
 			glm::quat faceRotation;
+			glm::quat flip180X = glm::angleAxis(glm::radians(180.0f), glm::vec3(1, 0, 0)); // Tail
+			glm::quat rot180Y = glm::angleAxis(glm::radians(180.0f), glm::vec3(0, 1, 0)); // Head
 
-			// Helpers
-			glm::quat flip180X = glm::angleAxis(glm::radians(180.0f), glm::vec3(1, 0, 0)); // Flip to Bottom
-			glm::quat rot180Y = glm::angleAxis(glm::radians(180.0f), glm::vec3(0, 1, 0)); // Spin 180
-
-			// With luck, a 1 can become 2. So we check >= 2 for Heads.
-			if (newRoll.result <= 1) { // TAILS
-				faceRotation = glm::quat(1, 0, 0, 0);
-			} else { // HEADS
-				faceRotation = flip180X * rot180Y;
+			// 1 = Tails, 2 = Heads (based on getGameRandom(1, 2))
+			if (newRoll.rawResult == 1) {
+				faceRotation = glm::quat(1, 0, 0, 0); // Identity (Tails up)
+			} else {
+				faceRotation = flip180X * rot180Y; // Heads up
 			}
-
-			glm::quat randomYaw = glm::angleAxis(glm::radians(ofRandom(-15, 15)), glm::vec3(0, 1, 0));
+			// Add visual wobble
+			glm::quat randomYaw = glm::angleAxis(glm::radians(ofRandom(-15.0f, 15.0f)), glm::vec3(0, 1, 0));
 			newRoll.finalQuat = randomYaw * faceRotation;
 		}
 
-		// --- 2. D4 LOGIC ---
-		// --- ADD THIS BLOCK ---
+		// 2. D4
 		else if (sides == 4) {
 			glm::vec3 faceVec;
 			float correctionDeg = 0.0f;
+			int v = std::min(sides, newRoll.rawResult);
 
-			// Use the raw die for visuals; cap to available faces
-			int visualResult = std::min(sides, newRoll.rawResult);
-
-			switch (visualResult) {
+			switch (v) {
 			case 1:
 				faceVec = glm::vec3(0, 1, 0);
 				correctionDeg = 0.0f;
@@ -13716,7 +13709,7 @@ int ofApp::startDiceRoll(int numDice, int sides, DicePurpose purpose, std::strin
 				correctionDeg = 0.0f;
 				break;
 			case 4:
-			default: // Default to 4 if luck pushes it higher
+			default:
 				faceVec = glm::vec3(0.943f, -0.333f, 0.0f);
 				correctionDeg = 180.0f;
 				break;
@@ -13724,16 +13717,16 @@ int ofApp::startDiceRoll(int numDice, int sides, DicePurpose purpose, std::strin
 
 			glm::quat align = matchFaceToCamera(faceVec);
 			glm::quat manualRot = glm::angleAxis(glm::radians(correctionDeg), glm::vec3(0, 1, 0));
-			glm::quat wobble = glm::angleAxis(glm::radians(stableDist(rng)), glm::vec3(0, 1, 0));
+			glm::quat wobble = glm::angleAxis(glm::radians(ofRandom(-25.0f, 25.0f)), glm::vec3(0, 1, 0));
 			newRoll.finalQuat = wobble * manualRot * align;
 		}
-		// --- END OF ADDED BLOCK ---
 
-		// --- 3. D6 LOGIC ---
+		// 3. D6
 		else if (sides == 6) {
 			glm::quat faceRotation;
-			int visualResult = std::min(sides, newRoll.rawResult);
-			switch (visualResult) {
+			int v = std::min(sides, newRoll.rawResult);
+
+			switch (v) {
 			case 1:
 				faceRotation = glm::angleAxis(glm::radians(-90.0f), glm::vec3(1, 0, 0));
 				break;
@@ -13753,14 +13746,16 @@ int ofApp::startDiceRoll(int numDice, int sides, DicePurpose purpose, std::strin
 				faceRotation = glm::angleAxis(glm::radians(-90.0f), glm::vec3(0, 0, 1));
 				break;
 			}
-			glm::quat randomYaw = glm::angleAxis(glm::radians(spinDist(rng)), glm::vec3(0, 1, 0));
+			glm::quat randomYaw = glm::angleAxis(glm::radians(ofRandom(0.0f, 360.0f)), glm::vec3(0, 1, 0));
 			newRoll.finalQuat = randomYaw * faceRotation;
 		}
-		// --- 4. D10 LOGIC ---
+
+		// 4. D10
 		else if (sides == 10) {
-			int n = std::min(sides, newRoll.rawResult);
 			glm::vec3 faceVec;
-			switch (n) {
+			int v = std::min(sides, newRoll.rawResult);
+
+			switch (v) {
 			case 2:
 				faceVec = glm::vec3(cos(glm::radians(0.0f)), 1.0f, sin(glm::radians(0.0f)));
 				break;
@@ -13796,13 +13791,15 @@ int ofApp::startDiceRoll(int numDice, int sides, DicePurpose purpose, std::strin
 				break;
 			}
 			glm::quat align = matchFaceToCamera(faceVec);
-			glm::quat randomYaw = glm::angleAxis(glm::radians(stableDist(rng)), glm::vec3(0, 1, 0));
-			newRoll.finalQuat = randomYaw * align;
+			glm::quat wobble = glm::angleAxis(glm::radians(ofRandom(-25.0f, 25.0f)), glm::vec3(0, 1, 0));
+			newRoll.finalQuat = wobble * align;
 		}
-		// --- 5. D20 LOGIC ---
+
+		// 5. D20
 		else if (sides == 20) {
-			int n = std::min(sides, newRoll.rawResult);
 			glm::vec3 v;
+			int n = std::min(sides, newRoll.rawResult);
+
 			switch (n) {
 			case 20:
 				v = glm::vec3(0, 1, 0);
@@ -13869,14 +13866,14 @@ int ofApp::startDiceRoll(int numDice, int sides, DicePurpose purpose, std::strin
 				break;
 			}
 			glm::quat align = matchFaceToCamera(v);
-			glm::quat randomYaw = glm::angleAxis(glm::radians(stableDist(rng)), glm::vec3(0, 1, 0));
-			newRoll.finalQuat = randomYaw * align;
+			glm::quat wobble = glm::angleAxis(glm::radians(ofRandom(-25.0f, 25.0f)), glm::vec3(0, 1, 0));
+			newRoll.finalQuat = wobble * align;
 		}
 
 		activeDiceRolls.push_back(newRoll);
 	}
 
-	// Show the floating text for luck just once, even if multiple dice were rolled
+	// 4. Show Floating Text for Luck
 	if (luckBonus > 0) {
 		Player & caster = players[currentPlayerIndex];
 		spawnFloatingText(
@@ -14453,7 +14450,7 @@ void ofApp::resolveDoubleHanded(std::string cardName) {
 			}
 
 			// 3. Shuffle
-			std::shuffle(target->deck.begin(), target->deck.end(), rng);
+			shuffleGameVector(target->deck);
 
 			// 4. Visual Feedback
 			spawnFloatingText(gridToWorld(target->x, target->y), "Added " + ofToString(copiesToAdd) + "x " + cardName, ofColor::cyan);
@@ -16068,7 +16065,7 @@ void ofApp::generateDraftOptions(int classTier) {
 	// Pick 3 unique random cards
 	std::vector<int> indices(pool->size());
 	std::iota(indices.begin(), indices.end(), 0);
-	std::shuffle(indices.begin(), indices.end(), rng);
+	shuffleGameVector(indices);
 
 	for (int i = 0; i < 3 && i < (int)indices.size(); ++i) {
 		draftOptions.push_back((*pool)[indices[i]]);
@@ -16091,7 +16088,7 @@ void ofApp::onCardPicked(int optionIndex) {
 	if (isInGameDraft) {
 		p.deck.push_back(picked);
 		// Shuffle deck to include new card
-		std::shuffle(p.deck.begin(), p.deck.end(), rng);
+		shuffleGameVector(p.deck);
 
 		draftOptions.clear();
 		isInGameDraft = false;
@@ -16126,7 +16123,7 @@ void ofApp::onCardPicked(int optionIndex) {
 
 				// Shuffle decks
 				for (auto & pl : players) {
-					std::shuffle(pl.deck.begin(), pl.deck.end(), rng);
+					shuffleGameVector(pl.deck);
 				}
 
 				// Determine who starts based on initiative winner (who drafted first)
@@ -16392,26 +16389,25 @@ void ofApp::processNetworkPackets() {
 			HandshakePacket * pkt = (HandshakePacket *)header;
 			ofLogNotice("Net") << "Handshake received. Seed: " << pkt->seed;
 
-			// 1. Sync RNG with Host
-			rng.seed(pkt->seed);
+			// CRITICAL: Seed the gameplay RNG with the packet data
+			gameplayRNG.seed(pkt->seed);
+			currentMapSeed = pkt->seed;
 
-			// 2. Set Identity
-			// If I received a handshake, I am definitely the Client (Player 1)
-			myLocalPlayerID = 1;
+			// 2. Set IDs
 			isMultiplayer = true;
-			hasReceivedHandshake = true;
+			myLocalPlayerID = 1; // If I received handshake, I am Client
 
-			// 3. START THE GAME (Client Side)
-			// This ensures we build the exact same board as the Host
-			setupGame();
+			// 3. Setup Board (Now that we have the seed, shuffling decks will match Host)
+			// Ensure you don't call setupGame() again if it resets the RNG!
+			// You might need a separate initGame() function that doesn't generate seeds.
 
-			// 4. Force State Switch
-			// setupGame() sets state to INITIATIVE_ROLL, but we ensure loading is done
-			isLoadingGame = false;
 		} else if (header->type == PKT_ACTION) {
 			ActionPacket * pkt = (ActionPacket *)header;
-			ofLogNotice("Net") << "Opponent Action: Card " << pkt->cardIndex;
-			// Execute the move locally
+			ofLogNotice("Sync") << "Opponent played card index: " << pkt->cardIndex;
+
+			// EXECUTE REMOTE MOVE
+			// Because gameplayRNG is synced, if this card causes a dice roll,
+			// it will roll the exact same number here as it did on the opponent's screen.
 			executeAction(*pkt);
 		} else if (header->type == PKT_END_TURN) {
 			ofLogNotice("Net") << "Opponent ended turn.";
@@ -16429,13 +16425,10 @@ void ofApp::processNetworkPackets() {
 
 // When I click a card
 void ofApp::sendActionPacket(int cardIndex, int tx, int ty, int cost) {
-	// 1. Validate it is actually my turn
-	if (players[currentPlayerIndex].playerID != myLocalPlayerID) {
-		spawnFloatingText(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y), "Not your turn!", ofColor::red);
-		return;
-	}
+	// 1. Check if it's my turn
+	if (players[currentPlayerIndex].playerID != myLocalPlayerID) return;
 
-	// 2. Prepare Packet
+	// 2. Create Packet
 	ActionPacket pkt;
 	pkt.type = PKT_ACTION;
 	pkt.playerID = myLocalPlayerID;
@@ -16444,16 +16437,22 @@ void ofApp::sendActionPacket(int cardIndex, int tx, int ty, int cost) {
 	pkt.targetY = ty;
 	pkt.cost = cost;
 
-	// 3. Send to Opponent
+	// 3. Send to Network
 	steamManager.sendPacket(&pkt, sizeof(pkt));
 
-	// 4. Execute Locally Immediately (Prediction)
+	// 4. Execute Locally (Prediction)
+	// We execute it immediately so the local player feels no lag.
 	executeAction(pkt);
 }
 
-// Executes a move (Used by both Local input and Network input)
 void ofApp::executeAction(const ActionPacket & pkt) {
-	// This calls your existing logic
+	// This function runs on BOTH computers.
+	// On the sender's PC, it runs immediately via sendActionPacket.
+	// On the receiver's PC, it runs via processNetworkPackets.
+
+	// IMPORTANT: Ensure currentPlayerIndex is correct on both machines
+	// before calling playCard.
+
 	playCard(pkt.cardIndex, pkt.targetX, pkt.targetY);
 }
 
@@ -16468,4 +16467,11 @@ long long ofApp::calculateChecksum() {
 		hash += p.deck.size();
 	}
 	return hash;
+}
+//--------------------------------------------------------------
+// Helper for deterministic integers (e.g., 1d6, 1d20)
+int ofApp::getGameRandom(int min, int max) {
+	// std::uniform_int_distribution is inclusive for integers
+	std::uniform_int_distribution<int> dist(min, max);
+	return dist(gameplayRNG);
 }

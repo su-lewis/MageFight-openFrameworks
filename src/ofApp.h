@@ -471,6 +471,19 @@ private:
 	void invalidateTargetCache();
 	void clearHighlights();
 
+	 // --- DETERMINISTIC RNG ---
+	// The synced Random Number Generator
+	std::mt19937 gameplayRNG;
+
+	// Helper to get synced numbers
+	int getGameRandom(int min, int max);
+
+	// Helper to shuffle vectors synced
+	template <class T>
+	void shuffleGameVector(std::vector<T> & vec) {
+		std::shuffle(vec.begin(), vec.end(), gameplayRNG);
+	}
+
 	// -------------------------------------------------------------------------
 	//                          DATA & HELPERS
 	// -------------------------------------------------------------------------
@@ -1071,7 +1084,7 @@ private:
 	float diceSpinSpeed = 1500.0f;
 	ofMesh d6Mesh, d4Mesh, d20Mesh, d10Mesh, coinMesh;
 	ofTexture d6Texture, d4Texture, d20Texture, d10Texture, coinFacesTexture;
-	std::mt19937 rng;
+	std::mt19937 gameplayRNG;
 	std::vector<ofSoundPlayer> footstepSounds;
 
 	// --- DEBUG ---
