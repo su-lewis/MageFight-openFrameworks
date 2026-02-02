@@ -32,3 +32,9 @@ PROJECT_LDFLAGS = -Llibs/steam/lib -lsteam_api
 # 3. Runtime Path (RPATH)
 #    This ensures the game finds the library when you actually run it.
 PROJECT_LDFLAGS += -Wl,-rpath=./libs/steam/lib
+
+# Help linker find system libs when shared libs depend on them
+PROJECT_LDFLAGS += -Wl,-rpath-link,/usr/lib
+
+# Link FMOD using the shipped shared object directly to avoid issues with libtooling/linker behavior
+PROJECT_LDFLAGS += ../../../libs/fmod/lib/linux64/libfmod.so
