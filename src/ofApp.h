@@ -537,7 +537,8 @@ private:
 	std::vector<Card> class2Cards;
 	std::vector<Card> class3Cards;
 
-	void generateDraftOptions(int classTier);
+	void generateDraftOptions(int classTier, const std::vector<int> * forcedIndices = nullptr);
+	void applyDraftOptionsFromPool(int classTier, const std::vector<int> & indices, int picksRemaining, int draftingPlayerIdx);
 	void onCardPicked(int optionIndex);
 	void drawInitiativeRoll();
 	void drawDraftScreen();

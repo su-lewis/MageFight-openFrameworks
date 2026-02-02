@@ -5,7 +5,8 @@ enum PacketType {
 	PKT_HANDSHAKE,
 	PKT_ACTION,
 	PKT_END_TURN,
-	PKT_CHECKSUM_CHECK
+	PKT_CHECKSUM_CHECK,
+	PKT_DRAFT_ACTION // Draft selection / accept messages (sent by clients to host)
 };
 
 #pragma pack(push, 1)
@@ -54,10 +55,27 @@ struct AssistantRerollPacket : PacketHeader {
 
 // For drafting actions (selecting a card, accepting the draft)
 struct DraftActionPacket : PacketHeader {
-	uint8_t actionType; // 0 = SelectCard, 1 = AcceptDraft
+	uint8_t actionType; // 0 = SelectCard / ToggleSelect, 1 = AcceptDraft
+	uint8_t selectFlag; // For SelectCard: 1 = select, 0 = deselect
 	int32_t optionIndex; // Index of the card picked (-1 if accepting an empty selection)
 	int32_t draftPlayerIdx; // The player (index) currently drafting
+	int32_t numSelected; // number of indices provided (for AcceptDraft)
+	int32_t selectedIdx0; // up to 3 selections
+	int32_t selectedIdx1;
+	int32_t selectedIdx2;
 };
+
+// Host -> Client: send the indices in the pool for the options shown
+struct DraftOptionsPacket : PacketHeader {
+	int32_t classTier; // 1,2,3
+	int32_t optionIndex0; // index into class pool
+	int32_t optionIndex1;
+	int32_t optionIndex2;
+	int32_t draftPlayerIdx; // which player is currently drafting
+	int32_t picksRemaining; // how many picks left for this stage
+};
+
+#pragma pack(pop)
 
 // When a player places a summoned minion that requires manual placement (e.g., Wolves, Kobolds)
 struct PlaceSummonedMinionPacket : PacketHeader {

@@ -7551,23 +7551,63 @@ void ofApp::mousePressed(int x, int y, int button) {
 		if (!isInGameDraft && draftStage == 0) requiredPicks = 2; // Setup Class 1 needs 2 picks
 
 		// 1. Card Clicking
-		for (int i = 0; i < draftOptions.size(); ++i) {
-			float cx = startX + i * (cardW + spacing);
-			if (ofRectangle(cx, startY, cardW, cardH).inside(x, y)) {
-				auto it = std::find(selectedDraftIndices.begin(), selectedDraftIndices.end(), i);
-				if (it != selectedDraftIndices.end()) {
-					selectedDraftIndices.erase(it); // Deselect
-				} else {
-					if ((int)selectedDraftIndices.size() < requiredPicks) {
-						selectedDraftIndices.push_back(i);
+		// Only the drafting player may select cards (multiplayer)
+		if (!(isMultiplayer && players[draftPlayerIndex].playerID != myLocalPlayerID)) {
+			for (int i = 0; i < draftOptions.size(); ++i) {
+				float cx = startX + i * (cardW + spacing);
+				if (ofRectangle(cx, startY, cardW, cardH).inside(x, y)) {
+					auto it = std::find(selectedDraftIndices.begin(), selectedDraftIndices.end(), i);
+					bool nowSelected = false;
+					if (it != selectedDraftIndices.end()) {
+						selectedDraftIndices.erase(it); // Deselect
+						nowSelected = false;
+					} else {
+						if ((int)selectedDraftIndices.size() < requiredPicks) {
+							selectedDraftIndices.push_back(i);
+							nowSelected = true;
+						}
 					}
+
+					// If multiplayer, notify host (or forward to clients if host) about selection toggle
+					if (isMultiplayer) {
+						DraftActionPacket pkt;
+						pkt.type = PKT_DRAFT_ACTION;
+						pkt.playerID = myLocalPlayerID;
+						pkt.actionType = 0; // Select / Toggle
+						pkt.selectFlag = nowSelected ? 1 : 0;
+						pkt.optionIndex = i;
+						pkt.draftPlayerIdx = draftPlayerIndex;
+						steamManager.sendPacket(&pkt, sizeof(pkt));
+						ofLogNotice("Network") << "Sent draft select toggle: opt=" << i << " sel=" << (int)pkt.selectFlag;
+					}
+
+					return;
 				}
-				return;
 			}
 		}
 
 		// 2. Accept Button Clicking
 		if ((int)selectedDraftIndices.size() == requiredPicks && draftAcceptButtonRect.inside(x, y)) {
+
+			// Only allow the drafting player to accept
+			if (isMultiplayer && players[draftPlayerIndex].playerID != myLocalPlayerID) return;
+
+			// If client in multiplayer, send selection to host and return
+			if (isMultiplayer && !steamManager.isHost()) {
+				DraftActionPacket pkt;
+				pkt.type = PKT_DRAFT_ACTION;
+				pkt.playerID = myLocalPlayerID;
+				pkt.actionType = 1; // AcceptDraft
+				pkt.selectFlag = 0;
+				pkt.draftPlayerIdx = draftPlayerIndex;
+				pkt.numSelected = (int)selectedDraftIndices.size();
+				pkt.selectedIdx0 = (pkt.numSelected > 0) ? selectedDraftIndices[0] : -1;
+				pkt.selectedIdx1 = (pkt.numSelected > 1) ? selectedDraftIndices[1] : -1;
+				pkt.selectedIdx2 = (pkt.numSelected > 2) ? selectedDraftIndices[2] : -1;
+				steamManager.sendPacket(&pkt, sizeof(pkt));
+				ofLogNotice("Network") << "Client sent AcceptDraft to host (" << pkt.numSelected << " picks)";
+				return;
+			}
 
 			Player & p = players[draftPlayerIndex];
 
@@ -16083,7 +16123,9 @@ void ofApp::resolveMagicHandPush() {
 	invalidateTargetCache();
 }
 //--------------------------------------------------------------
-void ofApp::generateDraftOptions(int classTier) {
+void ofApp::generateDraftOptions(int classTier, const std::vector<int> * forcedIndices) {
+	// Deterministic: always use shared gameplayRNG so both host and client
+	// generate the same three options locally. Do NOT wait for host packets.
 	draftOptions.clear();
 	const std::vector<Card> * pool = &class1Cards;
 	if (classTier == 2) pool = &class2Cards;
@@ -16091,10 +16133,9 @@ void ofApp::generateDraftOptions(int classTier) {
 
 	if (pool->empty()) return;
 
-	// Pick 3 unique random cards
 	std::vector<int> indices(pool->size());
 	std::iota(indices.begin(), indices.end(), 0);
-	shuffleGameVector(indices);
+	shuffleGameVector(indices); // uses gameplayRNG
 
 	for (int i = 0; i < 3 && i < (int)indices.size(); ++i) {
 		draftOptions.push_back((*pool)[indices[i]]);
@@ -16448,6 +16489,165 @@ void ofApp::processNetworkPackets() {
 			if (mySum != pkt->checksum) {
 				ofLogError("Net") << "DESYNC DETECTED! Local: " << mySum << " Remote: " << pkt->checksum;
 				spawnFloatingText(glm::vec3(0, 5, 0), "SYNC ERROR", ofColor::red);
+			}
+		} else if (header->type == PKT_DRAFT_ACTION) {
+			DraftActionPacket * pkt = (DraftActionPacket *)header;
+			ofLogNotice("Network") << "Draft action received: type=" << (int)pkt->actionType << " opt=" << pkt->optionIndex << " player=" << pkt->draftPlayerIdx;
+
+			if (steamManager.isHost()) {
+				// Host: apply the client's input, then forward to the client(s)
+				if (pkt->actionType == 0) {
+					// SELECT / TOGGLE selection or in-game immediate pick
+					if (isInGameDraft) {
+						// In-game immediate pick
+						Player & p = players[pkt->draftPlayerIdx];
+						if (pkt->optionIndex >= 0 && pkt->optionIndex < (int)draftOptions.size()) {
+							p.deck.push_back(draftOptions[pkt->optionIndex]);
+							std::shuffle(p.deck.begin(), p.deck.end(), gameplayRNG);
+						}
+						selectedDraftIndices.clear();
+						draftOptions.clear();
+						isInGameDraft = false;
+						currentState = STATE_GAMEPLAY;
+						// Forward this pick to clients
+						DraftActionPacket outPkt = *pkt;
+						steamManager.sendPacket(&outPkt, sizeof(outPkt));
+					} else {
+						// Toggle selection for the current drafting player
+						int requiredPicks = 1;
+						if (!isInGameDraft && draftStage == 0) requiredPicks = 2;
+						int opt = pkt->optionIndex;
+						if (pkt->selectFlag) {
+							auto it = std::find(selectedDraftIndices.begin(), selectedDraftIndices.end(), opt);
+							if (it == selectedDraftIndices.end() && (int)selectedDraftIndices.size() < requiredPicks) {
+								selectedDraftIndices.push_back(opt);
+							}
+						} else {
+							auto it = std::find(selectedDraftIndices.begin(), selectedDraftIndices.end(), opt);
+							if (it != selectedDraftIndices.end()) selectedDraftIndices.erase(it);
+						}
+						// Forward toggle to clients
+						DraftActionPacket outPkt = *pkt;
+						steamManager.sendPacket(&outPkt, sizeof(outPkt));
+					}
+				} else if (pkt->actionType == 1) {
+					// Client accepted draft with choices -> apply on host
+					int picks = pkt->numSelected;
+					std::vector<int> sel;
+					if (picks > 0) sel.push_back(pkt->selectedIdx0);
+					if (picks > 1) sel.push_back(pkt->selectedIdx1);
+					if (picks > 2) sel.push_back(pkt->selectedIdx2);
+
+					Player & p = players[pkt->draftPlayerIdx];
+					int copiesPerCard = 1;
+					if (!isInGameDraft && draftStage == 0) copiesPerCard = 2;
+					for (int idx : sel) {
+						if (idx >= 0 && idx < (int)draftOptions.size()) {
+							for (int k = 0; k < copiesPerCard; ++k)
+								p.deck.push_back(draftOptions[idx]);
+						}
+					}
+					std::shuffle(p.deck.begin(), p.deck.end(), gameplayRNG);
+
+					// Advance host-side draft state
+					selectedDraftIndices.clear();
+					draftOptions.clear();
+					if (isInGameDraft) {
+						isInGameDraft = false;
+						currentState = STATE_GAMEPLAY;
+						// Forward to client
+						DraftActionPacket outPkt = *pkt;
+						steamManager.sendPacket(&outPkt, sizeof(outPkt));
+						return;
+					}
+
+					draftStage++;
+					if (draftStage == 1) {
+						generateDraftOptions(2);
+					} else {
+						int nextPlayerIdx = (draftPlayerIndex + 1) % 2;
+						if (players[nextPlayerIdx].deck.empty()) {
+							draftPlayerIndex = nextPlayerIdx;
+							draftStage = 0;
+							generateDraftOptions(1);
+						} else {
+							currentPlayerIndex = nextPlayerIdx;
+							currentState = STATE_GAMEPLAY;
+							startNewTurn();
+						}
+					}
+					// Forward accept to client
+					DraftActionPacket outPkt = *pkt;
+					steamManager.sendPacket(&outPkt, sizeof(outPkt));
+				}
+			} else {
+				// Client: apply actions forwarded by host
+				if (pkt->actionType == 0) {
+					// Host forwarded selection toggle or in-game pick
+					if (isInGameDraft) {
+						Player & p = players[pkt->draftPlayerIdx];
+						if (pkt->optionIndex >= 0 && pkt->optionIndex < (int)draftOptions.size()) {
+							p.deck.push_back(draftOptions[pkt->optionIndex]);
+							std::shuffle(p.deck.begin(), p.deck.end(), gameplayRNG);
+						}
+						selectedDraftIndices.clear();
+						draftOptions.clear();
+						isInGameDraft = false;
+						currentState = STATE_GAMEPLAY;
+						return;
+					} else {
+						int opt = pkt->optionIndex;
+						if (pkt->selectFlag) {
+							auto it = std::find(selectedDraftIndices.begin(), selectedDraftIndices.end(), opt);
+							if (it == selectedDraftIndices.end()) selectedDraftIndices.push_back(opt);
+						} else {
+							auto it = std::find(selectedDraftIndices.begin(), selectedDraftIndices.end(), opt);
+							if (it != selectedDraftIndices.end()) selectedDraftIndices.erase(it);
+						}
+					}
+				} else if (pkt->actionType == 1) {
+					int picks = pkt->numSelected;
+					std::vector<int> sel;
+					if (picks > 0) sel.push_back(pkt->selectedIdx0);
+					if (picks > 1) sel.push_back(pkt->selectedIdx1);
+					if (picks > 2) sel.push_back(pkt->selectedIdx2);
+
+					Player & p = players[pkt->draftPlayerIdx];
+					int copiesPerCard = 1;
+					if (!isInGameDraft && draftStage == 0) copiesPerCard = 2;
+					for (int idx : sel) {
+						if (idx >= 0 && idx < (int)draftOptions.size()) {
+							for (int k = 0; k < copiesPerCard; ++k)
+								p.deck.push_back(draftOptions[idx]);
+						}
+					}
+					std::shuffle(p.deck.begin(), p.deck.end(), gameplayRNG);
+
+					// Advance client-side draft state similar to host
+					selectedDraftIndices.clear();
+					draftOptions.clear();
+					if (isInGameDraft) {
+						isInGameDraft = false;
+						currentState = STATE_GAMEPLAY;
+						return;
+					}
+
+					draftStage++;
+					if (draftStage == 1) {
+						generateDraftOptions(2);
+					} else {
+						int nextPlayerIdx = (draftPlayerIndex + 1) % 2;
+						if (players[nextPlayerIdx].deck.empty()) {
+							draftPlayerIndex = nextPlayerIdx;
+							draftStage = 0;
+							generateDraftOptions(1);
+						} else {
+							currentPlayerIndex = nextPlayerIdx;
+							currentState = STATE_GAMEPLAY;
+							startNewTurn();
+						}
+					}
+				}
 			}
 		}
 	}
