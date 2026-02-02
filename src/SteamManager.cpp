@@ -55,10 +55,25 @@ void SteamManager::update() {
 }
 
 void SteamManager::cleanup() {
+	// LEAVE THE LOBBY, BUT DO NOT SHUTDOWN THE API HERE
 	leaveLobby();
+
+	// CLOSE CONNECTIONS
+	if (m_hListenSocket != k_HSteamListenSocket_Invalid) {
+		SteamNetworkingSockets()->CloseListenSocket(m_hListenSocket);
+		m_hListenSocket = k_HSteamListenSocket_Invalid;
+	}
+
+	// REMOVE THIS LINE if it exists here:
+	// SteamAPI_Shutdown();  <-- DELETE THIS
+}
+
+// Add a new function specifically for App Exit if you want to be clean
+void SteamManager::shutdownAPI() {
 	if (m_bInitialized) {
 		SteamAPI_Shutdown();
 		m_bInitialized = false;
+		ofLogNotice("SteamManager") << "Steam API Shutdown.";
 	}
 }
 
@@ -67,12 +82,10 @@ void SteamManager::cleanup() {
 // ---------------------------------------------------------
 
 void SteamManager::createLobby() {
-	if (!m_bInitialized) return;
+	if (m_bIsHost) return; // Already hosting?
 
-	// FIX: Capture the Async Call Handle
-	SteamAPICall_t hSteamAPICall = SteamMatchmaking()->CreateLobby(k_ELobbyTypeFriendsOnly, 2);
-
-	// FIX: Set the CallResult to fire OnLobbyCreated when done
+	ofLogNotice("Steam") << "Requesting Lobby Creation...";
+	SteamAPICall_t hSteamAPICall = SteamMatchmaking()->CreateLobby(k_ELobbyTypePublic, 4);
 	m_cbLobbyCreated.Set(hSteamAPICall, this, &SteamManager::OnLobbyCreated);
 }
 

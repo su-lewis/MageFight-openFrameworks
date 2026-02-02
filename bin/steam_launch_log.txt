@@ -90,3 +90,16 @@ SteamInternal_SetMinidumpSteamID:  Caching Steam ID:  76561198261715869 [API loa
 [notice ] ofApp::loadCardData: Class Distribution - C1: 30, C2: 24, C3: 16
 [notice ] GL: Vendor: AMD | Renderer: AMD Radeon RX 9070 XT (radeonsi, gfx1201, LLVM 21.1.6, DRM 3.64, 6.17.7-ba25.fc43.x86_64) | Version: 4.6 (Compatibility Profile) Mesa 25.3.4-arch1.1 | GLSL: 4.60
 [notice ] FBO: worldFbo allocated 2560x1440
+[notice ] Steam: Lobby Created. Creating Listen Socket...
+[notice ] Steam: Lobby Created. Creating Listen Socket...
+[notice ] Setup: Single Player: Randomly seeded Gameplay RNG.
+[notice ] Dice: Final total result for 1d6: 1
+[notice ] Dice: Final total result for 1d6: 6
+[notice ] Game: --- INITIATIVE ROLL STARTED ---
+[notice ] Game: --- GAME SESSION CLEANED UP ---
+[notice ] Steam: Lobby Created. Creating Listen Socket...
+[notice ] Steam: Lobby Created. Creating Listen Socket...
+[S_API FAIL] Tried to access Steam interface SteamNetworkingSockets012 before SteamAPI_Init succeeded.
+ERROR: ld.so: object '/usr/lib/extest/libextest.so' from LD_PRELOAD cannot be preloaded (cannot open shared object file): ignored.
+ERROR: ld.so: object '/var/home/lewis/.local/share/Steam/ubuntu12_32/gameoverlayrenderer.so' from LD_PRELOAD cannot be preloaded (wrong ELF class: ELFCLASS32): ignored.
+--- run.sh script finished at Mon Feb  2 08:11:51 GMT 2026 ---

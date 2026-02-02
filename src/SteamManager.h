@@ -21,6 +21,7 @@ public:
 	void setup();
 	void update();
 	void cleanup();
+	void shutdownAPI();
 
 	// -- Connection Logic --
 	void createLobby();
