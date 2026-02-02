@@ -1,8 +1,8 @@
 ERROR: ld.so: object '/usr/lib/extest/libextest.so' from LD_PRELOAD cannot be preloaded (cannot open shared object file): ignored.
 ERROR: ld.so: object '/var/home/lewis/.local/share/Steam/ubuntu12_32/gameoverlayrenderer.so' from LD_PRELOAD cannot be preloaded (wrong ELF class: ELFCLASS32): ignored.
---- run.sh script started at Fri Jan 30 17:22:31 GMT 2026 ---
+--- run.sh script started at Mon Feb  2 08:09:22 GMT 2026 ---
 Script directory: /home/lewis/of_workspace/openFrameworks/apps/myApps/MageFight/bin
-pid 1396868 != 1396864, skipping destruction (fork without exec?)
+pid 133553 != 133549, skipping destruction (fork without exec?)
 Working directory changed to: /home/lewis/of_workspace/openFrameworks/apps/myApps/MageFight/bin
 LD_LIBRARY_PATH is: .:
 Attempting to execute: ./MageFight
@@ -12,7 +12,7 @@ ERROR: ld.so: object '/var/home/lewis/.local/share/Steam/ubuntu12_32/gameoverlay
 [S_API] SteamAPI_Init(): Loaded '/home/lewis/of_workspace/.steam/sdk64/steamclient.so' OK.
 Setting breakpad minidump AppID = 480
 SteamInternal_SetMinidumpSteamID:  Caching Steam ID:  76561198261715869 [API loaded no]
-[notice ] Steam: API Initialized. User ID: 76561198261715869
+[notice ] Steam: Initialized. LocalID: 76561198261715869
 [warning] ofMaterial::setPBR:  PBR material must be used with Programmable Renderer.
 [ error ] ofxAssimpTexture::setTextureType: : unknown aiTextureType type 27
 [warning] ofMaterial::setPBR:  PBR material must be used with Programmable Renderer.
@@ -88,11 +88,5 @@ SteamInternal_SetMinidumpSteamID:  Caching Steam ID:  76561198261715869 [API loa
 [notice ] Setup: Loaded bronze key frame: Board/keys_3_4.png
 [notice ] ofApp::loadCardData: Loaded 70 cards from JSON.
 [notice ] ofApp::loadCardData: Class Distribution - C1: 30, C2: 24, C3: 16
-[notice ] GL: Vendor: AMD | Renderer: AMD Radeon RX 9070 XT (radeonsi, gfx1201, LLVM 21.1.6, DRM 3.64, 6.17.7-ba25.fc43.x86_64) | Version: 4.6 (Compatibility Profile) Mesa 25.3.1-arch1.2 | GLSL: 4.60
+[notice ] GL: Vendor: AMD | Renderer: AMD Radeon RX 9070 XT (radeonsi, gfx1201, LLVM 21.1.6, DRM 3.64, 6.17.7-ba25.fc43.x86_64) | Version: 4.6 (Compatibility Profile) Mesa 25.3.4-arch1.1 | GLSL: 4.60
 [notice ] FBO: worldFbo allocated 2560x1440
-[notice ] Steam: Join Request via Invite. Joining 109775242356185377
-[notice ] Steam: Joined Lobby. Host is 76561198743068920
-[notice ] Network: Client: Connected. Waiting for Host seed...
-ERROR: ld.so: object '/usr/lib/extest/libextest.so' from LD_PRELOAD cannot be preloaded (cannot open shared object file): ignored.
-ERROR: ld.so: object '/var/home/lewis/.local/share/Steam/ubuntu12_32/gameoverlayrenderer.so' from LD_PRELOAD cannot be preloaded (wrong ELF class: ELFCLASS32): ignored.
---- run.sh script finished at Fri Jan 30 17:23:18 GMT 2026 ---

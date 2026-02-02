@@ -1,10 +1,17 @@
 #pragma once
 
 #include "ofMain.h"
-#include "steam/steam_api.h"
+
+// 1. USE THE DIRECT PATH TO FIX THE "FILE NOT FOUND" ERROR
+// This bypasses the config.make issues completely.
+#include "../libs/steam/include/steam_api.h"
+
 #include <queue>
-#include <string>
 #include <vector>
+
+// 2. INCLUDE YOUR EXISTING DATA HEADER
+// This fixes the "redefinition of struct PacketHeader" error.
+#include "NetworkData.h"
 
 class SteamManager {
 public:
@@ -15,51 +22,43 @@ public:
 	void update();
 	void cleanup();
 
-	// --- State Queries ---
-	bool isConnected() const; // For UI: Are we in a lobby?
-	bool hasOpponent() const; // For Game Logic: Do we have a player 2?
-	bool isHost() const;
-
-	// --- Actions ---
+	// -- Connection Logic --
 	void createLobby();
-	void leaveLobby(); // Cleans up networking state
 	void openFriendOverlay();
+	void leaveLobby();
 
-	// Sends raw data to the opponent.
-	void sendPacket(const void * data, uint32_t size);
+	// -- Data Logic --
+	bool sendPacket(const void * data, uint32_t size);
 
-	// --- Data Access ---
+	// -- State Getters --
+	bool isHost() const;
+	bool isConnected() const;
+	bool hasOpponent() const;
+
+	// Queue for ofApp
 	std::queue<std::vector<char>> packetQueue;
 
 private:
 	bool m_bInitialized;
 	bool m_bIsHost;
 
-	// Standardized naming: Uppercase 'ID'
+	// -- Steam Identifiers --
 	CSteamID m_LobbyID;
-	CSteamID m_OpponentID;
+	CSteamID m_LocalID;
 
-	// --- STEAM CALLBACKS ---
+	// -- New Networking API Handles --
+	HSteamListenSocket m_hListenSocket;
+	HSteamNetConnection m_hConnection;
 
-	// 1. Overlay Activation
-	STEAM_CALLBACK(SteamManager, OnGameOverlayActivated, GameOverlayActivated_t);
+	// -- Callbacks --
+	STEAM_CALLBACK(SteamManager, OnLobbyEnter, LobbyEnter_t);
+	STEAM_CALLBACK(SteamManager, OnGameLobbyJoinRequested, GameLobbyJoinRequested_t);
+	STEAM_CALLBACK(SteamManager, OnGameJoinRequested, GameRichPresenceJoinRequested_t);
+	STEAM_CALLBACK(SteamManager, OnNetConnectionStatusChanged, SteamNetConnectionStatusChangedCallback_t);
 
-	// 2. Lobby Creation
+	// -- CallResults --
 	void OnLobbyCreated(LobbyCreated_t * pCallback, bool bIOFailure);
 	CCallResult<SteamManager, LobbyCreated_t> m_cbLobbyCreated;
 
-	// 3. Join via Invite
-	STEAM_CALLBACK(SteamManager, OnGameLobbyJoinRequested, GameLobbyJoinRequested_t);
-
-	// 4. Join via Rich Presence (Right-click -> Join Game)
-	STEAM_CALLBACK(SteamManager, OnGameJoinRequested, GameRichPresenceJoinRequested_t);
-
-	// 5. Entered Lobby
-	STEAM_CALLBACK(SteamManager, OnLobbyEnter, LobbyEnter_t);
-
-	// 6. P2P Connection Request
-	STEAM_CALLBACK(SteamManager, OnP2PSessionRequest, P2PSessionRequest_t);
-
-	// 7. P2P Failure
-	STEAM_CALLBACK(SteamManager, OnP2PSessionConnectFail, P2PSessionConnectFail_t);
+	void closeConnection();
 };

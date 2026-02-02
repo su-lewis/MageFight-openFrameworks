@@ -1,5 +1,6 @@
 #include "ofApp.h"
 #include "GLFW/glfw3.h"
+#include "SteamManager.h"
 #include "ofAppGLFWWindow.h"
 #include <algorithm>
 #include <glm/gtx/intersect.hpp>
