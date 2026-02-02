@@ -238,3 +238,34 @@ void SteamManager::OnGameJoinRequested(GameRichPresenceJoinRequested_t * pCallba
 		SteamMatchmaking()->JoinLobby(id);
 	}
 }
+
+// Match start / lobby-seed helpers
+void SteamManager::setMatchStarted() {
+	if (m_LobbyID.IsValid()) {
+		SteamMatchmaking()->SetLobbyData(m_LobbyID, "match_started", "1");
+	}
+}
+
+bool SteamManager::isMatchStarted() const {
+	if (!m_LobbyID.IsValid()) return false;
+	const char * val = SteamMatchmaking()->GetLobbyData(m_LobbyID, "match_started");
+	if (!val) return false;
+	return std::string(val) == "1";
+}
+
+void SteamManager::setLobbySeed(uint32_t seed) {
+	if (m_LobbyID.IsValid()) {
+		SteamMatchmaking()->SetLobbyData(m_LobbyID, "seed", std::to_string(seed).c_str());
+	}
+}
+
+uint32_t SteamManager::getLobbySeed() const {
+	if (!m_LobbyID.IsValid()) return 0;
+	const char * v = SteamMatchmaking()->GetLobbyData(m_LobbyID, "seed");
+	if (!v || strlen(v) == 0) return 0;
+	try {
+		return (uint32_t)std::stoul(std::string(v));
+	} catch (...) {
+		return 0;
+	}
+}

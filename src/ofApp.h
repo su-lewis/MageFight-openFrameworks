@@ -437,6 +437,12 @@ private:
 	int lastAPDiceNum = 0;
 	int lastAPDiceSides = 0;
 	void setupGame();
+
+	// Initialize shared game state (board, players, camera)
+	void initializeGameStateCommon();
+
+	// Initialize client-side game from a host-provided seed
+	void initGameFromSeed(uint32_t seed);
 	void updateGame();
 	void drawGame();
 	void cleanupGame();

@@ -833,6 +833,16 @@ void ofApp::update() {
 				// 2. "KEEP ASKING" LOOP (Robust Fix)
 				// Every 1.0 seconds, send a "REQ_SEED" packet to the Host.
 				// This ensures that if the first packet was dropped, we ask again.
+				if (steamManager.isMatchStarted()) {
+					uint32_t seed = steamManager.getLobbySeed();
+					if (seed != 0) {
+						ofLogNotice("Network") << "Client: Detected lobby seed. Initializing from seed: " << seed;
+						initGameFromSeed(seed);
+						// We've initialized from lobby seed; exit update early to avoid further seed requests
+						return;
+					}
+				}
+
 				if (ofGetElapsedTimef() - lastHandshakeRequestTime > 1.0f) {
 					string req = "REQ_SEED";
 					steamManager.sendPacket(req.c_str(), req.size());
@@ -1300,6 +1310,10 @@ void ofApp::setupGame() {
 		pkt.type = PKT_HANDSHAKE;
 		pkt.seed = currentMapSeed;
 		steamManager.sendPacket(&pkt, sizeof(pkt));
+
+		// Publish seed and start flag to lobby so clients can begin as well
+		steamManager.setLobbySeed(currentMapSeed);
+		steamManager.setMatchStarted();
 	}
 	// SINGLE PLAYER:
 	else if (!isMultiplayer) {
@@ -1308,6 +1322,12 @@ void ofApp::setupGame() {
 		ofLogNotice("Setup") << "Single Player: Randomly seeded Gameplay RNG.";
 	}
 
+	// Initialize common game state for both singleplayer and multiplayer clients
+	initializeGameStateCommon();
+}
+//--------------------------------------------------------------
+
+void ofApp::initializeGameStateCommon() {
 	// --- RESET CORE GAME STATE ---
 	players.clear();
 	activeDiceRolls.clear();
@@ -1387,6 +1407,19 @@ void ofApp::setupGame() {
 
 	ofLogNotice("Game") << "--- INITIATIVE ROLL STARTED ---";
 	cam.setAspectRatio((float)ofGetWidth() / (float)ofGetHeight());
+}
+
+void ofApp::initGameFromSeed(uint32_t seed) {
+	if (isMultiplayer) return; // Already started
+
+	ofLogNotice("Network") << "Initializing multiplayer client game from seed: " << seed;
+	gameplayRNG.seed(seed);
+	currentMapSeed = seed;
+	isMultiplayer = true;
+	myLocalPlayerID = 1;
+
+	// Initialize the same common state as host
+	initializeGameStateCommon();
 }
 //--------------------------------------------------------------
 void ofApp::updateGame() {
@@ -5863,9 +5896,14 @@ void ofApp::drawGame() {
 			}
 			if (players[currentPlayerIndex].nextTurnAPBonus > 0) displayedAP += players[currentPlayerIndex].nextTurnAPBonus;
 
-			// Prefer the authoritative `currentAP` value when it's positive to avoid
-			// transient visual mismatches after movements or rerolls.
-			if (currentAP > 0) displayedAP = std::max(displayedAP, currentAP);
+			// Prefer the authoritative `currentAP` value, but if the player has spent AP
+			// (currentAP < displayedAP), show the decreased value immediately to avoid
+			// the AP counter appearing delayed while dice visuals linger.
+			if (currentAP < displayedAP) {
+				displayedAP = currentAP;
+			} else {
+				displayedAP = std::max(displayedAP, currentAP);
+			}
 
 			Player & currentPlayer = players[currentPlayerIndex];
 			if (currentPlayer.playerID == 0 || currentPlayer.ownerID == 0) {
@@ -6075,8 +6113,14 @@ void ofApp::drawGame() {
 			}
 		}
 		if (players[currentPlayerIndex].nextTurnAPBonus > 0) displayedAPForCurrent += players[currentPlayerIndex].nextTurnAPBonus;
-		// If `currentAP` has already been updated elsewhere (dice resolution), prefer it when positive
-		if (currentAP > 0) displayedAPForCurrent = std::max(displayedAPForCurrent, currentAP);
+		// If `currentAP` has already been updated elsewhere (dice resolution) prefer
+		// the current value. Also make sure that when the player spends AP, the
+		// displayed value decreases immediately (avoid lingering higher display).
+		if (currentAP < displayedAPForCurrent) {
+			displayedAPForCurrent = currentAP;
+		} else {
+			displayedAPForCurrent = std::max(displayedAPForCurrent, currentAP);
+		}
 	}
 
 	bool rerollAvailable = false;

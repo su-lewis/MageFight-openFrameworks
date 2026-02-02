@@ -21,6 +21,12 @@ public:
 	void cleanup();
 	void shutdownAPI();
 
+	// Lobby helpers (match start signaling)
+	void setMatchStarted();
+	bool isMatchStarted() const;
+	void setLobbySeed(uint32_t seed);
+	uint32_t getLobbySeed() const;
+
 	// -- Connection Logic --
 	void createLobby();
 	void openFriendOverlay();
