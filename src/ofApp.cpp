@@ -16383,9 +16383,9 @@ void ofApp::processNetworkPackets() {
 			isMultiplayer = true;
 			myLocalPlayerID = 1;
 
-			// 3. Setup Board (Now that we have the seed, shuffling decks will match Host)
-			// Ensure you don't call setupGame() again if it resets the RNG!
-			// You might need a separate initGame() function that doesn't generate seeds.
+			// Initialize game state for the client now that we have the seed.
+			ofLogNotice("Network") << "Client: Handshake received. Initializing game.";
+			setupGame();
 
 		} else if (header->type == PKT_ACTION) {
 			ActionPacket * pkt = (ActionPacket *)header;

@@ -29,6 +29,17 @@ void SteamManager::setup() {
 	}
 }
 
+bool SteamManager::isConnected() const {
+	// Consider us "connected" for UI purposes if we are hosting (lobby created)
+	// or if we have an active peer connection.
+	return m_bIsHost || m_LobbyID.IsValid() || (m_hConnection != k_HSteamNetConnection_Invalid);
+}
+
+bool SteamManager::hasOpponent() const {
+	// There is an opponent only when a direct connection is active.
+	return m_hConnection != k_HSteamNetConnection_Invalid;
+}
+
 void SteamManager::update() {
 	if (!m_bInitialized) return;
 
@@ -85,6 +96,8 @@ void SteamManager::createLobby() {
 	if (m_bIsHost) return; // Already hosting?
 
 	ofLogNotice("Steam") << "Requesting Lobby Creation...";
+	// Optimistically mark as host so UI updates immediately. If creation fails, we'll clear it.
+	m_bIsHost = true;
 	SteamAPICall_t hSteamAPICall = SteamMatchmaking()->CreateLobby(k_ELobbyTypePublic, 4);
 	m_cbLobbyCreated.Set(hSteamAPICall, this, &SteamManager::OnLobbyCreated);
 }
@@ -126,14 +139,6 @@ bool SteamManager::sendPacket(const void * data, uint32_t size) {
 	return (res == k_EResultOK);
 }
 
-bool SteamManager::isConnected() const {
-	return m_hConnection != k_HSteamNetConnection_Invalid;
-}
-
-bool SteamManager::hasOpponent() const {
-	return isConnected();
-}
-
 bool SteamManager::isHost() const {
 	return m_bIsHost;
 }
@@ -150,6 +155,8 @@ void SteamManager::openFriendOverlay() {
 void SteamManager::OnLobbyCreated(LobbyCreated_t * pCallback, bool bIOFailure) {
 	if (pCallback->m_eResult != k_EResultOK || bIOFailure) {
 		ofLogError("Steam") << "Lobby Creation Failed. Result: " << pCallback->m_eResult;
+		// Clear optimistic host flag on failure
+		m_bIsHost = false;
 		return;
 	}
 
