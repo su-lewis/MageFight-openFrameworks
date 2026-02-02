@@ -1,8 +1,8 @@
 ERROR: ld.so: object '/usr/lib/extest/libextest.so' from LD_PRELOAD cannot be preloaded (cannot open shared object file): ignored.
 ERROR: ld.so: object '/var/home/lewis/.local/share/Steam/ubuntu12_32/gameoverlayrenderer.so' from LD_PRELOAD cannot be preloaded (wrong ELF class: ELFCLASS32): ignored.
---- run.sh script started at Mon Feb  2 08:09:22 GMT 2026 ---
+--- run.sh script started at Mon Feb  2 08:16:20 GMT 2026 ---
 Script directory: /home/lewis/of_workspace/openFrameworks/apps/myApps/MageFight/bin
-pid 133553 != 133549, skipping destruction (fork without exec?)
+pid 136405 != 136401, skipping destruction (fork without exec?)
 Working directory changed to: /home/lewis/of_workspace/openFrameworks/apps/myApps/MageFight/bin
 LD_LIBRARY_PATH is: .:
 Attempting to execute: ./MageFight
@@ -90,16 +90,8 @@ SteamInternal_SetMinidumpSteamID:  Caching Steam ID:  76561198261715869 [API loa
 [notice ] ofApp::loadCardData: Class Distribution - C1: 30, C2: 24, C3: 16
 [notice ] GL: Vendor: AMD | Renderer: AMD Radeon RX 9070 XT (radeonsi, gfx1201, LLVM 21.1.6, DRM 3.64, 6.17.7-ba25.fc43.x86_64) | Version: 4.6 (Compatibility Profile) Mesa 25.3.4-arch1.1 | GLSL: 4.60
 [notice ] FBO: worldFbo allocated 2560x1440
-[notice ] Steam: Lobby Created. Creating Listen Socket...
-[notice ] Steam: Lobby Created. Creating Listen Socket...
-[notice ] Setup: Single Player: Randomly seeded Gameplay RNG.
-[notice ] Dice: Final total result for 1d6: 1
-[notice ] Dice: Final total result for 1d6: 6
-[notice ] Game: --- INITIATIVE ROLL STARTED ---
-[notice ] Game: --- GAME SESSION CLEANED UP ---
-[notice ] Steam: Lobby Created. Creating Listen Socket...
-[notice ] Steam: Lobby Created. Creating Listen Socket...
-[S_API FAIL] Tried to access Steam interface SteamNetworkingSockets012 before SteamAPI_Init succeeded.
+src/steamnetworkingsockets/clientlib/steamnetworkingsockets_lowlevel.cpp (4126) : Trying to close low level socket support, but we still have sockets open!
+src/steamnetworkingsockets/clientlib/steamnetworkingsockets_lowlevel.cpp (4126) : Trying to close low level socket support, but we still have sockets open!
 ERROR: ld.so: object '/usr/lib/extest/libextest.so' from LD_PRELOAD cannot be preloaded (cannot open shared object file): ignored.
 ERROR: ld.so: object '/var/home/lewis/.local/share/Steam/ubuntu12_32/gameoverlayrenderer.so' from LD_PRELOAD cannot be preloaded (wrong ELF class: ELFCLASS32): ignored.
---- run.sh script finished at Mon Feb  2 08:11:51 GMT 2026 ---
+--- run.sh script finished at Mon Feb  2 08:18:53 GMT 2026 ---
