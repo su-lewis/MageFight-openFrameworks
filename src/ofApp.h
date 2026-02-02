@@ -471,7 +471,7 @@ private:
 	void invalidateTargetCache();
 	void clearHighlights();
 
-	 // --- DETERMINISTIC RNG ---
+	// --- DETERMINISTIC RNG ---
 	// The synced Random Number Generator
 	std::mt19937 gameplayRNG;
 
@@ -1084,7 +1084,6 @@ private:
 	float diceSpinSpeed = 1500.0f;
 	ofMesh d6Mesh, d4Mesh, d20Mesh, d10Mesh, coinMesh;
 	ofTexture d6Texture, d4Texture, d20Texture, d10Texture, coinFacesTexture;
-	std::mt19937 gameplayRNG;
 	std::vector<ofSoundPlayer> footstepSounds;
 
 	// --- DEBUG ---
