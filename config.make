@@ -18,6 +18,12 @@ OPTIMIZATION_CFLAGS = -O3
 #    This tells the compiler where to look for "steam_api.h"
 USER_INCLUDE_PATHS = libs/steam/include
 
+# Ensure the compiler actually gets the include dir
+PROJECT_CXXFLAGS += -Ilibs/steam/include
+# Also add to the user flags which openFrameworks build uses
+USER_CXXFLAGS += -Ilibs/steam/include
+USER_CFLAGS += -Ilibs/steam/include
+
 # 2. Linker Flags (Relative to this file)
 #    -L tells it where the folder is
 #    -l tells it to look for libsteam_api.so

@@ -16343,6 +16343,8 @@ void ofApp::drawTrainMenuUI() {
 //--------------------------------------------------------------
 void ofApp::exit() {
 	steamManager.cleanup();
+	// Ensure the Steam API is fully shut down on app exit
+	steamManager.shutdownAPI();
 }
 // --------------------------------------------------------------
 void ofApp::processNetworkPackets() {

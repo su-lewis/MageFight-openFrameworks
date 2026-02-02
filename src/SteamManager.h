@@ -2,9 +2,7 @@
 
 #include "ofMain.h"
 
-// 1. USE THE DIRECT PATH TO FIX THE "FILE NOT FOUND" ERROR
-// This bypasses the config.make issues completely.
-#include "../libs/steam/include/steam_api.h"
+#include "steam_api.h"
 
 #include <queue>
 #include <vector>
