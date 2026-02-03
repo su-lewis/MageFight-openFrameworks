@@ -16253,7 +16253,10 @@ void ofApp::generateDraftOptions(int classTier, const std::vector<int> * forcedI
 		dp.draftStage = draftStage;
 		dp.isInGameDraft = isInGameDraft ? 1 : 0;
 		steamManager.sendPacket(&dp, sizeof(dp));
-		ofLogNotice("Network") << "Host sent DraftOptionsPacket: " << dp.optionIndex0 << "," << dp.optionIndex1 << "," << dp.optionIndex2;
+		ofLogNotice("Network") << "Host sent DraftOptionsPacket: " << dp.optionIndex0 << "," << dp.optionIndex1 << "," << dp.optionIndex2 << " derivedSeed=" << derivedSeed;
+
+		// Debug: also log the exact card names for easier inspection across clients
+		ofLogNotice("Draft") << "Options names: " << ((indices.size() > 0) ? (*pool)[indices[0]].name : "-") << ", " << ((indices.size() > 1) ? (*pool)[indices[1]].name : "-") << ", " << ((indices.size() > 2) ? (*pool)[indices[2]].name : "-");
 	}
 }
 
@@ -16521,18 +16524,29 @@ void ofApp::drawDraftScreen() {
 
 	bool canAccept = ((int)selectedDraftIndices.size() == required);
 
-	float btnW = 220, btnH = 60;
-	float btnX = (ofGetWidth() - btnW) / 2.0f;
-	float btnY = startY + cardH + 40;
+	// Only show the Accept button to the drafting player (or in singleplayer)
+	bool showAccept = true;
+	if (isMultiplayer) {
+		if (!players.empty() && players[draftPlayerIndex].playerID != myLocalPlayerID) showAccept = false;
+	}
 
-	draftAcceptButtonRect.set(btnX, btnY, btnW, btnH);
+	if (showAccept) {
+		float btnW = 220, btnH = 60;
+		float btnX = (ofGetWidth() - btnW) / 2.0f;
+		float btnY = startY + cardH + 40;
 
-	ofSetColor(canAccept ? ofColor(70, 160, 255) : ofColor(100, 100, 100));
-	ofDrawRectRounded(draftAcceptButtonRect, 12);
+		draftAcceptButtonRect.set(btnX, btnY, btnW, btnH);
 
-	ofSetColor(ofColor::white);
-	ofRectangle acceptTextBox = uiFont.getStringBoundingBox("Accept", 0, 0);
-	uiFont.drawString("Accept", btnX + (btnW - acceptTextBox.width) / 2, btnY + (btnH + acceptTextBox.height) / 2 - 6);
+		ofSetColor(canAccept ? ofColor(70, 160, 255) : ofColor(100, 100, 100));
+		ofDrawRectRounded(draftAcceptButtonRect, 12);
+
+		ofSetColor(ofColor::white);
+		ofRectangle acceptTextBox = uiFont.getStringBoundingBox("Accept", 0, 0);
+		uiFont.drawString("Accept", btnX + (btnW - acceptTextBox.width) / 2, btnY + (btnH + acceptTextBox.height) / 2 - 6);
+	} else {
+		// Hide accept: clear the rect so hits are ignored
+		draftAcceptButtonRect.set(0, 0, 0, 0);
+	}
 }
 //--------------------------------------------------------------
 void ofApp::drawTrainMenuUI() {
@@ -16636,28 +16650,51 @@ void ofApp::processNetworkPackets() {
 			}
 		} else if (header->type == PKT_DRAFT_STATE) {
 			DraftStatePacket * sp = (DraftStatePacket *)header;
-			ofLogNotice("Network") << "Draft state received: class=" << sp->classTier << " player=" << sp->draftPlayerIdx << " picks=" << sp->picksRemaining << " stage=" << sp->draftStage << " ingame=" << (int)sp->isInGameDraft;
+			ofLogNotice("Network") << "Draft state received: class=" << sp->classTier << " player=" << sp->draftPlayerIdx << " picks=" << sp->picksRemaining << " stage=" << sp->draftStage << " ingame=" << (int)sp->isInGameDraft << " curPlayer=" << sp->currentPlayerIndex;
 
 			// Client applies host state directly
 			draftPlayerIndex = sp->draftPlayerIdx;
 			draftStage = sp->draftStage;
 			draftPicksRemaining = sp->picksRemaining;
 			isInGameDraft = (sp->isInGameDraft != 0);
+
 			if (sp->classTier > 0) {
+				// Enter drafting with host-provided class tier
 				currentState = STATE_DRAFTING;
 				selectedDraftIndices.clear();
-				// Generate a quick local version, host will send authoritative indices shortly
-				generateDraftOptions(sp->classTier);
+				// Only generate locally when singleplayer; in multiplayer wait for host's DraftOptionsPacket
+				if (!isMultiplayer) {
+					generateDraftOptions(sp->classTier);
+				} else {
+					ofLogNotice("Draft") << "Client waiting for authoritative DraftOptionsPacket from host (class=" << sp->classTier << ")";
+				}
 			} else {
-				// classTier==0 => exit drafting
+				// classTier==0 => exit drafting and host tells us who is the active player
 				draftOptions.clear();
 				selectedDraftIndices.clear();
 				currentState = STATE_GAMEPLAY;
+				// Host should include who starts; set it and begin the turn
+				currentPlayerIndex = sp->currentPlayerIndex;
+				startNewTurn();
 			}
 
 		} else if (header->type == PKT_DRAFT_OPTIONS) {
 			DraftOptionsPacket * dp = (DraftOptionsPacket *)header;
 			ofLogNotice("Network") << "DraftOptions received: " << dp->optionIndex0 << "," << dp->optionIndex1 << "," << dp->optionIndex2 << " (class=" << dp->classTier << ")";
+			// Debug: compute local derivedSeed and expected first indices for verification
+			uint32_t derivedSeedLocal = currentMapSeed;
+			derivedSeedLocal ^= (uint32_t)dp->classTier * 2654435761u;
+			derivedSeedLocal ^= ((uint32_t)dp->draftPlayerIdx << 16);
+			derivedSeedLocal ^= ((uint32_t)dp->draftStage << 24);
+			std::vector<int> allIdx;
+			const std::vector<Card> * pool = &class1Cards;
+			if (dp->classTier == 2) pool = &class2Cards;
+			if (dp->classTier == 3) pool = &class3Cards;
+			allIdx.resize(pool->size());
+			std::iota(allIdx.begin(), allIdx.end(), 0);
+			std::mt19937 debugRng(derivedSeedLocal);
+			std::shuffle(allIdx.begin(), allIdx.end(), debugRng);
+			ofLogNotice("Draft") << "Local derivedSeed=" << derivedSeedLocal << " expectedIndices=" << (allIdx.size() > 0 ? allIdx[0] : -1) << "," << (allIdx.size() > 1 ? allIdx[1] : -1) << "," << (allIdx.size() > 2 ? allIdx[2] : -1);
 
 			std::vector<int> idxs;
 			if (dp->optionIndex0 >= 0) idxs.push_back(dp->optionIndex0);
@@ -16768,9 +16805,22 @@ void ofApp::processNetworkPackets() {
 					// Forward accept to client
 					DraftActionPacket outPkt = *pkt;
 					steamManager.sendPacket(&outPkt, sizeof(outPkt));
-
-					// Also send a state sync packet so clients know the exact draft state
-					DraftStatePacket sp;
+					// Also send an additional state sync with currentPlayerIndex to ensure clients transition
+					DraftStatePacket sp2;
+					sp2.type = PKT_DRAFT_STATE;
+					sp2.playerID = myLocalPlayerID;
+					if (currentState == STATE_GAMEPLAY)
+						sp2.classTier = 0;
+					else if (draftStage == 0)
+						sp2.classTier = 1;
+					else
+						sp2.classTier = 2;
+					sp2.draftPlayerIdx = (currentState == STATE_GAMEPLAY) ? -1 : draftPlayerIndex;
+					sp2.picksRemaining = draftPicksRemaining;
+					sp2.draftStage = draftStage;
+					sp2.isInGameDraft = isInGameDraft ? 1 : 0;
+					sp2.currentPlayerIndex = currentPlayerIndex;
+					steamManager.sendPacket(&sp2, sizeof(sp2));
 					sp.type = PKT_DRAFT_STATE;
 					sp.playerID = myLocalPlayerID;
 					// classTier: 0 == none, 1/2 == class tiers

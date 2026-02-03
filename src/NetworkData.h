@@ -74,6 +74,7 @@ struct DraftStatePacket : PacketHeader {
 	int32_t picksRemaining; // how many picks left this stage
 	int32_t draftStage; // 0 = class1, 1 = class2, etc
 	uint8_t isInGameDraft; // 1 = in-game key draft, 0 = normal
+	int32_t currentPlayerIndex; // Host tells clients who the active player is when drafting ends
 };
 
 // Host -> Client: send the indices in the pool for the options shown
