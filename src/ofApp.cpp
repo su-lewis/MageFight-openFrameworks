@@ -16703,8 +16703,18 @@ void ofApp::processNetworkPackets() {
 				if (!isMultiplayer) {
 					generateDraftOptions(sp->classTier);
 				} else {
-					waitingForDraftOptions = true;
-					ofLogNotice("Draft") << "Client waiting for authoritative DraftOptionsPacket from host (class=" << sp->classTier << ")";
+					// If we already have draftOptions applied that match this state, do not re-enter waiting.
+					bool optionsMatch = false;
+					if (!draftOptions.empty() && draftPlayerIndex == sp->draftPlayerIdx && draftStage == sp->draftStage) {
+						optionsMatch = true;
+					}
+					if (optionsMatch) {
+						waitingForDraftOptions = false;
+						ofLogNotice("Draft") << "Client already has authoritative DraftOptions; not waiting (class=" << sp->classTier << ")";
+					} else {
+						waitingForDraftOptions = true;
+						ofLogNotice("Draft") << "Client waiting for authoritative DraftOptionsPacket from host (class=" << sp->classTier << ")";
+					}
 				}
 			} else {
 				// classTier==0 => exit drafting and host tells us who is the active player
