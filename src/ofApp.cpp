@@ -827,7 +827,7 @@ void ofApp::update() {
 
 		// CASE B: I AM THE CLIENT
 		else {
-			if (!isMultiplayer) {
+			if (!isMultiplayer && !hasReceivedHandshake) {
 				// 1. Log status (visual feedback)
 				static bool loggedWait = false;
 				if (!loggedWait) {
@@ -15671,6 +15671,8 @@ void ofApp::cleanupGame() {
 	draggedCardIndex = -1;
 	isPlayerAnimating = false;
 	isLoadingGame = false;
+	hasReceivedHandshake = false;
+	waitingForTurnStartFromHost = false;
 
 	ofLogNotice("Game") << "--- GAME SESSION CLEANED UP ---";
 }
@@ -16914,6 +16916,12 @@ void ofApp::processNetworkPackets() {
 		if (header->type == PKT_HANDSHAKE) {
 			HandshakePacket * pkt = (HandshakePacket *)header;
 			ofLogNotice("Net") << "Handshake received. Seed: " << pkt->seed;
+
+			// Guard against duplicate handshakes - only process the first one
+			if (hasReceivedHandshake) {
+				ofLogNotice("Net") << "Ignoring duplicate handshake (already initialized).";
+				continue;
+			}
 
 			// FIX: Seed the gameplay RNG and store map seed so derived draft RNG matches the host
 			gameplayRNG.seed(pkt->seed);
