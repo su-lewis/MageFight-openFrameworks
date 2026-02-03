@@ -36,7 +36,8 @@ enum GameState {
 	STATE_GAMEPLAY,
 	STATE_PAUSED,
 	STATE_INITIATIVE_ROLL, // <--- New
-	STATE_DRAFTING // <--- New
+	STATE_DRAFTING, // <--- New
+	STATE_DESYNC // Desync detected; abort match
 };
 
 enum PlayerActionState {
@@ -481,10 +482,18 @@ private:
 	// The synced Random Number Generator
 	std::mt19937 gameplayRNG;
 
-	// Helper to get synced numbers
-	int getGameRandom(int min, int max);
+// Visual RNG (local only, not part of deterministic gameplay)
+std::mt19937 visualRNG;
 
-	// Helper to shuffle vectors synced
+// Flag set when the host-provided gameplay seed has been applied
+bool gameplaySeededByHost = false;
+
+// Desync message shown when checksum fails
+std::string desyncMessage;
+
+// Helper to get synced numbers
+int getGameRandom(int min, int max);
+
 	template <class T>
 	void shuffleGameVector(std::vector<T> & vec) {
 		std::shuffle(vec.begin(), vec.end(), gameplayRNG);

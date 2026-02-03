@@ -63,6 +63,11 @@ void drawStatText(ofTrueTypeFont & font, std::string text, float x, float y, flo
 void ofApp::setup() {
 	steamManager.setup();
 
+	// Seed visual RNG (local-only randomness for UI/particles)
+	std::random_device rd_visual;
+	visualRNG.seed(rd_visual());
+	ofLogNotice("Setup") << "Visual RNG seeded.";
+
 	ofSetEscapeQuitsApp(false);
 	ofSetVerticalSync(true);
 	ofSetBackgroundColor(22);
@@ -1303,6 +1308,7 @@ void ofApp::setupGame() {
 
 		// FIX: Seed the gameplay RNG specifically
 		gameplayRNG.seed(currentMapSeed);
+		gameplaySeededByHost = true;
 
 		ofLogNotice("Setup") << "Host generated seed: " << currentMapSeed;
 
@@ -1414,13 +1420,14 @@ void ofApp::initGameFromSeed(uint32_t seed) {
 
 	ofLogNotice("Network") << "Initializing multiplayer client game from seed: " << seed;
 	gameplayRNG.seed(seed);
+	gameplaySeededByHost = true;
 	currentMapSeed = seed;
 	isMultiplayer = true;
 	myLocalPlayerID = 1;
 
 	// Initialize the same common state as host
 	initializeGameStateCommon();
-}
+} 
 //--------------------------------------------------------------
 void ofApp::updateGame() {
 
@@ -2390,7 +2397,8 @@ void ofApp::updateGame() {
 			std::vector<Card> graveDeck = graveyard[gIndex].deck;
 			graveyard.erase(graveyard.begin() + gIndex);
 			if (!graveDeck.empty()) {
-				int r = (int)ofRandom(0, graveDeck.size());
+				std::uniform_int_distribution<int> graveDist(0, (int)graveDeck.size() - 1);
+				int r = graveDist(gameplayRNG);
 				minion.deck.push_back(graveDeck[r]);
 				ofLogNotice("Raise Dead") << "Looted a card from the grave!";
 			}
@@ -4215,8 +4223,10 @@ void ofApp::updateGame() {
 
 			// Play Footstep Sound
 			if (currentPathIndex < animationPath.size() && !footstepSounds.empty()) {
-				int idx = (int)ofRandom(0, footstepSounds.size());
-				footstepSounds[idx].setSpeed(ofRandom(0.9f, 1.1f));
+				std::uniform_int_distribution<int> footIdx(0, (int)footstepSounds.size() - 1);
+				int idx = footIdx(visualRNG);
+				std::uniform_real_distribution<float> footSpeed(0.9f, 1.1f);
+				footstepSounds[idx].setSpeed(footSpeed(visualRNG));
 				footstepSounds[idx].play();
 			}
 
@@ -4248,7 +4258,8 @@ void ofApp::updateGame() {
 								for (auto & p : players) {
 									if (p.isFaerie && p.x == nx && p.y == ny && p.health > 0) {
 										// Roll 1d4, resurrect at 25% * roll * maxHealth
-										int roll = (int)ofRandom(1, 5); // 1-4
+										std::uniform_int_distribution<int> d4dist(1, 4);
+				int roll = d4dist(gameplayRNG); // 1-4
 										int hp = (int)std::floor(dying.maxHealth * 0.25f * roll);
 										if (hp < 1) hp = 1;
 										dying.health = hp;
@@ -4621,6 +4632,17 @@ void ofApp::buildFloorMesh() {
 }
 //-----------------------------
 void ofApp::drawGame() {
+	// If we detected a desync, display a message and abort gameplay rendering
+	if (currentState == STATE_DESYNC) {
+		ofPushStyle();
+		ofSetColor(255, 30, 30);
+	
+titleFont.drawString("DESYNC DETECTED", ofGetWidth() / 2.0f - 240, ofGetHeight() / 2.0f - 40);
+	uiFont.drawString(desyncMessage, ofGetWidth() / 2.0f - 360, ofGetHeight() / 2.0f + 8);
+		ofPopStyle();
+		return;
+	}
+
 	// Render the 3D world (and 3D highlights) into an offscreen buffer so we can post-process it
 	// without affecting the 2D UI.
 	auto renderWorld3D = [&]() {
@@ -10071,6 +10093,7 @@ void ofApp::startNewTurn() {
 		sumPkt.type = PKT_CHECKSUM_CHECK;
 		sumPkt.playerID = myLocalPlayerID;
 		sumPkt.checksum = calculateChecksum();
+		sumPkt.turnNumber = globalTurnCounter;
 		steamManager.sendPacket(&sumPkt, sizeof(sumPkt));
 	}
 
@@ -12433,15 +12456,16 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 			state.originalDistance = 0;
 
 			// Random Direction (N, E, S, W)
-			int r = (int)ofRandom(0, 4);
-			if (r == 0)
-				state.direction = { 0, 1 }; // South
-			else if (r == 1)
-				state.direction = { 0, -1 }; // North
-			else if (r == 2)
-				state.direction = { 1, 0 }; // East
-			else
-				state.direction = { -1, 0 }; // West
+				std::uniform_int_distribution<int> dirDist(0, 3);
+				int r = dirDist(gameplayRNG);
+				if (r == 0)
+					state.direction = { 0, 1 }; // South
+				else if (r == 1)
+					state.direction = { 0, -1 }; // North
+				else if (r == 2)
+					state.direction = { 1, 0 }; // East
+				else
+					state.direction = { -1, 0 }; // West
 
 			// Roll 1d4 for this unit and record which dice slot we created
 			int before = (int)activeDiceRolls.size();
@@ -13495,7 +13519,8 @@ void ofApp::spawnFloatingText(glm::vec3 pos, std::string text, ofColor color) {
 	// Start slightly above the unit
 	ft.worldPos = pos + glm::vec3(0, 1.5f, 0);
 	// Random slight drift left/right, consistent drift up
-	ft.velocity = glm::vec3(ofRandom(-1.0f, 1.0f), 2.0f, ofRandom(-1.0f, 1.0f));
+	std::uniform_real_distribution<float> driftDist(-1.0f, 1.0f);
+	ft.velocity = glm::vec3(driftDist(visualRNG), 2.0f, driftDist(visualRNG));
 	ft.startTime = ofGetElapsedTimef();
 	ft.color = color;
 	activeFloatingTexts.push_back(ft);
@@ -13740,13 +13765,15 @@ int ofApp::startDiceRoll(int numDice, int sides, DicePurpose purpose, std::strin
 
 		// --- VISUALS (MUST BE DECOUPLED FROM GAMEPLAY RNG) ---
 
-		// Use ofRandom for visual axis generation (Unsynced)
-		glm::vec3 rndAxis(ofRandom(-1.0f, 1.0f), ofRandom(-1.0f, 1.0f), ofRandom(-1.0f, 1.0f));
+		// Use visualRNG for visual axis generation (Unsynced)
+		std::uniform_real_distribution<float> axisDist(-1.0f, 1.0f);
+		glm::vec3 rndAxis(axisDist(visualRNG), axisDist(visualRNG), axisDist(visualRNG));
 		if (glm::length(rndAxis) < 0.01f) rndAxis = glm::vec3(0, 1, 0);
 		newRoll.rotationAxis = glm::normalize(rndAxis);
 
-		// Use ofRandom for visual wobble (Unsynced)
-		float wobbleAmount = ofRandom(-25.0f, 25.0f);
+		// Use visualRNG for visual wobble (Unsynced)
+		std::uniform_real_distribution<float> wobbleDist(-25.0f, 25.0f);
+		float wobbleAmount = wobbleDist(visualRNG);
 
 		// --- ROTATION MATH ---
 		// This calculates the Quaternion needed to rotate the 'rawResult' face up towards the camera (0,1,0)
@@ -13762,7 +13789,8 @@ int ofApp::startDiceRoll(int numDice, int sides, DicePurpose purpose, std::strin
 			else
 				faceRotation = flip180X * rot180Y; // Heads
 
-			glm::quat randomYaw = glm::angleAxis(glm::radians(ofRandom(-15.0f, 15.0f)), glm::vec3(0, 1, 0));
+			std::uniform_real_distribution<float> yawDist(-15.0f, 15.0f);
+			glm::quat randomYaw = glm::angleAxis(glm::radians(yawDist(visualRNG)), glm::vec3(0, 1, 0));
 			newRoll.finalQuat = randomYaw * faceRotation;
 
 		} else if (sides == 4) {
@@ -16135,7 +16163,26 @@ void ofApp::generateDraftOptions(int classTier, const std::vector<int> * forcedI
 
 	std::vector<int> indices(pool->size());
 	std::iota(indices.begin(), indices.end(), 0);
-	shuffleGameVector(indices); // uses gameplayRNG
+
+	// If forced indices were provided (legacy/explicit packet), use them directly
+	if (forcedIndices && !forcedIndices->empty()) {
+		for (int idx : *forcedIndices) {
+			if (idx >= 0 && idx < (int)pool->size()) draftOptions.push_back((*pool)[idx]);
+		}
+		// Ensure pick counts are still set below
+		return;
+	}
+
+	// Deterministic draft generation derived from the shared map seed and draft context.
+	// This makes draft options independent of the global `gameplayRNG` state so both
+	// host and clients see identical options even if other RNG calls differ.
+	uint32_t derivedSeed = currentMapSeed;
+	derivedSeed ^= (uint32_t)classTier * 2654435761u; // golden ratio mixing
+	derivedSeed ^= ((uint32_t)draftPlayerIndex << 16);
+	derivedSeed ^= ((uint32_t)draftStage << 24);
+
+	std::mt19937 draftRng(derivedSeed);
+	std::shuffle(indices.begin(), indices.end(), draftRng);
 
 	for (int i = 0; i < 3 && i < (int)indices.size(); ++i) {
 		draftOptions.push_back((*pool)[indices[i]]);
@@ -16463,8 +16510,7 @@ void ofApp::processNetworkPackets() {
 
 			// FIX: Seed the gameplay RNG
 			gameplayRNG.seed(pkt->seed);
-			currentMapSeed = pkt->seed;
-
+		gameplaySeededByHost = true;
 			isMultiplayer = true;
 			myLocalPlayerID = 1;
 
@@ -16487,8 +16533,12 @@ void ofApp::processNetworkPackets() {
 			ChecksumPacket * pkt = (ChecksumPacket *)header;
 			long long mySum = calculateChecksum();
 			if (mySum != pkt->checksum) {
-				ofLogError("Net") << "DESYNC DETECTED! Local: " << mySum << " Remote: " << pkt->checksum;
-				spawnFloatingText(glm::vec3(0, 5, 0), "SYNC ERROR", ofColor::red);
+				ofLogError("Net") << "DESYNC DETECTED! Local: " << mySum << " Remote: " << pkt->checksum << " Turn: " << pkt->turnNumber;
+				desyncMessage = "DESYNC! Local:" + ofToString(mySum) + " Remote:" + ofToString(pkt->checksum) + " Turn:" + ofToString(pkt->turnNumber);
+				// Freeze multiplayer to prevent further mismatch-driven actions
+				isMultiplayer = false;
+				currentState = STATE_DESYNC;
+				spawnFloatingText(glm::vec3(0, 5, 0), "DESYNC DETECTED", ofColor::red);
 			}
 		} else if (header->type == PKT_DRAFT_ACTION) {
 			DraftActionPacket * pkt = (DraftActionPacket *)header;
@@ -16688,14 +16738,50 @@ void ofApp::executeAction(const ActionPacket & pkt) {
 
 // Verify sync
 long long ofApp::calculateChecksum() {
-	long long hash = 0;
+	// FNV-1a 64-bit
+	const uint64_t FNV_OFFSET = 14695981039346656037ULL;
+	const uint64_t FNV_PRIME = 1099511628211ULL;
+	uint64_t h = FNV_OFFSET;
+	auto mix = [&](uint64_t v) {
+		h ^= v;
+		h *= FNV_PRIME;
+	};
+
+	// Global counters
+	mix((uint64_t)globalTurnCounter);
+	mix((uint64_t)currentPlayerIndex);
+
+	// Player state
 	for (const auto & p : players) {
-		// Hash critical gameplay state
-		hash += p.health * 1000;
-		hash += p.x * 100 + p.y;
-		hash += p.block * 50;
-		hash += p.deck.size();
+		mix((uint64_t)p.playerID);
+		mix((uint64_t)p.x);
+		mix((uint64_t)p.y);
+		mix((uint64_t)p.health);
+		mix((uint64_t)p.block);
+		mix((uint64_t)p.ward);
+		mix((uint64_t)p.luck);
+		mix((uint64_t)p.onFire);
+		mix((uint64_t)p.isParalyzed);
+		mix((uint64_t)p.isPoisoned);
+		mix((uint64_t)p.summonedOnTurnCycle);
+
+		// Deck contents by CardType and value
+		mix((uint64_t)p.deck.size());
+		for (const auto & c : p.deck) {
+			mix((uint64_t)c.type);
+			mix((uint64_t)c.value);
+		}
 	}
-	return hash;
-}
+
+	// Active dice (include resolved outcomes)
+	mix((uint64_t)activeDiceRolls.size());
+	for (const auto & d : activeDiceRolls) {
+		mix((uint64_t)d.purpose);
+		mix((uint64_t)d.result);
+		mix((uint64_t)d.rawResult);
+		mix((uint64_t)d.associatedUnit);
+	}
+
+	return (long long)h;
+} 
 //--------------------------------------------------------------
