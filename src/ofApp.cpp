@@ -1367,6 +1367,7 @@ void ofApp::initializeGameStateCommon() {
 	// --- RESET CORE GAME STATE ---
 	players.clear();
 	activeDiceRolls.clear();
+	globalTurnCounter = 0; // Reset turn counter for new game
 	for (int x = 0; x < BOARD_WIDTH; ++x) {
 		for (int y = 0; y < BOARD_HEIGHT; ++y) {
 			board[x][y] = Tile();
