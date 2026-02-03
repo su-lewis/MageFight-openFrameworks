@@ -16825,11 +16825,14 @@ void ofApp::processNetworkPackets() {
 			executeAction(*pkt);
 		} else if (header->type == PKT_END_TURN) {
 			ofLogNotice("Net") << "Opponent ended turn.";
-			// If we're a client transitioning immediately after draft->game, the host will send
-			// a TurnStart packet with authoritative AP dice. In that window, defer starting
-			// the turn locally to avoid consuming gameplayRNG and diverging.
-			if (isMultiplayer && !steamManager.isHost() && waitingForTurnStartFromHost) {
-				ofLogNotice("Network") << "Client: Deferring startNewTurn until TurnStart from host.";
+			// Defensive: if we're a client and currently in drafting state, or we're already
+			// waiting for the host's TurnStart packet, defer starting the new turn. This
+			// prevents the client from consuming gameplayRNG or transitioning while still
+			// showing draft UI, which can cause checksum desyncs.
+			if (isMultiplayer && !steamManager.isHost() && (waitingForTurnStartFromHost || currentState == STATE_DRAFTING)) {
+				ofLogNotice("Network") << "Client: Deferring startNewTurn because in drafting state or waiting for TurnStart (state=" << currentState << ").";
+				// Ensure we are explicitly waiting for TurnStart from the host
+				waitingForTurnStartFromHost = true;
 			} else {
 				startNewTurn(); // This will flip control to you
 			}
@@ -16894,25 +16897,9 @@ void ofApp::processNetworkPackets() {
 				// In multiplayer clients: DO NOT call startNewTurn(); wait for host TurnStart packet
 				if (isMultiplayer && !steamManager.isHost()) {
 					waitingForTurnStartFromHost = true;
-					ofLogNotice("Network") << "Client: Waiting for TurnStart packet from host (player=" << currentPlayerIndex << ")";
-				} else {
-					// Singleplayer or host: begin the turn locally
-					startNewTurn();
+					ofLogNotice("Network") << "Client: Drafting ended. Waiting for TurnStart packet from host (player=" << currentPlayerIndex << ")";
 				}
-				// Debug: compute local derivedSeed and expected first indices for verification
-				uint32_t derivedSeedLocal = currentMapSeed;
-				derivedSeedLocal ^= (uint32_t)sp->classTier * 2654435761u;
-				derivedSeedLocal ^= ((uint32_t)sp->draftPlayerIdx << 16);
-				derivedSeedLocal ^= ((uint32_t)sp->draftStage << 24);
-				std::vector<int> allIdx;
-				const std::vector<Card> * pool = &class1Cards;
-				if (sp->classTier == 2) pool = &class2Cards;
-				if (sp->classTier == 3) pool = &class3Cards;
-				allIdx.resize(pool->size());
-				std::iota(allIdx.begin(), allIdx.end(), 0);
-				std::mt19937 debugRng(derivedSeedLocal);
-				std::shuffle(allIdx.begin(), allIdx.end(), debugRng);
-				ofLogNotice("Draft") << "Local derivedSeed=" << derivedSeedLocal << " expectedIndices=" << (allIdx.size() > 0 ? allIdx[0] : -1) << "," << (allIdx.size() > 1 ? allIdx[1] : -1) << "," << (allIdx.size() > 2 ? allIdx[2] : -1);
+				// Host handles transition in its own draft-accept logic and sends TurnStart
 			}
 		} else if (header->type == PKT_DRAFT_OPTIONS) {
 			DraftOptionsPacket * dp = (DraftOptionsPacket *)header;
