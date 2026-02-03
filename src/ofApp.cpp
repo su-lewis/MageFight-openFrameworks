@@ -910,6 +910,7 @@ void ofApp::update() {
 						sp.picksRemaining = draftPicksRemaining;
 						sp.draftStage = draftStage;
 						sp.isInGameDraft = isInGameDraft ? 1 : 0;
+						sp.currentPlayerIndex = currentPlayerIndex;
 						steamManager.sendPacket(&sp, sizeof(sp));
 					}
 				} else if (p2Roll > p1Roll) {
@@ -927,6 +928,7 @@ void ofApp::update() {
 						sp.picksRemaining = draftPicksRemaining;
 						sp.draftStage = draftStage;
 						sp.isInGameDraft = isInGameDraft ? 1 : 0;
+						sp.currentPlayerIndex = currentPlayerIndex;
 						steamManager.sendPacket(&sp, sizeof(sp));
 					}
 				} else {
@@ -16905,6 +16907,7 @@ void ofApp::processNetworkPackets() {
 					sp.picksRemaining = draftPicksRemaining;
 					sp.draftStage = draftStage;
 					sp.isInGameDraft = isInGameDraft ? 1 : 0;
+					sp.currentPlayerIndex = currentPlayerIndex;
 					steamManager.sendPacket(&sp, sizeof(sp));
 				}
 			} else {
