@@ -7839,6 +7839,9 @@ void ofApp::mousePressed(int x, int y, int button) {
 						tpk.finalTotal = total;
 						steamManager.sendPacket(&tpk, sizeof(tpk));
 						ofLogNotice("Network") << "Host sent TurnStart (mousePressed): player=" << tpk.currentPlayerIndex << " dice=" << (int)tpk.diceNum << " total=" << tpk.finalTotal;
+						for (int i = 0; i < pkCount; ++i) {
+							ofLogNotice("Network") << "  Host sending dice[" << i << "]: raw=" << (int)tpk.rawResults[i] << " final=" << (int)tpk.finalResults[i];
+						}
 					}
 				}
 			}
@@ -13985,6 +13988,11 @@ int ofApp::startDiceRoll(int numDice, int sides, DicePurpose purpose, std::strin
 		newRoll.result = finalRoll;
 		newRoll.rawResult = rawRoll; // Visuals rely on raw result to show correct face
 
+		// Log dice rolls for debugging multiplayer sync
+		if (isMultiplayer && purpose == PURPOSE_AP) {
+			ofLogNotice("Dice") << "Rolled dice[" << i << "]: rawResult=" << rawRoll << " finalResult=" << finalRoll << " (owner=" << ownerIndex << ")";
+		}
+
 		// --- VISUALS (MUST BE DECOUPLED FROM GAMEPLAY RNG) ---
 
 		// Use visualRNG for visual axis generation (Unsynced)
@@ -16911,6 +16919,7 @@ void ofApp::processNetworkPackets() {
 					newRoll.sides = tpk->diceSides;
 					newRoll.rawResult = (int)tpk->rawResults[i];
 					newRoll.result = (int)tpk->finalResults[i];
+					ofLogNotice("Network") << "Client: Dice[" << i << "] rawResult=" << newRoll.rawResult << " finalResult=" << newRoll.result;
 					newRoll.startTime = ofGetElapsedTimef();
 					newRoll.associatedUnit = tpk->currentPlayerIndex;
 					// Visual RNG and quaternions (simplified from startDiceRoll visuals)
@@ -17259,6 +17268,9 @@ void ofApp::processNetworkPackets() {
 						tpk.finalTotal = total;
 						steamManager.sendPacket(&tpk, sizeof(tpk));
 						ofLogNotice("Network") << "Host sent TurnStart (PKT_DRAFT_ACTION): player=" << tpk.currentPlayerIndex << " dice=" << (int)tpk.diceNum << " total=" << tpk.finalTotal;
+						for (int i = 0; i < pkCount; ++i) {
+							ofLogNotice("Network") << "  Host sending dice[" << i << "]: raw=" << (int)tpk.rawResults[i] << " final=" << (int)tpk.finalResults[i];
+						}
 					}
 				}
 			} else {
