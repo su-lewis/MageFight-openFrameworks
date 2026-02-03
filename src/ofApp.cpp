@@ -7788,6 +7788,11 @@ void ofApp::mousePressed(int x, int y, int button) {
 					currentPlayerIndex = nextPlayerIdx;
 					currentState = STATE_GAMEPLAY;
 
+					// Shuffle all players' decks before starting (host-authoritative)
+					for (size_t pi = 0; pi < players.size(); ++pi) {
+						shuffleGameVector(players[pi].deck, (int)pi);
+					}
+
 					// For the first turn, call continueNewTurn() directly to avoid incrementing currentPlayerIndex
 					// (There's no previous turn to end, so we skip the cleanup/advancement logic)
 					continueNewTurn();
@@ -17185,6 +17190,10 @@ void ofApp::processNetworkPackets() {
 						} else {
 							currentPlayerIndex = nextPlayerIdx;
 							currentState = STATE_GAMEPLAY;
+							// Shuffle all players' decks before starting (host-authoritative)
+							for (size_t pi = 0; pi < players.size(); ++pi) {
+								shuffleGameVector(players[pi].deck, (int)pi);
+							}
 							// For the first turn, call continueNewTurn() directly to avoid incrementing currentPlayerIndex
 							continueNewTurn();
 						}
