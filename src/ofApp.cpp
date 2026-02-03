@@ -17133,33 +17133,6 @@ void ofApp::processNetworkPackets() {
 							currentPlayerIndex = nextPlayerIdx;
 							currentState = STATE_GAMEPLAY;
 							startNewTurn();
-						// Send TurnStart packet to clients
-						std::vector<DiceRoll> newAP;
-						for (size_t di = 0; di < activeDiceRolls.size(); ++di) {
-							const DiceRoll & dr = activeDiceRolls[di];
-							if (dr.associatedUnit == currentPlayerIndex && dr.purpose == PURPOSE_AP) {
-								newAP.push_back(dr);
-							}
-						}
-						// Always send TurnStart packet, even if no AP dice (e.g., summoning sickness)
-						TurnStartPacket tpk;
-						tpk.type = PKT_TURN_START;
-						tpk.playerID = myLocalPlayerID;
-						tpk.currentPlayerIndex = currentPlayerIndex;
-						int pkCount = 0;
-						int32_t total = 0;
-						for (size_t i = 0; i < newAP.size() && pkCount < 8; ++i) {
-							tpk.rawResults[pkCount] = (uint8_t)newAP[i].rawResult;
-							tpk.finalResults[pkCount] = (uint8_t)newAP[i].result;
-							pkCount++;
-							total += newAP[i].result;
-						}
-						tpk.diceNum = (uint8_t)pkCount;
-						tpk.diceSides = (uint8_t)(pkCount > 0 ? newAP[0].sides : 6);
-						tpk.purpose = (uint8_t)PURPOSE_AP;
-						tpk.finalTotal = total;
-						steamManager.sendPacket(&tpk, sizeof(tpk));
-						ofLogNotice("Network") << "Host sent TurnStart packet: player=" << tpk.currentPlayerIndex << " dice=" << (int)tpk.diceNum << " total=" << tpk.finalTotal;
 						}
 					}
 					// Forward accept to client
