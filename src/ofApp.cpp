@@ -2403,7 +2403,6 @@ void ofApp::updateGame() {
 				minion.deck.push_back(c);
 			}
 		}
-		shuffleGameVector(minion.deck);
 
 		// 3. Graveyard Interaction
 
@@ -2433,6 +2432,9 @@ void ofApp::updateGame() {
 		// 4. Add to Board
 		board[minion.x][minion.y].hasPlayer = true;
 		players.push_back(minion);
+		// Authoritative shuffle for the new minion
+		int newSkeletonIdx = (int)players.size() - 1;
+		shuffleGameVector(players[newSkeletonIdx].deck, newSkeletonIdx);
 
 		// 5. SORT TURN ORDER
 		int currentID = players[currentPlayerIndex].playerID;
@@ -2929,11 +2931,12 @@ void ofApp::updateGame() {
 				minion.deck.push_back(c);
 			}
 		}
-		shuffleGameVector(minion.deck);
 
 		// 3. Add to Board
 		board[minion.x][minion.y].hasPlayer = true;
 		players.push_back(minion);
+		int newHellhoundIdx = (int)players.size() - 1;
+		shuffleGameVector(players[newHellhoundIdx].deck, newHellhoundIdx);
 
 		ofLogNotice("Summon") << "Hellhound summoned with " << minion.health << " HP.";
 
@@ -3000,14 +3003,16 @@ void ofApp::updateGame() {
 				minion.deck.push_back(c);
 			}
 		}
-		shuffleGameVector(minion.deck);
 
+		// 3. Add to Board
 		board[minion.x][minion.y].hasPlayer = true;
 		players.push_back(minion);
+		int newDemonIdx = (int)players.size() - 1;
+		shuffleGameVector(players[newDemonIdx].deck, newDemonIdx);
 
 		ofLogNotice("Summon") << "Demon summoned with " << minion.health << " HP.";
 
-		// Sort Turn Order
+		// 4. Sort Turn Order
 		int currentID = players[currentPlayerIndex].playerID;
 		std::sort(players.begin(), players.end(), [](const Player & a, const Player & b) {
 			int ownerA = a.isMinion ? a.ownerID : a.playerID;
@@ -3018,13 +3023,14 @@ void ofApp::updateGame() {
 			return a.summonOrder < b.summonOrder;
 		});
 
-		// Restore Index
+		// 5. Restore Index
 		for (size_t i = 0; i < players.size(); i++) {
 			if (players[i].playerID == currentID) {
 				currentPlayerIndex = i;
 				break;
 			}
 		}
+
 		invalidateTargetCache();
 	}
 
@@ -7825,10 +7831,10 @@ void ofApp::mousePressed(int x, int y, int button) {
 							if (c.name == "Punch") pu = c;
 							if (c.type == CARD_CALL_FOR_KOBOLDS) callCard = c;
 						}
-						kobold.deck = { hb, hb, pu, callCard };
-						shuffleGameVector(kobold.deck);
 						board[gx][gy].hasPlayer = true;
 						players.push_back(kobold);
+						int newKoboldIdx = (int)players.size() - 1;
+						shuffleGameVector(players[newKoboldIdx].deck, newKoboldIdx);
 						ofLogNotice("Summon") << "Summoned Kobold " << koboldSummonCount;
 						koboldsRemainingToPlace--;
 						if (koboldsRemainingToPlace <= 0) {
@@ -8945,12 +8951,12 @@ void ofApp::mousePressed(int x, int y, int button) {
 							if (c.type == CARD_CALL_FOR_WOLVES) callCard = c;
 						}
 						wolf.deck = { slashCard, slashCard, slashCard, callCard };
-						shuffleGameVector(wolf.deck);
 
 						// Add to board
 						board[gx][gy].hasPlayer = true;
 						players.push_back(wolf);
-						ofLogNotice("Summon") << "Summoned Wolf " << wolfSummonCount;
+						int newWolfIdx = (int)players.size() - 1;
+						shuffleGameVector(players[newWolfIdx].deck, newWolfIdx);
 
 						// --- HANDLE LOGIC FLOW ---
 
@@ -9028,12 +9034,12 @@ void ofApp::mousePressed(int x, int y, int button) {
 									if (c.type == CARD_CALL_FOR_KOBOLDS) callCard = c;
 								}
 								kobold.deck = { hb, hb, pu, callCard };
-								shuffleGameVector(kobold.deck);
 
 								// Add to board
 								board[gx][gy].hasPlayer = true;
 								players.push_back(kobold);
-								ofLogNotice("Summon") << "Summoned Kobold " << koboldSummonCount;
+								int newKoboldIdx = (int)players.size() - 1;
+								shuffleGameVector(players[newKoboldIdx].deck, newKoboldIdx);
 
 								// --- HANDLE LOGIC FLOW --
 								koboldsRemainingToPlace--;
@@ -9082,8 +9088,9 @@ void ofApp::mousePressed(int x, int y, int button) {
 					newPlayer.y = gy;
 					newPlayer.playerID = (int)players.size();
 					newPlayer.deck = allCards;
-					shuffleGameVector(newPlayer.deck);
 					players.push_back(newPlayer);
+					int newDebugIdx = (int)players.size() - 1;
+					shuffleGameVector(players[newDebugIdx].deck, newDebugIdx);
 					board[gx][gy].hasPlayer = true;
 					ofLogNotice("Debug") << "Spawned new player.";
 				}
@@ -11189,7 +11196,6 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 
 		// Deck: 2x Slash, 2x Stab, 2x Full Restore, 1x Call for Kobolds
 		minion.deck = { slash, slash, stab, stab, fullRestore, fullRestore, callKobolds };
-		shuffleGameVector(minion.deck);
 
 		// --- CRITICAL FIX START ---
 		// We must modify 'currentPlayer' BEFORE we push_back to 'players'.
@@ -11215,6 +11221,9 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		// 4. Add to Board (Now safe to resize vector)
 		board[targetX][targetY].hasPlayer = true;
 		players.push_back(minion);
+		// Authoritative shuffle for the new minion deck
+		int newKoboldKingIdx = (int)players.size() - 1;
+		shuffleGameVector(players[newKoboldKingIdx].deck, newKoboldKingIdx);
 
 		ofLogNotice("Summon") << "Kobold King summoned with " << kingHP << " HP.";
 
@@ -11274,7 +11283,6 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		Card handBlock = findCard("Hand Block", CARD_GAIN_BLOCK);
 
 		minion.deck = { lesserHeal, handBlock, handBlock, handBlock, handBlock };
-		shuffleGameVector(minion.deck);
 
 		// 4. Cleanup & Add
 		int myID = currentPlayer.playerID;
@@ -11291,6 +11299,8 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 
 		board[targetX][targetY].hasPlayer = true;
 		players.push_back(minion);
+		int newAssistantIdx = (int)players.size() - 1;
+		shuffleGameVector(players[newAssistantIdx].deck, newAssistantIdx);
 
 		ofLogNotice("Summon") << "Assistant summoned.";
 
@@ -11355,7 +11365,6 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		Card lesserHeal = findCard("Lesser Heal", CARD_LESSER_HEAL);
 		Card magicBlast = findCard("Magic Blast", CARD_MAGIC_BLAST);
 		minion.deck = { dispel, dispel, lesserHeal, lesserHeal, magicBlast };
-		shuffleGameVector(minion.deck);
 
 		// 4. Cleanup & Add
 		int myID = currentPlayer.playerID;
@@ -11372,6 +11381,8 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 
 		board[targetX][targetY].hasPlayer = true;
 		players.push_back(minion);
+		int newFaerieIdx = (int)players.size() - 1;
+		shuffleGameVector(players[newFaerieIdx].deck, newFaerieIdx);
 
 		ofLogNotice("Summon") << "Faerie summoned.";
 
@@ -11515,7 +11526,6 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		}
 
 		minion.health = minion.maxHealth;
-		shuffleGameVector(minion.deck);
 
 		// --- CRASH FIX START ---
 		int myID = currentPlayer.playerID;
@@ -11532,6 +11542,8 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		// 5. Add to board
 		board[targetX][targetY].hasPlayer = true;
 		players.push_back(minion);
+		int newGolemIdx = (int)players.size() - 1;
+		shuffleGameVector(players[newGolemIdx].deck, newGolemIdx);
 
 		// Sort turn order
 		std::sort(players.begin(), players.end(), [](const Player & a, const Player & b) {
@@ -11628,12 +11640,14 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 			if (createWall.type != CARD_NONE) minion.deck.push_back(createWall);
 			ofLogNotice("Transform") << "Created Wall Unit (5 HP).";
 		}
-		shuffleGameVector(minion.deck);
 
 		// 4. Transform Board State
 		board[targetX][targetY].hasWall = false; // Remove static wall
 		board[targetX][targetY].isMagicWall = false; // Clear flag (unit carries property now)
 		board[targetX][targetY].hasPlayer = true; // Add unit
+		players.push_back(minion);
+		int newWallUnitIdx = (int)players.size() - 1;
+		shuffleGameVector(players[newWallUnitIdx].deck, newWallUnitIdx);
 
 		// Update Mesh (to remove the static wall visually)
 		buildLevelMesh();
@@ -12392,7 +12406,7 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 
 				if (found) {
 					target->deck.push_back(cardToAdd);
-					shuffleGameVector(target->deck);
+					shuffleGameVector(target->deck, targetIndex);
 					spawnFloatingText(gridToWorld(target->x, target->y), "Shuffled 1x Vampire Bite", ofColor::magenta);
 					ofLogNotice("Vampire Bite") << "Shuffled a Vampire Bite into Player " << target->playerID << "'s deck.";
 				}
@@ -14594,8 +14608,8 @@ void ofApp::resolveDoubleHanded(std::string cardName) {
 				target->deck.push_back(cardToAdd);
 			}
 
-			// 3. Shuffle
-			shuffleGameVector(target->deck);
+			// 3. Shuffle (authoritative)
+			shuffleGameVector(target->deck, pendingDoubleHandedTargetIndex);
 
 			// 4. Visual Feedback
 			spawnFloatingText(gridToWorld(target->x, target->y), "Added " + ofToString(copiesToAdd) + "x " + cardName, ofColor::cyan);
@@ -16377,9 +16391,9 @@ void ofApp::onCardPicked(int optionIndex) {
 			} else {
 				// Both done! Start Game.
 
-				// Shuffle decks
-				for (auto & pl : players) {
-					shuffleGameVector(pl.deck);
+				// Shuffle decks (host-authoritative per player)
+				for (size_t pi = 0; pi < players.size(); ++pi) {
+					shuffleGameVector(players[pi].deck, (int)pi);
 				}
 
 				// Determine who starts based on initiative winner (who drafted first)
