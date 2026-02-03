@@ -7771,7 +7771,9 @@ void ofApp::mousePressed(int x, int y, int button) {
 					currentPlayerIndex = nextPlayerIdx;
 					currentState = STATE_GAMEPLAY;
 
-					// Inform clients that drafting has ended
+					startNewTurn();
+
+					// Inform clients that drafting has ended (AFTER startNewTurn so currentPlayerIndex is correct)
 					if (isMultiplayer && steamManager.isHost()) {
 						DraftStatePacket dsp;
 						dsp.type = PKT_DRAFT_STATE;
@@ -7785,8 +7787,6 @@ void ofApp::mousePressed(int x, int y, int button) {
 						steamManager.sendPacket(&dsp, sizeof(dsp));
 						ofLogNotice("Network") << "Host sent DraftStatePacket (draft->gameplay): curPlayer=" << dsp.currentPlayerIndex;
 					}
-
-					startNewTurn();
 
 					// Send TurnStart packet with authoritative AP values
 					if (isMultiplayer && steamManager.isHost()) {
