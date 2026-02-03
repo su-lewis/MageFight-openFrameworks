@@ -10421,6 +10421,12 @@ void ofApp::continueNewTurn() {
 		return;
 	}
 
+	// --- CLIENT: Wait for host's TurnStart packet if transitioning from draft ---
+	if (isMultiplayer && !steamManager.isHost() && waitingForTurnStartFromHost) {
+		ofLogNotice("Network") << "Client: Skipping local AP roll, waiting for TurnStart from host";
+		return;
+	}
+
 	// --- AP ROLL LOGIC ---
 	// Wolf AP: 1d10
 	if (startingPlayer.isWolf) {
@@ -16765,11 +16771,28 @@ void ofApp::processNetworkPackets() {
 			TurnStartPacket * tpk = (TurnStartPacket *)header;
 			ofLogNotice("Network") << "TurnStart packet received: player=" << tpk->currentPlayerIndex << " dice=" << (int)tpk->diceNum << " total=" << tpk->finalTotal;
 			if (tpk->currentPlayerIndex >= 0 && tpk->currentPlayerIndex < (int)players.size()) {
-				// Apply AP dice visual rolls without consuming gameplayRNG
+				// Set up turn state
 				waitingForTurnStartFromHost = false;
 				currentPlayerIndex = tpk->currentPlayerIndex;
 				lastAPDiceNum = (int)tpk->diceNum;
 				lastAPDiceSides = (int)tpk->diceSides;
+
+				// Complete turn setup (same as continueNewTurn does)
+				Player & startingPlayer = players[currentPlayerIndex];
+				ofLogNotice("Game") << "Player " << startingPlayer.playerID << "'s turn begins (from TurnStart).";
+				hasDrawnCardsThisTurn = false;
+				selectedCardIndex = -1;
+				draggedCardIndex = -1;
+				playerAction = NONE;
+				clearHighlights();
+				calculateTargetHighlights();
+				playerVisualPos = gridToWorld(startingPlayer.x, startingPlayer.y);
+				animationPath.clear();
+				isPlayerAnimating = false;
+				activeDiceRolls.clear();
+				currentAP = 0;
+
+				// Apply AP dice visual rolls without consuming gameplayRNG
 				int32_t total = 0;
 				for (int i = 0; i < (int)tpk->diceNum; ++i) {
 					DiceRoll newRoll;
@@ -16791,8 +16814,6 @@ void ofApp::processNetworkPackets() {
 					activeDiceRolls.push_back(newRoll);
 					total += newRoll.result;
 				}
-				// For immediate correctness we can set currentAP to the host-provided total once visuals finish;
-				// but log it now for clarity
 				ofLogNotice("Game") << "TurnStart applied locally: player=" << currentPlayerIndex << " AP total=" << total;
 			}
 			continue; // Done with this packet
