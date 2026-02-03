@@ -16901,6 +16901,18 @@ void ofApp::processNetworkPackets() {
 					total += newRoll.result;
 				}
 				ofLogNotice("Game") << "TurnStart applied locally: player=" << currentPlayerIndex << " AP total=" << total;
+				// Set AP directly from host's authoritative total
+				currentAP = total;
+				if (startingPlayer.nextTurnAPBonus > 0) {
+					currentAP += startingPlayer.nextTurnAPBonus;
+					startingPlayer.nextTurnAPBonus = 0;
+				}
+				// Mark dice as DEBUG to prevent recalculation when animation finishes
+				for (auto & roll : activeDiceRolls) {
+					if (roll.purpose == PURPOSE_AP && roll.associatedUnit == currentPlayerIndex) {
+						roll.purpose = PURPOSE_DEBUG;
+					}
+				}
 			}
 			continue; // Done with this packet
 		}
