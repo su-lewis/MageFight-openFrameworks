@@ -810,22 +810,6 @@ void ofApp::update() {
 	steamManager.update();
 	processNetworkPackets();
 
-	// If we deferred a host state while waiting for authoritative options, check timeout and apply if expired
-	if (pendingDraftStateAvailable && waitingForDraftOptions) {
-		auto now = ofGetElapsedTimef();
-		if (now - waitingForDraftOptionsStartTime >= waitingForDraftOptionsTimeout) {
-			ofLogNotice("Draft") << "Client: Waiting for authoritative DraftOptions timed out; applying pending state now.";
-			// Apply the pending draft state (we assumed classTier == 0 in stash)
-			draftOptions.clear();
-			selectedDraftIndices.clear();
-			currentState = STATE_GAMEPLAY;
-			currentPlayerIndex = pendingDraftState.currentPlayerIndex;
-			pendingDraftStateAvailable = false;
-			waitingForDraftOptions = false;
-			startNewTurn();
-		}
-	}
-
 	// ============================================================
 	// 1. STEAM CONNECTION TRIGGER (SYNCED)
 	// ============================================================
@@ -16292,18 +16276,20 @@ void ofApp::generateDraftOptions(int classTier, const std::vector<int> * forcedI
 		// Debug: also log the exact card names for easier inspection across clients
 		ofLogNotice("Draft") << "Options names: " << ((indices.size() > 0) ? (*pool)[indices[0]].name : "-") << ", " << ((indices.size() > 1) ? (*pool)[indices[1]].name : "-") << ", " << ((indices.size() > 2) ? (*pool)[indices[2]].name : "-");
 
-		// Also send an immediate state packet so clients know we've entered the drafting stage
-		DraftStatePacket sp;
-		sp.type = PKT_DRAFT_STATE;
-		sp.playerID = myLocalPlayerID;
-		sp.classTier = classTier;
-		sp.draftPlayerIdx = draftPlayerIndex;
-		sp.picksRemaining = draftPicksRemaining;
-		sp.draftStage = draftStage;
-		sp.isInGameDraft = isInGameDraft ? 1 : 0;
-		sp.currentPlayerIndex = -1;
-		steamManager.sendPacket(&sp, sizeof(sp));
-		ofLogNotice("Network") << "Host sent DraftStatePacket after options: class=" << sp.classTier << " player=" << sp.draftPlayerIdx;
+		// Immediately send a DraftStatePacket as well so clients have authoritative
+		// draft state right after receiving options (reduces race between forwarded
+		// Accept and authoritative options/state).
+		DraftStatePacket dsp;
+		dsp.type = PKT_DRAFT_STATE;
+		dsp.playerID = myLocalPlayerID;
+		dsp.classTier = classTier;
+		dsp.draftPlayerIdx = draftPlayerIndex;
+		dsp.picksRemaining = draftPicksRemaining;
+		dsp.draftStage = draftStage;
+		dsp.isInGameDraft = isInGameDraft ? 1 : 0;
+		dsp.currentPlayerIndex = currentPlayerIndex;
+		steamManager.sendPacket(&dsp, sizeof(dsp));
+		ofLogNotice("Network") << "Host sent DraftStatePacket (post-options): class=" << dsp.classTier << " player=" << dsp.draftPlayerIdx << " picks=" << dsp.picksRemaining << " stage=" << dsp.draftStage;
 	}
 }
 
@@ -16640,7 +16626,7 @@ void ofApp::processNetworkPackets() {
 		std::vector<char> buffer = steamManager.packetQueue.front();
 		steamManager.packetQueue.pop();
 
-		// --- NEW BLOCK: CHECK FOR SEED / DRAFT OPTIONS REQUEST (Before casting to Header) ---
+		// --- NEW BLOCK: CHECK FOR SEED REQUEST (Before casting to Header) ---
 		// If we received the string "REQ_SEED", we must resend the handshake.
 		if (buffer.size() == 8) {
 			string msg(buffer.begin(), buffer.end());
@@ -16652,30 +16638,6 @@ void ofApp::processNetworkPackets() {
 				pkt.seed = currentMapSeed; // Use the stored seed!
 				steamManager.sendPacket(&pkt, sizeof(pkt));
 				continue; // Done with this packet
-			}
-		}
-
-		// If we received a request to re-send draft options/state
-		if (buffer.size() == 16) {
-			string msg(buffer.begin(), buffer.end());
-			if (msg == "REQ_DRAFT_OPTIONS" && steamManager.isHost()) {
-				ofLogNotice("Network") << "Host: Received REQ_DRAFT_OPTIONS. Re-sending current draft options/state.";
-				if (currentState == STATE_DRAFTING) {
-					int classTier = (draftStage == 0) ? 1 : 2;
-					// regenerate & re-send options/state
-					generateDraftOptions(classTier);
-					DraftStatePacket rsp;
-					rsp.type = PKT_DRAFT_STATE;
-					rsp.playerID = myLocalPlayerID;
-					rsp.classTier = classTier;
-					rsp.draftPlayerIdx = draftPlayerIndex;
-					rsp.picksRemaining = draftPicksRemaining;
-					rsp.draftStage = draftStage;
-					rsp.isInGameDraft = isInGameDraft ? 1 : 0;
-					rsp.currentPlayerIndex = -1;
-					steamManager.sendPacket(&rsp, sizeof(rsp));
-				}
-				continue;
 			}
 		}
 		// -------------------------------------------------------------------
@@ -16746,21 +16708,8 @@ void ofApp::processNetworkPackets() {
 				}
 			} else {
 				// classTier==0 => exit drafting and host tells us who is the active player
-				// If we are currently waiting for authoritative options (race window), defer this transition briefly
-				if (waitingForDraftOptions) {
-					auto now = ofGetElapsedTimef();
-					if (now - waitingForDraftOptionsStartTime < waitingForDraftOptionsTimeout) {
-						pendingDraftStateAvailable = true;
-						pendingDraftState = *sp; // stash it
-						// Ask host to re-send options/state
-						string req = "REQ_DRAFT_OPTIONS";
-						steamManager.sendPacket(req.c_str(), req.size());
-						ofLogNotice("Draft") << "Client: Deferring end-of-draft state; waiting for authoritative options (timeout=" << waitingForDraftOptionsTimeout << "s)";
-						// Keep waiting; don't flip to gameplay yet
-						continue;
-					}
-				}
-
+				draftOptions.clear();
+				selectedDraftIndices.clear();
 				currentState = STATE_GAMEPLAY;
 				// Host should include who starts; set it and begin the turn
 				currentPlayerIndex = sp->currentPlayerIndex;
@@ -16770,8 +16719,6 @@ void ofApp::processNetworkPackets() {
 		} else if (header->type == PKT_DRAFT_OPTIONS) {
 			DraftOptionsPacket * dp = (DraftOptionsPacket *)header;
 			ofLogNotice("Network") << "DraftOptions received: " << dp->optionIndex0 << "," << dp->optionIndex1 << "," << dp->optionIndex2 << " (class=" << dp->classTier << ")";
-			// Log pre-state so we can catch races where client had already left drafting
-			ofLogNotice("Draft") << "Before apply: currentState=" << currentState << " waitingForDraftOptions=" << waitingForDraftOptions;
 			// Debug: compute local derivedSeed and expected first indices for verification
 			uint32_t derivedSeedLocal = currentMapSeed;
 			derivedSeedLocal ^= (uint32_t)dp->classTier * 2654435761u;
@@ -16795,7 +16742,7 @@ void ofApp::processNetworkPackets() {
 			applyDraftOptionsFromPool(dp->classTier, idxs, dp->picksRemaining, dp->draftPlayerIdx);
 			draftStage = dp->draftStage;
 			isInGameDraft = (dp->isInGameDraft != 0);
-			ofLogNotice("Draft") << "After apply: currentState=" << currentState << " waitingForDraftOptions=" << waitingForDraftOptions;
+
 		} else if (header->type == PKT_DRAFT_ACTION) {
 			DraftActionPacket * pkt = (DraftActionPacket *)header;
 			ofLogNotice("Network") << "Draft action received: type=" << (int)pkt->actionType << " opt=" << pkt->optionIndex << " player=" << pkt->draftPlayerIdx << " sel=" << (int)pkt->selectFlag;
@@ -16982,13 +16929,6 @@ void ofApp::processNetworkPackets() {
 
 					waitingForDraftOptions = true;
 					ofLogNotice("Draft") << "Client: Received forwarded Accept. Waiting for host state/options.";
-					waitingForDraftOptionsStartTime = ofGetElapsedTimef();
-					pendingDraftStateAvailable = false;
-					// Request host to resend options/state in case it was lost or reordered
-					{
-						string req = "REQ_DRAFT_OPTIONS";
-						steamManager.sendPacket(req.c_str(), req.size());
-					}
 				}
 			}
 		}
