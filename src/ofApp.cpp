@@ -16310,6 +16310,17 @@ void ofApp::applyDraftOptionsFromPool(int classTier, const std::vector<int> & in
 	currentState = STATE_DRAFTING;
 	// We've applied authoritative options from host; stop waiting
 	waitingForDraftOptions = false;
+
+	// Log applied options for debugging (helps determine whether Windows client actually applied options)
+	if ((int)draftOptions.size() != lastLoggedDraftOptionsCount) {
+		lastLoggedDraftOptionsCount = (int)draftOptions.size();
+		std::string names = "";
+		for (size_t i = 0; i < draftOptions.size(); ++i) {
+			if (i) names += ", ";
+			names += draftOptions[i].name;
+		}
+		ofLogNotice("Draft") << "applyDraftOptionsFromPool: applied " << draftOptions.size() << " options for player=" << draftPlayerIndex << " stage=" << draftStage << " names=" << names;
+	}
 }
 
 void ofApp::onCardPicked(int optionIndex) {
@@ -16551,6 +16562,18 @@ void ofApp::drawDraftScreen() {
 		cardSpriteSheet.drawSubsection(x, startY, cardW, cardH,
 			draftOptions[i].textureRect.x, draftOptions[i].textureRect.y,
 			draftOptions[i].textureRect.width, draftOptions[i].textureRect.height);
+	}
+
+	// Throttled draw-time debug: log if we are drawing non-empty options but haven't logged recently
+	float now = ofGetElapsedTimef();
+	if (!draftOptions.empty() && (now - lastDraftDrawLogTime) > 1.0f) {
+		lastDraftDrawLogTime = now;
+		std::string names = "";
+		for (size_t i = 0; i < draftOptions.size(); ++i) {
+			if (i) names += ", ";
+			names += draftOptions[i].name;
+		}
+		ofLogNotice("Draft") << "drawDraftScreen: drawing " << draftOptions.size() << " options (player=" << draftPlayerIndex << " stage=" << draftStage << ") names=" << names;
 	}
 
 	// 4. Draw Accept Button

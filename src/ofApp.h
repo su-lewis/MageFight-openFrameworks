@@ -553,6 +553,10 @@ private:
 	bool pendingDraftStateAvailable = false; // If a state packet arrives while we're waiting, stash it
 	DraftStatePacket pendingDraftState;
 
+	// Debug logging helpers: remember last logged draft options count so we only spam logs
+	int lastLoggedDraftOptionsCount = -1;
+	float lastDraftDrawLogTime = 0.0f;
+
 	void generateDraftOptions(int classTier, const std::vector<int> * forcedIndices = nullptr);
 	void applyDraftOptionsFromPool(int classTier, const std::vector<int> & indices, int picksRemaining, int draftingPlayerIdx);
 	void onCardPicked(int optionIndex);
