@@ -16239,6 +16239,24 @@ void ofApp::generateDraftOptions(int classTier, const std::vector<int> * forcedI
 	else
 		draftPicksRemaining = 1; // Pick 1
 
+	// Ensure we always log context for easier debugging
+	ofLogNotice("Draft") << "generateDraftOptions called: classTier=" << classTier << " draftStage=" << draftStage << " draftPlayerIndex=" << draftPlayerIndex << " poolSize=" << pool->size();
+
+	// If the pool is unexpectedly empty, log and bail early (avoid silent hang)
+	if (pool->empty()) {
+		ofLogError("Draft") << "generateDraftOptions: pool for classTier " << classTier << " is empty!";
+		// Clear any stale UI state so user doesn't sit on an empty draft screen
+		draftOptions.clear();
+		selectedDraftIndices.clear();
+		currentState = STATE_DRAFTING;
+		return;
+	}
+
+	// Prepare local draft state so host doesn't rely on client-only apply path
+	selectedDraftIndices.clear();
+	currentState = STATE_DRAFTING; // Ensure UI draws
+	waitingForDraftOptions = false; // Host shouldn't be waiting for itself
+
 	// If we are the authoritative host in multiplayer, send the exact indices
 	if (isMultiplayer && steamManager.isHost()) {
 		DraftOptionsPacket dp;
