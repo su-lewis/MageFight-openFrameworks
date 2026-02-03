@@ -10,7 +10,8 @@ enum PacketType {
 	PKT_CHECKSUM_CHECK,
 	PKT_DRAFT_ACTION, // Draft selection / accept messages (sent by clients to host)
 	PKT_DRAFT_STATE, // Host -> Client: draft state update (class, stage, player)
-	PKT_DRAFT_OPTIONS // Host -> Client: authoritative indices for options
+	PKT_DRAFT_OPTIONS, // Host -> Client: authoritative indices for options
+	PKT_SHUFFLE // Host -> Client: authoritative deck shuffle (playerIndex, nonce)
 };
 
 struct PacketHeader {
@@ -87,6 +88,12 @@ struct DraftOptionsPacket : PacketHeader {
 	int32_t picksRemaining; // how many picks left for this stage
 	int32_t draftStage; // 0 = class1, 1 = class2, etc
 	uint8_t isInGameDraft; // 1 = in-game key draft, 0 = normal
+};
+
+// Host -> Client: Instruct client to apply a deterministic shuffle to a player's deck
+struct ShufflePacket : PacketHeader {
+	int32_t playerIndex; // which player's deck is being shuffled
+	uint32_t nonce; // nonce used to seed local shuffle RNG
 };
 
 // When a player places a summoned minion that requires manual placement (e.g., Wolves, Kobolds)

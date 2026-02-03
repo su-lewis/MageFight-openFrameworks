@@ -16680,19 +16680,6 @@ void ofApp::processNetworkPackets() {
 		if (buffer.size() < sizeof(PacketHeader)) continue;
 
 		PacketHeader * header = (PacketHeader *)buffer.data();
-		// Handle Shuffle packets early so clients can deterministically apply them without touching gameplayRNG
-		if (header->type == PKT_SHUFFLE) {
-			ShufflePacket * spk = (ShufflePacket *)header;
-			ofLogNotice("Network") << "Shuffle packet received: player=" << spk->playerIndex << " nonce=" << spk->nonce;
-			if (spk->playerIndex >= 0 && spk->playerIndex < (int)players.size()) {
-				std::mt19937 shuffleRng(spk->nonce);
-				std::shuffle(players[spk->playerIndex].deck.begin(), players[spk->playerIndex].deck.end(), shuffleRng);
-				// Clear the skip guard so future shuffles behave normally
-				skipClientShuffleNext = false;
-				ofLogNotice("Network") << "Client: Applied shuffle nonce and cleared skipClientShuffleNext";
-			}
-			continue; // Done with this packet
-		}
 		// Temporary: pre-declare a DraftStatePacket for places that send state syncs so we don't risk
 		// an undeclared variable if duplicates were accidentally left in the code.
 		DraftStatePacket sp;
@@ -16826,7 +16813,7 @@ void ofApp::processNetworkPackets() {
 						Player & p = players[pkt->draftPlayerIdx];
 						if (pkt->optionIndex >= 0 && pkt->optionIndex < (int)draftOptions.size()) {
 							p.deck.push_back(draftOptions[pkt->optionIndex]);
-							shuffleGameVector(p.deck, pkt->draftPlayerIdx);
+							std::shuffle(p.deck.begin(), p.deck.end(), gameplayRNG);
 						}
 						selectedDraftIndices.clear();
 						draftOptions.clear();
@@ -16942,7 +16929,7 @@ void ofApp::processNetworkPackets() {
 						Player & p = players[pkt->draftPlayerIdx];
 						if (pkt->optionIndex >= 0 && pkt->optionIndex < (int)draftOptions.size()) {
 							p.deck.push_back(draftOptions[pkt->optionIndex]);
-							shuffleGameVector(p.deck, pkt->draftPlayerIdx);
+							std::shuffle(p.deck.begin(), p.deck.end(), gameplayRNG);
 						}
 						selectedDraftIndices.clear();
 						draftOptions.clear();
@@ -16976,7 +16963,7 @@ void ofApp::processNetworkPackets() {
 								p.deck.push_back(draftOptions[idx]);
 						}
 					}
-					shuffleGameVector(p.deck);
+					std::shuffle(p.deck.begin(), p.deck.end(), gameplayRNG);
 
 					// Clear local selection and WAIT for the host to send the authoritative next state/options
 					// NOTE: do NOT clear `draftOptions` here — keep the UI visible until the

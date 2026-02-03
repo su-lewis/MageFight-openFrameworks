@@ -494,8 +494,44 @@ private:
 	// Helper to get synced numbers
 	int getGameRandom(int min, int max);
 
+	// Shuffle a vector deterministically. If `ownerPlayerIndex` is >= 0 and we are
+	// in multiplayer, the host will generate a nonce, shuffle with a local PRNG
+	// seeded by that nonce and broadcast a `PKT_SHUFFLE` so clients reproduce the same
+	// shuffle without consuming `gameplayRNG` on their side. Clients will skip shuffling
+	// here when `ownerPlayerIndex >= 0` and wait for the shuffle packet.
 	template <class T>
-	void shuffleGameVector(std::vector<T> & vec) {
+	void shuffleGameVector(std::vector<T> & vec, int ownerPlayerIndex = -1) {
+		// If the client was instructed to skip the next local shuffle (e.g., due to a forwarded Accept),
+		// consume the flag and do nothing. This prevents inadvertent consumption of `gameplayRNG`.
+		if (isMultiplayer && !steamManager.isHost() && skipClientShuffleNext) {
+			skipClientShuffleNext = false;
+			ofLogNotice("Network") << "Client: Skipping local shuffle due to skipClientShuffleNext";
+			return;
+		}
+
+		// Client: defer to host's shuffle packet for player-owned decks
+		if (isMultiplayer && !steamManager.isHost() && ownerPlayerIndex >= 0) {
+			return;
+		}
+
+		// Host in multiplayer and owner specified: broadcast nonce-based shuffle
+		if (isMultiplayer && steamManager.isHost() && ownerPlayerIndex >= 0) {
+			uint32_t nonce = gameplayRNG();
+			std::mt19937 shuffleRng(nonce);
+			std::shuffle(vec.begin(), vec.end(), shuffleRng);
+
+			// Broadcast shuffle to clients
+			ShufflePacket sp;
+			sp.type = PKT_SHUFFLE;
+			sp.playerID = myLocalPlayerID;
+			sp.playerIndex = ownerPlayerIndex;
+			sp.nonce = nonce;
+			steamManager.sendPacket(&sp, sizeof(sp));
+			ofLogNotice("Network") << "Host sent Shuffle packet: player=" << sp.playerIndex << " nonce=" << sp.nonce;
+			return;
+		}
+
+		// Singleplayer or generic shuffle: use gameplayRNG
 		std::shuffle(vec.begin(), vec.end(), gameplayRNG);
 	}
 
@@ -550,6 +586,7 @@ private:
 	bool waitingForDraftOptions = false; // Client waits for host's authoritative DraftOptionsPacket
 	float waitingForDraftOptionsStartTime = 0.0f; // When we began waiting (for timeout/retry)
 	float waitingForDraftOptionsTimeout = 0.75f; // seconds to wait for host before giving up/requesting
+	bool skipClientShuffleNext = false; // When set, client will skip the next deck shuffle applied from a forwarded Accept (avoids RNG divergence)
 	bool pendingDraftStateAvailable = false; // If a state packet arrives while we're waiting, stash it
 	DraftStatePacket pendingDraftState;
 
