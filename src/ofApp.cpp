@@ -16809,7 +16809,14 @@ void ofApp::processNetworkPackets() {
 			executeAction(*pkt);
 		} else if (header->type == PKT_END_TURN) {
 			ofLogNotice("Net") << "Opponent ended turn.";
-			startNewTurn(); // This will flip control to you
+			// If we're a client transitioning immediately after draft->game, the host will send
+			// a TurnStart packet with authoritative AP dice. In that window, defer starting
+			// the turn locally to avoid consuming gameplayRNG and diverging.
+			if (isMultiplayer && !steamManager.isHost() && waitingForTurnStartFromHost) {
+				ofLogNotice("Network") << "Client: Deferring startNewTurn until TurnStart from host.";
+			} else {
+				startNewTurn(); // This will flip control to you
+			}
 		} else if (header->type == PKT_CHECKSUM_CHECK) {
 			ChecksumPacket * pkt = (ChecksumPacket *)header;
 			long long mySum = calculateChecksum();
