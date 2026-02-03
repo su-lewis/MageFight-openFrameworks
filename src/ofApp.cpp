@@ -16479,7 +16479,6 @@ void ofApp::drawDraftScreen() {
 		startY = minStartY;
 	}
 
-
 	for (size_t i = 0; i < draftOptions.size(); ++i) {
 		float x = startX + i * (cardW + spacing);
 		ofRectangle cardRect(x, startY, cardW, cardH);
@@ -16602,14 +16601,15 @@ void ofApp::processNetworkPackets() {
 			HandshakePacket * pkt = (HandshakePacket *)header;
 			ofLogNotice("Net") << "Handshake received. Seed: " << pkt->seed;
 
-			// FIX: Seed the gameplay RNG
+			// FIX: Seed the gameplay RNG and store map seed so derived draft RNG matches the host
 			gameplayRNG.seed(pkt->seed);
+			currentMapSeed = pkt->seed;
 			gameplaySeededByHost = true;
 			isMultiplayer = true;
 			myLocalPlayerID = 1;
 
 			// Initialize game state for the client now that we have the seed.
-			ofLogNotice("Network") << "Client: Handshake received. Initializing game.";
+			ofLogNotice("Network") << "Client: Handshake received. Initializing game. (seed=" << currentMapSeed << ")";
 			setupGame();
 
 		} else if (header->type == PKT_ACTION) {
