@@ -985,3 +985,638 @@ SteamInternal_SetMinidumpSteamID:  Caching Steam ID:  76561198261715869 [API loa
 [notice ] Dice: Final total result for 1d6: 2
 [notice ] Network: Draft state received: class=0 player=-1 picks=1 stage=2 ingame=0 curPlayer=231735296
 /home/lewis/of_workspace/openFrameworks/apps/myApps/MageFight/bin/run.sh: line 81: 353248 Segmentation fault         (core dumped) ./MageFight "$@"
+ERROR: ld.so: object '/usr/lib/extest/libextest.so' from LD_PRELOAD cannot be preloaded (cannot open shared object file): ignored.
+ERROR: ld.so: object '/var/home/lewis/.local/share/Steam/ubuntu12_32/gameoverlayrenderer.so' from LD_PRELOAD cannot be preloaded (wrong ELF class: ELFCLASS32): ignored.
+--- Launching MageFight at Tue Feb  3 09:27:55 GMT 2026 ---
+Script directory: /home/lewis/of_workspace/openFrameworks/apps/myApps/MageFight/bin
+Original LD_PRELOAD=/usr/lib/extest/libextest.so:/var/home/lewis/.local/share/Steam/ubuntu12_32/gameoverlayrenderer.so:/var/home/lewis/.local/share/Steam/ubuntu12_64/gameoverlayrenderer.so
+Dropping missing LD_PRELOAD entry: /usr/lib/extest/libextest.so
+Final LD_PRELOAD=/var/home/lewis/.local/share/Steam/ubuntu12_32/gameoverlayrenderer.so:/var/home/lewis/.local/share/Steam/ubuntu12_64/gameoverlayrenderer.so
+Starting executable...
+ERROR: ld.so: object '/var/home/lewis/.local/share/Steam/ubuntu12_32/gameoverlayrenderer.so' from LD_PRELOAD cannot be preloaded (wrong ELF class: ELFCLASS32): ignored.
+[S_API] SteamAPI_Init(): SteamAPI_IsSteamRunning() did not locate a running instance of Steam.
+[S_API] SteamAPI_Init(): Loaded '/home/lewis/of_workspace/.steam/sdk64/steamclient.so' OK.
+Setting breakpad minidump AppID = 480
+SteamInternal_SetMinidumpSteamID:  Caching Steam ID:  76561198261715869 [API loaded no]
+[notice ] Steam: Initialized. LocalID: 76561198261715869
+[notice ] Setup: Visual RNG seeded.
+[warning] ofMaterial::setPBR:  PBR material must be used with Programmable Renderer.
+[ error ] ofxAssimpTexture::setTextureType: : unknown aiTextureType type 27
+[warning] ofMaterial::setPBR:  PBR material must be used with Programmable Renderer.
+[ error ] ofxAssimpTexture::setTextureType: : unknown aiTextureType type 27
+[warning] ofMaterial::setPBR:  PBR material must be used with Programmable Renderer.
+[warning] ofMaterial::setPBR:  PBR material must be used with Programmable Renderer.
+[warning] ofMaterial::setPBR:  PBR material must be used with Programmable Renderer.
+[warning] ofMaterial::setPBR:  PBR material must be used with Programmable Renderer.
+[notice ] Wolf model loaded with 10 meshes
+[notice ] Setup: Kobold model loaded.
+[ error ] ofxAssimpModelLoader: loadGLResource(): texture doesn't exist: "data/Units/KoboldKing/goblin_king.fbx" in "data/Units/KoboldKing/cadnav.com_model/Models_G0506A078/01391eaa.dds"
+[ error ] loadImage: File not found: "data/Units/KoboldKing/cadnav.com_model/Models_G0506A078/01391eaa.dds"
+[ error ] ofxAssimpModelLoader: loadGLResource(): couldn't load texture: "data/Units/KoboldKing/goblin_king.fbx" from "data/Units/KoboldKing/cadnav.com_model/Models_G0506A078/01391eaa.dds"
+[ error ] ofxAssimpModelLoader: loadGLResource(): texture doesn't exist: "data/Units/KoboldKing/goblin_king.fbx" in "data/Units/KoboldKing/cadnav.com_model/Models_G0506A078/ada8756d.jpg"
+[ error ] loadImage: File not found: "data/Units/KoboldKing/cadnav.com_model/Models_G0506A078/ada8756d.jpg"
+[ error ] ofxAssimpModelLoader: loadGLResource(): couldn't load texture: "data/Units/KoboldKing/goblin_king.fbx" from "data/Units/KoboldKing/cadnav.com_model/Models_G0506A078/ada8756d.jpg"
+[ error ] ofxAssimpModelLoader: loadGLResource(): texture doesn't exist: "data/Units/KoboldKing/goblin_king.fbx" in "data/Units/KoboldKing/cadnav.com_model/Models_G0506A078/496d23a4.jpg"
+[ error ] loadImage: File not found: "data/Units/KoboldKing/cadnav.com_model/Models_G0506A078/496d23a4.jpg"
+[ error ] ofxAssimpModelLoader: loadGLResource(): couldn't load texture: "data/Units/KoboldKing/goblin_king.fbx" from "data/Units/KoboldKing/cadnav.com_model/Models_G0506A078/496d23a4.jpg"
+[ error ] ofxAssimpModelLoader: loadGLResource(): texture doesn't exist: "data/Units/KoboldKing/goblin_king.fbx" in "data/Units/KoboldKing/cadnav.com_model/Models_G0506A078/01391eaa.dds"
+[ error ] loadImage: File not found: "data/Units/KoboldKing/cadnav.com_model/Models_G0506A078/01391eaa.dds"
+[ error ] ofxAssimpModelLoader: loadGLResource(): couldn't load texture: "data/Units/KoboldKing/goblin_king.fbx" from "data/Units/KoboldKing/cadnav.com_model/Models_G0506A078/01391eaa.dds"
+[notice ] Setup: Kobold King texture loaded.
+[notice ] Setup: Kobold King model loaded.
+[notice ] Setup: Hellhound model loaded.
+[warning] ofMaterial::setPBR:  PBR material must be used with Programmable Renderer.
+[ error ] ofxAssimpTexture::setTextureType: : unknown aiTextureType type 27
+[warning] ofMaterial::setPBR:  PBR material must be used with Programmable Renderer.
+[ error ] ofxAssimpTexture::setTextureType: : unknown aiTextureType type 27
+[warning] ofMaterial::setPBR:  PBR material must be used with Programmable Renderer.
+[ error ] ofxAssimpTexture::setTextureType: : unknown aiTextureType type 27
+[warning] ofMaterial::setPBR:  PBR material must be used with Programmable Renderer.
+[ error ] ofxAssimpTexture::setTextureType: : unknown aiTextureType type 27
+[warning] ofMaterial::setPBR:  PBR material must be used with Programmable Renderer.
+[ error ] ofxAssimpTexture::setTextureType: : unknown aiTextureType type 27
+[warning] ofMaterial::setPBR:  PBR material must be used with Programmable Renderer.
+[ error ] ofxAssimpTexture::setTextureType: : unknown aiTextureType type 27
+[warning] ofMaterial::setPBR:  PBR material must be used with Programmable Renderer.
+[ error ] ofxAssimpTexture::setTextureType: : unknown aiTextureType type 27
+[warning] ofMaterial::setPBR:  PBR material must be used with Programmable Renderer.
+[ error ] ofxAssimpTexture::setTextureType: : unknown aiTextureType type 27
+[warning] ofMaterial::setPBR:  PBR material must be used with Programmable Renderer.
+[ error ] ofxAssimpTexture::setTextureType: : unknown aiTextureType type 27
+[warning] ofMaterial::setPBR:  PBR material must be used with Programmable Renderer.
+[ error ] ofxAssimpTexture::setTextureType: : unknown aiTextureType type 27
+[warning] ofMaterial::setPBR:  PBR material must be used with Programmable Renderer.
+[ error ] ofxAssimpTexture::setTextureType: : unknown aiTextureType type 27
+[notice ] Setup: Demon model loaded.
+[notice ] Setup: Tortoise model loaded.
+[warning] ofMaterial::setPBR:  PBR material must be used with Programmable Renderer.
+[notice ] Setup: Ghost model loaded.
+[warning] ofMaterial::setPBR:  PBR material must be used with Programmable Renderer.
+[ error ] ofxAssimpTexture::setTextureType: : unknown aiTextureType type 27
+[notice ] Setup: Wall Unit GLB model loaded and texture applied.
+[notice ] Setup: Assistant model loaded.
+[warning] ofMaterial::setPBR:  PBR material must be used with Programmable Renderer.
+[ error ] ofxAssimpTexture::setTextureType: : unknown aiTextureType type 27
+[warning] ofMaterial::setPBR:  PBR material must be used with Programmable Renderer.
+[ error ] ofxAssimpTexture::setTextureType: : unknown aiTextureType type 27
+[notice ] Setup: Faerie texture loaded.
+[notice ] Setup: Faerie model loaded.
+[notice ] Setup: Loaded key frame: Board/keys_1_1.png
+[notice ] Setup: Loaded key frame: Board/keys_1_2.png
+[notice ] Setup: Loaded key frame: Board/keys_1_3.png
+[notice ] Setup: Loaded key frame: Board/keys_1_4.png
+[notice ] Setup: Loaded silver key frame: Board/keys_2_1.png
+[notice ] Setup: Loaded silver key frame: Board/keys_2_2.png
+[notice ] Setup: Loaded silver key frame: Board/keys_2_3.png
+[notice ] Setup: Loaded silver key frame: Board/keys_2_4.png
+[notice ] Setup: Loaded bronze key frame: Board/keys_3_1.png
+[notice ] Setup: Loaded bronze key frame: Board/keys_3_2.png
+[notice ] Setup: Loaded bronze key frame: Board/keys_3_3.png
+[notice ] Setup: Loaded bronze key frame: Board/keys_3_4.png
+[notice ] ofApp::loadCardData: Loaded 70 cards from JSON.
+[notice ] ofApp::loadCardData: Class Distribution - C1: 30, C2: 24, C3: 16
+[notice ] GL: Vendor: AMD | Renderer: AMD Radeon RX 9070 XT (radeonsi, gfx1201, LLVM 21.1.6, DRM 3.64, 6.17.7-ba25.fc43.x86_64) | Version: 4.6 (Compatibility Profile) Mesa 25.3.4-arch1.1 | GLSL: 4.60
+[notice ] FBO: worldFbo allocated 2560x1440
+[notice ] Steam: Joined Lobby. Connecting to Host: 76561198743068920
+[notice ] Steam: Incoming Connection Request...
+[notice ] Network: Client: Connected. Requesting Host seed...
+[notice ] Network: Sent Seed Request...
+[notice ] Network: Client: Detected lobby seed. Initializing from seed: 1770110982
+[notice ] Network: Initializing multiplayer client game from seed: 1770110982
+[notice ] Dice: Final total result for 1d6: 4
+[notice ] Dice: Final total result for 1d6: 4
+[notice ] Game: --- INITIATIVE ROLL STARTED ---
+[notice ] Steam: Connection Fully Active!
+[notice ] Net: Handshake received. Seed: 1770110982
+[notice ] Network: Client: Handshake received. Initializing game. (seed=1770110982)
+[notice ] Dice: Final total result for 1d6: 4
+[notice ] Dice: Final total result for 1d6: 4
+[notice ] Game: --- INITIATIVE ROLL STARTED ---
+[notice ] Net: Handshake received. Seed: 1770110982
+[notice ] Network: Client: Handshake received. Initializing game. (seed=1770110982)
+[notice ] Dice: Final total result for 1d6: 4
+[notice ] Dice: Final total result for 1d6: 4
+[notice ] Game: --- INITIATIVE ROLL STARTED ---
+[notice ] Dice: Final total result for 1d6: 4
+[notice ] Dice: Final total result for 1d6: 1
+[notice ] Initiative: Tie! Rerolling...
+[notice ] Network: DraftOptions received: 14,4,24 (class=1)
+[notice ] Draft: Local derivedSeed=4155947447 expectedIndices=20,11,13
+[notice ] Draft: applyDraftOptionsFromPool: applied 3 options for player=0 stage=0 names=Summon Wall, Ward, Demolition
+[notice ] Network: Draft state received: class=1 player=0 picks=2 stage=0 ingame=0 curPlayer=-1
+[notice ] Draft: Client already has authoritative DraftOptions; not waiting (class=1)
+[notice ] Network: Draft state received: class=1 player=0 picks=2 stage=0 ingame=0 curPlayer=-1
+[notice ] Draft: Client already has authoritative DraftOptions; not waiting (class=1)
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=0 stage=0) names=Summon Wall, Ward, Demolition
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=0 stage=0) names=Summon Wall, Ward, Demolition
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=0 stage=0) names=Summon Wall, Ward, Demolition
+[notice ] Network: Draft action received: type=0 opt=0 player=0 sel=1
+[notice ] Network: Draft action received: type=0 opt=1 player=0 sel=1
+[notice ] Network: DraftOptions received: 18,22,16 (class=2)
+[notice ] Draft: Local derivedSeed=1424962404 expectedIndices=11,9,8
+[notice ] Network: Draft state received: class=2 player=0 picks=1 stage=1 ingame=0 curPlayer=-1
+[notice ] Draft: Client already has authoritative DraftOptions; not waiting (class=2)
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=0 stage=1) names=Consume Large Health Potion, Smite, Earthquake
+[notice ] Network: Draft action received: type=0 opt=1 player=0 sel=1
+[notice ] Network: DraftOptions received: 3,18,9 (class=1)
+[notice ] Draft: Local derivedSeed=4156012983 expectedIndices=4,20,3
+[notice ] Network: Draft state received: class=1 player=1 picks=2 stage=0 ingame=0 curPlayer=-1
+[notice ] Draft: Client already has authoritative DraftOptions; not waiting (class=1)
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Bash, Shield Bash, Dispel
+[notice ] Network: Sent draft select toggle: opt=2 sel=1
+[notice ] Network: Draft action received: type=0 opt=2 player=1 sel=1
+[notice ] Network: Sent draft select toggle: opt=1 sel=1
+[notice ] Network: Draft action received: type=0 opt=1 player=1 sel=1
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Bash, Shield Bash, Dispel
+[notice ] Network: Client sent AcceptDraft to host (2 picks)
+[notice ] Network: DraftOptions received: 17,0,21 (class=2)
+[notice ] Draft: Local derivedSeed=1424896868 expectedIndices=13,14,5
+[notice ] Network: Draft state received: class=2 player=1 picks=1 stage=1 ingame=0 curPlayer=-1
+[notice ] Draft: Client already has authoritative DraftOptions; not waiting (class=2)
+[notice ] Network: Draft action received: type=1 opt=-1128267776 player=1 sel=0
+[notice ] Draft: Client: Received forwarded Accept. Waiting for host state/options. (preserving local options until authoritative packet arrives)
+[notice ] Network: Draft state received: class=2 player=1 picks=1 stage=1 ingame=0 curPlayer=-1
+[notice ] Draft: Client already has authoritative DraftOptions; not waiting (class=2)
+[notice ] Network: Draft state received: class=2 player=1 picks=1 stage=1 ingame=0 curPlayer=-1
+[notice ] Draft: Client already has authoritative DraftOptions; not waiting (class=2)
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=1) names=Giant Magic Hand, Amnesia, Full Restore
+[notice ] Network: Sent draft select toggle: opt=1 sel=1
+[notice ] Network: Draft action received: type=0 opt=1 player=1 sel=1
+[notice ] Network: Client sent AcceptDraft to host (1 picks)
+[notice ] Net: Opponent ended turn.
+[notice ] Game: --- START TURN: Player 0
+[notice ] Game: Player 0's turn begins.
+[notice ] Dice: Final total result for 1d6: 5
+[ error ] Net: DESYNC DETECTED! Local: 933887962797581604 Remote: 8344285571338923368 Turn: 0
+[notice ] Network: Draft action received: type=1 opt=-1128267776 player=1 sel=0
+[notice ] Draft: Client: Received forwarded Accept. Waiting for host state/options. (preserving local options until authoritative packet arrives)
+[notice ] Network: Draft state received: class=0 player=-1 picks=1 stage=2 ingame=0 curPlayer=1
+[notice ] Game: --- START TURN: Player 0
+[notice ] Game: Player 0's turn begins.
+[notice ] Dice: Final total result for 1d6: 3
+[notice ] Network: Draft state received: class=0 player=-1 picks=1 stage=2 ingame=0 curPlayer=1
+[notice ] Game: --- START TURN: Player 0
+[notice ] Game: Player 0's turn begins.
+[notice ] Dice: Final total result for 1d6: 6
+[notice ] Game: AP Roll Finished: 0 AP awarded (sum of all dice).
+[notice ] Steam: Connection Closed/Failed.
+[notice ] Game: --- GAME SESSION CLEANED UP ---
+[notice ] SteamManager: Steam API Shutdown.
+[S_API FAIL] Tried to access Steam interface SteamNetworkingSockets012 before SteamAPI_Init succeeded.
+ERROR: ld.so: object '/usr/lib/extest/libextest.so' from LD_PRELOAD cannot be preloaded (cannot open shared object file): ignored.
+ERROR: ld.so: object '/var/home/lewis/.local/share/Steam/ubuntu12_32/gameoverlayrenderer.so' from LD_PRELOAD cannot be preloaded (wrong ELF class: ELFCLASS32): ignored.
+--- Launching MageFight at Tue Feb  3 09:31:29 GMT 2026 ---
+Script directory: /home/lewis/of_workspace/openFrameworks/apps/myApps/MageFight/bin
+Original LD_PRELOAD=/usr/lib/extest/libextest.so:/var/home/lewis/.local/share/Steam/ubuntu12_32/gameoverlayrenderer.so:/var/home/lewis/.local/share/Steam/ubuntu12_64/gameoverlayrenderer.so
+Dropping missing LD_PRELOAD entry: /usr/lib/extest/libextest.so
+Final LD_PRELOAD=/var/home/lewis/.local/share/Steam/ubuntu12_32/gameoverlayrenderer.so:/var/home/lewis/.local/share/Steam/ubuntu12_64/gameoverlayrenderer.so
+Starting executable...
+ERROR: ld.so: object '/var/home/lewis/.local/share/Steam/ubuntu12_32/gameoverlayrenderer.so' from LD_PRELOAD cannot be preloaded (wrong ELF class: ELFCLASS32): ignored.
+[S_API] SteamAPI_Init(): SteamAPI_IsSteamRunning() did not locate a running instance of Steam.
+[S_API] SteamAPI_Init(): Loaded '/home/lewis/of_workspace/.steam/sdk64/steamclient.so' OK.
+Setting breakpad minidump AppID = 480
+SteamInternal_SetMinidumpSteamID:  Caching Steam ID:  76561198261715869 [API loaded no]
+[notice ] Steam: Initialized. LocalID: 76561198261715869
+[notice ] Setup: Visual RNG seeded.
+[warning] ofMaterial::setPBR:  PBR material must be used with Programmable Renderer.
+[ error ] ofxAssimpTexture::setTextureType: : unknown aiTextureType type 27
+[warning] ofMaterial::setPBR:  PBR material must be used with Programmable Renderer.
+[ error ] ofxAssimpTexture::setTextureType: : unknown aiTextureType type 27
+[warning] ofMaterial::setPBR:  PBR material must be used with Programmable Renderer.
+[warning] ofMaterial::setPBR:  PBR material must be used with Programmable Renderer.
+[warning] ofMaterial::setPBR:  PBR material must be used with Programmable Renderer.
+[warning] ofMaterial::setPBR:  PBR material must be used with Programmable Renderer.
+[notice ] Wolf model loaded with 10 meshes
+[notice ] Setup: Kobold model loaded.
+[ error ] ofxAssimpModelLoader: loadGLResource(): texture doesn't exist: "data/Units/KoboldKing/goblin_king.fbx" in "data/Units/KoboldKing/cadnav.com_model/Models_G0506A078/01391eaa.dds"
+[ error ] loadImage: File not found: "data/Units/KoboldKing/cadnav.com_model/Models_G0506A078/01391eaa.dds"
+[ error ] ofxAssimpModelLoader: loadGLResource(): couldn't load texture: "data/Units/KoboldKing/goblin_king.fbx" from "data/Units/KoboldKing/cadnav.com_model/Models_G0506A078/01391eaa.dds"
+[ error ] ofxAssimpModelLoader: loadGLResource(): texture doesn't exist: "data/Units/KoboldKing/goblin_king.fbx" in "data/Units/KoboldKing/cadnav.com_model/Models_G0506A078/ada8756d.jpg"
+[ error ] loadImage: File not found: "data/Units/KoboldKing/cadnav.com_model/Models_G0506A078/ada8756d.jpg"
+[ error ] ofxAssimpModelLoader: loadGLResource(): couldn't load texture: "data/Units/KoboldKing/goblin_king.fbx" from "data/Units/KoboldKing/cadnav.com_model/Models_G0506A078/ada8756d.jpg"
+[ error ] ofxAssimpModelLoader: loadGLResource(): texture doesn't exist: "data/Units/KoboldKing/goblin_king.fbx" in "data/Units/KoboldKing/cadnav.com_model/Models_G0506A078/496d23a4.jpg"
+[ error ] loadImage: File not found: "data/Units/KoboldKing/cadnav.com_model/Models_G0506A078/496d23a4.jpg"
+[ error ] ofxAssimpModelLoader: loadGLResource(): couldn't load texture: "data/Units/KoboldKing/goblin_king.fbx" from "data/Units/KoboldKing/cadnav.com_model/Models_G0506A078/496d23a4.jpg"
+[ error ] ofxAssimpModelLoader: loadGLResource(): texture doesn't exist: "data/Units/KoboldKing/goblin_king.fbx" in "data/Units/KoboldKing/cadnav.com_model/Models_G0506A078/01391eaa.dds"
+[ error ] loadImage: File not found: "data/Units/KoboldKing/cadnav.com_model/Models_G0506A078/01391eaa.dds"
+[ error ] ofxAssimpModelLoader: loadGLResource(): couldn't load texture: "data/Units/KoboldKing/goblin_king.fbx" from "data/Units/KoboldKing/cadnav.com_model/Models_G0506A078/01391eaa.dds"
+[notice ] Setup: Kobold King texture loaded.
+[notice ] Setup: Kobold King model loaded.
+[notice ] Setup: Hellhound model loaded.
+[warning] ofMaterial::setPBR:  PBR material must be used with Programmable Renderer.
+[ error ] ofxAssimpTexture::setTextureType: : unknown aiTextureType type 27
+[warning] ofMaterial::setPBR:  PBR material must be used with Programmable Renderer.
+[ error ] ofxAssimpTexture::setTextureType: : unknown aiTextureType type 27
+[warning] ofMaterial::setPBR:  PBR material must be used with Programmable Renderer.
+[ error ] ofxAssimpTexture::setTextureType: : unknown aiTextureType type 27
+[warning] ofMaterial::setPBR:  PBR material must be used with Programmable Renderer.
+[ error ] ofxAssimpTexture::setTextureType: : unknown aiTextureType type 27
+[warning] ofMaterial::setPBR:  PBR material must be used with Programmable Renderer.
+[ error ] ofxAssimpTexture::setTextureType: : unknown aiTextureType type 27
+[warning] ofMaterial::setPBR:  PBR material must be used with Programmable Renderer.
+[ error ] ofxAssimpTexture::setTextureType: : unknown aiTextureType type 27
+[warning] ofMaterial::setPBR:  PBR material must be used with Programmable Renderer.
+[ error ] ofxAssimpTexture::setTextureType: : unknown aiTextureType type 27
+[warning] ofMaterial::setPBR:  PBR material must be used with Programmable Renderer.
+[ error ] ofxAssimpTexture::setTextureType: : unknown aiTextureType type 27
+[warning] ofMaterial::setPBR:  PBR material must be used with Programmable Renderer.
+[ error ] ofxAssimpTexture::setTextureType: : unknown aiTextureType type 27
+[warning] ofMaterial::setPBR:  PBR material must be used with Programmable Renderer.
+[ error ] ofxAssimpTexture::setTextureType: : unknown aiTextureType type 27
+[warning] ofMaterial::setPBR:  PBR material must be used with Programmable Renderer.
+[ error ] ofxAssimpTexture::setTextureType: : unknown aiTextureType type 27
+[notice ] Setup: Demon model loaded.
+[notice ] Setup: Tortoise model loaded.
+[warning] ofMaterial::setPBR:  PBR material must be used with Programmable Renderer.
+[notice ] Setup: Ghost model loaded.
+[warning] ofMaterial::setPBR:  PBR material must be used with Programmable Renderer.
+[ error ] ofxAssimpTexture::setTextureType: : unknown aiTextureType type 27
+[notice ] Setup: Wall Unit GLB model loaded and texture applied.
+[notice ] Setup: Assistant model loaded.
+[warning] ofMaterial::setPBR:  PBR material must be used with Programmable Renderer.
+[ error ] ofxAssimpTexture::setTextureType: : unknown aiTextureType type 27
+[warning] ofMaterial::setPBR:  PBR material must be used with Programmable Renderer.
+[ error ] ofxAssimpTexture::setTextureType: : unknown aiTextureType type 27
+[notice ] Setup: Faerie texture loaded.
+[notice ] Setup: Faerie model loaded.
+[notice ] Setup: Loaded key frame: Board/keys_1_1.png
+[notice ] Setup: Loaded key frame: Board/keys_1_2.png
+[notice ] Setup: Loaded key frame: Board/keys_1_3.png
+[notice ] Setup: Loaded key frame: Board/keys_1_4.png
+[notice ] Setup: Loaded silver key frame: Board/keys_2_1.png
+[notice ] Setup: Loaded silver key frame: Board/keys_2_2.png
+[notice ] Setup: Loaded silver key frame: Board/keys_2_3.png
+[notice ] Setup: Loaded silver key frame: Board/keys_2_4.png
+[notice ] Setup: Loaded bronze key frame: Board/keys_3_1.png
+[notice ] Setup: Loaded bronze key frame: Board/keys_3_2.png
+[notice ] Setup: Loaded bronze key frame: Board/keys_3_3.png
+[notice ] Setup: Loaded bronze key frame: Board/keys_3_4.png
+[notice ] ofApp::loadCardData: Loaded 70 cards from JSON.
+[notice ] ofApp::loadCardData: Class Distribution - C1: 30, C2: 24, C3: 16
+[notice ] GL: Vendor: AMD | Renderer: AMD Radeon RX 9070 XT (radeonsi, gfx1201, LLVM 21.1.6, DRM 3.64, 6.17.7-ba25.fc43.x86_64) | Version: 4.6 (Compatibility Profile) Mesa 25.3.4-arch1.1 | GLSL: 4.60
+[notice ] FBO: worldFbo allocated 2560x1440
+[notice ] Steam: Joined Lobby. Connecting to Host: 76561198743068920
+[notice ] Steam: Incoming Connection Request...
+[notice ] Network: Client: Connected. Requesting Host seed...
+[notice ] Network: Sent Seed Request...
+[notice ] Network: Client: Detected lobby seed. Initializing from seed: 1770111106
+[notice ] Network: Initializing multiplayer client game from seed: 1770111106
+[notice ] Dice: Final total result for 1d6: 4
+[notice ] Dice: Final total result for 1d6: 5
+[notice ] Game: --- INITIATIVE ROLL STARTED ---
+[notice ] Net: Handshake received. Seed: 1770111106
+[notice ] Network: Client: Handshake received. Initializing game. (seed=1770111106)
+[notice ] Dice: Final total result for 1d6: 4
+[notice ] Dice: Final total result for 1d6: 5
+[notice ] Game: --- INITIATIVE ROLL STARTED ---
+[notice ] Steam: Connection Fully Active!
+[notice ] Net: Handshake received. Seed: 1770111106
+[notice ] Network: Client: Handshake received. Initializing game. (seed=1770111106)
+[notice ] Dice: Final total result for 1d6: 4
+[notice ] Dice: Final total result for 1d6: 5
+[notice ] Game: --- INITIATIVE ROLL STARTED ---
+[notice ] Network: DraftOptions received: 16,10,12 (class=1)
+[notice ] Draft: Local derivedSeed=4156012851 expectedIndices=12,27,17
+[notice ] Draft: applyDraftOptionsFromPool: applied 3 options for player=1 stage=0 names=Double Handed, Teleport, Flame Hit
+[notice ] Network: Draft state received: class=1 player=1 picks=2 stage=0 ingame=0 curPlayer=-1
+[notice ] Draft: Client already has authoritative DraftOptions; not waiting (class=1)
+[notice ] Network: Draft state received: class=1 player=1 picks=2 stage=0 ingame=0 curPlayer=-1
+[notice ] Draft: Client already has authoritative DraftOptions; not waiting (class=1)
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Double Handed, Teleport, Flame Hit
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Double Handed, Teleport, Flame Hit
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Double Handed, Teleport, Flame Hit
+[notice ] Network: Sent draft select toggle: opt=1 sel=1
+[notice ] Network: Draft action received: type=0 opt=1 player=1 sel=1
+[notice ] Network: Sent draft select toggle: opt=2 sel=1
+[notice ] Network: Draft action received: type=0 opt=2 player=1 sel=1
+[notice ] Network: Client sent AcceptDraft to host (2 picks)
+[notice ] Network: DraftOptions received: 5,8,3 (class=2)
+[notice ] Draft: Local derivedSeed=1424896992 expectedIndices=7,16,6
+[notice ] Network: Draft state received: class=2 player=1 picks=1 stage=1 ingame=0 curPlayer=-1
+[notice ] Draft: Client already has authoritative DraftOptions; not waiting (class=2)
+[notice ] Network: Draft action received: type=1 opt=-1128267776 player=1 sel=0
+[notice ] Draft: Client: Received forwarded Accept. Waiting for host state/options. (preserving local options until authoritative packet arrives)
+[notice ] Network: Draft state received: class=2 player=1 picks=1 stage=1 ingame=0 curPlayer=-1
+[notice ] Draft: Client already has authoritative DraftOptions; not waiting (class=2)
+[notice ] Network: Draft state received: class=2 player=1 picks=1 stage=1 ingame=0 curPlayer=-1
+[notice ] Draft: Client already has authoritative DraftOptions; not waiting (class=2)
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=1) names=Ethereal Jolt, Call for Wolves, Hasten
+[notice ] Network: Sent draft select toggle: opt=1 sel=1
+[notice ] Network: Draft action received: type=0 opt=1 player=1 sel=1
+[notice ] Network: Client sent AcceptDraft to host (1 picks)
+[notice ] Network: DraftOptions received: 4,29,2 (class=1)
+[notice ] Draft: Local derivedSeed=4155947315 expectedIndices=11,26,27
+[notice ] Network: Draft state received: class=1 player=0 picks=2 stage=0 ingame=0 curPlayer=-1
+[notice ] Draft: Client already has authoritative DraftOptions; not waiting (class=1)
+[notice ] Network: Draft action received: type=1 opt=-1128267776 player=1 sel=0
+[notice ] Draft: Client: Received forwarded Accept. Waiting for host state/options. (preserving local options until authoritative packet arrives)
+[notice ] Network: Draft state received: class=1 player=0 picks=2 stage=0 ingame=0 curPlayer=-1
+[notice ] Draft: Client already has authoritative DraftOptions; not waiting (class=1)
+[notice ] Network: Draft state received: class=1 player=0 picks=2 stage=0 ingame=0 curPlayer=-1
+[notice ] Draft: Client already has authoritative DraftOptions; not waiting (class=1)
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=0 stage=0) names=Ward, Shoot Arrow, Hand Block
+[notice ] Network: Draft action received: type=0 opt=1 player=0 sel=1
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=0 stage=0) names=Ward, Shoot Arrow, Hand Block
+[notice ] Network: Draft action received: type=0 opt=0 player=0 sel=1
+[notice ] Network: DraftOptions received: 19,13,3 (class=2)
+[notice ] Draft: Local derivedSeed=1424962528 expectedIndices=16,23,5
+[notice ] Network: Draft state received: class=2 player=0 picks=1 stage=1 ingame=0 curPlayer=-1
+[notice ] Draft: Client already has authoritative DraftOptions; not waiting (class=2)
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=0 stage=1) names=Four-leaf clover, Call for Kobolds, Hasten
+[notice ] Network: Draft action received: type=0 opt=1 player=0 sel=1
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=0 stage=1) names=Four-leaf clover, Call for Kobolds, Hasten
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=0 stage=1) names=Four-leaf clover, Call for Kobolds, Hasten
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=0 stage=1) names=Four-leaf clover, Call for Kobolds, Hasten
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=0 stage=1) names=Four-leaf clover, Call for Kobolds, Hasten
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=0 stage=1) names=Four-leaf clover, Call for Kobolds, Hasten
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=0 stage=1) names=Four-leaf clover, Call for Kobolds, Hasten
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=0 stage=1) names=Four-leaf clover, Call for Kobolds, Hasten
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=0 stage=1) names=Four-leaf clover, Call for Kobolds, Hasten
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=0 stage=1) names=Four-leaf clover, Call for Kobolds, Hasten
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=0 stage=1) names=Four-leaf clover, Call for Kobolds, Hasten
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=0 stage=1) names=Four-leaf clover, Call for Kobolds, Hasten
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=0 stage=1) names=Four-leaf clover, Call for Kobolds, Hasten
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=0 stage=1) names=Four-leaf clover, Call for Kobolds, Hasten
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=0 stage=1) names=Four-leaf clover, Call for Kobolds, Hasten
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=0 stage=1) names=Four-leaf clover, Call for Kobolds, Hasten
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=0 stage=1) names=Four-leaf clover, Call for Kobolds, Hasten
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=0 stage=1) names=Four-leaf clover, Call for Kobolds, Hasten
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=0 stage=1) names=Four-leaf clover, Call for Kobolds, Hasten
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=0 stage=1) names=Four-leaf clover, Call for Kobolds, Hasten
+[notice ] Game: --- GAME SESSION CLEANED UP ---
+[notice ] Steam: Joined Lobby. Connecting to Host: 76561198743068920
+[notice ] Steam: Incoming Connection Request...
+[notice ] Network: Client: Detected lobby seed. Initializing from seed: 1770111106
+[notice ] Network: Initializing multiplayer client game from seed: 1770111106
+[notice ] Dice: Final total result for 1d6: 4
+[notice ] Dice: Final total result for 1d6: 5
+[notice ] Game: --- INITIATIVE ROLL STARTED ---
+[notice ] Steam: Connection Fully Active!
+[notice ] Draft: generateDraftOptions called: classTier=1 draftStage=0 draftPlayerIndex=1 poolSize=30
+[notice ] Initiative: Player 2 Wins Initiative
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Flame Hit, Summon Assistant, Blocking Boon
+[notice ] Network: Sent draft select toggle: opt=1 sel=1
+[notice ] Network: DraftOptions received: 16,10,12 (class=1)
+[notice ] Draft: Local derivedSeed=4156012851 expectedIndices=12,27,17
+[notice ] Network: Draft state received: class=1 player=1 picks=2 stage=0 ingame=0 curPlayer=0
+[notice ] Draft: Client already has authoritative DraftOptions; not waiting (class=1)
+[notice ] Network: Draft action received: type=0 opt=1 player=1 sel=1
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Double Handed, Teleport, Flame Hit
+[notice ] Network: Sent draft select toggle: opt=2 sel=1
+[notice ] Network: Draft action received: type=0 opt=2 player=1 sel=1
+[notice ] Network: Sent draft select toggle: opt=1 sel=0
+[notice ] Network: Draft action received: type=0 opt=1 player=1 sel=0
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Double Handed, Teleport, Flame Hit
+[notice ] Network: Sent draft select toggle: opt=1 sel=1
+[notice ] Network: Draft action received: type=0 opt=1 player=1 sel=1
+[notice ] Network: Client sent AcceptDraft to host (2 picks)
+[notice ] Network: DraftOptions received: 5,8,3 (class=2)
+[notice ] Draft: Local derivedSeed=1424896992 expectedIndices=7,16,6
+[notice ] Network: Draft state received: class=2 player=1 picks=1 stage=1 ingame=0 curPlayer=0
+[notice ] Draft: Client already has authoritative DraftOptions; not waiting (class=2)
+[notice ] Network: Draft action received: type=1 opt=-1128267776 player=1 sel=0
+[notice ] Draft: Client: Received forwarded Accept. Waiting for host state/options. (preserving local options until authoritative packet arrives)
+[notice ] Network: Draft state received: class=2 player=1 picks=1 stage=1 ingame=0 curPlayer=0
+[notice ] Draft: Client already has authoritative DraftOptions; not waiting (class=2)
+[notice ] Network: Draft state received: class=2 player=1 picks=1 stage=1 ingame=0 curPlayer=0
+[notice ] Draft: Client already has authoritative DraftOptions; not waiting (class=2)
+[notice ] Network: Sent draft select toggle: opt=1 sel=1
+[notice ] Network: Draft action received: type=0 opt=1 player=1 sel=1
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=1) names=Ethereal Jolt, Call for Wolves, Hasten
+[notice ] Network: Client sent AcceptDraft to host (1 picks)
+[notice ] Net: Opponent ended turn.
+[notice ] Game: --- START TURN: Player 0
+[notice ] Game: Player 0's turn begins.
+[notice ] Dice: Final total result for 1d6: 4
+[ error ] Net: DESYNC DETECTED! Local: -4385987387418633434 Remote: 7228792119349444062 Turn: 1
+[notice ] Network: Draft action received: type=1 opt=-1128267776 player=1 sel=0
+[notice ] Draft: Client: Received forwarded Accept. Waiting for host state/options. (preserving local options until authoritative packet arrives)
+[notice ] Network: Draft state received: class=0 player=-1 picks=1 stage=2 ingame=0 curPlayer=1
+[notice ] Game: --- START TURN: Player 0
+[notice ] Game: Player 0's turn begins.
+[notice ] Dice: Final total result for 1d6: 5
+[notice ] Network: Draft state received: class=0 player=-1 picks=1 stage=2 ingame=0 curPlayer=1
+[notice ] Game: --- START TURN: Player 0
+[notice ] Game: Player 0's turn begins.
+[notice ] Dice: Final total result for 1d6: 5
+[notice ] Game: AP Roll Finished: 0 AP awarded (sum of all dice).
+[notice ] Game: --- GAME SESSION CLEANED UP ---
+[notice ] Steam: Joined Lobby. Connecting to Host: 76561198743068920
+[notice ] Steam: Incoming Connection Request...
+[notice ] Network: Sent Seed Request...
+[notice ] Network: Client: Detected lobby seed. Initializing from seed: 1770111161
+[notice ] Network: Initializing multiplayer client game from seed: 1770111161
+[notice ] Dice: Final total result for 1d6: 5
+[notice ] Dice: Final total result for 1d6: 5
+[notice ] Game: --- INITIATIVE ROLL STARTED ---
+[notice ] Steam: Connection Fully Active!
+[notice ] Net: Handshake received. Seed: 1770111161
+[notice ] Network: Client: Handshake received. Initializing game. (seed=1770111161)
+[notice ] Dice: Final total result for 1d6: 5
+[notice ] Dice: Final total result for 1d6: 5
+[notice ] Game: --- INITIATIVE ROLL STARTED ---
+[notice ] Net: Handshake received. Seed: 1770111161
+[notice ] Network: Client: Handshake received. Initializing game. (seed=1770111161)
+[notice ] Dice: Final total result for 1d6: 5
+[notice ] Dice: Final total result for 1d6: 5
+[notice ] Game: --- INITIATIVE ROLL STARTED ---
+[notice ] Dice: Final total result for 1d6: 2
+[notice ] Dice: Final total result for 1d6: 5
+[notice ] Initiative: Tie! Rerolling...
+[notice ] Network: DraftOptions received: 9,18,27 (class=1)
+[notice ] Draft: Local derivedSeed=4156012808 expectedIndices=22,29,7
+[notice ] Network: Draft state received: class=1 player=1 picks=2 stage=0 ingame=0 curPlayer=-1
+[notice ] Draft: Client already has authoritative DraftOptions; not waiting (class=1)
+[notice ] Network: Draft state received: class=1 player=1 picks=2 stage=0 ingame=0 curPlayer=-1
+[notice ] Draft: Client already has authoritative DraftOptions; not waiting (class=1)
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Dispel, Shield Bash, Summon Assistant
+[notice ] Network: Sent draft select toggle: opt=1 sel=1
+[notice ] Network: Draft action received: type=0 opt=1 player=1 sel=1
+[notice ] Network: Sent draft select toggle: opt=2 sel=1
+[notice ] Network: Draft action received: type=0 opt=2 player=1 sel=1
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Dispel, Shield Bash, Summon Assistant
+[notice ] Network: Client sent AcceptDraft to host (2 picks)
+[notice ] Network: DraftOptions received: 22,9,20 (class=2)
+[notice ] Draft: Local derivedSeed=1424896987 expectedIndices=3,2,17
+[notice ] Network: Draft state received: class=2 player=1 picks=1 stage=1 ingame=0 curPlayer=-1
+[notice ] Draft: Client already has authoritative DraftOptions; not waiting (class=2)
+[notice ] Network: Draft action received: type=1 opt=-1128267776 player=1 sel=0
+[notice ] Draft: Client: Received forwarded Accept. Waiting for host state/options. (preserving local options until authoritative packet arrives)
+[notice ] Network: Draft state received: class=2 player=1 picks=1 stage=1 ingame=0 curPlayer=-1
+[notice ] Draft: Client already has authoritative DraftOptions; not waiting (class=2)
+[notice ] Network: Draft state received: class=2 player=1 picks=1 stage=1 ingame=0 curPlayer=-1
+[notice ] Draft: Client already has authoritative DraftOptions; not waiting (class=2)
+[notice ] Network: Sent draft select toggle: opt=1 sel=1
+[notice ] Network: Draft action received: type=0 opt=1 player=1 sel=1
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=1) names=Smite, Flail, Sprint
+[notice ] Network: Client sent AcceptDraft to host (1 picks)
+[notice ] Network: DraftOptions received: 8,25,2 (class=1)
+[notice ] Draft: Local derivedSeed=4155947272 expectedIndices=21,22,25
+[notice ] Network: Draft state received: class=1 player=0 picks=2 stage=0 ingame=0 curPlayer=-1
+[notice ] Draft: Client already has authoritative DraftOptions; not waiting (class=1)
+[notice ] Network: Draft action received: type=1 opt=-1128267776 player=1 sel=0
+[notice ] Draft: Client: Received forwarded Accept. Waiting for host state/options. (preserving local options until authoritative packet arrives)
+[notice ] Network: Draft state received: class=1 player=0 picks=2 stage=0 ingame=0 curPlayer=-1
+[notice ] Draft: Client already has authoritative DraftOptions; not waiting (class=1)
+[notice ] Network: Draft state received: class=1 player=0 picks=2 stage=0 ingame=0 curPlayer=-1
+[notice ] Draft: Client already has authoritative DraftOptions; not waiting (class=1)
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=0 stage=0) names=Shock, Renewed Inspiration, Hand Block
+[notice ] Network: Draft action received: type=0 opt=0 player=0 sel=1
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=0 stage=0) names=Shock, Renewed Inspiration, Hand Block
+[notice ] Network: Draft action received: type=0 opt=1 player=0 sel=1
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=0 stage=0) names=Shock, Renewed Inspiration, Hand Block
+[notice ] Network: DraftOptions received: 23,3,7 (class=2)
+[notice ] Draft: Local derivedSeed=1424962523 expectedIndices=19,6,23
+[notice ] Network: Draft state received: class=2 player=0 picks=1 stage=1 ingame=0 curPlayer=-1
+[notice ] Draft: Client already has authoritative DraftOptions; not waiting (class=2)
+[notice ] Network: Draft action received: type=0 opt=1 player=0 sel=1
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=0 stage=1) names=Summon Faerie, Hasten, Dark Shield
+[notice ] Network: Draft action received: type=0 opt=0 player=0 sel=0
+[notice ] Network: Draft action received: type=0 opt=0 player=0 sel=0
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=0 stage=1) names=Summon Faerie, Hasten, Dark Shield
+[notice ] Network: Draft action received: type=0 opt=1 player=0 sel=0
+[notice ] Network: Draft action received: type=0 opt=0 player=0 sel=1
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=0 stage=1) names=Summon Faerie, Hasten, Dark Shield
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=0 stage=1) names=Summon Faerie, Hasten, Dark Shield
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=0 stage=1) names=Summon Faerie, Hasten, Dark Shield
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=0 stage=1) names=Summon Faerie, Hasten, Dark Shield
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=0 stage=1) names=Summon Faerie, Hasten, Dark Shield
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=0 stage=1) names=Summon Faerie, Hasten, Dark Shield
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=0 stage=1) names=Summon Faerie, Hasten, Dark Shield
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=0 stage=1) names=Summon Faerie, Hasten, Dark Shield
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=0 stage=1) names=Summon Faerie, Hasten, Dark Shield
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=0 stage=1) names=Summon Faerie, Hasten, Dark Shield
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=0 stage=1) names=Summon Faerie, Hasten, Dark Shield
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=0 stage=1) names=Summon Faerie, Hasten, Dark Shield
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=0 stage=1) names=Summon Faerie, Hasten, Dark Shield
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=0 stage=1) names=Summon Faerie, Hasten, Dark Shield
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=0 stage=1) names=Summon Faerie, Hasten, Dark Shield
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=0 stage=1) names=Summon Faerie, Hasten, Dark Shield
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=0 stage=1) names=Summon Faerie, Hasten, Dark Shield
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=0 stage=1) names=Summon Faerie, Hasten, Dark Shield
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=0 stage=1) names=Summon Faerie, Hasten, Dark Shield
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=0 stage=1) names=Summon Faerie, Hasten, Dark Shield
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=0 stage=1) names=Summon Faerie, Hasten, Dark Shield
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=0 stage=1) names=Summon Faerie, Hasten, Dark Shield
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=0 stage=1) names=Summon Faerie, Hasten, Dark Shield
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=0 stage=1) names=Summon Faerie, Hasten, Dark Shield
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=0 stage=1) names=Summon Faerie, Hasten, Dark Shield
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=0 stage=1) names=Summon Faerie, Hasten, Dark Shield
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=0 stage=1) names=Summon Faerie, Hasten, Dark Shield
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=0 stage=1) names=Summon Faerie, Hasten, Dark Shield
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=0 stage=1) names=Summon Faerie, Hasten, Dark Shield
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=0 stage=1) names=Summon Faerie, Hasten, Dark Shield
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=0 stage=1) names=Summon Faerie, Hasten, Dark Shield
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=0 stage=1) names=Summon Faerie, Hasten, Dark Shield
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=0 stage=1) names=Summon Faerie, Hasten, Dark Shield
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=0 stage=1) names=Summon Faerie, Hasten, Dark Shield
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=0 stage=1) names=Summon Faerie, Hasten, Dark Shield
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=0 stage=1) names=Summon Faerie, Hasten, Dark Shield
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=0 stage=1) names=Summon Faerie, Hasten, Dark Shield
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=0 stage=1) names=Summon Faerie, Hasten, Dark Shield
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=0 stage=1) names=Summon Faerie, Hasten, Dark Shield
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=0 stage=1) names=Summon Faerie, Hasten, Dark Shield
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=0 stage=1) names=Summon Faerie, Hasten, Dark Shield
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=0 stage=1) names=Summon Faerie, Hasten, Dark Shield
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=0 stage=1) names=Summon Faerie, Hasten, Dark Shield
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=0 stage=1) names=Summon Faerie, Hasten, Dark Shield
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=0 stage=1) names=Summon Faerie, Hasten, Dark Shield
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=0 stage=1) names=Summon Faerie, Hasten, Dark Shield
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=0 stage=1) names=Summon Faerie, Hasten, Dark Shield
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=0 stage=1) names=Summon Faerie, Hasten, Dark Shield
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=0 stage=1) names=Summon Faerie, Hasten, Dark Shield
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=0 stage=1) names=Summon Faerie, Hasten, Dark Shield
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=0 stage=1) names=Summon Faerie, Hasten, Dark Shield
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=0 stage=1) names=Summon Faerie, Hasten, Dark Shield
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=0 stage=1) names=Summon Faerie, Hasten, Dark Shield
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=0 stage=1) names=Summon Faerie, Hasten, Dark Shield
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=0 stage=1) names=Summon Faerie, Hasten, Dark Shield
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=0 stage=1) names=Summon Faerie, Hasten, Dark Shield
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=0 stage=1) names=Summon Faerie, Hasten, Dark Shield
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=0 stage=1) names=Summon Faerie, Hasten, Dark Shield
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=0 stage=1) names=Summon Faerie, Hasten, Dark Shield
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=0 stage=1) names=Summon Faerie, Hasten, Dark Shield
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=0 stage=1) names=Summon Faerie, Hasten, Dark Shield
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=0 stage=1) names=Summon Faerie, Hasten, Dark Shield
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=0 stage=1) names=Summon Faerie, Hasten, Dark Shield
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=0 stage=1) names=Summon Faerie, Hasten, Dark Shield
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=0 stage=1) names=Summon Faerie, Hasten, Dark Shield
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=0 stage=1) names=Summon Faerie, Hasten, Dark Shield
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=0 stage=1) names=Summon Faerie, Hasten, Dark Shield
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=0 stage=1) names=Summon Faerie, Hasten, Dark Shield
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=0 stage=1) names=Summon Faerie, Hasten, Dark Shield
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=0 stage=1) names=Summon Faerie, Hasten, Dark Shield
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=0 stage=1) names=Summon Faerie, Hasten, Dark Shield
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=0 stage=1) names=Summon Faerie, Hasten, Dark Shield
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=0 stage=1) names=Summon Faerie, Hasten, Dark Shield
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=0 stage=1) names=Summon Faerie, Hasten, Dark Shield
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=0 stage=1) names=Summon Faerie, Hasten, Dark Shield
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=0 stage=1) names=Summon Faerie, Hasten, Dark Shield
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=0 stage=1) names=Summon Faerie, Hasten, Dark Shield
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=0 stage=1) names=Summon Faerie, Hasten, Dark Shield
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=0 stage=1) names=Summon Faerie, Hasten, Dark Shield
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=0 stage=1) names=Summon Faerie, Hasten, Dark Shield
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=0 stage=1) names=Summon Faerie, Hasten, Dark Shield
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=0 stage=1) names=Summon Faerie, Hasten, Dark Shield
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=0 stage=1) names=Summon Faerie, Hasten, Dark Shield
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=0 stage=1) names=Summon Faerie, Hasten, Dark Shield
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=0 stage=1) names=Summon Faerie, Hasten, Dark Shield
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=0 stage=1) names=Summon Faerie, Hasten, Dark Shield
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=0 stage=1) names=Summon Faerie, Hasten, Dark Shield
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=0 stage=1) names=Summon Faerie, Hasten, Dark Shield
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=0 stage=1) names=Summon Faerie, Hasten, Dark Shield
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=0 stage=1) names=Summon Faerie, Hasten, Dark Shield
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=0 stage=1) names=Summon Faerie, Hasten, Dark Shield
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=0 stage=1) names=Summon Faerie, Hasten, Dark Shield
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=0 stage=1) names=Summon Faerie, Hasten, Dark Shield
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=0 stage=1) names=Summon Faerie, Hasten, Dark Shield
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=0 stage=1) names=Summon Faerie, Hasten, Dark Shield
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=0 stage=1) names=Summon Faerie, Hasten, Dark Shield
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=0 stage=1) names=Summon Faerie, Hasten, Dark Shield
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=0 stage=1) names=Summon Faerie, Hasten, Dark Shield
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=0 stage=1) names=Summon Faerie, Hasten, Dark Shield
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=0 stage=1) names=Summon Faerie, Hasten, Dark Shield
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=0 stage=1) names=Summon Faerie, Hasten, Dark Shield
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=0 stage=1) names=Summon Faerie, Hasten, Dark Shield
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=0 stage=1) names=Summon Faerie, Hasten, Dark Shield
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=0 stage=1) names=Summon Faerie, Hasten, Dark Shield
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=0 stage=1) names=Summon Faerie, Hasten, Dark Shield
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=0 stage=1) names=Summon Faerie, Hasten, Dark Shield
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=0 stage=1) names=Summon Faerie, Hasten, Dark Shield
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=0 stage=1) names=Summon Faerie, Hasten, Dark Shield
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=0 stage=1) names=Summon Faerie, Hasten, Dark Shield
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=0 stage=1) names=Summon Faerie, Hasten, Dark Shield
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=0 stage=1) names=Summon Faerie, Hasten, Dark Shield
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=0 stage=1) names=Summon Faerie, Hasten, Dark Shield
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=0 stage=1) names=Summon Faerie, Hasten, Dark Shield
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=0 stage=1) names=Summon Faerie, Hasten, Dark Shield
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=0 stage=1) names=Summon Faerie, Hasten, Dark Shield
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=0 stage=1) names=Summon Faerie, Hasten, Dark Shield
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=0 stage=1) names=Summon Faerie, Hasten, Dark Shield
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=0 stage=1) names=Summon Faerie, Hasten, Dark Shield
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=0 stage=1) names=Summon Faerie, Hasten, Dark Shield
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=0 stage=1) names=Summon Faerie, Hasten, Dark Shield
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=0 stage=1) names=Summon Faerie, Hasten, Dark Shield
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=0 stage=1) names=Summon Faerie, Hasten, Dark Shield
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=0 stage=1) names=Summon Faerie, Hasten, Dark Shield
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=0 stage=1) names=Summon Faerie, Hasten, Dark Shield
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=0 stage=1) names=Summon Faerie, Hasten, Dark Shield
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=0 stage=1) names=Summon Faerie, Hasten, Dark Shield
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=0 stage=1) names=Summon Faerie, Hasten, Dark Shield
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=0 stage=1) names=Summon Faerie, Hasten, Dark Shield
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=0 stage=1) names=Summon Faerie, Hasten, Dark Shield
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=0 stage=1) names=Summon Faerie, Hasten, Dark Shield
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=0 stage=1) names=Summon Faerie, Hasten, Dark Shield
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=0 stage=1) names=Summon Faerie, Hasten, Dark Shield
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=0 stage=1) names=Summon Faerie, Hasten, Dark Shield
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=0 stage=1) names=Summon Faerie, Hasten, Dark Shield
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=0 stage=1) names=Summon Faerie, Hasten, Dark Shield
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=0 stage=1) names=Summon Faerie, Hasten, Dark Shield
+[notice ] Steam: Connection Closed/Failed.
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=0 stage=1) names=Summon Faerie, Hasten, Dark Shield
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=0 stage=1) names=Summon Faerie, Hasten, Dark Shield
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=0 stage=1) names=Summon Faerie, Hasten, Dark Shield
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=0 stage=1) names=Summon Faerie, Hasten, Dark Shield
+[notice ] Game: --- GAME SESSION CLEANED UP ---
+[notice ] SteamManager: Steam API Shutdown.
+[S_API FAIL] Tried to access Steam interface SteamNetworkingSockets012 before SteamAPI_Init succeeded.

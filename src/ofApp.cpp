@@ -838,13 +838,15 @@ void ofApp::update() {
 				// 2. "KEEP ASKING" LOOP (Robust Fix)
 				// Every 1.0 seconds, send a "REQ_SEED" packet to the Host.
 				// This ensures that if the first packet was dropped, we ask again.
+				// If the lobby advertises a seed, log it but DO NOT auto-initialize from it.
+				// The authoritative seed must come via a PKT_HANDSHAKE from the host
+				// to avoid mismatch races when lobby data is stale or the host regenerated
+				// a seed during reconnects. We will keep requesting the seed until
+				// a handshake packet arrives.
 				if (steamManager.isMatchStarted()) {
 					uint32_t seed = steamManager.getLobbySeed();
 					if (seed != 0) {
-						ofLogNotice("Network") << "Client: Detected lobby seed. Initializing from seed: " << seed;
-						initGameFromSeed(seed);
-						// We've initialized from lobby seed; exit update early to avoid further seed requests
-						return;
+						ofLogNotice("Network") << "Client: Detected lobby seed (observed)=" << seed << " — waiting for host handshake (authoritative).";
 					}
 				}
 
@@ -16680,6 +16682,7 @@ void ofApp::processNetworkPackets() {
 			// FIX: Seed the gameplay RNG and store map seed so derived draft RNG matches the host
 			gameplayRNG.seed(pkt->seed);
 			currentMapSeed = pkt->seed;
+			hasReceivedHandshake = true;
 			gameplaySeededByHost = true;
 			isMultiplayer = true;
 			myLocalPlayerID = 1;
