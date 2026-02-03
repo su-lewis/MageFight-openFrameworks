@@ -16338,8 +16338,9 @@ void ofApp::drawInitiativeRoll() {
 	if (activeDiceRolls.size() >= 2) {
 
 		// Use default world positions for dice label alignment (meshPosition does not exist)
-		glm::vec3 p1PosWorld(-6.0f, 7.0f, 0.0f);
-		glm::vec3 p2PosWorld(6.0f, 7.0f, 0.0f);
+		// Move labels further up so they don't overlap the dice visuals
+		glm::vec3 p1PosWorld(-6.0f, 11.0f, 0.0f);
+		glm::vec3 p2PosWorld(6.0f, 11.0f, 0.0f);
 		glm::vec2 p1Screen = cam.worldToScreen(p1PosWorld);
 		glm::vec2 p2Screen = cam.worldToScreen(p2PosWorld);
 
