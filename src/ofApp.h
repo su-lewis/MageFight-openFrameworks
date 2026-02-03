@@ -501,11 +501,11 @@ private:
 	// here when `ownerPlayerIndex >= 0` and wait for the shuffle packet.
 	template <class T>
 	void shuffleGameVector(std::vector<T> & vec, int ownerPlayerIndex = -1) {
-		// If the client was instructed to skip the next local shuffle (e.g., due to a forwarded Accept),
+		// If the client was instructed to skip the next local shuffle for this player (e.g., due to a forwarded Accept),
 		// consume the flag and do nothing. This prevents inadvertent consumption of `gameplayRNG`.
-		if (isMultiplayer && !steamManager.isHost() && skipClientShuffleNext) {
-			skipClientShuffleNext = false;
-			ofLogNotice("Network") << "Client: Skipping local shuffle due to skipClientShuffleNext";
+		if (isMultiplayer && !steamManager.isHost() && ownerPlayerIndex >= 0 && skipClientShuffleFor == ownerPlayerIndex) {
+			skipClientShuffleFor = -1;
+			ofLogNotice("Network") << "Client: Skipping local shuffle for player " << ownerPlayerIndex << " due to forwarded Accept";
 			return;
 		}
 
@@ -586,7 +586,7 @@ private:
 	bool waitingForDraftOptions = false; // Client waits for host's authoritative DraftOptionsPacket
 	float waitingForDraftOptionsStartTime = 0.0f; // When we began waiting (for timeout/retry)
 	float waitingForDraftOptionsTimeout = 0.75f; // seconds to wait for host before giving up/requesting
-	bool skipClientShuffleNext = false; // When set, client will skip the next deck shuffle applied from a forwarded Accept (avoids RNG divergence)
+	int skipClientShuffleFor = -1; // When >=0, client will skip the next deck shuffle for this player index (avoids RNG divergence from forwarded Accepts)
 	bool pendingDraftStateAvailable = false; // If a state packet arrives while we're waiting, stash it
 	DraftStatePacket pendingDraftState;
 

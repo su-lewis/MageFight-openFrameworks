@@ -10164,7 +10164,7 @@ void ofApp::startNewTurn() {
 		// --- C. RESHUFFLE DISCARD INTO DECK IF DECK IS EMPTY ---
 		if (endingPlayer.deck.empty() && !endingPlayer.discardPile.empty()) {
 			endingPlayer.deck = endingPlayer.discardPile;
-			shuffleGameVector(endingPlayer.deck);
+			shuffleGameVector(endingPlayer.deck, currentPlayerIndex);
 			endingPlayer.discardPile.clear();
 			ofLogNotice("Deck") << "Reshuffled discard into deck for player " << endingPlayer.playerID;
 		}
@@ -10496,8 +10496,8 @@ void ofApp::drawCard() {
 		// Clear Discard (This causes the discard pile visual to disappear, which is correct)
 		currentPlayer.discardPile.clear();
 
-		// Shuffle the new Deck
-		shuffleGameVector(currentPlayer.deck);
+		// Shuffle the new Deck (authoritative via host in multiplayer)
+		shuffleGameVector(currentPlayer.deck, currentPlayerIndex);
 	}
 
 	// --- PHASE 2: DRAW THE CARD ---
@@ -10815,7 +10815,7 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 			Card stolenCard = targetPlayer->deck.back();
 			targetPlayer->deck.pop_back();
 			currentPlayer.deck.push_back(stolenCard);
-			shuffleGameVector(currentPlayer.deck);
+			shuffleGameVector(currentPlayer.deck, currentPlayerIndex);
 
 			StolenCardAnimation newAnim;
 			newAnim.card = stolenCard;
@@ -11997,8 +11997,7 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 			// Reshuffle discard into deck first
 			currentPlayer.deck = currentPlayer.discardPile;
 			currentPlayer.discardPile.clear();
-			shuffleGameVector(currentPlayer.deck);
-
+			shuffleGameVector(currentPlayer.deck, currentPlayerIndex);
 			Card drawnCard = currentPlayer.deck.back();
 			currentPlayer.deck.pop_back();
 
@@ -12069,7 +12068,7 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		if (foundDispel) {
 			currentPlayer.deck.push_back(dispelCard);
 			currentPlayer.deck.push_back(dispelCard);
-			shuffleGameVector(currentPlayer.deck);
+			shuffleGameVector(currentPlayer.deck, currentPlayerIndex);
 			spawnFloatingText(gridToWorld(currentPlayer.x, currentPlayer.y) + glm::vec3(0, 0.6f, 0),
 				"+2 Dispel", ofColor::cyan);
 		}
@@ -12980,8 +12979,8 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 					// Add to Deck
 					currentPlayer.deck.push_back(copy);
 
-					// Shuffle the deck to integrate the new card
-					shuffleGameVector(currentPlayer.deck);
+					// Shuffle the deck to integrate the new card (authoritative)
+					shuffleGameVector(currentPlayer.deck, currentPlayerIndex);
 
 					spawnFloatingText(gridToWorld(currentPlayer.x, currentPlayer.y) + glm::vec3(0, 0.5, 0), "Element Copied!", ofColor::cyan);
 					ofLogNotice("Game") << "Strengthen Elements triggered: Copied " << playedCard.name << " to deck.";
@@ -16687,9 +16686,13 @@ void ofApp::processNetworkPackets() {
 			if (spk->playerIndex >= 0 && spk->playerIndex < (int)players.size()) {
 				std::mt19937 shuffleRng(spk->nonce);
 				std::shuffle(players[spk->playerIndex].deck.begin(), players[spk->playerIndex].deck.end(), shuffleRng);
-				// Clear the skip guard so future shuffles behave normally
-				skipClientShuffleNext = false;
-				ofLogNotice("Network") << "Client: Applied shuffle nonce and cleared skipClientShuffleNext";
+				// Only clear the per-player skip guard if it was set for this player
+				if (skipClientShuffleFor == spk->playerIndex) {
+					skipClientShuffleFor = -1;
+					ofLogNotice("Network") << "Client: Applied shuffle nonce for player " << spk->playerIndex << " and cleared skip flag";
+				} else {
+					ofLogNotice("Network") << "Client: Applied shuffle nonce for player " << spk->playerIndex;
+				}
 			}
 			continue; // Done with this packet
 		}
@@ -16728,6 +16731,15 @@ void ofApp::processNetworkPackets() {
 			long long mySum = calculateChecksum();
 			if (mySum != pkt->checksum) {
 				ofLogError("Net") << "DESYNC DETECTED! Local: " << mySum << " Remote: " << pkt->checksum << " Turn: " << pkt->turnNumber;
+				// Diagnostic: log per-player deck state to help locate mismatch
+				for (size_t i = 0; i < players.size(); ++i) {
+					std::string deckSummary;
+					for (const auto & c : players[i].deck) {
+						if (!deckSummary.empty()) deckSummary += ",";
+						deckSummary += ofToString((int)c.type) + "(" + ofToString((int)c.value) + ")";
+					}
+					ofLogError("Net") << "Player " << i << " id=" << players[i].playerID << " deck=[" << deckSummary << "] hand=" << players[i].hand.size() << " discard=" << players[i].discardPile.size();
+				}
 				desyncMessage = "DESYNC! Local:" + ofToString(mySum) + " Remote:" + ofToString(pkt->checksum) + " Turn:" + ofToString(pkt->turnNumber);
 				// Freeze multiplayer to prevent further mismatch-driven actions
 				isMultiplayer = false;
@@ -16976,13 +16988,12 @@ void ofApp::processNetworkPackets() {
 								p.deck.push_back(draftOptions[idx]);
 						}
 					}
-					shuffleGameVector(p.deck);
-
-					// Clear local selection and WAIT for the host to send the authoritative next state/options
-					// NOTE: do NOT clear `draftOptions` here — keep the UI visible until the
-					// authoritative `PKT_DRAFT_OPTIONS` arrives. Clearing here caused a race
-					// where clients showed an empty draft screen when a forwarded Accept
-					// arrived before the host's options packet.
+					// In multiplayer clients, mark that we will skip the immediate local shuffle and
+					// wait for the host's authoritative `PKT_SHUFFLE` for this player's deck.
+					if (isMultiplayer && !steamManager.isHost()) {
+						skipClientShuffleFor = pkt->draftPlayerIdx;
+					}
+					shuffleGameVector(p.deck, pkt->draftPlayerIdx);
 					selectedDraftIndices.clear();
 					if (isInGameDraft) {
 						isInGameDraft = false;
