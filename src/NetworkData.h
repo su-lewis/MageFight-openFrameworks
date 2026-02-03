@@ -11,12 +11,23 @@ enum PacketType {
 	PKT_DRAFT_ACTION, // Draft selection / accept messages (sent by clients to host)
 	PKT_DRAFT_STATE, // Host -> Client: draft state update (class, stage, player)
 	PKT_DRAFT_OPTIONS, // Host -> Client: authoritative indices for options
-	PKT_SHUFFLE // Host -> Client: authoritative deck shuffle (playerIndex, nonce)
+	PKT_SHUFFLE, // Host -> Client: authoritative deck shuffle (playerIndex, nonce)
+	PKT_TURN_START // Host -> Client: authoritative turn start (current player, AP dice results)
 };
 
 struct PacketHeader {
 	uint8_t type; // PacketType
 	uint32_t playerID; // Who sent this?
+};
+
+struct TurnStartPacket : PacketHeader {
+	int32_t currentPlayerIndex; // who is starting
+	uint8_t diceNum; // number of dice rolled (max 8)
+	uint8_t diceSides; // sides per die
+	uint8_t purpose; // DicePurpose (PURPOSE_AP or PURPOSE_BONUS_AP)
+	int32_t finalTotal; // sum of final results (for immediate assignment)
+	uint8_t rawResults[8]; // raw die faces (1..sides)
+	uint8_t finalResults[8]; // final per-die results (raw + luck)
 };
 
 struct HandshakePacket : PacketHeader {

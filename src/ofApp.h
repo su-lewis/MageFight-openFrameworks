@@ -491,6 +491,9 @@ private:
 	// Desync message shown when checksum fails
 	std::string desyncMessage;
 
+	// If true client should wait for host TurnStart packet before performing AP roll
+	bool waitingForTurnStartFromHost = false;
+
 	// Helper to get synced numbers
 	int getGameRandom(int min, int max);
 

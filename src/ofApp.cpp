@@ -7734,7 +7734,39 @@ void ofApp::mousePressed(int x, int y, int button) {
 					currentPlayerIndex = nextPlayerIdx;
 
 					currentState = STATE_GAMEPLAY;
+					// Capture current active dice count so we can detect newly-added AP rolls
+					size_t preDiceCount = activeDiceRolls.size();
 					startNewTurn();
+					if (isMultiplayer && steamManager.isHost()) {
+						// Collect newly added AP rolls associated with the starting player
+						std::vector<DiceRoll> newAP;
+						for (size_t di = preDiceCount; di < activeDiceRolls.size(); ++di) {
+							const DiceRoll & dr = activeDiceRolls[di];
+							if (dr.associatedUnit == currentPlayerIndex && dr.purpose == PURPOSE_AP) {
+								newAP.push_back(dr);
+							}
+						}
+						if (!newAP.empty()) {
+							TurnStartPacket tpk;
+							tpk.type = PKT_TURN_START;
+							tpk.playerID = myLocalPlayerID;
+							tpk.currentPlayerIndex = currentPlayerIndex;
+							int pkCount = 0;
+							int32_t total = 0;
+							for (size_t i = 0; i < newAP.size() && pkCount < 8; ++i) {
+								tpk.rawResults[pkCount] = (uint8_t)newAP[i].rawResult;
+								tpk.finalResults[pkCount] = (uint8_t)newAP[i].result;
+								pkCount++;
+								total += newAP[i].result;
+							}
+							tpk.diceNum = (uint8_t)pkCount;
+							tpk.diceSides = (uint8_t)(pkCount > 0 ? newAP[0].sides : 6);
+							tpk.purpose = (uint8_t)PURPOSE_AP;
+							tpk.finalTotal = total;
+							steamManager.sendPacket(&tpk, sizeof(tpk));
+							ofLogNotice("Network") << "Host sent TurnStart packet: player=" << tpk.currentPlayerIndex << " dice=" << (int)tpk.diceNum << " total=" << tpk.finalTotal;
+						}
+					}
 				}
 			}
 			return;
@@ -16693,6 +16725,8 @@ void ofApp::processNetworkPackets() {
 		if (buffer.size() < sizeof(PacketHeader)) continue;
 
 		PacketHeader * header = (PacketHeader *)buffer.data();
+		// Temporary reusable packet used for state syncs
+		DraftStatePacket sp;
 		// Handle Shuffle packets early so clients can deterministically apply them without touching gameplayRNG
 		if (header->type == PKT_SHUFFLE) {
 			ShufflePacket * spk = (ShufflePacket *)header;
@@ -16710,9 +16744,45 @@ void ofApp::processNetworkPackets() {
 			}
 			continue; // Done with this packet
 		}
-		// Temporary: pre-declare a DraftStatePacket for places that send state syncs so we don't risk
-		// an undeclared variable if duplicates were accidentally left in the code.
-		DraftStatePacket sp;
+
+		// Handle TurnStart packets (Host -> Client): authoritative AP dice for starting player
+		if (header->type == PKT_TURN_START) {
+			TurnStartPacket * tpk = (TurnStartPacket *)header;
+			ofLogNotice("Network") << "TurnStart packet received: player=" << tpk->currentPlayerIndex << " dice=" << (int)tpk->diceNum << " total=" << tpk->finalTotal;
+			if (tpk->currentPlayerIndex >= 0 && tpk->currentPlayerIndex < (int)players.size()) {
+				// Apply AP dice visual rolls without consuming gameplayRNG
+				waitingForTurnStartFromHost = false;
+				currentPlayerIndex = tpk->currentPlayerIndex;
+				lastAPDiceNum = (int)tpk->diceNum;
+				lastAPDiceSides = (int)tpk->diceSides;
+				int32_t total = 0;
+				for (int i = 0; i < (int)tpk->diceNum; ++i) {
+					DiceRoll newRoll;
+					newRoll.purpose = (DicePurpose)tpk->purpose;
+					newRoll.sides = tpk->diceSides;
+					newRoll.rawResult = (int)tpk->rawResults[i];
+					newRoll.result = (int)tpk->finalResults[i];
+					newRoll.startTime = ofGetElapsedTimef();
+					newRoll.associatedUnit = tpk->currentPlayerIndex;
+					// Visual RNG and quaternions (simplified from startDiceRoll visuals)
+					std::uniform_real_distribution<float> axisDist(-1.0f, 1.0f);
+					glm::vec3 rndAxis(axisDist(visualRNG), axisDist(visualRNG), axisDist(visualRNG));
+					if (glm::length(rndAxis) < 0.01f) rndAxis = glm::vec3(0, 1, 0);
+					newRoll.rotationAxis = glm::normalize(rndAxis);
+					std::uniform_real_distribution<float> yawDist(-15.0f, 15.0f);
+					glm::quat randomYaw = glm::angleAxis(glm::radians(yawDist(visualRNG)), glm::vec3(0, 1, 0));
+					newRoll.finalQuat = randomYaw; // simple visual placement; detailed face alignment not required for sync
+					newRoll.isFinishedVisual = false;
+					activeDiceRolls.push_back(newRoll);
+					total += newRoll.result;
+				}
+				// For immediate correctness we can set currentAP to the host-provided total once visuals finish;
+				// but log it now for clarity
+				ofLogNotice("Game") << "TurnStart applied locally: player=" << currentPlayerIndex << " AP total=" << total;
+			}
+			continue; // Done with this packet
+		}
+
 		if (header->type == PKT_HANDSHAKE) {
 			HandshakePacket * pkt = (HandshakePacket *)header;
 			ofLogNotice("Net") << "Handshake received. Seed: " << pkt->seed;
@@ -16796,38 +16866,41 @@ void ofApp::processNetworkPackets() {
 				draftOptions.clear();
 				selectedDraftIndices.clear();
 				currentState = STATE_GAMEPLAY;
-				// Host should include who starts; set it and begin the turn
+				// Host should include who starts; set it
 				currentPlayerIndex = sp->currentPlayerIndex;
-				startNewTurn();
+				// In multiplayer clients: DO NOT call startNewTurn(); wait for host TurnStart packet
+				if (isMultiplayer && !steamManager.isHost()) {
+					waitingForTurnStartFromHost = true;
+					ofLogNotice("Network") << "Client: Waiting for TurnStart packet from host (player=" << currentPlayerIndex << ")";
+				} else {
+					// Singleplayer or host: begin the turn locally
+					startNewTurn();
+				}
+				// Debug: compute local derivedSeed and expected first indices for verification
+				uint32_t derivedSeedLocal = currentMapSeed;
+				derivedSeedLocal ^= (uint32_t)sp->classTier * 2654435761u;
+				derivedSeedLocal ^= ((uint32_t)sp->draftPlayerIdx << 16);
+				derivedSeedLocal ^= ((uint32_t)sp->draftStage << 24);
+				std::vector<int> allIdx;
+				const std::vector<Card> * pool = &class1Cards;
+				if (sp->classTier == 2) pool = &class2Cards;
+				if (sp->classTier == 3) pool = &class3Cards;
+				allIdx.resize(pool->size());
+				std::iota(allIdx.begin(), allIdx.end(), 0);
+				std::mt19937 debugRng(derivedSeedLocal);
+				std::shuffle(allIdx.begin(), allIdx.end(), debugRng);
+				ofLogNotice("Draft") << "Local derivedSeed=" << derivedSeedLocal << " expectedIndices=" << (allIdx.size() > 0 ? allIdx[0] : -1) << "," << (allIdx.size() > 1 ? allIdx[1] : -1) << "," << (allIdx.size() > 2 ? allIdx[2] : -1);
 			}
-
 		} else if (header->type == PKT_DRAFT_OPTIONS) {
 			DraftOptionsPacket * dp = (DraftOptionsPacket *)header;
 			ofLogNotice("Network") << "DraftOptions received: " << dp->optionIndex0 << "," << dp->optionIndex1 << "," << dp->optionIndex2 << " (class=" << dp->classTier << ")";
-			// Debug: compute local derivedSeed and expected first indices for verification
-			uint32_t derivedSeedLocal = currentMapSeed;
-			derivedSeedLocal ^= (uint32_t)dp->classTier * 2654435761u;
-			derivedSeedLocal ^= ((uint32_t)dp->draftPlayerIdx << 16);
-			derivedSeedLocal ^= ((uint32_t)dp->draftStage << 24);
-			std::vector<int> allIdx;
-			const std::vector<Card> * pool = &class1Cards;
-			if (dp->classTier == 2) pool = &class2Cards;
-			if (dp->classTier == 3) pool = &class3Cards;
-			allIdx.resize(pool->size());
-			std::iota(allIdx.begin(), allIdx.end(), 0);
-			std::mt19937 debugRng(derivedSeedLocal);
-			std::shuffle(allIdx.begin(), allIdx.end(), debugRng);
-			ofLogNotice("Draft") << "Local derivedSeed=" << derivedSeedLocal << " expectedIndices=" << (allIdx.size() > 0 ? allIdx[0] : -1) << "," << (allIdx.size() > 1 ? allIdx[1] : -1) << "," << (allIdx.size() > 2 ? allIdx[2] : -1);
-
 			std::vector<int> idxs;
 			if (dp->optionIndex0 >= 0) idxs.push_back(dp->optionIndex0);
 			if (dp->optionIndex1 >= 0) idxs.push_back(dp->optionIndex1);
 			if (dp->optionIndex2 >= 0) idxs.push_back(dp->optionIndex2);
-
 			applyDraftOptionsFromPool(dp->classTier, idxs, dp->picksRemaining, dp->draftPlayerIdx);
 			draftStage = dp->draftStage;
 			isInGameDraft = (dp->isInGameDraft != 0);
-
 		} else if (header->type == PKT_DRAFT_ACTION) {
 			DraftActionPacket * pkt = (DraftActionPacket *)header;
 			ofLogNotice("Network") << "Draft action received: type=" << (int)pkt->actionType << " opt=" << pkt->optionIndex << " player=" << pkt->draftPlayerIdx << " sel=" << (int)pkt->selectFlag;
