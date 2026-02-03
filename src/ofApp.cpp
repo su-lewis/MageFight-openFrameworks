@@ -7750,13 +7750,12 @@ void ofApp::mousePressed(int x, int y, int button) {
 						ofLogNotice("Network") << "Host sent DraftStatePacket (draft->gameplay): curPlayer=" << dsp.currentPlayerIndex;
 					}
 
-					// Capture current active dice count so we can detect newly-added AP rolls
-					size_t preDiceCount = activeDiceRolls.size();
+					// startNewTurn will clear activeDiceRolls and add new AP dice, so capture from start
 					startNewTurn();
 					if (isMultiplayer && steamManager.isHost()) {
-						// Collect newly added AP rolls associated with the starting player
+						// Collect all AP rolls for the starting player (activeDiceRolls was cleared by startNewTurn)
 						std::vector<DiceRoll> newAP;
-						for (size_t di = preDiceCount; di < activeDiceRolls.size(); ++di) {
+						for (size_t di = 0; di < activeDiceRolls.size(); ++di) {
 							const DiceRoll & dr = activeDiceRolls[di];
 							if (dr.associatedUnit == currentPlayerIndex && dr.purpose == PURPOSE_AP) {
 								newAP.push_back(dr);
