@@ -16275,6 +16275,8 @@ void ofApp::applyDraftOptionsFromPool(int classTier, const std::vector<int> & in
 	draftPlayerIndex = draftingPlayerIdx;
 	selectedDraftIndices.clear();
 	currentState = STATE_DRAFTING;
+	// We've applied authoritative options from host; stop waiting
+	waitingForDraftOptions = false;
 }
 
 void ofApp::onCardPicked(int optionIndex) {
@@ -16664,10 +16666,11 @@ void ofApp::processNetworkPackets() {
 				// Enter drafting with host-provided class tier
 				currentState = STATE_DRAFTING;
 				selectedDraftIndices.clear();
-				// Only generate locally when singleplayer; in multiplayer wait for host's DraftOptionsPacket
+				// If multiplayer, wait for host authoritative DraftOptionsPacket; otherwise generate locally
 				if (!isMultiplayer) {
 					generateDraftOptions(sp->classTier);
 				} else {
+					waitingForDraftOptions = true;
 					ofLogNotice("Draft") << "Client waiting for authoritative DraftOptionsPacket from host (class=" << sp->classTier << ")";
 				}
 			} else {
@@ -16864,6 +16867,7 @@ void ofApp::processNetworkPackets() {
 						}
 					}
 				} else if (pkt->actionType == 1) {
+					// Client: host forwarded an Accept. Apply any cards and then WAIT for host authoritative state/options.
 					int picks = pkt->numSelected;
 					std::vector<int> sel;
 					if (picks > 0) sel.push_back(pkt->selectedIdx0);
@@ -16881,7 +16885,7 @@ void ofApp::processNetworkPackets() {
 					}
 					std::shuffle(p.deck.begin(), p.deck.end(), gameplayRNG);
 
-					// Advance client-side draft state similar to host
+					// Clear local selection / options and WAIT for the host to send the authoritative next state/options
 					selectedDraftIndices.clear();
 					draftOptions.clear();
 					if (isInGameDraft) {
@@ -16890,21 +16894,8 @@ void ofApp::processNetworkPackets() {
 						return;
 					}
 
-					draftStage++;
-					if (draftStage == 1) {
-						generateDraftOptions(2);
-					} else {
-						int nextPlayerIdx = (draftPlayerIndex + 1) % 2;
-						if (players[nextPlayerIdx].deck.empty()) {
-							draftPlayerIndex = nextPlayerIdx;
-							draftStage = 0;
-							generateDraftOptions(1);
-						} else {
-							currentPlayerIndex = nextPlayerIdx;
-							currentState = STATE_GAMEPLAY;
-							startNewTurn();
-						}
-					}
+					waitingForDraftOptions = true;
+					ofLogNotice("Draft") << "Client: Received forwarded Accept. Waiting for host state/options.";
 				}
 			}
 		}
