@@ -16928,9 +16928,12 @@ void ofApp::processNetworkPackets() {
 					}
 					std::shuffle(p.deck.begin(), p.deck.end(), gameplayRNG);
 
-					// Clear local selection / options and WAIT for the host to send the authoritative next state/options
+					// Clear local selection and WAIT for the host to send the authoritative next state/options
+					// NOTE: do NOT clear `draftOptions` here — keep the UI visible until the
+					// authoritative `PKT_DRAFT_OPTIONS` arrives. Clearing here caused a race
+					// where clients showed an empty draft screen when a forwarded Accept
+					// arrived before the host's options packet.
 					selectedDraftIndices.clear();
-					draftOptions.clear();
 					if (isInGameDraft) {
 						isInGameDraft = false;
 						currentState = STATE_GAMEPLAY;
@@ -16938,7 +16941,8 @@ void ofApp::processNetworkPackets() {
 					}
 
 					waitingForDraftOptions = true;
-					ofLogNotice("Draft") << "Client: Received forwarded Accept. Waiting for host state/options.";
+					waitingForDraftOptionsStartTime = ofGetElapsedTimef();
+					ofLogNotice("Draft") << "Client: Received forwarded Accept. Waiting for host state/options. (preserving local options until authoritative packet arrives)";
 				}
 			}
 		}
