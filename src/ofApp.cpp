@@ -7801,7 +7801,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 								newAP.push_back(dr);
 							}
 						}
-						if (!newAP.empty()) {
+						// Always send TurnStart packet, even if no AP dice (e.g., summoning sickness)
 							TurnStartPacket tpk;
 							tpk.type = PKT_TURN_START;
 							tpk.playerID = myLocalPlayerID;
@@ -7820,7 +7820,6 @@ void ofApp::mousePressed(int x, int y, int button) {
 							tpk.finalTotal = total;
 							steamManager.sendPacket(&tpk, sizeof(tpk));
 							ofLogNotice("Network") << "Host sent TurnStart packet: player=" << tpk.currentPlayerIndex << " dice=" << (int)tpk.diceNum << " total=" << tpk.finalTotal;
-						}
 					}
 				}
 			}
