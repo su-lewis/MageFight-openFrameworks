@@ -16304,6 +16304,14 @@ void ofApp::applyDraftOptionsFromPool(int classTier, const std::vector<int> & in
 	if (classTier == 2) pool = &class2Cards;
 	if (classTier == 3) pool = &class3Cards;
 
+	// If we've already transitioned to gameplay (race condition where a late
+	// DraftOptions packet arrives after the host moved to gameplay), ignore
+	// these late options so we don't re-enter drafting on the client.
+	if (currentState == STATE_GAMEPLAY) {
+		ofLogNotice("Draft") << "applyDraftOptionsFromPool: ignoring late DraftOptions (already in gameplay)";
+		return;
+	}
+
 	for (int idx : indices) {
 		if (idx >= 0 && idx < (int)pool->size()) draftOptions.push_back((*pool)[idx]);
 	}
