@@ -7767,9 +7767,55 @@ void ofApp::mousePressed(int x, int y, int button) {
 					draftStage = 0;
 					generateDraftOptions(1); // Start Class 1
 				} else {
-					// Both done. Game will start when PKT_DRAFT_ACTION handler receives client's Accept.
-					// (Host has clicked Accept, now waiting for client to finish)
-					ofLogNotice("Draft") << "Host: Finished drafting. Waiting for client to complete.";
+					// Both done. Start gameplay.
+					currentPlayerIndex = nextPlayerIdx;
+					currentState = STATE_GAMEPLAY;
+
+					// Inform clients that drafting has ended
+					if (isMultiplayer && steamManager.isHost()) {
+						DraftStatePacket dsp;
+						dsp.type = PKT_DRAFT_STATE;
+						dsp.playerID = myLocalPlayerID;
+						dsp.classTier = 0;
+						dsp.draftPlayerIdx = -1;
+						dsp.picksRemaining = draftPicksRemaining;
+						dsp.draftStage = draftStage;
+						dsp.isInGameDraft = isInGameDraft ? 1 : 0;
+						dsp.currentPlayerIndex = currentPlayerIndex;
+						steamManager.sendPacket(&dsp, sizeof(dsp));
+						ofLogNotice("Network") << "Host sent DraftStatePacket (draft->gameplay): curPlayer=" << dsp.currentPlayerIndex;
+					}
+
+					startNewTurn();
+
+					// Send TurnStart packet with authoritative AP values
+					if (isMultiplayer && steamManager.isHost()) {
+						std::vector<DiceRoll> newAP;
+						for (size_t di = 0; di < activeDiceRolls.size(); ++di) {
+							const DiceRoll & dr = activeDiceRolls[di];
+							if (dr.associatedUnit == currentPlayerIndex && dr.purpose == PURPOSE_AP) {
+								newAP.push_back(dr);
+							}
+						}
+						TurnStartPacket tpk;
+						tpk.type = PKT_TURN_START;
+						tpk.playerID = myLocalPlayerID;
+						tpk.currentPlayerIndex = currentPlayerIndex;
+						int pkCount = 0;
+						int32_t total = 0;
+						for (size_t i = 0; i < newAP.size() && pkCount < 8; ++i) {
+							tpk.rawResults[pkCount] = (uint8_t)newAP[i].rawResult;
+							tpk.finalResults[pkCount] = (uint8_t)newAP[i].result;
+							pkCount++;
+							total += newAP[i].result;
+						}
+						tpk.diceNum = (uint8_t)pkCount;
+						tpk.diceSides = (uint8_t)(pkCount > 0 ? newAP[0].sides : 6);
+						tpk.purpose = (uint8_t)PURPOSE_AP;
+						tpk.finalTotal = total;
+						steamManager.sendPacket(&tpk, sizeof(tpk));
+						ofLogNotice("Network") << "Host sent TurnStart (mousePressed): player=" << tpk.currentPlayerIndex << " dice=" << (int)tpk.diceNum << " total=" << tpk.finalTotal;
+					}
 				}
 			}
 			return;
