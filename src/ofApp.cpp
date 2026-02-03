@@ -7734,6 +7734,22 @@ void ofApp::mousePressed(int x, int y, int button) {
 					currentPlayerIndex = nextPlayerIdx;
 
 					currentState = STATE_GAMEPLAY;
+					// Inform clients that drafting has ended and gameplay is starting so they can
+					// defer any local AP rolls until they receive the authoritative TurnStart.
+					if (isMultiplayer && steamManager.isHost()) {
+						DraftStatePacket dsp;
+						dsp.type = PKT_DRAFT_STATE;
+						dsp.playerID = myLocalPlayerID;
+						dsp.classTier = 0; // 0 indicates drafting finished
+						dsp.draftPlayerIdx = -1;
+						dsp.picksRemaining = draftPicksRemaining;
+						dsp.draftStage = draftStage;
+						dsp.isInGameDraft = isInGameDraft ? 1 : 0;
+						dsp.currentPlayerIndex = currentPlayerIndex;
+						steamManager.sendPacket(&dsp, sizeof(dsp));
+						ofLogNotice("Network") << "Host sent DraftStatePacket (draft->gameplay): curPlayer=" << dsp.currentPlayerIndex;
+					}
+
 					// Capture current active dice count so we can detect newly-added AP rolls
 					size_t preDiceCount = activeDiceRolls.size();
 					startNewTurn();
