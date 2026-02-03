@@ -12,7 +12,8 @@ enum PacketType {
 	PKT_DRAFT_STATE, // Host -> Client: draft state update (class, stage, player)
 	PKT_DRAFT_OPTIONS, // Host -> Client: authoritative indices for options
 	PKT_SHUFFLE, // Host -> Client: authoritative deck shuffle (playerIndex, nonce)
-	PKT_TURN_START // Host -> Client: authoritative turn start (current player, AP dice results)
+	PKT_TURN_START, // Host -> Client: authoritative turn start (current player, AP dice results)
+	PKT_KEY_PICKUP // Host -> Client: a player picked up a key (trigger in-game draft)
 };
 
 struct PacketHeader {
@@ -175,6 +176,14 @@ struct MagicHandChoicePacket : PacketHeader {
 struct RenewedInspireDiscardsPacket : PacketHeader {
 	uint8_t numDiscards;
 	int32_t discardedHandIndices[8]; // Max 8 cards to discard, adjust as needed
+};
+
+// For Key Pickup: Host tells client a player picked up a key
+struct KeyPickupPacket : PacketHeader {
+	int32_t playerIndex; // Which player picked up the key
+	uint8_t classTier; // 1, 2, or 3
+	int32_t keyX; // Grid position of the key
+	int32_t keyY;
 };
 
 #pragma pack(pop)

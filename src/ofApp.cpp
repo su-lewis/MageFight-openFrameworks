@@ -4199,58 +4199,74 @@ void ofApp::updateGame() {
 			playerVisualPos = targetPos; // Snap to exact position
 
 			// --- KEY PICKUP LOGIC START ---
-			glm::vec2 currentGridPos = worldToGrid(playerVisualPos);
-			int cx = (int)currentGridPos.x;
-			int cy = (int)currentGridPos.y;
+			// Only process key pickup on host - clients wait for PKT_KEY_PICKUP packet
+			if (!isMultiplayer || steamManager.isHost()) {
+				glm::vec2 currentGridPos = worldToGrid(playerVisualPos);
+				int cx = (int)currentGridPos.x;
+				int cy = (int)currentGridPos.y;
 
-			for (int k = 0; k < (int)floatingKeyInstances.size(); ++k) {
-				if (floatingKeyInstances[k].pos.x == cx && floatingKeyInstances[k].pos.y == cy) {
-					// KEY FOUND
-					int keySet = floatingKeyInstances[k].set;
+				for (int k = 0; k < (int)floatingKeyInstances.size(); ++k) {
+					if (floatingKeyInstances[k].pos.x == cx && floatingKeyInstances[k].pos.y == cy) {
+						// KEY FOUND
+						int keySet = floatingKeyInstances[k].set;
 
-					// Remove the key immediately
-					floatingKeyInstances.erase(floatingKeyInstances.begin() + k);
+						// Remove the key immediately
+						floatingKeyInstances.erase(floatingKeyInstances.begin() + k);
 
-					// Map Key Color to Card Class
-					// Set 3 (Bronze) = Class 1
-					// Set 2 (Silver) = Class 2
-					// Set 1 (Gold)   = Class 3
-					int classToDraft = 1;
-					if (keySet == 3)
-						classToDraft = 1;
-					else if (keySet == 2)
-						classToDraft = 2;
-					else if (keySet == 1)
-						classToDraft = 3;
+						// Map Key Color to Card Class
+						// Set 3 (Bronze) = Class 1
+						// Set 2 (Silver) = Class 2
+						// Set 1 (Gold)   = Class 3
+						int classToDraft = 1;
+						if (keySet == 3)
+							classToDraft = 1;
+						else if (keySet == 2)
+							classToDraft = 2;
+						else if (keySet == 1)
+							classToDraft = 3;
 
-					// Identify Owner (If minion steps on key, Summoner gets the card)
-					Player & mover = players[currentPlayerIndex];
-					int ownerID = mover.isMinion ? mover.ownerID : mover.playerID;
+						// Identify Owner (If minion steps on key, Summoner gets the card)
+						Player & mover = players[currentPlayerIndex];
+						int ownerID = mover.isMinion ? mover.ownerID : mover.playerID;
 
-					int ownerIndex = -1;
-					for (int p = 0; p < (int)players.size(); ++p) {
-						if (players[p].playerID == ownerID && !players[p].isMinion) {
-							ownerIndex = p;
-							break;
+						int ownerIndex = -1;
+						for (int p = 0; p < (int)players.size(); ++p) {
+							if (players[p].playerID == ownerID && !players[p].isMinion) {
+								ownerIndex = p;
+								break;
+							}
 						}
-					}
 
-					if (ownerIndex != -1) {
-						// Setup In-Game Draft State
-						isInGameDraft = true;
-						draftPlayerIndex = ownerIndex;
-						generateDraftOptions(classToDraft);
-						draftPicksRemaining = 1; // Keys always give 1 pick
-						selectedDraftIndices.clear(); // Reset UI selection
-						currentState = STATE_DRAFTING;
+						if (ownerIndex != -1) {
+							// HOST: Send key pickup packet to clients
+							if (isMultiplayer && steamManager.isHost()) {
+								KeyPickupPacket kpkt;
+								kpkt.type = PKT_KEY_PICKUP;
+								kpkt.playerID = myLocalPlayerID;
+								kpkt.playerIndex = ownerIndex;
+								kpkt.classTier = classToDraft;
+								kpkt.keyX = cx;
+								kpkt.keyY = cy;
+								steamManager.sendPacket(&kpkt, sizeof(kpkt));
+								ofLogNotice("Network") << "Host sent KeyPickup: player=" << ownerIndex << " class=" << classToDraft;
+							}
 
-						spawnFloatingText(transformGridToWorld(cx, cy), "Key Found!", ofColor::gold);
-						ofLogNotice("Key") << "Player " << ownerID << " picked up key (Class " << classToDraft << ")";
-						return; // Stop update to freeze game/animation until draft is done
+							// Setup In-Game Draft State
+							isInGameDraft = true;
+							draftPlayerIndex = ownerIndex;
+							generateDraftOptions(classToDraft);
+							draftPicksRemaining = 1; // Keys always give 1 pick
+							selectedDraftIndices.clear(); // Reset UI selection
+							currentState = STATE_DRAFTING;
+
+							spawnFloatingText(transformGridToWorld(cx, cy), "Key Found!", ofColor::gold);
+							ofLogNotice("Key") << "Player " << ownerID << " picked up key (Class " << classToDraft << ")";
+							return; // Stop update to freeze game/animation until draft is done
+						}
+						break;
 					}
-					break;
 				}
-			}
+			} // End host-only key pickup logic
 			// --- KEY PICKUP LOGIC END ---
 
 			currentPathIndex++;
@@ -10226,12 +10242,15 @@ void ofApp::startNewTurn() {
 		steamManager.sendPacket(&pkt, sizeof(pkt));
 
 		// 2. Send Checksum to verify we ended in the same state
-		ChecksumPacket sumPkt;
-		sumPkt.type = PKT_CHECKSUM_CHECK;
-		sumPkt.playerID = myLocalPlayerID;
-		sumPkt.checksum = calculateChecksum();
-		sumPkt.turnNumber = globalTurnCounter;
-		steamManager.sendPacket(&sumPkt, sizeof(sumPkt));
+		// Skip checksum on turn 0 (draft completion) to allow draft packets to sync first
+		if (globalTurnCounter > 0) {
+			ChecksumPacket sumPkt;
+			sumPkt.type = PKT_CHECKSUM_CHECK;
+			sumPkt.playerID = myLocalPlayerID;
+			sumPkt.checksum = calculateChecksum();
+			sumPkt.turnNumber = globalTurnCounter;
+			steamManager.sendPacket(&sumPkt, sizeof(sumPkt));
+		}
 	}
 
 	if (players.empty()) return;
@@ -16985,6 +17004,32 @@ void ofApp::processNetworkPackets() {
 				isMultiplayer = false;
 				currentState = STATE_DESYNC;
 				spawnFloatingText(glm::vec3(0, 5, 0), "DESYNC DETECTED", ofColor::red);
+			}
+		} else if (header->type == PKT_KEY_PICKUP) {
+			KeyPickupPacket * kpkt = (KeyPickupPacket *)header;
+			ofLogNotice("Network") << "KeyPickup packet received: player=" << kpkt->playerIndex << " class=" << kpkt->classTier << " pos=(" << kpkt->keyX << "," << kpkt->keyY << ")";
+
+			// CLIENT: Apply key pickup from host
+			if (!steamManager.isHost()) {
+				// Remove the key from client's floatingKeyInstances
+				for (size_t k = 0; k < floatingKeyInstances.size(); ++k) {
+					FloatingKey & fk = floatingKeyInstances[k];
+					if (fk.pos.x == kpkt->keyX && fk.pos.y == kpkt->keyY) {
+						floatingKeyInstances.erase(floatingKeyInstances.begin() + k);
+						break;
+					}
+				}
+
+				// Setup In-Game Draft State (same as host does)
+				isInGameDraft = true;
+				draftPlayerIndex = kpkt->playerIndex;
+				generateDraftOptions(kpkt->classTier);
+				draftPicksRemaining = 1;
+				selectedDraftIndices.clear();
+				currentState = STATE_DRAFTING;
+
+				spawnFloatingText(transformGridToWorld(kpkt->keyX, kpkt->keyY), "Key Found!", ofColor::gold);
+				ofLogNotice("Key") << "Client: Player " << kpkt->playerIndex << " picked up key (Class " << kpkt->classTier << ")";
 			}
 		} else if (header->type == PKT_DRAFT_STATE) {
 			DraftStatePacket * sp = (DraftStatePacket *)header;
