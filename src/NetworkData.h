@@ -1,15 +1,16 @@
 #pragma once
 #include <cstdint>
 
+#pragma pack(push,1)
+
 enum PacketType {
 	PKT_HANDSHAKE,
 	PKT_ACTION,
 	PKT_END_TURN,
 	PKT_CHECKSUM_CHECK,
-	PKT_DRAFT_ACTION // Draft selection / accept messages (sent by clients to host)
+	PKT_DRAFT_ACTION, // Draft selection / accept messages (sent by clients to host)
+	PKT_DRAFT_STATE // Host -> Client: draft state update (class, stage, player)
 };
-
-#pragma pack(push, 1)
 
 struct PacketHeader {
 	uint8_t type; // PacketType
@@ -65,6 +66,15 @@ struct DraftActionPacket : PacketHeader {
 	int32_t selectedIdx2;
 };
 
+// Host -> Client: Simple draft state update (no indices, just state)
+struct DraftStatePacket : PacketHeader {
+	int32_t classTier; // 1,2,3 or 0 when not drafting
+	int32_t draftPlayerIdx; // which player is currently drafting
+	int32_t picksRemaining; // how many picks left this stage
+	int32_t draftStage; // 0 = class1, 1 = class2, etc
+	uint8_t isInGameDraft; // 1 = in-game key draft, 0 = normal
+};
+
 // Host -> Client: send the indices in the pool for the options shown
 struct DraftOptionsPacket : PacketHeader {
 	int32_t classTier; // 1,2,3
@@ -74,8 +84,6 @@ struct DraftOptionsPacket : PacketHeader {
 	int32_t draftPlayerIdx; // which player is currently drafting
 	int32_t picksRemaining; // how many picks left for this stage
 };
-
-#pragma pack(pop)
 
 // When a player places a summoned minion that requires manual placement (e.g., Wolves, Kobolds)
 struct PlaceSummonedMinionPacket : PacketHeader {

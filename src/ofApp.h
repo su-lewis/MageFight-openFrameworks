@@ -482,17 +482,17 @@ private:
 	// The synced Random Number Generator
 	std::mt19937 gameplayRNG;
 
-// Visual RNG (local only, not part of deterministic gameplay)
-std::mt19937 visualRNG;
+	// Visual RNG (local only, not part of deterministic gameplay)
+	std::mt19937 visualRNG;
 
-// Flag set when the host-provided gameplay seed has been applied
-bool gameplaySeededByHost = false;
+	// Flag set when the host-provided gameplay seed has been applied
+	bool gameplaySeededByHost = false;
 
-// Desync message shown when checksum fails
-std::string desyncMessage;
+	// Desync message shown when checksum fails
+	std::string desyncMessage;
 
-// Helper to get synced numbers
-int getGameRandom(int min, int max);
+	// Helper to get synced numbers
+	int getGameRandom(int min, int max);
 
 	template <class T>
 	void shuffleGameVector(std::vector<T> & vec) {

@@ -901,12 +901,34 @@ void ofApp::update() {
 					draftStage = 0;
 					generateDraftOptions(1); // Start Class 1
 					ofLogNotice("Initiative") << "Player 1 Wins Initiative";
+				if (steamManager.isHost()) {
+					DraftStatePacket sp;
+					sp.type = PKT_DRAFT_STATE;
+					sp.playerID = myLocalPlayerID;
+					sp.classTier = 1;
+					sp.draftPlayerIdx = draftPlayerIndex;
+					sp.picksRemaining = draftPicksRemaining;
+					sp.draftStage = draftStage;
+					sp.isInGameDraft = isInGameDraft ? 1 : 0;
+					steamManager.sendPacket(&sp, sizeof(sp));
+				}
 				} else if (p2Roll > p1Roll) {
 					draftPlayerIndex = 1; // P2 Wins
 					currentState = STATE_DRAFTING;
 					draftStage = 0;
 					generateDraftOptions(1);
 					ofLogNotice("Initiative") << "Player 2 Wins Initiative";
+				if (steamManager.isHost()) {
+					DraftStatePacket sp;
+					sp.type = PKT_DRAFT_STATE;
+					sp.playerID = myLocalPlayerID;
+					sp.classTier = 1;
+					sp.draftPlayerIdx = draftPlayerIndex;
+					sp.picksRemaining = draftPicksRemaining;
+					sp.draftStage = draftStage;
+					sp.isInGameDraft = isInGameDraft ? 1 : 0;
+					steamManager.sendPacket(&sp, sizeof(sp));
+				}
 				} else {
 					// TIE - Reroll
 					startDiceRoll(1, 6, PURPOSE_DEBUG, "P1 Reroll");
@@ -1427,7 +1449,7 @@ void ofApp::initGameFromSeed(uint32_t seed) {
 
 	// Initialize the same common state as host
 	initializeGameStateCommon();
-} 
+}
 //--------------------------------------------------------------
 void ofApp::updateGame() {
 
@@ -4259,7 +4281,7 @@ void ofApp::updateGame() {
 									if (p.isFaerie && p.x == nx && p.y == ny && p.health > 0) {
 										// Roll 1d4, resurrect at 25% * roll * maxHealth
 										std::uniform_int_distribution<int> d4dist(1, 4);
-				int roll = d4dist(gameplayRNG); // 1-4
+										int roll = d4dist(gameplayRNG); // 1-4
 										int hp = (int)std::floor(dying.maxHealth * 0.25f * roll);
 										if (hp < 1) hp = 1;
 										dying.health = hp;
@@ -4636,9 +4658,9 @@ void ofApp::drawGame() {
 	if (currentState == STATE_DESYNC) {
 		ofPushStyle();
 		ofSetColor(255, 30, 30);
-	
-titleFont.drawString("DESYNC DETECTED", ofGetWidth() / 2.0f - 240, ofGetHeight() / 2.0f - 40);
-	uiFont.drawString(desyncMessage, ofGetWidth() / 2.0f - 360, ofGetHeight() / 2.0f + 8);
+
+		titleFont.drawString("DESYNC DETECTED", ofGetWidth() / 2.0f - 240, ofGetHeight() / 2.0f - 40);
+		uiFont.drawString(desyncMessage, ofGetWidth() / 2.0f - 360, ofGetHeight() / 2.0f + 8);
 		ofPopStyle();
 		return;
 	}
@@ -12456,16 +12478,16 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 			state.originalDistance = 0;
 
 			// Random Direction (N, E, S, W)
-				std::uniform_int_distribution<int> dirDist(0, 3);
-				int r = dirDist(gameplayRNG);
-				if (r == 0)
-					state.direction = { 0, 1 }; // South
-				else if (r == 1)
-					state.direction = { 0, -1 }; // North
-				else if (r == 2)
-					state.direction = { 1, 0 }; // East
-				else
-					state.direction = { -1, 0 }; // West
+			std::uniform_int_distribution<int> dirDist(0, 3);
+			int r = dirDist(gameplayRNG);
+			if (r == 0)
+				state.direction = { 0, 1 }; // South
+			else if (r == 1)
+				state.direction = { 0, -1 }; // North
+			else if (r == 2)
+				state.direction = { 1, 0 }; // East
+			else
+				state.direction = { -1, 0 }; // West
 
 			// Roll 1d4 for this unit and record which dice slot we created
 			int before = (int)activeDiceRolls.size();
@@ -16510,7 +16532,7 @@ void ofApp::processNetworkPackets() {
 
 			// FIX: Seed the gameplay RNG
 			gameplayRNG.seed(pkt->seed);
-		gameplaySeededByHost = true;
+			gameplaySeededByHost = true;
 			isMultiplayer = true;
 			myLocalPlayerID = 1;
 
@@ -16540,11 +16562,42 @@ void ofApp::processNetworkPackets() {
 				currentState = STATE_DESYNC;
 				spawnFloatingText(glm::vec3(0, 5, 0), "DESYNC DETECTED", ofColor::red);
 			}
+		} else if (header->type == PKT_DRAFT_STATE) {
+			DraftStatePacket * sp = (DraftStatePacket *)header;
+			ofLogNotice("Network") << "Draft state received: class=" << sp->classTier << " player=" << sp->draftPlayerIdx << " picks=" << sp->picksRemaining << " stage=" << sp->draftStage << " ingame=" << (int)sp->isInGameDraft;
+
+			// Client applies host state directly
+			draftPlayerIndex = sp->draftPlayerIdx;
+			draftStage = sp->draftStage;
+			draftPicksRemaining = sp->picksRemaining;
+			isInGameDraft = (sp->isInGameDraft != 0);
+			if (sp->classTier > 0) {
+				currentState = STATE_DRAFTING;
+				selectedDraftIndices.clear();
+				generateDraftOptions(sp->classTier);
+			} else {
+				// classTier==0 => exit drafting
+				draftOptions.clear();
+				selectedDraftIndices.clear();
+				currentState = STATE_GAMEPLAY;
+			}
+
 		} else if (header->type == PKT_DRAFT_ACTION) {
 			DraftActionPacket * pkt = (DraftActionPacket *)header;
-			ofLogNotice("Network") << "Draft action received: type=" << (int)pkt->actionType << " opt=" << pkt->optionIndex << " player=" << pkt->draftPlayerIdx;
+			ofLogNotice("Network") << "Draft action received: type=" << (int)pkt->actionType << " opt=" << pkt->optionIndex << " player=" << pkt->draftPlayerIdx << " sel=" << (int)pkt->selectFlag;
 
 			if (steamManager.isHost()) {
+				// Ensure host's draft state is consistent before applying inputs
+				if (currentState != STATE_DRAFTING && !isInGameDraft) {
+					ofLogNotice("Network") << "Host: Received draft input but not in STATE_DRAFTING; forcing draft start for player " << pkt->draftPlayerIdx;
+					draftPlayerIndex = pkt->draftPlayerIdx;
+					draftStage = 0;
+					if (pkt->actionType == 1) {
+						// Accept arrived but we weren't in drafting - treat normally
+					} else {
+						generateDraftOptions(1);
+					}
+				}
 				// Host: apply the client's input, then forward to the client(s)
 				if (pkt->actionType == 0) {
 					// SELECT / TOGGLE selection or in-game immediate pick
@@ -16629,6 +16682,18 @@ void ofApp::processNetworkPackets() {
 					// Forward accept to client
 					DraftActionPacket outPkt = *pkt;
 					steamManager.sendPacket(&outPkt, sizeof(outPkt));
+
+					// Also send a state sync packet so clients know the exact draft state
+					DraftStatePacket sp;
+					sp.type = PKT_DRAFT_STATE;
+					sp.playerID = myLocalPlayerID;
+					// classTier: 0 == none, 1/2 == class tiers
+					if (currentState == STATE_GAMEPLAY) sp.classTier = 0; else if (draftStage == 0) sp.classTier = 1; else sp.classTier = 2;
+					sp.draftPlayerIdx = (currentState == STATE_GAMEPLAY) ? -1 : draftPlayerIndex;
+					sp.picksRemaining = draftPicksRemaining;
+					sp.draftStage = draftStage;
+					sp.isInGameDraft = isInGameDraft ? 1 : 0;
+					steamManager.sendPacket(&sp, sizeof(sp));
 				}
 			} else {
 				// Client: apply actions forwarded by host
@@ -16783,5 +16848,5 @@ long long ofApp::calculateChecksum() {
 	}
 
 	return (long long)h;
-} 
+}
 //--------------------------------------------------------------
