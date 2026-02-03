@@ -6135,6 +6135,25 @@ void ofApp::drawGame() {
 	}
 
 	// End Turn Button
+	// If UI wasn't snapped on resize (some platforms/window managers),
+	// ensure the end turn button has a sensible initial position instead of (0,0)
+	if (endTurnButtonCurrentPos.x == 0 && endTurnButtonCurrentPos.y == 0) {
+		float btnWidth_tmp = 250 * scale;
+		float visibleY = 20 * scale;
+		float hiddenY = -100 * scale;
+		bool isPlayer1Turn = false;
+		if (currentPlayerIndex >= 0 && !players.empty()) {
+			int pid = players[currentPlayerIndex].playerID;
+			int oid = players[currentPlayerIndex].ownerID;
+			if (pid == 0 || oid == 0) isPlayer1Turn = true;
+		}
+		if (isPlayer1Turn)
+			endTurnButtonCurrentPos.set(ofGetWidth() / 2.0f - btnWidth_tmp / 2.0f, visibleY);
+		else
+			endTurnButtonCurrentPos.set(ofGetWidth() / 2.0f - btnWidth_tmp / 2.0f, hiddenY);
+		endTurnButtonTargetPos = endTurnButtonCurrentPos;
+	}
+
 	float btnWidth_end = 250 * scale;
 	float btnHeight_end = 60 * scale;
 	endTurnButtonRect.set(endTurnButtonCurrentPos.x, endTurnButtonCurrentPos.y, btnWidth_end, btnHeight_end);
@@ -16420,6 +16439,9 @@ void ofApp::drawDraftScreen() {
 	// 2b. Draw Class Tier Text Below Prompt
 	std::string classTierText = "";
 	ofColor classTierColor = ofColor::white;
+	// Predeclare so we can use values for layout later
+	ofRectangle classBox;
+	float classTx = 0, classTy = 0;
 	if (!isInGameDraft) {
 		if (draftStage == 0) {
 			classTierText = "Class 1";
@@ -16431,9 +16453,9 @@ void ofApp::drawDraftScreen() {
 	}
 
 	if (!classTierText.empty()) {
-		ofRectangle classBox = titleFont.getStringBoundingBox(classTierText, 0, 0);
-		float classTx = (ofGetWidth() / 2.0f) - (classBox.width / 2.0f);
-		float classTy = ty + bbox.height + 18;
+		classBox = titleFont.getStringBoundingBox(classTierText, 0, 0);
+		classTx = (ofGetWidth() / 2.0f) - (classBox.width / 2.0f);
+		classTy = ty + bbox.height + 18;
 		ofSetColor(0, 0, 0, 255);
 		titleFont.drawString(classTierText, classTx + 2, classTy + 2);
 		ofSetColor(classTierColor);
@@ -16446,6 +16468,17 @@ void ofApp::drawDraftScreen() {
 	float spacing = 60;
 	float startX = (ofGetWidth() - (3 * cardW + 2 * spacing)) / 2;
 	float startY = ofGetHeight() / 2 - cardH / 2;
+
+	// Prevent overlap: ensure the top text (prompt + class text if present) clears space above the cards
+	float topTextBottom = ty + bbox.height;
+	if (!classTierText.empty()) {
+		topTextBottom = classTy + classBox.height;
+	}
+	float minStartY = topTextBottom + 24.0f; // small padding
+	if (startY < minStartY) {
+		startY = minStartY;
+	}
+
 
 	for (size_t i = 0; i < draftOptions.size(); ++i) {
 		float x = startX + i * (cardW + spacing);
