@@ -901,34 +901,34 @@ void ofApp::update() {
 					draftStage = 0;
 					generateDraftOptions(1); // Start Class 1
 					ofLogNotice("Initiative") << "Player 1 Wins Initiative";
-				if (steamManager.isHost()) {
-					DraftStatePacket sp;
-					sp.type = PKT_DRAFT_STATE;
-					sp.playerID = myLocalPlayerID;
-					sp.classTier = 1;
-					sp.draftPlayerIdx = draftPlayerIndex;
-					sp.picksRemaining = draftPicksRemaining;
-					sp.draftStage = draftStage;
-					sp.isInGameDraft = isInGameDraft ? 1 : 0;
-					steamManager.sendPacket(&sp, sizeof(sp));
-				}
+					if (steamManager.isHost()) {
+						DraftStatePacket sp;
+						sp.type = PKT_DRAFT_STATE;
+						sp.playerID = myLocalPlayerID;
+						sp.classTier = 1;
+						sp.draftPlayerIdx = draftPlayerIndex;
+						sp.picksRemaining = draftPicksRemaining;
+						sp.draftStage = draftStage;
+						sp.isInGameDraft = isInGameDraft ? 1 : 0;
+						steamManager.sendPacket(&sp, sizeof(sp));
+					}
 				} else if (p2Roll > p1Roll) {
 					draftPlayerIndex = 1; // P2 Wins
 					currentState = STATE_DRAFTING;
 					draftStage = 0;
 					generateDraftOptions(1);
 					ofLogNotice("Initiative") << "Player 2 Wins Initiative";
-				if (steamManager.isHost()) {
-					DraftStatePacket sp;
-					sp.type = PKT_DRAFT_STATE;
-					sp.playerID = myLocalPlayerID;
-					sp.classTier = 1;
-					sp.draftPlayerIdx = draftPlayerIndex;
-					sp.picksRemaining = draftPicksRemaining;
-					sp.draftStage = draftStage;
-					sp.isInGameDraft = isInGameDraft ? 1 : 0;
-					steamManager.sendPacket(&sp, sizeof(sp));
-				}
+					if (steamManager.isHost()) {
+						DraftStatePacket sp;
+						sp.type = PKT_DRAFT_STATE;
+						sp.playerID = myLocalPlayerID;
+						sp.classTier = 1;
+						sp.draftPlayerIdx = draftPlayerIndex;
+						sp.picksRemaining = draftPicksRemaining;
+						sp.draftStage = draftStage;
+						sp.isInGameDraft = isInGameDraft ? 1 : 0;
+						steamManager.sendPacket(&sp, sizeof(sp));
+					}
 				} else {
 					// TIE - Reroll
 					startDiceRoll(1, 6, PURPOSE_DEBUG, "P1 Reroll");
@@ -7648,8 +7648,12 @@ void ofApp::mousePressed(int x, int y, int button) {
 				pkt.selectedIdx0 = (pkt.numSelected > 0) ? selectedDraftIndices[0] : -1;
 				pkt.selectedIdx1 = (pkt.numSelected > 1) ? selectedDraftIndices[1] : -1;
 				pkt.selectedIdx2 = (pkt.numSelected > 2) ? selectedDraftIndices[2] : -1;
-				steamManager.sendPacket(&pkt, sizeof(pkt));
-				ofLogNotice("Network") << "Client sent AcceptDraft to host (" << pkt.numSelected << " picks)";
+				bool ok = steamManager.sendPacket(&pkt, sizeof(pkt));
+				if (!ok) {
+					ofLogError("Network") << "Failed to send AcceptDraft to host (packet not sent)";
+				} else {
+					ofLogNotice("Network") << "Client sent AcceptDraft to host (" << pkt.numSelected << " picks)";
+				}
 				return;
 			}
 
@@ -16215,6 +16219,40 @@ void ofApp::generateDraftOptions(int classTier, const std::vector<int> * forcedI
 		draftPicksRemaining = 2; // Pick 2
 	else
 		draftPicksRemaining = 1; // Pick 1
+
+	// If we are the authoritative host in multiplayer, send the exact indices
+	if (isMultiplayer && steamManager.isHost()) {
+		DraftOptionsPacket dp;
+		dp.type = PKT_DRAFT_OPTIONS;
+		dp.playerID = myLocalPlayerID;
+		dp.classTier = classTier;
+		dp.optionIndex0 = (indices.size() > 0) ? indices[0] : -1;
+		dp.optionIndex1 = (indices.size() > 1) ? indices[1] : -1;
+		dp.optionIndex2 = (indices.size() > 2) ? indices[2] : -1;
+		dp.draftPlayerIdx = draftPlayerIndex;
+		dp.picksRemaining = draftPicksRemaining;
+		dp.draftStage = draftStage;
+		dp.isInGameDraft = isInGameDraft ? 1 : 0;
+		steamManager.sendPacket(&dp, sizeof(dp));
+		ofLogNotice("Network") << "Host sent DraftOptionsPacket: " << dp.optionIndex0 << "," << dp.optionIndex1 << "," << dp.optionIndex2;
+	}
+}
+
+// Apply authoritative option indices sent by host (clients call this when receiving DraftOptionsPacket)
+void ofApp::applyDraftOptionsFromPool(int classTier, const std::vector<int> & indices, int picksRemaining, int draftingPlayerIdx) {
+	draftOptions.clear();
+	const std::vector<Card> * pool = &class1Cards;
+	if (classTier == 2) pool = &class2Cards;
+	if (classTier == 3) pool = &class3Cards;
+
+	for (int idx : indices) {
+		if (idx >= 0 && idx < (int)pool->size()) draftOptions.push_back((*pool)[idx]);
+	}
+
+	draftPicksRemaining = picksRemaining;
+	draftPlayerIndex = draftingPlayerIdx;
+	selectedDraftIndices.clear();
+	currentState = STATE_DRAFTING;
 }
 
 void ofApp::onCardPicked(int optionIndex) {
@@ -16574,6 +16612,7 @@ void ofApp::processNetworkPackets() {
 			if (sp->classTier > 0) {
 				currentState = STATE_DRAFTING;
 				selectedDraftIndices.clear();
+				// Generate a quick local version, host will send authoritative indices shortly
 				generateDraftOptions(sp->classTier);
 			} else {
 				// classTier==0 => exit drafting
@@ -16581,6 +16620,19 @@ void ofApp::processNetworkPackets() {
 				selectedDraftIndices.clear();
 				currentState = STATE_GAMEPLAY;
 			}
+
+		} else if (header->type == PKT_DRAFT_OPTIONS) {
+			DraftOptionsPacket * dp = (DraftOptionsPacket *)header;
+			ofLogNotice("Network") << "DraftOptions received: " << dp->optionIndex0 << "," << dp->optionIndex1 << "," << dp->optionIndex2 << " (class=" << dp->classTier << ")";
+
+			std::vector<int> idxs;
+			if (dp->optionIndex0 >= 0) idxs.push_back(dp->optionIndex0);
+			if (dp->optionIndex1 >= 0) idxs.push_back(dp->optionIndex1);
+			if (dp->optionIndex2 >= 0) idxs.push_back(dp->optionIndex2);
+
+			applyDraftOptionsFromPool(dp->classTier, idxs, dp->picksRemaining, dp->draftPlayerIdx);
+			draftStage = dp->draftStage;
+			isInGameDraft = (dp->isInGameDraft != 0);
 
 		} else if (header->type == PKT_DRAFT_ACTION) {
 			DraftActionPacket * pkt = (DraftActionPacket *)header;
@@ -16688,7 +16740,12 @@ void ofApp::processNetworkPackets() {
 					sp.type = PKT_DRAFT_STATE;
 					sp.playerID = myLocalPlayerID;
 					// classTier: 0 == none, 1/2 == class tiers
-					if (currentState == STATE_GAMEPLAY) sp.classTier = 0; else if (draftStage == 0) sp.classTier = 1; else sp.classTier = 2;
+					if (currentState == STATE_GAMEPLAY)
+						sp.classTier = 0;
+					else if (draftStage == 0)
+						sp.classTier = 1;
+					else
+						sp.classTier = 2;
 					sp.draftPlayerIdx = (currentState == STATE_GAMEPLAY) ? -1 : draftPlayerIndex;
 					sp.picksRemaining = draftPicksRemaining;
 					sp.draftStage = draftStage;

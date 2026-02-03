@@ -1,7 +1,7 @@
 #pragma once
 #include <cstdint>
 
-#pragma pack(push,1)
+#pragma pack(push, 1)
 
 enum PacketType {
 	PKT_HANDSHAKE,
@@ -9,7 +9,8 @@ enum PacketType {
 	PKT_END_TURN,
 	PKT_CHECKSUM_CHECK,
 	PKT_DRAFT_ACTION, // Draft selection / accept messages (sent by clients to host)
-	PKT_DRAFT_STATE // Host -> Client: draft state update (class, stage, player)
+	PKT_DRAFT_STATE, // Host -> Client: draft state update (class, stage, player)
+	PKT_DRAFT_OPTIONS // Host -> Client: authoritative indices for options
 };
 
 struct PacketHeader {
@@ -83,6 +84,8 @@ struct DraftOptionsPacket : PacketHeader {
 	int32_t optionIndex2;
 	int32_t draftPlayerIdx; // which player is currently drafting
 	int32_t picksRemaining; // how many picks left for this stage
+	int32_t draftStage; // 0 = class1, 1 = class2, etc
+	uint8_t isInGameDraft; // 1 = in-game key draft, 0 = normal
 };
 
 // When a player places a summoned minion that requires manual placement (e.g., Wolves, Kobolds)
