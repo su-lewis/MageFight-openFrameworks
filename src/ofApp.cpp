@@ -16838,6 +16838,12 @@ void ofApp::processNetworkPackets() {
 			}
 		} else if (header->type == PKT_CHECKSUM_CHECK) {
 			ChecksumPacket * pkt = (ChecksumPacket *)header;
+			// If we're waiting for the host's TurnStart packet, skip checksum validation
+			// because we haven't advanced our state yet (we're in a transient waiting state).
+			if (isMultiplayer && !steamManager.isHost() && waitingForTurnStartFromHost) {
+				ofLogNotice("Network") << "Client: Skipping checksum validation while waiting for TurnStart.";
+				continue;
+			}
 			long long mySum = calculateChecksum();
 			if (mySum != pkt->checksum) {
 				ofLogError("Net") << "DESYNC DETECTED! Local: " << mySum << " Remote: " << pkt->checksum << " Turn: " << pkt->turnNumber;

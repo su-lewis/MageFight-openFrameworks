@@ -1,0 +1,3 @@
+[notice ] Game: --- GAME SESSION CLEANED UP ---
+[notice ] SteamManager: Steam API Shutdown.
+[S_API FAIL] Tried to access Steam interface SteamNetworkingSockets012 before SteamAPI_Init succeeded.
