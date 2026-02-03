@@ -7787,9 +7787,11 @@ void ofApp::mousePressed(int x, int y, int button) {
 					currentPlayerIndex = nextPlayerIdx;
 					currentState = STATE_GAMEPLAY;
 
-					startNewTurn();
+					// For the first turn, call continueNewTurn() directly to avoid incrementing currentPlayerIndex
+					// (There's no previous turn to end, so we skip the cleanup/advancement logic)
+					continueNewTurn();
 
-					// Inform clients that drafting has ended (AFTER startNewTurn so currentPlayerIndex is correct)
+					// Inform clients that drafting has ended (AFTER continueNewTurn so currentPlayerIndex is correct)
 					if (isMultiplayer && steamManager.isHost()) {
 						DraftStatePacket dsp;
 						dsp.type = PKT_DRAFT_STATE;
@@ -16874,6 +16876,7 @@ void ofApp::processNetworkPackets() {
 			if (tpk->currentPlayerIndex >= 0 && tpk->currentPlayerIndex < (int)players.size()) {
 				// Set up turn state
 				waitingForTurnStartFromHost = false;
+				currentState = STATE_GAMEPLAY; // Transition to gameplay state
 				currentPlayerIndex = tpk->currentPlayerIndex;
 				lastAPDiceNum = (int)tpk->diceNum;
 				lastAPDiceSides = (int)tpk->diceSides;
@@ -16881,6 +16884,7 @@ void ofApp::processNetworkPackets() {
 				// Complete turn setup (same as continueNewTurn does)
 				Player & startingPlayer = players[currentPlayerIndex];
 				ofLogNotice("Game") << "Player " << startingPlayer.playerID << "'s turn begins (from TurnStart).";
+				ofLogNotice("Game") << "Client state: currentState=" << currentState << " myLocalPlayerID=" << myLocalPlayerID << " currentPlayerID=" << startingPlayer.playerID;
 				hasDrawnCardsThisTurn = false;
 				selectedCardIndex = -1;
 				draggedCardIndex = -1;
@@ -17180,7 +17184,8 @@ void ofApp::processNetworkPackets() {
 						} else {
 							currentPlayerIndex = nextPlayerIdx;
 							currentState = STATE_GAMEPLAY;
-							startNewTurn();
+							// For the first turn, call continueNewTurn() directly to avoid incrementing currentPlayerIndex
+							continueNewTurn();
 						}
 					}
 					// Forward accept to client
