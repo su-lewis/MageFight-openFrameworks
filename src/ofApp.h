@@ -548,6 +548,10 @@ private:
 
 	// Networking/draft sync helpers
 	bool waitingForDraftOptions = false; // Client waits for host's authoritative DraftOptionsPacket
+	float waitingForDraftOptionsStartTime = 0.0f; // When we began waiting (for timeout/retry)
+	float waitingForDraftOptionsTimeout = 0.75f; // seconds to wait for host before giving up/requesting
+	bool pendingDraftStateAvailable = false; // If a state packet arrives while we're waiting, stash it
+	DraftStatePacket pendingDraftState;
 
 	void generateDraftOptions(int classTier, const std::vector<int> * forcedIndices = nullptr);
 	void applyDraftOptionsFromPool(int classTier, const std::vector<int> & indices, int picksRemaining, int draftingPlayerIdx);
