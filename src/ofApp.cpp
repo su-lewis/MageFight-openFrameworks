@@ -16610,7 +16610,9 @@ void ofApp::processNetworkPackets() {
 		if (buffer.size() < sizeof(PacketHeader)) continue;
 
 		PacketHeader * header = (PacketHeader *)buffer.data();
-
+		// Temporary: pre-declare a DraftStatePacket for places that send state syncs so we don't risk
+		// an undeclared variable if duplicates were accidentally left in the code.
+		DraftStatePacket sp;
 		if (header->type == PKT_HANDSHAKE) {
 			HandshakePacket * pkt = (HandshakePacket *)header;
 			ofLogNotice("Net") << "Handshake received. Seed: " << pkt->seed;
