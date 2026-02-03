@@ -40,9 +40,18 @@ public:
 	bool isConnected() const;
 	bool hasOpponent() const;
 
+	// -- Player Info --
+	std::string getLocalPlayerName() const;
+	std::string getOpponentName() const;
+	CSteamID getOpponentSteamID() const;
+
 	// Queue for ofApp
 	std::queue<std::vector<char>> packetQueue;
 
+private:
+	CSteamID m_OpponentID; // Track opponent's Steam ID
+
+public:
 private:
 	bool m_bInitialized;
 	bool m_bIsHost;

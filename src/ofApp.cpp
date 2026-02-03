@@ -1336,6 +1336,10 @@ void ofApp::setupGame() {
 		gameplayRNG.seed(currentMapSeed);
 		gameplaySeededByHost = true;
 
+		// Get Steam names (host is player 0)
+		player0SteamName = steamManager.getLocalPlayerName();
+		player1SteamName = steamManager.getOpponentName();
+
 		ofLogNotice("Setup") << "Host generated seed: " << currentMapSeed;
 
 		HandshakePacket pkt;
@@ -1729,17 +1733,17 @@ void ofApp::updateGame() {
 				if (target->inGhostForm) {
 					if (pendingAttackDamageType == DAMAGE_PHYSICAL || pendingAttackDamageType == DAMAGE_PIERCING) {
 						appliedDamage = 0;
-						spawnFloatingText(gridToWorld(target->x, target->y), "Phased!", ofColor::cyan);
+						spawnFloatingText(transformGridToWorld(target->x, target->y), "Phased!", ofColor::cyan);
 					}
 					if (pendingAttackDamageType == DAMAGE_HOLY) {
 						appliedDamage *= 2;
-						spawnFloatingText(gridToWorld(target->x, target->y), "Ghost: x2 Holy", ofColor::orange);
+						spawnFloatingText(transformGridToWorld(target->x, target->y), "Ghost: x2 Holy", ofColor::orange);
 					}
 				}
 				// --- VULNERABILITIES ---
 				if ((target->isHellhound || target->isDemon || target->isSkeleton) && pendingAttackDamageType == DAMAGE_HOLY) {
 					appliedDamage *= 2;
-					spawnFloatingText(gridToWorld(target->x, target->y), "Vulnerable: Holy (x2)", ofColor::orange);
+					spawnFloatingText(transformGridToWorld(target->x, target->y), "Vulnerable: Holy (x2)", ofColor::orange);
 				}
 				if (pendingAttackDamageType == DAMAGE_PIERCING) {
 					bool hasWolfCall = false;
@@ -1756,7 +1760,7 @@ void ofApp::updateGame() {
 							}
 					if (hasWolfCall) {
 						appliedDamage *= 2;
-						spawnFloatingText(gridToWorld(target->x, target->y), "Vulnerable: Piercing (x2)", ofColor::orange);
+						spawnFloatingText(transformGridToWorld(target->x, target->y), "Vulnerable: Piercing (x2)", ofColor::orange);
 					}
 				}
 				// ------------------------
@@ -1799,7 +1803,7 @@ void ofApp::updateGame() {
 				}
 
 				// Apply & Text
-				glm::vec3 tPos = gridToWorld(target->x, target->y);
+				glm::vec3 tPos = transformGridToWorld(target->x, target->y);
 				if (appliedDamage > 0) {
 					target->health -= appliedDamage;
 					spawnFloatingText(tPos, "-" + ofToString(appliedDamage) + typeLabel, ofColor::red);
@@ -1843,7 +1847,7 @@ void ofApp::updateGame() {
 							StolenCardAnimation newAnim;
 							newAnim.card = revealed;
 							newAnim.startTime = ofGetElapsedTimef();
-							newAnim.startPos = gridToWorld(attackerRef.x, attackerRef.y);
+							newAnim.startPos = transformGridToWorld(attackerRef.x, attackerRef.y);
 							newAnim.targetPos = { ofGetWidth() / 2.0f, ofGetHeight() / 2.0f };
 							newAnim.currentPos = cam.worldToScreen(newAnim.startPos);
 							activeStolenCardAnimations.push_back(newAnim);
@@ -1880,7 +1884,7 @@ void ofApp::updateGame() {
 								spawnFloatingText(tPos + glm::vec3(0, 1.0f, 0), "POISONED!", ofColor::green);
 							}
 						} else {
-							spawnFloatingText(gridToWorld(attackerRef.x, attackerRef.y), "Deck Empty", ofColor::gray);
+							spawnFloatingText(transformGridToWorld(attackerRef.x, attackerRef.y), "Deck Empty", ofColor::gray);
 							ofLogNotice("ShootArrow") << "Attacker had no cards to reveal.";
 						}
 					}
@@ -1919,7 +1923,7 @@ void ofApp::updateGame() {
 			Player * target = getPlayer(pIndex);
 			if (target) {
 				target->health -= poisonDamage;
-				glm::vec3 tPos = gridToWorld(target->x, target->y);
+				glm::vec3 tPos = transformGridToWorld(target->x, target->y);
 				spawnFloatingText(tPos, "-" + ofToString(poisonDamage) + " Poison", ofColor::green);
 				ofLogNotice("Poison") << "Dealt " << poisonDamage << " poison damage to Player " << target->playerID;
 
@@ -1978,7 +1982,7 @@ void ofApp::updateGame() {
 									if (heal > players[idx].maxHealth) heal = players[idx].maxHealth;
 									if (heal >= 1) {
 										players[idx].health = heal;
-										spawnFloatingText(gridToWorld(players[idx].x, players[idx].y), "Faerie Resurrection! +" + ofToString(heal) + " HP", ofColor::aqua);
+										spawnFloatingText(transformGridToWorld(players[idx].x, players[idx].y), "Faerie Resurrection! +" + ofToString(heal) + " HP", ofColor::aqua);
 										resurrected = true;
 									}
 								}
@@ -2078,7 +2082,7 @@ void ofApp::updateGame() {
 		caster.x = wallOldPos.x;
 		caster.y = wallOldPos.y;
 		board[caster.x][caster.y].hasPlayer = true;
-		playerVisualPos = gridToWorld(caster.x, caster.y);
+		playerVisualPos = transformGridToWorld(caster.x, caster.y);
 
 		buildLevelMesh();
 
@@ -2090,7 +2094,7 @@ void ofApp::updateGame() {
 			// --- GHOST IMMUNITY ---
 			if (victim->inGhostForm) {
 				dmg = 0;
-				spawnFloatingText(gridToWorld(victim->x, victim->y), "Phased!", ofColor::cyan);
+				spawnFloatingText(transformGridToWorld(victim->x, victim->y), "Phased!", ofColor::cyan);
 			}
 			// ----------------------
 
@@ -2107,7 +2111,7 @@ void ofApp::updateGame() {
 
 			if (dmg > 0) {
 				victim->health -= dmg;
-				spawnFloatingText(gridToWorld(victim->x, victim->y), "-" + ofToString(dmg) + " Phys", ofColor::red);
+				spawnFloatingText(transformGridToWorld(victim->x, victim->y), "-" + ofToString(dmg) + " Phys", ofColor::red);
 
 				// Form break logic
 				if (victim->inGhostForm) {
@@ -2116,7 +2120,7 @@ void ofApp::updateGame() {
 						victim->inGhostForm = false;
 						victim->ghostDamageTaken = 0;
 						victim->discardPile.push_back(victim->ghostFormCard);
-						spawnFloatingText(gridToWorld(victim->x, victim->y), "Form Broken!", ofColor::white);
+						spawnFloatingText(transformGridToWorld(victim->x, victim->y), "Form Broken!", ofColor::white);
 					}
 				}
 				if (victim->inTortoiseForm) {
@@ -2125,7 +2129,7 @@ void ofApp::updateGame() {
 						victim->inTortoiseForm = false;
 						victim->tortoiseDamageTaken = 0;
 						victim->discardPile.push_back(victim->tortoiseFormCard);
-						spawnFloatingText(gridToWorld(victim->x, victim->y), "Form Broken!", ofColor::darkGreen);
+						spawnFloatingText(transformGridToWorld(victim->x, victim->y), "Form Broken!", ofColor::darkGreen);
 					}
 				}
 			}
@@ -2165,10 +2169,10 @@ void ofApp::updateGame() {
 				victim->x = finalDest.x;
 				victim->y = finalDest.y;
 				board[victim->x][victim->y].hasPlayer = true;
-				spawnFloatingText(gridToWorld(victim->x, victim->y), "Pushed!", ofColor::yellow);
+				spawnFloatingText(transformGridToWorld(victim->x, victim->y), "Pushed!", ofColor::yellow);
 			} else {
 				// SQUISH
-				spawnFloatingText(gridToWorld(victim->x, victim->y), "CRUSHED!", ofColor::darkRed);
+				spawnFloatingText(transformGridToWorld(victim->x, victim->y), "CRUSHED!", ofColor::darkRed);
 				victim->health = 0;
 			}
 
@@ -2355,7 +2359,7 @@ void ofApp::updateGame() {
 			target->health -= damage;
 
 			// --- VISUAL FEEDBACK START ---
-			glm::vec3 targetPos = gridToWorld(target->x, target->y);
+			glm::vec3 targetPos = transformGridToWorld(target->x, target->y);
 
 			// 1. Show Damage Number
 			if (damage > 0) {
@@ -2469,7 +2473,7 @@ void ofApp::updateGame() {
 
 			if (roll > target->health) {
 				// SUCCESS: DEATH
-				spawnFloatingText(gridToWorld(target->x, target->y), "Executed!", ofColor::red);
+				spawnFloatingText(transformGridToWorld(target->x, target->y), "Executed!", ofColor::red);
 
 				DeathMarker death;
 				death.x = target->x;
@@ -2482,7 +2486,7 @@ void ofApp::updateGame() {
 				target->health = 0;
 			} else {
 				// FAIL: SLEEP (Roll Duration)
-				spawnFloatingText(gridToWorld(target->x, target->y), "Sleep...", ofColor::cyan);
+				spawnFloatingText(transformGridToWorld(target->x, target->y), "Sleep...", ofColor::cyan);
 
 				// Roll 1d6 for duration
 				startDiceRoll(1, 6, PURPOSE_SLEEP_DURATION, "Sleep Duration");
@@ -2530,7 +2534,7 @@ void ofApp::updateGame() {
 			}
 
 			if (target) {
-				glm::vec3 targetPos = gridToWorld(target->x, target->y);
+				glm::vec3 targetPos = transformGridToWorld(target->x, target->y);
 
 				// Effect 1: Deal 7 Magic Damage (with Magic Wall stacking)
 				int baseDamage = 7;
@@ -2598,7 +2602,7 @@ void ofApp::updateGame() {
 			}
 		} else {
 			ofLogNotice("Jolt") << "Fell short! (Rolled " << pendingJoltRangeResult << "ft, needed " << requiredFeet << "ft)";
-			glm::vec3 failPos = gridToWorld(pendingJoltTargetTile.x, pendingJoltTargetTile.y);
+			glm::vec3 failPos = transformGridToWorld(pendingJoltTargetTile.x, pendingJoltTargetTile.y);
 			spawnFloatingText(failPos, "Out of Range", ofColor::white);
 		}
 	}
@@ -2620,7 +2624,7 @@ void ofApp::updateGame() {
 			}
 
 			// ADD THIS: Green Text
-			glm::vec3 tPos = gridToWorld(target->x, target->y);
+			glm::vec3 tPos = transformGridToWorld(target->x, target->y);
 			spawnFloatingText(tPos, "+" + ofToString(healAmount) + " HP", ofColor::green);
 
 			ofLogNotice("Heal") << "Player " << target->playerID << " healed.";
@@ -2661,13 +2665,13 @@ void ofApp::updateGame() {
 				psionicWaveTargetIndices.push_back((int)i);
 
 				// Visual feedback for being targeted
-				glm::vec3 tPos = gridToWorld(players[i].x, players[i].y);
+				glm::vec3 tPos = transformGridToWorld(players[i].x, players[i].y);
 				spawnFloatingText(tPos, "Targeted!", ofColor::magenta);
 			}
 		}
 
 		if (psionicWaveTargetIndices.empty()) {
-			spawnFloatingText(gridToWorld(caster.x, caster.y), "No Targets in Range", ofColor::gray);
+			spawnFloatingText(transformGridToWorld(caster.x, caster.y), "No Targets in Range", ofColor::gray);
 		} else {
 			// 3. Roll for Effect (2d4 Cards)
 			pendingPsionicAmountResult = startDiceRoll(2, 4, PURPOSE_PSIONIC_WAVE_AMOUNT, "Psionic Wave: Cards to Remove");
@@ -2697,7 +2701,7 @@ void ofApp::updateGame() {
 					// Spawn animation for visual feedback (Flying card disappearing)
 					RemovedCardAnimation anim;
 					anim.card = c;
-					anim.startPos = gridToWorld(target->x, target->y); // Fly from unit
+					anim.startPos = transformGridToWorld(target->x, target->y); // Fly from unit
 					anim.startTime = ofGetElapsedTimef();
 					anim.currentScale = 1.0f;
 					activeRemovedCardAnimations.push_back(anim);
@@ -2707,9 +2711,9 @@ void ofApp::updateGame() {
 			}
 
 			if (removedCount > 0) {
-				spawnFloatingText(gridToWorld(target->x, target->y), "-" + ofToString(removedCount) + " Cards", ofColor::purple);
+				spawnFloatingText(transformGridToWorld(target->x, target->y), "-" + ofToString(removedCount) + " Cards", ofColor::purple);
 			} else {
-				spawnFloatingText(gridToWorld(target->x, target->y), "Deck Empty!", ofColor::gray);
+				spawnFloatingText(transformGridToWorld(target->x, target->y), "Deck Empty!", ofColor::gray);
 			}
 		}
 		psionicWaveTargetIndices.clear();
@@ -2726,7 +2730,7 @@ void ofApp::updateGame() {
 		currentPlayer.bonusTurns += turnsGained;
 
 		spawnFloatingText(
-			gridToWorld(currentPlayer.x, currentPlayer.y),
+			transformGridToWorld(currentPlayer.x, currentPlayer.y),
 			"+" + ofToString(turnsGained) + " Extra Turns!",
 			ofColor::cyan);
 
@@ -2785,7 +2789,7 @@ void ofApp::updateGame() {
 		// Check if impact was inside a wall
 		if (isTileWall((int)impactTile.x, (int)impactTile.y)) {
 			ofLogNotice("Magic Bolt") << "Bolt fizzled inside a wall. No AOE.";
-			spawnFloatingText(gridToWorld((int)impactTile.x, (int)impactTile.y), "Fizzle!", ofColor::gray);
+			spawnFloatingText(transformGridToWorld((int)impactTile.x, (int)impactTile.y), "Fizzle!", ofColor::gray);
 		} else {
 			// Primary Damage
 			int primaryDamage = startDiceRoll(1, 20, PURPOSE_DAMAGE, "Magic Bolt: Primary Damage", currentPlayerIndex);
@@ -2812,12 +2816,12 @@ void ofApp::updateGame() {
 
 				if (dmg > 0) {
 					directHitTarget->health -= dmg;
-					spawnFloatingText(gridToWorld(directHitTarget->x, directHitTarget->y), "-" + ofToString(dmg) + " Magic", ofColor::red);
+					spawnFloatingText(transformGridToWorld(directHitTarget->x, directHitTarget->y), "-" + ofToString(dmg) + " Magic", ofColor::red);
 				} else {
-					spawnFloatingText(gridToWorld(directHitTarget->x, directHitTarget->y), "Absorbed", ofColor::gray);
+					spawnFloatingText(transformGridToWorld(directHitTarget->x, directHitTarget->y), "Absorbed", ofColor::gray);
 				}
 			} else {
-				spawnFloatingText(gridToWorld((int)impactTile.x, (int)impactTile.y), ofToString(primaryDamage) + "!", ofColor::purple);
+				spawnFloatingText(transformGridToWorld((int)impactTile.x, (int)impactTile.y), ofToString(primaryDamage) + "!", ofColor::purple);
 			}
 
 			// --- SECONDARY AOE (3 Electric Damage) ---
@@ -2852,9 +2856,9 @@ void ofApp::updateGame() {
 
 					if (dmg > 0) {
 						p.health -= dmg;
-						spawnFloatingText(gridToWorld(p.x, p.y), "-" + ofToString(dmg) + " Electric", ofColor::yellow);
+						spawnFloatingText(transformGridToWorld(p.x, p.y), "-" + ofToString(dmg) + " Electric", ofColor::yellow);
 					} else {
-						spawnFloatingText(gridToWorld(p.x, p.y), "Absorbed", ofColor::gray);
+						spawnFloatingText(transformGridToWorld(p.x, p.y), "Absorbed", ofColor::gray);
 					}
 				}
 			}
@@ -2883,7 +2887,7 @@ void ofApp::updateGame() {
 			ofLogNotice("ShootArrow") << "Hit confirmed. Rolling damage.";
 		} else {
 			// Miss: notify
-			spawnFloatingText(gridToWorld((int)pendingShootArrowTargetTile.x, (int)pendingShootArrowTargetTile.y), "Missed!", ofColor::gray);
+			spawnFloatingText(transformGridToWorld((int)pendingShootArrowTargetTile.x, (int)pendingShootArrowTargetTile.y), "Missed!", ofColor::gray);
 			ofLogNotice("ShootArrow") << "Shoot Arrow fell short.";
 		}
 
@@ -3053,7 +3057,7 @@ void ofApp::updateGame() {
 			isWaitingForChainLightningDamage = true;
 		} else {
 			// FAIL
-			glm::vec3 failPos = gridToWorld(pendingChainLightningTargetTile.x, pendingChainLightningTargetTile.y);
+			glm::vec3 failPos = transformGridToWorld(pendingChainLightningTargetTile.x, pendingChainLightningTargetTile.y);
 			spawnFloatingText(failPos, "Fizzle (Range)", ofColor::gray);
 		}
 	}
@@ -3068,7 +3072,7 @@ void ofApp::updateGame() {
 
 		// 1. Grant AP Bonus
 		caster.nextTurnAPBonus += 3;
-		spawnFloatingText(gridToWorld(caster.x, caster.y) + glm::vec3(0, 0.5f, 0), "+3 AP Next Turn", ofColor::limeGreen);
+		spawnFloatingText(transformGridToWorld(caster.x, caster.y) + glm::vec3(0, 0.5f, 0), "+3 AP Next Turn", ofColor::limeGreen);
 
 		// 2. Identify AOE Tiles (Center + 8 neighbors)
 		std::vector<glm::vec2> validTiles;
@@ -3092,7 +3096,7 @@ void ofApp::updateGame() {
 				if (!blocked) {
 					validTiles.push_back({ nx, ny });
 					// Visual Zap
-					spawnFloatingText(gridToWorld(nx, ny), "ZAP!", ofColor::yellow);
+					spawnFloatingText(transformGridToWorld(nx, ny), "ZAP!", ofColor::yellow);
 				}
 			}
 		}
@@ -3118,9 +3122,9 @@ void ofApp::updateGame() {
 
 					if (finalDmg > 0) {
 						p.health -= finalDmg;
-						spawnFloatingText(gridToWorld(p.x, p.y), "-" + ofToString(finalDmg) + " Electric", ofColor::cyan);
+						spawnFloatingText(transformGridToWorld(p.x, p.y), "-" + ofToString(finalDmg) + " Electric", ofColor::cyan);
 					} else {
-						spawnFloatingText(gridToWorld(p.x, p.y), "Absorbed", ofColor::gray);
+						spawnFloatingText(transformGridToWorld(p.x, p.y), "Absorbed", ofColor::gray);
 					}
 
 					hitPlayerIDs.insert(p.playerID);
@@ -3135,7 +3139,7 @@ void ofApp::updateGame() {
 					if (!p.isParalyzed) {
 						p.isParalyzed = true;
 						p.paralysisHeadsCount = 0;
-						spawnFloatingText(gridToWorld(p.x, p.y) + glm::vec3(0, 1.0f, 0), "Paralyzed!", ofColor::yellow);
+						spawnFloatingText(transformGridToWorld(p.x, p.y) + glm::vec3(0, 1.0f, 0), "Paralyzed!", ofColor::yellow);
 					}
 				}
 			}
@@ -3319,7 +3323,7 @@ void ofApp::updateGame() {
 
 						FloatingText cft;
 						cft.text = "CRASH x" + ofToString(damageDiceCount[i]);
-						cft.worldPos = gridToWorld(earthquakeUnits[i].startGrid.x, earthquakeUnits[i].startGrid.y) + glm::vec3(0, 1.5f, 0);
+						cft.worldPos = transformGridToWorld(earthquakeUnits[i].startGrid.x, earthquakeUnits[i].startGrid.y) + glm::vec3(0, 1.5f, 0);
 						cft.velocity = glm::vec3(0, 0.8f, 0);
 						cft.startTime = ofGetElapsedTimef();
 						cft.duration = 0.8f;
@@ -3332,8 +3336,8 @@ void ofApp::updateGame() {
 			// Update Visuals
 			for (auto & unit : earthquakeUnits) {
 				if (!unit.isMoving && unit.tilesToMove <= 0 && !unit.crashed) continue;
-				glm::vec3 pStart = gridToWorld(unit.startGrid.x, unit.startGrid.y);
-				glm::vec3 pEnd = gridToWorld(unit.nextGrid.x, unit.nextGrid.y);
+				glm::vec3 pStart = transformGridToWorld(unit.startGrid.x, unit.startGrid.y);
+				glm::vec3 pEnd = transformGridToWorld(unit.nextGrid.x, unit.nextGrid.y);
 
 				if (unit.crashed) {
 					float t = earthquakeT;
@@ -3398,7 +3402,7 @@ void ofApp::updateGame() {
 					}
 
 					if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) {
-						playerVisualPos = gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y);
+						playerVisualPos = transformGridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y);
 					}
 					animationPath.clear();
 					currentPathIndex = 0;
@@ -3429,7 +3433,7 @@ void ofApp::updateGame() {
 						int uidx = roll.associatedUnit;
 						if (uidx >= 0 && uidx < (int)players.size()) {
 							if (players[uidx].inGhostForm) {
-								glm::vec3 textPos = gridToWorld(players[uidx].x, players[uidx].y);
+								glm::vec3 textPos = transformGridToWorld(players[uidx].x, players[uidx].y);
 								for (const auto & eu : earthquakeUnits) {
 									if (eu.playerIndex == uidx) {
 										textPos = eu.visualPos;
@@ -3439,7 +3443,7 @@ void ofApp::updateGame() {
 								spawnFloatingText(textPos + glm::vec3(0, 0.8f, 0), "Phased (0 Dmg)", ofColor::cyan);
 							} else {
 								players[uidx].health -= roll.result;
-								glm::vec3 textPos = gridToWorld(players[uidx].x, players[uidx].y);
+								glm::vec3 textPos = transformGridToWorld(players[uidx].x, players[uidx].y);
 								for (const auto & eu : earthquakeUnits) {
 									if (eu.playerIndex == uidx) {
 										textPos = eu.visualPos;
@@ -3504,7 +3508,7 @@ void ofApp::updateGame() {
 			// --- GHOST CHECK (Flail is Physical) ---
 			if (t.inGhostForm) {
 				finalDmg = 0;
-				spawnFloatingText(gridToWorld(t.x, t.y), "Phased!", ofColor::cyan);
+				spawnFloatingText(transformGridToWorld(t.x, t.y), "Phased!", ofColor::cyan);
 			}
 			// ---------------------------------------
 
@@ -3525,7 +3529,7 @@ void ofApp::updateGame() {
 			// Health
 			if (finalDmg > 0) {
 				t.health -= finalDmg;
-				spawnFloatingText(gridToWorld(t.x, t.y), "-" + ofToString(finalDmg) + " Physical", ofColor::red);
+				spawnFloatingText(transformGridToWorld(t.x, t.y), "-" + ofToString(finalDmg) + " Physical", ofColor::red);
 
 				// Check Death (Simple check)
 				if (t.health <= 0) {
@@ -3539,7 +3543,7 @@ void ofApp::updateGame() {
 					t.x = -1000;
 				}
 			} else {
-				spawnFloatingText(gridToWorld(t.x, t.y), "Blocked", ofColor::gray);
+				spawnFloatingText(transformGridToWorld(t.x, t.y), "Blocked", ofColor::gray);
 			}
 		};
 
@@ -3591,7 +3595,7 @@ void ofApp::updateGame() {
 			drawCard();
 		}
 
-		spawnFloatingText(gridToWorld(p.x, p.y), "Spark of Genius! +" + ofToString(cardsToDraw) + " Cards", ofColor::cyan);
+		spawnFloatingText(transformGridToWorld(p.x, p.y), "Spark of Genius! +" + ofToString(cardsToDraw) + " Cards", ofColor::cyan);
 	}
 
 	// --- Dispel Barrier Dice ---
@@ -3601,7 +3605,7 @@ void ofApp::updateGame() {
 		p.barrier += pendingDispelRollResult;
 
 		// MATCH UI COLOR: Indigo/Deep Purple (0x480082)
-		spawnFloatingText(gridToWorld(p.x, p.y),
+		spawnFloatingText(transformGridToWorld(p.x, p.y),
 			"+" + ofToString(pendingDispelRollResult) + " Barrier",
 			ofColor::fromHex(0x480082));
 
@@ -3636,7 +3640,7 @@ void ofApp::updateGame() {
 
 		// Apply Damage
 		burningPlayer.health -= rollResult;
-		spawnFloatingText(gridToWorld(burningPlayer.x, burningPlayer.y), "-" + ofToString(rollResult) + " Fire", ofColor::red);
+		spawnFloatingText(transformGridToWorld(burningPlayer.x, burningPlayer.y), "-" + ofToString(rollResult) + " Fire", ofColor::red);
 
 		// --- FORM TRACKING (TORTOISE/GHOST) ---
 		if (burningPlayer.inTortoiseForm) {
@@ -3645,7 +3649,7 @@ void ofApp::updateGame() {
 				burningPlayer.inTortoiseForm = false;
 				burningPlayer.tortoiseDamageTaken = 0;
 				burningPlayer.discardPile.push_back(burningPlayer.tortoiseFormCard);
-				spawnFloatingText(gridToWorld(burningPlayer.x, burningPlayer.y) + glm::vec3(0, 0.5f, 0), "Form Ended!", ofColor::darkGreen);
+				spawnFloatingText(transformGridToWorld(burningPlayer.x, burningPlayer.y) + glm::vec3(0, 0.5f, 0), "Form Ended!", ofColor::darkGreen);
 			}
 		}
 		if (burningPlayer.inGhostForm) {
@@ -3654,11 +3658,11 @@ void ofApp::updateGame() {
 				burningPlayer.inGhostForm = false;
 				burningPlayer.ghostDamageTaken = 0;
 				burningPlayer.discardPile.push_back(burningPlayer.ghostFormCard);
-				spawnFloatingText(gridToWorld(burningPlayer.x, burningPlayer.y) + glm::vec3(0, 0.5f, 0), "Ghost Form Broken!", ofColor::white);
+				spawnFloatingText(transformGridToWorld(burningPlayer.x, burningPlayer.y) + glm::vec3(0, 0.5f, 0), "Ghost Form Broken!", ofColor::white);
 
 				if (board[burningPlayer.x][burningPlayer.y].hasWall) {
 					burningPlayer.health = 0;
-					spawnFloatingText(gridToWorld(burningPlayer.x, burningPlayer.y) + glm::vec3(0, 1.0f, 0), "Materialized in Wall!", ofColor::red);
+					spawnFloatingText(transformGridToWorld(burningPlayer.x, burningPlayer.y) + glm::vec3(0, 1.0f, 0), "Materialized in Wall!", ofColor::red);
 				}
 			}
 		}
@@ -3666,7 +3670,7 @@ void ofApp::updateGame() {
 
 		if (rollResult == 1 || rollResult == 2) {
 			burningPlayer.onFire = false;
-			spawnFloatingText(gridToWorld(burningPlayer.x, burningPlayer.y) + glm::vec3(0, 0.8f, 0), "Extinguished", ofColor::white);
+			spawnFloatingText(transformGridToWorld(burningPlayer.x, burningPlayer.y) + glm::vec3(0, 0.8f, 0), "Extinguished", ofColor::white);
 		}
 
 		// CHECK SLEEP AFTER FIRE
@@ -3688,7 +3692,7 @@ void ofApp::updateGame() {
 
 		if (actualDamage > 0) {
 			poisonedPlayer.health -= actualDamage;
-			spawnFloatingText(gridToWorld(poisonedPlayer.x, poisonedPlayer.y), "-" + ofToString(actualDamage) + " Poison", ofColor::green);
+			spawnFloatingText(transformGridToWorld(poisonedPlayer.x, poisonedPlayer.y), "-" + ofToString(actualDamage) + " Poison", ofColor::green);
 
 			// --- FORM TRACKING (TORTOISE/GHOST) ---
 			if (poisonedPlayer.inTortoiseForm) {
@@ -3697,7 +3701,7 @@ void ofApp::updateGame() {
 					poisonedPlayer.inTortoiseForm = false;
 					poisonedPlayer.tortoiseDamageTaken = 0;
 					poisonedPlayer.discardPile.push_back(poisonedPlayer.tortoiseFormCard);
-					spawnFloatingText(gridToWorld(poisonedPlayer.x, poisonedPlayer.y) + glm::vec3(0, 0.5f, 0), "Form Ended!", ofColor::darkGreen);
+					spawnFloatingText(transformGridToWorld(poisonedPlayer.x, poisonedPlayer.y) + glm::vec3(0, 0.5f, 0), "Form Ended!", ofColor::darkGreen);
 				}
 			}
 			if (poisonedPlayer.inGhostForm) {
@@ -3706,17 +3710,17 @@ void ofApp::updateGame() {
 					poisonedPlayer.inGhostForm = false;
 					poisonedPlayer.ghostDamageTaken = 0;
 					poisonedPlayer.discardPile.push_back(poisonedPlayer.ghostFormCard);
-					spawnFloatingText(gridToWorld(poisonedPlayer.x, poisonedPlayer.y) + glm::vec3(0, 0.5f, 0), "Ghost Form Broken!", ofColor::white);
+					spawnFloatingText(transformGridToWorld(poisonedPlayer.x, poisonedPlayer.y) + glm::vec3(0, 0.5f, 0), "Ghost Form Broken!", ofColor::white);
 
 					if (board[poisonedPlayer.x][poisonedPlayer.y].hasWall) {
 						poisonedPlayer.health = 0;
-						spawnFloatingText(gridToWorld(poisonedPlayer.x, poisonedPlayer.y) + glm::vec3(0, 1.0f, 0), "Materialized in Wall!", ofColor::red);
+						spawnFloatingText(transformGridToWorld(poisonedPlayer.x, poisonedPlayer.y) + glm::vec3(0, 1.0f, 0), "Materialized in Wall!", ofColor::red);
 					}
 				}
 			}
 			// --------------------------------------
 		} else {
-			spawnFloatingText(gridToWorld(poisonedPlayer.x, poisonedPlayer.y), "Poison Fading", ofColor::gray);
+			spawnFloatingText(transformGridToWorld(poisonedPlayer.x, poisonedPlayer.y), "Poison Fading", ofColor::gray);
 		}
 
 		poisonedPlayer.poisonReduction++;
@@ -3724,7 +3728,7 @@ void ofApp::updateGame() {
 		if (poisonedPlayer.poisonReduction >= 6) {
 			poisonedPlayer.isPoisoned = false;
 			poisonedPlayer.poisonReduction = 0;
-			spawnFloatingText(gridToWorld(poisonedPlayer.x, poisonedPlayer.y) + glm::vec3(0, 0.8f, 0), "Poison Cured!", ofColor::white);
+			spawnFloatingText(transformGridToWorld(poisonedPlayer.x, poisonedPlayer.y) + glm::vec3(0, 0.8f, 0), "Poison Cured!", ofColor::white);
 		}
 
 		continueNewTurn();
@@ -3776,7 +3780,7 @@ void ofApp::updateGame() {
 									}
 									// Start a bonus AP roll (added on top of the original result)
 									startDiceRoll(rerollNum, rerollSides, PURPOSE_BONUS_AP, "Assistant Auto Reroll", currentPlayerIndex);
-									spawnFloatingText(gridToWorld(a.x, a.y), "Assistant Reroll!", ofColor::gold);
+									spawnFloatingText(transformGridToWorld(a.x, a.y), "Assistant Reroll!", ofColor::gold);
 								}
 							}
 						}
@@ -3786,7 +3790,7 @@ void ofApp::updateGame() {
 					Player * t = getPlayer(pendingDeathTargetIndex);
 					if (t) {
 						t->sleepTurnsRemaining = roll.result;
-						spawnFloatingText(gridToWorld(t->x, t->y), ofToString(roll.result) + " Turns Sleep", ofColor::cyan);
+						spawnFloatingText(transformGridToWorld(t->x, t->y), ofToString(roll.result) + " Turns Sleep", ofColor::cyan);
 					}
 					pendingDeathTargetIndex = -1;
 				} else if (roll.purpose == PURPOSE_DEATH_CHECK) {
@@ -3808,7 +3812,7 @@ void ofApp::updateGame() {
 						if (!alreadyApplied) {
 							players[uidx].health -= roll.result;
 							// Prefer visualPos (unit may be mid-move). Find earthquake unit entry if present.
-							glm::vec3 textPos = gridToWorld(players[uidx].x, players[uidx].y);
+							glm::vec3 textPos = transformGridToWorld(players[uidx].x, players[uidx].y);
 							for (const auto & eu : earthquakeUnits) {
 								if (eu.playerIndex == uidx) {
 									textPos = eu.visualPos;
@@ -3823,7 +3827,7 @@ void ofApp::updateGame() {
 					}
 				} else if (roll.purpose == PURPOSE_BONUS_AP) {
 					currentAP += roll.result;
-					spawnFloatingText(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y),
+					spawnFloatingText(transformGridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y),
 						"+" + ofToString(roll.result) + " Bonus AP",
 						ofColor::yellow);
 					ofLogNotice("Game") << "Bonus Dice Finished: " << roll.result << " AP awarded.";
@@ -3834,7 +3838,7 @@ void ofApp::updateGame() {
 					if (roll.result >= 2) {
 						// Heads
 						players[currentPlayerIndex].maxHealth++;
-						spawnFloatingText(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y), "+1 Max HP", ofColor::green);
+						spawnFloatingText(transformGridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y), "+1 Max HP", ofColor::green);
 					} else {
 						// Tails
 						Player * t = getPlayer(blockingBoonTargetIndex);
@@ -3842,7 +3846,7 @@ void ofApp::updateGame() {
 							t->maxHealth = std::max(1, t->maxHealth - 1);
 							// Clamp current health if it exceeds new max
 							if (t->health > t->maxHealth) t->health = t->maxHealth;
-							spawnFloatingText(gridToWorld(t->x, t->y), "-1 Max HP", ofColor::darkRed);
+							spawnFloatingText(transformGridToWorld(t->x, t->y), "-1 Max HP", ofColor::darkRed);
 						}
 					}
 
@@ -3882,10 +3886,10 @@ void ofApp::updateGame() {
 
 					if (classReward > 0) {
 						pendingDraftQueue.push_back(classReward);
-						spawnFloatingText(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y), "Draft C" + ofToString(classReward), ofColor::cyan);
+						spawnFloatingText(transformGridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y), "Draft C" + ofToString(classReward), ofColor::cyan);
 					} else {
 						// Fail (1-9)
-						spawnFloatingText(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y), "Fizzle", ofColor::gray);
+						spawnFloatingText(transformGridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y), "Fizzle", ofColor::gray);
 					}
 
 					// After processing a D20 result, clear active flag if there are no UNPROCESSED blocking-boon dice left
@@ -3897,7 +3901,7 @@ void ofApp::updateGame() {
 					isWaitingForKoboldDice = false;
 					int count = roll.result;
 					if (count <= 0) {
-						spawnFloatingText(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y), "No Kobolds!", ofColor::gray);
+						spawnFloatingText(transformGridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y), "No Kobolds!", ofColor::gray);
 						isPlacingKobolds = false;
 					} else {
 						// Count available adjacent empty tiles
@@ -3912,7 +3916,7 @@ void ofApp::updateGame() {
 						}
 						int allowed = std::min<int>(count, std::min(avail, 4));
 						if (allowed <= 0) {
-							spawnFloatingText(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y), "No Space!", ofColor::red);
+							spawnFloatingText(transformGridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y), "No Space!", ofColor::red);
 							isPlacingKobolds = false;
 						} else {
 							koboldsRemainingToPlace = allowed;
@@ -3921,7 +3925,7 @@ void ofApp::updateGame() {
 							// Instruction UI
 							tooltipText = "Place Kobold: click an adjacent empty tile";
 							isShowingTooltip = true;
-							spawnFloatingText(gridToWorld(koboldPlacementSourceX, koboldPlacementSourceY), ofToString(koboldsRemainingToPlace) + " Kobolds!", ofColor::gold);
+							spawnFloatingText(transformGridToWorld(koboldPlacementSourceX, koboldPlacementSourceY), ofToString(koboldsRemainingToPlace) + " Kobolds!", ofColor::gold);
 							invalidateTargetCache();
 						}
 					}
@@ -3977,7 +3981,7 @@ void ofApp::updateGame() {
 								break;
 							}
 						}
-						glm::vec3 textPos = summoner ? gridToWorld(summoner->x, summoner->y) : glm::vec3(0, 0, 0);
+						glm::vec3 textPos = summoner ? transformGridToWorld(summoner->x, summoner->y) : glm::vec3(0, 0, 0);
 
 						if (flipResult == 1) {
 							// TAILS: FAIL
@@ -4151,10 +4155,8 @@ void ofApp::updateGame() {
 	if (!players.empty() && currentPlayerIndex >= 0) {
 		Player & currentPlayer = players[currentPlayerIndex];
 
-		// FIX: Determine Y position based on ownership (P1 vs P2)
-		// If it is Player 1 OR P1's Minion, draw hand at bottom. Otherwise top.
-		bool isP1 = (currentPlayer.playerID == 0 || currentPlayer.ownerID == 0);
-		float handCenterY = isP1 ? ofGetHeight() - 130 : 130;
+		// Always draw hand at bottom (turn-based, so only current player's hand shows)
+		float handCenterY = ofGetHeight() - 130;
 
 		float handBaseCardWidth = 120;
 		float handAreaWidth = ofGetWidth() * 0.4f;
@@ -4242,7 +4244,7 @@ void ofApp::updateGame() {
 						selectedDraftIndices.clear(); // Reset UI selection
 						currentState = STATE_DRAFTING;
 
-						spawnFloatingText(gridToWorld(cx, cy), "Key Found!", ofColor::gold);
+						spawnFloatingText(transformGridToWorld(cx, cy), "Key Found!", ofColor::gold);
 						ofLogNotice("Key") << "Player " << ownerID << " picked up key (Class " << classToDraft << ")";
 						return; // Stop update to freeze game/animation until draft is done
 					}
@@ -4329,7 +4331,7 @@ void ofApp::updateGame() {
 										dying.cardsPlayedThisTurn.clear();
 										dying.playedCardsPile.clear();
 										dying.summonedOnTurnCycle = globalTurnCounter;
-										spawnFloatingText(gridToWorld(dying.x, dying.y), "Faerie Resurrection!", ofColor::aqua);
+										spawnFloatingText(transformGridToWorld(dying.x, dying.y), "Faerie Resurrection!", ofColor::aqua);
 										ofLogNotice("Faerie") << "Unit " << dying.playerID << " resurrected by faerie at " << nx << "," << ny << " for " << hp << " HP.";
 										resurrected = true;
 									}
@@ -4541,7 +4543,7 @@ void ofApp::buildLevelMesh() {
 	for (int x = 0; x < BOARD_WIDTH; x++) {
 		for (int y = 0; y < BOARD_HEIGHT; y++) {
 			if (board[x][y].hasWall) {
-				glm::vec3 pos = gridToWorld(x, y);
+				glm::vec3 pos = transformGridToWorld(x, y);
 
 				// Always add sides into the dark mesh
 				addSidesTo(levelMeshDark, pos.x, 0, pos.z);
@@ -4655,7 +4657,7 @@ void ofApp::buildFloorMesh() {
 			std::uniform_int_distribution<int> texDist(0, (int)floorTextures.size() - 1);
 			int texIndex = texDist(tileRng);
 
-			glm::vec3 pos = gridToWorld(x, y);
+			glm::vec3 pos = transformGridToWorld(x, y);
 
 			// Add block (No rotation passed)
 			addBlock(floorMeshes[texIndex], pos.x, 0, pos.z);
@@ -4731,7 +4733,7 @@ void ofApp::drawGame() {
 					setTex = &keyTexturesBronze;
 				if (!setTex || setTex->empty()) continue;
 				if (seqIdx < 0 || seqIdx >= (int)setTex->size()) continue;
-				glm::vec3 worldPos = gridToWorld(inst.pos.x, inst.pos.y);
+				glm::vec3 worldPos = transformGridToWorld(inst.pos.x, inst.pos.y);
 				// Place keys closer to the floor so they sit visually nearer ground tiles
 				glm::vec3 pos = worldPos + glm::vec3(0, 0.75f, 0);
 
@@ -4829,7 +4831,7 @@ void ofApp::drawGame() {
 				if (currentPlayerIndex >= 0 && player.playerID == players[currentPlayerIndex].playerID) {
 					pos = playerVisualPos;
 				} else {
-					pos = gridToWorld(player.x, player.y);
+					pos = transformGridToWorld(player.x, player.y);
 				}
 			}
 
@@ -5238,7 +5240,7 @@ void ofApp::drawGame() {
 				if (currentPlayerIndex >= 0 && player.playerID == players[currentPlayerIndex].playerID) {
 					pos = playerVisualPos;
 				} else {
-					pos = gridToWorld(player.x, player.y);
+					pos = transformGridToWorld(player.x, player.y);
 				}
 			}
 
@@ -5399,8 +5401,8 @@ void ofApp::drawGame() {
 
 							if (displayedRemaining > 0) {
 								// Compute world-space forward direction for this unit
-								glm::vec3 startWorld = gridToWorld(eq.startGrid.x, eq.startGrid.y);
-								glm::vec3 nextWorld = gridToWorld(eq.startGrid.x + eq.direction.x, eq.startGrid.y + eq.direction.y);
+								glm::vec3 startWorld = transformGridToWorld(eq.startGrid.x, eq.startGrid.y);
+								glm::vec3 nextWorld = transformGridToWorld(eq.startGrid.x + eq.direction.x, eq.startGrid.y + eq.direction.y);
 								glm::vec3 dirWorld = nextWorld - startWorld;
 								if (glm::length(dirWorld) > 0.0001f) dirWorld = glm::normalize(dirWorld);
 								// Arrow spacing along direction (much smaller spacing so arrows are close together)
@@ -5447,7 +5449,7 @@ void ofApp::drawGame() {
 		// --- DRAW TILE HIGHLIGHTS ---
 		for (int x = 0; x < BOARD_WIDTH; x++) {
 			for (int y = 0; y < BOARD_HEIGHT; y++) {
-				glm::vec3 tileWorldPos = gridToWorld(x, y);
+				glm::vec3 tileWorldPos = transformGridToWorld(x, y);
 				ofPushMatrix();
 				ofTranslate(tileWorldPos.x, 0, tileWorldPos.z);
 
@@ -5580,7 +5582,7 @@ void ofApp::drawGame() {
 		if ((playerAction == PIECE_SELECTED) && !hoverPath.empty()) {
 			for (size_t i = 1; i < hoverPath.size(); i++) {
 				const auto & step = hoverPath[i];
-				glm::vec3 pathWorldPos = gridToWorld(step.x, step.y);
+				glm::vec3 pathWorldPos = transformGridToWorld(step.x, step.y);
 
 				// Calculate height for THIS specific step
 				float pathY = 0.05f;
@@ -6144,20 +6146,19 @@ void ofApp::drawGame() {
 		// Note: see comment above — remove in-AP status texts for these effects.
 	}
 
-	// End Turn Button
+	// End Turn Button / Turn Indicator
 	// If UI wasn't snapped on resize (some platforms/window managers),
 	// ensure the end turn button has a sensible initial position instead of (0,0)
 	if (endTurnButtonCurrentPos.x == 0 && endTurnButtonCurrentPos.y == 0) {
 		float btnWidth_tmp = 250 * scale;
 		float visibleY = 20 * scale;
 		float hiddenY = -100 * scale;
-		bool isPlayer1Turn = false;
+		bool isMyTurn = false;
 		if (currentPlayerIndex >= 0 && !players.empty()) {
-			int pid = players[currentPlayerIndex].playerID;
-			int oid = players[currentPlayerIndex].ownerID;
-			if (pid == 0 || oid == 0) isPlayer1Turn = true;
+			int currentPlayerID = players[currentPlayerIndex].playerID;
+			isMyTurn = (currentPlayerID == myLocalPlayerID);
 		}
-		if (isPlayer1Turn)
+		if (isMyTurn)
 			endTurnButtonCurrentPos.set(ofGetWidth() / 2.0f - btnWidth_tmp / 2.0f, visibleY);
 		else
 			endTurnButtonCurrentPos.set(ofGetWidth() / 2.0f - btnWidth_tmp / 2.0f, hiddenY);
@@ -6168,9 +6169,39 @@ void ofApp::drawGame() {
 	float btnHeight_end = 60 * scale;
 	endTurnButtonRect.set(endTurnButtonCurrentPos.x, endTurnButtonCurrentPos.y, btnWidth_end, btnHeight_end);
 
-	// 1. Draw Button Background
-	ofSetColor(isHoveringEndTurn ? ofColor::darkSlateGray : ofColor::slateGray);
-	ofDrawRectRounded(endTurnButtonRect, 10 * scale);
+	// Check if it's my turn
+	bool isMyTurn = false;
+	if (currentPlayerIndex >= 0 && !players.empty()) {
+		int currentPlayerID = players[currentPlayerIndex].playerID;
+		isMyTurn = (currentPlayerID == myLocalPlayerID);
+	}
+
+	if (isMyTurn) {
+		// 1. Draw End Turn Button Background
+		ofSetColor(isHoveringEndTurn ? ofColor::darkSlateGray : ofColor::slateGray);
+		ofDrawRectRounded(endTurnButtonRect, 10 * scale);
+	} else {
+		// Draw turn indicator showing whose turn it is
+		ofSetColor(60, 60, 80, 200);
+		ofDrawRectRounded(endTurnButtonRect, 10 * scale);
+
+		// Get opponent's name
+		std::string opponentName = "Opponent";
+		if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) {
+			opponentName = getPlayerSteamName(currentPlayerIndex);
+		}
+
+		ofSetColor(ofColor::gold);
+		string turnText = opponentName + "'s Turn";
+		ofRectangle turnTextBox = titleFont.getStringBoundingBox(turnText, 0, 0);
+		float turnX = endTurnButtonRect.getCenter().x - (turnTextBox.width * fontScale / 2);
+		float turnY = endTurnButtonRect.getCenter().y + (turnTextBox.height * fontScale / 2);
+		ofPushMatrix();
+		ofTranslate(turnX, turnY);
+		ofScale(fontScale, fontScale);
+		titleFont.drawString(turnText, 0, 0);
+		ofPopMatrix();
+	}
 
 	// 2. Draw Yellow Highlight (New Logic)
 	// If no AP left AND player has already used their draw, suggest ending turn.
@@ -6210,7 +6241,7 @@ void ofApp::drawGame() {
 		}
 	}
 
-	if (displayedAPForCurrent <= 0 && hasDrawnCardsThisTurn && !rerollAvailable) {
+	if (displayedAPForCurrent <= 0 && hasDrawnCardsThisTurn && !rerollAvailable && isMyTurn) {
 		ofPushStyle();
 		ofNoFill();
 		ofSetColor(ofColor::green);
@@ -6219,19 +6250,21 @@ void ofApp::drawGame() {
 		ofPopStyle();
 	}
 
-	// 3. Draw Button Text
-	ofSetColor(ofColor::white);
-	string endTurnButtonText = "End Turn";
-	ofRectangle buttonTextBox = titleFont.getStringBoundingBox(endTurnButtonText, 0, 0);
+	// 3. Draw End Turn Button Text (only if it's my turn)
+	if (isMyTurn) {
+		ofSetColor(ofColor::white);
+		string endTurnButtonText = "End Turn";
+		ofRectangle buttonTextBox = titleFont.getStringBoundingBox(endTurnButtonText, 0, 0);
 
-	float etX = endTurnButtonRect.getCenter().x - (buttonTextBox.width * fontScale / 2);
-	float etY = endTurnButtonRect.getCenter().y + (buttonTextBox.height * fontScale / 2);
+		float etX = endTurnButtonRect.getCenter().x - (buttonTextBox.width * fontScale / 2);
+		float etY = endTurnButtonRect.getCenter().y + (buttonTextBox.height * fontScale / 2);
 
-	ofPushMatrix();
-	ofTranslate(etX, etY);
-	ofScale(fontScale, fontScale);
-	titleFont.drawString(endTurnButtonText, 0, 0);
-	ofPopMatrix();
+		ofPushMatrix();
+		ofTranslate(etX, etY);
+		ofScale(fontScale, fontScale);
+		titleFont.drawString(endTurnButtonText, 0, 0);
+		ofPopMatrix();
+	}
 
 	// --- ASSISTANT AP REROLL BUTTON ---
 	if (players.size() > 0 && currentPlayerIndex != -1) {
@@ -6466,7 +6499,14 @@ void ofApp::drawGame() {
 			std::reverse(cardsToShowInView.begin(), cardsToShowInView.end());
 		}
 
-		viewTitle = "Player " + ofToString(viewPlayer.playerID) + "'s " + viewTitle;
+		int vpIdx = -1;
+		for (int i = 0; i < (int)players.size(); ++i) {
+			if (players[i].playerID == viewPlayer.playerID && !players[i].isMinion) {
+				vpIdx = i;
+				break;
+			}
+		}
+		viewTitle = (vpIdx != -1) ? getPlayerSteamName(vpIdx) : ("Player " + ofToString(viewPlayer.playerID)) + "'s " + viewTitle;
 
 		if (!cardsToShowInView.empty()) {
 			float panelPadding = 20.0f;
@@ -7962,7 +8002,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 							players[currentPlayerIndex].hand.push_back(sortedCards[i]);
 							players[currentPlayerIndex].hand.back().currentPos = ofVec2f(ofGetWidth() / 2, 0);
 						}
-						spawnFloatingText(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y),
+						spawnFloatingText(transformGridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y),
 							"+" + ofToString(cardSpawnerQuantity) + "x " + sortedCards[i].name, ofColor::cyan);
 						return;
 					}
@@ -8026,7 +8066,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 						players[currentPlayerIndex].hand.push_back(filteredCards[i]);
 						players[currentPlayerIndex].hand.back().currentPos = ofVec2f(ofGetWidth() / 2, 0);
 					}
-					spawnFloatingText(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y),
+					spawnFloatingText(transformGridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y),
 						"+" + ofToString(cardSpawnerQuantity) + "x " + filteredCards[i].name, ofColor::cyan);
 					isCardSpawnerOpen = false;
 					return;
@@ -8086,7 +8126,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 			// 3. Health
 			if (damage > 0) {
 				targetPlayer->health -= damage;
-				spawnFloatingText(gridToWorld(targetPlayer->x, targetPlayer->y), "-" + ofToString(damage) + " Magic", ofColor::red);
+				spawnFloatingText(transformGridToWorld(targetPlayer->x, targetPlayer->y), "-" + ofToString(damage) + " Magic", ofColor::red);
 
 				// Form tracking
 				if (targetPlayer->inTortoiseForm) {
@@ -8095,7 +8135,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 						targetPlayer->inTortoiseForm = false;
 						targetPlayer->tortoiseDamageTaken = 0;
 						targetPlayer->discardPile.push_back(targetPlayer->tortoiseFormCard);
-						spawnFloatingText(gridToWorld(targetPlayer->x, targetPlayer->y) + glm::vec3(0, 0.5f, 0), "Form Ended!", ofColor::darkGreen);
+						spawnFloatingText(transformGridToWorld(targetPlayer->x, targetPlayer->y) + glm::vec3(0, 0.5f, 0), "Form Ended!", ofColor::darkGreen);
 					}
 				}
 				if (targetPlayer->inGhostForm) {
@@ -8104,12 +8144,12 @@ void ofApp::mousePressed(int x, int y, int button) {
 						targetPlayer->inGhostForm = false;
 						targetPlayer->ghostDamageTaken = 0;
 						targetPlayer->discardPile.push_back(targetPlayer->ghostFormCard);
-						spawnFloatingText(gridToWorld(targetPlayer->x, targetPlayer->y) + glm::vec3(0, 0.5f, 0), "Ghost Form Broken!", ofColor::white);
+						spawnFloatingText(transformGridToWorld(targetPlayer->x, targetPlayer->y) + glm::vec3(0, 0.5f, 0), "Ghost Form Broken!", ofColor::white);
 						if (board[targetPlayer->x][targetPlayer->y].hasWall) targetPlayer->health = 0;
 					}
 				}
 			} else {
-				spawnFloatingText(gridToWorld(targetPlayer->x, targetPlayer->y), "Absorbed", ofColor::gray);
+				spawnFloatingText(transformGridToWorld(targetPlayer->x, targetPlayer->y), "Absorbed", ofColor::gray);
 			}
 
 			ofLogNotice("MagicBlast") << "Player " << targetPlayer->playerID << " chose Damage (Magic).";
@@ -8122,10 +8162,10 @@ void ofApp::mousePressed(int x, int y, int button) {
 				Card removed = targetPlayer->deck.back();
 				targetPlayer->deck.pop_back();
 				targetPlayer->discardPile.push_back(removed);
-				spawnFloatingText(gridToWorld(targetPlayer->x, targetPlayer->y), "Discarded: " + removed.name, ofColor::white);
+				spawnFloatingText(transformGridToWorld(targetPlayer->x, targetPlayer->y), "Discarded: " + removed.name, ofColor::white);
 				ofLogNotice("MagicBlast") << "Player " << targetPlayer->playerID << " discarded top card: " << removed.name;
 			} else {
-				spawnFloatingText(gridToWorld(targetPlayer->x, targetPlayer->y), "No Cards", ofColor::gray);
+				spawnFloatingText(transformGridToWorld(targetPlayer->x, targetPlayer->y), "No Cards", ofColor::gray);
 				ofLogNotice("MagicBlast") << "Player " << targetPlayer->playerID << " attempted to discard but deck empty.";
 			}
 
@@ -8218,7 +8258,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 		if (trainBtnAP.inside(x, y)) {
 			// Option A: +3 AP Next Turn
 			p.nextTurnAPBonus += 3;
-			spawnFloatingText(gridToWorld(p.x, p.y), "Training: AP", ofColor::yellow);
+			spawnFloatingText(transformGridToWorld(p.x, p.y), "Training: AP", ofColor::yellow);
 
 			// Pay cost & cleanup
 			currentAP -= p.hand[pendingTrainCardIndex].cost;
@@ -8267,7 +8307,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 		bool isSelfTarget = (pendingWisdomBoonTargetIndex == currentPlayerIndex);
 
 		if (wisdomBtnDamage.inside(x, y)) {
-			glm::vec3 targetPos = gridToWorld(target->x, target->y);
+			glm::vec3 targetPos = transformGridToWorld(target->x, target->y);
 
 			if (isSelfTarget) {
 				ofLogNotice("Wisdom Boon") << "Granting " << effectValue << " Block to Self.";
@@ -8442,22 +8482,22 @@ void ofApp::mousePressed(int x, int y, int button) {
 					// --- STRICT TARGET VALIDATION ---
 					if (burstChoice == 0) { // DAMAGE
 						if (casterOwner == targetOwner) {
-							spawnFloatingText(gridToWorld(target->x, target->y), "Cannot damage ally", ofColor::red);
+							spawnFloatingText(transformGridToWorld(target->x, target->y), "Cannot damage ally", ofColor::red);
 							return; // Don't cancel, let them pick again
 						}
 						applyDamageTo(*target, 3, DAMAGE_HOLY, currentPlayerIndex);
 					} else { // HEAL
 						if (casterOwner != targetOwner) {
-							spawnFloatingText(gridToWorld(target->x, target->y), "Cannot heal enemy", ofColor::red);
+							spawnFloatingText(transformGridToWorld(target->x, target->y), "Cannot heal enemy", ofColor::red);
 							return; // Don't cancel, let them pick again
 						}
 						int healAmt = 3;
 						int healed = std::min(healAmt, target->maxHealth - target->health);
 						if (healed > 0) {
 							target->health += healed;
-							spawnFloatingText(gridToWorld(target->x, target->y), "+" + ofToString(healed) + " HP", ofColor::green);
+							spawnFloatingText(transformGridToWorld(target->x, target->y), "+" + ofToString(healed) + " HP", ofColor::green);
 						} else {
-							spawnFloatingText(gridToWorld(target->x, target->y), "Full HP", ofColor::gray);
+							spawnFloatingText(transformGridToWorld(target->x, target->y), "Full HP", ofColor::gray);
 						}
 					}
 
@@ -8559,7 +8599,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 				drawCard();
 
 			// Visual feedback
-			spawnFloatingText(gridToWorld(p.x, p.y), "+" + ofToString(cardsToDraw) + " Cards", ofColor::cyan);
+			spawnFloatingText(transformGridToWorld(p.x, p.y), "+" + ofToString(cardsToDraw) + " Cards", ofColor::cyan);
 
 			isSelectingRenewedInspiration = false;
 			return;
@@ -8600,7 +8640,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 			if (cardRect.inside(x, y)) {
 				// Check eligibility (Drawn this turn OR Copied)
 				if (!card.drawnThisTurn && !card.isCopied) {
-					spawnFloatingText(gridToWorld(p.x, p.y), "Must be drawn this turn", ofColor::red);
+					spawnFloatingText(transformGridToWorld(p.x, p.y), "Must be drawn this turn", ofColor::red);
 					return;
 				}
 
@@ -8650,7 +8690,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 						// Apply to health
 						if (damage > 0) {
 							target.health -= damage;
-							spawnFloatingText(gridToWorld(target.x, target.y),
+							spawnFloatingText(transformGridToWorld(target.x, target.y),
 								"-" + ofToString(damage) + " Shell Spike", ofColor::red);
 
 							// Tortoise form damage tracking on target if they have it
@@ -8660,7 +8700,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 									target.inTortoiseForm = false;
 									target.tortoiseDamageTaken = 0;
 									target.discardPile.push_back(target.tortoiseFormCard);
-									spawnFloatingText(gridToWorld(target.x, target.y) + glm::vec3(0, 0.5f, 0),
+									spawnFloatingText(transformGridToWorld(target.x, target.y) + glm::vec3(0, 0.5f, 0),
 										"Form Ended!", ofColor::darkGreen);
 								}
 							}
@@ -8677,7 +8717,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 								target.x = -1000;
 							}
 						} else {
-							spawnFloatingText(gridToWorld(target.x, target.y), "Blocked", ofColor::gray);
+							spawnFloatingText(transformGridToWorld(target.x, target.y), "Blocked", ofColor::gray);
 						}
 
 						isTargetingTortoiseDamage = false;
@@ -8721,10 +8761,10 @@ void ofApp::mousePressed(int x, int y, int button) {
 				caster.x = gx;
 				caster.y = gy;
 				board[gx][gy].hasPlayer = true; // Set occupancy (even if wall)
-				playerVisualPos = gridToWorld(gx, gy);
+				playerVisualPos = transformGridToWorld(gx, gy);
 				invalidateTargetCache();
 
-				spawnFloatingText(gridToWorld(gx, gy), "Teleport!", ofColor::cyan);
+				spawnFloatingText(transformGridToWorld(gx, gy), "Teleport!", ofColor::cyan);
 				ofLogNotice("Teleport") << "Teleported to (" << gx << ", " << gy << ")";
 
 				// Remove teleport card from hand
@@ -9239,7 +9279,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 					drawCard();
 
 				// Visual feedback
-				spawnFloatingText(gridToWorld(p.x, p.y), "Spark of Genius! +" + ofToString(cardsToDraw) + " Cards", ofColor::cyan);
+				spawnFloatingText(transformGridToWorld(p.x, p.y), "Spark of Genius! +" + ofToString(cardsToDraw) + " Cards", ofColor::cyan);
 
 				isSelectingRenewedInspiration = false;
 				return;
@@ -9280,7 +9320,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 				if (cardRect.inside(x, y)) {
 					// Check eligibility (Drawn this turn OR Copied)
 					if (!card.drawnThisTurn && !card.isCopied) {
-						spawnFloatingText(gridToWorld(p.x, p.y), "Not eligible", ofColor::red);
+						spawnFloatingText(transformGridToWorld(p.x, p.y), "Not eligible", ofColor::red);
 						return;
 					}
 
@@ -9433,7 +9473,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 				// Start a bonus AP roll (added on top of the original result)
 				startDiceRoll(rerollNum, rerollSides, PURPOSE_BONUS_AP, "Assistant Reroll", currentPlayerIndex);
 
-				spawnFloatingText(gridToWorld(players[assistantIndex].x, players[assistantIndex].y), "Reroll!", ofColor::gold);
+				spawnFloatingText(transformGridToWorld(players[assistantIndex].x, players[assistantIndex].y), "Reroll!", ofColor::gold);
 			}
 			return;
 		}
@@ -9445,7 +9485,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 			// --- GHOST FORM CHECK ---
 			Player & p = players[currentPlayerIndex];
 			if (p.inGhostForm && board[p.x][p.y].hasWall) {
-				spawnFloatingText(gridToWorld(p.x, p.y), "Cannot end turn in wall!", ofColor::red);
+				spawnFloatingText(transformGridToWorld(p.x, p.y), "Cannot end turn in wall!", ofColor::red);
 				ofLogNotice("Game") << "Prevented ending turn inside wall (Ghost Form).";
 				return;
 			}
@@ -9533,7 +9573,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 							currentPathIndex = 0;
 							animationPath.push_back(playerVisualPos);
 							for (size_t p = 1; p < hoverPath.size(); ++p) {
-								animationPath.push_back(gridToWorld((int)hoverPath[p].x, (int)hoverPath[p].y));
+								animationPath.push_back(transformGridToWorld((int)hoverPath[p].x, (int)hoverPath[p].y));
 							}
 							if (!animationPath.empty()) isPlayerAnimating = true;
 
@@ -9920,7 +9960,7 @@ void ofApp::mouseReleased(int x, int y, int button) {
 						}
 					} else {
 						// Show user feedback and clear drag state so they don't get stuck
-						spawnFloatingText(gridToWorld(currentPlayer.x, currentPlayer.y), "Not enough AP", ofColor::red);
+						spawnFloatingText(transformGridToWorld(currentPlayer.x, currentPlayer.y), "Not enough AP", ofColor::red);
 						draggedCardIndex = -1;
 						selectedCardIndex = -1;
 						calculateTargetHighlights();
@@ -9980,7 +10020,7 @@ void ofApp::keyPressed(int key) {
 					players[currentPlayerIndex].hand.push_back(filteredCards[0]);
 					players[currentPlayerIndex].hand.back().currentPos = ofVec2f(ofGetWidth() / 2, 0);
 				}
-				spawnFloatingText(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y),
+				spawnFloatingText(transformGridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y),
 					"+" + ofToString(cardSpawnerQuantity) + "x " + filteredCards[0].name, ofColor::cyan);
 				isCardSpawnerOpen = false;
 			}
@@ -10227,7 +10267,7 @@ void ofApp::startNewTurn() {
 		if (endingPlayer.strengthenElementsTurnsRemaining > 0) {
 			endingPlayer.strengthenElementsTurnsRemaining--;
 			if (endingPlayer.strengthenElementsTurnsRemaining == 0) {
-				spawnFloatingText(gridToWorld(endingPlayer.x, endingPlayer.y), "Elements Faded", ofColor::gray);
+				spawnFloatingText(transformGridToWorld(endingPlayer.x, endingPlayer.y), "Elements Faded", ofColor::gray);
 			}
 		}
 
@@ -10235,7 +10275,7 @@ void ofApp::startNewTurn() {
 		if (endingPlayer.freeKickTurns > 0) {
 			endingPlayer.freeKickTurns--;
 			if (endingPlayer.freeKickTurns == 0) {
-				spawnFloatingText(gridToWorld(endingPlayer.x, endingPlayer.y), "Kick Normal Cost", ofColor::white);
+				spawnFloatingText(transformGridToWorld(endingPlayer.x, endingPlayer.y), "Kick Normal Cost", ofColor::white);
 			}
 		}
 
@@ -10251,7 +10291,7 @@ void ofApp::startNewTurn() {
 			if (startingPlayer.hasRegeneration) {
 				if (startingPlayer.health < startingPlayer.maxHealth) {
 					startingPlayer.health++;
-					spawnFloatingText(gridToWorld(startingPlayer.x, startingPlayer.y), "+1 Regen", ofColor::green);
+					spawnFloatingText(transformGridToWorld(startingPlayer.x, startingPlayer.y), "+1 Regen", ofColor::green);
 				}
 			}
 			// Tortoise form: ALL defensive stats don't expire
@@ -10299,14 +10339,14 @@ void ofApp::startNewTurn() {
 	recalcTempLuck();
 
 	// --- C. RESET STATE FOR NORMAL TURN ---
-	playerVisualPos = gridToWorld(startingPlayer.x, startingPlayer.y);
+	playerVisualPos = transformGridToWorld(startingPlayer.x, startingPlayer.y);
 	animationPath.clear();
 	isPlayerAnimating = false;
 
 	if (startingPlayer.hasRegeneration) {
 		if (startingPlayer.health < startingPlayer.maxHealth) {
 			startingPlayer.health++;
-			spawnFloatingText(gridToWorld(startingPlayer.x, startingPlayer.y), "+1 Regen", ofColor::green);
+			spawnFloatingText(transformGridToWorld(startingPlayer.x, startingPlayer.y), "+1 Regen", ofColor::green);
 		}
 	}
 	// Tortoise form: ALL defensive stats don't expire
@@ -10334,7 +10374,7 @@ void ofApp::startNewTurn() {
 	// 1. SLEEP CHECK
 	if (startingPlayer.sleepTurnsRemaining > 0) {
 		startingPlayer.sleepTurnsRemaining--;
-		spawnFloatingText(gridToWorld(startingPlayer.x, startingPlayer.y), "Zzz...", ofColor::cyan);
+		spawnFloatingText(transformGridToWorld(startingPlayer.x, startingPlayer.y), "Zzz...", ofColor::cyan);
 
 		if (startingPlayer.onFire) {
 			isWaitingForOnFireDice = true;
@@ -10381,7 +10421,7 @@ void ofApp::continueNewTurn() {
 	// --- 0. SUMMONING SICKNESS CHECK .
 	if (startingPlayer.summonedOnTurnCycle == globalTurnCounter) {
 		ofLogNotice("Turn") << "Skipping Player " << startingPlayer.playerID << " (Summoning Sickness - Turn Cycle " << globalTurnCounter << ")";
-		spawnFloatingText(gridToWorld(startingPlayer.x, startingPlayer.y), "Waiting...", ofColor::gray);
+		spawnFloatingText(transformGridToWorld(startingPlayer.x, startingPlayer.y), "Waiting...", ofColor::gray);
 
 		// Immediately end this turn and go to the next unit
 		startNewTurn();
@@ -10397,7 +10437,7 @@ void ofApp::continueNewTurn() {
 	calculateTargetHighlights();
 
 	// FIX: Snap visual position instantly to the new unit so it doesn't "fly" across the board
-	playerVisualPos = gridToWorld(startingPlayer.x, startingPlayer.y);
+	playerVisualPos = transformGridToWorld(startingPlayer.x, startingPlayer.y);
 	animationPath.clear();
 	isPlayerAnimating = false;
 
@@ -10407,7 +10447,7 @@ void ofApp::continueNewTurn() {
 	// --- 1. SLEEP CHECK (New Status) ---
 	if (startingPlayer.sleepTurnsRemaining > 0) {
 		startingPlayer.sleepTurnsRemaining--;
-		spawnFloatingText(gridToWorld(startingPlayer.x, startingPlayer.y), "Zzz...", ofColor::cyan);
+		spawnFloatingText(transformGridToWorld(startingPlayer.x, startingPlayer.y), "Zzz...", ofColor::cyan);
 
 		// If on fire while sleeping, roll damage first, then the update loop will end the turn
 		if (startingPlayer.onFire) {
@@ -10614,7 +10654,7 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 			Tile & tile = board[targetX][targetY];
 			// Do not allow turning an already-magic wall into a magic wall again
 			if (tile.hasWall && tile.isMagicWall) {
-				spawnFloatingText(gridToWorld(targetX, targetY), "Already Magic Wall", ofColor::red);
+				spawnFloatingText(transformGridToWorld(targetX, targetY), "Already Magic Wall", ofColor::red);
 				return;
 			}
 			if (!tile.hasWall && !tile.hasPlayer) {
@@ -10646,7 +10686,7 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 	case CARD_FOUR_LEAF_CLOVER: {
 		// Normal TARGET_SELF behavior: apply to current player regardless of release coords
 		currentPlayer.luck += 1;
-		spawnFloatingText(gridToWorld(currentPlayer.x, currentPlayer.y), "+1 Luck!", ofColor::green);
+		spawnFloatingText(transformGridToWorld(currentPlayer.x, currentPlayer.y), "+1 Luck!", ofColor::green);
 		playedSuccessfully = true;
 		break;
 	}
@@ -10655,7 +10695,7 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 	case CARD_BLOCKING_BOON: {
 		// Prevent re-entry if a Blocking Boon is already resolving
 		if (blockingBoonActive) {
-			spawnFloatingText(gridToWorld(currentPlayer.x, currentPlayer.y), "Blocking Boon already resolving", ofColor::gray);
+			spawnFloatingText(transformGridToWorld(currentPlayer.x, currentPlayer.y), "Blocking Boon already resolving", ofColor::gray);
 			break;
 		}
 		// Allow playing without an adjacent target: target is optional for the Tails effect.
@@ -10696,7 +10736,7 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 				blockingBoonActive = true;
 				playedSuccessfully = true;
 			} else {
-				spawnFloatingText(gridToWorld(currentPlayer.x, currentPlayer.y), "No Block!", ofColor::gray);
+				spawnFloatingText(transformGridToWorld(currentPlayer.x, currentPlayer.y), "No Block!", ofColor::gray);
 			}
 		}
 
@@ -10718,17 +10758,17 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 
 		if (mh > 30) {
 			// Win condition: show message and return to main menu
-			spawnFloatingText(gridToWorld(currentPlayer.x, currentPlayer.y), "You Win!", ofColor::gold);
+			spawnFloatingText(transformGridToWorld(currentPlayer.x, currentPlayer.y), "You Win!", ofColor::gold);
 			ofLogNotice("Constitution Boon") << "Player " << currentPlayer.playerID << " triggered instant win via Constitution Boon.";
 			currentState = STATE_MAIN_MENU;
 			playedSuccessfully = true;
 		} else if (tier > 0) {
 			pendingDraftQueue.push_back(tier);
-			spawnFloatingText(gridToWorld(currentPlayer.x, currentPlayer.y), "Draft Class " + ofToString(tier), ofColor::cyan);
+			spawnFloatingText(transformGridToWorld(currentPlayer.x, currentPlayer.y), "Draft Class " + ofToString(tier), ofColor::cyan);
 			ofLogNotice("Constitution Boon") << "Player " << currentPlayer.playerID << " queued draft Class " << tier;
 			playedSuccessfully = true;
 		} else {
-			spawnFloatingText(gridToWorld(currentPlayer.x, currentPlayer.y), "No Effect", ofColor::gray);
+			spawnFloatingText(transformGridToWorld(currentPlayer.x, currentPlayer.y), "No Effect", ofColor::gray);
 		}
 
 		break;
@@ -10740,9 +10780,9 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		currentAP += 2;
 		currentPlayer.nextTurnAPBonus += 2;
 		currentPlayer.freeKickTurns = 2; // Current turn + next turn
-		spawnFloatingText(gridToWorld(currentPlayer.x, currentPlayer.y), "+2 AP Now", ofColor::yellow);
-		spawnFloatingText(gridToWorld(currentPlayer.x, currentPlayer.y) + glm::vec3(0, 0.5f, 0), "+2 AP Next Turn", ofColor::yellow);
-		spawnFloatingText(gridToWorld(currentPlayer.x, currentPlayer.y) + glm::vec3(0, 1.0f, 0), "Kick is Free!", ofColor::cyan);
+		spawnFloatingText(transformGridToWorld(currentPlayer.x, currentPlayer.y), "+2 AP Now", ofColor::yellow);
+		spawnFloatingText(transformGridToWorld(currentPlayer.x, currentPlayer.y) + glm::vec3(0, 0.5f, 0), "+2 AP Next Turn", ofColor::yellow);
+		spawnFloatingText(transformGridToWorld(currentPlayer.x, currentPlayer.y) + glm::vec3(0, 1.0f, 0), "Kick is Free!", ofColor::cyan);
 		playedSuccessfully = true;
 		break;
 	}
@@ -10776,7 +10816,7 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		// Note: We need to ensure this stacks or handles existing flags.
 		// For now, setting it to true works.
 		currentPlayer.nextTurnExtraDraw = true;
-		spawnFloatingText(gridToWorld(currentPlayer.x, currentPlayer.y), "Studying...", ofColor::blue);
+		spawnFloatingText(transformGridToWorld(currentPlayer.x, currentPlayer.y), "Studying...", ofColor::blue);
 
 		// 2. Trigger Draft (Class 2)
 		isInGameDraft = true;
@@ -10880,7 +10920,7 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 			StolenCardAnimation newAnim;
 			newAnim.card = stolenCard;
 			newAnim.startTime = ofGetElapsedTimef();
-			newAnim.startPos = gridToWorld(targetPlayer->x, targetPlayer->y);
+			newAnim.startPos = transformGridToWorld(targetPlayer->x, targetPlayer->y);
 			newAnim.targetPos = { ofGetWidth() / 2.0f, ofGetHeight() / 2.0f };
 			newAnim.currentPos = cam.worldToScreen(newAnim.startPos);
 			activeStolenCardAnimations.push_back(newAnim);
@@ -11001,7 +11041,7 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 			buildLevelMesh();
 			// Grant +6 AP next turn
 			currentPlayer.nextTurnAPBonus += 6;
-			spawnFloatingText(gridToWorld(currentPlayer.x, currentPlayer.y), "+6 AP Next Turn", ofColor::yellow);
+			spawnFloatingText(transformGridToWorld(currentPlayer.x, currentPlayer.y), "+6 AP Next Turn", ofColor::yellow);
 			playedSuccessfully = true;
 		}
 		break;
@@ -11475,7 +11515,7 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		target.paralysisHeadsCount = 0;
 		target.sleepTurnsRemaining = 0;
 
-		spawnFloatingText(gridToWorld(target.x, target.y), "Fully Restored!", ofColor::gold);
+		spawnFloatingText(transformGridToWorld(target.x, target.y), "Fully Restored!", ofColor::gold);
 		ofLogNotice("Full Restore") << "Unit " << target.playerID << " healed to " << target.maxHealth << " and cured.";
 
 		playedSuccessfully = true;
@@ -11624,7 +11664,7 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		ofLogNotice("Transform") << "Attempting Transform Wall at (" << targetX << "," << targetY << ") hasWall=" << (board[targetX][targetY].hasWall ? "true" : "false");
 		// Must be a wall
 		if (!board[targetX][targetY].hasWall) {
-			spawnFloatingText(gridToWorld(targetX, targetY), "No wall to transform", ofColor::red);
+			spawnFloatingText(transformGridToWorld(targetX, targetY), "No wall to transform", ofColor::red);
 			break;
 		}
 
@@ -11768,7 +11808,7 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 
 		if (!hasSpace) {
 			ofLogNotice("Wolves") << "No adjacent space to summon wolves!";
-			spawnFloatingText(gridToWorld(cx, cy), "No Space!", ofColor::red);
+			spawnFloatingText(transformGridToWorld(cx, cy), "No Space!", ofColor::red);
 			break; // Cancel card play
 		}
 
@@ -11813,7 +11853,7 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 
 		if (!hasSpace) {
 			ofLogNotice("Kobolds") << "No adjacent space to summon kobolds!";
-			spawnFloatingText(gridToWorld(cx, cy), "No Space!", ofColor::red);
+			spawnFloatingText(transformGridToWorld(cx, cy), "No Space!", ofColor::red);
 			break; // Cancel card play
 		}
 
@@ -11910,7 +11950,7 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 
 		// 1. Check if already asleep -> INSTANT DEATH
 		if (target->sleepTurnsRemaining > 0) {
-			spawnFloatingText(gridToWorld(target->x, target->y), "Nightmare!", ofColor::darkRed);
+			spawnFloatingText(transformGridToWorld(target->x, target->y), "Nightmare!", ofColor::darkRed);
 
 			// Kill logic
 			DeathMarker death;
@@ -11940,7 +11980,7 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		// Set duration to 3 (Current Turn + Next 2 Turns)
 		currentPlayer.strengthenElementsTurnsRemaining = 3;
 
-		spawnFloatingText(gridToWorld(currentPlayer.x, currentPlayer.y), "Elemental Flow!", ofColor::orange);
+		spawnFloatingText(transformGridToWorld(currentPlayer.x, currentPlayer.y), "Elemental Flow!", ofColor::orange);
 		ofLogNotice("Game") << "Player " << currentPlayer.playerID << " strengthened elements for 3 turns.";
 
 		playedSuccessfully = true;
@@ -11980,7 +12020,7 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 				if (applyPoisonBuff) {
 					target->isPoisoned = true;
 					target->poisonReduction = 0;
-					glm::vec3 tPos = gridToWorld(target->x, target->y);
+					glm::vec3 tPos = transformGridToWorld(target->x, target->y);
 					spawnFloatingText(tPos + glm::vec3(0, 0.5f, 0), "Poisoned!", ofColor::green);
 					pendingPoisonTargetIndices.clear();
 					pendingPoisonTargetIndices.push_back(targetIndex);
@@ -11988,7 +12028,7 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 					isWaitingForPoisonAttackDice = true;
 				}
 			} else {
-				spawnFloatingText(gridToWorld(target->x, target->y), "0 Damage", ofColor::gray);
+				spawnFloatingText(transformGridToWorld(target->x, target->y), "0 Damage", ofColor::gray);
 			}
 
 			// 3. Remove All Block from Caster
@@ -11997,7 +12037,7 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 			currentPlayer.ward = 0;
 			currentPlayer.holyBlock = 0;
 
-			spawnFloatingText(gridToWorld(currentPlayer.x, currentPlayer.y), "Shields Broken!", ofColor::yellow);
+			spawnFloatingText(transformGridToWorld(currentPlayer.x, currentPlayer.y), "Shields Broken!", ofColor::yellow);
 
 			playedSuccessfully = true;
 		}
@@ -12007,7 +12047,7 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 	case CARD_CONSUME_HEALTH_POTION: {
 		// Increase max HP by 1 (does not heal to it)
 		currentPlayer.maxHealth++;
-		spawnFloatingText(gridToWorld(currentPlayer.x, currentPlayer.y), "+1 Max HP", ofColor::cyan);
+		spawnFloatingText(transformGridToWorld(currentPlayer.x, currentPlayer.y), "+1 Max HP", ofColor::cyan);
 		ofLogNotice("Consume Health Potion") << "Player " << currentPlayer.playerID << " increased max HP to " << currentPlayer.maxHealth;
 		playedSuccessfully = true;
 		break;
@@ -12016,7 +12056,7 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 	case CARD_ADD_POISON: {
 		// Buff: next physical/piercing damage card this turn adds 1d6 poison damage
 		currentPlayer.nextAttackAddPoison = true;
-		spawnFloatingText(gridToWorld(currentPlayer.x, currentPlayer.y), "Poison Ready!", ofColor::green);
+		spawnFloatingText(transformGridToWorld(currentPlayer.x, currentPlayer.y), "Poison Ready!", ofColor::green);
 		ofLogNotice("Add Poison") << "Player " << currentPlayer.playerID << " primed next attack with poison.";
 		playedSuccessfully = true;
 		break;
@@ -12041,7 +12081,7 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 
 		// 2. Activate flurry buff for this turn
 		currentPlayer.flurryOfFistsActive = true;
-		spawnFloatingText(gridToWorld(currentPlayer.x, currentPlayer.y), "Flurry!", ofColor::orange);
+		spawnFloatingText(transformGridToWorld(currentPlayer.x, currentPlayer.y), "Flurry!", ofColor::orange);
 
 		// 3. Draw a card for free (without using draw action)
 		if (!currentPlayer.deck.empty()) {
@@ -12054,7 +12094,7 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 			if (isHandRelated) {
 				// Make it cost 0 AP this turn
 				drawnCard.cost = 0;
-				spawnFloatingText(gridToWorld(currentPlayer.x, currentPlayer.y) + glm::vec3(0, 0.5f, 0),
+				spawnFloatingText(transformGridToWorld(currentPlayer.x, currentPlayer.y) + glm::vec3(0, 0.5f, 0),
 					drawnCard.name + " (0 AP)!", ofColor::yellow);
 			}
 
@@ -12072,7 +12112,7 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 
 			if (isHandRelated) {
 				drawnCard.cost = 0;
-				spawnFloatingText(gridToWorld(currentPlayer.x, currentPlayer.y) + glm::vec3(0, 0.5f, 0),
+				spawnFloatingText(transformGridToWorld(currentPlayer.x, currentPlayer.y) + glm::vec3(0, 0.5f, 0),
 					drawnCard.name + " (0 AP)!", ofColor::yellow);
 			}
 
@@ -12112,13 +12152,13 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 
 		// 3. +5 max HP
 		currentPlayer.maxHealth += 5;
-		spawnFloatingText(gridToWorld(currentPlayer.x, currentPlayer.y), "+5 Max HP!", ofColor::limeGreen);
+		spawnFloatingText(transformGridToWorld(currentPlayer.x, currentPlayer.y), "+5 Max HP!", ofColor::limeGreen);
 
 		// 4. Heal 5 HP
 		int healAmount = std::min(5, currentPlayer.maxHealth - currentPlayer.health);
 		currentPlayer.health += healAmount;
 		if (healAmount > 0) {
-			spawnFloatingText(gridToWorld(currentPlayer.x, currentPlayer.y) + glm::vec3(0, 0.3f, 0),
+			spawnFloatingText(transformGridToWorld(currentPlayer.x, currentPlayer.y) + glm::vec3(0, 0.3f, 0),
 				"+" + ofToString(healAmount) + " HP", ofColor::green);
 		}
 
@@ -12136,12 +12176,12 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 			currentPlayer.deck.push_back(dispelCard);
 			currentPlayer.deck.push_back(dispelCard);
 			shuffleGameVector(currentPlayer.deck, currentPlayerIndex);
-			spawnFloatingText(gridToWorld(currentPlayer.x, currentPlayer.y) + glm::vec3(0, 0.6f, 0),
+			spawnFloatingText(transformGridToWorld(currentPlayer.x, currentPlayer.y) + glm::vec3(0, 0.6f, 0),
 				"+2 Dispel", ofColor::cyan);
 		}
 
 		// 6. Visual feedback
-		spawnFloatingText(gridToWorld(currentPlayer.x, currentPlayer.y) + glm::vec3(0, 0.9f, 0),
+		spawnFloatingText(transformGridToWorld(currentPlayer.x, currentPlayer.y) + glm::vec3(0, 0.9f, 0),
 			"TORTOISE FORM!", ofColor::darkGreen);
 
 		ofLogNotice("Form of Tortoise") << "Player " << currentPlayer.playerID << " entered tortoise form.";
@@ -12182,11 +12222,11 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		// 2. Grant Regeneration (if not already active)
 		if (!currentPlayer.hasRegeneration) {
 			currentPlayer.hasRegeneration = true;
-			spawnFloatingText(gridToWorld(currentPlayer.x, currentPlayer.y), "Regeneration Gained", ofColor::green);
+			spawnFloatingText(transformGridToWorld(currentPlayer.x, currentPlayer.y), "Regeneration Gained", ofColor::green);
 		}
 
 		// 3. Visuals
-		spawnFloatingText(gridToWorld(currentPlayer.x, currentPlayer.y) + glm::vec3(0, 1.0f, 0), "GHOST FORM!", ofColor::white);
+		spawnFloatingText(transformGridToWorld(currentPlayer.x, currentPlayer.y) + glm::vec3(0, 1.0f, 0), "GHOST FORM!", ofColor::white);
 		ofLogNotice("Form of Ghost") << "Player " << currentPlayer.playerID << " entered ghost form.";
 
 		// 4. Handle "Keep in Play" (Do not add to played pile, just remove from hand)
@@ -12239,7 +12279,7 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 
 		// Grant fortification equal to number of linked walls
 		currentPlayer.fortification += linkedCount;
-		spawnFloatingText(gridToWorld(currentPlayer.x, currentPlayer.y), "+" + ofToString(linkedCount) + " Fortify", ofColor::lightGray);
+		spawnFloatingText(transformGridToWorld(currentPlayer.x, currentPlayer.y), "+" + ofToString(linkedCount) + " Fortify", ofColor::lightGray);
 		ofLogNotice("Fortify") << "Player " << currentPlayer.playerID << " gained " << linkedCount << " fortification.";
 
 		// Damage any other unit orthogonally adjacent to any of the linked walls (no diagonals, skip caster)
@@ -12275,7 +12315,7 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		currentPlayer.holyBlock += playedCard.value; // value is 7
 		currentPlayer.nextTurnBonusDiceFromMinions = true;
 
-		spawnFloatingText(gridToWorld(currentPlayer.x, currentPlayer.y),
+		spawnFloatingText(transformGridToWorld(currentPlayer.x, currentPlayer.y),
 			"+" + ofToString(playedCard.value) + " Holy Block",
 			ofColor::darkViolet);
 
@@ -12339,7 +12379,7 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 			if (applyPoisonBuff) {
 				target->isPoisoned = true;
 				target->poisonReduction = 0;
-				glm::vec3 tPos = gridToWorld(target->x, target->y);
+				glm::vec3 tPos = transformGridToWorld(target->x, target->y);
 				spawnFloatingText(tPos + glm::vec3(0, 0.5f, 0), "Poisoned!", ofColor::green);
 				pendingPoisonTargetIndices.clear();
 				pendingPoisonTargetIndices.push_back(targetIndex);
@@ -12360,7 +12400,7 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 
 				// Visual Feedback for Heal
 				spawnFloatingText(
-					gridToWorld(currentPlayer.x, currentPlayer.y),
+					transformGridToWorld(currentPlayer.x, currentPlayer.y),
 					"+" + ofToString(actualDamageDealt) + " HP",
 					ofColor::green);
 
@@ -12393,7 +12433,7 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 			currentPlayer.hand.push_back(copy);
 			currentPlayer.isReplicatePending = false;
 
-			spawnFloatingText(gridToWorld(currentPlayer.x, currentPlayer.y), "Replicated!", ofColor::cyan);
+			spawnFloatingText(transformGridToWorld(currentPlayer.x, currentPlayer.y), "Replicated!", ofColor::cyan);
 		}
 
 		// 3. Move Original to Played Pile
@@ -12444,7 +12484,7 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 			if (healthHit) {
 				currentPlayer.health += 2;
 				if (currentPlayer.health > currentPlayer.maxHealth) currentPlayer.health = currentPlayer.maxHealth;
-				spawnFloatingText(gridToWorld(currentPlayer.x, currentPlayer.y), "+2 HP", ofColor::green);
+				spawnFloatingText(transformGridToWorld(currentPlayer.x, currentPlayer.y), "+2 HP", ofColor::green);
 
 				// Find the card template in allCards
 				Card cardToAdd;
@@ -12460,7 +12500,7 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 				if (found) {
 					target->deck.push_back(cardToAdd);
 					shuffleGameVector(target->deck, targetIndex);
-					spawnFloatingText(gridToWorld(target->x, target->y), "Shuffled 1x Vampire Bite", ofColor::magenta);
+					spawnFloatingText(transformGridToWorld(target->x, target->y), "Shuffled 1x Vampire Bite", ofColor::magenta);
 					ofLogNotice("Vampire Bite") << "Shuffled a Vampire Bite into Player " << target->playerID << "'s deck.";
 				}
 			}
@@ -12526,14 +12566,14 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		if (skeletonCount > 0) {
 			// Visual Feedback for gaining luck
 			spawnFloatingText(
-				gridToWorld(currentPlayer.x, currentPlayer.y),
+				transformGridToWorld(currentPlayer.x, currentPlayer.y),
 				"+" + ofToString(skeletonCount) + " LUCK!",
 				ofColor::purple);
 			ofLogNotice("NecroBlessing") << "Unit " << currentPlayer.playerID << " gained " << skeletonCount << " luck.";
 		} else {
 			// Visual Feedback for gaining 0 luck
 			spawnFloatingText(
-				gridToWorld(currentPlayer.x, currentPlayer.y),
+				transformGridToWorld(currentPlayer.x, currentPlayer.y),
 				"No Skeletons! (+0 Luck)",
 				ofColor::gray);
 			ofLogNotice("NecroBlessing") << "No skeletons found, no luck gained.";
@@ -12564,7 +12604,7 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 			EarthquakeState state;
 			state.playerIndex = i;
 			state.startGrid = { players[i].x, players[i].y };
-			state.visualPos = gridToWorld(players[i].x, players[i].y);
+			state.visualPos = transformGridToWorld(players[i].x, players[i].y);
 			state.isMoving = true;
 			state.crashed = false;
 			state.tilesToMove = 0;
@@ -12682,14 +12722,14 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 			if (damage > 0) {
 				applyDamageTo(*target, damage, DAMAGE_PHYSICAL, currentPlayerIndex);
 			} else {
-				spawnFloatingText(gridToWorld(target->x, target->y), "0 Damage (Empty Discard)", ofColor::gray);
+				spawnFloatingText(transformGridToWorld(target->x, target->y), "0 Damage (Empty Discard)", ofColor::gray);
 			}
 
 			// Apply poison if buff was active
 			if (applyPoisonBuff) {
 				target->isPoisoned = true;
 				target->poisonReduction = 0;
-				glm::vec3 tPos = gridToWorld(target->x, target->y);
+				glm::vec3 tPos = transformGridToWorld(target->x, target->y);
 				spawnFloatingText(tPos + glm::vec3(0, 0.5f, 0), "Poisoned!", ofColor::green);
 				pendingPoisonTargetIndices.clear();
 				pendingPoisonTargetIndices.push_back(targetIndex);
@@ -12705,25 +12745,25 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 				// Visuals for Mill
 				RemovedCardAnimation anim;
 				anim.card = removedCard;
-				anim.startPos = gridToWorld(target->x, target->y);
+				anim.startPos = transformGridToWorld(target->x, target->y);
 				anim.startTime = ofGetElapsedTimef();
 				anim.currentScale = 1.0f;
 				activeRemovedCardAnimations.push_back(anim);
 
-				spawnFloatingText(gridToWorld(target->x, target->y) + glm::vec3(0, 1.0f, 0), "Milled!", ofColor::purple);
+				spawnFloatingText(transformGridToWorld(target->x, target->y) + glm::vec3(0, 1.0f, 0), "Milled!", ofColor::purple);
 			}
 		}
 
 		// --- 4. Buff the Caster ---
 		currentPlayer.luck++;
 		spawnFloatingText(
-			gridToWorld(currentPlayer.x, currentPlayer.y),
+			transformGridToWorld(currentPlayer.x, currentPlayer.y),
 			"+1 LUCK!",
 			ofColor::gold);
 
 		currentPlayer.maxHealth++;
 		spawnFloatingText(
-			gridToWorld(currentPlayer.x, currentPlayer.y),
+			transformGridToWorld(currentPlayer.x, currentPlayer.y),
 			"+1 Max HP!",
 			ofColor::limeGreen);
 
@@ -12778,12 +12818,12 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 	case CARD_CONSUME_LARGE_HEALTH_POTION: {
 		// +3 Max HP
 		currentPlayer.maxHealth += 3;
-		spawnFloatingText(gridToWorld(currentPlayer.x, currentPlayer.y), "+3 Max HP", ofColor::limeGreen);
+		spawnFloatingText(transformGridToWorld(currentPlayer.x, currentPlayer.y), "+3 Max HP", ofColor::limeGreen);
 
 		// Heal 1 HP
 		if (currentPlayer.health < currentPlayer.maxHealth) {
 			currentPlayer.health += 1;
-			spawnFloatingText(gridToWorld(currentPlayer.x, currentPlayer.y) + glm::vec3(0, 0.5f, 0), "+1 HP", ofColor::green);
+			spawnFloatingText(transformGridToWorld(currentPlayer.x, currentPlayer.y) + glm::vec3(0, 0.5f, 0), "+1 HP", ofColor::green);
 		}
 
 		ofLogNotice("Potion") << "Player " << currentPlayer.playerID << " consumed large potion.";
@@ -12952,7 +12992,7 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 							pendingPoisonTargetIndices.push_back(pIndex);
 							target->isPoisoned = true;
 							target->poisonReduction = 0;
-							glm::vec3 tPos = gridToWorld(target->x, target->y);
+							glm::vec3 tPos = transformGridToWorld(target->x, target->y);
 							spawnFloatingText(tPos + glm::vec3(0, 0.5f, 0), "Poisoned!", ofColor::green);
 						}
 					}
@@ -13002,7 +13042,7 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 
 	case CARD_GAIN_AP:
 		currentAP += playedCard.value;
-		spawnFloatingText(gridToWorld(currentPlayer.x, currentPlayer.y), "+" + ofToString(playedCard.value) + " AP", ofColor::yellow);
+		spawnFloatingText(transformGridToWorld(currentPlayer.x, currentPlayer.y), "+" + ofToString(playedCard.value) + " AP", ofColor::yellow);
 		playedSuccessfully = true;
 		break;
 
@@ -13013,14 +13053,14 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 			blockValue *= 2;
 		}
 		players[currentPlayerIndex].block += blockValue;
-		spawnFloatingText(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y), "+" + ofToString(blockValue) + " Block", ofColor::gray);
+		spawnFloatingText(transformGridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y), "+" + ofToString(blockValue) + " Block", ofColor::gray);
 		playedSuccessfully = true;
 		break;
 	}
 
 	case CARD_GAIN_WARD:
 		players[currentPlayerIndex].ward += playedCard.value;
-		spawnFloatingText(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y), "+" + ofToString(playedCard.value) + " Ward", ofColor::black);
+		spawnFloatingText(transformGridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y), "+" + ofToString(playedCard.value) + " Ward", ofColor::black);
 		playedSuccessfully = true;
 		break;
 
@@ -13049,7 +13089,7 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 					// Shuffle the deck to integrate the new card (authoritative)
 					shuffleGameVector(currentPlayer.deck, currentPlayerIndex);
 
-					spawnFloatingText(gridToWorld(currentPlayer.x, currentPlayer.y) + glm::vec3(0, 0.5, 0), "Element Copied!", ofColor::cyan);
+					spawnFloatingText(transformGridToWorld(currentPlayer.x, currentPlayer.y) + glm::vec3(0, 0.5, 0), "Element Copied!", ofColor::cyan);
 					ofLogNotice("Game") << "Strengthen Elements triggered: Copied " << playedCard.name << " to deck.";
 				}
 			}
@@ -13082,7 +13122,7 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 					// Enter tortoise damage targeting mode
 					isTargetingTortoiseDamage = true;
 					calculateTargetHighlights(); // Show green highlights on valid targets
-					spawnFloatingText(gridToWorld(currentPlayer.x, currentPlayer.y) + glm::vec3(0, 1.0f, 0),
+					spawnFloatingText(transformGridToWorld(currentPlayer.x, currentPlayer.y) + glm::vec3(0, 1.0f, 0),
 						"Shell Spike!", ofColor::darkGreen);
 					ofLogNotice("Tortoise Form") << "Triggered damage - choose adjacent target.";
 				}
@@ -13243,7 +13283,7 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 	// cheap fallback check to detect wall geometry at a grid cell.
 	auto meshHasWallAt = [&](int tx, int ty) {
 		if (tx < 0 || tx >= BOARD_WIDTH || ty < 0 || ty >= BOARD_HEIGHT) return false;
-		glm::vec3 center = gridToWorld(tx, ty);
+		glm::vec3 center = transformGridToWorld(tx, ty);
 		float thresh = TILE_SIZE * 0.4f; // area to consider
 		for (const auto & v : levelMesh.getVertices()) {
 			// Compare XZ distance only (ignore Y vertex height)
@@ -13714,10 +13754,56 @@ std::vector<glm::vec2> ofApp::findShortestPath(glm::vec2 start, glm::vec2 end) {
 }
 
 //--------------------------------------------------------------
+// Get player display name (Steam name in multiplayer, "Player 1"/"Player 2" in singleplayer)
+std::string ofApp::getPlayerSteamName(int playerIndex) {
+	if (playerIndex < 0 || playerIndex >= (int)players.size()) return "Unknown";
+	int playerID = players[playerIndex].playerID;
+
+	if (isMultiplayer) {
+		return (playerID == 0) ? player0SteamName : player1SteamName;
+	} else {
+		return (playerID == 0) ? "Player 1" : "Player 2";
+	}
+}
+
+//--------------------------------------------------------------
+// Transform grid coords with camera flip for multiplayer perspective
 glm::vec3 ofApp::gridToWorld(int gridX, int gridY) {
 	float worldX = (gridX - BOARD_WIDTH / 2.0f) * TILE_SIZE + (TILE_SIZE / 2.0f);
 	float worldZ = (gridY - BOARD_HEIGHT / 2.0f) * TILE_SIZE + (TILE_SIZE / 2.0f);
 	return glm::vec3(worldX, 0, worldZ);
+}
+
+glm::vec3 ofApp::transformGridToWorld(int gx, int gy) {
+	if (shouldFlipCamera()) {
+		// Flip both X and Y for client to see opponent's side as "top"
+		gx = (BOARD_WIDTH - 1) - gx;
+		gy = (BOARD_HEIGHT - 1) - gy;
+	}
+	return gridToWorld(gx, gy);
+}
+
+//--------------------------------------------------------------
+glm::ivec2 ofApp::transformWorldToGrid(glm::vec3 worldPos) {
+	// Inverse of gridToWorld
+	int gx = (int)std::round((worldPos.x - TILE_SIZE / 2.0f) / TILE_SIZE + BOARD_WIDTH / 2.0f);
+	int gy = (int)std::round((worldPos.z - TILE_SIZE / 2.0f) / TILE_SIZE + BOARD_HEIGHT / 2.0f);
+
+	if (shouldFlipCamera()) {
+		gx = (BOARD_WIDTH - 1) - gx;
+		gy = (BOARD_HEIGHT - 1) - gy;
+	}
+
+	return glm::ivec2(gx, gy);
+}
+
+//--------------------------------------------------------------
+int ofApp::getVisualPlayerIndex(int actualPlayerIndex) {
+	// For client (playerID=1), swap player indices visually so they always see themselves as "bottom left"
+	if (shouldFlipCamera()) {
+		return actualPlayerIndex == 0 ? 1 : 0;
+	}
+	return actualPlayerIndex;
 }
 
 //--------------------------------------------------------------
@@ -14090,7 +14176,7 @@ int ofApp::startDiceRoll(int numDice, int sides, DicePurpose purpose, std::strin
 	if (luckBonus > 0) {
 		Player & caster = players[currentPlayerIndex];
 		spawnFloatingText(
-			gridToWorld(caster.x, caster.y),
+			transformGridToWorld(caster.x, caster.y),
 			"+" + ofToString(luckBonus) + " Luck!",
 			ofColor::gold);
 	}
@@ -14195,7 +14281,7 @@ void ofApp::tryTriggerShellSpike() {
 		// Enter tortoise damage targeting mode
 		isTargetingTortoiseDamage = true;
 		calculateTargetHighlights(); // Show green highlights on valid targets
-		spawnFloatingText(gridToWorld(currentPlayer.x, currentPlayer.y) + glm::vec3(0, 1.0f, 0),
+		spawnFloatingText(transformGridToWorld(currentPlayer.x, currentPlayer.y) + glm::vec3(0, 1.0f, 0),
 			"Shell Spike!", ofColor::darkGreen);
 		ofLogNotice("Tortoise Form") << "Triggered Shell Spike damage - choose adjacent target.";
 	}
@@ -14665,7 +14751,7 @@ void ofApp::resolveDoubleHanded(std::string cardName) {
 			shuffleGameVector(target->deck, pendingDoubleHandedTargetIndex);
 
 			// 4. Visual Feedback
-			spawnFloatingText(gridToWorld(target->x, target->y), "Added " + ofToString(copiesToAdd) + "x " + cardName, ofColor::cyan);
+			spawnFloatingText(transformGridToWorld(target->x, target->y), "Added " + ofToString(copiesToAdd) + "x " + cardName, ofColor::cyan);
 			ofLogNotice("Double Handed") << "Shuffled " << copiesToAdd << "x " << cardName << " into Player " << target->playerID << "'s deck.";
 
 			// 5. Finalize Play (Cost AP, Remove Card)
@@ -14699,7 +14785,7 @@ void ofApp::determineStatusOptions(Player * target) {
 	if (statusSelectLabels.empty()) {
 		// Use in-game floating text instead of a system dialog (preserves fullscreen)
 		if (target) {
-			spawnFloatingText(gridToWorld(target->x, target->y), "Target has no status effects!", ofColor::yellow);
+			spawnFloatingText(transformGridToWorld(target->x, target->y), "Target has no status effects!", ofColor::yellow);
 		} else {
 			spawnFloatingText(glm::vec3(ofGetWidth() / 2, ofGetHeight() / 2, 0), "Target has no status effects!", ofColor::yellow);
 		}
@@ -14875,11 +14961,11 @@ bool ofApp::applyDamageTo(Player & target, int damage, DamageType type, int atta
 	if (target.inGhostForm) {
 		if (type == DAMAGE_PHYSICAL || type == DAMAGE_PIERCING) {
 			calculatedDamage = 0;
-			spawnFloatingText(gridToWorld(target.x, target.y), "Phased!", ofColor::cyan);
+			spawnFloatingText(transformGridToWorld(target.x, target.y), "Phased!", ofColor::cyan);
 		}
 		if (type == DAMAGE_HOLY) {
 			calculatedDamage *= 2;
-			spawnFloatingText(gridToWorld(target.x, target.y), "Ghost: x2 Holy", ofColor::orange);
+			spawnFloatingText(transformGridToWorld(target.x, target.y), "Ghost: x2 Holy", ofColor::orange);
 		}
 	}
 
@@ -14910,20 +14996,20 @@ bool ofApp::applyDamageTo(Player & target, int damage, DamageType type, int atta
 	if (type == DAMAGE_MAGIC && wallEffectCount > 0) {
 		calculatedDamage *= (1 << wallEffectCount);
 		for (int i = 0; i < wallEffectCount; i++)
-			spawnFloatingText(gridToWorld(target.x, target.y), "Magic Wall: x2 Magic", ofColor::purple);
+			spawnFloatingText(transformGridToWorld(target.x, target.y), "Magic Wall: x2 Magic", ofColor::purple);
 	} else if (type == DAMAGE_PHYSICAL && wallEffectCount > 0) {
 		for (int i = 0; i < wallEffectCount; i++) {
 			calculatedDamage /= 2;
 			if (i == 0 && targetNearWall)
-				spawnFloatingText(gridToWorld(target.x, target.y), "Magic Wall: 1/2 Phys", ofColor::purple);
+				spawnFloatingText(transformGridToWorld(target.x, target.y), "Magic Wall: 1/2 Phys", ofColor::purple);
 			else if (i == 1 && attackerNearWall)
-				spawnFloatingText(gridToWorld(attackerPtr->x, attackerPtr->y), "Magic Wall: 1/2 Phys", ofColor::purple);
+				spawnFloatingText(transformGridToWorld(attackerPtr->x, attackerPtr->y), "Magic Wall: 1/2 Phys", ofColor::purple);
 		}
 	}
 
 	if ((target.isHellhound || target.isDemon || target.isSkeleton) && type == DAMAGE_HOLY) {
 		calculatedDamage *= 2;
-		spawnFloatingText(gridToWorld(target.x, target.y), "Vulnerable: Holy (x2)", ofColor::orange);
+		spawnFloatingText(transformGridToWorld(target.x, target.y), "Vulnerable: Holy (x2)", ofColor::orange);
 	}
 	if (type == DAMAGE_HOLY) {
 		bool hasVampireBite = false;
@@ -14940,7 +15026,7 @@ bool ofApp::applyDamageTo(Player & target, int damage, DamageType type, int atta
 				}
 		if (hasVampireBite) {
 			calculatedDamage *= 2;
-			spawnFloatingText(gridToWorld(target.x, target.y), "Vampire Curse: x2 Holy", ofColor::orange);
+			spawnFloatingText(transformGridToWorld(target.x, target.y), "Vampire Curse: x2 Holy", ofColor::orange);
 		}
 	}
 	if (type == DAMAGE_PIERCING) {
@@ -14958,7 +15044,7 @@ bool ofApp::applyDamageTo(Player & target, int damage, DamageType type, int atta
 				}
 		if (hasWolfCall) {
 			calculatedDamage *= 2;
-			spawnFloatingText(gridToWorld(target.x, target.y), "Vulnerable: Piercing (x2)", ofColor::orange);
+			spawnFloatingText(transformGridToWorld(target.x, target.y), "Vulnerable: Piercing (x2)", ofColor::orange);
 		}
 	}
 
@@ -15006,7 +15092,7 @@ bool ofApp::applyDamageTo(Player & target, int damage, DamageType type, int atta
 		break;
 	}
 
-	glm::vec3 targetPos = gridToWorld(target.x, target.y);
+	glm::vec3 targetPos = transformGridToWorld(target.x, target.y);
 	if (remainingDmg > 0) {
 		target.health -= remainingDmg;
 		spawnFloatingText(targetPos, "-" + ofToString(remainingDmg) + typeLabel, ofColor::red);
@@ -15055,7 +15141,7 @@ bool ofApp::applyDamageTo(Player & target, int damage, DamageType type, int atta
 			// Visual feedback
 			Player * attacker = getPlayer(attackerIndex);
 			if (attacker) {
-				spawnFloatingText(gridToWorld(attacker->x, attacker->y), "Demon Slayer!", ofColor::gold);
+				spawnFloatingText(transformGridToWorld(attacker->x, attacker->y), "Demon Slayer!", ofColor::gold);
 			}
 		}
 		// -----------------------------
@@ -16163,7 +16249,7 @@ void ofApp::resolveMagicHandPull() {
 		isValid = false;
 
 	if (!isValid) {
-		spawnFloatingText(gridToWorld(caster.x, caster.y), "Blocked Behind!", ofColor::red);
+		spawnFloatingText(transformGridToWorld(caster.x, caster.y), "Blocked Behind!", ofColor::red);
 		return; // Don't close menu, allow retry or cancel
 	}
 
@@ -16173,7 +16259,7 @@ void ofApp::resolveMagicHandPull() {
 	caster.x = backPos.x;
 	caster.y = backPos.y;
 	board[caster.x][caster.y].hasPlayer = true;
-	playerVisualPos = gridToWorld(caster.x, caster.y);
+	playerVisualPos = transformGridToWorld(caster.x, caster.y);
 
 	// 2. Move Wall to Caster's Old Pos
 	board[wallPos.x][wallPos.y].hasWall = false;
@@ -16203,13 +16289,13 @@ void ofApp::resolveMagicHandPush() {
 
 	// Check bounds
 	if (targetPos.x < 0 || targetPos.x >= BOARD_WIDTH || targetPos.y < 0 || targetPos.y >= BOARD_HEIGHT) {
-		spawnFloatingText(gridToWorld(wallPos.x, wallPos.y), "Edge of World!", ofColor::red);
+		spawnFloatingText(transformGridToWorld(wallPos.x, wallPos.y), "Edge of World!", ofColor::red);
 		return;
 	}
 
 	// Check if target has another wall
 	if (board[targetPos.x][targetPos.y].hasWall) {
-		spawnFloatingText(gridToWorld(wallPos.x, wallPos.y), "Blocked by Wall!", ofColor::red);
+		spawnFloatingText(transformGridToWorld(wallPos.x, wallPos.y), "Blocked by Wall!", ofColor::red);
 		return;
 	}
 
@@ -16246,7 +16332,7 @@ void ofApp::resolveMagicHandPush() {
 	caster.x = wallPos.x;
 	caster.y = wallPos.y;
 	board[caster.x][caster.y].hasPlayer = true;
-	playerVisualPos = gridToWorld(caster.x, caster.y);
+	playerVisualPos = transformGridToWorld(caster.x, caster.y);
 
 	// Move Wall to Target Pos
 	board[wallPos.x][wallPos.y].hasWall = false;
@@ -16513,17 +16599,17 @@ void ofApp::drawInitiativeRoll() {
 		};
 
 		// Use distinct colors for Player 1 and Player 2
-		drawLabel("Player 1", p1Screen.x, p1Screen.y, ofColor(70, 160, 255)); // Blue
-		drawLabel("Player 2", p2Screen.x, p2Screen.y, ofColor(255, 80, 80)); // Red
+		drawLabel(player0SteamName, p1Screen.x, p1Screen.y, ofColor(70, 160, 255)); // Blue
+		drawLabel(player1SteamName, p2Screen.x, p2Screen.y, ofColor(255, 80, 80)); // Red
 
 		// Draw Result Message
 		if (activeDiceRolls[0].isFinishedVisual && activeDiceRolls[1].isFinishedVisual) {
 			string msg = "";
 
 			if (activeDiceRolls[0].result > activeDiceRolls[1].result)
-				msg = "Player 1 Wins!";
+				msg = player0SteamName + " Wins!";
 			else if (activeDiceRolls[1].result > activeDiceRolls[0].result)
-				msg = "Player 2 Wins!";
+				msg = player1SteamName + " Wins!";
 			else
 				msg = "Tie! Rerolling...";
 
@@ -16542,7 +16628,7 @@ void ofApp::drawInitiativeRoll() {
 //--------------------------------------------------------------
 void ofApp::drawDraftScreen() {
 	// 1. Construct Specific Instruction Text
-	string pName = (draftPlayerIndex == 0) ? "Player 1" : "Player 2";
+	string pName = (draftPlayerIndex == 0) ? player0SteamName : player1SteamName;
 	string msg = "";
 
 	if (isInGameDraft) {
@@ -16786,7 +16872,7 @@ void ofApp::processNetworkPackets() {
 				playerAction = NONE;
 				clearHighlights();
 				calculateTargetHighlights();
-				playerVisualPos = gridToWorld(startingPlayer.x, startingPlayer.y);
+				playerVisualPos = transformGridToWorld(startingPlayer.x, startingPlayer.y);
 				animationPath.clear();
 				isPlayerAnimating = false;
 				activeDiceRolls.clear();
@@ -16830,6 +16916,10 @@ void ofApp::processNetworkPackets() {
 			gameplaySeededByHost = true;
 			isMultiplayer = true;
 			myLocalPlayerID = 1;
+
+			// Get Steam names
+			player0SteamName = steamManager.getOpponentName(); // Host is opponent for client
+			player1SteamName = steamManager.getLocalPlayerName(); // Client is player 1
 
 			// Initialize game state for the client now that we have the seed.
 			ofLogNotice("Network") << "Client: Handshake received. Initializing game. (seed=" << currentMapSeed << ")";

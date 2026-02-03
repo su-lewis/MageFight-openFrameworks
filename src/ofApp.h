@@ -428,6 +428,14 @@ public:
 	bool isMultiplayer = false;
 	int myLocalPlayerID = 0; // 0 = Host, 1 = Client
 	bool hasReceivedHandshake = false;
+	std::string player0SteamName = "Player 1";
+	std::string player1SteamName = "Player 2";
+
+	// Camera perspective: Each player sees themselves in bottom-left, opponent in top-right
+	bool shouldFlipCamera() const { return isMultiplayer && myLocalPlayerID == 1; }
+	glm::vec3 transformGridToWorld(int gx, int gy); // Applies camera flip if needed
+	glm::ivec2 transformWorldToGrid(glm::vec3 worldPos); // Applies camera flip if needed
+	int getVisualPlayerIndex(int actualPlayerIndex); // Converts actual player index to visual (flipped for client)
 
 private:
 	// -------------------------------------------------------------------------
@@ -554,6 +562,7 @@ private:
 	glm::vec3 gridToWorld(int gridX, int gridY);
 	Player * getPlayer(int index);
 	std::string getPlayerDisplayName(int index);
+	std::string getPlayerSteamName(int playerIndex); // For player names (Steam)
 	std::vector<glm::vec2> findShortestPath(glm::vec2 start, glm::vec2 end);
 	glm::quat matchFaceToCamera(glm::vec3 faceNormal);
 

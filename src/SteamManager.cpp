@@ -143,6 +143,22 @@ bool SteamManager::isHost() const {
 	return m_bIsHost;
 }
 
+std::string SteamManager::getLocalPlayerName() const {
+	if (!m_bInitialized || !SteamFriends()) return "Player";
+	const char * name = SteamFriends()->GetPersonaName();
+	return name ? std::string(name) : "Player";
+}
+
+std::string SteamManager::getOpponentName() const {
+	if (!m_bInitialized || !SteamFriends() || !m_OpponentID.IsValid()) return "Opponent";
+	const char * name = SteamFriends()->GetFriendPersonaName(m_OpponentID);
+	return name ? std::string(name) : "Opponent";
+}
+
+CSteamID SteamManager::getOpponentSteamID() const {
+	return m_OpponentID;
+}
+
 void SteamManager::openFriendOverlay() {
 	if (m_bInitialized) SteamFriends()->ActivateGameOverlay("LobbyInvite");
 }
@@ -222,6 +238,11 @@ void SteamManager::OnNetConnectionStatusChanged(SteamNetConnectionStatusChangedC
 	case k_ESteamNetworkingConnectionState_Connected:
 		ofLogNotice("Steam") << "Connection Fully Active!";
 		m_hConnection = pInfo->m_hConn;
+		// Store opponent Steam ID for name lookup
+		if (pInfo->m_info.m_identityRemote.GetSteamID64() != 0) {
+			m_OpponentID = CSteamID(pInfo->m_info.m_identityRemote.GetSteamID64());
+			ofLogNotice("Steam") << "Opponent ID: " << m_OpponentID.ConvertToUint64();
+		}
 		break;
 	}
 }
