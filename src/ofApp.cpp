@@ -3855,20 +3855,27 @@ void ofApp::updateGame() {
 					}
 					ofLogNotice("Game") << "AP Roll Finished: " << currentAP << " AP awarded (sum of all dice).";
 
-					// HOST: Send TurnStart packet to client when starting their turn
-					if (isHost() && !isCurrentPlayerLocal()) {
+					// HOST: Send TurnStart packet to client when starting their turn (only if all dice finished)
+					bool allDiceFinished = true;
+					for (const auto & d : activeDiceRolls) {
+						if (!d.isFinishedVisual && (d.purpose == PURPOSE_AP || d.purpose == PURPOSE_BONUS_AP)) {
+							allDiceFinished = false;
+							break;
+						}
+					}
+					if (isHost() && !isCurrentPlayerLocal() && allDiceFinished) {
 						TurnStartPacket tpk = {};
 						tpk.type = PKT_TURN_START;
 						tpk.playerID = myLocalPlayerID;
 						tpk.currentPlayerIndex = currentPlayerIndex;
-						tpk.diceNum = (uint8_t)activeDiceRolls.size();
+						tpk.diceNum = 0;
 						tpk.finalTotal = currentAP;
-						int diceIdx = 0;
+						// Count actual AP/BONUS_AP dice and populate packet
 						for (const auto & d : activeDiceRolls) {
-							if (diceIdx < 8 && d.purpose == PURPOSE_AP) {
-								tpk.rawResults[diceIdx] = (uint8_t)d.rawResult;
-								tpk.finalResults[diceIdx] = (uint8_t)d.result;
-								diceIdx++;
+							if ((d.purpose == PURPOSE_AP || d.purpose == PURPOSE_BONUS_AP) && tpk.diceNum < 8) {
+								tpk.rawResults[tpk.diceNum] = (uint8_t)d.rawResult;
+								tpk.finalResults[tpk.diceNum] = (uint8_t)d.result;
+								tpk.diceNum++;
 							}
 						}
 						steamManager.sendPacket(&tpk, sizeof(tpk));
