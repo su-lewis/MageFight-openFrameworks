@@ -816,7 +816,8 @@ void ofApp::update() {
 			// Add disconnection message to chat
 			ChatMessage msg;
 			msg.playerName = "[SERVER]";
-			msg.message = "Opponent disconnected";
+			std::string opponentName = steamManager.getOpponentName();
+			msg.message = opponentName + " disconnected";
 			msg.timestamp = ofGetElapsedTimef();
 			chatHistory.push_back(msg);
 			if (chatHistory.size() > maxChatMessages) {
@@ -824,14 +825,15 @@ void ofApp::update() {
 			}
 			// Show chat window for this message
 			lastChatInteractionTime = ofGetElapsedTimef();
-			ofLogNotice("Network") << "Opponent disconnected - message added to chat";
+			ofLogNotice("Network") << opponentName << " disconnected - message added to chat";
 		}
 
 		if (steamManager.checkAndClearReconnectFlag()) {
 			// Add reconnection message to chat
 			ChatMessage msg;
 			msg.playerName = "[SERVER]";
-			msg.message = "Opponent reconnected";
+			std::string opponentName = steamManager.getOpponentName();
+			msg.message = opponentName + " reconnected";
 			msg.timestamp = ofGetElapsedTimef();
 			chatHistory.push_back(msg);
 			if (chatHistory.size() > maxChatMessages) {
@@ -839,7 +841,7 @@ void ofApp::update() {
 			}
 			// Show chat window for this message
 			lastChatInteractionTime = ofGetElapsedTimef();
-			ofLogNotice("Network") << "Opponent reconnected - message added to chat";
+			ofLogNotice("Network") << opponentName << " reconnected - message added to chat";
 		}
 	}
 
@@ -7066,9 +7068,10 @@ void ofApp::drawGame() {
 		bool shouldShowChat = isChatOpen || (currentTime - lastChatInteractionTime < chatVisibilityDuration);
 
 		if (shouldShowChat) {
-			// Position chat to the right of discard pile at the bottom
+			// Position chat to the right of discard pile, aligned at bottom
 			float chatX = p0_discardRect.x + staticUICardWidth + 30 * scale;
-			float chatY = ofGetHeight() - 30 * scale;
+			// Align chat bottom with discard pile bottom
+			float chatY = p0_discardRect.y + p0_discardRect.height;
 			float chatMaxWidth = 450 * scale;
 
 			// Determine size based on state: minimized = smaller, full = larger
@@ -9779,6 +9782,10 @@ void ofApp::mousePressed(int x, int y, int button) {
 			}
 			return; // Consume click so we don't accidentally move/attack while selecting
 		}
+
+		// 3c. STATE CHECK: Only allow gameplay interactions in STATE_GAMEPLAY
+		if (currentState != STATE_GAMEPLAY) return;
+
 		// 3c. Safety Checks (Input Lock)
 		if (players.empty() || currentPlayerIndex < 0) return;
 		Player & currentPlayer = players[currentPlayerIndex];
