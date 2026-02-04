@@ -7759,6 +7759,23 @@ void ofApp::mousePressed(int x, int y, int button) {
 			// FIX: Shuffle new cards into deck immediately
 			shuffleGameVector(p.deck, draftPlayerIndex);
 
+			// HOST: Send PKT_DRAFT_ACTION to inform clients of this local acceptance
+			if (isMultiplayer && steamManager.isHost()) {
+				DraftActionPacket acceptPkt;
+				acceptPkt.type = PKT_DRAFT_ACTION;
+				acceptPkt.playerID = myLocalPlayerID;
+				acceptPkt.actionType = 1; // Accept
+				acceptPkt.draftPlayerIdx = draftPlayerIndex;
+				acceptPkt.numSelected = (uint8_t)selectedDraftIndices.size();
+				acceptPkt.selectedIdx0 = selectedDraftIndices.size() > 0 ? selectedDraftIndices[0] : -1;
+				acceptPkt.selectedIdx1 = selectedDraftIndices.size() > 1 ? selectedDraftIndices[1] : -1;
+				acceptPkt.selectedIdx2 = selectedDraftIndices.size() > 2 ? selectedDraftIndices[2] : -1;
+				acceptPkt.optionIndex = -1;
+				acceptPkt.selectFlag = 0;
+				steamManager.sendPacket(&acceptPkt, sizeof(acceptPkt));
+				ofLogNotice("Network") << "Host: Sent local draft Accept to client (player=" << draftPlayerIndex << " picks=" << (int)acceptPkt.numSelected << ")";
+			}
+
 			// Cleanup UI state
 			selectedDraftIndices.clear();
 			draftOptions.clear();
@@ -16600,7 +16617,17 @@ void ofApp::onCardPicked(int optionIndex) {
 
 				// FINAL SETUP
 				currentState = STATE_GAMEPLAY;
-				startNewTurn();
+
+				// CLIENT: Wait for host's TurnStart packet (contains authoritative first dice roll)
+				if (isMultiplayer && !steamManager.isHost()) {
+					ofLogNotice("Network") << "CLIENT: Draft complete, waiting for host's first TurnStart packet.";
+					waitingForTurnStartFromHost = true;
+					// Don't call startNewTurn() - host will send PKT_TURN_START
+				} else {
+					// Host: can proceed with local turn start
+					ofLogNotice("Network") << "HOST: Draft complete, starting first turn.";
+					startNewTurn();
+				}
 			}
 		}
 	}
@@ -17023,11 +17050,12 @@ void ofApp::processNetworkPackets() {
 			// CLIENT: Always wait for host's TurnStart packet (contains authoritative dice)
 			// Never roll dice locally for any turn - host controls all RNG
 			if (isMultiplayer && !steamManager.isHost()) {
-				ofLogNotice("Network") << "Client: Waiting for host TurnStart packet (will not roll dice locally).";
+				ofLogNotice("Network") << "CLIENT FIX ACTIVE: Waiting for host TurnStart packet (will NOT roll dice locally).";
 				waitingForTurnStartFromHost = true;
 				// Don't call startNewTurn() - let PKT_TURN_START handle it
 			} else {
 				// Host: can proceed with local turn start
+				ofLogNotice("Network") << "Host: Processing END_TURN, calling startNewTurn()";
 				startNewTurn();
 			}
 		} else if (header->type == PKT_CHECKSUM_CHECK) {
