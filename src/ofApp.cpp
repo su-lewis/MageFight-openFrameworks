@@ -9938,6 +9938,16 @@ void ofApp::mousePressed(int x, int y, int button) {
 
 		// 3g. End Turn Button
 		if (endTurnButtonRect.inside(x, y) && button == OF_MOUSE_BUTTON_LEFT) {
+			// In multiplayer, only allow ending turn if it's your turn
+			if (isMultiplayer && !isMyTurn()) {
+				ofLogNotice("Game") << "End turn blocked: Not your turn. currentPlayerIndex=" << currentPlayerIndex
+									<< " playerID=" << players[currentPlayerIndex].playerID
+									<< " myLocalPlayerID=" << myLocalPlayerID;
+				return;
+			}
+			ofLogNotice("Game") << "End turn allowed: currentPlayerIndex=" << currentPlayerIndex
+								<< " playerID=" << players[currentPlayerIndex].playerID
+								<< " myLocalPlayerID=" << myLocalPlayerID;
 
 			// --- GHOST FORM CHECK ---
 			Player & p = players[currentPlayerIndex];
@@ -9968,6 +9978,16 @@ void ofApp::mousePressed(int x, int y, int button) {
 
 			// Clicked Self? Select for Movement.
 			if (board[gridX][gridY].hasPlayer && gridX == currentPlayer.x && gridY == currentPlayer.y) {
+				// In multiplayer, only allow selecting your own unit when it's your turn
+				if (isMultiplayer && !isMyTurn()) {
+					ofLogNotice("Game") << "Unit selection blocked: Not your turn. currentPlayerIndex=" << currentPlayerIndex
+										<< " playerID=" << players[currentPlayerIndex].playerID
+										<< " myLocalPlayerID=" << myLocalPlayerID;
+					return;
+				}
+				ofLogNotice("Game") << "Unit selection allowed: currentPlayerIndex=" << currentPlayerIndex
+									<< " playerID=" << players[currentPlayerIndex].playerID
+									<< " myLocalPlayerID=" << myLocalPlayerID;
 				if (playerAction == PIECE_SELECTED) {
 					playerAction = NONE;
 					clearHighlights();
@@ -14342,7 +14362,11 @@ bool ofApp::isMyTurn() const {
 	if (currentPlayerIndex < 0 || players.empty()) return false;
 	int pid = players[currentPlayerIndex].playerID;
 	int oid = players[currentPlayerIndex].ownerID;
-	return (pid == myLocalPlayerID || oid == myLocalPlayerID);
+	bool result = (pid == myLocalPlayerID || oid == myLocalPlayerID);
+	ofLogNotice("isMyTurn") << "currentPlayerIndex=" << currentPlayerIndex
+							<< " pid=" << pid << " oid=" << oid << " myLocalPlayerID=" << myLocalPlayerID
+							<< " isMultiplayer=" << isMultiplayer << " result=" << result;
+	return result;
 }
 
 //--------------------------------------------------------------
