@@ -17020,16 +17020,15 @@ void ofApp::processNetworkPackets() {
 			executeAction(*pkt);
 		} else if (header->type == PKT_END_TURN) {
 			ofLogNotice("Net") << "Opponent ended turn.";
-			// Defensive: if we're a client and currently in drafting state, or we're already
-			// waiting for the host's TurnStart packet, defer starting the new turn. This
-			// prevents the client from consuming gameplayRNG or transitioning while still
-			// showing draft UI, which can cause checksum desyncs.
-			if (isMultiplayer && !steamManager.isHost() && (waitingForTurnStartFromHost || currentState == STATE_DRAFTING)) {
-				ofLogNotice("Network") << "Client: Deferring startNewTurn because in drafting state or waiting for TurnStart (state=" << currentState << ").";
-				// Ensure we are explicitly waiting for TurnStart from the host
+			// CLIENT: Always wait for host's TurnStart packet (contains authoritative dice)
+			// Never roll dice locally for any turn - host controls all RNG
+			if (isMultiplayer && !steamManager.isHost()) {
+				ofLogNotice("Network") << "Client: Waiting for host TurnStart packet (will not roll dice locally).";
 				waitingForTurnStartFromHost = true;
+				// Don't call startNewTurn() - let PKT_TURN_START handle it
 			} else {
-				startNewTurn(); // This will flip control to you
+				// Host: can proceed with local turn start
+				startNewTurn();
 			}
 		} else if (header->type == PKT_CHECKSUM_CHECK) {
 			ChecksumPacket * pkt = (ChecksumPacket *)header;
