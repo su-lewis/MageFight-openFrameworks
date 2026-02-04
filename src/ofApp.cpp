@@ -8151,10 +8151,8 @@ void ofApp::mousePressed(int x, int y, int button) {
 				}
 			}
 
-			// FIX: Shuffle new cards into deck immediately
-			shuffleGameVector(p.deck, draftPlayerIndex);
-
-			// HOST: Send PKT_DRAFT_ACTION to inform clients of this local acceptance
+			// HOST: Send PKT_DRAFT_ACTION to inform clients BEFORE shuffling
+			// This ensures clients receive Accept and add cards before shuffle packet arrives
 			if (isHost()) {
 				DraftActionPacket acceptPkt = {};
 				acceptPkt.type = PKT_DRAFT_ACTION;
@@ -8170,6 +8168,9 @@ void ofApp::mousePressed(int x, int y, int button) {
 				steamManager.sendPacket(&acceptPkt, sizeof(acceptPkt));
 				ofLogNotice("Network") << "Host: Sent local draft Accept to client (player=" << draftPlayerIndex << " picks=" << (int)acceptPkt.numSelected << ")";
 			}
+
+			// FIX: Shuffle new cards into deck immediately (sends shuffle packet AFTER Accept)
+			shuffleGameVector(p.deck, draftPlayerIndex);
 
 			// Cleanup UI state
 			selectedDraftIndices.clear();
@@ -17836,7 +17837,6 @@ void ofApp::processNetworkPackets() {
 								p.deck.push_back(draftOptions[idx]);
 						}
 					}
-					shuffleGameVector(p.deck, pkt->draftPlayerIdx);
 
 					// Advance host-side draft state
 					selectedDraftIndices.clear();
@@ -17870,9 +17870,11 @@ void ofApp::processNetworkPackets() {
 							continueNewTurn();
 						}
 					}
-					// Forward accept to client
+					// Forward accept to client BEFORE shuffling
 					DraftActionPacket outPkt = *pkt;
 					steamManager.sendPacket(&outPkt, sizeof(outPkt));
+					// Now shuffle (sends shuffle packet AFTER Accept packet)
+					shuffleGameVector(p.deck, pkt->draftPlayerIdx);
 					// Also send an additional state sync with currentPlayerIndex to ensure clients transition
 					DraftStatePacket sp2;
 					sp2.type = PKT_DRAFT_STATE;
