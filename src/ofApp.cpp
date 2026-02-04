@@ -892,7 +892,6 @@ void ofApp::update() {
 			}
 		}
 	}
-	// ============================================================
 
 	// --- LOADING LOGIC ---
 	if (isLoadingGame) {
@@ -7021,12 +7020,18 @@ void ofApp::drawGame() {
 		bool shouldShowChat = isChatOpen || (currentTime - lastChatInteractionTime < chatVisibilityDuration);
 
 		if (shouldShowChat) {
-			float chatX = 20 * scale;
-			float chatY = ofGetHeight() - staticUICardHeight * 2.0f - 60 * scale;
+			// Position chat to the right of discard pile at the bottom
+			float chatX = p0_discardRect.x + staticUICardWidth + 30 * scale;
+			float chatY = ofGetHeight() - 30 * scale;
 			float chatMaxWidth = 450 * scale;
-			float chatBoxHeight = 250 * scale;
+			
+			// Determine size based on state: minimized = smaller, full = larger
+			float chatBoxHeight = isChatMinimized ? 120 * scale : 250 * scale;
 			float tabHeight = 25 * scale;
 			float messageHeight = 18 * scale;
+			
+			// Store rect for click detection
+			chatWindowRect.set(chatX, chatY - chatBoxHeight - tabHeight, chatMaxWidth, chatBoxHeight + tabHeight);
 
 			// Draw main chat box background (50% opacity black with black outline)
 			ofPushStyle();
@@ -7069,7 +7074,7 @@ void ofApp::drawGame() {
 				// Draw chat history
 				float messageY = chatY - 35 * scale;
 				int visibleMessages = 0;
-				int maxVisible = 10;
+				int maxVisible = isChatMinimized ? 4 : 10; // Fewer messages when minimized
 
 				for (int i = (int)chatHistory.size() - 1; i >= 0 && visibleMessages < maxVisible; i--) {
 					ChatMessage & msg = chatHistory[i];
@@ -7095,8 +7100,8 @@ void ofApp::drawGame() {
 					visibleMessages++;
 				}
 
-				// Draw chat input box when chat is open
-				if (isChatOpen) {
+				// Draw chat input box when chat is open (only in full mode)
+				if (isChatOpen && !isChatMinimized) {
 					float inputY = chatY - 10 * scale;
 
 					// Draw input text
@@ -7116,7 +7121,7 @@ void ofApp::drawGame() {
 				// Draw game log
 				float logY = chatY - 35 * scale;
 				int visibleLogs = 0;
-				int maxVisible = 12;
+				int maxVisible = isChatMinimized ? 5 : 12; // Fewer logs when minimized
 
 				for (int i = (int)gameLog.size() - 1; i >= 0 && visibleLogs < maxVisible; i--) {
 					GameLogEntry & entry = gameLog[i];
@@ -7976,32 +7981,41 @@ cursor_check_done:;
 }
 // ----------------- FULL mousePressed FUNCTION -----------------
 void ofApp::mousePressed(int x, int y, int button) {
-	// Handle chat tab clicking first (if chat is visible)
+	// Handle chat clicking (if chat is visible)
 	if (currentState == STATE_GAMEPLAY && isMultiplayer && button == OF_MOUSE_BUTTON_LEFT) {
 		float currentTime = ofGetElapsedTimef();
 		bool shouldShowChat = isChatOpen || (currentTime - lastChatInteractionTime < chatVisibilityDuration);
 
 		if (shouldShowChat) {
-			float scale = ofGetHeight() / 1080.0f;
-			float baseCardHeight = 120 * (585.0f / 409.0f);
-			float staticUICardHeight = (baseCardHeight * 1.3f) * scale;
-			float chatX = 20 * scale;
-			float chatY = ofGetHeight() - staticUICardHeight * 2.0f - 60 * scale;
-			float chatMaxWidth = 450 * scale;
-			float chatBoxHeight = 250 * scale;
-			float tabHeight = 25 * scale;
-			float tabWidth = 80 * scale;
+			// Check if clicking inside chat window
+			if (chatWindowRect.inside(x, y)) {
+				float scale = ofGetHeight() / 1080.0f;
+				float chatBoxHeight = isChatMinimized ? 120 * scale : 250 * scale;
+				float tabHeight = 25 * scale;
+				float tabWidth = 80 * scale;
+				float chatX = chatWindowRect.x;
+				float chatY = chatWindowRect.y + chatWindowRect.height;
 
-			// Check if clicking on Chat tab
-			if (ofRectangle(chatX, chatY - chatBoxHeight - tabHeight, tabWidth, tabHeight).inside(x, y)) {
-				currentChatTab = ChatTab::CHAT;
+				// Check if clicking on Chat tab
+				if (ofRectangle(chatX, chatY - chatBoxHeight - tabHeight, tabWidth, tabHeight).inside(x, y)) {
+					currentChatTab = ChatTab::CHAT;
+					lastChatInteractionTime = ofGetElapsedTimef();
+					return;
+				}
+				// Check if clicking on Log tab
+				if (ofRectangle(chatX + tabWidth + 2, chatY - chatBoxHeight - tabHeight, tabWidth, tabHeight).inside(x, y)) {
+					currentChatTab = ChatTab::LOG;
+					lastChatInteractionTime = ofGetElapsedTimef();
+					return;
+				}
+				// Clicking inside chat window keeps it open
 				lastChatInteractionTime = ofGetElapsedTimef();
 				return;
-			}
-			// Check if clicking on Log tab
-			if (ofRectangle(chatX + tabWidth + 2, chatY - chatBoxHeight - tabHeight, tabWidth, tabHeight).inside(x, y)) {
-				currentChatTab = ChatTab::LOG;
-				lastChatInteractionTime = ofGetElapsedTimef();
+			} else if (isChatOpen) {
+				// Clicking outside chat window closes it
+				isChatOpen = false;
+				isChatMinimized = true;
+				chatInput = "";
 				return;
 			}
 		}
@@ -10424,7 +10438,7 @@ void ofApp::mouseScrolled(int x, int y, float scrollX, float scrollY) {
 //--------------------------------------------------------------
 void ofApp::keyPressed(int key) {
 	// Handle Chat Input first (highest priority)
-	if (isChatOpen && currentState == STATE_GAMEPLAY) {
+	if (isChatOpen && !isChatMinimized && currentState == STATE_GAMEPLAY) {
 		if (key == OF_KEY_RETURN) {
 			// Send message and close chat
 			if (!chatInput.empty() && isMultiplayer) {
@@ -10447,11 +10461,13 @@ void ofApp::keyPressed(int key) {
 			}
 			chatInput = "";
 			isChatOpen = false;
+			isChatMinimized = true;
 			lastChatInteractionTime = ofGetElapsedTimef();
 			return;
 		} else if (key == OF_KEY_ESC) {
 			chatInput = "";
 			isChatOpen = false;
+			isChatMinimized = true;
 			lastChatInteractionTime = ofGetElapsedTimef();
 			return;
 		} else if (key == OF_KEY_TAB) {
@@ -10476,6 +10492,7 @@ void ofApp::keyPressed(int key) {
 	// Open chat with Enter key (only in gameplay and multiplayer)
 	if (key == OF_KEY_RETURN && currentState == STATE_GAMEPLAY && isMultiplayer && !isCardSpawnerOpen) {
 		isChatOpen = true;
+		isChatMinimized = false; // Open in full mode for typing
 		chatInput = "";
 		lastChatInteractionTime = ofGetElapsedTimef();
 		return;
@@ -10551,6 +10568,11 @@ void ofApp::keyPressed(int key) {
 }
 //--------------------------------------------------------------
 void ofApp::keyReleased(int key) {
+	// Block all hotkeys when chat is open
+	if (isChatOpen) {
+		return;
+	}
+
 	// If the Card Spawner input is open, consume key releases so typing
 	// (e.g. pressing 't') doesn't trigger global hotkeys like top-down view.
 	if (isCardSpawnerOpen && !isCardEncyclopediaOpen) {
@@ -17500,9 +17522,14 @@ void ofApp::processNetworkPackets() {
 			player0SteamName = steamManager.getOpponentName(); // Host is opponent for client
 			player1SteamName = steamManager.getLocalPlayerName(); // Client is player 1
 
-			// Initialize game state for the client now that we have the seed.
-			ofLogNotice("Network") << "Client: Handshake received. Initializing game. (seed=" << currentMapSeed << ")";
-			setupGame();
+			// Only initialize game if we're not already in a game (reconnection case)
+			if (currentState == STATE_MAIN_MENU) {
+				// Initialize game state for the client now that we have the seed.
+				ofLogNotice("Network") << "Client: Handshake received. Initializing game. (seed=" << currentMapSeed << ")";
+				setupGame();
+			} else {
+				ofLogNotice("Network") << "Client: Handshake received on reconnect. Staying in current game state: " << currentState;
+			}
 
 		} else if (header->type == PKT_ACTION) {
 			ActionPacket * pkt = (ActionPacket *)header;

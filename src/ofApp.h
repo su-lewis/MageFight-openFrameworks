@@ -1228,10 +1228,12 @@ private:
 	std::vector<ChatMessage> chatHistory;
 	std::vector<GameLogEntry> gameLog;
 	bool isChatOpen = false;
+	bool isChatMinimized = true; // True = minimized, False = full size
 	std::string chatInput = "";
 	float chatScrollOffset = 0;
 	float lastChatInteractionTime = -999.0f; // When chat was last opened/closed/message received
 	ChatTab currentChatTab = ChatTab::CHAT;
+	ofRectangle chatWindowRect; // For click detection
 	const int maxChatMessages = 50;
 	const int maxLogEntries = 100;
 	const float chatMessageLifetime = 10.0f; // Seconds before old messages fade
