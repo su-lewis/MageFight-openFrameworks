@@ -851,7 +851,7 @@ void ofApp::update() {
 	if (currentState == STATE_MAIN_MENU && steamManager.hasOpponent()) {
 
 		// CASE A: I AM THE HOST
-		if (steamManager.isHost()) {
+		if (isHost()) {
 			if (!isMultiplayer) { // Ensure we only run this once
 				ofLogNotice("Network") << "Host: Opponent found. Starting game & sending seed.";
 				isMultiplayer = true;
@@ -937,7 +937,7 @@ void ofApp::update() {
 					draftStage = 0;
 					generateDraftOptions(1); // Start Class 1
 					ofLogNotice("Initiative") << "Player 1 Wins Initiative";
-					if (steamManager.isHost()) {
+					if (isHost()) {
 						DraftStatePacket sp;
 						sp.type = PKT_DRAFT_STATE;
 						sp.playerID = myLocalPlayerID;
@@ -955,7 +955,7 @@ void ofApp::update() {
 					draftStage = 0;
 					generateDraftOptions(1);
 					ofLogNotice("Initiative") << "Player 2 Wins Initiative";
-					if (steamManager.isHost()) {
+					if (isHost()) {
 						DraftStatePacket sp;
 						sp.type = PKT_DRAFT_STATE;
 						sp.playerID = myLocalPlayerID;
@@ -1388,7 +1388,7 @@ void ofApp::recalculateUI(int w, int h) {
 //--------------------------------------------------------------
 void ofApp::setupGame() {
 	// --- MULTIPLAYER SYNC ---
-	if (isMultiplayer && steamManager.isHost()) {
+	if (isHost()) {
 		currentMapSeed = (uint32_t)time(nullptr);
 
 		// FIX: Seed the gameplay RNG specifically
@@ -1721,21 +1721,11 @@ void ofApp::updateGame() {
 	// Show end turn button / turn indicator
 	// In multiplayer: always show (either button or indicator)
 	// In singleplayer: always show button
-	bool isMyTurn = false;
-	if (currentPlayerIndex >= 0 && !players.empty()) {
-		int pid = players[currentPlayerIndex].playerID;
-		int oid = players[currentPlayerIndex].ownerID;
-		if (isMultiplayer) {
-			if (pid == myLocalPlayerID || oid == myLocalPlayerID) isMyTurn = true;
-		} else {
-			// Single player: always your turn
-			isMyTurn = true;
-		}
-	}
+	bool myTurn = isMyTurn();
 
 	// In multiplayer, always keep it visible (shows either button or turn indicator)
 	// In singleplayer, always show button
-	if (isMultiplayer || (!isMultiplayer && isMyTurn)) {
+	if (isMultiplayer || myTurn) {
 		endTurnButtonTargetPos.set(ofGetWidth() / 2.0f - btnWidth / 2.0f, visibleY);
 	} else {
 		endTurnButtonTargetPos.set(ofGetWidth() / 2.0f - btnWidth / 2.0f, hiddenY);
@@ -4268,7 +4258,7 @@ void ofApp::updateGame() {
 
 			// --- KEY PICKUP LOGIC START ---
 			// Only process key pickup on host - clients wait for PKT_KEY_PICKUP packet
-			if (!isMultiplayer || steamManager.isHost()) {
+			if (!isMultiplayer || isHost()) {
 				glm::vec2 currentGridPos = worldToGrid(playerVisualPos);
 				int cx = (int)currentGridPos.x;
 				int cy = (int)currentGridPos.y;
@@ -4307,7 +4297,7 @@ void ofApp::updateGame() {
 
 						if (ownerIndex != -1) {
 							// HOST: Send key pickup packet to clients
-							if (isMultiplayer && steamManager.isHost()) {
+							if (isHost()) {
 								KeyPickupPacket kpkt;
 								kpkt.type = PKT_KEY_PICKUP;
 								kpkt.playerID = myLocalPlayerID;
@@ -6007,7 +5997,7 @@ void ofApp::drawGame() {
 		}
 
 		// Only highlight deck if it's MY turn and I haven't drawn yet
-		if (currentState == STATE_GAMEPLAY && players[currentPlayerIndex].playerID == myLocalPlayerID && !hasDrawnCardsThisTurn) {
+		if (currentState == STATE_GAMEPLAY && isCurrentPlayerLocal() && !hasDrawnCardsThisTurn) {
 			ofPushStyle();
 			ofNoFill();
 			ofSetColor(ofColor::green);
@@ -6098,7 +6088,7 @@ void ofApp::drawGame() {
 			// In multiplayer, assign AP text based on local player perspective
 			if (isMultiplayer) {
 				// If current player is me, show my AP at bottom, otherwise at top
-				if (currentPlayer.playerID == myLocalPlayerID || currentPlayer.ownerID == myLocalPlayerID) {
+				if (isMyTurn()) {
 					p0_apText = ofToString(displayedAP) + " AP";
 				} else {
 					p1_apText = ofToString(displayedAP) + " AP";
@@ -6155,10 +6145,7 @@ void ofApp::drawGame() {
 		// Draw combined Luck (permanent + passive)
 		int localPlayerIndex = -1;
 		for (int i = 0; i < (int)players.size(); ++i) {
-			if (isMultiplayer && players[i].playerID == myLocalPlayerID) {
-				localPlayerIndex = i;
-				break;
-			} else if (!isMultiplayer && players[i].playerID == 0) {
+			if (players[i].playerID == myLocalPlayerID) {
 				localPlayerIndex = i;
 				break;
 			}
@@ -6227,7 +6214,7 @@ void ofApp::drawGame() {
 		bool skipDrawP1AP = false;
 		if (currentPlayerIndex >= 0) {
 			// Top deck is opponent in multiplayer, so only show AP when NOT local player's turn
-			if (isMultiplayer && players[currentPlayerIndex].playerID == myLocalPlayerID) {
+			if (isMultiplayer && isCurrentPlayerLocal()) {
 				skipDrawP1AP = true;
 			} else if (!isMultiplayer && players[currentPlayerIndex].playerID == 0) {
 				// Single player: don't show P1 AP if current player is player 0
@@ -6327,12 +6314,8 @@ void ofApp::drawGame() {
 		float btnWidth_tmp = 250 * scale;
 		float visibleY = 20 * scale;
 		float hiddenY = -100 * scale;
-		bool isMyTurn = false;
-		if (currentPlayerIndex >= 0 && !players.empty()) {
-			int currentPlayerID = players[currentPlayerIndex].playerID;
-			isMyTurn = (currentPlayerID == myLocalPlayerID);
-		}
-		if (isMyTurn)
+		bool myTurn = isMyTurn();
+		if (myTurn)
 			endTurnButtonCurrentPos.set(ofGetWidth() / 2.0f - btnWidth_tmp / 2.0f, visibleY);
 		else
 			endTurnButtonCurrentPos.set(ofGetWidth() / 2.0f - btnWidth_tmp / 2.0f, hiddenY);
@@ -6344,13 +6327,9 @@ void ofApp::drawGame() {
 	endTurnButtonRect.set(endTurnButtonCurrentPos.x, endTurnButtonCurrentPos.y, btnWidth_end, btnHeight_end);
 
 	// Check if it's my turn
-	bool isMyTurn = false;
-	if (currentPlayerIndex >= 0 && !players.empty()) {
-		int currentPlayerID = players[currentPlayerIndex].playerID;
-		isMyTurn = (currentPlayerID == myLocalPlayerID);
-	}
+	bool myTurn = isMyTurn();
 
-	if (isMyTurn) {
+	if (myTurn) {
 		// 1. Draw End Turn Button Background
 		ofSetColor(isHoveringEndTurn ? ofColor::darkSlateGray : ofColor::slateGray);
 		ofDrawRectRounded(endTurnButtonRect, 10 * scale);
@@ -6450,7 +6429,7 @@ void ofApp::drawGame() {
 		}
 	}
 
-	if (displayedAPForCurrent <= 0 && hasDrawnCardsThisTurn && !rerollAvailable && isMyTurn) {
+	if (displayedAPForCurrent <= 0 && hasDrawnCardsThisTurn && !rerollAvailable && myTurn) {
 		ofPushStyle();
 		ofNoFill();
 		ofSetColor(ofColor::green);
@@ -6460,7 +6439,7 @@ void ofApp::drawGame() {
 	}
 
 	// 3. Draw End Turn Button Text (only if it's my turn)
-	if (isMyTurn) {
+	if (myTurn) {
 		ofSetColor(ofColor::white);
 		string endTurnButtonText = "End Turn";
 		ofRectangle buttonTextBox = titleFont.getStringBoundingBox(endTurnButtonText, 0, 0);
@@ -7480,7 +7459,7 @@ void ofApp::mouseMoved(int x, int y) {
 
 	// Check deck/discard hover for glow (only for current player)
 	if (currentState == STATE_GAMEPLAY && !players.empty() && currentPlayerIndex >= 0) {
-		if (players[currentPlayerIndex].playerID == myLocalPlayerID) {
+		if (isCurrentPlayerLocal()) {
 			if (p0_deckRect.inside(x, y)) {
 				newHoverType = HOVER_DECK;
 			} else if (p0_discardRect.inside(x, y)) {
@@ -8128,7 +8107,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 			if (isMultiplayer && players[draftPlayerIndex].playerID != myLocalPlayerID) return;
 
 			// If client in multiplayer, send selection to host and return
-			if (isMultiplayer && !steamManager.isHost()) {
+			if (isClient()) {
 				DraftActionPacket pkt;
 				pkt.type = PKT_DRAFT_ACTION;
 				pkt.playerID = myLocalPlayerID;
@@ -8165,7 +8144,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 			shuffleGameVector(p.deck, draftPlayerIndex);
 
 			// HOST: Send PKT_DRAFT_ACTION to inform clients of this local acceptance
-			if (isMultiplayer && steamManager.isHost()) {
+			if (isHost()) {
 				DraftActionPacket acceptPkt;
 				acceptPkt.type = PKT_DRAFT_ACTION;
 				acceptPkt.playerID = myLocalPlayerID;
@@ -8220,7 +8199,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 					continueNewTurn();
 
 					// Inform clients that drafting has ended (AFTER continueNewTurn so currentPlayerIndex is correct)
-					if (isMultiplayer && steamManager.isHost()) {
+					if (isHost()) {
 						DraftStatePacket dsp;
 						dsp.type = PKT_DRAFT_STATE;
 						dsp.playerID = myLocalPlayerID;
@@ -8235,7 +8214,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 					}
 
 					// Send TurnStart packet with authoritative AP values
-					if (isMultiplayer && steamManager.isHost()) {
+					if (isHost()) {
 						std::vector<DiceRoll> newAP;
 						for (size_t di = 0; di < activeDiceRolls.size(); ++di) {
 							const DiceRoll & dr = activeDiceRolls[di];
@@ -10797,7 +10776,7 @@ void ofApp::dragEvent(ofDragInfo dragInfo) { }
 //--------------------------------------------------------------
 void ofApp::startNewTurn() {
 	// If it was MY turn and I am ending it:
-	if (isMultiplayer && players[currentPlayerIndex].playerID == myLocalPlayerID) {
+	if (isMultiplayer && isCurrentPlayerLocal()) {
 		// 1. Send End Turn
 		PacketHeader pkt;
 		pkt.type = PKT_END_TURN;
@@ -10819,9 +10798,7 @@ void ofApp::startNewTurn() {
 		}
 
 		// 3. CLIENT: Wait for host's next TurnStart packet instead of rolling locally
-		if (!steamManager.isHost()) {
-			ofLogNotice("Network") << "Client ended own turn: Waiting for host TurnStart packet";
-			waitingForTurnStartFromHost = true;
+		if (isClient()) {
 			// Early return - don't advance turn locally, wait for host's PKT_TURN_START
 			return;
 		}
@@ -11052,7 +11029,7 @@ void ofApp::continueNewTurn() {
 	}
 
 	// --- CLIENT: Wait for host's TurnStart packet if transitioning from draft ---
-	if (isMultiplayer && !steamManager.isHost() && waitingForTurnStartFromHost) {
+	if (isClient() && waitingForTurnStartFromHost) {
 		ofLogNotice("Network") << "Client: Skipping local AP roll, waiting for TurnStart from host";
 		return;
 	}
@@ -14359,6 +14336,20 @@ std::string ofApp::getPlayerSteamName(int playerIndex) {
 	}
 }
 
+//--------------------------------------------------------------
+bool ofApp::isMyTurn() const {
+	if (currentPlayerIndex < 0 || players.empty()) return false;
+	int pid = players[currentPlayerIndex].playerID;
+	int oid = players[currentPlayerIndex].ownerID;
+	return (pid == myLocalPlayerID || oid == myLocalPlayerID);
+}
+
+//--------------------------------------------------------------
+bool ofApp::isCurrentPlayerLocal() const {
+	if (currentPlayerIndex < 0 || players.empty()) return false;
+	return players[currentPlayerIndex].playerID == myLocalPlayerID;
+}
+
 void ofApp::addGameLog(const std::string & logText) {
 	GameLogEntry entry;
 	entry.text = logText;
@@ -17025,7 +17016,7 @@ void ofApp::generateDraftOptions(int classTier, const std::vector<int> * forcedI
 	waitingForDraftOptions = false; // Host shouldn't be waiting for itself
 
 	// If we are the authoritative host in multiplayer, send the exact indices
-	if (isMultiplayer && steamManager.isHost()) {
+	if (isHost()) {
 		DraftOptionsPacket dp;
 		dp.type = PKT_DRAFT_OPTIONS;
 		dp.playerID = myLocalPlayerID;
@@ -17173,7 +17164,7 @@ void ofApp::onCardPicked(int optionIndex) {
 				currentState = STATE_GAMEPLAY;
 
 				// CLIENT: Wait for host's TurnStart packet (contains authoritative first dice roll)
-				if (isMultiplayer && !steamManager.isHost()) {
+				if (isClient()) {
 					ofLogNotice("Network") << "CLIENT: Draft complete, waiting for host's first TurnStart packet.";
 					waitingForTurnStartFromHost = true;
 					// Don't call startNewTurn() - host will send PKT_TURN_START
@@ -17462,7 +17453,7 @@ void ofApp::processNetworkPackets() {
 		// If we received the string "REQ_SEED", we must resend the handshake.
 		if (buffer.size() == 8) {
 			string msg(buffer.begin(), buffer.end());
-			if (msg == "REQ_SEED" && steamManager.isHost()) {
+			if (msg == "REQ_SEED" && isHost()) {
 				ofLogNotice("Network") << "Host: Received Seed Request. Resending Seed: " << currentMapSeed;
 
 				HandshakePacket pkt;
@@ -17626,7 +17617,7 @@ void ofApp::processNetworkPackets() {
 			ofLogNotice("Net") << "Opponent ended turn.";
 			// CLIENT: Always wait for host's TurnStart packet (contains authoritative dice)
 			// Never roll dice locally for any turn - host controls all RNG
-			if (isMultiplayer && !steamManager.isHost()) {
+			if (isClient()) {
 				ofLogNotice("Network") << "CLIENT FIX ACTIVE: Waiting for host TurnStart packet (will NOT roll dice locally).";
 				waitingForTurnStartFromHost = true;
 				// Don't call startNewTurn() - let PKT_TURN_START handle it
@@ -17639,7 +17630,7 @@ void ofApp::processNetworkPackets() {
 			ChecksumPacket * pkt = (ChecksumPacket *)header;
 			// If we're waiting for the host's TurnStart packet, skip checksum validation
 			// because we haven't advanced our state yet (we're in a transient waiting state).
-			if (isMultiplayer && !steamManager.isHost() && waitingForTurnStartFromHost) {
+			if (isClient() && waitingForTurnStartFromHost) {
 				ofLogNotice("Network") << "Client: Skipping checksum validation while waiting for TurnStart.";
 				continue;
 			}
@@ -17666,7 +17657,7 @@ void ofApp::processNetworkPackets() {
 			ofLogNotice("Network") << "KeyPickup packet received: player=" << kpkt->playerIndex << " class=" << kpkt->classTier << " pos=(" << kpkt->keyX << "," << kpkt->keyY << ")";
 
 			// CLIENT: Apply key pickup from host
-			if (!steamManager.isHost()) {
+			if (isClient()) {
 				// Remove the key from client's floatingKeyInstances
 				for (size_t k = 0; k < floatingKeyInstances.size(); ++k) {
 					FloatingKey & fk = floatingKeyInstances[k];
@@ -17749,7 +17740,7 @@ void ofApp::processNetworkPackets() {
 				// Host should include who starts; set it
 				currentPlayerIndex = sp->currentPlayerIndex;
 				// In multiplayer clients: DO NOT call startNewTurn(); wait for host TurnStart packet
-				if (isMultiplayer && !steamManager.isHost()) {
+				if (isClient()) {
 					waitingForTurnStartFromHost = true;
 					ofLogNotice("Network") << "Client: Drafting ended. Waiting for TurnStart packet from host (player=" << currentPlayerIndex << ")";
 				}
@@ -17769,7 +17760,7 @@ void ofApp::processNetworkPackets() {
 			DraftActionPacket * pkt = (DraftActionPacket *)header;
 			ofLogNotice("Network") << "Draft action received: type=" << (int)pkt->actionType << " opt=" << pkt->optionIndex << " player=" << pkt->draftPlayerIdx << " sel=" << (int)pkt->selectFlag;
 
-			if (steamManager.isHost()) {
+			if (isHost()) {
 				// Ensure host's draft state is consistent before applying inputs
 				if (currentState != STATE_DRAFTING && !isInGameDraft) {
 					ofLogNotice("Network") << "Host: Received draft input but not in STATE_DRAFTING; forcing draft start for player " << pkt->draftPlayerIdx;

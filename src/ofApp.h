@@ -519,19 +519,19 @@ private:
 	void shuffleGameVector(std::vector<T> & vec, int ownerPlayerIndex = -1) {
 		// If the client was instructed to skip the next local shuffle for this player (e.g., due to a forwarded Accept),
 		// consume the flag and do nothing. This prevents inadvertent consumption of `gameplayRNG`.
-		if (isMultiplayer && !steamManager.isHost() && ownerPlayerIndex >= 0 && skipClientShuffleFor == ownerPlayerIndex) {
+		if (isClient() && ownerPlayerIndex >= 0 && skipClientShuffleFor == ownerPlayerIndex) {
 			skipClientShuffleFor = -1;
 			ofLogNotice("Network") << "Client: Skipping local shuffle for player " << ownerPlayerIndex << " due to forwarded Accept";
 			return;
 		}
 
 		// Client: defer to host's shuffle packet for player-owned decks
-		if (isMultiplayer && !steamManager.isHost() && ownerPlayerIndex >= 0) {
+		if (isClient() && ownerPlayerIndex >= 0) {
 			return;
 		}
 
 		// Host in multiplayer and owner specified: broadcast nonce-based shuffle
-		if (isMultiplayer && steamManager.isHost() && ownerPlayerIndex >= 0) {
+		if (isHost() && ownerPlayerIndex >= 0) {
 			uint32_t nonce = gameplayRNG();
 			std::mt19937 shuffleRng(nonce);
 			std::shuffle(vec.begin(), vec.end(), shuffleRng);
@@ -568,6 +568,13 @@ private:
 	Player * getPlayer(int index);
 	std::string getPlayerDisplayName(int index);
 	std::string getPlayerSteamName(int playerIndex); // For player names (Steam)
+
+	// Network helpers
+	bool isClient() const { return isMultiplayer && !steamManager.isHost(); }
+	bool isHost() const { return isMultiplayer && steamManager.isHost(); }
+	bool isMyTurn() const;
+	bool isCurrentPlayerLocal() const;
+
 	std::vector<glm::vec2> findShortestPath(glm::vec2 start, glm::vec2 end);
 	glm::quat matchFaceToCamera(glm::vec3 faceNormal);
 
