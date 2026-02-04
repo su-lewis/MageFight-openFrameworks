@@ -16947,14 +16947,8 @@ void ofApp::processNetworkPackets() {
 					currentAP += startingPlayer.nextTurnAPBonus;
 					startingPlayer.nextTurnAPBonus = 0;
 				}
-				// Mark dice as DEBUG to prevent recalculation when animation finishes
-				for (auto & roll : activeDiceRolls) {
-					if (roll.purpose == PURPOSE_AP && roll.associatedUnit == currentPlayerIndex) {
-						roll.purpose = PURPOSE_DEBUG;
-					}
-				}
 
-				// DEBUGGING: Request immediate checksum to verify state sync after draft
+				// DEBUGGING: Calculate checksum BEFORE marking dice as DEBUG (to match host's state)
 				if (globalTurnCounter == 0) {
 					ofLogNotice("Network") << "Client: Requesting checksum check for turn 0 (post-draft)";
 					int64_t myChecksum = calculateChecksum();
@@ -16965,6 +16959,13 @@ void ofApp::processNetworkPackets() {
 					cpkt.checksum = myChecksum;
 					steamManager.sendPacket(&cpkt, sizeof(cpkt));
 					ofLogNotice("Checksum") << "Client sent checksum for turn " << globalTurnCounter << ": " << myChecksum;
+				}
+
+				// Mark dice as DEBUG to prevent recalculation when animation finishes
+				for (auto & roll : activeDiceRolls) {
+					if (roll.purpose == PURPOSE_AP && roll.associatedUnit == currentPlayerIndex) {
+						roll.purpose = PURPOSE_DEBUG;
+					}
 				}
 			}
 			continue; // Done with this packet
