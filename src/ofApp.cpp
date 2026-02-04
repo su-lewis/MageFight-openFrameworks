@@ -1718,21 +1718,24 @@ void ofApp::updateGame() {
 	float visibleY = 20 * scale;
 	float hiddenY = -100 * scale;
 
-	// Show end turn button when it's the current player's turn
-	bool showEndTurnButton = false;
+	// Show end turn button / turn indicator
+	// In multiplayer: always show (either button or indicator)
+	// In singleplayer: always show button
+	bool isMyTurn = false;
 	if (currentPlayerIndex >= 0 && !players.empty()) {
 		int pid = players[currentPlayerIndex].playerID;
 		int oid = players[currentPlayerIndex].ownerID;
 		if (isMultiplayer) {
-			// Multiplayer: only show when it's my turn
-			if (pid == myLocalPlayerID || oid == myLocalPlayerID) showEndTurnButton = true;
+			if (pid == myLocalPlayerID || oid == myLocalPlayerID) isMyTurn = true;
 		} else {
-			// Single player: always show (any player can end their turn)
-			showEndTurnButton = true;
+			// Single player: always your turn
+			isMyTurn = true;
 		}
 	}
 
-	if (showEndTurnButton) {
+	// In multiplayer, always keep it visible (shows either button or turn indicator)
+	// In singleplayer, always show button
+	if (isMultiplayer || (!isMultiplayer && isMyTurn)) {
 		endTurnButtonTargetPos.set(ofGetWidth() / 2.0f - btnWidth / 2.0f, visibleY);
 	} else {
 		endTurnButtonTargetPos.set(ofGetWidth() / 2.0f - btnWidth / 2.0f, hiddenY);
@@ -10814,6 +10817,14 @@ void ofApp::startNewTurn() {
 			sumPkt.turnNumber = globalTurnCounter;
 			steamManager.sendPacket(&sumPkt, sizeof(sumPkt));
 		}
+
+		// 3. CLIENT: Wait for host's next TurnStart packet instead of rolling locally
+		if (!steamManager.isHost()) {
+			ofLogNotice("Network") << "Client ended own turn: Waiting for host TurnStart packet";
+			waitingForTurnStartFromHost = true;
+			// Early return - don't advance turn locally, wait for host's PKT_TURN_START
+			return;
+		}
 	}
 
 	if (players.empty()) return;
@@ -17514,36 +17525,23 @@ void ofApp::processNetworkPackets() {
 				activeDiceRolls.clear();
 				currentAP = 0;
 
-				// CRITICAL: Consume same RNG values as host to keep gameplayRNG in sync
-				// The host called getGameRandom() for each die, so we must do the same
+				// Both client and host call startDiceRoll with same parameters and shared seed,
+				// so they'll get the same results. The packet is used for validation.
+				int clientTotal = startDiceRoll((int)tpk->diceNum, (int)tpk->diceSides, (DicePurpose)tpk->purpose, "Client Turn Start AP", tpk->currentPlayerIndex);
+
+				// Verify client's roll matches host's roll
+				int hostTotal = 0;
 				for (int i = 0; i < (int)tpk->diceNum; ++i) {
-					int dummyRoll = getGameRandom(1, tpk->diceSides);
-					ofLogNotice("Network") << "Client: Consuming RNG value " << dummyRoll << " to stay in sync (host rolled " << (int)tpk->rawResults[i] << ")";
+					hostTotal += (int)tpk->finalResults[i];
 				}
 
-				// Apply AP dice visual rolls using host's authoritative results
-				int32_t total = 0;
-				for (int i = 0; i < (int)tpk->diceNum; ++i) {
-					DiceRoll newRoll;
-					newRoll.purpose = (DicePurpose)tpk->purpose;
-					newRoll.sides = tpk->diceSides;
-					newRoll.rawResult = (int)tpk->rawResults[i];
-					newRoll.result = (int)tpk->finalResults[i];
-					ofLogNotice("Network") << "Client: Dice[" << i << "] rawResult=" << newRoll.rawResult << " finalResult=" << newRoll.result;
-					newRoll.startTime = ofGetElapsedTimef();
-					newRoll.associatedUnit = tpk->currentPlayerIndex;
-					// Visual RNG and quaternions (simplified from startDiceRoll visuals)
-					std::uniform_real_distribution<float> axisDist(-1.0f, 1.0f);
-					glm::vec3 rndAxis(axisDist(visualRNG), axisDist(visualRNG), axisDist(visualRNG));
-					if (glm::length(rndAxis) < 0.01f) rndAxis = glm::vec3(0, 1, 0);
-					newRoll.rotationAxis = glm::normalize(rndAxis);
-					std::uniform_real_distribution<float> yawDist(-15.0f, 15.0f);
-					glm::quat randomYaw = glm::angleAxis(glm::radians(yawDist(visualRNG)), glm::vec3(0, 1, 0));
-					newRoll.finalQuat = randomYaw; // simple visual placement; detailed face alignment not required for sync
-					newRoll.isFinishedVisual = false;
-					activeDiceRolls.push_back(newRoll);
-					total += newRoll.result;
+				if (clientTotal != hostTotal) {
+					ofLogError("Network") << "DESYNC: Client rolled " << clientTotal << " AP but host sent " << hostTotal;
+				} else {
+					ofLogNotice("Network") << "Client: AP roll validated, both got " << clientTotal;
 				}
+
+				int total = clientTotal;
 				ofLogNotice("Game") << "TurnStart applied locally: player=" << currentPlayerIndex << " AP total=" << total;
 				// Set AP directly from host's authoritative total
 				currentAP = total;
