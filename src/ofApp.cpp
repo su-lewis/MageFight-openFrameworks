@@ -851,7 +851,8 @@ void ofApp::update() {
 	if (currentState == STATE_MAIN_MENU && steamManager.hasOpponent()) {
 
 		// CASE A: I AM THE HOST
-		if (isHost()) {
+		// Note: Use steamManager.isHost() directly here since isMultiplayer isn't set yet
+		if (steamManager.isHost()) {
 			if (!isMultiplayer) { // Ensure we only run this once
 				ofLogNotice("Network") << "Host: Opponent found. Starting game & sending seed.";
 				isMultiplayer = true;
@@ -17453,7 +17454,8 @@ void ofApp::processNetworkPackets() {
 		// If we received the string "REQ_SEED", we must resend the handshake.
 		if (buffer.size() == 8) {
 			string msg(buffer.begin(), buffer.end());
-			if (msg == "REQ_SEED" && isHost()) {
+			// Note: Use steamManager.isHost() directly since this might be called before isMultiplayer is set
+			if (msg == "REQ_SEED" && steamManager.isHost()) {
 				ofLogNotice("Network") << "Host: Received Seed Request. Resending Seed: " << currentMapSeed;
 
 				HandshakePacket pkt;
