@@ -3854,6 +3854,26 @@ void ofApp::updateGame() {
 						}
 					}
 					ofLogNotice("Game") << "AP Roll Finished: " << currentAP << " AP awarded (sum of all dice).";
+
+					// HOST: Send TurnStart packet to client when starting their turn
+					if (isHost() && !isCurrentPlayerLocal()) {
+						TurnStartPacket tpk = {};
+						tpk.type = PKT_TURN_START;
+						tpk.playerID = myLocalPlayerID;
+						tpk.currentPlayerIndex = currentPlayerIndex;
+						tpk.diceNum = (uint8_t)activeDiceRolls.size();
+						tpk.finalTotal = currentAP;
+						int diceIdx = 0;
+						for (const auto & d : activeDiceRolls) {
+							if (diceIdx < 8 && d.purpose == PURPOSE_AP) {
+								tpk.rawResults[diceIdx] = (uint8_t)d.rawResult;
+								tpk.finalResults[diceIdx] = (uint8_t)d.result;
+								diceIdx++;
+							}
+						}
+						steamManager.sendPacket(&tpk, sizeof(tpk));
+						ofLogNotice("Network") << "Host sent TurnStart (continueNewTurn): player=" << tpk.currentPlayerIndex << " dice=" << (int)tpk.diceNum << " total=" << tpk.finalTotal;
+					}
 				} else if (roll.purpose == PURPOSE_SLEEP_DURATION) {
 					Player * t = getPlayer(pendingDeathTargetIndex);
 					if (t) {
