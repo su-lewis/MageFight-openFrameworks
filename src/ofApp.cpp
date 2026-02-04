@@ -10261,6 +10261,9 @@ void ofApp::startNewTurn() {
 		// 2. Send Checksum to verify we ended in the same state
 		// Skip checksum on turn 0 (draft completion) to allow draft packets to sync first
 		if (globalTurnCounter > 0) {
+			// Anti-cheat: Log deck states before sending checksum
+			logDeckStates("End Turn " + std::to_string(globalTurnCounter));
+
 			ChecksumPacket sumPkt;
 			sumPkt.type = PKT_CHECKSUM_CHECK;
 			sumPkt.playerID = myLocalPlayerID;
@@ -17431,7 +17434,7 @@ long long ofApp::calculateChecksum() {
 	mix((uint64_t)globalTurnCounter);
 	mix((uint64_t)currentPlayerIndex);
 
-	// Player state
+	// Player state (only shared state - decks differ per player)
 	for (const auto & p : players) {
 		mix((uint64_t)p.playerID);
 		mix((uint64_t)p.x);
@@ -17444,13 +17447,6 @@ long long ofApp::calculateChecksum() {
 		mix((uint64_t)p.isParalyzed);
 		mix((uint64_t)p.isPoisoned);
 		mix((uint64_t)p.summonedOnTurnCycle);
-
-		// Deck contents by CardType and value
-		mix((uint64_t)p.deck.size());
-		for (const auto & c : p.deck) {
-			mix((uint64_t)c.type);
-			mix((uint64_t)c.value);
-		}
 	}
 
 	// Active dice (include resolved outcomes)
@@ -17463,5 +17459,51 @@ long long ofApp::calculateChecksum() {
 	}
 
 	return (long long)h;
+}
+//--------------------------------------------------------------
+// Anti-cheat: Get deck state as string for logging
+std::string ofApp::getDeckStateString(const Player & p) {
+	std::string result = "Player" + std::to_string(p.playerID) + " Deck[" + std::to_string(p.deck.size()) + "]: ";
+	for (size_t i = 0; i < p.deck.size(); ++i) {
+		if (i > 0) result += ", ";
+		result += p.deck[i].name + "(" + std::to_string((int)p.deck[i].type) + ")";
+	}
+	result += " | Hand[" + std::to_string(p.hand.size()) + "]: ";
+	for (size_t i = 0; i < p.hand.size(); ++i) {
+		if (i > 0) result += ", ";
+		result += p.hand[i].name + "(" + std::to_string((int)p.hand[i].type) + ")";
+	}
+	result += " | Discard[" + std::to_string(p.discardPile.size()) + "]: ";
+	for (size_t i = 0; i < p.discardPile.size(); ++i) {
+		if (i > 0) result += ", ";
+		result += p.discardPile[i].name + "(" + std::to_string((int)p.discardPile[i].type) + ")";
+	}
+	return result;
+}
+//--------------------------------------------------------------
+// Anti-cheat: Log all player deck states to file and console
+void ofApp::logDeckStates(const std::string & reason) {
+	std::string timestamp = ofGetTimestampString("%Y-%m-%d %H:%M:%S");
+	std::string logEntry = "\n=== DECK STATE LOG ===\n";
+	logEntry += "Time: " + timestamp + "\n";
+	logEntry += "Reason: " + reason + "\n";
+	logEntry += "Turn: " + std::to_string(globalTurnCounter) + "\n";
+	logEntry += "Current Player: " + std::to_string(currentPlayerIndex) + "\n";
+	logEntry += "Local Player ID: " + std::to_string(myLocalPlayerID) + "\n";
+	logEntry += "Is Host: " + std::string(steamManager.isHost() ? "true" : "false") + "\n\n";
+
+	for (const auto & p : players) {
+		logEntry += getDeckStateString(p) + "\n";
+	}
+	logEntry += "=====================\n";
+
+	// Log to console
+	ofLogNotice("DeckState") << logEntry;
+
+	// Append to file
+	std::string filename = "deck_states_" + std::string(steamManager.isHost() ? "host" : "client") + ".log";
+	ofBuffer buffer;
+	buffer.set(logEntry.c_str(), logEntry.size());
+	ofBufferToFile(filename, buffer, true); // true = append mode
 }
 //--------------------------------------------------------------

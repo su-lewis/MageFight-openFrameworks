@@ -420,6 +420,11 @@ public:
 	void sendActionPacket(int cardIndex, int tx, int ty, int cost);
 	void executeAction(const ActionPacket & pkt);
 	long long calculateChecksum();
+
+	// Anti-cheat: Log deck states for verification
+	void logDeckStates(const std::string & reason);
+	std::string getDeckStateString(const Player & p);
+
 	float lastHandshakeRequestTime = 0.0f;
 	uint32_t currentMapSeed = 0;
 
