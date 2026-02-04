@@ -16947,6 +16947,19 @@ void ofApp::processNetworkPackets() {
 						roll.purpose = PURPOSE_DEBUG;
 					}
 				}
+
+				// DEBUGGING: Request immediate checksum to verify state sync after draft
+				if (globalTurnCounter == 0) {
+					ofLogNotice("Network") << "Client: Requesting checksum check for turn 0 (post-draft)";
+					int64_t myChecksum = calculateChecksum();
+					ChecksumPacket cpkt;
+					cpkt.type = PKT_CHECKSUM_CHECK;
+					cpkt.playerID = myLocalPlayerID;
+					cpkt.turnNumber = globalTurnCounter;
+					cpkt.checksum = myChecksum;
+					steamManager.sendPacket(&cpkt, sizeof(cpkt));
+					ofLogNotice("Checksum") << "Client sent checksum for turn " << globalTurnCounter << ": " << myChecksum;
+				}
 			}
 			continue; // Done with this packet
 		}
