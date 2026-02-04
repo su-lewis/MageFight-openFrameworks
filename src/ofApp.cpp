@@ -810,6 +810,39 @@ void ofApp::update() {
 	steamManager.update();
 	processNetworkPackets();
 
+	// Check for disconnection/reconnection
+	if (isMultiplayer) {
+		if (steamManager.checkAndClearDisconnectFlag()) {
+			// Add disconnection message to chat
+			ChatMessage msg;
+			msg.playerName = "[SERVER]";
+			msg.message = "Opponent disconnected";
+			msg.timestamp = ofGetElapsedTimef();
+			chatHistory.push_back(msg);
+			if (chatHistory.size() > maxChatMessages) {
+				chatHistory.erase(chatHistory.begin());
+			}
+			// Show chat window for this message
+			lastChatInteractionTime = ofGetElapsedTimef();
+			ofLogNotice("Network") << "Opponent disconnected - message added to chat";
+		}
+
+		if (steamManager.checkAndClearReconnectFlag()) {
+			// Add reconnection message to chat
+			ChatMessage msg;
+			msg.playerName = "[SERVER]";
+			msg.message = "Opponent reconnected";
+			msg.timestamp = ofGetElapsedTimef();
+			chatHistory.push_back(msg);
+			if (chatHistory.size() > maxChatMessages) {
+				chatHistory.erase(chatHistory.begin());
+			}
+			// Show chat window for this message
+			lastChatInteractionTime = ofGetElapsedTimef();
+			ofLogNotice("Network") << "Opponent reconnected - message added to chat";
+		}
+	}
+
 	// ============================================================
 	// 1. STEAM CONNECTION TRIGGER (SYNCED)
 	// ============================================================
@@ -14103,10 +14136,7 @@ void ofApp::addGameLog(const std::string & logText) {
 	if (gameLog.size() > maxLogEntries) {
 		gameLog.erase(gameLog.begin());
 	}
-	// Show chat window briefly when log entry added
-	if (isMultiplayer) {
-		lastChatInteractionTime = ofGetElapsedTimef();
-	}
+	// Don't show chat window for log entries - only for chat messages
 }
 
 //--------------------------------------------------------------

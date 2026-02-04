@@ -45,6 +45,12 @@ public:
 	std::string getOpponentName() const;
 	CSteamID getOpponentSteamID() const;
 
+	// -- Connection Status --
+	bool checkAndClearDisconnectFlag();
+	bool checkAndClearReconnectFlag();
+	bool opponentDisconnected = false;
+	bool opponentReconnected = false;
+
 	// Queue for ofApp
 	std::queue<std::vector<char>> packetQueue;
 

@@ -216,7 +216,10 @@ void SteamManager::OnNetConnectionStatusChanged(SteamNetConnectionStatusChangedC
 		ofLogNotice("Steam") << "Connection Closed/Failed.";
 
 		if (pInfo->m_hConn == m_hConnection) {
+			// Mark as disconnected but don't fully close - allow reconnection
+			opponentDisconnected = true;
 			m_hConnection = k_HSteamNetConnection_Invalid;
+			ofLogNotice("Steam") << "Opponent disconnected - awaiting reconnection";
 		}
 		SteamNetworkingSockets()->CloseConnection(pInfo->m_hConn, 0, nullptr, false);
 		break;
@@ -237,11 +240,18 @@ void SteamManager::OnNetConnectionStatusChanged(SteamNetConnectionStatusChangedC
 
 	case k_ESteamNetworkingConnectionState_Connected:
 		ofLogNotice("Steam") << "Connection Fully Active!";
+		// Check if this is a reconnection
+		bool wasDisconnected = (m_hConnection == k_HSteamNetConnection_Invalid && m_OpponentID.IsValid());
 		m_hConnection = pInfo->m_hConn;
 		// Store opponent Steam ID for name lookup
 		if (pInfo->m_info.m_identityRemote.GetSteamID64() != 0) {
 			m_OpponentID = CSteamID(pInfo->m_info.m_identityRemote.GetSteamID64());
 			ofLogNotice("Steam") << "Opponent ID: " << m_OpponentID.ConvertToUint64();
+		}
+		// Set reconnection flag if opponent was previously disconnected
+		if (wasDisconnected) {
+			opponentReconnected = true;
+			ofLogNotice("Steam") << "Opponent reconnected!";
 		}
 		break;
 	}
@@ -289,4 +299,16 @@ uint32_t SteamManager::getLobbySeed() const {
 	} catch (...) {
 		return 0;
 	}
+}
+
+bool SteamManager::checkAndClearDisconnectFlag() {
+	bool result = opponentDisconnected;
+	opponentDisconnected = false;
+	return result;
+}
+
+bool SteamManager::checkAndClearReconnectFlag() {
+	bool result = opponentReconnected;
+	opponentReconnected = false;
+	return result;
 }
