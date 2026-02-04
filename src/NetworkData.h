@@ -14,7 +14,8 @@ enum PacketType {
 	PKT_SHUFFLE, // Host -> Client: authoritative deck shuffle (playerIndex, nonce)
 	PKT_TURN_START, // Host -> Client: authoritative turn start (current player, AP dice results)
 	PKT_KEY_PICKUP, // Host -> Client: a player picked up a key (trigger in-game draft)
-	PKT_CHAT_MESSAGE // Chat message between players
+	PKT_CHAT_MESSAGE, // Chat message between players
+	PKT_HOVER // Hover state update for showing opponent's hover
 };
 
 struct PacketHeader {
@@ -190,6 +191,14 @@ struct KeyPickupPacket : PacketHeader {
 // For Chat Messages: Send text messages between players
 struct ChatMessagePacket : PacketHeader {
 	char message[256]; // Text message (null-terminated)
+};
+
+// For Hover State: Show what opponent is hovering over
+struct HoverPacket : PacketHeader {
+	uint8_t hoverType; // HoverType enum (HOVER_NONE, HOVER_UNIT, HOVER_DECK, HOVER_DISCARD, HOVER_HAND_CARD)
+	int8_t gridX; // Grid X position (for units)
+	int8_t gridY; // Grid Y position (for units)
+	int8_t cardIndex; // Card index (for hand cards)
 };
 
 #pragma pack(pop)

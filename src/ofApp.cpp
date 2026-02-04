@@ -1019,6 +1019,31 @@ void ofApp::update() {
 	}
 }
 //--------------------------------------------------------------
+void ofApp::drawTileGlow(int gridX, int gridY, ofColor color, float thickness) {
+	// Draw a glowing outline around the tile at (gridX, gridY)
+	ofVec3f worldPos = transformGridToWorld(gridX, gridY);
+
+	// Draw a quad outline at ground level around the tile edges
+	float halfTile = 0.5f;
+	float glowHeight = 0.02f; // Slightly above ground to avoid z-fighting
+
+	ofSetColor(color);
+	ofSetLineWidth(thickness);
+
+	// Draw outline around tile
+	ofPushMatrix();
+	ofTranslate(worldPos.x, worldPos.y, glowHeight);
+
+	// Draw four lines forming a square around the tile
+	ofDrawLine(-halfTile, -halfTile, 0, halfTile, -halfTile, 0); // Bottom edge
+	ofDrawLine(halfTile, -halfTile, 0, halfTile, halfTile, 0); // Right edge
+	ofDrawLine(halfTile, halfTile, 0, -halfTile, halfTile, 0); // Top edge
+	ofDrawLine(-halfTile, halfTile, 0, -halfTile, -halfTile, 0); // Left edge
+
+	ofPopMatrix();
+	ofSetLineWidth(1);
+}
+//--------------------------------------------------------------
 void ofApp::draw() {
 	// --- LOADING SCREEN ---
 	if (isLoadingGame) {
@@ -5103,6 +5128,17 @@ void ofApp::drawGame() {
 			ofPopMatrix();
 		}
 
+		// --- HOVER GLOW RENDERING ---
+		// Draw white glow for local player's hover
+		if (localHoverType == HOVER_UNIT && localHoverGridX >= 0 && localHoverGridX < BOARD_WIDTH && localHoverGridY >= 0 && localHoverGridY < BOARD_HEIGHT) {
+			drawTileGlow(localHoverGridX, localHoverGridY, ofColor(255, 255, 255, 200), 4.0f);
+		}
+
+		// Draw red glow for opponent's hover
+		if (opponentHoverType == HOVER_UNIT && opponentHoverGridX >= 0 && opponentHoverGridX < BOARD_WIDTH && opponentHoverGridY >= 0 && opponentHoverGridY < BOARD_HEIGHT) {
+			drawTileGlow(opponentHoverGridX, opponentHoverGridY, ofColor(255, 0, 0, 200), 4.0f);
+		}
+
 		// --- DICE RENDERING ---
 		diceMaterial.begin();
 
@@ -5935,6 +5971,24 @@ void ofApp::drawGame() {
 			ofDrawRectRounded(p0_deckRect, 10 * scale);
 		}
 
+		// Draw hover glow for deck
+		if (localHoverType == HOVER_DECK) {
+			ofPushStyle();
+			ofNoFill();
+			ofSetColor(255, 255, 255, 200); // White glow
+			ofSetLineWidth(4 * scale);
+			ofDrawRectangle(p0_deckRect);
+			ofPopStyle();
+		}
+		if (opponentHoverType == HOVER_DECK) {
+			ofPushStyle();
+			ofNoFill();
+			ofSetColor(255, 0, 0, 200); // Red glow
+			ofSetLineWidth(4 * scale);
+			ofDrawRectangle(p0_deckRect);
+			ofPopStyle();
+		}
+
 		// Only highlight deck if in gameplay state and player's turn
 		if (currentState == STATE_GAMEPLAY && players[currentPlayerIndex].playerID == 0 && !hasDrawnCardsThisTurn) {
 			ofPushStyle();
@@ -5953,6 +6007,24 @@ void ofApp::drawGame() {
 		} else {
 			ofSetColor(0, 0, 0, 150);
 			ofDrawRectRounded(p0_discardRect, 10 * scale);
+		}
+
+		// Draw hover glow for discard
+		if (localHoverType == HOVER_DISCARD) {
+			ofPushStyle();
+			ofNoFill();
+			ofSetColor(255, 255, 255, 200); // White glow
+			ofSetLineWidth(4 * scale);
+			ofDrawRectangle(p0_discardRect);
+			ofPopStyle();
+		}
+		if (opponentHoverType == HOVER_DISCARD) {
+			ofPushStyle();
+			ofNoFill();
+			ofSetColor(255, 0, 0, 200); // Red glow
+			ofSetLineWidth(4 * scale);
+			ofDrawRectangle(p0_discardRect);
+			ofPopStyle();
 		}
 
 		// 3. Draw Player 1 (Top) UI
@@ -6463,6 +6535,24 @@ void ofApp::drawGame() {
 			}
 
 			cardSpriteSheet.drawSubsection(drawX, drawY, w, h, card.textureRect.x, card.textureRect.y, card.textureRect.width, card.textureRect.height);
+
+			// Draw hover glow (white for local, red for opponent)
+			if (localHoverType == HOVER_HAND_CARD && localHoverCardIndex == index) {
+				ofPushStyle();
+				ofNoFill();
+				ofSetColor(255, 255, 255, 200); // White glow
+				ofSetLineWidth(4);
+				ofDrawRectangle(drawX - 2, drawY - 2, w + 4, h + 4);
+				ofPopStyle();
+			}
+			if (opponentHoverType == HOVER_HAND_CARD && opponentHoverCardIndex == index) {
+				ofPushStyle();
+				ofNoFill();
+				ofSetColor(255, 0, 0, 200); // Red glow
+				ofSetLineWidth(4);
+				ofDrawRectangle(drawX - 2, drawY - 2, w + 4, h + 4);
+				ofPopStyle();
+			}
 
 			// B. Draw Overlays (Outlines/Dims) at the same depth as the card
 			if (isSelectingRenewedInspiration) {
@@ -7298,6 +7388,12 @@ void ofApp::drawGame() {
 }
 //--------------------------------------------------------------
 void ofApp::mouseMoved(int x, int y) {
+	// Initialize hover tracking variables
+	int newHoverType = HOVER_NONE;
+	int newHoverGridX = -1;
+	int newHoverGridY = -1;
+	int newHoverCardIndex = -1;
+
 	// 1. Reset to default at the start of the check
 	currentCursor = CURSOR_DEFAULT;
 	isShowingTooltip = false; // Reset tooltip state every frame
@@ -7315,7 +7411,7 @@ void ofApp::mouseMoved(int x, int y) {
 	if (currentState == STATE_SETTINGS) {
 		overSettingsButton = settingsBackButton.inside(x, y) || settingsResLeftButton.inside(x, y) || settingsResRightButton.inside(x, y) || settingsFrameLeftButton.inside(x, y) || settingsFrameRightButton.inside(x, y) || settingsFullscreenButton.inside(x, y);
 	}
-	if (endTurnButtonRect.inside(x, y) || overMainMenuButton || overSettingsButton || overPauseMenuButton || p0_deckRect.inside(x, y) || p0_discardRect.inside(x, y) || p1_deckRect.inside(x, y) || p1_discardRect.inside(x, y) ||
+	if (endTurnButtonRect.inside(x, y) || overMainMenuButton || overSettingsButton || overPauseMenuButton ||
 		[&]() {
 			for (const auto & ui : activeMinionUIs) {
 				if (ui.deckRect.inside(x, y) || ui.discardRect.inside(x, y)) return true;
@@ -7325,6 +7421,17 @@ void ofApp::mouseMoved(int x, int y) {
 		currentCursor = CURSOR_CLICK;
 	}
 
+	// Check deck/discard hover for glow (only for current player)
+	if (currentState == STATE_GAMEPLAY && !players.empty() && currentPlayerIndex >= 0) {
+		if (players[currentPlayerIndex].playerID == myLocalPlayerID) {
+			if (p0_deckRect.inside(x, y)) {
+				newHoverType = HOVER_DECK;
+			} else if (p0_discardRect.inside(x, y)) {
+				newHoverType = HOVER_DISCARD;
+			}
+		}
+	}
+
 	// 3. Check for "Draggable" things (Cards in hand)
 	if (!players.empty() && currentPlayerIndex >= 0) {
 		Player & p = players[currentPlayerIndex];
@@ -7332,13 +7439,18 @@ void ofApp::mouseMoved(int x, int y) {
 		float aspectRatio = 585.0f / 409.0f;
 		float baseCardHeight = handBaseCardWidth * aspectRatio;
 
-		for (Card & c : p.hand) {
+		for (size_t i = 0; i < p.hand.size(); i++) {
+			Card & c = p.hand[i];
 			float w = handBaseCardWidth * c.currentScale;
 			float h = baseCardHeight * c.currentScale;
 			ofRectangle cardRect(c.currentPos.x - w / 2, c.currentPos.y - h / 2, w, h);
 
 			if (cardRect.inside(x, y)) {
 				currentCursor = CURSOR_GRAB;
+				if (p.playerID == myLocalPlayerID && newHoverType == HOVER_NONE) {
+					newHoverType = HOVER_HAND_CARD;
+					newHoverCardIndex = i;
+				}
 			}
 		}
 	}
@@ -7357,6 +7469,11 @@ void ofApp::mouseMoved(int x, int y) {
 				Player & p = players[currentPlayerIndex];
 				if (p.x == gx && p.y == gy) {
 					currentCursor = CURSOR_CLICK;
+					if (p.playerID == myLocalPlayerID && newHoverType == HOVER_NONE) {
+						newHoverType = HOVER_UNIT;
+						newHoverGridX = gx;
+						newHoverGridY = gy;
+					}
 					goto cursor_check_done;
 				}
 			}
@@ -7853,6 +7970,9 @@ cursor_check_done:;
 		// No specific hover logic needed here yet, or handled elsewhere
 		break;
 	}
+
+	// Update and send hover state to opponent if changed
+	updateAndSendHover(static_cast<HoverType>(newHoverType), newHoverGridX, newHoverGridY, newHoverCardIndex);
 }
 // ----------------- FULL mousePressed FUNCTION -----------------
 void ofApp::mousePressed(int x, int y, int button) {
@@ -17198,6 +17318,30 @@ void ofApp::exit() {
 	steamManager.shutdownAPI();
 }
 // --------------------------------------------------------------
+void ofApp::updateAndSendHover(HoverType type, int gridX, int gridY, int cardIndex) {
+	// Check if hover state changed
+	if (type != localHoverType || gridX != localHoverGridX || gridY != localHoverGridY || cardIndex != localHoverCardIndex) {
+
+		// Update local hover state
+		localHoverType = type;
+		localHoverGridX = gridX;
+		localHoverGridY = gridY;
+		localHoverCardIndex = cardIndex;
+
+		// Send hover packet to opponent if in multiplayer
+		if (isMultiplayer && steamManager.isConnected()) {
+			HoverPacket pkt;
+			pkt.type = PKT_HOVER;
+			pkt.playerID = myLocalPlayerID;
+			pkt.hoverType = static_cast<uint8_t>(type);
+			pkt.gridX = static_cast<int8_t>(gridX);
+			pkt.gridY = static_cast<int8_t>(gridY);
+			pkt.cardIndex = static_cast<int8_t>(cardIndex);
+			steamManager.sendPacket(&pkt, sizeof(pkt));
+		}
+	}
+}
+// --------------------------------------------------------------
 void ofApp::processNetworkPackets() {
 	while (!steamManager.packetQueue.empty()) {
 		std::vector<char> buffer = steamManager.packetQueue.front();
@@ -17447,6 +17591,15 @@ void ofApp::processNetworkPackets() {
 			}
 			// Show chat for 5 seconds when message received
 			lastChatInteractionTime = ofGetElapsedTimef();
+		} else if (header->type == PKT_HOVER) {
+			HoverPacket * pkt = (HoverPacket *)header;
+			int hoverTypeInt = static_cast<int>(pkt->hoverType);
+			if (hoverTypeInt >= HOVER_NONE && hoverTypeInt <= HOVER_HAND_CARD) {
+				opponentHoverType = static_cast<HoverType>(hoverTypeInt);
+			}
+			opponentHoverGridX = static_cast<int>(pkt->gridX);
+			opponentHoverGridY = static_cast<int>(pkt->gridY);
+			opponentHoverCardIndex = static_cast<int>(pkt->cardIndex);
 		} else if (header->type == PKT_DRAFT_STATE) {
 			DraftStatePacket * sp = (DraftStatePacket *)header;
 			ofLogNotice("Network") << "Draft state received: class=" << sp->classTier << " player=" << sp->draftPlayerIdx << " picks=" << sp->picksRemaining << " stage=" << sp->draftStage << " ingame=" << (int)sp->isInGameDraft << " curPlayer=" << sp->currentPlayerIndex;

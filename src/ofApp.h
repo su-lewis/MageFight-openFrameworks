@@ -1239,4 +1239,26 @@ private:
 	const int maxChatInputLength = 150;
 
 	void addGameLog(const std::string & logText);
+
+	// --- HOVER GLOW SYSTEM ---
+	enum HoverType { HOVER_NONE = 0,
+		HOVER_UNIT = 1,
+		HOVER_DECK = 2,
+		HOVER_DISCARD = 3,
+		HOVER_HAND_CARD = 4 };
+
+	// Local hover state
+	HoverType localHoverType = HOVER_NONE;
+	int localHoverGridX = -1;
+	int localHoverGridY = -1;
+	int localHoverCardIndex = -1;
+
+	// Opponent hover state
+	HoverType opponentHoverType = HOVER_NONE;
+	int opponentHoverGridX = -1;
+	int opponentHoverGridY = -1;
+	int opponentHoverCardIndex = -1;
+
+	void updateAndSendHover(HoverType type, int gridX = -1, int gridY = -1, int cardIndex = -1);
+	void drawTileGlow(int gridX, int gridY, ofColor color, float thickness = 0.15f);
 };
