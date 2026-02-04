@@ -5480,11 +5480,13 @@ void ofApp::drawGame() {
 				if (board[x][y].hasWall) {
 					ofPushMatrix();
 					ofTranslate(0, surfaceY - (TILE_SIZE * 0.4f), 0);
-					// Choose dark texture for the top decal only if immediate north neighbor has a wall
-					bool northAdjacent = false;
-					int ny = y - 1;
-					if (ny >= 0 && ny < BOARD_HEIGHT) northAdjacent = board[x][ny].hasWall;
-					ofTexture * tex = northAdjacent ? &wallDarkTexture : &wallTexture;
+					// Choose dark texture based on camera perspective
+					// Player 0 views from bottom-left (y increases away), Player 1 from top-right (y decreases away)
+					// Check if there's a wall "behind" this one from the viewer's perspective
+					bool wallBehind = false;
+					int checkY = (myLocalPlayerID == 1) ? y + 1 : y - 1;
+					if (checkY >= 0 && checkY < BOARD_HEIGHT) wallBehind = board[x][checkY].hasWall;
+					ofTexture * tex = wallBehind ? &wallDarkTexture : &wallTexture;
 					tex->bind();
 					wallMesh.draw();
 					tex->unbind();
@@ -6202,19 +6204,54 @@ void ofApp::drawGame() {
 		ofSetColor(60, 60, 80, 200);
 		ofDrawRectRounded(endTurnButtonRect, 10 * scale);
 
-		// Get opponent's name
-		std::string opponentName = "Opponent";
+		// Get current player's name (not "opponent" - use actual Steam name)
+		std::string playerName = "Player";
 		if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) {
-			opponentName = getPlayerSteamName(currentPlayerIndex);
+			playerName = getPlayerSteamName(currentPlayerIndex);
 		}
 
-		ofSetColor(ofColor::gold);
-		string turnText = opponentName + "'s Turn";
-		ofRectangle turnTextBox = titleFont.getStringBoundingBox(turnText, 0, 0);
-		float turnX = endTurnButtonRect.getCenter().x - (turnTextBox.width * fontScale / 2);
-		float turnY = endTurnButtonRect.getCenter().y + (turnTextBox.height * fontScale / 2);
+		// Draw profile picture placeholder on the left side
+		float avatarSize = btnHeight_end * 0.7f;
+		float avatarPadding = 10 * scale;
+		float avatarX = endTurnButtonRect.x + avatarPadding;
+		float avatarY = endTurnButtonRect.getCenter().y - avatarSize / 2;
+
+		// Draw avatar background circle
+		ofPushStyle();
+		ofSetColor(80, 80, 100);
+		ofDrawCircle(avatarX + avatarSize / 2, avatarY + avatarSize / 2, avatarSize / 2);
+
+		// Draw simple player icon (initials or generic icon)
+		ofSetColor(ofColor::white);
+		string initials = "";
+		if (!playerName.empty()) {
+			initials += playerName[0];
+			// Find second initial after space
+			size_t spacePos = playerName.find(' ');
+			if (spacePos != string::npos && spacePos + 1 < playerName.length()) {
+				initials += playerName[spacePos + 1];
+			}
+		}
+		ofRectangle initialsBox = uiFont.getStringBoundingBox(initials, 0, 0);
+		float initialsScale = avatarSize / std::max(initialsBox.width, initialsBox.height) * 0.6f;
 		ofPushMatrix();
-		ofTranslate(turnX, turnY);
+		ofTranslate(avatarX + avatarSize / 2 - (initialsBox.width * initialsScale / 2),
+			avatarY + avatarSize / 2 + (initialsBox.height * initialsScale / 2));
+		ofScale(initialsScale, initialsScale);
+		uiFont.drawString(initials, 0, 0);
+		ofPopMatrix();
+		ofPopStyle();
+
+		// Draw text to the right of avatar
+		ofSetColor(ofColor::gold);
+		string turnText = playerName + "'s Turn";
+		ofRectangle turnTextBox = titleFont.getStringBoundingBox(turnText, 0, 0);
+		float textStartX = avatarX + avatarSize + avatarPadding;
+		float availableWidth = endTurnButtonRect.width - (avatarSize + avatarPadding * 3);
+		float textX = textStartX + (availableWidth - turnTextBox.width * fontScale) / 2;
+		float textY = endTurnButtonRect.getCenter().y + (turnTextBox.height * fontScale / 2);
+		ofPushMatrix();
+		ofTranslate(textX, textY);
 		ofScale(fontScale, fontScale);
 		titleFont.drawString(turnText, 0, 0);
 		ofPopMatrix();
@@ -6853,6 +6890,124 @@ void ofApp::drawGame() {
 	// FIX: Added Burst UI call
 	if (isBurstMenuOpen) {
 		drawBurstUI();
+	}
+
+	// --- Chat System ---
+	if (isMultiplayer) {
+		float currentTime = ofGetElapsedTimef();
+		bool shouldShowChat = isChatOpen || (currentTime - lastChatInteractionTime < chatVisibilityDuration);
+
+		if (shouldShowChat) {
+			float chatX = 20 * scale;
+			float chatY = ofGetHeight() - staticUICardHeight * 2.0f - 60 * scale;
+			float chatMaxWidth = 450 * scale;
+			float chatBoxHeight = 250 * scale;
+			float tabHeight = 25 * scale;
+			float messageHeight = 18 * scale;
+
+			// Draw main chat box background (50% opacity black with black outline)
+			ofPushStyle();
+			ofSetColor(0, 0, 0, 128); // 50% opacity
+			ofDrawRectangle(chatX, chatY - chatBoxHeight - tabHeight, chatMaxWidth, chatBoxHeight + tabHeight);
+			ofSetColor(0, 0, 0, 255); // Black outline
+			ofNoFill();
+			ofSetLineWidth(2);
+			ofDrawRectangle(chatX, chatY - chatBoxHeight - tabHeight, chatMaxWidth, chatBoxHeight + tabHeight);
+			ofFill();
+			ofPopStyle();
+
+			// Draw tabs at the top
+			float tabWidth = 80 * scale;
+			ofPushStyle();
+
+			// Chat tab
+			if (currentChatTab == ChatTab::CHAT) {
+				ofSetColor(40, 40, 40, 200); // Active tab
+			} else {
+				ofSetColor(20, 20, 20, 150); // Inactive tab
+			}
+			ofDrawRectangle(chatX, chatY - chatBoxHeight - tabHeight, tabWidth, tabHeight);
+			ofSetColor(255, 255, 255);
+			uiFont.drawString("CHAT", chatX + 10, chatY - chatBoxHeight - 5);
+
+			// Log tab
+			if (currentChatTab == ChatTab::LOG) {
+				ofSetColor(40, 40, 40, 200); // Active tab
+			} else {
+				ofSetColor(20, 20, 20, 150); // Inactive tab
+			}
+			ofDrawRectangle(chatX + tabWidth + 2, chatY - chatBoxHeight - tabHeight, tabWidth, tabHeight);
+			ofSetColor(255, 255, 255);
+			uiFont.drawString("LOG", chatX + tabWidth + 12, chatY - chatBoxHeight - 5);
+			ofPopStyle();
+
+			// Draw content based on active tab
+			if (currentChatTab == ChatTab::CHAT) {
+				// Draw chat history
+				float messageY = chatY - 35 * scale;
+				int visibleMessages = 0;
+				int maxVisible = 10;
+
+				for (int i = (int)chatHistory.size() - 1; i >= 0 && visibleMessages < maxVisible; i--) {
+					ChatMessage & msg = chatHistory[i];
+					float age = currentTime - msg.timestamp;
+
+					// Fade out messages after chatMessageLifetime seconds (unless chat is open)
+					float alpha = 255.0f;
+					if (!isChatOpen && age > chatMessageLifetime) {
+						continue; // Don't draw old messages when chat is closed
+					} else if (!isChatOpen && age > chatMessageLifetime * 0.7f) {
+						float fadeProgress = (age - chatMessageLifetime * 0.7f) / (chatMessageLifetime * 0.3f);
+						alpha = 255.0f * (1.0f - fadeProgress);
+					}
+
+					// Draw message text with format "Steam name: message"
+					ofPushStyle();
+					ofSetColor(255, 255, 255, alpha);
+					string fullMsg = msg.playerName + ": " + msg.message;
+					uiFont.drawString(fullMsg, chatX + 10, messageY);
+					ofPopStyle();
+
+					messageY -= messageHeight;
+					visibleMessages++;
+				}
+
+				// Draw chat input box when chat is open
+				if (isChatOpen) {
+					float inputY = chatY - 10 * scale;
+
+					// Draw input text
+					ofPushStyle();
+					ofSetColor(ofColor::white);
+					string displayText = "> " + chatInput;
+					if (((int)(ofGetElapsedTimef() * 2)) % 2 == 0) {
+						displayText += "_"; // Blinking cursor
+					}
+					// Show character count
+					string charCount = ofToString(chatInput.length()) + "/" + ofToString(maxChatInputLength);
+					uiFont.drawString(displayText, chatX + 10, inputY);
+					uiFont.drawString(charCount, chatX + chatMaxWidth - 60, inputY);
+					ofPopStyle();
+				}
+			} else if (currentChatTab == ChatTab::LOG) {
+				// Draw game log
+				float logY = chatY - 35 * scale;
+				int visibleLogs = 0;
+				int maxVisible = 12;
+
+				for (int i = (int)gameLog.size() - 1; i >= 0 && visibleLogs < maxVisible; i--) {
+					GameLogEntry & entry = gameLog[i];
+
+					ofPushStyle();
+					ofSetColor(200, 200, 200);
+					uiFont.drawString(entry.text, chatX + 10, logY);
+					ofPopStyle();
+
+					logY -= messageHeight;
+					visibleLogs++;
+				}
+			}
+		}
 	}
 
 	// --- Debug Card Spawner UI (KRunner-style) ---
@@ -7668,6 +7823,37 @@ cursor_check_done:;
 }
 // ----------------- FULL mousePressed FUNCTION -----------------
 void ofApp::mousePressed(int x, int y, int button) {
+	// Handle chat tab clicking first (if chat is visible)
+	if (currentState == STATE_GAMEPLAY && isMultiplayer && button == OF_MOUSE_BUTTON_LEFT) {
+		float currentTime = ofGetElapsedTimef();
+		bool shouldShowChat = isChatOpen || (currentTime - lastChatInteractionTime < chatVisibilityDuration);
+
+		if (shouldShowChat) {
+			float scale = ofGetHeight() / 1080.0f;
+			float baseCardHeight = 120 * (585.0f / 409.0f);
+			float staticUICardHeight = (baseCardHeight * 1.3f) * scale;
+			float chatX = 20 * scale;
+			float chatY = ofGetHeight() - staticUICardHeight * 2.0f - 60 * scale;
+			float chatMaxWidth = 450 * scale;
+			float chatBoxHeight = 250 * scale;
+			float tabHeight = 25 * scale;
+			float tabWidth = 80 * scale;
+
+			// Check if clicking on Chat tab
+			if (ofRectangle(chatX, chatY - chatBoxHeight - tabHeight, tabWidth, tabHeight).inside(x, y)) {
+				currentChatTab = ChatTab::CHAT;
+				lastChatInteractionTime = ofGetElapsedTimef();
+				return;
+			}
+			// Check if clicking on Log tab
+			if (ofRectangle(chatX + tabWidth + 2, chatY - chatBoxHeight - tabHeight, tabWidth, tabHeight).inside(x, y)) {
+				currentChatTab = ChatTab::LOG;
+				lastChatInteractionTime = ofGetElapsedTimef();
+				return;
+			}
+		}
+	}
+
 	if (currentState == STATE_DRAFTING && button == OF_MOUSE_BUTTON_LEFT) {
 		// Card Dimensions (Must match drawDraftScreen)
 		float cardW = 340;
@@ -9393,6 +9579,14 @@ void ofApp::mousePressed(int x, int y, int button) {
 		}
 		if (isPlayerAnimating || isDiceSpinning) return;
 
+		// 3c. TURN VALIDATION: Only allow interactions if it's the local player's turn
+		if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) {
+			if (players[currentPlayerIndex].playerID != myLocalPlayerID) {
+				// Not our turn - ignore all gameplay clicks
+				return;
+			}
+		}
+
 		// 3d. Deck Clicking (Drawing Cards)
 		if (button == OF_MOUSE_BUTTON_LEFT) {
 
@@ -9713,6 +9907,19 @@ void ofApp::mouseDragged(int x, int y, int button) {
 	}
 	if (currentState != STATE_GAMEPLAY) return;
 
+	// TURN VALIDATION: Only allow dragging if it's the local player's turn
+	if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) {
+		if (players[currentPlayerIndex].playerID != myLocalPlayerID) {
+			// Not our turn - only allow camera movement
+			if (button == OF_MOUSE_BUTTON_RIGHT) {
+				float dx = ofGetPreviousMouseX() - x, dy = ofGetPreviousMouseY() - y;
+				cameraTargetPan.x += dx * 0.05f * (TILE_SIZE / 4.0f);
+				cameraTargetPan.z += dy * 0.05f * (TILE_SIZE / 4.0f);
+			}
+			return;
+		}
+	}
+
 	if (button == OF_MOUSE_BUTTON_RIGHT) {
 		float dx = ofGetPreviousMouseX() - x, dy = ofGetPreviousMouseY() - y;
 		cameraTargetPan.x += dx * 0.05f * (TILE_SIZE / 4.0f);
@@ -9793,6 +10000,14 @@ void ofApp::mouseReleased(int x, int y, int button) {
 	mouseMoved(x, y);
 
 	if (currentState != STATE_GAMEPLAY) return;
+
+	// TURN VALIDATION: Only allow releasing if it's the local player's turn
+	if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) {
+		if (players[currentPlayerIndex].playerID != myLocalPlayerID) {
+			// Not our turn - ignore all interactions to avoid interrupting opponent
+			return;
+		}
+	}
 
 	bool isDiceSpinning = false;
 	for (const auto & roll : activeDiceRolls) {
@@ -10055,6 +10270,64 @@ void ofApp::mouseScrolled(int x, int y, float scrollX, float scrollY) {
 }
 //--------------------------------------------------------------
 void ofApp::keyPressed(int key) {
+	// Handle Chat Input first (highest priority)
+	if (isChatOpen && currentState == STATE_GAMEPLAY) {
+		if (key == OF_KEY_RETURN) {
+			// Send message and close chat
+			if (!chatInput.empty() && isMultiplayer) {
+				ChatMessagePacket pkt;
+				pkt.type = PKT_CHAT_MESSAGE;
+				pkt.playerID = myLocalPlayerID;
+				strncpy(pkt.message, chatInput.c_str(), 255);
+				pkt.message[255] = '\0';
+				steamManager.sendPacket(&pkt, sizeof(pkt));
+
+				// Add to local chat history
+				ChatMessage msg;
+				msg.playerName = getPlayerSteamName(myLocalPlayerID == 0 ? 0 : 1);
+				msg.message = chatInput;
+				msg.timestamp = ofGetElapsedTimef();
+				chatHistory.push_back(msg);
+				if (chatHistory.size() > maxChatMessages) {
+					chatHistory.erase(chatHistory.begin());
+				}
+			}
+			chatInput = "";
+			isChatOpen = false;
+			lastChatInteractionTime = ofGetElapsedTimef();
+			return;
+		} else if (key == OF_KEY_ESC) {
+			chatInput = "";
+			isChatOpen = false;
+			lastChatInteractionTime = ofGetElapsedTimef();
+			return;
+		} else if (key == OF_KEY_TAB) {
+			// Switch tabs
+			currentChatTab = (currentChatTab == ChatTab::CHAT) ? ChatTab::LOG : ChatTab::CHAT;
+			return;
+		} else if (key == OF_KEY_BACKSPACE) {
+			if (!chatInput.empty()) {
+				chatInput = chatInput.substr(0, chatInput.size() - 1);
+			}
+			return;
+		} else if (key >= 32 && key <= 126) {
+			// Printable ASCII characters
+			if (chatInput.length() < maxChatInputLength) {
+				chatInput += (char)key;
+			}
+			return;
+		}
+		return; // Consume all keys when chat is open
+	}
+
+	// Open chat with Enter key (only in gameplay and multiplayer)
+	if (key == OF_KEY_RETURN && currentState == STATE_GAMEPLAY && isMultiplayer && !isCardSpawnerOpen) {
+		isChatOpen = true;
+		chatInput = "";
+		lastChatInteractionTime = ofGetElapsedTimef();
+		return;
+	}
+
 	// Handle Card Spawner text input
 	if (isCardSpawnerOpen && !isCardEncyclopediaOpen) {
 		if (key == OF_KEY_RETURN) {
@@ -10385,6 +10658,9 @@ void ofApp::startNewTurn() {
 	Player & startingPlayer = players[currentPlayerIndex];
 	ofLogNotice("Game") << "--- START TURN: " << (startingPlayer.isMinion ? "Minion " : "Player ") << startingPlayer.playerID;
 
+	// Add game log entry for turn start
+	addGameLog("Turn " + ofToString(globalTurnCounter) + ": " + getPlayerSteamName(currentPlayerIndex) + "'s turn");
+
 	// Ensure temp luck is correct for the starting player before AP is rolled
 	recalcTempLuck();
 
@@ -10696,6 +10972,9 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 	int costToPay = playedCard.cost;
 	if (playedCard.name == "Kick" && currentPlayer.freeKickTurns > 0) costToPay = 0;
 	if (currentAP < costToPay) return;
+
+	// Log card played
+	addGameLog(getPlayerSteamName(currentPlayerIndex) + " played " + playedCard.name);
 
 	// --- Magic Wall Placement/Transformation ---
 	if (playedCard.type == CARD_CREATE_WALL && playedCard.name == "Summon Magic Wall") {
@@ -13813,6 +14092,20 @@ std::string ofApp::getPlayerSteamName(int playerIndex) {
 		return (playerID == 0) ? player0SteamName : player1SteamName;
 	} else {
 		return (playerID == 0) ? "Player 1" : "Player 2";
+	}
+}
+
+void ofApp::addGameLog(const std::string & logText) {
+	GameLogEntry entry;
+	entry.text = logText;
+	entry.timestamp = ofGetElapsedTimef();
+	gameLog.push_back(entry);
+	if (gameLog.size() > maxLogEntries) {
+		gameLog.erase(gameLog.begin());
+	}
+	// Show chat window briefly when log entry added
+	if (isMultiplayer) {
+		lastChatInteractionTime = ofGetElapsedTimef();
 	}
 }
 
@@ -17110,6 +17403,20 @@ void ofApp::processNetworkPackets() {
 				spawnFloatingText(transformGridToWorld(kpkt->keyX, kpkt->keyY), "Key Found!", ofColor::gold);
 				ofLogNotice("Key") << "Client: Player " << kpkt->playerIndex << " picked up key (Class " << kpkt->classTier << ")";
 			}
+		} else if (header->type == PKT_CHAT_MESSAGE) {
+			ChatMessagePacket * pkt = (ChatMessagePacket *)header;
+			ofLogNotice("Net") << "Received chat message from player " << pkt->playerID << ": " << pkt->message;
+
+			ChatMessage msg;
+			msg.playerName = getPlayerSteamName(pkt->playerID == 0 ? 0 : 1);
+			msg.message = pkt->message;
+			msg.timestamp = ofGetElapsedTimef();
+			chatHistory.push_back(msg);
+			if (chatHistory.size() > maxChatMessages) {
+				chatHistory.erase(chatHistory.begin());
+			}
+			// Show chat for 5 seconds when message received
+			lastChatInteractionTime = ofGetElapsedTimef();
 		} else if (header->type == PKT_DRAFT_STATE) {
 			DraftStatePacket * sp = (DraftStatePacket *)header;
 			ofLogNotice("Network") << "Draft state received: class=" << sp->classTier << " player=" << sp->draftPlayerIdx << " picks=" << sp->picksRemaining << " stage=" << sp->draftStage << " ingame=" << (int)sp->isInGameDraft << " curPlayer=" << sp->currentPlayerIndex;

@@ -1211,4 +1211,32 @@ private:
 
 	CursorState currentCursor = CURSOR_DEFAULT;
 	CursorState previousCursor = CURSOR_DEFAULT; // To track changes
+
+	// --- CHAT SYSTEM ---
+	struct ChatMessage {
+		std::string playerName;
+		std::string message;
+		float timestamp; // For fade out
+	};
+	struct GameLogEntry {
+		std::string text;
+		float timestamp;
+	};
+	enum class ChatTab { CHAT,
+		LOG };
+
+	std::vector<ChatMessage> chatHistory;
+	std::vector<GameLogEntry> gameLog;
+	bool isChatOpen = false;
+	std::string chatInput = "";
+	float chatScrollOffset = 0;
+	float lastChatInteractionTime = -999.0f; // When chat was last opened/closed/message received
+	ChatTab currentChatTab = ChatTab::CHAT;
+	const int maxChatMessages = 50;
+	const int maxLogEntries = 100;
+	const float chatMessageLifetime = 10.0f; // Seconds before old messages fade
+	const float chatVisibilityDuration = 5.0f; // Seconds to show chat after interaction
+	const int maxChatInputLength = 150;
+
+	void addGameLog(const std::string & logText);
 };

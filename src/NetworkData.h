@@ -13,7 +13,8 @@ enum PacketType {
 	PKT_DRAFT_OPTIONS, // Host -> Client: authoritative indices for options
 	PKT_SHUFFLE, // Host -> Client: authoritative deck shuffle (playerIndex, nonce)
 	PKT_TURN_START, // Host -> Client: authoritative turn start (current player, AP dice results)
-	PKT_KEY_PICKUP // Host -> Client: a player picked up a key (trigger in-game draft)
+	PKT_KEY_PICKUP, // Host -> Client: a player picked up a key (trigger in-game draft)
+	PKT_CHAT_MESSAGE // Chat message between players
 };
 
 struct PacketHeader {
@@ -184,6 +185,11 @@ struct KeyPickupPacket : PacketHeader {
 	uint8_t classTier; // 1, 2, or 3
 	int32_t keyX; // Grid position of the key
 	int32_t keyY;
+};
+
+// For Chat Messages: Send text messages between players
+struct ChatMessagePacket : PacketHeader {
+	char message[256]; // Text message (null-terminated)
 };
 
 #pragma pack(pop)
