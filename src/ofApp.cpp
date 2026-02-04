@@ -16951,6 +16951,16 @@ void ofApp::processNetworkPackets() {
 				// DEBUGGING: Calculate checksum BEFORE marking dice as DEBUG (to match host's state)
 				if (globalTurnCounter == 0) {
 					ofLogNotice("Network") << "Client: Requesting checksum check for turn 0 (post-draft)";
+					// Log deck state before checksum
+					for (size_t pi = 0; pi < players.size(); ++pi) {
+						std::string deckStr = "[";
+						for (size_t ci = 0; ci < players[pi].deck.size(); ++ci) {
+							if (ci > 0) deckStr += ",";
+							deckStr += std::to_string((int)players[pi].deck[ci].type) + "(" + std::to_string(players[pi].deck[ci].value) + ")";
+						}
+						deckStr += "]";
+						ofLogNotice("Checksum") << "Client P" << pi << " deck=" << deckStr;
+					}
 					int64_t myChecksum = calculateChecksum();
 					ChecksumPacket cpkt;
 					cpkt.type = PKT_CHECKSUM_CHECK;
@@ -17294,6 +17304,16 @@ void ofApp::processNetworkPackets() {
 
 						// DEBUGGING: Log host's checksum at the same moment client will calculate theirs
 						if (globalTurnCounter == 0) {
+							// Log deck state before checksum
+							for (size_t pi = 0; pi < players.size(); ++pi) {
+								std::string deckStr = "[";
+								for (size_t ci = 0; ci < players[pi].deck.size(); ++ci) {
+									if (ci > 0) deckStr += ",";
+									deckStr += std::to_string((int)players[pi].deck[ci].type) + "(" + std::to_string(players[pi].deck[ci].value) + ")";
+								}
+								deckStr += "]";
+								ofLogNotice("Checksum") << "Host P" << pi << " deck=" << deckStr;
+							}
 							int64_t hostChecksum = calculateChecksum();
 							ofLogNotice("Checksum") << "Host checksum after TurnStart send (turn 0): " << hostChecksum;
 						}
