@@ -1152,3 +1152,10 @@ SteamInternal_SetMinidumpSteamID:  Caching Steam ID:  76561198261715869 [API loa
 [notice ] Dice: Rolled dice[0]: rawResult=4 finalResult=4 (owner=1)
 [notice ] Dice: Final total result for 1d6: 4
 [notice ] Game: AP Roll Finished: 4 AP awarded (sum of all dice).
+[notice ] Net: Received chat message from player 1: test
+[notice ] Steam: Connection Closed/Failed.
+[notice ] Steam: Opponent disconnected - awaiting reconnection
+[notice ] Network: Opponent disconnected - message added to chat
+[notice ] Game: --- GAME SESSION CLEANED UP ---
+[notice ] SteamManager: Steam API Shutdown.
+[S_API FAIL] Tried to access Steam interface SteamNetworkingSockets012 before SteamAPI_Init succeeded.

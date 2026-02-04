@@ -1716,16 +1716,21 @@ void ofApp::updateGame() {
 	float visibleY = 20 * scale;
 	float hiddenY = -100 * scale;
 
-	// FIX: Check if it is Player 1's turn OR a Minion owned by Player 1
-	bool isPlayer1Turn = false;
+	// Show end turn button when it's the current player's turn
+	bool showEndTurnButton = false;
 	if (currentPlayerIndex >= 0 && !players.empty()) {
 		int pid = players[currentPlayerIndex].playerID;
 		int oid = players[currentPlayerIndex].ownerID;
-		// Assuming Player 1 is ID 0. Minions owned by P1 have ownerID 0.
-		if (pid == 0 || oid == 0) isPlayer1Turn = true;
+		if (isMultiplayer) {
+			// Multiplayer: only show when it's my turn
+			if (pid == myLocalPlayerID || oid == myLocalPlayerID) showEndTurnButton = true;
+		} else {
+			// Single player: always show (any player can end their turn)
+			showEndTurnButton = true;
+		}
 	}
 
-	if (isPlayer1Turn) {
+	if (showEndTurnButton) {
 		endTurnButtonTargetPos.set(ofGetWidth() / 2.0f - btnWidth / 2.0f, visibleY);
 	} else {
 		endTurnButtonTargetPos.set(ofGetWidth() / 2.0f - btnWidth / 2.0f, hiddenY);
@@ -5938,7 +5943,15 @@ void ofApp::drawGame() {
 	}
 
 	if (player0 && player1) {
-		// 1. Calculate positions first (ADJUSTED FOR BOTH PLAYERS)
+		// In multiplayer, swap perspective so local player is always at bottom
+		Player * localPlayer = player0;
+		Player * opponentPlayer = player1;
+		if (isMultiplayer && myLocalPlayerID == 1) {
+			localPlayer = player1;
+			opponentPlayer = player0;
+		}
+
+		// 1. Calculate positions - bottom = local player, top = opponent
 		float p0_deckX = 20 * scale;
 		float p0_deckY = ofGetHeight() - staticUICardHeight - (20 * scale) - staticUICardHeight - (20 * scale);
 		p0_deckRect.set(p0_deckX, p0_deckY, staticUICardWidth, staticUICardHeight);
@@ -5956,13 +5969,13 @@ void ofApp::drawGame() {
 		float p1_deckY = p1_discardY + staticUICardHeight + (20 * scale); // Was 40 (Reduced gap)
 		p1_deckRect.set(p1_deckX, p1_deckY, staticUICardWidth, staticUICardHeight);
 
-		// 2. Draw Player 0 (Bottom) UI
+		// 2. Draw Player 0 (Bottom) UI - this is the LOCAL player
 		float p0_healthX = ofGetWidth() - (220 * scale) - (50 * scale);
 		float p0_healthY = ofGetHeight() - (65 * scale) - (40 * scale);
-		drawHealthBar(*player0, p0_healthX, p0_healthY, ofColor::green);
+		drawHealthBar(*localPlayer, p0_healthX, p0_healthY, ofColor::green);
 
-		// P0 Deck
-		if (!player0->deck.empty()) {
+		// P0 Deck (LOCAL player's deck)
+		if (!localPlayer->deck.empty()) {
 			ofSetColor(ofColor::white);
 			cardBackImage.draw(p0_deckRect);
 		} else {
@@ -5988,8 +6001,8 @@ void ofApp::drawGame() {
 			ofPopStyle();
 		}
 
-		// Only highlight deck if in gameplay state and player's turn
-		if (currentState == STATE_GAMEPLAY && players[currentPlayerIndex].playerID == 0 && !hasDrawnCardsThisTurn) {
+		// Only highlight deck if it's MY turn and I haven't drawn yet
+		if (currentState == STATE_GAMEPLAY && players[currentPlayerIndex].playerID == myLocalPlayerID && !hasDrawnCardsThisTurn) {
 			ofPushStyle();
 			ofNoFill();
 			ofSetColor(ofColor::green);
@@ -5998,9 +6011,9 @@ void ofApp::drawGame() {
 			ofPopStyle();
 		}
 
-		// P0 Discard
-		if (!player0->discardPile.empty()) {
-			const auto & discardRect = player0->discardPile.back().textureRect;
+		// P0 Discard (LOCAL player's discard)
+		if (!localPlayer->discardPile.empty()) {
+			const auto & discardRect = localPlayer->discardPile.back().textureRect;
 			cardSpriteSheet.drawSubsection(p0_discardRect.x, p0_discardRect.y, p0_discardRect.width, p0_discardRect.height,
 				discardRect.x, discardRect.y, discardRect.width, discardRect.height);
 		} else {
@@ -6026,14 +6039,14 @@ void ofApp::drawGame() {
 			ofPopStyle();
 		}
 
-		// 3. Draw Player 1 (Top) UI
+		// 3. Draw Player 1 (Top) UI - this is the OPPONENT player
 		float p1_healthX = 40 * scale;
 		float p1_healthY = 40 * scale;
-		drawHealthBar(*player1, p1_healthX, p1_healthY, ofColor::red);
+		drawHealthBar(*opponentPlayer, p1_healthX, p1_healthY, ofColor::red);
 
 		// P1 Discard -- show opponent's top card face
-		if (!player1->discardPile.empty()) {
-			const auto & discardRect = player1->discardPile.back().textureRect;
+		if (!opponentPlayer->discardPile.empty()) {
+			const auto & discardRect = opponentPlayer->discardPile.back().textureRect;
 			cardSpriteSheet.drawSubsection(p1_discardRect.x, p1_discardRect.y, p1_discardRect.width, p1_discardRect.height,
 				discardRect.x, discardRect.y, discardRect.width, discardRect.height);
 		} else {
@@ -6041,8 +6054,8 @@ void ofApp::drawGame() {
 			ofDrawRectRounded(p1_discardRect, 10 * scale);
 		}
 
-		// P1 Deck
-		if (!player1->deck.empty()) {
+		// P1 Deck (OPPONENT player's deck)
+		if (!opponentPlayer->deck.empty()) {
 			ofSetColor(ofColor::white);
 			cardBackImage.draw(p1_deckRect);
 		} else {
@@ -6050,15 +6063,7 @@ void ofApp::drawGame() {
 			ofDrawRectRounded(p1_deckRect, 10 * scale);
 		}
 
-		// Only highlight deck if in gameplay state and player's turn
-		if (currentState == STATE_GAMEPLAY && players[currentPlayerIndex].playerID == 1 && !hasDrawnCardsThisTurn) {
-			ofPushStyle();
-			ofNoFill();
-			ofSetColor(ofColor::green);
-			ofSetLineWidth(4 * scale);
-			ofDrawRectangle(p1_deckRect);
-			ofPopStyle();
-		}
+		// Deck outline is never shown for opponent's deck at the top
 
 		// 4. Draw AP Displays & Statuses (UPDATED)
 		string p0_apText = "0 AP";
@@ -6085,22 +6090,41 @@ void ofApp::drawGame() {
 			}
 
 			Player & currentPlayer = players[currentPlayerIndex];
-			if (currentPlayer.playerID == 0 || currentPlayer.ownerID == 0) {
-				p0_apText = ofToString(displayedAP) + " AP";
-			} else if (currentPlayer.playerID == 1 || currentPlayer.ownerID == 1) {
-				p1_apText = ofToString(displayedAP) + " AP";
+			// In multiplayer, assign AP text based on local player perspective
+			if (isMultiplayer) {
+				// If current player is me, show my AP at bottom, otherwise at top
+				if (currentPlayer.playerID == myLocalPlayerID || currentPlayer.ownerID == myLocalPlayerID) {
+					p0_apText = ofToString(displayedAP) + " AP";
+				} else {
+					p1_apText = ofToString(displayedAP) + " AP";
+				}
+			} else {
+				// Single player: use original logic
+				if (currentPlayer.playerID == 0 || currentPlayer.ownerID == 0) {
+					p0_apText = ofToString(displayedAP) + " AP";
+				} else if (currentPlayer.playerID == 1 || currentPlayer.ownerID == 1) {
+					p1_apText = ofToString(displayedAP) + " AP";
+				}
 			}
 		}
 
-		// --- Draw P0 AP Box ---
+		// --- Draw P0 AP Box (BOTTOM - Local Player) ---
 		float p0_apCenterX = 20 * scale + staticUICardWidth / 2;
 		float p0_apCenterY = ofGetHeight() - staticUICardHeight - (20 * scale) - staticUICardHeight - (20 * scale) - 60 * scale;
 		ofRectangle p0_apTextBox = titleFont.getStringBoundingBox(p0_apText, 0, 0);
 		float p0_apRectWidth = (p0_apTextBox.width * fontScale) + (40 * scale);
 		float p0_apRectHeight = (p0_apTextBox.height * fontScale) + (20 * scale);
-		// Hide opponent AP when it's the current player's turn (don't show P0 AP if current player is player 1)
+		// In multiplayer, only show bottom AP counter when it's the local player's turn
 		bool skipDrawP0AP = false;
-		if (currentPlayerIndex >= 0 && players[currentPlayerIndex].playerID == 1) skipDrawP0AP = true;
+		if (currentPlayerIndex >= 0) {
+			// Bottom deck is always local player, so only show AP when current turn is local player
+			if (isMultiplayer && players[currentPlayerIndex].playerID != myLocalPlayerID) {
+				skipDrawP0AP = true;
+			} else if (!isMultiplayer && players[currentPlayerIndex].playerID == 1) {
+				// Single player: don't show P0 AP if current player is player 1
+				skipDrawP0AP = true;
+			}
+		}
 		if (!skipDrawP0AP) {
 			ofSetColor(0, 0, 0, 150);
 			ofDrawRectRounded(p0_apCenterX - p0_apRectWidth / 2, p0_apCenterY - p0_apRectHeight / 2, p0_apRectWidth, p0_apRectHeight, 10 * scale);
@@ -6112,11 +6136,11 @@ void ofApp::drawGame() {
 			ofPopMatrix();
 		}
 
-		// --- DRAW P0 STATUSES ---
-		// Position these relative to the Player0 health bar: bottom-right, stacked above the HP counter
+		// --- DRAW P0 STATUSES (BOTTOM - Local Player) ---
+		// Position these relative to the local player's health bar: bottom-right, stacked above the HP counter
 		float p0_statusXStart = p0_healthX + 5 * scale;
 		// Account for stacked form bars above the health bar so statuses sit on top
-		int p0_formsAbove = (player0->inTortoiseForm ? 1 : 0) + (player0->inGhostForm ? 1 : 0);
+		int p0_formsAbove = (localPlayer->inTortoiseForm ? 1 : 0) + (localPlayer->inGhostForm ? 1 : 0);
 		float p0_totalFormsHeight = p0_formsAbove * (formBarHeight + formSpacing);
 		float p0_statusY = p0_healthY - 10 * scale - p0_totalFormsHeight; // start above the topmost form
 		float smallFontScale = fontScale * 0.8f;
@@ -6124,11 +6148,18 @@ void ofApp::drawGame() {
 		// --- NEW STATUSES ---
 
 		// Draw combined Luck (permanent + passive)
-		int p0Index = -1;
-		for (int i = 0; i < (int)players.size(); ++i)
-			if (players[i].playerID == 0) p0Index = i;
-		int p0Passive = (p0Index >= 0) ? computePassiveLuck(p0Index) : 0;
-		int p0TotalLuck = player0->luck + p0Passive;
+		int localPlayerIndex = -1;
+		for (int i = 0; i < (int)players.size(); ++i) {
+			if (isMultiplayer && players[i].playerID == myLocalPlayerID) {
+				localPlayerIndex = i;
+				break;
+			} else if (!isMultiplayer && players[i].playerID == 0) {
+				localPlayerIndex = i;
+				break;
+			}
+		}
+		int p0Passive = (localPlayerIndex >= 0) ? computePassiveLuck(localPlayerIndex) : 0;
+		int p0TotalLuck = localPlayer->luck + p0Passive;
 		if (p0TotalLuck > 0) {
 			string luckText = "+" + ofToString(p0TotalLuck) + " Luck";
 			ofRectangle luckBox = titleFont.getStringBoundingBox(luckText, 0, 0);
@@ -6141,8 +6172,8 @@ void ofApp::drawGame() {
 			p0_statusY -= (luckBox.height * smallFontScale) + (5 * scale);
 		}
 
-		if (player0->nextTurnAPBonus > 0) {
-			string bonusText = "+" + ofToString(player0->nextTurnAPBonus) + " AP Next Turn";
+		if (localPlayer->nextTurnAPBonus > 0) {
+			string bonusText = "+" + ofToString(localPlayer->nextTurnAPBonus) + " AP Next Turn";
 			ofRectangle bonusBox = titleFont.getStringBoundingBox(bonusText, 0, 0);
 			ofSetColor(ofColor::green);
 			ofPushMatrix();
@@ -6153,8 +6184,8 @@ void ofApp::drawGame() {
 			p0_statusY -= (bonusBox.height * smallFontScale) + (5 * scale);
 		}
 
-		if (player0->strengthenElementsTurnsRemaining > 0) {
-			string elemText = "Elem Buff (" + ofToString(player0->strengthenElementsTurnsRemaining) + ")";
+		if (localPlayer->strengthenElementsTurnsRemaining > 0) {
+			string elemText = "Elem Buff (" + ofToString(localPlayer->strengthenElementsTurnsRemaining) + ")";
 			ofRectangle elemBox = titleFont.getStringBoundingBox(elemText, 0, 0);
 			ofSetColor(ofColor::orange);
 			ofPushMatrix();
@@ -6165,7 +6196,7 @@ void ofApp::drawGame() {
 			p0_statusY -= (elemBox.height * smallFontScale) + (5 * scale);
 		}
 
-		if (player0->nextTurnD10AP) {
+		if (localPlayer->nextTurnD10AP) {
 			string d10Text = "D10 AP";
 			ofRectangle d10Box = titleFont.getStringBoundingBox(d10Text, 0, 0);
 			ofSetColor(ofColor::white);
@@ -6181,15 +6212,23 @@ void ofApp::drawGame() {
 		// are intentionally not shown next to the AP counter — those statuses
 		// are represented with in-world effects/icons already.
 
-		/// --- Draw P1 AP Box ---
+		/// --- Draw P1 AP Box (TOP - Opponent in Multiplayer) ---
 		float p1_apCenterX = ofGetWidth() - staticUICardWidth - (20 * scale) + staticUICardWidth / 2;
 		float p1_apCenterY = 20 * scale + staticUICardHeight + (20 * scale) + staticUICardHeight + 60 * scale;
 		ofRectangle p1_apTextBox = titleFont.getStringBoundingBox(p1_apText, 0, 0);
 		float p1_apRectWidth = (p1_apTextBox.width * fontScale) + (40 * scale);
 		float p1_apRectHeight = (p1_apTextBox.height * fontScale) + (20 * scale);
-		// Hide opponent AP when it's the current player's turn (don't show P1 AP if current player is player 0)
+		// In multiplayer, only show top AP counter when it's the opponent's turn (not local player)
 		bool skipDrawP1AP = false;
-		if (currentPlayerIndex >= 0 && players[currentPlayerIndex].playerID == 0) skipDrawP1AP = true;
+		if (currentPlayerIndex >= 0) {
+			// Top deck is opponent in multiplayer, so only show AP when NOT local player's turn
+			if (isMultiplayer && players[currentPlayerIndex].playerID == myLocalPlayerID) {
+				skipDrawP1AP = true;
+			} else if (!isMultiplayer && players[currentPlayerIndex].playerID == 0) {
+				// Single player: don't show P1 AP if current player is player 0
+				skipDrawP1AP = true;
+			}
+		}
 		if (!skipDrawP1AP) {
 			ofSetColor(0, 0, 0, 150);
 			ofDrawRectRounded(p1_apCenterX - p1_apRectWidth / 2, p1_apCenterY - p1_apRectHeight / 2, p1_apRectWidth, p1_apRectHeight, 10 * scale);
@@ -6201,21 +6240,28 @@ void ofApp::drawGame() {
 			ofPopMatrix();
 		}
 
-		// --- DRAW P1 STATUSES ---
-		// Position these relative to the Player1 health bar: top-left, stacked below the HP counter
+		// --- DRAW P1 STATUSES (TOP - Opponent in Multiplayer) ---
+		// Position these relative to the opponent's health bar: top-left, stacked below the HP counter
 		// Left-align P1 statuses to the health bar start (top-left area)
 		float p1_statusXStart = p1_healthX + 5 * scale;
 		// Account for stacked form bars below the health bar so statuses sit on top of them
-		int p1_formsBelow = (player1->inTortoiseForm ? 1 : 0) + (player1->inGhostForm ? 1 : 0);
+		int p1_formsBelow = (opponentPlayer->inTortoiseForm ? 1 : 0) + (opponentPlayer->inGhostForm ? 1 : 0);
 		float p1_totalFormsHeight = p1_formsBelow * (formBarHeight + formSpacing);
 		float p1_statusY = p1_healthY + healthBarHeight + 10 * scale + p1_totalFormsHeight;
 
-		// Draw combined Luck (permanent + passive) for Player 1
-		int p1Index = -1;
-		for (int i = 0; i < (int)players.size(); ++i)
-			if (players[i].playerID == 1) p1Index = i;
-		int p1Passive = (p1Index >= 0) ? computePassiveLuck(p1Index) : 0;
-		int p1TotalLuck = player1->luck + p1Passive;
+		// Draw combined Luck (permanent + passive) for opponent
+		int opponentPlayerIndex = -1;
+		for (int i = 0; i < (int)players.size(); ++i) {
+			if (isMultiplayer && players[i].playerID != myLocalPlayerID && !players[i].isMinion) {
+				opponentPlayerIndex = i;
+				break;
+			} else if (!isMultiplayer && players[i].playerID == 1) {
+				opponentPlayerIndex = i;
+				break;
+			}
+		}
+		int p1Passive = (opponentPlayerIndex >= 0) ? computePassiveLuck(opponentPlayerIndex) : 0;
+		int p1TotalLuck = opponentPlayer->luck + p1Passive;
 		if (p1TotalLuck > 0) {
 			string luckText = "+" + ofToString(p1TotalLuck) + " Luck";
 			ofRectangle luckBox = titleFont.getStringBoundingBox(luckText, 0, 0);
@@ -6230,7 +6276,7 @@ void ofApp::drawGame() {
 
 		// --- NEW STATUSES ---
 
-		if (player1->nextTurnD10AP) {
+		if (opponentPlayer->nextTurnD10AP) {
 			string d10Text = "D10 AP";
 			ofRectangle d10Box = titleFont.getStringBoundingBox(d10Text, 0, 0);
 			ofSetColor(ofColor::white);
@@ -6242,8 +6288,8 @@ void ofApp::drawGame() {
 			p1_statusY += (d10Box.height * smallFontScale) + (5 * scale);
 		}
 
-		if (player1->strengthenElementsTurnsRemaining > 0) {
-			string elemText = "Elem Buff (" + ofToString(player1->strengthenElementsTurnsRemaining) + ")";
+		if (opponentPlayer->strengthenElementsTurnsRemaining > 0) {
+			string elemText = "Elem Buff (" + ofToString(opponentPlayer->strengthenElementsTurnsRemaining) + ")";
 			ofRectangle elemBox = titleFont.getStringBoundingBox(elemText, 0, 0);
 			ofSetColor(ofColor::orange);
 			ofPushMatrix();
@@ -6254,8 +6300,8 @@ void ofApp::drawGame() {
 			p1_statusY += (elemBox.height * smallFontScale) + (5 * scale);
 		}
 
-		if (player1->nextTurnAPBonus > 0) {
-			string bonusText = "+" + ofToString(player1->nextTurnAPBonus) + " AP Next Turn";
+		if (opponentPlayer->nextTurnAPBonus > 0) {
+			string bonusText = "+" + ofToString(opponentPlayer->nextTurnAPBonus) + " AP Next Turn";
 			ofRectangle bonusBox = titleFont.getStringBoundingBox(bonusText, 0, 0);
 			ofSetColor(ofColor::green);
 			ofPushMatrix();
@@ -7024,12 +7070,12 @@ void ofApp::drawGame() {
 			float chatX = p0_discardRect.x + staticUICardWidth + 30 * scale;
 			float chatY = ofGetHeight() - 30 * scale;
 			float chatMaxWidth = 450 * scale;
-			
+
 			// Determine size based on state: minimized = smaller, full = larger
 			float chatBoxHeight = isChatMinimized ? 120 * scale : 250 * scale;
 			float tabHeight = 25 * scale;
 			float messageHeight = 18 * scale;
-			
+
 			// Store rect for click detection
 			chatWindowRect.set(chatX, chatY - chatBoxHeight - tabHeight, chatMaxWidth, chatBoxHeight + tabHeight);
 
@@ -9792,34 +9838,50 @@ void ofApp::mousePressed(int x, int y, int button) {
 			// If we can't find the main players, exit
 			if (!p0 || !p1) return;
 
-			Player & activePlayer = players[currentPlayerIndex];
-			// Only consider it P0/P1's turn for main-deck clicks when the active unit
-			// is the actual player (not a minion). Minions must click their own UI deck.
-			bool isP0sTurn = (activePlayer.playerID == 0 && !activePlayer.isMinion);
-			bool isP1sTurn = (activePlayer.playerID == 1 && !activePlayer.isMinion);
+			// In multiplayer, use local player perspective: bottom deck is always "mine"
+			Player * localPlayer = nullptr;
+			if (isMultiplayer) {
+				localPlayer = (myLocalPlayerID == 0) ? p0 : p1;
+			}
 
-			// Player 0 Deck Click
-			if (p0_deckRect.inside(x, y) && isP0sTurn && !hasDrawnCardsThisTurn) {
-				int baseDraw = p0->isDemon ? 3 : 2;
-				int cardsToDraw = p0->nextTurnExtraDraw ? (baseDraw + 1) : baseDraw;
-				if (p0->nextTurnExtraDraw) ofLogNotice("Game") << "Hasten Effect: Drawing 3 cards!";
+			Player & activePlayer = players[currentPlayerIndex];
+			// Only consider it the player's turn for main-deck clicks when the active unit
+			// is the actual player (not a minion). Minions must click their own UI deck.
+			bool isLocalPlayersTurn = false;
+			if (isMultiplayer) {
+				// In multiplayer, check if it's the local player's turn
+				isLocalPlayersTurn = (activePlayer.playerID == myLocalPlayerID && !activePlayer.isMinion);
+			} else {
+				// Single player: P0 clicks bottom deck
+				isLocalPlayersTurn = (activePlayer.playerID == 0 && !activePlayer.isMinion);
+			}
+
+			// Bottom Deck Click (Always Local Player in Multiplayer)
+			if (p0_deckRect.inside(x, y) && isLocalPlayersTurn && !hasDrawnCardsThisTurn) {
+				Player * playerToDraw = isMultiplayer ? localPlayer : p0;
+				int baseDraw = playerToDraw->isDemon ? 3 : 2;
+				int cardsToDraw = playerToDraw->nextTurnExtraDraw ? (baseDraw + 1) : baseDraw;
+				if (playerToDraw->nextTurnExtraDraw) ofLogNotice("Game") << "Hasten Effect: Drawing 3 cards!";
 				for (int i = 0; i < cardsToDraw; i++)
 					drawCard();
-				p0->nextTurnExtraDraw = false;
+				playerToDraw->nextTurnExtraDraw = false;
 				hasDrawnCardsThisTurn = true;
 				return;
 			}
 
-			// Player 1 Deck Click
-			if (p1_deckRect.inside(x, y) && isP1sTurn && !hasDrawnCardsThisTurn) {
-				int baseDraw = p1->isDemon ? 3 : 2;
-				int cardsToDraw = p1->nextTurnExtraDraw ? (baseDraw + 1) : baseDraw;
-				if (p1->nextTurnExtraDraw) ofLogNotice("Game") << "Hasten Effect: Drawing 3 cards!";
-				for (int i = 0; i < cardsToDraw; i++)
-					drawCard();
-				p1->nextTurnExtraDraw = false;
-				hasDrawnCardsThisTurn = true;
-				return;
+			// Top Deck Click (Only in single player mode for P1)
+			if (!isMultiplayer && p1_deckRect.inside(x, y)) {
+				bool isP1sTurn = (activePlayer.playerID == 1 && !activePlayer.isMinion);
+				if (isP1sTurn && !hasDrawnCardsThisTurn) {
+					int baseDraw = p1->isDemon ? 3 : 2;
+					int cardsToDraw = p1->nextTurnExtraDraw ? (baseDraw + 1) : baseDraw;
+					if (p1->nextTurnExtraDraw) ofLogNotice("Game") << "Hasten Effect: Drawing 3 cards!";
+					for (int i = 0; i < cardsToDraw; i++)
+						drawCard();
+					p1->nextTurnExtraDraw = false;
+					hasDrawnCardsThisTurn = true;
+					return;
+				}
 			}
 		}
 
@@ -10670,14 +10732,21 @@ void ofApp::windowResized(int w, int h) {
 	float visibleY = 20 * scale;
 	float hiddenY = -100 * scale;
 
-	bool isPlayer1Turn = false;
+	bool showEndTurnButton = false;
 	if (currentPlayerIndex >= 0 && !players.empty()) {
 		int pid = players[currentPlayerIndex].playerID;
 		int oid = players[currentPlayerIndex].ownerID;
-		if (pid == 0 || oid == 0) isPlayer1Turn = true;
+		// Show end turn button when it's the current player's turn
+		if (isMultiplayer) {
+			// Multiplayer: only show when it's my turn
+			if (pid == myLocalPlayerID || oid == myLocalPlayerID) showEndTurnButton = true;
+		} else {
+			// Single player: always show (any player can end their turn)
+			showEndTurnButton = true;
+		}
 	}
 
-	if (isPlayer1Turn) {
+	if (showEndTurnButton) {
 		endTurnButtonTargetPos.set(w / 2.0f - btnWidth / 2.0f, visibleY);
 	} else {
 		endTurnButtonTargetPos.set(w / 2.0f - btnWidth / 2.0f, hiddenY);
@@ -10689,8 +10758,10 @@ void ofApp::windowResized(int w, int h) {
 	if (!players.empty() && currentPlayerIndex >= 0) {
 		Player & currentPlayer = players[currentPlayerIndex];
 
-		bool isP1 = (currentPlayer.playerID == 0 || currentPlayer.ownerID == 0);
-		float handCenterY = isP1 ? h - 130 : 130;
+		// Always show current player's hand at bottom (turn-based)
+		// In multiplayer, only show local player's hand
+		// In single player, show whichever player's turn it is
+		float handCenterY = h - 130;
 		float handBaseCardWidth = 120;
 		float handAreaWidth = w * 0.4f;
 
@@ -17436,7 +17507,14 @@ void ofApp::processNetworkPackets() {
 				activeDiceRolls.clear();
 				currentAP = 0;
 
-				// Apply AP dice visual rolls without consuming gameplayRNG
+				// CRITICAL: Consume same RNG values as host to keep gameplayRNG in sync
+				// The host called getGameRandom() for each die, so we must do the same
+				for (int i = 0; i < (int)tpk->diceNum; ++i) {
+					int dummyRoll = getGameRandom(1, tpk->diceSides);
+					ofLogNotice("Network") << "Client: Consuming RNG value " << dummyRoll << " to stay in sync (host rolled " << (int)tpk->rawResults[i] << ")";
+				}
+
+				// Apply AP dice visual rolls using host's authoritative results
 				int32_t total = 0;
 				for (int i = 0; i < (int)tpk->diceNum; ++i) {
 					DiceRoll newRoll;
