@@ -1920,27 +1920,29 @@ void ofApp::updateGame() {
 							rem.currentAlpha = 255;
 							activeRemovedCardAnimations.push_back(rem);
 
-							// 3. Conditional Effects
-							std::uniform_int_distribution<int> d6(1, 6);
-							int extra = d6(gameplayRNG);
+							// 3. Conditional Effects (only host rolls in multiplayer)
+							if (!isClient()) {
+								std::uniform_int_distribution<int> d6(1, 6);
+								int extra = d6(gameplayRNG);
 
-							if (revealed.type == CARD_SHOCK) {
-								applyDamageTo(*target, extra, DAMAGE_ELECTRIC, currentPlayerIndex);
-								target->isParalyzed = true;
-								target->paralysisHeadsCount = 0;
-								spawnFloatingText(tPos + glm::vec3(0, 0.6f, 0), "-" + ofToString(extra) + " Electric", ofColor::orange);
-								spawnFloatingText(tPos + glm::vec3(0, 1.0f, 0), "PARALYZED!", ofColor::yellow);
-							} else if (revealed.type == CARD_FLAME_HIT) {
-								applyDamageTo(*target, extra, DAMAGE_FIRE, currentPlayerIndex);
-								target->onFire = true;
-								spawnFloatingText(tPos + glm::vec3(0, 0.6f, 0), "-" + ofToString(extra) + " Fire", ofColor::red);
-								spawnFloatingText(tPos + glm::vec3(0, 1.0f, 0), "ON FIRE!", ofColor::orange);
-							} else if (revealed.type == CARD_ADD_POISON) {
-								applyDamageTo(*target, extra, DAMAGE_POISON, currentPlayerIndex);
-								target->isPoisoned = true;
-								target->poisonReduction = 0;
-								spawnFloatingText(tPos + glm::vec3(0, 0.6f, 0), "-" + ofToString(extra) + " Poison", ofColor::green);
-								spawnFloatingText(tPos + glm::vec3(0, 1.0f, 0), "POISONED!", ofColor::green);
+								if (revealed.type == CARD_SHOCK) {
+									applyDamageTo(*target, extra, DAMAGE_ELECTRIC, currentPlayerIndex);
+									target->isParalyzed = true;
+									target->paralysisHeadsCount = 0;
+									spawnFloatingText(tPos + glm::vec3(0, 0.6f, 0), "-" + ofToString(extra) + " Electric", ofColor::orange);
+									spawnFloatingText(tPos + glm::vec3(0, 1.0f, 0), "PARALYZED!", ofColor::yellow);
+								} else if (revealed.type == CARD_FLAME_HIT) {
+									applyDamageTo(*target, extra, DAMAGE_FIRE, currentPlayerIndex);
+									target->onFire = true;
+									spawnFloatingText(tPos + glm::vec3(0, 0.6f, 0), "-" + ofToString(extra) + " Fire", ofColor::red);
+									spawnFloatingText(tPos + glm::vec3(0, 1.0f, 0), "ON FIRE!", ofColor::orange);
+								} else if (revealed.type == CARD_ADD_POISON) {
+									applyDamageTo(*target, extra, DAMAGE_POISON, currentPlayerIndex);
+									target->isPoisoned = true;
+									target->poisonReduction = 0;
+									spawnFloatingText(tPos + glm::vec3(0, 0.6f, 0), "-" + ofToString(extra) + " Poison", ofColor::green);
+									spawnFloatingText(tPos + glm::vec3(0, 1.0f, 0), "POISONED!", ofColor::green);
+								}
 							}
 						} else {
 							spawnFloatingText(transformGridToWorld(attackerRef.x, attackerRef.y), "Deck Empty", ofColor::gray);
@@ -2035,6 +2037,11 @@ void ofApp::updateGame() {
 							if (nx < 0 || nx >= BOARD_WIDTH || ny < 0 || ny >= BOARD_HEIGHT) continue;
 							for (int j = 0; j < (int)players.size(); ++j) {
 								if (players[j].isFaerie && players[j].x == nx && players[j].y == ny) {
+									// In multiplayer, only host rolls for resurrection
+									if (isClient()) {
+										// Client should wait for host to sync this state
+										continue;
+									}
 									int d4 = 1 + (gameplayRNG() % 4); // 1d4 roll
 									float healF = players[idx].maxHealth * 0.25f * d4;
 									int heal = (int)healF;
@@ -2484,7 +2491,8 @@ void ofApp::updateGame() {
 			// Copy deck before erasing to avoid issues if multiple minions are summoned in the same frame
 			std::vector<Card> graveDeck = graveyard[gIndex].deck;
 			graveyard.erase(graveyard.begin() + gIndex);
-			if (!graveDeck.empty()) {
+			if (!graveDeck.empty() && !isClient()) {
+				// Only host rolls for graveyard loot in multiplayer
 				std::uniform_int_distribution<int> graveDist(0, (int)graveDeck.size() - 1);
 				int r = graveDist(gameplayRNG);
 				minion.deck.push_back(graveDeck[r]);
@@ -3376,7 +3384,8 @@ void ofApp::updateGame() {
 							int newIdx = afterIdx - 1;
 							activeDiceRolls[newIdx].associatedUnit = earthquakeUnits[i].playerIndex;
 							std::uniform_real_distribution<float> wobbleDist(-25.0f, 25.0f);
-							glm::quat wobble = glm::angleAxis(glm::radians(wobbleDist(gameplayRNG)), glm::vec3(0, 1, 0));
+							// Visual wobble should use visualRNG, not gameplayRNG
+							glm::quat wobble = glm::angleAxis(glm::radians(wobbleDist(visualRNG)), glm::vec3(0, 1, 0));
 							activeDiceRolls[newIdx].finalQuat = wobble * matchFaceToCamera(glm::vec3(0, 1, 0));
 						}
 
@@ -4366,49 +4375,51 @@ void ofApp::updateGame() {
 							if (nx >= 0 && nx < BOARD_WIDTH && ny >= 0 && ny < BOARD_HEIGHT) {
 								for (auto & p : players) {
 									if (p.isFaerie && p.x == nx && p.y == ny && p.health > 0) {
-										// Roll 1d4, resurrect at 25% * roll * maxHealth
-										std::uniform_int_distribution<int> d4dist(1, 4);
-										int roll = d4dist(gameplayRNG); // 1-4
-										int hp = (int)std::floor(dying.maxHealth * 0.25f * roll);
-										if (hp < 1) hp = 1;
-										dying.health = hp;
-										dying.onFire = false;
-										dying.isPoisoned = false;
-										dying.poisonReduction = 0;
-										dying.isParalyzed = false;
-										dying.paralysisHeadsCount = 0;
-										dying.sleepTurnsRemaining = 0;
-										dying.ward = 0;
-										dying.block = 0;
-										dying.fortification = 0;
-										dying.barrier = 0;
-										dying.holyBlock = 0;
-										dying.luck = 0;
-										dying.isReplicatePending = false;
-										dying.nextTurnAPBonus = 0;
-										dying.shocksPlayedThisTurn = 0;
-										dying.flurryOfFistsActive = false;
-										dying.isParalyzed = false;
-										dying.isPoisoned = false;
-										dying.poisonReduction = 0;
-										dying.nextAttackAddPoison = false;
-										dying.nextTurnD10AP = false;
-										dying.nextTurnExtraDraw = false;
-										dying.nextTurnBonusDiceFromMinions = false;
-										dying.strengthenElementsTurnsRemaining = 0;
-										dying.sleepTurnsRemaining = 0;
-										dying.inTortoiseForm = false;
-										dying.tortoiseDamageTaken = 0;
-										dying.pendingTortoiseDamage = false;
-										dying.pendingTortoiseDamageValue = 3;
-										dying.inGhostForm = false;
-										dying.ghostDamageTaken = 0;
-										dying.cardsPlayedThisTurn.clear();
-										dying.playedCardsPile.clear();
-										dying.summonedOnTurnCycle = globalTurnCounter;
-										spawnFloatingText(transformGridToWorld(dying.x, dying.y), "Faerie Resurrection!", ofColor::aqua);
-										ofLogNotice("Faerie") << "Unit " << dying.playerID << " resurrected by faerie at " << nx << "," << ny << " for " << hp << " HP.";
-										resurrected = true;
+										// Roll 1d4, resurrect at 25% * roll * maxHealth (only host in multiplayer)
+										if (!isClient()) {
+											std::uniform_int_distribution<int> d4dist(1, 4);
+											int roll = d4dist(gameplayRNG); // 1-4
+											int hp = (int)std::floor(dying.maxHealth * 0.25f * roll);
+											if (hp < 1) hp = 1;
+											dying.health = hp;
+											dying.onFire = false;
+											dying.isPoisoned = false;
+											dying.poisonReduction = 0;
+											dying.isParalyzed = false;
+											dying.paralysisHeadsCount = 0;
+											dying.sleepTurnsRemaining = 0;
+											dying.ward = 0;
+											dying.block = 0;
+											dying.fortification = 0;
+											dying.barrier = 0;
+											dying.holyBlock = 0;
+											dying.luck = 0;
+											dying.isReplicatePending = false;
+											dying.nextTurnAPBonus = 0;
+											dying.shocksPlayedThisTurn = 0;
+											dying.flurryOfFistsActive = false;
+											dying.isParalyzed = false;
+											dying.isPoisoned = false;
+											dying.poisonReduction = 0;
+											dying.nextAttackAddPoison = false;
+											dying.nextTurnD10AP = false;
+											dying.nextTurnExtraDraw = false;
+											dying.nextTurnBonusDiceFromMinions = false;
+											dying.strengthenElementsTurnsRemaining = 0;
+											dying.sleepTurnsRemaining = 0;
+											dying.inTortoiseForm = false;
+											dying.tortoiseDamageTaken = 0;
+											dying.pendingTortoiseDamage = false;
+											dying.pendingTortoiseDamageValue = 3;
+											dying.inGhostForm = false;
+											dying.ghostDamageTaken = 0;
+											dying.cardsPlayedThisTurn.clear();
+											dying.playedCardsPile.clear();
+											dying.summonedOnTurnCycle = globalTurnCounter;
+											spawnFloatingText(transformGridToWorld(dying.x, dying.y), "Faerie Resurrection!", ofColor::aqua);
+											ofLogNotice("Faerie") << "Unit " << dying.playerID << " resurrected by faerie at " << nx << "," << ny << " for " << hp << " HP.";
+											resurrected = true;
+										}
 									}
 								}
 							}
