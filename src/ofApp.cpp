@@ -8239,10 +8239,8 @@ void ofApp::mousePressed(int x, int y, int button) {
 					currentPlayerIndex = nextPlayerIdx;
 					currentState = STATE_GAMEPLAY;
 
-					// Shuffle all players' decks before starting (host-authoritative)
-					for (size_t pi = 0; pi < players.size(); ++pi) {
-						shuffleGameVector(players[pi].deck, (int)pi);
-					}
+					// NOTE: Decks were already shuffled when each player accepted their picks.
+					// No additional shuffle needed here to avoid desync.
 
 					// For the first turn, call continueNewTurn() directly to avoid incrementing currentPlayerIndex
 					// (There's no previous turn to end, so we skip the cleanup/advancement logic)
@@ -13777,6 +13775,13 @@ ofVec2f ofApp::mouseToBoard(int x, int y) {
 		glm::vec3 intersectionPoint = rayOrigin + rayDirection * distance;
 		float gridX = (intersectionPoint.x / TILE_SIZE) + (BOARD_WIDTH / 2.0f);
 		float gridY = (intersectionPoint.z / TILE_SIZE) + (BOARD_HEIGHT / 2.0f);
+
+		// Flip coordinates for Player 2's rotated camera perspective
+		if (shouldFlipCamera()) {
+			gridX = (BOARD_WIDTH - 1) - gridX;
+			gridY = (BOARD_HEIGHT - 1) - gridY;
+		}
+
 		return ofVec2f(gridX, gridY);
 	}
 	return ofVec2f(-1, -1);
