@@ -537,7 +537,7 @@ private:
 			std::shuffle(vec.begin(), vec.end(), shuffleRng);
 
 			// Broadcast shuffle to clients
-			ShufflePacket sp;
+			ShufflePacket sp = {};
 			sp.type = PKT_SHUFFLE;
 			sp.playerID = myLocalPlayerID;
 			sp.playerIndex = ownerPlayerIndex;

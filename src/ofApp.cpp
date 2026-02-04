@@ -939,7 +939,7 @@ void ofApp::update() {
 					generateDraftOptions(1); // Start Class 1
 					ofLogNotice("Initiative") << "Player 1 Wins Initiative";
 					if (isHost()) {
-						DraftStatePacket sp;
+						DraftStatePacket sp = {};
 						sp.type = PKT_DRAFT_STATE;
 						sp.playerID = myLocalPlayerID;
 						sp.classTier = 1;
@@ -957,7 +957,7 @@ void ofApp::update() {
 					generateDraftOptions(1);
 					ofLogNotice("Initiative") << "Player 2 Wins Initiative";
 					if (isHost()) {
-						DraftStatePacket sp;
+						DraftStatePacket sp = {};
 						sp.type = PKT_DRAFT_STATE;
 						sp.playerID = myLocalPlayerID;
 						sp.classTier = 1;
@@ -1402,7 +1402,7 @@ void ofApp::setupGame() {
 
 		ofLogNotice("Setup") << "Host generated seed: " << currentMapSeed;
 
-		HandshakePacket pkt;
+		HandshakePacket pkt = {};
 		pkt.type = PKT_HANDSHAKE;
 		pkt.seed = currentMapSeed;
 		steamManager.sendPacket(&pkt, sizeof(pkt));
@@ -4299,7 +4299,7 @@ void ofApp::updateGame() {
 						if (ownerIndex != -1) {
 							// HOST: Send key pickup packet to clients
 							if (isHost()) {
-								KeyPickupPacket kpkt;
+								KeyPickupPacket kpkt = {};
 								kpkt.type = PKT_KEY_PICKUP;
 								kpkt.playerID = myLocalPlayerID;
 								kpkt.playerIndex = ownerIndex;
@@ -8085,7 +8085,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 
 					// If multiplayer, notify host (or forward to clients if host) about selection toggle
 					if (isMultiplayer) {
-						DraftActionPacket pkt;
+						DraftActionPacket pkt = {};
 						pkt.type = PKT_DRAFT_ACTION;
 						pkt.playerID = myLocalPlayerID;
 						pkt.actionType = 0; // Select / Toggle
@@ -8109,7 +8109,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 
 			// If client in multiplayer, send selection to host and return
 			if (isClient()) {
-				DraftActionPacket pkt;
+				DraftActionPacket pkt = {};
 				pkt.type = PKT_DRAFT_ACTION;
 				pkt.playerID = myLocalPlayerID;
 				pkt.actionType = 1; // AcceptDraft
@@ -8146,7 +8146,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 
 			// HOST: Send PKT_DRAFT_ACTION to inform clients of this local acceptance
 			if (isHost()) {
-				DraftActionPacket acceptPkt;
+				DraftActionPacket acceptPkt = {};
 				acceptPkt.type = PKT_DRAFT_ACTION;
 				acceptPkt.playerID = myLocalPlayerID;
 				acceptPkt.actionType = 1; // Accept
@@ -8223,7 +8223,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 								newAP.push_back(dr);
 							}
 						}
-						TurnStartPacket tpk;
+						TurnStartPacket tpk = {};
 						tpk.type = PKT_TURN_START;
 						tpk.playerID = myLocalPlayerID;
 						tpk.currentPlayerIndex = currentPlayerIndex;
@@ -10494,7 +10494,7 @@ void ofApp::keyPressed(int key) {
 		if (key == OF_KEY_RETURN) {
 			// Send message and close chat
 			if (!chatInput.empty() && isMultiplayer) {
-				ChatMessagePacket pkt;
+				ChatMessagePacket pkt = {};
 				pkt.type = PKT_CHAT_MESSAGE;
 				pkt.playerID = myLocalPlayerID;
 				strncpy(pkt.message, chatInput.c_str(), 255);
@@ -10790,7 +10790,7 @@ void ofApp::startNewTurn() {
 			// Anti-cheat: Log deck states before sending checksum
 			logDeckStates("End Turn " + std::to_string(globalTurnCounter));
 
-			ChecksumPacket sumPkt;
+			ChecksumPacket sumPkt = {};
 			sumPkt.type = PKT_CHECKSUM_CHECK;
 			sumPkt.playerID = myLocalPlayerID;
 			sumPkt.checksum = calculateChecksum();
@@ -17018,7 +17018,7 @@ void ofApp::generateDraftOptions(int classTier, const std::vector<int> * forcedI
 
 	// If we are the authoritative host in multiplayer, send the exact indices
 	if (isHost()) {
-		DraftOptionsPacket dp;
+		DraftOptionsPacket dp = {};
 		dp.type = PKT_DRAFT_OPTIONS;
 		dp.playerID = myLocalPlayerID;
 		dp.classTier = classTier;
@@ -17433,7 +17433,7 @@ void ofApp::updateAndSendHover(HoverType type, int gridX, int gridY, int cardInd
 
 		// Send hover packet to opponent if in multiplayer
 		if (isMultiplayer && steamManager.isConnected()) {
-			HoverPacket pkt;
+			HoverPacket pkt = {};
 			pkt.type = PKT_HOVER;
 			pkt.playerID = myLocalPlayerID;
 			pkt.hoverType = static_cast<uint8_t>(type);
@@ -17458,7 +17458,7 @@ void ofApp::processNetworkPackets() {
 			if (msg == "REQ_SEED" && steamManager.isHost()) {
 				ofLogNotice("Network") << "Host: Received Seed Request. Resending Seed: " << currentMapSeed;
 
-				HandshakePacket pkt;
+				HandshakePacket pkt = {};
 				pkt.type = PKT_HANDSHAKE;
 				pkt.seed = currentMapSeed; // Use the stored seed!
 				steamManager.sendPacket(&pkt, sizeof(pkt));
@@ -17471,7 +17471,7 @@ void ofApp::processNetworkPackets() {
 
 		PacketHeader * header = (PacketHeader *)buffer.data();
 		// Temporary reusable packet used for state syncs
-		DraftStatePacket sp;
+		DraftStatePacket sp = {};
 		// Handle Shuffle packets early so clients can deterministically apply them without touching gameplayRNG
 		if (header->type == PKT_SHUFFLE) {
 			ShufflePacket * spk = (ShufflePacket *)header;
@@ -17557,7 +17557,7 @@ void ofApp::processNetworkPackets() {
 						ofLogNotice("Checksum") << "Client P" << pi << " deck=" << deckStr;
 					}
 					int64_t myChecksum = calculateChecksum();
-					ChecksumPacket cpkt;
+					ChecksumPacket cpkt = {};
 					cpkt.type = PKT_CHECKSUM_CHECK;
 					cpkt.playerID = myLocalPlayerID;
 					cpkt.turnNumber = globalTurnCounter;
@@ -17903,7 +17903,7 @@ void ofApp::processNetworkPackets() {
 								newAP.push_back(dr);
 							}
 						}
-						TurnStartPacket tpk;
+						TurnStartPacket tpk = {};
 						tpk.type = PKT_TURN_START;
 						tpk.playerID = myLocalPlayerID;
 						tpk.currentPlayerIndex = currentPlayerIndex;
@@ -17986,7 +17986,7 @@ void ofApp::processNetworkPackets() {
 					}
 					// In multiplayer clients, mark that we will skip the immediate local shuffle and
 					// wait for the host's authoritative `PKT_SHUFFLE` for this player's deck.
-					if (isMultiplayer && !steamManager.isHost()) {
+					if (isClient()) {
 						skipClientShuffleFor = pkt->draftPlayerIdx;
 					}
 					shuffleGameVector(p.deck, pkt->draftPlayerIdx);
@@ -18012,7 +18012,7 @@ void ofApp::sendActionPacket(int cardIndex, int tx, int ty, int cost) {
 	if (players[currentPlayerIndex].playerID != myLocalPlayerID) return;
 
 	// 2. Create Packet
-	ActionPacket pkt;
+	ActionPacket pkt = {};
 	pkt.type = PKT_ACTION;
 	pkt.playerID = myLocalPlayerID;
 	pkt.cardIndex = cardIndex;
