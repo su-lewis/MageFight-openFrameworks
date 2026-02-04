@@ -17905,10 +17905,8 @@ void ofApp::processNetworkPackets() {
 						} else {
 							currentPlayerIndex = nextPlayerIdx;
 							currentState = STATE_GAMEPLAY;
-							// Shuffle all players' decks before starting (host-authoritative)
-							for (size_t pi = 0; pi < players.size(); ++pi) {
-								shuffleGameVector(players[pi].deck, (int)pi);
-							}
+							// NOTE: Decks were already shuffled when each player accepted their picks.
+							// No additional shuffle needed here to avoid desync.
 							// For the first turn, call continueNewTurn() directly to avoid incrementing currentPlayerIndex
 							continueNewTurn();
 						}
