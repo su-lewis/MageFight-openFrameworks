@@ -6380,15 +6380,25 @@ void ofApp::drawGame() {
 		// Draw text to the right of avatar
 		ofSetColor(ofColor::gold);
 		string turnText = playerName + "'s Turn";
-		ofRectangle turnTextBox = titleFont.getStringBoundingBox(turnText, 0, 0);
+
+		// Use smaller font and scale to fit in the button
+		float turnFontScale = fontScale * 0.7f; // Make text smaller
+		ofRectangle turnTextBox = uiFont.getStringBoundingBox(turnText, 0, 0);
 		float textStartX = avatarX + avatarSize + avatarPadding;
 		float availableWidth = endTurnButtonRect.width - (avatarSize + avatarPadding * 3);
-		float textX = textStartX + (availableWidth - turnTextBox.width * fontScale) / 2;
-		float textY = endTurnButtonRect.getCenter().y + (turnTextBox.height * fontScale / 2);
+
+		// Scale down further if text is still too wide
+		float textWidth = turnTextBox.width * turnFontScale;
+		if (textWidth > availableWidth) {
+			turnFontScale *= (availableWidth / textWidth) * 0.95f; // Leave 5% margin
+		}
+
+		float textX = textStartX + (availableWidth - turnTextBox.width * turnFontScale) / 2;
+		float textY = endTurnButtonRect.getCenter().y + (turnTextBox.height * turnFontScale / 2);
 		ofPushMatrix();
 		ofTranslate(textX, textY);
-		ofScale(fontScale, fontScale);
-		titleFont.drawString(turnText, 0, 0);
+		ofScale(turnFontScale, turnFontScale);
+		uiFont.drawString(turnText, 0, 0);
 		ofPopMatrix();
 	}
 
@@ -9938,16 +9948,6 @@ void ofApp::mousePressed(int x, int y, int button) {
 
 		// 3g. End Turn Button
 		if (endTurnButtonRect.inside(x, y) && button == OF_MOUSE_BUTTON_LEFT) {
-			// In multiplayer, only allow ending turn if it's your turn
-			if (isMultiplayer && !isMyTurn()) {
-				ofLogNotice("Game") << "End turn blocked: Not your turn. currentPlayerIndex=" << currentPlayerIndex
-									<< " playerID=" << players[currentPlayerIndex].playerID
-									<< " myLocalPlayerID=" << myLocalPlayerID;
-				return;
-			}
-			ofLogNotice("Game") << "End turn allowed: currentPlayerIndex=" << currentPlayerIndex
-								<< " playerID=" << players[currentPlayerIndex].playerID
-								<< " myLocalPlayerID=" << myLocalPlayerID;
 
 			// --- GHOST FORM CHECK ---
 			Player & p = players[currentPlayerIndex];
@@ -9978,16 +9978,6 @@ void ofApp::mousePressed(int x, int y, int button) {
 
 			// Clicked Self? Select for Movement.
 			if (board[gridX][gridY].hasPlayer && gridX == currentPlayer.x && gridY == currentPlayer.y) {
-				// In multiplayer, only allow selecting your own unit when it's your turn
-				if (isMultiplayer && !isMyTurn()) {
-					ofLogNotice("Game") << "Unit selection blocked: Not your turn. currentPlayerIndex=" << currentPlayerIndex
-										<< " playerID=" << players[currentPlayerIndex].playerID
-										<< " myLocalPlayerID=" << myLocalPlayerID;
-					return;
-				}
-				ofLogNotice("Game") << "Unit selection allowed: currentPlayerIndex=" << currentPlayerIndex
-									<< " playerID=" << players[currentPlayerIndex].playerID
-									<< " myLocalPlayerID=" << myLocalPlayerID;
 				if (playerAction == PIECE_SELECTED) {
 					playerAction = NONE;
 					clearHighlights();
@@ -14362,11 +14352,7 @@ bool ofApp::isMyTurn() const {
 	if (currentPlayerIndex < 0 || players.empty()) return false;
 	int pid = players[currentPlayerIndex].playerID;
 	int oid = players[currentPlayerIndex].ownerID;
-	bool result = (pid == myLocalPlayerID || oid == myLocalPlayerID);
-	ofLogNotice("isMyTurn") << "currentPlayerIndex=" << currentPlayerIndex
-							<< " pid=" << pid << " oid=" << oid << " myLocalPlayerID=" << myLocalPlayerID
-							<< " isMultiplayer=" << isMultiplayer << " result=" << result;
-	return result;
+	return (pid == myLocalPlayerID || oid == myLocalPlayerID);
 }
 
 //--------------------------------------------------------------
