@@ -519,8 +519,6 @@ private:
 
 	// Desync message shown when checksum fails
 	std::string desyncMessage;
-	bool hasDrawnCardsThisTurn = false;
-	bool opponentHasDrawnCardsThisTurn = false;
 	// If true client should wait for host TurnStart packet before performing AP roll
 	bool waitingForTurnStartFromHost = false;
 
@@ -741,6 +739,7 @@ private:
 	// --- LOGIC CACHE ---
 	int currentAP = 0;
 	bool hasDrawnCardsThisTurn = false;
+	bool opponentHasDrawnCardsThisTurn = false;
 	PlayerActionState playerAction = NONE;
 	int selectedPieceGridX = -1;
 	int selectedPieceGridY = -1;

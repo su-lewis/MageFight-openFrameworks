@@ -18271,7 +18271,7 @@ void ofApp::processNetworkPackets() {
 				// Find the player and move them
 				for (size_t i = 0; i < players.size(); i++) {
 					Player & p = players[i];
-					if (p.playerID == pkt->playerID && !p.isMinion) {
+					if (static_cast<uint32_t>(p.playerID) == pkt->playerID && !p.isMinion) {
 						// Verify movement is legal
 						if (pkt->targetX >= 0 && pkt->targetX < BOARD_WIDTH && pkt->targetY >= 0 && pkt->targetY < BOARD_HEIGHT) {
 							board[p.x][p.y].hasPlayer = false;
@@ -18296,7 +18296,7 @@ void ofApp::processNetworkPackets() {
 		} else if (header->type == PKT_DRAW_CARDS) {
 			DrawCardsPacket * dcpkt = (DrawCardsPacket *)header;
 			ofLogNotice("Network") << "Received DrawCards from opponent: player=" << dcpkt->playerIndex << " num=" << dcpkt->numCards;
-			if (isMultiplayer && dcpkt->playerID != myLocalPlayerID) {
+			if (isMultiplayer && dcpkt->playerID != static_cast<uint32_t>(myLocalPlayerID)) {
 				opponentHasDrawnCardsThisTurn = true;
 			}
 
@@ -18304,7 +18304,7 @@ void ofApp::processNetworkPackets() {
 			// We replicate the drawCard() logic here without calling it to avoid RNG issues
 			int targetPlayerIndex = -1;
 			for (size_t i = 0; i < players.size(); ++i) {
-				if (players[i].playerID == dcpkt->playerID && !players[i].isMinion) {
+				if (static_cast<uint32_t>(players[i].playerID) == dcpkt->playerID && !players[i].isMinion) {
 					targetPlayerIndex = (int)i;
 					break;
 				}
