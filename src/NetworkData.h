@@ -19,12 +19,14 @@ enum PacketType {
 	PKT_DRAW_CARDS, // Client -> Host: player drew cards from deck
 	PKT_SNAPSHOT_BEGIN, // Host -> Client: begin state snapshot
 	PKT_SNAPSHOT_CHUNK, // Host -> Client: snapshot data chunk
-	PKT_SNAPSHOT_END // Host -> Client: end state snapshot
+	PKT_SNAPSHOT_END, // Host -> Client: end state snapshot
+	PKT_ACK // Acknowledge receipt of a reliable packet
 };
 
 struct PacketHeader {
 	uint8_t type; // PacketType
 	uint32_t playerID; // Who sent this?
+	uint32_t seq; // Sequence number (monotonic per sender)
 };
 
 struct TurnStartPacket : PacketHeader {
@@ -223,6 +225,12 @@ struct SnapshotChunkPacket : PacketHeader {
 
 struct SnapshotEndPacket : PacketHeader {
 	uint32_t snapshotId;
+};
+
+// Ack packet
+struct AckPacket : PacketHeader {
+	uint32_t ackSeq;
+	uint8_t ackType;
 };
 
 #pragma pack(pop)

@@ -456,6 +456,7 @@ public:
 	uint32_t incomingSnapshotId = 0;
 	uint32_t incomingSnapshotExpectedSize = 0;
 	uint32_t incomingSnapshotReceivedSize = 0;
+	uint32_t lastReceivedSeqByPlayer[2] = { 0, 0 };
 
 	// Steam avatar images for turn indicator
 	ofImage localAvatarImage;

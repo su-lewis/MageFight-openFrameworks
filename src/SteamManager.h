@@ -5,6 +5,7 @@
 #include "steam_api.h"
 
 #include <queue>
+#include <unordered_map>
 #include <vector>
 
 // 2. INCLUDE YOUR EXISTING DATA HEADER
@@ -34,6 +35,7 @@ public:
 
 	// -- Data Logic --
 	bool sendPacket(const void * data, uint32_t size);
+	void handleAck(uint32_t seq);
 
 	// -- State Getters --
 	bool isHost() const;
@@ -58,6 +60,16 @@ public:
 
 private:
 	CSteamID m_OpponentID; // Track opponent's Steam ID
+	uint32_t m_nextSeq = 1;
+	struct PendingPacket {
+		std::vector<char> data;
+		float lastSendTime = 0.0f;
+		int retries = 0;
+		uint8_t type = 0;
+	};
+	std::unordered_map<uint32_t, PendingPacket> m_pending;
+	float m_resendInterval = 0.5f;
+	int m_maxRetries = 10;
 
 public:
 private:

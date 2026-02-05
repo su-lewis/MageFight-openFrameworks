@@ -18567,6 +18567,32 @@ void ofApp::processNetworkPackets() {
 		if (buffer.size() < sizeof(PacketHeader)) continue;
 
 		PacketHeader * header = (PacketHeader *)buffer.data();
+		if (header->type == PKT_ACK) {
+			AckPacket * ack = (AckPacket *)header;
+			steamManager.handleAck(ack->ackSeq);
+			continue;
+		}
+
+		// Send ACK for critical packets (even if duplicate)
+		if (header->type == PKT_HANDSHAKE || header->type == PKT_SNAPSHOT_BEGIN || header->type == PKT_SNAPSHOT_CHUNK || header->type == PKT_SNAPSHOT_END || header->type == PKT_DRAFT_OPTIONS || header->type == PKT_DRAFT_STATE || header->type == PKT_DRAFT_ACTION || header->type == PKT_KEY_PICKUP || header->type == PKT_SHUFFLE || header->type == PKT_TURN_START || header->type == PKT_END_TURN || header->type == PKT_ACTION) {
+			AckPacket ack = {};
+			ack.type = PKT_ACK;
+			ack.playerID = myLocalPlayerID;
+			ack.seq = 0;
+			ack.ackSeq = header->seq;
+			ack.ackType = header->type;
+			steamManager.sendPacket(&ack, sizeof(ack));
+		}
+
+		if (header->type <= PKT_SNAPSHOT_END && header->seq > 0) {
+			int sender = (header->playerID == 0 || header->playerID == 1) ? (int)header->playerID : -1;
+			if (sender >= 0) {
+				if (header->seq <= lastReceivedSeqByPlayer[sender]) {
+					continue;
+				}
+				lastReceivedSeqByPlayer[sender] = header->seq;
+			}
+		}
 		// Temporary reusable packet used for state syncs
 		DraftStatePacket sp = {};
 		// Handle Shuffle packets early so clients can deterministically apply them without touching gameplayRNG
