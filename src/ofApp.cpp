@@ -4250,6 +4250,21 @@ void ofApp::updateGame() {
 	}
 	activeStolenCardAnimations.erase(std::remove_if(activeStolenCardAnimations.begin(), activeStolenCardAnimations.end(), [](const StolenCardAnimation & anim) { return (ofGetElapsedTimef() - anim.startTime) >= 3.3f; }), activeStolenCardAnimations.end());
 
+	// Played Card Animation (appears at center, holds, then fades out)
+	for (auto & anim : activePlayedCardAnimations) {
+		float elapsedTime = ofGetElapsedTimef() - anim.startTime;
+		if (elapsedTime < 1.5f) {
+			// Hold at full size/alpha
+			anim.currentScale = 2.0f;
+			anim.currentAlpha = 255.0f;
+		} else if (elapsedTime < 2.0f) {
+			// Fade out
+			float t = ofMap(elapsedTime, 1.5f, 2.0f, 0.0f, 1.0f, true);
+			anim.currentAlpha = ofLerp(255.0f, 0.0f, t);
+		}
+	}
+	activePlayedCardAnimations.erase(std::remove_if(activePlayedCardAnimations.begin(), activePlayedCardAnimations.end(), [](const PlayedCardAnimation & anim) { return (ofGetElapsedTimef() - anim.startTime) >= 2.0f; }), activePlayedCardAnimations.end());
+
 	for (auto & anim : activeRemovedCardAnimations) {
 		float elapsedTime = ofGetElapsedTimef() - anim.startTime;
 
@@ -6599,8 +6614,28 @@ void ofApp::drawGame() {
 
 	// --- OPTIMIsED HAND DRAWING ...
 	if (!players.empty() && currentPlayerIndex >= 0) {
-		Player & currentPlayer = players[currentPlayerIndex];
+		// In multiplayer, always show LOCAL player's hand at bottom, regardless of whose turn it is
+		Player * handPlayer = nullptr;
+		if (isMultiplayer) {
+			for (size_t i = 0; i < players.size(); i++) {
+				if (players[i].playerID == myLocalPlayerID && !players[i].isMinion) {
+					handPlayer = &players[i];
+					break;
+				}
+			}
+		} else {
+			handPlayer = &players[currentPlayerIndex];
+		}
+
+		if (!handPlayer) return;
+		Player & currentPlayer = *handPlayer;
 		size_t numCards = currentPlayer.hand.size();
+
+		static size_t lastLoggedHandSize = 9999;
+		if (numCards != lastLoggedHandSize) {
+			ofLogNotice("Hand") << "Displaying hand for player " << currentPlayer.playerID << ": " << numCards << " cards (isMultiplayer=" << isMultiplayer << " myLocalPlayerID=" << myLocalPlayerID << ")";
+			lastLoggedHandSize = numCards;
+		}
 
 		bool isBottomPlayer = (currentPlayer.playerID == 0 || currentPlayer.ownerID == 0);
 		float hoverDirection = isBottomPlayer ? -120.0f : 120.0f;
@@ -7067,6 +7102,16 @@ void ofApp::drawGame() {
 		float w = handBaseCardWidth * anim.currentScale;
 		float h = baseCardHeight * anim.currentScale;
 		cardSpriteSheet.drawSubsection(anim.currentPos.x - w / 2, anim.currentPos.y - h / 2, w, h,
+			anim.card.textureRect.x, anim.card.textureRect.y,
+			anim.card.textureRect.width, anim.card.textureRect.height);
+	}
+
+	// --- Draw Played Card Animation (Center of screen) ---
+	for (const auto & anim : activePlayedCardAnimations) {
+		ofSetColor(255, anim.currentAlpha);
+		float w = handBaseCardWidth * anim.currentScale;
+		float h = baseCardHeight * anim.currentScale;
+		cardSpriteSheet.drawSubsection(anim.pos.x - w / 2, anim.pos.y - h / 2, w, h,
 			anim.card.textureRect.x, anim.card.textureRect.y,
 			anim.card.textureRect.width, anim.card.textureRect.height);
 	}
@@ -7659,9 +7704,12 @@ cursor_check_done:;
 				lastHoveredCardIndex = hoveredCardIndex;
 				if (hoveredCardIndex != -1) {
 					calculateTargetHighlights(hoveredCardIndex);
+					// Send hover packet to show opponent the card targeting
+					updateAndSendHover(HOVER_HAND_CARD, -1, -1, hoveredCardIndex);
 				} else {
 					// Hover cleared -> clear highlights
 					clearHighlights();
+					updateAndSendHover(HOVER_NONE);
 				}
 			}
 		}
@@ -7691,7 +7739,9 @@ cursor_check_done:;
 		}
 
 		for (size_t i = 0; i < currentPlayer.hand.size(); i++) {
-			currentPlayer.hand[i].targetScale = (static_cast<int>(i) == hoveredCardIndex) ? 2.0f : 1.5f;
+			// Only enlarge cards when WE are hovering them, not when opponent hovers
+			bool isLocallyHovered = (static_cast<int>(i) == hoveredCardIndex);
+			currentPlayer.hand[i].targetScale = isLocallyHovered ? 2.0f : 1.5f;
 		}
 
 		int activeCardForHighlight = -1;
@@ -10884,11 +10934,11 @@ void ofApp::dragEvent(ofDragInfo dragInfo) { }
 //--------------------------------------------------------------
 void ofApp::startNewTurn() {
 	ofLogNotice("Turn") << "startNewTurn() called. isMultiplayer=" << isMultiplayer << " currentPlayerIndex=" << currentPlayerIndex << " myLocalPlayerID=" << myLocalPlayerID << " isCurrentPlayerLocal()=" << isCurrentPlayerLocal();
-	
+
 	// If it was MY turn and I am ending it:
 	if (isMultiplayer && isCurrentPlayerLocal()) {
 		ofLogNotice("Turn") << "Ending my turn (player " << myLocalPlayerID << "). Sending END_TURN packet.";
-		
+
 		// 1. Send End Turn
 		PacketHeader pkt;
 		pkt.type = PKT_END_TURN;
@@ -10922,6 +10972,8 @@ void ofApp::startNewTurn() {
 				localPlayer.hand.clear();
 				localPlayer.discardPile.insert(localPlayer.discardPile.end(), localPlayer.playedCardsPile.begin(), localPlayer.playedCardsPile.end());
 				localPlayer.playedCardsPile.clear();
+
+				ofLogNotice("Turn") << "After cleanup: Hand size=" << localPlayer.hand.size() << ", Discard size=" << localPlayer.discardPile.size();
 
 				// Clear buffs
 				localPlayer.shocksPlayedThisTurn = 0;
@@ -11352,7 +11404,8 @@ void ofApp::drawCard() {
 		currentPlayer.deck.pop_back();
 
 		// --- Animation Setup ---
-		newCard.currentScale = 0.1f;
+		// Optimistic UI: Start at full size for instant feedback
+		newCard.currentScale = 1.5f;
 		newCard.targetScale = 1.5f;
 
 		// Calculate Spawn Position (from Deck UI)
@@ -11419,6 +11472,14 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		// Remove card from hand and pay cost
 		currentAP -= costToPay;
 		currentPlayer.playedCardsPile.push_back(playedCard);
+
+		// Show played card animation
+		PlayedCardAnimation cardAnim;
+		cardAnim.card = playedCard;
+		cardAnim.startTime = ofGetElapsedTimef();
+		cardAnim.pos = glm::vec2(ofGetWidth() / 2, ofGetHeight() / 2);
+		activePlayedCardAnimations.push_back(cardAnim);
+
 		currentPlayer.hand.erase(currentPlayer.hand.begin() + cardIndex);
 		return;
 	}
@@ -11969,6 +12030,13 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		currentAP -= costToPay;
 		currentPlayer.playedCardsPile.push_back(playedCard);
 
+		// Show played card animation
+		PlayedCardAnimation cardAnim;
+		cardAnim.card = playedCard;
+		cardAnim.startTime = ofGetElapsedTimef();
+		cardAnim.pos = glm::vec2(ofGetWidth() / 2, ofGetHeight() / 2);
+		activePlayedCardAnimations.push_back(cardAnim);
+
 		// Handle Replicate
 		if (currentPlayer.isReplicatePending) {
 			currentPlayer.playedCardsPile.push_back(playedCard);
@@ -12046,6 +12114,13 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 
 		currentAP -= costToPay;
 		currentPlayer.playedCardsPile.push_back(playedCard);
+
+		// Show played card animation
+		PlayedCardAnimation cardAnim;
+		cardAnim.card = playedCard;
+		cardAnim.startTime = ofGetElapsedTimef();
+		cardAnim.pos = glm::vec2(ofGetWidth() / 2, ofGetHeight() / 2);
+		activePlayedCardAnimations.push_back(cardAnim);
 
 		if (currentPlayer.isReplicatePending) {
 			currentPlayer.playedCardsPile.push_back(playedCard);
@@ -12129,6 +12204,14 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		int myID = currentPlayer.playerID;
 		currentAP -= costToPay;
 		currentPlayer.playedCardsPile.push_back(playedCard);
+
+		// Show played card animation
+		PlayedCardAnimation cardAnim;
+		cardAnim.card = playedCard;
+		cardAnim.startTime = ofGetElapsedTimef();
+		cardAnim.pos = glm::vec2(ofGetWidth() / 2, ofGetHeight() / 2);
+		activePlayedCardAnimations.push_back(cardAnim);
+
 		if (currentPlayer.isReplicatePending) {
 			currentPlayer.playedCardsPile.push_back(playedCard);
 			currentPlayer.isReplicatePending = false;
@@ -16454,6 +16537,7 @@ void ofApp::cleanupGame() {
 	activeDiceRolls.clear();
 	activeCardDisplays.clear();
 	activeStolenCardAnimations.clear();
+	activePlayedCardAnimations.clear();
 	activeRemovedCardAnimations.clear();
 
 	for (int x = 0; x < BOARD_WIDTH; ++x) {
@@ -17713,7 +17797,7 @@ void ofApp::processNetworkPackets() {
 		if (header->type == PKT_TURN_START) {
 			TurnStartPacket * tpk = (TurnStartPacket *)header;
 			ofLogNotice("Network") << "TurnStart packet received: player=" << tpk->currentPlayerIndex << " dice=" << (int)tpk->diceNum << " total=" << tpk->finalTotal;
-			
+
 			// Prevent duplicate processing: check if we're already on this turn
 			static int lastProcessedTurnPlayer = -1;
 			static int lastProcessedTurnCounter = -1;
@@ -17723,7 +17807,7 @@ void ofApp::processNetworkPackets() {
 			}
 			lastProcessedTurnPlayer = tpk->currentPlayerIndex;
 			lastProcessedTurnCounter = globalTurnCounter;
-			
+
 			if (tpk->currentPlayerIndex >= 0 && tpk->currentPlayerIndex < (int)players.size()) {
 				// Set up turn state
 				waitingForTurnStartFromHost = false;
@@ -18018,12 +18102,42 @@ void ofApp::processNetworkPackets() {
 		} else if (header->type == PKT_HOVER) {
 			HoverPacket * pkt = (HoverPacket *)header;
 			int hoverTypeInt = static_cast<int>(pkt->hoverType);
-			if (hoverTypeInt >= HOVER_NONE && hoverTypeInt <= HOVER_HAND_CARD) {
+			if (hoverTypeInt >= HOVER_NONE && hoverTypeInt <= HOVER_UNIT_SELECTED) {
 				opponentHoverType = static_cast<HoverType>(hoverTypeInt);
 			}
 			opponentHoverGridX = static_cast<int>(pkt->gridX);
 			opponentHoverGridY = static_cast<int>(pkt->gridY);
 			opponentHoverCardIndex = static_cast<int>(pkt->cardIndex);
+
+			// If opponent selected a unit for movement, show their movement highlights
+			if (opponentHoverType == HOVER_UNIT_SELECTED) {
+				// Store current player state to restore after
+				int savedPlayerX = -1, savedPlayerY = -1;
+				if (currentPlayerIndex >= 0 && currentPlayerIndex < players.size()) {
+					savedPlayerX = players[currentPlayerIndex].x;
+					savedPlayerY = players[currentPlayerIndex].y;
+					// Temporarily move current player to opponent's selected position
+					players[currentPlayerIndex].x = opponentHoverGridX;
+					players[currentPlayerIndex].y = opponentHoverGridY;
+					calculateHighlights();
+					// Restore position
+					players[currentPlayerIndex].x = savedPlayerX;
+					players[currentPlayerIndex].y = savedPlayerY;
+				}
+			}
+			// If opponent is hovering a card, show their targeting highlights
+			else if (opponentHoverType == HOVER_HAND_CARD && opponentHoverCardIndex >= 0) {
+				if (currentPlayerIndex >= 0 && currentPlayerIndex < players.size()) {
+					Player & currentPlayer = players[currentPlayerIndex];
+					if (opponentHoverCardIndex < currentPlayer.hand.size()) {
+						calculateTargetHighlights(opponentHoverCardIndex);
+					}
+				}
+			}
+			// If opponent cleared hover, clear highlights
+			else if (opponentHoverType == HOVER_NONE) {
+				clearHighlights();
+			}
 		} else if (header->type == PKT_DRAFT_STATE) {
 			DraftStatePacket * sp = (DraftStatePacket *)header;
 			ofLogNotice("Network") << "Draft state received: class=" << sp->classTier << " player=" << sp->draftPlayerIdx << " picks=" << sp->picksRemaining << " stage=" << sp->draftStage << " ingame=" << (int)sp->isInGameDraft << " curPlayer=" << sp->currentPlayerIndex;

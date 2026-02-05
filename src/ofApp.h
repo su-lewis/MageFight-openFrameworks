@@ -258,6 +258,14 @@ struct StolenCardAnimation {
 	float currentAlpha = 0.0f;
 };
 
+struct PlayedCardAnimation {
+	Card card;
+	float startTime;
+	glm::vec2 pos; // Center of screen
+	float currentScale = 2.0f;
+	float currentAlpha = 255.0f;
+};
+
 struct RemovedCardAnimation {
 	Card card;
 	glm::vec2 startPos;
@@ -816,6 +824,7 @@ private:
 
 	std::vector<PlayedCardDisplay> activeCardDisplays;
 	std::vector<StolenCardAnimation> activeStolenCardAnimations;
+	std::vector<PlayedCardAnimation> activePlayedCardAnimations;
 	std::vector<RemovedCardAnimation> activeRemovedCardAnimations;
 
 	// --- CARDS & DECK ---
@@ -1261,7 +1270,8 @@ private:
 		HOVER_UNIT = 1,
 		HOVER_DECK = 2,
 		HOVER_DISCARD = 3,
-		HOVER_HAND_CARD = 4 };
+		HOVER_HAND_CARD = 4,
+		HOVER_UNIT_SELECTED = 5 };
 
 	// Local hover state
 	HoverType localHoverType = HOVER_NONE;
