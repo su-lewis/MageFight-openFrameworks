@@ -4361,10 +4361,11 @@ void ofApp::updateGame() {
 
 		if (handPlayer) {
 			Player & currentPlayer = *handPlayer;
+			bool showOpponentHand = (isMultiplayer && opponentHandPlayer && !isCurrentPlayerLocal());
 
 			// Calculate total cards in shared hand area (local + opponent in multiplayer)
 			size_t totalCards = currentPlayer.hand.size();
-			if (isMultiplayer && opponentHandPlayer) {
+			if (showOpponentHand) {
 				totalCards += opponentHandPlayer->hand.size();
 			}
 
@@ -4391,7 +4392,7 @@ void ofApp::updateGame() {
 			}
 
 			// Position opponent's cards (continuing from where local player's cards end)
-			if (isMultiplayer && opponentHandPlayer) {
+			if (showOpponentHand) {
 				for (size_t i = 0; i < opponentHandPlayer->hand.size(); i++) {
 					size_t offset = numCards + i;
 					float cardCenterX = startX + offset * (handBaseCardWidth + padding) + (handBaseCardWidth / 2.0f);
@@ -4404,7 +4405,7 @@ void ofApp::updateGame() {
 		}
 	}
 
-	if (isPlayerAnimating) {
+	if (isPlayerAnimating && animatingPlayerIndex >= 0 && animatingPlayerIndex < (int)players.size()) {
 		glm::vec3 targetPos = animationPath[currentPathIndex];
 		float player_speed = 1.0 - pow(0.65, deltaTime * 60.0);
 
@@ -4412,9 +4413,7 @@ void ofApp::updateGame() {
 		glm::vec3 direction = targetPos - playerVisualPos;
 		if (glm::length(glm::vec2(direction.x, direction.z)) > 0.01f) {
 			playerFacingAngle = glm::degrees(atan2(direction.x, direction.z)) + 180.0f;
-			if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) {
-				players[currentPlayerIndex].facingAngle = playerFacingAngle;
-			}
+			players[animatingPlayerIndex].facingAngle = playerFacingAngle;
 		}
 
 		playerVisualPos = glm::mix(playerVisualPos, targetPos, player_speed);
@@ -4451,7 +4450,7 @@ void ofApp::updateGame() {
 							classToDraft = 3;
 
 						// Identify Owner (If minion steps on key, Summoner gets the card)
-						Player & mover = players[currentPlayerIndex];
+						Player & mover = players[animatingPlayerIndex];
 						int ownerID = mover.isMinion ? mover.ownerID : mover.playerID;
 
 						int ownerIndex = -1;
@@ -4508,6 +4507,10 @@ void ofApp::updateGame() {
 			if (currentPathIndex >= static_cast<int>(animationPath.size())) {
 				isPlayerAnimating = false;
 				animatingPlayerIndex = -1;
+				// Reset visual position to the current player so we don't display the wrong unit
+				if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) {
+					playerVisualPos = transformGridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y);
+				}
 			}
 		}
 	}
@@ -5077,7 +5080,9 @@ void ofApp::drawGame() {
 				}
 			}
 			if (!foundEq) {
-				if (currentPlayerIndex >= 0 && player.playerID == players[currentPlayerIndex].playerID) {
+				if (isPlayerAnimating && animatingPlayerIndex >= 0 && &player == &players[animatingPlayerIndex]) {
+					pos = playerVisualPos;
+				} else if (currentPlayerIndex >= 0 && player.playerID == players[currentPlayerIndex].playerID && (!isPlayerAnimating || animatingPlayerIndex == currentPlayerIndex)) {
 					pos = playerVisualPos;
 				} else {
 					pos = transformGridToWorld(player.x, player.y);
@@ -5504,7 +5509,9 @@ void ofApp::drawGame() {
 			}
 
 			if (!foundEq) {
-				if (currentPlayerIndex >= 0 && player.playerID == players[currentPlayerIndex].playerID) {
+				if (isPlayerAnimating && animatingPlayerIndex >= 0 && &player == &players[animatingPlayerIndex]) {
+					pos = playerVisualPos;
+				} else if (currentPlayerIndex >= 0 && player.playerID == players[currentPlayerIndex].playerID && (!isPlayerAnimating || animatingPlayerIndex == currentPlayerIndex)) {
 					pos = playerVisualPos;
 				} else {
 					pos = transformGridToWorld(player.x, player.y);
@@ -6206,6 +6213,7 @@ void ofApp::drawGame() {
 
 		// P0 Discard (LOCAL player's discard)
 		if (!localPlayer->discardPile.empty()) {
+			ofSetColor(ofColor::white);
 			const auto & discardRect = localPlayer->discardPile.back().textureRect;
 			cardSpriteSheet.drawSubsection(p0_discardRect.x, p0_discardRect.y, p0_discardRect.width, p0_discardRect.height,
 				discardRect.x, discardRect.y, discardRect.width, discardRect.height);
@@ -6239,6 +6247,7 @@ void ofApp::drawGame() {
 
 		// P1 Discard -- show opponent's top card face
 		if (!opponentPlayer->discardPile.empty()) {
+			ofSetColor(ofColor::white);
 			const auto & discardRect = opponentPlayer->discardPile.back().textureRect;
 			cardSpriteSheet.drawSubsection(p1_discardRect.x, p1_discardRect.y, p1_discardRect.width, p1_discardRect.height,
 				discardRect.x, discardRect.y, discardRect.width, discardRect.height);
@@ -6793,7 +6802,12 @@ void ofApp::drawGame() {
 			lastLoggedHandSize = numCards;
 		}
 
-		bool isBottomPlayer = (currentPlayer.playerID == 0 || currentPlayer.ownerID == 0);
+		bool isBottomPlayer = true;
+		if (isMultiplayer) {
+			isBottomPlayer = (currentPlayer.playerID == myLocalPlayerID);
+		} else {
+			isBottomPlayer = (currentPlayer.playerID == 0 || currentPlayer.ownerID == 0);
+		}
 		float hoverDirection = isBottomPlayer ? -120.0f : 120.0f;
 
 		// 1. Determine which card should be drawn LAST (On Top)
@@ -6912,7 +6926,7 @@ void ofApp::drawGame() {
 		}
 
 		// --- DRAW OPPONENT'S HAND IN SAME BOTTOM AREA (SHARED HAND SPACE) ---
-		if (isMultiplayer && opponentHandPlayer && !opponentHandPlayer->hand.empty()) {
+		if (isMultiplayer && opponentHandPlayer && !opponentHandPlayer->hand.empty() && !isCurrentPlayerLocal()) {
 			// Draw opponent's cards alongside local player's cards in the bottom hand area
 			for (size_t i = 0; i < opponentHandPlayer->hand.size(); ++i) {
 				Card & card = opponentHandPlayer->hand[i];
@@ -7010,11 +7024,15 @@ void ofApp::drawGame() {
 
 			// 3. Intelligently position the panel
 			float startX;
-			// If viewing player 0's (left side) piles, show panel to the right
-			if (currentPileViewPlayerIndex == 0) {
+			bool viewingLocal = false;
+			if (currentPileViewPlayerIndex >= 0 && currentPileViewPlayerIndex < (int)players.size()) {
+				viewingLocal = (players[currentPileViewPlayerIndex].playerID == myLocalPlayerID);
+			}
+			// If viewing local player's (bottom/left) piles, show panel to the right
+			if (viewingLocal) {
 				startX = p0_deckRect.getRight() + 30.0f;
 			}
-			// If viewing player 1's (right side) piles, show panel to the left
+			// If viewing opponent's (top/right) piles, show panel to the left
 			else {
 				startX = p1_deckRect.getLeft() - totalContentWidth - 30.0f - (2 * panelPadding);
 			}
@@ -7985,22 +8003,24 @@ cursor_check_done:;
 		PileViewMode newHoveredPileType = VIEW_NONE;
 		int newHoveredPileIndex = -1;
 
+		int localId = myLocalPlayerID;
+		int opponentId = (myLocalPlayerID == 0) ? 1 : 0;
 		if (p0_deckRect.inside(x, y)) {
 			newHoveredPileType = VIEW_DECK;
 			for (int i = 0; i < (int)players.size(); i++)
-				if (players[i].playerID == 0) newHoveredPileIndex = i;
+				if (players[i].playerID == localId) newHoveredPileIndex = i;
 		} else if (p0_discardRect.inside(x, y)) {
 			newHoveredPileType = VIEW_DISCARD;
 			for (int i = 0; i < (int)players.size(); i++)
-				if (players[i].playerID == 0) newHoveredPileIndex = i;
+				if (players[i].playerID == localId) newHoveredPileIndex = i;
 		} else if (p1_deckRect.inside(x, y)) {
 			newHoveredPileType = VIEW_DECK;
 			for (int i = 0; i < (int)players.size(); i++)
-				if (players[i].playerID == 1) newHoveredPileIndex = i;
+				if (players[i].playerID == opponentId) newHoveredPileIndex = i;
 		} else if (p1_discardRect.inside(x, y)) {
 			newHoveredPileType = VIEW_DISCARD;
 			for (int i = 0; i < (int)players.size(); i++)
-				if (players[i].playerID == 1) newHoveredPileIndex = i;
+				if (players[i].playerID == opponentId) newHoveredPileIndex = i;
 		}
 
 		if (newHoveredPileIndex == -1) {
@@ -10115,9 +10135,11 @@ void ofApp::mousePressed(int x, int y, int button) {
 		}
 		if (isPlayerAnimating || isDiceSpinning) return;
 
-		// 3c. TURN VALIDATION: Only allow interactions if it's the local player's turn
+		// 3c. TURN VALIDATION: Only allow interactions if it's the local player's turn or a minion owned by the local player
 		if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) {
-			if (players[currentPlayerIndex].playerID != myLocalPlayerID) {
+			const Player & currentPlayer = players[currentPlayerIndex];
+			int controlledPlayerID = currentPlayer.isMinion ? currentPlayer.ownerID : currentPlayer.playerID;
+			if (controlledPlayerID != myLocalPlayerID) {
 				// Not our turn - ignore all gameplay clicks
 				return;
 			}
@@ -10400,7 +10422,9 @@ void ofApp::mousePressed(int x, int y, int button) {
 
 							// Execute movement locally (client-side prediction)
 							// Update Board Occupancy
-							board[controlledPlayer->x][controlledPlayer->y].hasPlayer = false;
+							const int prevX = controlledPlayer->x;
+							const int prevY = controlledPlayer->y;
+							board[prevX][prevY].hasPlayer = false;
 							board[gridX][gridY].hasPlayer = true;
 							controlledPlayer->x = gridX;
 							controlledPlayer->y = gridY;
@@ -10408,6 +10432,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 							// Start Animation
 							animationPath.clear();
 							currentPathIndex = 0;
+							playerVisualPos = transformGridToWorld(prevX, prevY);
 							animationPath.push_back(playerVisualPos);
 							for (size_t p = 1; p < hoverPath.size(); ++p) {
 								animationPath.push_back(transformGridToWorld((int)hoverPath[p].x, (int)hoverPath[p].y));
@@ -10517,9 +10542,11 @@ void ofApp::mouseDragged(int x, int y, int button) {
 	}
 	if (currentState != STATE_GAMEPLAY) return;
 
-	// TURN VALIDATION: Only allow dragging if it's the local player's turn
+	// TURN VALIDATION: Only allow dragging if it's the local player's turn or a minion owned by the local player
 	if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) {
-		if (players[currentPlayerIndex].playerID != myLocalPlayerID) {
+		const Player & currentPlayer = players[currentPlayerIndex];
+		int controlledPlayerID = currentPlayer.isMinion ? currentPlayer.ownerID : currentPlayer.playerID;
+		if (controlledPlayerID != myLocalPlayerID) {
 			// Not our turn - only allow camera movement
 			if (button == OF_MOUSE_BUTTON_RIGHT) {
 				float dx = ofGetPreviousMouseX() - x, dy = ofGetPreviousMouseY() - y;
@@ -10527,7 +10554,7 @@ void ofApp::mouseDragged(int x, int y, int button) {
 				float panMultX = shouldFlipCamera() ? -1.0f : 1.0f;
 				float panMultZ = shouldFlipCamera() ? -1.0f : 1.0f;
 				cameraTargetPan.x += dx * 0.05f * (TILE_SIZE / 4.0f) * panMultX;
-				cameraTargetPan.z -= dy * 0.05f * (TILE_SIZE / 4.0f) * panMultZ;
+				cameraTargetPan.z += dy * 0.05f * (TILE_SIZE / 4.0f) * panMultZ;
 			}
 			return;
 		}
@@ -10539,7 +10566,7 @@ void ofApp::mouseDragged(int x, int y, int button) {
 		float panMultX = shouldFlipCamera() ? -1.0f : 1.0f;
 		float panMultZ = shouldFlipCamera() ? -1.0f : 1.0f;
 		cameraTargetPan.x += dx * 0.05f * (TILE_SIZE / 4.0f) * panMultX;
-		cameraTargetPan.z -= dy * 0.05f * (TILE_SIZE / 4.0f) * panMultZ;
+		cameraTargetPan.z += dy * 0.05f * (TILE_SIZE / 4.0f) * panMultZ;
 		return;
 	}
 
@@ -10617,9 +10644,11 @@ void ofApp::mouseReleased(int x, int y, int button) {
 
 	if (currentState != STATE_GAMEPLAY) return;
 
-	// TURN VALIDATION: Only allow releasing if it's the local player's turn
+	// TURN VALIDATION: Only allow releasing if it's the local player's turn or a minion owned by the local player
 	if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) {
-		if (players[currentPlayerIndex].playerID != myLocalPlayerID) {
+		const Player & currentPlayer = players[currentPlayerIndex];
+		int controlledPlayerID = currentPlayer.isMinion ? currentPlayer.ownerID : currentPlayer.playerID;
+		if (controlledPlayerID != myLocalPlayerID) {
 			// Not our turn - ignore all interactions to avoid interrupting opponent
 			return;
 		}
@@ -14256,13 +14285,20 @@ glm::vec2 ofApp::getCardDisplayUIPosition(int playerIndex) {
 
 	if (isMultiplayer) {
 		// In multiplayer, determine which player is "us" and which is "them"
-		if (playerIndex == myLocalPlayerID) {
-			// Local player: bottom center
-			return glm::vec2(screenCenterX, ofGetHeight() - 120.0f);
-		} else {
-			// Opponent: top center
-			return glm::vec2(screenCenterX, 120.0f);
+		// Account for minions: get the owner ID if it's a minion
+		if (playerIndex >= 0 && playerIndex < (int)players.size()) {
+			const Player & p = players[playerIndex];
+			int ownerID = p.isMinion ? p.ownerID : p.playerID;
+			if (ownerID == myLocalPlayerID) {
+				// Local player or local player's minion: bottom center
+				return glm::vec2(screenCenterX, ofGetHeight() - 120.0f);
+			} else {
+				// Opponent or opponent's minion: top center
+				return glm::vec2(screenCenterX, 120.0f);
+			}
 		}
+		// Fallback: opponent side
+		return glm::vec2(screenCenterX, 120.0f);
 	} else {
 		// In singleplayer, show at bottom center for both
 		return glm::vec2(screenCenterX, ofGetHeight() - 120.0f);
@@ -18424,7 +18460,9 @@ void ofApp::processNetworkPackets() {
 					if (static_cast<uint32_t>(p.playerID) == pkt->playerID && !p.isMinion) {
 						// Verify movement is legal
 						if (pkt->targetX >= 0 && pkt->targetX < BOARD_WIDTH && pkt->targetY >= 0 && pkt->targetY < BOARD_HEIGHT) {
-							board[p.x][p.y].hasPlayer = false;
+							const int prevX = p.x;
+							const int prevY = p.y;
+							board[prevX][prevY].hasPlayer = false;
 							board[pkt->targetX][pkt->targetY].hasPlayer = true;
 							p.x = pkt->targetX;
 							p.y = pkt->targetY;
@@ -18432,8 +18470,11 @@ void ofApp::processNetworkPackets() {
 							// Trigger animation for opponent's movement
 							animatingPlayerIndex = (int)i;
 							animationPath.clear();
-							animationPath.push_back(transformGridToWorld(pkt->targetX, pkt->targetY));
 							currentPathIndex = 0;
+							playerVisualPos = transformGridToWorld(prevX, prevY);
+							animationPath.push_back(playerVisualPos);
+							animationPath.push_back(transformGridToWorld(pkt->targetX, pkt->targetY));
+							isPlayerAnimating = true;
 
 							invalidateTargetCache();
 							ofLogNotice("Network") << "Applied movement for player " << pkt->playerID << " to (" << pkt->targetX << "," << pkt->targetY << ")";
@@ -18541,6 +18582,17 @@ void ofApp::processNetworkPackets() {
 			if (isClient()) {
 				ofLogNotice("Network") << "CLIENT FIX ACTIVE: Waiting for host TurnStart packet (will NOT roll dice locally).";
 				waitingForTurnStartFromHost = true;
+				// Apply opponent hand cleanup locally so their hand disappears on our screen
+				for (size_t i = 0; i < players.size(); i++) {
+					Player & opp = players[i];
+					if (opp.playerID == static_cast<int>(header->playerID) && !opp.isMinion) {
+						opp.discardPile.insert(opp.discardPile.end(), opp.hand.begin(), opp.hand.end());
+						opp.hand.clear();
+						opp.discardPile.insert(opp.discardPile.end(), opp.playedCardsPile.begin(), opp.playedCardsPile.end());
+						opp.playedCardsPile.clear();
+						break;
+					}
+				}
 				// Don't call startNewTurn() - let PKT_TURN_START handle it
 			} else {
 				// Host: can proceed with local turn start
@@ -18982,8 +19034,11 @@ void ofApp::processNetworkPackets() {
 
 // When I click a card
 void ofApp::sendActionPacket(int cardIndex, int tx, int ty, int cost) {
-	// 1. Check if it's my turn
-	if (players[currentPlayerIndex].playerID != myLocalPlayerID) return;
+	// 1. Check if it's my turn or my minion's turn
+	if (currentPlayerIndex < 0 || currentPlayerIndex >= (int)players.size()) return;
+	const Player & currentPlayer = players[currentPlayerIndex];
+	int controlledPlayerID = currentPlayer.isMinion ? currentPlayer.ownerID : currentPlayer.playerID;
+	if (controlledPlayerID != myLocalPlayerID) return;
 
 	// 2. Create Packet
 	ActionPacket pkt = {};
