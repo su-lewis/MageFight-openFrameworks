@@ -102,7 +102,7 @@
     "damageType": "DAMAGE_MAGIC",
     "numDice": 1,
     "diceSides": 20,
-    "class": 3
+    "class": 2
   },
   {
     "id": 11,
@@ -493,7 +493,7 @@
   },
   {
     "id": 52,
-    "name": "Spark of genius",
+    "name": "Spark of Genius",
     "type": "CARD_SPARK_OF_GENIUS",
     "cost": 3,
     "targeting": "TARGET_SELF",

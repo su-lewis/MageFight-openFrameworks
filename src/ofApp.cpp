@@ -3518,6 +3518,7 @@ void ofApp::updateGame() {
 					animationPath.clear();
 					currentPathIndex = 0;
 					isPlayerAnimating = false;
+					animatingPlayerIndex = -1;
 					earthquakeUnits.clear();
 					invalidateTargetCache();
 				}
@@ -4306,28 +4307,44 @@ void ofApp::updateGame() {
 
 	// Card Hand Animation
 	if (!players.empty() && currentPlayerIndex >= 0) {
-		Player & currentPlayer = players[currentPlayerIndex];
+		// In multiplayer, always update LOCAL player's hand (regardless of whose turn it is)
+		// In singleplayer, update current player's hand
+		Player * handPlayer = nullptr;
+		if (isMultiplayer) {
+			for (size_t i = 0; i < players.size(); i++) {
+				if (players[i].playerID == myLocalPlayerID && !players[i].isMinion) {
+					handPlayer = &players[i];
+					break;
+				}
+			}
+		} else {
+			handPlayer = &players[currentPlayerIndex];
+		}
 
-		// Always draw hand at bottom (turn-based, so only current player's hand shows)
-		float handCenterY = ofGetHeight() - 130;
+		if (handPlayer) {
+			Player & currentPlayer = *handPlayer;
 
-		float handBaseCardWidth = 120;
-		float handAreaWidth = ofGetWidth() * 0.4f;
+			// Always draw hand at bottom (turn-based, so only current player's hand shows)
+			float handCenterY = ofGetHeight() - 130;
 
-		size_t numCards = currentPlayer.hand.size();
-		float totalCardWidths = numCards * handBaseCardWidth;
-		float padding = (numCards > 1) ? (handAreaWidth - totalCardWidths) / (numCards - 1) : 0;
-		padding = std::min(padding, 20.0f);
-		float totalHandWidth = (numCards * handBaseCardWidth) + ((numCards - 1) * padding);
-		float startX = (ofGetWidth() - totalHandWidth) / 2.0f;
+			float handBaseCardWidth = 120;
+			float handAreaWidth = ofGetWidth() * 0.4f;
 
-		for (size_t i = 0; i < numCards; i++) {
-			float cardCenterX = startX + i * (handBaseCardWidth + padding) + (handBaseCardWidth / 2.0f);
-			currentPlayer.hand[i].targetPos = ofVec2f(cardCenterX, handCenterY);
+			size_t numCards = currentPlayer.hand.size();
+			float totalCardWidths = numCards * handBaseCardWidth;
+			float padding = (numCards > 1) ? (handAreaWidth - totalCardWidths) / (numCards - 1) : 0;
+			padding = std::min(padding, 20.0f);
+			float totalHandWidth = (numCards * handBaseCardWidth) + ((numCards - 1) * padding);
+			float startX = (ofGetWidth() - totalHandWidth) / 2.0f;
 
-			if (i != draggedCardIndex) {
-				currentPlayer.hand[i].currentScale = ofLerp(currentPlayer.hand[i].currentScale, currentPlayer.hand[i].targetScale, 0.25f);
-				currentPlayer.hand[i].currentPos = currentPlayer.hand[i].currentPos.getInterpolated(currentPlayer.hand[i].targetPos, 0.25f);
+			for (size_t i = 0; i < numCards; i++) {
+				float cardCenterX = startX + i * (handBaseCardWidth + padding) + (handBaseCardWidth / 2.0f);
+				currentPlayer.hand[i].targetPos = ofVec2f(cardCenterX, handCenterY);
+
+				if (i != draggedCardIndex) {
+					currentPlayer.hand[i].currentScale = ofLerp(currentPlayer.hand[i].currentScale, currentPlayer.hand[i].targetScale, 0.25f);
+					currentPlayer.hand[i].currentPos = currentPlayer.hand[i].currentPos.getInterpolated(currentPlayer.hand[i].targetPos, 0.25f);
+				}
 			}
 		}
 	}
@@ -4433,7 +4450,10 @@ void ofApp::updateGame() {
 				footstepSounds[idx].play();
 			}
 
-			if (currentPathIndex >= static_cast<int>(animationPath.size())) isPlayerAnimating = false;
+			if (currentPathIndex >= static_cast<int>(animationPath.size())) {
+				isPlayerAnimating = false;
+				animatingPlayerIndex = -1;
+			}
 		}
 	}
 
@@ -10305,7 +10325,10 @@ void ofApp::mousePressed(int x, int y, int button) {
 							for (size_t p = 1; p < hoverPath.size(); ++p) {
 								animationPath.push_back(transformGridToWorld((int)hoverPath[p].x, (int)hoverPath[p].y));
 							}
-							if (!animationPath.empty()) isPlayerAnimating = true;
+							if (!animationPath.empty()) {
+								isPlayerAnimating = true;
+								animatingPlayerIndex = controlledPlayerIndex;
+							}
 
 							invalidateTargetCache();
 
@@ -10417,7 +10440,7 @@ void ofApp::mouseDragged(int x, int y, int button) {
 				float panMultX = shouldFlipCamera() ? -1.0f : 1.0f;
 				float panMultZ = shouldFlipCamera() ? -1.0f : 1.0f;
 				cameraTargetPan.x += dx * 0.05f * (TILE_SIZE / 4.0f) * panMultX;
-				cameraTargetPan.z += dy * 0.05f * (TILE_SIZE / 4.0f) * panMultZ;
+				cameraTargetPan.z -= dy * 0.05f * (TILE_SIZE / 4.0f) * panMultZ;
 			}
 			return;
 		}
@@ -10429,7 +10452,7 @@ void ofApp::mouseDragged(int x, int y, int button) {
 		float panMultX = shouldFlipCamera() ? -1.0f : 1.0f;
 		float panMultZ = shouldFlipCamera() ? -1.0f : 1.0f;
 		cameraTargetPan.x += dx * 0.05f * (TILE_SIZE / 4.0f) * panMultX;
-		cameraTargetPan.z += dy * 0.05f * (TILE_SIZE / 4.0f) * panMultZ;
+		cameraTargetPan.z -= dy * 0.05f * (TILE_SIZE / 4.0f) * panMultZ;
 		return;
 	}
 
@@ -11269,6 +11292,7 @@ void ofApp::startNewTurn() {
 	playerVisualPos = transformGridToWorld(startingPlayer.x, startingPlayer.y);
 	animationPath.clear();
 	isPlayerAnimating = false;
+	animatingPlayerIndex = -1;
 
 	if (startingPlayer.hasRegeneration) {
 		if (startingPlayer.health < startingPlayer.maxHealth) {
@@ -11368,6 +11392,7 @@ void ofApp::continueNewTurn() {
 	playerVisualPos = transformGridToWorld(startingPlayer.x, startingPlayer.y);
 	animationPath.clear();
 	isPlayerAnimating = false;
+	animatingPlayerIndex = -1;
 
 	activeDiceRolls.clear();
 	currentAP = 0;
@@ -16699,6 +16724,7 @@ void ofApp::cleanupGame() {
 	selectedCardIndex = -1;
 	draggedCardIndex = -1;
 	isPlayerAnimating = false;
+	animatingPlayerIndex = -1;
 	isLoadingGame = false;
 	hasReceivedHandshake = false;
 	waitingForTurnStartFromHost = false;
@@ -17976,6 +18002,7 @@ void ofApp::processNetworkPackets() {
 				playerVisualPos = transformGridToWorld(startingPlayer.x, startingPlayer.y);
 				animationPath.clear();
 				isPlayerAnimating = false;
+				animatingPlayerIndex = -1;
 				activeDiceRolls.clear();
 				currentAP = 0;
 

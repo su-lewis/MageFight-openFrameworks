@@ -822,6 +822,7 @@ private:
 
 	// --- ANIMATIONS ---
 	bool isPlayerAnimating = false;
+	int animatingPlayerIndex = -1; // Which player is currently animating
 	glm::vec3 playerVisualPos;
 	float playerFacingAngle = 0.0f; // 0 = North, 90 = East, 180 = South, 270 = West
 	std::vector<glm::vec3> animationPath;
