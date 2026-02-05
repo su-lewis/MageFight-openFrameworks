@@ -1457,7 +1457,7 @@ void ofApp::initializeGameStateCommon() {
 
 	// Setup Player 1's camera (north side, 180° opposite)
 	cam2.setPosition(0, cameraCurrentZoom * 1.18f, -(cameraCurrentZoom * 0.70f));
-	cam2.lookAt(cameraCurrentPan);
+	cam2.lookAt(glm::vec3(cameraCurrentPan.x, cameraCurrentPan.y, -cameraCurrentPan.z));
 	cameraCurrentPos = cam.getPosition();
 	cameraCurrentPos2 = cam2.getPosition();
 	cameraCurrentLookAt = cameraCurrentPan;
@@ -10341,8 +10341,10 @@ void ofApp::mouseDragged(int x, int y, int button) {
 			// Not our turn - only allow camera movement
 			if (button == OF_MOUSE_BUTTON_RIGHT) {
 				float dx = ofGetPreviousMouseX() - x, dy = ofGetPreviousMouseY() - y;
-				cameraTargetPan.x += dx * 0.05f * (TILE_SIZE / 4.0f);
-				cameraTargetPan.z += dy * 0.05f * (TILE_SIZE / 4.0f);
+				// Invert pan for client (camera 2 is mirrored)
+				float panMult = shouldFlipCamera() ? -1.0f : 1.0f;
+				cameraTargetPan.x += dx * 0.05f * (TILE_SIZE / 4.0f) * panMult;
+				cameraTargetPan.z += dy * 0.05f * (TILE_SIZE / 4.0f) * panMult;
 			}
 			return;
 		}
@@ -10350,8 +10352,10 @@ void ofApp::mouseDragged(int x, int y, int button) {
 
 	if (button == OF_MOUSE_BUTTON_RIGHT) {
 		float dx = ofGetPreviousMouseX() - x, dy = ofGetPreviousMouseY() - y;
-		cameraTargetPan.x += dx * 0.05f * (TILE_SIZE / 4.0f);
-		cameraTargetPan.z += dy * 0.05f * (TILE_SIZE / 4.0f);
+		// Invert pan for client (camera 2 is mirrored)
+		float panMult = shouldFlipCamera() ? -1.0f : 1.0f;
+		cameraTargetPan.x += dx * 0.05f * (TILE_SIZE / 4.0f) * panMult;
+		cameraTargetPan.z += dy * 0.05f * (TILE_SIZE / 4.0f) * panMult;
 		return;
 	}
 
@@ -17880,7 +17884,45 @@ void ofApp::processNetworkPackets() {
 				activeDiceRolls.clear();
 				currentAP = 0;
 
-				// Client: do NOT roll AP locally. Use host-provided results only.
+				// CLIENT: Create visual dice rolls from host-provided results
+				// This ensures the client sees the AP roll animation even though the host rolled it
+				std::string diceLabel = "";
+				if (startingPlayer.isWolf) {
+					diceLabel = "Wolf AP Roll";
+				} else if (startingPlayer.isHellhound) {
+					diceLabel = "Hellhound AP Roll";
+				} else if (startingPlayer.isDemon) {
+					diceLabel = "Demon AP Roll";
+				} else if (startingPlayer.isKobold) {
+					diceLabel = "Kobold AP Roll";
+				} else if (startingPlayer.isWallUnit) {
+					diceLabel = startingPlayer.isMagicWallUnit ? "Magic Wall Unit AP" : "Wall Unit AP";
+				} else if (startingPlayer.isKoboldKing) {
+					diceLabel = "Kobold King AP";
+				} else if (startingPlayer.isAssistant) {
+					diceLabel = "Assistant AP (Coin)";
+				} else if (startingPlayer.isFaerie) {
+					diceLabel = "Faerie AP Roll";
+				} else if (startingPlayer.isMinion) {
+					diceLabel = getPlayerDisplayName(currentPlayerIndex) + " AP Roll";
+				} else {
+					diceLabel = "Player AP Roll";
+				}
+
+				currentDiceLabel = diceLabel;
+
+				// Create DiceRoll objects with host-provided results
+				for (int i = 0; i < (int)tpk->diceNum; ++i) {
+					DiceRoll newRoll;
+					newRoll.purpose = PURPOSE_AP;
+					newRoll.sides = (int)tpk->diceSides;
+					newRoll.rawResult = (int)tpk->rawResults[i];
+					newRoll.result = (int)tpk->finalResults[i];
+					newRoll.startTime = ofGetElapsedTimef();
+					newRoll.isFinishedVisual = false;
+					activeDiceRolls.push_back(newRoll);
+				}
+
 				int hostTotal = 0;
 				for (int i = 0; i < (int)tpk->diceNum; ++i) {
 					hostTotal += (int)tpk->finalResults[i];
