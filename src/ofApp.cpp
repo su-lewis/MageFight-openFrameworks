@@ -3902,7 +3902,7 @@ void ofApp::updateGame() {
 					}
 					ofLogNotice("Game") << "AP Roll Finished: " << currentAP << " AP awarded (sum of all dice).";
 
-					// HOST: Send TurnStart packet to client when starting their turn (only if all dice finished)
+					// HOST: Send TurnStart packet to client once AP dice are finished (for BOTH turns)
 					bool allDiceFinished = true;
 					for (const auto & d : activeDiceRolls) {
 						if (!d.isFinishedVisual && (d.purpose == PURPOSE_AP || d.purpose == PURPOSE_BONUS_AP)) {
@@ -3910,12 +3910,17 @@ void ofApp::updateGame() {
 							break;
 						}
 					}
-					if (isHost() && !isCurrentPlayerLocal() && allDiceFinished) {
+					static int lastTurnStartSentPlayer = -1;
+					static int lastTurnStartSentCounter = -1;
+					bool alreadySent = (lastTurnStartSentPlayer == currentPlayerIndex && lastTurnStartSentCounter == globalTurnCounter);
+					if (isHost() && isMultiplayer && allDiceFinished && !alreadySent) {
 						TurnStartPacket tpk = {};
 						tpk.type = PKT_TURN_START;
 						tpk.playerID = myLocalPlayerID;
 						tpk.currentPlayerIndex = currentPlayerIndex;
 						tpk.diceNum = 0;
+						tpk.diceSides = (uint8_t)lastAPDiceSides;
+						tpk.purpose = PURPOSE_AP;
 						tpk.finalTotal = currentAP;
 						// Count actual AP/BONUS_AP dice and populate packet
 						for (const auto & d : activeDiceRolls) {
@@ -3926,6 +3931,8 @@ void ofApp::updateGame() {
 							}
 						}
 						steamManager.sendPacket(&tpk, sizeof(tpk));
+						lastTurnStartSentPlayer = currentPlayerIndex;
+						lastTurnStartSentCounter = globalTurnCounter;
 						ofLogNotice("Network") << "Host sent TurnStart (continueNewTurn): player=" << tpk.currentPlayerIndex << " dice=" << (int)tpk.diceNum << " total=" << tpk.finalTotal;
 					}
 				} else if (roll.purpose == PURPOSE_SLEEP_DURATION) {
