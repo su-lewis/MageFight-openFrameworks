@@ -1440,15 +1440,16 @@ void ofApp::initializeGameStateCommon() {
 	cameraTargetPan = glm::vec3(0, 0, 0);
 	cameraCurrentPan = glm::vec3(0, 0, 0);
 	isTopDownView = false;
-	
+
 	// Setup Player 0's camera (south side)
 	cam.setPosition(0, cameraCurrentZoom * 1.18f, cameraCurrentZoom * 0.70f);
 	cam.lookAt(cameraCurrentPan);
-	
+
 	// Setup Player 1's camera (north side, 180° opposite)
 	cam2.setPosition(0, cameraCurrentZoom * 1.18f, -(cameraCurrentZoom * 0.70f));
 	cam2.lookAt(cameraCurrentPan);
 	cameraCurrentPos = cam.getPosition();
+	cameraCurrentPos2 = cam2.getPosition();
 	cameraCurrentLookAt = cameraCurrentPan;
 
 	// --- BOARD WALLS SETUP ---
@@ -1690,13 +1691,13 @@ void ofApp::updateGame() {
 		targetPos2 = glm::vec3(cameraCurrentPan.x, cameraCurrentZoom * 1.18f, cameraCurrentPan.z - cameraCurrentZoom * 0.70f); // Opposite Z
 	}
 	cameraCurrentPos = glm::mix(cameraCurrentPos, targetPos, frame_independent_smoothing);
+	cameraCurrentPos2 = glm::mix(cameraCurrentPos2, targetPos2, frame_independent_smoothing);
 	cameraCurrentLookAt = glm::mix(cameraCurrentLookAt, targetLookAt, frame_independent_smoothing);
-	
+
 	// Update both cameras
 	cam.setPosition(cameraCurrentPos);
 	cam.lookAt(cameraCurrentLookAt);
-	cam2.setPosition(targetPos2);
-	cam2.lookAt(cameraCurrentLookAt);
+	cam2.setPosition(cameraCurrentPos2);
 
 	// --- TORCH FLICKER LOGIC (SLOWER) ---
 	float time = ofGetElapsedTimef();
@@ -4811,7 +4812,7 @@ void ofApp::drawGame() {
 		ofSetColor(255);
 		ofEnableLighting();
 
-		ofCamera& activeCam = getActiveCamera();
+		ofCamera & activeCam = getActiveCamera();
 		activeCam.begin();
 
 		// --- LIGHTING ---
@@ -13803,8 +13804,8 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 //--------------------------------------------------------------
 ofVec2f ofApp::mouseToBoard(int x, int y) {
 	// Use the appropriate camera for raycasting based on which player we are
-	ofCamera& activeCam = getActiveCamera();
-	
+	ofCamera & activeCam = getActiveCamera();
+
 	glm::vec3 planePoint(0, 0, 0);
 	glm::vec3 planeNormal(0, 1, 0);
 	glm::vec3 rayOrigin = activeCam.screenToWorld(glm::vec3(x, y, 0));
@@ -14440,7 +14441,7 @@ bool ofApp::isCurrentPlayerLocal() const {
 }
 
 //--------------------------------------------------------------
-ofCamera& ofApp::getActiveCamera() {
+ofCamera & ofApp::getActiveCamera() {
 	// In multiplayer, Player 1 (client) uses cam2 positioned on opposite side
 	// Player 0 (host) uses cam (default position)
 	if (isMultiplayer && myLocalPlayerID == 1) {
@@ -17726,23 +17727,21 @@ void ofApp::processNetworkPackets() {
 
 			// Check if this is a movement action (cardIndex < 0) or card play (cardIndex >= 0)
 			if (pkt->cardIndex < 0) {
-				// MOVEMENT ACTION: Host receives client's movement and applies it
-				if (isHost()) {
-					ofLogNotice("Network") << "Host received movement from player to (" << pkt->targetX << "," << pkt->targetY << ")";
-					// Find the player and move them
-					for (auto & p : players) {
-						if (p.playerID == pkt->playerID && p.playerID == currentPlayerIndex && !p.isMinion) {
-							// Verify movement is legal (would be checked on client, but verify here too)
-							if (pkt->targetX >= 0 && pkt->targetX < BOARD_WIDTH && pkt->targetY >= 0 && pkt->targetY < BOARD_HEIGHT) {
-								board[p.x][p.y].hasPlayer = false;
-								board[pkt->targetX][pkt->targetY].hasPlayer = true;
-								p.x = pkt->targetX;
-								p.y = pkt->targetY;
-								invalidateTargetCache();
-								ofLogNotice("Network") << "Host applied movement for player to (" << pkt->targetX << "," << pkt->targetY << ")";
-							}
-							break;
+				// MOVEMENT ACTION: Receive opponent's movement and apply it locally
+				ofLogNotice("Network") << "Received movement from opponent to (" << pkt->targetX << "," << pkt->targetY << ")";
+				// Find the player and move them
+				for (auto & p : players) {
+					if (p.playerID == pkt->playerID && !p.isMinion) {
+						// Verify movement is legal
+						if (pkt->targetX >= 0 && pkt->targetX < BOARD_WIDTH && pkt->targetY >= 0 && pkt->targetY < BOARD_HEIGHT) {
+							board[p.x][p.y].hasPlayer = false;
+							board[pkt->targetX][pkt->targetY].hasPlayer = true;
+							p.x = pkt->targetX;
+							p.y = pkt->targetY;
+							invalidateTargetCache();
+							ofLogNotice("Network") << "Applied movement for player " << pkt->playerID << " to (" << pkt->targetX << "," << pkt->targetY << ")";
 						}
+						break;
 					}
 				}
 			} else {
@@ -17755,10 +17754,10 @@ void ofApp::processNetworkPackets() {
 			}
 		} else if (header->type == PKT_DRAW_CARDS) {
 			DrawCardsPacket * dcpkt = (DrawCardsPacket *)header;
-			ofLogNotice("Network") << "Host received DrawCards: player=" << dcpkt->playerIndex << " num=" << dcpkt->numCards;
+			ofLogNotice("Network") << "Received DrawCards from opponent: player=" << dcpkt->playerIndex << " num=" << dcpkt->numCards;
 
-			// Host applies the draw on behalf of client
-			if (isHost() && dcpkt->playerIndex >= 0 && dcpkt->playerIndex < (int)players.size()) {
+			// Apply the draw from opponent's deck
+			if (dcpkt->playerIndex >= 0 && dcpkt->playerIndex < (int)players.size()) {
 				for (int i = 0; i < dcpkt->numCards; ++i) {
 					// Draw from player's deck locally
 					Player & p = players[dcpkt->playerIndex];
