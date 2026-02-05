@@ -439,6 +439,7 @@ public:
 
 	// Camera perspective: Each player sees themselves in bottom-left, opponent in top-right
 	bool shouldFlipCamera() const { return isMultiplayer && myLocalPlayerID == 1; }
+	ofCamera& getActiveCamera(); // Returns appropriate camera based on player (cam or cam2)
 	glm::vec3 transformGridToWorld(int gx, int gy); // Applies camera flip if needed
 	glm::ivec2 transformWorldToGrid(glm::vec3 worldPos); // Applies camera flip if needed
 	int getVisualPlayerIndex(int actualPlayerIndex); // Converts actual player index to visual (flipped for client)
@@ -732,7 +733,8 @@ private:
 	int lastCachedCardIndex = -1;
 
 	// --- CAMERA ---
-	ofCamera cam;
+	ofCamera cam;  // Player 0's camera
+	ofCamera cam2; // Player 1's camera (opposite side)
 	ofLight headlight;
 	ofLight keyLight;
 	ofLight rimLight;

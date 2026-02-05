@@ -1440,8 +1440,14 @@ void ofApp::initializeGameStateCommon() {
 	cameraTargetPan = glm::vec3(0, 0, 0);
 	cameraCurrentPan = glm::vec3(0, 0, 0);
 	isTopDownView = false;
+	
+	// Setup Player 0's camera (south side)
 	cam.setPosition(0, cameraCurrentZoom * 1.18f, cameraCurrentZoom * 0.70f);
 	cam.lookAt(cameraCurrentPan);
+	
+	// Setup Player 1's camera (north side, 180° opposite)
+	cam2.setPosition(0, cameraCurrentZoom * 1.18f, -(cameraCurrentZoom * 0.70f));
+	cam2.lookAt(cameraCurrentPan);
 	cameraCurrentPos = cam.getPosition();
 	cameraCurrentLookAt = cameraCurrentPan;
 
@@ -1671,19 +1677,26 @@ void ofApp::updateGame() {
 	cameraCurrentZoom = ofLerp(cameraCurrentZoom, cameraTargetZoom, frame_independent_smoothing);
 	cameraCurrentPan = glm::mix(cameraCurrentPan, cameraTargetPan, frame_independent_smoothing);
 	glm::vec3 targetPos;
+	glm::vec3 targetPos2; // Second camera position (opposite side)
 	glm::vec3 targetLookAt = cameraCurrentPan;
 	if (isTopDownView) {
 		// Top-down should be more zoomed-in: lower the camera height multiplier.
 		targetPos = glm::vec3(cameraCurrentPan.x, cameraCurrentZoom * 0.6f, cameraCurrentPan.z);
+		targetPos2 = glm::vec3(cameraCurrentPan.x, cameraCurrentZoom * 0.6f, cameraCurrentPan.z);
 	} else {
 		// Use updated multipliers at runtime target: raise Y a bit to look more
 		// top-down while keeping the same Z back offset.
 		targetPos = glm::vec3(cameraCurrentPan.x, cameraCurrentZoom * 1.18f, cameraCurrentPan.z + cameraCurrentZoom * 0.70f);
+		targetPos2 = glm::vec3(cameraCurrentPan.x, cameraCurrentZoom * 1.18f, cameraCurrentPan.z - cameraCurrentZoom * 0.70f); // Opposite Z
 	}
 	cameraCurrentPos = glm::mix(cameraCurrentPos, targetPos, frame_independent_smoothing);
 	cameraCurrentLookAt = glm::mix(cameraCurrentLookAt, targetLookAt, frame_independent_smoothing);
+	
+	// Update both cameras
 	cam.setPosition(cameraCurrentPos);
 	cam.lookAt(cameraCurrentLookAt);
+	cam2.setPosition(targetPos2);
+	cam2.lookAt(cameraCurrentLookAt);
 
 	// --- TORCH FLICKER LOGIC (SLOWER) ---
 	float time = ofGetElapsedTimef();
@@ -4798,14 +4811,15 @@ void ofApp::drawGame() {
 		ofSetColor(255);
 		ofEnableLighting();
 
-		cam.begin();
+		ofCamera& activeCam = getActiveCamera();
+		activeCam.begin();
 
 		// --- LIGHTING ---
 		uiLight.disable();
 		keyLight.enable();
 		rimLight.enable();
 		headlight.enable();
-		headlight.setPosition(cam.getPosition());
+		headlight.setPosition(activeCam.getPosition());
 
 		// ===================================================================
 		//  PASS 1: DRAW ALL OPAQUE OBJECTS (Models & Dice)
@@ -13788,19 +13802,13 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 }
 //--------------------------------------------------------------
 ofVec2f ofApp::mouseToBoard(int x, int y) {
-	// For Player 2 (flipped camera), flip the screen coordinates before raycasting
-	// This ensures the raycast originates from the correct perspective
-	int screenX = x;
-	int screenY = y;
-	if (shouldFlipCamera()) {
-		screenX = ofGetWidth() - x;
-		screenY = ofGetHeight() - y;
-	}
-
+	// Use the appropriate camera for raycasting based on which player we are
+	ofCamera& activeCam = getActiveCamera();
+	
 	glm::vec3 planePoint(0, 0, 0);
 	glm::vec3 planeNormal(0, 1, 0);
-	glm::vec3 rayOrigin = cam.screenToWorld(glm::vec3(screenX, screenY, 0));
-	glm::vec3 rayDirection = cam.screenToWorld(glm::vec3(screenX, screenY, 1)) - rayOrigin;
+	glm::vec3 rayOrigin = activeCam.screenToWorld(glm::vec3(x, y, 0));
+	glm::vec3 rayDirection = activeCam.screenToWorld(glm::vec3(x, y, 1)) - rayOrigin;
 	float distance;
 	bool intersects = glm::intersectRayPlane(rayOrigin, rayDirection, planePoint, planeNormal, distance);
 	if (intersects) {
@@ -14429,6 +14437,16 @@ bool ofApp::isMyTurn() const {
 bool ofApp::isCurrentPlayerLocal() const {
 	if (currentPlayerIndex < 0 || players.empty()) return false;
 	return players[currentPlayerIndex].playerID == myLocalPlayerID;
+}
+
+//--------------------------------------------------------------
+ofCamera& ofApp::getActiveCamera() {
+	// In multiplayer, Player 1 (client) uses cam2 positioned on opposite side
+	// Player 0 (host) uses cam (default position)
+	if (isMultiplayer && myLocalPlayerID == 1) {
+		return cam2;
+	}
+	return cam;
 }
 
 void ofApp::addGameLog(const std::string & logText) {
