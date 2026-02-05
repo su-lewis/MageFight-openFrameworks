@@ -1446,6 +1446,7 @@ void ofApp::initializeGameStateCommon() {
 	players.clear();
 	activeDiceRolls.clear();
 	globalTurnCounter = 0; // Reset turn counter for new game
+	draftGenerationCounter = 0; // Reset draft counter for new game
 	for (int x = 0; x < BOARD_WIDTH; ++x) {
 		for (int y = 0; y < BOARD_HEIGHT; ++y) {
 			board[x][y] = Tile();
@@ -17408,10 +17409,13 @@ void ofApp::generateDraftOptions(int classTier, const std::vector<int> * forcedI
 	// Deterministic draft generation derived from the shared map seed and draft context.
 	// This makes draft options independent of the global `gameplayRNG` state so both
 	// host and clients see identical options even if other RNG calls differ.
+	// Increment the counter to ensure variety across different draft sessions
+	draftGenerationCounter++;
 	uint32_t derivedSeed = currentMapSeed;
 	derivedSeed ^= (uint32_t)classTier * 2654435761u; // golden ratio mixing
 	derivedSeed ^= ((uint32_t)draftPlayerIndex << 16);
 	derivedSeed ^= ((uint32_t)draftStage << 24);
+	derivedSeed ^= draftGenerationCounter * 1103515245u; // Add generation counter for variety
 
 	std::mt19937 draftRng(derivedSeed);
 	std::shuffle(indices.begin(), indices.end(), draftRng);
