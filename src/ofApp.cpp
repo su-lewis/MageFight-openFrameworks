@@ -10883,8 +10883,12 @@ void ofApp::dragEvent(ofDragInfo dragInfo) { }
 
 //--------------------------------------------------------------
 void ofApp::startNewTurn() {
+	ofLogNotice("Turn") << "startNewTurn() called. isMultiplayer=" << isMultiplayer << " currentPlayerIndex=" << currentPlayerIndex << " myLocalPlayerID=" << myLocalPlayerID << " isCurrentPlayerLocal()=" << isCurrentPlayerLocal();
+	
 	// If it was MY turn and I am ending it:
 	if (isMultiplayer && isCurrentPlayerLocal()) {
+		ofLogNotice("Turn") << "Ending my turn (player " << myLocalPlayerID << "). Sending END_TURN packet.";
+		
 		// 1. Send End Turn
 		PacketHeader pkt;
 		pkt.type = PKT_END_TURN;
@@ -10907,9 +10911,11 @@ void ofApp::startNewTurn() {
 
 		// 2.5. CLEAN UP LOCAL PLAYER'S HAND & BUFFS BEFORE WAITING
 		// Both host and client must do this so deck states stay in sync
+		ofLogNotice("Turn") << "Cleaning up local player's (" << myLocalPlayerID << ") hand and buffs...";
 		for (size_t i = 0; i < players.size(); i++) {
 			if (players[i].playerID == myLocalPlayerID && !players[i].isMinion) {
 				Player & localPlayer = players[i];
+				ofLogNotice("Turn") << "Found local player at index " << i << ". Hand size: " << localPlayer.hand.size() << ", Played: " << localPlayer.playedCardsPile.size();
 
 				// Move hand and played cards to discard
 				localPlayer.discardPile.insert(localPlayer.discardPile.end(), localPlayer.hand.begin(), localPlayer.hand.end());
@@ -10960,10 +10966,12 @@ void ofApp::startNewTurn() {
 
 		// 3. CLIENT: Wait for host's next TurnStart packet instead of rolling locally
 		if (isClient()) {
+			ofLogNotice("Turn") << "Client: Early return after cleanup. Waiting for host's TurnStart.";
 			// Early return - don't advance turn locally, wait for host's PKT_TURN_START
 			// Note: Local player's hand is already cleaned up above
 			return;
 		}
+		ofLogNotice("Turn") << "Host: Continuing with turn advancement...";
 	}
 
 	if (players.empty()) return;
@@ -10971,10 +10979,14 @@ void ofApp::startNewTurn() {
 	// --- 1. Handle the ENDING player's state ---
 	if (currentPlayerIndex != -1) {
 		Player & endingPlayer = players[currentPlayerIndex];
+		ofLogNotice("Turn") << "Processing ending player: index=" << currentPlayerIndex << " playerID=" << endingPlayer.playerID;
 
 		// --- A. CLEANUP HAND & BUFFS ---
 		// Skip this for local player on client (already done above)
-		if (!(isMultiplayer && isClient() && endingPlayer.playerID == myLocalPlayerID)) {
+		bool shouldSkipCleanup = (isMultiplayer && isClient() && endingPlayer.playerID == myLocalPlayerID);
+		ofLogNotice("Turn") << "Cleanup check: isClient=" << isClient() << " endingPlayer.playerID=" << endingPlayer.playerID << " myLocalPlayerID=" << myLocalPlayerID << " shouldSkip=" << shouldSkipCleanup;
+		if (!shouldSkipCleanup) {
+			ofLogNotice("Turn") << "Cleaning up ending player's hand. Hand size: " << endingPlayer.hand.size() << ", Played: " << endingPlayer.playedCardsPile.size();
 			endingPlayer.discardPile.insert(endingPlayer.discardPile.end(), endingPlayer.hand.begin(), endingPlayer.hand.end());
 			endingPlayer.hand.clear();
 			endingPlayer.discardPile.insert(endingPlayer.discardPile.end(), endingPlayer.playedCardsPile.begin(), endingPlayer.playedCardsPile.end());
@@ -17701,6 +17713,17 @@ void ofApp::processNetworkPackets() {
 		if (header->type == PKT_TURN_START) {
 			TurnStartPacket * tpk = (TurnStartPacket *)header;
 			ofLogNotice("Network") << "TurnStart packet received: player=" << tpk->currentPlayerIndex << " dice=" << (int)tpk->diceNum << " total=" << tpk->finalTotal;
+			
+			// Prevent duplicate processing: check if we're already on this turn
+			static int lastProcessedTurnPlayer = -1;
+			static int lastProcessedTurnCounter = -1;
+			if (tpk->currentPlayerIndex == lastProcessedTurnPlayer && globalTurnCounter == lastProcessedTurnCounter) {
+				ofLogNotice("Network") << "Ignoring duplicate TurnStart packet (already processed player=" << tpk->currentPlayerIndex << " turn=" << globalTurnCounter << ")";
+				return;
+			}
+			lastProcessedTurnPlayer = tpk->currentPlayerIndex;
+			lastProcessedTurnCounter = globalTurnCounter;
+			
 			if (tpk->currentPlayerIndex >= 0 && tpk->currentPlayerIndex < (int)players.size()) {
 				// Set up turn state
 				waitingForTurnStartFromHost = false;
@@ -17738,7 +17761,10 @@ void ofApp::processNetworkPackets() {
 				}
 
 				// DEBUGGING: Calculate checksum BEFORE marking dice as DEBUG (to match host's state)
-				if (globalTurnCounter == 0) {
+				// Only send checksum once per turn to avoid sending it multiple times if duplicate packets arrive
+				static int lastChecksumTurn = -1;
+				if (globalTurnCounter == 0 && lastChecksumTurn != globalTurnCounter) {
+					lastChecksumTurn = globalTurnCounter;
 					ofLogNotice("Network") << "Client: Requesting checksum check for turn 0 (post-draft)";
 					// Log deck state before checksum
 					for (size_t pi = 0; pi < players.size(); ++pi) {
