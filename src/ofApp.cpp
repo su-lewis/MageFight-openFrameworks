@@ -17572,26 +17572,13 @@ void ofApp::processNetworkPackets() {
 				activeDiceRolls.clear();
 				currentAP = 0;
 
-				// Both client and host call startDiceRoll with same parameters and shared seed,
-				// so they'll get the same results. The packet is used for validation.
-				int clientTotal = startDiceRoll((int)tpk->diceNum, (int)tpk->diceSides, (DicePurpose)tpk->purpose, "Client Turn Start AP", tpk->currentPlayerIndex);
-
-				// Verify client's roll matches host's roll
+				// Client: do NOT roll AP locally. Use host-provided results only.
 				int hostTotal = 0;
 				for (int i = 0; i < (int)tpk->diceNum; ++i) {
 					hostTotal += (int)tpk->finalResults[i];
 				}
-
-				if (clientTotal != hostTotal) {
-					ofLogError("Network") << "DESYNC: Client rolled " << clientTotal << " AP but host sent " << hostTotal;
-				} else {
-					ofLogNotice("Network") << "Client: AP roll validated, both got " << clientTotal;
-				}
-
-				int total = clientTotal;
-				ofLogNotice("Game") << "TurnStart applied locally: player=" << currentPlayerIndex << " AP total=" << total;
-				// Set AP directly from host's authoritative total
-				currentAP = total;
+				ofLogNotice("Game") << "TurnStart applied locally: player=" << currentPlayerIndex << " AP total=" << hostTotal;
+				currentAP = hostTotal;
 				if (startingPlayer.nextTurnAPBonus > 0) {
 					currentAP += startingPlayer.nextTurnAPBonus;
 					startingPlayer.nextTurnAPBonus = 0;
