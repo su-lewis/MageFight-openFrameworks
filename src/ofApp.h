@@ -775,6 +775,7 @@ private:
 	float last3DZoom = 35.0f;
 	float lastWindowWidth = 0;
 	float lastWindowHeight = 0;
+	bool draftingCameraLockedToClient = false; // Remember which camera was used before drafting
 
 	// --- 3D ASSETS ---
 	ofxAssimpModelLoader playerModel;
