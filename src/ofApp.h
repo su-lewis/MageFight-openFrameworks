@@ -9,6 +9,7 @@
 
 // --- Standard Library Includes ---
 #include <algorithm>
+#include <array>
 #include <limits>
 #include <queue>
 #include <random>
@@ -602,6 +603,8 @@ private:
 	bool isInGameDraft = false;
 	std::vector<int> selectedDraftIndices; // Tracks indices of cards currently highlighted in draft
 	std::vector<Card> draftOptions; // The 3 cards currently shown
+	int currentDraftClassTier = 0; // 1/2/3 for the currently displayed options
+	std::array<int, 3> currentDraftOptionPoolIndices = { { -1, -1, -1 } }; // Pool indices for current options
 	std::vector<Card> class1Cards;
 	std::vector<Card> class2Cards;
 	std::vector<Card> class3Cards;

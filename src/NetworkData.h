@@ -76,6 +76,7 @@ struct DraftActionPacket : PacketHeader {
 	uint8_t selectFlag; // For SelectCard: 1 = select, 0 = deselect
 	int32_t optionIndex; // Index of the card picked (-1 if accepting an empty selection)
 	int32_t draftPlayerIdx; // The player (index) currently drafting
+	int32_t classTier; // 1/2/3 for which pool the selection came from (for AcceptDraft)
 	int32_t numSelected; // number of indices provided (for AcceptDraft)
 	int32_t selectedIdx0; // up to 3 selections
 	int32_t selectedIdx1;

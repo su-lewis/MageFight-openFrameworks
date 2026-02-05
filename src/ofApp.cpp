@@ -8163,10 +8163,11 @@ void ofApp::mousePressed(int x, int y, int button) {
 				pkt.actionType = 1; // AcceptDraft
 				pkt.selectFlag = 0;
 				pkt.draftPlayerIdx = draftPlayerIndex;
+				pkt.classTier = currentDraftClassTier;
 				pkt.numSelected = (int)selectedDraftIndices.size();
-				pkt.selectedIdx0 = (pkt.numSelected > 0) ? selectedDraftIndices[0] : -1;
-				pkt.selectedIdx1 = (pkt.numSelected > 1) ? selectedDraftIndices[1] : -1;
-				pkt.selectedIdx2 = (pkt.numSelected > 2) ? selectedDraftIndices[2] : -1;
+				pkt.selectedIdx0 = (pkt.numSelected > 0 && selectedDraftIndices[0] >= 0 && selectedDraftIndices[0] < 3) ? currentDraftOptionPoolIndices[selectedDraftIndices[0]] : -1;
+				pkt.selectedIdx1 = (pkt.numSelected > 1 && selectedDraftIndices[1] >= 0 && selectedDraftIndices[1] < 3) ? currentDraftOptionPoolIndices[selectedDraftIndices[1]] : -1;
+				pkt.selectedIdx2 = (pkt.numSelected > 2 && selectedDraftIndices[2] >= 0 && selectedDraftIndices[2] < 3) ? currentDraftOptionPoolIndices[selectedDraftIndices[2]] : -1;
 				bool ok = steamManager.sendPacket(&pkt, sizeof(pkt));
 				if (!ok) {
 					ofLogError("Network") << "Failed to send AcceptDraft to host (packet not sent)";
@@ -8197,10 +8198,11 @@ void ofApp::mousePressed(int x, int y, int button) {
 				acceptPkt.playerID = myLocalPlayerID;
 				acceptPkt.actionType = 1; // Accept
 				acceptPkt.draftPlayerIdx = draftPlayerIndex;
+				acceptPkt.classTier = currentDraftClassTier;
 				acceptPkt.numSelected = (uint8_t)selectedDraftIndices.size();
-				acceptPkt.selectedIdx0 = selectedDraftIndices.size() > 0 ? selectedDraftIndices[0] : -1;
-				acceptPkt.selectedIdx1 = selectedDraftIndices.size() > 1 ? selectedDraftIndices[1] : -1;
-				acceptPkt.selectedIdx2 = selectedDraftIndices.size() > 2 ? selectedDraftIndices[2] : -1;
+				acceptPkt.selectedIdx0 = (selectedDraftIndices.size() > 0 && selectedDraftIndices[0] >= 0 && selectedDraftIndices[0] < 3) ? currentDraftOptionPoolIndices[selectedDraftIndices[0]] : -1;
+				acceptPkt.selectedIdx1 = (selectedDraftIndices.size() > 1 && selectedDraftIndices[1] >= 0 && selectedDraftIndices[1] < 3) ? currentDraftOptionPoolIndices[selectedDraftIndices[1]] : -1;
+				acceptPkt.selectedIdx2 = (selectedDraftIndices.size() > 2 && selectedDraftIndices[2] >= 0 && selectedDraftIndices[2] < 3) ? currentDraftOptionPoolIndices[selectedDraftIndices[2]] : -1;
 				acceptPkt.optionIndex = -1;
 				acceptPkt.selectFlag = 0;
 				steamManager.sendPacket(&acceptPkt, sizeof(acceptPkt));
@@ -17013,6 +17015,8 @@ void ofApp::generateDraftOptions(int classTier, const std::vector<int> * forcedI
 	// Deterministic: always use shared gameplayRNG so both host and client
 	// generate the same three options locally. Do NOT wait for host packets.
 	draftOptions.clear();
+	currentDraftClassTier = classTier;
+	currentDraftOptionPoolIndices = { { -1, -1, -1 } };
 	const std::vector<Card> * pool = &class1Cards;
 	if (classTier == 2) pool = &class2Cards;
 	if (classTier == 3) pool = &class3Cards;
@@ -17024,8 +17028,13 @@ void ofApp::generateDraftOptions(int classTier, const std::vector<int> * forcedI
 
 	// If forced indices were provided (legacy/explicit packet), use them directly
 	if (forcedIndices && !forcedIndices->empty()) {
+		int slot = 0;
 		for (int idx : *forcedIndices) {
-			if (idx >= 0 && idx < (int)pool->size()) draftOptions.push_back((*pool)[idx]);
+			if (idx >= 0 && idx < (int)pool->size()) {
+				draftOptions.push_back((*pool)[idx]);
+				if (slot < 3) currentDraftOptionPoolIndices[slot] = idx;
+				slot++;
+			}
 		}
 		// Ensure pick counts are still set below
 		return;
@@ -17044,6 +17053,7 @@ void ofApp::generateDraftOptions(int classTier, const std::vector<int> * forcedI
 
 	for (int i = 0; i < 3 && i < (int)indices.size(); ++i) {
 		draftOptions.push_back((*pool)[indices[i]]);
+		currentDraftOptionPoolIndices[i] = indices[i];
 	}
 
 	// Set pick count based on rules
@@ -17109,6 +17119,8 @@ void ofApp::generateDraftOptions(int classTier, const std::vector<int> * forcedI
 // Apply authoritative option indices sent by host (clients call this when receiving DraftOptionsPacket)
 void ofApp::applyDraftOptionsFromPool(int classTier, const std::vector<int> & indices, int picksRemaining, int draftingPlayerIdx) {
 	draftOptions.clear();
+	currentDraftClassTier = classTier;
+	currentDraftOptionPoolIndices = { { -1, -1, -1 } };
 	const std::vector<Card> * pool = &class1Cards;
 	if (classTier == 2) pool = &class2Cards;
 	if (classTier == 3) pool = &class3Cards;
@@ -17121,8 +17133,13 @@ void ofApp::applyDraftOptionsFromPool(int classTier, const std::vector<int> & in
 		return;
 	}
 
+	int slot = 0;
 	for (int idx : indices) {
-		if (idx >= 0 && idx < (int)pool->size()) draftOptions.push_back((*pool)[idx]);
+		if (idx >= 0 && idx < (int)pool->size()) {
+			draftOptions.push_back((*pool)[idx]);
+			if (slot < 3) currentDraftOptionPoolIndices[slot] = idx;
+			slot++;
+		}
 	}
 
 	draftPicksRemaining = picksRemaining;
@@ -17860,11 +17877,15 @@ void ofApp::processNetworkPackets() {
 
 					Player & p = players[pkt->draftPlayerIdx];
 					int copiesPerCard = 1;
-					if (!isInGameDraft && draftStage == 0) copiesPerCard = 2;
+					if (!isInGameDraft && pkt->classTier == 1) copiesPerCard = 2;
+					const std::vector<Card> * pool = &class1Cards;
+					if (pkt->classTier == 2) pool = &class2Cards;
+					if (pkt->classTier == 3) pool = &class3Cards;
 					for (int idx : sel) {
-						if (idx >= 0 && idx < (int)draftOptions.size()) {
-							for (int k = 0; k < copiesPerCard; ++k)
-								p.deck.push_back(draftOptions[idx]);
+						if (idx >= 0 && idx < (int)pool->size()) {
+							for (int k = 0; k < copiesPerCard; ++k) {
+								p.deck.push_back((*pool)[idx]);
+							}
 						}
 					}
 
@@ -18016,11 +18037,15 @@ void ofApp::processNetworkPackets() {
 
 					Player & p = players[pkt->draftPlayerIdx];
 					int copiesPerCard = 1;
-					if (!isInGameDraft && draftStage == 0) copiesPerCard = 2;
+					if (!isInGameDraft && pkt->classTier == 1) copiesPerCard = 2;
+					const std::vector<Card> * pool = &class1Cards;
+					if (pkt->classTier == 2) pool = &class2Cards;
+					if (pkt->classTier == 3) pool = &class3Cards;
 					for (int idx : sel) {
-						if (idx >= 0 && idx < (int)draftOptions.size()) {
-							for (int k = 0; k < copiesPerCard; ++k)
-								p.deck.push_back(draftOptions[idx]);
+						if (idx >= 0 && idx < (int)pool->size()) {
+							for (int k = 0; k < copiesPerCard; ++k) {
+								p.deck.push_back((*pool)[idx]);
+							}
 						}
 					}
 					// In multiplayer clients, mark that we will skip the immediate local shuffle and
