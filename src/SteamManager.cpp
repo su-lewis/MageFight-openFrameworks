@@ -159,6 +159,41 @@ CSteamID SteamManager::getOpponentSteamID() const {
 	return m_OpponentID;
 }
 
+CSteamID SteamManager::getLocalSteamID() const {
+	return m_LocalID;
+}
+
+bool SteamManager::getAvatarImage(const CSteamID & id, ofImage & outImage, int size) const {
+	if (!m_bInitialized || !SteamFriends() || !SteamUtils() || !id.IsValid()) return false;
+
+	int imageId = 0;
+	if (size <= 32) {
+		imageId = SteamFriends()->GetSmallFriendAvatar(id);
+	} else if (size <= 64) {
+		imageId = SteamFriends()->GetMediumFriendAvatar(id);
+	} else {
+		imageId = SteamFriends()->GetLargeFriendAvatar(id);
+	}
+
+	// -1 means not yet loaded; 0 means no avatar available
+	if (imageId <= 0) return false;
+
+	uint32 width = 0;
+	uint32 height = 0;
+	if (!SteamUtils()->GetImageSize(imageId, &width, &height) || width == 0 || height == 0) {
+		return false;
+	}
+
+	ofPixels pixels;
+	pixels.allocate(width, height, OF_PIXELS_RGBA);
+	if (!SteamUtils()->GetImageRGBA(imageId, pixels.getData(), width * height * 4)) {
+		return false;
+	}
+
+	outImage.setFromPixels(pixels);
+	return true;
+}
+
 void SteamManager::openFriendOverlay() {
 	if (m_bInitialized) SteamFriends()->ActivateGameOverlay("LobbyInvite");
 }

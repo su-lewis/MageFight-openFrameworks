@@ -44,6 +44,8 @@ public:
 	std::string getLocalPlayerName() const;
 	std::string getOpponentName() const;
 	CSteamID getOpponentSteamID() const;
+	CSteamID getLocalSteamID() const;
+	bool getAvatarImage(const CSteamID & id, ofImage & outImage, int size = 64) const;
 
 	// -- Connection Status --
 	bool checkAndClearDisconnectFlag();

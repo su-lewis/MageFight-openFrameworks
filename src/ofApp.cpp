@@ -808,6 +808,16 @@ std::string ofApp::getPlayerDisplayName(int index) {
 //--------------------------------------------------------------
 void ofApp::update() {
 	steamManager.update();
+
+	// Cache Steam avatars for turn indicator
+	if (isMultiplayer && steamManager.isConnected()) {
+		if (!localAvatarReady) {
+			localAvatarReady = steamManager.getAvatarImage(steamManager.getLocalSteamID(), localAvatarImage, 64);
+		}
+		if (!opponentAvatarReady && steamManager.getOpponentSteamID().IsValid()) {
+			opponentAvatarReady = steamManager.getAvatarImage(steamManager.getOpponentSteamID(), opponentAvatarImage, 64);
+		}
+	}
 	processNetworkPackets();
 
 	// Check for disconnection/reconnection
@@ -5268,12 +5278,19 @@ void ofApp::drawGame() {
 				int col = i % rowLength;
 
 				// Special-case: Initiative roll shows exactly two dice; place them
-				// left/right for clear comparison (matches drawInitiativeRoll labels).
+				// so the local player's die is always on the left.
 				if (currentState == STATE_INITIATIVE_ROLL && (int)activeDiceRolls.size() >= 2) {
+					glm::vec3 leftPos(-6.0f, 7.0f, 0.0f);
+					glm::vec3 rightPos(6.0f, 7.0f, 0.0f);
+
+					// i==0 corresponds to player 0, i==1 corresponds to player 1
+					bool player0OnLeft = (myLocalPlayerID == 0);
 					if (i == 0) {
-						ofTranslate(-6.0f, 7.0f, 0.0f);
+						glm::vec3 pos = player0OnLeft ? leftPos : rightPos;
+						ofTranslate(pos.x, pos.y, pos.z);
 					} else if (i == 1) {
-						ofTranslate(6.0f, 7.0f, 0.0f);
+						glm::vec3 pos = player0OnLeft ? rightPos : leftPos;
+						ofTranslate(pos.x, pos.y, pos.z);
 					} else {
 						// Fallback for extra dice: continue with normal grid
 						int totalDice = (int)activeDiceRolls.size();
@@ -5669,7 +5686,7 @@ void ofApp::drawGame() {
 					}
 				}
 
-				// 2. Draw Yellow Movement Highlight (FIXED HEIGHT)
+				// 2. Draw Movement Highlight (FIXED HEIGHT) - Golden glow
 				if (board[x][y].isHighlighted) {
 					bool isOnPath = false;
 					for (const auto & step : hoverPath) {
@@ -5679,12 +5696,19 @@ void ofApp::drawGame() {
 						}
 					}
 					if (!isOnPath) {
-						ofSetColor(ofColor::green, 102);
+						// Golden glow with pulse effect
+						float pulseIntensity = 0.6f + 0.4f * sin(ofGetElapsedTimef() * 3.0f);
+						ofSetColor(255, 215, 0, (int)(130 * pulseIntensity)); // Gold
 						ofPushMatrix();
-						// USE surfaceY to draw ON TOP of wall or floor
 						ofTranslate(0, surfaceY + 0.01f, 0);
 						ofRotateXDeg(90);
-						ofDrawCircle(0, 0, TILE_SIZE * 0.30f);
+						ofDrawCircle(0, 0, TILE_SIZE * 0.28f);
+						// Outer glow ring
+						ofSetColor(255, 215, 0, (int)(80 * pulseIntensity));
+						ofNoFill();
+						ofSetLineWidth(2.0f);
+						ofDrawCircle(0, 0, TILE_SIZE * 0.40f);
+						ofFill();
 						ofPopMatrix();
 					}
 				}
@@ -5734,11 +5758,20 @@ void ofApp::drawGame() {
 					}
 
 					if (x == highlightX && y == highlightY) {
+						// Draw pulsing golden ring around current player's unit
+						float pulseScale = 0.75f + 0.25f * sin(ofGetElapsedTimef() * 2.5f);
 						ofPushMatrix();
 						ofTranslate(0, surfaceY + 0.01f, 0);
 						ofRotateXDeg(90);
-						ofSetColor(40, 200, 80, 160);
-						ofDrawRectangle(-TILE_SIZE * 0.5f, -TILE_SIZE * 0.5f, TILE_SIZE, TILE_SIZE);
+						ofNoFill();
+						ofSetLineWidth(3.5f);
+						ofSetColor(255, 215, 0, 220); // Bright gold
+						ofDrawCircle(0, 0, TILE_SIZE * (0.55f * pulseScale));
+						// Inner accent ring
+						ofSetLineWidth(1.5f);
+						ofSetColor(255, 255, 150, 180); // Lighter gold
+						ofDrawCircle(0, 0, TILE_SIZE * (0.40f * pulseScale));
+						ofFill();
 						ofPopMatrix();
 					}
 				}
@@ -6425,7 +6458,7 @@ void ofApp::drawGame() {
 			playerName = getPlayerSteamName(currentPlayerIndex);
 		}
 
-		// Draw profile picture placeholder on the left side
+		// Draw profile picture on the left side
 		float avatarSize = btnHeight_end * 0.7f;
 		float avatarPadding = 10 * scale;
 		float avatarX = endTurnButtonRect.x + avatarPadding;
@@ -6436,25 +6469,44 @@ void ofApp::drawGame() {
 		ofSetColor(80, 80, 100);
 		ofDrawCircle(avatarX + avatarSize / 2, avatarY + avatarSize / 2, avatarSize / 2);
 
-		// Draw simple player icon (initials or generic icon)
-		ofSetColor(ofColor::white);
-		string initials = "";
-		if (!playerName.empty()) {
-			initials += playerName[0];
-			// Find second initial after space
-			size_t spacePos = playerName.find(' ');
-			if (spacePos != string::npos && spacePos + 1 < playerName.length()) {
-				initials += playerName[spacePos + 1];
-			}
+		// Choose avatar image based on whose turn it is
+		bool isLocalTurn = false;
+		if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) {
+			isLocalTurn = (players[currentPlayerIndex].playerID == myLocalPlayerID);
 		}
-		ofRectangle initialsBox = uiFont.getStringBoundingBox(initials, 0, 0);
-		float initialsScale = avatarSize / std::max(initialsBox.width, initialsBox.height) * 0.6f;
-		ofPushMatrix();
-		ofTranslate(avatarX + avatarSize / 2 - (initialsBox.width * initialsScale / 2),
-			avatarY + avatarSize / 2 + (initialsBox.height * initialsScale / 2));
-		ofScale(initialsScale, initialsScale);
-		uiFont.drawString(initials, 0, 0);
-		ofPopMatrix();
+
+		bool drewAvatar = false;
+		if (isLocalTurn && localAvatarReady) {
+			ofSetColor(255);
+			localAvatarImage.draw(avatarX, avatarY, avatarSize, avatarSize);
+			drewAvatar = true;
+		} else if (!isLocalTurn && opponentAvatarReady) {
+			ofSetColor(255);
+			opponentAvatarImage.draw(avatarX, avatarY, avatarSize, avatarSize);
+			drewAvatar = true;
+		}
+
+		// Fallback: draw initials if avatar is unavailable
+		if (!drewAvatar) {
+			ofSetColor(ofColor::white);
+			string initials = "";
+			if (!playerName.empty()) {
+				initials += playerName[0];
+				// Find second initial after space
+				size_t spacePos = playerName.find(' ');
+				if (spacePos != string::npos && spacePos + 1 < playerName.length()) {
+					initials += playerName[spacePos + 1];
+				}
+			}
+			ofRectangle initialsBox = uiFont.getStringBoundingBox(initials, 0, 0);
+			float initialsScale = avatarSize / std::max(initialsBox.width, initialsBox.height) * 0.6f;
+			ofPushMatrix();
+			ofTranslate(avatarX + avatarSize / 2 - (initialsBox.width * initialsScale / 2),
+				avatarY + avatarSize / 2 + (initialsBox.height * initialsScale / 2));
+			ofScale(initialsScale, initialsScale);
+			uiFont.drawString(initials, 0, 0);
+			ofPopMatrix();
+		}
 		ofPopStyle();
 
 		// Draw text to the right of avatar
@@ -17471,21 +17523,17 @@ void ofApp::onCardPicked(int optionIndex) {
 void ofApp::drawInitiativeRoll() {
 	if (activeDiceRolls.size() >= 2) {
 
-		// Position dice so that the local player is always on the left in their perspective
-		// Player 0 is naturally on left (-6), Player 1 is naturally on right (6)
-		// But when Player 1 is viewing (with flipped camera), we need to flip the positions
-		glm::vec3 localPlayerPosWorld(-6.0f, 11.0f, 0.0f); // Local player on left
-		glm::vec3 opponentPosWorld(6.0f, 11.0f, 0.0f); // Opponent on right
+		// Position labels so that the local player is always on the left
+		glm::vec3 leftPos(-6.0f, 11.0f, 0.0f);
+		glm::vec3 rightPos(6.0f, 11.0f, 0.0f);
 
-		// For multiplayer client (myLocalPlayerID == 1), we need to use opposite positions
-		// because the camera is rotated 180 degrees
-		if (shouldFlipCamera()) {
-			localPlayerPosWorld = glm::vec3(6.0f, 11.0f, 0.0f); // Local player on right in world space
-			opponentPosWorld = glm::vec3(-6.0f, 11.0f, 0.0f); // Opponent on left in world space
-		}
+		// Player 0 is die index 0, player 1 is die index 1
+		bool player0OnLeft = (myLocalPlayerID == 0);
+		glm::vec3 player0Pos = player0OnLeft ? leftPos : rightPos;
+		glm::vec3 player1Pos = player0OnLeft ? rightPos : leftPos;
 
-		glm::vec2 localScreen = cam.worldToScreen(localPlayerPosWorld);
-		glm::vec2 opponentScreen = cam.worldToScreen(opponentPosWorld);
+		glm::vec2 localScreen = cam.worldToScreen((myLocalPlayerID == 0) ? player0Pos : player1Pos);
+		glm::vec2 opponentScreen = cam.worldToScreen((myLocalPlayerID == 0) ? player1Pos : player0Pos);
 
 		// Standardized Text Drawer (Smaller scale)
 		auto drawLabel = [&](string text, float x, float y, ofColor col) {
@@ -17512,8 +17560,8 @@ void ofApp::drawInitiativeRoll() {
 		// Draw local player on left, opponent on right
 		ofColor localPlayerColor = (myLocalPlayerID == 0) ? ofColor(70, 160, 255) : ofColor(255, 80, 80);
 		ofColor opponentColor = (myLocalPlayerID == 0) ? ofColor(255, 80, 80) : ofColor(70, 160, 255);
-		string localPlayerName = (myLocalPlayerID == 0) ? player0SteamName : player1SteamName;
-		string opponentPlayerName = (myLocalPlayerID == 0) ? player1SteamName : player0SteamName;
+		string localPlayerName = (myLocalPlayerID == 0) ? getPlayerSteamName(0) : getPlayerSteamName(1);
+		string opponentPlayerName = (myLocalPlayerID == 0) ? getPlayerSteamName(1) : getPlayerSteamName(0);
 
 		drawLabel(localPlayerName, localScreen.x, localScreen.y, localPlayerColor);
 		drawLabel(opponentPlayerName, opponentScreen.x, opponentScreen.y, opponentColor);
@@ -17523,9 +17571,9 @@ void ofApp::drawInitiativeRoll() {
 			string msg = "";
 
 			if (activeDiceRolls[0].result > activeDiceRolls[1].result)
-				msg = player0SteamName + " Wins!";
+				msg = getPlayerSteamName(0) + " Wins!";
 			else if (activeDiceRolls[1].result > activeDiceRolls[0].result)
-				msg = player1SteamName + " Wins!";
+				msg = getPlayerSteamName(1) + " Wins!";
 			else
 				msg = "Tie! Rerolling...";
 

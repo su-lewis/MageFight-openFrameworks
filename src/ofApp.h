@@ -445,6 +445,12 @@ public:
 	std::string player0SteamName = "Player 1";
 	std::string player1SteamName = "Player 2";
 
+	// Steam avatar images for turn indicator
+	ofImage localAvatarImage;
+	ofImage opponentAvatarImage;
+	bool localAvatarReady = false;
+	bool opponentAvatarReady = false;
+
 	// Camera perspective: Each player sees themselves in bottom-left, opponent in top-right
 	bool shouldFlipCamera() const { return isMultiplayer && myLocalPlayerID == 1; }
 	ofCamera & getActiveCamera(); // Returns appropriate camera based on player (cam or cam2)
