@@ -13766,23 +13766,25 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 }
 //--------------------------------------------------------------
 ofVec2f ofApp::mouseToBoard(int x, int y) {
-	// No special hacks needed here anymore since the camera's state is always correct.
+	// For Player 2 (flipped camera), flip the screen coordinates before raycasting
+	// This ensures the raycast originates from the correct perspective
+	int screenX = x;
+	int screenY = y;
+	if (shouldFlipCamera()) {
+		screenX = ofGetWidth() - x;
+		screenY = ofGetHeight() - y;
+	}
+
 	glm::vec3 planePoint(0, 0, 0);
 	glm::vec3 planeNormal(0, 1, 0);
-	glm::vec3 rayOrigin = cam.screenToWorld(glm::vec3(x, y, 0));
-	glm::vec3 rayDirection = cam.screenToWorld(glm::vec3(x, y, 1)) - rayOrigin;
+	glm::vec3 rayOrigin = cam.screenToWorld(glm::vec3(screenX, screenY, 0));
+	glm::vec3 rayDirection = cam.screenToWorld(glm::vec3(screenX, screenY, 1)) - rayOrigin;
 	float distance;
 	bool intersects = glm::intersectRayPlane(rayOrigin, rayDirection, planePoint, planeNormal, distance);
 	if (intersects) {
 		glm::vec3 intersectionPoint = rayOrigin + rayDirection * distance;
 		float gridX = (intersectionPoint.x / TILE_SIZE) + (BOARD_WIDTH / 2.0f);
 		float gridY = (intersectionPoint.z / TILE_SIZE) + (BOARD_HEIGHT / 2.0f);
-
-		// Flip coordinates for Player 2's rotated camera perspective
-		if (shouldFlipCamera()) {
-			gridX = (BOARD_WIDTH - 1) - gridX;
-			gridY = (BOARD_HEIGHT - 1) - gridY;
-		}
 
 		return ofVec2f(gridX, gridY);
 	}
@@ -17253,12 +17255,21 @@ void ofApp::onCardPicked(int optionIndex) {
 void ofApp::drawInitiativeRoll() {
 	if (activeDiceRolls.size() >= 2) {
 
-		// Use default world positions for dice label alignment (meshPosition does not exist)
-		// Move labels further up so they don't overlap the dice visuals
-		glm::vec3 p1PosWorld(-6.0f, 11.0f, 0.0f);
-		glm::vec3 p2PosWorld(6.0f, 11.0f, 0.0f);
-		glm::vec2 p1Screen = cam.worldToScreen(p1PosWorld);
-		glm::vec2 p2Screen = cam.worldToScreen(p2PosWorld);
+		// Position dice so that the local player is always on the left in their perspective
+		// Player 0 is naturally on left (-6), Player 1 is naturally on right (6)
+		// But when Player 1 is viewing (with flipped camera), we need to flip the positions
+		glm::vec3 localPlayerPosWorld(-6.0f, 11.0f, 0.0f); // Local player on left
+		glm::vec3 opponentPosWorld(6.0f, 11.0f, 0.0f); // Opponent on right
+
+		// For multiplayer client (myLocalPlayerID == 1), we need to use opposite positions
+		// because the camera is rotated 180 degrees
+		if (shouldFlipCamera()) {
+			localPlayerPosWorld = glm::vec3(6.0f, 11.0f, 0.0f); // Local player on right in world space
+			opponentPosWorld = glm::vec3(-6.0f, 11.0f, 0.0f); // Opponent on left in world space
+		}
+
+		glm::vec2 localScreen = cam.worldToScreen(localPlayerPosWorld);
+		glm::vec2 opponentScreen = cam.worldToScreen(opponentPosWorld);
 
 		// Standardized Text Drawer (Smaller scale)
 		auto drawLabel = [&](string text, float x, float y, ofColor col) {
@@ -17282,9 +17293,14 @@ void ofApp::drawInitiativeRoll() {
 			ofPopMatrix();
 		};
 
-		// Use distinct colors for Player 1 and Player 2
-		drawLabel(player0SteamName, p1Screen.x, p1Screen.y, ofColor(70, 160, 255)); // Blue
-		drawLabel(player1SteamName, p2Screen.x, p2Screen.y, ofColor(255, 80, 80)); // Red
+		// Draw local player on left, opponent on right
+		ofColor localPlayerColor = (myLocalPlayerID == 0) ? ofColor(70, 160, 255) : ofColor(255, 80, 80);
+		ofColor opponentColor = (myLocalPlayerID == 0) ? ofColor(255, 80, 80) : ofColor(70, 160, 255);
+		string localPlayerName = (myLocalPlayerID == 0) ? player0SteamName : player1SteamName;
+		string opponentPlayerName = (myLocalPlayerID == 0) ? player1SteamName : player0SteamName;
+
+		drawLabel(localPlayerName, localScreen.x, localScreen.y, localPlayerColor);
+		drawLabel(opponentPlayerName, opponentScreen.x, opponentScreen.y, opponentColor);
 
 		// Draw Result Message
 		if (activeDiceRolls[0].isFinishedVisual && activeDiceRolls[1].isFinishedVisual) {
@@ -18134,12 +18150,17 @@ long long ofApp::calculateChecksum() {
 	}
 
 	// Active dice (include resolved outcomes)
-	mix((uint64_t)activeDiceRolls.size());
-	for (const auto & d : activeDiceRolls) {
-		mix((uint64_t)d.purpose);
-		mix((uint64_t)d.result);
-		mix((uint64_t)d.rawResult);
-		mix((uint64_t)d.associatedUnit);
+	// NOTE: During turn 0 (post-draft TurnStart), clients may not have local AP dice
+	// visuals even though the host does. To avoid a false desync at draft->gameplay,
+	// skip active dice in the checksum when globalTurnCounter == 0.
+	if (globalTurnCounter > 0) {
+		mix((uint64_t)activeDiceRolls.size());
+		for (const auto & d : activeDiceRolls) {
+			mix((uint64_t)d.purpose);
+			mix((uint64_t)d.result);
+			mix((uint64_t)d.rawResult);
+			mix((uint64_t)d.associatedUnit);
+		}
 	}
 
 	return (long long)h;
