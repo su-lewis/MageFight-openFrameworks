@@ -5486,7 +5486,8 @@ void ofApp::drawGame() {
 					glm::vec3 rightPos(6.0f, 7.0f, 0.0f);
 
 					// i==0 corresponds to player 0, i==1 corresponds to player 1
-					bool player0OnLeft = (myLocalPlayerID == 0);
+					// Keep P0 on the left in world space so each player sees their die on the left
+					bool player0OnLeft = true;
 					if (i == 0) {
 						glm::vec3 pos = player0OnLeft ? leftPos : rightPos;
 						ofTranslate(pos.x, pos.y, pos.z);
@@ -6305,14 +6306,6 @@ void ofApp::drawGame() {
 			ofDrawRectangle(p0_deckRect);
 			ofPopStyle();
 		}
-		if (opponentHoverType == HOVER_DECK) {
-			ofPushStyle();
-			ofNoFill();
-			ofSetColor(255, 0, 0, 200); // Red glow
-			ofSetLineWidth(4 * scale);
-			ofDrawRectangle(p0_deckRect);
-			ofPopStyle();
-		}
 
 		// Only highlight deck if it's MY turn and I haven't drawn yet
 		if (currentState == STATE_GAMEPLAY && isCurrentPlayerLocal() && !hasDrawnCardsThisTurn) {
@@ -6344,14 +6337,6 @@ void ofApp::drawGame() {
 			ofDrawRectangle(p0_discardRect);
 			ofPopStyle();
 		}
-		if (opponentHoverType == HOVER_DISCARD) {
-			ofPushStyle();
-			ofNoFill();
-			ofSetColor(255, 0, 0, 200); // Red glow
-			ofSetLineWidth(4 * scale);
-			ofDrawRectangle(p0_discardRect);
-			ofPopStyle();
-		}
 
 		// 3. Draw Player 1 (Top) UI - this is the OPPONENT player
 		float p1_healthX = 40 * scale;
@@ -6376,6 +6361,24 @@ void ofApp::drawGame() {
 		} else {
 			ofSetColor(0, 0, 0, 150);
 			ofDrawRectRounded(p1_deckRect, 10 * scale);
+		}
+
+		// Draw hover glow for opponent deck/discard
+		if (opponentHoverType == HOVER_DECK) {
+			ofPushStyle();
+			ofNoFill();
+			ofSetColor(255, 0, 0, 200); // Red glow
+			ofSetLineWidth(4 * scale);
+			ofDrawRectangle(p1_deckRect);
+			ofPopStyle();
+		}
+		if (opponentHoverType == HOVER_DISCARD) {
+			ofPushStyle();
+			ofNoFill();
+			ofSetColor(255, 0, 0, 200); // Red glow
+			ofSetLineWidth(4 * scale);
+			ofDrawRectangle(p1_discardRect);
+			ofPopStyle();
 		}
 
 		// Show outline for opponent's deck when it's their turn and they haven't drawn yet
@@ -15234,6 +15237,9 @@ void ofApp::applySnapshotString(const std::string & data) {
 	animatingPlayerIndex = -1;
 	endTurnLocked = false;
 	waitingForTurnStartFromHost = false;
+	pendingKeyDraftAccept = false;
+	pendingKeyDraftPlayer = -1;
+	pendingKeyDraftClass = 0;
 
 	players.clear();
 
@@ -19170,6 +19176,18 @@ void ofApp::processNetworkPackets() {
 				selectedDraftIndices.clear();
 				currentState = STATE_DRAFTING;
 
+				// If an Accept arrived before this KeyPickup, close immediately
+				if (pendingKeyDraftAccept && pendingKeyDraftPlayer == kpkt->playerIndex && pendingKeyDraftClass == kpkt->classTier) {
+					pendingKeyDraftAccept = false;
+					pendingKeyDraftPlayer = -1;
+					pendingKeyDraftClass = 0;
+					selectedDraftIndices.clear();
+					draftOptions.clear();
+					isInGameDraft = false;
+					currentState = STATE_GAMEPLAY;
+					return;
+				}
+
 				spawnFloatingText(gridToWorld(kpkt->keyX, kpkt->keyY), "Key Found!", ofColor::gold);
 				ofLogNotice("Key") << "Client: Player " << kpkt->playerIndex << " picked up key (Class " << kpkt->classTier << ")";
 			}
@@ -19507,6 +19525,13 @@ void ofApp::processNetworkPackets() {
 						isInGameDraft = false;
 						currentState = STATE_GAMEPLAY;
 						return;
+					}
+
+					// If we haven't received the KeyPickup yet, remember this accept so we can close on arrival
+					if (currentState != STATE_DRAFTING) {
+						pendingKeyDraftAccept = true;
+						pendingKeyDraftPlayer = pkt->draftPlayerIdx;
+						pendingKeyDraftClass = pkt->classTier;
 					}
 
 					waitingForDraftOptions = true;
