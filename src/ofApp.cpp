@@ -1679,15 +1679,15 @@ void ofApp::updateGame() {
 	float frame_independent_smoothing = 1.0 - pow(0.6, deltaTime * 60.0);
 	cameraCurrentZoom = ofLerp(cameraCurrentZoom, cameraTargetZoom, frame_independent_smoothing);
 	cameraCurrentPan = glm::mix(cameraCurrentPan, cameraTargetPan, frame_independent_smoothing);
-	
+
 	// Camera 2 mirrors Camera 1: same X and Y pan, but opposite Z pan
 	glm::vec3 cameraCurrentPan2 = glm::vec3(cameraCurrentPan.x, cameraCurrentPan.y, -cameraCurrentPan.z);
-	
+
 	glm::vec3 targetPos;
 	glm::vec3 targetPos2; // Second camera position (opposite side)
 	glm::vec3 targetLookAt = cameraCurrentPan;
 	glm::vec3 targetLookAt2 = cameraCurrentPan2; // Camera 2 looks at mirrored point
-	
+
 	if (isTopDownView) {
 		// Top-down should be more zoomed-in: lower the camera height multiplier.
 		targetPos = glm::vec3(cameraCurrentPan.x, cameraCurrentZoom * 0.6f, cameraCurrentPan.z);
@@ -17722,7 +17722,8 @@ void ofApp::processNetworkPackets() {
 				// MOVEMENT ACTION: Receive opponent's movement and apply it locally
 				ofLogNotice("Network") << "Received movement from opponent to (" << pkt->targetX << "," << pkt->targetY << ")";
 				// Find the player and move them
-				for (auto & p : players) {
+				for (size_t i = 0; i < players.size(); i++) {
+					Player & p = players[i];
 					if (p.playerID == pkt->playerID && !p.isMinion) {
 						// Verify movement is legal
 						if (pkt->targetX >= 0 && pkt->targetX < BOARD_WIDTH && pkt->targetY >= 0 && pkt->targetY < BOARD_HEIGHT) {
@@ -17730,6 +17731,7 @@ void ofApp::processNetworkPackets() {
 							board[pkt->targetX][pkt->targetY].hasPlayer = true;
 							p.x = pkt->targetX;
 							p.y = pkt->targetY;
+							
 							invalidateTargetCache();
 							ofLogNotice("Network") << "Applied movement for player " << pkt->playerID << " to (" << pkt->targetX << "," << pkt->targetY << ")";
 						}
@@ -17749,18 +17751,36 @@ void ofApp::processNetworkPackets() {
 			ofLogNotice("Network") << "Received DrawCards from opponent: player=" << dcpkt->playerIndex << " num=" << dcpkt->numCards;
 
 			// Apply the draw from opponent's deck
+			// We replicate the drawCard() logic here without calling it to avoid RNG issues
 			if (dcpkt->playerIndex >= 0 && dcpkt->playerIndex < (int)players.size()) {
+				Player & p = players[dcpkt->playerIndex];
+				
 				for (int i = 0; i < dcpkt->numCards; ++i) {
-					// Draw from player's deck locally
-					Player & p = players[dcpkt->playerIndex];
+					// --- PHASE 1: CHECK IF DECK NEEDS RESHUFFLE ---
+					if (p.deck.empty()) {
+						if (!p.discardPile.empty()) {
+							ofLogNotice("Game") << "Deck is empty. Reshuffling Discard Pile into Deck...";
+							// Move Discard -> Deck
+							p.deck = p.discardPile;
+							// Clear Discard
+							p.discardPile.clear();
+							// Shuffle the new Deck (authoritative via host in multiplayer)
+							// NOTE: Client will skip this shuffle and wait for host's PKT_SHUFFLE
+							shuffleGameVector(p.deck, dcpkt->playerIndex);
+						} else {
+							ofLogNotice("Game") << "Cannot draw. Both Deck and Discard are empty for player " << dcpkt->playerIndex;
+							break;
+						}
+					}
+
+					// --- PHASE 2: DRAW THE CARD ---
 					if (!p.deck.empty()) {
 						Card drawnCard = p.deck.back();
 						p.deck.pop_back();
 						p.hand.push_back(drawnCard);
-						ofLogNotice("Network") << "Host drew card for player " << dcpkt->playerIndex << ": " << drawnCard.name;
+						ofLogNotice("Network") << "Drew card for player " << dcpkt->playerIndex << ": " << drawnCard.name;
 					}
 				}
-				// Note: No shuffle needed for draw - shuffles are handled separately via PKT_SHUFFLE
 			}
 		} else if (header->type == PKT_END_TURN) {
 			ofLogNotice("Net") << "Opponent ended turn.";
