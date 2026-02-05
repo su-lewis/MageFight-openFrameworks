@@ -17733,25 +17733,9 @@ void ofApp::onCardPicked(int optionIndex) {
 				}
 
 				// Determine who starts based on initiative winner (who drafted first)
-				// If P1 won initiative, current player index should be 0.
-				// Reset active player to the initiative winner
-				// We stored the winner in `draftPlayerIndex` initially, but it swapped.
-				// The winner was the *first* to draft.
-				// If players[0].deck was filled first, P1 won.
-				// A simple heuristic: check who drafted first (we can infer or store it).
-				// Let's just set the turn to the initiative winner.
-				// If we just finished drafting P2, and P1 drafted before, P1 was first.
-				// So currentPlayerIndex = 0.
-				// If we just finished P1, and P2 drafted before, P2 was first.
-				// Let's store `initiativeWinner` in a variable to be safe, or just use the logic:
-				// The loop structure:
-				// 1. Initiative Win -> Set `draftPlayerIndex` = Winner.
-				// 2. Winner drafts.
-				// 3. Switch `draftPlayerIndex` to Loser.
-				// 4. Loser drafts.
-				// 5. Game Start. `currentPlayerIndex` should be Winner.
-				// So `currentPlayerIndex` = `draftPlayerIndex` (the one who JUST finished) is wrong.
-				// It should be `(draftPlayerIndex + 1) % 2`.
+				// The winner (highest roller) was the *first* to draft and should go first in gameplay.
+				// After both finish drafting, draftPlayerIndex points to whoever drafted SECOND.
+				// So the winner (who should go first) is (draftPlayerIndex + 1) % 2.
 
 				currentPlayerIndex = (draftPlayerIndex + 1) % 2;
 
@@ -18438,6 +18422,12 @@ void ofApp::processNetworkPackets() {
 							p.x = pkt->targetX;
 							p.y = pkt->targetY;
 
+							// Trigger animation for opponent's movement
+							animatingPlayerIndex = (int)i;
+							animationPath.clear();
+							animationPath.push_back(transformGridToWorld(pkt->targetX, pkt->targetY));
+							currentPathIndex = 0;
+
 							invalidateTargetCache();
 							ofLogNotice("Network") << "Applied movement for player " << pkt->playerID << " to (" << pkt->targetX << "," << pkt->targetY << ")";
 						}
@@ -18550,31 +18540,9 @@ void ofApp::processNetworkPackets() {
 				ofLogNotice("Network") << "Host: Processing END_TURN, calling startNewTurn()";
 				startNewTurn();
 
-				// After advancing turn, send TurnStart packet to client to notify them of new turn
-				// Host will roll AP dice and send the results
-				if (isMultiplayer && !players.empty() && currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) {
-					// Roll AP dice for the new turn
-					int apNum = players[currentPlayerIndex].isDemon ? 2 : 3;
-					int apSides = 6;
-
-					// Generate results deterministically using gameplayRNG
-					TurnStartPacket tpk = {};
-					tpk.type = PKT_TURN_START;
-					tpk.currentPlayerIndex = currentPlayerIndex;
-					tpk.diceNum = apNum;
-					tpk.diceSides = apSides;
-
-					int total = 0;
-					for (int i = 0; i < apNum && i < 4; ++i) {
-						int roll = 1 + (gameplayRNG() % apSides);
-						tpk.finalResults[i] = roll;
-						total += roll;
-					}
-					tpk.finalTotal = total;
-
-					steamManager.sendPacket(&tpk, sizeof(tpk));
-					ofLogNotice("Network") << "Host sent TurnStart after END_TURN: player=" << currentPlayerIndex << " AP=" << total;
-				}
+				// Note: TurnStart packet is now sent from the update loop after dice finish
+				// (see line ~3914 where it checks allDiceFinished and sends TurnStartPacket)
+				// This ensures the packet contains actual rolled results from continueNewTurn()
 			}
 		} else if (header->type == PKT_CHECKSUM_CHECK) {
 			ChecksumPacket * pkt = (ChecksumPacket *)header;
