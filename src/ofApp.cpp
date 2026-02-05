@@ -11465,15 +11465,28 @@ void ofApp::drawCard() {
 		newCard.targetScale = 1.5f;
 
 		// Calculate Spawn Position (from Deck UI)
+		// In multiplayer, always place drawn cards at the local player's location (bottom)
+		// In singleplayer, use currentPlayerIndex to determine placement
 		float scale = ofGetHeight() / 1080.0f;
 		float staticUICardWidth = (120 * 1.3f) * scale;
 		float staticUICardHeight = ((120 * (585.0f / 409.0f)) * 1.3f) * scale;
 
-		if (currentPlayerIndex == 0) {
+		bool isLocalPlayer = false;
+		if (isMultiplayer) {
+			// In multiplayer, check if this player is the local player
+			isLocalPlayer = (currentPlayer.playerID == myLocalPlayerID);
+		} else {
+			// In singleplayer, check if currentPlayerIndex is 0
+			isLocalPlayer = (currentPlayerIndex == 0);
+		}
+
+		if (isLocalPlayer) {
+			// Draw at bottom
 			float deckX = 30 * scale;
 			float deckY = ofGetHeight() - staticUICardHeight - (40 * scale) - staticUICardHeight - (40 * scale);
 			newCard.currentPos.set(deckX + staticUICardWidth / 2, deckY + staticUICardHeight / 2);
 		} else {
+			// Draw at top
 			float discardX = ofGetWidth() - staticUICardWidth - (30 * scale);
 			float discardY = 40 * scale;
 			float deckX = discardX;
@@ -17920,6 +17933,175 @@ void ofApp::processNetworkPackets() {
 					newRoll.result = (int)tpk->finalResults[i];
 					newRoll.startTime = ofGetElapsedTimef();
 					newRoll.isFinishedVisual = false;
+					newRoll.associatedUnit = currentPlayerIndex;
+
+					// Calculate the final quaternion to show the correct die face
+					int sides = newRoll.sides;
+					int rawRoll = newRoll.rawResult;
+					glm::vec3 faceVec(0, 1, 0); // Default
+
+					if (sides == 2) {
+						// Coin
+						glm::quat flip180X = glm::angleAxis(glm::radians(180.0f), glm::vec3(1, 0, 0));
+						glm::quat rot180Y = glm::angleAxis(glm::radians(180.0f), glm::vec3(0, 1, 0));
+						if (rawRoll == 1)
+							newRoll.finalQuat = glm::quat(1, 0, 0, 0); // Tails
+						else
+							newRoll.finalQuat = flip180X * rot180Y; // Heads
+					} else if (sides == 4) {
+						// D4
+						switch (std::min(sides, rawRoll)) {
+						case 1:
+							faceVec = glm::vec3(0, 1, 0);
+							break;
+						case 2:
+							faceVec = glm::vec3(-0.471f, -0.333f, -0.816f);
+							break;
+						case 3:
+							faceVec = glm::vec3(-0.471f, -0.333f, 0.816f);
+							break;
+						default:
+							faceVec = glm::vec3(0.943f, -0.333f, 0.0f);
+							break;
+						}
+						newRoll.finalQuat = matchFaceToCamera(faceVec);
+					} else if (sides == 6) {
+						// D6
+						switch (std::min(sides, rawRoll)) {
+						case 1:
+							faceVec = glm::vec3(0, 0, 1);
+							break;
+						case 2:
+							faceVec = glm::vec3(0, 1, 0);
+							break;
+						case 3:
+							faceVec = glm::vec3(1, 0, 0);
+							break;
+						case 4:
+							faceVec = glm::vec3(-1, 0, 0);
+							break;
+						case 5:
+							faceVec = glm::vec3(0, -1, 0);
+							break;
+						case 6:
+							faceVec = glm::vec3(0, 0, -1);
+							break;
+						default:
+							faceVec = glm::vec3(0, 1, 0);
+							break;
+						}
+						newRoll.finalQuat = matchFaceToCamera(faceVec);
+					} else if (sides == 10) {
+						// D10
+						switch (std::min(sides, rawRoll)) {
+						case 2:
+							faceVec = glm::vec3(cos(glm::radians(0.0f)), 1.0f, sin(glm::radians(0.0f)));
+							break;
+						case 4:
+							faceVec = glm::vec3(cos(glm::radians(72.0f)), 1.0f, sin(glm::radians(72.0f)));
+							break;
+						case 6:
+							faceVec = glm::vec3(cos(glm::radians(144.0f)), 1.0f, sin(glm::radians(144.0f)));
+							break;
+						case 8:
+							faceVec = glm::vec3(cos(glm::radians(216.0f)), 1.0f, sin(glm::radians(216.0f)));
+							break;
+						case 10:
+							faceVec = glm::vec3(cos(glm::radians(288.0f)), 1.0f, sin(glm::radians(288.0f)));
+							break;
+						case 1:
+							faceVec = glm::vec3(cos(glm::radians(36.0f)), -1.0f, sin(glm::radians(36.0f)));
+							break;
+						case 3:
+							faceVec = glm::vec3(cos(glm::radians(108.0f)), -1.0f, sin(glm::radians(108.0f)));
+							break;
+						case 5:
+							faceVec = glm::vec3(cos(glm::radians(180.0f)), -1.0f, sin(glm::radians(180.0f)));
+							break;
+						case 7:
+							faceVec = glm::vec3(cos(glm::radians(252.0f)), -1.0f, sin(glm::radians(252.0f)));
+							break;
+						case 9:
+							faceVec = glm::vec3(cos(glm::radians(324.0f)), -1.0f, sin(glm::radians(324.0f)));
+							break;
+						default:
+							faceVec = glm::vec3(0, 1, 0);
+							break;
+						}
+						newRoll.finalQuat = matchFaceToCamera(faceVec);
+					} else if (sides == 20) {
+						// D20
+						switch (std::min(sides, rawRoll)) {
+						case 20:
+							faceVec = glm::vec3(0, 1, 0);
+							break;
+						case 1:
+							faceVec = glm::vec3(0, -1, 0);
+							break;
+						case 2:
+							faceVec = glm::vec3(0.894, 0.447, 0.0);
+							break;
+						case 8:
+							faceVec = glm::vec3(0.276, 0.447, 0.851);
+							break;
+						case 14:
+							faceVec = glm::vec3(-0.724, 0.447, 0.526);
+							break;
+						case 12:
+							faceVec = glm::vec3(-0.724, 0.447, -0.526);
+							break;
+						case 18:
+							faceVec = glm::vec3(0.276, 0.447, -0.851);
+							break;
+						case 11:
+							faceVec = glm::vec3(-0.894, -0.447, 0.0);
+							break;
+						case 5:
+							faceVec = glm::vec3(-0.276, -0.447, -0.851);
+							break;
+						case 19:
+							faceVec = glm::vec3(0.724, -0.447, -0.526);
+							break;
+						case 3:
+							faceVec = glm::vec3(0.724, -0.447, 0.526);
+							break;
+						case 9:
+							faceVec = glm::vec3(-0.276, -0.447, 0.851);
+							break;
+						case 4:
+							faceVec = glm::vec3(0.0, 0.447, 0.894);
+							break;
+						case 16:
+							faceVec = glm::vec3(0.0, 0.447, -0.894);
+							break;
+						case 7:
+							faceVec = glm::vec3(0.851, -0.447, 0.276);
+							break;
+						case 13:
+							faceVec = glm::vec3(-0.851, -0.447, -0.276);
+							break;
+						case 6:
+							faceVec = glm::vec3(0.851, -0.447, -0.276);
+							break;
+						case 15:
+							faceVec = glm::vec3(-0.851, -0.447, 0.276);
+							break;
+						case 10:
+							faceVec = glm::vec3(-0.0, 0.894, 0.447);
+							break;
+						case 17:
+							faceVec = glm::vec3(-0.0, -0.894, -0.447);
+							break;
+						default:
+							faceVec = glm::vec3(0, 1, 0);
+							break;
+						}
+						newRoll.finalQuat = matchFaceToCamera(faceVec);
+					}
+
+					// Also set rotation axis for the spinning animation
+					newRoll.rotationAxis = glm::vec3(0, 1, 0); // Default Y-axis spin
+
 					activeDiceRolls.push_back(newRoll);
 				}
 
