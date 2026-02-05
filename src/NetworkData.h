@@ -62,6 +62,7 @@ struct MoveUnitPacket : PacketHeader {
 struct DrawCardsPacket : PacketHeader {
 	int32_t playerIndex; // The index of the player/minion who drew
 	int32_t numCards; // Number of cards drawn
+	char cardNames[3][64]; // Names of up to 3 cards drawn (null-terminated strings)
 };
 
 // When a player uses an Assistant to reroll AP

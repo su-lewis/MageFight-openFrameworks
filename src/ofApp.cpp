@@ -1506,14 +1506,14 @@ void ofApp::initializeGameStateCommon() {
 	// --- PLAYER CREATION ---
 	Player p1;
 	p1.x = 0;
-	p1.y = BOARD_HEIGHT - 1;
+	p1.y = 0;
 	p1.playerID = 0;
 	p1.deck.clear();
 	players.push_back(p1);
 
 	Player p2;
 	p2.x = BOARD_WIDTH - 1;
-	p2.y = 0;
+	p2.y = BOARD_HEIGHT - 1;
 	p2.playerID = 1;
 	p2.deck.clear();
 	players.push_back(p2);
@@ -4307,14 +4307,21 @@ void ofApp::updateGame() {
 
 	// Card Hand Animation
 	if (!players.empty() && currentPlayerIndex >= 0) {
-		// In multiplayer, always update LOCAL player's hand (regardless of whose turn it is)
+		// In multiplayer, update BOTH local and opponent player's hands
 		// In singleplayer, update current player's hand
 		Player * handPlayer = nullptr;
+		Player * opponentHandPlayer = nullptr;
+
 		if (isMultiplayer) {
+			int localID = myLocalPlayerID;
+			int opponentID = (localID == 0) ? 1 : 0;
+
 			for (size_t i = 0; i < players.size(); i++) {
-				if (players[i].playerID == myLocalPlayerID && !players[i].isMinion) {
+				if (players[i].playerID == localID && !players[i].isMinion) {
 					handPlayer = &players[i];
-					break;
+				}
+				if (players[i].playerID == opponentID && !players[i].isMinion) {
+					opponentHandPlayer = &players[i];
 				}
 			}
 		} else {
@@ -4324,26 +4331,43 @@ void ofApp::updateGame() {
 		if (handPlayer) {
 			Player & currentPlayer = *handPlayer;
 
-			// Always draw hand at bottom (turn-based, so only current player's hand shows)
+			// Calculate total cards in shared hand area (local + opponent in multiplayer)
+			size_t totalCards = currentPlayer.hand.size();
+			if (isMultiplayer && opponentHandPlayer) {
+				totalCards += opponentHandPlayer->hand.size();
+			}
+
 			float handCenterY = ofGetHeight() - 130;
-
 			float handBaseCardWidth = 120;
-			float handAreaWidth = ofGetWidth() * 0.4f;
+			float handAreaWidth = ofGetWidth() * 0.6f; // Increased for both hands
 
-			size_t numCards = currentPlayer.hand.size();
-			float totalCardWidths = numCards * handBaseCardWidth;
-			float padding = (numCards > 1) ? (handAreaWidth - totalCardWidths) / (numCards - 1) : 0;
+			float totalCardWidths = totalCards * handBaseCardWidth;
+			float padding = (totalCards > 1) ? (handAreaWidth - totalCardWidths) / (totalCards - 1) : 0;
 			padding = std::min(padding, 20.0f);
-			float totalHandWidth = (numCards * handBaseCardWidth) + ((numCards - 1) * padding);
+			float totalHandWidth = (totalCards * handBaseCardWidth) + ((totalCards - 1) * padding);
 			float startX = (ofGetWidth() - totalHandWidth) / 2.0f;
 
+			// Position local player's cards
+			size_t numCards = currentPlayer.hand.size();
 			for (size_t i = 0; i < numCards; i++) {
 				float cardCenterX = startX + i * (handBaseCardWidth + padding) + (handBaseCardWidth / 2.0f);
 				currentPlayer.hand[i].targetPos = ofVec2f(cardCenterX, handCenterY);
 
-				if (i != draggedCardIndex) {
+				if (static_cast<int>(i) != draggedCardIndex) {
 					currentPlayer.hand[i].currentScale = ofLerp(currentPlayer.hand[i].currentScale, currentPlayer.hand[i].targetScale, 0.25f);
 					currentPlayer.hand[i].currentPos = currentPlayer.hand[i].currentPos.getInterpolated(currentPlayer.hand[i].targetPos, 0.25f);
+				}
+			}
+
+			// Position opponent's cards (continuing from where local player's cards end)
+			if (isMultiplayer && opponentHandPlayer) {
+				for (size_t i = 0; i < opponentHandPlayer->hand.size(); i++) {
+					size_t offset = numCards + i;
+					float cardCenterX = startX + offset * (handBaseCardWidth + padding) + (handBaseCardWidth / 2.0f);
+					opponentHandPlayer->hand[i].targetPos = ofVec2f(cardCenterX, handCenterY);
+
+					opponentHandPlayer->hand[i].currentScale = ofLerp(opponentHandPlayer->hand[i].currentScale, opponentHandPlayer->hand[i].targetScale, 0.25f);
+					opponentHandPlayer->hand[i].currentPos = opponentHandPlayer->hand[i].currentPos.getInterpolated(opponentHandPlayer->hand[i].targetPos, 0.25f);
 				}
 			}
 		}
@@ -6705,13 +6729,21 @@ void ofApp::drawGame() {
 
 	// --- OPTIMIsED HAND DRAWING ...
 	if (!players.empty() && currentPlayerIndex >= 0) {
-		// In multiplayer, always show LOCAL player's hand at bottom, regardless of whose turn it is
+		// In multiplayer, show BOTH players' hands at bottom in a shared space
+		// Get both local and opponent player
 		Player * handPlayer = nullptr;
+		Player * opponentHandPlayer = nullptr;
+
 		if (isMultiplayer) {
+			int localID = myLocalPlayerID;
+			int opponentID = (localID == 0) ? 1 : 0;
+
 			for (size_t i = 0; i < players.size(); i++) {
-				if (players[i].playerID == myLocalPlayerID && !players[i].isMinion) {
+				if (players[i].playerID == localID && !players[i].isMinion) {
 					handPlayer = &players[i];
-					break;
+				}
+				if (players[i].playerID == opponentID && !players[i].isMinion) {
+					opponentHandPlayer = &players[i];
 				}
 			}
 		} else {
@@ -6846,33 +6878,30 @@ void ofApp::drawGame() {
 			drawHandCard(indexToDrawLast, true);
 		}
 
-		// --- DRAW OTHER HUMAN PLAYER'S HAND (Top Screen) ---
-		int currentID = players[currentPlayerIndex].playerID;
-		if (players[currentPlayerIndex].isMinion) currentID = players[currentPlayerIndex].ownerID;
-		int opponentID = (currentID == 0) ? 1 : 0;
-		int opponentIndex = -1;
+		// --- DRAW OPPONENT'S HAND IN SAME BOTTOM AREA (SHARED HAND SPACE) ---
+		if (isMultiplayer && opponentHandPlayer && !opponentHandPlayer->hand.empty()) {
+			// Draw opponent's cards alongside local player's cards in the bottom hand area
+			for (size_t i = 0; i < opponentHandPlayer->hand.size(); ++i) {
+				Card & card = opponentHandPlayer->hand[i];
+				float w = handBaseCardWidth * card.currentScale;
+				float h = baseCardHeight * card.currentScale;
 
-		for (size_t i = 0; i < players.size(); ++i) {
-			if (players[i].playerID == opponentID) {
-				opponentIndex = (int)i;
-				break;
-			}
-		}
+				float drawX = card.currentPos.x - w / 2;
+				float drawY = card.currentPos.y - h / 2;
 
-		if (opponentIndex != -1) {
-			Player & otherPlayer = players[opponentIndex];
-			if (!otherPlayer.hand.empty()) {
-				float p_staticCardWidth = staticUICardWidth * 0.6f;
-				float p_staticCardHeight = staticUICardHeight * 0.6f;
-				float p_cardOverlap = p_staticCardWidth * 0.75f;
-				float handY = 20 * scale;
+				// Draw the card face
+				ofSetColor(255);
+				cardSpriteSheet.drawSubsection(drawX, drawY, w, h,
+					card.textureRect.x, card.textureRect.y, card.textureRect.width, card.textureRect.height);
 
-				size_t otherNumCards = otherPlayer.hand.size();
-				float totalHandWidth = p_staticCardWidth + (otherNumCards - 1) * (p_staticCardWidth - p_cardOverlap);
-				float startX = (ofGetWidth() - totalHandWidth) / 2.0f;
-
-				for (size_t i = 0; i < otherNumCards; ++i) {
-					cardBackImage.draw(startX + i * (p_staticCardWidth - p_cardOverlap), handY, p_staticCardWidth, p_staticCardHeight);
+				// Draw hover glow if opponent is hovering this card
+				if (opponentHoverType == HOVER_HAND_CARD && opponentHoverCardIndex == static_cast<int>(i)) {
+					ofPushStyle();
+					ofNoFill();
+					ofSetColor(255, 0, 0, 200); // Red glow for opponent
+					ofSetLineWidth(4);
+					ofDrawRectangle(drawX - 2, drawY - 2, w + 4, h + 4);
+					ofPopStyle();
 				}
 			}
 		}
@@ -10123,6 +10152,9 @@ void ofApp::mousePressed(int x, int y, int button) {
 				int cardsToDraw = playerToDraw->nextTurnExtraDraw ? (baseDraw + 1) : baseDraw;
 				if (playerToDraw->nextTurnExtraDraw) ofLogNotice("Game") << "Hasten Effect: Drawing 3 cards!";
 
+				// Remember hand size before drawing to get the new cards
+				size_t handSizeBefore = playerToDraw->hand.size();
+
 				// Draw cards locally (client-side prediction)
 				for (int i = 0; i < cardsToDraw; i++)
 					drawCard();
@@ -10134,6 +10166,18 @@ void ofApp::mousePressed(int x, int y, int button) {
 					dcpkt.playerID = myLocalPlayerID;
 					dcpkt.playerIndex = localPlayerIndex;
 					dcpkt.numCards = cardsToDraw;
+
+					// Include the card names that were just drawn
+					for (int i = 0; i < cardsToDraw && i < 3; i++) {
+						size_t cardIndex = handSizeBefore + i;
+						if (cardIndex < playerToDraw->hand.size()) {
+							strncpy(dcpkt.cardNames[i], playerToDraw->hand[cardIndex].name.c_str(), 63);
+							dcpkt.cardNames[i][63] = '\0'; // Ensure null termination
+						} else {
+							dcpkt.cardNames[i][0] = '\0';
+						}
+					}
+
 					steamManager.sendPacket(&dcpkt, sizeof(dcpkt));
 					ofLogNotice("Network") << (isClient() ? "Client" : "Host") << " sent DrawCards packet: " << cardsToDraw << " cards";
 				}
@@ -18331,8 +18375,7 @@ void ofApp::processNetworkPackets() {
 				opponentHasDrawnCardsThisTurn = true;
 			}
 
-			// Apply the draw from opponent's deck
-			// We replicate the drawCard() logic here without calling it to avoid RNG issues
+			// Find the target player
 			int targetPlayerIndex = -1;
 			for (size_t i = 0; i < players.size(); ++i) {
 				if (static_cast<uint32_t>(players[i].playerID) == dcpkt->playerID && !players[i].isMinion) {
@@ -18341,33 +18384,72 @@ void ofApp::processNetworkPackets() {
 				}
 			}
 			if (targetPlayerIndex < 0) targetPlayerIndex = dcpkt->playerIndex;
+
 			if (targetPlayerIndex >= 0 && targetPlayerIndex < (int)players.size()) {
 				Player & p = players[targetPlayerIndex];
 
-				for (int i = 0; i < dcpkt->numCards; ++i) {
-					// --- PHASE 1: CHECK IF DECK NEEDS RESHUFFLE ---
-					if (p.deck.empty()) {
-						if (!p.discardPile.empty()) {
-							ofLogNotice("Game") << "Deck is empty. Reshuffling Discard Pile into Deck...";
-							// Move Discard -> Deck
-							p.deck = p.discardPile;
-							// Clear Discard
-							p.discardPile.clear();
-							// Shuffle the new Deck (authoritative via host in multiplayer)
-							// NOTE: Client will skip this shuffle and wait for host's PKT_SHUFFLE
-							shuffleGameVector(p.deck, targetPlayerIndex);
-						} else {
-							ofLogNotice("Game") << "Cannot draw. Both Deck and Discard are empty for player " << dcpkt->playerIndex;
+				// Add the specific cards to the player's hand using the names from the packet
+				for (int i = 0; i < dcpkt->numCards && i < 3; ++i) {
+					std::string cardName = dcpkt->cardNames[i];
+					if (cardName.empty()) continue;
+
+					// Find this card in the master card lists
+					Card * foundCard = nullptr;
+					for (auto & c : class1Cards) {
+						if (c.name == cardName) {
+							foundCard = &c;
 							break;
 						}
 					}
+					if (!foundCard) {
+						for (auto & c : class2Cards) {
+							if (c.name == cardName) {
+								foundCard = &c;
+								break;
+							}
+						}
+					}
+					if (!foundCard) {
+						for (auto & c : class3Cards) {
+							if (c.name == cardName) {
+								foundCard = &c;
+								break;
+							}
+						}
+					}
 
-					// --- PHASE 2: DRAW THE CARD ---
-					if (!p.deck.empty()) {
-						Card drawnCard = p.deck.back();
-						p.deck.pop_back();
-						p.hand.push_back(drawnCard);
-						ofLogNotice("Network") << "Drew card for player " << targetPlayerIndex << ": " << drawnCard.name;
+					if (foundCard) {
+						Card newCard = *foundCard;
+
+						// Animation setup
+						newCard.currentScale = 1.5f;
+						newCard.targetScale = 1.5f;
+
+						// Calculate spawn position
+						float scale = ofGetHeight() / 1080.0f;
+						float staticUICardWidth = (120 * 1.3f) * scale;
+						float staticUICardHeight = ((120 * (585.0f / 409.0f)) * 1.3f) * scale;
+
+						// Position based on which player this is
+						bool isLocalPlayer = (p.playerID == myLocalPlayerID);
+						if (isLocalPlayer) {
+							// Draw at bottom (shouldn't happen since this is opponent's packet)
+							float deckX = 30 * scale;
+							float deckY = ofGetHeight() - staticUICardHeight - (40 * scale) - staticUICardHeight - (40 * scale);
+							newCard.currentPos.set(deckX + staticUICardWidth / 2, deckY + staticUICardHeight / 2);
+						} else {
+							// Draw at top (opponent's position)
+							float discardX = ofGetWidth() - staticUICardWidth - (30 * scale);
+							float discardY = 40 * scale;
+							float deckX = discardX;
+							float deckY = discardY + staticUICardHeight + (40 * scale);
+							newCard.currentPos.set(deckX + staticUICardWidth / 2, deckY + staticUICardHeight / 2);
+						}
+
+						p.hand.push_back(newCard);
+						ofLogNotice("Network") << "Added card to player " << targetPlayerIndex << "'s hand: " << cardName;
+					} else {
+						ofLogWarning("Network") << "Could not find card: " << cardName;
 					}
 				}
 			}
