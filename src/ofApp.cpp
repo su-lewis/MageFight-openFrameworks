@@ -10040,14 +10040,31 @@ void ofApp::mousePressed(int x, int y, int button) {
 				return;
 			}
 
+			// In multiplayer, client should always interact with their own player
+			// In single player, use currentPlayer
+			Player * controlledPlayer = nullptr;
+			if (isMultiplayer && isClient()) {
+				// Find the player with matching playerID
+				for (size_t i = 0; i < players.size(); i++) {
+					if (players[i].playerID == myLocalPlayerID && !players[i].isMinion) {
+						controlledPlayer = &players[i];
+						break;
+					}
+				}
+			} else {
+				controlledPlayer = &currentPlayer;
+			}
+
+			if (!controlledPlayer) return;
+
 			// Clicked Self? Select for Movement.
-			if (board[gridX][gridY].hasPlayer && gridX == currentPlayer.x && gridY == currentPlayer.y) {
+			if (board[gridX][gridY].hasPlayer && gridX == controlledPlayer->x && gridY == controlledPlayer->y) {
 				if (playerAction == PIECE_SELECTED) {
 					playerAction = NONE;
 					clearHighlights();
 				} else {
-					selectedPieceGridX = currentPlayer.x;
-					selectedPieceGridY = currentPlayer.y;
+					selectedPieceGridX = controlledPlayer->x;
+					selectedPieceGridY = controlledPlayer->y;
 					playerAction = PIECE_SELECTED;
 					selectedCardIndex = -1;
 					calculateTargetHighlights();
@@ -10067,21 +10084,33 @@ void ofApp::mousePressed(int x, int y, int button) {
 					// Ghosts can enter walls IF they have enough AP to exit (AP > 1)
 					// or if it's just a pass-through (handled by pathfinding).
 					// But for the final click, we rely on isHighlighted (which already checks AP logic).
-					if (currentPlayer.inGhostForm) canEnter = true;
+					if (controlledPlayer->inGhostForm) canEnter = true;
 
 					if (canEnter) {
 						int moveAPCost = static_cast<int>(hoverPath.size()) - 1;
 
+						// Get the controlled player's index for AP calculations
+						int controlledPlayerIndex = currentPlayerIndex;
+						if (isMultiplayer && isClient()) {
+							// Find the index of the controlled player
+							for (size_t i = 0; i < players.size(); i++) {
+								if (players[i].playerID == myLocalPlayerID && !players[i].isMinion) {
+									controlledPlayerIndex = i;
+									break;
+								}
+							}
+						}
+
 						// Recompute available AP from any dice that have finished spinning this frame
 						int apNow = 0;
 						for (const auto & r : activeDiceRolls) {
-							if ((r.purpose == PURPOSE_AP || r.purpose == PURPOSE_BONUS_AP) && r.isFinishedVisual && r.associatedUnit == currentPlayerIndex) {
+							if ((r.purpose == PURPOSE_AP || r.purpose == PURPOSE_BONUS_AP) && r.isFinishedVisual && r.associatedUnit == controlledPlayerIndex) {
 								apNow += r.result;
 							}
 						}
-						if (players[currentPlayerIndex].nextTurnAPBonus > 0) {
-							apNow += players[currentPlayerIndex].nextTurnAPBonus;
-							players[currentPlayerIndex].nextTurnAPBonus = 0;
+						if (players[controlledPlayerIndex].nextTurnAPBonus > 0) {
+							apNow += players[controlledPlayerIndex].nextTurnAPBonus;
+							players[controlledPlayerIndex].nextTurnAPBonus = 0;
 						}
 						if (currentAP > 0) apNow = std::max(apNow, currentAP);
 
@@ -10090,10 +10119,10 @@ void ofApp::mousePressed(int x, int y, int button) {
 
 							// Execute movement locally (client-side prediction)
 							// Update Board Occupancy
-							board[currentPlayer.x][currentPlayer.y].hasPlayer = false;
+							board[controlledPlayer->x][controlledPlayer->y].hasPlayer = false;
 							board[gridX][gridY].hasPlayer = true;
-							currentPlayer.x = gridX;
-							currentPlayer.y = gridY;
+							controlledPlayer->x = gridX;
+							controlledPlayer->y = gridY;
 
 							// Start Animation
 							animationPath.clear();
@@ -10876,9 +10905,63 @@ void ofApp::startNewTurn() {
 			steamManager.sendPacket(&sumPkt, sizeof(sumPkt));
 		}
 
+		// 2.5. CLEAN UP LOCAL PLAYER'S HAND & BUFFS BEFORE WAITING
+		// Both host and client must do this so deck states stay in sync
+		for (size_t i = 0; i < players.size(); i++) {
+			if (players[i].playerID == myLocalPlayerID && !players[i].isMinion) {
+				Player & localPlayer = players[i];
+
+				// Move hand and played cards to discard
+				localPlayer.discardPile.insert(localPlayer.discardPile.end(), localPlayer.hand.begin(), localPlayer.hand.end());
+				localPlayer.hand.clear();
+				localPlayer.discardPile.insert(localPlayer.discardPile.end(), localPlayer.playedCardsPile.begin(), localPlayer.playedCardsPile.end());
+				localPlayer.playedCardsPile.clear();
+
+				// Clear buffs
+				localPlayer.shocksPlayedThisTurn = 0;
+				localPlayer.nextAttackAddPoison = false;
+				localPlayer.flurryOfFistsActive = false;
+
+				// Reshuffle discard into deck if needed
+				if (localPlayer.deck.empty() && !localPlayer.discardPile.empty()) {
+					localPlayer.deck = localPlayer.discardPile;
+					// Use player index for shuffle (find it again since we're in a loop)
+					int playerIdx = -1;
+					for (size_t j = 0; j < players.size(); j++) {
+						if (players[j].playerID == myLocalPlayerID && !players[j].isMinion) {
+							playerIdx = j;
+							break;
+						}
+					}
+					shuffleGameVector(localPlayer.deck, playerIdx);
+					localPlayer.discardPile.clear();
+					ofLogNotice("Deck") << "Client reshuffled discard into deck for player " << localPlayer.playerID;
+				}
+
+				// Decrement buff timers
+				if (localPlayer.strengthenElementsTurnsRemaining > 0) {
+					localPlayer.strengthenElementsTurnsRemaining--;
+					if (localPlayer.strengthenElementsTurnsRemaining == 0) {
+						spawnFloatingText(transformGridToWorld(localPlayer.x, localPlayer.y), "Elements Faded", ofColor::gray);
+					}
+				}
+
+				// Decrement Sprint's Kick-free counter
+				if (localPlayer.freeKickTurns > 0) {
+					localPlayer.freeKickTurns--;
+					if (localPlayer.freeKickTurns == 0) {
+						spawnFloatingText(transformGridToWorld(localPlayer.x, localPlayer.y), "Kick Normal Cost", ofColor::white);
+					}
+				}
+
+				break;
+			}
+		}
+
 		// 3. CLIENT: Wait for host's next TurnStart packet instead of rolling locally
 		if (isClient()) {
 			// Early return - don't advance turn locally, wait for host's PKT_TURN_START
+			// Note: Local player's hand is already cleaned up above
 			return;
 		}
 	}
@@ -10890,35 +10973,39 @@ void ofApp::startNewTurn() {
 		Player & endingPlayer = players[currentPlayerIndex];
 
 		// --- A. CLEANUP HAND & BUFFS ---
-		endingPlayer.discardPile.insert(endingPlayer.discardPile.end(), endingPlayer.hand.begin(), endingPlayer.hand.end());
-		endingPlayer.hand.clear();
-		endingPlayer.discardPile.insert(endingPlayer.discardPile.end(), endingPlayer.playedCardsPile.begin(), endingPlayer.playedCardsPile.end());
-		endingPlayer.playedCardsPile.clear();
-		endingPlayer.shocksPlayedThisTurn = 0;
-		endingPlayer.nextAttackAddPoison = false; // Clear poison buff at end of turn
-		endingPlayer.flurryOfFistsActive = false; // Clear flurry buff at end of turn
+		// Skip this for local player on client (already done above)
+		if (!(isMultiplayer && isClient() && endingPlayer.playerID == myLocalPlayerID)) {
+			endingPlayer.discardPile.insert(endingPlayer.discardPile.end(), endingPlayer.hand.begin(), endingPlayer.hand.end());
+			endingPlayer.hand.clear();
+			endingPlayer.discardPile.insert(endingPlayer.discardPile.end(), endingPlayer.playedCardsPile.begin(), endingPlayer.playedCardsPile.end());
+			endingPlayer.playedCardsPile.clear();
 
-		// --- C. RESHUFFLE DISCARD INTO DECK IF DECK IS EMPTY ---
-		if (endingPlayer.deck.empty() && !endingPlayer.discardPile.empty()) {
-			endingPlayer.deck = endingPlayer.discardPile;
-			shuffleGameVector(endingPlayer.deck, currentPlayerIndex);
-			endingPlayer.discardPile.clear();
-			ofLogNotice("Deck") << "Reshuffled discard into deck for player " << endingPlayer.playerID;
-		}
+			endingPlayer.shocksPlayedThisTurn = 0;
+			endingPlayer.nextAttackAddPoison = false; // Clear poison buff at end of turn
+			endingPlayer.flurryOfFistsActive = false; // Clear flurry buff at end of turn
 
-		// Decrement buff timers
-		if (endingPlayer.strengthenElementsTurnsRemaining > 0) {
-			endingPlayer.strengthenElementsTurnsRemaining--;
-			if (endingPlayer.strengthenElementsTurnsRemaining == 0) {
-				spawnFloatingText(transformGridToWorld(endingPlayer.x, endingPlayer.y), "Elements Faded", ofColor::gray);
+			// Reshuffle discard into deck if needed
+			if (endingPlayer.deck.empty() && !endingPlayer.discardPile.empty()) {
+				endingPlayer.deck = endingPlayer.discardPile;
+				shuffleGameVector(endingPlayer.deck, currentPlayerIndex);
+				endingPlayer.discardPile.clear();
+				ofLogNotice("Deck") << "Reshuffled discard into deck for player " << endingPlayer.playerID;
 			}
-		}
 
-		// Decrement Sprint's Kick-free counter
-		if (endingPlayer.freeKickTurns > 0) {
-			endingPlayer.freeKickTurns--;
-			if (endingPlayer.freeKickTurns == 0) {
-				spawnFloatingText(transformGridToWorld(endingPlayer.x, endingPlayer.y), "Kick Normal Cost", ofColor::white);
+			// Decrement buff timers
+			if (endingPlayer.strengthenElementsTurnsRemaining > 0) {
+				endingPlayer.strengthenElementsTurnsRemaining--;
+				if (endingPlayer.strengthenElementsTurnsRemaining == 0) {
+					spawnFloatingText(transformGridToWorld(endingPlayer.x, endingPlayer.y), "Elements Faded", ofColor::gray);
+				}
+			}
+
+			// Decrement Sprint's Kick-free counter
+			if (endingPlayer.freeKickTurns > 0) {
+				endingPlayer.freeKickTurns--;
+				if (endingPlayer.freeKickTurns == 0) {
+					spawnFloatingText(transformGridToWorld(endingPlayer.x, endingPlayer.y), "Kick Normal Cost", ofColor::white);
+				}
 			}
 		}
 
@@ -17731,7 +17818,7 @@ void ofApp::processNetworkPackets() {
 							board[pkt->targetX][pkt->targetY].hasPlayer = true;
 							p.x = pkt->targetX;
 							p.y = pkt->targetY;
-							
+
 							invalidateTargetCache();
 							ofLogNotice("Network") << "Applied movement for player " << pkt->playerID << " to (" << pkt->targetX << "," << pkt->targetY << ")";
 						}
@@ -17754,7 +17841,7 @@ void ofApp::processNetworkPackets() {
 			// We replicate the drawCard() logic here without calling it to avoid RNG issues
 			if (dcpkt->playerIndex >= 0 && dcpkt->playerIndex < (int)players.size()) {
 				Player & p = players[dcpkt->playerIndex];
-				
+
 				for (int i = 0; i < dcpkt->numCards; ++i) {
 					// --- PHASE 1: CHECK IF DECK NEEDS RESHUFFLE ---
 					if (p.deck.empty()) {
@@ -17830,6 +17917,20 @@ void ofApp::processNetworkPackets() {
 				continue;
 			}
 			long long mySum = calculateChecksum();
+
+			// Log host's deck state for diagnostics
+			if (isHost()) {
+				ofLogNotice("Checksum") << "Host received checksum from player " << pkt->playerID << ": remote=" << pkt->checksum << " local=" << mySum;
+				for (size_t i = 0; i < players.size(); ++i) {
+					std::string deckSummary;
+					for (const auto & c : players[i].deck) {
+						if (!deckSummary.empty()) deckSummary += ",";
+						deckSummary += ofToString((int)c.type) + "(" + ofToString((int)c.value) + ")";
+					}
+					ofLogNotice("Checksum") << "Host P" << i << " deck=[" << deckSummary << "]";
+				}
+			}
+
 			if (mySum != pkt->checksum) {
 				ofLogError("Net") << "DESYNC DETECTED! Local: " << mySum << " Remote: " << pkt->checksum << " Turn: " << pkt->turnNumber;
 				// Diagnostic: log per-player deck state to help locate mismatch
@@ -17842,8 +17943,9 @@ void ofApp::processNetworkPackets() {
 					ofLogError("Net") << "Player " << i << " id=" << players[i].playerID << " deck=[" << deckSummary << "] hand=" << players[i].hand.size() << " discard=" << players[i].discardPile.size();
 				}
 				desyncMessage = "DESYNC! Local:" + ofToString(mySum) + " Remote:" + ofToString(pkt->checksum) + " Turn:" + ofToString(pkt->turnNumber);
-				// Freeze multiplayer to prevent further mismatch-driven actions
-				isMultiplayer = false;
+				// NOTE: Do NOT set isMultiplayer=false here - that breaks the game state
+				// Instead, just mark the state so the UI can display the error
+				// isMultiplayer = false;  // REMOVED: This was causing the "exit to menu" effect
 				currentState = STATE_DESYNC;
 				spawnFloatingText(glm::vec3(0, 5, 0), "DESYNC DETECTED", ofColor::red);
 			}
