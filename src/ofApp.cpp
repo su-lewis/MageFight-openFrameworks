@@ -17868,15 +17868,19 @@ void ofApp::processNetworkPackets() {
 						}
 					}
 
+					// Forward accept to clients BEFORE any new draft options/state are generated
+					DraftActionPacket outPkt = *pkt;
+					steamManager.sendPacket(&outPkt, sizeof(outPkt));
+
+					// Now shuffle (sends shuffle packet AFTER Accept packet)
+					shuffleGameVector(p.deck, pkt->draftPlayerIdx);
+
 					// Advance host-side draft state
 					selectedDraftIndices.clear();
 					draftOptions.clear();
 					if (isInGameDraft) {
 						isInGameDraft = false;
 						currentState = STATE_GAMEPLAY;
-						// Forward to client
-						DraftActionPacket outPkt = *pkt;
-						steamManager.sendPacket(&outPkt, sizeof(outPkt));
 						return;
 					}
 
@@ -17898,11 +17902,6 @@ void ofApp::processNetworkPackets() {
 							continueNewTurn();
 						}
 					}
-					// Forward accept to client BEFORE shuffling
-					DraftActionPacket outPkt = *pkt;
-					steamManager.sendPacket(&outPkt, sizeof(outPkt));
-					// Now shuffle (sends shuffle packet AFTER Accept packet)
-					shuffleGameVector(p.deck, pkt->draftPlayerIdx);
 					// Also send an additional state sync with currentPlayerIndex to ensure clients transition
 					DraftStatePacket sp2;
 					sp2.type = PKT_DRAFT_STATE;
