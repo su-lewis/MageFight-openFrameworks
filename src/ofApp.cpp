@@ -999,6 +999,14 @@ void ofApp::update() {
 	// --- DRAFTING STATE ---
 	case STATE_DRAFTING:
 		// Logic is primarily handled in mousePressed (card selection)
+		// Allow deck/discard hover view during drafting
+		if (isHoveringPile && !isShowingPileView) {
+			if (ofGetElapsedTimef() - pileHoverStartTime > 0.6f) { // Reduced hover time
+				isShowingPileView = true;
+				currentPileView = hoveredPileType;
+				currentPileViewPlayerIndex = hoveredPilePlayerIndex;
+			}
+		}
 		break;
 
 	case STATE_GAMEPLAY:
@@ -6172,7 +6180,15 @@ void ofApp::drawGame() {
 			ofDrawRectRounded(p1_deckRect, 10 * scale);
 		}
 
-		// Deck outline is never shown for opponent's deck at the top
+		// Show outline for opponent's deck when it's their turn and they haven't drawn yet
+		if (currentState == STATE_GAMEPLAY && !isCurrentPlayerLocal() && !opponentHasDrawnCardsThisTurn) {
+			ofPushStyle();
+			ofNoFill();
+			ofSetColor(ofColor::green);
+			ofSetLineWidth(4 * scale);
+			ofDrawRectangle(p1_deckRect);
+			ofPopStyle();
+		}
 
 		// 4. Draw AP Displays & Statuses (UPDATED)
 		string p0_apText = "0 AP";
@@ -6225,6 +6241,7 @@ void ofApp::drawGame() {
 		float p0_apRectHeight = (p0_apTextBox.height * fontScale) + (20 * scale);
 		// In multiplayer, only show bottom AP counter when it's the local player's turn
 		bool skipDrawP0AP = false;
+		if (currentState == STATE_DRAFTING) skipDrawP0AP = true;
 		if (currentPlayerIndex >= 0) {
 			// Bottom deck is always local player, so only show AP when current turn is local player
 			if (isMultiplayer && players[currentPlayerIndex].playerID != myLocalPlayerID) {
@@ -6326,6 +6343,7 @@ void ofApp::drawGame() {
 		float p1_apRectHeight = (p1_apTextBox.height * fontScale) + (20 * scale);
 		// In multiplayer, only show top AP counter when it's the opponent's turn (not local player)
 		bool skipDrawP1AP = false;
+		if (currentState == STATE_DRAFTING) skipDrawP1AP = true;
 		if (currentPlayerIndex >= 0) {
 			// Top deck is opponent in multiplayer, so only show AP when NOT local player's turn
 			if (isMultiplayer && isCurrentPlayerLocal()) {
@@ -7293,31 +7311,75 @@ void ofApp::drawGame() {
 						alpha = 255.0f * (1.0f - fadeProgress);
 					}
 
-					// Draw message text with format "Steam name: message"
+					// Draw message text with format "Steam name: message" with word wrapping
 					ofPushStyle();
 					ofSetColor(255, 255, 255, alpha);
 					string fullMsg = msg.playerName + ": " + msg.message;
-					uiFont.drawString(fullMsg, chatX + 10, messageY);
-					ofPopStyle();
 
-					messageY -= messageHeight;
-					visibleMessages++;
+					// Word wrap the message to fit in chat box
+					float maxWidth = chatMaxWidth - 20;
+					std::vector<string> wrappedLines;
+					string currentLine = "";
+					std::istringstream words(fullMsg);
+					string word;
+					while (words >> word) {
+						string testLine = currentLine.empty() ? word : currentLine + " " + word;
+						if (uiFont.stringWidth(testLine) <= maxWidth) {
+							currentLine = testLine;
+						} else {
+							if (!currentLine.empty()) wrappedLines.push_back(currentLine);
+							currentLine = word;
+						}
+					}
+					if (!currentLine.empty()) wrappedLines.push_back(currentLine);
+
+					// Draw each line
+					for (auto it = wrappedLines.rbegin(); it != wrappedLines.rend(); ++it) {
+						uiFont.drawString(*it, chatX + 10, messageY);
+						messageY -= messageHeight;
+						visibleMessages++;
+						if (visibleMessages >= maxVisible) break;
+					}
+					ofPopStyle();
 				}
 
 				// Draw chat input box when chat is open (only in full mode)
 				if (isChatOpen && !isChatMinimized) {
 					float inputY = chatY - 10 * scale;
 
-					// Draw input text
+					// Draw input text with word wrapping
 					ofPushStyle();
 					ofSetColor(ofColor::white);
 					string displayText = "> " + chatInput;
 					if (((int)(ofGetElapsedTimef() * 2)) % 2 == 0) {
 						displayText += "_"; // Blinking cursor
 					}
+
+					// Word wrap the input text
+					float maxWidth = chatMaxWidth - 20;
+					std::vector<string> wrappedLines;
+					string currentLine = "> ";
+					for (size_t i = 0; i < chatInput.length(); i++) {
+						string testLine = currentLine + chatInput[i];
+						if (uiFont.stringWidth(testLine) <= maxWidth) {
+							currentLine = testLine;
+						} else {
+							wrappedLines.push_back(currentLine);
+							currentLine = string(1, chatInput[i]);
+						}
+					}
+					if (((int)(ofGetElapsedTimef() * 2)) % 2 == 0) currentLine += "_";
+					wrappedLines.push_back(currentLine);
+
+					// Draw each line
+					float currentY = inputY - (wrappedLines.size() - 1) * messageHeight;
+					for (const auto & line : wrappedLines) {
+						uiFont.drawString(line, chatX + 10, currentY);
+						currentY += messageHeight;
+					}
+
 					// Show character count
 					string charCount = ofToString(chatInput.length()) + "/" + ofToString(maxChatInputLength);
-					uiFont.drawString(displayText, chatX + 10, inputY);
 					uiFont.drawString(charCount, chatX + chatMaxWidth - 60, inputY);
 					ofPopStyle();
 				}
@@ -10027,6 +10089,15 @@ void ofApp::mousePressed(int x, int y, int button) {
 			// Bottom Deck Click (Always Local Player in Multiplayer)
 			if (p0_deckRect.inside(x, y) && isLocalPlayersTurn && !hasDrawnCardsThisTurn) {
 				Player * playerToDraw = isMultiplayer ? localPlayer : p0;
+				int localPlayerIndex = currentPlayerIndex;
+				if (isMultiplayer) {
+					for (size_t i = 0; i < players.size(); i++) {
+						if (players[i].playerID == myLocalPlayerID && !players[i].isMinion) {
+							localPlayerIndex = (int)i;
+							break;
+						}
+					}
+				}
 				int baseDraw = playerToDraw->isDemon ? 3 : 2;
 				int cardsToDraw = playerToDraw->nextTurnExtraDraw ? (baseDraw + 1) : baseDraw;
 				if (playerToDraw->nextTurnExtraDraw) ofLogNotice("Game") << "Hasten Effect: Drawing 3 cards!";
@@ -10040,7 +10111,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 					DrawCardsPacket dcpkt = {};
 					dcpkt.type = PKT_DRAW_CARDS;
 					dcpkt.playerID = myLocalPlayerID;
-					dcpkt.playerIndex = currentPlayerIndex;
+					dcpkt.playerIndex = localPlayerIndex;
 					dcpkt.numCards = cardsToDraw;
 					steamManager.sendPacket(&dcpkt, sizeof(dcpkt));
 					ofLogNotice("Network") << (isClient() ? "Client" : "Host") << " sent DrawCards packet: " << cardsToDraw << " cards";
@@ -10341,10 +10412,11 @@ void ofApp::mouseDragged(int x, int y, int button) {
 			// Not our turn - only allow camera movement
 			if (button == OF_MOUSE_BUTTON_RIGHT) {
 				float dx = ofGetPreviousMouseX() - x, dy = ofGetPreviousMouseY() - y;
-				// Invert pan for client (camera 2 is mirrored)
-				float panMult = shouldFlipCamera() ? -1.0f : 1.0f;
-				cameraTargetPan.x += dx * 0.05f * (TILE_SIZE / 4.0f) * panMult;
-				cameraTargetPan.z += dy * 0.05f * (TILE_SIZE / 4.0f) * panMult;
+				// For camera2: invert both X and Z to mirror the view
+				float panMultX = shouldFlipCamera() ? -1.0f : 1.0f;
+				float panMultZ = shouldFlipCamera() ? -1.0f : 1.0f;
+				cameraTargetPan.x += dx * 0.05f * (TILE_SIZE / 4.0f) * panMultX;
+				cameraTargetPan.z += dy * 0.05f * (TILE_SIZE / 4.0f) * panMultZ;
 			}
 			return;
 		}
@@ -10352,10 +10424,11 @@ void ofApp::mouseDragged(int x, int y, int button) {
 
 	if (button == OF_MOUSE_BUTTON_RIGHT) {
 		float dx = ofGetPreviousMouseX() - x, dy = ofGetPreviousMouseY() - y;
-		// Invert pan for client (camera 2 is mirrored)
-		float panMult = shouldFlipCamera() ? -1.0f : 1.0f;
-		cameraTargetPan.x += dx * 0.05f * (TILE_SIZE / 4.0f) * panMult;
-		cameraTargetPan.z += dy * 0.05f * (TILE_SIZE / 4.0f) * panMult;
+		// For camera2: invert both X and Z to mirror the view
+		float panMultX = shouldFlipCamera() ? -1.0f : 1.0f;
+		float panMultZ = shouldFlipCamera() ? -1.0f : 1.0f;
+		cameraTargetPan.x += dx * 0.05f * (TILE_SIZE / 4.0f) * panMultX;
+		cameraTargetPan.z += dy * 0.05f * (TILE_SIZE / 4.0f) * panMultZ;
 		return;
 	}
 
@@ -11283,6 +11356,7 @@ void ofApp::continueNewTurn() {
 
 	ofLogNotice("Game") << "Player " << startingPlayer.playerID << "'s turn begins.";
 	hasDrawnCardsThisTurn = false;
+	opponentHasDrawnCardsThisTurn = false;
 	selectedCardIndex = -1;
 	draggedCardIndex = -1;
 	playerAction = NONE;
@@ -14685,6 +14759,10 @@ bool ofApp::isCurrentPlayerLocal() const {
 
 //--------------------------------------------------------------
 ofCamera & ofApp::getActiveCamera() {
+	// During drafting phase, both players see from the same camera perspective
+	if (currentState == STATE_DRAFTING) {
+		return cam;
+	}
 	// In multiplayer, Player 1 (client) uses cam2 positioned on opposite side
 	// Player 0 (host) uses cam (default position)
 	if (isMultiplayer && myLocalPlayerID == 1) {
@@ -18218,11 +18296,22 @@ void ofApp::processNetworkPackets() {
 		} else if (header->type == PKT_DRAW_CARDS) {
 			DrawCardsPacket * dcpkt = (DrawCardsPacket *)header;
 			ofLogNotice("Network") << "Received DrawCards from opponent: player=" << dcpkt->playerIndex << " num=" << dcpkt->numCards;
+			if (isMultiplayer && dcpkt->playerID != myLocalPlayerID) {
+				opponentHasDrawnCardsThisTurn = true;
+			}
 
 			// Apply the draw from opponent's deck
 			// We replicate the drawCard() logic here without calling it to avoid RNG issues
-			if (dcpkt->playerIndex >= 0 && dcpkt->playerIndex < (int)players.size()) {
-				Player & p = players[dcpkt->playerIndex];
+			int targetPlayerIndex = -1;
+			for (size_t i = 0; i < players.size(); ++i) {
+				if (players[i].playerID == dcpkt->playerID && !players[i].isMinion) {
+					targetPlayerIndex = (int)i;
+					break;
+				}
+			}
+			if (targetPlayerIndex < 0) targetPlayerIndex = dcpkt->playerIndex;
+			if (targetPlayerIndex >= 0 && targetPlayerIndex < (int)players.size()) {
+				Player & p = players[targetPlayerIndex];
 
 				for (int i = 0; i < dcpkt->numCards; ++i) {
 					// --- PHASE 1: CHECK IF DECK NEEDS RESHUFFLE ---
@@ -18235,7 +18324,7 @@ void ofApp::processNetworkPackets() {
 							p.discardPile.clear();
 							// Shuffle the new Deck (authoritative via host in multiplayer)
 							// NOTE: Client will skip this shuffle and wait for host's PKT_SHUFFLE
-							shuffleGameVector(p.deck, dcpkt->playerIndex);
+							shuffleGameVector(p.deck, targetPlayerIndex);
 						} else {
 							ofLogNotice("Game") << "Cannot draw. Both Deck and Discard are empty for player " << dcpkt->playerIndex;
 							break;
@@ -18247,7 +18336,7 @@ void ofApp::processNetworkPackets() {
 						Card drawnCard = p.deck.back();
 						p.deck.pop_back();
 						p.hand.push_back(drawnCard);
-						ofLogNotice("Network") << "Drew card for player " << dcpkt->playerIndex << ": " << drawnCard.name;
+						ofLogNotice("Network") << "Drew card for player " << targetPlayerIndex << ": " << drawnCard.name;
 					}
 				}
 			}

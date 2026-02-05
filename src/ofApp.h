@@ -519,7 +519,8 @@ private:
 
 	// Desync message shown when checksum fails
 	std::string desyncMessage;
-
+	bool hasDrawnCardsThisTurn = false;
+	bool opponentHasDrawnCardsThisTurn = false;
 	// If true client should wait for host TurnStart packet before performing AP roll
 	bool waitingForTurnStartFromHost = false;
 
