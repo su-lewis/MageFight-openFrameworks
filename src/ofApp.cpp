@@ -5688,7 +5688,7 @@ void ofApp::drawGame() {
 		// --- DRAW TILE HIGHLIGHTS ---
 		for (int x = 0; x < BOARD_WIDTH; x++) {
 			for (int y = 0; y < BOARD_HEIGHT; y++) {
-				glm::vec3 tileWorldPos = transformGridToWorld(x, y);
+				glm::vec3 tileWorldPos = gridToWorld(x, y); // Use gridToWorld, not transformGridToWorld
 				ofPushMatrix();
 				ofTranslate(tileWorldPos.x, 0, tileWorldPos.z);
 
@@ -5839,7 +5839,7 @@ void ofApp::drawGame() {
 		if ((playerAction == PIECE_SELECTED) && !hoverPath.empty()) {
 			for (size_t i = 1; i < hoverPath.size(); i++) {
 				const auto & step = hoverPath[i];
-				glm::vec3 pathWorldPos = transformGridToWorld(step.x, step.y);
+				glm::vec3 pathWorldPos = gridToWorld(step.x, step.y); // Use gridToWorld, not transformGridToWorld
 
 				// Calculate height for THIS specific step
 				float pathY = 0.05f;
@@ -6290,6 +6290,7 @@ void ofApp::drawGame() {
 		// In multiplayer, only show bottom AP counter when it's the local player's turn
 		bool skipDrawP0AP = false;
 		if (currentState == STATE_DRAFTING) skipDrawP0AP = true;
+		if (currentState == STATE_INITIATIVE_ROLL) skipDrawP0AP = true; // Hide AP during initiative roll
 		if (currentPlayerIndex >= 0) {
 			// Bottom deck is always local player, so only show AP when current turn is local player
 			if (isMultiplayer && players[currentPlayerIndex].playerID != myLocalPlayerID) {
@@ -6392,6 +6393,7 @@ void ofApp::drawGame() {
 		// In multiplayer, only show top AP counter when it's the opponent's turn (not local player)
 		bool skipDrawP1AP = false;
 		if (currentState == STATE_DRAFTING) skipDrawP1AP = true;
+		if (currentState == STATE_INITIATIVE_ROLL) skipDrawP1AP = true; // Hide AP during initiative roll
 		if (currentPlayerIndex >= 0) {
 			// Top deck is opponent in multiplayer, so only show AP when NOT local player's turn
 			if (isMultiplayer && isCurrentPlayerLocal()) {
