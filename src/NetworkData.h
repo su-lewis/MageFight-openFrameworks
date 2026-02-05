@@ -16,7 +16,10 @@ enum PacketType {
 	PKT_KEY_PICKUP, // Host -> Client: a player picked up a key (trigger in-game draft)
 	PKT_CHAT_MESSAGE, // Chat message between players
 	PKT_HOVER, // Hover state update for showing opponent's hover
-	PKT_DRAW_CARDS // Client -> Host: player drew cards from deck
+	PKT_DRAW_CARDS, // Client -> Host: player drew cards from deck
+	PKT_SNAPSHOT_BEGIN, // Host -> Client: begin state snapshot
+	PKT_SNAPSHOT_CHUNK, // Host -> Client: snapshot data chunk
+	PKT_SNAPSHOT_END // Host -> Client: end state snapshot
 };
 
 struct PacketHeader {
@@ -202,6 +205,24 @@ struct HoverPacket : PacketHeader {
 	int8_t gridX; // Grid X position (for units)
 	int8_t gridY; // Grid Y position (for units)
 	int8_t cardIndex; // Card index (for hand cards)
+};
+
+// Snapshot begin/end packets
+struct SnapshotBeginPacket : PacketHeader {
+	uint32_t snapshotId;
+	uint32_t totalSize;
+};
+
+// Snapshot data chunk packet
+struct SnapshotChunkPacket : PacketHeader {
+	uint32_t snapshotId;
+	uint32_t offset;
+	uint16_t chunkSize;
+	char data[512];
+};
+
+struct SnapshotEndPacket : PacketHeader {
+	uint32_t snapshotId;
 };
 
 #pragma pack(pop)

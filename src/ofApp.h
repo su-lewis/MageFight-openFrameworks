@@ -433,6 +433,9 @@ public:
 	void sendActionPacket(int cardIndex, int tx, int ty, int cost);
 	void executeAction(const ActionPacket & pkt);
 	long long calculateChecksum();
+	void sendSnapshotToClient();
+	std::string buildSnapshotString();
+	void applySnapshotString(const std::string & data);
 
 	// Anti-cheat: Log deck states for verification
 	void logDeckStates(const std::string & reason);
@@ -448,6 +451,11 @@ public:
 	bool hasReceivedHandshake = false;
 	std::string player0SteamName = "Player 1";
 	std::string player1SteamName = "Player 2";
+	uint32_t lastSnapshotId = 0;
+	std::string incomingSnapshotBuffer;
+	uint32_t incomingSnapshotId = 0;
+	uint32_t incomingSnapshotExpectedSize = 0;
+	uint32_t incomingSnapshotReceivedSize = 0;
 
 	// Steam avatar images for turn indicator
 	ofImage localAvatarImage;
@@ -589,6 +597,7 @@ private:
 	Player * getPlayer(int index);
 	std::string getPlayerDisplayName(int index);
 	std::string getPlayerSteamName(int playerIndex); // For player names (Steam)
+	const Card * findCardByName(const std::string & name) const;
 
 	// Network helpers
 	bool isClient() const { return isMultiplayer && !steamManager.isHost(); }
@@ -860,6 +869,7 @@ private:
 	ofVec2f endTurnButtonCurrentPos;
 	ofVec2f endTurnButtonTargetPos;
 	bool isHoveringEndTurn = false;
+	bool endTurnLocked = false; // Prevent repeated end turn clicks before turn updates
 
 	ofTrueTypeFont uiFont;
 	ofTrueTypeFont titleFont;

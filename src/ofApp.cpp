@@ -3,11 +3,13 @@
 #include "SteamManager.h"
 #include "ofAppGLFWWindow.h"
 #include <algorithm>
+#include <cstring>
 #include <glm/gtx/intersect.hpp>
 #include <limits>
 #include <queue>
 #include <random>
 #include <set>
+#include <sstream>
 #include <unordered_map>
 
 //--------------------------------------------------------------
@@ -57,6 +59,108 @@ void drawStatText(ofTrueTypeFont & font, std::string text, float x, float y, flo
 	ofSetColor(color);
 	font.drawString(text, 0, 0);
 	ofPopMatrix();
+}
+
+//--------------------------------------------------------------
+static std::string escapeField(const std::string & input) {
+	std::string out;
+	out.reserve(input.size());
+	for (char c : input) {
+		switch (c) {
+		case '\\':
+			out += "\\\\";
+			break;
+		case '\t':
+			out += "\\t";
+			break;
+		case '\n':
+			out += "\\n";
+			break;
+		case ',':
+			out += "\\c";
+			break;
+		default:
+			out += c;
+			break;
+		}
+	}
+	return out;
+}
+
+static std::string unescapeField(const std::string & input) {
+	std::string out;
+	out.reserve(input.size());
+	bool esc = false;
+	for (char c : input) {
+		if (!esc) {
+			if (c == '\\') {
+				esc = true;
+			} else {
+				out += c;
+			}
+		} else {
+			switch (c) {
+			case '\\':
+				out += '\\';
+				break;
+			case 't':
+				out += '\t';
+				break;
+			case 'n':
+				out += '\n';
+				break;
+			case 'c':
+				out += ',';
+				break;
+			default:
+				out += c;
+				break;
+			}
+			esc = false;
+		}
+	}
+	return out;
+}
+
+static std::vector<std::string> splitTabs(const std::string & line) {
+	std::vector<std::string> out;
+	std::string current;
+	for (char c : line) {
+		if (c == '\t') {
+			out.push_back(current);
+			current.clear();
+		} else {
+			current += c;
+		}
+	}
+	out.push_back(current);
+	return out;
+}
+
+static std::vector<std::string> splitEscapedList(const std::string & input) {
+	std::vector<std::string> out;
+	std::string current;
+	bool esc = false;
+	for (char c : input) {
+		if (!esc) {
+			if (c == '\\') {
+				esc = true;
+			} else if (c == ',') {
+				out.push_back(unescapeField(current));
+				current.clear();
+			} else {
+				current += c;
+			}
+		} else {
+			current += '\\';
+			current += c;
+			esc = false;
+		}
+	}
+	if (!current.empty() || input.empty()) {
+		out.push_back(unescapeField(current));
+	}
+	return out;
 }
 
 //--------------------------------------------------------------
@@ -853,6 +957,10 @@ void ofApp::update() {
 			// Show chat window for this message
 			lastChatInteractionTime = ofGetElapsedTimef();
 			ofLogNotice("Network") << opponentName << " reconnected - message added to chat";
+			// Host sends a full state snapshot to resync the reconnecting client
+			if (steamManager.isHost()) {
+				sendSnapshotToClient();
+			}
 		}
 	}
 
@@ -4429,9 +4537,11 @@ void ofApp::updateGame() {
 			// --- KEY PICKUP LOGIC START ---
 			// Only process key pickup on host - clients wait for PKT_KEY_PICKUP packet
 			if (!isMultiplayer || isHost()) {
-				glm::vec2 currentGridPos = worldToGrid(playerVisualPos);
-				int cx = (int)currentGridPos.x;
-				int cy = (int)currentGridPos.y;
+				// Use non-flipped world-to-grid conversion for key pickup
+				int cx = (int)std::round((playerVisualPos.x - TILE_SIZE / 2.0f) / TILE_SIZE + BOARD_WIDTH / 2.0f);
+				int cy = (int)std::round((playerVisualPos.z - TILE_SIZE / 2.0f) / TILE_SIZE + BOARD_HEIGHT / 2.0f);
+				cx = std::clamp(cx, 0, BOARD_WIDTH - 1);
+				cy = std::clamp(cy, 0, BOARD_HEIGHT - 1);
 
 				for (int k = 0; k < (int)floatingKeyInstances.size(); ++k) {
 					if (floatingKeyInstances[k].pos.x == cx && floatingKeyInstances[k].pos.y == cy) {
@@ -7412,6 +7522,29 @@ void ofApp::drawGame() {
 				int visibleMessages = 0;
 				int maxVisible = isChatMinimized ? 4 : 10; // Fewer messages when minimized
 
+				auto wrapText = [&](const std::string & text, float maxWidth) {
+					std::vector<std::string> lines;
+					std::string currentLine;
+					for (char c : text) {
+						if (c == '\n') {
+							if (!currentLine.empty()) lines.push_back(currentLine);
+							currentLine.clear();
+							continue;
+						}
+						if (currentLine.empty() && c == ' ') continue;
+						std::string testLine = currentLine + c;
+						if (uiFont.stringWidth(testLine) <= maxWidth || currentLine.empty()) {
+							currentLine = testLine;
+						} else {
+							lines.push_back(currentLine);
+							currentLine = std::string(1, c);
+						}
+					}
+					if (!currentLine.empty()) lines.push_back(currentLine);
+					if (lines.empty()) lines.push_back(" ");
+					return lines;
+				};
+
 				for (int i = (int)chatHistory.size() - 1; i >= 0 && visibleMessages < maxVisible; i--) {
 					ChatMessage & msg = chatHistory[i];
 					float age = currentTime - msg.timestamp;
@@ -7432,20 +7565,7 @@ void ofApp::drawGame() {
 
 					// Word wrap the message to fit in chat box
 					float maxWidth = chatMaxWidth - 20;
-					std::vector<string> wrappedLines;
-					string currentLine = "";
-					std::istringstream words(fullMsg);
-					string word;
-					while (words >> word) {
-						string testLine = currentLine.empty() ? word : currentLine + " " + word;
-						if (uiFont.stringWidth(testLine) <= maxWidth) {
-							currentLine = testLine;
-						} else {
-							if (!currentLine.empty()) wrappedLines.push_back(currentLine);
-							currentLine = word;
-						}
-					}
-					if (!currentLine.empty()) wrappedLines.push_back(currentLine);
+					std::vector<string> wrappedLines = wrapText(fullMsg, maxWidth);
 
 					// Draw each line
 					for (auto it = wrappedLines.rbegin(); it != wrappedLines.rend(); ++it) {
@@ -7471,19 +7591,10 @@ void ofApp::drawGame() {
 
 					// Word wrap the input text
 					float maxWidth = chatMaxWidth - 20;
-					std::vector<string> wrappedLines;
-					string currentLine = "> ";
-					for (size_t i = 0; i < chatInput.length(); i++) {
-						string testLine = currentLine + chatInput[i];
-						if (uiFont.stringWidth(testLine) <= maxWidth) {
-							currentLine = testLine;
-						} else {
-							wrappedLines.push_back(currentLine);
-							currentLine = string(1, chatInput[i]);
-						}
+					if (((int)(ofGetElapsedTimef() * 2)) % 2 == 0) {
+						displayText += "_";
 					}
-					if (((int)(ofGetElapsedTimef() * 2)) % 2 == 0) currentLine += "_";
-					wrappedLines.push_back(currentLine);
+					std::vector<string> wrappedLines = wrapText(displayText, maxWidth);
 
 					// Draw each line
 					float currentY = inputY - (wrappedLines.size() - 1) * messageHeight;
@@ -10318,6 +10429,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 
 		// 3g. End Turn Button
 		if (endTurnButtonRect.inside(x, y) && button == OF_MOUSE_BUTTON_LEFT) {
+			if (endTurnLocked) return;
 
 			// --- GHOST FORM CHECK ---
 			Player & p = players[currentPlayerIndex];
@@ -10328,6 +10440,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 			}
 			// ------------------------
 
+			endTurnLocked = true;
 			startNewTurn();
 			return;
 		}
@@ -11476,6 +11589,7 @@ void ofApp::startNewTurn() {
 }
 //--------------------------------------------------------------
 void ofApp::continueNewTurn() {
+	endTurnLocked = false;
 	Player & startingPlayer = players[currentPlayerIndex];
 
 	// Ensure temp luck is correct for the starting player before AP is rolled
@@ -14943,6 +15057,23 @@ std::string ofApp::getPlayerSteamName(int playerIndex) {
 }
 
 //--------------------------------------------------------------
+const Card * ofApp::findCardByName(const std::string & name) const {
+	for (const auto & c : allCards) {
+		if (c.name == name) return &c;
+	}
+	for (const auto & c : class1Cards) {
+		if (c.name == name) return &c;
+	}
+	for (const auto & c : class2Cards) {
+		if (c.name == name) return &c;
+	}
+	for (const auto & c : class3Cards) {
+		if (c.name == name) return &c;
+	}
+	return nullptr;
+}
+
+//--------------------------------------------------------------
 bool ofApp::isMyTurn() const {
 	if (currentPlayerIndex < 0 || players.empty()) return false;
 	int pid = players[currentPlayerIndex].playerID;
@@ -14983,6 +15114,328 @@ void ofApp::addGameLog(const std::string & logText) {
 		gameLog.erase(gameLog.begin());
 	}
 	// Don't show chat window for log entries - only for chat messages
+}
+
+//--------------------------------------------------------------
+std::string ofApp::buildSnapshotString() {
+	std::ostringstream ss;
+	ss << "V\t1\n";
+	ss << "STATE\t" << (int)currentState
+	   << "\t" << currentPlayerIndex
+	   << "\t" << globalTurnCounter
+	   << "\t" << (isInGameDraft ? 1 : 0)
+	   << "\t" << draftStage
+	   << "\t" << draftPlayerIndex
+	   << "\t" << draftPicksRemaining
+	   << "\t" << currentDraftClassTier
+	   << "\t" << (hasDrawnCardsThisTurn ? 1 : 0)
+	   << "\t" << (opponentHasDrawnCardsThisTurn ? 1 : 0)
+	   << "\t" << currentAP
+	   << "\t" << lastAPDiceNum
+	   << "\t" << lastAPDiceSides
+	   << "\n";
+
+	ss << "QUEUE\t" << pendingDraftQueue.size();
+	for (int v : pendingDraftQueue)
+		ss << "\t" << v;
+	ss << "\n";
+
+	std::string walls;
+	std::string magicWalls;
+	walls.reserve(BOARD_WIDTH * BOARD_HEIGHT);
+	magicWalls.reserve(BOARD_WIDTH * BOARD_HEIGHT);
+	for (int y = 0; y < BOARD_HEIGHT; ++y) {
+		for (int x = 0; x < BOARD_WIDTH; ++x) {
+			walls += board[x][y].hasWall ? '1' : '0';
+			magicWalls += board[x][y].isMagicWall ? '1' : '0';
+		}
+	}
+	ss << "BOARD\t" << walls << "\t" << magicWalls << "\n";
+
+	ss << "DRAFTOPTS\t";
+	for (size_t i = 0; i < draftOptions.size(); ++i) {
+		if (i > 0) ss << ',';
+		ss << escapeField(draftOptions[i].name);
+	}
+	ss << "\tSEL\t";
+	for (size_t i = 0; i < selectedDraftIndices.size(); ++i) {
+		if (i > 0) ss << ',';
+		ss << selectedDraftIndices[i];
+	}
+	ss << "\n";
+
+	ss << "PLAYERS\t" << players.size() << "\n";
+	for (const auto & p : players) {
+		ss << "P\t"
+		   << p.playerID << "\t" << p.x << "\t" << p.y << "\t"
+		   << p.health << "\t" << p.maxHealth << "\t" << p.block << "\t" << p.ward << "\t"
+		   << p.fortification << "\t" << p.barrier << "\t" << p.holyBlock << "\t" << p.luck << "\t"
+		   << p.bonusTurns << "\t" << p.facingAngle << "\t"
+		   << (p.onFire ? 1 : 0) << "\t" << (p.hasRegeneration ? 1 : 0) << "\t"
+		   << p.nextTurnAPBonus << "\t" << p.shocksPlayedThisTurn << "\t"
+		   << (p.flurryOfFistsActive ? 1 : 0) << "\t" << (p.isParalyzed ? 1 : 0) << "\t"
+		   << p.paralysisHeadsCount << "\t" << (p.isPoisoned ? 1 : 0) << "\t" << p.poisonReduction << "\t"
+		   << (p.nextAttackAddPoison ? 1 : 0) << "\t" << (p.nextTurnD10AP ? 1 : 0) << "\t"
+		   << (p.nextTurnExtraDraw ? 1 : 0) << "\t" << (p.isReplicatePending ? 1 : 0) << "\t"
+		   << (p.nextTurnBonusDiceFromMinions ? 1 : 0) << "\t" << p.strengthenElementsTurnsRemaining << "\t"
+		   << p.sleepTurnsRemaining << "\t" << p.summonedOnTurnCycle << "\t" << p.summonOrder << "\t"
+		   << (p.isMinion ? 1 : 0) << "\t" << (p.isSkeleton ? 1 : 0) << "\t" << (p.isGolem ? 1 : 0) << "\t"
+		   << (p.isHellhound ? 1 : 0) << "\t" << (p.isWolf ? 1 : 0) << "\t" << (p.isKobold ? 1 : 0) << "\t"
+		   << (p.isDemon ? 1 : 0) << "\t" << (p.isWallUnit ? 1 : 0) << "\t" << (p.isMagicWallUnit ? 1 : 0) << "\t"
+		   << (p.isKoboldKing ? 1 : 0) << "\t" << (p.isFaerie ? 1 : 0) << "\t" << (p.isAssistant ? 1 : 0) << "\t"
+		   << p.directSummonerID << "\t" << (p.assistantRerollUsedThisTurn ? 1 : 0) << "\t" << p.freeKickTurns << "\t"
+		   << (p.inTortoiseForm ? 1 : 0) << "\t" << p.tortoiseDamageTaken << "\t" << (p.pendingTortoiseDamage ? 1 : 0) << "\t"
+		   << p.pendingTortoiseDamageValue << "\t" << p.ownerID << "\t" << (p.inGhostForm ? 1 : 0) << "\t"
+		   << p.ghostDamageTaken << "\t" << escapeField(p.originalModelType) << "\t";
+
+		auto encodeCards = [&](const std::vector<Card> & cards) {
+			std::string out;
+			for (size_t i = 0; i < cards.size(); ++i) {
+				if (i > 0) out += ',';
+				out += escapeField(cards[i].name);
+			}
+			return out;
+		};
+
+		ss << "DECK\t" << encodeCards(p.deck)
+		   << "\tHAND\t" << encodeCards(p.hand)
+		   << "\tDISCARD\t" << encodeCards(p.discardPile)
+		   << "\tPLAYED\t" << encodeCards(p.playedCardsPile)
+		   << "\tPLAYEDTYPES\t";
+		for (size_t i = 0; i < p.cardsPlayedThisTurn.size(); ++i) {
+			if (i > 0) ss << ',';
+			ss << (int)p.cardsPlayedThisTurn[i];
+		}
+		ss << "\n";
+	}
+
+	return ss.str();
+}
+
+//--------------------------------------------------------------
+void ofApp::applySnapshotString(const std::string & data) {
+	std::istringstream ss(data);
+	std::string line;
+
+	isMultiplayer = true;
+	hasReceivedHandshake = true;
+	gameplaySeededByHost = true;
+
+	// Reset transient visuals
+	activeDiceRolls.clear();
+	activeFloatingTexts.clear();
+	particles.clear();
+	activeCardDisplays.clear();
+	activePlayedCardAnimations.clear();
+	activeRemovedCardAnimations.clear();
+	activeStolenCardAnimations.clear();
+	animationPath.clear();
+	isPlayerAnimating = false;
+	animatingPlayerIndex = -1;
+	endTurnLocked = false;
+	waitingForTurnStartFromHost = false;
+
+	players.clear();
+
+	while (std::getline(ss, line)) {
+		if (line.empty()) continue;
+		auto parts = splitTabs(line);
+		if (parts.empty()) continue;
+		if (parts[0] == "STATE" && parts.size() >= 13) {
+			currentState = (GameState)std::stoi(parts[1]);
+			currentPlayerIndex = std::stoi(parts[2]);
+			globalTurnCounter = std::stoi(parts[3]);
+			isInGameDraft = (std::stoi(parts[4]) != 0);
+			draftStage = std::stoi(parts[5]);
+			draftPlayerIndex = std::stoi(parts[6]);
+			draftPicksRemaining = std::stoi(parts[7]);
+			currentDraftClassTier = std::stoi(parts[8]);
+			hasDrawnCardsThisTurn = (std::stoi(parts[9]) != 0);
+			opponentHasDrawnCardsThisTurn = (std::stoi(parts[10]) != 0);
+			currentAP = std::stoi(parts[11]);
+			lastAPDiceNum = std::stoi(parts[12]);
+			lastAPDiceSides = (parts.size() > 13) ? std::stoi(parts[13]) : lastAPDiceSides;
+		} else if (parts[0] == "QUEUE" && parts.size() >= 2) {
+			pendingDraftQueue.clear();
+			for (size_t i = 2; i < parts.size(); ++i)
+				pendingDraftQueue.push_back(std::stoi(parts[i]));
+		} else if (parts[0] == "BOARD" && parts.size() >= 3) {
+			const std::string & walls = parts[1];
+			const std::string & magicWalls = parts[2];
+			int idx = 0;
+			for (int y = 0; y < BOARD_HEIGHT; ++y) {
+				for (int x = 0; x < BOARD_WIDTH; ++x) {
+					board[x][y].hasPlayer = false;
+					board[x][y].hasWall = (idx < (int)walls.size() && walls[idx] == '1');
+					board[x][y].isMagicWall = (idx < (int)magicWalls.size() && magicWalls[idx] == '1');
+					idx++;
+				}
+			}
+			buildLevelMesh();
+			invalidateTargetCache();
+		} else if (parts[0] == "DRAFTOPTS" && parts.size() >= 4) {
+			draftOptions.clear();
+			selectedDraftIndices.clear();
+			auto optNames = splitEscapedList(parts[1]);
+			for (const auto & name : optNames) {
+				if (name.empty()) continue;
+				const Card * c = findCardByName(name);
+				if (c) draftOptions.push_back(*c);
+			}
+			if (parts[2] == "SEL") {
+				auto selParts = splitEscapedList(parts[3]);
+				for (const auto & s : selParts) {
+					if (!s.empty()) selectedDraftIndices.push_back(std::stoi(s));
+				}
+			}
+		} else if (parts[0] == "P" && parts.size() >= 45) {
+			Player p;
+			int idx = 1;
+			p.playerID = std::stoi(parts[idx++]);
+			p.x = std::stoi(parts[idx++]);
+			p.y = std::stoi(parts[idx++]);
+			p.health = std::stoi(parts[idx++]);
+			p.maxHealth = std::stoi(parts[idx++]);
+			p.block = std::stoi(parts[idx++]);
+			p.ward = std::stoi(parts[idx++]);
+			p.fortification = std::stoi(parts[idx++]);
+			p.barrier = std::stoi(parts[idx++]);
+			p.holyBlock = std::stoi(parts[idx++]);
+			p.luck = std::stoi(parts[idx++]);
+			p.bonusTurns = std::stoi(parts[idx++]);
+			p.facingAngle = std::stof(parts[idx++]);
+			p.onFire = (std::stoi(parts[idx++]) != 0);
+			p.hasRegeneration = (std::stoi(parts[idx++]) != 0);
+			p.nextTurnAPBonus = std::stoi(parts[idx++]);
+			p.shocksPlayedThisTurn = std::stoi(parts[idx++]);
+			p.flurryOfFistsActive = (std::stoi(parts[idx++]) != 0);
+			p.isParalyzed = (std::stoi(parts[idx++]) != 0);
+			p.paralysisHeadsCount = std::stoi(parts[idx++]);
+			p.isPoisoned = (std::stoi(parts[idx++]) != 0);
+			p.poisonReduction = std::stoi(parts[idx++]);
+			p.nextAttackAddPoison = (std::stoi(parts[idx++]) != 0);
+			p.nextTurnD10AP = (std::stoi(parts[idx++]) != 0);
+			p.nextTurnExtraDraw = (std::stoi(parts[idx++]) != 0);
+			p.isReplicatePending = (std::stoi(parts[idx++]) != 0);
+			p.nextTurnBonusDiceFromMinions = (std::stoi(parts[idx++]) != 0);
+			p.strengthenElementsTurnsRemaining = std::stoi(parts[idx++]);
+			p.sleepTurnsRemaining = std::stoi(parts[idx++]);
+			p.summonedOnTurnCycle = std::stoi(parts[idx++]);
+			p.summonOrder = std::stoi(parts[idx++]);
+			p.isMinion = (std::stoi(parts[idx++]) != 0);
+			p.isSkeleton = (std::stoi(parts[idx++]) != 0);
+			p.isGolem = (std::stoi(parts[idx++]) != 0);
+			p.isHellhound = (std::stoi(parts[idx++]) != 0);
+			p.isWolf = (std::stoi(parts[idx++]) != 0);
+			p.isKobold = (std::stoi(parts[idx++]) != 0);
+			p.isDemon = (std::stoi(parts[idx++]) != 0);
+			p.isWallUnit = (std::stoi(parts[idx++]) != 0);
+			p.isMagicWallUnit = (std::stoi(parts[idx++]) != 0);
+			p.isKoboldKing = (std::stoi(parts[idx++]) != 0);
+			p.isFaerie = (std::stoi(parts[idx++]) != 0);
+			p.isAssistant = (std::stoi(parts[idx++]) != 0);
+			p.directSummonerID = std::stoi(parts[idx++]);
+			p.assistantRerollUsedThisTurn = (std::stoi(parts[idx++]) != 0);
+			p.freeKickTurns = std::stoi(parts[idx++]);
+			p.inTortoiseForm = (std::stoi(parts[idx++]) != 0);
+			p.tortoiseDamageTaken = std::stoi(parts[idx++]);
+			p.pendingTortoiseDamage = (std::stoi(parts[idx++]) != 0);
+			p.pendingTortoiseDamageValue = std::stoi(parts[idx++]);
+			p.ownerID = std::stoi(parts[idx++]);
+			p.inGhostForm = (std::stoi(parts[idx++]) != 0);
+			p.ghostDamageTaken = std::stoi(parts[idx++]);
+			p.originalModelType = unescapeField(parts[idx++]);
+
+			auto decodeCards = [&](const std::string & list, std::vector<Card> & outVec) {
+				outVec.clear();
+				if (list.empty()) return;
+				auto names = splitEscapedList(list);
+				for (const auto & n : names) {
+					if (n.empty()) continue;
+					const Card * c = findCardByName(n);
+					if (c)
+						outVec.push_back(*c);
+					else {
+						Card fallback;
+						fallback.name = n;
+						outVec.push_back(fallback);
+					}
+				}
+			};
+
+			// Remaining fields are tagged
+			while (idx + 1 < (int)parts.size()) {
+				std::string tag = parts[idx++];
+				std::string value = parts[idx++];
+				if (tag == "DECK")
+					decodeCards(value, p.deck);
+				else if (tag == "HAND")
+					decodeCards(value, p.hand);
+				else if (tag == "DISCARD")
+					decodeCards(value, p.discardPile);
+				else if (tag == "PLAYED")
+					decodeCards(value, p.playedCardsPile);
+				else if (tag == "PLAYEDTYPES") {
+					p.cardsPlayedThisTurn.clear();
+					if (!value.empty()) {
+						auto types = splitEscapedList(value);
+						for (const auto & t : types) {
+							if (!t.empty()) p.cardsPlayedThisTurn.push_back((CardType)std::stoi(t));
+						}
+					}
+				}
+			}
+			players.push_back(p);
+		}
+	}
+
+	// Rebuild hasPlayer from player positions
+	for (int y = 0; y < BOARD_HEIGHT; ++y) {
+		for (int x = 0; x < BOARD_WIDTH; ++x) {
+			board[x][y].hasPlayer = false;
+		}
+	}
+	for (const auto & p : players) {
+		if (p.x >= 0 && p.x < BOARD_WIDTH && p.y >= 0 && p.y < BOARD_HEIGHT) {
+			board[p.x][p.y].hasPlayer = true;
+		}
+	}
+
+	if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) {
+		playerVisualPos = gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y);
+	}
+}
+
+//--------------------------------------------------------------
+void ofApp::sendSnapshotToClient() {
+	if (!isMultiplayer || !isHost()) return;
+	std::string data = buildSnapshotString();
+	uint32_t snapshotId = ++lastSnapshotId;
+
+	SnapshotBeginPacket begin = {};
+	begin.type = PKT_SNAPSHOT_BEGIN;
+	begin.playerID = myLocalPlayerID;
+	begin.snapshotId = snapshotId;
+	begin.totalSize = (uint32_t)data.size();
+	steamManager.sendPacket(&begin, sizeof(begin));
+
+	const size_t chunkSize = sizeof(((SnapshotChunkPacket *)0)->data);
+	for (size_t offset = 0; offset < data.size(); offset += chunkSize) {
+		SnapshotChunkPacket chunk = {};
+		chunk.type = PKT_SNAPSHOT_CHUNK;
+		chunk.playerID = myLocalPlayerID;
+		chunk.snapshotId = snapshotId;
+		chunk.offset = (uint32_t)offset;
+		chunk.chunkSize = (uint16_t)std::min(chunkSize, data.size() - offset);
+		memcpy(chunk.data, data.data() + offset, chunk.chunkSize);
+		steamManager.sendPacket(&chunk, sizeof(chunk));
+	}
+
+	SnapshotEndPacket end = {};
+	end.type = PKT_SNAPSHOT_END;
+	end.playerID = myLocalPlayerID;
+	end.snapshotId = snapshotId;
+	steamManager.sendPacket(&end, sizeof(end));
 }
 
 //--------------------------------------------------------------
@@ -18146,6 +18599,7 @@ void ofApp::processNetworkPackets() {
 			if (tpk->currentPlayerIndex >= 0 && tpk->currentPlayerIndex < (int)players.size()) {
 				// Set up turn state
 				waitingForTurnStartFromHost = false;
+				endTurnLocked = false;
 				currentState = STATE_GAMEPLAY; // Transition to gameplay state
 				currentPlayerIndex = tpk->currentPlayerIndex;
 				lastAPDiceNum = (int)tpk->diceNum;
@@ -18423,6 +18877,40 @@ void ofApp::processNetworkPackets() {
 			continue; // Done with this packet
 		}
 
+		if (header->type == PKT_SNAPSHOT_BEGIN) {
+			SnapshotBeginPacket * bp = (SnapshotBeginPacket *)header;
+			incomingSnapshotId = bp->snapshotId;
+			incomingSnapshotExpectedSize = bp->totalSize;
+			incomingSnapshotReceivedSize = 0;
+			incomingSnapshotBuffer.assign(bp->totalSize, '\0');
+			ofLogNotice("Network") << "Snapshot begin (id=" << incomingSnapshotId << ", bytes=" << incomingSnapshotExpectedSize << ")";
+			continue;
+		}
+
+		if (header->type == PKT_SNAPSHOT_CHUNK) {
+			SnapshotChunkPacket * cp = (SnapshotChunkPacket *)header;
+			if (cp->snapshotId == incomingSnapshotId && !incomingSnapshotBuffer.empty()) {
+				uint32_t end = cp->offset + cp->chunkSize;
+				if (end <= incomingSnapshotBuffer.size()) {
+					memcpy(&incomingSnapshotBuffer[cp->offset], cp->data, cp->chunkSize);
+					incomingSnapshotReceivedSize += cp->chunkSize;
+				}
+			}
+			continue;
+		}
+
+		if (header->type == PKT_SNAPSHOT_END) {
+			SnapshotEndPacket * ep = (SnapshotEndPacket *)header;
+			if (ep->snapshotId == incomingSnapshotId && incomingSnapshotExpectedSize > 0) {
+				ofLogNotice("Network") << "Snapshot end (id=" << incomingSnapshotId << ")";
+				applySnapshotString(incomingSnapshotBuffer);
+				incomingSnapshotBuffer.clear();
+				incomingSnapshotExpectedSize = 0;
+				incomingSnapshotReceivedSize = 0;
+			}
+			continue;
+		}
+
 		if (header->type == PKT_HANDSHAKE) {
 			HandshakePacket * pkt = (HandshakePacket *)header;
 			ofLogNotice("Net") << "Handshake received. Seed: " << pkt->seed;
@@ -18521,6 +19009,14 @@ void ofApp::processNetworkPackets() {
 				for (int i = 0; i < dcpkt->numCards && i < 3; ++i) {
 					std::string cardName = dcpkt->cardNames[i];
 					if (cardName.empty()) continue;
+
+					// Remove the drawn card from the deck so the deck size stays in sync
+					for (auto it = p.deck.begin(); it != p.deck.end(); ++it) {
+						if (it->name == cardName) {
+							p.deck.erase(it);
+							break;
+						}
+					}
 
 					// Find this card in the master card lists
 					Card * foundCard = nullptr;
@@ -18803,39 +19299,22 @@ void ofApp::processNetworkPackets() {
 				}
 				// Host: apply the client's input, then forward to the client(s)
 				if (pkt->actionType == 0) {
-					// SELECT / TOGGLE selection or in-game immediate pick
-					if (isInGameDraft) {
-						// In-game immediate pick
-						Player & p = players[pkt->draftPlayerIdx];
-						if (pkt->optionIndex >= 0 && pkt->optionIndex < (int)draftOptions.size()) {
-							p.deck.push_back(draftOptions[pkt->optionIndex]);
-							shuffleGameVector(p.deck, pkt->draftPlayerIdx);
+					// Toggle selection for the current drafting player (in-game drafts wait for Accept)
+					int requiredPicks = 1;
+					if (!isInGameDraft && draftStage == 0) requiredPicks = 2;
+					int opt = pkt->optionIndex;
+					if (pkt->selectFlag) {
+						auto it = std::find(selectedDraftIndices.begin(), selectedDraftIndices.end(), opt);
+						if (it == selectedDraftIndices.end() && (int)selectedDraftIndices.size() < requiredPicks) {
+							selectedDraftIndices.push_back(opt);
 						}
-						selectedDraftIndices.clear();
-						draftOptions.clear();
-						isInGameDraft = false;
-						currentState = STATE_GAMEPLAY;
-						// Forward this pick to clients
-						DraftActionPacket outPkt = *pkt;
-						steamManager.sendPacket(&outPkt, sizeof(outPkt));
 					} else {
-						// Toggle selection for the current drafting player
-						int requiredPicks = 1;
-						if (!isInGameDraft && draftStage == 0) requiredPicks = 2;
-						int opt = pkt->optionIndex;
-						if (pkt->selectFlag) {
-							auto it = std::find(selectedDraftIndices.begin(), selectedDraftIndices.end(), opt);
-							if (it == selectedDraftIndices.end() && (int)selectedDraftIndices.size() < requiredPicks) {
-								selectedDraftIndices.push_back(opt);
-							}
-						} else {
-							auto it = std::find(selectedDraftIndices.begin(), selectedDraftIndices.end(), opt);
-							if (it != selectedDraftIndices.end()) selectedDraftIndices.erase(it);
-						}
-						// Forward toggle to clients
-						DraftActionPacket outPkt = *pkt;
-						steamManager.sendPacket(&outPkt, sizeof(outPkt));
+						auto it = std::find(selectedDraftIndices.begin(), selectedDraftIndices.end(), opt);
+						if (it != selectedDraftIndices.end()) selectedDraftIndices.erase(it);
 					}
+					// Forward toggle to clients
+					DraftActionPacket outPkt = *pkt;
+					steamManager.sendPacket(&outPkt, sizeof(outPkt));
 				} else if (pkt->actionType == 1) {
 					// Client accepted draft with choices -> apply on host
 					int picks = pkt->numSelected;
