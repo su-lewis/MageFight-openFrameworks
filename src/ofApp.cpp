@@ -1508,14 +1508,14 @@ void ofApp::initializeGameStateCommon() {
 	// --- PLAYER CREATION ---
 	Player p1;
 	p1.x = 0;
-	p1.y = 0;
+	p1.y = BOARD_HEIGHT - 1;
 	p1.playerID = 0;
 	p1.deck.clear();
 	players.push_back(p1);
 
 	Player p2;
 	p2.x = BOARD_WIDTH - 1;
-	p2.y = BOARD_HEIGHT - 1;
+	p2.y = 0;
 	p2.playerID = 1;
 	p2.deck.clear();
 	players.push_back(p2);
