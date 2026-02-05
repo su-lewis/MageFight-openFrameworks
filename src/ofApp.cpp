@@ -639,6 +639,7 @@ void ofApp::setup() {
 	float aspectRatio = (float)ofGetWidth() / (float)ofGetHeight();
 	float fov = 60.0f * (aspectRatio / 1.333f); // 1.333 is the original 1024/768 ratio
 	cam.setupPerspective(false, fov, 0.1f, 100000);
+	cam2.setupPerspective(false, fov, 0.1f, 100000); // Same settings for cam2
 
 	// --- SHADOW TEXTURE GENERATION ---
 	ofPixels pix;
@@ -1390,6 +1391,7 @@ void ofApp::drawPauseMenu() {
 void ofApp::recalculateUI(int w, int h) {
 	// 1. Update Camera Aspect Ratio
 	cam.setAspectRatio((float)w / (float)h);
+	cam2.setAspectRatio((float)w / (float)h);
 	lastWindowWidth = w;
 	lastWindowHeight = h;
 
@@ -1531,6 +1533,7 @@ void ofApp::initializeGameStateCommon() {
 
 	ofLogNotice("Game") << "--- INITIATIVE ROLL STARTED ---";
 	cam.setAspectRatio((float)ofGetWidth() / (float)ofGetHeight());
+	cam2.setAspectRatio((float)ofGetWidth() / (float)ofGetHeight());
 }
 
 void ofApp::initGameFromSeed(uint32_t seed) {
