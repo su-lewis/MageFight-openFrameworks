@@ -750,6 +750,7 @@ private:
 	glm::vec3 cameraCurrentPos;
 	glm::vec3 cameraCurrentPos2; // Smoothed position for cam2
 	glm::vec3 cameraCurrentLookAt;
+	glm::vec3 cameraCurrentLookAt2; // Smoothed lookAt for cam2
 	float last3DZoom = 35.0f;
 	float lastWindowWidth = 0;
 	float lastWindowHeight = 0;

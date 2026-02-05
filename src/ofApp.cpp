@@ -1451,6 +1451,7 @@ void ofApp::initializeGameStateCommon() {
 	cameraCurrentPos = cam.getPosition();
 	cameraCurrentPos2 = cam2.getPosition();
 	cameraCurrentLookAt = cameraCurrentPan;
+	cameraCurrentLookAt2 = glm::vec3(cameraCurrentPan.x, cameraCurrentPan.y, -cameraCurrentPan.z);
 
 	// --- BOARD WALLS SETUP ---
 	board[2][2].hasWall = true;
@@ -1670,6 +1671,7 @@ void ofApp::updateGame() {
 	// --- Camera & Skybox Logic ---
 	if (ofGetWidth() != lastWindowWidth || ofGetHeight() != lastWindowHeight) {
 		cam.setAspectRatio((float)ofGetWidth() / (float)ofGetHeight());
+		cam2.setAspectRatio((float)ofGetWidth() / (float)ofGetHeight());
 		lastWindowWidth = ofGetWidth();
 		lastWindowHeight = ofGetHeight();
 	}
@@ -1677,27 +1679,35 @@ void ofApp::updateGame() {
 	float frame_independent_smoothing = 1.0 - pow(0.6, deltaTime * 60.0);
 	cameraCurrentZoom = ofLerp(cameraCurrentZoom, cameraTargetZoom, frame_independent_smoothing);
 	cameraCurrentPan = glm::mix(cameraCurrentPan, cameraTargetPan, frame_independent_smoothing);
+	
+	// Camera 2 mirrors Camera 1: same X and Y pan, but opposite Z pan
+	glm::vec3 cameraCurrentPan2 = glm::vec3(cameraCurrentPan.x, cameraCurrentPan.y, -cameraCurrentPan.z);
+	
 	glm::vec3 targetPos;
 	glm::vec3 targetPos2; // Second camera position (opposite side)
 	glm::vec3 targetLookAt = cameraCurrentPan;
+	glm::vec3 targetLookAt2 = cameraCurrentPan2; // Camera 2 looks at mirrored point
+	
 	if (isTopDownView) {
 		// Top-down should be more zoomed-in: lower the camera height multiplier.
 		targetPos = glm::vec3(cameraCurrentPan.x, cameraCurrentZoom * 0.6f, cameraCurrentPan.z);
-		targetPos2 = glm::vec3(cameraCurrentPan.x, cameraCurrentZoom * 0.6f, cameraCurrentPan.z);
+		targetPos2 = glm::vec3(cameraCurrentPan2.x, cameraCurrentZoom * 0.6f, cameraCurrentPan2.z);
 	} else {
 		// Use updated multipliers at runtime target: raise Y a bit to look more
 		// top-down while keeping the same Z back offset.
 		targetPos = glm::vec3(cameraCurrentPan.x, cameraCurrentZoom * 1.18f, cameraCurrentPan.z + cameraCurrentZoom * 0.70f);
-		targetPos2 = glm::vec3(cameraCurrentPan.x, cameraCurrentZoom * 1.18f, cameraCurrentPan.z - cameraCurrentZoom * 0.70f); // Opposite Z
+		targetPos2 = glm::vec3(cameraCurrentPan2.x, cameraCurrentZoom * 1.18f, cameraCurrentPan2.z - cameraCurrentZoom * 0.70f); // Opposite Z
 	}
 	cameraCurrentPos = glm::mix(cameraCurrentPos, targetPos, frame_independent_smoothing);
 	cameraCurrentPos2 = glm::mix(cameraCurrentPos2, targetPos2, frame_independent_smoothing);
 	cameraCurrentLookAt = glm::mix(cameraCurrentLookAt, targetLookAt, frame_independent_smoothing);
+	cameraCurrentLookAt2 = glm::mix(cameraCurrentLookAt2, targetLookAt2, frame_independent_smoothing);
 
 	// Update both cameras
 	cam.setPosition(cameraCurrentPos);
 	cam.lookAt(cameraCurrentLookAt);
 	cam2.setPosition(cameraCurrentPos2);
+	cam2.lookAt(cameraCurrentLookAt2);
 
 	// --- TORCH FLICKER LOGIC (SLOWER) ---
 	float time = ofGetElapsedTimef();
@@ -4877,7 +4887,9 @@ void ofApp::drawGame() {
 
 				glm::vec3 right = glm::vec3(1, 0, 0);
 
-				ofVec3f camP = cam.getPosition();
+				// Use active camera so keys face the local player
+				ofCamera & activeCam = getActiveCamera();
+				ofVec3f camP = activeCam.getPosition();
 				glm::vec3 camPos(camP.x, camP.y, camP.z);
 				glm::vec3 forward = camPos - pos;
 				float forwardLenXZ = sqrtf(forward.x * forward.x + forward.z * forward.z);
@@ -9916,36 +9928,24 @@ void ofApp::mousePressed(int x, int y, int button) {
 				int baseDraw = playerToDraw->isDemon ? 3 : 2;
 				int cardsToDraw = playerToDraw->nextTurnExtraDraw ? (baseDraw + 1) : baseDraw;
 				if (playerToDraw->nextTurnExtraDraw) ofLogNotice("Game") << "Hasten Effect: Drawing 3 cards!";
+
+				// Draw cards locally (client-side prediction)
 				for (int i = 0; i < cardsToDraw; i++)
 					drawCard();
-				playerToDraw->nextTurnExtraDraw = false;
-				hasDrawnCardsThisTurn = true;
-				// In multiplayer, notify host that we drew cards
-				if (isMultiplayer && isClient()) {
+
+				// Send packet to opponent so they see the draw too
+				if (isMultiplayer) {
 					DrawCardsPacket dcpkt = {};
 					dcpkt.type = PKT_DRAW_CARDS;
 					dcpkt.playerID = myLocalPlayerID;
 					dcpkt.playerIndex = currentPlayerIndex;
 					dcpkt.numCards = cardsToDraw;
 					steamManager.sendPacket(&dcpkt, sizeof(dcpkt));
-					ofLogNotice("Network") << "Client sent DrawCards packet: " << cardsToDraw << " cards";
+					ofLogNotice("Network") << (isClient() ? "Client" : "Host") << " sent DrawCards packet: " << cardsToDraw << " cards";
 				}
-				return;
-			}
 
-			// Top Deck Click (Only in single player mode for P1)
-			if (!isMultiplayer && p1_deckRect.inside(x, y)) {
-				bool isP1sTurn = (activePlayer.playerID == 1 && !activePlayer.isMinion);
-				if (isP1sTurn && !hasDrawnCardsThisTurn) {
-					int baseDraw = p1->isDemon ? 3 : 2;
-					int cardsToDraw = p1->nextTurnExtraDraw ? (baseDraw + 1) : baseDraw;
-					if (p1->nextTurnExtraDraw) ofLogNotice("Game") << "Hasten Effect: Drawing 3 cards!";
-					for (int i = 0; i < cardsToDraw; i++)
-						drawCard();
-					p1->nextTurnExtraDraw = false;
-					hasDrawnCardsThisTurn = true;
-					return;
-				}
+				playerToDraw->nextTurnExtraDraw = false;
+				hasDrawnCardsThisTurn = true;
 			}
 		}
 
@@ -10088,14 +10088,10 @@ void ofApp::mousePressed(int x, int y, int button) {
 						if (apNow >= moveAPCost) {
 							currentAP = apNow - moveAPCost;
 
+							// Execute movement locally (client-side prediction)
 							// Update Board Occupancy
-							// If we leave a wall, we don't clear the wall flag, just the player flag
 							board[currentPlayer.x][currentPlayer.y].hasPlayer = false;
-
-							// If we enter a wall, we don't overwrite the wall flag, just add the player flag
-							// Note: board[x][y].hasPlayer doesn't conflict with hasWall logic elsewhere for Ghosts
 							board[gridX][gridY].hasPlayer = true;
-
 							currentPlayer.x = gridX;
 							currentPlayer.y = gridY;
 
@@ -10108,14 +10104,10 @@ void ofApp::mousePressed(int x, int y, int button) {
 							}
 							if (!animationPath.empty()) isPlayerAnimating = true;
 
-							// Ghost Death Check: If ending turn in wall (handled in End Turn button),
-							// but here we just moved. If they run out of AP inside a wall, they might be stuck.
-							// The highlight logic prevents entering if AP <= 1, so they should be safe.
-
 							invalidateTargetCache();
 
-							// In multiplayer, notify host that we moved
-							if (isMultiplayer && isClient()) {
+							// Send packet to opponent so they see the movement too
+							if (isMultiplayer) {
 								ActionPacket movePkt = {};
 								movePkt.type = PKT_ACTION;
 								movePkt.playerID = myLocalPlayerID;
@@ -10123,7 +10115,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 								movePkt.targetX = gridX;
 								movePkt.targetY = gridY;
 								steamManager.sendPacket(&movePkt, sizeof(movePkt));
-								ofLogNotice("Network") << "Client sent movement to (" << gridX << "," << gridY << ")";
+								ofLogNotice("Network") << (isClient() ? "Client" : "Host") << " sent movement to (" << gridX << "," << gridY << ")";
 							}
 						}
 					}
@@ -18210,8 +18202,9 @@ void ofApp::sendActionPacket(int cardIndex, int tx, int ty, int cost) {
 	// 3. Send to Network
 	steamManager.sendPacket(&pkt, sizeof(pkt));
 
-	// 4. Execute Locally (Prediction)
+	// 4. Execute Locally (Client-Side Prediction)
 	// We execute it immediately so the local player feels no lag.
+	// The packet is sent to opponent who will execute it on their side.
 	executeAction(pkt);
 }
 
