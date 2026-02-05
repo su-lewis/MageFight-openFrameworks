@@ -9905,6 +9905,16 @@ void ofApp::mousePressed(int x, int y, int button) {
 					drawCard();
 				playerToDraw->nextTurnExtraDraw = false;
 				hasDrawnCardsThisTurn = true;
+				// In multiplayer, notify host that we drew cards
+				if (isMultiplayer && isClient()) {
+					DrawCardsPacket dcpkt = {};
+					dcpkt.type = PKT_DRAW_CARDS;
+					dcpkt.playerID = myLocalPlayerID;
+					dcpkt.playerIndex = currentPlayerIndex;
+					dcpkt.numCards = cardsToDraw;
+					steamManager.sendPacket(&dcpkt, sizeof(dcpkt));
+					ofLogNotice("Network") << "Client sent DrawCards packet: " << cardsToDraw << " cards";
+				}
 				return;
 			}
 
@@ -10088,6 +10098,18 @@ void ofApp::mousePressed(int x, int y, int button) {
 							// The highlight logic prevents entering if AP <= 1, so they should be safe.
 
 							invalidateTargetCache();
+
+							// In multiplayer, notify host that we moved
+							if (isMultiplayer && isClient()) {
+								ActionPacket movePkt = {};
+								movePkt.type = PKT_ACTION;
+								movePkt.playerID = myLocalPlayerID;
+								movePkt.cardIndex = -1; // -1 indicates movement, not card play
+								movePkt.targetX = gridX;
+								movePkt.targetY = gridY;
+								steamManager.sendPacket(&movePkt, sizeof(movePkt));
+								ofLogNotice("Network") << "Client sent movement to (" << gridX << "," << gridY << ")";
+							}
 						}
 					}
 				}
@@ -17683,12 +17705,54 @@ void ofApp::processNetworkPackets() {
 
 		} else if (header->type == PKT_ACTION) {
 			ActionPacket * pkt = (ActionPacket *)header;
-			ofLogNotice("Sync") << "Opponent played card index: " << pkt->cardIndex;
 
-			// EXECUTE REMOTE MOVE
-			// Because gameplayRNG is synced, if this card causes a dice roll,
-			// it will roll the exact same number here as it did on the opponent's screen.
-			executeAction(*pkt);
+			// Check if this is a movement action (cardIndex < 0) or card play (cardIndex >= 0)
+			if (pkt->cardIndex < 0) {
+				// MOVEMENT ACTION: Host receives client's movement and applies it
+				if (isHost()) {
+					ofLogNotice("Network") << "Host received movement from player to (" << pkt->targetX << "," << pkt->targetY << ")";
+					// Find the player and move them
+					for (auto & p : players) {
+						if (p.playerID == pkt->playerID && p.playerID == currentPlayerIndex && !p.isMinion) {
+							// Verify movement is legal (would be checked on client, but verify here too)
+							if (pkt->targetX >= 0 && pkt->targetX < BOARD_WIDTH && pkt->targetY >= 0 && pkt->targetY < BOARD_HEIGHT) {
+								board[p.x][p.y].hasPlayer = false;
+								board[pkt->targetX][pkt->targetY].hasPlayer = true;
+								p.x = pkt->targetX;
+								p.y = pkt->targetY;
+								invalidateTargetCache();
+								ofLogNotice("Network") << "Host applied movement for player to (" << pkt->targetX << "," << pkt->targetY << ")";
+							}
+							break;
+						}
+					}
+				}
+			} else {
+				// CARD PLAY ACTION: Execute card play
+				ofLogNotice("Sync") << "Opponent played card index: " << pkt->cardIndex;
+				// EXECUTE REMOTE MOVE
+				// Because gameplayRNG is synced, if this card causes a dice roll,
+				// it will roll the exact same number here as it did on the opponent's screen.
+				executeAction(*pkt);
+			}
+		} else if (header->type == PKT_DRAW_CARDS) {
+			DrawCardsPacket * dcpkt = (DrawCardsPacket *)header;
+			ofLogNotice("Network") << "Host received DrawCards: player=" << dcpkt->playerIndex << " num=" << dcpkt->numCards;
+
+			// Host applies the draw on behalf of client
+			if (isHost() && dcpkt->playerIndex >= 0 && dcpkt->playerIndex < (int)players.size()) {
+				for (int i = 0; i < dcpkt->numCards; ++i) {
+					// Draw from player's deck locally
+					Player & p = players[dcpkt->playerIndex];
+					if (!p.deck.empty()) {
+						Card drawnCard = p.deck.back();
+						p.deck.pop_back();
+						p.hand.push_back(drawnCard);
+						ofLogNotice("Network") << "Host drew card for player " << dcpkt->playerIndex << ": " << drawnCard.name;
+					}
+				}
+				// Note: No shuffle needed for draw - shuffles are handled separately via PKT_SHUFFLE
+			}
 		} else if (header->type == PKT_END_TURN) {
 			ofLogNotice("Net") << "Opponent ended turn.";
 			// CLIENT: Always wait for host's TurnStart packet (contains authoritative dice)
@@ -17701,6 +17765,32 @@ void ofApp::processNetworkPackets() {
 				// Host: can proceed with local turn start
 				ofLogNotice("Network") << "Host: Processing END_TURN, calling startNewTurn()";
 				startNewTurn();
+
+				// After advancing turn, send TurnStart packet to client to notify them of new turn
+				// Host will roll AP dice and send the results
+				if (isMultiplayer && !players.empty() && currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) {
+					// Roll AP dice for the new turn
+					int apNum = players[currentPlayerIndex].isDemon ? 2 : 3;
+					int apSides = 6;
+
+					// Generate results deterministically using gameplayRNG
+					TurnStartPacket tpk = {};
+					tpk.type = PKT_TURN_START;
+					tpk.currentPlayerIndex = currentPlayerIndex;
+					tpk.diceNum = apNum;
+					tpk.diceSides = apSides;
+
+					int total = 0;
+					for (int i = 0; i < apNum && i < 4; ++i) {
+						int roll = 1 + (gameplayRNG() % apSides);
+						tpk.finalResults[i] = roll;
+						total += roll;
+					}
+					tpk.finalTotal = total;
+
+					steamManager.sendPacket(&tpk, sizeof(tpk));
+					ofLogNotice("Network") << "Host sent TurnStart after END_TURN: player=" << currentPlayerIndex << " AP=" << total;
+				}
 			}
 		} else if (header->type == PKT_CHECKSUM_CHECK) {
 			ChecksumPacket * pkt = (ChecksumPacket *)header;

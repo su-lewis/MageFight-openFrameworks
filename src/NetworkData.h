@@ -15,7 +15,8 @@ enum PacketType {
 	PKT_TURN_START, // Host -> Client: authoritative turn start (current player, AP dice results)
 	PKT_KEY_PICKUP, // Host -> Client: a player picked up a key (trigger in-game draft)
 	PKT_CHAT_MESSAGE, // Chat message between players
-	PKT_HOVER // Hover state update for showing opponent's hover
+	PKT_HOVER, // Hover state update for showing opponent's hover
+	PKT_DRAW_CARDS // Client -> Host: player drew cards from deck
 };
 
 struct PacketHeader {
