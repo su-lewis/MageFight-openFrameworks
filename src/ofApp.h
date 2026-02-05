@@ -246,6 +246,10 @@ struct Card {
 struct PlayedCardDisplay {
 	Card card;
 	float startTime;
+	glm::vec2 startPos; // UI screen position where the card appears
+	glm::vec2 currentPos; // Current position during animation
+	float currentScale = 1.5f; // Starts large, shrinks and fades
+	float currentAlpha = 255.0f; // Starts opaque, fades out
 };
 
 struct StolenCardAnimation {
@@ -492,6 +496,7 @@ private:
 	// -------------------------------------------------------------------------
 	void drawCard();
 	void playCard(int cardIndex, int targetX, int targetY);
+	void createCardDisplay(const Card & card, int playerIndex); // Create card display animation
 	std::string currentDiceLabel = "";
 	int startDiceRoll(int numDice, int sides, DicePurpose purpose, std::string label = "", int ownerIndex = -1);
 	void recalcTempLuck();
@@ -578,6 +583,7 @@ private:
 
 	// Math & Coordinates
 	ofVec2f mouseToBoard(int x, int y);
+	glm::vec2 getCardDisplayUIPosition(int playerIndex); // Get UI position for card display popup
 	glm::vec2 worldToGrid(glm::vec3 worldPos);
 	glm::vec3 gridToWorld(int gridX, int gridY);
 	Player * getPlayer(int index);

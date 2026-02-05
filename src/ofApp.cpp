@@ -1042,7 +1042,7 @@ void ofApp::update() {
 //--------------------------------------------------------------
 void ofApp::drawTileGlow(int gridX, int gridY, ofColor color, float thickness) {
 	// Draw a glowing outline around the tile at (gridX, gridY)
-	ofVec3f worldPos = transformGridToWorld(gridX, gridY);
+	ofVec3f worldPos = gridToWorld(gridX, gridY);
 
 	// Draw a quad outline at ground level around the tile edges
 	float halfTile = 0.5f;
@@ -2194,7 +2194,7 @@ void ofApp::updateGame() {
 		caster.x = wallOldPos.x;
 		caster.y = wallOldPos.y;
 		board[caster.x][caster.y].hasPlayer = true;
-		playerVisualPos = transformGridToWorld(caster.x, caster.y);
+		playerVisualPos = gridToWorld(caster.x, caster.y);
 
 		buildLevelMesh();
 
@@ -4307,6 +4307,27 @@ void ofApp::updateGame() {
 	}
 	// Remove only if finished
 	activeRemovedCardAnimations.erase(std::remove_if(activeRemovedCardAnimations.begin(), activeRemovedCardAnimations.end(), [](const RemovedCardAnimation & anim) { return (ofGetElapsedTimef() - anim.startTime) >= 0.5f; }), activeRemovedCardAnimations.end());
+
+	// Card Display Animation (Appears, holds, then fades out)
+	for (auto & disp : activeCardDisplays) {
+		float elapsedTime = ofGetElapsedTimef() - disp.startTime;
+		if (elapsedTime < 1.0f) {
+			// Scale down from 1.5 to 1.0 while staying opaque
+			disp.currentScale = ofLerp(1.5f, 1.0f, elapsedTime / 1.0f);
+			disp.currentAlpha = 255.0f;
+		} else if (elapsedTime < 2.5f) {
+			// Hold at normal size
+			disp.currentScale = 1.0f;
+			disp.currentAlpha = 255.0f;
+		} else if (elapsedTime < 3.0f) {
+			// Fade out over 0.5 seconds
+			float t = ofMap(elapsedTime, 2.5f, 3.0f, 0.0f, 1.0f, true);
+			disp.currentAlpha = ofLerp(255.0f, 0.0f, t);
+			disp.currentScale = 1.0f;
+		}
+	}
+	// Remove when animation is done (3 seconds total)
+	activeCardDisplays.erase(std::remove_if(activeCardDisplays.begin(), activeCardDisplays.end(), [](const PlayedCardDisplay & disp) { return (ofGetElapsedTimef() - disp.startTime) >= 3.0f; }), activeCardDisplays.end());
 
 	// Card Hand Animation
 	if (!players.empty() && currentPlayerIndex >= 0) {
@@ -7249,6 +7270,16 @@ void ofApp::drawGame() {
 		cardSpriteSheet.drawSubsection(anim.startPos.x - w / 2, anim.startPos.y - h / 2, w, h,
 			anim.card.textureRect.x, anim.card.textureRect.y,
 			anim.card.textureRect.width, anim.card.textureRect.height);
+	}
+
+	// --- Draw Card Played Display (UI-based popup after card is played) ---
+	for (const auto & disp : activeCardDisplays) {
+		ofSetColor(255, disp.currentAlpha);
+		float w = handBaseCardWidth * disp.currentScale;
+		float h = baseCardHeight * disp.currentScale;
+		cardSpriteSheet.drawSubsection(disp.currentPos.x - w / 2, disp.currentPos.y - h / 2, w, h,
+			disp.card.textureRect.x, disp.card.textureRect.y,
+			disp.card.textureRect.width, disp.card.textureRect.height);
 	}
 
 	// --- Draw Tooltip (drawn last to be on top of everything) ---
@@ -12263,7 +12294,14 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 
 		currentPlayer.cardsPlayedThisTurn.push_back(playedCard.type);
 		currentPlayer.hand.erase(currentPlayer.hand.begin() + cardIndex);
-		activeCardDisplays.push_back({ playedCard, ofGetElapsedTimef() });
+		{
+			PlayedCardDisplay disp;
+			disp.card = playedCard;
+			disp.startTime = ofGetElapsedTimef();
+			disp.startPos = getCardDisplayUIPosition(currentPlayerIndex);
+			disp.currentPos = disp.startPos;
+			activeCardDisplays.push_back(disp);
+		}
 		invalidateTargetCache();
 		// -----------------------------
 
@@ -12348,7 +12386,14 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		currentPlayer.cardsPlayedThisTurn.push_back(playedCard.type);
 		currentPlayer.hand.erase(currentPlayer.hand.begin() + cardIndex);
 
-		activeCardDisplays.push_back({ playedCard, ofGetElapsedTimef() });
+		{
+			PlayedCardDisplay disp;
+			disp.card = playedCard;
+			disp.startTime = ofGetElapsedTimef();
+			disp.startPos = getCardDisplayUIPosition(currentPlayerIndex);
+			disp.currentPos = disp.startPos;
+			activeCardDisplays.push_back(disp);
+		}
 		invalidateTargetCache();
 		// --- CRITICAL FIX END ---
 
@@ -12436,7 +12481,7 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		}
 		currentPlayer.cardsPlayedThisTurn.push_back(playedCard.type);
 		currentPlayer.hand.erase(currentPlayer.hand.begin() + cardIndex);
-		activeCardDisplays.push_back({ playedCard, ofGetElapsedTimef() });
+		createCardDisplay(playedCard, currentPlayerIndex);
 		invalidateTargetCache();
 
 		board[targetX][targetY].hasPlayer = true;
@@ -12518,7 +12563,7 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		}
 		currentPlayer.cardsPlayedThisTurn.push_back(playedCard.type);
 		currentPlayer.hand.erase(currentPlayer.hand.begin() + cardIndex);
-		activeCardDisplays.push_back({ playedCard, ofGetElapsedTimef() });
+		createCardDisplay(playedCard, currentPlayerIndex);
 		invalidateTargetCache();
 
 		board[targetX][targetY].hasPlayer = true;
@@ -12677,7 +12722,7 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		currentPlayer.cardsPlayedThisTurn.push_back(playedCard.type); // Track history
 		currentPlayer.hand.erase(currentPlayer.hand.begin() + cardIndex);
 
-		activeCardDisplays.push_back({ playedCard, ofGetElapsedTimef() });
+		createCardDisplay(playedCard, currentPlayerIndex);
 		invalidateTargetCache();
 		// --- CRASH FIX END ---
 
@@ -12807,7 +12852,7 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 
 		currentPlayer.cardsPlayedThisTurn.push_back(playedCard.type);
 		currentPlayer.hand.erase(currentPlayer.hand.begin() + cardIndex);
-		activeCardDisplays.push_back({ playedCard, ofGetElapsedTimef() });
+		createCardDisplay(playedCard, currentPlayerIndex);
 
 		// --- NOW SAFE TO MODIFY VECTOR ---
 		players.push_back(minion);
@@ -12943,7 +12988,7 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		// ... (Replicate logic) ...
 		currentPlayer.cardsPlayedThisTurn.push_back(playedCard.type);
 		currentPlayer.hand.erase(currentPlayer.hand.begin() + cardIndex);
-		activeCardDisplays.push_back({ playedCard, ofGetElapsedTimef() });
+		createCardDisplay(playedCard, currentPlayerIndex);
 		invalidateTargetCache();
 
 		playedSuccessfully = false; // Prevent double cleanup
@@ -12968,7 +13013,7 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		}
 		currentPlayer.cardsPlayedThisTurn.push_back(playedCard.type);
 		currentPlayer.hand.erase(currentPlayer.hand.begin() + cardIndex);
-		activeCardDisplays.push_back({ playedCard, ofGetElapsedTimef() });
+		createCardDisplay(playedCard, currentPlayerIndex);
 		invalidateTargetCache();
 
 		playedSuccessfully = false;
@@ -13239,7 +13284,7 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		// We handle this specially - don't add to playedCardsPile
 		currentAP -= costToPay;
 		currentPlayer.hand.erase(currentPlayer.hand.begin() + cardIndex);
-		activeCardDisplays.push_back({ playedCard, ofGetElapsedTimef() });
+		createCardDisplay(playedCard, currentPlayerIndex);
 		invalidateTargetCache();
 		currentPlayer.cardsPlayedThisTurn.push_back(playedCard.type);
 		return; // Skip normal cleanup since we handled AP and removal
@@ -13281,7 +13326,7 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		// 4. Handle "Keep in Play" (Do not add to played pile, just remove from hand)
 		currentAP -= costToPay;
 		currentPlayer.hand.erase(currentPlayer.hand.begin() + cardIndex);
-		activeCardDisplays.push_back({ playedCard, ofGetElapsedTimef() });
+		createCardDisplay(playedCard, currentPlayerIndex);
 		invalidateTargetCache();
 
 		// Track play history
@@ -13507,7 +13552,7 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		riCancelBtn.set(cx + 10, cy, 100, 50);
 
 		// 7. Visuals & prevent auto-cleanup
-		activeCardDisplays.push_back({ playedCard, ofGetElapsedTimef() });
+		createCardDisplay(playedCard, currentPlayerIndex);
 		invalidateTargetCache();
 		playedSuccessfully = false;
 		break;
@@ -14188,10 +14233,44 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		}
 
 		currentPlayer.hand.erase(currentPlayer.hand.begin() + cardIndex);
-		activeCardDisplays.push_back({ playedCard, ofGetElapsedTimef() });
+		createCardDisplay(playedCard, currentPlayerIndex);
 		invalidateTargetCache();
 		currentPlayer.cardsPlayedThisTurn.push_back(playedCard.type);
 	}
+}
+//--------------------------------------------------------------
+glm::vec2 ofApp::getCardDisplayUIPosition(int playerIndex) {
+	// Return the UI position where a card display should appear for the given player
+	// Local player's cards appear at bottom center
+	// Opponent's cards appear at top center
+
+	float screenCenterX = ofGetWidth() / 2.0f;
+	float screenCenterY = ofGetHeight() / 2.0f;
+
+	if (isMultiplayer) {
+		// In multiplayer, determine which player is "us" and which is "them"
+		if (playerIndex == myLocalPlayerID) {
+			// Local player: bottom center
+			return glm::vec2(screenCenterX, ofGetHeight() - 120.0f);
+		} else {
+			// Opponent: top center
+			return glm::vec2(screenCenterX, 120.0f);
+		}
+	} else {
+		// In singleplayer, show at bottom center for both
+		return glm::vec2(screenCenterX, ofGetHeight() - 120.0f);
+	}
+}
+//--------------------------------------------------------------
+void ofApp::createCardDisplay(const Card & card, int playerIndex) {
+	PlayedCardDisplay disp;
+	disp.card = card;
+	disp.startTime = ofGetElapsedTimef();
+	disp.startPos = getCardDisplayUIPosition(playerIndex);
+	disp.currentPos = disp.startPos;
+	disp.currentScale = 1.5f;
+	disp.currentAlpha = 255.0f;
+	activeCardDisplays.push_back(disp);
 }
 //--------------------------------------------------------------
 ofVec2f ofApp::mouseToBoard(int x, int y) {
