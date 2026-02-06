@@ -976,11 +976,11 @@ void ofApp::update() {
 				ofLogNotice("Network") << "Host: Opponent found. Starting game & sending seed.";
 				isMultiplayer = true;
 				myLocalPlayerID = 0; // Host is always Player 0
-				
+
 				// Reset sequence tracking for this new game
 				lastReceivedSeqByPlayer[0] = 0;
 				lastReceivedSeqByPlayer[1] = 0;
-				
+
 				setupGame(); // Generates seed and sends PKT_HANDSHAKE
 			}
 		}
@@ -1662,7 +1662,7 @@ void ofApp::initGameFromSeed(uint32_t seed) {
 	currentMapSeed = seed;
 	isMultiplayer = true;
 	myLocalPlayerID = 1;
-	
+
 	// Reset sequence tracking for this new game
 	lastReceivedSeqByPlayer[0] = 0;
 	lastReceivedSeqByPlayer[1] = 0;
@@ -18600,13 +18600,13 @@ void ofApp::processNetworkPackets() {
 			steamManager.sendPacket(&ack, sizeof(ack));
 		}
 
-		// Only apply sequence checking to game-state-affecting packets, not to informational packets
-		// Informational packets (draft options, draft state, chat, hover, etc.) can arrive out of order
-		if (header->type <= PKT_SNAPSHOT_END && header->type != PKT_DRAFT_OPTIONS && header->type != PKT_DRAFT_STATE && header->type != PKT_CHAT_MESSAGE && header->type != PKT_HOVER && header->seq > 0) {
+		// Only check sequence numbers for PKT_ACTION (card plays) to prevent duplicate card plays
+		// All other packets are either informational or handled by game state logic
+		if (header->type == PKT_ACTION && header->seq > 0) {
 			int sender = (header->playerID == 0 || header->playerID == 1) ? (int)header->playerID : -1;
 			if (sender >= 0) {
 				if (header->seq <= lastReceivedSeqByPlayer[sender]) {
-					ofLogNotice("Network") << "DROPPED PACKET: type=" << (int)header->type << " seq=" << header->seq << " lastReceivedSeq[sender=" << sender << "]=" << lastReceivedSeqByPlayer[sender];
+					ofLogNotice("Network") << "DROPPED DUPLICATE PACKET: type=" << (int)header->type << " seq=" << header->seq << " lastReceivedSeq[sender=" << sender << "]=" << lastReceivedSeqByPlayer[sender];
 					continue;
 				}
 				lastReceivedSeqByPlayer[sender] = header->seq;
