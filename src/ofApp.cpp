@@ -1582,7 +1582,10 @@ void ofApp::setupGame() {
 
 		HandshakePacket pkt = {};
 		pkt.type = PKT_HANDSHAKE;
+		pkt.playerID = myLocalPlayerID;
+		pkt.seq = 0;
 		pkt.seed = currentMapSeed;
+		ofLogNotice("Setup") << "Host sending handshake: type=" << (int)pkt.type << " playerID=" << pkt.playerID << " seq=" << pkt.seq << " seed=" << pkt.seed;
 		steamManager.sendPacket(&pkt, sizeof(pkt));
 
 		// Publish seed and start flag to lobby so clients can begin as well
@@ -7993,8 +7996,8 @@ void ofApp::mouseMoved(int x, int y) {
 		currentCursor = CURSOR_CLICK;
 	}
 
-	// Check deck/discard hover for glow (only for current player)
-	if (currentState == STATE_GAMEPLAY && !players.empty() && currentPlayerIndex >= 0) {
+	// Check deck/discard hover for glow (for current player - works in both gameplay and drafting)
+	if (!players.empty() && currentPlayerIndex >= 0 && (currentState == STATE_GAMEPLAY || currentState == STATE_DRAFTING)) {
 		if (isCurrentPlayerLocal()) {
 			if (p0_deckRect.inside(x, y)) {
 				newHoverType = HOVER_DECK;
@@ -8545,9 +8548,65 @@ cursor_check_done:;
 		break;
 	}
 	case STATE_INITIATIVE_ROLL:
-	case STATE_DRAFTING:
-		// No specific hover logic needed here yet, or handled elsewhere
+	case STATE_DRAFTING: {
+		// Allow pile hovering during draft
+		PileViewMode newHoveredPileType = VIEW_NONE;
+		int newHoveredPileIndex = -1;
+
+		int localId = myLocalPlayerID;
+		int opponentId = (myLocalPlayerID == 0) ? 1 : 0;
+		if (p0_deckRect.inside(x, y)) {
+			newHoveredPileType = VIEW_DECK;
+			for (int i = 0; i < (int)players.size(); i++)
+				if (players[i].playerID == localId) newHoveredPileIndex = i;
+		} else if (p0_discardRect.inside(x, y)) {
+			newHoveredPileType = VIEW_DISCARD;
+			for (int i = 0; i < (int)players.size(); i++)
+				if (players[i].playerID == localId) newHoveredPileIndex = i;
+		} else if (p1_deckRect.inside(x, y)) {
+			newHoveredPileType = VIEW_DECK;
+			for (int i = 0; i < (int)players.size(); i++)
+				if (players[i].playerID == opponentId) newHoveredPileIndex = i;
+		} else if (p1_discardRect.inside(x, y)) {
+			newHoveredPileType = VIEW_DISCARD;
+			for (int i = 0; i < (int)players.size(); i++)
+				if (players[i].playerID == opponentId) newHoveredPileIndex = i;
+		}
+
+		if (newHoveredPileIndex == -1) {
+			for (const auto & ui : activeMinionUIs) {
+				if (ui.deckRect.inside(x, y)) {
+					newHoveredPileType = VIEW_DECK;
+					newHoveredPileIndex = ui.playerIndex;
+					break;
+				}
+				if (ui.discardRect.inside(x, y)) {
+					newHoveredPileType = VIEW_DISCARD;
+					newHoveredPileIndex = ui.playerIndex;
+					break;
+				}
+			}
+		}
+
+		if (newHoveredPileIndex != -1) {
+			if (!isHoveringPile || newHoveredPileIndex != hoveredPilePlayerIndex || newHoveredPileType != hoveredPileType) {
+				isHoveringPile = true;
+				isShowingPileView = false;
+				hoveredPileType = newHoveredPileType;
+				hoveredPilePlayerIndex = newHoveredPileIndex;
+				pileHoverStartTime = ofGetElapsedTimef();
+			}
+			currentCursor = CURSOR_CLICK;
+		} else {
+			isHoveringPile = false;
+			if (isShowingPileView && !pileViewRect.inside(x, y)) {
+				isShowingPileView = false;
+				currentPileView = VIEW_NONE;
+				currentPileViewPlayerIndex = -1;
+			}
+		}
 		break;
+	}
 	}
 
 	// Update and send hover state to opponent if changed
@@ -10905,6 +10964,15 @@ void ofApp::mouseDragged(int x, int y, int button) {
 	if (draggedCardIndex != -1) {
 		currentCursor = CURSOR_HOLD;
 	}
+	// Allow camera panning during draft
+	if (currentState == STATE_DRAFTING && button == OF_MOUSE_BUTTON_RIGHT) {
+		float dx = ofGetPreviousMouseX() - x, dy = ofGetPreviousMouseY() - y;
+		float panMultX = shouldFlipCamera() ? -1.0f : 1.0f;
+		float panMultZ = shouldFlipCamera() ? -1.0f : 1.0f;
+		cameraTargetPan.x += dx * 0.05f * (TILE_SIZE / 4.0f) * panMultX;
+		cameraTargetPan.z += dy * 0.05f * (TILE_SIZE / 4.0f) * panMultZ;
+		return;
+	}
 	if (currentState != STATE_GAMEPLAY) return;
 
 	// TURN VALIDATION: Only allow dragging if it's the local player's turn or a minion owned by the local player
@@ -10927,10 +10995,11 @@ void ofApp::mouseDragged(int x, int y, int button) {
 
 	if (button == OF_MOUSE_BUTTON_RIGHT) {
 		float dx = ofGetPreviousMouseX() - x, dy = ofGetPreviousMouseY() - y;
-		// For camera2: invert X to mirror the view, but NOT Y (up is always up)
+		// For camera2: invert both X and Z to mirror the view (180° rotation)
 		float panMultX = shouldFlipCamera() ? -1.0f : 1.0f;
+		float panMultZ = shouldFlipCamera() ? -1.0f : 1.0f;
 		cameraTargetPan.x += dx * 0.05f * (TILE_SIZE / 4.0f) * panMultX;
-		cameraTargetPan.z += dy * 0.05f * (TILE_SIZE / 4.0f);
+		cameraTargetPan.z += dy * 0.05f * (TILE_SIZE / 4.0f) * panMultZ;
 		return;
 	}
 
@@ -11253,6 +11322,12 @@ void ofApp::mouseReleased(int x, int y, int button) {
 }
 //--------------------------------------------------------------
 void ofApp::mouseScrolled(int x, int y, float scrollX, float scrollY) {
+	// Allow zooming during draft
+	if (currentState == STATE_DRAFTING) {
+		cameraTargetZoom -= scrollY * 4.0f;
+		cameraTargetZoom = ofClamp(cameraTargetZoom, 10.0f, 100.0f);
+		return;
+	}
 	if (currentState != STATE_GAMEPLAY) return;
 
 	// Handle encyclopedia scrolling
@@ -18523,8 +18598,9 @@ void ofApp::generateDraftOptions(int classTier, const std::vector<int> * forcedI
 		dp.picksRemaining = draftPicksRemaining;
 		dp.draftStage = draftStage;
 		dp.isInGameDraft = isInGameDraft ? 1 : 0;
+		dp.draftGenCounter = draftGenerationCounter; // Send the counter so client matches
 		steamManager.sendPacket(&dp, sizeof(dp));
-		ofLogNotice("Network") << "Host sent DraftOptionsPacket: " << dp.optionIndex0 << "," << dp.optionIndex1 << "," << dp.optionIndex2 << " derivedSeed=" << derivedSeed;
+		ofLogNotice("Network") << "Host sent DraftOptionsPacket: " << dp.optionIndex0 << "," << dp.optionIndex1 << "," << dp.optionIndex2 << " derivedSeed=" << derivedSeed << " draftGenCounter=" << draftGenerationCounter;
 
 		// Debug: also log the exact card names for easier inspection across clients
 		ofLogNotice("Draft") << "Options names: " << ((indices.size() > 0) ? (*pool)[indices[0]].name : "-") << ", " << ((indices.size() > 1) ? (*pool)[indices[1]].name : "-") << ", " << ((indices.size() > 2) ? (*pool)[indices[2]].name : "-");
@@ -18958,7 +19034,10 @@ void ofApp::processNetworkPackets() {
 
 				HandshakePacket pkt = {};
 				pkt.type = PKT_HANDSHAKE;
+				pkt.playerID = myLocalPlayerID;
+				pkt.seq = 0;
 				pkt.seed = currentMapSeed; // Use the stored seed!
+				ofLogNotice("Network") << "Host resending handshake: type=" << (int)pkt.type << " playerID=" << pkt.playerID << " seq=" << pkt.seq << " seed=" << pkt.seed;
 				steamManager.sendPacket(&pkt, sizeof(pkt));
 				continue; // Done with this packet
 			}
@@ -19366,7 +19445,7 @@ void ofApp::processNetworkPackets() {
 
 		if (header->type == PKT_HANDSHAKE) {
 			HandshakePacket * pkt = (HandshakePacket *)header;
-			ofLogNotice("Net") << "Handshake received. Seed: " << pkt->seed;
+			ofLogNotice("Net") << "Handshake received: type=" << (int)pkt->type << " playerID=" << pkt->playerID << " seq=" << pkt->seq << " seed=" << pkt->seed;
 
 			// Guard against duplicate handshakes - only process the first one
 			if (hasReceivedHandshake) {
@@ -19744,7 +19823,11 @@ void ofApp::processNetworkPackets() {
 			}
 		} else if (header->type == PKT_DRAFT_OPTIONS) {
 			DraftOptionsPacket * dp = (DraftOptionsPacket *)header;
-			ofLogNotice("Network") << "DraftOptions received: " << dp->optionIndex0 << "," << dp->optionIndex1 << "," << dp->optionIndex2 << " (class=" << dp->classTier << ")";
+			ofLogNotice("Network") << "DraftOptions received: " << dp->optionIndex0 << "," << dp->optionIndex1 << "," << dp->optionIndex2 << " (class=" << dp->classTier << ") draftGenCounter=" << dp->draftGenCounter;
+
+			// Sync the draft generation counter from host
+			draftGenerationCounter = dp->draftGenCounter;
+
 			std::vector<int> idxs;
 			if (dp->optionIndex0 >= 0) idxs.push_back(dp->optionIndex0);
 			if (dp->optionIndex1 >= 0) idxs.push_back(dp->optionIndex1);

@@ -130,6 +130,7 @@ struct DraftOptionsPacket : PacketHeader {
 	int32_t picksRemaining; // how many picks left for this stage
 	int32_t draftStage; // 0 = class1, 1 = class2, etc
 	uint8_t isInGameDraft; // 1 = in-game key draft, 0 = normal
+	uint32_t draftGenCounter; // The draft generation counter value used by host
 };
 
 // Host -> Client: Instruct client to apply a deterministic shuffle to a player's deck
