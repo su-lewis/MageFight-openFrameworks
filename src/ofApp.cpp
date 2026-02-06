@@ -8602,11 +8602,18 @@ void ofApp::mousePressed(int x, int y, int button) {
 		if ((int)selectedDraftIndices.size() == requiredPicks && draftAcceptButtonRect.inside(x, y)) {
 			ofLogNotice("Draft") << "ACCEPT BUTTON CLICKED: selections=" << (int)selectedDraftIndices.size() << " required=" << requiredPicks << " rect=(" << draftAcceptButtonRect.x << "," << draftAcceptButtonRect.y << "," << draftAcceptButtonRect.width << "," << draftAcceptButtonRect.height << ") mousePos=(" << x << "," << y << ")";
 
+			if (draftAcceptLocked) {
+				ofLogNotice("Draft") << "ACCEPT BLOCKED: already accepted for this draft screen.";
+				return;
+			}
+
 			// Only allow the drafting player to accept
 			if (isMultiplayer && players[draftPlayerIndex].playerID != myLocalPlayerID) {
 				ofLogNotice("Draft") << "ACCEPT BLOCKED: Not drafting player (me=" << myLocalPlayerID << " drafting=" << players[draftPlayerIndex].playerID << ")";
 				return;
 			}
+
+			draftAcceptLocked = true;
 
 			// If client in multiplayer, send selection to host and return
 			if (isClient()) {
@@ -18245,6 +18252,7 @@ void ofApp::resolveMagicHandPush() {
 }
 //--------------------------------------------------------------
 void ofApp::generateDraftOptions(int classTier, const std::vector<int> * forcedIndices) {
+	draftAcceptLocked = false;
 	// Deterministic: always use shared gameplayRNG so both host and client
 	// generate the same three options locally. Do NOT wait for host packets.
 	draftOptions.clear();
@@ -18384,6 +18392,7 @@ void ofApp::applyDraftOptionsFromPool(int classTier, const std::vector<int> & in
 	currentState = STATE_DRAFTING;
 	// We've applied authoritative options from host; stop waiting
 	waitingForDraftOptions = false;
+	draftAcceptLocked = false;
 
 	// Log applied options for debugging (helps determine whether Windows client actually applied options)
 	if ((int)draftOptions.size() != lastLoggedDraftOptionsCount) {
@@ -19579,16 +19588,10 @@ void ofApp::processNetworkPackets() {
 			ofLogNotice("Network") << "Draft action received: type=" << (int)pkt->actionType << " opt=" << pkt->optionIndex << " player=" << pkt->draftPlayerIdx << " sel=" << (int)pkt->selectFlag;
 
 			if (isHost()) {
-				// Ensure host's draft state is consistent before applying inputs
+				// Ignore any draft inputs if we're not actively drafting
 				if (currentState != STATE_DRAFTING && !isInGameDraft) {
-					ofLogNotice("Network") << "Host: Received draft input but not in STATE_DRAFTING; forcing draft start for player " << pkt->draftPlayerIdx;
-					draftPlayerIndex = pkt->draftPlayerIdx;
-					draftStage = 0;
-					if (pkt->actionType == 1) {
-						// Accept arrived but we weren't in drafting - treat normally
-					} else {
-						generateDraftOptions(1);
-					}
+					ofLogNotice("Network") << "Host: Ignoring draft input outside draft state (type=" << (int)pkt->actionType << ")";
+					continue;
 				}
 				// Host: apply the client's input, then forward to the client(s)
 				if (pkt->actionType == 0) {
