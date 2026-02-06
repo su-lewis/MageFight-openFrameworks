@@ -1006,14 +1006,20 @@ void ofApp::update() {
 				if (steamManager.isMatchStarted()) {
 					uint32_t seed = steamManager.getLobbySeed();
 					if (seed != 0) {
-						ofLogNotice("Network") << "Client: Detected lobby seed (observed)=" << seed << " — waiting for host handshake (authoritative).";
+						float now = ofGetElapsedTimef();
+						if (seed != lastObservedLobbySeed || (now - lastLobbySeedLogTime) > 5.0f) {
+							lastObservedLobbySeed = seed;
+							lastLobbySeedLogTime = now;
+							ofLogNotice("Network") << "Client: Detected lobby seed (observed)=" << seed << " — waiting for host handshake (authoritative).";
+						}
 					}
 				}
 
-				if (ofGetElapsedTimef() - lastHandshakeRequestTime > 1.0f) {
+				if (ofGetElapsedTimef() - lastHandshakeRequestTime > handshakeRequestInterval) {
 					string req = "REQ_SEED";
 					steamManager.sendPacket(req.c_str(), req.size());
 					lastHandshakeRequestTime = ofGetElapsedTimef();
+					handshakeRequestInterval = std::min(handshakeRequestInterval * 1.5f, 5.0f);
 					ofLogNotice("Network") << "Sent Seed Request...";
 				}
 			}
@@ -8549,6 +8555,10 @@ void ofApp::mousePressed(int x, int y, int button) {
 	}
 
 	if (currentState == STATE_DRAFTING && button == OF_MOUSE_BUTTON_LEFT) {
+		if (draftAcceptLocked) {
+			ofLogNotice("Draft") << "DRAFT CLICK IGNORED: accept already sent.";
+			return;
+		}
 		// Card Dimensions (Must match drawDraftScreen)
 		float cardW = 340;
 		float cardH = cardW * 1.4f;
@@ -19179,6 +19189,7 @@ void ofApp::processNetworkPackets() {
 			currentMapSeed = pkt->seed;
 			hasReceivedHandshake = true;
 			gameplaySeededByHost = true;
+			handshakeRequestInterval = 1.0f;
 			isMultiplayer = true;
 			myLocalPlayerID = 1;
 
@@ -19750,6 +19761,9 @@ void ofApp::processNetworkPackets() {
 			} else {
 				// Client: apply actions forwarded by host
 				if (pkt->actionType == 0) {
+					if (draftAcceptLocked) {
+						return;
+					}
 					// Host forwarded selection toggle or in-game pick
 					if (isInGameDraft) {
 						// For in-game drafts, just toggle the selection and show/hide the card highlight
@@ -19775,6 +19789,15 @@ void ofApp::processNetworkPackets() {
 				} else if (pkt->actionType == 1) {
 					// Client: host forwarded an Accept. Apply any cards and then WAIT for host authoritative state/options.
 					ofLogNotice("Draft") << "CLIENT: Received forwarded AcceptDraft from host player=" << pkt->draftPlayerIdx << " picks=" << (int)pkt->numSelected << " indices=" << (int)pkt->selectedIdx0 << "," << (int)pkt->selectedIdx1 << "," << (int)pkt->selectedIdx2 << " classTier=" << (int)pkt->classTier;
+					if (draftAcceptLocked) {
+						ofLogNotice("Draft") << "CLIENT: Ignoring duplicate Accept (already locked).";
+						return;
+					}
+					if (initialDraftComplete && currentState == STATE_GAMEPLAY && !isInGameDraft) {
+						ofLogNotice("Draft") << "CLIENT: Ignoring late normal Accept after initial draft completed.";
+						return;
+					}
+					draftAcceptLocked = true;
 					int picks = pkt->numSelected;
 					std::vector<int> sel;
 					if (picks > 0) sel.push_back(pkt->selectedIdx0);

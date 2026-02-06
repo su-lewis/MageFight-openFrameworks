@@ -445,6 +445,9 @@ public:
 	std::string getDeckStateString(const Player & p);
 
 	float lastHandshakeRequestTime = 0.0f;
+	float handshakeRequestInterval = 1.0f;
+	uint32_t lastObservedLobbySeed = 0;
+	float lastLobbySeedLogTime = 0.0f;
 	uint32_t currentMapSeed = 0;
 
 	// Steam
