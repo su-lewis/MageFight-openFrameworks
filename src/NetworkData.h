@@ -45,6 +45,7 @@ struct HandshakePacket : PacketHeader {
 };
 
 struct ActionPacket : PacketHeader {
+	int32_t actorIndex; // Index of the acting unit (player or minion)
 	int32_t cardIndex;
 	int32_t targetX;
 	int32_t targetY;

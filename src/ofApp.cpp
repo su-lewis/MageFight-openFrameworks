@@ -10660,6 +10660,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 								ActionPacket movePkt = {};
 								movePkt.type = PKT_ACTION;
 								movePkt.playerID = myLocalPlayerID;
+								movePkt.actorIndex = currentPlayerIndex;
 								movePkt.cardIndex = -1; // -1 indicates movement, not card play
 								movePkt.targetX = gridX;
 								movePkt.targetY = gridY;
@@ -19214,9 +19215,11 @@ void ofApp::processNetworkPackets() {
 				// MOVEMENT ACTION: Receive opponent's movement and apply it locally
 				ofLogNotice("Network") << "Received movement from opponent to (" << pkt->targetX << "," << pkt->targetY << ") with AP=" << pkt->cost;
 				// Find the player and move them
+				int actorIndex = (pkt->actorIndex >= 0 && pkt->actorIndex < (int)players.size()) ? pkt->actorIndex : -1;
 				for (size_t i = 0; i < players.size(); i++) {
+					if (actorIndex >= 0 && (int)i != actorIndex) continue;
 					Player & p = players[i];
-					if (static_cast<uint32_t>(p.playerID) == pkt->playerID && !p.isMinion) {
+					if (actorIndex >= 0 || static_cast<uint32_t>(p.playerID) == pkt->playerID) {
 						// Verify movement is legal
 						if (pkt->targetX >= 0 && pkt->targetX < BOARD_WIDTH && pkt->targetY >= 0 && pkt->targetY < BOARD_HEIGHT) {
 							const int prevX = p.x;
@@ -19226,6 +19229,7 @@ void ofApp::processNetworkPackets() {
 							// Apply AP cost for opponent's movement
 							if (pkt->cost >= 0) {
 								currentAP = pkt->cost;
+								p.ap = pkt->cost;
 								ofLogNotice("Network") << "Updated opponent AP to " << pkt->cost;
 							}
 
@@ -19876,6 +19880,7 @@ void ofApp::sendActionPacket(int cardIndex, int tx, int ty, int cost) {
 	ActionPacket pkt = {};
 	pkt.type = PKT_ACTION;
 	pkt.playerID = myLocalPlayerID;
+	pkt.actorIndex = currentPlayerIndex;
 	pkt.cardIndex = cardIndex;
 	pkt.targetX = tx;
 	pkt.targetY = ty;
@@ -19921,19 +19926,23 @@ void ofApp::executeOpponentCardPlay(const ActionPacket & pkt) {
 	int tx = pkt.targetX;
 	int ty = pkt.targetY;
 
-	ofLogNotice("Network") << "executeOpponentCardPlay: Opponent played " << cardName << " at (" << tx << "," << ty << ")";
+	ofLogNotice("Network") << "executeOpponentCardPlay: Opponent played " << cardName << " at (" << tx << "," << ty << ") actorIndex=" << pkt.actorIndex;
 
-	// Find the opponent player
+	// Find the acting unit (player or minion)
 	int opponentPlayerIndex = -1;
-	for (size_t i = 0; i < players.size(); i++) {
-		Player & p = players[i];
-		if (static_cast<uint32_t>(p.playerID) == pkt.playerID && !p.isMinion) {
-			opponentPlayerIndex = (int)i;
-			break;
+	if (pkt.actorIndex >= 0 && pkt.actorIndex < (int)players.size()) {
+		opponentPlayerIndex = pkt.actorIndex;
+	} else {
+		for (size_t i = 0; i < players.size(); i++) {
+			Player & p = players[i];
+			if (static_cast<uint32_t>(p.playerID) == pkt.playerID && !p.isMinion) {
+				opponentPlayerIndex = (int)i;
+				break;
+			}
 		}
 	}
 	if (opponentPlayerIndex < 0) {
-		ofLogWarning("Network") << "executeOpponentCardPlay: Opponent player not found!";
+		ofLogWarning("Network") << "executeOpponentCardPlay: Opponent unit not found!";
 		return;
 	}
 
