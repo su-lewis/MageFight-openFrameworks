@@ -4584,8 +4584,8 @@ void ofApp::updateGame() {
 		glm::vec3 targetPos = animationPath[currentPathIndex];
 		// Cap deltaTime at 0.016f (60fps) to prevent instant movement on high framerates
 		float clampedDeltaTime = std::min(deltaTime, 0.016f);
-		// Smooth animation: 0.10 second movement per tile
-		float player_speed = clampedDeltaTime / 0.10f;
+		// Smooth animation: 0.05 second movement per tile (faster movement)
+		float player_speed = clampedDeltaTime / 0.05f;
 
 		// Calculate facing direction
 		glm::vec3 direction = targetPos - playerVisualPos;
@@ -19164,8 +19164,21 @@ void ofApp::processNetworkPackets() {
 			ShufflePacket * spk = (ShufflePacket *)header;
 			ofLogNotice("Network") << "Shuffle packet received: player=" << spk->playerIndex << " nonce=" << spk->nonce;
 			if (spk->playerIndex >= 0 && spk->playerIndex < (int)players.size()) {
+				if (isClient() && (currentState == STATE_DRAFTING || isInGameDraft) && !draftAcceptApplied) {
+					pendingShuffleNonce[spk->playerIndex] = spk->nonce;
+					hasPendingShuffleNonce[spk->playerIndex] = true;
+					ofLogNotice("Network") << "Client: Deferring shuffle for player " << spk->playerIndex << " until draft accept applies";
+					continue;
+				}
+				if (isClient() && lastAppliedShuffleNonce[spk->playerIndex] == spk->nonce) {
+					ofLogNotice("Network") << "Client: Ignoring duplicate shuffle nonce for player " << spk->playerIndex;
+					continue;
+				}
 				std::mt19937 shuffleRng(spk->nonce);
 				std::shuffle(players[spk->playerIndex].deck.begin(), players[spk->playerIndex].deck.end(), shuffleRng);
+				if (isClient()) {
+					lastAppliedShuffleNonce[spk->playerIndex] = spk->nonce;
+				}
 				// Only clear the per-player skip guard if it was set for this player
 				if (skipClientShuffleFor == spk->playerIndex) {
 					skipClientShuffleFor = -1;

@@ -556,6 +556,10 @@ private:
 	std::string desyncMessage;
 	// If true client should wait for host TurnStart packet before performing AP roll
 	bool waitingForTurnStartFromHost = false;
+	// Client: handle out-of-order shuffle packets during draft
+	uint32_t pendingShuffleNonce[2] = { 0, 0 };
+	bool hasPendingShuffleNonce[2] = { false, false };
+	uint32_t lastAppliedShuffleNonce[2] = { 0, 0 };
 
 	// Helper to get synced numbers
 	int getGameRandom(int min, int max);
