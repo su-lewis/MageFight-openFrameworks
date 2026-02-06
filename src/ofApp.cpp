@@ -18591,10 +18591,11 @@ void ofApp::processNetworkPackets() {
 			steamManager.sendPacket(&ack, sizeof(ack));
 		}
 
-		if (header->type <= PKT_SNAPSHOT_END && header->seq > 0) {
+		if (header->type <= PKT_SNAPSHOT_END && header->type != PKT_DRAFT_OPTIONS && header->seq > 0) {
 			int sender = (header->playerID == 0 || header->playerID == 1) ? (int)header->playerID : -1;
 			if (sender >= 0) {
 				if (header->seq <= lastReceivedSeqByPlayer[sender]) {
+					ofLogNotice("Network") << "DROPPED PACKET: type=" << (int)header->type << " seq=" << header->seq << " lastReceivedSeq[sender=" << sender << "]=" << lastReceivedSeqByPlayer[sender];
 					continue;
 				}
 				lastReceivedSeqByPlayer[sender] = header->seq;
