@@ -1,12 +1,12 @@
 
 === DECK STATE LOG ===
-Time: 2026-02-06 13:35:34
+Time: 2026-02-06 15:14:18
 Reason: End Turn 1
 Turn: 1
 Current Player: 1
 Local Player ID: 1
 Is Host: false
 
-Player0 Deck[4]: Renewed Inspiration(48), Wisdom Boon(22), Punch(5), Renewed Inspiration(48) | Hand[0]:  | Discard[2]: Punch(5), Magic Blast(11)
-Player1 Deck[3]: Sprint(61), Train(66), Summon Faerie(59) | Hand[2]: Shoot Arrow(64), Shoot Arrow(64) | Discard[2]: Shock(13), Shock(13)
+Player0 Deck[4]: Lesser Heal(55), Flame Hit(24), Heal(25), Heal(25) | Hand[0]:  | Discard[2]: Flame Hit(24), Dark Shield(29)
+Player1 Deck[2]: Summon Faerie(59), Blocking Boon(68) | Hand[2]: Slash(5), Slash(5) | Discard[2]: Shoot Arrow(64), Shoot Arrow(64)
 =====================

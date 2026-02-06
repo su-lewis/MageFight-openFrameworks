@@ -5196,11 +5196,6 @@ void ofApp::drawGame() {
 				glm::vec3 upTilt = tiltQ * upVec;
 				glm::vec3 rightTilt = tiltQ * right;
 
-				// Flip right direction for camera 2 so keys face them correctly
-				if (&activeCam == &cam2) {
-					rightTilt = -rightTilt;
-				}
-
 				glm::vec3 p0 = pos - rightTilt * halfW - upTilt * halfH;
 				glm::vec3 p1 = pos + rightTilt * halfW - upTilt * halfH;
 				glm::vec3 p2 = pos + rightTilt * halfW + upTilt * halfH;
@@ -10968,7 +10963,7 @@ void ofApp::mouseDragged(int x, int y, int button) {
 	if (currentState == STATE_DRAFTING && button == OF_MOUSE_BUTTON_RIGHT) {
 		float dx = ofGetPreviousMouseX() - x, dy = ofGetPreviousMouseY() - y;
 		float panMultX = shouldFlipCamera() ? -1.0f : 1.0f;
-		float panMultZ = shouldFlipCamera() ? -1.0f : 1.0f;
+		float panMultZ = 1.0f;
 		cameraTargetPan.x += dx * 0.05f * (TILE_SIZE / 4.0f) * panMultX;
 		cameraTargetPan.z += dy * 0.05f * (TILE_SIZE / 4.0f) * panMultZ;
 		return;
@@ -10985,7 +10980,7 @@ void ofApp::mouseDragged(int x, int y, int button) {
 				float dx = ofGetPreviousMouseX() - x, dy = ofGetPreviousMouseY() - y;
 				// For camera2: invert both X and Z to mirror the view
 				float panMultX = shouldFlipCamera() ? -1.0f : 1.0f;
-				float panMultZ = shouldFlipCamera() ? -1.0f : 1.0f;
+				float panMultZ = 1.0f;
 				cameraTargetPan.x += dx * 0.05f * (TILE_SIZE / 4.0f) * panMultX;
 				cameraTargetPan.z += dy * 0.05f * (TILE_SIZE / 4.0f) * panMultZ;
 			}
@@ -10997,7 +10992,7 @@ void ofApp::mouseDragged(int x, int y, int button) {
 		float dx = ofGetPreviousMouseX() - x, dy = ofGetPreviousMouseY() - y;
 		// For camera2: invert both X and Z to mirror the view (180° rotation)
 		float panMultX = shouldFlipCamera() ? -1.0f : 1.0f;
-		float panMultZ = shouldFlipCamera() ? -1.0f : 1.0f;
+		float panMultZ = 1.0f;
 		cameraTargetPan.x += dx * 0.05f * (TILE_SIZE / 4.0f) * panMultX;
 		cameraTargetPan.z += dy * 0.05f * (TILE_SIZE / 4.0f) * panMultZ;
 		return;
@@ -15486,8 +15481,8 @@ bool ofApp::isCurrentPlayerLocal() const {
 ofCamera & ofApp::getActiveCamera() {
 	// During drafting phase, keep the camera that was being used before drafting
 	if (currentState == STATE_DRAFTING) {
-		// If client was using camera 2 before drafting, keep using it
-		if (isMultiplayer && myLocalPlayerID == 1 && draftingCameraLockedToClient) {
+		// Client should always use camera 2 during drafting to avoid snap
+		if (isMultiplayer && myLocalPlayerID == 1) {
 			return cam2;
 		}
 		return cam;
@@ -15632,6 +15627,57 @@ void ofApp::applySnapshotString(const std::string & data) {
 	pendingKeyDraftAccept = false;
 	pendingKeyDraftPlayer = -1;
 	pendingKeyDraftClass = 0;
+
+	// Reset interaction state to avoid broken selections after restore
+	playerAction = NONE;
+	selectedPieceGridX = -1;
+	selectedPieceGridY = -1;
+	selectedCardIndex = -1;
+	draggedCardIndex = -1;
+	hoveredCardIndex = -1;
+	lastHoveredCardIndex = -1;
+	hoverPath.clear();
+	lastHoverGridPos = { -1, -1 };
+	isTargetingDeath = false;
+	deathCardIndex = -1;
+	isTargetingHeal = false;
+	healCardIndex = -1;
+	isTargetingMagicBolt = false;
+	magicBoltCardIndex = -1;
+	isTargetingTeleport = false;
+	pendingTeleportCardIndex = -1;
+	isTargetingHellhound = false;
+	hellhoundCardIndex = -1;
+	isTargetingChainLightning = false;
+	chainLightningCardIndex = -1;
+	isTargetingAmnesia = false;
+	pendingAmnesiaCardIndex = -1;
+	isTargetingDoubleHanded = false;
+	pendingDoubleHandedCardIndex = -1;
+	isTargetingTortoiseDamage = false;
+	isShowingTooltip = false;
+	isHoveringPile = false;
+	currentPileView = VIEW_NONE;
+	currentPileViewPlayerIndex = -1;
+	isShowingPileView = false;
+	isHoveringUnit = false;
+	hoveredUnitIndex = -1;
+	hoveredPilePlayerIndex = -1;
+
+	// Reset camera to a stable position after restore
+	cameraTargetZoom = 37.0f;
+	cameraCurrentZoom = 37.0f;
+	cameraTargetPan = glm::vec3(0, 0, 0);
+	cameraCurrentPan = glm::vec3(0, 0, 0);
+	isTopDownView = false;
+	cam.setPosition(0, cameraCurrentZoom * 1.18f, cameraCurrentZoom * 0.70f);
+	cam.lookAt(cameraCurrentPan);
+	cam2.setPosition(0, cameraCurrentZoom * 1.18f, -(cameraCurrentZoom * 0.70f));
+	cam2.lookAt(glm::vec3(cameraCurrentPan.x, cameraCurrentPan.y, -cameraCurrentPan.z));
+	cameraCurrentPos = cam.getPosition();
+	cameraCurrentPos2 = cam2.getPosition();
+	cameraCurrentLookAt = cameraCurrentPan;
+	cameraCurrentLookAt2 = glm::vec3(cameraCurrentPan.x, cameraCurrentPan.y, -cameraCurrentPan.z);
 
 	players.clear();
 
@@ -15802,6 +15848,13 @@ void ofApp::applySnapshotString(const std::string & data) {
 	if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) {
 		playerVisualPos = gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y);
 	}
+
+	// Keep draft camera consistent after restore
+	draftingCameraLockedToClient = (currentState == STATE_DRAFTING && isMultiplayer && myLocalPlayerID == 1);
+
+	// Clear any stale highlights from pre-restore state
+	clearHighlights();
+	calculateTargetHighlights();
 }
 
 //--------------------------------------------------------------

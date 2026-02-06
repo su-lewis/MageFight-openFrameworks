@@ -1,0 +1,306 @@
+ERROR: ld.so: object '/usr/lib/extest/libextest.so' from LD_PRELOAD cannot be preloaded (cannot open shared object file): ignored.
+ERROR: ld.so: object '/var/home/lewis/.local/share/Steam/ubuntu12_32/gameoverlayrenderer.so' from LD_PRELOAD cannot be preloaded (wrong ELF class: ELFCLASS32): ignored.
+--- Launching MageFight at Fri Feb  6 15:13:10 GMT 2026 ---
+Script directory: /home/lewis/of_workspace/openFrameworks/apps/myApps/MageFight/bin
+Original LD_PRELOAD=/usr/lib/extest/libextest.so:/var/home/lewis/.local/share/Steam/ubuntu12_32/gameoverlayrenderer.so:/var/home/lewis/.local/share/Steam/ubuntu12_64/gameoverlayrenderer.so
+Dropping missing LD_PRELOAD entry: /usr/lib/extest/libextest.so
+Final LD_PRELOAD=/var/home/lewis/.local/share/Steam/ubuntu12_32/gameoverlayrenderer.so:/var/home/lewis/.local/share/Steam/ubuntu12_64/gameoverlayrenderer.so
+Starting executable...
+ERROR: ld.so: object '/var/home/lewis/.local/share/Steam/ubuntu12_32/gameoverlayrenderer.so' from LD_PRELOAD cannot be preloaded (wrong ELF class: ELFCLASS32): ignored.
+[S_API] SteamAPI_Init(): SteamAPI_IsSteamRunning() did not locate a running instance of Steam.
+[S_API] SteamAPI_Init(): Loaded '/home/lewis/of_workspace/.steam/sdk64/steamclient.so' OK.
+Setting breakpad minidump AppID = 480
+SteamInternal_SetMinidumpSteamID:  Caching Steam ID:  76561198261715869 [API loaded no]
+[notice ] Steam: Initialized. LocalID: 76561198261715869
+[notice ] Setup: Visual RNG seeded.
+[warning] ofMaterial::setPBR:  PBR material must be used with Programmable Renderer.
+[ error ] ofxAssimpTexture::setTextureType: : unknown aiTextureType type 27
+[warning] ofMaterial::setPBR:  PBR material must be used with Programmable Renderer.
+[ error ] ofxAssimpTexture::setTextureType: : unknown aiTextureType type 27
+[warning] ofMaterial::setPBR:  PBR material must be used with Programmable Renderer.
+[warning] ofMaterial::setPBR:  PBR material must be used with Programmable Renderer.
+[warning] ofMaterial::setPBR:  PBR material must be used with Programmable Renderer.
+[warning] ofMaterial::setPBR:  PBR material must be used with Programmable Renderer.
+[notice ] Wolf model loaded with 10 meshes
+[notice ] Setup: Kobold model loaded.
+[ error ] ofxAssimpModelLoader: loadGLResource(): texture doesn't exist: "data/Units/KoboldKing/goblin_king.fbx" in "data/Units/KoboldKing/cadnav.com_model/Models_G0506A078/01391eaa.dds"
+[ error ] loadImage: File not found: "data/Units/KoboldKing/cadnav.com_model/Models_G0506A078/01391eaa.dds"
+[ error ] ofxAssimpModelLoader: loadGLResource(): couldn't load texture: "data/Units/KoboldKing/goblin_king.fbx" from "data/Units/KoboldKing/cadnav.com_model/Models_G0506A078/01391eaa.dds"
+[ error ] ofxAssimpModelLoader: loadGLResource(): texture doesn't exist: "data/Units/KoboldKing/goblin_king.fbx" in "data/Units/KoboldKing/cadnav.com_model/Models_G0506A078/ada8756d.jpg"
+[ error ] loadImage: File not found: "data/Units/KoboldKing/cadnav.com_model/Models_G0506A078/ada8756d.jpg"
+[ error ] ofxAssimpModelLoader: loadGLResource(): couldn't load texture: "data/Units/KoboldKing/goblin_king.fbx" from "data/Units/KoboldKing/cadnav.com_model/Models_G0506A078/ada8756d.jpg"
+[ error ] ofxAssimpModelLoader: loadGLResource(): texture doesn't exist: "data/Units/KoboldKing/goblin_king.fbx" in "data/Units/KoboldKing/cadnav.com_model/Models_G0506A078/496d23a4.jpg"
+[ error ] loadImage: File not found: "data/Units/KoboldKing/cadnav.com_model/Models_G0506A078/496d23a4.jpg"
+[ error ] ofxAssimpModelLoader: loadGLResource(): couldn't load texture: "data/Units/KoboldKing/goblin_king.fbx" from "data/Units/KoboldKing/cadnav.com_model/Models_G0506A078/496d23a4.jpg"
+[ error ] ofxAssimpModelLoader: loadGLResource(): texture doesn't exist: "data/Units/KoboldKing/goblin_king.fbx" in "data/Units/KoboldKing/cadnav.com_model/Models_G0506A078/01391eaa.dds"
+[ error ] loadImage: File not found: "data/Units/KoboldKing/cadnav.com_model/Models_G0506A078/01391eaa.dds"
+[ error ] ofxAssimpModelLoader: loadGLResource(): couldn't load texture: "data/Units/KoboldKing/goblin_king.fbx" from "data/Units/KoboldKing/cadnav.com_model/Models_G0506A078/01391eaa.dds"
+[notice ] Setup: Kobold King texture loaded.
+[notice ] Setup: Kobold King model loaded.
+[notice ] Setup: Hellhound model loaded.
+[warning] ofMaterial::setPBR:  PBR material must be used with Programmable Renderer.
+[ error ] ofxAssimpTexture::setTextureType: : unknown aiTextureType type 27
+[warning] ofMaterial::setPBR:  PBR material must be used with Programmable Renderer.
+[ error ] ofxAssimpTexture::setTextureType: : unknown aiTextureType type 27
+[warning] ofMaterial::setPBR:  PBR material must be used with Programmable Renderer.
+[ error ] ofxAssimpTexture::setTextureType: : unknown aiTextureType type 27
+[warning] ofMaterial::setPBR:  PBR material must be used with Programmable Renderer.
+[ error ] ofxAssimpTexture::setTextureType: : unknown aiTextureType type 27
+[warning] ofMaterial::setPBR:  PBR material must be used with Programmable Renderer.
+[ error ] ofxAssimpTexture::setTextureType: : unknown aiTextureType type 27
+[warning] ofMaterial::setPBR:  PBR material must be used with Programmable Renderer.
+[ error ] ofxAssimpTexture::setTextureType: : unknown aiTextureType type 27
+[warning] ofMaterial::setPBR:  PBR material must be used with Programmable Renderer.
+[ error ] ofxAssimpTexture::setTextureType: : unknown aiTextureType type 27
+[warning] ofMaterial::setPBR:  PBR material must be used with Programmable Renderer.
+[ error ] ofxAssimpTexture::setTextureType: : unknown aiTextureType type 27
+[warning] ofMaterial::setPBR:  PBR material must be used with Programmable Renderer.
+[ error ] ofxAssimpTexture::setTextureType: : unknown aiTextureType type 27
+[warning] ofMaterial::setPBR:  PBR material must be used with Programmable Renderer.
+[ error ] ofxAssimpTexture::setTextureType: : unknown aiTextureType type 27
+[warning] ofMaterial::setPBR:  PBR material must be used with Programmable Renderer.
+[ error ] ofxAssimpTexture::setTextureType: : unknown aiTextureType type 27
+[notice ] Setup: Demon model loaded.
+[notice ] Setup: Tortoise model loaded.
+[warning] ofMaterial::setPBR:  PBR material must be used with Programmable Renderer.
+[notice ] Setup: Ghost model loaded.
+[warning] ofMaterial::setPBR:  PBR material must be used with Programmable Renderer.
+[ error ] ofxAssimpTexture::setTextureType: : unknown aiTextureType type 27
+[notice ] Setup: Wall Unit GLB model loaded and texture applied.
+[notice ] Setup: Assistant model loaded.
+[warning] ofMaterial::setPBR:  PBR material must be used with Programmable Renderer.
+[ error ] ofxAssimpTexture::setTextureType: : unknown aiTextureType type 27
+[warning] ofMaterial::setPBR:  PBR material must be used with Programmable Renderer.
+[ error ] ofxAssimpTexture::setTextureType: : unknown aiTextureType type 27
+[notice ] Setup: Faerie texture loaded.
+[notice ] Setup: Faerie model loaded.
+[notice ] Setup: Loaded key frame: Board/keys_1_1.png
+[notice ] Setup: Loaded key frame: Board/keys_1_2.png
+[notice ] Setup: Loaded key frame: Board/keys_1_3.png
+[notice ] Setup: Loaded key frame: Board/keys_1_4.png
+[notice ] Setup: Loaded silver key frame: Board/keys_2_1.png
+[notice ] Setup: Loaded silver key frame: Board/keys_2_2.png
+[notice ] Setup: Loaded silver key frame: Board/keys_2_3.png
+[notice ] Setup: Loaded silver key frame: Board/keys_2_4.png
+[notice ] Setup: Loaded bronze key frame: Board/keys_3_1.png
+[notice ] Setup: Loaded bronze key frame: Board/keys_3_2.png
+[notice ] Setup: Loaded bronze key frame: Board/keys_3_3.png
+[notice ] Setup: Loaded bronze key frame: Board/keys_3_4.png
+[notice ] ofApp::loadCardData: Loaded 70 cards from JSON.
+[notice ] ofApp::loadCardData: Class Distribution - C1: 30, C2: 25, C3: 15
+[notice ] GL: Vendor: AMD | Renderer: AMD Radeon RX 9070 XT (radeonsi, gfx1201, LLVM 21.1.6, DRM 3.64, 6.17.7-ba25.fc43.x86_64) | Version: 4.6 (Compatibility Profile) Mesa 25.3.4-arch1.1 | GLSL: 4.60
+[notice ] FBO: worldFbo allocated 2560x1440
+[notice ] Steam: Joined Lobby. Connecting to Host: 76561198743068920
+[notice ] Steam: Incoming Connection Request...
+[notice ] Network: Client: Connected. Requesting Host seed...
+[notice ] Network: Sent Seed Request...
+[notice ] Network: Client: Detected lobby seed (observed)=1770390810 — waiting for host handshake (authoritative).
+[notice ] Network: Sent Seed Request...
+[notice ] Net: Handshake received: type=0 playerID=0 seq=1 seed=1770390810
+[notice ] Network: Client: Handshake received. Initializing game. (seed=1770390810)
+[notice ] Dice: Final total result for 1d6: 2
+[notice ] Dice: Final total result for 1d6: 3
+[notice ] Game: --- INITIATIVE ROLL STARTED ---
+[notice ] Steam: Connection Fully Active!
+[notice ] Steam: Opponent ID: 76561198743068920
+[notice ] Net: Handshake received: type=0 playerID=0 seq=2 seed=1770390810
+[notice ] Net: Ignoring duplicate handshake (already initialized).
+[notice ] Net: Handshake received: type=0 playerID=0 seq=3 seed=1770390810
+[notice ] Net: Ignoring duplicate handshake (already initialized).
+[notice ] Network: DraftOptions received: 26,6,29 (class=1) draftGenCounter=1
+[notice ] Draft: applyDraftOptionsFromPool: applied 3 options for player=1 stage=0 names=Lesser Heal, Slash, Shoot Arrow
+[notice ] Network: Draft state received: class=1 player=1 picks=2 stage=0 ingame=0 curPlayer=-1
+[notice ] Draft: Client already has authoritative DraftOptions; not waiting (class=1)
+[notice ] Network: Draft state received: class=1 player=1 picks=2 stage=0 ingame=0 curPlayer=-1
+[notice ] Draft: Client already has authoritative DraftOptions; not waiting (class=1)
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Lesser Heal, Slash, Shoot Arrow
+[notice ] Draft: DRAFT CLICK: mousePos=(1196,819) selections=0 required=2 inGameDraft=0 draftStage=0 acceptRect=(1170,1007,220,60)
+[notice ] Network: Sent draft select toggle: opt=1 sel=1
+[notice ] Network: Draft action received: type=0 opt=1 player=1 sel=1
+[notice ] Draft: DRAFT CLICK: mousePos=(1638,857) selections=1 required=2 inGameDraft=0 draftStage=0 acceptRect=(1170,1007,220,60)
+[notice ] Network: Sent draft select toggle: opt=2 sel=1
+[notice ] Network: Draft action received: type=0 opt=2 player=1 sel=1
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Lesser Heal, Slash, Shoot Arrow
+[notice ] Draft: DRAFT CLICK: mousePos=(1315,1105) selections=2 required=2 inGameDraft=0 draftStage=0 acceptRect=(1170,1007,220,60)
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Lesser Heal, Slash, Shoot Arrow
+[notice ] Draft: DRAFT CLICK: mousePos=(1277,999) selections=2 required=2 inGameDraft=0 draftStage=0 acceptRect=(1170,1007,220,60)
+[notice ] Draft: DRAFT CLICK: mousePos=(1276,1014) selections=2 required=2 inGameDraft=0 draftStage=0 acceptRect=(1170,1007,220,60)
+[notice ] Draft: ACCEPT BUTTON CLICKED: selections=2 required=2 rect=(1170,1007,220,60) mousePos=(1276,1014)
+[notice ] Draft: CLIENT: Sending AcceptDraft with picks: 6,29,-1 classTier=1
+[notice ] Network: Client sent AcceptDraft to host (2 picks)
+[notice ] Network: Draft action received: type=1 opt=0 player=1 sel=0
+[notice ] Draft: CLIENT: Received forwarded AcceptDraft from host player=1 picks=2 indices=6,29,-1 classTier=1
+[notice ] Draft: CLIENT: Pool size=30 copies=2
+[notice ] Draft: CLIENT: Adding card index=6 name=Slash
+[notice ] Draft: CLIENT: Adding card index=29 name=Shoot Arrow
+[notice ] Network: Client: Skipping local shuffle for player 1 due to forwarded Accept
+[notice ] Draft: Client: Received forwarded Accept. Waiting for host state/options. (preserving local options until authoritative packet arrives)
+[notice ] Network: Shuffle packet received: player=1 nonce=1231416395
+[notice ] Network: Client: Applied shuffle nonce for player 1
+[notice ] Network: DraftOptions received: 24,10,2 (class=2) draftGenCounter=2
+[notice ] Network: Draft state received: class=2 player=1 picks=1 stage=1 ingame=0 curPlayer=-1
+[notice ] Draft: Client already has authoritative DraftOptions; not waiting (class=2)
+[notice ] Network: Draft state received: class=2 player=1 picks=1 stage=1 ingame=0 curPlayer=-1
+[notice ] Draft: Client already has authoritative DraftOptions; not waiting (class=2)
+[notice ] Network: Draft state received: class=2 player=1 picks=1 stage=1 ingame=0 curPlayer=-1
+[notice ] Draft: Client already has authoritative DraftOptions; not waiting (class=2)
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=1) names=Summon Faerie, Flail, Fireball
+[notice ] Draft: DRAFT CLICK: mousePos=(908,871) selections=0 required=1 inGameDraft=0 draftStage=1 acceptRect=(1170,1007,220,60)
+[notice ] Network: Sent draft select toggle: opt=0 sel=1
+[notice ] Network: Draft action received: type=0 opt=0 player=1 sel=1
+[notice ] Draft: DRAFT CLICK: mousePos=(1255,1038) selections=1 required=1 inGameDraft=0 draftStage=1 acceptRect=(1170,1007,220,60)
+[notice ] Draft: ACCEPT BUTTON CLICKED: selections=1 required=1 rect=(1170,1007,220,60) mousePos=(1255,1038)
+[notice ] Draft: CLIENT: Sending AcceptDraft with picks: 24,-1,-1 classTier=2
+[notice ] Network: Client sent AcceptDraft to host (1 picks)
+[notice ] Network: Draft action received: type=1 opt=0 player=1 sel=0
+[notice ] Draft: CLIENT: Received forwarded AcceptDraft from host player=1 picks=1 indices=24,-1,-1 classTier=2
+[notice ] Draft: CLIENT: Pool size=25 copies=1
+[notice ] Draft: CLIENT: Adding card index=24 name=Summon Faerie
+[notice ] Network: Client: Skipping local shuffle for player 1 due to forwarded Accept
+[notice ] Draft: Client: Received forwarded Accept. Waiting for host state/options. (preserving local options until authoritative packet arrives)
+[notice ] Network: Shuffle packet received: player=1 nonce=3323969146
+[notice ] Network: Client: Applied shuffle nonce for player 1
+[notice ] Network: DraftOptions received: 28,12,13 (class=1) draftGenCounter=3
+[notice ] Network: Draft state received: class=1 player=0 picks=2 stage=0 ingame=0 curPlayer=-1
+[notice ] Draft: Client already has authoritative DraftOptions; not waiting (class=1)
+[notice ] Network: Draft state received: class=1 player=0 picks=2 stage=0 ingame=0 curPlayer=-1
+[notice ] Draft: Client already has authoritative DraftOptions; not waiting (class=1)
+[notice ] Network: Draft state received: class=1 player=0 picks=2 stage=0 ingame=0 curPlayer=-1
+[notice ] Draft: Client already has authoritative DraftOptions; not waiting (class=1)
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=0 stage=0) names=Burst of Light, Flame Hit, Heal
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=0 stage=0) names=Burst of Light, Flame Hit, Heal
+[notice ] Network: Draft action received: type=0 opt=1 player=0 sel=1
+[notice ] Network: Draft action received: type=0 opt=2 player=0 sel=1
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=0 stage=0) names=Burst of Light, Flame Hit, Heal
+[notice ] Network: Draft action received: type=1 opt=-1 player=0 sel=0
+[notice ] Draft: CLIENT: Received forwarded AcceptDraft from host player=0 picks=2 indices=12,13,-1 classTier=1
+[notice ] Draft: CLIENT: Pool size=30 copies=2
+[notice ] Draft: CLIENT: Adding card index=12 name=Flame Hit
+[notice ] Draft: CLIENT: Adding card index=13 name=Heal
+[notice ] Network: Client: Skipping local shuffle for player 0 due to forwarded Accept
+[notice ] Draft: Client: Received forwarded Accept. Waiting for host state/options. (preserving local options until authoritative packet arrives)
+[notice ] Network: Shuffle packet received: player=0 nonce=744902856
+[notice ] Network: Client: Applied shuffle nonce for player 0
+[notice ] Network: DraftOptions received: 10,8,23 (class=2) draftGenCounter=4
+[notice ] Network: Draft state received: class=2 player=0 picks=1 stage=1 ingame=0 curPlayer=-1
+[notice ] Draft: Client already has authoritative DraftOptions; not waiting (class=2)
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=0 stage=1) names=Flail, Dark Shield, Smite
+[notice ] Network: Draft action received: type=0 opt=1 player=0 sel=1
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=0 stage=1) names=Flail, Dark Shield, Smite
+[notice ] Network: Draft action received: type=1 opt=-1 player=0 sel=0
+[notice ] Draft: CLIENT: Received forwarded AcceptDraft from host player=0 picks=1 indices=8,-1,-1 classTier=2
+[notice ] Draft: CLIENT: Pool size=25 copies=1
+[notice ] Draft: CLIENT: Adding card index=8 name=Dark Shield
+[notice ] Network: Client: Skipping local shuffle for player 0 due to forwarded Accept
+[notice ] Draft: Client: Received forwarded Accept. Waiting for host state/options. (preserving local options until authoritative packet arrives)
+[notice ] Network: Shuffle packet received: player=0 nonce=1201245717
+[notice ] Network: Client: Applied shuffle nonce for player 0
+[notice ] Network: Draft state received: class=0 player=-1 picks=1 stage=2 ingame=0 curPlayer=1
+[notice ] Network: Client: Drafting ended. Waiting for TurnStart packet from host (player=1)
+[notice ] Network: TurnStart packet received: player=1 dice=1 total=1
+[notice ] Game: Player 1's turn begins (from TurnStart).
+[notice ] Game: Client state: currentState=2 myLocalPlayerID=1 currentPlayerID=1
+[notice ] Game: TurnStart applied locally: player=1 AP total=1
+[notice ] Network: Client: Requesting checksum check for turn 0 (post-draft)
+[notice ] Checksum: Client P0 deck=[25(0),25(0),24(1),29(7),24(1)]
+[notice ] Checksum: Client P1 deck=[59(0),5(0),5(0),64(0),64(0)]
+[notice ] Checksum: Client sent checksum for turn 0: 3799785634254091881
+[notice ] Hand: Displaying hand for player 1: 0 cards (isMultiplayer=1 myLocalPlayerID=1)
+[notice ] Network: TurnStart packet received: player=1 dice=1 total=1
+[notice ] Network: Ignoring duplicate TurnStart packet (already processed player=1 turn=0)
+[notice ] Network: Client sent movement to (12,1) with AP=0
+[notice ] Game: Drew card: Shoot Arrow
+[notice ] Game: Drew card: Shoot Arrow
+[notice ] Network: Client sent DrawCards packet: 2 cards
+[notice ] Hand: Displaying hand for player 1: 2 cards (isMultiplayer=1 myLocalPlayerID=1)
+[notice ] Turn: startNewTurn() called. isMultiplayer=1 currentPlayerIndex=1 myLocalPlayerID=1 isCurrentPlayerLocal()=1
+[notice ] Turn: Ending my turn (player 1). Sending END_TURN packet.
+[notice ] Turn: Cleaning up local player's (1) hand and buffs...
+[notice ] Turn: Found local player at index 1. Hand size: 2, Played: 0
+[notice ] Turn: After cleanup: Hand size=0, Discard size=2
+[notice ] Turn: Client: Early return after cleanup. Waiting for host's TurnStart.
+[notice ] Turn: Client: Optimistically advanced to player 0's turn
+[notice ] Hand: Displaying hand for player 1: 0 cards (isMultiplayer=1 myLocalPlayerID=1)
+[notice ] Network: TurnStart packet received: player=0 dice=1 total=4
+[notice ] Game: Player 0's turn begins (from TurnStart).
+[notice ] Game: Client state: currentState=2 myLocalPlayerID=1 currentPlayerID=0
+[notice ] Game: TurnStart applied locally: player=0 AP total=4
+[notice ] Network: Received DrawCards from opponent: player=0 num=2
+[notice ] Network: Added card to player 0's hand: Flame Hit
+[notice ] Network: Added card to player 0's hand: Dark Shield
+[notice ] Network: Received movement from opponent to (1,5) with AP=0
+[notice ] Network: Applied movement for player 0 to (1,5)
+[notice ] Network: KeyPickup packet received: player=0 class= pos=(1,5)
+[notice ] Draft: generateDraftOptions called: classTier=1 draftStage=2 draftPlayerIndex=0 poolSize=30
+[notice ] Key: Client: Player 0 picked up key (Class )
+[notice ] Network: DraftOptions received: 25,26,3 (class=1) draftGenCounter=5
+[notice ] Network: Draft state received: class=1 player=0 picks=2 stage=2 ingame=1 curPlayer=0
+[notice ] Draft: Client already has authoritative DraftOptions; not waiting (class=1)
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=0 stage=2) names=Renewed Inspiration, Lesser Heal, Bash
+[notice ] Network: Draft action received: type=0 opt=1 player=0 sel=1
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=0 stage=2) names=Renewed Inspiration, Lesser Heal, Bash
+[notice ] Network: Draft action received: type=1 opt=-1 player=0 sel=0
+[notice ] Draft: CLIENT: Received forwarded AcceptDraft from host player=0 picks=1 indices=26,-1,-1 classTier=1
+[notice ] Draft: CLIENT: Pool size=30 copies=1
+[notice ] Draft: CLIENT: Adding card index=26 name=Lesser Heal
+[notice ] Network: Client: Skipping local shuffle for player 0 due to forwarded Accept
+[notice ] Network: Shuffle packet received: player=0 nonce=1646145184
+[notice ] Network: Client: Applied shuffle nonce for player 0
+[notice ] Net: Opponent ended turn.
+[notice ] Network: CLIENT FIX ACTIVE: Waiting for host TurnStart packet (will NOT roll dice locally).
+[notice ] Network: Client: Skipping checksum validation while waiting for TurnStart.
+[notice ] Network: TurnStart packet received: player=1 dice=1 total=3
+[notice ] Game: Player 1's turn begins (from TurnStart).
+[notice ] Game: Client state: currentState=2 myLocalPlayerID=1 currentPlayerID=1
+[notice ] Game: TurnStart applied locally: player=1 AP total=3
+[notice ] Game: Drew card: Slash
+[notice ] Game: Drew card: Slash
+[notice ] Network: Client sent DrawCards packet: 2 cards
+[notice ] Hand: Displaying hand for player 1: 2 cards (isMultiplayer=1 myLocalPlayerID=1)
+[notice ] Network: Client sent movement to (11,3) with AP=0
+[notice ] Network: KeyPickup packet received: player=1 class= pos=(11,3)
+[notice ] Draft: generateDraftOptions called: classTier=1 draftStage=2 draftPlayerIndex=1 poolSize=30
+[notice ] Key: Client: Player 1 picked up key (Class )
+[notice ] Network: DraftOptions received: 14,17,15 (class=1) draftGenCounter=6
+[notice ] Network: Draft state received: class=1 player=1 picks=2 stage=2 ingame=1 curPlayer=1
+[notice ] Draft: Client already has authoritative DraftOptions; not waiting (class=1)
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=2) names=Summon Wall, Blocking Boon, Drain Punch
+[notice ] Draft: DRAFT CLICK: mousePos=(1270,677) selections=0 required=1 inGameDraft=1 draftStage=2 acceptRect=(1170,998,220,60)
+[notice ] Network: Sent draft select toggle: opt=1 sel=1
+[notice ] Network: Draft action received: type=0 opt=1 player=1 sel=1
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=2) names=Summon Wall, Blocking Boon, Drain Punch
+[notice ] Draft: DRAFT CLICK: mousePos=(1267,1015) selections=1 required=1 inGameDraft=1 draftStage=2 acceptRect=(1170,998,220,60)
+[notice ] Draft: ACCEPT BUTTON CLICKED: selections=1 required=1 rect=(1170,998,220,60) mousePos=(1267,1015)
+[notice ] Draft: CLIENT: Sending AcceptDraft with picks: 17,-1,-1 classTier=1
+[notice ] Network: Client sent AcceptDraft to host (1 picks)
+[notice ] Network: Draft action received: type=1 opt=0 player=1 sel=0
+[notice ] Draft: CLIENT: Received forwarded AcceptDraft from host player=1 picks=1 indices=17,-1,-1 classTier=1
+[notice ] Draft: CLIENT: Pool size=30 copies=1
+[notice ] Draft: CLIENT: Adding card index=17 name=Blocking Boon
+[notice ] Network: Client: Skipping local shuffle for player 1 due to forwarded Accept
+[notice ] Network: Shuffle packet received: player=1 nonce=821144651
+[notice ] Network: Client: Applied shuffle nonce for player 1
+[notice ] Turn: startNewTurn() called. isMultiplayer=1 currentPlayerIndex=1 myLocalPlayerID=1 isCurrentPlayerLocal()=1
+[notice ] Turn: Ending my turn (player 1). Sending END_TURN packet.
+[notice ] DeckState: 
+=== DECK STATE LOG ===
+Time: 2026-02-06 15:14:18
+Reason: End Turn 1
+Turn: 1
+Current Player: 1
+Local Player ID: 1
+Is Host: false
+
+Player0 Deck[4]: Lesser Heal(55), Flame Hit(24), Heal(25), Heal(25) | Hand[0]:  | Discard[2]: Flame Hit(24), Dark Shield(29)
+Player1 Deck[2]: Summon Faerie(59), Blocking Boon(68) | Hand[2]: Slash(5), Slash(5) | Discard[2]: Shoot Arrow(64), Shoot Arrow(64)
+=====================
+
+[notice ] Turn: Cleaning up local player's (1) hand and buffs...
+[notice ] Turn: Found local player at index 1. Hand size: 2, Played: 0
+[notice ] Turn: After cleanup: Hand size=0, Discard size=4
+[notice ] Turn: Client: Early return after cleanup. Waiting for host's TurnStart.
+[notice ] Turn: Client: Optimistically advanced to player 0's turn
+[notice ] Hand: Displaying hand for player 1: 0 cards (isMultiplayer=1 myLocalPlayerID=1)
+[notice ] Game: --- GAME SESSION CLEANED UP ---
+[notice ] SteamManager: Steam API Shutdown.
+[S_API FAIL] Tried to access Steam interface SteamNetworkingSockets012 before SteamAPI_Init succeeded.
