@@ -64,22 +64,7 @@ void SteamManager::update() {
 		}
 	}
 
-	// -- RESEND PENDING RELIABLE PACKETS --
-	float now = ofGetElapsedTimef();
-	for (auto it = m_pending.begin(); it != m_pending.end();) {
-		PendingPacket & p = it->second;
-		if (now - p.lastSendTime >= m_resendInterval) {
-			if (p.retries >= m_maxRetries) {
-				it = m_pending.erase(it);
-				continue;
-			}
-			SteamNetworkingSockets()->SendMessageToConnection(
-				m_hConnection, p.data.data(), (uint32_t)p.data.size(), k_nSteamNetworkingSend_Reliable, nullptr);
-			p.lastSendTime = now;
-			p.retries++;
-		}
-		++it;
-	}
+	// Rely on SteamNetworkingSockets reliability for reliable sends.
 }
 
 void SteamManager::cleanup() {
@@ -157,23 +142,9 @@ bool SteamManager::sendPacket(const void * data, uint32_t size) {
 		if (outHdr->seq == 0) {
 			outHdr->seq = m_nextSeq++;
 		}
-		uint32_t seq = outHdr->seq;
 		EResult res = SteamNetworkingSockets()->SendMessageToConnection(
 			m_hConnection, buffer.data(), size, k_nSteamNetworkingSend_Reliable, nullptr);
-		if (res == k_EResultOK) {
-			// Track critical packets for resend
-			uint8_t type = outHdr->type;
-			if (type == PKT_HANDSHAKE || type == PKT_SNAPSHOT_BEGIN || type == PKT_SNAPSHOT_CHUNK || type == PKT_SNAPSHOT_END || type == PKT_DRAFT_OPTIONS || type == PKT_DRAFT_STATE || type == PKT_DRAFT_ACTION || type == PKT_KEY_PICKUP || type == PKT_SHUFFLE || type == PKT_TURN_START || type == PKT_END_TURN || type == PKT_ACTION || type == PKT_MENU_STATE) {
-				PendingPacket pending;
-				pending.data = buffer;
-				pending.lastSendTime = ofGetElapsedTimef();
-				pending.retries = 0;
-				pending.type = type;
-				m_pending[seq] = pending;
-			}
-			return true;
-		}
-		return false;
+		return (res == k_EResultOK);
 	}
 
 	// Use Reliable for game data
@@ -181,14 +152,6 @@ bool SteamManager::sendPacket(const void * data, uint32_t size) {
 		m_hConnection, data, size, k_nSteamNetworkingSend_Reliable, nullptr);
 
 	return (res == k_EResultOK);
-}
-
-void SteamManager::handleAck(uint32_t seq) {
-	if (seq == 0) return;
-	auto it = m_pending.find(seq);
-	if (it != m_pending.end()) {
-		m_pending.erase(it);
-	}
 }
 
 bool SteamManager::isHost() const {

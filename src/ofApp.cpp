@@ -9188,8 +9188,15 @@ void ofApp::mousePressed(int x, int y, int button) {
 			pendingDispelRollResult = startDiceRoll(1, 20, PURPOSE_BARRIER_GAIN, "Dispel: Barrier Amount");
 
 			Player & p = players[currentPlayerIndex];
-			currentAP -= p.hand[pendingDispelCardIndex].cost;
-			p.discardPile.push_back(p.hand[pendingDispelCardIndex]);
+			Card dispelCard = p.hand[pendingDispelCardIndex];
+
+			// Send network packet with menuChoice=1 (barrier)
+			if (isMultiplayer) {
+				sendActionPacket(pendingDispelCardIndex, -1, -1, dispelCard.cost, 1);
+			}
+
+			currentAP -= dispelCard.cost;
+			p.discardPile.push_back(dispelCard);
 			p.hand.erase(p.hand.begin() + pendingDispelCardIndex);
 			ofLogNotice("Dispel") << "Rolling for Non-Physical Barrier...";
 			cancelDispel();
@@ -9246,25 +9253,39 @@ void ofApp::mousePressed(int x, int y, int button) {
 		Player & p = players[currentPlayerIndex];
 
 		if (trainBtnAP.inside(x, y)) {
+			int cardIndex = pendingTrainCardIndex;
+			int cost = (cardIndex >= 0 && cardIndex < (int)p.hand.size()) ? p.hand[cardIndex].cost : 0;
+			std::string cardName = (cardIndex >= 0 && cardIndex < (int)p.hand.size()) ? p.hand[cardIndex].name : "";
+			if (isMultiplayer) {
+				sendActionPacket(cardIndex, -1, -1, cost, 1, cardName);
+			}
+
 			// Option A: +3 AP Next Turn
 			p.nextTurnAPBonus += 3;
 			spawnFloatingText(gridToWorld(p.x, p.y), "Training: AP", ofColor::yellow);
 
 			// Pay cost & cleanup
-			currentAP -= p.hand[pendingTrainCardIndex].cost;
-			p.playedCardsPile.push_back(p.hand[pendingTrainCardIndex]);
+			currentAP -= cost;
+			p.playedCardsPile.push_back(p.hand[cardIndex]);
 			// (Replicate check could go here if standard logic isn't used)
-			p.hand.erase(p.hand.begin() + pendingTrainCardIndex);
+			p.hand.erase(p.hand.begin() + cardIndex);
 
 			isTrainMenuOpen = false;
 			pendingTrainCardIndex = -1;
 			calculateTargetHighlights();
 		} else if (trainBtnDraft.inside(x, y)) {
+			int cardIndex = pendingTrainCardIndex;
+			int cost = (cardIndex >= 0 && cardIndex < (int)p.hand.size()) ? p.hand[cardIndex].cost : 0;
+			std::string cardName = (cardIndex >= 0 && cardIndex < (int)p.hand.size()) ? p.hand[cardIndex].name : "";
+			if (isMultiplayer) {
+				sendActionPacket(cardIndex, -1, -1, cost, 2, cardName);
+			}
+
 			// Option B: Draft Class 1
 			// Pay cost first
-			currentAP -= p.hand[pendingTrainCardIndex].cost;
-			p.playedCardsPile.push_back(p.hand[pendingTrainCardIndex]);
-			p.hand.erase(p.hand.begin() + pendingTrainCardIndex);
+			currentAP -= cost;
+			p.playedCardsPile.push_back(p.hand[cardIndex]);
+			p.hand.erase(p.hand.begin() + cardIndex);
 
 			isTrainMenuOpen = false;
 			pendingTrainCardIndex = -1;
@@ -9337,8 +9358,15 @@ void ofApp::mousePressed(int x, int y, int button) {
 		}
 
 		if (choiceMade) {
-			currentAP -= caster.hand[pendingWisdomBoonCardIndex].cost;
-			Card playedCard = caster.hand[pendingWisdomBoonCardIndex];
+			int cardIndex = pendingWisdomBoonCardIndex;
+			int cost = (cardIndex >= 0 && cardIndex < (int)caster.hand.size()) ? caster.hand[cardIndex].cost : 0;
+			std::string cardName = (cardIndex >= 0 && cardIndex < (int)caster.hand.size()) ? caster.hand[cardIndex].name : "";
+			if (isMultiplayer) {
+				sendActionPacket(cardIndex, target->x, target->y, cost, 1, cardName);
+			}
+
+			currentAP -= cost;
+			Card playedCard = caster.hand[cardIndex];
 			caster.playedCardsPile.push_back(playedCard);
 
 			if (caster.isReplicatePending) {
@@ -9435,6 +9463,14 @@ void ofApp::mousePressed(int x, int y, int button) {
 				}
 				if (targetIndex != -1) {
 					pendingDoubleHandedTargetIndex = targetIndex;
+					int cardIndex = pendingDoubleHandedCardIndex;
+					Player & caster = players[currentPlayerIndex];
+					int cost = (cardIndex >= 0 && cardIndex < (int)caster.hand.size()) ? caster.hand[cardIndex].cost : 0;
+					std::string cardName = (cardIndex >= 0 && cardIndex < (int)caster.hand.size()) ? caster.hand[cardIndex].name : "";
+					if (isMultiplayer) {
+						int menuChoice = (pendingDoubleHandedChoice == "Punch") ? 1 : 2;
+						sendActionPacket(cardIndex, gx, gy, cost, menuChoice, cardName);
+					}
 					resolveDoubleHanded(pendingDoubleHandedChoice);
 				}
 			}
@@ -9491,8 +9527,16 @@ void ofApp::mousePressed(int x, int y, int button) {
 						}
 					}
 
+					int cardIndex = pendingBurstCardIndex;
+					int cost = (cardIndex >= 0 && cardIndex < (int)caster.hand.size()) ? caster.hand[cardIndex].cost : 0;
+					std::string cardName = (cardIndex >= 0 && cardIndex < (int)caster.hand.size()) ? caster.hand[cardIndex].name : "";
+					if (isMultiplayer) {
+						int menuChoice = (burstChoice == 0) ? 1 : 2;
+						sendActionPacket(cardIndex, gx, gy, cost, menuChoice, cardName);
+					}
+
 					// Consume AP and cleanup
-					currentAP -= caster.hand[pendingBurstCardIndex].cost;
+					currentAP -= cost;
 					Card playedCard = caster.hand[pendingBurstCardIndex];
 					caster.playedCardsPile.push_back(playedCard);
 					if (caster.isReplicatePending) {
@@ -9570,6 +9614,18 @@ void ofApp::mousePressed(int x, int y, int button) {
 		// 1. Check Confirm Button
 		if (riConfirmBtn.inside(x, y)) {
 			Player & p = players[currentPlayerIndex];
+
+			if (isMultiplayer) {
+				RenewedInspirationPacket rpk = {};
+				rpk.type = PKT_RENEWED_INSPIRATION;
+				rpk.playerID = myLocalPlayerID;
+				rpk.playerIndex = currentPlayerIndex;
+				rpk.count = std::min((int)renewedSelectedHandIndices.size(), 16);
+				for (int i = 0; i < rpk.count; ++i) {
+					rpk.indices[i] = renewedSelectedHandIndices[i];
+				}
+				steamManager.sendPacket(&rpk, sizeof(rpk));
+			}
 
 			// Sort indices descending so we can delete safely from back to front
 			std::sort(renewedSelectedHandIndices.begin(), renewedSelectedHandIndices.end(), std::greater<int>());
@@ -9727,7 +9783,17 @@ void ofApp::mousePressed(int x, int y, int button) {
 		if (gx >= 0 && gx < BOARD_WIDTH && gy >= 0 && gy < BOARD_HEIGHT) {
 			if (board[gx][gy].isTargetable) {
 				// Play amnesia on target (this triggers the dice roll in playCard)
-				playCard(pendingAmnesiaCardIndex, gx, gy);
+				int cardIndex = pendingAmnesiaCardIndex;
+				std::string cardName = (cardIndex >= 0 && cardIndex < (int)players[currentPlayerIndex].hand.size())
+					? players[currentPlayerIndex].hand[cardIndex].name
+					: "";
+				int cost = (cardIndex >= 0 && cardIndex < (int)players[currentPlayerIndex].hand.size())
+					? players[currentPlayerIndex].hand[cardIndex].cost
+					: 0;
+				CardPlayResult result = playCard(cardIndex, gx, gy);
+				if (isMultiplayer && result == CARD_PLAYED_IMMEDIATELY) {
+					sendActionPacket(cardIndex, gx, gy, cost, 0, cardName);
+				}
 				isTargetingAmnesia = false;
 				pendingAmnesiaCardIndex = -1;
 				calculateTargetHighlights();
@@ -9745,6 +9811,12 @@ void ofApp::mousePressed(int x, int y, int button) {
 			// Use the board flag which we set in calculateTargetHighlights
 			if (board[gx][gy].isTargetable) {
 				Player & caster = players[currentPlayerIndex];
+
+				if (isMultiplayer && pendingTeleportCardIndex >= 0 && pendingTeleportCardIndex < (int)caster.hand.size()) {
+					std::string cardName = caster.hand[pendingTeleportCardIndex].name;
+					int cost = caster.hand[pendingTeleportCardIndex].cost;
+					sendActionPacket(pendingTeleportCardIndex, gx, gy, cost, 0, cardName);
+				}
 
 				// Move player
 				board[caster.x][caster.y].hasPlayer = false;
@@ -9861,7 +9933,17 @@ void ofApp::mousePressed(int x, int y, int button) {
 		// Clicked valid target?
 		if (gx >= 0 && gx < BOARD_WIDTH && gy >= 0 && gy < BOARD_HEIGHT) {
 			if (board[gx][gy].isTargetable) {
-				playCard(magicBoltCardIndex, gx, gy);
+				int cardIndex = magicBoltCardIndex;
+				std::string cardName = (cardIndex >= 0 && cardIndex < (int)players[currentPlayerIndex].hand.size())
+					? players[currentPlayerIndex].hand[cardIndex].name
+					: "";
+				int cost = (cardIndex >= 0 && cardIndex < (int)players[currentPlayerIndex].hand.size())
+					? players[currentPlayerIndex].hand[cardIndex].cost
+					: 0;
+				CardPlayResult result = playCard(cardIndex, gx, gy);
+				if (isMultiplayer && result == CARD_PLAYED_IMMEDIATELY) {
+					sendActionPacket(cardIndex, gx, gy, cost, 0, cardName);
+				}
 
 				// Reset State
 				isTargetingMagicBolt = false;
@@ -9888,7 +9970,17 @@ void ofApp::mousePressed(int x, int y, int button) {
 		if (gx >= 0 && gx < BOARD_WIDTH && gy >= 0 && gy < BOARD_HEIGHT) {
 			if (board[gx][gy].isTargetable) {
 				// This calls the playCard logic we wrote earlier (which rolls dice)
-				playCard(hellhoundCardIndex, gx, gy);
+				int cardIndex = hellhoundCardIndex;
+				std::string cardName = (cardIndex >= 0 && cardIndex < (int)players[currentPlayerIndex].hand.size())
+					? players[currentPlayerIndex].hand[cardIndex].name
+					: "";
+				int cost = (cardIndex >= 0 && cardIndex < (int)players[currentPlayerIndex].hand.size())
+					? players[currentPlayerIndex].hand[cardIndex].cost
+					: 0;
+				CardPlayResult result = playCard(cardIndex, gx, gy);
+				if (isMultiplayer && result == CARD_PLAYED_IMMEDIATELY) {
+					sendActionPacket(cardIndex, gx, gy, cost, 0, cardName);
+				}
 
 				// Reset State
 				isTargetingHellhound = false;
@@ -9916,6 +10008,10 @@ void ofApp::mousePressed(int x, int y, int button) {
 				// 1. Consume Resources
 				Player & caster = players[currentPlayerIndex];
 				Card & c = caster.hand[chainLightningCardIndex];
+
+				if (isMultiplayer) {
+					sendActionPacket(chainLightningCardIndex, gx, gy, c.cost, 0, c.name);
+				}
 
 				currentAP -= c.cost;
 				caster.playedCardsPile.push_back(c);
@@ -9950,7 +10046,17 @@ void ofApp::mousePressed(int x, int y, int button) {
 		int gx = floor(boardPos.x), gy = floor(boardPos.y);
 		if (gx >= 0 && gx < BOARD_WIDTH && gy >= 0 && gy < BOARD_HEIGHT) {
 			if (board[gx][gy].isTargetable) {
-				playCard(deathCardIndex, gx, gy);
+				int cardIndex = deathCardIndex;
+				std::string cardName = (cardIndex >= 0 && cardIndex < (int)players[currentPlayerIndex].hand.size())
+					? players[currentPlayerIndex].hand[cardIndex].name
+					: "";
+				int cost = (cardIndex >= 0 && cardIndex < (int)players[currentPlayerIndex].hand.size())
+					? players[currentPlayerIndex].hand[cardIndex].cost
+					: 0;
+				CardPlayResult result = playCard(cardIndex, gx, gy);
+				if (isMultiplayer && result == CARD_PLAYED_IMMEDIATELY) {
+					sendActionPacket(cardIndex, gx, gy, cost, 0, cardName);
+				}
 				isTargetingDeath = false;
 				deathCardIndex = -1;
 				clearHighlights();
@@ -9970,7 +10076,17 @@ void ofApp::mousePressed(int x, int y, int button) {
 		int gx = floor(boardPos.x), gy = floor(boardPos.y);
 		if (gx >= 0 && gx < BOARD_WIDTH && gy >= 0 && gy < BOARD_HEIGHT) {
 			if (board[gx][gy].isTargetable || (gx == players[currentPlayerIndex].x && gy == players[currentPlayerIndex].y)) {
-				playCard(healCardIndex, gx, gy);
+				int cardIndex = healCardIndex;
+				std::string cardName = (cardIndex >= 0 && cardIndex < (int)players[currentPlayerIndex].hand.size())
+					? players[currentPlayerIndex].hand[cardIndex].name
+					: "";
+				int cost = (cardIndex >= 0 && cardIndex < (int)players[currentPlayerIndex].hand.size())
+					? players[currentPlayerIndex].hand[cardIndex].cost
+					: 0;
+				CardPlayResult result = playCard(cardIndex, gx, gy);
+				if (isMultiplayer && result == CARD_PLAYED_IMMEDIATELY) {
+					sendActionPacket(cardIndex, gx, gy, cost, 0, cardName);
+				}
 				isTargetingHeal = false;
 				healCardIndex = -1;
 				clearHighlights();
@@ -10519,7 +10635,17 @@ void ofApp::mousePressed(int x, int y, int button) {
 			ofVec2f boardPos = mouseToBoard(x, y);
 			int gridX = floor(boardPos.x), gridY = floor(boardPos.y);
 			if (gridX >= 0 && gridX < BOARD_WIDTH && gridY >= 0 && gridY < BOARD_HEIGHT && board[gridX][gridY].isTargetable) {
-				playCard(selectedCardIndex, gridX, gridY);
+				int cardIndex = selectedCardIndex;
+				std::string cardName = (cardIndex >= 0 && cardIndex < (int)players[currentPlayerIndex].hand.size())
+					? players[currentPlayerIndex].hand[cardIndex].name
+					: "";
+				int cost = (cardIndex >= 0 && cardIndex < (int)players[currentPlayerIndex].hand.size())
+					? players[currentPlayerIndex].hand[cardIndex].cost
+					: 0;
+				CardPlayResult result = playCard(cardIndex, gridX, gridY);
+				if (isMultiplayer && result == CARD_PLAYED_IMMEDIATELY) {
+					sendActionPacket(cardIndex, gridX, gridY, cost, 0, cardName);
+				}
 				selectedCardIndex = -1;
 				calculateTargetHighlights();
 				return;
@@ -10673,28 +10799,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 							currentAP = apNow - moveAPCost;
 
 							// Execute movement locally (client-side prediction)
-							// Update Board Occupancy
-							const int prevX = controlledPlayer->x;
-							const int prevY = controlledPlayer->y;
-							board[prevX][prevY].hasPlayer = false;
-							board[gridX][gridY].hasPlayer = true;
-							controlledPlayer->x = gridX;
-							controlledPlayer->y = gridY;
-
-							// Start Animation
-							animationPath.clear();
-							currentPathIndex = 0;
-							playerVisualPos = gridToWorld(prevX, prevY);
-							animationPath.push_back(playerVisualPos);
-							for (size_t p = 1; p < hoverPath.size(); ++p) {
-								animationPath.push_back(gridToWorld((int)hoverPath[p].x, (int)hoverPath[p].y));
-							}
-							if (!animationPath.empty()) {
-								isPlayerAnimating = true;
-								animatingPlayerIndex = controlledPlayerIndex;
-							}
-
-							invalidateTargetCache();
+							applyMovement(controlledPlayerIndex, gridX, gridY, currentAP, &hoverPath);
 
 							// Send packet to opponent so they see the movement too
 							if (isMultiplayer) {
@@ -11080,12 +11185,10 @@ void ofApp::mouseReleased(int x, int y, int button) {
 
 						// --- STANDARD PLAY ---
 						if (playedCard.targeting == TARGET_SELF) {
-							if (isMultiplayer) {
-								// SEND PACKET INSTEAD OF PLAYING
-								sendActionPacket(draggedCardIndex, -1, -1, playedCard.cost);
-							} else {
-								// NORMAL SINGLE PLAYER
-								playCard(draggedCardIndex, -1, -1);
+							const std::string playedCardName = playedCard.name;
+							CardPlayResult result = playCard(draggedCardIndex, -1, -1);
+							if (isMultiplayer && result == CARD_PLAYED_IMMEDIATELY) {
+								sendActionPacket(draggedCardIndex, -1, -1, playedCard.cost, 0, playedCardName);
 							}
 						} else {
 							ofVec2f boardPos = mouseToBoard(x, y);
@@ -11095,7 +11198,11 @@ void ofApp::mouseReleased(int x, int y, int button) {
 							if (gx >= 0 && gx < BOARD_WIDTH && gy >= 0 && gy < BOARD_HEIGHT) {
 								// Special-case: allow drag-release to play Blocking Boon even without a highlighted tile
 								if (playedCard.type == CARD_BLOCKING_BOON) {
-									playCard(draggedCardIndex, -1, -1);
+									const std::string playedCardName = playedCard.name;
+									CardPlayResult result = playCard(draggedCardIndex, -1, -1);
+									if (isMultiplayer && result == CARD_PLAYED_IMMEDIATELY) {
+										sendActionPacket(draggedCardIndex, -1, -1, playedCard.cost, 0, playedCardName);
+									}
 									// Clear drag/selection state like other handlers
 									draggedCardIndex = -1;
 									selectedCardIndex = -1;
@@ -11106,15 +11213,10 @@ void ofApp::mouseReleased(int x, int y, int button) {
 								// Only play if green highlight is active
 								if (board[gx][gy].isTargetable) {
 									ofLogNotice("CardPlay") << "Playing " << playedCard.name << " on tile (" << gx << "," << gy << ") isMultiplayer=" << isMultiplayer;
-									if (isMultiplayer && playedCard.type == CARD_GIANT_MAGIC_HAND) {
-										// Giant Magic Hand needs a menu choice before sending to opponent
-										playCard(draggedCardIndex, gx, gy);
-									} else if (isMultiplayer) {
-										// Send to network (which also executes locally)
-										sendActionPacket(draggedCardIndex, gx, gy, playedCard.cost);
-									} else {
-										// Single Player
-										playCard(draggedCardIndex, gx, gy);
+									const std::string playedCardName = playedCard.name;
+									CardPlayResult result = playCard(draggedCardIndex, gx, gy);
+									if (isMultiplayer && result == CARD_PLAYED_IMMEDIATELY) {
+										sendActionPacket(draggedCardIndex, gx, gy, playedCard.cost, 0, playedCardName);
 									}
 								} else {
 									ofLogWarning("CardPlay") << "Target not targetable! gx=" << gx << " gy=" << gy << " isTargetable=" << (gx >= 0 && gx < BOARD_WIDTH && gy >= 0 && gy < BOARD_HEIGHT ? board[gx][gy].isTargetable : false);
@@ -11981,15 +12083,15 @@ void ofApp::drawCard() {
 	}
 }
 //--------------------------------------------------------------
-void ofApp::playCard(int cardIndex, int targetX, int targetY) {
+CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 	Player & currentPlayer = players[currentPlayerIndex];
-	if (cardIndex < 0 || cardIndex >= static_cast<int>(currentPlayer.hand.size())) return;
+	if (cardIndex < 0 || cardIndex >= static_cast<int>(currentPlayer.hand.size())) return CARD_NOT_PLAYABLE;
 
 	Card playedCard = currentPlayer.hand[cardIndex];
 	// Determine effective cost (Kick may be free due to Sprint)
 	int costToPay = playedCard.cost;
 	if (playedCard.name == "Kick" && currentPlayer.freeKickTurns > 0) costToPay = 0;
-	if (currentAP < costToPay) return;
+	if (currentAP < costToPay) return CARD_NOT_PLAYABLE;
 
 	// Log card played
 	addGameLog(getPlayerSteamName(currentPlayerIndex) + " played " + playedCard.name);
@@ -12002,7 +12104,7 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 			// Do not allow turning an already-magic wall into a magic wall again
 			if (tile.hasWall && tile.isMagicWall) {
 				spawnFloatingText(gridToWorld(targetX, targetY), "Already Magic Wall", ofColor::red);
-				return;
+				return CARD_NOT_PLAYABLE;
 			}
 			if (!tile.hasWall && !tile.hasPlayer) {
 				tile.hasWall = true;
@@ -12027,7 +12129,7 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		activePlayedCardAnimations.push_back(cardAnim);
 
 		currentPlayer.hand.erase(currentPlayer.hand.begin() + cardIndex);
-		return;
+		return CARD_PLAYED_IMMEDIATELY;
 	}
 
 	// Damage handling moved to member helper `applyDamageTo` to allow reuse from other handlers.
@@ -12162,7 +12264,7 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		trainBtnDraft.set(startX + btnW + spacing, btnY, btnW, btnH);
 
 		// Don't set playedSuccessfully yet; waiting for menu choice
-		break;
+		return CARD_AWAITING_MENU_CHOICE;
 	}
 
 	// --- CASE: STUDY ---
@@ -12203,7 +12305,7 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		float btnW = 300, btnH = 80;
 		burstBtnDamage.set(x + (w - btnW) / 2, y + 110, btnW, btnH);
 		burstBtnHeal.set(0, 0, 0, 0);
-		break;
+		return CARD_AWAITING_MENU_CHOICE;
 	}
 
 	// --- CASE: SMITE ---
@@ -12303,7 +12405,7 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 
 		pendingAmnesiaRollResult = startDiceRoll(playedCard.numDice, playedCard.diceSides, PURPOSE_DEBUG, "Amnesia: Cards to Remove");
 		isWaitingForAmnesiaDice = true;
-		return; // We've already handled cleanup above
+		return CARD_PLAYED_IMMEDIATELY; // We've already handled cleanup above
 	}
 
 	// --- CASE: MAGIC BLAST (Confirming fix from previous step) ---
@@ -12425,7 +12527,7 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 
 		dispelBtnBarrier.set(startX, btnY, btnWidth, btnHeight);
 		dispelBtnPurge.set(startX + btnWidth + spacing, btnY, btnWidth, btnHeight);
-		break;
+		return CARD_AWAITING_MENU_CHOICE;
 	}
 	// --- CASE: TELEPORT (Now handled via drag -> dice roll -> targeting) ---
 	case CARD_TELEPORT: {
@@ -12475,7 +12577,7 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		wisdomMenuRect.set(x, y, w, h);
 		wisdomBtnDamage.set(x + (w - 300) / 2, y + 150, 300, 80);
 		wisdomBtnBlock.set(0, 0, 0, 0);
-		break;
+		return CARD_AWAITING_MENU_CHOICE;
 	}
 
 		// --- CASE: HEAL ---
@@ -12607,8 +12709,7 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 
 		// We set this to false because we handled the cleanup manually above.
 		// We don't want the bottom block to run again.
-		playedSuccessfully = false;
-		break;
+		return CARD_PLAYED_IMMEDIATELY;
 	}
 
 	// --- CASE: SUMMON KOBOLD KING ---
@@ -12724,8 +12825,7 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 			}
 		}
 
-		playedSuccessfully = false; // Cleanup handled manually above
-		break;
+		return CARD_PLAYED_IMMEDIATELY; // Cleanup handled manually above
 	}
 
 	// --- CASE: SUMMON ASSISTANT ---
@@ -12807,8 +12907,7 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 			}
 		}
 
-		playedSuccessfully = false;
-		break;
+		return CARD_PLAYED_IMMEDIATELY;
 	}
 
 	// --- CASE: SUMMON FAERIE ---
@@ -12889,8 +12988,7 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 			}
 		}
 
-		playedSuccessfully = false;
-		break;
+		return CARD_PLAYED_IMMEDIATELY;
 	}
 
 	// --- CASE: FULL RESTORE ---
@@ -13049,7 +13147,7 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 				break;
 			}
 		}
-		return;
+		return CARD_PLAYED_IMMEDIATELY;
 	}
 
 		// --- CASE: TRANSFORM WALL ---
@@ -13178,8 +13276,7 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		invalidateTargetCache();
 
 		// Set to FALSE so the common cleanup block at the end of playCard (which uses the now-unsafe reference) is skipped
-		playedSuccessfully = false;
-		break;
+		return CARD_PLAYED_IMMEDIATELY;
 	}
 
 	// --- CASE: CALL FOR WOLVES ---
@@ -13222,9 +13319,8 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		isPlacingWolves = true;
 		wolfSummonStage = 1; // Start with the first wolf
 
-		playedSuccessfully = false; // Cleanup handled manually
 		invalidateTargetCache();
-		break;
+		return CARD_PLAYED_IMMEDIATELY; // Cleanup handled manually
 	}
 
 		// --- CASE: CALL FOR KOBOLDS ---
@@ -13268,9 +13364,8 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		pendingSummonRollResult = startDiceRoll(1, 4, PURPOSE_SUMMON_KOBOLDS, "Call for Kobolds");
 		isWaitingForKoboldDice = true;
 
-		playedSuccessfully = false; // Cleanup handled manually
 		invalidateTargetCache();
-		break;
+		return CARD_PLAYED_IMMEDIATELY; // Cleanup handled manually
 	}
 
 		// --- CASE: SUMMON HELLHOUND ---
@@ -13291,8 +13386,7 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		createCardDisplay(playedCard, currentPlayerIndex);
 		invalidateTargetCache();
 
-		playedSuccessfully = false; // Prevent double cleanup
-		break;
+		return CARD_PLAYED_IMMEDIATELY; // Prevent double cleanup
 	}
 
 		// --- CASE: SUMMON DEMON ---
@@ -13316,8 +13410,7 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		createCardDisplay(playedCard, currentPlayerIndex);
 		invalidateTargetCache();
 
-		playedSuccessfully = false;
-		break;
+		return CARD_PLAYED_IMMEDIATELY;
 	}
 
 		// --- CASE: DEATH ---
@@ -13587,7 +13680,7 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		createCardDisplay(playedCard, currentPlayerIndex);
 		invalidateTargetCache();
 		currentPlayer.cardsPlayedThisTurn.push_back(playedCard.type);
-		return; // Skip normal cleanup since we handled AP and removal
+		return CARD_PLAYED_IMMEDIATELY; // Skip normal cleanup since we handled AP and removal
 	}
 
 	// --- CASE: SUMMON WALL ---
@@ -13632,7 +13725,7 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		// Track play history
 		currentPlayer.cardsPlayedThisTurn.push_back(playedCard.type);
 
-		return; // Skip standard cleanup
+		return CARD_PLAYED_IMMEDIATELY; // Skip standard cleanup
 	}
 
 	// --- CASE: FORTIFY ---
@@ -13854,8 +13947,7 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		// 7. Visuals & prevent auto-cleanup
 		createCardDisplay(playedCard, currentPlayerIndex);
 		invalidateTargetCache();
-		playedSuccessfully = false;
-		break;
+		return CARD_AWAITING_MENU_CHOICE;
 	}
 
 	// --- CASE: VAMPIRE BITE ---
@@ -13935,7 +14027,7 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 
 		// Do NOT set playedSuccessfully = true yet.
 		// We wait for the user to click a button.
-		break;
+		return CARD_AWAITING_MENU_CHOICE;
 	}
 
 		// --- CASE: NECROMANCER'S BLESSING ---
@@ -14031,8 +14123,7 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 			earthquakeUnits.push_back(state);
 		}
 
-		playedSuccessfully = false; // Cleanup handled above
-		break;
+		return CARD_PLAYED_IMMEDIATELY; // Cleanup handled above
 	}
 
 		// --- CASE: TIME VORTEX ---
@@ -14065,7 +14156,7 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		wisdomMenuRect.set(mx, my, w, h);
 
 		// Do not set playedSuccessfully yet
-		break;
+		return CARD_AWAITING_MENU_CHOICE;
 	}
 
 		// --- CASE: MASTER FIST ---
@@ -14537,7 +14628,10 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		createCardDisplay(playedCard, currentPlayerIndex);
 		invalidateTargetCache();
 		currentPlayer.cardsPlayedThisTurn.push_back(playedCard.type);
+		return CARD_PLAYED_IMMEDIATELY;
 	}
+
+	return CARD_NOT_PLAYABLE;
 }
 //--------------------------------------------------------------
 glm::vec2 ofApp::getCardDisplayUIPosition(int playerIndex) {
@@ -16722,7 +16816,13 @@ void ofApp::applyDispelEffect(int statusIndex) {
 	// FINALIZATION: Deduct AP and Card
 	if (pendingDispelCardIndex != -1) {
 		Player & p = players[currentPlayerIndex];
-		currentAP -= p.hand[pendingDispelCardIndex].cost;
+		int cost = p.hand[pendingDispelCardIndex].cost;
+		std::string cardName = p.hand[pendingDispelCardIndex].name;
+		if (isMultiplayer) {
+			// menuChoice >= 100 encodes purge status index
+			sendActionPacket(pendingDispelCardIndex, target->x, target->y, cost, 100 + statusIndex, cardName);
+		}
+		currentAP -= cost;
 		p.discardPile.push_back(p.hand[pendingDispelCardIndex]);
 		p.hand.erase(p.hand.begin() + pendingDispelCardIndex);
 		calculateTargetHighlights(); // refresh UI
@@ -18851,22 +18951,7 @@ void ofApp::processNetworkPackets() {
 		if (buffer.size() < sizeof(PacketHeader)) continue;
 
 		PacketHeader * header = (PacketHeader *)buffer.data();
-		if (header->type == PKT_ACK) {
-			AckPacket * ack = (AckPacket *)header;
-			steamManager.handleAck(ack->ackSeq);
-			continue;
-		}
-
-		// Send ACK for critical packets (even if duplicate)
-		if (header->type == PKT_HANDSHAKE || header->type == PKT_SNAPSHOT_BEGIN || header->type == PKT_SNAPSHOT_CHUNK || header->type == PKT_SNAPSHOT_END || header->type == PKT_DRAFT_OPTIONS || header->type == PKT_DRAFT_STATE || header->type == PKT_DRAFT_ACTION || header->type == PKT_KEY_PICKUP || header->type == PKT_SHUFFLE || header->type == PKT_TURN_START || header->type == PKT_END_TURN || header->type == PKT_ACTION) {
-			AckPacket ack = {};
-			ack.type = PKT_ACK;
-			ack.playerID = myLocalPlayerID;
-			ack.seq = 0;
-			ack.ackSeq = header->seq;
-			ack.ackType = header->type;
-			steamManager.sendPacket(&ack, sizeof(ack));
-		}
+		// ACK handling removed; rely on SteamNetworkingSockets reliability.
 
 		// Only check sequence numbers for PKT_ACTION (card plays) to prevent duplicate card plays
 		// All other packets are either informational or handled by game state logic
@@ -18898,6 +18983,34 @@ void ofApp::processNetworkPackets() {
 				}
 			}
 			continue; // Done with this packet
+		}
+
+		// Handle Renewed Inspiration selection
+		if (header->type == PKT_RENEWED_INSPIRATION) {
+			RenewedInspirationPacket * rpk = (RenewedInspirationPacket *)header;
+			if (rpk->playerIndex >= 0 && rpk->playerIndex < (int)players.size()) {
+				int savedIndex = currentPlayerIndex;
+				currentPlayerIndex = rpk->playerIndex;
+				Player & p = players[currentPlayerIndex];
+				std::vector<int> indices;
+				for (int i = 0; i < rpk->count && i < 16; ++i) {
+					indices.push_back(rpk->indices[i]);
+				}
+				std::sort(indices.begin(), indices.end(), std::greater<int>());
+				int cardsToDraw = 0;
+				for (int idx : indices) {
+					if (idx >= 0 && idx < (int)p.hand.size()) {
+						p.discardPile.push_back(p.hand[idx]);
+						p.hand.erase(p.hand.begin() + idx);
+						cardsToDraw += 2;
+					}
+				}
+				for (int i = 0; i < cardsToDraw; i++) {
+					drawCard();
+				}
+				currentPlayerIndex = savedIndex;
+			}
+			continue;
 		}
 
 		// Handle TurnStart packets (Host -> Client): authoritative AP dice for starting player
@@ -19273,53 +19386,18 @@ void ofApp::processNetworkPackets() {
 			if (pkt->cardIndex < 0) {
 				// MOVEMENT ACTION: Receive opponent's movement and apply it locally
 				ofLogNotice("Network") << "Received movement from opponent to (" << pkt->targetX << "," << pkt->targetY << ") with AP=" << pkt->cost;
-				// Find the player and move them
 				int actorIndex = (pkt->actorIndex >= 0 && pkt->actorIndex < (int)players.size()) ? pkt->actorIndex : -1;
-				for (size_t i = 0; i < players.size(); i++) {
-					if (actorIndex >= 0 && (int)i != actorIndex) continue;
-					Player & p = players[i];
-					if (actorIndex >= 0 || static_cast<uint32_t>(p.playerID) == pkt->playerID) {
-						// Verify movement is legal
-						if (pkt->targetX >= 0 && pkt->targetX < BOARD_WIDTH && pkt->targetY >= 0 && pkt->targetY < BOARD_HEIGHT) {
-							const int prevX = p.x;
-							const int prevY = p.y;
-							board[prevX][prevY].hasPlayer = false;
-
-							// Apply AP cost for opponent's movement
-							if (pkt->cost >= 0) {
-								currentAP = pkt->cost;
-								p.ap = pkt->cost;
-								ofLogNotice("Network") << "Updated opponent AP to " << pkt->cost;
-							}
-
-							// Trigger animation for opponent's movement
-							animatingPlayerIndex = (int)i;
-							animationPath.clear();
-							currentPathIndex = 0;
-							glm::vec3 startPos = gridToWorld(prevX, prevY);
-							glm::vec3 endPos = gridToWorld(pkt->targetX, pkt->targetY);
-							playerVisualPos = startPos;
-							animationPath.push_back(startPos);
-							std::vector<glm::vec2> path = findShortestPathForPlayer((int)i, { (float)prevX, (float)prevY }, { (float)pkt->targetX, (float)pkt->targetY });
-							if (path.size() > 1) {
-								for (size_t pIdx = 1; pIdx < path.size(); ++pIdx) {
-									animationPath.push_back(gridToWorld((int)path[pIdx].x, (int)path[pIdx].y));
-								}
-							} else {
-								animationPath.push_back(endPos);
-							}
-							isPlayerAnimating = true;
-
-							// Update logical position/occupancy after building the visual path
-							board[pkt->targetX][pkt->targetY].hasPlayer = true;
-							p.x = pkt->targetX;
-							p.y = pkt->targetY;
-
-							invalidateTargetCache();
-							ofLogNotice("Network") << "Applied movement for player " << pkt->playerID << " to (" << pkt->targetX << "," << pkt->targetY << ")";
+				if (actorIndex < 0) {
+					for (size_t i = 0; i < players.size(); i++) {
+						if (static_cast<uint32_t>(players[i].playerID) == pkt->playerID) {
+							actorIndex = (int)i;
+							break;
 						}
-						break;
 					}
+				}
+				if (actorIndex >= 0) {
+					applyMovement(actorIndex, pkt->targetX, pkt->targetY, pkt->cost, nullptr);
+					ofLogNotice("Network") << "Applied movement for player " << pkt->playerID << " to (" << pkt->targetX << "," << pkt->targetY << ")";
 				}
 			} else {
 				// CARD PLAY ACTION: Execute card play
@@ -19928,7 +20006,7 @@ void ofApp::sendMenuState(int menuType, int targetIndex, int hoveredChoice, int 
 }
 
 // When I click a card
-void ofApp::sendActionPacket(int cardIndex, int tx, int ty, int cost) {
+void ofApp::sendActionPacket(int cardIndex, int tx, int ty, int cost, int menuChoice, const std::string & cardNameOverride) {
 	// 1. Check if it's my turn or my minion's turn
 	if (currentPlayerIndex < 0 || currentPlayerIndex >= (int)players.size()) return;
 	const Player & currentPlayer = players[currentPlayerIndex];
@@ -19944,22 +20022,24 @@ void ofApp::sendActionPacket(int cardIndex, int tx, int ty, int cost) {
 	pkt.targetX = tx;
 	pkt.targetY = ty;
 	pkt.cost = cost;
-	pkt.menuChoice = 0;
+	pkt.menuChoice = menuChoice;
 
 	// Include card name so opponent knows which card was played
-	if (cardIndex >= 0 && cardIndex < (int)currentPlayer.hand.size()) {
+	if (!cardNameOverride.empty()) {
+		strncpy(pkt.cardName, cardNameOverride.c_str(), 63);
+		pkt.cardName[63] = '\0';
+	} else if (cardIndex >= 0 && cardIndex < (int)currentPlayer.hand.size()) {
 		strncpy(pkt.cardName, currentPlayer.hand[cardIndex].name.c_str(), 63);
 		pkt.cardName[63] = '\0';
+	}
+	if (pkt.cardName[0] != '\0') {
 		ofLogNotice("Network") << "sendActionPacket: Sending card '" << pkt.cardName << "' (cardIndex=" << cardIndex << ") to target=(" << tx << "," << ty << ") cost=" << cost;
 	}
 
 	// 3. Send to Network
 	steamManager.sendPacket(&pkt, sizeof(pkt));
 
-	// 4. Execute Locally (Client-Side Prediction)
-	// We execute it immediately so the local player feels no lag.
-	// The packet is sent to opponent who will execute it on their side.
-	executeAction(pkt);
+	// Local execution is handled by the caller (playCard + result handling).
 }
 
 void ofApp::sendMagicHandResolutionPacket(int choice) {
@@ -20092,17 +20172,258 @@ void ofApp::executeOpponentCardPlay(const ActionPacket & pkt) {
 		return;
 	}
 
+	// Special-case: Dispel with menuChoice (1=barrier, 2=purge)
+	if (cardDef.type == CARD_DISPEL && pkt.menuChoice == 1) {
+		// Apply barrier directly without opening menu
+		currentAP -= cardDef.cost;
+		std::uniform_int_distribution<int> dist(1, 20);
+		int rollResult = dist(gameplayRNG);
+		opponentPlayer.barrier += rollResult;
+		ofLogNotice("Dispel") << "Opponent gained " << rollResult << " barrier";
+
+		opponentPlayer.ap = currentAP;
+		opponentPlayer.hand.erase(opponentPlayer.hand.begin() + tempCardIndex);
+		opponentPlayer.discardPile.push_back(cardDef);
+
+		currentPlayerIndex = savedCurrentPlayerIndex;
+		currentAP = savedCurrentAP;
+		return;
+	}
+
+	// Special-case: Train menuChoice (1=AP, 2=Draft)
+	if (cardDef.type == CARD_TRAIN && (pkt.menuChoice == 1 || pkt.menuChoice == 2)) {
+		currentAP -= cardDef.cost;
+		opponentPlayer.playedCardsPile.push_back(cardDef);
+		if (opponentPlayer.isReplicatePending) {
+			opponentPlayer.playedCardsPile.push_back(cardDef);
+			opponentPlayer.isReplicatePending = false;
+		}
+		opponentPlayer.hand.erase(opponentPlayer.hand.begin() + tempCardIndex);
+
+		if (pkt.menuChoice == 1) {
+			opponentPlayer.nextTurnAPBonus += 3;
+		} else {
+			isInGameDraft = true;
+			draftPlayerIndex = currentPlayerIndex;
+			generateDraftOptions(1);
+			draftPicksRemaining = 1;
+			selectedDraftIndices.clear();
+			draftStage = 0;
+			currentState = STATE_DRAFTING;
+		}
+
+		opponentPlayer.ap = currentAP;
+		currentPlayerIndex = savedCurrentPlayerIndex;
+		currentAP = savedCurrentAP;
+		return;
+	}
+
+	// Special-case: Dispel purge with encoded status index (menuChoice >= 100)
+	if (cardDef.type == CARD_DISPEL && pkt.menuChoice >= 100) {
+		int statusIndex = pkt.menuChoice - 100;
+		Player * target = nullptr;
+		for (size_t i = 0; i < players.size(); i++) {
+			if (players[i].x == tx && players[i].y == ty) {
+				target = &players[i];
+				break;
+			}
+		}
+		if (target) {
+			std::vector<std::string> statuses;
+			if (target->onFire) statuses.push_back("Fire");
+			if (target->isParalyzed) statuses.push_back("Paralysis");
+			if (statusIndex >= 0 && statusIndex < (int)statuses.size()) {
+				const std::string & status = statuses[statusIndex];
+				if (status == "Fire") target->onFire = false;
+				if (status == "Paralysis") {
+					target->isParalyzed = false;
+					target->paralysisHeadsCount = 0;
+				}
+			}
+		}
+
+		currentAP -= cardDef.cost;
+		opponentPlayer.discardPile.push_back(cardDef);
+		opponentPlayer.hand.erase(opponentPlayer.hand.begin() + tempCardIndex);
+		opponentPlayer.ap = currentAP;
+
+		currentPlayerIndex = savedCurrentPlayerIndex;
+		currentAP = savedCurrentAP;
+		return;
+	}
+
+	// Special-case: Wisdom Boon with menuChoice (1=confirm)
+	if (cardDef.type == CARD_WISDOM_BOON && pkt.menuChoice == 1) {
+		int targetIndex = -1;
+		for (size_t i = 0; i < players.size(); i++) {
+			if (players[i].x == tx && players[i].y == ty) {
+				targetIndex = (int)i;
+				break;
+			}
+		}
+		if (targetIndex >= 0) {
+			Player * target = getPlayer(targetIndex);
+			bool isSelf = (targetIndex == currentPlayerIndex);
+			bool isAdjacent = target && (abs(target->x - opponentPlayer.x) + abs(target->y - opponentPlayer.y) == 1);
+			if (target && (isSelf || isAdjacent)) {
+				int effectValue = (int)opponentPlayer.deck.size();
+				if (isSelf) {
+					target->block += effectValue;
+					tryTriggerShellSpike();
+				} else {
+					int dmg = effectValue;
+					int barrierDmg = std::min(target->barrier, dmg);
+					target->barrier -= barrierDmg;
+					dmg -= barrierDmg;
+					if (dmg > 0) {
+						int wardDmg = std::min(target->ward, dmg);
+						target->ward -= wardDmg;
+						dmg -= wardDmg;
+					}
+					if (dmg > 0) target->health -= dmg;
+				}
+			}
+		}
+
+		currentAP -= cardDef.cost;
+		opponentPlayer.playedCardsPile.push_back(cardDef);
+		if (opponentPlayer.isReplicatePending) {
+			opponentPlayer.playedCardsPile.push_back(cardDef);
+			opponentPlayer.isReplicatePending = false;
+		}
+		opponentPlayer.ap = currentAP;
+		opponentPlayer.hand.erase(opponentPlayer.hand.begin() + tempCardIndex);
+		opponentPlayer.discardPile.push_back(cardDef);
+
+		currentPlayerIndex = savedCurrentPlayerIndex;
+		currentAP = savedCurrentAP;
+		return;
+	}
+
+	// Special-case: Burst of Light with menuChoice (1=damage, 2=heal)
+	if (cardDef.type == CARD_BURST_OF_LIGHT && (pkt.menuChoice == 1 || pkt.menuChoice == 2)) {
+		int targetIndex = -1;
+		for (size_t i = 0; i < players.size(); i++) {
+			if (players[i].x == tx && players[i].y == ty) {
+				targetIndex = (int)i;
+				break;
+			}
+		}
+		if (targetIndex >= 0) {
+			Player * target = getPlayer(targetIndex);
+			int casterOwner = opponentPlayer.isMinion ? opponentPlayer.ownerID : opponentPlayer.playerID;
+			int targetOwner = target->isMinion ? target->ownerID : target->playerID;
+			if (pkt.menuChoice == 1) {
+				if (casterOwner != targetOwner) {
+					applyDamageTo(*target, 3, DAMAGE_HOLY, currentPlayerIndex);
+				}
+			} else {
+				if (casterOwner == targetOwner) {
+					int healAmt = 3;
+					target->health = std::min(target->maxHealth, target->health + healAmt);
+				}
+			}
+		}
+
+		currentAP -= cardDef.cost;
+		opponentPlayer.playedCardsPile.push_back(cardDef);
+		if (opponentPlayer.isReplicatePending) {
+			opponentPlayer.playedCardsPile.push_back(cardDef);
+			opponentPlayer.isReplicatePending = false;
+		}
+		opponentPlayer.ap = currentAP;
+		opponentPlayer.hand.erase(opponentPlayer.hand.begin() + tempCardIndex);
+		opponentPlayer.discardPile.push_back(cardDef);
+
+		currentPlayerIndex = savedCurrentPlayerIndex;
+		currentAP = savedCurrentAP;
+		return;
+	}
+
+	// Special-case: Double Handed with menuChoice (1=Punch, 2=Hand Block)
+	if (cardDef.type == CARD_DOUBLE_HANDED && (pkt.menuChoice == 1 || pkt.menuChoice == 2)) {
+		int targetIndex = -1;
+		for (size_t i = 0; i < players.size(); i++) {
+			if (players[i].x == tx && players[i].y == ty) {
+				targetIndex = (int)i;
+				break;
+			}
+		}
+		if (targetIndex >= 0) {
+			pendingDoubleHandedCardIndex = tempCardIndex;
+			pendingDoubleHandedTargetIndex = targetIndex;
+			resolveDoubleHanded(pkt.menuChoice == 1 ? "Punch" : "Hand Block");
+		}
+
+		opponentPlayer.ap = currentAP;
+
+		currentPlayerIndex = savedCurrentPlayerIndex;
+		currentAP = savedCurrentAP;
+		return;
+	}
+
+	// Special-case: Chain Lightning (target selected in packet)
+	if (cardDef.type == CARD_CHAIN_LIGHTNING) {
+		currentAP -= cardDef.cost;
+		opponentPlayer.playedCardsPile.push_back(cardDef);
+		if (opponentPlayer.isReplicatePending) {
+			opponentPlayer.playedCardsPile.push_back(cardDef);
+			opponentPlayer.isReplicatePending = false;
+		}
+		opponentPlayer.cardsPlayedThisTurn.push_back(cardDef.type);
+		opponentPlayer.hand.erase(opponentPlayer.hand.begin() + tempCardIndex);
+
+		pendingChainLightningTargetTile = glm::vec2(tx, ty);
+		pendingChainLightningRangeResult = startDiceRoll(2, 10, PURPOSE_RANGE, "Chain Lightning: Range");
+		isWaitingForChainLightningRange = true;
+
+		opponentPlayer.ap = currentAP;
+		currentPlayerIndex = savedCurrentPlayerIndex;
+		currentAP = savedCurrentAP;
+		return;
+	}
+
+	// Special-case: Teleport (apply move from packet)
+	if (cardDef.type == CARD_TELEPORT) {
+		// Move player
+		board[opponentPlayer.x][opponentPlayer.y].hasPlayer = false;
+		opponentPlayer.x = tx;
+		opponentPlayer.y = ty;
+		board[tx][ty].hasPlayer = true;
+		playerVisualPos = gridToWorld(tx, ty);
+		invalidateTargetCache();
+
+		opponentPlayer.hand.erase(opponentPlayer.hand.begin() + tempCardIndex);
+		opponentPlayer.ap = currentAP;
+		currentPlayerIndex = savedCurrentPlayerIndex;
+		currentAP = savedCurrentAP;
+		return;
+	}
+
 	// Execute the card play using the normal playCard logic (HOST must process all game logic)
 	playCard(tempCardIndex, tx, ty);
 
-	// Save the updated AP back to the player
-	opponentPlayer.ap = currentAP;
+	// Find the opponent again in case playCard resorted players (summon cards)
+	for (size_t i = 0; i < players.size(); i++) {
+		if (static_cast<uint32_t>(players[i].playerID) == pkt.playerID && !players[i].isMinion) {
+			opponentPlayerIndex = (int)i;
+			break;
+		}
+	}
+	if (opponentPlayerIndex >= 0 && opponentPlayerIndex < (int)players.size()) {
+		players[opponentPlayerIndex].ap = currentAP;
+	}
 
-	ofLogNotice("Network") << "executeOpponentCardPlay: After playCard AP=" << currentAP << " stored as " << opponentPlayer.ap;
+	ofLogNotice("Network") << "executeOpponentCardPlay: After playCard AP=" << currentAP << " stored as " << currentAP;
 
-	// Remove the temporary card from their hand
-	if (tempCardIndex >= 0 && tempCardIndex < (int)opponentPlayer.hand.size()) {
-		opponentPlayer.hand.erase(opponentPlayer.hand.begin() + tempCardIndex);
+	// Remove the temporary card only if it still exists and matches
+	if (opponentPlayerIndex >= 0 && opponentPlayerIndex < (int)players.size()) {
+		Player & postPlayer = players[opponentPlayerIndex];
+		if (tempCardIndex >= 0 && tempCardIndex < (int)postPlayer.hand.size()) {
+			if (postPlayer.hand[tempCardIndex].name == cardName) {
+				postPlayer.hand.erase(postPlayer.hand.begin() + tempCardIndex);
+			}
+		}
 	}
 
 	// Restore current player context
@@ -20155,6 +20476,55 @@ long long ofApp::calculateChecksum() {
 	}
 
 	return (long long)h;
+}
+//--------------------------------------------------------------
+void ofApp::applyMovement(int playerIndex, int targetX, int targetY, int newAP, const std::vector<glm::vec2> * pathOverride) {
+	if (playerIndex < 0 || playerIndex >= (int)players.size()) return;
+	Player & p = players[playerIndex];
+	if (targetX < 0 || targetX >= BOARD_WIDTH || targetY < 0 || targetY >= BOARD_HEIGHT) return;
+
+	const int prevX = p.x;
+	const int prevY = p.y;
+	board[prevX][prevY].hasPlayer = false;
+
+	if (newAP >= 0) {
+		currentAP = newAP;
+		p.ap = newAP;
+	}
+
+	// Build animation path
+	animationPath.clear();
+	currentPathIndex = 0;
+	glm::vec3 startPos = gridToWorld(prevX, prevY);
+	glm::vec3 endPos = gridToWorld(targetX, targetY);
+	playerVisualPos = startPos;
+	animationPath.push_back(startPos);
+
+	if (pathOverride && pathOverride->size() > 1) {
+		for (size_t i = 1; i < pathOverride->size(); ++i) {
+			animationPath.push_back(gridToWorld((int)(*pathOverride)[i].x, (int)(*pathOverride)[i].y));
+		}
+	} else {
+		std::vector<glm::vec2> path = findShortestPathForPlayer(playerIndex, { (float)prevX, (float)prevY }, { (float)targetX, (float)targetY });
+		if (path.size() > 1) {
+			for (size_t i = 1; i < path.size(); ++i) {
+				animationPath.push_back(gridToWorld((int)path[i].x, (int)path[i].y));
+			}
+		} else {
+			animationPath.push_back(endPos);
+		}
+	}
+
+	if (!animationPath.empty()) {
+		isPlayerAnimating = true;
+		animatingPlayerIndex = playerIndex;
+	}
+
+	board[targetX][targetY].hasPlayer = true;
+	p.x = targetX;
+	p.y = targetY;
+
+	invalidateTargetCache();
 }
 //--------------------------------------------------------------
 // Anti-cheat: Get deck state as string for logging

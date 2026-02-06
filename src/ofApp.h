@@ -54,6 +54,15 @@ enum GameplayState {
 	MODAL_CHOICE,
 };
 
+enum CardPlayResult {
+	CARD_PLAYED_IMMEDIATELY, // Send packet NOW in mouseReleased
+	CARD_AWAITING_MENU_CHOICE, // Menu will send packet after user chooses
+	CARD_AWAITING_TARGETING, // Targeting handler will send packet after player targets
+	CARD_CANCELLED, // User cancelled, don't send packet
+	CARD_NOT_PLAYABLE, // Cost/validation failed, don't send packet
+	CARD_AWAITING_DICE // Dice will trigger packet when resolved
+};
+
 enum DamageType {
 	DAMAGE_PHYSICAL,
 	DAMAGE_PIERCING,
@@ -431,7 +440,7 @@ public:
 
 	// Networking logic
 	void processNetworkPackets();
-	void sendActionPacket(int cardIndex, int tx, int ty, int cost);
+	void sendActionPacket(int cardIndex, int tx, int ty, int cost, int menuChoice = 0, const std::string & cardNameOverride = "");
 	void sendMagicHandResolutionPacket(int choice);
 	void sendMenuState(int menuType, int targetIndex, int hoveredChoice, int cardIndex);
 	void executeAction(const ActionPacket & pkt);
@@ -511,7 +520,8 @@ private:
 	//                              GAMEPLAY LOGIC
 	// -------------------------------------------------------------------------
 	void drawCard();
-	void playCard(int cardIndex, int targetX, int targetY);
+	CardPlayResult playCard(int cardIndex, int targetX, int targetY);
+	void applyMovement(int playerIndex, int targetX, int targetY, int newAP, const std::vector<glm::vec2> * pathOverride = nullptr);
 	void createCardDisplay(const Card & card, int playerIndex); // Create card display animation
 	std::string currentDiceLabel = "";
 	int startDiceRoll(int numDice, int sides, DicePurpose purpose, std::string label = "", int ownerIndex = -1);
