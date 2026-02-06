@@ -610,6 +610,7 @@ private:
 	bool isCurrentPlayerLocal() const;
 
 	std::vector<glm::vec2> findShortestPath(glm::vec2 start, glm::vec2 end);
+	std::vector<glm::vec2> findShortestPathForPlayer(int playerIndex, glm::vec2 start, glm::vec2 end);
 	glm::quat matchFaceToCamera(glm::vec3 faceNormal);
 
 	// Targeting Algorithms
@@ -650,6 +651,7 @@ private:
 	uint32_t draftGenerationCounter = 0; // Increments each time generateDraftOptions is called to ensure variety
 	bool pendingDraftStateAvailable = false; // If a state packet arrives while we're waiting, stash it
 	DraftStatePacket pendingDraftState;
+	bool initialDraftComplete = false; // True once the initial (pre-game) draft finishes
 
 	// Debug logging helpers: remember last logged draft options count so we only spam logs
 	int lastLoggedDraftOptionsCount = -1;

@@ -1566,6 +1566,7 @@ void ofApp::initializeGameStateCommon() {
 	activeDiceRolls.clear();
 	globalTurnCounter = 0; // Reset turn counter for new game
 	draftGenerationCounter = 0; // Reset draft counter for new game
+	initialDraftComplete = false;
 	for (int x = 0; x < BOARD_WIDTH; ++x) {
 		for (int y = 0; y < BOARD_HEIGHT; ++y) {
 			board[x][y] = Tile();
@@ -15126,6 +15127,66 @@ std::vector<glm::vec2> ofApp::findShortestPath(glm::vec2 start, glm::vec2 end) {
 }
 
 //--------------------------------------------------------------
+std::vector<glm::vec2> ofApp::findShortestPathForPlayer(int playerIndex, glm::vec2 start, glm::vec2 end) {
+	std::vector<glm::vec2> path;
+
+	// Reset
+	for (int i = 0; i < BOARD_WIDTH; i++)
+		for (int j = 0; j < BOARD_HEIGHT; j++) {
+			board[i][j].visited = false;
+			board[i][j].parent = { -1, -1 };
+		}
+
+	std::queue<glm::vec2> q;
+	q.push(start);
+	board[(int)start.x][(int)start.y].visited = true;
+
+	// Ghost Check (use specified player if valid, otherwise fall back to current player)
+	int safeIndex = playerIndex;
+	if (safeIndex < 0 || safeIndex >= (int)players.size()) safeIndex = currentPlayerIndex;
+	bool isGhost = false;
+	if (safeIndex >= 0 && safeIndex < (int)players.size()) {
+		isGhost = players[safeIndex].inGhostForm;
+	}
+
+	bool found = false;
+	while (!q.empty()) {
+		glm::vec2 current = q.front();
+		q.pop();
+		if (current.x == end.x && current.y == end.y) {
+			found = true;
+			break;
+		}
+		glm::vec2 neighbors[4] = { { current.x, current.y + 1 }, { current.x, current.y - 1 }, { current.x + 1, current.y }, { current.x - 1, current.y } };
+		for (auto & neighbor : neighbors) {
+			int nx = neighbor.x, ny = neighbor.y;
+			if (nx >= 0 && nx < BOARD_WIDTH && ny >= 0 && ny < BOARD_HEIGHT && !board[nx][ny].visited) {
+
+				// --- WALL CHECK ---
+				bool isBlocked = false;
+				if (board[nx][ny].hasPlayer) isBlocked = true; // Still blocked by other units
+				if (board[nx][ny].hasWall && !isGhost) isBlocked = true; // Blocked by wall if not Ghost
+
+				if (!isBlocked) {
+					board[nx][ny].visited = true;
+					board[nx][ny].parent = current;
+					q.push(neighbor);
+				}
+			}
+		}
+	}
+	if (found) {
+		glm::vec2 current = end;
+		while (current.x != -1) {
+			path.push_back(current);
+			current = board[(int)current.x][(int)current.y].parent;
+		}
+		std::reverse(path.begin(), path.end());
+	}
+	return path;
+}
+
+//--------------------------------------------------------------
 // Get player display name (Steam name in multiplayer, "Player 1"/"Player 2" in singleplayer)
 std::string ofApp::getPlayerSteamName(int playerIndex) {
 	if (playerIndex < 0 || playerIndex >= (int)players.size()) return "Unknown";
@@ -18393,6 +18454,7 @@ void ofApp::onCardPicked(int optionIndex) {
 
 				// FINAL SETUP
 				currentState = STATE_GAMEPLAY;
+				initialDraftComplete = true;
 
 				// CLIENT: Wait for host's TurnStart packet (contains authoritative first dice roll)
 				if (isClient()) {
@@ -19140,9 +19202,6 @@ void ofApp::processNetworkPackets() {
 							const int prevX = p.x;
 							const int prevY = p.y;
 							board[prevX][prevY].hasPlayer = false;
-							board[pkt->targetX][pkt->targetY].hasPlayer = true;
-							p.x = pkt->targetX;
-							p.y = pkt->targetY;
 
 							// Apply AP cost for opponent's movement
 							if (pkt->cost >= 0) {
@@ -19158,8 +19217,20 @@ void ofApp::processNetworkPackets() {
 							glm::vec3 endPos = gridToWorld(pkt->targetX, pkt->targetY);
 							playerVisualPos = startPos;
 							animationPath.push_back(startPos);
-							animationPath.push_back(endPos);
+							std::vector<glm::vec2> path = findShortestPathForPlayer((int)i, { (float)prevX, (float)prevY }, { (float)pkt->targetX, (float)pkt->targetY });
+							if (path.size() > 1) {
+								for (size_t pIdx = 1; pIdx < path.size(); ++pIdx) {
+									animationPath.push_back(gridToWorld((int)path[pIdx].x, (int)path[pIdx].y));
+								}
+							} else {
+								animationPath.push_back(endPos);
+							}
 							isPlayerAnimating = true;
+
+							// Update logical position/occupancy after building the visual path
+							board[pkt->targetX][pkt->targetY].hasPlayer = true;
+							p.x = pkt->targetX;
+							p.y = pkt->targetY;
 
 							invalidateTargetCache();
 							ofLogNotice("Network") << "Applied movement for player " << pkt->playerID << " to (" << pkt->targetX << "," << pkt->targetY << ")";
@@ -19441,6 +19512,12 @@ void ofApp::processNetworkPackets() {
 			DraftStatePacket * sp = (DraftStatePacket *)header;
 			ofLogNotice("Network") << "Draft state received: class=" << sp->classTier << " player=" << sp->draftPlayerIdx << " picks=" << sp->picksRemaining << " stage=" << sp->draftStage << " ingame=" << (int)sp->isInGameDraft << " curPlayer=" << sp->currentPlayerIndex;
 
+			// Ignore late normal-draft packets after the initial draft is complete
+			if (initialDraftComplete && currentState == STATE_GAMEPLAY && sp->classTier > 0 && sp->isInGameDraft == 0) {
+				ofLogNotice("Draft") << "Ignoring late normal DraftState (initial draft already complete).";
+				continue;
+			}
+
 			// Client applies host state directly
 			draftPlayerIndex = sp->draftPlayerIdx;
 			draftStage = sp->draftStage;
@@ -19477,6 +19554,7 @@ void ofApp::processNetworkPackets() {
 				draftOptions.clear();
 				selectedDraftIndices.clear();
 				currentState = STATE_GAMEPLAY;
+				initialDraftComplete = true;
 				// Host should include who starts; set it
 				currentPlayerIndex = sp->currentPlayerIndex;
 				// In multiplayer clients: DO NOT call startNewTurn(); wait for host TurnStart packet
