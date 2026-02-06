@@ -5139,6 +5139,11 @@ void ofApp::drawGame() {
 				glm::vec3 upTilt = tiltQ * upVec;
 				glm::vec3 rightTilt = tiltQ * right;
 
+				// Flip right direction for camera 2 so keys face them correctly
+				if (&activeCam == &cam2) {
+					rightTilt = -rightTilt;
+				}
+
 				glm::vec3 p0 = pos - rightTilt * halfW - upTilt * halfH;
 				glm::vec3 p1 = pos + rightTilt * halfW - upTilt * halfH;
 				glm::vec3 p2 = pos + rightTilt * halfW + upTilt * halfH;
@@ -19575,6 +19580,7 @@ void ofApp::processNetworkPackets() {
 					shuffleGameVector(p.deck, pkt->draftPlayerIdx);
 					selectedDraftIndices.clear();
 					if (isInGameDraft) {
+						draftOptions.clear();
 						isInGameDraft = false;
 						currentState = STATE_GAMEPLAY;
 						return;
