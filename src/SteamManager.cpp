@@ -151,7 +151,7 @@ bool SteamManager::sendPacket(const void * data, uint32_t size) {
 
 	// Stamp sequence number on packets that have a header
 	const PacketHeader * hdr = (const PacketHeader *)data;
-	if (size >= sizeof(PacketHeader) && hdr->type <= PKT_SNAPSHOT_END) {
+	if (size >= sizeof(PacketHeader) && hdr->type <= PKT_ACK) {
 		std::vector<char> buffer((const char *)data, (const char *)data + size);
 		PacketHeader * outHdr = (PacketHeader *)buffer.data();
 		if (outHdr->seq == 0) {
@@ -163,7 +163,7 @@ bool SteamManager::sendPacket(const void * data, uint32_t size) {
 		if (res == k_EResultOK) {
 			// Track critical packets for resend
 			uint8_t type = outHdr->type;
-			if (type == PKT_HANDSHAKE || type == PKT_SNAPSHOT_BEGIN || type == PKT_SNAPSHOT_CHUNK || type == PKT_SNAPSHOT_END || type == PKT_DRAFT_OPTIONS || type == PKT_DRAFT_STATE || type == PKT_DRAFT_ACTION || type == PKT_KEY_PICKUP || type == PKT_SHUFFLE || type == PKT_TURN_START || type == PKT_END_TURN || type == PKT_ACTION) {
+			if (type == PKT_HANDSHAKE || type == PKT_SNAPSHOT_BEGIN || type == PKT_SNAPSHOT_CHUNK || type == PKT_SNAPSHOT_END || type == PKT_DRAFT_OPTIONS || type == PKT_DRAFT_STATE || type == PKT_DRAFT_ACTION || type == PKT_KEY_PICKUP || type == PKT_SHUFFLE || type == PKT_TURN_START || type == PKT_END_TURN || type == PKT_ACTION || type == PKT_MENU_STATE) {
 				PendingPacket pending;
 				pending.data = buffer;
 				pending.lastSendTime = ofGetElapsedTimef();

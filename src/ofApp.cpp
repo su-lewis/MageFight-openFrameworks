@@ -7482,6 +7482,11 @@ void ofApp::drawGame() {
 		drawBurstUI();
 	}
 
+	// --- DRAW OPPONENT MENU (if they have one open) ---
+	if (opponentMenuOpen && opponentMenuType > 0) {
+		drawOpponentMenu();
+	}
+
 	// --- Chat System ---
 	if (isMultiplayer) {
 		float currentTime = ofGetElapsedTimef();
@@ -12122,6 +12127,7 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		// Determine target tile validity first (we allow any LOS target)
 		pendingBurstCardIndex = cardIndex;
 		isBurstMenuOpen = true;
+		sendMenuState(2, currentPlayerIndex, -1, cardIndex); // Notify opponent
 
 		// Menu geometry (similar to Wisdom Boon)
 		float w = 520, h = 260;
@@ -12395,6 +12401,7 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		pendingWisdomBoonCardIndex = cardIndex;
 		pendingWisdomBoonTargetIndex = targetIndex;
 		isWisdomBoonMenuOpen = true;
+		sendMenuState(1, targetIndex, -1, cardIndex); // Notify opponent
 		// Menu geometry
 		float w = 600, h = 300;
 		float x = ofGetWidth() / 2 - w / 2, y = ofGetHeight() / 2 - h / 2;
@@ -13847,6 +13854,7 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		pendingDoubleHandedCardIndex = cardIndex;
 		pendingDoubleHandedTargetIndex = targetIndex;
 		isDoubleHandedMenuOpen = true;
+		sendMenuState(3, targetIndex, -1, cardIndex); // Notify opponent
 
 		// Setup UI Geometry
 		float w = 500, h = 250;
@@ -16475,6 +16483,7 @@ void ofApp::cancelDoubleHanded() {
 	pendingDoubleHandedCardIndex = -1;
 	pendingDoubleHandedTargetIndex = -1;
 	pendingDoubleHandedChoice = "";
+	sendMenuState(0, -1, -1, -1); // Notify opponent that menu is closed
 	calculateTargetHighlights();
 }
 
@@ -16603,6 +16612,7 @@ void ofApp::cancelWisdomBoon() {
 	isWisdomBoonMenuOpen = false;
 	pendingWisdomBoonCardIndex = -1;
 	pendingWisdomBoonTargetIndex = -1;
+	sendMenuState(0, -1, -1, -1); // Notify opponent that menu is closed
 	ofLogNotice("WisdomBoon") << "Cancelled.";
 }
 //--------------------------------------------------------------
@@ -16611,6 +16621,7 @@ void ofApp::cancelBurst() {
 	pendingBurstCardIndex = -1;
 	isTargetingBurst = false;
 	burstChoice = 0;
+	sendMenuState(0, -1, -1, -1); // Notify opponent that menu is closed
 	ofLogNotice("Burst") << "Cancelled.";
 }
 //--------------------------------------------------------------
@@ -16681,6 +16692,67 @@ void ofApp::drawBurstUI() {
 	drawCardChoicePanel(panelRect, title, desc, burstBtnDamage, burstBtnHeal,
 		hasValidEnemy ? "Deal 3 Holy" : "No Enemy in Sight", "Heal 3 HP",
 		holyAccent, healAccent, hasValidEnemy, true);
+}
+
+//--------------------------------------------------------------
+void ofApp::drawOpponentMenu() {
+	// Reuse the existing menu draw functions but with opponent's menu state
+	// This leverages the UI that's already built instead of duplicating it
+
+	if (opponentMenuType == 1) {
+		// Wisdom Boon - temporarily swap state, draw, then restore
+		bool wasOpen = isWisdomBoonMenuOpen;
+		int savedCardIdx = pendingWisdomBoonCardIndex;
+		int savedTargetIdx = pendingWisdomBoonTargetIndex;
+
+		isWisdomBoonMenuOpen = true;
+		pendingWisdomBoonCardIndex = opponentMenuCardIndex;
+		pendingWisdomBoonTargetIndex = opponentMenuTargetIndex;
+
+		// Draw with semi-transparent overlay to indicate it's opponent's
+		ofEnableBlendMode(OF_BLENDMODE_ALPHA);
+		ofSetColor(0, 0, 0, 100); // Light overlay
+		ofDrawRectangle(0, 0, ofGetWidth(), ofGetHeight());
+		drawWisdomBoonUI();
+
+		// Restore state
+		isWisdomBoonMenuOpen = wasOpen;
+		pendingWisdomBoonCardIndex = savedCardIdx;
+		pendingWisdomBoonTargetIndex = savedTargetIdx;
+	} else if (opponentMenuType == 2) {
+		// Burst of Light
+		bool wasOpen = isBurstMenuOpen;
+		int savedCardIdx = pendingBurstCardIndex;
+
+		isBurstMenuOpen = true;
+		pendingBurstCardIndex = opponentMenuCardIndex;
+
+		ofEnableBlendMode(OF_BLENDMODE_ALPHA);
+		ofSetColor(0, 0, 0, 100);
+		ofDrawRectangle(0, 0, ofGetWidth(), ofGetHeight());
+		drawBurstUI();
+
+		isBurstMenuOpen = wasOpen;
+		pendingBurstCardIndex = savedCardIdx;
+	} else if (opponentMenuType == 3) {
+		// Double Handed
+		bool wasOpen = isDoubleHandedMenuOpen;
+		int savedCardIdx = pendingDoubleHandedCardIndex;
+		int savedTargetIdx = pendingDoubleHandedTargetIndex;
+
+		isDoubleHandedMenuOpen = true;
+		pendingDoubleHandedCardIndex = opponentMenuCardIndex;
+		pendingDoubleHandedTargetIndex = opponentMenuTargetIndex;
+
+		ofEnableBlendMode(OF_BLENDMODE_ALPHA);
+		ofSetColor(0, 0, 0, 100);
+		ofDrawRectangle(0, 0, ofGetWidth(), ofGetHeight());
+		drawDoubleHandedUI();
+
+		isDoubleHandedMenuOpen = wasOpen;
+		pendingDoubleHandedCardIndex = savedCardIdx;
+		pendingDoubleHandedTargetIndex = savedTargetIdx;
+	}
 }
 
 // Helper: member equivalent of the local applyDamage lambda used in playCard
@@ -19196,6 +19268,15 @@ void ofApp::processNetworkPackets() {
 					}
 				}
 			}
+		} else if (header->type == PKT_MENU_STATE) {
+			MenuStatePacket * pkt = (MenuStatePacket *)header;
+			// Update opponent's menu state for visualization
+			opponentMenuType = pkt->menuType;
+			opponentMenuTargetIndex = pkt->targetIndex;
+			opponentMenuHoveredChoice = pkt->hoveredChoice;
+			opponentMenuCardIndex = pkt->cardIndex;
+			opponentMenuOpen = (pkt->menuType > 0);
+			ofLogNotice("Menu") << "Received opponent menu state: type=" << pkt->menuType << " target=" << pkt->targetIndex << " hover=" << pkt->hoveredChoice;
 		} else if (header->type == PKT_END_TURN) {
 			ofLogNotice("Net") << "Opponent ended turn.";
 			// CLIENT: Always wait for host's TurnStart packet (contains authoritative dice)
@@ -19662,6 +19743,21 @@ void ofApp::processNetworkPackets() {
 			}
 		}
 	}
+}
+
+// Send menu state for opponent visualization
+void ofApp::sendMenuState(int menuType, int targetIndex, int hoveredChoice, int cardIndex) {
+	if (!isMultiplayer) return;
+
+	MenuStatePacket pkt = {};
+	pkt.type = PKT_MENU_STATE;
+	pkt.playerID = myLocalPlayerID;
+	pkt.menuType = menuType;
+	pkt.targetIndex = targetIndex;
+	pkt.hoveredChoice = hoveredChoice;
+	pkt.cardIndex = cardIndex;
+
+	steamManager.sendPacket(&pkt, sizeof(pkt));
 }
 
 // When I click a card

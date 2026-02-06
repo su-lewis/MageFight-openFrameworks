@@ -432,6 +432,7 @@ public:
 	// Networking logic
 	void processNetworkPackets();
 	void sendActionPacket(int cardIndex, int tx, int ty, int cost);
+	void sendMenuState(int menuType, int targetIndex, int hoveredChoice, int cardIndex);
 	void executeAction(const ActionPacket & pkt);
 	void executeOpponentCardPlay(const ActionPacket & pkt);
 	long long calculateChecksum();
@@ -673,6 +674,7 @@ private:
 	void drawWisdomBoonUI();
 	void cancelBurst();
 	void drawBurstUI();
+	void drawOpponentMenu(); // Draw opponent's active menu with red outlines
 
 	// Standardized card-choice panel helper
 	void drawCardChoicePanel(const ofRectangle & panelRect,
@@ -849,6 +851,7 @@ private:
 	float playerFacingAngle = 0.0f; // 0 = North, 90 = East, 180 = South, 270 = West
 	std::vector<glm::vec3> animationPath;
 	int currentPathIndex = 0;
+	float animationSegmentStartTime = 0.0f; // Time when current segment started
 	std::vector<glm::vec2> hoverPath;
 	glm::vec2 lastHoverGridPos = { -1, -1 };
 
@@ -1088,6 +1091,13 @@ private:
 	ofRectangle doubleHandedMenuRect;
 	ofRectangle btnAddPunches;
 	ofRectangle btnAddBlocks;
+
+	// --- Opponent Menu State (for visualizing opponent's menu choices) ---
+	bool opponentMenuOpen = false;
+	int opponentMenuType = 0; // 0=none, 1=wisdom, 2=burst, 3=doubleHanded
+	int opponentMenuTargetIndex = -1;
+	int opponentMenuHoveredChoice = -1; // -1=none, 0=first option, 1=second option
+	int opponentMenuCardIndex = -1;
 
 	// --- Amnesia State ---
 	bool isAmnesiaMenuOpen = false; // Choosing Self vs Adjacent

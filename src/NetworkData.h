@@ -20,6 +20,7 @@ enum PacketType {
 	PKT_SNAPSHOT_BEGIN, // Host -> Client: begin state snapshot
 	PKT_SNAPSHOT_CHUNK, // Host -> Client: snapshot data chunk
 	PKT_SNAPSHOT_END, // Host -> Client: end state snapshot
+	PKT_MENU_STATE, // Menu open/close/hover state for choice-based cards
 	PKT_ACK // Acknowledge receipt of a reliable packet
 };
 
@@ -76,6 +77,14 @@ struct AssistantRerollPacket : PacketHeader {
 	int32_t assistantIndex; // Index of the assistant unit
 	int32_t rerollNumDice; // Original number of dice rolled for AP
 	int32_t rerollDiceSides; // Original sides of dice rolled for AP
+};
+
+// Menu state for choice-based cards (Wisdom Boon, Burst of Light, Double Handed)
+struct MenuStatePacket : PacketHeader {
+	int32_t menuType; // 0=none, 1=wisdom, 2=burst, 3=doubleHanded
+	int32_t targetIndex; // Target player index
+	int32_t hoveredChoice; // -1=none, 0=first option, 1=second option
+	int32_t cardIndex; // Index of the card that opened the menu
 };
 
 // For drafting actions (selecting a card, accepting the draft)
