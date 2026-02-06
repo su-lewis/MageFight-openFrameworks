@@ -4581,8 +4581,8 @@ void ofApp::updateGame() {
 		glm::vec3 targetPos = animationPath[currentPathIndex];
 		// Cap deltaTime at 0.016f (60fps) to prevent instant movement on high framerates
 		float clampedDeltaTime = std::min(deltaTime, 0.016f);
-		// Smooth animation: 0.15 second movement per tile
-		float player_speed = clampedDeltaTime / 0.15f;
+		// Smooth animation: 0.10 second movement per tile
+		float player_speed = clampedDeltaTime / 0.10f;
 
 		// Calculate facing direction
 		glm::vec3 direction = targetPos - playerVisualPos;
@@ -9792,6 +9792,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 					: 0;
 				CardPlayResult result = playCard(cardIndex, gx, gy);
 				if (isMultiplayer && result == CARD_PLAYED_IMMEDIATELY) {
+					players[currentPlayerIndex].ap = currentAP;
 					sendActionPacket(cardIndex, gx, gy, cost, 0, cardName);
 				}
 				isTargetingAmnesia = false;
@@ -9942,6 +9943,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 					: 0;
 				CardPlayResult result = playCard(cardIndex, gx, gy);
 				if (isMultiplayer && result == CARD_PLAYED_IMMEDIATELY) {
+					players[currentPlayerIndex].ap = currentAP;
 					sendActionPacket(cardIndex, gx, gy, cost, 0, cardName);
 				}
 
@@ -9979,6 +9981,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 					: 0;
 				CardPlayResult result = playCard(cardIndex, gx, gy);
 				if (isMultiplayer && result == CARD_PLAYED_IMMEDIATELY) {
+					players[currentPlayerIndex].ap = currentAP;
 					sendActionPacket(cardIndex, gx, gy, cost, 0, cardName);
 				}
 
@@ -10055,6 +10058,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 					: 0;
 				CardPlayResult result = playCard(cardIndex, gx, gy);
 				if (isMultiplayer && result == CARD_PLAYED_IMMEDIATELY) {
+					players[currentPlayerIndex].ap = currentAP;
 					sendActionPacket(cardIndex, gx, gy, cost, 0, cardName);
 				}
 				isTargetingDeath = false;
@@ -10085,6 +10089,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 					: 0;
 				CardPlayResult result = playCard(cardIndex, gx, gy);
 				if (isMultiplayer && result == CARD_PLAYED_IMMEDIATELY) {
+					players[currentPlayerIndex].ap = currentAP;
 					sendActionPacket(cardIndex, gx, gy, cost, 0, cardName);
 				}
 				isTargetingHeal = false;
@@ -10644,6 +10649,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 					: 0;
 				CardPlayResult result = playCard(cardIndex, gridX, gridY);
 				if (isMultiplayer && result == CARD_PLAYED_IMMEDIATELY) {
+					players[currentPlayerIndex].ap = currentAP;
 					sendActionPacket(cardIndex, gridX, gridY, cost, 0, cardName);
 				}
 				selectedCardIndex = -1;
@@ -11188,6 +11194,7 @@ void ofApp::mouseReleased(int x, int y, int button) {
 							const std::string playedCardName = playedCard.name;
 							CardPlayResult result = playCard(draggedCardIndex, -1, -1);
 							if (isMultiplayer && result == CARD_PLAYED_IMMEDIATELY) {
+								players[currentPlayerIndex].ap = currentAP;
 								sendActionPacket(draggedCardIndex, -1, -1, playedCard.cost, 0, playedCardName);
 							}
 						} else {
@@ -11201,6 +11208,7 @@ void ofApp::mouseReleased(int x, int y, int button) {
 									const std::string playedCardName = playedCard.name;
 									CardPlayResult result = playCard(draggedCardIndex, -1, -1);
 									if (isMultiplayer && result == CARD_PLAYED_IMMEDIATELY) {
+										players[currentPlayerIndex].ap = currentAP;
 										sendActionPacket(draggedCardIndex, -1, -1, playedCard.cost, 0, playedCardName);
 									}
 									// Clear drag/selection state like other handlers
@@ -11216,6 +11224,7 @@ void ofApp::mouseReleased(int x, int y, int button) {
 									const std::string playedCardName = playedCard.name;
 									CardPlayResult result = playCard(draggedCardIndex, gx, gy);
 									if (isMultiplayer && result == CARD_PLAYED_IMMEDIATELY) {
+										players[currentPlayerIndex].ap = currentAP;
 										sendActionPacket(draggedCardIndex, gx, gy, playedCard.cost, 0, playedCardName);
 									}
 								} else {
