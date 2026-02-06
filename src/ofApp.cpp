@@ -10295,19 +10295,61 @@ void ofApp::mousePressed(int x, int y, int button) {
 			// --- FIX: Check Minion Type for Draw Count ---
 			for (const auto & ui : activeMinionUIs) {
 				if (ui.playerIndex == currentPlayerIndex && ui.deckRect.inside(x, y) && !hasDrawnCardsThisTurn) {
-					Player & p = players[ui.playerIndex];
+					Player & minion = players[ui.playerIndex];
 
-					// Default 2, Demon 3
-					int drawCount = p.isDemon ? 3 : 2;
-
-					// Handle Hasten buff if applicable
-					if (p.nextTurnExtraDraw) {
-						drawCount++;
-						p.nextTurnExtraDraw = false;
+					// Minions have their own decks, but cards go to the OWNER's hand
+					// Find the owner player
+					int ownerIndex = -1;
+					for (size_t i = 0; i < players.size(); i++) {
+						if (players[i].playerID == minion.ownerID && !players[i].isMinion) {
+							ownerIndex = (int)i;
+							break;
+						}
 					}
 
-					for (int i = 0; i < drawCount; i++)
-						drawCard();
+					if (ownerIndex < 0) {
+						ofLogWarning("Game") << "Minion owner not found!";
+						return;
+					}
+
+					Player & owner = players[ownerIndex];
+
+					// Default 2, Demon 3
+					int drawCount = minion.isDemon ? 3 : 2;
+
+					// Handle Hasten buff if applicable
+					if (minion.nextTurnExtraDraw) {
+						drawCount++;
+						minion.nextTurnExtraDraw = false;
+					}
+
+					// Draw from minion's deck to owner's hand
+					for (int i = 0; i < drawCount; i++) {
+						// Check if minion deck needs reshuffle
+						if (minion.deck.empty()) {
+							if (minion.discardPile.empty()) {
+								ofLogNotice("Game") << "Minion cannot draw. Both Deck and Discard are empty.";
+								break;
+							}
+							ofLogNotice("Game") << "Minion Deck is empty. Reshuffling Discard Pile into Deck...";
+							minion.deck = minion.discardPile;
+							minion.discardPile.clear();
+							shuffleGameVector(minion.deck, ui.playerIndex);
+						}
+
+						// Draw from minion's deck
+						if (!minion.deck.empty()) {
+							Card newCard = minion.deck.back();
+							minion.deck.pop_back();
+
+							// Add to owner's hand
+							newCard.currentScale = 1.5f;
+							newCard.targetScale = 1.5f;
+							owner.hand.push_back(newCard);
+
+							ofLogNotice("Game") << "Drew " << newCard.name << " from minion's deck to owner's hand";
+						}
+					}
 
 					hasDrawnCardsThisTurn = true;
 					return;
@@ -19674,8 +19716,7 @@ void ofApp::executeAction(const ActionPacket & pkt) {
 }
 
 void ofApp::executeOpponentCardPlay(const ActionPacket & pkt) {
-	// Handle opponent's card play - we only apply immediate visual effects
-	// The HOST has already processed all game logic and we'll receive state updates via snapshots
+	// Handle opponent's card play by temporarily adding card to their hand and executing full logic
 	std::string cardName = pkt.cardName;
 	int tx = pkt.targetX;
 	int ty = pkt.targetY;
@@ -19713,28 +19754,38 @@ void ofApp::executeOpponentCardPlay(const ActionPacket & pkt) {
 
 	ofLogNotice("Network") << "executeOpponentCardPlay: Card type=" << (int)cardDef.type << " cost=" << cardDef.cost;
 
-	// Only apply immediate visual effects, skip dice rolls and complex logic
-	// The HOST has already processed everything and will send us the final state
 	Player & opponentPlayer = players[opponentPlayerIndex];
 
-	// For wall creation, apply immediately (no dice roll needed)
-	if (cardDef.type == CARD_CREATE_WALL) {
-		if (tx >= 0 && tx < BOARD_WIDTH && ty >= 0 && ty < BOARD_HEIGHT) {
-			if (!board[tx][ty].hasWall && !board[tx][ty].hasPlayer) {
-				board[tx][ty].hasWall = true;
-				buildLevelMesh();
-				invalidateTargetCache();
-				ofLogNotice("Network") << "executeOpponentCardPlay: Wall created at (" << tx << "," << ty << ")";
-			}
-		}
-	}
-	// For other cards, just deduct AP - the HOST will handle the actual effects
-	// and send us updated state via snapshots
+	// Temporarily swap to opponent's player context
+	int savedCurrentPlayerIndex = currentPlayerIndex;
+	int savedCurrentAP = currentAP;
+	currentPlayerIndex = opponentPlayerIndex;
 
-	// Deduct AP for the card
-	opponentPlayer.ap -= cardDef.cost;
-	if (opponentPlayer.ap < 0) opponentPlayer.ap = 0;
-	ofLogNotice("Network") << "executeOpponentCardPlay: Opponent AP now " << opponentPlayer.ap;
+	// Temporarily add the card to their hand so playCard() can access it
+	opponentPlayer.hand.push_back(cardDef);
+	int tempCardIndex = (int)opponentPlayer.hand.size() - 1;
+
+	// Set up AP for the card execution
+	currentAP = opponentPlayer.ap;
+
+	ofLogNotice("Network") << "executeOpponentCardPlay: Executing playCard with cardIndex=" << tempCardIndex << " currentPlayerIndex=" << currentPlayerIndex << " AP=" << currentAP;
+
+	// Execute the card play using the normal playCard logic (HOST must process all game logic)
+	playCard(tempCardIndex, tx, ty);
+
+	// Save the updated AP back to the player
+	opponentPlayer.ap = currentAP;
+
+	ofLogNotice("Network") << "executeOpponentCardPlay: After playCard AP=" << currentAP << " stored as " << opponentPlayer.ap;
+
+	// Remove the temporary card from their hand
+	if (tempCardIndex >= 0 && tempCardIndex < (int)opponentPlayer.hand.size()) {
+		opponentPlayer.hand.erase(opponentPlayer.hand.begin() + tempCardIndex);
+	}
+
+	// Restore current player context
+	currentPlayerIndex = savedCurrentPlayerIndex;
+	currentAP = savedCurrentAP;
 }
 
 // Verify sync
