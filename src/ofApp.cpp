@@ -9002,6 +9002,12 @@ void ofApp::mousePressed(int x, int y, int button) {
 
 	// --- Card Encyclopedia UI ---
 	if (isCardEncyclopediaOpen && button == OF_MOUSE_BUTTON_LEFT) {
+		if (isMultiplayer && !isHost()) {
+			addGameLog("Debug spawner is host-only in multiplayer.");
+			isCardEncyclopediaOpen = false;
+			isCardSpawnerOpen = false;
+			return;
+		}
 		if (encyclopediaCloseButton.inside(x, y)) {
 			isCardEncyclopediaOpen = false;
 			return;
@@ -9048,6 +9054,9 @@ void ofApp::mousePressed(int x, int y, int button) {
 						}
 						spawnFloatingText(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y),
 							"+" + ofToString(cardSpawnerQuantity) + "x " + sortedCards[i].name, ofColor::cyan);
+						if (isMultiplayer && isHost()) {
+							sendSnapshotToClient();
+						}
 						return;
 					}
 				}
@@ -9069,6 +9078,11 @@ void ofApp::mousePressed(int x, int y, int button) {
 
 	// --- Card Spawner UI ---
 	if (isCardSpawnerOpen && button == OF_MOUSE_BUTTON_LEFT) {
+		if (isMultiplayer && !isHost()) {
+			addGameLog("Debug spawner is host-only in multiplayer.");
+			isCardSpawnerOpen = false;
+			return;
+		}
 		if (cardSpawnerCloseButton.inside(x, y)) {
 			isCardSpawnerOpen = false;
 			return;
@@ -9112,6 +9126,9 @@ void ofApp::mousePressed(int x, int y, int button) {
 					}
 					spawnFloatingText(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y),
 						"+" + ofToString(cardSpawnerQuantity) + "x " + filteredCards[i].name, ofColor::cyan);
+					if (isMultiplayer && isHost()) {
+						sendSnapshotToClient();
+					}
 					isCardSpawnerOpen = false;
 					return;
 				}
@@ -10331,6 +10348,11 @@ void ofApp::mousePressed(int x, int y, int button) {
 		}
 		// 3a. Debug Spawn Logic
 		if (isSpawningUnit && button == OF_MOUSE_BUTTON_LEFT) {
+			if (isMultiplayer && !isHost()) {
+				addGameLog("Debug spawning is host-only in multiplayer.");
+				isSpawningUnit = false;
+				return;
+			}
 			ofVec2f boardPos = mouseToBoard(x, y);
 			int gx = floor(boardPos.x), gy = floor(boardPos.y);
 			if (gx >= 0 && gx < BOARD_WIDTH && gy >= 0 && gy < BOARD_HEIGHT) {
@@ -10345,6 +10367,9 @@ void ofApp::mousePressed(int x, int y, int button) {
 					shuffleGameVector(players[newDebugIdx].deck, newDebugIdx);
 					board[gx][gy].hasPlayer = true;
 					ofLogNotice("Debug") << "Spawned new player.";
+					if (isMultiplayer && isHost()) {
+						sendSnapshotToClient();
+					}
 				}
 			}
 			isSpawningUnit = false;
@@ -10354,9 +10379,16 @@ void ofApp::mousePressed(int x, int y, int button) {
 		// 3b. Debug UI Interactions (Buttons)
 		if (isDebugMode && button == OF_MOUSE_BUTTON_LEFT) {
 			if (debugPanel.inside(x, y)) {
+				if (isMultiplayer && !isHost()) {
+					addGameLog("Debug tools are host-only in multiplayer.");
+					return;
+				}
 				// Handle specific debug buttons
 				if (debugDrawCardButton.inside(x, y)) {
 					drawCard();
+					if (isMultiplayer && isHost()) {
+						sendSnapshotToClient();
+					}
 					return;
 				}
 
@@ -10408,6 +10440,9 @@ void ofApp::mousePressed(int x, int y, int button) {
 				}
 				if (debugUnlimitedAPButton.inside(x, y)) {
 					hasUnlimitedAP = !hasUnlimitedAP;
+					if (isMultiplayer && isHost()) {
+						sendSnapshotToClient();
+					}
 					return;
 				}
 				if (debugForceEndTurnButton.inside(x, y)) {
@@ -11500,6 +11535,10 @@ void ofApp::keyReleased(int key) {
 
 	// 1. Debug Toggle
 	if (key == '`') {
+		if (isMultiplayer && !isHost()) {
+			addGameLog("Debug mode is host-only in multiplayer.");
+			return;
+		}
 		isDebugMode = !isDebugMode;
 	}
 
@@ -15523,6 +15562,7 @@ std::string ofApp::buildSnapshotString() {
 	   << "\t" << currentAP
 	   << "\t" << lastAPDiceNum
 	   << "\t" << lastAPDiceSides
+	   << "\t" << (hasUnlimitedAP ? 1 : 0)
 	   << "\n";
 
 	ss << "QUEUE\t" << pendingDraftQueue.size();
@@ -15699,6 +15739,9 @@ void ofApp::applySnapshotString(const std::string & data) {
 			currentAP = std::stoi(parts[11]);
 			lastAPDiceNum = std::stoi(parts[12]);
 			lastAPDiceSides = (parts.size() > 13) ? std::stoi(parts[13]) : lastAPDiceSides;
+			if (parts.size() > 14) {
+				hasUnlimitedAP = (std::stoi(parts[14]) != 0);
+			}
 		} else if (parts[0] == "QUEUE" && parts.size() >= 2) {
 			pendingDraftQueue.clear();
 			for (size_t i = 2; i < parts.size(); ++i)
