@@ -976,6 +976,11 @@ void ofApp::update() {
 				ofLogNotice("Network") << "Host: Opponent found. Starting game & sending seed.";
 				isMultiplayer = true;
 				myLocalPlayerID = 0; // Host is always Player 0
+				
+				// Reset sequence tracking for this new game
+				lastReceivedSeqByPlayer[0] = 0;
+				lastReceivedSeqByPlayer[1] = 0;
+				
 				setupGame(); // Generates seed and sends PKT_HANDSHAKE
 			}
 		}
@@ -1657,6 +1662,10 @@ void ofApp::initGameFromSeed(uint32_t seed) {
 	currentMapSeed = seed;
 	isMultiplayer = true;
 	myLocalPlayerID = 1;
+	
+	// Reset sequence tracking for this new game
+	lastReceivedSeqByPlayer[0] = 0;
+	lastReceivedSeqByPlayer[1] = 0;
 
 	// Initialize the same common state as host
 	initializeGameStateCommon();
