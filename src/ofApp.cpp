@@ -4530,7 +4530,8 @@ void ofApp::updateGame() {
 		glm::vec3 targetPos = animationPath[currentPathIndex];
 		// Cap deltaTime at 0.016f (60fps) to prevent instant movement on high framerates
 		float clampedDeltaTime = std::min(deltaTime, 0.016f);
-		float player_speed = 1.0 - pow(0.5, clampedDeltaTime * 60.0);
+		// Use a slower animation: 0.3 second movement per tile
+		float player_speed = clampedDeltaTime / 0.3f;
 
 		// Calculate facing direction
 		glm::vec3 direction = targetPos - playerVisualPos;
@@ -19539,16 +19540,16 @@ void ofApp::processNetworkPackets() {
 				if (pkt->actionType == 0) {
 					// Host forwarded selection toggle or in-game pick
 					if (isInGameDraft) {
-						Player & p = players[pkt->draftPlayerIdx];
-						if (pkt->optionIndex >= 0 && pkt->optionIndex < (int)draftOptions.size()) {
-							p.deck.push_back(draftOptions[pkt->optionIndex]);
-							shuffleGameVector(p.deck, pkt->draftPlayerIdx);
+						// For in-game drafts, just toggle the selection and show/hide the card highlight
+						int opt = pkt->optionIndex;
+						if (pkt->selectFlag) {
+							auto it = std::find(selectedDraftIndices.begin(), selectedDraftIndices.end(), opt);
+							if (it == selectedDraftIndices.end()) selectedDraftIndices.push_back(opt);
+						} else {
+							auto it = std::find(selectedDraftIndices.begin(), selectedDraftIndices.end(), opt);
+							if (it != selectedDraftIndices.end()) selectedDraftIndices.erase(it);
 						}
-						selectedDraftIndices.clear();
-						draftOptions.clear();
-						isInGameDraft = false;
-						currentState = STATE_GAMEPLAY;
-						return;
+						// Wait for the accept, don't clear draftOptions yet
 					} else {
 						int opt = pkt->optionIndex;
 						if (pkt->selectFlag) {
@@ -19630,6 +19631,12 @@ void ofApp::sendActionPacket(int cardIndex, int tx, int ty, int cost) {
 	pkt.targetY = ty;
 	pkt.cost = cost;
 
+	// Include card name so opponent knows which card was played
+	if (cardIndex >= 0 && cardIndex < (int)currentPlayer.hand.size()) {
+		strncpy(pkt.cardName, currentPlayer.hand[cardIndex].name.c_str(), 63);
+		pkt.cardName[63] = '\0';
+	}
+
 	// 3. Send to Network
 	steamManager.sendPacket(&pkt, sizeof(pkt));
 
@@ -19647,7 +19654,68 @@ void ofApp::executeAction(const ActionPacket & pkt) {
 	// IMPORTANT: Ensure currentPlayerIndex is correct on both machines
 	// before calling playCard.
 
-	playCard(pkt.cardIndex, pkt.targetX, pkt.targetY);
+	// If the action came from an opponent (different playerID than current player),
+	// we don't have access to their hand, so we need special handling
+	if (isMultiplayer && pkt.playerID != static_cast<uint32_t>(myLocalPlayerID) && strlen(pkt.cardName) > 0) {
+		// Opponent's card play - apply effect based on card name
+		executeOpponentCardPlay(pkt);
+	} else {
+		// Local player's card play (client-side prediction or single player)
+		playCard(pkt.cardIndex, pkt.targetX, pkt.targetY);
+	}
+}
+
+void ofApp::executeOpponentCardPlay(const ActionPacket & pkt) {
+	// Handle opponent's card play by temporarily adding card to their hand, executing, then removing
+	std::string cardName = pkt.cardName;
+	int tx = pkt.targetX;
+	int ty = pkt.targetY;
+
+	// Find the opponent player
+	int opponentPlayerIndex = -1;
+	for (size_t i = 0; i < players.size(); i++) {
+		Player & p = players[i];
+		if (static_cast<uint32_t>(p.playerID) == pkt.playerID && !p.isMinion) {
+			opponentPlayerIndex = (int)i;
+			break;
+		}
+	}
+	if (opponentPlayerIndex < 0) return;
+
+	// Find the card definition from allCards by name
+	Card cardDef;
+	bool found = false;
+	for (const auto & c : allCards) {
+		if (c.name == cardName) {
+			cardDef = c;
+			found = true;
+			break;
+		}
+	}
+	if (!found) {
+		ofLogWarning("Network") << "Card not found in allCards: " << cardName;
+		return;
+	}
+
+	// Temporarily swap to opponent's player context
+	int savedCurrentPlayerIndex = currentPlayerIndex;
+	currentPlayerIndex = opponentPlayerIndex;
+	Player & opponentPlayer = players[opponentPlayerIndex];
+
+	// Temporarily add the card to their hand so playCard() can access it
+	opponentPlayer.hand.push_back(cardDef);
+	int tempCardIndex = (int)opponentPlayer.hand.size() - 1;
+
+	// Execute the card play using the normal playCard logic
+	playCard(tempCardIndex, tx, ty);
+
+	// Remove the temporary card from their hand
+	if (tempCardIndex >= 0 && tempCardIndex < (int)opponentPlayer.hand.size()) {
+		opponentPlayer.hand.erase(opponentPlayer.hand.begin() + tempCardIndex);
+	}
+
+	// Restore current player context
+	currentPlayerIndex = savedCurrentPlayerIndex;
 }
 
 // Verify sync

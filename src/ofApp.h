@@ -432,6 +432,7 @@ public:
 	void processNetworkPackets();
 	void sendActionPacket(int cardIndex, int tx, int ty, int cost);
 	void executeAction(const ActionPacket & pkt);
+	void executeOpponentCardPlay(const ActionPacket & pkt);
 	long long calculateChecksum();
 	void sendSnapshotToClient();
 	std::string buildSnapshotString();

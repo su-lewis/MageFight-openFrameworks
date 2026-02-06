@@ -48,6 +48,7 @@ struct ActionPacket : PacketHeader {
 	int32_t targetX;
 	int32_t targetY;
 	int32_t cost;
+	char cardName[64]; // Card name for opponent to identify which card was played
 };
 
 struct ChecksumPacket : PacketHeader {
