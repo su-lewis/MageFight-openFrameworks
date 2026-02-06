@@ -19667,12 +19667,25 @@ void ofApp::processNetworkPackets() {
 					}
 					ofLogError("Net") << "Player " << i << " id=" << players[i].playerID << " deck=[" << deckSummary << "] hand=" << players[i].hand.size() << " discard=" << players[i].discardPile.size();
 				}
-				desyncMessage = "DESYNC! Local:" + ofToString(mySum) + " Remote:" + ofToString(pkt->checksum) + " Turn:" + ofToString(pkt->turnNumber);
-				// NOTE: Do NOT set isMultiplayer=false here - that breaks the game state
-				// Instead, just mark the state so the UI can display the error
-				// isMultiplayer = false;  // REMOVED: This was causing the "exit to menu" effect
-				currentState = STATE_DESYNC;
-				spawnFloatingText(glm::vec3(0, 5, 0), "DESYNC DETECTED", ofColor::red);
+
+				// DESYNC RECOVERY: Try to restore from backup snapshot
+				if (!backupSnapshot.empty()) {
+					ofLogNotice("Backup") << "Desync detected! Attempting to restore from backup snapshot...";
+					applySnapshotString(backupSnapshot);
+					addGameLog("DESYNC DETECTED: Restored from backup snapshot at turn " + ofToString(globalTurnCounter));
+					spawnFloatingText(glm::vec3(0, 5, 0), "Desync Recovered", ofColor::yellow);
+					ofLogNotice("Backup") << "Successfully restored game state from backup";
+				} else {
+					// No backup available - show error and go to desync state
+					ofLogError("Backup") << "No backup snapshot available for desync recovery!";
+					desyncMessage = "DESYNC! Local:" + ofToString(mySum) + " Remote:" + ofToString(pkt->checksum) + " Turn:" + ofToString(pkt->turnNumber);
+					currentState = STATE_DESYNC;
+					spawnFloatingText(glm::vec3(0, 5, 0), "DESYNC DETECTED", ofColor::red);
+				}
+			} else {
+				// Checksum validated successfully - save verified backup snapshot
+				backupSnapshot = buildSnapshotString();
+				ofLogNotice("Backup") << "Checksum verified for turn " << pkt->turnNumber << " - saved backup snapshot";
 			}
 		} else if (header->type == PKT_KEY_PICKUP) {
 			KeyPickupPacket * kpkt = (KeyPickupPacket *)header;
