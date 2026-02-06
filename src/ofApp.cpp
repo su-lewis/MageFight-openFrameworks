@@ -18264,6 +18264,7 @@ void ofApp::resolveMagicHandPush() {
 //--------------------------------------------------------------
 void ofApp::generateDraftOptions(int classTier, const std::vector<int> * forcedIndices) {
 	draftAcceptLocked = false;
+	draftAcceptApplied = false;
 	// Deterministic: always use shared gameplayRNG so both host and client
 	// generate the same three options locally. Do NOT wait for host packets.
 	draftOptions.clear();
@@ -18404,6 +18405,7 @@ void ofApp::applyDraftOptionsFromPool(int classTier, const std::vector<int> & in
 	// We've applied authoritative options from host; stop waiting
 	waitingForDraftOptions = false;
 	draftAcceptLocked = false;
+	draftAcceptApplied = false;
 
 	// Log applied options for debugging (helps determine whether Windows client actually applied options)
 	if ((int)draftOptions.size() != lastLoggedDraftOptionsCount) {
@@ -19793,15 +19795,15 @@ void ofApp::processNetworkPackets() {
 				} else if (pkt->actionType == 1) {
 					// Client: host forwarded an Accept. Apply any cards and then WAIT for host authoritative state/options.
 					ofLogNotice("Draft") << "CLIENT: Received forwarded AcceptDraft from host player=" << pkt->draftPlayerIdx << " picks=" << (int)pkt->numSelected << " indices=" << (int)pkt->selectedIdx0 << "," << (int)pkt->selectedIdx1 << "," << (int)pkt->selectedIdx2 << " classTier=" << (int)pkt->classTier;
-					if (draftAcceptLocked) {
-						ofLogNotice("Draft") << "CLIENT: Ignoring duplicate Accept (already locked).";
+					if (draftAcceptApplied) {
+						ofLogNotice("Draft") << "CLIENT: Ignoring duplicate Accept (already applied).";
 						return;
 					}
 					if (initialDraftComplete && currentState == STATE_GAMEPLAY && !isInGameDraft) {
 						ofLogNotice("Draft") << "CLIENT: Ignoring late normal Accept after initial draft completed.";
 						return;
 					}
-					draftAcceptLocked = true;
+					draftAcceptApplied = true;
 					int picks = pkt->numSelected;
 					std::vector<int> sel;
 					if (picks > 0) sel.push_back(pkt->selectedIdx0);

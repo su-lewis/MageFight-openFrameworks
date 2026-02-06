@@ -652,6 +652,7 @@ private:
 	float waitingForDraftOptionsTimeout = 0.75f; // seconds to wait for host before giving up/requesting
 	int skipClientShuffleFor = -1; // When >=0, client will skip the next deck shuffle for this player index (avoids RNG divergence from forwarded Accepts)
 	bool draftAcceptLocked = false; // Prevent double-accept clicks per draft screen
+	bool draftAcceptApplied = false; // Prevent duplicate forwarded Accept application
 	uint32_t draftGenerationCounter = 0; // Increments each time generateDraftOptions is called to ensure variety
 	bool pendingDraftStateAvailable = false; // If a state packet arrives while we're waiting, stash it
 	DraftStatePacket pendingDraftState;
