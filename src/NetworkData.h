@@ -50,6 +50,7 @@ struct ActionPacket : PacketHeader {
 	int32_t targetX;
 	int32_t targetY;
 	int32_t cost;
+	int32_t menuChoice; // For choice-based cards (e.g., Giant Magic Hand: 1=push, 2=pull)
 	char cardName[64]; // Card name for opponent to identify which card was played
 };
 

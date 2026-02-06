@@ -432,6 +432,7 @@ public:
 	// Networking logic
 	void processNetworkPackets();
 	void sendActionPacket(int cardIndex, int tx, int ty, int cost);
+	void sendMagicHandResolutionPacket(int choice);
 	void sendMenuState(int menuType, int targetIndex, int hoveredChoice, int cardIndex);
 	void executeAction(const ActionPacket & pkt);
 	void executeOpponentCardPlay(const ActionPacket & pkt);

@@ -11106,7 +11106,10 @@ void ofApp::mouseReleased(int x, int y, int button) {
 								// Only play if green highlight is active
 								if (board[gx][gy].isTargetable) {
 									ofLogNotice("CardPlay") << "Playing " << playedCard.name << " on tile (" << gx << "," << gy << ") isMultiplayer=" << isMultiplayer;
-									if (isMultiplayer) {
+									if (isMultiplayer && playedCard.type == CARD_GIANT_MAGIC_HAND) {
+										// Giant Magic Hand needs a menu choice before sending to opponent
+										playCard(draggedCardIndex, gx, gy);
+									} else if (isMultiplayer) {
 										// Send to network (which also executes locally)
 										sendActionPacket(draggedCardIndex, gx, gy, playedCard.cost);
 									} else {
@@ -18208,6 +18211,9 @@ void ofApp::resolveMagicHandPull() {
 		return; // Don't close menu, allow retry or cancel
 	}
 
+	// Send resolution to opponent before applying locally
+	sendMagicHandResolutionPacket(2);
+
 	// Execute Pull
 	// 1. Move Caster to BackPos
 	board[caster.x][caster.y].hasPlayer = false;
@@ -18264,6 +18270,9 @@ void ofApp::resolveMagicHandPush() {
 			}
 		}
 
+		// Send resolution to opponent before applying locally
+		sendMagicHandResolutionPacket(1);
+
 		// Start Damage Roll (2d4 Physical)
 		magicHandPushDir = dir;
 		pendingMagicHandRollResult = startDiceRoll(2, 4, PURPOSE_MAGIC_HAND_DAMAGE, "Magic Hand Crush");
@@ -18279,6 +18288,9 @@ void ofApp::resolveMagicHandPush() {
 		// Move Caster and Wall happens AFTER dice logic to sync animations
 		return;
 	}
+
+	// Send resolution to opponent before applying locally
+	sendMagicHandResolutionPacket(1);
 
 	// Empty Space: Just Move
 	board[caster.x][caster.y].hasPlayer = false;
@@ -19932,6 +19944,7 @@ void ofApp::sendActionPacket(int cardIndex, int tx, int ty, int cost) {
 	pkt.targetX = tx;
 	pkt.targetY = ty;
 	pkt.cost = cost;
+	pkt.menuChoice = 0;
 
 	// Include card name so opponent knows which card was played
 	if (cardIndex >= 0 && cardIndex < (int)currentPlayer.hand.size()) {
@@ -19947,6 +19960,31 @@ void ofApp::sendActionPacket(int cardIndex, int tx, int ty, int cost) {
 	// We execute it immediately so the local player feels no lag.
 	// The packet is sent to opponent who will execute it on their side.
 	executeAction(pkt);
+}
+
+void ofApp::sendMagicHandResolutionPacket(int choice) {
+	if (!isMultiplayer) return;
+	if (currentPlayerIndex < 0 || currentPlayerIndex >= (int)players.size()) return;
+	const Player & currentPlayer = players[currentPlayerIndex];
+	int controlledPlayerID = currentPlayer.isMinion ? currentPlayer.ownerID : currentPlayer.playerID;
+	if (controlledPlayerID != myLocalPlayerID) return;
+	if (pendingMagicHandCardIndex < 0 || pendingMagicHandCardIndex >= (int)currentPlayer.hand.size()) return;
+
+	ActionPacket pkt = {};
+	pkt.type = PKT_ACTION;
+	pkt.playerID = myLocalPlayerID;
+	pkt.actorIndex = currentPlayerIndex;
+	pkt.cardIndex = pendingMagicHandCardIndex;
+	pkt.targetX = magicHandTargetTile.x;
+	pkt.targetY = magicHandTargetTile.y;
+	pkt.cost = currentPlayer.hand[pendingMagicHandCardIndex].cost;
+	pkt.menuChoice = choice;
+	strncpy(pkt.cardName, currentPlayer.hand[pendingMagicHandCardIndex].name.c_str(), 63);
+	pkt.cardName[63] = '\0';
+
+	ofLogNotice("Network") << "sendMagicHandResolutionPacket: Sending '" << pkt.cardName << "' choice=" << choice
+						   << " target=(" << pkt.targetX << "," << pkt.targetY << ") cost=" << pkt.cost;
+	steamManager.sendPacket(&pkt, sizeof(pkt));
 }
 
 void ofApp::executeAction(const ActionPacket & pkt) {
@@ -20026,6 +20064,33 @@ void ofApp::executeOpponentCardPlay(const ActionPacket & pkt) {
 	currentAP = opponentPlayer.ap;
 
 	ofLogNotice("Network") << "executeOpponentCardPlay: Executing playCard with cardIndex=" << tempCardIndex << " currentPlayerIndex=" << currentPlayerIndex << " AP=" << currentAP;
+
+	// Special-case: resolve Giant Magic Hand using the sender's menu choice
+	if (cardDef.type == CARD_GIANT_MAGIC_HAND && pkt.menuChoice != 0) {
+		pendingMagicHandCardIndex = tempCardIndex;
+		magicHandTargetTile = { tx, ty };
+		isMagicHandMenuOpen = false;
+		if (pkt.menuChoice == 1) {
+			resolveMagicHandPush();
+		} else if (pkt.menuChoice == 2) {
+			resolveMagicHandPull();
+		}
+
+		// Save the updated AP back to the player
+		opponentPlayer.ap = currentAP;
+
+		// Remove the temporary card if it still exists
+		if (tempCardIndex >= 0 && tempCardIndex < (int)opponentPlayer.hand.size()) {
+			if (opponentPlayer.hand[tempCardIndex].name == cardName) {
+				opponentPlayer.hand.erase(opponentPlayer.hand.begin() + tempCardIndex);
+			}
+		}
+		pendingMagicHandCardIndex = -1;
+
+		currentPlayerIndex = savedCurrentPlayerIndex;
+		currentAP = savedCurrentAP;
+		return;
+	}
 
 	// Execute the card play using the normal playCard logic (HOST must process all game logic)
 	playCard(tempCardIndex, tx, ty);
