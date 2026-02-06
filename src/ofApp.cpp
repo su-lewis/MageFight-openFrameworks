@@ -927,6 +927,41 @@ void ofApp::update() {
 
 	// Check for disconnection/reconnection
 	if (isMultiplayer) {
+		// Check if opponent left the lobby (host quit to main menu)
+		if (!steamManager.hasOpponent()) {
+			ofLogNotice("Network") << "Opponent left the lobby. Resetting game and returning to main menu.";
+
+			// Add message to chat
+			ChatMessage msg;
+			msg.playerName = "[SERVER]";
+			msg.message = "Opponent left the game";
+			msg.timestamp = ofGetElapsedTimef();
+			chatHistory.push_back(msg);
+			if (chatHistory.size() > maxChatMessages) {
+				chatHistory.erase(chatHistory.begin());
+			}
+
+			// Reset all multiplayer state
+			isMultiplayer = false;
+			hasReceivedHandshake = false;
+			waitingForTurnStartFromHost = false;
+			initialDraftComplete = false;
+			draftAcceptLocked = false;
+			draftAcceptApplied = false;
+			gameplaySeededByHost = false;
+			handshakeRequestInterval = 1.0f;
+
+			// Clean up game state
+			cleanupGame();
+
+			// Return to main menu
+			currentState = STATE_MAIN_MENU;
+
+			// Show notification
+			lastChatInteractionTime = ofGetElapsedTimef();
+			return; // Skip rest of update this frame
+		}
+
 		if (steamManager.checkAndClearDisconnectFlag()) {
 			// Add disconnection message to chat
 			ChatMessage msg;
@@ -1718,7 +1753,7 @@ void ofApp::updateGame() {
 		float p1_topLimitY = 580 * scale; // Below P1's AP counter and luck text
 		float p1_bottomLimitY = ofGetHeight() - (140 * scale); // Above P0's HP bar (slight gap reduction)
 
-		// 2. SEPARATE MINIONS BY OWNER
+		// 2. SEPARATE MINIONS BY OWNER (Accounting for perspective in multiplayer)
 		std::vector<int> p0_minionIndices;
 		std::vector<int> p1_minionIndices;
 		// Counters for minion types
@@ -1727,10 +1762,16 @@ void ofApp::updateGame() {
 
 		for (int i = 0; i < (int)players.size(); i++) {
 			if (players[i].isMinion) {
-				if (players[i].ownerID == 0)
-					p0_minionIndices.push_back(i);
-				else
-					p1_minionIndices.push_back(i);
+				// Each player sees their own minions on the LEFT (p0) and opponent minions on the RIGHT (p1)
+				// This works for both host (player 0) and client (player 1)
+				int ownerID = players[i].ownerID;
+				bool isLocalPlayerMinion = (ownerID == myLocalPlayerID);
+
+				if (isLocalPlayerMinion) {
+					p0_minionIndices.push_back(i); // My minions on LEFT
+				} else {
+					p1_minionIndices.push_back(i); // Opponent minions on RIGHT
+				}
 			}
 		}
 
@@ -11064,6 +11105,7 @@ void ofApp::mouseReleased(int x, int y, int button) {
 
 								// Only play if green highlight is active
 								if (board[gx][gy].isTargetable) {
+									ofLogNotice("CardPlay") << "Playing " << playedCard.name << " on tile (" << gx << "," << gy << ") isMultiplayer=" << isMultiplayer;
 									if (isMultiplayer) {
 										// Send to network (which also executes locally)
 										sendActionPacket(draggedCardIndex, gx, gy, playedCard.cost);
@@ -11071,11 +11113,14 @@ void ofApp::mouseReleased(int x, int y, int button) {
 										// Single Player
 										playCard(draggedCardIndex, gx, gy);
 									}
+								} else {
+									ofLogWarning("CardPlay") << "Target not targetable! gx=" << gx << " gy=" << gy << " isTargetable=" << (gx >= 0 && gx < BOARD_WIDTH && gy >= 0 && gy < BOARD_HEIGHT ? board[gx][gy].isTargetable : false);
 								}
 							}
 						}
 					} else {
 						// Show user feedback and clear drag state so they don't get stuck
+						ofLogWarning("CardPlay") << "Not enough AP to play " << playedCard.name;
 						spawnFloatingText(gridToWorld(currentPlayer.x, currentPlayer.y), "Not enough AP", ofColor::red);
 						draggedCardIndex = -1;
 						selectedCardIndex = -1;
@@ -19892,6 +19937,7 @@ void ofApp::sendActionPacket(int cardIndex, int tx, int ty, int cost) {
 	if (cardIndex >= 0 && cardIndex < (int)currentPlayer.hand.size()) {
 		strncpy(pkt.cardName, currentPlayer.hand[cardIndex].name.c_str(), 63);
 		pkt.cardName[63] = '\0';
+		ofLogNotice("Network") << "sendActionPacket: Sending card '" << pkt.cardName << "' (cardIndex=" << cardIndex << ") to target=(" << tx << "," << ty << ") cost=" << cost;
 	}
 
 	// 3. Send to Network
