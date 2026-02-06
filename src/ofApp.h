@@ -301,6 +301,7 @@ struct Player {
 	int holyBlock = 0;
 	int luck = 0;
 	int bonusTurns = 0;
+	int ap = 0; // Action Points for this player
 	int playerID = 0;
 	float facingAngle = 0.0f; // 0 = North, 90 = East, 180 = South, 270 = West
 	bool onFire = false;
@@ -1076,6 +1077,7 @@ private:
 	bool isWaitingForSummonHealth = false;
 	int pendingSummonRollResult = 0;
 	glm::vec2 pendingSummonTile;
+	int pendingSummonPlayerIndex = -1; // Track which player the pending summon belongs to
 
 	// --- Double Handed State ---
 	bool isDoubleHandedMenuOpen = false;

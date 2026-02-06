@@ -2624,9 +2624,10 @@ void ofApp::updateGame() {
 		minion.isSkeleton = true;
 		minion.hasRegeneration = true;
 
-		// Set owner and summoning sickness
-		minion.ownerID = players[currentPlayerIndex].isMinion ? players[currentPlayerIndex].ownerID : players[currentPlayerIndex].playerID;
-		minion.summonedOnTurnCycle = players[currentPlayerIndex].isMinion ? globalTurnCounter : -1;
+		// Set owner and summoning sickness - use the tracked player index
+		int summoner = (pendingSummonPlayerIndex >= 0 && pendingSummonPlayerIndex < (int)players.size()) ? pendingSummonPlayerIndex : currentPlayerIndex;
+		minion.ownerID = players[summoner].isMinion ? players[summoner].ownerID : players[summoner].playerID;
+		minion.summonedOnTurnCycle = players[summoner].isMinion ? globalTurnCounter : -1;
 		minion.summonOrder = ++nextSummonOrder;
 
 		// 2. Build Minion Deck
@@ -3998,6 +3999,8 @@ void ofApp::updateGame() {
 						currentAP += players[currentPlayerIndex].nextTurnAPBonus;
 						players[currentPlayerIndex].nextTurnAPBonus = 0;
 					}
+					// Sync AP to player struct
+					players[currentPlayerIndex].ap = currentAP;
 
 					// If AP is zero, check for adjacent assistants belonging to this unit
 					if (currentAP == 0) {
@@ -4530,8 +4533,8 @@ void ofApp::updateGame() {
 		glm::vec3 targetPos = animationPath[currentPathIndex];
 		// Cap deltaTime at 0.016f (60fps) to prevent instant movement on high framerates
 		float clampedDeltaTime = std::min(deltaTime, 0.016f);
-		// Use a slower animation: 0.3 second movement per tile
-		float player_speed = clampedDeltaTime / 0.3f;
+		// Smooth animation: 0.15 second movement per tile
+		float player_speed = clampedDeltaTime / 0.15f;
 
 		// Calculate facing direction
 		glm::vec3 direction = targetPos - playerVisualPos;
@@ -12449,6 +12452,7 @@ void ofApp::playCard(int cardIndex, int targetX, int targetY) {
 
 		// 1. Roll for HP
 		pendingSummonTile = glm::vec2(targetX, targetY);
+		pendingSummonPlayerIndex = currentPlayerIndex; // Track which player summoned
 
 		pendingSummonRollResult = startDiceRoll(1, 6, PURPOSE_HP, "Raise Dead: Skeleton HP");
 
@@ -18900,6 +18904,10 @@ void ofApp::processNetworkPackets() {
 					currentAP += startingPlayer.nextTurnAPBonus;
 					startingPlayer.nextTurnAPBonus = 0;
 				}
+				// Sync AP to player struct for multiplayer
+				if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) {
+					players[currentPlayerIndex].ap = currentAP;
+				}
 
 				// DEBUGGING: Calculate checksum BEFORE marking dice as DEBUG (to match host's state)
 				// Only send checksum once per turn to avoid sending it multiple times if duplicate packets arrive
@@ -19666,10 +19674,13 @@ void ofApp::executeAction(const ActionPacket & pkt) {
 }
 
 void ofApp::executeOpponentCardPlay(const ActionPacket & pkt) {
-	// Handle opponent's card play by temporarily adding card to their hand, executing, then removing
+	// Handle opponent's card play - we only apply immediate visual effects
+	// The HOST has already processed all game logic and we'll receive state updates via snapshots
 	std::string cardName = pkt.cardName;
 	int tx = pkt.targetX;
 	int ty = pkt.targetY;
+
+	ofLogNotice("Network") << "executeOpponentCardPlay: Opponent played " << cardName << " at (" << tx << "," << ty << ")";
 
 	// Find the opponent player
 	int opponentPlayerIndex = -1;
@@ -19680,7 +19691,10 @@ void ofApp::executeOpponentCardPlay(const ActionPacket & pkt) {
 			break;
 		}
 	}
-	if (opponentPlayerIndex < 0) return;
+	if (opponentPlayerIndex < 0) {
+		ofLogWarning("Network") << "executeOpponentCardPlay: Opponent player not found!";
+		return;
+	}
 
 	// Find the card definition from allCards by name
 	Card cardDef;
@@ -19697,25 +19711,30 @@ void ofApp::executeOpponentCardPlay(const ActionPacket & pkt) {
 		return;
 	}
 
-	// Temporarily swap to opponent's player context
-	int savedCurrentPlayerIndex = currentPlayerIndex;
-	currentPlayerIndex = opponentPlayerIndex;
+	ofLogNotice("Network") << "executeOpponentCardPlay: Card type=" << (int)cardDef.type << " cost=" << cardDef.cost;
+
+	// Only apply immediate visual effects, skip dice rolls and complex logic
+	// The HOST has already processed everything and will send us the final state
 	Player & opponentPlayer = players[opponentPlayerIndex];
 
-	// Temporarily add the card to their hand so playCard() can access it
-	opponentPlayer.hand.push_back(cardDef);
-	int tempCardIndex = (int)opponentPlayer.hand.size() - 1;
-
-	// Execute the card play using the normal playCard logic
-	playCard(tempCardIndex, tx, ty);
-
-	// Remove the temporary card from their hand
-	if (tempCardIndex >= 0 && tempCardIndex < (int)opponentPlayer.hand.size()) {
-		opponentPlayer.hand.erase(opponentPlayer.hand.begin() + tempCardIndex);
+	// For wall creation, apply immediately (no dice roll needed)
+	if (cardDef.type == CARD_CREATE_WALL) {
+		if (tx >= 0 && tx < BOARD_WIDTH && ty >= 0 && ty < BOARD_HEIGHT) {
+			if (!board[tx][ty].hasWall && !board[tx][ty].hasPlayer) {
+				board[tx][ty].hasWall = true;
+				buildLevelMesh();
+				invalidateTargetCache();
+				ofLogNotice("Network") << "executeOpponentCardPlay: Wall created at (" << tx << "," << ty << ")";
+			}
+		}
 	}
+	// For other cards, just deduct AP - the HOST will handle the actual effects
+	// and send us updated state via snapshots
 
-	// Restore current player context
-	currentPlayerIndex = savedCurrentPlayerIndex;
+	// Deduct AP for the card
+	opponentPlayer.ap -= cardDef.cost;
+	if (opponentPlayer.ap < 0) opponentPlayer.ap = 0;
+	ofLogNotice("Network") << "executeOpponentCardPlay: Opponent AP now " << opponentPlayer.ap;
 }
 
 // Verify sync
