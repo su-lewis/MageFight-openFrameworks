@@ -8534,6 +8534,8 @@ void ofApp::mousePressed(int x, int y, int button) {
 		int requiredPicks = 1;
 		if (!isInGameDraft && draftStage == 0) requiredPicks = 2; // Setup Class 1 needs 2 picks
 
+		ofLogNotice("Draft") << "DRAFT CLICK: mousePos=(" << x << "," << y << ") selections=" << (int)selectedDraftIndices.size() << " required=" << requiredPicks << " inGameDraft=" << (int)isInGameDraft << " draftStage=" << draftStage << " acceptRect=(" << draftAcceptButtonRect.x << "," << draftAcceptButtonRect.y << "," << draftAcceptButtonRect.width << "," << draftAcceptButtonRect.height << ")";
+
 		// 1. Card Clicking
 		// Only the drafting player may select cards (multiplayer)
 		if (!(isMultiplayer && players[draftPlayerIndex].playerID != myLocalPlayerID)) {
@@ -8572,9 +8574,13 @@ void ofApp::mousePressed(int x, int y, int button) {
 
 		// 2. Accept Button Clicking
 		if ((int)selectedDraftIndices.size() == requiredPicks && draftAcceptButtonRect.inside(x, y)) {
+			ofLogNotice("Draft") << "ACCEPT BUTTON CLICKED: selections=" << (int)selectedDraftIndices.size() << " required=" << requiredPicks << " rect=(" << draftAcceptButtonRect.x << "," << draftAcceptButtonRect.y << "," << draftAcceptButtonRect.width << "," << draftAcceptButtonRect.height << ") mousePos=(" << x << "," << y << ")";
 
 			// Only allow the drafting player to accept
-			if (isMultiplayer && players[draftPlayerIndex].playerID != myLocalPlayerID) return;
+			if (isMultiplayer && players[draftPlayerIndex].playerID != myLocalPlayerID) {
+				ofLogNotice("Draft") << "ACCEPT BLOCKED: Not drafting player (me=" << myLocalPlayerID << " drafting=" << players[draftPlayerIndex].playerID << ")";
+				return;
+			}
 
 			// If client in multiplayer, send selection to host and return
 			if (isClient()) {
@@ -8589,6 +8595,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 				pkt.selectedIdx0 = (pkt.numSelected > 0 && selectedDraftIndices[0] >= 0 && selectedDraftIndices[0] < 3) ? currentDraftOptionPoolIndices[selectedDraftIndices[0]] : -1;
 				pkt.selectedIdx1 = (pkt.numSelected > 1 && selectedDraftIndices[1] >= 0 && selectedDraftIndices[1] < 3) ? currentDraftOptionPoolIndices[selectedDraftIndices[1]] : -1;
 				pkt.selectedIdx2 = (pkt.numSelected > 2 && selectedDraftIndices[2] >= 0 && selectedDraftIndices[2] < 3) ? currentDraftOptionPoolIndices[selectedDraftIndices[2]] : -1;
+				ofLogNotice("Draft") << "CLIENT: Sending AcceptDraft with picks: " << (int)pkt.selectedIdx0 << "," << (int)pkt.selectedIdx1 << "," << (int)pkt.selectedIdx2 << " classTier=" << (int)pkt.classTier;
 				bool ok = steamManager.sendPacket(&pkt, sizeof(pkt));
 				if (!ok) {
 					ofLogError("Network") << "Failed to send AcceptDraft to host (packet not sent)";
@@ -19365,6 +19372,7 @@ void ofApp::processNetworkPackets() {
 					steamManager.sendPacket(&outPkt, sizeof(outPkt));
 				} else if (pkt->actionType == 1) {
 					// Client accepted draft with choices -> apply on host
+					ofLogNotice("Draft") << "HOST: Received client AcceptDraft from player=" << pkt->playerID << " draftPlayerIdx=" << pkt->draftPlayerIdx << " picks=" << (int)pkt->numSelected << " indices=" << (int)pkt->selectedIdx0 << "," << (int)pkt->selectedIdx1 << "," << (int)pkt->selectedIdx2;
 					int picks = pkt->numSelected;
 					std::vector<int> sel;
 					if (picks > 0) sel.push_back(pkt->selectedIdx0);
@@ -19525,6 +19533,7 @@ void ofApp::processNetworkPackets() {
 					}
 				} else if (pkt->actionType == 1) {
 					// Client: host forwarded an Accept. Apply any cards and then WAIT for host authoritative state/options.
+					ofLogNotice("Draft") << "CLIENT: Received forwarded AcceptDraft from host player=" << pkt->draftPlayerIdx << " picks=" << (int)pkt->numSelected << " indices=" << (int)pkt->selectedIdx0 << "," << (int)pkt->selectedIdx1 << "," << (int)pkt->selectedIdx2 << " classTier=" << (int)pkt->classTier;
 					int picks = pkt->numSelected;
 					std::vector<int> sel;
 					if (picks > 0) sel.push_back(pkt->selectedIdx0);
@@ -19537,8 +19546,10 @@ void ofApp::processNetworkPackets() {
 					const std::vector<Card> * pool = &class1Cards;
 					if (pkt->classTier == 2) pool = &class2Cards;
 					if (pkt->classTier == 3) pool = &class3Cards;
+					ofLogNotice("Draft") << "CLIENT: Pool size=" << pool->size() << " copies=" << copiesPerCard;
 					for (int idx : sel) {
 						if (idx >= 0 && idx < (int)pool->size()) {
+							ofLogNotice("Draft") << "CLIENT: Adding card index=" << idx << " name=" << (*pool)[idx].name;
 							for (int k = 0; k < copiesPerCard; ++k) {
 								p.deck.push_back((*pool)[idx]);
 							}
