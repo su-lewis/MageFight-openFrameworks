@@ -4528,7 +4528,9 @@ void ofApp::updateGame() {
 
 	if (isPlayerAnimating && animatingPlayerIndex >= 0 && animatingPlayerIndex < (int)players.size()) {
 		glm::vec3 targetPos = animationPath[currentPathIndex];
-		float player_speed = 1.0 - pow(0.65, deltaTime * 60.0);
+		// Cap deltaTime at 0.016f (60fps) to prevent instant movement on high framerates
+		float clampedDeltaTime = std::min(deltaTime, 0.016f);
+		float player_speed = 1.0 - pow(0.5, clampedDeltaTime * 60.0);
 
 		// Calculate facing direction
 		glm::vec3 direction = targetPos - playerVisualPos;
@@ -10592,8 +10594,9 @@ void ofApp::mousePressed(int x, int y, int button) {
 								movePkt.cardIndex = -1; // -1 indicates movement, not card play
 								movePkt.targetX = gridX;
 								movePkt.targetY = gridY;
+								movePkt.cost = currentAP; // Send current AP so opponent sees the cost
 								steamManager.sendPacket(&movePkt, sizeof(movePkt));
-								ofLogNotice("Network") << (isClient() ? "Client" : "Host") << " sent movement to (" << gridX << "," << gridY << ")";
+								ofLogNotice("Network") << (isClient() ? "Client" : "Host") << " sent movement to (" << gridX << "," << gridY << ") with AP=" << currentAP;
 							}
 						}
 					}
@@ -19004,7 +19007,7 @@ void ofApp::processNetworkPackets() {
 			// Check if this is a movement action (cardIndex < 0) or card play (cardIndex >= 0)
 			if (pkt->cardIndex < 0) {
 				// MOVEMENT ACTION: Receive opponent's movement and apply it locally
-				ofLogNotice("Network") << "Received movement from opponent to (" << pkt->targetX << "," << pkt->targetY << ")";
+				ofLogNotice("Network") << "Received movement from opponent to (" << pkt->targetX << "," << pkt->targetY << ") with AP=" << pkt->cost;
 				// Find the player and move them
 				for (size_t i = 0; i < players.size(); i++) {
 					Player & p = players[i];
@@ -19018,13 +19021,21 @@ void ofApp::processNetworkPackets() {
 							p.x = pkt->targetX;
 							p.y = pkt->targetY;
 
+							// Apply AP cost for opponent's movement
+							if (pkt->cost >= 0) {
+								currentAP = pkt->cost;
+								ofLogNotice("Network") << "Updated opponent AP to " << pkt->cost;
+							}
+
 							// Trigger animation for opponent's movement
 							animatingPlayerIndex = (int)i;
 							animationPath.clear();
 							currentPathIndex = 0;
-							playerVisualPos = gridToWorld(prevX, prevY);
-							animationPath.push_back(playerVisualPos);
-							animationPath.push_back(gridToWorld(pkt->targetX, pkt->targetY));
+							glm::vec3 startPos = gridToWorld(prevX, prevY);
+							glm::vec3 endPos = gridToWorld(pkt->targetX, pkt->targetY);
+							playerVisualPos = startPos;
+							animationPath.push_back(startPos);
+							animationPath.push_back(endPos);
 							isPlayerAnimating = true;
 
 							invalidateTargetCache();
