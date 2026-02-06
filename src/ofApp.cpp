@@ -19290,8 +19290,12 @@ void ofApp::processNetworkPackets() {
 				} else {
 					// If we already have draftOptions applied that match this state, do not re-enter waiting.
 					bool optionsMatch = false;
-					if (!draftOptions.empty() && draftPlayerIndex == sp->draftPlayerIdx && draftStage == sp->draftStage) {
+					if (!draftOptions.empty() && draftPlayerIndex == sp->draftPlayerIdx && draftStage == sp->draftStage && currentDraftClassTier == sp->classTier) {
 						optionsMatch = true;
+					}
+					if (!optionsMatch) {
+						// Clear stale options when the host advances the draft state (prevents showing previous class)
+						draftOptions.clear();
 					}
 					if (optionsMatch) {
 						waitingForDraftOptions = false;
