@@ -18591,7 +18591,9 @@ void ofApp::processNetworkPackets() {
 			steamManager.sendPacket(&ack, sizeof(ack));
 		}
 
-		if (header->type <= PKT_SNAPSHOT_END && header->type != PKT_DRAFT_OPTIONS && header->seq > 0) {
+		// Only apply sequence checking to game-state-affecting packets, not to informational packets
+		// Informational packets (draft options, draft state, chat, hover, etc.) can arrive out of order
+		if (header->type <= PKT_SNAPSHOT_END && header->type != PKT_DRAFT_OPTIONS && header->type != PKT_DRAFT_STATE && header->type != PKT_CHAT_MESSAGE && header->type != PKT_HOVER && header->seq > 0) {
 			int sender = (header->playerID == 0 || header->playerID == 1) ? (int)header->playerID : -1;
 			if (sender >= 0) {
 				if (header->seq <= lastReceivedSeqByPlayer[sender]) {
