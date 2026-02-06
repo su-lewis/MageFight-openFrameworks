@@ -11659,8 +11659,16 @@ void ofApp::startNewTurn() {
 		// 3. CLIENT: Wait for host's next TurnStart packet instead of rolling locally
 		if (isClient()) {
 			ofLogNotice("Turn") << "Client: Early return after cleanup. Waiting for host's TurnStart.";
-			// Early return - don't advance turn locally, wait for host's PKT_TURN_START
-			// Note: Local player's hand is already cleaned up above
+			// OPTIMISTIC PREDICTION: Advance to opponent's turn immediately for snappy UI
+			// Host will confirm with PKT_TURN_START, which will re-run this function
+			currentPlayerIndex = (currentPlayerIndex + 1) % players.size();
+			if (currentPlayerIndex == 0) globalTurnCounter++;
+
+			// Lock end turn button to prevent double-clicks
+			endTurnLocked = true;
+
+			ofLogNotice("Turn") << "Client: Optimistically advanced to player " << players[currentPlayerIndex].playerID << "'s turn";
+			// Early return - wait for host's PKT_TURN_START to complete the turn initialization
 			return;
 		}
 		ofLogNotice("Turn") << "Host: Continuing with turn advancement...";
