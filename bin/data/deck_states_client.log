@@ -1,12 +1,12 @@
 
 === DECK STATE LOG ===
-Time: 2026-02-06 15:14:18
+Time: 2026-02-09 17:53:26
 Reason: End Turn 1
 Turn: 1
 Current Player: 1
 Local Player ID: 1
 Is Host: false
 
-Player0 Deck[4]: Lesser Heal(55), Flame Hit(24), Heal(25), Heal(25) | Hand[0]:  | Discard[2]: Flame Hit(24), Dark Shield(29)
-Player1 Deck[2]: Summon Faerie(59), Blocking Boon(68) | Hand[2]: Slash(5), Slash(5) | Discard[2]: Shoot Arrow(64), Shoot Arrow(64)
+Player0 Deck[2]: Bash(5), Fireball(12) | Hand[0]:  | Discard[5]: Mind Theft(16), Giant Magic Hand(53), Giant Magic Hand(53), Bash(5), Mind Theft(16)
+Player1 Deck[1]: Summon Faerie(59) | Hand[1]: Bash(5) | Discard[2]: Bash(5), Hand Block(9)
 =====================

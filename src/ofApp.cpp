@@ -19646,11 +19646,21 @@ void ofApp::processNetworkPackets() {
 					if (cardName.empty()) continue;
 
 					// Remove the drawn card from the deck so the deck size stays in sync
+					ofLogNotice("Network") << "Before removal: player " << targetPlayerIndex << " deck size=" << p.deck.size() << " searching for '" << cardName << "'";
+					int deckSizeBefore = p.deck.size();
+					bool foundInDeck = false;
 					for (auto it = p.deck.begin(); it != p.deck.end(); ++it) {
 						if (it->name == cardName) {
 							p.deck.erase(it);
+							foundInDeck = true;
 							break;
 						}
+					}
+					int deckSizeAfter = p.deck.size();
+					if (foundInDeck) {
+						ofLogNotice("Network") << "Removed '" << cardName << "' from deck. Size: " << deckSizeBefore << " -> " << deckSizeAfter;
+					} else {
+						ofLogWarning("Network") << "WARNING: Card '" << cardName << "' NOT FOUND in deck to remove! Deck size=" << deckSizeBefore;
 					}
 
 					// Find this card in the master card lists
@@ -19730,6 +19740,8 @@ void ofApp::processNetworkPackets() {
 				ofLogNotice("Network") << "CLIENT FIX ACTIVE: Waiting for host TurnStart packet (will NOT roll dice locally).";
 				waitingForTurnStartFromHost = true;
 				// Apply opponent hand cleanup locally so their hand disappears on our screen
+				// NOTE: Do NOT clear defensive stats (block, ward, barrier, holyBlock, fortification) here
+				// All defensive stats persist until the opponent's next turn starts in startNewTurn()
 				for (size_t i = 0; i < players.size(); i++) {
 					Player & opp = players[i];
 					if (opp.playerID == static_cast<int>(header->playerID) && !opp.isMinion) {
@@ -19789,9 +19801,28 @@ void ofApp::processNetworkPackets() {
 				if (!backupSnapshot.empty()) {
 					ofLogNotice("Backup") << "Desync detected! Attempting to restore from backup snapshot...";
 					applySnapshotString(backupSnapshot);
+
+					// After restoration, verify the state
+					long long restoredSum = calculateChecksum();
+					ofLogNotice("Backup") << "After restore checksum: " << restoredSum << " (expected to match previous good state)";
+
+					// Reset any pending interaction states that might cause issues
+					selectedPieceGridX = -1;
+					selectedPieceGridY = -1;
+					selectedCardIndex = -1;
+					draggedCardIndex = -1;
+					hoveredCardIndex = -1;
+					playerAction = NONE;
+
+					// Rebuild all visual elements
+					buildLevelMesh();
+					buildFloorMesh();
+					invalidateTargetCache();
+					calculateTargetHighlights();
+
 					addGameLog("DESYNC DETECTED: Restored from backup snapshot at turn " + ofToString(globalTurnCounter));
 					spawnFloatingText(glm::vec3(0, 5, 0), "Desync Recovered", ofColor::yellow);
-					ofLogNotice("Backup") << "Successfully restored game state from backup";
+					ofLogNotice("Backup") << "Successfully restored game state from backup and rebuilt UI";
 				} else {
 					// No backup available - show error and go to desync state
 					ofLogError("Backup") << "No backup snapshot available for desync recovery!";
@@ -20400,6 +20431,7 @@ void ofApp::executeOpponentCardPlay(const ActionPacket & pkt) {
 	// --- FIX END ---
 
 	ofLogNotice("Network") << "executeOpponentCardPlay: Executing playCard with cardIndex=" << tempCardIndex << " currentPlayerIndex=" << currentPlayerIndex << " AP=" << currentAP;
+	ofLogNotice("Network") << "executeOpponentCardPlay: Hand size before playCard = " << opponentPlayer.hand.size() << ", Played pile size = " << opponentPlayer.playedCardsPile.size();
 
 	// Special-case: resolve Giant Magic Hand using the sender's menu choice
 	if (cardDef.type == CARD_GIANT_MAGIC_HAND && pkt.menuChoice != 0) {
@@ -20659,6 +20691,8 @@ void ofApp::executeOpponentCardPlay(const ActionPacket & pkt) {
 	// Execute the card play using the normal playCard logic
 	// We rely on the result to know if we need to clean up manual AP/Hand state
 	CardPlayResult result = playCard(tempCardIndex, tx, ty);
+
+	ofLogNotice("Network") << "executeOpponentCardPlay: After playCard result=" << result << " Hand size=" << opponentPlayer.hand.size() << " Played pile size=" << opponentPlayer.playedCardsPile.size();
 
 	if (result == CARD_NOT_PLAYABLE) {
 		ofLogError("Network") << "Opponent playCard failed locally! Sync issue likely.";
