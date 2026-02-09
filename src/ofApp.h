@@ -569,6 +569,16 @@ private:
 	// seeded by that nonce and broadcast a `PKT_SHUFFLE` so clients reproduce the same
 	// shuffle without consuming `gameplayRNG` on their side. Clients will skip shuffling
 	// here when `ownerPlayerIndex >= 0` and wait for the shuffle packet.
+	// Custom deterministic shuffle (Fisher-Yates) for cross-platform consistency.
+	template <class T, class URBG>
+	void deterministic_shuffle(std::vector<T> & vec, URBG & rng) {
+		if (vec.size() <= 1) return;
+		for (size_t i = vec.size() - 1; i > 0; --i) {
+			std::uniform_int_distribution<size_t> dist(0, i);
+			size_t j = dist(rng);
+			std::swap(vec[i], vec[j]);
+		}
+	}
 	template <class T>
 	void shuffleGameVector(std::vector<T> & vec, int ownerPlayerIndex = -1) {
 		// If the client was instructed to skip the next local shuffle for this player (e.g., due to a forwarded Accept),
@@ -588,7 +598,7 @@ private:
 		if (isHost() && ownerPlayerIndex >= 0) {
 			uint32_t nonce = gameplayRNG();
 			std::mt19937 shuffleRng(nonce);
-			std::shuffle(vec.begin(), vec.end(), shuffleRng);
+			deterministic_shuffle(vec, shuffleRng);
 
 			// Broadcast shuffle to clients
 			ShufflePacket sp = {};
@@ -602,7 +612,7 @@ private:
 		}
 
 		// Singleplayer or generic shuffle: use gameplayRNG
-		std::shuffle(vec.begin(), vec.end(), gameplayRNG);
+		deterministic_shuffle(vec, gameplayRNG);
 	}
 
 	// -------------------------------------------------------------------------

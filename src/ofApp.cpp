@@ -12160,6 +12160,16 @@ void ofApp::drawCard() {
 
 	// --- PHASE 2: DRAW THE CARD ---
 	// We check empty() again because we might have just refilled it in Phase 1.
+	if (isClient() && currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) {
+		if (hasPendingShuffleNonce[currentPlayerIndex]) {
+			std::mt19937 shuffleRng(pendingShuffleNonce[currentPlayerIndex]);
+			deterministic_shuffle(currentPlayer.deck, shuffleRng);
+			lastAppliedShuffleNonce[currentPlayerIndex] = pendingShuffleNonce[currentPlayerIndex];
+			hasPendingShuffleNonce[currentPlayerIndex] = false;
+			pendingShuffleNonce[currentPlayerIndex] = 0;
+			ofLogNotice("Network") << "Client: Applied pending shuffle nonce for player " << currentPlayerIndex << " before draw";
+		}
+	}
 	if (!currentPlayer.deck.empty()) {
 		Card newCard = currentPlayer.deck.back();
 		currentPlayer.deck.pop_back();
@@ -18650,7 +18660,7 @@ void ofApp::generateDraftOptions(int classTier, const std::vector<int> * forcedI
 	derivedSeed ^= draftGenerationCounter * 1103515245u; // Add generation counter for variety
 
 	std::mt19937 draftRng(derivedSeed);
-	std::shuffle(indices.begin(), indices.end(), draftRng);
+	deterministic_shuffle(indices, draftRng);
 
 	for (int i = 0; i < 3 && i < (int)indices.size(); ++i) {
 		draftOptions.push_back((*pool)[indices[i]]);
@@ -19175,7 +19185,7 @@ void ofApp::processNetworkPackets() {
 					continue;
 				}
 				std::mt19937 shuffleRng(spk->nonce);
-				std::shuffle(players[spk->playerIndex].deck.begin(), players[spk->playerIndex].deck.end(), shuffleRng);
+				deterministic_shuffle(players[spk->playerIndex].deck, shuffleRng);
 				if (isClient()) {
 					lastAppliedShuffleNonce[spk->playerIndex] = spk->nonce;
 				}
@@ -20185,9 +20195,24 @@ void ofApp::processNetworkPackets() {
 					// In multiplayer clients, mark that we will skip the immediate local shuffle and
 					// wait for the host's authoritative `PKT_SHUFFLE` for this player's deck.
 					if (isClient()) {
-						skipClientShuffleFor = pkt->draftPlayerIdx;
+						int pid = pkt->draftPlayerIdx;
+						if (pid >= 0 && pid < (int)players.size() && hasPendingShuffleNonce[pid]) {
+							std::mt19937 shuffleRng(pendingShuffleNonce[pid]);
+							deterministic_shuffle(p.deck, shuffleRng);
+							lastAppliedShuffleNonce[pid] = pendingShuffleNonce[pid];
+							hasPendingShuffleNonce[pid] = false;
+							pendingShuffleNonce[pid] = 0;
+							if (skipClientShuffleFor == pid) {
+								skipClientShuffleFor = -1;
+							}
+							ofLogNotice("Network") << "Client: Applied deferred shuffle nonce for player " << pid << " after AcceptDraft";
+						} else {
+							skipClientShuffleFor = pid;
+							shuffleGameVector(p.deck, pid);
+						}
+					} else {
+						shuffleGameVector(p.deck, pkt->draftPlayerIdx);
 					}
-					shuffleGameVector(p.deck, pkt->draftPlayerIdx);
 					selectedDraftIndices.clear();
 					if (isInGameDraft) {
 						draftOptions.clear();
@@ -20344,13 +20369,15 @@ void ofApp::executeOpponentCardPlay(const ActionPacket & pkt) {
 			break;
 		}
 	}
+
+	// --- ADD DIAGNOSTIC LOG ---
 	if (!found) {
-		ofLogWarning("Network") << "Card not found in allCards: " << cardName;
+		ofLogError("Network") << "CRITICAL: Opponent played card '" << cardName << "' but it was not found in local allCards DB!";
+		// Attempt fallback? Or just return to avoid crash.
 		return;
 	}
 
 	ofLogNotice("Network") << "executeOpponentCardPlay: Card type=" << (int)cardDef.type << " cost=" << cardDef.cost;
-
 	Player & opponentPlayer = players[opponentPlayerIndex];
 
 	// Temporarily swap to opponent's player context
@@ -20362,8 +20389,17 @@ void ofApp::executeOpponentCardPlay(const ActionPacket & pkt) {
 	opponentPlayer.hand.push_back(cardDef);
 	int tempCardIndex = (int)opponentPlayer.hand.size() - 1;
 
-	// Set up AP for the card execution
+	// --- FIX START: FORCE AP FOR REMOTE ACTIONS ---
+	// The opponent already paid the cost on their screen. We must ensure
+	// playCard() doesn't reject it locally due to sync lag.
 	currentAP = opponentPlayer.ap;
+	if (currentAP < cardDef.cost) {
+		ofLogNotice("Sync") << "Forcing AP for opponent action. Local: " << currentAP << " Cost: " << cardDef.cost;
+		currentAP = cardDef.cost;
+	}
+	// Update the player struct so internal checks inside playCard pass
+	opponentPlayer.ap = currentAP;
+	// --- FIX END ---
 
 	ofLogNotice("Network") << "executeOpponentCardPlay: Executing playCard with cardIndex=" << tempCardIndex << " currentPlayerIndex=" << currentPlayerIndex << " AP=" << currentAP;
 
@@ -20622,30 +20658,20 @@ void ofApp::executeOpponentCardPlay(const ActionPacket & pkt) {
 		return;
 	}
 
-	// Execute the card play using the normal playCard logic (HOST must process all game logic)
-	playCard(tempCardIndex, tx, ty);
+	// Execute the card play using the normal playCard logic
+	// We rely on the result to know if we need to clean up manual AP/Hand state
+	CardPlayResult result = playCard(tempCardIndex, tx, ty);
 
-	// Find the opponent again in case playCard resorted players (summon cards)
-	for (size_t i = 0; i < players.size(); i++) {
-		if (static_cast<uint32_t>(players[i].playerID) == pkt.playerID && !players[i].isMinion) {
-			opponentPlayerIndex = (int)i;
-			break;
+	if (result == CARD_NOT_PLAYABLE) {
+		ofLogError("Network") << "Opponent playCard failed locally! Sync issue likely.";
+		// Force cleanup since playCard didn't consume it
+		if (opponentPlayer.hand.size() > static_cast<size_t>(tempCardIndex)) {
+			opponentPlayer.hand.erase(opponentPlayer.hand.begin() + tempCardIndex);
 		}
-	}
-	if (opponentPlayerIndex >= 0 && opponentPlayerIndex < (int)players.size()) {
-		players[opponentPlayerIndex].ap = currentAP;
-	}
-
-	ofLogNotice("Network") << "executeOpponentCardPlay: After playCard AP=" << currentAP << " stored as " << currentAP;
-
-	// Remove the temporary card only if it still exists and matches
-	if (opponentPlayerIndex >= 0 && opponentPlayerIndex < (int)players.size()) {
-		Player & postPlayer = players[opponentPlayerIndex];
-		if (tempCardIndex >= 0 && tempCardIndex < (int)postPlayer.hand.size()) {
-			if (postPlayer.hand[tempCardIndex].name == cardName) {
-				postPlayer.hand.erase(postPlayer.hand.begin() + tempCardIndex);
-			}
-		}
+	} else {
+		// playCard succeeded. It consumed the AP and removed the card from hand.
+		// We just need to update our local tracker of the opponent's AP.
+		opponentPlayer.ap = currentAP;
 	}
 
 	// Restore current player context
