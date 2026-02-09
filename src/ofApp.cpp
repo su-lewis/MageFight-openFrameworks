@@ -1578,14 +1578,14 @@ void ofApp::setupGame() {
 		player0SteamName = steamManager.getLocalPlayerName();
 		player1SteamName = steamManager.getOpponentName();
 
-		ofLogNotice("Setup") << "Host generated seed: " << currentMapSeed;
+		ofLogNotice("Setup") << "Host generated seed: " << currentMapSeed << " platform=" << MAGEFIGHT_PLATFORM;
 
 		HandshakePacket pkt = {};
 		pkt.type = PKT_HANDSHAKE;
 		pkt.playerID = myLocalPlayerID;
 		pkt.seq = 0;
 		pkt.seed = currentMapSeed;
-		ofLogNotice("Setup") << "Host sending handshake: type=" << (int)pkt.type << " playerID=" << pkt.playerID << " seq=" << pkt.seq << " seed=" << pkt.seed;
+		ofLogNotice("Setup") << "Host sending handshake: type=" << (int)pkt.type << " playerID=" << pkt.playerID << " seq=" << pkt.seq << " seed=" << pkt.seed << " platform=" << MAGEFIGHT_PLATFORM;
 		steamManager.sendPacket(&pkt, sizeof(pkt));
 
 		// Publish seed and start flag to lobby so clients can begin as well
@@ -19564,9 +19564,7 @@ void ofApp::processNetworkPackets() {
 
 		if (header->type == PKT_HANDSHAKE) {
 			HandshakePacket * pkt = (HandshakePacket *)header;
-			ofLogNotice("Net") << "Handshake received: type=" << (int)pkt->type << " playerID=" << pkt->playerID << " seq=" << pkt->seq << " seed=" << pkt->seed;
-
-			// Guard against duplicate handshakes - only process the first one
+			ofLogNotice("Net") << "Handshake received: type=" << (int)pkt->type << " playerID=" << pkt->playerID << " seq=" << pkt->seq << " seed=" << pkt->seed << " platform=" << MAGEFIGHT_PLATFORM;
 			if (hasReceivedHandshake) {
 				ofLogNotice("Net") << "Ignoring duplicate handshake (already initialized).";
 				continue;

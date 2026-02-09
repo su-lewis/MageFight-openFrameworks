@@ -1,5 +1,12 @@
 #pragma once
 #include <cstdint>
+#include <cstring>
+
+// Cross-platform packet layout (1-byte alignment, no padding)
+// All data types are platform-independent:
+// - uint8_t, uint32_t, int32_t, int64_t (fixed-size integers)
+// - char arrays (already packed)
+// Both Linux and Windows use little-endian, so no byte-swap needed.
 
 #pragma pack(push, 1)
 
@@ -30,6 +37,7 @@ struct PacketHeader {
 	uint32_t playerID; // Who sent this?
 	uint32_t seq; // Sequence number (monotonic per sender)
 };
+static_assert(sizeof(PacketHeader) == 9, "PacketHeader has unexpected size (cross-platform packing issue)");
 
 struct TurnStartPacket : PacketHeader {
 	int32_t currentPlayerIndex; // who is starting
@@ -255,3 +263,17 @@ struct AckPacket : PacketHeader {
 };
 
 #pragma pack(pop)
+
+// Cross-platform platform identification
+#if defined(_WIN32) || defined(_WIN64)
+	#define MAGEFIGHT_PLATFORM "Windows"
+#elif defined(__linux__)
+	#define MAGEFIGHT_PLATFORM "Linux"
+#elif defined(__APPLE__)
+	#define MAGEFIGHT_PLATFORM "macOS"
+#else
+	#define MAGEFIGHT_PLATFORM "Unknown"
+#endif
+
+// Endianness: Both Windows and Linux are little-endian.
+// If porting to big-endian platforms (rare), add byte-swap utilities here.
