@@ -19650,32 +19650,6 @@ void ofApp::processNetworkPackets() {
 					players[currentPlayerIndex].ap = currentAP;
 				}
 
-				// DEBUGGING: Calculate checksum BEFORE marking dice as DEBUG (to match host's state)
-				// Only send checksum once per turn to avoid sending it multiple times if duplicate packets arrive
-				static int lastChecksumTurn = -1;
-				// Skip checksum on turn 0 - deck setup is still in progress, wait until turn 1
-				if (globalTurnCounter > 0 && lastChecksumTurn != globalTurnCounter) {
-					lastChecksumTurn = globalTurnCounter;
-					// Log deck state before checksum
-					for (size_t pi = 0; pi < players.size(); ++pi) {
-						std::string deckStr = "[";
-						for (size_t ci = 0; ci < players[pi].deck.size(); ++ci) {
-							if (ci > 0) deckStr += ",";
-							deckStr += std::to_string((int)players[pi].deck[ci].type) + "(" + std::to_string(players[pi].deck[ci].value) + ")";
-						}
-						deckStr += "]";
-						ofLogNotice("Checksum") << "Client P" << pi << " deck=" << deckStr;
-					}
-					int64_t myChecksum = calculateChecksum();
-					ChecksumPacket cpkt = {};
-					cpkt.type = PKT_CHECKSUM_CHECK;
-					cpkt.playerID = myLocalPlayerID;
-					cpkt.turnNumber = globalTurnCounter;
-					cpkt.checksum = myChecksum;
-					steamManager.sendPacket(&cpkt, sizeof(cpkt));
-					ofLogNotice("Checksum") << "Client sent checksum for turn " << globalTurnCounter << ": " << myChecksum;
-				}
-
 				// Mark dice as DEBUG to prevent recalculation when animation finishes
 				for (auto & roll : activeDiceRolls) {
 					if (roll.purpose == PURPOSE_AP && roll.associatedUnit == currentPlayerIndex) {
@@ -20958,11 +20932,10 @@ long long ofApp::calculateChecksum() {
 		mix((uint64_t)p.ghostDamageTaken);
 		mix((uint64_t)p.freeKickTurns);
 
-		// Deck/Discard/Hand sizes (composition is deterministic from draft, only count matters)
-		// Order doesn't matter since both players don't know the shuffled order anyway
-		mix((uint64_t)p.deck.size());
-		mix((uint64_t)p.discardPile.size());
-		mix((uint64_t)p.hand.size());
+		// NOTE: We do NOT include deck/discard/hand sizes in checksum because:
+		// 1. Network packet timing causes desyncs (DrawCards packets arrive after checksum)
+		// 2. Opponent's deck/hand are hidden information anyway
+		// 3. Cards are synchronized via explicit DrawCards/PlayCard packets
 	}
 
 	// Active dice (include resolved outcomes)
