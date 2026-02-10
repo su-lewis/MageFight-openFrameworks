@@ -1,12 +1,12 @@
 
 === DECK STATE LOG ===
-Time: 2026-02-10 06:40:10
+Time: 2026-02-10 08:19:10
 Reason: End Turn 1
 Turn: 1
 Current Player: 1
 Local Player ID: 1
 Is Host: false
 
-Player0 Deck[4]: Consume Large Health Potion(54), Chain Lightning(42), Shoot Arrow(64), Wisdom Boon(22) | Hand[0]:  | Discard[2]: Shoot Arrow(64), Wisdom Boon(22)
-Player1 Deck[1]: Mind Theft(16) | Hand[1]: Mind Theft(16) | Discard[2]: Sprint(61), Consume Health Potion(43)
+Player0 Deck[4]: Call for Kobolds(47), Hand Block(9), Mind Theft(16), Four-leaf clover(60) | Hand[0]:  | Discard[4]: Shield Bash(41), Mind Theft(16), Shield Bash(41), Heal(25)
+Player1 Deck[4]: Chain Lightning(42), Burst of Light(63), Shield Bash(41), Flame Hit(24) | Hand[1]: Shield Bash(41) | Discard[2]: Ward(10), Fireball(12)
 =====================

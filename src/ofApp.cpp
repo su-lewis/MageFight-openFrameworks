@@ -11787,6 +11787,15 @@ void ofApp::startNewTurn() {
 				localPlayer.nextAttackAddPoison = false;
 				localPlayer.flurryOfFistsActive = false;
 
+				// Clear defensive stats (unless in Tortoise Form)
+				if (!localPlayer.inTortoiseForm) {
+					localPlayer.block = 0;
+					localPlayer.holyBlock = 0;
+					localPlayer.ward = 0;
+					localPlayer.fortification = 0;
+					localPlayer.barrier = 0;
+				}
+
 				// Reshuffle discard into deck if needed
 				if (localPlayer.deck.empty() && !localPlayer.discardPile.empty()) {
 					localPlayer.deck = localPlayer.discardPile;
@@ -20899,6 +20908,9 @@ long long ofApp::calculateChecksum() {
 		mix((uint64_t)p.maxHealth);
 		mix((uint64_t)p.block);
 		mix((uint64_t)p.ward);
+		mix((uint64_t)p.fortification);
+		mix((uint64_t)p.barrier);
+		mix((uint64_t)p.holyBlock);
 		mix((uint64_t)p.luck);
 		mix((uint64_t)p.onFire);
 		mix((uint64_t)p.isParalyzed);
