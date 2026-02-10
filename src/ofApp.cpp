@@ -20912,10 +20912,20 @@ long long ofApp::calculateChecksum() {
 		mix((uint64_t)p.barrier);
 		mix((uint64_t)p.holyBlock);
 		mix((uint64_t)p.luck);
+		mix((uint64_t)p.bonusTurns);
+		mix((uint64_t)p.ap);
 		mix((uint64_t)p.onFire);
 		mix((uint64_t)p.isParalyzed);
+		mix((uint64_t)p.paralysisHeadsCount);
 		mix((uint64_t)p.isPoisoned);
+		mix((uint64_t)p.poisonReduction);
+		mix((uint64_t)p.nextTurnAPBonus);
+		mix((uint64_t)p.strengthenElementsTurnsRemaining);
+		mix((uint64_t)p.sleepTurnsRemaining);
 		mix((uint64_t)p.summonedOnTurnCycle);
+		mix((uint64_t)p.inTortoiseForm);
+		mix((uint64_t)p.tortoiseDamageTaken);
+		mix((uint64_t)p.freeKickTurns);
 	}
 
 	// Active dice (include resolved outcomes)
