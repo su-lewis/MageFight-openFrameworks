@@ -713,6 +713,9 @@ private:
 	void drawBurstUI();
 	void drawOpponentMenu(); // Draw opponent's active menu with red outlines
 
+	// Board highlight helpers
+	void drawJoinedOutlines(bool highlightedTiles[BOARD_WIDTH][BOARD_HEIGHT], ofColor color, float surfaceY);
+
 	// Standardized card-choice panel helper
 	void drawCardChoicePanel(const ofRectangle & panelRect,
 		const std::string & title,
@@ -1268,6 +1271,11 @@ private:
 	ofMesh d6Mesh, d4Mesh, d20Mesh, d10Mesh, coinMesh;
 	ofTexture d6Texture, d4Texture, d20Texture, d10Texture, coinFacesTexture;
 	std::vector<ofSoundPlayer> footstepSounds;
+
+	// Dice roll result display
+	std::string diceRollResultText = "";
+	float diceRollResultStartTime = 0.0f;
+	float diceRollResultDuration = 3.5f; // How long to show the result
 
 	// --- DEBUG ---
 	bool isDebugMode = false;

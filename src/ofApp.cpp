@@ -2678,7 +2678,8 @@ void ofApp::updateGame() {
 		// Set owner and summoning sickness - use the tracked player index
 		int summoner = (pendingSummonPlayerIndex >= 0 && pendingSummonPlayerIndex < (int)players.size()) ? pendingSummonPlayerIndex : currentPlayerIndex;
 		minion.ownerID = players[summoner].isMinion ? players[summoner].ownerID : players[summoner].playerID;
-		minion.summonedOnTurnCycle = players[summoner].isMinion ? globalTurnCounter : -1;
+		// All summoned minions wait until after opponent's next turn before acting
+		minion.summonedOnTurnCycle = globalTurnCounter;
 		minion.summonOrder = ++nextSummonOrder;
 
 		// 2. Build Minion Deck
@@ -2732,8 +2733,8 @@ void ofApp::updateGame() {
 			int ownerA = a.isMinion ? a.ownerID : a.playerID;
 			int ownerB = b.isMinion ? b.ownerID : b.playerID;
 			if (ownerA != ownerB) return ownerA < ownerB;
-			if (a.isMinion && !b.isMinion) return false;
-			if (!a.isMinion && b.isMinion) return true;
+			if (a.isMinion && !b.isMinion) return true;
+			if (!a.isMinion && b.isMinion) return false;
 			return a.summonOrder < b.summonOrder;
 		});
 
@@ -3198,7 +3199,7 @@ void ofApp::updateGame() {
 
 		// Set owner and summoning sickness
 		minion.ownerID = players[currentPlayerIndex].isMinion ? players[currentPlayerIndex].ownerID : players[currentPlayerIndex].playerID;
-		minion.summonedOnTurnCycle = players[currentPlayerIndex].isMinion ? globalTurnCounter : -1;
+		minion.summonedOnTurnCycle = globalTurnCounter;
 		minion.summonOrder = ++nextSummonOrder;
 
 		// 2. Build Deck
@@ -3236,8 +3237,8 @@ void ofApp::updateGame() {
 			int ownerA = a.isMinion ? a.ownerID : a.playerID;
 			int ownerB = b.isMinion ? b.ownerID : b.playerID;
 			if (ownerA != ownerB) return ownerA < ownerB;
-			if (a.isMinion && !b.isMinion) return false;
-			if (!a.isMinion && b.isMinion) return true;
+			if (a.isMinion && !b.isMinion) return true;
+			if (!a.isMinion && b.isMinion) return false;
 			return a.summonOrder < b.summonOrder;
 		});
 
@@ -3267,7 +3268,7 @@ void ofApp::updateGame() {
 
 		// Set owner and summoning sickness
 		minion.ownerID = players[currentPlayerIndex].isMinion ? players[currentPlayerIndex].ownerID : players[currentPlayerIndex].playerID;
-		minion.summonedOnTurnCycle = players[currentPlayerIndex].isMinion ? globalTurnCounter : -1;
+		minion.summonedOnTurnCycle = globalTurnCounter;
 		minion.summonOrder = ++nextSummonOrder;
 
 		// Deck: 2x Death, 2x Flail, 2x Fireball, 1x Summon Hellhound, 3x Dark Shield
@@ -3308,8 +3309,8 @@ void ofApp::updateGame() {
 			int ownerA = a.isMinion ? a.ownerID : a.playerID;
 			int ownerB = b.isMinion ? b.ownerID : b.playerID;
 			if (ownerA != ownerB) return ownerA < ownerB;
-			if (a.isMinion && !b.isMinion) return false;
-			if (!a.isMinion && b.isMinion) return true;
+			if (a.isMinion && !b.isMinion) return true;
+			if (!a.isMinion && b.isMinion) return false;
 			return a.summonOrder < b.summonOrder;
 		});
 
@@ -4034,6 +4035,67 @@ void ofApp::updateGame() {
 		if (elapsedTime > spinDuration && !roll.isFinishedVisual) {
 			roll.isFinishedVisual = true;
 
+			// Build dice result text when dice finish
+			// Check if this is part of a group and if all in the group are finished
+			bool allGroupFinished = true;
+			std::vector<DiceRoll *> groupRolls;
+			DicePurpose checkPurpose = roll.purpose;
+
+			// Group dice rolls by purpose (combine AP and BONUS_AP together)
+			for (auto & r : activeDiceRolls) {
+				if (r.purpose == checkPurpose || (checkPurpose == PURPOSE_AP && r.purpose == PURPOSE_BONUS_AP) || (checkPurpose == PURPOSE_BONUS_AP && r.purpose == PURPOSE_AP)) {
+					groupRolls.push_back(&r);
+					if (!r.isFinishedVisual) allGroupFinished = false;
+				}
+			}
+
+			// Build result text when all dice in group finish (show for ALL dice types)
+			if (allGroupFinished && !groupRolls.empty()) {
+				std::string resultText = "";
+				int total = 0;
+				int headsCount = 0;
+				int tailsCount = 0;
+
+				// Check if coins
+				bool isCoins = (checkPurpose == PURPOSE_COIN_FLIP);
+
+				if (isCoins) {
+					// Count heads and tails
+					for (auto * r : groupRolls) {
+						if (r->result == 2)
+							headsCount++;
+						else if (r->result == 1)
+							tailsCount++;
+					}
+
+					if (groupRolls.size() == 1) {
+						resultText = (roll.result == 2) ? "Heads" : "Tails";
+					} else {
+						resultText = "Heads: " + ofToString(headsCount) + "  Tails: " + ofToString(tailsCount);
+					}
+				} else {
+					// Regular dice - show results for ALL dice types (damage, HP, healing, range, etc.)
+					if (groupRolls.size() == 1) {
+						resultText = "Rolled " + ofToString(roll.result);
+					} else {
+						// Multiple dice - show individual rolls in order, then total
+						resultText = "Rolled ";
+						for (size_t i = 0; i < groupRolls.size(); i++) {
+							resultText += ofToString(groupRolls[i]->result);
+							total += groupRolls[i]->result;
+							if (i < groupRolls.size() - 1) {
+								resultText += " + ";
+							}
+						}
+						resultText += " = " + ofToString(total);
+					}
+				}
+
+				// Set the text for display (works for ALL dice purposes)
+				diceRollResultText = resultText;
+				diceRollResultStartTime = ofGetElapsedTimef();
+			}
+
 			// CORRECTED LOGIC: Check for DEBUG first. If it's not a debug roll,
 			// THEN execute all the game-related logic inside this block.
 			if (roll.purpose != PURPOSE_DEBUG && roll.purpose != PURPOSE_HP && roll.purpose != PURPOSE_HEALING) {
@@ -4324,8 +4386,8 @@ void ofApp::updateGame() {
 								int ownerA = a.isMinion ? a.ownerID : a.playerID;
 								int ownerB = b.isMinion ? b.ownerID : b.playerID;
 								if (ownerA != ownerB) return ownerA < ownerB;
-								if (a.isMinion && !b.isMinion) return false;
-								if (!a.isMinion && b.isMinion) return true;
+								if (a.isMinion && !b.isMinion) return true;
+								if (!a.isMinion && b.isMinion) return false;
 								return a.summonOrder < b.summonOrder;
 							});
 
@@ -4370,8 +4432,8 @@ void ofApp::updateGame() {
 									int ownerA = a.isMinion ? a.ownerID : a.playerID;
 									int ownerB = b.isMinion ? b.ownerID : b.playerID;
 									if (ownerA != ownerB) return ownerA < ownerB;
-									if (a.isMinion && !b.isMinion) return false;
-									if (!a.isMinion && b.isMinion) return true;
+									if (a.isMinion && !b.isMinion) return true;
+									if (!a.isMinion && b.isMinion) return false;
 									return a.summonOrder < b.summonOrder;
 								});
 								for (size_t i = 0; i < players.size(); i++) {
@@ -5967,57 +6029,27 @@ void ofApp::drawGame() {
 					}
 				}
 
-				// 2. Draw Movement Highlight (FIXED HEIGHT) - Golden glow
-				if (board[x][y].isHighlighted) {
-					bool isOnPath = false;
-					for (const auto & step : hoverPath) {
-						if (step.x == x && step.y == y) {
-							isOnPath = true;
-							break;
-						}
-					}
-					if (!isOnPath) {
-						// Golden glow with pulse effect
-						float pulseIntensity = 0.6f + 0.4f * sin(ofGetElapsedTimef() * 3.0f);
-						ofSetColor(255, 215, 0, (int)(130 * pulseIntensity)); // Gold
-						ofPushMatrix();
-						ofTranslate(0, surfaceY + 0.01f, 0);
-						ofRotateXDeg(90);
-						ofDrawCircle(0, 0, TILE_SIZE * 0.28f);
-						// Outer glow ring
-						ofSetColor(255, 215, 0, (int)(80 * pulseIntensity));
-						ofNoFill();
-						ofSetLineWidth(2.0f);
-						ofDrawCircle(0, 0, TILE_SIZE * 0.40f);
-						ofFill();
-						ofPopMatrix();
-					}
-				}
+				// 2. Draw Movement Highlight (White Joined Outlines)
+				// We'll draw these after all tiles are processed, not per-tile
 
-				// 3. Draw Target Previews (Red/Green) (FIXED HEIGHT)
-				if (board[x][y].isTargetPreview && !board[x][y].isTargetable) {
-					ofSetColor(ofColor::red, 80);
-					ofPushMatrix();
-					ofTranslate(0, surfaceY + 0.01f, 0);
-					ofRotateXDeg(90);
-					ofDrawRectangle(-TILE_SIZE * 0.45f, -TILE_SIZE * 0.45f, TILE_SIZE * 0.9f, TILE_SIZE * 0.9f);
-					ofPopMatrix();
-				}
+				// 3. Draw Target Previews - now handled by white outline system
+				// (Red preview tiles are drawn as white outlines below)
 
+				// 4. Draw Valid Targets (Green Separate Outlines) - These don't join
 				if (board[x][y].isTargetable) {
-					ofSetColor(ofColor::green, 180);
+					ofSetColor(ofColor::green, 220);
 					ofNoFill();
-					ofSetLineWidth(3);
+					ofSetLineWidth(4);
 					ofPushMatrix();
 					ofTranslate(0, surfaceY + 0.02f, 0);
 					ofRotateXDeg(90);
-					ofDrawRectangle(-TILE_SIZE * 0.4f, -TILE_SIZE * 0.4f, TILE_SIZE * 0.8f, TILE_SIZE * 0.8f);
+					ofDrawRectangle(-TILE_SIZE * 0.5f, -TILE_SIZE * 0.5f, TILE_SIZE, TILE_SIZE);
 					ofPopMatrix();
 					ofFill();
 					ofSetLineWidth(1);
 				}
 
-				// 4. Active Player Selection Square
+				// 5. Active Player Selection Square
 				if (!players.empty() && currentPlayerIndex >= 0) {
 					int highlightX = players[currentPlayerIndex].x;
 					int highlightY = players[currentPlayerIndex].y;
@@ -6060,16 +6092,33 @@ void ofApp::drawGame() {
 			}
 		}
 
+		// Draw white joined outlines for movement highlights and target previews (after all tiles processed)
+		// Build a 2D array of which tiles should have white outlines
+		bool highlightedTiles[BOARD_WIDTH][BOARD_HEIGHT];
+		for (int x = 0; x < BOARD_WIDTH; x++) {
+			for (int y = 0; y < BOARD_HEIGHT; y++) {
+				// Include both movement highlights AND red preview tiles
+				highlightedTiles[x][y] = board[x][y].isHighlighted || (board[x][y].isTargetPreview && !board[x][y].isTargetable);
+			}
+		}
+		// Draw the white outlines (no pulse, solid white)
+		ofColor whiteColor(255, 255, 255, 240);
+		float avgSurfaceY = 0.05f; // Average surface height for flat tiles
+		drawJoinedOutlines(highlightedTiles, whiteColor, avgSurfaceY);
+
 		// 5. Draw Path Highlights (Green Circles) (FIXED HEIGHT)
 		if ((playerAction == PIECE_SELECTED) && !hoverPath.empty()) {
+			// Enable depth write so these don't overwrite outlines underneath
+			glDepthMask(GL_TRUE);
+			ofEnableDepthTest();
 			for (size_t i = 1; i < hoverPath.size(); i++) {
 				const auto & step = hoverPath[i];
 				glm::vec3 pathWorldPos = gridToWorld(step.x, step.y); // Use gridToWorld, not transformGridToWorld
 
-				// Calculate height for THIS specific step
-				float pathY = 0.05f;
+				// Calculate height for THIS specific step (slightly higher to sit above outlines)
+				float pathY = 0.08f;
 				if (board[(int)step.x][(int)step.y].hasWall) {
-					pathY = (TILE_SIZE * 0.5f) + 0.05f;
+					pathY = (TILE_SIZE * 0.5f) + 0.08f;
 				}
 
 				ofSetColor(ofColor::green, 150);
@@ -6079,6 +6128,7 @@ void ofApp::drawGame() {
 				ofDrawCircle(0, 0, TILE_SIZE * 0.3f);
 				ofPopMatrix();
 			}
+			ofDisableDepthTest();
 		}
 
 		glDepthMask(GL_TRUE);
@@ -7880,6 +7930,20 @@ void ofApp::drawGame() {
 		titleFont.drawString(msg, tx, ty);
 	}
 
+	// --- DICE ROLL RESULT TEXT ---
+	if (!diceRollResultText.empty() && (ofGetElapsedTimef() - diceRollResultStartTime) < diceRollResultDuration) {
+		ofRectangle bbox = titleFont.getStringBoundingBox(diceRollResultText, 0, 0);
+		float tx = (ofGetWidth() / 2.0f) - (bbox.width / 2.0f);
+		float ty = ofGetHeight() * 0.25f;
+
+		// Shadow
+		ofSetColor(0, 0, 0, 255);
+		titleFont.drawString(diceRollResultText, tx + 2, ty + 2);
+		// Text (yellow/gold for dice results)
+		ofSetColor(ofColor::gold);
+		titleFont.drawString(diceRollResultText, tx, ty);
+	}
+
 	// FIX: Added Burst Targeting Instructions
 	if (isTargetingBurst) {
 		string msg = (burstChoice == 0) ? "Select Enemy to Damage (3 Holy)" : "Select Ally to Heal (3 HP)";
@@ -9027,8 +9091,8 @@ void ofApp::mousePressed(int x, int y, int button) {
 								int ownerA = a.isMinion ? a.ownerID : a.playerID;
 								int ownerB = b.isMinion ? b.ownerID : b.playerID;
 								if (ownerA != ownerB) return ownerA < ownerB;
-								if (a.isMinion && !b.isMinion) return false;
-								if (!a.isMinion && b.isMinion) return true;
+								if (a.isMinion && !b.isMinion) return true;
+								if (!a.isMinion && b.isMinion) return false;
 								return a.summonOrder < b.summonOrder;
 							});
 							for (size_t i = 0; i < players.size(); i++) {
@@ -10350,8 +10414,8 @@ void ofApp::mousePressed(int x, int y, int button) {
 								int ownerA = a.isMinion ? a.ownerID : a.playerID;
 								int ownerB = b.isMinion ? b.ownerID : b.playerID;
 								if (ownerA != ownerB) return ownerA < ownerB;
-								if (a.isMinion && !b.isMinion) return false;
-								if (!a.isMinion && b.isMinion) return true;
+								if (a.isMinion && !b.isMinion) return true;
+								if (!a.isMinion && b.isMinion) return false;
 								return a.summonOrder < b.summonOrder;
 							});
 
@@ -10395,7 +10459,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 
 						// Set owner and summoning sickness
 						wolf.ownerID = players[currentPlayerIndex].isMinion ? players[currentPlayerIndex].ownerID : players[currentPlayerIndex].playerID;
-						wolf.summonedOnTurnCycle = players[currentPlayerIndex].isMinion ? globalTurnCounter : -1;
+						wolf.summonedOnTurnCycle = globalTurnCounter;
 						Card slashCard, callCard;
 						for (const auto & c : allCards) {
 							if (c.name == "Slash") slashCard = c;
@@ -10432,8 +10496,8 @@ void ofApp::mousePressed(int x, int y, int button) {
 								int ownerA = a.isMinion ? a.ownerID : a.playerID;
 								int ownerB = b.isMinion ? b.ownerID : b.playerID;
 								if (ownerA != ownerB) return ownerA < ownerB;
-								if (a.isMinion && !b.isMinion) return false;
-								if (!a.isMinion && b.isMinion) return true;
+								if (a.isMinion && !b.isMinion) return true;
+								if (!a.isMinion && b.isMinion) return false;
 								return a.summonOrder < b.summonOrder;
 							});
 
@@ -13034,7 +13098,7 @@ CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 
 		// Owner logic
 		minion.ownerID = currentPlayer.isMinion ? currentPlayer.ownerID : currentPlayer.playerID;
-		minion.summonedOnTurnCycle = currentPlayer.isMinion ? globalTurnCounter : -1;
+		minion.summonedOnTurnCycle = globalTurnCounter;
 		minion.summonOrder = ++nextSummonOrder;
 
 		// 3. Build Deck
@@ -13112,8 +13176,8 @@ CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 			int ownerA = a.isMinion ? a.ownerID : a.playerID;
 			int ownerB = b.isMinion ? b.ownerID : b.playerID;
 			if (ownerA != ownerB) return ownerA < ownerB;
-			if (a.isMinion && !b.isMinion) return false;
-			if (!a.isMinion && b.isMinion) return true;
+			if (a.isMinion && !b.isMinion) return true;
+			if (!a.isMinion && b.isMinion) return false;
 			return a.summonOrder < b.summonOrder;
 		});
 
@@ -13147,7 +13211,7 @@ CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 
 		// Standard Owner/Turn logic
 		minion.ownerID = currentPlayer.isMinion ? currentPlayer.ownerID : currentPlayer.playerID;
-		minion.summonedOnTurnCycle = currentPlayer.isMinion ? globalTurnCounter : -1;
+		minion.summonedOnTurnCycle = globalTurnCounter;
 		minion.summonOrder = ++nextSummonOrder;
 
 		// 3. Deck: 1x Lesser Heal, 4x Hand Block
@@ -13200,8 +13264,8 @@ CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 			int ownerA = a.isMinion ? a.ownerID : a.playerID;
 			int ownerB = b.isMinion ? b.ownerID : b.playerID;
 			if (ownerA != ownerB) return ownerA < ownerB;
-			if (a.isMinion && !b.isMinion) return false;
-			if (!a.isMinion && b.isMinion) return true;
+			if (a.isMinion && !b.isMinion) return true;
+			if (!a.isMinion && b.isMinion) return false;
 			return a.summonOrder < b.summonOrder;
 		});
 		for (size_t i = 0; i < players.size(); i++) {
@@ -13235,7 +13299,7 @@ CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		// 2. Link to Summoner
 		minion.directSummonerID = currentPlayer.playerID;
 		minion.ownerID = currentPlayer.isMinion ? currentPlayer.ownerID : currentPlayer.playerID;
-		minion.summonedOnTurnCycle = currentPlayer.isMinion ? globalTurnCounter : -1;
+		minion.summonedOnTurnCycle = globalTurnCounter;
 		minion.summonOrder = ++nextSummonOrder;
 
 		// 3. Deck: 2x Dispel, 2x Lesser Heal, 1x Magic Blast
@@ -13281,8 +13345,8 @@ CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 			int ownerA = a.isMinion ? a.ownerID : a.playerID;
 			int ownerB = b.isMinion ? b.ownerID : b.playerID;
 			if (ownerA != ownerB) return ownerA < ownerB;
-			if (a.isMinion && !b.isMinion) return false;
-			if (!a.isMinion && b.isMinion) return true;
+			if (a.isMinion && !b.isMinion) return true;
+			if (!a.isMinion && b.isMinion) return false;
 			return a.summonOrder < b.summonOrder;
 		});
 		for (size_t i = 0; i < players.size(); i++) {
@@ -13344,7 +13408,7 @@ CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 
 		// Set owner and summoning sickness
 		minion.ownerID = currentPlayer.isMinion ? currentPlayer.ownerID : currentPlayer.playerID;
-		minion.summonedOnTurnCycle = currentPlayer.isMinion ? globalTurnCounter : -1;
+		minion.summonedOnTurnCycle = globalTurnCounter;
 		minion.summonOrder = ++nextSummonOrder;
 
 		// 4. Apply Variant Stats & Deck
@@ -13439,8 +13503,8 @@ CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 			int ownerA = a.isMinion ? a.ownerID : a.playerID;
 			int ownerB = b.isMinion ? b.ownerID : b.playerID;
 			if (ownerA != ownerB) return ownerA < ownerB;
-			if (a.isMinion && !b.isMinion) return false;
-			if (!a.isMinion && b.isMinion) return true;
+			if (a.isMinion && !b.isMinion) return true;
+			if (!a.isMinion && b.isMinion) return false;
 			return a.summonOrder < b.summonOrder;
 		});
 
@@ -13481,7 +13545,7 @@ CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 
 		// Owner/Summon Logic
 		minion.ownerID = currentPlayer.isMinion ? currentPlayer.ownerID : currentPlayer.playerID;
-		minion.summonedOnTurnCycle = currentPlayer.isMinion ? globalTurnCounter : -1;
+		minion.summonedOnTurnCycle = globalTurnCounter;
 		minion.summonOrder = ++nextSummonOrder;
 
 		// Attach wall unit diffuse so rendering uses model texture
@@ -13541,23 +13605,10 @@ CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		// Update Mesh (to remove the static wall visually)
 		buildLevelMesh();
 
-		// --- CRASH FIX: PERFORM CLEANUP NOW ---
-		// We do this BEFORE pushing back to 'players' because push_back might reallocate the vector,
-		// invalidating the 'currentPlayer' reference used in cleanup.
-		currentAP -= costToPay;
-		currentPlayer.playedCardsPile.push_back(playedCard);
-
-		if (currentPlayer.isReplicatePending) {
-			currentPlayer.playedCardsPile.push_back(playedCard);
-			currentPlayer.isReplicatePending = false;
-		}
-
-		currentPlayer.cardsPlayedThisTurn.push_back(playedCard.type);
-		currentPlayer.hand.erase(currentPlayer.hand.begin() + cardIndex);
-		createCardDisplay(playedCard, currentPlayerIndex);
-
-		// --- NOW SAFE TO MODIFY VECTOR ---
+		// 4. Add to board
 		players.push_back(minion);
+		int newWallUnitIdx = (int)players.size() - 1;
+		shuffleGameVector(players[newWallUnitIdx].deck, newWallUnitIdx);
 
 		// 5. Sort Turn Order
 		int currentID = savedCurrentID;
@@ -13565,8 +13616,8 @@ CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 			int ownerA = a.isMinion ? a.ownerID : a.playerID;
 			int ownerB = b.isMinion ? b.ownerID : b.playerID;
 			if (ownerA != ownerB) return ownerA < ownerB;
-			if (a.isMinion && !b.isMinion) return false;
-			if (!a.isMinion && b.isMinion) return true;
+			if (a.isMinion && !b.isMinion) return true;
+			if (!a.isMinion && b.isMinion) return false;
 			return a.summonOrder < b.summonOrder;
 		});
 
@@ -13579,8 +13630,7 @@ CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		}
 		invalidateTargetCache();
 
-		// Set to FALSE so the common cleanup block at the end of playCard (which uses the now-unsafe reference) is skipped
-		return CARD_PLAYED_IMMEDIATELY;
+		break;
 	}
 
 	// --- CASE: CALL FOR WOLVES ---
@@ -17355,6 +17405,110 @@ void ofApp::drawBurstUI() {
 	drawCardChoicePanel(panelRect, title, desc, burstBtnDamage, burstBtnHeal,
 		hasValidEnemy ? "Deal 3 Holy" : "No Enemy in Sight", "Heal 3 HP",
 		holyAccent, healAccent, hasValidEnemy, true);
+}
+
+//--------------------------------------------------------------
+// Helper function to draw white outlined tiles that join together when adjacent
+void ofApp::drawJoinedOutlines(bool highlightedTiles[BOARD_WIDTH][BOARD_HEIGHT], ofColor color, float surfaceY) {
+	// This function draws outlines around groups of adjacent highlighted tiles
+	// such that the outlines merge to form larger connected shapes
+
+	ofNoFill();
+	ofSetLineWidth(6); // Thicker lines
+	ofSetColor(color);
+
+	// Enable depth test so outlines are occluded by walls
+	ofEnableDepthTest();
+
+	// For each tile, draw edges that are NOT adjacent to another highlighted tile
+	for (int x = 0; x < BOARD_WIDTH; x++) {
+		for (int y = 0; y < BOARD_HEIGHT; y++) {
+			if (!highlightedTiles[x][y]) continue;
+
+			// Don't skip path tiles - they should keep their white outlines even when green circles are drawn
+
+			glm::vec3 worldPos = gridToWorld(x, y);
+
+			// Calculate height based on wall status - draw on top of walls
+			float height = surfaceY + 0.01f;
+			if (board[x][y].hasWall) {
+				// Draw on top of wall (wall is TILE_SIZE * 0.5 tall)
+				height = (TILE_SIZE * 0.5f) + 0.06f;
+			}
+
+			// Check each of the 4 edges: top, right, bottom, left
+			bool drawTop = (y == 0 || !highlightedTiles[x][y - 1]);
+			bool drawBottom = (y == BOARD_HEIGHT - 1 || !highlightedTiles[x][y + 1]);
+			bool drawLeft = (x == 0 || !highlightedTiles[x - 1][y]);
+			bool drawRight = (x == BOARD_WIDTH - 1 || !highlightedTiles[x + 1][y]);
+
+			// For walls, also check if adjacent tile is NOT a wall (to draw vertical edges)
+			bool drawTopVertical = false;
+			bool drawBottomVertical = false;
+			bool drawLeftVertical = false;
+			bool drawRightVertical = false;
+
+			if (board[x][y].hasWall) {
+				if (drawTop && y > 0 && !board[x][y - 1].hasWall) drawTopVertical = true;
+				if (drawBottom && y < BOARD_HEIGHT - 1 && !board[x][y + 1].hasWall) drawBottomVertical = true;
+				if (drawLeft && x > 0 && !board[x - 1][y].hasWall) drawLeftVertical = true;
+				if (drawRight && x < BOARD_WIDTH - 1 && !board[x + 1][y].hasWall) drawRightVertical = true;
+			}
+
+			ofPushMatrix();
+			ofTranslate(worldPos.x, height, worldPos.z);
+			ofRotateXDeg(90);
+
+			float halfSize = TILE_SIZE * 0.5f;
+
+			// Draw only the edges that border non-highlighted tiles
+			if (drawTop) {
+				ofDrawLine(-halfSize, -halfSize, halfSize, -halfSize);
+			}
+			if (drawBottom) {
+				ofDrawLine(-halfSize, halfSize, halfSize, halfSize);
+			}
+			if (drawLeft) {
+				ofDrawLine(-halfSize, -halfSize, -halfSize, halfSize);
+			}
+			if (drawRight) {
+				ofDrawLine(halfSize, -halfSize, halfSize, halfSize);
+			}
+
+			ofPopMatrix();
+
+			// Draw vertical edges on wall sides that meet non-wall tiles
+			if (board[x][y].hasWall) {
+				float wallHeight = TILE_SIZE * 0.5f;
+				float floorY = surfaceY + 0.01f;
+				float wallTopY = wallHeight + 0.06f;
+
+				if (drawTopVertical) {
+					// North face vertical edges
+					ofDrawLine(worldPos.x - halfSize, floorY, worldPos.z - halfSize, worldPos.x - halfSize, wallTopY, worldPos.z - halfSize);
+					ofDrawLine(worldPos.x + halfSize, floorY, worldPos.z - halfSize, worldPos.x + halfSize, wallTopY, worldPos.z - halfSize);
+				}
+				if (drawBottomVertical) {
+					// South face vertical edges
+					ofDrawLine(worldPos.x - halfSize, floorY, worldPos.z + halfSize, worldPos.x - halfSize, wallTopY, worldPos.z + halfSize);
+					ofDrawLine(worldPos.x + halfSize, floorY, worldPos.z + halfSize, worldPos.x + halfSize, wallTopY, worldPos.z + halfSize);
+				}
+				if (drawLeftVertical) {
+					// West face vertical edges
+					ofDrawLine(worldPos.x - halfSize, floorY, worldPos.z - halfSize, worldPos.x - halfSize, wallTopY, worldPos.z - halfSize);
+					ofDrawLine(worldPos.x - halfSize, floorY, worldPos.z + halfSize, worldPos.x - halfSize, wallTopY, worldPos.z + halfSize);
+				}
+				if (drawRightVertical) {
+					// East face vertical edges
+					ofDrawLine(worldPos.x + halfSize, floorY, worldPos.z - halfSize, worldPos.x + halfSize, wallTopY, worldPos.z - halfSize);
+					ofDrawLine(worldPos.x + halfSize, floorY, worldPos.z + halfSize, worldPos.x + halfSize, wallTopY, worldPos.z + halfSize);
+				}
+			}
+		}
+	}
+
+	ofFill();
+	ofSetLineWidth(1);
 }
 
 //--------------------------------------------------------------
