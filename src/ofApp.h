@@ -1273,6 +1273,7 @@ private:
 	bool isDebugMode = false;
 	bool isSpawningUnit = false;
 	bool hasUnlimitedAP = false;
+	bool skipChecksumValidation = false; // When true, host/client don't validate checksums (for testing)
 	ofRectangle debugPanel;
 	ofRectangle debugDiceDropdownButton;
 	ofRectangle debugRollD6Button;

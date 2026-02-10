@@ -11648,6 +11648,38 @@ void ofApp::keyReleased(int key) {
 		ofLogNotice("Post") << "showWorldFboPreview=" << (showWorldFboPreview ? "true" : "false");
 	}
 
+	// 2c. Debug Hotkeys (when debug mode is enabled)
+	if (isDebugMode && currentState == STATE_GAMEPLAY) {
+		// 'u' - Toggle Unlimited AP (keeps checksums ON for realistic testing)
+		if (key == 'u' || key == 'U') {
+			hasUnlimitedAP = !hasUnlimitedAP;
+			ofLogNotice("Debug") << "Unlimited AP: " << (hasUnlimitedAP ? "ON (checksums still active)" : "OFF");
+			addGameLog("Unlimited AP: " + std::string(hasUnlimitedAP ? "ON (checksums still active)" : "OFF"));
+			if (isMultiplayer && isHost()) {
+				sendSnapshotToClient(); // Sync state
+			}
+			return;
+		}
+
+		// 'c' - Open Card Spawner
+		if (key == 'c' || key == 'C') {
+			isCardSpawnerOpen = true;
+			cardSpawnerInput = "";
+			cardSpawnerQuantity = 1;
+			filteredCards.clear();
+			ofLogNotice("Debug") << "Card Spawner opened (press ESC to close)";
+			return;
+		}
+
+		// 's' - Skip Checksum Validation (for testing without unlimited AP)
+		if (key == 's' || key == 'S') {
+			skipChecksumValidation = !skipChecksumValidation;
+			ofLogNotice("Debug") << "Skip Checksum: " << (skipChecksumValidation ? "ON" : "OFF");
+			addGameLog("Checksum Validation: " + std::string(skipChecksumValidation ? "DISABLED" : "ENABLED"));
+			return;
+		}
+	}
+
 	// 3. Escape Key Logic
 	if (key == OF_KEY_ESC) {
 		switch (currentState) {
@@ -12316,6 +12348,12 @@ CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 	// Determine effective cost (Kick may be free due to Sprint)
 	int costToPay = playedCard.cost;
 	if (playedCard.name == "Kick" && currentPlayer.freeKickTurns > 0) costToPay = 0;
+
+	// DEBUG: Unlimited AP mode
+	if (hasUnlimitedAP) {
+		currentAP = 999; // Set to max for debug testing
+	}
+
 	if (currentAP < costToPay) return CARD_NOT_PLAYABLE;
 
 	// Log card played
@@ -19907,6 +19945,13 @@ void ofApp::processNetworkPackets() {
 				ofLogNotice("Network") << "Client: Skipping checksum validation while waiting for TurnStart.";
 				continue;
 			}
+
+			// DEBUG: Skip checksum validation when debug features are active
+			if (skipChecksumValidation) {
+				ofLogNotice("Debug") << "CHECKSUM VALIDATION DISABLED (debug mode)";
+				continue;
+			}
+
 			long long mySum = calculateChecksum();
 
 			// Log host's deck state for diagnostics
