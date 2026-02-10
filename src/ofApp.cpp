@@ -7641,10 +7641,10 @@ void ofApp::drawGame() {
 				}
 
 				// Draw chat history - adjusted upward if input is multi-line
-				float messageY = chatY - 35 * scale - inputExtraHeight;
+				// Moved up to chatY - 40 to create space for 11 messages and larger gap before input
+				float messageY = chatY - 40 * scale - inputExtraHeight;
 				int visibleMessages = 0;
-				int maxVisible = isChatMinimized ? 4 : 10; // Fewer messages when minimized
-
+				int maxVisible = isChatMinimized ? 4 : 11; // Increased from 10 to 11 for full mode
 				for (int i = (int)chatHistory.size() - 1; i >= 0 && visibleMessages < maxVisible; i--) {
 					ChatMessage & msg = chatHistory[i];
 					float age = currentTime - msg.timestamp;
@@ -7679,6 +7679,7 @@ void ofApp::drawGame() {
 
 				// Draw chat input box when chat is open (only in full mode)
 				if (isChatOpen && !isChatMinimized) {
+					// Positioned to maintain gap between chat history and input
 					float inputY = chatY - 10 * scale;
 
 					// Draw input text with word wrapping
@@ -11808,14 +11809,8 @@ void ofApp::startNewTurn() {
 				localPlayer.nextAttackAddPoison = false;
 				localPlayer.flurryOfFistsActive = false;
 
-				// Clear defensive stats (unless in Tortoise Form)
-				if (!localPlayer.inTortoiseForm) {
-					localPlayer.block = 0;
-					localPlayer.holyBlock = 0;
-					localPlayer.ward = 0;
-					localPlayer.fortification = 0;
-					localPlayer.barrier = 0;
-				}
+				// NOTE: Defensive stats (block, ward, etc.) are NOT cleared here!
+				// They persist until the START of the player's NEXT turn (see continueNewTurn)
 
 				// Reshuffle discard into deck if needed
 				if (localPlayer.deck.empty() && !localPlayer.discardPile.empty()) {
@@ -11879,45 +11874,39 @@ void ofApp::startNewTurn() {
 		ofLogNotice("Turn") << "Processing ending player: index=" << currentPlayerIndex << " playerID=" << endingPlayer.playerID;
 
 		// --- A. CLEANUP HAND & BUFFS ---
-		// Skip cleanup if:
-		// 1. This is a client and it's their own player (already cleaned up above before sending END_TURN)
-		// 2. This is multiplayer and the ending player is NOT local (they cleaned up on their own machine before sending END_TURN)
-		bool isEndingPlayerLocal = (endingPlayer.playerID == myLocalPlayerID);
-		bool shouldSkipCleanup = isMultiplayer && !isEndingPlayerLocal; // Opponent already cleaned up their own hand
-		ofLogNotice("Turn") << "Cleanup check: isMultiplayer=" << isMultiplayer << " isEndingPlayerLocal=" << isEndingPlayerLocal << " shouldSkip=" << shouldSkipCleanup;
-		if (!shouldSkipCleanup) {
-			ofLogNotice("Turn") << "Cleaning up ending player's hand. Hand size: " << endingPlayer.hand.size() << ", Played: " << endingPlayer.playedCardsPile.size();
-			endingPlayer.discardPile.insert(endingPlayer.discardPile.end(), endingPlayer.hand.begin(), endingPlayer.hand.end());
-			endingPlayer.hand.clear();
-			endingPlayer.discardPile.insert(endingPlayer.discardPile.end(), endingPlayer.playedCardsPile.begin(), endingPlayer.playedCardsPile.end());
-			endingPlayer.playedCardsPile.clear();
+		// Always clean up the ending player's hand so all machines see it disappear
+		// (Previously skipped for remote players, but that caused desync in opponent's view)
+		ofLogNotice("Turn") << "Cleaning up ending player's hand. Hand size: " << endingPlayer.hand.size() << ", Played: " << endingPlayer.playedCardsPile.size();
+		endingPlayer.discardPile.insert(endingPlayer.discardPile.end(), endingPlayer.hand.begin(), endingPlayer.hand.end());
+		endingPlayer.hand.clear();
+		endingPlayer.discardPile.insert(endingPlayer.discardPile.end(), endingPlayer.playedCardsPile.begin(), endingPlayer.playedCardsPile.end());
+		endingPlayer.playedCardsPile.clear();
 
-			endingPlayer.shocksPlayedThisTurn = 0;
-			endingPlayer.nextAttackAddPoison = false; // Clear poison buff at end of turn
-			endingPlayer.flurryOfFistsActive = false; // Clear flurry buff at end of turn
+		endingPlayer.shocksPlayedThisTurn = 0;
+		endingPlayer.nextAttackAddPoison = false; // Clear poison buff at end of turn
+		endingPlayer.flurryOfFistsActive = false; // Clear flurry buff at end of turn
 
-			// Reshuffle discard into deck if needed
-			if (endingPlayer.deck.empty() && !endingPlayer.discardPile.empty()) {
-				endingPlayer.deck = endingPlayer.discardPile;
-				shuffleGameVector(endingPlayer.deck, currentPlayerIndex);
-				endingPlayer.discardPile.clear();
-				ofLogNotice("Deck") << "Reshuffled discard into deck for player " << endingPlayer.playerID;
+		// Reshuffle discard into deck if needed
+		if (endingPlayer.deck.empty() && !endingPlayer.discardPile.empty()) {
+			endingPlayer.deck = endingPlayer.discardPile;
+			shuffleGameVector(endingPlayer.deck, currentPlayerIndex);
+			endingPlayer.discardPile.clear();
+			ofLogNotice("Deck") << "Reshuffled discard into deck for player " << endingPlayer.playerID;
+		}
+
+		// Decrement buff timers
+		if (endingPlayer.strengthenElementsTurnsRemaining > 0) {
+			endingPlayer.strengthenElementsTurnsRemaining--;
+			if (endingPlayer.strengthenElementsTurnsRemaining == 0) {
+				spawnFloatingText(gridToWorld(endingPlayer.x, endingPlayer.y), "Elements Faded", ofColor::gray);
 			}
+		}
 
-			// Decrement buff timers
-			if (endingPlayer.strengthenElementsTurnsRemaining > 0) {
-				endingPlayer.strengthenElementsTurnsRemaining--;
-				if (endingPlayer.strengthenElementsTurnsRemaining == 0) {
-					spawnFloatingText(gridToWorld(endingPlayer.x, endingPlayer.y), "Elements Faded", ofColor::gray);
-				}
-			}
-
-			// Decrement Sprint's Kick-free counter
-			if (endingPlayer.freeKickTurns > 0) {
-				endingPlayer.freeKickTurns--;
-				if (endingPlayer.freeKickTurns == 0) {
-					spawnFloatingText(gridToWorld(endingPlayer.x, endingPlayer.y), "Kick Normal Cost", ofColor::white);
-				}
+		// Decrement Sprint's Kick-free counter
+		if (endingPlayer.freeKickTurns > 0) {
+			endingPlayer.freeKickTurns--;
+			if (endingPlayer.freeKickTurns == 0) {
+				spawnFloatingText(gridToWorld(endingPlayer.x, endingPlayer.y), "Kick Normal Cost", ofColor::white);
 			}
 		}
 
@@ -20025,7 +20014,15 @@ void ofApp::processNetworkPackets() {
 			ofLogNotice("Net") << "Received chat message from player " << pkt->playerID << ": " << pkt->message;
 
 			ChatMessage msg;
-			msg.playerName = getPlayerSteamName(pkt->playerID == 0 ? 0 : 1);
+			// Find player index for this playerID
+			int senderIndex = -1;
+			for (size_t i = 0; i < players.size(); i++) {
+				if (players[i].playerID == static_cast<int>(pkt->playerID) && !players[i].isMinion) {
+					senderIndex = i;
+					break;
+				}
+			}
+			msg.playerName = (senderIndex >= 0) ? getPlayerSteamName(senderIndex) : ("Player " + ofToString(pkt->playerID));
 			msg.message = pkt->message;
 			msg.timestamp = ofGetElapsedTimef();
 			chatHistory.push_back(msg);
