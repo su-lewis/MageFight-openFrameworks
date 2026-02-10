@@ -5206,16 +5206,21 @@ void ofApp::drawGame() {
 				glm::vec3 p2 = pos + rightTilt * halfW + upTilt * halfH;
 				glm::vec3 p3 = pos - rightTilt * halfW + upTilt * halfH;
 
+				// Flip texture horizontally for camera 2 so keys face properly for second player
+				bool flipTexture = shouldFlipCamera();
+				float u0 = flipTexture ? 1.0f : 0.0f;
+				float u1 = flipTexture ? 0.0f : 1.0f;
+
 				ofMesh quad;
 				quad.setMode(OF_PRIMITIVE_TRIANGLES);
 				quad.addVertex(p0);
-				quad.addTexCoord(glm::vec2(0, 1));
+				quad.addTexCoord(glm::vec2(u0, 1));
 				quad.addVertex(p1);
-				quad.addTexCoord(glm::vec2(1, 1));
+				quad.addTexCoord(glm::vec2(u1, 1));
 				quad.addVertex(p2);
-				quad.addTexCoord(glm::vec2(1, 0));
+				quad.addTexCoord(glm::vec2(u1, 0));
 				quad.addVertex(p3);
-				quad.addTexCoord(glm::vec2(0, 0));
+				quad.addTexCoord(glm::vec2(u0, 0));
 
 				quad.addIndex(0);
 				quad.addIndex(1);
@@ -7596,11 +7601,7 @@ void ofApp::drawGame() {
 
 			// Draw content based on active tab
 			if (currentChatTab == ChatTab::CHAT) {
-				// Draw chat history
-				float messageY = chatY - 35 * scale;
-				int visibleMessages = 0;
-				int maxVisible = isChatMinimized ? 4 : 10; // Fewer messages when minimized
-
+				// Lambda for text wrapping (shared between input and history)
 				auto wrapText = [&](const std::string & text, float maxWidth) {
 					std::vector<std::string> lines;
 					std::string currentLine;
@@ -7623,6 +7624,26 @@ void ofApp::drawGame() {
 					if (lines.empty()) lines.push_back(" ");
 					return lines;
 				};
+
+				// Calculate input height to adjust chat history display area
+				float inputExtraHeight = 0;
+				if (isChatOpen && !isChatMinimized) {
+					string displayText = "> " + chatInput;
+					if (((int)(ofGetElapsedTimef() * 2)) % 2 == 0) {
+						displayText += "_";
+					}
+					float maxWidth = chatMaxWidth - 20;
+					std::vector<string> wrappedInputLines = wrapText(displayText, maxWidth);
+					// If more than 1 line, push chat history up by the extra lines
+					if (wrappedInputLines.size() > 1) {
+						inputExtraHeight = (wrappedInputLines.size() - 1) * messageHeight;
+					}
+				}
+
+				// Draw chat history - adjusted upward if input is multi-line
+				float messageY = chatY - 35 * scale - inputExtraHeight;
+				int visibleMessages = 0;
+				int maxVisible = isChatMinimized ? 4 : 10; // Fewer messages when minimized
 
 				for (int i = (int)chatHistory.size() - 1; i >= 0 && visibleMessages < maxVisible; i--) {
 					ChatMessage & msg = chatHistory[i];
