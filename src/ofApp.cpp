@@ -20605,9 +20605,22 @@ void ofApp::executeOpponentCardPlay(const ActionPacket & pkt) {
 	int savedCurrentAP = currentAP;
 	currentPlayerIndex = opponentPlayerIndex;
 
-	// Temporarily add the card to their hand so playCard() can access it
-	opponentPlayer.hand.push_back(cardDef);
-	int tempCardIndex = (int)opponentPlayer.hand.size() - 1;
+	// Find the card in opponent's hand (for cards received via DrawCards packet)
+	int tempCardIndex = -1;
+	for (size_t i = 0; i < opponentPlayer.hand.size(); i++) {
+		if (opponentPlayer.hand[i].name == cardName) {
+			tempCardIndex = (int)i;
+			break;
+		}
+	}
+
+	// If card not found in hand, add it temporarily (for cards not synced via DrawCards)
+	bool addedTemporaryCard = false;
+	if (tempCardIndex < 0) {
+		opponentPlayer.hand.push_back(cardDef);
+		tempCardIndex = (int)opponentPlayer.hand.size() - 1;
+		addedTemporaryCard = true;
+	}
 
 	// --- FIX START: FORCE AP FOR REMOTE ACTIONS ---
 	// The opponent already paid the cost on their screen. We must ensure
@@ -20647,11 +20660,9 @@ void ofApp::executeOpponentCardPlay(const ActionPacket & pkt) {
 		// Save the updated AP back to the player
 		opponentPlayer.ap = currentAP;
 
-		// Remove the temporary card if it still exists
+		// Remove the card from opponent's hand
 		if (tempCardIndex >= 0 && tempCardIndex < (int)opponentPlayer.hand.size()) {
-			if (opponentPlayer.hand[tempCardIndex].name == cardName) {
-				opponentPlayer.hand.erase(opponentPlayer.hand.begin() + tempCardIndex);
-			}
+			opponentPlayer.hand.erase(opponentPlayer.hand.begin() + tempCardIndex);
 		}
 		pendingMagicHandCardIndex = -1;
 

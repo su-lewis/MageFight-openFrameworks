@@ -1,13 +1,12 @@
 
 === DECK STATE LOG ===
-Time: 2026-02-06 16:06:15
+Time: 2026-02-10 19:27:15
 Reason: End Turn 1
 Turn: 1
-Current Player: 1
+Current Player: 0
 Local Player ID: 0
 Is Host: true
 
-Player102 Deck[5]: Bash(5), Bash(5), Bash(5), Hand Block(9), Hand Block(9) | Hand[0]:  | Discard[0]: 
-Player0 Deck[2]: Dispel(18), Dispel(18) | Hand[5]: Summon Assistant(58), Summon Assistant(58), Shock(13), Shock(13), Study(67) | Discard[0]: 
-Player1 Deck[3]: Mind Theft(16), Renewed Inspiration(48), Mind Theft(16) | Hand[0]:  | Discard[2]: Rock Crush(14), Renewed Inspiration(48)
+Player0 Deck[1]: Punch(5) | Hand[1]: Drain Punch(30) | Discard[2]: Punch(5), Drain Punch(30)
+Player1 Deck[3]: Hasten(20), Ward(10), Summon Wall(2) | Hand[0]:  | Discard[2]: Summon Wall(2), Ward(10)
 =====================
