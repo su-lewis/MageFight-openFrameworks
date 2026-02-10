@@ -1,12 +1,12 @@
 
 === DECK STATE LOG ===
-Time: 2026-02-10 05:58:21
+Time: 2026-02-10 06:40:10
 Reason: End Turn 1
 Turn: 1
 Current Player: 1
 Local Player ID: 1
 Is Host: false
 
-Player0 Deck[5]: Renewed Inspiration(48), Slash(5), Four-leaf clover(60), Summon Faerie(59), Blocking Boon(68) | Hand[0]:  | Discard[2]: Renewed Inspiration(48), Slash(5)
-Player1 Deck[4]: Consume Large Health Potion(54), Blocking Boon(68), Punch(5), Renewed Inspiration(48) | Hand[3]: Punch(5), Hasten(20), Renewed Inspiration(48) | Discard[0]: 
+Player0 Deck[4]: Consume Large Health Potion(54), Chain Lightning(42), Shoot Arrow(64), Wisdom Boon(22) | Hand[0]:  | Discard[2]: Shoot Arrow(64), Wisdom Boon(22)
+Player1 Deck[1]: Mind Theft(16) | Hand[1]: Mind Theft(16) | Discard[2]: Sprint(61), Consume Health Potion(43)
 =====================

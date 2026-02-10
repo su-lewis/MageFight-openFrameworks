@@ -2732,8 +2732,8 @@ void ofApp::updateGame() {
 			int ownerA = a.isMinion ? a.ownerID : a.playerID;
 			int ownerB = b.isMinion ? b.ownerID : b.playerID;
 			if (ownerA != ownerB) return ownerA < ownerB;
-			if (a.isMinion && !b.isMinion) return true;
-			if (!a.isMinion && b.isMinion) return false;
+			if (a.isMinion && !b.isMinion) return false;
+			if (!a.isMinion && b.isMinion) return true;
 			return a.summonOrder < b.summonOrder;
 		});
 
@@ -3236,8 +3236,8 @@ void ofApp::updateGame() {
 			int ownerA = a.isMinion ? a.ownerID : a.playerID;
 			int ownerB = b.isMinion ? b.ownerID : b.playerID;
 			if (ownerA != ownerB) return ownerA < ownerB;
-			if (a.isMinion && !b.isMinion) return true;
-			if (!a.isMinion && b.isMinion) return false;
+			if (a.isMinion && !b.isMinion) return false;
+			if (!a.isMinion && b.isMinion) return true;
 			return a.summonOrder < b.summonOrder;
 		});
 
@@ -3308,8 +3308,8 @@ void ofApp::updateGame() {
 			int ownerA = a.isMinion ? a.ownerID : a.playerID;
 			int ownerB = b.isMinion ? b.ownerID : b.playerID;
 			if (ownerA != ownerB) return ownerA < ownerB;
-			if (a.isMinion && !b.isMinion) return true;
-			if (!a.isMinion && b.isMinion) return false;
+			if (a.isMinion && !b.isMinion) return false;
+			if (!a.isMinion && b.isMinion) return true;
 			return a.summonOrder < b.summonOrder;
 		});
 
@@ -4324,8 +4324,8 @@ void ofApp::updateGame() {
 								int ownerA = a.isMinion ? a.ownerID : a.playerID;
 								int ownerB = b.isMinion ? b.ownerID : b.playerID;
 								if (ownerA != ownerB) return ownerA < ownerB;
-								if (a.isMinion && !b.isMinion) return true;
-								if (!a.isMinion && b.isMinion) return false;
+								if (a.isMinion && !b.isMinion) return false;
+								if (!a.isMinion && b.isMinion) return true;
 								return a.summonOrder < b.summonOrder;
 							});
 
@@ -4370,8 +4370,8 @@ void ofApp::updateGame() {
 									int ownerA = a.isMinion ? a.ownerID : a.playerID;
 									int ownerB = b.isMinion ? b.ownerID : b.playerID;
 									if (ownerA != ownerB) return ownerA < ownerB;
-									if (a.isMinion && !b.isMinion) return true;
-									if (!a.isMinion && b.isMinion) return false;
+									if (a.isMinion && !b.isMinion) return false;
+									if (!a.isMinion && b.isMinion) return true;
 									return a.summonOrder < b.summonOrder;
 								});
 								for (size_t i = 0; i < players.size(); i++) {
@@ -8996,8 +8996,8 @@ void ofApp::mousePressed(int x, int y, int button) {
 								int ownerA = a.isMinion ? a.ownerID : a.playerID;
 								int ownerB = b.isMinion ? b.ownerID : b.playerID;
 								if (ownerA != ownerB) return ownerA < ownerB;
-								if (a.isMinion && !b.isMinion) return true;
-								if (!a.isMinion && b.isMinion) return false;
+								if (a.isMinion && !b.isMinion) return false;
+								if (!a.isMinion && b.isMinion) return true;
 								return a.summonOrder < b.summonOrder;
 							});
 							for (size_t i = 0; i < players.size(); i++) {
@@ -10308,8 +10308,8 @@ void ofApp::mousePressed(int x, int y, int button) {
 								int ownerA = a.isMinion ? a.ownerID : a.playerID;
 								int ownerB = b.isMinion ? b.ownerID : b.playerID;
 								if (ownerA != ownerB) return ownerA < ownerB;
-								if (a.isMinion && !b.isMinion) return true;
-								if (!a.isMinion && b.isMinion) return false;
+								if (a.isMinion && !b.isMinion) return false;
+								if (!a.isMinion && b.isMinion) return true;
 								return a.summonOrder < b.summonOrder;
 							});
 
@@ -10383,8 +10383,8 @@ void ofApp::mousePressed(int x, int y, int button) {
 										int ownerA = a.isMinion ? a.ownerID : a.playerID;
 										int ownerB = b.isMinion ? b.ownerID : b.playerID;
 										if (ownerA != ownerB) return ownerA < ownerB;
-										if (a.isMinion && !b.isMinion) return true;
-										if (!a.isMinion && b.isMinion) return false;
+										if (a.isMinion && !b.isMinion) return false;
+										if (!a.isMinion && b.isMinion) return true;
 										return a.summonOrder < b.summonOrder;
 									});
 
@@ -13009,8 +13009,8 @@ CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 			int ownerA = a.isMinion ? a.ownerID : a.playerID;
 			int ownerB = b.isMinion ? b.ownerID : b.playerID;
 			if (ownerA != ownerB) return ownerA < ownerB;
-			if (a.isMinion && !b.isMinion) return true;
-			if (!a.isMinion && b.isMinion) return false;
+			if (a.isMinion && !b.isMinion) return false;
+			if (!a.isMinion && b.isMinion) return true;
 			return a.summonOrder < b.summonOrder;
 		});
 
@@ -13093,8 +13093,8 @@ CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 			int ownerA = a.isMinion ? a.ownerID : a.playerID;
 			int ownerB = b.isMinion ? b.ownerID : b.playerID;
 			if (ownerA != ownerB) return ownerA < ownerB;
-			if (a.isMinion && !b.isMinion) return true;
-			if (!a.isMinion && b.isMinion) return false;
+			if (a.isMinion && !b.isMinion) return false;
+			if (!a.isMinion && b.isMinion) return true;
 			return a.summonOrder < b.summonOrder;
 		});
 		for (size_t i = 0; i < players.size(); i++) {
@@ -13174,8 +13174,8 @@ CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 			int ownerA = a.isMinion ? a.ownerID : a.playerID;
 			int ownerB = b.isMinion ? b.ownerID : b.playerID;
 			if (ownerA != ownerB) return ownerA < ownerB;
-			if (a.isMinion && !b.isMinion) return true;
-			if (!a.isMinion && b.isMinion) return false;
+			if (a.isMinion && !b.isMinion) return false;
+			if (!a.isMinion && b.isMinion) return true;
 			return a.summonOrder < b.summonOrder;
 		});
 		for (size_t i = 0; i < players.size(); i++) {
@@ -13332,8 +13332,8 @@ CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 			int ownerA = a.isMinion ? a.ownerID : a.playerID;
 			int ownerB = b.isMinion ? b.ownerID : b.playerID;
 			if (ownerA != ownerB) return ownerA < ownerB;
-			if (a.isMinion && !b.isMinion) return true;
-			if (!a.isMinion && b.isMinion) return false;
+			if (a.isMinion && !b.isMinion) return false;
+			if (!a.isMinion && b.isMinion) return true;
 			return a.summonOrder < b.summonOrder;
 		});
 
@@ -13458,8 +13458,8 @@ CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 			int ownerA = a.isMinion ? a.ownerID : a.playerID;
 			int ownerB = b.isMinion ? b.ownerID : b.playerID;
 			if (ownerA != ownerB) return ownerA < ownerB;
-			if (a.isMinion && !b.isMinion) return true;
-			if (!a.isMinion && b.isMinion) return false;
+			if (a.isMinion && !b.isMinion) return false;
+			if (!a.isMinion && b.isMinion) return true;
 			return a.summonOrder < b.summonOrder;
 		});
 
