@@ -20940,6 +20940,23 @@ long long ofApp::calculateChecksum() {
 		mix((uint64_t)p.inGhostForm);
 		mix((uint64_t)p.ghostDamageTaken);
 		mix((uint64_t)p.freeKickTurns);
+
+		// Deck contents (order matters - after shuffles, decks should be identical)
+		mix((uint64_t)p.deck.size());
+		for (const auto & card : p.deck) {
+			mix((uint64_t)(int)card.type);
+			mix((uint64_t)card.value);
+		}
+
+		// Discard pile
+		mix((uint64_t)p.discardPile.size());
+		for (const auto & card : p.discardPile) {
+			mix((uint64_t)(int)card.type);
+			mix((uint64_t)card.value);
+		}
+
+		// Hand size (not contents - opponent doesn't know full hand)
+		mix((uint64_t)p.hand.size());
 	}
 
 	// Active dice (include resolved outcomes)
