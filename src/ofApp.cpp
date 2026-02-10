@@ -7382,6 +7382,7 @@ void ofApp::drawGame() {
 
 		calculatedHeight += btnHeight + padding; // Spawn Unit
 		calculatedHeight += btnHeight + padding; // Unlimited AP
+		calculatedHeight += btnHeight + padding; // Skip Checksum (status indicator)
 		calculatedHeight += btnHeight + padding; // Force End Turn
 
 		// --- STEP 2: Draw Background ---
@@ -7449,7 +7450,15 @@ void ofApp::drawGame() {
 		currentY += btnHeight + padding;
 
 		debugUnlimitedAPButton.set(panelX + padding, currentY, panelWidth - 2 * padding, btnHeight);
-		drawDebugButton(debugUnlimitedAPButton, "Unlimited AP", true, hasUnlimitedAP);
+		std::string unlimitedAPLabel = hasUnlimitedAP ? "Unlimited AP: ON" : "Unlimited AP: OFF";
+		drawDebugButton(debugUnlimitedAPButton, unlimitedAPLabel, true, hasUnlimitedAP);
+		currentY += btnHeight + padding;
+
+		// Skip Checksum Status Indicator (non-clickable, just shows state)
+		ofRectangle checksumIndicator;
+		checksumIndicator.set(panelX + padding, currentY, panelWidth - 2 * padding, btnHeight);
+		std::string checksumLabel = skipChecksumValidation ? "Checksum: DISABLED" : "Checksum: ENABLED";
+		drawDebugButton(checksumIndicator, checksumLabel, true, !skipChecksumValidation); // Green when enabled (safe), red when disabled
 		currentY += btnHeight + padding;
 
 		debugForceEndTurnButton.set(panelX + padding, currentY, panelWidth - 2 * padding, btnHeight);
