@@ -10268,6 +10268,83 @@ void ofApp::mousePressed(int x, int y, int button) {
 
 	case STATE_GAMEPLAY: {
 
+		// --- KOBOLD PLACEMENT LOGIC (MUST BE BEFORE WOLF LOGIC) ---
+		if (isPlacingKobolds && !isWaitingForKoboldDice && button == OF_MOUSE_BUTTON_LEFT) {
+			ofVec2f boardPos = mouseToBoard(x, y);
+			int gx = floor(boardPos.x), gy = floor(boardPos.y);
+
+			// Validation: In bounds, Empty, Adjacent to Summoner
+			if (gx >= 0 && gx < BOARD_WIDTH && gy >= 0 && gy < BOARD_HEIGHT) {
+				if (!board[gx][gy].hasWall && !board[gx][gy].hasPlayer) {
+					int dist = abs(gx - koboldPlacementSourceX) + abs(gy - koboldPlacementSourceY);
+					if (dist == 1) {
+
+						// --- SPAWN THE KOBOLD ---
+						koboldSummonCount++; // Increment name counter
+
+						Player kobold;
+						kobold.playerID = 300 + (int)players.size();
+						kobold.x = gx;
+						kobold.y = gy;
+						kobold.maxHealth = 1;
+						kobold.health = 1;
+						kobold.isMinion = true;
+						kobold.isKobold = true;
+						kobold.isSkeleton = false;
+
+						// Set owner and summoning sickness
+						kobold.ownerID = players[currentPlayerIndex].isMinion ? players[currentPlayerIndex].ownerID : players[currentPlayerIndex].playerID;
+						kobold.summonedOnTurnCycle = globalTurnCounter;
+						kobold.summonOrder = ++nextSummonOrder;
+						Card hb, pu, callCard;
+						for (const auto & c : allCards) {
+							if (c.name == "Hand Block") hb = c;
+							if (c.name == "Punch") pu = c;
+							if (c.type == CARD_CALL_FOR_KOBOLDS) callCard = c;
+						}
+						kobold.deck = { hb, hb, pu, callCard };
+
+						// Add to board
+						board[gx][gy].hasPlayer = true;
+						players.push_back(kobold);
+						int newKoboldIdx = (int)players.size() - 1;
+						shuffleGameVector(players[newKoboldIdx].deck, newKoboldIdx);
+
+						// --- HANDLE LOGIC FLOW --
+						koboldsRemainingToPlace--;
+						if (koboldsRemainingToPlace > 0) {
+							// still placing
+						} else {
+							isPlacingKobolds = false;
+							koboldSummonStage = 0;
+							// --- CRITICAL FIX: CAPTURE ID BEFORE SORT ---
+							int myID = players[currentPlayerIndex].playerID;
+
+							// Re-sort turn order
+							std::sort(players.begin(), players.end(), [](const Player & a, const Player & b) {
+								int ownerA = a.isMinion ? a.ownerID : a.playerID;
+								int ownerB = b.isMinion ? b.ownerID : b.playerID;
+								if (ownerA != ownerB) return ownerA < ownerB;
+								if (a.isMinion && !b.isMinion) return false;
+								if (!a.isMinion && b.isMinion) return true;
+								return a.summonOrder < b.summonOrder;
+							});
+
+							// Fix current player index
+							for (size_t i = 0; i < players.size(); i++) {
+								if (players[i].playerID == myID) {
+									currentPlayerIndex = i;
+									break;
+								}
+							}
+						}
+
+						return; // Click handled
+					}
+				}
+			}
+		}
+
 		// --- WOLF PLACEMENT LOGIC ---
 		if (isPlacingWolves && !isWaitingForWolfCoin && button == OF_MOUSE_BUTTON_LEFT) {
 			ofVec2f boardPos = mouseToBoard(x, y);
@@ -10347,85 +10424,9 @@ void ofApp::mousePressed(int x, int y, int button) {
 						return; // Click handled
 					}
 				}
-
-				// --- KOBOLD PLACEMENT LOGIC ---
-				if (isPlacingKobolds && !isWaitingForKoboldDice && button == OF_MOUSE_BUTTON_LEFT) {
-					ofVec2f boardPos = mouseToBoard(x, y);
-					int gx = floor(boardPos.x), gy = floor(boardPos.y);
-
-					// Validation: In bounds, Empty, Adjacent to Summoner
-					if (gx >= 0 && gx < BOARD_WIDTH && gy >= 0 && gy < BOARD_HEIGHT) {
-						if (!board[gx][gy].hasWall && !board[gx][gy].hasPlayer) {
-							int dist = abs(gx - koboldPlacementSourceX) + abs(gy - koboldPlacementSourceY);
-							if (dist == 1) {
-
-								// --- SPAWN THE KOBOLD ---
-								koboldSummonCount++; // Increment name counter
-
-								Player kobold;
-								kobold.playerID = 300 + (int)players.size();
-								kobold.x = gx;
-								kobold.y = gy;
-								kobold.maxHealth = 1;
-								kobold.health = 1;
-								kobold.isMinion = true;
-								kobold.isKobold = true;
-								kobold.isSkeleton = false;
-
-								// Set owner and summoning sickness
-								kobold.ownerID = players[currentPlayerIndex].isMinion ? players[currentPlayerIndex].ownerID : players[currentPlayerIndex].playerID;
-								kobold.summonedOnTurnCycle = globalTurnCounter;
-								kobold.summonOrder = ++nextSummonOrder;
-								Card hb, pu, callCard;
-								for (const auto & c : allCards) {
-									if (c.name == "Hand Block") hb = c;
-									if (c.name == "Punch") pu = c;
-									if (c.type == CARD_CALL_FOR_KOBOLDS) callCard = c;
-								}
-								kobold.deck = { hb, hb, pu, callCard };
-
-								// Add to board
-								board[gx][gy].hasPlayer = true;
-								players.push_back(kobold);
-								int newKoboldIdx = (int)players.size() - 1;
-								shuffleGameVector(players[newKoboldIdx].deck, newKoboldIdx);
-
-								// --- HANDLE LOGIC FLOW --
-								koboldsRemainingToPlace--;
-								if (koboldsRemainingToPlace > 0) {
-									// still placing
-								} else {
-									isPlacingKobolds = false;
-									koboldSummonStage = 0;
-									// --- CRITICAL FIX: CAPTURE ID BEFORE SORT ---
-									int myID = players[currentPlayerIndex].playerID;
-
-									// Re-sort turn order
-									std::sort(players.begin(), players.end(), [](const Player & a, const Player & b) {
-										int ownerA = a.isMinion ? a.ownerID : a.playerID;
-										int ownerB = b.isMinion ? b.ownerID : b.playerID;
-										if (ownerA != ownerB) return ownerA < ownerB;
-										if (a.isMinion && !b.isMinion) return false;
-										if (!a.isMinion && b.isMinion) return true;
-										return a.summonOrder < b.summonOrder;
-									});
-
-									// Fix current player index
-									for (size_t i = 0; i < players.size(); i++) {
-										if (players[i].playerID == myID) {
-											currentPlayerIndex = i;
-											break;
-										}
-									}
-								}
-
-								return; // Click handled
-							}
-						}
-					}
-				}
 			}
 		}
+
 		// 3a. Debug Spawn Logic
 		if (isSpawningUnit && button == OF_MOUSE_BUTTON_LEFT) {
 			if (isMultiplayer && !isHost()) {
