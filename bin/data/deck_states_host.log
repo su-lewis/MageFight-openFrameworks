@@ -1,12 +1,12 @@
 
 === DECK STATE LOG ===
-Time: 2026-02-10 19:27:15
+Time: 2026-02-10 19:35:30
 Reason: End Turn 1
 Turn: 1
 Current Player: 0
 Local Player ID: 0
 Is Host: true
 
-Player0 Deck[1]: Punch(5) | Hand[1]: Drain Punch(30) | Discard[2]: Punch(5), Drain Punch(30)
-Player1 Deck[3]: Hasten(20), Ward(10), Summon Wall(2) | Hand[0]:  | Discard[2]: Summon Wall(2), Ward(10)
+Player0 Deck[2]: Raise Dead(26), Sprint(61) | Hand[1]: Dispel(18) | Discard[3]: Dispel(18), Hasten(20), Earthquake(51)
+Player1 Deck[3]: Flame Hit(24), Flame Hit(24), Bash(5) | Hand[0]:  | Discard[2]: Earthquake(51), Bash(5)
 =====================

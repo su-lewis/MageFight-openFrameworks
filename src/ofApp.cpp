@@ -9178,9 +9178,25 @@ void ofApp::mousePressed(int x, int y, int button) {
 					}
 					spawnFloatingText(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y),
 						"+" + ofToString(cardSpawnerQuantity) + "x " + filteredCards[i].name, ofColor::cyan);
-					if (isMultiplayer && isHost()) {
-						sendSnapshotToClient();
+
+					// Send DrawCards packet to sync spawned cards with opponent
+					if (isMultiplayer) {
+						DrawCardsPacket dcpkt = {};
+						dcpkt.type = PKT_DRAW_CARDS;
+						dcpkt.playerID = myLocalPlayerID;
+						dcpkt.playerIndex = currentPlayerIndex;
+						dcpkt.numCards = std::min(cardSpawnerQuantity, 3);
+
+						// Include the card names
+						for (int q = 0; q < cardSpawnerQuantity && q < 3; q++) {
+							strncpy(dcpkt.cardNames[q], filteredCards[i].name.c_str(), 63);
+							dcpkt.cardNames[q][63] = '\0';
+						}
+
+						steamManager.sendPacket(&dcpkt, sizeof(dcpkt));
+						ofLogNotice("Debug") << "Card Spawner: Sent DrawCards packet for " << cardSpawnerQuantity << "x " << filteredCards[i].name;
 					}
+
 					isCardSpawnerOpen = false;
 					return;
 				}
@@ -19881,9 +19897,9 @@ void ofApp::processNetworkPackets() {
 					if (foundCard) {
 						Card newCard = *foundCard;
 
-						// Animation setup
-						newCard.currentScale = 1.5f;
-						newCard.targetScale = 1.5f;
+						// Animation setup - start small and animate to target
+						newCard.currentScale = 0.1f; // Start small
+						newCard.targetScale = 1.5f; // Animate to full size
 
 						// Calculate spawn position
 						float scale = ofGetHeight() / 1080.0f;
