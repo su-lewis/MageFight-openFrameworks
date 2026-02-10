@@ -19653,9 +19653,9 @@ void ofApp::processNetworkPackets() {
 				// DEBUGGING: Calculate checksum BEFORE marking dice as DEBUG (to match host's state)
 				// Only send checksum once per turn to avoid sending it multiple times if duplicate packets arrive
 				static int lastChecksumTurn = -1;
-				if (globalTurnCounter == 0 && lastChecksumTurn != globalTurnCounter) {
+				// Skip checksum on turn 0 - deck setup is still in progress, wait until turn 1
+				if (globalTurnCounter > 0 && lastChecksumTurn != globalTurnCounter) {
 					lastChecksumTurn = globalTurnCounter;
-					ofLogNotice("Network") << "Client: Requesting checksum check for turn 0 (post-draft)";
 					// Log deck state before checksum
 					for (size_t pi = 0; pi < players.size(); ++pi) {
 						std::string deckStr = "[";
@@ -20966,9 +20966,9 @@ long long ofApp::calculateChecksum() {
 	}
 
 	// Active dice (include resolved outcomes)
-	// NOTE: During turn 0 (post-draft TurnStart), clients may not have local AP dice
-	// visuals even though the host does. To avoid a false desync at draft->gameplay,
-	// skip active dice in the checksum when globalTurnCounter == 0.
+	// NOTE: During turn 0 (post-draft TurnStart), skip active dice in checksum
+	// because the host rolls AP but client hasn't received the TurnStart packet yet.
+	// Dice will be synchronized via explicit AP value in TurnStart packet.
 	if (globalTurnCounter > 0) {
 		mix((uint64_t)activeDiceRolls.size());
 		for (const auto & d : activeDiceRolls) {
