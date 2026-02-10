@@ -13598,14 +13598,11 @@ CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		board[targetX][targetY].hasWall = false; // Remove static wall
 		board[targetX][targetY].isMagicWall = false; // Clear flag (unit carries property now)
 		board[targetX][targetY].hasPlayer = true; // Add unit
-		players.push_back(minion);
-		int newWallUnitIdx = (int)players.size() - 1;
-		shuffleGameVector(players[newWallUnitIdx].deck, newWallUnitIdx);
 
 		// Update Mesh (to remove the static wall visually)
 		buildLevelMesh();
 
-		// 4. Add to board
+		// Add minion to players
 		players.push_back(minion);
 		int newWallUnitIdx = (int)players.size() - 1;
 		shuffleGameVector(players[newWallUnitIdx].deck, newWallUnitIdx);
@@ -15018,6 +15015,17 @@ glm::vec2 ofApp::getCardDisplayUIPosition(int playerIndex) {
 }
 //--------------------------------------------------------------
 void ofApp::createCardDisplay(const Card & card, int playerIndex) {
+	// Don't show card animation for the local player who played it
+	if (playerIndex >= 0 && playerIndex < (int)players.size()) {
+		int playingPlayerID = players[playerIndex].playerID;
+		if (!isMultiplayer && playingPlayerID == 0) {
+			return; // Don't show animation for local player in single-player
+		}
+		if (isMultiplayer && playingPlayerID == myLocalPlayerID) {
+			return; // Don't show animation for local player in multiplayer
+		}
+	}
+	
 	PlayedCardDisplay disp;
 	disp.card = card;
 	disp.startTime = ofGetElapsedTimef();
