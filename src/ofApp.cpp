@@ -11989,9 +11989,16 @@ void ofApp::startNewTurn() {
 			if (p.isSkeleton || p.isHellhound) minionCount++;
 		}
 
-		if (minionCount > 0) startDiceRoll(minionCount, 6, PURPOSE_BONUS_AP, "Minion Bonus AP", currentPlayerIndex);
+		// Dark Shield: Roll Xd6 where X = total skeletons + hellhounds on board
+		// This REPLACES the normal AP roll, not adds to it
+		if (minionCount > 0) {
+			startDiceRoll(minionCount, 6, PURPOSE_AP, "Dark Shield AP Roll", currentPlayerIndex);
+		}
+		// If minionCount is 0, no AP roll happens this turn!
 
 		startingPlayer.nextTurnBonusDiceFromMinions = false;
+		// Skip the normal AP roll section below
+		return;
 	}
 
 	// --- D. CHECK STATUS EFFECTS FOR NORMAL TURN ---
@@ -20920,11 +20927,18 @@ long long ofApp::calculateChecksum() {
 		mix((uint64_t)p.isPoisoned);
 		mix((uint64_t)p.poisonReduction);
 		mix((uint64_t)p.nextTurnAPBonus);
+		mix((uint64_t)p.nextAttackAddPoison);
+		mix((uint64_t)p.nextTurnD10AP);
+		mix((uint64_t)p.nextTurnExtraDraw);
+		mix((uint64_t)p.isReplicatePending);
+		mix((uint64_t)p.nextTurnBonusDiceFromMinions);
 		mix((uint64_t)p.strengthenElementsTurnsRemaining);
 		mix((uint64_t)p.sleepTurnsRemaining);
 		mix((uint64_t)p.summonedOnTurnCycle);
 		mix((uint64_t)p.inTortoiseForm);
 		mix((uint64_t)p.tortoiseDamageTaken);
+		mix((uint64_t)p.inGhostForm);
+		mix((uint64_t)p.ghostDamageTaken);
 		mix((uint64_t)p.freeKickTurns);
 	}
 
