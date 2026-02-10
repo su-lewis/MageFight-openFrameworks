@@ -20896,6 +20896,7 @@ long long ofApp::calculateChecksum() {
 		mix((uint64_t)p.x);
 		mix((uint64_t)p.y);
 		mix((uint64_t)p.health);
+		mix((uint64_t)p.maxHealth);
 		mix((uint64_t)p.block);
 		mix((uint64_t)p.ward);
 		mix((uint64_t)p.luck);
