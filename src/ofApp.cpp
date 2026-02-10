@@ -15025,7 +15025,7 @@ void ofApp::createCardDisplay(const Card & card, int playerIndex) {
 			return; // Don't show animation for local player in multiplayer
 		}
 	}
-	
+
 	PlayedCardDisplay disp;
 	disp.card = card;
 	disp.startTime = ofGetElapsedTimef();
