@@ -301,6 +301,7 @@ struct Tile {
 struct Player {
 	int x;
 	int y;
+	glm::vec3 visualPos = { 0.0f, 0.0f, 0.0f }; // For smooth animation / snapshot restore
 	int health = 15;
 	int maxHealth = 15;
 	int block = 0;

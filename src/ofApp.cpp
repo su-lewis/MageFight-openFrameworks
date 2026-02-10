@@ -15649,6 +15649,26 @@ std::string ofApp::buildSnapshotString() {
 		ss << "\n";
 	}
 
+	// Save graveyard (dead units' decks)
+	ss << "GRAVEYARD\t" << graveyard.size() << "\n";
+	for (const auto & grave : graveyard) {
+		auto encodeCards = [&](const std::vector<Card> & cards) {
+			std::string out;
+			for (size_t i = 0; i < cards.size(); ++i) {
+				if (i > 0) out += ',';
+				out += escapeField(cards[i].name);
+			}
+			return out;
+		};
+		ss << "GRAVE\t" << grave.x << "\t" << grave.y << "\t" << grave.turnDied << "\t" << encodeCards(grave.deck) << "\n";
+	}
+
+	// Save floating keys on the board
+	ss << "KEYS\t" << floatingKeyInstances.size() << "\n";
+	for (const auto & key : floatingKeyInstances) {
+		ss << "KEY\t" << key.pos.x << "\t" << key.pos.y << "\t" << key.set << "\n";
+	}
+
 	return ss.str();
 }
 
@@ -15886,6 +15906,45 @@ void ofApp::applySnapshotString(const std::string & data) {
 		}
 	}
 
+	// Parse graveyard and keys from snapshot (restart from beginning with saved ss data)
+	// Actually, we need to continue parsing the remaining lines from the stream
+	// The graveyard and keys come after all players, so they'll be in subsequent getline calls
+	graveyard.clear();
+	floatingKeyInstances.clear();
+
+	while (std::getline(ss, line)) {
+		if (line.empty()) continue;
+		auto parts = splitTabs(line);
+		if (parts.empty()) continue;
+
+		if (parts[0] == "GRAVE" && parts.size() >= 4) {
+			// GRAVE\tx\ty\tturnDied\tdeck_list
+			DeathMarker grave;
+			grave.x = std::stoi(parts[1]);
+			grave.y = std::stoi(parts[2]);
+			grave.turnDied = std::stoi(parts[3]);
+
+			// Decode deck
+			if (parts.size() > 4) {
+				grave.deck.clear();
+				auto names = splitEscapedList(parts[4]);
+				for (const auto & n : names) {
+					if (n.empty()) continue;
+					const Card * c = findCardByName(n);
+					if (c) grave.deck.push_back(*c);
+				}
+			}
+			graveyard.push_back(grave);
+		} else if (parts[0] == "KEY" && parts.size() >= 4) {
+			// KEY\tx\ty\tset
+			FloatingKey key;
+			key.pos.x = std::stoi(parts[1]);
+			key.pos.y = std::stoi(parts[2]);
+			key.set = std::stoi(parts[3]);
+			floatingKeyInstances.push_back(key);
+		}
+	}
+
 	// Rebuild hasPlayer from player positions
 	for (int y = 0; y < BOARD_HEIGHT; ++y) {
 		for (int x = 0; x < BOARD_WIDTH; ++x) {
@@ -15902,12 +15961,24 @@ void ofApp::applySnapshotString(const std::string & data) {
 		playerVisualPos = gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y);
 	}
 
+	// Sync visual positions for ALL players (critical for multiplayer)
+	for (auto & p : players) {
+		p.visualPos = gridToWorld(p.x, p.y);
+	}
+
 	// Keep draft camera consistent after restore
 	draftingCameraLockedToClient = (currentState == STATE_DRAFTING && isMultiplayer && myLocalPlayerID == 1);
+
+	// Rebuild all visual geometry
+	buildLevelMesh();
+	buildFloorMesh();
+	invalidateTargetCache();
 
 	// Clear any stale highlights from pre-restore state
 	clearHighlights();
 	calculateTargetHighlights();
+
+	ofLogNotice("Snapshot") << "applySnapshotString complete. Players: " << players.size() << " CurrentPlayer: " << currentPlayerIndex;
 }
 
 //--------------------------------------------------------------
@@ -20435,6 +20506,15 @@ void ofApp::executeOpponentCardPlay(const ActionPacket & pkt) {
 
 	// Special-case: resolve Giant Magic Hand using the sender's menu choice
 	if (cardDef.type == CARD_GIANT_MAGIC_HAND && pkt.menuChoice != 0) {
+		// Track the card play
+		currentAP -= cardDef.cost;
+		opponentPlayer.playedCardsPile.push_back(cardDef);
+		if (opponentPlayer.isReplicatePending) {
+			opponentPlayer.playedCardsPile.push_back(cardDef);
+			opponentPlayer.isReplicatePending = false;
+		}
+		opponentPlayer.cardsPlayedThisTurn.push_back(cardDef.type);
+
 		pendingMagicHandCardIndex = tempCardIndex;
 		magicHandTargetTile = { tx, ty };
 		isMagicHandMenuOpen = false;
@@ -20470,8 +20550,13 @@ void ofApp::executeOpponentCardPlay(const ActionPacket & pkt) {
 		ofLogNotice("Dispel") << "Opponent gained " << rollResult << " barrier";
 
 		opponentPlayer.ap = currentAP;
+		// Add to playedCardsPile like normal playCard would, then move to discard at end of turn
+		opponentPlayer.playedCardsPile.push_back(cardDef);
+		if (opponentPlayer.isReplicatePending) {
+			opponentPlayer.playedCardsPile.push_back(cardDef);
+			opponentPlayer.isReplicatePending = false;
+		}
 		opponentPlayer.hand.erase(opponentPlayer.hand.begin() + tempCardIndex);
-		opponentPlayer.discardPile.push_back(cardDef);
 
 		currentPlayerIndex = savedCurrentPlayerIndex;
 		currentAP = savedCurrentAP;
@@ -20486,6 +20571,7 @@ void ofApp::executeOpponentCardPlay(const ActionPacket & pkt) {
 			opponentPlayer.playedCardsPile.push_back(cardDef);
 			opponentPlayer.isReplicatePending = false;
 		}
+		opponentPlayer.cardsPlayedThisTurn.push_back(cardDef.type);
 		opponentPlayer.hand.erase(opponentPlayer.hand.begin() + tempCardIndex);
 
 		if (pkt.menuChoice == 1) {
@@ -20531,7 +20617,11 @@ void ofApp::executeOpponentCardPlay(const ActionPacket & pkt) {
 		}
 
 		currentAP -= cardDef.cost;
-		opponentPlayer.discardPile.push_back(cardDef);
+		opponentPlayer.playedCardsPile.push_back(cardDef);
+		if (opponentPlayer.isReplicatePending) {
+			opponentPlayer.playedCardsPile.push_back(cardDef);
+			opponentPlayer.isReplicatePending = false;
+		}
 		opponentPlayer.hand.erase(opponentPlayer.hand.begin() + tempCardIndex);
 		opponentPlayer.ap = currentAP;
 
@@ -20581,7 +20671,6 @@ void ofApp::executeOpponentCardPlay(const ActionPacket & pkt) {
 		}
 		opponentPlayer.ap = currentAP;
 		opponentPlayer.hand.erase(opponentPlayer.hand.begin() + tempCardIndex);
-		opponentPlayer.discardPile.push_back(cardDef);
 
 		currentPlayerIndex = savedCurrentPlayerIndex;
 		currentAP = savedCurrentAP;
@@ -20621,7 +20710,6 @@ void ofApp::executeOpponentCardPlay(const ActionPacket & pkt) {
 		}
 		opponentPlayer.ap = currentAP;
 		opponentPlayer.hand.erase(opponentPlayer.hand.begin() + tempCardIndex);
-		opponentPlayer.discardPile.push_back(cardDef);
 
 		currentPlayerIndex = savedCurrentPlayerIndex;
 		currentAP = savedCurrentAP;
@@ -20638,6 +20726,14 @@ void ofApp::executeOpponentCardPlay(const ActionPacket & pkt) {
 			}
 		}
 		if (targetIndex >= 0) {
+			currentAP -= cardDef.cost;
+			opponentPlayer.playedCardsPile.push_back(cardDef);
+			if (opponentPlayer.isReplicatePending) {
+				opponentPlayer.playedCardsPile.push_back(cardDef);
+				opponentPlayer.isReplicatePending = false;
+			}
+			opponentPlayer.cardsPlayedThisTurn.push_back(cardDef.type);
+			opponentPlayer.hand.erase(opponentPlayer.hand.begin() + tempCardIndex);
 			pendingDoubleHandedCardIndex = tempCardIndex;
 			pendingDoubleHandedTargetIndex = targetIndex;
 			resolveDoubleHanded(pkt.menuChoice == 1 ? "Punch" : "Hand Block");
@@ -20673,6 +20769,15 @@ void ofApp::executeOpponentCardPlay(const ActionPacket & pkt) {
 
 	// Special-case: Teleport (apply move from packet)
 	if (cardDef.type == CARD_TELEPORT) {
+		// Track the card play
+		currentAP -= cardDef.cost;
+		opponentPlayer.playedCardsPile.push_back(cardDef);
+		if (opponentPlayer.isReplicatePending) {
+			opponentPlayer.playedCardsPile.push_back(cardDef);
+			opponentPlayer.isReplicatePending = false;
+		}
+		opponentPlayer.cardsPlayedThisTurn.push_back(cardDef.type);
+
 		// Move player
 		board[opponentPlayer.x][opponentPlayer.y].hasPlayer = false;
 		opponentPlayer.x = tx;

@@ -1,12 +1,12 @@
 
 === DECK STATE LOG ===
-Time: 2026-02-09 17:53:26
+Time: 2026-02-09 18:26:19
 Reason: End Turn 1
 Turn: 1
 Current Player: 1
 Local Player ID: 1
 Is Host: false
 
-Player0 Deck[2]: Bash(5), Fireball(12) | Hand[0]:  | Discard[5]: Mind Theft(16), Giant Magic Hand(53), Giant Magic Hand(53), Bash(5), Mind Theft(16)
-Player1 Deck[1]: Summon Faerie(59) | Hand[1]: Bash(5) | Discard[2]: Bash(5), Hand Block(9)
+Player0 Deck[3]: Rock Crush(14), Summon Wall(2), Train(66) | Hand[0]:  | Discard[3]: Train(66), Summon Wall(2), Summon Wall(2)
+Player1 Deck[1]: Summon Magic Wall(2) | Hand[1]: Consume Health Potion(43) | Discard[3]: Dispel(18), Consume Health Potion(43), Dispel(18)
 =====================
