@@ -20799,7 +20799,7 @@ void ofApp::executeOpponentCardPlay(const ActionPacket & pkt) {
 				opponentPlayer.isReplicatePending = false;
 			}
 			opponentPlayer.cardsPlayedThisTurn.push_back(cardDef.type);
-			opponentPlayer.hand.erase(opponentPlayer.hand.begin() + tempCardIndex);
+			// DO NOT erase here - resolveDoubleHanded() handles card removal
 			pendingDoubleHandedCardIndex = tempCardIndex;
 			pendingDoubleHandedTargetIndex = targetIndex;
 			resolveDoubleHanded(pkt.menuChoice == 1 ? "Punch" : "Hand Block");
