@@ -4458,17 +4458,22 @@ void ofApp::updateGame() {
 	// Played Card Animation (appears at center, holds, then fades out)
 	for (auto & anim : activePlayedCardAnimations) {
 		float elapsedTime = ofGetElapsedTimef() - anim.startTime;
-		if (elapsedTime < 1.5f) {
+		// Keep it large and on the right-hand side
+		anim.currentScale = 2.6f;
+		float handBaseCardWidth = 120.0f;
+		float w = handBaseCardWidth * anim.currentScale;
+		anim.pos = glm::vec2(ofGetWidth() - (w / 2.0f) - 40.0f, ofGetHeight() / 2.0f);
+
+		if (elapsedTime < 2.5f) {
 			// Hold at full size/alpha
-			anim.currentScale = 2.0f;
 			anim.currentAlpha = 255.0f;
-		} else if (elapsedTime < 2.0f) {
+		} else if (elapsedTime < 3.0f) {
 			// Fade out
-			float t = ofMap(elapsedTime, 1.5f, 2.0f, 0.0f, 1.0f, true);
+			float t = ofMap(elapsedTime, 2.5f, 3.0f, 0.0f, 1.0f, true);
 			anim.currentAlpha = ofLerp(255.0f, 0.0f, t);
 		}
 	}
-	activePlayedCardAnimations.erase(std::remove_if(activePlayedCardAnimations.begin(), activePlayedCardAnimations.end(), [](const PlayedCardAnimation & anim) { return (ofGetElapsedTimef() - anim.startTime) >= 2.0f; }), activePlayedCardAnimations.end());
+	activePlayedCardAnimations.erase(std::remove_if(activePlayedCardAnimations.begin(), activePlayedCardAnimations.end(), [](const PlayedCardAnimation & anim) { return (ofGetElapsedTimef() - anim.startTime) >= 3.0f; }), activePlayedCardAnimations.end());
 
 	for (auto & anim : activeRemovedCardAnimations) {
 		float elapsedTime = ofGetElapsedTimef() - anim.startTime;
@@ -8649,6 +8654,22 @@ void ofApp::mousePressed(int x, int y, int button) {
 		}
 	}
 
+	// Click-to-dismiss played card animation
+	if (button == OF_MOUSE_BUTTON_LEFT && !activePlayedCardAnimations.empty()) {
+		float handBaseCardWidth = 120.0f;
+		float aspectRatio = 585.0f / 409.0f;
+		float baseCardHeight = handBaseCardWidth * aspectRatio;
+		for (auto it = activePlayedCardAnimations.begin(); it != activePlayedCardAnimations.end(); ++it) {
+			float w = handBaseCardWidth * it->currentScale;
+			float h = baseCardHeight * it->currentScale;
+			ofRectangle animRect(it->pos.x - w / 2.0f, it->pos.y - h / 2.0f, w, h);
+			if (animRect.inside(x, y)) {
+				activePlayedCardAnimations.erase(it);
+				return;
+			}
+		}
+	}
+
 	if (currentState == STATE_DRAFTING && button == OF_MOUSE_BUTTON_LEFT) {
 		if (draftAcceptLocked) {
 			ofLogNotice("Draft") << "DRAFT CLICK IGNORED: accept already sent.";
@@ -9711,9 +9732,46 @@ void ofApp::mousePressed(int x, int y, int button) {
 				}
 			}
 
+			// Remember hand size before drawing to get the new cards
+			size_t handSizeBefore = p.hand.size();
+
 			// Draw new cards
 			for (int i = 0; i < cardsToDraw; i++)
 				drawCard();
+
+			// Send action packet AFTER the menu resolves so the opponent sees the card as played
+			if (isMultiplayer && !p.playedCardsPile.empty()) {
+				const Card & playedCard = p.playedCardsPile.back();
+				sendActionPacket(-1, -1, -1, playedCard.cost, 0, playedCard.name);
+			}
+
+			// Send DrawCards packet to opponent so they know what was drawn
+			if (isMultiplayer && cardsToDraw > 0) {
+				DrawCardsPacket dcpkt = {};
+				dcpkt.type = PKT_DRAW_CARDS;
+				dcpkt.playerID = myLocalPlayerID;
+				dcpkt.playerIndex = currentPlayerIndex;
+				dcpkt.numCards = cardsToDraw;
+
+				// Include the card names that were just drawn
+				for (int i = 0; i < cardsToDraw && i < 3; i++) {
+					size_t cardIndex = handSizeBefore + i;
+					if (cardIndex < p.hand.size()) {
+						strncpy(dcpkt.cardNames[i], p.hand[cardIndex].name.c_str(), 63);
+						dcpkt.cardNames[i][63] = '\0';
+					} else {
+						dcpkt.cardNames[i][0] = '\0';
+					}
+				}
+
+				steamManager.sendPacket(&dcpkt, sizeof(dcpkt));
+				ofLogNotice("Network") << "Sent DrawCards packet for Renewed Inspiration: " << cardsToDraw << " cards";
+			}
+
+			// Show played card animation now that the effect is confirmed
+			if (!p.playedCardsPile.empty()) {
+				createCardDisplay(p.playedCardsPile.back(), currentPlayerIndex);
+			}
 
 			// Visual feedback
 			spawnFloatingText(gridToWorld(p.x, p.y), "+" + ofToString(cardsToDraw) + " Cards", ofColor::cyan);
@@ -11791,9 +11849,12 @@ void ofApp::startNewTurn() {
 		ofLogNotice("Turn") << "Processing ending player: index=" << currentPlayerIndex << " playerID=" << endingPlayer.playerID;
 
 		// --- A. CLEANUP HAND & BUFFS ---
-		// Skip this for local player on client (already done above)
-		bool shouldSkipCleanup = (isMultiplayer && isClient() && endingPlayer.playerID == myLocalPlayerID);
-		ofLogNotice("Turn") << "Cleanup check: isClient=" << isClient() << " endingPlayer.playerID=" << endingPlayer.playerID << " myLocalPlayerID=" << myLocalPlayerID << " shouldSkip=" << shouldSkipCleanup;
+		// Skip cleanup if:
+		// 1. This is a client and it's their own player (already cleaned up above before sending END_TURN)
+		// 2. This is multiplayer and the ending player is NOT local (they cleaned up on their own machine before sending END_TURN)
+		bool isEndingPlayerLocal = (endingPlayer.playerID == myLocalPlayerID);
+		bool shouldSkipCleanup = isMultiplayer && !isEndingPlayerLocal; // Opponent already cleaned up their own hand
+		ofLogNotice("Turn") << "Cleanup check: isMultiplayer=" << isMultiplayer << " isEndingPlayerLocal=" << isEndingPlayerLocal << " shouldSkip=" << shouldSkipCleanup;
 		if (!shouldSkipCleanup) {
 			ofLogNotice("Turn") << "Cleaning up ending player's hand. Hand size: " << endingPlayer.hand.size() << ", Played: " << endingPlayer.playedCardsPile.size();
 			endingPlayer.discardPile.insert(endingPlayer.discardPile.end(), endingPlayer.hand.begin(), endingPlayer.hand.end());
@@ -14081,7 +14142,6 @@ CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		riCancelBtn.set(cx + 10, cy, 100, 50);
 
 		// 7. Visuals & prevent auto-cleanup
-		createCardDisplay(playedCard, currentPlayerIndex);
 		invalidateTargetCache();
 		return CARD_AWAITING_MENU_CHOICE;
 	}
@@ -14806,7 +14866,7 @@ void ofApp::createCardDisplay(const Card & card, int playerIndex) {
 	disp.startTime = ofGetElapsedTimef();
 	disp.startPos = getCardDisplayUIPosition(playerIndex);
 	disp.currentPos = disp.startPos;
-	disp.currentScale = 1.5f;
+	disp.currentScale = 2.6f;
 	disp.currentAlpha = 255.0f;
 	activeCardDisplays.push_back(disp);
 }
@@ -19275,26 +19335,20 @@ void ofApp::processNetworkPackets() {
 		if (header->type == PKT_RENEWED_INSPIRATION) {
 			RenewedInspirationPacket * rpk = (RenewedInspirationPacket *)header;
 			if (rpk->playerIndex >= 0 && rpk->playerIndex < (int)players.size()) {
-				int savedIndex = currentPlayerIndex;
-				currentPlayerIndex = rpk->playerIndex;
-				Player & p = players[currentPlayerIndex];
+				Player & p = players[rpk->playerIndex];
 				std::vector<int> indices;
 				for (int i = 0; i < rpk->count && i < 16; ++i) {
 					indices.push_back(rpk->indices[i]);
 				}
 				std::sort(indices.begin(), indices.end(), std::greater<int>());
-				int cardsToDraw = 0;
+				// Only discard cards - don't draw! The DrawCards packet will handle that.
 				for (int idx : indices) {
 					if (idx >= 0 && idx < (int)p.hand.size()) {
 						p.discardPile.push_back(p.hand[idx]);
 						p.hand.erase(p.hand.begin() + idx);
-						cardsToDraw += 2;
 					}
 				}
-				for (int i = 0; i < cardsToDraw; i++) {
-					drawCard();
-				}
-				currentPlayerIndex = savedIndex;
+				ofLogNotice("Network") << "Renewed Inspiration: Opponent discarded " << indices.size() << " cards (will draw from DrawCards packet)";
 			}
 			continue;
 		}
@@ -19795,14 +19849,8 @@ void ofApp::processNetworkPackets() {
 				}
 			}
 		} else if (header->type == PKT_MENU_STATE) {
-			MenuStatePacket * pkt = (MenuStatePacket *)header;
-			// Update opponent's menu state for visualization
-			opponentMenuType = pkt->menuType;
-			opponentMenuTargetIndex = pkt->targetIndex;
-			opponentMenuHoveredChoice = pkt->hoveredChoice;
-			opponentMenuCardIndex = pkt->cardIndex;
-			opponentMenuOpen = (pkt->menuType > 0);
-			ofLogNotice("Menu") << "Received opponent menu state: type=" << pkt->menuType << " target=" << pkt->targetIndex << " hover=" << pkt->hoveredChoice;
+			// Opponent menu visualization disabled.
+			continue;
 		} else if (header->type == PKT_END_TURN) {
 			ofLogNotice("Net") << "Opponent ended turn.";
 			// CLIENT: Always wait for host's TurnStart packet (contains authoritative dice)
@@ -20340,16 +20388,8 @@ void ofApp::processNetworkPackets() {
 // Send menu state for opponent visualization
 void ofApp::sendMenuState(int menuType, int targetIndex, int hoveredChoice, int cardIndex) {
 	if (!isMultiplayer) return;
-
-	MenuStatePacket pkt = {};
-	pkt.type = PKT_MENU_STATE;
-	pkt.playerID = myLocalPlayerID;
-	pkt.menuType = menuType;
-	pkt.targetIndex = targetIndex;
-	pkt.hoveredChoice = hoveredChoice;
-	pkt.cardIndex = cardIndex;
-
-	steamManager.sendPacket(&pkt, sizeof(pkt));
+	// Opponent menu visualization is disabled.
+	return;
 }
 
 // When I click a card
@@ -20787,6 +20827,25 @@ void ofApp::executeOpponentCardPlay(const ActionPacket & pkt) {
 		invalidateTargetCache();
 
 		opponentPlayer.hand.erase(opponentPlayer.hand.begin() + tempCardIndex);
+		opponentPlayer.ap = currentAP;
+		currentPlayerIndex = savedCurrentPlayerIndex;
+		currentAP = savedCurrentAP;
+		return;
+	}
+
+	// Special-case: Renewed Inspiration (menu already resolved on sender)
+	if (cardDef.type == CARD_RENEWED_INSPIRATION) {
+		currentAP -= cardDef.cost;
+		opponentPlayer.playedCardsPile.push_back(cardDef);
+		if (opponentPlayer.isReplicatePending) {
+			opponentPlayer.playedCardsPile.push_back(cardDef);
+			opponentPlayer.isReplicatePending = false;
+		}
+		opponentPlayer.cardsPlayedThisTurn.push_back(cardDef.type);
+		if (tempCardIndex >= 0 && tempCardIndex < (int)opponentPlayer.hand.size()) {
+			opponentPlayer.hand.erase(opponentPlayer.hand.begin() + tempCardIndex);
+		}
+		createCardDisplay(cardDef, opponentPlayerIndex);
 		opponentPlayer.ap = currentAP;
 		currentPlayerIndex = savedCurrentPlayerIndex;
 		currentAP = savedCurrentAP;

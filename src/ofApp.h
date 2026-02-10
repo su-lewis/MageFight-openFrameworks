@@ -275,7 +275,7 @@ struct PlayedCardAnimation {
 	Card card;
 	float startTime;
 	glm::vec2 pos; // Center of screen
-	float currentScale = 2.0f;
+	float currentScale = 2.6f;
 	float currentAlpha = 255.0f;
 };
 

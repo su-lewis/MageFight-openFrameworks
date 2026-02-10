@@ -1,12 +1,12 @@
 
 === DECK STATE LOG ===
-Time: 2026-02-09 18:26:19
+Time: 2026-02-10 05:58:21
 Reason: End Turn 1
 Turn: 1
 Current Player: 1
 Local Player ID: 1
 Is Host: false
 
-Player0 Deck[3]: Rock Crush(14), Summon Wall(2), Train(66) | Hand[0]:  | Discard[3]: Train(66), Summon Wall(2), Summon Wall(2)
-Player1 Deck[1]: Summon Magic Wall(2) | Hand[1]: Consume Health Potion(43) | Discard[3]: Dispel(18), Consume Health Potion(43), Dispel(18)
+Player0 Deck[5]: Renewed Inspiration(48), Slash(5), Four-leaf clover(60), Summon Faerie(59), Blocking Boon(68) | Hand[0]:  | Discard[2]: Renewed Inspiration(48), Slash(5)
+Player1 Deck[4]: Consume Large Health Potion(54), Blocking Boon(68), Punch(5), Renewed Inspiration(48) | Hand[3]: Punch(5), Hasten(20), Renewed Inspiration(48) | Discard[0]: 
 =====================
