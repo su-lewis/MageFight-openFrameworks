@@ -12293,6 +12293,7 @@ void ofApp::drawCard() {
 		currentPlayer.hand.back().drawnThisTurn = true;
 
 		ofLogNotice("Game") << "Drew card: " << newCard.name;
+		addGameLog(getPlayerSteamName(currentPlayerIndex) + " drew " + newCard.name);
 	}
 }
 //--------------------------------------------------------------
@@ -12334,11 +12335,15 @@ CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		currentAP -= costToPay;
 		currentPlayer.playedCardsPile.push_back(playedCard);
 
-		// Show played card animation
+		// Show played card animation (right side, no scale-up)
 		PlayedCardAnimation cardAnim;
 		cardAnim.card = playedCard;
 		cardAnim.startTime = ofGetElapsedTimef();
-		cardAnim.pos = glm::vec2(ofGetWidth() / 2, ofGetHeight() / 2);
+		float handBaseCardWidth = 120.0f;
+		float w = handBaseCardWidth * 2.6f;
+		cardAnim.pos = glm::vec2(ofGetWidth() - (w / 2.0f) - 40.0f, ofGetHeight() / 2.0f);
+		cardAnim.currentScale = 2.6f;
+		cardAnim.currentAlpha = 255.0f;
 		activePlayedCardAnimations.push_back(cardAnim);
 
 		currentPlayer.hand.erase(currentPlayer.hand.begin() + cardIndex);
@@ -12894,11 +12899,15 @@ CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		currentAP -= costToPay;
 		currentPlayer.playedCardsPile.push_back(playedCard);
 
-		// Show played card animation
+		// Show played card animation (right side, no scale-up)
 		PlayedCardAnimation cardAnim;
 		cardAnim.card = playedCard;
 		cardAnim.startTime = ofGetElapsedTimef();
-		cardAnim.pos = glm::vec2(ofGetWidth() / 2, ofGetHeight() / 2);
+		float handBaseCardWidth = 120.0f;
+		float w = handBaseCardWidth * 2.6f;
+		cardAnim.pos = glm::vec2(ofGetWidth() - (w / 2.0f) - 40.0f, ofGetHeight() / 2.0f);
+		cardAnim.currentScale = 2.6f;
+		cardAnim.currentAlpha = 255.0f;
 		activePlayedCardAnimations.push_back(cardAnim);
 
 		// Handle Replicate
@@ -12985,11 +12994,15 @@ CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		currentAP -= costToPay;
 		currentPlayer.playedCardsPile.push_back(playedCard);
 
-		// Show played card animation
+		// Show played card animation (right side, no scale-up)
 		PlayedCardAnimation cardAnim;
 		cardAnim.card = playedCard;
 		cardAnim.startTime = ofGetElapsedTimef();
-		cardAnim.pos = glm::vec2(ofGetWidth() / 2, ofGetHeight() / 2);
+		float handBaseCardWidth = 120.0f;
+		float w = handBaseCardWidth * 2.6f;
+		cardAnim.pos = glm::vec2(ofGetWidth() - (w / 2.0f) - 40.0f, ofGetHeight() / 2.0f);
+		cardAnim.currentScale = 2.6f;
+		cardAnim.currentAlpha = 255.0f;
 		activePlayedCardAnimations.push_back(cardAnim);
 
 		if (currentPlayer.isReplicatePending) {
@@ -13081,11 +13094,15 @@ CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		currentAP -= costToPay;
 		currentPlayer.playedCardsPile.push_back(playedCard);
 
-		// Show played card animation
+		// Show played card animation (right side, no scale-up)
 		PlayedCardAnimation cardAnim;
 		cardAnim.card = playedCard;
 		cardAnim.startTime = ofGetElapsedTimef();
-		cardAnim.pos = glm::vec2(ofGetWidth() / 2, ofGetHeight() / 2);
+		float handBaseCardWidth = 120.0f;
+		float w = handBaseCardWidth * 2.6f;
+		cardAnim.pos = glm::vec2(ofGetWidth() - (w / 2.0f) - 40.0f, ofGetHeight() / 2.0f);
+		cardAnim.currentScale = 2.6f;
+		cardAnim.currentAlpha = 255.0f;
 		activePlayedCardAnimations.push_back(cardAnim);
 
 		if (currentPlayer.isReplicatePending) {
@@ -20983,6 +21000,10 @@ void ofApp::applyMovement(int playerIndex, int targetX, int targetY, int newAP, 
 
 	const int prevX = p.x;
 	const int prevY = p.y;
+
+	// Log the movement
+	addGameLog(getPlayerSteamName(playerIndex) + " moved to (" + ofToString(targetX) + "," + ofToString(targetY) + ")");
+
 	board[prevX][prevY].hasPlayer = false;
 
 	if (newAP >= 0) {
