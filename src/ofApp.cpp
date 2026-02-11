@@ -1148,10 +1148,8 @@ void ofApp::update() {
 						steamManager.sendPacket(&sp, sizeof(sp));
 					}
 				} else {
-					// TIE - Reroll (only host rolls in multiplayer)
-					if (!isMultiplayer || isHost()) {
-						startDiceRoll(1, 6, PURPOSE_DEBUG, "Initiative Reroll");
-					}
+					// TIE - Reroll: all players reroll using shared deterministic RNG
+					startDiceRoll(1, 6, PURPOSE_DEBUG, "Initiative Reroll");
 					initiativeTimer = 0.0f;
 					ofLogNotice("Initiative") << "Tie! Rerolling...";
 				}
@@ -1701,12 +1699,9 @@ void ofApp::initializeGameStateCommon() {
 	isInitiativeRolling = true;
 	initiativeTimer = 0.0f;
 
-	// Only roll initiative if we're in singleplayer OR if we're the host in multiplayer
-	// (Client in multiplayer will receive the rolls via DiceRollPacket)
-	if (!isMultiplayer || isHost()) {
-		startDiceRoll(1, 6, PURPOSE_DEBUG, "");
-		startDiceRoll(1, 6, PURPOSE_DEBUG, "");
-	}
+	// All players roll initiative using shared deterministic RNG
+	startDiceRoll(1, 6, PURPOSE_DEBUG, "");
+	startDiceRoll(1, 6, PURPOSE_DEBUG, "");
 
 	ofLogNotice("Game") << "--- INITIATIVE ROLL STARTED ---";
 	cam.setAspectRatio((float)ofGetWidth() / (float)ofGetHeight());
@@ -8551,7 +8546,7 @@ cursor_check_done:;
 					int minRoll = board[tooltipGX][tooltipGY].minRollRequired;
 					float hitChance = board[tooltipGX][tooltipGY].hitChance;
 					int percentage = (int)(hitChance * 100.0f);
-					
+
 					std::string rangeText = " | Min Roll: " + ofToString(minRoll) + " (" + ofToString(percentage) + "%)";
 					tooltipText += rangeText;
 				}
