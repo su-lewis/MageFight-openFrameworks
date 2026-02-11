@@ -16786,26 +16786,35 @@ int ofApp::startDiceRoll(int numDice, int sides, DicePurpose purpose, std::strin
 
 	// 5. Send dice roll packet to opponent in multiplayer (for visual synchronization)
 	if (isMultiplayer && activeDiceRolls.size() >= numDice) {
-		DiceRollPacket drp = {};
-		drp.type = PKT_DICE_ROLL;
-		drp.playerID = myLocalPlayerID;
-		drp.numDice = numDice;
-		drp.sides = sides;
-		drp.purpose = (uint8_t)purpose;
-		drp.ownerIndex = ownerIndex;
+		// Skip broadcasting initiative debug rolls since both host and client
+		// now roll initiative locally using the shared deterministic RNG.
+		// Also skip broadcasting AP rolls here because the host sends an
+		// authoritative PKT_TURN_START that the client will use to create
+		// the visual AP roll; sending both causes duplicate visuals.
+		if ((purpose == PURPOSE_DEBUG && currentState == STATE_INITIATIVE_ROLL) || (purpose == PURPOSE_AP && currentState == STATE_GAMEPLAY)) {
+			ofLogNotice("Network") << "Skipping DiceRollPacket send for purpose=" << (int)purpose << " (handled authoritatively).";
+		} else {
+			DiceRollPacket drp = {};
+			drp.type = PKT_DICE_ROLL;
+			drp.playerID = myLocalPlayerID;
+			drp.numDice = numDice;
+			drp.sides = sides;
+			drp.purpose = (uint8_t)purpose;
+			drp.ownerIndex = ownerIndex;
 
-		// Copy the results from the last numDice rolls
-		int startIdx = (int)activeDiceRolls.size() - numDice;
-		for (int i = 0; i < numDice && startIdx + i < (int)activeDiceRolls.size(); i++) {
-			drp.rawResults[i] = activeDiceRolls[startIdx + i].rawResult;
-			drp.finalResults[i] = activeDiceRolls[startIdx + i].result;
+			// Copy the results from the last numDice rolls
+			int startIdx = (int)activeDiceRolls.size() - numDice;
+			for (int i = 0; i < numDice && startIdx + i < (int)activeDiceRolls.size(); i++) {
+				drp.rawResults[i] = activeDiceRolls[startIdx + i].rawResult;
+				drp.finalResults[i] = activeDiceRolls[startIdx + i].result;
+			}
+
+			strncpy(drp.label, label.c_str(), 63);
+			drp.label[63] = '\0';
+
+			steamManager.sendPacket(&drp, sizeof(drp));
+			ofLogNotice("Network") << "Sent DiceRollPacket: " << numDice << "d" << sides << " purpose=" << (int)purpose << " label=" << label;
 		}
-
-		strncpy(drp.label, label.c_str(), 63);
-		drp.label[63] = '\0';
-
-		steamManager.sendPacket(&drp, sizeof(drp));
-		ofLogNotice("Network") << "Sent DiceRollPacket: " << numDice << "d" << sides << " purpose=" << (int)purpose << " label=" << label;
 	}
 
 	ofLogNotice("Dice") << "Final total result for " << numDice << "d" << sides << ": " << totalRollResult;
