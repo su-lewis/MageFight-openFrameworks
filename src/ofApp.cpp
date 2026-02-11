@@ -21211,11 +21211,16 @@ void ofApp::executeOpponentCardPlay(const ActionPacket & pkt) {
 		currentAP -= cardDef.cost;
 		opponentPlayer.playedCardsPile.push_back(cardDef);
 		if (opponentPlayer.isReplicatePending) {
+			// Create a replicated copy and add it to hand (matching local behavior)
+			Card copy = cardDef;
+			copy.isCopied = true;
+			opponentPlayer.hand.push_back(copy);
 			opponentPlayer.playedCardsPile.push_back(cardDef);
 			opponentPlayer.isReplicatePending = false;
 		}
 		opponentPlayer.cardsPlayedThisTurn.push_back(cardDef.type);
-		if (tempCardIndex >= 0 && tempCardIndex < (int)opponentPlayer.hand.size()) {
+		// Only remove from hand if it was a temporary card (not synced via DrawCards)
+		if (addedTemporaryCard && tempCardIndex >= 0 && tempCardIndex < (int)opponentPlayer.hand.size()) {
 			opponentPlayer.hand.erase(opponentPlayer.hand.begin() + tempCardIndex);
 		}
 		createCardDisplay(cardDef, opponentPlayerIndex);
