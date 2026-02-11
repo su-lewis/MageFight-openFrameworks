@@ -1004,8 +1004,11 @@ void ofApp::update() {
 	// 1. STEAM CONNECTION TRIGGER (SYNCED)
 	// ============================================================
 	if (currentState == STATE_MAIN_MENU && steamManager.hasOpponent()) {
-
-		// CASE A: I AM THE HOST
+		static bool loggedDetection = false;
+		if (!loggedDetection) {
+			ofLogNotice("Network") << "DEBUG: hasOpponent() is true, currentState=" << currentState;
+			loggedDetection = true;
+		}
 		// Note: Use steamManager.isHost() directly here since isMultiplayer isn't set yet
 		if (steamManager.isHost()) {
 			if (!isMultiplayer) { // Ensure we only run this once
@@ -1059,6 +1062,12 @@ void ofApp::update() {
 					ofLogNotice("Network") << "Sent Seed Request...";
 				}
 			}
+		}
+	} else if (currentState == STATE_MAIN_MENU && !isMultiplayer) {
+		static bool loggedNoOpponent = false;
+		if (!loggedNoOpponent) {
+			ofLogNotice("Network") << "DEBUG: Still in STATE_MAIN_MENU. hasOpponent()=" << steamManager.hasOpponent() << " isMultiplayer=" << isMultiplayer << " isHost=" << steamManager.isHost();
+			loggedNoOpponent = true;
 		}
 	}
 
