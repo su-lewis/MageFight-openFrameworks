@@ -175,12 +175,7 @@ struct ShufflePacket : PacketHeader {
 	uint32_t nonce; // nonce used to seed local shuffle RNG
 };
 
-// When a player places a summoned minion that requires manual placement (e.g., Wolves, Kobolds)
-struct PlaceSummonedMinionPacket : PacketHeader {
-	uint8_t minionType; // Specific enum for minion type (e.g., WOLF, KOBOLD)
-	int32_t targetX;
-	int32_t targetY;
-};
+// (PlaceSummonedMinionPacket defined earlier)
 
 // For Amnesia card: when the player selects which cards to remove from deck
 struct AmnesiaChoicePacket : PacketHeader {
