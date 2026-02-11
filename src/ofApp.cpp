@@ -3,6 +3,7 @@
 #include "SteamManager.h"
 #include "ofAppGLFWWindow.h"
 #include <algorithm>
+#include <cmath>
 #include <cstring>
 #include <glm/gtx/intersect.hpp>
 #include <limits>
@@ -8358,6 +8359,20 @@ cursor_check_done:;
 					}
 				}
 			}
+
+			// --- TARGET SQUARE TOOLTIP ---
+			// Show tooltip for target preview squares with range roll info
+			if (unitIndexAtMouse == -1 && board[tooltipGX][tooltipGY].hasTooltipInfo && board[tooltipGX][tooltipGY].isTargetPreview) {
+				isShowingTooltip = true;
+				tooltipPos = glm::vec2(x, y - 20); // Slightly above cursor
+
+				// Format: "Min Roll: 15 (65%)" or "Min Roll: 5 (95%)"
+				int minRoll = board[tooltipGX][tooltipGY].minRollRequired;
+				float hitChance = board[tooltipGX][tooltipGY].hitChance;
+				int percentage = (int)(hitChance * 100.0f);
+
+				tooltipText = "Min Roll: " + ofToString(minRoll) + " (" + ofToString(percentage) + "%)";
+			}
 		}
 
 		if (unitIndexAtMouse != hoveredUnitIndex) {
@@ -15063,6 +15078,9 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 		for (int y = 0; y < BOARD_HEIGHT; y++) {
 			board[x][y].isTargetPreview = false; // Red
 			board[x][y].isTargetable = false; // Green
+			board[x][y].hasTooltipInfo = false; // Reset tooltip data
+			board[x][y].minRollRequired = 0;
+			board[x][y].hitChance = 0.0f;
 		}
 	}
 
@@ -15477,6 +15495,88 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 				// the tile is not a wall.
 				if (info.reason != INVALID_NO_LOS && info.reason != INVALID_OUT_OF_RANGE && !board[x][y].hasWall) {
 					isPreview = true;
+
+					// --- Calculate Tooltip Data for Range-Based Cards ---
+					// Only calculate for cards with dice rolls (not infinite range cards)
+					if (card.numDice > 0 && card.diceSides > 0 && card.type != CARD_HEAL && card.type != CARD_DEATH && card.type != CARD_LESSER_HEAL && card.type != CARD_BURST_OF_LIGHT) {
+
+						// Calculate minimum roll required to reach this square
+						// Distance is in feet, roll is in feet (numDice * diceSides gives max feet)
+						int minRoll = (int)ceil(distFeet);
+						int maxPossibleRoll = card.numDice * card.diceSides;
+
+						// Clamp to valid range
+						if (minRoll < card.numDice) minRoll = card.numDice; // Minimum possible roll
+						if (minRoll > maxPossibleRoll) minRoll = maxPossibleRoll;
+
+						// Calculate hit percentage
+						float hitChance = 0.0f;
+						if (minRoll <= maxPossibleRoll) {
+							if (card.numDice == 1) {
+								// Single die: P(X >= minRoll) = (sides - minRoll + 1) / sides
+								int successOutcomes = card.diceSides - minRoll + 1;
+								hitChance = (float)successOutcomes / (float)card.diceSides;
+							} else if (card.numDice == 2 || card.numDice == 3) {
+								// For 2-3 dice: calculate exact probability using dynamic programming
+								// This gives accurate results for Chain Lightning (2d10), Fireball (2d6), etc.
+								int sides = card.diceSides;
+								int numDice = card.numDice;
+
+								// DP: dp[d][s] = number of ways to get sum s using d dice
+								std::vector<std::vector<int>> dp(numDice + 1, std::vector<int>(maxPossibleRoll + 1, 0));
+								dp[0][0] = 1; // Base case: 0 dice, sum 0
+
+								// Fill DP table
+								for (int d = 1; d <= numDice; d++) {
+									for (int s = d; s <= d * sides; s++) {
+										for (int face = 1; face <= sides && face <= s; face++) {
+											dp[d][s] += dp[d - 1][s - face];
+										}
+									}
+								}
+
+								// Count successful outcomes (sum >= minRoll)
+								int successCount = 0;
+								for (int s = minRoll; s <= maxPossibleRoll; s++) {
+									successCount += dp[numDice][s];
+								}
+
+								// Total possible outcomes = sides^numDice
+								int totalOutcomes = 1;
+								for (int i = 0; i < numDice; i++)
+									totalOutcomes *= sides;
+
+								hitChance = (float)successCount / (float)totalOutcomes;
+							} else {
+								// For 4+ dice: use normal distribution approximation
+								// Mean = numDice * (diceSides + 1) / 2
+								// Variance = numDice * (diceSides^2 - 1) / 12
+								float mean = card.numDice * (card.diceSides + 1) / 2.0f;
+								float variance = card.numDice * (card.diceSides * card.diceSides - 1) / 12.0f;
+								float stdDev = sqrt(variance);
+
+								// Use continuity correction for better approximation
+								float z = (minRoll - 0.5f - mean) / stdDev;
+
+								// Approximate normal CDF
+								if (z <= -3.0f)
+									hitChance = 1.0f;
+								else if (z >= 3.0f)
+									hitChance = 0.0f;
+								else {
+									// Linear piecewise approximation
+									hitChance = 0.5f - (z * 0.15f);
+									if (hitChance < 0.0f) hitChance = 0.0f;
+									if (hitChance > 1.0f) hitChance = 1.0f;
+								}
+							}
+						}
+
+						// Store in tile
+						board[x][y].hasTooltipInfo = true;
+						board[x][y].minRollRequired = minRoll;
+						board[x][y].hitChance = hitChance;
+					}
 				}
 
 				// --- Determine Green Outline (is it a valid final target?) ---

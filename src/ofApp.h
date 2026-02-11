@@ -296,6 +296,11 @@ struct Tile {
 	bool isTargetPreview = false;
 	bool visited = false;
 	glm::vec2 parent = { -1, -1 };
+
+	// Target square tooltip info (for cards with range checks)
+	int minRollRequired = 0; // Minimum dice roll needed to hit this square
+	float hitChance = 0.0f; // Percentage chance to hit (0.0 to 1.0)
+	bool hasTooltipInfo = false; // True if tooltip data is valid for this tile
 };
 
 struct Player {
