@@ -1699,8 +1699,12 @@ void ofApp::initializeGameStateCommon() {
 	isInitiativeRolling = true;
 	initiativeTimer = 0.0f;
 
-	startDiceRoll(1, 6, PURPOSE_DEBUG, "");
-	startDiceRoll(1, 6, PURPOSE_DEBUG, "");
+	// Only roll initiative if we're in singleplayer OR if we're the host in multiplayer
+	// (Client in multiplayer will receive the rolls via DiceRollPacket)
+	if (!isMultiplayer || isHost()) {
+		startDiceRoll(1, 6, PURPOSE_DEBUG, "");
+		startDiceRoll(1, 6, PURPOSE_DEBUG, "");
+	}
 
 	ofLogNotice("Game") << "--- INITIATIVE ROLL STARTED ---";
 	cam.setAspectRatio((float)ofGetWidth() / (float)ofGetHeight());
