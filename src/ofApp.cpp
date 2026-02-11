@@ -13049,6 +13049,7 @@ CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 
 		// --- CRASH PREVENTION FIX ---
 		// Perform cleanup NOW before the players vector potentially changes
+		ofLogNotice("Summon") << "RAISE_DEAD: Hand size BEFORE erase = " << currentPlayer.hand.size();
 		currentAP -= costToPay;
 		currentPlayer.playedCardsPile.push_back(playedCard);
 
@@ -13071,6 +13072,7 @@ CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 
 		currentPlayer.cardsPlayedThisTurn.push_back(playedCard.type);
 		currentPlayer.hand.erase(currentPlayer.hand.begin() + cardIndex);
+		ofLogNotice("Summon") << "RAISE_DEAD: Hand size AFTER erase = " << currentPlayer.hand.size();
 		{
 			PlayedCardDisplay disp;
 			disp.card = playedCard;
@@ -13642,7 +13644,9 @@ CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		}
 		invalidateTargetCache();
 
-		break;
+		// Remove card from hand and update UI
+		currentPlayer.hand.erase(currentPlayer.hand.begin() + cardIndex);
+		return CARD_PLAYED_IMMEDIATELY;
 	}
 
 	// --- CASE: CALL FOR WOLVES ---
