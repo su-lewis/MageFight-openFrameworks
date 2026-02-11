@@ -3203,6 +3203,7 @@ void ofApp::updateGame() {
 		minion.y = (int)pendingSummonTile.y;
 		minion.maxHealth = pendingSummonRollResult;
 		minion.health = pendingSummonRollResult;
+		minion.ap = pendingHellhoundAPResult; // AP from second 2d6 roll
 
 		minion.isMinion = true;
 		minion.isHellhound = true;
@@ -13752,8 +13753,9 @@ CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		if (board[targetX][targetY].hasWall || board[targetX][targetY].hasPlayer) break;
 
 		pendingSummonTile = glm::vec2(targetX, targetY);
-		// Important: This must match the variable checked in updateGame
+		// Roll 2d6 for HP and 2d6 for AP
 		pendingSummonRollResult = startDiceRoll(playedCard.numDice, playedCard.diceSides, PURPOSE_HP, "Hellhound HP");
+		pendingHellhoundAPResult = startDiceRoll(playedCard.numDice, playedCard.diceSides, PURPOSE_BONUS_AP, "Hellhound AP");
 		isWaitingForHellhoundHP = true;
 
 		// Cleanup Logic
@@ -16770,6 +16772,30 @@ int ofApp::startDiceRoll(int numDice, int sides, DicePurpose purpose, std::strin
 			gridToWorld(caster.x, caster.y),
 			"+" + ofToString(luckBonus) + " Luck!",
 			ofColor::gold);
+	}
+
+	// 5. Send dice roll packet to opponent in multiplayer (for visual synchronization)
+	if (isMultiplayer && activeDiceRolls.size() >= numDice) {
+		DiceRollPacket drp = {};
+		drp.type = PKT_DICE_ROLL;
+		drp.playerID = myLocalPlayerID;
+		drp.numDice = numDice;
+		drp.sides = sides;
+		drp.purpose = (uint8_t)purpose;
+		drp.ownerIndex = ownerIndex;
+
+		// Copy the results from the last numDice rolls
+		int startIdx = (int)activeDiceRolls.size() - numDice;
+		for (int i = 0; i < numDice && startIdx + i < (int)activeDiceRolls.size(); i++) {
+			drp.rawResults[i] = activeDiceRolls[startIdx + i].rawResult;
+			drp.finalResults[i] = activeDiceRolls[startIdx + i].result;
+		}
+
+		strncpy(drp.label, label.c_str(), 63);
+		drp.label[63] = '\0';
+
+		steamManager.sendPacket(&drp, sizeof(drp));
+		ofLogNotice("Network") << "Sent DiceRollPacket: " << numDice << "d" << sides << " purpose=" << (int)purpose << " label=" << label;
 	}
 
 	ofLogNotice("Dice") << "Final total result for " << numDice << "d" << sides << ": " << totalRollResult;
@@ -20204,6 +20230,43 @@ void ofApp::processNetworkPackets() {
 					}
 				}
 			}
+		} else if (header->type == PKT_DICE_ROLL) {
+			DiceRollPacket * drp = (DiceRollPacket *)header;
+			ofLogNotice("Network") << "Received DiceRollPacket: " << (int)drp->numDice << "d" << (int)drp->sides << " label=" << drp->label;
+
+			// Recreate the dice rolls on opponent's screen for visual display
+			for (int i = 0; i < drp->numDice && i < 8; i++) {
+				DiceRoll newRoll;
+				newRoll.purpose = (DicePurpose)drp->purpose;
+				newRoll.sides = drp->sides;
+				newRoll.startTime = ofGetElapsedTimef();
+				newRoll.associatedUnit = drp->ownerIndex;
+				newRoll.rawResult = drp->rawResults[i];
+				newRoll.result = drp->finalResults[i];
+
+				// Generate visual rotation (using visualRNG for unsync'd visuals)
+				std::uniform_real_distribution<float> axisDist(-1.0f, 1.0f);
+				glm::vec3 rndAxis(axisDist(visualRNG), axisDist(visualRNG), axisDist(visualRNG));
+				if (glm::length(rndAxis) < 0.01f) rndAxis = glm::vec3(0, 1, 0);
+				newRoll.rotationAxis = glm::normalize(rndAxis);
+
+				// Generate wobble
+				std::uniform_real_distribution<float> wobbleDist(-25.0f, 25.0f);
+				float wobbleAmount = wobbleDist(visualRNG);
+
+				// Set quaternion to match the received result (simplified - just use final result)
+				// In a more complete implementation, match the face to camera like startDiceRoll does
+				newRoll.finalQuat = glm::angleAxis(glm::radians(wobbleAmount), glm::vec3(0, 1, 0));
+
+				activeDiceRolls.push_back(newRoll);
+			}
+
+			// Set the label
+			if (strlen(drp->label) > 0) {
+				currentDiceLabel = drp->label;
+			}
+
+			continue;
 		} else if (header->type == PKT_MENU_STATE) {
 			// Opponent menu visualization disabled.
 			continue;
@@ -21236,6 +21299,37 @@ void ofApp::executeOpponentCardPlay(const ActionPacket & pkt) {
 		opponentPlayer.ap = currentAP;
 		currentPlayerIndex = savedCurrentPlayerIndex;
 		currentAP = savedCurrentAP;
+		return;
+	}
+
+	// Special-case: Cards that require dice rolls should NOT call playCard() on opponent side
+	// because the opponent doesn't control the dice rolls. Instead, just consume AP and add to played pile.
+	// This applies to cards that:
+	// 1. Roll for damage (non-interactive) - damage applied only by attacker's update()
+	// 2. Roll for state changes that must be deterministic (sleep, poison, etc)
+	// 3. Don't have special network packets already handling them
+	if (cardDef.type == CARD_RAISE_DEAD || cardDef.type == CARD_SUMMON_GOLEM || cardDef.type == CARD_SUMMON_HELLHOUND || cardDef.type == CARD_SUMMON_DEMON || cardDef.type == CARD_CALL_FOR_KOBOLDS || cardDef.type == CARD_CALL_FOR_WOLVES ||
+		// Damage cards (roll for damage values)
+		cardDef.type == CARD_FIREBALL || cardDef.type == CARD_SHOOT_ARROW || cardDef.type == CARD_MAGIC_BOLT || cardDef.type == CARD_ROCK_CRUSH || cardDef.type == CARD_EARTHQUAKE ||
+		// Status effect cards (roll for effect durations/amounts - must use host's RNG)
+		cardDef.type == CARD_DEATH || cardDef.type == CARD_ADD_POISON ||
+		// Defense/blocking cards (roll for defense values)
+		cardDef.type == CARD_BLOCKING_BOON) {
+		currentAP -= cardDef.cost;
+		opponentPlayer.playedCardsPile.push_back(cardDef);
+		if (opponentPlayer.isReplicatePending) {
+			opponentPlayer.playedCardsPile.push_back(cardDef);
+			opponentPlayer.isReplicatePending = false;
+		}
+		opponentPlayer.cardsPlayedThisTurn.push_back(cardDef.type);
+		if (tempCardIndex >= 0 && tempCardIndex < (int)opponentPlayer.hand.size()) {
+			opponentPlayer.hand.erase(opponentPlayer.hand.begin() + tempCardIndex);
+		}
+		createCardDisplay(cardDef, opponentPlayerIndex);
+		opponentPlayer.ap = currentAP;
+		currentPlayerIndex = savedCurrentPlayerIndex;
+		currentAP = savedCurrentAP;
+		ofLogNotice("Network") << "executeOpponentCardPlay: Card " << cardName << " skipped playCard (waiting for host dice roll)";
 		return;
 	}
 

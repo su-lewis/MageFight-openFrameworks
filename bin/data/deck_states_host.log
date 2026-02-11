@@ -1,12 +1,13 @@
 
 === DECK STATE LOG ===
-Time: 2026-02-11 07:13:52
+Time: 2026-02-11 07:25:01
 Reason: End Turn 1
 Turn: 1
 Current Player: 0
 Local Player ID: 0
 Is Host: true
 
-Player0 Deck[1]: Ethereal Jolt(23) | Hand[2]: Slash(5), Slash(5) | Discard[1]: Renewed Inspiration(48)
-Player1 Deck[3]: Call for Wolves(32), Drain Punch(30), Summon Wall(2) | Hand[0]:  | Discard[2]: Drain Punch(30), Summon Wall(2)
+Player0 Deck[3]: Lesser Heal(55), Demolition(15), Demolition(15) | Hand[2]: Lesser Heal(55), Smite(62) | Discard[0]: 
+Player102 Deck[4]: Hand Block(9), Punch(5), Hand Block(9), Punch(5) | Hand[0]:  | Discard[0]: 
+Player1 Deck[3]: Slash(5), Slash(5), Summon Assistant(58) | Hand[0]:  | Discard[2]: Summon Assistant(58), Raise Dead(26)
 =====================

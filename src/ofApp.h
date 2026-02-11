@@ -1124,6 +1124,7 @@ private:
 	// Summon (Raise Dead)
 	bool isWaitingForSummonHealth = false;
 	int pendingSummonRollResult = 0;
+	int pendingHellhoundAPResult = 0; // Hellhound AP roll result
 	glm::vec2 pendingSummonTile;
 	int pendingSummonPlayerIndex = -1; // Track which player the pending summon belongs to
 

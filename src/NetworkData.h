@@ -29,6 +29,7 @@ enum PacketType {
 	PKT_SNAPSHOT_END, // Host -> Client: end state snapshot
 	PKT_MENU_STATE, // Menu open/close/hover state for choice-based cards
 	PKT_RENEWED_INSPIRATION, // Renewed Inspiration selection
+	PKT_DICE_ROLL, // A dice roll for visual display (HP, damage, range, etc)
 	PKT_ACK // Acknowledge receipt of a reliable packet
 };
 
@@ -51,6 +52,23 @@ struct TurnStartPacket : PacketHeader {
 
 struct HandshakePacket : PacketHeader {
 	uint32_t seed; // The RNG seed (Host generates, Client receives)
+};
+// Dice roll visualization packet (for showing opponent rolls)
+struct DiceRollPacket : PacketHeader {
+	uint8_t numDice; // number of dice rolled (max 8)
+	uint8_t sides; // sides per die
+	uint8_t purpose; // DicePurpose
+	int32_t ownerIndex; // which unit rolled (for flavor)
+	uint8_t rawResults[8]; // raw die faces (1..sides)
+	uint8_t finalResults[8]; // final per-die results (raw + luck)
+	char label[64]; // Label for the roll (e.g., "Skeleton HP", "Chain Lightning")
+};
+
+struct AppliedDamagePacket : PacketHeader {
+	int32_t targetPlayerIndex; // who takes damage
+	int32_t damageAmount; // how much damage
+	uint8_t damageType; // DamageType enum value
+	int32_t attackerIndex; // who dealt it
 };
 
 struct ActionPacket : PacketHeader {
