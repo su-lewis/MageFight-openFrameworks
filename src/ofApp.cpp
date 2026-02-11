@@ -1149,8 +1149,7 @@ void ofApp::update() {
 					}
 				} else {
 					// TIE - Reroll
-					startDiceRoll(1, 6, PURPOSE_DEBUG, "P1 Reroll");
-					startDiceRoll(1, 6, PURPOSE_DEBUG, "P2 Reroll");
+					startDiceRoll(1, 6, PURPOSE_DEBUG, "Initiative Reroll");
 					initiativeTimer = 0.0f;
 					ofLogNotice("Initiative") << "Tie! Rerolling...";
 				}
@@ -20844,6 +20843,7 @@ void ofApp::sendActionPacket(int cardIndex, int tx, int ty, int cost, int menuCh
 	pkt.targetY = ty;
 	pkt.cost = cost;
 	pkt.menuChoice = menuChoice;
+	pkt.updatedAP = currentAP; // Send current AP after card play
 
 	// Include card name so opponent knows which card was played
 	if (!cardNameOverride.empty()) {
@@ -20880,6 +20880,7 @@ void ofApp::sendMagicHandResolutionPacket(int choice) {
 	pkt.targetY = magicHandTargetTile.y;
 	pkt.cost = currentPlayer.hand[pendingMagicHandCardIndex].cost;
 	pkt.menuChoice = choice;
+	pkt.updatedAP = currentAP; // Send current AP after card play
 	strncpy(pkt.cardName, currentPlayer.hand[pendingMagicHandCardIndex].name.c_str(), 63);
 	pkt.cardName[63] = '\0';
 
@@ -20985,7 +20986,7 @@ void ofApp::executeOpponentCardPlay(const ActionPacket & pkt) {
 		currentAP = cardDef.cost;
 	}
 	// Update the player struct so internal checks inside playCard pass
-	opponentPlayer.ap = currentAP;
+	opponentPlayer.ap = pkt.updatedAP;
 	// --- FIX END ---
 
 	ofLogNotice("Network") << "executeOpponentCardPlay: Executing playCard with cardIndex=" << tempCardIndex << " currentPlayerIndex=" << currentPlayerIndex << " AP=" << currentAP;
@@ -21012,7 +21013,7 @@ void ofApp::executeOpponentCardPlay(const ActionPacket & pkt) {
 		}
 
 		// Save the updated AP back to the player
-		opponentPlayer.ap = currentAP;
+		opponentPlayer.ap = pkt.updatedAP;
 
 		// Remove the card from opponent's hand
 		if (tempCardIndex >= 0 && tempCardIndex < (int)opponentPlayer.hand.size()) {
@@ -21034,7 +21035,7 @@ void ofApp::executeOpponentCardPlay(const ActionPacket & pkt) {
 		opponentPlayer.barrier += rollResult;
 		ofLogNotice("Dispel") << "Opponent gained " << rollResult << " barrier";
 
-		opponentPlayer.ap = currentAP;
+		opponentPlayer.ap = pkt.updatedAP;
 		// Add to playedCardsPile like normal playCard would, then move to discard at end of turn
 		opponentPlayer.playedCardsPile.push_back(cardDef);
 		if (opponentPlayer.isReplicatePending) {
@@ -21071,7 +21072,7 @@ void ofApp::executeOpponentCardPlay(const ActionPacket & pkt) {
 			currentState = STATE_DRAFTING;
 		}
 
-		opponentPlayer.ap = currentAP;
+		opponentPlayer.ap = pkt.updatedAP;
 		currentPlayerIndex = savedCurrentPlayerIndex;
 		currentAP = savedCurrentAP;
 		return;
@@ -21108,7 +21109,7 @@ void ofApp::executeOpponentCardPlay(const ActionPacket & pkt) {
 			opponentPlayer.isReplicatePending = false;
 		}
 		opponentPlayer.hand.erase(opponentPlayer.hand.begin() + tempCardIndex);
-		opponentPlayer.ap = currentAP;
+		opponentPlayer.ap = pkt.updatedAP;
 
 		currentPlayerIndex = savedCurrentPlayerIndex;
 		currentAP = savedCurrentAP;
@@ -21154,7 +21155,7 @@ void ofApp::executeOpponentCardPlay(const ActionPacket & pkt) {
 			opponentPlayer.playedCardsPile.push_back(cardDef);
 			opponentPlayer.isReplicatePending = false;
 		}
-		opponentPlayer.ap = currentAP;
+		opponentPlayer.ap = pkt.updatedAP;
 		opponentPlayer.hand.erase(opponentPlayer.hand.begin() + tempCardIndex);
 
 		currentPlayerIndex = savedCurrentPlayerIndex;
@@ -21193,7 +21194,7 @@ void ofApp::executeOpponentCardPlay(const ActionPacket & pkt) {
 			opponentPlayer.playedCardsPile.push_back(cardDef);
 			opponentPlayer.isReplicatePending = false;
 		}
-		opponentPlayer.ap = currentAP;
+		opponentPlayer.ap = pkt.updatedAP;
 		opponentPlayer.hand.erase(opponentPlayer.hand.begin() + tempCardIndex);
 
 		currentPlayerIndex = savedCurrentPlayerIndex;
@@ -21224,7 +21225,7 @@ void ofApp::executeOpponentCardPlay(const ActionPacket & pkt) {
 			resolveDoubleHanded(pkt.menuChoice == 1 ? "Punch" : "Hand Block");
 		}
 
-		opponentPlayer.ap = currentAP;
+		opponentPlayer.ap = pkt.updatedAP;
 
 		currentPlayerIndex = savedCurrentPlayerIndex;
 		currentAP = savedCurrentAP;
@@ -21246,7 +21247,7 @@ void ofApp::executeOpponentCardPlay(const ActionPacket & pkt) {
 		pendingChainLightningRangeResult = startDiceRoll(2, 10, PURPOSE_RANGE, "Chain Lightning: Range");
 		isWaitingForChainLightningRange = true;
 
-		opponentPlayer.ap = currentAP;
+		opponentPlayer.ap = pkt.updatedAP;
 		currentPlayerIndex = savedCurrentPlayerIndex;
 		currentAP = savedCurrentAP;
 		return;
@@ -21272,7 +21273,7 @@ void ofApp::executeOpponentCardPlay(const ActionPacket & pkt) {
 		invalidateTargetCache();
 
 		opponentPlayer.hand.erase(opponentPlayer.hand.begin() + tempCardIndex);
-		opponentPlayer.ap = currentAP;
+		opponentPlayer.ap = pkt.updatedAP;
 		currentPlayerIndex = savedCurrentPlayerIndex;
 		currentAP = savedCurrentAP;
 		return;
@@ -21296,7 +21297,7 @@ void ofApp::executeOpponentCardPlay(const ActionPacket & pkt) {
 			opponentPlayer.hand.erase(opponentPlayer.hand.begin() + tempCardIndex);
 		}
 		createCardDisplay(cardDef, opponentPlayerIndex);
-		opponentPlayer.ap = currentAP;
+		opponentPlayer.ap = pkt.updatedAP;
 		currentPlayerIndex = savedCurrentPlayerIndex;
 		currentAP = savedCurrentAP;
 		return;
@@ -21326,7 +21327,7 @@ void ofApp::executeOpponentCardPlay(const ActionPacket & pkt) {
 			opponentPlayer.hand.erase(opponentPlayer.hand.begin() + tempCardIndex);
 		}
 		createCardDisplay(cardDef, opponentPlayerIndex);
-		opponentPlayer.ap = currentAP;
+		opponentPlayer.ap = pkt.updatedAP; // Use the AP value sent by opponent
 		currentPlayerIndex = savedCurrentPlayerIndex;
 		currentAP = savedCurrentAP;
 		ofLogNotice("Network") << "executeOpponentCardPlay: Card " << cardName << " skipped playCard (waiting for host dice roll)";
@@ -21347,8 +21348,8 @@ void ofApp::executeOpponentCardPlay(const ActionPacket & pkt) {
 		}
 	} else {
 		// playCard succeeded. It consumed the AP and removed the card from hand.
-		// We just need to update our local tracker of the opponent's AP.
-		opponentPlayer.ap = currentAP;
+		// Use the AP value sent by the opponent (includes any AP bonuses like Sprint)
+		opponentPlayer.ap = pkt.updatedAP;
 	}
 
 	// Restore current player context

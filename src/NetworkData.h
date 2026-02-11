@@ -78,6 +78,7 @@ struct ActionPacket : PacketHeader {
 	int32_t targetY;
 	int32_t cost;
 	int32_t menuChoice; // For choice-based cards (e.g., Giant Magic Hand: 1=push, 2=pull)
+	int32_t updatedAP; // AP after playing this card (for Sprint and other AP-modifying cards)
 	char cardName[64]; // Card name for opponent to identify which card was played
 };
 
