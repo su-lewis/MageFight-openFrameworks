@@ -29,6 +29,7 @@ enum PacketType {
 	PKT_SNAPSHOT_END, // Host -> Client: end state snapshot
 	PKT_MENU_STATE, // Menu open/close/hover state for choice-based cards
 	PKT_RENEWED_INSPIRATION, // Renewed Inspiration selection
+	PKT_PLACE_SUMMONED_MINION, // Host -> Client: inform clients a summoned minion was placed
 	PKT_DICE_ROLL, // A dice roll for visual display (HP, damage, range, etc)
 	PKT_ACK // Acknowledge receipt of a reliable packet
 };
@@ -62,6 +63,14 @@ struct DiceRollPacket : PacketHeader {
 	uint8_t rawResults[8]; // raw die faces (1..sides)
 	uint8_t finalResults[8]; // final per-die results (raw + luck)
 	char label[64]; // Label for the roll (e.g., "Skeleton HP", "Chain Lightning")
+};
+
+// Host -> Client: inform clients when a summoned minion is placed (manual placement like Kobolds/Wolves)
+struct PlaceSummonedMinionPacket : PacketHeader {
+	uint8_t minionType; // 1=KOBOLD, 2=WOLF, ...
+	int32_t ownerPlayerID; // playerID of the summoner
+	int32_t targetX;
+	int32_t targetY;
 };
 
 struct AppliedDamagePacket : PacketHeader {

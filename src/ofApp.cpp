@@ -9117,6 +9117,32 @@ void ofApp::mousePressed(int x, int y, int button) {
 						players.push_back(kobold);
 						int newKoboldIdx = (int)players.size() - 1;
 						shuffleGameVector(players[newKoboldIdx].deck, newKoboldIdx);
+
+						// Notify clients about the placed kobold in multiplayer
+						if (isMultiplayer && isHost()) {
+							PlaceSummonedMinionPacket pkt = {};
+							pkt.type = PKT_PLACE_SUMMONED_MINION;
+							pkt.playerID = myLocalPlayerID;
+							pkt.minionType = 1; // KOBOLD
+							pkt.ownerPlayerID = kobold.ownerID;
+							pkt.targetX = gx;
+							pkt.targetY = gy;
+							steamManager.sendPacket(&pkt, sizeof(pkt));
+							ofLogNotice("Network") << "Host sent PlaceSummonedMinion: KOBOLD owner=" << pkt.ownerPlayerID << " target=(" << pkt.targetX << "," << pkt.targetY << ")";
+						}
+
+						// Notify clients about the placed kobold in multiplayer
+						if (isMultiplayer && isHost()) {
+							PlaceSummonedMinionPacket pkt = {};
+							pkt.type = PKT_PLACE_SUMMONED_MINION;
+							pkt.playerID = myLocalPlayerID;
+							pkt.minionType = 1; // KOBOLD
+							pkt.ownerPlayerID = kobold.ownerID;
+							pkt.targetX = gx;
+							pkt.targetY = gy;
+							steamManager.sendPacket(&pkt, sizeof(pkt));
+							ofLogNotice("Network") << "Host sent PlaceSummonedMinion: KOBOLD owner=" << pkt.ownerPlayerID << " target=(" << pkt.targetX << "," << pkt.targetY << ")";
+						}
 						ofLogNotice("Summon") << "Summoned Kobold " << koboldSummonCount;
 						koboldsRemainingToPlace--;
 						if (koboldsRemainingToPlace <= 0) {
@@ -9863,6 +9889,13 @@ void ofApp::mousePressed(int x, int y, int button) {
 					rpk.indices[i] = renewedSelectedHandIndices[i];
 				}
 				steamManager.sendPacket(&rpk, sizeof(rpk));
+				// If we're a client, don't apply the effects locally — wait for the host
+				// to apply and forward the packet so all clients stay authoritative.
+				if (isClient()) {
+					ofLogNotice("Network") << "Client: Sent RenewedInspiration to host; waiting for authoritative packet.";
+					isSelectingRenewedInspiration = false;
+					return;
+				}
 			}
 
 			// Sort indices descending so we can delete safely from back to front
@@ -19762,6 +19795,13 @@ void ofApp::processNetworkPackets() {
 		if (header->type == PKT_RENEWED_INSPIRATION) {
 			RenewedInspirationPacket * rpk = (RenewedInspirationPacket *)header;
 			if (rpk->playerIndex >= 0 && rpk->playerIndex < (int)players.size()) {
+				// If we're the host, forward this packet to all clients so everyone
+				// (including the original sender) applies the effect authoritatively.
+				if (isHost()) {
+					RenewedInspirationPacket outPkt = *rpk;
+					steamManager.sendPacket(&outPkt, sizeof(outPkt));
+					ofLogNotice("Network") << "Host: Forwarded RenewedInspiration to clients.";
+				}
 				Player & p = players[rpk->playerIndex];
 				std::vector<int> indices;
 				for (int i = 0; i < rpk->count && i < 16; ++i) {
@@ -19776,6 +19816,37 @@ void ofApp::processNetworkPackets() {
 					}
 				}
 				ofLogNotice("Network") << "Renewed Inspiration: Opponent discarded " << indices.size() << " cards (will draw from DrawCards packet)";
+
+				// If we're the host, perform the draw now and send DrawCards packet to clients
+				if (isHost()) {
+					int cardsToDraw = (int)indices.size() * 2;
+					size_t handSizeBefore = p.hand.size();
+					// drawCard() operates on currentPlayerIndex, so temporarily switch
+					int prevCurrentPlayerIndex = currentPlayerIndex;
+					currentPlayerIndex = rpk->playerIndex;
+					for (int i = 0; i < cardsToDraw; ++i)
+						drawCard();
+					currentPlayerIndex = prevCurrentPlayerIndex;
+
+					if (cardsToDraw > 0) {
+						DrawCardsPacket dcpkt = {};
+						dcpkt.type = PKT_DRAW_CARDS;
+						dcpkt.playerID = myLocalPlayerID;
+						dcpkt.playerIndex = rpk->playerIndex;
+						dcpkt.numCards = cardsToDraw;
+						for (int i = 0; i < cardsToDraw && i < 3; i++) {
+							size_t cardIndex = handSizeBefore + i;
+							if (cardIndex < p.hand.size()) {
+								strncpy(dcpkt.cardNames[i], p.hand[cardIndex].name.c_str(), 63);
+								dcpkt.cardNames[i][63] = '\0';
+							} else {
+								dcpkt.cardNames[i][0] = '\0';
+							}
+						}
+						steamManager.sendPacket(&dcpkt, sizeof(dcpkt));
+						ofLogNotice("Network") << "Host: Sent DrawCards packet for Renewed Inspiration: " << cardsToDraw << " cards";
+					}
+				}
 			}
 			continue;
 		}
@@ -20253,6 +20324,18 @@ void ofApp::processNetworkPackets() {
 			DiceRollPacket * drp = (DiceRollPacket *)header;
 			ofLogNotice("Network") << "Received DiceRollPacket: " << (int)drp->numDice << "d" << (int)drp->sides << " label=" << drp->label;
 
+			// Ignore initiative debug rolls (we roll deterministically locally)
+			if (drp->purpose == PURPOSE_DEBUG && currentState == STATE_INITIATIVE_ROLL) {
+				ofLogNotice("Network") << "Ignoring incoming initiative DiceRollPacket (client rolls locally).";
+				continue;
+			}
+
+			// Ignore AP DiceRollPackets since AP visuals are created from PKT_TURN_START
+			if (drp->purpose == PURPOSE_AP) {
+				ofLogNotice("Network") << "Ignoring incoming AP DiceRollPacket (use TurnStart for AP visuals).";
+				continue;
+			}
+
 			// Recreate the dice rolls on opponent's screen for visual display
 			for (int i = 0; i < drp->numDice && i < 8; i++) {
 				DiceRoll newRoll;
@@ -20285,6 +20368,61 @@ void ofApp::processNetworkPackets() {
 				currentDiceLabel = drp->label;
 			}
 
+			continue;
+		} else if (header->type == PKT_MENU_STATE) {
+		} else if (header->type == PKT_PLACE_SUMMONED_MINION) {
+			PlaceSummonedMinionPacket * psk = (PlaceSummonedMinionPacket *)header;
+			ofLogNotice("Network") << "Received PlaceSummonedMinion: type=" << (int)psk->minionType << " owner=" << psk->ownerPlayerID << " target=(" << psk->targetX << "," << psk->targetY << ")";
+			int tx = psk->targetX;
+			int ty = psk->targetY;
+			if (tx >= 0 && tx < BOARD_WIDTH && ty >= 0 && ty < BOARD_HEIGHT) {
+				if (!board[tx][ty].hasPlayer) {
+					// Create the minion locally to mirror host
+					Player minion;
+					minion.playerID = 300 + (int)players.size();
+					minion.x = tx;
+					minion.y = ty;
+					minion.maxHealth = 1;
+					minion.health = 1;
+					minion.isMinion = true;
+					minion.isKobold = (psk->minionType == 1);
+					minion.isSkeleton = false;
+					minion.ownerID = psk->ownerPlayerID;
+					minion.summonedOnTurnCycle = globalTurnCounter;
+					minion.summonOrder = ++nextSummonOrder;
+					// Build basic kobold deck
+					Card hb, pu, callCard;
+					for (const auto & c : allCards) {
+						if (c.name == "Hand Block") hb = c;
+						if (c.name == "Punch") pu = c;
+						if (c.type == CARD_CALL_FOR_KOBOLDS) callCard = c;
+					}
+					minion.deck = { hb, hb, pu, callCard };
+					// Place on board and add
+					board[tx][ty].hasPlayer = true;
+					players.push_back(minion);
+					int newIdx = (int)players.size() - 1;
+					shuffleGameVector(players[newIdx].deck, newIdx);
+					// Re-sort turn order to match host
+					int currentID = players[currentPlayerIndex].playerID;
+					std::sort(players.begin(), players.end(), [](const Player & a, const Player & b) {
+						int ownerA = a.isMinion ? a.ownerID : a.playerID;
+						int ownerB = b.isMinion ? b.ownerID : b.playerID;
+						if (ownerA != ownerB) return ownerA < ownerB;
+						if (a.isMinion && !b.isMinion) return true;
+						if (!a.isMinion && b.isMinion) return false;
+						return a.summonOrder < b.summonOrder;
+					});
+					for (size_t i = 0; i < players.size(); i++) {
+						if (players[i].playerID == currentID) {
+							currentPlayerIndex = i;
+							break;
+						}
+					}
+					invalidateTargetCache();
+					ofLogNotice("Network") << "Placed remote kobold at (" << tx << "," << ty << ")";
+				}
+			}
 			continue;
 		} else if (header->type == PKT_MENU_STATE) {
 			// Opponent menu visualization disabled.

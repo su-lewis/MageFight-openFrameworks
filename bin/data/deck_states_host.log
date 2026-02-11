@@ -1,12 +1,12 @@
 
 === DECK STATE LOG ===
-Time: 2026-02-11 13:02:50
+Time: 2026-02-11 16:55:43
 Reason: End Turn 1
 Turn: 1
 Current Player: 0
 Local Player ID: 0
 Is Host: true
 
-Player0 Deck[3]: Blocking Boon(68), Amnesia(17), Punch(5) | Hand[2]: Renewed Inspiration(48), Blocking Boon(68) | Discard[0]: 
-Player1 Deck[3]: Giant Magic Hand(53), Renewed Inspiration(48), Renewed Inspiration(48) | Hand[0]:  | Discard[2]: Slash(5), Slash(5)
+Player0 Deck[3]: Burst of Light(63), Renewed Inspiration(48), Renewed Inspiration(48) | Hand[1]: Burst of Light(63) | Discard[0]: 
+Player1 Deck[3]: Punch(5), Sprint(61), Punch(5) | Hand[0]:  | Discard[2]: Kick(5), Kick(5)
 =====================
