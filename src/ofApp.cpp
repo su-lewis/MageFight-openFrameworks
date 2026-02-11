@@ -1148,8 +1148,10 @@ void ofApp::update() {
 						steamManager.sendPacket(&sp, sizeof(sp));
 					}
 				} else {
-					// TIE - Reroll
-					startDiceRoll(1, 6, PURPOSE_DEBUG, "Initiative Reroll");
+					// TIE - Reroll (only host rolls in multiplayer)
+					if (!isMultiplayer || isHost()) {
+						startDiceRoll(1, 6, PURPOSE_DEBUG, "Initiative Reroll");
+					}
 					initiativeTimer = 0.0f;
 					ofLogNotice("Initiative") << "Tie! Rerolling...";
 				}
@@ -8542,6 +8544,16 @@ cursor_check_done:;
 							}
 						} // end check for existing Regeneration
 					} // end hasRegeneration
+				}
+
+				// Add range tooltip info if unit is a valid target for current card preview
+				if (board[tooltipGX][tooltipGY].hasTooltipInfo && board[tooltipGX][tooltipGY].isTargetPreview) {
+					int minRoll = board[tooltipGX][tooltipGY].minRollRequired;
+					float hitChance = board[tooltipGX][tooltipGY].hitChance;
+					int percentage = (int)(hitChance * 100.0f);
+					
+					std::string rangeText = " | Min Roll: " + ofToString(minRoll) + " (" + ofToString(percentage) + "%)";
+					tooltipText += rangeText;
 				}
 			}
 		}
