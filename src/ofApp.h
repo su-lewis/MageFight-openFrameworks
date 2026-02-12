@@ -15,6 +15,7 @@
 #include <random>
 #include <set>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 // --- GLM Extensions (Required for Quaternions & Intersections) ---
@@ -446,6 +447,13 @@ public:
 
 	// Networking logic
 	void processNetworkPackets();
+
+	// Networking helpers for Begin/Resolve patterns
+	void sendPlaceSummonedBegin(int minionType, int ownerPlayerID, int sourceX, int sourceY, int numToPlace);
+	void sendEarthquakeBegin();
+
+	// Generic card action begin helper
+	void sendCardActionBegin(int cardType, int actorIndex, int targetX, int targetY, int p0 = 0, int p1 = 0, int p2 = 0, int p3 = 0, const std::string & label = "");
 	void sendActionPacket(int cardIndex, int tx, int ty, int cost, int menuChoice = 0, const std::string & cardNameOverride = "");
 	void sendMagicHandResolutionPacket(int choice);
 	void sendMenuState(int menuType, int targetIndex, int hoveredChoice, int cardIndex);
@@ -554,6 +562,15 @@ private:
 
 	// Visual RNG (local only, not part of deterministic gameplay)
 	std::mt19937 visualRNG;
+
+	// Networked multi-step action helpers
+	// Maps actorIndex -> CardType for pending network-initiated actions
+	std::unordered_map<int, int> pendingActionByActor;
+	// When a network-initiated action is active on the client, we temporarily
+	// override `currentPlayerIndex` so resolution code that uses it can run
+	// against the remote actor. Store previous value to restore after resolution.
+	int pendingNetworkActionActor = -1;
+	int pendingNetworkActionPrevPlayer = -1;
 
 	// Flag set when the host-provided gameplay seed has been applied
 	bool gameplaySeededByHost = false;
@@ -1179,6 +1196,12 @@ private:
 	int koboldPlacementSourceY = -1;
 	int koboldSummonCount = 0;
 	int koboldSummonStage = 0;
+
+	// Remote kobold placement visualization (when another player is placing kobolds)
+	bool remoteIsPlacingKobolds = false;
+	int remoteKoboldPlacementSourceX = -1;
+	int remoteKoboldPlacementSourceY = -1;
+	int remoteKoboldsRemaining = 0;
 
 	// Time Vortex
 	bool isWaitingForTimeVortexDice = false;

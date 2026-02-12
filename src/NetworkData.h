@@ -30,6 +30,9 @@ enum PacketType {
 	PKT_MENU_STATE, // Menu open/close/hover state for choice-based cards
 	PKT_RENEWED_INSPIRATION, // Renewed Inspiration selection
 	PKT_PLACE_SUMMONED_MINION, // Host -> Client: inform clients a summoned minion was placed
+	PKT_PLACE_SUMMONED_BEGIN, // Host -> Client: begin remote placement preview (e.g., Kobolds/Wolves)
+	PKT_EARTHQUAKE_BEGIN, // Host -> Client: begin earthquake (directions for each unit)
+	PKT_CARD_ACTION_BEGIN, // Host -> Client: generic card begin (cardType, actor, target, params)
 	PKT_DICE_ROLL, // A dice roll for visual display (HP, damage, range, etc)
 	PKT_ACK // Acknowledge receipt of a reliable packet
 };
@@ -71,6 +74,38 @@ struct PlaceSummonedMinionPacket : PacketHeader {
 	int32_t ownerPlayerID; // playerID of the summoner
 	int32_t targetX;
 	int32_t targetY;
+	int32_t minionHP; // rolled HP for the summoned minion (host authoritative)
+	int32_t minionAP; // rolled AP / bonus AP for the summoned minion
+};
+
+// Host -> Client: notify clients that a manual placement sequence is beginning
+struct PlaceSummonedBeginPacket : PacketHeader {
+	uint8_t minionType; // 1=KOBOLD, 2=WOLF
+	int32_t ownerPlayerID;
+	int32_t sourceX;
+	int32_t sourceY;
+	int32_t numToPlace;
+};
+
+// Host -> Client: earthquake begin - directions for each player index
+struct EarthquakeBeginPacket : PacketHeader {
+	int32_t numUnits; // number of players included
+	int32_t playerIndex[16]; // support up to 16 units
+	int8_t dirX[16];
+	int8_t dirY[16];
+};
+
+// Generic Card Action Begin: small extensible payload for multi-step card effects
+struct CardActionBeginPacket : PacketHeader {
+	int32_t cardType; // CardType enum
+	int32_t actorIndex; // index of caster/unit in players vector
+	int32_t targetX; // -1 if none
+	int32_t targetY; // -1 if none
+	int32_t param0; // optional integer param (meaning depends on card)
+	int32_t param1; // optional integer param
+	int32_t param2; // optional integer param
+	int32_t param3; // optional integer param
+	char label[32]; // optional short label
 };
 
 struct AppliedDamagePacket : PacketHeader {

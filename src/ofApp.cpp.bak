@@ -1003,7 +1003,9 @@ void ofApp::update() {
 	// ============================================================
 	// 1. STEAM CONNECTION TRIGGER (SYNCED)
 	// ============================================================
-	if (currentState == STATE_MAIN_MENU && steamManager.hasOpponent()) {
+	switch (currentState) {
+	case STATE_MAIN_MENU:
+		if (steamManager.hasOpponent()) {
 		static bool loggedDetection = false;
 		if (!loggedDetection) {
 			ofLogNotice("Network") << "DEBUG: hasOpponent() is true, currentState=" << currentState;
@@ -1023,80 +1025,6 @@ void ofApp::update() {
 				setupGame(); // Generates seed and sends PKT_HANDSHAKE
 			}
 		}
-
-		// CASE B: I AM THE CLIENT
-		else {
-			if (!isMultiplayer && !hasReceivedHandshake) {
-				// 1. Log status (visual feedback)
-				static bool loggedWait = false;
-				if (!loggedWait) {
-					ofLogNotice("Network") << "Client: Connected. Requesting Host seed...";
-					loggedWait = true;
-				}
-
-				// 2. "KEEP ASKING" LOOP (Robust Fix)
-				// Every 1.0 seconds, send a "REQ_SEED" packet to the Host.
-				// This ensures that if the first packet was dropped, we ask again.
-				// If the lobby advertises a seed, log it but DO NOT auto-initialize from it.
-				// The authoritative seed must come via a PKT_HANDSHAKE from the host
-				// to avoid mismatch races when lobby data is stale or the host regenerated
-				// a seed during reconnects. We will keep requesting the seed until
-				// a handshake packet arrives.
-				if (steamManager.isMatchStarted()) {
-					uint32_t seed = steamManager.getLobbySeed();
-					if (seed != 0) {
-						float now = ofGetElapsedTimef();
-						if (seed != lastObservedLobbySeed || (now - lastLobbySeedLogTime) > 5.0f) {
-							lastObservedLobbySeed = seed;
-							lastLobbySeedLogTime = now;
-							ofLogNotice("Network") << "Client: Detected lobby seed (observed)=" << seed << " — waiting for host handshake (authoritative).";
-						}
-					}
-				}
-
-				if (ofGetElapsedTimef() - lastHandshakeRequestTime > handshakeRequestInterval) {
-					string req = "REQ_SEED";
-					steamManager.sendPacket(req.c_str(), req.size());
-					lastHandshakeRequestTime = ofGetElapsedTimef();
-					handshakeRequestInterval = std::min(handshakeRequestInterval * 1.5f, 5.0f);
-					ofLogNotice("Network") << "Sent Seed Request...";
-				}
-			}
-		}
-	} else if (currentState == STATE_MAIN_MENU && !isMultiplayer) {
-		static bool loggedNoOpponent = false;
-		if (!loggedNoOpponent) {
-			ofLogNotice("Network") << "DEBUG: Still in STATE_MAIN_MENU. hasOpponent()=" << steamManager.hasOpponent() << " isMultiplayer=" << isMultiplayer << " isHost=" << steamManager.isHost();
-			loggedNoOpponent = true;
-		}
-	}
-
-	// --- LOADING LOGIC ---
-	if (isLoadingGame) {
-		setupGame();
-		isLoadingGame = false;
-		return;
-	}
-
-	// Check for any "waiting" state that should lock player input
-	if (isWaitingForTimeVortexDice || isWaitingForMagicBoltRange) {
-		updateGame();
-		return;
-	}
-
-	switch (currentState) {
-	case STATE_MAIN_MENU:
-		break;
-	case STATE_SETTINGS:
-		break;
-
-	// --- INITIATIVE ROLL STATE ---
-	case STATE_INITIATIVE_ROLL: {
-		// Wait for dice to finish spinning
-		bool allFinished = true;
-		if (activeDiceRolls.size() < 2) allFinished = false; // Waiting for start
-		for (auto & d : activeDiceRolls)
-			if (!d.isFinishedVisual) allFinished = false;
 
 		if (allFinished) {
 			initiativeTimer += ofGetLastFrameTime();
@@ -1164,47 +1092,47 @@ void ofApp::update() {
 		break;
 	}
 
-	// --- DRAFTING STATE ---
-	case STATE_DRAFTING:
-		// Logic is primarily handled in mousePressed (card selection)
-		// Allow deck/discard hover view during drafting
-		if (isHoveringPile && !isShowingPileView) {
-			if (ofGetElapsedTimef() - pileHoverStartTime > 0.6f) { // Reduced hover time
-				isShowingPileView = true;
-				currentPileView = hoveredPileType;
-				currentPileViewPlayerIndex = hoveredPilePlayerIndex;
-			}
+// --- DRAFTING STATE ---
+case STATE_DRAFTING:
+	// Logic is primarily handled in mousePressed (card selection)
+	// Allow deck/discard hover view during drafting
+	if (isHoveringPile && !isShowingPileView) {
+		if (ofGetElapsedTimef() - pileHoverStartTime > 0.6f) { // Reduced hover time
+			isShowingPileView = true;
+			currentPileView = hoveredPileType;
+			currentPileViewPlayerIndex = hoveredPilePlayerIndex;
 		}
-		break;
-
-	case STATE_GAMEPLAY:
-		updateGame();
-		break;
-	case STATE_PAUSED:
-		break;
 	}
+	break;
 
-	// --- HARDWARE CURSOR UPDATE ---
-	if (currentCursor != previousCursor) {
-		GLFWwindow * window = (GLFWwindow *)ofGetWindowPtr()->getWindowContext();
-		if (window) {
-			switch (currentCursor) {
-			case CURSOR_DEFAULT:
-				if (glfwArrow) glfwSetCursor(window, glfwArrow);
-				break;
-			case CURSOR_CLICK:
-				if (glfwHandPoint) glfwSetCursor(window, glfwHandPoint);
-				break;
-			case CURSOR_GRAB:
-				if (glfwHandOpen) glfwSetCursor(window, glfwHandOpen);
-				break;
-			case CURSOR_HOLD:
-				if (glfwHandClosed) glfwSetCursor(window, glfwHandClosed);
-				break;
-			}
+case STATE_GAMEPLAY:
+	updateGame();
+	break;
+case STATE_PAUSED:
+	break;
+}
+
+// --- HARDWARE CURSOR UPDATE ---
+if (currentCursor != previousCursor) {
+	GLFWwindow * window = (GLFWwindow *)ofGetWindowPtr()->getWindowContext();
+	if (window) {
+		switch (currentCursor) {
+		case CURSOR_DEFAULT:
+			if (glfwArrow) glfwSetCursor(window, glfwArrow);
+			break;
+		case CURSOR_CLICK:
+			if (glfwHandPoint) glfwSetCursor(window, glfwHandPoint);
+			break;
+		case CURSOR_GRAB:
+			if (glfwHandOpen) glfwSetCursor(window, glfwHandOpen);
+			break;
+		case CURSOR_HOLD:
+			if (glfwHandClosed) glfwSetCursor(window, glfwHandClosed);
+			break;
 		}
-		previousCursor = currentCursor;
 	}
+	previousCursor = currentCursor;
+}
 }
 //--------------------------------------------------------------
 void ofApp::drawTileGlow(int gridX, int gridY, ofColor color, float thickness) {
@@ -2674,7 +2602,7 @@ void ofApp::updateGame() {
 	if (isWaitingForSummonHealth && activeDiceRolls.empty()) {
 		isWaitingForSummonHealth = false;
 
-		// 1. Create Minion
+		// 1. Create Minion (host-authoritative only)
 		Player minion;
 		minion.playerID = 100 + (int)players.size(); // Simple ID generation
 		minion.x = (int)pendingSummonTile.x;
@@ -2731,25 +2659,28 @@ void ofApp::updateGame() {
 		}
 
 		// 4. Add to Board
-		board[minion.x][minion.y].hasPlayer = true;
-		players.push_back(minion);
-		// Authoritative shuffle for the new minion
-		int newSkeletonIdx = (int)players.size() - 1;
-		shuffleGameVector(players[newSkeletonIdx].deck, newSkeletonIdx);
-
-		// Notify clients about the placed skeleton (authoritative HP)
-		if (isMultiplayer && isHost()) {
-			PlaceSummonedMinionPacket pkt = {};
-			pkt.type = PKT_PLACE_SUMMONED_MINION;
-			pkt.playerID = myLocalPlayerID;
-			pkt.minionType = 9; // SKELETON
-			pkt.ownerPlayerID = minion.ownerID;
-			pkt.targetX = minion.x;
-			pkt.targetY = minion.y;
-			pkt.minionHP = minion.maxHealth;
-			pkt.minionAP = 0;
-			steamManager.sendPacket(&pkt, sizeof(pkt));
-			ofLogNotice("Network") << "Host sent PlaceSummonedMinion: SKELETON owner=" << pkt.ownerPlayerID << " target=(" << pkt.targetX << "," << pkt.targetY << ") HP=" << pkt.minionHP;
+		if (!isMultiplayer || isHost()) {
+			board[minion.x][minion.y].hasPlayer = true;
+			players.push_back(minion);
+			// Authoritative send so clients can reconstruct this skeleton
+			if (isMultiplayer && isHost()) {
+				PlaceSummonedMinionPacket pkt = {};
+				pkt.type = PKT_PLACE_SUMMONED_MINION;
+				pkt.playerID = myLocalPlayerID;
+				pkt.minionType = 9; // Skeleton / Raise Dead
+				pkt.ownerPlayerID = minion.ownerID;
+				pkt.targetX = minion.x;
+				pkt.targetY = minion.y;
+				pkt.minionHP = minion.maxHealth;
+				pkt.minionAP = 0;
+				steamManager.sendPacket(&pkt, sizeof(pkt));
+				ofLogNotice("Network") << "Host sent PlaceSummonedMinion: SKELETON owner=" << pkt.ownerPlayerID << " target=(" << pkt.targetX << "," << pkt.targetY << ") HP=" << pkt.minionHP;
+			}
+		}
+		// Authoritative shuffle for the new minion (host only)
+		if (!isMultiplayer || isHost()) {
+			int newSkeletonIdx = (int)players.size() - 1;
+			shuffleGameVector(players[newSkeletonIdx].deck, newSkeletonIdx);
 		}
 
 		// 5. SORT TURN ORDER
@@ -3211,100 +3142,88 @@ void ofApp::updateGame() {
 	if (isWaitingForHellhoundHP && activeDiceRolls.empty()) {
 		isWaitingForHellhoundHP = false;
 
-		// 1. Create Unit
-		Player minion;
-		minion.playerID = 1000 + (int)players.size();
-		minion.x = (int)pendingSummonTile.x;
-		minion.y = (int)pendingSummonTile.y;
-		minion.maxHealth = pendingSummonRollResult;
-		minion.health = pendingSummonRollResult;
-		minion.ap = pendingHellhoundAPResult; // AP from second 2d6 roll
+		// 1. Create Unit (only host or singleplayer should actually spawn; clients wait for host PlaceSummonedMinion packet)
+		if (!isMultiplayer || isHost()) {
+			Player minion;
+			minion.playerID = 1000 + (int)players.size();
+			minion.x = (int)pendingSummonTile.x;
+			minion.y = (int)pendingSummonTile.y;
+			minion.maxHealth = pendingSummonRollResult;
+			minion.health = pendingSummonRollResult;
+			minion.ap = pendingHellhoundAPResult; // AP from second 2d6 roll
 
-		minion.isMinion = true;
-		minion.isHellhound = true;
+			minion.isMinion = true;
+			minion.isHellhound = true;
 
-		// Set owner and summoning sickness
-		minion.ownerID = players[currentPlayerIndex].isMinion ? players[currentPlayerIndex].ownerID : players[currentPlayerIndex].playerID;
-		minion.summonedOnTurnCycle = globalTurnCounter;
-		minion.summonOrder = ++nextSummonOrder;
+			// Set owner and summoning sickness
+			minion.ownerID = players[currentPlayerIndex].isMinion ? players[currentPlayerIndex].ownerID : players[currentPlayerIndex].playerID;
+			minion.summonedOnTurnCycle = globalTurnCounter;
+			minion.summonOrder = ++nextSummonOrder;
 
-		// 2. Build Deck
-		for (const auto & c : allCards) {
-			if (c.name == "Slash") {
-				minion.deck.push_back(c);
-				minion.deck.push_back(c);
+			// 2. Build Deck
+			for (const auto & c : allCards) {
+				if (c.name == "Slash") {
+					minion.deck.push_back(c);
+					minion.deck.push_back(c);
+				}
+				if (c.type == CARD_FLAME_HIT) {
+					minion.deck.push_back(c);
+					minion.deck.push_back(c);
+				}
+				if (c.type == CARD_FIREBALL) {
+					minion.deck.push_back(c);
+					minion.deck.push_back(c);
+				}
+				if (c.type == CARD_DARK_SHIELD) {
+					minion.deck.push_back(c);
+					minion.deck.push_back(c);
+					minion.deck.push_back(c);
+				}
 			}
-			if (c.type == CARD_FLAME_HIT) {
-				minion.deck.push_back(c);
-				minion.deck.push_back(c);
+
+			// 3. Add to Board
+			board[minion.x][minion.y].hasPlayer = true;
+			players.push_back(minion);
+			int newHellhoundIdx = (int)players.size() - 1;
+			shuffleGameVector(players[newHellhoundIdx].deck, newHellhoundIdx);
+
+			ofLogNotice("Summon") << "Hellhound summoned with " << minion.health << " HP.";
+
+			// Notify clients about the placed hellhound (authoritative stats)
+			if (isMultiplayer && isHost()) {
+				PlaceSummonedMinionPacket pkt = {};
+				pkt.type = PKT_PLACE_SUMMONED_MINION;
+				pkt.playerID = myLocalPlayerID;
+				pkt.minionType = 3; // HELLHOUND
+				pkt.ownerPlayerID = minion.ownerID;
+				pkt.targetX = minion.x;
+				pkt.targetY = minion.y;
+				pkt.minionHP = minion.maxHealth;
+				pkt.minionAP = minion.ap;
+				steamManager.sendPacket(&pkt, sizeof(pkt));
+				ofLogNotice("Network") << "Host sent PlaceSummonedMinion: HELLHOUND owner=" << pkt.ownerPlayerID << " target=(" << pkt.targetX << "," << pkt.targetY << ") HP=" << pkt.minionHP << " AP=" << pkt.minionAP;
 			}
-			if (c.type == CARD_FIREBALL) {
-				minion.deck.push_back(c);
-				minion.deck.push_back(c);
+
+			// 4. Sort Turn Order
+			int currentID = players[currentPlayerIndex].playerID;
+			std::sort(players.begin(), players.end(), [](const Player & a, const Player & b) {
+				int ownerA = a.isMinion ? a.ownerID : a.playerID;
+				int ownerB = b.isMinion ? b.ownerID : b.playerID;
+				if (ownerA != ownerB) return ownerA < ownerB;
+				if (a.isMinion && !b.isMinion) return true;
+				if (!a.isMinion && b.isMinion) return false;
+				return a.summonOrder < b.summonOrder;
+			});
+
+			// 5. Restore Index
+			for (size_t i = 0; i < players.size(); i++) {
+				if (players[i].playerID == currentID) {
+					currentPlayerIndex = i;
+					break;
+				}
 			}
-			if (c.type == CARD_DARK_SHIELD) {
-				minion.deck.push_back(c);
-				minion.deck.push_back(c);
-				minion.deck.push_back(c);
-			}
+			invalidateTargetCache();
 		}
-
-		// 3. Add to Board
-		board[minion.x][minion.y].hasPlayer = true;
-		players.push_back(minion);
-		int newHellhoundIdx = (int)players.size() - 1;
-		shuffleGameVector(players[newHellhoundIdx].deck, newHellhoundIdx);
-
-		ofLogNotice("Summon") << "Hellhound summoned with " << minion.health << " HP.";
-
-		// Notify clients about the Kobold King (authoritative HP)
-		if (isMultiplayer && isHost()) {
-			PlaceSummonedMinionPacket pkt = {};
-			pkt.type = PKT_PLACE_SUMMONED_MINION;
-			pkt.playerID = myLocalPlayerID;
-			pkt.minionType = 5; // KOBOLD_KING
-			pkt.ownerPlayerID = minion.ownerID;
-			pkt.targetX = minion.x;
-			pkt.targetY = minion.y;
-			pkt.minionHP = minion.maxHealth;
-			pkt.minionAP = 0;
-			steamManager.sendPacket(&pkt, sizeof(pkt));
-			ofLogNotice("Network") << "Host sent PlaceSummonedMinion: KOBOLD_KING owner=" << pkt.ownerPlayerID << " target=(" << pkt.targetX << "," << pkt.targetY << ") HP=" << pkt.minionHP;
-		}
-		// Notify clients about the placed Hellhound (authoritative HP/AP)
-		if (isMultiplayer && isHost()) {
-			PlaceSummonedMinionPacket pkt = {};
-			pkt.type = PKT_PLACE_SUMMONED_MINION;
-			pkt.playerID = myLocalPlayerID;
-			pkt.minionType = 3; // HELLHOUND
-			pkt.ownerPlayerID = minion.ownerID;
-			pkt.targetX = minion.x;
-			pkt.targetY = minion.y;
-			pkt.minionHP = minion.maxHealth;
-			pkt.minionAP = minion.ap;
-			steamManager.sendPacket(&pkt, sizeof(pkt));
-			ofLogNotice("Network") << "Host sent PlaceSummonedMinion: HELLHOUND owner=" << pkt.ownerPlayerID << " target=(" << pkt.targetX << "," << pkt.targetY << ") HP=" << pkt.minionHP << " AP=" << pkt.minionAP;
-		}
-
-		// 4. Sort Turn Order
-		int currentID = players[currentPlayerIndex].playerID;
-		std::sort(players.begin(), players.end(), [](const Player & a, const Player & b) {
-			int ownerA = a.isMinion ? a.ownerID : a.playerID;
-			int ownerB = b.isMinion ? b.ownerID : b.playerID;
-			if (ownerA != ownerB) return ownerA < ownerB;
-			if (a.isMinion && !b.isMinion) return true;
-			if (!a.isMinion && b.isMinion) return false;
-			return a.summonOrder < b.summonOrder;
-		});
-
-		// 5. Restore Index
-		for (size_t i = 0; i < players.size(); i++) {
-			if (players[i].playerID == currentID) {
-				currentPlayerIndex = i;
-				break;
-			}
-		}
-		invalidateTargetCache();
 	}
 
 	// --- DEMON SUMMON RESOLUTION ---
@@ -3357,21 +3276,6 @@ void ofApp::updateGame() {
 		shuffleGameVector(players[newDemonIdx].deck, newDemonIdx);
 
 		ofLogNotice("Summon") << "Demon summoned with " << minion.health << " HP.";
-
-		// Notify clients about the placed Demon (authoritative HP)
-		if (isMultiplayer && isHost()) {
-			PlaceSummonedMinionPacket pkt = {};
-			pkt.type = PKT_PLACE_SUMMONED_MINION;
-			pkt.playerID = myLocalPlayerID;
-			pkt.minionType = 4; // DEMON
-			pkt.ownerPlayerID = minion.ownerID;
-			pkt.targetX = minion.x;
-			pkt.targetY = minion.y;
-			pkt.minionHP = minion.maxHealth;
-			pkt.minionAP = 0;
-			steamManager.sendPacket(&pkt, sizeof(pkt));
-			ofLogNotice("Network") << "Host sent PlaceSummonedMinion: DEMON owner=" << pkt.ownerPlayerID << " target=(" << pkt.targetX << "," << pkt.targetY << ") HP=" << pkt.minionHP;
-		}
 
 		// 4. Sort Turn Order
 		int currentID = players[currentPlayerIndex].playerID;
@@ -3500,6 +3404,21 @@ void ofApp::updateGame() {
 					}
 				}
 			}
+		}
+	}
+
+	// Restore any temporary network-action override of currentPlayerIndex
+	if (pendingNetworkActionActor != -1) {
+		bool anyWaiting = (isWaitingForChainLightningRange || isWaitingForChainLightningDamage || isWaitingForFireballRangeDice || isWaitingForFireballDamageDice || isWaitingForPsionicRange || isWaitingForPsionicAmount || isWaitingForMagicBoltRange || isWaitingForBlockingBoonCoins || isWaitingForKoboldDice || isWaitingForWolfCoin || isWaitingForSummonHealth || isWaitingForTimeVortexDice || isWaitingForShootArrow || isWaitingForAttackDice || isWaitingForPoisonAttackDice || isWaitingForAmnesiaDice || isWaitingForBarrierDice || isWaitingForTeleportDice || isWaitingForHealDice);
+		if (!anyWaiting && activeDiceRolls.empty()) {
+			int actorToClear = pendingNetworkActionActor;
+			// restore previous player context
+			currentPlayerIndex = pendingNetworkActionPrevPlayer;
+			pendingNetworkActionActor = -1;
+			pendingNetworkActionPrevPlayer = -1;
+			// clear mapping for this actor to avoid stale entries
+			pendingActionByActor.erase(actorToClear);
+			ofLogNotice("Network") << "Restored player context after network action for actor=" << actorToClear;
 		}
 	}
 
@@ -3667,7 +3586,7 @@ void ofApp::updateGame() {
 					if (damageDiceCount[i] > 0 && earthquakeUnits[i].crashDiceLastStep != earthquakeStep) {
 						earthquakeUnits[i].crashDiceLastStep = earthquakeStep;
 						int beforeIdx = (int)activeDiceRolls.size();
-						startDiceRoll(damageDiceCount[i], 4, PURPOSE_EARTHQUAKE_DAMAGE, "", earthquakeUnits[i].playerIndex);
+						startDiceRoll(damageDiceCount[i], 4, PURPOSE_EARTHQUAKE_DAMAGE, "", i);
 						int afterIdx = (int)activeDiceRolls.size();
 
 						if (afterIdx > beforeIdx) {
@@ -4378,6 +4297,10 @@ void ofApp::updateGame() {
 							koboldsRemainingToPlace = allowed;
 							koboldSummonCount = 0;
 							isPlacingKobolds = true;
+							// Notify clients to show remote placement preview
+							if (isMultiplayer && isHost()) {
+								sendPlaceSummonedBegin(1, players[currentPlayerIndex].isMinion ? players[currentPlayerIndex].ownerID : players[currentPlayerIndex].playerID, koboldPlacementSourceX, koboldPlacementSourceY, koboldsRemainingToPlace);
+							}
 							// Instruction UI
 							tooltipText = "Place Kobold: click an adjacent empty tile";
 							isShowingTooltip = true;
@@ -4739,230 +4662,232 @@ void ofApp::updateGame() {
 
 			// --- KEY PICKUP LOGIC START ---
 			// Only process key pickup on host - clients wait for PKT_KEY_PICKUP packet
-			if (!isMultiplayer || isHost()) {
-				// Use non-flipped world-to-grid conversion for key pickup
-				int cx = (int)std::round((playerVisualPos.x - TILE_SIZE / 2.0f) / TILE_SIZE + BOARD_WIDTH / 2.0f);
-				int cy = (int)std::round((playerVisualPos.z - TILE_SIZE / 2.0f) / TILE_SIZE + BOARD_HEIGHT / 2.0f);
-				cx = std::clamp(cx, 0, BOARD_WIDTH - 1);
-				cy = std::clamp(cy, 0, BOARD_HEIGHT - 1);
-
-				for (int k = 0; k < (int)floatingKeyInstances.size(); ++k) {
-					if (floatingKeyInstances[k].pos.x == cx && floatingKeyInstances[k].pos.y == cy) {
-						// KEY FOUND
-						int keySet = floatingKeyInstances[k].set;
-
-						// Remove the key immediately
-						floatingKeyInstances.erase(floatingKeyInstances.begin() + k);
-
-						// Map Key Color to Card Class
-						// Set 3 (Bronze) = Class 1
-						// Set 2 (Silver) = Class 2
-						// Set 1 (Gold)   = Class 3
-						int classToDraft = 1;
-						if (keySet == 3)
-							classToDraft = 1;
-						else if (keySet == 2)
-							classToDraft = 2;
-						else if (keySet == 1)
-							classToDraft = 3;
-
-						// Identify Owner (If minion steps on key, Summoner gets the card)
-						Player & mover = players[animatingPlayerIndex];
-						int ownerID = mover.isMinion ? mover.ownerID : mover.playerID;
-
-						int ownerIndex = -1;
-						for (int p = 0; p < (int)players.size(); ++p) {
-							if (players[p].playerID == ownerID && !players[p].isMinion) {
-								ownerIndex = p;
-								break;
-							}
-						}
-
-						if (ownerIndex != -1) {
-							// HOST: Send key pickup packet to clients
-							if (isHost()) {
-								KeyPickupPacket kpkt = {};
-								kpkt.type = PKT_KEY_PICKUP;
-								kpkt.playerID = myLocalPlayerID;
-								kpkt.playerIndex = ownerIndex;
-								kpkt.classTier = classToDraft;
-								kpkt.keyX = cx;
-								kpkt.keyY = cy;
-								steamManager.sendPacket(&kpkt, sizeof(kpkt));
-								ofLogNotice("Network") << "Host sent KeyPickup: player=" << ownerIndex << " class=" << classToDraft;
-							}
-
-							// Setup In-Game Draft State
-							isInGameDraft = true;
-							draftPlayerIndex = ownerIndex;
-							generateDraftOptions(classToDraft);
-							draftPicksRemaining = 1; // Keys always give 1 pick
-							selectedDraftIndices.clear(); // Reset UI selection
-							currentState = STATE_DRAFTING;
-
-							spawnFloatingText(gridToWorld(cx, cy), "Key Found!", ofColor::gold);
-							ofLogNotice("Key") << "Player " << ownerID << " picked up key (Class " << classToDraft << ")";
-							return; // Stop update to freeze game/animation until draft is done
-						}
-						break;
-					}
-				}
-			} // End host-only key pickup logic
-			// --- KEY PICKUP LOGIC END ---
-
-			currentPathIndex++;
-
-			// Play Footstep Sound
-			if (currentPathIndex < animationPath.size() && !footstepSounds.empty()) {
-				std::uniform_int_distribution<int> footIdx(0, (int)footstepSounds.size() - 1);
-				int idx = footIdx(visualRNG);
-				std::uniform_real_distribution<float> footSpeed(0.9f, 1.1f);
-				footstepSounds[idx].setSpeed(footSpeed(visualRNG));
-				footstepSounds[idx].play();
+			if (isMultiplayer && isHost()) {
+				PlaceSummonedMinionPacket pkt = {};
+				pkt.type = PKT_PLACE_SUMMONED_MINION;
+				pkt.playerID = myLocalPlayerID;
+				pkt.minionType = 3; // HELLHOUND
+				pkt.ownerPlayerID = hellhound.ownerID;
+				pkt.targetX = gx;
+				pkt.targetY = gy;
+				pkt.minionHP = hellhound.maxHealth;
+				pkt.minionAP = hellhound.ap;
+				steamManager.sendPacket(&pkt, sizeof(pkt));
+				ofLogNotice("Network") << "Host sent PlaceSummonedMinion: HELLHOUND owner=" << pkt.ownerPlayerID << " target=(" << pkt.targetX << "," << pkt.targetY << ") HP=" << pkt.minionHP << " AP=" << pkt.minionAP;
 			}
 
-			if (currentPathIndex >= static_cast<int>(animationPath.size())) {
-				isPlayerAnimating = false;
-				animatingPlayerIndex = -1;
-				// Reset visual position to the current player so we don't display the wrong unit
-				if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) {
-					playerVisualPos = gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y);
+			// Remove the key immediately
+			floatingKeyInstances.erase(floatingKeyInstances.begin() + k);
+
+			// Map Key Color to Card Class
+			// Set 3 (Bronze) = Class 1
+			// Set 2 (Silver) = Class 2
+			// Set 1 (Gold)   = Class 3
+			int classToDraft = 1;
+			if (keySet == 3)
+				classToDraft = 1;
+			else if (keySet == 2)
+				classToDraft = 2;
+			else if (keySet == 1)
+				classToDraft = 3;
+
+			// Identify Owner (If minion steps on key, Summoner gets the card)
+			Player & mover = players[animatingPlayerIndex];
+			int ownerID = mover.isMinion ? mover.ownerID : mover.playerID;
+
+			int ownerIndex = -1;
+			for (int p = 0; p < (int)players.size(); ++p) {
+				if (players[p].playerID == ownerID && !players[p].isMinion) {
+					ownerIndex = p;
+					break;
 				}
 			}
+
+			if (ownerIndex != -1) {
+				// HOST: Send key pickup packet to clients
+				if (isHost()) {
+					KeyPickupPacket kpkt = {};
+					kpkt.type = PKT_KEY_PICKUP;
+					kpkt.playerID = myLocalPlayerID;
+					kpkt.playerIndex = ownerIndex;
+					kpkt.classTier = classToDraft;
+					kpkt.keyX = cx;
+					kpkt.keyY = cy;
+					steamManager.sendPacket(&kpkt, sizeof(kpkt));
+					ofLogNotice("Network") << "Host sent KeyPickup: player=" << ownerIndex << " class=" << classToDraft;
+				}
+
+				// Setup In-Game Draft State
+				isInGameDraft = true;
+				draftPlayerIndex = ownerIndex;
+				generateDraftOptions(classToDraft);
+				draftPicksRemaining = 1; // Keys always give 1 pick
+				selectedDraftIndices.clear(); // Reset UI selection
+				currentState = STATE_DRAFTING;
+
+				spawnFloatingText(gridToWorld(cx, cy), "Key Found!", ofColor::gold);
+				ofLogNotice("Key") << "Player " << ownerID << " picked up key (Class " << classToDraft << ")";
+				return; // Stop update to freeze game/animation until draft is done
+			}
+			break;
 		}
 	}
+} // End host-only key pickup logic
+// --- KEY PICKUP LOGIC END ---
 
-	const float cardDisplayDuration = 2.5f;
-	while (!activeCardDisplays.empty() && (ofGetElapsedTimef() - activeCardDisplays.front().startTime > cardDisplayDuration)) {
-		activeCardDisplays.erase(activeCardDisplays.begin());
+currentPathIndex++;
+
+// Play Footstep Sound
+if (currentPathIndex < animationPath.size() && !footstepSounds.empty()) {
+	std::uniform_int_distribution<int> footIdx(0, (int)footstepSounds.size() - 1);
+	int idx = footIdx(visualRNG);
+	std::uniform_real_distribution<float> footSpeed(0.9f, 1.1f);
+	footstepSounds[idx].setSpeed(footSpeed(visualRNG));
+	footstepSounds[idx].play();
+}
+
+if (currentPathIndex >= static_cast<int>(animationPath.size())) {
+	isPlayerAnimating = false;
+	animatingPlayerIndex = -1;
+	// Reset visual position to the current player so we don't display the wrong unit
+	if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) {
+		playerVisualPos = gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y);
 	}
+}
+}
+}
 
-	// --- IMMEDIATE DEATH / NO-CARDS CHECK ---
-	// Remove units instantly if they have 0 HP or no cards anywhere (deck+discard+hand)
-	std::vector<int> removeIndices;
-	for (int i = 0; i < (int)players.size(); ++i) {
-		bool noCards = players[i].deck.empty() && players[i].discardPile.empty() && players[i].hand.empty();
-		if (players[i].health <= 0 || noCards) {
-			// --- Faerie Resurrection Mechanic ---
-			Player & dying = players[i];
-			if (!dying.isFaerie && dying.x >= 0 && dying.y >= 0) {
-				// Check for adjacent faerie
-				bool resurrected = false;
-				for (int dx = -1; dx <= 1 && !resurrected; ++dx) {
-					for (int dy = -1; dy <= 1 && !resurrected; ++dy) {
-						if ((dx != 0 || dy != 0) && abs(dx) + abs(dy) == 1) { // orthogonal only
-							int nx = dying.x + dx, ny = dying.y + dy;
-							if (nx >= 0 && nx < BOARD_WIDTH && ny >= 0 && ny < BOARD_HEIGHT) {
-								for (auto & p : players) {
-									if (p.isFaerie && p.x == nx && p.y == ny && p.health > 0) {
-										// Roll 1d4, resurrect at 25% * roll * maxHealth (only host in multiplayer)
-										if (!isClient()) {
-											std::uniform_int_distribution<int> d4dist(1, 4);
-											int roll = d4dist(gameplayRNG); // 1-4
-											int hp = (int)std::floor(dying.maxHealth * 0.25f * roll);
-											if (hp < 1) hp = 1;
-											dying.health = hp;
-											dying.onFire = false;
-											dying.isPoisoned = false;
-											dying.poisonReduction = 0;
-											dying.isParalyzed = false;
-											dying.paralysisHeadsCount = 0;
-											dying.sleepTurnsRemaining = 0;
-											dying.ward = 0;
-											dying.block = 0;
-											dying.fortification = 0;
-											dying.barrier = 0;
-											dying.holyBlock = 0;
-											dying.luck = 0;
-											dying.isReplicatePending = false;
-											dying.nextTurnAPBonus = 0;
-											dying.shocksPlayedThisTurn = 0;
-											dying.flurryOfFistsActive = false;
-											dying.isParalyzed = false;
-											dying.isPoisoned = false;
-											dying.poisonReduction = 0;
-											dying.nextAttackAddPoison = false;
-											dying.nextTurnD10AP = false;
-											dying.nextTurnExtraDraw = false;
-											dying.nextTurnBonusDiceFromMinions = false;
-											dying.strengthenElementsTurnsRemaining = 0;
-											dying.sleepTurnsRemaining = 0;
-											dying.inTortoiseForm = false;
-											dying.tortoiseDamageTaken = 0;
-											dying.pendingTortoiseDamage = false;
-											dying.pendingTortoiseDamageValue = 3;
-											dying.inGhostForm = false;
-											dying.ghostDamageTaken = 0;
-											dying.cardsPlayedThisTurn.clear();
-											dying.playedCardsPile.clear();
-											dying.summonedOnTurnCycle = globalTurnCounter;
-											spawnFloatingText(gridToWorld(dying.x, dying.y), "Faerie Resurrection!", ofColor::aqua);
-											ofLogNotice("Faerie") << "Unit " << dying.playerID << " resurrected by faerie at " << nx << "," << ny << " for " << hp << " HP.";
-											resurrected = true;
-										}
+const float cardDisplayDuration = 2.5f;
+while (!activeCardDisplays.empty() && (ofGetElapsedTimef() - activeCardDisplays.front().startTime > cardDisplayDuration)) {
+	activeCardDisplays.erase(activeCardDisplays.begin());
+}
+
+// --- IMMEDIATE DEATH / NO-CARDS CHECK ---
+// Remove units instantly if they have 0 HP or no cards anywhere (deck+discard+hand)
+std::vector<int> removeIndices;
+for (int i = 0; i < (int)players.size(); ++i) {
+	bool noCards = players[i].deck.empty() && players[i].discardPile.empty() && players[i].hand.empty();
+	if (players[i].health <= 0 || noCards) {
+		// --- Faerie Resurrection Mechanic ---
+		Player & dying = players[i];
+		if (!dying.isFaerie && dying.x >= 0 && dying.y >= 0) {
+			// Check for adjacent faerie
+			bool resurrected = false;
+			for (int dx = -1; dx <= 1 && !resurrected; ++dx) {
+				for (int dy = -1; dy <= 1 && !resurrected; ++dy) {
+					if ((dx != 0 || dy != 0) && abs(dx) + abs(dy) == 1) { // orthogonal only
+						int nx = dying.x + dx, ny = dying.y + dy;
+						if (nx >= 0 && nx < BOARD_WIDTH && ny >= 0 && ny < BOARD_HEIGHT) {
+							for (auto & p : players) {
+								if (p.isFaerie && p.x == nx && p.y == ny && p.health > 0) {
+									// Roll 1d4, resurrect at 25% * roll * maxHealth (only host in multiplayer)
+									if (!isClient()) {
+										std::uniform_int_distribution<int> d4dist(1, 4);
+										int roll = d4dist(gameplayRNG); // 1-4
+										int hp = (int)std::floor(dying.maxHealth * 0.25f * roll);
+										if (hp < 1) hp = 1;
+										dying.health = hp;
+										dying.onFire = false;
+										dying.isPoisoned = false;
+										dying.poisonReduction = 0;
+										dying.isParalyzed = false;
+										dying.paralysisHeadsCount = 0;
+										dying.sleepTurnsRemaining = 0;
+										dying.ward = 0;
+										dying.block = 0;
+										dying.fortification = 0;
+										dying.barrier = 0;
+										dying.holyBlock = 0;
+										dying.luck = 0;
+										dying.isReplicatePending = false;
+										dying.nextTurnAPBonus = 0;
+										dying.shocksPlayedThisTurn = 0;
+										dying.flurryOfFistsActive = false;
+										dying.isParalyzed = false;
+										dying.isPoisoned = false;
+										dying.poisonReduction = 0;
+										dying.nextAttackAddPoison = false;
+										dying.nextTurnD10AP = false;
+										dying.nextTurnExtraDraw = false;
+										dying.nextTurnBonusDiceFromMinions = false;
+										dying.strengthenElementsTurnsRemaining = 0;
+										dying.sleepTurnsRemaining = 0;
+										dying.inTortoiseForm = false;
+										dying.tortoiseDamageTaken = 0;
+										dying.pendingTortoiseDamage = false;
+										dying.pendingTortoiseDamageValue = 3;
+										dying.inGhostForm = false;
+										dying.ghostDamageTaken = 0;
+										dying.cardsPlayedThisTurn.clear();
+										dying.playedCardsPile.clear();
+										dying.summonedOnTurnCycle = globalTurnCounter;
+										spawnFloatingText(gridToWorld(dying.x, dying.y), "Faerie Resurrection!", ofColor::aqua);
+										ofLogNotice("Faerie") << "Unit " << dying.playerID << " resurrected by faerie at " << nx << "," << ny << " for " << hp << " HP.";
+										resurrected = true;
 									}
 								}
 							}
 						}
 					}
 				}
-				if (resurrected) continue; // skip normal death logic
 			}
-			removeIndices.push_back(i);
+			if (resurrected) continue; // skip normal death logic
 		}
+		removeIndices.push_back(i);
 	}
+}
 
-	if (!removeIndices.empty()) {
-		std::sort(removeIndices.begin(), removeIndices.end(), std::greater<int>());
-		for (int idx : removeIndices) {
-			if (idx < 0 || idx >= (int)players.size()) continue;
+if (!removeIndices.empty()) {
+	std::sort(removeIndices.begin(), removeIndices.end(), std::greater<int>());
+	for (int idx : removeIndices) {
+		if (idx < 0 || idx >= (int)players.size()) continue;
 
-			DeathMarker death;
-			death.x = players[idx].x;
-			death.y = players[idx].y;
-			death.turnDied = globalTurnCounter;
-			death.deck = players[idx].deck;
-			graveyard.push_back(death);
+		DeathMarker death;
+		death.x = players[idx].x;
+		death.y = players[idx].y;
+		death.turnDied = globalTurnCounter;
+		death.deck = players[idx].deck;
+		graveyard.push_back(death);
 
-			if (players[idx].x >= 0 && players[idx].x < BOARD_WIDTH && players[idx].y >= 0 && players[idx].y < BOARD_HEIGHT) {
-				board[players[idx].x][players[idx].y].hasPlayer = false;
-			}
+		if (players[idx].x >= 0 && players[idx].x < BOARD_WIDTH && players[idx].y >= 0 && players[idx].y < BOARD_HEIGHT) {
+			board[players[idx].x][players[idx].y].hasPlayer = false;
+		}
 
-			// Update active dice associations
-			for (auto & r : activeDiceRolls) {
-				if (r.associatedUnit == idx)
-					r.associatedUnit = -1;
-				else if (r.associatedUnit > idx)
-					r.associatedUnit -= 1;
-			}
+		// Update active dice associations
+		for (auto & r : activeDiceRolls) {
+			if (r.associatedUnit == idx)
+				r.associatedUnit = -1;
+			else if (r.associatedUnit > idx)
+				r.associatedUnit -= 1;
+		}
 
-			// Remove or adjust earthquake unit entries
-			for (auto it = earthquakeUnits.begin(); it != earthquakeUnits.end();) {
-				if (it->playerIndex == idx) {
-					it = earthquakeUnits.erase(it);
-				} else {
-					if (it->playerIndex > idx) it->playerIndex -= 1;
-					++it;
-				}
-			}
-
-			players.erase(players.begin() + idx);
-
-			if (players.empty()) {
-				currentPlayerIndex = -1;
+		// Remove or adjust earthquake unit entries
+		for (auto it = earthquakeUnits.begin(); it != earthquakeUnits.end();) {
+			if (it->playerIndex == idx) {
+				it = earthquakeUnits.erase(it);
 			} else {
-				if (currentPlayerIndex == idx) {
-					currentPlayerIndex = std::min<int>(idx, (int)players.size() - 1);
-				} else if (currentPlayerIndex > idx) {
-					currentPlayerIndex -= 1;
-				}
+				if (it->playerIndex > idx) it->playerIndex -= 1;
+				++it;
 			}
 		}
 
-		invalidateTargetCache();
+		players.erase(players.begin() + idx);
+
+		if (players.empty()) {
+			currentPlayerIndex = -1;
+		} else {
+			if (currentPlayerIndex == idx) {
+				currentPlayerIndex = std::min<int>(idx, (int)players.size() - 1);
+			} else if (currentPlayerIndex > idx) {
+				currentPlayerIndex -= 1;
+			}
+		}
 	}
 
-	if (hasUnlimitedAP) currentAP = 99;
+	invalidateTargetCache();
+}
+
+if (hasUnlimitedAP) currentAP = 99;
 }
 //----------------------------------------------------
 void ofApp::buildLevelMesh() {
@@ -9177,7 +9102,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 						int newKoboldIdx = (int)players.size() - 1;
 						shuffleGameVector(players[newKoboldIdx].deck, newKoboldIdx);
 
-						// Notify clients about the placed kobold in multiplayer (host-authoritative HP/AP)
+						// Notify clients about the placed kobold in multiplayer (include authoritative HP/AP)
 						if (isMultiplayer && isHost()) {
 							PlaceSummonedMinionPacket pkt = {};
 							pkt.type = PKT_PLACE_SUMMONED_MINION;
@@ -9186,8 +9111,8 @@ void ofApp::mousePressed(int x, int y, int button) {
 							pkt.ownerPlayerID = kobold.ownerID;
 							pkt.targetX = gx;
 							pkt.targetY = gy;
-							pkt.minionHP = kobold.health;
-							pkt.minionAP = kobold.ap; // usually 0 for kobolds
+							pkt.minionHP = kobold.maxHealth;
+							pkt.minionAP = kobold.ap;
 							steamManager.sendPacket(&pkt, sizeof(pkt));
 							ofLogNotice("Network") << "Host sent PlaceSummonedMinion: KOBOLD owner=" << pkt.ownerPlayerID << " target=(" << pkt.targetX << "," << pkt.targetY << ") HP=" << pkt.minionHP << " AP=" << pkt.minionAP;
 						}
@@ -10385,6 +10310,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 				pendingChainLightningTargetTile = glm::vec2(gx, gy);
 				pendingChainLightningRangeResult = startDiceRoll(2, 10, PURPOSE_RANGE, "Chain Lightning: Range", currentPlayerIndex);
 				isWaitingForChainLightningRange = true;
+				if (isMultiplayer && isHost()) sendCardActionBegin(CARD_CHAIN_LIGHTNING, currentPlayerIndex, gx, gy, 0, 0, 0, 0, "Chain Lightning");
 
 				// 3. Reset State
 				isTargetingChainLightning = false;
@@ -10589,7 +10515,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 						int newWolfIdx = (int)players.size() - 1;
 						shuffleGameVector(players[newWolfIdx].deck, newWolfIdx);
 
-						// Notify clients about the placed Wolf (authoritative HP)
+						// If host, notify clients about authoritative wolf placement
 						if (isMultiplayer && isHost()) {
 							PlaceSummonedMinionPacket pkt = {};
 							pkt.type = PKT_PLACE_SUMMONED_MINION;
@@ -10610,7 +10536,6 @@ void ofApp::mousePressed(int x, int y, int button) {
 							// First wolf placed. Now flip the coin.
 							ofLogNotice("Wolves") << "Wolf 1 placed. Flipping coin for 2nd...";
 
-							if (isMultiplayer && isHost()) sendCardActionBegin(CARD_CALL_FOR_WOLVES, currentPlayerIndex, -1, -1, 0, 0, 0, 0, "Call for Wolves");
 							startDiceRoll(1, 2, PURPOSE_COIN_FLIP, "Flip for 2nd Wolf", currentPlayerIndex);
 
 							isWaitingForWolfCoin = true;
@@ -11527,7 +11452,7 @@ void ofApp::mouseReleased(int x, int y, int button) {
 							ofLogNotice("Teleport") << "Triggered! draggedCardIndex=" << draggedCardIndex << " handSize=" << currentPlayer.hand.size();
 							pendingTeleportCardIndex = draggedCardIndex;
 							// Roll dice - result IS the range in feet (3d6 = 3-18ft)
-							pendingTeleportRollResult = startDiceRoll(playedCard.numDice, playedCard.diceSides, PURPOSE_RANGE, "Teleport: Range");
+							pendingTeleportRollResult = startDiceRoll(playedCard.numDice, playedCard.diceSides, PURPOSE_RANGE, "Teleport: Range", currentPlayerIndex);
 							isWaitingForTeleportDice = true;
 							draggedCardIndex = -1;
 							selectedCardIndex = -1;
@@ -12190,18 +12115,18 @@ void ofApp::startNewTurn() {
 
 			// Check Status Effects
 			if (startingPlayer.isParalyzed) {
-				startDiceRoll(1, 2, PURPOSE_COIN_FLIP);
+				startDiceRoll(1, 2, PURPOSE_COIN_FLIP, "", currentPlayerIndex);
 				isWaitingForParalysisCoin = true;
 				return;
 			}
 			if (startingPlayer.onFire) {
 				isWaitingForOnFireDice = true;
-				pendingOnFireRollResult = startDiceRoll(1, 6, PURPOSE_DAMAGE, "Fire Status Damage");
+				pendingOnFireRollResult = startDiceRoll(1, 6, PURPOSE_DAMAGE, "Fire Status Damage", currentPlayerIndex);
 				return;
 			}
 			if (startingPlayer.isPoisoned) {
 				isWaitingForPoisonDice = true;
-				pendingPoisonRollResult = startDiceRoll(1, 6, PURPOSE_DAMAGE, "Poison Status Damage");
+				pendingPoisonRollResult = startDiceRoll(1, 6, PURPOSE_DAMAGE, "Poison Status Damage", currentPlayerIndex);
 				return;
 			}
 
@@ -12274,7 +12199,7 @@ void ofApp::startNewTurn() {
 
 		if (startingPlayer.onFire) {
 			isWaitingForOnFireDice = true;
-			pendingOnFireRollResult = startDiceRoll(1, 6, PURPOSE_DAMAGE, "Sleeping Fire Damage");
+			pendingOnFireRollResult = startDiceRoll(1, 6, PURPOSE_DAMAGE, "Sleeping Fire Damage", currentPlayerIndex);
 			return;
 		}
 
@@ -12284,18 +12209,18 @@ void ofApp::startNewTurn() {
 
 	// 2. PARALYSIS / FIRE / POISON
 	if (startingPlayer.isParalyzed) {
-		startDiceRoll(1, 2, PURPOSE_COIN_FLIP, "Paralysis Check");
+		startDiceRoll(1, 2, PURPOSE_COIN_FLIP, "Paralysis Check", currentPlayerIndex);
 		isWaitingForParalysisCoin = true;
 		return;
 	}
 	if (startingPlayer.onFire) {
 		isWaitingForOnFireDice = true;
-		pendingOnFireRollResult = startDiceRoll(1, 6, PURPOSE_DAMAGE);
+		pendingOnFireRollResult = startDiceRoll(1, 6, PURPOSE_DAMAGE, "", currentPlayerIndex);
 		return;
 	}
 	if (startingPlayer.isPoisoned) {
 		isWaitingForPoisonDice = true;
-		pendingPoisonRollResult = startDiceRoll(1, 6, PURPOSE_DAMAGE, "Poison Status Damage");
+		pendingPoisonRollResult = startDiceRoll(1, 6, PURPOSE_DAMAGE, "Poison Status Damage", currentPlayerIndex);
 		return;
 	}
 
@@ -12351,7 +12276,7 @@ void ofApp::continueNewTurn() {
 		// If on fire while sleeping, roll damage first, then the update loop will end the turn
 		if (startingPlayer.onFire) {
 			isWaitingForOnFireDice = true;
-			pendingOnFireRollResult = startDiceRoll(1, 6, PURPOSE_DAMAGE, "Sleeping Fire Damage");
+			pendingOnFireRollResult = startDiceRoll(1, 6, PURPOSE_DAMAGE, "Sleeping Fire Damage", currentPlayerIndex);
 			return;
 		}
 
@@ -12665,6 +12590,10 @@ CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 			// Start coin flips and track them; D20s will be queued until coins complete.
 			startDiceRoll(physBlock, 2, PURPOSE_BLOCKING_BOON_COIN, "Boon: Phys Flip", currentPlayerIndex);
 			isWaitingForBlockingBoonCoins = true;
+			if (isMultiplayer && isHost()) {
+				// send param0=physBlock, param1=nonPhys, param2=targetIndex
+				sendCardActionBegin(CARD_BLOCKING_BOON, currentPlayerIndex, -1, -1, physBlock, nonPhys, targetIndex, 0, "Blocking Boon");
+			}
 			pendingBlockingBoonCoinsRemaining = physBlock;
 			pendingBlockingBoonNonPhys = nonPhys; // roll these after coins finish
 			pendingBlockingBoonTotal = physBlock + nonPhys;
@@ -12924,7 +12853,7 @@ CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		}
 		if (!hasValidUnit) break;
 
-		pendingMagicBlastRollResult = startDiceRoll(playedCard.numDice, playedCard.diceSides, PURPOSE_RANGE, "Magic Blast: Range Check");
+		pendingMagicBlastRollResult = startDiceRoll(playedCard.numDice, playedCard.diceSides, PURPOSE_RANGE, "Magic Blast: Range Check", currentPlayerIndex);
 
 		isWaitingForMagicBlastDice = true;
 		pendingMagicBlastTargetTile = targetTile;
@@ -12944,8 +12873,9 @@ CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 
 		if (validationResult.reason != VALID || !board[targetX][targetY].hasPlayer) break;
 
-		pendingFireballRangeResult = startDiceRoll(playedCard.numDice, playedCard.diceSides, PURPOSE_RANGE, "Fireball: Range Check");
+		pendingFireballRangeResult = startDiceRoll(playedCard.numDice, playedCard.diceSides, PURPOSE_RANGE, "Fireball: Range Check", currentPlayerIndex);
 		isWaitingForFireballRangeDice = true;
+		if (isMultiplayer && isHost()) sendCardActionBegin(CARD_FIREBALL, currentPlayerIndex, targetX, targetY, 0, 0, 0, 0, "Fireball");
 		pendingFireballTargetTile = targetTile;
 		playedSuccessfully = true;
 		break;
@@ -13107,7 +13037,7 @@ CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		pendingHealTargetIndex = targetIndex;
 
 		// Roll for Amount (Not Range)
-		pendingHealRollResult = startDiceRoll(playedCard.numDice, playedCard.diceSides, PURPOSE_HEALING, "Heal: HP Amount");
+		pendingHealRollResult = startDiceRoll(playedCard.numDice, playedCard.diceSides, PURPOSE_HEALING, "Heal: HP Amount", currentPlayerIndex);
 
 		isWaitingForHealDice = true;
 		playedSuccessfully = true;
@@ -13128,7 +13058,7 @@ CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 
 		if (validationResult.reason != VALID) break;
 
-		pendingJoltRangeResult = startDiceRoll(playedCard.numDice, playedCard.diceSides, PURPOSE_RANGE, "Ethereal Jolt: Range Check");
+		pendingJoltRangeResult = startDiceRoll(playedCard.numDice, playedCard.diceSides, PURPOSE_RANGE, "Ethereal Jolt: Range Check", currentPlayerIndex);
 
 		isWaitingForJoltRangeDice = true;
 		pendingJoltTargetTile = targetTile;
@@ -13162,7 +13092,10 @@ CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		pendingSummonTile = glm::vec2(targetX, targetY);
 		pendingSummonPlayerIndex = currentPlayerIndex; // Track which player summoned
 
-		pendingSummonRollResult = startDiceRoll(1, 6, PURPOSE_HP, "Raise Dead: Skeleton HP");
+		// Notify clients that a Raise Dead action began so they wait for host dice
+		if (isMultiplayer && isHost()) sendCardActionBegin(CARD_RAISE_DEAD, currentPlayerIndex, targetX, targetY, 0, 0, 0, 0, "Raise Dead");
+
+		pendingSummonRollResult = startDiceRoll(1, 6, PURPOSE_HP, "Raise Dead: Skeleton HP", currentPlayerIndex);
 
 		isWaitingForSummonHealth = true;
 
@@ -13298,12 +13231,28 @@ CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		invalidateTargetCache();
 		// --- CRITICAL FIX END ---
 
-		// 4. Add to Board (Now safe to resize vector)
-		board[targetX][targetY].hasPlayer = true;
-		players.push_back(minion);
-		// Authoritative shuffle for the new minion deck
-		int newKoboldKingIdx = (int)players.size() - 1;
-		shuffleGameVector(players[newKoboldKingIdx].deck, newKoboldKingIdx);
+		// 4. Add to Board (host-authoritative)
+		if (!isMultiplayer || isHost()) {
+			board[targetX][targetY].hasPlayer = true;
+			players.push_back(minion);
+			// Authoritative shuffle for the new minion deck
+			int newKoboldKingIdx = (int)players.size() - 1;
+			shuffleGameVector(players[newKoboldKingIdx].deck, newKoboldKingIdx);
+			// Notify clients
+			if (isMultiplayer && isHost()) {
+				PlaceSummonedMinionPacket pkt = {};
+				pkt.type = PKT_PLACE_SUMMONED_MINION;
+				pkt.playerID = myLocalPlayerID;
+				pkt.minionType = 5; // KOBOLD_KING
+				pkt.ownerPlayerID = minion.ownerID;
+				pkt.targetX = minion.x;
+				pkt.targetY = minion.y;
+				pkt.minionHP = minion.maxHealth;
+				pkt.minionAP = 0;
+				steamManager.sendPacket(&pkt, sizeof(pkt));
+				ofLogNotice("Network") << "Host sent PlaceSummonedMinion: KOBOLD_KING owner=" << pkt.ownerPlayerID << " target=(" << pkt.targetX << "," << pkt.targetY << ") HP=" << pkt.minionHP;
+			}
+		}
 
 		ofLogNotice("Summon") << "Kobold King summoned with " << kingHP << " HP.";
 
@@ -13388,27 +13337,27 @@ CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		createCardDisplay(playedCard, currentPlayerIndex);
 		invalidateTargetCache();
 
-		board[targetX][targetY].hasPlayer = true;
-		players.push_back(minion);
-		int newAssistantIdx = (int)players.size() - 1;
-		shuffleGameVector(players[newAssistantIdx].deck, newAssistantIdx);
+		if (!isMultiplayer || isHost()) {
+			board[targetX][targetY].hasPlayer = true;
+			players.push_back(minion);
+			int newAssistantIdx = (int)players.size() - 1;
+			shuffleGameVector(players[newAssistantIdx].deck, newAssistantIdx);
+			if (isMultiplayer && isHost()) {
+				PlaceSummonedMinionPacket pkt = {};
+				pkt.type = PKT_PLACE_SUMMONED_MINION;
+				pkt.playerID = myLocalPlayerID;
+				pkt.minionType = 6; // ASSISTANT
+				pkt.ownerPlayerID = minion.ownerID;
+				pkt.targetX = minion.x;
+				pkt.targetY = minion.y;
+				pkt.minionHP = minion.maxHealth;
+				pkt.minionAP = 0;
+				steamManager.sendPacket(&pkt, sizeof(pkt));
+				ofLogNotice("Network") << "Host sent PlaceSummonedMinion: ASSISTANT owner=" << pkt.ownerPlayerID << " target=(" << pkt.targetX << "," << pkt.targetY << ")";
+			}
+		}
 
 		ofLogNotice("Summon") << "Assistant summoned.";
-
-		// Notify clients about the Assistant (authoritative HP)
-		if (isMultiplayer && isHost()) {
-			PlaceSummonedMinionPacket pkt = {};
-			pkt.type = PKT_PLACE_SUMMONED_MINION;
-			pkt.playerID = myLocalPlayerID;
-			pkt.minionType = 6; // ASSISTANT
-			pkt.ownerPlayerID = minion.ownerID;
-			pkt.targetX = minion.x;
-			pkt.targetY = minion.y;
-			pkt.minionHP = minion.maxHealth;
-			pkt.minionAP = 0;
-			steamManager.sendPacket(&pkt, sizeof(pkt));
-			ofLogNotice("Network") << "Host sent PlaceSummonedMinion: ASSISTANT owner=" << pkt.ownerPlayerID << " target=(" << pkt.targetX << "," << pkt.targetY << ") HP=" << pkt.minionHP;
-		}
 
 		// Sort & Restore Index
 		std::sort(players.begin(), players.end(), [](const Player & a, const Player & b) {
@@ -13484,26 +13433,25 @@ CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		createCardDisplay(playedCard, currentPlayerIndex);
 		invalidateTargetCache();
 
-		board[targetX][targetY].hasPlayer = true;
-		players.push_back(minion);
-		int newFaerieIdx = (int)players.size() - 1;
-		shuffleGameVector(players[newFaerieIdx].deck, newFaerieIdx);
-
-		ofLogNotice("Summon") << "Faerie summoned.";
-
-		// Notify clients about the Faerie (authoritative HP)
-		if (isMultiplayer && isHost()) {
-			PlaceSummonedMinionPacket pkt = {};
-			pkt.type = PKT_PLACE_SUMMONED_MINION;
-			pkt.playerID = myLocalPlayerID;
-			pkt.minionType = 7; // FAERIE
-			pkt.ownerPlayerID = minion.ownerID;
-			pkt.targetX = minion.x;
-			pkt.targetY = minion.y;
-			pkt.minionHP = minion.maxHealth;
-			pkt.minionAP = 0;
-			steamManager.sendPacket(&pkt, sizeof(pkt));
-			ofLogNotice("Network") << "Host sent PlaceSummonedMinion: FAERIE owner=" << pkt.ownerPlayerID << " target=(" << pkt.targetX << "," << pkt.targetY << ") HP=" << pkt.minionHP;
+		if (!isMultiplayer || isHost()) {
+			board[targetX][targetY].hasPlayer = true;
+			players.push_back(minion);
+			int newFaerieIdx = (int)players.size() - 1;
+			shuffleGameVector(players[newFaerieIdx].deck, newFaerieIdx);
+			if (isMultiplayer && isHost()) {
+				PlaceSummonedMinionPacket pkt = {};
+				pkt.type = PKT_PLACE_SUMMONED_MINION;
+				pkt.playerID = myLocalPlayerID;
+				pkt.minionType = 7; // FAERIE
+				pkt.ownerPlayerID = minion.ownerID;
+				pkt.targetX = minion.x;
+				pkt.targetY = minion.y;
+				pkt.minionHP = minion.maxHealth;
+				pkt.minionAP = 0;
+				steamManager.sendPacket(&pkt, sizeof(pkt));
+				ofLogNotice("Network") << "Host sent PlaceSummonedMinion: FAERIE owner=" << pkt.ownerPlayerID << " target=(" << pkt.targetX << "," << pkt.targetY << ")";
+			}
+			ofLogNotice("Summon") << "Faerie summoned.";
 		}
 
 		// Sort & Restore Index
@@ -13581,7 +13529,8 @@ CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		if (isElectric) {
 			ofLogNotice("Summon") << "Combo! Summoning ELECTRIC Golem.";
 			minion.minionTexture = &golemTexElectric;
-			minion.maxHealth = startDiceRoll(1, 6, PURPOSE_HP, "Electric Golem: HP");
+			if (isMultiplayer && isHost()) sendCardActionBegin(CARD_SUMMON_GOLEM, currentPlayerIndex, targetX, targetY, 0, 0, 0, 0, "Golem");
+			minion.maxHealth = startDiceRoll(1, 6, PURPOSE_HP, "Electric Golem: HP", currentPlayerIndex);
 			for (const auto & c : allCards) {
 				if (c.type == CARD_SHOCK) {
 					minion.deck.push_back(c);
@@ -13596,7 +13545,8 @@ CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		} else if (isFire) {
 			ofLogNotice("Summon") << "Combo! Summoning FIRE Golem.";
 			minion.minionTexture = &golemTexFire;
-			minion.maxHealth = startDiceRoll(1, 10, PURPOSE_HP, "Fire Golem: HP");
+			if (isMultiplayer && isHost()) sendCardActionBegin(CARD_SUMMON_GOLEM, currentPlayerIndex, targetX, targetY, 0, 0, 0, 0, "Golem");
+			minion.maxHealth = startDiceRoll(1, 10, PURPOSE_HP, "Fire Golem: HP", currentPlayerIndex);
 			for (const auto & c : allCards) {
 				if (c.type == CARD_FIREBALL) minion.deck.push_back(c);
 				if (c.type == CARD_FLAME_HIT) {
@@ -13611,7 +13561,8 @@ CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		} else if (isRock) {
 			ofLogNotice("Summon") << "Combo! Summoning ROCK Golem.";
 			minion.minionTexture = &golemTexRock;
-			minion.maxHealth = startDiceRoll(1, 20, PURPOSE_HP, "Rock Golem: HP");
+			if (isMultiplayer && isHost()) sendCardActionBegin(CARD_SUMMON_GOLEM, currentPlayerIndex, targetX, targetY, 0, 0, 0, 0, "Golem");
+			minion.maxHealth = startDiceRoll(1, 20, PURPOSE_HP, "Rock Golem: HP", currentPlayerIndex);
 			for (const auto & c : allCards) {
 				if (c.type == CARD_ROCK_CRUSH) {
 					minion.deck.push_back(c);
@@ -13630,7 +13581,8 @@ CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		} else {
 			ofLogNotice("Summon") << "Summoning Standard Golem.";
 			minion.minionTexture = &golemTexBase;
-			minion.maxHealth = startDiceRoll(1, 10, PURPOSE_HP, "Standard Golem: HP");
+			if (isMultiplayer && isHost()) sendCardActionBegin(CARD_SUMMON_GOLEM, currentPlayerIndex, targetX, targetY, 0, 0, 0, 0, "Golem");
+			minion.maxHealth = startDiceRoll(1, 10, PURPOSE_HP, "Standard Golem: HP", currentPlayerIndex);
 			for (const auto & c : allCards) {
 				if (c.name == "Bash") {
 					minion.deck.push_back(c);
@@ -13659,10 +13611,26 @@ CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		// --- CRASH FIX END ---
 
 		// 5. Add to board
-		board[targetX][targetY].hasPlayer = true;
-		players.push_back(minion);
-		int newGolemIdx = (int)players.size() - 1;
-		shuffleGameVector(players[newGolemIdx].deck, newGolemIdx);
+		if (!isMultiplayer || isHost()) {
+			board[targetX][targetY].hasPlayer = true;
+			players.push_back(minion);
+			int newGolemIdx = (int)players.size() - 1;
+			shuffleGameVector(players[newGolemIdx].deck, newGolemIdx);
+			// Notify clients of authoritative golem placement and HP
+			if (isMultiplayer && isHost()) {
+				PlaceSummonedMinionPacket pkt = {};
+				pkt.type = PKT_PLACE_SUMMONED_MINION;
+				pkt.playerID = myLocalPlayerID;
+				pkt.minionType = 8; // GOLEM
+				pkt.ownerPlayerID = minion.ownerID;
+				pkt.targetX = minion.x;
+				pkt.targetY = minion.y;
+				pkt.minionHP = minion.maxHealth;
+				pkt.minionAP = 0;
+				steamManager.sendPacket(&pkt, sizeof(pkt));
+				ofLogNotice("Network") << "Host sent PlaceSummonedMinion: GOLEM owner=" << pkt.ownerPlayerID << " target=(" << pkt.targetX << "," << pkt.targetY << ") HP=" << pkt.minionHP;
+			}
+		}
 
 		// Sort turn order
 		std::sort(players.begin(), players.end(), [](const Player & a, const Player & b) {
@@ -13680,21 +13648,6 @@ CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 				currentPlayerIndex = i;
 				break;
 			}
-		}
-
-		// Notify clients about the placed Golem (authoritative HP)
-		if (isMultiplayer && isHost()) {
-			PlaceSummonedMinionPacket pkt = {};
-			pkt.type = PKT_PLACE_SUMMONED_MINION;
-			pkt.playerID = myLocalPlayerID;
-			pkt.minionType = 8; // GOLEM
-			pkt.ownerPlayerID = minion.ownerID;
-			pkt.targetX = minion.x;
-			pkt.targetY = minion.y;
-			pkt.minionHP = minion.maxHealth;
-			pkt.minionAP = 0;
-			steamManager.sendPacket(&pkt, sizeof(pkt));
-			ofLogNotice("Network") << "Host sent PlaceSummonedMinion: GOLEM owner=" << pkt.ownerPlayerID << " target=(" << pkt.targetX << "," << pkt.targetY << ") HP=" << pkt.minionHP;
 		}
 		return CARD_PLAYED_IMMEDIATELY;
 	}
@@ -13776,52 +13729,55 @@ CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		}
 
 		// 4. Transform Board State
-		board[targetX][targetY].hasWall = false; // Remove static wall
-		board[targetX][targetY].isMagicWall = false; // Clear flag (unit carries property now)
-		board[targetX][targetY].hasPlayer = true; // Add unit
+		if (!isMultiplayer || isHost()) {
+			board[targetX][targetY].hasWall = false; // Remove static wall
+			board[targetX][targetY].isMagicWall = false; // Clear flag (unit carries property now)
+			board[targetX][targetY].hasPlayer = true; // Add unit
 
-		// Update Mesh (to remove the static wall visually)
-		buildLevelMesh();
+			// Update Mesh (to remove the static wall visually)
+			buildLevelMesh();
 
-		// Add minion to players
-		players.push_back(minion);
-		int newWallUnitIdx = (int)players.size() - 1;
-		shuffleGameVector(players[newWallUnitIdx].deck, newWallUnitIdx);
+			// Add minion to players
+			players.push_back(minion);
+			int newWallUnitIdx = (int)players.size() - 1;
+			shuffleGameVector(players[newWallUnitIdx].deck, newWallUnitIdx);
 
-		// Notify clients about the placed Wall Unit (authoritative HP)
-		if (isMultiplayer && isHost()) {
-			PlaceSummonedMinionPacket pkt = {};
-			pkt.type = PKT_PLACE_SUMMONED_MINION;
-			pkt.playerID = myLocalPlayerID;
-			pkt.minionType = minion.isMagicWallUnit ? 11 : 10; // 10=Wall, 11=MagicWall
-			pkt.ownerPlayerID = minion.ownerID;
-			pkt.targetX = minion.x;
-			pkt.targetY = minion.y;
-			pkt.minionHP = minion.maxHealth;
-			pkt.minionAP = 0;
-			steamManager.sendPacket(&pkt, sizeof(pkt));
-			ofLogNotice("Network") << "Host sent PlaceSummonedMinion: WALL owner=" << pkt.ownerPlayerID << " target=(" << pkt.targetX << "," << pkt.targetY << ") HP=" << pkt.minionHP << " magic=" << (minion.isMagicWallUnit ? 1 : 0);
-		}
+			// 5. Sort Turn Order
+			int currentID = savedCurrentID;
+			std::sort(players.begin(), players.end(), [](const Player & a, const Player & b) {
+				int ownerA = a.isMinion ? a.ownerID : a.playerID;
+				int ownerB = b.isMinion ? b.ownerID : b.playerID;
+				if (ownerA != ownerB) return ownerA < ownerB;
+				if (a.isMinion && !b.isMinion) return true;
+				if (!a.isMinion && b.isMinion) return false;
+				return a.summonOrder < b.summonOrder;
+			});
 
-		// 5. Sort Turn Order
-		int currentID = savedCurrentID;
-		std::sort(players.begin(), players.end(), [](const Player & a, const Player & b) {
-			int ownerA = a.isMinion ? a.ownerID : a.playerID;
-			int ownerB = b.isMinion ? b.ownerID : b.playerID;
-			if (ownerA != ownerB) return ownerA < ownerB;
-			if (a.isMinion && !b.isMinion) return true;
-			if (!a.isMinion && b.isMinion) return false;
-			return a.summonOrder < b.summonOrder;
-		});
-
-		// Restore Index
-		for (size_t i = 0; i < players.size(); i++) {
-			if (players[i].playerID == currentID) {
-				currentPlayerIndex = i;
-				break;
+			// Restore Index
+			for (size_t i = 0; i < players.size(); i++) {
+				if (players[i].playerID == currentID) {
+					currentPlayerIndex = i;
+					break;
+				}
 			}
+
+			// Notify clients about the placed wall unit (magic vs normal)
+			if (isMultiplayer && isHost()) {
+				PlaceSummonedMinionPacket pkt = {};
+				pkt.type = PKT_PLACE_SUMMONED_MINION;
+				pkt.playerID = myLocalPlayerID;
+				pkt.minionType = minion.isMagicWallUnit ? 11 : 10; // 10=Wall, 11=MagicWall
+				pkt.ownerPlayerID = minion.ownerID;
+				pkt.targetX = minion.x;
+				pkt.targetY = minion.y;
+				pkt.minionHP = minion.maxHealth;
+				pkt.minionAP = 0;
+				steamManager.sendPacket(&pkt, sizeof(pkt));
+				ofLogNotice("Network") << "Host sent PlaceSummonedMinion: WALL owner=" << pkt.ownerPlayerID << " target=(" << pkt.targetX << "," << pkt.targetY << ") HP=" << pkt.minionHP;
+			}
+
+			invalidateTargetCache();
 		}
-		invalidateTargetCache();
 
 		// Remove card from hand and update UI
 		currentPlayer.hand.erase(currentPlayer.hand.begin() + cardIndex);
@@ -13868,6 +13824,11 @@ CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		isPlacingWolves = true;
 		wolfSummonStage = 1; // Start with the first wolf
 
+		// Notify clients to show remote wolf placement preview
+		if (isMultiplayer && isHost()) {
+			sendPlaceSummonedBegin(2, players[currentPlayerIndex].isMinion ? players[currentPlayerIndex].ownerID : players[currentPlayerIndex].playerID, wolfPlacementSourceX, wolfPlacementSourceY, 2);
+		}
+
 		invalidateTargetCache();
 		return CARD_PLAYED_IMMEDIATELY; // Cleanup handled manually
 	}
@@ -13909,8 +13870,10 @@ CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		koboldPlacementSourceX = currentPlayer.x;
 		koboldPlacementSourceY = currentPlayer.y;
 
-		// Roll 1d4 for number of kobolds
-		pendingSummonRollResult = startDiceRoll(1, 4, PURPOSE_SUMMON_KOBOLDS, "Call for Kobolds");
+		// Notify clients that a multi-step summon began, then roll 1d4 for number of kobolds
+		if (isMultiplayer && isHost()) sendCardActionBegin(CARD_CALL_FOR_KOBOLDS, currentPlayerIndex, -1, -1, 0, 0, 0, 0, "Call for Kobolds");
+		// Roll 1d4 for number of kobolds (include ownerIndex so clients map result)
+		pendingSummonRollResult = startDiceRoll(1, 4, PURPOSE_SUMMON_KOBOLDS, "Call for Kobolds", currentPlayerIndex);
 		isWaitingForKoboldDice = true;
 
 		invalidateTargetCache();
@@ -13922,9 +13885,10 @@ CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		if (board[targetX][targetY].hasWall || board[targetX][targetY].hasPlayer) break;
 
 		pendingSummonTile = glm::vec2(targetX, targetY);
-		// Roll 2d6 for HP and 2d6 for AP
-		pendingSummonRollResult = startDiceRoll(playedCard.numDice, playedCard.diceSides, PURPOSE_HP, "Hellhound HP");
-		pendingHellhoundAPResult = startDiceRoll(playedCard.numDice, playedCard.diceSides, PURPOSE_BONUS_AP, "Hellhound AP");
+		// Notify clients that a multi-step summon began, then roll 2d6 for HP and 2d6 for AP
+		if (isMultiplayer && isHost()) sendCardActionBegin(CARD_SUMMON_HELLHOUND, currentPlayerIndex, targetX, targetY, 0, 0, 0, 0, "Summon Hellhound");
+		pendingSummonRollResult = startDiceRoll(playedCard.numDice, playedCard.diceSides, PURPOSE_HP, "Hellhound HP", currentPlayerIndex);
+		pendingHellhoundAPResult = startDiceRoll(playedCard.numDice, playedCard.diceSides, PURPOSE_BONUS_AP, "Hellhound AP", currentPlayerIndex);
 		isWaitingForHellhoundHP = true;
 
 		// Cleanup Logic
@@ -13944,8 +13908,10 @@ CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		if (board[targetX][targetY].hasWall || board[targetX][targetY].hasPlayer) break;
 
 		pendingSummonTile = glm::vec2(targetX, targetY);
+		// Notify clients then roll 3d10 for HP
+		if (isMultiplayer && isHost()) sendCardActionBegin(CARD_SUMMON_DEMON, currentPlayerIndex, targetX, targetY, 0, 0, 0, 0, "Summon Demon");
 		// Roll 3d10 for HP
-		pendingSummonRollResult = startDiceRoll(playedCard.numDice, playedCard.diceSides, PURPOSE_HP, "Demon HP");
+		pendingSummonRollResult = startDiceRoll(playedCard.numDice, playedCard.diceSides, PURPOSE_HP, "Demon HP", currentPlayerIndex);
 		isWaitingForDemonHP = true;
 
 		// Cleanup
@@ -14002,9 +13968,9 @@ CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 
 			playedSuccessfully = true;
 		}
-		// 2. Otherwise -> Roll Death Check
+			// 2. Otherwise -> Roll Death Check
 		else {
-			// Notify clients of the multi-stage Death card action
+			// Notify clients this card action began so they map incoming dice
 			if (isMultiplayer && isHost()) sendCardActionBegin(CARD_DEATH, currentPlayerIndex, targetX, targetY, 0, 0, 0, 0, "Death Check");
 			// Roll 1d20
 			pendingDeathRollResult = startDiceRoll(1, 20, PURPOSE_DEATH_CHECK, "Death Check", currentPlayerIndex);
@@ -14366,8 +14332,9 @@ CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		// --- CASE: PSIONIC WAVE ---
 	case CARD_PSIONIC_WAVE: {
 		// Roll 2d20 for Range
-		pendingPsionicRangeResult = startDiceRoll(playedCard.numDice, playedCard.diceSides, PURPOSE_PSIONIC_WAVE_RANGE, "Psionic Wave: Range");
+		pendingPsionicRangeResult = startDiceRoll(playedCard.numDice, playedCard.diceSides, PURPOSE_PSIONIC_WAVE_RANGE, "Psionic Wave: Range", currentPlayerIndex);
 		isWaitingForPsionicRange = true;
+		if (isMultiplayer && isHost()) sendCardActionBegin(CARD_PSIONIC_WAVE, currentPlayerIndex, -1, -1, 0, 0, 0, 0, "Psionic Wave");
 		playedSuccessfully = true;
 		break;
 	}
@@ -14636,9 +14603,10 @@ CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		isEarthquakeAnimatingStep = false;
 		earthquakeUnits.clear();
 
-		// 3. Setup Units & Roll Dice
-		// We assign a random direction NOW, but distance comes from dice later
-		for (int i = 0; i < (int)players.size(); ++i) {
+		// 3. Setup Units (pick directions) and send EarthquakeBegin to clients
+		int nPlayers = (int)players.size();
+		earthquakeUnits.reserve(nPlayers);
+		for (int i = 0; i < nPlayers; ++i) {
 			EarthquakeState state;
 			state.playerIndex = i;
 			state.startGrid = { players[i].x, players[i].y };
@@ -14648,7 +14616,7 @@ CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 			state.tilesToMove = 0;
 			state.originalDistance = 0;
 
-			// Random Direction (N, E, S, W)
+			// Random Direction (N, E, S, W) using gameplayRNG
 			std::uniform_int_distribution<int> dirDist(0, 3);
 			int r = dirDist(gameplayRNG);
 			if (r == 0)
@@ -14660,18 +14628,26 @@ CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 			else
 				state.direction = { -1, 0 }; // West
 
-			// Roll 1d4 for this unit and record which dice slot we created
+			state.diceIndex = -1;
+			earthquakeUnits.push_back(state);
+		}
+
+		// Send EarthquakeBegin packet to clients so they can mirror directions
+		if (isMultiplayer && isHost()) {
+			sendEarthquakeBegin();
+		}
+
+		// Now roll dice for each unit and record dice indices (ownerIndex = player index)
+		for (int i = 0; i < (int)earthquakeUnits.size(); ++i) {
 			int before = (int)activeDiceRolls.size();
-			startDiceRoll(1, 4, PURPOSE_EARTHQUAKE_DISTANCE, "Quake Dist");
+			startDiceRoll(1, 4, PURPOSE_EARTHQUAKE_DISTANCE, "Quake Dist", i);
 			int after = (int)activeDiceRolls.size();
 			if (after > before) {
-				state.diceIndex = after - 1;
-				// mark associated unit on the dice so resolution can find it reliably
-				activeDiceRolls[state.diceIndex].associatedUnit = i;
+				earthquakeUnits[i].diceIndex = after - 1;
+				activeDiceRolls[earthquakeUnits[i].diceIndex].associatedUnit = i;
 			} else {
-				state.diceIndex = -1;
+				earthquakeUnits[i].diceIndex = -1;
 			}
-			earthquakeUnits.push_back(state);
 		}
 
 		return CARD_PLAYED_IMMEDIATELY; // Cleanup handled above
@@ -14682,7 +14658,7 @@ CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		// Start the dice roll and set the waiting flag
 		isWaitingForTimeVortexDice = true;
 
-		pendingTimeVortexResult = startDiceRoll(playedCard.numDice, playedCard.diceSides, PURPOSE_TIME_VORTEX, "Time Vortex: Extra Turns");
+		pendingTimeVortexResult = startDiceRoll(playedCard.numDice, playedCard.diceSides, PURPOSE_TIME_VORTEX, "Time Vortex: Extra Turns", currentPlayerIndex);
 
 		// Don't apply the turns yet. We wait for the dice animation.
 
@@ -14770,7 +14746,7 @@ CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 				spawnFloatingText(tPos + glm::vec3(0, 0.5f, 0), "Poisoned!", ofColor::green);
 				pendingPoisonTargetIndices.clear();
 				pendingPoisonTargetIndices.push_back(targetIndex);
-				pendingPoisonAttackRollResult = startDiceRoll(1, 6, PURPOSE_DAMAGE, "Poison Damage");
+				pendingPoisonAttackRollResult = startDiceRoll(1, 6, PURPOSE_DAMAGE, "Poison Damage", currentPlayerIndex);
 				isWaitingForPoisonAttackDice = true;
 			}
 
@@ -14836,7 +14812,8 @@ CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		pendingMagicBoltTargetTile = glm::vec2(targetX, targetY);
 		isWaitingForMagicBoltRange = true;
 
-		pendingMagicBoltRangeResult = startDiceRoll(playedCard.numDice, playedCard.diceSides, PURPOSE_RANGE, "Magic Bolt: Range Check");
+		pendingMagicBoltRangeResult = startDiceRoll(playedCard.numDice, playedCard.diceSides, PURPOSE_RANGE, "Magic Bolt: Range Check", currentPlayerIndex);
+		if (isMultiplayer && isHost()) sendCardActionBegin(CARD_MAGIC_BOLT, currentPlayerIndex, targetX, targetY, 0, 0, 0, 0, "Magic Bolt");
 
 		playedSuccessfully = true;
 		break;
@@ -14904,7 +14881,7 @@ CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 
 		// Start Dice Roll
 		pendingHealTargetIndex = targetIndex;
-		pendingHealRollResult = startDiceRoll(playedCard.numDice, playedCard.diceSides, PURPOSE_HEALING, "Lesser Heal"); // Reusing PURPOSE_HEALING logic
+		pendingHealRollResult = startDiceRoll(playedCard.numDice, playedCard.diceSides, PURPOSE_HEALING, "Lesser Heal", currentPlayerIndex); // Reusing PURPOSE_HEALING logic
 		isWaitingForHealDice = true;
 		playedSuccessfully = true;
 		break;
@@ -15038,7 +15015,7 @@ CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 			}
 
 			if (applyPoisonBuff && !pendingPoisonTargetIndices.empty()) {
-				pendingPoisonAttackRollResult = startDiceRoll(1, 6, PURPOSE_DAMAGE, "Poison Damage");
+				pendingPoisonAttackRollResult = startDiceRoll(1, 6, PURPOSE_DAMAGE, "Poison Damage", currentPlayerIndex);
 				isWaitingForPoisonAttackDice = true;
 			}
 		}
@@ -15072,7 +15049,7 @@ CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		// --- CASE: SPARK OF GENIUS ---
 	case CARD_SPARK_OF_GENIUS: {
 		// Roll 1d4 (defined in JSON)
-		pendingSparkOfGeniusRollResult = startDiceRoll(playedCard.numDice, playedCard.diceSides, PURPOSE_SPARK_OF_GENIUS_DRAW, "Spark of Genius: Draw Cards");
+		pendingSparkOfGeniusRollResult = startDiceRoll(playedCard.numDice, playedCard.diceSides, PURPOSE_SPARK_OF_GENIUS_DRAW, "Spark of Genius: Draw Cards", currentPlayerIndex);
 		isWaitingForSparkOfGeniusDice = true;
 		playedSuccessfully = true;
 		break;
@@ -15294,6 +15271,22 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 		for (auto & dir : dirs) {
 			int nx = koboldPlacementSourceX + (int)dir.x;
 			int ny = koboldPlacementSourceY + (int)dir.y;
+			if (nx >= 0 && nx < BOARD_WIDTH && ny >= 0 && ny < BOARD_HEIGHT) {
+				if (!board[nx][ny].hasWall && !board[nx][ny].hasPlayer) {
+					board[nx][ny].isTargetable = true;
+					board[nx][ny].isTargetPreview = true;
+				}
+			}
+		}
+		return;
+	}
+
+	// --- REMOTE KOBOLD PLACEMENT HIGHLIGHTING (opponent placing) ---
+	if (remoteIsPlacingKobolds) {
+		std::vector<glm::vec2> dirs = { { 0, 1 }, { 0, -1 }, { 1, 0 }, { -1, 0 } };
+		for (auto & dir : dirs) {
+			int nx = remoteKoboldPlacementSourceX + (int)dir.x;
+			int ny = remoteKoboldPlacementSourceY + (int)dir.y;
 			if (nx >= 0 && nx < BOARD_WIDTH && ny >= 0 && ny < BOARD_HEIGHT) {
 				if (!board[nx][ny].hasWall && !board[nx][ny].hasPlayer) {
 					board[nx][ny].isTargetable = true;
@@ -19293,7 +19286,7 @@ void ofApp::resolveMagicHandPush() {
 
 		// Start Damage Roll (2d4 Physical)
 		magicHandPushDir = dir;
-		pendingMagicHandRollResult = startDiceRoll(2, 4, PURPOSE_MAGIC_HAND_DAMAGE, "Magic Hand Crush");
+		pendingMagicHandRollResult = startDiceRoll(2, 4, PURPOSE_MAGIC_HAND_DAMAGE, "Magic Hand Crush", currentPlayerIndex);
 		isWaitingForMagicHandDamage = true;
 
 		// Pay cost now
@@ -20492,11 +20485,169 @@ void ofApp::processNetworkPackets() {
 				activeDiceRolls.push_back(newRoll);
 			}
 
+			// Compute total of incoming results for mapping to pending client-side state
+			int incomingTotal = 0;
+			for (int i = 0; i < drp->numDice && i < 8; ++i)
+				incomingTotal += drp->finalResults[i];
+
+			// Direct-purpose and label-based mappings: some rolls map to pending results even without a CardActionBegin
+			if (drp->purpose == PURPOSE_SUMMON_KOBOLDS) {
+				pendingSummonRollResult = incomingTotal;
+				ofLogNotice("Network") << "Mapped incoming summon dice to pendingSummonRollResult=" << incomingTotal << " (ownerIndex=" << drp->ownerIndex << ")";
+			}
+			// HP rolls used for summoned minion HP (Raise Dead, Golems, Hellhound, Demon, etc.)
+			if (drp->purpose == PURPOSE_HP) {
+				// Use label heuristics to decide if this HP roll was for a summon
+				if (strstr(drp->label, "HP") || strstr(drp->label, "Raise Dead") || strstr(drp->label, "Summon") || strstr(drp->label, "Golem") || strstr(drp->label, "Hellhound") || strstr(drp->label, "Demon")) {
+					pendingSummonRollResult = incomingTotal;
+					ofLogNotice("Network") << "Mapped incoming HP dice to pendingSummonRollResult=" << incomingTotal << " label=" << drp->label;
+				}
+			}
+			// Healing
+			if (drp->purpose == PURPOSE_HEALING) {
+				pendingHealRollResult = incomingTotal;
+				ofLogNotice("Network") << "Mapped incoming healing dice to pendingHealRollResult=" << incomingTotal << " label=" << drp->label;
+			}
+			// Time Vortex extra turns
+			if (drp->purpose == PURPOSE_TIME_VORTEX) {
+				pendingTimeVortexResult = incomingTotal;
+				ofLogNotice("Network") << "Mapped incoming Time Vortex dice to pendingTimeVortexResult=" << incomingTotal;
+			}
+			// Magic Hand damage
+			if (drp->purpose == PURPOSE_MAGIC_HAND_DAMAGE) {
+				pendingMagicHandRollResult = incomingTotal;
+				ofLogNotice("Network") << "Mapped incoming Magic Hand dice to pendingMagicHandRollResult=" << incomingTotal;
+			}
+			// Spark of Genius draw amount
+			if (drp->purpose == PURPOSE_SPARK_OF_GENIUS_DRAW) {
+				pendingSparkOfGeniusRollResult = incomingTotal;
+				ofLogNotice("Network") << "Mapped incoming Spark of Genius dice to pendingSparkOfGeniusRollResult=" << incomingTotal;
+			}
+			// Death check
+			if (drp->purpose == PURPOSE_DEATH_CHECK) {
+				pendingDeathRollResult = incomingTotal;
+				ofLogNotice("Network") << "Mapped incoming Death Check dice to pendingDeathRollResult=" << incomingTotal;
+			}
+			// Label-based mappings for range/debug rolls that don't use CardActionBegin
+			if (strlen(drp->label) > 0) {
+				if (strstr(drp->label, "Teleport")) {
+					pendingTeleportRollResult = incomingTotal;
+					ofLogNotice("Network") << "Mapped incoming Teleport dice to pendingTeleportRollResult=" << incomingTotal;
+				} else if (strstr(drp->label, "Magic Blast")) {
+					pendingMagicBlastRollResult = incomingTotal;
+					ofLogNotice("Network") << "Mapped incoming Magic Blast dice to pendingMagicBlastRollResult=" << incomingTotal;
+				} else if (strstr(drp->label, "Amnesia")) {
+					pendingAmnesiaRollResult = incomingTotal;
+					ofLogNotice("Network") << "Mapped incoming Amnesia dice to pendingAmnesiaRollResult=" << incomingTotal;
+				}
+			}
+			// Status/damage rolls: map based on waiting flags when appropriate
+			if (drp->purpose == PURPOSE_DAMAGE) {
+				if (isWaitingForOnFireDice) {
+					pendingOnFireRollResult = incomingTotal;
+					ofLogNotice("Network") << "Mapped incoming OnFire damage to pendingOnFireRollResult=" << incomingTotal;
+				}
+				if (isWaitingForPoisonDice) {
+					pendingPoisonRollResult = incomingTotal;
+					ofLogNotice("Network") << "Mapped incoming Poison status damage to pendingPoisonRollResult=" << incomingTotal;
+				}
+				if (isWaitingForPoisonAttackDice) {
+					pendingPoisonAttackRollResult = incomingTotal;
+					ofLogNotice("Network") << "Mapped incoming Poison attack damage to pendingPoisonAttackRollResult=" << incomingTotal;
+				}
+			}
+
+			// If this roll belongs to a pending card-action, set client's pending result
+			if (drp->ownerIndex >= 0) {
+				auto it = pendingActionByActor.find(drp->ownerIndex);
+				if (it != pendingActionByActor.end()) {
+					int cardType = it->second;
+					switch (cardType) {
+					case CARD_CHAIN_LIGHTNING:
+						if (drp->purpose == PURPOSE_RANGE)
+							pendingChainLightningRangeResult = incomingTotal;
+						else if (drp->purpose == PURPOSE_DAMAGE)
+							pendingChainLightningDamageResult = incomingTotal;
+						break;
+					case CARD_FIREBALL:
+						if (drp->purpose == PURPOSE_RANGE)
+							pendingFireballRangeResult = incomingTotal;
+						else if (drp->purpose == PURPOSE_DAMAGE)
+							pendingFireballDamageResult = incomingTotal;
+						break;
+					case CARD_MAGIC_BOLT:
+						if (drp->purpose == PURPOSE_RANGE) pendingMagicBoltRangeResult = incomingTotal;
+						break;
+					case CARD_PSIONIC_WAVE:
+						if (drp->purpose == PURPOSE_PSIONIC_WAVE_RANGE || drp->purpose == PURPOSE_RANGE) pendingPsionicRangeResult = incomingTotal;
+						if (drp->purpose == PURPOSE_PSIONIC_WAVE_AMOUNT) pendingPsionicAmountResult = incomingTotal;
+						break;
+					case CARD_BLOCKING_BOON:
+						// Coin flips/D20s are processed when visuals finish; nothing to set here
+						break;
+					default:
+						break;
+					}
+					ofLogNotice("Network") << "Mapped incoming dice to pending action: ownerIndex=" << drp->ownerIndex << " card=" << cardType << " total=" << incomingTotal;
+				}
+			}
+
+			// If this dice packet was for earthquake distances, map the created dice index
+			// back to the earthquakeUnits entry using ownerIndex (host used the quake-unit index).
+			if (drp->purpose == PURPOSE_EARTHQUAKE_DISTANCE) {
+				int firstIdx = (int)activeDiceRolls.size() - drp->numDice;
+				if (drp->ownerIndex >= 0 && drp->ownerIndex < (int)earthquakeUnits.size()) {
+					earthquakeUnits[drp->ownerIndex].diceIndex = firstIdx;
+					ofLogNotice("Network") << "Mapped incoming quake dice: ownerIndex=" << drp->ownerIndex << " diceIndex=" << firstIdx;
+				}
+			}
+
 			// Set the label
 			if (strlen(drp->label) > 0) {
 				currentDiceLabel = drp->label;
 			}
 
+			continue;
+		} else if (header->type == PKT_CARD_ACTION_BEGIN) {
+			CardActionBeginPacket * cb = (CardActionBeginPacket *)header;
+			ofLogNotice("Network") << "Received CardActionBegin: card=" << cb->cardType << " actor=" << cb->actorIndex << " target=(" << cb->targetX << "," << cb->targetY << ")";
+			if (isClient()) {
+				// Record that a network-initiated multi-step action began for this actor
+				pendingActionByActor[cb->actorIndex] = cb->cardType;
+				// Override currentPlayerIndex so resolution code that relies on it uses the remote actor
+				pendingNetworkActionPrevPlayer = currentPlayerIndex;
+				currentPlayerIndex = cb->actorIndex;
+				pendingNetworkActionActor = cb->actorIndex;
+
+				switch (cb->cardType) {
+				case CARD_CHAIN_LIGHTNING:
+					pendingChainLightningTargetTile = glm::vec2(cb->targetX, cb->targetY);
+					isWaitingForChainLightningRange = true;
+					break;
+				case CARD_FIREBALL:
+					pendingFireballTargetTile = glm::vec2(cb->targetX, cb->targetY);
+					isWaitingForFireballRangeDice = true;
+					break;
+				case CARD_MAGIC_BOLT:
+					pendingMagicBoltTargetTile = glm::vec2(cb->targetX, cb->targetY);
+					isWaitingForMagicBoltRange = true;
+					break;
+				case CARD_PSIONIC_WAVE:
+					isWaitingForPsionicRange = true;
+					break;
+				case CARD_BLOCKING_BOON:
+					blockingBoonActive = true;
+					pendingBlockingBoonCoinsRemaining = cb->param0;
+					pendingBlockingBoonNonPhys = cb->param1;
+					pendingBlockingBoonTotal = cb->param0 + cb->param1;
+					blockingBoonTargetIndex = cb->param2;
+					isWaitingForBlockingBoonCoins = (cb->param0 > 0);
+					break;
+				default:
+					// Other cards: no-op or extend as needed
+					break;
+				}
+			}
 			continue;
 		} else if (header->type == PKT_MENU_STATE) {
 		} else if (header->type == PKT_PLACE_SUMMONED_MINION) {
@@ -20608,6 +20759,33 @@ void ofApp::processNetworkPackets() {
 		} else if (header->type == PKT_MENU_STATE) {
 			// Opponent menu visualization disabled.
 			continue;
+		} else if (header->type == PKT_EARTHQUAKE_BEGIN) {
+			EarthquakeBeginPacket * eb = (EarthquakeBeginPacket *)header;
+			ofLogNotice("Network") << "Received EarthquakeBegin: units=" << eb->numUnits;
+			if (isClient()) {
+				earthquakeUnits.clear();
+				int n = std::min((int)eb->numUnits, 16);
+				for (int i = 0; i < n; ++i) {
+					EarthquakeState st;
+					st.playerIndex = eb->playerIndex[i];
+					st.startGrid = { players[st.playerIndex].x, players[st.playerIndex].y };
+					st.visualPos = gridToWorld(st.startGrid.x, st.startGrid.y);
+					st.isMoving = true;
+					st.crashed = false;
+					st.tilesToMove = 0;
+					st.originalDistance = 0;
+					st.direction = { (int)eb->dirX[i], (int)eb->dirY[i] };
+					st.diceIndex = -1;
+					earthquakeUnits.push_back(st);
+				}
+				isEarthquakeActive = true;
+				isEarthquakeDiceRolling = true;
+				isEarthquakeWaiting = false;
+				isEarthquakeAnimatingStep = false;
+				earthquakeT = 0.0f;
+				ofLogNotice("Network") << "Client: Applied EarthquakeBegin with " << n << " units";
+			}
+			continue;
 		} else if (header->type == PKT_END_TURN) {
 			ofLogNotice("Net") << "Opponent ended turn.";
 			// CLIENT: Always wait for host's TurnStart packet (contains authoritative dice)
@@ -20644,6 +20822,18 @@ void ofApp::processNetworkPackets() {
 			// because we haven't advanced our state yet (we're in a transient waiting state).
 			if (isClient() && waitingForTurnStartFromHost) {
 				ofLogNotice("Network") << "Client: Skipping checksum validation while waiting for TurnStart.";
+				continue;
+			} else if (header->type == PKT_PLACE_SUMMONED_BEGIN) {
+				PlaceSummonedBeginPacket * pb = (PlaceSummonedBeginPacket *)header;
+				ofLogNotice("Network") << "Received PlaceSummonedBegin: type=" << (int)pb->minionType << " owner=" << pb->ownerPlayerID << " source=(" << pb->sourceX << "," << pb->sourceY << ") num=" << pb->numToPlace;
+				// Clients should show placement preview for opponent
+				if (isClient()) {
+					remoteIsPlacingKobolds = (pb->minionType == 1);
+					remoteKoboldPlacementSourceX = pb->sourceX;
+					remoteKoboldPlacementSourceY = pb->sourceY;
+					remoteKoboldsRemaining = pb->numToPlace;
+					invalidateTargetCache();
+				}
 				continue;
 			}
 
@@ -21631,8 +21821,14 @@ void ofApp::executeOpponentCardPlay(const ActionPacket & pkt) {
 		opponentPlayer.hand.erase(opponentPlayer.hand.begin() + tempCardIndex);
 
 		pendingChainLightningTargetTile = glm::vec2(tx, ty);
-		pendingChainLightningRangeResult = startDiceRoll(2, 10, PURPOSE_RANGE, "Chain Lightning: Range");
-		isWaitingForChainLightningRange = true;
+		// In multiplayer, the host will send DiceRollPacket(s). The client should
+		// not call startDiceRoll locally (it would consume gameplayRNG and diverge).
+		if (isMultiplayer) {
+			isWaitingForChainLightningRange = true;
+		} else {
+			pendingChainLightningRangeResult = startDiceRoll(2, 10, PURPOSE_RANGE, "Chain Lightning: Range", currentPlayerIndex);
+			isWaitingForChainLightningRange = true;
+		}
 
 		opponentPlayer.ap = pkt.updatedAP;
 		currentPlayerIndex = savedCurrentPlayerIndex;
