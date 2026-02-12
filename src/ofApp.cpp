@@ -11234,7 +11234,23 @@ void ofApp::mousePressed(int x, int y, int button) {
 		}
 		// ADD STEAM HOST LOGIC
 		else if (mainMenuHostButton.inside(x, y)) {
-			if (!steamManager.isConnected()) steamManager.createLobby();
+			if (!steamManager.isConnected()) {
+				steamManager.createLobby();
+			} else {
+				// If we're already hosting/connected, clicking again will stop hosting
+				steamManager.leaveLobby();
+				// Reset multiplayer/game state and return to menu
+				isMultiplayer = false;
+				hasReceivedHandshake = false;
+				waitingForTurnStartFromHost = false;
+				initialDraftComplete = false;
+				draftAcceptLocked = false;
+				draftAcceptApplied = false;
+				gameplaySeededByHost = false;
+				handshakeRequestInterval = 1.0f;
+				cleanupGame();
+				currentState = STATE_MAIN_MENU;
+			}
 		}
 		// ADD STEAM INVITE LOGIC
 		else if (mainMenuInviteButton.inside(x, y)) {
