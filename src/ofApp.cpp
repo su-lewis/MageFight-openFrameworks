@@ -9992,11 +9992,10 @@ void ofApp::mousePressed(int x, int y, int button) {
 			for (int i = 0; i < cardsToDraw; i++)
 				drawCard();
 
-			// Send action packet AFTER the menu resolves so the opponent sees the card as played
-			if (isMultiplayer && !p.playedCardsPile.empty()) {
-				const Card & playedCard = p.playedCardsPile.back();
-				sendActionPacket(-1, -1, -1, playedCard.cost, 0, playedCard.name);
-			}
+			// NOTE: Do NOT send a duplicate ActionPacket here. The ActionPacket for
+			// the initial card play is already sent by playCard() when the card
+			// is first played. Sending another packet here caused duplicate
+			// processing on the host and clients and led to deck/hand desyncs.
 
 			// Send DrawCards packet to opponent so they know what was drawn
 			if (isMultiplayer && cardsToDraw > 0) {
@@ -22101,8 +22100,9 @@ void ofApp::executeOpponentCardPlay(const ActionPacket & pkt) {
 			opponentPlayer.isReplicatePending = false;
 		}
 		opponentPlayer.cardsPlayedThisTurn.push_back(cardDef.type);
-		// Only remove from hand if it was a temporary card (not synced via DrawCards)
-		if (addedTemporaryCard && tempCardIndex >= 0 && tempCardIndex < (int)opponentPlayer.hand.size()) {
+		// Remove the card from the opponent's hand if present. If we added a temporary
+		// card just above, this will remove that temporary entry as well.
+		if (tempCardIndex >= 0 && tempCardIndex < (int)opponentPlayer.hand.size()) {
 			opponentPlayer.hand.erase(opponentPlayer.hand.begin() + tempCardIndex);
 		}
 		createCardDisplay(cardDef, opponentPlayerIndex);

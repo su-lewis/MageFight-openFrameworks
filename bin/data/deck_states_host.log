@@ -1,12 +1,12 @@
 
 === DECK STATE LOG ===
-Time: 2026-02-12 16:17:52
+Time: 2026-02-12 17:31:16
 Reason: End Turn 1
 Turn: 1
 Current Player: 0
 Local Player ID: 0
 Is Host: true
 
-Player0 Deck[3]: Rock Crush(14), Raise Dead(26), Replicate(21) | Hand[3]: Vampire Bite(4), Drain Punch(30), Teleport(19) | Discard[6]: Necromancer's Blessing(33), Study(67), Study(67), Drain Punch(30), Earthquake(51), Wisdom Boon(22)
-Player1 Deck[1]: Hand Block(9) | Hand[0]:  | Discard[5]: Renewed Inspiration(48), Summon Magic Wall(2), Renewed Inspiration(48), Hand Block(9), Renewed Inspiration(48)
+Player0 Deck[1]: Renewed Inspiration(48) | Hand[2]: Replicate(21), Train(66) | Discard[1]: Train(66)
+Player1 Deck[4]: Stab(5), Wisdom Boon(22), Wisdom Boon(22), Summon Faerie(59) | Hand[0]:  | Discard[2]: Stab(5), Earthquake(51)
 =====================
