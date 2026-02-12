@@ -1867,3 +1867,5 @@ Player1 Deck[4]: Stab(5), Wisdom Boon(22), Wisdom Boon(22), Summon Faerie(59) | 
 [ error ] Net: Player 0 id=0 deck=[48(0)] hand=0 discard=4
 [ error ] Net: Player 1 id=1 deck=[5(0),22(0)] hand=0 discard=4
 [ error ] Backup: No backup snapshot available for desync recovery!
+[notice ] SteamManager: Steam API Shutdown.
+[S_API FAIL] Tried to access Steam interface SteamNetworkingSockets012 before SteamAPI_Init succeeded.

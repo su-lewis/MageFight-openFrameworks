@@ -20054,6 +20054,27 @@ void ofApp::processNetworkPackets() {
 		if (buffer.size() < sizeof(PacketHeader)) continue;
 
 		PacketHeader * header = (PacketHeader *)buffer.data();
+
+		// Verbose packet tracing for debugging desyncs
+		if (header->type == PKT_ACTION || header->type == PKT_RENEWED_INSPIRATION || header->type == PKT_DRAW_CARDS || header->type == PKT_SHUFFLE || header->type == PKT_TURN_START) {
+			ofLogNotice("NetTrace") << "RECV pkt type=" << (int)header->type << " player=" << header->playerID << " seq=" << header->seq << " size=" << buffer.size();
+			if (header->type == PKT_ACTION && buffer.size() >= sizeof(ActionPacket)) {
+				ActionPacket * ap = (ActionPacket *)buffer.data();
+				ofLogNotice("NetTrace") << "  ACTION card='" << ap->cardName << "' actor=" << ap->actorIndex << " target=(" << ap->targetX << "," << ap->targetY << ") menu=" << ap->menuChoice << " updatedAP=" << ap->updatedAP;
+			} else if (header->type == PKT_SHUFFLE && buffer.size() >= sizeof(ShufflePacket)) {
+				ShufflePacket * spk = (ShufflePacket *)buffer.data();
+				ofLogNotice("NetTrace") << "  SHUFFLE playerIndex=" << spk->playerIndex << " nonce=" << spk->nonce;
+			} else if (header->type == PKT_TURN_START && buffer.size() >= sizeof(TurnStartPacket)) {
+				TurnStartPacket * tsp = (TurnStartPacket *)buffer.data();
+				ofLogNotice("NetTrace") << "  TURN_START currentPlayerIndex=" << tsp->currentPlayerIndex << " diceNum=" << (int)tsp->diceNum << " diceSides=" << (int)tsp->diceSides;
+			} else if (header->type == PKT_DRAW_CARDS && buffer.size() >= sizeof(DrawCardsPacket)) {
+				DrawCardsPacket * dcp = (DrawCardsPacket *)buffer.data();
+				ofLogNotice("NetTrace") << "  DRAW_CARDS playerIndex=" << dcp->playerIndex << " numCards=" << (int)dcp->numCards;
+			} else if (header->type == PKT_RENEWED_INSPIRATION && buffer.size() >= sizeof(RenewedInspirationPacket)) {
+				RenewedInspirationPacket * rip = (RenewedInspirationPacket *)buffer.data();
+				ofLogNotice("NetTrace") << "  RINSP playerIndex=" << rip->playerIndex << " count=" << (int)rip->count;
+			}
+		}
 		// ACK handling removed; rely on SteamNetworkingSockets reliability.
 
 		// Only check sequence numbers for PKT_ACTION (card plays) to prevent duplicate card plays
@@ -21548,17 +21569,44 @@ void ofApp::sendActionPacket(int cardIndex, int tx, int ty, int cost, int menuCh
 	pkt.menuChoice = menuChoice;
 	pkt.updatedAP = currentAP; // Send current AP after card play
 
-	// Include card name so opponent knows which card was played
+	// Include card name so opponent knows which card was played and validate
 	if (!cardNameOverride.empty()) {
 		strncpy(pkt.cardName, cardNameOverride.c_str(), 63);
 		pkt.cardName[63] = '\0';
-	} else if (cardIndex >= 0 && cardIndex < (int)currentPlayer.hand.size()) {
-		strncpy(pkt.cardName, currentPlayer.hand[cardIndex].name.c_str(), 63);
-		pkt.cardName[63] = '\0';
 	}
-	if (pkt.cardName[0] != '\0') {
-		ofLogNotice("Network") << "sendActionPacket: Sending card '" << pkt.cardName << "' (cardIndex=" << cardIndex << ") to target=(" << tx << "," << ty << ") cost=" << cost;
+
+	bool validSend = false;
+	// If no name yet, try to resolve from cardIndex
+	if (pkt.cardName[0] == '\0') {
+		if (cardIndex >= 0 && cardIndex < (int)currentPlayer.hand.size()) {
+			strncpy(pkt.cardName, currentPlayer.hand[cardIndex].name.c_str(), 63);
+			pkt.cardName[63] = '\0';
+			validSend = true;
+		}
+	} else {
+		// If we have a name, ensure it exists in our hand if possible and sync index
+		for (int i = 0; i < (int)currentPlayer.hand.size(); ++i) {
+			if (currentPlayer.hand[i].name == pkt.cardName) {
+				// Found the named card in hand
+				validSend = true;
+				if (cardIndex != i) pkt.cardIndex = i;
+				break;
+			}
+		}
+		// Fallback: if name provided but not found, allow if a valid index was passed
+		if (!validSend && cardIndex >= 0 && cardIndex < (int)currentPlayer.hand.size()) {
+			strncpy(pkt.cardName, currentPlayer.hand[cardIndex].name.c_str(), 63);
+			pkt.cardName[63] = '\0';
+			validSend = true;
+		}
 	}
+
+	if (!validSend) {
+		ofLogWarning("Network") << "sendActionPacket: Aborting send - card not found in hand: cardIndex=" << cardIndex << " name='" << pkt.cardName << "' menuChoice=" << menuChoice;
+		return;
+	}
+
+	ofLogNotice("Network") << "sendActionPacket: Sending card '" << pkt.cardName << "' (cardIndex=" << pkt.cardIndex << ") to target=(" << tx << "," << ty << ") cost=" << cost;
 
 	// 3. Send to Network
 	steamManager.sendPacket(&pkt, sizeof(pkt));

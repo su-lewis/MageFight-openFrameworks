@@ -142,6 +142,27 @@ bool SteamManager::sendPacket(const void * data, uint32_t size) {
 		if (outHdr->seq == 0) {
 			outHdr->seq = m_nextSeq++;
 		}
+
+		// Verbose send tracing for key packets
+		if (outHdr->type == PKT_ACTION || outHdr->type == PKT_RENEWED_INSPIRATION || outHdr->type == PKT_DRAW_CARDS || outHdr->type == PKT_SHUFFLE || outHdr->type == PKT_TURN_START) {
+			ofLogNotice("NetTrace") << "SEND pkt type=" << (int)outHdr->type << " player=" << outHdr->playerID << " seq=" << outHdr->seq << " size=" << size;
+			if (outHdr->type == PKT_ACTION && size >= sizeof(ActionPacket)) {
+				ActionPacket * ap = (ActionPacket *)buffer.data();
+				ofLogNotice("NetTrace") << "  ACTION card='" << ap->cardName << "' actor=" << ap->actorIndex << " target=(" << ap->targetX << "," << ap->targetY << ") menu=" << ap->menuChoice << " updatedAP=" << ap->updatedAP;
+			} else if (outHdr->type == PKT_SHUFFLE && size >= sizeof(ShufflePacket)) {
+				ShufflePacket * spk = (ShufflePacket *)buffer.data();
+				ofLogNotice("NetTrace") << "  SHUFFLE playerIndex=" << spk->playerIndex << " nonce=" << spk->nonce;
+			} else if (outHdr->type == PKT_TURN_START && size >= sizeof(TurnStartPacket)) {
+				TurnStartPacket * tsp = (TurnStartPacket *)buffer.data();
+				ofLogNotice("NetTrace") << "  TURN_START currentPlayerIndex=" << tsp->currentPlayerIndex << " diceNum=" << (int)tsp->diceNum << " diceSides=" << (int)tsp->diceSides;
+			} else if (outHdr->type == PKT_DRAW_CARDS && size >= sizeof(DrawCardsPacket)) {
+				DrawCardsPacket * dcp = (DrawCardsPacket *)buffer.data();
+				ofLogNotice("NetTrace") << "  DRAW_CARDS playerIndex=" << dcp->playerIndex << " numCards=" << (int)dcp->numCards;
+			} else if (outHdr->type == PKT_RENEWED_INSPIRATION && size >= sizeof(RenewedInspirationPacket)) {
+				RenewedInspirationPacket * rip = (RenewedInspirationPacket *)buffer.data();
+				ofLogNotice("NetTrace") << "  RINSP playerIndex=" << rip->playerIndex << " count=" << (int)rip->count;
+			}
+		}
 		EResult res = SteamNetworkingSockets()->SendMessageToConnection(
 			m_hConnection, buffer.data(), size, k_nSteamNetworkingSend_Reliable, nullptr);
 		return (res == k_EResultOK);
