@@ -165,8 +165,8 @@ struct MenuStatePacket : PacketHeader {
 // Renewed Inspiration selection (indices of cards to discard)
 struct RenewedInspirationPacket : PacketHeader {
 	int32_t playerIndex; // Player who played the card
-	int32_t count; // number of indices
-	int32_t indices[16]; // selected hand indices (max 16)
+	int32_t count; // number of cards specified
+	char cardNames[16][64]; // Names of the selected cards to discard (max 16)
 };
 
 // For drafting actions (selecting a card, accepting the draft)

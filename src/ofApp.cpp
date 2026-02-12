@@ -3768,6 +3768,8 @@ void ofApp::updateGame() {
 					isPlayerAnimating = false;
 					animatingPlayerIndex = -1;
 					earthquakeUnits.clear();
+					earthquakeDiceAssignCounter = 0;
+					isWaitingForEarthquakeBegin = false;
 					invalidateTargetCache();
 				}
 			}
@@ -9511,6 +9513,8 @@ void ofApp::mousePressed(int x, int y, int button) {
 			currentAP -= dispelCard.cost;
 			p.discardPile.push_back(dispelCard);
 			p.hand.erase(p.hand.begin() + pendingDispelCardIndex);
+			// Sync AP immediately so UI updates
+			if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) players[currentPlayerIndex].ap = currentAP;
 			ofLogNotice("Dispel") << "Rolling for Non-Physical Barrier...";
 			cancelDispel();
 		} else if (dispelBtnPurge.inside(x, y)) {
@@ -9582,6 +9586,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 			p.playedCardsPile.push_back(p.hand[cardIndex]);
 			// (Replicate check could go here if standard logic isn't used)
 			p.hand.erase(p.hand.begin() + cardIndex);
+			if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) players[currentPlayerIndex].ap = currentAP;
 
 			isTrainMenuOpen = false;
 			pendingTrainCardIndex = -1;
@@ -9599,6 +9604,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 			currentAP -= cost;
 			p.playedCardsPile.push_back(p.hand[cardIndex]);
 			p.hand.erase(p.hand.begin() + cardIndex);
+			if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) players[currentPlayerIndex].ap = currentAP;
 
 			isTrainMenuOpen = false;
 			pendingTrainCardIndex = -1;
@@ -9679,6 +9685,8 @@ void ofApp::mousePressed(int x, int y, int button) {
 			}
 
 			currentAP -= cost;
+			// Sync AP immediately so the UI reflects the spent AP
+			if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) players[currentPlayerIndex].ap = currentAP;
 			Card playedCard = caster.hand[cardIndex];
 			caster.playedCardsPile.push_back(playedCard);
 
@@ -9852,6 +9860,8 @@ void ofApp::mousePressed(int x, int y, int button) {
 					currentAP -= cost;
 					Card playedCard = caster.hand[pendingBurstCardIndex];
 					caster.playedCardsPile.push_back(playedCard);
+					// Sync AP so UI reflects the spent AP immediately
+					if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) players[currentPlayerIndex].ap = currentAP;
 					if (caster.isReplicatePending) {
 						caster.playedCardsPile.push_back(playedCard);
 						caster.isReplicatePending = false;
@@ -9940,9 +9950,16 @@ void ofApp::mousePressed(int x, int y, int button) {
 				rpk.type = PKT_RENEWED_INSPIRATION;
 				rpk.playerID = myLocalPlayerID;
 				rpk.playerIndex = currentPlayerIndex;
+				// Send card NAMES instead of indices to avoid hand-order mismatches
 				rpk.count = std::min((int)renewedSelectedHandIndices.size(), 16);
 				for (int i = 0; i < rpk.count; ++i) {
-					rpk.indices[i] = renewedSelectedHandIndices[i];
+					int idx = renewedSelectedHandIndices[i];
+					if (idx >= 0 && idx < (int)p.hand.size()) {
+						strncpy(rpk.cardNames[i], p.hand[idx].name.c_str(), 63);
+						rpk.cardNames[i][63] = '\0';
+					} else {
+						rpk.cardNames[i][0] = '\0';
+					}
 				}
 				steamManager.sendPacket(&rpk, sizeof(rpk));
 				// If we're a client, don't apply the effects locally — wait for the host
@@ -10010,6 +10027,10 @@ void ofApp::mousePressed(int x, int y, int button) {
 
 			// Visual feedback
 			spawnFloatingText(gridToWorld(p.x, p.y), "+" + ofToString(cardsToDraw) + " Cards", ofColor::cyan);
+			// Ensure authoritative AP field reflects local UI immediately
+			if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) {
+				players[currentPlayerIndex].ap = currentAP;
+			}
 
 			isSelectingRenewedInspiration = false;
 			return;
@@ -10440,6 +10461,9 @@ void ofApp::mousePressed(int x, int y, int button) {
 				}
 				caster.cardsPlayedThisTurn.push_back(c.type);
 				caster.hand.erase(caster.hand.begin() + chainLightningCardIndex);
+
+				// Sync AP to player struct so UI updates
+				if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) players[currentPlayerIndex].ap = currentAP;
 
 				// 2. Start Range Roll (2d10)
 				pendingChainLightningTargetTile = glm::vec2(gx, gy);
@@ -11617,6 +11641,9 @@ void ofApp::mouseReleased(int x, int y, int button) {
 
 							// Notify clients that a multi-stage card action has begun (host authoritative)
 							if (isMultiplayer && isHost()) sendCardActionBegin(CARD_TELEPORT, currentPlayerIndex, -1, -1, 0, 0, 0, 0, "Teleport");
+
+							// Sync AP so player's AP struct reflects the spend immediately
+							if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) players[currentPlayerIndex].ap = currentAP;
 							draggedCardIndex = -1;
 							selectedCardIndex = -1;
 							return;
@@ -12705,6 +12732,8 @@ CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		activePlayedCardAnimations.push_back(cardAnim);
 
 		currentPlayer.hand.erase(currentPlayer.hand.begin() + cardIndex);
+		// Sync AP to player struct so UI updates immediately
+		if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) players[currentPlayerIndex].ap = currentAP;
 		return CARD_PLAYED_IMMEDIATELY;
 	}
 
@@ -12988,6 +13017,8 @@ CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 			Player & caster = players[currentPlayerIndex];
 			amnesiaChooserPlayerID = caster.isMinion ? caster.ownerID : caster.playerID;
 		}
+		// Ensure AP is synced to player struct for UI
+		if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) players[currentPlayerIndex].ap = currentAP;
 		return CARD_PLAYED_IMMEDIATELY; // We've already handled cleanup above
 	}
 
@@ -13317,6 +13348,7 @@ CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 
 		// We set this to false because we handled the cleanup manually above.
 		// We don't want the bottom block to run again.
+		if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) players[currentPlayerIndex].ap = currentAP;
 		return CARD_PLAYED_IMMEDIATELY;
 	}
 
@@ -13437,6 +13469,7 @@ CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 			}
 		}
 
+		if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) players[currentPlayerIndex].ap = currentAP;
 		return CARD_PLAYED_IMMEDIATELY; // Cleanup handled manually above
 	}
 
@@ -13538,6 +13571,7 @@ CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 			}
 		}
 
+		if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) players[currentPlayerIndex].ap = currentAP;
 		return CARD_PLAYED_IMMEDIATELY;
 	}
 
@@ -13634,6 +13668,7 @@ CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 			}
 		}
 
+		if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) players[currentPlayerIndex].ap = currentAP;
 		return CARD_PLAYED_IMMEDIATELY;
 	}
 
@@ -13981,6 +14016,7 @@ CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		wolfSummonStage = 1; // Start with the first wolf
 
 		invalidateTargetCache();
+		if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) players[currentPlayerIndex].ap = currentAP;
 		return CARD_PLAYED_IMMEDIATELY; // Cleanup handled manually
 	}
 
@@ -14026,6 +14062,7 @@ CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		isWaitingForKoboldDice = true;
 
 		invalidateTargetCache();
+		if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) players[currentPlayerIndex].ap = currentAP;
 		return CARD_PLAYED_IMMEDIATELY; // Cleanup handled manually
 	}
 
@@ -14048,6 +14085,7 @@ CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		createCardDisplay(playedCard, currentPlayerIndex);
 		invalidateTargetCache();
 
+		if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) players[currentPlayerIndex].ap = currentAP;
 		return CARD_PLAYED_IMMEDIATELY; // Prevent double cleanup
 	}
 
@@ -14072,6 +14110,7 @@ CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		createCardDisplay(playedCard, currentPlayerIndex);
 		invalidateTargetCache();
 
+		if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) players[currentPlayerIndex].ap = currentAP;
 		return CARD_PLAYED_IMMEDIATELY;
 	}
 
@@ -14344,6 +14383,7 @@ CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		createCardDisplay(playedCard, currentPlayerIndex);
 		invalidateTargetCache();
 		currentPlayer.cardsPlayedThisTurn.push_back(playedCard.type);
+		if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) players[currentPlayerIndex].ap = currentAP;
 		return CARD_PLAYED_IMMEDIATELY; // Skip normal cleanup since we handled AP and removal
 	}
 
@@ -14393,6 +14433,7 @@ CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		// Track play history
 		currentPlayer.cardsPlayedThisTurn.push_back(playedCard.type);
 
+		if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) players[currentPlayerIndex].ap = currentAP;
 		return CARD_PLAYED_IMMEDIATELY; // Skip standard cleanup
 	}
 
@@ -14745,6 +14786,20 @@ CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 
 	// --- CASE: EARTHQUAKE ---
 	case CARD_EARTHQUAKE: {
+		// Multiplayer clients should NOT start the earthquake locally. Host is authoritative.
+		if (isMultiplayer && !isHost()) {
+			// Consume AP and remove card locally for responsive UI, but wait for host to start earthquake
+			currentAP -= costToPay;
+			currentPlayer.playedCardsPile.push_back(playedCard);
+			currentPlayer.cardsPlayedThisTurn.push_back(playedCard.type);
+			currentPlayer.hand.erase(currentPlayer.hand.begin() + cardIndex);
+			players[currentPlayerIndex].ap = currentAP;
+			sendActionPacket(cardIndex, -1, -1, playedCard.cost, 0, playedCard.name);
+			isWaitingForEarthquakeBegin = true;
+			return CARD_PLAYED_IMMEDIATELY;
+		}
+
+		// Host: Initialize Earthquake System and broadcast directions before rolling
 		// 2. Pay Cost & Cleanup Hand
 		currentAP -= costToPay;
 		currentPlayer.playedCardsPile.push_back(playedCard);
@@ -14758,8 +14813,7 @@ CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		isEarthquakeAnimatingStep = false;
 		earthquakeUnits.clear();
 
-		// 3. Setup Units & Roll Dice
-		// We assign a random direction NOW, but distance comes from dice later
+		// 3. Setup Units (choose directions) - distances will be filled after dice arrive
 		for (int i = 0; i < (int)players.size(); ++i) {
 			EarthquakeState state;
 			state.playerIndex = i;
@@ -14782,18 +14836,34 @@ CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 			else
 				state.direction = { -1, 0 }; // West
 
-			// Roll 1d4 for this unit and record which dice slot we created
+			state.diceIndex = -1;
+			earthquakeUnits.push_back(state);
+		}
+
+		// Broadcast EarthquakeBegin so clients can set up directions identically
+		if (isMultiplayer && isHost()) {
+			EarthquakeBeginPacket eb = {};
+			eb.type = PKT_EARTHQUAKE_BEGIN;
+			eb.playerID = myLocalPlayerID;
+			eb.numUnits = (int32_t)earthquakeUnits.size();
+			for (int i = 0; i < (int)earthquakeUnits.size() && i < 16; ++i) {
+				eb.playerIndex[i] = earthquakeUnits[i].playerIndex;
+				eb.dirX[i] = (int8_t)earthquakeUnits[i].direction.x;
+				eb.dirY[i] = (int8_t)earthquakeUnits[i].direction.y;
+			}
+			steamManager.sendPacket(&eb, sizeof(eb));
+			ofLogNotice("Network") << "Host sent EarthquakeBegin with " << eb.numUnits << " units";
+		}
+
+		// 4. Roll Dice now (host performs dice and will send DiceRollPacket(s))
+		for (int i = 0; i < (int)earthquakeUnits.size(); ++i) {
 			int before = (int)activeDiceRolls.size();
 			startDiceRoll(1, 4, PURPOSE_EARTHQUAKE_DISTANCE, "Quake Dist");
 			int after = (int)activeDiceRolls.size();
 			if (after > before) {
-				state.diceIndex = after - 1;
-				// mark associated unit on the dice so resolution can find it reliably
-				activeDiceRolls[state.diceIndex].associatedUnit = i;
-			} else {
-				state.diceIndex = -1;
+				earthquakeUnits[i].diceIndex = after - 1;
+				activeDiceRolls[earthquakeUnits[i].diceIndex].associatedUnit = earthquakeUnits[i].playerIndex;
 			}
-			earthquakeUnits.push_back(state);
 		}
 
 		return CARD_PLAYED_IMMEDIATELY; // Cleanup handled above
@@ -15232,6 +15302,11 @@ CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 	if (playedSuccessfully) {
 		currentAP -= costToPay;
 
+		// Ensure authoritative AP struct matches the displayed/current AP
+		if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) {
+			players[currentPlayerIndex].ap = currentAP;
+		}
+
 		// --- STRENGTHEN ELEMENTS TRIGGER ---
 		// Check if buff is active AND card deals Fire or Electric damage
 		if (currentPlayer.strengthenElementsTurnsRemaining > 0) {
@@ -15302,6 +15377,7 @@ CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		createCardDisplay(playedCard, currentPlayerIndex);
 		invalidateTargetCache();
 		currentPlayer.cardsPlayedThisTurn.push_back(playedCard.type);
+		if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) players[currentPlayerIndex].ap = currentAP;
 		return CARD_PLAYED_IMMEDIATELY;
 	}
 
@@ -20031,24 +20107,28 @@ void ofApp::processNetworkPackets() {
 					steamManager.sendPacket(&outPkt, sizeof(outPkt));
 					ofLogNotice("Network") << "Host: Forwarded RenewedInspiration to clients.";
 				}
+
 				Player & p = players[rpk->playerIndex];
-				std::vector<int> indices;
+				// Packet contains card names to discard to avoid hand-index mismatches
+				int discarded = 0;
 				for (int i = 0; i < rpk->count && i < 16; ++i) {
-					indices.push_back(rpk->indices[i]);
-				}
-				std::sort(indices.begin(), indices.end(), std::greater<int>());
-				// Only discard cards - don't draw! The DrawCards packet will handle that.
-				for (int idx : indices) {
-					if (idx >= 0 && idx < (int)p.hand.size()) {
-						p.discardPile.push_back(p.hand[idx]);
-						p.hand.erase(p.hand.begin() + idx);
+					std::string name = rpk->cardNames[i];
+					if (name.empty()) continue;
+					// Find the first matching card in hand and remove it
+					for (auto it = p.hand.begin(); it != p.hand.end(); ++it) {
+						if (it->name == name) {
+							p.discardPile.push_back(*it);
+							p.hand.erase(it);
+							discarded++;
+							break;
+						}
 					}
 				}
-				ofLogNotice("Network") << "Renewed Inspiration: Opponent discarded " << indices.size() << " cards (will draw from DrawCards packet)";
+				ofLogNotice("Network") << "Renewed Inspiration: Opponent discarded " << discarded << " cards (will draw from DrawCards packet)";
 
 				// If we're the host, perform the draw now and send DrawCards packet to clients
 				if (isHost()) {
-					int cardsToDraw = (int)indices.size() * 2;
+					int cardsToDraw = discarded * 2;
 					size_t handSizeBefore = p.hand.size();
 					// drawCard() operates on currentPlayerIndex, so temporarily switch
 					int prevCurrentPlayerIndex = currentPlayerIndex;
@@ -20398,6 +20478,19 @@ void ofApp::processNetworkPackets() {
 					players[currentPlayerIndex].ap = currentAP;
 				}
 
+				// Clear transient defensive stats on turn START (clients must mirror host)
+				// Tortoise form preserves defensive stats so only clear when not in tortoise form
+				if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) {
+					Player & sp = players[currentPlayerIndex];
+					if (!sp.inTortoiseForm) {
+						sp.block = 0;
+						sp.holyBlock = 0;
+						sp.ward = 0;
+						sp.fortification = 0;
+						sp.barrier = 0;
+					}
+				}
+
 				// Mark dice as DEBUG to prevent recalculation when animation finishes
 				for (auto & roll : activeDiceRolls) {
 					if (roll.purpose == PURPOSE_AP && roll.associatedUnit == currentPlayerIndex) {
@@ -20603,6 +20696,32 @@ void ofApp::processNetworkPackets() {
 					}
 				}
 			}
+			continue;
+		} else if (header->type == PKT_EARTHQUAKE_BEGIN) {
+			EarthquakeBeginPacket * eb = (EarthquakeBeginPacket *)header;
+			ofLogNotice("Network") << "Received EarthquakeBegin: units=" << eb->numUnits;
+			// Initialize earthquake units on client to match host directions
+			earthquakeUnits.clear();
+			int n = std::min((int)eb->numUnits, (int)16);
+			for (int i = 0; i < n; ++i) {
+				EarthquakeState st;
+				st.playerIndex = eb->playerIndex[i];
+				st.startGrid = { players[st.playerIndex].x, players[st.playerIndex].y };
+				st.visualPos = gridToWorld(st.startGrid.x, st.startGrid.y);
+				st.isMoving = true;
+				st.crashed = false;
+				st.tilesToMove = 0;
+				st.originalDistance = 0;
+				st.diceIndex = -1;
+				st.direction = { (int)eb->dirX[i], (int)eb->dirY[i] };
+				earthquakeUnits.push_back(st);
+			}
+			isEarthquakeActive = true;
+			isEarthquakeDiceRolling = true;
+			isEarthquakeAnimatingStep = false;
+			earthquakeDiceAssignCounter = 0;
+			isWaitingForEarthquakeBegin = false;
+			continue;
 		} else if (header->type == PKT_DICE_ROLL) {
 			DiceRollPacket * drp = (DiceRollPacket *)header;
 			ofLogNotice("Network") << "Received DiceRollPacket: " << (int)drp->numDice << "d" << (int)drp->sides << " label=" << drp->label;
@@ -20625,7 +20744,15 @@ void ofApp::processNetworkPackets() {
 				newRoll.purpose = (DicePurpose)drp->purpose;
 				newRoll.sides = drp->sides;
 				newRoll.startTime = ofGetElapsedTimef();
-				newRoll.associatedUnit = drp->ownerIndex;
+				// For earthquake rolls, the association to units is provided by EarthquakeBegin
+				if (newRoll.purpose == PURPOSE_EARTHQUAKE_DISTANCE && isEarthquakeActive && earthquakeUnits.size() > 0) {
+					// Assign associatedUnit based on the earthquake assignment counter (order matches host)
+					int assignIdx = earthquakeDiceAssignCounter % (int)earthquakeUnits.size();
+					newRoll.associatedUnit = earthquakeUnits[assignIdx].playerIndex;
+					earthquakeDiceAssignCounter++;
+				} else {
+					newRoll.associatedUnit = drp->ownerIndex;
+				}
 				newRoll.rawResult = drp->rawResults[i];
 				newRoll.result = drp->finalResults[i];
 
@@ -21593,7 +21720,11 @@ void ofApp::executeOpponentCardPlay(const ActionPacket & pkt) {
 		pendingMagicHandCardIndex = -1;
 
 		currentPlayerIndex = savedCurrentPlayerIndex;
-		currentAP = savedCurrentAP;
+		if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) {
+			currentAP = players[currentPlayerIndex].ap;
+		} else {
+			currentAP = savedCurrentAP;
+		}
 		return;
 	}
 
@@ -21616,7 +21747,11 @@ void ofApp::executeOpponentCardPlay(const ActionPacket & pkt) {
 		opponentPlayer.hand.erase(opponentPlayer.hand.begin() + tempCardIndex);
 
 		currentPlayerIndex = savedCurrentPlayerIndex;
-		currentAP = savedCurrentAP;
+		if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) {
+			currentAP = players[currentPlayerIndex].ap;
+		} else {
+			currentAP = savedCurrentAP;
+		}
 		return;
 	}
 
@@ -21645,7 +21780,11 @@ void ofApp::executeOpponentCardPlay(const ActionPacket & pkt) {
 
 		opponentPlayer.ap = pkt.updatedAP;
 		currentPlayerIndex = savedCurrentPlayerIndex;
-		currentAP = savedCurrentAP;
+		if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) {
+			currentAP = players[currentPlayerIndex].ap;
+		} else {
+			currentAP = savedCurrentAP;
+		}
 		return;
 	}
 
@@ -21683,7 +21822,11 @@ void ofApp::executeOpponentCardPlay(const ActionPacket & pkt) {
 		opponentPlayer.ap = pkt.updatedAP;
 
 		currentPlayerIndex = savedCurrentPlayerIndex;
-		currentAP = savedCurrentAP;
+		if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) {
+			currentAP = players[currentPlayerIndex].ap;
+		} else {
+			currentAP = savedCurrentAP;
+		}
 		return;
 	}
 
@@ -21730,7 +21873,11 @@ void ofApp::executeOpponentCardPlay(const ActionPacket & pkt) {
 		opponentPlayer.hand.erase(opponentPlayer.hand.begin() + tempCardIndex);
 
 		currentPlayerIndex = savedCurrentPlayerIndex;
-		currentAP = savedCurrentAP;
+		if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) {
+			currentAP = players[currentPlayerIndex].ap;
+		} else {
+			currentAP = savedCurrentAP;
+		}
 		return;
 	}
 

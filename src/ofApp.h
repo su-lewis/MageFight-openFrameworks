@@ -1119,6 +1119,12 @@ private:
 	bool isEarthquakeWaiting = false; // Phase between dice and movement
 	float earthquakeWaitTimer = 0.0f; // seconds remaining
 
+	// Network-assisted earthquake assignment counter (used when client receives dice)
+	int earthquakeDiceAssignCounter = 0;
+
+	// When a client plays earthquake, it waits for host to send EarthquakeBegin
+	bool isWaitingForEarthquakeBegin = false;
+
 	// Wisdom Boon
 	bool isWisdomBoonMenuOpen = false;
 	int pendingWisdomBoonCardIndex = -1;
