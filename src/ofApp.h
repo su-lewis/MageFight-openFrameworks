@@ -1004,6 +1004,9 @@ private:
 	std::vector<int> amnesiaSelectedIndices;
 	std::vector<ofRectangle> amnesiaCardRects;
 
+	// Which local player ID is allowed to choose Amnesia removals (playerID, e.g., 0 or 1). -1 = none
+	int amnesiaChooserPlayerID = -1;
+
 	// Blocking Boon
 	std::vector<int> pendingDraftQueue; // Stores class IDs (1, 2, or 3) for chained drafts
 	int blockingBoonTargetIndex = -1; // Stores target for the "Tails" effect

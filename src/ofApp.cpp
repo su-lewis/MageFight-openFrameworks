@@ -9899,6 +9899,13 @@ void ofApp::mousePressed(int x, int y, int button) {
 			amnesiaTargetPlayerIndex = currentPlayerIndex;
 			pendingAmnesiaRollResult = startDiceRoll(amnesiaCard.numDice, amnesiaCard.diceSides, PURPOSE_DEBUG, "Amnesia: Cards to Remove", currentPlayerIndex);
 			isWaitingForAmnesiaDice = true;
+			// Record chooser player ID (the caster's owner/playerID)
+			amnesiaChooserPlayerID = caster.isMinion ? caster.ownerID : caster.playerID;
+			// Inform opponent of the card play in multiplayer so host/client AP stays in sync
+			if (isMultiplayer) {
+				players[currentPlayerIndex].ap = currentAP;
+				sendActionPacket(pendingAmnesiaCardIndex, -1, -1, amnesiaCard.cost, 0, amnesiaCard.name);
+			}
 			// Consume AP and discard card now
 			currentAP -= amnesiaCard.cost;
 			caster.playedCardsPile.push_back(amnesiaCard);
@@ -10204,6 +10211,11 @@ void ofApp::mousePressed(int x, int y, int button) {
 
 	// --- 1g. Amnesia Selection UI ---
 	if (isAmnesiaSelectionActive && button == OF_MOUSE_BUTTON_LEFT) {
+		// Only the player who played Amnesia may choose removals
+		if (amnesiaChooserPlayerID != -1 && amnesiaChooserPlayerID != myLocalPlayerID) {
+			// Not this client's chooser - ignore clicks inside the selection UI
+			return;
+		}
 		float amnesiaCardWidth = 120;
 		float amnesiaCardHeight = amnesiaCardWidth * (585.0f / 409.0f);
 		float panelPadding = 20.0f;
@@ -10275,6 +10287,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 					amnesiaSelectedIndices.clear();
 					amnesiaDeckCopy.clear();
 					amnesiaTargetPlayerIndex = -1;
+					amnesiaChooserPlayerID = -1;
 				}
 				return;
 			}
@@ -12912,6 +12925,11 @@ CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		if (isMultiplayer && isHost()) sendCardActionBegin(CARD_AMNESIA, currentPlayerIndex, targetX, targetY, 0, 0, 0, 0, "Amnesia");
 		pendingAmnesiaRollResult = startDiceRoll(playedCard.numDice, playedCard.diceSides, PURPOSE_DEBUG, "Amnesia: Cards to Remove", currentPlayerIndex);
 		isWaitingForAmnesiaDice = true;
+		// Record which playerID should be allowed to choose removals (caster)
+		{
+			Player & caster = players[currentPlayerIndex];
+			amnesiaChooserPlayerID = caster.isMinion ? caster.ownerID : caster.playerID;
+		}
 		return CARD_PLAYED_IMMEDIATELY; // We've already handled cleanup above
 	}
 
@@ -20506,7 +20524,21 @@ void ofApp::processNetworkPackets() {
 				// In a more complete implementation, match the face to camera like startDiceRoll does
 				newRoll.finalQuat = glm::angleAxis(glm::radians(wobbleAmount), glm::vec3(0, 1, 0));
 
-				activeDiceRolls.push_back(newRoll);
+				// De-duplication: if we recently created a matching local roll, skip adding this networked duplicate.
+				bool isDuplicate = false;
+				for (auto & existing : activeDiceRolls) {
+					if (existing.purpose == newRoll.purpose && existing.sides == newRoll.sides && existing.rawResult == newRoll.rawResult && existing.result == newRoll.result && existing.associatedUnit == newRoll.associatedUnit) {
+						if (ofGetElapsedTimef() - existing.startTime < 0.5f) {
+							isDuplicate = true;
+							break;
+						}
+					}
+				}
+				if (!isDuplicate) {
+					activeDiceRolls.push_back(newRoll);
+				} else {
+					ofLogNotice("Network") << "Ignored duplicate DiceRollPacket entry: " << (int)newRoll.rawResult << " (purpose=" << (int)newRoll.purpose << ")";
+				}
 			}
 
 			// Set the label

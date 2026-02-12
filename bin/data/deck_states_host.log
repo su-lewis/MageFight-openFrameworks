@@ -1,12 +1,12 @@
 
 === DECK STATE LOG ===
-Time: 2026-02-11 22:08:03
+Time: 2026-02-12 11:55:32
 Reason: End Turn 1
 Turn: 1
 Current Player: 0
 Local Player ID: 0
 Is Host: true
 
-Player0 Deck[1]: Blocking Boon(68) | Hand[2]: Shield Bash(41), Blocking Boon(68) | Discard[2]: Shield Bash(41), Earthquake(51)
-Player1 Deck[4]: Burst of Light(63), Double Handed(31), Double Handed(31), Flurry of Fists(45) | Hand[0]:  | Discard[2]: Dispel(18), Dispel(18)
+Player0 Deck[3]: Raise Dead(26), Shock(13), Shock(13) | Hand[0]:  | Discard[0]: 
+Player1 Deck[2]: Call for Wolves(32), Punch(5) | Hand[0]:  | Discard[2]: Shield Bash(41), Amnesia(17)
 =====================

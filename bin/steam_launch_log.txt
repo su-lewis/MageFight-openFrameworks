@@ -212,3 +212,525 @@ SteamInternal_SetMinidumpSteamID:  Caching Steam ID:  76561198261715869 [API loa
 [notice ] Game: --- GAME SESSION CLEANED UP ---
 [notice ] SteamManager: Steam API Shutdown.
 [S_API FAIL] Tried to access Steam interface SteamNetworkingSockets012 before SteamAPI_Init succeeded.
+ERROR: ld.so: object '/usr/lib/extest/libextest.so' from LD_PRELOAD cannot be preloaded (cannot open shared object file): ignored.
+ERROR: ld.so: object '/var/home/lewis/.local/share/Steam/ubuntu12_32/gameoverlayrenderer.so' from LD_PRELOAD cannot be preloaded (wrong ELF class: ELFCLASS32): ignored.
+--- Launching MageFight at Thu Feb 12 11:49:25 GMT 2026 ---
+Script directory: /home/lewis/of_workspace/openFrameworks/apps/myApps/MageFight/bin
+Original LD_PRELOAD=/usr/lib/extest/libextest.so:/var/home/lewis/.local/share/Steam/ubuntu12_32/gameoverlayrenderer.so:/var/home/lewis/.local/share/Steam/ubuntu12_64/gameoverlayrenderer.so
+Dropping missing LD_PRELOAD entry: /usr/lib/extest/libextest.so
+Final LD_PRELOAD=/var/home/lewis/.local/share/Steam/ubuntu12_32/gameoverlayrenderer.so:/var/home/lewis/.local/share/Steam/ubuntu12_64/gameoverlayrenderer.so
+Starting executable...
+ERROR: ld.so: object '/var/home/lewis/.local/share/Steam/ubuntu12_32/gameoverlayrenderer.so' from LD_PRELOAD cannot be preloaded (wrong ELF class: ELFCLASS32): ignored.
+[S_API] SteamAPI_Init(): SteamAPI_IsSteamRunning() did not locate a running instance of Steam.
+[S_API] SteamAPI_Init(): Loaded '/home/lewis/of_workspace/.steam/sdk64/steamclient.so' OK.
+Setting breakpad minidump AppID = 480
+SteamInternal_SetMinidumpSteamID:  Caching Steam ID:  76561198261715869 [API loaded no]
+[notice ] Steam: Initialized. LocalID: 76561198261715869
+[notice ] Setup: Visual RNG seeded.
+[warning] ofMaterial::setPBR:  PBR material must be used with Programmable Renderer.
+[ error ] ofxAssimpTexture::setTextureType: : unknown aiTextureType type 27
+[warning] ofMaterial::setPBR:  PBR material must be used with Programmable Renderer.
+[ error ] ofxAssimpTexture::setTextureType: : unknown aiTextureType type 27
+[warning] ofMaterial::setPBR:  PBR material must be used with Programmable Renderer.
+[warning] ofMaterial::setPBR:  PBR material must be used with Programmable Renderer.
+[warning] ofMaterial::setPBR:  PBR material must be used with Programmable Renderer.
+[warning] ofMaterial::setPBR:  PBR material must be used with Programmable Renderer.
+[notice ] Wolf model loaded with 10 meshes
+[notice ] Setup: Kobold model loaded.
+[ error ] ofxAssimpModelLoader: loadGLResource(): texture doesn't exist: "data/Units/KoboldKing/goblin_king.fbx" in "data/Units/KoboldKing/cadnav.com_model/Models_G0506A078/01391eaa.dds"
+[ error ] loadImage: File not found: "data/Units/KoboldKing/cadnav.com_model/Models_G0506A078/01391eaa.dds"
+[ error ] ofxAssimpModelLoader: loadGLResource(): couldn't load texture: "data/Units/KoboldKing/goblin_king.fbx" from "data/Units/KoboldKing/cadnav.com_model/Models_G0506A078/01391eaa.dds"
+[ error ] ofxAssimpModelLoader: loadGLResource(): texture doesn't exist: "data/Units/KoboldKing/goblin_king.fbx" in "data/Units/KoboldKing/cadnav.com_model/Models_G0506A078/ada8756d.jpg"
+[ error ] loadImage: File not found: "data/Units/KoboldKing/cadnav.com_model/Models_G0506A078/ada8756d.jpg"
+[ error ] ofxAssimpModelLoader: loadGLResource(): couldn't load texture: "data/Units/KoboldKing/goblin_king.fbx" from "data/Units/KoboldKing/cadnav.com_model/Models_G0506A078/ada8756d.jpg"
+[ error ] ofxAssimpModelLoader: loadGLResource(): texture doesn't exist: "data/Units/KoboldKing/goblin_king.fbx" in "data/Units/KoboldKing/cadnav.com_model/Models_G0506A078/496d23a4.jpg"
+[ error ] loadImage: File not found: "data/Units/KoboldKing/cadnav.com_model/Models_G0506A078/496d23a4.jpg"
+[ error ] ofxAssimpModelLoader: loadGLResource(): couldn't load texture: "data/Units/KoboldKing/goblin_king.fbx" from "data/Units/KoboldKing/cadnav.com_model/Models_G0506A078/496d23a4.jpg"
+[ error ] ofxAssimpModelLoader: loadGLResource(): texture doesn't exist: "data/Units/KoboldKing/goblin_king.fbx" in "data/Units/KoboldKing/cadnav.com_model/Models_G0506A078/01391eaa.dds"
+[ error ] loadImage: File not found: "data/Units/KoboldKing/cadnav.com_model/Models_G0506A078/01391eaa.dds"
+[ error ] ofxAssimpModelLoader: loadGLResource(): couldn't load texture: "data/Units/KoboldKing/goblin_king.fbx" from "data/Units/KoboldKing/cadnav.com_model/Models_G0506A078/01391eaa.dds"
+[notice ] Setup: Kobold King texture loaded.
+[notice ] Setup: Kobold King model loaded.
+[notice ] Setup: Hellhound model loaded.
+[warning] ofMaterial::setPBR:  PBR material must be used with Programmable Renderer.
+[ error ] ofxAssimpTexture::setTextureType: : unknown aiTextureType type 27
+[warning] ofMaterial::setPBR:  PBR material must be used with Programmable Renderer.
+[ error ] ofxAssimpTexture::setTextureType: : unknown aiTextureType type 27
+[warning] ofMaterial::setPBR:  PBR material must be used with Programmable Renderer.
+[ error ] ofxAssimpTexture::setTextureType: : unknown aiTextureType type 27
+[warning] ofMaterial::setPBR:  PBR material must be used with Programmable Renderer.
+[ error ] ofxAssimpTexture::setTextureType: : unknown aiTextureType type 27
+[warning] ofMaterial::setPBR:  PBR material must be used with Programmable Renderer.
+[ error ] ofxAssimpTexture::setTextureType: : unknown aiTextureType type 27
+[warning] ofMaterial::setPBR:  PBR material must be used with Programmable Renderer.
+[ error ] ofxAssimpTexture::setTextureType: : unknown aiTextureType type 27
+[warning] ofMaterial::setPBR:  PBR material must be used with Programmable Renderer.
+[ error ] ofxAssimpTexture::setTextureType: : unknown aiTextureType type 27
+[warning] ofMaterial::setPBR:  PBR material must be used with Programmable Renderer.
+[ error ] ofxAssimpTexture::setTextureType: : unknown aiTextureType type 27
+[warning] ofMaterial::setPBR:  PBR material must be used with Programmable Renderer.
+[ error ] ofxAssimpTexture::setTextureType: : unknown aiTextureType type 27
+[warning] ofMaterial::setPBR:  PBR material must be used with Programmable Renderer.
+[ error ] ofxAssimpTexture::setTextureType: : unknown aiTextureType type 27
+[warning] ofMaterial::setPBR:  PBR material must be used with Programmable Renderer.
+[ error ] ofxAssimpTexture::setTextureType: : unknown aiTextureType type 27
+[notice ] Setup: Demon model loaded.
+[notice ] Setup: Tortoise model loaded.
+[warning] ofMaterial::setPBR:  PBR material must be used with Programmable Renderer.
+[notice ] Setup: Ghost model loaded.
+[warning] ofMaterial::setPBR:  PBR material must be used with Programmable Renderer.
+[ error ] ofxAssimpTexture::setTextureType: : unknown aiTextureType type 27
+[notice ] Setup: Wall Unit GLB model loaded and texture applied.
+[notice ] Setup: Assistant model loaded.
+[warning] ofMaterial::setPBR:  PBR material must be used with Programmable Renderer.
+[ error ] ofxAssimpTexture::setTextureType: : unknown aiTextureType type 27
+[warning] ofMaterial::setPBR:  PBR material must be used with Programmable Renderer.
+[ error ] ofxAssimpTexture::setTextureType: : unknown aiTextureType type 27
+[notice ] Setup: Faerie texture loaded.
+[notice ] Setup: Faerie model loaded.
+[notice ] Setup: Loaded key frame: Board/keys_1_1.png
+[notice ] Setup: Loaded key frame: Board/keys_1_2.png
+[notice ] Setup: Loaded key frame: Board/keys_1_3.png
+[notice ] Setup: Loaded key frame: Board/keys_1_4.png
+[notice ] Setup: Loaded silver key frame: Board/keys_2_1.png
+[notice ] Setup: Loaded silver key frame: Board/keys_2_2.png
+[notice ] Setup: Loaded silver key frame: Board/keys_2_3.png
+[notice ] Setup: Loaded silver key frame: Board/keys_2_4.png
+[notice ] Setup: Loaded bronze key frame: Board/keys_3_1.png
+[notice ] Setup: Loaded bronze key frame: Board/keys_3_2.png
+[notice ] Setup: Loaded bronze key frame: Board/keys_3_3.png
+[notice ] Setup: Loaded bronze key frame: Board/keys_3_4.png
+[notice ] ofApp::loadCardData: Loaded 70 cards from JSON.
+[notice ] ofApp::loadCardData: Class Distribution - C1: 30, C2: 25, C3: 15
+[notice ] GL: Vendor: AMD | Renderer: AMD Radeon RX 9070 XT (radeonsi, gfx1201, LLVM 21.1.6, DRM 3.64, 6.17.7-ba25.fc43.x86_64) | Version: 4.6 (Compatibility Profile) Mesa 25.3.4-arch1.1 | GLSL: 4.60
+[notice ] FBO: worldFbo allocated 2560x1440
+[notice ] Network: DEBUG: Still in STATE_MAIN_MENU. hasOpponent()=0 isMultiplayer=0 isHost=0
+[notice ] Steam: Requesting Lobby Creation...
+[notice ] Steam: Lobby Created. Creating Listen Socket...
+[notice ] Steam: Incoming Connection Request...
+[notice ] Steam: Accepted Connection!
+[notice ] Network: DEBUG: hasOpponent() is true, currentState=0
+[notice ] Network: Host: Opponent found. Starting game & sending seed.
+[notice ] Setup: Host generated seed: 1770897089 platform=Linux
+[notice ] Setup: Host sending handshake: type=0 playerID=0 seq=0 seed=1770897089 platform=Linux
+[notice ] Network: Skipping DiceRollPacket send for purpose=4 (handled authoritatively).
+[notice ] Dice: Final total result for 1d6: 4
+[notice ] Network: Skipping DiceRollPacket send for purpose=4 (handled authoritatively).
+[notice ] Dice: Final total result for 1d6: 5
+[notice ] Game: --- INITIATIVE ROLL STARTED ---
+[notice ] Steam: Connection Fully Active!
+[notice ] Steam: Opponent ID: 76561198743068920
+[notice ] Network: Host: Received Seed Request. Resending Seed: 1770897089
+[notice ] Network: Host resending handshake: type=0 playerID=0 seq=0 seed=1770897089
+[notice ] Draft: generateDraftOptions called: classTier=1 draftStage=0 draftPlayerIndex=1 poolSize=30
+[notice ] Network: Host sent DraftOptionsPacket: 18,27,20 derivedSeed=3061680413 draftGenCounter=1
+[notice ] Draft: Options names: Shield Bash, Summon Assistant, Study
+[notice ] Network: Host sent DraftStatePacket (post-options): class=1 player=1 picks=2 stage=0
+[notice ] Initiative: Player 2 Wins Initiative
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Shield Bash, Summon Assistant, Study
+[notice ] Game: --- GAME SESSION CLEANED UP ---
+[notice ] Steam: Requesting Lobby Creation...
+[notice ] Steam: Lobby Created. Creating Listen Socket...
+[notice ] Steam: Incoming Connection Request...
+[notice ] Steam: Accepted Connection!
+[notice ] Network: Host: Opponent found. Starting game & sending seed.
+[notice ] Setup: Host generated seed: 1770897100 platform=Linux
+[notice ] Setup: Host sending handshake: type=0 playerID=0 seq=0 seed=1770897100 platform=Linux
+[notice ] Network: Skipping DiceRollPacket send for purpose=4 (handled authoritatively).
+[notice ] Dice: Final total result for 1d6: 1
+[notice ] Network: Skipping DiceRollPacket send for purpose=4 (handled authoritatively).
+[notice ] Dice: Final total result for 1d6: 5
+[notice ] Game: --- INITIATIVE ROLL STARTED ---
+[notice ] Steam: Connection Fully Active!
+[notice ] Steam: Opponent ID: 76561198743068920
+[notice ] Network: Host: Received Seed Request. Resending Seed: 1770897100
+[notice ] Network: Host resending handshake: type=0 playerID=0 seq=0 seed=1770897100
+[notice ] Draft: generateDraftOptions called: classTier=1 draftStage=0 draftPlayerIndex=1 poolSize=30
+[notice ] Network: Host sent DraftOptionsPacket: 20,13,2 derivedSeed=3061680400 draftGenCounter=1
+[notice ] Draft: Options names: Study, Heal, Hand Block
+[notice ] Network: Host sent DraftStatePacket (post-options): class=1 player=1 picks=2 stage=0
+[notice ] Initiative: Player 2 Wins Initiative
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Hand Block
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Hand Block
+[notice ] Game: --- GAME SESSION CLEANED UP ---
+[notice ] Steam: Requesting Lobby Creation...
+[notice ] Steam: Lobby Created. Creating Listen Socket...
+[notice ] Steam: Incoming Connection Request...
+[notice ] Steam: Accepted Connection!
+[notice ] Network: Host: Opponent found. Starting game & sending seed.
+[notice ] Setup: Host generated seed: 1770897164 platform=Linux
+[notice ] Setup: Host sending handshake: type=0 playerID=0 seq=0 seed=1770897164 platform=Linux
+[notice ] Network: Skipping DiceRollPacket send for purpose=4 (handled authoritatively).
+[notice ] Dice: Final total result for 1d6: 2
+[notice ] Network: Skipping DiceRollPacket send for purpose=4 (handled authoritatively).
+[notice ] Dice: Final total result for 1d6: 5
+[notice ] Game: --- INITIATIVE ROLL STARTED ---
+[notice ] Steam: Connection Fully Active!
+[notice ] Steam: Opponent ID: 76561198743068920
+[notice ] Network: Host: Received Seed Request. Resending Seed: 1770897164
+[notice ] Network: Host resending handshake: type=0 playerID=0 seq=0 seed=1770897164
+[notice ] Game: --- GAME SESSION CLEANED UP ---
+[notice ] Steam: Requesting Lobby Creation...
+[notice ] Steam: Lobby Created. Creating Listen Socket...
+[notice ] Steam: Incoming Connection Request...
+[notice ] Steam: Accepted Connection!
+[notice ] Network: Host: Opponent found. Starting game & sending seed.
+[notice ] Setup: Host generated seed: 1770897175 platform=Linux
+[notice ] Setup: Host sending handshake: type=0 playerID=0 seq=0 seed=1770897175 platform=Linux
+[notice ] Network: Skipping DiceRollPacket send for purpose=4 (handled authoritatively).
+[notice ] Dice: Final total result for 1d6: 6
+[notice ] Network: Skipping DiceRollPacket send for purpose=4 (handled authoritatively).
+[notice ] Dice: Final total result for 1d6: 2
+[notice ] Game: --- INITIATIVE ROLL STARTED ---
+[notice ] Steam: Connection Fully Active!
+[notice ] Steam: Opponent ID: 76561198743068920
+[notice ] Network: Host: Received Seed Request. Resending Seed: 1770897175
+[notice ] Network: Host resending handshake: type=0 playerID=0 seq=0 seed=1770897175
+[notice ] Network: Host: Received Seed Request. Resending Seed: 1770897175
+[notice ] Network: Host resending handshake: type=0 playerID=0 seq=0 seed=1770897175
+[notice ] Game: --- GAME SESSION CLEANED UP ---
+[notice ] Steam: Requesting Lobby Creation...
+[notice ] Steam: Lobby Created. Creating Listen Socket...
+[notice ] Steam: Incoming Connection Request...
+[notice ] Steam: Accepted Connection!
+[notice ] Network: Host: Opponent found. Starting game & sending seed.
+[notice ] Setup: Host generated seed: 1770897185 platform=Linux
+[notice ] Setup: Host sending handshake: type=0 playerID=0 seq=0 seed=1770897185 platform=Linux
+[notice ] Network: Skipping DiceRollPacket send for purpose=4 (handled authoritatively).
+[notice ] Dice: Final total result for 1d6: 3
+[notice ] Network: Skipping DiceRollPacket send for purpose=4 (handled authoritatively).
+[notice ] Dice: Final total result for 1d6: 4
+[notice ] Game: --- INITIATIVE ROLL STARTED ---
+[notice ] Steam: Connection Fully Active!
+[notice ] Steam: Opponent ID: 76561198743068920
+[notice ] Network: Host: Received Seed Request. Resending Seed: 1770897185
+[notice ] Network: Host resending handshake: type=0 playerID=0 seq=0 seed=1770897185
+[notice ] Network: Host: Received Seed Request. Resending Seed: 1770897185
+[notice ] Network: Host resending handshake: type=0 playerID=0 seq=0 seed=1770897185
+[notice ] Draft: generateDraftOptions called: classTier=1 draftStage=0 draftPlayerIndex=1 poolSize=30
+[notice ] Network: Host sent DraftOptionsPacket: 28,5,8 derivedSeed=3061680381 draftGenCounter=1
+[notice ] Draft: Options names: Burst of Light, Stab, Shock
+[notice ] Network: Host sent DraftStatePacket (post-options): class=1 player=1 picks=2 stage=0
+[notice ] Initiative: Player 2 Wins Initiative
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Burst of Light, Stab, Shock
+[notice ] Draft: DRAFT CLICK: mousePos=(1200,792) selections=0 required=2 inGameDraft=0 draftStage=0 acceptRect=(0,0,0,0)
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Burst of Light, Stab, Shock
+[notice ] Game: --- GAME SESSION CLEANED UP ---
+[notice ] Steam: Requesting Lobby Creation...
+[notice ] Steam: Lobby Created. Creating Listen Socket...
+[notice ] Steam: Incoming Connection Request...
+[notice ] Steam: Accepted Connection!
+[notice ] Network: Host: Opponent found. Starting game & sending seed.
+[notice ] Setup: Host generated seed: 1770897195 platform=Linux
+[notice ] Setup: Host sending handshake: type=0 playerID=0 seq=0 seed=1770897195 platform=Linux
+[notice ] Network: Skipping DiceRollPacket send for purpose=4 (handled authoritatively).
+[notice ] Dice: Final total result for 1d6: 3
+[notice ] Network: Skipping DiceRollPacket send for purpose=4 (handled authoritatively).
+[notice ] Dice: Final total result for 1d6: 5
+[notice ] Game: --- INITIATIVE ROLL STARTED ---
+[notice ] Steam: Connection Fully Active!
+[notice ] Steam: Opponent ID: 76561198743068920
+[notice ] Network: Host: Received Seed Request. Resending Seed: 1770897195
+[notice ] Network: Host resending handshake: type=0 playerID=0 seq=0 seed=1770897195
+[notice ] Network: Host: Received Seed Request. Resending Seed: 1770897195
+[notice ] Network: Host resending handshake: type=0 playerID=0 seq=0 seed=1770897195
+[notice ] Game: --- GAME SESSION CLEANED UP ---
+[notice ] Steam: Requesting Lobby Creation...
+[notice ] Steam: Lobby Created. Creating Listen Socket...
+[notice ] Steam: Incoming Connection Request...
+[notice ] Steam: Accepted Connection!
+[notice ] Network: Host: Opponent found. Starting game & sending seed.
+[notice ] Setup: Host generated seed: 1770897204 platform=Linux
+[notice ] Setup: Host sending handshake: type=0 playerID=0 seq=0 seed=1770897204 platform=Linux
+[notice ] Network: Skipping DiceRollPacket send for purpose=4 (handled authoritatively).
+[notice ] Dice: Final total result for 1d6: 6
+[notice ] Network: Skipping DiceRollPacket send for purpose=4 (handled authoritatively).
+[notice ] Dice: Final total result for 1d6: 3
+[notice ] Game: --- INITIATIVE ROLL STARTED ---
+[notice ] Steam: Connection Fully Active!
+[notice ] Steam: Opponent ID: 76561198743068920
+[notice ] Network: Host: Received Seed Request. Resending Seed: 1770897204
+[notice ] Network: Host resending handshake: type=0 playerID=0 seq=0 seed=1770897204
+[notice ] Game: --- GAME SESSION CLEANED UP ---
+[notice ] Steam: Requesting Lobby Creation...
+[notice ] Steam: Lobby Created. Creating Listen Socket...
+[notice ] Steam: Incoming Connection Request...
+[notice ] Steam: Accepted Connection!
+[notice ] Network: Host: Opponent found. Starting game & sending seed.
+[notice ] Setup: Host generated seed: 1770897211 platform=Linux
+[notice ] Setup: Host sending handshake: type=0 playerID=0 seq=0 seed=1770897211 platform=Linux
+[notice ] Network: Skipping DiceRollPacket send for purpose=4 (handled authoritatively).
+[notice ] Dice: Final total result for 1d6: 4
+[notice ] Network: Skipping DiceRollPacket send for purpose=4 (handled authoritatively).
+[notice ] Dice: Final total result for 1d6: 1
+[notice ] Game: --- INITIATIVE ROLL STARTED ---
+[notice ] Game: --- GAME SESSION CLEANED UP ---
+[notice ] Steam: Requesting Lobby Creation...
+[notice ] Steam: Lobby Created. Creating Listen Socket...
+[notice ] Steam: Incoming Connection Request...
+[notice ] Steam: Accepted Connection!
+[notice ] Network: Host: Opponent found. Starting game & sending seed.
+[notice ] Setup: Host generated seed: 1770897218 platform=Linux
+[notice ] Setup: Host sending handshake: type=0 playerID=0 seq=0 seed=1770897218 platform=Linux
+[notice ] Network: Skipping DiceRollPacket send for purpose=4 (handled authoritatively).
+[notice ] Dice: Final total result for 1d6: 1
+[notice ] Network: Skipping DiceRollPacket send for purpose=4 (handled authoritatively).
+[notice ] Dice: Final total result for 1d6: 3
+[notice ] Game: --- INITIATIVE ROLL STARTED ---
+[notice ] Steam: Connection Fully Active!
+[notice ] Steam: Opponent ID: 76561198743068920
+[notice ] Game: --- GAME SESSION CLEANED UP ---
+[notice ] Steam: Requesting Lobby Creation...
+[notice ] Steam: Lobby Created. Creating Listen Socket...
+[notice ] Steam: Incoming Connection Request...
+[notice ] Steam: Accepted Connection!
+[notice ] Network: Host: Opponent found. Starting game & sending seed.
+[notice ] Setup: Host generated seed: 1770897224 platform=Linux
+[notice ] Setup: Host sending handshake: type=0 playerID=0 seq=0 seed=1770897224 platform=Linux
+[notice ] Network: Skipping DiceRollPacket send for purpose=4 (handled authoritatively).
+[notice ] Dice: Final total result for 1d6: 6
+[notice ] Network: Skipping DiceRollPacket send for purpose=4 (handled authoritatively).
+[notice ] Dice: Final total result for 1d6: 4
+[notice ] Game: --- INITIATIVE ROLL STARTED ---
+[notice ] Game: --- GAME SESSION CLEANED UP ---
+[notice ] Steam: Requesting Lobby Creation...
+[notice ] Steam: Lobby Created. Creating Listen Socket...
+[notice ] Steam: Incoming Connection Request...
+[notice ] Steam: Accepted Connection!
+[notice ] Network: Host: Opponent found. Starting game & sending seed.
+[notice ] Setup: Host generated seed: 1770897230 platform=Linux
+[notice ] Setup: Host sending handshake: type=0 playerID=0 seq=0 seed=1770897230 platform=Linux
+[notice ] Network: Skipping DiceRollPacket send for purpose=4 (handled authoritatively).
+[notice ] Dice: Final total result for 1d6: 1
+[notice ] Network: Skipping DiceRollPacket send for purpose=4 (handled authoritatively).
+[notice ] Dice: Final total result for 1d6: 2
+[notice ] Game: --- INITIATIVE ROLL STARTED ---
+[notice ] Steam: Connection Fully Active!
+[notice ] Steam: Opponent ID: 76561198743068920
+[notice ] Game: --- GAME SESSION CLEANED UP ---
+[notice ] Steam: Requesting Lobby Creation...
+[notice ] Steam: Lobby Created. Creating Listen Socket...
+[notice ] Steam: Incoming Connection Request...
+[notice ] Steam: Accepted Connection!
+[notice ] Network: Host: Opponent found. Starting game & sending seed.
+[notice ] Setup: Host generated seed: 1770897236 platform=Linux
+[notice ] Setup: Host sending handshake: type=0 playerID=0 seq=0 seed=1770897236 platform=Linux
+[notice ] Network: Skipping DiceRollPacket send for purpose=4 (handled authoritatively).
+[notice ] Dice: Final total result for 1d6: 2
+[notice ] Network: Skipping DiceRollPacket send for purpose=4 (handled authoritatively).
+[notice ] Dice: Final total result for 1d6: 6
+[notice ] Game: --- INITIATIVE ROLL STARTED ---
+[notice ] Network: Host: Received Seed Request. Resending Seed: 1770897236
+[notice ] Network: Host resending handshake: type=0 playerID=0 seq=0 seed=1770897236
+[notice ] Steam: Connection Fully Active!
+[notice ] Steam: Opponent ID: 76561198743068920
+[notice ] Draft: generateDraftOptions called: classTier=1 draftStage=0 draftPlayerIndex=1 poolSize=30
+[notice ] Network: Host sent DraftOptionsPacket: 2,25,1 derivedSeed=3061680264 draftGenCounter=1
+[notice ] Draft: Options names: Hand Block, Renewed Inspiration, Kick
+[notice ] Network: Host sent DraftStatePacket (post-options): class=1 player=1 picks=2 stage=0
+[notice ] Initiative: Player 2 Wins Initiative
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Hand Block, Renewed Inspiration, Kick
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Hand Block, Renewed Inspiration, Kick
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Hand Block, Renewed Inspiration, Kick
+[notice ] Game: --- GAME SESSION CLEANED UP ---
+[notice ] Steam: Requesting Lobby Creation...
+[notice ] Steam: Lobby Created. Creating Listen Socket...
+[notice ] Steam: Incoming Connection Request...
+[notice ] Steam: Accepted Connection!
+[notice ] Network: Host: Opponent found. Starting game & sending seed.
+[notice ] Setup: Host generated seed: 1770897247 platform=Linux
+[notice ] Setup: Host sending handshake: type=0 playerID=0 seq=0 seed=1770897247 platform=Linux
+[notice ] Network: Skipping DiceRollPacket send for purpose=4 (handled authoritatively).
+[notice ] Dice: Final total result for 1d6: 6
+[notice ] Network: Skipping DiceRollPacket send for purpose=4 (handled authoritatively).
+[notice ] Dice: Final total result for 1d6: 6
+[notice ] Game: --- INITIATIVE ROLL STARTED ---
+[notice ] Steam: Connection Fully Active!
+[notice ] Steam: Opponent ID: 76561198743068920
+[notice ] Network: Host: Received Seed Request. Resending Seed: 1770897247
+[notice ] Network: Host resending handshake: type=0 playerID=0 seq=0 seed=1770897247
+[notice ] Network: Skipping DiceRollPacket send for purpose=4 (handled authoritatively).
+[notice ] Dice: Final total result for 1d6: 2
+[notice ] Network: Skipping DiceRollPacket send for purpose=4 (handled authoritatively).
+[notice ] Dice: Final total result for 1d6: 6
+[notice ] Initiative: Tie! Rerolling...
+[notice ] Draft: generateDraftOptions called: classTier=1 draftStage=0 draftPlayerIndex=1 poolSize=30
+[notice ] Network: Host sent DraftOptionsPacket: 18,0,5 derivedSeed=3061680259 draftGenCounter=1
+[notice ] Draft: Options names: Shield Bash, Punch, Stab
+[notice ] Network: Host sent DraftStatePacket (post-options): class=1 player=1 picks=2 stage=0
+[notice ] Initiative: Player 2 Wins Initiative
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Shield Bash, Punch, Stab
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Shield Bash, Punch, Stab
+[notice ] Draft: DRAFT CLICK: mousePos=(1426,777) selections=0 required=2 inGameDraft=0 draftStage=0 acceptRect=(0,0,0,0)
+[notice ] Draft: DRAFT CLICK: mousePos=(1422,968) selections=0 required=2 inGameDraft=0 draftStage=0 acceptRect=(0,0,0,0)
+[notice ] Draft: DRAFT CLICK: mousePos=(1410,1033) selections=0 required=2 inGameDraft=0 draftStage=0 acceptRect=(0,0,0,0)
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Shield Bash, Punch, Stab
+[notice ] Draft: DRAFT CLICK: mousePos=(1386,1021) selections=0 required=2 inGameDraft=0 draftStage=0 acceptRect=(0,0,0,0)
+[notice ] Draft: DRAFT CLICK: mousePos=(1394,1050) selections=0 required=2 inGameDraft=0 draftStage=0 acceptRect=(0,0,0,0)
+[notice ] Draft: DRAFT CLICK: mousePos=(1399,1057) selections=0 required=2 inGameDraft=0 draftStage=0 acceptRect=(0,0,0,0)
+[notice ] Draft: DRAFT CLICK: mousePos=(1414,1047) selections=0 required=2 inGameDraft=0 draftStage=0 acceptRect=(0,0,0,0)
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Shield Bash, Punch, Stab
+[notice ] Draft: DRAFT CLICK: mousePos=(1437,1044) selections=0 required=2 inGameDraft=0 draftStage=0 acceptRect=(0,0,0,0)
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Shield Bash, Punch, Stab
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Shield Bash, Punch, Stab
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Shield Bash, Punch, Stab
+[notice ] Network: Draft action received: type=0 opt=0 player=1 sel=1
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Shield Bash, Punch, Stab
+[notice ] Network: Draft action received: type=0 opt=1 player=1 sel=1
+[notice ] Network: Draft action received: type=1 opt=0 player=1 sel=0
+[notice ] Draft: HOST: Received client AcceptDraft from player=1 draftPlayerIdx=1 picks=2 indices=18,0,-1
+[notice ] Network: Host sent Shuffle packet: player=1 nonce=2783970274
+[notice ] Draft: generateDraftOptions called: classTier=2 draftStage=1 draftPlayerIndex=1 poolSize=25
+[notice ] Network: Host sent DraftOptionsPacket: 2,0,5 derivedSeed=3614363879 draftGenCounter=2
+[notice ] Draft: Options names: Fireball, Amnesia, Replicate
+[notice ] Network: Host sent DraftStatePacket (post-options): class=2 player=1 picks=1 stage=1
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=1) names=Fireball, Amnesia, Replicate
+[notice ] Network: Draft action received: type=0 opt=1 player=1 sel=1
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=1) names=Fireball, Amnesia, Replicate
+[notice ] Network: Draft action received: type=1 opt=0 player=1 sel=0
+[notice ] Draft: HOST: Received client AcceptDraft from player=1 draftPlayerIdx=1 picks=1 indices=0,-1,-1
+[notice ] Network: Host sent Shuffle packet: player=1 nonce=1112969434
+[notice ] Draft: generateDraftOptions called: classTier=1 draftStage=0 draftPlayerIndex=0 poolSize=30
+[notice ] Network: Host sent DraftOptionsPacket: 13,2,8 derivedSeed=854076841 draftGenCounter=3
+[notice ] Draft: Options names: Heal, Hand Block, Shock
+[notice ] Network: Host sent DraftStatePacket (post-options): class=1 player=0 picks=2 stage=0
+[notice ] Draft: DRAFT CLICK: mousePos=(1219,827) selections=0 required=2 inGameDraft=0 draftStage=0 acceptRect=(1170,1007,220,60)
+[notice ] Network: Sent draft select toggle: opt=1 sel=1
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=0 stage=0) names=Heal, Hand Block, Shock
+[notice ] Draft: DRAFT CLICK: mousePos=(1642,788) selections=1 required=2 inGameDraft=0 draftStage=0 acceptRect=(1170,1007,220,60)
+[notice ] Network: Sent draft select toggle: opt=2 sel=1
+[notice ] Draft: DRAFT CLICK: mousePos=(1342,1005) selections=2 required=2 inGameDraft=0 draftStage=0 acceptRect=(1170,1007,220,60)
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=0 stage=0) names=Heal, Hand Block, Shock
+[notice ] Draft: DRAFT CLICK: mousePos=(1320,1026) selections=2 required=2 inGameDraft=0 draftStage=0 acceptRect=(1170,1007,220,60)
+[notice ] Draft: ACCEPT BUTTON CLICKED: selections=2 required=2 rect=(1170,1007,220,60) mousePos=(1320,1026)
+[notice ] Network: Host: Sent local draft Accept to client (player=0 picks=2)
+[notice ] Network: Host sent Shuffle packet: player=0 nonce=3821011295
+[notice ] Draft: generateDraftOptions called: classTier=2 draftStage=1 draftPlayerIndex=0 poolSize=25
+[notice ] Network: Host sent DraftOptionsPacket: 7,12,6 derivedSeed=1408923017 draftGenCounter=4
+[notice ] Draft: Options names: Raise Dead, Flurry of Fists, Ethereal Jolt
+[notice ] Network: Host sent DraftStatePacket (post-options): class=2 player=0 picks=1 stage=1
+[notice ] Draft: DRAFT CLICK: mousePos=(1552,1059) selections=0 required=1 inGameDraft=0 draftStage=1 acceptRect=(1170,1007,220,60)
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=0 stage=1) names=Raise Dead, Flurry of Fists, Ethereal Jolt
+[notice ] Draft: DRAFT CLICK: mousePos=(933,838) selections=0 required=1 inGameDraft=0 draftStage=1 acceptRect=(1170,1007,220,60)
+[notice ] Network: Sent draft select toggle: opt=0 sel=1
+[notice ] Draft: DRAFT CLICK: mousePos=(1319,1035) selections=1 required=1 inGameDraft=0 draftStage=1 acceptRect=(1170,1007,220,60)
+[notice ] Draft: ACCEPT BUTTON CLICKED: selections=1 required=1 rect=(1170,1007,220,60) mousePos=(1319,1035)
+[notice ] Network: Host: Sent local draft Accept to client (player=0 picks=1)
+[notice ] Network: Host sent Shuffle packet: player=0 nonce=756007487
+[notice ] Game: Player 1's turn begins.
+[notice ] Dice: Rolled dice[0]: rawResult=6 finalResult=6 (owner=1)
+[notice ] Network: Skipping DiceRollPacket send for purpose=0 (handled authoritatively).
+[notice ] Dice: Final total result for 1d6: 6
+[notice ] Network: Host sent DraftStatePacket (draft->gameplay): curPlayer=1
+[notice ] Network: Host sent TurnStart (mousePressed): player=1 dice=1 total=6
+[notice ] Network:   Host sending dice[0]: raw=6 final=6
+[notice ] Checksum: Host checksum after TurnStart send (turn 0): 6972986176057521447
+[notice ] Hand: Displaying hand for player 0: 0 cards (isMultiplayer=1 myLocalPlayerID=0)
+[notice ] Game: AP Roll Finished: 6 AP awarded (sum of all dice).
+[notice ] Network: Host sent TurnStart (continueNewTurn): player=1 dice=1 total=6
+[notice ] Network: Received DrawCards from opponent: player=1 num=2
+[notice ] Network: Before removal: player 1 deck size=5 searching for 'Shield Bash'
+[notice ] Network: Removed 'Shield Bash' from deck. Size: 5 -> 4
+[notice ] Network: Added card to player 1's hand: Shield Bash
+[notice ] Network: Before removal: player 1 deck size=4 searching for 'Amnesia'
+[notice ] Network: Removed 'Amnesia' from deck. Size: 4 -> 3
+[notice ] Network: Added card to player 1's hand: Amnesia
+[notice ] Network: Received DiceRollPacket: 1d4 label=Amnesia: Cards to Remove
+[notice ] Sync: Opponent played card index: 1
+[notice ] Network: executeOpponentCardPlay: Opponent played Amnesia at (12,0) actorIndex=1
+[notice ] Network: executeOpponentCardPlay: Card type=17 cost=3
+[notice ] Network: executeOpponentCardPlay: Executing playCard with cardIndex=1 currentPlayerIndex=1 AP=6
+[notice ] Network: executeOpponentCardPlay: Hand size before playCard = 2, Played pile size = 0
+[notice ] Network: Host sent CardActionBegin: card=17 actor=1 target=(12,0) p0=0 p1=0
+[notice ] Network: Sent DiceRollPacket: 1d4 purpose=4 label=Amnesia: Cards to Remove
+[notice ] Dice: Final total result for 1d4: 2
+[notice ] Network: executeOpponentCardPlay: After playCard result=0 Hand size=2 Played pile size=0
+[notice ] Network: Received movement from opponent to (12,4) with AP=2
+[notice ] Network: Applied movement for player 1 to (12,4)
+[notice ] Network: Host sent KeyPickup: player=1 class=2
+[notice ] Draft: generateDraftOptions called: classTier=2 draftStage=2 draftPlayerIndex=1 poolSize=25
+[notice ] Network: Host sent DraftOptionsPacket: 10,9,14 derivedSeed=524141596 draftGenCounter=5
+[notice ] Draft: Options names: Flail, Call for Wolves, Call for Kobolds
+[notice ] Network: Host sent DraftStatePacket (post-options): class=2 player=1 picks=1 stage=2
+[notice ] Key: Player 1 picked up key (Class 2)
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=2) names=Flail, Call for Wolves, Call for Kobolds
+[notice ] Network: Draft action received: type=0 opt=1 player=1 sel=1
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=2) names=Flail, Call for Wolves, Call for Kobolds
+[notice ] Network: Draft action received: type=1 opt=0 player=1 sel=0
+[notice ] Draft: HOST: Received client AcceptDraft from player=1 draftPlayerIdx=1 picks=1 indices=9,-1,-1
+[notice ] Network: Host sent Shuffle packet: player=1 nonce=1947978339
+[notice ] Net: Opponent ended turn.
+[notice ] Network: Host: Processing END_TURN, calling startNewTurn()
+[notice ] Turn: startNewTurn() called. isMultiplayer=1 currentPlayerIndex=1 myLocalPlayerID=0 isCurrentPlayerLocal()=0
+[notice ] Turn: Processing ending player: index=1 playerID=1
+[notice ] Turn: Cleaning up ending player's hand. Hand size: 2, Played: 0
+[notice ] Game: --- START TURN: Player 0
+[notice ] Game: Player 0's turn begins.
+[notice ] Dice: Rolled dice[0]: rawResult=4 finalResult=4 (owner=0)
+[notice ] Network: Skipping DiceRollPacket send for purpose=0 (handled authoritatively).
+[notice ] Dice: Final total result for 1d6: 4
+[notice ] Game: AP Roll Finished: 4 AP awarded (sum of all dice).
+[notice ] Network: Host sent TurnStart (continueNewTurn): player=0 dice=1 total=4
+[notice ] Game: Drew card: Hand Block
+[notice ] Game: Drew card: Hand Block
+[notice ] Network: Host sent DrawCards packet: 2 cards
+[notice ] Hand: Displaying hand for player 0: 2 cards (isMultiplayer=1 myLocalPlayerID=0)
+[notice ] Network: sendActionPacket: Sending card 'Hand Block' (cardIndex=1) to target=(-1,-1) cost=1
+[notice ] Hand: Displaying hand for player 0: 1 cards (isMultiplayer=1 myLocalPlayerID=0)
+[notice ] Network: sendActionPacket: Sending card 'Hand Block' (cardIndex=0) to target=(-1,-1) cost=1
+[notice ] Hand: Displaying hand for player 0: 0 cards (isMultiplayer=1 myLocalPlayerID=0)
+[notice ] Network: Host sent movement to (0,6) with AP=0
+[notice ] Turn: startNewTurn() called. isMultiplayer=1 currentPlayerIndex=0 myLocalPlayerID=0 isCurrentPlayerLocal()=1
+[notice ] Turn: Ending my turn (player 0). Sending END_TURN packet.
+[notice ] DeckState: 
+=== DECK STATE LOG ===
+Time: 2026-02-12 11:55:32
+Reason: End Turn 1
+Turn: 1
+Current Player: 0
+Local Player ID: 0
+Is Host: true
+
+Player0 Deck[3]: Raise Dead(26), Shock(13), Shock(13) | Hand[0]:  | Discard[0]: 
+Player1 Deck[2]: Call for Wolves(32), Punch(5) | Hand[0]:  | Discard[2]: Shield Bash(41), Amnesia(17)
+=====================
+
+[notice ] Turn: Cleaning up local player's (0) hand and buffs...
+[notice ] Turn: Found local player at index 0. Hand size: 0, Played: 2
+[notice ] Turn: After cleanup: Hand size=0, Discard size=2
+[notice ] Turn: Host: Continuing with turn advancement...
+[notice ] Turn: Processing ending player: index=0 playerID=0
+[notice ] Turn: Cleaning up ending player's hand. Hand size: 0, Played: 0
+[notice ] Game: --- START TURN: Player 1
+[notice ] Game: Player 1's turn begins.
+[notice ] Dice: Rolled dice[0]: rawResult=3 finalResult=3 (owner=1)
+[notice ] Network: Skipping DiceRollPacket send for purpose=0 (handled authoritatively).
+[notice ] Dice: Final total result for 1d6: 3
+[notice ] Game: AP Roll Finished: 3 AP awarded (sum of all dice).
+[notice ] Network: Host sent TurnStart (continueNewTurn): player=1 dice=1 total=3
+[notice ] Network: Received DrawCards from opponent: player=1 num=2
+[notice ] Network: Before removal: player 1 deck size=2 searching for 'Call for Wolves'
+[notice ] Network: Removed 'Call for Wolves' from deck. Size: 2 -> 1
+[notice ] Network: Added card to player 1's hand: Call for Wolves
+[notice ] Network: Before removal: player 1 deck size=1 searching for 'Amnesia'
+[warning] Network: WARNING: Card 'Amnesia' NOT FOUND in deck to remove! Deck size=1
+[notice ] Network: Added card to player 1's hand: Amnesia
+[notice ] Net: Opponent ended turn.
+[notice ] Network: Host: Processing END_TURN, calling startNewTurn()
+[notice ] Turn: startNewTurn() called. isMultiplayer=1 currentPlayerIndex=1 myLocalPlayerID=0 isCurrentPlayerLocal()=0
+[notice ] Turn: Processing ending player: index=1 playerID=1
+[notice ] Turn: Cleaning up ending player's hand. Hand size: 2, Played: 0
+[notice ] Game: --- START TURN: Player 0
+[notice ] Game: Player 0's turn begins.
+[notice ] Dice: Rolled dice[0]: rawResult=5 finalResult=5 (owner=0)
+[notice ] Network: Skipping DiceRollPacket send for purpose=0 (handled authoritatively).
+[notice ] Dice: Final total result for 1d6: 5
+[notice ] Checksum: Host received checksum from player 1: remote=6316717595081221885 local=-806218568406783768
+[notice ] Checksum: Host P0 deck=[26(0),13(2),13(2)]
+[notice ] Checksum: Host P1 deck=[5(2)]
+[ error ] Net: DESYNC DETECTED! Local: -806218568406783768 Remote: 6316717595081221885 Turn: 1
+[ error ] Net: Player 0 id=0 deck=[26(0),13(2),13(2)] hand=0 discard=2
+[ error ] Net: Player 1 id=1 deck=[5(2)] hand=0 discard=4
+[ error ] Backup: No backup snapshot available for desync recovery!
+[notice ] SteamManager: Steam API Shutdown.
+[S_API FAIL] Tried to access Steam interface SteamNetworkingSockets012 before SteamAPI_Init succeeded.
