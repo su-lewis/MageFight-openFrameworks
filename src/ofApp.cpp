@@ -10265,29 +10265,75 @@ void ofApp::mousePressed(int x, int y, int button) {
 				}
 
 				if (amnesiaSelectedIndices.size() == static_cast<size_t>(numCardsToRemove)) {
-					Player * targetPlayer = getPlayer(amnesiaTargetPlayerIndex);
-					if (targetPlayer) {
-						std::sort(amnesiaSelectedIndices.rbegin(), amnesiaSelectedIndices.rend());
-						for (int selectedIdx : amnesiaSelectedIndices) {
-							if (static_cast<size_t>(selectedIdx) < targetPlayer->deck.size()) {
-								Card selectedCard = targetPlayer->deck[selectedIdx];
-								RemovedCardAnimation anim;
-								anim.card = selectedCard;
-								anim.startPos = {
-									panelX + panelPadding + (selectedIdx % gridWidthInCards) * (viewCardWidth + padding) + viewCardWidth / 2,
-									panelY + panelPadding + titleHeight + (selectedIdx / gridWidthInCards) * (viewCardHeight + padding) + viewCardHeight / 2
-								};
-								anim.startTime = ofGetElapsedTimef();
-								activeRemovedCardAnimations.push_back(anim);
-								targetPlayer->deck.erase(targetPlayer->deck.begin() + selectedIdx);
+					// finalize selection -> apply or send to host
+					std::vector<int> sel = amnesiaSelectedIndices;
+					std::sort(sel.rbegin(), sel.rend());
+
+					if (isMultiplayer) {
+						AmnesiaChoicePacket pkt = {};
+						pkt.type = PKT_AMNESIA_CHOICE;
+						pkt.playerID = myLocalPlayerID;
+						pkt.targetPlayerIndex = amnesiaTargetPlayerIndex;
+						pkt.numCardsToRemove = (uint8_t)sel.size();
+						for (size_t si = 0; si < sel.size() && si < 8; ++si)
+							pkt.selectedIndices[si] = sel[si];
+
+						if (isHost()) {
+							// apply immediately on host and broadcast
+							Player * targetPlayer = getPlayer(amnesiaTargetPlayerIndex);
+							if (targetPlayer) {
+								for (int selectedIdx : sel) {
+									if (static_cast<size_t>(selectedIdx) < targetPlayer->deck.size()) {
+										Card selectedCard = targetPlayer->deck[selectedIdx];
+										RemovedCardAnimation anim;
+										anim.card = selectedCard;
+										anim.startPos = {
+											panelX + panelPadding + (selectedIdx % gridWidthInCards) * (viewCardWidth + padding) + viewCardWidth / 2,
+											panelY + panelPadding + titleHeight + (selectedIdx / gridWidthInCards) * (viewCardHeight + padding) + viewCardHeight / 2
+										};
+										anim.startTime = ofGetElapsedTimef();
+										activeRemovedCardAnimations.push_back(anim);
+										targetPlayer->deck.erase(targetPlayer->deck.begin() + selectedIdx);
+									}
+								}
+							}
+							steamManager.sendPacket(&pkt, sizeof(pkt));
+						} else {
+							// client: send selection to host and wait for authoritative update
+							steamManager.sendPacket(&pkt, sizeof(pkt));
+						}
+
+						// clear UI locally; wait for host-applied state to reflect removals
+						isAmnesiaSelectionActive = false;
+						amnesiaSelectedIndices.clear();
+						amnesiaDeckCopy.clear();
+						amnesiaTargetPlayerIndex = -1;
+						amnesiaChooserPlayerID = -1;
+					} else {
+						// singleplayer: apply immediately
+						Player * targetPlayer = getPlayer(amnesiaTargetPlayerIndex);
+						if (targetPlayer) {
+							for (int selectedIdx : sel) {
+								if (static_cast<size_t>(selectedIdx) < targetPlayer->deck.size()) {
+									Card selectedCard = targetPlayer->deck[selectedIdx];
+									RemovedCardAnimation anim;
+									anim.card = selectedCard;
+									anim.startPos = {
+										panelX + panelPadding + (selectedIdx % gridWidthInCards) * (viewCardWidth + padding) + viewCardWidth / 2,
+										panelY + panelPadding + titleHeight + (selectedIdx / gridWidthInCards) * (viewCardHeight + padding) + viewCardHeight / 2
+									};
+									anim.startTime = ofGetElapsedTimef();
+									activeRemovedCardAnimations.push_back(anim);
+									targetPlayer->deck.erase(targetPlayer->deck.begin() + selectedIdx);
+								}
 							}
 						}
+						isAmnesiaSelectionActive = false;
+						amnesiaSelectedIndices.clear();
+						amnesiaDeckCopy.clear();
+						amnesiaTargetPlayerIndex = -1;
+						amnesiaChooserPlayerID = -1;
 					}
-					isAmnesiaSelectionActive = false;
-					amnesiaSelectedIndices.clear();
-					amnesiaDeckCopy.clear();
-					amnesiaTargetPlayerIndex = -1;
-					amnesiaChooserPlayerID = -1;
 				}
 				return;
 			}
@@ -12986,6 +13032,25 @@ CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		break;
 	}
 
+	// --- CASE: CHAIN LIGHTNING ---
+	case CARD_CHAIN_LIGHTNING: {
+		glm::vec2 casterTile = { (float)currentPlayer.x, (float)currentPlayer.y };
+		glm::vec2 targetTile = { (float)targetX, (float)targetY };
+
+		// Range roll to determine chain reach (numDice * diceSides interpreted by roll)
+		TargetInfo validationResult = isLosTargetValid(casterTile, targetTile, 9999.0f, playedCard.type);
+		if (validationResult.reason != VALID) break;
+
+		// Notify clients (host authoritative) that chain lightning action begins
+		if (isMultiplayer && isHost()) sendCardActionBegin(CARD_CHAIN_LIGHTNING, currentPlayerIndex, targetX, targetY, 0, 0, 0, 0, "Chain Lightning");
+
+		pendingChainLightningTargetTile = targetTile;
+		pendingChainLightningRangeResult = startDiceRoll(playedCard.numDice, playedCard.diceSides, PURPOSE_RANGE, "Chain Lightning: Range", currentPlayerIndex);
+		isWaitingForChainLightningRange = true;
+		playedSuccessfully = true;
+		break;
+	}
+
 	// --- CASE: ROCK CRUSH ---
 	case CARD_ROCK_CRUSH: {
 		if (board[targetX][targetY].hasWall) {
@@ -14274,6 +14339,10 @@ CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 	case CARD_CREATE_WALL: {
 		if (!board[targetX][targetY].hasWall && !board[targetX][targetY].hasPlayer) {
 			board[targetX][targetY].hasWall = true;
+			// If this card is "Summon Magic Wall", mark the wall as magic
+			if (playedCard.name == "Summon Magic Wall") {
+				board[targetX][targetY].isMagicWall = true;
+			}
 			buildLevelMesh();
 			invalidateTargetCache();
 			playedSuccessfully = true;
@@ -20010,6 +20079,60 @@ void ofApp::processNetworkPackets() {
 						steamManager.sendPacket(&dcpkt, sizeof(dcpkt));
 						ofLogNotice("Network") << "Host: Sent DrawCards packet for Renewed Inspiration: " << cardsToDraw << " cards";
 					}
+				}
+			}
+			continue;
+		}
+
+		// Handle Amnesia choices: clients send selection to host; host applies and forwards
+		if (header->type == PKT_AMNESIA_CHOICE) {
+			AmnesiaChoicePacket * apk = (AmnesiaChoicePacket *)header;
+			ofLogNotice("Network") << "AmnesiaChoice packet received: sender=" << apk->playerID << " targetPlayerIndex=" << apk->targetPlayerIndex << " count=" << (int)apk->numCardsToRemove;
+			int tIdx = apk->targetPlayerIndex;
+			if (tIdx >= 0 && tIdx < (int)players.size()) {
+				// Host applies changes and forwards to clients
+				if (isHost()) {
+					// Apply removals authoritatively
+					Player & p = players[tIdx];
+					std::vector<int> indices;
+					for (int i = 0; i < apk->numCardsToRemove && i < 8; ++i)
+						indices.push_back(apk->selectedIndices[i]);
+					std::sort(indices.begin(), indices.end(), std::greater<int>());
+					for (int idx : indices) {
+						if (idx >= 0 && idx < (int)p.deck.size()) {
+							Card c = p.deck[idx];
+							RemovedCardAnimation anim;
+							anim.card = c;
+							anim.startPos = glm::vec2(ofGetWidth() / 2, ofGetHeight() / 2); // best-effort placement
+							anim.startTime = ofGetElapsedTimef();
+							activeRemovedCardAnimations.push_back(anim);
+							p.deck.erase(p.deck.begin() + idx);
+						}
+					}
+					// Broadcast the same packet to clients so they can mirror the removals
+					AmnesiaChoicePacket outPkt = *apk;
+					outPkt.playerID = myLocalPlayerID;
+					steamManager.sendPacket(&outPkt, sizeof(outPkt));
+					ofLogNotice("Network") << "Host applied Amnesia and forwarded packet.";
+				} else {
+					// Client applying the host-forwarded packet (or possibly echo of own send) -- apply visuals
+					Player & p = players[tIdx];
+					std::vector<int> indices;
+					for (int i = 0; i < apk->numCardsToRemove && i < 8; ++i)
+						indices.push_back(apk->selectedIndices[i]);
+					std::sort(indices.begin(), indices.end(), std::greater<int>());
+					for (int idx : indices) {
+						if (idx >= 0 && idx < (int)p.deck.size()) {
+							Card c = p.deck[idx];
+							RemovedCardAnimation anim;
+							anim.card = c;
+							anim.startPos = glm::vec2(ofGetWidth() / 2, ofGetHeight() / 2);
+							anim.startTime = ofGetElapsedTimef();
+							activeRemovedCardAnimations.push_back(anim);
+							p.deck.erase(p.deck.begin() + idx);
+						}
+					}
+					ofLogNotice("Network") << "Client applied Amnesia removals locally.";
 				}
 			}
 			continue;

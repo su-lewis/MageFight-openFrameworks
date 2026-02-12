@@ -28,6 +28,7 @@ enum PacketType {
 	PKT_SNAPSHOT_CHUNK, // Host -> Client: snapshot data chunk
 	PKT_SNAPSHOT_END, // Host -> Client: end state snapshot
 	PKT_MENU_STATE, // Menu open/close/hover state for choice-based cards
+	PKT_AMNESIA_CHOICE, // Player's selection for Amnesia (which cards to remove)
 	PKT_RENEWED_INSPIRATION, // Renewed Inspiration selection
 	PKT_PLACE_SUMMONED_MINION, // Host -> Client: inform clients a summoned minion was placed
 	PKT_PLACE_SUMMONED_BEGIN, // Host -> Client: begin remote placement preview (e.g., Kobolds/Wolves)
