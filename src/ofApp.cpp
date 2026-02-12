@@ -1148,7 +1148,8 @@ void ofApp::update() {
 						steamManager.sendPacket(&sp, sizeof(sp));
 					}
 				} else {
-					// TIE - Reroll: all players reroll using shared deterministic RNG
+					// TIE - Reroll: spawn two dice again so the initiative UI shows properly
+					startDiceRoll(1, 6, PURPOSE_DEBUG, "Initiative Reroll", currentPlayerIndex);
 					startDiceRoll(1, 6, PURPOSE_DEBUG, "Initiative Reroll", currentPlayerIndex);
 					initiativeTimer = 0.0f;
 					ofLogNotice("Initiative") << "Tie! Rerolling...";
