@@ -579,9 +579,16 @@ private:
 	std::string desyncMessage;
 	// If true client should wait for host TurnStart packet before performing AP roll
 	bool waitingForTurnStartFromHost = false;
+
+	// If true client has requested a snapshot from host and is awaiting it
+	bool waitingForSnapshot = false;
+	// Timestamp of last snapshot request to avoid spamming (seconds)
+	float lastSnapshotRequestTime = 0.0f;
 	// Client: handle out-of-order shuffle packets during draft
-	uint32_t pendingShuffleNonce[2] = { 0, 0 };
-	bool hasPendingShuffleNonce[2] = { false, false };
+	// Client: handle out-of-order shuffle packets during draft
+	// We store a FIFO queue of pending shuffle nonces per player so multiple
+	// shuffle packets received during drafting are applied in order.
+	std::deque<uint32_t> pendingShuffleNonces[2];
 	uint32_t lastAppliedShuffleNonce[2] = { 0, 0 };
 
 	// Helper to get synced numbers

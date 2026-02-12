@@ -11177,6 +11177,19 @@ void ofApp::mousePressed(int x, int y, int button) {
 
 		// 3g. End Turn Button
 		if (endTurnButtonRect.inside(x, y) && button == OF_MOUSE_BUTTON_LEFT) {
+			// Prevent ending turn while AP roll animation is still running for this unit
+			bool apRollActiveLocal = false;
+			for (const auto & r : activeDiceRolls) {
+				if ((r.purpose == PURPOSE_AP || r.purpose == PURPOSE_BONUS_AP) && !r.isFinishedVisual && r.associatedUnit == currentPlayerIndex) {
+					apRollActiveLocal = true;
+					break;
+				}
+			}
+			if (apRollActiveLocal) {
+				spawnFloatingText(glm::vec3(endTurnButtonRect.getCenter().x, endTurnButtonRect.getCenter().y, 0.0f), "AP roll in progress", ofColor::yellow);
+				ofLogNotice("Turn") << "End Turn click ignored: AP roll still active for current unit.";
+				return;
+			}
 			if (endTurnLocked) return;
 
 			// --- GHOST FORM CHECK ---
@@ -12622,13 +12635,14 @@ void ofApp::drawCard() {
 	// --- PHASE 2: DRAW THE CARD ---
 	// We check empty() again because we might have just refilled it in Phase 1.
 	if (isClient() && currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) {
-		if (hasPendingShuffleNonce[currentPlayerIndex]) {
-			std::mt19937 shuffleRng(pendingShuffleNonce[currentPlayerIndex]);
+		auto & dq = pendingShuffleNonces[currentPlayerIndex];
+		if (!dq.empty()) {
+			uint32_t nonceToApply = dq.front();
+			dq.pop_front();
+			std::mt19937 shuffleRng(nonceToApply);
 			deterministic_shuffle(currentPlayer.deck, shuffleRng);
-			lastAppliedShuffleNonce[currentPlayerIndex] = pendingShuffleNonce[currentPlayerIndex];
-			hasPendingShuffleNonce[currentPlayerIndex] = false;
-			pendingShuffleNonce[currentPlayerIndex] = 0;
-			ofLogNotice("Network") << "Client: Applied pending shuffle nonce for player " << currentPlayerIndex << " before draw";
+			lastAppliedShuffleNonce[currentPlayerIndex] = nonceToApply;
+			ofLogNotice("Network") << "Client: Applied pending shuffle nonce for player " << currentPlayerIndex << " before draw (nonce=" << nonceToApply << ")";
 		}
 	}
 	if (!currentPlayer.deck.empty()) {
@@ -20096,15 +20110,28 @@ void ofApp::processNetworkPackets() {
 			ShufflePacket * spk = (ShufflePacket *)header;
 			ofLogNotice("Network") << "Shuffle packet received: player=" << spk->playerIndex << " nonce=" << spk->nonce;
 			if (spk->playerIndex >= 0 && spk->playerIndex < (int)players.size()) {
+				// If we're a client and drafting hasn't been accepted yet, queue the nonce
 				if (isClient() && (currentState == STATE_DRAFTING || isInGameDraft) && !draftAcceptApplied) {
-					pendingShuffleNonce[spk->playerIndex] = spk->nonce;
-					hasPendingShuffleNonce[spk->playerIndex] = true;
-					ofLogNotice("Network") << "Client: Deferring shuffle for player " << spk->playerIndex << " until draft accept applies";
+					pendingShuffleNonces[spk->playerIndex].push_back(spk->nonce);
+					ofLogNotice("Network") << "Client: Queued shuffle nonce for player " << spk->playerIndex << " (queued count=" << pendingShuffleNonces[spk->playerIndex].size() << ")";
 					continue;
 				}
-				if (isClient() && lastAppliedShuffleNonce[spk->playerIndex] == spk->nonce) {
-					ofLogNotice("Network") << "Client: Ignoring duplicate shuffle nonce for player " << spk->playerIndex;
-					continue;
+				// If the nonce was already applied or is already queued, ignore
+				if (isClient()) {
+					if (lastAppliedShuffleNonce[spk->playerIndex] == spk->nonce) {
+						ofLogNotice("Network") << "Client: Ignoring duplicate shuffle nonce for player " << spk->playerIndex << " (already applied)";
+						continue;
+					}
+					bool alreadyQueued = false;
+					for (auto qn : pendingShuffleNonces[spk->playerIndex])
+						if (qn == spk->nonce) {
+							alreadyQueued = true;
+							break;
+						}
+					if (alreadyQueued) {
+						ofLogNotice("Network") << "Client: Ignoring duplicate shuffle nonce for player " << spk->playerIndex << " (already queued)";
+						continue;
+					}
 				}
 				std::mt19937 shuffleRng(spk->nonce);
 				deterministic_shuffle(players[spk->playerIndex].deck, shuffleRng);
@@ -20554,9 +20581,24 @@ void ofApp::processNetworkPackets() {
 			if (ep->snapshotId == incomingSnapshotId && incomingSnapshotExpectedSize > 0) {
 				ofLogNotice("Network") << "Snapshot end (id=" << incomingSnapshotId << ")";
 				applySnapshotString(incomingSnapshotBuffer);
+				// Clear waiting flag if we had requested this snapshot
+				waitingForSnapshot = false;
+				addGameLog("Recovered game state from host snapshot");
+				spawnFloatingText(glm::vec3(0, 5, 0), "Snapshot Applied", ofColor::green);
 				incomingSnapshotBuffer.clear();
 				incomingSnapshotExpectedSize = 0;
 				incomingSnapshotReceivedSize = 0;
+			}
+			continue;
+		}
+
+		if (header->type == PKT_SNAPSHOT_REQUEST) {
+			SnapshotRequestPacket * rp = (SnapshotRequestPacket *)header;
+			ofLogNotice("Network") << "Snapshot request received from player " << rp->playerID << " requestedTurn=" << rp->requestedTurn;
+			if (isHost()) {
+				// Send the authoritative snapshot to the requesting client
+				sendSnapshotToClient();
+				ofLogNotice("Network") << "Host: Sent authoritative snapshot to client.";
 			}
 			continue;
 		}
@@ -21044,11 +21086,30 @@ void ofApp::processNetworkPackets() {
 					spawnFloatingText(glm::vec3(0, 5, 0), "Desync Recovered", ofColor::yellow);
 					ofLogNotice("Backup") << "Successfully restored game state from backup and rebuilt UI";
 				} else {
-					// No backup available - show error and go to desync state
+					// No backup available - request authoritative snapshot from host (client-side)
 					ofLogError("Backup") << "No backup snapshot available for desync recovery!";
-					desyncMessage = "DESYNC! Local:" + ofToString(mySum) + " Remote:" + ofToString(pkt->checksum) + " Turn:" + ofToString(pkt->turnNumber);
-					currentState = STATE_DESYNC;
-					spawnFloatingText(glm::vec3(0, 5, 0), "DESYNC DETECTED", ofColor::red);
+					if (isClient()) {
+						float now = ofGetElapsedTimef();
+						if (!waitingForSnapshot || (now - lastSnapshotRequestTime) > 5.0f) {
+							SnapshotRequestPacket req = {};
+							req.type = PKT_SNAPSHOT_REQUEST;
+							req.playerID = myLocalPlayerID;
+							req.requestedTurn = pkt->turnNumber;
+							bool ok = steamManager.sendPacket(&req, sizeof(req));
+							waitingForSnapshot = true;
+							lastSnapshotRequestTime = now;
+							ofLogNotice("Network") << "Client requested authoritative snapshot from host (ok=" << ok << ")";
+							addGameLog("Checksum mismatch: requested host snapshot for recovery");
+							spawnFloatingText(glm::vec3(0, 5, 0), "Requesting host snapshot...", ofColor::yellow);
+						} else {
+							ofLogNotice("Network") << "Waiting for host snapshot (already requested).";
+						}
+					} else {
+						// Host with no backup - go to desync state as a fallback
+						desyncMessage = "DESYNC! Local:" + ofToString(mySum) + " Remote:" + ofToString(pkt->checksum) + " Turn:" + ofToString(pkt->turnNumber);
+						currentState = STATE_DESYNC;
+						spawnFloatingText(glm::vec3(0, 5, 0), "DESYNC DETECTED", ofColor::red);
+					}
 				}
 			} else {
 				// Checksum validated successfully - save verified backup snapshot
@@ -21453,16 +21514,16 @@ void ofApp::processNetworkPackets() {
 					// wait for the host's authoritative `PKT_SHUFFLE` for this player's deck.
 					if (isClient()) {
 						int pid = pkt->draftPlayerIdx;
-						if (pid >= 0 && pid < (int)players.size() && hasPendingShuffleNonce[pid]) {
-							std::mt19937 shuffleRng(pendingShuffleNonce[pid]);
+						if (pid >= 0 && pid < (int)players.size() && !pendingShuffleNonces[pid].empty()) {
+							uint32_t nonceToApply = pendingShuffleNonces[pid].front();
+							pendingShuffleNonces[pid].pop_front();
+							std::mt19937 shuffleRng(nonceToApply);
 							deterministic_shuffle(p.deck, shuffleRng);
-							lastAppliedShuffleNonce[pid] = pendingShuffleNonce[pid];
-							hasPendingShuffleNonce[pid] = false;
-							pendingShuffleNonce[pid] = 0;
+							lastAppliedShuffleNonce[pid] = nonceToApply;
 							if (skipClientShuffleFor == pid) {
 								skipClientShuffleFor = -1;
 							}
-							ofLogNotice("Network") << "Client: Applied deferred shuffle nonce for player " << pid << " after AcceptDraft";
+							ofLogNotice("Network") << "Client: Applied deferred shuffle nonce for player " << pid << " after AcceptDraft (nonce=" << nonceToApply << ")";
 						} else {
 							skipClientShuffleFor = pid;
 							shuffleGameVector(p.deck, pid);

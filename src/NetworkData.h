@@ -24,6 +24,7 @@ enum PacketType {
 	PKT_CHAT_MESSAGE, // Chat message between players
 	PKT_HOVER, // Hover state update for showing opponent's hover
 	PKT_DRAW_CARDS, // Client -> Host: player drew cards from deck
+	PKT_SNAPSHOT_REQUEST, // Client -> Host: request authoritative snapshot from host
 	PKT_SNAPSHOT_BEGIN, // Host -> Client: begin state snapshot
 	PKT_SNAPSHOT_CHUNK, // Host -> Client: snapshot data chunk
 	PKT_SNAPSHOT_END, // Host -> Client: end state snapshot
@@ -301,6 +302,11 @@ struct HoverPacket : PacketHeader {
 struct SnapshotBeginPacket : PacketHeader {
 	uint32_t snapshotId;
 	uint32_t totalSize;
+};
+
+// Client -> Host: Request the authoritative snapshot from the host
+struct SnapshotRequestPacket : PacketHeader {
+	uint32_t requestedTurn; // optional: turn number client expects
 };
 
 // Snapshot data chunk packet
