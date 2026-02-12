@@ -9913,7 +9913,6 @@ void ofApp::mousePressed(int x, int y, int button) {
 			amnesiaChooserPlayerID = caster.isMinion ? caster.ownerID : caster.playerID;
 			// Inform opponent of the card play in multiplayer so host/client AP stays in sync
 			if (isMultiplayer) {
-				players[currentPlayerIndex].ap = currentAP;
 				sendActionPacket(pendingAmnesiaCardIndex, -1, -1, amnesiaCard.cost, 0, amnesiaCard.name);
 			}
 			// Consume AP and discard card now
@@ -9924,6 +9923,8 @@ void ofApp::mousePressed(int x, int y, int button) {
 				caster.isReplicatePending = false;
 			}
 			caster.hand.erase(caster.hand.begin() + pendingAmnesiaCardIndex);
+			// Sync AP so UI reflects the spent AP immediately
+			if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) players[currentPlayerIndex].ap = currentAP;
 			pendingAmnesiaCardIndex = -1;
 		} else if (amnesiaBtnAdjacent.inside(x, y)) {
 			// Enter targeting mode for adjacent units
@@ -10049,6 +10050,8 @@ void ofApp::mousePressed(int x, int y, int button) {
 				p.hand.push_back(c);
 			}
 
+			// Sync authoritative AP so UI and network reflect refund
+			if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) players[currentPlayerIndex].ap = currentAP;
 			isSelectingRenewedInspiration = false;
 			return;
 		}
@@ -10883,6 +10886,9 @@ void ofApp::mousePressed(int x, int y, int button) {
 					p.playedCardsPile.pop_back();
 					p.hand.push_back(c); // Put it back
 				}
+
+				// Sync authoritative AP so UI and network reflect refund
+				if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) players[currentPlayerIndex].ap = currentAP;
 
 				isSelectingRenewedInspiration = false;
 				return;
