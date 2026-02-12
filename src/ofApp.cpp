@@ -20602,6 +20602,22 @@ void ofApp::processNetworkPackets() {
 							remoteKoboldPlacementSourceY = -1;
 						}
 					}
+
+					// If we're a client waiting for the host's TurnStart and our restored
+					// currentPlayerIndex now points to a minion (possible due to sorting),
+					// advance to the next non-minion so the client doesn't think it's a minion's turn.
+					if (isClient() && waitingForTurnStartFromHost && currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size() && players[currentPlayerIndex].isMinion) {
+						bool found = false;
+						for (int off = 1; off < (int)players.size(); ++off) {
+							int idx = (currentPlayerIndex + off) % (int)players.size();
+							if (!players[idx].isMinion) {
+								currentPlayerIndex = idx;
+								found = true;
+								break;
+							}
+						}
+						if (found) ofLogNotice("Network") << "Adjusted client currentPlayerIndex to non-minion after remote summon: " << players[currentPlayerIndex].playerID;
+					}
 				}
 			}
 			continue;
