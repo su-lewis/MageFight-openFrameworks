@@ -20676,7 +20676,13 @@ void ofApp::processNetworkPackets() {
 			HandshakePacket * pkt = (HandshakePacket *)header;
 			ofLogNotice("Net") << "Handshake received: type=" << (int)pkt->type << " playerID=" << pkt->playerID << " seq=" << pkt->seq << " seed=" << pkt->seed << " platform=" << MAGEFIGHT_PLATFORM;
 			if (hasReceivedHandshake) {
-				ofLogNotice("Net") << "Ignoring duplicate handshake (already initialized).";
+				// The map seed must never change during a session. If we receive a later
+				// handshake with a different seed, ignore it and log an error.
+				if (pkt->seed != currentMapSeed) {
+					ofLogError("Net") << "Handshake seed changed after initialization! previous=" << currentMapSeed << " new=" << pkt->seed << " -- IGNORING new seed.";
+				} else {
+					ofLogNotice("Net") << "Ignoring duplicate handshake (already initialized).";
+				}
 				continue;
 			}
 
@@ -21157,6 +21163,21 @@ void ofApp::processNetworkPackets() {
 				} else {
 					// No backup available - request authoritative snapshot from host (client-side)
 					ofLogError("Backup") << "No backup snapshot available for desync recovery!";
+					// Dump local snapshot to disk for offline analysis
+					try {
+						std::string snap = buildSnapshotString();
+						std::string path = "bin/data/desync_local_snapshot_" + ofGetTimestampString() + ".txt";
+						std::ofstream ofs(path);
+						if (ofs) {
+							ofs << snap;
+							ofs.close();
+							ofLogNotice("Backup") << "Wrote local snapshot to " << path;
+						} else {
+							ofLogError("Backup") << "Failed to write local snapshot to " << path;
+						}
+					} catch (...) {
+						ofLogError("Backup") << "Exception while writing local snapshot to disk.";
+					}
 					if (isClient()) {
 						float now = ofGetElapsedTimef();
 						if (!waitingForSnapshot || (now - lastSnapshotRequestTime) > 5.0f) {
@@ -21174,7 +21195,21 @@ void ofApp::processNetworkPackets() {
 							ofLogNotice("Network") << "Waiting for host snapshot (already requested).";
 						}
 					} else {
-						// Host with no backup - go to desync state as a fallback
+						// Host with no backup - write authoritative snapshot and go to desync state as a fallback
+						try {
+							std::string snap = buildSnapshotString();
+							std::string path = "bin/data/desync_host_snapshot_" + ofGetTimestampString() + ".txt";
+							std::ofstream ofs(path);
+							if (ofs) {
+								ofs << snap;
+								ofs.close();
+								ofLogNotice("Backup") << "Wrote host snapshot to " << path;
+							} else {
+								ofLogError("Backup") << "Failed to write host snapshot to " << path;
+							}
+						} catch (...) {
+							ofLogError("Backup") << "Exception while writing host snapshot to disk.";
+						}
 						desyncMessage = "DESYNC! Local:" + ofToString(mySum) + " Remote:" + ofToString(pkt->checksum) + " Turn:" + ofToString(pkt->turnNumber);
 						currentState = STATE_DESYNC;
 						spawnFloatingText(glm::vec3(0, 5, 0), "DESYNC DETECTED", ofColor::red);

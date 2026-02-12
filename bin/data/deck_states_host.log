@@ -1,12 +1,12 @@
 
 === DECK STATE LOG ===
-Time: 2026-02-12 20:06:43
-Reason: End Turn 1
-Turn: 1
+Time: 2026-02-12 21:53:19
+Reason: End Turn 5
+Turn: 5
 Current Player: 0
 Local Player ID: 0
 Is Host: true
 
-Player0 Deck[3]: Rock Crush(14), Vampire Bite(4), Chain Lightning(42) | Hand[2]: Summon Assistant(58), Summon Assistant(58) | Discard[2]: Summon Wall(2), Summon Wall(2)
-Player1 Deck[4]: Heal(25), Hasten(20), Vampire Bite(4), Four-leaf clover(60) | Hand[0]:  | Discard[2]: Heal(25), Vampire Bite(4)
+Player0 Deck[3]: Summon Faerie(59), Drain Punch(30), Shock(13) | Hand[0]:  | Discard[2]: Shock(13), Drain Punch(30)
+Player1 Deck[5]: Train(66), Lesser Heal(55), Lesser Heal(55), Train(66), Call for Kobolds(47) | Hand[0]:  | Discard[0]: 
 =====================
