@@ -11605,6 +11605,18 @@ void ofApp::mouseReleased(int x, int y, int button) {
 							// Roll dice - result IS the range in feet (3d6 = 3-18ft)
 							pendingTeleportRollResult = startDiceRoll(playedCard.numDice, playedCard.diceSides, PURPOSE_RANGE, "Teleport: Range");
 							isWaitingForTeleportDice = true;
+
+							// Pay cost and mark as played (card remains in hand until destination chosen)
+							currentAP -= playedCard.cost;
+							currentPlayer.playedCardsPile.push_back(playedCard);
+							if (currentPlayer.isReplicatePending) {
+								currentPlayer.playedCardsPile.push_back(playedCard);
+								currentPlayer.isReplicatePending = false;
+							}
+							currentPlayer.cardsPlayedThisTurn.push_back(playedCard.type);
+
+							// Notify clients that a multi-stage card action has begun (host authoritative)
+							if (isMultiplayer && isHost()) sendCardActionBegin(CARD_TELEPORT, currentPlayerIndex, -1, -1, 0, 0, 0, 0, "Teleport");
 							draggedCardIndex = -1;
 							selectedCardIndex = -1;
 							return;
@@ -14588,7 +14600,13 @@ CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 			currentPlayer.hand.erase(currentPlayer.hand.begin() + cardIndex);
 		}
 
-		// 5. Enter Selection Mode
+		// 5. Multiplayer: notify host of the card play so AP and played-pile stay authoritative
+		if (isMultiplayer) {
+			players[currentPlayerIndex].ap = currentAP;
+			sendActionPacket(cardIndex, -1, -1, playedCard.cost, 0, playedCard.name);
+		}
+
+		// 6. Enter Selection Mode
 		isSelectingRenewedInspiration = true;
 		renewedSelectedHandIndices.clear();
 
@@ -17909,33 +17927,11 @@ void ofApp::drawJoinedOutlines(bool highlightedTiles[BOARD_WIDTH][BOARD_HEIGHT],
 
 			ofPopMatrix();
 
-			// Draw vertical edges on wall sides that meet non-wall tiles
-			if (board[x][y].hasWall) {
-				float wallHeight = TILE_SIZE * 0.5f;
-				float floorY = surfaceY + 0.01f;
-				float wallTopY = wallHeight + 0.06f;
-
-				if (drawTopVertical) {
-					// North face vertical edges
-					ofDrawLine(worldPos.x - halfSize, floorY, worldPos.z - halfSize, worldPos.x - halfSize, wallTopY, worldPos.z - halfSize);
-					ofDrawLine(worldPos.x + halfSize, floorY, worldPos.z - halfSize, worldPos.x + halfSize, wallTopY, worldPos.z - halfSize);
-				}
-				if (drawBottomVertical) {
-					// South face vertical edges
-					ofDrawLine(worldPos.x - halfSize, floorY, worldPos.z + halfSize, worldPos.x - halfSize, wallTopY, worldPos.z + halfSize);
-					ofDrawLine(worldPos.x + halfSize, floorY, worldPos.z + halfSize, worldPos.x + halfSize, wallTopY, worldPos.z + halfSize);
-				}
-				if (drawLeftVertical) {
-					// West face vertical edges
-					ofDrawLine(worldPos.x - halfSize, floorY, worldPos.z - halfSize, worldPos.x - halfSize, wallTopY, worldPos.z - halfSize);
-					ofDrawLine(worldPos.x - halfSize, floorY, worldPos.z + halfSize, worldPos.x - halfSize, wallTopY, worldPos.z + halfSize);
-				}
-				if (drawRightVertical) {
-					// East face vertical edges
-					ofDrawLine(worldPos.x + halfSize, floorY, worldPos.z - halfSize, worldPos.x + halfSize, wallTopY, worldPos.z - halfSize);
-					ofDrawLine(worldPos.x + halfSize, floorY, worldPos.z + halfSize, worldPos.x + halfSize, wallTopY, worldPos.z + halfSize);
-				}
-			}
+			// Vertical wall-face outlines intentionally omitted so white outlines
+			// join vertically (like horizontal joins) and avoid z-fighting with wall geometry.
+			// Previously we drew vertical edges on wall faces when adjacent tiles
+			// were non-highlighted; removing them makes outlines appear continuous
+			// across wall tiles and prevents overlapping geometry issues.
 		}
 	}
 
@@ -21849,6 +21845,91 @@ void ofApp::executeOpponentCardPlay(const ActionPacket & pkt) {
 
 		opponentPlayer.hand.erase(opponentPlayer.hand.begin() + tempCardIndex);
 		opponentPlayer.ap = pkt.updatedAP;
+		currentPlayerIndex = savedCurrentPlayerIndex;
+		currentAP = savedCurrentAP;
+		return;
+	}
+
+	// Special-case: Summon Faerie (host should create authoritative minion placement)
+	if (cardDef.type == CARD_SUMMON_FAERIE) {
+		// Create Faerie minion at target tile (tx,ty) for the opponent
+		if (tx >= 0 && tx < BOARD_WIDTH && ty >= 0 && ty < BOARD_HEIGHT && !board[tx][ty].hasPlayer) {
+			Player minion;
+			minion.playerID = 6000 + (int)players.size();
+			minion.x = tx;
+			minion.y = ty;
+			minion.maxHealth = 5;
+			minion.health = 5;
+			minion.isMinion = true;
+			minion.isFaerie = true;
+			minion.hasRegeneration = true;
+			minion.originalModelType = "Faerie";
+
+			minion.directSummonerID = opponentPlayer.playerID;
+			minion.ownerID = opponentPlayer.isMinion ? opponentPlayer.ownerID : opponentPlayer.playerID;
+			minion.summonedOnTurnCycle = globalTurnCounter;
+			minion.summonOrder = ++nextSummonOrder;
+
+			// Build faerie deck
+			Card dispel, lesserHeal, magicBlast;
+			for (const auto & c : allCards) {
+				if (c.name == "Dispel") dispel = c;
+				if (c.name == "Lesser Heal") lesserHeal = c;
+				if (c.name == "Magic Blast") magicBlast = c;
+			}
+			minion.deck = { dispel, dispel, lesserHeal, lesserHeal, magicBlast };
+
+			// Place and register
+			board[tx][ty].hasPlayer = true;
+			players.push_back(minion);
+			int newIdx = (int)players.size() - 1;
+			shuffleGameVector(players[newIdx].deck, newIdx);
+
+			// If host, broadcast placement to other clients
+			if (isMultiplayer && isHost()) {
+				PlaceSummonedMinionPacket pkt = {};
+				pkt.type = PKT_PLACE_SUMMONED_MINION;
+				pkt.playerID = myLocalPlayerID;
+				pkt.minionType = 7; // FAERIE
+				pkt.ownerPlayerID = minion.ownerID;
+				pkt.targetX = minion.x;
+				pkt.targetY = minion.y;
+				pkt.minionHP = minion.maxHealth;
+				pkt.minionAP = 0;
+				steamManager.sendPacket(&pkt, sizeof(pkt));
+				ofLogNotice("Network") << "Host sent PlaceSummonedMinion: FAERIE owner=" << pkt.ownerPlayerID << " target=(" << pkt.targetX << "," << pkt.targetY << ") HP=" << pkt.minionHP;
+			}
+
+			// Re-sort turn order and restore current player index
+			int savedID = players[savedCurrentPlayerIndex].playerID;
+			std::sort(players.begin(), players.end(), [](const Player & a, const Player & b) {
+				int ownerA = a.isMinion ? a.ownerID : a.playerID;
+				int ownerB = b.isMinion ? b.ownerID : b.playerID;
+				if (ownerA != ownerB) return ownerA < ownerB;
+				if (a.isMinion && !b.isMinion) return true;
+				if (!a.isMinion && b.isMinion) return false;
+				return a.summonOrder < b.summonOrder;
+			});
+			for (size_t i = 0; i < players.size(); i++) {
+				if (players[i].playerID == savedID) {
+					currentPlayerIndex = i;
+					break;
+				}
+			}
+
+			// Track played card and AP
+			currentAP -= cardDef.cost;
+			opponentPlayer.playedCardsPile.push_back(cardDef);
+			if (opponentPlayer.isReplicatePending) {
+				opponentPlayer.playedCardsPile.push_back(cardDef);
+				opponentPlayer.isReplicatePending = false;
+			}
+			opponentPlayer.cardsPlayedThisTurn.push_back(cardDef.type);
+			if (tempCardIndex >= 0 && tempCardIndex < (int)opponentPlayer.hand.size()) opponentPlayer.hand.erase(opponentPlayer.hand.begin() + tempCardIndex);
+			opponentPlayer.ap = pkt.updatedAP;
+			invalidateTargetCache();
+		}
+		// Restore contexts
 		currentPlayerIndex = savedCurrentPlayerIndex;
 		currentAP = savedCurrentAP;
 		return;
