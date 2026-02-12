@@ -1634,12 +1634,12 @@ void ofApp::initializeGameStateCommon() {
 	cameraCurrentPan = glm::vec3(0, 0, 0);
 	isTopDownView = false;
 
-	// Setup Player 0's camera (south side)
-	cam.setPosition(0, cameraCurrentZoom * 1.18f, cameraCurrentZoom * 0.70f);
+	// Setup Player 0's camera (south side) — tilt a bit more toward board
+	cam.setPosition(0, cameraCurrentZoom * 1.05f, cameraCurrentZoom * 0.90f);
 	cam.lookAt(cameraCurrentPan);
 
 	// Setup Player 1's camera (north side, 180° opposite)
-	cam2.setPosition(0, cameraCurrentZoom * 1.18f, -(cameraCurrentZoom * 0.70f));
+	cam2.setPosition(0, cameraCurrentZoom * 1.05f, -(cameraCurrentZoom * 0.90f));
 	cam2.lookAt(glm::vec3(cameraCurrentPan.x, cameraCurrentPan.y, -cameraCurrentPan.z));
 	cameraCurrentPos = cam.getPosition();
 	cameraCurrentPos2 = cam2.getPosition();
@@ -1900,8 +1900,8 @@ void ofApp::updateGame() {
 	} else {
 		// Use updated multipliers at runtime target: raise Y a bit to look more
 		// top-down while keeping the same Z back offset.
-		targetPos = glm::vec3(cameraCurrentPan.x, cameraCurrentZoom * 1.18f, cameraCurrentPan.z + cameraCurrentZoom * 0.70f);
-		targetPos2 = glm::vec3(cameraCurrentPan2.x, cameraCurrentZoom * 1.18f, cameraCurrentPan2.z - cameraCurrentZoom * 0.70f); // Opposite Z
+		targetPos = glm::vec3(cameraCurrentPan.x, cameraCurrentZoom * 1.05f, cameraCurrentPan.z + cameraCurrentZoom * 0.90f);
+		targetPos2 = glm::vec3(cameraCurrentPan2.x, cameraCurrentZoom * 1.05f, cameraCurrentPan2.z - cameraCurrentZoom * 0.90f); // Opposite Z
 	}
 	cameraCurrentPos = glm::mix(cameraCurrentPos, targetPos, frame_independent_smoothing);
 	cameraCurrentPos2 = glm::mix(cameraCurrentPos2, targetPos2, frame_independent_smoothing);
@@ -12275,9 +12275,29 @@ void ofApp::startNewTurn() {
 
 		// Reshuffle discard into deck if needed
 		if (endingPlayer.deck.empty() && !endingPlayer.discardPile.empty()) {
+			ofLogNotice("Deck") << "Reshuffle triggered for player " << endingPlayer.playerID << " at turn " << globalTurnCounter << " (host=" << isHost() << ")";
+			// Dump brief deck/discard summary for diagnostics
+			{
+				std::string before;
+				for (const auto & c : endingPlayer.discardPile) {
+					if (!before.empty()) before += ",";
+					before += c.name;
+				}
+				ofLogNotice("Deck") << "  Discard before reshuffle: " << before;
+			}
 			endingPlayer.deck = endingPlayer.discardPile;
 			shuffleGameVector(endingPlayer.deck, currentPlayerIndex);
 			endingPlayer.discardPile.clear();
+			// Dump post-reshuffle deck summary
+			{
+				std::string after;
+				for (size_t i = 0; i < endingPlayer.deck.size() && i < 8; ++i) {
+					if (!after.empty()) after += ",";
+					after += endingPlayer.deck[i].name;
+				}
+				if (endingPlayer.deck.size() > 8) after += ",...";
+				ofLogNotice("Deck") << "  Deck after reshuffle (top->bottom shown last element first): " << after << " (size=" << endingPlayer.deck.size() << ")";
+			}
 			ofLogNotice("Deck") << "Reshuffled discard into deck for player " << endingPlayer.playerID;
 		}
 
@@ -12500,6 +12520,14 @@ void ofApp::continueNewTurn() {
 	}
 
 	// --- AP ROLL LOGIC ---
+
+	// HOST: proactively save a backup snapshot here so clients can recover
+	// if a checksum mismatch occurs shortly after turn advancement.
+	if (isHost()) {
+		backupSnapshot = buildSnapshotString();
+		ofLogNotice("Backup") << "Host: Proactively saved backup snapshot at turn " << globalTurnCounter;
+	}
+
 	// Wolf AP: 1d10
 	if (startingPlayer.isWolf) {
 		lastAPDiceNum = 1;
@@ -12639,9 +12667,30 @@ void ofApp::drawCard() {
 		if (!dq.empty()) {
 			uint32_t nonceToApply = dq.front();
 			dq.pop_front();
+			ofLogNotice("Network") << "Client: Applying pending shuffle nonce for player " << currentPlayerIndex << " before draw (nonce=" << nonceToApply << ")";
+			// Deck summary before applying nonce
+			{
+				std::string before;
+				for (size_t i = 0; i < players[currentPlayerIndex].deck.size() && i < 8; ++i) {
+					if (!before.empty()) before += ",";
+					before += players[currentPlayerIndex].deck[i].name;
+				}
+				if (players[currentPlayerIndex].deck.size() > 8) before += ",...";
+				ofLogNotice("Network") << "  Deck before shuffle (sample): " << before << " (size=" << players[currentPlayerIndex].deck.size() << ")";
+			}
 			std::mt19937 shuffleRng(nonceToApply);
 			deterministic_shuffle(currentPlayer.deck, shuffleRng);
 			lastAppliedShuffleNonce[currentPlayerIndex] = nonceToApply;
+			// Deck summary after applying nonce
+			{
+				std::string after;
+				for (size_t i = 0; i < players[currentPlayerIndex].deck.size() && i < 8; ++i) {
+					if (!after.empty()) after += ",";
+					after += players[currentPlayerIndex].deck[i].name;
+				}
+				if (players[currentPlayerIndex].deck.size() > 8) after += ",...";
+				ofLogNotice("Network") << "  Deck after shuffle (sample): " << after << " (size=" << players[currentPlayerIndex].deck.size() << ")";
+			}
 			ofLogNotice("Network") << "Client: Applied pending shuffle nonce for player " << currentPlayerIndex << " before draw (nonce=" << nonceToApply << ")";
 		}
 	}
@@ -16469,9 +16518,9 @@ void ofApp::applySnapshotString(const std::string & data) {
 	cameraTargetPan = glm::vec3(0, 0, 0);
 	cameraCurrentPan = glm::vec3(0, 0, 0);
 	isTopDownView = false;
-	cam.setPosition(0, cameraCurrentZoom * 1.18f, cameraCurrentZoom * 0.70f);
+	cam.setPosition(0, cameraCurrentZoom * 1.05f, cameraCurrentZoom * 0.90f);
 	cam.lookAt(cameraCurrentPan);
-	cam2.setPosition(0, cameraCurrentZoom * 1.18f, -(cameraCurrentZoom * 0.70f));
+	cam2.setPosition(0, cameraCurrentZoom * 1.05f, -(cameraCurrentZoom * 0.90f));
 	cam2.lookAt(glm::vec3(cameraCurrentPan.x, cameraCurrentPan.y, -cameraCurrentPan.z));
 	cameraCurrentPos = cam.getPosition();
 	cameraCurrentPos2 = cam2.getPosition();
@@ -20110,6 +20159,16 @@ void ofApp::processNetworkPackets() {
 			ShufflePacket * spk = (ShufflePacket *)header;
 			ofLogNotice("Network") << "Shuffle packet received: player=" << spk->playerIndex << " nonce=" << spk->nonce;
 			if (spk->playerIndex >= 0 && spk->playerIndex < (int)players.size()) {
+				// Diagnostic: dump deck sample before applying/queueing
+				{
+					std::string sample;
+					for (size_t i = 0; i < players[spk->playerIndex].deck.size() && i < 8; ++i) {
+						if (!sample.empty()) sample += ",";
+						sample += players[spk->playerIndex].deck[i].name;
+					}
+					if (players[spk->playerIndex].deck.size() > 8) sample += ",...";
+					ofLogNotice("Network") << "  Deck sample before shuffle (player " << spk->playerIndex << "): " << sample << " (size=" << players[spk->playerIndex].deck.size() << ")";
+				}
 				// If we're a client and drafting hasn't been accepted yet, queue the nonce
 				if (isClient() && (currentState == STATE_DRAFTING || isInGameDraft) && !draftAcceptApplied) {
 					pendingShuffleNonces[spk->playerIndex].push_back(spk->nonce);
@@ -20135,6 +20194,16 @@ void ofApp::processNetworkPackets() {
 				}
 				std::mt19937 shuffleRng(spk->nonce);
 				deterministic_shuffle(players[spk->playerIndex].deck, shuffleRng);
+				// Diagnostic: dump deck sample after applying
+				{
+					std::string sampleAfter;
+					for (size_t i = 0; i < players[spk->playerIndex].deck.size() && i < 8; ++i) {
+						if (!sampleAfter.empty()) sampleAfter += ",";
+						sampleAfter += players[spk->playerIndex].deck[i].name;
+					}
+					if (players[spk->playerIndex].deck.size() > 8) sampleAfter += ",...";
+					ofLogNotice("Network") << "  Deck sample after shuffle (player " << spk->playerIndex << "): " << sampleAfter << " (size=" << players[spk->playerIndex].deck.size() << ")";
+				}
 				if (isClient()) {
 					lastAppliedShuffleNonce[spk->playerIndex] = spk->nonce;
 				}

@@ -1,12 +1,12 @@
 
 === DECK STATE LOG ===
-Time: 2026-02-12 19:17:46
+Time: 2026-02-12 20:06:43
 Reason: End Turn 1
 Turn: 1
 Current Player: 0
 Local Player ID: 0
 Is Host: true
 
-Player0 Deck[5]: Double Handed(31), Demolition(15), Demolition(15), Double Handed(31), Rock Crush(14) | Hand[0]:  | Discard[0]: 
-Player1 Deck[5]: Amnesia(17), Demolition(15), Punch(5), Demolition(15), Punch(5) | Hand[0]:  | Discard[0]: 
+Player0 Deck[3]: Rock Crush(14), Vampire Bite(4), Chain Lightning(42) | Hand[2]: Summon Assistant(58), Summon Assistant(58) | Discard[2]: Summon Wall(2), Summon Wall(2)
+Player1 Deck[4]: Heal(25), Hasten(20), Vampire Bite(4), Four-leaf clover(60) | Hand[0]:  | Discard[2]: Heal(25), Vampire Bite(4)
 =====================

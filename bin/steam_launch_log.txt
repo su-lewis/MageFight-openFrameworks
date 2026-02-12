@@ -1,2 +1,355 @@
 [notice ] SteamManager: Steam API Shutdown.
 [S_API FAIL] Tried to access Steam interface SteamNetworkingSockets012 before SteamAPI_Init succeeded.
+ERROR: ld.so: object '/usr/lib/extest/libextest.so' from LD_PRELOAD cannot be preloaded (cannot open shared object file): ignored.
+ERROR: ld.so: object '/var/home/lewis/.local/share/Steam/ubuntu12_32/gameoverlayrenderer.so' from LD_PRELOAD cannot be preloaded (wrong ELF class: ELFCLASS32): ignored.
+--- Launching MageFight at Thu Feb 12 19:43:14 GMT 2026 ---
+Script directory: /home/lewis/of_workspace/openFrameworks/apps/myApps/MageFight/bin
+Original LD_PRELOAD=/usr/lib/extest/libextest.so:/var/home/lewis/.local/share/Steam/ubuntu12_32/gameoverlayrenderer.so:/var/home/lewis/.local/share/Steam/ubuntu12_64/gameoverlayrenderer.so
+Dropping missing LD_PRELOAD entry: /usr/lib/extest/libextest.so
+Final LD_PRELOAD=/var/home/lewis/.local/share/Steam/ubuntu12_32/gameoverlayrenderer.so:/var/home/lewis/.local/share/Steam/ubuntu12_64/gameoverlayrenderer.so
+Starting executable...
+ERROR: ld.so: object '/var/home/lewis/.local/share/Steam/ubuntu12_32/gameoverlayrenderer.so' from LD_PRELOAD cannot be preloaded (wrong ELF class: ELFCLASS32): ignored.
+[S_API] SteamAPI_Init(): SteamAPI_IsSteamRunning() did not locate a running instance of Steam.
+[S_API] SteamAPI_Init(): Loaded '/home/lewis/of_workspace/.steam/sdk64/steamclient.so' OK.
+Setting breakpad minidump AppID = 480
+SteamInternal_SetMinidumpSteamID:  Caching Steam ID:  76561198261715869 [API loaded no]
+[notice ] Steam: Initialized. LocalID: 76561198261715869
+[notice ] Setup: Visual RNG seeded.
+[warning] ofMaterial::setPBR:  PBR material must be used with Programmable Renderer.
+[ error ] ofxAssimpTexture::setTextureType: : unknown aiTextureType type 27
+[warning] ofMaterial::setPBR:  PBR material must be used with Programmable Renderer.
+[ error ] ofxAssimpTexture::setTextureType: : unknown aiTextureType type 27
+[warning] ofMaterial::setPBR:  PBR material must be used with Programmable Renderer.
+[warning] ofMaterial::setPBR:  PBR material must be used with Programmable Renderer.
+[warning] ofMaterial::setPBR:  PBR material must be used with Programmable Renderer.
+[warning] ofMaterial::setPBR:  PBR material must be used with Programmable Renderer.
+[notice ] Wolf model loaded with 10 meshes
+[notice ] Setup: Kobold model loaded.
+[ error ] ofxAssimpModelLoader: loadGLResource(): texture doesn't exist: "data/Units/KoboldKing/goblin_king.fbx" in "data/Units/KoboldKing/cadnav.com_model/Models_G0506A078/01391eaa.dds"
+[ error ] loadImage: File not found: "data/Units/KoboldKing/cadnav.com_model/Models_G0506A078/01391eaa.dds"
+[ error ] ofxAssimpModelLoader: loadGLResource(): couldn't load texture: "data/Units/KoboldKing/goblin_king.fbx" from "data/Units/KoboldKing/cadnav.com_model/Models_G0506A078/01391eaa.dds"
+[ error ] ofxAssimpModelLoader: loadGLResource(): texture doesn't exist: "data/Units/KoboldKing/goblin_king.fbx" in "data/Units/KoboldKing/cadnav.com_model/Models_G0506A078/ada8756d.jpg"
+[ error ] loadImage: File not found: "data/Units/KoboldKing/cadnav.com_model/Models_G0506A078/ada8756d.jpg"
+[ error ] ofxAssimpModelLoader: loadGLResource(): couldn't load texture: "data/Units/KoboldKing/goblin_king.fbx" from "data/Units/KoboldKing/cadnav.com_model/Models_G0506A078/ada8756d.jpg"
+[ error ] ofxAssimpModelLoader: loadGLResource(): texture doesn't exist: "data/Units/KoboldKing/goblin_king.fbx" in "data/Units/KoboldKing/cadnav.com_model/Models_G0506A078/496d23a4.jpg"
+[ error ] loadImage: File not found: "data/Units/KoboldKing/cadnav.com_model/Models_G0506A078/496d23a4.jpg"
+[ error ] ofxAssimpModelLoader: loadGLResource(): couldn't load texture: "data/Units/KoboldKing/goblin_king.fbx" from "data/Units/KoboldKing/cadnav.com_model/Models_G0506A078/496d23a4.jpg"
+[ error ] ofxAssimpModelLoader: loadGLResource(): texture doesn't exist: "data/Units/KoboldKing/goblin_king.fbx" in "data/Units/KoboldKing/cadnav.com_model/Models_G0506A078/01391eaa.dds"
+[ error ] loadImage: File not found: "data/Units/KoboldKing/cadnav.com_model/Models_G0506A078/01391eaa.dds"
+[ error ] ofxAssimpModelLoader: loadGLResource(): couldn't load texture: "data/Units/KoboldKing/goblin_king.fbx" from "data/Units/KoboldKing/cadnav.com_model/Models_G0506A078/01391eaa.dds"
+[notice ] Setup: Kobold King texture loaded.
+[notice ] Setup: Kobold King model loaded.
+[notice ] Setup: Hellhound model loaded.
+[warning] ofMaterial::setPBR:  PBR material must be used with Programmable Renderer.
+[ error ] ofxAssimpTexture::setTextureType: : unknown aiTextureType type 27
+[warning] ofMaterial::setPBR:  PBR material must be used with Programmable Renderer.
+[ error ] ofxAssimpTexture::setTextureType: : unknown aiTextureType type 27
+[warning] ofMaterial::setPBR:  PBR material must be used with Programmable Renderer.
+[ error ] ofxAssimpTexture::setTextureType: : unknown aiTextureType type 27
+[warning] ofMaterial::setPBR:  PBR material must be used with Programmable Renderer.
+[ error ] ofxAssimpTexture::setTextureType: : unknown aiTextureType type 27
+[warning] ofMaterial::setPBR:  PBR material must be used with Programmable Renderer.
+[ error ] ofxAssimpTexture::setTextureType: : unknown aiTextureType type 27
+[warning] ofMaterial::setPBR:  PBR material must be used with Programmable Renderer.
+[ error ] ofxAssimpTexture::setTextureType: : unknown aiTextureType type 27
+[warning] ofMaterial::setPBR:  PBR material must be used with Programmable Renderer.
+[ error ] ofxAssimpTexture::setTextureType: : unknown aiTextureType type 27
+[warning] ofMaterial::setPBR:  PBR material must be used with Programmable Renderer.
+[ error ] ofxAssimpTexture::setTextureType: : unknown aiTextureType type 27
+[warning] ofMaterial::setPBR:  PBR material must be used with Programmable Renderer.
+[ error ] ofxAssimpTexture::setTextureType: : unknown aiTextureType type 27
+[warning] ofMaterial::setPBR:  PBR material must be used with Programmable Renderer.
+[ error ] ofxAssimpTexture::setTextureType: : unknown aiTextureType type 27
+[warning] ofMaterial::setPBR:  PBR material must be used with Programmable Renderer.
+[ error ] ofxAssimpTexture::setTextureType: : unknown aiTextureType type 27
+[notice ] Setup: Demon model loaded.
+[notice ] Setup: Tortoise model loaded.
+[warning] ofMaterial::setPBR:  PBR material must be used with Programmable Renderer.
+[notice ] Setup: Ghost model loaded.
+[warning] ofMaterial::setPBR:  PBR material must be used with Programmable Renderer.
+[ error ] ofxAssimpTexture::setTextureType: : unknown aiTextureType type 27
+[notice ] Setup: Wall Unit GLB model loaded and texture applied.
+[notice ] Setup: Assistant model loaded.
+[warning] ofMaterial::setPBR:  PBR material must be used with Programmable Renderer.
+[ error ] ofxAssimpTexture::setTextureType: : unknown aiTextureType type 27
+[warning] ofMaterial::setPBR:  PBR material must be used with Programmable Renderer.
+[ error ] ofxAssimpTexture::setTextureType: : unknown aiTextureType type 27
+[notice ] Setup: Faerie texture loaded.
+[notice ] Setup: Faerie model loaded.
+[notice ] Setup: Loaded key frame: Board/keys_1_1.png
+[notice ] Setup: Loaded key frame: Board/keys_1_2.png
+[notice ] Setup: Loaded key frame: Board/keys_1_3.png
+[notice ] Setup: Loaded key frame: Board/keys_1_4.png
+[notice ] Setup: Loaded silver key frame: Board/keys_2_1.png
+[notice ] Setup: Loaded silver key frame: Board/keys_2_2.png
+[notice ] Setup: Loaded silver key frame: Board/keys_2_3.png
+[notice ] Setup: Loaded silver key frame: Board/keys_2_4.png
+[notice ] Setup: Loaded bronze key frame: Board/keys_3_1.png
+[notice ] Setup: Loaded bronze key frame: Board/keys_3_2.png
+[notice ] Setup: Loaded bronze key frame: Board/keys_3_3.png
+[notice ] Setup: Loaded bronze key frame: Board/keys_3_4.png
+[notice ] ofApp::loadCardData: Loaded 70 cards from JSON.
+[notice ] ofApp::loadCardData: Class Distribution - C1: 30, C2: 25, C3: 15
+[notice ] GL: Vendor: AMD | Renderer: AMD Radeon RX 9070 XT (radeonsi, gfx1201, LLVM 21.1.6, DRM 3.64, 6.17.7-ba25.fc43.x86_64) | Version: 4.6 (Compatibility Profile) Mesa 25.3.4-arch1.1 | GLSL: 4.60
+[notice ] FBO: worldFbo allocated 2560x1440
+[notice ] Network: DEBUG: Still in STATE_MAIN_MENU. hasOpponent()=0 isMultiplayer=0 isHost=0
+[notice ] Steam: Requesting Lobby Creation...
+[notice ] Steam: Lobby Created. Creating Listen Socket...
+[notice ] Steam: Incoming Connection Request...
+[notice ] Steam: Accepted Connection!
+[notice ] Network: DEBUG: hasOpponent() is true, currentState=0
+[notice ] Network: Host: Opponent found. Starting game & sending seed.
+[notice ] Setup: Host generated seed: 1770926633 platform=Linux
+[notice ] Setup: Host sending handshake: type=0 playerID=0 seq=0 seed=1770926633 platform=Linux
+[notice ] Network: Skipping DiceRollPacket send for purpose=4 (handled authoritatively).
+[notice ] Dice: Final total result for 1d6: 4
+[notice ] Network: Skipping DiceRollPacket send for purpose=4 (handled authoritatively).
+[notice ] Dice: Final total result for 1d6: 3
+[notice ] Game: --- INITIATIVE ROLL STARTED ---
+[notice ] Steam: Connection Fully Active!
+[notice ] Steam: Opponent ID: 76561198743068920
+[notice ] Network: Host: Received Seed Request. Resending Seed: 1770926633
+[notice ] Network: Host resending handshake: type=0 playerID=0 seq=0 seed=1770926633
+[notice ] Draft: generateDraftOptions called: classTier=1 draftStage=0 draftPlayerIndex=0 poolSize=30
+[notice ] Network: Host sent DraftOptionsPacket: 3,14,27 derivedSeed=3061777909 draftGenCounter=1
+[notice ] Draft: Options names: Bash, Summon Wall, Summon Assistant
+[notice ] Network: Host sent DraftStatePacket (post-options): class=1 player=0 picks=2 stage=0
+[notice ] Initiative: Player 1 Wins Initiative
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=0 stage=0) names=Bash, Summon Wall, Summon Assistant
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=0 stage=0) names=Bash, Summon Wall, Summon Assistant
+[notice ] Draft: DRAFT CLICK: mousePos=(1208,701) selections=0 required=2 inGameDraft=0 draftStage=0 acceptRect=(1170,1007,220,60)
+[notice ] Network: Sent draft select toggle: opt=1 sel=1
+[notice ] Draft: DRAFT CLICK: mousePos=(1592,782) selections=1 required=2 inGameDraft=0 draftStage=0 acceptRect=(1170,1007,220,60)
+[notice ] Network: Sent draft select toggle: opt=2 sel=1
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=0 stage=0) names=Bash, Summon Wall, Summon Assistant
+[notice ] Draft: DRAFT CLICK: mousePos=(1332,1036) selections=2 required=2 inGameDraft=0 draftStage=0 acceptRect=(1170,1007,220,60)
+[notice ] Draft: ACCEPT BUTTON CLICKED: selections=2 required=2 rect=(1170,1007,220,60) mousePos=(1332,1036)
+[notice ] Network: Host: Sent local draft Accept to client (player=0 picks=2)
+[notice ] NetTrace: SEND pkt type=7 player=0 seq=8 size=17
+[notice ] NetTrace:   SHUFFLE playerIndex=0 nonce=787583239
+[notice ] Network: Host sent Shuffle packet: player=0 nonce=787583239
+[notice ] Draft: generateDraftOptions called: classTier=2 draftStage=1 draftPlayerIndex=0 poolSize=25
+[notice ] Network: Host sent DraftOptionsPacket: 11,23,20 derivedSeed=3614203281 draftGenCounter=2
+[notice ] Draft: Options names: Chain Lightning, Smite, Four-leaf clover
+[notice ] Network: Host sent DraftStatePacket (post-options): class=2 player=0 picks=1 stage=1
+[notice ] Draft: DRAFT CLICK: mousePos=(918,813) selections=0 required=1 inGameDraft=0 draftStage=1 acceptRect=(1170,1007,220,60)
+[notice ] Network: Sent draft select toggle: opt=0 sel=1
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=0 stage=1) names=Chain Lightning, Smite, Four-leaf clover
+[notice ] Draft: DRAFT CLICK: mousePos=(1256,1005) selections=1 required=1 inGameDraft=0 draftStage=1 acceptRect=(1170,1007,220,60)
+[notice ] Draft: DRAFT CLICK: mousePos=(1295,1037) selections=1 required=1 inGameDraft=0 draftStage=1 acceptRect=(1170,1007,220,60)
+[notice ] Draft: ACCEPT BUTTON CLICKED: selections=1 required=1 rect=(1170,1007,220,60) mousePos=(1295,1037)
+[notice ] Network: Host: Sent local draft Accept to client (player=0 picks=1)
+[notice ] NetTrace: SEND pkt type=7 player=0 seq=12 size=17
+[notice ] NetTrace:   SHUFFLE playerIndex=0 nonce=1763038825
+[notice ] Network: Host sent Shuffle packet: player=0 nonce=1763038825
+[notice ] Draft: generateDraftOptions called: classTier=1 draftStage=0 draftPlayerIndex=1 poolSize=30
+[notice ] Network: Host sent DraftOptionsPacket: 25,23,13 derivedSeed=854237407 draftGenCounter=3
+[notice ] Draft: Options names: Renewed Inspiration, Vampire Bite, Heal
+[notice ] Network: Host sent DraftStatePacket (post-options): class=1 player=1 picks=2 stage=0
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Renewed Inspiration, Vampire Bite, Heal
+[notice ] Network: Draft action received: type=0 opt=1 player=1 sel=1
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Renewed Inspiration, Vampire Bite, Heal
+[notice ] Network: Draft action received: type=0 opt=2 player=1 sel=1
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Renewed Inspiration, Vampire Bite, Heal
+[notice ] Network: Draft action received: type=1 opt=0 player=1 sel=0
+[notice ] Draft: HOST: Received client AcceptDraft from player=1 draftPlayerIdx=1 picks=2 indices=23,13,-1
+[notice ] NetTrace: SEND pkt type=7 player=0 seq=14 size=17
+[notice ] NetTrace:   SHUFFLE playerIndex=1 nonce=3434745015
+[notice ] Network: Host sent Shuffle packet: player=1 nonce=3434745015
+[notice ] Draft: generateDraftOptions called: classTier=2 draftStage=1 draftPlayerIndex=1 poolSize=25
+[notice ] Network: Host sent DraftOptionsPacket: 17,20,9 derivedSeed=1408825599 draftGenCounter=4
+[notice ] Draft: Options names: Earthquake, Four-leaf clover, Call for Wolves
+[notice ] Network: Host sent DraftStatePacket (post-options): class=2 player=1 picks=1 stage=1
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=1) names=Earthquake, Four-leaf clover, Call for Wolves
+[notice ] Network: Draft action received: type=0 opt=1 player=1 sel=1
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=1) names=Earthquake, Four-leaf clover, Call for Wolves
+[notice ] Network: Draft action received: type=1 opt=0 player=1 sel=0
+[notice ] Draft: HOST: Received client AcceptDraft from player=1 draftPlayerIdx=1 picks=1 indices=20,-1,-1
+[notice ] NetTrace: SEND pkt type=7 player=0 seq=17 size=17
+[notice ] NetTrace:   SHUFFLE playerIndex=1 nonce=3834875547
+[notice ] Network: Host sent Shuffle packet: player=1 nonce=3834875547
+[notice ] Game: Player 0's turn begins.
+[notice ] Dice: Rolled dice[0]: rawResult=4 finalResult=4 (owner=0)
+[notice ] Network: Skipping DiceRollPacket send for purpose=0 (handled authoritatively).
+[notice ] Dice: Final total result for 1d6: 4
+[notice ] NetTrace: SEND pkt type=8 player=0 seq=19 size=36
+[notice ] NetTrace:   TURN_START currentPlayerIndex=0 diceNum=1 diceSides=6
+[notice ] Network: Host sent TurnStart (PKT_DRAFT_ACTION): player=0 dice=1 total=4
+[notice ] Network:   Host sending dice[0]: raw=4 final=4
+[notice ] Checksum: Host P0 deck=[42(0),58(0),58(0),2(0),2(0)]
+[notice ] Checksum: Host P1 deck=[25(0),60(0),4(3),4(3),25(0)]
+[notice ] Checksum: Host checksum after TurnStart send (turn 0): 1752527687708847856
+[notice ] Hand: Displaying hand for player 0: 0 cards (isMultiplayer=1 myLocalPlayerID=0)
+[notice ] Game: AP Roll Finished: 4 AP awarded (sum of all dice).
+[notice ] NetTrace: SEND pkt type=8 player=0 seq=20 size=36
+[notice ] NetTrace:   TURN_START currentPlayerIndex=0 diceNum=1 diceSides=6
+[notice ] Network: Host sent TurnStart (continueNewTurn): player=0 dice=1 total=4
+[notice ] Game: Drew card: Summon Wall
+[notice ] Game: Drew card: Summon Wall
+[notice ] NetTrace: SEND pkt type=12 player=0 seq=22 size=209
+[notice ] NetTrace:   DRAW_CARDS playerIndex=0 numCards=2
+[notice ] Network: Host sent DrawCards packet: 2 cards
+[notice ] Hand: Displaying hand for player 0: 2 cards (isMultiplayer=1 myLocalPlayerID=0)
+[notice ] NetTrace: SEND pkt type=1 player=0 seq=30 size=101
+[notice ] NetTrace:   ACTION card='' actor=0 target=(0,7) menu=0 updatedAP=0
+[notice ] Network: Host sent movement to (0,7) with AP=3
+[notice ] Network: sendActionPacket: Sending card 'Summon Wall' (cardIndex=0) to target=(1,7) cost=2
+[notice ] NetTrace: SEND pkt type=1 player=0 seq=37 size=101
+[notice ] NetTrace:   ACTION card='Summon Wall' actor=0 target=(1,7) menu=0 updatedAP=1
+[notice ] Hand: Displaying hand for player 0: 1 cards (isMultiplayer=1 myLocalPlayerID=0)
+[notice ] NetTrace: SEND pkt type=1 player=0 seq=42 size=101
+[notice ] NetTrace:   ACTION card='' actor=0 target=(0,6) menu=0 updatedAP=0
+[notice ] Network: Host sent movement to (0,6) with AP=0
+[notice ] Turn: startNewTurn() called. isMultiplayer=1 currentPlayerIndex=0 myLocalPlayerID=0 isCurrentPlayerLocal()=1
+[notice ] Turn: Ending my turn (player 0). Sending END_TURN packet.
+[notice ] Turn: Cleaning up local player's (0) hand and buffs...
+[notice ] Turn: Found local player at index 0. Hand size: 1, Played: 1
+[notice ] Turn: After cleanup: Hand size=0, Discard size=2
+[notice ] Turn: Host: Continuing with turn advancement...
+[notice ] Turn: Processing ending player: index=0 playerID=0
+[notice ] Turn: Cleaning up ending player's hand. Hand size: 0, Played: 0
+[notice ] Game: --- START TURN: Player 1
+[notice ] Game: Player 1's turn begins.
+[notice ] Dice: Rolled dice[0]: rawResult=3 finalResult=4 (owner=1)
+[notice ] Network: Skipping DiceRollPacket send for purpose=0 (handled authoritatively).
+[notice ] Dice: Final total result for 1d6: 4
+[notice ] Hand: Displaying hand for player 0: 0 cards (isMultiplayer=1 myLocalPlayerID=0)
+[notice ] Game: AP Roll Finished: 4 AP awarded (sum of all dice).
+[notice ] NetTrace: SEND pkt type=8 player=0 seq=46 size=36
+[notice ] NetTrace:   TURN_START currentPlayerIndex=1 diceNum=1 diceSides=6
+[notice ] Network: Host sent TurnStart (continueNewTurn): player=1 dice=1 total=4
+[notice ] NetTrace: RECV pkt type=12 player=1 seq=7 size=209
+[notice ] NetTrace:   DRAW_CARDS playerIndex=1 numCards=2
+[notice ] Network: Received DrawCards from opponent: player=1 num=2
+[notice ] Network: Before removal: player 1 deck size=5 searching for 'Heal'
+[notice ] Network: Removed 'Heal' from deck. Size: 5 -> 4
+[notice ] Network: Added card to player 1's hand: Heal
+[notice ] Network: Before removal: player 1 deck size=4 searching for 'Vampire Bite'
+[notice ] Network: Removed 'Vampire Bite' from deck. Size: 4 -> 3
+[notice ] Network: Added card to player 1's hand: Vampire Bite
+[notice ] NetTrace: RECV pkt type=1 player=1 seq=11 size=101
+[notice ] NetTrace:   ACTION card='' actor=1 target=(12,4) menu=0 updatedAP=0
+[notice ] Network: Received movement from opponent to (12,4) with AP=0
+[notice ] Network: Applied movement for player 1 to (12,4)
+[notice ] Network: Host sent KeyPickup: player=1 class=2
+[notice ] Draft: generateDraftOptions called: classTier=2 draftStage=2 draftPlayerIndex=1 poolSize=25
+[notice ] Network: Host sent DraftOptionsPacket: 3,4,14 derivedSeed=524175722 draftGenCounter=5
+[notice ] Draft: Options names: Rock Crush, Hasten, Call for Kobolds
+[notice ] Network: Host sent DraftStatePacket (post-options): class=2 player=1 picks=1 stage=2
+[notice ] Key: Player 1 picked up key (Class 2)
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=2) names=Rock Crush, Hasten, Call for Kobolds
+[notice ] Network: Draft action received: type=0 opt=1 player=1 sel=1
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=2) names=Rock Crush, Hasten, Call for Kobolds
+[notice ] Network: Draft action received: type=1 opt=0 player=1 sel=0
+[notice ] Draft: HOST: Received client AcceptDraft from player=1 draftPlayerIdx=1 picks=1 indices=4,-1,-1
+[notice ] NetTrace: SEND pkt type=7 player=0 seq=49 size=17
+[notice ] NetTrace:   SHUFFLE playerIndex=1 nonce=393923527
+[notice ] Network: Host sent Shuffle packet: player=1 nonce=393923527
+[notice ] Net: Opponent ended turn.
+[notice ] Network: Host: Processing END_TURN, calling startNewTurn()
+[notice ] Turn: startNewTurn() called. isMultiplayer=1 currentPlayerIndex=1 myLocalPlayerID=0 isCurrentPlayerLocal()=0
+[notice ] Turn: Processing ending player: index=1 playerID=1
+[notice ] Turn: Cleaning up ending player's hand. Hand size: 2, Played: 0
+[notice ] Game: --- START TURN: Player 0
+[notice ] Game: Player 0's turn begins.
+[notice ] Dice: Rolled dice[0]: rawResult=5 finalResult=5 (owner=0)
+[notice ] Network: Skipping DiceRollPacket send for purpose=0 (handled authoritatively).
+[notice ] Dice: Final total result for 1d6: 5
+[notice ] Game: AP Roll Finished: 5 AP awarded (sum of all dice).
+[notice ] NetTrace: SEND pkt type=8 player=0 seq=50 size=36
+[notice ] NetTrace:   TURN_START currentPlayerIndex=0 diceNum=1 diceSides=6
+[notice ] Network: Host sent TurnStart (continueNewTurn): player=0 dice=1 total=5
+[notice ] Game: Drew card: Summon Assistant
+[notice ] Game: Drew card: Summon Assistant
+[notice ] NetTrace: SEND pkt type=12 player=0 seq=52 size=209
+[notice ] NetTrace:   DRAW_CARDS playerIndex=0 numCards=2
+[notice ] Network: Host sent DrawCards packet: 2 cards
+[notice ] Hand: Displaying hand for player 0: 2 cards (isMultiplayer=1 myLocalPlayerID=0)
+[notice ] NetTrace: SEND pkt type=1 player=0 seq=56 size=101
+[notice ] NetTrace:   ACTION card='' actor=0 target=(1,5) menu=0 updatedAP=0
+[notice ] Network: Host sent movement to (1,5) with AP=3
+[notice ] Network: Host sent KeyPickup: player=0 class=1
+[notice ] Draft: generateDraftOptions called: classTier=1 draftStage=2 draftPlayerIndex=0 poolSize=30
+[notice ] Network: Host sent DraftOptionsPacket: 26,23,12 derivedSeed=2132581654 draftGenCounter=6
+[notice ] Draft: Options names: Lesser Heal, Vampire Bite, Flame Hit
+[notice ] Network: Host sent DraftStatePacket (post-options): class=1 player=0 picks=2 stage=2
+[notice ] Key: Player 0 picked up key (Class 1)
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=0 stage=2) names=Lesser Heal, Vampire Bite, Flame Hit
+[notice ] Draft: DRAFT CLICK: mousePos=(1363,761) selections=0 required=1 inGameDraft=1 draftStage=2 acceptRect=(1170,998,220,60)
+[notice ] Network: Sent draft select toggle: opt=1 sel=1
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=0 stage=2) names=Lesser Heal, Vampire Bite, Flame Hit
+[notice ] Draft: DRAFT CLICK: mousePos=(1283,977) selections=1 required=1 inGameDraft=1 draftStage=2 acceptRect=(1170,998,220,60)
+[notice ] Draft: DRAFT CLICK: mousePos=(1274,1005) selections=1 required=1 inGameDraft=1 draftStage=2 acceptRect=(1170,998,220,60)
+[notice ] Draft: ACCEPT BUTTON CLICKED: selections=1 required=1 rect=(1170,998,220,60) mousePos=(1274,1005)
+[notice ] Network: Host: Sent local draft Accept to client (player=0 picks=1)
+[notice ] NetTrace: SEND pkt type=7 player=0 seq=65 size=17
+[notice ] NetTrace:   SHUFFLE playerIndex=0 nonce=1623835296
+[notice ] Network: Host sent Shuffle packet: player=0 nonce=1623835296
+[notice ] NetTrace: SEND pkt type=1 player=0 seq=72 size=101
+[notice ] NetTrace:   ACTION card='' actor=0 target=(0,3) menu=0 updatedAP=0
+[notice ] Network: Host sent movement to (0,3) with AP=0
+[notice ] Network: Host sent KeyPickup: player=0 class=2
+[notice ] Draft: generateDraftOptions called: classTier=2 draftStage=2 draftPlayerIndex=0 poolSize=25
+[notice ] Network: Host sent DraftOptionsPacket: 10,3,23 derivedSeed=2609702320 draftGenCounter=7
+[notice ] Draft: Options names: Flail, Rock Crush, Smite
+[notice ] Network: Host sent DraftStatePacket (post-options): class=2 player=0 picks=1 stage=2
+[notice ] Key: Player 0 picked up key (Class 2)
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=0 stage=2) names=Flail, Rock Crush, Smite
+[notice ] Draft: DRAFT CLICK: mousePos=(1254,726) selections=0 required=1 inGameDraft=1 draftStage=2 acceptRect=(1170,998,220,60)
+[notice ] Network: Sent draft select toggle: opt=1 sel=1
+[notice ] Draft: DRAFT CLICK: mousePos=(1310,1006) selections=1 required=1 inGameDraft=1 draftStage=2 acceptRect=(1170,998,220,60)
+[notice ] Draft: ACCEPT BUTTON CLICKED: selections=1 required=1 rect=(1170,998,220,60) mousePos=(1310,1006)
+[notice ] Network: Host: Sent local draft Accept to client (player=0 picks=1)
+[notice ] NetTrace: SEND pkt type=7 player=0 seq=79 size=17
+[notice ] NetTrace:   SHUFFLE playerIndex=0 nonce=606136156
+[notice ] Network: Host sent Shuffle packet: player=0 nonce=606136156
+[notice ] Turn: startNewTurn() called. isMultiplayer=1 currentPlayerIndex=0 myLocalPlayerID=0 isCurrentPlayerLocal()=1
+[notice ] Turn: Ending my turn (player 0). Sending END_TURN packet.
+[notice ] DeckState: 
+=== DECK STATE LOG ===
+Time: 2026-02-12 20:06:43
+Reason: End Turn 1
+Turn: 1
+Current Player: 0
+Local Player ID: 0
+Is Host: true
+
+Player0 Deck[3]: Rock Crush(14), Vampire Bite(4), Chain Lightning(42) | Hand[2]: Summon Assistant(58), Summon Assistant(58) | Discard[2]: Summon Wall(2), Summon Wall(2)
+Player1 Deck[4]: Heal(25), Hasten(20), Vampire Bite(4), Four-leaf clover(60) | Hand[0]:  | Discard[2]: Heal(25), Vampire Bite(4)
+=====================
+
+[notice ] Turn: Cleaning up local player's (0) hand and buffs...
+[notice ] Turn: Found local player at index 0. Hand size: 2, Played: 0
+[notice ] Turn: After cleanup: Hand size=0, Discard size=4
+[notice ] Turn: Host: Continuing with turn advancement...
+[notice ] Turn: Processing ending player: index=0 playerID=0
+[notice ] Turn: Cleaning up ending player's hand. Hand size: 0, Played: 0
+[notice ] Game: --- START TURN: Player 1
+[notice ] Game: Player 1's turn begins.
+[notice ] Dice: Rolled dice[0]: rawResult=3 finalResult=4 (owner=1)
+[notice ] Network: Skipping DiceRollPacket send for purpose=0 (handled authoritatively).
+[notice ] Dice: Final total result for 1d6: 4
+[notice ] Hand: Displaying hand for player 0: 0 cards (isMultiplayer=1 myLocalPlayerID=0)
+[notice ] Game: AP Roll Finished: 4 AP awarded (sum of all dice).
+[notice ] NetTrace: SEND pkt type=8 player=0 seq=82 size=36
+[notice ] NetTrace:   TURN_START currentPlayerIndex=1 diceNum=1 diceSides=6
+[notice ] Network: Host sent TurnStart (continueNewTurn): player=1 dice=1 total=4
+[notice ] Net: Opponent ended turn.
+[notice ] Network: Host: Processing END_TURN, calling startNewTurn()
+[notice ] Turn: startNewTurn() called. isMultiplayer=1 currentPlayerIndex=1 myLocalPlayerID=0 isCurrentPlayerLocal()=0
+[notice ] Turn: Processing ending player: index=1 playerID=1
+[notice ] Turn: Cleaning up ending player's hand. Hand size: 0, Played: 0
+[notice ] Game: --- START TURN: Player 0
+[notice ] Game: Player 0's turn begins.
+[notice ] Dice: Rolled dice[0]: rawResult=1 finalResult=1 (owner=0)
+[notice ] Network: Skipping DiceRollPacket send for purpose=0 (handled authoritatively).
+[notice ] Dice: Final total result for 1d6: 1
+[notice ] Checksum: Host received checksum from player 1: remote=1143059382961162216 local=-6307942709607454670
+[notice ] Checksum: Host P0 deck=[14(0),4(3),42(0)]
+[notice ] Checksum: Host P1 deck=[25(0),20(0),4(3),60(0)]
+[ error ] Net: DESYNC DETECTED! Local: -6307942709607454670 Remote: 1143059382961162216 Turn: 1
+[ error ] Net: Player 0 id=0 deck=[14(0),4(3),42(0)] hand=0 discard=4
+[ error ] Net: Player 1 id=1 deck=[25(0),20(0),4(3),60(0)] hand=0 discard=2
+[ error ] Backup: No backup snapshot available for desync recovery!
+[notice ] SteamManager: Steam API Shutdown.
+[S_API FAIL] Tried to access Steam interface SteamNetworkingSockets012 before SteamAPI_Init succeeded.
