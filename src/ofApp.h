@@ -582,6 +582,8 @@ private:
 
 	// If true client has requested a snapshot from host and is awaiting it
 	bool waitingForSnapshot = false;
+	// True while processing an incoming network packet; used to enforce "Zombie Client" rule
+	bool processingNetworkPacket = false;
 	// Timestamp of last snapshot request to avoid spamming (seconds)
 	float lastSnapshotRequestTime = 0.0f;
 	// Client: handle out-of-order shuffle packets during draft

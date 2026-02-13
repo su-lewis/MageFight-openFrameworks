@@ -12641,6 +12641,21 @@ void ofApp::drawCard() {
 	if (players.empty() || currentPlayerIndex < 0) return;
 	Player & currentPlayer = players[currentPlayerIndex];
 
+	// Enforce "Zombie Client" rule: clients must not perform authoritative draws
+	// locally outside of network packet processing. If a client attempts to draw
+	// (e.g., clicking the deck), send a DrawCards request to the host instead.
+	if (isMultiplayer && isClient() && !processingNetworkPacket) {
+		DrawCardsPacket req = {};
+		req.type = PKT_DRAW_CARDS;
+		req.playerID = myLocalPlayerID;
+		req.seq = 0;
+		req.playerIndex = currentPlayerIndex;
+		req.numCards = 1;
+		steamManager.sendPacket(&req, sizeof(req));
+		ofLogNotice("NetTrace") << "SEND DrawCards request from client: playerIndex=" << req.playerIndex << " numCards=" << req.numCards;
+		return;
+	}
+
 	// --- PHASE 1: CHECK IF DECK NEEDS RESHUFFLE ---
 	if (currentPlayer.deck.empty()) {
 		if (currentPlayer.discardPile.empty()) {
@@ -16917,6 +16932,14 @@ int ofApp::startDiceRoll(int numDice, int sides, DicePurpose purpose, std::strin
 	int totalRollResult = 0;
 	int luckBonus = 0;
 
+	// Enforce "Zombie Client" rule: clients should not perform authoritative dice
+	// rolls locally outside of packet processing. Dice results are authoritative
+	// when produced by the host and forwarded via PKT_DICE_ROLL/PKT_TURN_START.
+	if (isMultiplayer && isClient() && !processingNetworkPacket) {
+		ofLogNotice("Network") << "Client: Blocking local dice roll outside packet processing (purpose=" << purpose << ")";
+		return 0;
+	}
+
 	// 1. Calculate Luck Bonus (Deterministic Logic)
 	int luckOwner = (ownerIndex >= 0 && ownerIndex < (int)players.size()) ? ownerIndex : currentPlayerIndex;
 	if (luckOwner != -1) {
@@ -20118,26 +20141,34 @@ void ofApp::processNetworkPackets() {
 
 		PacketHeader * header = (PacketHeader *)buffer.data();
 
-		// Verbose packet tracing for debugging desyncs
-		if (header->type == PKT_ACTION || header->type == PKT_RENEWED_INSPIRATION || header->type == PKT_DRAW_CARDS || header->type == PKT_SHUFFLE || header->type == PKT_TURN_START) {
-			ofLogNotice("NetTrace") << "RECV pkt type=" << (int)header->type << " player=" << header->playerID << " seq=" << header->seq << " size=" << buffer.size();
-			if (header->type == PKT_ACTION && buffer.size() >= sizeof(ActionPacket)) {
-				ActionPacket * ap = (ActionPacket *)buffer.data();
-				ofLogNotice("NetTrace") << "  ACTION card='" << ap->cardName << "' actor=" << ap->actorIndex << " target=(" << ap->targetX << "," << ap->targetY << ") menu=" << ap->menuChoice << " updatedAP=" << ap->updatedAP;
-			} else if (header->type == PKT_SHUFFLE && buffer.size() >= sizeof(ShufflePacket)) {
-				ShufflePacket * spk = (ShufflePacket *)buffer.data();
-				ofLogNotice("NetTrace") << "  SHUFFLE playerIndex=" << spk->playerIndex << " nonce=" << spk->nonce;
-			} else if (header->type == PKT_TURN_START && buffer.size() >= sizeof(TurnStartPacket)) {
-				TurnStartPacket * tsp = (TurnStartPacket *)buffer.data();
-				ofLogNotice("NetTrace") << "  TURN_START currentPlayerIndex=" << tsp->currentPlayerIndex << " diceNum=" << (int)tsp->diceNum << " diceSides=" << (int)tsp->diceSides;
-			} else if (header->type == PKT_DRAW_CARDS && buffer.size() >= sizeof(DrawCardsPacket)) {
-				DrawCardsPacket * dcp = (DrawCardsPacket *)buffer.data();
-				ofLogNotice("NetTrace") << "  DRAW_CARDS playerIndex=" << dcp->playerIndex << " numCards=" << (int)dcp->numCards;
-			} else if (header->type == PKT_RENEWED_INSPIRATION && buffer.size() >= sizeof(RenewedInspirationPacket)) {
-				RenewedInspirationPacket * rip = (RenewedInspirationPacket *)buffer.data();
-				ofLogNotice("NetTrace") << "  RINSP playerIndex=" << rip->playerIndex << " count=" << (int)rip->count;
+		// Mark that we're actively processing a network packet. This allows us to
+		// enforce the "Zombie Client" rule: clients must not execute authoritative
+		// logic (draws, dice, turn starts) except while handling host packets.
+		processingNetworkPacket = true;
+		do {
+
+			// Verbose packet tracing for debugging desyncs
+			if (header->type == PKT_ACTION || header->type == PKT_RENEWED_INSPIRATION || header->type == PKT_DRAW_CARDS || header->type == PKT_SHUFFLE || header->type == PKT_TURN_START) {
+				ofLogNotice("NetTrace") << "RECV pkt type=" << (int)header->type << " player=" << header->playerID << " seq=" << header->seq << " size=" << buffer.size();
+				if (header->type == PKT_ACTION && buffer.size() >= sizeof(ActionPacket)) {
+					ActionPacket * ap = (ActionPacket *)buffer.data();
+					ofLogNotice("NetTrace") << "  ACTION card='" << ap->cardName << "' actor=" << ap->actorIndex << " target=(" << ap->targetX << "," << ap->targetY << ") menu=" << ap->menuChoice << " updatedAP=" << ap->updatedAP;
+				} else if (header->type == PKT_SHUFFLE && buffer.size() >= sizeof(ShufflePacket)) {
+					ShufflePacket * spk = (ShufflePacket *)buffer.data();
+					ofLogNotice("NetTrace") << "  SHUFFLE playerIndex=" << spk->playerIndex << " nonce=" << spk->nonce;
+				} else if (header->type == PKT_TURN_START && buffer.size() >= sizeof(TurnStartPacket)) {
+					TurnStartPacket * tsp = (TurnStartPacket *)buffer.data();
+					ofLogNotice("NetTrace") << "  TURN_START currentPlayerIndex=" << tsp->currentPlayerIndex << " diceNum=" << (int)tsp->diceNum << " diceSides=" << (int)tsp->diceSides;
+				} else if (header->type == PKT_DRAW_CARDS && buffer.size() >= sizeof(DrawCardsPacket)) {
+					DrawCardsPacket * dcp = (DrawCardsPacket *)buffer.data();
+					ofLogNotice("NetTrace") << "  DRAW_CARDS playerIndex=" << dcp->playerIndex << " numCards=" << (int)dcp->numCards;
+				} else if (header->type == PKT_RENEWED_INSPIRATION && buffer.size() >= sizeof(RenewedInspirationPacket)) {
+					RenewedInspirationPacket * rip = (RenewedInspirationPacket *)buffer.data();
+					ofLogNotice("NetTrace") << "  RINSP playerIndex=" << rip->playerIndex << " count=" << (int)rip->count;
+				}
 			}
-		}
+		} while (false);
+		processingNetworkPacket = false;
 		// ACK handling removed; rely on SteamNetworkingSockets reliability.
 
 		// Only check sequence numbers for PKT_ACTION (card plays) to prevent duplicate card plays
@@ -20710,6 +20741,18 @@ void ofApp::processNetworkPackets() {
 
 		} else if (header->type == PKT_ACTION) {
 			ActionPacket * pkt = (ActionPacket *)header;
+
+			// Ensure AP sync: if the sender included `updatedAP`, apply it to their
+			// local Player record so client UI and checks reflect the authoritative value.
+			if (isMultiplayer) {
+				for (size_t _pi = 0; _pi < players.size(); ++_pi) {
+					if (static_cast<uint32_t>(players[_pi].playerID) == pkt->playerID) {
+						players[_pi].ap = pkt->updatedAP;
+						ofLogNotice("Sync") << "Applied network-updated AP for playerIndex=" << _pi << " ap=" << pkt->updatedAP;
+						break;
+					}
+				}
+			}
 
 			// Check if this is a movement action (cardIndex < 0) or card play (cardIndex >= 0)
 			if (pkt->cardIndex < 0) {
