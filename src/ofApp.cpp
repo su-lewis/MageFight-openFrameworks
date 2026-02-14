@@ -457,9 +457,9 @@ void ofApp::setup() {
 			}
 		}
 
-		// Sequence: 1_1, 1_2, 1_5, 1_4, 1_3, 1_4, 1_5, 1_1 (use gold frames count as reference)
+		// Sequence: 1_1, 1_2, 1_5, 1_4, 1_3, 1_4, 1_5, 1_2 (no duplicate 1_1)
 		if (keyTextures.size() >= 5) {
-			keyAnimSequence = { 0, 1, 4, 3, 2, 3, 4, 0 };
+			keyAnimSequence = { 0, 1, 4, 3, 2, 3, 4, 1 };
 		} else {
 			for (int i = 0; i < (int)keyTextures.size(); ++i)
 				keyAnimSequence.push_back(i);
