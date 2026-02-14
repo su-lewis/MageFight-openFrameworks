@@ -814,8 +814,10 @@ private:
 	int currentSettingsTab = SETTINGS_TAB_VIDEO;
 
 	// Audio settings (controls shown in Settings -> Audio)
-	float settingsMusicVolume = 0.6f; // 0.0 - 1.0
-	bool settingsMusicMuted = false;
+	float settingsMasterVolume = 1.0f; // 0.0 - 1.0
+	float settingsMenuVolume = 0.6f; // per-menu music multiplier
+	float settingsSfxVolume = 0.8f; // per-sfx multiplier
+	bool settingsMusicMuted = false; // master mute
 	bool settingsMusicLoop = true;
 
 	// Controls tab: key bindings
@@ -828,6 +830,8 @@ private:
 	ofRectangle settingsTabGameRect;
 	ofRectangle settingsTabControlsRect;
 	ofRectangle settingsAudioVolumeSlider;
+	ofRectangle settingsAudioMasterSlider;
+	ofRectangle settingsAudioSfxSlider;
 	ofRectangle settingsAudioMuteBox;
 	ofRectangle settingsAudioLoopBox;
 	// Game tab rects

@@ -40,65 +40,7 @@ ofPixels scalePixelsNearest(ofPixels & src, int scale) {
 		}
 	}
 
-	// GAME tab: toggles and sliders
-	if (currentSettingsTab == SETTINGS_TAB_GAME) {
-		ofSetColor(ofColor::white);
-		uiFont.drawString("Game Settings", centerX - 140, contentY);
-
-		float y = contentY + 60;
-		// FPS toggle
-		settingsGameShowFPSBox.set(centerX - 200, y, 24, 24);
-		ofSetColor(settingsShowFPS ? ofColor::lightGray : ofColor(80));
-		ofDrawRectangle(settingsGameShowFPSBox);
-		ofSetColor(ofColor::black);
-		uiFont.drawString("Show FPS", settingsGameShowFPSBox.x + 36, settingsGameShowFPSBox.y + 18);
-
-		// Camera sensitivity slider
-		y += 60;
-		settingsCameraSensitivitySlider.set(centerX - 260, y, 520, 28);
-		ofSetColor(200);
-		ofDrawRectangle(settingsCameraSensitivitySlider);
-		float fill = ofMap(settingsCameraSensitivity, 0.5f, 2.0f, 0.0f, settingsCameraSensitivitySlider.width, true);
-		ofSetColor(120, 180, 255);
-		ofDrawRectangle(settingsCameraSensitivitySlider.x, settingsCameraSensitivitySlider.y, fill, settingsCameraSensitivitySlider.height);
-		ofSetColor(ofColor::black);
-		uiFont.drawString("Camera Sensitivity: " + ofToString(settingsCameraSensitivity, 2), settingsCameraSensitivitySlider.x, settingsCameraSensitivitySlider.y - 10);
-
-		// Invert Y
-		y += 60;
-		settingsInvertYBox.set(centerX - 200, y, 24, 24);
-		ofSetColor(settingsInvertCameraY ? ofColor::lightGray : ofColor(80));
-		ofDrawRectangle(settingsInvertYBox);
-		ofSetColor(ofColor::black);
-		uiFont.drawString("Invert Camera Y", settingsInvertYBox.x + 36, settingsInvertYBox.y + 18);
-
-		// UI scale
-		y += 60;
-		settingsUIScaleSlider.set(centerX - 200, y, 400, 28);
-		ofSetColor(200);
-		ofDrawRectangle(settingsUIScaleSlider);
-		float uifill = ofMap(settingsUIScale, 0.75f, 1.25f, 0.0f, settingsUIScaleSlider.width, true);
-		ofSetColor(180, 200, 120);
-		ofDrawRectangle(settingsUIScaleSlider.x, settingsUIScaleSlider.y, uifill, settingsUIScaleSlider.height);
-		ofSetColor(ofColor::black);
-		uiFont.drawString("UI Scale: " + ofToString(settingsUIScale, 2), settingsUIScaleSlider.x, settingsUIScaleSlider.y - 10);
-
-		// VSync
-		y += 60;
-		settingsVSyncBox.set(centerX - 200, y, 24, 24);
-		ofSetColor(settingsUseVSync ? ofColor::lightGray : ofColor(80));
-		ofDrawRectangle(settingsVSyncBox);
-		ofSetColor(ofColor::black);
-		uiFont.drawString("VSync (also affects framerate behavior)", settingsVSyncBox.x + 36, settingsVSyncBox.y + 18);
-
-		// Hints toggle
-		y += 60;
-		settingsShowHintsBox.set(centerX - 200, y, 24, 24);
-		ofSetColor(settingsShowHints ? ofColor::lightGray : ofColor(80));
-		ofDrawRectangle(settingsShowHintsBox);
-		ofSetColor(ofColor::black);
-		uiFont.drawString("Show Tutorial / Hints", settingsShowHintsBox.x + 36, settingsShowHintsBox.y + 18);
-	}
+	return dst;
 	return dst;
 }
 
@@ -271,8 +213,11 @@ void ofApp::setup() {
 	mainMenuMusic.setMultiPlay(false); // prevent overlapping multiple buffers
 	ofLogNotice("Audio") << "Main menu music loaded: " << (mainMenuMusic.isLoaded() ? "yes" : "no");
 	// Initialize settings audio state to match loaded player
-	settingsMusicVolume = mainMenuMusic.getVolume();
-	settingsMusicLoop = mainMenuMusic.getLoop();
+	settingsMenuVolume = mainMenuMusic.getVolume();
+	settingsMusicLoop = true;
+	// default master/sfx if not loaded from settings
+	settingsMasterVolume = 1.0f;
+	settingsSfxVolume = 0.8f;
 	settingsMusicMuted = false;
 
 	// Initialize default key bindings if empty
@@ -1474,13 +1419,20 @@ void ofApp::drawSettingsMenu() {
 	// --- Settings UI Positions & Tabs ---
 	float centerX = ofGetWidth() / 2.0f;
 	float tabsY = ofGetHeight() * 0.22f;
-	float tabW = 220;
+	int totalTabs = 4; // Video, Audio, Game, Controls
+	float tabW = 180;
 	float tabH = 48;
+	float tabSpacing = 12;
 
-	// Tab rects
-	settingsTabVideoRect.set(centerX - tabW - 10, tabsY, tabW, tabH);
-	settingsTabAudioRect.set(centerX - (tabW / 2), tabsY, tabW, tabH);
-	settingsTabGameRect.set(centerX + 10 + (tabW / 2), tabsY, tabW, tabH);
+	// Calculate start X so tabs are centered
+	float tabsTotalWidth = totalTabs * tabW + (totalTabs - 1) * tabSpacing;
+	float startX = centerX - tabsTotalWidth / 2.0f;
+
+	// Tab rects (ordered)
+	settingsTabVideoRect.set(startX, tabsY, tabW, tabH);
+	settingsTabAudioRect.set(startX + (tabW + tabSpacing) * 1, tabsY, tabW, tabH);
+	settingsTabGameRect.set(startX + (tabW + tabSpacing) * 2, tabsY, tabW, tabH);
+	settingsTabControlsRect.set(startX + (tabW + tabSpacing) * 3, tabsY, tabW, tabH);
 
 	// Draw tabs
 	auto drawTab = [&](ofRectangle & r, const string & label, bool active) {
@@ -1494,6 +1446,7 @@ void ofApp::drawSettingsMenu() {
 	drawTab(settingsTabVideoRect, "Video", currentSettingsTab == SETTINGS_TAB_VIDEO);
 	drawTab(settingsTabAudioRect, "Audio", currentSettingsTab == SETTINGS_TAB_AUDIO);
 	drawTab(settingsTabGameRect, "Game", currentSettingsTab == SETTINGS_TAB_GAME);
+	drawTab(settingsTabControlsRect, "Controls", currentSettingsTab == SETTINGS_TAB_CONTROLS);
 
 	// Content area start
 	float contentY = tabsY + tabH + 30;
@@ -1557,37 +1510,52 @@ void ofApp::drawSettingsMenu() {
 		float sliderY = contentY + 60;
 		float sliderW = 520;
 		float sliderH = 28;
-		settingsAudioVolumeSlider.set(centerX - sliderW / 2, sliderY, sliderW, sliderH);
 
-		// Background
+		// Master slider
+		settingsAudioMasterSlider.set(centerX - sliderW / 2, sliderY, sliderW, sliderH);
+		ofSetColor(200);
+		ofDrawRectangle(settingsAudioMasterSlider);
+		float masterFill = settingsAudioMasterSlider.width * settingsMasterVolume;
+		ofSetColor(200, 120, 120);
+		ofDrawRectangle(settingsAudioMasterSlider.x, settingsAudioMasterSlider.y, masterFill, settingsAudioMasterSlider.height);
+		ofSetColor(ofColor::black);
+		uiFont.drawString("Master Volume: " + ofToString((int)(settingsMasterVolume * 100)) + "%", settingsAudioMasterSlider.x, settingsAudioMasterSlider.y - 10);
+
+		// Menu music slider
+		sliderY += 60;
+		settingsAudioVolumeSlider.set(centerX - sliderW / 2, sliderY, sliderW, sliderH);
 		ofSetColor(200);
 		ofDrawRectangle(settingsAudioVolumeSlider);
-
-		// Fill according to volume
-		float fillW = settingsAudioVolumeSlider.width * settingsMusicVolume;
+		float menuFill = settingsAudioVolumeSlider.width * settingsMenuVolume;
 		ofSetColor(50, 200, 50);
-		ofDrawRectangle(settingsAudioVolumeSlider.x, settingsAudioVolumeSlider.y, fillW, settingsAudioVolumeSlider.height);
-
-		// Knob
-		ofSetColor(255);
-		ofDrawCircle(settingsAudioVolumeSlider.x + fillW, settingsAudioVolumeSlider.y + settingsAudioVolumeSlider.height / 2, 10);
-
+		ofDrawRectangle(settingsAudioVolumeSlider.x, settingsAudioVolumeSlider.y, menuFill, settingsAudioVolumeSlider.height);
 		ofSetColor(ofColor::black);
-		uiFont.drawString("Music Volume: " + ofToString((int)(settingsMusicVolume * 100)) + "%", settingsAudioVolumeSlider.x, settingsAudioVolumeSlider.y - 10);
+		uiFont.drawString("Menu Music Volume: " + ofToString((int)(settingsMenuVolume * 100)) + "%", settingsAudioVolumeSlider.x, settingsAudioVolumeSlider.y - 10);
 
-		// Mute box
+		// SFX slider
+		sliderY += 60;
+		settingsAudioSfxSlider.set(centerX - sliderW / 2, sliderY, sliderW, sliderH);
+		ofSetColor(200);
+		ofDrawRectangle(settingsAudioSfxSlider);
+		float sfxFill = settingsAudioSfxSlider.width * settingsSfxVolume;
+		ofSetColor(120, 180, 255);
+		ofDrawRectangle(settingsAudioSfxSlider.x, settingsAudioSfxSlider.y, sfxFill, settingsAudioSfxSlider.height);
+		ofSetColor(ofColor::black);
+		uiFont.drawString("Game SFX Volume: " + ofToString((int)(settingsSfxVolume * 100)) + "%", settingsAudioSfxSlider.x, settingsAudioSfxSlider.y - 10);
+
+		// Mute box (master mute)
 		settingsAudioMuteBox.set(centerX - 160, sliderY + 70, 28, 28);
 		ofSetColor(settingsMusicMuted ? ofColor::red : ofColor(200));
 		ofDrawRectangle(settingsAudioMuteBox);
 		ofSetColor(ofColor::black);
-		uiFont.drawString("Mute", settingsAudioMuteBox.x + 36, settingsAudioMuteBox.y + 20);
+		uiFont.drawString("Mute (master)", settingsAudioMuteBox.x + 36, settingsAudioMuteBox.y + 20);
 
-		// Loop box
+		// Loop box (menu music loop)
 		settingsAudioLoopBox.set(centerX + 60, sliderY + 70, 28, 28);
 		ofSetColor(settingsMusicLoop ? ofColor::lightGray : ofColor(80));
 		ofDrawRectangle(settingsAudioLoopBox);
 		ofSetColor(ofColor::black);
-		uiFont.drawString("Loop", settingsAudioLoopBox.x + 36, settingsAudioLoopBox.y + 20);
+		uiFont.drawString("Loop (menu)", settingsAudioLoopBox.x + 36, settingsAudioLoopBox.y + 20);
 	}
 
 	// CONTROLS tab: show key bindings and allow rebinding
@@ -8507,7 +8475,7 @@ void ofApp::mouseMoved(int x, int y) {
 		overMainMenuButton = mainMenuPlayAIButton.inside(x, y) || mainMenuMultiplayerButton.inside(x, y) || mainMenuSettingsButton.inside(x, y) || mainMenuQuitButton.inside(x, y);
 	}
 	if (currentState == STATE_SETTINGS) {
-		overSettingsButton = settingsBackButton.inside(x, y) || settingsResLeftButton.inside(x, y) || settingsResRightButton.inside(x, y) || settingsFrameLeftButton.inside(x, y) || settingsFrameRightButton.inside(x, y) || settingsFullscreenButton.inside(x, y) || settingsTabVideoRect.inside(x, y) || settingsTabAudioRect.inside(x, y) || settingsTabGameRect.inside(x, y) || settingsAudioVolumeSlider.inside(x, y) || settingsAudioMuteBox.inside(x, y) || settingsAudioLoopBox.inside(x, y);
+		overSettingsButton = settingsBackButton.inside(x, y) || settingsResLeftButton.inside(x, y) || settingsResRightButton.inside(x, y) || settingsFrameLeftButton.inside(x, y) || settingsFrameRightButton.inside(x, y) || settingsFullscreenButton.inside(x, y) || settingsTabVideoRect.inside(x, y) || settingsTabAudioRect.inside(x, y) || settingsTabGameRect.inside(x, y) || settingsTabControlsRect.inside(x, y) || settingsAudioVolumeSlider.inside(x, y) || settingsAudioMasterSlider.inside(x, y) || settingsAudioSfxSlider.inside(x, y) || settingsAudioMuteBox.inside(x, y) || settingsAudioLoopBox.inside(x, y);
 	}
 	if (endTurnButtonRect.inside(x, y) || overMainMenuButton || overSettingsButton || overPauseMenuButton ||
 		[&]() {
@@ -11800,6 +11768,10 @@ void ofApp::mousePressed(int x, int y, int button) {
 			currentSettingsTab = SETTINGS_TAB_GAME;
 			return;
 		}
+		if (settingsTabControlsRect.inside(x, y)) {
+			currentSettingsTab = SETTINGS_TAB_CONTROLS;
+			return;
+		}
 
 		// Back button
 		if (settingsBackButton.inside(x, y)) {
@@ -11841,11 +11813,26 @@ void ofApp::mousePressed(int x, int y, int button) {
 
 		// Audio tab controls
 		if (currentSettingsTab == SETTINGS_TAB_AUDIO) {
-			// Volume slider
+			// Master slider
+			if (settingsAudioMasterSlider.inside(x, y)) {
+				float rel = (float)(x - settingsAudioMasterSlider.x) / (float)settingsAudioMasterSlider.width;
+				settingsMasterVolume = std::min(1.0f, std::max(0.0f, rel));
+				if (!settingsMusicMuted) mainMenuMusic.setVolume(settingsMasterVolume * settingsMenuVolume);
+				saveSettings();
+				return;
+			}
+			// Menu music slider
 			if (settingsAudioVolumeSlider.inside(x, y)) {
 				float rel = (float)(x - settingsAudioVolumeSlider.x) / (float)settingsAudioVolumeSlider.width;
-				settingsMusicVolume = std::min(1.0f, std::max(0.0f, rel));
-				if (!settingsMusicMuted) mainMenuMusic.setVolume(settingsMusicVolume);
+				settingsMenuVolume = std::min(1.0f, std::max(0.0f, rel));
+				if (!settingsMusicMuted) mainMenuMusic.setVolume(settingsMasterVolume * settingsMenuVolume);
+				saveSettings();
+				return;
+			}
+			// SFX slider
+			if (settingsAudioSfxSlider.inside(x, y)) {
+				float rel = (float)(x - settingsAudioSfxSlider.x) / (float)settingsAudioSfxSlider.width;
+				settingsSfxVolume = std::min(1.0f, std::max(0.0f, rel));
 				saveSettings();
 				return;
 			}
@@ -11855,7 +11842,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 				if (settingsMusicMuted)
 					mainMenuMusic.setVolume(0.0f);
 				else
-					mainMenuMusic.setVolume(settingsMusicVolume);
+					mainMenuMusic.setVolume(settingsMasterVolume * settingsMenuVolume);
 				saveSettings();
 				return;
 			}
@@ -11870,6 +11857,10 @@ void ofApp::mousePressed(int x, int y, int button) {
 
 		// Controls tab interaction: click to start rebinding
 		if (currentSettingsTab == SETTINGS_TAB_CONTROLS) {
+			float centerX = ofGetWidth() / 2.0f;
+			float tabsY = ofGetHeight() * 0.22f;
+			float tabH = 48;
+			float contentY = tabsY + tabH + 30;
 			float listY = contentY + 60;
 			float itemH = 36;
 			float itemW = 600;
@@ -12451,21 +12442,21 @@ void ofApp::keyPressed(int key) {
 			return;
 		}
 		if (key == OF_KEY_RIGHT) {
-			currentSettingsTab = std::min(SETTINGS_TAB_CONTROLS, currentSettingsTab + 1);
+			currentSettingsTab = std::min<int>((int)SETTINGS_TAB_CONTROLS, currentSettingsTab + 1);
 			return;
 		}
 
 		// Audio quick adjustments
 		if (currentSettingsTab == SETTINGS_TAB_AUDIO) {
 			if (key == OF_KEY_LEFT) {
-				settingsMusicVolume = std::max(0.0f, settingsMusicVolume - 0.05f);
-				if (!settingsMusicMuted) mainMenuMusic.setVolume(settingsMusicVolume);
+				settingsMenuVolume = std::max(0.0f, settingsMenuVolume - 0.05f);
+				if (!settingsMusicMuted) mainMenuMusic.setVolume(settingsMasterVolume * settingsMenuVolume);
 				saveSettings();
 				return;
 			}
 			if (key == OF_KEY_RIGHT) {
-				settingsMusicVolume = std::min(1.0f, settingsMusicVolume + 0.05f);
-				if (!settingsMusicMuted) mainMenuMusic.setVolume(settingsMusicVolume);
+				settingsMenuVolume = std::min(1.0f, settingsMenuVolume + 0.05f);
+				if (!settingsMusicMuted) mainMenuMusic.setVolume(settingsMasterVolume * settingsMenuVolume);
 				saveSettings();
 				return;
 			}
@@ -12474,7 +12465,7 @@ void ofApp::keyPressed(int key) {
 				if (settingsMusicMuted)
 					mainMenuMusic.setVolume(0.0f);
 				else
-					mainMenuMusic.setVolume(settingsMusicVolume);
+					mainMenuMusic.setVolume(settingsMasterVolume * settingsMenuVolume);
 				saveSettings();
 				return;
 			}
@@ -19671,9 +19662,12 @@ void ofApp::loadCardData(const std::string & filePath) {
 // --------------------------------------------------------------
 // Settings persistence
 // --------------------------------------------------------------
+
 void ofApp::saveSettings() {
 	ofJson json;
-	json["musicVolume"] = settingsMusicVolume;
+	json["masterVolume"] = settingsMasterVolume;
+	json["menuVolume"] = settingsMenuVolume;
+	json["sfxVolume"] = settingsSfxVolume;
 	json["musicMuted"] = settingsMusicMuted;
 	json["musicLoop"] = settingsMusicLoop;
 	json["showFPS"] = settingsShowFPS;
@@ -19712,7 +19706,9 @@ void ofApp::loadSettings() {
 	}
 	try {
 		ofJson json = ofLoadJson(path);
-		settingsMusicVolume = json.value("musicVolume", settingsMusicVolume);
+		settingsMasterVolume = json.value("masterVolume", settingsMasterVolume);
+		settingsMenuVolume = json.value("menuVolume", settingsMenuVolume);
+		settingsSfxVolume = json.value("sfxVolume", settingsSfxVolume);
 		settingsMusicMuted = json.value("musicMuted", settingsMusicMuted);
 		settingsMusicLoop = json.value("musicLoop", settingsMusicLoop);
 		settingsShowFPS = json.value("showFPS", settingsShowFPS);
@@ -19736,7 +19732,7 @@ void ofApp::loadSettings() {
 
 		// Apply audio immediately
 		if (mainMenuMusic.isLoaded()) {
-			mainMenuMusic.setVolume(settingsMusicMuted ? 0.0f : settingsMusicVolume);
+			mainMenuMusic.setVolume(settingsMusicMuted ? 0.0f : settingsMasterVolume * settingsMenuVolume);
 			mainMenuMusic.setLoop(settingsMusicLoop);
 		}
 
