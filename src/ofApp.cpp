@@ -7896,9 +7896,6 @@ void ofApp::drawGame() {
 
 					// Word wrap the input text
 					float maxWidth = chatMaxWidth - 20;
-					if (((int)(ofGetElapsedTimef() * 2)) % 2 == 0) {
-						displayText += "_";
-					}
 					std::vector<string> wrappedLines = wrapText(displayText, maxWidth);
 
 					// Draw each line
