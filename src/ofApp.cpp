@@ -39,6 +39,66 @@ ofPixels scalePixelsNearest(ofPixels & src, int scale) {
 			dst.setColor(x, y, src.getColor(x / scale, y / scale));
 		}
 	}
+
+	// GAME tab: toggles and sliders
+	if (currentSettingsTab == SETTINGS_TAB_GAME) {
+		ofSetColor(ofColor::white);
+		uiFont.drawString("Game Settings", centerX - 140, contentY);
+
+		float y = contentY + 60;
+		// FPS toggle
+		settingsGameShowFPSBox.set(centerX - 200, y, 24, 24);
+		ofSetColor(settingsShowFPS ? ofColor::lightGray : ofColor(80));
+		ofDrawRectangle(settingsGameShowFPSBox);
+		ofSetColor(ofColor::black);
+		uiFont.drawString("Show FPS", settingsGameShowFPSBox.x + 36, settingsGameShowFPSBox.y + 18);
+
+		// Camera sensitivity slider
+		y += 60;
+		settingsCameraSensitivitySlider.set(centerX - 260, y, 520, 28);
+		ofSetColor(200);
+		ofDrawRectangle(settingsCameraSensitivitySlider);
+		float fill = ofMap(settingsCameraSensitivity, 0.5f, 2.0f, 0.0f, settingsCameraSensitivitySlider.width, true);
+		ofSetColor(120, 180, 255);
+		ofDrawRectangle(settingsCameraSensitivitySlider.x, settingsCameraSensitivitySlider.y, fill, settingsCameraSensitivitySlider.height);
+		ofSetColor(ofColor::black);
+		uiFont.drawString("Camera Sensitivity: " + ofToString(settingsCameraSensitivity, 2), settingsCameraSensitivitySlider.x, settingsCameraSensitivitySlider.y - 10);
+
+		// Invert Y
+		y += 60;
+		settingsInvertYBox.set(centerX - 200, y, 24, 24);
+		ofSetColor(settingsInvertCameraY ? ofColor::lightGray : ofColor(80));
+		ofDrawRectangle(settingsInvertYBox);
+		ofSetColor(ofColor::black);
+		uiFont.drawString("Invert Camera Y", settingsInvertYBox.x + 36, settingsInvertYBox.y + 18);
+
+		// UI scale
+		y += 60;
+		settingsUIScaleSlider.set(centerX - 200, y, 400, 28);
+		ofSetColor(200);
+		ofDrawRectangle(settingsUIScaleSlider);
+		float uifill = ofMap(settingsUIScale, 0.75f, 1.25f, 0.0f, settingsUIScaleSlider.width, true);
+		ofSetColor(180, 200, 120);
+		ofDrawRectangle(settingsUIScaleSlider.x, settingsUIScaleSlider.y, uifill, settingsUIScaleSlider.height);
+		ofSetColor(ofColor::black);
+		uiFont.drawString("UI Scale: " + ofToString(settingsUIScale, 2), settingsUIScaleSlider.x, settingsUIScaleSlider.y - 10);
+
+		// VSync
+		y += 60;
+		settingsVSyncBox.set(centerX - 200, y, 24, 24);
+		ofSetColor(settingsUseVSync ? ofColor::lightGray : ofColor(80));
+		ofDrawRectangle(settingsVSyncBox);
+		ofSetColor(ofColor::black);
+		uiFont.drawString("VSync (also affects framerate behavior)", settingsVSyncBox.x + 36, settingsVSyncBox.y + 18);
+
+		// Hints toggle
+		y += 60;
+		settingsShowHintsBox.set(centerX - 200, y, 24, 24);
+		ofSetColor(settingsShowHints ? ofColor::lightGray : ofColor(80));
+		ofDrawRectangle(settingsShowHintsBox);
+		ofSetColor(ofColor::black);
+		uiFont.drawString("Show Tutorial / Hints", settingsShowHintsBox.x + 36, settingsShowHintsBox.y + 18);
+	}
 	return dst;
 }
 
@@ -212,8 +272,22 @@ void ofApp::setup() {
 	ofLogNotice("Audio") << "Main menu music loaded: " << (mainMenuMusic.isLoaded() ? "yes" : "no");
 	// Initialize settings audio state to match loaded player
 	settingsMusicVolume = mainMenuMusic.getVolume();
-	settingsMusicLoop = true;
+	settingsMusicLoop = mainMenuMusic.getLoop();
 	settingsMusicMuted = false;
+
+	// Initialize default key bindings if empty
+	if (settingsKeyBindings.empty()) {
+		settingsKeyBindings.push_back({ "Confirm/Accept", OF_KEY_RETURN });
+		settingsKeyBindings.push_back({ "Cancel/Back", OF_KEY_ESC });
+		settingsKeyBindings.push_back({ "Move Up", 'w' });
+		settingsKeyBindings.push_back({ "Move Down", 's' });
+		settingsKeyBindings.push_back({ "Move Left", 'a' });
+		settingsKeyBindings.push_back({ "Move Right", 'd' });
+	}
+
+	// Load persisted settings (overrides defaults)
+	loadSettings();
+
 	if ((currentState == STATE_MAIN_MENU || currentState == STATE_SETTINGS) && mainMenuMusic.isLoaded()) mainMenuMusic.play();
 
 	// --- Load Player Model ---
@@ -1397,58 +1471,155 @@ void ofApp::drawSettingsMenu() {
 	string title = "Settings";
 	ofRectangle titleBox = titleFont.getStringBoundingBox(title, 0, 0);
 	titleFont.drawString(title, ofGetWidth() / 2 - titleBox.getWidth() / 2, ofGetHeight() * 0.15);
-
-	// --- Settings UI Positions ---
-	float settingY = ofGetHeight() * 0.3f;
-	float settingSpacing = 100;
+	// --- Settings UI Positions & Tabs ---
 	float centerX = ofGetWidth() / 2.0f;
-	float labelOffset = 350;
-	float controlWidth = 250;
+	float tabsY = ofGetHeight() * 0.22f;
+	float tabW = 220;
+	float tabH = 48;
 
-	// --- Helper for drawing a setting row ---
-	auto drawSettingRow = [&](string label, string value, ofRectangle & leftBtn, ofRectangle & rightBtn, float yPos) {
-		// Draw Label
-		ofSetColor(ofColor::white);
-		uiFont.drawString(label, centerX - labelOffset, yPos + 25);
+	// Tab rects
+	settingsTabVideoRect.set(centerX - tabW - 10, tabsY, tabW, tabH);
+	settingsTabAudioRect.set(centerX - (tabW / 2), tabsY, tabW, tabH);
+	settingsTabGameRect.set(centerX + 10 + (tabW / 2), tabsY, tabW, tabH);
 
-		// Draw Left/Right buttons
-		leftBtn.set(centerX - (controlWidth / 2) - 45, yPos, 40, 40);
-		rightBtn.set(centerX + (controlWidth / 2) + 5, yPos, 40, 40);
-		ofDrawRectRounded(leftBtn, 5);
-		ofDrawRectRounded(rightBtn, 5);
-
-		// Draw Background for the value text
-		ofRectangle bgRect(centerX - (controlWidth / 2), yPos - 5, controlWidth, 50);
-		ofDrawRectangle(bgRect);
-
-		// --- FIX: Draw TEXT AFTER the background and set its color to BLACK ---
+	// Draw tabs
+	auto drawTab = [&](ofRectangle & r, const string & label, bool active) {
+		ofSetColor(active ? ofColor::lightGray : ofColor(60));
+		ofDrawRectRounded(r, 8);
 		ofSetColor(ofColor::black);
-		uiFont.drawString(value, bgRect.x + 10, bgRect.y + 30);
-		uiFont.drawString("<", leftBtn.getCenter().x - 5, leftBtn.getCenter().y + 10);
-		uiFont.drawString(">", rightBtn.getCenter().x - 5, rightBtn.getCenter().y + 10);
+		ofRectangle tb = uiFont.getStringBoundingBox(label, 0, 0);
+		uiFont.drawString(label, r.getCenter().x - tb.getWidth() / 2, r.getCenter().y + tb.getHeight() / 2);
 	};
 
-	// --- Draw Resolution ---
-	string resText = ofToString((int)availableResolutions[currentResolutionIndex].x) + " x " + ofToString((int)availableResolutions[currentResolutionIndex].y);
-	drawSettingRow("Resolution", resText, settingsResLeftButton, settingsResRightButton, settingY);
+	drawTab(settingsTabVideoRect, "Video", currentSettingsTab == SETTINGS_TAB_VIDEO);
+	drawTab(settingsTabAudioRect, "Audio", currentSettingsTab == SETTINGS_TAB_AUDIO);
+	drawTab(settingsTabGameRect, "Game", currentSettingsTab == SETTINGS_TAB_GAME);
 
-	// --- Draw Framerate ---
-	settingY += settingSpacing;
-	string frameText = (availableFramerates[currentFramerateIndex] == 0) ? "Unlocked" : ofToString(availableFramerates[currentFramerateIndex]);
-	drawSettingRow("Framerate", frameText, settingsFrameLeftButton, settingsFrameRightButton, settingY);
+	// Content area start
+	float contentY = tabsY + tabH + 30;
 
-	// --- Draw Fullscreen ---
-	settingY += settingSpacing;
-	ofSetColor(ofColor::white);
-	uiFont.drawString("Display Mode", centerX - labelOffset, settingY + 25);
-	string fsText = isFullscreen ? "Fullscreen" : "Windowed";
-	settingsFullscreenButton.set(centerX - (controlWidth / 2), settingY - 5, controlWidth, 50);
-	ofDrawRectangle(settingsFullscreenButton);
-	// --- FIX: Draw TEXT AFTER the background and set its color to BLACK ---
-	ofSetColor(ofColor::black);
-	uiFont.drawString(fsText, settingsFullscreenButton.x + 10, settingsFullscreenButton.y + 30);
+	// VIDEO tab: render existing resolution/framerate/fullscreen controls
+	if (currentSettingsTab == SETTINGS_TAB_VIDEO) {
+		// --- Settings UI Positions ---
+		float settingY = contentY;
+		float settingSpacing = 100;
+		float labelOffset = 350;
+		float controlWidth = 250;
 
-	// --- Draw Back Button ---
+		// --- Helper for drawing a setting row ---
+		auto drawSettingRow = [&](string label, string value, ofRectangle & leftBtn, ofRectangle & rightBtn, float yPos) {
+			// Draw Label
+			ofSetColor(ofColor::white);
+			uiFont.drawString(label, centerX - labelOffset, yPos + 25);
+
+			// Draw Left/Right buttons
+			leftBtn.set(centerX - (controlWidth / 2) - 45, yPos, 40, 40);
+			rightBtn.set(centerX + (controlWidth / 2) + 5, yPos, 40, 40);
+			ofDrawRectRounded(leftBtn, 5);
+			ofDrawRectRounded(rightBtn, 5);
+
+			// Draw Background for the value text
+			ofRectangle bgRect(centerX - (controlWidth / 2), yPos - 5, controlWidth, 50);
+			ofDrawRectangle(bgRect);
+
+			// Draw TEXT AFTER the background and set its color to BLACK
+			ofSetColor(ofColor::black);
+			uiFont.drawString(value, bgRect.x + 10, bgRect.y + 30);
+			uiFont.drawString("<", leftBtn.getCenter().x - 5, leftBtn.getCenter().y + 10);
+			uiFont.drawString(">", rightBtn.getCenter().x - 5, rightBtn.getCenter().y + 10);
+		};
+
+		// --- Draw Resolution ---
+		string resText = ofToString((int)availableResolutions[currentResolutionIndex].x) + " x " + ofToString((int)availableResolutions[currentResolutionIndex].y);
+		drawSettingRow("Resolution", resText, settingsResLeftButton, settingsResRightButton, settingY);
+
+		// --- Draw Framerate ---
+		settingY += settingSpacing;
+		string frameText = (availableFramerates[currentFramerateIndex] == 0) ? "Unlocked" : ofToString(availableFramerates[currentFramerateIndex]);
+		drawSettingRow("Framerate", frameText, settingsFrameLeftButton, settingsFrameRightButton, settingY);
+
+		// --- Draw Fullscreen ---
+		settingY += settingSpacing;
+		ofSetColor(ofColor::white);
+		uiFont.drawString("Display Mode", centerX - labelOffset, settingY + 25);
+		string fsText = isFullscreen ? "Fullscreen" : "Windowed";
+		settingsFullscreenButton.set(centerX - (controlWidth / 2), settingY - 5, controlWidth, 50);
+		ofDrawRectangle(settingsFullscreenButton);
+		ofSetColor(ofColor::black);
+		uiFont.drawString(fsText, settingsFullscreenButton.x + 10, settingsFullscreenButton.y + 30);
+	}
+
+	// AUDIO tab: simple slider + mute/loop toggles
+	if (currentSettingsTab == SETTINGS_TAB_AUDIO) {
+		ofSetColor(ofColor::white);
+		uiFont.drawString("Audio Settings", centerX - 150, contentY);
+
+		float sliderY = contentY + 60;
+		float sliderW = 520;
+		float sliderH = 28;
+		settingsAudioVolumeSlider.set(centerX - sliderW / 2, sliderY, sliderW, sliderH);
+
+		// Background
+		ofSetColor(200);
+		ofDrawRectangle(settingsAudioVolumeSlider);
+
+		// Fill according to volume
+		float fillW = settingsAudioVolumeSlider.width * settingsMusicVolume;
+		ofSetColor(50, 200, 50);
+		ofDrawRectangle(settingsAudioVolumeSlider.x, settingsAudioVolumeSlider.y, fillW, settingsAudioVolumeSlider.height);
+
+		// Knob
+		ofSetColor(255);
+		ofDrawCircle(settingsAudioVolumeSlider.x + fillW, settingsAudioVolumeSlider.y + settingsAudioVolumeSlider.height / 2, 10);
+
+		ofSetColor(ofColor::black);
+		uiFont.drawString("Music Volume: " + ofToString((int)(settingsMusicVolume * 100)) + "%", settingsAudioVolumeSlider.x, settingsAudioVolumeSlider.y - 10);
+
+		// Mute box
+		settingsAudioMuteBox.set(centerX - 160, sliderY + 70, 28, 28);
+		ofSetColor(settingsMusicMuted ? ofColor::red : ofColor(200));
+		ofDrawRectangle(settingsAudioMuteBox);
+		ofSetColor(ofColor::black);
+		uiFont.drawString("Mute", settingsAudioMuteBox.x + 36, settingsAudioMuteBox.y + 20);
+
+		// Loop box
+		settingsAudioLoopBox.set(centerX + 60, sliderY + 70, 28, 28);
+		ofSetColor(settingsMusicLoop ? ofColor::lightGray : ofColor(80));
+		ofDrawRectangle(settingsAudioLoopBox);
+		ofSetColor(ofColor::black);
+		uiFont.drawString("Loop", settingsAudioLoopBox.x + 36, settingsAudioLoopBox.y + 20);
+	}
+
+	// CONTROLS tab: show key bindings and allow rebinding
+	if (currentSettingsTab == SETTINGS_TAB_CONTROLS) {
+		ofSetColor(ofColor::white);
+		uiFont.drawString("Controls", centerX - 60, contentY);
+
+		float listY = contentY + 60;
+		float itemH = 36;
+		float itemW = 600;
+		float startX = centerX - itemW / 2;
+		for (size_t i = 0; i < settingsKeyBindings.size(); ++i) {
+			ofRectangle itemRect(startX, listY + i * (itemH + 8), itemW, itemH);
+			ofSetColor((int)i == settingsRebindingIndex ? ofColor::lightBlue : ofColor(200));
+			ofDrawRectangle(itemRect);
+			ofSetColor(ofColor::black);
+			std::string label = settingsKeyBindings[i].first;
+			std::string keyName = ofToString((int)settingsKeyBindings[i].second);
+			// Try to show printable char for ASCII keys
+			int k = settingsKeyBindings[i].second;
+			if (k >= 32 && k < 127) keyName = std::string(1, (char)k);
+			uiFont.drawString(label, itemRect.x + 10, itemRect.y + 24);
+			uiFont.drawString(keyName, itemRect.getRight() - 40, itemRect.y + 24);
+		}
+
+		if (settingsRebindingIndex >= 0) {
+			ofSetColor(ofColor::white);
+			uiFont.drawString("Press a key to rebind or Esc to cancel", centerX - 260, listY + settingsKeyBindings.size() * (itemH + 8) + 32);
+		}
+	}
+
+	// --- Draw Back Button (common) ---
 	settingsBackButton.set(centerX - 150, ofGetHeight() * 0.8, 300, 70);
 	ofSetColor(settingsHoveredIndex == 0 ? ofColor::lightGray : ofColor::white);
 	ofFill();
@@ -8336,7 +8507,7 @@ void ofApp::mouseMoved(int x, int y) {
 		overMainMenuButton = mainMenuPlayAIButton.inside(x, y) || mainMenuMultiplayerButton.inside(x, y) || mainMenuSettingsButton.inside(x, y) || mainMenuQuitButton.inside(x, y);
 	}
 	if (currentState == STATE_SETTINGS) {
-		overSettingsButton = settingsBackButton.inside(x, y) || settingsResLeftButton.inside(x, y) || settingsResRightButton.inside(x, y) || settingsFrameLeftButton.inside(x, y) || settingsFrameRightButton.inside(x, y) || settingsFullscreenButton.inside(x, y);
+		overSettingsButton = settingsBackButton.inside(x, y) || settingsResLeftButton.inside(x, y) || settingsResRightButton.inside(x, y) || settingsFrameLeftButton.inside(x, y) || settingsFrameRightButton.inside(x, y) || settingsFullscreenButton.inside(x, y) || settingsTabVideoRect.inside(x, y) || settingsTabAudioRect.inside(x, y) || settingsTabGameRect.inside(x, y) || settingsAudioVolumeSlider.inside(x, y) || settingsAudioMuteBox.inside(x, y) || settingsAudioLoopBox.inside(x, y);
 	}
 	if (endTurnButtonRect.inside(x, y) || overMainMenuButton || overSettingsButton || overPauseMenuButton ||
 		[&]() {
@@ -11616,29 +11787,150 @@ void ofApp::mousePressed(int x, int y, int button) {
 	}
 
 	case STATE_SETTINGS: {
+		// Tab clicks
+		if (settingsTabVideoRect.inside(x, y)) {
+			currentSettingsTab = SETTINGS_TAB_VIDEO;
+			return;
+		}
+		if (settingsTabAudioRect.inside(x, y)) {
+			currentSettingsTab = SETTINGS_TAB_AUDIO;
+			return;
+		}
+		if (settingsTabGameRect.inside(x, y)) {
+			currentSettingsTab = SETTINGS_TAB_GAME;
+			return;
+		}
+
+		// Back button
 		if (settingsBackButton.inside(x, y)) {
 			currentState = stateBeforeSettings;
+			return;
 		}
-		if (settingsResLeftButton.inside(x, y)) {
-			currentResolutionIndex = std::max(0, currentResolutionIndex - 1);
-			applySettings();
+
+		// Video tab controls
+		if (currentSettingsTab == SETTINGS_TAB_VIDEO) {
+			if (settingsResLeftButton.inside(x, y)) {
+				currentResolutionIndex = std::max(0, currentResolutionIndex - 1);
+				applySettings();
+				saveSettings();
+				return;
+			}
+			if (settingsResRightButton.inside(x, y)) {
+				currentResolutionIndex = std::min(static_cast<int>(availableResolutions.size()) - 1, currentResolutionIndex + 1);
+				applySettings();
+				saveSettings();
+				return;
+			}
+			if (settingsFrameLeftButton.inside(x, y)) {
+				currentFramerateIndex = std::max(0, currentFramerateIndex - 1);
+				applySettings();
+				return;
+			}
+			if (settingsFrameRightButton.inside(x, y)) {
+				currentFramerateIndex = std::min(static_cast<int>(availableFramerates.size()) - 1, currentFramerateIndex + 1);
+				applySettings();
+				return;
+			}
+			if (settingsFullscreenButton.inside(x, y)) {
+				isFullscreen = !isFullscreen;
+				applySettings();
+				saveSettings();
+				return;
+			}
 		}
-		if (settingsResRightButton.inside(x, y)) {
-			currentResolutionIndex = std::min(static_cast<int>(availableResolutions.size()) - 1, currentResolutionIndex + 1);
-			applySettings();
+
+		// Audio tab controls
+		if (currentSettingsTab == SETTINGS_TAB_AUDIO) {
+			// Volume slider
+			if (settingsAudioVolumeSlider.inside(x, y)) {
+				float rel = (float)(x - settingsAudioVolumeSlider.x) / (float)settingsAudioVolumeSlider.width;
+				settingsMusicVolume = std::min(1.0f, std::max(0.0f, rel));
+				if (!settingsMusicMuted) mainMenuMusic.setVolume(settingsMusicVolume);
+				saveSettings();
+				return;
+			}
+			// Mute toggle
+			if (settingsAudioMuteBox.inside(x, y)) {
+				settingsMusicMuted = !settingsMusicMuted;
+				if (settingsMusicMuted)
+					mainMenuMusic.setVolume(0.0f);
+				else
+					mainMenuMusic.setVolume(settingsMusicVolume);
+				saveSettings();
+				return;
+			}
+			// Loop toggle
+			if (settingsAudioLoopBox.inside(x, y)) {
+				settingsMusicLoop = !settingsMusicLoop;
+				mainMenuMusic.setLoop(settingsMusicLoop);
+				saveSettings();
+				return;
+			}
 		}
-		if (settingsFrameLeftButton.inside(x, y)) {
-			currentFramerateIndex = std::max(0, currentFramerateIndex - 1);
-			applySettings();
+
+		// Controls tab interaction: click to start rebinding
+		if (currentSettingsTab == SETTINGS_TAB_CONTROLS) {
+			float listY = contentY + 60;
+			float itemH = 36;
+			float itemW = 600;
+			float startX = ofGetWidth() / 2.0f - itemW / 2;
+			for (size_t i = 0; i < settingsKeyBindings.size(); ++i) {
+				ofRectangle itemRect(startX, listY + i * (itemH + 8), itemW, itemH);
+				if (itemRect.inside(x, y)) {
+					settingsRebindingIndex = (int)i;
+					return;
+				}
+			}
 		}
-		if (settingsFrameRightButton.inside(x, y)) {
-			currentFramerateIndex = std::min(static_cast<int>(availableFramerates.size()) - 1, currentFramerateIndex + 1);
-			applySettings();
+
+		// Game tab interactions
+		if (currentSettingsTab == SETTINGS_TAB_GAME) {
+			// FPS toggle
+			if (settingsGameShowFPSBox.inside(x, y)) {
+				settingsShowFPS = !settingsShowFPS;
+				saveSettings();
+				return;
+			}
+			// Camera sensitivity slider
+			if (settingsCameraSensitivitySlider.inside(x, y)) {
+				float rel = (float)(x - settingsCameraSensitivitySlider.x) / (float)settingsCameraSensitivitySlider.width;
+				settingsCameraSensitivity = ofMap(rel, 0.0f, 1.0f, 0.5f, 2.0f, true);
+				saveSettings();
+				return;
+			}
+			// Invert Y
+			if (settingsInvertYBox.inside(x, y)) {
+				settingsInvertCameraY = !settingsInvertCameraY;
+				saveSettings();
+				return;
+			}
+			// UI scale slider
+			if (settingsUIScaleSlider.inside(x, y)) {
+				float rel = (float)(x - settingsUIScaleSlider.x) / (float)settingsUIScaleSlider.width;
+				settingsUIScale = ofMap(rel, 0.0f, 1.0f, 0.75f, 1.25f, true);
+				saveSettings();
+				// We won't fully re-layout everything now but recalc UI sizes
+				recalculateUI(ofGetWidth(), ofGetHeight());
+				return;
+			}
+			// VSync
+			if (settingsVSyncBox.inside(x, y)) {
+				settingsUseVSync = !settingsUseVSync;
+				saveSettings();
+				if (settingsUseVSync)
+					ofSetVerticalSync(true);
+				else
+					ofSetVerticalSync(false);
+				return;
+			}
+			// Hints
+			if (settingsShowHintsBox.inside(x, y)) {
+				settingsShowHints = !settingsShowHints;
+				saveSettings();
+				return;
+			}
 		}
-		if (settingsFullscreenButton.inside(x, y)) {
-			isFullscreen = !isFullscreen;
-			applySettings();
-		}
+
 		break;
 	}
 
@@ -12137,6 +12429,56 @@ void ofApp::keyPressed(int key) {
 		chatInput = "";
 		lastChatInteractionTime = ofGetElapsedTimef();
 		return;
+	}
+
+	// Settings keyboard handling (global within settings)
+	if (currentState == STATE_SETTINGS) {
+		// If we are rebinding a key, capture it here
+		if (settingsRebindingIndex >= 0) {
+			if (key == OF_KEY_ESC) {
+				settingsRebindingIndex = -1; // cancel
+				return;
+			}
+			settingsKeyBindings[settingsRebindingIndex].second = key;
+			settingsRebindingIndex = -1;
+			saveSettings();
+			return;
+		}
+
+		// Tab navigation
+		if (key == OF_KEY_LEFT) {
+			currentSettingsTab = std::max(0, currentSettingsTab - 1);
+			return;
+		}
+		if (key == OF_KEY_RIGHT) {
+			currentSettingsTab = std::min(SETTINGS_TAB_CONTROLS, currentSettingsTab + 1);
+			return;
+		}
+
+		// Audio quick adjustments
+		if (currentSettingsTab == SETTINGS_TAB_AUDIO) {
+			if (key == OF_KEY_LEFT) {
+				settingsMusicVolume = std::max(0.0f, settingsMusicVolume - 0.05f);
+				if (!settingsMusicMuted) mainMenuMusic.setVolume(settingsMusicVolume);
+				saveSettings();
+				return;
+			}
+			if (key == OF_KEY_RIGHT) {
+				settingsMusicVolume = std::min(1.0f, settingsMusicVolume + 0.05f);
+				if (!settingsMusicMuted) mainMenuMusic.setVolume(settingsMusicVolume);
+				saveSettings();
+				return;
+			}
+			if (key == OF_KEY_RETURN) {
+				settingsMusicMuted = !settingsMusicMuted;
+				if (settingsMusicMuted)
+					mainMenuMusic.setVolume(0.0f);
+				else
+					mainMenuMusic.setVolume(settingsMusicVolume);
+				saveSettings();
+				return;
+			}
+		}
 	}
 
 	// Handle Card Spawner text input
@@ -19326,6 +19668,91 @@ void ofApp::loadCardData(const std::string & filePath) {
 	ofLogNotice("ofApp::loadCardData") << "Class Distribution - C1: " << class1Cards.size() << ", C2: " << class2Cards.size() << ", C3: " << class3Cards.size();
 }
 
+// --------------------------------------------------------------
+// Settings persistence
+// --------------------------------------------------------------
+void ofApp::saveSettings() {
+	ofJson json;
+	json["musicVolume"] = settingsMusicVolume;
+	json["musicMuted"] = settingsMusicMuted;
+	json["musicLoop"] = settingsMusicLoop;
+	json["showFPS"] = settingsShowFPS;
+	json["cameraSensitivity"] = settingsCameraSensitivity;
+	json["invertCameraY"] = settingsInvertCameraY;
+	json["uiScale"] = settingsUIScale;
+	json["useVSync"] = settingsUseVSync;
+	json["showHints"] = settingsShowHints;
+	json["currentFramerateIndex"] = currentFramerateIndex;
+	json["currentResolutionIndex"] = currentResolutionIndex;
+
+	// Key bindings
+	ofJson kb = ofJson::array();
+	for (const auto & p : settingsKeyBindings) {
+		ofJson obj;
+		obj["action"] = p.first;
+		obj["key"] = p.second;
+		kb.push_back(obj);
+	}
+	json["keyBindings"] = kb;
+
+	std::string path = "Config/settings.json";
+	try {
+		ofSaveJson(path, json);
+		ofLogNotice("Settings") << "Saved settings to " << path;
+	} catch (...) {
+		ofLogError("Settings") << "Failed to save settings to " << path;
+	}
+}
+
+void ofApp::loadSettings() {
+	std::string path = "Config/settings.json";
+	if (!ofFile(path).exists()) {
+		ofLogNotice("Settings") << "No settings file found; using defaults.";
+		return;
+	}
+	try {
+		ofJson json = ofLoadJson(path);
+		settingsMusicVolume = json.value("musicVolume", settingsMusicVolume);
+		settingsMusicMuted = json.value("musicMuted", settingsMusicMuted);
+		settingsMusicLoop = json.value("musicLoop", settingsMusicLoop);
+		settingsShowFPS = json.value("showFPS", settingsShowFPS);
+		settingsCameraSensitivity = json.value("cameraSensitivity", settingsCameraSensitivity);
+		settingsInvertCameraY = json.value("invertCameraY", settingsInvertCameraY);
+		settingsUIScale = json.value("uiScale", settingsUIScale);
+		settingsUseVSync = json.value("useVSync", settingsUseVSync);
+		settingsShowHints = json.value("showHints", settingsShowHints);
+		currentFramerateIndex = json.value("currentFramerateIndex", currentFramerateIndex);
+		currentResolutionIndex = json.value("currentResolutionIndex", currentResolutionIndex);
+
+		// Key bindings
+		if (json.contains("keyBindings") && json["keyBindings"].is_array()) {
+			settingsKeyBindings.clear();
+			for (const auto & obj : json["keyBindings"]) {
+				std::string action = obj.value("action", std::string(""));
+				int key = obj.value("key", 0);
+				settingsKeyBindings.push_back({ action, key });
+			}
+		}
+
+		// Apply audio immediately
+		if (mainMenuMusic.isLoaded()) {
+			mainMenuMusic.setVolume(settingsMusicMuted ? 0.0f : settingsMusicVolume);
+			mainMenuMusic.setLoop(settingsMusicLoop);
+		}
+
+		// Apply v-sync/framerate
+		if (settingsUseVSync)
+			ofSetVerticalSync(true);
+		else
+			ofSetVerticalSync(false);
+		ofSetFrameRate((currentFramerateIndex >= 0 && currentFramerateIndex < (int)availableFramerates.size()) ? availableFramerates[currentFramerateIndex] : 0);
+
+		ofLogNotice("Settings") << "Loaded settings from " << path;
+	} catch (...) {
+		ofLogError("Settings") << "Failed to load settings from " << path;
+	}
+}
+
 CardType ofApp::stringToCardType(const std::string & str) {
 	if (str == "CARD_ATTACK_SINGLE_TILE") return CARD_ATTACK_SINGLE_TILE;
 	if (str == "CARD_MIND_THEFT") return CARD_MIND_THEFT;
@@ -20444,6 +20871,8 @@ void ofApp::drawTrainMenuUI() {
 }
 //--------------------------------------------------------------
 void ofApp::exit() {
+	// Save settings on exit
+	saveSettings();
 	steamManager.cleanup();
 	// Ensure the Steam API is fully shut down on app exit
 	steamManager.shutdownAPI();

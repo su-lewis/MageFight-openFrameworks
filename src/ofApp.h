@@ -808,7 +808,8 @@ private:
 	enum SettingsTab {
 		SETTINGS_TAB_VIDEO = 0,
 		SETTINGS_TAB_AUDIO = 1,
-		SETTINGS_TAB_GAME = 2
+		SETTINGS_TAB_GAME = 2,
+		SETTINGS_TAB_CONTROLS = 3
 	};
 	int currentSettingsTab = SETTINGS_TAB_VIDEO;
 
@@ -817,13 +818,37 @@ private:
 	bool settingsMusicMuted = false;
 	bool settingsMusicLoop = true;
 
+	// Controls tab: key bindings
+	std::vector<std::pair<std::string, int>> settingsKeyBindings; // action, key
+	int settingsRebindingIndex = -1; // -1 = not rebinding
+
 	// Settings UI rects (tabs + audio controls)
 	ofRectangle settingsTabVideoRect;
 	ofRectangle settingsTabAudioRect;
 	ofRectangle settingsTabGameRect;
+	ofRectangle settingsTabControlsRect;
 	ofRectangle settingsAudioVolumeSlider;
 	ofRectangle settingsAudioMuteBox;
 	ofRectangle settingsAudioLoopBox;
+	// Game tab rects
+	ofRectangle settingsGameShowFPSBox;
+	ofRectangle settingsCameraSensitivitySlider;
+	ofRectangle settingsInvertYBox;
+	ofRectangle settingsUIScaleSlider;
+	ofRectangle settingsVSyncBox;
+	ofRectangle settingsShowHintsBox;
+
+	// Game tab settings
+	bool settingsShowFPS = true;
+	float settingsCameraSensitivity = 1.0f;
+	bool settingsInvertCameraY = false;
+	float settingsUIScale = 1.0f; // 0.75..1.25
+	bool settingsUseVSync = true;
+	bool settingsShowHints = true;
+
+	// Persistence helpers
+	void loadSettings();
+	void saveSettings();
 
 	// Helper to know if we are waiting in a lobby
 	bool isInLobby = false;
