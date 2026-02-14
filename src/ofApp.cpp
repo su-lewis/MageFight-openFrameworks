@@ -6289,7 +6289,7 @@ void ofApp::drawGame() {
 			}
 		}
 		// Draw the white outlines (no pulse, solid white)
-		ofColor whiteColor(255, 255, 255, 240);
+		ofColor whiteColor(232, 232, 232, 240); // #e8e8e8 for board highlights
 		float avgSurfaceY = 0.05f; // Average surface height for flat tiles
 		drawJoinedOutlines(highlightedTiles, whiteColor, avgSurfaceY);
 
@@ -6614,7 +6614,7 @@ void ofApp::drawGame() {
 		if (localHoverType == HOVER_DECK) {
 			ofPushStyle();
 			ofNoFill();
-			ofSetColor(255, 255, 255, 200); // White glow
+			ofSetColor(232, 232, 232, 200); // #e8e8e8 glow
 			ofSetLineWidth(4 * scale);
 			ofDrawRectangle(p0_deckRect);
 			ofPopStyle();
