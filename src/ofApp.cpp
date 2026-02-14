@@ -21067,8 +21067,12 @@ void ofApp::processNetworkPackets() {
 				// Only initialize game if we're not already in a game (reconnection case)
 				if (currentState == STATE_MAIN_MENU) {
 					// Initialize game state for the client now that we have the seed.
-					ofLogNotice("Network") << "Client: Handshake received. Initializing game. (seed=" << currentMapSeed << ")";
-					currentState = STATE_INITIATIVE_ROLL; // Force transition out of main menu
+					// NOTE: Do NOT force a state transition here; the host will
+					// send authoritative DraftState/Initiative packets when it's
+					// time to move into drafting or gameplay. Forcing a leave
+					// from the main menu caused clients to miss the proper
+					// sequence on reconnects.
+					ofLogNotice("Network") << "Client: Handshake received. Initializing game (seed=" << currentMapSeed << ") - staying in main menu until host signals next state.";
 					setupGame();
 				} else {
 					ofLogNotice("Network") << "Client: Handshake received on reconnect. Staying in current game state: " << currentState;
