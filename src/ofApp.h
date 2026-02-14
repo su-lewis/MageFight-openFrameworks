@@ -793,6 +793,7 @@ private:
 
 	// --- GAME STATE ---
 	GameState currentState = STATE_MAIN_MENU;
+	GameState prevState = STATE_MAIN_MENU;
 	GameState stateBeforeSettings = STATE_MAIN_MENU;
 	GameState pausedFromState = STATE_GAMEPLAY; // Default fallback
 	bool isLoadingGame = false;
@@ -898,6 +899,9 @@ private:
 
 	// Faerie assets
 	ofxAssimpModelLoader faerieModel;
+
+    // Audio: main menu music
+    ofSoundPlayer mainMenuMusic;
 	ofTexture faerieTexture;
 
 	ofTexture playerTexture;

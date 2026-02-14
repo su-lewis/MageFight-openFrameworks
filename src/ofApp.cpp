@@ -15,6 +15,14 @@
 #include <sstream>
 #include <unordered_map>
 
+// Suppress warnings about unhandled enum values in switches across this file.
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wswitch-enum"
+#pragma GCC diagnostic ignored "-Wswitch"
+#pragma GCC diagnostic ignored "-Wsign-compare"
+#pragma GCC diagnostic ignored "-Wunused-variable"
+#pragma GCC diagnostic ignored "-Wunused-but-set-variable"
+#pragma GCC diagnostic ignored "-Wunused-value"
 //--------------------------------------------------------------
 ofPixels scalePixelsNearest(ofPixels & src, int scale) {
 	int w = src.getWidth();
@@ -195,6 +203,16 @@ void ofApp::setup() {
 
 	cardBackImage.load("UI/card_back.png");
 	cardSpriteSheet.load("UI/TTS_Sheet.png");
+
+	// Load main menu music (data path: bin/data/Sounds/Music/...)
+	try {
+		mainMenuMusic.load("Sounds/Music/591981__fromlorenzo__the-last-standing-warrior.wav");
+		mainMenuMusic.setLoop(true);
+		mainMenuMusic.setVolume(0.6f);
+		if (currentState == STATE_MAIN_MENU) mainMenuMusic.play();
+	} catch (...) {
+		ofLogError("Audio") << "Failed to load main menu music.";
+	}
 
 	// --- Load Player Model ---
 	if (playerModel.load("Units/Player/model.glb")) {
@@ -901,7 +919,7 @@ std::string ofApp::getPlayerDisplayName(int index) {
 
 	// Derive a simple ordinal by counting same-type minions for the same owner
 	int ord = 1;
-	for (int i = 0; i < (int)players.size(); ++i) {
+	for (size_t i = 0; i < players.size(); ++i) {
 		if (i == index) break;
 		Player & other = players[i];
 		if (!other.isMinion) continue;
@@ -926,6 +944,24 @@ void ofApp::update() {
 		}
 	}
 	processNetworkPackets();
+
+	// Music: respond to state changes (play/stop main menu music)
+	if (currentState != prevState) {
+		if (currentState == STATE_MAIN_MENU) {
+			if (!mainMenuMusic.isLoaded() || !mainMenuMusic.isPlaying()) {
+				// If not loaded earlier for some reason, attempt load
+				if (!mainMenuMusic.isLoaded()) {
+					mainMenuMusic.load("Sounds/Music/591981__fromlorenzo__the-last-standing-warrior.wav");
+					mainMenuMusic.setLoop(true);
+					mainMenuMusic.setVolume(0.6f);
+				}
+				mainMenuMusic.play();
+			}
+		} else {
+			if (mainMenuMusic.isPlaying()) mainMenuMusic.stop();
+		}
+		prevState = currentState;
+	}
 
 	// Check for disconnection/reconnection
 	if (isMultiplayer) {
@@ -1283,6 +1319,16 @@ void ofApp::draw() {
 void ofApp::drawMainMenu() {
 	ofDisableLighting();
 	ofSetColor(ofColor::white);
+
+	// Ensure main menu music is playing while main menu is visible
+	if (!mainMenuMusic.isPlaying()) {
+		if (!mainMenuMusic.isLoaded()) {
+			mainMenuMusic.load("Sounds/Music/591981__fromlorenzo__the-last-standing-warrior.wav");
+			mainMenuMusic.setLoop(true);
+			mainMenuMusic.setVolume(0.6f);
+		}
+		mainMenuMusic.play();
+	}
 
 	// Draw Title
 	string title = "Mage Fight";
@@ -1885,7 +1931,7 @@ void ofApp::updateGame() {
 			}
 
 			// B. Create UIs
-			for (int i = 0; i < indices.size(); ++i) {
+			for (size_t i = 0; i < indices.size(); ++i) {
 				int pIndex = indices[i];
 				MinionUI ui;
 				ui.playerIndex = pIndex;
@@ -2325,7 +2371,7 @@ void ofApp::updateGame() {
 
 		// --- Enhanced Death Cleanup: Faerie Resurrection Logic ---
 		std::vector<int> removePoisoned;
-		for (int i = 0; i < (int)players.size(); ++i) {
+		for (size_t i = 0; i < players.size(); ++i) {
 			if (players[i].health <= 0) removePoisoned.push_back(i);
 		}
 		if (!removePoisoned.empty()) {
@@ -3042,6 +3088,7 @@ void ofApp::updateGame() {
 		// Note: 2d20 minimum is 2. 2+3 = 5ft. This covers adjacent squares (distance 0 to 5ft).
 		int radiusFeet = pendingPsionicRangeResult + 3;
 		float radiusUnits = radiusFeet / 5.0f;
+		(void)radiusUnits;
 
 		Player & caster = players[currentPlayerIndex];
 		glm::vec2 casterTile((float)caster.x, (float)caster.y);
@@ -3515,6 +3562,7 @@ void ofApp::updateGame() {
 		Player & caster = players[currentPlayerIndex];
 		int damage = pendingChainLightningDamageResult;
 		int unitsHitCount = 0;
+		(void)unitsHitCount;
 
 		// 1. Grant AP Bonus
 		caster.nextTurnAPBonus += 3;
@@ -3654,6 +3702,7 @@ void ofApp::updateGame() {
 			earthquakeT += speed;
 
 			bool anyStillMoving = false; // Kept to silence warning, or remove it
+			(void)anyStillMoving;
 
 			// --- PRE-STEP COLLISION RESOLUTION (Iterative Chain Solver) ---
 			if (earthquakeT <= speed) {
@@ -4930,7 +4979,7 @@ void ofApp::updateGame() {
 			currentPathIndex++;
 
 			// Play Footstep Sound
-			if (currentPathIndex < animationPath.size() && !footstepSounds.empty()) {
+			if (currentPathIndex < static_cast<int>(animationPath.size()) && !footstepSounds.empty()) {
 				std::uniform_int_distribution<int> footIdx(0, (int)footstepSounds.size() - 1);
 				int idx = footIdx(visualRNG);
 				std::uniform_real_distribution<float> footSpeed(0.9f, 1.1f);
@@ -4957,7 +5006,7 @@ void ofApp::updateGame() {
 	// --- IMMEDIATE DEATH / NO-CARDS CHECK ---
 	// Remove units instantly if they have 0 HP or no cards anywhere (deck+discard+hand)
 	std::vector<int> removeIndices;
-	for (int i = 0; i < (int)players.size(); ++i) {
+	for (size_t i = 0; i < players.size(); ++i) {
 		bool noCards = players[i].deck.empty() && players[i].discardPile.empty() && players[i].hand.empty();
 		if (players[i].health <= 0 || noCards) {
 			// --- Faerie Resurrection Mechanic ---
@@ -5872,7 +5921,7 @@ void ofApp::drawGame() {
 
 		// 1. D4
 		d4Texture.bind();
-		for (int i = 0; i < activeDiceRolls.size(); i++) {
+		for (size_t i = 0; i < activeDiceRolls.size(); i++) {
 			if (activeDiceRolls[i].sides == 4) {
 				setDiceTransform(i, activeDiceRolls[i]);
 				ofScale(2.2f, 2.2f, 2.2f);
@@ -5884,7 +5933,7 @@ void ofApp::drawGame() {
 
 		// 2. Coin
 		coinFacesTexture.bind();
-		for (int i = 0; i < activeDiceRolls.size(); i++) {
+		for (size_t i = 0; i < activeDiceRolls.size(); i++) {
 			if (activeDiceRolls[i].sides == 2) {
 				setDiceTransform(i, activeDiceRolls[i]);
 				coinMesh.draw();
@@ -5895,7 +5944,7 @@ void ofApp::drawGame() {
 
 		// 3. D6
 		d6Texture.bind();
-		for (int i = 0; i < activeDiceRolls.size(); i++) {
+		for (size_t i = 0; i < activeDiceRolls.size(); i++) {
 			if (activeDiceRolls[i].sides == 6) {
 				setDiceTransform(i, activeDiceRolls[i]);
 				ofScale(1.2f, 1.2f, 1.2f);
@@ -5907,7 +5956,7 @@ void ofApp::drawGame() {
 
 		// 4. D10
 		d10Texture.bind();
-		for (int i = 0; i < activeDiceRolls.size(); i++) {
+		for (size_t i = 0; i < activeDiceRolls.size(); i++) {
 			if (activeDiceRolls[i].sides == 10) {
 				setDiceTransform(i, activeDiceRolls[i]);
 				ofScale(2.1f, 2.1f, 2.1f);
@@ -5919,7 +5968,7 @@ void ofApp::drawGame() {
 
 		// 5. D20
 		d20Texture.bind();
-		for (int i = 0; i < activeDiceRolls.size(); i++) {
+		for (size_t i = 0; i < activeDiceRolls.size(); i++) {
 			if (activeDiceRolls[i].sides == 20) {
 				setDiceTransform(i, activeDiceRolls[i]);
 				ofScale(2.4f, 2.4f, 2.4f);
@@ -6393,6 +6442,7 @@ void ofApp::drawGame() {
 	float designHeight = 1080.0f;
 	float scale = ofGetHeight() / designHeight;
 	float fontScale = scale * 1.0f;
+	(void)fontScale;
 
 	float handBaseCardWidth = 120;
 	float handCardAspectRatio = 585.0f / 409.0f;
@@ -6411,6 +6461,7 @@ void ofApp::drawGame() {
 		float healthBarWidth = 220 * scale;
 		// Use outer healthBarHeight, formBarHeight, formSpacing for consistent stacking
 		float nextBarY = y;
+		(void)nextBarY;
 
 		// Determine layout direction
 		bool isTopAligned = y < ofGetHeight() / 2;
@@ -8769,6 +8820,9 @@ cursor_check_done:;
 				float barW = 220 * scale;
 				float barH = 50 * scale; // shield bar height
 				float fontScale = 1.0f;
+				(void)barW;
+				(void)barH;
+				(void)fontScale;
 
 				// Reconstruct Position (Matches drawHealthBar)
 				// P0 (Green) is bottom right: ofGetWidth() - (220 * scale) - (50 * scale), ofGetHeight() - (65 * scale) - (40 * scale)
@@ -8776,6 +8830,8 @@ cursor_check_done:;
 
 				float startX, startY;
 				bool isTop = (p.playerID == 1 || (p.playerID > 1 && p.ownerID == 1 && !p.isMinion)); // Simple heuristic for P1
+				(void)startX;
+				(void)isTop;
 				if (p.playerID == 0) { // P0
 					startX = ofGetWidth() - (220 * scale) - (50 * scale);
 					float hpY = ofGetHeight() - (65 * scale) - (40 * scale);
@@ -8916,27 +8972,29 @@ cursor_check_done:;
 					break;
 				}
 			}
-		}
 
-		if (newHoveredPileIndex != -1) {
-			if (!isHoveringPile || newHoveredPileIndex != hoveredPilePlayerIndex || newHoveredPileType != hoveredPileType) {
-				isHoveringPile = true;
-				isShowingPileView = false;
-				hoveredPileType = newHoveredPileType;
-				hoveredPilePlayerIndex = newHoveredPileIndex;
-				pileHoverStartTime = ofGetElapsedTimef();
+			if (newHoveredPileIndex != -1) {
+				if (!isHoveringPile || newHoveredPileIndex != hoveredPilePlayerIndex || newHoveredPileType != hoveredPileType) {
+					isHoveringPile = true;
+					isShowingPileView = false;
+					hoveredPileType = newHoveredPileType;
+					hoveredPilePlayerIndex = newHoveredPileIndex;
+					pileHoverStartTime = ofGetElapsedTimef();
+				}
+				currentCursor = CURSOR_CLICK;
+			} else {
+				isHoveringPile = false;
+				if (isShowingPileView && !pileViewRect.inside(x, y)) {
+					isShowingPileView = false;
+					currentPileView = VIEW_NONE;
+					currentPileViewPlayerIndex = -1;
+				}
 			}
-			currentCursor = CURSOR_CLICK;
-		} else {
-			isHoveringPile = false;
-			if (isShowingPileView && !pileViewRect.inside(x, y)) {
-				isShowingPileView = false;
-				currentPileView = VIEW_NONE;
-				currentPileViewPlayerIndex = -1;
-			}
+			break;
 		}
-		break;
 	}
+
+		// Close switch(currentState) block
 	}
 
 	// Update and send hover state to opponent if changed
@@ -9021,17 +9079,17 @@ void ofApp::mousePressed(int x, int y, int button) {
 		// 1. Card Clicking
 		// Only the drafting player may select cards (multiplayer)
 		if (!(isMultiplayer && players[draftPlayerIndex].playerID != myLocalPlayerID)) {
-			for (int i = 0; i < draftOptions.size(); ++i) {
-				float cx = startX + i * (cardW + spacing);
+			for (size_t i = 0; i < draftOptions.size(); ++i) {
+				float cx = startX + static_cast<float>(i) * (cardW + spacing);
 				if (ofRectangle(cx, startY, cardW, cardH).inside(x, y)) {
-					auto it = std::find(selectedDraftIndices.begin(), selectedDraftIndices.end(), i);
+					auto it = std::find(selectedDraftIndices.begin(), selectedDraftIndices.end(), static_cast<int>(i));
 					bool nowSelected = false;
 					if (it != selectedDraftIndices.end()) {
 						selectedDraftIndices.erase(it); // Deselect
 						nowSelected = false;
 					} else {
-						if ((int)selectedDraftIndices.size() < requiredPicks) {
-							selectedDraftIndices.push_back(i);
+						if (selectedDraftIndices.size() < static_cast<size_t>(requiredPicks)) {
+							selectedDraftIndices.push_back(static_cast<int>(i));
 							nowSelected = true;
 						}
 					}
@@ -11603,6 +11661,8 @@ void ofApp::mousePressed(int x, int y, int button) {
 		}
 		break;
 	}
+	default:
+		break;
 	}
 }
 //--------------------------------------------------------------
@@ -12067,7 +12127,7 @@ void ofApp::keyPressed(int key) {
 			return;
 		} else if (key >= 32 && key <= 126) {
 			// Printable ASCII characters
-			if (chatInput.length() < maxChatInputLength) {
+			if (chatInput.length() < static_cast<size_t>(maxChatInputLength)) {
 				chatInput += (char)key;
 			}
 			return;
@@ -15686,6 +15746,7 @@ glm::vec2 ofApp::getCardDisplayUIPosition(int playerIndex) {
 
 	float screenCenterX = ofGetWidth() / 2.0f;
 	float screenCenterY = ofGetHeight() / 2.0f;
+	(void)screenCenterY;
 
 	if (isMultiplayer) {
 		// In multiplayer, determine which player is "us" and which is "them"
@@ -16593,7 +16654,7 @@ void ofApp::addGameLog(const std::string & logText) {
 	entry.text = logText;
 	entry.timestamp = ofGetElapsedTimef();
 	gameLog.push_back(entry);
-	if (gameLog.size() > maxLogEntries) {
+	if (gameLog.size() > static_cast<size_t>(maxLogEntries)) {
 		gameLog.erase(gameLog.begin());
 	}
 	// Don't show chat window for log entries - only for chat messages
@@ -16923,6 +16984,8 @@ void ofApp::applySnapshotString(const std::string & data) {
 					}
 				}
 			};
+
+			// (void)checkMainPlayerShields; // helper not in this scope
 
 			// Remaining fields are tagged
 			while (idx + 1 < (int)parts.size()) {
@@ -17499,7 +17562,7 @@ int ofApp::startDiceRoll(int numDice, int sides, DicePurpose purpose, std::strin
 	}
 
 	// 5. Send dice roll packet to opponent in multiplayer (for visual synchronization)
-	if (isMultiplayer && activeDiceRolls.size() >= numDice) {
+	if (isMultiplayer && activeDiceRolls.size() >= static_cast<size_t>(numDice)) {
 		// Skip broadcasting initiative debug rolls since both host and client
 		// now roll initiative locally using the shared deterministic RNG.
 		// Also skip broadcasting AP rolls here because the host sends an
@@ -18356,6 +18419,12 @@ void ofApp::drawJoinedOutlines(bool highlightedTiles[BOARD_WIDTH][BOARD_HEIGHT],
 				if (drawLeft && x > 0 && !board[x - 1][y].hasWall) drawLeftVertical = true;
 				if (drawRight && x < BOARD_WIDTH - 1 && !board[x + 1][y].hasWall) drawRightVertical = true;
 			}
+
+			// Silence unused-variable warnings when vertical flags are unused on some builds
+			(void)drawTopVertical;
+			(void)drawBottomVertical;
+			(void)drawLeftVertical;
+			(void)drawRightVertical;
 
 			ofPushMatrix();
 			ofTranslate(worldPos.x, height, worldPos.z);
@@ -21774,7 +21843,7 @@ void ofApp::processNetworkPackets() {
 					if (opponentHoverType == HOVER_UNIT_SELECTED) {
 						// Store current player state to restore after
 						int savedPlayerX = -1, savedPlayerY = -1;
-						if (currentPlayerIndex >= 0 && currentPlayerIndex < players.size()) {
+						if (currentPlayerIndex >= 0 && currentPlayerIndex < static_cast<int>(players.size())) {
 							savedPlayerX = players[currentPlayerIndex].x;
 							savedPlayerY = players[currentPlayerIndex].y;
 							// Temporarily move current player to opponent's selected position
@@ -21788,9 +21857,9 @@ void ofApp::processNetworkPackets() {
 					}
 					// If opponent is hovering a card, show their targeting highlights
 					else if (opponentHoverType == HOVER_HAND_CARD && opponentHoverCardIndex >= 0) {
-						if (currentPlayerIndex >= 0 && currentPlayerIndex < players.size()) {
+						if (currentPlayerIndex >= 0 && currentPlayerIndex < static_cast<int>(players.size())) {
 							Player & currentPlayer = players[currentPlayerIndex];
-							if (opponentHoverCardIndex < currentPlayer.hand.size()) {
+							if (opponentHoverCardIndex < static_cast<int>(currentPlayer.hand.size())) {
 								calculateTargetHighlights(opponentHoverCardIndex);
 							}
 						}
@@ -22048,7 +22117,7 @@ void ofApp::processNetworkPackets() {
 						// Client: apply actions forwarded by host
 						if (pkt->actionType == 0) {
 							if (draftAcceptLocked) {
-								return;
+								continue;
 							}
 							// Host forwarded selection toggle or in-game pick
 							if (isInGameDraft) {
@@ -22077,7 +22146,7 @@ void ofApp::processNetworkPackets() {
 							ofLogNotice("Draft") << "CLIENT: Received forwarded AcceptDraft from host player=" << pkt->draftPlayerIdx << " picks=" << (int)pkt->numSelected << " indices=" << (int)pkt->selectedIdx0 << "," << (int)pkt->selectedIdx1 << "," << (int)pkt->selectedIdx2 << " classTier=" << (int)pkt->classTier;
 							if (draftAcceptApplied) {
 								ofLogNotice("Draft") << "CLIENT: Ignoring duplicate Accept (already applied).";
-								return;
+								continue;
 							}
 							if (initialDraftComplete && currentState == STATE_GAMEPLAY && !isInGameDraft) {
 								ofLogNotice("Draft") << "CLIENT: Ignoring late normal Accept after initial draft completed.";
@@ -22388,6 +22457,7 @@ void ofApp::executeOpponentCardPlay(const ActionPacket & pkt) {
 		tempCardIndex = (int)opponentPlayer.hand.size() - 1;
 		addedTemporaryCard = true;
 	}
+	(void)addedTemporaryCard;
 
 	// --- FIX START: FORCE AP FOR REMOTE ACTIONS ---
 	// The opponent already paid the cost on their screen. We must ensure
@@ -23044,6 +23114,9 @@ void ofApp::logDeckStates(const std::string & reason) {
 	std::string filename = "deck_states_" + std::string(steamManager.isHost() ? "host" : "client") + ".log";
 	ofBuffer buffer;
 	buffer.set(logEntry.c_str(), logEntry.size());
+
+#pragma GCC diagnostic pop
+
 	ofBufferToFile(filename, buffer, true); // true = append mode
 }
 //--------------------------------------------------------------
