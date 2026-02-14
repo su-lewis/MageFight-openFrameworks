@@ -11247,34 +11247,45 @@ void ofApp::mousePressed(int x, int y, int button) {
 				int cardsToDraw = playerToDraw->nextTurnExtraDraw ? (baseDraw + 1) : baseDraw;
 				if (playerToDraw->nextTurnExtraDraw) ofLogNotice("Game") << "Hasten Effect: Drawing 3 cards!";
 
-				// Remember hand size before drawing to get the new cards
+				// Remember hand size before drawing to get the new cards (host path)
 				size_t handSizeBefore = playerToDraw->hand.size();
 
-				// Draw cards locally (client-side prediction)
-				for (int i = 0; i < cardsToDraw; i++)
-					drawCard();
+				if (isMultiplayer && isClient()) {
+					// Client: do NOT perform local draws. Send a draw REQUEST to host
+					DrawCardsPacket req = {};
+					req.type = PKT_DRAW_CARDS;
+					req.playerID = myLocalPlayerID;
+					req.playerIndex = localPlayerIndex;
+					req.numCards = cardsToDraw;
+					// Leave cardNames empty to indicate a request
+					steamManager.sendPacket(&req, sizeof(req));
+					ofLogNotice("Network") << "Client sent DrawCards REQUEST: " << cardsToDraw << " cards";
+					// Client will wait for authoritative DrawCards from host
+					opponentHasDrawnCardsThisTurn = false; // will be set when authoritative packet arrives
+				} else {
+					// Single-player or Host: perform authoritative draws locally
+					for (int i = 0; i < cardsToDraw; ++i)
+						drawCard();
 
-				// Send packet to opponent so they see the draw too
-				if (isMultiplayer) {
-					DrawCardsPacket dcpkt = {};
-					dcpkt.type = PKT_DRAW_CARDS;
-					dcpkt.playerID = myLocalPlayerID;
-					dcpkt.playerIndex = localPlayerIndex;
-					dcpkt.numCards = cardsToDraw;
-
-					// Include the card names that were just drawn
-					for (int i = 0; i < cardsToDraw && i < 3; i++) {
-						size_t cardIndex = handSizeBefore + i;
-						if (cardIndex < playerToDraw->hand.size()) {
-							strncpy(dcpkt.cardNames[i], playerToDraw->hand[cardIndex].name.c_str(), 63);
-							dcpkt.cardNames[i][63] = '\0'; // Ensure null termination
-						} else {
-							dcpkt.cardNames[i][0] = '\0';
+					// If multiplayer host, broadcast the authoritative draw to clients
+					if (isMultiplayer && isHost()) {
+						DrawCardsPacket out = {};
+						out.type = PKT_DRAW_CARDS;
+						out.playerID = myLocalPlayerID;
+						out.playerIndex = localPlayerIndex;
+						out.numCards = cardsToDraw;
+						for (int i = 0; i < cardsToDraw && i < 3; ++i) {
+							size_t idx = handSizeBefore + i;
+							if (idx < playerToDraw->hand.size()) {
+								strncpy(out.cardNames[i], playerToDraw->hand[idx].name.c_str(), 63);
+								out.cardNames[i][63] = '\0';
+							} else {
+								out.cardNames[i][0] = '\0';
+							}
 						}
+						steamManager.sendPacket(&out, sizeof(out));
+						ofLogNotice("Network") << "Host: Sent authoritative DrawCards packet: " << out.numCards << " cards";
 					}
-
-					steamManager.sendPacket(&dcpkt, sizeof(dcpkt));
-					ofLogNotice("Network") << (isClient() ? "Client" : "Host") << " sent DrawCards packet: " << cardsToDraw << " cards";
 				}
 
 				playerToDraw->nextTurnExtraDraw = false;
@@ -16989,6 +17000,18 @@ void ofApp::applySnapshotString(const std::string & data) {
 	// Clear any stale highlights from pre-restore state
 	clearHighlights();
 	calculateTargetHighlights();
+
+	// Clear transient networking/draft/shuffle state that should not survive a snapshot
+	for (int i = 0; i < 2; ++i) {
+		pendingShuffleNonces[i].clear();
+		lastAppliedShuffleNonce[i] = 0;
+	}
+	skipClientShuffleFor = -1;
+	draftAcceptApplied = false;
+	waitingForDraftOptions = false;
+	// Clear any per-player deck dirty flags
+	for (auto & p : players)
+		p.deckNeedsShuffle = false;
 
 	ofLogNotice("Snapshot") << "applySnapshotString complete. Players: " << players.size() << " CurrentPlayer: " << currentPlayerIndex;
 }
