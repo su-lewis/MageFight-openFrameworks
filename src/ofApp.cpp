@@ -21237,6 +21237,7 @@ void ofApp::processNetworkPackets() {
 
 						if (foundCard) {
 							Card newCard = *foundCard;
+							newCard.drawnThisTurn = true; // Ensure eligibility for Renewed Inspiration and deck UI
 
 							// Animation setup - start small and animate to target
 							newCard.currentScale = 0.1f; // Start small
