@@ -11605,7 +11605,7 @@ void ofApp::mouseDragged(int x, int y, int button) {
 	if (draggedCardIndex != -1) {
 		currentCursor = CURSOR_HOLD;
 	}
-	// Allow camera panning during draft
+	// Allow camera panning during draft, but block cancel
 	if (currentState == STATE_DRAFTING && button == OF_MOUSE_BUTTON_RIGHT) {
 		float dx = ofGetPreviousMouseX() - x, dy = ofGetPreviousMouseY() - y;
 		float panMultX = shouldFlipCamera() ? -1.0f : 1.0f;
