@@ -3,8 +3,10 @@
 #include "SteamManager.h"
 #include "ofAppGLFWWindow.h"
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <cstring>
+#include <cctype>
 #include <glm/gtx/intersect.hpp>
 #include <limits>
 #include <queue>
@@ -4453,6 +4455,7 @@ void ofApp::updateGame() {
 							koboldsRemainingToPlace = allowed;
 							koboldSummonCount = 0;
 							isPlacingKobolds = true;
+							ofLogNotice("Summon") << "CallForKobolds: will place " << koboldsRemainingToPlace << " kobolds (source=" << koboldPlacementSourceX << "," << koboldPlacementSourceY << ")";
 							// Instruction UI
 							tooltipText = "Place Kobold: click an adjacent empty tile";
 							isShowingTooltip = true;
@@ -4644,6 +4647,31 @@ void ofApp::updateGame() {
 			it = activeFloatingTexts.erase(it);
 		} else {
 			++it;
+		}
+	}
+
+	// Recompute horizontal offsets for grouped floating texts so that when older
+	// texts expire, remaining texts slide left into their place.
+	{
+		float spacing = 0.8f;
+		// Group texts by anchor position (within small epsilon)
+		for (size_t i = 0; i < activeFloatingTexts.size(); ++i) {
+			// Find all texts with same anchor and sort by startTime
+			std::vector<size_t> groupIdx;
+			for (size_t j = 0; j < activeFloatingTexts.size(); ++j) {
+				if (glm::length(activeFloatingTexts[j].anchorPos - activeFloatingTexts[i].anchorPos) < 0.01f) {
+					groupIdx.push_back(j);
+				}
+			}
+			if (groupIdx.size() <= 1) continue;
+			std::sort(groupIdx.begin(), groupIdx.end(), [&](size_t a, size_t b) {
+				return activeFloatingTexts[a].startTime < activeFloatingTexts[b].startTime;
+			});
+			for (size_t k = 0; k < groupIdx.size(); ++k) {
+				activeFloatingTexts[groupIdx[k]].xOffset = (float)k * spacing;
+				// Update worldPos.x to match new offset
+				activeFloatingTexts[groupIdx[k]].worldPos.x = activeFloatingTexts[groupIdx[k]].anchorPos.x + activeFloatingTexts[groupIdx[k]].xOffset;
+			}
 		}
 	}
 	// --- Animation Updates ---
@@ -9249,6 +9277,8 @@ void ofApp::mousePressed(int x, int y, int button) {
 						int newKoboldIdx = (int)players.size() - 1;
 						shuffleGameVector(players[newKoboldIdx].deck, newKoboldIdx);
 
+						ofLogNotice("Summon") << "Placed Kobold (main handler): idx=" << newKoboldIdx << " players.size=" << players.size() << " boardHasPlayer=" << board[gx][gy].hasPlayer;
+
 						// Notify clients about the placed kobold in multiplayer (host-authoritative HP/AP)
 						if (isMultiplayer && isHost()) {
 							PlaceSummonedMinionPacket pkt = {};
@@ -10695,6 +10725,8 @@ void ofApp::mousePressed(int x, int y, int button) {
 						players.push_back(kobold);
 						int newKoboldIdx = (int)players.size() - 1;
 						shuffleGameVector(players[newKoboldIdx].deck, newKoboldIdx);
+
+						ofLogNotice("Summon") << "Placed Kobold (early handler): idx=" << newKoboldIdx << " players.size=" << players.size() << " boardHasPlayer=" << board[gx][gy].hasPlayer;
 
 						// --- HANDLE LOGIC FLOW --
 						koboldsRemainingToPlace--;
@@ -16217,16 +16249,54 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 	}
 }
 //--------------------------------------------------------------
-void ofApp::spawnFloatingText(glm::vec3 pos, std::string text, ofColor color) {
+void ofApp::spawnFloatingText(glm::vec3 pos, std::string text, ofColor color, std::string category) {
+	float now = ofGetElapsedTimef();
+
+	// If caller didn't provide a category, try to auto-detect from text suffix
+	if (category.empty()) {
+		size_t p = text.find_last_of(' ');
+		if (p != std::string::npos && p + 1 < text.size()) {
+			std::string suf = text.substr(p + 1);
+			// Remove punctuation like '!' or ')'
+			while (!suf.empty() && ispunct((unsigned char)suf.back())) suf.pop_back();
+			if (!suf.empty()) category = suf;
+		}
+	}
+
+	// If an existing floating text of the same category is active at this anchor,
+	// append to it (e.g., combine same-type dice results).
+	for (auto & ef : activeFloatingTexts) {
+		float dist = glm::length(ef.anchorPos - pos);
+		if (dist < 0.01f && (now - ef.startTime) < ef.duration) {
+			if (!category.empty() && ef.category == category) {
+				ef.text += " + " + text;
+				ef.duration = std::max(ef.duration, 1.5f) + 0.5f; // extend life
+				return;
+			}
+		}
+	}
+
+	// Count how many active texts already occupy this anchor so we can place
+	// the new one to the right (non-overlapping). New ones appear to the right.
+	int groupCount = 0;
+	for (const auto & ef : activeFloatingTexts) {
+		float dist = glm::length(ef.anchorPos - pos);
+		if (dist < 0.01f && (now - ef.startTime) < ef.duration) groupCount++;
+	}
+
 	FloatingText ft;
 	ft.text = text;
-	// Start slightly above the unit
-	ft.worldPos = pos + glm::vec3(0, 1.5f, 0);
+	ft.anchorPos = pos;
+	float spacing = 0.8f; // world units to separate stacked texts
+	ft.xOffset = groupCount * spacing;
+	// Start slightly above the unit and apply horizontal offset
+	ft.worldPos = pos + glm::vec3(ft.xOffset, 1.5f, 0);
 	// Random slight drift left/right, consistent drift up
-	std::uniform_real_distribution<float> driftDist(-1.0f, 1.0f);
+	std::uniform_real_distribution<float> driftDist(-0.25f, 0.25f);
 	ft.velocity = glm::vec3(driftDist(visualRNG), 2.0f, driftDist(visualRNG));
-	ft.startTime = ofGetElapsedTimef();
+	ft.startTime = now;
 	ft.color = color;
+	ft.category = category;
 	activeFloatingTexts.push_back(ft);
 }
 //--------------------------------------------------------------
@@ -19731,6 +19801,14 @@ void ofApp::generateDraftOptions(int classTier, const std::vector<int> * forcedI
 	// Deterministic draft generation derived from the shared map seed and draft context.
 	// This makes draft options independent of the global `gameplayRNG` state so both
 	// host and clients see identical options even if other RNG calls differ.
+	// If we don't have a seed (singleplayer quick-start), seed with high-res time
+	// so successive runs don't show the exact same options.
+	if (currentMapSeed == 0 && !isMultiplayer) {
+		uint64_t now = (uint64_t)std::chrono::high_resolution_clock::now().time_since_epoch().count();
+		currentMapSeed = (uint32_t)(now ^ (now >> 32));
+		gameplayRNG.seed(currentMapSeed);
+		ofLogNotice("Draft") << "No map seed present; generated singleplayer seed=" << currentMapSeed;
+	}
 	// Increment the counter to ensure variety across different draft sessions
 	draftGenerationCounter++;
 	uint32_t derivedSeed = currentMapSeed;

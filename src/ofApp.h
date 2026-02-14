@@ -405,11 +405,14 @@ struct DeathMarker {
 
 struct FloatingText {
 	std::string text;
-	glm::vec3 worldPos; // Where it started in 3D
+	glm::vec3 worldPos; // Current world position (may include offset)
+	glm::vec3 anchorPos; // Base anchor position for grouping
 	glm::vec3 velocity; // Upward drift
 	float startTime;
 	float duration = 1.5f;
 	ofColor color;
+	std::string category; // Optional category (e.g., "dice_AP", "dice_fire")
+	float xOffset = 0.0f; // Horizontal offset in world units for side-by-side texts
 };
 
 struct Particle {
@@ -547,7 +550,7 @@ private:
 
 	// Returns passive luck (from assistant auras and cards in deck) for the given player index.
 	int computePassiveLuck(int playerIndex);
-	void spawnFloatingText(glm::vec3 pos, std::string text, ofColor color);
+	void spawnFloatingText(glm::vec3 pos, std::string text, ofColor color, std::string category = "");
 	void spawnExplosion(glm::vec3 pos, int count, ofColor color);
 	void tryTriggerShellSpike(); // Tortoise Form: trigger 3 damage to adjacent unit
 
