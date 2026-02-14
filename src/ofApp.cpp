@@ -1438,7 +1438,7 @@ void ofApp::drawSettingsMenu() {
 	auto drawTab = [&](ofRectangle & r, const string & label, bool active) {
 		ofSetColor(active ? ofColor::lightGray : ofColor(60));
 		ofDrawRectRounded(r, 8);
-		ofSetColor(ofColor::black);
+		ofSetColor(ofColor::white);
 		ofRectangle tb = uiFont.getStringBoundingBox(label, 0, 0);
 		uiFont.drawString(label, r.getCenter().x - tb.getWidth() / 2, r.getCenter().y + tb.getHeight() / 2);
 	};
@@ -1461,9 +1461,10 @@ void ofApp::drawSettingsMenu() {
 
 		// --- Helper for drawing a setting row ---
 		auto drawSettingRow = [&](string label, string value, ofRectangle & leftBtn, ofRectangle & rightBtn, float yPos) {
-			// Draw Label
+			// Draw Label (centered)
 			ofSetColor(ofColor::white);
-			uiFont.drawString(label, centerX - labelOffset, yPos + 25);
+			ofRectangle lb = uiFont.getStringBoundingBox(label, 0, 0);
+			uiFont.drawString(label, centerX - lb.getWidth() / 2, yPos + 25);
 
 			// Draw Left/Right buttons
 			leftBtn.set(centerX - (controlWidth / 2) - 45, yPos, 40, 40);
@@ -1475,11 +1476,14 @@ void ofApp::drawSettingsMenu() {
 			ofRectangle bgRect(centerX - (controlWidth / 2), yPos - 5, controlWidth, 50);
 			ofDrawRectangle(bgRect);
 
-			// Draw TEXT AFTER the background and set its color to BLACK
-			ofSetColor(ofColor::black);
-			uiFont.drawString(value, bgRect.x + 10, bgRect.y + 30);
-			uiFont.drawString("<", leftBtn.getCenter().x - 5, leftBtn.getCenter().y + 10);
-			uiFont.drawString(">", rightBtn.getCenter().x - 5, rightBtn.getCenter().y + 10);
+			// Draw TEXT AFTER the background and set its color to WHITE and centered
+			ofSetColor(ofColor::white);
+			ofRectangle vb = uiFont.getStringBoundingBox(value, 0, 0);
+			uiFont.drawString(value, bgRect.x + (bgRect.width - vb.width) / 2, bgRect.y + 30);
+			ofRectangle lt = uiFont.getStringBoundingBox("<", 0, 0);
+			ofRectangle rt = uiFont.getStringBoundingBox(">", 0, 0);
+			uiFont.drawString("<", leftBtn.getCenter().x - lt.getWidth() / 2, leftBtn.getCenter().y + lt.getHeight() / 2);
+			uiFont.drawString(">", rightBtn.getCenter().x - rt.getWidth() / 2, rightBtn.getCenter().y + rt.getHeight() / 2);
 		};
 
 		// --- Draw Resolution ---
@@ -1494,18 +1498,20 @@ void ofApp::drawSettingsMenu() {
 		// --- Draw Fullscreen ---
 		settingY += settingSpacing;
 		ofSetColor(ofColor::white);
-		uiFont.drawString("Display Mode", centerX - labelOffset, settingY + 25);
 		string fsText = isFullscreen ? "Fullscreen" : "Windowed";
 		settingsFullscreenButton.set(centerX - (controlWidth / 2), settingY - 5, controlWidth, 50);
 		ofDrawRectangle(settingsFullscreenButton);
-		ofSetColor(ofColor::black);
-		uiFont.drawString(fsText, settingsFullscreenButton.x + 10, settingsFullscreenButton.y + 30);
+		ofSetColor(ofColor::white);
+		ofRectangle fb = uiFont.getStringBoundingBox(fsText, 0, 0);
+		uiFont.drawString(fsText, settingsFullscreenButton.x + (settingsFullscreenButton.width - fb.width) / 2, settingsFullscreenButton.y + 30);
 	}
 
 	// AUDIO tab: simple slider + mute/loop toggles
 	if (currentSettingsTab == SETTINGS_TAB_AUDIO) {
 		ofSetColor(ofColor::white);
-		uiFont.drawString("Audio Settings", centerX - 150, contentY);
+		string audioTitle = "Audio Settings";
+		ofRectangle atb = uiFont.getStringBoundingBox(audioTitle, 0, 0);
+		uiFont.drawString(audioTitle, centerX - atb.width / 2, contentY);
 
 		float sliderY = contentY + 60;
 		float sliderW = 520;
@@ -1518,8 +1524,10 @@ void ofApp::drawSettingsMenu() {
 		float masterFill = settingsAudioMasterSlider.width * settingsMasterVolume;
 		ofSetColor(200, 120, 120);
 		ofDrawRectangle(settingsAudioMasterSlider.x, settingsAudioMasterSlider.y, masterFill, settingsAudioMasterSlider.height);
-		ofSetColor(ofColor::black);
-		uiFont.drawString("Master Volume: " + ofToString((int)(settingsMasterVolume * 100)) + "%", settingsAudioMasterSlider.x, settingsAudioMasterSlider.y - 10);
+		ofSetColor(ofColor::white);
+		string masterLabel = "Master Volume: " + ofToString((int)(settingsMasterVolume * 100)) + "%";
+		ofRectangle mlb = uiFont.getStringBoundingBox(masterLabel, 0, 0);
+		uiFont.drawString(masterLabel, centerX - mlb.width / 2, settingsAudioMasterSlider.y - 10);
 
 		// Menu music slider
 		sliderY += 60;
@@ -1529,8 +1537,10 @@ void ofApp::drawSettingsMenu() {
 		float menuFill = settingsAudioVolumeSlider.width * settingsMenuVolume;
 		ofSetColor(50, 200, 50);
 		ofDrawRectangle(settingsAudioVolumeSlider.x, settingsAudioVolumeSlider.y, menuFill, settingsAudioVolumeSlider.height);
-		ofSetColor(ofColor::black);
-		uiFont.drawString("Menu Music Volume: " + ofToString((int)(settingsMenuVolume * 100)) + "%", settingsAudioVolumeSlider.x, settingsAudioVolumeSlider.y - 10);
+		ofSetColor(ofColor::white);
+		string menuLabel = "Menu Music Volume: " + ofToString((int)(settingsMenuVolume * 100)) + "%";
+		ofRectangle ml2 = uiFont.getStringBoundingBox(menuLabel, 0, 0);
+		uiFont.drawString(menuLabel, centerX - ml2.width / 2, settingsAudioVolumeSlider.y - 10);
 
 		// SFX slider
 		sliderY += 60;
@@ -1540,28 +1550,36 @@ void ofApp::drawSettingsMenu() {
 		float sfxFill = settingsAudioSfxSlider.width * settingsSfxVolume;
 		ofSetColor(120, 180, 255);
 		ofDrawRectangle(settingsAudioSfxSlider.x, settingsAudioSfxSlider.y, sfxFill, settingsAudioSfxSlider.height);
-		ofSetColor(ofColor::black);
-		uiFont.drawString("Game SFX Volume: " + ofToString((int)(settingsSfxVolume * 100)) + "%", settingsAudioSfxSlider.x, settingsAudioSfxSlider.y - 10);
+		ofSetColor(ofColor::white);
+		string sfxLabel = "Game SFX Volume: " + ofToString((int)(settingsSfxVolume * 100)) + "%";
+		ofRectangle slb = uiFont.getStringBoundingBox(sfxLabel, 0, 0);
+		uiFont.drawString(sfxLabel, centerX - slb.width / 2, settingsAudioSfxSlider.y - 10);
 
 		// Mute box (master mute)
 		settingsAudioMuteBox.set(centerX - 160, sliderY + 70, 28, 28);
 		ofSetColor(settingsMusicMuted ? ofColor::red : ofColor(200));
 		ofDrawRectangle(settingsAudioMuteBox);
-		ofSetColor(ofColor::black);
-		uiFont.drawString("Mute (master)", settingsAudioMuteBox.x + 36, settingsAudioMuteBox.y + 20);
+		ofSetColor(ofColor::white);
+		string muteText = "Mute (master)";
+		ofRectangle mt = uiFont.getStringBoundingBox(muteText, 0, 0);
+		uiFont.drawString(muteText, settingsAudioMuteBox.x + 36, settingsAudioMuteBox.y + 20);
 
 		// Loop box (menu music loop)
 		settingsAudioLoopBox.set(centerX + 60, sliderY + 70, 28, 28);
 		ofSetColor(settingsMusicLoop ? ofColor::lightGray : ofColor(80));
 		ofDrawRectangle(settingsAudioLoopBox);
-		ofSetColor(ofColor::black);
-		uiFont.drawString("Loop (menu)", settingsAudioLoopBox.x + 36, settingsAudioLoopBox.y + 20);
+		ofSetColor(ofColor::white);
+		string loopText = "Loop (menu)";
+		ofRectangle ltb = uiFont.getStringBoundingBox(loopText, 0, 0);
+		uiFont.drawString(loopText, settingsAudioLoopBox.x + 36, settingsAudioLoopBox.y + 20);
 	}
 
 	// CONTROLS tab: show key bindings and allow rebinding
 	if (currentSettingsTab == SETTINGS_TAB_CONTROLS) {
 		ofSetColor(ofColor::white);
-		uiFont.drawString("Controls", centerX - 60, contentY);
+		string controlsTitle = "Controls";
+		ofRectangle ctb = uiFont.getStringBoundingBox(controlsTitle, 0, 0);
+		uiFont.drawString(controlsTitle, centerX - ctb.width / 2, contentY);
 
 		float listY = contentY + 60;
 		float itemH = 36;
@@ -1571,19 +1589,23 @@ void ofApp::drawSettingsMenu() {
 			ofRectangle itemRect(startX, listY + i * (itemH + 8), itemW, itemH);
 			ofSetColor((int)i == settingsRebindingIndex ? ofColor::lightBlue : ofColor(200));
 			ofDrawRectangle(itemRect);
-			ofSetColor(ofColor::black);
+			ofSetColor(ofColor::white);
 			std::string label = settingsKeyBindings[i].first;
 			std::string keyName = ofToString((int)settingsKeyBindings[i].second);
 			// Try to show printable char for ASCII keys
 			int k = settingsKeyBindings[i].second;
 			if (k >= 32 && k < 127) keyName = std::string(1, (char)k);
-			uiFont.drawString(label, itemRect.x + 10, itemRect.y + 24);
-			uiFont.drawString(keyName, itemRect.getRight() - 40, itemRect.y + 24);
+			ofRectangle lb = uiFont.getStringBoundingBox(label, 0, 0);
+			uiFont.drawString(label, itemRect.x + (itemRect.width - lb.width) / 2, itemRect.y + 24);
+			ofRectangle kb = uiFont.getStringBoundingBox(keyName, 0, 0);
+			uiFont.drawString(keyName, itemRect.x + (itemRect.width * 0.75f) - kb.width / 2, itemRect.y + 24);
 		}
 
 		if (settingsRebindingIndex >= 0) {
 			ofSetColor(ofColor::white);
-			uiFont.drawString("Press a key to rebind or Esc to cancel", centerX - 260, listY + settingsKeyBindings.size() * (itemH + 8) + 32);
+			string reb = "Press a key to rebind or Esc to cancel";
+			ofRectangle rb = uiFont.getStringBoundingBox(reb, 0, 0);
+			uiFont.drawString(reb, centerX - rb.width / 2, listY + settingsKeyBindings.size() * (itemH + 8) + 32);
 		}
 	}
 
@@ -9212,7 +9234,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 
 		// 1. Card Clicking
 		// Only the drafting player may select cards (multiplayer)
-		if (!(isMultiplayer && players[draftPlayerIndex].playerID != myLocalPlayerID)) {
+		if (isLocalDraftingPlayer(draftPlayerIndex)) {
 			for (size_t i = 0; i < draftOptions.size(); ++i) {
 				float cx = startX + static_cast<float>(i) * (cardW + spacing);
 				if (ofRectangle(cx, startY, cardW, cardH).inside(x, y)) {
@@ -9255,10 +9277,12 @@ void ofApp::mousePressed(int x, int y, int button) {
 				return;
 			}
 
-			// Only allow the drafting player to accept
-			if (isMultiplayer && players[draftPlayerIndex].playerID != myLocalPlayerID) {
-				ofLogNotice("Draft") << "ACCEPT BLOCKED: Not drafting player (me=" << myLocalPlayerID << " drafting=" << players[draftPlayerIndex].playerID << ")";
-				return;
+			// Only allow the drafting player to accept (be permissive if indices map differently)
+			if (isMultiplayer) {
+				if (!isLocalDraftingPlayer(draftPlayerIndex)) {
+					ofLogNotice("Draft") << "ACCEPT BLOCKED: Not drafting player (me=" << myLocalPlayerID << " draftingSlot=" << draftPlayerIndex << " draftingPlayerID=" << (players.empty() ? -1 : players[draftPlayerIndex].playerID) << ")";
+					return;
+				}
 			}
 
 			draftAcceptLocked = true;
@@ -17107,14 +17131,260 @@ std::string ofApp::buildSnapshotString() {
 
 //--------------------------------------------------------------
 void ofApp::applySnapshotString(const std::string & data) {
+	// Parse snapshot into temporary structures and only swap into live state on success.
 	std::istringstream ss(data);
 	std::string line;
 
+	bool parseOk = true;
+
+	// Temporary holders
+	GameState tmpCurrentState = currentState;
+	int tmpCurrentPlayerIndex = currentPlayerIndex;
+	int tmpGlobalTurnCounter = globalTurnCounter;
+	bool tmpIsInGameDraft = isInGameDraft;
+	int tmpDraftStage = draftStage;
+	int tmpDraftPlayerIndex = draftPlayerIndex;
+	int tmpDraftPicksRemaining = draftPicksRemaining;
+	int tmpCurrentDraftClassTier = currentDraftClassTier;
+	bool tmpHasDrawnCardsThisTurn = hasDrawnCardsThisTurn;
+	bool tmpOpponentHasDrawnCardsThisTurn = opponentHasDrawnCardsThisTurn;
+	int tmpCurrentAP = currentAP;
+	int tmpLastAPDiceNum = lastAPDiceNum;
+	int tmpLastAPDiceSides = lastAPDiceSides;
+	bool tmpHasUnlimitedAP = hasUnlimitedAP;
+
+	std::vector<int> tmpPendingDraftQueue;
+	BoardCell tmpBoard[BOARD_WIDTH][BOARD_HEIGHT];
+	std::vector<Card> tmpDraftOptionsCards;
+	std::vector<int> tmpSelectedDraftIndices;
+	std::vector<Player> tmpPlayers;
+	std::vector<DeathMarker> tmpGraveyard;
+	std::vector<FloatingKey> tmpFloatingKeys;
+
+	// Initialize board copy from current to keep any non-snapshot fields intact until swap
+	for (int x = 0; x < BOARD_WIDTH; ++x)
+		for (int y = 0; y < BOARD_HEIGHT; ++y)
+			tmpBoard[x][y] = board[x][y];
+
+	try {
+		while (std::getline(ss, line)) {
+			if (line.empty()) continue;
+			auto parts = splitTabs(line);
+			if (parts.empty()) continue;
+			if (parts[0] == "STATE" && parts.size() >= 13) {
+				tmpCurrentState = (GameState)std::stoi(parts[1]);
+				tmpCurrentPlayerIndex = std::stoi(parts[2]);
+				tmpGlobalTurnCounter = std::stoi(parts[3]);
+				tmpIsInGameDraft = (std::stoi(parts[4]) != 0);
+				tmpDraftStage = std::stoi(parts[5]);
+				tmpDraftPlayerIndex = std::stoi(parts[6]);
+				tmpDraftPicksRemaining = std::stoi(parts[7]);
+				tmpCurrentDraftClassTier = std::stoi(parts[8]);
+				tmpHasDrawnCardsThisTurn = (std::stoi(parts[9]) != 0);
+				tmpOpponentHasDrawnCardsThisTurn = (std::stoi(parts[10]) != 0);
+				tmpCurrentAP = std::stoi(parts[11]);
+				tmpLastAPDiceNum = std::stoi(parts[12]);
+				tmpLastAPDiceSides = (parts.size() > 13) ? std::stoi(parts[13]) : tmpLastAPDiceSides;
+				if (parts.size() > 14) {
+					tmpHasUnlimitedAP = (std::stoi(parts[14]) != 0);
+				}
+			} else if (parts[0] == "QUEUE" && parts.size() >= 2) {
+				tmpPendingDraftQueue.clear();
+				for (size_t i = 2; i < parts.size(); ++i)
+					tmpPendingDraftQueue.push_back(std::stoi(parts[i]));
+			} else if (parts[0] == "BOARD" && parts.size() >= 3) {
+				const std::string & walls = parts[1];
+				const std::string & magicWalls = parts[2];
+				int idx = 0;
+				for (int y = 0; y < BOARD_HEIGHT; ++y) {
+					for (int x = 0; x < BOARD_WIDTH; ++x) {
+						tmpBoard[x][y].hasPlayer = false;
+						tmpBoard[x][y].hasWall = (idx < (int)walls.size() && walls[idx] == '1');
+						tmpBoard[x][y].isMagicWall = (idx < (int)magicWalls.size() && magicWalls[idx] == '1');
+						idx++;
+					}
+				}
+			} else if (parts[0] == "DRAFTOPTS" && parts.size() >= 4) {
+				tmpDraftOptionsCards.clear();
+				tmpSelectedDraftIndices.clear();
+				auto optNames = splitEscapedList(parts[1]);
+				for (const auto & name : optNames) {
+					if (name.empty()) continue;
+					const Card * c = findCardByName(name);
+					if (c) tmpDraftOptionsCards.push_back(*c);
+				}
+				if (parts[2] == "SEL") {
+					auto selParts = splitEscapedList(parts[3]);
+					for (const auto & s : selParts) {
+						if (!s.empty()) tmpSelectedDraftIndices.push_back(std::stoi(s));
+					}
+				}
+			} else if (parts[0] == "P" && parts.size() >= 45) {
+				Player p;
+				int idx = 1;
+				p.playerID = std::stoi(parts[idx++]);
+				p.x = std::stoi(parts[idx++]);
+				p.y = std::stoi(parts[idx++]);
+				p.health = std::stoi(parts[idx++]);
+				p.maxHealth = std::stoi(parts[idx++]);
+				p.block = std::stoi(parts[idx++]);
+				p.ward = std::stoi(parts[idx++]);
+				p.fortification = std::stoi(parts[idx++]);
+				p.barrier = std::stoi(parts[idx++]);
+				p.holyBlock = std::stoi(parts[idx++]);
+				p.luck = std::stoi(parts[idx++]);
+				p.bonusTurns = std::stoi(parts[idx++]);
+				p.facingAngle = std::stof(parts[idx++]);
+				p.onFire = (std::stoi(parts[idx++]) != 0);
+				p.hasRegeneration = (std::stoi(parts[idx++]) != 0);
+				p.nextTurnAPBonus = std::stoi(parts[idx++]);
+				p.shocksPlayedThisTurn = std::stoi(parts[idx++]);
+				p.flurryOfFistsActive = (std::stoi(parts[idx++]) != 0);
+				p.isParalyzed = (std::stoi(parts[idx++]) != 0);
+				p.paralysisHeadsCount = std::stoi(parts[idx++]);
+				p.isPoisoned = (std::stoi(parts[idx++]) != 0);
+				p.poisonReduction = std::stoi(parts[idx++]);
+				p.nextAttackAddPoison = (std::stoi(parts[idx++]) != 0);
+				p.nextTurnD10AP = (std::stoi(parts[idx++]) != 0);
+				p.nextTurnExtraDraw = (std::stoi(parts[idx++]) != 0);
+				p.isReplicatePending = (std::stoi(parts[idx++]) != 0);
+				p.nextTurnBonusDiceFromMinions = (std::stoi(parts[idx++]) != 0);
+				p.strengthenElementsTurnsRemaining = std::stoi(parts[idx++]);
+				p.sleepTurnsRemaining = std::stoi(parts[idx++]);
+				p.summonedOnTurnCycle = std::stoi(parts[idx++]);
+				p.summonOrder = std::stoi(parts[idx++]);
+				p.isMinion = (std::stoi(parts[idx++]) != 0);
+				p.isSkeleton = (std::stoi(parts[idx++]) != 0);
+				p.isGolem = (std::stoi(parts[idx++]) != 0);
+				p.isHellhound = (std::stoi(parts[idx++]) != 0);
+				p.isWolf = (std::stoi(parts[idx++]) != 0);
+				p.isKobold = (std::stoi(parts[idx++]) != 0);
+				p.isDemon = (std::stoi(parts[idx++]) != 0);
+				p.isWallUnit = (std::stoi(parts[idx++]) != 0);
+				p.isMagicWallUnit = (std::stoi(parts[idx++]) != 0);
+				p.isKoboldKing = (std::stoi(parts[idx++]) != 0);
+				p.isFaerie = (std::stoi(parts[idx++]) != 0);
+				p.isAssistant = (std::stoi(parts[idx++]) != 0);
+				p.directSummonerID = std::stoi(parts[idx++]);
+				p.assistantRerollUsedThisTurn = (std::stoi(parts[idx++]) != 0);
+				p.freeKickTurns = std::stoi(parts[idx++]);
+				p.inTortoiseForm = (std::stoi(parts[idx++]) != 0);
+				p.tortoiseDamageTaken = std::stoi(parts[idx++]);
+				p.pendingTortoiseDamage = (std::stoi(parts[idx++]) != 0);
+				p.pendingTortoiseDamageValue = std::stoi(parts[idx++]);
+				p.ownerID = std::stoi(parts[idx++]);
+				p.inGhostForm = (std::stoi(parts[idx++]) != 0);
+				p.ghostDamageTaken = std::stoi(parts[idx++]);
+				p.originalModelType = unescapeField(parts[idx++]);
+
+				auto decodeCards = [&](const std::string & list, std::vector<Card> & outVec) {
+					outVec.clear();
+					if (list.empty()) return;
+					auto names = splitEscapedList(list);
+					for (const auto & n : names) {
+						if (n.empty()) continue;
+						const Card * c = findCardByName(n);
+						if (c)
+							outVec.push_back(*c);
+						else {
+							Card fallback;
+							fallback.name = n;
+							outVec.push_back(fallback);
+						}
+					}
+				};
+
+				// Remaining fields are tagged
+				while (idx + 1 < (int)parts.size()) {
+					std::string tag = parts[idx++];
+					std::string value = parts[idx++];
+					if (tag == "DECK")
+						decodeCards(value, p.deck);
+					else if (tag == "HAND")
+						decodeCards(value, p.hand);
+					else if (tag == "DISCARD")
+						decodeCards(value, p.discardPile);
+					else if (tag == "PLAYED")
+						decodeCards(value, p.playedCardsPile);
+					else if (tag == "PLAYEDTYPES") {
+						p.cardsPlayedThisTurn.clear();
+						if (!value.empty()) {
+							auto types = splitEscapedList(value);
+							for (const auto & t : types) {
+								if (!t.empty()) p.cardsPlayedThisTurn.push_back((CardType)std::stoi(t));
+							}
+						}
+					}
+				}
+				tmpPlayers.push_back(p);
+			}
+		}
+
+		// Now parse graveyard and keys from the remaining stream
+		// Reset stream to continue from current position (we already consumed all lines above)
+		// The previous loop consumed entire stream, but some snapshots include grave/key lines after players
+		// We'll re-read from the beginning to capture any remaining tagged lines robustly.
+		ss.clear();
+		ss.seekg(0);
+		while (std::getline(ss, line)) {
+			if (line.empty()) continue;
+			auto parts = splitTabs(line);
+			if (parts.empty()) continue;
+			if (parts[0] == "GRAVE" && parts.size() >= 4) {
+				DeathMarker grave;
+				grave.x = std::stoi(parts[1]);
+				grave.y = std::stoi(parts[2]);
+				grave.turnDied = std::stoi(parts[3]);
+				if (parts.size() > 4) {
+					grave.deck.clear();
+					auto names = splitEscapedList(parts[4]);
+					for (const auto & n : names) {
+						if (n.empty()) continue;
+						const Card * c = findCardByName(n);
+						if (c) grave.deck.push_back(*c);
+					}
+				}
+				tmpGraveyard.push_back(grave);
+			} else if (parts[0] == "KEY" && parts.size() >= 4) {
+				FloatingKey key;
+				key.pos.x = std::stoi(parts[1]);
+				key.pos.y = std::stoi(parts[2]);
+				key.set = std::stoi(parts[3]);
+				tmpFloatingKeys.push_back(key);
+			}
+		}
+
+	} catch (const std::exception & e) {
+		ofLogError("Snapshot") << "applySnapshotString parse error: " << e.what();
+		parseOk = false;
+	}
+
+	if (!parseOk) {
+		ofLogError("Snapshot") << "applySnapshotString failed to parse snapshot data.";
+		// Attempt fallback to backup snapshot if available and different
+		if (!backupSnapshot.empty() && backupSnapshot != data) {
+			ofLogNotice("Snapshot") << "Attempting to restore from backup snapshot due to parse failure.";
+			applySnapshotString(backupSnapshot);
+		}
+		return;
+	}
+
+	// Basic validation
+	if (tmpCurrentPlayerIndex < -1 || (tmpCurrentPlayerIndex >= 0 && tmpCurrentPlayerIndex >= (int)tmpPlayers.size())) {
+		ofLogError("Snapshot") << "Invalid currentPlayerIndex in snapshot: " << tmpCurrentPlayerIndex << " players=" << tmpPlayers.size();
+		if (!backupSnapshot.empty() && backupSnapshot != data) {
+			ofLogNotice("Snapshot") << "Attempting to restore from backup snapshot due to invalid indices.";
+			applySnapshotString(backupSnapshot);
+		}
+		return;
+	}
+
+	// At this point parsing succeeded - perform the swap into live state
 	isMultiplayer = true;
 	hasReceivedHandshake = true;
 	gameplaySeededByHost = true;
 
-	// Reset transient visuals
+	// Reset transient visuals and interaction state
 	activeDiceRolls.clear();
 	activeFloatingTexts.clear();
 	particles.clear();
@@ -17131,7 +17401,6 @@ void ofApp::applySnapshotString(const std::string & data) {
 	pendingKeyDraftPlayer = -1;
 	pendingKeyDraftClass = 0;
 
-	// Reset interaction state to avoid broken selections after restore
 	playerAction = NONE;
 	selectedPieceGridX = -1;
 	selectedPieceGridY = -1;
@@ -17182,203 +17451,37 @@ void ofApp::applySnapshotString(const std::string & data) {
 	cameraCurrentLookAt = cameraCurrentPan;
 	cameraCurrentLookAt2 = glm::vec3(cameraCurrentPan.x, cameraCurrentPan.y, -cameraCurrentPan.z);
 
-	players.clear();
+	// Swap parsed structures into live state
+	currentState = tmpCurrentState;
+	currentPlayerIndex = tmpCurrentPlayerIndex;
+	globalTurnCounter = tmpGlobalTurnCounter;
+	isInGameDraft = tmpIsInGameDraft;
+	draftStage = tmpDraftStage;
+	draftPlayerIndex = tmpDraftPlayerIndex;
+	draftPicksRemaining = tmpDraftPicksRemaining;
+	currentDraftClassTier = tmpCurrentDraftClassTier;
+	hasDrawnCardsThisTurn = tmpHasDrawnCardsThisTurn;
+	opponentHasDrawnCardsThisTurn = tmpOpponentHasDrawnCardsThisTurn;
+	currentAP = tmpCurrentAP;
+	lastAPDiceNum = tmpLastAPDiceNum;
+	lastAPDiceSides = tmpLastAPDiceSides;
+	hasUnlimitedAP = tmpHasUnlimitedAP;
 
-	while (std::getline(ss, line)) {
-		if (line.empty()) continue;
-		auto parts = splitTabs(line);
-		if (parts.empty()) continue;
-		if (parts[0] == "STATE" && parts.size() >= 13) {
-			currentState = (GameState)std::stoi(parts[1]);
-			currentPlayerIndex = std::stoi(parts[2]);
-			globalTurnCounter = std::stoi(parts[3]);
-			isInGameDraft = (std::stoi(parts[4]) != 0);
-			draftStage = std::stoi(parts[5]);
-			draftPlayerIndex = std::stoi(parts[6]);
-			draftPicksRemaining = std::stoi(parts[7]);
-			currentDraftClassTier = std::stoi(parts[8]);
-			hasDrawnCardsThisTurn = (std::stoi(parts[9]) != 0);
-			opponentHasDrawnCardsThisTurn = (std::stoi(parts[10]) != 0);
-			currentAP = std::stoi(parts[11]);
-			lastAPDiceNum = std::stoi(parts[12]);
-			lastAPDiceSides = (parts.size() > 13) ? std::stoi(parts[13]) : lastAPDiceSides;
-			if (parts.size() > 14) {
-				hasUnlimitedAP = (std::stoi(parts[14]) != 0);
-			}
-		} else if (parts[0] == "QUEUE" && parts.size() >= 2) {
-			pendingDraftQueue.clear();
-			for (size_t i = 2; i < parts.size(); ++i)
-				pendingDraftQueue.push_back(std::stoi(parts[i]));
-		} else if (parts[0] == "BOARD" && parts.size() >= 3) {
-			const std::string & walls = parts[1];
-			const std::string & magicWalls = parts[2];
-			int idx = 0;
-			for (int y = 0; y < BOARD_HEIGHT; ++y) {
-				for (int x = 0; x < BOARD_WIDTH; ++x) {
-					board[x][y].hasPlayer = false;
-					board[x][y].hasWall = (idx < (int)walls.size() && walls[idx] == '1');
-					board[x][y].isMagicWall = (idx < (int)magicWalls.size() && magicWalls[idx] == '1');
-					idx++;
-				}
-			}
-			buildLevelMesh();
-			invalidateTargetCache();
-		} else if (parts[0] == "DRAFTOPTS" && parts.size() >= 4) {
-			draftOptions.clear();
-			selectedDraftIndices.clear();
-			auto optNames = splitEscapedList(parts[1]);
-			for (const auto & name : optNames) {
-				if (name.empty()) continue;
-				const Card * c = findCardByName(name);
-				if (c) draftOptions.push_back(*c);
-			}
-			if (parts[2] == "SEL") {
-				auto selParts = splitEscapedList(parts[3]);
-				for (const auto & s : selParts) {
-					if (!s.empty()) selectedDraftIndices.push_back(std::stoi(s));
-				}
-			}
-		} else if (parts[0] == "P" && parts.size() >= 45) {
-			Player p;
-			int idx = 1;
-			p.playerID = std::stoi(parts[idx++]);
-			p.x = std::stoi(parts[idx++]);
-			p.y = std::stoi(parts[idx++]);
-			p.health = std::stoi(parts[idx++]);
-			p.maxHealth = std::stoi(parts[idx++]);
-			p.block = std::stoi(parts[idx++]);
-			p.ward = std::stoi(parts[idx++]);
-			p.fortification = std::stoi(parts[idx++]);
-			p.barrier = std::stoi(parts[idx++]);
-			p.holyBlock = std::stoi(parts[idx++]);
-			p.luck = std::stoi(parts[idx++]);
-			p.bonusTurns = std::stoi(parts[idx++]);
-			p.facingAngle = std::stof(parts[idx++]);
-			p.onFire = (std::stoi(parts[idx++]) != 0);
-			p.hasRegeneration = (std::stoi(parts[idx++]) != 0);
-			p.nextTurnAPBonus = std::stoi(parts[idx++]);
-			p.shocksPlayedThisTurn = std::stoi(parts[idx++]);
-			p.flurryOfFistsActive = (std::stoi(parts[idx++]) != 0);
-			p.isParalyzed = (std::stoi(parts[idx++]) != 0);
-			p.paralysisHeadsCount = std::stoi(parts[idx++]);
-			p.isPoisoned = (std::stoi(parts[idx++]) != 0);
-			p.poisonReduction = std::stoi(parts[idx++]);
-			p.nextAttackAddPoison = (std::stoi(parts[idx++]) != 0);
-			p.nextTurnD10AP = (std::stoi(parts[idx++]) != 0);
-			p.nextTurnExtraDraw = (std::stoi(parts[idx++]) != 0);
-			p.isReplicatePending = (std::stoi(parts[idx++]) != 0);
-			p.nextTurnBonusDiceFromMinions = (std::stoi(parts[idx++]) != 0);
-			p.strengthenElementsTurnsRemaining = std::stoi(parts[idx++]);
-			p.sleepTurnsRemaining = std::stoi(parts[idx++]);
-			p.summonedOnTurnCycle = std::stoi(parts[idx++]);
-			p.summonOrder = std::stoi(parts[idx++]);
-			p.isMinion = (std::stoi(parts[idx++]) != 0);
-			p.isSkeleton = (std::stoi(parts[idx++]) != 0);
-			p.isGolem = (std::stoi(parts[idx++]) != 0);
-			p.isHellhound = (std::stoi(parts[idx++]) != 0);
-			p.isWolf = (std::stoi(parts[idx++]) != 0);
-			p.isKobold = (std::stoi(parts[idx++]) != 0);
-			p.isDemon = (std::stoi(parts[idx++]) != 0);
-			p.isWallUnit = (std::stoi(parts[idx++]) != 0);
-			p.isMagicWallUnit = (std::stoi(parts[idx++]) != 0);
-			p.isKoboldKing = (std::stoi(parts[idx++]) != 0);
-			p.isFaerie = (std::stoi(parts[idx++]) != 0);
-			p.isAssistant = (std::stoi(parts[idx++]) != 0);
-			p.directSummonerID = std::stoi(parts[idx++]);
-			p.assistantRerollUsedThisTurn = (std::stoi(parts[idx++]) != 0);
-			p.freeKickTurns = std::stoi(parts[idx++]);
-			p.inTortoiseForm = (std::stoi(parts[idx++]) != 0);
-			p.tortoiseDamageTaken = std::stoi(parts[idx++]);
-			p.pendingTortoiseDamage = (std::stoi(parts[idx++]) != 0);
-			p.pendingTortoiseDamageValue = std::stoi(parts[idx++]);
-			p.ownerID = std::stoi(parts[idx++]);
-			p.inGhostForm = (std::stoi(parts[idx++]) != 0);
-			p.ghostDamageTaken = std::stoi(parts[idx++]);
-			p.originalModelType = unescapeField(parts[idx++]);
+	pendingDraftQueue = tmpPendingDraftQueue;
 
-			auto decodeCards = [&](const std::string & list, std::vector<Card> & outVec) {
-				outVec.clear();
-				if (list.empty()) return;
-				auto names = splitEscapedList(list);
-				for (const auto & n : names) {
-					if (n.empty()) continue;
-					const Card * c = findCardByName(n);
-					if (c)
-						outVec.push_back(*c);
-					else {
-						Card fallback;
-						fallback.name = n;
-						outVec.push_back(fallback);
-					}
-				}
-			};
+	// copy board cells
+	for (int x = 0; x < BOARD_WIDTH; ++x)
+		for (int y = 0; y < BOARD_HEIGHT; ++y)
+			board[x][y] = tmpBoard[x][y];
 
-			// (void)checkMainPlayerShields; // helper not in this scope
+	draftOptions.clear();
+	for (const auto & c : tmpDraftOptionsCards)
+		draftOptions.push_back(c);
+	selectedDraftIndices = tmpSelectedDraftIndices;
 
-			// Remaining fields are tagged
-			while (idx + 1 < (int)parts.size()) {
-				std::string tag = parts[idx++];
-				std::string value = parts[idx++];
-				if (tag == "DECK")
-					decodeCards(value, p.deck);
-				else if (tag == "HAND")
-					decodeCards(value, p.hand);
-				else if (tag == "DISCARD")
-					decodeCards(value, p.discardPile);
-				else if (tag == "PLAYED")
-					decodeCards(value, p.playedCardsPile);
-				else if (tag == "PLAYEDTYPES") {
-					p.cardsPlayedThisTurn.clear();
-					if (!value.empty()) {
-						auto types = splitEscapedList(value);
-						for (const auto & t : types) {
-							if (!t.empty()) p.cardsPlayedThisTurn.push_back((CardType)std::stoi(t));
-						}
-					}
-				}
-			}
-			players.push_back(p);
-		}
-	}
-
-	// Parse graveyard and keys from snapshot (restart from beginning with saved ss data)
-	// Actually, we need to continue parsing the remaining lines from the stream
-	// The graveyard and keys come after all players, so they'll be in subsequent getline calls
-	graveyard.clear();
-	floatingKeyInstances.clear();
-
-	while (std::getline(ss, line)) {
-		if (line.empty()) continue;
-		auto parts = splitTabs(line);
-		if (parts.empty()) continue;
-
-		if (parts[0] == "GRAVE" && parts.size() >= 4) {
-			// GRAVE\tx\ty\tturnDied\tdeck_list
-			DeathMarker grave;
-			grave.x = std::stoi(parts[1]);
-			grave.y = std::stoi(parts[2]);
-			grave.turnDied = std::stoi(parts[3]);
-
-			// Decode deck
-			if (parts.size() > 4) {
-				grave.deck.clear();
-				auto names = splitEscapedList(parts[4]);
-				for (const auto & n : names) {
-					if (n.empty()) continue;
-					const Card * c = findCardByName(n);
-					if (c) grave.deck.push_back(*c);
-				}
-			}
-			graveyard.push_back(grave);
-		} else if (parts[0] == "KEY" && parts.size() >= 4) {
-			// KEY\tx\ty\tset
-			FloatingKey key;
-			key.pos.x = std::stoi(parts[1]);
-			key.pos.y = std::stoi(parts[2]);
-			key.set = std::stoi(parts[3]);
-			floatingKeyInstances.push_back(key);
-		}
-	}
+	players = tmpPlayers;
+	graveyard = tmpGraveyard;
+	floatingKeyInstances = tmpFloatingKeys;
 
 	// Rebuild hasPlayer from player positions
 	for (int y = 0; y < BOARD_HEIGHT; ++y) {
@@ -20897,6 +21000,22 @@ void ofApp::updateAndSendHover(HoverType type, int gridX, int gridY, int cardInd
 		}
 	}
 }
+// Networking / player helpers
+int ofApp::getLocalPlayerIndex() const {
+	for (int i = 0; i < (int)players.size(); ++i) {
+		if (players[i].playerID == myLocalPlayerID) return i;
+	}
+	return -1;
+}
+
+bool ofApp::isLocalDraftingPlayer(int draftIndex) const {
+	if (!isMultiplayer) return true;
+	int localIdx = getLocalPlayerIndex();
+	// Accept if either the slot index matches or the playerID at the slot matches local ID.
+	if (localIdx >= 0 && localIdx == draftIndex) return true;
+	if (draftIndex >= 0 && draftIndex < (int)players.size() && players[draftIndex].playerID == myLocalPlayerID) return true;
+	return false;
+}
 // --------------------------------------------------------------
 void ofApp::processNetworkPackets() {
 	while (!steamManager.packetQueue.empty()) {
@@ -22291,6 +22410,17 @@ void ofApp::processNetworkPackets() {
 				} else if (header->type == PKT_DRAFT_STATE) {
 					DraftStatePacket * sp = (DraftStatePacket *)header;
 					ofLogNotice("Network") << "Draft state received: class=" << sp->classTier << " player=" << sp->draftPlayerIdx << " picks=" << sp->picksRemaining << " stage=" << sp->draftStage << " ingame=" << (int)sp->isInGameDraft << " curPlayer=" << sp->currentPlayerIndex;
+
+					// Debug: log player mapping and local index to diagnose mapping/race issues
+					{
+						std::stringstream ss;
+						ss << "Players mapping (slot:playerID): ";
+						for (int i = 0; i < (int)players.size(); ++i) {
+							ss << i << ":" << players[i].playerID << " ";
+						}
+						ss << " | myLocalPlayerID=" << myLocalPlayerID << " localSlot=" << getLocalPlayerIndex() << " draftSlot=" << sp->draftPlayerIdx;
+						ofLogNotice("DraftDebug") << ss.str();
+					}
 
 					// Ignore late normal-draft packets after the initial draft is complete
 					if (initialDraftComplete && currentState == STATE_GAMEPLAY && sp->classTier > 0 && sp->isInGameDraft == 0) {

@@ -1493,4 +1493,8 @@ private:
 
 	void updateAndSendHover(HoverType type, int gridX = -1, int gridY = -1, int cardIndex = -1);
 	void drawTileGlow(int gridX, int gridY, ofColor color, float thickness = 0.15f);
+
+	// Networking / player helpers
+	int getLocalPlayerIndex() const; // returns index in `players` or -1
+	bool isLocalDraftingPlayer(int draftIndex) const;
 };
