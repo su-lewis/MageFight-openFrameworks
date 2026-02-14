@@ -384,6 +384,10 @@ struct Player {
 	std::vector<Card> hand;
 	std::vector<Card> deck;
 	std::vector<Card> discardPile;
+
+	// When true the player's deck has been modified and requires an authoritative shuffle
+	// before the next draw to ensure randomness (host will perform/broadcast the shuffle).
+	bool deckNeedsShuffle = false;
 };
 
 struct MinionUI {
@@ -643,11 +647,21 @@ private:
 			sp.nonce = nonce;
 			steamManager.sendPacket(&sp, sizeof(sp));
 			ofLogNotice("Network") << "Host sent Shuffle packet: player=" << sp.playerIndex << " nonce=" << sp.nonce;
+
+			// Clear dirty flag for this player's deck since we've just shuffled it authoritatively
+			if (ownerPlayerIndex >= 0 && ownerPlayerIndex < (int)players.size()) {
+				players[ownerPlayerIndex].deckNeedsShuffle = false;
+			}
 			return;
 		}
 
 		// Singleplayer or generic shuffle: use gameplayRNG
 		deterministic_shuffle(vec, gameplayRNG);
+
+		// If this shuffle was for a specific player's deck, clear the dirty flag
+		if (ownerPlayerIndex >= 0 && ownerPlayerIndex < (int)players.size()) {
+			players[ownerPlayerIndex].deckNeedsShuffle = false;
+		}
 	}
 
 	// -------------------------------------------------------------------------

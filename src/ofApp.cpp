@@ -3,10 +3,10 @@
 #include "SteamManager.h"
 #include "ofAppGLFWWindow.h"
 #include <algorithm>
+#include <cctype>
 #include <chrono>
 #include <cmath>
 #include <cstring>
-#include <cctype>
 #include <glm/gtx/intersect.hpp>
 #include <limits>
 #include <queue>
@@ -1603,6 +1603,13 @@ void ofApp::setupGame() {
 		steamManager.setLobbySeed(currentMapSeed);
 		steamManager.setMatchStarted();
 	}
+	// Singleplayer start: ensure gameplay RNG is seeded so runs differ each time
+	else if (!isMultiplayer) {
+		currentMapSeed = (uint32_t)time(nullptr);
+		gameplayRNG.seed(currentMapSeed);
+		gameplaySeededByHost = false;
+		ofLogNotice("Setup") << "Singleplayer generated seed: " << currentMapSeed;
+	}
 	for (int x = 0; x < BOARD_WIDTH; ++x) {
 		for (int y = 0; y < BOARD_HEIGHT; ++y) {
 			board[x][y] = Tile();
@@ -2410,6 +2417,13 @@ void ofApp::updateGame() {
 				}
 			}
 			invalidateTargetCache();
+
+			// Debug dump: print all players after placement to verify persistence
+			ofLogNotice("Summon") << "Players dump after placement (count=" << players.size() << ")";
+			for (size_t pi = 0; pi < players.size(); ++pi) {
+				auto & pp = players[pi];
+				ofLogNotice("Summon") << " idx=" << pi << " id=" << pp.playerID << " x=" << pp.x << " y=" << pp.y << " isKobold=" << (pp.isKobold ? 1 : 0) << " isMinion=" << (pp.isMinion ? 1 : 0) << " health=" << pp.health;
+			}
 		}
 	}
 
@@ -6606,8 +6620,19 @@ void ofApp::drawGame() {
 			ofPopStyle();
 		}
 
-		// Only highlight deck if it's MY turn and I haven't drawn yet
-		if (currentState == STATE_GAMEPLAY && isCurrentPlayerLocal() && !hasDrawnCardsThisTurn) {
+		// Compute whether the local player should be allowed to draw from the main deck
+		bool isLocalPlayersTurnForMainDeck = false;
+		if (currentState == STATE_GAMEPLAY && !players.empty() && currentPlayerIndex >= 0) {
+			Player & activePlayer = players[currentPlayerIndex];
+			if (isMultiplayer) {
+				isLocalPlayersTurnForMainDeck = (activePlayer.playerID == myLocalPlayerID && !activePlayer.isMinion);
+			} else {
+				isLocalPlayersTurnForMainDeck = (activePlayer.playerID == 0 && !activePlayer.isMinion);
+			}
+		}
+
+		// Only highlight deck if it's the local player's main-deck turn and they haven't drawn yet
+		if (isLocalPlayersTurnForMainDeck && !hasDrawnCardsThisTurn) {
 			ofPushStyle();
 			ofNoFill();
 			ofSetColor(ofColor::green);
@@ -6680,8 +6705,18 @@ void ofApp::drawGame() {
 			ofPopStyle();
 		}
 
-		// Show outline for opponent's deck when it's their turn and they haven't drawn yet
-		if (currentState == STATE_GAMEPLAY && !isCurrentPlayerLocal() && !opponentHasDrawnCardsThisTurn) {
+		// Show outline for opponent's deck when it's their main-deck turn and they haven't drawn yet
+		bool isOpponentPlayersTurnForMainDeck = false;
+		if (currentState == STATE_GAMEPLAY && !players.empty() && currentPlayerIndex >= 0) {
+			Player & activePlayer = players[currentPlayerIndex];
+			if (isMultiplayer) {
+				isOpponentPlayersTurnForMainDeck = (activePlayer.playerID != myLocalPlayerID && !activePlayer.isMinion);
+			} else {
+				isOpponentPlayersTurnForMainDeck = (activePlayer.playerID != 0 && !activePlayer.isMinion);
+			}
+		}
+
+		if (isOpponentPlayersTurnForMainDeck && !opponentHasDrawnCardsThisTurn) {
 			ofPushStyle();
 			ofNoFill();
 			ofSetColor(ofColor::green);
@@ -9272,12 +9307,22 @@ void ofApp::mousePressed(int x, int y, int button) {
 							if (c.name == "Punch") pu = c;
 							if (c.type == CARD_CALL_FOR_KOBOLDS) callCard = c;
 						}
+						// Give kobolds a tiny default deck so they don't get removed by
+						// the "no cards" cleanup on the next update tick.
+						kobold.deck = { hb, hb, pu, callCard };
 						board[gx][gy].hasPlayer = true;
 						players.push_back(kobold);
 						int newKoboldIdx = (int)players.size() - 1;
 						shuffleGameVector(players[newKoboldIdx].deck, newKoboldIdx);
 
 						ofLogNotice("Summon") << "Placed Kobold (main handler): idx=" << newKoboldIdx << " players.size=" << players.size() << " boardHasPlayer=" << board[gx][gy].hasPlayer;
+
+						// Immediate debug dump to verify players vector and board state
+						ofLogNotice("Summon") << "[DEBUG] Players after main placement (count=" << players.size() << ")";
+						for (size_t _pi = 0; _pi < players.size(); ++_pi) {
+							auto & _pp = players[_pi];
+							ofLogNotice("Summon") << "[DEBUG] idx=" << _pi << " id=" << _pp.playerID << " x=" << _pp.x << " y=" << _pp.y << " isKobold=" << (_pp.isKobold ? 1 : 0) << " isMinion=" << (_pp.isMinion ? 1 : 0) << " health=" << _pp.health;
+						}
 
 						// Notify clients about the placed kobold in multiplayer (host-authoritative HP/AP)
 						if (isMultiplayer && isHost()) {
@@ -10727,6 +10772,13 @@ void ofApp::mousePressed(int x, int y, int button) {
 						shuffleGameVector(players[newKoboldIdx].deck, newKoboldIdx);
 
 						ofLogNotice("Summon") << "Placed Kobold (early handler): idx=" << newKoboldIdx << " players.size=" << players.size() << " boardHasPlayer=" << board[gx][gy].hasPlayer;
+
+						// Immediate debug dump to verify players vector and board state (early handler)
+						ofLogNotice("Summon") << "[DEBUG] Players after early placement (count=" << players.size() << ")";
+						for (size_t _pi = 0; _pi < players.size(); ++_pi) {
+							auto & _pp = players[_pi];
+							ofLogNotice("Summon") << "[DEBUG] idx=" << _pi << " id=" << _pp.playerID << " x=" << _pp.x << " y=" << _pp.y << " isKobold=" << (_pp.isKobold ? 1 : 0) << " isMinion=" << (_pp.isMinion ? 1 : 0) << " health=" << _pp.health;
+						}
 
 						// --- HANDLE LOGIC FLOW --
 						koboldsRemainingToPlace--;
@@ -12792,6 +12844,15 @@ void ofApp::drawCard() {
 
 		// Shuffle the new Deck (authoritative via host in multiplayer)
 		shuffleGameVector(currentPlayer.deck, currentPlayerIndex);
+	}
+
+	// If some effect earlier marked the deck as "dirty" (cards were added without
+	// performing an authoritative shuffle), ensure we shuffle now before drawing.
+	if (currentPlayer.deckNeedsShuffle) {
+		ofLogNotice("Game") << "Deck flagged dirty: performing shuffle before draw for player " << currentPlayerIndex;
+		shuffleGameVector(currentPlayer.deck, currentPlayerIndex);
+		// shuffleGameVector clears the flag for host/singleplayer; on clients the flag
+		// will be cleared when the authoritative PKT_SHUFFLE is received and applied.
 	}
 
 	// --- PHASE 2: DRAW THE CARD ---
@@ -16258,7 +16319,8 @@ void ofApp::spawnFloatingText(glm::vec3 pos, std::string text, ofColor color, st
 		if (p != std::string::npos && p + 1 < text.size()) {
 			std::string suf = text.substr(p + 1);
 			// Remove punctuation like '!' or ')'
-			while (!suf.empty() && ispunct((unsigned char)suf.back())) suf.pop_back();
+			while (!suf.empty() && ispunct((unsigned char)suf.back()))
+				suf.pop_back();
 			if (!suf.empty()) category = suf;
 		}
 	}
@@ -17425,7 +17487,27 @@ int ofApp::startDiceRoll(int numDice, int sides, DicePurpose purpose, std::strin
 		}
 	}
 
-	ofLogNotice("Dice") << "Final total result for " << numDice << "d" << sides << ": " << totalRollResult;
+	// For coin flips, log Heads/Tails instead of raw numbers
+	if (sides == 2) {
+		int heads = 0;
+		int tails = 0;
+		int startIdx = (int)activeDiceRolls.size() - numDice;
+		for (int i = 0; i < numDice && startIdx + i < (int)activeDiceRolls.size(); ++i) {
+			int v = activeDiceRolls[startIdx + i].rawResult;
+			if (v == 2)
+				heads++;
+			else
+				tails++;
+		}
+		if (numDice == 1) {
+			std::string s = (heads == 1) ? "Heads" : "Tails";
+			ofLogNotice("Dice") << "Final coin flip result: " << s;
+		} else {
+			ofLogNotice("Dice") << "Final coin flips: Heads=" << heads << " Tails=" << tails;
+		}
+	} else {
+		ofLogNotice("Dice") << "Final total result for " << numDice << "d" << sides << ": " << totalRollResult;
+	}
 	return totalRollResult;
 }
 //--------------------------------------------------------------
@@ -20439,6 +20521,8 @@ void ofApp::processNetworkPackets() {
 					if (isClient()) {
 						lastAppliedShuffleNonce[spk->playerIndex] = spk->nonce;
 					}
+					// Clear any 'needs shuffle' marker now that we've applied the authoritative shuffle
+					players[spk->playerIndex].deckNeedsShuffle = false;
 					// Only clear the per-player skip guard if it was set for this player
 					if (skipClientShuffleFor == spk->playerIndex) {
 						skipClientShuffleFor = -1;
