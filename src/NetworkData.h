@@ -32,6 +32,7 @@ enum PacketType {
 	PKT_AMNESIA_CHOICE, // Player's selection for Amnesia (which cards to remove)
 	PKT_RENEWED_INSPIRATION, // Renewed Inspiration selection
 	PKT_PLACE_SUMMONED_MINION, // Host -> Client: inform clients a summoned minion was placed
+	PKT_MOVE_UNIT, // Host/Client: unit movement (fromX,fromY -> toX,toY)
 	PKT_PLACE_SUMMONED_BEGIN, // Host -> Client: begin remote placement preview (e.g., Kobolds/Wolves)
 	PKT_EARTHQUAKE_BEGIN, // Host -> Client: begin earthquake (directions for each unit)
 	PKT_CARD_ACTION_BEGIN, // Host -> Client: generic card begin (cardType, actor, target, params)

@@ -144,7 +144,7 @@ bool SteamManager::sendPacket(const void * data, uint32_t size) {
 		}
 
 		// Verbose send tracing for key packets
-		if (outHdr->type == PKT_ACTION || outHdr->type == PKT_RENEWED_INSPIRATION || outHdr->type == PKT_DRAW_CARDS || outHdr->type == PKT_SHUFFLE || outHdr->type == PKT_TURN_START) {
+		if (outHdr->type == PKT_ACTION || outHdr->type == PKT_RENEWED_INSPIRATION || outHdr->type == PKT_DRAW_CARDS || outHdr->type == PKT_SHUFFLE || outHdr->type == PKT_TURN_START || outHdr->type == PKT_PLACE_SUMMONED_MINION || outHdr->type == PKT_DICE_ROLL || outHdr->type == PKT_CHECKSUM_CHECK || outHdr->type == PKT_SNAPSHOT_BEGIN || outHdr->type == PKT_SNAPSHOT_CHUNK || outHdr->type == PKT_SNAPSHOT_END || outHdr->type == PKT_MOVE_UNIT || outHdr->type == PKT_AMNESIA_CHOICE || outHdr->type == PKT_PLACE_SUMMONED_BEGIN) {
 			ofLogNotice("NetTrace") << "SEND pkt type=" << (int)outHdr->type << " player=" << outHdr->playerID << " seq=" << outHdr->seq << " size=" << size;
 			if (outHdr->type == PKT_ACTION && size >= sizeof(ActionPacket)) {
 				ActionPacket * ap = (ActionPacket *)buffer.data();
@@ -154,13 +154,40 @@ bool SteamManager::sendPacket(const void * data, uint32_t size) {
 				ofLogNotice("NetTrace") << "  SHUFFLE playerIndex=" << spk->playerIndex << " nonce=" << spk->nonce;
 			} else if (outHdr->type == PKT_TURN_START && size >= sizeof(TurnStartPacket)) {
 				TurnStartPacket * tsp = (TurnStartPacket *)buffer.data();
-				ofLogNotice("NetTrace") << "  TURN_START currentPlayerIndex=" << tsp->currentPlayerIndex << " diceNum=" << (int)tsp->diceNum << " diceSides=" << (int)tsp->diceSides;
+				ofLogNotice("NetTrace") << "  TURN_START currentPlayerIndex=" << tsp->currentPlayerIndex << " diceNum=" << (int)tsp->diceNum << " diceSides=" << (int)tsp->diceSides << " finalTotal=" << tsp->finalTotal;
 			} else if (outHdr->type == PKT_DRAW_CARDS && size >= sizeof(DrawCardsPacket)) {
 				DrawCardsPacket * dcp = (DrawCardsPacket *)buffer.data();
 				ofLogNotice("NetTrace") << "  DRAW_CARDS playerIndex=" << dcp->playerIndex << " numCards=" << (int)dcp->numCards;
 			} else if (outHdr->type == PKT_RENEWED_INSPIRATION && size >= sizeof(RenewedInspirationPacket)) {
 				RenewedInspirationPacket * rip = (RenewedInspirationPacket *)buffer.data();
 				ofLogNotice("NetTrace") << "  RINSP playerIndex=" << rip->playerIndex << " count=" << (int)rip->count;
+			} else if (outHdr->type == PKT_PLACE_SUMMONED_MINION && size >= sizeof(PlaceSummonedMinionPacket)) {
+				PlaceSummonedMinionPacket * psp = (PlaceSummonedMinionPacket *)buffer.data();
+				ofLogNotice("NetTrace") << "  PLACE_SUMMONED minionType=" << (int)psp->minionType << " ownerID=" << psp->ownerPlayerID << " target=(" << psp->targetX << "," << psp->targetY << ") HP=" << psp->minionHP << " AP=" << psp->minionAP;
+			} else if (outHdr->type == PKT_DICE_ROLL && size >= sizeof(DiceRollPacket)) {
+				DiceRollPacket * drp = (DiceRollPacket *)buffer.data();
+				ofLogNotice("NetTrace") << "  DICE_ROLL owner=" << drp->ownerIndex << " numDice=" << (int)drp->numDice << " sides=" << (int)drp->sides;
+			} else if (outHdr->type == PKT_CHECKSUM_CHECK && size >= sizeof(ChecksumPacket)) {
+				ChecksumPacket * ckp = (ChecksumPacket *)buffer.data();
+				ofLogNotice("NetTrace") << "  CHECKSUM turn=" << ckp->turnNumber << " value=" << ckp->checksum;
+			} else if (outHdr->type == PKT_SNAPSHOT_BEGIN && size >= sizeof(SnapshotBeginPacket)) {
+				SnapshotBeginPacket * sb = (SnapshotBeginPacket *)buffer.data();
+				ofLogNotice("NetTrace") << "  SNAPSHOT_BEGIN id=" << sb->snapshotId << " totalSize=" << sb->totalSize;
+			} else if (outHdr->type == PKT_SNAPSHOT_CHUNK && size >= sizeof(SnapshotChunkPacket)) {
+				SnapshotChunkPacket * sc = (SnapshotChunkPacket *)buffer.data();
+				ofLogNotice("NetTrace") << "  SNAPSHOT_CHUNK id=" << sc->snapshotId << " offset=" << sc->offset << " chunkSize=" << sc->chunkSize;
+			} else if (outHdr->type == PKT_SNAPSHOT_END && size >= sizeof(SnapshotEndPacket)) {
+				SnapshotEndPacket * se = (SnapshotEndPacket *)buffer.data();
+				ofLogNotice("NetTrace") << "  SNAPSHOT_END id=" << se->snapshotId;
+			} else if (outHdr->type == PKT_MOVE_UNIT && size >= sizeof(MoveUnitPacket)) {
+				MoveUnitPacket * mup = (MoveUnitPacket *)buffer.data();
+				ofLogNotice("NetTrace") << "  MOVE from=(" << mup->fromX << "," << mup->fromY << ") to=(" << mup->toX << "," << mup->toY << ")";
+			} else if (outHdr->type == PKT_AMNESIA_CHOICE && size >= sizeof(AmnesiaChoicePacket)) {
+				AmnesiaChoicePacket * apc = (AmnesiaChoicePacket *)buffer.data();
+				ofLogNotice("NetTrace") << "  AMNESIA targetPlayer=" << apc->targetPlayerIndex << " numRemove=" << (int)apc->numCardsToRemove;
+			} else if (outHdr->type == PKT_PLACE_SUMMONED_BEGIN && size >= sizeof(PlaceSummonedBeginPacket)) {
+				PlaceSummonedBeginPacket * psb = (PlaceSummonedBeginPacket *)buffer.data();
+				ofLogNotice("NetTrace") << "  PLACE_SUMMON_BEGIN minionType=" << (int)psb->minionType << " ownerID=" << psb->ownerPlayerID << " numToPlace=" << psb->numToPlace;
 			}
 		}
 		EResult res = SteamNetworkingSockets()->SendMessageToConnection(

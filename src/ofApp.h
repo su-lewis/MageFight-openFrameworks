@@ -516,7 +516,7 @@ private:
 	void setupGame();
 
 	// Initialize shared game state (board, players, camera)
-	void initializeGameStateCommon();
+	void initialiseGameStateCommon();
 
 	// Initialize client-side game from a host-provided seed
 	void initGameFromSeed(uint32_t seed);

@@ -813,7 +813,6 @@ void ofApp::setup() {
 				// Procedural noise fire shape
 				float n = ofNoise(x * 0.1, y * 0.1, f * 0.5, ofGetElapsedTimef());
 				float centerDist = abs(x - 16) / 16.0f;
-				float heightFade = (32 - y) / 32.0f;
 
 				float alpha = 0;
 				if (n > 0.4 + centerDist && y > 5) {
@@ -938,7 +937,7 @@ void ofApp::update() {
 			msg.message = "Opponent left the game";
 			msg.timestamp = ofGetElapsedTimef();
 			chatHistory.push_back(msg);
-			if (chatHistory.size() > maxChatMessages) {
+			if (chatHistory.size() > static_cast<size_t>(maxChatMessages)) {
 				chatHistory.erase(chatHistory.begin());
 			}
 
@@ -971,7 +970,7 @@ void ofApp::update() {
 			msg.message = opponentName + " disconnected";
 			msg.timestamp = ofGetElapsedTimef();
 			chatHistory.push_back(msg);
-			if (chatHistory.size() > maxChatMessages) {
+			if (chatHistory.size() > static_cast<size_t>(maxChatMessages)) {
 				chatHistory.erase(chatHistory.begin());
 			}
 			// Show chat window for this message
@@ -987,7 +986,7 @@ void ofApp::update() {
 			msg.message = opponentName + " reconnected";
 			msg.timestamp = ofGetElapsedTimef();
 			chatHistory.push_back(msg);
-			if (chatHistory.size() > maxChatMessages) {
+			if (chatHistory.size() > static_cast<size_t>(maxChatMessages)) {
 				chatHistory.erase(chatHistory.begin());
 			}
 			// Show chat window for this message
@@ -1602,25 +1601,6 @@ void ofApp::setupGame() {
 		steamManager.setLobbySeed(currentMapSeed);
 		steamManager.setMatchStarted();
 	}
-	// SINGLE PLAYER:
-	else if (!isMultiplayer) {
-		std::random_device rd;
-		gameplayRNG.seed(rd()); // FIX: Seed gameplay RNG locally
-		ofLogNotice("Setup") << "Single Player: Randomly seeded Gameplay RNG.";
-	}
-
-	// Initialize common game state for both singleplayer and multiplayer clients
-	initializeGameStateCommon();
-}
-//--------------------------------------------------------------
-
-void ofApp::initializeGameStateCommon() {
-	// --- RESET CORE GAME STATE ---
-	players.clear();
-	activeDiceRolls.clear();
-	globalTurnCounter = 0; // Reset turn counter for new game
-	draftGenerationCounter = 0; // Reset draft counter for new game
-	initialDraftComplete = false;
 	for (int x = 0; x < BOARD_WIDTH; ++x) {
 		for (int y = 0; y < BOARD_HEIGHT; ++y) {
 			board[x][y] = Tile();
@@ -1724,7 +1704,99 @@ void ofApp::initGameFromSeed(uint32_t seed) {
 	lastReceivedSeqByPlayer[1] = 0;
 
 	// Initialize the same common state as host
-	initializeGameStateCommon();
+	initialiseGameStateCommon();
+}
+// -----------------------------------------------------------------------------
+// Initialize shared game state (board layout, players, cameras, turn init)
+// This was previously a separate helper called by both host and client
+// startup flows. Restores minimal shared initialization so multiplayer
+// clients start with identical base state as the host.
+void ofApp::initialiseGameStateCommon() {
+	// Reset board tiles
+	for (int x = 0; x < BOARD_WIDTH; ++x) {
+		for (int y = 0; y < BOARD_HEIGHT; ++y) {
+			board[x][y] = Tile();
+		}
+	}
+
+	// --- CAMERA RESET ---
+	cameraTargetZoom = 37.0f;
+	cameraCurrentZoom = 37.0f;
+	cameraTargetPan = glm::vec3(0, 0, 0);
+	cameraCurrentPan = glm::vec3(0, 0, 0);
+	isTopDownView = false;
+
+	cam.setPosition(0, cameraCurrentZoom * 1.05f, cameraCurrentZoom * 0.90f);
+	cam.lookAt(cameraCurrentPan);
+	cam2.setPosition(0, cameraCurrentZoom * 1.05f, -(cameraCurrentZoom * 0.90f));
+	cam2.lookAt(glm::vec3(cameraCurrentPan.x, cameraCurrentPan.y, -cameraCurrentPan.z));
+	cameraCurrentPos = cam.getPosition();
+	cameraCurrentPos2 = cam2.getPosition();
+	cameraCurrentLookAt = cameraCurrentPan;
+	cameraCurrentLookAt2 = glm::vec3(cameraCurrentPan.x, cameraCurrentPan.y, -cameraCurrentPan.z);
+
+	// --- BOARD WALLS SETUP (match host layout) ---
+	board[2][2].hasWall = true;
+	board[2][1].hasWall = true;
+	board[3][1].hasWall = true;
+	board[4][1].hasWall = true;
+	board[10][2].hasWall = true;
+	board[10][1].hasWall = true;
+	board[9][1].hasWall = true;
+	board[8][1].hasWall = true;
+	board[2][6].hasWall = true;
+	board[2][7].hasWall = true;
+	board[3][7].hasWall = true;
+	board[4][7].hasWall = true;
+	board[10][6].hasWall = true;
+	board[10][7].hasWall = true;
+	board[9][7].hasWall = true;
+	board[8][7].hasWall = true;
+	board[1][4].hasWall = true;
+	board[2][4].hasWall = true;
+	board[3][4].hasWall = true;
+	board[11][4].hasWall = true;
+	board[10][4].hasWall = true;
+	board[9][4].hasWall = true;
+	board[6][3].hasWall = true;
+	board[5][4].hasWall = true;
+	board[6][5].hasWall = true;
+	board[7][4].hasWall = true;
+
+	buildLevelMesh();
+	buildFloorMesh();
+
+	// --- PLAYER CREATION ---
+	players.clear();
+	Player p1;
+	p1.x = 0;
+	p1.y = BOARD_HEIGHT - 1;
+	p1.playerID = 0;
+	p1.deck.clear();
+	players.push_back(p1);
+
+	Player p2;
+	p2.x = BOARD_WIDTH - 1;
+	p2.y = 0;
+	p2.playerID = 1;
+	p2.deck.clear();
+	players.push_back(p2);
+
+	board[p1.x][p1.y].hasPlayer = true;
+	board[p2.x][p2.y].hasPlayer = true;
+
+	// --- START INITIATIVE PHASE ---
+	currentState = STATE_INITIATIVE_ROLL;
+	isInitiativeRolling = true;
+	initiativeTimer = 0.0f;
+
+	// All players roll initiative using shared deterministic RNG
+	startDiceRoll(1, 6, PURPOSE_DEBUG, "", currentPlayerIndex);
+	startDiceRoll(1, 6, PURPOSE_DEBUG, "", currentPlayerIndex);
+
+	ofLogNotice("Game") << "--- INITIATIVE ROLL STARTED ---";
+	cam.setAspectRatio((float)ofGetWidth() / (float)ofGetHeight());
+	cam2.setAspectRatio((float)ofGetWidth() / (float)ofGetHeight());
 }
 //--------------------------------------------------------------
 void ofApp::updateGame() {
@@ -9505,14 +9577,14 @@ void ofApp::mousePressed(int x, int y, int button) {
 			Player & p = players[currentPlayerIndex];
 			Card dispelCard = p.hand[pendingDispelCardIndex];
 
+			// Pay cost & cleanup (do local first, then notify opponent)
+			currentAP -= dispelCard.cost;
+			p.discardPile.push_back(dispelCard);
+			p.hand.erase(p.hand.begin() + pendingDispelCardIndex);
 			// Send network packet with menuChoice=1 (barrier)
 			if (isMultiplayer) {
 				sendActionPacket(pendingDispelCardIndex, -1, -1, dispelCard.cost, 1);
 			}
-
-			currentAP -= dispelCard.cost;
-			p.discardPile.push_back(dispelCard);
-			p.hand.erase(p.hand.begin() + pendingDispelCardIndex);
 			// Sync AP immediately so UI updates
 			if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) players[currentPlayerIndex].ap = currentAP;
 			ofLogNotice("Dispel") << "Rolling for Non-Physical Barrier...";
@@ -9573,10 +9645,6 @@ void ofApp::mousePressed(int x, int y, int button) {
 			int cardIndex = pendingTrainCardIndex;
 			int cost = (cardIndex >= 0 && cardIndex < (int)p.hand.size()) ? p.hand[cardIndex].cost : 0;
 			std::string cardName = (cardIndex >= 0 && cardIndex < (int)p.hand.size()) ? p.hand[cardIndex].name : "";
-			if (isMultiplayer) {
-				sendActionPacket(cardIndex, -1, -1, cost, 1, cardName);
-			}
-
 			// Option A: +3 AP Next Turn
 			p.nextTurnAPBonus += 3;
 			spawnFloatingText(gridToWorld(p.x, p.y), "Training: AP", ofColor::yellow);
@@ -9588,6 +9656,11 @@ void ofApp::mousePressed(int x, int y, int button) {
 			p.hand.erase(p.hand.begin() + cardIndex);
 			if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) players[currentPlayerIndex].ap = currentAP;
 
+			// Notify opponent after local update
+			if (isMultiplayer) {
+				sendActionPacket(cardIndex, -1, -1, cost, 1, cardName);
+			}
+
 			isTrainMenuOpen = false;
 			pendingTrainCardIndex = -1;
 			calculateTargetHighlights();
@@ -9595,16 +9668,17 @@ void ofApp::mousePressed(int x, int y, int button) {
 			int cardIndex = pendingTrainCardIndex;
 			int cost = (cardIndex >= 0 && cardIndex < (int)p.hand.size()) ? p.hand[cardIndex].cost : 0;
 			std::string cardName = (cardIndex >= 0 && cardIndex < (int)p.hand.size()) ? p.hand[cardIndex].name : "";
-			if (isMultiplayer) {
-				sendActionPacket(cardIndex, -1, -1, cost, 2, cardName);
-			}
-
 			// Option B: Draft Class 1
 			// Pay cost first
 			currentAP -= cost;
 			p.playedCardsPile.push_back(p.hand[cardIndex]);
 			p.hand.erase(p.hand.begin() + cardIndex);
 			if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) players[currentPlayerIndex].ap = currentAP;
+
+			// Notify opponent after local update
+			if (isMultiplayer) {
+				sendActionPacket(cardIndex, -1, -1, cost, 2, cardName);
+			}
 
 			isTrainMenuOpen = false;
 			pendingTrainCardIndex = -1;
@@ -9680,10 +9754,6 @@ void ofApp::mousePressed(int x, int y, int button) {
 			int cardIndex = pendingWisdomBoonCardIndex;
 			int cost = (cardIndex >= 0 && cardIndex < (int)caster.hand.size()) ? caster.hand[cardIndex].cost : 0;
 			std::string cardName = (cardIndex >= 0 && cardIndex < (int)caster.hand.size()) ? caster.hand[cardIndex].name : "";
-			if (isMultiplayer) {
-				sendActionPacket(cardIndex, target->x, target->y, cost, 1, cardName);
-			}
-
 			currentAP -= cost;
 			// Sync AP immediately so the UI reflects the spent AP
 			if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) players[currentPlayerIndex].ap = currentAP;
@@ -9697,6 +9767,12 @@ void ofApp::mousePressed(int x, int y, int button) {
 				caster.isReplicatePending = false;
 			}
 			caster.hand.erase(caster.hand.begin() + pendingWisdomBoonCardIndex);
+
+			// Notify opponent after local update so pkt.updatedAP reflects post-play AP
+			if (isMultiplayer) {
+				players[currentPlayerIndex].ap = currentAP;
+				sendActionPacket(cardIndex, target->x, target->y, cost, 1, cardName);
+			}
 
 			// Trigger Shell Spike if in Tortoise Form (only for self-target which gives block)
 			if (isSelfTarget) {
@@ -9788,11 +9864,19 @@ void ofApp::mousePressed(int x, int y, int button) {
 					Player & caster = players[currentPlayerIndex];
 					int cost = (cardIndex >= 0 && cardIndex < (int)caster.hand.size()) ? caster.hand[cardIndex].cost : 0;
 					std::string cardName = (cardIndex >= 0 && cardIndex < (int)caster.hand.size()) ? caster.hand[cardIndex].name : "";
-					if (isMultiplayer) {
-						int menuChoice = (pendingDoubleHandedChoice == "Punch") ? 1 : 2;
-						sendActionPacket(cardIndex, gx, gy, cost, menuChoice, cardName);
+					// Capture details, resolve locally, then notify opponent
+					int menuChoice = (pendingDoubleHandedChoice == "Punch") ? 1 : 2;
+					if (pendingDoubleHandedCardIndex >= 0 && pendingDoubleHandedCardIndex < (int)players[currentPlayerIndex].hand.size()) {
+						// local resolution will consume the card and AP
+						resolveDoubleHanded(pendingDoubleHandedChoice);
+						if (isMultiplayer) {
+							sendActionPacket(cardIndex, gx, gy, cost, menuChoice, cardName);
+						}
+					} else {
+						// Fallback: still resolve and notify
+						resolveDoubleHanded(pendingDoubleHandedChoice);
+						if (isMultiplayer) sendActionPacket(cardIndex, gx, gy, cost, menuChoice, cardName);
 					}
-					resolveDoubleHanded(pendingDoubleHandedChoice);
 				}
 			}
 		}
@@ -9851,12 +9935,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 					int cardIndex = pendingBurstCardIndex;
 					int cost = (cardIndex >= 0 && cardIndex < (int)caster.hand.size()) ? caster.hand[cardIndex].cost : 0;
 					std::string cardName = (cardIndex >= 0 && cardIndex < (int)caster.hand.size()) ? caster.hand[cardIndex].name : "";
-					if (isMultiplayer) {
-						int menuChoice = (burstChoice == 0) ? 1 : 2;
-						sendActionPacket(cardIndex, gx, gy, cost, menuChoice, cardName);
-					}
-
-					// Consume AP and cleanup
+					// Consume AP and cleanup, then notify opponent
 					currentAP -= cost;
 					Card playedCard = caster.hand[pendingBurstCardIndex];
 					caster.playedCardsPile.push_back(playedCard);
@@ -9867,6 +9946,10 @@ void ofApp::mousePressed(int x, int y, int button) {
 						caster.isReplicatePending = false;
 					}
 					caster.hand.erase(caster.hand.begin() + pendingBurstCardIndex);
+					if (isMultiplayer) {
+						int menuChoice = (burstChoice == 0) ? 1 : 2;
+						sendActionPacket(cardIndex, gx, gy, cost, menuChoice, cardName);
+					}
 
 					isTargetingBurst = false;
 					pendingBurstCardIndex = -1;
@@ -9912,10 +9995,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 			// Record chooser player ID (the caster's owner/playerID)
 			amnesiaChooserPlayerID = caster.isMinion ? caster.ownerID : caster.playerID;
 			// Inform opponent of the card play in multiplayer so host/client AP stays in sync
-			if (isMultiplayer) {
-				sendActionPacket(pendingAmnesiaCardIndex, -1, -1, amnesiaCard.cost, 0, amnesiaCard.name);
-			}
-			// Consume AP and discard card now
+			// Consume AP and discard card now, then notify opponent
 			currentAP -= amnesiaCard.cost;
 			caster.playedCardsPile.push_back(amnesiaCard);
 			if (caster.isReplicatePending) {
@@ -9925,6 +10005,9 @@ void ofApp::mousePressed(int x, int y, int button) {
 			caster.hand.erase(caster.hand.begin() + pendingAmnesiaCardIndex);
 			// Sync AP so UI reflects the spent AP immediately
 			if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) players[currentPlayerIndex].ap = currentAP;
+			if (isMultiplayer) {
+				sendActionPacket(pendingAmnesiaCardIndex, -1, -1, amnesiaCard.cost, 0, amnesiaCard.name);
+			}
 			pendingAmnesiaCardIndex = -1;
 		} else if (amnesiaBtnAdjacent.inside(x, y)) {
 			// Enter targeting mode for adjacent units
@@ -10200,10 +10283,14 @@ void ofApp::mousePressed(int x, int y, int button) {
 			if (board[gx][gy].isTargetable) {
 				Player & caster = players[currentPlayerIndex];
 
+				// Capture card metadata now, but defer sending until after we apply
+				// the local movement and hand removal so the packet contains
+				// authoritative post-play AP.
+				std::string __teleport_cardName = "";
+				int __teleport_cost = 0;
 				if (isMultiplayer && pendingTeleportCardIndex >= 0 && pendingTeleportCardIndex < (int)caster.hand.size()) {
-					std::string cardName = caster.hand[pendingTeleportCardIndex].name;
-					int cost = caster.hand[pendingTeleportCardIndex].cost;
-					sendActionPacket(pendingTeleportCardIndex, gx, gy, cost, 0, cardName);
+					__teleport_cardName = caster.hand[pendingTeleportCardIndex].name;
+					__teleport_cost = caster.hand[pendingTeleportCardIndex].cost;
 				}
 
 				// Move player
@@ -10220,6 +10307,12 @@ void ofApp::mousePressed(int x, int y, int button) {
 				// Remove teleport card from hand
 				if (pendingTeleportCardIndex >= 0 && pendingTeleportCardIndex < (int)players[currentPlayerIndex].hand.size()) {
 					players[currentPlayerIndex].hand.erase(players[currentPlayerIndex].hand.begin() + pendingTeleportCardIndex);
+				}
+
+				// Now notify opponent with authoritative updated AP
+				if (isMultiplayer && !__teleport_cardName.empty()) {
+					players[currentPlayerIndex].ap = currentAP;
+					sendActionPacket(pendingTeleportCardIndex, gx, gy, __teleport_cost, 0, __teleport_cardName);
 				}
 
 				// Clean up state (AP was already deducted when card was first clicked)
@@ -10451,11 +10544,11 @@ void ofApp::mousePressed(int x, int y, int button) {
 				Player & caster = players[currentPlayerIndex];
 				Card & c = caster.hand[chainLightningCardIndex];
 
-				if (isMultiplayer) {
-					sendActionPacket(chainLightningCardIndex, gx, gy, c.cost, 0, c.name);
-				}
+				// Capture metadata and defer send until after local resolution
+				std::string __cl_cardName = c.name;
+				int __cl_cost = c.cost;
 
-				currentAP -= c.cost;
+				currentAP -= __cl_cost;
 				caster.playedCardsPile.push_back(c);
 				if (caster.isReplicatePending) {
 					caster.playedCardsPile.push_back(c);
@@ -10466,6 +10559,11 @@ void ofApp::mousePressed(int x, int y, int button) {
 
 				// Sync AP to player struct so UI updates
 				if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) players[currentPlayerIndex].ap = currentAP;
+
+				// Now notify opponent with authoritative updated AP and metadata
+				if (isMultiplayer) {
+					sendActionPacket(chainLightningCardIndex, gx, gy, __cl_cost, 0, __cl_cardName);
+				}
 
 				// 2. Start Range Roll (2d10)
 				pendingChainLightningTargetTile = glm::vec2(gx, gy);
@@ -11310,6 +11408,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 								movePkt.targetX = gridX;
 								movePkt.targetY = gridY;
 								movePkt.cost = currentAP; // Send current AP so opponent sees the cost
+								movePkt.updatedAP = currentAP; // Ensure opponent updates AP to post-move value
 								steamManager.sendPacket(&movePkt, sizeof(movePkt));
 								ofLogNotice("Network") << (isClient() ? "Client" : "Host") << " sent movement to (" << gridX << "," << gridY << ") with AP=" << currentAP;
 							}
@@ -11844,7 +11943,7 @@ void ofApp::keyPressed(int key) {
 				msg.message = chatInput;
 				msg.timestamp = ofGetElapsedTimef();
 				chatHistory.push_back(msg);
-				if (chatHistory.size() > maxChatMessages) {
+				if (chatHistory.size() > static_cast<size_t>(maxChatMessages)) {
 					chatHistory.erase(chatHistory.begin());
 				}
 			}
@@ -12161,19 +12260,10 @@ void ofApp::startNewTurn() {
 		pkt.playerID = myLocalPlayerID;
 		steamManager.sendPacket(&pkt, sizeof(pkt));
 
-		// 2. Send Checksum to verify we ended in the same state
-		// Skip checksum on turn 0 (draft completion) to allow draft packets to sync first
-		if (globalTurnCounter > 0) {
-			// Anti-cheat: Log deck states before sending checksum
-			logDeckStates("End Turn " + std::to_string(globalTurnCounter));
-
-			ChecksumPacket sumPkt = {};
-			sumPkt.type = PKT_CHECKSUM_CHECK;
-			sumPkt.playerID = myLocalPlayerID;
-			sumPkt.checksum = calculateChecksum();
-			sumPkt.turnNumber = globalTurnCounter;
-			steamManager.sendPacket(&sumPkt, sizeof(sumPkt));
-		}
+		// NOTE: Clients should NOT send checksums here. The host sends an authoritative
+		// checksum after it advances the turn (after sending PKT_TURN_START). This
+		// prevents clients from independently asserting state and centralizes the
+		// desync detection to the host.
 
 		// 2.5. CLEAN UP LOCAL PLAYER'S HAND & BUFFS BEFORE WAITING
 		// Both host and client must do this so deck states stay in sync
@@ -17854,6 +17944,8 @@ void ofApp::resolveDoubleHanded(std::string cardName) {
 					caster.playedCardsPile.push_back(playedCard);
 					caster.isReplicatePending = false;
 				}
+				// Ensure authoritative AP field is updated before any network sends
+				if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) players[currentPlayerIndex].ap = currentAP;
 				caster.hand.erase(caster.hand.begin() + pendingDoubleHandedCardIndex);
 				calculateTargetHighlights();
 			}
@@ -19555,27 +19647,25 @@ void ofApp::resolveMagicHandPush() {
 			}
 		}
 
-		// Send resolution to opponent before applying locally
-		sendMagicHandResolutionPacket(1);
-
 		// Start Damage Roll (2d4 Physical)
 		magicHandPushDir = dir;
 		pendingMagicHandRollResult = startDiceRoll(2, 4, PURPOSE_MAGIC_HAND_DAMAGE, "Magic Hand Crush");
 		isWaitingForMagicHandDamage = true;
 
-		// Pay cost now
+		// Pay cost now (apply locally first so packet reflects post-play AP)
 		currentAP -= caster.hand[pendingMagicHandCardIndex].cost;
 		caster.playedCardsPile.push_back(caster.hand[pendingMagicHandCardIndex]);
-		caster.hand.erase(caster.hand.begin() + pendingMagicHandCardIndex);
 
+		// Notify opponent after local update so pkt.updatedAP contains the post-play AP
+		sendMagicHandResolutionPacket(1);
+
+		// Finally remove from hand and finish
+		caster.hand.erase(caster.hand.begin() + pendingMagicHandCardIndex);
 		isMagicHandMenuOpen = false;
 
 		// Move Caster and Wall happens AFTER dice logic to sync animations
 		return;
 	}
-
-	// Send resolution to opponent before applying locally
-	sendMagicHandResolutionPacket(1);
 
 	// Empty Space: Just Move
 	board[caster.x][caster.y].hasPlayer = false;
@@ -19596,8 +19686,14 @@ void ofApp::resolveMagicHandPush() {
 
 	buildLevelMesh();
 
+	// Pay cost & finalize locally first
 	currentAP -= caster.hand[pendingMagicHandCardIndex].cost;
 	caster.playedCardsPile.push_back(caster.hand[pendingMagicHandCardIndex]);
+
+	// Notify opponent after local update so pkt.updatedAP contains the post-play AP
+	sendMagicHandResolutionPacket(1);
+
+	// Now remove card from hand and finish
 	caster.hand.erase(caster.hand.begin() + pendingMagicHandCardIndex);
 
 	isMagicHandMenuOpen = false;
@@ -20148,7 +20244,7 @@ void ofApp::processNetworkPackets() {
 		do {
 
 			// Verbose packet tracing for debugging desyncs
-			if (header->type == PKT_ACTION || header->type == PKT_RENEWED_INSPIRATION || header->type == PKT_DRAW_CARDS || header->type == PKT_SHUFFLE || header->type == PKT_TURN_START) {
+			if (header->type == PKT_ACTION || header->type == PKT_RENEWED_INSPIRATION || header->type == PKT_DRAW_CARDS || header->type == PKT_SHUFFLE || header->type == PKT_TURN_START || header->type == PKT_PLACE_SUMMONED_MINION || header->type == PKT_DICE_ROLL || header->type == PKT_CHECKSUM_CHECK || header->type == PKT_SNAPSHOT_BEGIN || header->type == PKT_SNAPSHOT_CHUNK || header->type == PKT_SNAPSHOT_END || header->type == PKT_MOVE_UNIT || header->type == PKT_AMNESIA_CHOICE || header->type == PKT_PLACE_SUMMONED_BEGIN) {
 				ofLogNotice("NetTrace") << "RECV pkt type=" << (int)header->type << " player=" << header->playerID << " seq=" << header->seq << " size=" << buffer.size();
 				if (header->type == PKT_ACTION && buffer.size() >= sizeof(ActionPacket)) {
 					ActionPacket * ap = (ActionPacket *)buffer.data();
@@ -20158,13 +20254,40 @@ void ofApp::processNetworkPackets() {
 					ofLogNotice("NetTrace") << "  SHUFFLE playerIndex=" << spk->playerIndex << " nonce=" << spk->nonce;
 				} else if (header->type == PKT_TURN_START && buffer.size() >= sizeof(TurnStartPacket)) {
 					TurnStartPacket * tsp = (TurnStartPacket *)buffer.data();
-					ofLogNotice("NetTrace") << "  TURN_START currentPlayerIndex=" << tsp->currentPlayerIndex << " diceNum=" << (int)tsp->diceNum << " diceSides=" << (int)tsp->diceSides;
+					ofLogNotice("NetTrace") << "  TURN_START currentPlayerIndex=" << tsp->currentPlayerIndex << " diceNum=" << (int)tsp->diceNum << " diceSides=" << (int)tsp->diceSides << " finalTotal=" << tsp->finalTotal;
 				} else if (header->type == PKT_DRAW_CARDS && buffer.size() >= sizeof(DrawCardsPacket)) {
 					DrawCardsPacket * dcp = (DrawCardsPacket *)buffer.data();
 					ofLogNotice("NetTrace") << "  DRAW_CARDS playerIndex=" << dcp->playerIndex << " numCards=" << (int)dcp->numCards;
 				} else if (header->type == PKT_RENEWED_INSPIRATION && buffer.size() >= sizeof(RenewedInspirationPacket)) {
 					RenewedInspirationPacket * rip = (RenewedInspirationPacket *)buffer.data();
 					ofLogNotice("NetTrace") << "  RINSP playerIndex=" << rip->playerIndex << " count=" << (int)rip->count;
+				} else if (header->type == PKT_PLACE_SUMMONED_MINION && buffer.size() >= sizeof(PlaceSummonedMinionPacket)) {
+					PlaceSummonedMinionPacket * psp = (PlaceSummonedMinionPacket *)buffer.data();
+					ofLogNotice("NetTrace") << "  PLACE_SUMMONED minionType=" << (int)psp->minionType << " ownerID=" << psp->ownerPlayerID << " target=(" << psp->targetX << "," << psp->targetY << ") HP=" << psp->minionHP << " AP=" << psp->minionAP;
+				} else if (header->type == PKT_DICE_ROLL && buffer.size() >= sizeof(DiceRollPacket)) {
+					DiceRollPacket * drp = (DiceRollPacket *)buffer.data();
+					ofLogNotice("NetTrace") << "  DICE_ROLL owner=" << drp->ownerIndex << " numDice=" << (int)drp->numDice << " sides=" << (int)drp->sides;
+				} else if (header->type == PKT_CHECKSUM_CHECK && buffer.size() >= sizeof(ChecksumPacket)) {
+					ChecksumPacket * ckp = (ChecksumPacket *)buffer.data();
+					ofLogNotice("NetTrace") << "  CHECKSUM turn=" << ckp->turnNumber << " value=" << ckp->checksum;
+				} else if (header->type == PKT_SNAPSHOT_BEGIN && buffer.size() >= sizeof(SnapshotBeginPacket)) {
+					SnapshotBeginPacket * sb = (SnapshotBeginPacket *)buffer.data();
+					ofLogNotice("NetTrace") << "  SNAPSHOT_BEGIN id=" << sb->snapshotId << " totalSize=" << sb->totalSize;
+				} else if (header->type == PKT_SNAPSHOT_CHUNK && buffer.size() >= sizeof(SnapshotChunkPacket)) {
+					SnapshotChunkPacket * sc = (SnapshotChunkPacket *)buffer.data();
+					ofLogNotice("NetTrace") << "  SNAPSHOT_CHUNK id=" << sc->snapshotId << " offset=" << sc->offset << " chunkSize=" << sc->chunkSize;
+				} else if (header->type == PKT_SNAPSHOT_END && buffer.size() >= sizeof(SnapshotEndPacket)) {
+					SnapshotEndPacket * se = (SnapshotEndPacket *)buffer.data();
+					ofLogNotice("NetTrace") << "  SNAPSHOT_END id=" << se->snapshotId;
+				} else if (header->type == PKT_MOVE_UNIT && buffer.size() >= sizeof(MoveUnitPacket)) {
+					MoveUnitPacket * mup = (MoveUnitPacket *)buffer.data();
+					ofLogNotice("NetTrace") << "  MOVE from=(" << mup->fromX << "," << mup->fromY << ") to=(" << mup->toX << "," << mup->toY << ")";
+				} else if (header->type == PKT_AMNESIA_CHOICE && buffer.size() >= sizeof(AmnesiaChoicePacket)) {
+					AmnesiaChoicePacket * apc = (AmnesiaChoicePacket *)buffer.data();
+					ofLogNotice("NetTrace") << "  AMNESIA targetPlayer=" << apc->targetPlayerIndex << " numRemove=" << (int)apc->numCardsToRemove;
+				} else if (header->type == PKT_PLACE_SUMMONED_BEGIN && buffer.size() >= sizeof(PlaceSummonedBeginPacket)) {
+					PlaceSummonedBeginPacket * psb = (PlaceSummonedBeginPacket *)buffer.data();
+					ofLogNotice("NetTrace") << "  PLACE_SUMMON_BEGIN minionType=" << (int)psb->minionType << " ownerID=" << psb->ownerPlayerID << " numToPlace=" << psb->numToPlace;
 				}
 			}
 		} while (false);
@@ -21318,7 +21441,7 @@ void ofApp::processNetworkPackets() {
 			msg.message = pkt->message;
 			msg.timestamp = ofGetElapsedTimef();
 			chatHistory.push_back(msg);
-			if (chatHistory.size() > maxChatMessages) {
+			if (chatHistory.size() > static_cast<size_t>(maxChatMessages)) {
 				chatHistory.erase(chatHistory.begin());
 			}
 			// Show chat for 5 seconds when message received
@@ -21579,6 +21702,17 @@ void ofApp::processNetworkPackets() {
 							ofLogNotice("Network") << "  Host sending dice[" << i << "]: raw=" << (int)tpk.rawResults[i] << " final=" << (int)tpk.finalResults[i];
 						}
 
+						// Host: send authoritative checksum immediately after TurnStart so clients can validate
+						if (isHost()) {
+							ChecksumPacket chk = {};
+							chk.type = PKT_CHECKSUM_CHECK;
+							chk.playerID = myLocalPlayerID;
+							chk.checksum = calculateChecksum();
+							chk.turnNumber = globalTurnCounter;
+							steamManager.sendPacket(&chk, sizeof(chk));
+							ofLogNotice("Checksum") << "Host sent Checksum (turn=" << chk.turnNumber << ") value=" << chk.checksum;
+						}
+
 						// DEBUGGING: Log host's checksum at the same moment client will calculate theirs
 						if (globalTurnCounter == 0) {
 							// Log deck state before checksum
@@ -21792,20 +21926,21 @@ void ofApp::sendActionPacket(int cardIndex, int tx, int ty, int cost, int menuCh
 			validSend = true;
 		}
 	} else {
-		// If we have a name, ensure it exists in our hand if possible and sync index
+		// If we have a name, try to find it in our hand and sync index if found
+		bool foundInHand = false;
 		for (int i = 0; i < (int)currentPlayer.hand.size(); ++i) {
 			if (currentPlayer.hand[i].name == pkt.cardName) {
 				// Found the named card in hand
 				validSend = true;
+				foundInHand = true;
 				if (cardIndex != i) pkt.cardIndex = i;
 				break;
 			}
 		}
-		// Fallback: if name provided but not found, allow if a valid index was passed
-		if (!validSend && cardIndex >= 0 && cardIndex < (int)currentPlayer.hand.size()) {
-			strncpy(pkt.cardName, currentPlayer.hand[cardIndex].name.c_str(), 63);
-			pkt.cardName[63] = '\0';
-			validSend = true;
+		// If name not found in hand, allow name-only sends (caller may have removed card locally
+		// before sending; permit sending as long as a name was provided).
+		if (!foundInHand) {
+			validSend = true; // permit name-only send
 		}
 	}
 
