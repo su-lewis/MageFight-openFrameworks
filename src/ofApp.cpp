@@ -21113,6 +21113,12 @@ void ofApp::processNetworkPackets() {
 						drawCard();
 					currentPlayerIndex = prevCurrent;
 
+					// Mark that the current player (on host) has drawn cards this turn
+					if (targetPlayerIndex == currentPlayerIndex) {
+						hasDrawnCardsThisTurn = true;
+						ofLogNotice("Network") << "Host: marked hasDrawnCardsThisTurn = true for currentPlayerIndex=" << currentPlayerIndex;
+					}
+
 					// Send authoritative DrawCards packet to clients with drawn card names
 					DrawCardsPacket out = {};
 					out.type = PKT_DRAW_CARDS;
@@ -21130,23 +21136,48 @@ void ofApp::processNetworkPackets() {
 					}
 					steamManager.sendPacket(&out, sizeof(out));
 					ofLogNotice("Network") << "Host: Sent DrawCards packet (authoritative) for playerIndex=" << out.playerIndex << " num=" << out.numCards;
+					ofLogNotice("Network") << "Host: After draw, player " << out.playerIndex << " hand size=" << players[out.playerIndex].hand.size() << " currentAP=" << currentAP;
 					continue;
 				}
 
-				ofLogNotice("Network") << "Received DrawCards from opponent: player=" << dcpkt->playerIndex << " num=" << dcpkt->numCards;
-				if (isMultiplayer && dcpkt->playerID != static_cast<uint32_t>(myLocalPlayerID)) {
-					opponentHasDrawnCardsThisTurn = true;
+				ofLogNotice("Network") << "Received DrawCards: playerIndex=" << dcpkt->playerIndex << " num=" << dcpkt->numCards << " senderPlayerID=" << dcpkt->playerID;
+
+				// Determine authoritative target by packet.playerIndex (host-provided).
+				int targetPlayerIndex = -1;
+				if (dcpkt->playerIndex >= 0 && dcpkt->playerIndex < (int)players.size()) {
+					targetPlayerIndex = dcpkt->playerIndex;
+				} else {
+					// Fallback: match by sender playerID (legacy behavior)
+					for (size_t i = 0; i < players.size(); ++i) {
+						if (static_cast<uint32_t>(players[i].playerID) == dcpkt->playerID && !players[i].isMinion) {
+							targetPlayerIndex = (int)i;
+							break;
+						}
+					}
 				}
 
-				// Find the target player
-				int targetPlayerIndex = -1;
+				// Update draw flags correctly relative to local player's index
+				int myPlayerIndex = -1;
 				for (size_t i = 0; i < players.size(); ++i) {
-					if (static_cast<uint32_t>(players[i].playerID) == dcpkt->playerID && !players[i].isMinion) {
-						targetPlayerIndex = (int)i;
+					if (static_cast<uint32_t>(players[i].playerID) == static_cast<uint32_t>(myLocalPlayerID) && !players[i].isMinion) {
+						myPlayerIndex = (int)i;
 						break;
 					}
 				}
-				if (targetPlayerIndex < 0) targetPlayerIndex = dcpkt->playerIndex;
+				if (isMultiplayer) {
+					if (targetPlayerIndex >= 0 && myPlayerIndex >= 0) {
+						if (targetPlayerIndex != myPlayerIndex)
+							opponentHasDrawnCardsThisTurn = true;
+						else
+							hasDrawnCardsThisTurn = true;
+					} else {
+						// Conservative fallback: if sender wasn't us, mark opponent drew
+						if (dcpkt->playerID != static_cast<uint32_t>(myLocalPlayerID))
+							opponentHasDrawnCardsThisTurn = true;
+						else
+							hasDrawnCardsThisTurn = true;
+					}
+				}
 
 				if (targetPlayerIndex >= 0 && targetPlayerIndex < (int)players.size()) {
 					Player & p = players[targetPlayerIndex];
@@ -21229,6 +21260,7 @@ void ofApp::processNetworkPackets() {
 
 							p.hand.push_back(newCard);
 							ofLogNotice("Network") << "Added card to player " << targetPlayerIndex << "'s hand: " << cardName;
+							ofLogNotice("Network") << "Client: After DRAW_CARDS, player " << targetPlayerIndex << " hand size=" << p.hand.size() << " currentAP=" << currentAP;
 						} else {
 							ofLogWarning("Network") << "Could not find card: " << cardName;
 						}
