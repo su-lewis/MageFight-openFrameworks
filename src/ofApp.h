@@ -804,6 +804,27 @@ private:
 	ofRectangle mainMenuHostButton;
 	ofRectangle mainMenuInviteButton;
 
+	// Settings tabs
+	enum SettingsTab {
+		SETTINGS_TAB_VIDEO = 0,
+		SETTINGS_TAB_AUDIO = 1,
+		SETTINGS_TAB_GAME = 2
+	};
+	int currentSettingsTab = SETTINGS_TAB_VIDEO;
+
+	// Audio settings (controls shown in Settings -> Audio)
+	float settingsMusicVolume = 0.6f; // 0.0 - 1.0
+	bool settingsMusicMuted = false;
+	bool settingsMusicLoop = true;
+
+	// Settings UI rects (tabs + audio controls)
+	ofRectangle settingsTabVideoRect;
+	ofRectangle settingsTabAudioRect;
+	ofRectangle settingsTabGameRect;
+	ofRectangle settingsAudioVolumeSlider;
+	ofRectangle settingsAudioMuteBox;
+	ofRectangle settingsAudioLoopBox;
+
 	// Helper to know if we are waiting in a lobby
 	bool isInLobby = false;
 
@@ -900,8 +921,8 @@ private:
 	// Faerie assets
 	ofxAssimpModelLoader faerieModel;
 
-    // Audio: main menu music
-    ofSoundPlayer mainMenuMusic;
+	// Audio: main menu music
+	ofSoundPlayer mainMenuMusic;
 	ofTexture faerieTexture;
 
 	ofTexture playerTexture;

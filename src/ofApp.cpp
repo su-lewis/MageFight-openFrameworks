@@ -205,14 +205,16 @@ void ofApp::setup() {
 	cardSpriteSheet.load("UI/TTS_Sheet.png");
 
 	// Load main menu music (data path: bin/data/Sounds/Music/...)
-	try {
-		mainMenuMusic.load("Sounds/Music/591981__fromlorenzo__the-last-standing-warrior.wav");
-		mainMenuMusic.setLoop(true);
-		mainMenuMusic.setVolume(0.6f);
-		if (currentState == STATE_MAIN_MENU) mainMenuMusic.play();
-	} catch (...) {
-		ofLogError("Audio") << "Failed to load main menu music.";
-	}
+	mainMenuMusic.load("Sounds/Music/591981__fromlorenzo__the-last-standing-warrior.wav");
+	mainMenuMusic.setLoop(true);
+	mainMenuMusic.setVolume(0.6f);
+	mainMenuMusic.setMultiPlay(false); // prevent overlapping multiple buffers
+	ofLogNotice("Audio") << "Main menu music loaded: " << (mainMenuMusic.isLoaded() ? "yes" : "no");
+	// Initialize settings audio state to match loaded player
+	settingsMusicVolume = mainMenuMusic.getVolume();
+	settingsMusicLoop = true;
+	settingsMusicMuted = false;
+	if ((currentState == STATE_MAIN_MENU || currentState == STATE_SETTINGS) && mainMenuMusic.isLoaded()) mainMenuMusic.play();
 
 	// --- Load Player Model ---
 	if (playerModel.load("Units/Player/model.glb")) {
@@ -947,15 +949,11 @@ void ofApp::update() {
 
 	// Music: respond to state changes (play/stop main menu music)
 	if (currentState != prevState) {
-		if (currentState == STATE_MAIN_MENU) {
-			if (!mainMenuMusic.isLoaded() || !mainMenuMusic.isPlaying()) {
-				// If not loaded earlier for some reason, attempt load
-				if (!mainMenuMusic.isLoaded()) {
-					mainMenuMusic.load("Sounds/Music/591981__fromlorenzo__the-last-standing-warrior.wav");
-					mainMenuMusic.setLoop(true);
-					mainMenuMusic.setVolume(0.6f);
-				}
-				mainMenuMusic.play();
+		if (currentState == STATE_MAIN_MENU || currentState == STATE_SETTINGS) {
+			if (mainMenuMusic.isLoaded()) {
+				if (!mainMenuMusic.isPlaying()) mainMenuMusic.play();
+			} else {
+				ofLogError("Audio") << "Main menu music not loaded when entering menu/settings.";
 			}
 		} else {
 			if (mainMenuMusic.isPlaying()) mainMenuMusic.stop();
@@ -1321,13 +1319,10 @@ void ofApp::drawMainMenu() {
 	ofSetColor(ofColor::white);
 
 	// Ensure main menu music is playing while main menu is visible
-	if (!mainMenuMusic.isPlaying()) {
-		if (!mainMenuMusic.isLoaded()) {
-			mainMenuMusic.load("Sounds/Music/591981__fromlorenzo__the-last-standing-warrior.wav");
-			mainMenuMusic.setLoop(true);
-			mainMenuMusic.setVolume(0.6f);
-		}
+	if (mainMenuMusic.isLoaded() && !mainMenuMusic.isPlaying()) {
 		mainMenuMusic.play();
+	} else if (!mainMenuMusic.isLoaded()) {
+		ofLogWarning("Audio") << "Main menu music not loaded when drawing main menu.";
 	}
 
 	// Draw Title
