@@ -20680,15 +20680,20 @@ void ofApp::processNetworkPackets() {
 				TurnStartPacket * tpk = (TurnStartPacket *)header;
 				ofLogNotice("Network") << "TurnStart packet received: player=" << tpk->currentPlayerIndex << " dice=" << (int)tpk->diceNum << " total=" << tpk->finalTotal;
 
-				// Prevent duplicate processing: check if we're already on this turn
+				// Prevent duplicate processing: only ignore truly identical TurnStart
+				// packets. Compare the player + authoritative finalTotal rather than
+				// the local `globalTurnCounter` which may have been changed
+				// optimistically on clients (causing legitimate authoritative
+				// updates to be ignored). Use `continue` to keep processing other
+				// queued packets instead of `return` which exits packet loop.
 				static int lastProcessedTurnPlayer = -1;
-				static int lastProcessedTurnCounter = -1;
-				if (tpk->currentPlayerIndex == lastProcessedTurnPlayer && globalTurnCounter == lastProcessedTurnCounter) {
-					ofLogNotice("Network") << "Ignoring duplicate TurnStart packet (already processed player=" << tpk->currentPlayerIndex << " turn=" << globalTurnCounter << ")";
-					return;
+				static int lastProcessedTurnTotal = -1;
+				if (tpk->currentPlayerIndex == lastProcessedTurnPlayer && tpk->finalTotal == lastProcessedTurnTotal) {
+					ofLogNotice("Network") << "Ignoring duplicate TurnStart packet (player=" << tpk->currentPlayerIndex << " total=" << tpk->finalTotal << ")";
+					continue;
 				}
 				lastProcessedTurnPlayer = tpk->currentPlayerIndex;
-				lastProcessedTurnCounter = globalTurnCounter;
+				lastProcessedTurnTotal = tpk->finalTotal;
 
 				if (tpk->currentPlayerIndex >= 0 && tpk->currentPlayerIndex < (int)players.size()) {
 					// Set up turn state
