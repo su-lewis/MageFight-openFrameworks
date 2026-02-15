@@ -3045,8 +3045,11 @@ void ofApp::updateGame() {
 		}
 		fireballTargetPlayerIndex = -1;
 	}
-	// ---
-	if (isWaitingForSummonHealth && activeDiceRolls.empty()) {
+	bool diceReadySummon = !activeDiceRolls.empty();
+	for (const auto & d : activeDiceRolls)
+		if (!d.isFinishedVisual) diceReadySummon = false;
+
+	if (isWaitingForSummonHealth && diceReadySummon) {
 		isWaitingForSummonHealth = false;
 
 		// 1. Create Minion
@@ -3147,6 +3150,7 @@ void ofApp::updateGame() {
 		}
 
 		ofLogNotice("Raise Dead") << "Skeleton risen with " << minion.health << " HP.";
+		activeDiceRolls.clear();
 		invalidateTargetCache();
 	}
 
@@ -5248,7 +5252,13 @@ void ofApp::updateGame() {
 	std::vector<int> removeIndices;
 	for (size_t i = 0; i < players.size(); ++i) {
 		bool noCards = players[i].deck.empty() && players[i].discardPile.empty() && players[i].hand.empty();
-		if (players[i].health <= 0 || noCards) {
+		bool shouldDie = (players[i].health <= 0);
+
+		if (!players[i].isMinion && noCards) {
+			shouldDie = true;
+		}
+
+		if (shouldDie) {
 			// --- Faerie Resurrection Mechanic ---
 			Player & dying = players[i];
 			if (!dying.isFaerie && dying.x >= 0 && dying.y >= 0) {
@@ -9608,15 +9618,49 @@ void ofApp::mousePressed(int x, int y, int button) {
 						// Give summoned kobolds summoning sickness this cycle and record ordering
 						kobold.summonedOnTurnCycle = globalTurnCounter;
 						kobold.summonOrder = ++nextSummonOrder;
+						// Build basic kobold deck with fallbacks
 						Card hb, pu, callCard;
+
+						// Use a flag to ensure we find them, or create defaults if missing
+						bool foundHB = false, foundPU = false, foundCall = false;
+
 						for (const auto & c : allCards) {
-							if (c.name == "Hand Block") hb = c;
-							if (c.name == "Punch") pu = c;
-							if (c.type == CARD_CALL_FOR_KOBOLDS) callCard = c;
+							if (c.name == "Hand Block") {
+								hb = c;
+								foundHB = true;
+							}
+							if (c.name == "Punch") {
+								pu = c;
+								foundPU = true;
+							}
+							if (c.type == CARD_CALL_FOR_KOBOLDS) {
+								callCard = c;
+								foundCall = true;
+							}
 						}
-						// Give kobolds a tiny default deck so they don't get removed by
-						// the "no cards" cleanup on the next update tick.
+
+						// Fallbacks to prevent immediate death due to empty deck
+						if (!foundHB) {
+							hb.name = "Hand Block";
+							hb.type = CARD_GAIN_BLOCK;
+							hb.cost = 1;
+							hb.value = 2;
+						}
+						if (!foundPU) {
+							pu.name = "Punch";
+							pu.type = CARD_ATTACK_SINGLE_TILE;
+							pu.cost = 1;
+							pu.value = 2;
+						}
+						if (!foundCall) {
+							callCard.name = "Call for Kobolds";
+							callCard.type = CARD_CALL_FOR_KOBOLDS;
+							callCard.cost = 4;
+						}
+
 						kobold.deck = { hb, hb, pu, callCard };
+
+						// Add to board
 						board[gx][gy].hasPlayer = true;
 						players.push_back(kobold);
 						int newKoboldIdx = (int)players.size() - 1;
@@ -11475,10 +11519,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 					}
 
 					// Unified minion draw logic: use drawMinionCard to handle multiplayer and drawnThisTurn
-
-					for (int i = 0; i < drawCount; i++) {
-						this->drawMinionCard(ui.playerIndex, ownerIndex);
-					}
+					this->drawMinionCard(ui.playerIndex, ownerIndex);
 					hasDrawnCardsThisTurn = true;
 					return;
 				}
@@ -11504,8 +11545,6 @@ void ofApp::mousePressed(int x, int y, int button) {
 			}
 
 			Player & activePlayer = players[currentPlayerIndex];
-			// Only consider it the player's turn for main-deck clicks when the active unit
-			// is the actual player (not a minion). Minions must click their own UI deck.
 			bool isLocalPlayersTurn = false;
 			if (isMultiplayer) {
 				// In multiplayer, check if it's the local player's turn
@@ -22511,7 +22550,9 @@ void ofApp::processNetworkPackets() {
 					else if (opponentHoverType == HOVER_NONE) {
 						clearHighlights();
 					}
-				} else if (header->type == PKT_DRAFT_STATE) {
+				}
+
+				else if (header->type == PKT_DRAFT_STATE) {
 					DraftStatePacket * sp = (DraftStatePacket *)header;
 					ofLogNotice("Network") << "Draft state received: class=" << sp->classTier << " player=" << sp->draftPlayerIdx << " picks=" << sp->picksRemaining << " stage=" << sp->draftStage << " ingame=" << (int)sp->isInGameDraft << " curPlayer=" << sp->currentPlayerIndex;
 
@@ -22543,18 +22584,23 @@ void ofApp::processNetworkPackets() {
 						currentState = STATE_DRAFTING;
 						selectedDraftIndices.clear();
 						// If multiplayer, wait for host authoritative DraftOptionsPacket; otherwise generate locally
-						if (!isMultiplayer) {
-							generateDraftOptions(sp->classTier);
-						} else {
-							// If we already have draftOptions applied that match this state, do not re-enter waiting.
+						if (isMultiplayer) {
 							bool optionsMatch = false;
-							if (!draftOptions.empty() && draftPlayerIndex == sp->draftPlayerIdx && draftStage == sp->draftStage && currentDraftClassTier == sp->classTier) {
+							if (!draftOptions.empty() && currentDraftClassTier == sp->classTier && // Use cached tier
+								draftPlayerIndex == sp->draftPlayerIdx) {
 								optionsMatch = true;
 							}
-							if (!optionsMatch) {
-								// Clear stale options when the host advances the draft state (prevents showing previous class)
+
+							// --- CHANGE THIS BLOCK ---
+							// Only wipe options if the CLASS TIER has changed.
+							// This prevents race conditions where a state packet arrives slightly out of sync with options.
+							if (!optionsMatch && currentDraftClassTier != sp->classTier) {
 								draftOptions.clear();
+								waitingForDraftOptions = true;
+								ofLogNotice("Draft") << "State mismatch (new class tier). Waiting for options.";
 							}
+							// ------------------------
+
 							if (optionsMatch) {
 								waitingForDraftOptions = false;
 								ofLogNotice("Draft") << "Client already has authoritative DraftOptions; not waiting (class=" << sp->classTier << ")";
@@ -22676,74 +22722,43 @@ void ofApp::processNetworkPackets() {
 
 							draftStage++;
 							if (draftStage == 1) {
+								// Move to Class 2
 								generateDraftOptions(2);
+
+								// --- DELETE THE LINES BELOW (Host Redundancy Fix) ---
 								// Host: send new options and state for Class 2
-								std::vector<int> indices;
-								for (int i = 0; i < 3; ++i) {
-									if (currentDraftOptionPoolIndices[i] >= 0) indices.push_back(currentDraftOptionPoolIndices[i]);
-								}
-								DraftOptionsPacket dp = {};
-								dp.type = PKT_DRAFT_OPTIONS;
-								dp.playerID = myLocalPlayerID;
-								dp.classTier = 2;
-								dp.optionIndex0 = (indices.size() > 0) ? indices[0] : -1;
-								dp.optionIndex1 = (indices.size() > 1) ? indices[1] : -1;
-								dp.optionIndex2 = (indices.size() > 2) ? indices[2] : -1;
-								dp.draftPlayerIdx = draftPlayerIndex;
-								dp.picksRemaining = draftPicksRemaining;
-								dp.draftStage = draftStage;
-								dp.isInGameDraft = isInGameDraft ? 1 : 0;
-								dp.draftGenCounter = draftGenerationCounter;
-								steamManager.sendPacket(&dp, sizeof(dp));
-								DraftStatePacket dsp = {};
-								dsp.type = PKT_DRAFT_STATE;
-								dsp.playerID = myLocalPlayerID;
-								dsp.classTier = 2;
-								dsp.draftPlayerIdx = draftPlayerIndex;
-								dsp.picksRemaining = draftPicksRemaining;
-								dsp.draftStage = draftStage;
-								dsp.isInGameDraft = isInGameDraft ? 1 : 0;
-								dsp.currentPlayerIndex = currentPlayerIndex;
-								steamManager.sendPacket(&dsp, sizeof(dsp));
+								/* 
+                        std::vector<int> indices;
+                        for (int i = 0; i < 3; ++i) {
+                            if (currentDraftOptionPoolIndices[i] >= 0) indices.push_back(currentDraftOptionPoolIndices[i]);
+                        }
+                        DraftOptionsPacket dp = {};
+                        ... (huge block of manual packet sending) ...
+                        steamManager.sendPacket(&dsp, sizeof(dsp)); 
+                        */
+								// --- STOP DELETING HERE ---
+
 							} else {
+								// Check if other player needs to draft
 								int nextPlayerIdx = (draftPlayerIndex + 1) % 2;
-								bool needsDraft = players[nextPlayerIdx].deck.empty();
-								if (!needsDraft && draftStage < 2) {
-									needsDraft = true;
-									ofLogError("Draft") << "Forcing draft progression for player " << nextPlayerIdx << " due to possible stuck state (deck not empty but draftStage < 2)";
-								}
-								if (needsDraft) {
+								if (players[nextPlayerIdx].deck.empty()) {
 									draftPlayerIndex = nextPlayerIdx;
 									draftStage = 0;
 									generateDraftOptions(1);
+
+									// --- DELETE THE LINES BELOW (Host Redundancy Fix) ---
 									// Host: send new options and state for next player
-									std::vector<int> indices;
-									for (int i = 0; i < 3; ++i) {
-										if (currentDraftOptionPoolIndices[i] >= 0) indices.push_back(currentDraftOptionPoolIndices[i]);
-									}
-									DraftOptionsPacket dp = {};
-									dp.type = PKT_DRAFT_OPTIONS;
-									dp.playerID = myLocalPlayerID;
-									dp.classTier = 1;
-									dp.optionIndex0 = (indices.size() > 0) ? indices[0] : -1;
-									dp.optionIndex1 = (indices.size() > 1) ? indices[1] : -1;
-									dp.optionIndex2 = (indices.size() > 2) ? indices[2] : -1;
-									dp.draftPlayerIdx = draftPlayerIndex;
-									dp.picksRemaining = draftPicksRemaining;
-									dp.draftStage = draftStage;
-									dp.isInGameDraft = isInGameDraft ? 1 : 0;
-									dp.draftGenCounter = draftGenerationCounter;
-									steamManager.sendPacket(&dp, sizeof(dp));
-									DraftStatePacket dsp = {};
-									dsp.type = PKT_DRAFT_STATE;
-									dsp.playerID = myLocalPlayerID;
-									dsp.classTier = 1;
-									dsp.draftPlayerIdx = draftPlayerIndex;
-									dsp.picksRemaining = draftPicksRemaining;
-									dsp.draftStage = draftStage;
-									dsp.isInGameDraft = isInGameDraft ? 1 : 0;
-									dsp.currentPlayerIndex = currentPlayerIndex;
-									steamManager.sendPacket(&dsp, sizeof(dsp));
+									/*
+                            std::vector<int> indices;
+                            for (int i = 0; i < 3; ++i) {
+                                if (currentDraftOptionPoolIndices[i] >= 0) indices.push_back(currentDraftOptionPoolIndices[i]);
+                            }
+                            DraftOptionsPacket dp = {};
+                            ... (huge block of manual packet sending) ...
+                            steamManager.sendPacket(&dsp, sizeof(dsp));
+                            */
+									// --- STOP DELETING HERE ---
+
 								} else {
 									currentPlayerIndex = nextPlayerIdx;
 									currentState = STATE_GAMEPLAY;
@@ -22843,9 +22858,11 @@ void ofApp::processNetworkPackets() {
 					} else {
 						// Client: apply actions forwarded by host
 						if (pkt->actionType == 0) {
-							if (draftAcceptLocked) {
-								continue;
-							}
+
+							// --- REMOVE THIS LINE ---
+							// if (draftAcceptLocked) { continue; }
+							// ------------------------
+
 							// Host forwarded selection toggle or in-game pick
 							if (isInGameDraft) {
 								// For in-game drafts, just toggle the selection and show/hide the card highlight
