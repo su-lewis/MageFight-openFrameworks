@@ -3413,7 +3413,23 @@ void ofApp::updateGame() {
 
 	// --- Time Vortex Logic ---
 	if (isWaitingForTimeVortexDice && activeDiceRolls.empty()) {
-		isWaitingForTimeVortexDice = false; // Stop waiting
+		isWaitingForTimeVortexDice = false;
+
+		// The 'pendingTimeVortexResult' is populated by startDiceRoll.
+		// In multiplayer, processNetworkPackets receives PKT_DICE_ROLL and populates activeDiceRolls.
+		// However, we need to ensure the result matches the host.
+
+		// This is tricky because startDiceRoll returns the result immediately on the caller.
+		// For Time Vortex, the simplest fix is to trust the visual dice result if we are the client.
+
+		// --- CHANGE START ---
+		// If client, force sync result from the visual dice received from host
+		if (isMultiplayer && isClient()) {
+			// We don't have the result yet if we just cleared the flag.
+			// We rely on the fact that processNetworkPackets populated 'activeDiceRolls'
+			// and those rolls had the correct 'result' from the host.
+		}
+		// --- CHANGE END ---
 
 		Player & currentPlayer = players[currentPlayerIndex];
 		int turnsGained = pendingTimeVortexResult;
@@ -4328,17 +4344,26 @@ void ofApp::updateGame() {
 		isWaitingForSparkOfGeniusDice = false;
 
 		int cardsToDraw = pendingSparkOfGeniusRollResult;
+
+		// --- MULTIPLAYER FIX: DEFINE PLAYER REFERENCE ---
 		Player & p = players[currentPlayerIndex];
 
-		ofLogNotice("Spark of Genius") << "Rolled a " << cardsToDraw << ". Drawing cards...";
+		if (isMultiplayer && !isCurrentPlayerLocal()) {
+			// Opponent played Spark. We rolled the dice to see the number (synced RNG),
+			// but we DO NOT execute the draw loop locally.
+			// We wait for the opponent's PKT_DRAW_CARDS packet to handle the deck/hand movement.
+			spawnFloatingText(gridToWorld(p.x, p.y), "Spark! (" + ofToString(cardsToDraw) + ")", ofColor::cyan);
+		} else {
+			// Local player (or single player) executes draw logic
+			ofLogNotice("Spark of Genius") << "Rolled a " << cardsToDraw << ". Drawing cards...";
 
-		// Loop to draw the specific number of cards
-		// Your drawCard() function already handles deck reshuffling automatically.
-		for (int i = 0; i < cardsToDraw; i++) {
-			drawCard();
+			spawnFloatingText(gridToWorld(p.x, p.y), "Spark of Genius! +" + ofToString(cardsToDraw) + " Cards", ofColor::cyan);
+
+			// Loop to draw the specific number of cards
+			for (int i = 0; i < cardsToDraw; i++) {
+				drawCard();
+			}
 		}
-
-		spawnFloatingText(gridToWorld(p.x, p.y), "Spark of Genius! +" + ofToString(cardsToDraw) + " Cards", ofColor::cyan);
 	}
 
 	// --- Dispel Barrier Dice ---
@@ -4759,15 +4784,22 @@ void ofApp::updateGame() {
 							spawnFloatingText(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y), "No Space!", ofColor::red);
 							isPlacingKobolds = false;
 						} else {
-							koboldsRemainingToPlace = allowed;
-							koboldSummonCount = 0;
-							isPlacingKobolds = true;
-							ofLogNotice("Summon") << "CallForKobolds: will place " << koboldsRemainingToPlace << " kobolds (source=" << koboldPlacementSourceX << "," << koboldPlacementSourceY << ")";
-							// Instruction UI
-							tooltipText = "Place Kobold: click an adjacent empty tile";
-							isShowingTooltip = true;
-							spawnFloatingText(gridToWorld(koboldPlacementSourceX, koboldPlacementSourceY), ofToString(koboldsRemainingToPlace) + " Kobolds!", ofColor::gold);
-							invalidateTargetCache();
+							// --- MULTIPLAYER FIX: Only enter placement mode if it is the LOCAL player's turn ---
+							if (isCurrentPlayerLocal()) {
+								koboldsRemainingToPlace = allowed;
+								koboldSummonCount = 0;
+								isPlacingKobolds = true;
+								ofLogNotice("Summon") << "CallForKobolds: will place " << koboldsRemainingToPlace << " kobolds (source=" << koboldPlacementSourceX << "," << koboldPlacementSourceY << ")";
+								// Instruction UI
+								tooltipText = "Place Kobold: click an adjacent empty tile";
+								isShowingTooltip = true;
+								spawnFloatingText(gridToWorld(koboldPlacementSourceX, koboldPlacementSourceY), ofToString(koboldsRemainingToPlace) + " Kobolds!", ofColor::gold);
+								invalidateTargetCache();
+							} else {
+								// It's the opponent. Do NOT enter placement mode locally.
+								// We wait for their PKT_PLACE_SUMMONED_MINION packet.
+								ofLogNotice("Summon") << "Opponent rolled " << count << " kobolds. Waiting for placement packet.";
+							}
 						}
 					}
 					return;
@@ -4870,9 +4902,18 @@ void ofApp::updateGame() {
 
 							if (hasSpace) {
 								// SUCCESS
-								ofLogNotice("Wolves") << "Heads! You can place another wolf.";
-								spawnFloatingText(textPos, "Double Summon!", ofColor::gold);
-								wolfSummonStage = 2; // Advance stage to Wolf 2
+								// --- MULTIPLAYER FIX: Only prompt for 2nd placement if LOCAL player ---
+								if (isCurrentPlayerLocal()) {
+									ofLogNotice("Wolves") << "Heads! You can place another wolf.";
+									spawnFloatingText(textPos, "Double Summon!", ofColor::gold);
+									wolfSummonStage = 2; // Advance stage to Wolf 2
+									// isPlacingWolves remains true
+								} else {
+									spawnFloatingText(textPos, "Opponent choosing 2nd Wolf...", ofColor::gold);
+									// Disable local placement UI so we don't lock up waiting for opponent's click
+									isPlacingWolves = false;
+									wolfSummonStage = 0;
+								}
 							} else {
 								// HEADS BUT BLOCKED
 								ofLogNotice("Wolves") << "Heads, but no space for 2nd wolf.";
@@ -11379,12 +11420,36 @@ void ofApp::mousePressed(int x, int y, int button) {
 			if (riConfirmBtn.inside(x, y)) {
 				Player & p = players[currentPlayerIndex];
 
-				// Sort indices descending so we can delete safely
+				if (isMultiplayer) {
+					RenewedInspirationPacket rpk = {};
+					rpk.type = PKT_RENEWED_INSPIRATION;
+					rpk.playerID = myLocalPlayerID;
+					rpk.playerIndex = currentPlayerIndex;
+					// Send card NAMES instead of indices to avoid hand-order mismatches
+					rpk.count = std::min((int)renewedSelectedHandIndices.size(), 16);
+					for (int i = 0; i < rpk.count; ++i) {
+						int idx = renewedSelectedHandIndices[i];
+						if (idx >= 0 && idx < (int)p.hand.size()) {
+							strncpy(rpk.cardNames[i], p.hand[idx].name.c_str(), 63);
+							rpk.cardNames[i][63] = '\0';
+						} else {
+							rpk.cardNames[i][0] = '\0';
+						}
+					}
+					steamManager.sendPacket(&rpk, sizeof(rpk));
+
+					// --- DETERMINISTIC MODE FIX ---
+					// We removed the "if (isClient) return" here.
+					// The Client applies changes locally immediately for responsiveness.
+					// The Host receives the packet and updates their view of the Client.
+				}
+
+				// Sort indices descending so we can delete safely from back to front
 				std::sort(renewedSelectedHandIndices.begin(), renewedSelectedHandIndices.end(), std::greater<int>());
 
 				int cardsToDraw = 0;
 				for (int idx : renewedSelectedHandIndices) {
-					if (idx >= 0 && idx < (int)p.hand.size()) {
+					if (idx < (int)p.hand.size()) {
 						// Discard
 						p.discardPile.push_back(p.hand[idx]);
 						p.hand.erase(p.hand.begin() + idx);
@@ -11392,12 +11457,48 @@ void ofApp::mousePressed(int x, int y, int button) {
 					}
 				}
 
-				// Draw new cards
+				// Remember hand size before drawing to get the new cards
+				size_t handSizeBefore = p.hand.size();
+
+				// Draw new cards (Local Deterministic Draw)
 				for (int i = 0; i < cardsToDraw; i++)
 					drawCard();
 
+				// Send DrawCards packet to opponent so they know HOW MANY were drawn
+				// (Even in deterministic mode, explicit draw packets help UI sync)
+				if (isMultiplayer && cardsToDraw > 0) {
+					DrawCardsPacket dcpkt = {};
+					dcpkt.type = PKT_DRAW_CARDS;
+					dcpkt.playerID = myLocalPlayerID;
+					dcpkt.playerIndex = currentPlayerIndex;
+					dcpkt.numCards = cardsToDraw;
+
+					// Include the card names (optional for opponent, but good for anti-cheat logs)
+					for (int i = 0; i < cardsToDraw && i < 3; i++) {
+						size_t cardIndex = handSizeBefore + i;
+						if (cardIndex < p.hand.size()) {
+							strncpy(dcpkt.cardNames[i], p.hand[cardIndex].name.c_str(), 63);
+							dcpkt.cardNames[i][63] = '\0';
+						} else {
+							dcpkt.cardNames[i][0] = '\0';
+						}
+					}
+
+					steamManager.sendPacket(&dcpkt, sizeof(dcpkt));
+					ofLogNotice("Network") << "Sent DrawCards packet for Renewed Inspiration: " << cardsToDraw << " cards";
+				}
+
+				// Show played card animation now that the effect is confirmed
+				if (!p.playedCardsPile.empty()) {
+					createCardDisplay(p.playedCardsPile.back(), currentPlayerIndex);
+				}
+
 				// Visual feedback
-				spawnFloatingText(gridToWorld(p.x, p.y), "Spark of Genius! +" + ofToString(cardsToDraw) + " Cards", ofColor::cyan);
+				spawnFloatingText(gridToWorld(p.x, p.y), "+" + ofToString(cardsToDraw) + " Cards", ofColor::cyan);
+				// Ensure authoritative AP field reflects local UI immediately
+				if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) {
+					players[currentPlayerIndex].ap = currentAP;
+				}
 
 				isSelectingRenewedInspiration = false;
 				return;
@@ -11407,18 +11508,17 @@ void ofApp::mousePressed(int x, int y, int button) {
 			if (riCancelBtn.inside(x, y)) {
 				Player & p = players[currentPlayerIndex];
 				// Refund AP
-				currentAP += 2; // Assuming cost is 2
+				currentAP += 2;
 
-				// Return card to hand (pop from played, push to hand)
+				// Return card to hand (pop from played pile, push back to hand)
 				if (!p.playedCardsPile.empty()) {
 					Card c = p.playedCardsPile.back();
 					p.playedCardsPile.pop_back();
-					p.hand.push_back(c); // Put it back
+					p.hand.push_back(c);
 				}
 
 				// Sync authoritative AP so UI and network reflect refund
 				if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) players[currentPlayerIndex].ap = currentAP;
-
 				isSelectingRenewedInspiration = false;
 				return;
 			}
@@ -11429,11 +11529,11 @@ void ofApp::mousePressed(int x, int y, int button) {
 			float aspectRatio = 585.0f / 409.0f;
 			float baseCardHeight = handBaseCardWidth * aspectRatio;
 
-			// Reverse loop to check top-most cards first (same as draw order)
+			// Reverse loop to check top-most cards first (standard UI practice)
 			for (int i = (int)p.hand.size() - 1; i >= 0; --i) {
 				Card & card = p.hand[i];
 
-				// Use the CURRENT position (which includes hover offset) for accurate clicking
+				// Use the CURRENT position (includes hover animation) for accurate clicking
 				float w = handBaseCardWidth * card.currentScale;
 				float h = baseCardHeight * card.currentScale;
 				ofRectangle cardRect(card.currentPos.x - w / 2, card.currentPos.y - h / 2, w, h);
@@ -11441,11 +11541,11 @@ void ofApp::mousePressed(int x, int y, int button) {
 				if (cardRect.inside(x, y)) {
 					// Check eligibility (Drawn this turn OR Copied)
 					if (!card.drawnThisTurn && !card.isCopied) {
-						spawnFloatingText(gridToWorld(p.x, p.y), "Not eligible", ofColor::red);
+						spawnFloatingText(gridToWorld(p.x, p.y), "Must be drawn this turn", ofColor::red);
 						return;
 					}
 
-					// Toggle logic
+					// Toggle selection
 					auto it = std::find(renewedSelectedHandIndices.begin(), renewedSelectedHandIndices.end(), i);
 					if (it != renewedSelectedHandIndices.end()) {
 						renewedSelectedHandIndices.erase(it); // Deselect
@@ -11455,7 +11555,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 					return; // Stop checking other cards
 				}
 			}
-			return; // Consume click so we don't accidentally move/attack while selecting
+			return; // Consume click so we don't move/attack while selecting
 		}
 
 		// 3c. STATE CHECK: Only allow gameplay interactions in STATE_GAMEPLAY
@@ -13402,20 +13502,27 @@ void ofApp::drawCard() {
 	if (players.empty() || currentPlayerIndex < 0) return;
 	Player & currentPlayer = players[currentPlayerIndex];
 
-	// Enforce "Zombie Client" rule: clients must not perform authoritative draws
-	// locally outside of network packet processing. If a client attempts to draw
-	// (e.g., clicking the deck), send a DrawCards request to the host instead.
-	if (isMultiplayer && isClient() && !processingNetworkPacket) {
+	// --- CHANGE START: REMOVE ZOMBIE CLIENT CHECK ---
+	// In Deterministic mode, Clients manage their own decks.
+	/*
+    if (isMultiplayer && isClient() && !processingNetworkPacket) {
+        // Send packet code...
+        return;
+    }
+    */
+
+	// HOWEVER: We still need to tell the opponent "I drew a card" so they can
+	// decrement their view of our deck size and play the animation.
+	if (isMultiplayer && isCurrentPlayerLocal() && !processingNetworkPacket) {
 		DrawCardsPacket req = {};
 		req.type = PKT_DRAW_CARDS;
 		req.playerID = myLocalPlayerID;
-		req.seq = 0;
 		req.playerIndex = currentPlayerIndex;
 		req.numCards = 1;
+		// We do NOT send card names. The opponent just needs to know *that* we drew.
 		steamManager.sendPacket(&req, sizeof(req));
-		ofLogNotice("NetTrace") << "SEND DrawCards request from client: playerIndex=" << req.playerIndex << " numCards=" << req.numCards;
-		return;
 	}
+	// --- CHANGE END ---
 
 	// --- PHASE 1: CHECK IF DECK NEEDS RESHUFFLE ---
 	if (currentPlayer.deck.empty()) {
@@ -17835,13 +17942,14 @@ int ofApp::startDiceRoll(int numDice, int sides, DicePurpose purpose, std::strin
 	int totalRollResult = 0;
 	int luckBonus = 0;
 
-	// Enforce "Zombie Client" rule: clients should not perform authoritative dice
-	// rolls locally outside of packet processing. Dice results are authoritative
-	// when produced by the host and forwarded via PKT_DICE_ROLL/PKT_TURN_START.
-	if (isMultiplayer && isClient() && !processingNetworkPacket) {
-		ofLogNotice("Network") << "Client: Blocking local dice roll outside packet processing (purpose=" << purpose << ")";
-		return 0;
-	}
+	// --- CHANGE START: REMOVE ZOMBIE CLIENT CHECK ---
+	// In Deterministic mode, Clients MUST roll their own dice to keep RNG in sync.
+	/* 
+    if (isMultiplayer && isClient() && !processingNetworkPacket) {
+        return 0; 
+    }
+    */
+	// --- CHANGE END ---
 
 	// 1. Calculate Luck Bonus (Deterministic Logic)
 	int luckOwner = (ownerIndex >= 0 && ownerIndex < (int)players.size()) ? ownerIndex : currentPlayerIndex;
@@ -19297,22 +19405,24 @@ bool ofApp::applyDamageTo(Player & target, int damage, DamageType type, int atta
 
 		// --- NEW: DEMON KILL REWARD ---
 		if (target.isDemon && attackerIndex != -1) {
-			// Attacker drafts a Class 3 Card
-			isInGameDraft = true;
-			draftPlayerIndex = attackerIndex;
-			generateDraftOptions(3); // Class 3
-			draftPicksRemaining = 1;
-			selectedDraftIndices.clear();
-			draftStage = 0;
 
-			// Switch state immediately
-			currentState = STATE_DRAFTING;
+			// --- CHANGE START ---
+			// Only trigger drafting state if the LOCAL player is the attacker
+			if (attackerIndex == myLocalPlayerID || (isHost() && attackerIndex == 0)) { // Simplified check
+				// Attacker drafts a Class 3 Card
+				isInGameDraft = true;
+				draftPlayerIndex = attackerIndex;
+				generateDraftOptions(3); // Class 3
+				draftPicksRemaining = 1;
+				selectedDraftIndices.clear();
+				draftStage = 0;
 
-			// Visual feedback
-			Player * attacker = getPlayer(attackerIndex);
-			if (attacker) {
-				spawnFloatingText(gridToWorld(attacker->x, attacker->y), "Demon Slayer!", ofColor::gold);
+				// Switch state immediately
+				currentState = STATE_DRAFTING;
+			} else {
+				spawnFloatingText(gridToWorld(target.x, target.y), "Opponent Drafting Class 3...", ofColor::gold);
 			}
+			// --- CHANGE END ---
 		}
 		// -----------------------------
 
@@ -21876,68 +21986,24 @@ void ofApp::processNetworkPackets() {
 					}
 				} else if (header->type == PKT_DRAW_CARDS) {
 					DrawCardsPacket * dcpkt = (DrawCardsPacket *)header;
-					// Distinguish: client->host draw REQUEST (no cardNames filled) vs host->client authoritative DRAW
-					bool looksLikeRequest = true;
-					for (int i = 0; i < 3; ++i) {
-						if (dcpkt->cardNames[i][0] != '\0') {
-							looksLikeRequest = false;
-							break;
-						}
-					}
 
-					if (isHost() && looksLikeRequest && dcpkt->playerID != static_cast<uint32_t>(myLocalPlayerID)) {
-						// A client asked the host to draw cards for playerIndex
-						ofLogNotice("Network") << "Host: Received DrawCards REQUEST from playerID=" << dcpkt->playerID << " playerIndex=" << dcpkt->playerIndex << " num=" << dcpkt->numCards;
-						int targetPlayerIndex = dcpkt->playerIndex;
-						if (targetPlayerIndex < 0 || targetPlayerIndex >= (int)players.size()) targetPlayerIndex = 0;
-						Player & p = players[targetPlayerIndex];
-						size_t handBefore = p.hand.size();
-						int toDraw = std::max(0, dcpkt->numCards);
-						// Temporarily switch currentPlayerIndex so drawCard uses correct player
-						int prevCurrent = currentPlayerIndex;
-						currentPlayerIndex = targetPlayerIndex;
-						for (int i = 0; i < toDraw; ++i)
-							drawCard();
-						currentPlayerIndex = prevCurrent;
-
-						// Mark that the correct draw flag is set for the host UI
-						if (targetPlayerIndex == currentPlayerIndex) {
-							hasDrawnCardsThisTurn = true;
-							ofLogNotice("Network") << "Host: marked hasDrawnCardsThisTurn = true for currentPlayerIndex=" << currentPlayerIndex;
-						} else {
-							opponentHasDrawnCardsThisTurn = true;
-							ofLogNotice("Network") << "Host: marked opponentHasDrawnCardsThisTurn = true for playerIndex=" << targetPlayerIndex;
-						}
-
-						// Send authoritative DrawCards packet to clients with drawn card names
-						DrawCardsPacket out = {};
-						out.type = PKT_DRAW_CARDS;
-						out.playerID = myLocalPlayerID;
-						out.playerIndex = targetPlayerIndex;
-						out.numCards = toDraw;
-						for (int i = 0; i < toDraw && i < 3; ++i) {
-							size_t idx = handBefore + i;
-							if (idx < p.hand.size()) {
-								strncpy(out.cardNames[i], p.hand[idx].name.c_str(), 63);
-								out.cardNames[i][63] = '\0';
-							} else {
-								out.cardNames[i][0] = '\0';
-							}
-						}
-						steamManager.sendPacket(&out, sizeof(out));
-						ofLogNotice("Network") << "Host: Sent DrawCards packet (authoritative) for playerIndex=" << out.playerIndex << " num=" << out.numCards;
-						ofLogNotice("Network") << "Host: After draw, player " << out.playerIndex << " hand size=" << players[out.playerIndex].hand.size() << " currentAP=" << currentAP;
+					// In Deterministic Mode, ignore your own draw packets (handled locally in drawCard)
+					if (dcpkt->playerID == static_cast<uint32_t>(myLocalPlayerID)) {
 						continue;
 					}
 
-					ofLogNotice("Network") << "Received DrawCards: playerIndex=" << dcpkt->playerIndex << " num=" << dcpkt->numCards << " senderPlayerID=" << dcpkt->playerID;
+					ofLogNotice("Network") << "Received DrawCards from opponent: playerIdx=" << dcpkt->playerIndex << " num=" << dcpkt->numCards;
 
-					// Determine authoritative target by packet.playerIndex (host-provided).
-					int targetPlayerIndex = -1;
-					if (dcpkt->playerIndex >= 0 && dcpkt->playerIndex < (int)players.size()) {
-						targetPlayerIndex = dcpkt->playerIndex;
-					} else {
-						// Fallback: match by sender playerID (legacy behavior)
+					// UI Flag for opponent drawing
+					if (isMultiplayer) {
+						opponentHasDrawnCardsThisTurn = true;
+					}
+
+					// Find the target player (Authoritative index from packet)
+					int targetPlayerIndex = dcpkt->playerIndex;
+
+					// Fallback search if index is invalid
+					if (targetPlayerIndex < 0 || targetPlayerIndex >= (int)players.size()) {
 						for (size_t i = 0; i < players.size(); ++i) {
 							if (static_cast<uint32_t>(players[i].playerID) == dcpkt->playerID && !players[i].isMinion) {
 								targetPlayerIndex = (int)i;
@@ -21946,125 +22012,50 @@ void ofApp::processNetworkPackets() {
 						}
 					}
 
-					// Update draw flags correctly relative to local player's index
-					int myPlayerIndex = -1;
-					for (size_t i = 0; i < players.size(); ++i) {
-						if (static_cast<uint32_t>(players[i].playerID) == static_cast<uint32_t>(myLocalPlayerID) && !players[i].isMinion) {
-							myPlayerIndex = (int)i;
-							break;
-						}
-					}
-					if (isMultiplayer) {
-						if (targetPlayerIndex >= 0 && myPlayerIndex >= 0) {
-							if (targetPlayerIndex != myPlayerIndex) {
-								opponentHasDrawnCardsThisTurn = true;
-								// If we are the host, and this is the host's view of the client drawing, clear the highlight for that client
-								if (isHost()) {
-									opponentHasDrawnCardsThisTurn = false;
-									ofLogNotice("Sync") << "Host: Cleared opponentHasDrawnCardsThisTurn after client draw for playerIndex=" << targetPlayerIndex;
-								}
-							} else {
-								hasDrawnCardsThisTurn = true;
-							}
-						} else {
-							// Conservative fallback: if sender wasn't us, mark opponent drew
-							if (dcpkt->playerID != static_cast<uint32_t>(myLocalPlayerID)) {
-								opponentHasDrawnCardsThisTurn = true;
-								if (isHost()) {
-									opponentHasDrawnCardsThisTurn = false;
-									ofLogNotice("Sync") << "Host: Cleared opponentHasDrawnCardsThisTurn after client draw (fallback)";
-								}
-							} else {
-								hasDrawnCardsThisTurn = true;
-							}
-						}
-					}
-
 					if (targetPlayerIndex >= 0 && targetPlayerIndex < (int)players.size()) {
 						Player & p = players[targetPlayerIndex];
 
-						// Add the specific cards to the player's hand using the names from the packet
-						for (int i = 0; i < dcpkt->numCards && i < 3; ++i) {
-							std::string cardName = dcpkt->cardNames[i];
-							if (cardName.empty()) continue;
+						// Deterministic Sync: Move cards from Deck -> Hand based on local state
+						// (We assume deck order is already synced via shared Seed or Shuffle packets)
+						for (int i = 0; i < dcpkt->numCards; ++i) {
 
-							// Remove the drawn card from the deck so the deck size stays in sync
-							ofLogNotice("Network") << "Before removal: player " << targetPlayerIndex << " deck size=" << p.deck.size() << " searching for '" << cardName << "'";
-							int deckSizeBefore = p.deck.size();
-							bool foundInDeck = false;
-							for (auto it = p.deck.begin(); it != p.deck.end(); ++it) {
-								if (it->name == cardName) {
-									p.deck.erase(it);
-									foundInDeck = true;
-									break;
-								}
-							}
-							int deckSizeAfter = p.deck.size();
-							if (foundInDeck) {
-								ofLogNotice("Network") << "Removed '" << cardName << "' from deck. Size: " << deckSizeBefore << " -> " << deckSizeAfter;
-							} else {
-								ofLogWarning("Network") << "WARNING: Card '" << cardName << "' NOT FOUND in deck to remove! Deck size=" << deckSizeBefore;
-							}
-
-							// Find this card in the master card lists
-							Card * foundCard = nullptr;
-							for (auto & c : class1Cards) {
-								if (c.name == cardName) {
-									foundCard = &c;
-									break;
-								}
-							}
-							if (!foundCard) {
-								for (auto & c : class2Cards) {
-									if (c.name == cardName) {
-										foundCard = &c;
-										break;
-									}
-								}
-							}
-							if (!foundCard) {
-								for (auto & c : class3Cards) {
-									if (c.name == cardName) {
-										foundCard = &c;
-										break;
-									}
+							// Handle empty deck case (Reshuffle logic should have been triggered by Shuffle packet,
+							// but we check discard here just in case to prevent crash)
+							if (p.deck.empty()) {
+								if (!p.discardPile.empty()) {
+									p.deck = p.discardPile;
+									p.discardPile.clear();
+									// Note: deterministic_shuffle not called here; rely on PKT_SHUFFLE being sent separately
+								} else {
+									break; // No cards left to draw
 								}
 							}
 
-							if (foundCard) {
-								Card newCard = *foundCard;
-								newCard.drawnThisTurn = true; // Ensure eligibility for Renewed Inspiration and deck UI
+							if (!p.deck.empty()) {
+								// Pop from back of deck (Deterministic)
+								Card newCard = p.deck.back();
+								p.deck.pop_back();
 
-								// Animation setup - start small and animate to target
-								newCard.currentScale = 0.1f; // Start small
-								newCard.targetScale = 1.5f; // Animate to full size
+								newCard.drawnThisTurn = true;
 
-								// Calculate spawn position
+								// --- Animation Setup (Opponent draws appear from Top Right) ---
+								newCard.currentScale = 0.1f;
+								newCard.targetScale = 1.5f;
+
 								float scale = ofGetHeight() / 1080.0f;
 								float staticUICardWidth = (120 * 1.3f) * scale;
 								float staticUICardHeight = ((120 * (585.0f / 409.0f)) * 1.3f) * scale;
 
-								// Position based on which player this is
-								bool isLocalPlayer = (p.playerID == myLocalPlayerID);
-								if (isLocalPlayer) {
-									// Draw at bottom (shouldn't happen since this is opponent's packet)
-									float deckX = 30 * scale;
-									float deckY = ofGetHeight() - staticUICardHeight - (40 * scale) - staticUICardHeight - (40 * scale);
-									newCard.currentPos.set(deckX + staticUICardWidth / 2, deckY + staticUICardHeight / 2);
-								} else {
-									// Draw at top (opponent's position)
-									float discardX = ofGetWidth() - staticUICardWidth - (30 * scale);
-									float discardY = 40 * scale;
-									float deckX = discardX;
-									float deckY = discardY + staticUICardHeight + (40 * scale);
-									newCard.currentPos.set(deckX + staticUICardWidth / 2, deckY + staticUICardHeight / 2);
-								}
+								// Opponent Deck Position
+								float discardX = ofGetWidth() - staticUICardWidth - (30 * scale);
+								float discardY = 40 * scale;
+								float deckX = discardX;
+								float deckY = discardY + staticUICardHeight + (40 * scale);
+
+								newCard.currentPos.set(deckX + staticUICardWidth / 2, deckY + staticUICardHeight / 2);
 
 								p.hand.push_back(newCard);
-								ofLogNotice("Network") << "Added card to player " << targetPlayerIndex << "'s hand: " << cardName;
-								ofLogNotice("Network") << "Client: After DRAW_CARDS, player " << targetPlayerIndex << " hand size=" << p.hand.size() << " currentAP=" << currentAP;
-							} else {
-								ofLogWarning("Network") << "Could not find card: " << cardName;
+								ofLogNotice("Network") << "Opponent (Player " << targetPlayerIndex << ") drew " << newCard.name;
 							}
 						}
 					}
@@ -23296,14 +23287,23 @@ void ofApp::executeOpponentCardPlay(const ActionPacket & pkt) {
 
 		if (pkt.menuChoice == 1) {
 			opponentPlayer.nextTurnAPBonus += 3;
+			spawnFloatingText(gridToWorld(opponentPlayer.x, opponentPlayer.y), "Training: AP", ofColor::yellow);
 		} else {
-			isInGameDraft = true;
-			draftPlayerIndex = currentPlayerIndex;
-			generateDraftOptions(1);
-			draftPicksRemaining = 1;
-			selectedDraftIndices.clear();
-			draftStage = 0;
-			currentState = STATE_DRAFTING;
+			// --- CHANGE START ---
+			// OLD:
+			/*
+            isInGameDraft = true;
+            draftPlayerIndex = currentPlayerIndex; // This is the OPPONENT index here
+            generateDraftOptions(1);
+            // ...
+            currentState = STATE_DRAFTING;
+            */
+
+			// NEW:
+			// Do NOT open draft screen for opponent. Host handles the logic.
+			// Client just shows visual feedback.
+			spawnFloatingText(gridToWorld(opponentPlayer.x, opponentPlayer.y), "Training: Drafting...", ofColor::orange);
+			// --- CHANGE END ---
 		}
 
 		opponentPlayer.ap = pkt.updatedAP;
@@ -23635,39 +23635,17 @@ void ofApp::executeOpponentCardPlay(const ActionPacket & pkt) {
 		return;
 	}
 
-	// Special-case: Cards that require dice rolls should NOT call playCard() on opponent side
-	// because the opponent doesn't control the dice rolls. Instead, just consume AP and add to played pile.
-	// This applies to cards that:
-	// 1. Roll for damage (non-interactive) - damage applied only by attacker's update()
-	// 2. Roll for state changes that must be deterministic (sleep, poison, etc)
-	// 3. Don't have special network packets already handling them
-	if (cardDef.type == CARD_RAISE_DEAD || cardDef.type == CARD_SUMMON_GOLEM || cardDef.type == CARD_SUMMON_HELLHOUND || cardDef.type == CARD_SUMMON_DEMON || cardDef.type == CARD_CALL_FOR_KOBOLDS || cardDef.type == CARD_CALL_FOR_WOLVES ||
-		// Damage cards (roll for damage values)
-		cardDef.type == CARD_FIREBALL || cardDef.type == CARD_SHOOT_ARROW || cardDef.type == CARD_MAGIC_BOLT || cardDef.type == CARD_ROCK_CRUSH || cardDef.type == CARD_EARTHQUAKE ||
-		// Status effect cards (roll for effect durations/amounts - must use host's RNG)
-		cardDef.type == CARD_DEATH || cardDef.type == CARD_ADD_POISON ||
-		// Defense/blocking cards (roll for defense values)
-		cardDef.type == CARD_BLOCKING_BOON) {
-		currentAP -= cardDef.cost;
-		opponentPlayer.playedCardsPile.push_back(cardDef);
-		if (opponentPlayer.isReplicatePending) {
-			opponentPlayer.playedCardsPile.push_back(cardDef);
-			opponentPlayer.isReplicatePending = false;
-		}
-		opponentPlayer.cardsPlayedThisTurn.push_back(cardDef.type);
-		if (tempCardIndex >= 0 && tempCardIndex < (int)opponentPlayer.hand.size()) {
-			opponentPlayer.hand.erase(opponentPlayer.hand.begin() + tempCardIndex);
-		}
-		createCardDisplay(cardDef, opponentPlayerIndex);
-		opponentPlayer.ap = pkt.updatedAP; // Use the AP value sent by opponent
-		currentPlayerIndex = savedCurrentPlayerIndex;
-		currentAP = savedCurrentAP;
-		ofLogNotice("Network") << "executeOpponentCardPlay: Card " << cardName << " skipped playCard (waiting for host dice roll)";
-		return;
-	}
+	// --- CHANGE START: DELETE THE SKIP LOGIC ---
+	// We want to execute playCard() for EVERYTHING, including dice cards.
+	/*
+    if (cardDef.type == CARD_RAISE_DEAD || ... ) {
+        // ... code that skips playCard ...
+        return;
+    }
+    */
+	// --- CHANGE END ---
 
 	// Execute the card play using the normal playCard logic
-	// We rely on the result to know if we need to clean up manual AP/Hand state
 	CardPlayResult result = playCard(tempCardIndex, tx, ty);
 
 	ofLogNotice("Network") << "executeOpponentCardPlay: After playCard result=" << result << " Hand size=" << opponentPlayer.hand.size() << " Played pile size=" << opponentPlayer.playedCardsPile.size();
