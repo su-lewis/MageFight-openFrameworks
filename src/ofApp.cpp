@@ -22664,7 +22664,14 @@ void ofApp::processNetworkPackets() {
 								generateDraftOptions(2);
 							} else {
 								int nextPlayerIdx = (draftPlayerIndex + 1) % 2;
-								if (players[nextPlayerIdx].deck.empty()) {
+								// Fix: Always advance draft for both players, even if deck is not empty (prevents stuck state)
+								bool needsDraft = players[nextPlayerIdx].deck.empty();
+								// Fallback: If both players have >=4 cards (2 picks x2), but draftStage < 2, force progression
+								if (!needsDraft && draftStage < 2) {
+									needsDraft = true;
+									ofLogError("Draft") << "Forcing draft progression for player " << nextPlayerIdx << " due to possible stuck state (deck not empty but draftStage < 2)";
+								}
+								if (needsDraft) {
 									draftPlayerIndex = nextPlayerIdx;
 									draftStage = 0;
 									generateDraftOptions(1);
