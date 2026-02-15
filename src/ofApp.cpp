@@ -9951,24 +9951,21 @@ void ofApp::mousePressed(int x, int y, int button) {
 	// --- 1b. Dispel Menu ---
 	if (isDispelMenuOpen && button == OF_MOUSE_BUTTON_LEFT) {
 		if (dispelBtnBarrier.inside(x, y)) {
-			isWaitingForBarrierDice = true;
-
-			pendingDispelRollResult = startDiceRoll(1, 20, PURPOSE_BARRIER_GAIN, "Dispel: Barrier Amount", currentPlayerIndex);
-
 			Player & p = players[currentPlayerIndex];
 			Card dispelCard = p.hand[pendingDispelCardIndex];
-
-			// Pay cost & cleanup (do local first, then notify opponent)
-			currentAP -= dispelCard.cost;
-			p.discardPile.push_back(dispelCard);
-			p.hand.erase(p.hand.begin() + pendingDispelCardIndex);
-			// Send network packet with menuChoice=1 (barrier)
+			// Only send the action packet; do not resolve locally
 			if (isMultiplayer) {
 				sendActionPacket(pendingDispelCardIndex, -1, -1, dispelCard.cost, 1);
+			} else {
+				// Singleplayer fallback: resolve immediately
+				isWaitingForBarrierDice = true;
+				pendingDispelRollResult = startDiceRoll(1, 20, PURPOSE_BARRIER_GAIN, "Dispel: Barrier Amount", currentPlayerIndex);
+				currentAP -= dispelCard.cost;
+				p.discardPile.push_back(dispelCard);
+				p.hand.erase(p.hand.begin() + pendingDispelCardIndex);
+				if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) players[currentPlayerIndex].ap = currentAP;
+				ofLogNotice("Dispel") << "Rolling for Non-Physical Barrier...";
 			}
-			// Sync AP immediately so UI updates
-			if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) players[currentPlayerIndex].ap = currentAP;
-			ofLogNotice("Dispel") << "Rolling for Non-Physical Barrier...";
 			cancelDispel();
 		} else if (dispelBtnPurge.inside(x, y)) {
 			isDispelMenuOpen = false;
@@ -10022,57 +10019,36 @@ void ofApp::mousePressed(int x, int y, int button) {
 	if (isTrainMenuOpen && button == OF_MOUSE_BUTTON_LEFT) {
 		Player & p = players[currentPlayerIndex];
 
-		if (trainBtnAP.inside(x, y)) {
+		if (trainBtnAP.inside(x, y) || trainBtnDraft.inside(x, y)) {
 			int cardIndex = pendingTrainCardIndex;
 			int cost = (cardIndex >= 0 && cardIndex < (int)p.hand.size()) ? p.hand[cardIndex].cost : 0;
 			std::string cardName = (cardIndex >= 0 && cardIndex < (int)p.hand.size()) ? p.hand[cardIndex].name : "";
-			// Option A: +3 AP Next Turn
-			p.nextTurnAPBonus += 3;
-			spawnFloatingText(gridToWorld(p.x, p.y), "Training: AP", ofColor::yellow);
-
-			// Pay cost & cleanup
-			currentAP -= cost;
-			p.playedCardsPile.push_back(p.hand[cardIndex]);
-			// (Replicate check could go here if standard logic isn't used)
-			p.hand.erase(p.hand.begin() + cardIndex);
-			if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) players[currentPlayerIndex].ap = currentAP;
-
-			// Notify opponent after local update
+			int menuChoice = trainBtnAP.inside(x, y) ? 1 : 2;
+			// Only send the action packet; do not resolve locally
 			if (isMultiplayer) {
-				sendActionPacket(cardIndex, -1, -1, cost, 1, cardName);
+				sendActionPacket(cardIndex, -1, -1, cost, menuChoice, cardName);
+			} else {
+				// Singleplayer fallback: resolve immediately
+				if (menuChoice == 1) {
+					p.nextTurnAPBonus += 3;
+					spawnFloatingText(gridToWorld(p.x, p.y), "Training: AP", ofColor::yellow);
+				} else {
+					isInGameDraft = true;
+					draftPlayerIndex = currentPlayerIndex;
+					generateDraftOptions(1); // Class 1
+					draftPicksRemaining = 1;
+					selectedDraftIndices.clear();
+					draftStage = 0;
+					currentState = STATE_DRAFTING;
+				}
+				currentAP -= cost;
+				p.playedCardsPile.push_back(p.hand[cardIndex]);
+				p.hand.erase(p.hand.begin() + cardIndex);
+				if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) players[currentPlayerIndex].ap = currentAP;
 			}
-
 			isTrainMenuOpen = false;
 			pendingTrainCardIndex = -1;
 			calculateTargetHighlights();
-		} else if (trainBtnDraft.inside(x, y)) {
-			int cardIndex = pendingTrainCardIndex;
-			int cost = (cardIndex >= 0 && cardIndex < (int)p.hand.size()) ? p.hand[cardIndex].cost : 0;
-			std::string cardName = (cardIndex >= 0 && cardIndex < (int)p.hand.size()) ? p.hand[cardIndex].name : "";
-			// Option B: Draft Class 1
-			// Pay cost first
-			currentAP -= cost;
-			p.playedCardsPile.push_back(p.hand[cardIndex]);
-			p.hand.erase(p.hand.begin() + cardIndex);
-			if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) players[currentPlayerIndex].ap = currentAP;
-
-			// Notify opponent after local update
-			if (isMultiplayer) {
-				sendActionPacket(cardIndex, -1, -1, cost, 2, cardName);
-			}
-
-			isTrainMenuOpen = false;
-			pendingTrainCardIndex = -1;
-
-			// Setup Draft
-			isInGameDraft = true;
-			draftPlayerIndex = currentPlayerIndex;
-			generateDraftOptions(1); // Class 1
-			draftPicksRemaining = 1;
-			selectedDraftIndices.clear();
-			draftStage = 0;
-
-			currentState = STATE_DRAFTING;
 		}
 		// Click outside does not cancel (must choose)
 		return;
@@ -10092,76 +10068,54 @@ void ofApp::mousePressed(int x, int y, int button) {
 		bool isSelfTarget = (pendingWisdomBoonTargetIndex == currentPlayerIndex);
 
 		if (wisdomBtnDamage.inside(x, y)) {
-			glm::vec3 targetPos = gridToWorld(target->x, target->y);
-
-			if (isSelfTarget) {
-				ofLogNotice("Wisdom Boon") << "Granting " << effectValue << " Block to Self.";
-				target->block += effectValue;
-
-				// CHANGE: From Cyan to Gray
-				spawnFloatingText(targetPos, "+" + ofToString(effectValue) + " Block", ofColor::gray);
-			} else {
-				ofLogNotice("Wisdom Boon") << "Dealing " << effectValue << " Magic Damage to Enemy.";
-				int dmg = effectValue;
-
-				// Barrier Interaction
-				int barrierDmg = std::min(target->barrier, dmg);
-				target->barrier -= barrierDmg;
-				dmg -= barrierDmg;
-
-				// Ward Interaction
-				if (dmg > 0) {
-					int wardDmg = std::min(target->ward, dmg);
-					target->ward -= wardDmg;
-					dmg -= wardDmg;
-				}
-
-				// Health Interaction & Text
-				if (dmg > 0) {
-					target->health -= dmg;
-					// CHANGE: Red Text + " Magic"
-					spawnFloatingText(targetPos, "-" + ofToString(dmg) + " Magic", ofColor::red);
-				} else {
-					spawnFloatingText(targetPos, "Absorbed", ofColor::gray);
-				}
-			}
-			choiceMade = true;
-		} else if (!wisdomMenuRect.inside(x, y)) {
-			cancelWisdomBoon();
-			return;
-		}
-
-		if (choiceMade) {
 			int cardIndex = pendingWisdomBoonCardIndex;
 			int cost = (cardIndex >= 0 && cardIndex < (int)caster.hand.size()) ? caster.hand[cardIndex].cost : 0;
 			std::string cardName = (cardIndex >= 0 && cardIndex < (int)caster.hand.size()) ? caster.hand[cardIndex].name : "";
-			currentAP -= cost;
-			// Sync AP immediately so the UI reflects the spent AP
-			if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) players[currentPlayerIndex].ap = currentAP;
-			Card playedCard = caster.hand[cardIndex];
-			caster.playedCardsPile.push_back(playedCard);
-
-			if (caster.isReplicatePending) {
-				Card dup = playedCard;
-				caster.playedCardsPile.push_back(dup);
-				ofLogNotice("Replicate") << "Wisdom Boon Replicated.";
-				caster.isReplicatePending = false;
-			}
-			caster.hand.erase(caster.hand.begin() + pendingWisdomBoonCardIndex);
-
-			// Notify opponent after local update so pkt.updatedAP reflects post-play AP
+			// Only send the action packet; do not resolve locally
 			if (isMultiplayer) {
-				players[currentPlayerIndex].ap = currentAP;
 				sendActionPacket(cardIndex, target->x, target->y, cost, 1, cardName);
+			} else {
+				// Singleplayer fallback: resolve immediately
+				glm::vec3 targetPos = gridToWorld(target->x, target->y);
+				if (isSelfTarget) {
+					target->block += effectValue;
+					spawnFloatingText(targetPos, "+" + ofToString(effectValue) + " Block", ofColor::gray);
+				} else {
+					int dmg = effectValue;
+					int barrierDmg = std::min(target->barrier, dmg);
+					target->barrier -= barrierDmg;
+					dmg -= barrierDmg;
+					if (dmg > 0) {
+						int wardDmg = std::min(target->ward, dmg);
+						target->ward -= wardDmg;
+						dmg -= wardDmg;
+					}
+					if (dmg > 0) {
+						target->health -= dmg;
+						spawnFloatingText(targetPos, "-" + ofToString(dmg) + " Magic", ofColor::red);
+					} else {
+						spawnFloatingText(targetPos, "Absorbed", ofColor::gray);
+					}
+				}
+				currentAP -= cost;
+				if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) players[currentPlayerIndex].ap = currentAP;
+				Card playedCard = caster.hand[cardIndex];
+				caster.playedCardsPile.push_back(playedCard);
+				if (caster.isReplicatePending) {
+					Card dup = playedCard;
+					caster.playedCardsPile.push_back(dup);
+					caster.isReplicatePending = false;
+				}
+				caster.hand.erase(caster.hand.begin() + pendingWisdomBoonCardIndex);
+				if (isSelfTarget) {
+					tryTriggerShellSpike();
+				}
 			}
-
-			// Trigger Shell Spike if in Tortoise Form (only for self-target which gives block)
-			if (isSelfTarget) {
-				tryTriggerShellSpike();
-			}
-
 			cancelWisdomBoon();
 			calculateTargetHighlights();
+		} else if (!wisdomMenuRect.inside(x, y)) {
+			cancelWisdomBoon();
+			return;
 		}
 		return;
 	}
@@ -10185,45 +10139,53 @@ void ofApp::mousePressed(int x, int y, int button) {
 			}
 		}
 
-		if (burstBtnDamage.inside(x, y)) {
-			// ONLY ALLOW IF VALID
-			if (hasValidEnemy) {
+		if (burstBtnDamage.inside(x, y) || burstBtnHeal.inside(x, y)) {
+			int cardIndex = pendingBurstCardIndex;
+			Player & caster = players[currentPlayerIndex];
+			int cost = (cardIndex >= 0 && cardIndex < (int)caster.hand.size()) ? caster.hand[cardIndex].cost : 0;
+			std::string cardName = (cardIndex >= 0 && cardIndex < (int)caster.hand.size()) ? caster.hand[cardIndex].name : "";
+			int menuChoice = burstBtnDamage.inside(x, y) ? 1 : 2;
+			// Only send the action packet; do not resolve locally
+			if (isMultiplayer) {
+				sendActionPacket(cardIndex, -1, -1, cost, menuChoice, cardName);
+			} else {
+				// Singleplayer fallback: resolve immediately
+				burstChoice = burstBtnDamage.inside(x, y) ? 0 : 1;
 				isBurstMenuOpen = false;
 				isTargetingBurst = true;
-				burstChoice = 0; // damage
 				calculateTargetHighlights(pendingBurstCardIndex);
-			} else {
-				// Optional: Feedback sound or small text "No Valid Target"
 			}
-		} else if (burstBtnHeal.inside(x, y)) {
-			isBurstMenuOpen = false;
-			isTargetingBurst = true;
-			burstChoice = 1; // heal
-			calculateTargetHighlights(pendingBurstCardIndex);
+			return;
 		} else if (!burstMenuRect.inside(x, y)) {
 			cancelBurst();
+			return;
 		}
 		return;
 	}
 	// --- 1f. Double-Handed Menu ---
 	if (isDoubleHandedMenuOpen && button == OF_MOUSE_BUTTON_LEFT) {
-		if (btnAddPunches.inside(x, y)) {
-			// Store choice and enter targeting mode
-			pendingDoubleHandedChoice = "Punch";
-			isDoubleHandedMenuOpen = false;
-			isTargetingDoubleHanded = true;
-			calculateTargetHighlights(pendingDoubleHandedCardIndex);
-		} else if (btnAddBlocks.inside(x, y)) {
-			// Store choice and enter targeting mode
-			pendingDoubleHandedChoice = "Hand Block";
-			isDoubleHandedMenuOpen = false;
-			isTargetingDoubleHanded = true;
-			calculateTargetHighlights(pendingDoubleHandedCardIndex);
+		if (btnAddPunches.inside(x, y) || btnAddBlocks.inside(x, y)) {
+			int cardIndex = pendingDoubleHandedCardIndex;
+			Player & caster = players[currentPlayerIndex];
+			int cost = (cardIndex >= 0 && cardIndex < (int)caster.hand.size()) ? caster.hand[cardIndex].cost : 0;
+			std::string cardName = (cardIndex >= 0 && cardIndex < (int)caster.hand.size()) ? caster.hand[cardIndex].name : "";
+			int menuChoice = btnAddPunches.inside(x, y) ? 1 : 2;
+			// Only send the action packet; do not resolve locally
+			if (isMultiplayer) {
+				sendActionPacket(cardIndex, -1, -1, cost, menuChoice, cardName);
+			} else {
+				// Singleplayer fallback: resolve immediately
+				pendingDoubleHandedChoice = btnAddPunches.inside(x, y) ? "Punch" : "Hand Block";
+				isDoubleHandedMenuOpen = false;
+				isTargetingDoubleHanded = true;
+				calculateTargetHighlights(pendingDoubleHandedCardIndex);
+			}
+			return;
 		} else if (!doubleHandedMenuRect.inside(x, y)) {
-			// Clicked outside menu -> Cancel
 			cancelDoubleHanded();
+			return;
 		}
-		return; // Stop other mouse interactions
+		return;
 	}
 	// --- 1f2. Double-Handed Targeting ---
 	if (isTargetingDoubleHanded && button == OF_MOUSE_BUTTON_LEFT) {
@@ -10353,12 +10315,27 @@ void ofApp::mousePressed(int x, int y, int button) {
 		ofRectangle btnPush(startX, btnY, btnW, btnH);
 		ofRectangle btnPull(startX + btnW + spacing, btnY, btnW, btnH);
 
-		if (btnPush.inside(x, y)) {
-			resolveMagicHandPush();
-		} else if (btnPull.inside(x, y)) {
-			resolveMagicHandPull();
+		if (btnPush.inside(x, y) || btnPull.inside(x, y)) {
+			int cardIndex = pendingMagicHandCardIndex;
+			Player & caster = players[currentPlayerIndex];
+			int cost = (cardIndex >= 0 && cardIndex < (int)caster.hand.size()) ? caster.hand[cardIndex].cost : 0;
+			std::string cardName = (cardIndex >= 0 && cardIndex < (int)caster.hand.size()) ? caster.hand[cardIndex].name : "";
+			int menuChoice = btnPush.inside(x, y) ? 1 : 2;
+			// Only send the action packet; do not resolve locally
+			if (isMultiplayer) {
+				sendActionPacket(cardIndex, magicHandTargetTile.x, magicHandTargetTile.y, cost, menuChoice, cardName);
+			} else {
+				// Singleplayer fallback: resolve immediately
+				if (btnPush.inside(x, y)) {
+					resolveMagicHandPush();
+				} else {
+					resolveMagicHandPull();
+				}
+			}
+			return;
 		} else if (!wisdomMenuRect.inside(x, y)) {
 			cancelMagicHand();
+			return;
 		}
 		return;
 	}
