@@ -9368,57 +9368,20 @@ void ofApp::mousePressed(int x, int y, int button) {
 
 		ofLogNotice("Draft") << "DRAFT CLICK: mousePos=(" << x << "," << y << ") selections=" << (int)selectedDraftIndices.size() << " required=" << requiredPicks << " inGameDraft=" << (int)isInGameDraft << " draftStage=" << draftStage << " acceptRect=(" << draftAcceptButtonRect.x << "," << draftAcceptButtonRect.y << "," << draftAcceptButtonRect.width << "," << draftAcceptButtonRect.height << ")";
 
-		// 1. Card Clicking
-		// Only the drafting player may select cards (multiplayer)
-		if (isLocalDraftingPlayer(draftPlayerIndex)) {
-			for (size_t i = 0; i < draftOptions.size(); ++i) {
-				float cx = startX + static_cast<float>(i) * (cardW + spacing);
-				if (ofRectangle(cx, startY, cardW, cardH).inside(x, y)) {
-					auto it = std::find(selectedDraftIndices.begin(), selectedDraftIndices.end(), static_cast<int>(i));
-					bool nowSelected = false;
-					if (it != selectedDraftIndices.end()) {
-						selectedDraftIndices.erase(it); // Deselect
-						nowSelected = false;
-					} else {
-						if (selectedDraftIndices.size() < static_cast<size_t>(requiredPicks)) {
-							selectedDraftIndices.push_back(static_cast<int>(i));
-							nowSelected = true;
-						}
-					}
+		// --- FIX START: REORDER LOGIC ---
 
-					// If multiplayer, notify host (or forward to clients if host) about selection toggle
-					if (isMultiplayer) {
-						DraftActionPacket pkt = {};
-						pkt.type = PKT_DRAFT_ACTION;
-						pkt.playerID = myLocalPlayerID;
-						pkt.actionType = 0; // Select / Toggle
-						pkt.selectFlag = nowSelected ? 1 : 0;
-						pkt.optionIndex = i;
-						pkt.draftPlayerIdx = draftPlayerIndex;
-						steamManager.sendPacket(&pkt, sizeof(pkt));
-						ofLogNotice("Network") << "Sent draft select toggle: opt=" << i << " sel=" << (int)pkt.selectFlag;
-					}
-
-					return;
-				}
-			}
-		}
-
-		// 2. Accept Button Clicking
+		// 1. CHECK ACCEPT BUTTON FIRST
 		if ((int)selectedDraftIndices.size() == requiredPicks && draftAcceptButtonRect.inside(x, y)) {
-			ofLogNotice("Draft") << "ACCEPT BUTTON CLICKED: selections=" << (int)selectedDraftIndices.size() << " required=" << requiredPicks << " rect=(" << draftAcceptButtonRect.x << "," << draftAcceptButtonRect.y << "," << draftAcceptButtonRect.width << "," << draftAcceptButtonRect.height << ") mousePos=(" << x << "," << y << ")";
+			ofLogNotice("Draft") << "ACCEPT BUTTON CLICKED: selections=" << (int)selectedDraftIndices.size() << " required=" << requiredPicks;
 
 			if (draftAcceptLocked) {
 				ofLogNotice("Draft") << "ACCEPT BLOCKED: already accepted for this draft screen.";
 				return;
 			}
 
-			// Only allow the drafting player to accept (be permissive if indices map differently)
-			if (isMultiplayer) {
-				if (!isLocalDraftingPlayer(draftPlayerIndex)) {
-					ofLogNotice("Draft") << "ACCEPT BLOCKED: Not drafting player (me=" << myLocalPlayerID << " draftingSlot=" << draftPlayerIndex << " draftingPlayerID=" << (players.empty() ? -1 : players[draftPlayerIndex].playerID) << ")";
-					return;
-				}
+			if (isMultiplayer && !isLocalDraftingPlayer(draftPlayerIndex)) {
+				ofLogNotice("Draft") << "ACCEPT BLOCKED: Not the drafting player.";
+				return;
 			}
 
 			draftAcceptLocked = true;
@@ -9429,38 +9392,28 @@ void ofApp::mousePressed(int x, int y, int button) {
 				pkt.type = PKT_DRAFT_ACTION;
 				pkt.playerID = myLocalPlayerID;
 				pkt.actionType = 1; // AcceptDraft
-				pkt.selectFlag = 0;
 				pkt.draftPlayerIdx = draftPlayerIndex;
 				pkt.classTier = currentDraftClassTier;
 				pkt.numSelected = (int)selectedDraftIndices.size();
 				pkt.selectedIdx0 = (pkt.numSelected > 0 && selectedDraftIndices[0] >= 0 && selectedDraftIndices[0] < 3) ? currentDraftOptionPoolIndices[selectedDraftIndices[0]] : -1;
 				pkt.selectedIdx1 = (pkt.numSelected > 1 && selectedDraftIndices[1] >= 0 && selectedDraftIndices[1] < 3) ? currentDraftOptionPoolIndices[selectedDraftIndices[1]] : -1;
 				pkt.selectedIdx2 = (pkt.numSelected > 2 && selectedDraftIndices[2] >= 0 && selectedDraftIndices[2] < 3) ? currentDraftOptionPoolIndices[selectedDraftIndices[2]] : -1;
-				ofLogNotice("Draft") << "CLIENT: Sending AcceptDraft with picks: " << (int)pkt.selectedIdx0 << "," << (int)pkt.selectedIdx1 << "," << (int)pkt.selectedIdx2 << " classTier=" << (int)pkt.classTier;
-				bool ok = steamManager.sendPacket(&pkt, sizeof(pkt));
-				if (!ok) {
-					ofLogError("Network") << "Failed to send AcceptDraft to host (packet not sent)";
-				} else {
-					ofLogNotice("Network") << "Client sent AcceptDraft to host (" << pkt.numSelected << " picks)";
-				}
+
+				steamManager.sendPacket(&pkt, sizeof(pkt));
+				ofLogNotice("Network") << "Client sent AcceptDraft to host (" << pkt.numSelected << " picks)";
 				return;
 			}
 
+			// --- HOST / SINGLE PLAYER LOGIC ---
 			Player & p = players[draftPlayerIndex];
+			int copiesPerCard = (!isInGameDraft && draftStage == 0) ? 2 : 1;
 
-			// Determine copies per card
-			int copiesPerCard = 1;
-			if (!isInGameDraft && draftStage == 0) copiesPerCard = 2; // Setup Class 1 gets 2 copies
-
-			// Add cards to deck
 			for (int pickedIndex : selectedDraftIndices) {
 				for (int k = 0; k < copiesPerCard; k++) {
 					p.deck.push_back(draftOptions[pickedIndex]);
 				}
 			}
 
-			// HOST: Send PKT_DRAFT_ACTION to inform clients BEFORE shuffling
-			// This ensures clients receive Accept and add cards before shuffle packet arrives
 			if (isHost()) {
 				DraftActionPacket acceptPkt = {};
 				acceptPkt.type = PKT_DRAFT_ACTION;
@@ -9469,110 +9422,74 @@ void ofApp::mousePressed(int x, int y, int button) {
 				acceptPkt.draftPlayerIdx = draftPlayerIndex;
 				acceptPkt.classTier = currentDraftClassTier;
 				acceptPkt.numSelected = (uint8_t)selectedDraftIndices.size();
-				acceptPkt.selectedIdx0 = (selectedDraftIndices.size() > 0 && selectedDraftIndices[0] >= 0 && selectedDraftIndices[0] < 3) ? currentDraftOptionPoolIndices[selectedDraftIndices[0]] : -1;
-				acceptPkt.selectedIdx1 = (selectedDraftIndices.size() > 1 && selectedDraftIndices[1] >= 0 && selectedDraftIndices[1] < 3) ? currentDraftOptionPoolIndices[selectedDraftIndices[1]] : -1;
-				acceptPkt.selectedIdx2 = (selectedDraftIndices.size() > 2 && selectedDraftIndices[2] >= 0 && selectedDraftIndices[2] < 3) ? currentDraftOptionPoolIndices[selectedDraftIndices[2]] : -1;
-				acceptPkt.optionIndex = -1;
-				acceptPkt.selectFlag = 0;
+				acceptPkt.selectedIdx0 = (selectedDraftIndices.size() > 0 && selectedDraftIndices[0] < 3) ? currentDraftOptionPoolIndices[selectedDraftIndices[0]] : -1;
+				acceptPkt.selectedIdx1 = (selectedDraftIndices.size() > 1 && selectedDraftIndices[1] < 3) ? currentDraftOptionPoolIndices[selectedDraftIndices[1]] : -1;
+				acceptPkt.selectedIdx2 = (selectedDraftIndices.size() > 2 && selectedDraftIndices[2] < 3) ? currentDraftOptionPoolIndices[selectedDraftIndices[2]] : -1;
 				steamManager.sendPacket(&acceptPkt, sizeof(acceptPkt));
-				ofLogNotice("Network") << "Host: Sent local draft Accept to client (player=" << draftPlayerIndex << " picks=" << (int)acceptPkt.numSelected << ")";
 			}
 
-			// FIX: Shuffle new cards into deck immediately (sends shuffle packet AFTER Accept)
 			shuffleGameVector(p.deck, draftPlayerIndex);
 
-			// Cleanup UI state
 			selectedDraftIndices.clear();
 			draftOptions.clear();
 
-			// Logic: In-Game Draft (Key Pickup)
 			if (isInGameDraft) {
 				isInGameDraft = false;
 				currentState = STATE_GAMEPLAY;
 				return;
 			}
 
-			// Logic: Setup Draft
 			draftStage++;
 			if (draftStage == 1) {
-				generateDraftOptions(2); // Move to Class 2
+				generateDraftOptions(2);
 			} else {
-				// Current player finished
 				int nextPlayerIdx = (draftPlayerIndex + 1) % 2;
-
 				if (players[nextPlayerIdx].deck.empty()) {
-					// Other player needs to draft
 					draftPlayerIndex = nextPlayerIdx;
 					draftStage = 0;
-					generateDraftOptions(1); // Start Class 1
+					generateDraftOptions(1);
 				} else {
-					// Both done. Start gameplay.
 					currentPlayerIndex = nextPlayerIdx;
 					currentState = STATE_GAMEPLAY;
-
-					// NOTE: Decks were already shuffled when each player accepted their picks.
-					// No additional shuffle needed here to avoid desync.
-
-					// For the first turn, call continueNewTurn() directly to avoid incrementing currentPlayerIndex
-					// (There's no previous turn to end, so we skip the cleanup/advancement logic)
 					continueNewTurn();
-
-					// Inform clients that drafting has ended (AFTER continueNewTurn so currentPlayerIndex is correct)
-					if (isHost()) {
-						DraftStatePacket dsp;
-						dsp.type = PKT_DRAFT_STATE;
-						dsp.playerID = myLocalPlayerID;
-						dsp.classTier = 0;
-						dsp.draftPlayerIdx = -1;
-						dsp.picksRemaining = draftPicksRemaining;
-						dsp.draftStage = draftStage;
-						dsp.isInGameDraft = isInGameDraft ? 1 : 0;
-						dsp.currentPlayerIndex = currentPlayerIndex;
-						steamManager.sendPacket(&dsp, sizeof(dsp));
-						ofLogNotice("Network") << "Host sent DraftStatePacket (draft->gameplay): curPlayer=" << dsp.currentPlayerIndex;
-					}
-
-					// Send TurnStart packet with authoritative AP values
-					if (isHost()) {
-						std::vector<DiceRoll> newAP;
-						for (size_t di = 0; di < activeDiceRolls.size(); ++di) {
-							const DiceRoll & dr = activeDiceRolls[di];
-							if (dr.associatedUnit == currentPlayerIndex && dr.purpose == PURPOSE_AP) {
-								newAP.push_back(dr);
-							}
-						}
-						TurnStartPacket tpk = {};
-						tpk.type = PKT_TURN_START;
-						tpk.playerID = myLocalPlayerID;
-						tpk.currentPlayerIndex = currentPlayerIndex;
-						int pkCount = 0;
-						int32_t total = 0;
-						for (size_t i = 0; i < newAP.size() && pkCount < 8; ++i) {
-							tpk.rawResults[pkCount] = (uint8_t)newAP[i].rawResult;
-							tpk.finalResults[pkCount] = (uint8_t)newAP[i].result;
-							pkCount++;
-							total += newAP[i].result;
-						}
-						tpk.diceNum = (uint8_t)pkCount;
-						tpk.diceSides = (uint8_t)(pkCount > 0 ? newAP[0].sides : 6);
-						tpk.purpose = (uint8_t)PURPOSE_AP;
-						tpk.finalTotal = total;
-						steamManager.sendPacket(&tpk, sizeof(tpk));
-						ofLogNotice("Network") << "Host sent TurnStart (mousePressed): player=" << tpk.currentPlayerIndex << " dice=" << (int)tpk.diceNum << " total=" << tpk.finalTotal;
-						for (int i = 0; i < pkCount; ++i) {
-							ofLogNotice("Network") << "  Host sending dice[" << i << "]: raw=" << (int)tpk.rawResults[i] << " final=" << (int)tpk.finalResults[i];
-						}
-
-						// DEBUGGING: Log host's checksum at the same moment client will calculate theirs
-						if (globalTurnCounter == 0) {
-							int64_t hostChecksum = calculateChecksum();
-							ofLogNotice("Checksum") << "Host checksum after TurnStart send (turn 0): " << hostChecksum;
-						}
-					}
+					// Packets for state/turn start are now sent inside generateDraftOptions and continueNewTurn
 				}
 			}
-			return;
+			return; // We handled the Accept, so we're done with this click.
 		}
+
+		// 2. CHECK CARD CLICKING SECOND
+		if (isLocalDraftingPlayer(draftPlayerIndex)) {
+			for (size_t i = 0; i < draftOptions.size(); ++i) {
+				float cx = startX + static_cast<float>(i) * (cardW + spacing);
+				if (ofRectangle(cx, startY, cardW, cardH).inside(x, y)) {
+					auto it = std::find(selectedDraftIndices.begin(), selectedDraftIndices.end(), static_cast<int>(i));
+					bool nowSelected = false;
+
+					if (it != selectedDraftIndices.end()) {
+						selectedDraftIndices.erase(it); // Deselect
+					} else {
+						if (selectedDraftIndices.size() < static_cast<size_t>(requiredPicks)) {
+							selectedDraftIndices.push_back(static_cast<int>(i));
+							nowSelected = true;
+						}
+					}
+
+					if (isMultiplayer) {
+						DraftActionPacket pkt = {};
+						pkt.type = PKT_DRAFT_ACTION;
+						pkt.playerID = myLocalPlayerID;
+						pkt.actionType = 0; // Select / Toggle
+						pkt.selectFlag = nowSelected ? 1 : 0;
+						pkt.optionIndex = i;
+						pkt.draftPlayerIdx = draftPlayerIndex;
+						steamManager.sendPacket(&pkt, sizeof(pkt));
+					}
+					return; // Click was on a card, handled.
+				}
+			}
+		}
+		// --- FIX END ---
 		return;
 	}
 	// Debug: Log all mouse presses when targeting teleport
