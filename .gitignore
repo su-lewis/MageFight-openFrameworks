@@ -46,3 +46,4 @@ Release/
 *.VC.db
 *.VC.opendb
 *.aps
+bin/data/Config/settings.json

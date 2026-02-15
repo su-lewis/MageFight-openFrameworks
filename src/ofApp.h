@@ -434,6 +434,12 @@ struct Particle {
 
 class ofApp : public ofBaseApp {
 public:
+	// --- AUDIO SLIDER DRAG STATE ---
+	bool draggingAudioMaster = false;
+	bool draggingAudioMenu = false;
+	bool draggingAudioSfx = false;
+	bool draggingFramerateSlider = false;
+	void drawMinionCard(int minionIndex, int ownerIndex);
 	void setup();
 	void update();
 	void draw();
@@ -817,8 +823,6 @@ private:
 	float settingsMasterVolume = 1.0f; // 0.0 - 1.0
 	float settingsMenuVolume = 0.6f; // per-menu music multiplier
 	float settingsSfxVolume = 0.8f; // per-sfx multiplier
-	bool settingsMusicMuted = false; // master mute
-	bool settingsMusicLoop = true;
 
 	// Controls tab: key bindings
 	std::vector<std::pair<std::string, int>> settingsKeyBindings; // action, key
@@ -832,8 +836,6 @@ private:
 	ofRectangle settingsAudioVolumeSlider;
 	ofRectangle settingsAudioMasterSlider;
 	ofRectangle settingsAudioSfxSlider;
-	ofRectangle settingsAudioMuteBox;
-	ofRectangle settingsAudioLoopBox;
 	// Game tab rects
 	ofRectangle settingsGameShowFPSBox;
 	ofRectangle settingsCameraSensitivitySlider;
@@ -1369,12 +1371,13 @@ private:
 
 	ofRectangle settingsBackButton;
 	ofRectangle settingsResLeftButton, settingsResRightButton;
-	ofRectangle settingsFrameLeftButton, settingsFrameRightButton;
+	ofRectangle settingsFramerateSlider;
 	ofRectangle settingsFullscreenButton;
 	int settingsHoveredIndex = -1;
 	std::vector<glm::vec2> availableResolutions;
 	int currentResolutionIndex = 0;
 	std::vector<int> availableFramerates;
+	float settingsFramerateSliderValue = 0.0f; // 0.0 = left (min), 1.0 = right (max)
 	int currentFramerateIndex = 0;
 	bool isFullscreen = false;
 

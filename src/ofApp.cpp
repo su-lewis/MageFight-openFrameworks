@@ -24,6 +24,70 @@
 #pragma GCC diagnostic ignored "-Wunused-but-set-variable"
 #pragma GCC diagnostic ignored "-Wunused-value"
 //--------------------------------------------------------------
+// Unified minion card draw logic
+void ofApp::drawMinionCard(int minionIndex, int ownerIndex) {
+	// Safety checks
+	if (minionIndex < 0 || minionIndex >= (int)players.size()) return;
+	if (ownerIndex < 0 || ownerIndex >= (int)players.size()) return;
+	Player & minion = players[minionIndex];
+	Player & owner = players[ownerIndex];
+	if (!minion.isMinion) return;
+	if (minion.deck.empty()) return;
+
+	int drawCount = minion.isDemon ? 3 : 2;
+	if (minion.nextTurnExtraDraw) {
+		drawCount++;
+		minion.nextTurnExtraDraw = false;
+	}
+
+	// Multiplayer logic: mirror player draw logic
+	if (isMultiplayer && isClient()) {
+		// Client: send draw request to host
+		DrawCardsPacket req = {};
+		req.type = PKT_DRAW_CARDS;
+		req.playerID = myLocalPlayerID;
+		req.playerIndex = minionIndex;
+		req.numCards = drawCount;
+		// Leave cardNames empty to indicate a request
+		steamManager.sendPacket(&req, sizeof(req));
+		ofLogNotice("Network") << "Client sent Minion DrawCards REQUEST: " << drawCount << " cards for minionIndex=" << minionIndex;
+		// Client will wait for authoritative DrawCards from host
+		return;
+	}
+
+	// Single-player or Host: perform authoritative draws locally
+	size_t handSizeBefore = owner.hand.size();
+	for (int i = 0; i < drawCount; ++i) {
+		if (minion.deck.empty()) break;
+		Card drawn = minion.deck.back();
+		minion.deck.pop_back();
+		drawn.drawnThisTurn = true;
+		owner.hand.push_back(drawn);
+	}
+
+	// If multiplayer host, broadcast the authoritative draw to clients
+	if (isMultiplayer && isHost()) {
+		DrawCardsPacket out = {};
+		out.type = PKT_DRAW_CARDS;
+		out.playerID = myLocalPlayerID;
+		out.playerIndex = minionIndex;
+		out.numCards = drawCount;
+		for (int i = 0; i < drawCount && i < 3; ++i) {
+			size_t idx = handSizeBefore + i;
+			if (idx < owner.hand.size()) {
+				strncpy(out.cardNames[i], owner.hand[idx].name.c_str(), 63);
+				out.cardNames[i][63] = '\0';
+			} else {
+				out.cardNames[i][0] = '\0';
+			}
+		}
+		steamManager.sendPacket(&out, sizeof(out));
+		ofLogNotice("Network") << "Host: Sent authoritative Minion DrawCards packet: " << out.numCards << " cards for minionIndex=" << minionIndex;
+	}
+
+	// Visual feedback
+	spawnFloatingText(gridToWorld(owner.x, owner.y), "Minion Draw", ofColor::yellow);
+}
 ofPixels scalePixelsNearest(ofPixels & src, int scale) {
 	int w = src.getWidth();
 	int h = src.getHeight();
@@ -214,11 +278,9 @@ void ofApp::setup() {
 	ofLogNotice("Audio") << "Main menu music loaded: " << (mainMenuMusic.isLoaded() ? "yes" : "no");
 	// Initialize settings audio state to match loaded player
 	settingsMenuVolume = mainMenuMusic.getVolume();
-	settingsMusicLoop = true;
 	// default master/sfx if not loaded from settings
 	settingsMasterVolume = 1.0f;
 	settingsSfxVolume = 0.8f;
-	settingsMusicMuted = false;
 
 	// Initialize default key bindings if empty
 	if (settingsKeyBindings.empty()) {
@@ -827,20 +889,9 @@ void ofApp::setup() {
 		monitorRefreshRate = mode->refreshRate;
 	}
 
-	availableFramerates.clear();
-	availableFramerates.push_back(30);
-	availableFramerates.push_back(60);
-	if (monitorRefreshRate != 30 && monitorRefreshRate != 60) {
-		availableFramerates.push_back(monitorRefreshRate);
-	}
-	availableFramerates.push_back(0);
-
-	for (size_t i = 0; i < availableFramerates.size(); i++) {
-		if (availableFramerates[i] == monitorRefreshRate) {
-			currentFramerateIndex = i;
-			break;
-		}
-	}
+	// Framerate slider: 0.0 = 15 FPS, 1.0 = Unlimited, linear to 300 FPS
+	// Set default to 1.0 (Unlimited)
+	settingsFramerateSliderValue = 1.0f;
 
 	// --- GENERATE PIXEL ART FIRE TEXTURE ---
 	// Creating a 4-frame sprite sheet (128x32 pixels, 4 frames of 32x32)
@@ -968,11 +1019,12 @@ void ofApp::update() {
 
 	// Music: respond to state changes (play/stop main menu music)
 	if (currentState != prevState) {
+		// Play menu music if entering main menu or settings
 		if (currentState == STATE_MAIN_MENU || currentState == STATE_SETTINGS) {
 			if (mainMenuMusic.isLoaded()) {
 				if (!mainMenuMusic.isPlaying()) mainMenuMusic.play();
 			} else {
-				ofLogError("Audio") << "Main menu music not loaded when entering menu/settings.";
+				ofLogError("Audio") << "Main menu music not loaded when entering main menu/settings.";
 			}
 		} else {
 			if (mainMenuMusic.isPlaying()) mainMenuMusic.stop();
@@ -1436,7 +1488,8 @@ void ofApp::drawSettingsMenu() {
 
 	// Draw tabs
 	auto drawTab = [&](ofRectangle & r, const string & label, bool active) {
-		ofSetColor(active ? ofColor::lightGray : ofColor(60));
+		// Dark themed tabs with white text
+		ofSetColor(active ? ofColor(100) : ofColor(40));
 		ofDrawRectRounded(r, 8);
 		ofSetColor(ofColor::white);
 		ofRectangle tb = uiFont.getStringBoundingBox(label, 0, 0);
@@ -1466,14 +1519,22 @@ void ofApp::drawSettingsMenu() {
 			ofRectangle lb = uiFont.getStringBoundingBox(label, 0, 0);
 			uiFont.drawString(label, centerX - lb.getWidth() / 2, yPos + 25);
 
-			// Draw Left/Right buttons
+			// Draw Left/Right buttons (dark bg)
 			leftBtn.set(centerX - (controlWidth / 2) - 45, yPos, 40, 40);
 			rightBtn.set(centerX + (controlWidth / 2) + 5, yPos, 40, 40);
+			ofSetColor(ofColor(50));
 			ofDrawRectRounded(leftBtn, 5);
 			ofDrawRectRounded(rightBtn, 5);
+			ofSetColor(ofColor(120));
+			ofNoFill();
+			ofSetLineWidth(1.5);
+			ofDrawRectRounded(leftBtn, 5);
+			ofDrawRectRounded(rightBtn, 5);
+			ofFill();
 
-			// Draw Background for the value text
+			// Draw Background for the value text (dark)
 			ofRectangle bgRect(centerX - (controlWidth / 2), yPos - 5, controlWidth, 50);
+			ofSetColor(ofColor(35));
 			ofDrawRectangle(bgRect);
 
 			// Draw TEXT AFTER the background and set its color to WHITE and centered
@@ -1490,14 +1551,43 @@ void ofApp::drawSettingsMenu() {
 		string resText = ofToString((int)availableResolutions[currentResolutionIndex].x) + " x " + ofToString((int)availableResolutions[currentResolutionIndex].y);
 		drawSettingRow("Resolution", resText, settingsResLeftButton, settingsResRightButton, settingY);
 
-		// --- Draw Framerate ---
+		// --- Draw Framerate as slider ---
 		settingY += settingSpacing;
-		string frameText = (availableFramerates[currentFramerateIndex] == 0) ? "Unlocked" : ofToString(availableFramerates[currentFramerateIndex]);
-		drawSettingRow("Framerate", frameText, settingsFrameLeftButton, settingsFrameRightButton, settingY);
+		float sliderW = 320;
+		float sliderH = 32;
+		settingsFramerateSlider.set(centerX - sliderW / 2, settingY, sliderW, sliderH);
+		// Draw background
+		ofSetColor(ofColor(35));
+		ofDrawRectangle(settingsFramerateSlider);
+		// Draw fill
+		float fillW = settingsFramerateSlider.width * settingsFramerateSliderValue;
+		ofSetColor(120, 180, 220);
+		ofDrawRectangle(settingsFramerateSlider.x, settingsFramerateSlider.y, fillW, settingsFramerateSlider.height);
+		// Draw handle
+		float handleX = settingsFramerateSlider.x + fillW;
+		ofSetColor(ofColor::white);
+		ofDrawCircle(handleX, settingsFramerateSlider.getCenter().y, 16);
+		// Draw label
+		std::string frameText;
+		if (settingsFramerateSliderValue >= 0.999f) {
+			frameText = "Unlimited";
+		} else {
+			int fps = 15 + (int)std::round(settingsFramerateSliderValue * (300 - 15));
+			frameText = ofToString(fps) + " FPS";
+		}
+		ofRectangle ftb = uiFont.getStringBoundingBox(frameText, 0, 0);
+		uiFont.drawString(frameText, centerX - ftb.width / 2, settingsFramerateSlider.y - 10);
+		// Draw label left/right
+		string minLabel = "15";
+		string maxLabel = "Unlimited";
+		ofRectangle minb = uiFont.getStringBoundingBox(minLabel, 0, 0);
+		ofRectangle maxb = uiFont.getStringBoundingBox(maxLabel, 0, 0);
+		uiFont.drawString(minLabel, settingsFramerateSlider.x - minb.width - 8, settingsFramerateSlider.getCenter().y + minb.height / 2);
+		uiFont.drawString(maxLabel, settingsFramerateSlider.x + settingsFramerateSlider.width + 8, settingsFramerateSlider.getCenter().y + maxb.height / 2);
 
 		// --- Draw Fullscreen ---
 		settingY += settingSpacing;
-		ofSetColor(ofColor::white);
+		ofSetColor(ofColor(35));
 		string fsText = isFullscreen ? "Fullscreen" : "Windowed";
 		settingsFullscreenButton.set(centerX - (controlWidth / 2), settingY - 5, controlWidth, 50);
 		ofDrawRectangle(settingsFullscreenButton);
@@ -1509,20 +1599,16 @@ void ofApp::drawSettingsMenu() {
 	// AUDIO tab: simple slider + mute/loop toggles
 	if (currentSettingsTab == SETTINGS_TAB_AUDIO) {
 		ofSetColor(ofColor::white);
-		string audioTitle = "Audio Settings";
-		ofRectangle atb = uiFont.getStringBoundingBox(audioTitle, 0, 0);
-		uiFont.drawString(audioTitle, centerX - atb.width / 2, contentY);
-
 		float sliderY = contentY + 60;
 		float sliderW = 520;
 		float sliderH = 28;
 
-		// Master slider
+		// Master slider (dark background)
 		settingsAudioMasterSlider.set(centerX - sliderW / 2, sliderY, sliderW, sliderH);
-		ofSetColor(200);
+		ofSetColor(ofColor(35));
 		ofDrawRectangle(settingsAudioMasterSlider);
 		float masterFill = settingsAudioMasterSlider.width * settingsMasterVolume;
-		ofSetColor(200, 120, 120);
+		ofSetColor(180, 80, 80);
 		ofDrawRectangle(settingsAudioMasterSlider.x, settingsAudioMasterSlider.y, masterFill, settingsAudioMasterSlider.height);
 		ofSetColor(ofColor::white);
 		string masterLabel = "Master Volume: " + ofToString((int)(settingsMasterVolume * 100)) + "%";
@@ -1532,10 +1618,10 @@ void ofApp::drawSettingsMenu() {
 		// Menu music slider
 		sliderY += 60;
 		settingsAudioVolumeSlider.set(centerX - sliderW / 2, sliderY, sliderW, sliderH);
-		ofSetColor(200);
+		ofSetColor(ofColor(35));
 		ofDrawRectangle(settingsAudioVolumeSlider);
 		float menuFill = settingsAudioVolumeSlider.width * settingsMenuVolume;
-		ofSetColor(50, 200, 50);
+		ofSetColor(50, 180, 50);
 		ofDrawRectangle(settingsAudioVolumeSlider.x, settingsAudioVolumeSlider.y, menuFill, settingsAudioVolumeSlider.height);
 		ofSetColor(ofColor::white);
 		string menuLabel = "Menu Music Volume: " + ofToString((int)(settingsMenuVolume * 100)) + "%";
@@ -1545,33 +1631,15 @@ void ofApp::drawSettingsMenu() {
 		// SFX slider
 		sliderY += 60;
 		settingsAudioSfxSlider.set(centerX - sliderW / 2, sliderY, sliderW, sliderH);
-		ofSetColor(200);
+		ofSetColor(ofColor(35));
 		ofDrawRectangle(settingsAudioSfxSlider);
 		float sfxFill = settingsAudioSfxSlider.width * settingsSfxVolume;
-		ofSetColor(120, 180, 255);
+		ofSetColor(100, 160, 230);
 		ofDrawRectangle(settingsAudioSfxSlider.x, settingsAudioSfxSlider.y, sfxFill, settingsAudioSfxSlider.height);
 		ofSetColor(ofColor::white);
 		string sfxLabel = "Game SFX Volume: " + ofToString((int)(settingsSfxVolume * 100)) + "%";
 		ofRectangle slb = uiFont.getStringBoundingBox(sfxLabel, 0, 0);
 		uiFont.drawString(sfxLabel, centerX - slb.width / 2, settingsAudioSfxSlider.y - 10);
-
-		// Mute box (master mute)
-		settingsAudioMuteBox.set(centerX - 160, sliderY + 70, 28, 28);
-		ofSetColor(settingsMusicMuted ? ofColor::red : ofColor(200));
-		ofDrawRectangle(settingsAudioMuteBox);
-		ofSetColor(ofColor::white);
-		string muteText = "Mute (master)";
-		ofRectangle mt = uiFont.getStringBoundingBox(muteText, 0, 0);
-		uiFont.drawString(muteText, settingsAudioMuteBox.x + 36, settingsAudioMuteBox.y + 20);
-
-		// Loop box (menu music loop)
-		settingsAudioLoopBox.set(centerX + 60, sliderY + 70, 28, 28);
-		ofSetColor(settingsMusicLoop ? ofColor::lightGray : ofColor(80));
-		ofDrawRectangle(settingsAudioLoopBox);
-		ofSetColor(ofColor::white);
-		string loopText = "Loop (menu)";
-		ofRectangle ltb = uiFont.getStringBoundingBox(loopText, 0, 0);
-		uiFont.drawString(loopText, settingsAudioLoopBox.x + 36, settingsAudioLoopBox.y + 20);
 	}
 
 	// CONTROLS tab: show key bindings and allow rebinding
@@ -1587,7 +1655,8 @@ void ofApp::drawSettingsMenu() {
 		float startX = centerX - itemW / 2;
 		for (size_t i = 0; i < settingsKeyBindings.size(); ++i) {
 			ofRectangle itemRect(startX, listY + i * (itemH + 8), itemW, itemH);
-			ofSetColor((int)i == settingsRebindingIndex ? ofColor::lightBlue : ofColor(200));
+			// Dark list items; highlight selected with blue
+			ofSetColor((int)i == settingsRebindingIndex ? ofColor(70, 130, 200) : ofColor(40));
 			ofDrawRectangle(itemRect);
 			ofSetColor(ofColor::white);
 			std::string label = settingsKeyBindings[i].first;
@@ -1611,10 +1680,11 @@ void ofApp::drawSettingsMenu() {
 
 	// --- Draw Back Button (common) ---
 	settingsBackButton.set(centerX - 150, ofGetHeight() * 0.8, 300, 70);
-	ofSetColor(settingsHoveredIndex == 0 ? ofColor::lightGray : ofColor::white);
+	// Dark background with white text
+	ofSetColor(settingsHoveredIndex == 0 ? ofColor(80) : ofColor(40));
 	ofFill();
 	ofDrawRectRounded(settingsBackButton, 15);
-	ofSetColor(ofColor::black);
+	ofSetColor(ofColor::white);
 	ofNoFill();
 	ofSetLineWidth(2);
 	ofDrawRectRounded(settingsBackButton, 15);
@@ -1626,31 +1696,45 @@ void ofApp::drawSettingsMenu() {
 void ofApp::applySettings() {
 	glm::vec2 res = availableResolutions[currentResolutionIndex];
 
+	// Ensure requested resolution is applied whether fullscreen or windowed.
+	// Set the window shape first so the OS/windowing system applies the requested size,
+	// then toggle fullscreen if requested. This helps keep fullscreen at the chosen
+	// resolution on platforms that support it.
+	ofSetWindowShape(res.x, res.y);
 	if (isFullscreen) {
 		if (ofGetWindowMode() != OF_FULLSCREEN) {
+			// Give the window the desired size first, then switch to fullscreen
+			int screenW = ofGetScreenWidth();
+			int screenH = ofGetScreenHeight();
+			ofSetWindowPosition((screenW - (int)res.x) / 2, (screenH - (int)res.y) / 2);
 			ofSetFullscreen(true);
 		}
 	} else {
 		if (ofGetWindowMode() == OF_FULLSCREEN) {
 			ofSetFullscreen(false);
 		}
+		// Windowed: ensure requested shape and center on screen
 		ofSetWindowShape(res.x, res.y);
+		// Wait for the window to resize, then recenter robustly
 		int screenW = ofGetScreenWidth();
 		int screenH = ofGetScreenHeight();
-		ofSetWindowPosition((screenW - res.x) / 2, (screenH - res.y) / 2);
+		// Try to recenter multiple times to fight window manager race conditions
+		for (int i = 0; i < 3; ++i) {
+			ofSetWindowPosition((screenW - (int)res.x) / 2, (screenH - (int)res.y) / 2);
+		}
 	}
 
-	// Get target FPS (e.g., 180, 60, or 0)
-	int targetFPS = availableFramerates[currentFramerateIndex];
-
-	if (targetFPS == 0) {
-		// Unlimited Mode
-		ofSetVerticalSync(false); // Must be OFF to go unlimited
+	// Framerate: 0.0 = 15 FPS, 1.0 = Unlimited, linear to 300 FPS
+	int targetFPS = 0;
+	if (settingsFramerateSliderValue >= 0.999f) {
+		// Unlimited
+		ofSetVerticalSync(false);
 		ofSetFrameRate(0);
 	} else {
-		// Capped Mode (Native or 60/30)
-		ofSetVerticalSync(true); // Enforce monitor sync
-		ofSetFrameRate(targetFPS); // Also cap CPU loop to avoid spins
+		targetFPS = 15 + (int)std::round(settingsFramerateSliderValue * (300 - 15));
+		targetFPS = std::min(targetFPS, 300);
+		ofSetVerticalSync(true);
+		ofSetFrameRate(targetFPS);
 	}
 
 	recalculateUI(ofGetWidth(), ofGetHeight());
@@ -8497,7 +8581,7 @@ void ofApp::mouseMoved(int x, int y) {
 		overMainMenuButton = mainMenuPlayAIButton.inside(x, y) || mainMenuMultiplayerButton.inside(x, y) || mainMenuSettingsButton.inside(x, y) || mainMenuQuitButton.inside(x, y);
 	}
 	if (currentState == STATE_SETTINGS) {
-		overSettingsButton = settingsBackButton.inside(x, y) || settingsResLeftButton.inside(x, y) || settingsResRightButton.inside(x, y) || settingsFrameLeftButton.inside(x, y) || settingsFrameRightButton.inside(x, y) || settingsFullscreenButton.inside(x, y) || settingsTabVideoRect.inside(x, y) || settingsTabAudioRect.inside(x, y) || settingsTabGameRect.inside(x, y) || settingsTabControlsRect.inside(x, y) || settingsAudioVolumeSlider.inside(x, y) || settingsAudioMasterSlider.inside(x, y) || settingsAudioSfxSlider.inside(x, y) || settingsAudioMuteBox.inside(x, y) || settingsAudioLoopBox.inside(x, y);
+		overSettingsButton = settingsBackButton.inside(x, y) || settingsResLeftButton.inside(x, y) || settingsResRightButton.inside(x, y) || settingsFullscreenButton.inside(x, y) || settingsTabVideoRect.inside(x, y) || settingsTabAudioRect.inside(x, y) || settingsTabGameRect.inside(x, y) || settingsTabControlsRect.inside(x, y) || settingsAudioVolumeSlider.inside(x, y) || settingsAudioMasterSlider.inside(x, y) || settingsAudioSfxSlider.inside(x, y);
 	}
 	if (endTurnButtonRect.inside(x, y) || overMainMenuButton || overSettingsButton || overPauseMenuButton ||
 		[&]() {
@@ -9156,6 +9240,7 @@ cursor_check_done:;
 	// Update and send hover state to opponent if changed
 	updateAndSendHover(static_cast<HoverType>(newHoverType), newHoverGridX, newHoverGridY, newHoverCardIndex);
 }
+// Unified minion card draw logic
 // ----------------- FULL mousePressed FUNCTION -----------------
 void ofApp::mousePressed(int x, int y, int button) {
 	// Handle chat clicking (if chat is visible)
@@ -11389,34 +11474,11 @@ void ofApp::mousePressed(int x, int y, int button) {
 						minion.nextTurnExtraDraw = false;
 					}
 
-					// Draw from minion's deck to owner's hand
+					// Unified minion draw logic: use drawMinionCard to handle multiplayer and drawnThisTurn
+
 					for (int i = 0; i < drawCount; i++) {
-						// Check if minion deck needs reshuffle
-						if (minion.deck.empty()) {
-							if (minion.discardPile.empty()) {
-								ofLogNotice("Game") << "Minion cannot draw. Both Deck and Discard are empty.";
-								break;
-							}
-							ofLogNotice("Game") << "Minion Deck is empty. Reshuffling Discard Pile into Deck...";
-							minion.deck = minion.discardPile;
-							minion.discardPile.clear();
-							shuffleGameVector(minion.deck, ui.playerIndex);
-						}
-
-						// Draw from minion's deck
-						if (!minion.deck.empty()) {
-							Card newCard = minion.deck.back();
-							minion.deck.pop_back();
-
-							// Add to owner's hand
-							newCard.currentScale = 1.5f;
-							newCard.targetScale = 1.5f;
-							owner.hand.push_back(newCard);
-
-							ofLogNotice("Game") << "Drew " << newCard.name << " from minion's deck to owner's hand";
-						}
+						this->drawMinionCard(ui.playerIndex, ownerIndex);
 					}
-
 					hasDrawnCardsThisTurn = true;
 					return;
 				}
@@ -11817,14 +11879,13 @@ void ofApp::mousePressed(int x, int y, int button) {
 				saveSettings();
 				return;
 			}
-			if (settingsFrameLeftButton.inside(x, y)) {
-				currentFramerateIndex = std::max(0, currentFramerateIndex - 1);
+			// Framerate slider drag logic
+			if (settingsFramerateSlider.inside(x, y)) {
+				draggingFramerateSlider = true;
+				float rel = (float)(x - settingsFramerateSlider.x) / (float)settingsFramerateSlider.width;
+				settingsFramerateSliderValue = std::min(1.0f, std::max(0.0f, rel));
 				applySettings();
-				return;
-			}
-			if (settingsFrameRightButton.inside(x, y)) {
-				currentFramerateIndex = std::min(static_cast<int>(availableFramerates.size()) - 1, currentFramerateIndex + 1);
-				applySettings();
+				saveSettings();
 				return;
 			}
 			if (settingsFullscreenButton.inside(x, y)) {
@@ -11839,44 +11900,31 @@ void ofApp::mousePressed(int x, int y, int button) {
 		if (currentSettingsTab == SETTINGS_TAB_AUDIO) {
 			// Master slider
 			if (settingsAudioMasterSlider.inside(x, y)) {
+				draggingAudioMaster = true;
 				float rel = (float)(x - settingsAudioMasterSlider.x) / (float)settingsAudioMasterSlider.width;
 				settingsMasterVolume = std::min(1.0f, std::max(0.0f, rel));
-				if (!settingsMusicMuted) mainMenuMusic.setVolume(settingsMasterVolume * settingsMenuVolume);
+				mainMenuMusic.setVolume(settingsMasterVolume * settingsMenuVolume);
 				saveSettings();
 				return;
 			}
 			// Menu music slider
 			if (settingsAudioVolumeSlider.inside(x, y)) {
+				draggingAudioMenu = true;
 				float rel = (float)(x - settingsAudioVolumeSlider.x) / (float)settingsAudioVolumeSlider.width;
 				settingsMenuVolume = std::min(1.0f, std::max(0.0f, rel));
-				if (!settingsMusicMuted) mainMenuMusic.setVolume(settingsMasterVolume * settingsMenuVolume);
+				mainMenuMusic.setVolume(settingsMasterVolume * settingsMenuVolume);
 				saveSettings();
 				return;
 			}
 			// SFX slider
 			if (settingsAudioSfxSlider.inside(x, y)) {
+				draggingAudioSfx = true;
 				float rel = (float)(x - settingsAudioSfxSlider.x) / (float)settingsAudioSfxSlider.width;
 				settingsSfxVolume = std::min(1.0f, std::max(0.0f, rel));
 				saveSettings();
 				return;
 			}
-			// Mute toggle
-			if (settingsAudioMuteBox.inside(x, y)) {
-				settingsMusicMuted = !settingsMusicMuted;
-				if (settingsMusicMuted)
-					mainMenuMusic.setVolume(0.0f);
-				else
-					mainMenuMusic.setVolume(settingsMasterVolume * settingsMenuVolume);
-				saveSettings();
-				return;
-			}
-			// Loop toggle
-			if (settingsAudioLoopBox.inside(x, y)) {
-				settingsMusicLoop = !settingsMusicLoop;
-				mainMenuMusic.setLoop(settingsMusicLoop);
-				saveSettings();
-				return;
-			}
+			// Mute and loop toggles removed
 		}
 
 		// Controls tab interaction: click to start rebinding
@@ -11982,6 +12030,41 @@ void ofApp::mouseDragged(int x, int y, int button) {
 		cameraTargetPan.z += dy * 0.05f * (TILE_SIZE / 4.0f) * panMultZ;
 		return;
 	}
+	// --- SETTINGS MENU SLIDER DRAG ---
+	if (currentState == STATE_SETTINGS && button == OF_MOUSE_BUTTON_LEFT) {
+		bool changed = false;
+		// Audio tab sliders
+		if (currentSettingsTab == SETTINGS_TAB_AUDIO) {
+			if (draggingAudioMaster) {
+				float rel = (float)(x - settingsAudioMasterSlider.x) / (float)settingsAudioMasterSlider.width;
+				settingsMasterVolume = std::min(1.0f, std::max(0.0f, rel));
+				mainMenuMusic.setVolume(settingsMasterVolume * settingsMenuVolume);
+				changed = true;
+			}
+			if (draggingAudioMenu) {
+				float rel = (float)(x - settingsAudioVolumeSlider.x) / (float)settingsAudioVolumeSlider.width;
+				settingsMenuVolume = std::min(1.0f, std::max(0.0f, rel));
+				mainMenuMusic.setVolume(settingsMasterVolume * settingsMenuVolume);
+				changed = true;
+			}
+			if (draggingAudioSfx) {
+				float rel = (float)(x - settingsAudioSfxSlider.x) / (float)settingsAudioSfxSlider.width;
+				settingsSfxVolume = std::min(1.0f, std::max(0.0f, rel));
+				changed = true;
+			}
+		}
+		// Video tab: framerate slider
+		if (currentSettingsTab == SETTINGS_TAB_VIDEO && draggingFramerateSlider) {
+			float rel = (float)(x - settingsFramerateSlider.x) / (float)settingsFramerateSlider.width;
+			settingsFramerateSliderValue = std::min(1.0f, std::max(0.0f, rel));
+			applySettings();
+			changed = true;
+		}
+		if (changed) {
+			saveSettings();
+		}
+		return;
+	}
 	if (currentState != STATE_GAMEPLAY) return;
 
 	// TURN VALIDATION: Only allow dragging if it's the local player's turn or a minion owned by the local player
@@ -12081,6 +12164,19 @@ void ofApp::mouseDragged(int x, int y, int button) {
 
 //--------------------------------------------------------------
 void ofApp::mouseReleased(int x, int y, int button) {
+	// --- SETTINGS MENU SLIDER DRAG END ---
+	if (currentState == STATE_SETTINGS && button == OF_MOUSE_BUTTON_LEFT) {
+		// Audio tab
+		if (currentSettingsTab == SETTINGS_TAB_AUDIO) {
+			draggingAudioMaster = false;
+			draggingAudioMenu = false;
+			draggingAudioSfx = false;
+		}
+		// Video tab
+		if (currentSettingsTab == SETTINGS_TAB_VIDEO) {
+			draggingFramerateSlider = false;
+		}
+	}
 	// Recompute hover state immediately so cursor stays correct while stationary
 	mouseMoved(x, y);
 
@@ -12474,23 +12570,18 @@ void ofApp::keyPressed(int key) {
 		if (currentSettingsTab == SETTINGS_TAB_AUDIO) {
 			if (key == OF_KEY_LEFT) {
 				settingsMenuVolume = std::max(0.0f, settingsMenuVolume - 0.05f);
-				if (!settingsMusicMuted) mainMenuMusic.setVolume(settingsMasterVolume * settingsMenuVolume);
+				mainMenuMusic.setVolume(settingsMasterVolume * settingsMenuVolume);
 				saveSettings();
 				return;
 			}
 			if (key == OF_KEY_RIGHT) {
 				settingsMenuVolume = std::min(1.0f, settingsMenuVolume + 0.05f);
-				if (!settingsMusicMuted) mainMenuMusic.setVolume(settingsMasterVolume * settingsMenuVolume);
+				mainMenuMusic.setVolume(settingsMasterVolume * settingsMenuVolume);
 				saveSettings();
 				return;
 			}
 			if (key == OF_KEY_RETURN) {
-				settingsMusicMuted = !settingsMusicMuted;
-				if (settingsMusicMuted)
-					mainMenuMusic.setVolume(0.0f);
-				else
-					mainMenuMusic.setVolume(settingsMasterVolume * settingsMenuVolume);
-				saveSettings();
+				// Mute toggle removed
 				return;
 			}
 		}
@@ -12708,8 +12799,24 @@ void ofApp::mouseExited(int x, int y) { }
 //--------------------------------------------------------------
 //--------------------------------------------------------------
 void ofApp::windowResized(int w, int h) {
+
 	recalculateUI(w, h);
+	// In windowed mode, recenter the window after resize to ensure proper centering
+	if (!isFullscreen) {
+		int screenW = ofGetScreenWidth();
+		int screenH = ofGetScreenHeight();
+		int winW = ofGetWidth();
+		int winH = ofGetHeight();
+		ofSetWindowPosition((screenW - winW) / 2, (screenH - winH) / 2);
+	}
 	allocateWorldFbo(w, h);
+
+	// Always center window in windowed mode after resize
+	if (ofGetWindowMode() != OF_FULLSCREEN) {
+		int screenW = ofGetScreenWidth();
+		int screenH = ofGetScreenHeight();
+		ofSetWindowPosition((screenW - w) / 2, (screenH - h) / 2);
+	}
 
 	// --- FIX: Snap UI elements immediately to prevent "flying in" visual glitches ---
 
@@ -17154,7 +17261,7 @@ void ofApp::applySnapshotString(const std::string & data) {
 	bool tmpHasUnlimitedAP = hasUnlimitedAP;
 
 	std::vector<int> tmpPendingDraftQueue;
-	BoardCell tmpBoard[BOARD_WIDTH][BOARD_HEIGHT];
+	Tile tmpBoard[BOARD_WIDTH][BOARD_HEIGHT];
 	std::vector<Card> tmpDraftOptionsCards;
 	std::vector<int> tmpSelectedDraftIndices;
 	std::vector<Player> tmpPlayers;
@@ -19771,8 +19878,7 @@ void ofApp::saveSettings() {
 	json["masterVolume"] = settingsMasterVolume;
 	json["menuVolume"] = settingsMenuVolume;
 	json["sfxVolume"] = settingsSfxVolume;
-	json["musicMuted"] = settingsMusicMuted;
-	json["musicLoop"] = settingsMusicLoop;
+	// Removed musicMuted/musicLoop from settings persistence
 	json["showFPS"] = settingsShowFPS;
 	json["cameraSensitivity"] = settingsCameraSensitivity;
 	json["invertCameraY"] = settingsInvertCameraY;
@@ -19812,8 +19918,7 @@ void ofApp::loadSettings() {
 		settingsMasterVolume = json.value("masterVolume", settingsMasterVolume);
 		settingsMenuVolume = json.value("menuVolume", settingsMenuVolume);
 		settingsSfxVolume = json.value("sfxVolume", settingsSfxVolume);
-		settingsMusicMuted = json.value("musicMuted", settingsMusicMuted);
-		settingsMusicLoop = json.value("musicLoop", settingsMusicLoop);
+		// Removed musicMuted/musicLoop from settings load
 		settingsShowFPS = json.value("showFPS", settingsShowFPS);
 		settingsCameraSensitivity = json.value("cameraSensitivity", settingsCameraSensitivity);
 		settingsInvertCameraY = json.value("invertCameraY", settingsInvertCameraY);
@@ -19835,8 +19940,7 @@ void ofApp::loadSettings() {
 
 		// Apply audio immediately
 		if (mainMenuMusic.isLoaded()) {
-			mainMenuMusic.setVolume(settingsMusicMuted ? 0.0f : settingsMasterVolume * settingsMenuVolume);
-			mainMenuMusic.setLoop(settingsMusicLoop);
+			mainMenuMusic.setVolume(settingsMasterVolume * settingsMenuVolume);
 		}
 
 		// Apply v-sync/framerate
