@@ -22617,9 +22617,20 @@ void ofApp::processNetworkPackets() {
 								auto it = std::find(selectedDraftIndices.begin(), selectedDraftIndices.end(), opt);
 								if (it != selectedDraftIndices.end()) selectedDraftIndices.erase(it);
 							}
-							// Forward toggle to clients
+							// Forward toggle to clients (including host's own selections)
 							DraftActionPacket outPkt = *pkt;
 							steamManager.sendPacket(&outPkt, sizeof(outPkt));
+							// Also send updated draft state after every selection
+							DraftStatePacket dsp;
+							dsp.type = PKT_DRAFT_STATE;
+							dsp.playerID = myLocalPlayerID;
+							dsp.classTier = (draftStage == 0) ? 1 : 2;
+							dsp.draftPlayerIdx = draftPlayerIndex;
+							dsp.picksRemaining = draftPicksRemaining;
+							dsp.draftStage = draftStage;
+							dsp.isInGameDraft = isInGameDraft ? 1 : 0;
+							dsp.currentPlayerIndex = currentPlayerIndex;
+							steamManager.sendPacket(&dsp, sizeof(dsp));
 						} else if (pkt->actionType == 1) {
 							// Client accepted draft with choices -> apply on host
 							ofLogNotice("Draft") << "HOST: Received client AcceptDraft from player=" << pkt->playerID << " draftPlayerIdx=" << pkt->draftPlayerIdx << " picks=" << (int)pkt->numSelected << " indices=" << (int)pkt->selectedIdx0 << "," << (int)pkt->selectedIdx1 << "," << (int)pkt->selectedIdx2;
