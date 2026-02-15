@@ -22589,6 +22589,10 @@ void ofApp::processNetworkPackets() {
 					if (dp->optionIndex0 >= 0) idxs.push_back(dp->optionIndex0);
 					if (dp->optionIndex1 >= 0) idxs.push_back(dp->optionIndex1);
 					if (dp->optionIndex2 >= 0) idxs.push_back(dp->optionIndex2);
+					// Force client to clear waiting/locked state and update UI
+					draftAcceptLocked = false;
+					draftAcceptApplied = false;
+					waitingForDraftOptions = false;
 					applyDraftOptionsFromPool(dp->classTier, idxs, dp->picksRemaining, dp->draftPlayerIdx);
 					draftStage = dp->draftStage;
 					isInGameDraft = (dp->isInGameDraft != 0);
