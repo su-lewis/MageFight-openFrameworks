@@ -22673,11 +22673,37 @@ void ofApp::processNetworkPackets() {
 							draftStage++;
 							if (draftStage == 1) {
 								generateDraftOptions(2);
+								// Host: send new options and state for Class 2
+								std::vector<int> indices;
+								for (int i = 0; i < 3; ++i) {
+									if (currentDraftOptionPoolIndices[i] >= 0) indices.push_back(currentDraftOptionPoolIndices[i]);
+								}
+								DraftOptionsPacket dp = {};
+								dp.type = PKT_DRAFT_OPTIONS;
+								dp.playerID = myLocalPlayerID;
+								dp.classTier = 2;
+								dp.optionIndex0 = (indices.size() > 0) ? indices[0] : -1;
+								dp.optionIndex1 = (indices.size() > 1) ? indices[1] : -1;
+								dp.optionIndex2 = (indices.size() > 2) ? indices[2] : -1;
+								dp.draftPlayerIdx = draftPlayerIndex;
+								dp.picksRemaining = draftPicksRemaining;
+								dp.draftStage = draftStage;
+								dp.isInGameDraft = isInGameDraft ? 1 : 0;
+								dp.draftGenCounter = draftGenerationCounter;
+								steamManager.sendPacket(&dp, sizeof(dp));
+								DraftStatePacket dsp = {};
+								dsp.type = PKT_DRAFT_STATE;
+								dsp.playerID = myLocalPlayerID;
+								dsp.classTier = 2;
+								dsp.draftPlayerIdx = draftPlayerIndex;
+								dsp.picksRemaining = draftPicksRemaining;
+								dsp.draftStage = draftStage;
+								dsp.isInGameDraft = isInGameDraft ? 1 : 0;
+								dsp.currentPlayerIndex = currentPlayerIndex;
+								steamManager.sendPacket(&dsp, sizeof(dsp));
 							} else {
 								int nextPlayerIdx = (draftPlayerIndex + 1) % 2;
-								// Fix: Always advance draft for both players, even if deck is not empty (prevents stuck state)
 								bool needsDraft = players[nextPlayerIdx].deck.empty();
-								// Fallback: If both players have >=4 cards (2 picks x2), but draftStage < 2, force progression
 								if (!needsDraft && draftStage < 2) {
 									needsDraft = true;
 									ofLogError("Draft") << "Forcing draft progression for player " << nextPlayerIdx << " due to possible stuck state (deck not empty but draftStage < 2)";
@@ -22686,12 +22712,37 @@ void ofApp::processNetworkPackets() {
 									draftPlayerIndex = nextPlayerIdx;
 									draftStage = 0;
 									generateDraftOptions(1);
+									// Host: send new options and state for next player
+									std::vector<int> indices;
+									for (int i = 0; i < 3; ++i) {
+										if (currentDraftOptionPoolIndices[i] >= 0) indices.push_back(currentDraftOptionPoolIndices[i]);
+									}
+									DraftOptionsPacket dp = {};
+									dp.type = PKT_DRAFT_OPTIONS;
+									dp.playerID = myLocalPlayerID;
+									dp.classTier = 1;
+									dp.optionIndex0 = (indices.size() > 0) ? indices[0] : -1;
+									dp.optionIndex1 = (indices.size() > 1) ? indices[1] : -1;
+									dp.optionIndex2 = (indices.size() > 2) ? indices[2] : -1;
+									dp.draftPlayerIdx = draftPlayerIndex;
+									dp.picksRemaining = draftPicksRemaining;
+									dp.draftStage = draftStage;
+									dp.isInGameDraft = isInGameDraft ? 1 : 0;
+									dp.draftGenCounter = draftGenerationCounter;
+									steamManager.sendPacket(&dp, sizeof(dp));
+									DraftStatePacket dsp = {};
+									dsp.type = PKT_DRAFT_STATE;
+									dsp.playerID = myLocalPlayerID;
+									dsp.classTier = 1;
+									dsp.draftPlayerIdx = draftPlayerIndex;
+									dsp.picksRemaining = draftPicksRemaining;
+									dsp.draftStage = draftStage;
+									dsp.isInGameDraft = isInGameDraft ? 1 : 0;
+									dsp.currentPlayerIndex = currentPlayerIndex;
+									steamManager.sendPacket(&dsp, sizeof(dsp));
 								} else {
 									currentPlayerIndex = nextPlayerIdx;
 									currentState = STATE_GAMEPLAY;
-									// NOTE: Decks were already shuffled when each player accepted their picks.
-									// No additional shuffle needed here to avoid desync.
-									// For the first turn, call continueNewTurn() directly to avoid incrementing currentPlayerIndex
 									continueNewTurn();
 								}
 							}
