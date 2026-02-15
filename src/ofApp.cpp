@@ -17269,6 +17269,7 @@ void ofApp::addGameLog(const std::string & logText) {
 std::string ofApp::buildSnapshotString() {
 	std::ostringstream ss;
 	ss << "V\t1\n";
+	// Added currentMapSeed at the end
 	ss << "STATE\t" << (int)currentState
 	   << "\t" << currentPlayerIndex
 	   << "\t" << globalTurnCounter
@@ -17283,6 +17284,7 @@ std::string ofApp::buildSnapshotString() {
 	   << "\t" << lastAPDiceNum
 	   << "\t" << lastAPDiceSides
 	   << "\t" << (hasUnlimitedAP ? 1 : 0)
+	   << "\t" << currentMapSeed // <--- ADDED THIS
 	   << "\n";
 
 	ss << "QUEUE\t" << pendingDraftQueue.size();
@@ -17384,7 +17386,6 @@ std::string ofApp::buildSnapshotString() {
 
 //--------------------------------------------------------------
 void ofApp::applySnapshotString(const std::string & data) {
-	// Parse snapshot into temporary structures and only swap into live state on success.
 	std::istringstream ss(data);
 	std::string line;
 
@@ -17425,22 +17426,29 @@ void ofApp::applySnapshotString(const std::string & data) {
 			auto parts = splitTabs(line);
 			if (parts.empty()) continue;
 			if (parts[0] == "STATE" && parts.size() >= 13) {
-				tmpCurrentState = (GameState)std::stoi(parts[1]);
-				tmpCurrentPlayerIndex = std::stoi(parts[2]);
-				tmpGlobalTurnCounter = std::stoi(parts[3]);
-				tmpIsInGameDraft = (std::stoi(parts[4]) != 0);
-				tmpDraftStage = std::stoi(parts[5]);
-				tmpDraftPlayerIndex = std::stoi(parts[6]);
-				tmpDraftPicksRemaining = std::stoi(parts[7]);
-				tmpCurrentDraftClassTier = std::stoi(parts[8]);
-				tmpHasDrawnCardsThisTurn = (std::stoi(parts[9]) != 0);
-				tmpOpponentHasDrawnCardsThisTurn = (std::stoi(parts[10]) != 0);
-				tmpCurrentAP = std::stoi(parts[11]);
-				tmpLastAPDiceNum = std::stoi(parts[12]);
-				tmpLastAPDiceSides = (parts.size() > 13) ? std::stoi(parts[13]) : tmpLastAPDiceSides;
+				currentState = (GameState)std::stoi(parts[1]);
+				currentPlayerIndex = std::stoi(parts[2]);
+				globalTurnCounter = std::stoi(parts[3]);
+				isInGameDraft = (std::stoi(parts[4]) != 0);
+				draftStage = std::stoi(parts[5]);
+				draftPlayerIndex = std::stoi(parts[6]);
+				draftPicksRemaining = std::stoi(parts[7]);
+				currentDraftClassTier = std::stoi(parts[8]);
+				hasDrawnCardsThisTurn = (std::stoi(parts[9]) != 0);
+				opponentHasDrawnCardsThisTurn = (std::stoi(parts[10]) != 0);
+				currentAP = std::stoi(parts[11]);
+				lastAPDiceNum = std::stoi(parts[12]);
+				lastAPDiceSides = (parts.size() > 13) ? std::stoi(parts[13]) : lastAPDiceSides;
 				if (parts.size() > 14) {
-					tmpHasUnlimitedAP = (std::stoi(parts[14]) != 0);
+					hasUnlimitedAP = (std::stoi(parts[14]) != 0);
 				}
+				// --- ADDED THIS BLOCK ---
+				if (parts.size() > 15) {
+					currentMapSeed = (uint32_t)std::stoul(parts[15]);
+					gameplayRNG.seed(currentMapSeed);
+					ofLogNotice("Snapshot") << "Restored Map Seed: " << currentMapSeed;
+				}
+				// ------------------------
 			} else if (parts[0] == "QUEUE" && parts.size() >= 2) {
 				tmpPendingDraftQueue.clear();
 				for (size_t i = 2; i < parts.size(); ++i)
@@ -23251,19 +23259,36 @@ void ofApp::executeOpponentCardPlay(const ActionPacket & pkt) {
 	if (cardDef.type == CARD_DISPEL && pkt.menuChoice == 1) {
 		// Apply barrier directly without opening menu
 		currentAP -= cardDef.cost;
+
+		// --- SHARED RNG CHECK ---
+		// Both Host and Client must use gameplayRNG here.
+		// Since gameplayRNG is seeded by currentMapSeed, this produces
+		// the same result on both machines without needing a packet.
 		std::uniform_int_distribution<int> dist(1, 20);
 		int rollResult = dist(gameplayRNG);
+
 		opponentPlayer.barrier += rollResult;
-		ofLogNotice("Dispel") << "Opponent gained " << rollResult << " barrier";
+		ofLogNotice("Dispel") << "Opponent gained " << rollResult << " barrier (Synced RNG)";
 
 		opponentPlayer.ap = pkt.updatedAP;
-		// Add to playedCardsPile like normal playCard would, then move to discard at end of turn
+
+		// --- HAND/DISCARD UPDATE CHECK (Condition 3) ---
+		// 1. Add to played (visuals)
 		opponentPlayer.playedCardsPile.push_back(cardDef);
+
+		// 2. Handle Replicate
 		if (opponentPlayer.isReplicatePending) {
 			opponentPlayer.playedCardsPile.push_back(cardDef);
 			opponentPlayer.isReplicatePending = false;
 		}
-		opponentPlayer.hand.erase(opponentPlayer.hand.begin() + tempCardIndex);
+
+		// 3. Remove from Hand
+		if (tempCardIndex >= 0 && tempCardIndex < (int)opponentPlayer.hand.size()) {
+			opponentPlayer.hand.erase(opponentPlayer.hand.begin() + tempCardIndex);
+		}
+
+		// 4. Note: playedCardsPile moves to discardPile automatically
+		// in startNewTurn / PKT_END_TURN handler.
 
 		currentPlayerIndex = savedCurrentPlayerIndex;
 		if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) {
