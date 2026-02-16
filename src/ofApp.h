@@ -287,6 +287,19 @@ struct RemovedCardAnimation {
 	float currentScale;
 	float currentAlpha;
 };
+// Animation for drawing a card from deck to hand
+struct DrawCardAnimation {
+	Card card;
+	glm::vec3 startPos;
+	glm::vec3 endPos;
+	glm::vec2 currentPos;
+	glm::vec2 targetPos; // 2D hand position for animation end
+	float startTime;
+	float duration;
+	float currentAlpha = 255.0f;
+	int ownerIndex; // Player or minion index
+	bool toMinionHand; // True if animating to minion hand
+};
 
 struct Tile {
 	bool hasPlayer = false;
@@ -433,6 +446,7 @@ struct Particle {
 // =================================================================================================
 
 class ofApp : public ofBaseApp {
+
 public:
 	// --- AUDIO SLIDER DRAG STATE ---
 	bool draggingAudioMaster = false;
@@ -557,6 +571,7 @@ private:
 	std::string currentDiceLabel = "";
 	int startDiceRoll(int numDice, int sides, DicePurpose purpose, std::string label = "", int ownerIndex = -1);
 	void recalcTempLuck();
+	void checkKeyPickupAndDraftAfterSummon(int x, int y, int minionOwnerID);
 
 	// Returns passive luck (from assistant auras and cards in deck) for the given player index.
 	int computePassiveLuck(int playerIndex);
@@ -905,6 +920,7 @@ private:
 	bool pendingKeyDraftAccept = false;
 	int pendingKeyDraftPlayer = -1;
 	int pendingKeyDraftClass = 0;
+	float pendingKeyDraftTriggerTime = 0.0f; // time when pending draft was scheduled (used to ensure UI appears first)
 	PlayerActionState playerAction = NONE;
 	int selectedPieceGridX = -1;
 	int selectedPieceGridY = -1;
@@ -1445,6 +1461,9 @@ private:
 	CursorState previousCursor = CURSOR_DEFAULT; // To track changes
 
 	// --- CHAT SYSTEM ---
+
+	// Card draw animation system
+	std::vector<DrawCardAnimation> activeDrawCardAnimations;
 	struct ChatMessage {
 		std::string playerName;
 		std::string message;

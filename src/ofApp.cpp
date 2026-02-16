@@ -1,3 +1,5 @@
+// --- Draw Card Draw Animations (on top of board, below UI hand) ---
+// --- Draw Card Animations ---
 #include "ofApp.h"
 #include "GLFW/glfw3.h"
 #include "SteamManager.h"
@@ -23,6 +25,55 @@
 #pragma GCC diagnostic ignored "-Wunused-variable"
 #pragma GCC diagnostic ignored "-Wunused-but-set-variable"
 #pragma GCC diagnostic ignored "-Wunused-value"
+// Helper: Check for key under (x, y) and trigger pickup/draft if present
+void ofApp::checkKeyPickupAndDraftAfterSummon(int x, int y, int minionOwnerID) {
+	// Only host or singleplayer should process key pickup
+	if (isMultiplayer && !isHost()) return;
+	for (int k = 0; k < (int)floatingKeyInstances.size(); ++k) {
+		if (floatingKeyInstances[k].pos.x == x && floatingKeyInstances[k].pos.y == y) {
+			int keySet = floatingKeyInstances[k].set;
+			floatingKeyInstances.erase(floatingKeyInstances.begin() + k);
+			int classToDraft = 1;
+			if (keySet == 3)
+				classToDraft = 1;
+			else if (keySet == 2)
+				classToDraft = 2;
+			else if (keySet == 1)
+				classToDraft = 3;
+			// Find owner index (must be a non-minion player)
+			int ownerIndex = -1;
+			for (int p = 0; p < (int)players.size(); ++p) {
+				if (players[p].playerID == minionOwnerID && !players[p].isMinion) {
+					ownerIndex = p;
+					break;
+				}
+			}
+			if (ownerIndex != -1) {
+				// Host still notifies clients immediately, but delay opening the draft UI until
+				// the summoned minion's health/UI are visible (one-frame delay).
+				if (isHost()) {
+					KeyPickupPacket kpkt = {};
+					kpkt.type = PKT_KEY_PICKUP;
+					kpkt.playerID = myLocalPlayerID;
+					kpkt.playerIndex = ownerIndex;
+					kpkt.classTier = classToDraft;
+					kpkt.keyX = x;
+					kpkt.keyY = y;
+					steamManager.sendPacket(&kpkt, sizeof(kpkt));
+					ofLogNotice("Network") << "Host sent KeyPickup (summon): player=" << ownerIndex << " class=" << classToDraft;
+				}
+				// Schedule draft to run after the minion HP/UI are visible
+				pendingKeyDraftAccept = true;
+				pendingKeyDraftPlayer = ownerIndex;
+				pendingKeyDraftClass = classToDraft;
+				pendingKeyDraftTriggerTime = ofGetElapsedTimef();
+				spawnFloatingText(gridToWorld(x, y), "Key Found!", ofColor::gold);
+				ofLogNotice("Key") << "Player " << minionOwnerID << " picked up key (Class " << classToDraft << ") via summon (delayed draft)";
+			}
+			break;
+		}
+	}
+}
 //--------------------------------------------------------------
 void ofApp::drawMinionCard(int minionIndex, int ownerIndex) {
 	// Safety checks
@@ -52,7 +103,7 @@ void ofApp::drawMinionCard(int minionIndex, int ownerIndex) {
 	// Perform the authoritative draw logic locally (for single-player, host, and client)
 	for (int i = 0; i < drawCount; ++i) {
 		if (minion.deck.empty()) {
-			if (minion.discardPile.empty()) break; // No cards left anywhere
+			if (minion.discardPile.empty()) break;
 			minion.deck = minion.discardPile;
 			minion.discardPile.clear();
 			shuffleGameVector(minion.deck, minionIndex);
@@ -61,7 +112,31 @@ void ofApp::drawMinionCard(int minionIndex, int ownerIndex) {
 			Card drawn = minion.deck.back();
 			minion.deck.pop_back();
 			drawn.drawnThisTurn = true;
-			minion.hand.push_back(drawn);
+			minion.hand.push_back(drawn); // Add to hand immediately
+
+			// Setup animation: from minion's deck to minion's hand (simple, quick)
+			DrawCardAnimation anim;
+			anim.card = drawn;
+			anim.startTime = ofGetElapsedTimef();
+			anim.duration = 0.18f; // quick
+			anim.ownerIndex = minionIndex;
+			anim.toMinionHand = true;
+			anim.startPos = gridToWorld(minion.x, minion.y) + glm::vec3(0, 1.5f, 0);
+			// End above the hand, not under
+			size_t numCards = minion.hand.size();
+			float handCenterY = ofGetHeight() - 160; // above hand
+			float handBaseCardWidth = 120;
+			float handAreaWidth = ofGetWidth() * 0.6f;
+			float totalCardWidths = numCards * handBaseCardWidth;
+			float padding = (numCards > 1) ? (handAreaWidth - totalCardWidths) / (numCards - 1) : 0;
+			padding = std::min(padding, 16.0f);
+			float totalHandWidth = (numCards * handBaseCardWidth) + ((numCards - 1) * padding);
+			float startX = (ofGetWidth() - totalHandWidth) / 2.0f;
+			float cardCenterX = startX + (numCards - 1) * (handBaseCardWidth + padding) + (handBaseCardWidth / 2.0f);
+			anim.targetPos = glm::vec2(cardCenterX, handCenterY);
+			anim.endPos = anim.startPos;
+			anim.currentPos = glm::vec2(anim.startPos.x, anim.startPos.y);
+			activeDrawCardAnimations.push_back(anim);
 		}
 	}
 
@@ -2200,6 +2275,28 @@ void ofApp::updateGame() {
 	}
 	// --- END MINION UI REBUILD ---
 
+	// If a key-pickup-by-summon was detected earlier, trigger the draft only after
+	// (a) any summon HP/UI dice have finished and (b) a tiny delay so the minion UI
+	// is actually visible on-screen. This prevents the draft menu from appearing
+	// before the summoned minion's HP/UI shows up.
+	{
+		const float KEY_DRAFT_UI_DELAY = 0.03f; // seconds (≈ one frame)
+		if (pendingKeyDraftAccept && (ofGetElapsedTimef() - pendingKeyDraftTriggerTime) >= KEY_DRAFT_UI_DELAY && !isWaitingForSummonHealth && !isWaitingForHellhoundHP && !isWaitingForDemonHP) {
+			isInGameDraft = true;
+			draftPlayerIndex = pendingKeyDraftPlayer;
+			generateDraftOptions(pendingKeyDraftClass);
+			draftPicksRemaining = 1;
+			selectedDraftIndices.clear();
+			currentState = STATE_DRAFTING;
+			// clear pending
+			pendingKeyDraftAccept = false;
+			pendingKeyDraftPlayer = -1;
+			pendingKeyDraftClass = 0;
+			pendingKeyDraftTriggerTime = 0.0f;
+			ofLogNotice("Key") << "Triggering delayed draft for player=" << draftPlayerIndex << " class=" << pendingKeyDraftClass;
+		}
+	}
+
 	// 1. UPDATE UI POSITIONS
 	updateDebugRects();
 
@@ -3128,6 +3225,7 @@ void ofApp::updateGame() {
 		// Authoritative shuffle for the new minion
 		int newSkeletonIdx = (int)players.size() - 1;
 		shuffleGameVector(players[newSkeletonIdx].deck, newSkeletonIdx);
+		this->checkKeyPickupAndDraftAfterSummon(minion.x, minion.y, minion.ownerID);
 
 		// Notify clients about the placed skeleton (authoritative HP)
 		if (isMultiplayer && isHost()) {
@@ -3621,6 +3719,14 @@ void ofApp::updateGame() {
 	if (isWaitingForHellhoundHP && activeDiceRolls.empty()) {
 		isWaitingForHellhoundHP = false;
 
+		// --- ADD THIS BLOCK ---
+		// Prevent duplicate spawning on client (wait for host packet)
+		if (isMultiplayer && isClient()) {
+			activeDiceRolls.clear(); // Clear visual dice
+			return;
+		}
+		// ----------------------
+
 		// 1. Create Unit
 		Player minion;
 		minion.playerID = 1000 + (int)players.size();
@@ -3664,6 +3770,7 @@ void ofApp::updateGame() {
 		players.push_back(minion);
 		int newHellhoundIdx = (int)players.size() - 1;
 		shuffleGameVector(players[newHellhoundIdx].deck, newHellhoundIdx);
+		checkKeyPickupAndDraftAfterSummon(minion.x, minion.y, minion.ownerID);
 
 		ofLogNotice("Summon") << "Hellhound summoned with " << minion.health << " HP.";
 
@@ -3721,6 +3828,13 @@ void ofApp::updateGame() {
 	if (isWaitingForDemonHP && activeDiceRolls.empty()) {
 		isWaitingForDemonHP = false;
 
+		// --- ADD THIS BLOCK ---
+		if (isMultiplayer && isClient()) {
+			activeDiceRolls.clear();
+			return;
+		}
+		// ----------------------
+
 		Player minion;
 		minion.playerID = 2000 + (int)players.size();
 		minion.x = (int)pendingSummonTile.x;
@@ -3765,6 +3879,7 @@ void ofApp::updateGame() {
 		players.push_back(minion);
 		int newDemonIdx = (int)players.size() - 1;
 		shuffleGameVector(players[newDemonIdx].deck, newDemonIdx);
+		checkKeyPickupAndDraftAfterSummon(minion.x, minion.y, minion.ownerID);
 
 		ofLogNotice("Summon") << "Demon summoned with " << minion.health << " HP.";
 
@@ -5112,6 +5227,24 @@ void ofApp::updateGame() {
 	}
 	// Remove when animation is done (3 seconds total)
 	activeCardDisplays.erase(std::remove_if(activeCardDisplays.begin(), activeCardDisplays.end(), [](const PlayedCardDisplay & disp) { return (ofGetElapsedTimef() - disp.startTime) >= 3.0f; }), activeCardDisplays.end());
+
+	// --- Draw Card Animation Update ---
+	for (auto & anim : activeDrawCardAnimations) {
+		float elapsed = ofGetElapsedTimef() - anim.startTime;
+		float t = ofClamp(elapsed / anim.duration, 0.0f, 1.0f);
+		// Animate from 3D startPos (projected to 2D) to 2D targetPos
+		ofVec3f screenPos = cam.worldToScreen(anim.startPos);
+		float sx = (float)screenPos.x;
+		float sy = (float)screenPos.y;
+		glm::vec2 start2D(sx, sy);
+		anim.currentPos = start2D + t * (anim.targetPos - start2D);
+		anim.currentAlpha = 255.0f; // Always fully opaque
+	}
+	// Remove finished draw animations
+	activeDrawCardAnimations.erase(std::remove_if(activeDrawCardAnimations.begin(), activeDrawCardAnimations.end(), [](const DrawCardAnimation & anim) {
+		return (ofGetElapsedTimef() - anim.startTime) >= anim.duration;
+	}),
+		activeDrawCardAnimations.end());
 
 	// Card Hand Animation
 	if (!players.empty() && currentPlayerIndex >= 0) {
@@ -8060,6 +8193,19 @@ void ofApp::drawGame() {
 		ofPopStyle();
 	}
 
+	// --- Draw Card Draw Animations (on top of board, below UI hand) ---
+	for (const auto & anim : activeDrawCardAnimations) {
+		ofPushStyle();
+		ofSetColor(255, anim.currentAlpha);
+		float w = handBaseCardWidth * 1.5f;
+		float h = baseCardHeight * 1.5f;
+		float drawX = anim.currentPos.x - w / 2;
+		float drawY = anim.currentPos.y - h / 2;
+		cardSpriteSheet.drawSubsection(drawX, drawY, w, h,
+			anim.card.textureRect.x, anim.card.textureRect.y,
+			anim.card.textureRect.width, anim.card.textureRect.height);
+		ofPopStyle();
+	}
 	// --- Draw Stolen Card Animation (On top of most UI) ---
 	for (const auto & anim : activeStolenCardAnimations) {
 		ofSetColor(255, anim.currentAlpha);
@@ -9836,9 +9982,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 
 	// --- 1a. Magic Blast Choice Menu ---
 	if (isMagicBlastChoiceActive && button == OF_MOUSE_BUTTON_LEFT) {
-		bool choiceMade = false;
 		Player * targetPlayer = getPlayer(magicBlastTargetPlayerIndex);
-
 		if (!targetPlayer) {
 			// Logic to try and find the next splash target if the current one became invalid
 			if (!magicBlastSplashTargetIndices.empty()) {
@@ -9850,7 +9994,11 @@ void ofApp::mousePressed(int x, int y, int button) {
 			isMagicBlastChoiceActive = false;
 			return;
 		}
-
+		// Only allow the correct player to interact in multiplayer
+		if (isMultiplayer && targetPlayer->playerID != myLocalPlayerID) {
+			return;
+		}
+		bool choiceMade = false;
 		if (magicBlastDamageButton.inside(x, y)) {
 			int damage = 5;
 
@@ -13428,50 +13576,53 @@ void ofApp::drawCard() {
 	if (!currentPlayer.deck.empty()) {
 		Card newCard = currentPlayer.deck.back();
 		currentPlayer.deck.pop_back();
+		currentPlayer.hand.push_back(newCard); // Add to hand immediately so it appears in hand
 
 		// --- Animation Setup ---
-		// Optimistic UI: Start at full size for instant feedback
-		newCard.currentScale = 1.5f;
-		newCard.targetScale = 1.5f;
+		DrawCardAnimation anim;
+		anim.card = newCard;
+		anim.startTime = ofGetElapsedTimef();
+		anim.duration = 0.3f;
+		anim.ownerIndex = currentPlayerIndex;
+		anim.toMinionHand = false;
 
 		// Calculate Spawn Position (from Deck UI)
-		// In multiplayer, always place drawn cards at the local player's location (bottom)
-		// In singleplayer, use currentPlayerIndex to determine placement
 		float scale = ofGetHeight() / 1080.0f;
 		float staticUICardWidth = (120 * 1.3f) * scale;
 		float staticUICardHeight = ((120 * (585.0f / 409.0f)) * 1.3f) * scale;
-
 		bool isLocalPlayer = false;
 		if (isMultiplayer) {
-			// In multiplayer, check if this player is the local player
 			isLocalPlayer = (currentPlayer.playerID == myLocalPlayerID);
 		} else {
-			// In singleplayer, check if currentPlayerIndex is 0
 			isLocalPlayer = (currentPlayerIndex == 0);
 		}
-
 		if (isLocalPlayer) {
-			// Draw at bottom
 			float deckX = 30 * scale;
 			float deckY = ofGetHeight() - staticUICardHeight - (40 * scale) - staticUICardHeight - (40 * scale);
-			newCard.currentPos.set(deckX + staticUICardWidth / 2, deckY + staticUICardHeight / 2);
+			anim.startPos = glm::vec3(deckX + staticUICardWidth / 2, deckY + staticUICardHeight / 2, 0);
 		} else {
-			// Draw at top
 			float discardX = ofGetWidth() - staticUICardWidth - (30 * scale);
 			float discardY = 40 * scale;
 			float deckX = discardX;
 			float deckY = discardY + staticUICardHeight + (40 * scale);
-			newCard.currentPos.set(deckX + staticUICardWidth / 2, deckY + staticUICardHeight / 2);
+			anim.startPos = glm::vec3(deckX + staticUICardWidth / 2, deckY + staticUICardHeight / 2, 0);
 		}
-
-		// Add to Hand
-		currentPlayer.hand.push_back(newCard);
-
-		// ADD THIS LINE:
-		currentPlayer.hand.back().drawnThisTurn = true;
-
-		ofLogNotice("Game") << "Drew card: " << newCard.name;
-		addGameLog(getPlayerSteamName(currentPlayerIndex) + " drew " + newCard.name);
+		// Set anim.targetPos to the standard hand area (centered, bottom)
+		size_t numCards = currentPlayer.hand.size(); // Already added new card
+		float handCenterY = ofGetHeight() - 130;
+		float handBaseCardWidth = 120;
+		float handAreaWidth = ofGetWidth() * 0.6f;
+		float totalCardWidths = numCards * handBaseCardWidth;
+		float padding = (numCards > 1) ? (handAreaWidth - totalCardWidths) / (numCards - 1) : 0;
+		padding = std::min(padding, 20.0f);
+		float totalHandWidth = (numCards * handBaseCardWidth) + ((numCards - 1) * padding);
+		float startX = (ofGetWidth() - totalHandWidth) / 2.0f;
+		float cardCenterX = startX + (numCards - 1) * (handBaseCardWidth + padding) + (handBaseCardWidth / 2.0f);
+		anim.targetPos = glm::vec2(cardCenterX, handCenterY);
+		anim.endPos = anim.startPos;
+		anim.currentPos = glm::vec2(anim.startPos.x, anim.startPos.y);
+		anim.duration = 0.18f;
+		activeDrawCardAnimations.push_back(anim);
 	}
 }
 //--------------------------------------------------------------
@@ -13833,19 +13984,21 @@ CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 
 		if (validationResult.reason != VALID) break;
 
-		// Validation: Must hit unit or have adjacent unit
-		bool hasValidUnit = false;
-		if (board[targetX][targetY].hasPlayer) hasValidUnit = true;
-		if (!hasValidUnit) {
+		// Validation: Must hit a unit directly, or target an empty tile only if it is adjacent to a unit
+		bool validTarget = false;
+		if (board[targetX][targetY].hasPlayer) {
+			validTarget = true; // Directly targeting a unit
+		} else {
+			// Only allow targeting empty tiles that are adjacent to a unit
 			glm::vec2 neighbors[4] = { { targetX + 1, targetY }, { targetX - 1, targetY }, { targetX, targetY + 1 }, { targetX, targetY - 1 } };
 			for (const auto & n : neighbors) {
 				if (n.x >= 0 && n.x < BOARD_WIDTH && n.y >= 0 && n.y < BOARD_HEIGHT && board[(int)n.x][(int)n.y].hasPlayer) {
-					hasValidUnit = true;
+					validTarget = true;
 					break;
 				}
 			}
 		}
-		if (!hasValidUnit) break;
+		if (!validTarget) break;
 
 		pendingMagicBlastRollResult = startDiceRoll(playedCard.numDice, playedCard.diceSides, PURPOSE_RANGE, "Magic Blast: Range Check");
 
@@ -14247,6 +14400,7 @@ CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		// Authoritative shuffle for the new minion deck
 		int newKoboldKingIdx = (int)players.size() - 1;
 		shuffleGameVector(players[newKoboldKingIdx].deck, newKoboldKingIdx);
+		checkKeyPickupAndDraftAfterSummon(minion.x, minion.y, minion.ownerID);
 
 		ofLogNotice("Summon") << "Kobold King summoned with " << kingHP << " HP.";
 
@@ -14336,6 +14490,7 @@ CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		players.push_back(minion);
 		int newAssistantIdx = (int)players.size() - 1;
 		shuffleGameVector(players[newAssistantIdx].deck, newAssistantIdx);
+		checkKeyPickupAndDraftAfterSummon(minion.x, minion.y, minion.ownerID);
 
 		ofLogNotice("Summon") << "Assistant summoned.";
 
@@ -14433,6 +14588,7 @@ CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		players.push_back(minion);
 		int newFaerieIdx = (int)players.size() - 1;
 		shuffleGameVector(players[newFaerieIdx].deck, newFaerieIdx);
+		checkKeyPickupAndDraftAfterSummon(minion.x, minion.y, minion.ownerID);
 
 		ofLogNotice("Summon") << "Faerie summoned.";
 
@@ -14609,6 +14765,7 @@ CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		players.push_back(minion);
 		int newGolemIdx = (int)players.size() - 1;
 		shuffleGameVector(players[newGolemIdx].deck, newGolemIdx);
+		checkKeyPickupAndDraftAfterSummon(minion.x, minion.y, minion.ownerID);
 
 		// Sort turn order
 		std::sort(players.begin(), players.end(), [](const Player & a, const Player & b) {
@@ -14733,6 +14890,7 @@ CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		players.push_back(minion);
 		int newWallUnitIdx = (int)players.size() - 1;
 		shuffleGameVector(players[newWallUnitIdx].deck, newWallUnitIdx);
+		checkKeyPickupAndDraftAfterSummon(minion.x, minion.y, minion.ownerID);
 
 		// Notify clients about the placed Wall Unit (authoritative HP)
 		if (isMultiplayer && isHost()) {
@@ -19290,6 +19448,13 @@ void ofApp::drawMagicBlastChoiceUI() {
 	Player * targetPlayer = getPlayer(magicBlastTargetPlayerIndex);
 	if (!targetPlayer) return;
 
+	// Only show/allow interaction for the correct player in multiplayer
+	bool isLocalTarget = true;
+	if (isMultiplayer) {
+		// Only the owner of the targeted unit can interact
+		isLocalTarget = (targetPlayer->playerID == myLocalPlayerID);
+	}
+
 	// Draw a semi-transparent overlay to focus the player
 	ofEnableBlendMode(OF_BLENDMODE_ALPHA);
 	ofSetColor(0, 0, 0, 180);
@@ -19304,12 +19469,18 @@ void ofApp::drawMagicBlastChoiceUI() {
 	ofRectangle panelRect(panelX, panelY, panelWidth, panelHeight);
 
 	// Title/desc strings
-	string prompt = "Player " + ofToString(targetPlayer->playerID) + ", choose an effect:";
+	string prompt;
+	if (isLocalTarget) {
+		// Show the correct player name (1-based)
+		prompt = "Player " + ofToString(targetPlayer->playerID + 1) + ", choose an effect:";
+	} else {
+		prompt = "Waiting for Player " + ofToString(targetPlayer->playerID + 1) + " to choose...";
+	}
 	string choicesLeft = "Choices remaining: " + ofToString(magicBlastChoicesRemaining);
 
 	// Use standardized panel helper (Damage = red, Discard = slate blue)
 	drawCardChoicePanel(panelRect, prompt, choicesLeft, magicBlastDamageButton, magicBlastDiscardButton,
-		"Take 5 Damage", "Remove Top Card of Deck", ofColor::indianRed, ofColor::darkSlateBlue, true, true);
+		"Take 5 Damage", "Remove Top Card of Deck", ofColor::indianRed, ofColor::darkSlateBlue, isLocalTarget, isLocalTarget);
 }
 
 //------------------------------------------------------------------------
@@ -21882,26 +22053,38 @@ void ofApp::processNetworkPackets() {
 								// Pop from back of deck (Deterministic)
 								Card newCard = p.deck.back();
 								p.deck.pop_back();
-
 								newCard.drawnThisTurn = true;
+								p.hand.push_back(newCard); // Add to hand immediately
 
-								// --- Animation Setup (Opponent draws appear from Top Right) ---
-								newCard.currentScale = 0.1f;
-								newCard.targetScale = 1.5f;
-
+								// --- Animation Setup (Opponent draws appear from Top Right, quick, above hand) ---
+								DrawCardAnimation anim;
+								anim.card = newCard;
+								anim.startTime = ofGetElapsedTimef();
+								anim.duration = 0.18f;
+								anim.ownerIndex = targetPlayerIndex;
+								anim.toMinionHand = false; // not a minion
 								float scale = ofGetHeight() / 1080.0f;
 								float staticUICardWidth = (120 * 1.3f) * scale;
 								float staticUICardHeight = ((120 * (585.0f / 409.0f)) * 1.3f) * scale;
-
-								// Opponent Deck Position
 								float discardX = ofGetWidth() - staticUICardWidth - (30 * scale);
 								float discardY = 40 * scale;
 								float deckX = discardX;
 								float deckY = discardY + staticUICardHeight + (40 * scale);
-
-								newCard.currentPos.set(deckX + staticUICardWidth / 2, deckY + staticUICardHeight / 2);
-
-								p.hand.push_back(newCard);
+								anim.startPos = glm::vec3(deckX + staticUICardWidth / 2, deckY + staticUICardHeight / 2, 0);
+								size_t numCards = p.hand.size();
+								float handCenterY = ofGetHeight() - 160;
+								float handBaseCardWidth = 120;
+								float handAreaWidth = ofGetWidth() * 0.6f;
+								float totalCardWidths = numCards * handBaseCardWidth;
+								float padding = (numCards > 1) ? (handAreaWidth - totalCardWidths) / (numCards - 1) : 0;
+								padding = std::min(padding, 16.0f);
+								float totalHandWidth = (numCards * handBaseCardWidth) + ((numCards - 1) * padding);
+								float startX = (ofGetWidth() - totalHandWidth) / 2.0f;
+								float cardCenterX = startX + (numCards - 1) * (handBaseCardWidth + padding) + (handBaseCardWidth / 2.0f);
+								anim.targetPos = glm::vec2(cardCenterX, handCenterY);
+								anim.endPos = anim.startPos;
+								anim.currentPos = glm::vec2(anim.startPos.x, anim.startPos.y);
+								activeDrawCardAnimations.push_back(anim);
 								ofLogNotice("Network") << "Opponent (Player " << targetPlayerIndex << ") drew " << newCard.name;
 							}
 						}
@@ -22119,6 +22302,7 @@ void ofApp::processNetworkPackets() {
 							players.push_back(minion);
 							int newIdx = (int)players.size() - 1;
 							shuffleGameVector(players[newIdx].deck, newIdx);
+							checkKeyPickupAndDraftAfterSummon(minion.x, minion.y, minion.ownerID);
 							// Re-sort turn order to match host
 							int currentID = players[currentPlayerIndex].playerID;
 							std::sort(players.begin(), players.end(), [](const Player & a, const Player & b) {
@@ -22342,13 +22526,12 @@ void ofApp::processNetworkPackets() {
 							}
 						}
 
-						// Setup In-Game Draft State (same as host does)
-						isInGameDraft = true;
-						draftPlayerIndex = kpkt->playerIndex;
-						generateDraftOptions(kpkt->classTier);
-						draftPicksRemaining = 1;
-						selectedDraftIndices.clear();
-						currentState = STATE_DRAFTING;
+						// Schedule in-game draft (don't open UI immediately) so the summoned minion's
+						// HP roll / minion UI can appear first.
+						pendingKeyDraftAccept = true;
+						pendingKeyDraftPlayer = kpkt->playerIndex;
+						pendingKeyDraftClass = kpkt->classTier;
+						pendingKeyDraftTriggerTime = ofGetElapsedTimef();
 
 						// If an Accept arrived before this KeyPickup, close immediately
 						if (pendingKeyDraftAccept && pendingKeyDraftPlayer == kpkt->playerIndex && pendingKeyDraftClass == kpkt->classTier) {
