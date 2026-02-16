@@ -14378,6 +14378,12 @@ CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 	case CARD_RAISE_DEAD: {
 		if (board[targetX][targetY].hasWall || board[targetX][targetY].hasPlayer) break;
 
+		// Clients must defer Raise Dead placement to the host in multiplayer.
+		if (isMultiplayer && isClient()) {
+			sendActionPacket(cardIndex, targetX, targetY, costToPay, 0, playedCard.name);
+			return CARD_PLAYED_IMMEDIATELY;
+		}
+
 		// 1. Roll for HP
 		pendingSummonTile = glm::vec2(targetX, targetY);
 		pendingSummonPlayerIndex = currentPlayerIndex; // Track which player summoned
@@ -14433,6 +14439,12 @@ CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 	case CARD_SUMMON_KOBOLD_KING: {
 		// Validation: Must be empty adjacent tile
 		if (board[targetX][targetY].hasWall || board[targetX][targetY].hasPlayer) break;
+
+		// Clients should not spawn the Kobold King locally in multiplayer.
+		if (isMultiplayer && isClient()) {
+			sendActionPacket(cardIndex, targetX, targetY, costToPay, 0, playedCard.name);
+			return CARD_PLAYED_IMMEDIATELY;
+		}
 
 		// 1. Calculate Stats based on existing Kobolds
 		int koboldCount = 0;
@@ -14555,6 +14567,12 @@ CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 	case CARD_SUMMON_ASSISTANT: {
 		if (board[targetX][targetY].hasWall || board[targetX][targetY].hasPlayer) break;
 
+		// Clients must defer Assistant placement to the host.
+		if (isMultiplayer && isClient()) {
+			sendActionPacket(cardIndex, targetX, targetY, costToPay, 0, playedCard.name);
+			return CARD_PLAYED_IMMEDIATELY;
+		}
+
 		// 1. Create Unit
 		Player minion;
 		minion.playerID = 5000 + (int)players.size();
@@ -14657,6 +14675,12 @@ CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 	// --- CASE: SUMMON FAERIE ---
 	case CARD_SUMMON_FAERIE: {
 		if (board[targetX][targetY].hasWall || board[targetX][targetY].hasPlayer) break;
+
+		// Clients must defer Faerie placement to the host in multiplayer.
+		if (isMultiplayer && isClient()) {
+			sendActionPacket(cardIndex, targetX, targetY, costToPay, 0, playedCard.name);
+			return CARD_PLAYED_IMMEDIATELY;
+		}
 
 		// 1. Create Faerie Unit
 		Player minion;
@@ -14779,6 +14803,12 @@ CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 	case CARD_SUMMON_GOLEM: {
 		// 1. Validation
 		if (board[targetX][targetY].hasWall || board[targetX][targetY].hasPlayer) break;
+
+		// Clients must defer Golem placement to the host in multiplayer.
+		if (isMultiplayer && isClient()) {
+			sendActionPacket(cardIndex, targetX, targetY, costToPay, 0, playedCard.name);
+			return CARD_PLAYED_IMMEDIATELY;
+		}
 
 		// 2. Determine Golem Type
 		bool isElectric = false;
@@ -14940,6 +14970,12 @@ CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		// 1. Determine Type (Magic vs Normal)
 		bool isMagic = board[targetX][targetY].isMagicWall;
 
+		// Clients must not perform the transform locally in multiplayer.
+		if (isMultiplayer && isClient()) {
+			sendActionPacket(cardIndex, targetX, targetY, costToPay, 0, playedCard.name);
+			return CARD_PLAYED_IMMEDIATELY;
+		}
+
 		// Save current player's id safely (in case vector reallocates and indices shift)
 		int savedCurrentID = (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) ? players[currentPlayerIndex].playerID : -1;
 
@@ -15081,6 +15117,12 @@ CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 			break; // Cancel card play
 		}
 
+		// Clients should send the action and not attempt to place wolves locally.
+		if (isMultiplayer && isClient()) {
+			sendActionPacket(cardIndex, -1, -1, costToPay, 0, playedCard.name);
+			return CARD_PLAYED_IMMEDIATELY;
+		}
+
 		// 2. Pay Cost & Cleanup Hand
 		currentAP -= costToPay;
 		currentPlayer.playedCardsPile.push_back(playedCard);
@@ -15124,6 +15166,12 @@ CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 			ofLogNotice("Kobolds") << "No adjacent space to summon kobolds!";
 			spawnFloatingText(gridToWorld(cx, cy), "No Space!", ofColor::red);
 			break; // Cancel card play
+		}
+
+		// Clients should send the action and not attempt to place kobolds locally.
+		if (isMultiplayer && isClient()) {
+			sendActionPacket(cardIndex, -1, -1, costToPay, 0, playedCard.name);
+			return CARD_PLAYED_IMMEDIATELY;
 		}
 
 		// 2. Pay Cost & Cleanup Hand
