@@ -67,13 +67,7 @@ void ofApp::checkKeyPickupAndDraftAfterSummon(int x, int y, int minionOwnerID) {
 				pendingKeyDraftPlayer = ownerIndex;
 				pendingKeyDraftClass = classToDraft;
 				pendingKeyDraftTriggerTime = ofGetElapsedTimef();
-				// Color by key set: 1=gold, 2=silver, 3=bronze
-				ofColor kcol = ofColor::gold;
-				if (keySet == 2)
-					kcol = ofColor(192, 192, 192);
-				else if (keySet == 3)
-					kcol = ofColor(205, 127, 50);
-				spawnFloatingText(gridToWorld(x, y), "Key Found!", kcol);
+				spawnFloatingText(gridToWorld(x, y), "Key Found!", ofColor::gold);
 				ofLogNotice("Key") << "Player " << minionOwnerID << " picked up key (Class " << classToDraft << ") via summon (delayed draft)";
 			}
 			break;
@@ -3177,15 +3171,16 @@ void ofApp::updateGame() {
 	if (isWaitingForSummonHealth && diceReadySummon) {
 		isWaitingForSummonHealth = false;
 
-		// --- MULTIPLAYER FIX ---
-		// Clients must wait for PKT_PLACE_SUMMONED_MINION from Host.
-		// If we run this locally, the client will spawn a skeleton with a local ID,
-		// then receive the packet and spawn a second one.
+		// --- HYBRID FIX START ---
+		// In multiplayer, CLIENTS must NOT create the minion locally here.
+		// They must wait for PKT_PLACE_SUMMONED_MINION from the Host.
 		if (isMultiplayer && isClient()) {
-			activeDiceRolls.clear(); // Clear visual dice so they don't hang forever
+			ofLogNotice("Summon") << "Client waiting for Host authoritative summon packet.";
+			// Clean up visual dice but do not modify game state
+			activeDiceRolls.clear();
 			return;
 		}
-		// ... Host/Singleplayer logic continues below ...
+		// --- HYBRID FIX END ---
 
 		// 1. Create Minion (Host / Singleplayer Only)
 		Player minion;
@@ -3743,12 +3738,13 @@ void ofApp::updateGame() {
 	if (isWaitingForHellhoundHP && activeDiceRolls.empty()) {
 		isWaitingForHellhoundHP = false;
 
-		// --- MULTIPLAYER FIX ---
+		// --- ADD THIS BLOCK ---
+		// Prevent duplicate spawning on client (wait for host packet)
 		if (isMultiplayer && isClient()) {
-			activeDiceRolls.clear();
+			activeDiceRolls.clear(); // Clear visual dice
 			return;
 		}
-		// ... Host/Singleplayer logic continues ...
+		// ----------------------
 
 		// 1. Create Unit
 		Player minion;
@@ -3851,12 +3847,12 @@ void ofApp::updateGame() {
 	if (isWaitingForDemonHP && activeDiceRolls.empty()) {
 		isWaitingForDemonHP = false;
 
-		// --- MULTIPLAYER FIX ---
+		// --- ADD THIS BLOCK ---
 		if (isMultiplayer && isClient()) {
 			activeDiceRolls.clear();
 			return;
 		}
-		// ... Host/Singleplayer logic continues ...
+		// ----------------------
 
 		Player minion;
 		minion.playerID = 2000 + (int)players.size();
@@ -4738,40 +4734,37 @@ void ofApp::updateGame() {
 							apSum += r.result;
 						}
 					}
-					ofLogNotice("APDebug") << "AP roll finished: apSum=" << apSum << " nextTurnAPBonus(before)=" << players[currentPlayerIndex].nextTurnAPBonus << " currentAP(before)=" << currentAP;
-					currentAP = apSum;
-					if (players[currentPlayerIndex].nextTurnAPBonus > 0) {
-						currentAP += players[currentPlayerIndex].nextTurnAPBonus;
-						players[currentPlayerIndex].nextTurnAPBonus = 0;
-					}
-					// Sync AP to player struct
-					players[currentPlayerIndex].ap = currentAP;
-					ofLogNotice("APDebug") << "AP roll applied: currentAP(after)=" << currentAP;
+                    ofLogNotice("APDebug") << "AP roll finished: apSum=" << apSum << " nextTurnAPBonus(before)=" << players[currentPlayerIndex].nextTurnAPBonus << " currentAP(before)=" << currentAP;
+                    currentAP = apSum;
+                    if (players[currentPlayerIndex].nextTurnAPBonus > 0) {
+                        currentAP += players[currentPlayerIndex].nextTurnAPBonus;
+                        players[currentPlayerIndex].nextTurnAPBonus = 0;
+                    }
+                    ofLogNotice("APDebug") << "AP roll applied: currentAP(after)=" << currentAP;
 
-					// If AP is zero, check for adjacent assistants belonging to this unit
-					if (currentAP == 0) {
-						Player & actor = players[currentPlayerIndex];
-						for (auto & a : players) {
-							if (a.isAssistant && a.health > 0 && a.directSummonerID == actor.playerID && !a.assistantRerollUsedThisTurn) {
-								int dist = abs(a.x - actor.x) + abs(a.y - actor.y);
-								if (dist <= 1) {
-									// consume assistant's reroll and grant a bonus reroll matching the original AP dice
-									a.assistantRerollUsedThisTurn = true;
-									int rerollNum = lastAPDiceNum > 0 ? lastAPDiceNum : 1;
-									int rerollSides = lastAPDiceSides > 0 ? lastAPDiceSides : 6;
-									// Mark any previous AP dice as debug so they won't be included twice
-									for (auto & oldR : activeDiceRolls) {
-										if (oldR.purpose == PURPOSE_AP) oldR.purpose = PURPOSE_DEBUG;
-									}
-									// Start a bonus AP roll (added on top of the original result)
-									startDiceRoll(rerollNum, rerollSides, PURPOSE_BONUS_AP, "Assistant Auto Reroll", currentPlayerIndex);
-									spawnFloatingText(gridToWorld(a.x, a.y), "Assistant Reroll!", ofColor::gold);
-								}
-							}
-						}
-					}
-					ofLogNotice("Game") << "AP Roll Finished: " << currentAP << " AP awarded (sum of all dice).";
-
+                    // If AP is zero, check for adjacent assistants belonging to this unit
+                    if (currentAP == 0) {
+                        Player & actor = players[currentPlayerIndex];
+                        for (auto & a : players) {
+                            if (a.isAssistant && a.health > 0 && a.directSummonerID == actor.playerID && !a.assistantRerollUsedThisTurn) {
+                                int dist = abs(a.x - actor.x) + abs(a.y - actor.y);
+                                if (dist <= 1) {
+                                    // consume assistant's reroll and grant a bonus reroll matching the original AP dice
+                                    a.assistantRerollUsedThisTurn = true;
+                                    int rerollNum = lastAPDiceNum > 0 ? lastAPDiceNum : 1;
+                                    int rerollSides = lastAPDiceSides > 0 ? lastAPDiceSides : 6;
+                                    // Mark any previous AP dice as debug so they won't be included twice
+                                    for (auto & oldR : activeDiceRolls) {
+                                        if (oldR.purpose == PURPOSE_AP) oldR.purpose = PURPOSE_DEBUG;
+                                    }
+                                    // Start a bonus AP roll (added on top of the original result)
+                                    startDiceRoll(rerollNum, rerollSides, PURPOSE_BONUS_AP, "Assistant Auto Reroll", currentPlayerIndex);
+                                    spawnFloatingText(gridToWorld(a.x, a.y), "Assistant Reroll!", ofColor::gold);
+                                }
+                            }
+                        }
+                    }
+                    ofLogNotice("Game") << "AP Roll Finished: " << currentAP << " AP awarded (sum of all dice).";
 					// HOST: Send TurnStart packet to client once AP dice are finished (for BOTH turns)
 					bool allDiceFinished = true;
 					for (const auto & d : activeDiceRolls) {
@@ -5423,15 +5416,7 @@ void ofApp::updateGame() {
 							selectedDraftIndices.clear(); // Reset UI selection
 							currentState = STATE_DRAFTING;
 
-							// Color by key set: 1=gold, 2=silver, 3=bronze
-							{
-								ofColor keyCol = ofColor::gold;
-								if (keySet == 2)
-									keyCol = ofColor(192, 192, 192);
-								else if (keySet == 3)
-									keyCol = ofColor(205, 127, 50);
-								spawnFloatingText(gridToWorld(cx, cy), "Key Found!", keyCol);
-							}
+							spawnFloatingText(gridToWorld(cx, cy), "Key Found!", ofColor::gold);
 							ofLogNotice("Key") << "Player " << ownerID << " picked up key (Class " << classToDraft << ")";
 							return; // Stop update to freeze game/animation until draft is done
 						}
@@ -9668,6 +9653,37 @@ void ofApp::mousePressed(int x, int y, int button) {
 			for (size_t i = 0; i < draftOptions.size(); ++i) {
 				float cx = startX + static_cast<float>(i) * (cardW + spacing);
 				if (ofRectangle(cx, startY, cardW, cardH).inside(x, y)) {
+
+					// --- DRAFT FIX START ---
+					// If we are a Client in multiplayer, DO NOT update local state immediately.
+					// Just send the packet and let the Host's response update our UI.
+					// This prevents "Double Toggling" (Select -> Receive Packet -> Deselect).
+					if (isMultiplayer && isClient()) {
+						DraftActionPacket pkt = {};
+						pkt.type = PKT_DRAFT_ACTION;
+						pkt.playerID = myLocalPlayerID;
+						pkt.actionType = 0; // Select / Toggle
+						// We flip the logical flag here just for the packet, but don't touch local vector
+						bool currentlySelected = false;
+						for (int sel : selectedDraftIndices)
+							if (sel == (int)i) currentlySelected = true;
+
+						pkt.selectFlag = currentlySelected ? 0 : 1; // Toggle intent
+						pkt.optionIndex = i;
+						pkt.draftPlayerIdx = draftPlayerIndex;
+
+						// Track for watchdog/resend
+						lastSentDraftActionPacket = pkt;
+						lastSentDraftActionValid = true;
+						lastSentDraftActionTime = ofGetElapsedTimef();
+						lastSentDraftActionResendCount = 0;
+
+						steamManager.sendPacket(&pkt, sizeof(pkt));
+						return; // Done, wait for host.
+					}
+					// --- DRAFT FIX END ---
+
+					// Singleplayer or Host logic (Safe to update locally immediately)
 					auto it = std::find(selectedDraftIndices.begin(), selectedDraftIndices.end(), static_cast<int>(i));
 					bool nowSelected = false;
 
@@ -9680,7 +9696,8 @@ void ofApp::mousePressed(int x, int y, int button) {
 						}
 					}
 
-					if (isMultiplayer) {
+					// Host still needs to broadcast the change to clients
+					if (isMultiplayer && isHost()) {
 						DraftActionPacket pkt = {};
 						pkt.type = PKT_DRAFT_ACTION;
 						pkt.playerID = myLocalPlayerID;
@@ -9688,15 +9705,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 						pkt.selectFlag = nowSelected ? 1 : 0;
 						pkt.optionIndex = i;
 						pkt.draftPlayerIdx = draftPlayerIndex;
-
-						// Track for resend until host forwards/acks
-						lastSentDraftActionPacket = pkt;
-						lastSentDraftActionValid = true;
-						lastSentDraftActionTime = ofGetElapsedTimef();
-						lastSentDraftActionResendCount = 0;
-
 						steamManager.sendPacket(&pkt, sizeof(pkt));
-						ofLogNotice("Network") << "Client sent DraftToggle to host: option=" << pkt.optionIndex << " sel=" << (int)pkt.selectFlag << " draftPlayer=" << pkt.draftPlayerIdx;
 					}
 					return; // Click was on a card, handled.
 				}
@@ -10828,39 +10837,17 @@ void ofApp::mousePressed(int x, int y, int button) {
 			if (board[gx][gy].isTargetable) {
 				// Play amnesia on target (this triggers the dice roll in playCard)
 				int cardIndex = pendingAmnesiaCardIndex;
+				std::string cardName = (cardIndex >= 0 && cardIndex < (int)players[currentPlayerIndex].hand.size())
+					? players[currentPlayerIndex].hand[cardIndex].name
+					: "";
+				int cost = (cardIndex >= 0 && cardIndex < (int)players[currentPlayerIndex].hand.size())
+					? players[currentPlayerIndex].hand[cardIndex].cost
+					: 0;
 				CardPlayResult result = playCard(cardIndex, gx, gy);
-				if (result == CARD_PLAYED_IMMEDIATELY) {
-					// Capture metadata (card still in hand at this point)
-					std::string amName = "";
-					int amCost = 0;
-					if (cardIndex >= 0 && cardIndex < (int)players[currentPlayerIndex].hand.size()) {
-						amName = players[currentPlayerIndex].hand[cardIndex].name;
-					}
-
-					// Consume AP and move card to played pile (local)
-					Player & caster = players[currentPlayerIndex];
-					currentAP -= amCost;
-					caster.playedCardsPile.push_back((cardIndex >= 0 && cardIndex < (int)caster.hand.size()) ? caster.hand[cardIndex] : Card());
-					if (caster.isReplicatePending) {
-						caster.playedCardsPile.push_back((cardIndex >= 0 && cardIndex < (int)caster.hand.size()) ? caster.hand[cardIndex] : Card());
-						caster.isReplicatePending = false;
-					}
-					caster.cardsPlayedThisTurn.push_back(CARD_AMNESIA);
-
-					// Remove card from hand
-					if (cardIndex >= 0 && cardIndex < (int)caster.hand.size()) {
-						caster.hand.erase(caster.hand.begin() + cardIndex);
-					}
-
-					// Sync AP so UI reflects spend immediately
-					if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) players[currentPlayerIndex].ap = currentAP;
-
-					// Notify network (name included so clients can accept name-only sends)
-					if (isMultiplayer) {
-						sendActionPacket(cardIndex, gx, gy, amCost, 0, amName);
-					}
+				if (isMultiplayer && result == CARD_PLAYED_IMMEDIATELY) {
+					players[currentPlayerIndex].ap = currentAP;
+					sendActionPacket(cardIndex, gx, gy, cost, 0, cardName);
 				}
-
 				isTargetingAmnesia = false;
 				pendingAmnesiaCardIndex = -1;
 				calculateTargetHighlights();
@@ -11289,19 +11276,45 @@ void ofApp::mousePressed(int x, int y, int button) {
 						}
 						kobold.deck = { hb, hb, pu, callCard };
 
-						// Add to board
-						board[gx][gy].hasPlayer = true;
-						players.push_back(kobold);
-						int newKoboldIdx = (int)players.size() - 1;
-						shuffleGameVector(players[newKoboldIdx].deck, newKoboldIdx);
+						// MULTIPLAYER: clients must request the Host to place kobolds (host-authoritative)
+						if (isMultiplayer && isClient()) {
+							PlaceSummonedMinionPacket pkt = {};
+							pkt.type = PKT_PLACE_SUMMONED_MINION;
+							pkt.playerID = myLocalPlayerID; // requestor id
+							pkt.minionType = 1; // KOBOLD
+							pkt.ownerPlayerID = kobold.ownerID;
+							pkt.targetX = kobold.x;
+							pkt.targetY = kobold.y;
+							pkt.minionHP = kobold.maxHealth;
+							pkt.minionAP = 0;
+							steamManager.sendPacket(&pkt, sizeof(pkt));
+							ofLogNotice("Network") << "Client requested Kobold placement at (" << pkt.targetX << "," << pkt.targetY << ")";
 
-						ofLogNotice("Summon") << "Placed Kobold (early handler): idx=" << newKoboldIdx << " players.size=" << players.size() << " boardHasPlayer=" << board[gx][gy].hasPlayer;
+							// Update local placement counters/UI but DO NOT actually add the minion locally
+							koboldsRemainingToPlace--;
+							if (koboldsRemainingToPlace > 0) {
+								// still placing (waiting for host confirmation)
+							} else {
+								isPlacingKobolds = false;
+								koboldSummonStage = 0;
+								// Capture id for eventual sort (host will broadcast authoritative placement)
+								int myID = players[currentPlayerIndex].playerID;
+							}
+						} else {
+							// Host / singleplayer: perform local spawn as before
+							board[gx][gy].hasPlayer = true;
+							players.push_back(kobold);
+							int newKoboldIdx = (int)players.size() - 1;
+							shuffleGameVector(players[newKoboldIdx].deck, newKoboldIdx);
 
-						// Immediate debug dump to verify players vector and board state (early handler)
-						ofLogNotice("Summon") << "[DEBUG] Players after early placement (count=" << players.size() << ")";
-						for (size_t _pi = 0; _pi < players.size(); ++_pi) {
-							auto & _pp = players[_pi];
-							ofLogNotice("Summon") << "[DEBUG] idx=" << _pi << " id=" << _pp.playerID << " x=" << _pp.x << " y=" << _pp.y << " isKobold=" << (_pp.isKobold ? 1 : 0) << " isMinion=" << (_pp.isMinion ? 1 : 0) << " health=" << _pp.health;
+							ofLogNotice("Summon") << "Placed Kobold (early handler): idx=" << newKoboldIdx << " players.size=" << players.size() << " boardHasPlayer=" << board[gx][gy].hasPlayer;
+
+							// Immediate debug dump to verify players vector and board state (early handler)
+							ofLogNotice("Summon") << "[DEBUG] Players after early placement (count=" << players.size() << ")";
+							for (size_t _pi = 0; _pi < players.size(); ++_pi) {
+								auto & _pp = players[_pi];
+								ofLogNotice("Summon") << "[DEBUG] idx=" << _pi << " id=" << _pp.playerID << " x=" << _pp.x << " y=" << _pp.y << " isKobold=" << (_pp.isKobold ? 1 : 0) << " isMinion=" << (_pp.isMinion ? 1 : 0) << " health=" << _pp.health;
+							}
 						}
 
 						// --- HANDLE LOGIC FLOW --
@@ -11372,17 +11385,11 @@ void ofApp::mousePressed(int x, int y, int button) {
 						}
 						wolf.deck = { slashCard, slashCard, slashCard, callCard };
 
-						// Add to board
-						board[gx][gy].hasPlayer = true;
-						players.push_back(wolf);
-						int newWolfIdx = (int)players.size() - 1;
-						shuffleGameVector(players[newWolfIdx].deck, newWolfIdx);
-
-						// Notify clients about the placed Wolf (authoritative HP)
-						if (isMultiplayer && isHost()) {
+						// MULTIPLAYER: clients must request the Host to place wolves (host-authoritative)
+						if (isMultiplayer && isClient()) {
 							PlaceSummonedMinionPacket pkt = {};
 							pkt.type = PKT_PLACE_SUMMONED_MINION;
-							pkt.playerID = myLocalPlayerID;
+							pkt.playerID = myLocalPlayerID; // requestor id
 							pkt.minionType = 2; // WOLF
 							pkt.ownerPlayerID = wolf.ownerID;
 							pkt.targetX = wolf.x;
@@ -11390,7 +11397,38 @@ void ofApp::mousePressed(int x, int y, int button) {
 							pkt.minionHP = wolf.maxHealth;
 							pkt.minionAP = 0;
 							steamManager.sendPacket(&pkt, sizeof(pkt));
-							ofLogNotice("Network") << "Host sent PlaceSummonedMinion: WOLF owner=" << pkt.ownerPlayerID << " target=(" << pkt.targetX << "," << pkt.targetY << ") HP=" << pkt.minionHP;
+							ofLogNotice("Network") << "Client requested Wolf placement at (" << pkt.targetX << "," << pkt.targetY << ")";
+
+							// Update local placement state/UI but DO NOT add to board/players here
+							if (wolfSummonStage == 1) {
+								// we are waiting for the coin flip result from host
+								isWaitingForWolfCoin = true;
+							} else {
+								// finishing placement locally: just update local flags
+								isPlacingWolves = false;
+								wolfSummonStage = 0;
+							}
+						} else {
+							// Host / singleplayer: perform local spawn as before
+							board[gx][gy].hasPlayer = true;
+							players.push_back(wolf);
+							int newWolfIdx = (int)players.size() - 1;
+							shuffleGameVector(players[newWolfIdx].deck, newWolfIdx);
+
+							// Notify clients about the placed Wolf (authoritative HP)
+							if (isMultiplayer && isHost()) {
+								PlaceSummonedMinionPacket pkt = {};
+								pkt.type = PKT_PLACE_SUMMONED_MINION;
+								pkt.playerID = myLocalPlayerID;
+								pkt.minionType = 2; // WOLF
+								pkt.ownerPlayerID = wolf.ownerID;
+								pkt.targetX = wolf.x;
+								pkt.targetY = wolf.y;
+								pkt.minionHP = wolf.maxHealth;
+								pkt.minionAP = 0;
+								steamManager.sendPacket(&pkt, sizeof(pkt));
+								ofLogNotice("Network") << "Host sent PlaceSummonedMinion: WOLF owner=" << pkt.ownerPlayerID << " target=(" << pkt.targetX << "," << pkt.targetY << ") HP=" << pkt.minionHP;
+							}
 						}
 
 						// --- HANDLE LOGIC FLOW ---
@@ -11992,35 +12030,42 @@ void ofApp::mousePressed(int x, int y, int button) {
 								apNow += r.result;
 							}
 						}
-						if (players[controlledPlayerIndex].nextTurnAPBonus > 0) {
-							ofLogNotice("APDebug") << "Movement: nextTurnAPBonus present (will NOT be consumed here). bonus=" << players[controlledPlayerIndex].nextTurnAPBonus;
-						}
-						if (currentAP > 0) apNow = std::max(apNow, currentAP);
+                        // IMPORTANT: do NOT consume `nextTurnAPBonus` here — that bonus is applied
+                        // at AP-roll / TurnStart resolution. Including or clearing it here caused
+                        // rare visual/logic glitches where the AP counter would change after a
+                        // movement. Keep `nextTurnAPBonus` authoritative until turn-start.
+                        if (players[controlledPlayerIndex].nextTurnAPBonus > 0) {
+                            ofLogNotice("APDebug") << "Movement: nextTurnAPBonus present (will NOT be consumed here). bonus=" << players[controlledPlayerIndex].nextTurnAPBonus;
+                        }
 
-						ofLogNotice("APDebug") << "Movement AP recompute: apNow=" << apNow << " currentAP(before)=" << currentAP << " moveCost=" << moveAPCost;
-						if (apNow >= moveAPCost) {
-							currentAP = apNow - moveAPCost;
+                        // If currentAP already holds a positive authoritative value prefer it.
+                        if (currentAP > 0) apNow = std::max(apNow, currentAP);
 
-							// Execute movement locally (client-side prediction)
-							applyMovement(controlledPlayerIndex, gridX, gridY, currentAP, &hoverPath);
+                        ofLogNotice("APDebug") << "Movement AP recompute: apNow=" << apNow << " currentAP(before)=" << currentAP << " moveCost=" << moveAPCost;
 
-							// Send packet to opponent so they see the movement too
-							if (isMultiplayer) {
-								ActionPacket movePkt = {};
-								movePkt.type = PKT_ACTION;
-								movePkt.playerID = myLocalPlayerID;
-								movePkt.actorIndex = currentPlayerIndex;
-								movePkt.cardIndex = -1; // -1 indicates movement, not card play
-								movePkt.targetX = gridX;
-								movePkt.targetY = gridY;
-								movePkt.cost = currentAP; // Send current AP so opponent sees the cost
-								movePkt.updatedAP = currentAP; // Ensure opponent updates AP to post-move value
-								steamManager.sendPacket(&movePkt, sizeof(movePkt));
-								ofLogNotice("Network") << (isClient() ? "Client" : "Host") << " sent movement to (" << gridX << "," << gridY << ") with AP=" << currentAP;
-							}
-						}
-					}
-				}
+                        if (apNow >= moveAPCost) {
+                            // consume movement AP (but do not touch nextTurnAPBonus here)
+                            currentAP = apNow - moveAPCost;
+                            ofLogNotice("APDebug") << "Movement accepted: new currentAP=" << currentAP;
+
+                            // Execute movement locally (client-side prediction)
+                            applyMovement(controlledPlayerIndex, gridX, gridY, currentAP, &hoverPath);
+
+                            // Send packet to opponent so they see the movement too
+                            if (isMultiplayer) {
+                                ActionPacket movePkt = {};
+                                movePkt.type = PKT_ACTION;
+                                movePkt.playerID = myLocalPlayerID;
+                                movePkt.actorIndex = currentPlayerIndex;
+                                movePkt.cardIndex = -1; // -1 indicates movement, not card play
+                                movePkt.targetX = gridX;
+                                movePkt.targetY = gridY;
+                                movePkt.cost = currentAP; // Send current AP so opponent sees the cost
+                                movePkt.updatedAP = currentAP; // Ensure opponent updates AP to post-move value
+                                steamManager.sendPacket(&movePkt, sizeof(movePkt));
+                                ofLogNotice("Network") << (isClient() ? "Client" : "Host") << " sent movement to (" << gridX << "," << gridY << ") with AP=" << currentAP;
+                            }
+                        }
 				playerAction = NONE;
 				clearHighlights();
 				return;
@@ -12244,6 +12289,8 @@ void ofApp::mousePressed(int x, int y, int button) {
 	default:
 		break;
 	}
+}
+}
 }
 //--------------------------------------------------------------
 void ofApp::mouseDragged(int x, int y, int button) {
@@ -13187,12 +13234,19 @@ void ofApp::startNewTurn() {
 			}
 		}
 
-		// --- MULTIPLAYER FIX ---
-		// If I am a Client, I must NOT advance the turn index or roll dice locally.
-		// I must wait for the Host to tell me it's the next turn and what the AP roll was.
-		if (isMultiplayer && isClient()) {
-			ofLogNotice("Turn") << "Client: Turn Ended. Waiting for Host PKT_TURN_START.";
-			endTurnLocked = true; // Prevent clicking button again
+		// 3. CLIENT: Wait for host's next TurnStart packet instead of rolling locally
+		if (isClient()) {
+			ofLogNotice("Turn") << "Client: Early return after cleanup. Waiting for host's TurnStart.";
+			// OPTIMISTIC PREDICTION: Advance to opponent's turn immediately for snappy UI
+			// Host will confirm with PKT_TURN_START, which will re-run this function
+			currentPlayerIndex = (currentPlayerIndex + 1) % players.size();
+			if (currentPlayerIndex == 0) globalTurnCounter++;
+
+			// Lock end turn button to prevent double-clicks
+			endTurnLocked = true;
+
+			ofLogNotice("Turn") << "Client: Optimistically advanced to player " << players[currentPlayerIndex].playerID << "'s turn";
+			// Early return - wait for host's PKT_TURN_START to complete the turn initialization
 			return;
 		}
 		ofLogNotice("Turn") << "Host: Continuing with turn advancement...";
@@ -14493,32 +14547,36 @@ CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		// --- CRITICAL FIX END ---
 
 		// 4. Add to Board (Now safe to resize vector)
-		board[targetX][targetY].hasPlayer = true;
-		players.push_back(minion);
-		// Authoritative shuffle for the new minion deck
-		int newKoboldKingIdx = (int)players.size() - 1;
-		shuffleGameVector(players[newKoboldKingIdx].deck, newKoboldKingIdx);
-		checkKeyPickupAndDraftAfterSummon(minion.x, minion.y, minion.ownerID);
+		// --- MULTIPLAYER FIX START ---
+		if (!isMultiplayer || isHost()) {
+			board[targetX][targetY].hasPlayer = true;
+			players.push_back(minion);
+			// Authoritative shuffle for the new minion deck
+			int newKoboldKingIdx = (int)players.size() - 1;
+			shuffleGameVector(players[newKoboldKingIdx].deck, newKoboldKingIdx);
+			checkKeyPickupAndDraftAfterSummon(minion.x, minion.y, minion.ownerID);
 
-		ofLogNotice("Summon") << "Kobold King summoned with " << kingHP << " HP.";
+			ofLogNotice("Summon") << "Kobold King summoned with " << kingHP << " HP.";
 
-		// 5. Sort turn order
-		std::sort(players.begin(), players.end(), [](const Player & a, const Player & b) {
-			int ownerA = a.isMinion ? a.ownerID : a.playerID;
-			int ownerB = b.isMinion ? b.ownerID : b.playerID;
-			if (ownerA != ownerB) return ownerA < ownerB;
-			if (a.isMinion && !b.isMinion) return true;
-			if (!a.isMinion && b.isMinion) return false;
-			return a.summonOrder < b.summonOrder;
-		});
+			// 5. Sort turn order
+			std::sort(players.begin(), players.end(), [](const Player & a, const Player & b) {
+				int ownerA = a.isMinion ? a.ownerID : a.playerID;
+				int ownerB = b.isMinion ? b.ownerID : b.playerID;
+				if (ownerA != ownerB) return ownerA < ownerB;
+				if (a.isMinion && !b.isMinion) return true;
+				if (!a.isMinion && b.isMinion) return false;
+				return a.summonOrder < b.summonOrder;
+			});
 
-		// 6. Restore Index (Find where the current player moved to after sorting)
-		for (size_t i = 0; i < players.size(); i++) {
-			if (players[i].playerID == myID) {
-				currentPlayerIndex = i;
-				break;
+			// 6. Restore Index (Find where the current player moved to after sorting)
+			for (size_t i = 0; i < players.size(); i++) {
+				if (players[i].playerID == myID) {
+					currentPlayerIndex = i;
+					break;
+				}
 			}
 		}
+		// --- MULTIPLAYER FIX END ---
 
 		if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) players[currentPlayerIndex].ap = currentAP;
 		return CARD_PLAYED_IMMEDIATELY; // Cleanup handled manually above
@@ -14584,44 +14642,48 @@ CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		createCardDisplay(playedCard, currentPlayerIndex);
 		invalidateTargetCache();
 
-		board[targetX][targetY].hasPlayer = true;
-		players.push_back(minion);
-		int newAssistantIdx = (int)players.size() - 1;
-		shuffleGameVector(players[newAssistantIdx].deck, newAssistantIdx);
-		checkKeyPickupAndDraftAfterSummon(minion.x, minion.y, minion.ownerID);
+		// --- MULTIPLAYER FIX START ---
+		if (!isMultiplayer || isHost()) {
+			board[targetX][targetY].hasPlayer = true;
+			players.push_back(minion);
+			int newAssistantIdx = (int)players.size() - 1;
+			shuffleGameVector(players[newAssistantIdx].deck, newAssistantIdx);
+			checkKeyPickupAndDraftAfterSummon(minion.x, minion.y, minion.ownerID);
 
-		ofLogNotice("Summon") << "Assistant summoned.";
+			ofLogNotice("Summon") << "Assistant summoned.";
 
-		// Notify clients about the Assistant (authoritative HP)
-		if (isMultiplayer && isHost()) {
-			PlaceSummonedMinionPacket pkt = {};
-			pkt.type = PKT_PLACE_SUMMONED_MINION;
-			pkt.playerID = myLocalPlayerID;
-			pkt.minionType = 6; // ASSISTANT
-			pkt.ownerPlayerID = minion.ownerID;
-			pkt.targetX = minion.x;
-			pkt.targetY = minion.y;
-			pkt.minionHP = minion.maxHealth;
-			pkt.minionAP = 0;
-			steamManager.sendPacket(&pkt, sizeof(pkt));
-			ofLogNotice("Network") << "Host sent PlaceSummonedMinion: ASSISTANT owner=" << pkt.ownerPlayerID << " target=(" << pkt.targetX << "," << pkt.targetY << ") HP=" << pkt.minionHP;
-		}
+			// Notify clients about the Assistant (authoritative HP)
+			if (isMultiplayer && isHost()) {
+				PlaceSummonedMinionPacket pkt = {};
+				pkt.type = PKT_PLACE_SUMMONED_MINION;
+				pkt.playerID = myLocalPlayerID;
+				pkt.minionType = 6; // ASSISTANT
+				pkt.ownerPlayerID = minion.ownerID;
+				pkt.targetX = minion.x;
+				pkt.targetY = minion.y;
+				pkt.minionHP = minion.maxHealth;
+				pkt.minionAP = 0;
+				steamManager.sendPacket(&pkt, sizeof(pkt));
+				ofLogNotice("Network") << "Host sent PlaceSummonedMinion: ASSISTANT owner=" << pkt.ownerPlayerID << " target=(" << pkt.targetX << "," << pkt.targetY << ") HP=" << pkt.minionHP;
+			}
 
-		// Sort & Restore Index
-		std::sort(players.begin(), players.end(), [](const Player & a, const Player & b) {
-			int ownerA = a.isMinion ? a.ownerID : a.playerID;
-			int ownerB = b.isMinion ? b.ownerID : b.playerID;
-			if (ownerA != ownerB) return ownerA < ownerB;
-			if (a.isMinion && !b.isMinion) return true;
-			if (!a.isMinion && b.isMinion) return false;
-			return a.summonOrder < b.summonOrder;
-		});
-		for (size_t i = 0; i < players.size(); i++) {
-			if (players[i].playerID == myID) {
-				currentPlayerIndex = i;
-				break;
+			// Sort & Restore Index
+			std::sort(players.begin(), players.end(), [](const Player & a, const Player & b) {
+				int ownerA = a.isMinion ? a.ownerID : a.playerID;
+				int ownerB = b.isMinion ? b.ownerID : b.playerID;
+				if (ownerA != ownerB) return ownerA < ownerB;
+				if (a.isMinion && !b.isMinion) return true;
+				if (!a.isMinion && b.isMinion) return false;
+				return a.summonOrder < b.summonOrder;
+			});
+			for (size_t i = 0; i < players.size(); i++) {
+				if (players[i].playerID == myID) {
+					currentPlayerIndex = i;
+					break;
+				}
 			}
 		}
+		// --- MULTIPLAYER FIX END ---
 
 		if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) players[currentPlayerIndex].ap = currentAP;
 		return CARD_PLAYED_IMMEDIATELY;
@@ -14682,44 +14744,48 @@ CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		createCardDisplay(playedCard, currentPlayerIndex);
 		invalidateTargetCache();
 
-		board[targetX][targetY].hasPlayer = true;
-		players.push_back(minion);
-		int newFaerieIdx = (int)players.size() - 1;
-		shuffleGameVector(players[newFaerieIdx].deck, newFaerieIdx);
-		checkKeyPickupAndDraftAfterSummon(minion.x, minion.y, minion.ownerID);
+		// --- MULTIPLAYER FIX START ---
+		if (!isMultiplayer || isHost()) {
+			board[targetX][targetY].hasPlayer = true;
+			players.push_back(minion);
+			int newFaerieIdx = (int)players.size() - 1;
+			shuffleGameVector(players[newFaerieIdx].deck, newFaerieIdx);
+			checkKeyPickupAndDraftAfterSummon(minion.x, minion.y, minion.ownerID);
 
-		ofLogNotice("Summon") << "Faerie summoned.";
+			ofLogNotice("Summon") << "Faerie summoned.";
 
-		// Notify clients about the Faerie (authoritative HP)
-		if (isMultiplayer && isHost()) {
-			PlaceSummonedMinionPacket pkt = {};
-			pkt.type = PKT_PLACE_SUMMONED_MINION;
-			pkt.playerID = myLocalPlayerID;
-			pkt.minionType = 7; // FAERIE
-			pkt.ownerPlayerID = minion.ownerID;
-			pkt.targetX = minion.x;
-			pkt.targetY = minion.y;
-			pkt.minionHP = minion.maxHealth;
-			pkt.minionAP = 0;
-			steamManager.sendPacket(&pkt, sizeof(pkt));
-			ofLogNotice("Network") << "Host sent PlaceSummonedMinion: FAERIE owner=" << pkt.ownerPlayerID << " target=(" << pkt.targetX << "," << pkt.targetY << ") HP=" << pkt.minionHP;
-		}
+			// Notify clients about the Faerie (authoritative HP)
+			if (isMultiplayer && isHost()) {
+				PlaceSummonedMinionPacket pkt = {};
+				pkt.type = PKT_PLACE_SUMMONED_MINION;
+				pkt.playerID = myLocalPlayerID;
+				pkt.minionType = 7; // FAERIE
+				pkt.ownerPlayerID = minion.ownerID;
+				pkt.targetX = minion.x;
+				pkt.targetY = minion.y;
+				pkt.minionHP = minion.maxHealth;
+				pkt.minionAP = 0;
+				steamManager.sendPacket(&pkt, sizeof(pkt));
+				ofLogNotice("Network") << "Host sent PlaceSummonedMinion: FAERIE owner=" << pkt.ownerPlayerID << " target=(" << pkt.targetX << "," << pkt.targetY << ") HP=" << pkt.minionHP;
+			}
 
-		// Sort & Restore Index
-		std::sort(players.begin(), players.end(), [](const Player & a, const Player & b) {
-			int ownerA = a.isMinion ? a.ownerID : a.playerID;
-			int ownerB = b.isMinion ? b.ownerID : b.playerID;
-			if (ownerA != ownerB) return ownerA < ownerB;
-			if (a.isMinion && !b.isMinion) return true;
-			if (!a.isMinion && b.isMinion) return false;
-			return a.summonOrder < b.summonOrder;
-		});
-		for (size_t i = 0; i < players.size(); i++) {
-			if (players[i].playerID == myID) {
-				currentPlayerIndex = i;
-				break;
+			// Sort & Restore Index
+			std::sort(players.begin(), players.end(), [](const Player & a, const Player & b) {
+				int ownerA = a.isMinion ? a.ownerID : a.playerID;
+				int ownerB = b.isMinion ? b.ownerID : b.playerID;
+				if (ownerA != ownerB) return ownerA < ownerB;
+				if (a.isMinion && !b.isMinion) return true;
+				if (!a.isMinion && b.isMinion) return false;
+				return a.summonOrder < b.summonOrder;
+			});
+			for (size_t i = 0; i < players.size(); i++) {
+				if (players[i].playerID == myID) {
+					currentPlayerIndex = i;
+					break;
+				}
 			}
 		}
+		// --- MULTIPLAYER FIX END ---
 
 		if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) players[currentPlayerIndex].ap = currentAP;
 		return CARD_PLAYED_IMMEDIATELY;
@@ -14859,29 +14925,33 @@ CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		// --- CRASH FIX END ---
 
 		// 5. Add to board
-		board[targetX][targetY].hasPlayer = true;
-		players.push_back(minion);
-		int newGolemIdx = (int)players.size() - 1;
-		shuffleGameVector(players[newGolemIdx].deck, newGolemIdx);
-		checkKeyPickupAndDraftAfterSummon(minion.x, minion.y, minion.ownerID);
+		// --- MULTIPLAYER FIX START ---
+		if (!isMultiplayer || isHost()) {
+			board[targetX][targetY].hasPlayer = true;
+			players.push_back(minion);
+			int newGolemIdx = (int)players.size() - 1;
+			shuffleGameVector(players[newGolemIdx].deck, newGolemIdx);
+			checkKeyPickupAndDraftAfterSummon(minion.x, minion.y, minion.ownerID);
 
-		// Sort turn order
-		std::sort(players.begin(), players.end(), [](const Player & a, const Player & b) {
-			int ownerA = a.isMinion ? a.ownerID : a.playerID;
-			int ownerB = b.isMinion ? b.ownerID : b.playerID;
-			if (ownerA != ownerB) return ownerA < ownerB;
-			if (a.isMinion && !b.isMinion) return true;
-			if (!a.isMinion && b.isMinion) return false;
-			return a.summonOrder < b.summonOrder;
-		});
+			// Sort turn order
+			std::sort(players.begin(), players.end(), [](const Player & a, const Player & b) {
+				int ownerA = a.isMinion ? a.ownerID : a.playerID;
+				int ownerB = b.isMinion ? b.ownerID : b.playerID;
+				if (ownerA != ownerB) return ownerA < ownerB;
+				if (a.isMinion && !b.isMinion) return true;
+				if (!a.isMinion && b.isMinion) return false;
+				return a.summonOrder < b.summonOrder;
+			});
 
-		// Find our new index
-		for (size_t i = 0; i < players.size(); i++) {
-			if (players[i].playerID == myID) {
-				currentPlayerIndex = i;
-				break;
+			// Find our new index
+			for (size_t i = 0; i < players.size(); i++) {
+				if (players[i].playerID == myID) {
+					currentPlayerIndex = i;
+					break;
+				}
 			}
 		}
+		// --- MULTIPLAYER FIX END ---
 
 		// Notify clients about the placed Golem (authoritative HP)
 		if (isMultiplayer && isHost()) {
@@ -14977,52 +15047,56 @@ CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		}
 
 		// 4. Transform Board State
-		board[targetX][targetY].hasWall = false; // Remove static wall
-		board[targetX][targetY].isMagicWall = false; // Clear flag (unit carries property now)
-		board[targetX][targetY].hasPlayer = true; // Add unit
+		// --- MULTIPLAYER FIX START ---
+		if (!isMultiplayer || isHost()) {
+			board[targetX][targetY].hasWall = false; // Remove static wall
+			board[targetX][targetY].isMagicWall = false; // Clear flag (unit carries property now)
+			board[targetX][targetY].hasPlayer = true; // Add unit
 
-		// Update Mesh (to remove the static wall visually)
-		buildLevelMesh();
+			// Update Mesh (to remove the static wall visually)
+			buildLevelMesh();
 
-		// Add minion to players
-		players.push_back(minion);
-		int newWallUnitIdx = (int)players.size() - 1;
-		shuffleGameVector(players[newWallUnitIdx].deck, newWallUnitIdx);
-		checkKeyPickupAndDraftAfterSummon(minion.x, minion.y, minion.ownerID);
+			// Add minion to players
+			players.push_back(minion);
+			int newWallUnitIdx = (int)players.size() - 1;
+			shuffleGameVector(players[newWallUnitIdx].deck, newWallUnitIdx);
+			checkKeyPickupAndDraftAfterSummon(minion.x, minion.y, minion.ownerID);
 
-		// Notify clients about the placed Wall Unit (authoritative HP)
-		if (isMultiplayer && isHost()) {
-			PlaceSummonedMinionPacket pkt = {};
-			pkt.type = PKT_PLACE_SUMMONED_MINION;
-			pkt.playerID = myLocalPlayerID;
-			pkt.minionType = minion.isMagicWallUnit ? 11 : 10; // 10=Wall, 11=MagicWall
-			pkt.ownerPlayerID = minion.ownerID;
-			pkt.targetX = minion.x;
-			pkt.targetY = minion.y;
-			pkt.minionHP = minion.maxHealth;
-			pkt.minionAP = 0;
-			steamManager.sendPacket(&pkt, sizeof(pkt));
-			ofLogNotice("Network") << "Host sent PlaceSummonedMinion: WALL owner=" << pkt.ownerPlayerID << " target=(" << pkt.targetX << "," << pkt.targetY << ") HP=" << pkt.minionHP << " magic=" << (minion.isMagicWallUnit ? 1 : 0);
-		}
+			// Notify clients about the placed Wall Unit (authoritative HP)
+			if (isMultiplayer && isHost()) {
+				PlaceSummonedMinionPacket pkt = {};
+				pkt.type = PKT_PLACE_SUMMONED_MINION;
+				pkt.playerID = myLocalPlayerID;
+				pkt.minionType = minion.isMagicWallUnit ? 11 : 10; // 10=Wall, 11=MagicWall
+				pkt.ownerPlayerID = minion.ownerID;
+				pkt.targetX = minion.x;
+				pkt.targetY = minion.y;
+				pkt.minionHP = minion.maxHealth;
+				pkt.minionAP = 0;
+				steamManager.sendPacket(&pkt, sizeof(pkt));
+				ofLogNotice("Network") << "Host sent PlaceSummonedMinion: WALL owner=" << pkt.ownerPlayerID << " target=(" << pkt.targetX << "," << pkt.targetY << ") HP=" << pkt.minionHP << " magic=" << (minion.isMagicWallUnit ? 1 : 0);
+			}
 
-		// 5. Sort Turn Order
-		int currentID = savedCurrentID;
-		std::sort(players.begin(), players.end(), [](const Player & a, const Player & b) {
-			int ownerA = a.isMinion ? a.ownerID : a.playerID;
-			int ownerB = b.isMinion ? b.ownerID : b.playerID;
-			if (ownerA != ownerB) return ownerA < ownerB;
-			if (a.isMinion && !b.isMinion) return true;
-			if (!a.isMinion && b.isMinion) return false;
-			return a.summonOrder < b.summonOrder;
-		});
+			// 5. Sort Turn Order
+			int currentID = savedCurrentID;
+			std::sort(players.begin(), players.end(), [](const Player & a, const Player & b) {
+				int ownerA = a.isMinion ? a.ownerID : a.playerID;
+				int ownerB = b.isMinion ? b.ownerID : b.playerID;
+				if (ownerA != ownerB) return ownerA < ownerB;
+				if (a.isMinion && !b.isMinion) return true;
+				if (!a.isMinion && b.isMinion) return false;
+				return a.summonOrder < b.summonOrder;
+			});
 
-		// Restore Index
-		for (size_t i = 0; i < players.size(); i++) {
-			if (players[i].playerID == currentID) {
-				currentPlayerIndex = i;
-				break;
+			// Restore Index
+			for (size_t i = 0; i < players.size(); i++) {
+				if (players[i].playerID == currentID) {
+					currentPlayerIndex = i;
+					break;
+				}
 			}
 		}
+		// --- MULTIPLAYER FIX END ---
 		invalidateTargetCache();
 
 		// Remove card from hand and update UI
@@ -15566,10 +15640,9 @@ CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		currentPlayer.holyBlock += playedCard.value; // value is 7
 		currentPlayer.nextTurnBonusDiceFromMinions = true;
 
-		// Show Holy Block gain in the holy color (yellow) to match UI stat color
 		spawnFloatingText(gridToWorld(currentPlayer.x, currentPlayer.y),
 			"+" + ofToString(playedCard.value) + " Holy Block",
-			ofColor::yellow);
+			ofColor::darkViolet);
 
 		ofLogNotice("Game") << "Gained Dark Shield and bonus dice next turn.";
 		playedSuccessfully = true;
@@ -22104,12 +22177,6 @@ void ofApp::processNetworkPackets() {
 				} else if (header->type == PKT_DRAW_CARDS) {
 					DrawCardsPacket * dcpkt = (DrawCardsPacket *)header;
 
-					// --- MULTIPLAYER FIX ---
-					// If I am the one who drew the cards, I already handled it locally in drawCard().
-					// I should ignore the echo of my own action to prevent drawing twice.
-					if (dcpkt->playerID == static_cast<uint32_t>(myLocalPlayerID)) {
-						continue;
-					}
 					// In Deterministic Mode, ignore your own draw packets (handled locally in drawCard)
 					if (dcpkt->playerID == static_cast<uint32_t>(myLocalPlayerID)) {
 						continue;
@@ -22429,6 +22496,14 @@ void ofApp::processNetworkPackets() {
 							}
 							invalidateTargetCache();
 							ofLogNotice("Network") << "Placed remote kobold at (" << tx << "," << ty << ")";
+
+							// If this packet was a client->host placement request, host should forward authoritative placement
+							if (isHost() && header->playerID != myLocalPlayerID) {
+								PlaceSummonedMinionPacket outPkt = *psk;
+								outPkt.playerID = myLocalPlayerID;
+								steamManager.sendPacket(&outPkt, sizeof(outPkt));
+								ofLogNotice("Network") << "Host forwarded PlaceSummonedMinion (client request) to clients: type=" << (int)outPkt.minionType << " target=(" << outPkt.targetX << "," << outPkt.targetY << ")";
+							}
 							// If this was part of a remote placement sequence, decrement remaining
 							if (remoteIsPlacingKobolds && psk->minionType == 1) {
 								remoteKoboldsRemaining = std::max(0, remoteKoboldsRemaining - 1);
@@ -22653,15 +22728,7 @@ void ofApp::processNetworkPackets() {
 							return;
 						}
 
-						// Color by tier: 1=gold,2=silver,3=bronze
-						{
-							ofColor pickupCol = ofColor::gold;
-							if (kpkt->classTier == 2)
-								pickupCol = ofColor(192, 192, 192);
-							else if (kpkt->classTier == 3)
-								pickupCol = ofColor(205, 127, 50);
-							spawnFloatingText(gridToWorld(kpkt->keyX, kpkt->keyY), "Key Found!", pickupCol);
-						}
+						spawnFloatingText(gridToWorld(kpkt->keyX, kpkt->keyY), "Key Found!", ofColor::gold);
 						ofLogNotice("Key") << "Client: Player " << kpkt->playerIndex << " picked up key (Class " << kpkt->classTier << ")";
 					}
 				} else if (header->type == PKT_CHAT_MESSAGE) {
