@@ -124,7 +124,7 @@ void ofApp::drawMinionCard(int minionIndex, int ownerIndex) {
 			DrawCardAnimation anim;
 			anim.card = drawn;
 			anim.startTime = ofGetElapsedTimef();
-			anim.duration = 0.18f; // quick
+			anim.duration = 0.36f; // slower (50% slower)
 			anim.ownerIndex = minionIndex;
 			anim.toMinionHand = true;
 			anim.startPos = gridToWorld(minion.x, minion.y) + glm::vec3(0, 1.5f, 0);
@@ -956,8 +956,16 @@ void ofApp::setup() {
 	}
 
 	// Framerate slider: 0.0 = 15 FPS, 1.0 = Unlimited, linear to 300 FPS
-	// Set default to 1.0 (Unlimited)
-	settingsFramerateSliderValue = 1.0f;
+	// Set default to the monitor's refresh rate (map refresh -> slider value)
+	{
+		float fpsDefault = (float)monitorRefreshRate;
+		if (fpsDefault >= 300.0f) {
+			// very high refresh -> treat near-unlimited
+			settingsFramerateSliderValue = 0.999f;
+		} else {
+			settingsFramerateSliderValue = std::min(0.998f, std::max(0.0f, (fpsDefault - 15.0f) / (300.0f - 15.0f)));
+		}
+	}
 
 	// --- GENERATE PIXEL ART FIRE TEXTURE ---
 	// Creating a 4-frame sprite sheet (128x32 pixels, 4 frames of 32x32)
@@ -1641,9 +1649,9 @@ void ofApp::drawSettingsMenu() {
 		// Draw background
 		ofSetColor(ofColor(35));
 		ofDrawRectangle(settingsFramerateSlider);
-		// Draw fill
+		// Draw fill (audio screen colours removed — use white)
 		float fillW = settingsFramerateSlider.width * settingsFramerateSliderValue;
-		ofSetColor(120, 180, 220);
+		ofSetColor(ofColor::white);
 		ofDrawRectangle(settingsFramerateSlider.x, settingsFramerateSlider.y, fillW, settingsFramerateSlider.height);
 		// Draw handle
 		float handleX = settingsFramerateSlider.x + fillW;
@@ -1659,13 +1667,14 @@ void ofApp::drawSettingsMenu() {
 		}
 		ofRectangle ftb = uiFont.getStringBoundingBox(frameText, 0, 0);
 		uiFont.drawString(frameText, centerX - ftb.width / 2, settingsFramerateSlider.y - 10);
-		// Draw label left/right
+		// Draw label left/right (place below slider to avoid overlap with handle)
 		string minLabel = "15";
 		string maxLabel = "Unlimited";
 		ofRectangle minb = uiFont.getStringBoundingBox(minLabel, 0, 0);
 		ofRectangle maxb = uiFont.getStringBoundingBox(maxLabel, 0, 0);
-		uiFont.drawString(minLabel, settingsFramerateSlider.x - minb.width - 8, settingsFramerateSlider.getCenter().y + minb.height / 2);
-		uiFont.drawString(maxLabel, settingsFramerateSlider.x + settingsFramerateSlider.width + 8, settingsFramerateSlider.getCenter().y + maxb.height / 2);
+		float labelY = settingsFramerateSlider.y + settingsFramerateSlider.height + 20;
+		uiFont.drawString(minLabel, settingsFramerateSlider.x - minb.width - 8, labelY + minb.height / 2);
+		uiFont.drawString(maxLabel, settingsFramerateSlider.x + settingsFramerateSlider.width + 8, labelY + maxb.height / 2);
 
 		// --- Draw Fullscreen ---
 		settingY += settingSpacing;
@@ -1690,7 +1699,7 @@ void ofApp::drawSettingsMenu() {
 		ofSetColor(ofColor(35));
 		ofDrawRectangle(settingsAudioMasterSlider);
 		float masterFill = settingsAudioMasterSlider.width * settingsMasterVolume;
-		ofSetColor(180, 80, 80);
+		ofSetColor(ofColor::white);
 		ofDrawRectangle(settingsAudioMasterSlider.x, settingsAudioMasterSlider.y, masterFill, settingsAudioMasterSlider.height);
 		ofSetColor(ofColor::white);
 		string masterLabel = "Master Volume: " + ofToString((int)(settingsMasterVolume * 100)) + "%";
@@ -1703,7 +1712,7 @@ void ofApp::drawSettingsMenu() {
 		ofSetColor(ofColor(35));
 		ofDrawRectangle(settingsAudioVolumeSlider);
 		float menuFill = settingsAudioVolumeSlider.width * settingsMenuVolume;
-		ofSetColor(50, 180, 50);
+		ofSetColor(ofColor::white);
 		ofDrawRectangle(settingsAudioVolumeSlider.x, settingsAudioVolumeSlider.y, menuFill, settingsAudioVolumeSlider.height);
 		ofSetColor(ofColor::white);
 		string menuLabel = "Menu Music Volume: " + ofToString((int)(settingsMenuVolume * 100)) + "%";
@@ -1716,7 +1725,7 @@ void ofApp::drawSettingsMenu() {
 		ofSetColor(ofColor(35));
 		ofDrawRectangle(settingsAudioSfxSlider);
 		float sfxFill = settingsAudioSfxSlider.width * settingsSfxVolume;
-		ofSetColor(100, 160, 230);
+		ofSetColor(ofColor::white);
 		ofDrawRectangle(settingsAudioSfxSlider.x, settingsAudioSfxSlider.y, sfxFill, settingsAudioSfxSlider.height);
 		ofSetColor(ofColor::white);
 		string sfxLabel = "Game SFX Volume: " + ofToString((int)(settingsSfxVolume * 100)) + "%";
@@ -1809,13 +1818,14 @@ void ofApp::applySettings() {
 	// Framerate: 0.0 = 15 FPS, 1.0 = Unlimited, linear to 300 FPS
 	int targetFPS = 0;
 	if (settingsFramerateSliderValue >= 0.999f) {
-		// Unlimited
+		// Unlimited: do not cap (disable vsync and let the OS/runtime run uncapped)
 		ofSetVerticalSync(false);
 		ofSetFrameRate(0);
 	} else {
 		targetFPS = 15 + (int)std::round(settingsFramerateSliderValue * (300 - 15));
 		targetFPS = std::min(targetFPS, 300);
-		ofSetVerticalSync(true);
+		// Disable vertical sync so the explicit frame rate cap is honored by ofSetFrameRate
+		ofSetVerticalSync(false);
 		ofSetFrameRate(targetFPS);
 	}
 
@@ -5273,7 +5283,8 @@ void ofApp::updateGame() {
 
 		// Build an elevated control point for a nice arc (Hearthstone-like)
 		glm::vec2 mid = (start2D + anim.targetPos) * 0.5f;
-		float lift = std::max(120.0f, glm::distance(start2D, anim.targetPos) * 0.45f);
+		// Reduce arc slightly: smaller lift multiplier and lower minimum
+		float lift = std::max(80.0f, glm::distance(start2D, anim.targetPos) * 0.35f);
 		glm::vec2 control = mid - glm::vec2(0.0f, lift); // negative y = up on screen
 
 		// Quadratic Bezier interpolation (gives a smooth arc)
@@ -9590,10 +9601,11 @@ void ofApp::mousePressed(int x, int y, int button) {
 				pkt.actionType = 1; // AcceptDraft
 				pkt.draftPlayerIdx = draftPlayerIndex;
 				pkt.classTier = currentDraftClassTier;
+				// selectedDraftIndices now stores pool indices directly
 				pkt.numSelected = (int)selectedDraftIndices.size();
-				pkt.selectedIdx0 = (pkt.numSelected > 0 && selectedDraftIndices[0] >= 0 && selectedDraftIndices[0] < 3) ? currentDraftOptionPoolIndices[selectedDraftIndices[0]] : -1;
-				pkt.selectedIdx1 = (pkt.numSelected > 1 && selectedDraftIndices[1] >= 0 && selectedDraftIndices[1] < 3) ? currentDraftOptionPoolIndices[selectedDraftIndices[1]] : -1;
-				pkt.selectedIdx2 = (pkt.numSelected > 2 && selectedDraftIndices[2] >= 0 && selectedDraftIndices[2] < 3) ? currentDraftOptionPoolIndices[selectedDraftIndices[2]] : -1;
+				pkt.selectedIdx0 = (pkt.numSelected > 0) ? selectedDraftIndices[0] : -1;
+				pkt.selectedIdx1 = (pkt.numSelected > 1) ? selectedDraftIndices[1] : -1;
+				pkt.selectedIdx2 = (pkt.numSelected > 2) ? selectedDraftIndices[2] : -1;
 
 				// Assign a client-local action id for ACK matching
 				pkt.clientActionID = ++draftClientActionCounter;
@@ -9613,9 +9625,19 @@ void ofApp::mousePressed(int x, int y, int button) {
 			Player & p = players[draftPlayerIndex];
 			int copiesPerCard = (!isInGameDraft && draftStage == 0) ? 2 : 1;
 
-			for (int pickedIndex : selectedDraftIndices) {
-				for (int k = 0; k < copiesPerCard; k++) {
-					p.deck.push_back(draftOptions[pickedIndex]);
+			// selectedDraftIndices contains pool indices; add matching cards
+			for (int poolIdx : selectedDraftIndices) {
+				if (poolIdx >= 0 && poolIdx < (int)class1Cards.size()) {
+					// Determine which pool to use based on currentDraftClassTier/draftStage may vary,
+					// but here we translate poolIdx -> Card by looking at the currently available pools.
+					const std::vector<Card> * pool = &class1Cards;
+					if (currentDraftClassTier == 2) pool = &class2Cards;
+					if (currentDraftClassTier == 3) pool = &class3Cards;
+					if (poolIdx >= 0 && poolIdx < (int)pool->size()) {
+						for (int k = 0; k < copiesPerCard; k++) {
+							p.deck.push_back((*pool)[poolIdx]);
+						}
+					}
 				}
 			}
 
@@ -9626,10 +9648,11 @@ void ofApp::mousePressed(int x, int y, int button) {
 				acceptPkt.actionType = 1; // Accept
 				acceptPkt.draftPlayerIdx = draftPlayerIndex;
 				acceptPkt.classTier = currentDraftClassTier;
+				// selectedDraftIndices now stores pool indices directly
 				acceptPkt.numSelected = (uint8_t)selectedDraftIndices.size();
-				acceptPkt.selectedIdx0 = (selectedDraftIndices.size() > 0 && selectedDraftIndices[0] < 3) ? currentDraftOptionPoolIndices[selectedDraftIndices[0]] : -1;
-				acceptPkt.selectedIdx1 = (selectedDraftIndices.size() > 1 && selectedDraftIndices[1] < 3) ? currentDraftOptionPoolIndices[selectedDraftIndices[1]] : -1;
-				acceptPkt.selectedIdx2 = (selectedDraftIndices.size() > 2 && selectedDraftIndices[2] < 3) ? currentDraftOptionPoolIndices[selectedDraftIndices[2]] : -1;
+				acceptPkt.selectedIdx0 = (selectedDraftIndices.size() > 0) ? selectedDraftIndices[0] : -1;
+				acceptPkt.selectedIdx1 = (selectedDraftIndices.size() > 1) ? selectedDraftIndices[1] : -1;
+				acceptPkt.selectedIdx2 = (selectedDraftIndices.size() > 2) ? selectedDraftIndices[2] : -1;
 				steamManager.sendPacket(&acceptPkt, sizeof(acceptPkt));
 			}
 
@@ -9668,14 +9691,18 @@ void ofApp::mousePressed(int x, int y, int button) {
 			for (size_t i = 0; i < draftOptions.size(); ++i) {
 				float cx = startX + static_cast<float>(i) * (cardW + spacing);
 				if (ofRectangle(cx, startY, cardW, cardH).inside(x, y)) {
-					auto it = std::find(selectedDraftIndices.begin(), selectedDraftIndices.end(), static_cast<int>(i));
+
+					// Use the authoritative pool index for selections (avoid slot vs pool index mismatch)
+					int poolIdx = (i >= 0 && i < (int)currentDraftOptionPoolIndices.size()) ? currentDraftOptionPoolIndices[i] : -1;
+					if (poolIdx < 0) return; // invalid slot
+					auto it = std::find(selectedDraftIndices.begin(), selectedDraftIndices.end(), poolIdx);
 					bool nowSelected = false;
 
 					if (it != selectedDraftIndices.end()) {
-						selectedDraftIndices.erase(it); // Deselect
+						selectedDraftIndices.erase(it); // Deselect (pool index)
 					} else {
 						if (selectedDraftIndices.size() < static_cast<size_t>(requiredPicks)) {
-							selectedDraftIndices.push_back(static_cast<int>(i));
+							selectedDraftIndices.push_back(poolIdx); // store pool index
 							nowSelected = true;
 						}
 					}
@@ -9686,7 +9713,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 						pkt.playerID = myLocalPlayerID;
 						pkt.actionType = 0; // Select / Toggle
 						pkt.selectFlag = nowSelected ? 1 : 0;
-						pkt.optionIndex = i;
+						pkt.optionIndex = poolIdx; // send pool index
 						pkt.draftPlayerIdx = draftPlayerIndex;
 
 						// Track for resend until host forwards/acks
@@ -13679,7 +13706,7 @@ void ofApp::drawCard() {
 		DrawCardAnimation anim;
 		anim.card = newCard;
 		anim.startTime = ofGetElapsedTimef();
-		anim.duration = 0.3f;
+		anim.duration = 0.6f;
 		anim.ownerIndex = currentPlayerIndex;
 		anim.toMinionHand = false;
 
@@ -13719,7 +13746,7 @@ void ofApp::drawCard() {
 		anim.endPos = anim.startPos;
 		anim.currentPos = start2D; // initialize in screen-space so first frame is correct
 		anim.currentScale = 0.55f; // start small, will pop to ~1.5x
-		anim.duration = 0.18f;
+		anim.duration = 0.50f;
 		activeDrawCardAnimations.push_back(anim);
 	}
 }
@@ -21233,10 +21260,14 @@ void ofApp::drawDraftScreen() {
 		float x = startX + i * (cardW + spacing);
 		ofRectangle cardRect(x, startY, cardW, cardH);
 
-		// Check Selection
+		// Check Selection: selectedDraftIndices now contains pool indices, compare against current slot's pool index
 		bool isSelected = false;
+		int slotPoolIdx = (i >= 0 && i < (int)currentDraftOptionPoolIndices.size()) ? currentDraftOptionPoolIndices[i] : -1;
 		for (int sel : selectedDraftIndices) {
-			if (sel == (int)i) isSelected = true;
+			if (sel == slotPoolIdx) {
+				isSelected = true;
+				break;
+			}
 		}
 
 		// Selection Highlight (Yellow)
@@ -22165,7 +22196,7 @@ void ofApp::processNetworkPackets() {
 								DrawCardAnimation anim;
 								anim.card = newCard;
 								anim.startTime = ofGetElapsedTimef();
-								anim.duration = 0.18f;
+								anim.duration = 0.36f;
 								anim.ownerIndex = targetPlayerIndex;
 								anim.toMinionHand = false; // not a minion
 								float scale = ofGetHeight() / 1080.0f;

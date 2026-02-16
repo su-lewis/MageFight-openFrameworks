@@ -1,0 +1,168 @@
+ERROR: ld.so: object '/usr/lib/extest/libextest.so' from LD_PRELOAD cannot be preloaded (cannot open shared object file): ignored.
+ERROR: ld.so: object '/var/home/lewis/.local/share/Steam/ubuntu12_32/gameoverlayrenderer.so' from LD_PRELOAD cannot be preloaded (wrong ELF class: ELFCLASS32): ignored.
+--- Launching MageFight at Mon Feb 16 22:50:55 GMT 2026 ---
+Script directory: /home/lewis/of_workspace/openFrameworks/apps/myApps/MageFight/bin
+Original LD_PRELOAD=/usr/lib/extest/libextest.so:/var/home/lewis/.local/share/Steam/ubuntu12_32/gameoverlayrenderer.so:/var/home/lewis/.local/share/Steam/ubuntu12_64/gameoverlayrenderer.so
+Dropping missing LD_PRELOAD entry: /usr/lib/extest/libextest.so
+Final LD_PRELOAD=/var/home/lewis/.local/share/Steam/ubuntu12_32/gameoverlayrenderer.so:/var/home/lewis/.local/share/Steam/ubuntu12_64/gameoverlayrenderer.so
+Starting executable...
+ERROR: ld.so: object '/var/home/lewis/.local/share/Steam/ubuntu12_32/gameoverlayrenderer.so' from LD_PRELOAD cannot be preloaded (wrong ELF class: ELFCLASS32): ignored.
+[S_API] SteamAPI_Init(): SteamAPI_IsSteamRunning() did not locate a running instance of Steam.
+[S_API] SteamAPI_Init(): Loaded '/home/lewis/of_workspace/.steam/sdk64/steamclient.so' OK.
+Setting breakpad minidump AppID = 480
+SteamInternal_SetMinidumpSteamID:  Caching Steam ID:  76561198261715869 [API loaded no]
+[notice ] Steam: Initialized. LocalID: 76561198261715869
+[notice ] Setup: Visual RNG seeded.
+[notice ] Audio: Main menu music loaded: yes
+[notice ] Settings: Loaded settings from Config/settings.json
+[warning] ofMaterial::setPBR:  PBR material must be used with Programmable Renderer.
+[ error ] ofxAssimpTexture::setTextureType: : unknown aiTextureType type 27
+[warning] ofMaterial::setPBR:  PBR material must be used with Programmable Renderer.
+[ error ] ofxAssimpTexture::setTextureType: : unknown aiTextureType type 27
+[warning] ofMaterial::setPBR:  PBR material must be used with Programmable Renderer.
+[warning] ofMaterial::setPBR:  PBR material must be used with Programmable Renderer.
+[warning] ofMaterial::setPBR:  PBR material must be used with Programmable Renderer.
+[warning] ofMaterial::setPBR:  PBR material must be used with Programmable Renderer.
+[notice ] Wolf model loaded with 10 meshes
+[notice ] Setup: Kobold model loaded.
+[ error ] ofxAssimpModelLoader: loadGLResource(): texture doesn't exist: "data/Units/KoboldKing/goblin_king.fbx" in "data/Units/KoboldKing/cadnav.com_model/Models_G0506A078/01391eaa.dds"
+[ error ] loadImage: File not found: "data/Units/KoboldKing/cadnav.com_model/Models_G0506A078/01391eaa.dds"
+[ error ] ofxAssimpModelLoader: loadGLResource(): couldn't load texture: "data/Units/KoboldKing/goblin_king.fbx" from "data/Units/KoboldKing/cadnav.com_model/Models_G0506A078/01391eaa.dds"
+[ error ] ofxAssimpModelLoader: loadGLResource(): texture doesn't exist: "data/Units/KoboldKing/goblin_king.fbx" in "data/Units/KoboldKing/cadnav.com_model/Models_G0506A078/ada8756d.jpg"
+[ error ] loadImage: File not found: "data/Units/KoboldKing/cadnav.com_model/Models_G0506A078/ada8756d.jpg"
+[ error ] ofxAssimpModelLoader: loadGLResource(): couldn't load texture: "data/Units/KoboldKing/goblin_king.fbx" from "data/Units/KoboldKing/cadnav.com_model/Models_G0506A078/ada8756d.jpg"
+[ error ] ofxAssimpModelLoader: loadGLResource(): texture doesn't exist: "data/Units/KoboldKing/goblin_king.fbx" in "data/Units/KoboldKing/cadnav.com_model/Models_G0506A078/496d23a4.jpg"
+[ error ] loadImage: File not found: "data/Units/KoboldKing/cadnav.com_model/Models_G0506A078/496d23a4.jpg"
+[ error ] ofxAssimpModelLoader: loadGLResource(): couldn't load texture: "data/Units/KoboldKing/goblin_king.fbx" from "data/Units/KoboldKing/cadnav.com_model/Models_G0506A078/496d23a4.jpg"
+[ error ] ofxAssimpModelLoader: loadGLResource(): texture doesn't exist: "data/Units/KoboldKing/goblin_king.fbx" in "data/Units/KoboldKing/cadnav.com_model/Models_G0506A078/01391eaa.dds"
+[ error ] loadImage: File not found: "data/Units/KoboldKing/cadnav.com_model/Models_G0506A078/01391eaa.dds"
+[ error ] ofxAssimpModelLoader: loadGLResource(): couldn't load texture: "data/Units/KoboldKing/goblin_king.fbx" from "data/Units/KoboldKing/cadnav.com_model/Models_G0506A078/01391eaa.dds"
+[notice ] Setup: Kobold King texture loaded.
+[notice ] Setup: Kobold King model loaded.
+[notice ] Setup: Hellhound model loaded.
+[warning] ofMaterial::setPBR:  PBR material must be used with Programmable Renderer.
+[ error ] ofxAssimpTexture::setTextureType: : unknown aiTextureType type 27
+[warning] ofMaterial::setPBR:  PBR material must be used with Programmable Renderer.
+[ error ] ofxAssimpTexture::setTextureType: : unknown aiTextureType type 27
+[warning] ofMaterial::setPBR:  PBR material must be used with Programmable Renderer.
+[ error ] ofxAssimpTexture::setTextureType: : unknown aiTextureType type 27
+[warning] ofMaterial::setPBR:  PBR material must be used with Programmable Renderer.
+[ error ] ofxAssimpTexture::setTextureType: : unknown aiTextureType type 27
+[warning] ofMaterial::setPBR:  PBR material must be used with Programmable Renderer.
+[ error ] ofxAssimpTexture::setTextureType: : unknown aiTextureType type 27
+[warning] ofMaterial::setPBR:  PBR material must be used with Programmable Renderer.
+[ error ] ofxAssimpTexture::setTextureType: : unknown aiTextureType type 27
+[warning] ofMaterial::setPBR:  PBR material must be used with Programmable Renderer.
+[ error ] ofxAssimpTexture::setTextureType: : unknown aiTextureType type 27
+[warning] ofMaterial::setPBR:  PBR material must be used with Programmable Renderer.
+[ error ] ofxAssimpTexture::setTextureType: : unknown aiTextureType type 27
+[warning] ofMaterial::setPBR:  PBR material must be used with Programmable Renderer.
+[ error ] ofxAssimpTexture::setTextureType: : unknown aiTextureType type 27
+[warning] ofMaterial::setPBR:  PBR material must be used with Programmable Renderer.
+[ error ] ofxAssimpTexture::setTextureType: : unknown aiTextureType type 27
+[warning] ofMaterial::setPBR:  PBR material must be used with Programmable Renderer.
+[ error ] ofxAssimpTexture::setTextureType: : unknown aiTextureType type 27
+[notice ] Setup: Demon model loaded.
+[notice ] Setup: Tortoise model loaded.
+[warning] ofMaterial::setPBR:  PBR material must be used with Programmable Renderer.
+[notice ] Setup: Ghost model loaded.
+[warning] ofMaterial::setPBR:  PBR material must be used with Programmable Renderer.
+[ error ] ofxAssimpTexture::setTextureType: : unknown aiTextureType type 27
+[notice ] Setup: Wall Unit GLB model loaded and texture applied.
+[notice ] Setup: Assistant model loaded.
+[warning] ofMaterial::setPBR:  PBR material must be used with Programmable Renderer.
+[ error ] ofxAssimpTexture::setTextureType: : unknown aiTextureType type 27
+[warning] ofMaterial::setPBR:  PBR material must be used with Programmable Renderer.
+[ error ] ofxAssimpTexture::setTextureType: : unknown aiTextureType type 27
+[notice ] Setup: Faerie texture loaded.
+[notice ] Setup: Faerie model loaded.
+[notice ] Setup: Loaded key frame: Board/keys_1_1.png
+[notice ] Setup: Loaded key frame: Board/keys_1_2.png
+[notice ] Setup: Loaded key frame: Board/keys_1_3.png
+[notice ] Setup: Loaded key frame: Board/keys_1_4.png
+[notice ] Setup: Loaded key frame: Board/keys_1_5.png
+[notice ] Setup: Loaded silver key frame: Board/keys_2_1.png
+[notice ] Setup: Loaded silver key frame: Board/keys_2_2.png
+[notice ] Setup: Loaded silver key frame: Board/keys_2_3.png
+[notice ] Setup: Loaded silver key frame: Board/keys_2_4.png
+[notice ] Setup: Loaded silver key frame: Board/keys_2_5.png
+[notice ] Setup: Loaded bronze key frame: Board/keys_3_1.png
+[notice ] Setup: Loaded bronze key frame: Board/keys_3_2.png
+[notice ] Setup: Loaded bronze key frame: Board/keys_3_3.png
+[notice ] Setup: Loaded bronze key frame: Board/keys_3_4.png
+[notice ] Setup: Loaded bronze key frame: Board/keys_3_5.png
+[notice ] ofApp::loadCardData: Loaded 70 cards from JSON.
+[notice ] ofApp::loadCardData: Class Distribution - C1: 30, C2: 25, C3: 15
+[notice ] GL: Vendor: AMD | Renderer: AMD Radeon RX 9070 XT (radeonsi, gfx1201, LLVM 21.1.6, DRM 3.64, 6.17.7-ba25.fc43.x86_64) | Version: 4.6 (Compatibility Profile) Mesa 25.3.4-arch1.1 | GLSL: 4.60
+[notice ] FBO: worldFbo allocated 2560x1440
+[notice ] Network: DEBUG: Still in STATE_MAIN_MENU. hasOpponent()=0 isMultiplayer=0 isHost=0
+[notice ] Steam: Requesting Lobby Creation...
+[notice ] Steam: Lobby Created. Creating Listen Socket...
+[notice ] Steam: Incoming Connection Request...
+[notice ] Steam: Accepted Connection!
+[notice ] Network: DEBUG: hasOpponent() is true, currentState=0
+[notice ] Network: Host: Opponent found. Starting game & sending seed.
+[notice ] Setup: Host generated seed: 1771282298 platform=Linux
+[notice ] Setup: Host sending handshake: type=0 playerID=0 seq=0 seed=1771282298 platform=Linux
+[notice ] Network: Skipping DiceRollPacket send for purpose=4 (handled authoritatively).
+[notice ] Dice: Final total result for 1d6: 3
+[notice ] Network: Skipping DiceRollPacket send for purpose=4 (handled authoritatively).
+[notice ] Dice: Final total result for 1d6: 1
+[notice ] Game: --- INITIATIVE ROLL STARTED ---
+[notice ] Steam: Connection Fully Active!
+[notice ] Steam: Opponent ID: 76561198743068920
+[notice ] Network: Host: Received Seed Request. Resending Seed: 1771282298
+[notice ] Network: Host resending handshake: type=0 playerID=0 seq=0 seed=1771282298
+[notice ] Draft: generateDraftOptions called: classTier=1 draftStage=0 draftPlayerIndex=0 poolSize=30
+[notice ] Network: Host sent DraftOptionsPacket: 13,6,12 derivedSeed=3059919014 draftGenCounter=1
+[notice ] Draft: Options names: Heal, Slash, Flame Hit
+[notice ] Network: Host sent DraftStatePacket (post-options): class=1 player=0 picks=2 stage=0
+[notice ] Initiative: Player 1 Wins Initiative
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=0 stage=0) names=Heal, Slash, Flame Hit
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=0 stage=0) names=Heal, Slash, Flame Hit
+[notice ] Draft: DRAFT CLICK: mousePos=(1309,577) selections=0 required=2 inGameDraft=0 draftStage=0 acceptRect=(1170,1007,220,60)
+[notice ] NetTrace: SEND pkt type=4 player=0 seq=5 size=43
+[notice ] Network: Client sent DraftToggle to host: option=1 sel=1 draftPlayer=0
+[notice ] Draft: DRAFT CLICK: mousePos=(1635,1082) selections=1 required=2 inGameDraft=0 draftStage=0 acceptRect=(1170,1007,220,60)
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=0 stage=0) names=Heal, Slash, Flame Hit
+[notice ] Draft: DRAFT CLICK: mousePos=(1702,851) selections=1 required=2 inGameDraft=0 draftStage=0 acceptRect=(1170,1007,220,60)
+[notice ] NetTrace: SEND pkt type=4 player=0 seq=6 size=43
+[notice ] Network: Client sent DraftToggle to host: option=2 sel=1 draftPlayer=0
+[notice ] Draft: DRAFT CLICK: mousePos=(1616,1121) selections=2 required=2 inGameDraft=0 draftStage=0 acceptRect=(1170,1007,220,60)
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=0 stage=0) names=Heal, Slash, Flame Hit
+[notice ] Draft: DRAFT CLICK: mousePos=(1300,1024) selections=2 required=2 inGameDraft=0 draftStage=0 acceptRect=(1170,1007,220,60)
+[notice ] Draft: ACCEPT BUTTON CLICKED: selections=2 required=2
+[notice ] NetTrace: SEND pkt type=4 player=0 seq=7 size=43
+[notice ] NetTrace: SEND pkt type=8 player=0 seq=8 size=17
+[notice ] NetTrace:   SHUFFLE playerIndex=0 nonce=2866909844
+[notice ] Network: Host sent Shuffle packet: player=0 nonce=2866909844
+[notice ] Draft: generateDraftOptions called: classTier=2 draftStage=1 draftPlayerIndex=0 poolSize=25
+[notice ] Network: Host sent DraftOptionsPacket: 14,7,9 derivedSeed=3614568642 draftGenCounter=2
+[notice ] Draft: Options names: Call for Kobolds, Raise Dead, Call for Wolves
+[notice ] Network: Host sent DraftStatePacket (post-options): class=2 player=0 picks=1 stage=1
+[notice ] Draft: DRAFT CLICK: mousePos=(1554,1126) selections=0 required=1 inGameDraft=0 draftStage=1 acceptRect=(1170,1007,220,60)
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=0 stage=1) names=Call for Kobolds, Raise Dead, Call for Wolves
+[notice ] Draft: DRAFT CLICK: mousePos=(1316,850) selections=0 required=1 inGameDraft=0 draftStage=1 acceptRect=(1170,1007,220,60)
+[notice ] NetTrace: SEND pkt type=4 player=0 seq=10 size=43
+[notice ] Network: Client sent DraftToggle to host: option=1 sel=1 draftPlayer=0
+[notice ] Draft: DRAFT CLICK: mousePos=(1664,884) selections=1 required=1 inGameDraft=0 draftStage=1 acceptRect=(1170,1007,220,60)
+[notice ] NetTrace: SEND pkt type=4 player=0 seq=11 size=43
+[notice ] Network: Client sent DraftToggle to host: option=2 sel=0 draftPlayer=0
+[notice ] Draft: DRAFT CLICK: mousePos=(1309,1056) selections=1 required=1 inGameDraft=0 draftStage=1 acceptRect=(1170,1007,220,60)
+[notice ] Draft: ACCEPT BUTTON CLICKED: selections=1 required=1
+[notice ] NetTrace: SEND pkt type=4 player=0 seq=12 size=43
+[notice ] NetTrace: SEND pkt type=8 player=0 seq=13 size=17
+[notice ] NetTrace:   SHUFFLE playerIndex=0 nonce=3947344890
+[notice ] Network: Host sent Shuffle packet: player=0 nonce=3947344890
+[notice ] Draft: generateDraftOptions called: classTier=1 draftStage=0 draftPlayerIndex=1 poolSize=30
+[notice ] Network: Host sent DraftOptionsPacket: 27,4,3 derivedSeed=855051660 draftGenCounter=3
+[notice ] Draft: Options names: Summon Assistant, Ward, Bash
+[notice ] Network: Host sent DraftStatePacket (post-options): class=1 player=1 picks=2 stage=0
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Summon Assistant, Ward, Bash
+[notice ] Draft: DRAFT CLICK: mousePos=(1438,1010) selections=0 required=2 inGameDraft=0 draftStage=0 acceptRect=(0,0,0,0)
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Summon Assistant, Ward, Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Summon Assistant, Ward, Bash
+[notice ] Game: --- GAME SESSION CLEANED UP ---
+[notice ] Settings: Saved settings to Config/settings.json
+[notice ] SteamManager: Steam API Shutdown.
+[S_API FAIL] Tried to access Steam interface SteamNetworkingSockets012 before SteamAPI_Init succeeded.
