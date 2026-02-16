@@ -3051,12 +3051,24 @@ void ofApp::updateGame() {
 	for (const auto & d : activeDiceRolls)
 		if (!d.isFinishedVisual) diceReadySummon = false;
 
+	// Look for this section inside ofApp::updateGame()
 	if (isWaitingForSummonHealth && diceReadySummon) {
 		isWaitingForSummonHealth = false;
 
-		// 1. Create Minion
+		// --- HYBRID FIX START ---
+		// In multiplayer, CLIENTS must NOT create the minion locally here.
+		// They must wait for PKT_PLACE_SUMMONED_MINION from the Host.
+		if (isMultiplayer && isClient()) {
+			ofLogNotice("Summon") << "Client waiting for Host authoritative summon packet.";
+			// Clean up visual dice but do not modify game state
+			activeDiceRolls.clear();
+			return;
+		}
+		// --- HYBRID FIX END ---
+
+		// 1. Create Minion (Host / Singleplayer Only)
 		Player minion;
-		minion.playerID = 100 + (int)players.size(); // Simple ID generation
+		minion.playerID = 100 + (int)players.size();
 		minion.x = (int)pendingSummonTile.x;
 		minion.y = (int)pendingSummonTile.y;
 		minion.maxHealth = pendingSummonRollResult; // Result of the dice roll

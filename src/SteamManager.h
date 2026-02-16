@@ -1,16 +1,9 @@
 #pragma once
-
-#include "ofMain.h"
-
-#include "steam_api.h"
-
-#include <queue>
-#include <unordered_map>
-#include <vector>
-
-// 2. INCLUDE YOUR EXISTING DATA HEADER
-// This fixes the "redefinition of struct PacketHeader" error.
 #include "NetworkData.h"
+#include "ofMain.h"
+#include "steam_api.h"
+#include <queue>
+#include <vector>
 
 class SteamManager {
 public:
@@ -22,65 +15,62 @@ public:
 	void cleanup();
 	void shutdownAPI();
 
-	// Lobby helpers (match start signaling)
+	// Lobby / Match helpers
 	void setMatchStarted();
 	bool isMatchStarted() const;
 	void setLobbySeed(uint32_t seed);
 	uint32_t getLobbySeed() const;
 
-	// -- Connection Logic --
+	// Connection Logic
 	void createLobby();
 	void openFriendOverlay();
 	void leaveLobby();
 
-	// -- Data Logic --
+	// Data Logic
 	bool sendPacket(const void * data, uint32_t size);
 
-	// -- State Getters --
+	// State Getters
 	bool isHost() const;
 	bool isConnected() const;
 	bool hasOpponent() const;
 
-	// -- Player Info --
+	// Player Info
 	std::string getLocalPlayerName() const;
 	std::string getOpponentName() const;
 	CSteamID getOpponentSteamID() const;
 	CSteamID getLocalSteamID() const;
 	bool getAvatarImage(const CSteamID & id, ofImage & outImage, int size = 64) const;
 
-	// -- Connection Status --
+	// Connection Flags
 	bool checkAndClearDisconnectFlag();
 	bool checkAndClearReconnectFlag();
 	bool opponentDisconnected = false;
 	bool opponentReconnected = false;
 
-	// Queue for ofApp
+	// Packet Queue for ofApp
 	std::queue<std::vector<char>> packetQueue;
 
 private:
-	CSteamID m_OpponentID; // Track opponent's Steam ID
+	CSteamID m_OpponentID;
 	uint32_t m_nextSeq = 1;
-
-public:
-private:
 	bool m_bInitialized;
 	bool m_bIsHost;
 
-	// -- Steam Identifiers --
+	// Steam Identifiers
 	CSteamID m_LobbyID;
 	CSteamID m_LocalID;
 
-	// -- New Networking API Handles --
+	// Networking API Handles
 	HSteamListenSocket m_hListenSocket;
 	HSteamNetConnection m_hConnection;
 
-	// -- Callbacks --
+	// Callbacks
 	STEAM_CALLBACK(SteamManager, OnLobbyEnter, LobbyEnter_t);
 	STEAM_CALLBACK(SteamManager, OnGameLobbyJoinRequested, GameLobbyJoinRequested_t);
 	STEAM_CALLBACK(SteamManager, OnGameJoinRequested, GameRichPresenceJoinRequested_t);
 	STEAM_CALLBACK(SteamManager, OnNetConnectionStatusChanged, SteamNetConnectionStatusChangedCallback_t);
 
-	// -- CallResults --
+	// CallResults
 	void OnLobbyCreated(LobbyCreated_t * pCallback, bool bIOFailure);
 	CCallResult<SteamManager, LobbyCreated_t> m_cbLobbyCreated;
 
