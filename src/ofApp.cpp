@@ -24,70 +24,52 @@
 #pragma GCC diagnostic ignored "-Wunused-but-set-variable"
 #pragma GCC diagnostic ignored "-Wunused-value"
 //--------------------------------------------------------------
-// Unified minion card draw logic
 void ofApp::drawMinionCard(int minionIndex, int ownerIndex) {
 	// Safety checks
 	if (minionIndex < 0 || minionIndex >= (int)players.size()) return;
-	if (ownerIndex < 0 || ownerIndex >= (int)players.size()) return;
 	Player & minion = players[minionIndex];
-	Player & owner = players[ownerIndex];
 	if (!minion.isMinion) return;
-	if (minion.deck.empty()) return;
 
+	// Determine how many cards this minion type should draw
 	int drawCount = minion.isDemon ? 3 : 2;
 	if (minion.nextTurnExtraDraw) {
 		drawCount++;
 		minion.nextTurnExtraDraw = false;
 	}
 
-	// Multiplayer logic: mirror player draw logic
-	if (isMultiplayer && isClient()) {
-		// Client: send draw request to host
+	// In multiplayer, the player taking the action sends the packet.
+	// The opponent will then execute this same logic deterministically.
+	if (isMultiplayer && isCurrentPlayerLocal() && !processingNetworkPacket) {
 		DrawCardsPacket req = {};
 		req.type = PKT_DRAW_CARDS;
 		req.playerID = myLocalPlayerID;
 		req.playerIndex = minionIndex;
 		req.numCards = drawCount;
-		// Leave cardNames empty to indicate a request
 		steamManager.sendPacket(&req, sizeof(req));
-		ofLogNotice("Network") << "Client sent Minion DrawCards REQUEST: " << drawCount << " cards for minionIndex=" << minionIndex;
-		// Client will wait for authoritative DrawCards from host
-		return;
+		ofLogNotice("Network") << "Sent Minion DrawCards packet: " << drawCount << " cards for minionIndex=" << minionIndex;
 	}
 
-	// Single-player or Host: perform authoritative draws locally
-	size_t handSizeBefore = owner.hand.size();
+	// Perform the authoritative draw logic locally (for single-player, host, and client)
 	for (int i = 0; i < drawCount; ++i) {
-		if (minion.deck.empty()) break;
-		Card drawn = minion.deck.back();
-		minion.deck.pop_back();
-		drawn.drawnThisTurn = true;
-		owner.hand.push_back(drawn);
-	}
-
-	// If multiplayer host, broadcast the authoritative draw to clients
-	if (isMultiplayer && isHost()) {
-		DrawCardsPacket out = {};
-		out.type = PKT_DRAW_CARDS;
-		out.playerID = myLocalPlayerID;
-		out.playerIndex = minionIndex;
-		out.numCards = drawCount;
-		for (int i = 0; i < drawCount && i < 3; ++i) {
-			size_t idx = handSizeBefore + i;
-			if (idx < owner.hand.size()) {
-				strncpy(out.cardNames[i], owner.hand[idx].name.c_str(), 63);
-				out.cardNames[i][63] = '\0';
-			} else {
-				out.cardNames[i][0] = '\0';
-			}
+		if (minion.deck.empty()) {
+			if (minion.discardPile.empty()) break; // No cards left anywhere
+			minion.deck = minion.discardPile;
+			minion.discardPile.clear();
+			shuffleGameVector(minion.deck, minionIndex);
 		}
-		steamManager.sendPacket(&out, sizeof(out));
-		ofLogNotice("Network") << "Host: Sent authoritative Minion DrawCards packet: " << out.numCards << " cards for minionIndex=" << minionIndex;
+		if (!minion.deck.empty()) {
+			Card drawn = minion.deck.back();
+			minion.deck.pop_back();
+			drawn.drawnThisTurn = true;
+			minion.hand.push_back(drawn);
+		}
 	}
 
 	// Visual feedback
-	spawnFloatingText(gridToWorld(owner.x, owner.y), "Minion Draw", ofColor::yellow);
+	spawnFloatingText(gridToWorld(minion.x, minion.y), "Minion Draw!", ofColor::yellow);
 }
+//--------------------------------------------------------------
+
 ofPixels scalePixelsNearest(ofPixels & src, int scale) {
 	int w = src.getWidth();
 	int h = src.getHeight();
@@ -2527,17 +2509,37 @@ void ofApp::updateGame() {
 									target->paralysisHeadsCount = 0;
 									spawnFloatingText(tPos + glm::vec3(0, 0.6f, 0), "-" + ofToString(extra) + " Electric", ofColor::orange);
 									spawnFloatingText(tPos + glm::vec3(0, 1.0f, 0), "PARALYZED!", ofColor::yellow);
+
+									// --- ADD THIS (SEND PACKET) ---
+									if (isHost()) {
+										sendCardActionBegin(CARD_SHOCK, pIndex, -1, -1, extra, 0, 0, 0, "Shoot Arrow Bonus");
+									}
+									// --- END ADD ---
+
 								} else if (revealed.type == CARD_FLAME_HIT) {
 									applyDamageTo(*target, extra, DAMAGE_FIRE, currentPlayerIndex);
 									target->onFire = true;
 									spawnFloatingText(tPos + glm::vec3(0, 0.6f, 0), "-" + ofToString(extra) + " Fire", ofColor::red);
 									spawnFloatingText(tPos + glm::vec3(0, 1.0f, 0), "ON FIRE!", ofColor::orange);
+
+									// --- ADD THIS (SEND PACKET) ---
+									if (isHost()) {
+										sendCardActionBegin(CARD_FLAME_HIT, pIndex, -1, -1, extra, 0, 0, 0, "Shoot Arrow Bonus");
+									}
+									// --- END ADD ---
+
 								} else if (revealed.type == CARD_ADD_POISON) {
 									applyDamageTo(*target, extra, DAMAGE_POISON, currentPlayerIndex);
 									target->isPoisoned = true;
 									target->poisonReduction = 0;
 									spawnFloatingText(tPos + glm::vec3(0, 0.6f, 0), "-" + ofToString(extra) + " Poison", ofColor::green);
 									spawnFloatingText(tPos + glm::vec3(0, 1.0f, 0), "POISONED!", ofColor::green);
+
+									// --- ADD THIS (SEND PACKET) ---
+									if (isHost()) {
+										sendCardActionBegin(CARD_ADD_POISON, pIndex, -1, -1, extra, 0, 0, 0, "Shoot Arrow Bonus");
+									}
+									// --- END ADD ---
 								}
 							}
 						} else {
@@ -5101,71 +5103,40 @@ void ofApp::updateGame() {
 
 	// Card Hand Animation
 	if (!players.empty() && currentPlayerIndex >= 0) {
-		// In multiplayer, update BOTH local and opponent player's hands
-		// In singleplayer, update current player's hand
+
+		// --- CHANGE START: SIMPLIFIED HAND DISPLAY LOGIC ---
 		Player * handPlayer = nullptr;
-		Player * opponentHandPlayer = nullptr;
 
-		if (isMultiplayer) {
-			int localID = myLocalPlayerID;
-			int opponentID = (localID == 0) ? 1 : 0;
-
-			for (size_t i = 0; i < players.size(); i++) {
-				if (players[i].playerID == localID && !players[i].isMinion) {
-					handPlayer = &players[i];
-				}
-				if (players[i].playerID == opponentID && !players[i].isMinion) {
-					opponentHandPlayer = &players[i];
-				}
-			}
-		} else {
+		// Determine which unit's hand to show at the bottom of the screen.
+		// It should only ever be the unit whose turn it is LOCALLY.
+		if (isMyTurn()) {
 			handPlayer = &players[currentPlayerIndex];
 		}
 
 		if (handPlayer) {
-			Player & currentPlayer = *handPlayer;
-			bool showOpponentHand = (isMultiplayer && opponentHandPlayer && !isCurrentPlayerLocal());
-
-			// Calculate total cards in shared hand area (local + opponent in multiplayer)
-			size_t totalCards = currentPlayer.hand.size();
-			if (showOpponentHand) {
-				totalCards += opponentHandPlayer->hand.size();
-			}
-
+			size_t numCards = handPlayer->hand.size();
 			float handCenterY = ofGetHeight() - 130;
 			float handBaseCardWidth = 120;
-			float handAreaWidth = ofGetWidth() * 0.6f; // Increased for both hands
+			float handAreaWidth = ofGetWidth() * 0.6f;
 
-			float totalCardWidths = totalCards * handBaseCardWidth;
-			float padding = (totalCards > 1) ? (handAreaWidth - totalCardWidths) / (totalCards - 1) : 0;
+			float totalCardWidths = numCards * handBaseCardWidth;
+			float padding = (numCards > 1) ? (handAreaWidth - totalCardWidths) / (numCards - 1) : 0;
 			padding = std::min(padding, 20.0f);
-			float totalHandWidth = (totalCards * handBaseCardWidth) + ((totalCards - 1) * padding);
+			float totalHandWidth = (numCards * handBaseCardWidth) + ((numCards - 1) * padding);
 			float startX = (ofGetWidth() - totalHandWidth) / 2.0f;
 
-			// Position local player's cards
-			size_t numCards = currentPlayer.hand.size();
+			// Position the cards for the active local unit (player or minion)
 			for (size_t i = 0; i < numCards; i++) {
 				float cardCenterX = startX + i * (handBaseCardWidth + padding) + (handBaseCardWidth / 2.0f);
-				currentPlayer.hand[i].targetPos = ofVec2f(cardCenterX, handCenterY);
+				handPlayer->hand[i].targetPos = ofVec2f(cardCenterX, handCenterY);
 
 				if (static_cast<int>(i) != draggedCardIndex) {
-					currentPlayer.hand[i].currentScale = ofLerp(currentPlayer.hand[i].currentScale, currentPlayer.hand[i].targetScale, 0.25f);
-					currentPlayer.hand[i].currentPos = currentPlayer.hand[i].currentPos.getInterpolated(currentPlayer.hand[i].targetPos, 0.25f);
-				}
-			}
-
-			// Position opponent's cards (continuing from where local player's cards end)
-			if (showOpponentHand) {
-				for (size_t i = 0; i < opponentHandPlayer->hand.size(); i++) {
-					size_t offset = numCards + i;
-					float cardCenterX = startX + offset * (handBaseCardWidth + padding) + (handBaseCardWidth / 2.0f);
-					opponentHandPlayer->hand[i].targetPos = ofVec2f(cardCenterX, handCenterY);
-
-					opponentHandPlayer->hand[i].currentScale = ofLerp(opponentHandPlayer->hand[i].currentScale, opponentHandPlayer->hand[i].targetScale, 0.25f);
-					opponentHandPlayer->hand[i].currentPos = opponentHandPlayer->hand[i].currentPos.getInterpolated(opponentHandPlayer->hand[i].targetPos, 0.25f);
+					handPlayer->hand[i].currentScale = ofLerp(handPlayer->hand[i].currentScale, handPlayer->hand[i].targetScale, 0.25f);
+					handPlayer->hand[i].currentPos = handPlayer->hand[i].currentPos.getInterpolated(handPlayer->hand[i].targetPos, 0.25f);
 				}
 			}
 		}
+		// --- CHANGE END ---
 	}
 
 	if (isPlayerAnimating && animatingPlayerIndex >= 0 && animatingPlayerIndex < (int)players.size()) {
@@ -5292,14 +5263,17 @@ void ofApp::updateGame() {
 	// Remove units instantly if they have 0 HP or no cards anywhere (deck+discard+hand)
 	std::vector<int> removeIndices;
 	for (size_t i = 0; i < players.size(); ++i) {
+		// --- CHANGE START ---
 		bool noCards = players[i].deck.empty() && players[i].discardPile.empty() && players[i].hand.empty();
 		bool shouldDie = (players[i].health <= 0);
 
+		// The "no cards" rule should only apply to main players, not minions.
 		if (!players[i].isMinion && noCards) {
 			shouldDie = true;
 		}
 
 		if (shouldDie) {
+			// --- CHANGE END ---
 			// --- Faerie Resurrection Mechanic ---
 			Player & dying = players[i];
 			if (!dying.isFaerie && dying.x >= 0 && dying.y >= 0) {
@@ -11481,110 +11455,70 @@ void ofApp::mousePressed(int x, int y, int button) {
 		// 3d. Deck Clicking (Drawing Cards)
 		if (button == OF_MOUSE_BUTTON_LEFT) {
 
-			// --- FIX: Check Minion Type for Draw Count ---
+			// --- MINION DECK CLICK LOGIC ---
 			for (const auto & ui : activeMinionUIs) {
+				// Check if it's this minion's turn and their deck UI was clicked
 				if (ui.playerIndex == currentPlayerIndex && ui.deckRect.inside(x, y) && !hasDrawnCardsThisTurn) {
-					Player & minion = players[ui.playerIndex];
 
-					// Minions have their own decks, but cards go to the OWNER's hand
-					// Find the owner player
-					int ownerIndex = -1;
-					for (size_t i = 0; i < players.size(); i++) {
-						if (players[i].playerID == minion.ownerID && !players[i].isMinion) {
-							ownerIndex = (int)i;
-							break;
-						}
-					}
-
-					if (ownerIndex < 0) {
-						ofLogWarning("Game") << "Minion owner not found!";
-						return;
-					}
-
-					Player & owner = players[ownerIndex];
-
-					// Default 2, Demon 3
-					int drawCount = minion.isDemon ? 3 : 2;
-
-					// Handle Hasten buff if applicable
-					if (minion.nextTurnExtraDraw) {
-						drawCount++;
-						minion.nextTurnExtraDraw = false;
-					}
-
-					// Unified minion draw logic: use drawMinionCard to handle multiplayer and drawnThisTurn
+					// Call the unified draw function. It handles draw count and networking internally.
+					int ownerIndex = players[ui.playerIndex].isMinion ? players[ui.playerIndex].ownerID : players[ui.playerIndex].playerID;
 					this->drawMinionCard(ui.playerIndex, ownerIndex);
+
 					hasDrawnCardsThisTurn = true;
-					return;
+					return; // Click handled
 				}
 			}
 
 			if (players.empty() || currentPlayerIndex < 0) return;
 
-			// --- NEW LOGIC: FIND PLAYERS BY ID, NOT INDEX ---
+			// --- MAIN PLAYER DECK CLICK LOGIC ---
 			Player * p0 = nullptr;
 			Player * p1 = nullptr;
 			for (auto & p : players) {
-				if (p.playerID == 0) p0 = &p;
-				if (p.playerID == 1) p1 = &p;
+				if (p.playerID == 0 && !p.isMinion) p0 = &p;
+				if (p.playerID == 1 && !p.isMinion) p1 = &p;
 			}
 
-			// If we can't find the main players, exit
 			if (!p0 || !p1) return;
 
-			// In multiplayer, use local player perspective: bottom deck is always "mine"
-			Player * localPlayer = nullptr;
-			if (isMultiplayer) {
-				localPlayer = (myLocalPlayerID == 0) ? p0 : p1;
-			}
-
+			Player * localPlayer = isMultiplayer ? ((myLocalPlayerID == 0) ? p0 : p1) : p0;
 			Player & activePlayer = players[currentPlayerIndex];
-			bool isLocalPlayersTurn = false;
+
+			bool isLocalPlayersTurnForMainDeck = false;
 			if (isMultiplayer) {
-				// In multiplayer, check if it's the local player's turn
-				isLocalPlayersTurn = (activePlayer.playerID == myLocalPlayerID && !activePlayer.isMinion);
+				isLocalPlayersTurnForMainDeck = (activePlayer.playerID == myLocalPlayerID && !activePlayer.isMinion);
 			} else {
-				// Single player: P0 clicks bottom deck
-				isLocalPlayersTurn = (activePlayer.playerID == 0 && !activePlayer.isMinion);
+				isLocalPlayersTurnForMainDeck = (activePlayer.playerID == 0 && !activePlayer.isMinion);
 			}
 
-			// Bottom Deck Click (Always Local Player in Multiplayer)
-			if (p0_deckRect.inside(x, y) && isLocalPlayersTurn && !hasDrawnCardsThisTurn) {
-				Player * playerToDraw = isMultiplayer ? localPlayer : p0;
-				int localPlayerIndex = currentPlayerIndex;
-				if (isMultiplayer) {
-					for (size_t i = 0; i < players.size(); i++) {
-						if (players[i].playerID == myLocalPlayerID && !players[i].isMinion) {
-							localPlayerIndex = (int)i;
-							break;
-						}
+			// Bottom Deck Click (Main Player)
+			if (p0_deckRect.inside(x, y) && isLocalPlayersTurnForMainDeck && !hasDrawnCardsThisTurn) {
+				int localPlayerIndex = -1;
+				for (size_t i = 0; i < players.size(); i++) {
+					if (players[i].playerID == myLocalPlayerID && !players[i].isMinion) {
+						localPlayerIndex = (int)i;
+						break;
 					}
 				}
-				int baseDraw = playerToDraw->isDemon ? 3 : 2;
-				int cardsToDraw = playerToDraw->nextTurnExtraDraw ? (baseDraw + 1) : baseDraw;
-				if (playerToDraw->nextTurnExtraDraw) ofLogNotice("Game") << "Hasten Effect: Drawing 3 cards!";
+				if (localPlayerIndex == -1) localPlayerIndex = 0; // Fallback for single player
 
-				// Remember hand size before drawing to get the new cards (host path)
-				size_t handSizeBefore = playerToDraw->hand.size();
+				int baseDraw = localPlayer->isDemon ? 3 : 2;
+				int cardsToDraw = localPlayer->nextTurnExtraDraw ? (baseDraw + 1) : baseDraw;
+
+				size_t handSizeBefore = localPlayer->hand.size();
 
 				if (isMultiplayer && isClient()) {
-					// Client: do NOT perform local draws. Send a draw REQUEST to host
 					DrawCardsPacket req = {};
 					req.type = PKT_DRAW_CARDS;
 					req.playerID = myLocalPlayerID;
 					req.playerIndex = localPlayerIndex;
 					req.numCards = cardsToDraw;
-					// Leave cardNames empty to indicate a request
 					steamManager.sendPacket(&req, sizeof(req));
-					ofLogNotice("Network") << "Client sent DrawCards REQUEST: " << cardsToDraw << " cards";
-					// Client will wait for authoritative DrawCards from host
-					opponentHasDrawnCardsThisTurn = false; // will be set when authoritative packet arrives
 				} else {
-					// Single-player or Host: perform authoritative draws locally
+					// Single-player or Host
 					for (int i = 0; i < cardsToDraw; ++i)
 						drawCard();
 
-					// If multiplayer host, broadcast the authoritative draw to clients
 					if (isMultiplayer && isHost()) {
 						DrawCardsPacket out = {};
 						out.type = PKT_DRAW_CARDS;
@@ -11593,19 +11527,18 @@ void ofApp::mousePressed(int x, int y, int button) {
 						out.numCards = cardsToDraw;
 						for (int i = 0; i < cardsToDraw && i < 3; ++i) {
 							size_t idx = handSizeBefore + i;
-							if (idx < playerToDraw->hand.size()) {
-								strncpy(out.cardNames[i], playerToDraw->hand[idx].name.c_str(), 63);
+							if (idx < localPlayer->hand.size()) {
+								strncpy(out.cardNames[i], localPlayer->hand[idx].name.c_str(), 63);
 								out.cardNames[i][63] = '\0';
 							} else {
 								out.cardNames[i][0] = '\0';
 							}
 						}
 						steamManager.sendPacket(&out, sizeof(out));
-						ofLogNotice("Network") << "Host: Sent authoritative DrawCards packet: " << out.numCards << " cards";
 					}
 				}
 
-				playerToDraw->nextTurnExtraDraw = false;
+				localPlayer->nextTurnExtraDraw = false;
 				hasDrawnCardsThisTurn = true;
 			}
 		}
@@ -21986,6 +21919,44 @@ void ofApp::processNetworkPackets() {
 					isEarthquakeAnimatingStep = false;
 					earthquakeDiceAssignCounter = 0;
 					isWaitingForEarthquakeBegin = false;
+					continue;
+				} else if (header->type == PKT_CARD_ACTION_BEGIN) {
+					CardActionBeginPacket * pkt = (CardActionBeginPacket *)header;
+					ofLogNotice("Network") << "Received CardActionBegin from opponent: cardType=" << pkt->cardType;
+
+					// This is primarily for the client to apply host-authoritative effects.
+					if (isClient()) {
+						Player * target = getPlayer(pkt->actorIndex);
+						if (target) {
+							glm::vec3 tPos = gridToWorld(target->x, target->y);
+							int extraDamage = pkt->param0;
+
+							switch (pkt->cardType) {
+							case CARD_SHOCK:
+								applyDamageTo(*target, extraDamage, DAMAGE_ELECTRIC, -1); // -1 attacker, as it's an effect
+								target->isParalyzed = true;
+								target->paralysisHeadsCount = 0;
+								spawnFloatingText(tPos + glm::vec3(0, 0.6f, 0), "-" + ofToString(extraDamage) + " Electric", ofColor::orange);
+								spawnFloatingText(tPos + glm::vec3(0, 1.0f, 0), "PARALYZED!", ofColor::yellow);
+								break;
+							case CARD_FLAME_HIT:
+								applyDamageTo(*target, extraDamage, DAMAGE_FIRE, -1);
+								target->onFire = true;
+								spawnFloatingText(tPos + glm::vec3(0, 0.6f, 0), "-" + ofToString(extraDamage) + " Fire", ofColor::red);
+								spawnFloatingText(tPos + glm::vec3(0, 1.0f, 0), "ON FIRE!", ofColor::orange);
+								break;
+							case CARD_ADD_POISON:
+								applyDamageTo(*target, extraDamage, DAMAGE_POISON, -1);
+								target->isPoisoned = true;
+								target->poisonReduction = 0;
+								spawnFloatingText(tPos + glm::vec3(0, 0.6f, 0), "-" + ofToString(extraDamage) + " Poison", ofColor::green);
+								spawnFloatingText(tPos + glm::vec3(0, 1.0f, 0), "POISONED!", ofColor::green);
+								break;
+							default:
+								break;
+							}
+						}
+					}
 					continue;
 				} else if (header->type == PKT_DICE_ROLL) {
 					DiceRollPacket * drp = (DiceRollPacket *)header;
