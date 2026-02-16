@@ -135,7 +135,10 @@ void ofApp::drawMinionCard(int minionIndex, int ownerIndex) {
 			float cardCenterX = startX + (numCards - 1) * (handBaseCardWidth + padding) + (handBaseCardWidth / 2.0f);
 			anim.targetPos = glm::vec2(cardCenterX, handCenterY);
 			anim.endPos = anim.startPos;
-			anim.currentPos = glm::vec2(anim.startPos.x, anim.startPos.y);
+			// Initialize currentPos in screen-space for a smooth first frame
+			ofVec3f sp = cam.worldToScreen(anim.startPos);
+			anim.currentPos = glm::vec2((float)sp.x, (float)sp.y);
+			anim.currentScale = 0.55f;
 			activeDrawCardAnimations.push_back(anim);
 		}
 	}
@@ -1073,6 +1076,22 @@ void ofApp::update() {
 		}
 	}
 	processNetworkPackets();
+
+	// Resend watchdog for client-sent DraftActionPackets (retry until host forwards/acks)
+	if (isClient() && lastSentDraftActionValid && (waitingForDraftOptions || draftAcceptLocked)) {
+		float now = ofGetElapsedTimef();
+		if (now - lastSentDraftActionTime > DRAFT_ACTION_RESEND_INTERVAL) {
+			if (lastSentDraftActionResendCount < DRAFT_ACTION_MAX_RESENDS) {
+				steamManager.sendPacket(&lastSentDraftActionPacket, sizeof(lastSentDraftActionPacket));
+				lastSentDraftActionResendCount++;
+				lastSentDraftActionTime = now;
+				ofLogNotice("Network") << "Resent DraftActionPacket to host (attempt=" << lastSentDraftActionResendCount << ")";
+			} else {
+				lastSentDraftActionValid = false; // give up after max attempts
+				ofLogWarning("Network") << "Giving up on DraftActionPacket resend after " << lastSentDraftActionResendCount << " attempts";
+			}
+		}
+	}
 
 	// Music: respond to state changes (play/stop main menu music)
 	if (currentState != prevState) {
@@ -5232,13 +5251,44 @@ void ofApp::updateGame() {
 	for (auto & anim : activeDrawCardAnimations) {
 		float elapsed = ofGetElapsedTimef() - anim.startTime;
 		float t = ofClamp(elapsed / anim.duration, 0.0f, 1.0f);
-		// Animate from 3D startPos (projected to 2D) to 2D targetPos
-		ofVec3f screenPos = cam.worldToScreen(anim.startPos);
-		float sx = (float)screenPos.x;
-		float sy = (float)screenPos.y;
-		glm::vec2 start2D(sx, sy);
-		anim.currentPos = start2D + t * (anim.targetPos - start2D);
-		anim.currentAlpha = 255.0f; // Always fully opaque
+		// Project 3D start into 2D (or use screen-space start) and clamp so it doesn't start off-screen
+		glm::vec2 start2D;
+		if (anim.startIsScreenSpace) {
+			// startPos already contains screen coordinates
+			start2D = glm::vec2(anim.startPos.x, anim.startPos.y);
+		} else {
+			ofVec3f screenPos = cam.worldToScreen(anim.startPos);
+			start2D = glm::vec2((float)screenPos.x, (float)screenPos.y);
+		}
+		// Prevent start point from being below the bottom of the window (keeps flight arc on-screen)
+		float minY = 40.0f;
+		float maxY = ofGetHeight() - 80.0f;
+		start2D.y = ofClamp(start2D.y, minY, maxY);
+
+		// Build an elevated control point for a nice arc (Hearthstone-like)
+		glm::vec2 mid = (start2D + anim.targetPos) * 0.5f;
+		float lift = std::max(120.0f, glm::distance(start2D, anim.targetPos) * 0.45f);
+		glm::vec2 control = mid - glm::vec2(0.0f, lift); // negative y = up on screen
+
+		// Quadratic Bezier interpolation (gives a smooth arc)
+		float u = 1.0f - t;
+		anim.currentPos = (u * u) * start2D + (2.0f * u * t) * control + (t * t) * anim.targetPos;
+
+		// Scale easing: start small, overshoot slightly, settle to final (final visually ~1.5x hand)
+		float s0 = 0.55f; // start scale (small)
+		float sOvershoot = 1.6f; // slight overshoot for pop
+		float sFinal = 1.5f; // final visual size multiplier used elsewhere
+		auto easeOutCubic = [](float x) {
+			return 1.0f - powf(1.0f - x, 3.0f);
+		};
+		if (t < 0.6f) {
+			anim.currentScale = ofLerp(s0, sOvershoot, easeOutCubic(t / 0.6f));
+		} else {
+			anim.currentScale = ofLerp(sOvershoot, sFinal, easeOutCubic((t - 0.6f) / 0.4f));
+		}
+
+		// Keep fully opaque for clarity
+		anim.currentAlpha = 255.0f;
 	}
 	// Remove finished draw animations
 	activeDrawCardAnimations.erase(std::remove_if(activeDrawCardAnimations.begin(), activeDrawCardAnimations.end(), [](const DrawCardAnimation & anim) {
@@ -8197,8 +8247,8 @@ void ofApp::drawGame() {
 	for (const auto & anim : activeDrawCardAnimations) {
 		ofPushStyle();
 		ofSetColor(255, anim.currentAlpha);
-		float w = handBaseCardWidth * 1.5f;
-		float h = baseCardHeight * 1.5f;
+		float w = handBaseCardWidth * anim.currentScale;
+		float h = baseCardHeight * anim.currentScale;
 		float drawX = anim.currentPos.x - w / 2;
 		float drawY = anim.currentPos.y - h / 2;
 		cardSpriteSheet.drawSubsection(drawX, drawY, w, h,
@@ -9531,8 +9581,17 @@ void ofApp::mousePressed(int x, int y, int button) {
 				pkt.selectedIdx1 = (pkt.numSelected > 1 && selectedDraftIndices[1] >= 0 && selectedDraftIndices[1] < 3) ? currentDraftOptionPoolIndices[selectedDraftIndices[1]] : -1;
 				pkt.selectedIdx2 = (pkt.numSelected > 2 && selectedDraftIndices[2] >= 0 && selectedDraftIndices[2] < 3) ? currentDraftOptionPoolIndices[selectedDraftIndices[2]] : -1;
 
+				// Assign a client-local action id for ACK matching
+				pkt.clientActionID = ++draftClientActionCounter;
+
+				// Track for resend until host forwards/acks
+				lastSentDraftActionPacket = pkt;
+				lastSentDraftActionValid = true;
+				lastSentDraftActionTime = ofGetElapsedTimef();
+				lastSentDraftActionResendCount = 0;
+
 				steamManager.sendPacket(&pkt, sizeof(pkt));
-				ofLogNotice("Network") << "Client sent AcceptDraft to host (" << pkt.numSelected << " picks)";
+				ofLogNotice("Network") << "Client sent AcceptDraft to host (" << pkt.numSelected << " picks) clientActionID=" << pkt.clientActionID;
 				return;
 			}
 
@@ -9615,7 +9674,15 @@ void ofApp::mousePressed(int x, int y, int button) {
 						pkt.selectFlag = nowSelected ? 1 : 0;
 						pkt.optionIndex = i;
 						pkt.draftPlayerIdx = draftPlayerIndex;
+
+						// Track for resend until host forwards/acks
+						lastSentDraftActionPacket = pkt;
+						lastSentDraftActionValid = true;
+						lastSentDraftActionTime = ofGetElapsedTimef();
+						lastSentDraftActionResendCount = 0;
+
 						steamManager.sendPacket(&pkt, sizeof(pkt));
+						ofLogNotice("Network") << "Client sent DraftToggle to host: option=" << pkt.optionIndex << " sel=" << (int)pkt.selectFlag << " draftPlayer=" << pkt.draftPlayerIdx;
 					}
 					return; // Click was on a card, handled.
 				}
@@ -13586,7 +13653,7 @@ void ofApp::drawCard() {
 		anim.ownerIndex = currentPlayerIndex;
 		anim.toMinionHand = false;
 
-		// Calculate Spawn Position (from Deck UI)
+		// Calculate Spawn Position (use deck UI center so flight visibly begins at deck)
 		float scale = ofGetHeight() / 1080.0f;
 		float staticUICardWidth = (120 * 1.3f) * scale;
 		float staticUICardHeight = ((120 * (585.0f / 409.0f)) * 1.3f) * scale;
@@ -13596,17 +13663,17 @@ void ofApp::drawCard() {
 		} else {
 			isLocalPlayer = (currentPlayerIndex == 0);
 		}
+
+		// Use the precomputed deck rectangles (p0_deckRect / p1_deckRect) so UI is consistent
+		glm::vec2 start2D;
 		if (isLocalPlayer) {
-			float deckX = 30 * scale;
-			float deckY = ofGetHeight() - staticUICardHeight - (40 * scale) - staticUICardHeight - (40 * scale);
-			anim.startPos = glm::vec3(deckX + staticUICardWidth / 2, deckY + staticUICardHeight / 2, 0);
+			start2D = glm::vec2(p0_deckRect.getCenter().x, p0_deckRect.getCenter().y);
 		} else {
-			float discardX = ofGetWidth() - staticUICardWidth - (30 * scale);
-			float discardY = 40 * scale;
-			float deckX = discardX;
-			float deckY = discardY + staticUICardHeight + (40 * scale);
-			anim.startPos = glm::vec3(deckX + staticUICardWidth / 2, deckY + staticUICardHeight / 2, 0);
+			start2D = glm::vec2(p1_deckRect.getCenter().x, p1_deckRect.getCenter().y);
 		}
+		anim.startPos = glm::vec3(start2D.x, start2D.y, 0);
+		anim.startIsScreenSpace = true;
+
 		// Set anim.targetPos to the standard hand area (centered, bottom)
 		size_t numCards = currentPlayer.hand.size(); // Already added new card
 		float handCenterY = ofGetHeight() - 130;
@@ -13620,7 +13687,8 @@ void ofApp::drawCard() {
 		float cardCenterX = startX + (numCards - 1) * (handBaseCardWidth + padding) + (handBaseCardWidth / 2.0f);
 		anim.targetPos = glm::vec2(cardCenterX, handCenterY);
 		anim.endPos = anim.startPos;
-		anim.currentPos = glm::vec2(anim.startPos.x, anim.startPos.y);
+		anim.currentPos = start2D; // initialize in screen-space so first frame is correct
+		anim.currentScale = 0.55f; // start small, will pop to ~1.5x
 		anim.duration = 0.18f;
 		activeDrawCardAnimations.push_back(anim);
 	}
@@ -21329,7 +21397,7 @@ void ofApp::processNetworkPackets() {
 			} packetGuard(&processingNetworkPacket);
 
 			// Verbose packet tracing for debugging desyncs
-			if (header->type == PKT_ACTION || header->type == PKT_RENEWED_INSPIRATION || header->type == PKT_DRAW_CARDS || header->type == PKT_SHUFFLE || header->type == PKT_TURN_START || header->type == PKT_PLACE_SUMMONED_MINION || header->type == PKT_DICE_ROLL || header->type == PKT_CHECKSUM_CHECK || header->type == PKT_SNAPSHOT_BEGIN || header->type == PKT_SNAPSHOT_CHUNK || header->type == PKT_SNAPSHOT_END || header->type == PKT_MOVE_UNIT || header->type == PKT_AMNESIA_CHOICE || header->type == PKT_PLACE_SUMMONED_BEGIN) {
+			if (header->type == PKT_ACTION || header->type == PKT_DRAFT_ACTION || header->type == PKT_DRAFT_ACK || header->type == PKT_RENEWED_INSPIRATION || header->type == PKT_DRAW_CARDS || header->type == PKT_SHUFFLE || header->type == PKT_TURN_START || header->type == PKT_PLACE_SUMMONED_MINION || header->type == PKT_DICE_ROLL || header->type == PKT_CHECKSUM_CHECK || header->type == PKT_SNAPSHOT_BEGIN || header->type == PKT_SNAPSHOT_CHUNK || header->type == PKT_SNAPSHOT_END || header->type == PKT_MOVE_UNIT || header->type == PKT_AMNESIA_CHOICE || header->type == PKT_PLACE_SUMMONED_BEGIN) {
 				ofLogNotice("NetTrace") << "RECV pkt type=" << (int)header->type << " player=" << header->playerID << " seq=" << header->seq << " size=" << buffer.size();
 				if (header->type == PKT_ACTION && buffer.size() >= sizeof(ActionPacket)) {
 					ActionPacket * ap = (ActionPacket *)buffer.data();
@@ -22071,6 +22139,8 @@ void ofApp::processNetworkPackets() {
 								float deckX = discardX;
 								float deckY = discardY + staticUICardHeight + (40 * scale);
 								anim.startPos = glm::vec3(deckX + staticUICardWidth / 2, deckY + staticUICardHeight / 2, 0);
+								anim.startIsScreenSpace = true; // ensure UI-origin animation uses screen coords
+								anim.currentPos = glm::vec2(anim.startPos.x, anim.startPos.y);
 								size_t numCards = p.hand.size();
 								float handCenterY = ofGetHeight() - 160;
 								float handBaseCardWidth = 120;
@@ -22085,6 +22155,7 @@ void ofApp::processNetworkPackets() {
 								anim.endPos = anim.startPos;
 								anim.currentPos = glm::vec2(anim.startPos.x, anim.startPos.y);
 								activeDrawCardAnimations.push_back(anim);
+								anim.currentScale = 0.55f;
 								ofLogNotice("Network") << "Opponent (Player " << targetPlayerIndex << ") drew " << newCard.name;
 							}
 						}
@@ -22611,7 +22682,18 @@ void ofApp::processNetworkPackets() {
 					}
 				}
 
-				else if (header->type == PKT_DRAFT_STATE) {
+				else if (header->type == PKT_DRAFT_ACK) {
+					DraftAckPacket * dap = (DraftAckPacket *)header;
+					ofLogNotice("Network") << "Draft ACK received: clientActionID=" << dap->clientActionID << " type=" << (int)dap->actionType << " opt=" << dap->optionIndex << " playerSlot=" << dap->draftPlayerIdx;
+
+					// CLIENT: clear resend state if this ACK matches our last sent draft action
+					if (isClient() && lastSentDraftActionValid && lastSentDraftActionPacket.clientActionID == dap->clientActionID) {
+						lastSentDraftActionValid = false;
+						ofLogNotice("Network") << "Client: DraftAction (clientActionID=" << dap->clientActionID << ") acknowledged by host";
+					}
+
+					continue;
+				} else if (header->type == PKT_DRAFT_STATE) {
 					DraftStatePacket * sp = (DraftStatePacket *)header;
 					ofLogNotice("Network") << "Draft state received: class=" << sp->classTier << " player=" << sp->draftPlayerIdx << " picks=" << sp->picksRemaining << " stage=" << sp->draftStage << " ingame=" << (int)sp->isInGameDraft << " curPlayer=" << sp->currentPlayerIndex;
 
@@ -22708,7 +22790,7 @@ void ofApp::processNetworkPackets() {
 					if (isHost()) {
 						// Ignore any draft inputs if we're not actively drafting
 						if (currentState != STATE_DRAFTING && !isInGameDraft) {
-							ofLogNotice("Network") << "Host: Ignoring draft input outside draft state (type=" << (int)pkt->actionType << ")";
+							ofLogNotice("Network") << "Host: Ignoring draft input outside draft state (type=" << (int)pkt->actionType << ", playerID=" << pkt->playerID << ", draftPlayerIdx=" << pkt->draftPlayerIdx << ", currentState=" << currentState << ")";
 							continue;
 						}
 						// Host: apply the client's input, then forward to the client(s)
@@ -22767,10 +22849,19 @@ void ofApp::processNetworkPackets() {
 							DraftActionPacket outPkt = *pkt;
 							steamManager.sendPacket(&outPkt, sizeof(outPkt));
 
-							// Now shuffle (sends shuffle packet AFTER Accept packet)
-							shuffleGameVector(p.deck, pkt->draftPlayerIdx);
+							// Send explicit ACK for this Accept back to the origin client
+							DraftAckPacket ack = {};
+							ack.type = PKT_DRAFT_ACK;
+							ack.playerID = myLocalPlayerID;
+							ack.clientActionID = pkt->clientActionID;
+							ack.actionType = pkt->actionType;
+							ack.draftPlayerIdx = pkt->draftPlayerIdx;
+							ack.numSelected = (uint8_t)pkt->numSelected;
+							ack.selectedIdx0 = pkt->selectedIdx0;
+							ack.selectedIdx1 = pkt->selectedIdx1;
+							ack.selectedIdx2 = pkt->selectedIdx2;
+							steamManager.sendPacket(&ack, sizeof(ack));
 
-							// Advance host-side draft state
 							selectedDraftIndices.clear();
 							draftOptions.clear();
 							if (isInGameDraft) {
@@ -22918,7 +23009,11 @@ void ofApp::processNetworkPackets() {
 						// Client: apply actions forwarded by host
 						if (pkt->actionType == 0) {
 
-							// --- REMOVE THIS LINE ---
+							// If this forwarded toggle matches a packet we sent, clear resend state early
+							if (lastSentDraftActionValid && pkt->playerID == static_cast<uint32_t>(myLocalPlayerID) && pkt->actionType == 0) {
+								lastSentDraftActionValid = false;
+								ofLogNotice("Network") << "Client: Received host-forwarded DraftToggle ack for our packet (early)";
+							}
 							// if (draftAcceptLocked) { continue; }
 							// ------------------------
 
@@ -22956,6 +23051,11 @@ void ofApp::processNetworkPackets() {
 								return;
 							}
 							draftAcceptApplied = true;
+							// If this forwarded accept matches our last sent Accept, clear the resend state
+							if (lastSentDraftActionValid && pkt->playerID == static_cast<uint32_t>(myLocalPlayerID) && pkt->actionType == 1) {
+								lastSentDraftActionValid = false;
+								ofLogNotice("Network") << "Client: Received host-forwarded AcceptDraft ack for our packet";
+							}
 							int picks = pkt->numSelected;
 							std::vector<int> sel;
 							if (picks > 0) sel.push_back(pkt->selectedIdx0);

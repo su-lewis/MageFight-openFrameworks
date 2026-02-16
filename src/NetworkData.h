@@ -18,6 +18,7 @@ enum PacketType {
 	PKT_DRAFT_ACTION, // Draft selection / accept messages (sent by clients to host)
 	PKT_DRAFT_STATE, // Host -> Client: draft state update (class, stage, player)
 	PKT_DRAFT_OPTIONS, // Host -> Client: authoritative indices for options
+	PKT_DRAFT_ACK, // Host -> Client: explicit ack for client-sent draft actions
 	PKT_SHUFFLE, // Host -> Client: authoritative deck shuffle (playerIndex, nonce)
 	PKT_TURN_START, // Host -> Client: authoritative turn start (current player, AP dice results)
 	PKT_KEY_PICKUP, // Host -> Client: a player picked up a key (trigger in-game draft)
@@ -172,6 +173,8 @@ struct RenewedInspirationPacket : PacketHeader {
 };
 
 // For drafting actions (selecting a card, accepting the draft)
+// NOTE: `clientActionID` is a client-local monotonic id that the host will
+// echo back in `PKT_DRAFT_ACK` so clients can reliably match ACKs.
 struct DraftActionPacket : PacketHeader {
 	uint8_t actionType; // 0 = SelectCard / ToggleSelect, 1 = AcceptDraft
 	uint8_t selectFlag; // For SelectCard: 1 = select, 0 = deselect
@@ -182,6 +185,7 @@ struct DraftActionPacket : PacketHeader {
 	int32_t selectedIdx0; // up to 3 selections
 	int32_t selectedIdx1;
 	int32_t selectedIdx2;
+	uint32_t clientActionID; // client-local id for reliable ACK matching
 };
 
 // Host -> Client: Simple draft state update (no indices, just state)
@@ -205,6 +209,20 @@ struct DraftOptionsPacket : PacketHeader {
 	int32_t draftStage; // 0 = class1, 1 = class2, etc
 	uint8_t isInGameDraft; // 1 = in-game key draft, 0 = normal
 	uint32_t draftGenCounter; // The draft generation counter value used by host
+};
+
+// ------------------------- NEW: Draft ACK -------------------------
+// Host -> Client: explicit acknowledgement for client-sent DraftAction
+struct DraftAckPacket : PacketHeader {
+	uint32_t clientActionID; // echoes client-generated id for matching
+	uint8_t actionType; // echoed actionType (0=tgl,1=accept)
+	int32_t optionIndex; // echoed optionIndex (if applicable)
+	int32_t draftPlayerIdx; // echoed draft player index
+	uint8_t selectFlag; // echoed selectFlag
+	uint8_t numSelected; // echoed numSelected (for Accept)
+	int32_t selectedIdx0; // echoed indices
+	int32_t selectedIdx1;
+	int32_t selectedIdx2;
 };
 
 // Host -> Client: Instruct client to apply a deterministic shuffle to a player's deck

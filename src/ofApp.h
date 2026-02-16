@@ -290,15 +290,17 @@ struct RemovedCardAnimation {
 // Animation for drawing a card from deck to hand
 struct DrawCardAnimation {
 	Card card;
-	glm::vec3 startPos;
+	glm::vec3 startPos; // world OR screen coords (z==0 for screen-space)
 	glm::vec3 endPos;
 	glm::vec2 currentPos;
 	glm::vec2 targetPos; // 2D hand position for animation end
 	float startTime;
 	float duration;
 	float currentAlpha = 255.0f;
+	float currentScale = 1.0f; // visual scale multiplier used during animation
 	int ownerIndex; // Player or minion index
 	bool toMinionHand; // True if animating to minion hand
+	bool startIsScreenSpace = false; // true when startPos is already screen coordinates
 };
 
 struct Tile {
@@ -756,6 +758,15 @@ private:
 	bool pendingDraftStateAvailable = false; // If a state packet arrives while we're waiting, stash it
 	DraftStatePacket pendingDraftState;
 	bool initialDraftComplete = false; // True once the initial (pre-game) draft finishes
+
+	// Reliability helpers for client-sent DraftAction packets (resend until host ACK/forward)
+	DraftActionPacket lastSentDraftActionPacket; // Last DraftActionPacket the client sent (for resend)
+	bool lastSentDraftActionValid = false; // True if the lastSentDraftActionPacket still needs ack/resend
+	float lastSentDraftActionTime = 0.0f; // Timestamp of last send
+	int lastSentDraftActionResendCount = 0; // How many times we've resent
+	const float DRAFT_ACTION_RESEND_INTERVAL = 0.75f; // Retry interval (seconds)
+	const int DRAFT_ACTION_MAX_RESENDS = 3; // Max resend attempts
+	uint32_t draftClientActionCounter = 0; // client-local monotonic id for draft actions
 
 	// Debug logging helpers: remember last logged draft options count so we only spam logs
 	int lastLoggedDraftOptionsCount = -1;
