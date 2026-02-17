@@ -10598,6 +10598,12 @@ void ofApp::mousePressed(int x, int y, int button) {
 
 		ofLogNotice("Draft") << "DRAFT CLICK: mousePos=(" << x << "," << y << ") selections=" << (int)selectedDraftIndices.size() << " required=" << requiredPicks << " inGameDraft=" << (int)isInGameDraft << " draftStage=" << draftStage << " acceptRect=(" << draftAcceptButtonRect.x << "," << draftAcceptButtonRect.y << "," << draftAcceptButtonRect.width << "," << draftAcceptButtonRect.height << ")";
 
+		// Diagnostic: report local vs drafting player to help debug misrouting
+		if (isMultiplayer) {
+			int localIdx = getLocalPlayerIndex();
+			ofLogNotice("DraftDebug") << "LocalIdx=" << localIdx << " draftPlayerIndex=" << draftPlayerIndex << " isLocalDrafting=" << (isLocalDraftingPlayer(draftPlayerIndex) ? 1 : 0);
+		}
+
 		// --- FIX START: REORDER LOGIC ---
 
 		// 1. CHECK ACCEPT BUTTON FIRST
@@ -10741,6 +10747,9 @@ void ofApp::mousePressed(int x, int y, int button) {
 						pkt.selectFlag = nowSelected ? 1 : 0;
 						pkt.optionIndex = poolIdx; // send pool index
 						pkt.draftPlayerIdx = draftPlayerIndex;
+
+						// Assign a client-local action id for ACK matching (toggle too)
+						pkt.clientActionID = ++draftClientActionCounter;
 
 						// Track for resend until host forwards/acks
 						lastSentDraftActionPacket = pkt;

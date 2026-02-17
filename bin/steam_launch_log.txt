@@ -1276,3 +1276,290 @@ SteamInternal_SetMinidumpSteamID:  Caching Steam ID:  76561198261715869 [API loa
 [notice ] Settings: Saved settings to Config/settings.json
 [notice ] SteamManager: Steam API Shutdown.
 [S_API FAIL] Tried to access Steam interface SteamNetworkingSockets012 before SteamAPI_Init succeeded.
+ERROR: ld.so: object '/usr/lib/extest/libextest.so' from LD_PRELOAD cannot be preloaded (cannot open shared object file): ignored.
+ERROR: ld.so: object '/var/home/lewis/.local/share/Steam/ubuntu12_32/gameoverlayrenderer.so' from LD_PRELOAD cannot be preloaded (wrong ELF class: ELFCLASS32): ignored.
+--- Launching MageFight at Tue Feb 17 23:23:27 GMT 2026 ---
+Script directory: /home/lewis/of_workspace/openFrameworks/apps/myApps/MageFight/bin
+Original LD_PRELOAD=/usr/lib/extest/libextest.so:/var/home/lewis/.local/share/Steam/ubuntu12_32/gameoverlayrenderer.so:/var/home/lewis/.local/share/Steam/ubuntu12_64/gameoverlayrenderer.so
+Dropping missing LD_PRELOAD entry: /usr/lib/extest/libextest.so
+Final LD_PRELOAD=/var/home/lewis/.local/share/Steam/ubuntu12_32/gameoverlayrenderer.so:/var/home/lewis/.local/share/Steam/ubuntu12_64/gameoverlayrenderer.so
+Starting executable...
+ERROR: ld.so: object '/var/home/lewis/.local/share/Steam/ubuntu12_32/gameoverlayrenderer.so' from LD_PRELOAD cannot be preloaded (wrong ELF class: ELFCLASS32): ignored.
+[S_API] SteamAPI_Init(): SteamAPI_IsSteamRunning() did not locate a running instance of Steam.
+[S_API] SteamAPI_Init(): Loaded '/home/lewis/of_workspace/.steam/sdk64/steamclient.so' OK.
+Setting breakpad minidump AppID = 480
+SteamInternal_SetMinidumpSteamID:  Caching Steam ID:  76561198261715869 [API loaded no]
+[notice ] Steam: Initialized. LocalID: 76561198261715869
+[notice ] Setup: Visual RNG seeded.
+[notice ] Audio: Main menu music loaded: yes
+[notice ] Settings: Loaded settings from Config/settings.json
+[warning] ofMaterial::setPBR:  PBR material must be used with Programmable Renderer.
+[ error ] ofxAssimpTexture::setTextureType: : unknown aiTextureType type 27
+[warning] ofMaterial::setPBR:  PBR material must be used with Programmable Renderer.
+[ error ] ofxAssimpTexture::setTextureType: : unknown aiTextureType type 27
+[warning] ofMaterial::setPBR:  PBR material must be used with Programmable Renderer.
+[warning] ofMaterial::setPBR:  PBR material must be used with Programmable Renderer.
+[warning] ofMaterial::setPBR:  PBR material must be used with Programmable Renderer.
+[warning] ofMaterial::setPBR:  PBR material must be used with Programmable Renderer.
+[notice ] Wolf model loaded with 10 meshes
+[notice ] Setup: Kobold model loaded.
+[ error ] ofxAssimpModelLoader: loadGLResource(): texture doesn't exist: "data/Units/KoboldKing/goblin_king.fbx" in "data/Units/KoboldKing/cadnav.com_model/Models_G0506A078/01391eaa.dds"
+[ error ] loadImage: File not found: "data/Units/KoboldKing/cadnav.com_model/Models_G0506A078/01391eaa.dds"
+[ error ] ofxAssimpModelLoader: loadGLResource(): couldn't load texture: "data/Units/KoboldKing/goblin_king.fbx" from "data/Units/KoboldKing/cadnav.com_model/Models_G0506A078/01391eaa.dds"
+[ error ] ofxAssimpModelLoader: loadGLResource(): texture doesn't exist: "data/Units/KoboldKing/goblin_king.fbx" in "data/Units/KoboldKing/cadnav.com_model/Models_G0506A078/ada8756d.jpg"
+[ error ] loadImage: File not found: "data/Units/KoboldKing/cadnav.com_model/Models_G0506A078/ada8756d.jpg"
+[ error ] ofxAssimpModelLoader: loadGLResource(): couldn't load texture: "data/Units/KoboldKing/goblin_king.fbx" from "data/Units/KoboldKing/cadnav.com_model/Models_G0506A078/ada8756d.jpg"
+[ error ] ofxAssimpModelLoader: loadGLResource(): texture doesn't exist: "data/Units/KoboldKing/goblin_king.fbx" in "data/Units/KoboldKing/cadnav.com_model/Models_G0506A078/496d23a4.jpg"
+[ error ] loadImage: File not found: "data/Units/KoboldKing/cadnav.com_model/Models_G0506A078/496d23a4.jpg"
+[ error ] ofxAssimpModelLoader: loadGLResource(): couldn't load texture: "data/Units/KoboldKing/goblin_king.fbx" from "data/Units/KoboldKing/cadnav.com_model/Models_G0506A078/496d23a4.jpg"
+[ error ] ofxAssimpModelLoader: loadGLResource(): texture doesn't exist: "data/Units/KoboldKing/goblin_king.fbx" in "data/Units/KoboldKing/cadnav.com_model/Models_G0506A078/01391eaa.dds"
+[ error ] loadImage: File not found: "data/Units/KoboldKing/cadnav.com_model/Models_G0506A078/01391eaa.dds"
+[ error ] ofxAssimpModelLoader: loadGLResource(): couldn't load texture: "data/Units/KoboldKing/goblin_king.fbx" from "data/Units/KoboldKing/cadnav.com_model/Models_G0506A078/01391eaa.dds"
+[notice ] Setup: Kobold King texture loaded.
+[notice ] Setup: Kobold King model loaded.
+[notice ] Setup: Hellhound model loaded.
+[warning] ofMaterial::setPBR:  PBR material must be used with Programmable Renderer.
+[ error ] ofxAssimpTexture::setTextureType: : unknown aiTextureType type 27
+[warning] ofMaterial::setPBR:  PBR material must be used with Programmable Renderer.
+[ error ] ofxAssimpTexture::setTextureType: : unknown aiTextureType type 27
+[warning] ofMaterial::setPBR:  PBR material must be used with Programmable Renderer.
+[ error ] ofxAssimpTexture::setTextureType: : unknown aiTextureType type 27
+[warning] ofMaterial::setPBR:  PBR material must be used with Programmable Renderer.
+[ error ] ofxAssimpTexture::setTextureType: : unknown aiTextureType type 27
+[warning] ofMaterial::setPBR:  PBR material must be used with Programmable Renderer.
+[ error ] ofxAssimpTexture::setTextureType: : unknown aiTextureType type 27
+[warning] ofMaterial::setPBR:  PBR material must be used with Programmable Renderer.
+[ error ] ofxAssimpTexture::setTextureType: : unknown aiTextureType type 27
+[warning] ofMaterial::setPBR:  PBR material must be used with Programmable Renderer.
+[ error ] ofxAssimpTexture::setTextureType: : unknown aiTextureType type 27
+[warning] ofMaterial::setPBR:  PBR material must be used with Programmable Renderer.
+[ error ] ofxAssimpTexture::setTextureType: : unknown aiTextureType type 27
+[warning] ofMaterial::setPBR:  PBR material must be used with Programmable Renderer.
+[ error ] ofxAssimpTexture::setTextureType: : unknown aiTextureType type 27
+[warning] ofMaterial::setPBR:  PBR material must be used with Programmable Renderer.
+[ error ] ofxAssimpTexture::setTextureType: : unknown aiTextureType type 27
+[warning] ofMaterial::setPBR:  PBR material must be used with Programmable Renderer.
+[ error ] ofxAssimpTexture::setTextureType: : unknown aiTextureType type 27
+[notice ] Setup: Demon model loaded.
+[notice ] Setup: Tortoise model loaded.
+[warning] ofMaterial::setPBR:  PBR material must be used with Programmable Renderer.
+[notice ] Setup: Ghost model loaded.
+[warning] ofMaterial::setPBR:  PBR material must be used with Programmable Renderer.
+[ error ] ofxAssimpTexture::setTextureType: : unknown aiTextureType type 27
+[notice ] Setup: Wall Unit GLB model loaded and texture applied.
+[notice ] Setup: Assistant model loaded.
+[warning] ofMaterial::setPBR:  PBR material must be used with Programmable Renderer.
+[ error ] ofxAssimpTexture::setTextureType: : unknown aiTextureType type 27
+[warning] ofMaterial::setPBR:  PBR material must be used with Programmable Renderer.
+[ error ] ofxAssimpTexture::setTextureType: : unknown aiTextureType type 27
+[notice ] Setup: Faerie texture loaded.
+[notice ] Setup: Faerie model loaded.
+[notice ] Setup: Loaded key frame: Board/keys_1_1.png
+[notice ] Setup: Loaded key frame: Board/keys_1_2.png
+[notice ] Setup: Loaded key frame: Board/keys_1_3.png
+[notice ] Setup: Loaded key frame: Board/keys_1_4.png
+[notice ] Setup: Loaded key frame: Board/keys_1_5.png
+[notice ] Setup: Loaded silver key frame: Board/keys_2_1.png
+[notice ] Setup: Loaded silver key frame: Board/keys_2_2.png
+[notice ] Setup: Loaded silver key frame: Board/keys_2_3.png
+[notice ] Setup: Loaded silver key frame: Board/keys_2_4.png
+[notice ] Setup: Loaded silver key frame: Board/keys_2_5.png
+[notice ] Setup: Loaded bronze key frame: Board/keys_3_1.png
+[notice ] Setup: Loaded bronze key frame: Board/keys_3_2.png
+[notice ] Setup: Loaded bronze key frame: Board/keys_3_3.png
+[notice ] Setup: Loaded bronze key frame: Board/keys_3_4.png
+[notice ] Setup: Loaded bronze key frame: Board/keys_3_5.png
+[notice ] ofApp::loadCardData: Loaded 70 cards from JSON.
+[notice ] ofApp::loadCardData: Class Distribution - C1: 30, C2: 25, C3: 15
+[notice ] GL: Vendor: AMD | Renderer: AMD Radeon RX 9070 XT (radeonsi, gfx1201, LLVM 21.1.6, DRM 3.64, 6.17.7-ba25.fc43.x86_64) | Version: 4.6 (Compatibility Profile) Mesa 25.3.4-arch1.1 | GLSL: 4.60
+[ error ] ofShader: setupShaderFromSource(): GL_FRAGMENT_SHADER shader failed to compile
+[ error ] ofShader: GL_FRAGMENT_SHADER shader reports:
+0:13(29): error: `uv' undeclared
+0:13(15): error: no matching function for call to `texture(sampler2D, error)'; candidates are:
+0:13(15): error:    vec4 texture(sampler1D, float)
+0:13(15): error:    ivec4 texture(isampler1D, float)
+0:13(15): error:    uvec4 texture(usampler1D, float)
+0:13(15): error:    vec4 texture(sampler2D, vec2)
+0:13(15): error:    ivec4 texture(isampler2D, vec2)
+0:13(15): error:    uvec4 texture(usampler2D, vec2)
+0:13(15): error:    vec4 texture(sampler3D, vec3)
+0:13(15): error:    ivec4 texture(isampler3D, vec3)
+0:13(15): error:    uvec4 texture(usampler3D, vec3)
+0:13(15): error:    vec4 texture(samplerCube, vec3)
+0:13(15): error:    ivec4 texture(isamplerCube, vec3)
+0:13(15): error:    uvec4 texture(usamplerCube, vec3)
+0:13(15): error:    float texture(sampler1DShadow, vec3)
+0:13(15): error:    float texture(sampler2DShadow, vec3)
+0:13(15): error:    float texture(samplerCubeShadow, vec4)
+0:13(15): error:    vec4 texture(sampler1DArray, vec2)
+0:13(15): error:    ivec4 texture(isampler1DArray, vec2)
+0:13(15): error:    uvec4 texture(usampler1DArray, vec2)
+0:13(15): error:    vec4 texture(sampler2DArray, vec3)
+0:13(15): error:    ivec4 texture(isampler2DArray, vec3)
+0:13(15): error:    uvec4 texture(usampler2DArray, vec3)
+0:13(15): error:    float texture(sampler1DArrayShadow, vec3)
+0:13(15): error:    float texture(sampler2DArrayShadow, vec4)
+0:13(15): error:    vec4 texture(sampler2DRect, vec2)
+0:13(15): error:    ivec4 texture(isampler2DRect, vec2)
+0:13(15): error:    uvec4 texture(usampler2DRect, vec2)
+0:13(15): error:    float texture(sampler2DRectShadow, vec3)
+0:13(15): error:    vec4 texture(sampler1D, float, float)
+0:13(15): error:    ivec4 texture(isampler1D, float, float)
+0:13(15): error:    uvec4 texture(usampler1D, float, float)
+0:13(15): error:    vec4 texture(sampler2D, vec2, float)
+0:13(15): error:    ivec4 texture(isampler2D, vec2, float)
+0:13(15): error:    uvec4 texture(usampler2D, vec2, float)
+0:13(15): error:    vec4 texture(sampler3D, vec3, float)
+0:13(15): error:    ivec4 texture(isampler3D, vec3, float)
+0:13(15): error:    uvec4 texture(usampler3D, vec3, float)
+0:13(15): error:    vec4 texture(samplerCube, vec3, float)
+0:13(15): error:    ivec4 texture(isamplerCube, vec3, float)
+0:13(15): error:    uvec4 texture(usamplerCube, vec3, float)
+0:13(15): error:    float texture(sampler1DShadow, vec3, float)
+0:13(15): error:    float texture(sampler2DShadow, vec3, float)
+0:13(15): error:    float texture(samplerCubeShadow, vec4, float)
+0:13(15): error:    vec4 texture(sampler1DArray, vec2, float)
+0:13(15): error:    ivec4 texture(isampler1DArray, vec2, float)
+0:13(15): error:    uvec4 texture(usampler1DArray, vec2, float)
+0:13(15): error:    vec4 texture(sampler2DArray, vec3, float)
+0:13(15): error:    ivec4 texture(isampler2DArray, vec3, float)
+0:13(15): error:    uvec4 texture(usampler2DArray, vec3, float)
+0:13(15): error:    float texture(sampler1DArrayShadow, vec3, float)
+ 
+[ error ] ofShader: GL_FRAGMENT_SHADER, offending line 29:
+
+[notice ] Setup: Pixel art shader loaded successfully.
+[warning] Setup: Post shader failed to compile/link. Continuing without post-processing.
+[notice ] FBO: worldFbo allocated 2560x1440
+[notice ] Network: DEBUG: Still in STATE_MAIN_MENU. hasOpponent()=0 isMultiplayer=0 isHost=0
+[notice ] Steam: Requesting Lobby Creation...
+[notice ] Steam: Lobby Created. Creating Listen Socket...
+[notice ] Steam: Incoming Connection Request...
+[notice ] Steam: Accepted Connection!
+[notice ] Network: DEBUG: hasOpponent() is true, currentState=0
+[notice ] Network: Host: Opponent found. Starting game & sending seed.
+[notice ] Setup: Host generated seed: 1771370743 platform=Linux
+[notice ] Setup: Host sending handshake: type=0 playerID=0 seq=0 seed=1771370743 platform=Linux
+[notice ] Network: Skipping DiceRollPacket send for purpose=4 (handled authoritatively).
+[notice ] Dice: Final total result for 1d6: 6
+[notice ] Network: Skipping DiceRollPacket send for purpose=4 (handled authoritatively).
+[notice ] Dice: Final total result for 1d6: 3
+[notice ] Game: --- INITIATIVE ROLL STARTED ---
+[notice ] PixelArt: Low-res FBO summary: size=640x360 avgRGB=(9,8,9)
+[notice ] PixelArt: Pixel-art post-process branch executed (shader active).
+[notice ] Steam: Connection Fully Active!
+[notice ] Steam: Opponent ID: 76561198743068920
+[notice ] Network: Host: Received Seed Request. Resending Seed: 1771370743
+[notice ] Network: Host resending handshake: type=0 playerID=0 seq=0 seed=1771370743
+[notice ] PixelArt: enablePixelArt=0
+[notice ] Post: enableWorldPostProcess=false
+[notice ] Draft: generateDraftOptions called: classTier=1 draftStage=0 draftPlayerIndex=0 poolSize=30
+[notice ] Network: Host sent DraftOptionsPacket: 9,29,16 derivedSeed=3060125483 draftGenCounter=1
+[notice ] Draft: Options names: Dispel, Shoot Arrow, Double Handed
+[notice ] Network: Host sent DraftStatePacket (post-options): class=1 player=0 picks=2 stage=0
+[notice ] Initiative: Player 1 Wins Initiative
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=0 stage=0) names=Dispel, Shoot Arrow, Double Handed
+[notice ] Draft: DRAFT CLICK: mousePos=(1173,821) selections=0 required=2 inGameDraft=0 draftStage=0 acceptRect=(1170,1007,220,60)
+[notice ] NetTrace: SEND pkt type=4 player=0 seq=5 size=43
+[notice ] Network: Client sent DraftToggle to host: option=29 sel=1 draftPlayer=0 ok=1
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=0 stage=0) names=Dispel, Shoot Arrow, Double Handed
+[notice ] Draft: DRAFT CLICK: mousePos=(1644,1015) selections=1 required=2 inGameDraft=0 draftStage=0 acceptRect=(1170,1007,220,60)
+[notice ] Draft: DRAFT CLICK: mousePos=(1386,874) selections=1 required=2 inGameDraft=0 draftStage=0 acceptRect=(1170,1007,220,60)
+[notice ] NetTrace: SEND pkt type=4 player=0 seq=6 size=43
+[notice ] Network: Client sent DraftToggle to host: option=29 sel=0 draftPlayer=0 ok=1
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=0 stage=0) names=Dispel, Shoot Arrow, Double Handed
+[notice ] Draft: DRAFT CLICK: mousePos=(1643,890) selections=0 required=2 inGameDraft=0 draftStage=0 acceptRect=(1170,1007,220,60)
+[notice ] NetTrace: SEND pkt type=4 player=0 seq=7 size=43
+[notice ] Network: Client sent DraftToggle to host: option=16 sel=1 draftPlayer=0 ok=1
+[notice ] Draft: DRAFT CLICK: mousePos=(1354,883) selections=1 required=2 inGameDraft=0 draftStage=0 acceptRect=(1170,1007,220,60)
+[notice ] NetTrace: SEND pkt type=4 player=0 seq=8 size=43
+[notice ] Network: Client sent DraftToggle to host: option=29 sel=1 draftPlayer=0 ok=1
+[notice ] Draft: DRAFT CLICK: mousePos=(1330,1029) selections=2 required=2 inGameDraft=0 draftStage=0 acceptRect=(1170,1007,220,60)
+[notice ] Draft: ACCEPT BUTTON CLICKED: selections=2 required=2
+[notice ] NetTrace: SEND pkt type=4 player=0 seq=9 size=43
+[notice ] NetTrace: SEND pkt type=8 player=0 seq=10 size=17
+[notice ] NetTrace:   SHUFFLE playerIndex=0 nonce=3062331269
+[notice ] Network: Host sent Shuffle packet: player=0 nonce=3062331269
+[notice ] Draft: generateDraftOptions called: classTier=2 draftStage=1 draftPlayerIndex=0 poolSize=25
+[notice ] Network: Host sent DraftOptionsPacket: 0,23,5 derivedSeed=3614873423 draftGenCounter=2
+[notice ] Draft: Options names: Amnesia, Smite, Replicate
+[notice ] Network: Host sent DraftStatePacket (post-options): class=2 player=0 picks=1 stage=1
+[notice ] Draft: DRAFT CLICK: mousePos=(1321,868) selections=0 required=1 inGameDraft=0 draftStage=1 acceptRect=(1170,1007,220,60)
+[notice ] NetTrace: SEND pkt type=4 player=0 seq=12 size=43
+[notice ] Network: Client sent DraftToggle to host: option=23 sel=1 draftPlayer=0 ok=1
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=0 stage=1) names=Amnesia, Smite, Replicate
+[notice ] Draft: DRAFT CLICK: mousePos=(1619,867) selections=1 required=1 inGameDraft=0 draftStage=1 acceptRect=(1170,1007,220,60)
+[notice ] NetTrace: SEND pkt type=4 player=0 seq=13 size=43
+[notice ] Network: Client sent DraftToggle to host: option=5 sel=0 draftPlayer=0 ok=1
+[notice ] Draft: DRAFT CLICK: mousePos=(1331,1031) selections=1 required=1 inGameDraft=0 draftStage=1 acceptRect=(1170,1007,220,60)
+[notice ] Draft: ACCEPT BUTTON CLICKED: selections=1 required=1
+[notice ] NetTrace: SEND pkt type=4 player=0 seq=14 size=43
+[notice ] NetTrace: SEND pkt type=8 player=0 seq=15 size=17
+[notice ] NetTrace:   SHUFFLE playerIndex=0 nonce=4160431977
+[notice ] Network: Host sent Shuffle packet: player=0 nonce=4160431977
+[notice ] Draft: generateDraftOptions called: classTier=1 draftStage=0 draftPlayerIndex=1 poolSize=30
+[notice ] Network: Host sent DraftOptionsPacket: 1,10,6 derivedSeed=854616577 draftGenCounter=3
+[notice ] Draft: Options names: Kick, Teleport, Slash
+[notice ] Network: Host sent DraftStatePacket (post-options): class=1 player=1 picks=2 stage=0
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Kick, Teleport, Slash
+[notice ] Draft: DRAFT CLICK: mousePos=(1350,997) selections=0 required=2 inGameDraft=0 draftStage=0 acceptRect=(0,0,0,0)
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Kick, Teleport, Slash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Kick, Teleport, Slash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Kick, Teleport, Slash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Kick, Teleport, Slash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Kick, Teleport, Slash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Kick, Teleport, Slash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Kick, Teleport, Slash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Kick, Teleport, Slash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Kick, Teleport, Slash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Kick, Teleport, Slash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Kick, Teleport, Slash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Kick, Teleport, Slash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Kick, Teleport, Slash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Kick, Teleport, Slash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Kick, Teleport, Slash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Kick, Teleport, Slash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Kick, Teleport, Slash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Kick, Teleport, Slash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Kick, Teleport, Slash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Kick, Teleport, Slash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Kick, Teleport, Slash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Kick, Teleport, Slash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Kick, Teleport, Slash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Kick, Teleport, Slash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Kick, Teleport, Slash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Kick, Teleport, Slash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Kick, Teleport, Slash
+[notice ] PixelArt: enablePixelArt=1
+[notice ] Post: enableWorldPostProcess=true
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Kick, Teleport, Slash
+[notice ] PixelArt: enablePixelArt=0
+[notice ] Post: enableWorldPostProcess=false
+[notice ] PixelArt: enablePixelArt=1
+[notice ] Post: enableWorldPostProcess=true
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Kick, Teleport, Slash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Kick, Teleport, Slash
+[notice ] Draft: DRAFT CLICK: mousePos=(1333,804) selections=0 required=2 inGameDraft=0 draftStage=0 acceptRect=(0,0,0,0)
+[notice ] Draft: DRAFT CLICK: mousePos=(1342,902) selections=0 required=2 inGameDraft=0 draftStage=0 acceptRect=(0,0,0,0)
+[notice ] Draft: DRAFT CLICK: mousePos=(1348,1066) selections=0 required=2 inGameDraft=0 draftStage=0 acceptRect=(0,0,0,0)
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Kick, Teleport, Slash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Kick, Teleport, Slash
+[notice ] Draft: DRAFT CLICK: mousePos=(2410,449) selections=0 required=2 inGameDraft=0 draftStage=0 acceptRect=(0,0,0,0)
+[notice ] Draft: DRAFT CLICK: mousePos=(2410,446) selections=0 required=2 inGameDraft=0 draftStage=0 acceptRect=(0,0,0,0)
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Kick, Teleport, Slash
+[notice ] Draft: DRAFT CLICK: mousePos=(2410,446) selections=0 required=2 inGameDraft=0 draftStage=0 acceptRect=(0,0,0,0)
+[notice ] Draft: DRAFT CLICK: mousePos=(2060,541) selections=0 required=2 inGameDraft=0 draftStage=0 acceptRect=(0,0,0,0)
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Kick, Teleport, Slash
+[notice ] Draft: DRAFT CLICK: mousePos=(2388,186) selections=0 required=2 inGameDraft=0 draftStage=0 acceptRect=(0,0,0,0)
+[notice ] Draft: DRAFT CLICK: mousePos=(2388,186) selections=0 required=2 inGameDraft=0 draftStage=0 acceptRect=(0,0,0,0)
+[notice ] Draft: DRAFT CLICK: mousePos=(2388,179) selections=0 required=2 inGameDraft=0 draftStage=0 acceptRect=(0,0,0,0)
+[notice ] Draft: DRAFT CLICK: mousePos=(2386,167) selections=0 required=2 inGameDraft=0 draftStage=0 acceptRect=(0,0,0,0)
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Kick, Teleport, Slash
+[notice ] Draft: DRAFT CLICK: mousePos=(2332,109) selections=0 required=2 inGameDraft=0 draftStage=0 acceptRect=(0,0,0,0)
+[notice ] Draft: DRAFT CLICK: mousePos=(2337,108) selections=0 required=2 inGameDraft=0 draftStage=0 acceptRect=(0,0,0,0)
+[notice ] Draft: DRAFT CLICK: mousePos=(2370,100) selections=0 required=2 inGameDraft=0 draftStage=0 acceptRect=(0,0,0,0)
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Kick, Teleport, Slash
+[notice ] Game: --- GAME SESSION CLEANED UP ---
+[notice ] Settings: Saved settings to Config/settings.json
+[notice ] SteamManager: Steam API Shutdown.
+[S_API FAIL] Tried to access Steam interface SteamNetworkingSockets012 before SteamAPI_Init succeeded.
