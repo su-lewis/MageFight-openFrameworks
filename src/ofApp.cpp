@@ -7496,6 +7496,24 @@ void ofApp::drawGame() {
 		// Diable Lighting for Highlights
 		ofDisableLighting();
 
+		// Build and draw white joined outlines BEFORE per-tile drawing so they
+		// appear beneath green targetable outlines. This ensures both white
+		// and green edges are visible when adjacent.
+		{
+			bool highlightedTiles[BOARD_WIDTH][BOARD_HEIGHT];
+			for (int x = 0; x < BOARD_WIDTH; x++) {
+				for (int y = 0; y < BOARD_HEIGHT; y++) {
+					// Include both movement highlights AND red preview tiles without
+					// suppressing previews on green targetable tiles.
+					highlightedTiles[x][y] = board[x][y].isHighlighted || board[x][y].isTargetPreview;
+				}
+			}
+
+			ofColor whiteColor(232, 232, 232, 240); // #e8e8e8 for board highlights
+			float avgSurfaceY = 0.05f; // Average surface height for flat tiles
+			drawJoinedOutlines(highlightedTiles, whiteColor, avgSurfaceY);
+		}
+
 		// --- DRAW TILE HIGHLIGHTS ---
 		for (int x = 0; x < BOARD_WIDTH; x++) {
 			for (int y = 0; y < BOARD_HEIGHT; y++) {
@@ -7616,43 +7634,7 @@ void ofApp::drawGame() {
 			}
 		}
 
-		// Draw white joined outlines for movement highlights and target previews (after all tiles processed)
-		// Build a 2D array of which tiles should have white outlines
-		bool highlightedTiles[BOARD_WIDTH][BOARD_HEIGHT];
-		for (int x = 0; x < BOARD_WIDTH; x++) {
-			for (int y = 0; y < BOARD_HEIGHT; y++) {
-				// Include both movement highlights AND red preview tiles, but exclude
-				// previews that are targetable (they should be green) so outlines
-				// don't draw adjacent to green targetable squares.
-				highlightedTiles[x][y] = board[x][y].isHighlighted || (board[x][y].isTargetPreview && !board[x][y].isTargetable);
-			}
-		}
-		// Remove any preview outlines that are adjacent to a green targetable tile
-		for (int x = 0; x < BOARD_WIDTH; x++) {
-			for (int y = 0; y < BOARD_HEIGHT; y++) {
-				if (!highlightedTiles[x][y]) continue;
-				// if any neighbor is targetable, suppress this preview outline so
-				// the tile appears fully green instead of half white
-				bool adjacentToTargetable = false;
-				const int nx[4] = { 1, -1, 0, 0 };
-				const int ny[4] = { 0, 0, 1, -1 };
-				for (int k = 0; k < 4; ++k) {
-					int xi = x + nx[k];
-					int yi = y + ny[k];
-					if (xi >= 0 && xi < BOARD_WIDTH && yi >= 0 && yi < BOARD_HEIGHT) {
-						if (board[xi][yi].isTargetable) {
-							adjacentToTargetable = true;
-							break;
-						}
-					}
-				}
-				if (adjacentToTargetable) highlightedTiles[x][y] = false;
-			}
-		}
-		// Draw the white outlines (no pulse, solid white)
-		ofColor whiteColor(232, 232, 232, 240); // #e8e8e8 for board highlights
-		float avgSurfaceY = 0.05f; // Average surface height for flat tiles
-		drawJoinedOutlines(highlightedTiles, whiteColor, avgSurfaceY);
+		// (Outlines drawn earlier before per-tile loop)
 
 		// 5. Draw Path Highlights (Green Circles) (FIXED HEIGHT)
 		if ((playerAction == PIECE_SELECTED) && !hoverPath.empty()) {
