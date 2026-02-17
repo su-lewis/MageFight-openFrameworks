@@ -1886,10 +1886,46 @@ void ofApp::applySettings() {
 		worldPostShader.bindDefaults();
 		worldPostShaderLoaded = worldPostShader.linkProgram();
 	}
+
+	// Pixel art shader (posterize / dither)
+	pixelArtShaderLoaded = false;
+	pixelArtShader.unload();
+	const bool pvertOk = pixelArtShader.setupShaderFromFile(GL_VERTEX_SHADER, "Shaders/pixel_art.vert");
+	const bool pfragOk = pixelArtShader.setupShaderFromFile(GL_FRAGMENT_SHADER, "Shaders/pixel_art.frag");
+	if (pvertOk && pfragOk) {
+		pixelArtShader.bindDefaults();
+		pixelArtShaderLoaded = pixelArtShader.linkProgram();
+	}
+	if (pixelArtShaderLoaded) {
+		ofLogNotice("Setup") << "Pixel art shader loaded successfully.";
+	} else {
+		ofLogWarning("Setup") << "Pixel art shader failed to load/link. Pixel-art disabled until fixed.";
+	}
 	if (!worldPostShaderLoaded) {
 		ofLogWarning("Setup") << "Post shader failed to compile/link. Continuing without post-processing.";
 	}
 	allocateWorldFbo(ofGetWidth(), ofGetHeight());
+
+	// Allocate pixel low-res FBO (with depth buffer and nearest filtering)
+	int pw = std::max(2, ofGetWidth() / pixelArtDownscale);
+	int ph = std::max(2, ofGetHeight() / pixelArtDownscale);
+	ofFbo::Settings psettings;
+	psettings.width = pw;
+	psettings.height = ph;
+	psettings.internalformat = GL_RGBA8;
+	psettings.textureTarget = GL_TEXTURE_2D;
+	psettings.useDepth = true;
+	psettings.useStencil = false;
+	psettings.depthStencilAsTexture = false;
+	psettings.minFilter = GL_NEAREST;
+	psettings.maxFilter = GL_NEAREST;
+	pixelLowFbo.allocate(psettings);
+	if (pixelLowFbo.isAllocated()) {
+		pixelLowFbo.getTexture().setTextureMinMagFilter(GL_NEAREST, GL_NEAREST);
+	}
+
+	// Apply pixel-art settings to textures/FBOs if enabled
+	if (enablePixelArt) applyPixelArtSettings();
 }
 //--------------------------------------------------------------
 
@@ -7752,7 +7788,96 @@ void ofApp::drawGame() {
 
 	// --- POST PROCESSING & 2D UI DRAWING ---
 	const bool usePost = (enableWorldPostProcess && worldPostShaderLoaded);
-	if (usePost) {
+	if (enablePixelArt) {
+		if (!pixelArtShaderLoaded) {
+			if (!pixelArtWarned) {
+				ofLogWarning("PixelArt") << "Pixel-art was requested but shader did not load; falling back to normal render.";
+				pixelArtWarned = true;
+			}
+		}
+	}
+	if (enablePixelArt && pixelArtShaderLoaded) {
+		// Render world into low-res pixel FBO and apply pixel-art shader when enabled
+		int pw = std::max(2, ofGetWidth() / pixelArtDownscale);
+		int ph = std::max(2, ofGetHeight() / pixelArtDownscale);
+		if (!pixelLowFbo.isAllocated() || pixelLowFbo.getWidth() != pw || pixelLowFbo.getHeight() != ph) {
+			ofFbo::Settings psettings;
+			psettings.width = pw;
+			psettings.height = ph;
+			psettings.internalformat = GL_RGBA8;
+			psettings.textureTarget = GL_TEXTURE_2D;
+			psettings.useDepth = true;
+			psettings.useStencil = false;
+			psettings.depthStencilAsTexture = false;
+			psettings.minFilter = GL_NEAREST;
+			psettings.maxFilter = GL_NEAREST;
+			pixelLowFbo.allocate(psettings);
+			if (pixelLowFbo.isAllocated()) pixelLowFbo.getTexture().setTextureMinMagFilter(GL_NEAREST, GL_NEAREST);
+		}
+		if (pixelLowFbo.isAllocated()) {
+			// Temporarily adjust camera aspect ratio to match low-res FBO
+			float oldAspectCam = cam.getAspectRatio();
+			float oldAspectCam2 = cam2.getAspectRatio();
+			float newAspect = (float)pixelLowFbo.getWidth() / (float)pixelLowFbo.getHeight();
+			cam.setAspectRatio(newAspect);
+			cam2.setAspectRatio(newAspect);
+
+			pixelLowFbo.begin();
+			ofEnableDepthTest();
+			glDepthMask(GL_TRUE);
+			ofClear(0, 0, 0, 255);
+			renderWorld3D();
+			pixelLowFbo.end();
+
+			// One-time debug: read back a tiny summary of the low-res FBO to help diagnose
+			if (!pixelArtDumpedPixels) {
+				ofPixels px;
+				pixelLowFbo.readToPixels(px);
+				if (px.getWidth() > 0 && px.getHeight() > 0) {
+					uint64_t rsum = 0, gsum = 0, bsum = 0;
+					int count = 0;
+					for (int y = 0; y < px.getHeight(); ++y) {
+						for (int x = 0; x < px.getWidth(); ++x) {
+							ofColor c = px.getColor(x, y);
+							rsum += c.r;
+							gsum += c.g;
+							bsum += c.b;
+							++count;
+						}
+					}
+					ofLogNotice("PixelArt") << "Low-res FBO summary: size=" << px.getWidth() << "x" << px.getHeight() << " avgRGB=(" << (rsum / count) << "," << (gsum / count) << "," << (bsum / count) << ")";
+				} else {
+					ofLogWarning("PixelArt") << "Low-res FBO readback returned zero-sized pixels.";
+				}
+				pixelArtDumpedPixels = true;
+			}
+
+			// Restore camera aspect ratios
+			cam.setAspectRatio(oldAspectCam);
+			cam2.setAspectRatio(oldAspectCam2);
+
+			if (!pixelArtActiveNotified) {
+				ofLogNotice("PixelArt") << "Pixel-art post-process branch executed (shader active).";
+				pixelArtActiveNotified = true;
+			}
+
+			ofDisableDepthTest();
+			// Pixel-art shader path: posterize + dither + edge
+			pixelArtShader.begin();
+			pixelArtShader.setUniformTexture("tex0", pixelLowFbo.getTexture(), 0);
+			pixelArtShader.setUniform1i("levels", pixelArtLevels);
+			pixelArtShader.setUniform1i("useDither", pixelArtDither ? 1 : 0);
+			pixelArtShader.setUniform2f("uResolution", ofGetWidth(), ofGetHeight());
+			pixelArtShader.setUniform2f("uLowRes", pixelLowFbo.getWidth(), pixelLowFbo.getHeight());
+			// Edge color + strength defaults (tweak to taste)
+			pixelArtShader.setUniform3f("edgeColor", 0.02f, 0.02f, 0.02f);
+			pixelArtShader.setUniform1f("edgeStrength", 2.5f);
+			pixelLowFbo.getTexture().draw(0, 0, ofGetWidth(), ofGetHeight());
+			pixelArtShader.end();
+		} else {
+			renderWorld3D();
+		}
+	} else if (usePost) {
 		allocateWorldFbo(ofGetWidth(), ofGetHeight());
 		if (worldFbo.isAllocated()) {
 			worldFbo.begin();
@@ -10016,6 +10141,13 @@ cursor_check_done:;
 				int percentage = (int)(hitChance * 100.0f);
 
 				tooltipText = "Min Roll: " + ofToString(minRoll) + " (" + ofToString(percentage) + "%)";
+			}
+
+			// If the tile is a magic wall, show its explanation tooltip
+			if (unitIndexAtMouse == -1 && board[tooltipGX][tooltipGY].hasWall && board[tooltipGX][tooltipGY].isMagicWall) {
+				isShowingTooltip = true;
+				tooltipPos = glm::vec2(x, y - 20);
+				tooltipText = "Magic Wall — Magic ×2; Physical ÷2 (dealt & received)";
 			}
 		}
 
@@ -13749,6 +13881,14 @@ void ofApp::keyPressed(int key) {
 				return;
 			}
 		}
+	}
+
+	// Toggle pixel-art mode
+	if (key == 'p' || key == 'P') {
+		enablePixelArt = !enablePixelArt;
+		applyPixelArtSettings();
+		ofLogNotice("PixelArt") << "enablePixelArt=" << (enablePixelArt ? 1 : 0);
+		return;
 	}
 
 	// Handle Card Spawner text input
@@ -18173,6 +18313,55 @@ void ofApp::invalidateTargetCache() {
 	lastCachedPlayerX = -1;
 	lastCachedPlayerY = -1;
 	lastCachedCardIndex = -1;
+}
+
+// Apply nearest filtering and pixel-art related settings to textures and FBOs
+void ofApp::applyPixelArtSettings() {
+	// Set nearest filtering for model and board textures
+	auto setNearestIfAllocatedTex = [&](ofTexture & t) {
+		if (t.isAllocated()) t.setTextureMinMagFilter(GL_NEAREST, GL_NEAREST);
+	};
+	auto setNearestIfAllocatedImg = [&](ofImage & img) {
+		if (img.isAllocated()) img.getTexture().setTextureMinMagFilter(GL_NEAREST, GL_NEAREST);
+	};
+
+	setNearestIfAllocatedTex(playerTexture);
+	setNearestIfAllocatedTex(skeletonTexture);
+	setNearestIfAllocatedTex(wolfBodyTex);
+	setNearestIfAllocatedTex(wolfFaceTex);
+	setNearestIfAllocatedTex(wolfFurTex);
+	setNearestIfAllocatedTex(golemTexBase);
+	setNearestIfAllocatedTex(golemTexRock);
+	setNearestIfAllocatedTex(golemTexFire);
+	setNearestIfAllocatedTex(golemTexElectric);
+	setNearestIfAllocatedTex(tortoiseTexture);
+	setNearestIfAllocatedTex(ghostBaseTex);
+	setNearestIfAllocatedTex(koboldKingTexture);
+	setNearestIfAllocatedTex(wallTexture);
+	setNearestIfAllocatedTex(wallUnitTexture);
+	setNearestIfAllocatedTex(roomTexture);
+
+	for (auto & ft : floorTextures)
+		setNearestIfAllocatedTex(ft);
+	for (auto & kt : keyTextures)
+		setNearestIfAllocatedTex(kt);
+	for (auto & kt : keyTexturesSilver)
+		setNearestIfAllocatedTex(kt);
+	for (auto & kt : keyTexturesBronze)
+		setNearestIfAllocatedTex(kt);
+
+	if (cardSpriteSheet.isAllocated()) cardSpriteSheet.getTexture().setTextureMinMagFilter(GL_NEAREST, GL_NEAREST);
+	if (cardBackImage.isAllocated()) cardBackImage.getTexture().setTextureMinMagFilter(GL_NEAREST, GL_NEAREST);
+	if (shadowTexture.isAllocated()) shadowTexture.getTexture().setTextureMinMagFilter(GL_NEAREST, GL_NEAREST);
+	if (fireTexture.isAllocated()) fireTexture.getTexture().setTextureMinMagFilter(GL_NEAREST, GL_NEAREST);
+
+	// Ensure our low-res FBO uses nearest sampling
+	if (pixelLowFbo.isAllocated()) pixelLowFbo.getTexture().setTextureMinMagFilter(GL_NEAREST, GL_NEAREST);
+	if (worldFbo.isAllocated()) worldFbo.getTexture().setTextureMinMagFilter(GL_NEAREST, GL_NEAREST);
+
+	// Optionally adjust material settings to reduce specular for pixel-art
+	modelMaterial.setShininess(2.0f);
+	diceMaterial.setShininess(2.0f);
 }
 //--------------------------------------------------------------
 

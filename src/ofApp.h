@@ -1030,6 +1030,21 @@ private:
 	bool enableWorldPostProcess = true;
 	bool showWorldFboPreview = false;
 
+	// --- PIXEL ART RENDERING ---
+	// Render the world to a low-res FBO and apply a posterize/dither shader
+	ofFbo pixelLowFbo;
+	ofShader pixelArtShader;
+	bool pixelArtShaderLoaded = false;
+	bool enablePixelArt = true; // toggle the effect (default ON)
+	bool pixelArtWarned = false; // set when we warn once about shader missing
+	bool pixelArtActiveNotified = false; // set once when pixel-art branch runs
+	bool pixelArtDumpedPixels = false; // set once when we read back low-res FBO for debugging
+	// Apply nearest filtering and other pixel-art settings to textures/FBOs
+	void applyPixelArtSettings();
+	int pixelArtDownscale = 4; // render at 1/downscale resolution
+	int pixelArtLevels = 4; // posterize levels per channel
+	bool pixelArtDither = true;
+
 	// --- ANIMATIONS ---
 	bool isPlayerAnimating = false;
 	int animatingPlayerIndex = -1; // Which player is currently animating
