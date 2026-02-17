@@ -10639,8 +10639,11 @@ void ofApp::mousePressed(int x, int y, int button) {
 				lastSentDraftActionTime = ofGetElapsedTimef();
 				lastSentDraftActionResendCount = 0;
 
-				steamManager.sendPacket(&pkt, sizeof(pkt));
-				ofLogNotice("Network") << "Client sent AcceptDraft to host (" << pkt.numSelected << " picks) clientActionID=" << pkt.clientActionID;
+				{
+					bool ok = steamManager.sendPacket(&pkt, sizeof(pkt));
+					ofLogNotice("Network") << "Client sent AcceptDraft to host (" << pkt.numSelected << " picks) clientActionID=" << pkt.clientActionID << " ok=" << ok;
+					if (!ok) ofLogWarning("Network") << "AcceptDraft send failed (no connection). Will retry via resend watchdog.";
+				}
 				return;
 			}
 
@@ -10745,8 +10748,11 @@ void ofApp::mousePressed(int x, int y, int button) {
 						lastSentDraftActionTime = ofGetElapsedTimef();
 						lastSentDraftActionResendCount = 0;
 
-						steamManager.sendPacket(&pkt, sizeof(pkt));
-						ofLogNotice("Network") << "Client sent DraftToggle to host: option=" << pkt.optionIndex << " sel=" << (int)pkt.selectFlag << " draftPlayer=" << pkt.draftPlayerIdx;
+						{
+							bool ok = steamManager.sendPacket(&pkt, sizeof(pkt));
+							ofLogNotice("Network") << "Client sent DraftToggle to host: option=" << pkt.optionIndex << " sel=" << (int)pkt.selectFlag << " draftPlayer=" << pkt.draftPlayerIdx << " ok=" << ok;
+							if (!ok) ofLogWarning("Network") << "DraftToggle send failed (no connection). Will retry via resend watchdog.";
+						}
 					}
 					return; // Click was on a card, handled.
 				}
@@ -24098,7 +24104,7 @@ void ofApp::processNetworkPackets() {
 							DraftStatePacket dsp;
 							dsp.type = PKT_DRAFT_STATE;
 							dsp.playerID = myLocalPlayerID;
-							dsp.classTier = (draftStage == 0) ? 1 : 2;
+							dsp.classTier = currentDraftClassTier; // FIX: Was incorrectly hardcoded based on draftStage
 							dsp.draftPlayerIdx = draftPlayerIndex;
 							dsp.picksRemaining = draftPicksRemaining;
 							dsp.draftStage = draftStage;

@@ -132,7 +132,27 @@ void SteamManager::closeConnection() {
 }
 
 bool SteamManager::sendPacket(const void * data, uint32_t size) {
-	if (m_hConnection == k_HSteamNetConnection_Invalid) return false;
+	// If we don't have a connection handle yet, attempt to establish one
+	// (clients may click during lobby join before the P2P connection becomes fully active).
+	if (m_hConnection == k_HSteamNetConnection_Invalid) {
+		// If we're a client and we have a valid lobby, try to connect to the lobby owner
+		if (!m_bIsHost && m_LobbyID.IsValid() && SteamMatchmaking()) {
+			CSteamID owner = SteamMatchmaking()->GetLobbyOwner(m_LobbyID);
+			if (owner.IsValid()) {
+				SteamNetworkingIdentity identity;
+				identity.SetSteamID(owner);
+				HSteamNetConnection conn = SteamNetworkingSockets()->ConnectP2P(identity, 0, 0, nullptr);
+				if (conn != k_HSteamNetConnection_Invalid) {
+					m_hConnection = conn;
+					ofLogNotice("Steam") << "sendPacket: initiated ConnectP2P to host: " << owner.ConvertToUint64();
+				} else {
+					ofLogWarning("Steam") << "sendPacket: ConnectP2P returned invalid handle when trying to reach host";
+				}
+			}
+		}
+		// If still invalid, cannot send
+		if (m_hConnection == k_HSteamNetConnection_Invalid) return false;
+	}
 
 	// Stamp sequence number on packets that have a header
 	const PacketHeader * hdr = (const PacketHeader *)data;
