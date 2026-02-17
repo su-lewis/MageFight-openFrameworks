@@ -4914,6 +4914,9 @@ void ofApp::updateGame() {
 				std::vector<int> damageDiceCount(n, 0);
 				std::vector<glm::ivec2> currentPos(n);
 				std::vector<glm::ivec2> intendedPos(n);
+				// Track tiles units *attempted* to enter this step (even if they later crash and don't move)
+				std::vector<bool> attemptedEnter(n, false);
+				std::vector<glm::ivec2> attemptedTarget(n, glm::ivec2(-999, -999));
 				std::vector<bool> isStopped(n, false);
 
 				// Initialize State
@@ -4981,6 +4984,10 @@ void ofApp::updateGame() {
 						}
 
 						if (crashThisLoop) {
+							// Record that this unit attempted to enter 'target' but was blocked.
+							attemptedEnter[i] = true;
+							attemptedTarget[i] = target;
+
 							isStopped[i] = true;
 							intendedPos[i] = currentPos[i];
 							newCrashFound = true;
@@ -5027,6 +5034,41 @@ void ofApp::updateGame() {
 						cft.duration = 0.8f;
 						cft.color = ofColor::red;
 						activeFloatingTexts.push_back(cft);
+					}
+				}
+
+				// If any unit attempted to enter a tile containing a key but got blocked,
+				// allow them to trigger the key pickup/draft only if a single unit
+				// attempted that same tile. If multiple units attempted the same
+				// tile (bounce scenario), do not grant the key to any of them.
+				int attemptCount[BOARD_WIDTH][BOARD_HEIGHT];
+				memset(attemptCount, 0, sizeof(attemptCount));
+				for (int i = 0; i < n; ++i) {
+					if (attemptedEnter[i] && attemptedTarget[i].x >= 0 && attemptedTarget[i].y >= 0) {
+						int tx = attemptedTarget[i].x;
+						int ty = attemptedTarget[i].y;
+						if (tx >= 0 && tx < BOARD_WIDTH && ty >= 0 && ty < BOARD_HEIGHT)
+							attemptCount[tx][ty]++;
+					}
+				}
+
+				for (int i = 0; i < n; ++i) {
+					if (attemptedEnter[i] && attemptedTarget[i].x >= 0 && attemptedTarget[i].y >= 0) {
+						int tx = attemptedTarget[i].x;
+						int ty = attemptedTarget[i].y;
+						if (tx < 0 || tx >= BOARD_WIDTH || ty < 0 || ty >= BOARD_HEIGHT) continue;
+						if (attemptCount[tx][ty] != 1) continue; // skip multi-attempt bounces
+
+						// Check if a floating key exists at that position
+						for (int k = 0; k < (int)floatingKeyInstances.size(); ++k) {
+							if (floatingKeyInstances[k].pos.x == tx && floatingKeyInstances[k].pos.y == ty) {
+								if (earthquakeUnits[i].playerIndex >= 0 && earthquakeUnits[i].playerIndex < (int)players.size()) {
+									int pid = players[earthquakeUnits[i].playerIndex].playerID;
+									checkKeyPickupAndDraftAfterSummon(tx, ty, pid);
+								}
+								break; // key handled (helper erases instance)
+							}
+						}
 					}
 				}
 			}
@@ -5078,6 +5120,13 @@ void ofApp::updateGame() {
 						if (unit.playerIndex >= 0 && unit.playerIndex < (int)players.size()) {
 							players[unit.playerIndex].x = unit.startGrid.x;
 							players[unit.playerIndex].y = unit.startGrid.y;
+						}
+
+						// Check for keys at the new position and trigger draft pickup if present.
+						// Use the player's network ID so minion owners resolve to their non-minion owner.
+						if (unit.playerIndex >= 0 && unit.playerIndex < (int)players.size()) {
+							int pid = players[unit.playerIndex].playerID;
+							checkKeyPickupAndDraftAfterSummon(unit.startGrid.x, unit.startGrid.y, pid);
 						}
 
 						if (unit.tilesToMove > 0)
