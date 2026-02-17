@@ -896,6 +896,21 @@ private:
 	std::vector<Particle> particles;
 	float screenShake = 0.0f;
 
+	// --- Tracer effects for ranged spells ---
+	struct Tracer {
+		glm::vec3 start;
+		glm::vec3 end;
+		glm::ivec2 impactTile; // tile being highlighted
+		float startTime = 0.0f;
+		float duration = 3.0f;
+		ofColor color = ofColor::white;
+	};
+
+	std::vector<Tracer> activeTracers;
+
+	// Spawn a tracer line from world-space start -> end and highlight impact tile
+	void spawnTracer(glm::vec3 start, glm::vec3 end, glm::ivec2 impactTile, ofColor color, float duration = 3.0f);
+
 	// --- KEY ANIMATION (Floating Key on Floor) ---
 	std::vector<ofTexture> keyTextures; // loaded from Board/keys_1_*.png
 	std::vector<ofTexture> keyTexturesSilver; // loaded from Board/keys_2_*.png

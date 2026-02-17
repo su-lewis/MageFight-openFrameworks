@@ -119,6 +119,8 @@ void ofApp::drawMinionCard(int minionIndex, int ownerIndex) {
 			minion.deck.pop_back();
 			drawn.drawnThisTurn = true;
 			minion.hand.push_back(drawn); // Add to hand immediately
+			minion.hand.back().currentScale = 1.0f;
+			minion.hand.back().targetScale = 1.0f;
 
 			// Setup animation: from minion's deck to minion's hand (simple, quick)
 			DrawCardAnimation anim;
@@ -144,7 +146,7 @@ void ofApp::drawMinionCard(int minionIndex, int ownerIndex) {
 			// Initialize currentPos in screen-space for a smooth first frame
 			ofVec3f sp = cam.worldToScreen(anim.startPos);
 			anim.currentPos = glm::vec2((float)sp.x, (float)sp.y);
-			anim.currentScale = 0.55f;
+			anim.currentScale = 1.0f;
 			activeDrawCardAnimations.push_back(anim);
 		}
 	}
@@ -1090,6 +1092,25 @@ void ofApp::update() {
 		}
 	}
 	processNetworkPackets();
+
+	// Update active tracers: expire and clear highlights when done
+	{
+		float now = ofGetElapsedTimef();
+		for (auto it = activeTracers.begin(); it != activeTracers.end();) {
+			float elapsed = now - it->startTime;
+			if (elapsed >= it->duration) {
+				// Clear tile highlight
+				int tx = it->impactTile.x;
+				int ty = it->impactTile.y;
+				if (tx >= 0 && tx < BOARD_WIDTH && ty >= 0 && ty < BOARD_HEIGHT) {
+					board[tx][ty].isHighlighted = false;
+				}
+				it = activeTracers.erase(it);
+			} else {
+				++it;
+			}
+		}
+	}
 
 	// Resend watchdog for client-sent DraftActionPackets (retry until host forwards/acks)
 	if (isClient() && lastSentDraftActionValid && (waitingForDraftOptions || draftAcceptLocked)) {
@@ -3030,7 +3051,7 @@ void ofApp::updateGame() {
 	}
 
 	// --- MAGIC BLAST RESOLUTION ---
-	if (isWaitingForMagicBlastDice && activeDiceRolls.empty()) {
+	if (isWaitingForMagicBlastDice && std::none_of(activeDiceRolls.begin(), activeDiceRolls.end(), [](const DiceRoll & r) { return !r.isFinishedVisual; })) {
 		isWaitingForMagicBlastDice = false;
 		Player & caster = players[currentPlayerIndex];
 		glm::vec2 casterTile = { (float)caster.x, (float)caster.y };
@@ -3098,10 +3119,77 @@ void ofApp::updateGame() {
 		} else {
 			ofLogNotice("MagicBlast") << "No targets hit.";
 		}
+
+		// Spawn tracer from caster to impact tile so player can see where it landed
+		{
+			glm::vec2 casterCenter = casterTile + glm::vec2(0.5f, 0.5f);
+			glm::vec2 hitGrid = glm::vec2(impactTile.x + 0.5f, impactTile.y + 0.5f);
+			auto gridFracToWorld = [&](glm::vec2 g) {
+				float wx = (g.x - BOARD_WIDTH / 2.0f) * TILE_SIZE + (TILE_SIZE / 2.0f);
+				float wz = (g.y - BOARD_HEIGHT / 2.0f) * TILE_SIZE + (TILE_SIZE / 2.0f);
+				return glm::vec3(wx, 0.0f, wz);
+			};
+
+			// compute proper start point on caster tile edge toward target
+			glm::vec2 startPointGrid = casterCenter;
+			{
+				float bestStartT = 1.0f;
+				bool foundStart = false;
+				glm::vec2 s2 = casterCenter;
+				glm::vec2 e2 = hitGrid;
+				glm::vec2 d2 = e2 - s2;
+				if (fabs(d2.x) > 1e-6f) {
+					float t1s = ((float)casterTile.x - s2.x) / d2.x;
+					float y1s = s2.y + d2.y * t1s;
+					if (t1s >= 0.0f && t1s <= 1.0f && y1s >= casterTile.y && y1s <= casterTile.y + 1.0f) {
+						if (!foundStart || t1s < bestStartT) {
+							bestStartT = t1s;
+							startPointGrid = s2 + d2 * t1s;
+							foundStart = true;
+						}
+					}
+					float t2s = ((float)casterTile.x + 1.0f - s2.x) / d2.x;
+					float y2s = s2.y + d2.y * t2s;
+					if (t2s >= 0.0f && t2s <= 1.0f && y2s >= casterTile.y && y2s <= casterTile.y + 1.0f) {
+						if (!foundStart || t2s < bestStartT) {
+							bestStartT = t2s;
+							startPointGrid = s2 + d2 * t2s;
+							foundStart = true;
+						}
+					}
+				}
+				if (fabs(d2.y) > 1e-6f) {
+					float t3s = ((float)casterTile.y - s2.y) / d2.y;
+					float x3s = s2.x + d2.x * t3s;
+					if (t3s >= 0.0f && t3s <= 1.0f && x3s >= casterTile.x && x3s <= casterTile.x + 1.0f) {
+						if (!foundStart || t3s < bestStartT) {
+							bestStartT = t3s;
+							startPointGrid = s2 + d2 * t3s;
+							foundStart = true;
+						}
+					}
+					float t4s = ((float)casterTile.y + 1.0f - s2.y) / d2.y;
+					float x4s = s2.x + d2.x * t4s;
+					if (t4s >= 0.0f && t4s <= 1.0f && x4s >= casterTile.x && x4s <= casterTile.x + 1.0f) {
+						if (!foundStart || t4s < bestStartT) {
+							bestStartT = t4s;
+							startPointGrid = s2 + d2 * t4s;
+							foundStart = true;
+						}
+					}
+				}
+			}
+
+			glm::vec3 worldStart = gridFracToWorld(startPointGrid);
+			glm::vec3 worldEnd = gridFracToWorld(hitGrid);
+			worldStart.y += 0.6f;
+			worldEnd.y += 0.6f;
+			spawnTracer(worldStart, worldEnd, glm::ivec2((int)impactTile.x, (int)impactTile.y), ofColor(150, 180, 255), 3.0f);
+		}
 	}
 
 	// --- FIREBALL RANGE RESOLUTION ---
-	if (isWaitingForFireballRangeDice && activeDiceRolls.empty()) {
+	if (isWaitingForFireballRangeDice && std::none_of(activeDiceRolls.begin(), activeDiceRolls.end(), [](const DiceRoll & r) { return !r.isFinishedVisual; })) {
 		isWaitingForFireballRangeDice = false;
 		Player & caster = players[currentPlayerIndex];
 		glm::vec2 casterTile = { (float)caster.x, (float)caster.y };
@@ -3137,10 +3225,171 @@ void ofApp::updateGame() {
 				ofLogNotice("Fireball") << "Hit the tile, but the target had moved!";
 			}
 
+			// Spawn tracer from caster to impact tile so player can see where it landed
+			{
+				glm::vec2 casterCenter = casterTile + glm::vec2(0.5f, 0.5f);
+				glm::vec2 hitGrid = glm::vec2(fireballImpactTile.x + 0.5f, fireballImpactTile.y + 0.5f);
+				auto gridFracToWorld = [&](glm::vec2 g) {
+					float wx = (g.x - BOARD_WIDTH / 2.0f) * TILE_SIZE + (TILE_SIZE / 2.0f);
+					float wz = (g.y - BOARD_HEIGHT / 2.0f) * TILE_SIZE + (TILE_SIZE / 2.0f);
+					return glm::vec3(wx, 0.0f, wz);
+				};
+
+				// compute caster-edge start so tracer originates from tile face
+				glm::vec2 startPointGrid = casterCenter;
+				{
+					float bestStartT = 1.0f;
+					bool foundStart = false;
+					glm::vec2 s2 = casterCenter;
+					glm::vec2 e2 = hitGrid;
+					glm::vec2 d2 = e2 - s2;
+					if (fabs(d2.x) > 1e-6f) {
+						float t1s = ((float)casterTile.x - s2.x) / d2.x;
+						float y1s = s2.y + d2.y * t1s;
+						if (t1s >= 0.0f && t1s <= 1.0f && y1s >= casterTile.y && y1s <= casterTile.y + 1.0f) {
+							if (!foundStart || t1s < bestStartT) {
+								bestStartT = t1s;
+								startPointGrid = s2 + d2 * t1s;
+								foundStart = true;
+							}
+						}
+						float t2s = ((float)casterTile.x + 1.0f - s2.x) / d2.x;
+						float y2s = s2.y + d2.y * t2s;
+						if (t2s >= 0.0f && t2s <= 1.0f && y2s >= casterTile.y && y2s <= casterTile.y + 1.0f) {
+							if (!foundStart || t2s < bestStartT) {
+								bestStartT = t2s;
+								startPointGrid = s2 + d2 * t2s;
+								foundStart = true;
+							}
+						}
+					}
+					if (fabs(d2.y) > 1e-6f) {
+						float t3s = ((float)casterTile.y - s2.y) / d2.y;
+						float x3s = s2.x + d2.x * t3s;
+						if (t3s >= 0.0f && t3s <= 1.0f && x3s >= casterTile.x && x3s <= casterTile.x + 1.0f) {
+							if (!foundStart || t3s < bestStartT) {
+								bestStartT = t3s;
+								startPointGrid = s2 + d2 * t3s;
+								foundStart = true;
+							}
+						}
+						float t4s = ((float)casterTile.y + 1.0f - s2.y) / d2.y;
+						float x4s = s2.x + d2.x * t4s;
+						if (t4s >= 0.0f && t4s <= 1.0f && x4s >= casterTile.x && x4s <= casterTile.x + 1.0f) {
+							if (!foundStart || t4s < bestStartT) {
+								bestStartT = t4s;
+								startPointGrid = s2 + d2 * t4s;
+								foundStart = true;
+							}
+						}
+					}
+				}
+
+				glm::vec3 worldStart = gridFracToWorld(startPointGrid);
+				glm::vec3 worldEnd = gridFracToWorld(hitGrid);
+				worldStart.y += 0.6f;
+				worldEnd.y += 0.6f;
+				spawnTracer(worldStart, worldEnd, glm::ivec2((int)fireballImpactTile.x, (int)fireballImpactTile.y), ofColor(255, 120, 40), 3.0f);
+			}
+
 		} else {
 			// FAILURE PATH
 			ofLogNotice("Fireball") << "Fell short! The spell fizzles.";
-			// We do nothing else. The turn continues.
+
+			// Determine the actual impact tile at max range (or where a wall blocked it)
+			glm::vec2 impactTile;
+			glm::vec2 dir = pendingFireballTargetTile - casterTile;
+			if (glm::length(dir) > 0.0f) dir = glm::normalize(dir);
+
+			bool hitWall = false;
+			std::vector<glm::vec2> path = getLineOfSightPath(casterTile + 0.5f, pendingFireballTargetTile + 0.5f);
+			for (const auto & step : path) {
+				float distToStep = getFaceToFaceDistance(casterTile, step);
+				if (distToStep > maxDistUnits) break;
+
+				if (isTileWall((int)step.x, (int)step.y)) {
+					impactTile = step;
+					hitWall = true;
+					break;
+				}
+			}
+
+			if (!hitWall) {
+				glm::vec2 impactPos = casterTile + (dir * maxDistUnits);
+				impactTile = { floor(impactPos.x), floor(impactPos.y) };
+			}
+
+			ofLogNotice("Fireball") << "Impact at (" << impactTile.x << ", " << impactTile.y << ")";
+
+			// Show an "Out of Range" popup at the impact and spawn a short tracer to show attempted path
+			glm::vec3 failPos = gridToWorld((int)impactTile.x, (int)impactTile.y);
+			spawnFloatingText(failPos, "Out of Range", ofColor::white);
+
+			{
+				glm::vec2 casterCenter = casterTile + glm::vec2(0.5f, 0.5f);
+				glm::vec2 hitGrid = impactTile + glm::vec2(0.5f, 0.5f);
+				auto gridFracToWorld = [&](glm::vec2 g) {
+					float wx = (g.x - BOARD_WIDTH / 2.0f) * TILE_SIZE + (TILE_SIZE / 2.0f);
+					float wz = (g.y - BOARD_HEIGHT / 2.0f) * TILE_SIZE + (TILE_SIZE / 2.0f);
+					return glm::vec3(wx, 0.0f, wz);
+				};
+
+				// compute caster-edge start so tracer originates from tile face
+				glm::vec2 startPointGrid = casterCenter;
+				{
+					float bestStartT = 1.0f;
+					bool foundStart = false;
+					glm::vec2 s2 = casterCenter;
+					glm::vec2 e2 = hitGrid;
+					glm::vec2 d2 = e2 - s2;
+					if (fabs(d2.x) > 1e-6f) {
+						float t1s = ((float)casterTile.x - s2.x) / d2.x;
+						float y1s = s2.y + d2.y * t1s;
+						if (t1s >= 0.0f && t1s <= 1.0f && y1s >= casterTile.y && y1s <= casterTile.y + 1.0f) {
+							if (!foundStart || t1s < bestStartT) {
+								bestStartT = t1s;
+								startPointGrid = s2 + d2 * t1s;
+								foundStart = true;
+							}
+						}
+						float t2s = ((float)casterTile.x + 1.0f - s2.x) / d2.x;
+						float y2s = s2.y + d2.y * t2s;
+						if (t2s >= 0.0f && t2s <= 1.0f && y2s >= casterTile.y && y2s <= casterTile.y + 1.0f) {
+							if (!foundStart || t2s < bestStartT) {
+								bestStartT = t2s;
+								startPointGrid = s2 + d2 * t2s;
+								foundStart = true;
+							}
+						}
+					}
+					if (fabs(d2.y) > 1e-6f) {
+						float t3s = ((float)casterTile.y - s2.y) / d2.y;
+						float x3s = s2.x + d2.x * t3s;
+						if (t3s >= 0.0f && t3s <= 1.0f && x3s >= casterTile.x && x3s <= casterTile.x + 1.0f) {
+							if (!foundStart || t3s < bestStartT) {
+								bestStartT = t3s;
+								startPointGrid = s2 + d2 * t3s;
+								foundStart = true;
+							}
+						}
+						float t4s = ((float)casterTile.y + 1.0f - s2.y) / d2.y;
+						float x4s = s2.x + d2.x * t4s;
+						if (t4s >= 0.0f && t4s <= 1.0f && x4s >= casterTile.x && x4s <= casterTile.x + 1.0f) {
+							if (!foundStart || t4s < bestStartT) {
+								bestStartT = t4s;
+								startPointGrid = s2 + d2 * t4s;
+								foundStart = true;
+							}
+						}
+					}
+				}
+
+				glm::vec3 worldStart = gridFracToWorld(startPointGrid);
+				glm::vec3 worldEnd = gridFracToWorld(hitGrid);
+				worldStart.y += 0.6f;
+				worldEnd.y += 0.6f;
+				spawnTracer(worldStart, worldEnd, glm::ivec2((int)impactTile.x, (int)impactTile.y), ofColor(255, 120, 40), 3.0f);
+			}
 		}
 	}
 
@@ -3192,7 +3441,11 @@ void ofApp::updateGame() {
 		// If we run this locally, the client will spawn a skeleton with a local ID,
 		// then receive the packet and spawn a second one.
 		if (isMultiplayer && isClient()) {
-			activeDiceRolls.clear(); // Clear visual dice so they don't hang forever
+			// Only remove the summon HP dice that belong to this pending summon
+			activeDiceRolls.erase(std::remove_if(activeDiceRolls.begin(), activeDiceRolls.end(), [&](const DiceRoll & r) {
+				return (r.purpose == PURPOSE_HP && r.result == pendingSummonRollResult);
+			}),
+				activeDiceRolls.end());
 			return;
 		}
 		// ... Host/Singleplayer logic continues below ...
@@ -3296,7 +3549,11 @@ void ofApp::updateGame() {
 		}
 
 		ofLogNotice("Raise Dead") << "Skeleton risen with " << minion.health << " HP.";
-		activeDiceRolls.clear();
+		// Remove only the summon-related dice (HP) so other concurrent dice aren't cleared
+		activeDiceRolls.erase(std::remove_if(activeDiceRolls.begin(), activeDiceRolls.end(), [&](const DiceRoll & r) {
+			return (r.purpose == PURPOSE_HP && r.result == pendingSummonRollResult);
+		}),
+			activeDiceRolls.end());
 		invalidateTargetCache();
 	}
 
@@ -3341,7 +3598,7 @@ void ofApp::updateGame() {
 	}
 
 	// --- ETHEREAL JOLT RESOLUTION ---
-	if (isWaitingForJoltRangeDice && activeDiceRolls.empty()) {
+	if (isWaitingForJoltRangeDice && std::none_of(activeDiceRolls.begin(), activeDiceRolls.end(), [](const DiceRoll & r) { return !r.isFinishedVisual; })) {
 		isWaitingForJoltRangeDice = false;
 		Player & caster = players[currentPlayerIndex];
 		glm::vec2 casterTile = { (float)caster.x, (float)caster.y };
@@ -3436,11 +3693,95 @@ void ofApp::updateGame() {
 					spawnFloatingText(targetPos + glm::vec3(0, 1.2f, 0), "Mind Rot!", ofColor::purple);
 					ofLogNotice("Jolt") << "Target's top card removed.";
 				}
+
+				// Spawn tracer from caster to target tile for Ethereal Jolt
+				{
+					glm::vec2 casterCenter = casterTile + glm::vec2(0.5f, 0.5f);
+					glm::vec2 hitGrid = pendingJoltTargetTile + glm::vec2(0.5f, 0.5f);
+					auto gridFracToWorld = [&](glm::vec2 g) {
+						float wx = (g.x - BOARD_WIDTH / 2.0f) * TILE_SIZE + (TILE_SIZE / 2.0f);
+						float wz = (g.y - BOARD_HEIGHT / 2.0f) * TILE_SIZE + (TILE_SIZE / 2.0f);
+						return glm::vec3(wx, 0.0f, wz);
+					};
+
+					// compute caster-edge start so tracer originates from tile face
+					glm::vec2 startPointGrid = casterCenter;
+					{
+						float bestStartT = 1.0f;
+						bool foundStart = false;
+						glm::vec2 s2 = casterCenter;
+						glm::vec2 e2 = hitGrid;
+						glm::vec2 d2 = e2 - s2;
+						if (fabs(d2.x) > 1e-6f) {
+							float t1s = ((float)casterTile.x - s2.x) / d2.x;
+							float y1s = s2.y + d2.y * t1s;
+							if (t1s >= 0.0f && t1s <= 1.0f && y1s >= casterTile.y && y1s <= casterTile.y + 1.0f) {
+								if (!foundStart || t1s < bestStartT) {
+									bestStartT = t1s;
+									startPointGrid = s2 + d2 * t1s;
+									foundStart = true;
+								}
+							}
+							float t2s = ((float)casterTile.x + 1.0f - s2.x) / d2.x;
+							float y2s = s2.y + d2.y * t2s;
+							if (t2s >= 0.0f && t2s <= 1.0f && y2s >= casterTile.y && y2s <= casterTile.y + 1.0f) {
+								if (!foundStart || t2s < bestStartT) {
+									bestStartT = t2s;
+									startPointGrid = s2 + d2 * t2s;
+									foundStart = true;
+								}
+							}
+						}
+						if (fabs(d2.y) > 1e-6f) {
+							float t3s = ((float)casterTile.y - s2.y) / d2.y;
+							float x3s = s2.x + d2.x * t3s;
+							if (t3s >= 0.0f && t3s <= 1.0f && x3s >= casterTile.x && x3s <= casterTile.x + 1.0f) {
+								if (!foundStart || t3s < bestStartT) {
+									bestStartT = t3s;
+									startPointGrid = s2 + d2 * t3s;
+									foundStart = true;
+								}
+							}
+							float t4s = ((float)casterTile.y + 1.0f - s2.y) / d2.y;
+							float x4s = s2.x + d2.x * t4s;
+							if (t4s >= 0.0f && t4s <= 1.0f && x4s >= casterTile.x && x4s <= casterTile.x + 1.0f) {
+								if (!foundStart || t4s < bestStartT) {
+									bestStartT = t4s;
+									startPointGrid = s2 + d2 * t4s;
+									foundStart = true;
+								}
+							}
+						}
+					}
+
+					glm::vec3 worldStart = gridFracToWorld(startPointGrid);
+					glm::vec3 worldEnd = gridFracToWorld(hitGrid);
+					worldStart.y += 0.6f;
+					worldEnd.y += 0.6f;
+					spawnTracer(worldStart, worldEnd, glm::ivec2((int)pendingJoltTargetTile.x, (int)pendingJoltTargetTile.y), ofColor(200, 120, 255), 3.0f);
+				}
 			}
 		} else {
 			ofLogNotice("Jolt") << "Fell short! (Rolled " << pendingJoltRangeResult << "ft, needed " << requiredFeet << "ft)";
 			glm::vec3 failPos = gridToWorld(pendingJoltTargetTile.x, pendingJoltTargetTile.y);
 			spawnFloatingText(failPos, "Out of Range", ofColor::white);
+
+			// Spawn a short tracer to show attempted path (fell short)
+			{
+				glm::vec2 casterCenter = casterTile + glm::vec2(0.5f, 0.5f);
+				glm::vec2 hitGrid = pendingJoltTargetTile + glm::vec2(0.5f, 0.5f);
+				auto gridFracToWorld = [&](glm::vec2 g) {
+					float wx = (g.x - BOARD_WIDTH / 2.0f) * TILE_SIZE + (TILE_SIZE / 2.0f);
+					float wz = (g.y - BOARD_HEIGHT / 2.0f) * TILE_SIZE + (TILE_SIZE / 2.0f);
+					return glm::vec3(wx, 0.0f, wz);
+				};
+
+				glm::vec3 worldStart = gridFracToWorld(casterCenter);
+				glm::vec3 worldEnd = gridFracToWorld(hitGrid);
+				worldStart.y += 0.6f;
+				worldEnd.y += 0.6f;
+				spawnTracer(worldStart, worldEnd, glm::ivec2((int)pendingJoltTargetTile.x, (int)pendingJoltTargetTile.y), ofColor(200, 120, 255), 3.0f);
+			}
 		}
 	}
 
@@ -3592,7 +3933,7 @@ void ofApp::updateGame() {
 	}
 
 	// --- MAGIC BOLT RESOLUTION ---
-	if (isWaitingForMagicBoltRange && activeDiceRolls.empty()) {
+	if (isWaitingForMagicBoltRange && std::none_of(activeDiceRolls.begin(), activeDiceRolls.end(), [](const DiceRoll & r) { return !r.isFinishedVisual; })) {
 		isWaitingForMagicBoltRange = false;
 
 		Player & caster = players[currentPlayerIndex];
@@ -3640,6 +3981,135 @@ void ofApp::updateGame() {
 
 		// 3. APPLY EFFECTS
 
+		// Spawn tracer and highlight the impact tile so players can see where the bolt landed
+		// Compute exact hit point on the impacted tile edge (in grid-space fractions)
+		{
+			glm::vec2 casterCenter = casterTile + glm::vec2(0.5f, 0.5f);
+			glm::vec2 targetCenter = pendingMagicBoltTargetTile + glm::vec2(0.5f, 0.5f);
+			glm::vec2 dir = targetCenter - casterCenter;
+			float len = glm::length(dir);
+			if (len > 0.0001f) dir = dir / len; // normalize for ray tests
+
+			glm::vec2 hitPointGrid = glm::vec2(impactTile.x + 0.5f, impactTile.y + 0.5f); // fallback
+			// Try resolving intersection with the tile's rectangle edges
+			float bestT = 1.0f;
+			bool found = false;
+			glm::vec2 s = casterCenter;
+			glm::vec2 e = pendingMagicBoltTargetTile + glm::vec2(0.5f, 0.5f);
+			glm::vec2 d = e - s;
+			// Check vertical (x) sides
+			if (fabs(d.x) > 1e-6f) {
+				float t1 = ((float)impactTile.x - s.x) / d.x;
+				float y1 = s.y + d.y * t1;
+				if (t1 >= 0.0f && t1 <= 1.0f && y1 >= impactTile.y && y1 <= impactTile.y + 1.0f) {
+					if (!found || t1 < bestT) {
+						bestT = t1;
+						hitPointGrid = s + d * t1;
+						found = true;
+					}
+				}
+				float t2 = ((float)impactTile.x + 1.0f - s.x) / d.x;
+				float y2 = s.y + d.y * t2;
+				if (t2 >= 0.0f && t2 <= 1.0f && y2 >= impactTile.y && y2 <= impactTile.y + 1.0f) {
+					if (!found || t2 < bestT) {
+						bestT = t2;
+						hitPointGrid = s + d * t2;
+						found = true;
+					}
+				}
+			}
+			// Check horizontal (y) sides
+			if (fabs(d.y) > 1e-6f) {
+				float t3 = ((float)impactTile.y - s.y) / d.y;
+				float x3 = s.x + d.x * t3;
+				if (t3 >= 0.0f && t3 <= 1.0f && x3 >= impactTile.x && x3 <= impactTile.x + 1.0f) {
+					if (!found || t3 < bestT) {
+						bestT = t3;
+						hitPointGrid = s + d * t3;
+						found = true;
+					}
+				}
+				float t4 = ((float)impactTile.y + 1.0f - s.y) / d.y;
+				float x4 = s.x + d.x * t4;
+				if (t4 >= 0.0f && t4 <= 1.0f && x4 >= impactTile.x && x4 <= impactTile.x + 1.0f) {
+					if (!found || t4 < bestT) {
+						bestT = t4;
+						hitPointGrid = s + d * t4;
+						found = true;
+					}
+				}
+			}
+
+			// Convert fractional grid coords to world
+			auto gridFracToWorld = [&](glm::vec2 g) {
+				float wx = (g.x - BOARD_WIDTH / 2.0f) * TILE_SIZE + (TILE_SIZE / 2.0f);
+				float wz = (g.y - BOARD_HEIGHT / 2.0f) * TILE_SIZE + (TILE_SIZE / 2.0f);
+				return glm::vec3(wx, 0.0f, wz);
+			};
+
+			// Compute proper start point on caster tile edge (so tracer originates from
+			// the face toward the target rather than from behind the tile center)
+			glm::vec2 startPointGrid = casterCenter;
+			{
+				float bestStartT = 1.0f;
+				bool foundStart = false;
+				glm::vec2 s2 = casterCenter;
+				glm::vec2 e2 = pendingMagicBoltTargetTile + glm::vec2(0.5f, 0.5f);
+				glm::vec2 d2 = e2 - s2;
+				// check vertical (x) sides of caster tile
+				if (fabs(d2.x) > 1e-6f) {
+					float t1s = ((float)casterTile.x - s2.x) / d2.x;
+					float y1s = s2.y + d2.y * t1s;
+					if (t1s >= 0.0f && t1s <= 1.0f && y1s >= casterTile.y && y1s <= casterTile.y + 1.0f) {
+						if (!foundStart || t1s < bestStartT) {
+							bestStartT = t1s;
+							startPointGrid = s2 + d2 * t1s;
+							foundStart = true;
+						}
+					}
+					float t2s = ((float)casterTile.x + 1.0f - s2.x) / d2.x;
+					float y2s = s2.y + d2.y * t2s;
+					if (t2s >= 0.0f && t2s <= 1.0f && y2s >= casterTile.y && y2s <= casterTile.y + 1.0f) {
+						if (!foundStart || t2s < bestStartT) {
+							bestStartT = t2s;
+							startPointGrid = s2 + d2 * t2s;
+							foundStart = true;
+						}
+					}
+				}
+				// check horizontal (y) sides
+				if (fabs(d2.y) > 1e-6f) {
+					float t3s = ((float)casterTile.y - s2.y) / d2.y;
+					float x3s = s2.x + d2.x * t3s;
+					if (t3s >= 0.0f && t3s <= 1.0f && x3s >= casterTile.x && x3s <= casterTile.x + 1.0f) {
+						if (!foundStart || t3s < bestStartT) {
+							bestStartT = t3s;
+							startPointGrid = s2 + d2 * t3s;
+							foundStart = true;
+						}
+					}
+					float t4s = ((float)casterTile.y + 1.0f - s2.y) / d2.y;
+					float x4s = s2.x + d2.x * t4s;
+					if (t4s >= 0.0f && t4s <= 1.0f && x4s >= casterTile.x && x4s <= casterTile.x + 1.0f) {
+						if (!foundStart || t4s < bestStartT) {
+							bestStartT = t4s;
+							startPointGrid = s2 + d2 * t4s;
+							foundStart = true;
+						}
+					}
+				}
+			}
+
+			glm::vec3 worldStart = gridFracToWorld(startPointGrid);
+			glm::vec3 worldEnd = gridFracToWorld(hitPointGrid);
+			// Slightly raise line in Y so it's visible above ground
+			worldStart.y += 0.6f;
+			worldEnd.y += 0.6f;
+
+			// Spawn tracer with a purple color for magic bolt
+			spawnTracer(worldStart, worldEnd, glm::ivec2((int)impactTile.x, (int)impactTile.y), ofColor(180, 100, 255), 3.0f);
+		}
+
 		// Check if impact was inside a wall
 		if (isTileWall((int)impactTile.x, (int)impactTile.y)) {
 			ofLogNotice("Magic Bolt") << "Bolt fizzled inside a wall. No AOE.";
@@ -3679,11 +4149,10 @@ void ofApp::updateGame() {
 			}
 
 			// --- SECONDARY AOE (3 Electric Damage) ---
-			// FIX: Changed to 2d20 as requested
-			// AOE Roll (2d20)
-			int diceRoll = startDiceRoll(2, 20, PURPOSE_RANGE, "Magic Bolt: AOE Radius", currentPlayerIndex);
+			// AOE Roll (1d20): roll 1d20 for AOE radius, then add 3ft buffer so it at least reaches one tile
+			int diceRoll = startDiceRoll(1, 20, PURPOSE_RANGE, "Magic Bolt: AOE Radius", currentPlayerIndex);
 
-			// FIX: Add automatic 3ft buffer
+			// Add automatic 3ft buffer
 			int aoeRadiusFeet = diceRoll + 3;
 
 			ofLogNotice("Magic Bolt") << "AOE Roll: " << diceRoll << " + 3ft = " << aoeRadiusFeet << "ft Radius.";
@@ -3698,6 +4167,20 @@ void ofApp::updateGame() {
 
 				// Check Radius
 				if (distToTargetFeet <= aoeRadiusFeet + 0.01f) {
+					// Ensure AOE doesn't go through walls: verify line-of-sight from impact center to unit center
+					auto losPath = getLineOfSightPath(impactTile + glm::vec2(0.5f, 0.5f), glm::vec2(p.x, p.y) + glm::vec2(0.5f, 0.5f));
+					bool blockedByWall = false;
+					for (const auto & step : losPath) {
+						// skip the impact tile and the final target tile
+						if ((int)step.x == (int)impactTile.x && (int)step.y == (int)impactTile.y) continue;
+						if ((int)step.x == p.x && (int)step.y == p.y) break;
+						if (isTileWall((int)step.x, (int)step.y)) {
+							blockedByWall = true;
+							break;
+						}
+					}
+					if (blockedByWall) continue;
+
 					ofLogNotice("Magic Bolt") << "AOE Hit on Unit " << p.playerID << " (Dist: " << distToTargetFeet << ")";
 
 					int dmg = 3;
@@ -3720,7 +4203,7 @@ void ofApp::updateGame() {
 	}
 
 	// --- SHOOT ARROW HIT RESOLUTION ---
-	if (isWaitingForShootArrow && activeDiceRolls.empty()) {
+	if (isWaitingForShootArrow && std::none_of(activeDiceRolls.begin(), activeDiceRolls.end(), [](const DiceRoll & r) { return !r.isFinishedVisual; })) {
 		isWaitingForShootArrow = false;
 		Player & caster = players[currentPlayerIndex];
 		glm::vec2 casterTile = { (float)caster.x, (float)caster.y };
@@ -3732,6 +4215,72 @@ void ofApp::updateGame() {
 
 		if (maxDistUnits >= neededDistUnits - 0.01f) {
 			// Hit: start damage roll 1d6 piercing and queue attack resolution
+			// Spawn tracer from caster to target (hit)
+			{
+				glm::vec2 casterCenter = casterTile + glm::vec2(0.5f, 0.5f);
+				glm::vec2 hitGrid = pendingShootArrowTargetTile + glm::vec2(0.5f, 0.5f);
+				auto gridFracToWorld = [&](glm::vec2 g) {
+					float wx = (g.x - BOARD_WIDTH / 2.0f) * TILE_SIZE + (TILE_SIZE / 2.0f);
+					float wz = (g.y - BOARD_HEIGHT / 2.0f) * TILE_SIZE + (TILE_SIZE / 2.0f);
+					return glm::vec3(wx, 0.0f, wz);
+				};
+
+				// compute caster-edge start so tracer originates from tile face
+				glm::vec2 startPointGrid = casterCenter;
+				{
+					float bestStartT = 1.0f;
+					bool foundStart = false;
+					glm::vec2 s2 = casterCenter;
+					glm::vec2 e2 = hitGrid;
+					glm::vec2 d2 = e2 - s2;
+					if (fabs(d2.x) > 1e-6f) {
+						float t1s = ((float)casterTile.x - s2.x) / d2.x;
+						float y1s = s2.y + d2.y * t1s;
+						if (t1s >= 0.0f && t1s <= 1.0f && y1s >= casterTile.y && y1s <= casterTile.y + 1.0f) {
+							if (!foundStart || t1s < bestStartT) {
+								bestStartT = t1s;
+								startPointGrid = s2 + d2 * t1s;
+								foundStart = true;
+							}
+						}
+						float t2s = ((float)casterTile.x + 1.0f - s2.x) / d2.x;
+						float y2s = s2.y + d2.y * t2s;
+						if (t2s >= 0.0f && t2s <= 1.0f && y2s >= casterTile.y && y2s <= casterTile.y + 1.0f) {
+							if (!foundStart || t2s < bestStartT) {
+								bestStartT = t2s;
+								startPointGrid = s2 + d2 * t2s;
+								foundStart = true;
+							}
+						}
+					}
+					if (fabs(d2.y) > 1e-6f) {
+						float t3s = ((float)casterTile.y - s2.y) / d2.y;
+						float x3s = s2.x + d2.x * t3s;
+						if (t3s >= 0.0f && t3s <= 1.0f && x3s >= casterTile.x && x3s <= casterTile.x + 1.0f) {
+							if (!foundStart || t3s < bestStartT) {
+								bestStartT = t3s;
+								startPointGrid = s2 + d2 * t3s;
+								foundStart = true;
+							}
+						}
+						float t4s = ((float)casterTile.y + 1.0f - s2.y) / d2.y;
+						float x4s = s2.x + d2.x * t4s;
+						if (t4s >= 0.0f && t4s <= 1.0f && x4s >= casterTile.x && x4s <= casterTile.x + 1.0f) {
+							if (!foundStart || t4s < bestStartT) {
+								bestStartT = t4s;
+								startPointGrid = s2 + d2 * t4s;
+								foundStart = true;
+							}
+						}
+					}
+				}
+
+				glm::vec3 worldStart = gridFracToWorld(startPointGrid);
+				glm::vec3 worldEnd = gridFracToWorld(hitGrid);
+				worldStart.y += 0.6f;
+				worldEnd.y += 0.6f;
+				spawnTracer(worldStart, worldEnd, glm::ivec2((int)pendingShootArrowTargetTile.x, (int)pendingShootArrowTargetTile.y), ofColor(200, 180, 100), 3.0f);
+			}
 			pendingAttackRollResult = startDiceRoll(1, 6, PURPOSE_DAMAGE, "Shoot Arrow: Damage", currentPlayerIndex);
 			isWaitingForAttackDice = true;
 			pendingAttackDamageType = DAMAGE_PIERCING;
@@ -3742,6 +4291,72 @@ void ofApp::updateGame() {
 		} else {
 			// Miss: notify
 			spawnFloatingText(gridToWorld((int)pendingShootArrowTargetTile.x, (int)pendingShootArrowTargetTile.y), "Missed!", ofColor::gray);
+			// Also spawn a tracer so player can see where the arrow landed/shortened
+			{
+				glm::vec2 casterCenter = casterTile + glm::vec2(0.5f, 0.5f);
+				glm::vec2 hitGrid = pendingShootArrowTargetTile + glm::vec2(0.5f, 0.5f);
+				auto gridFracToWorld = [&](glm::vec2 g) {
+					float wx = (g.x - BOARD_WIDTH / 2.0f) * TILE_SIZE + (TILE_SIZE / 2.0f);
+					float wz = (g.y - BOARD_HEIGHT / 2.0f) * TILE_SIZE + (TILE_SIZE / 2.0f);
+					return glm::vec3(wx, 0.0f, wz);
+				};
+
+				// compute caster-edge start so tracer originates from tile face
+				glm::vec2 startPointGrid = casterCenter;
+				{
+					float bestStartT = 1.0f;
+					bool foundStart = false;
+					glm::vec2 s2 = casterCenter;
+					glm::vec2 e2 = hitGrid;
+					glm::vec2 d2 = e2 - s2;
+					if (fabs(d2.x) > 1e-6f) {
+						float t1s = ((float)casterTile.x - s2.x) / d2.x;
+						float y1s = s2.y + d2.y * t1s;
+						if (t1s >= 0.0f && t1s <= 1.0f && y1s >= casterTile.y && y1s <= casterTile.y + 1.0f) {
+							if (!foundStart || t1s < bestStartT) {
+								bestStartT = t1s;
+								startPointGrid = s2 + d2 * t1s;
+								foundStart = true;
+							}
+						}
+						float t2s = ((float)casterTile.x + 1.0f - s2.x) / d2.x;
+						float y2s = s2.y + d2.y * t2s;
+						if (t2s >= 0.0f && t2s <= 1.0f && y2s >= casterTile.y && y2s <= casterTile.y + 1.0f) {
+							if (!foundStart || t2s < bestStartT) {
+								bestStartT = t2s;
+								startPointGrid = s2 + d2 * t2s;
+								foundStart = true;
+							}
+						}
+					}
+					if (fabs(d2.y) > 1e-6f) {
+						float t3s = ((float)casterTile.y - s2.y) / d2.y;
+						float x3s = s2.x + d2.x * t3s;
+						if (t3s >= 0.0f && t3s <= 1.0f && x3s >= casterTile.x && x3s <= casterTile.x + 1.0f) {
+							if (!foundStart || t3s < bestStartT) {
+								bestStartT = t3s;
+								startPointGrid = s2 + d2 * t3s;
+								foundStart = true;
+							}
+						}
+						float t4s = ((float)casterTile.y + 1.0f - s2.y) / d2.y;
+						float x4s = s2.x + d2.x * t4s;
+						if (t4s >= 0.0f && t4s <= 1.0f && x4s >= casterTile.x && x4s <= casterTile.x + 1.0f) {
+							if (!foundStart || t4s < bestStartT) {
+								bestStartT = t4s;
+								startPointGrid = s2 + d2 * t4s;
+								foundStart = true;
+							}
+						}
+					}
+				}
+
+				glm::vec3 worldStart = gridFracToWorld(startPointGrid);
+				glm::vec3 worldEnd = gridFracToWorld(hitGrid);
+				worldStart.y += 0.6f;
+				worldEnd.y += 0.6f;
+				spawnTracer(worldStart, worldEnd, glm::ivec2((int)pendingShootArrowTargetTile.x, (int)pendingShootArrowTargetTile.y), ofColor(200, 180, 100), 3.0f);
+			}
 			ofLogNotice("ShootArrow") << "Shoot Arrow fell short.";
 		}
 
@@ -3755,7 +4370,11 @@ void ofApp::updateGame() {
 
 		// --- MULTIPLAYER FIX ---
 		if (isMultiplayer && isClient()) {
-			activeDiceRolls.clear();
+			// Remove only the summon-related dice (HP and any AP roll used for this summon)
+			activeDiceRolls.erase(std::remove_if(activeDiceRolls.begin(), activeDiceRolls.end(), [&](const DiceRoll & r) {
+				return (r.purpose == PURPOSE_HP && r.result == pendingSummonRollResult) || (r.purpose == PURPOSE_BONUS_AP && r.result == pendingHellhoundAPResult);
+			}),
+				activeDiceRolls.end());
 			return;
 		}
 		// ... Host/Singleplayer logic continues ...
@@ -3863,7 +4482,11 @@ void ofApp::updateGame() {
 
 		// --- MULTIPLAYER FIX ---
 		if (isMultiplayer && isClient()) {
-			activeDiceRolls.clear();
+			// Remove only the summon-related dice (HP) so we don't wipe unrelated visual dice.
+			activeDiceRolls.erase(std::remove_if(activeDiceRolls.begin(), activeDiceRolls.end(), [&](const DiceRoll & r) {
+				return (r.purpose == PURPOSE_HP && r.result == pendingSummonRollResult);
+			}),
+				activeDiceRolls.end());
 			return;
 		}
 		// ... Host/Singleplayer logic continues ...
@@ -3954,7 +4577,7 @@ void ofApp::updateGame() {
 	}
 
 	// --- CHAIN LIGHTNING: RANGE RESOLUTION ---
-	if (isWaitingForChainLightningRange && activeDiceRolls.empty()) {
+	if (isWaitingForChainLightningRange && std::none_of(activeDiceRolls.begin(), activeDiceRolls.end(), [](const DiceRoll & r) { return !r.isFinishedVisual; })) {
 		isWaitingForChainLightningRange = false;
 
 		Player & caster = players[currentPlayerIndex];
@@ -3970,15 +4593,172 @@ void ofApp::updateGame() {
 			// SUCCESS: Roll Damage (1d10)
 			pendingChainLightningDamageResult = startDiceRoll(1, 10, PURPOSE_DAMAGE, "Chain Lightning: Damage", currentPlayerIndex);
 			isWaitingForChainLightningDamage = true;
+
+			// Spawn a tracer from caster to the primary target tile
+			{
+				glm::vec2 casterCenter = casterTile + glm::vec2(0.5f, 0.5f);
+				glm::vec2 hitGrid = pendingChainLightningTargetTile + glm::vec2(0.5f, 0.5f);
+				auto gridFracToWorld = [&](glm::vec2 g) {
+					float wx = (g.x - BOARD_WIDTH / 2.0f) * TILE_SIZE + (TILE_SIZE / 2.0f);
+					float wz = (g.y - BOARD_HEIGHT / 2.0f) * TILE_SIZE + (TILE_SIZE / 2.0f);
+					return glm::vec3(wx, 0.0f, wz);
+				};
+
+				// compute caster-edge start so tracer originates from tile face
+				glm::vec2 startPointGrid = casterCenter;
+				{
+					float bestStartT = 1.0f;
+					bool foundStart = false;
+					glm::vec2 s2 = casterCenter;
+					glm::vec2 e2 = hitGrid;
+					glm::vec2 d2 = e2 - s2;
+					if (fabs(d2.x) > 1e-6f) {
+						float t1s = ((float)casterTile.x - s2.x) / d2.x;
+						float y1s = s2.y + d2.y * t1s;
+						if (t1s >= 0.0f && t1s <= 1.0f && y1s >= casterTile.y && y1s <= casterTile.y + 1.0f) {
+							if (!foundStart || t1s < bestStartT) {
+								bestStartT = t1s;
+								startPointGrid = s2 + d2 * t1s;
+								foundStart = true;
+							}
+						}
+						float t2s = ((float)casterTile.x + 1.0f - s2.x) / d2.x;
+						float y2s = s2.y + d2.y * t2s;
+						if (t2s >= 0.0f && t2s <= 1.0f && y2s >= casterTile.y && y2s <= casterTile.y + 1.0f) {
+							if (!foundStart || t2s < bestStartT) {
+								bestStartT = t2s;
+								startPointGrid = s2 + d2 * t2s;
+								foundStart = true;
+							}
+						}
+					}
+					if (fabs(d2.y) > 1e-6f) {
+						float t3s = ((float)casterTile.y - s2.y) / d2.y;
+						float x3s = s2.x + d2.x * t3s;
+						if (t3s >= 0.0f && t3s <= 1.0f && x3s >= casterTile.x && x3s <= casterTile.x + 1.0f) {
+							if (!foundStart || t3s < bestStartT) {
+								bestStartT = t3s;
+								startPointGrid = s2 + d2 * t3s;
+								foundStart = true;
+							}
+						}
+						float t4s = ((float)casterTile.y + 1.0f - s2.y) / d2.y;
+						float x4s = s2.x + d2.x * t4s;
+						if (t4s >= 0.0f && t4s <= 1.0f && x4s >= casterTile.x && x4s <= casterTile.x + 1.0f) {
+							if (!foundStart || t4s < bestStartT) {
+								bestStartT = t4s;
+								startPointGrid = s2 + d2 * t4s;
+								foundStart = true;
+							}
+						}
+					}
+				}
+
+				glm::vec3 worldStart = gridFracToWorld(startPointGrid);
+				glm::vec3 worldEnd = gridFracToWorld(hitGrid);
+				worldStart.y += 0.6f;
+				worldEnd.y += 0.6f;
+				spawnTracer(worldStart, worldEnd, glm::ivec2((int)pendingChainLightningTargetTile.x, (int)pendingChainLightningTargetTile.y), ofColor(100, 255, 255), 3.0f);
+			}
 		} else {
-			// FAIL
-			glm::vec3 failPos = gridToWorld(pendingChainLightningTargetTile.x, pendingChainLightningTargetTile.y);
+			// FAIL: show where the bolt attempted to go
+			float maxDistUnits = maxRange / 5.0f;
+			glm::vec2 impactTile;
+			glm::vec2 dir = pendingChainLightningTargetTile - casterTile;
+			if (glm::length(dir) > 0.0f) dir = glm::normalize(dir);
+
+			bool hitWall = false;
+			std::vector<glm::vec2> path = getLineOfSightPath(casterTile + 0.5f, pendingChainLightningTargetTile + 0.5f);
+			for (const auto & step : path) {
+				float distToStep = getFaceToFaceDistance(casterTile, step);
+				if (distToStep > maxDistUnits) break;
+
+				if (isTileWall((int)step.x, (int)step.y)) {
+					impactTile = step;
+					hitWall = true;
+					break;
+				}
+			}
+
+			if (!hitWall) {
+				glm::vec2 impactPos = casterTile + (dir * maxDistUnits);
+				impactTile = { floor(impactPos.x), floor(impactPos.y) };
+			}
+
+			glm::vec3 failPos = gridToWorld((int)impactTile.x, (int)impactTile.y);
 			spawnFloatingText(failPos, "Fizzle (Range)", ofColor::gray);
+
+			// Spawn tracer to show attempted endpoint
+			{
+				glm::vec2 casterCenter = casterTile + glm::vec2(0.5f, 0.5f);
+				glm::vec2 hitGrid = impactTile + glm::vec2(0.5f, 0.5f);
+				auto gridFracToWorld = [&](glm::vec2 g) {
+					float wx = (g.x - BOARD_WIDTH / 2.0f) * TILE_SIZE + (TILE_SIZE / 2.0f);
+					float wz = (g.y - BOARD_HEIGHT / 2.0f) * TILE_SIZE + (TILE_SIZE / 2.0f);
+					return glm::vec3(wx, 0.0f, wz);
+				};
+
+				// compute caster-edge start so tracer originates from tile face
+				glm::vec2 startPointGrid = casterCenter;
+				{
+					float bestStartT = 1.0f;
+					bool foundStart = false;
+					glm::vec2 s2 = casterCenter;
+					glm::vec2 e2 = hitGrid;
+					glm::vec2 d2 = e2 - s2;
+					if (fabs(d2.x) > 1e-6f) {
+						float t1s = ((float)casterTile.x - s2.x) / d2.x;
+						float y1s = s2.y + d2.y * t1s;
+						if (t1s >= 0.0f && t1s <= 1.0f && y1s >= casterTile.y && y1s <= casterTile.y + 1.0f) {
+							if (!foundStart || t1s < bestStartT) {
+								bestStartT = t1s;
+								startPointGrid = s2 + d2 * t1s;
+								foundStart = true;
+							}
+						}
+						float t2s = ((float)casterTile.x + 1.0f - s2.x) / d2.x;
+						float y2s = s2.y + d2.y * t2s;
+						if (t2s >= 0.0f && t2s <= 1.0f && y2s >= casterTile.y && y2s <= casterTile.y + 1.0f) {
+							if (!foundStart || t2s < bestStartT) {
+								bestStartT = t2s;
+								startPointGrid = s2 + d2 * t2s;
+								foundStart = true;
+							}
+						}
+					}
+					if (fabs(d2.y) > 1e-6f) {
+						float t3s = ((float)casterTile.y - s2.y) / d2.y;
+						float x3s = s2.x + d2.x * t3s;
+						if (t3s >= 0.0f && t3s <= 1.0f && x3s >= casterTile.x && x3s <= casterTile.x + 1.0f) {
+							if (!foundStart || t3s < bestStartT) {
+								bestStartT = t3s;
+								startPointGrid = s2 + d2 * t3s;
+								foundStart = true;
+							}
+						}
+						float t4s = ((float)casterTile.y + 1.0f - s2.y) / d2.y;
+						float x4s = s2.x + d2.x * t4s;
+						if (t4s >= 0.0f && t4s <= 1.0f && x4s >= casterTile.x && x4s <= casterTile.x + 1.0f) {
+							if (!foundStart || t4s < bestStartT) {
+								bestStartT = t4s;
+								startPointGrid = s2 + d2 * t4s;
+								foundStart = true;
+							}
+						}
+					}
+				}
+
+				glm::vec3 worldStart = gridFracToWorld(startPointGrid);
+				glm::vec3 worldEnd = gridFracToWorld(hitGrid);
+				worldStart.y += 0.6f;
+				worldEnd.y += 0.6f;
+				spawnTracer(worldStart, worldEnd, glm::ivec2((int)impactTile.x, (int)impactTile.y), ofColor(100, 255, 255), 3.0f);
+			}
 		}
 	}
 
 	// --- CHAIN LIGHTNING: DAMAGE RESOLUTION ---
-	if (isWaitingForChainLightningDamage && activeDiceRolls.empty()) {
+	if (isWaitingForChainLightningDamage && std::none_of(activeDiceRolls.begin(), activeDiceRolls.end(), [](const DiceRoll & r) { return !r.isFinishedVisual; })) {
 		isWaitingForChainLightningDamage = false;
 
 		Player & caster = players[currentPlayerIndex];
@@ -5291,27 +6071,44 @@ void ofApp::updateGame() {
 		float u = 1.0f - t;
 		anim.currentPos = (u * u) * start2D + (2.0f * u * t) * control + (t * t) * anim.targetPos;
 
-		// Scale easing: start small, overshoot slightly, settle to final (final visually ~1.5x hand)
-		float s0 = 0.55f; // start scale (small)
-		float sOvershoot = 1.6f; // slight overshoot for pop
-		float sFinal = 1.5f; // final visual size multiplier used elsewhere
-		auto easeOutCubic = [](float x) {
-			return 1.0f - powf(1.0f - x, 3.0f);
-		};
-		if (t < 0.6f) {
-			anim.currentScale = ofLerp(s0, sOvershoot, easeOutCubic(t / 0.6f));
-		} else {
-			anim.currentScale = ofLerp(sOvershoot, sFinal, easeOutCubic((t - 0.6f) / 0.4f));
-		}
+		// Keep steady full scale during draw animation to avoid small-start flicker
+		anim.currentScale = 1.0f;
 
 		// Keep fully opaque for clarity
 		anim.currentAlpha = 255.0f;
 	}
-	// Remove finished draw animations
-	activeDrawCardAnimations.erase(std::remove_if(activeDrawCardAnimations.begin(), activeDrawCardAnimations.end(), [](const DrawCardAnimation & anim) {
-		return (ofGetElapsedTimef() - anim.startTime) >= anim.duration;
-	}),
-		activeDrawCardAnimations.end());
+	// Commit finished draw animations into players' hands, then remove them
+	{
+		float now = ofGetElapsedTimef();
+		// First, add finished animations' cards to the appropriate player's hand
+		for (const auto & anim : activeDrawCardAnimations) {
+			if ((now - anim.startTime) >= anim.duration) {
+				int owner = anim.ownerIndex;
+				if (owner >= 0 && owner < (int)players.size()) {
+					Player & p = players[owner];
+					// Initialize visual state from the finished animation so the
+					// committed card appears at the correct screen position.
+					// Note: do not skip based on name+drawnThisTurn, as legitimate
+					// duplicate-name cards should both be allowed in hand.
+					Card c = anim.card;
+					c.currentPos = anim.currentPos;
+					// Ensure the committed card appears at normal scale immediately
+					// to avoid a brief scaled-down / pop visual when it is added.
+					c.currentScale = 1.0f;
+					c.targetPos = anim.targetPos;
+					c.targetScale = 1.0f;
+					c.drawnThisTurn = true;
+					p.hand.push_back(c);
+				}
+			}
+		}
+
+		// Then remove finished animations from the active list
+		activeDrawCardAnimations.erase(std::remove_if(activeDrawCardAnimations.begin(), activeDrawCardAnimations.end(), [now](const DrawCardAnimation & anim) {
+			return (now - anim.startTime) >= anim.duration;
+		}),
+			activeDrawCardAnimations.end());
+	}
 
 	// Card Hand Animation
 	if (!players.empty() && currentPlayerIndex >= 0) {
@@ -6824,8 +7621,32 @@ void ofApp::drawGame() {
 		bool highlightedTiles[BOARD_WIDTH][BOARD_HEIGHT];
 		for (int x = 0; x < BOARD_WIDTH; x++) {
 			for (int y = 0; y < BOARD_HEIGHT; y++) {
-				// Include both movement highlights AND red preview tiles
+				// Include both movement highlights AND red preview tiles, but exclude
+				// previews that are targetable (they should be green) so outlines
+				// don't draw adjacent to green targetable squares.
 				highlightedTiles[x][y] = board[x][y].isHighlighted || (board[x][y].isTargetPreview && !board[x][y].isTargetable);
+			}
+		}
+		// Remove any preview outlines that are adjacent to a green targetable tile
+		for (int x = 0; x < BOARD_WIDTH; x++) {
+			for (int y = 0; y < BOARD_HEIGHT; y++) {
+				if (!highlightedTiles[x][y]) continue;
+				// if any neighbor is targetable, suppress this preview outline so
+				// the tile appears fully green instead of half white
+				bool adjacentToTargetable = false;
+				const int nx[4] = { 1, -1, 0, 0 };
+				const int ny[4] = { 0, 0, 1, -1 };
+				for (int k = 0; k < 4; ++k) {
+					int xi = x + nx[k];
+					int yi = y + ny[k];
+					if (xi >= 0 && xi < BOARD_WIDTH && yi >= 0 && yi < BOARD_HEIGHT) {
+						if (board[xi][yi].isTargetable) {
+							adjacentToTargetable = true;
+							break;
+						}
+					}
+				}
+				if (adjacentToTargetable) highlightedTiles[x][y] = false;
 			}
 		}
 		// Draw the white outlines (no pulse, solid white)
@@ -6855,6 +7676,39 @@ void ofApp::drawGame() {
 				ofDrawCircle(0, 0, TILE_SIZE * 0.3f);
 				ofPopMatrix();
 			}
+			ofDisableDepthTest();
+		}
+
+		// Draw active tracers (ranged spell visuals)
+		{
+			float now = ofGetElapsedTimef();
+			// Ensure lines are drawn without lighting so color is consistent
+			ofDisableLighting();
+			ofEnableDepthTest();
+			for (const auto & tr : activeTracers) {
+				float life = (now - tr.startTime) / tr.duration;
+				if (life < 0.0f) life = 0.0f;
+				if (life > 1.0f) continue;
+				float alpha = 1.0f - life;
+				ofColor col = tr.color;
+				col.a = (unsigned char)(ofClamp(alpha, 0.0f, 1.0f) * 255);
+				ofSetColor(col);
+				ofSetLineWidth(6.0f);
+				// Draw a flat tracer slightly above the board using XZ from stored start/end
+				const float tracerHeight = 0.12f; // small elevation above tile surface
+				ofDrawLine(tr.start.x, tracerHeight, tr.start.z, tr.end.x, tracerHeight, tr.end.z);
+				// Impact glow on tile (slightly jittered/pulsed)
+				float pulse = 1.0f + 0.25f * sin((now - tr.startTime) * 16.0f);
+				glm::vec3 tileCenter = gridToWorld(tr.impactTile.x, tr.impactTile.y);
+				ofPushMatrix();
+				ofTranslate(tileCenter.x, 0.08f + 0.02f, tileCenter.z);
+				ofRotateXDeg(90);
+				ofSetColor(col);
+				ofDrawCircle(0, 0, (TILE_SIZE * 0.18f) * pulse);
+				ofPopMatrix();
+				ofSetLineWidth(1.0f);
+			}
+			ofEnableLighting();
 			ofDisableDepthTest();
 		}
 
@@ -9541,6 +10395,12 @@ void ofApp::mousePressed(int x, int y, int button) {
 		}
 	}
 
+	// If right-click during an in-game key draft, ignore (must pick)
+	if (button == OF_MOUSE_BUTTON_RIGHT && currentState == STATE_DRAFTING && isInGameDraft) {
+		ofLogNotice("Draft") << "Right-click (press) ignored during in-game key draft (must pick a card).";
+		return;
+	}
+
 	// Click-to-dismiss played card animation
 	if (button == OF_MOUSE_BUTTON_LEFT && !activePlayedCardAnimations.empty()) {
 		float handBaseCardWidth = 120.0f;
@@ -9972,6 +10832,8 @@ void ofApp::mousePressed(int x, int y, int button) {
 						for (int q = 0; q < cardSpawnerQuantity; q++) {
 							players[currentPlayerIndex].hand.push_back(sortedCards[i]);
 							players[currentPlayerIndex].hand.back().currentPos = ofVec2f(ofGetWidth() / 2, 0);
+							players[currentPlayerIndex].hand.back().currentScale = 1.0f;
+							players[currentPlayerIndex].hand.back().drawnThisTurn = true;
 						}
 						spawnFloatingText(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y),
 							"+" + ofToString(cardSpawnerQuantity) + "x " + sortedCards[i].name, ofColor::cyan);
@@ -10044,6 +10906,8 @@ void ofApp::mousePressed(int x, int y, int button) {
 					for (int q = 0; q < cardSpawnerQuantity; q++) {
 						players[currentPlayerIndex].hand.push_back(filteredCards[i]);
 						players[currentPlayerIndex].hand.back().currentPos = ofVec2f(ofGetWidth() / 2, 0);
+						players[currentPlayerIndex].hand.back().currentScale = 1.0f;
+						players[currentPlayerIndex].hand.back().drawnThisTurn = true;
 					}
 					spawnFloatingText(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y),
 						"+" + ofToString(cardSpawnerQuantity) + "x " + filteredCards[i].name, ofColor::cyan);
@@ -11807,9 +12671,16 @@ void ofApp::mousePressed(int x, int y, int button) {
 					steamManager.sendPacket(&req, sizeof(req));
 				} else {
 					// Single-player or Host
-					for (int i = 0; i < cardsToDraw; ++i)
+					for (int i = 0; i < cardsToDraw; ++i) {
 						drawCard();
+					}
 
+					// Ensure any newly-added cards are normalized to full scale so
+					// click-and-hold draw doesn't leave them small.
+					for (size_t idx = handSizeBefore; idx < localPlayer->hand.size(); ++idx) {
+						localPlayer->hand[idx].currentScale = 1.0f;
+						localPlayer->hand[idx].targetScale = 1.0f;
+					}
 					if (isMultiplayer && isHost()) {
 						DrawCardsPacket out = {};
 						out.type = PKT_DRAW_CARDS;
@@ -12460,6 +13331,11 @@ void ofApp::mouseReleased(int x, int y, int button) {
 
 	if (button == OF_MOUSE_BUTTON_RIGHT) {
 		if (mouseDownPos.distance(ofVec2f(x, y)) < 5.0f) {
+			// If we are in an in-game key draft, ignore right-click cancels
+			if (currentState == STATE_DRAFTING && isInGameDraft) {
+				ofLogNotice("Draft") << "Right-click ignored during in-game key draft (must pick a card).";
+				return;
+			}
 			selectedCardIndex = -1;
 			draggedCardIndex = -1;
 			playerAction = NONE;
@@ -13029,8 +13905,16 @@ void ofApp::keyReleased(int key) {
 			currentState = STATE_PAUSED;
 			break;
 		case STATE_DRAFTING:
-			pausedFromState = STATE_DRAFTING;
-			currentState = STATE_PAUSED;
+			// If this draft was triggered by picking up a key (in-game draft),
+			// disallow cancelling — the player must make a pick. For normal
+			// drafting screens (e.g. pre-game), allow pause as before.
+			if (isInGameDraft) {
+				ofLogNotice("Draft") << "ESC ignored during in-game key draft (must pick a card).";
+				// swallow ESC — do not change currentState
+			} else {
+				pausedFromState = STATE_DRAFTING;
+				currentState = STATE_PAUSED;
+			}
 			break;
 
 		case STATE_PAUSED:
@@ -13465,7 +14349,11 @@ void ofApp::continueNewTurn() {
 	isPlayerAnimating = false;
 	animatingPlayerIndex = -1;
 
-	activeDiceRolls.clear();
+	// Only clear AP-related visual dice here to avoid removing unrelated visual dice
+	activeDiceRolls.erase(std::remove_if(activeDiceRolls.begin(), activeDiceRolls.end(), [&](const DiceRoll & r) {
+		return (r.purpose == PURPOSE_AP || r.purpose == PURPOSE_BONUS_AP);
+	}),
+		activeDiceRolls.end());
 	currentAP = 0;
 
 	// --- 1. SLEEP CHECK (New Status) ---
@@ -13700,7 +14588,9 @@ void ofApp::drawCard() {
 	if (!currentPlayer.deck.empty()) {
 		Card newCard = currentPlayer.deck.back();
 		currentPlayer.deck.pop_back();
-		currentPlayer.hand.push_back(newCard); // Add to hand immediately so it appears in hand
+		// Delay committing the drawn card to the player's hand until the
+		// draw animation finishes so it doesn't appear mid-flight.
+		newCard.drawnThisTurn = true;
 
 		// --- Animation Setup ---
 		DrawCardAnimation anim;
@@ -13710,29 +14600,46 @@ void ofApp::drawCard() {
 		anim.ownerIndex = currentPlayerIndex;
 		anim.toMinionHand = false;
 
-		// Calculate Spawn Position (use deck UI center so flight visibly begins at deck)
-		float scale = ofGetHeight() / 1080.0f;
-		float staticUICardWidth = (120 * 1.3f) * scale;
-		float staticUICardHeight = ((120 * (585.0f / 409.0f)) * 1.3f) * scale;
-		bool isLocalPlayer = false;
-		if (isMultiplayer) {
-			isLocalPlayer = (currentPlayer.playerID == myLocalPlayerID);
+		// Calculate Spawn Position: pick deck UI center for player owners, but
+		// use world position for minion owners so animations originate from
+		// the correct deck/minion model when minions draw.
+		if (anim.ownerIndex >= 0 && anim.ownerIndex < (int)players.size() && players[anim.ownerIndex].isMinion) {
+			// Start at the minion's world deck position
+			Player & minion = players[anim.ownerIndex];
+			anim.startIsScreenSpace = false;
+			anim.startPos = gridToWorld(minion.x, minion.y) + glm::vec3(0, 1.5f, 0);
+			// Initialize currentPos from world->screen so first frame is correct
+			ofVec3f sp = cam.worldToScreen(anim.startPos);
+			anim.currentPos = glm::vec2((float)sp.x, (float)sp.y);
 		} else {
-			isLocalPlayer = (currentPlayerIndex == 0);
+			// Owner is a player; use the appropriate deck rect (p0/p1)
+			float scale = ofGetHeight() / 1080.0f;
+			float staticUICardWidth = (120 * 1.3f) * scale;
+			float staticUICardHeight = ((120 * (585.0f / 409.0f)) * 1.3f) * scale;
+			// Determine whether the owner of this animation is the local player
+			int owner = anim.ownerIndex;
+			bool ownerIsLocal = false;
+			if (owner >= 0 && owner < (int)players.size() && !players[owner].isMinion) {
+				if (isMultiplayer) {
+					ownerIsLocal = (players[owner].playerID == myLocalPlayerID);
+				} else {
+					ownerIsLocal = (owner == 0);
+				}
+			}
+			glm::vec2 start2D;
+			if (ownerIsLocal) {
+				start2D = glm::vec2(p0_deckRect.getCenter().x, p0_deckRect.getCenter().y);
+			} else {
+				start2D = glm::vec2(p1_deckRect.getCenter().x, p1_deckRect.getCenter().y);
+			}
+			anim.startPos = glm::vec3(start2D.x, start2D.y, 0);
+			anim.startIsScreenSpace = true;
+			anim.currentPos = start2D; // initialize in screen-space so first frame is correct
 		}
-
-		// Use the precomputed deck rectangles (p0_deckRect / p1_deckRect) so UI is consistent
-		glm::vec2 start2D;
-		if (isLocalPlayer) {
-			start2D = glm::vec2(p0_deckRect.getCenter().x, p0_deckRect.getCenter().y);
-		} else {
-			start2D = glm::vec2(p1_deckRect.getCenter().x, p1_deckRect.getCenter().y);
-		}
-		anim.startPos = glm::vec3(start2D.x, start2D.y, 0);
-		anim.startIsScreenSpace = true;
 
 		// Set anim.targetPos to the standard hand area (centered, bottom)
-		size_t numCards = currentPlayer.hand.size(); // Already added new card
+		// Use hand.size() + 1 so final position reserves space for the incoming card
+		size_t numCards = currentPlayer.hand.size() + 1;
 		float handCenterY = ofGetHeight() - 130;
 		float handBaseCardWidth = 120;
 		float handAreaWidth = ofGetWidth() * 0.6f;
@@ -13744,8 +14651,8 @@ void ofApp::drawCard() {
 		float cardCenterX = startX + (numCards - 1) * (handBaseCardWidth + padding) + (handBaseCardWidth / 2.0f);
 		anim.targetPos = glm::vec2(cardCenterX, handCenterY);
 		anim.endPos = anim.startPos;
-		anim.currentPos = start2D; // initialize in screen-space so first frame is correct
-		anim.currentScale = 0.55f; // start small, will pop to ~1.5x
+
+		anim.currentScale = 1.0f; // start at full scale
 		anim.duration = 0.50f;
 		activeDrawCardAnimations.push_back(anim);
 	}
@@ -17817,7 +18724,12 @@ void ofApp::applySnapshotString(const std::string & data) {
 	gameplaySeededByHost = true;
 
 	// Reset transient visuals and interaction state
-	activeDiceRolls.clear();
+	// Clear all transient dice visuals when applying a full snapshot
+	// Only remove any lingering AP visuals — keep unrelated dice (e.g., summoned HP)
+	activeDiceRolls.erase(std::remove_if(activeDiceRolls.begin(), activeDiceRolls.end(), [&](const DiceRoll & r) {
+		return (r.purpose == PURPOSE_AP || r.purpose == PURPOSE_BONUS_AP);
+	}),
+		activeDiceRolls.end());
 	activeFloatingTexts.clear();
 	particles.clear();
 	activeCardDisplays.clear();
@@ -18000,6 +18912,29 @@ glm::vec3 ofApp::gridToWorld(int gridX, int gridY) {
 	float worldX = (gridX - BOARD_WIDTH / 2.0f) * TILE_SIZE + (TILE_SIZE / 2.0f);
 	float worldZ = (gridY - BOARD_HEIGHT / 2.0f) * TILE_SIZE + (TILE_SIZE / 2.0f);
 	return glm::vec3(worldX, 0, worldZ);
+}
+
+// Spawn a tracer line in world space and highlight the impacted tile until tracer expires
+void ofApp::spawnTracer(glm::vec3 start, glm::vec3 end, glm::ivec2 impactTile, ofColor color, float duration) {
+	ofApp::Tracer t;
+	t.start = start;
+	t.end = end;
+	// normalize stored Y so renderer controls the visible elevation
+	t.start.y = 0.0f;
+	t.end.y = 0.0f;
+	t.impactTile = impactTile;
+	t.startTime = ofGetElapsedTimef();
+	t.duration = duration;
+	t.color = color;
+
+	// Mark tile highlighted immediately
+	int tx = impactTile.x;
+	int ty = impactTile.y;
+	if (tx >= 0 && tx < BOARD_WIDTH && ty >= 0 && ty < BOARD_HEIGHT) {
+		board[tx][ty].isHighlighted = true;
+	}
+
+	activeTracers.push_back(t);
 }
 
 //--------------------------------------------------------------
@@ -22238,7 +23173,10 @@ void ofApp::processNetworkPackets() {
 								Card newCard = p.deck.back();
 								p.deck.pop_back();
 								newCard.drawnThisTurn = true;
-								p.hand.push_back(newCard); // Add to hand immediately
+								// NOTE: do NOT add to hand immediately for remote draws —
+								// delay committing the card to the opponent's hand until
+								// the draw animation finishes so it doesn't appear in-hand
+								// while flying.
 
 								// --- Animation Setup (Opponent draws appear from Top Right, quick, above hand) ---
 								DrawCardAnimation anim;
@@ -22257,7 +23195,8 @@ void ofApp::processNetworkPackets() {
 								anim.startPos = glm::vec3(deckX + staticUICardWidth / 2, deckY + staticUICardHeight / 2, 0);
 								anim.startIsScreenSpace = true; // ensure UI-origin animation uses screen coords
 								anim.currentPos = glm::vec2(anim.startPos.x, anim.startPos.y);
-								size_t numCards = p.hand.size();
+								// compute final hand index as if the card were present (hand.size + 1)
+								size_t numCards = p.hand.size() + 1;
 								float handCenterY = ofGetHeight() - 160;
 								float handBaseCardWidth = 120;
 								float handAreaWidth = ofGetWidth() * 0.6f;
@@ -22270,8 +23209,8 @@ void ofApp::processNetworkPackets() {
 								anim.targetPos = glm::vec2(cardCenterX, handCenterY);
 								anim.endPos = anim.startPos;
 								anim.currentPos = glm::vec2(anim.startPos.x, anim.startPos.y);
+								anim.currentScale = 1.0f;
 								activeDrawCardAnimations.push_back(anim);
-								anim.currentScale = 0.55f;
 								ofLogNotice("Network") << "Opponent (Player " << targetPlayerIndex << ") drew " << newCard.name;
 							}
 						}
