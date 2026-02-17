@@ -1338,7 +1338,14 @@ void ofApp::update() {
 					draftPlayerIndex = 0; // P1 Wins
 					currentState = STATE_DRAFTING;
 					draftStage = 0;
-					generateDraftOptions(1); // Start Class 1
+					// Only host (or singleplayer) should generate the initial draft options.
+					if (isHost() || !isMultiplayer) {
+						generateDraftOptions(1); // Host/SP generates options
+					} else {
+						// Client: wait for host to send PKT_DRAFT_OPTIONS / PKT_DRAFT_STATE
+						waitingForDraftOptions = true;
+						waitingForDraftOptionsStartTime = ofGetElapsedTimef();
+					}
 					ofLogNotice("Initiative") << "Player 1 Wins Initiative";
 					if (isHost()) {
 						DraftStatePacket sp = {};
@@ -1358,7 +1365,14 @@ void ofApp::update() {
 					// Lock camera before drafting starts
 					draftingCameraLockedToClient = (isMultiplayer && myLocalPlayerID == 1);
 					draftStage = 0;
-					generateDraftOptions(1);
+					// Only host (or singleplayer) should generate the initial draft options.
+					if (isHost() || !isMultiplayer) {
+						generateDraftOptions(1); // Host/SP generates options
+					} else {
+						// Client: wait for host to send PKT_DRAFT_OPTIONS / PKT_DRAFT_STATE
+						waitingForDraftOptions = true;
+						waitingForDraftOptionsStartTime = ofGetElapsedTimef();
+					}
 					ofLogNotice("Initiative") << "Player 2 Wins Initiative";
 					if (isHost()) {
 						DraftStatePacket sp = {};
@@ -10748,27 +10762,41 @@ void ofApp::mousePressed(int x, int y, int button) {
 					}
 
 					if (isMultiplayer) {
-						DraftActionPacket pkt = {};
-						pkt.type = PKT_DRAFT_ACTION;
-						pkt.playerID = myLocalPlayerID;
-						pkt.actionType = 0; // Select / Toggle
-						pkt.selectFlag = nowSelected ? 1 : 0;
-						pkt.optionIndex = poolIdx; // send pool index
-						pkt.draftPlayerIdx = draftPlayerIndex;
+						// CLIENT: Sends an action request to the host for validation and forwarding.
+						if (isClient()) {
+							DraftActionPacket pkt = {};
+							pkt.type = PKT_DRAFT_ACTION;
+							pkt.playerID = myLocalPlayerID;
+							pkt.actionType = 0; // Select / Toggle
+							pkt.selectFlag = nowSelected ? 1 : 0;
+							pkt.optionIndex = poolIdx; // send pool index
+							pkt.draftPlayerIdx = draftPlayerIndex;
 
-						// Assign a client-local action id for ACK matching (toggle too)
-						pkt.clientActionID = ++draftClientActionCounter;
+							// Assign a client-local action id for ACK matching (toggle too)
+							pkt.clientActionID = ++draftClientActionCounter;
 
-						// Track for resend until host forwards/acks
-						lastSentDraftActionPacket = pkt;
-						lastSentDraftActionValid = true;
-						lastSentDraftActionTime = ofGetElapsedTimef();
-						lastSentDraftActionResendCount = 0;
+							// Track for resend until host forwards/acks
+							lastSentDraftActionPacket = pkt;
+							lastSentDraftActionValid = true;
+							lastSentDraftActionTime = ofGetElapsedTimef();
+							lastSentDraftActionResendCount = 0;
 
-						{
 							bool ok = steamManager.sendPacket(&pkt, sizeof(pkt));
 							ofLogNotice("Network") << "Client sent DraftToggle to host: option=" << pkt.optionIndex << " sel=" << (int)pkt.selectFlag << " draftPlayer=" << pkt.draftPlayerIdx << " ok=" << ok;
 							if (!ok) ofLogWarning("Network") << "DraftToggle send failed (no connection). Will retry via resend watchdog.";
+						}
+						// HOST: Its action is authoritative. It broadcasts the change to all clients.
+						else if (isHost()) {
+							DraftActionPacket outPkt = {};
+							outPkt.type = PKT_DRAFT_ACTION;
+							outPkt.playerID = myLocalPlayerID; // The host is the source
+							outPkt.actionType = 0; // Select / Toggle
+							outPkt.selectFlag = nowSelected ? 1 : 0;
+							outPkt.optionIndex = poolIdx;
+							outPkt.draftPlayerIdx = draftPlayerIndex;
+							// Broadcast the host's authoritative selection to clients
+							steamManager.sendPacket(&outPkt, sizeof(outPkt));
+							ofLogNotice("Network") << "Host broadcast its own DraftToggle to clients.";
 						}
 					}
 					return; // Click was on a card, handled.
