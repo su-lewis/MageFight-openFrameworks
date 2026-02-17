@@ -312,6 +312,14 @@ static std::vector<std::string> splitEscapedList(const std::string & input) {
 void ofApp::setup() {
 	steamManager.setup();
 
+	// Runtime sanity: log sizes of important network packets to detect cross-platform layout mismatches
+	ofLogNotice("NetTrace") << "Packet sizeofs: PacketHeader=" << sizeof(PacketHeader)
+							<< " DraftActionPacket=" << sizeof(DraftActionPacket)
+							<< " DraftAckPacket=" << sizeof(DraftAckPacket)
+							<< " DraftOptionsPacket=" << sizeof(DraftOptionsPacket)
+							<< " DraftStatePacket=" << sizeof(DraftStatePacket)
+							<< " HandshakePacket=" << sizeof(HandshakePacket);
+
 	// Seed visual RNG (local-only randomness for UI/particles)
 	std::random_device rd_visual;
 	visualRNG.seed(rd_visual());
@@ -24108,7 +24116,10 @@ void ofApp::processNetworkPackets() {
 							}
 							// Forward toggle to clients (including host's own selections)
 							DraftActionPacket outPkt = *pkt;
-							steamManager.sendPacket(&outPkt, sizeof(outPkt));
+							{
+								bool ok = steamManager.sendPacket(&outPkt, sizeof(outPkt));
+								ofLogNotice("NetTrace") << "Host forwarding DraftActionPacket to clients: opt=" << outPkt.optionIndex << " sel=" << (int)outPkt.selectFlag << " ok=" << ok;
+							}
 							// Send explicit ACK back to the originating client so they stop resending
 							DraftAckPacket ack = {};
 							ack.type = PKT_DRAFT_ACK;
@@ -24118,7 +24129,11 @@ void ofApp::processNetworkPackets() {
 							ack.optionIndex = pkt->optionIndex;
 							ack.draftPlayerIdx = pkt->draftPlayerIdx;
 							ack.selectFlag = pkt->selectFlag;
-							steamManager.sendPacket(&ack, sizeof(ack));
+							{
+								ofLogNotice("NetTrace") << "Host sending DraftAck: clientActionID=" << ack.clientActionID << " actionType=" << (int)ack.actionType << " opt=" << ack.optionIndex << " draftPlayer=" << ack.draftPlayerIdx;
+								bool ok = steamManager.sendPacket(&ack, sizeof(ack));
+								ofLogNotice("NetTrace") << "  DraftAck send ok=" << ok;
+							}
 							// Also send updated draft state after every selection
 							DraftStatePacket dsp;
 							dsp.type = PKT_DRAFT_STATE;
@@ -24168,7 +24183,11 @@ void ofApp::processNetworkPackets() {
 							ack.selectedIdx0 = pkt->selectedIdx0;
 							ack.selectedIdx1 = pkt->selectedIdx1;
 							ack.selectedIdx2 = pkt->selectedIdx2;
-							steamManager.sendPacket(&ack, sizeof(ack));
+							{
+								ofLogNotice("NetTrace") << "Host sending DraftAck (Accept): clientActionID=" << ack.clientActionID << " actionType=" << (int)ack.actionType << " draftPlayer=" << ack.draftPlayerIdx << " numSelected=" << (int)ack.numSelected;
+								bool ok = steamManager.sendPacket(&ack, sizeof(ack));
+								ofLogNotice("NetTrace") << "  DraftAck (Accept) send ok=" << ok;
+							}
 
 							selectedDraftIndices.clear();
 							draftOptions.clear();

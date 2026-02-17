@@ -188,6 +188,9 @@ struct DraftActionPacket : PacketHeader {
 	uint32_t clientActionID; // client-local id for reliable ACK matching
 };
 
+// Compile-time sanity checks for packet sizes to catch cross-platform packing issues
+static_assert(sizeof(DraftActionPacket) == 43, "DraftActionPacket size mismatch - packing/fields may be incorrect");
+
 // Host -> Client: Simple draft state update (no indices, just state)
 struct DraftStatePacket : PacketHeader {
 	int32_t classTier; // 1,2,3 or 0 when not drafting
@@ -224,6 +227,9 @@ struct DraftAckPacket : PacketHeader {
 	int32_t selectedIdx1;
 	int32_t selectedIdx2;
 };
+
+// DraftAckPacket layout: PacketHeader (9) + payload (27) == 36 bytes when packed
+static_assert(sizeof(DraftAckPacket) == 36, "DraftAckPacket size mismatch - packing/fields may be incorrect");
 
 // Host -> Client: Instruct client to apply a deterministic shuffle to a player's deck
 struct ShufflePacket : PacketHeader {
