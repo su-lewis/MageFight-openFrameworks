@@ -24100,6 +24100,16 @@ void ofApp::processNetworkPackets() {
 							// Forward toggle to clients (including host's own selections)
 							DraftActionPacket outPkt = *pkt;
 							steamManager.sendPacket(&outPkt, sizeof(outPkt));
+							// Send explicit ACK back to the originating client so they stop resending
+							DraftAckPacket ack = {};
+							ack.type = PKT_DRAFT_ACK;
+							ack.playerID = myLocalPlayerID;
+							ack.clientActionID = pkt->clientActionID;
+							ack.actionType = pkt->actionType;
+							ack.optionIndex = pkt->optionIndex;
+							ack.draftPlayerIdx = pkt->draftPlayerIdx;
+							ack.selectFlag = pkt->selectFlag;
+							steamManager.sendPacket(&ack, sizeof(ack));
 							// Also send updated draft state after every selection
 							DraftStatePacket dsp;
 							dsp.type = PKT_DRAFT_STATE;
