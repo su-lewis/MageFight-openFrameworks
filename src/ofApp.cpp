@@ -1136,6 +1136,18 @@ void ofApp::update() {
 		}
 	}
 
+	// If the client is waiting for draft options, request them from the host after a short timeout
+	if (isClient() && waitingForDraftOptions) {
+		float now = ofGetElapsedTimef();
+		if (now - waitingForDraftOptionsStartTime > waitingForDraftOptionsTimeout) {
+			// Send a small 8-byte request string that the host listens for
+			string req = "REQ_DRAFT"; // 8 bytes
+			steamManager.sendPacket(req.c_str(), req.size());
+			waitingForDraftOptionsStartTime = now; // reset timer to allow retries
+			ofLogNotice("Network") << "Client: Requested DraftOptions from host (REQ_DRAFT)";
+		}
+	}
+
 	// Music: respond to state changes (play/stop main menu music)
 	if (currentState != prevState) {
 		// Play menu music if entering main menu or settings
@@ -10797,6 +10809,19 @@ void ofApp::mousePressed(int x, int y, int button) {
 							// Broadcast the host's authoritative selection to clients
 							steamManager.sendPacket(&outPkt, sizeof(outPkt));
 							ofLogNotice("Network") << "Host broadcast its own DraftToggle to clients.";
+
+							// Also send an authoritative DraftState so clients immediately update picks/phase info
+							DraftStatePacket dsp = {};
+							dsp.type = PKT_DRAFT_STATE;
+							dsp.playerID = myLocalPlayerID;
+							dsp.classTier = currentDraftClassTier;
+							dsp.draftPlayerIdx = draftPlayerIndex;
+							dsp.picksRemaining = draftPicksRemaining;
+							dsp.draftStage = draftStage;
+							dsp.isInGameDraft = isInGameDraft ? 1 : 0;
+							dsp.currentPlayerIndex = currentPlayerIndex;
+							steamManager.sendPacket(&dsp, sizeof(dsp));
+							ofLogNotice("Network") << "Host sent DraftState (after own toggle) to clients.";
 						}
 					}
 					return; // Click was on a card, handled.
@@ -22451,78 +22476,79 @@ void ofApp::drawDraftScreen() {
 
 	if (isInGameDraft) {
 		msg = pName + ": Key Found! Choose 1 Card (Get 1 Copy)";
-	} else if (draftStage == 0) {
-		msg = pName + " - Class 1: Choose 2 (Get 2 Copies)";
-	} else {
-		msg = pName + " - Class 2: Choose 1 (Get 1 Copy)";
-	}
+				} else if (header->type == PKT_DRAFT_STATE) {
+					DraftStatePacket * sp = (DraftStatePacket *)header;
+					ofLogNotice("Network") << "Draft state received: class=" << sp->classTier << " player=" << sp->draftPlayerIdx << " picks=" << sp->picksRemaining << " stage=" << sp->draftStage << " ingame=" << (int)sp->isInGameDraft << " curPlayer=" << sp->currentPlayerIndex;
 
-	// 2. Draw Instruction Text (Top Center, Shadowed)
-	ofRectangle bbox = titleFont.getStringBoundingBox(msg, 0, 0);
-	float tx = (ofGetWidth() / 2.0f) - (bbox.width / 2.0f);
-	float ty = ofGetHeight() * 0.25f;
+					// Debug: log player mapping and local index to diagnose mapping/race issues
+					{
+						std::stringstream ss;
+						ss << "Players mapping (slot:playerID): ";
+						for (int i = 0; i < (int)players.size(); ++i) {
+							ss << i << ":" << players[i].playerID << " ";
+						}
+						ss << " | myLocalPlayerID=" << myLocalPlayerID << " localSlot=" << getLocalPlayerIndex() << " draftSlot=" << sp->draftPlayerIdx;
+						ofLogNotice("DraftDebug") << ss.str();
+					}
 
-	ofSetColor(0, 0, 0, 255);
-	titleFont.drawString(msg, tx + 2, ty + 2);
-	ofSetColor(ofColor::white);
-	titleFont.drawString(msg, tx, ty);
+					// Ignore late normal-draft packets after the initial draft is complete
+					if (initialDraftComplete && currentState == STATE_GAMEPLAY && sp->classTier > 0 && sp->isInGameDraft == 0) {
+						ofLogNotice("Draft") << "Ignoring late normal DraftState (initial draft already complete).";
+						continue;
+					}
 
-	// 2b. Draw Class Tier Text Below Prompt
-	std::string classTierText = "";
-	ofColor classTierColor = ofColor::white;
-	// Predeclare so we can use values for layout later
-	ofRectangle classBox;
-	float classTx = 0, classTy = 0;
-	if (!isInGameDraft) {
-		if (draftStage == 0) {
-			classTierText = "Class 1";
-			classTierColor = ofColor(205, 127, 50); // Bronze
-		} else if (draftStage == 1) {
-			classTierText = "Class 2";
-			classTierColor = ofColor(192, 192, 192); // Silver
-		}
-	}
+					// Apply authoritative host state fields
+					draftPlayerIndex = sp->draftPlayerIdx;
+					draftStage = sp->draftStage;
+					draftPicksRemaining = sp->picksRemaining;
+					isInGameDraft = (sp->isInGameDraft != 0);
 
-	if (!classTierText.empty()) {
-		classBox = titleFont.getStringBoundingBox(classTierText, 0, 0);
-		classTx = (ofGetWidth() / 2.0f) - (classBox.width / 2.0f);
-		classTy = ty + bbox.height + 18;
-		ofSetColor(0, 0, 0, 255);
-		titleFont.drawString(classTierText, classTx + 2, classTy + 2);
-		ofSetColor(classTierColor);
-		titleFont.drawString(classTierText, classTx, classTy);
-	}
+					if (sp->classTier > 0) {
+						// Enter drafting with host-provided class tier
+						currentState = STATE_DRAFTING;
 
-	// 3. Draw Cards
-	float cardW = 340;
-	float cardH = cardW * 1.4f;
-	float spacing = 60;
-	float startX = (ofGetWidth() - (3 * cardW + 2 * spacing)) / 2;
-	float startY = ofGetHeight() / 2 - cardH / 2;
+						// CLIENT: For multiplayer clients, ensure we always clear any local/stale options
+						// and wait for the authoritative PKT_DRAFT_OPTIONS from host.
+						if (isMultiplayer && sp->playerID != myLocalPlayerID) {
+							bool isNewDraftPhase = (currentState != STATE_DRAFTING) || (currentDraftClassTier != sp->classTier) || (draftPlayerIndex != sp->draftPlayerIdx) || (isInGameDraft != (sp->isInGameDraft != 0));
 
-	// Prevent overlap: ensure the top text (prompt + class text if present) clears space above the cards
-	float topTextBottom = ty + bbox.height;
-	if (!classTierText.empty()) {
-		topTextBottom = classTy + classBox.height;
-	}
-	float minStartY = topTextBottom + 24.0f; // small padding
-	if (startY < minStartY) {
-		startY = minStartY;
-	}
-
-	for (size_t i = 0; i < draftOptions.size(); ++i) {
-		float x = startX + i * (cardW + spacing);
-		ofRectangle cardRect(x, startY, cardW, cardH);
-
-		// Check Selection: selectedDraftIndices now contains pool indices, compare against current slot's pool index
-		bool isSelected = false;
-		int slotPoolIdx = (i >= 0 && i < (int)currentDraftOptionPoolIndices.size()) ? currentDraftOptionPoolIndices[i] : -1;
-		for (int sel : selectedDraftIndices) {
-			if (sel == slotPoolIdx) {
-				isSelected = true;
-				break;
-			}
-		}
+							if (isNewDraftPhase) {
+								draftOptions.clear();
+								selectedDraftIndices.clear();
+								waitingForDraftOptions = true;
+								waitingForDraftOptionsStartTime = ofGetElapsedTimef();
+								ofLogNotice("Draft") << "Client: Received DraftState. Clearing options and waiting for DraftOptionsPacket (class=" << sp->classTier << ", player=" << sp->draftPlayerIdx << ", stage=" << sp->draftStage << ", newPhase=true)";
+							} else {
+								if (waitingForDraftOptions && draftOptions.empty()) {
+									ofLogNotice("Draft") << "Client: Still waiting for DraftOptions for current phase. (class=" << sp->classTier << ")";
+								} else if (!waitingForDraftOptions && !draftOptions.empty()) {
+									ofLogNotice("Draft") << "Client: Received DraftState, options already present. Not waiting.";
+								}
+								if (waitingForDraftOptions && !draftOptions.empty()) {
+									waitingForDraftOptions = false;
+									ofLogNotice("Draft") << "Client: DraftOptions arrived before DraftState caught up. Stopping wait.";
+								}
+							}
+						} else {
+							// Singleplayer or host: generate locally
+							selectedDraftIndices.clear();
+							waitingForDraftOptions = false;
+						}
+					} else {
+						// classTier==0 => exit drafting and host tells us who is the active player
+						draftOptions.clear();
+						selectedDraftIndices.clear();
+						currentState = STATE_GAMEPLAY;
+						initialDraftComplete = true;
+						// Host should include who starts; set it
+						currentPlayerIndex = sp->currentPlayerIndex;
+						// In multiplayer clients: DO NOT call startNewTurn(); wait for host TurnStart packet
+						if (isClient()) {
+							waitingForTurnStartFromHost = true;
+							ofLogNotice("Network") << "Client: Drafting ended. Waiting for TurnStart packet from host (player=" << currentPlayerIndex << ")";
+						}
+						// Host handles transition in its own draft-accept logic and sends TurnStart
+					}
 
 		// Selection Highlight (Yellow)
 		if (isSelected) {
@@ -22694,6 +22720,19 @@ void ofApp::processNetworkPackets() {
 				steamManager.sendPacket(&pkt, sizeof(pkt));
 				continue; // Done with this packet
 			}
+
+			// Host should also respond to clients asking for DraftOptions if they timed out
+			if (msg == "REQ_DRAFT" && steamManager.isHost()) {
+				// If we're currently in drafting state, regenerate and resend options
+				if (currentState == STATE_DRAFTING) {
+					ofLogNotice("Network") << "Host: Received REQ_DRAFT_OPTIONS - regenerating/sending DraftOptions.";
+					// Regenerate options for the current class tier (will send DP + DSP)
+					generateDraftOptions(currentDraftClassTier);
+				} else {
+					ofLogNotice("Network") << "Host: Received REQ_DRAFT_OPTIONS but not in drafting state (currentState=" << currentState << ")";
+				}
+				continue;
+			}
 		}
 		// -------------------------------------------------------------------
 
@@ -22713,7 +22752,7 @@ void ofApp::processNetworkPackets() {
 			} packetGuard(&processingNetworkPacket);
 
 			// Verbose packet tracing for debugging desyncs
-			if (header->type == PKT_ACTION || header->type == PKT_DRAFT_ACTION || header->type == PKT_DRAFT_ACK || header->type == PKT_RENEWED_INSPIRATION || header->type == PKT_DRAW_CARDS || header->type == PKT_SHUFFLE || header->type == PKT_TURN_START || header->type == PKT_PLACE_SUMMONED_MINION || header->type == PKT_DICE_ROLL || header->type == PKT_CHECKSUM_CHECK || header->type == PKT_SNAPSHOT_BEGIN || header->type == PKT_SNAPSHOT_CHUNK || header->type == PKT_SNAPSHOT_END || header->type == PKT_MOVE_UNIT || header->type == PKT_AMNESIA_CHOICE || header->type == PKT_PLACE_SUMMONED_BEGIN) {
+			if (header->type == PKT_ACTION || header->type == PKT_DRAFT_ACTION || header->type == PKT_DRAFT_STATE || header->type == PKT_DRAFT_OPTIONS || header->type == PKT_DRAFT_ACK || header->type == PKT_RENEWED_INSPIRATION || header->type == PKT_DRAW_CARDS || header->type == PKT_SHUFFLE || header->type == PKT_TURN_START || header->type == PKT_PLACE_SUMMONED_MINION || header->type == PKT_DICE_ROLL || header->type == PKT_CHECKSUM_CHECK || header->type == PKT_SNAPSHOT_BEGIN || header->type == PKT_SNAPSHOT_CHUNK || header->type == PKT_SNAPSHOT_END || header->type == PKT_MOVE_UNIT || header->type == PKT_AMNESIA_CHOICE || header->type == PKT_PLACE_SUMMONED_BEGIN) {
 				ofLogNotice("NetTrace") << "RECV pkt type=" << (int)header->type << " player=" << header->playerID << " seq=" << header->seq << " size=" << buffer.size();
 				if (header->type == PKT_ACTION && buffer.size() >= sizeof(ActionPacket)) {
 					ActionPacket * ap = (ActionPacket *)buffer.data();
@@ -22757,6 +22796,13 @@ void ofApp::processNetworkPackets() {
 				} else if (header->type == PKT_PLACE_SUMMONED_BEGIN && buffer.size() >= sizeof(PlaceSummonedBeginPacket)) {
 					PlaceSummonedBeginPacket * psb = (PlaceSummonedBeginPacket *)buffer.data();
 					ofLogNotice("NetTrace") << "  PLACE_SUMMON_BEGIN minionType=" << (int)psb->minionType << " ownerID=" << psb->ownerPlayerID << " numToPlace=" << psb->numToPlace;
+				}
+				else if (header->type == PKT_DRAFT_STATE && buffer.size() >= sizeof(DraftStatePacket)) {
+					DraftStatePacket * sp = (DraftStatePacket *)buffer.data();
+					ofLogNotice("NetTrace") << "  DRAFT_STATE class=" << sp->classTier << " player=" << sp->draftPlayerIdx << " picks=" << sp->picksRemaining << " stage=" << sp->draftStage << " ingame=" << (int)sp->isInGameDraft << " curPlayer=" << sp->currentPlayerIndex;
+				} else if (header->type == PKT_DRAFT_OPTIONS && buffer.size() >= sizeof(DraftOptionsPacket)) {
+					DraftOptionsPacket * dp = (DraftOptionsPacket *)buffer.data();
+					ofLogNotice("NetTrace") << "  DRAFT_OPTIONS class=" << dp->classTier << " opt0=" << dp->optionIndex0 << " opt1=" << dp->optionIndex1 << " opt2=" << dp->optionIndex2 << " player=" << dp->draftPlayerIdx << " picks=" << dp->picksRemaining << " stage=" << dp->draftStage << " ingame=" << (int)dp->isInGameDraft << " genC=" << dp->draftGenCounter;
 				}
 			}
 			// ACK handling removed; rely on SteamNetworkingSockets reliability.
