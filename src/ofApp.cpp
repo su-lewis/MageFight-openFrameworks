@@ -23029,11 +23029,11 @@ void ofApp::processNetworkPackets() {
 		std::vector<char> buffer = steamManager.packetQueue.front();
 		steamManager.packetQueue.pop();
 
-		// --- NEW BLOCK: CHECK FOR SEED REQUEST (Before casting to Header) ---
-		// If we received the string "REQ_SEED", we must resend the handshake.
-		if (buffer.size() == 8) {
+		// --- FIX: Allow buffer sizes for both REQ_SEED (8) and REQ_DRAFT (9) ---
+		if (buffer.size() >= 8 && buffer.size() <= 10) {
 			string msg(buffer.begin(), buffer.end());
-			// Note: Use steamManager.isHost() directly since this might be called before isMultiplayer is set
+
+			// Check for Seed Request (8 bytes)
 			if (msg == "REQ_SEED" && steamManager.isHost()) {
 				ofLogNotice("Network") << "Host: Received Seed Request. Resending Seed: " << currentMapSeed;
 
@@ -23041,17 +23041,14 @@ void ofApp::processNetworkPackets() {
 				pkt.type = PKT_HANDSHAKE;
 				pkt.playerID = myLocalPlayerID;
 				pkt.seq = 0;
-				pkt.seed = currentMapSeed; // Use the stored seed!
+				pkt.seed = currentMapSeed;
 				ofLogNotice("Network") << "Host resending handshake: type=" << (int)pkt.type << " playerID=" << pkt.playerID << " seq=" << pkt.seq << " seed=" << pkt.seed;
 				steamManager.sendPacket(&pkt, sizeof(pkt));
 				continue; // Done with this packet
 			}
 
-			// Host should also respond to clients asking for DraftOptions if they timed out
+			// Check for Draft Options Request (9 bytes)
 			if (msg == "REQ_DRAFT" && steamManager.isHost()) {
-				// Respond to client requests for draft options whenever we have authoritative
-				// options available. This reduces races where the client requests before
-				// the host's state variable was flipped to STATE_DRAFTING.
 				ofLogNotice("Network") << "Host: Received REQ_DRAFT request. currentState=" << currentState << " currentDraftClassTier=" << currentDraftClassTier;
 
 				// If we don't yet have a currentDraftClassTier/options, try to generate them
@@ -23060,7 +23057,7 @@ void ofApp::processNetworkPackets() {
 					generateDraftOptions(currentDraftClassTier > 0 ? currentDraftClassTier : 1);
 				}
 
-				// Build and send DraftOptionsPacket from authoritative indices if available
+				// Build and send DraftOptionsPacket from authoritative indices
 				DraftOptionsPacket dp = {};
 				dp.type = PKT_DRAFT_OPTIONS;
 				dp.playerID = myLocalPlayerID;
