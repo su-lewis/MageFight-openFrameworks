@@ -1023,6 +1023,9 @@ private:
 	ofTexture wallDarkTexture;
 	std::vector<ofTexture> floorTextures;
 	ofImage shadowTexture;
+	// Simple blob shadow texture (generated at startup)
+	ofTexture blobShadowTex;
+	float blobShadowSize = 1.8f; // world-space diameter multiplier for shadows
 	ofImage fireTexture;
 
 	// --- POST PROCESSING ---
@@ -1031,6 +1034,27 @@ private:
 	bool worldPostShaderLoaded = false;
 	bool enableWorldPostProcess = true;
 	bool showWorldFboPreview = false;
+
+	// --- BLOOM ---
+	// Two ping-pong FBOs for separable blur and an extract shader
+	ofFbo bloomFboA;
+	ofFbo bloomFboB;
+	ofShader bloomExtractShader;
+	ofShader bloomBlurShader;
+	int bloomDownscale = 4; // render bloom at 1/downscale resolution
+	float bloomThreshold = 0.7f; // brightness threshold
+	int bloomBlurPasses = 2; // number of horizontal/vertical blur iterations
+	bool bloomLoaded = false;
+	bool bloomActiveNotified = false;
+
+	// --- SHADOW MAPS & PBR ---
+	ofFbo shadowFbo;
+	ofShader shadowDepthShader;
+	ofShader pbrShader;
+	int shadowMapSize = 2048;
+	glm::mat4 lightViewProj;
+	bool shadowDepthShaderLoaded = false;
+	bool pbrShaderLoaded = false;
 
 	// --- PIXEL ART RENDERING ---
 	// Render the world to a low-res FBO and apply a posterize/dither shader
@@ -1041,6 +1065,9 @@ private:
 	bool pixelArtWarned = false; // set when we warn once about shader missing
 	bool pixelArtActiveNotified = false; // set once when pixel-art branch runs
 	bool pixelArtDumpedPixels = false; // set once when we read back low-res FBO for debugging
+
+	// Notify once when world post-process runs
+	bool worldPostActiveNotified = false;
 	// Apply nearest filtering and other pixel-art settings to textures/FBOs
 	void applyPixelArtSettings();
 	int pixelArtDownscale = 4; // render at 1/downscale resolution

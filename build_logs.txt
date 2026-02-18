@@ -1,0 +1,38 @@
+Compiling OF library for Release
+make[1]: Entering directory '/home/lewis/of_workspace/openFrameworks/libs/openFrameworksCompiled/project'
+make[1]: warning: -j2 forced in submake: resetting jobserver mode.
+💾 CXX = g++
+💾 CC = cc
+💾 CXX = g++
+💾 CC = cc
+💾 CXX = g++
+💾 CC = cc
+Done!
+make[1]: Leaving directory '/home/lewis/of_workspace/openFrameworks/libs/openFrameworksCompiled/project'
+
+
+Compiling MageFight for Release
+make[1]: Entering directory '/home/lewis/of_workspace/openFrameworks/apps/myApps/MageFight'
+make[1]: warning: -j2 forced in submake: resetting jobserver mode.
+ADDON_INCLUDES_EXCLUDE: libs/assimp/%
+ADDON_SOURCES_EXCLUDE: 
+make[2]: Entering directory '/home/lewis/of_workspace/openFrameworks/apps/myApps/MageFight'
+make[2]: warning: -j2 forced in submake: resetting jobserver mode.
+make[2]: Leaving directory '/home/lewis/of_workspace/openFrameworks/apps/myApps/MageFight'
+make[2]: Entering directory '/home/lewis/of_workspace/openFrameworks/apps/myApps/MageFight'
+make[2]: warning: -j2 forced in submake: resetting jobserver mode.
+cp ../../../libs/*/lib/linux64/*.so bin/ ; true
+
+     compiling done
+     to launch the application
+
+     cd bin
+     ./MageFight
+     
+     - or -
+     
+     make RunRelease
+
+
+make[2]: Leaving directory '/home/lewis/of_workspace/openFrameworks/apps/myApps/MageFight'
+make[1]: Leaving directory '/home/lewis/of_workspace/openFrameworks/apps/myApps/MageFight'

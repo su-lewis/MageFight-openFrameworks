@@ -1923,6 +1923,11 @@ void ofApp::applySettings() {
 		worldPostShaderLoaded = worldPostShader.linkProgram();
 	}
 
+	// Debug: report shader file load/link results for post shader
+	ofLogNotice("Setup") << "Post shader files: vertOk=" << (shaderVertOk ? "true" : "false")
+						 << " fragOk=" << (shaderFragOk ? "true" : "false")
+						 << " linked=" << (worldPostShaderLoaded ? "true" : "false");
+
 	// Pixel art shader (posterize / dither)
 	pixelArtShaderLoaded = false;
 	pixelArtShader.unload();
@@ -1937,10 +1942,89 @@ void ofApp::applySettings() {
 	} else {
 		ofLogWarning("Setup") << "Pixel art shader failed to load/link. Pixel-art disabled until fixed.";
 	}
+
+	// Bloom shaders
+	bloomLoaded = false;
+	bloomExtractShader.unload();
+	bloomBlurShader.unload();
+	const bool beVertOk = bloomExtractShader.setupShaderFromFile(GL_VERTEX_SHADER, "Shaders/quad.vert");
+	const bool beFragOk = bloomExtractShader.setupShaderFromFile(GL_FRAGMENT_SHADER, "Shaders/bloom_extract.frag");
+	const bool bbVertOk = bloomBlurShader.setupShaderFromFile(GL_VERTEX_SHADER, "Shaders/quad.vert");
+	const bool bbFragOk = bloomBlurShader.setupShaderFromFile(GL_FRAGMENT_SHADER, "Shaders/bloom_blur.frag");
+	if (beVertOk && beFragOk) {
+		bloomExtractShader.bindDefaults();
+		// link will be attempted below after blur shader
+	}
+	if (bbVertOk && bbFragOk) {
+		bloomBlurShader.bindDefaults();
+	}
+	if ((beVertOk && beFragOk) && (bbVertOk && bbFragOk)) {
+		bloomLoaded = bloomExtractShader.linkProgram() && bloomBlurShader.linkProgram();
+	}
+	if (bloomLoaded)
+		ofLogNotice("Setup") << "Bloom shaders loaded.";
+	else
+		ofLogNotice("Setup") << "Bloom shaders not available.";
+
+	// Shadow depth & PBR shaders
+	{
+		// allocate shadow FBO with depth texture
+		ofFbo::Settings shSet;
+		shSet.width = shadowMapSize;
+		shSet.height = shadowMapSize;
+		shSet.textureTarget = GL_TEXTURE_2D;
+		shSet.internalformat = GL_DEPTH_COMPONENT24;
+		shSet.useDepth = true;
+		shSet.depthStencilAsTexture = true;
+		shadowFbo.allocate(shSet);
+
+		shadowDepthShader.unload();
+		const bool sdVertOk = shadowDepthShader.setupShaderFromFile(GL_VERTEX_SHADER, "Shaders/shadow_depth.vert");
+		const bool sdFragOk = shadowDepthShader.setupShaderFromFile(GL_FRAGMENT_SHADER, "Shaders/shadow_depth.frag");
+		if (sdVertOk && sdFragOk) {
+			shadowDepthShader.bindDefaults();
+			shadowDepthShaderLoaded = shadowDepthShader.linkProgram();
+		} else
+			shadowDepthShaderLoaded = false;
+
+		pbrShader.unload();
+		const bool pbrVertOk = pbrShader.setupShaderFromFile(GL_VERTEX_SHADER, "Shaders/pbr.vert");
+		const bool pbrFragOk = pbrShader.setupShaderFromFile(GL_FRAGMENT_SHADER, "Shaders/pbr.frag");
+		if (pbrVertOk && pbrFragOk) {
+			pbrShader.bindDefaults();
+			pbrShaderLoaded = pbrShader.linkProgram();
+		} else
+			pbrShaderLoaded = false;
+
+		ofLogNotice("Setup") << "Shadow shader files: vertOk=" << (sdVertOk ? "true" : "false") << " fragOk=" << (sdFragOk ? "true" : "false") << " linked=" << (shadowDepthShaderLoaded ? "true" : "false");
+		ofLogNotice("Setup") << "PBR shader files: vertOk=" << (pbrVertOk ? "true" : "false") << " fragOk=" << (pbrFragOk ? "true" : "false") << " linked=" << (pbrShaderLoaded ? "true" : "false");
+	}
+
+	// --- Blob shadow texture generation (simple radial alpha)
+	{
+		const int s = 128;
+		ofPixels px;
+		px.allocate(s, s, OF_PIXELS_RGBA);
+		for (int y = 0; y < s; ++y) {
+			for (int x = 0; x < s; ++x) {
+				float nx = (x + 0.5f) / s * 2.0f - 1.0f;
+				float ny = (y + 0.5f) / s * 2.0f - 1.0f;
+				float d = sqrtf(nx * nx + ny * ny);
+				float a = 1.0f - glm::smoothstep(0.0f, 1.0f, d);
+				unsigned char aa = (unsigned char)ofClamp(a * 255.0f, 0.0f, 255.0f);
+				px.setColor(x, y, ofColor(0, 0, 0, aa));
+			}
+		}
+		blobShadowTex.allocate(px);
+	}
 	if (!worldPostShaderLoaded) {
 		ofLogWarning("Setup") << "Post shader failed to compile/link. Continuing without post-processing.";
 	}
 	allocateWorldFbo(ofGetWidth(), ofGetHeight());
+
+	// Ensure world/post process is enabled by default at startup (can still be toggled with 'p').
+	enableWorldPostProcess = true;
+	ofLogNotice("Post") << "enableWorldPostProcess=" << (enableWorldPostProcess ? "true" : "false");
 
 	// Allocate pixel low-res FBO (with depth buffer and nearest filtering)
 	int pw = std::max(2, ofGetWidth() / pixelArtDownscale);
@@ -6553,6 +6637,170 @@ void ofApp::drawGame() {
 	auto renderWorld3D = [&]() {
 		// --- SETUP ---
 		ofEnableDepthTest();
+
+		// --- SHADOW DEPTH PASS (simple footprint quads) ---
+		if (shadowDepthShaderLoaded && shadowFbo.isAllocated()) {
+			// Directional light direction in world space
+			glm::vec3 lightDir = glm::normalize(glm::vec3(-0.4f, -1.0f, -0.6f));
+			// Center the light around the board
+			glm::vec3 boardCenter = gridToWorld(BOARD_WIDTH / 2, BOARD_HEIGHT / 2);
+			glm::vec3 lightPos = boardCenter - lightDir * 60.0f;
+			glm::vec3 up(0, 1, 0);
+
+			// Build light view/projection (orthographic) and store for PBR sampling
+			float halfSize = std::max(BOARD_WIDTH, BOARD_HEIGHT) * TILE_SIZE * 0.6f;
+			glm::mat4 view = glm::lookAt(lightPos, boardCenter, up);
+			glm::mat4 proj = glm::ortho(-halfSize, halfSize, -halfSize, halfSize, 1.0f, 200.0f);
+			lightViewProj = proj * view;
+
+			// Render simple unit footprints into the depth texture
+			shadowFbo.begin();
+			glViewport(0, 0, shadowMapSize, shadowMapSize);
+			glClear(GL_DEPTH_BUFFER_BIT);
+			glColorMask(GL_FALSE, GL_FALSE, GL_FALSE, GL_FALSE);
+			glEnable(GL_DEPTH_TEST);
+			glDepthMask(GL_TRUE);
+
+			shadowDepthShader.begin();
+			shadowDepthShader.setUniformMatrix4f("uLightVP", lightViewProj);
+
+			for (const auto & player : players) {
+				// compute same world pos logic as main pass
+				glm::vec3 p;
+				bool foundEqShadow = false;
+				if (isEarthquakeActive) {
+					for (const auto & eq : earthquakeUnits) {
+						if (eq.playerIndex == &player - &players[0]) {
+							p = eq.visualPos;
+							foundEqShadow = true;
+							break;
+						}
+					}
+				}
+				if (!foundEqShadow) {
+					if (isPlayerAnimating && animatingPlayerIndex >= 0 && &player == &players[animatingPlayerIndex]) {
+						p = playerVisualPos;
+					} else if (currentPlayerIndex >= 0 && player.playerID == players[currentPlayerIndex].playerID && (!isPlayerAnimating || animatingPlayerIndex == currentPlayerIndex)) {
+						p = playerVisualPos;
+					} else {
+						p = gridToWorld(player.x, player.y);
+					}
+				}
+
+				// Render the actual model geometry into the shadow map so shadows match silhouette
+				float unitFacingAngle = player.facingAngle;
+
+				// Build model matrix similar to main pass transforms
+				glm::mat4 modelMat(1.0f);
+
+				if (player.inGhostForm) {
+					// Ghost: elevated
+					modelMat = glm::translate(modelMat, glm::vec3(p.x, 0.1f + 1.0f + sin(ofGetElapsedTimef() * 2.0f) * 0.2f, p.z));
+					modelMat = modelMat * glm::rotate(glm::mat4(1.0f), glm::radians(player.facingAngle + 90.0f), glm::vec3(0, 1, 0));
+				} else if (player.isSkeleton) {
+					modelMat = glm::translate(modelMat, glm::vec3(p.x, 0.1f, p.z));
+					modelMat = modelMat * glm::rotate(glm::mat4(1.0f), glm::radians(unitFacingAngle), glm::vec3(0, 1, 0));
+					modelMat = glm::translate(modelMat, glm::vec3(0, 2.0f, 0));
+				} else if (player.isGolem) {
+					modelMat = glm::translate(modelMat, glm::vec3(p.x, 0.1f, p.z));
+					modelMat = modelMat * glm::rotate(glm::mat4(1.0f), glm::radians(unitFacingAngle), glm::vec3(0, 1, 0));
+					modelMat = glm::translate(modelMat, glm::vec3(0, 3.0f, 0));
+					modelMat = modelMat * glm::rotate(glm::mat4(1.0f), glm::radians(180.0f), glm::vec3(1, 0, 0));
+					modelMat = modelMat * glm::rotate(glm::mat4(1.0f), glm::radians(90.0f), glm::vec3(0, 1, 0));
+				} else if (player.isWolf) {
+					modelMat = glm::translate(modelMat, glm::vec3(p.x, 0.1f, p.z));
+					modelMat = modelMat * glm::rotate(glm::mat4(1.0f), glm::radians(unitFacingAngle), glm::vec3(0, 1, 0));
+					modelMat = glm::translate(modelMat, glm::vec3(0, 0.4f, 0));
+					modelMat = modelMat * glm::scale(glm::mat4(1.0f), glm::vec3(0.018f, 0.018f, 0.018f));
+				} else if (player.isHellhound) {
+					modelMat = glm::translate(modelMat, glm::vec3(p.x, 0.1f, p.z));
+					modelMat = modelMat * glm::rotate(glm::mat4(1.0f), glm::radians(unitFacingAngle + 180.0f), glm::vec3(0, 1, 0));
+					modelMat = glm::translate(modelMat, glm::vec3(0, 0.6f, 0));
+				} else if (player.isDemon) {
+					modelMat = glm::translate(modelMat, glm::vec3(p.x, 0.1f, p.z));
+					modelMat = modelMat * glm::rotate(glm::mat4(1.0f), glm::radians(unitFacingAngle), glm::vec3(0, 1, 0));
+					modelMat = glm::translate(modelMat, glm::vec3(0, 3.5f, 0));
+					modelMat = modelMat * glm::rotate(glm::mat4(1.0f), glm::radians(90.0f), glm::vec3(0, 1, 0));
+				} else if (player.inTortoiseForm) {
+					modelMat = glm::translate(modelMat, glm::vec3(p.x, 0.1f, p.z));
+					modelMat = modelMat * glm::rotate(glm::mat4(1.0f), glm::radians(unitFacingAngle), glm::vec3(0, 1, 0));
+					modelMat = glm::translate(modelMat, glm::vec3(0, 0.5f, 0));
+					modelMat = modelMat * glm::rotate(glm::mat4(1.0f), glm::radians(180.0f), glm::vec3(1, 0, 0));
+				} else if (player.isKobold) {
+					modelMat = glm::translate(modelMat, glm::vec3(p.x, 0.1f, p.z));
+					modelMat = modelMat * glm::rotate(glm::mat4(1.0f), glm::radians(unitFacingAngle), glm::vec3(0, 1, 0));
+					modelMat = glm::translate(modelMat, glm::vec3(0, 0.6f, 0));
+				} else if (player.isKoboldKing) {
+					modelMat = glm::translate(modelMat, glm::vec3(p.x, 0.1f, p.z));
+					modelMat = modelMat * glm::rotate(glm::mat4(1.0f), glm::radians(unitFacingAngle), glm::vec3(0, 1, 0));
+					modelMat = modelMat * glm::rotate(glm::mat4(1.0f), glm::radians(-90.0f), glm::vec3(0, 1, 0));
+					modelMat = glm::translate(modelMat, glm::vec3(0, TILE_SIZE * 0.6f, 0));
+				} else if (player.isFaerie) {
+					modelMat = glm::translate(modelMat, glm::vec3(p.x, 0.1f, p.z));
+					modelMat = modelMat * glm::rotate(glm::mat4(1.0f), glm::radians(unitFacingAngle), glm::vec3(0, 1, 0));
+					modelMat = glm::translate(modelMat, glm::vec3(0, 1.0f, 0));
+				} else if (player.isWallUnit) {
+					modelMat = glm::translate(modelMat, glm::vec3(p.x, 0.1f, p.z));
+					modelMat = modelMat * glm::rotate(glm::mat4(1.0f), glm::radians(unitFacingAngle), glm::vec3(0, 1, 0));
+					modelMat = glm::translate(modelMat, glm::vec3(0, TILE_SIZE * 0.14f, 0));
+				} else if (player.isAssistant) {
+					modelMat = glm::translate(modelMat, glm::vec3(p.x, 0.1f, p.z));
+					modelMat = modelMat * glm::rotate(glm::mat4(1.0f), glm::radians(unitFacingAngle), glm::vec3(0, 1, 0));
+					modelMat = glm::translate(modelMat, glm::vec3(0, 1.7f, 0));
+				} else {
+					// Default player model
+					modelMat = glm::translate(modelMat, glm::vec3(p.x, 0.1f, p.z));
+					modelMat = modelMat * glm::rotate(glm::mat4(1.0f), glm::radians(unitFacingAngle), glm::vec3(0, 1, 0));
+					modelMat = glm::translate(modelMat, glm::vec3(0, 2.0f, 0));
+				}
+
+				shadowDepthShader.setUniformMatrix4f("uModel", modelMat);
+
+				// Draw the appropriate model meshes into the depth buffer
+				if (player.isSkeleton) {
+					for (unsigned int mi = 0; mi < skeletonModel.getMeshCount(); ++mi)
+						skeletonModel.getMeshHelper(mi).cachedMesh.drawFaces();
+				} else if (player.isGolem) {
+					for (unsigned int mi = 0; mi < golemModel.getMeshCount(); ++mi)
+						golemModel.getMeshHelper(mi).cachedMesh.drawFaces();
+				} else if (player.isWolf) {
+					for (unsigned int mi = 0; mi < wolfModel.getMeshCount(); ++mi)
+						wolfModel.getMeshHelper(mi).cachedMesh.drawFaces();
+				} else if (player.isHellhound) {
+					for (unsigned int mi = 0; mi < hellhoundModel.getMeshCount(); ++mi)
+						hellhoundModel.getMeshHelper(mi).cachedMesh.drawFaces();
+				} else if (player.isDemon) {
+					for (unsigned int mi = 0; mi < demonModel.getMeshCount(); ++mi)
+						demonModel.getMeshHelper(mi).cachedMesh.drawFaces();
+				} else if (player.inTortoiseForm) {
+					for (unsigned int mi = 0; mi < tortoiseModel.getMeshCount(); ++mi)
+						tortoiseModel.getMeshHelper(mi).cachedMesh.drawFaces();
+				} else if (player.isKobold) {
+					for (unsigned int mi = 0; mi < koboldModel.getMeshCount(); ++mi)
+						koboldModel.getMeshHelper(mi).cachedMesh.drawFaces();
+				} else if (player.isKoboldKing) {
+					for (unsigned int mi = 0; mi < koboldKingModel.getMeshCount(); ++mi)
+						koboldKingModel.getMeshHelper(mi).cachedMesh.drawFaces();
+				} else if (player.isFaerie) {
+					for (unsigned int mi = 0; mi < faerieModel.getMeshCount(); ++mi)
+						faerieModel.getMeshHelper(mi).cachedMesh.drawFaces();
+				} else if (player.isWallUnit) {
+					for (unsigned int mi = 0; mi < wallUnitModel.getMeshCount(); ++mi)
+						wallUnitModel.getMeshHelper(mi).cachedMesh.drawFaces();
+				} else if (player.isAssistant) {
+					for (unsigned int mi = 0; mi < assistantModel.getMeshCount(); ++mi)
+						assistantModel.getMeshHelper(mi).cachedMesh.drawFaces();
+				} else {
+					for (unsigned int mi = 0; mi < playerModel.getMeshCount(); ++mi)
+						playerModel.getMeshHelper(mi).cachedMesh.drawFaces();
+				}
+			}
+
+			shadowDepthShader.end();
+			glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
+			shadowFbo.end();
+			glViewport(0, 0, ofGetWidth(), ofGetHeight());
+		}
 		ofSetColor(255);
 		ofEnableLighting();
 
@@ -6699,20 +6947,80 @@ void ofApp::drawGame() {
 		// --- OPAQUE DYNAMIC OBJECTS (Players) ---
 
 		ofSetColor(255);
+		// Draw simple blob shadows under players (so units appear grounded without full shadow-mapping)
 		for (const auto & player : players) {
-			// 1. Determine Position
-			glm::vec3 pos;
+			// compute world position for shadow (ground plane y=0)
+			glm::vec3 p;
 			bool foundEq = false;
 			if (isEarthquakeActive) {
 				for (const auto & eq : earthquakeUnits) {
 					if (eq.playerIndex == &player - &players[0]) {
-						pos = eq.visualPos;
+						p = eq.visualPos;
 						foundEq = true;
 						break;
 					}
 				}
 			}
 			if (!foundEq) {
+				if (isPlayerAnimating && animatingPlayerIndex >= 0 && &player == &players[animatingPlayerIndex]) {
+					p = playerVisualPos;
+				} else if (currentPlayerIndex >= 0 && player.playerID == players[currentPlayerIndex].playerID && (!isPlayerAnimating || animatingPlayerIndex == currentPlayerIndex)) {
+					p = playerVisualPos;
+				} else {
+					p = gridToWorld(player.x, player.y);
+				}
+			}
+			// Draw blob shadow sprites only when we don't have any shadow-depth maps available
+			if (!shadowDepthShaderLoaded) {
+				// Draw shadow quad on ground slightly above to avoid z-fighting
+				float halfSize = (TILE_SIZE * 0.5f) * blobShadowSize;
+				glm::vec3 p0 = glm::vec3(p.x - halfSize, 0.01f, p.z - halfSize);
+				glm::vec3 p1 = glm::vec3(p.x + halfSize, 0.01f, p.z - halfSize);
+				glm::vec3 p2 = glm::vec3(p.x + halfSize, 0.01f, p.z + halfSize);
+				glm::vec3 p3 = glm::vec3(p.x - halfSize, 0.01f, p.z + halfSize);
+
+				ofMesh sq;
+				sq.setMode(OF_PRIMITIVE_TRIANGLES);
+				sq.addVertex(p0);
+				sq.addTexCoord(glm::vec2(0, 1));
+				sq.addVertex(p1);
+				sq.addTexCoord(glm::vec2(1, 1));
+				sq.addVertex(p2);
+				sq.addTexCoord(glm::vec2(1, 0));
+				sq.addVertex(p3);
+				sq.addTexCoord(glm::vec2(0, 0));
+				sq.addIndex(0);
+				sq.addIndex(1);
+				sq.addIndex(2);
+				sq.addIndex(0);
+				sq.addIndex(2);
+				sq.addIndex(3);
+
+				// Draw with alpha blending, do not write depth so units and walls still occlude correctly
+				glEnable(GL_DEPTH_TEST);
+				glDepthMask(GL_FALSE);
+				ofEnableBlendMode(OF_BLENDMODE_ALPHA);
+				blobShadowTex.bind();
+				sq.draw();
+				blobShadowTex.unbind();
+				ofDisableBlendMode();
+				glDepthMask(GL_TRUE);
+			}
+
+			// continue to draw the player model below (existing code)
+			// 1. Determine Position
+			glm::vec3 pos;
+			bool foundEq2 = false;
+			if (isEarthquakeActive) {
+				for (const auto & eq : earthquakeUnits) {
+					if (eq.playerIndex == &player - &players[0]) {
+						pos = eq.visualPos;
+						foundEq2 = true;
+						break;
+					}
+				}
+			}
+			if (!foundEq2) {
 				if (isPlayerAnimating && animatingPlayerIndex >= 0 && &player == &players[animatingPlayerIndex]) {
 					pos = playerVisualPos;
 				} else if (currentPlayerIndex >= 0 && player.playerID == players[currentPlayerIndex].playerID && (!isPlayerAnimating || animatingPlayerIndex == currentPlayerIndex)) {
@@ -7658,11 +7966,75 @@ void ofApp::drawGame() {
 			worldFbo.end();
 
 			ofDisableDepthTest();
+			if (!worldPostActiveNotified) {
+				ofLogNotice("Post") << "World post-process branch executed (shader active).";
+				worldPostActiveNotified = true;
+			}
+
+			// --- BLOOM: extract bright areas into small FBO and perform separable blur ---
+			if (bloomLoaded) {
+				int bw = std::max(2, ofGetWidth() / bloomDownscale);
+				int bh = std::max(2, ofGetHeight() / bloomDownscale);
+				if (!bloomFboA.isAllocated() || bloomFboA.getWidth() != bw || bloomFboA.getHeight() != bh) {
+					ofFbo::Settings bset;
+					bset.width = bw;
+					bset.height = bh;
+					bset.internalformat = GL_RGBA8;
+					bset.textureTarget = GL_TEXTURE_2D;
+					bset.useDepth = false;
+					bset.minFilter = GL_LINEAR;
+					bset.maxFilter = GL_LINEAR;
+					bloomFboA.allocate(bset);
+					bloomFboB.allocate(bset);
+				}
+
+				// Extract bright areas
+				bloomFboA.begin();
+				ofClear(0, 0, 0, 0);
+				bloomExtractShader.begin();
+				bloomExtractShader.setUniformTexture("tex0", worldFbo.getTexture(), 0);
+				bloomExtractShader.setUniform2f("uResolution", (float)bw, (float)bh);
+				bloomExtractShader.setUniform1f("threshold", bloomThreshold);
+				worldFbo.getTexture().draw(0, 0, bw, bh);
+				bloomExtractShader.end();
+				bloomFboA.end();
+
+				// Blur passes (ping-pong)
+				for (int i = 0; i < bloomBlurPasses; ++i) {
+					// horizontal
+					bloomFboB.begin();
+					ofClear(0, 0, 0, 0);
+					bloomBlurShader.begin();
+					bloomBlurShader.setUniformTexture("tex0", bloomFboA.getTexture(), 0);
+					bloomBlurShader.setUniform2f("uResolution", (float)bw, (float)bh);
+					bloomBlurShader.setUniform1i("horizontal", 1);
+					bloomFboA.getTexture().draw(0, 0, bw, bh);
+					bloomBlurShader.end();
+					bloomFboB.end();
+					// vertical
+					bloomFboA.begin();
+					ofClear(0, 0, 0, 0);
+					bloomBlurShader.begin();
+					bloomBlurShader.setUniformTexture("tex0", bloomFboB.getTexture(), 0);
+					bloomBlurShader.setUniform2f("uResolution", (float)bw, (float)bh);
+					bloomBlurShader.setUniform1i("horizontal", 0);
+					bloomFboB.getTexture().draw(0, 0, bw, bh);
+					bloomBlurShader.end();
+					bloomFboA.end();
+				}
+			}
 			worldPostShader.begin();
 			worldPostShader.setUniformTexture("tex0", worldFbo.getTexture(), 0);
 			worldPostShader.setUniform2f("uResolution", ofGetWidth(), ofGetHeight());
 			worldFbo.getTexture().draw(0, 0, ofGetWidth(), ofGetHeight());
 			worldPostShader.end();
+
+			// Composite bloom additively over the final image
+			if (bloomLoaded && bloomFboA.isAllocated()) {
+				ofEnableBlendMode(OF_BLENDMODE_ADD);
+				bloomFboA.getTexture().draw(0, 0, ofGetWidth(), ofGetHeight());
+				ofDisableBlendMode();
+			}
 		} else {
 			renderWorld3D();
 		}
