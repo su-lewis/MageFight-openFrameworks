@@ -2291,6 +2291,10 @@ void ofApp::initGameFromSeed(uint32_t seed) {
 void ofApp::initialiseGameStateCommon() {
 	// --- FIX: Reset global draft/game flags so client state is fresh ---
 	initialDraftComplete = false;
+	draftAcceptLocked = false;
+	draftAcceptApplied = false;
+	waitingForTurnStartFromHost = false;
+	waitingForDraftOptions = false;
 	hasDrawnCardsThisTurn = false;
 	opponentHasDrawnCardsThisTurn = false;
 	draftStage = 0;
@@ -22610,12 +22614,13 @@ void ofApp::applyDraftOptionsFromPool(int classTier, const std::vector<int> & in
 	// --- FIX: Logic Safety Check ---
 	if (pool->empty()) {
 		ofLogError("Draft") << "CRITICAL: Card pool for Class " << classTier << " is empty on Client! Check cards.json.";
+		return; // Avoid crashing or applying invalid indices
 	}
 
-	// If we've already transitioned to gameplay (race condition where a late
-	// DraftOptions packet arrives after the host moved to gameplay), ignore
-	// these late options so we don't re-enter drafting on the client.
-	if (currentState == STATE_GAMEPLAY) {
+	// If we've already completed the initial draft and are in gameplay (and
+	// this isn't an in-game draft), ignore late DraftOptions so we don't
+	// re-enter drafting on the client.
+	if (initialDraftComplete && currentState == STATE_GAMEPLAY && !isInGameDraft) {
 		ofLogNotice("Draft") << "applyDraftOptionsFromPool: ignoring late DraftOptions (already in gameplay)";
 		return;
 	}
@@ -22629,14 +22634,15 @@ void ofApp::applyDraftOptionsFromPool(int classTier, const std::vector<int> & in
 		}
 	}
 
+	// --- FIX: Authoritatively apply ALL state from the packet ---
 	draftPicksRemaining = picksRemaining;
 	draftPlayerIndex = draftingPlayerIdx;
 	selectedDraftIndices.clear();
-	currentState = STATE_DRAFTING;
-	// We've applied authoritative options from host; stop waiting
-	waitingForDraftOptions = false;
+	currentState = STATE_DRAFTING; // Force state transition
+	waitingForDraftOptions = false; // We have the options now
 	draftAcceptLocked = false;
 	draftAcceptApplied = false;
+	// -------------------------------------------------------------
 
 	// Log applied options for debugging (helps determine whether Windows client actually applied options)
 	if ((int)draftOptions.size() != lastLoggedDraftOptionsCount) {
