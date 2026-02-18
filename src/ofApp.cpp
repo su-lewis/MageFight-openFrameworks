@@ -24448,6 +24448,16 @@ void ofApp::processNetworkPackets() {
 							} else {
 								waitingForDraftOptions = true;
 								ofLogNotice("Draft") << "Client waiting for authoritative DraftOptionsPacket from host (class=" << sp->classTier << ")";
+								// If this client is the drafting player, proactively request options immediately
+								int localDraftSlot = sp->draftPlayerIdx;
+								if (localDraftSlot >= 0 && localDraftSlot < (int)players.size()) {
+									if (players[localDraftSlot].playerID == myLocalPlayerID) {
+										string req = "REQ_DRAFT";
+										steamManager.sendPacket(req.c_str(), req.size());
+										waitingForDraftOptionsStartTime = ofGetElapsedTimef();
+										ofLogNotice("Network") << "Client is drafting player; sent immediate REQ_DRAFT to host.";
+									}
+								}
 							}
 						}
 					} else {
