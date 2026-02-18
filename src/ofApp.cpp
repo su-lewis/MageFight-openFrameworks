@@ -96,16 +96,16 @@ void ofApp::drawMinionCard(int minionIndex, int ownerIndex) {
 		minion.nextTurnExtraDraw = false;
 	}
 
-	// In multiplayer, the player taking the action sends the packet.
-	// The opponent will then execute this same logic deterministically.
-	if (isMultiplayer && isCurrentPlayerLocal() && !processingNetworkPacket) {
+	// In multiplayer, the minion's owner should send the packet so the host/opponent
+	// receive an authoritative notification. `ownerIndex` is the owner's playerID.
+	if (isMultiplayer && ownerIndex == myLocalPlayerID && !processingNetworkPacket) {
 		DrawCardsPacket req = {};
 		req.type = PKT_DRAW_CARDS;
 		req.playerID = myLocalPlayerID;
 		req.playerIndex = minionIndex;
 		req.numCards = drawCount;
 		steamManager.sendPacket(&req, sizeof(req));
-		ofLogNotice("Network") << "Sent Minion DrawCards packet: " << drawCount << " cards for minionIndex=" << minionIndex;
+		ofLogNotice("Network") << "Sent Minion DrawCards packet: " << drawCount << " cards for minionIndex=" << minionIndex << " ownerPlayerID=" << ownerIndex;
 	}
 
 	// Perform the authoritative draw logic locally (for single-player, host, and client)
@@ -146,7 +146,7 @@ void ofApp::drawMinionCard(int minionIndex, int ownerIndex) {
 			anim.targetPos = glm::vec2(cardCenterX, handCenterY);
 			anim.endPos = anim.startPos;
 			// Initialize currentPos in screen-space for a smooth first frame
-			ofVec3f sp = cam.worldToScreen(anim.startPos);
+			ofVec3f sp = getActiveCamera().worldToScreen(anim.startPos);
 			anim.currentPos = glm::vec2((float)sp.x, (float)sp.y);
 			anim.currentScale = 1.0f;
 			activeDrawCardAnimations.push_back(anim);
@@ -2711,7 +2711,7 @@ void ofApp::updateGame() {
 							newAnim.startTime = ofGetElapsedTimef();
 							newAnim.startPos = gridToWorld(attackerRef.x, attackerRef.y);
 							newAnim.targetPos = { ofGetWidth() / 2.0f, ofGetHeight() / 2.0f };
-							newAnim.currentPos = cam.worldToScreen(newAnim.startPos);
+							newAnim.currentPos = getActiveCamera().worldToScreen(newAnim.startPos);
 							activeStolenCardAnimations.push_back(newAnim);
 
 							// 2. Destroy Animation: Shrink/Fade at Screen Center (Starts sooner)
@@ -5828,7 +5828,7 @@ void ofApp::updateGame() {
 		float elapsedTime = ofGetElapsedTimef() - anim.startTime;
 		if (elapsedTime < 0.8f) {
 			float t = ofMap(elapsedTime, 0, 0.8f, 0.0, 1.0, true);
-			anim.currentPos = glm::mix(glm::vec2(cam.worldToScreen(anim.startPos)), anim.targetPos, t);
+			anim.currentPos = glm::mix(glm::vec2(getActiveCamera().worldToScreen(anim.startPos)), anim.targetPos, t);
 			anim.currentScale = ofLerp(0.1f, 3.0f, t);
 			anim.currentAlpha = ofLerp(0, 255, t);
 		} else {
@@ -5910,7 +5910,7 @@ void ofApp::updateGame() {
 			// startPos already contains screen coordinates
 			start2D = glm::vec2(anim.startPos.x, anim.startPos.y);
 		} else {
-			ofVec3f screenPos = cam.worldToScreen(anim.startPos);
+			ofVec3f screenPos = getActiveCamera().worldToScreen(anim.startPos);
 			start2D = glm::vec2((float)screenPos.x, (float)screenPos.y);
 		}
 		// Prevent start point from being below the bottom of the window (keeps flight arc on-screen)
@@ -7858,7 +7858,7 @@ void ofApp::drawGame() {
 
 	// Draw Floating Text
 	for (const auto & ft : activeFloatingTexts) {
-		glm::vec2 screenPos = cam.worldToScreen(ft.worldPos);
+		glm::vec2 screenPos = getActiveCamera().worldToScreen(ft.worldPos);
 
 		// Fade out alpha
 		float life = (ofGetElapsedTimef() - ft.startTime) / ft.duration;
@@ -14594,7 +14594,7 @@ void ofApp::drawCard() {
 			anim.startIsScreenSpace = false;
 			anim.startPos = gridToWorld(minion.x, minion.y) + glm::vec3(0, 1.5f, 0);
 			// Initialize currentPos from world->screen so first frame is correct
-			ofVec3f sp = cam.worldToScreen(anim.startPos);
+			ofVec3f sp = getActiveCamera().worldToScreen(anim.startPos);
 			anim.currentPos = glm::vec2((float)sp.x, (float)sp.y);
 		} else {
 			// Owner is a player; use the appropriate deck rect (p0/p1)
@@ -14953,7 +14953,7 @@ CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 			newAnim.startTime = ofGetElapsedTimef();
 			newAnim.startPos = gridToWorld(targetPlayer->x, targetPlayer->y);
 			newAnim.targetPos = { ofGetWidth() / 2.0f, ofGetHeight() / 2.0f };
-			newAnim.currentPos = cam.worldToScreen(newAnim.startPos);
+			newAnim.currentPos = getActiveCamera().worldToScreen(newAnim.startPos);
 			activeStolenCardAnimations.push_back(newAnim);
 			playedSuccessfully = true;
 		}
@@ -22149,8 +22149,8 @@ void ofApp::drawInitiativeRoll() {
 		glm::vec3 player0Pos = player0OnLeft ? leftPos : rightPos;
 		glm::vec3 player1Pos = player0OnLeft ? rightPos : leftPos;
 
-		glm::vec2 localScreen = cam.worldToScreen((myLocalPlayerID == 0) ? player0Pos : player1Pos);
-		glm::vec2 opponentScreen = cam.worldToScreen((myLocalPlayerID == 0) ? player1Pos : player0Pos);
+		glm::vec2 localScreen = getActiveCamera().worldToScreen((myLocalPlayerID == 0) ? player0Pos : player1Pos);
+		glm::vec2 opponentScreen = getActiveCamera().worldToScreen((myLocalPlayerID == 0) ? player1Pos : player0Pos);
 
 		// Standardized Text Drawer (Smaller scale)
 		auto drawLabel = [&](string text, float x, float y, ofColor col) {
