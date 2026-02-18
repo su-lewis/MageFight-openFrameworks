@@ -23064,7 +23064,7 @@ void ofApp::processNetworkPackets() {
 						dp.isInGameDraft = isInGameDraft ? 1 : 0;
 						dp.draftGenCounter = draftGenerationCounter;
 						bool ok = steamManager.sendPacket(&dp, sizeof(dp));
-						ofLogNotice("Network") << "Host resent DraftOptionsPacket: " << dp.optionIndex0 << "," << dp.optionIndex1 << "," << dp.optionIndex2 << " sendOk=" << (ok?"true":"false");
+						ofLogNotice("Network") << "Host resent DraftOptionsPacket: " << dp.optionIndex0 << "," << dp.optionIndex1 << "," << dp.optionIndex2 << " sendOk=" << (ok ? "true" : "false");
 					}
 				} else {
 					ofLogNotice("Network") << "Host: Received REQ_DRAFT_OPTIONS but not in drafting state (currentState=" << currentState << ")";
