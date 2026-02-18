@@ -79,24 +79,6 @@ void ofApp::checkKeyPickupAndDraftAfterSummon(int x, int y, int minionOwnerID) {
 			break;
 		}
 	}
-						if (optionsMatch) {
-							waitingForDraftOptions = false;
-							ofLogNotice("Draft") << "Client already has authoritative DraftOptions; not waiting (class=" << sp->classTier << ")";
-						} else {
-							waitingForDraftOptions = true;
-							// If this client is the drafting player, generate deterministic local options
-							// as a fallback so the UI can show choices immediately. The host remains authoritative
-							// and will replace these with PKT_DRAFT_OPTIONS when received.
-							int localDraftSlot = sp->draftPlayerIdx;
-							if (localDraftSlot >= 0 && localDraftSlot < (int)players.size()) {
-								if (players[localDraftSlot].playerID == myLocalPlayerID) {
-									ofLogNotice("Draft") << "Client is drafting player; generating deterministic local draft options as fallback (class=" << sp->classTier << ")";
-									generateDraftOptions(sp->classTier);
-									// Do not clear waitingForDraftOptions; still expect authoritative packet
-								}
-							}
-							ofLogNotice("Draft") << "Client waiting for authoritative DraftOptionsPacket from host (class=" << sp->classTier << ")";
-						}
 }
 // Define destructor to ensure vtable is emitted in this translation unit
 ofApp::~ofApp() { }
@@ -22500,8 +22482,9 @@ void ofApp::resolveMagicHandPush() {
 void ofApp::generateDraftOptions(int classTier, const std::vector<int> * forcedIndices) {
 	draftAcceptLocked = false;
 	draftAcceptApplied = false;
-	// Deterministic: always use shared gameplayRNG so both host and client
-	// generate the same three options locally. Do NOT wait for host packets.
+
+	// If we are in multiplayer and NOT the host, request authoritative options and wait.
+	// The host is the only authority that should generate and send DraftOptionsPacket.
 	draftOptions.clear();
 	currentDraftClassTier = classTier;
 	currentDraftOptionPoolIndices = { { -1, -1, -1 } };
@@ -22509,6 +22492,18 @@ void ofApp::generateDraftOptions(int classTier, const std::vector<int> * forcedI
 	if (classTier == 2) pool = &class2Cards;
 	if (classTier == 3) pool = &class3Cards;
 
+	if (isMultiplayer && !isHost()) {
+		waitingForDraftOptions = true;
+		waitingForDraftOptionsStartTime = ofGetElapsedTimef();
+		// Ask host immediately for the authoritative DraftOptions
+		string req = "REQ_DRAFT";
+		steamManager.sendPacket(req.c_str(), req.size());
+		ofLogNotice("Network") << "Client: Requested DraftOptions from host (REQ_DRAFT) class=" << classTier;
+		currentState = STATE_DRAFTING;
+		return;
+	}
+
+	// Host or singleplayer: generate authoritative options
 	if (pool->empty()) return;
 
 	std::vector<int> indices(pool->size());
@@ -22524,28 +22519,23 @@ void ofApp::generateDraftOptions(int classTier, const std::vector<int> * forcedI
 				slot++;
 			}
 		}
-		// Ensure pick counts are still set below
 		return;
 	}
 
-	// Deterministic draft generation derived from the shared map seed and draft context.
-	// This makes draft options independent of the global `gameplayRNG` state so both
-	// host and clients see identical options even if other RNG calls differ.
-	// If we don't have a seed (singleplayer quick-start), seed with high-res time
-	// so successive runs don't show the exact same options.
 	if (currentMapSeed == 0 && !isMultiplayer) {
 		uint64_t now = (uint64_t)std::chrono::high_resolution_clock::now().time_since_epoch().count();
 		currentMapSeed = (uint32_t)(now ^ (now >> 32));
 		gameplayRNG.seed(currentMapSeed);
 		ofLogNotice("Draft") << "No map seed present; generated singleplayer seed=" << currentMapSeed;
 	}
+
 	// Increment the counter to ensure variety across different draft sessions
 	draftGenerationCounter++;
 	uint32_t derivedSeed = currentMapSeed;
-	derivedSeed ^= (uint32_t)classTier * 2654435761u; // golden ratio mixing
+	derivedSeed ^= (uint32_t)classTier * 2654435761u;
 	derivedSeed ^= ((uint32_t)draftPlayerIndex << 16);
 	derivedSeed ^= ((uint32_t)draftStage << 24);
-	derivedSeed ^= draftGenerationCounter * 1103515245u; // Add generation counter for variety
+	derivedSeed ^= draftGenerationCounter * 1103515245u;
 
 	std::mt19937 draftRng(derivedSeed);
 	deterministic_shuffle(indices, draftRng);
@@ -22555,53 +22545,36 @@ void ofApp::generateDraftOptions(int classTier, const std::vector<int> * forcedI
 		currentDraftOptionPoolIndices[i] = indices[i];
 	}
 
-	// Set pick count based on rules
 	if (classTier == 1)
-		draftPicksRemaining = 2; // Pick 2
+		draftPicksRemaining = 2;
 	else
-		draftPicksRemaining = 1; // Pick 1
+		draftPicksRemaining = 1;
 
-	// Ensure we always log context for easier debugging
-	ofLogNotice("Draft") << "generateDraftOptions called: classTier=" << classTier << " draftStage=" << draftStage << " draftPlayerIndex=" << draftPlayerIndex << " poolSize=" << pool->size();
+	ofLogNotice("Draft") << "generateDraftOptions called (host): classTier=" << classTier << " draftStage=" << draftStage << " draftPlayerIndex=" << draftPlayerIndex << " poolSize=" << pool->size();
 
-	// If the pool is unexpectedly empty, log and bail early (avoid silent hang)
-	if (pool->empty()) {
-		ofLogError("Draft") << "generateDraftOptions: pool for classTier " << classTier << " is empty!";
-		// Clear any stale UI state so user doesn't sit on an empty draft screen
-		draftOptions.clear();
-		selectedDraftIndices.clear();
-		currentState = STATE_DRAFTING;
-		return;
-	}
-
-	// Prepare local draft state so host doesn't rely on client-only apply path
 	selectedDraftIndices.clear();
-	currentState = STATE_DRAFTING; // Ensure UI draws
-	waitingForDraftOptions = false; // Host shouldn't be waiting for itself
+	currentState = STATE_DRAFTING;
+	waitingForDraftOptions = false;
 
-	// If we are the authoritative host in multiplayer, send the exact indices
+	// Send authoritative DraftOptionsPacket and DraftStatePacket
 	if (isHost()) {
 		DraftOptionsPacket dp = {};
 		dp.type = PKT_DRAFT_OPTIONS;
 		dp.playerID = myLocalPlayerID;
 		dp.classTier = classTier;
-		dp.optionIndex0 = (indices.size() > 0) ? indices[0] : -1;
-		dp.optionIndex1 = (indices.size() > 1) ? indices[1] : -1;
-		dp.optionIndex2 = (indices.size() > 2) ? indices[2] : -1;
+		dp.optionIndex0 = (currentDraftOptionPoolIndices.size() > 0) ? currentDraftOptionPoolIndices[0] : -1;
+		dp.optionIndex1 = (currentDraftOptionPoolIndices.size() > 1) ? currentDraftOptionPoolIndices[1] : -1;
+		dp.optionIndex2 = (currentDraftOptionPoolIndices.size() > 2) ? currentDraftOptionPoolIndices[2] : -1;
 		dp.draftPlayerIdx = draftPlayerIndex;
 		dp.picksRemaining = draftPicksRemaining;
 		dp.draftStage = draftStage;
 		dp.isInGameDraft = isInGameDraft ? 1 : 0;
-		dp.draftGenCounter = draftGenerationCounter; // Send the counter so client matches
+		dp.draftGenCounter = draftGenerationCounter;
 		steamManager.sendPacket(&dp, sizeof(dp));
 		ofLogNotice("Network") << "Host sent DraftOptionsPacket: " << dp.optionIndex0 << "," << dp.optionIndex1 << "," << dp.optionIndex2 << " derivedSeed=" << derivedSeed << " draftGenCounter=" << draftGenerationCounter;
 
-		// Debug: also log the exact card names for easier inspection across clients
-		ofLogNotice("Draft") << "Options names: " << ((indices.size() > 0) ? (*pool)[indices[0]].name : "-") << ", " << ((indices.size() > 1) ? (*pool)[indices[1]].name : "-") << ", " << ((indices.size() > 2) ? (*pool)[indices[2]].name : "-");
+		ofLogNotice("Draft") << "Options names: " << ((currentDraftOptionPoolIndices.size() > 0) ? (*pool)[currentDraftOptionPoolIndices[0]].name : "-") << ", " << ((currentDraftOptionPoolIndices.size() > 1) ? (*pool)[currentDraftOptionPoolIndices[1]].name : "-") << ", " << ((currentDraftOptionPoolIndices.size() > 2) ? (*pool)[currentDraftOptionPoolIndices[2]].name : "-");
 
-		// Immediately send a DraftStatePacket as well so clients have authoritative
-		// draft state right after receiving options (reduces race between forwarded
-		// Accept and authoritative options/state).
 		DraftStatePacket dsp;
 		dsp.type = PKT_DRAFT_STATE;
 		dsp.playerID = myLocalPlayerID;
@@ -23175,7 +23148,7 @@ void ofApp::processNetworkPackets() {
 				}
 			}
 			// Temporary reusable packet used for state syncs
-			DraftStatePacket sp = {};
+			DraftStatePacket tempDraftStatePkt = {};
 			// Handle Shuffle packets early so clients can deterministically apply them without touching gameplayRNG
 			if (header->type == PKT_SHUFFLE) {
 				ShufflePacket * spk = (ShufflePacket *)header;
@@ -24682,36 +24655,22 @@ void ofApp::processNetworkPackets() {
 								}
 							}
 							// Also send an additional state sync with currentPlayerIndex to ensure clients transition
-							DraftStatePacket sp2;
-							sp2.type = PKT_DRAFT_STATE;
-							sp2.playerID = myLocalPlayerID;
-							if (currentState == STATE_GAMEPLAY)
-								sp2.classTier = 0;
-							else if (draftStage == 0)
-								sp2.classTier = 1;
-							else
-								sp2.classTier = 2;
-							sp2.draftPlayerIdx = (currentState == STATE_GAMEPLAY) ? -1 : draftPlayerIndex;
-							sp2.picksRemaining = draftPicksRemaining;
-							sp2.draftStage = draftStage;
-							sp2.isInGameDraft = isInGameDraft ? 1 : 0;
-							sp2.currentPlayerIndex = currentPlayerIndex;
-							steamManager.sendPacket(&sp2, sizeof(sp2));
-							sp.type = PKT_DRAFT_STATE;
-							sp.playerID = myLocalPlayerID;
+							// (Use the shared temporary `tempDraftStatePkt` below - avoid duplicate sends)
+							tempDraftStatePkt.type = PKT_DRAFT_STATE;
+							tempDraftStatePkt.playerID = myLocalPlayerID;
 							// classTier: 0 == none, 1/2 == class tiers
 							if (currentState == STATE_GAMEPLAY)
-								sp.classTier = 0;
+								tempDraftStatePkt.classTier = 0;
 							else if (draftStage == 0)
-								sp.classTier = 1;
+								tempDraftStatePkt.classTier = 1;
 							else
-								sp.classTier = 2;
-							sp.draftPlayerIdx = (currentState == STATE_GAMEPLAY) ? -1 : draftPlayerIndex;
-							sp.picksRemaining = draftPicksRemaining;
-							sp.draftStage = draftStage;
-							sp.isInGameDraft = isInGameDraft ? 1 : 0;
-							sp.currentPlayerIndex = currentPlayerIndex;
-							steamManager.sendPacket(&sp, sizeof(sp));
+								tempDraftStatePkt.classTier = 2;
+							tempDraftStatePkt.draftPlayerIdx = (currentState == STATE_GAMEPLAY) ? -1 : draftPlayerIndex;
+							tempDraftStatePkt.picksRemaining = draftPicksRemaining;
+							tempDraftStatePkt.draftStage = draftStage;
+							tempDraftStatePkt.isInGameDraft = isInGameDraft ? 1 : 0;
+							tempDraftStatePkt.currentPlayerIndex = currentPlayerIndex;
+							steamManager.sendPacket(&tempDraftStatePkt, sizeof(tempDraftStatePkt));
 							// Send TurnStart packet if we transitioned to gameplay
 							if (currentState == STATE_GAMEPLAY) {
 								std::vector<DiceRoll> newAP;
