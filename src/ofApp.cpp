@@ -23049,6 +23049,23 @@ void ofApp::processNetworkPackets() {
 					ofLogNotice("Network") << "Host: Received REQ_DRAFT_OPTIONS - regenerating/sending DraftOptions.";
 					// Regenerate options for the current class tier (will send DP + DSP)
 					generateDraftOptions(currentDraftClassTier);
+					// After generating, explicitly resend DraftOptionsPacket to requesting client(s) and log result
+					{
+						DraftOptionsPacket dp = {};
+						dp.type = PKT_DRAFT_OPTIONS;
+						dp.playerID = myLocalPlayerID;
+						dp.classTier = currentDraftClassTier;
+						dp.optionIndex0 = (currentDraftOptionPoolIndices.size() > 0) ? currentDraftOptionPoolIndices[0] : -1;
+						dp.optionIndex1 = (currentDraftOptionPoolIndices.size() > 1) ? currentDraftOptionPoolIndices[1] : -1;
+						dp.optionIndex2 = (currentDraftOptionPoolIndices.size() > 2) ? currentDraftOptionPoolIndices[2] : -1;
+						dp.draftPlayerIdx = draftPlayerIndex;
+						dp.picksRemaining = draftPicksRemaining;
+						dp.draftStage = draftStage;
+						dp.isInGameDraft = isInGameDraft ? 1 : 0;
+						dp.draftGenCounter = draftGenerationCounter;
+						bool ok = steamManager.sendPacket(&dp, sizeof(dp));
+						ofLogNotice("Network") << "Host resent DraftOptionsPacket: " << dp.optionIndex0 << "," << dp.optionIndex1 << "," << dp.optionIndex2 << " sendOk=" << (ok?"true":"false");
+					}
 				} else {
 					ofLogNotice("Network") << "Host: Received REQ_DRAFT_OPTIONS but not in drafting state (currentState=" << currentState << ")";
 				}
