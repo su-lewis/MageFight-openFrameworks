@@ -7074,28 +7074,111 @@ void ofApp::drawGame() {
 					ofTranslate(pos.x, 0.1f, pos.z);
 					ofRotateYDeg(unitFacingAngle);
 					ofTranslate(0, 2.0f, 0);
-					skeletonTexture.bind();
-					skeletonModel.drawFaces();
-					skeletonTexture.unbind();
+					if (pbrShaderLoaded) {
+						ofMatrix4x4 modelMat = ofGetCurrentMatrix(OF_MATRIX_MODELVIEW);
+						ofMatrix4x4 viewMat = activeCam.getModelViewMatrix();
+						ofMatrix4x4 projMat = activeCam.getProjectionMatrix();
+						ofMatrix4x4 viewProj = projMat * viewMat;
+						ofMatrix4x4 normalMat = ofMatrix4x4::getTransposedOf((viewMat * modelMat).getInverse());
+						pbrShader.begin();
+						pbrShader.setUniformMatrix4f("uModel", modelMat);
+						pbrShader.setUniformMatrix4f("uViewProj", viewProj);
+						pbrShader.setUniformMatrix4f("uNormalMatrix", normalMat);
+						pbrShader.setUniformMatrix4f("uLightVP", lightViewProj);
+						pbrShader.setUniform3f("lightDir", -0.4f, -1.0f, -0.6f);
+						pbrShader.setUniform3f("lightColor", 1.0f, 1.0f, 1.0f);
+						ofVec3f camP = activeCam.getPosition();
+						pbrShader.setUniform3f("uViewPos", camP.x, camP.y, camP.z);
+						if (skeletonTexture.isAllocated()) {
+							pbrShader.setUniformTexture("albedoTex", skeletonTexture, 0);
+							pbrShader.setUniform1i("useAlbedoTex", 1);
+						} else
+							pbrShader.setUniform1i("useAlbedoTex", 0);
+						pbrShader.setUniform1i("useNormalTex", 0);
+						if (shadowFbo.isAllocated()) pbrShader.setUniformTexture("shadowMap", shadowFbo.getDepthTexture(), 7);
+						for (unsigned int mi = 0; mi < skeletonModel.getMeshCount(); ++mi)
+							skeletonModel.getMeshHelper(mi).cachedMesh.drawFaces();
+						pbrShader.end();
+					} else {
+						skeletonTexture.bind();
+						skeletonModel.drawFaces();
+						skeletonTexture.unbind();
+					}
 				} else if (player.isGolem) {
 					ofTranslate(pos.x, 0.1f, pos.z);
 					ofRotateYDeg(unitFacingAngle);
 					ofTranslate(0, 3.0f, 0);
 					ofRotateXDeg(180);
 					ofRotateYDeg(90);
-					if (player.minionTexture) player.minionTexture->bind();
-					golemModel.drawFaces();
-					if (player.minionTexture) player.minionTexture->unbind();
+					if (pbrShaderLoaded) {
+						ofMatrix4x4 modelMat = ofGetCurrentMatrix(OF_MATRIX_MODELVIEW);
+						ofMatrix4x4 viewMat = activeCam.getModelViewMatrix();
+						ofMatrix4x4 projMat = activeCam.getProjectionMatrix();
+						ofMatrix4x4 viewProj = projMat * viewMat;
+						ofMatrix4x4 normalMat = ofMatrix4x4::getTransposedOf((viewMat * modelMat).getInverse());
+						pbrShader.begin();
+						pbrShader.setUniformMatrix4f("uModel", modelMat);
+						pbrShader.setUniformMatrix4f("uViewProj", viewProj);
+						pbrShader.setUniformMatrix4f("uNormalMatrix", normalMat);
+						pbrShader.setUniformMatrix4f("uLightVP", lightViewProj);
+						pbrShader.setUniform3f("lightDir", -0.4f, -1.0f, -0.6f);
+						pbrShader.setUniform3f("lightColor", 1.0f, 1.0f, 1.0f);
+						ofVec3f camP = activeCam.getPosition();
+						pbrShader.setUniform3f("uViewPos", camP.x, camP.y, camP.z);
+						if (player.minionTexture) {
+							pbrShader.setUniformTexture("albedoTex", *player.minionTexture, 0);
+							pbrShader.setUniform1i("useAlbedoTex", 1);
+						} else
+							pbrShader.setUniform1i("useAlbedoTex", 0);
+						pbrShader.setUniform1i("useNormalTex", 0);
+						if (shadowFbo.isAllocated()) pbrShader.setUniformTexture("shadowMap", shadowFbo.getDepthTexture(), 7);
+						for (unsigned int mi = 0; mi < golemModel.getMeshCount(); ++mi)
+							golemModel.getMeshHelper(mi).cachedMesh.drawFaces();
+						pbrShader.end();
+					} else {
+						if (player.minionTexture) player.minionTexture->bind();
+						golemModel.drawFaces();
+						if (player.minionTexture) player.minionTexture->unbind();
+					}
 				} else if (player.isWolf) {
 					ofTranslate(pos.x, 0.1f, pos.z);
 					ofRotateYDeg(unitFacingAngle);
 					ofTranslate(0, 0.4f, 0);
 					ofScale(0.018f, 0.018f, 0.018f);
-					for (unsigned int i = 6; i < wolfModel.getMeshCount(); i++) {
-						ofTexture * tex = (i == 6 || i == 7) ? &wolfBodyTex : &wolfFaceTex;
-						if (tex->isAllocated()) tex->bind();
-						wolfModel.getMeshHelper(i).cachedMesh.drawFaces();
-						if (tex->isAllocated()) tex->unbind();
+					if (pbrShaderLoaded) {
+						ofMatrix4x4 modelMat = ofGetCurrentMatrix(OF_MATRIX_MODELVIEW);
+						ofMatrix4x4 viewMat = activeCam.getModelViewMatrix();
+						ofMatrix4x4 projMat = activeCam.getProjectionMatrix();
+						ofMatrix4x4 viewProj = projMat * viewMat;
+						ofMatrix4x4 normalMat = ofMatrix4x4::getTransposedOf((viewMat * modelMat).getInverse());
+						pbrShader.begin();
+						pbrShader.setUniformMatrix4f("uModel", modelMat);
+						pbrShader.setUniformMatrix4f("uViewProj", viewProj);
+						pbrShader.setUniformMatrix4f("uNormalMatrix", normalMat);
+						pbrShader.setUniformMatrix4f("uLightVP", lightViewProj);
+						pbrShader.setUniform3f("lightDir", -0.4f, -1.0f, -0.6f);
+						pbrShader.setUniform3f("lightColor", 1.0f, 1.0f, 1.0f);
+						ofVec3f camP = activeCam.getPosition();
+						pbrShader.setUniform3f("uViewPos", camP.x, camP.y, camP.z);
+						pbrShader.setUniform1i("useNormalTex", 0);
+						if (shadowFbo.isAllocated()) pbrShader.setUniformTexture("shadowMap", shadowFbo.getDepthTexture(), 7);
+						for (unsigned int i = 6; i < wolfModel.getMeshCount(); i++) {
+							ofTexture * tex = (i == 6 || i == 7) ? &wolfBodyTex : &wolfFaceTex;
+							if (tex->isAllocated()) {
+								pbrShader.setUniformTexture("albedoTex", *tex, 0);
+								pbrShader.setUniform1i("useAlbedoTex", 1);
+							} else
+								pbrShader.setUniform1i("useAlbedoTex", 0);
+							wolfModel.getMeshHelper(i).cachedMesh.drawFaces();
+						}
+						pbrShader.end();
+					} else {
+						for (unsigned int i = 6; i < wolfModel.getMeshCount(); i++) {
+							ofTexture * tex = (i == 6 || i == 7) ? &wolfBodyTex : &wolfFaceTex;
+							if (tex->isAllocated()) tex->bind();
+							wolfModel.getMeshHelper(i).cachedMesh.drawFaces();
+							if (tex->isAllocated()) tex->unbind();
+						}
 					}
 					// Draw fur layers (meshes 0..5) using fur texture with alpha blending
 					glDepthMask(GL_FALSE);
@@ -7114,26 +7197,122 @@ void ofApp::drawGame() {
 					ofRotateYDeg(unitFacingAngle + 180.0f);
 					// Slight vertical offset so paws/mesh clear the floor
 					ofTranslate(0, 0.6f, 0);
-					hellhoundModel.drawFaces();
+					if (pbrShaderLoaded) {
+						ofMatrix4x4 modelMat = ofGetCurrentMatrix(OF_MATRIX_MODELVIEW);
+						ofMatrix4x4 viewMat = activeCam.getModelViewMatrix();
+						ofMatrix4x4 projMat = activeCam.getProjectionMatrix();
+						ofMatrix4x4 viewProj = projMat * viewMat;
+						ofMatrix4x4 normalMat = ofMatrix4x4::getTransposedOf((viewMat * modelMat).getInverse());
+						pbrShader.begin();
+						pbrShader.setUniformMatrix4f("uModel", modelMat);
+						pbrShader.setUniformMatrix4f("uViewProj", viewProj);
+						pbrShader.setUniformMatrix4f("uNormalMatrix", normalMat);
+						pbrShader.setUniformMatrix4f("uLightVP", lightViewProj);
+						pbrShader.setUniform3f("lightDir", -0.4f, -1.0f, -0.6f);
+						pbrShader.setUniform3f("lightColor", 1.0f, 1.0f, 1.0f);
+						ofVec3f camP = activeCam.getPosition();
+						pbrShader.setUniform3f("uViewPos", camP.x, camP.y, camP.z);
+						pbrShader.setUniform1i("useAlbedoTex", 0);
+						pbrShader.setUniform1i("useNormalTex", 0);
+						if (shadowFbo.isAllocated()) pbrShader.setUniformTexture("shadowMap", shadowFbo.getDepthTexture(), 7);
+						for (unsigned int mi = 0; mi < hellhoundModel.getMeshCount(); ++mi)
+							hellhoundModel.getMeshHelper(mi).cachedMesh.drawFaces();
+						pbrShader.end();
+					} else {
+						hellhoundModel.drawFaces();
+					}
 				} else if (player.isDemon) {
 					ofTranslate(pos.x, 0.1f, pos.z);
 					ofRotateYDeg(unitFacingAngle);
 					ofTranslate(0, 3.5f, 0);
 					ofRotateYDeg(90);
-					demonModel.drawFaces();
+					if (pbrShaderLoaded) {
+						ofMatrix4x4 modelMat = ofGetCurrentMatrix(OF_MATRIX_MODELVIEW);
+						ofMatrix4x4 viewMat = activeCam.getModelViewMatrix();
+						ofMatrix4x4 projMat = activeCam.getProjectionMatrix();
+						ofMatrix4x4 viewProj = projMat * viewMat;
+						ofMatrix4x4 normalMat = ofMatrix4x4::getTransposedOf((viewMat * modelMat).getInverse());
+						pbrShader.begin();
+						pbrShader.setUniformMatrix4f("uModel", modelMat);
+						pbrShader.setUniformMatrix4f("uViewProj", viewProj);
+						pbrShader.setUniformMatrix4f("uNormalMatrix", normalMat);
+						pbrShader.setUniformMatrix4f("uLightVP", lightViewProj);
+						pbrShader.setUniform3f("lightDir", -0.4f, -1.0f, -0.6f);
+						pbrShader.setUniform3f("lightColor", 1.0f, 1.0f, 1.0f);
+						ofVec3f camP = activeCam.getPosition();
+						pbrShader.setUniform3f("uViewPos", camP.x, camP.y, camP.z);
+						pbrShader.setUniform1i("useAlbedoTex", 0);
+						pbrShader.setUniform1i("useNormalTex", 0);
+						if (shadowFbo.isAllocated()) pbrShader.setUniformTexture("shadowMap", shadowFbo.getDepthTexture(), 7);
+						for (unsigned int mi = 0; mi < demonModel.getMeshCount(); ++mi)
+							demonModel.getMeshHelper(mi).cachedMesh.drawFaces();
+						pbrShader.end();
+					} else {
+						demonModel.drawFaces();
+					}
 				} else if (player.inTortoiseForm) {
 					ofTranslate(pos.x, 0.1f, pos.z);
 					ofRotateYDeg(unitFacingAngle);
 					ofTranslate(0, 0.5f, 0);
 					ofRotateXDeg(180);
-					if (tortoiseTexture.isAllocated()) tortoiseTexture.bind();
-					tortoiseModel.drawFaces();
-					if (tortoiseTexture.isAllocated()) tortoiseTexture.unbind();
+					if (pbrShaderLoaded) {
+						ofMatrix4x4 modelMat = ofGetCurrentMatrix(OF_MATRIX_MODELVIEW);
+						ofMatrix4x4 viewMat = activeCam.getModelViewMatrix();
+						ofMatrix4x4 projMat = activeCam.getProjectionMatrix();
+						ofMatrix4x4 viewProj = projMat * viewMat;
+						ofMatrix4x4 normalMat = ofMatrix4x4::getTransposedOf((viewMat * modelMat).getInverse());
+						pbrShader.begin();
+						pbrShader.setUniformMatrix4f("uModel", modelMat);
+						pbrShader.setUniformMatrix4f("uViewProj", viewProj);
+						pbrShader.setUniformMatrix4f("uNormalMatrix", normalMat);
+						pbrShader.setUniformMatrix4f("uLightVP", lightViewProj);
+						pbrShader.setUniform3f("lightDir", -0.4f, -1.0f, -0.6f);
+						pbrShader.setUniform3f("lightColor", 1.0f, 1.0f, 1.0f);
+						ofVec3f camP = activeCam.getPosition();
+						pbrShader.setUniform3f("uViewPos", camP.x, camP.y, camP.z);
+						if (tortoiseTexture.isAllocated()) {
+							pbrShader.setUniformTexture("albedoTex", tortoiseTexture, 0);
+							pbrShader.setUniform1i("useAlbedoTex", 1);
+						} else
+							pbrShader.setUniform1i("useAlbedoTex", 0);
+						pbrShader.setUniform1i("useNormalTex", 0);
+						if (shadowFbo.isAllocated()) pbrShader.setUniformTexture("shadowMap", shadowFbo.getDepthTexture(), 7);
+						for (unsigned int mi = 0; mi < tortoiseModel.getMeshCount(); ++mi)
+							tortoiseModel.getMeshHelper(mi).cachedMesh.drawFaces();
+						pbrShader.end();
+					} else {
+						if (tortoiseTexture.isAllocated()) tortoiseTexture.bind();
+						tortoiseModel.drawFaces();
+						if (tortoiseTexture.isAllocated()) tortoiseTexture.unbind();
+					}
 				} else if (player.isKobold) {
 					ofTranslate(pos.x, 0.1f, pos.z);
 					ofRotateYDeg(unitFacingAngle);
 					ofTranslate(0, 0.6f, 0);
-					koboldModel.drawFaces();
+					if (pbrShaderLoaded) {
+						ofMatrix4x4 modelMat = ofGetCurrentMatrix(OF_MATRIX_MODELVIEW);
+						ofMatrix4x4 viewMat = activeCam.getModelViewMatrix();
+						ofMatrix4x4 projMat = activeCam.getProjectionMatrix();
+						ofMatrix4x4 viewProj = projMat * viewMat;
+						ofMatrix4x4 normalMat = ofMatrix4x4::getTransposedOf((viewMat * modelMat).getInverse());
+						pbrShader.begin();
+						pbrShader.setUniformMatrix4f("uModel", modelMat);
+						pbrShader.setUniformMatrix4f("uViewProj", viewProj);
+						pbrShader.setUniformMatrix4f("uNormalMatrix", normalMat);
+						pbrShader.setUniformMatrix4f("uLightVP", lightViewProj);
+						pbrShader.setUniform3f("lightDir", -0.4f, -1.0f, -0.6f);
+						pbrShader.setUniform3f("lightColor", 1.0f, 1.0f, 1.0f);
+						ofVec3f camP = activeCam.getPosition();
+						pbrShader.setUniform3f("uViewPos", camP.x, camP.y, camP.z);
+						pbrShader.setUniform1i("useAlbedoTex", 0);
+						pbrShader.setUniform1i("useNormalTex", 0);
+						if (shadowFbo.isAllocated()) pbrShader.setUniformTexture("shadowMap", shadowFbo.getDepthTexture(), 7);
+						for (unsigned int mi = 0; mi < koboldModel.getMeshCount(); ++mi)
+							koboldModel.getMeshHelper(mi).cachedMesh.drawFaces();
+						pbrShader.end();
+					} else {
+						koboldModel.drawFaces();
+					}
 				}
 				// --- KOBOLD KING ---
 				else if (player.isKoboldKing) {
