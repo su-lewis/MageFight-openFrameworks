@@ -460,6 +460,8 @@ public:
 	void update();
 	void draw();
 	void exit();
+	// Ensure vtable emission: declare destructor to define out-of-line in cpp
+	~ofApp();
 
 	void keyPressed(int key);
 	void keyReleased(int key);
@@ -1035,7 +1037,7 @@ private:
 	ofFbo pixelLowFbo;
 	ofShader pixelArtShader;
 	bool pixelArtShaderLoaded = false;
-	bool enablePixelArt = true; // toggle the effect (default ON)
+	bool enablePixelArt = false; // toggle the effect (default OFF)
 	bool pixelArtWarned = false; // set when we warn once about shader missing
 	bool pixelArtActiveNotified = false; // set once when pixel-art branch runs
 	bool pixelArtDumpedPixels = false; // set once when we read back low-res FBO for debugging

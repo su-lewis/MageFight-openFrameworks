@@ -80,6 +80,8 @@ void ofApp::checkKeyPickupAndDraftAfterSummon(int x, int y, int minionOwnerID) {
 		}
 	}
 }
+// Define destructor to ensure vtable is emitted in this translation unit
+ofApp::~ofApp() { }
 //--------------------------------------------------------------
 void ofApp::drawMinionCard(int minionIndex, int ownerIndex) {
 	// Safety checks
@@ -3305,54 +3307,18 @@ void ofApp::updateGame() {
 					return glm::vec3(wx, 0.0f, wz);
 				};
 
-				// compute caster-edge start so tracer originates from tile face
+				// compute caster-edge start so tracer originates from tile face (simpler: face midpoint)
 				glm::vec2 startPointGrid = casterCenter;
-				{
-					float bestStartT = 1.0f;
-					bool foundStart = false;
-					glm::vec2 s2 = casterCenter;
-					glm::vec2 e2 = hitGrid;
-					glm::vec2 d2 = e2 - s2;
-					if (fabs(d2.x) > 1e-6f) {
-						float t1s = ((float)casterTile.x - s2.x) / d2.x;
-						float y1s = s2.y + d2.y * t1s;
-						if (t1s >= 0.0f && t1s <= 1.0f && y1s >= casterTile.y && y1s <= casterTile.y + 1.0f) {
-							if (!foundStart || t1s < bestStartT) {
-								bestStartT = t1s;
-								startPointGrid = s2 + d2 * t1s;
-								foundStart = true;
-							}
-						}
-						float t2s = ((float)casterTile.x + 1.0f - s2.x) / d2.x;
-						float y2s = s2.y + d2.y * t2s;
-						if (t2s >= 0.0f && t2s <= 1.0f && y2s >= casterTile.y && y2s <= casterTile.y + 1.0f) {
-							if (!foundStart || t2s < bestStartT) {
-								bestStartT = t2s;
-								startPointGrid = s2 + d2 * t2s;
-								foundStart = true;
-							}
-						}
+				glm::vec2 d2 = hitGrid - casterCenter;
+				if (glm::length(d2) > 1e-6f) {
+					glm::vec2 nd = glm::normalize(d2);
+					// start from the midpoint of the caster tile face in the dominant direction
+					if (fabs(nd.x) >= fabs(nd.y)) {
+						startPointGrid = casterCenter + glm::vec2((nd.x > 0.0f) ? 0.5f : -0.5f, 0.0f);
+					} else {
+						startPointGrid = casterCenter + glm::vec2(0.0f, (nd.y > 0.0f) ? 0.5f : -0.5f);
 					}
-					if (fabs(d2.y) > 1e-6f) {
-						float t3s = ((float)casterTile.y - s2.y) / d2.y;
-						float x3s = s2.x + d2.x * t3s;
-						if (t3s >= 0.0f && t3s <= 1.0f && x3s >= casterTile.x && x3s <= casterTile.x + 1.0f) {
-							if (!foundStart || t3s < bestStartT) {
-								bestStartT = t3s;
-								startPointGrid = s2 + d2 * t3s;
-								foundStart = true;
-							}
-						}
-						float t4s = ((float)casterTile.y + 1.0f - s2.y) / d2.y;
-						float x4s = s2.x + d2.x * t4s;
-						if (t4s >= 0.0f && t4s <= 1.0f && x4s >= casterTile.x && x4s <= casterTile.x + 1.0f) {
-							if (!foundStart || t4s < bestStartT) {
-								bestStartT = t4s;
-								startPointGrid = s2 + d2 * t4s;
-								foundStart = true;
-							}
-						}
-					}
+					// If the hit is centered on the target tile, move the end to the face midpoint too (below)
 				}
 
 				glm::vec3 worldStart = gridFracToWorld(startPointGrid);
@@ -3404,53 +3370,15 @@ void ofApp::updateGame() {
 					return glm::vec3(wx, 0.0f, wz);
 				};
 
-				// compute caster-edge start so tracer originates from tile face
+				// compute caster-edge start so tracer originates from tile face (use face midpoint)
 				glm::vec2 startPointGrid = casterCenter;
-				{
-					float bestStartT = 1.0f;
-					bool foundStart = false;
-					glm::vec2 s2 = casterCenter;
-					glm::vec2 e2 = hitGrid;
-					glm::vec2 d2 = e2 - s2;
-					if (fabs(d2.x) > 1e-6f) {
-						float t1s = ((float)casterTile.x - s2.x) / d2.x;
-						float y1s = s2.y + d2.y * t1s;
-						if (t1s >= 0.0f && t1s <= 1.0f && y1s >= casterTile.y && y1s <= casterTile.y + 1.0f) {
-							if (!foundStart || t1s < bestStartT) {
-								bestStartT = t1s;
-								startPointGrid = s2 + d2 * t1s;
-								foundStart = true;
-							}
-						}
-						float t2s = ((float)casterTile.x + 1.0f - s2.x) / d2.x;
-						float y2s = s2.y + d2.y * t2s;
-						if (t2s >= 0.0f && t2s <= 1.0f && y2s >= casterTile.y && y2s <= casterTile.y + 1.0f) {
-							if (!foundStart || t2s < bestStartT) {
-								bestStartT = t2s;
-								startPointGrid = s2 + d2 * t2s;
-								foundStart = true;
-							}
-						}
-					}
-					if (fabs(d2.y) > 1e-6f) {
-						float t3s = ((float)casterTile.y - s2.y) / d2.y;
-						float x3s = s2.x + d2.x * t3s;
-						if (t3s >= 0.0f && t3s <= 1.0f && x3s >= casterTile.x && x3s <= casterTile.x + 1.0f) {
-							if (!foundStart || t3s < bestStartT) {
-								bestStartT = t3s;
-								startPointGrid = s2 + d2 * t3s;
-								foundStart = true;
-							}
-						}
-						float t4s = ((float)casterTile.y + 1.0f - s2.y) / d2.y;
-						float x4s = s2.x + d2.x * t4s;
-						if (t4s >= 0.0f && t4s <= 1.0f && x4s >= casterTile.x && x4s <= casterTile.x + 1.0f) {
-							if (!foundStart || t4s < bestStartT) {
-								bestStartT = t4s;
-								startPointGrid = s2 + d2 * t4s;
-								foundStart = true;
-							}
-						}
+				glm::vec2 d2 = hitGrid - casterCenter;
+				if (glm::length(d2) > 1e-6f) {
+					glm::vec2 nd = glm::normalize(d2);
+					if (fabs(nd.x) >= fabs(nd.y)) {
+						startPointGrid = casterCenter + glm::vec2((nd.x > 0.0f) ? 0.5f : -0.5f, 0.0f);
+					} else {
+						startPointGrid = casterCenter + glm::vec2(0.0f, (nd.y > 0.0f) ? 0.5f : -0.5f);
 					}
 				}
 
@@ -3774,53 +3702,15 @@ void ofApp::updateGame() {
 						return glm::vec3(wx, 0.0f, wz);
 					};
 
-					// compute caster-edge start so tracer originates from tile face
+					// compute caster-edge start so tracer originates from tile face (use face midpoint)
 					glm::vec2 startPointGrid = casterCenter;
-					{
-						float bestStartT = 1.0f;
-						bool foundStart = false;
-						glm::vec2 s2 = casterCenter;
-						glm::vec2 e2 = hitGrid;
-						glm::vec2 d2 = e2 - s2;
-						if (fabs(d2.x) > 1e-6f) {
-							float t1s = ((float)casterTile.x - s2.x) / d2.x;
-							float y1s = s2.y + d2.y * t1s;
-							if (t1s >= 0.0f && t1s <= 1.0f && y1s >= casterTile.y && y1s <= casterTile.y + 1.0f) {
-								if (!foundStart || t1s < bestStartT) {
-									bestStartT = t1s;
-									startPointGrid = s2 + d2 * t1s;
-									foundStart = true;
-								}
-							}
-							float t2s = ((float)casterTile.x + 1.0f - s2.x) / d2.x;
-							float y2s = s2.y + d2.y * t2s;
-							if (t2s >= 0.0f && t2s <= 1.0f && y2s >= casterTile.y && y2s <= casterTile.y + 1.0f) {
-								if (!foundStart || t2s < bestStartT) {
-									bestStartT = t2s;
-									startPointGrid = s2 + d2 * t2s;
-									foundStart = true;
-								}
-							}
-						}
-						if (fabs(d2.y) > 1e-6f) {
-							float t3s = ((float)casterTile.y - s2.y) / d2.y;
-							float x3s = s2.x + d2.x * t3s;
-							if (t3s >= 0.0f && t3s <= 1.0f && x3s >= casterTile.x && x3s <= casterTile.x + 1.0f) {
-								if (!foundStart || t3s < bestStartT) {
-									bestStartT = t3s;
-									startPointGrid = s2 + d2 * t3s;
-									foundStart = true;
-								}
-							}
-							float t4s = ((float)casterTile.y + 1.0f - s2.y) / d2.y;
-							float x4s = s2.x + d2.x * t4s;
-							if (t4s >= 0.0f && t4s <= 1.0f && x4s >= casterTile.x && x4s <= casterTile.x + 1.0f) {
-								if (!foundStart || t4s < bestStartT) {
-									bestStartT = t4s;
-									startPointGrid = s2 + d2 * t4s;
-									foundStart = true;
-								}
-							}
+					glm::vec2 d2 = hitGrid - casterCenter;
+					if (glm::length(d2) > 1e-6f) {
+						glm::vec2 nd = glm::normalize(d2);
+						if (fabs(nd.x) >= fabs(nd.y)) {
+							startPointGrid = casterCenter + glm::vec2((nd.x > 0.0f) ? 0.5f : -0.5f, 0.0f);
+						} else {
+							startPointGrid = casterCenter + glm::vec2(0.0f, (nd.y > 0.0f) ? 0.5f : -0.5f);
 						}
 					}
 
@@ -4295,53 +4185,15 @@ void ofApp::updateGame() {
 					return glm::vec3(wx, 0.0f, wz);
 				};
 
-				// compute caster-edge start so tracer originates from tile face
+				// compute caster-edge start so tracer originates from tile face (use face midpoint)
 				glm::vec2 startPointGrid = casterCenter;
-				{
-					float bestStartT = 1.0f;
-					bool foundStart = false;
-					glm::vec2 s2 = casterCenter;
-					glm::vec2 e2 = hitGrid;
-					glm::vec2 d2 = e2 - s2;
-					if (fabs(d2.x) > 1e-6f) {
-						float t1s = ((float)casterTile.x - s2.x) / d2.x;
-						float y1s = s2.y + d2.y * t1s;
-						if (t1s >= 0.0f && t1s <= 1.0f && y1s >= casterTile.y && y1s <= casterTile.y + 1.0f) {
-							if (!foundStart || t1s < bestStartT) {
-								bestStartT = t1s;
-								startPointGrid = s2 + d2 * t1s;
-								foundStart = true;
-							}
-						}
-						float t2s = ((float)casterTile.x + 1.0f - s2.x) / d2.x;
-						float y2s = s2.y + d2.y * t2s;
-						if (t2s >= 0.0f && t2s <= 1.0f && y2s >= casterTile.y && y2s <= casterTile.y + 1.0f) {
-							if (!foundStart || t2s < bestStartT) {
-								bestStartT = t2s;
-								startPointGrid = s2 + d2 * t2s;
-								foundStart = true;
-							}
-						}
-					}
-					if (fabs(d2.y) > 1e-6f) {
-						float t3s = ((float)casterTile.y - s2.y) / d2.y;
-						float x3s = s2.x + d2.x * t3s;
-						if (t3s >= 0.0f && t3s <= 1.0f && x3s >= casterTile.x && x3s <= casterTile.x + 1.0f) {
-							if (!foundStart || t3s < bestStartT) {
-								bestStartT = t3s;
-								startPointGrid = s2 + d2 * t3s;
-								foundStart = true;
-							}
-						}
-						float t4s = ((float)casterTile.y + 1.0f - s2.y) / d2.y;
-						float x4s = s2.x + d2.x * t4s;
-						if (t4s >= 0.0f && t4s <= 1.0f && x4s >= casterTile.x && x4s <= casterTile.x + 1.0f) {
-							if (!foundStart || t4s < bestStartT) {
-								bestStartT = t4s;
-								startPointGrid = s2 + d2 * t4s;
-								foundStart = true;
-							}
-						}
+				glm::vec2 d2 = hitGrid - casterCenter;
+				if (glm::length(d2) > 1e-6f) {
+					glm::vec2 nd = glm::normalize(d2);
+					if (fabs(nd.x) >= fabs(nd.y)) {
+						startPointGrid = casterCenter + glm::vec2((nd.x > 0.0f) ? 0.5f : -0.5f, 0.0f);
+					} else {
+						startPointGrid = casterCenter + glm::vec2(0.0f, (nd.y > 0.0f) ? 0.5f : -0.5f);
 					}
 				}
 
@@ -4371,53 +4223,15 @@ void ofApp::updateGame() {
 					return glm::vec3(wx, 0.0f, wz);
 				};
 
-				// compute caster-edge start so tracer originates from tile face
+				// compute caster-edge start so tracer originates from tile face (use face midpoint)
 				glm::vec2 startPointGrid = casterCenter;
-				{
-					float bestStartT = 1.0f;
-					bool foundStart = false;
-					glm::vec2 s2 = casterCenter;
-					glm::vec2 e2 = hitGrid;
-					glm::vec2 d2 = e2 - s2;
-					if (fabs(d2.x) > 1e-6f) {
-						float t1s = ((float)casterTile.x - s2.x) / d2.x;
-						float y1s = s2.y + d2.y * t1s;
-						if (t1s >= 0.0f && t1s <= 1.0f && y1s >= casterTile.y && y1s <= casterTile.y + 1.0f) {
-							if (!foundStart || t1s < bestStartT) {
-								bestStartT = t1s;
-								startPointGrid = s2 + d2 * t1s;
-								foundStart = true;
-							}
-						}
-						float t2s = ((float)casterTile.x + 1.0f - s2.x) / d2.x;
-						float y2s = s2.y + d2.y * t2s;
-						if (t2s >= 0.0f && t2s <= 1.0f && y2s >= casterTile.y && y2s <= casterTile.y + 1.0f) {
-							if (!foundStart || t2s < bestStartT) {
-								bestStartT = t2s;
-								startPointGrid = s2 + d2 * t2s;
-								foundStart = true;
-							}
-						}
-					}
-					if (fabs(d2.y) > 1e-6f) {
-						float t3s = ((float)casterTile.y - s2.y) / d2.y;
-						float x3s = s2.x + d2.x * t3s;
-						if (t3s >= 0.0f && t3s <= 1.0f && x3s >= casterTile.x && x3s <= casterTile.x + 1.0f) {
-							if (!foundStart || t3s < bestStartT) {
-								bestStartT = t3s;
-								startPointGrid = s2 + d2 * t3s;
-								foundStart = true;
-							}
-						}
-						float t4s = ((float)casterTile.y + 1.0f - s2.y) / d2.y;
-						float x4s = s2.x + d2.x * t4s;
-						if (t4s >= 0.0f && t4s <= 1.0f && x4s >= casterTile.x && x4s <= casterTile.x + 1.0f) {
-							if (!foundStart || t4s < bestStartT) {
-								bestStartT = t4s;
-								startPointGrid = s2 + d2 * t4s;
-								foundStart = true;
-							}
-						}
+				glm::vec2 d2 = hitGrid - casterCenter;
+				if (glm::length(d2) > 1e-6f) {
+					glm::vec2 nd = glm::normalize(d2);
+					if (fabs(nd.x) >= fabs(nd.y)) {
+						startPointGrid = casterCenter + glm::vec2((nd.x > 0.0f) ? 0.5f : -0.5f, 0.0f);
+					} else {
+						startPointGrid = casterCenter + glm::vec2(0.0f, (nd.y > 0.0f) ? 0.5f : -0.5f);
 					}
 				}
 
@@ -4674,53 +4488,15 @@ void ofApp::updateGame() {
 					return glm::vec3(wx, 0.0f, wz);
 				};
 
-				// compute caster-edge start so tracer originates from tile face
+				// compute caster-edge start so tracer originates from tile face (use face midpoint)
 				glm::vec2 startPointGrid = casterCenter;
-				{
-					float bestStartT = 1.0f;
-					bool foundStart = false;
-					glm::vec2 s2 = casterCenter;
-					glm::vec2 e2 = hitGrid;
-					glm::vec2 d2 = e2 - s2;
-					if (fabs(d2.x) > 1e-6f) {
-						float t1s = ((float)casterTile.x - s2.x) / d2.x;
-						float y1s = s2.y + d2.y * t1s;
-						if (t1s >= 0.0f && t1s <= 1.0f && y1s >= casterTile.y && y1s <= casterTile.y + 1.0f) {
-							if (!foundStart || t1s < bestStartT) {
-								bestStartT = t1s;
-								startPointGrid = s2 + d2 * t1s;
-								foundStart = true;
-							}
-						}
-						float t2s = ((float)casterTile.x + 1.0f - s2.x) / d2.x;
-						float y2s = s2.y + d2.y * t2s;
-						if (t2s >= 0.0f && t2s <= 1.0f && y2s >= casterTile.y && y2s <= casterTile.y + 1.0f) {
-							if (!foundStart || t2s < bestStartT) {
-								bestStartT = t2s;
-								startPointGrid = s2 + d2 * t2s;
-								foundStart = true;
-							}
-						}
-					}
-					if (fabs(d2.y) > 1e-6f) {
-						float t3s = ((float)casterTile.y - s2.y) / d2.y;
-						float x3s = s2.x + d2.x * t3s;
-						if (t3s >= 0.0f && t3s <= 1.0f && x3s >= casterTile.x && x3s <= casterTile.x + 1.0f) {
-							if (!foundStart || t3s < bestStartT) {
-								bestStartT = t3s;
-								startPointGrid = s2 + d2 * t3s;
-								foundStart = true;
-							}
-						}
-						float t4s = ((float)casterTile.y + 1.0f - s2.y) / d2.y;
-						float x4s = s2.x + d2.x * t4s;
-						if (t4s >= 0.0f && t4s <= 1.0f && x4s >= casterTile.x && x4s <= casterTile.x + 1.0f) {
-							if (!foundStart || t4s < bestStartT) {
-								bestStartT = t4s;
-								startPointGrid = s2 + d2 * t4s;
-								foundStart = true;
-							}
-						}
+				glm::vec2 d2 = hitGrid - casterCenter;
+				if (glm::length(d2) > 1e-6f) {
+					glm::vec2 nd = glm::normalize(d2);
+					if (fabs(nd.x) >= fabs(nd.y)) {
+						startPointGrid = casterCenter + glm::vec2((nd.x > 0.0f) ? 0.5f : -0.5f, 0.0f);
+					} else {
+						startPointGrid = casterCenter + glm::vec2(0.0f, (nd.y > 0.0f) ? 0.5f : -0.5f);
 					}
 				}
 
@@ -4768,53 +4544,15 @@ void ofApp::updateGame() {
 					return glm::vec3(wx, 0.0f, wz);
 				};
 
-				// compute caster-edge start so tracer originates from tile face
+				// compute caster-edge start so tracer originates from tile face (use face midpoint)
 				glm::vec2 startPointGrid = casterCenter;
-				{
-					float bestStartT = 1.0f;
-					bool foundStart = false;
-					glm::vec2 s2 = casterCenter;
-					glm::vec2 e2 = hitGrid;
-					glm::vec2 d2 = e2 - s2;
-					if (fabs(d2.x) > 1e-6f) {
-						float t1s = ((float)casterTile.x - s2.x) / d2.x;
-						float y1s = s2.y + d2.y * t1s;
-						if (t1s >= 0.0f && t1s <= 1.0f && y1s >= casterTile.y && y1s <= casterTile.y + 1.0f) {
-							if (!foundStart || t1s < bestStartT) {
-								bestStartT = t1s;
-								startPointGrid = s2 + d2 * t1s;
-								foundStart = true;
-							}
-						}
-						float t2s = ((float)casterTile.x + 1.0f - s2.x) / d2.x;
-						float y2s = s2.y + d2.y * t2s;
-						if (t2s >= 0.0f && t2s <= 1.0f && y2s >= casterTile.y && y2s <= casterTile.y + 1.0f) {
-							if (!foundStart || t2s < bestStartT) {
-								bestStartT = t2s;
-								startPointGrid = s2 + d2 * t2s;
-								foundStart = true;
-							}
-						}
-					}
-					if (fabs(d2.y) > 1e-6f) {
-						float t3s = ((float)casterTile.y - s2.y) / d2.y;
-						float x3s = s2.x + d2.x * t3s;
-						if (t3s >= 0.0f && t3s <= 1.0f && x3s >= casterTile.x && x3s <= casterTile.x + 1.0f) {
-							if (!foundStart || t3s < bestStartT) {
-								bestStartT = t3s;
-								startPointGrid = s2 + d2 * t3s;
-								foundStart = true;
-							}
-						}
-						float t4s = ((float)casterTile.y + 1.0f - s2.y) / d2.y;
-						float x4s = s2.x + d2.x * t4s;
-						if (t4s >= 0.0f && t4s <= 1.0f && x4s >= casterTile.x && x4s <= casterTile.x + 1.0f) {
-							if (!foundStart || t4s < bestStartT) {
-								bestStartT = t4s;
-								startPointGrid = s2 + d2 * t4s;
-								foundStart = true;
-							}
-						}
+				glm::vec2 d2 = hitGrid - casterCenter;
+				if (glm::length(d2) > 1e-6f) {
+					glm::vec2 nd = glm::normalize(d2);
+					if (fabs(nd.x) >= fabs(nd.y)) {
+						startPointGrid = casterCenter + glm::vec2((nd.x > 0.0f) ? 0.5f : -0.5f, 0.0f);
+					} else {
+						startPointGrid = casterCenter + glm::vec2(0.0f, (nd.y > 0.0f) ? 0.5f : -0.5f);
 					}
 				}
 
@@ -22476,79 +22214,74 @@ void ofApp::drawDraftScreen() {
 
 	if (isInGameDraft) {
 		msg = pName + ": Key Found! Choose 1 Card (Get 1 Copy)";
-				} else if (header->type == PKT_DRAFT_STATE) {
-					DraftStatePacket * sp = (DraftStatePacket *)header;
-					ofLogNotice("Network") << "Draft state received: class=" << sp->classTier << " player=" << sp->draftPlayerIdx << " picks=" << sp->picksRemaining << " stage=" << sp->draftStage << " ingame=" << (int)sp->isInGameDraft << " curPlayer=" << sp->currentPlayerIndex;
+	} else if (draftStage == 0) {
+		msg = pName + " - Class 1: Choose 2 (Get 2 Copies)";
+	} else {
+		msg = pName + " - Class 2: Choose 1 (Get 1 Copy)";
+	}
 
-					// Debug: log player mapping and local index to diagnose mapping/race issues
-					{
-						std::stringstream ss;
-						ss << "Players mapping (slot:playerID): ";
-						for (int i = 0; i < (int)players.size(); ++i) {
-							ss << i << ":" << players[i].playerID << " ";
-						}
-						ss << " | myLocalPlayerID=" << myLocalPlayerID << " localSlot=" << getLocalPlayerIndex() << " draftSlot=" << sp->draftPlayerIdx;
-						ofLogNotice("DraftDebug") << ss.str();
-					}
+	// 2. Draw Instruction Text (Top Center, Shadowed)
+	ofRectangle bbox = titleFont.getStringBoundingBox(msg, 0, 0);
+	float tx = (ofGetWidth() / 2.0f) - (bbox.width / 2.0f);
+	float ty = ofGetHeight() * 0.25f;
 
-					// Ignore late normal-draft packets after the initial draft is complete
-					if (initialDraftComplete && currentState == STATE_GAMEPLAY && sp->classTier > 0 && sp->isInGameDraft == 0) {
-						ofLogNotice("Draft") << "Ignoring late normal DraftState (initial draft already complete).";
-						continue;
-					}
+	ofSetColor(0, 0, 0, 255);
+	titleFont.drawString(msg, tx + 2, ty + 2);
+	ofSetColor(ofColor::white);
+	titleFont.drawString(msg, tx, ty);
 
-					// Apply authoritative host state fields
-					draftPlayerIndex = sp->draftPlayerIdx;
-					draftStage = sp->draftStage;
-					draftPicksRemaining = sp->picksRemaining;
-					isInGameDraft = (sp->isInGameDraft != 0);
+	// 2b. Draw Class Tier Text Below Prompt
+	std::string classTierText = "";
+	ofColor classTierColor = ofColor::white;
+	// Predeclare so we can use values for layout later
+	ofRectangle classBox;
+	float classTx = 0, classTy = 0;
+	if (!isInGameDraft) {
+		if (draftStage == 0) {
+			classTierText = "Class 1";
+			classTierColor = ofColor(205, 127, 50); // Bronze
+		} else if (draftStage == 1) {
+			classTierText = "Class 2";
+			classTierColor = ofColor(192, 192, 192); // Silver
+		}
+	}
 
-					if (sp->classTier > 0) {
-						// Enter drafting with host-provided class tier
-						currentState = STATE_DRAFTING;
+	if (!classTierText.empty()) {
+		classBox = titleFont.getStringBoundingBox(classTierText, 0, 0);
+		classTx = (ofGetWidth() / 2.0f) - (classBox.width / 2.0f);
+		classTy = ty + bbox.height + 18;
+		ofSetColor(0, 0, 0, 255);
+		titleFont.drawString(classTierText, classTx + 2, classTy + 2);
+		ofSetColor(classTierColor);
+		titleFont.drawString(classTierText, classTx, classTy);
+	}
 
-						// CLIENT: For multiplayer clients, ensure we always clear any local/stale options
-						// and wait for the authoritative PKT_DRAFT_OPTIONS from host.
-						if (isMultiplayer && sp->playerID != myLocalPlayerID) {
-							bool isNewDraftPhase = (currentState != STATE_DRAFTING) || (currentDraftClassTier != sp->classTier) || (draftPlayerIndex != sp->draftPlayerIdx) || (isInGameDraft != (sp->isInGameDraft != 0));
+	// 3. Draw Cards
+	float cardW = 340;
+	float cardH = cardW * 1.4f;
+	float spacing = 60;
+	float startX = (ofGetWidth() - (3 * cardW + 2 * spacing)) / 2;
+	float startY = ofGetHeight() / 2 - cardH / 2;
 
-							if (isNewDraftPhase) {
-								draftOptions.clear();
-								selectedDraftIndices.clear();
-								waitingForDraftOptions = true;
-								waitingForDraftOptionsStartTime = ofGetElapsedTimef();
-								ofLogNotice("Draft") << "Client: Received DraftState. Clearing options and waiting for DraftOptionsPacket (class=" << sp->classTier << ", player=" << sp->draftPlayerIdx << ", stage=" << sp->draftStage << ", newPhase=true)";
-							} else {
-								if (waitingForDraftOptions && draftOptions.empty()) {
-									ofLogNotice("Draft") << "Client: Still waiting for DraftOptions for current phase. (class=" << sp->classTier << ")";
-								} else if (!waitingForDraftOptions && !draftOptions.empty()) {
-									ofLogNotice("Draft") << "Client: Received DraftState, options already present. Not waiting.";
-								}
-								if (waitingForDraftOptions && !draftOptions.empty()) {
-									waitingForDraftOptions = false;
-									ofLogNotice("Draft") << "Client: DraftOptions arrived before DraftState caught up. Stopping wait.";
-								}
-							}
-						} else {
-							// Singleplayer or host: generate locally
-							selectedDraftIndices.clear();
-							waitingForDraftOptions = false;
-						}
-					} else {
-						// classTier==0 => exit drafting and host tells us who is the active player
-						draftOptions.clear();
-						selectedDraftIndices.clear();
-						currentState = STATE_GAMEPLAY;
-						initialDraftComplete = true;
-						// Host should include who starts; set it
-						currentPlayerIndex = sp->currentPlayerIndex;
-						// In multiplayer clients: DO NOT call startNewTurn(); wait for host TurnStart packet
-						if (isClient()) {
-							waitingForTurnStartFromHost = true;
-							ofLogNotice("Network") << "Client: Drafting ended. Waiting for TurnStart packet from host (player=" << currentPlayerIndex << ")";
-						}
-						// Host handles transition in its own draft-accept logic and sends TurnStart
-					}
+	// Prevent overlap: ensure the top text (prompt + class text if present) clears space above the cards
+	float topTextBottom = ty + bbox.height;
+	if (!classTierText.empty()) {
+		topTextBottom = classTy + classBox.height;
+	}
+	float minStartY = topTextBottom + 24.0f; // small padding
+	if (startY < minStartY) {
+		startY = minStartY;
+	}
+
+	for (size_t i = 0; i < draftOptions.size(); ++i) {
+		float x = startX + i * (cardW + spacing);
+		ofRectangle cardRect(x, startY, cardW, cardH);
+
+		// Check Selection
+		bool isSelected = false;
+		for (int sel : selectedDraftIndices) {
+			if (sel == (int)i) isSelected = true;
+		}
 
 		// Selection Highlight (Yellow)
 		if (isSelected) {
@@ -22796,8 +22529,7 @@ void ofApp::processNetworkPackets() {
 				} else if (header->type == PKT_PLACE_SUMMONED_BEGIN && buffer.size() >= sizeof(PlaceSummonedBeginPacket)) {
 					PlaceSummonedBeginPacket * psb = (PlaceSummonedBeginPacket *)buffer.data();
 					ofLogNotice("NetTrace") << "  PLACE_SUMMON_BEGIN minionType=" << (int)psb->minionType << " ownerID=" << psb->ownerPlayerID << " numToPlace=" << psb->numToPlace;
-				}
-				else if (header->type == PKT_DRAFT_STATE && buffer.size() >= sizeof(DraftStatePacket)) {
+				} else if (header->type == PKT_DRAFT_STATE && buffer.size() >= sizeof(DraftStatePacket)) {
 					DraftStatePacket * sp = (DraftStatePacket *)buffer.data();
 					ofLogNotice("NetTrace") << "  DRAFT_STATE class=" << sp->classTier << " player=" << sp->draftPlayerIdx << " picks=" << sp->picksRemaining << " stage=" << sp->draftStage << " ingame=" << (int)sp->isInGameDraft << " curPlayer=" << sp->currentPlayerIndex;
 				} else if (header->type == PKT_DRAFT_OPTIONS && buffer.size() >= sizeof(DraftOptionsPacket)) {
