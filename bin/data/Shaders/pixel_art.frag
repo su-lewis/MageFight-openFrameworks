@@ -46,8 +46,8 @@ void main() {
     if (L <= 1.0) {
         float edgeThreshold = 0.12;
         float factor = smoothstep(edgeThreshold, edgeThreshold * max(edgeStrength, 1.0), edge);
-        // apply only a mild tint (50%) so edges don't fully replace colors
-        vec3 edgeTint = mix(col, edgeColor, 0.5);
+        // darken edges slightly without introducing color tint
+        vec3 edgeTint = col * 0.5;
         fragColor = vec4(mix(col, edgeTint, factor), 1.0);
         return;
     }
@@ -63,6 +63,7 @@ void main() {
 
     float edgeThreshold = 0.12;
     float factor = smoothstep(edgeThreshold, edgeThreshold * max(edgeStrength, 1.0), edge);
-    vec3 edgeTint = mix(col, edgeColor, 0.5);
+    // darken edges slightly without introducing color tint
+    vec3 edgeTint = col * 0.5;
     fragColor = vec4(mix(col, edgeTint, factor), 1.0);
 }

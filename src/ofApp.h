@@ -1035,6 +1035,12 @@ private:
 	bool enableWorldPostProcess = true;
 	bool showWorldFboPreview = false;
 
+	// --- COMMODORE64 POST PROCESS ---
+	ofShader c64Shader;
+	bool c64ShaderLoaded = false;
+	bool enableC64Shader = false; // toggled with 'l'
+	float c64ScanlineIntensity = 0.6f;
+
 	// --- BLOOM ---
 	// Two ping-pong FBOs for separable blur and an extract shader
 	ofFbo bloomFboA;

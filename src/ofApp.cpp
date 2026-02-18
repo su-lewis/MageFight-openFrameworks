@@ -1943,6 +1943,19 @@ void ofApp::applySettings() {
 		ofLogWarning("Setup") << "Pixel art shader failed to load/link. Pixel-art disabled until fixed.";
 	}
 
+	// --- COMMODORE64 POST PROCESS SHADER ---
+	c64ShaderLoaded = false;
+	c64Shader.unload();
+	const bool c64VertOk = c64Shader.setupShaderFromFile(GL_VERTEX_SHADER, "Shaders/c64.vert");
+	const bool c64FragOk = c64Shader.setupShaderFromFile(GL_FRAGMENT_SHADER, "Shaders/c64.frag");
+	if (c64VertOk && c64FragOk) {
+		c64Shader.bindDefaults();
+		c64ShaderLoaded = c64Shader.linkProgram();
+	}
+	ofLogNotice("Setup") << "C64 shader files: vertOk=" << (c64VertOk ? "true" : "false")
+					 << " fragOk=" << (c64FragOk ? "true" : "false")
+					 << " linked=" << (c64ShaderLoaded ? "true" : "false");
+
 	// Bloom shaders
 	bloomLoaded = false;
 	bloomExtractShader.unload();
@@ -8202,11 +8215,22 @@ void ofApp::drawGame() {
 					bloomFboA.end();
 				}
 			}
-			worldPostShader.begin();
-			worldPostShader.setUniformTexture("tex0", worldFbo.getTexture(), 0);
-			worldPostShader.setUniform2f("uResolution", ofGetWidth(), ofGetHeight());
-			worldFbo.getTexture().draw(0, 0, ofGetWidth(), ofGetHeight());
-			worldPostShader.end();
+			if (enableC64Shader && c64ShaderLoaded) {
+				c64Shader.begin();
+				c64Shader.setUniformTexture("tex0", worldFbo.getTexture(), 0);
+				c64Shader.setUniform1f("uTime", ofGetElapsedTimef());
+				c64Shader.setUniform2f("uResolution", ofGetWidth(), ofGetHeight());
+				c64Shader.setUniform1f("uScanlineIntensity", c64ScanlineIntensity);
+				c64Shader.setUniform1f("uPixelSize", 2.0f);
+				worldFbo.getTexture().draw(0, 0, ofGetWidth(), ofGetHeight());
+				c64Shader.end();
+			} else {
+				worldPostShader.begin();
+				worldPostShader.setUniformTexture("tex0", worldFbo.getTexture(), 0);
+				worldPostShader.setUniform2f("uResolution", ofGetWidth(), ofGetHeight());
+				worldFbo.getTexture().draw(0, 0, ofGetWidth(), ofGetHeight());
+				worldPostShader.end();
+			}
 
 			// Composite bloom additively over the final image
 			if (bloomLoaded && bloomFboA.isAllocated()) {
@@ -14384,6 +14408,13 @@ void ofApp::keyReleased(int key) {
 	if (key == 'o' || key == 'O') {
 		showWorldFboPreview = !showWorldFboPreview;
 		ofLogNotice("Post") << "showWorldFboPreview=" << (showWorldFboPreview ? "true" : "false");
+	}
+
+	// Toggle Commodore64 shader with 'l'
+	if (key == 'l' || key == 'L') {
+		enableC64Shader = !enableC64Shader;
+		ofLogNotice("C64") << "enableC64Shader=" << (enableC64Shader ? "true" : "false");
+		return;
 	}
 
 	// 2c. Debug Hotkeys (when debug mode is enabled)
