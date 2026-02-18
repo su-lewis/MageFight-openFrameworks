@@ -1953,8 +1953,8 @@ void ofApp::applySettings() {
 		c64ShaderLoaded = c64Shader.linkProgram();
 	}
 	ofLogNotice("Setup") << "C64 shader files: vertOk=" << (c64VertOk ? "true" : "false")
-					 << " fragOk=" << (c64FragOk ? "true" : "false")
-					 << " linked=" << (c64ShaderLoaded ? "true" : "false");
+						 << " fragOk=" << (c64FragOk ? "true" : "false")
+						 << " linked=" << (c64ShaderLoaded ? "true" : "false");
 
 	// Bloom shaders
 	bloomLoaded = false;
