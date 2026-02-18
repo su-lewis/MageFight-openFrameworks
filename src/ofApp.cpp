@@ -23035,31 +23035,46 @@ void ofApp::processNetworkPackets() {
 
 			// Host should also respond to clients asking for DraftOptions if they timed out
 			if (msg == "REQ_DRAFT" && steamManager.isHost()) {
-				// If we're currently in drafting state, regenerate and resend options
-				if (currentState == STATE_DRAFTING) {
-					ofLogNotice("Network") << "Host: Received REQ_DRAFT_OPTIONS - regenerating/sending DraftOptions.";
-					// Regenerate options for the current class tier (will send DP + DSP)
-					generateDraftOptions(currentDraftClassTier);
-					// After generating, explicitly resend DraftOptionsPacket to requesting client(s) and log result
-					{
-						DraftOptionsPacket dp = {};
-						dp.type = PKT_DRAFT_OPTIONS;
-						dp.playerID = myLocalPlayerID;
-						dp.classTier = currentDraftClassTier;
-						dp.optionIndex0 = (currentDraftOptionPoolIndices.size() > 0) ? currentDraftOptionPoolIndices[0] : -1;
-						dp.optionIndex1 = (currentDraftOptionPoolIndices.size() > 1) ? currentDraftOptionPoolIndices[1] : -1;
-						dp.optionIndex2 = (currentDraftOptionPoolIndices.size() > 2) ? currentDraftOptionPoolIndices[2] : -1;
-						dp.draftPlayerIdx = draftPlayerIndex;
-						dp.picksRemaining = draftPicksRemaining;
-						dp.draftStage = draftStage;
-						dp.isInGameDraft = isInGameDraft ? 1 : 0;
-						dp.draftGenCounter = draftGenerationCounter;
-						bool ok = steamManager.sendPacket(&dp, sizeof(dp));
-						ofLogNotice("Network") << "Host resent DraftOptionsPacket: " << dp.optionIndex0 << "," << dp.optionIndex1 << "," << dp.optionIndex2 << " sendOk=" << (ok ? "true" : "false");
-					}
-				} else {
-					ofLogNotice("Network") << "Host: Received REQ_DRAFT_OPTIONS but not in drafting state (currentState=" << currentState << ")";
+				// Respond to client requests for draft options whenever we have authoritative
+				// options available. This reduces races where the client requests before
+				// the host's state variable was flipped to STATE_DRAFTING.
+				ofLogNotice("Network") << "Host: Received REQ_DRAFT request. currentState=" << currentState << " currentDraftClassTier=" << currentDraftClassTier;
+
+				// If we don't yet have a currentDraftClassTier/options, try to generate them
+				if (currentDraftClassTier <= 0) {
+					ofLogNotice("Network") << "Host: No current draft class tier set. Calling generateDraftOptions(" << currentDraftClassTier << ") to initialize.";
+					generateDraftOptions(currentDraftClassTier > 0 ? currentDraftClassTier : 1);
 				}
+
+				// Build and send DraftOptionsPacket from authoritative indices if available
+				DraftOptionsPacket dp = {};
+				dp.type = PKT_DRAFT_OPTIONS;
+				dp.playerID = myLocalPlayerID;
+				dp.classTier = currentDraftClassTier;
+				dp.optionIndex0 = (currentDraftOptionPoolIndices.size() > 0) ? currentDraftOptionPoolIndices[0] : -1;
+				dp.optionIndex1 = (currentDraftOptionPoolIndices.size() > 1) ? currentDraftOptionPoolIndices[1] : -1;
+				dp.optionIndex2 = (currentDraftOptionPoolIndices.size() > 2) ? currentDraftOptionPoolIndices[2] : -1;
+				dp.draftPlayerIdx = draftPlayerIndex;
+				dp.picksRemaining = draftPicksRemaining;
+				dp.draftStage = draftStage;
+				dp.isInGameDraft = isInGameDraft ? 1 : 0;
+				dp.draftGenCounter = draftGenerationCounter;
+				bool ok = steamManager.sendPacket(&dp, sizeof(dp));
+				ofLogNotice("Network") << "Host responded with DraftOptionsPacket: " << dp.optionIndex0 << "," << dp.optionIndex1 << "," << dp.optionIndex2 << " class=" << dp.classTier << " sendOk=" << (ok ? "true" : "false");
+
+				// Also send a DraftStatePacket to ensure client transitions correctly
+				DraftStatePacket dsp = {};
+				dsp.type = PKT_DRAFT_STATE;
+				dsp.playerID = myLocalPlayerID;
+				dsp.classTier = currentDraftClassTier;
+				dsp.draftPlayerIdx = draftPlayerIndex;
+				dsp.picksRemaining = draftPicksRemaining;
+				dsp.draftStage = draftStage;
+				dsp.isInGameDraft = isInGameDraft ? 1 : 0;
+				dsp.currentPlayerIndex = currentPlayerIndex;
+				steamManager.sendPacket(&dsp, sizeof(dsp));
+				ofLogNotice("Network") << "Host sent DraftStatePacket in response to REQ_DRAFT: class=" << dsp.classTier << " player=" << dsp.draftPlayerIdx;
+
 				continue;
 			}
 		}
