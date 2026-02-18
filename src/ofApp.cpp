@@ -22277,10 +22277,16 @@ void ofApp::drawDraftScreen() {
 		float x = startX + i * (cardW + spacing);
 		ofRectangle cardRect(x, startY, cardW, cardH);
 
-		// Check Selection
+		// Check Selection: compare against authoritative pool index for this slot
+		int slotPoolIdx = (i >= 0 && i < (int)currentDraftOptionPoolIndices.size()) ? currentDraftOptionPoolIndices[i] : -1;
 		bool isSelected = false;
-		for (int sel : selectedDraftIndices) {
-			if (sel == (int)i) isSelected = true;
+		if (slotPoolIdx >= 0) {
+			for (int sel : selectedDraftIndices) {
+				if (sel == slotPoolIdx) {
+					isSelected = true;
+					break;
+				}
+			}
 		}
 
 		// Selection Highlight (Yellow)
