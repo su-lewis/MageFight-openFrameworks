@@ -1144,9 +1144,9 @@ void ofApp::update() {
 		if (now - waitingForDraftOptionsStartTime > waitingForDraftOptionsTimeout) {
 			// Send a small 8-byte request string that the host listens for
 			string req = "REQ_DRAFT"; // 8 bytes
-			steamManager.sendPacket(req.c_str(), req.size());
+			bool ok = steamManager.sendPacket(req.c_str(), req.size());
 			waitingForDraftOptionsStartTime = now; // reset timer to allow retries
-			ofLogNotice("Network") << "Client: Requested DraftOptions from host (REQ_DRAFT)";
+			ofLogNotice("Network") << "Client: Requested DraftOptions from host (REQ_DRAFT) resend ok=" << (ok ? "true" : "false") << " attemptTime=" << now;
 		}
 	}
 
@@ -2289,6 +2289,13 @@ void ofApp::initGameFromSeed(uint32_t seed) {
 // startup flows. Restores minimal shared initialization so multiplayer
 // clients start with identical base state as the host.
 void ofApp::initialiseGameStateCommon() {
+	// --- FIX: Reset global draft/game flags so client state is fresh ---
+	initialDraftComplete = false;
+	hasDrawnCardsThisTurn = false;
+	opponentHasDrawnCardsThisTurn = false;
+	draftStage = 0;
+	// ------------------------------------------------------------------
+
 	// Reset board tiles
 	for (int x = 0; x < BOARD_WIDTH; ++x) {
 		for (int y = 0; y < BOARD_HEIGHT; ++y) {
@@ -22487,7 +22494,8 @@ void ofApp::generateDraftOptions(int classTier, const std::vector<int> * forcedI
 	// The host is the only authority that should generate and send DraftOptionsPacket.
 	draftOptions.clear();
 	currentDraftClassTier = classTier;
-	currentDraftOptionPoolIndices = { { -1, -1, -1 } };
+	// --- FIX: Correct vector initialization syntax ---
+	currentDraftOptionPoolIndices = { -1, -1, -1 };
 	const std::vector<Card> * pool = &class1Cards;
 	if (classTier == 2) pool = &class2Cards;
 	if (classTier == 3) pool = &class3Cards;
@@ -22497,8 +22505,8 @@ void ofApp::generateDraftOptions(int classTier, const std::vector<int> * forcedI
 		waitingForDraftOptionsStartTime = ofGetElapsedTimef();
 		// Ask host immediately for the authoritative DraftOptions
 		string req = "REQ_DRAFT";
-		steamManager.sendPacket(req.c_str(), req.size());
-		ofLogNotice("Network") << "Client: Requested DraftOptions from host (REQ_DRAFT) class=" << classTier;
+		bool sendOk = steamManager.sendPacket(req.c_str(), req.size());
+		ofLogNotice("Network") << "Client: Requested DraftOptions from host (REQ_DRAFT) class=" << classTier << " sendOk=" << (sendOk ? "true" : "false");
 		currentState = STATE_DRAFTING;
 		return;
 	}
@@ -22593,10 +22601,16 @@ void ofApp::generateDraftOptions(int classTier, const std::vector<int> * forcedI
 void ofApp::applyDraftOptionsFromPool(int classTier, const std::vector<int> & indices, int picksRemaining, int draftingPlayerIdx) {
 	draftOptions.clear();
 	currentDraftClassTier = classTier;
-	currentDraftOptionPoolIndices = { { -1, -1, -1 } };
+	// --- FIX: Correct vector initialization syntax ---
+	currentDraftOptionPoolIndices = { -1, -1, -1 };
 	const std::vector<Card> * pool = &class1Cards;
 	if (classTier == 2) pool = &class2Cards;
 	if (classTier == 3) pool = &class3Cards;
+
+	// --- FIX: Logic Safety Check ---
+	if (pool->empty()) {
+		ofLogError("Draft") << "CRITICAL: Card pool for Class " << classTier << " is empty on Client! Check cards.json.";
+	}
 
 	// If we've already transitioned to gameplay (race condition where a late
 	// DraftOptions packet arrives after the host moved to gameplay), ignore
@@ -24476,9 +24490,9 @@ void ofApp::processNetworkPackets() {
 								if (localDraftSlot >= 0 && localDraftSlot < (int)players.size()) {
 									if (players[localDraftSlot].playerID == myLocalPlayerID) {
 										string req = "REQ_DRAFT";
-										steamManager.sendPacket(req.c_str(), req.size());
+										bool ok = steamManager.sendPacket(req.c_str(), req.size());
 										waitingForDraftOptionsStartTime = ofGetElapsedTimef();
-										ofLogNotice("Network") << "Client is drafting player; sent immediate REQ_DRAFT to host.";
+										ofLogNotice("Network") << "Client is drafting player; sent immediate REQ_DRAFT to host. sendOk=" << (ok ? "true" : "false");
 									}
 								}
 							}

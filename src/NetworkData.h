@@ -61,6 +61,7 @@ struct TurnStartPacket : PacketHeader {
 struct HandshakePacket : PacketHeader {
 	uint32_t seed; // The RNG seed (Host generates, Client receives)
 };
+
 // Dice roll visualization packet (for showing opponent rolls)
 struct DiceRollPacket : PacketHeader {
 	uint8_t numDice; // number of dice rolled (max 8)
@@ -237,8 +238,6 @@ struct ShufflePacket : PacketHeader {
 	uint32_t nonce; // nonce used to seed local shuffle RNG
 };
 
-// (PlaceSummonedMinionPacket defined earlier)
-
 // For Amnesia card: when the player selects which cards to remove from deck
 struct AmnesiaChoicePacket : PacketHeader {
 	int32_t targetPlayerIndex;
@@ -364,6 +363,3 @@ struct AckPacket : PacketHeader {
 #else
 	#define MAGEFIGHT_PLATFORM "Unknown"
 #endif
-
-// Endianness: Both Windows and Linux are little-endian.
-// If porting to big-endian platforms (rare), add byte-swap utilities here.
