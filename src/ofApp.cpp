@@ -79,6 +79,24 @@ void ofApp::checkKeyPickupAndDraftAfterSummon(int x, int y, int minionOwnerID) {
 			break;
 		}
 	}
+						if (optionsMatch) {
+							waitingForDraftOptions = false;
+							ofLogNotice("Draft") << "Client already has authoritative DraftOptions; not waiting (class=" << sp->classTier << ")";
+						} else {
+							waitingForDraftOptions = true;
+							// If this client is the drafting player, generate deterministic local options
+							// as a fallback so the UI can show choices immediately. The host remains authoritative
+							// and will replace these with PKT_DRAFT_OPTIONS when received.
+							int localDraftSlot = sp->draftPlayerIdx;
+							if (localDraftSlot >= 0 && localDraftSlot < (int)players.size()) {
+								if (players[localDraftSlot].playerID == myLocalPlayerID) {
+									ofLogNotice("Draft") << "Client is drafting player; generating deterministic local draft options as fallback (class=" << sp->classTier << ")";
+									generateDraftOptions(sp->classTier);
+									// Do not clear waitingForDraftOptions; still expect authoritative packet
+								}
+							}
+							ofLogNotice("Draft") << "Client waiting for authoritative DraftOptionsPacket from host (class=" << sp->classTier << ")";
+						}
 }
 // Define destructor to ensure vtable is emitted in this translation unit
 ofApp::~ofApp() { }

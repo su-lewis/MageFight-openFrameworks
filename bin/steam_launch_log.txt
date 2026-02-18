@@ -3327,3 +3327,218 @@ SteamInternal_SetMinidumpSteamID:  Caching Steam ID:  76561198261715869 [API loa
 [notice ] Settings: Saved settings to Config/settings.json
 [notice ] SteamManager: Steam API Shutdown.
 [S_API FAIL] Tried to access Steam interface SteamNetworkingSockets012 before SteamAPI_Init succeeded.
+ERROR: ld.so: object '/usr/lib/extest/libextest.so' from LD_PRELOAD cannot be preloaded (cannot open shared object file): ignored.
+ERROR: ld.so: object '/var/home/lewis/.local/share/Steam/ubuntu12_32/gameoverlayrenderer.so' from LD_PRELOAD cannot be preloaded (wrong ELF class: ELFCLASS32): ignored.
+--- Launching MageFight at Wed Feb 18 22:52:04 GMT 2026 ---
+Script directory: /home/lewis/of_workspace/openFrameworks/apps/myApps/MageFight/bin
+Original LD_PRELOAD=/usr/lib/extest/libextest.so:/var/home/lewis/.local/share/Steam/ubuntu12_32/gameoverlayrenderer.so:/var/home/lewis/.local/share/Steam/ubuntu12_64/gameoverlayrenderer.so
+Dropping missing LD_PRELOAD entry: /usr/lib/extest/libextest.so
+Final LD_PRELOAD=/var/home/lewis/.local/share/Steam/ubuntu12_32/gameoverlayrenderer.so:/var/home/lewis/.local/share/Steam/ubuntu12_64/gameoverlayrenderer.so
+Starting executable...
+ERROR: ld.so: object '/var/home/lewis/.local/share/Steam/ubuntu12_32/gameoverlayrenderer.so' from LD_PRELOAD cannot be preloaded (wrong ELF class: ELFCLASS32): ignored.
+[S_API] SteamAPI_Init(): SteamAPI_IsSteamRunning() did not locate a running instance of Steam.
+[S_API] SteamAPI_Init(): Loaded '/home/lewis/of_workspace/.steam/sdk64/steamclient.so' OK.
+Setting breakpad minidump AppID = 480
+SteamInternal_SetMinidumpSteamID:  Caching Steam ID:  76561198261715869 [API loaded no]
+[notice ] Steam: Initialized. LocalID: 76561198261715869
+[notice ] NetTrace: Packet sizeofs: PacketHeader=9 DraftActionPacket=43 DraftAckPacket=36 DraftOptionsPacket=42 DraftStatePacket=30 HandshakePacket=13
+[notice ] Setup: Visual RNG seeded.
+[notice ] Audio: Main menu music loaded: yes
+[notice ] Settings: Loaded settings from Config/settings.json
+[warning] ofMaterial::setPBR:  PBR material must be used with Programmable Renderer.
+[ error ] ofxAssimpTexture::setTextureType: : unknown aiTextureType type 27
+[warning] ofMaterial::setPBR:  PBR material must be used with Programmable Renderer.
+[ error ] ofxAssimpTexture::setTextureType: : unknown aiTextureType type 27
+[warning] ofMaterial::setPBR:  PBR material must be used with Programmable Renderer.
+[warning] ofMaterial::setPBR:  PBR material must be used with Programmable Renderer.
+[warning] ofMaterial::setPBR:  PBR material must be used with Programmable Renderer.
+[warning] ofMaterial::setPBR:  PBR material must be used with Programmable Renderer.
+[notice ] Wolf model loaded with 10 meshes
+[notice ] Setup: Kobold model loaded.
+[ error ] ofxAssimpModelLoader: loadGLResource(): texture doesn't exist: "data/Units/KoboldKing/goblin_king.fbx" in "data/Units/KoboldKing/cadnav.com_model/Models_G0506A078/01391eaa.dds"
+[ error ] loadImage: File not found: "data/Units/KoboldKing/cadnav.com_model/Models_G0506A078/01391eaa.dds"
+[ error ] ofxAssimpModelLoader: loadGLResource(): couldn't load texture: "data/Units/KoboldKing/goblin_king.fbx" from "data/Units/KoboldKing/cadnav.com_model/Models_G0506A078/01391eaa.dds"
+[ error ] ofxAssimpModelLoader: loadGLResource(): texture doesn't exist: "data/Units/KoboldKing/goblin_king.fbx" in "data/Units/KoboldKing/cadnav.com_model/Models_G0506A078/ada8756d.jpg"
+[ error ] loadImage: File not found: "data/Units/KoboldKing/cadnav.com_model/Models_G0506A078/ada8756d.jpg"
+[ error ] ofxAssimpModelLoader: loadGLResource(): couldn't load texture: "data/Units/KoboldKing/goblin_king.fbx" from "data/Units/KoboldKing/cadnav.com_model/Models_G0506A078/ada8756d.jpg"
+[ error ] ofxAssimpModelLoader: loadGLResource(): texture doesn't exist: "data/Units/KoboldKing/goblin_king.fbx" in "data/Units/KoboldKing/cadnav.com_model/Models_G0506A078/496d23a4.jpg"
+[ error ] loadImage: File not found: "data/Units/KoboldKing/cadnav.com_model/Models_G0506A078/496d23a4.jpg"
+[ error ] ofxAssimpModelLoader: loadGLResource(): couldn't load texture: "data/Units/KoboldKing/goblin_king.fbx" from "data/Units/KoboldKing/cadnav.com_model/Models_G0506A078/496d23a4.jpg"
+[ error ] ofxAssimpModelLoader: loadGLResource(): texture doesn't exist: "data/Units/KoboldKing/goblin_king.fbx" in "data/Units/KoboldKing/cadnav.com_model/Models_G0506A078/01391eaa.dds"
+[ error ] loadImage: File not found: "data/Units/KoboldKing/cadnav.com_model/Models_G0506A078/01391eaa.dds"
+[ error ] ofxAssimpModelLoader: loadGLResource(): couldn't load texture: "data/Units/KoboldKing/goblin_king.fbx" from "data/Units/KoboldKing/cadnav.com_model/Models_G0506A078/01391eaa.dds"
+[notice ] Setup: Kobold King texture loaded.
+[notice ] Setup: Kobold King model loaded.
+[notice ] Setup: Hellhound model loaded.
+[warning] ofMaterial::setPBR:  PBR material must be used with Programmable Renderer.
+[ error ] ofxAssimpTexture::setTextureType: : unknown aiTextureType type 27
+[warning] ofMaterial::setPBR:  PBR material must be used with Programmable Renderer.
+[ error ] ofxAssimpTexture::setTextureType: : unknown aiTextureType type 27
+[warning] ofMaterial::setPBR:  PBR material must be used with Programmable Renderer.
+[ error ] ofxAssimpTexture::setTextureType: : unknown aiTextureType type 27
+[warning] ofMaterial::setPBR:  PBR material must be used with Programmable Renderer.
+[ error ] ofxAssimpTexture::setTextureType: : unknown aiTextureType type 27
+[warning] ofMaterial::setPBR:  PBR material must be used with Programmable Renderer.
+[ error ] ofxAssimpTexture::setTextureType: : unknown aiTextureType type 27
+[warning] ofMaterial::setPBR:  PBR material must be used with Programmable Renderer.
+[ error ] ofxAssimpTexture::setTextureType: : unknown aiTextureType type 27
+[warning] ofMaterial::setPBR:  PBR material must be used with Programmable Renderer.
+[ error ] ofxAssimpTexture::setTextureType: : unknown aiTextureType type 27
+[warning] ofMaterial::setPBR:  PBR material must be used with Programmable Renderer.
+[ error ] ofxAssimpTexture::setTextureType: : unknown aiTextureType type 27
+[warning] ofMaterial::setPBR:  PBR material must be used with Programmable Renderer.
+[ error ] ofxAssimpTexture::setTextureType: : unknown aiTextureType type 27
+[warning] ofMaterial::setPBR:  PBR material must be used with Programmable Renderer.
+[ error ] ofxAssimpTexture::setTextureType: : unknown aiTextureType type 27
+[warning] ofMaterial::setPBR:  PBR material must be used with Programmable Renderer.
+[ error ] ofxAssimpTexture::setTextureType: : unknown aiTextureType type 27
+[notice ] Setup: Demon model loaded.
+[notice ] Setup: Tortoise model loaded.
+[warning] ofMaterial::setPBR:  PBR material must be used with Programmable Renderer.
+[notice ] Setup: Ghost model loaded.
+[warning] ofMaterial::setPBR:  PBR material must be used with Programmable Renderer.
+[ error ] ofxAssimpTexture::setTextureType: : unknown aiTextureType type 27
+[notice ] Setup: Wall Unit GLB model loaded and texture applied.
+[notice ] Setup: Assistant model loaded.
+[warning] ofMaterial::setPBR:  PBR material must be used with Programmable Renderer.
+[ error ] ofxAssimpTexture::setTextureType: : unknown aiTextureType type 27
+[warning] ofMaterial::setPBR:  PBR material must be used with Programmable Renderer.
+[ error ] ofxAssimpTexture::setTextureType: : unknown aiTextureType type 27
+[notice ] Setup: Faerie texture loaded.
+[notice ] Setup: Faerie model loaded.
+[notice ] Setup: Loaded key frame: Board/keys_1_1.png
+[notice ] Setup: Loaded key frame: Board/keys_1_2.png
+[notice ] Setup: Loaded key frame: Board/keys_1_3.png
+[notice ] Setup: Loaded key frame: Board/keys_1_4.png
+[notice ] Setup: Loaded key frame: Board/keys_1_5.png
+[notice ] Setup: Loaded silver key frame: Board/keys_2_1.png
+[notice ] Setup: Loaded silver key frame: Board/keys_2_2.png
+[notice ] Setup: Loaded silver key frame: Board/keys_2_3.png
+[notice ] Setup: Loaded silver key frame: Board/keys_2_4.png
+[notice ] Setup: Loaded silver key frame: Board/keys_2_5.png
+[notice ] Setup: Loaded bronze key frame: Board/keys_3_1.png
+[notice ] Setup: Loaded bronze key frame: Board/keys_3_2.png
+[notice ] Setup: Loaded bronze key frame: Board/keys_3_3.png
+[notice ] Setup: Loaded bronze key frame: Board/keys_3_4.png
+[notice ] Setup: Loaded bronze key frame: Board/keys_3_5.png
+[notice ] ofApp::loadCardData: Loaded 70 cards from JSON.
+[notice ] ofApp::loadCardData: Class Distribution - C1: 30, C2: 25, C3: 15
+[notice ] GL: Vendor: AMD | Renderer: AMD Radeon RX 9070 XT (radeonsi, gfx1201, LLVM 21.1.6, DRM 3.64, 6.17.7-ba25.fc43.x86_64) | Version: 4.6 (Compatibility Profile) Mesa 25.3.4-arch1.1 | GLSL: 4.60
+[notice ] Setup: Post shader files: vertOk=true fragOk=true linked=true
+[notice ] Setup: Pixel art shader loaded successfully.
+[notice ] Setup: C64 shader files: vertOk=true fragOk=true linked=true
+[ error ] ofShader: setupShaderFromFile(): couldn't load GL_VERTEX_SHADER shader  from "/home/lewis/of_workspace/openFrameworks/apps/myApps/MageFight/bin/data/Shaders/quad.vert"
+[ error ] ofShader: setupShaderFromFile(): couldn't load GL_FRAGMENT_SHADER shader  from "/home/lewis/of_workspace/openFrameworks/apps/myApps/MageFight/bin/data/Shaders/bloom_extract.frag"
+[ error ] ofShader: setupShaderFromFile(): couldn't load GL_VERTEX_SHADER shader  from "/home/lewis/of_workspace/openFrameworks/apps/myApps/MageFight/bin/data/Shaders/quad.vert"
+[ error ] ofShader: setupShaderFromFile(): couldn't load GL_FRAGMENT_SHADER shader  from "/home/lewis/of_workspace/openFrameworks/apps/myApps/MageFight/bin/data/Shaders/bloom_blur.frag"
+[notice ] Setup: Bloom shaders not available.
+[ error ] ofFbo: FRAMEBUFFER_INCOMPLETE_ATTACHMENT
+[notice ] Setup: Shadow shader files: vertOk=true fragOk=true linked=true
+[notice ] Setup: PBR shader files: vertOk=true fragOk=true linked=true
+[notice ] FBO: worldFbo allocated 2560x1440
+[notice ] Post: enableWorldPostProcess=true
+[notice ] Network: DEBUG: Still in STATE_MAIN_MENU. hasOpponent()=0 isMultiplayer=0 isHost=0
+[notice ] Steam: Requesting Lobby Creation...
+[notice ] Steam: Lobby Created. Creating Listen Socket...
+[notice ] Steam: Incoming Connection Request...
+[notice ] Steam: Accepted Connection!
+[notice ] Network: DEBUG: hasOpponent() is true, currentState=0
+[notice ] Network: Host: Opponent found. Starting game & sending seed.
+[notice ] Setup: Host generated seed: 1771455238 platform=Linux
+[notice ] Setup: Host sending handshake: type=0 playerID=0 seq=0 seed=1771455238 platform=Linux
+[notice ] Network: Skipping DiceRollPacket send for purpose=4 (handled authoritatively).
+[notice ] Dice: Final total result for 1d6: 3
+[notice ] Network: Skipping DiceRollPacket send for purpose=4 (handled authoritatively).
+[notice ] Dice: Final total result for 1d6: 5
+[notice ] Game: --- INITIATIVE ROLL STARTED ---
+[notice ] Post: World post-process branch executed (shader active).
+[notice ] Steam: Connection Fully Active!
+[notice ] Steam: Opponent ID: 76561198743068920
+[notice ] Network: Host: Received Seed Request. Resending Seed: 1771455238
+[notice ] Network: Host resending handshake: type=0 playerID=0 seq=0 seed=1771455238
+[notice ] Draft: generateDraftOptions called: classTier=1 draftStage=0 draftPlayerIndex=1 poolSize=30
+[notice ] Network: Host sent DraftOptionsPacket: 3,2,6 derivedSeed=3060167898 draftGenCounter=1
+[notice ] Draft: Options names: Bash, Hand Block, Slash
+[notice ] Network: Host sent DraftStatePacket (post-options): class=1 player=1 picks=2 stage=0
+[notice ] Initiative: Player 2 Wins Initiative
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Bash, Hand Block, Slash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Bash, Hand Block, Slash
+[notice ] Draft: DRAFT CLICK: mousePos=(1236,804) selections=0 required=2 inGameDraft=0 draftStage=0 acceptRect=(0,0,0,0)
+[notice ] DraftDebug: LocalIdx=0 draftPlayerIndex=1 isLocalDrafting=0
+[notice ] Draft: DRAFT CLICK: mousePos=(1580,733) selections=0 required=2 inGameDraft=0 draftStage=0 acceptRect=(0,0,0,0)
+[notice ] DraftDebug: LocalIdx=0 draftPlayerIndex=1 isLocalDrafting=0
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Bash, Hand Block, Slash
+[notice ] Draft: DRAFT CLICK: mousePos=(1267,810) selections=0 required=2 inGameDraft=0 draftStage=0 acceptRect=(0,0,0,0)
+[notice ] DraftDebug: LocalIdx=0 draftPlayerIndex=1 isLocalDrafting=0
+[notice ] Draft: DRAFT CLICK: mousePos=(1440,1012) selections=0 required=2 inGameDraft=0 draftStage=0 acceptRect=(0,0,0,0)
+[notice ] DraftDebug: LocalIdx=0 draftPlayerIndex=1 isLocalDrafting=0
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Bash, Hand Block, Slash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Bash, Hand Block, Slash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Bash, Hand Block, Slash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Bash, Hand Block, Slash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Bash, Hand Block, Slash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Bash, Hand Block, Slash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Bash, Hand Block, Slash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Bash, Hand Block, Slash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Bash, Hand Block, Slash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Bash, Hand Block, Slash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Bash, Hand Block, Slash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Bash, Hand Block, Slash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Bash, Hand Block, Slash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Bash, Hand Block, Slash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Bash, Hand Block, Slash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Bash, Hand Block, Slash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Bash, Hand Block, Slash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Bash, Hand Block, Slash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Bash, Hand Block, Slash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Bash, Hand Block, Slash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Bash, Hand Block, Slash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Bash, Hand Block, Slash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Bash, Hand Block, Slash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Bash, Hand Block, Slash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Bash, Hand Block, Slash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Bash, Hand Block, Slash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Bash, Hand Block, Slash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Bash, Hand Block, Slash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Bash, Hand Block, Slash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Bash, Hand Block, Slash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Bash, Hand Block, Slash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Bash, Hand Block, Slash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Bash, Hand Block, Slash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Bash, Hand Block, Slash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Bash, Hand Block, Slash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Bash, Hand Block, Slash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Bash, Hand Block, Slash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Bash, Hand Block, Slash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Bash, Hand Block, Slash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Bash, Hand Block, Slash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Bash, Hand Block, Slash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Bash, Hand Block, Slash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Bash, Hand Block, Slash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Bash, Hand Block, Slash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Bash, Hand Block, Slash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Bash, Hand Block, Slash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Bash, Hand Block, Slash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Bash, Hand Block, Slash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Bash, Hand Block, Slash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Bash, Hand Block, Slash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Bash, Hand Block, Slash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Bash, Hand Block, Slash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Bash, Hand Block, Slash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Bash, Hand Block, Slash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Bash, Hand Block, Slash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Bash, Hand Block, Slash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Bash, Hand Block, Slash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Bash, Hand Block, Slash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Bash, Hand Block, Slash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Bash, Hand Block, Slash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Bash, Hand Block, Slash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Bash, Hand Block, Slash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Bash, Hand Block, Slash
+[notice ] Steam: Connection Closed/Failed.
+[notice ] Steam: Opponent disconnected - awaiting reconnection
+[notice ] Network: Opponent left the lobby. Resetting game and returning to main menu.
+[notice ] Game: --- GAME SESSION CLEANED UP ---
+[notice ] Settings: Saved settings to Config/settings.json
+[notice ] SteamManager: Steam API Shutdown.
+[S_API FAIL] Tried to access Steam interface SteamNetworkingSockets012 before SteamAPI_Init succeeded.
