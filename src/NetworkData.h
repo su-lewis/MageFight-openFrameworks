@@ -205,14 +205,12 @@ struct DraftStatePacket : PacketHeader {
 // Host -> Client: send the indices in the pool for the options shown
 struct DraftOptionsPacket : PacketHeader {
 	int32_t classTier; // 1,2,3
-	int32_t optionIndex0; // index into class pool
-	int32_t optionIndex1;
-	int32_t optionIndex2;
 	int32_t draftPlayerIdx; // which player is currently drafting
 	int32_t picksRemaining; // how many picks left for this stage
 	int32_t draftStage; // 0 = class1, 1 = class2, etc
 	uint8_t isInGameDraft; // 1 = in-game key draft, 0 = normal
 	uint32_t draftGenCounter; // The draft generation counter value used by host
+	uint32_t mapSeed; // The map/game seed used for deterministic draft
 };
 
 // ------------------------- NEW: Draft ACK -------------------------
