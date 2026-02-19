@@ -67,13 +67,13 @@ void SteamManager::update() {
 				if (ph->type == PKT_DRAFT_ACTION && buffer.size() >= sizeof(DraftActionPacket)) {
 					DraftActionPacket * dap = (DraftActionPacket *)buffer.data();
 					ofLogNotice("NetTrace") << "  DRAFT_ACTION recv: actionType=" << (int)dap->actionType
-						<< " clientActionID=" << dap->clientActionID
-						<< " draftPlayerIdx=" << dap->draftPlayerIdx
-						<< " classTier=" << (int)dap->classTier
-						<< " numSelected=" << (int)dap->numSelected
-						<< " opt=" << dap->optionIndex
-						<< " sel=" << (int)dap->selectFlag
-						<< " pkt.playerID=" << dap->playerID;
+											<< " clientActionID=" << dap->clientActionID
+											<< " draftPlayerIdx=" << dap->draftPlayerIdx
+											<< " classTier=" << (int)dap->classTier
+											<< " numSelected=" << (int)dap->numSelected
+											<< " opt=" << dap->optionIndex
+											<< " sel=" << (int)dap->selectFlag
+											<< " pkt.playerID=" << dap->playerID;
 				}
 			} else {
 				ofLogNotice("NetTrace") << "RECV raw size=" << buffer.size();

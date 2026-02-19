@@ -22993,6 +22993,10 @@ bool ofApp::isLocalDraftingPlayer(int draftIndex) const {
 }
 // --------------------------------------------------------------
 void ofApp::processNetworkPackets() {
+	// Diagnostic: report incoming queue size so we can see if packets are piling up
+	if (!steamManager.packetQueue.empty()) {
+		ofLogNotice("NetTrace") << "processNetworkPackets: queueSize=" << steamManager.packetQueue.size();
+	}
 	while (!steamManager.packetQueue.empty()) {
 		std::vector<char> buffer = steamManager.packetQueue.front();
 		steamManager.packetQueue.pop();
@@ -24425,6 +24429,7 @@ void ofApp::processNetworkPackets() {
 					ofLogNotice("Network") << "Draft action received: hdr.seq=" << header->seq << " bufSize=" << buffer.size() << " type=" << (int)pkt->actionType << " opt=" << pkt->optionIndex << " player=" << pkt->draftPlayerIdx << " sel=" << (int)pkt->selectFlag << " clientActionID=" << pkt->clientActionID << " pkt.playerID=" << pkt->playerID;
 
 					if (isHost()) {
+						ofLogNotice("NetTrace") << "Host: processing DraftActionPacket from playerID=" << pkt->playerID << " actionType=" << (int)pkt->actionType << " clientActionID=" << pkt->clientActionID << " currentState=" << currentState << " draftStage=" << draftStage << " draftPlayerIndex=" << draftPlayerIndex;
 						// Ignore any draft inputs if we're not actively drafting
 						if (currentState != STATE_DRAFTING && !isInGameDraft) {
 							ofLogNotice("Network") << "Host: Ignoring draft input outside draft state (type=" << (int)pkt->actionType << ", playerID=" << pkt->playerID << ", draftPlayerIdx=" << pkt->draftPlayerIdx << ", currentState=" << currentState << ")";
@@ -24447,6 +24452,7 @@ void ofApp::processNetworkPackets() {
 							}
 							// Forward toggle to clients (including host's own selections)
 							DraftActionPacket outPkt = *pkt;
+							ofLogNotice("NetTrace") << "Host: forwarding DraftToggle to clients: opt=" << outPkt.optionIndex << " sel=" << (int)outPkt.selectFlag;
 							{
 								bool ok = steamManager.sendPacket(&outPkt, sizeof(outPkt));
 								ofLogNotice("NetTrace") << "Host forwarding DraftActionPacket to clients: opt=" << outPkt.optionIndex << " sel=" << (int)outPkt.selectFlag << " ok=" << ok;
@@ -24461,7 +24467,7 @@ void ofApp::processNetworkPackets() {
 							ack.draftPlayerIdx = pkt->draftPlayerIdx;
 							ack.selectFlag = pkt->selectFlag;
 							{
-								ofLogNotice("NetTrace") << "Host sending DraftAck: clientActionID=" << ack.clientActionID << " actionType=" << (int)ack.actionType << " opt=" << ack.optionIndex << " draftPlayer=" << ack.draftPlayerIdx;
+								ofLogNotice("NetTrace") << "Host: sending DraftAck to client: clientActionID=" << ack.clientActionID << " actionType=" << (int)ack.actionType << " opt=" << ack.optionIndex << " draftPlayer=" << ack.draftPlayerIdx;
 								bool ok = steamManager.sendPacket(&ack, sizeof(ack));
 								ofLogNotice("NetTrace") << "  DraftAck send ok=" << ok;
 							}
@@ -24501,6 +24507,7 @@ void ofApp::processNetworkPackets() {
 
 							// Forward accept to clients BEFORE any new draft options/state are generated
 							DraftActionPacket outPkt = *pkt;
+							ofLogNotice("NetTrace") << "Host: forwarding AcceptDraft to clients: draftPlayer=" << outPkt.draftPlayerIdx << " numSelected=" << (int)outPkt.numSelected;
 							steamManager.sendPacket(&outPkt, sizeof(outPkt));
 
 							// Send explicit ACK for this Accept back to the origin client
