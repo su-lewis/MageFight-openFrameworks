@@ -1331,8 +1331,8 @@ void ofApp::update() {
 			initiativeTimer += ofGetLastFrameTime();
 			if (initiativeTimer > 2.0f) {
 				// Determine Winner
-				int p1Roll = activeDiceRolls[0].result;
-				int p2Roll = activeDiceRolls[1].result;
+							int p1Roll = activeDiceRolls[0].result;
+							int p2Roll = activeDiceRolls[1].result;
 
 				activeDiceRolls.clear(); // Clear visual dice
 
@@ -1342,8 +1342,10 @@ void ofApp::update() {
 					draftPlayerIndex = 0; // P1 Wins
 					currentState = STATE_DRAFTING;
 					draftStage = 0;
-					// All clients and host generate draft options deterministically
-					generateDraftOptions(1);
+					// Host/Singleplayer generates options. Client waits for host packets to avoid double-generation.
+					if (!isClient()) {
+						generateDraftOptions(1);
+					}
 					ofLogNotice("Initiative") << "Player 1 Wins Initiative";
 					if (isHost()) {
 						DraftStatePacket sp = {};
@@ -1363,8 +1365,10 @@ void ofApp::update() {
 					// Lock camera before drafting starts
 					draftingCameraLockedToClient = (isMultiplayer && myLocalPlayerID == 1);
 					draftStage = 0;
-					// All clients and host generate draft options deterministically
-					generateDraftOptions(1);
+					// Host/Singleplayer generates options. Client waits for host packets to avoid double-generation.
+					if (!isClient()) {
+						generateDraftOptions(1);
+					}
 					ofLogNotice("Initiative") << "Player 2 Wins Initiative";
 					if (isHost()) {
 						DraftStatePacket sp = {};
@@ -24374,6 +24378,8 @@ void ofApp::processNetworkPackets() {
 						continue;
 					}
 
+					bool optionsMatch = (!draftOptions.empty() && currentDraftClassTier == sp->classTier && draftPlayerIndex == sp->draftPlayerIdx && draftStage == sp->draftStage && isInGameDraft == (sp->isInGameDraft != 0));
+
 					// Client applies host state directly
 					draftPlayerIndex = sp->draftPlayerIdx;
 					draftStage = sp->draftStage;
@@ -24383,15 +24389,16 @@ void ofApp::processNetworkPackets() {
 					if (sp->classTier > 0) {
 						// Enter drafting with host-provided class tier
 						currentState = STATE_DRAFTING;
-						selectedDraftIndices.clear();
-						// Update current draft tier
-						currentDraftClassTier = sp->classTier;
-						// If we don't already have matching options, generate them deterministically
-						bool optionsMatch = (!draftOptions.empty() && currentDraftClassTier == sp->classTier && draftPlayerIndex == sp->draftPlayerIdx);
+
 						if (!optionsMatch) {
+							selectedDraftIndices.clear();
+							// Update current draft tier
+							currentDraftClassTier = sp->classTier;
 							ofLogNotice("Draft") << "Generating deterministic DraftOptions locally for class=" << sp->classTier;
 							generateDraftOptions(sp->classTier);
 						} else {
+							// Update current draft tier
+							currentDraftClassTier = sp->classTier;
 							ofLogNotice("Draft") << "Client already has matching DraftOptions; using cached options (class=" << sp->classTier << ")";
 						}
 					} else {
@@ -24414,9 +24421,11 @@ void ofApp::processNetworkPackets() {
 					ofLogNotice("Network") << "DraftOptions received (deterministic): class=" << dp->classTier << " draftGenCounter=" << dp->draftGenCounter << " mapSeed=" << dp->mapSeed;
 
 					// Sync the draft generation counter and map seed from host
-					draftGenerationCounter = dp->draftGenCounter;
+					draftGenerationCounter = dp->draftGenCounter - 1; // Sub 1 because generateDraftOptions increments it
 					currentMapSeed = dp->mapSeed;
 					draftStage = dp->draftStage;
+					draftPlayerIndex = dp->draftPlayerIdx;
+					draftPicksRemaining = dp->picksRemaining;
 					isInGameDraft = (dp->isInGameDraft != 0);
 					draftAcceptLocked = false;
 					draftAcceptApplied = false;
@@ -24540,19 +24549,6 @@ void ofApp::processNetworkPackets() {
 								// Move to Class 2
 								generateDraftOptions(2);
 
-								// --- DELETE THE LINES BELOW (Host Redundancy Fix) ---
-								// Host: send new options and state for Class 2
-								/* 
-                        std::vector<int> indices;
-                        for (int i = 0; i < 3; ++i) {
-                            if (currentDraftOptionPoolIndices[i] >= 0) indices.push_back(currentDraftOptionPoolIndices[i]);
-                        }
-                        DraftOptionsPacket dp = {};
-                        ... (huge block of manual packet sending) ...
-                        steamManager.sendPacket(&dsp, sizeof(dsp)); 
-                        */
-								// --- STOP DELETING HERE ---
-
 							} else {
 								// Check if other player needs to draft
 								int nextPlayerIdx = (draftPlayerIndex + 1) % 2;
@@ -24560,19 +24556,6 @@ void ofApp::processNetworkPackets() {
 									draftPlayerIndex = nextPlayerIdx;
 									draftStage = 0;
 									generateDraftOptions(1);
-
-									// --- DELETE THE LINES BELOW (Host Redundancy Fix) ---
-									// Host: send new options and state for next player
-									/*
-                            std::vector<int> indices;
-                            for (int i = 0; i < 3; ++i) {
-                                if (currentDraftOptionPoolIndices[i] >= 0) indices.push_back(currentDraftOptionPoolIndices[i]);
-                            }
-                            DraftOptionsPacket dp = {};
-                            ... (huge block of manual packet sending) ...
-                            steamManager.sendPacket(&dsp, sizeof(dsp));
-                            */
-									// --- STOP DELETING HERE ---
 
 								} else {
 									currentPlayerIndex = nextPlayerIdx;
