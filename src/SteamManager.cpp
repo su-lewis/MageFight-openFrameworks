@@ -58,6 +58,14 @@ void SteamManager::update() {
 
 			// Copy data to vector
 			std::vector<char> buffer((char *)msg->m_pData, (char *)msg->m_pData + msg->m_cbSize);
+
+			// Verbose receive tracing for debugging cross-platform drops
+			if (buffer.size() >= sizeof(PacketHeader)) {
+				PacketHeader * ph = (PacketHeader *)buffer.data();
+				ofLogNotice("NetTrace") << "RECV pkt type=" << (int)ph->type << " seq=" << ph->seq << " size=" << buffer.size();
+			} else {
+				ofLogNotice("NetTrace") << "RECV raw size=" << buffer.size();
+			}
 			packetQueue.push(buffer);
 
 			msg->Release();
@@ -166,6 +174,13 @@ bool SteamManager::sendPacket(const void * data, uint32_t size) {
 		// Verbose send tracing for key packets
 		if (outHdr->type == PKT_ACTION || outHdr->type == PKT_DRAFT_ACTION || outHdr->type == PKT_DRAFT_ACK || outHdr->type == PKT_RENEWED_INSPIRATION || outHdr->type == PKT_DRAW_CARDS || outHdr->type == PKT_SHUFFLE || outHdr->type == PKT_TURN_START || outHdr->type == PKT_PLACE_SUMMONED_MINION || outHdr->type == PKT_DICE_ROLL || outHdr->type == PKT_CHECKSUM_CHECK || outHdr->type == PKT_SNAPSHOT_BEGIN || outHdr->type == PKT_SNAPSHOT_CHUNK || outHdr->type == PKT_SNAPSHOT_END || outHdr->type == PKT_MOVE_UNIT || outHdr->type == PKT_AMNESIA_CHOICE || outHdr->type == PKT_PLACE_SUMMONED_BEGIN) {
 			ofLogNotice("NetTrace") << "SEND pkt type=" << (int)outHdr->type << " player=" << outHdr->playerID << " seq=" << outHdr->seq << " size=" << size;
+			if (outHdr->type == PKT_DRAFT_ACTION && size >= sizeof(DraftActionPacket)) {
+				DraftActionPacket * dap = (DraftActionPacket *)buffer.data();
+				ofLogNotice("NetTrace") << "  DRAFT_ACTION actionType=" << (int)dap->actionType << " clientActionID=" << dap->clientActionID << " draftPlayerIdx=" << dap->draftPlayerIdx << " classTier=" << (int)dap->classTier << " numSelected=" << (int)dap->numSelected << " opt=" << dap->optionIndex << " sel=" << (int)dap->selectFlag;
+			} else if (outHdr->type == PKT_DRAFT_ACK && size >= sizeof(DraftAckPacket)) {
+				DraftAckPacket * dak = (DraftAckPacket *)buffer.data();
+				ofLogNotice("NetTrace") << "  DRAFT_ACK clientActionID=" << dak->clientActionID << " actionType=" << (int)dak->actionType << " draftPlayer=" << dak->draftPlayerIdx << " opt=" << dak->optionIndex << " sel=" << (int)dak->selectFlag;
+			}
 			if (outHdr->type == PKT_ACTION && size >= sizeof(ActionPacket)) {
 				ActionPacket * ap = (ActionPacket *)buffer.data();
 				ofLogNotice("NetTrace") << "  ACTION card='" << ap->cardName << "' actor=" << ap->actorIndex << " target=(" << ap->targetX << "," << ap->targetY << ") menu=" << ap->menuChoice << " updatedAP=" << ap->updatedAP;
@@ -212,6 +227,9 @@ bool SteamManager::sendPacket(const void * data, uint32_t size) {
 		}
 		EResult res = SteamNetworkingSockets()->SendMessageToConnection(
 			m_hConnection, buffer.data(), size, k_nSteamNetworkingSend_Reliable, nullptr);
+		if (res != k_EResultOK) {
+			ofLogWarning("Steam") << "SendMessageToConnection failed (pktType=" << (int)outHdr->type << ") res=" << (int)res;
+		}
 		return (res == k_EResultOK);
 	}
 

@@ -24422,7 +24422,7 @@ void ofApp::processNetworkPackets() {
 					generateDraftOptions(dp->classTier);
 				} else if (header->type == PKT_DRAFT_ACTION) {
 					DraftActionPacket * pkt = (DraftActionPacket *)header;
-					ofLogNotice("Network") << "Draft action received: type=" << (int)pkt->actionType << " opt=" << pkt->optionIndex << " player=" << pkt->draftPlayerIdx << " sel=" << (int)pkt->selectFlag;
+					ofLogNotice("Network") << "Draft action received: hdr.seq=" << header->seq << " bufSize=" << buffer.size() << " type=" << (int)pkt->actionType << " opt=" << pkt->optionIndex << " player=" << pkt->draftPlayerIdx << " sel=" << (int)pkt->selectFlag << " clientActionID=" << pkt->clientActionID << " pkt.playerID=" << pkt->playerID;
 
 					if (isHost()) {
 						// Ignore any draft inputs if we're not actively drafting
