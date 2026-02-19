@@ -24378,22 +24378,21 @@ void ofApp::processNetworkPackets() {
 						} else {
 							ofLogNotice("Draft") << "Client already has matching DraftOptions; using cached options (class=" << sp->classTier << ")";
 						}
+					} else {
+						// classTier==0 => exit drafting and host tells us who is the active player
+						draftOptions.clear();
+						selectedDraftIndices.clear();
+						currentState = STATE_GAMEPLAY;
+						initialDraftComplete = true;
+						// Host should include who starts; set it
+						currentPlayerIndex = sp->currentPlayerIndex;
+						// In multiplayer clients: DO NOT call startNewTurn(); wait for host TurnStart packet
+						if (isClient()) {
+							waitingForTurnStartFromHost = true;
+							ofLogNotice("Network") << "Client: Drafting ended. Waiting for TurnStart packet from host (player=" << currentPlayerIndex << ")";
+						}
+						// Host handles transition in its own draft-accept logic and sends TurnStart
 					}
-				} else {
-					// classTier==0 => exit drafting and host tells us who is the active player
-					draftOptions.clear();
-					selectedDraftIndices.clear();
-					currentState = STATE_GAMEPLAY;
-					initialDraftComplete = true;
-					// Host should include who starts; set it
-					currentPlayerIndex = sp->currentPlayerIndex;
-					// In multiplayer clients: DO NOT call startNewTurn(); wait for host TurnStart packet
-					if (isClient()) {
-						waitingForTurnStartFromHost = true;
-						ofLogNotice("Network") << "Client: Drafting ended. Waiting for TurnStart packet from host (player=" << currentPlayerIndex << ")";
-					}
-					// Host handles transition in its own draft-accept logic and sends TurnStart
-				}
 			} else if (header->type == PKT_DRAFT_OPTIONS) {
 				DraftOptionsPacket * dp = (DraftOptionsPacket *)header;
 				ofLogNotice("Network") << "DraftOptions received (deterministic): class=" << dp->classTier << " draftGenCounter=" << dp->draftGenCounter << " mapSeed=" << dp->mapSeed;
