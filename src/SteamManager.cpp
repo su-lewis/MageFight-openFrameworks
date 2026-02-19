@@ -63,6 +63,18 @@ void SteamManager::update() {
 			if (buffer.size() >= sizeof(PacketHeader)) {
 				PacketHeader * ph = (PacketHeader *)buffer.data();
 				ofLogNotice("NetTrace") << "RECV pkt type=" << (int)ph->type << " seq=" << ph->seq << " size=" << buffer.size();
+				// If this is a draft action, dump decoded fields for cross-platform debugging
+				if (ph->type == PKT_DRAFT_ACTION && buffer.size() >= sizeof(DraftActionPacket)) {
+					DraftActionPacket * dap = (DraftActionPacket *)buffer.data();
+					ofLogNotice("NetTrace") << "  DRAFT_ACTION recv: actionType=" << (int)dap->actionType
+						<< " clientActionID=" << dap->clientActionID
+						<< " draftPlayerIdx=" << dap->draftPlayerIdx
+						<< " classTier=" << (int)dap->classTier
+						<< " numSelected=" << (int)dap->numSelected
+						<< " opt=" << dap->optionIndex
+						<< " sel=" << (int)dap->selectFlag
+						<< " pkt.playerID=" << dap->playerID;
+				}
 			} else {
 				ofLogNotice("NetTrace") << "RECV raw size=" << buffer.size();
 			}
