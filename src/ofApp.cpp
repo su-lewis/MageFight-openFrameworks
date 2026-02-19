@@ -10946,6 +10946,18 @@ void ofApp::mousePressed(int x, int y, int button) {
 		if ((int)selectedDraftIndices.size() == requiredPicks && draftAcceptButtonRect.inside(x, y)) {
 			ofLogNotice("Draft") << "ACCEPT BUTTON CLICKED: selections=" << (int)selectedDraftIndices.size() << " required=" << requiredPicks;
 
+			// Extra diagnostic info to help trace client-side accept issues
+			int diagLocalIdx = getLocalPlayerIndex();
+			int diagDraftPlayerID = (draftPlayerIndex >= 0 && draftPlayerIndex < (int)players.size()) ? players[draftPlayerIndex].playerID : -1;
+			ofLogNotice("DraftDebug") << "Attempting Accept: localIdx=" << diagLocalIdx
+									  << " myLocalPlayerID=" << myLocalPlayerID
+									  << " draftPlayerIndex=" << draftPlayerIndex
+									  << " draftPlayerID=" << diagDraftPlayerID
+									  << " selected=" << (int)selectedDraftIndices.size()
+									  << " required=" << requiredPicks
+									  << " waitingForDraftOptions=" << (waitingForDraftOptions ? 1 : 0)
+									  << " draftAcceptLocked=" << (draftAcceptLocked ? 1 : 0);
+
 			if (draftAcceptLocked) {
 				ofLogNotice("Draft") << "ACCEPT BLOCKED: already accepted for this draft screen.";
 				return;
