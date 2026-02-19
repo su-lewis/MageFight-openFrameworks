@@ -6,8 +6,9 @@ DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )"
 # 2. Define the Log File
 LOG_FILE="$DIR/steam_launch_log.txt"
 
-# 3. Redirect EVERYTHING to the log file
-#    (This is why your logs disappeared - we are putting this back!)
+# 3. Truncate the log file on startup so previous runs don't accumulate,
+#    then redirect EVERYTHING to the log file.
+: > "$LOG_FILE"
 exec >> "$LOG_FILE" 2>&1
 
 echo "--- Launching MageFight at $(date) ---"
