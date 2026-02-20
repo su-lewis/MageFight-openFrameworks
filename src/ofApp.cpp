@@ -24754,11 +24754,10 @@ void ofApp::processNetworkPackets() {
 					}
 				}
 			}
-		
+		}
 	}
-}
 
-// Close processNetworkPackets() scope
+	// Close processNetworkPackets() scope
 }
 
 // --- Networking helper implementations ---
