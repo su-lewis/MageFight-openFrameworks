@@ -1331,8 +1331,8 @@ void ofApp::update() {
 			initiativeTimer += ofGetLastFrameTime();
 			if (initiativeTimer > 2.0f) {
 				// Determine Winner
-							int p1Roll = activeDiceRolls[0].result;
-							int p2Roll = activeDiceRolls[1].result;
+				int p1Roll = activeDiceRolls[0].result;
+				int p2Roll = activeDiceRolls[1].result;
 
 				activeDiceRolls.clear(); // Clear visual dice
 
