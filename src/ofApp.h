@@ -1478,6 +1478,8 @@ private:
 	void drawCardEncyclopediaUI();
 	// UI Functions
 	void drawMagicHandUI();
+	// Cancel any active targeting modes/menus and reset related state
+	void cancelAllTargeting();
 	void resolveMagicHandPull();
 	void resolveMagicHandPush();
 	void cancelMagicHand();

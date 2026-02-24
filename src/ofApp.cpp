@@ -14100,29 +14100,8 @@ void ofApp::mouseReleased(int x, int y, int button) {
 			draggedCardIndex = -1;
 			playerAction = NONE;
 
-			// Cancel Magic Bolt Mode
-			if (isTargetingMagicBolt) {
-				isTargetingMagicBolt = false;
-				magicBoltCardIndex = -1;
-			}
-			if (isBurstMenuOpen || isTargetingBurst) {
-				isBurstMenuOpen = false;
-				isTargetingBurst = false;
-				pendingBurstCardIndex = -1;
-				burstChoice = 0;
-				ofLogNotice("Burst") << "Cancelled via Right Click.";
-			}
-			if (isTargetingDeath) {
-				isTargetingDeath = false;
-				deathCardIndex = -1;
-			}
-			if (isTargetingHeal) {
-				isTargetingHeal = false;
-				healCardIndex = -1;
-			}
-
-			clearHighlights();
-			calculateTargetHighlights();
+			// Unified cancel for all targeting modes/menus
+			cancelAllTargeting();
 		}
 		return;
 	}
@@ -15117,6 +15096,9 @@ void ofApp::continueNewTurn() {
 	isPlayerAnimating = false;
 	animatingPlayerIndex = -1;
 
+	// Clear any lingering targeting state from previous turn
+	cancelAllTargeting();
+
 	// Only clear AP-related visual dice here to avoid removing unrelated visual dice
 	activeDiceRolls.erase(std::remove_if(activeDiceRolls.begin(), activeDiceRolls.end(), [&](const DiceRoll & r) {
 		return (r.purpose == PURPOSE_AP || r.purpose == PURPOSE_BONUS_AP);
@@ -15235,6 +15217,56 @@ void ofApp::continueNewTurn() {
 	// These are already handled in startNewTurn() before continueNewTurn() is called.
 	// Fire/Paralysis checks would have returned early in startNewTurn() and resolved
 	// before reaching here, so no need to check again.
+}
+
+// Cancel any active targeting modes/menus and reset related state
+void ofApp::cancelAllTargeting() {
+	// Menus
+	isBurstMenuOpen = false;
+	isDoubleHandedMenuOpen = false;
+	isAmnesiaMenuOpen = false;
+	isDispelMenuOpen = false;
+	isWisdomBoonMenuOpen = false;
+	isMagicHandMenuOpen = false;
+
+	// Targeting flags
+	isTargetingMagicBolt = false;
+	isTargetingBurst = false;
+	isTargetingDeath = false;
+	isTargetingHeal = false;
+	isTargetingChainLightning = false;
+	isTargetingTeleport = false;
+	isTargetingDoubleHanded = false;
+	isTargetingAmnesia = false;
+	isTargetingTortoiseDamage = false;
+	isTargetingHellhound = false;
+
+	// Waiting/rolling flags
+	isWaitingForTeleportDice = false;
+	isWaitingForMagicBoltRange = false;
+	isWaitingForChainLightningRange = false;
+
+	// Pending indices / choices
+	magicBoltCardIndex = -1;
+	pendingBurstCardIndex = -1;
+	burstChoice = 0;
+	deathCardIndex = -1;
+	healCardIndex = -1;
+	chainLightningCardIndex = -1;
+	pendingTeleportCardIndex = -1;
+	pendingDoubleHandedCardIndex = -1;
+	pendingDoubleHandedChoice = "";
+	pendingAmnesiaCardIndex = -1;
+	hellhoundCardIndex = -1;
+
+	// Clear target lists used by multi-target effects
+	pendingAttackTargetIndices.clear();
+	pendingPoisonTargetIndices.clear();
+	magicBlastSplashTargetIndices.clear();
+
+	// UI and highlights
+	clearHighlights();
+	calculateTargetHighlights();
 }
 
 void ofApp::recalcTempLuck() {
