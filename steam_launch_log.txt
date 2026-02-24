@@ -1,4 +1,0 @@
---- Launching RunSteam wrapper at Mon  2 Feb 08:56:10 GMT 2026 ---
-Original LD_PRELOAD=
-Final LD_PRELOAD=
-STEAM_COMPAT_CLIENT_INSTALL_PATH=

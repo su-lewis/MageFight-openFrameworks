@@ -106,7 +106,18 @@ void ofApp::drawMinionCard(int minionIndex, int ownerIndex) {
 		req.numCards = drawCount;
 		steamManager.sendPacket(&req, sizeof(req));
 		ofLogNotice("Network") << "Sent Minion DrawCards packet: " << drawCount << " cards for minionIndex=" << minionIndex << " ownerPlayerID=" << ownerIndex;
+
+		if (isClient()) {
+			lastSentDrawCardsPacket = req;
+			lastSentDrawCardsValid = true;
+			lastSentDrawCardsTime = ofGetElapsedTimef();
+		}
 	}
+
+	ofLogNotice("MinionDraw") << "drawMinionCard: minionIndex=" << minionIndex << " ownerIndex=" << ownerIndex << " drawCount=" << drawCount << " deckSize=" << minion.deck.size() << " discardSize=" << minion.discardPile.size();
+
+	int pushedAnimsBefore = (int)activeDrawCardAnimations.size();
+	int pushedAnims = 0;
 
 	// Perform the authoritative draw logic locally (for single-player, host, and client)
 	for (int i = 0; i < drawCount; ++i) {
@@ -120,21 +131,27 @@ void ofApp::drawMinionCard(int minionIndex, int ownerIndex) {
 			Card drawn = minion.deck.back();
 			minion.deck.pop_back();
 			drawn.drawnThisTurn = true;
-			minion.hand.push_back(drawn); // Add to hand immediately
-			minion.hand.back().currentScale = 1.0f;
-			minion.hand.back().targetScale = 1.0f;
+
+			// NOTE: Do NOT add to minion.hand immediately. Use the shared
+			// activeDrawCardAnimations commit path to add the card when the
+			// animation finishes. This prevents duplicates.
 
 			// Setup animation: from minion's deck to minion's hand (simple, quick)
 			DrawCardAnimation anim;
 			anim.card = drawn;
 			anim.startTime = ofGetElapsedTimef();
-			anim.duration = 0.36f; // slower (50% slower)
+			anim.duration = 0.36f;
 			anim.ownerIndex = minionIndex;
 			anim.toMinionHand = true;
 			anim.startPos = gridToWorld(minion.x, minion.y) + glm::vec3(0, 1.5f, 0);
-			// End above the hand, not under
-			size_t numCards = minion.hand.size();
-			float handCenterY = ofGetHeight() - 160; // above hand
+
+			// Compute final hand slot: account for current hand and other animations targeting this minion
+			int animatingToThis = 0;
+			for (const auto & a : activeDrawCardAnimations) {
+				if (a.ownerIndex == minionIndex && a.toMinionHand) animatingToThis++;
+			}
+			size_t numCards = minion.hand.size() + 1 + animatingToThis; // as-if this card were present
+			float handCenterY = ofGetHeight() - 160;
 			float handBaseCardWidth = 120;
 			float handAreaWidth = ofGetWidth() * 0.6f;
 			float totalCardWidths = numCards * handBaseCardWidth;
@@ -145,13 +162,17 @@ void ofApp::drawMinionCard(int minionIndex, int ownerIndex) {
 			float cardCenterX = startX + (numCards - 1) * (handBaseCardWidth + padding) + (handBaseCardWidth / 2.0f);
 			anim.targetPos = glm::vec2(cardCenterX, handCenterY);
 			anim.endPos = anim.startPos;
-			// Initialize currentPos in screen-space for a smooth first frame
 			ofVec3f sp = getActiveCamera().worldToScreen(anim.startPos);
 			anim.currentPos = glm::vec2((float)sp.x, (float)sp.y);
 			anim.currentScale = 1.0f;
+
 			activeDrawCardAnimations.push_back(anim);
+			pushedAnims++;
+			ofLogNotice("MinionDraw") << "Pushed draw animation for minionIndex=" << minionIndex << " card='" << drawn.name << "' animCountNow=" << (pushedAnimsBefore + pushedAnims);
 		}
 	}
+
+	ofLogNotice("MinionDraw") << "drawMinionCard complete: minionIndex=" << minionIndex << " pushedAnims=" << pushedAnims << " totalActiveAnims=" << activeDrawCardAnimations.size();
 
 	// Visual feedback
 	spawnFloatingText(gridToWorld(minion.x, minion.y), "Minion Draw!", ofColor::yellow);
@@ -389,6 +410,10 @@ void ofApp::setup() {
 	skeletonModel.setRotation(1, 180, 0, 1, 0);
 	skeletonModel.setScale(0.0021f, 0.0021f, 0.0021f);
 	skeletonModel.disableMaterials();
+
+	// Diagnostic: verify skeleton assets loaded
+	ofLogNotice("Load") << "Skeleton load: meshes=" << skeletonModel.getMeshCount()
+						<< " textureAllocated=" << (skeletonTexture.isAllocated() ? "yes" : "no");
 
 	// Load Golem
 	golemModel.load("Units/Golem/lava+golem+3d+model.fbx");
@@ -1134,6 +1159,22 @@ void ofApp::update() {
 			} else {
 				lastSentDraftActionValid = false; // give up after max attempts
 				ofLogWarning("Network") << "Giving up on DraftActionPacket resend after " << lastSentDraftActionResendCount << " attempts";
+			}
+		}
+	}
+
+	// Resend watchdog for client-sent ActionPackets (retry until host ACK)
+	if (isClient() && lastSentActionValid) {
+		float now = ofGetElapsedTimef();
+		if (now - lastSentActionTime > ACTION_RESEND_INTERVAL) {
+			if (lastSentActionResendCount < ACTION_MAX_RESENDS) {
+				steamManager.sendPacket(&lastSentActionPacket, sizeof(lastSentActionPacket));
+				lastSentActionResendCount++;
+				lastSentActionTime = now;
+				ofLogNotice("Network") << "Resent ActionPacket to host (attempt=" << lastSentActionResendCount << ")";
+			} else {
+				lastSentActionValid = false; // give up after max attempts
+				ofLogWarning("Network") << "Giving up on ActionPacket resend after " << lastSentActionResendCount << " attempts";
 			}
 		}
 	}
@@ -1896,8 +1937,8 @@ void ofApp::applySettings() {
 
 	worldPostShaderLoaded = false;
 	worldPostShader.unload();
-	const bool shaderVertOk = worldPostShader.setupShaderFromFile(GL_VERTEX_SHADER, "Shaders/post.vert");
-	const bool shaderFragOk = worldPostShader.setupShaderFromFile(GL_FRAGMENT_SHADER, "Shaders/post.frag");
+	const bool shaderVertOk = worldPostShader.setupShaderFromFile(GL_VERTEX_SHADER, ofToDataPath("Shaders/post.vert", true));
+	const bool shaderFragOk = worldPostShader.setupShaderFromFile(GL_FRAGMENT_SHADER, ofToDataPath("Shaders/post.frag", true));
 	if (shaderVertOk && shaderFragOk) {
 		// Critical on some systems: bind OF's default attribute locations (position/texcoord/etc)
 		// BEFORE linking, otherwise our fullscreen quad can end up with no valid attributes.
@@ -1913,8 +1954,8 @@ void ofApp::applySettings() {
 	// Pixel art shader (posterize / dither)
 	pixelArtShaderLoaded = false;
 	pixelArtShader.unload();
-	const bool pvertOk = pixelArtShader.setupShaderFromFile(GL_VERTEX_SHADER, "Shaders/pixel_art.vert");
-	const bool pfragOk = pixelArtShader.setupShaderFromFile(GL_FRAGMENT_SHADER, "Shaders/pixel_art.frag");
+	const bool pvertOk = pixelArtShader.setupShaderFromFile(GL_VERTEX_SHADER, ofToDataPath("Shaders/pixel_art.vert", true));
+	const bool pfragOk = pixelArtShader.setupShaderFromFile(GL_FRAGMENT_SHADER, ofToDataPath("Shaders/pixel_art.frag", true));
 	if (pvertOk && pfragOk) {
 		pixelArtShader.bindDefaults();
 		pixelArtShaderLoaded = pixelArtShader.linkProgram();
@@ -1928,8 +1969,8 @@ void ofApp::applySettings() {
 	// --- COMMODORE64 POST PROCESS SHADER ---
 	c64ShaderLoaded = false;
 	c64Shader.unload();
-	const bool c64VertOk = c64Shader.setupShaderFromFile(GL_VERTEX_SHADER, "Shaders/c64.vert");
-	const bool c64FragOk = c64Shader.setupShaderFromFile(GL_FRAGMENT_SHADER, "Shaders/c64.frag");
+	const bool c64VertOk = c64Shader.setupShaderFromFile(GL_VERTEX_SHADER, ofToDataPath("Shaders/c64.vert", true));
+	const bool c64FragOk = c64Shader.setupShaderFromFile(GL_FRAGMENT_SHADER, ofToDataPath("Shaders/c64.frag", true));
 	if (c64VertOk && c64FragOk) {
 		c64Shader.bindDefaults();
 		c64ShaderLoaded = c64Shader.linkProgram();
@@ -1942,10 +1983,10 @@ void ofApp::applySettings() {
 	bloomLoaded = false;
 	bloomExtractShader.unload();
 	bloomBlurShader.unload();
-	const bool beVertOk = bloomExtractShader.setupShaderFromFile(GL_VERTEX_SHADER, "Shaders/quad.vert");
-	const bool beFragOk = bloomExtractShader.setupShaderFromFile(GL_FRAGMENT_SHADER, "Shaders/bloom_extract.frag");
-	const bool bbVertOk = bloomBlurShader.setupShaderFromFile(GL_VERTEX_SHADER, "Shaders/quad.vert");
-	const bool bbFragOk = bloomBlurShader.setupShaderFromFile(GL_FRAGMENT_SHADER, "Shaders/bloom_blur.frag");
+	const bool beVertOk = bloomExtractShader.setupShaderFromFile(GL_VERTEX_SHADER, ofToDataPath("Shaders/quad.vert", true));
+	const bool beFragOk = bloomExtractShader.setupShaderFromFile(GL_FRAGMENT_SHADER, ofToDataPath("Shaders/bloom_extract.frag", true));
+	const bool bbVertOk = bloomBlurShader.setupShaderFromFile(GL_VERTEX_SHADER, ofToDataPath("Shaders/quad.vert", true));
+	const bool bbFragOk = bloomBlurShader.setupShaderFromFile(GL_FRAGMENT_SHADER, ofToDataPath("Shaders/bloom_blur.frag", true));
 	if (beVertOk && beFragOk) {
 		bloomExtractShader.bindDefaults();
 		// link will be attempted below after blur shader
@@ -1974,8 +2015,8 @@ void ofApp::applySettings() {
 		shadowFbo.allocate(shSet);
 
 		shadowDepthShader.unload();
-		const bool sdVertOk = shadowDepthShader.setupShaderFromFile(GL_VERTEX_SHADER, "Shaders/shadow_depth.vert");
-		const bool sdFragOk = shadowDepthShader.setupShaderFromFile(GL_FRAGMENT_SHADER, "Shaders/shadow_depth.frag");
+		const bool sdVertOk = shadowDepthShader.setupShaderFromFile(GL_VERTEX_SHADER, ofToDataPath("Shaders/shadow_depth.vert", true));
+		const bool sdFragOk = shadowDepthShader.setupShaderFromFile(GL_FRAGMENT_SHADER, ofToDataPath("Shaders/shadow_depth.frag", true));
 		if (sdVertOk && sdFragOk) {
 			shadowDepthShader.bindDefaults();
 			shadowDepthShaderLoaded = shadowDepthShader.linkProgram();
@@ -1983,8 +2024,8 @@ void ofApp::applySettings() {
 			shadowDepthShaderLoaded = false;
 
 		pbrShader.unload();
-		const bool pbrVertOk = pbrShader.setupShaderFromFile(GL_VERTEX_SHADER, "Shaders/pbr.vert");
-		const bool pbrFragOk = pbrShader.setupShaderFromFile(GL_FRAGMENT_SHADER, "Shaders/pbr.frag");
+		const bool pbrVertOk = pbrShader.setupShaderFromFile(GL_VERTEX_SHADER, ofToDataPath("Shaders/pbr.vert", true));
+		const bool pbrFragOk = pbrShader.setupShaderFromFile(GL_FRAGMENT_SHADER, ofToDataPath("Shaders/pbr.frag", true));
 		if (pbrVertOk && pbrFragOk) {
 			pbrShader.bindDefaults();
 			pbrShaderLoaded = pbrShader.linkProgram();
@@ -5237,21 +5278,12 @@ void ofApp::updateGame() {
 		// --- MULTIPLAYER FIX: DEFINE PLAYER REFERENCE ---
 		Player & p = players[currentPlayerIndex];
 
-		if (isMultiplayer && !isCurrentPlayerLocal()) {
-			// Opponent played Spark. We rolled the dice to see the number (synced RNG),
-			// but we DO NOT execute the draw loop locally.
-			// We wait for the opponent's PKT_DRAW_CARDS packet to handle the deck/hand movement.
-			spawnFloatingText(gridToWorld(p.x, p.y), "Spark! (" + ofToString(cardsToDraw) + ")", ofColor::cyan);
-		} else {
-			// Local player (or single player) executes draw logic
-			ofLogNotice("Spark of Genius") << "Rolled a " << cardsToDraw << ". Drawing cards...";
+		// Both Host and Client execute the draw locally based on the deterministic dice result
+		ofLogNotice("Spark of Genius") << "Rolled a " << cardsToDraw << ". Drawing cards deterministically...";
+		spawnFloatingText(gridToWorld(p.x, p.y), "Spark of Genius! +" + ofToString(cardsToDraw) + " Cards", ofColor::cyan);
 
-			spawnFloatingText(gridToWorld(p.x, p.y), "Spark of Genius! +" + ofToString(cardsToDraw) + " Cards", ofColor::cyan);
-
-			// Loop to draw the specific number of cards
-			for (int i = 0; i < cardsToDraw; i++) {
-				drawCard();
-			}
+		for (int i = 0; i < cardsToDraw; i++) {
+			drawCard();
 		}
 	}
 
@@ -6045,7 +6077,9 @@ void ofApp::updateGame() {
 					c.targetPos = anim.targetPos;
 					c.targetScale = 1.0f;
 					c.drawnThisTurn = true;
+					ofLogNotice("DrawDebug") << "Committing drawn card '" << c.name << "' to playerIndex=" << owner << " handSizeBefore=" << p.hand.size();
 					p.hand.push_back(c);
+					ofLogNotice("DrawDebug") << "Committed drawn card '" << c.name << "' to playerIndex=" << owner << " handSizeAfter=" << p.hand.size();
 				}
 			}
 		}
@@ -7036,6 +7070,19 @@ void ofApp::drawGame() {
 				}
 			}
 
+			// Diagnostic: Log minion model/render state once when first encountered
+			{
+				int pidx = &player - &players[0];
+				if (player.isMinion && renderLoggedMinions.find(player.playerID) == renderLoggedMinions.end()) {
+					renderLoggedMinions.insert(player.playerID);
+					ofLogNotice("Render") << "Minion render: idx=" << pidx << " playerID=" << player.playerID
+										  << " flags=(skeleton=" << player.isSkeleton << ", hellhound=" << player.isHellhound << ", golem=" << player.isGolem << ", kobold=" << player.isKobold << ")"
+										  << " meshes=(skeleton=" << skeletonModel.getMeshCount() << ", hellhound=" << hellhoundModel.getMeshCount() << ", golem=" << golemModel.getMeshCount() << ")"
+										  << " pbrShaderLoaded=" << pbrShaderLoaded
+										  << " skeletonTextureAllocated=" << (skeletonTexture.isAllocated() ? "yes" : "no");
+				}
+			}
+
 			ofPushMatrix();
 
 			// --- 2. GHOST FORM (Overrides everything) ---
@@ -7080,35 +7127,96 @@ void ofApp::drawGame() {
 					ofTranslate(pos.x, 0.1f, pos.z);
 					ofRotateYDeg(unitFacingAngle);
 					ofTranslate(0, 2.0f, 0);
-					if (pbrShaderLoaded) {
-						ofMatrix4x4 modelMat = ofGetCurrentMatrix(OF_MATRIX_MODELVIEW);
-						ofMatrix4x4 viewMat = activeCam.getModelViewMatrix();
-						ofMatrix4x4 projMat = activeCam.getProjectionMatrix();
-						ofMatrix4x4 viewProj = projMat * viewMat;
-						ofMatrix4x4 normalMat = ofMatrix4x4::getTransposedOf((viewMat * modelMat).getInverse());
-						pbrShader.begin();
-						pbrShader.setUniformMatrix4f("uModel", modelMat);
-						pbrShader.setUniformMatrix4f("uViewProj", viewProj);
-						pbrShader.setUniformMatrix4f("uNormalMatrix", normalMat);
-						pbrShader.setUniformMatrix4f("uLightVP", lightViewProj);
-						pbrShader.setUniform3f("lightDir", -0.4f, -1.0f, -0.6f);
-						pbrShader.setUniform3f("lightColor", 1.0f, 1.0f, 1.0f);
-						ofVec3f camP = activeCam.getPosition();
-						pbrShader.setUniform3f("uViewPos", camP.x, camP.y, camP.z);
-						if (skeletonTexture.isAllocated()) {
-							pbrShader.setUniformTexture("albedoTex", skeletonTexture, 0);
-							pbrShader.setUniform1i("useAlbedoTex", 1);
-						} else
-							pbrShader.setUniform1i("useAlbedoTex", 0);
-						pbrShader.setUniform1i("useNormalTex", 0);
-						if (shadowFbo.isAllocated()) pbrShader.setUniformTexture("shadowMap", shadowFbo.getDepthTexture(), 7);
-						for (unsigned int mi = 0; mi < skeletonModel.getMeshCount(); ++mi)
-							skeletonModel.getMeshHelper(mi).cachedMesh.drawFaces();
-						pbrShader.end();
+					// Defensive fallback: if the skeleton model failed to load, render a placeholder
+					if (skeletonModel.getMeshCount() == 0) {
+						ofLogError("Render") << "Skeleton model missing: drawing placeholder at (" << pos.x << "," << pos.z << ")";
+						ofPushMatrix();
+						ofTranslate(0, 0.0f, 0);
+						ofSetColor(220, 220, 220);
+						ofDrawSphere(0.0f, 1.0f, 0.0f, 0.6f);
+						ofSetColor(255);
+						ofPopMatrix();
 					} else {
-						skeletonTexture.bind();
-						skeletonModel.drawFaces();
-						skeletonTexture.unbind();
+						if (pbrShaderLoaded) {
+							// Diagnostic: log skeleton texture and mesh info before draw
+							ofLogNotice("Render") << "Skeleton draw: meshCount=" << skeletonModel.getMeshCount()
+												  << " skeletonTexAllocated=" << (skeletonTexture.isAllocated() ? "yes" : "no")
+												  << " texSize=" << (skeletonTexture.isAllocated() ? (std::to_string(skeletonTexture.getWidth()) + "x" + std::to_string(skeletonTexture.getHeight())) : "0x0");
+
+							ofMatrix4x4 modelMat = ofGetCurrentMatrix(OF_MATRIX_MODELVIEW);
+							ofMatrix4x4 viewMat = activeCam.getModelViewMatrix();
+							ofMatrix4x4 projMat = activeCam.getProjectionMatrix();
+							ofMatrix4x4 viewProj = projMat * viewMat;
+							ofMatrix4x4 normalMat = ofMatrix4x4::getTransposedOf((viewMat * modelMat).getInverse());
+							pbrShader.begin();
+							// Dump GL state for diagnostics
+							GLint prevProgram = 0;
+							glGetIntegerv(GL_CURRENT_PROGRAM, &prevProgram);
+							ofLogNotice("Render") << "GLState before skeleton draw: CUR_PROG=" << prevProgram;
+							GLboolean cullEn = glIsEnabled(GL_CULL_FACE);
+							GLboolean depthEn = glIsEnabled(GL_DEPTH_TEST);
+							ofLogNotice("Render") << "GLState: CULL_FACE=" << (cullEn ? "ENABLED" : "DISABLED") << " DEPTH_TEST=" << (depthEn ? "ENABLED" : "DISABLED");
+							pbrShader.setUniformMatrix4f("uModel", modelMat);
+							pbrShader.setUniformMatrix4f("uViewProj", viewProj);
+							pbrShader.setUniformMatrix4f("uNormalMatrix", normalMat);
+							pbrShader.setUniformMatrix4f("uLightVP", lightViewProj);
+							pbrShader.setUniform3f("lightDir", -0.4f, -1.0f, -0.6f);
+							pbrShader.setUniform3f("lightColor", 1.0f, 1.0f, 1.0f);
+							ofVec3f camP = activeCam.getPosition();
+							pbrShader.setUniform3f("uViewPos", camP.x, camP.y, camP.z);
+							if (skeletonTexture.isAllocated()) {
+								pbrShader.setUniformTexture("albedoTex", skeletonTexture, 0);
+								pbrShader.setUniform1i("useAlbedoTex", 1);
+							} else
+								pbrShader.setUniform1i("useAlbedoTex", 0);
+							pbrShader.setUniform1i("useNormalTex", 0);
+							if (shadowFbo.isAllocated()) pbrShader.setUniformTexture("shadowMap", shadowFbo.getDepthTexture(), 7);
+							// Query bound texture IDs at active units 0 and 7
+							GLint prevActiveTex = 0;
+							glGetIntegerv(GL_ACTIVE_TEXTURE, &prevActiveTex);
+							glActiveTexture(GL_TEXTURE0);
+							GLint bound0 = 0;
+							glGetIntegerv(GL_TEXTURE_BINDING_2D, &bound0);
+							glActiveTexture(GL_TEXTURE7);
+							GLint bound7 = 0;
+							glGetIntegerv(GL_TEXTURE_BINDING_2D, &bound7);
+							glActiveTexture(prevActiveTex);
+							ofLogNotice("Render") << "GLState: boundTex(unit0)=" << bound0 << " boundTex(unit7)=" << bound7;
+							// Compute world-space AABB and screen centroid for diagnostics
+							ofVec3f bbMin(1e9, 1e9, 1e9), bbMax(-1e9, -1e9, -1e9);
+							for (unsigned int mi = 0; mi < skeletonModel.getMeshCount(); ++mi) {
+								auto & mesh = skeletonModel.getMeshHelper(mi).cachedMesh;
+								for (const auto & v : mesh.getVertices()) {
+									ofVec3f wp = ofVec3f(modelMat * ofVec4f(v.x, v.y, v.z, 1.0));
+									bbMin.x = std::min(bbMin.x, wp.x);
+									bbMin.y = std::min(bbMin.y, wp.y);
+									bbMin.z = std::min(bbMin.z, wp.z);
+									bbMax.x = std::max(bbMax.x, wp.x);
+									bbMax.y = std::max(bbMax.y, wp.y);
+									bbMax.z = std::max(bbMax.z, wp.z);
+								}
+							}
+							ofVec3f center((bbMin.x + bbMax.x) * 0.5f, (bbMin.y + bbMax.y) * 0.5f, (bbMin.z + bbMax.z) * 0.5f);
+							ofVec3f screenC = activeCam.worldToScreen(glm::vec3(center.x, center.y, center.z));
+							ofLogNotice("Render") << "Skeleton AABB worldMin=" << bbMin << " worldMax=" << bbMax << " centerScreen=" << screenC;
+
+							for (unsigned int mi = 0; mi < skeletonModel.getMeshCount(); ++mi) {
+								auto & mesh = skeletonModel.getMeshHelper(mi).cachedMesh;
+								ofLogNotice("Render") << "Skeleton mesh[" << mi << "] verts=" << mesh.getNumVertices() << " indices=" << mesh.getNumIndices();
+								mesh.drawFaces();
+								// GL state after draw
+								GLboolean cullAfter = glIsEnabled(GL_CULL_FACE);
+								GLboolean depthAfter = glIsEnabled(GL_DEPTH_TEST);
+								ofLogNotice("Render") << "GLState after mesh draw: CULL_FACE=" << (cullAfter ? "ENABLED" : "DISABLED") << " DEPTH_TEST=" << (depthAfter ? "ENABLED" : "DISABLED");
+								GLenum _err = glGetError();
+								if (_err != GL_NO_ERROR) ofLogError("Render") << "GL error after skeleton mesh draw: " << _err;
+							}
+							pbrShader.end();
+						} else {
+							skeletonTexture.bind();
+							skeletonModel.drawFaces();
+							skeletonTexture.unbind();
+						}
 					}
 				} else if (player.isGolem) {
 					ofTranslate(pos.x, 0.1f, pos.z);
@@ -7141,6 +7249,18 @@ void ofApp::drawGame() {
 						for (unsigned int mi = 0; mi < golemModel.getMeshCount(); ++mi)
 							golemModel.getMeshHelper(mi).cachedMesh.drawFaces();
 						pbrShader.end();
+						// Optional: draw an unshaded flat pass to verify mesh visibility
+						if (debugFlatSkeletonDraw) {
+							GLint prevProg2 = 0;
+							glGetIntegerv(GL_CURRENT_PROGRAM, &prevProg2);
+							glUseProgram(0);
+							ofSetColor(255, 100, 100);
+							skeletonModel.drawFaces();
+							ofSetColor(255);
+							GLenum flatErr = glGetError();
+							if (flatErr != GL_NO_ERROR) ofLogError("Render") << "GL error after flat skeleton draw: " << flatErr;
+							glUseProgram(prevProg2);
+						}
 					} else {
 						if (player.minionTexture) player.minionTexture->bind();
 						golemModel.drawFaces();
@@ -7859,8 +7979,10 @@ void ofApp::drawGame() {
 				}
 			}
 
-			ofColor whiteColor(232, 232, 232, 240); // #e8e8e8 for board highlights
-			float avgSurfaceY = 0.05f; // Average surface height for flat tiles
+			// Make outlines slightly dimmer and a touch closer to the tile surface
+			// so bloom doesn't create a floating halo above them.
+			ofColor whiteColor(232, 232, 232, 240); // #e8e8e8 for board highlights (restored brightness)
+			float avgSurfaceY = 0.03f; // Average surface height for flat tiles (slightly lower)
 			drawJoinedOutlines(highlightedTiles, whiteColor, avgSurfaceY);
 		}
 
@@ -8156,8 +8278,9 @@ void ofApp::drawGame() {
 				worldPostActiveNotified = true;
 			}
 
-			// --- BLOOM: extract bright areas into small FBO and perform separable blur ---
-			if (bloomLoaded) {
+			// --- BLOOM: disabled temporarily to avoid visual artifacts ---
+			// Skipping bloom even if shaders are available.
+			if (false) {
 				int bw = std::max(2, ofGetWidth() / bloomDownscale);
 				int bh = std::max(2, ofGetHeight() / bloomDownscale);
 				if (!bloomFboA.isAllocated() || bloomFboA.getWidth() != bw || bloomFboA.getHeight() != bh) {
@@ -8183,6 +8306,23 @@ void ofApp::drawGame() {
 				worldFbo.getTexture().draw(0, 0, bw, bh);
 				bloomExtractShader.end();
 				bloomFboA.end();
+
+				// Debug: dump world and bloom textures during the first few seconds
+				// to inspect orientation/contents of the glow. Left in as temporary
+				// diagnostic; will not affect normal rendering.
+				if (ofGetElapsedTimef() < 3.0f) {
+					ofDirectory::createDirectory("debug_bloom", false, true);
+					ofPixels p;
+					bloomFboA.getTexture().readToPixels(p);
+					std::string bf = "debug_bloom/bloomA_" + ofToString((int)(ofGetElapsedTimef() * 1000)) + ".png";
+					ofSaveImage(p, bf);
+					// also save the extracted bright areas (before blur) for comparison
+					ofPixels ex;
+					bloomFboA.getTexture().readToPixels(ex); // reuse A as the post-extract target
+					std::string wf = "debug_bloom/world_" + ofToString((int)(ofGetElapsedTimef() * 1000)) + ".png";
+					worldFbo.getTexture().readToPixels(p);
+					ofSaveImage(p, wf);
+				}
 
 				// Blur passes (ping-pong)
 				for (int i = 0; i < bloomBlurPasses; ++i) {
@@ -11469,22 +11609,12 @@ void ofApp::mousePressed(int x, int y, int button) {
 					spawnFloatingText(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y),
 						"+" + ofToString(cardSpawnerQuantity) + "x " + filteredCards[i].name, ofColor::cyan);
 
-					// Send DrawCards packet to sync spawned cards with opponent
-					if (isMultiplayer) {
-						DrawCardsPacket dcpkt = {};
-						dcpkt.type = PKT_DRAW_CARDS;
-						dcpkt.playerID = myLocalPlayerID;
-						dcpkt.playerIndex = currentPlayerIndex;
-						dcpkt.numCards = std::min(cardSpawnerQuantity, 3);
-
-						// Include the card names
-						for (int q = 0; q < cardSpawnerQuantity && q < 3; q++) {
-							strncpy(dcpkt.cardNames[q], filteredCards[i].name.c_str(), 63);
-							dcpkt.cardNames[q][63] = '\0';
-						}
-
-						steamManager.sendPacket(&dcpkt, sizeof(dcpkt));
-						ofLogNotice("Debug") << "Card Spawner: Sent DrawCards packet for " << cardSpawnerQuantity << "x " << filteredCards[i].name;
+					// Sync spawned cards with opponent. Host will send an authoritative
+					// snapshot so clients receive the full game state; avoid ad-hoc DrawCards
+					// packets here which can cause hand-order mismatches.
+					if (isMultiplayer && isHost()) {
+						sendSnapshotToClient();
+						ofLogNotice("Debug") << "Card Spawner: Host sent snapshot to clients.";
 					}
 
 					isCardSpawnerOpen = false;
@@ -11616,19 +11746,20 @@ void ofApp::mousePressed(int x, int y, int button) {
 		if (dispelBtnBarrier.inside(x, y)) {
 			Player & p = players[currentPlayerIndex];
 			Card dispelCard = p.hand[pendingDispelCardIndex];
-			// Only send the action packet; do not resolve locally
+			// Resolve locally first so UI reflects changes immediately
+			isWaitingForBarrierDice = true;
+			pendingDispelRollResult = startDiceRoll(1, 20, PURPOSE_BARRIER_GAIN, "Dispel: Barrier Amount", currentPlayerIndex);
+			currentAP -= dispelCard.cost;
+			p.discardPile.push_back(dispelCard);
+			p.hand.erase(p.hand.begin() + pendingDispelCardIndex);
+			if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) players[currentPlayerIndex].ap = currentAP;
+			ofLogNotice("Dispel") << "Rolling for Non-Physical Barrier...";
+
+			// Notify opponent of the action in multiplayer (include card name)
 			if (isMultiplayer) {
-				sendActionPacket(pendingDispelCardIndex, -1, -1, dispelCard.cost, 1);
-			} else {
-				// Singleplayer fallback: resolve immediately
-				isWaitingForBarrierDice = true;
-				pendingDispelRollResult = startDiceRoll(1, 20, PURPOSE_BARRIER_GAIN, "Dispel: Barrier Amount", currentPlayerIndex);
-				currentAP -= dispelCard.cost;
-				p.discardPile.push_back(dispelCard);
-				p.hand.erase(p.hand.begin() + pendingDispelCardIndex);
-				if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) players[currentPlayerIndex].ap = currentAP;
-				ofLogNotice("Dispel") << "Rolling for Non-Physical Barrier...";
+				sendActionPacket(pendingDispelCardIndex, -1, -1, dispelCard.cost, 1, dispelCard.name);
 			}
+
 			cancelDispel();
 		} else if (dispelBtnPurge.inside(x, y)) {
 			isDispelMenuOpen = false;
@@ -11687,29 +11818,31 @@ void ofApp::mousePressed(int x, int y, int button) {
 			int cost = (cardIndex >= 0 && cardIndex < (int)p.hand.size()) ? p.hand[cardIndex].cost : 0;
 			std::string cardName = (cardIndex >= 0 && cardIndex < (int)p.hand.size()) ? p.hand[cardIndex].name : "";
 			int menuChoice = trainBtnAP.inside(x, y) ? 1 : 2;
-			// Only send the action packet; do not resolve locally
+
+			// Resolve locally first so UI updates immediately
+			if (menuChoice == 1) {
+				p.nextTurnAPBonus += 3;
+				ofLogNotice("APDebug") << "Train: playerIndex=" << currentPlayerIndex << " nextTurnAPBonus(after)=" << p.nextTurnAPBonus;
+				spawnFloatingText(gridToWorld(p.x, p.y), "Training: AP", ofColor::yellow);
+			} else {
+				isInGameDraft = true;
+				draftPlayerIndex = currentPlayerIndex;
+				generateDraftOptions(1); // Class 1
+				draftPicksRemaining = 1;
+				selectedDraftIndices.clear();
+				draftStage = 0;
+				currentState = STATE_DRAFTING;
+			}
+			currentAP -= cost;
+			p.playedCardsPile.push_back(p.hand[cardIndex]);
+			p.hand.erase(p.hand.begin() + cardIndex);
+			if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) players[currentPlayerIndex].ap = currentAP;
+
+			// Notify opponent after local resolution so packet reflects post-play AP
 			if (isMultiplayer) {
 				sendActionPacket(cardIndex, -1, -1, cost, menuChoice, cardName);
-			} else {
-				// Singleplayer fallback: resolve immediately
-				if (menuChoice == 1) {
-					p.nextTurnAPBonus += 3;
-					ofLogNotice("APDebug") << "Train: playerIndex=" << currentPlayerIndex << " nextTurnAPBonus(after)=" << p.nextTurnAPBonus;
-					spawnFloatingText(gridToWorld(p.x, p.y), "Training: AP", ofColor::yellow);
-				} else {
-					isInGameDraft = true;
-					draftPlayerIndex = currentPlayerIndex;
-					generateDraftOptions(1); // Class 1
-					draftPicksRemaining = 1;
-					selectedDraftIndices.clear();
-					draftStage = 0;
-					currentState = STATE_DRAFTING;
-				}
-				currentAP -= cost;
-				p.playedCardsPile.push_back(p.hand[cardIndex]);
-				p.hand.erase(p.hand.begin() + cardIndex);
-				if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) players[currentPlayerIndex].ap = currentAP;
 			}
+
 			isTrainMenuOpen = false;
 			pendingTrainCardIndex = -1;
 			calculateTargetHighlights();
@@ -11735,46 +11868,48 @@ void ofApp::mousePressed(int x, int y, int button) {
 			int cardIndex = pendingWisdomBoonCardIndex;
 			int cost = (cardIndex >= 0 && cardIndex < (int)caster.hand.size()) ? caster.hand[cardIndex].cost : 0;
 			std::string cardName = (cardIndex >= 0 && cardIndex < (int)caster.hand.size()) ? caster.hand[cardIndex].name : "";
-			// Only send the action packet; do not resolve locally
-			if (isMultiplayer) {
-				sendActionPacket(cardIndex, target->x, target->y, cost, 1, cardName);
+
+			// Resolve locally first so UI updates immediately
+			glm::vec3 targetPos = gridToWorld(target->x, target->y);
+			if (isSelfTarget) {
+				target->block += effectValue;
+				spawnFloatingText(targetPos, "+" + ofToString(effectValue) + " Block", ofColor::gray);
 			} else {
-				// Singleplayer fallback: resolve immediately
-				glm::vec3 targetPos = gridToWorld(target->x, target->y);
-				if (isSelfTarget) {
-					target->block += effectValue;
-					spawnFloatingText(targetPos, "+" + ofToString(effectValue) + " Block", ofColor::gray);
+				int dmg = effectValue;
+				int barrierDmg = std::min(target->barrier, dmg);
+				target->barrier -= barrierDmg;
+				dmg -= barrierDmg;
+				if (dmg > 0) {
+					int wardDmg = std::min(target->ward, dmg);
+					target->ward -= wardDmg;
+					dmg -= wardDmg;
+				}
+				if (dmg > 0) {
+					target->health -= dmg;
+					spawnFloatingText(targetPos, "-" + ofToString(dmg) + " Magic", ofColor::red);
 				} else {
-					int dmg = effectValue;
-					int barrierDmg = std::min(target->barrier, dmg);
-					target->barrier -= barrierDmg;
-					dmg -= barrierDmg;
-					if (dmg > 0) {
-						int wardDmg = std::min(target->ward, dmg);
-						target->ward -= wardDmg;
-						dmg -= wardDmg;
-					}
-					if (dmg > 0) {
-						target->health -= dmg;
-						spawnFloatingText(targetPos, "-" + ofToString(dmg) + " Magic", ofColor::red);
-					} else {
-						spawnFloatingText(targetPos, "Absorbed", ofColor::gray);
-					}
-				}
-				currentAP -= cost;
-				if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) players[currentPlayerIndex].ap = currentAP;
-				Card playedCard = caster.hand[cardIndex];
-				caster.playedCardsPile.push_back(playedCard);
-				if (caster.isReplicatePending) {
-					Card dup = playedCard;
-					caster.playedCardsPile.push_back(dup);
-					caster.isReplicatePending = false;
-				}
-				caster.hand.erase(caster.hand.begin() + pendingWisdomBoonCardIndex);
-				if (isSelfTarget) {
-					tryTriggerShellSpike();
+					spawnFloatingText(targetPos, "Absorbed", ofColor::gray);
 				}
 			}
+			currentAP -= cost;
+			if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) players[currentPlayerIndex].ap = currentAP;
+			Card playedCard = caster.hand[cardIndex];
+			caster.playedCardsPile.push_back(playedCard);
+			if (caster.isReplicatePending) {
+				Card dup = playedCard;
+				caster.playedCardsPile.push_back(dup);
+				caster.isReplicatePending = false;
+			}
+			caster.hand.erase(caster.hand.begin() + pendingWisdomBoonCardIndex);
+			if (isSelfTarget) {
+				tryTriggerShellSpike();
+			}
+
+			// Notify opponent of the action
+			if (isMultiplayer) {
+				sendActionPacket(cardIndex, target->x, target->y, cost, 1, cardName);
+			}
+
 			cancelWisdomBoon();
 			calculateTargetHighlights();
 		} else if (!wisdomMenuRect.inside(x, y)) {
@@ -11804,21 +11939,11 @@ void ofApp::mousePressed(int x, int y, int button) {
 		}
 
 		if (burstBtnDamage.inside(x, y) || burstBtnHeal.inside(x, y)) {
-			int cardIndex = pendingBurstCardIndex;
-			Player & caster = players[currentPlayerIndex];
-			int cost = (cardIndex >= 0 && cardIndex < (int)caster.hand.size()) ? caster.hand[cardIndex].cost : 0;
-			std::string cardName = (cardIndex >= 0 && cardIndex < (int)caster.hand.size()) ? caster.hand[cardIndex].name : "";
-			int menuChoice = burstBtnDamage.inside(x, y) ? 1 : 2;
-			// Only send the action packet; do not resolve locally
-			if (isMultiplayer) {
-				sendActionPacket(cardIndex, -1, -1, cost, menuChoice, cardName);
-			} else {
-				// Singleplayer fallback: resolve immediately
-				burstChoice = burstBtnDamage.inside(x, y) ? 0 : 1;
-				isBurstMenuOpen = false;
-				isTargetingBurst = true;
-				calculateTargetHighlights(pendingBurstCardIndex);
-			}
+			// Always set the choice locally and enter targeting mode.
+			burstChoice = burstBtnDamage.inside(x, y) ? 0 : 1;
+			isBurstMenuOpen = false;
+			isTargetingBurst = true;
+			calculateTargetHighlights(pendingBurstCardIndex);
 			return;
 		} else if (!burstMenuRect.inside(x, y)) {
 			cancelBurst();
@@ -11829,21 +11954,13 @@ void ofApp::mousePressed(int x, int y, int button) {
 	// --- 1f. Double-Handed Menu ---
 	if (isDoubleHandedMenuOpen && button == OF_MOUSE_BUTTON_LEFT) {
 		if (btnAddPunches.inside(x, y) || btnAddBlocks.inside(x, y)) {
-			int cardIndex = pendingDoubleHandedCardIndex;
-			Player & caster = players[currentPlayerIndex];
-			int cost = (cardIndex >= 0 && cardIndex < (int)caster.hand.size()) ? caster.hand[cardIndex].cost : 0;
-			std::string cardName = (cardIndex >= 0 && cardIndex < (int)caster.hand.size()) ? caster.hand[cardIndex].name : "";
-			int menuChoice = btnAddPunches.inside(x, y) ? 1 : 2;
-			// Only send the action packet; do not resolve locally
-			if (isMultiplayer) {
-				sendActionPacket(cardIndex, -1, -1, cost, menuChoice, cardName);
-			} else {
-				// Singleplayer fallback: resolve immediately
-				pendingDoubleHandedChoice = btnAddPunches.inside(x, y) ? "Punch" : "Hand Block";
-				isDoubleHandedMenuOpen = false;
-				isTargetingDoubleHanded = true;
-				calculateTargetHighlights(pendingDoubleHandedCardIndex);
-			}
+			// Capture the choice locally and enter targeting mode. Resolution
+			// will be performed when a target is selected; that handler will
+			// send the action packet if multiplayer.
+			pendingDoubleHandedChoice = btnAddPunches.inside(x, y) ? "Punch" : "Hand Block";
+			isDoubleHandedMenuOpen = false;
+			isTargetingDoubleHanded = true;
+			calculateTargetHighlights(pendingDoubleHandedCardIndex);
 			return;
 		} else if (!doubleHandedMenuRect.inside(x, y)) {
 			cancelDoubleHanded();
@@ -11980,21 +12097,12 @@ void ofApp::mousePressed(int x, int y, int button) {
 		ofRectangle btnPull(startX + btnW + spacing, btnY, btnW, btnH);
 
 		if (btnPush.inside(x, y) || btnPull.inside(x, y)) {
-			int cardIndex = pendingMagicHandCardIndex;
-			Player & caster = players[currentPlayerIndex];
-			int cost = (cardIndex >= 0 && cardIndex < (int)caster.hand.size()) ? caster.hand[cardIndex].cost : 0;
-			std::string cardName = (cardIndex >= 0 && cardIndex < (int)caster.hand.size()) ? caster.hand[cardIndex].name : "";
-			int menuChoice = btnPush.inside(x, y) ? 1 : 2;
-			// Only send the action packet; do not resolve locally
-			if (isMultiplayer) {
-				sendActionPacket(cardIndex, magicHandTargetTile.x, magicHandTargetTile.y, cost, menuChoice, cardName);
+			// Always resolve locally (resolve* will send the network resolution
+			// packet so we avoid sending another ActionPacket here).
+			if (btnPush.inside(x, y)) {
+				resolveMagicHandPush();
 			} else {
-				// Singleplayer fallback: resolve immediately
-				if (btnPush.inside(x, y)) {
-					resolveMagicHandPush();
-				} else {
-					resolveMagicHandPull();
-				}
+				resolveMagicHandPull();
 			}
 			return;
 		} else if (!wisdomMenuRect.inside(x, y)) {
@@ -12071,6 +12179,12 @@ void ofApp::mousePressed(int x, int y, int button) {
 				// If we're a client, don't apply the effects locally — wait for the host
 				// to apply and forward the packet so all clients stay authoritative.
 				if (isClient()) {
+					// Track for reliable resend until host ACKs
+					lastSentRenewedInspirationPacket = rpk;
+					lastSentRenewedInspirationValid = true;
+					lastSentRenewedInspirationTime = ofGetElapsedTimef();
+					lastSentRenewedInspirationAttempts = 0;
+
 					ofLogNotice("Network") << "Client: Sent RenewedInspiration to host; waiting for authoritative packet.";
 					isSelectingRenewedInspiration = false;
 					return;
@@ -12123,6 +12237,17 @@ void ofApp::mousePressed(int x, int y, int button) {
 
 				steamManager.sendPacket(&dcpkt, sizeof(dcpkt));
 				ofLogNotice("Network") << "Sent DrawCards packet for Renewed Inspiration: " << cardsToDraw << " cards";
+				if (isClient()) {
+					lastSentDrawCardsPacket = dcpkt;
+					lastSentDrawCardsValid = true;
+					lastSentDrawCardsTime = ofGetElapsedTimef();
+					lastSentDrawCardsAttempts = 0;
+				}
+				if (isClient()) {
+					lastSentDrawCardsPacket = dcpkt;
+					lastSentDrawCardsValid = true;
+					lastSentDrawCardsTime = ofGetElapsedTimef();
+				}
 			}
 
 			// Show played card animation now that the effect is confirmed
@@ -13219,41 +13344,32 @@ void ofApp::mousePressed(int x, int y, int button) {
 
 				size_t handSizeBefore = localPlayer->hand.size();
 
-				if (isMultiplayer && isClient()) {
-					DrawCardsPacket req = {};
-					req.type = PKT_DRAW_CARDS;
-					req.playerID = myLocalPlayerID;
-					req.playerIndex = localPlayerIndex;
-					req.numCards = cardsToDraw;
-					steamManager.sendPacket(&req, sizeof(req));
-				} else {
-					// Single-player or Host
-					for (int i = 0; i < cardsToDraw; ++i) {
-						drawCard();
-					}
+				// Both Host and Client draw locally. drawCard() generates the animation.
+				for (int i = 0; i < cardsToDraw; ++i) {
+					drawCard();
+				}
 
-					// Ensure any newly-added cards are normalized to full scale so
-					// click-and-hold draw doesn't leave them small.
-					for (size_t idx = handSizeBefore; idx < localPlayer->hand.size(); ++idx) {
-						localPlayer->hand[idx].currentScale = 1.0f;
-						localPlayer->hand[idx].targetScale = 1.0f;
-					}
-					if (isMultiplayer && isHost()) {
-						DrawCardsPacket out = {};
-						out.type = PKT_DRAW_CARDS;
-						out.playerID = myLocalPlayerID;
-						out.playerIndex = localPlayerIndex;
-						out.numCards = cardsToDraw;
-						for (int i = 0; i < cardsToDraw && i < 3; ++i) {
-							size_t idx = handSizeBefore + i;
-							if (idx < localPlayer->hand.size()) {
-								strncpy(out.cardNames[i], localPlayer->hand[idx].name.c_str(), 63);
-								out.cardNames[i][63] = '\0';
-							} else {
-								out.cardNames[i][0] = '\0';
-							}
-						}
-						steamManager.sendPacket(&out, sizeof(out));
+				// Ensure any newly-added cards are normalized to full scale so
+				// click-and-hold draw doesn't leave them small.
+				for (size_t idx = handSizeBefore; idx < localPlayer->hand.size(); ++idx) {
+					localPlayer->hand[idx].currentScale = 1.0f;
+					localPlayer->hand[idx].targetScale = 1.0f;
+				}
+
+				if (isMultiplayer) {
+					DrawCardsPacket out = {};
+					out.type = PKT_DRAW_CARDS;
+					out.playerID = myLocalPlayerID;
+					out.playerIndex = localPlayerIndex;
+					out.numCards = cardsToDraw;
+					// No need to send card names in deterministic mode
+					memset(out.cardNames, 0, sizeof(out.cardNames));
+					steamManager.sendPacket(&out, sizeof(out));
+					if (isClient()) {
+						lastSentDrawCardsPacket = out;
+						lastSentDrawCardsValid = true;
+						lastSentDrawCardsTime = ofGetElapsedTimef();
+						lastSentDrawCardsAttempts = 0;
 					}
 				}
 
@@ -14297,19 +14413,12 @@ void ofApp::keyPressed(int key) {
 				spawnFloatingText(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y),
 					"+" + ofToString(cardSpawnerQuantity) + "x " + filteredCards[0].name, ofColor::cyan);
 
-				// Multiplayer: send DrawCards packet to sync spawned cards with opponent
-				if (isMultiplayer) {
-					DrawCardsPacket dcpkt = {};
-					dcpkt.type = PKT_DRAW_CARDS;
-					dcpkt.playerID = myLocalPlayerID;
-					dcpkt.playerIndex = currentPlayerIndex;
-					dcpkt.numCards = std::min(cardSpawnerQuantity, 3);
-					for (int q = 0; q < cardSpawnerQuantity && q < 3; q++) {
-						strncpy(dcpkt.cardNames[q], filteredCards[0].name.c_str(), 63);
-						dcpkt.cardNames[q][63] = '\0';
-					}
-					steamManager.sendPacket(&dcpkt, sizeof(dcpkt));
-					ofLogNotice("Debug") << "Card Spawner: Sent DrawCards packet for " << cardSpawnerQuantity << "x " << filteredCards[0].name;
+				// Sync spawned cards with opponent. Host will send an authoritative
+				// snapshot so clients receive the full game state; avoid ad-hoc DrawCards
+				// packets here which can cause hand/order mismatches.
+				if (isMultiplayer && isHost()) {
+					sendSnapshotToClient();
+					ofLogNotice("Debug") << "Card Spawner: Host sent snapshot to clients.";
 				}
 				isCardSpawnerOpen = false;
 			}
@@ -15092,6 +15201,13 @@ void ofApp::drawCard() {
 		req.numCards = 1;
 		// We do NOT send card names. The opponent just needs to know *that* we drew.
 		steamManager.sendPacket(&req, sizeof(req));
+		ofLogNotice("Network") << "Local draw: sent PKT_DRAW_CARDS for playerIndex=" << req.playerIndex << " playerID=" << req.playerID << " num=" << req.numCards;
+		if (isClient()) {
+			lastSentDrawCardsPacket = req;
+			lastSentDrawCardsValid = true;
+			lastSentDrawCardsTime = ofGetElapsedTimef();
+			lastSentDrawCardsAttempts = 0;
+		}
 	}
 	// --- CHANGE END ---
 
@@ -15160,6 +15276,7 @@ void ofApp::drawCard() {
 	if (!currentPlayer.deck.empty()) {
 		Card newCard = currentPlayer.deck.back();
 		currentPlayer.deck.pop_back();
+		ofLogNotice("DrawDebug") << "drawCard(): popped '" << newCard.name << "' from deck for playerIndex=" << currentPlayerIndex << " deckSizeNow=" << currentPlayer.deck.size();
 		// Delay committing the drawn card to the player's hand until the
 		// draw animation finishes so it doesn't appear mid-flight.
 		newCard.drawnThisTurn = true;
@@ -15227,6 +15344,7 @@ void ofApp::drawCard() {
 		anim.currentScale = 1.0f; // start at full scale
 		anim.duration = 0.50f;
 		activeDrawCardAnimations.push_back(anim);
+		ofLogNotice("DrawDebug") << "drawCard(): pushed DrawCardAnimation ownerIndex=" << anim.ownerIndex << " card='" << newCard.name << "' startTime=" << anim.startTime;
 	}
 }
 //--------------------------------------------------------------
@@ -16680,9 +16798,18 @@ CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		if (board[targetX][targetY].hasWall || board[targetX][targetY].hasPlayer) break;
 
 		pendingSummonTile = glm::vec2(targetX, targetY);
-		// Roll 2d6 for HP and 2d6 for AP
+		// Roll 2d6 for HP (visual) and compute AP silently (AP should be applied on the
+		// hellhound's turn rather than showing AP dice immediately after summoning).
 		pendingSummonRollResult = startDiceRoll(playedCard.numDice, playedCard.diceSides, PURPOSE_HP, "Hellhound HP");
-		pendingHellhoundAPResult = startDiceRoll(playedCard.numDice, playedCard.diceSides, PURPOSE_BONUS_AP, "Hellhound AP");
+		// Compute AP deterministically using gameplayRNG but do NOT create a visual DiceRoll.
+		{
+			std::uniform_int_distribution<int> dist(1, playedCard.diceSides);
+			int apSum = 0;
+			for (int _i = 0; _i < playedCard.numDice; ++_i)
+				apSum += dist(gameplayRNG);
+			pendingHellhoundAPResult = apSum;
+			ofLogNotice("Summon") << "Hellhound AP rolled silently: " << pendingHellhoundAPResult;
+		}
 		isWaitingForHellhoundHP = true;
 
 		// Cleanup Logic
@@ -16980,16 +17107,22 @@ CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		}
 
 		// 6. Visual feedback
-		spawnFloatingText(gridToWorld(currentPlayer.x, currentPlayer.y) + glm::vec3(0, 0.9f, 0),
-			"TORTOISE FORM!", ofColor::darkGreen);
-
-		ofLogNotice("Form of Tortoise") << "Player " << currentPlayer.playerID << " entered tortoise form.";
-
-		// Card does NOT go to discard - stays "in play" until form ends
-		// We handle this specially - don't add to playedCardsPile
-		currentAP -= costToPay;
-		currentPlayer.hand.erase(currentPlayer.hand.begin() + cardIndex);
-		createCardDisplay(playedCard, currentPlayerIndex);
+		if (debugFlatSkeletonDraw) {
+			GLint prevProg2 = 0;
+			glGetIntegerv(GL_CURRENT_PROGRAM, &prevProg2);
+			glUseProgram(0);
+			ofLogNotice("Render") << "Performing flat skeleton draw (debug)";
+			GLboolean depthWas = glIsEnabled(GL_DEPTH_TEST);
+			if (depthWas) glDisable(GL_DEPTH_TEST);
+			ofSetColor(255, 100, 100);
+			skeletonModel.drawFaces();
+			ofSetColor(255);
+			if (depthWas) glEnable(GL_DEPTH_TEST);
+			GLenum flatErr = glGetError();
+			if (flatErr != GL_NO_ERROR) ofLogError("Render") << "GL error after flat skeleton draw: " << flatErr;
+			ofLogNotice("Render") << "Flat skeleton draw complete";
+			glUseProgram(prevProg2);
+		}
 		invalidateTargetCache();
 		currentPlayer.cardsPlayedThisTurn.push_back(playedCard.type);
 		if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) players[currentPlayerIndex].ap = currentAP;
@@ -22372,9 +22505,6 @@ void ofApp::resolveMagicHandPull() {
 		return; // Don't close menu, allow retry or cancel
 	}
 
-	// Send resolution to opponent before applying locally
-	sendMagicHandResolutionPacket(2);
-
 	// Execute Pull
 	// 1. Move Caster to BackPos
 	board[caster.x][caster.y].hasPlayer = false;
@@ -22398,6 +22528,11 @@ void ofApp::resolveMagicHandPull() {
 	players[currentPlayerIndex].playedCardsPile.push_back(players[currentPlayerIndex].hand[pendingMagicHandCardIndex]);
 	players[currentPlayerIndex].hand.erase(players[currentPlayerIndex].hand.begin() + pendingMagicHandCardIndex);
 
+	// Notify opponent after local update so pkt.updatedAP contains the post-play AP
+	sendMagicHandResolutionPacket(2);
+
+	// Cleanup
+	pendingMagicHandCardIndex = -1;
 	isMagicHandMenuOpen = false;
 	invalidateTargetCache();
 }
@@ -22445,6 +22580,7 @@ void ofApp::resolveMagicHandPush() {
 
 		// Finally remove from hand and finish
 		caster.hand.erase(caster.hand.begin() + pendingMagicHandCardIndex);
+		pendingMagicHandCardIndex = -1;
 		isMagicHandMenuOpen = false;
 
 		// Move Caster and Wall happens AFTER dice logic to sync animations
@@ -22479,6 +22615,7 @@ void ofApp::resolveMagicHandPush() {
 
 	// Now remove card from hand and finish
 	caster.hand.erase(caster.hand.begin() + pendingMagicHandCardIndex);
+	pendingMagicHandCardIndex = -1;
 
 	isMagicHandMenuOpen = false;
 	invalidateTargetCache();
@@ -23167,6 +23304,17 @@ void ofApp::processNetworkPackets() {
 					} else {
 						ofLogNotice("Network") << "Client: Applied shuffle nonce for player " << spk->playerIndex;
 					}
+
+					// CLIENT: send ACK back to host to confirm we've applied the shuffle
+					if (isClient()) {
+						AckPacket ack = {};
+						ack.type = PKT_ACK;
+						ack.playerID = myLocalPlayerID;
+						ack.ackSeq = spk->seq;
+						ack.ackType = PKT_SHUFFLE;
+						steamManager.sendPacket(&ack, sizeof(ack));
+						ofLogNotice("NetTrace") << "Client: sent ACK for Shuffle seq=" << ack.ackSeq;
+					}
 				}
 				continue; // Done with this packet
 			}
@@ -23174,6 +23322,11 @@ void ofApp::processNetworkPackets() {
 			// Handle Renewed Inspiration selection
 			if (header->type == PKT_RENEWED_INSPIRATION) {
 				RenewedInspirationPacket * rpk = (RenewedInspirationPacket *)header;
+				// Prevent the originating client from applying their own selection twice
+				if (isClient() && rpk->playerID == static_cast<uint32_t>(myLocalPlayerID)) {
+					ofLogNotice("Network") << "Client: Ignoring echo of own RenewedInspiration packet.";
+					continue;
+				}
 				if (rpk->playerIndex >= 0 && rpk->playerIndex < (int)players.size()) {
 					// If we're the host, forward this packet to all clients so everyone
 					// (including the original sender) applies the effect authoritatively.
@@ -23181,6 +23334,14 @@ void ofApp::processNetworkPackets() {
 						RenewedInspirationPacket outPkt = *rpk;
 						steamManager.sendPacket(&outPkt, sizeof(outPkt));
 						ofLogNotice("Network") << "Host: Forwarded RenewedInspiration to clients.";
+						// Send ACK back to originating client so it stops resending if it expects one
+						AckPacket ack = {};
+						ack.type = PKT_ACK;
+						ack.playerID = myLocalPlayerID;
+						ack.ackSeq = rpk->seq; // echo packet seq so client can match
+						ack.ackType = PKT_RENEWED_INSPIRATION;
+						steamManager.sendPacket(&ack, sizeof(ack));
+						ofLogNotice("NetTrace") << "Host: sent ACK for RenewedInspiration seq=" << ack.ackSeq;
 					}
 
 					Player & p = players[rpk->playerIndex];
@@ -23199,38 +23360,16 @@ void ofApp::processNetworkPackets() {
 							}
 						}
 					}
-					ofLogNotice("Network") << "Renewed Inspiration: Opponent discarded " << discarded << " cards (will draw from DrawCards packet)";
+					ofLogNotice("Network") << "Renewed Inspiration: Opponent discarded " << discarded << " cards. Drawing deterministically.";
 
-					// If we're the host, perform the draw now and send DrawCards packet to clients
-					if (isHost()) {
-						int cardsToDraw = discarded * 2;
-						size_t handSizeBefore = p.hand.size();
-						// drawCard() operates on currentPlayerIndex, so temporarily switch
-						int prevCurrentPlayerIndex = currentPlayerIndex;
-						currentPlayerIndex = rpk->playerIndex;
-						for (int i = 0; i < cardsToDraw; ++i)
-							drawCard();
-						currentPlayerIndex = prevCurrentPlayerIndex;
-
-						if (cardsToDraw > 0) {
-							DrawCardsPacket dcpkt = {};
-							dcpkt.type = PKT_DRAW_CARDS;
-							dcpkt.playerID = myLocalPlayerID;
-							dcpkt.playerIndex = rpk->playerIndex;
-							dcpkt.numCards = cardsToDraw;
-							for (int i = 0; i < cardsToDraw && i < 3; i++) {
-								size_t cardIndex = handSizeBefore + i;
-								if (cardIndex < p.hand.size()) {
-									strncpy(dcpkt.cardNames[i], p.hand[cardIndex].name.c_str(), 63);
-									dcpkt.cardNames[i][63] = '\0';
-								} else {
-									dcpkt.cardNames[i][0] = '\0';
-								}
-							}
-							steamManager.sendPacket(&dcpkt, sizeof(dcpkt));
-							ofLogNotice("Network") << "Host: Sent DrawCards packet for Renewed Inspiration: " << cardsToDraw << " cards";
-						}
+					// Deterministically draw replacements using the synchronized deck
+					int cardsToDraw = discarded * 2;
+					int prevCurrentPlayerIndex = currentPlayerIndex;
+					currentPlayerIndex = rpk->playerIndex;
+					for (int i = 0; i < cardsToDraw; ++i) {
+						drawCard();
 					}
+					currentPlayerIndex = prevCurrentPlayerIndex;
 				}
 				continue;
 			}
@@ -23716,18 +23855,38 @@ void ofApp::processNetworkPackets() {
 					// Because gameplayRNG is synced, if this card causes a dice roll,
 					// it will roll the exact same number here as it did on the opponent's screen.
 					executeAction(*pkt);
+
+					// Host: send ACK back to originating client so they stop resending
+					if (isHost()) {
+						AckPacket ack = {};
+						ack.type = PKT_ACK;
+						ack.playerID = myLocalPlayerID;
+						// If client provided a clientActionID, echo it so the client can match ACKs
+						ack.ackSeq = pkt->clientActionID;
+						ack.ackType = PKT_ACTION;
+						steamManager.sendPacket(&ack, sizeof(ack));
+						ofLogNotice("NetTrace") << "Host: sent ACK for ActionPacket clientActionID=" << ack.ackSeq;
+					}
 				}
 			} else if (header->type == PKT_DRAW_CARDS) {
 				DrawCardsPacket * dcpkt = (DrawCardsPacket *)header;
 
 				// --- MULTIPLAYER FIX ---
-				// If I am the one who drew the cards, I already handled it locally in drawCard().
-				// I should ignore the echo of my own action to prevent drawing twice.
-				if (dcpkt->playerID == static_cast<uint32_t>(myLocalPlayerID)) {
-					continue;
+				// If the host receives a DrawCards packet from a client, ACK it so the client
+				// knows the host processed it. Also ignore the echo locally if it's our own draw.
+				if (isHost()) {
+					AckPacket ack = {};
+					ack.type = PKT_ACK;
+					ack.playerID = myLocalPlayerID;
+					ack.ackSeq = dcpkt->seq;
+					ack.ackType = PKT_DRAW_CARDS;
+					steamManager.sendPacket(&ack, sizeof(ack));
+					ofLogNotice("NetTrace") << "Host: sent ACK for DrawCards seq=" << ack.ackSeq;
 				}
-				// In Deterministic Mode, ignore your own draw packets (handled locally in drawCard)
+
+				// If this DrawCards was sent by ourselves, ignore the echo to avoid double-processing.
 				if (dcpkt->playerID == static_cast<uint32_t>(myLocalPlayerID)) {
+					ofLogNotice("Network") << "Ignoring own DrawCards echo for playerID=" << dcpkt->playerID;
 					continue;
 				}
 
@@ -23798,7 +23957,12 @@ void ofApp::processNetworkPackets() {
 							anim.startIsScreenSpace = true; // ensure UI-origin animation uses screen coords
 							anim.currentPos = glm::vec2(anim.startPos.x, anim.startPos.y);
 							// compute final hand index as if the card were present (hand.size + 1)
-							size_t numCards = p.hand.size() + 1;
+							// but also account for other ongoing draw animations targeting this player's hand
+							int animatingToThis = 0;
+							for (const auto & a : activeDrawCardAnimations) {
+								if (a.ownerIndex == targetPlayerIndex && !a.toMinionHand) animatingToThis++;
+							}
+							size_t numCards = p.hand.size() + 1 + animatingToThis;
 							float handCenterY = ofGetHeight() - 160;
 							float handBaseCardWidth = 120;
 							float handAreaWidth = ofGetWidth() * 0.6f;
@@ -24029,6 +24193,7 @@ void ofApp::processNetworkPackets() {
 						board[tx][ty].hasPlayer = true;
 						players.push_back(minion);
 						int newIdx = (int)players.size() - 1;
+						ofLogNotice("Network") << "Placed summoned minion (client-side): idx=" << newIdx << " type=" << (int)psk->minionType << " owner=" << minion.ownerID << " HP=" << minion.maxHealth << " AP=" << minion.ap;
 						shuffleGameVector(players[newIdx].deck, newIdx);
 						checkKeyPickupAndDraftAfterSummon(minion.x, minion.y, minion.ownerID);
 						// Re-sort turn order to match host
@@ -24755,6 +24920,97 @@ void ofApp::processNetworkPackets() {
 				}
 			}
 		}
+
+		// Handle Ack packets for reliable sends
+		if (header->type == PKT_ACK && buffer.size() >= sizeof(AckPacket)) {
+			AckPacket * ack = (AckPacket *)header;
+			// If this ACK corresponds to an Action we sent, clear resend state
+			if (isClient() && ack->ackType == PKT_ACTION) {
+				if (lastSentActionValid && ack->ackSeq == lastSentActionPacket.clientActionID) {
+					lastSentActionValid = false;
+					ofLogNotice("Network") << "Client: ActionPacket (clientActionID=" << ack->ackSeq << ") acknowledged by host.";
+				}
+			}
+
+			// Clear RenewedInspiration resend state if host acknowledged
+			if (isClient() && ack->ackType == PKT_RENEWED_INSPIRATION) {
+				if (lastSentRenewedInspirationValid && ack->ackSeq == lastSentRenewedInspirationPacket.seq) {
+					lastSentRenewedInspirationValid = false;
+					lastSentRenewedInspirationAttempts = 0;
+					ofLogNotice("Network") << "Client: RenewedInspiration acknowledged by host (seq=" << ack->ackSeq << ").";
+				}
+			}
+
+			// Clear DrawCards resend state if host acknowledged
+			if (isClient() && ack->ackType == PKT_DRAW_CARDS) {
+				if (lastSentDrawCardsValid && ack->ackSeq == lastSentDrawCardsPacket.seq) {
+					lastSentDrawCardsValid = false;
+					lastSentDrawCardsAttempts = 0;
+					ofLogNotice("Network") << "Client: DrawCards acknowledged by host (seq=" << ack->ackSeq << ").";
+				}
+			}
+			// Draft ACKs handled earlier via PKT_DRAFT_ACK branch
+			continue;
+		}
+	}
+
+	// After draining incoming packets, run client-side resend watchdogs for
+	// certain reliable but lightweight packets (Renewed Inspiration, DrawCards).
+	if (isClient()) {
+		float now = ofGetElapsedTimef();
+		const int MAX_ATTEMPTS = 5;
+		if (lastSentRenewedInspirationValid) {
+			float backoff = powf(2.0f, std::max(0, lastSentRenewedInspirationAttempts - 1));
+			if (lastSentRenewedInspirationAttempts == 0) backoff = 0.5f; // first retry sooner
+			if (now - lastSentRenewedInspirationTime > backoff) {
+				if (lastSentRenewedInspirationAttempts >= MAX_ATTEMPTS) {
+					// Give up and request authoritative snapshot
+					if (!waitingForSnapshot) {
+						SnapshotRequestPacket req = {};
+						req.type = PKT_SNAPSHOT_REQUEST;
+						req.playerID = myLocalPlayerID;
+						req.requestedTurn = globalTurnCounter;
+						steamManager.sendPacket(&req, sizeof(req));
+						waitingForSnapshot = true;
+						lastSnapshotRequestTime = now;
+						ofLogNotice("Network") << "Client: RenewedInspiration retry limit reached — requested snapshot.";
+					}
+					lastSentRenewedInspirationValid = false;
+					lastSentRenewedInspirationAttempts = 0;
+				} else {
+					steamManager.sendPacket(&lastSentRenewedInspirationPacket, sizeof(lastSentRenewedInspirationPacket));
+					lastSentRenewedInspirationTime = now;
+					lastSentRenewedInspirationAttempts++;
+					ofLogNotice("Network") << "Client: Resent RenewedInspiration (attempt=" << lastSentRenewedInspirationAttempts << ").";
+				}
+			}
+		}
+
+		if (lastSentDrawCardsValid) {
+			float backoff = powf(2.0f, std::max(0, lastSentDrawCardsAttempts - 1));
+			if (lastSentDrawCardsAttempts == 0) backoff = 0.5f;
+			if (now - lastSentDrawCardsTime > backoff) {
+				if (lastSentDrawCardsAttempts >= MAX_ATTEMPTS) {
+					if (!waitingForSnapshot) {
+						SnapshotRequestPacket req = {};
+						req.type = PKT_SNAPSHOT_REQUEST;
+						req.playerID = myLocalPlayerID;
+						req.requestedTurn = globalTurnCounter;
+						steamManager.sendPacket(&req, sizeof(req));
+						waitingForSnapshot = true;
+						lastSnapshotRequestTime = now;
+						ofLogNotice("Network") << "Client: DrawCards retry limit reached — requested snapshot.";
+					}
+					lastSentDrawCardsValid = false;
+					lastSentDrawCardsAttempts = 0;
+				} else {
+					steamManager.sendPacket(&lastSentDrawCardsPacket, sizeof(lastSentDrawCardsPacket));
+					lastSentDrawCardsTime = now;
+					lastSentDrawCardsAttempts++;
+					ofLogNotice("Network") << "Client: Resent DrawCards (attempt=" << lastSentDrawCardsAttempts << ").";
+				}
+			}
+		}
 	}
 
 	// Close processNetworkPackets() scope
@@ -24876,6 +25132,14 @@ void ofApp::sendActionPacket(int cardIndex, int tx, int ty, int cost, int menuCh
 	ofLogNotice("Network") << "sendActionPacket: Sending card '" << pkt.cardName << "' (cardIndex=" << pkt.cardIndex << ") to target=(" << tx << "," << ty << ") cost=" << cost;
 
 	// 3. Send to Network
+	// If we're a client, attach a clientActionID for ACK matching and record for resend
+	if (isClient()) {
+		pkt.clientActionID = ++actionClientActionCounter;
+		lastSentActionPacket = pkt;
+		lastSentActionValid = true;
+		lastSentActionTime = ofGetElapsedTimef();
+		lastSentActionResendCount = 0;
+	}
 	steamManager.sendPacket(&pkt, sizeof(pkt));
 
 	// Local execution is handled by the caller (playCard + result handling).

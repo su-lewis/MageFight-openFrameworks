@@ -3,7 +3,7 @@
 Setting breakpad minidump AppID = 480
 SteamInternal_SetMinidumpSteamID:  Caching Steam ID:  76561198261715869 [API loaded no]
 [notice ] Steam: Initialized. LocalID: 76561198261715869
-[notice ] NetTrace: Packet sizeofs: PacketHeader=9 DraftActionPacket=43 DraftAckPacket=36 DraftOptionsPacket=42 DraftStatePacket=30 HandshakePacket=13
+[notice ] NetTrace: Packet sizeofs: PacketHeader=9 DraftActionPacket=43 DraftAckPacket=36 DraftOptionsPacket=34 DraftStatePacket=30 HandshakePacket=13
 [notice ] Setup: Visual RNG seeded.
 [notice ] Audio: Main menu music loaded: yes
 [notice ] Settings: Loaded settings from Config/settings.json
@@ -11,6 +11,7 @@ SteamInternal_SetMinidumpSteamID:  Caching Steam ID:  76561198261715869 [API loa
 [ error ] ofxAssimpTexture::setTextureType: : unknown aiTextureType type 27
 [warning] ofMaterial::setPBR:  PBR material must be used with Programmable Renderer.
 [ error ] ofxAssimpTexture::setTextureType: : unknown aiTextureType type 27
+[notice ] Load: Skeleton load: meshes=1 textureAllocated=yes
 [warning] ofMaterial::setPBR:  PBR material must be used with Programmable Renderer.
 [warning] ofMaterial::setPBR:  PBR material must be used with Programmable Renderer.
 [warning] ofMaterial::setPBR:  PBR material must be used with Programmable Renderer.
@@ -88,59 +89,14 @@ SteamInternal_SetMinidumpSteamID:  Caching Steam ID:  76561198261715869 [API loa
 [notice ] GL: Vendor: AMD | Renderer: AMD Radeon RX 9070 XT (radeonsi, gfx1201, LLVM 21.1.6, DRM 3.64, 6.17.7-ba25.fc43.x86_64) | Version: 4.6 (Compatibility Profile) Mesa 25.3.4-arch1.1 | GLSL: 4.60
 [notice ] Setup: Post shader files: vertOk=true fragOk=true linked=true
 [notice ] Setup: Pixel art shader loaded successfully.
+[notice ] Setup: C64 shader files: vertOk=true fragOk=true linked=true
+[notice ] Setup: Bloom shaders loaded.
+[ error ] ofFbo: FRAMEBUFFER_INCOMPLETE_ATTACHMENT
+[notice ] Setup: Shadow shader files: vertOk=true fragOk=true linked=true
+[notice ] Setup: PBR shader files: vertOk=true fragOk=true linked=true
 [notice ] FBO: worldFbo allocated 2560x1440
 [notice ] Post: enableWorldPostProcess=true
 [notice ] Network: DEBUG: Still in STATE_MAIN_MENU. hasOpponent()=0 isMultiplayer=0 isHost=0
-[notice ] Setup: Singleplayer generated seed: 1771445887
-[notice ] Dice: Final total result for 1d6: 5
-[notice ] Dice: Final total result for 1d6: 5
-[notice ] Game: --- INITIATIVE ROLL STARTED ---
-[notice ] Post: World post-process branch executed (shader active).
-[notice ] Dice: Final total result for 1d6: 1
-[notice ] Dice: Final total result for 1d6: 3
-[notice ] Initiative: Tie! Rerolling...
-[notice ] Game: --- GAME SESSION CLEANED UP ---
-[notice ] Setup: Singleplayer generated seed: 1771445892
-[notice ] Dice: Final total result for 1d6: 2
-[notice ] Dice: Final total result for 1d6: 2
-[notice ] Game: --- INITIATIVE ROLL STARTED ---
-[notice ] Dice: Final total result for 1d6: 1
-[notice ] Dice: Final total result for 1d6: 3
-[notice ] Initiative: Tie! Rerolling...
-[notice ] Draft: generateDraftOptions called: classTier=1 draftStage=0 draftPlayerIndex=1 poolSize=30
-[notice ] Initiative: Player 2 Wins Initiative
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Flame Hit, Train, Hand Block
-[notice ] Draft: DRAFT CLICK: mousePos=(1347,758) selections=0 required=2 inGameDraft=0 draftStage=0 acceptRect=(1170,1007,220,60)
-[notice ] Draft: DRAFT CLICK: mousePos=(1635,793) selections=1 required=2 inGameDraft=0 draftStage=0 acceptRect=(1170,1007,220,60)
-[notice ] Draft: DRAFT CLICK: mousePos=(1304,1012) selections=2 required=2 inGameDraft=0 draftStage=0 acceptRect=(1170,1007,220,60)
-[notice ] Draft: ACCEPT BUTTON CLICKED: selections=2 required=2
-[notice ] Draft: generateDraftOptions called: classTier=2 draftStage=1 draftPlayerIndex=1 poolSize=25
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=1) names=Dark Shield, Earthquake, Full Restore
-[notice ] Draft: DRAFT CLICK: mousePos=(1282,918) selections=0 required=1 inGameDraft=0 draftStage=1 acceptRect=(1170,1007,220,60)
-[notice ] Draft: DRAFT CLICK: mousePos=(1243,1066) selections=1 required=1 inGameDraft=0 draftStage=1 acceptRect=(1170,1007,220,60)
-[notice ] Draft: ACCEPT BUTTON CLICKED: selections=1 required=1
-[notice ] Draft: generateDraftOptions called: classTier=1 draftStage=0 draftPlayerIndex=0 poolSize=30
-[notice ] Draft: DRAFT CLICK: mousePos=(1265,904) selections=0 required=2 inGameDraft=0 draftStage=0 acceptRect=(1170,1007,220,60)
-[notice ] Draft: DRAFT CLICK: mousePos=(1545,888) selections=1 required=2 inGameDraft=0 draftStage=0 acceptRect=(1170,1007,220,60)
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=0 stage=0) names=Slash, Kick, Study
-[notice ] Draft: DRAFT CLICK: mousePos=(1317,1070) selections=2 required=2 inGameDraft=0 draftStage=0 acceptRect=(1170,1007,220,60)
-[notice ] Draft: DRAFT CLICK: mousePos=(1323,887) selections=2 required=2 inGameDraft=0 draftStage=0 acceptRect=(1170,1007,220,60)
-[notice ] Draft: DRAFT CLICK: mousePos=(1283,1054) selections=1 required=2 inGameDraft=0 draftStage=0 acceptRect=(1170,1007,220,60)
-[notice ] Draft: DRAFT CLICK: mousePos=(1297,928) selections=1 required=2 inGameDraft=0 draftStage=0 acceptRect=(1170,1007,220,60)
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=0 stage=0) names=Slash, Kick, Study
-[notice ] Draft: DRAFT CLICK: mousePos=(1299,1043) selections=2 required=2 inGameDraft=0 draftStage=0 acceptRect=(1170,1007,220,60)
-[notice ] Draft: ACCEPT BUTTON CLICKED: selections=2 required=2
-[notice ] Draft: generateDraftOptions called: classTier=2 draftStage=1 draftPlayerIndex=0 poolSize=25
-[notice ] Draft: DRAFT CLICK: mousePos=(1335,876) selections=0 required=1 inGameDraft=0 draftStage=1 acceptRect=(1170,1007,220,60)
-[notice ] Draft: DRAFT CLICK: mousePos=(1297,1020) selections=1 required=1 inGameDraft=0 draftStage=1 acceptRect=(1170,1007,220,60)
-[notice ] Draft: ACCEPT BUTTON CLICKED: selections=1 required=1
-[notice ] Game: Player 1's turn begins.
-[notice ] Dice: Final total result for 1d6: 4
-[notice ] Hand: Displaying hand for player 1: 0 cards (isMultiplayer=0 myLocalPlayerID=0)
-[notice ] APDebug: AP roll finished: apSum=4 nextTurnAPBonus(before)=0 currentAP(before)=0
-[notice ] APDebug: AP roll applied: currentAP(after)=4
-[notice ] Game: AP Roll Finished: 4 AP awarded (sum of all dice).
-[notice ] Game: --- GAME SESSION CLEANED UP ---
 [notice ] Settings: Saved settings to Config/settings.json
 [notice ] SteamManager: Steam API Shutdown.
 [S_API FAIL] Tried to access Steam interface SteamNetworkingSockets012 before SteamAPI_Init succeeded.

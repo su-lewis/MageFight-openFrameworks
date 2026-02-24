@@ -491,6 +491,17 @@ public:
 	void executeAction(const ActionPacket & pkt);
 	void executeOpponentCardPlay(const ActionPacket & pkt);
 	long long calculateChecksum();
+
+	// Reliable send tracking for certain client-originated packets
+	bool lastSentRenewedInspirationValid = false;
+	RenewedInspirationPacket lastSentRenewedInspirationPacket;
+	float lastSentRenewedInspirationTime = 0.0f;
+	int lastSentRenewedInspirationAttempts = 0;
+
+	bool lastSentDrawCardsValid = false;
+	DrawCardsPacket lastSentDrawCardsPacket;
+	float lastSentDrawCardsTime = 0.0f;
+	int lastSentDrawCardsAttempts = 0;
 	void sendSnapshotToClient();
 	std::string buildSnapshotString();
 	void applySnapshotString(const std::string & data);
@@ -535,6 +546,8 @@ public:
 	glm::vec3 transformGridToWorld(int gx, int gy); // Applies camera flip if needed
 	glm::ivec2 transformWorldToGrid(glm::vec3 worldPos); // Applies camera flip if needed
 	int getVisualPlayerIndex(int actualPlayerIndex); // Converts actual player index to visual (flipped for client)
+	// Debug helpers
+	bool debugFlatSkeletonDraw = true; // When true, draw a flat unshaded pass to verify visibility
 
 private:
 	// -------------------------------------------------------------------------
@@ -770,6 +783,15 @@ private:
 	const int DRAFT_ACTION_MAX_RESENDS = 3; // Max resend attempts
 	uint32_t draftClientActionCounter = 0; // client-local monotonic id for draft actions
 
+	// Reliability helpers for client-sent Action packets (resend until host ACK)
+	ActionPacket lastSentActionPacket; // Last ActionPacket the client sent (for resend)
+	bool lastSentActionValid = false;
+	float lastSentActionTime = 0.0f;
+	int lastSentActionResendCount = 0;
+	const float ACTION_RESEND_INTERVAL = 0.75f;
+	const int ACTION_MAX_RESENDS = 3;
+	uint32_t actionClientActionCounter = 0; // monotonic id for action ACK matching
+
 	// Debug logging helpers: remember last logged draft options count so we only spam logs
 	int lastLoggedDraftOptionsCount = -1;
 	float lastDraftDrawLogTime = 0.0f;
@@ -892,6 +914,8 @@ private:
 	Tile board[BOARD_WIDTH][BOARD_HEIGHT];
 	TargetInfo targetCache[BOARD_WIDTH][BOARD_HEIGHT];
 	std::vector<Player> players;
+	// Track which minion playerIDs we've logged during render to avoid flooding logs
+	std::unordered_set<int> renderLoggedMinions;
 	int currentPlayerIndex = -1;
 	std::vector<DeathMarker> graveyard;
 	std::vector<FloatingText> activeFloatingTexts;
