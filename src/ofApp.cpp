@@ -1385,7 +1385,7 @@ void ofApp::update() {
 					if (!isClient()) {
 						generateDraftOptions(1);
 					}
-					ofLogNotice("Initiative") << "Player 1 Wins Initiative";
+					ofLogNotice("Initiative") << "Player 1 goes first";
 					if (isHost()) {
 						DraftStatePacket sp = {};
 						sp.type = PKT_DRAFT_STATE;
@@ -1408,7 +1408,7 @@ void ofApp::update() {
 					if (!isClient()) {
 						generateDraftOptions(1);
 					}
-					ofLogNotice("Initiative") << "Player 2 Wins Initiative";
+					ofLogNotice("Initiative") << "Player 2 goes first";
 					if (isHost()) {
 						DraftStatePacket sp = {};
 						sp.type = PKT_DRAFT_STATE;
@@ -5293,7 +5293,7 @@ void ofApp::updateGame() {
 		spawnFloatingText(gridToWorld(p.x, p.y), "Spark of Genius! +" + ofToString(cardsToDraw) + " Cards", ofColor::cyan);
 
 		for (int i = 0; i < cardsToDraw; i++) {
-			drawCard();
+			drawCard(false);
 		}
 	}
 
@@ -12277,7 +12277,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 
 			// Draw new cards
 			for (int i = 0; i < cardsToDraw; i++)
-				drawCard();
+				drawCard(false);
 
 			// NOTE: Do NOT send a duplicate ActionPacket here. The ActionPacket for
 			// the initial card play is already sent by playCard() when the card
@@ -13235,7 +13235,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 
 				// Draw new cards (Local Deterministic Draw)
 				for (int i = 0; i < cardsToDraw; i++)
-					drawCard();
+					drawCard(false);
 
 				// Send DrawCards packet to opponent so they know HOW MANY were drawn
 				// (Even in deterministic mode, explicit draw packets help UI sync)
@@ -13414,7 +13414,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 
 				// Both Host and Client draw locally. drawCard() generates the animation.
 				for (int i = 0; i < cardsToDraw; ++i) {
-					drawCard();
+					drawCard(false);
 				}
 
 				// Ensure any newly-added cards are normalized to full scale so
@@ -15297,7 +15297,7 @@ int ofApp::computePassiveLuck(int playerIndex) {
 	return count;
 }
 //--------------------------------------------------------------
-void ofApp::drawCard() {
+void ofApp::drawCard(bool sendPacket) {
 	if (players.empty() || currentPlayerIndex < 0) return;
 	Player & currentPlayer = players[currentPlayerIndex];
 
@@ -15312,7 +15312,7 @@ void ofApp::drawCard() {
 
 	// HOWEVER: We still need to tell the opponent "I drew a card" so they can
 	// decrement their view of our deck size and play the animation.
-	if (isMultiplayer && isCurrentPlayerLocal() && !processingNetworkPacket) {
+	if (sendPacket && isMultiplayer && isCurrentPlayerLocal() && !processingNetworkPacket) {
 		DrawCardsPacket req = {};
 		req.type = PKT_DRAW_CARDS;
 		req.playerID = myLocalPlayerID;
@@ -22985,9 +22985,9 @@ void ofApp::drawInitiativeRoll() {
 			string msg = "";
 
 			if (activeDiceRolls[0].result > activeDiceRolls[1].result)
-				msg = getPlayerSteamName(0) + " Wins!";
+				msg = getPlayerSteamName(0) + " goes first.";
 			else if (activeDiceRolls[1].result > activeDiceRolls[0].result)
-				msg = getPlayerSteamName(1) + " Wins!";
+				msg = getPlayerSteamName(1) + " goes first.";
 			else
 				msg = "Tie! Rerolling...";
 
@@ -23007,25 +23007,51 @@ void ofApp::drawInitiativeRoll() {
 void ofApp::drawDraftScreen() {
 	// 1. Construct Specific Instruction Text
 	string pName = (draftPlayerIndex == 0) ? player0SteamName : player1SteamName;
-	string msg = "";
+	string header = "";
+	string instr = "";
 
 	if (isInGameDraft) {
-		msg = pName + ": Key Found! Choose 1 Card (Get 1 Copy)";
-	} else if (draftStage == 0) {
-		msg = pName + " - Class 1: Choose 2 (Get 2 Copies)";
+		header = pName + ": Key Found!";
+		instr = "Choose 1 Card (Get 1 Copy)";
 	} else {
-		msg = pName + " - Class 2: Choose 1 (Get 1 Copy)";
+		// Header shows which draft this is for the player whose draft it is
+		if (draftStage == 0)
+			header = pName + "'s first draft";
+		else
+			header = pName + "'s second draft";
+
+		// Instruction wording differs when it's your turn
+		bool isMyTurnToDraft = (!players.empty() && players[draftPlayerIndex].playerID == myLocalPlayerID);
+		if (draftStage == 0) {
+			if (isMyTurnToDraft)
+				instr = "Choose two (get a duplicate of each)";
+			else
+				instr = "Choose 2 (Get 2 Copies)";
+		} else {
+			if (isMyTurnToDraft)
+				instr = "Choose one";
+			else
+				instr = "Choose 1 (Get 1 Copy)";
+		}
 	}
 
-	// 2. Draw Instruction Text (Top Center, Shadowed)
-	ofRectangle bbox = titleFont.getStringBoundingBox(msg, 0, 0);
-	float tx = (ofGetWidth() / 2.0f) - (bbox.width / 2.0f);
+	// 2. Draw Header (Top Center, Shadowed)
+	ofRectangle headerBox = titleFont.getStringBoundingBox(header, 0, 0);
+	float tx = (ofGetWidth() / 2.0f) - (headerBox.width / 2.0f);
 	float ty = ofGetHeight() * 0.25f;
-
 	ofSetColor(0, 0, 0, 255);
-	titleFont.drawString(msg, tx + 2, ty + 2);
+	titleFont.drawString(header, tx + 2, ty + 2);
 	ofSetColor(ofColor::white);
-	titleFont.drawString(msg, tx, ty);
+	titleFont.drawString(header, tx, ty);
+
+	// 2b. Draw Instruction line below header
+	ofRectangle instrBox = titleFont.getStringBoundingBox(instr, 0, 0);
+	float instrTx = (ofGetWidth() / 2.0f) - (instrBox.width / 2.0f);
+	float instrTy = ty + headerBox.height + 8;
+	ofSetColor(0, 0, 0, 255);
+	titleFont.drawString(instr, instrTx + 2, instrTy + 2);
+	ofSetColor(ofColor::white);
+	titleFont.drawString(instr, instrTx, instrTy);
 
 	// 2b. Draw Class Tier Text Below Prompt
 	std::string classTierText = "";
@@ -23046,7 +23072,8 @@ void ofApp::drawDraftScreen() {
 	if (!classTierText.empty()) {
 		classBox = titleFont.getStringBoundingBox(classTierText, 0, 0);
 		classTx = (ofGetWidth() / 2.0f) - (classBox.width / 2.0f);
-		classTy = ty + bbox.height + 18;
+		// Position class tier text below the instruction line
+		classTy = instrTy + instrBox.height + 12;
 		ofSetColor(0, 0, 0, 255);
 		titleFont.drawString(classTierText, classTx + 2, classTy + 2);
 		ofSetColor(classTierColor);
@@ -23060,8 +23087,9 @@ void ofApp::drawDraftScreen() {
 	float startX = (ofGetWidth() - (3 * cardW + 2 * spacing)) / 2;
 	float startY = ofGetHeight() / 2 - cardH / 2;
 
-	// Prevent overlap: ensure the top text (prompt + class text if present) clears space above the cards
-	float topTextBottom = ty + bbox.height;
+	// Prevent overlap: ensure the top text (header + instruction + class text if present) clears space above the cards
+	float topTextBottom = ty + headerBox.height;
+	if (!instr.empty()) topTextBottom = instrTy + instrBox.height;
 	if (!classTierText.empty()) {
 		topTextBottom = classTy + classBox.height;
 	}

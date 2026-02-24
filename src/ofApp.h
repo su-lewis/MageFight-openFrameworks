@@ -588,7 +588,7 @@ private:
 	// -------------------------------------------------------------------------
 	//                              GAMEPLAY LOGIC
 	// -------------------------------------------------------------------------
-	void drawCard();
+	void drawCard(bool sendPacket = true);
 	CardPlayResult playCard(int cardIndex, int targetX, int targetY);
 	void applyMovement(int playerIndex, int targetX, int targetY, int newAP, const std::vector<glm::vec2> * pathOverride = nullptr);
 	void createCardDisplay(const Card & card, int playerIndex); // Create card display animation
