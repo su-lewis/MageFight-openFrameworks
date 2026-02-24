@@ -24,6 +24,7 @@
 #pragma GCC diagnostic ignored "-Wunused-but-set-variable"
 #pragma GCC diagnostic ignored "-Wunused-value"
 // Helper: Check for key under (x, y) and trigger pickup/draft if present
+
 void ofApp::checkKeyPickupAndDraftAfterSummon(int x, int y, int minionOwnerID) {
 	// Only host or singleplayer should process key pickup
 	if (isMultiplayer && !isHost()) return;
@@ -3636,6 +3637,11 @@ void ofApp::updateGame() {
 		// 4. Add to Board
 		board[minion.x][minion.y].hasPlayer = true;
 		players.push_back(minion);
+
+		// Initialize visual position for this newly spawned skeleton (host/singleplayer)
+		int spawnedIdx = (int)players.size() - 1;
+		players[spawnedIdx].visualPos = gridToWorld(players[spawnedIdx].x, players[spawnedIdx].y);
+		ofLogNotice("Raise Dead") << "Initialized visualPos for spawned skeleton idx=" << spawnedIdx << " pos=" << players[spawnedIdx].visualPos.x << "," << players[spawnedIdx].visualPos.y << "," << players[spawnedIdx].visualPos.z;
 		// Authoritative shuffle for the new minion
 		int newSkeletonIdx = (int)players.size() - 1;
 		shuffleGameVector(players[newSkeletonIdx].deck, newSkeletonIdx);
@@ -5012,7 +5018,8 @@ void ofApp::updateGame() {
 						for (int k = 0; k < (int)floatingKeyInstances.size(); ++k) {
 							if (floatingKeyInstances[k].pos.x == tx && floatingKeyInstances[k].pos.y == ty) {
 								if (earthquakeUnits[i].playerIndex >= 0 && earthquakeUnits[i].playerIndex < (int)players.size()) {
-									int pid = players[earthquakeUnits[i].playerIndex].playerID;
+									// FIX: Pass the non-minion owner ID so the draft successfully opens for the player
+									int pid = players[earthquakeUnits[i].playerIndex].isMinion ? players[earthquakeUnits[i].playerIndex].ownerID : players[earthquakeUnits[i].playerIndex].playerID;
 									checkKeyPickupAndDraftAfterSummon(tx, ty, pid);
 								}
 								break; // key handled (helper erases instance)
@@ -5074,7 +5081,8 @@ void ofApp::updateGame() {
 						// Check for keys at the new position and trigger draft pickup if present.
 						// Use the player's network ID so minion owners resolve to their non-minion owner.
 						if (unit.playerIndex >= 0 && unit.playerIndex < (int)players.size()) {
-							int pid = players[unit.playerIndex].playerID;
+							// FIX: Pass the non-minion owner ID so the draft successfully opens for the player
+							int pid = players[unit.playerIndex].isMinion ? players[unit.playerIndex].ownerID : players[unit.playerIndex].playerID;
 							checkKeyPickupAndDraftAfterSummon(unit.startGrid.x, unit.startGrid.y, pid);
 						}
 
@@ -5489,21 +5497,28 @@ void ofApp::updateGame() {
 						resultText = "Rolled " + ofToString(roll.result);
 					} else {
 						// Multiple dice - show individual rolls in order, then total
-						resultText = "Rolled ";
-						for (size_t i = 0; i < groupRolls.size(); i++) {
-							resultText += ofToString(groupRolls[i]->result);
-							total += groupRolls[i]->result;
-							if (i < groupRolls.size() - 1) {
-								resultText += " + ";
+						if (checkPurpose == PURPOSE_EARTHQUAKE_DISTANCE || checkPurpose == PURPOSE_EARTHQUAKE_DAMAGE) {
+							// FIX: Do not sum or show global UI text for individual earthquake rolls
+							resultText = "";
+						} else {
+							resultText = "Rolled ";
+							for (size_t i = 0; i < groupRolls.size(); i++) {
+								resultText += ofToString(groupRolls[i]->result);
+								total += groupRolls[i]->result;
+								if (i < groupRolls.size() - 1) {
+									resultText += " + ";
+								}
 							}
+							resultText += " = " + ofToString(total);
 						}
-						resultText += " = " + ofToString(total);
 					}
 				}
 
 				// Set the text for display (works for ALL dice purposes)
-				diceRollResultText = resultText;
-				diceRollResultStartTime = ofGetElapsedTimef();
+				if (!resultText.empty()) {
+					diceRollResultText = resultText;
+					diceRollResultStartTime = ofGetElapsedTimef();
+				}
 			}
 
 			// CORRECTED LOGIC: Check for DEBUG first. If it's not a debug roll,
@@ -6804,6 +6819,34 @@ void ofApp::drawGame() {
 					modelMat = glm::translate(modelMat, glm::vec3(0, 2.0f, 0));
 				}
 
+				// Apply model's internal transform (scale / rotation) so shadow depth
+				// sampling matches the opaque pass geometry.
+				if (player.isSkeleton) {
+					modelMat = modelMat * skeletonModel.getModelMatrix();
+				} else if (player.isGolem) {
+					modelMat = modelMat * golemModel.getModelMatrix();
+				} else if (player.isWolf) {
+					modelMat = modelMat * wolfModel.getModelMatrix();
+				} else if (player.isHellhound) {
+					modelMat = modelMat * hellhoundModel.getModelMatrix();
+				} else if (player.isDemon) {
+					modelMat = modelMat * demonModel.getModelMatrix();
+				} else if (player.inTortoiseForm) {
+					modelMat = modelMat * tortoiseModel.getModelMatrix();
+				} else if (player.isKobold) {
+					modelMat = modelMat * koboldModel.getModelMatrix();
+				} else if (player.isKoboldKing) {
+					modelMat = modelMat * koboldKingModel.getModelMatrix();
+				} else if (player.isFaerie) {
+					modelMat = modelMat * faerieModel.getModelMatrix();
+				} else if (player.isWallUnit) {
+					modelMat = modelMat * wallUnitModel.getModelMatrix();
+				} else if (player.isAssistant) {
+					modelMat = modelMat * assistantModel.getModelMatrix();
+				} else {
+					modelMat = modelMat * playerModel.getModelMatrix();
+				}
+
 				shadowDepthShader.setUniformMatrix4f("uModel", modelMat);
 
 				// Draw the appropriate model meshes into the depth buffer
@@ -7168,6 +7211,8 @@ void ofApp::drawGame() {
 													  << " texSize=" << (skeletonTexture.isAllocated() ? (std::to_string(skeletonTexture.getWidth()) + "x" + std::to_string(skeletonTexture.getHeight())) : "0x0");
 
 								ofMatrix4x4 modelMat = ofGetCurrentMatrix(OF_MATRIX_MODELVIEW);
+								// Include model's internal matrix so PBR uses the correct scale/rotation
+								modelMat = modelMat * skeletonModel.getModelMatrix();
 								ofMatrix4x4 viewMat = activeCam.getModelViewMatrix();
 								ofMatrix4x4 projMat = activeCam.getProjectionMatrix();
 								ofMatrix4x4 viewProj = projMat * viewMat;
@@ -7293,6 +7338,7 @@ void ofApp::drawGame() {
 					ofRotateYDeg(90);
 					if (pbrShaderLoaded) {
 						ofMatrix4x4 modelMat = ofGetCurrentMatrix(OF_MATRIX_MODELVIEW);
+						modelMat = modelMat * golemModel.getModelMatrix();
 						ofMatrix4x4 viewMat = activeCam.getModelViewMatrix();
 						ofMatrix4x4 projMat = activeCam.getProjectionMatrix();
 						ofMatrix4x4 viewProj = projMat * viewMat;
@@ -7340,6 +7386,7 @@ void ofApp::drawGame() {
 					ofScale(0.018f, 0.018f, 0.018f);
 					if (pbrShaderLoaded) {
 						ofMatrix4x4 modelMat = ofGetCurrentMatrix(OF_MATRIX_MODELVIEW);
+						modelMat = modelMat * wolfModel.getModelMatrix();
 						ofMatrix4x4 viewMat = activeCam.getModelViewMatrix();
 						ofMatrix4x4 projMat = activeCam.getProjectionMatrix();
 						ofMatrix4x4 viewProj = projMat * viewMat;
@@ -7392,6 +7439,7 @@ void ofApp::drawGame() {
 					ofTranslate(0, 0.6f, 0);
 					if (pbrShaderLoaded) {
 						ofMatrix4x4 modelMat = ofGetCurrentMatrix(OF_MATRIX_MODELVIEW);
+						modelMat = modelMat * hellhoundModel.getModelMatrix();
 						ofMatrix4x4 viewMat = activeCam.getModelViewMatrix();
 						ofMatrix4x4 projMat = activeCam.getProjectionMatrix();
 						ofMatrix4x4 viewProj = projMat * viewMat;
@@ -7421,6 +7469,7 @@ void ofApp::drawGame() {
 					ofRotateYDeg(90);
 					if (pbrShaderLoaded) {
 						ofMatrix4x4 modelMat = ofGetCurrentMatrix(OF_MATRIX_MODELVIEW);
+						modelMat = modelMat * demonModel.getModelMatrix();
 						ofMatrix4x4 viewMat = activeCam.getModelViewMatrix();
 						ofMatrix4x4 projMat = activeCam.getProjectionMatrix();
 						ofMatrix4x4 viewProj = projMat * viewMat;
@@ -7450,6 +7499,7 @@ void ofApp::drawGame() {
 					ofRotateXDeg(180);
 					if (pbrShaderLoaded) {
 						ofMatrix4x4 modelMat = ofGetCurrentMatrix(OF_MATRIX_MODELVIEW);
+						modelMat = modelMat * tortoiseModel.getModelMatrix();
 						ofMatrix4x4 viewMat = activeCam.getModelViewMatrix();
 						ofMatrix4x4 projMat = activeCam.getProjectionMatrix();
 						ofMatrix4x4 viewProj = projMat * viewMat;
@@ -7484,6 +7534,7 @@ void ofApp::drawGame() {
 					ofTranslate(0, 0.6f, 0);
 					if (pbrShaderLoaded) {
 						ofMatrix4x4 modelMat = ofGetCurrentMatrix(OF_MATRIX_MODELVIEW);
+						modelMat = modelMat * koboldModel.getModelMatrix();
 						ofMatrix4x4 viewMat = activeCam.getModelViewMatrix();
 						ofMatrix4x4 projMat = activeCam.getProjectionMatrix();
 						ofMatrix4x4 viewProj = projMat * viewMat;
@@ -16619,10 +16670,13 @@ CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		// 5. Add to board
 		board[targetX][targetY].hasPlayer = true;
 		players.push_back(minion);
-		int newGolemIdx = (int)players.size() - 1;
-		shuffleGameVector(players[newGolemIdx].deck, newGolemIdx);
-		checkKeyPickupAndDraftAfterSummon(minion.x, minion.y, minion.ownerID);
 
+		// Ensure visual position is initialized for newly summoned minion
+		int newSkeletonIdx = (int)players.size() - 1;
+		players[newSkeletonIdx].visualPos = gridToWorld(players[newSkeletonIdx].x, players[newSkeletonIdx].y);
+		ofLogNotice("Raise Dead") << "Initialized visualPos for new skeleton idx=" << newSkeletonIdx << " pos=" << players[newSkeletonIdx].visualPos.x << "," << players[newSkeletonIdx].visualPos.y << "," << players[newSkeletonIdx].visualPos.z;
+
+		checkKeyPickupAndDraftAfterSummon(minion.x, minion.y, minion.ownerID);
 		// Sort turn order
 		std::sort(players.begin(), players.end(), [](const Player & a, const Player & b) {
 			int ownerA = a.isMinion ? a.ownerID : a.playerID;
@@ -17284,32 +17338,25 @@ CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		std::set<std::pair<int, int>> visited;
 		stack.push_back({ targetX, targetY });
 
+		// Perform flood-fill to count connected wall tiles (8-neighbor connectivity)
+		int linkedCount = 0;
 		while (!stack.empty()) {
-			glm::ivec2 t = stack.back();
+			glm::ivec2 cur = stack.back();
 			stack.pop_back();
-			int tx = t.x, ty = t.y;
-			if (tx < 0 || tx >= BOARD_WIDTH || ty < 0 || ty >= BOARD_HEIGHT) continue;
-			if (!board[tx][ty].hasWall) continue;
-			if (visited.count({ tx, ty })) continue;
-			visited.insert({ tx, ty });
-
-			// push 8 neighbors
-			for (int dx = -1; dx <= 1; dx++) {
-				for (int dy = -1; dy <= 1; dy++) {
+			int wx = cur.x, wy = cur.y;
+			std::pair<int, int> key = { wx, wy };
+			if (visited.count(key)) continue;
+			if (wx < 0 || wx >= BOARD_WIDTH || wy < 0 || wy >= BOARD_HEIGHT) continue;
+			if (!board[wx][wy].hasWall) continue;
+			visited.insert(key);
+			linkedCount++;
+			for (int dx = -1; dx <= 1; ++dx) {
+				for (int dy = -1; dy <= 1; ++dy) {
 					if (dx == 0 && dy == 0) continue;
-					int nx = tx + dx, ny = ty + dy;
-					if (nx >= 0 && nx < BOARD_WIDTH && ny >= 0 && ny < BOARD_HEIGHT) {
-						if (board[nx][ny].hasWall && !visited.count({ nx, ny })) {
-							stack.push_back({ nx, ny });
-						}
-					}
+					stack.push_back({ wx + dx, wy + dy });
 				}
 			}
 		}
-
-		int linkedCount = (int)visited.size();
-		if (linkedCount <= 0) break;
-
 		// Grant fortification equal to number of linked walls
 		currentPlayer.fortification += linkedCount;
 		spawnFloatingText(gridToWorld(currentPlayer.x, currentPlayer.y), "+" + ofToString(linkedCount) + " Fortify", ofColor::lightGray);
@@ -17482,7 +17529,6 @@ CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		// 5. Multiplayer: notify host of the card play so AP and played-pile stay authoritative
 		if (isMultiplayer) {
 			players[currentPlayerIndex].ap = currentAP;
-			sendActionPacket(cardIndex, -1, -1, playedCard.cost, 0, playedCard.name);
 		}
 
 		// 6. Enter Selection Mode
@@ -17624,15 +17670,16 @@ CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 
 	// --- CASE: EARTHQUAKE ---
 	case CARD_EARTHQUAKE: {
+		ofLogNotice("Earthquake") << "CARD_EARTHQUAKE triggered by playerIndex=" << currentPlayerIndex << " playerID=" << currentPlayer.playerID;
 		// Multiplayer clients should NOT start the earthquake locally. Host is authoritative.
 		if (isMultiplayer && !isHost()) {
+			ofLogNotice("Earthquake") << "Client played Earthquake: deferring to host (waiting for EarthquakeBegin)";
 			// Consume AP and remove card locally for responsive UI, but wait for host to start earthquake
 			currentAP -= costToPay;
 			currentPlayer.playedCardsPile.push_back(playedCard);
 			currentPlayer.cardsPlayedThisTurn.push_back(playedCard.type);
 			currentPlayer.hand.erase(currentPlayer.hand.begin() + cardIndex);
 			players[currentPlayerIndex].ap = currentAP;
-			sendActionPacket(cardIndex, -1, -1, playedCard.cost, 0, playedCard.name);
 			isWaitingForEarthquakeBegin = true;
 			return CARD_PLAYED_IMMEDIATELY;
 		}
@@ -17703,6 +17750,7 @@ CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 				activeDiceRolls[earthquakeUnits[i].diceIndex].associatedUnit = earthquakeUnits[i].playerIndex;
 			}
 		}
+		ofLogNotice("Earthquake") << "Host started earthquake dice for " << earthquakeUnits.size() << " units";
 
 		return CARD_PLAYED_IMMEDIATELY; // Cleanup handled above
 	}
@@ -23569,13 +23617,13 @@ void ofApp::processNetworkPackets() {
 				// updates to be ignored). Use `continue` to keep processing other
 				// queued packets instead of `return` which exits packet loop.
 				static int lastProcessedTurnPlayer = -1;
-				static int lastProcessedTurnTotal = -1;
-				if (tpk->currentPlayerIndex == lastProcessedTurnPlayer && tpk->finalTotal == lastProcessedTurnTotal) {
-					ofLogNotice("Network") << "Ignoring duplicate TurnStart packet (player=" << tpk->currentPlayerIndex << " total=" << tpk->finalTotal << ")";
+				static uint32_t lastProcessedTurnSeq = 0;
+				if (tpk->currentPlayerIndex == lastProcessedTurnPlayer && header->seq == lastProcessedTurnSeq) {
+					ofLogNotice("Network") << "Ignoring duplicate TurnStart packet (player=" << tpk->currentPlayerIndex << " seq=" << header->seq << ")";
 					continue;
 				}
 				lastProcessedTurnPlayer = tpk->currentPlayerIndex;
-				lastProcessedTurnTotal = tpk->finalTotal;
+				lastProcessedTurnSeq = header->seq;
 
 				if (tpk->currentPlayerIndex >= 0 && tpk->currentPlayerIndex < (int)players.size()) {
 					// Set up turn state
@@ -24185,6 +24233,10 @@ void ofApp::processNetworkPackets() {
 						board[tx][ty].hasPlayer = true;
 						players.push_back(minion);
 						int newIdx = (int)players.size() - 1;
+
+						// Initialize visual position for remote-synced minion
+						players[newIdx].visualPos = gridToWorld(players[newIdx].x, players[newIdx].y);
+						ofLogNotice("Network") << "Initialized visualPos for remote minion idx=" << newIdx << " pos=" << players[newIdx].visualPos.x << "," << players[newIdx].visualPos.y << "," << players[newIdx].visualPos.z;
 						ofLogNotice("Network") << "Placed summoned minion (client-side): idx=" << newIdx << " type=" << (int)psk->minionType << " owner=" << minion.ownerID << " HP=" << minion.maxHealth << " AP=" << minion.ap;
 						shuffleGameVector(players[newIdx].deck, newIdx);
 						checkKeyPickupAndDraftAfterSummon(minion.x, minion.y, minion.ownerID);
@@ -25741,9 +25793,26 @@ void ofApp::executeOpponentCardPlay(const ActionPacket & pkt) {
 
 	if (result == CARD_NOT_PLAYABLE) {
 		ofLogError("Network") << "Opponent playCard failed locally! Sync issue likely.";
-		// Force cleanup since playCard didn't consume it
-		if (opponentPlayer.hand.size() > static_cast<size_t>(tempCardIndex)) {
-			opponentPlayer.hand.erase(opponentPlayer.hand.begin() + tempCardIndex);
+		// Force cleanup since playCard didn't consume it.
+		// Be defensive: only erase if the card at tempCardIndex still matches
+		// the expected card name. Otherwise search for the named card and remove
+		// the first matching instance to avoid deleting an unrelated card.
+		if (tempCardIndex >= 0) {
+			if (tempCardIndex < (int)opponentPlayer.hand.size() && opponentPlayer.hand[tempCardIndex].name == cardName) {
+				opponentPlayer.hand.erase(opponentPlayer.hand.begin() + tempCardIndex);
+			} else {
+				bool erased = false;
+				for (size_t i = 0; i < opponentPlayer.hand.size(); ++i) {
+					if (opponentPlayer.hand[i].name == cardName) {
+						opponentPlayer.hand.erase(opponentPlayer.hand.begin() + i);
+						erased = true;
+						break;
+					}
+				}
+				if (!erased) {
+					ofLogNotice("Network") << "Cleanup: expected card '" << cardName << "' not found in opponent hand; nothing erased.";
+				}
+			}
 		}
 	} else {
 		// playCard succeeded. It consumed the AP and removed the card from hand.
