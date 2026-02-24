@@ -1,5 +1,3 @@
-// --- Draw Card Draw Animations (on top of board, below UI hand) ---
-// --- Draw Card Animations ---
 #include "ofApp.h"
 #include "GLFW/glfw3.h"
 #include "SteamManager.h"
@@ -13539,9 +13537,10 @@ void ofApp::mousePressed(int x, int y, int button) {
 
 			// --- GHOST FORM CHECK ---
 			Player & p = players[currentPlayerIndex];
-			if (p.inGhostForm && board[p.x][p.y].hasWall) {
+			// Only block end-turn if the player clicked to enter the wall themselves.
+			if (p.inGhostForm && board[p.x][p.y].hasWall && p.enteredWallByClick) {
 				spawnFloatingText(gridToWorld(p.x, p.y), "Cannot end turn in wall!", ofColor::red);
-				ofLogNotice("Game") << "Prevented ending turn inside wall (Ghost Form).";
+				ofLogNotice("Game") << "Prevented ending turn inside wall (Ghost Form, clicked in).";
 				return;
 			}
 			// ------------------------
@@ -13640,10 +13639,28 @@ void ofApp::mousePressed(int x, int y, int button) {
 
 						ofLogNotice("APDebug") << "Movement AP recompute: apNow=" << apNow << " currentAP(before)=" << currentAP << " moveCost=" << moveAPCost;
 						if (apNow >= moveAPCost) {
-							currentAP = apNow - moveAPCost;
+							int remainingAP = apNow - moveAPCost;
+
+							// Prevent ghosts from entering a wall if this click would leave them with exactly 1 AP
+							if (isWall && controlledPlayer->inGhostForm && remainingAP == 1) {
+								spawnFloatingText(gridToWorld(controlledPlayer->x, controlledPlayer->y), "Not enough AP to enter wall", ofColor::red);
+								ofLogNotice("Movement") << "Blocked ghost entering wall with only 1 AP remaining.";
+								playerAction = NONE;
+								clearHighlights();
+								return;
+							}
+
+							currentAP = remainingAP;
 
 							// Execute movement locally (client-side prediction)
 							applyMovement(controlledPlayerIndex, gridX, gridY, currentAP, &hoverPath);
+
+							// If we clicked to enter a wall while in ghost form, mark the player so
+							// they cannot end their turn. External effects (earthquake, pushes)
+							// should NOT set this flag.
+							if (isWall && controlledPlayer->inGhostForm) {
+								players[controlledPlayerIndex].enteredWallByClick = true;
+							}
 
 							// Send packet to opponent so they see the movement too
 							if (isMultiplayer) {
@@ -16045,11 +16062,8 @@ CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 	case CARD_RAISE_DEAD: {
 		if (board[targetX][targetY].hasWall || board[targetX][targetY].hasPlayer) break;
 
-		// Clients must defer Raise Dead placement to the host in multiplayer.
-		if (isMultiplayer && isClient()) {
-			sendActionPacket(cardIndex, targetX, targetY, costToPay, 0, playedCard.name);
-			return CARD_PLAYED_IMMEDIATELY;
-		}
+		// In multiplayer, the Host is authoritative for placement; clients still
+		// run the local visual/cleanup path and wait for the Host packet to finalize.
 
 		// 1. Roll for HP
 		pendingSummonTile = glm::vec2(targetX, targetY);
@@ -16107,11 +16121,8 @@ CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		// Validation: Must be empty adjacent tile
 		if (board[targetX][targetY].hasWall || board[targetX][targetY].hasPlayer) break;
 
-		// Clients should not spawn the Kobold King locally in multiplayer.
-		if (isMultiplayer && isClient()) {
-			sendActionPacket(cardIndex, targetX, targetY, costToPay, 0, playedCard.name);
-			return CARD_PLAYED_IMMEDIATELY;
-		}
+		// In multiplayer, the Host is authoritative for placement; clients still
+		// run the local visual/cleanup path and wait for the Host packet to finalize.
 
 		// 1. Calculate Stats based on existing Kobolds
 		int koboldCount = 0;
@@ -16234,11 +16245,8 @@ CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 	case CARD_SUMMON_ASSISTANT: {
 		if (board[targetX][targetY].hasWall || board[targetX][targetY].hasPlayer) break;
 
-		// Clients must defer Assistant placement to the host.
-		if (isMultiplayer && isClient()) {
-			sendActionPacket(cardIndex, targetX, targetY, costToPay, 0, playedCard.name);
-			return CARD_PLAYED_IMMEDIATELY;
-		}
+		// In multiplayer, the Host is authoritative for placement; clients still
+		// run the local visual/cleanup path and wait for the Host packet to finalize.
 
 		// 1. Create Unit
 		Player minion;
@@ -16343,11 +16351,8 @@ CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 	case CARD_SUMMON_FAERIE: {
 		if (board[targetX][targetY].hasWall || board[targetX][targetY].hasPlayer) break;
 
-		// Clients must defer Faerie placement to the host in multiplayer.
-		if (isMultiplayer && isClient()) {
-			sendActionPacket(cardIndex, targetX, targetY, costToPay, 0, playedCard.name);
-			return CARD_PLAYED_IMMEDIATELY;
-		}
+		// In multiplayer, the Host is authoritative for placement; clients still
+		// run the local visual/cleanup path and wait for the Host packet to finalize.
 
 		// 1. Create Faerie Unit
 		Player minion;
@@ -16471,11 +16476,8 @@ CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		// 1. Validation
 		if (board[targetX][targetY].hasWall || board[targetX][targetY].hasPlayer) break;
 
-		// Clients must defer Golem placement to the host in multiplayer.
-		if (isMultiplayer && isClient()) {
-			sendActionPacket(cardIndex, targetX, targetY, costToPay, 0, playedCard.name);
-			return CARD_PLAYED_IMMEDIATELY;
-		}
+		// In multiplayer, the Host is authoritative for placement; clients still
+		// run the local visual/cleanup path and wait for the Host packet to finalize.
 
 		// 2. Determine Golem Type
 		bool isElectric = false;
@@ -16637,11 +16639,8 @@ CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		// 1. Determine Type (Magic vs Normal)
 		bool isMagic = board[targetX][targetY].isMagicWall;
 
-		// Clients must not perform the transform locally in multiplayer.
-		if (isMultiplayer && isClient()) {
-			sendActionPacket(cardIndex, targetX, targetY, costToPay, 0, playedCard.name);
-			return CARD_PLAYED_IMMEDIATELY;
-		}
+		// In multiplayer, the Host is authoritative for placement; clients still
+		// run the local visual/cleanup path and wait for the Host packet to finalize.
 
 		// Save current player's id safely (in case vector reallocates and indices shift)
 		int savedCurrentID = (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) ? players[currentPlayerIndex].playerID : -1;
@@ -16784,11 +16783,8 @@ CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 			break; // Cancel card play
 		}
 
-		// Clients should send the action and not attempt to place wolves locally.
-		if (isMultiplayer && isClient()) {
-			sendActionPacket(cardIndex, -1, -1, costToPay, 0, playedCard.name);
-			return CARD_PLAYED_IMMEDIATELY;
-		}
+		// In multiplayer, the Host is authoritative for placement; clients still
+		// run the local visual/cleanup path and wait for the Host packet to finalize.
 
 		// 2. Pay Cost & Cleanup Hand
 		currentAP -= costToPay;
@@ -16835,11 +16831,8 @@ CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 			break; // Cancel card play
 		}
 
-		// Clients should send the action and not attempt to place kobolds locally.
-		if (isMultiplayer && isClient()) {
-			sendActionPacket(cardIndex, -1, -1, costToPay, 0, playedCard.name);
-			return CARD_PLAYED_IMMEDIATELY;
-		}
+		// In multiplayer, the Host is authoritative for placement; clients still
+		// run the local visual/cleanup path and wait for the Host packet to finalize.
 
 		// 2. Pay Cost & Cleanup Hand
 		currentAP -= costToPay;
@@ -19870,6 +19863,202 @@ glm::quat ofApp::matchFaceToCamera(glm::vec3 faceNormal) {
 	return glm::rotation(faceNormal, target);
 }
 //--------------------------------------------------------------
+glm::quat ofApp::getDiceFaceRotation(int sides, int rawResult, float wobbleAmount) {
+	// Compute the face vector / manual adjustments per dice type then
+	// align it to camera and apply a small Y wobble/yaw.
+	if (sides == 2) {
+		// Coin
+		glm::quat faceRotation;
+		glm::quat flip180X = glm::angleAxis(glm::radians(180.0f), glm::vec3(1, 0, 0));
+		glm::quat rot180Y = glm::angleAxis(glm::radians(180.0f), glm::vec3(0, 1, 0));
+		if (rawResult == 1)
+			faceRotation = glm::quat(1, 0, 0, 0); // Tails
+		else
+			faceRotation = flip180X * rot180Y; // Heads
+
+		glm::quat randomYaw = glm::angleAxis(glm::radians(wobbleAmount), glm::vec3(0, 1, 0));
+		return randomYaw * faceRotation;
+	}
+
+	if (sides == 4) {
+		glm::vec3 faceVec;
+		float correctionDeg = 0.0f;
+		int v = std::min(sides, rawResult);
+		switch (v) {
+		case 1:
+			faceVec = glm::vec3(0, 1, 0);
+			correctionDeg = 0.0f;
+			break;
+		case 2:
+			faceVec = glm::vec3(-0.471f, -0.333f, -0.816f);
+			correctionDeg = 180.0f;
+			break;
+		case 3:
+			faceVec = glm::vec3(-0.471f, -0.333f, 0.816f);
+			correctionDeg = 0.0f;
+			break;
+		default:
+			faceVec = glm::vec3(0.943f, -0.333f, 0.0f);
+			correctionDeg = 180.0f;
+			break;
+		}
+		glm::quat align = matchFaceToCamera(faceVec);
+		glm::quat manualRot = glm::angleAxis(glm::radians(correctionDeg), glm::vec3(0, 1, 0));
+		glm::quat wobble = glm::angleAxis(glm::radians(wobbleAmount), glm::vec3(0, 1, 0));
+		return wobble * manualRot * align;
+	}
+
+	if (sides == 6) {
+		glm::vec3 faceVec;
+		int v = std::min(sides, rawResult);
+		switch (v) {
+		case 1:
+			faceVec = glm::vec3(0, 0, 1);
+			break; // Front
+		case 2:
+			faceVec = glm::vec3(0, 1, 0);
+			break; // Top
+		case 3:
+			faceVec = glm::vec3(1, 0, 0);
+			break; // Right
+		case 4:
+			faceVec = glm::vec3(-1, 0, 0);
+			break; // Left
+		case 5:
+			faceVec = glm::vec3(0, -1, 0);
+			break; // Bottom
+		case 6:
+			faceVec = glm::vec3(0, 0, -1);
+			break; // Back
+		default:
+			faceVec = glm::vec3(0, 1, 0);
+			break;
+		}
+		glm::quat align = matchFaceToCamera(faceVec);
+		glm::quat wobble = glm::angleAxis(glm::radians(wobbleAmount), glm::vec3(0, 1, 0));
+		return wobble * align;
+	}
+
+	if (sides == 10) {
+		glm::vec3 faceVec;
+		int v = std::min(sides, rawResult);
+		switch (v) {
+		case 2:
+			faceVec = glm::vec3(cos(glm::radians(0.0f)), 1.0f, sin(glm::radians(0.0f)));
+			break;
+		case 4:
+			faceVec = glm::vec3(cos(glm::radians(72.0f)), 1.0f, sin(glm::radians(72.0f)));
+			break;
+		case 6:
+			faceVec = glm::vec3(cos(glm::radians(144.0f)), 1.0f, sin(glm::radians(144.0f)));
+			break;
+		case 8:
+			faceVec = glm::vec3(cos(glm::radians(216.0f)), 1.0f, sin(glm::radians(216.0f)));
+			break;
+		case 10:
+			faceVec = glm::vec3(cos(glm::radians(288.0f)), 1.0f, sin(glm::radians(288.0f)));
+			break;
+		case 1:
+			faceVec = glm::vec3(cos(glm::radians(36.0f)), -1.0f, sin(glm::radians(36.0f)));
+			break;
+		case 3:
+			faceVec = glm::vec3(cos(glm::radians(108.0f)), -1.0f, sin(glm::radians(108.0f)));
+			break;
+		case 5:
+			faceVec = glm::vec3(cos(glm::radians(180.0f)), -1.0f, sin(glm::radians(180.0f)));
+			break;
+		case 7:
+			faceVec = glm::vec3(cos(glm::radians(252.0f)), -1.0f, sin(glm::radians(252.0f)));
+			break;
+		case 9:
+			faceVec = glm::vec3(cos(glm::radians(324.0f)), -1.0f, sin(glm::radians(324.0f)));
+			break;
+		default:
+			faceVec = glm::vec3(0, 1, 0);
+			break;
+		}
+		glm::quat align = matchFaceToCamera(faceVec);
+		glm::quat wobble = glm::angleAxis(glm::radians(wobbleAmount), glm::vec3(0, 1, 0));
+		return wobble * align;
+	}
+
+	if (sides == 20) {
+		glm::vec3 v;
+		int n = std::min(sides, rawResult);
+		switch (n) {
+		case 20:
+			v = glm::vec3(0, 1, 0);
+			break;
+		case 1:
+			v = glm::vec3(0, -1, 0);
+			break;
+		case 2:
+			v = glm::vec3(0.894, 0.447, 0.0);
+			break;
+		case 8:
+			v = glm::vec3(0.276, 0.447, 0.851);
+			break;
+		case 14:
+			v = glm::vec3(-0.724, 0.447, 0.526);
+			break;
+		case 12:
+			v = glm::vec3(-0.724, 0.447, -0.526);
+			break;
+		case 18:
+			v = glm::vec3(0.276, 0.447, -0.851);
+			break;
+		case 4:
+			v = glm::vec3(0.724, 0.1, 0.526);
+			break;
+		case 6:
+			v = glm::vec3(-0.276, 0.1, 0.851);
+			break;
+		case 10:
+			v = glm::vec3(-0.894, 0.1, 0.0);
+			break;
+		case 16:
+			v = glm::vec3(-0.276, 0.1, -0.851);
+			break;
+		case 19:
+			v = glm::vec3(0.724, 0.1, -0.526);
+			break;
+		case 17:
+			v = glm::vec3(0.724, -0.1, 0.526);
+			break;
+		case 15:
+			v = glm::vec3(-0.276, -0.1, 0.851);
+			break;
+		case 11:
+			v = glm::vec3(-0.894, -0.1, 0.0);
+			break;
+		case 5:
+			v = glm::vec3(-0.276, -0.1, -0.851);
+			break;
+		case 3:
+			v = glm::vec3(0.724, -0.1, -0.526);
+			break;
+		case 13:
+			v = glm::vec3(0.276, -0.447, 0.851);
+			break;
+		case 9:
+			v = glm::vec3(-0.724, -0.447, 0.526);
+			break;
+		case 7:
+			v = glm::vec3(-0.724, -0.447, -0.526);
+			break;
+		default:
+			v = glm::vec3(0.894, -0.447, 0.0);
+			break;
+		}
+		glm::quat align = matchFaceToCamera(v);
+		glm::quat wobble = glm::angleAxis(glm::radians(wobbleAmount), glm::vec3(0, 1, 0));
+		return wobble * align;
+	}
+
+	// Fallback: no rotation
+	return glm::quat(1, 0, 0, 0);
+}
+//--------------------------------------------------------------
 int ofApp::getGameRandom(int min, int max) {
 	// std::uniform_int_distribution is inclusive for integers
 	std::uniform_int_distribution<int> dist(min, max);
@@ -19979,198 +20168,8 @@ int ofApp::startDiceRoll(int numDice, int sides, DicePurpose purpose, std::strin
 		std::uniform_real_distribution<float> wobbleDist(-25.0f, 25.0f);
 		float wobbleAmount = wobbleDist(visualRNG);
 
-		// --- ROTATION MATH ---
-		// This calculates the Quaternion needed to rotate the 'rawResult' face up towards the camera (0,1,0)
-
-		if (sides == 2) {
-			// Coin
-			glm::quat faceRotation;
-			glm::quat flip180X = glm::angleAxis(glm::radians(180.0f), glm::vec3(1, 0, 0));
-			glm::quat rot180Y = glm::angleAxis(glm::radians(180.0f), glm::vec3(0, 1, 0));
-
-			if (newRoll.rawResult == 1)
-				faceRotation = glm::quat(1, 0, 0, 0); // Tails
-			else
-				faceRotation = flip180X * rot180Y; // Heads
-
-			std::uniform_real_distribution<float> yawDist(-15.0f, 15.0f);
-			glm::quat randomYaw = glm::angleAxis(glm::radians(yawDist(visualRNG)), glm::vec3(0, 1, 0));
-			newRoll.finalQuat = randomYaw * faceRotation;
-
-		} else if (sides == 4) {
-			// D4
-			glm::vec3 faceVec;
-			float correctionDeg = 0.0f;
-			int v = std::min(sides, newRoll.rawResult);
-			switch (v) {
-			case 1:
-				faceVec = glm::vec3(0, 1, 0);
-				correctionDeg = 0.0f;
-				break;
-			case 2:
-				faceVec = glm::vec3(-0.471f, -0.333f, -0.816f);
-				correctionDeg = 180.0f;
-				break;
-			case 3:
-				faceVec = glm::vec3(-0.471f, -0.333f, 0.816f);
-				correctionDeg = 0.0f;
-				break;
-			default:
-				faceVec = glm::vec3(0.943f, -0.333f, 0.0f);
-				correctionDeg = 180.0f;
-				break;
-			}
-			glm::quat align = matchFaceToCamera(faceVec);
-			glm::quat manualRot = glm::angleAxis(glm::radians(correctionDeg), glm::vec3(0, 1, 0));
-			glm::quat wobble = glm::angleAxis(glm::radians(wobbleAmount), glm::vec3(0, 1, 0));
-			newRoll.finalQuat = wobble * manualRot * align;
-		} else if (sides == 6) {
-			// D6 (Fixed for Procedural Mesh: 1=+Z, 2=+Y, 3=+X, 4=-X, 5=-Y, 6=-Z)
-			glm::vec3 faceVec;
-			int v = std::min(sides, newRoll.rawResult);
-			switch (v) {
-			case 1:
-				faceVec = glm::vec3(0, 0, 1);
-				break; // Front
-			case 2:
-				faceVec = glm::vec3(0, 1, 0);
-				break; // Top
-			case 3:
-				faceVec = glm::vec3(1, 0, 0);
-				break; // Right
-			case 4:
-				faceVec = glm::vec3(-1, 0, 0);
-				break; // Left
-			case 5:
-				faceVec = glm::vec3(0, -1, 0);
-				break; // Bottom
-			case 6:
-				faceVec = glm::vec3(0, 0, -1);
-				break; // Back
-			default:
-				faceVec = glm::vec3(0, 1, 0);
-				break;
-			}
-			glm::quat align = matchFaceToCamera(faceVec);
-			glm::quat wobble = glm::angleAxis(glm::radians(wobbleAmount), glm::vec3(0, 1, 0));
-			newRoll.finalQuat = wobble * align;
-		} else if (sides == 10) {
-			// D10
-			glm::vec3 faceVec;
-			int v = std::min(sides, newRoll.rawResult);
-
-			switch (v) {
-			case 2:
-				faceVec = glm::vec3(cos(glm::radians(0.0f)), 1.0f, sin(glm::radians(0.0f)));
-				break;
-			case 4:
-				faceVec = glm::vec3(cos(glm::radians(72.0f)), 1.0f, sin(glm::radians(72.0f)));
-				break;
-			case 6:
-				faceVec = glm::vec3(cos(glm::radians(144.0f)), 1.0f, sin(glm::radians(144.0f)));
-				break;
-			case 8:
-				faceVec = glm::vec3(cos(glm::radians(216.0f)), 1.0f, sin(glm::radians(216.0f)));
-				break;
-			case 10:
-				faceVec = glm::vec3(cos(glm::radians(288.0f)), 1.0f, sin(glm::radians(288.0f)));
-				break;
-			case 1:
-				faceVec = glm::vec3(cos(glm::radians(36.0f)), -1.0f, sin(glm::radians(36.0f)));
-				break;
-			case 3:
-				faceVec = glm::vec3(cos(glm::radians(108.0f)), -1.0f, sin(glm::radians(108.0f)));
-				break;
-			case 5:
-				faceVec = glm::vec3(cos(glm::radians(180.0f)), -1.0f, sin(glm::radians(180.0f)));
-				break;
-			case 7:
-				faceVec = glm::vec3(cos(glm::radians(252.0f)), -1.0f, sin(glm::radians(252.0f)));
-				break;
-			case 9:
-				faceVec = glm::vec3(cos(glm::radians(324.0f)), -1.0f, sin(glm::radians(324.0f)));
-				break;
-			default:
-				faceVec = glm::vec3(0, 1, 0);
-				break;
-			}
-			glm::quat align = matchFaceToCamera(faceVec);
-			glm::quat wobble = glm::angleAxis(glm::radians(wobbleAmount), glm::vec3(0, 1, 0));
-			newRoll.finalQuat = wobble * align;
-		} else if (sides == 20) {
-			// D20
-			glm::vec3 v;
-			int n = std::min(sides, newRoll.rawResult);
-
-			switch (n) {
-			case 20:
-				v = glm::vec3(0, 1, 0);
-				break;
-			case 1:
-				v = glm::vec3(0, -1, 0);
-				break;
-			case 2:
-				v = glm::vec3(0.894, 0.447, 0.0);
-				break;
-			case 8:
-				v = glm::vec3(0.276, 0.447, 0.851);
-				break;
-			case 14:
-				v = glm::vec3(-0.724, 0.447, 0.526);
-				break;
-			case 12:
-				v = glm::vec3(-0.724, 0.447, -0.526);
-				break;
-			case 18:
-				v = glm::vec3(0.276, 0.447, -0.851);
-				break;
-			case 4:
-				v = glm::vec3(0.724, 0.1, 0.526);
-				break;
-			case 6:
-				v = glm::vec3(-0.276, 0.1, 0.851);
-				break;
-			case 10:
-				v = glm::vec3(-0.894, 0.1, 0.0);
-				break;
-			case 16:
-				v = glm::vec3(-0.276, 0.1, -0.851);
-				break;
-			case 19:
-				v = glm::vec3(0.724, 0.1, -0.526);
-				break;
-			case 17:
-				v = glm::vec3(0.724, -0.1, 0.526);
-				break;
-			case 15:
-				v = glm::vec3(-0.276, -0.1, 0.851);
-				break;
-			case 11:
-				v = glm::vec3(-0.894, -0.1, 0.0);
-				break;
-			case 5:
-				v = glm::vec3(-0.276, -0.1, -0.851);
-				break;
-			case 3:
-				v = glm::vec3(0.724, -0.1, -0.526);
-				break;
-			case 13:
-				v = glm::vec3(0.276, -0.447, 0.851);
-				break;
-			case 9:
-				v = glm::vec3(-0.724, -0.447, 0.526);
-				break;
-			case 7:
-				v = glm::vec3(-0.724, -0.447, -0.526);
-				break;
-			default:
-				v = glm::vec3(0.894, -0.447, 0.0);
-				break;
-			}
-			glm::quat align = matchFaceToCamera(v);
-			glm::quat wobble = glm::angleAxis(glm::radians(wobbleAmount), glm::vec3(0, 1, 0));
-			newRoll.finalQuat = wobble * align;
-		}
+		// --- ROTATION: Delegate to helper to compute face quaternion ---
+		newRoll.finalQuat = getDiceFaceRotation(sides, newRoll.rawResult, wobbleAmount);
 
 		activeDiceRolls.push_back(newRoll);
 	}
@@ -23524,7 +23523,9 @@ void ofApp::processNetworkPackets() {
 					endTurnLocked = false;
 					currentState = STATE_GAMEPLAY; // Transition to gameplay state
 					currentPlayerIndex = tpk->currentPlayerIndex;
-					lastAPDiceNum = (int)tpk->diceNum;
+					// Clamp incoming dice count to the size of the arrays carried in the packet
+					const int MAX_DICE_RESULTS = 8; // defensive: packet arrays are 8 long
+					lastAPDiceNum = std::min((int)tpk->diceNum, MAX_DICE_RESULTS);
 					lastAPDiceSides = (int)tpk->diceSides;
 
 					// Complete turn setup (same as continueNewTurn does)
@@ -23572,7 +23573,8 @@ void ofApp::processNetworkPackets() {
 					currentDiceLabel = diceLabel;
 
 					// Create DiceRoll objects with host-provided results
-					for (int i = 0; i < (int)tpk->diceNum; ++i) {
+					int numDiceToCreate = std::min((int)tpk->diceNum, MAX_DICE_RESULTS);
+					for (int i = 0; i < numDiceToCreate; ++i) {
 						DiceRoll newRoll;
 						newRoll.purpose = PURPOSE_AP;
 						newRoll.sides = (int)tpk->diceSides;
@@ -23582,178 +23584,22 @@ void ofApp::processNetworkPackets() {
 						newRoll.isFinishedVisual = false;
 						newRoll.associatedUnit = currentPlayerIndex;
 
-						// Calculate the final quaternion to show the correct die face
-						int sides = newRoll.sides;
-						int rawRoll = newRoll.rawResult;
-						glm::vec3 faceVec(0, 1, 0); // Default
+						// Use shared helper to compute face rotation and add visual wobble/axis
+						std::uniform_real_distribution<float> axisDist(-1.0f, 1.0f);
+						glm::vec3 rndAxis(axisDist(visualRNG), axisDist(visualRNG), axisDist(visualRNG));
+						if (glm::length(rndAxis) < 0.01f) rndAxis = glm::vec3(0, 1, 0);
+						newRoll.rotationAxis = glm::normalize(rndAxis);
 
-						if (sides == 2) {
-							// Coin
-							glm::quat flip180X = glm::angleAxis(glm::radians(180.0f), glm::vec3(1, 0, 0));
-							glm::quat rot180Y = glm::angleAxis(glm::radians(180.0f), glm::vec3(0, 1, 0));
-							if (rawRoll == 1)
-								newRoll.finalQuat = glm::quat(1, 0, 0, 0); // Tails
-							else
-								newRoll.finalQuat = flip180X * rot180Y; // Heads
-						} else if (sides == 4) {
-							// D4
-							switch (std::min(sides, rawRoll)) {
-							case 1:
-								faceVec = glm::vec3(0, 1, 0);
-								break;
-							case 2:
-								faceVec = glm::vec3(-0.471f, -0.333f, -0.816f);
-								break;
-							case 3:
-								faceVec = glm::vec3(-0.471f, -0.333f, 0.816f);
-								break;
-							default:
-								faceVec = glm::vec3(0.943f, -0.333f, 0.0f);
-								break;
-							}
-							newRoll.finalQuat = matchFaceToCamera(faceVec);
-						} else if (sides == 6) {
-							// D6
-							switch (std::min(sides, rawRoll)) {
-							case 1:
-								faceVec = glm::vec3(0, 0, 1);
-								break;
-							case 2:
-								faceVec = glm::vec3(0, 1, 0);
-								break;
-							case 3:
-								faceVec = glm::vec3(1, 0, 0);
-								break;
-							case 4:
-								faceVec = glm::vec3(-1, 0, 0);
-								break;
-							case 5:
-								faceVec = glm::vec3(0, -1, 0);
-								break;
-							case 6:
-								faceVec = glm::vec3(0, 0, -1);
-								break;
-							default:
-								faceVec = glm::vec3(0, 1, 0);
-								break;
-							}
-							newRoll.finalQuat = matchFaceToCamera(faceVec);
-						} else if (sides == 10) {
-							// D10
-							switch (std::min(sides, rawRoll)) {
-							case 2:
-								faceVec = glm::vec3(cos(glm::radians(0.0f)), 1.0f, sin(glm::radians(0.0f)));
-								break;
-							case 4:
-								faceVec = glm::vec3(cos(glm::radians(72.0f)), 1.0f, sin(glm::radians(72.0f)));
-								break;
-							case 6:
-								faceVec = glm::vec3(cos(glm::radians(144.0f)), 1.0f, sin(glm::radians(144.0f)));
-								break;
-							case 8:
-								faceVec = glm::vec3(cos(glm::radians(216.0f)), 1.0f, sin(glm::radians(216.0f)));
-								break;
-							case 10:
-								faceVec = glm::vec3(cos(glm::radians(288.0f)), 1.0f, sin(glm::radians(288.0f)));
-								break;
-							case 1:
-								faceVec = glm::vec3(cos(glm::radians(36.0f)), -1.0f, sin(glm::radians(36.0f)));
-								break;
-							case 3:
-								faceVec = glm::vec3(cos(glm::radians(108.0f)), -1.0f, sin(glm::radians(108.0f)));
-								break;
-							case 5:
-								faceVec = glm::vec3(cos(glm::radians(180.0f)), -1.0f, sin(glm::radians(180.0f)));
-								break;
-							case 7:
-								faceVec = glm::vec3(cos(glm::radians(252.0f)), -1.0f, sin(glm::radians(252.0f)));
-								break;
-							case 9:
-								faceVec = glm::vec3(cos(glm::radians(324.0f)), -1.0f, sin(glm::radians(324.0f)));
-								break;
-							default:
-								faceVec = glm::vec3(0, 1, 0);
-								break;
-							}
-							newRoll.finalQuat = matchFaceToCamera(faceVec);
-						} else if (sides == 20) {
-							// D20
-							switch (std::min(sides, rawRoll)) {
-							case 20:
-								faceVec = glm::vec3(0, 1, 0);
-								break;
-							case 1:
-								faceVec = glm::vec3(0, -1, 0);
-								break;
-							case 2:
-								faceVec = glm::vec3(0.894, 0.447, 0.0);
-								break;
-							case 8:
-								faceVec = glm::vec3(0.276, 0.447, 0.851);
-								break;
-							case 14:
-								faceVec = glm::vec3(-0.724, 0.447, 0.526);
-								break;
-							case 12:
-								faceVec = glm::vec3(-0.724, 0.447, -0.526);
-								break;
-							case 18:
-								faceVec = glm::vec3(0.276, 0.447, -0.851);
-								break;
-							case 11:
-								faceVec = glm::vec3(-0.894, -0.447, 0.0);
-								break;
-							case 5:
-								faceVec = glm::vec3(-0.276, -0.447, -0.851);
-								break;
-							case 19:
-								faceVec = glm::vec3(0.724, -0.447, -0.526);
-								break;
-							case 3:
-								faceVec = glm::vec3(0.724, -0.447, 0.526);
-								break;
-							case 9:
-								faceVec = glm::vec3(-0.276, -0.447, 0.851);
-								break;
-							case 4:
-								faceVec = glm::vec3(0.0, 0.447, 0.894);
-								break;
-							case 16:
-								faceVec = glm::vec3(0.0, 0.447, -0.894);
-								break;
-							case 7:
-								faceVec = glm::vec3(0.851, -0.447, 0.276);
-								break;
-							case 13:
-								faceVec = glm::vec3(-0.851, -0.447, -0.276);
-								break;
-							case 6:
-								faceVec = glm::vec3(0.851, -0.447, -0.276);
-								break;
-							case 15:
-								faceVec = glm::vec3(-0.851, -0.447, 0.276);
-								break;
-							case 10:
-								faceVec = glm::vec3(-0.0, 0.894, 0.447);
-								break;
-							case 17:
-								faceVec = glm::vec3(-0.0, -0.894, -0.447);
-								break;
-							default:
-								faceVec = glm::vec3(0, 1, 0);
-								break;
-							}
-							newRoll.finalQuat = matchFaceToCamera(faceVec);
-						}
+						std::uniform_real_distribution<float> wobbleDist(-25.0f, 25.0f);
+						float wobbleAmount = wobbleDist(visualRNG);
 
-						// Also set rotation axis for the spinning animation
-						newRoll.rotationAxis = glm::vec3(0, 1, 0); // Default Y-axis spin
+						newRoll.finalQuat = getDiceFaceRotation(newRoll.sides, newRoll.rawResult, wobbleAmount);
 
 						activeDiceRolls.push_back(newRoll);
 					}
 
 					int hostTotal = 0;
-					for (int i = 0; i < (int)tpk->diceNum; ++i) {
+					for (int i = 0; i < numDiceToCreate; ++i) {
 						hostTotal += (int)tpk->finalResults[i];
 					}
 					ofLogNotice("Game") << "TurnStart applied locally: player=" << currentPlayerIndex << " AP total=" << hostTotal;
@@ -23988,12 +23834,29 @@ void ofApp::processNetworkPackets() {
 					for (int i = 0; i < dcpkt->numCards; ++i) {
 
 						// Handle empty deck case (Reshuffle logic should have been triggered by Shuffle packet,
-						// but we check discard here just in case to prevent crash)
+						// but we check discard here just in case to prevent crash). To avoid a draw-vs-shuffle
+						// race, apply the next pending shuffle nonce for this player (if any) before moving
+						// cards from discard -> deck so the client never draws from an unshuffled pile.
 						if (p.deck.empty()) {
 							if (!p.discardPile.empty()) {
+								int pid = targetPlayerIndex;
+								// If we're a client and have a pending authoritative shuffle nonce for this player,
+								// apply it to the discard pile before making it the new deck.
+								if (isClient() && pid >= 0 && pid < (int)(sizeof(pendingShuffleNonces) / sizeof(pendingShuffleNonces[0])) && !pendingShuffleNonces[pid].empty()) {
+									uint32_t nonceToApply = pendingShuffleNonces[pid].front();
+									pendingShuffleNonces[pid].pop_front();
+									std::mt19937 shuffleRng(nonceToApply);
+									deterministic_shuffle(p.discardPile, shuffleRng);
+									lastAppliedShuffleNonce[pid] = nonceToApply;
+									ofLogNotice("Network") << "Client: Applied deferred shuffle nonce for player " << pid << " before drawing (nonce=" << nonceToApply << ")";
+								} else {
+									// No authoritative nonce available: fall back to local shuffle to keep UI consistent.
+									shuffleGameVector(p.discardPile, targetPlayerIndex);
+									ofLogNotice("Network") << "Applied local fallback shuffle for player " << targetPlayerIndex << " before drawing.";
+								}
+								// Move shuffled discard into deck
 								p.deck = p.discardPile;
 								p.discardPile.clear();
-								// Note: deterministic_shuffle not called here; rely on PKT_SHUFFLE being sent separately
 							} else {
 								break; // No cards left to draw
 							}
@@ -24159,9 +24022,8 @@ void ofApp::processNetworkPackets() {
 					std::uniform_real_distribution<float> wobbleDist(-25.0f, 25.0f);
 					float wobbleAmount = wobbleDist(visualRNG);
 
-					// Set quaternion to match the received result (simplified - just use final result)
-					// In a more complete implementation, match the face to camera like startDiceRoll does
-					newRoll.finalQuat = glm::angleAxis(glm::radians(wobbleAmount), glm::vec3(0, 1, 0));
+					// Compute a proper face rotation matching the face to camera
+					newRoll.finalQuat = getDiceFaceRotation(newRoll.sides, newRoll.rawResult, wobbleAmount);
 
 					// De-duplication: if we recently created a matching local roll, skip adding this networked duplicate.
 					bool isDuplicate = false;
@@ -25330,16 +25192,29 @@ void ofApp::executeOpponentCardPlay(const ActionPacket & pkt) {
 	}
 	(void)addedTemporaryCard;
 
-	// --- FIX START: FORCE AP FOR REMOTE ACTIONS ---
-	// The opponent already paid the cost on their screen. We must ensure
-	// playCard() doesn't reject it locally due to sync lag.
+	// --- FIX START: ENFORCE AP AUTHORITY FOR REMOTE ACTIONS ---
+	// Simulate the AP cost using the authoritative player state.
+	// If applying the cost would drop AP below zero, this indicates a
+	// mismatch/desync (possibly a malicious packet). Trigger desync.
 	currentAP = opponentPlayer.ap;
-	if (currentAP < cardDef.cost) {
-		ofLogNotice("Sync") << "Forcing AP for opponent action. Local: " << currentAP << " Cost: " << cardDef.cost;
-		currentAP = cardDef.cost;
+	currentAP -= cardDef.cost;
+	if (currentAP < 0) {
+		ofLogError("Sync") << "Desync: opponent action would reduce AP below zero. LocalAP=" << opponentPlayer.ap
+						   << " Cost=" << cardDef.cost << " pkt.updatedAP=" << pkt.updatedAP;
+		currentState = STATE_DESYNC;
+
+		// Restore context before returning
+		currentPlayerIndex = savedCurrentPlayerIndex;
+		if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) {
+			currentAP = players[currentPlayerIndex].ap;
+		} else {
+			currentAP = savedCurrentAP;
+		}
+		return;
 	}
-	// Update the player struct so internal checks inside playCard pass
-	opponentPlayer.ap = pkt.updatedAP;
+	// Do NOT force-set AP upwards here. The packet's `updatedAP` will be
+	// applied later after the play is resolved to keep the client in sync
+	// with the authoritative host state.
 	// --- FIX END ---
 
 	ofLogNotice("Network") << "executeOpponentCardPlay: Executing playCard with cardIndex=" << tempCardIndex << " currentPlayerIndex=" << currentPlayerIndex << " AP=" << currentAP;
@@ -25707,6 +25582,19 @@ void ofApp::executeOpponentCardPlay(const ActionPacket & pkt) {
 			}
 			minion.deck = { dispel, dispel, lesserHeal, lesserHeal, magicBlast };
 
+			// Track played card and AP BEFORE modifying the players vector
+			// to avoid invalidating the 'opponentPlayer' reference.
+			currentAP -= cardDef.cost;
+			opponentPlayer.playedCardsPile.push_back(cardDef);
+			if (opponentPlayer.isReplicatePending) {
+				opponentPlayer.playedCardsPile.push_back(cardDef);
+				opponentPlayer.isReplicatePending = false;
+			}
+			opponentPlayer.cardsPlayedThisTurn.push_back(cardDef.type);
+			if (tempCardIndex >= 0 && tempCardIndex < (int)opponentPlayer.hand.size()) opponentPlayer.hand.erase(opponentPlayer.hand.begin() + tempCardIndex);
+			opponentPlayer.ap = pkt.updatedAP;
+			invalidateTargetCache();
+
 			// Place and register
 			board[tx][ty].hasPlayer = true;
 			players.push_back(minion);
@@ -25744,18 +25632,6 @@ void ofApp::executeOpponentCardPlay(const ActionPacket & pkt) {
 					break;
 				}
 			}
-
-			// Track played card and AP
-			currentAP -= cardDef.cost;
-			opponentPlayer.playedCardsPile.push_back(cardDef);
-			if (opponentPlayer.isReplicatePending) {
-				opponentPlayer.playedCardsPile.push_back(cardDef);
-				opponentPlayer.isReplicatePending = false;
-			}
-			opponentPlayer.cardsPlayedThisTurn.push_back(cardDef.type);
-			if (tempCardIndex >= 0 && tempCardIndex < (int)opponentPlayer.hand.size()) opponentPlayer.hand.erase(opponentPlayer.hand.begin() + tempCardIndex);
-			opponentPlayer.ap = pkt.updatedAP;
-			invalidateTargetCache();
 		}
 		// Restore contexts
 		currentPlayerIndex = savedCurrentPlayerIndex;
@@ -25944,6 +25820,11 @@ void ofApp::applyMovement(int playerIndex, int targetX, int targetY, int newAP, 
 	board[targetX][targetY].hasPlayer = true;
 	p.x = targetX;
 	p.y = targetY;
+
+	// Clear the enteredWallByClick flag if the player is no longer inside a wall
+	if (!board[targetX][targetY].hasWall) {
+		p.enteredWallByClick = false;
+	}
 
 	invalidateTargetCache();
 }

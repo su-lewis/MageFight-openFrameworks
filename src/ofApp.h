@@ -393,6 +393,11 @@ struct Player {
 	int ghostDamageTaken = 0;
 	Card ghostFormCard;
 
+	// Flag set when this player clicked to enter a wall tile (prevents ending turn)
+	// This is NOT set when an external effect (earthquake, push, etc.) places
+	// the player inside a wall.
+	bool enteredWallByClick = false;
+
 	// Piles
 	std::vector<CardType> cardsPlayedThisTurn;
 	std::vector<Card> playedCardsPile;
@@ -733,6 +738,10 @@ private:
 	std::vector<glm::vec2> findShortestPath(glm::vec2 start, glm::vec2 end);
 	std::vector<glm::vec2> findShortestPathForPlayer(int playerIndex, glm::vec2 start, glm::vec2 end);
 	glm::quat matchFaceToCamera(glm::vec3 faceNormal);
+
+	// Helper: compute the final face rotation quaternion for a die given
+	// its `sides`, the `rawResult` (face index), and a visual `wobbleAmount`.
+	glm::quat getDiceFaceRotation(int sides, int rawResult, float wobbleAmount);
 
 	// Targeting Algorithms
 	std::vector<Player *> findCleaveTargets(glm::vec2 direction);
