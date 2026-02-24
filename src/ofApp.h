@@ -548,6 +548,8 @@ public:
 	int getVisualPlayerIndex(int actualPlayerIndex); // Converts actual player index to visual (flipped for client)
 	// Debug helpers
 	bool debugFlatSkeletonDraw = true; // When true, draw a flat unshaded pass to verify visibility
+	// When true, force an unshaded textured draw instead of the PBR shader (debug only)
+	bool debugForceUnshadedDraw = true;
 
 private:
 	// -------------------------------------------------------------------------

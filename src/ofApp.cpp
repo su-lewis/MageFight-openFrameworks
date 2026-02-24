@@ -4380,14 +4380,14 @@ void ofApp::updateGame() {
 	}
 
 	// --- HELLHOUND SUMMON RESOLUTION ---
-	if (isWaitingForHellhoundHP && activeDiceRolls.empty()) {
+	if (isWaitingForHellhoundHP && diceReadySummon) {
 		isWaitingForHellhoundHP = false;
 
 		// --- MULTIPLAYER FIX ---
 		if (isMultiplayer && isClient()) {
-			// Remove only the summon-related dice (HP and any AP roll used for this summon)
+			// Remove only the summon-related dice (HP) — don't remove unrelated visual AP rolls
 			activeDiceRolls.erase(std::remove_if(activeDiceRolls.begin(), activeDiceRolls.end(), [&](const DiceRoll & r) {
-				return (r.purpose == PURPOSE_HP && r.result == pendingSummonRollResult) || (r.purpose == PURPOSE_BONUS_AP && r.result == pendingHellhoundAPResult);
+				return (r.purpose == PURPOSE_HP && r.result == pendingSummonRollResult);
 			}),
 				activeDiceRolls.end());
 			return;
@@ -4488,11 +4488,18 @@ void ofApp::updateGame() {
 				break;
 			}
 		}
+
+		// Clean up the summon HP visual dice entries (host/singleplayer path)
+		activeDiceRolls.erase(std::remove_if(activeDiceRolls.begin(), activeDiceRolls.end(), [&](const DiceRoll & r) {
+			return (r.purpose == PURPOSE_HP && r.result == pendingSummonRollResult);
+		}),
+			activeDiceRolls.end());
+
 		invalidateTargetCache();
 	}
 
 	// --- DEMON SUMMON RESOLUTION ---
-	if (isWaitingForDemonHP && activeDiceRolls.empty()) {
+	if (isWaitingForDemonHP && diceReadySummon) {
 		isWaitingForDemonHP = false;
 
 		// --- MULTIPLAYER FIX ---
@@ -4588,6 +4595,11 @@ void ofApp::updateGame() {
 			}
 		}
 
+		// Clean up the summon HP visual dice entries (host/singleplayer path)
+		activeDiceRolls.erase(std::remove_if(activeDiceRolls.begin(), activeDiceRolls.end(), [&](const DiceRoll & r) {
+			return (r.purpose == PURPOSE_HP && r.result == pendingSummonRollResult);
+		}),
+			activeDiceRolls.end());
 		invalidateTargetCache();
 	}
 
@@ -7138,78 +7150,135 @@ void ofApp::drawGame() {
 						ofPopMatrix();
 					} else {
 						if (pbrShaderLoaded) {
-							// Diagnostic: log skeleton texture and mesh info before draw
-							ofLogNotice("Render") << "Skeleton draw: meshCount=" << skeletonModel.getMeshCount()
-												  << " skeletonTexAllocated=" << (skeletonTexture.isAllocated() ? "yes" : "no")
-												  << " texSize=" << (skeletonTexture.isAllocated() ? (std::to_string(skeletonTexture.getWidth()) + "x" + std::to_string(skeletonTexture.getHeight())) : "0x0");
-
-							ofMatrix4x4 modelMat = ofGetCurrentMatrix(OF_MATRIX_MODELVIEW);
-							ofMatrix4x4 viewMat = activeCam.getModelViewMatrix();
-							ofMatrix4x4 projMat = activeCam.getProjectionMatrix();
-							ofMatrix4x4 viewProj = projMat * viewMat;
-							ofMatrix4x4 normalMat = ofMatrix4x4::getTransposedOf((viewMat * modelMat).getInverse());
-							pbrShader.begin();
-							// Dump GL state for diagnostics
-							GLint prevProgram = 0;
-							glGetIntegerv(GL_CURRENT_PROGRAM, &prevProgram);
-							ofLogNotice("Render") << "GLState before skeleton draw: CUR_PROG=" << prevProgram;
-							GLboolean cullEn = glIsEnabled(GL_CULL_FACE);
-							GLboolean depthEn = glIsEnabled(GL_DEPTH_TEST);
-							ofLogNotice("Render") << "GLState: CULL_FACE=" << (cullEn ? "ENABLED" : "DISABLED") << " DEPTH_TEST=" << (depthEn ? "ENABLED" : "DISABLED");
-							pbrShader.setUniformMatrix4f("uModel", modelMat);
-							pbrShader.setUniformMatrix4f("uViewProj", viewProj);
-							pbrShader.setUniformMatrix4f("uNormalMatrix", normalMat);
-							pbrShader.setUniformMatrix4f("uLightVP", lightViewProj);
-							pbrShader.setUniform3f("lightDir", -0.4f, -1.0f, -0.6f);
-							pbrShader.setUniform3f("lightColor", 1.0f, 1.0f, 1.0f);
-							ofVec3f camP = activeCam.getPosition();
-							pbrShader.setUniform3f("uViewPos", camP.x, camP.y, camP.z);
-							if (skeletonTexture.isAllocated()) {
-								pbrShader.setUniformTexture("albedoTex", skeletonTexture, 0);
-								pbrShader.setUniform1i("useAlbedoTex", 1);
-							} else
-								pbrShader.setUniform1i("useAlbedoTex", 0);
-							pbrShader.setUniform1i("useNormalTex", 0);
-							if (shadowFbo.isAllocated()) pbrShader.setUniformTexture("shadowMap", shadowFbo.getDepthTexture(), 7);
-							// Query bound texture IDs at active units 0 and 7
-							GLint prevActiveTex = 0;
-							glGetIntegerv(GL_ACTIVE_TEXTURE, &prevActiveTex);
-							glActiveTexture(GL_TEXTURE0);
-							GLint bound0 = 0;
-							glGetIntegerv(GL_TEXTURE_BINDING_2D, &bound0);
-							glActiveTexture(GL_TEXTURE7);
-							GLint bound7 = 0;
-							glGetIntegerv(GL_TEXTURE_BINDING_2D, &bound7);
-							glActiveTexture(prevActiveTex);
-							ofLogNotice("Render") << "GLState: boundTex(unit0)=" << bound0 << " boundTex(unit7)=" << bound7;
-							// Compute world-space AABB and screen centroid for diagnostics
-							ofVec3f bbMin(1e9, 1e9, 1e9), bbMax(-1e9, -1e9, -1e9);
-							for (unsigned int mi = 0; mi < skeletonModel.getMeshCount(); ++mi) {
-								auto & mesh = skeletonModel.getMeshHelper(mi).cachedMesh;
-								for (const auto & v : mesh.getVertices()) {
-									ofVec3f wp = ofVec3f(modelMat * ofVec4f(v.x, v.y, v.z, 1.0));
-									bbMin.x = std::min(bbMin.x, wp.x);
-									bbMin.y = std::min(bbMin.y, wp.y);
-									bbMin.z = std::min(bbMin.z, wp.z);
-									bbMax.x = std::max(bbMax.x, wp.x);
-									bbMax.y = std::max(bbMax.y, wp.y);
-									bbMax.z = std::max(bbMax.z, wp.z);
+							if (debugForceUnshadedDraw) {
+								ofLogNotice("Render") << "Forcing unshaded textured skeleton draw (debugForceUnshadedDraw=true)";
+								GLint prevP = 0;
+								glGetIntegerv(GL_CURRENT_PROGRAM, &prevP);
+								glUseProgram(0);
+								if (skeletonTexture.isAllocated()) skeletonTexture.bind();
+								for (unsigned int mi = 0; mi < skeletonModel.getMeshCount(); ++mi) {
+									skeletonModel.getMeshHelper(mi).cachedMesh.drawFaces();
 								}
-							}
-							ofVec3f center((bbMin.x + bbMax.x) * 0.5f, (bbMin.y + bbMax.y) * 0.5f, (bbMin.z + bbMax.z) * 0.5f);
-							ofVec3f screenC = activeCam.worldToScreen(glm::vec3(center.x, center.y, center.z));
-							ofLogNotice("Render") << "Skeleton AABB worldMin=" << bbMin << " worldMax=" << bbMax << " centerScreen=" << screenC;
-
-							for (unsigned int mi = 0; mi < skeletonModel.getMeshCount(); ++mi) {
-								auto & mesh = skeletonModel.getMeshHelper(mi).cachedMesh;
-								ofLogNotice("Render") << "Skeleton mesh[" << mi << "] verts=" << mesh.getNumVertices() << " indices=" << mesh.getNumIndices();
-								mesh.drawFaces();
-								// GL state after draw
-								GLboolean cullAfter = glIsEnabled(GL_CULL_FACE);
-								GLboolean depthAfter = glIsEnabled(GL_DEPTH_TEST);
-								ofLogNotice("Render") << "GLState after mesh draw: CULL_FACE=" << (cullAfter ? "ENABLED" : "DISABLED") << " DEPTH_TEST=" << (depthAfter ? "ENABLED" : "DISABLED");
+								if (skeletonTexture.isAllocated()) skeletonTexture.unbind();
 								GLenum _err = glGetError();
-								if (_err != GL_NO_ERROR) ofLogError("Render") << "GL error after skeleton mesh draw: " << _err;
+								if (_err != GL_NO_ERROR) ofLogError("Render") << "GL error after forced unshaded skeleton draw: " << _err;
+								if (prevP) glUseProgram(prevP);
+							} else {
+								// Diagnostic: log skeleton texture and mesh info before draw
+								ofLogNotice("Render") << "Skeleton draw: meshCount=" << skeletonModel.getMeshCount()
+													  << " skeletonTexAllocated=" << (skeletonTexture.isAllocated() ? "yes" : "no")
+													  << " texSize=" << (skeletonTexture.isAllocated() ? (std::to_string(skeletonTexture.getWidth()) + "x" + std::to_string(skeletonTexture.getHeight())) : "0x0");
+
+								ofMatrix4x4 modelMat = ofGetCurrentMatrix(OF_MATRIX_MODELVIEW);
+								ofMatrix4x4 viewMat = activeCam.getModelViewMatrix();
+								ofMatrix4x4 projMat = activeCam.getProjectionMatrix();
+								ofMatrix4x4 viewProj = projMat * viewMat;
+								ofMatrix4x4 normalMat = ofMatrix4x4::getTransposedOf((viewMat * modelMat).getInverse());
+								pbrShader.begin();
+								// Dump GL state for diagnostics
+								GLint prevProgram = 0;
+								glGetIntegerv(GL_CURRENT_PROGRAM, &prevProgram);
+								ofLogNotice("Render") << "GLState before skeleton draw: CUR_PROG=" << prevProgram;
+								GLboolean cullEn = glIsEnabled(GL_CULL_FACE);
+								GLboolean depthEn = glIsEnabled(GL_DEPTH_TEST);
+								ofLogNotice("Render") << "GLState: CULL_FACE=" << (cullEn ? "ENABLED" : "DISABLED") << " DEPTH_TEST=" << (depthEn ? "ENABLED" : "DISABLED");
+								pbrShader.setUniformMatrix4f("uModel", modelMat);
+								pbrShader.setUniformMatrix4f("uViewProj", viewProj);
+								pbrShader.setUniformMatrix4f("uNormalMatrix", normalMat);
+								pbrShader.setUniformMatrix4f("uLightVP", lightViewProj);
+								pbrShader.setUniform3f("lightDir", -0.4f, -1.0f, -0.6f);
+								pbrShader.setUniform3f("lightColor", 1.0f, 1.0f, 1.0f);
+								ofVec3f camP = activeCam.getPosition();
+								pbrShader.setUniform3f("uViewPos", camP.x, camP.y, camP.z);
+								if (skeletonTexture.isAllocated()) {
+									pbrShader.setUniformTexture("albedoTex", skeletonTexture, 0);
+									pbrShader.setUniform1i("useAlbedoTex", 1);
+								} else
+									pbrShader.setUniform1i("useAlbedoTex", 0);
+								pbrShader.setUniform1i("useNormalTex", 0);
+								if (shadowFbo.isAllocated()) pbrShader.setUniformTexture("shadowMap", shadowFbo.getDepthTexture(), 7);
+								// Query bound texture IDs at active units 0 and 7
+								GLint prevActiveTex = 0;
+								glGetIntegerv(GL_ACTIVE_TEXTURE, &prevActiveTex);
+								glActiveTexture(GL_TEXTURE0);
+								GLint bound0 = 0;
+								glGetIntegerv(GL_TEXTURE_BINDING_2D, &bound0);
+								glActiveTexture(GL_TEXTURE7);
+								GLint bound7 = 0;
+								glGetIntegerv(GL_TEXTURE_BINDING_2D, &bound7);
+								glActiveTexture(prevActiveTex);
+								ofLogNotice("Render") << "GLState: boundTex(unit0)=" << bound0 << " boundTex(unit7)=" << bound7;
+
+								// Dump some PBR uniforms for debugging (readback from currently bound program)
+								GLint curProg = 0;
+								glGetIntegerv(GL_CURRENT_PROGRAM, &curProg);
+								ofLogNotice("Render") << "PBR debug: CUR_PROG=" << curProg;
+								if (curProg != 0) {
+									// Helper lambda to read and log float/uniform arrays
+									auto dumpFloatUniform = [&](const char * name, int count) {
+										GLint loc = glGetUniformLocation(curProg, name);
+										if (loc == -1) {
+											ofLogNotice("Render") << "PBR debug: uniform '" << name << "' not found";
+											return;
+										}
+										std::vector<float> buf(count);
+										glGetUniformfv(curProg, loc, buf.data());
+										std::ostringstream ss;
+										ss << "PBR uniform '" << name << "'[" << count << "] = ";
+										for (int ii = 0; ii < count; ++ii)
+											ss << buf[ii] << (ii + 1 < count ? "," : "");
+										ofLogNotice("Render") << ss.str();
+									};
+
+									auto dumpIntUniform = [&](const char * name) {
+										GLint loc = glGetUniformLocation(curProg, name);
+										if (loc == -1) {
+											ofLogNotice("Render") << "PBR debug: int uniform '" << name << "' not found";
+											return;
+										}
+										GLint val = 0;
+										glGetUniformiv(curProg, loc, &val);
+										ofLogNotice("Render") << "PBR int uniform '" << name << "' = " << val;
+									};
+
+									// Read common uniforms (matrices and flags)
+									dumpFloatUniform("uModel", 16);
+									dumpFloatUniform("uViewProj", 16);
+									dumpFloatUniform("uNormalMatrix", 16);
+									dumpFloatUniform("uLightVP", 16);
+									dumpIntUniform("useAlbedoTex");
+									dumpIntUniform("useNormalTex");
+									dumpIntUniform("shadowMap");
+								}
+								// Compute world-space AABB and screen centroid for diagnostics
+								ofVec3f bbMin(1e9, 1e9, 1e9), bbMax(-1e9, -1e9, -1e9);
+								for (unsigned int mi = 0; mi < skeletonModel.getMeshCount(); ++mi) {
+									auto & mesh = skeletonModel.getMeshHelper(mi).cachedMesh;
+									for (const auto & v : mesh.getVertices()) {
+										ofVec3f wp = ofVec3f(modelMat * ofVec4f(v.x, v.y, v.z, 1.0));
+										bbMin.x = std::min(bbMin.x, wp.x);
+										bbMin.y = std::min(bbMin.y, wp.y);
+										bbMin.z = std::min(bbMin.z, wp.z);
+										bbMax.x = std::max(bbMax.x, wp.x);
+										bbMax.y = std::max(bbMax.y, wp.y);
+										bbMax.z = std::max(bbMax.z, wp.z);
+									}
+								}
+								ofVec3f center((bbMin.x + bbMax.x) * 0.5f, (bbMin.y + bbMax.y) * 0.5f, (bbMin.z + bbMax.z) * 0.5f);
+								ofVec3f screenC = activeCam.worldToScreen(glm::vec3(center.x, center.y, center.z));
+								ofLogNotice("Render") << "Skeleton AABB worldMin=" << bbMin << " worldMax=" << bbMax << " centerScreen=" << screenC;
+
+								for (unsigned int mi = 0; mi < skeletonModel.getMeshCount(); ++mi) {
+									auto & mesh = skeletonModel.getMeshHelper(mi).cachedMesh;
+									ofLogNotice("Render") << "Skeleton mesh[" << mi << "] verts=" << mesh.getNumVertices() << " indices=" << mesh.getNumIndices();
+									mesh.drawFaces();
+									// GL state after draw
+									GLboolean cullAfter = glIsEnabled(GL_CULL_FACE);
+									GLboolean depthAfter = glIsEnabled(GL_DEPTH_TEST);
+									ofLogNotice("Render") << "GLState after mesh draw: CULL_FACE=" << (cullAfter ? "ENABLED" : "DISABLED") << " DEPTH_TEST=" << (depthAfter ? "ENABLED" : "DISABLED");
+									GLenum _err = glGetError();
+									if (_err != GL_NO_ERROR) ofLogError("Render") << "GL error after skeleton mesh draw: " << _err;
+								}
 							}
 							pbrShader.end();
 						} else {
@@ -7973,9 +8042,10 @@ void ofApp::drawGame() {
 			bool highlightedTiles[BOARD_WIDTH][BOARD_HEIGHT];
 			for (int x = 0; x < BOARD_WIDTH; x++) {
 				for (int y = 0; y < BOARD_HEIGHT; y++) {
-					// Include both movement highlights AND red preview tiles without
-					// suppressing previews on green targetable tiles.
-					highlightedTiles[x][y] = board[x][y].isHighlighted || board[x][y].isTargetPreview;
+					// Include movement highlights and preview tiles, but do NOT
+					// draw the white joined outlines for tiles that are green
+					// targetable (we want pure green for targetable squares).
+					highlightedTiles[x][y] = (board[x][y].isHighlighted || board[x][y].isTargetPreview) && !board[x][y].isTargetable;
 				}
 			}
 
