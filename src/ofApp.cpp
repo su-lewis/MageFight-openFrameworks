@@ -9434,7 +9434,8 @@ void ofApp::drawGame() {
 		} else {
 			isBottomPlayer = (currentPlayer.playerID == 0 || currentPlayer.ownerID == 0);
 		}
-		float hoverDirection = isBottomPlayer ? -120.0f : 120.0f;
+		// How much a hovered card is lifted (pixels). Increase so hover feels more pronounced.
+		float hoverDirection = isBottomPlayer ? -140.0f : 140.0f;
 
 		// 1. Determine which card should be drawn LAST (On Top)
 		int indexToDrawLast = -1;
@@ -10648,7 +10649,8 @@ cursor_check_done:;
 		for (size_t i = 0; i < currentPlayer.hand.size(); i++) {
 			// Only enlarge cards when WE are hovering them, not when opponent hovers
 			bool isLocallyHovered = (static_cast<int>(i) == hoveredCardIndex);
-			currentPlayer.hand[i].targetScale = isLocallyHovered ? 2.0f : 1.5f;
+			// Make hover scale more pronounced for better discoverability
+			currentPlayer.hand[i].targetScale = isLocallyHovered ? 2.4f : 1.5f;
 		}
 
 		int activeCardForHighlight = -1;
