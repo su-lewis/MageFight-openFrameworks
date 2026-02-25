@@ -150,6 +150,7 @@ struct DrawCardsPacket : PacketHeader {
 	int32_t playerIndex; // The index of the player/minion who drew
 	int32_t numCards; // Number of cards drawn
 	char cardNames[3][64]; // Names of up to 3 cards drawn (null-terminated strings)
+	uint32_t clientActionID; // client-local monotonic id for reliable deduplication (optional)
 };
 
 // When a player uses an Assistant to reroll AP
@@ -172,6 +173,7 @@ struct RenewedInspirationPacket : PacketHeader {
 	int32_t playerIndex; // Player who played the card
 	int32_t count; // number of cards specified
 	char cardNames[16][64]; // Names of the selected cards to discard (max 16)
+	uint32_t clientActionID; // client-local monotonic id for reliable deduplication (optional)
 };
 
 // For drafting actions (selecting a card, accepting the draft)

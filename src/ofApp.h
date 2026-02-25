@@ -641,10 +641,12 @@ private:
 	float lastSnapshotRequestTime = 0.0f;
 	// Client: handle out-of-order shuffle packets during draft
 	// Client: handle out-of-order shuffle packets during draft
-	// We store a FIFO queue of pending shuffle nonces per player so multiple
-	// shuffle packets received during drafting are applied in order.
-	std::deque<uint32_t> pendingShuffleNonces[2];
-	uint32_t lastAppliedShuffleNonce[2] = { 0, 0 };
+	// We store a FIFO queue of pending shuffle nonces per actor (players and minions)
+	// so multiple shuffle packets received during drafting are applied in order.
+	// Use a map keyed by actor index so minions (which extend the players vector)
+	// are supported without fixed-size arrays.
+	std::unordered_map<int, std::deque<uint32_t>> pendingShuffleNonces;
+	std::unordered_map<int, uint32_t> lastAppliedShuffleNonce;
 
 	// Helper to get synced numbers
 	int getGameRandom(int min, int max);
@@ -803,6 +805,12 @@ private:
 	const float ACTION_RESEND_INTERVAL = 0.75f;
 	const int ACTION_MAX_RESENDS = 3;
 	uint32_t actionClientActionCounter = 0; // monotonic id for action ACK matching
+
+	// Generic client-local monotonic counter used by lightweight watchdog packets
+	uint32_t watchdogClientActionCounter = 0;
+
+	// Host-side: last processed clientActionID per remote player (used to dedupe watchdog packets)
+	uint32_t lastProcessedActionID[2] = { 0, 0 };
 
 	// Debug logging helpers: remember last logged draft options count so we only spam logs
 	int lastLoggedDraftOptionsCount = -1;
