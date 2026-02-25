@@ -993,6 +993,9 @@ private:
 	int pendingKeyDraftPlayer = -1;
 	int pendingKeyDraftClass = 0;
 	float pendingKeyDraftTriggerTime = 0.0f; // time when pending draft was scheduled (used to ensure UI appears first)
+	// When true, `updateGame()` should not send PKT_TURN_START until status effects
+	// (paralysis/poison/onFire/etc.) that occur at the start of a turn have finished.
+	bool isHandlingTurnStartEffects = false;
 	PlayerActionState playerAction = NONE;
 	int selectedPieceGridX = -1;
 	int selectedPieceGridY = -1;

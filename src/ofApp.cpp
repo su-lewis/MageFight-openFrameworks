@@ -2549,7 +2549,10 @@ void ofApp::updateGame() {
 		if (pendingKeyDraftAccept && (ofGetElapsedTimef() - pendingKeyDraftTriggerTime) >= KEY_DRAFT_UI_DELAY && !isWaitingForSummonHealth && !isWaitingForHellhoundHP && !isWaitingForDemonHP) {
 			isInGameDraft = true;
 			draftPlayerIndex = pendingKeyDraftPlayer;
-			generateDraftOptions(pendingKeyDraftClass);
+			// Only generate options here if we haven't already received them from the Host
+			if (!(isMultiplayer && isClient() && !draftOptions.empty())) {
+				generateDraftOptions(pendingKeyDraftClass);
+			}
 			draftPicksRemaining = 1;
 			selectedDraftIndices.clear();
 			currentState = STATE_DRAFTING;
@@ -5596,7 +5599,7 @@ void ofApp::updateGame() {
 					static int lastTurnStartSentPlayer = -1;
 					static int lastTurnStartSentCounter = -1;
 					bool alreadySent = (lastTurnStartSentPlayer == currentPlayerIndex && lastTurnStartSentCounter == globalTurnCounter);
-					if (isHost() && isMultiplayer && allDiceFinished && !alreadySent) {
+					if (isHost() && isMultiplayer && allDiceFinished && !alreadySent && !isHandlingTurnStartEffects) {
 						TurnStartPacket tpk = {};
 						tpk.type = PKT_TURN_START;
 						tpk.playerID = myLocalPlayerID;
@@ -5613,10 +5616,25 @@ void ofApp::updateGame() {
 								tpk.diceNum++;
 							}
 						}
-						steamManager.sendPacket(&tpk, sizeof(tpk));
-						lastTurnStartSentPlayer = currentPlayerIndex;
-						lastTurnStartSentCounter = globalTurnCounter;
-						ofLogNotice("Network") << "Host sent TurnStart (continueNewTurn): player=" << tpk.currentPlayerIndex << " dice=" << (int)tpk.diceNum << " total=" << tpk.finalTotal;
+						// Only send TurnStart if we're not in the middle of handling
+						// turn-start status effects (paralysis/poison/onFire), which
+						// may trigger coin flips or other waits.
+						if (!isHandlingTurnStartEffects) {
+							steamManager.sendPacket(&tpk, sizeof(tpk));
+							// Host: send authoritative checksum immediately after TurnStart so clients can validate
+							if (isHost()) {
+								ChecksumPacket chk = {};
+								chk.type = PKT_CHECKSUM_CHECK;
+								chk.playerID = myLocalPlayerID;
+								chk.checksum = calculateChecksum();
+								chk.turnNumber = globalTurnCounter;
+								steamManager.sendPacket(&chk, sizeof(chk));
+								ofLogNotice("Checksum") << "Host sent Checksum (turn=" << chk.turnNumber << ") value=" << chk.checksum;
+							}
+							lastTurnStartSentPlayer = currentPlayerIndex;
+							lastTurnStartSentCounter = globalTurnCounter;
+							ofLogNotice("Network") << "Host sent TurnStart (continueNewTurn): player=" << tpk.currentPlayerIndex << " dice=" << (int)tpk.diceNum << " total=" << tpk.finalTotal;
+						}
 					}
 				} else if (roll.purpose == PURPOSE_SLEEP_DURATION) {
 					Player * t = getPlayer(pendingDeathTargetIndex);
@@ -14941,6 +14959,9 @@ void ofApp::dragEvent(ofDragInfo dragInfo) { }
 
 //--------------------------------------------------------------
 void ofApp::startNewTurn() {
+	// Mark that turn-start status effects are being handled so updateGame()
+	// does not prematurely send PKT_TURN_START to clients.
+	isHandlingTurnStartEffects = true;
 	ofLogNotice("Turn") << "startNewTurn() called. isMultiplayer=" << isMultiplayer << " currentPlayerIndex=" << currentPlayerIndex << " myLocalPlayerID=" << myLocalPlayerID << " isCurrentPlayerLocal()=" << isCurrentPlayerLocal();
 
 	// If it was MY turn and I am ending it:
@@ -15232,6 +15253,8 @@ void ofApp::startNewTurn() {
 }
 //--------------------------------------------------------------
 void ofApp::continueNewTurn() {
+	// We've finished handling turn-start effects; allow updateGame() to send TurnStart.
+	isHandlingTurnStartEffects = false;
 	endTurnLocked = false;
 	Player & startingPlayer = players[currentPlayerIndex];
 
@@ -25037,64 +25060,10 @@ void ofApp::processNetworkPackets() {
 							tempDraftStatePkt.isInGameDraft = isInGameDraft ? 1 : 0;
 							tempDraftStatePkt.currentPlayerIndex = currentPlayerIndex;
 							steamManager.sendPacket(&tempDraftStatePkt, sizeof(tempDraftStatePkt));
-							// Send TurnStart packet if we transitioned to gameplay
-							if (currentState == STATE_GAMEPLAY) {
-								std::vector<DiceRoll> newAP;
-								for (size_t di = 0; di < activeDiceRolls.size(); ++di) {
-									const DiceRoll & dr = activeDiceRolls[di];
-									if (dr.associatedUnit == currentPlayerIndex && dr.purpose == PURPOSE_AP) {
-										newAP.push_back(dr);
-									}
-								}
-								TurnStartPacket tpk = {};
-								tpk.type = PKT_TURN_START;
-								tpk.playerID = myLocalPlayerID;
-								tpk.currentPlayerIndex = currentPlayerIndex;
-								int pkCount = 0;
-								int32_t total = 0;
-								for (size_t i = 0; i < newAP.size() && pkCount < 8; ++i) {
-									tpk.rawResults[pkCount] = (uint8_t)newAP[i].rawResult;
-									tpk.finalResults[pkCount] = (uint8_t)newAP[i].result;
-									pkCount++;
-									total += newAP[i].result;
-								}
-								tpk.diceNum = (uint8_t)pkCount;
-								tpk.diceSides = (uint8_t)(pkCount > 0 ? newAP[0].sides : 6);
-								tpk.purpose = (uint8_t)PURPOSE_AP;
-								tpk.finalTotal = total;
-								steamManager.sendPacket(&tpk, sizeof(tpk));
-								ofLogNotice("Network") << "Host sent TurnStart (PKT_DRAFT_ACTION): player=" << tpk.currentPlayerIndex << " dice=" << (int)tpk.diceNum << " total=" << tpk.finalTotal;
-								for (int i = 0; i < pkCount; ++i) {
-									ofLogNotice("Network") << "  Host sending dice[" << i << "]: raw=" << (int)tpk.rawResults[i] << " final=" << (int)tpk.finalResults[i];
-								}
-
-								// Host: send authoritative checksum immediately after TurnStart so clients can validate
-								if (isHost()) {
-									ChecksumPacket chk = {};
-									chk.type = PKT_CHECKSUM_CHECK;
-									chk.playerID = myLocalPlayerID;
-									chk.checksum = calculateChecksum();
-									chk.turnNumber = globalTurnCounter;
-									steamManager.sendPacket(&chk, sizeof(chk));
-									ofLogNotice("Checksum") << "Host sent Checksum (turn=" << chk.turnNumber << ") value=" << chk.checksum;
-								}
-
-								// DEBUGGING: Log host's checksum at the same moment client will calculate theirs
-								if (globalTurnCounter == 0) {
-									// Log deck state before checksum
-									for (size_t pi = 0; pi < players.size(); ++pi) {
-										std::string deckStr = "[";
-										for (size_t ci = 0; ci < players[pi].deck.size(); ++ci) {
-											if (ci > 0) deckStr += ",";
-											deckStr += std::to_string((int)players[pi].deck[ci].type) + "(" + std::to_string(players[pi].deck[ci].value) + ")";
-										}
-										deckStr += "]";
-										ofLogNotice("Checksum") << "Host P" << pi << " deck=" << deckStr;
-									}
-									int64_t hostChecksum = calculateChecksum();
-									ofLogNotice("Checksum") << "Host checksum after TurnStart send (turn 0): " << hostChecksum;
-								}
-							}
+							// NOTE: TurnStart packet and checksum send are now handled in updateGame()
+							// once AP dice finish naturally. Removing the manual TurnStart/Checksum
+							// send here prevents duplicate TurnStart packets when dice are still
+							// animating after draft completion.
 						}
 					} else {
 						// Client: apply actions forwarded by host
