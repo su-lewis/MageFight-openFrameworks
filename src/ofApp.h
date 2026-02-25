@@ -249,6 +249,7 @@ struct Card {
 	int cost = 1;
 	TargetingType targeting = TARGET_ANY_TILE;
 	bool drawnThisTurn = false; // Add this
+	bool isAnimating = false; // True while a visual-only animation is running for this card
 	bool isCopied = false;
 	int cardClass = 1;
 };
@@ -302,6 +303,10 @@ struct DrawCardAnimation {
 	int ownerIndex; // Player or minion index
 	bool toMinionHand; // True if animating to minion hand
 	bool startIsScreenSpace = false; // true when startPos is already screen coordinates
+	// If true, do not commit the card into the player's hand when the animation
+	// finishes (we added the card to the hand immediately and the animation is
+	// purely visual). Default true for existing animations that expect commit.
+	bool commitOnFinish = true;
 };
 
 struct Tile {
@@ -1614,6 +1619,21 @@ private:
 
 	// Card draw animation system
 	std::vector<DrawCardAnimation> activeDrawCardAnimations;
+	// Animations for cards moving from hand -> discard (visual only)
+	std::vector<DrawCardAnimation> activeDiscardCardAnimations;
+
+	// Visual shuffle animation played when discard is reshuffled into deck
+	struct ShuffleAnimation {
+		int playerIndex = -1; // 0 or 1
+		ofRectangle deckRect;
+		float startTime = 0.0f;
+		float duration = 0.9f;
+		float currentAlpha = 255.0f;
+		float currentScale = 1.0f;
+		float rotation = 0.0f;
+	};
+
+	std::vector<ShuffleAnimation> activeShuffleAnimations;
 	struct ChatMessage {
 		std::string playerName;
 		std::string message;

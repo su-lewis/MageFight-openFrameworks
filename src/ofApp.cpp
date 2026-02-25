@@ -139,6 +139,15 @@ void ofApp::drawMinionCard(int minionIndex, int ownerIndex) {
 		if (minion.deck.empty()) {
 			if (minion.discardPile.empty()) break;
 			minion.deck = minion.discardPile;
+			// Spawn shuffle animation for this minion's owner deck
+			{
+				ShuffleAnimation s;
+				s.playerIndex = minion.isMinion ? minion.playerID : minion.playerID;
+				s.deckRect = (minion.playerID == 0) ? p0_deckRect : p1_deckRect;
+				s.startTime = ofGetElapsedTimef();
+				s.duration = 0.9f;
+				activeShuffleAnimations.push_back(s);
+			}
 			minion.discardPile.clear();
 			shuffleGameVector(minion.deck, minionIndex);
 		}
@@ -146,10 +155,12 @@ void ofApp::drawMinionCard(int minionIndex, int ownerIndex) {
 			Card drawn = minion.deck.back();
 			minion.deck.pop_back();
 			drawn.drawnThisTurn = true;
-
-			// NOTE: Do NOT add to minion.hand immediately. Use the shared
-			// activeDrawCardAnimations commit path to add the card when the
-			// animation finishes. This prevents duplicates.
+			// Commit the drawn card to the minion's hand immediately (visual-only animation)
+			minion.hand.push_back(drawn);
+			minion.hand.back().currentScale = 1.5f;
+			minion.hand.back().targetScale = 1.5f;
+			minion.hand.back().drawnThisTurn = true;
+			minion.hand.back().isAnimating = true;
 
 			// Setup animation: from minion's deck to minion's hand (simple, quick)
 			DrawCardAnimation anim;
@@ -188,6 +199,7 @@ void ofApp::drawMinionCard(int minionIndex, int ownerIndex) {
 			anim.startPos = glm::vec3(anim.currentPos.x, anim.currentPos.y, 0);
 			anim.currentScale = 1.0f;
 
+			anim.commitOnFinish = false;
 			activeDrawCardAnimations.push_back(anim);
 			pushedAnims++;
 			ofLogNotice("MinionDraw") << "Pushed draw animation for minionIndex=" << minionIndex << " card='" << drawn.name << "' animCountNow=" << (pushedAnimsBefore + pushedAnims);
@@ -6235,23 +6247,37 @@ void ofApp::updateGame() {
 				int owner = anim.ownerIndex;
 				if (owner >= 0 && owner < (int)players.size()) {
 					Player & p = players[owner];
-					// Initialize visual state from the finished animation so the
-					// committed card appears at the correct screen position.
-					// Note: do not skip based on name+drawnThisTurn, as legitimate
-					// duplicate-name cards should both be allowed in hand.
-					Card c = anim.card;
-					// Place the card at the animation's final screen pos.
-					// For player hands (non-minion), immediately set to the normal
-					// hand display scale so it doesn't lerp up from a smaller size.
-					c.currentPos = anim.targetPos;
-					c.targetPos = anim.targetPos;
-					// Set to hand display scale immediately for all draws
-					c.currentScale = 1.5f;
-					c.targetScale = 1.5f;
-					c.drawnThisTurn = true;
-					ofLogNotice("DrawDebug") << "Committing drawn card '" << c.name << "' to playerIndex=" << owner << " handSizeBefore=" << p.hand.size();
-					p.hand.push_back(c);
-					ofLogNotice("DrawDebug") << "Committed drawn card '" << c.name << "' to playerIndex=" << owner << " handSizeAfter=" << p.hand.size();
+					if (anim.commitOnFinish) {
+						// Initialize visual state from the finished animation so the
+						// committed card appears at the correct screen position.
+						// Note: do not skip based on name+drawnThisTurn, as legitimate
+						// duplicate-name cards should both be allowed in hand.
+						Card c = anim.card;
+						// Place the card at the animation's final screen pos.
+						// For player hands (non-minion), immediately set to the normal
+						// hand display scale so it doesn't lerp up from a smaller size.
+						c.currentPos = anim.targetPos;
+						c.targetPos = anim.targetPos;
+						// Set to hand display scale immediately for all draws
+						c.currentScale = 1.5f;
+						c.targetScale = 1.5f;
+						c.drawnThisTurn = true;
+						ofLogNotice("DrawDebug") << "Committing drawn card '" << c.name << "' to playerIndex=" << owner << " handSizeBefore=" << p.hand.size();
+						p.hand.push_back(c);
+						ofLogNotice("DrawDebug") << "Committed drawn card '" << c.name << "' to playerIndex=" << owner << " handSizeAfter=" << p.hand.size();
+					} else {
+						// Visual-only animation: reveal the already-added hand card by clearing its animating flag
+						for (auto & hc : p.hand) {
+							if (hc.drawnThisTurn && hc.isAnimating && hc.name == anim.card.name) {
+								hc.currentPos = anim.targetPos;
+								hc.targetPos = anim.targetPos;
+								hc.currentScale = 1.5f;
+								hc.targetScale = 1.5f;
+								hc.isAnimating = false;
+								break;
+							}
+						}
+					}
 				}
 			}
 		}
@@ -6261,6 +6287,56 @@ void ofApp::updateGame() {
 			return (now - anim.startTime) >= anim.duration;
 		}),
 			activeDrawCardAnimations.end());
+
+		// --- Discard Animation Update (hand -> discard visual-only) ---
+		for (auto & anim : activeDiscardCardAnimations) {
+			float elapsed = ofGetElapsedTimef() - anim.startTime;
+			float t = ofClamp(elapsed / anim.duration, 0.0f, 1.0f);
+			glm::vec2 start2D;
+			if (anim.startIsScreenSpace) {
+				start2D = glm::vec2(anim.startPos.x, anim.startPos.y);
+			} else {
+				ofVec3f screenPos = getActiveCamera().worldToScreen(anim.startPos);
+				start2D = glm::vec2((float)screenPos.x, (float)screenPos.y);
+			}
+			float minY = 40.0f;
+			float maxY = ofGetHeight() - 80.0f;
+			start2D.y = ofClamp(start2D.y, minY, maxY);
+
+			glm::vec2 mid = (start2D + anim.targetPos) * 0.5f;
+			float lift = std::max(40.0f, glm::distance(start2D, anim.targetPos) * 0.25f);
+			glm::vec2 control = mid - glm::vec2(0.0f, lift);
+
+			float u = 1.0f - t;
+			anim.currentPos = (u * u) * start2D + (2.0f * u * t) * control + (t * t) * anim.targetPos;
+
+			// Shrink slightly while moving to discard
+			anim.currentScale = ofLerp(1.5f, 0.6f, t);
+			anim.currentAlpha = ofLerp(255.0f, 180.0f, t);
+		}
+
+		// Remove discard animations once finished
+		float now2 = ofGetElapsedTimef();
+		activeDiscardCardAnimations.erase(std::remove_if(activeDiscardCardAnimations.begin(), activeDiscardCardAnimations.end(), [now2](const DrawCardAnimation & anim) {
+			return (now2 - anim.startTime) >= (anim.duration + 0.25f);
+		}),
+			activeDiscardCardAnimations.end());
+
+		// --- Shuffle Animation Update ---
+		for (auto & s : activeShuffleAnimations) {
+			float elapsed = ofGetElapsedTimef() - s.startTime;
+			float t = ofClamp(elapsed / s.duration, 0.0f, 1.0f);
+			// simple pulsing and rotation
+			s.currentScale = 1.0f + 0.08f * sinf(t * PI * 6.0f);
+			s.rotation = t * 720.0f; // degrees
+			s.currentAlpha = ofLerp(255.0f, 0.0f, t);
+		}
+
+		// Remove finished shuffle animations
+		activeShuffleAnimations.erase(std::remove_if(activeShuffleAnimations.begin(), activeShuffleAnimations.end(), [](const ShuffleAnimation & s) {
+			return (ofGetElapsedTimef() - s.startTime) >= s.duration;
+		}),
+			activeShuffleAnimations.end());
 	}
 
 	// Card Hand Animation
@@ -9032,6 +9108,20 @@ void ofApp::drawGame() {
 			ofPopStyle();
 		}
 
+		// Draw active shuffle animations (deck reshuffle visual)
+		for (const auto & s : activeShuffleAnimations) {
+			ofPushMatrix();
+			glm::vec2 center = glm::vec2(s.deckRect.getCenter().x, s.deckRect.getCenter().y);
+			ofTranslate(center.x, center.y);
+			ofRotateDeg(s.rotation);
+			ofScale(s.currentScale, s.currentScale);
+			float w = s.deckRect.width;
+			float h = s.deckRect.height;
+			ofSetColor(255, (int)s.currentAlpha);
+			cardBackImage.draw(-w / 2.0f, -h / 2.0f, w, h);
+			ofPopMatrix();
+		}
+
 		// 4. Draw AP Displays & Statuses (UPDATED)
 		string p0_apText = "0 AP";
 		string p1_apText = "? AP";
@@ -9589,6 +9679,9 @@ void ofApp::drawGame() {
 		// --- HELPER LAMBDA TO DRAW CARD + OUTLINE ---
 		auto drawHandCard = [&](int index, bool isTopCard) {
 			Card & card = currentPlayer.hand[index];
+			// If this card is currently represented by a flying animation,
+			// skip drawing the in-hand instance until the animation finishes.
+			if (card.isAnimating) return;
 			float w = handBaseCardWidth * card.currentScale;
 			float h = baseCardHeight * card.currentScale;
 
@@ -10047,6 +10140,20 @@ void ofApp::drawGame() {
 
 	// --- Draw Card Draw Animations (on top of board, below UI hand) ---
 	for (const auto & anim : activeDrawCardAnimations) {
+		ofPushStyle();
+		ofSetColor(255, anim.currentAlpha);
+		float w = handBaseCardWidth * anim.currentScale;
+		float h = baseCardHeight * anim.currentScale;
+		float drawX = anim.currentPos.x - w / 2;
+		float drawY = anim.currentPos.y - h / 2;
+		cardSpriteSheet.drawSubsection(drawX, drawY, w, h,
+			anim.card.textureRect.x, anim.card.textureRect.y,
+			anim.card.textureRect.width, anim.card.textureRect.height);
+		ofPopStyle();
+	}
+
+	// --- Draw Discard Animations (hand -> discard, visual only) ---
+	for (const auto & anim : activeDiscardCardAnimations) {
 		ofPushStyle();
 		ofSetColor(255, anim.currentAlpha);
 		float w = handBaseCardWidth * anim.currentScale;
@@ -15179,6 +15286,15 @@ void ofApp::startNewTurn() {
 				// Reshuffle discard into deck if needed
 				if (localPlayer.deck.empty() && !localPlayer.discardPile.empty()) {
 					localPlayer.deck = localPlayer.discardPile;
+					// Spawn shuffle animation for local player's deck
+					{
+						ShuffleAnimation s;
+						s.playerIndex = localPlayer.playerID;
+						s.deckRect = (localPlayer.playerID == 0) ? p0_deckRect : p1_deckRect;
+						s.startTime = ofGetElapsedTimef();
+						s.duration = 0.9f;
+						activeShuffleAnimations.push_back(s);
+					}
 					// Use player index for shuffle (find it again since we're in a loop)
 					int playerIdx = -1;
 					for (size_t j = 0; j < players.size(); j++) {
@@ -15234,6 +15350,24 @@ void ofApp::startNewTurn() {
 		// Always clean up the ending player's hand so all machines see it disappear
 		// (Previously skipped for remote players, but that caused desync in opponent's view)
 		ofLogNotice("Turn") << "Cleaning up ending player's hand. Hand size: " << endingPlayer.hand.size() << ", Played: " << endingPlayer.playedCardsPile.size();
+		// Spawn visual discard animations for the hand cards (visual-only)
+		{
+			float now = ofGetElapsedTimef();
+			for (size_t i = 0; i < endingPlayer.hand.size(); ++i) {
+				Card c = endingPlayer.hand[i];
+				DrawCardAnimation anim;
+				anim.card = c;
+				anim.startIsScreenSpace = true;
+				anim.startPos = glm::vec3(c.currentPos.x, c.currentPos.y, 0.0f);
+				ofRectangle targetRect = (endingPlayer.playerID == 0) ? p0_discardRect : p1_discardRect;
+				anim.targetPos = glm::vec2(targetRect.getCenter().x + (float)i * 10.0f, targetRect.getCenter().y + ((int)i % 2 == 0 ? -6.0f : 6.0f));
+				anim.duration = 0.6f;
+				anim.startTime = now + (float)i * 0.04f; // slight stagger
+				anim.currentScale = c.currentScale > 0 ? c.currentScale : 1.5f;
+				anim.currentAlpha = 255.0f;
+				activeDiscardCardAnimations.push_back(anim);
+			}
+		}
 		endingPlayer.discardPile.insert(endingPlayer.discardPile.end(), endingPlayer.hand.begin(), endingPlayer.hand.end());
 		endingPlayer.hand.clear();
 		endingPlayer.discardPile.insert(endingPlayer.discardPile.end(), endingPlayer.playedCardsPile.begin(), endingPlayer.playedCardsPile.end());
@@ -15256,6 +15390,15 @@ void ofApp::startNewTurn() {
 				ofLogNotice("Deck") << "  Discard before reshuffle: " << before;
 			}
 			endingPlayer.deck = endingPlayer.discardPile;
+			// Spawn shuffle animation for ending player's deck
+			{
+				ShuffleAnimation s;
+				s.playerIndex = endingPlayer.playerID;
+				s.deckRect = (endingPlayer.playerID == 0) ? p0_deckRect : p1_deckRect;
+				s.startTime = ofGetElapsedTimef();
+				s.duration = 0.9f;
+				activeShuffleAnimations.push_back(s);
+			}
 			shuffleGameVector(endingPlayer.deck, currentPlayerIndex);
 			endingPlayer.discardPile.clear();
 			// Dump post-reshuffle deck summary
@@ -15713,6 +15856,16 @@ void ofApp::drawCard(bool sendPacket) {
 		// Move Discard -> Deck
 		currentPlayer.deck = currentPlayer.discardPile;
 
+		// Spawn shuffle animation for this player's deck
+		{
+			ShuffleAnimation s;
+			s.playerIndex = currentPlayer.playerID;
+			s.deckRect = (currentPlayer.playerID == 0) ? p0_deckRect : p1_deckRect;
+			s.startTime = ofGetElapsedTimef();
+			s.duration = 0.9f;
+			activeShuffleAnimations.push_back(s);
+		}
+
 		// Clear Discard (This causes the discard pile visual to disappear, which is correct)
 		currentPlayer.discardPile.clear();
 
@@ -15767,17 +15920,36 @@ void ofApp::drawCard(bool sendPacket) {
 		Card newCard = currentPlayer.deck.back();
 		currentPlayer.deck.pop_back();
 		ofLogNotice("DrawDebug") << "drawCard(): popped '" << newCard.name << "' from deck for playerIndex=" << currentPlayerIndex << " deckSizeNow=" << currentPlayer.deck.size();
-		// Delay committing the drawn card to the player's hand until the
-		// draw animation finishes so it doesn't appear mid-flight.
+		// Commit the card immediately to the player's hand (animation is visual-only)
 		newCard.drawnThisTurn = true;
+		// Add to hand now so gameplay sees the card immediately
+		currentPlayer.hand.push_back(newCard);
+		// Compute the final hand slot for the newly added card (it's the last one)
+		size_t numCardsNow = currentPlayer.hand.size();
+		float handCenterY_now = ofGetHeight() - 130;
+		float handBaseCardWidth_now = 120;
+		float handAreaWidth_now = ofGetWidth() * 0.6f;
+		float totalCardWidths_now = numCardsNow * handBaseCardWidth_now;
+		float padding_now = (numCardsNow > 1) ? (handAreaWidth_now - totalCardWidths_now) / (numCardsNow - 1) : 0;
+		padding_now = std::min(padding_now, 20.0f);
+		float totalHandWidth_now = (numCardsNow * handBaseCardWidth_now) + ((numCardsNow - 1) * padding_now);
+		float startX_now = (ofGetWidth() - totalHandWidth_now) / 2.0f;
+		float cardCenterX_now = startX_now + (numCardsNow - 1) * (handBaseCardWidth_now + padding_now) + (handBaseCardWidth_now / 2.0f);
+		// Initialize the in-hand card visual state to final position/scale but hidden until animation completes
+		currentPlayer.hand.back().targetPos = ofVec2f(cardCenterX_now, handCenterY_now);
+		currentPlayer.hand.back().currentPos = currentPlayer.hand.back().targetPos;
+		currentPlayer.hand.back().currentScale = 1.5f;
+		currentPlayer.hand.back().targetScale = 1.5f;
+		currentPlayer.hand.back().isAnimating = true;
 
-		// --- Animation Setup ---
+		// --- Animation Setup (visual only) ---
 		DrawCardAnimation anim;
 		anim.card = newCard;
 		anim.startTime = ofGetElapsedTimef();
 		anim.duration = 0.6f;
 		anim.ownerIndex = currentPlayerIndex;
 		anim.toMinionHand = false;
+		anim.commitOnFinish = false; // already added to hand
 
 		// Calculate Spawn Position: pick deck UI center for player owners, but
 		// use world position for minion owners so animations originate from
@@ -17531,6 +17703,15 @@ CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		} else if (!currentPlayer.discardPile.empty()) {
 			// Reshuffle discard into deck first
 			currentPlayer.deck = currentPlayer.discardPile;
+			// Spawn shuffle animation for this player's deck
+			{
+				ShuffleAnimation s;
+				s.playerIndex = currentPlayer.playerID;
+				s.deckRect = (currentPlayer.playerID == 0) ? p0_deckRect : p1_deckRect;
+				s.startTime = ofGetElapsedTimef();
+				s.duration = 0.9f;
+				activeShuffleAnimations.push_back(s);
+			}
 			currentPlayer.discardPile.clear();
 			shuffleGameVector(currentPlayer.deck, currentPlayerIndex);
 			Card drawnCard = currentPlayer.deck.back();
@@ -24438,6 +24619,15 @@ void ofApp::processNetworkPackets() {
 									} else {
 										// No authoritative nonce available: fall back to local shuffle to keep UI consistent.
 										shuffleGameVector(p.discardPile, targetPlayerIndex);
+										// Spawn shuffle animation for this player's deck (local fallback)
+										{
+											ShuffleAnimation s;
+											s.playerIndex = pid;
+											s.deckRect = (pid == 0) ? p0_deckRect : p1_deckRect;
+											s.startTime = ofGetElapsedTimef();
+											s.duration = 0.9f;
+											activeShuffleAnimations.push_back(s);
+										}
 										ofLogNotice("Network") << "Applied local fallback shuffle for player " << targetPlayerIndex << " before drawing.";
 									}
 									// Move shuffled discard into deck
@@ -24453,10 +24643,11 @@ void ofApp::processNetworkPackets() {
 								Card newCard = p.deck.back();
 								p.deck.pop_back();
 								newCard.drawnThisTurn = true;
-								// NOTE: do NOT add to hand immediately for remote draws —
-								// delay committing the card to the opponent's hand until
-								// the draw animation finishes so it doesn't appear in-hand
-								// while flying.
+								// Commit to opponent's hand immediately (visual-only animation)
+								p.hand.push_back(newCard);
+								p.hand.back().currentScale = 1.5f;
+								p.hand.back().targetScale = 1.5f;
+								p.hand.back().isAnimating = true;
 
 								// --- Animation Setup (Opponent draws appear from Top Right, quick, above hand) ---
 								DrawCardAnimation anim;
@@ -24499,6 +24690,7 @@ void ofApp::processNetworkPackets() {
 								anim.endPos = anim.startPos;
 								anim.currentPos = glm::vec2(anim.startPos.x, anim.startPos.y);
 								anim.currentScale = 1.0f;
+								anim.commitOnFinish = false; // card already pushed to hand above
 								activeDrawCardAnimations.push_back(anim);
 								ofLogNotice("Network") << "Opponent (Player " << targetPlayerIndex << ") drew " << newCard.name;
 							}
