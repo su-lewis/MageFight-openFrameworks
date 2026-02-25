@@ -849,11 +849,13 @@ void ofApp::setup() {
 	coinMesh.addVertex({ 0, coinThickness / 2.0f, 0 });
 	coinMesh.addNormal({ 0, 1, 0 });
 	coinMesh.addTexCoord({ headsUV.getCenter().x, headsUV.getCenter().y });
+	coinMesh.addColor(ofColor::white);
 	for (int i = 0; i <= coinResolution; i++) {
 		float angle = (float)i / coinResolution * TWO_PI;
 		coinMesh.addVertex({ cos(angle) * coinRadius, coinThickness / 2.0f, sin(angle) * coinRadius });
 		coinMesh.addNormal({ 0, 1, 0 });
 		coinMesh.addTexCoord({ headsUV.x + headsUV.width * (0.5f + 0.5f * cos(angle)), headsUV.y + headsUV.height * (0.5f + 0.5f * sin(angle)) });
+		coinMesh.addColor(ofColor::white);
 	}
 	for (int i = 0; i < coinResolution; i++) {
 		coinMesh.addIndex(topCenterIndex);
@@ -865,11 +867,13 @@ void ofApp::setup() {
 	coinMesh.addVertex({ 0, -coinThickness / 2.0f, 0 });
 	coinMesh.addNormal({ 0, -1, 0 });
 	coinMesh.addTexCoord({ tailsUV.getCenter().x, tailsUV.getCenter().y });
+	coinMesh.addColor(ofColor::white);
 	for (int i = 0; i <= coinResolution; i++) {
 		float angle = (float)i / coinResolution * TWO_PI;
 		coinMesh.addVertex({ cos(angle) * coinRadius, -coinThickness / 2.0f, sin(angle) * coinRadius });
 		coinMesh.addNormal({ 0, -1, 0 });
 		coinMesh.addTexCoord({ tailsUV.x + tailsUV.width * (0.5f + 0.5f * cos(angle)), tailsUV.y + tailsUV.height * (0.5f + 0.5f * sin(angle)) });
+		coinMesh.addColor(ofColor::white);
 	}
 	for (int i = 0; i < coinResolution; i++) {
 		coinMesh.addIndex(bottomCenterIndex);
@@ -7842,15 +7846,19 @@ void ofApp::drawGame() {
 		d4Texture.unbind();
 
 		// 2. Coin
+		// Draw coin faces without lighting so the texture appears neutral
+		ofDisableLighting();
 		coinFacesTexture.bind();
 		for (size_t i = 0; i < activeDiceRolls.size(); i++) {
 			if (activeDiceRolls[i].sides == 2) {
 				setDiceTransform(i, activeDiceRolls[i]);
+				ofSetColor(255);
 				coinMesh.draw();
 				ofPopMatrix();
 			}
 		}
 		coinFacesTexture.unbind();
+		ofEnableLighting();
 
 		// 3. D6
 		d6Texture.bind();
