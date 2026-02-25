@@ -9435,7 +9435,7 @@ void ofApp::drawGame() {
 			isBottomPlayer = (currentPlayer.playerID == 0 || currentPlayer.ownerID == 0);
 		}
 		// How much a hovered card is lifted (pixels). Increase so hover feels more pronounced.
-		float hoverDirection = isBottomPlayer ? -140.0f : 140.0f;
+		float hoverDirection = isBottomPlayer ? -180.0f : 180.0f;
 
 		// 1. Determine which card should be drawn LAST (On Top)
 		int indexToDrawLast = -1;

@@ -27,7 +27,8 @@ void main() {
     // Compute screen-space UV (0..1) compatible with post-processing fullscreen quad
     vec2 uv = gl_FragCoord.xy / max(uResolution, vec2(1.0));
     uv.y = 1.0 - uv.y;
-    vec3 col = texture(tex0, uv).rgb;
+    vec3 origCol = texture(tex0, uv).rgb;
+    vec3 col = origCol;
 
     // Edge detection (Sobel on luminance) using low-res texel offsets
     vec2 texel = 1.0 / max(uLowRes, vec2(1.0,1.0));
@@ -53,7 +54,8 @@ void main() {
     }
 
     if (useDither == 1) {
-        float d = bayer4(gl_FragCoord.xy);
+        // Reduce dither amplitude for a gentler posterize
+        float d = bayer4(gl_FragCoord.xy) * 0.5;
         col.r = floor(col.r * L + d) / L;
         col.g = floor(col.g * L + d) / L;
         col.b = floor(col.b * L + d) / L;
@@ -61,9 +63,14 @@ void main() {
         col = floor(col * L) / L;
     }
 
+    // Blend posterized result with original to make the effect subtle by default
+    float posterizeBlend = 0.35; // 0 = original, 1 = full posterize
+    col = mix(origCol, col, posterizeBlend);
+
     float edgeThreshold = 0.12;
-    float factor = smoothstep(edgeThreshold, edgeThreshold * max(edgeStrength, 1.0), edge);
-    // darken edges slightly without introducing color tint
-    vec3 edgeTint = col * 0.5;
-    fragColor = vec4(mix(col, edgeTint, factor), 1.0);
+    // Reduce effective edgeStrength influence to make edges subtler
+    float factor = smoothstep(edgeThreshold, edgeThreshold * max(edgeStrength, 1.0) * 0.75, edge);
+    // darken edges mildly without large color shifts
+    vec3 edgeTint = col * 0.7;
+    fragColor = vec4(mix(col, edgeTint, factor * 0.8), 1.0);
 }

@@ -59,6 +59,8 @@ int findClosestPaletteIndex(vec3 c) {
     return bestI;
 }
 
+// (saturation boost removed) -- keep colors closer to the original
+
 void main() {
     vec2 uv = vTexCoord;
     vec4 col = texture(tex0, uv);
@@ -75,25 +77,32 @@ void main() {
     // apply slight palette mapping with dithering
     float scale = 6.0; // dither scale
     float t = bayerDither(gl_FragCoord.xy / uResolution, scale);
-    vec3 mapped = findClosestPalette(color + (t - 0.5) * 0.04);
 
-    // preserve more of the original color so the board doesn't get strongly
-    // replaced with black; blend original and mapped colors (35% original)
-    mapped = mix(color, mapped, 0.65);
+    // Slightly stronger dither amplitude
+    vec3 mapped = findClosestPalette(color + (t - 0.5) * 0.03);
 
-    // Avoid mapping relatively bright pixels to pure black — if the closest
-    // palette index is black but the original luminance is above a small
-    // threshold, bias back toward the original color to keep texture detail.
+    // Increase palette replacement strength so C64 look is more visible
+    mapped = mix(color, mapped, 0.45);
+
+    // No extra saturation boost; preserve mapped color
+
+    // Avoid altering very bright pixels at all (keeps highlights intact)
     float lum = dot(color, vec3(0.299, 0.587, 0.114));
-    int nearest = findClosestPaletteIndex(color);
-    if (nearest == 0 && lum > 0.08) {
-        mapped = mix(mapped, color, 0.85);
+    if (lum > 0.92) {
+        mapped = color;
+    } else {
+        int nearest = findClosestPaletteIndex(color);
+        // If the nearest palette entry is black but the pixel isn't dark,
+        // prefer the original color to avoid black replacement for moderately bright pixels.
+        if (nearest == 0 && lum > 0.09) {
+            mapped = color;
+        }
     }
 
     // scanlines
     float scan = sin((gl_FragCoord.y + uTime * 30.0) * 1.2) * 0.5 + 0.5;
-    // reduce max darkening from scanlines so board colors don't go very black
-    mapped *= mix(1.0, 1.0 - uScanlineIntensity * 0.5, scan);
+    // Increase scanline slightly to strengthen the retro feel, while keeping it controlled
+    mapped *= mix(1.0, 1.0 - uScanlineIntensity * 0.28, scan);
 
     fragColor = vec4(mapped, col.a);
 }
