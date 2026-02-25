@@ -180,7 +180,9 @@ void ofApp::drawMinionCard(int minionIndex, int ownerIndex) {
 			ofVec3f sp = getActiveCamera().worldToScreen(anim.startPos);
 			// Offset simultaneous draws slightly so multiple flying cards are visible
 			int offsetIndex = animatingToThis + pushedAnims; // include ones we're adding in this batch
-			float offsetPixels = offsetIndex * 28.0f; // shift each successive card to the right
+			float uiScaleLocal = ofGetHeight() / 1080.0f;
+			float perCardOffset = std::clamp(84.0f * uiScaleLocal, 36.0f, 160.0f);
+			float offsetPixels = offsetIndex * perCardOffset; // shift each successive card to the right
 			anim.startIsScreenSpace = true;
 			anim.currentPos = glm::vec2((float)sp.x + offsetPixels, (float)sp.y);
 			anim.startPos = glm::vec3(anim.currentPos.x, anim.currentPos.y, 0);
@@ -1263,6 +1265,21 @@ void ofApp::update() {
 				lastSentActionValid = false; // give up after max attempts
 				ofLogWarning("Network") << "Giving up on ActionPacket resend after " << lastSentActionResendCount << " attempts";
 			}
+		}
+	}
+
+	// If client is waiting for authoritative DraftOptions for too long, request a snapshot
+	if (isClient() && waitingForDraftOptions) {
+		float now = ofGetElapsedTimef();
+		if (now - waitingForDraftOptionsStartTime > waitingForDraftOptionsTimeout) {
+			ofLogWarning("Draft") << "Client: waiting for DraftOptions timed out. Requesting authoritative snapshot.";
+			SnapshotRequestPacket req = {};
+			req.type = PKT_SNAPSHOT_REQUEST;
+			req.playerID = myLocalPlayerID;
+			req.requestedTurn = globalTurnCounter;
+			steamManager.sendPacket(&req, sizeof(req));
+			// Bump start time to avoid spamming
+			waitingForDraftOptionsStartTime = now;
 		}
 	}
 
@@ -11356,9 +11373,10 @@ void ofApp::mousePressed(int x, int y, int button) {
 			return;
 		}
 		// Card Dimensions (Must match drawDraftScreen)
-		float cardW = 340;
+		float uiScale = std::min(ofGetWidth() / 1920.0f, ofGetHeight() / 1080.0f);
+		float cardW = std::clamp(340.0f * uiScale, 160.0f, 420.0f);
 		float cardH = cardW * 1.4f;
-		float spacing = 60;
+		float spacing = std::clamp(60.0f * uiScale, 20.0f, 96.0f);
 		float startX = (ofGetWidth() - (3 * cardW + 2 * spacing)) / 2;
 
 		// --- HITBOX Y-ALIGNMENT FIX ---
@@ -15798,7 +15816,9 @@ void ofApp::drawCard(bool sendPacket) {
 			for (const auto & a : activeDrawCardAnimations) {
 				if (a.ownerIndex == owner && !a.toMinionHand) animatingToThis++;
 			}
-			float offsetPixels = animatingToThis * 28.0f;
+			float uiScaleLocal = ofGetHeight() / 1080.0f;
+			float perCardOffset = std::clamp(84.0f * uiScaleLocal, 36.0f, 160.0f);
+			float offsetPixels = animatingToThis * perCardOffset;
 			anim.startPos = glm::vec3(start2D.x + offsetPixels, start2D.y, 0);
 			anim.startIsScreenSpace = true;
 			anim.currentPos = glm::vec2(start2D.x + offsetPixels, start2D.y); // initialize in screen-space so first frame is correct
@@ -23486,9 +23506,11 @@ void ofApp::drawDraftScreen() {
 	}
 
 	// 3. Draw Cards
-	float cardW = 340;
+	// Standardize card sizing relative to screen so UI scales across resolutions
+	float uiScale = std::min(ofGetWidth() / 1920.0f, ofGetHeight() / 1080.0f);
+	float cardW = std::clamp(340.0f * uiScale, 160.0f, 420.0f);
 	float cardH = cardW * 1.4f;
-	float spacing = 60;
+	float spacing = std::clamp(60.0f * uiScale, 20.0f, 96.0f);
 	float startX = (ofGetWidth() - (3 * cardW + 2 * spacing)) / 2;
 
 	// Ensure cards are always positioned consistently below the header/instruction
@@ -23570,9 +23592,15 @@ void ofApp::drawDraftScreen() {
 	}
 
 	if (showAccept) {
-		float btnW = 220, btnH = 60;
+		float btnW = std::clamp(220.0f * uiScale, 140.0f, 320.0f);
+		float btnH = std::clamp(60.0f * uiScale, 40.0f, 96.0f);
 		float btnX = (ofGetWidth() - btnW) / 2.0f;
-		float btnY = startY + cardH + 40;
+		float btnY = startY + cardH + std::clamp(24.0f * uiScale, 12.0f, 48.0f);
+
+		// Ensure button isn't placed off-screen on short displays
+		float minBottomMargin = 20.0f * uiScale;
+		float maxBtnY = ofGetHeight() - btnH - minBottomMargin;
+		if (btnY > maxBtnY) btnY = maxBtnY;
 
 		draftAcceptButtonRect.set(btnX, btnY, btnW, btnH);
 
@@ -24449,7 +24477,9 @@ void ofApp::processNetworkPackets() {
 								for (const auto & a : activeDrawCardAnimations) {
 									if (a.ownerIndex == targetPlayerIndex && !a.toMinionHand) animatingToThis++;
 								}
-								float offsetPixels = animatingToThis * 28.0f;
+								float uiScaleLocal = ofGetHeight() / 1080.0f;
+								float perCardOffset = std::clamp(84.0f * uiScaleLocal, 36.0f, 160.0f);
+								float offsetPixels = animatingToThis * perCardOffset;
 								anim.startPos = glm::vec3(deckX + staticUICardWidth / 2 + offsetPixels, deckY + staticUICardHeight / 2, 0);
 								anim.startIsScreenSpace = true; // ensure UI-origin animation uses screen coords
 								anim.currentPos = glm::vec2(anim.startPos.x, anim.startPos.y);

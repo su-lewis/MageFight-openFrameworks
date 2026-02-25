@@ -1,6 +1,6 @@
 ERROR: ld.so: object '/usr/lib/extest/libextest.so' from LD_PRELOAD cannot be preloaded (cannot open shared object file): ignored.
 ERROR: ld.so: object '/var/home/lewis/.local/share/Steam/ubuntu12_32/gameoverlayrenderer.so' from LD_PRELOAD cannot be preloaded (wrong ELF class: ELFCLASS32): ignored.
---- Launching MageFight at Wed Feb 25 19:18:49 GMT 2026 ---
+--- Launching MageFight at Wed Feb 25 22:16:15 GMT 2026 ---
 Script directory: /home/lewis/of_workspace/openFrameworks/apps/myApps/MageFight/bin
 Original LD_PRELOAD=/usr/lib/extest/libextest.so:/var/home/lewis/.local/share/Steam/ubuntu12_32/gameoverlayrenderer.so:/var/home/lewis/.local/share/Steam/ubuntu12_64/gameoverlayrenderer.so
 Dropping missing LD_PRELOAD entry: /usr/lib/extest/libextest.so
@@ -85,6 +85,8 @@ SteamInternal_SetMinidumpSteamID:  Caching Steam ID:  76561198261715869 [API loa
 [notice ] Setup: PBR shader files: vertOk=true fragOk=true linked=true
 [notice ] FBO: worldFbo allocated 2560x1440
 [notice ] Post: enableWorldPostProcess=true
+[notice ] Power: Singleplayer suspended: window inactive. Audio muted and game logic paused.
+[notice ] Power: Singleplayer resumed: window active. Audio restored and game logic will continue.
 [notice ] Network: DEBUG: Still in STATE_MAIN_MENU. hasOpponent()=0 isMultiplayer=0 isHost=0
 [notice ] Steam: Requesting Lobby Creation...
 [notice ] Steam: Lobby Created. Creating Listen Socket...
@@ -92,269 +94,143 @@ SteamInternal_SetMinidumpSteamID:  Caching Steam ID:  76561198261715869 [API loa
 [notice ] Steam: Accepted Connection!
 [notice ] Network: DEBUG: hasOpponent() is true, currentState=0
 [notice ] Network: Host: Opponent found. Starting game & sending seed.
-[notice ] Setup: Host generated seed: 1772047342 platform=Linux
-[notice ] Setup: Host sending handshake: type=0 playerID=0 seq=0 seed=1772047342 platform=Linux
-[notice ] Network: Skipping DiceRollPacket send for purpose=4 (handled authoritatively).
-[notice ] Dice: Final total result for 1d6: 5
-[notice ] Network: Skipping DiceRollPacket send for purpose=4 (handled authoritatively).
-[notice ] Dice: Final total result for 1d6: 6
-[notice ] Game: --- INITIATIVE ROLL STARTED ---
-[notice ] Post: World post-process branch executed (shader active).
+[notice ] Setup: Host generated seed: 1772057815 platform=Linux
+[notice ] Setup: Host sending handshake: type=0 playerID=0 seq=0 seed=1772057815 platform=Linux
+[notice ] Game: Host: waiting for client ready signal before starting initiative.
 [notice ] Steam: Connection Fully Active!
 [notice ] Steam: Opponent ID: 76561198743068920
 [notice ] NetTrace: RECV raw size=8
 [notice ] NetTrace: processNetworkPackets: queueSize=1
-[notice ] Network: Host: Received Seed Request. Resending Seed: 1772047342
+[notice ] Network: Host: Received Seed Request. Resending Seed: 1772057815
+[notice ] NetTrace: RECV pkt type=1 seq=1 size=10
+[notice ] NetTrace: processNetworkPackets: queueSize=1
+[notice ] Network: ClientReady received from playerID=1
+[notice ] Network: All clients ready - starting initiative phase.
+[notice ] Network: Skipping DiceRollPacket send for purpose=4 (handled authoritatively).
+[notice ] Dice: Final total result for 1d6: 1
+[notice ] Network: Skipping DiceRollPacket send for purpose=4 (handled authoritatively).
+[notice ] Dice: Final total result for 1d6: 3
+[notice ] Game: --- INITIATIVE ROLL STARTED ---
+[notice ] Post: World post-process branch executed (shader active).
 [notice ] Initiative: Player 2 goes first
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Renewed Inspiration, Add Poison, Summon Assistant
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Renewed Inspiration, Add Poison, Summon Assistant
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Renewed Inspiration, Add Poison, Summon Assistant
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Renewed Inspiration, Add Poison, Summon Assistant
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Renewed Inspiration, Add Poison, Summon Assistant
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Renewed Inspiration, Add Poison, Summon Assistant
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Renewed Inspiration, Add Poison, Summon Assistant
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Renewed Inspiration, Add Poison, Summon Assistant
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Renewed Inspiration, Add Poison, Summon Assistant
-[notice ] Draft: DRAFT CLICK: mousePos=(1501,1150) selections=0 required=2 inGameDraft=0 draftStage=0 acceptRect=(0,0,0,0)
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Wisdom Boon, Punch, Kick
+[notice ] Draft: DRAFT CLICK: mousePos=(1611,344) selections=0 required=2 inGameDraft=0 draftStage=0 acceptRect=(0,0,0,0)
 [notice ] DraftDebug: LocalIdx=0 draftPlayerIndex=1 isLocalDrafting=0
-[notice ] Draft: DRAFT CLICK: mousePos=(1403,979) selections=0 required=2 inGameDraft=0 draftStage=0 acceptRect=(0,0,0,0)
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Wisdom Boon, Punch, Kick
+[notice ] Draft: DRAFT CLICK: mousePos=(1374,693) selections=0 required=2 inGameDraft=0 draftStage=0 acceptRect=(0,0,0,0)
 [notice ] DraftDebug: LocalIdx=0 draftPlayerIndex=1 isLocalDrafting=0
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Renewed Inspiration, Add Poison, Summon Assistant
-[notice ] Draft: DRAFT CLICK: mousePos=(1583,948) selections=0 required=2 inGameDraft=0 draftStage=0 acceptRect=(0,0,0,0)
+[notice ] Draft: DRAFT CLICK: mousePos=(1625,735) selections=0 required=2 inGameDraft=0 draftStage=0 acceptRect=(0,0,0,0)
 [notice ] DraftDebug: LocalIdx=0 draftPlayerIndex=1 isLocalDrafting=0
-[notice ] Draft: DRAFT CLICK: mousePos=(1398,967) selections=0 required=2 inGameDraft=0 draftStage=0 acceptRect=(0,0,0,0)
+[notice ] Draft: DRAFT CLICK: mousePos=(1463,750) selections=0 required=2 inGameDraft=0 draftStage=0 acceptRect=(0,0,0,0)
 [notice ] DraftDebug: LocalIdx=0 draftPlayerIndex=1 isLocalDrafting=0
-[notice ] Draft: DRAFT CLICK: mousePos=(1392,968) selections=0 required=2 inGameDraft=0 draftStage=0 acceptRect=(0,0,0,0)
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Wisdom Boon, Punch, Kick
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Wisdom Boon, Punch, Kick
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Wisdom Boon, Punch, Kick
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Wisdom Boon, Punch, Kick
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Wisdom Boon, Punch, Kick
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Wisdom Boon, Punch, Kick
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Wisdom Boon, Punch, Kick
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Wisdom Boon, Punch, Kick
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Wisdom Boon, Punch, Kick
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Wisdom Boon, Punch, Kick
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Wisdom Boon, Punch, Kick
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Wisdom Boon, Punch, Kick
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Wisdom Boon, Punch, Kick
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Wisdom Boon, Punch, Kick
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Wisdom Boon, Punch, Kick
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Wisdom Boon, Punch, Kick
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Wisdom Boon, Punch, Kick
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Wisdom Boon, Punch, Kick
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Wisdom Boon, Punch, Kick
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Wisdom Boon, Punch, Kick
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Wisdom Boon, Punch, Kick
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Wisdom Boon, Punch, Kick
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Wisdom Boon, Punch, Kick
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Wisdom Boon, Punch, Kick
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Wisdom Boon, Punch, Kick
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Wisdom Boon, Punch, Kick
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Wisdom Boon, Punch, Kick
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Wisdom Boon, Punch, Kick
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Wisdom Boon, Punch, Kick
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Wisdom Boon, Punch, Kick
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Wisdom Boon, Punch, Kick
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Wisdom Boon, Punch, Kick
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Wisdom Boon, Punch, Kick
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Wisdom Boon, Punch, Kick
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Wisdom Boon, Punch, Kick
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Wisdom Boon, Punch, Kick
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Wisdom Boon, Punch, Kick
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Wisdom Boon, Punch, Kick
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Wisdom Boon, Punch, Kick
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Wisdom Boon, Punch, Kick
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Wisdom Boon, Punch, Kick
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Wisdom Boon, Punch, Kick
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Wisdom Boon, Punch, Kick
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Wisdom Boon, Punch, Kick
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Wisdom Boon, Punch, Kick
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Wisdom Boon, Punch, Kick
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Wisdom Boon, Punch, Kick
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Wisdom Boon, Punch, Kick
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Wisdom Boon, Punch, Kick
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Wisdom Boon, Punch, Kick
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Wisdom Boon, Punch, Kick
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Wisdom Boon, Punch, Kick
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Wisdom Boon, Punch, Kick
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Wisdom Boon, Punch, Kick
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Wisdom Boon, Punch, Kick
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Wisdom Boon, Punch, Kick
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Wisdom Boon, Punch, Kick
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Wisdom Boon, Punch, Kick
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Wisdom Boon, Punch, Kick
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Wisdom Boon, Punch, Kick
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Wisdom Boon, Punch, Kick
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Wisdom Boon, Punch, Kick
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Wisdom Boon, Punch, Kick
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Wisdom Boon, Punch, Kick
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Wisdom Boon, Punch, Kick
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Wisdom Boon, Punch, Kick
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Wisdom Boon, Punch, Kick
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Wisdom Boon, Punch, Kick
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Wisdom Boon, Punch, Kick
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Wisdom Boon, Punch, Kick
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Wisdom Boon, Punch, Kick
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Wisdom Boon, Punch, Kick
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Wisdom Boon, Punch, Kick
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Wisdom Boon, Punch, Kick
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Wisdom Boon, Punch, Kick
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Wisdom Boon, Punch, Kick
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Wisdom Boon, Punch, Kick
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Wisdom Boon, Punch, Kick
+[notice ] Post: enableWorldPostProcess=false
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Wisdom Boon, Punch, Kick
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Wisdom Boon, Punch, Kick
+[notice ] Draft: DRAFT CLICK: mousePos=(1315,757) selections=0 required=2 inGameDraft=0 draftStage=0 acceptRect=(0,0,0,0)
 [notice ] DraftDebug: LocalIdx=0 draftPlayerIndex=1 isLocalDrafting=0
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Renewed Inspiration, Add Poison, Summon Assistant
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Renewed Inspiration, Add Poison, Summon Assistant
-[notice ] Draft: DRAFT CLICK: mousePos=(1490,1074) selections=0 required=2 inGameDraft=0 draftStage=0 acceptRect=(0,0,0,0)
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Wisdom Boon, Punch, Kick
+[notice ] Draft: DRAFT CLICK: mousePos=(1312,1077) selections=0 required=2 inGameDraft=0 draftStage=0 acceptRect=(0,0,0,0)
 [notice ] DraftDebug: LocalIdx=0 draftPlayerIndex=1 isLocalDrafting=0
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Renewed Inspiration, Add Poison, Summon Assistant
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Renewed Inspiration, Add Poison, Summon Assistant
-[notice ] Draft: DRAFT CLICK: mousePos=(1404,1014) selections=0 required=2 inGameDraft=0 draftStage=0 acceptRect=(0,0,0,0)
+[notice ] Draft: DRAFT CLICK: mousePos=(1268,1179) selections=0 required=2 inGameDraft=0 draftStage=0 acceptRect=(0,0,0,0)
 [notice ] DraftDebug: LocalIdx=0 draftPlayerIndex=1 isLocalDrafting=0
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Renewed Inspiration, Add Poison, Summon Assistant
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Renewed Inspiration, Add Poison, Summon Assistant
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Renewed Inspiration, Add Poison, Summon Assistant
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Renewed Inspiration, Add Poison, Summon Assistant
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Renewed Inspiration, Add Poison, Summon Assistant
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Renewed Inspiration, Add Poison, Summon Assistant
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Renewed Inspiration, Add Poison, Summon Assistant
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Renewed Inspiration, Add Poison, Summon Assistant
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Renewed Inspiration, Add Poison, Summon Assistant
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Renewed Inspiration, Add Poison, Summon Assistant
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Renewed Inspiration, Add Poison, Summon Assistant
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Renewed Inspiration, Add Poison, Summon Assistant
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Renewed Inspiration, Add Poison, Summon Assistant
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Renewed Inspiration, Add Poison, Summon Assistant
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Renewed Inspiration, Add Poison, Summon Assistant
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Renewed Inspiration, Add Poison, Summon Assistant
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Renewed Inspiration, Add Poison, Summon Assistant
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Renewed Inspiration, Add Poison, Summon Assistant
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Renewed Inspiration, Add Poison, Summon Assistant
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Renewed Inspiration, Add Poison, Summon Assistant
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Renewed Inspiration, Add Poison, Summon Assistant
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Renewed Inspiration, Add Poison, Summon Assistant
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Renewed Inspiration, Add Poison, Summon Assistant
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Renewed Inspiration, Add Poison, Summon Assistant
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Renewed Inspiration, Add Poison, Summon Assistant
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Renewed Inspiration, Add Poison, Summon Assistant
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Renewed Inspiration, Add Poison, Summon Assistant
-[notice ] Draft: DRAFT CLICK: mousePos=(1541,899) selections=0 required=2 inGameDraft=0 draftStage=0 acceptRect=(0,0,0,0)
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Wisdom Boon, Punch, Kick
+[notice ] Draft: DRAFT CLICK: mousePos=(1183,878) selections=0 required=2 inGameDraft=0 draftStage=0 acceptRect=(0,0,0,0)
 [notice ] DraftDebug: LocalIdx=0 draftPlayerIndex=1 isLocalDrafting=0
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Renewed Inspiration, Add Poison, Summon Assistant
-[notice ] Draft: DRAFT CLICK: mousePos=(1680,871) selections=0 required=2 inGameDraft=0 draftStage=0 acceptRect=(0,0,0,0)
+[notice ] Draft: DRAFT CLICK: mousePos=(1293,837) selections=0 required=2 inGameDraft=0 draftStage=0 acceptRect=(0,0,0,0)
 [notice ] DraftDebug: LocalIdx=0 draftPlayerIndex=1 isLocalDrafting=0
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Renewed Inspiration, Add Poison, Summon Assistant
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Renewed Inspiration, Add Poison, Summon Assistant
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Renewed Inspiration, Add Poison, Summon Assistant
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Renewed Inspiration, Add Poison, Summon Assistant
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Renewed Inspiration, Add Poison, Summon Assistant
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Renewed Inspiration, Add Poison, Summon Assistant
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Renewed Inspiration, Add Poison, Summon Assistant
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Renewed Inspiration, Add Poison, Summon Assistant
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Renewed Inspiration, Add Poison, Summon Assistant
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Renewed Inspiration, Add Poison, Summon Assistant
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Renewed Inspiration, Add Poison, Summon Assistant
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Renewed Inspiration, Add Poison, Summon Assistant
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Renewed Inspiration, Add Poison, Summon Assistant
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Renewed Inspiration, Add Poison, Summon Assistant
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Renewed Inspiration, Add Poison, Summon Assistant
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Renewed Inspiration, Add Poison, Summon Assistant
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Renewed Inspiration, Add Poison, Summon Assistant
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Renewed Inspiration, Add Poison, Summon Assistant
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Renewed Inspiration, Add Poison, Summon Assistant
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Renewed Inspiration, Add Poison, Summon Assistant
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Renewed Inspiration, Add Poison, Summon Assistant
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Renewed Inspiration, Add Poison, Summon Assistant
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Renewed Inspiration, Add Poison, Summon Assistant
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Renewed Inspiration, Add Poison, Summon Assistant
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Renewed Inspiration, Add Poison, Summon Assistant
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Renewed Inspiration, Add Poison, Summon Assistant
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Renewed Inspiration, Add Poison, Summon Assistant
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Renewed Inspiration, Add Poison, Summon Assistant
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Renewed Inspiration, Add Poison, Summon Assistant
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Renewed Inspiration, Add Poison, Summon Assistant
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Renewed Inspiration, Add Poison, Summon Assistant
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Renewed Inspiration, Add Poison, Summon Assistant
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Renewed Inspiration, Add Poison, Summon Assistant
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Renewed Inspiration, Add Poison, Summon Assistant
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Renewed Inspiration, Add Poison, Summon Assistant
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Renewed Inspiration, Add Poison, Summon Assistant
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Renewed Inspiration, Add Poison, Summon Assistant
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Renewed Inspiration, Add Poison, Summon Assistant
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Renewed Inspiration, Add Poison, Summon Assistant
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Renewed Inspiration, Add Poison, Summon Assistant
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Renewed Inspiration, Add Poison, Summon Assistant
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Renewed Inspiration, Add Poison, Summon Assistant
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Renewed Inspiration, Add Poison, Summon Assistant
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Renewed Inspiration, Add Poison, Summon Assistant
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Renewed Inspiration, Add Poison, Summon Assistant
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Renewed Inspiration, Add Poison, Summon Assistant
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Renewed Inspiration, Add Poison, Summon Assistant
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Renewed Inspiration, Add Poison, Summon Assistant
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Renewed Inspiration, Add Poison, Summon Assistant
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Renewed Inspiration, Add Poison, Summon Assistant
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Renewed Inspiration, Add Poison, Summon Assistant
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Renewed Inspiration, Add Poison, Summon Assistant
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Renewed Inspiration, Add Poison, Summon Assistant
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Renewed Inspiration, Add Poison, Summon Assistant
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Renewed Inspiration, Add Poison, Summon Assistant
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Renewed Inspiration, Add Poison, Summon Assistant
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Renewed Inspiration, Add Poison, Summon Assistant
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Renewed Inspiration, Add Poison, Summon Assistant
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Renewed Inspiration, Add Poison, Summon Assistant
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Renewed Inspiration, Add Poison, Summon Assistant
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Renewed Inspiration, Add Poison, Summon Assistant
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Renewed Inspiration, Add Poison, Summon Assistant
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Renewed Inspiration, Add Poison, Summon Assistant
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Renewed Inspiration, Add Poison, Summon Assistant
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Renewed Inspiration, Add Poison, Summon Assistant
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Renewed Inspiration, Add Poison, Summon Assistant
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Renewed Inspiration, Add Poison, Summon Assistant
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Renewed Inspiration, Add Poison, Summon Assistant
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Renewed Inspiration, Add Poison, Summon Assistant
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Renewed Inspiration, Add Poison, Summon Assistant
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Renewed Inspiration, Add Poison, Summon Assistant
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Renewed Inspiration, Add Poison, Summon Assistant
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Renewed Inspiration, Add Poison, Summon Assistant
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Renewed Inspiration, Add Poison, Summon Assistant
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Renewed Inspiration, Add Poison, Summon Assistant
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Renewed Inspiration, Add Poison, Summon Assistant
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Renewed Inspiration, Add Poison, Summon Assistant
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Renewed Inspiration, Add Poison, Summon Assistant
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Renewed Inspiration, Add Poison, Summon Assistant
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Renewed Inspiration, Add Poison, Summon Assistant
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Renewed Inspiration, Add Poison, Summon Assistant
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Renewed Inspiration, Add Poison, Summon Assistant
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Renewed Inspiration, Add Poison, Summon Assistant
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Renewed Inspiration, Add Poison, Summon Assistant
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Renewed Inspiration, Add Poison, Summon Assistant
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Renewed Inspiration, Add Poison, Summon Assistant
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Renewed Inspiration, Add Poison, Summon Assistant
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Renewed Inspiration, Add Poison, Summon Assistant
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Renewed Inspiration, Add Poison, Summon Assistant
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Renewed Inspiration, Add Poison, Summon Assistant
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Renewed Inspiration, Add Poison, Summon Assistant
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Renewed Inspiration, Add Poison, Summon Assistant
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Renewed Inspiration, Add Poison, Summon Assistant
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Renewed Inspiration, Add Poison, Summon Assistant
-[notice ] Draft: DRAFT CLICK: mousePos=(1328,973) selections=0 required=2 inGameDraft=0 draftStage=0 acceptRect=(0,0,0,0)
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Wisdom Boon, Punch, Kick
+[notice ] Draft: DRAFT CLICK: mousePos=(1396,831) selections=0 required=2 inGameDraft=0 draftStage=0 acceptRect=(0,0,0,0)
 [notice ] DraftDebug: LocalIdx=0 draftPlayerIndex=1 isLocalDrafting=0
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Renewed Inspiration, Add Poison, Summon Assistant
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Renewed Inspiration, Add Poison, Summon Assistant
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Renewed Inspiration, Add Poison, Summon Assistant
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Renewed Inspiration, Add Poison, Summon Assistant
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Renewed Inspiration, Add Poison, Summon Assistant
-[notice ] Draft: DRAFT CLICK: mousePos=(1489,1176) selections=0 required=2 inGameDraft=0 draftStage=0 acceptRect=(0,0,0,0)
+[notice ] Draft: DRAFT CLICK: mousePos=(1523,841) selections=0 required=2 inGameDraft=0 draftStage=0 acceptRect=(0,0,0,0)
 [notice ] DraftDebug: LocalIdx=0 draftPlayerIndex=1 isLocalDrafting=0
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Renewed Inspiration, Add Poison, Summon Assistant
-[notice ] Draft: DRAFT CLICK: mousePos=(1414,1151) selections=0 required=2 inGameDraft=0 draftStage=0 acceptRect=(0,0,0,0)
+[notice ] Draft: DRAFT CLICK: mousePos=(1521,905) selections=0 required=2 inGameDraft=0 draftStage=0 acceptRect=(0,0,0,0)
 [notice ] DraftDebug: LocalIdx=0 draftPlayerIndex=1 isLocalDrafting=0
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Renewed Inspiration, Add Poison, Summon Assistant
-[notice ] Draft: DRAFT CLICK: mousePos=(1313,1125) selections=0 required=2 inGameDraft=0 draftStage=0 acceptRect=(0,0,0,0)
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Wisdom Boon, Punch, Kick
+[notice ] Draft: DRAFT CLICK: mousePos=(1601,943) selections=0 required=2 inGameDraft=0 draftStage=0 acceptRect=(0,0,0,0)
 [notice ] DraftDebug: LocalIdx=0 draftPlayerIndex=1 isLocalDrafting=0
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Renewed Inspiration, Add Poison, Summon Assistant
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Renewed Inspiration, Add Poison, Summon Assistant
-[notice ] Draft: DRAFT CLICK: mousePos=(1453,1086) selections=0 required=2 inGameDraft=0 draftStage=0 acceptRect=(0,0,0,0)
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Wisdom Boon, Punch, Kick
+[notice ] Draft: DRAFT CLICK: mousePos=(1382,781) selections=0 required=2 inGameDraft=0 draftStage=0 acceptRect=(0,0,0,0)
 [notice ] DraftDebug: LocalIdx=0 draftPlayerIndex=1 isLocalDrafting=0
-[notice ] Draft: DRAFT CLICK: mousePos=(1431,1116) selections=0 required=2 inGameDraft=0 draftStage=0 acceptRect=(0,0,0,0)
-[notice ] DraftDebug: LocalIdx=0 draftPlayerIndex=1 isLocalDrafting=0
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Renewed Inspiration, Add Poison, Summon Assistant
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Renewed Inspiration, Add Poison, Summon Assistant
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Renewed Inspiration, Add Poison, Summon Assistant
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Renewed Inspiration, Add Poison, Summon Assistant
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Renewed Inspiration, Add Poison, Summon Assistant
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Renewed Inspiration, Add Poison, Summon Assistant
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Renewed Inspiration, Add Poison, Summon Assistant
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Renewed Inspiration, Add Poison, Summon Assistant
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Renewed Inspiration, Add Poison, Summon Assistant
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Renewed Inspiration, Add Poison, Summon Assistant
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Renewed Inspiration, Add Poison, Summon Assistant
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Renewed Inspiration, Add Poison, Summon Assistant
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Renewed Inspiration, Add Poison, Summon Assistant
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Renewed Inspiration, Add Poison, Summon Assistant
-[notice ] C64: enableC64Shader=true
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Renewed Inspiration, Add Poison, Summon Assistant
-[notice ] PixelArt: enablePixelArt=1
-[notice ] PixelArt: Low-res FBO summary: size=640x360 avgRGB=(9,9,11)
-[notice ] PixelArt: Pixel-art post-process branch executed (shader active).
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Renewed Inspiration, Add Poison, Summon Assistant
-[notice ] Draft: DRAFT CLICK: mousePos=(1406,1201) selections=0 required=2 inGameDraft=0 draftStage=0 acceptRect=(0,0,0,0)
-[notice ] DraftDebug: LocalIdx=0 draftPlayerIndex=1 isLocalDrafting=0
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Renewed Inspiration, Add Poison, Summon Assistant
-[notice ] Draft: DRAFT CLICK: mousePos=(1326,950) selections=0 required=2 inGameDraft=0 draftStage=0 acceptRect=(0,0,0,0)
-[notice ] DraftDebug: LocalIdx=0 draftPlayerIndex=1 isLocalDrafting=0
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Renewed Inspiration, Add Poison, Summon Assistant
-[notice ] Draft: DRAFT CLICK: mousePos=(1256,1086) selections=0 required=2 inGameDraft=0 draftStage=0 acceptRect=(0,0,0,0)
-[notice ] DraftDebug: LocalIdx=0 draftPlayerIndex=1 isLocalDrafting=0
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Renewed Inspiration, Add Poison, Summon Assistant
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Renewed Inspiration, Add Poison, Summon Assistant
-[notice ] Draft: DRAFT CLICK: mousePos=(1469,1107) selections=0 required=2 inGameDraft=0 draftStage=0 acceptRect=(0,0,0,0)
-[notice ] DraftDebug: LocalIdx=0 draftPlayerIndex=1 isLocalDrafting=0
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Renewed Inspiration, Add Poison, Summon Assistant
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Renewed Inspiration, Add Poison, Summon Assistant
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Renewed Inspiration, Add Poison, Summon Assistant
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Renewed Inspiration, Add Poison, Summon Assistant
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Renewed Inspiration, Add Poison, Summon Assistant
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Renewed Inspiration, Add Poison, Summon Assistant
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Renewed Inspiration, Add Poison, Summon Assistant
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Renewed Inspiration, Add Poison, Summon Assistant
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Renewed Inspiration, Add Poison, Summon Assistant
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Renewed Inspiration, Add Poison, Summon Assistant
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Renewed Inspiration, Add Poison, Summon Assistant
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Renewed Inspiration, Add Poison, Summon Assistant
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Renewed Inspiration, Add Poison, Summon Assistant
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Renewed Inspiration, Add Poison, Summon Assistant
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Renewed Inspiration, Add Poison, Summon Assistant
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Renewed Inspiration, Add Poison, Summon Assistant
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Renewed Inspiration, Add Poison, Summon Assistant
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Renewed Inspiration, Add Poison, Summon Assistant
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Renewed Inspiration, Add Poison, Summon Assistant
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Renewed Inspiration, Add Poison, Summon Assistant
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Renewed Inspiration, Add Poison, Summon Assistant
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Renewed Inspiration, Add Poison, Summon Assistant
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Renewed Inspiration, Add Poison, Summon Assistant
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Renewed Inspiration, Add Poison, Summon Assistant
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Renewed Inspiration, Add Poison, Summon Assistant
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Renewed Inspiration, Add Poison, Summon Assistant
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Renewed Inspiration, Add Poison, Summon Assistant
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Renewed Inspiration, Add Poison, Summon Assistant
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Renewed Inspiration, Add Poison, Summon Assistant
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Renewed Inspiration, Add Poison, Summon Assistant
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Renewed Inspiration, Add Poison, Summon Assistant
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Renewed Inspiration, Add Poison, Summon Assistant
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Renewed Inspiration, Add Poison, Summon Assistant
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Renewed Inspiration, Add Poison, Summon Assistant
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Renewed Inspiration, Add Poison, Summon Assistant
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Renewed Inspiration, Add Poison, Summon Assistant
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Renewed Inspiration, Add Poison, Summon Assistant
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Renewed Inspiration, Add Poison, Summon Assistant
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Renewed Inspiration, Add Poison, Summon Assistant
-[notice ] Steam: Connection Closed/Failed.
-[notice ] Steam: Opponent disconnected - awaiting reconnection
-[notice ] Network: Opponent left the lobby. Resetting game and returning to main menu.
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Wisdom Boon, Punch, Kick
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Wisdom Boon, Punch, Kick
 [notice ] Game: --- GAME SESSION CLEANED UP ---
 [notice ] Settings: Saved settings to Config/settings.json
 [notice ] SteamManager: Steam API Shutdown.
