@@ -24477,7 +24477,6 @@ void ofApp::processNetworkPackets() {
 					}
 
 					continue;
-				} else if (header->type == PKT_MENU_STATE) {
 				} else if (header->type == PKT_PLACE_SUMMONED_MINION) {
 					PlaceSummonedMinionPacket * psk = (PlaceSummonedMinionPacket *)header;
 					ofLogNotice("Network") << "Received PlaceSummonedMinion: type=" << (int)psk->minionType << " owner=" << psk->ownerPlayerID << " target=(" << psk->targetX << "," << psk->targetY << ")";
