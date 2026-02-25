@@ -536,7 +536,9 @@ public:
 	uint32_t incomingSnapshotReceivedSize = 0;
 
 	// Backup snapshot for desync recovery
-	std::string backupSnapshot;
+
+	// Turn-start authoritative master backup for perfect rewind resyncs
+	std::string turnStartBackupSnapshot;
 
 	uint32_t lastReceivedSeqByPlayer[2] = { 0, 0 };
 
@@ -728,6 +730,7 @@ private:
 	glm::vec2 worldToGrid(glm::vec3 worldPos);
 	glm::vec3 gridToWorld(int gridX, int gridY);
 	Player * getPlayer(int index);
+	int findPlayerIndexByID(int playerID);
 	std::string getPlayerDisplayName(int index);
 	std::string getPlayerSteamName(int playerIndex); // For player names (Steam)
 	const Card * findCardByName(const std::string & name) const;
@@ -1215,6 +1218,7 @@ private:
 	// Poison (from Add Poison card)
 	bool isWaitingForPoisonAttackDice = false;
 	int pendingPoisonAttackRollResult = 0;
+	// Stores playerIDs (stable) for queued poison targets. Resolve to indices at processing time.
 	std::vector<int> pendingPoisonTargetIndices;
 
 	// Amnesia
@@ -1250,6 +1254,7 @@ private:
 	bool isMagicBlastChoiceActive = false;
 	int magicBlastTargetPlayerIndex = -1;
 	int magicBlastChoicesRemaining = 0;
+	// Stores playerIDs (stable) for queued magic blast splash targets. Resolve to indices at processing time.
 	std::vector<int> magicBlastSplashTargetIndices;
 	ofRectangle magicBlastDamageButton;
 	ofRectangle magicBlastDiscardButton;

@@ -1073,6 +1073,13 @@ Player * ofApp::getPlayer(int index) {
 	}
 	return nullptr;
 }
+// Helper: resolve a stable playerID to the current players[] index, or -1 if not found
+int ofApp::findPlayerIndexByID(int playerID) {
+	for (size_t i = 0; i < players.size(); ++i) {
+		if (players[i].playerID == playerID) return (int)i;
+	}
+	return -1;
+}
 //--------------------------------------------------------------
 // Build a human-friendly display name for a player/minion
 std::string ofApp::getPlayerDisplayName(int index) {
@@ -2931,7 +2938,8 @@ void ofApp::updateGame() {
 
 				// Apply poison if damage was dealt (or if logic allows poison on block, strictly appliedDamage > 0 is safer)
 				if (applyPoisonBuff && !target->inGhostForm) {
-					pendingPoisonTargetIndices.push_back(pIndex);
+					// store stable playerID instead of a transient players[] index
+					pendingPoisonTargetIndices.push_back(players[pIndex].playerID);
 					target->isPoisoned = true;
 					target->poisonReduction = 0;
 					spawnFloatingText(tPos + glm::vec3(0, 0.5f, 0), "Poisoned!", ofColor::green);
@@ -2952,7 +2960,8 @@ void ofApp::updateGame() {
 		isWaitingForPoisonAttackDice = false;
 		int poisonDamage = pendingPoisonAttackRollResult;
 
-		for (int pIndex : pendingPoisonTargetIndices) {
+		for (int pID : pendingPoisonTargetIndices) {
+			int pIndex = findPlayerIndexByID(pID);
 			Player * target = getPlayer(pIndex);
 			if (target) {
 				target->health -= poisonDamage;
@@ -3322,7 +3331,8 @@ void ofApp::updateGame() {
 			for (size_t i = 0; i < players.size(); i++) {
 				// Don't add the direct target to the splash list (they are handled separately)
 				if ((int)i != magicBlastTargetPlayerIndex && players[i].x == (int)n.x && players[i].y == (int)n.y) {
-					magicBlastSplashTargetIndices.push_back((int)i);
+					// store stable playerID instead of transient index
+					magicBlastSplashTargetIndices.push_back(players[i].playerID);
 				}
 			}
 		}
@@ -3335,10 +3345,12 @@ void ofApp::updateGame() {
 			magicBlastChoicesRemaining = 3;
 		} else if (!magicBlastSplashTargetIndices.empty()) {
 			// Scenario B: No Direct Hit (hit empty ground), but Splash targets exist.
-			// Pop the first splash target -> 1 Choice.
+			// Pop the first splash target -> 1 Choice. Resolve stored playerID to current index.
 			isMagicBlastChoiceActive = true;
-			magicBlastTargetPlayerIndex = magicBlastSplashTargetIndices.front();
+			int targetPID = magicBlastSplashTargetIndices.front();
 			magicBlastSplashTargetIndices.erase(magicBlastSplashTargetIndices.begin());
+			int resolvedIndex = findPlayerIndexByID(targetPID);
+			magicBlastTargetPlayerIndex = resolvedIndex;
 			magicBlastChoicesRemaining = 1;
 		} else {
 			ofLogNotice("MagicBlast") << "No targets hit.";
@@ -5634,6 +5646,11 @@ void ofApp::updateGame() {
 								chk.turnNumber = globalTurnCounter;
 								steamManager.sendPacket(&chk, sizeof(chk));
 								ofLogNotice("Checksum") << "Host sent Checksum (turn=" << chk.turnNumber << ") value=" << chk.checksum;
+								if (isHost()) {
+									// Save the authoritative turn-start state
+									turnStartBackupSnapshot = buildSnapshotString();
+									ofLogNotice("Network") << "Host saved Turn-Start Master Backup.";
+								}
 							}
 							lastTurnStartSentPlayer = currentPlayerIndex;
 							lastTurnStartSentCounter = globalTurnCounter;
@@ -11845,11 +11862,16 @@ void ofApp::mousePressed(int x, int y, int button) {
 		Player * targetPlayer = getPlayer(magicBlastTargetPlayerIndex);
 		if (!targetPlayer) {
 			// Logic to try and find the next splash target if the current one became invalid
-			if (!magicBlastSplashTargetIndices.empty()) {
-				magicBlastTargetPlayerIndex = magicBlastSplashTargetIndices.front();
+			while (!magicBlastSplashTargetIndices.empty()) {
+				int pid = magicBlastSplashTargetIndices.front();
 				magicBlastSplashTargetIndices.erase(magicBlastSplashTargetIndices.begin());
-				magicBlastChoicesRemaining = 1;
-				return;
+				int idx = findPlayerIndexByID(pid);
+				if (idx != -1) {
+					magicBlastTargetPlayerIndex = idx;
+					magicBlastChoicesRemaining = 1;
+					return;
+				}
+				// otherwise continue to next queued pid
 			}
 			isMagicBlastChoiceActive = false;
 			return;
@@ -11928,10 +11950,26 @@ void ofApp::mousePressed(int x, int y, int button) {
 			magicBlastChoicesRemaining--;
 			if (magicBlastChoicesRemaining <= 0) {
 				if (!magicBlastSplashTargetIndices.empty()) {
-					magicBlastTargetPlayerIndex = magicBlastSplashTargetIndices.front();
-					magicBlastSplashTargetIndices.erase(magicBlastSplashTargetIndices.begin());
-					magicBlastChoicesRemaining = 1;
-					ofLogNotice("MagicBlast") << "Moving to splash target...";
+					// pop queued playerIDs until we find a live player, or exhaust the list
+					bool moved = false;
+					while (!magicBlastSplashTargetIndices.empty()) {
+						int pid = magicBlastSplashTargetIndices.front();
+						magicBlastSplashTargetIndices.erase(magicBlastSplashTargetIndices.begin());
+						int idx = findPlayerIndexByID(pid);
+						if (idx != -1) {
+							magicBlastTargetPlayerIndex = idx;
+							magicBlastChoicesRemaining = 1;
+							moved = true;
+							break;
+						}
+					}
+					if (moved) {
+						ofLogNotice("MagicBlast") << "Moving to splash target...";
+					} else {
+						isMagicBlastChoiceActive = false;
+						magicBlastTargetPlayerIndex = -1;
+						ofLogNotice("MagicBlast") << "Sequence Complete.";
+					}
 				} else {
 					isMagicBlastChoiceActive = false;
 					magicBlastTargetPlayerIndex = -1;
@@ -15335,11 +15373,11 @@ void ofApp::continueNewTurn() {
 
 	// --- AP ROLL LOGIC ---
 
-	// HOST: proactively save a backup snapshot here so clients can recover
+	// HOST: proactively save a Turn-Start master backup so clients can recover
 	// if a checksum mismatch occurs shortly after turn advancement.
 	if (isHost()) {
-		backupSnapshot = buildSnapshotString();
-		ofLogNotice("Backup") << "Host: Proactively saved backup snapshot at turn " << globalTurnCounter;
+		turnStartBackupSnapshot = buildSnapshotString();
+		ofLogNotice("Backup") << "Host: Proactively saved Turn-Start Master Backup at turn " << globalTurnCounter;
 	}
 
 	// Wolf AP: 1d10
@@ -15942,10 +15980,15 @@ CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 
 		// Must target a unit tile
 		int targetIndex = -1;
-		for (size_t i = 0; i < players.size(); i++) {
-			if (players[i].x == targetX && players[i].y == targetY) {
-				targetIndex = (int)i;
-				break;
+		// Allow (-1,-1) to represent "self" when sent from remote client
+		if (targetX == -1 && targetY == -1) {
+			targetIndex = currentPlayerIndex;
+		} else {
+			for (size_t i = 0; i < players.size(); i++) {
+				if (players[i].x == targetX && players[i].y == targetY) {
+					targetIndex = (int)i;
+					break;
+				}
 			}
 		}
 		if (targetIndex == -1) break;
@@ -15993,10 +16036,15 @@ CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 	// --- CASE: AMNESIA ---
 	case CARD_AMNESIA: {
 		int targetIndex = -1;
-		for (size_t i = 0; i < players.size(); i++) {
-			if (players[i].x == targetX && players[i].y == targetY) {
-				targetIndex = (int)i;
-				break;
+		// ADD THIS OVERRIDE FOR SELF-TARGETING
+		if (targetX == -1 && targetY == -1) {
+			targetIndex = currentPlayerIndex;
+		} else {
+			for (size_t i = 0; i < players.size(); i++) {
+				if (players[i].x == targetX && players[i].y == targetY) {
+					targetIndex = (int)i;
+					break;
+				}
 			}
 		}
 		if (targetIndex == -1) break;
@@ -17266,7 +17314,7 @@ CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 					glm::vec3 tPos = gridToWorld(target->x, target->y);
 					spawnFloatingText(tPos + glm::vec3(0, 0.5f, 0), "Poisoned!", ofColor::green);
 					pendingPoisonTargetIndices.clear();
-					pendingPoisonTargetIndices.push_back(targetIndex);
+					pendingPoisonTargetIndices.push_back(players[targetIndex].playerID);
 					pendingPoisonAttackRollResult = startDiceRoll(1, 6, PURPOSE_DAMAGE, "Poison Damage", currentPlayerIndex);
 					isWaitingForPoisonAttackDice = true;
 				}
@@ -17631,7 +17679,7 @@ CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 				glm::vec3 tPos = gridToWorld(target->x, target->y);
 				spawnFloatingText(tPos + glm::vec3(0, 0.5f, 0), "Poisoned!", ofColor::green);
 				pendingPoisonTargetIndices.clear();
-				pendingPoisonTargetIndices.push_back(targetIndex);
+				pendingPoisonTargetIndices.push_back(players[targetIndex].playerID);
 				pendingPoisonAttackRollResult = startDiceRoll(1, 6, PURPOSE_DAMAGE, "Poison Damage", currentPlayerIndex);
 				isWaitingForPoisonAttackDice = true;
 			}
@@ -18015,7 +18063,7 @@ CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 				glm::vec3 tPos = gridToWorld(target->x, target->y);
 				spawnFloatingText(tPos + glm::vec3(0, 0.5f, 0), "Poisoned!", ofColor::green);
 				pendingPoisonTargetIndices.clear();
-				pendingPoisonTargetIndices.push_back(targetIndex);
+				pendingPoisonTargetIndices.push_back(players[targetIndex].playerID);
 				pendingPoisonAttackRollResult = startDiceRoll(1, 6, PURPOSE_DAMAGE, "Poison Damage");
 				isWaitingForPoisonAttackDice = true;
 			}
@@ -18273,7 +18321,7 @@ CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 						// Only apply poison if not phased (damage check handled inside dice logic usually,
 						// but here we just check immunity directly for instant attacks)
 						if (!target->inGhostForm) {
-							pendingPoisonTargetIndices.push_back(pIndex);
+							pendingPoisonTargetIndices.push_back(players[pIndex].playerID);
 							target->isPoisoned = true;
 							target->poisonReduction = 0;
 							glm::vec3 tPos = gridToWorld(target->x, target->y);
@@ -19536,6 +19584,31 @@ void ofApp::applySnapshotString(const std::string & data) {
 
 	bool parseOk = true;
 
+	// NUCLEAR UI RESET
+	cancelAllTargeting();
+	isMagicHandMenuOpen = false;
+	isTrainMenuOpen = false;
+	isBurstMenuOpen = false;
+	isDoubleHandedMenuOpen = false;
+	isWisdomBoonMenuOpen = false;
+	isAmnesiaMenuOpen = false;
+	isDispelMenuOpen = false;
+	isDispelTargeting = false;
+	isDispelStatusSelectOpen = false;
+	isSelectingRenewedInspiration = false;
+	isPlacingKobolds = false;
+	isPlacingWolves = false;
+	isCardSpawnerOpen = false;
+	isCardEncyclopediaOpen = false;
+
+	// Clear transient visual queues
+	activeDiceRolls.clear();
+	activeFloatingTexts.clear();
+	activeCardDisplays.clear();
+	activePlayedCardAnimations.clear();
+	activeRemovedCardAnimations.clear();
+	activeStolenCardAnimations.clear();
+
 	// Temporary holders
 	GameState tmpCurrentState = currentState;
 	int tmpCurrentPlayerIndex = currentPlayerIndex;
@@ -19768,9 +19841,9 @@ void ofApp::applySnapshotString(const std::string & data) {
 	if (!parseOk) {
 		ofLogError("Snapshot") << "applySnapshotString failed to parse snapshot data.";
 		// Attempt fallback to backup snapshot if available and different
-		if (!backupSnapshot.empty() && backupSnapshot != data) {
-			ofLogNotice("Snapshot") << "Attempting to restore from backup snapshot due to parse failure.";
-			applySnapshotString(backupSnapshot);
+		if (!turnStartBackupSnapshot.empty() && turnStartBackupSnapshot != data) {
+			ofLogNotice("Snapshot") << "Attempting to restore from Turn-Start Master Backup due to parse failure.";
+			applySnapshotString(turnStartBackupSnapshot);
 		}
 		return;
 	}
@@ -19778,9 +19851,9 @@ void ofApp::applySnapshotString(const std::string & data) {
 	// Basic validation
 	if (tmpCurrentPlayerIndex < -1 || (tmpCurrentPlayerIndex >= 0 && tmpCurrentPlayerIndex >= (int)tmpPlayers.size())) {
 		ofLogError("Snapshot") << "Invalid currentPlayerIndex in snapshot: " << tmpCurrentPlayerIndex << " players=" << tmpPlayers.size();
-		if (!backupSnapshot.empty() && backupSnapshot != data) {
-			ofLogNotice("Snapshot") << "Attempting to restore from backup snapshot due to invalid indices.";
-			applySnapshotString(backupSnapshot);
+		if (!turnStartBackupSnapshot.empty() && turnStartBackupSnapshot != data) {
+			ofLogNotice("Snapshot") << "Attempting to restore from Turn-Start Master Backup due to invalid indices.";
+			applySnapshotString(turnStartBackupSnapshot);
 		}
 		return;
 	}
@@ -23578,16 +23651,29 @@ void ofApp::processNetworkPackets() {
 			}
 			// ACK handling removed; rely on SteamNetworkingSockets reliability.
 
-			// Only check sequence numbers for PKT_ACTION (card plays) to prevent duplicate card plays
-			// All other packets are either informational or handled by game state logic
-			if (header->type == PKT_ACTION && header->seq > 0) {
+			// Only check duplicates for PKT_ACTION (card plays) to prevent duplicate card plays.
+			// Use the clientActionID supplied by the client for watchdog retransmits
+			// rather than the networking layer's seq which may change on resend.
+			if (header->type == PKT_ACTION && buffer.size() >= sizeof(ActionPacket)) {
+				ActionPacket * ap = (ActionPacket *)buffer.data();
 				int sender = (header->playerID == 0 || header->playerID == 1) ? (int)header->playerID : -1;
 				if (sender >= 0) {
-					if (header->seq <= lastReceivedSeqByPlayer[sender]) {
-						ofLogNotice("Network") << "DROPPED DUPLICATE PACKET: type=" << (int)header->type << " seq=" << header->seq << " lastReceivedSeq[sender=" << sender << "]=" << lastReceivedSeqByPlayer[sender];
-						continue;
+					// Prefer clientActionID for deduplication when present
+					if (ap->clientActionID != 0) {
+						if (ap->clientActionID <= lastReceivedSeqByPlayer[sender]) {
+							ofLogNotice("Network") << "DROPPED DUPLICATE ACTION PACKET (clientActionID): clientActionID=" << ap->clientActionID << " lastReceived[" << sender << "]=" << lastReceivedSeqByPlayer[sender];
+							continue;
+						}
+						lastReceivedSeqByPlayer[sender] = ap->clientActionID;
 					}
-					lastReceivedSeqByPlayer[sender] = header->seq;
+					// Fallback: if no clientActionID provided, fall back to network seq
+					else if (header->seq > 0) {
+						if (header->seq <= lastReceivedSeqByPlayer[sender]) {
+							ofLogNotice("Network") << "DROPPED DUPLICATE ACTION PACKET (seq): seq=" << header->seq << " lastReceived[" << sender << "]=" << lastReceivedSeqByPlayer[sender];
+							continue;
+						}
+						lastReceivedSeqByPlayer[sender] = header->seq;
+					}
 				}
 			}
 			// Temporary reusable packet used for state syncs
@@ -24566,131 +24652,42 @@ void ofApp::processNetworkPackets() {
 					}
 				} else if (header->type == PKT_CHECKSUM_CHECK) {
 					ChecksumPacket * pkt = (ChecksumPacket *)header;
-					// If we're waiting for the host's TurnStart packet, skip checksum validation
-					// because we haven't advanced our state yet (we're in a transient waiting state).
-					if (isClient() && waitingForTurnStartFromHost) {
-						ofLogNotice("Network") << "Client: Skipping checksum validation while waiting for TurnStart.";
-						continue;
-					}
-
-					// DEBUG: Skip checksum validation when debug features are active
-					if (skipChecksumValidation) {
-						ofLogNotice("Debug") << "CHECKSUM VALIDATION DISABLED (debug mode)";
-						continue;
-					}
+					if (isClient() && waitingForTurnStartFromHost) continue;
+					if (skipChecksumValidation) continue;
 
 					long long mySum = calculateChecksum();
 
-					// Log host's deck state for diagnostics
-					if (isHost()) {
-						ofLogNotice("Checksum") << "Host received checksum from player " << pkt->playerID << ": remote=" << pkt->checksum << " local=" << mySum;
-						for (size_t i = 0; i < players.size(); ++i) {
-							std::string deckSummary;
-							for (const auto & c : players[i].deck) {
-								if (!deckSummary.empty()) deckSummary += ",";
-								deckSummary += ofToString((int)c.type) + "(" + ofToString((int)c.value) + ")";
-							}
-							ofLogNotice("Checksum") << "Host P" << i << " deck=[" << deckSummary << "]";
-						}
-					}
-
 					if (mySum != pkt->checksum) {
-						ofLogError("Net") << "DESYNC DETECTED! Local: " << mySum << " Remote: " << pkt->checksum << " Turn: " << pkt->turnNumber;
-						// Diagnostic: log per-player deck state to help locate mismatch
-						for (size_t i = 0; i < players.size(); ++i) {
-							std::string deckSummary;
-							for (const auto & c : players[i].deck) {
-								if (!deckSummary.empty()) deckSummary += ",";
-								deckSummary += ofToString((int)c.type) + "(" + ofToString((int)c.value) + ")";
+						ofLogError("Net") << "DESYNC DETECTED! Rewinding to start of turn...";
+
+						if (isHost()) {
+							// 1. Host rewinds ITSELF to the start of the turn
+							if (!turnStartBackupSnapshot.empty()) {
+								applySnapshotString(turnStartBackupSnapshot);
+								ofLogNotice("Network") << "Host rewound local state.";
 							}
-							ofLogError("Net") << "Player " << i << " id=" << players[i].playerID << " deck=[" << deckSummary << "] hand=" << players[i].hand.size() << " discard=" << players[i].discardPile.size();
-						}
 
-						// DESYNC RECOVERY: Try to restore from backup snapshot
-						if (!backupSnapshot.empty()) {
-							ofLogNotice("Backup") << "Desync detected! Attempting to restore from backup snapshot...";
-							applySnapshotString(backupSnapshot);
+							// 2. Host forcefully pushes this restored state to the Client
+							sendSnapshotToClient();
 
-							// After restoration, verify the state
-							long long restoredSum = calculateChecksum();
-							ofLogNotice("Backup") << "After restore checksum: " << restoredSum << " (expected to match previous good state)";
-
-							// Reset any pending interaction states that might cause issues
-							selectedPieceGridX = -1;
-							selectedPieceGridY = -1;
-							selectedCardIndex = -1;
-							draggedCardIndex = -1;
-							hoveredCardIndex = -1;
-							playerAction = NONE;
-
-							// Rebuild all visual elements
-							buildLevelMesh();
-							buildFloorMesh();
-							invalidateTargetCache();
-							calculateTargetHighlights();
-
-							addGameLog("DESYNC DETECTED: Restored from backup snapshot at turn " + ofToString(globalTurnCounter));
-							spawnFloatingText(glm::vec3(0, 5, 0), "Desync Recovered", ofColor::yellow);
-							ofLogNotice("Backup") << "Successfully restored game state from backup and rebuilt UI";
+							// 3. Visual notification
+							spawnFloatingText(glm::vec3(0, 5, 0), "SYNC ERROR: TURN REWOUND", ofColor::red);
 						} else {
-							// No backup available - request authoritative snapshot from host (client-side)
-							ofLogError("Backup") << "No backup snapshot available for desync recovery!";
-							// Dump local snapshot to disk for offline analysis
-							try {
-								std::string snap = buildSnapshotString();
-								std::string path = "bin/data/desync_local_snapshot_" + ofGetTimestampString() + ".txt";
-								std::ofstream ofs(path);
-								if (ofs) {
-									ofs << snap;
-									ofs.close();
-									ofLogNotice("Backup") << "Wrote local snapshot to " << path;
-								} else {
-									ofLogError("Backup") << "Failed to write local snapshot to " << path;
-								}
-							} catch (...) {
-								ofLogError("Backup") << "Exception while writing local snapshot to disk.";
-							}
-							if (isClient()) {
-								float now = ofGetElapsedTimef();
-								if (!waitingForSnapshot || (now - lastSnapshotRequestTime) > 5.0f) {
-									SnapshotRequestPacket req = {};
-									req.type = PKT_SNAPSHOT_REQUEST;
-									req.playerID = myLocalPlayerID;
-									req.requestedTurn = pkt->turnNumber;
-									bool ok = steamManager.sendPacket(&req, sizeof(req));
-									waitingForSnapshot = true;
-									lastSnapshotRequestTime = now;
-									ofLogNotice("Network") << "Client requested authoritative snapshot from host (ok=" << ok << ")";
-									addGameLog("Checksum mismatch: requested host snapshot for recovery");
-									spawnFloatingText(glm::vec3(0, 5, 0), "Requesting host snapshot...", ofColor::yellow);
-								} else {
-									ofLogNotice("Network") << "Waiting for host snapshot (already requested).";
-								}
-							} else {
-								// Host with no backup - write authoritative snapshot and go to desync state as a fallback
-								try {
-									std::string snap = buildSnapshotString();
-									std::string path = "bin/data/desync_host_snapshot_" + ofGetTimestampString() + ".txt";
-									std::ofstream ofs(path);
-									if (ofs) {
-										ofs << snap;
-										ofs.close();
-										ofLogNotice("Backup") << "Wrote host snapshot to " << path;
-									} else {
-										ofLogError("Backup") << "Failed to write host snapshot to " << path;
-									}
-								} catch (...) {
-									ofLogError("Backup") << "Exception while writing host snapshot to disk.";
-								}
-								desyncMessage = "DESYNC! Local:" + ofToString(mySum) + " Remote:" + ofToString(pkt->checksum) + " Turn:" + ofToString(pkt->turnNumber);
-								currentState = STATE_DESYNC;
-								spawnFloatingText(glm::vec3(0, 5, 0), "DESYNC DETECTED", ofColor::red);
-							}
+							// Client detected a desync on its own end. Request the host to fix it.
+							SnapshotRequestPacket req = {};
+							req.type = PKT_SNAPSHOT_REQUEST;
+							req.playerID = myLocalPlayerID;
+							req.requestedTurn = pkt->turnNumber;
+							steamManager.sendPacket(&req, sizeof(req));
+
+							waitingForSnapshot = true;
+							spawnFloatingText(glm::vec3(0, 5, 0), "Requesting Resync...", ofColor::yellow);
 						}
 					} else {
-						// Checksum validated successfully - save verified backup snapshot
-						backupSnapshot = buildSnapshotString();
-						ofLogNotice("Backup") << "Checksum verified for turn " << pkt->turnNumber << " - saved backup snapshot";
+						// If checksums match mid-turn, update the backup so we don't lose progress on a good move!
+						if (isHost()) {
+							turnStartBackupSnapshot = buildSnapshotString();
+						}
 					}
 				} else if (header->type == PKT_KEY_PICKUP) {
 					KeyPickupPacket * kpkt = (KeyPickupPacket *)header;
@@ -26050,6 +26047,14 @@ void ofApp::executeOpponentCardPlay(const ActionPacket & pkt) {
     }
     */
 	// --- CHANGE END ---
+
+	// ADD FAILSAFE BEFORE playCard() TO AVOID OPPONENT MENU-CARD FALL-THROUGH UI SOFTLOCK
+	if (cardDef.type == CARD_WISDOM_BOON || cardDef.type == CARD_BURST_OF_LIGHT || cardDef.type == CARD_DOUBLE_HANDED || cardDef.type == CARD_GIANT_MAGIC_HAND || cardDef.type == CARD_DISPEL || cardDef.type == CARD_TRAIN) {
+		ofLogError("Network") << "Failsafe: Opponent menu card fell through! Aborting to prevent UI softlock.";
+		currentPlayerIndex = savedCurrentPlayerIndex;
+		currentAP = savedCurrentAP;
+		return;
+	}
 
 	// Execute the card play using the normal playCard logic
 	CardPlayResult result = playCard(tempCardIndex, tx, ty);
