@@ -79,6 +79,20 @@ void ofApp::checkKeyPickupAndDraftAfterSummon(int x, int y, int minionOwnerID) {
 		}
 	}
 }
+
+void ofApp::startInitiativePhase() {
+	currentState = STATE_INITIATIVE_ROLL;
+	isInitiativeRolling = true;
+	initiativeTimer = 0.0f;
+
+	// All players roll initiative using shared deterministic RNG
+	startDiceRoll(1, 6, PURPOSE_DEBUG, "", currentPlayerIndex);
+	startDiceRoll(1, 6, PURPOSE_DEBUG, "", currentPlayerIndex);
+
+	ofLogNotice("Game") << "--- INITIATIVE ROLL STARTED ---";
+	cam.setAspectRatio((float)ofGetWidth() / (float)ofGetHeight());
+	cam2.setAspectRatio((float)ofGetWidth() / (float)ofGetHeight());
+}
 // Define destructor to ensure vtable is emitted in this translation unit
 ofApp::~ofApp() { }
 //--------------------------------------------------------------
@@ -164,7 +178,12 @@ void ofApp::drawMinionCard(int minionIndex, int ownerIndex) {
 			anim.targetPos = glm::vec2(cardCenterX, handCenterY);
 			anim.endPos = anim.startPos;
 			ofVec3f sp = getActiveCamera().worldToScreen(anim.startPos);
-			anim.currentPos = glm::vec2((float)sp.x, (float)sp.y);
+			// Offset simultaneous draws slightly so multiple flying cards are visible
+			int offsetIndex = animatingToThis + pushedAnims; // include ones we're adding in this batch
+			float offsetPixels = offsetIndex * 28.0f; // shift each successive card to the right
+			anim.startIsScreenSpace = true;
+			anim.currentPos = glm::vec2((float)sp.x + offsetPixels, (float)sp.y);
+			anim.startPos = glm::vec3(anim.currentPos.x, anim.currentPos.y, 0);
 			anim.currentScale = 1.0f;
 
 			activeDrawCardAnimations.push_back(anim);
@@ -1128,6 +1147,62 @@ std::string ofApp::getPlayerDisplayName(int index) {
 //--------------------------------------------------------------
 void ofApp::update() {
 	steamManager.update();
+
+	// --- INACTIVITY SUSPEND (Singleplayer only) ---
+	// If the window is not focused or minimized, suspend game logic and mute audio
+	if (!isMultiplayer) {
+		GLFWwindow * window = (GLFWwindow *)ofGetWindowPtr()->getWindowContext();
+		bool windowActive = true;
+		if (window) {
+			int focused = glfwGetWindowAttrib(window, GLFW_FOCUSED);
+			int iconified = glfwGetWindowAttrib(window, GLFW_ICONIFIED);
+			windowActive = (focused == GLFW_TRUE) && (iconified == GLFW_FALSE);
+		}
+
+		if (!windowActive) {
+			if (!gameSuspendedDueToInactivity) {
+				gameSuspendedDueToInactivity = true;
+				// Save master volume and mute audio (per-player where supported)
+				savedMasterVolume = settingsMasterVolume;
+				// Save and mute main menu music
+				if (mainMenuMusic.isLoaded()) {
+					savedMainMenuWasPlaying = mainMenuMusic.isPlaying();
+					savedMainMenuVolume = mainMenuMusic.getVolume();
+					// Save current playback position (ms)
+					savedMainMenuPositionMS = mainMenuMusic.getPositionMS();
+					mainMenuMusic.setVolume(0.0f);
+					if (savedMainMenuWasPlaying) mainMenuMusic.stop();
+				}
+				// Save and mute footstep sounds (if any)
+				savedFootstepVolumes.clear();
+				for (size_t i = 0; i < footstepSounds.size(); ++i) {
+					savedFootstepVolumes.push_back(footstepSounds[i].getVolume());
+					footstepSounds[i].setVolume(0.0f);
+				}
+				ofLogNotice("Power") << "Singleplayer suspended: window inactive. Audio muted and game logic paused.";
+			}
+			return; // Skip rest of update to save CPU/GPU
+		} else {
+			if (gameSuspendedDueToInactivity) {
+				gameSuspendedDueToInactivity = false;
+				// Restore audio to previous levels (per-player)
+				// Restore main menu music volume and resume if it was playing
+				if (mainMenuMusic.isLoaded()) {
+					mainMenuMusic.setVolume(savedMainMenuVolume);
+					if (!mainMenuMusic.isPlaying() && savedMainMenuWasPlaying && (currentState == STATE_MAIN_MENU || currentState == STATE_SETTINGS)) {
+						// Try to restore playback position and resume
+						mainMenuMusic.setPositionMS(savedMainMenuPositionMS);
+						mainMenuMusic.play();
+					}
+				}
+				// Restore footstep volumes
+				for (size_t i = 0; i < footstepSounds.size() && i < savedFootstepVolumes.size(); ++i) {
+					footstepSounds[i].setVolume(savedFootstepVolumes[i]);
+				}
+				ofLogNotice("Power") << "Singleplayer resumed: window active. Audio restored and game logic will continue.";
+			}
+		}
+	}
 
 	// Cache Steam avatars for turn indicator
 	if (isMultiplayer && steamManager.isConnected()) {
@@ -2292,18 +2367,16 @@ void ofApp::setupGame() {
 	board[p1.x][p1.y].hasPlayer = true;
 	board[p2.x][p2.y].hasPlayer = true;
 
-	// --- START INITIATIVE PHASE ---
-	currentState = STATE_INITIATIVE_ROLL;
-	isInitiativeRolling = true;
-	initiativeTimer = 0.0f;
-
-	// All players roll initiative using shared deterministic RNG
-	startDiceRoll(1, 6, PURPOSE_DEBUG, "", currentPlayerIndex);
-	startDiceRoll(1, 6, PURPOSE_DEBUG, "", currentPlayerIndex);
-
-	ofLogNotice("Game") << "--- INITIATIVE ROLL STARTED ---";
-	cam.setAspectRatio((float)ofGetWidth() / (float)ofGetHeight());
-	cam2.setAspectRatio((float)ofGetWidth() / (float)ofGetHeight());
+	// --- INITIATIVE PHASE START: defer to startInitiativePhase()
+	// If host in multiplayer, wait for client-ready signal before starting.
+	if (isMultiplayer && isHost()) {
+		hostWaitingForClientsReady = true;
+		clientsReady.clear();
+		ofLogNotice("Game") << "Host: waiting for client ready signal before starting initiative.";
+	} else {
+		// Singleplayer or clientless host: start immediately
+		startInitiativePhase();
+	}
 }
 
 void ofApp::initGameFromSeed(uint32_t seed) {
@@ -2338,6 +2411,7 @@ void ofApp::initialiseGameStateCommon() {
 	hasDrawnCardsThisTurn = false;
 	opponentHasDrawnCardsThisTurn = false;
 	draftStage = 0;
+	draftGenerationCounter = 0; // <--- FIX: reset draft generation counter
 	// ------------------------------------------------------------------
 
 	// Reset board tiles
@@ -2413,18 +2487,14 @@ void ofApp::initialiseGameStateCommon() {
 	board[p1.x][p1.y].hasPlayer = true;
 	board[p2.x][p2.y].hasPlayer = true;
 
-	// --- START INITIATIVE PHASE ---
-	currentState = STATE_INITIATIVE_ROLL;
-	isInitiativeRolling = true;
-	initiativeTimer = 0.0f;
-
-	// All players roll initiative using shared deterministic RNG
-	startDiceRoll(1, 6, PURPOSE_DEBUG, "", currentPlayerIndex);
-	startDiceRoll(1, 6, PURPOSE_DEBUG, "", currentPlayerIndex);
-
-	ofLogNotice("Game") << "--- INITIATIVE ROLL STARTED ---";
-	cam.setAspectRatio((float)ofGetWidth() / (float)ofGetHeight());
-	cam2.setAspectRatio((float)ofGetWidth() / (float)ofGetHeight());
+	// --- INITIATIVE PHASE START: defer to startInitiativePhase()
+	if (isMultiplayer && isHost()) {
+		hostWaitingForClientsReady = true;
+		clientsReady.clear();
+		ofLogNotice("Game") << "Host: waiting for client ready signal before starting initiative.";
+	} else {
+		startInitiativePhase();
+	}
 }
 //--------------------------------------------------------------
 void ofApp::updateGame() {
@@ -6153,12 +6223,14 @@ void ofApp::updateGame() {
 					// Note: do not skip based on name+drawnThisTurn, as legitimate
 					// duplicate-name cards should both be allowed in hand.
 					Card c = anim.card;
-					c.currentPos = anim.currentPos;
-					// Ensure the committed card appears at normal scale immediately
-					// to avoid a brief scaled-down / pop visual when it is added.
-					c.currentScale = 1.0f;
+					// Place the card at the animation's final screen pos.
+					// For player hands (non-minion), immediately set to the normal
+					// hand display scale so it doesn't lerp up from a smaller size.
+					c.currentPos = anim.targetPos;
 					c.targetPos = anim.targetPos;
-					c.targetScale = 1.0f;
+					// Set to hand display scale immediately for all draws
+					c.currentScale = 1.5f;
+					c.targetScale = 1.5f;
 					c.drawnThisTurn = true;
 					ofLogNotice("DrawDebug") << "Committing drawn card '" << c.name << "' to playerIndex=" << owner << " handSizeBefore=" << p.hand.size();
 					p.hand.push_back(c);
@@ -11288,7 +11360,40 @@ void ofApp::mousePressed(int x, int y, int button) {
 		float cardH = cardW * 1.4f;
 		float spacing = 60;
 		float startX = (ofGetWidth() - (3 * cardW + 2 * spacing)) / 2;
-		float startY = ofGetHeight() / 2 - cardH / 2;
+
+		// --- HITBOX Y-ALIGNMENT FIX ---
+		// Replicate the exact vertical layout from drawDraftScreen
+		string pName = (draftPlayerIndex == 0) ? player0SteamName : player1SteamName;
+		string instr = "";
+		if (isInGameDraft) {
+			instr = "Choose 1 Card (Get 1 Copy)";
+		} else {
+			bool isMyTurnToDraft = (!players.empty() && players[draftPlayerIndex].playerID == myLocalPlayerID);
+			if (draftStage == 0)
+				instr = isMyTurnToDraft ? "Choose 2 (Get 2 Copies)" : "Choosing 2 (Gets 2 Copies)";
+			else
+				instr = isMyTurnToDraft ? "Choose 1 (Get 1 Copy)" : "Choosing 1 (Gets 1 Copy)";
+		}
+
+		std::string classTierText = "";
+		if (!isInGameDraft) {
+			if (draftStage == 0)
+				classTierText = "Class 1";
+			else if (draftStage == 1)
+				classTierText = "Class 2";
+		}
+
+		float ty = ofGetHeight() * 0.25f;
+		float lineH = titleFont.getLineHeight();
+		float instrTy = ty + lineH + 8;
+		float classTy = instrTy + lineH + 12;
+
+		float topTextBottom = ty + lineH;
+		if (!instr.empty()) topTextBottom = instrTy + lineH;
+		if (!classTierText.empty()) topTextBottom = classTy + lineH;
+
+		float startY = topTextBottom + 24.0f; // This is the TRUE visual Y position of the cards
+		// ------------------------------
 
 		// Determine logic for this draft phase
 		int requiredPicks = 1;
@@ -11747,7 +11852,8 @@ void ofApp::mousePressed(int x, int y, int button) {
 						for (int q = 0; q < cardSpawnerQuantity; q++) {
 							players[currentPlayerIndex].hand.push_back(sortedCards[i]);
 							players[currentPlayerIndex].hand.back().currentPos = ofVec2f(ofGetWidth() / 2, 0);
-							players[currentPlayerIndex].hand.back().currentScale = 1.0f;
+							players[currentPlayerIndex].hand.back().currentScale = 1.5f;
+							players[currentPlayerIndex].hand.back().targetScale = 1.5f;
 							players[currentPlayerIndex].hand.back().drawnThisTurn = true;
 						}
 						spawnFloatingText(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y),
@@ -11821,7 +11927,8 @@ void ofApp::mousePressed(int x, int y, int button) {
 					for (int q = 0; q < cardSpawnerQuantity; q++) {
 						players[currentPlayerIndex].hand.push_back(filteredCards[i]);
 						players[currentPlayerIndex].hand.back().currentPos = ofVec2f(ofGetWidth() / 2, 0);
-						players[currentPlayerIndex].hand.back().currentScale = 1.0f;
+						players[currentPlayerIndex].hand.back().currentScale = 1.5f;
+						players[currentPlayerIndex].hand.back().targetScale = 1.5f;
 						players[currentPlayerIndex].hand.back().drawnThisTurn = true;
 					}
 					spawnFloatingText(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y),
@@ -14692,6 +14799,8 @@ void ofApp::keyPressed(int key) {
 				for (int q = 0; q < cardSpawnerQuantity; q++) {
 					players[currentPlayerIndex].hand.push_back(filteredCards[0]);
 					players[currentPlayerIndex].hand.back().currentPos = ofVec2f(ofGetWidth() / 2, 0);
+					players[currentPlayerIndex].hand.back().currentScale = 1.5f;
+					players[currentPlayerIndex].hand.back().targetScale = 1.5f;
 				}
 				spawnFloatingText(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y),
 					"+" + ofToString(cardSpawnerQuantity) + "x " + filteredCards[0].name, ofColor::cyan);
@@ -15684,9 +15793,15 @@ void ofApp::drawCard(bool sendPacket) {
 			} else {
 				start2D = glm::vec2(p1_deckRect.getCenter().x, p1_deckRect.getCenter().y);
 			}
-			anim.startPos = glm::vec3(start2D.x, start2D.y, 0);
+			// Compute offset based on other ongoing draws for this owner
+			int animatingToThis = 0;
+			for (const auto & a : activeDrawCardAnimations) {
+				if (a.ownerIndex == owner && !a.toMinionHand) animatingToThis++;
+			}
+			float offsetPixels = animatingToThis * 28.0f;
+			anim.startPos = glm::vec3(start2D.x + offsetPixels, start2D.y, 0);
 			anim.startIsScreenSpace = true;
-			anim.currentPos = start2D; // initialize in screen-space so first frame is correct
+			anim.currentPos = glm::vec2(start2D.x + offsetPixels, start2D.y); // initialize in screen-space so first frame is correct
 		}
 
 		// Set anim.targetPos to the standard hand area (centered, bottom)
@@ -17390,6 +17505,8 @@ CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 			}
 
 			currentPlayer.hand.push_back(drawnCard);
+			currentPlayer.hand.back().currentScale = 1.5f;
+			currentPlayer.hand.back().targetScale = 1.5f;
 			ofLogNotice("Flurry of Fists") << "Drew " << drawnCard.name << (isHandRelated ? " (free this turn)" : "");
 		} else if (!currentPlayer.discardPile.empty()) {
 			// Reshuffle discard into deck first
@@ -17408,6 +17525,8 @@ CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 			}
 
 			currentPlayer.hand.push_back(drawnCard);
+			currentPlayer.hand.back().currentScale = 1.5f;
+			currentPlayer.hand.back().targetScale = 1.5f;
 		}
 
 		playedSuccessfully = true;
@@ -17728,6 +17847,7 @@ CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 
 			// Add to hand
 			currentPlayer.hand.push_back(copy);
+			currentPlayer.hand.back().currentScale = currentPlayer.hand.back().targetScale = 1.5f;
 			currentPlayer.isReplicatePending = false;
 
 			spawnFloatingText(gridToWorld(currentPlayer.x, currentPlayer.y), "Replicated!", ofColor::cyan);
@@ -24122,8 +24242,34 @@ void ofApp::processNetworkPackets() {
 					// sequence on reconnects.
 					ofLogNotice("Network") << "Client: Handshake received. Initializing game (seed=" << currentMapSeed << ") - staying in main menu until host signals next state.";
 					setupGame();
+
+					// Client: notify host that we've finished local setup and are ready to see the board
+					if (!clientSentReady) {
+						ClientReadyPacket r = {};
+						r.type = PKT_CLIENT_READY;
+						r.playerID = myLocalPlayerID;
+						r.ready = 1;
+						steamManager.sendPacket(&r, sizeof(r));
+						clientSentReady = true;
+						ofLogNotice("Network") << "Client: Sent ClientReady to host.";
+					}
 				} else {
 					ofLogNotice("Network") << "Client: Handshake received on reconnect. Staying in current game state: " << currentState;
+				}
+				continue;
+			}
+			// Handle ClientReady: Host receives client confirmation that it's ready to start
+			if (header->type == PKT_CLIENT_READY && buffer.size() >= sizeof(ClientReadyPacket)) {
+				ClientReadyPacket * cr = (ClientReadyPacket *)header;
+				ofLogNotice("Network") << "ClientReady received from playerID=" << cr->playerID;
+				if (isHost() && hostWaitingForClientsReady) {
+					clientsReady.insert(cr->playerID);
+					// For 2-player matches, start when we have any client ready
+					if (!clientsReady.empty()) {
+						ofLogNotice("Network") << "All clients ready - starting initiative phase.";
+						hostWaitingForClientsReady = false;
+						startInitiativePhase();
+					}
 				}
 				continue;
 			}
@@ -24298,15 +24444,17 @@ void ofApp::processNetworkPackets() {
 								float discardY = 40 * scale;
 								float deckX = discardX;
 								float deckY = discardY + staticUICardHeight + (40 * scale);
-								anim.startPos = glm::vec3(deckX + staticUICardWidth / 2, deckY + staticUICardHeight / 2, 0);
-								anim.startIsScreenSpace = true; // ensure UI-origin animation uses screen coords
-								anim.currentPos = glm::vec2(anim.startPos.x, anim.startPos.y);
-								// compute final hand index as if the card were present (hand.size + 1)
-								// but also account for other ongoing draw animations targeting this player's hand
+								// Offset simultaneous opponent draws so multiple flying cards are visible
 								int animatingToThis = 0;
 								for (const auto & a : activeDrawCardAnimations) {
 									if (a.ownerIndex == targetPlayerIndex && !a.toMinionHand) animatingToThis++;
 								}
+								float offsetPixels = animatingToThis * 28.0f;
+								anim.startPos = glm::vec3(deckX + staticUICardWidth / 2 + offsetPixels, deckY + staticUICardHeight / 2, 0);
+								anim.startIsScreenSpace = true; // ensure UI-origin animation uses screen coords
+								anim.currentPos = glm::vec2(anim.startPos.x, anim.startPos.y);
+								// compute final hand index as if the card were present (hand.size + 1)
+								// but also account for other ongoing draw animations targeting this player's hand
 								size_t numCards = p.hand.size() + 1 + animatingToThis;
 								float handCenterY = ofGetHeight() - 160;
 								float handBaseCardWidth = 120;
@@ -24828,6 +24976,11 @@ void ofApp::processNetworkPackets() {
 					isInGameDraft = (sp->isInGameDraft != 0);
 
 					if (sp->classTier > 0) {
+						// Clear visual dice left over from initiative to prevent them lingering forever
+						if (currentState == STATE_INITIATIVE_ROLL) {
+							activeDiceRolls.clear();
+						}
+
 						// Enter drafting with host-provided class tier
 						currentState = STATE_DRAFTING;
 
@@ -25514,6 +25667,7 @@ void ofApp::executeOpponentCardPlay(const ActionPacket & pkt) {
 	bool addedTemporaryCard = false;
 	if (tempCardIndex < 0) {
 		opponentPlayer.hand.push_back(cardDef);
+		opponentPlayer.hand.back().currentScale = opponentPlayer.hand.back().targetScale = 1.5f;
 		tempCardIndex = (int)opponentPlayer.hand.size() - 1;
 		addedTemporaryCard = true;
 	}
@@ -26012,6 +26166,7 @@ void ofApp::executeOpponentCardPlay(const ActionPacket & pkt) {
 			Card copy = cardDef;
 			copy.isCopied = true;
 			opponentPlayer.hand.push_back(copy);
+			opponentPlayer.hand.back().currentScale = opponentPlayer.hand.back().targetScale = 1.5f;
 			opponentPlayer.playedCardsPile.push_back(cardDef);
 			opponentPlayer.isReplicatePending = false;
 		}

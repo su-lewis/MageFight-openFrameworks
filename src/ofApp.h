@@ -568,6 +568,8 @@ private:
 	int lastAPDiceNum = 0;
 	int lastAPDiceSides = 0;
 	void setupGame();
+	// Start the initiative phase (sets state + spawns initiative dice)
+	void startInitiativePhase();
 
 	// Initialize shared game state (board, players, camera)
 	void initialiseGameStateCommon();
@@ -1536,6 +1538,22 @@ private:
 
 	// --- DICE & SOUND ---
 	std::vector<DiceRoll> activeDiceRolls;
+	// Host waits for connected clients to confirm they've loaded the board before starting initiative
+	bool hostWaitingForClientsReady = false;
+	std::set<uint32_t> clientsReady;
+	// Client-side flag: have we sent our ready signal to the host?
+	bool clientSentReady = false;
+
+	// Suspend/resume game when window is inactive (singleplayer only)
+	bool gameSuspendedDueToInactivity = false;
+	float savedMasterVolume = 1.0f; // store previous master volume when suspending
+	// Remember whether main menu music was playing when suspending
+	bool savedMainMenuWasPlaying = false;
+	// Saved per-player audio volumes when suspending
+	float savedMainMenuVolume = 0.6f;
+	std::vector<float> savedFootstepVolumes;
+	// Saved playback position (ms) for main menu music
+	int savedMainMenuPositionMS = 0;
 	float diceSpinSpeed = 1500.0f;
 	ofMesh d6Mesh, d4Mesh, d20Mesh, d10Mesh, coinMesh;
 	ofTexture d6Texture, d4Texture, d20Texture, d10Texture, coinFacesTexture;

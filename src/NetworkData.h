@@ -12,6 +12,7 @@
 
 enum PacketType {
 	PKT_HANDSHAKE,
+	PKT_CLIENT_READY, // Client -> Host: client finished local setup and is ready to start
 	PKT_ACTION,
 	PKT_END_TURN,
 	PKT_CHECKSUM_CHECK,
@@ -238,6 +239,13 @@ struct ShufflePacket : PacketHeader {
 	int32_t playerIndex; // which player's deck is being shuffled
 	uint32_t nonce; // nonce used to seed local shuffle RNG
 };
+
+// Client -> Host: signal that the client has finished local setup and is ready
+struct ClientReadyPacket : PacketHeader {
+	uint8_t ready; // set to 1
+};
+
+static_assert(sizeof(ClientReadyPacket) == 10, "ClientReadyPacket size mismatch - packing/fields may be incorrect");
 
 // For Amnesia card: when the player selects which cards to remove from deck
 struct AmnesiaChoicePacket : PacketHeader {
