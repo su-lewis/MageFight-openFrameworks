@@ -23304,24 +23304,15 @@ void ofApp::drawDraftScreen() {
 		header = pName + ": Key Found!";
 		instr = "Choose 1 Card (Get 1 Copy)";
 	} else {
-		// Header shows which draft this is for the player whose draft it is
-		if (draftStage == 0)
-			header = pName + "'s first draft";
-		else
-			header = pName + "'s second draft";
-
-		// Instruction wording differs when it's your turn
+		// Header shows which draft this is for the player whose draft it is.
+		// If it's the local player's draft, display "Your first/second draft" instead of their Steam name.
 		bool isMyTurnToDraft = (!players.empty() && players[draftPlayerIndex].playerID == myLocalPlayerID);
 		if (draftStage == 0) {
-			if (isMyTurnToDraft)
-				instr = "Choose two (get a duplicate of each)";
-			else
-				instr = "Choose 2 (Get 2 Copies)";
+			header = isMyTurnToDraft ? "Your first draft" : (pName + "'s first draft");
+			instr = isMyTurnToDraft ? "Choose 2 (Get 2 Copies)" : "Choosing 2 (Gets 2 Copies)";
 		} else {
-			if (isMyTurnToDraft)
-				instr = "Choose one";
-			else
-				instr = "Choose 1 (Get 1 Copy)";
+			header = isMyTurnToDraft ? "Your second draft" : (pName + "'s second draft");
+			instr = isMyTurnToDraft ? "Choose 1 (Get 1 Copy)" : "Choosing 1 (Gets 1 Copy)";
 		}
 	}
 
