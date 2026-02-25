@@ -259,6 +259,7 @@ struct PlayedCardDisplay {
 	glm::vec2 startPos; // UI screen position where the card appears
 	glm::vec2 currentPos; // Current position during animation
 	float currentScale = 1.5f; // Starts large, shrinks and fades
+	float startScale = 1.5f;
 	float currentAlpha = 255.0f; // Starts opaque, fades out
 };
 
@@ -554,7 +555,7 @@ public:
 	// Debug helpers
 	bool debugFlatSkeletonDraw = true; // When true, draw a flat unshaded pass to verify visibility
 	// When true, force an unshaded textured draw instead of the PBR shader (debug only)
-	bool debugForceUnshadedDraw = true;
+	bool debugForceUnshadedDraw = false;
 
 private:
 	// -------------------------------------------------------------------------
@@ -1068,13 +1069,13 @@ private:
 	ofShader worldPostShader;
 	bool worldPostShaderLoaded = false;
 	bool enableWorldPostProcess = true;
-	bool showWorldFboPreview = false;
+	bool showWorldFboPreview = true; // 'Y' preview on by default
 
 	// --- COMMODORE64 POST PROCESS ---
 	ofShader c64Shader;
 	bool c64ShaderLoaded = false;
-	bool enableC64Shader = false; // toggled with 'l'
-	float c64ScanlineIntensity = 0.6f;
+	bool enableC64Shader = false; // toggled with 'm'
+	float c64ScanlineIntensity = 0.25f;
 
 	// --- BLOOM ---
 	// Two ping-pong FBOs for separable blur and an extract shader
@@ -1096,6 +1097,8 @@ private:
 	glm::mat4 lightViewProj;
 	bool shadowDepthShaderLoaded = false;
 	bool pbrShaderLoaded = false;
+	// Master switch to enable/disable default shaders (P toggles this)
+	bool enableShaders = false; // default: shaders off
 
 	// --- PIXEL ART RENDERING ---
 	// Render the world to a low-res FBO and apply a posterize/dither shader

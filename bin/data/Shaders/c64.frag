@@ -49,6 +49,16 @@ vec3 findClosestPalette(vec3 c) {
     return c64Palette[bestI];
 }
 
+int findClosestPaletteIndex(vec3 c) {
+    float bestDist = 1000.0;
+    int bestI = 0;
+    for (int i = 0; i < 16; ++i) {
+        float d = distance(c, c64Palette[i]);
+        if (d < bestDist) { bestDist = d; bestI = i; }
+    }
+    return bestI;
+}
+
 void main() {
     vec2 uv = vTexCoord;
     vec4 col = texture(tex0, uv);
@@ -67,9 +77,23 @@ void main() {
     float t = bayerDither(gl_FragCoord.xy / uResolution, scale);
     vec3 mapped = findClosestPalette(color + (t - 0.5) * 0.04);
 
+    // preserve more of the original color so the board doesn't get strongly
+    // replaced with black; blend original and mapped colors (35% original)
+    mapped = mix(color, mapped, 0.65);
+
+    // Avoid mapping relatively bright pixels to pure black — if the closest
+    // palette index is black but the original luminance is above a small
+    // threshold, bias back toward the original color to keep texture detail.
+    float lum = dot(color, vec3(0.299, 0.587, 0.114));
+    int nearest = findClosestPaletteIndex(color);
+    if (nearest == 0 && lum > 0.08) {
+        mapped = mix(mapped, color, 0.85);
+    }
+
     // scanlines
     float scan = sin((gl_FragCoord.y + uTime * 30.0) * 1.2) * 0.5 + 0.5;
-    mapped *= mix(1.0, 1.0 - uScanlineIntensity * 0.9, scan);
+    // reduce max darkening from scanlines so board colors don't go very black
+    mapped *= mix(1.0, 1.0 - uScanlineIntensity * 0.5, scan);
 
     fragColor = vec4(mapped, col.a);
 }

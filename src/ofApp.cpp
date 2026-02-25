@@ -2030,6 +2030,11 @@ void ofApp::applySettings() {
 			pbrShaderLoaded = pbrShader.linkProgram();
 		} else
 			pbrShaderLoaded = false;
+		// If the runtime is not using the programmable renderer, disable PBR even if the shader linked.
+		if (pbrShaderLoaded && !ofIsGLProgrammableRenderer()) {
+			ofLogNotice("Setup") << "Programmable renderer not active; disabling PBR shader to avoid incompatibilities.";
+			pbrShaderLoaded = false;
+		}
 
 		ofLogNotice("Setup") << "Shadow shader files: vertOk=" << (sdVertOk ? "true" : "false") << " fragOk=" << (sdFragOk ? "true" : "false") << " linked=" << (shadowDepthShaderLoaded ? "true" : "false");
 		ofLogNotice("Setup") << "PBR shader files: vertOk=" << (pbrVertOk ? "true" : "false") << " fragOk=" << (pbrFragOk ? "true" : "false") << " linked=" << (pbrShaderLoaded ? "true" : "false");
@@ -2650,6 +2655,9 @@ void ofApp::updateGame() {
 	float scale = ofGetHeight() / 1080.0f;
 	float btnWidth = 250 * scale;
 	float visibleY = 20 * scale;
+	// Ensure visibleY leaves room for the end-turn glow (glow = 6.0f * scale)
+	float glowMargin = 6.0f * scale + 2.0f * scale;
+	visibleY = std::max(visibleY, glowMargin);
 	float hiddenY = -100 * scale;
 
 	// Show end turn button / turn indicator
@@ -4440,6 +4448,8 @@ void ofApp::updateGame() {
 		board[minion.x][minion.y].hasPlayer = true;
 		players.push_back(minion);
 		int newHellhoundIdx = (int)players.size() - 1;
+		players[newHellhoundIdx].visualPos = gridToWorld(players[newHellhoundIdx].x, players[newHellhoundIdx].y);
+		ofLogNotice("Summon") << "Initialized visualPos for hellhound idx=" << newHellhoundIdx << " pos=" << players[newHellhoundIdx].visualPos.x << "," << players[newHellhoundIdx].visualPos.y << "," << players[newHellhoundIdx].visualPos.z;
 		shuffleGameVector(players[newHellhoundIdx].deck, newHellhoundIdx);
 		checkKeyPickupAndDraftAfterSummon(minion.x, minion.y, minion.ownerID);
 
@@ -4560,6 +4570,8 @@ void ofApp::updateGame() {
 		board[minion.x][minion.y].hasPlayer = true;
 		players.push_back(minion);
 		int newDemonIdx = (int)players.size() - 1;
+		players[newDemonIdx].visualPos = gridToWorld(players[newDemonIdx].x, players[newDemonIdx].y);
+		ofLogNotice("Summon") << "Initialized visualPos for demon idx=" << newDemonIdx << " pos=" << players[newDemonIdx].visualPos.x << "," << players[newDemonIdx].visualPos.y << "," << players[newDemonIdx].visualPos.z;
 		shuffleGameVector(players[newDemonIdx].deck, newDemonIdx);
 		checkKeyPickupAndDraftAfterSummon(minion.x, minion.y, minion.ownerID);
 
@@ -6030,8 +6042,8 @@ void ofApp::updateGame() {
 	for (auto & disp : activeCardDisplays) {
 		float elapsedTime = ofGetElapsedTimef() - disp.startTime;
 		if (elapsedTime < 1.0f) {
-			// Scale down from 1.5 to 1.0 while staying opaque
-			disp.currentScale = ofLerp(1.5f, 1.0f, elapsedTime / 1.0f);
+			// Smoothly scale from the declared startScale down to 1.0
+			disp.currentScale = ofLerp(disp.startScale, 1.0f, elapsedTime / 1.0f);
 			disp.currentAlpha = 255.0f;
 		} else if (elapsedTime < 2.5f) {
 			// Hold at normal size
@@ -7190,7 +7202,7 @@ void ofApp::drawGame() {
 						ofSetColor(255);
 						ofPopMatrix();
 					} else {
-						if (pbrShaderLoaded) {
+						if (pbrShaderLoaded && enableShaders) {
 							if (debugForceUnshadedDraw) {
 								ofLogNotice("Render") << "Forcing unshaded textured skeleton draw (debugForceUnshadedDraw=true)";
 								GLint prevP = 0;
@@ -7210,9 +7222,9 @@ void ofApp::drawGame() {
 													  << " skeletonTexAllocated=" << (skeletonTexture.isAllocated() ? "yes" : "no")
 													  << " texSize=" << (skeletonTexture.isAllocated() ? (std::to_string(skeletonTexture.getWidth()) + "x" + std::to_string(skeletonTexture.getHeight())) : "0x0");
 
+								// Apply model's internal matrix so PBR uses the correct scale/rotation
+								ofMultMatrix(skeletonModel.getModelMatrix());
 								ofMatrix4x4 modelMat = ofGetCurrentMatrix(OF_MATRIX_MODELVIEW);
-								// Include model's internal matrix so PBR uses the correct scale/rotation
-								modelMat = modelMat * skeletonModel.getModelMatrix();
 								ofMatrix4x4 viewMat = activeCam.getModelViewMatrix();
 								ofMatrix4x4 projMat = activeCam.getProjectionMatrix();
 								ofMatrix4x4 viewProj = projMat * viewMat;
@@ -7336,9 +7348,9 @@ void ofApp::drawGame() {
 					ofTranslate(0, 3.0f, 0);
 					ofRotateXDeg(180);
 					ofRotateYDeg(90);
-					if (pbrShaderLoaded) {
+					if (pbrShaderLoaded && enableShaders) {
+						ofMultMatrix(golemModel.getModelMatrix());
 						ofMatrix4x4 modelMat = ofGetCurrentMatrix(OF_MATRIX_MODELVIEW);
-						modelMat = modelMat * golemModel.getModelMatrix();
 						ofMatrix4x4 viewMat = activeCam.getModelViewMatrix();
 						ofMatrix4x4 projMat = activeCam.getProjectionMatrix();
 						ofMatrix4x4 viewProj = projMat * viewMat;
@@ -7384,9 +7396,9 @@ void ofApp::drawGame() {
 					ofRotateYDeg(unitFacingAngle);
 					ofTranslate(0, 0.4f, 0);
 					ofScale(0.018f, 0.018f, 0.018f);
-					if (pbrShaderLoaded) {
+					if (pbrShaderLoaded && enableShaders) {
+						ofMultMatrix(wolfModel.getModelMatrix());
 						ofMatrix4x4 modelMat = ofGetCurrentMatrix(OF_MATRIX_MODELVIEW);
-						modelMat = modelMat * wolfModel.getModelMatrix();
 						ofMatrix4x4 viewMat = activeCam.getModelViewMatrix();
 						ofMatrix4x4 projMat = activeCam.getProjectionMatrix();
 						ofMatrix4x4 viewProj = projMat * viewMat;
@@ -7437,9 +7449,9 @@ void ofApp::drawGame() {
 					ofRotateYDeg(unitFacingAngle + 180.0f);
 					// Slight vertical offset so paws/mesh clear the floor
 					ofTranslate(0, 0.6f, 0);
-					if (pbrShaderLoaded) {
+					if (pbrShaderLoaded && enableShaders) {
+						ofMultMatrix(hellhoundModel.getModelMatrix());
 						ofMatrix4x4 modelMat = ofGetCurrentMatrix(OF_MATRIX_MODELVIEW);
-						modelMat = modelMat * hellhoundModel.getModelMatrix();
 						ofMatrix4x4 viewMat = activeCam.getModelViewMatrix();
 						ofMatrix4x4 projMat = activeCam.getProjectionMatrix();
 						ofMatrix4x4 viewProj = projMat * viewMat;
@@ -7467,9 +7479,9 @@ void ofApp::drawGame() {
 					ofRotateYDeg(unitFacingAngle);
 					ofTranslate(0, 3.5f, 0);
 					ofRotateYDeg(90);
-					if (pbrShaderLoaded) {
+					if (pbrShaderLoaded && enableShaders) {
+						ofMultMatrix(demonModel.getModelMatrix());
 						ofMatrix4x4 modelMat = ofGetCurrentMatrix(OF_MATRIX_MODELVIEW);
-						modelMat = modelMat * demonModel.getModelMatrix();
 						ofMatrix4x4 viewMat = activeCam.getModelViewMatrix();
 						ofMatrix4x4 projMat = activeCam.getProjectionMatrix();
 						ofMatrix4x4 viewProj = projMat * viewMat;
@@ -7497,9 +7509,9 @@ void ofApp::drawGame() {
 					ofRotateYDeg(unitFacingAngle);
 					ofTranslate(0, 0.5f, 0);
 					ofRotateXDeg(180);
-					if (pbrShaderLoaded) {
+					if (pbrShaderLoaded && enableShaders) {
+						ofMultMatrix(tortoiseModel.getModelMatrix());
 						ofMatrix4x4 modelMat = ofGetCurrentMatrix(OF_MATRIX_MODELVIEW);
-						modelMat = modelMat * tortoiseModel.getModelMatrix();
 						ofMatrix4x4 viewMat = activeCam.getModelViewMatrix();
 						ofMatrix4x4 projMat = activeCam.getProjectionMatrix();
 						ofMatrix4x4 viewProj = projMat * viewMat;
@@ -7532,9 +7544,9 @@ void ofApp::drawGame() {
 					ofTranslate(pos.x, 0.1f, pos.z);
 					ofRotateYDeg(unitFacingAngle);
 					ofTranslate(0, 0.6f, 0);
-					if (pbrShaderLoaded) {
+					if (pbrShaderLoaded && enableShaders) {
+						ofMultMatrix(koboldModel.getModelMatrix());
 						ofMatrix4x4 modelMat = ofGetCurrentMatrix(OF_MATRIX_MODELVIEW);
-						modelMat = modelMat * koboldModel.getModelMatrix();
 						ofMatrix4x4 viewMat = activeCam.getModelViewMatrix();
 						ofMatrix4x4 projMat = activeCam.getProjectionMatrix();
 						ofMatrix4x4 viewProj = projMat * viewMat;
@@ -8293,7 +8305,9 @@ void ofApp::drawGame() {
 	};
 
 	// --- POST PROCESSING & 2D UI DRAWING ---
-	const bool usePost = (enableWorldPostProcess && worldPostShaderLoaded);
+	// Allow the world post-processing path to run either when world post is
+	// enabled OR when the Commodore64 shader is requested (so 'M' works alone).
+	const bool usePost = ((enableWorldPostProcess && worldPostShaderLoaded) || (enableC64Shader && c64ShaderLoaded));
 	if (enablePixelArt) {
 		if (!pixelArtShaderLoaded) {
 			if (!pixelArtWarned) {
@@ -9133,6 +9147,8 @@ void ofApp::drawGame() {
 	if (endTurnButtonCurrentPos.x == 0 && endTurnButtonCurrentPos.y == 0) {
 		float btnWidth_tmp = 250 * scale;
 		float visibleY = 20 * scale;
+		float glowMargin = 6.0f * scale + 2.0f * scale;
+		visibleY = std::max(visibleY, glowMargin);
 		float hiddenY = -100 * scale;
 		bool myTurn = isMyTurn();
 		if (myTurn)
@@ -9279,10 +9295,19 @@ void ofApp::drawGame() {
 	}
 
 	if (displayedAPForCurrent <= 0 && hasDrawnCardsThisTurn && !rerollAvailable && myTurn) {
+		// Draw a small green glow behind the button so the outline is always
+		// fully visible (avoid relying on stroke rendering which can clip).
 		ofPushStyle();
+		ofSetColor(0, 200, 0, 160);
+		float glow = 6.0f * scale;
+		ofDrawRectRounded(endTurnButtonRect.x - glow, endTurnButtonRect.y - glow,
+			endTurnButtonRect.width + glow * 2.0f, endTurnButtonRect.height + glow * 2.0f,
+			(10 * scale) + glow);
+
+		// Thin crisp border on top using a modest line width
 		ofNoFill();
 		ofSetColor(ofColor::green);
-		ofSetLineWidth(4 * scale);
+		ofSetLineWidth(2 * scale);
 		ofDrawRectRounded(endTurnButtonRect, 10 * scale);
 		ofPopStyle();
 	}
@@ -11163,18 +11188,37 @@ void ofApp::mousePressed(int x, int y, int button) {
 		return;
 	}
 
-	// Click-to-dismiss played card animation
-	if (button == OF_MOUSE_BUTTON_LEFT && !activePlayedCardAnimations.empty()) {
-		float handBaseCardWidth = 120.0f;
-		float aspectRatio = 585.0f / 409.0f;
-		float baseCardHeight = handBaseCardWidth * aspectRatio;
-		for (auto it = activePlayedCardAnimations.begin(); it != activePlayedCardAnimations.end(); ++it) {
-			float w = handBaseCardWidth * it->currentScale;
-			float h = baseCardHeight * it->currentScale;
-			ofRectangle animRect(it->pos.x - w / 2.0f, it->pos.y - h / 2.0f, w, h);
-			if (animRect.inside(x, y)) {
-				activePlayedCardAnimations.erase(it);
-				return;
+	// Click-to-dismiss played card animation or card displays
+	if (button == OF_MOUSE_BUTTON_LEFT) {
+		// First, check card displays (opponent popups) so clicks on them dismiss immediately
+		if (!activeCardDisplays.empty()) {
+			float handBaseCardWidth = 120.0f;
+			float aspectRatio = 585.0f / 409.0f;
+			float baseCardHeight = handBaseCardWidth * aspectRatio;
+			for (auto it = activeCardDisplays.begin(); it != activeCardDisplays.end(); ++it) {
+				float w = handBaseCardWidth * it->currentScale;
+				float h = baseCardHeight * it->currentScale;
+				ofRectangle animRect(it->currentPos.x - w / 2.0f, it->currentPos.y - h / 2.0f, w, h);
+				if (animRect.inside(x, y)) {
+					activeCardDisplays.erase(it);
+					return;
+				}
+			}
+		}
+
+		// Then check center/right-side played card animations
+		if (!activePlayedCardAnimations.empty()) {
+			float handBaseCardWidth = 120.0f;
+			float aspectRatio = 585.0f / 409.0f;
+			float baseCardHeight = handBaseCardWidth * aspectRatio;
+			for (auto it = activePlayedCardAnimations.begin(); it != activePlayedCardAnimations.end(); ++it) {
+				float w = handBaseCardWidth * it->currentScale;
+				float h = baseCardHeight * it->currentScale;
+				ofRectangle animRect(it->pos.x - w / 2.0f, it->pos.y - h / 2.0f, w, h);
+				if (animRect.inside(x, y)) {
+					activePlayedCardAnimations.erase(it);
+					return;
+				}
 			}
 		}
 	}
@@ -14465,6 +14509,25 @@ void ofApp::keyPressed(int key) {
 		return;
 	}
 
+	// Toggle default shaders on/off (O). When enabling, turn other shader modes off.
+	if (key == 'o' || key == 'O') {
+		enableShaders = !enableShaders;
+		if (enableShaders) {
+			// turn other shader modes off to ensure only default shaders run
+			enablePixelArt = false;
+			enableC64Shader = false;
+			enableWorldPostProcess = false;
+			showWorldFboPreview = false;
+		}
+		ofLogNotice("Debug") << "Default shaders toggled (O): now=" << (enableShaders ? "enabled" : "disabled");
+
+		// Visible on-screen feedback
+		if (currentState == STATE_GAMEPLAY) {
+			spawnFloatingText(gridToWorld(6, 4), std::string("Shaders: ") + (enableShaders ? "ON" : "OFF"), ofColor::white);
+		}
+		return;
+	}
+
 	// Settings keyboard handling (global within settings)
 	if (currentState == STATE_SETTINGS) {
 		// If we are rebinding a key, capture it here
@@ -14510,11 +14573,22 @@ void ofApp::keyPressed(int key) {
 		}
 	}
 
-	// Toggle pixel-art mode
+	// Toggle pixel-art mode (P)
 	if (key == 'p' || key == 'P') {
 		enablePixelArt = !enablePixelArt;
+		if (enablePixelArt) {
+			// pixel mode should be exclusive: turn off other shader modes
+			enableC64Shader = false;
+			enableShaders = false;
+			enableWorldPostProcess = false;
+			showWorldFboPreview = false;
+		}
 		applyPixelArtSettings();
 		ofLogNotice("PixelArt") << "enablePixelArt=" << (enablePixelArt ? 1 : 0);
+
+		if (currentState == STATE_GAMEPLAY) {
+			spawnFloatingText(gridToWorld(6, 4), std::string("Pixel Art: ") + (enablePixelArt ? "ON" : "OFF"), ofColor::white);
+		}
 		return;
 	}
 
@@ -14632,19 +14706,37 @@ void ofApp::keyReleased(int key) {
 	}
 
 	// 2b. Post-processing toggles (debug)
-	if (key == 'p' || key == 'P') {
+	if (key == 'l' || key == 'L') {
 		enableWorldPostProcess = !enableWorldPostProcess;
 		ofLogNotice("Post") << "enableWorldPostProcess=" << (enableWorldPostProcess ? "true" : "false");
+
+		if (currentState == STATE_GAMEPLAY) {
+			spawnFloatingText(gridToWorld(6, 4), std::string("World Post: ") + (enableWorldPostProcess ? "ON" : "OFF"), ofColor::white);
+		}
 	}
-	if (key == 'o' || key == 'O') {
+	if (key == 'y' || key == 'Y') {
 		showWorldFboPreview = !showWorldFboPreview;
 		ofLogNotice("Post") << "showWorldFboPreview=" << (showWorldFboPreview ? "true" : "false");
+
+		if (currentState == STATE_GAMEPLAY) {
+			spawnFloatingText(gridToWorld(6, 4), std::string("FBO Preview: ") + (showWorldFboPreview ? "ON" : "OFF"), ofColor::white);
+		}
 	}
 
-	// Toggle Commodore64 shader with 'l'
-	if (key == 'l' || key == 'L') {
+	// Toggle Commodore64 shader with 'm'. When enabling, turn other shader modes off.
+	if (key == 'm' || key == 'M') {
 		enableC64Shader = !enableC64Shader;
+		if (enableC64Shader) {
+			enablePixelArt = false;
+			enableShaders = false;
+			enableWorldPostProcess = false;
+			showWorldFboPreview = false;
+		}
 		ofLogNotice("C64") << "enableC64Shader=" << (enableC64Shader ? "true" : "false");
+
+		if (currentState == STATE_GAMEPLAY) {
+			spawnFloatingText(gridToWorld(6, 4), std::string("C64 Shader: ") + (enableC64Shader ? "ON" : "OFF"), ofColor::white);
+		}
 		return;
 	}
 
@@ -14763,6 +14855,8 @@ void ofApp::windowResized(int w, int h) {
 	float scale = h / 1080.0f;
 	float btnWidth = 250 * scale;
 	float visibleY = 20 * scale;
+	float glowMargin = 6.0f * scale + 2.0f * scale;
+	visibleY = std::max(visibleY, glowMargin);
 	float hiddenY = -100 * scale;
 
 	bool showEndTurnButton = false;
@@ -16183,12 +16277,8 @@ CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		currentPlayer.hand.erase(currentPlayer.hand.begin() + cardIndex);
 		ofLogNotice("Summon") << "RAISE_DEAD: Hand size AFTER erase = " << currentPlayer.hand.size();
 		{
-			PlayedCardDisplay disp;
-			disp.card = playedCard;
-			disp.startTime = ofGetElapsedTimef();
-			disp.startPos = getCardDisplayUIPosition(currentPlayerIndex);
-			disp.currentPos = disp.startPos;
-			activeCardDisplays.push_back(disp);
+			// Use centralized helper so local-player displays are omitted
+			createCardDisplay(playedCard, currentPlayerIndex);
 		}
 		invalidateTargetCache();
 		// -----------------------------
@@ -16282,12 +16372,8 @@ CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		currentPlayer.hand.erase(currentPlayer.hand.begin() + cardIndex);
 
 		{
-			PlayedCardDisplay disp;
-			disp.card = playedCard;
-			disp.startTime = ofGetElapsedTimef();
-			disp.startPos = getCardDisplayUIPosition(currentPlayerIndex);
-			disp.currentPos = disp.startPos;
-			activeCardDisplays.push_back(disp);
+			// Use centralized helper so local-player displays are omitted
+			createCardDisplay(playedCard, currentPlayerIndex);
 		}
 		invalidateTargetCache();
 		// --- CRITICAL FIX END ---
@@ -16297,6 +16383,8 @@ CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		players.push_back(minion);
 		// Authoritative shuffle for the new minion deck
 		int newKoboldKingIdx = (int)players.size() - 1;
+		players[newKoboldKingIdx].visualPos = gridToWorld(players[newKoboldKingIdx].x, players[newKoboldKingIdx].y);
+		ofLogNotice("Summon") << "Initialized visualPos for kobold king idx=" << newKoboldKingIdx << " pos=" << players[newKoboldKingIdx].visualPos.x << "," << players[newKoboldKingIdx].visualPos.y << "," << players[newKoboldKingIdx].visualPos.z;
 		shuffleGameVector(players[newKoboldKingIdx].deck, newKoboldKingIdx);
 		checkKeyPickupAndDraftAfterSummon(minion.x, minion.y, minion.ownerID);
 
@@ -16390,6 +16478,8 @@ CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		board[targetX][targetY].hasPlayer = true;
 		players.push_back(minion);
 		int newAssistantIdx = (int)players.size() - 1;
+		players[newAssistantIdx].visualPos = gridToWorld(players[newAssistantIdx].x, players[newAssistantIdx].y);
+		ofLogNotice("Summon") << "Initialized visualPos for assistant idx=" << newAssistantIdx << " pos=" << players[newAssistantIdx].visualPos.x << "," << players[newAssistantIdx].visualPos.y << "," << players[newAssistantIdx].visualPos.z;
 		shuffleGameVector(players[newAssistantIdx].deck, newAssistantIdx);
 		checkKeyPickupAndDraftAfterSummon(minion.x, minion.y, minion.ownerID);
 
@@ -16491,6 +16581,8 @@ CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		board[targetX][targetY].hasPlayer = true;
 		players.push_back(minion);
 		int newFaerieIdx = (int)players.size() - 1;
+		players[newFaerieIdx].visualPos = gridToWorld(players[newFaerieIdx].x, players[newFaerieIdx].y);
+		ofLogNotice("Summon") << "Initialized visualPos for faerie idx=" << newFaerieIdx << " pos=" << players[newFaerieIdx].visualPos.x << "," << players[newFaerieIdx].visualPos.y << "," << players[newFaerieIdx].visualPos.z;
 		shuffleGameVector(players[newFaerieIdx].deck, newFaerieIdx);
 		checkKeyPickupAndDraftAfterSummon(minion.x, minion.y, minion.ownerID);
 
@@ -16799,9 +16891,25 @@ CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		// Update Mesh (to remove the static wall visually)
 		buildLevelMesh();
 
+		// --- CRASH FIX START ---
+		// We MUST erase the card and handle AP *before* we push_back to the players vector!
+		int myID = currentPlayer.playerID;
+		currentAP -= costToPay;
+		currentPlayer.playedCardsPile.push_back(playedCard);
+		if (currentPlayer.isReplicatePending) {
+			currentPlayer.playedCardsPile.push_back(playedCard);
+			currentPlayer.isReplicatePending = false;
+		}
+		currentPlayer.cardsPlayedThisTurn.push_back(playedCard.type);
+		currentPlayer.hand.erase(currentPlayer.hand.begin() + cardIndex);
+		createCardDisplay(playedCard, currentPlayerIndex);
+		invalidateTargetCache();
+		// --- CRASH FIX END ---
+
 		// Add minion to players
 		players.push_back(minion);
 		int newWallUnitIdx = (int)players.size() - 1;
+		players[newWallUnitIdx].visualPos = gridToWorld(players[newWallUnitIdx].x, players[newWallUnitIdx].y);
 		shuffleGameVector(players[newWallUnitIdx].deck, newWallUnitIdx);
 		checkKeyPickupAndDraftAfterSummon(minion.x, minion.y, minion.ownerID);
 
@@ -16838,10 +16946,8 @@ CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 				break;
 			}
 		}
-		invalidateTargetCache();
 
-		// Remove card from hand and update UI
-		currentPlayer.hand.erase(currentPlayer.hand.begin() + cardIndex);
+		if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) players[currentPlayerIndex].ap = currentAP;
 		return CARD_PLAYED_IMMEDIATELY;
 	}
 
@@ -18318,7 +18424,9 @@ void ofApp::createCardDisplay(const Card & card, int playerIndex) {
 	disp.startTime = ofGetElapsedTimef();
 	disp.startPos = getCardDisplayUIPosition(playerIndex);
 	disp.currentPos = disp.startPos;
-	disp.currentScale = 2.6f;
+	// Start large for a hearthstone-like popup; use startScale to drive animation
+	disp.startScale = 2.6f;
+	disp.currentScale = disp.startScale;
 	disp.currentAlpha = 255.0f;
 	activeCardDisplays.push_back(disp);
 }
@@ -23092,10 +23200,14 @@ void ofApp::drawDraftScreen() {
 	ofSetColor(ofColor::white);
 	titleFont.drawString(header, tx, ty);
 
+	// Use a stable line height for vertical layout so small bounding-box
+	// variations (different glyphs) don't shift the card area up/down.
+	float lineH = titleFont.getLineHeight();
+
 	// 2b. Draw Instruction line below header
 	ofRectangle instrBox = titleFont.getStringBoundingBox(instr, 0, 0);
 	float instrTx = (ofGetWidth() / 2.0f) - (instrBox.width / 2.0f);
-	float instrTy = ty + headerBox.height + 8;
+	float instrTy = ty + lineH + 8; // use fixed line height instead of headerBox.height
 	ofSetColor(0, 0, 0, 255);
 	titleFont.drawString(instr, instrTx + 2, instrTy + 2);
 	ofSetColor(ofColor::white);
@@ -23120,8 +23232,8 @@ void ofApp::drawDraftScreen() {
 	if (!classTierText.empty()) {
 		classBox = titleFont.getStringBoundingBox(classTierText, 0, 0);
 		classTx = (ofGetWidth() / 2.0f) - (classBox.width / 2.0f);
-		// Position class tier text below the instruction line
-		classTy = instrTy + instrBox.height + 12;
+		// Position class tier text below the instruction line using stable line height
+		classTy = instrTy + lineH + 12;
 		ofSetColor(0, 0, 0, 255);
 		titleFont.drawString(classTierText, classTx + 2, classTy + 2);
 		ofSetColor(classTierColor);
@@ -23133,18 +23245,18 @@ void ofApp::drawDraftScreen() {
 	float cardH = cardW * 1.4f;
 	float spacing = 60;
 	float startX = (ofGetWidth() - (3 * cardW + 2 * spacing)) / 2;
-	float startY = ofGetHeight() / 2 - cardH / 2;
 
-	// Prevent overlap: ensure the top text (header + instruction + class text if present) clears space above the cards
-	float topTextBottom = ty + headerBox.height;
-	if (!instr.empty()) topTextBottom = instrTy + instrBox.height;
+	// Ensure cards are always positioned consistently below the header/instruction
+	// Calculate the bottom of the top text area and use it as the starting Y so
+	// both players' drafts render at the same vertical level.
+	// Compute bottom of top text area using the stable line height to avoid
+	// frame-to-frame shifts caused by glyph bounding-box variation.
+	float topTextBottom = ty + lineH;
+	if (!instr.empty()) topTextBottom = instrTy + lineH;
 	if (!classTierText.empty()) {
-		topTextBottom = classTy + classBox.height;
+		topTextBottom = classTy + lineH;
 	}
-	float minStartY = topTextBottom + 24.0f; // small padding
-	if (startY < minStartY) {
-		startY = minStartY;
-	}
+	float startY = topTextBottom + 24.0f; // fixed padding below text
 
 	for (size_t i = 0; i < draftOptions.size(); ++i) {
 		float x = startX + i * (cardW + spacing);
@@ -25711,6 +25823,8 @@ void ofApp::executeOpponentCardPlay(const ActionPacket & pkt) {
 			board[tx][ty].hasPlayer = true;
 			players.push_back(minion);
 			int newIdx = (int)players.size() - 1;
+			players[newIdx].visualPos = gridToWorld(players[newIdx].x, players[newIdx].y);
+			ofLogNotice("Network") << "Initialized visualPos for opponent-summoned minion idx=" << newIdx << " pos=" << players[newIdx].visualPos.x << "," << players[newIdx].visualPos.y << "," << players[newIdx].visualPos.z;
 			shuffleGameVector(players[newIdx].deck, newIdx);
 
 			// If host, broadcast placement to other clients

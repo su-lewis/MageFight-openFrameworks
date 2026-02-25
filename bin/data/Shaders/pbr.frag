@@ -95,8 +95,9 @@ void main() {
 
     vec3 Lo = (diffuse + specular) * lightColor * NdotL * (1.0 - shadow);
 
-    // Ambient (simple)
-    vec3 ambient = vec3(0.03) * albedo;
+    // Ambient (simple) — raise a bit so models remain visible under this single
+    // directional light setup (prevents near-black output when lighting is low).
+    vec3 ambient = vec3(0.12) * albedo;
 
     vec3 color = ambient + Lo;
     color = color / (color + vec3(1.0)); // simple tonemap
