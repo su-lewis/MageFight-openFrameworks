@@ -12562,6 +12562,12 @@ void ofApp::mousePressed(int x, int y, int button) {
 							spawnFloatingText(gridToWorld(target.x, target.y), "Blocked", ofColor::gray);
 						}
 
+						// Network-sync the Shell Spike so opponent mirrors the damage
+						if (isMultiplayer) {
+							// cardIndex -2 indicates a Shell Spike pseudo-action
+							sendActionPacket(-2, target.x, target.y, 0, 0, "Shell Spike");
+						}
+
 						isTargetingTortoiseDamage = false;
 						ofLogNotice("Tortoise Form") << "Shell Spike dealt damage to adjacent unit.";
 						return;
@@ -23876,6 +23882,14 @@ void ofApp::processNetworkPackets() {
 						activeDiceRolls.push_back(newRoll);
 					}
 
+					// Advance gameplay RNG to mirror host's AP dice consumption so client
+					// RNG state stays aligned with host for future deterministic rolls.
+					if (isMultiplayer && isClient()) {
+						for (int i = 0; i < numDiceToCreate; ++i) {
+							(void)getGameRandom(1, lastAPDiceSides);
+						}
+					}
+
 					int hostTotal = 0;
 					for (int i = 0; i < numDiceToCreate; ++i) {
 						hostTotal += (int)tpk->finalResults[i];
@@ -24028,6 +24042,24 @@ void ofApp::processNetworkPackets() {
 				} else {
 					// CARD PLAY ACTION: Execute card play
 					ofLogNotice("Sync") << "Opponent played card index: " << pkt->cardIndex;
+					// Special-case: Shell Spike pseudo-action (cardIndex == -2)
+					if (pkt->cardIndex == -2 && std::string(pkt->cardName) == "Shell Spike") {
+						// Find the target at the provided coordinates and apply physical damage
+						Player * target = nullptr;
+						for (auto & p : players) {
+							if (p.x == pkt->targetX && p.y == pkt->targetY) {
+								target = &p;
+								break;
+							}
+						}
+						if (target) {
+							applyDamageTo(*target, 3, DAMAGE_PHYSICAL, pkt->actorIndex);
+							ofLogNotice("Network") << "Applied Shell Spike damage from network packet to unit at (" << pkt->targetX << "," << pkt->targetY << ")";
+						} else {
+							ofLogWarning("Network") << "Shell Spike packet target not found at (" << pkt->targetX << "," << pkt->targetY << ")";
+						}
+						continue;
+					}
 					// EXECUTE REMOTE MOVE
 					// Because gameplayRNG is synced, if this card causes a dice roll,
 					// it will roll the exact same number here as it did on the opponent's screen.
@@ -24211,6 +24243,20 @@ void ofApp::processNetworkPackets() {
 					isEarthquakeAnimatingStep = false;
 					earthquakeDiceAssignCounter = 0;
 					isWaitingForEarthquakeBegin = false;
+
+					// Advance gameplay RNG to mirror host's direction choices and upcoming
+					// earthquake distance rolls so client RNG sequence stays aligned.
+					// Host consumes one dirDist(0..3) per unit, then one 1..4 distance roll
+					// per unit via getGameRandom(1,4) inside startDiceRoll.
+					if (isMultiplayer && isClient()) {
+						std::uniform_int_distribution<int> dirDist(0, 3);
+						for (int i = 0; i < n; ++i) {
+							(void)dirDist(gameplayRNG);
+						}
+						for (int i = 0; i < n; ++i) {
+							(void)getGameRandom(1, 4);
+						}
+					}
 					continue;
 				} else if (header->type == PKT_CARD_ACTION_BEGIN) {
 					CardActionBeginPacket * pkt = (CardActionBeginPacket *)header;
@@ -24277,6 +24323,9 @@ void ofApp::processNetworkPackets() {
 							// Assign associatedUnit based on the earthquake assignment counter (order matches host)
 							int assignIdx = earthquakeDiceAssignCounter % (int)earthquakeUnits.size();
 							newRoll.associatedUnit = earthquakeUnits[assignIdx].playerIndex;
+							// Ensure the client records which entry in activeDiceRolls corresponds
+							// to this earthquake unit's distance roll so update loop can watch it.
+							earthquakeUnits[assignIdx].diceIndex = (int)activeDiceRolls.size();
 							earthquakeDiceAssignCounter++;
 						} else {
 							newRoll.associatedUnit = drp->ownerIndex;
