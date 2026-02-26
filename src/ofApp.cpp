@@ -14108,6 +14108,11 @@ void ofApp::mousePressed(int x, int y, int button) {
 								// packets share the same monotonic timeline as card plays.
 								if (isClient()) {
 									movePkt.clientActionID = ++actionClientActionCounter;
+									// Record for resend watchdog (same mechanism as card plays)
+									lastSentActionPacket = movePkt;
+									lastSentActionValid = true;
+									lastSentActionTime = ofGetElapsedTimef();
+									lastSentActionResendCount = 0;
 								}
 								steamManager.sendPacket(&movePkt, sizeof(movePkt));
 								ofLogNotice("Network") << (isClient() ? "Client" : "Host") << " sent movement to (" << gridX << "," << gridY << ") with AP=" << currentAP << " actionID=" << movePkt.clientActionID;
@@ -23455,9 +23460,11 @@ void ofApp::applyDraftOptionsFromPool(int classTier, const std::vector<int> & in
 
 	// If we've already completed the initial draft and are in gameplay (and
 	// this isn't an in-game draft), ignore late DraftOptions so we don't
-	// re-enter drafting on the client.
-	if (initialDraftComplete && currentState == STATE_GAMEPLAY && !isInGameDraft) {
-		ofLogNotice("Draft") << "applyDraftOptionsFromPool: ignoring late DraftOptions (already in gameplay)";
+	// re-enter drafting on the client. However, if the packet carries a
+	// non-zero classTier, it represents a new drafting phase (e.g. Class 2
+	// or an in-game key draft) and must be applied.
+	if (initialDraftComplete && currentState == STATE_GAMEPLAY && !isInGameDraft && classTier == 0) {
+		ofLogNotice("Draft") << "applyDraftOptionsFromPool: ignoring late DraftOptions (gameplay active, no tier).";
 		return;
 	}
 
@@ -24000,31 +24007,31 @@ void ofApp::processNetworkPackets() {
 			// ACK handling removed; rely on SteamNetworkingSockets reliability.
 
 			// Only check duplicates for PKT_ACTION (card plays) to prevent duplicate card plays.
-			// Use the clientActionID supplied by the client for watchdog retransmits
-			// rather than the networking layer's seq which may change on resend.
+			// STRICT: rely solely on clientActionID for deduplication on the host.
+			// Network seq numbers are not used for dedupe because they can be
+			// unrelated and much larger than client-local monotonic IDs.
 			if (header->type == PKT_ACTION && buffer.size() >= sizeof(ActionPacket)) {
 				ActionPacket * ap = (ActionPacket *)buffer.data();
 				int sender = (header->playerID == 0 || header->playerID == 1) ? (int)header->playerID : -1;
-				if (sender >= 0) {
-					// Prefer clientActionID for deduplication when present
+				if (sender >= 0 && isHost()) {
 					if (ap->clientActionID != 0) {
 						if (ap->clientActionID <= lastReceivedSeqByPlayer[sender]) {
 							ofLogNotice("Network") << "DROPPED DUPLICATE ACTION PACKET (clientActionID): clientActionID=" << ap->clientActionID << " lastReceived[" << sender << "]=" << lastReceivedSeqByPlayer[sender];
+							// Re-ACK the clientActionID so the originating client stops resending
+							AckPacket ack = {};
+							ack.type = PKT_ACK;
+							ack.playerID = myLocalPlayerID;
+							ack.ackSeq = ap->clientActionID; // echo the client ID
+							ack.ackType = PKT_ACTION;
+							steamManager.sendPacket(&ack, sizeof(ack));
+							ofLogNotice("NetTrace") << "Host: re-sent ACK for ActionPacket clientActionID=" << ack.ackSeq;
 							continue;
 						}
 						lastReceivedSeqByPlayer[sender] = ap->clientActionID;
-					}
-					// Fallback: if no clientActionID provided, fall back to network seq
-					// BUT: avoid letting large network seq numbers (which are unrelated
-					// to clientActionID) overwrite the client's monotonic ID tracker.
-					// Only accept network seq as a fallback if we haven't yet started
-					// advancing the clientActionID timeline for this sender.
-					else if (header->seq > 0 && lastReceivedSeqByPlayer[sender] < 10000) {
-						if (header->seq <= lastReceivedSeqByPlayer[sender]) {
-							ofLogNotice("Network") << "DROPPED DUPLICATE ACTION PACKET (seq): seq=" << header->seq << " lastReceived[" << sender << "]=" << lastReceivedSeqByPlayer[sender];
-							continue;
-						}
-						lastReceivedSeqByPlayer[sender] = header->seq;
+					} else {
+						// No clientActionID present: cannot safely dedupe. Accept packet but
+						// do not update lastReceivedSeqByPlayer to avoid corrupting the ID timeline.
+						ofLogNotice("NetTrace") << "Host: Received ActionPacket without clientActionID; skipping dedupe.";
 					}
 				}
 			}
@@ -24125,7 +24132,7 @@ void ofApp::processNetworkPackets() {
 						AckPacket ackDup = {};
 						ackDup.type = PKT_ACK;
 						ackDup.playerID = myLocalPlayerID;
-						ackDup.ackSeq = rpk->seq;
+						ackDup.ackSeq = rpk->clientActionID; // echo clientActionID
 						ackDup.ackType = PKT_RENEWED_INSPIRATION;
 						steamManager.sendPacket(&ackDup, sizeof(ackDup));
 						continue;
@@ -24142,10 +24149,10 @@ void ofApp::processNetworkPackets() {
 						AckPacket ack = {};
 						ack.type = PKT_ACK;
 						ack.playerID = myLocalPlayerID;
-						ack.ackSeq = rpk->seq; // echo packet seq so client can match
+						ack.ackSeq = rpk->clientActionID; // echo clientActionID so client can match
 						ack.ackType = PKT_RENEWED_INSPIRATION;
 						steamManager.sendPacket(&ack, sizeof(ack));
-						ofLogNotice("NetTrace") << "Host: sent ACK for RenewedInspiration seq=" << ack.ackSeq;
+						ofLogNotice("NetTrace") << "Host: sent ACK for RenewedInspiration clientActionID=" << ack.ackSeq;
 						// Record processed clientActionID so retransmits are ignored
 						if (rpk->clientActionID != 0) {
 							uint32_t pid = rpk->playerID;
@@ -24533,6 +24540,16 @@ void ofApp::processNetworkPackets() {
 					if (actorIndex >= 0) {
 						applyMovement(actorIndex, pkt->targetX, pkt->targetY, pkt->cost, nullptr);
 						ofLogNotice("Network") << "Applied movement for player " << pkt->playerID << " to (" << pkt->targetX << "," << pkt->targetY << ")";
+						// Host: send ACK for movement so client stops resending
+						if (isHost()) {
+							AckPacket ack = {};
+							ack.type = PKT_ACK;
+							ack.playerID = myLocalPlayerID;
+							ack.ackSeq = pkt->clientActionID; // echo clientActionID
+							ack.ackType = PKT_ACTION;
+							steamManager.sendPacket(&ack, sizeof(ack));
+							ofLogNotice("NetTrace") << "Host: sent ACK for Movement clientActionID=" << ack.ackSeq;
+						}
 					}
 				} else {
 					// CARD PLAY ACTION: Execute card play
@@ -24582,10 +24599,10 @@ void ofApp::processNetworkPackets() {
 					AckPacket ack = {};
 					ack.type = PKT_ACK;
 					ack.playerID = myLocalPlayerID;
-					ack.ackSeq = dcpkt->seq;
+					ack.ackSeq = dcpkt->clientActionID; // echo clientActionID
 					ack.ackType = PKT_DRAW_CARDS;
 					steamManager.sendPacket(&ack, sizeof(ack));
-					ofLogNotice("NetTrace") << "Host: sent ACK for DrawCards seq=" << ack.ackSeq;
+					ofLogNotice("NetTrace") << "Host: sent ACK for DrawCards clientActionID=" << ack.ackSeq;
 				}
 
 				// If this DrawCards was sent by ourselves, ignore the echo to avoid double-processing.
@@ -25646,19 +25663,19 @@ void ofApp::processNetworkPackets() {
 
 						// Clear RenewedInspiration resend state if host acknowledged
 						if (isClient() && ack->ackType == PKT_RENEWED_INSPIRATION) {
-							if (lastSentRenewedInspirationValid && ack->ackSeq == lastSentRenewedInspirationPacket.seq) {
+							if (lastSentRenewedInspirationValid && ack->ackSeq == lastSentRenewedInspirationPacket.clientActionID) {
 								lastSentRenewedInspirationValid = false;
 								lastSentRenewedInspirationAttempts = 0;
-								ofLogNotice("Network") << "Client: RenewedInspiration acknowledged by host (seq=" << ack->ackSeq << ").";
+								ofLogNotice("Network") << "Client: RenewedInspiration acknowledged by host (clientActionID=" << ack->ackSeq << ").";
 							}
 						}
 
 						// Clear DrawCards resend state if host acknowledged
 						if (isClient() && ack->ackType == PKT_DRAW_CARDS) {
-							if (lastSentDrawCardsValid && ack->ackSeq == lastSentDrawCardsPacket.seq) {
+							if (lastSentDrawCardsValid && ack->ackSeq == lastSentDrawCardsPacket.clientActionID) {
 								lastSentDrawCardsValid = false;
 								lastSentDrawCardsAttempts = 0;
-								ofLogNotice("Network") << "Client: DrawCards acknowledged by host (seq=" << ack->ackSeq << ").";
+								ofLogNotice("Network") << "Client: DrawCards acknowledged by host (clientActionID=" << ack->ackSeq << ").";
 							}
 						}
 						// Draft ACKs handled earlier via PKT_DRAFT_ACK branch
