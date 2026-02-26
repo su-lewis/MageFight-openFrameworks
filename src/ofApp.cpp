@@ -25269,7 +25269,8 @@ void ofApp::processNetworkPackets() {
 					draftStage = dp->draftStage;
 					// Map draft player index to local index when running as client
 					if (isClient()) {
-						int incomingPlayerID = header->playerID;
+						// Map using the authoritative draftPlayerID sent by the host
+						int incomingPlayerID = dp->draftPlayerID;
 						int mappedIdx = -1;
 						for (int i = 0; i < (int)players.size(); ++i) {
 							if (!players[i].isMinion && players[i].playerID == incomingPlayerID) {
