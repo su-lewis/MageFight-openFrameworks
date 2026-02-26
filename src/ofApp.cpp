@@ -1510,6 +1510,8 @@ void ofApp::update() {
 						sp.playerID = myLocalPlayerID;
 						sp.classTier = 1;
 						sp.draftPlayerIdx = draftPlayerIndex;
+						sp.draftPlayerID = (draftPlayerIndex >= 0 && draftPlayerIndex < (int)players.size()) ? players[draftPlayerIndex].playerID : -1;
+						sp.draftPlayerID = (draftPlayerIndex >= 0 && draftPlayerIndex < (int)players.size()) ? players[draftPlayerIndex].playerID : -1;
 						sp.picksRemaining = draftPicksRemaining;
 						sp.draftStage = draftStage;
 						sp.isInGameDraft = isInGameDraft ? 1 : 0;
@@ -1533,6 +1535,7 @@ void ofApp::update() {
 						sp.playerID = myLocalPlayerID;
 						sp.classTier = 1;
 						sp.draftPlayerIdx = draftPlayerIndex;
+						sp.draftPlayerID = (draftPlayerIndex >= 0 && draftPlayerIndex < (int)players.size()) ? players[draftPlayerIndex].playerID : -1;
 						sp.picksRemaining = draftPicksRemaining;
 						sp.draftStage = draftStage;
 						sp.isInGameDraft = isInGameDraft ? 1 : 0;
@@ -8563,7 +8566,7 @@ void ofApp::drawGame() {
 			pixelLowFbo.begin();
 			ofEnableDepthTest();
 			glDepthMask(GL_TRUE);
-			ofClear(0, 0, 0, 255);
+			ofClear(22, 22, 22, 255); // Match normal background (ofBackground(22)) so edges don't show pure black
 			renderWorld3D();
 			pixelLowFbo.end();
 
@@ -8607,9 +8610,9 @@ void ofApp::drawGame() {
 			pixelArtShader.setUniform1i("useDither", pixelArtDither ? 1 : 0);
 			pixelArtShader.setUniform2f("uResolution", ofGetWidth(), ofGetHeight());
 			pixelArtShader.setUniform2f("uLowRes", pixelLowFbo.getWidth(), pixelLowFbo.getHeight());
-			// Edge color + strength defaults (tweak to taste)
-			pixelArtShader.setUniform3f("edgeColor", 0.02f, 0.02f, 0.02f);
-			pixelArtShader.setUniform1f("edgeStrength", 2.5f);
+			// Edge color + strength defaults (further softened to reduce sharpening)
+			pixelArtShader.setUniform3f("edgeColor", 0.22f, 0.22f, 0.22f);
+			pixelArtShader.setUniform1f("edgeStrength", 0.08f);
 			pixelLowFbo.getTexture().draw(0, 0, ofGetWidth(), ofGetHeight());
 			pixelArtShader.end();
 		} else {
@@ -8619,7 +8622,8 @@ void ofApp::drawGame() {
 		allocateWorldFbo(ofGetWidth(), ofGetHeight());
 		if (worldFbo.isAllocated()) {
 			worldFbo.begin();
-			glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+			// Clear world FBO to match the non-shader background color (ofBackground(22))
+			ofClear(22, 22, 22, 255);
 			renderWorld3D();
 			worldFbo.end();
 
@@ -23397,6 +23401,7 @@ void ofApp::generateDraftOptions(int classTier, const std::vector<int> * forcedI
 		dp.classTier = classTier;
 		dp.mapSeed = currentMapSeed; // Send deterministic params
 		dp.draftPlayerIdx = draftPlayerIndex;
+		dp.draftPlayerID = (draftPlayerIndex >= 0 && draftPlayerIndex < (int)players.size()) ? players[draftPlayerIndex].playerID : -1;
 		dp.picksRemaining = draftPicksRemaining;
 		dp.draftStage = draftStage;
 		dp.isInGameDraft = isInGameDraft ? 1 : 0;
@@ -23408,6 +23413,7 @@ void ofApp::generateDraftOptions(int classTier, const std::vector<int> * forcedI
 		dsp.playerID = myLocalPlayerID;
 		dsp.classTier = classTier;
 		dsp.draftPlayerIdx = draftPlayerIndex;
+		dsp.draftPlayerID = (draftPlayerIndex >= 0 && draftPlayerIndex < (int)players.size()) ? players[draftPlayerIndex].playerID : -1;
 		dsp.picksRemaining = draftPicksRemaining;
 		dsp.draftStage = draftStage;
 		dsp.isInGameDraft = isInGameDraft ? 1 : 0;
@@ -24977,9 +24983,6 @@ void ofApp::processNetworkPackets() {
 						}
 					}
 					continue;
-				} else if (header->type == PKT_MENU_STATE) {
-					// Opponent menu visualization disabled.
-					continue;
 				} else if (header->type == PKT_END_TURN) {
 					ofLogNotice("Net") << "Opponent ended turn.";
 					// CLIENT: Always wait for host's TurnStart packet (contains authoritative dice)
@@ -25198,19 +25201,22 @@ void ofApp::processNetworkPackets() {
 											  << " draftOptions.size=" << draftOptions.size() << " draftPlayerIdx(pkt)=" << sp->draftPlayerIdx;
 
 					// Client applies host state directly
-					// Map incoming draft player index to local player index by matching the sender's playerID.
-					// This avoids relying on host-side vector indices which may differ on clients.
+					// Prefer mapping via the host-provided `draftPlayerID` (if present).
 					if (isClient()) {
-						int incomingPlayerID = header->playerID;
 						int mappedIdx = -1;
-						for (int i = 0; i < (int)players.size(); ++i) {
-							if (!players[i].isMinion && players[i].playerID == incomingPlayerID) {
-								mappedIdx = i;
-								break;
+						if (sp->draftPlayerID != 0) {
+							for (int i = 0; i < (int)players.size(); ++i) {
+								if (!players[i].isMinion && players[i].playerID == sp->draftPlayerID) {
+									mappedIdx = i;
+									break;
+								}
 							}
 						}
-						if (mappedIdx >= 0) draftPlayerIndex = mappedIdx;
-						else draftPlayerIndex = sp->draftPlayerIdx; // fallback
+						if (mappedIdx >= 0) {
+							draftPlayerIndex = mappedIdx;
+						} else {
+							draftPlayerIndex = sp->draftPlayerIdx;
+						}
 					} else {
 						draftPlayerIndex = sp->draftPlayerIdx;
 					}
@@ -25271,8 +25277,10 @@ void ofApp::processNetworkPackets() {
 								break;
 							}
 						}
-						if (mappedIdx >= 0) draftPlayerIndex = mappedIdx;
-						else draftPlayerIndex = dp->draftPlayerIdx;
+						if (mappedIdx >= 0)
+							draftPlayerIndex = mappedIdx;
+						else
+							draftPlayerIndex = dp->draftPlayerIdx;
 					} else {
 						draftPlayerIndex = dp->draftPlayerIdx;
 					}
@@ -25462,6 +25470,7 @@ void ofApp::processNetworkPackets() {
 							else
 								tempDraftStatePkt.classTier = 2;
 							tempDraftStatePkt.draftPlayerIdx = (currentState == STATE_GAMEPLAY) ? -1 : draftPlayerIndex;
+							tempDraftStatePkt.draftPlayerID = (tempDraftStatePkt.draftPlayerIdx >= 0 && tempDraftStatePkt.draftPlayerIdx < (int)players.size()) ? players[tempDraftStatePkt.draftPlayerIdx].playerID : -1;
 							tempDraftStatePkt.picksRemaining = draftPicksRemaining;
 							tempDraftStatePkt.draftStage = draftStage;
 							tempDraftStatePkt.isInGameDraft = isInGameDraft ? 1 : 0;

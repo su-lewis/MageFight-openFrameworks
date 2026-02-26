@@ -1138,8 +1138,8 @@ private:
 	bool worldPostActiveNotified = false;
 	// Apply nearest filtering and other pixel-art settings to textures/FBOs
 	void applyPixelArtSettings();
-	int pixelArtDownscale = 4; // render at 1/downscale resolution
-	int pixelArtLevels = 4; // posterize levels per channel
+	int pixelArtDownscale = 3; // render at 1/downscale resolution (higher value => lower internal resolution)
+	int pixelArtLevels = 12; // posterize levels per channel (higher => less posterize / preserve brightness)
 	bool pixelArtDither = true;
 
 	// --- ANIMATIONS ---

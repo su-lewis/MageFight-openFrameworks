@@ -199,7 +199,8 @@ static_assert(sizeof(DraftActionPacket) == 43, "DraftActionPacket size mismatch 
 // Host -> Client: Simple draft state update (no indices, just state)
 struct DraftStatePacket : PacketHeader {
 	int32_t classTier; // 1,2,3 or 0 when not drafting
-	int32_t draftPlayerIdx; // which player is currently drafting
+	int32_t draftPlayerIdx; // which player is currently drafting (host-side index)
+	int32_t draftPlayerID; // playerID of the drafting player (for client mapping)
 	int32_t picksRemaining; // how many picks left this stage
 	int32_t draftStage; // 0 = class1, 1 = class2, etc
 	uint8_t isInGameDraft; // 1 = in-game key draft, 0 = normal
@@ -209,7 +210,8 @@ struct DraftStatePacket : PacketHeader {
 // Host -> Client: send the indices in the pool for the options shown
 struct DraftOptionsPacket : PacketHeader {
 	int32_t classTier; // 1,2,3
-	int32_t draftPlayerIdx; // which player is currently drafting
+	int32_t draftPlayerIdx; // which player is currently drafting (host-side index)
+	int32_t draftPlayerID; // playerID of the drafting player (for client mapping)
 	int32_t picksRemaining; // how many picks left for this stage
 	int32_t draftStage; // 0 = class1, 1 = class2, etc
 	uint8_t isInGameDraft; // 1 = in-game key draft, 0 = normal
