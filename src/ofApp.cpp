@@ -4111,7 +4111,9 @@ void ofApp::updateGame() {
 					// Spawn animation for visual feedback (Flying card disappearing)
 					RemovedCardAnimation anim;
 					anim.card = c;
-					anim.startPos = gridToWorld(target->x, target->y); // Fly from unit
+					// Convert world position to screen-space so the removed-card
+					// animation isn't affected if player vectors reorder later.
+					anim.startPos = glm::vec2(getActiveCamera().worldToScreen(gridToWorld(target->x, target->y)));
 					anim.startTime = ofGetElapsedTimef();
 					anim.currentScale = 1.0f;
 					activeRemovedCardAnimations.push_back(anim);
@@ -18401,7 +18403,9 @@ CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 				// Visuals for Mill
 				RemovedCardAnimation anim;
 				anim.card = removedCard;
-				anim.startPos = gridToWorld(target->x, target->y);
+				// Use screen-space start so the animation targets the correct
+				// UI location regardless of player vector reordering.
+				anim.startPos = glm::vec2(getActiveCamera().worldToScreen(gridToWorld(target->x, target->y)));
 				anim.startTime = ofGetElapsedTimef();
 				anim.currentScale = 1.0f;
 				activeRemovedCardAnimations.push_back(anim);
@@ -25204,7 +25208,8 @@ void ofApp::processNetworkPackets() {
 					// Prefer mapping via the host-provided `draftPlayerID` (if present).
 					if (isClient()) {
 						int mappedIdx = -1;
-						if (sp->draftPlayerID != 0) {
+						// draftPlayerID may be -1 when unset; treat >=0 as valid
+						if (sp->draftPlayerID >= 0) {
 							for (int i = 0; i < (int)players.size(); ++i) {
 								if (!players[i].isMinion && players[i].playerID == sp->draftPlayerID) {
 									mappedIdx = i;
@@ -25223,6 +25228,12 @@ void ofApp::processNetworkPackets() {
 					draftStage = sp->draftStage;
 					draftPicksRemaining = sp->picksRemaining;
 					isInGameDraft = (sp->isInGameDraft != 0);
+
+					ofLogNotice("DraftDebug") << "Applied DraftState -> draftPlayerIndex=" << draftPlayerIndex
+											  << " draftPlayerID(pkt)=" << sp->draftPlayerID
+											  << " draftStage=" << draftStage << " picksRemaining=" << draftPicksRemaining
+											  << " isInGameDraft=" << isInGameDraft << " optionsMatch=" << optionsMatch
+											  << " waitingForDraftOptions=" << waitingForDraftOptions << " draftAcceptApplied=" << draftAcceptApplied;
 
 					if (sp->classTier > 0) {
 						// Clear visual dice left over from initiative to prevent them lingering forever
@@ -25293,8 +25304,9 @@ void ofApp::processNetworkPackets() {
 
 					// Generate draft options locally using deterministic algorithm
 					ofLogNotice("DraftTrace") << "PKT_DRAFT_OPTIONS: generating draft options (class=" << dp->classTier << " draftGenCounter=" << dp->draftGenCounter << " mapSeed=" << dp->mapSeed << ")";
+					ofLogNotice("DraftDebug") << "PKT_DRAFT_OPTIONS: pre-generate state: draftPlayerIndex=" << draftPlayerIndex << " draftStage=" << draftStage << " waitingForDraftOptions=" << waitingForDraftOptions << " draftAcceptApplied=" << draftAcceptApplied << " draftOptions.size=" << draftOptions.size();
 					generateDraftOptions(dp->classTier);
-					ofLogNotice("DraftTrace") << "PKT_DRAFT_OPTIONS: after generateDraftOptions: draftOptions.size=" << draftOptions.size() << " currentDraftClassTier=" << currentDraftClassTier;
+					ofLogNotice("DraftTrace") << "PKT_DRAFT_OPTIONS: after generateDraftOptions: draftOptions.size=" << draftOptions.size() << " currentDraftClassTier=" << currentDraftClassTier << " draftPlayerIndex=" << draftPlayerIndex;
 				} else if (header->type == PKT_DRAFT_ACTION) {
 					DraftActionPacket * pkt = (DraftActionPacket *)header;
 					ofLogNotice("Network") << "Draft action received: hdr.seq=" << header->seq << " bufSize=" << buffer.size() << " type=" << (int)pkt->actionType << " opt=" << pkt->optionIndex << " player=" << pkt->draftPlayerIdx << " sel=" << (int)pkt->selectFlag << " clientActionID=" << pkt->clientActionID << " pkt.playerID=" << pkt->playerID;
