@@ -14104,8 +14104,13 @@ void ofApp::mousePressed(int x, int y, int button) {
 								movePkt.targetY = gridY;
 								movePkt.cost = currentAP; // Send current AP so opponent sees the cost
 								movePkt.updatedAP = currentAP; // Ensure opponent updates AP to post-move value
+								// FIX: Assign clientActionID for deduplication so movement
+								// packets share the same monotonic timeline as card plays.
+								if (isClient()) {
+									movePkt.clientActionID = ++actionClientActionCounter;
+								}
 								steamManager.sendPacket(&movePkt, sizeof(movePkt));
-								ofLogNotice("Network") << (isClient() ? "Client" : "Host") << " sent movement to (" << gridX << "," << gridY << ") with AP=" << currentAP;
+								ofLogNotice("Network") << (isClient() ? "Client" : "Host") << " sent movement to (" << gridX << "," << gridY << ") with AP=" << currentAP << " actionID=" << movePkt.clientActionID;
 							}
 						}
 					}
@@ -24010,7 +24015,11 @@ void ofApp::processNetworkPackets() {
 						lastReceivedSeqByPlayer[sender] = ap->clientActionID;
 					}
 					// Fallback: if no clientActionID provided, fall back to network seq
-					else if (header->seq > 0) {
+					// BUT: avoid letting large network seq numbers (which are unrelated
+					// to clientActionID) overwrite the client's monotonic ID tracker.
+					// Only accept network seq as a fallback if we haven't yet started
+					// advancing the clientActionID timeline for this sender.
+					else if (header->seq > 0 && lastReceivedSeqByPlayer[sender] < 10000) {
 						if (header->seq <= lastReceivedSeqByPlayer[sender]) {
 							ofLogNotice("Network") << "DROPPED DUPLICATE ACTION PACKET (seq): seq=" << header->seq << " lastReceived[" << sender << "]=" << lastReceivedSeqByPlayer[sender];
 							continue;
