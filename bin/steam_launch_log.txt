@@ -1,6 +1,6 @@
 ERROR: ld.so: object '/usr/lib/extest/libextest.so' from LD_PRELOAD cannot be preloaded (cannot open shared object file): ignored.
 ERROR: ld.so: object '/var/home/lewis/.local/share/Steam/ubuntu12_32/gameoverlayrenderer.so' from LD_PRELOAD cannot be preloaded (wrong ELF class: ELFCLASS32): ignored.
---- Launching MageFight at Thu Feb 26 02:14:18 GMT 2026 ---
+--- Launching MageFight at Thu Feb 26 15:12:02 GMT 2026 ---
 Script directory: /home/lewis/of_workspace/openFrameworks/apps/myApps/MageFight/bin
 Original LD_PRELOAD=/usr/lib/extest/libextest.so:/var/home/lewis/.local/share/Steam/ubuntu12_32/gameoverlayrenderer.so:/var/home/lewis/.local/share/Steam/ubuntu12_64/gameoverlayrenderer.so
 Dropping missing LD_PRELOAD entry: /usr/lib/extest/libextest.so
@@ -58,6 +58,10 @@ SteamInternal_SetMinidumpSteamID:  Caching Steam ID:  76561198261715869 [API loa
 [ error ] ofxAssimpTexture::setTextureType: : unknown aiTextureType type 27
 [notice ] Setup: Faerie texture loaded.
 [notice ] Setup: Faerie model loaded.
+[notice ] Setup: Loaded board tile: Board/Tile1.png
+[notice ] Setup: Loaded board tile: Board/Tile2.png
+[notice ] Setup: Loaded board tile: Board/Tile3.png
+[notice ] Setup: Loaded board tile: Board/Tile4.png
 [notice ] Setup: Loaded key frame: Board/keys_1_1.png
 [notice ] Setup: Loaded key frame: Board/keys_1_2.png
 [notice ] Setup: Loaded key frame: Board/keys_1_3.png
@@ -94,114 +98,99 @@ SteamInternal_SetMinidumpSteamID:  Caching Steam ID:  76561198261715869 [API loa
 [notice ] Steam: Accepted Connection!
 [notice ] Network: DEBUG: hasOpponent() is true, currentState=0
 [notice ] Network: Host: Opponent found. Starting game & sending seed.
-[notice ] Setup: Host generated seed: 1772072118 platform=Linux
-[notice ] Setup: Host sending handshake: type=0 playerID=0 seq=0 seed=1772072118 platform=Linux
+[notice ] Setup: Host generated seed: 1772118792 platform=Linux
+[notice ] Setup: Host sending handshake: type=0 playerID=0 seq=0 seed=1772118792 platform=Linux
 [notice ] Game: Host: waiting for client ready signal before starting initiative.
 [notice ] Steam: Connection Fully Active!
 [notice ] Steam: Opponent ID: 76561198743068920
 [notice ] NetTrace: RECV raw size=8
+[notice ] NetTrace: processNetworkPackets: queueSize=1
+[notice ] Network: Host: Received Seed Request. Resending Seed: 1772118792
 [notice ] NetTrace: RECV pkt type=1 seq=1 size=10
-[notice ] NetTrace: processNetworkPackets: queueSize=2
-[notice ] Network: Host: Received Seed Request. Resending Seed: 1772072118
+[notice ] NetTrace: processNetworkPackets: queueSize=1
 [notice ] Network: ClientReady received from playerID=1
 [notice ] Network: All clients ready - starting initiative phase.
 [notice ] Network: Skipping DiceRollPacket send for purpose=4 (handled authoritatively).
-[notice ] Dice: Final total result for 1d6: 1
-[notice ] Network: Skipping DiceRollPacket send for purpose=4 (handled authoritatively).
 [notice ] Dice: Final total result for 1d6: 2
+[notice ] Network: Skipping DiceRollPacket send for purpose=4 (handled authoritatively).
+[notice ] Dice: Final total result for 1d6: 5
 [notice ] Game: --- INITIATIVE ROLL STARTED ---
 [notice ] Post: World post-process branch executed (shader active).
 [notice ] Initiative: Player 2 goes first
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Wisdom Boon, Stab, Punch
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Wisdom Boon, Stab, Punch
-[notice ] Draft: DRAFT CLICK: mousePos=(1484,433) selections=0 required=2 inGameDraft=0 draftStage=0 acceptRect=(0,0,0,0)
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Kick, Train, Double Handed
+[notice ] Draft: DRAFT CLICK: mousePos=(1312,803) selections=0 required=2 inGameDraft=0 draftStage=0 acceptRect=(0,0,0,0)
 [notice ] DraftDebug: LocalIdx=0 draftPlayerIndex=1 isLocalDrafting=0
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Wisdom Boon, Stab, Punch
-[notice ] Draft: DRAFT CLICK: mousePos=(1417,460) selections=0 required=2 inGameDraft=0 draftStage=0 acceptRect=(0,0,0,0)
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Kick, Train, Double Handed
+[notice ] Draft: DRAFT CLICK: mousePos=(1554,855) selections=0 required=2 inGameDraft=0 draftStage=0 acceptRect=(0,0,0,0)
 [notice ] DraftDebug: LocalIdx=0 draftPlayerIndex=1 isLocalDrafting=0
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Wisdom Boon, Stab, Punch
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Wisdom Boon, Stab, Punch
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Wisdom Boon, Stab, Punch
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Wisdom Boon, Stab, Punch
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Wisdom Boon, Stab, Punch
-[notice ] Draft: DRAFT CLICK: mousePos=(1479,486) selections=0 required=2 inGameDraft=0 draftStage=0 acceptRect=(0,0,0,0)
+[notice ] Draft: DRAFT CLICK: mousePos=(1524,1034) selections=0 required=2 inGameDraft=0 draftStage=0 acceptRect=(0,0,0,0)
 [notice ] DraftDebug: LocalIdx=0 draftPlayerIndex=1 isLocalDrafting=0
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Wisdom Boon, Stab, Punch
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Wisdom Boon, Stab, Punch
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Wisdom Boon, Stab, Punch
-[notice ] Draft: DRAFT CLICK: mousePos=(1478,458) selections=0 required=2 inGameDraft=0 draftStage=0 acceptRect=(0,0,0,0)
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Kick, Train, Double Handed
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Kick, Train, Double Handed
+[notice ] C64: enableC64Shader=true
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Kick, Train, Double Handed
+[notice ] C64: enableC64Shader=false
+[notice ] C64: enableC64Shader=true
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Kick, Train, Double Handed
+[notice ] C64: enableC64Shader=false
+[notice ] C64: enableC64Shader=true
+[notice ] C64: enableC64Shader=false
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Kick, Train, Double Handed
+[notice ] C64: enableC64Shader=true
+[notice ] C64: enableC64Shader=false
+[notice ] C64: enableC64Shader=true
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Kick, Train, Double Handed
+[notice ] Draft: DRAFT CLICK: mousePos=(1587,1172) selections=0 required=2 inGameDraft=0 draftStage=0 acceptRect=(0,0,0,0)
 [notice ] DraftDebug: LocalIdx=0 draftPlayerIndex=1 isLocalDrafting=0
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Wisdom Boon, Stab, Punch
-[notice ] Draft: DRAFT CLICK: mousePos=(1451,482) selections=0 required=2 inGameDraft=0 draftStage=0 acceptRect=(0,0,0,0)
+[notice ] C64: enableC64Shader=false
+[notice ] C64: enableC64Shader=true
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Kick, Train, Double Handed
+[notice ] Draft: DRAFT CLICK: mousePos=(1475,1247) selections=0 required=2 inGameDraft=0 draftStage=0 acceptRect=(0,0,0,0)
 [notice ] DraftDebug: LocalIdx=0 draftPlayerIndex=1 isLocalDrafting=0
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Wisdom Boon, Stab, Punch
-[notice ] Draft: DRAFT CLICK: mousePos=(1461,485) selections=0 required=2 inGameDraft=0 draftStage=0 acceptRect=(0,0,0,0)
+[notice ] Draft: DRAFT CLICK: mousePos=(1470,1226) selections=0 required=2 inGameDraft=0 draftStage=0 acceptRect=(0,0,0,0)
 [notice ] DraftDebug: LocalIdx=0 draftPlayerIndex=1 isLocalDrafting=0
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Wisdom Boon, Stab, Punch
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Wisdom Boon, Stab, Punch
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Wisdom Boon, Stab, Punch
-[notice ] Draft: DRAFT CLICK: mousePos=(1484,414) selections=0 required=2 inGameDraft=0 draftStage=0 acceptRect=(0,0,0,0)
+[notice ] C64: enableC64Shader=false
+[notice ] Draft: DRAFT CLICK: mousePos=(1459,1221) selections=0 required=2 inGameDraft=0 draftStage=0 acceptRect=(0,0,0,0)
 [notice ] DraftDebug: LocalIdx=0 draftPlayerIndex=1 isLocalDrafting=0
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Wisdom Boon, Stab, Punch
-[notice ] Draft: DRAFT CLICK: mousePos=(1493,414) selections=0 required=2 inGameDraft=0 draftStage=0 acceptRect=(0,0,0,0)
+[notice ] C64: enableC64Shader=true
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Kick, Train, Double Handed
+[notice ] Draft: DRAFT CLICK: mousePos=(1458,1214) selections=0 required=2 inGameDraft=0 draftStage=0 acceptRect=(0,0,0,0)
 [notice ] DraftDebug: LocalIdx=0 draftPlayerIndex=1 isLocalDrafting=0
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Wisdom Boon, Stab, Punch
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Wisdom Boon, Stab, Punch
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Wisdom Boon, Stab, Punch
-[notice ] Draft: DRAFT CLICK: mousePos=(1325,442) selections=0 required=2 inGameDraft=0 draftStage=0 acceptRect=(0,0,0,0)
+[notice ] C64: enableC64Shader=false
+[notice ] C64: enableC64Shader=true
+[notice ] Draft: DRAFT CLICK: mousePos=(1455,1224) selections=0 required=2 inGameDraft=0 draftStage=0 acceptRect=(0,0,0,0)
 [notice ] DraftDebug: LocalIdx=0 draftPlayerIndex=1 isLocalDrafting=0
-[notice ] Draft: DRAFT CLICK: mousePos=(1566,481) selections=0 required=2 inGameDraft=0 draftStage=0 acceptRect=(0,0,0,0)
+[notice ] C64: enableC64Shader=false
+[notice ] Draft: DRAFT CLICK: mousePos=(1455,1224) selections=0 required=2 inGameDraft=0 draftStage=0 acceptRect=(0,0,0,0)
 [notice ] DraftDebug: LocalIdx=0 draftPlayerIndex=1 isLocalDrafting=0
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Wisdom Boon, Stab, Punch
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Wisdom Boon, Stab, Punch
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Wisdom Boon, Stab, Punch
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Wisdom Boon, Stab, Punch
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Wisdom Boon, Stab, Punch
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Wisdom Boon, Stab, Punch
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Wisdom Boon, Stab, Punch
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Wisdom Boon, Stab, Punch
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Wisdom Boon, Stab, Punch
-[notice ] Draft: DRAFT CLICK: mousePos=(1325,673) selections=0 required=2 inGameDraft=0 draftStage=0 acceptRect=(0,0,0,0)
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Kick, Train, Double Handed
+[notice ] C64: enableC64Shader=true
+[notice ] Draft: DRAFT CLICK: mousePos=(1453,1214) selections=0 required=2 inGameDraft=0 draftStage=0 acceptRect=(0,0,0,0)
 [notice ] DraftDebug: LocalIdx=0 draftPlayerIndex=1 isLocalDrafting=0
-[notice ] Draft: DRAFT CLICK: mousePos=(1317,683) selections=0 required=2 inGameDraft=0 draftStage=0 acceptRect=(0,0,0,0)
+[notice ] Draft: DRAFT CLICK: mousePos=(1423,1239) selections=0 required=2 inGameDraft=0 draftStage=0 acceptRect=(0,0,0,0)
 [notice ] DraftDebug: LocalIdx=0 draftPlayerIndex=1 isLocalDrafting=0
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Wisdom Boon, Stab, Punch
-[notice ] Draft: DRAFT CLICK: mousePos=(1736,847) selections=0 required=2 inGameDraft=0 draftStage=0 acceptRect=(0,0,0,0)
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Kick, Train, Double Handed
+[notice ] C64: enableC64Shader=false
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Kick, Train, Double Handed
+[notice ] Draft: DRAFT CLICK: mousePos=(1454,1164) selections=0 required=2 inGameDraft=0 draftStage=0 acceptRect=(0,0,0,0)
 [notice ] DraftDebug: LocalIdx=0 draftPlayerIndex=1 isLocalDrafting=0
-[notice ] Draft: DRAFT CLICK: mousePos=(1269,864) selections=0 required=2 inGameDraft=0 draftStage=0 acceptRect=(0,0,0,0)
-[notice ] DraftDebug: LocalIdx=0 draftPlayerIndex=1 isLocalDrafting=0
-[notice ] Draft: DRAFT CLICK: mousePos=(1497,499) selections=0 required=2 inGameDraft=0 draftStage=0 acceptRect=(0,0,0,0)
-[notice ] DraftDebug: LocalIdx=0 draftPlayerIndex=1 isLocalDrafting=0
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Wisdom Boon, Stab, Punch
-[notice ] Draft: DRAFT CLICK: mousePos=(1706,561) selections=0 required=2 inGameDraft=0 draftStage=0 acceptRect=(0,0,0,0)
-[notice ] DraftDebug: LocalIdx=0 draftPlayerIndex=1 isLocalDrafting=0
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Wisdom Boon, Stab, Punch
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Wisdom Boon, Stab, Punch
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Wisdom Boon, Stab, Punch
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Wisdom Boon, Stab, Punch
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Wisdom Boon, Stab, Punch
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Wisdom Boon, Stab, Punch
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Wisdom Boon, Stab, Punch
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Wisdom Boon, Stab, Punch
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Wisdom Boon, Stab, Punch
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Wisdom Boon, Stab, Punch
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Wisdom Boon, Stab, Punch
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Wisdom Boon, Stab, Punch
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Wisdom Boon, Stab, Punch
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Wisdom Boon, Stab, Punch
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Wisdom Boon, Stab, Punch
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Wisdom Boon, Stab, Punch
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Wisdom Boon, Stab, Punch
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Wisdom Boon, Stab, Punch
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Wisdom Boon, Stab, Punch
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Wisdom Boon, Stab, Punch
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Wisdom Boon, Stab, Punch
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Wisdom Boon, Stab, Punch
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Wisdom Boon, Stab, Punch
-[notice ] Steam: Connection Closed/Failed.
-[notice ] Steam: Opponent disconnected - awaiting reconnection
-[notice ] Network: Opponent left the lobby. Resetting game and returning to main menu.
-[notice ] Game: --- GAME SESSION CLEANED UP ---
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Kick, Train, Double Handed
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Kick, Train, Double Handed
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Kick, Train, Double Handed
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Kick, Train, Double Handed
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Kick, Train, Double Handed
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Kick, Train, Double Handed
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Kick, Train, Double Handed
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Kick, Train, Double Handed
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Kick, Train, Double Handed
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Kick, Train, Double Handed
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Kick, Train, Double Handed
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Kick, Train, Double Handed
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Kick, Train, Double Handed
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Kick, Train, Double Handed
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Kick, Train, Double Handed
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Kick, Train, Double Handed
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Kick, Train, Double Handed
 [notice ] Settings: Saved settings to Config/settings.json
 [notice ] SteamManager: Steam API Shutdown.
 [S_API FAIL] Tried to access Steam interface SteamNetworkingSockets012 before SteamAPI_Init succeeded.
