@@ -2667,7 +2667,10 @@ void ofApp::updateGame() {
 				generateDraftOptions(pendingKeyDraftClass);
 			}
 			draftPicksRemaining = 1;
-			selectedDraftIndices.clear();
+			// Preserve any locally-pending draft toggles that haven't been ACKed/forwarded yet
+			if (!(isClient() && lastSentDraftActionValid)) {
+				selectedDraftIndices.clear();
+			}
 			currentState = STATE_DRAFTING;
 			// clear pending
 			pendingKeyDraftAccept = false;
@@ -6086,7 +6089,10 @@ void ofApp::updateGame() {
 		draftPlayerIndex = currentPlayerIndex;
 		generateDraftOptions(nextClass);
 		draftPicksRemaining = 1;
-		selectedDraftIndices.clear();
+		// Preserve locally-pending draft toggles until host ACK/forward to avoid UI flicker
+		if (!(isClient() && lastSentDraftActionValid)) {
+			selectedDraftIndices.clear();
+		}
 		draftStage = 0;
 		currentState = STATE_DRAFTING;
 
@@ -25777,7 +25783,10 @@ void ofApp::sendActionPacket(int cardIndex, int tx, int ty, int cost, int menuCh
 	if (currentPlayerIndex < 0 || currentPlayerIndex >= (int)players.size()) return;
 	const Player & currentPlayer = players[currentPlayerIndex];
 	int controlledPlayerID = currentPlayer.isMinion ? currentPlayer.ownerID : currentPlayer.playerID;
-	if (controlledPlayerID != myLocalPlayerID) return;
+	if (controlledPlayerID != myLocalPlayerID) {
+		ofLogNotice("Network") << "sendActionPacket: abort - not controlling this player (controlledPlayerID=" << controlledPlayerID << " myLocalPlayerID=" << myLocalPlayerID << ")";
+		return;
+	}
 
 	// 2. Create Packet
 	ActionPacket pkt = {};
