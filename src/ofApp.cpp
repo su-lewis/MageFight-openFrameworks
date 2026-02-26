@@ -25617,104 +25617,103 @@ void ofApp::processNetworkPackets() {
 					waitingForDraftOptions = true;
 					waitingForDraftOptionsStartTime = ofGetElapsedTimef();
 					ofLogNotice("Draft") << "Client: Received forwarded Accept. Waiting for host state/options. (preserving local options until authoritative packet arrives)";
+
+					// Handle Ack packets for reliable sends
+					if (header->type == PKT_ACK && buffer.size() >= sizeof(AckPacket)) {
+						AckPacket * ack = (AckPacket *)header;
+						// If this ACK corresponds to an Action we sent, clear resend state
+						if (isClient() && ack->ackType == PKT_ACTION) {
+							if (lastSentActionValid && ack->ackSeq == lastSentActionPacket.clientActionID) {
+								lastSentActionValid = false;
+								ofLogNotice("Network") << "Client: ActionPacket (clientActionID=" << ack->ackSeq << ") acknowledged by host.";
+							}
+						}
+
+						// Clear RenewedInspiration resend state if host acknowledged
+						if (isClient() && ack->ackType == PKT_RENEWED_INSPIRATION) {
+							if (lastSentRenewedInspirationValid && ack->ackSeq == lastSentRenewedInspirationPacket.seq) {
+								lastSentRenewedInspirationValid = false;
+								lastSentRenewedInspirationAttempts = 0;
+								ofLogNotice("Network") << "Client: RenewedInspiration acknowledged by host (seq=" << ack->ackSeq << ").";
+							}
+						}
+
+						// Clear DrawCards resend state if host acknowledged
+						if (isClient() && ack->ackType == PKT_DRAW_CARDS) {
+							if (lastSentDrawCardsValid && ack->ackSeq == lastSentDrawCardsPacket.seq) {
+								lastSentDrawCardsValid = false;
+								lastSentDrawCardsAttempts = 0;
+								ofLogNotice("Network") << "Client: DrawCards acknowledged by host (seq=" << ack->ackSeq << ").";
+							}
+						}
+						// Draft ACKs handled earlier via PKT_DRAFT_ACK branch
+						continue;
+					}
 				}
 			}
 		}
 	}
 
-	// Handle Ack packets for reliable sends
-	if (header->type == PKT_ACK && buffer.size() >= sizeof(AckPacket)) {
-		AckPacket * ack = (AckPacket *)header;
-		// If this ACK corresponds to an Action we sent, clear resend state
-		if (isClient() && ack->ackType == PKT_ACTION) {
-			if (lastSentActionValid && ack->ackSeq == lastSentActionPacket.clientActionID) {
-				lastSentActionValid = false;
-				ofLogNotice("Network") << "Client: ActionPacket (clientActionID=" << ack->ackSeq << ") acknowledged by host.";
-			}
-		}
-
-		// Clear RenewedInspiration resend state if host acknowledged
-		if (isClient() && ack->ackType == PKT_RENEWED_INSPIRATION) {
-			if (lastSentRenewedInspirationValid && ack->ackSeq == lastSentRenewedInspirationPacket.seq) {
-				lastSentRenewedInspirationValid = false;
-				lastSentRenewedInspirationAttempts = 0;
-				ofLogNotice("Network") << "Client: RenewedInspiration acknowledged by host (seq=" << ack->ackSeq << ").";
-			}
-		}
-
-		// Clear DrawCards resend state if host acknowledged
-		if (isClient() && ack->ackType == PKT_DRAW_CARDS) {
-			if (lastSentDrawCardsValid && ack->ackSeq == lastSentDrawCardsPacket.seq) {
-				lastSentDrawCardsValid = false;
-				lastSentDrawCardsAttempts = 0;
-				ofLogNotice("Network") << "Client: DrawCards acknowledged by host (seq=" << ack->ackSeq << ").";
-			}
-		}
-		// Draft ACKs handled earlier via PKT_DRAFT_ACK branch
-		continue;
-	}
-}
-
-// After draining incoming packets, run client-side resend watchdogs for
-// certain reliable but lightweight packets (Renewed Inspiration, DrawCards).
-if (isClient()) {
-	float now = ofGetElapsedTimef();
-	const int MAX_ATTEMPTS = 5;
-	if (lastSentRenewedInspirationValid) {
-		float backoff = powf(2.0f, std::max(0, lastSentRenewedInspirationAttempts - 1));
-		if (lastSentRenewedInspirationAttempts == 0) backoff = 0.5f; // first retry sooner
-		if (now - lastSentRenewedInspirationTime > backoff) {
-			if (lastSentRenewedInspirationAttempts >= MAX_ATTEMPTS) {
-				// Give up and request authoritative snapshot
-				if (!waitingForSnapshot) {
-					SnapshotRequestPacket req = {};
-					req.type = PKT_SNAPSHOT_REQUEST;
-					req.playerID = myLocalPlayerID;
-					req.requestedTurn = globalTurnCounter;
-					steamManager.sendPacket(&req, sizeof(req));
-					waitingForSnapshot = true;
-					lastSnapshotRequestTime = now;
-					ofLogNotice("Network") << "Client: RenewedInspiration retry limit reached — requested snapshot.";
+	// After draining incoming packets, run client-side resend watchdogs for
+	// certain reliable but lightweight packets (Renewed Inspiration, DrawCards).
+	if (isClient()) {
+		float now = ofGetElapsedTimef();
+		const int MAX_ATTEMPTS = 5;
+		if (lastSentRenewedInspirationValid) {
+			float backoff = powf(2.0f, std::max(0, lastSentRenewedInspirationAttempts - 1));
+			if (lastSentRenewedInspirationAttempts == 0) backoff = 0.5f; // first retry sooner
+			if (now - lastSentRenewedInspirationTime > backoff) {
+				if (lastSentRenewedInspirationAttempts >= MAX_ATTEMPTS) {
+					// Give up and request authoritative snapshot
+					if (!waitingForSnapshot) {
+						SnapshotRequestPacket req = {};
+						req.type = PKT_SNAPSHOT_REQUEST;
+						req.playerID = myLocalPlayerID;
+						req.requestedTurn = globalTurnCounter;
+						steamManager.sendPacket(&req, sizeof(req));
+						waitingForSnapshot = true;
+						lastSnapshotRequestTime = now;
+						ofLogNotice("Network") << "Client: RenewedInspiration retry limit reached — requested snapshot.";
+					}
+					lastSentRenewedInspirationValid = false;
+					lastSentRenewedInspirationAttempts = 0;
+				} else {
+					steamManager.sendPacket(&lastSentRenewedInspirationPacket, sizeof(lastSentRenewedInspirationPacket));
+					lastSentRenewedInspirationTime = now;
+					lastSentRenewedInspirationAttempts++;
+					ofLogNotice("Network") << "Client: Resent RenewedInspiration (attempt=" << lastSentRenewedInspirationAttempts << ").";
 				}
-				lastSentRenewedInspirationValid = false;
-				lastSentRenewedInspirationAttempts = 0;
-			} else {
-				steamManager.sendPacket(&lastSentRenewedInspirationPacket, sizeof(lastSentRenewedInspirationPacket));
-				lastSentRenewedInspirationTime = now;
-				lastSentRenewedInspirationAttempts++;
-				ofLogNotice("Network") << "Client: Resent RenewedInspiration (attempt=" << lastSentRenewedInspirationAttempts << ").";
 			}
 		}
-	}
 
-	if (lastSentDrawCardsValid) {
-		float backoff = powf(2.0f, std::max(0, lastSentDrawCardsAttempts - 1));
-		if (lastSentDrawCardsAttempts == 0) backoff = 0.5f;
-		if (now - lastSentDrawCardsTime > backoff) {
-			if (lastSentDrawCardsAttempts >= MAX_ATTEMPTS) {
-				if (!waitingForSnapshot) {
-					SnapshotRequestPacket req = {};
-					req.type = PKT_SNAPSHOT_REQUEST;
-					req.playerID = myLocalPlayerID;
-					req.requestedTurn = globalTurnCounter;
-					steamManager.sendPacket(&req, sizeof(req));
-					waitingForSnapshot = true;
-					lastSnapshotRequestTime = now;
-					ofLogNotice("Network") << "Client: DrawCards retry limit reached — requested snapshot.";
+		if (lastSentDrawCardsValid) {
+			float backoff = powf(2.0f, std::max(0, lastSentDrawCardsAttempts - 1));
+			if (lastSentDrawCardsAttempts == 0) backoff = 0.5f;
+			if (now - lastSentDrawCardsTime > backoff) {
+				if (lastSentDrawCardsAttempts >= MAX_ATTEMPTS) {
+					if (!waitingForSnapshot) {
+						SnapshotRequestPacket req = {};
+						req.type = PKT_SNAPSHOT_REQUEST;
+						req.playerID = myLocalPlayerID;
+						req.requestedTurn = globalTurnCounter;
+						steamManager.sendPacket(&req, sizeof(req));
+						waitingForSnapshot = true;
+						lastSnapshotRequestTime = now;
+						ofLogNotice("Network") << "Client: DrawCards retry limit reached — requested snapshot.";
+					}
+					lastSentDrawCardsValid = false;
+					lastSentDrawCardsAttempts = 0;
+				} else {
+					steamManager.sendPacket(&lastSentDrawCardsPacket, sizeof(lastSentDrawCardsPacket));
+					lastSentDrawCardsTime = now;
+					lastSentDrawCardsAttempts++;
+					ofLogNotice("Network") << "Client: Resent DrawCards (attempt=" << lastSentDrawCardsAttempts << ").";
 				}
-				lastSentDrawCardsValid = false;
-				lastSentDrawCardsAttempts = 0;
-			} else {
-				steamManager.sendPacket(&lastSentDrawCardsPacket, sizeof(lastSentDrawCardsPacket));
-				lastSentDrawCardsTime = now;
-				lastSentDrawCardsAttempts++;
-				ofLogNotice("Network") << "Client: Resent DrawCards (attempt=" << lastSentDrawCardsAttempts << ").";
 			}
 		}
 	}
-}
 
-// Close processNetworkPackets() scope
+	// Close processNetworkPackets() scope
 }
 
 // --- Networking helper implementations ---
