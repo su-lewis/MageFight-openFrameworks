@@ -16,10 +16,7 @@ enum PacketType {
 	PKT_ACTION,
 	PKT_END_TURN,
 	PKT_CHECKSUM_CHECK,
-	PKT_DRAFT_ACTION, // Draft selection / accept messages (sent by clients to host)
-	PKT_DRAFT_STATE, // Host -> Client: draft state update (class, stage, player)
-	PKT_DRAFT_OPTIONS, // Host -> Client: authoritative indices for options
-	PKT_DRAFT_ACK, // Host -> Client: explicit ack for client-sent draft actions
+
 	PKT_SHUFFLE, // Host -> Client: authoritative deck shuffle (playerIndex, nonce)
 	PKT_TURN_START, // Host -> Client: authoritative turn start (current player, AP dice results)
 	PKT_KEY_PICKUP, // Host -> Client: a player picked up a key (trigger in-game draft)
@@ -39,6 +36,13 @@ enum PacketType {
 	PKT_EARTHQUAKE_BEGIN, // Host -> Client: begin earthquake (directions for each unit)
 	PKT_CARD_ACTION_BEGIN, // Host -> Client: generic card begin (cardType, actor, target, params)
 	PKT_DICE_ROLL, // A dice roll for visual display (HP, damage, range, etc)
+
+	// Draft packets moved to the end to avoid enum collisions with legacy packet numbers.
+	PKT_DRAFT_ACTION, // Draft selection / accept messages (sent by clients to host)
+	PKT_DRAFT_ACK, // Host -> Client: explicit ack for client-sent draft actions
+	PKT_DRAFT_STATE, // Host -> Client: draft state update (class, stage, player)
+	PKT_DRAFT_OPTIONS, // Host -> Client: authoritative indices for options
+
 	PKT_ACK // Acknowledge receipt of a reliable packet
 };
 

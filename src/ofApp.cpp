@@ -23716,6 +23716,13 @@ void ofApp::drawDraftScreen() {
 	}
 	float startY = topTextBottom + 24.0f; // fixed padding below text
 
+	// Throttled debug: if we're in draft state but have no options, log mapping once per second
+	float nowDbg = ofGetElapsedTimef();
+	if (draftOptions.empty() && currentState == STATE_DRAFTING && (nowDbg - lastDraftDrawLogTime) > 1.0f) {
+		lastDraftDrawLogTime = nowDbg;
+		ofLogNotice("DraftDebug") << "drawDraftScreen: called but draftOptions.empty() currentState=" << currentState << " draftPlayerIndex=" << draftPlayerIndex << " localIdx=" << getLocalPlayerIndex() << " myLocalPlayerID=" << myLocalPlayerID << " waitingForDraftOptions=" << waitingForDraftOptions;
+	}
+
 	for (size_t i = 0; i < draftOptions.size(); ++i) {
 		float x = startX + i * (cardW + spacing);
 		ofRectangle cardRect(x, startY, cardW, cardH);
@@ -25307,6 +25314,7 @@ void ofApp::processNetworkPackets() {
 					ofLogNotice("DraftDebug") << "PKT_DRAFT_OPTIONS: pre-generate state: draftPlayerIndex=" << draftPlayerIndex << " draftStage=" << draftStage << " waitingForDraftOptions=" << waitingForDraftOptions << " draftAcceptApplied=" << draftAcceptApplied << " draftOptions.size=" << draftOptions.size();
 					generateDraftOptions(dp->classTier);
 					ofLogNotice("DraftTrace") << "PKT_DRAFT_OPTIONS: after generateDraftOptions: draftOptions.size=" << draftOptions.size() << " currentDraftClassTier=" << currentDraftClassTier << " draftPlayerIndex=" << draftPlayerIndex;
+					ofLogNotice("DraftDebug") << "PKT_DRAFT_OPTIONS: applied -> size=" << draftOptions.size() << " currentState=" << currentState << " draftPlayerIndex=" << draftPlayerIndex << " localIdx=" << getLocalPlayerIndex() << " myLocalPlayerID=" << myLocalPlayerID;
 				} else if (header->type == PKT_DRAFT_ACTION) {
 					DraftActionPacket * pkt = (DraftActionPacket *)header;
 					ofLogNotice("Network") << "Draft action received: hdr.seq=" << header->seq << " bufSize=" << buffer.size() << " type=" << (int)pkt->actionType << " opt=" << pkt->optionIndex << " player=" << pkt->draftPlayerIdx << " sel=" << (int)pkt->selectFlag << " clientActionID=" << pkt->clientActionID << " pkt.playerID=" << pkt->playerID;
