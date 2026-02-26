@@ -25191,8 +25191,29 @@ void ofApp::processNetworkPackets() {
 
 					bool optionsMatch = (!draftOptions.empty() && currentDraftClassTier == sp->classTier && draftPlayerIndex == sp->draftPlayerIdx && draftStage == sp->draftStage && isInGameDraft == (sp->isInGameDraft != 0));
 
+					// Debug trace: log decision state for draft packet handling
+					ofLogNotice("DraftTrace") << "PKT_DRAFT_STATE: optionsMatch=" << optionsMatch
+											  << " currentState=" << currentState << " initialDraftComplete=" << initialDraftComplete
+											  << " waitingForDraftOptions=" << waitingForDraftOptions << " draftAcceptApplied=" << draftAcceptApplied
+											  << " draftOptions.size=" << draftOptions.size() << " draftPlayerIdx(pkt)=" << sp->draftPlayerIdx;
+
 					// Client applies host state directly
-					draftPlayerIndex = sp->draftPlayerIdx;
+					// Map incoming draft player index to local player index by matching the sender's playerID.
+					// This avoids relying on host-side vector indices which may differ on clients.
+					if (isClient()) {
+						int incomingPlayerID = header->playerID;
+						int mappedIdx = -1;
+						for (int i = 0; i < (int)players.size(); ++i) {
+							if (!players[i].isMinion && players[i].playerID == incomingPlayerID) {
+								mappedIdx = i;
+								break;
+							}
+						}
+						if (mappedIdx >= 0) draftPlayerIndex = mappedIdx;
+						else draftPlayerIndex = sp->draftPlayerIdx; // fallback
+					} else {
+						draftPlayerIndex = sp->draftPlayerIdx;
+					}
 					draftStage = sp->draftStage;
 					draftPicksRemaining = sp->picksRemaining;
 					isInGameDraft = (sp->isInGameDraft != 0);
@@ -25240,7 +25261,21 @@ void ofApp::processNetworkPackets() {
 					draftGenerationCounter = dp->draftGenCounter - 1; // Sub 1 because generateDraftOptions increments it
 					currentMapSeed = dp->mapSeed;
 					draftStage = dp->draftStage;
-					draftPlayerIndex = dp->draftPlayerIdx;
+					// Map draft player index to local index when running as client
+					if (isClient()) {
+						int incomingPlayerID = header->playerID;
+						int mappedIdx = -1;
+						for (int i = 0; i < (int)players.size(); ++i) {
+							if (!players[i].isMinion && players[i].playerID == incomingPlayerID) {
+								mappedIdx = i;
+								break;
+							}
+						}
+						if (mappedIdx >= 0) draftPlayerIndex = mappedIdx;
+						else draftPlayerIndex = dp->draftPlayerIdx;
+					} else {
+						draftPlayerIndex = dp->draftPlayerIdx;
+					}
 					draftPicksRemaining = dp->picksRemaining;
 					isInGameDraft = (dp->isInGameDraft != 0);
 					draftAcceptLocked = false;
@@ -25248,7 +25283,9 @@ void ofApp::processNetworkPackets() {
 					waitingForDraftOptions = false;
 
 					// Generate draft options locally using deterministic algorithm
+					ofLogNotice("DraftTrace") << "PKT_DRAFT_OPTIONS: generating draft options (class=" << dp->classTier << " draftGenCounter=" << dp->draftGenCounter << " mapSeed=" << dp->mapSeed << ")";
 					generateDraftOptions(dp->classTier);
+					ofLogNotice("DraftTrace") << "PKT_DRAFT_OPTIONS: after generateDraftOptions: draftOptions.size=" << draftOptions.size() << " currentDraftClassTier=" << currentDraftClassTier;
 				} else if (header->type == PKT_DRAFT_ACTION) {
 					DraftActionPacket * pkt = (DraftActionPacket *)header;
 					ofLogNotice("Network") << "Draft action received: hdr.seq=" << header->seq << " bufSize=" << buffer.size() << " type=" << (int)pkt->actionType << " opt=" << pkt->optionIndex << " player=" << pkt->draftPlayerIdx << " sel=" << (int)pkt->selectFlag << " clientActionID=" << pkt->clientActionID << " pkt.playerID=" << pkt->playerID;

@@ -668,10 +668,13 @@ private:
 	// Custom deterministic shuffle (Fisher-Yates) for cross-platform consistency.
 	template <class T, class URBG>
 	void deterministic_shuffle(std::vector<T> & vec, URBG & rng) {
+		// Fisher–Yates using raw URBG output modulo (i+1).
+		// Using the raw `rng()` result ensures identical consumption
+		// of the underlying PRNG across platforms/toolchains.
 		if (vec.size() <= 1) return;
 		for (size_t i = vec.size() - 1; i > 0; --i) {
-			std::uniform_int_distribution<size_t> dist(0, i);
-			size_t j = dist(rng);
+			auto r = rng(); // consume raw PRNG output
+			size_t j = static_cast<size_t>(r % (i + 1));
 			std::swap(vec[i], vec[j]);
 		}
 	}

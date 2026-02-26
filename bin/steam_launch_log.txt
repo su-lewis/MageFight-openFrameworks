@@ -1,6 +1,6 @@
 ERROR: ld.so: object '/usr/lib/extest/libextest.so' from LD_PRELOAD cannot be preloaded (cannot open shared object file): ignored.
 ERROR: ld.so: object '/var/home/lewis/.local/share/Steam/ubuntu12_32/gameoverlayrenderer.so' from LD_PRELOAD cannot be preloaded (wrong ELF class: ELFCLASS32): ignored.
---- Launching MageFight at Wed Feb 25 22:16:15 GMT 2026 ---
+--- Launching MageFight at Wed Feb 25 23:24:55 GMT 2026 ---
 Script directory: /home/lewis/of_workspace/openFrameworks/apps/myApps/MageFight/bin
 Original LD_PRELOAD=/usr/lib/extest/libextest.so:/var/home/lewis/.local/share/Steam/ubuntu12_32/gameoverlayrenderer.so:/var/home/lewis/.local/share/Steam/ubuntu12_64/gameoverlayrenderer.so
 Dropping missing LD_PRELOAD entry: /usr/lib/extest/libextest.so
@@ -94,144 +94,526 @@ SteamInternal_SetMinidumpSteamID:  Caching Steam ID:  76561198261715869 [API loa
 [notice ] Steam: Accepted Connection!
 [notice ] Network: DEBUG: hasOpponent() is true, currentState=0
 [notice ] Network: Host: Opponent found. Starting game & sending seed.
-[notice ] Setup: Host generated seed: 1772057815 platform=Linux
-[notice ] Setup: Host sending handshake: type=0 playerID=0 seq=0 seed=1772057815 platform=Linux
+[notice ] Setup: Host generated seed: 1772061953 platform=Linux
+[notice ] Setup: Host sending handshake: type=0 playerID=0 seq=0 seed=1772061953 platform=Linux
 [notice ] Game: Host: waiting for client ready signal before starting initiative.
 [notice ] Steam: Connection Fully Active!
 [notice ] Steam: Opponent ID: 76561198743068920
 [notice ] NetTrace: RECV raw size=8
 [notice ] NetTrace: processNetworkPackets: queueSize=1
-[notice ] Network: Host: Received Seed Request. Resending Seed: 1772057815
+[notice ] Network: Host: Received Seed Request. Resending Seed: 1772061953
 [notice ] NetTrace: RECV pkt type=1 seq=1 size=10
 [notice ] NetTrace: processNetworkPackets: queueSize=1
 [notice ] Network: ClientReady received from playerID=1
 [notice ] Network: All clients ready - starting initiative phase.
 [notice ] Network: Skipping DiceRollPacket send for purpose=4 (handled authoritatively).
-[notice ] Dice: Final total result for 1d6: 1
+[notice ] Dice: Final total result for 1d6: 5
 [notice ] Network: Skipping DiceRollPacket send for purpose=4 (handled authoritatively).
-[notice ] Dice: Final total result for 1d6: 3
+[notice ] Dice: Final total result for 1d6: 2
 [notice ] Game: --- INITIATIVE ROLL STARTED ---
 [notice ] Post: World post-process branch executed (shader active).
-[notice ] Initiative: Player 2 goes first
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Wisdom Boon, Punch, Kick
-[notice ] Draft: DRAFT CLICK: mousePos=(1611,344) selections=0 required=2 inGameDraft=0 draftStage=0 acceptRect=(0,0,0,0)
+[notice ] Initiative: Player 1 goes first
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=0 stage=0) names=Double Handed, Summon Wall, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=0 stage=0) names=Double Handed, Summon Wall, Shield Bash
+[notice ] Draft: DRAFT CLICK: mousePos=(1394,429) selections=0 required=2 inGameDraft=0 draftStage=0 acceptRect=(1133.33,1200,293.333,80)
+[notice ] DraftDebug: LocalIdx=0 draftPlayerIndex=0 isLocalDrafting=1
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=0 stage=0) names=Double Handed, Summon Wall, Shield Bash
+[notice ] Draft: DRAFT CLICK: mousePos=(1275,741) selections=0 required=2 inGameDraft=0 draftStage=0 acceptRect=(1133.33,1200,293.333,80)
+[notice ] DraftDebug: LocalIdx=0 draftPlayerIndex=0 isLocalDrafting=1
+[notice ] NetTrace: SEND pkt type=5 player=0 seq=5 size=43
+[notice ] NetTrace:   DRAFT_ACTION actionType=0 clientActionID=0 draftPlayerIdx=0 classTier=0 numSelected=0 opt=14 sel=1
+[notice ] Network: Host broadcast its own DraftToggle to clients.
+[notice ] Network: Host sent DraftState (after own toggle) to clients.
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=0 stage=0) names=Double Handed, Summon Wall, Shield Bash
+[notice ] Draft: DRAFT CLICK: mousePos=(1824,789) selections=1 required=2 inGameDraft=0 draftStage=0 acceptRect=(1133.33,1200,293.333,80)
+[notice ] DraftDebug: LocalIdx=0 draftPlayerIndex=0 isLocalDrafting=1
+[notice ] NetTrace: SEND pkt type=5 player=0 seq=7 size=43
+[notice ] NetTrace:   DRAFT_ACTION actionType=0 clientActionID=0 draftPlayerIdx=0 classTier=0 numSelected=0 opt=18 sel=1
+[notice ] Network: Host broadcast its own DraftToggle to clients.
+[notice ] Network: Host sent DraftState (after own toggle) to clients.
+[notice ] Draft: DRAFT CLICK: mousePos=(1297,770) selections=2 required=2 inGameDraft=0 draftStage=0 acceptRect=(1133.33,1200,293.333,80)
+[notice ] DraftDebug: LocalIdx=0 draftPlayerIndex=0 isLocalDrafting=1
+[notice ] NetTrace: SEND pkt type=5 player=0 seq=9 size=43
+[notice ] NetTrace:   DRAFT_ACTION actionType=0 clientActionID=0 draftPlayerIdx=0 classTier=0 numSelected=0 opt=14 sel=0
+[notice ] Network: Host broadcast its own DraftToggle to clients.
+[notice ] Network: Host sent DraftState (after own toggle) to clients.
+[notice ] Draft: DRAFT CLICK: mousePos=(1643,827) selections=1 required=2 inGameDraft=0 draftStage=0 acceptRect=(1133.33,1200,293.333,80)
+[notice ] DraftDebug: LocalIdx=0 draftPlayerIndex=0 isLocalDrafting=1
+[notice ] NetTrace: SEND pkt type=5 player=0 seq=11 size=43
+[notice ] NetTrace:   DRAFT_ACTION actionType=0 clientActionID=0 draftPlayerIdx=0 classTier=0 numSelected=0 opt=18 sel=0
+[notice ] Network: Host broadcast its own DraftToggle to clients.
+[notice ] Network: Host sent DraftState (after own toggle) to clients.
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=0 stage=0) names=Double Handed, Summon Wall, Shield Bash
+[notice ] Draft: DRAFT CLICK: mousePos=(1313,840) selections=0 required=2 inGameDraft=0 draftStage=0 acceptRect=(1133.33,1200,293.333,80)
+[notice ] DraftDebug: LocalIdx=0 draftPlayerIndex=0 isLocalDrafting=1
+[notice ] NetTrace: SEND pkt type=5 player=0 seq=13 size=43
+[notice ] NetTrace:   DRAFT_ACTION actionType=0 clientActionID=0 draftPlayerIdx=0 classTier=0 numSelected=0 opt=14 sel=1
+[notice ] Network: Host broadcast its own DraftToggle to clients.
+[notice ] Network: Host sent DraftState (after own toggle) to clients.
+[notice ] Draft: DRAFT CLICK: mousePos=(1628,852) selections=1 required=2 inGameDraft=0 draftStage=0 acceptRect=(1133.33,1200,293.333,80)
+[notice ] DraftDebug: LocalIdx=0 draftPlayerIndex=0 isLocalDrafting=1
+[notice ] NetTrace: SEND pkt type=5 player=0 seq=15 size=43
+[notice ] NetTrace:   DRAFT_ACTION actionType=0 clientActionID=0 draftPlayerIdx=0 classTier=0 numSelected=0 opt=18 sel=1
+[notice ] Network: Host broadcast its own DraftToggle to clients.
+[notice ] Network: Host sent DraftState (after own toggle) to clients.
+[notice ] Draft: DRAFT CLICK: mousePos=(1362,910) selections=2 required=2 inGameDraft=0 draftStage=0 acceptRect=(1133.33,1200,293.333,80)
+[notice ] DraftDebug: LocalIdx=0 draftPlayerIndex=0 isLocalDrafting=1
+[notice ] NetTrace: SEND pkt type=5 player=0 seq=17 size=43
+[notice ] NetTrace:   DRAFT_ACTION actionType=0 clientActionID=0 draftPlayerIdx=0 classTier=0 numSelected=0 opt=14 sel=0
+[notice ] Network: Host broadcast its own DraftToggle to clients.
+[notice ] Network: Host sent DraftState (after own toggle) to clients.
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=0 stage=0) names=Double Handed, Summon Wall, Shield Bash
+[notice ] Draft: DRAFT CLICK: mousePos=(1719,862) selections=1 required=2 inGameDraft=0 draftStage=0 acceptRect=(1133.33,1200,293.333,80)
+[notice ] DraftDebug: LocalIdx=0 draftPlayerIndex=0 isLocalDrafting=1
+[notice ] NetTrace: SEND pkt type=5 player=0 seq=19 size=43
+[notice ] NetTrace:   DRAFT_ACTION actionType=0 clientActionID=0 draftPlayerIdx=0 classTier=0 numSelected=0 opt=18 sel=0
+[notice ] Network: Host broadcast its own DraftToggle to clients.
+[notice ] Network: Host sent DraftState (after own toggle) to clients.
+[notice ] Draft: DRAFT CLICK: mousePos=(1533,473) selections=0 required=2 inGameDraft=0 draftStage=0 acceptRect=(1133.33,1200,293.333,80)
+[notice ] DraftDebug: LocalIdx=0 draftPlayerIndex=0 isLocalDrafting=1
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=0 stage=0) names=Double Handed, Summon Wall, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=0 stage=0) names=Double Handed, Summon Wall, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=0 stage=0) names=Double Handed, Summon Wall, Shield Bash
+[notice ] Draft: DRAFT CLICK: mousePos=(1479,426) selections=0 required=2 inGameDraft=0 draftStage=0 acceptRect=(1133.33,1200,293.333,80)
+[notice ] DraftDebug: LocalIdx=0 draftPlayerIndex=0 isLocalDrafting=1
+[notice ] Draft: DRAFT CLICK: mousePos=(1461,466) selections=0 required=2 inGameDraft=0 draftStage=0 acceptRect=(1133.33,1200,293.333,80)
+[notice ] DraftDebug: LocalIdx=0 draftPlayerIndex=0 isLocalDrafting=1
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=0 stage=0) names=Double Handed, Summon Wall, Shield Bash
+[notice ] Draft: DRAFT CLICK: mousePos=(1468,472) selections=0 required=2 inGameDraft=0 draftStage=0 acceptRect=(1133.33,1200,293.333,80)
+[notice ] DraftDebug: LocalIdx=0 draftPlayerIndex=0 isLocalDrafting=1
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=0 stage=0) names=Double Handed, Summon Wall, Shield Bash
+[notice ] Draft: DRAFT CLICK: mousePos=(1432,411) selections=0 required=2 inGameDraft=0 draftStage=0 acceptRect=(1133.33,1200,293.333,80)
+[notice ] DraftDebug: LocalIdx=0 draftPlayerIndex=0 isLocalDrafting=1
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=0 stage=0) names=Double Handed, Summon Wall, Shield Bash
+[notice ] Draft: DRAFT CLICK: mousePos=(1442,430) selections=0 required=2 inGameDraft=0 draftStage=0 acceptRect=(1133.33,1200,293.333,80)
+[notice ] DraftDebug: LocalIdx=0 draftPlayerIndex=0 isLocalDrafting=1
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=0 stage=0) names=Double Handed, Summon Wall, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=0 stage=0) names=Double Handed, Summon Wall, Shield Bash
+[notice ] Draft: DRAFT CLICK: mousePos=(1379,477) selections=0 required=2 inGameDraft=0 draftStage=0 acceptRect=(1133.33,1200,293.333,80)
+[notice ] DraftDebug: LocalIdx=0 draftPlayerIndex=0 isLocalDrafting=1
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=0 stage=0) names=Double Handed, Summon Wall, Shield Bash
+[notice ] Draft: DRAFT CLICK: mousePos=(1448,441) selections=0 required=2 inGameDraft=0 draftStage=0 acceptRect=(1133.33,1200,293.333,80)
+[notice ] DraftDebug: LocalIdx=0 draftPlayerIndex=0 isLocalDrafting=1
+[notice ] Draft: DRAFT CLICK: mousePos=(1449,442) selections=0 required=2 inGameDraft=0 draftStage=0 acceptRect=(1133.33,1200,293.333,80)
+[notice ] DraftDebug: LocalIdx=0 draftPlayerIndex=0 isLocalDrafting=1
+[notice ] Draft: DRAFT CLICK: mousePos=(1449,442) selections=0 required=2 inGameDraft=0 draftStage=0 acceptRect=(1133.33,1200,293.333,80)
+[notice ] DraftDebug: LocalIdx=0 draftPlayerIndex=0 isLocalDrafting=1
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=0 stage=0) names=Double Handed, Summon Wall, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=0 stage=0) names=Double Handed, Summon Wall, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=0 stage=0) names=Double Handed, Summon Wall, Shield Bash
+[notice ] Draft: DRAFT CLICK: mousePos=(1574,479) selections=0 required=2 inGameDraft=0 draftStage=0 acceptRect=(1133.33,1200,293.333,80)
+[notice ] DraftDebug: LocalIdx=0 draftPlayerIndex=0 isLocalDrafting=1
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=0 stage=0) names=Double Handed, Summon Wall, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=0 stage=0) names=Double Handed, Summon Wall, Shield Bash
+[notice ] Draft: DRAFT CLICK: mousePos=(1365,650) selections=0 required=2 inGameDraft=0 draftStage=0 acceptRect=(1133.33,1200,293.333,80)
+[notice ] DraftDebug: LocalIdx=0 draftPlayerIndex=0 isLocalDrafting=1
+[notice ] NetTrace: SEND pkt type=5 player=0 seq=21 size=43
+[notice ] NetTrace:   DRAFT_ACTION actionType=0 clientActionID=0 draftPlayerIdx=0 classTier=0 numSelected=0 opt=14 sel=1
+[notice ] Network: Host broadcast its own DraftToggle to clients.
+[notice ] Network: Host sent DraftState (after own toggle) to clients.
+[notice ] Draft: DRAFT CLICK: mousePos=(1727,753) selections=1 required=2 inGameDraft=0 draftStage=0 acceptRect=(1133.33,1200,293.333,80)
+[notice ] DraftDebug: LocalIdx=0 draftPlayerIndex=0 isLocalDrafting=1
+[notice ] NetTrace: SEND pkt type=5 player=0 seq=23 size=43
+[notice ] NetTrace:   DRAFT_ACTION actionType=0 clientActionID=0 draftPlayerIdx=0 classTier=0 numSelected=0 opt=18 sel=1
+[notice ] Network: Host broadcast its own DraftToggle to clients.
+[notice ] Network: Host sent DraftState (after own toggle) to clients.
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=0 stage=0) names=Double Handed, Summon Wall, Shield Bash
+[notice ] Draft: DRAFT CLICK: mousePos=(1327,1237) selections=2 required=2 inGameDraft=0 draftStage=0 acceptRect=(1133.33,1200,293.333,80)
+[notice ] DraftDebug: LocalIdx=0 draftPlayerIndex=0 isLocalDrafting=1
+[notice ] Draft: ACCEPT BUTTON CLICKED: selections=2 required=2
+[notice ] DraftDebug: Attempting Accept: localIdx=0 myLocalPlayerID=0 draftPlayerIndex=0 draftPlayerID=0 selected=2 required=2 waitingForDraftOptions=0 draftAcceptLocked=0
+[notice ] NetTrace: SEND pkt type=5 player=0 seq=25 size=43
+[notice ] NetTrace:   DRAFT_ACTION actionType=1 clientActionID=0 draftPlayerIdx=0 classTier=1 numSelected=2 opt=0 sel=0
+[notice ] NetTrace: SEND pkt type=9 player=0 seq=26 size=17
+[notice ] NetTrace:   SHUFFLE playerIndex=0 nonce=2192385221
+[notice ] Network: Host sent Shuffle packet: player=0 nonce=2192385221
+[notice ] Draft: DRAFT CLICK: mousePos=(1304,995) selections=0 required=1 inGameDraft=0 draftStage=1 acceptRect=(1133.33,1200,293.333,80)
+[notice ] DraftDebug: LocalIdx=0 draftPlayerIndex=0 isLocalDrafting=1
+[notice ] NetTrace: SEND pkt type=5 player=0 seq=29 size=43
+[notice ] NetTrace:   DRAFT_ACTION actionType=0 clientActionID=0 draftPlayerIdx=0 classTier=0 numSelected=0 opt=19 sel=1
+[notice ] Network: Host broadcast its own DraftToggle to clients.
+[notice ] Network: Host sent DraftState (after own toggle) to clients.
+[notice ] Draft: DRAFT CLICK: mousePos=(1668,976) selections=1 required=1 inGameDraft=0 draftStage=1 acceptRect=(1133.33,1200,293.333,80)
+[notice ] DraftDebug: LocalIdx=0 draftPlayerIndex=0 isLocalDrafting=1
+[notice ] NetTrace: SEND pkt type=5 player=0 seq=31 size=43
+[notice ] NetTrace:   DRAFT_ACTION actionType=0 clientActionID=0 draftPlayerIdx=0 classTier=0 numSelected=0 opt=2 sel=0
+[notice ] Network: Host broadcast its own DraftToggle to clients.
+[notice ] Network: Host sent DraftState (after own toggle) to clients.
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=0 stage=1) names=Magic Blast, Consume Large Health Potion, Fireball
+[notice ] Draft: DRAFT CLICK: mousePos=(1307,1243) selections=1 required=1 inGameDraft=0 draftStage=1 acceptRect=(1133.33,1200,293.333,80)
+[notice ] DraftDebug: LocalIdx=0 draftPlayerIndex=0 isLocalDrafting=1
+[notice ] Draft: ACCEPT BUTTON CLICKED: selections=1 required=1
+[notice ] DraftDebug: Attempting Accept: localIdx=0 myLocalPlayerID=0 draftPlayerIndex=0 draftPlayerID=0 selected=1 required=1 waitingForDraftOptions=0 draftAcceptLocked=0
+[notice ] NetTrace: SEND pkt type=5 player=0 seq=33 size=43
+[notice ] NetTrace:   DRAFT_ACTION actionType=1 clientActionID=0 draftPlayerIdx=0 classTier=2 numSelected=1 opt=0 sel=0
+[notice ] NetTrace: SEND pkt type=9 player=0 seq=34 size=17
+[notice ] NetTrace:   SHUFFLE playerIndex=0 nonce=1923754707
+[notice ] Network: Host sent Shuffle packet: player=0 nonce=1923754707
+[notice ] Draft: DRAFT CLICK: mousePos=(1322,1018) selections=0 required=2 inGameDraft=0 draftStage=0 acceptRect=(0,0,0,0)
 [notice ] DraftDebug: LocalIdx=0 draftPlayerIndex=1 isLocalDrafting=0
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Wisdom Boon, Punch, Kick
-[notice ] Draft: DRAFT CLICK: mousePos=(1374,693) selections=0 required=2 inGameDraft=0 draftStage=0 acceptRect=(0,0,0,0)
+[notice ] Draft: DRAFT CLICK: mousePos=(1602,984) selections=0 required=2 inGameDraft=0 draftStage=0 acceptRect=(0,0,0,0)
 [notice ] DraftDebug: LocalIdx=0 draftPlayerIndex=1 isLocalDrafting=0
-[notice ] Draft: DRAFT CLICK: mousePos=(1625,735) selections=0 required=2 inGameDraft=0 draftStage=0 acceptRect=(0,0,0,0)
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: DRAFT CLICK: mousePos=(1403,1028) selections=0 required=2 inGameDraft=0 draftStage=0 acceptRect=(0,0,0,0)
 [notice ] DraftDebug: LocalIdx=0 draftPlayerIndex=1 isLocalDrafting=0
-[notice ] Draft: DRAFT CLICK: mousePos=(1463,750) selections=0 required=2 inGameDraft=0 draftStage=0 acceptRect=(0,0,0,0)
+[notice ] Draft: DRAFT CLICK: mousePos=(1514,1212) selections=0 required=2 inGameDraft=0 draftStage=0 acceptRect=(0,0,0,0)
 [notice ] DraftDebug: LocalIdx=0 draftPlayerIndex=1 isLocalDrafting=0
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Wisdom Boon, Punch, Kick
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Wisdom Boon, Punch, Kick
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Wisdom Boon, Punch, Kick
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Wisdom Boon, Punch, Kick
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Wisdom Boon, Punch, Kick
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Wisdom Boon, Punch, Kick
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Wisdom Boon, Punch, Kick
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Wisdom Boon, Punch, Kick
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Wisdom Boon, Punch, Kick
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Wisdom Boon, Punch, Kick
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Wisdom Boon, Punch, Kick
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Wisdom Boon, Punch, Kick
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Wisdom Boon, Punch, Kick
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Wisdom Boon, Punch, Kick
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Wisdom Boon, Punch, Kick
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Wisdom Boon, Punch, Kick
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Wisdom Boon, Punch, Kick
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Wisdom Boon, Punch, Kick
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Wisdom Boon, Punch, Kick
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Wisdom Boon, Punch, Kick
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Wisdom Boon, Punch, Kick
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Wisdom Boon, Punch, Kick
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Wisdom Boon, Punch, Kick
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Wisdom Boon, Punch, Kick
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Wisdom Boon, Punch, Kick
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Wisdom Boon, Punch, Kick
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Wisdom Boon, Punch, Kick
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Wisdom Boon, Punch, Kick
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Wisdom Boon, Punch, Kick
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Wisdom Boon, Punch, Kick
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Wisdom Boon, Punch, Kick
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Wisdom Boon, Punch, Kick
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Wisdom Boon, Punch, Kick
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Wisdom Boon, Punch, Kick
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Wisdom Boon, Punch, Kick
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Wisdom Boon, Punch, Kick
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Wisdom Boon, Punch, Kick
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Wisdom Boon, Punch, Kick
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Wisdom Boon, Punch, Kick
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Wisdom Boon, Punch, Kick
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Wisdom Boon, Punch, Kick
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Wisdom Boon, Punch, Kick
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Wisdom Boon, Punch, Kick
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Wisdom Boon, Punch, Kick
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Wisdom Boon, Punch, Kick
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Wisdom Boon, Punch, Kick
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Wisdom Boon, Punch, Kick
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Wisdom Boon, Punch, Kick
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Wisdom Boon, Punch, Kick
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Wisdom Boon, Punch, Kick
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Wisdom Boon, Punch, Kick
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Wisdom Boon, Punch, Kick
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Wisdom Boon, Punch, Kick
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Wisdom Boon, Punch, Kick
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Wisdom Boon, Punch, Kick
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Wisdom Boon, Punch, Kick
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Wisdom Boon, Punch, Kick
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Wisdom Boon, Punch, Kick
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Wisdom Boon, Punch, Kick
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Wisdom Boon, Punch, Kick
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Wisdom Boon, Punch, Kick
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Wisdom Boon, Punch, Kick
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Wisdom Boon, Punch, Kick
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Wisdom Boon, Punch, Kick
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Wisdom Boon, Punch, Kick
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Wisdom Boon, Punch, Kick
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Wisdom Boon, Punch, Kick
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Wisdom Boon, Punch, Kick
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Wisdom Boon, Punch, Kick
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Wisdom Boon, Punch, Kick
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Wisdom Boon, Punch, Kick
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Wisdom Boon, Punch, Kick
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Wisdom Boon, Punch, Kick
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Wisdom Boon, Punch, Kick
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Wisdom Boon, Punch, Kick
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Wisdom Boon, Punch, Kick
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Wisdom Boon, Punch, Kick
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Wisdom Boon, Punch, Kick
-[notice ] Post: enableWorldPostProcess=false
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Wisdom Boon, Punch, Kick
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Wisdom Boon, Punch, Kick
-[notice ] Draft: DRAFT CLICK: mousePos=(1315,757) selections=0 required=2 inGameDraft=0 draftStage=0 acceptRect=(0,0,0,0)
+[notice ] Draft: DRAFT CLICK: mousePos=(1562,1201) selections=0 required=2 inGameDraft=0 draftStage=0 acceptRect=(0,0,0,0)
 [notice ] DraftDebug: LocalIdx=0 draftPlayerIndex=1 isLocalDrafting=0
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Wisdom Boon, Punch, Kick
-[notice ] Draft: DRAFT CLICK: mousePos=(1312,1077) selections=0 required=2 inGameDraft=0 draftStage=0 acceptRect=(0,0,0,0)
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: DRAFT CLICK: mousePos=(1551,1131) selections=0 required=2 inGameDraft=0 draftStage=0 acceptRect=(0,0,0,0)
 [notice ] DraftDebug: LocalIdx=0 draftPlayerIndex=1 isLocalDrafting=0
-[notice ] Draft: DRAFT CLICK: mousePos=(1268,1179) selections=0 required=2 inGameDraft=0 draftStage=0 acceptRect=(0,0,0,0)
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: DRAFT CLICK: mousePos=(1327,1125) selections=0 required=2 inGameDraft=0 draftStage=0 acceptRect=(0,0,0,0)
 [notice ] DraftDebug: LocalIdx=0 draftPlayerIndex=1 isLocalDrafting=0
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Wisdom Boon, Punch, Kick
-[notice ] Draft: DRAFT CLICK: mousePos=(1183,878) selections=0 required=2 inGameDraft=0 draftStage=0 acceptRect=(0,0,0,0)
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: DRAFT CLICK: mousePos=(1257,1241) selections=0 required=2 inGameDraft=0 draftStage=0 acceptRect=(0,0,0,0)
 [notice ] DraftDebug: LocalIdx=0 draftPlayerIndex=1 isLocalDrafting=0
-[notice ] Draft: DRAFT CLICK: mousePos=(1293,837) selections=0 required=2 inGameDraft=0 draftStage=0 acceptRect=(0,0,0,0)
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: DRAFT CLICK: mousePos=(1367,1230) selections=0 required=2 inGameDraft=0 draftStage=0 acceptRect=(0,0,0,0)
 [notice ] DraftDebug: LocalIdx=0 draftPlayerIndex=1 isLocalDrafting=0
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Wisdom Boon, Punch, Kick
-[notice ] Draft: DRAFT CLICK: mousePos=(1396,831) selections=0 required=2 inGameDraft=0 draftStage=0 acceptRect=(0,0,0,0)
+[notice ] Draft: DRAFT CLICK: mousePos=(1764,1134) selections=0 required=2 inGameDraft=0 draftStage=0 acceptRect=(0,0,0,0)
 [notice ] DraftDebug: LocalIdx=0 draftPlayerIndex=1 isLocalDrafting=0
-[notice ] Draft: DRAFT CLICK: mousePos=(1523,841) selections=0 required=2 inGameDraft=0 draftStage=0 acceptRect=(0,0,0,0)
+[notice ] Draft: DRAFT CLICK: mousePos=(1669,1063) selections=0 required=2 inGameDraft=0 draftStage=0 acceptRect=(0,0,0,0)
 [notice ] DraftDebug: LocalIdx=0 draftPlayerIndex=1 isLocalDrafting=0
-[notice ] Draft: DRAFT CLICK: mousePos=(1521,905) selections=0 required=2 inGameDraft=0 draftStage=0 acceptRect=(0,0,0,0)
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: DRAFT CLICK: mousePos=(1052,1003) selections=0 required=2 inGameDraft=0 draftStage=0 acceptRect=(0,0,0,0)
 [notice ] DraftDebug: LocalIdx=0 draftPlayerIndex=1 isLocalDrafting=0
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Wisdom Boon, Punch, Kick
-[notice ] Draft: DRAFT CLICK: mousePos=(1601,943) selections=0 required=2 inGameDraft=0 draftStage=0 acceptRect=(0,0,0,0)
+[notice ] Draft: DRAFT CLICK: mousePos=(1174,1049) selections=0 required=2 inGameDraft=0 draftStage=0 acceptRect=(0,0,0,0)
 [notice ] DraftDebug: LocalIdx=0 draftPlayerIndex=1 isLocalDrafting=0
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Wisdom Boon, Punch, Kick
-[notice ] Draft: DRAFT CLICK: mousePos=(1382,781) selections=0 required=2 inGameDraft=0 draftStage=0 acceptRect=(0,0,0,0)
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: DRAFT CLICK: mousePos=(1432,1309) selections=0 required=2 inGameDraft=0 draftStage=0 acceptRect=(0,0,0,0)
 [notice ] DraftDebug: LocalIdx=0 draftPlayerIndex=1 isLocalDrafting=0
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Wisdom Boon, Punch, Kick
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Wisdom Boon, Punch, Kick
-[notice ] Game: --- GAME SESSION CLEANED UP ---
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Study, Heal, Shield Bash
 [notice ] Settings: Saved settings to Config/settings.json
 [notice ] SteamManager: Steam API Shutdown.
 [S_API FAIL] Tried to access Steam interface SteamNetworkingSockets012 before SteamAPI_Init succeeded.
