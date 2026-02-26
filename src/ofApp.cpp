@@ -630,25 +630,25 @@ void ofApp::setup() {
 	ofLoadImage(wallDarkTexture, "Board/wallDark.png");
 	wallDarkTexture.setTextureMinMagFilter(GL_NEAREST, GL_NEAREST);
 
-	// Load Floor Textures (Floor1.PNG to Floor6.PNG)
+	// Load Board Tile Textures (Tile1.png to Tile4.png) — randomized per-tile
 	floorTextures.clear();
 	floorMeshes.clear();
 
-	// Loop from 1 to 6
-	for (int i = 1; i <= 6; i++) {
+	// Loop from 1 to 4 (Tile1.png .. Tile4.png)
+	for (int i = 1; i <= 4; i++) {
 		ofTexture tex;
-		// Construct filename: "Board/Floor1.PNG", etc.
-		// Note: .PNG is case-sensitive on some systems
-		string filename = "Board/Floor" + ofToString(i) + ".PNG";
+		string filename = "Board/Tile" + ofToString(i) + ".png";
 
 		if (ofLoadImage(tex, filename)) {
 			tex.generateMipmap();
 			tex.setTextureMinMagFilter(GL_NEAREST_MIPMAP_NEAREST, GL_NEAREST);
+			tex.setTextureWrap(GL_CLAMP_TO_EDGE, GL_CLAMP_TO_EDGE);
 			floorTextures.push_back(tex);
 
 			ofMesh m;
 			m.setMode(OF_PRIMITIVE_TRIANGLES);
 			floorMeshes.push_back(m);
+			ofLogNotice("Setup") << "Loaded board tile: " << filename;
 		} else {
 			ofLogError("Setup") << "Failed to load " << filename;
 		}
