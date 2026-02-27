@@ -23431,7 +23431,10 @@ void ofApp::generateDraftOptions(int classTier, const std::vector<int> * forcedI
 		dp.optionIdx0 = (currentDraftOptionPoolIndices.size() > 0) ? currentDraftOptionPoolIndices[0] : -1;
 		dp.optionIdx1 = (currentDraftOptionPoolIndices.size() > 1) ? currentDraftOptionPoolIndices[1] : -1;
 		dp.optionIdx2 = (currentDraftOptionPoolIndices.size() > 2) ? currentDraftOptionPoolIndices[2] : -1;
-		steamManager.sendPacket(&dp, sizeof(dp));
+		{
+			bool ok = steamManager.sendPacket(&dp, sizeof(dp));
+			ofLogNotice("NetTrace") << "Host: sent PKT_DRAFT_OPTIONS seq=? optIdxs=" << dp.optionIdx0 << "," << dp.optionIdx1 << "," << dp.optionIdx2 << " ok=" << ok;
+		}
 
 		DraftStatePacket dsp;
 		dsp.type = PKT_DRAFT_STATE;
@@ -23443,7 +23446,10 @@ void ofApp::generateDraftOptions(int classTier, const std::vector<int> * forcedI
 		dsp.draftStage = draftStage;
 		dsp.isInGameDraft = isInGameDraft ? 1 : 0;
 		dsp.currentPlayerIndex = currentPlayerIndex;
-		steamManager.sendPacket(&dsp, sizeof(dsp));
+		{
+			bool ok2 = steamManager.sendPacket(&dsp, sizeof(dsp));
+			ofLogNotice("NetTrace") << "Host: sent PKT_DRAFT_STATE seq=? class=" << dsp.classTier << " picks=" << dsp.picksRemaining << " ok=" << ok2;
+		}
 	}
 }
 
@@ -24259,7 +24265,6 @@ void ofApp::processNetworkPackets() {
 						ofLogNotice("Network") << "Client applied Amnesia removals locally.";
 					}
 				}
-				continue;
 			}
 
 			// Handle TurnStart packets (Host -> Client): authoritative AP dice for starting player
@@ -25322,6 +25327,22 @@ void ofApp::processNetworkPackets() {
 				// Host handles transition in its own draft-accept logic and sends TurnStart
 			}
 		} else if (header->type == PKT_DRAFT_OPTIONS) {
+			// Defensive: ensure packet buffer is large enough before casting
+			if (buffer.size() < sizeof(DraftOptionsPacket)) {
+				ofLogError("Network") << "PKT_DRAFT_OPTIONS truncated: size=" << buffer.size() << " expected=" << sizeof(DraftOptionsPacket) << " seq=" << header->seq;
+				// If we're a client, request authoritative snapshot to recover
+				if (isClient()) {
+					ofLogNotice("Network") << "Client: requesting snapshot due to truncated DraftOptions packet.";
+					SnapshotRequestPacket req = {};
+					req.type = PKT_SNAPSHOT_REQUEST;
+					req.playerID = myLocalPlayerID;
+					req.requestedTurn = globalTurnCounter;
+					steamManager.sendPacket(&req, sizeof(req));
+					waitingForSnapshot = true;
+				}
+				continue;
+			}
+
 			DraftOptionsPacket * dp = (DraftOptionsPacket *)header;
 			ofLogNotice("Network") << "DraftOptions received (deterministic): class=" << dp->classTier << " draftGenCounter=" << dp->draftGenCounter << " mapSeed=" << dp->mapSeed;
 
@@ -25331,7 +25352,6 @@ void ofApp::processNetworkPackets() {
 			draftStage = dp->draftStage;
 			// Map draft player index to local index when running as client
 			if (isClient()) {
-				// Map using the authoritative draftPlayerID sent by the host
 				int incomingPlayerID = dp->draftPlayerID;
 				int mappedIdx = -1;
 				for (int i = 0; i < (int)players.size(); ++i) {
@@ -25353,9 +25373,10 @@ void ofApp::processNetworkPackets() {
 			draftAcceptApplied = false;
 			waitingForDraftOptions = false;
 
+			ofLogNotice("DraftTrace") << "PKT_DRAFT_OPTIONS: received class=" << dp->classTier << " draftGenCounter=" << dp->draftGenCounter << " mapSeed=" << dp->mapSeed << " optIdxs=" << dp->optionIdx0 << "," << dp->optionIdx1 << "," << dp->optionIdx2;
+
 			// If the host included explicit option indices, apply them directly.
 			// Otherwise fall back to deterministic local generation.
-			ofLogNotice("DraftTrace") << "PKT_DRAFT_OPTIONS: received class=" << dp->classTier << " draftGenCounter=" << dp->draftGenCounter << " mapSeed=" << dp->mapSeed;
 			if (dp->optionIdx0 != -1 || dp->optionIdx1 != -1 || dp->optionIdx2 != -1) {
 				std::vector<int> indices;
 				if (dp->optionIdx0 != -1) indices.push_back(dp->optionIdx0);
@@ -25363,9 +25384,33 @@ void ofApp::processNetworkPackets() {
 				if (dp->optionIdx2 != -1) indices.push_back(dp->optionIdx2);
 				ofLogNotice("DraftTrace") << "PKT_DRAFT_OPTIONS: applying explicit indices: " << dp->optionIdx0 << "," << dp->optionIdx1 << "," << dp->optionIdx2;
 				applyDraftOptionsFromPool(dp->classTier, indices, dp->picksRemaining, draftPlayerIndex);
+
+				// If the client still ended up with no options (e.g., indices invalid), request a snapshot
+				if (draftOptions.empty()) {
+					ofLogError("Draft") << "Client: applied explicit indices but draftOptions is empty (class=" << dp->classTier << "). Requesting snapshot.";
+					if (isClient()) {
+						SnapshotRequestPacket req = {};
+						req.type = PKT_SNAPSHOT_REQUEST;
+						req.playerID = myLocalPlayerID;
+						req.requestedTurn = globalTurnCounter;
+						steamManager.sendPacket(&req, sizeof(req));
+						waitingForSnapshot = true;
+					}
+				}
 			} else {
 				ofLogNotice("DraftTrace") << "PKT_DRAFT_OPTIONS: no explicit indices, generating deterministically.";
 				generateDraftOptions(dp->classTier);
+				if (draftOptions.empty()) {
+					ofLogError("Draft") << "Client: deterministic generation produced zero options (class=" << dp->classTier << "). Requesting snapshot.";
+					if (isClient()) {
+						SnapshotRequestPacket req = {};
+						req.type = PKT_SNAPSHOT_REQUEST;
+						req.playerID = myLocalPlayerID;
+						req.requestedTurn = globalTurnCounter;
+						steamManager.sendPacket(&req, sizeof(req));
+						waitingForSnapshot = true;
+					}
+				}
 			}
 			ofLogNotice("DraftDebug") << "PKT_DRAFT_OPTIONS: applied -> size=" << draftOptions.size() << " currentState=" << currentState << " draftPlayerIndex=" << draftPlayerIndex << " localIdx=" << getLocalPlayerIndex() << " myLocalPlayerID=" << myLocalPlayerID;
 		} else if (header->type == PKT_DRAFT_ACTION) {

@@ -1,0 +1,126 @@
+ERROR: ld.so: object '/usr/lib/extest/libextest.so' from LD_PRELOAD cannot be preloaded (cannot open shared object file): ignored.
+ERROR: ld.so: object '/var/home/lewis/.local/share/Steam/ubuntu12_32/gameoverlayrenderer.so' from LD_PRELOAD cannot be preloaded (wrong ELF class: ELFCLASS32): ignored.
+--- Launching MageFight at Fri Feb 27 19:29:51 GMT 2026 ---
+Script directory: /home/lewis/of_workspace/openFrameworks/apps/myApps/MageFight/bin
+Original LD_PRELOAD=/usr/lib/extest/libextest.so:/var/home/lewis/.local/share/Steam/ubuntu12_32/gameoverlayrenderer.so:/var/home/lewis/.local/share/Steam/ubuntu12_64/gameoverlayrenderer.so
+Dropping missing LD_PRELOAD entry: /usr/lib/extest/libextest.so
+Final LD_PRELOAD=/var/home/lewis/.local/share/Steam/ubuntu12_32/gameoverlayrenderer.so:/var/home/lewis/.local/share/Steam/ubuntu12_64/gameoverlayrenderer.so
+Starting executable...
+ERROR: ld.so: object '/var/home/lewis/.local/share/Steam/ubuntu12_32/gameoverlayrenderer.so' from LD_PRELOAD cannot be preloaded (wrong ELF class: ELFCLASS32): ignored.
+[ error ] ofAppGLFWWindow: 65539: Invalid window hint 0x0002000D
+[S_API] SteamAPI_Init(): SteamAPI_IsSteamRunning() did not locate a running instance of Steam.
+[S_API] SteamAPI_Init(): Loaded '/home/lewis/of_workspace/.steam/sdk64/steamclient.so' OK.
+Setting breakpad minidump AppID = 480
+SteamInternal_SetMinidumpSteamID:  Caching Steam ID:  76561198261715869 [API loaded no]
+[notice ] Steam: Initialized. LocalID: 76561198261715869
+[notice ] NetTrace: Packet sizeofs: PacketHeader=9 DraftActionPacket=43 DraftAckPacket=36 DraftOptionsPacket=50 DraftStatePacket=34 HandshakePacket=13
+[notice ] Setup: Visual RNG seeded.
+[notice ] Audio: Main menu music loaded: yes
+[notice ] Settings: Loaded settings from Config/settings.json
+[ error ] ofxAssimpTexture::setTextureType: : unknown aiTextureType type 27
+[ error ] ofxAssimpTexture::setTextureType: : unknown aiTextureType type 27
+[notice ] Load: Skeleton load: meshes=1 textureAllocated=yes
+[notice ] Wolf model loaded with 10 meshes
+[notice ] Setup: Kobold model loaded.
+[ error ] ofxAssimpModelLoader: loadGLResource(): texture doesn't exist: "data/Units/KoboldKing/goblin_king.fbx" in "data/Units/KoboldKing/cadnav.com_model/Models_G0506A078/01391eaa.dds"
+[ error ] loadImage: File not found: "data/Units/KoboldKing/cadnav.com_model/Models_G0506A078/01391eaa.dds"
+[ error ] ofxAssimpModelLoader: loadGLResource(): couldn't load texture: "data/Units/KoboldKing/goblin_king.fbx" from "data/Units/KoboldKing/cadnav.com_model/Models_G0506A078/01391eaa.dds"
+[ error ] ofxAssimpModelLoader: loadGLResource(): texture doesn't exist: "data/Units/KoboldKing/goblin_king.fbx" in "data/Units/KoboldKing/cadnav.com_model/Models_G0506A078/ada8756d.jpg"
+[ error ] loadImage: File not found: "data/Units/KoboldKing/cadnav.com_model/Models_G0506A078/ada8756d.jpg"
+[ error ] ofxAssimpModelLoader: loadGLResource(): couldn't load texture: "data/Units/KoboldKing/goblin_king.fbx" from "data/Units/KoboldKing/cadnav.com_model/Models_G0506A078/ada8756d.jpg"
+[ error ] ofxAssimpModelLoader: loadGLResource(): texture doesn't exist: "data/Units/KoboldKing/goblin_king.fbx" in "data/Units/KoboldKing/cadnav.com_model/Models_G0506A078/496d23a4.jpg"
+[ error ] loadImage: File not found: "data/Units/KoboldKing/cadnav.com_model/Models_G0506A078/496d23a4.jpg"
+[ error ] ofxAssimpModelLoader: loadGLResource(): couldn't load texture: "data/Units/KoboldKing/goblin_king.fbx" from "data/Units/KoboldKing/cadnav.com_model/Models_G0506A078/496d23a4.jpg"
+[ error ] ofxAssimpModelLoader: loadGLResource(): texture doesn't exist: "data/Units/KoboldKing/goblin_king.fbx" in "data/Units/KoboldKing/cadnav.com_model/Models_G0506A078/01391eaa.dds"
+[ error ] loadImage: File not found: "data/Units/KoboldKing/cadnav.com_model/Models_G0506A078/01391eaa.dds"
+[ error ] ofxAssimpModelLoader: loadGLResource(): couldn't load texture: "data/Units/KoboldKing/goblin_king.fbx" from "data/Units/KoboldKing/cadnav.com_model/Models_G0506A078/01391eaa.dds"
+[notice ] Setup: Kobold King texture loaded.
+[notice ] Setup: Kobold King model loaded.
+[notice ] Setup: Hellhound model loaded.
+[ error ] ofxAssimpTexture::setTextureType: : unknown aiTextureType type 27
+[ error ] ofxAssimpTexture::setTextureType: : unknown aiTextureType type 27
+[ error ] ofxAssimpTexture::setTextureType: : unknown aiTextureType type 27
+[ error ] ofxAssimpTexture::setTextureType: : unknown aiTextureType type 27
+[ error ] ofxAssimpTexture::setTextureType: : unknown aiTextureType type 27
+[ error ] ofxAssimpTexture::setTextureType: : unknown aiTextureType type 27
+[ error ] ofxAssimpTexture::setTextureType: : unknown aiTextureType type 27
+[ error ] ofxAssimpTexture::setTextureType: : unknown aiTextureType type 27
+[ error ] ofxAssimpTexture::setTextureType: : unknown aiTextureType type 27
+[ error ] ofxAssimpTexture::setTextureType: : unknown aiTextureType type 27
+[ error ] ofxAssimpTexture::setTextureType: : unknown aiTextureType type 27
+[notice ] Setup: Demon model loaded.
+[notice ] Setup: Tortoise model loaded.
+[notice ] Setup: Ghost model loaded.
+[ error ] ofxAssimpTexture::setTextureType: : unknown aiTextureType type 27
+[notice ] Setup: Wall Unit GLB model loaded and texture applied.
+[notice ] Setup: Assistant model loaded.
+[ error ] ofxAssimpTexture::setTextureType: : unknown aiTextureType type 27
+[ error ] ofxAssimpTexture::setTextureType: : unknown aiTextureType type 27
+[notice ] Setup: Faerie texture loaded.
+[notice ] Setup: Faerie model loaded.
+[notice ] Setup: Loaded board tile: Board/Tile1.png
+[notice ] Setup: Loaded board tile: Board/Tile2.png
+[notice ] Setup: Loaded board tile: Board/Tile3.png
+[notice ] Setup: Loaded board tile: Board/Tile4.png
+[notice ] Setup: Loaded key frame: Board/keys_1_1.png
+[notice ] Setup: Loaded key frame: Board/keys_1_2.png
+[notice ] Setup: Loaded key frame: Board/keys_1_3.png
+[notice ] Setup: Loaded key frame: Board/keys_1_4.png
+[notice ] Setup: Loaded key frame: Board/keys_1_5.png
+[notice ] Setup: Loaded silver key frame: Board/keys_2_1.png
+[notice ] Setup: Loaded silver key frame: Board/keys_2_2.png
+[notice ] Setup: Loaded silver key frame: Board/keys_2_3.png
+[notice ] Setup: Loaded silver key frame: Board/keys_2_4.png
+[notice ] Setup: Loaded silver key frame: Board/keys_2_5.png
+[notice ] Setup: Loaded bronze key frame: Board/keys_3_1.png
+[notice ] Setup: Loaded bronze key frame: Board/keys_3_2.png
+[notice ] Setup: Loaded bronze key frame: Board/keys_3_3.png
+[notice ] Setup: Loaded bronze key frame: Board/keys_3_4.png
+[notice ] Setup: Loaded bronze key frame: Board/keys_3_5.png
+[notice ] ofApp::loadCardData: Loaded 70 cards from JSON.
+[notice ] ofApp::loadCardData: Class Distribution - C1: 30, C2: 25, C3: 15
+[notice ] GL: Vendor: AMD | Renderer: AMD Radeon RX 9070 XT (radeonsi, gfx1201, LLVM 21.1.6, DRM 3.64, 6.17.7-ba25.fc43.x86_64) | Version: 4.6 (Core Profile) Mesa 25.3.4-arch1.1 | GLSL: 4.60
+[notice ] Setup: Post shader files: vertOk=true fragOk=true linked=true
+[notice ] Setup: Pixel art shader loaded successfully.
+[notice ] Setup: C64 shader files: vertOk=true fragOk=true linked=true
+[notice ] Setup: Bloom shaders loaded.
+[ error ] ofFbo: FRAMEBUFFER_INCOMPLETE_ATTACHMENT
+[notice ] Setup: Shadow shader files: vertOk=true fragOk=true linked=true
+[notice ] Setup: PBR shader files: vertOk=true fragOk=true linked=true
+[notice ] FBO: worldFbo allocated 2560x1440
+[notice ] Post: enableWorldPostProcess=true
+[notice ] Power: Singleplayer suspended: window inactive. Audio muted and game logic paused.
+[notice ] Power: Singleplayer resumed: window active. Audio restored and game logic will continue.
+[notice ] Network: DEBUG: Still in STATE_MAIN_MENU. hasOpponent()=0 isMultiplayer=0 isHost=0
+[notice ] Steam: Requesting Lobby Creation...
+[notice ] Steam: Lobby Created. Creating Listen Socket...
+[notice ] Steam: Incoming Connection Request...
+[notice ] Steam: Accepted Connection!
+[notice ] Network: DEBUG: hasOpponent() is true, currentState=0
+[notice ] Network: Host: Opponent found. Starting game & sending seed.
+[notice ] Setup: Host generated seed: 1772220674 platform=Linux
+[notice ] Setup: Host sending handshake: type=0 playerID=0 seq=0 seed=1772220674 platform=Linux
+[notice ] Game: Host: waiting for client ready signal before starting initiative.
+[notice ] Steam: Connection Fully Active!
+[notice ] Steam: Opponent ID: 76561198743068920
+[notice ] NetTrace: RECV raw size=8
+[notice ] NetTrace: processNetworkPackets: queueSize=1
+[notice ] Network: Host: Received Seed Request. Resending Seed: 1772220674
+[notice ] NetTrace: RECV pkt type=1 seq=1 size=10
+[notice ] NetTrace: processNetworkPackets: queueSize=1
+[notice ] Network: ClientReady received from playerID=1
+[notice ] Network: All clients ready - starting initiative phase.
+[notice ] Network: Skipping DiceRollPacket send for purpose=4 (handled authoritatively).
+[notice ] Dice: Final total result for 1d6: 4
+[notice ] Network: Skipping DiceRollPacket send for purpose=4 (handled authoritatively).
+[notice ] Dice: Final total result for 1d6: 1
+[notice ] Game: --- INITIATIVE ROLL STARTED ---
+[notice ] Post: World post-process branch executed (shader active).
+[notice ] Initiative: Player 1 goes first
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=0 stage=0) names=Flame Hit, Dispel, Summon Wall
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=0 stage=0) names=Flame Hit, Dispel, Summon Wall
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=0 stage=0) names=Flame Hit, Dispel, Summon Wall
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=0 stage=0) names=Flame Hit, Dispel, Summon Wall
+[notice ] Settings: Saved settings to Config/settings.json
+[notice ] SteamManager: Steam API Shutdown.
+[S_API FAIL] Tried to access Steam interface SteamNetworkingSockets012 before SteamAPI_Init succeeded.
