@@ -24230,6 +24230,58 @@ void ofApp::processNetworkPackets() {
 				~PacketProcessingGuard() { *flag = false; }
 			} packetGuard(&processingNetworkPacket);
 
+			// EARLY: defensively handle DraftOptions so clients reliably apply them
+			if (header->type == PKT_DRAFT_OPTIONS) {
+				if (buffer.size() < sizeof(DraftOptionsPacket)) {
+					// Malformed/truncated packet: request snapshot on client
+					if (isClient()) {
+						SnapshotRequestPacket req = {};
+						req.type = PKT_SNAPSHOT_REQUEST;
+						req.playerID = myLocalPlayerID;
+						req.requestedTurn = globalTurnCounter;
+						steamManager.sendPacket(&req, sizeof(req));
+						waitingForSnapshot = true;
+					}
+					continue;
+				}
+
+				DraftOptionsPacket * dp = (DraftOptionsPacket *)buffer.data();
+				// Sync deterministic params from host
+				draftGenerationCounter = dp->draftGenCounter - 1; // generateDraftOptions will ++
+				currentMapSeed = dp->mapSeed;
+				draftStage = dp->draftStage;
+				// Map draft player id to local index on clients
+				if (isClient()) {
+					int incomingPlayerID = dp->draftPlayerID;
+					int mappedIdx = -1;
+					for (int i = 0; i < (int)players.size(); ++i) {
+						if (!players[i].isMinion && players[i].playerID == incomingPlayerID) {
+							mappedIdx = i;
+							break;
+						}
+					}
+					if (mappedIdx >= 0)
+						draftPlayerIndex = mappedIdx;
+					else
+						draftPlayerIndex = dp->draftPlayerIdx;
+				} else {
+					draftPlayerIndex = dp->draftPlayerIdx;
+				}
+				draftPicksRemaining = dp->picksRemaining;
+				isInGameDraft = (dp->isInGameDraft != 0);
+				// Apply explicit indices if provided, otherwise generate deterministically
+				if (dp->optionIdx0 != -1 || dp->optionIdx1 != -1 || dp->optionIdx2 != -1) {
+					std::vector<int> indices;
+					if (dp->optionIdx0 != -1) indices.push_back(dp->optionIdx0);
+					if (dp->optionIdx1 != -1) indices.push_back(dp->optionIdx1);
+					if (dp->optionIdx2 != -1) indices.push_back(dp->optionIdx2);
+					applyDraftOptionsFromPool(dp->classTier, indices, dp->picksRemaining, draftPlayerIndex);
+				} else {
+					generateDraftOptions(dp->classTier);
+				}
+				continue; // handled
+			}
+
 			// Verbose packet tracing for debugging desyncs
 			if (header->type == PKT_ACTION || header->type == PKT_DRAFT_ACTION || header->type == PKT_DRAFT_STATE || header->type == PKT_DRAFT_OPTIONS || header->type == PKT_DRAFT_ACK || header->type == PKT_RENEWED_INSPIRATION || header->type == PKT_DRAW_CARDS || header->type == PKT_SHUFFLE || header->type == PKT_TURN_START || header->type == PKT_PLACE_SUMMONED_MINION || header->type == PKT_DICE_ROLL || header->type == PKT_CHECKSUM_CHECK || header->type == PKT_SNAPSHOT_BEGIN || header->type == PKT_SNAPSHOT_CHUNK || header->type == PKT_SNAPSHOT_END || header->type == PKT_MOVE_UNIT || header->type == PKT_AMNESIA_CHOICE || header->type == PKT_PLACE_SUMMONED_BEGIN) {
 				ofLogNotice("NetTrace") << "RECV pkt type=" << (int)header->type << " player=" << header->playerID << " seq=" << header->seq << " size=" << buffer.size();
