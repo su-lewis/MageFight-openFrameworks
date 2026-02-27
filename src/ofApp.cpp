@@ -6380,8 +6380,9 @@ void ofApp::updateGame() {
 		Player * handPlayer = nullptr;
 
 		// Determine which unit's hand to show at the bottom of the screen.
-		// It should only ever be the unit whose turn it is LOCALLY.
-		if (isMyTurn()) {
+		// In multiplayer show only the local active unit; in singleplayer show
+		// whichever unit is currently active so Player 2's hand appears.
+		if (!isMultiplayer || isMyTurn()) {
 			handPlayer = &players[currentPlayerIndex];
 		}
 
@@ -9033,6 +9034,7 @@ void ofApp::drawGame() {
 
 		// Compute whether the local player should be allowed to draw from the main deck
 		bool isLocalPlayersTurnForMainDeck = false;
+		bool activeMainDeckAlreadyDrawn = false;
 		if (currentState == STATE_GAMEPLAY && !players.empty() && currentPlayerIndex >= 0) {
 			Player & activePlayer = players[currentPlayerIndex];
 			if (isMultiplayer) {
@@ -9040,10 +9042,15 @@ void ofApp::drawGame() {
 			} else {
 				isLocalPlayersTurnForMainDeck = (activePlayer.playerID == 0 && !activePlayer.isMinion);
 			}
+			// Determine which drawn flag applies to the active player
+			if (activePlayer.playerID == myLocalPlayerID)
+				activeMainDeckAlreadyDrawn = hasDrawnCardsThisTurn;
+			else
+				activeMainDeckAlreadyDrawn = opponentHasDrawnCardsThisTurn;
 		}
 
-		// Only highlight deck if it's the local player's main-deck turn and they haven't drawn yet
-		if (isLocalPlayersTurnForMainDeck && !hasDrawnCardsThisTurn) {
+		// Only highlight deck if it's the active main-deck turn and that active player hasn't drawn yet
+		if (isLocalPlayersTurnForMainDeck && !activeMainDeckAlreadyDrawn) {
 			ofPushStyle();
 			ofNoFill();
 			ofSetColor(ofColor::green);
@@ -9688,14 +9695,8 @@ void ofApp::drawGame() {
 			lastLoggedHandSize = numCards;
 		}
 
-		bool isBottomPlayer = true;
-		if (isMultiplayer) {
-			isBottomPlayer = (currentPlayer.playerID == myLocalPlayerID);
-		} else {
-			isBottomPlayer = (currentPlayer.playerID == 0 || currentPlayer.ownerID == 0);
-		}
-		// How much a hovered card is lifted (pixels). Increase so hover feels more pronounced.
-		float hoverDirection = isBottomPlayer ? -180.0f : 180.0f;
+		// How much a hovered card is lifted (pixels). Always lift upward.
+		float hoverDirection = -180.0f;
 
 		// 1. Determine which card should be drawn LAST (On Top)
 		int indexToDrawLast = -1;
@@ -10765,12 +10766,13 @@ void ofApp::mouseMoved(int x, int y) {
 
 	// Check deck/discard hover for glow (for current player - works in both gameplay and drafting)
 	if (!players.empty() && currentPlayerIndex >= 0 && (currentState == STATE_GAMEPLAY || currentState == STATE_DRAFTING)) {
-		if (isCurrentPlayerLocal()) {
-			if (p0_deckRect.inside(x, y)) {
-				newHoverType = HOVER_DECK;
-			} else if (p0_discardRect.inside(x, y)) {
-				newHoverType = HOVER_DISCARD;
-			}
+		// Determine which deck rect belongs to the active player (works in singleplayer and multiplayer)
+		ofRectangle activeDeck = (players[currentPlayerIndex].playerID == 0) ? p0_deckRect : p1_deckRect;
+		ofRectangle activeDiscard = (players[currentPlayerIndex].playerID == 0) ? p0_discardRect : p1_discardRect;
+		if (activeDeck.inside(x, y)) {
+			newHoverType = HOVER_DECK;
+		} else if (activeDiscard.inside(x, y)) {
+			newHoverType = HOVER_DISCARD;
 		}
 	}
 
@@ -10789,7 +10791,8 @@ void ofApp::mouseMoved(int x, int y) {
 
 			if (cardRect.inside(x, y)) {
 				currentCursor = CURSOR_GRAB;
-				if (p.playerID == myLocalPlayerID && newHoverType == HOVER_NONE) {
+				// Allow hovering of hand cards in singleplayer for the active player
+				if ((isMultiplayer && p.playerID == myLocalPlayerID && newHoverType == HOVER_NONE) || (!isMultiplayer && newHoverType == HOVER_NONE)) {
 					newHoverType = HOVER_HAND_CARD;
 					newHoverCardIndex = i;
 				}
@@ -13888,12 +13891,12 @@ void ofApp::mousePressed(int x, int y, int button) {
 		}
 		if (isPlayerAnimating || isDiceSpinning) return;
 
-		// 3c. TURN VALIDATION: Only allow interactions if it's the local player's turn or a minion owned by the local player
-		if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) {
+		// 3c. TURN VALIDATION: Only block interactions when in multiplayer and it's not our turn.
+		if (isMultiplayer && currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) {
 			const Player & currentPlayer = players[currentPlayerIndex];
 			int controlledPlayerID = currentPlayer.isMinion ? currentPlayer.ownerID : currentPlayer.playerID;
 			if (controlledPlayerID != myLocalPlayerID) {
-				// Not our turn - ignore all gameplay clicks
+				// Not our turn in multiplayer - ignore all gameplay clicks
 				return;
 			}
 		}
@@ -13904,13 +13907,25 @@ void ofApp::mousePressed(int x, int y, int button) {
 			// --- MINION DECK CLICK LOGIC ---
 			for (const auto & ui : activeMinionUIs) {
 				// Check if it's this minion's turn and their deck UI was clicked
-				if (ui.playerIndex == currentPlayerIndex && ui.deckRect.inside(x, y) && !hasDrawnCardsThisTurn) {
+				if (ui.playerIndex == currentPlayerIndex && ui.deckRect.inside(x, y)) {
+
+					// Determine owner/player identity for this minion
+					int ownerIndex = players[ui.playerIndex].isMinion ? players[ui.playerIndex].ownerID : players[ui.playerIndex].playerID;
+
+					// Decide which "has drawn" flag applies: if the minion belongs to the local player
+					// then use `hasDrawnCardsThisTurn`, otherwise use `opponentHasDrawnCardsThisTurn`.
+					bool belongsToLocalPlayer = (players[ui.playerIndex].playerID == myLocalPlayerID);
+					bool canDraw = belongsToLocalPlayer ? !hasDrawnCardsThisTurn : !opponentHasDrawnCardsThisTurn;
+					if (!canDraw) continue;
 
 					// Call the unified draw function. It handles draw count and networking internally.
-					int ownerIndex = players[ui.playerIndex].isMinion ? players[ui.playerIndex].ownerID : players[ui.playerIndex].playerID;
 					this->drawMinionCard(ui.playerIndex, ownerIndex);
 
-					hasDrawnCardsThisTurn = true;
+					// Mark appropriate drawn flag depending on whether the minion belongs to the local player.
+					if (belongsToLocalPlayer)
+						hasDrawnCardsThisTurn = true;
+					else
+						opponentHasDrawnCardsThisTurn = true;
 					return; // Click handled
 				}
 			}
@@ -13927,26 +13942,46 @@ void ofApp::mousePressed(int x, int y, int button) {
 
 			if (!p0 || !p1) return;
 
-			Player * localPlayer = isMultiplayer ? ((myLocalPlayerID == 0) ? p0 : p1) : p0;
 			Player & activePlayer = players[currentPlayerIndex];
+
+			// Determine which local player object represents "us" for drawing.
+			// In multiplayer this is fixed by `myLocalPlayerID`. In singleplayer
+			// the local controller should be whichever player is currently active
+			// so that Player 2 can be clicked to draw when it's their turn.
+			Player * localPlayer = nullptr;
+			if (isMultiplayer) {
+				localPlayer = (myLocalPlayerID == 0) ? p0 : p1;
+			} else {
+				localPlayer = &activePlayer;
+			}
 
 			bool isLocalPlayersTurnForMainDeck = false;
 			if (isMultiplayer) {
 				isLocalPlayersTurnForMainDeck = (activePlayer.playerID == myLocalPlayerID && !activePlayer.isMinion);
 			} else {
-				isLocalPlayersTurnForMainDeck = (activePlayer.playerID == 0 && !activePlayer.isMinion);
+				// Singleplayer: allow drawing for whichever non-minion is currently active
+				isLocalPlayersTurnForMainDeck = (!activePlayer.isMinion);
 			}
 
-			// Bottom Deck Click (Main Player)
-			if (p0_deckRect.inside(x, y) && isLocalPlayersTurnForMainDeck && !hasDrawnCardsThisTurn) {
+			// Main Deck Click: determine which player's deck UI should be clickable
+			ofRectangle activeDeckRect = (activePlayer.playerID == 0) ? p0_deckRect : p1_deckRect;
+			// Only allow draw if it's the active player's main-deck turn and they haven't drawn yet
+			bool activePlayerIsLocal = (activePlayer.playerID == myLocalPlayerID);
+			bool activeAlreadyDrew = activePlayerIsLocal ? hasDrawnCardsThisTurn : opponentHasDrawnCardsThisTurn;
+			if (activeDeckRect.inside(x, y) && isLocalPlayersTurnForMainDeck && !activeAlreadyDrew) {
 				int localPlayerIndex = -1;
-				for (size_t i = 0; i < players.size(); i++) {
-					if (players[i].playerID == myLocalPlayerID && !players[i].isMinion) {
-						localPlayerIndex = (int)i;
-						break;
+				if (isMultiplayer) {
+					for (size_t i = 0; i < players.size(); i++) {
+						if (players[i].playerID == myLocalPlayerID && !players[i].isMinion) {
+							localPlayerIndex = (int)i;
+							break;
+						}
 					}
+					if (localPlayerIndex == -1) localPlayerIndex = 0; // Fallback
+				} else {
+					// Singleplayer: the authoritative index is the active player
+					localPlayerIndex = currentPlayerIndex;
 				}
-				if (localPlayerIndex == -1) localPlayerIndex = 0; // Fallback for single player
 
 				int baseDraw = localPlayer->isDemon ? 3 : 2;
 				int cardsToDraw = localPlayer->nextTurnExtraDraw ? (baseDraw + 1) : baseDraw;
@@ -13985,7 +14020,12 @@ void ofApp::mousePressed(int x, int y, int button) {
 				}
 
 				localPlayer->nextTurnExtraDraw = false;
-				hasDrawnCardsThisTurn = true;
+				// Mark drawn flag depending on whether the active player is local or opponent
+				if (activePlayer.playerID == myLocalPlayerID) {
+					hasDrawnCardsThisTurn = true;
+				} else {
+					opponentHasDrawnCardsThisTurn = true;
+				}
 			}
 		}
 
@@ -14509,7 +14549,8 @@ void ofApp::mouseDragged(int x, int y, int button) {
 	if (currentState != STATE_GAMEPLAY) return;
 
 	// TURN VALIDATION: Only allow dragging if it's the local player's turn or a minion owned by the local player
-	if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) {
+	// In singleplayer we allow dragging for the active player; only enforce in multiplayer.
+	if (isMultiplayer && currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) {
 		const Player & currentPlayer = players[currentPlayerIndex];
 		int controlledPlayerID = currentPlayer.isMinion ? currentPlayer.ownerID : currentPlayer.playerID;
 		if (controlledPlayerID != myLocalPlayerID) {
@@ -14624,7 +14665,8 @@ void ofApp::mouseReleased(int x, int y, int button) {
 	if (currentState != STATE_GAMEPLAY) return;
 
 	// TURN VALIDATION: Only allow releasing if it's the local player's turn or a minion owned by the local player
-	if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) {
+	// In singleplayer, allow releasing for the active player; only enforce in multiplayer.
+	if (isMultiplayer && currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) {
 		const Player & currentPlayer = players[currentPlayerIndex];
 		int controlledPlayerID = currentPlayer.isMinion ? currentPlayer.ownerID : currentPlayer.playerID;
 		if (controlledPlayerID != myLocalPlayerID) {
@@ -16103,21 +16145,19 @@ void ofApp::drawCard(bool sendPacket) {
 			float scale = ofGetHeight() / 1080.0f;
 			float staticUICardWidth = (120 * 1.3f) * scale;
 			float staticUICardHeight = ((120 * (585.0f / 409.0f)) * 1.3f) * scale;
-			// Determine whether the owner of this animation is the local player
+			// Determine deck UI start position based on the owning player's playerID
 			int owner = anim.ownerIndex;
-			bool ownerIsLocal = false;
-			if (owner >= 0 && owner < (int)players.size() && !players[owner].isMinion) {
-				if (isMultiplayer) {
-					ownerIsLocal = (players[owner].playerID == myLocalPlayerID);
-				} else {
-					ownerIsLocal = (owner == 0);
-				}
-			}
 			glm::vec2 start2D;
-			if (ownerIsLocal) {
-				start2D = glm::vec2(p0_deckRect.getCenter().x, p0_deckRect.getCenter().y);
+			if (owner >= 0 && owner < (int)players.size() && !players[owner].isMinion) {
+				int ownerPlayerID = players[owner].playerID;
+				if (ownerPlayerID == 0) {
+					start2D = glm::vec2(p0_deckRect.getCenter().x, p0_deckRect.getCenter().y);
+				} else {
+					start2D = glm::vec2(p1_deckRect.getCenter().x, p1_deckRect.getCenter().y);
+				}
 			} else {
-				start2D = glm::vec2(p1_deckRect.getCenter().x, p1_deckRect.getCenter().y);
+				// Fallback to player 0 deck center
+				start2D = glm::vec2(p0_deckRect.getCenter().x, p0_deckRect.getCenter().y);
 			}
 			// Compute offset based on other ongoing draws for this owner
 			int animatingToThis = 0;
@@ -16132,10 +16172,17 @@ void ofApp::drawCard(bool sendPacket) {
 			anim.currentPos = glm::vec2(start2D.x + offsetPixels, start2D.y); // initialize in screen-space so first frame is correct
 		}
 
-		// Set anim.targetPos to the standard hand area (centered, bottom)
+		// Set anim.targetPos to the standard hand area (centered, top or bottom)
 		// Use hand.size() + 1 so final position reserves space for the incoming card
 		size_t numCards = currentPlayer.hand.size() + 1;
-		float handCenterY = ofGetHeight() - 130;
+		bool handAtTop = false;
+		if (isMultiplayer) {
+			handAtTop = (players[currentPlayerIndex].playerID != myLocalPlayerID);
+		} else {
+			// In singleplayer the active player's hand is shown at the bottom
+			handAtTop = false;
+		}
+		float handCenterY = handAtTop ? 130.0f : (ofGetHeight() - 130.0f);
 		float handBaseCardWidth = 120;
 		float handAreaWidth = ofGetWidth() * 0.6f;
 		float totalCardWidths = numCards * handBaseCardWidth;
@@ -16777,7 +16824,7 @@ CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		cardAnim.pos = glm::vec2(ofGetWidth() - (w / 2.0f) - 40.0f, ofGetHeight() / 2.0f);
 		cardAnim.currentScale = 2.6f;
 		cardAnim.currentAlpha = 255.0f;
-		activePlayedCardAnimations.push_back(cardAnim);
+		if (isMultiplayer) activePlayedCardAnimations.push_back(cardAnim);
 
 		// Handle Replicate
 		if (currentPlayer.isReplicatePending) {
@@ -16873,7 +16920,7 @@ CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		cardAnim.pos = glm::vec2(ofGetWidth() - (w / 2.0f) - 40.0f, ofGetHeight() / 2.0f);
 		cardAnim.currentScale = 2.6f;
 		cardAnim.currentAlpha = 255.0f;
-		activePlayedCardAnimations.push_back(cardAnim);
+		if (isMultiplayer) activePlayedCardAnimations.push_back(cardAnim);
 
 		if (currentPlayer.isReplicatePending) {
 			currentPlayer.playedCardsPile.push_back(playedCard);
@@ -16976,7 +17023,7 @@ CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		cardAnim.pos = glm::vec2(ofGetWidth() - (w / 2.0f) - 40.0f, ofGetHeight() / 2.0f);
 		cardAnim.currentScale = 2.6f;
 		cardAnim.currentAlpha = 255.0f;
-		activePlayedCardAnimations.push_back(cardAnim);
+		if (isMultiplayer) activePlayedCardAnimations.push_back(cardAnim);
 
 		if (currentPlayer.isReplicatePending) {
 			currentPlayer.playedCardsPile.push_back(playedCard);
@@ -19895,6 +19942,8 @@ bool ofApp::isMyTurn() const {
 //--------------------------------------------------------------
 bool ofApp::isCurrentPlayerLocal() const {
 	if (currentPlayerIndex < 0 || players.empty()) return false;
+	// In singleplayer allow local control of whichever player is active.
+	if (!isMultiplayer) return true;
 	return players[currentPlayerIndex].playerID == myLocalPlayerID;
 }
 
