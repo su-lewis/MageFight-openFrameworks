@@ -14910,15 +14910,17 @@ void ofApp::keyPressed(int key) {
 	if (isChatOpen && !isChatMinimized && currentState == STATE_GAMEPLAY) {
 		if (key == OF_KEY_RETURN) {
 			// Send message and close chat
-			if (!chatInput.empty() && isMultiplayer) {
-				ChatMessagePacket pkt = {};
-				pkt.type = PKT_CHAT_MESSAGE;
-				pkt.playerID = myLocalPlayerID;
-				strncpy(pkt.message, chatInput.c_str(), 255);
-				pkt.message[255] = '\0';
-				steamManager.sendPacket(&pkt, sizeof(pkt));
+			if (!chatInput.empty()) {
+				if (isMultiplayer) {
+					ChatMessagePacket pkt = {};
+					pkt.type = PKT_CHAT_MESSAGE;
+					pkt.playerID = myLocalPlayerID;
+					strncpy(pkt.message, chatInput.c_str(), 255);
+					pkt.message[255] = '\0';
+					steamManager.sendPacket(&pkt, sizeof(pkt));
+				}
 
-				// Add to local chat history
+				// Add to local chat history (singleplayer or multiplayer)
 				ChatMessage msg;
 				msg.playerName = getPlayerSteamName(myLocalPlayerID == 0 ? 0 : 1);
 				msg.message = chatInput;
@@ -14958,8 +14960,8 @@ void ofApp::keyPressed(int key) {
 		return; // Consume all keys when chat is open
 	}
 
-	// Open chat with Enter key (only in gameplay and multiplayer)
-	if (key == OF_KEY_RETURN && currentState == STATE_GAMEPLAY && isMultiplayer && !isCardSpawnerOpen) {
+	// Open chat with Enter key (only in gameplay)
+	if (key == OF_KEY_RETURN && currentState == STATE_GAMEPLAY && !isCardSpawnerOpen) {
 		isChatOpen = true;
 		isChatMinimized = false; // Open in full mode for typing
 		chatInput = "";
