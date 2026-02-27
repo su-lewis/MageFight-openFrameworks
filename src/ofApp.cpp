@@ -25068,8 +25068,7 @@ void ofApp::processNetworkPackets() {
 				// (see line ~3914 where it checks allDiceFinished and sends TurnStartPacket)
 				// This ensures the packet contains actual rolled results from continueNewTurn()
 			}
-		}
-		if (header->type == PKT_CHECKSUM_CHECK) {
+		} else if (header->type == PKT_CHECKSUM_CHECK) {
 			ChecksumPacket * pkt = (ChecksumPacket *)header;
 			if (isClient() && waitingForTurnStartFromHost) continue;
 			if (skipChecksumValidation) continue;
@@ -25108,8 +25107,7 @@ void ofApp::processNetworkPackets() {
 					turnStartBackupSnapshot = buildSnapshotString();
 				}
 			}
-		}
-		if (header->type == PKT_KEY_PICKUP) {
+		} else if (header->type == PKT_KEY_PICKUP) {
 			KeyPickupPacket * kpkt = (KeyPickupPacket *)header;
 			ofLogNotice("Network") << "KeyPickup packet received: player=" << kpkt->playerIndex << " class=" << kpkt->classTier << " pos=(" << kpkt->keyX << "," << kpkt->keyY << ")";
 
@@ -25154,8 +25152,7 @@ void ofApp::processNetworkPackets() {
 				}
 				ofLogNotice("Key") << "Client: Player " << kpkt->playerIndex << " picked up key (Class " << kpkt->classTier << ")";
 			}
-		}
-		if (header->type == PKT_CHAT_MESSAGE) {
+		} else if (header->type == PKT_CHAT_MESSAGE) {
 			ChatMessagePacket * pkt = (ChatMessagePacket *)header;
 			ofLogNotice("Net") << "Received chat message from player " << pkt->playerID << ": " << pkt->message;
 
@@ -25177,8 +25174,7 @@ void ofApp::processNetworkPackets() {
 			}
 			// Show chat for 5 seconds when message received
 			lastChatInteractionTime = ofGetElapsedTimef();
-		}
-		if (header->type == PKT_HOVER) {
+		} else if (header->type == PKT_HOVER) {
 			HoverPacket * pkt = (HoverPacket *)header;
 			int hoverTypeInt = static_cast<int>(pkt->hoverType);
 			if (hoverTypeInt >= HOVER_NONE && hoverTypeInt <= HOVER_UNIT_SELECTED) {
@@ -25219,7 +25215,7 @@ void ofApp::processNetworkPackets() {
 			}
 		}
 
-		if (header->type == PKT_DRAFT_ACK) {
+		else if (header->type == PKT_DRAFT_ACK) {
 			DraftAckPacket * dap = (DraftAckPacket *)header;
 			ofLogNotice("Network") << "Draft ACK received: clientActionID=" << dap->clientActionID << " type=" << (int)dap->actionType << " opt=" << dap->optionIndex << " playerSlot=" << dap->draftPlayerIdx;
 
@@ -25230,8 +25226,7 @@ void ofApp::processNetworkPackets() {
 			}
 
 			continue;
-		}
-		if (header->type == PKT_DRAFT_STATE) {
+		} else if (header->type == PKT_DRAFT_STATE) {
 			DraftStatePacket * sp = (DraftStatePacket *)header;
 			ofLogNotice("Network") << "Draft state received: class=" << sp->classTier << " player=" << sp->draftPlayerIdx << " picks=" << sp->picksRemaining << " stage=" << sp->draftStage << " ingame=" << (int)sp->isInGameDraft << " curPlayer=" << sp->currentPlayerIndex;
 
@@ -25326,8 +25321,7 @@ void ofApp::processNetworkPackets() {
 				}
 				// Host handles transition in its own draft-accept logic and sends TurnStart
 			}
-		}
-		if (header->type == PKT_DRAFT_OPTIONS) {
+		} else if (header->type == PKT_DRAFT_OPTIONS) {
 			DraftOptionsPacket * dp = (DraftOptionsPacket *)header;
 			ofLogNotice("Network") << "DraftOptions received (deterministic): class=" << dp->classTier << " draftGenCounter=" << dp->draftGenCounter << " mapSeed=" << dp->mapSeed;
 
@@ -25374,8 +25368,7 @@ void ofApp::processNetworkPackets() {
 				generateDraftOptions(dp->classTier);
 			}
 			ofLogNotice("DraftDebug") << "PKT_DRAFT_OPTIONS: applied -> size=" << draftOptions.size() << " currentState=" << currentState << " draftPlayerIndex=" << draftPlayerIndex << " localIdx=" << getLocalPlayerIndex() << " myLocalPlayerID=" << myLocalPlayerID;
-		}
-		if (header->type == PKT_DRAFT_ACTION) {
+		} else if (header->type == PKT_DRAFT_ACTION) {
 			DraftActionPacket * pkt = (DraftActionPacket *)header;
 			ofLogNotice("Network") << "Draft action received: hdr.seq=" << header->seq << " bufSize=" << buffer.size() << " type=" << (int)pkt->actionType << " opt=" << pkt->optionIndex << " player=" << pkt->draftPlayerIdx << " sel=" << (int)pkt->selectFlag << " clientActionID=" << pkt->clientActionID << " pkt.playerID=" << pkt->playerID;
 
@@ -25517,7 +25510,7 @@ void ofApp::processNetworkPackets() {
 					if (isInGameDraft) {
 						isInGameDraft = false;
 						currentState = STATE_GAMEPLAY;
-						return;
+						continue;
 					}
 
 					draftStage++;
@@ -25605,7 +25598,7 @@ void ofApp::processNetworkPackets() {
 					}
 					if (initialDraftComplete && currentState == STATE_GAMEPLAY && !isInGameDraft) {
 						ofLogNotice("Draft") << "CLIENT: Ignoring late normal Accept after initial draft completed.";
-						return;
+						continue;
 					}
 					draftAcceptApplied = true;
 					// If this forwarded accept matches our last sent Accept, clear the resend state
@@ -25664,7 +25657,7 @@ void ofApp::processNetworkPackets() {
 					draftOptions.clear();
 					isInGameDraft = false;
 					currentState = STATE_GAMEPLAY;
-					return;
+					continue;
 				}
 
 				// If we haven't received the KeyPickup yet, remember this accept so we can close on arrival
