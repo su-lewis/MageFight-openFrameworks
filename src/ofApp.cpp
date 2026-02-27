@@ -103,6 +103,7 @@ void ofApp::drawMinionCard(int minionIndex, int ownerIndex) {
 	if (!minion.isMinion) return;
 
 	// Determine how many cards this minion type should draw
+	// Determine how many cards this minion type should draw
 	int drawCount = minion.isDemon ? 3 : 2;
 	if (minion.nextTurnExtraDraw) {
 		drawCount++;
@@ -229,7 +230,6 @@ ofPixels scalePixelsNearest(ofPixels & src, int scale) {
 		}
 	}
 
-	return dst;
 	return dst;
 }
 
@@ -1162,6 +1162,17 @@ std::string ofApp::getPlayerDisplayName(int index) {
 void ofApp::update() {
 	steamManager.update();
 
+	// Execute any scheduled draft generation (to allow animations to finish)
+	if (draftNextScheduled) {
+		float now = ofGetElapsedTimef();
+		if (now >= draftNextAt) {
+			draftNextScheduled = false;
+			int ct = draftNextClassTier;
+			draftNextClassTier = -1;
+			generateDraftOptions(ct);
+		}
+	}
+
 	// --- INACTIVITY SUSPEND (Singleplayer only) ---
 	// If the window is not focused or minimized, suspend game logic and mute audio
 	if (!isMultiplayer) {
@@ -1602,6 +1613,27 @@ void ofApp::update() {
 		previousCursor = currentCursor;
 	}
 }
+//--------------------------------------------------------------
+// Start a visual shuffle animation for the given player's deck
+void ofApp::startShuffleVisual(int playerIndex) {
+	ShuffleAnimation a;
+	a.playerIndex = playerIndex;
+	a.deckRect = (playerIndex == 0) ? p0_deckRect : p1_deckRect;
+	a.startTime = ofGetElapsedTimef();
+	a.duration = 0.9f;
+	a.currentAlpha = 255.0f;
+	a.currentScale = 1.0f;
+	a.rotation = 0.0f;
+	activeShuffleAnimations.push_back(a);
+}
+
+// Schedule generating draft options after a delay to allow animations to finish
+void ofApp::scheduleGenerateDraftOptions(int classTier, float delaySeconds) {
+	draftNextScheduled = true;
+	draftNextClassTier = classTier;
+	draftNextAt = ofGetElapsedTimef() + delaySeconds;
+}
+
 //--------------------------------------------------------------
 void ofApp::drawTileGlow(int gridX, int gridY, ofColor color, float thickness) {
 	// Draw a glowing outline around the tile at (gridX, gridY)
@@ -11551,6 +11583,62 @@ void ofApp::mousePressed(int x, int y, int button) {
 				return;
 			}
 
+			// Schedule visual animations for the picked cards (clients and host)
+			{
+				float now = ofGetElapsedTimef();
+				// Determine pools based on current draft class
+				const std::vector<Card> * pool = &class1Cards;
+				if (currentDraftClassTier == 2) pool = &class2Cards;
+				if (currentDraftClassTier == 3) pool = &class3Cards;
+
+				for (int poolIdx : selectedDraftIndices) {
+					// Find which visible slot corresponds to this pool index
+					int slot = -1;
+					for (size_t si = 0; si < currentDraftOptionPoolIndices.size(); ++si) {
+						if (currentDraftOptionPoolIndices[si] == poolIdx) {
+							slot = (int)si;
+							break;
+						}
+					}
+					if (slot < 0) continue;
+					float cx = startX + static_cast<float>(slot) * (cardW + spacing);
+					glm::vec2 center(cx + cardW / 2.0f, startY + cardH / 2.0f);
+					DraftPickedMove mv;
+					mv.card = (*pool)[poolIdx];
+					mv.startTime = now;
+					mv.delay = draftAnimHoldDuration;
+					mv.duration = 0.35f;
+					mv.startPos = center;
+					ofRectangle deckRect = (draftPlayerIndex == 0) ? p0_deckRect : p1_deckRect;
+					mv.endPos = glm::vec2(deckRect.x + deckRect.width / 2.0f, deckRect.y + deckRect.height / 2.0f);
+					mv.finished = false;
+					mv.ownerIndex = draftPlayerIndex;
+					activeDraftPickedMoves.push_back(mv);
+				}
+
+				// Vanish non-picked options immediately
+				for (size_t si = 0; si < draftOptionUI.size(); ++si) {
+					int poolIdx = (si < currentDraftOptionPoolIndices.size()) ? currentDraftOptionPoolIndices[si] : -1;
+					bool picked = false;
+					for (int sel : selectedDraftIndices)
+						if (sel == poolIdx) {
+							picked = true;
+							break;
+						}
+					if (!picked) {
+						auto & ui = draftOptionUI[si];
+						ui.state = DRAFT_ANIM_VANISHING;
+						ui.startTime = now;
+						ui.startScale = ui.currentScale;
+						ui.targetScale = 0.0f;
+					} else {
+						auto & ui = draftOptionUI[si];
+						ui.state = DRAFT_ANIM_HOLDING;
+						ui.startTime = now;
+					}
+				}
+			}
+
 			if (isMultiplayer && !isLocalDraftingPlayer(draftPlayerIndex)) {
 				ofLogNotice("Draft") << "ACCEPT BLOCKED: Not the drafting player.";
 				return;
@@ -11625,6 +11713,8 @@ void ofApp::mousePressed(int x, int y, int button) {
 			}
 
 			shuffleGameVector(p.deck, draftPlayerIndex);
+			// Trigger visual shuffle for this player's deck
+			startShuffleVisual(draftPlayerIndex);
 
 			selectedDraftIndices.clear();
 			draftOptions.clear();
@@ -11636,19 +11726,19 @@ void ofApp::mousePressed(int x, int y, int button) {
 			}
 
 			draftStage++;
+			float delay = draftAnimHoldDuration + 0.35f + 0.9f + 0.1f;
 			if (draftStage == 1) {
-				generateDraftOptions(2);
+				scheduleGenerateDraftOptions(2, delay);
 			} else {
 				int nextPlayerIdx = (draftPlayerIndex + 1) % 2;
 				if (players[nextPlayerIdx].deck.empty()) {
 					draftPlayerIndex = nextPlayerIdx;
 					draftStage = 0;
-					generateDraftOptions(1);
+					scheduleGenerateDraftOptions(1, delay);
 				} else {
 					currentPlayerIndex = nextPlayerIdx;
 					currentState = STATE_GAMEPLAY;
 					continueNewTurn();
-					// Packets for state/turn start are now sent inside generateDraftOptions and continueNewTurn
 				}
 			}
 			return; // We handled the Accept, so we're done with this click.
@@ -11745,6 +11835,8 @@ void ofApp::mousePressed(int x, int y, int button) {
 
 		// Shuffle deck
 		shuffleGameVector(p.deck, draftPlayerIndex);
+		// Trigger visual shuffle for this player's deck (in-game draft)
+		startShuffleVisual(draftPlayerIndex);
 
 		// CHECK QUEUE: Are there more drafts pending?
 		if (!pendingDraftQueue.empty()) {
@@ -12625,6 +12717,29 @@ void ofApp::mousePressed(int x, int y, int button) {
 		// 1. Check Confirm Button
 		if (riConfirmBtn.inside(x, y)) {
 			Player & p = players[currentPlayerIndex];
+
+			// If the player confirmed with NO selected cards, treat as a cancel: refund and restore the original card.
+			if (renewedSelectedHandIndices.empty()) {
+				// Refund AP for the Renewed Inspiration play
+				int riCost = 0;
+				for (const auto & c : allCards) {
+					if (c.type == CARD_RENEWED_INSPIRATION) {
+						riCost = c.cost;
+						break;
+					}
+				}
+				currentAP += riCost;
+				if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) players[currentPlayerIndex].ap = currentAP;
+				// Restore original played card back to hand (if present)
+				if (!p.playedCardsPile.empty() && p.playedCardsPile.back().type == CARD_RENEWED_INSPIRATION) {
+					Card rc = p.playedCardsPile.back();
+					p.playedCardsPile.pop_back();
+					p.hand.push_back(rc);
+				}
+				isSelectingRenewedInspiration = false;
+				spawnFloatingText(gridToWorld(p.x, p.y), "Cancelled: no cards selected", ofColor::gray);
+				return;
+			}
 
 			if (isMultiplayer) {
 				RenewedInspirationPacket rpk = {};
@@ -18058,6 +18173,14 @@ CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 
 		// --- CASE: RENEWED INSPIRATION ---
 	case CARD_RENEWED_INSPIRATION: {
+		// 0. Prevent playing if there are no other cards to discard
+		int availableDiscardable = (int)currentPlayer.hand.size() - 1; // exclude the Renewed Inspiration being played
+		if (currentPlayer.isReplicatePending) availableDiscardable += 1; // replicate will add a copy
+		if (availableDiscardable <= 0) {
+			spawnFloatingText(gridToWorld(currentPlayer.x, currentPlayer.y), "Not enough cards to discard", ofColor::gray);
+			return CARD_NOT_PLAYABLE;
+		}
+
 		// 1. Pay Cost
 		currentAP -= costToPay;
 
@@ -23412,6 +23535,18 @@ void ofApp::generateDraftOptions(int classTier, const std::vector<int> * forcedI
 	currentState = STATE_DRAFTING;
 	waitingForDraftOptions = false; // Client no longer waits
 
+	// Initialize per-option visual animation state
+	draftOptionUI.clear();
+	draftOptionUI.resize(draftOptions.size());
+	for (size_t ai = 0; ai < draftOptionUI.size(); ++ai) {
+		draftOptionUI[ai].startScale = 0.25f;
+		draftOptionUI[ai].currentScale = draftOptionUI[ai].startScale;
+		draftOptionUI[ai].targetScale = 1.0f;
+		draftOptionUI[ai].startTime = ofGetElapsedTimef();
+		draftOptionUI[ai].state = DRAFT_ANIM_APPEARING;
+		draftOptionUI[ai].hidden = false;
+	}
+
 	// The host still sends a packet, but it's for redundancy and state sync,
 	// not to provide the options themselves.
 	if (isHost()) {
@@ -23518,9 +23653,44 @@ void ofApp::onCardPicked(int optionIndex) {
 
 	// IN-GAME DRAFT LOGIC
 	if (isInGameDraft) {
+		// Keep game logic immediate (card is added and deck shuffled),
+		// but also spawn the picked-card visual move so the player sees the card fly into the deck.
 		p.deck.push_back(picked);
-		// Shuffle deck to include new card
+		// Shuffle deck to include new card (host-authoritative will also send PKT_SHUFFLE)
 		shuffleGameVector(p.deck, draftPlayerIndex);
+
+		// Create visual move using same layout math as drawDraftScreen so startPos matches slot
+		float uiScale = std::min(ofGetWidth() / 1920.0f, ofGetHeight() / 1080.0f);
+		float cardW = std::clamp(340.0f * uiScale, 160.0f, 420.0f);
+		float cardH = cardW * 1.4f;
+		float spacing = std::clamp(60.0f * uiScale, 20.0f, 96.0f);
+		float startX = (ofGetWidth() - (3 * cardW + 2 * spacing)) / 2;
+		// Recompute vertical layout used by drawDraftScreen
+		float ty = ofGetHeight() * 0.25f;
+		float lineH = titleFont.getLineHeight();
+		float instrTy = ty + lineH + 8;
+		float classTy = instrTy + lineH + 12;
+		float topTextBottom = ty + lineH;
+		// if any of the text lines are present adjust position
+		// (we can't exactly know inGame vs tier text here, but use instr as default)
+		float startY = instrTy + lineH + 24.0f;
+		// Compute slot center for the picked optionIndex
+		int i = optionIndex;
+		if (i < 0) i = 0;
+		float cx = startX + static_cast<float>(i) * (cardW + spacing);
+		glm::vec2 center(cx + cardW / 2.0f, startY + cardH / 2.0f);
+
+		DraftPickedMove mv;
+		mv.card = picked;
+		mv.startTime = ofGetElapsedTimef();
+		mv.delay = draftAnimHoldDuration;
+		mv.duration = 0.35f;
+		mv.startPos = center;
+		ofRectangle deckRect = (draftPlayerIndex == 0) ? p0_deckRect : p1_deckRect;
+		mv.endPos = glm::vec2(deckRect.x + deckRect.width / 2.0f, deckRect.y + deckRect.height / 2.0f);
+		mv.finished = false;
+		mv.ownerIndex = draftPlayerIndex;
+		activeDraftPickedMoves.push_back(mv);
 
 		draftOptions.clear();
 		isInGameDraft = false;
@@ -23537,9 +23707,11 @@ void ofApp::onCardPicked(int optionIndex) {
 	if (draftPicksRemaining <= 0) {
 		// Stage Complete
 		draftStage++;
+		// allow visuals to complete before showing next draft
+		float delay = draftAnimHoldDuration + 0.35f + 0.9f + 0.1f;
 		if (draftStage == 1) {
 			// Move to Class 2
-			generateDraftOptions(2);
+			scheduleGenerateDraftOptions(2, delay);
 		} else {
 			// Player Finished Drafting
 			// Check if both players drafted
@@ -23549,7 +23721,7 @@ void ofApp::onCardPicked(int optionIndex) {
 				// Switch to other player
 				draftPlayerIndex = otherPlayer;
 				draftStage = 0;
-				generateDraftOptions(1);
+				scheduleGenerateDraftOptions(1, delay);
 			} else {
 				// Both done! Start Game.
 
@@ -23752,9 +23924,42 @@ void ofApp::drawDraftScreen() {
 		ofLogNotice("DraftDebug") << "drawDraftScreen: called but draftOptions.empty() currentState=" << currentState << " draftPlayerIndex=" << draftPlayerIndex << " localIdx=" << getLocalPlayerIndex() << " myLocalPlayerID=" << myLocalPlayerID << " waitingForDraftOptions=" << waitingForDraftOptions;
 	}
 
+	// Animate per-slot UI and draw scaled cards
+	float nowAnim = ofGetElapsedTimef();
 	for (size_t i = 0; i < draftOptions.size(); ++i) {
 		float x = startX + i * (cardW + spacing);
 		ofRectangle cardRect(x, startY, cardW, cardH);
+
+		// Update animation state for this slot
+		if (i < draftOptionUI.size()) {
+			auto & ui = draftOptionUI[i];
+			if (ui.state == DRAFT_ANIM_APPEARING) {
+				float t = (nowAnim - ui.startTime) / draftAnimAppearDuration;
+				if (t >= 1.0f) {
+					ui.currentScale = ui.targetScale;
+					ui.state = DRAFT_ANIM_IDLE;
+				} else {
+					ui.currentScale = ui.startScale + t * (ui.targetScale - ui.startScale);
+				}
+			} else if (ui.state == DRAFT_ANIM_VANISHING) {
+				float t = (nowAnim - ui.startTime) / draftAnimVanishDuration;
+				if (t >= 1.0f) {
+					ui.currentScale = ui.targetScale;
+					ui.hidden = true;
+					ui.state = DRAFT_ANIM_IDLE;
+				} else {
+					ui.currentScale = ui.startScale + t * (ui.targetScale - ui.startScale);
+				}
+			}
+		}
+
+		// Compute scaled rect
+		float scale = 1.0f;
+		if (i < draftOptionUI.size()) scale = draftOptionUI[i].currentScale;
+		float w = cardW * scale;
+		float h = cardH * scale;
+		float drawX = x + (cardW - w) / 2.0f;
+		float drawY = startY + (cardH - h) / 2.0f;
 
 		// Check Selection: compare against authoritative pool index for this slot
 		int slotPoolIdx = (i >= 0 && i < (int)currentDraftOptionPoolIndices.size()) ? currentDraftOptionPoolIndices[i] : -1;
@@ -23768,16 +23973,16 @@ void ofApp::drawDraftScreen() {
 			}
 		}
 
-		// Selection Highlight (Yellow)
+		// Selection Highlight (Yellow) around scaled rect
 		if (isSelected) {
 			ofPushStyle();
 			ofNoFill();
 			ofSetColor(ofColor::yellow);
 			ofSetLineWidth(6);
-			ofDrawRectRounded(x - 8, startY - 8, cardW + 16, cardH + 16, 12);
+			ofDrawRectRounded(drawX - 8, drawY - 8, w + 16, h + 16, 12);
 			ofPopStyle();
 		}
-		// Hover Highlight (White/Subtle)
+		// Hover Highlight (White/Subtle) using unscaled hit area
 		else if (cardRect.inside(ofGetMouseX(), ofGetMouseY())) {
 			ofPushStyle();
 			ofNoFill();
@@ -23787,11 +23992,72 @@ void ofApp::drawDraftScreen() {
 			ofPopStyle();
 		}
 
-		// Draw Card Sprite
+		// Skip hidden slots
+		if (i < draftOptionUI.size() && draftOptionUI[i].hidden) continue;
+
+		// Draw Card Sprite scaled
 		ofSetColor(255);
-		cardSpriteSheet.drawSubsection(x, startY, cardW, cardH,
+		cardSpriteSheet.drawSubsection(drawX, drawY, w, h,
 			draftOptions[i].textureRect.x, draftOptions[i].textureRect.y,
 			draftOptions[i].textureRect.width, draftOptions[i].textureRect.height);
+	}
+
+	// Draw active picked-card move animations (on top)
+	for (auto & mv : activeDraftPickedMoves) {
+		if (mv.finished) continue;
+		float now = ofGetElapsedTimef();
+		if (now < mv.startTime + mv.delay) {
+			// Still holding: draw at startPos
+			float drawW = cardW;
+			float drawH = cardH;
+			float dx = mv.startPos.x - drawW / 2.0f;
+			float dy = mv.startPos.y - drawH / 2.0f;
+			ofSetColor(255);
+			cardSpriteSheet.drawSubsection(dx, dy, drawW, drawH,
+				mv.card.textureRect.x, mv.card.textureRect.y,
+				mv.card.textureRect.width, mv.card.textureRect.height);
+		} else {
+			float t = (now - mv.startTime - mv.delay) / mv.duration;
+			if (t >= 1.0f) t = 1.0f;
+			glm::vec2 pos = mv.startPos * (1.0f - t) + mv.endPos * t;
+			float scale = 1.0f - 0.5f * t;
+			float drawW = cardW * scale;
+			float drawH = cardH * scale;
+			float dx = pos.x - drawW / 2.0f;
+			float dy = pos.y - drawH / 2.0f;
+			ofSetColor(255);
+			cardSpriteSheet.drawSubsection(dx, dy, drawW, drawH,
+				mv.card.textureRect.x, mv.card.textureRect.y,
+				mv.card.textureRect.width, mv.card.textureRect.height);
+			if (t >= 1.0f) {
+				mv.finished = true;
+				deckFlashStartTime = now;
+				deckFlashOwnerIndex = mv.ownerIndex;
+			}
+		}
+	}
+
+	// Remove finished moves
+	for (int i = (int)activeDraftPickedMoves.size() - 1; i >= 0; --i) {
+		if (activeDraftPickedMoves[i].finished) activeDraftPickedMoves.erase(activeDraftPickedMoves.begin() + i);
+	}
+
+	// Deck flash visual
+	if (deckFlashStartTime > 0.0f) {
+		float t = (ofGetElapsedTimef() - deckFlashStartTime) / deckFlashDuration;
+		if (t < 1.0f) {
+			ofRectangle deckRect = (deckFlashOwnerIndex == 0) ? p0_deckRect : p1_deckRect;
+			float a = (1.0f - t) * 200.0f;
+			ofPushStyle();
+			ofNoFill();
+			ofSetColor(255, 220, 120, (int)a);
+			ofSetLineWidth(6);
+			ofDrawRectRounded(deckRect.x - 4, deckRect.y - 4, deckRect.width + 8, deckRect.height + 8, 8);
+			ofPopStyle();
+		} else {
+			deckFlashStartTime = 0.0f;
+			deckFlashOwnerIndex = -1;
+		}
 	}
 
 	// Throttled draw-time debug: log if we are drawing non-empty options but haven't logged recently
@@ -25559,9 +25825,11 @@ void ofApp::processNetworkPackets() {
 					}
 
 					draftStage++;
+					// allow time for pick-move + shuffle visuals to finish before showing next draft
+					float delay = draftAnimHoldDuration + 0.35f + 0.9f + 0.1f;
 					if (draftStage == 1) {
 						// Move to Class 2
-						generateDraftOptions(2);
+						scheduleGenerateDraftOptions(2, delay);
 
 					} else {
 						// Check if other player needs to draft
@@ -25569,7 +25837,7 @@ void ofApp::processNetworkPackets() {
 						if (players[nextPlayerIdx].deck.empty()) {
 							draftPlayerIndex = nextPlayerIdx;
 							draftStage = 0;
-							generateDraftOptions(1);
+							scheduleGenerateDraftOptions(1, delay);
 
 						} else {
 							currentPlayerIndex = nextPlayerIdx;

@@ -708,6 +708,9 @@ private:
 			steamManager.sendPacket(&sp, sizeof(sp));
 			ofLogNotice("Network") << "Host sent Shuffle packet: player=" << sp.playerIndex << " nonce=" << sp.nonce;
 
+			// Start visual shuffle on host for this player
+			startShuffleVisual(ownerPlayerIndex);
+
 			// Clear dirty flag for this player's deck since we've just shuffled it authoritatively
 			if (ownerPlayerIndex >= 0 && ownerPlayerIndex < (int)players.size()) {
 				players[ownerPlayerIndex].deckNeedsShuffle = false;
@@ -717,6 +720,9 @@ private:
 
 		// Singleplayer or generic shuffle: use gameplayRNG
 		deterministic_shuffle(vec, gameplayRNG);
+
+		// Start visual shuffle for singleplayer/local shuffle
+		startShuffleVisual(ownerPlayerIndex);
 
 		// If this shuffle was for a specific player's deck, clear the dirty flag
 		if (ownerPlayerIndex >= 0 && ownerPlayerIndex < (int)players.size()) {
@@ -834,6 +840,57 @@ private:
 	void onCardPicked(int optionIndex);
 	void drawInitiativeRoll();
 	void drawDraftScreen();
+
+	// --- Draft UI animation state (purely visual) ---
+	enum DraftOptionAnimState {
+		DRAFT_ANIM_IDLE = 0,
+		DRAFT_ANIM_APPEARING,
+		DRAFT_ANIM_HOLDING,
+		DRAFT_ANIM_VANISHING
+	};
+
+	struct DraftOptionUI {
+		float currentScale = 1.0f;
+		float startScale = 1.0f;
+		float targetScale = 1.0f;
+		float startTime = 0.0f;
+		DraftOptionAnimState state = DRAFT_ANIM_IDLE;
+		bool hidden = false;
+	};
+
+	std::vector<DraftOptionUI> draftOptionUI; // per-slot purely-visual animation state
+	float draftAnimAppearDuration = 0.06f; // seconds (very fast)
+	float draftAnimHoldDuration = 0.55f; // seconds to hold selected card before it shrinks
+	float draftAnimVanishDuration = 0.05f; // vanish duration for unselected (near-instant)
+
+	// Visual scheduling for picked-card movement into deck
+	struct DraftPickedMove {
+		Card card;
+		float startTime = 0.0f; // time when move was scheduled
+		float delay = 0.55f; // hold before starting move
+		float duration = 0.35f; // move duration
+		glm::vec2 startPos; // screen-space center
+		glm::vec2 endPos; // screen-space center (deck)
+		bool finished = false;
+		int ownerIndex = -1; // which player's deck we're animating into
+	};
+
+	std::vector<DraftPickedMove> activeDraftPickedMoves;
+
+	// Deck flash when a picked card lands (visual only)
+	float deckFlashStartTime = 0.0f;
+	float deckFlashDuration = 0.45f;
+
+	int deckFlashOwnerIndex = -1;
+
+	// Schedule next draft generation to allow animations to finish
+	bool draftNextScheduled = false;
+	int draftNextClassTier = -1;
+	float draftNextAt = 0.0f; // epoch time when to run generateDraftOptions
+
+	// Helpers
+	void startShuffleVisual(int playerIndex);
+	void scheduleGenerateDraftOptions(int classTier, float delaySeconds);
 
 	// -------------------------------------------------------------------------
 	//                          RENDERING & MESHES
