@@ -11421,9 +11421,9 @@ cursor_check_done:;
 	// Update and send hover state to opponent if changed
 	HoverType effectiveHoverType = static_cast<HoverType>(newHoverType);
 	// Prevent hovering an opponent's pile from setting the LOCAL hover state in singleplayer
-	if (newHoveredPileIndex != -1 && !isMultiplayer) {
-		if (newHoveredPileIndex >= 0 && newHoveredPileIndex < (int)players.size()) {
-			if (players[newHoveredPileIndex].playerID != myLocalPlayerID) {
+	if (isHoveringPile && !isMultiplayer) {
+		if (hoveredPilePlayerIndex >= 0 && hoveredPilePlayerIndex < (int)players.size()) {
+			if (players[hoveredPilePlayerIndex].playerID != myLocalPlayerID) {
 				effectiveHoverType = HOVER_NONE;
 			}
 		}
