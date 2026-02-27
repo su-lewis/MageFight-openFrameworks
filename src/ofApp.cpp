@@ -23426,6 +23426,11 @@ void ofApp::generateDraftOptions(int classTier, const std::vector<int> * forcedI
 		dp.draftStage = draftStage;
 		dp.isInGameDraft = isInGameDraft ? 1 : 0;
 		dp.draftGenCounter = draftGenerationCounter;
+		// Include explicit option pool indices so clients can display options even
+		// if deterministic generation would diverge. -1 means "no explicit index".
+		dp.optionIdx0 = (currentDraftOptionPoolIndices.size() > 0) ? currentDraftOptionPoolIndices[0] : -1;
+		dp.optionIdx1 = (currentDraftOptionPoolIndices.size() > 1) ? currentDraftOptionPoolIndices[1] : -1;
+		dp.optionIdx2 = (currentDraftOptionPoolIndices.size() > 2) ? currentDraftOptionPoolIndices[2] : -1;
 		steamManager.sendPacket(&dp, sizeof(dp));
 
 		DraftStatePacket dsp;
@@ -25354,11 +25359,20 @@ void ofApp::processNetworkPackets() {
 			draftAcceptApplied = false;
 			waitingForDraftOptions = false;
 
-			// Generate draft options locally using deterministic algorithm
-			ofLogNotice("DraftTrace") << "PKT_DRAFT_OPTIONS: generating draft options (class=" << dp->classTier << " draftGenCounter=" << dp->draftGenCounter << " mapSeed=" << dp->mapSeed << ")";
-			ofLogNotice("DraftDebug") << "PKT_DRAFT_OPTIONS: pre-generate state: draftPlayerIndex=" << draftPlayerIndex << " draftStage=" << draftStage << " waitingForDraftOptions=" << waitingForDraftOptions << " draftAcceptApplied=" << draftAcceptApplied << " draftOptions.size=" << draftOptions.size();
-			generateDraftOptions(dp->classTier);
-			ofLogNotice("DraftTrace") << "PKT_DRAFT_OPTIONS: after generateDraftOptions: draftOptions.size=" << draftOptions.size() << " currentDraftClassTier=" << currentDraftClassTier << " draftPlayerIndex=" << draftPlayerIndex;
+			// If the host included explicit option indices, apply them directly.
+			// Otherwise fall back to deterministic local generation.
+			ofLogNotice("DraftTrace") << "PKT_DRAFT_OPTIONS: received class=" << dp->classTier << " draftGenCounter=" << dp->draftGenCounter << " mapSeed=" << dp->mapSeed;
+			if (dp->optionIdx0 != -1 || dp->optionIdx1 != -1 || dp->optionIdx2 != -1) {
+				std::vector<int> indices;
+				if (dp->optionIdx0 != -1) indices.push_back(dp->optionIdx0);
+				if (dp->optionIdx1 != -1) indices.push_back(dp->optionIdx1);
+				if (dp->optionIdx2 != -1) indices.push_back(dp->optionIdx2);
+				ofLogNotice("DraftTrace") << "PKT_DRAFT_OPTIONS: applying explicit indices: " << dp->optionIdx0 << "," << dp->optionIdx1 << "," << dp->optionIdx2;
+				applyDraftOptionsFromPool(dp->classTier, indices, dp->picksRemaining, draftPlayerIndex);
+			} else {
+				ofLogNotice("DraftTrace") << "PKT_DRAFT_OPTIONS: no explicit indices, generating deterministically.";
+				generateDraftOptions(dp->classTier);
+			}
 			ofLogNotice("DraftDebug") << "PKT_DRAFT_OPTIONS: applied -> size=" << draftOptions.size() << " currentState=" << currentState << " draftPlayerIndex=" << draftPlayerIndex << " localIdx=" << getLocalPlayerIndex() << " myLocalPlayerID=" << myLocalPlayerID;
 		}
 		if (header->type == PKT_DRAFT_ACTION) {

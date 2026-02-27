@@ -221,6 +221,11 @@ struct DraftOptionsPacket : PacketHeader {
 	uint8_t isInGameDraft; // 1 = in-game key draft, 0 = normal
 	uint32_t draftGenCounter; // The draft generation counter value used by host
 	uint32_t mapSeed; // The map/game seed used for deterministic draft
+	// Optional: explicit pool indices for the three option slots. If set to -1,
+	// clients should fall back to deterministic generation using mapSeed/draftGenCounter.
+	int32_t optionIdx0;
+	int32_t optionIdx1;
+	int32_t optionIdx2;
 };
 
 // ------------------------- NEW: Draft ACK -------------------------
