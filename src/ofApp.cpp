@@ -11419,7 +11419,16 @@ cursor_check_done:;
 	}
 
 	// Update and send hover state to opponent if changed
-	updateAndSendHover(static_cast<HoverType>(newHoverType), newHoverGridX, newHoverGridY, newHoverCardIndex);
+	HoverType effectiveHoverType = static_cast<HoverType>(newHoverType);
+	// Prevent hovering an opponent's pile from setting the LOCAL hover state in singleplayer
+	if (newHoveredPileIndex != -1 && !isMultiplayer) {
+		if (newHoveredPileIndex >= 0 && newHoveredPileIndex < (int)players.size()) {
+			if (players[newHoveredPileIndex].playerID != myLocalPlayerID) {
+				effectiveHoverType = HOVER_NONE;
+			}
+		}
+	}
+	updateAndSendHover(effectiveHoverType, newHoverGridX, newHoverGridY, newHoverCardIndex);
 }
 // Unified minion card draw logic
 // ----------------- FULL mousePressed FUNCTION -----------------
