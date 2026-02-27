@@ -211,6 +211,14 @@ void ofApp::drawMinionCard(int minionIndex, int ownerIndex) {
 
 	// Visual feedback
 	spawnFloatingText(gridToWorld(minion.x, minion.y), "Minion Draw!", ofColor::yellow);
+
+	// Mark drawn flag for the owner so main-deck outline clears correctly
+	if (ownerIndex >= 0) {
+		if (ownerIndex == myLocalPlayerID)
+			hasDrawnCardsThisTurn = true;
+		else
+			opponentHasDrawnCardsThisTurn = true;
+	}
 }
 //--------------------------------------------------------------
 
@@ -9620,21 +9628,30 @@ void ofApp::drawGame() {
 				float uiScale = ofGetHeight() / 1080.0f;
 				float btnW = 130 * uiScale; // shorter button
 				float btnH = 44 * uiScale;
-				// Position to the right of Player0's AP counter
-				// Recompute P0 AP box metrics (same as earlier) so we can anchor the reroll button
+				// Position reroll button anchored to the active player's UI side
 				float staticUICardWidth = (handBaseCardWidth * 1.3f) * scale;
 				float staticUICardHeight = (baseCardHeight * 1.3f) * scale;
-				float p0_apCenterX = 20 * scale + staticUICardWidth / 2;
-				float p0_apCenterY = ofGetHeight() - staticUICardHeight - (20 * scale) - staticUICardHeight - (20 * scale) - 60 * scale;
-				string p0_apText = "0 AP";
-				if (currentPlayerIndex >= 0 && !players.empty()) {
-					p0_apText = ofToString(displayedAPForCurrent) + " AP";
-				}
-				ofRectangle p0_apTextBox = titleFont.getStringBoundingBox(p0_apText, 0, 0);
-				float p0_apRectWidth = (p0_apTextBox.width * fontScale) + (40 * scale);
 				float margin = 10 * scale;
-				float btnX = p0_apCenterX + p0_apRectWidth / 2 + margin;
-				float btnY = p0_apCenterY - (btnH / 2);
+				float btnX = 0.0f;
+				float btnY = 0.0f;
+				// If the active player is player 0, anchor to left/bottom UI (Player 0 area)
+				if (curr.playerID == 0) {
+					float p0_apCenterX = 20 * scale + staticUICardWidth / 2;
+					float p0_apCenterY = ofGetHeight() - staticUICardHeight - (20 * scale) - staticUICardHeight - (20 * scale) - 60 * scale;
+					string p0_apText = "0 AP";
+					if (currentPlayerIndex >= 0 && !players.empty()) {
+						p0_apText = ofToString(displayedAPForCurrent) + " AP";
+					}
+					ofRectangle p0_apTextBox = titleFont.getStringBoundingBox(p0_apText, 0, 0);
+					float p0_apRectWidth = (p0_apTextBox.width * fontScale) + (40 * scale);
+					btnX = p0_apCenterX + p0_apRectWidth / 2 + margin;
+					btnY = p0_apCenterY - (btnH / 2);
+				} else {
+					// Active player is opponent (player 1) -> anchor to top/right UI area
+					// Place the button near the opponent deck area for clarity
+					btnX = p1_deckRect.getLeft() - margin - btnW;
+					btnY = p1_deckRect.getCenter().y - (btnH / 2);
+				}
 
 				rerollButtonRect.set(btnX, btnY, btnW, btnH);
 
