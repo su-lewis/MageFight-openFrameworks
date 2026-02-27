@@ -2982,51 +2982,31 @@ void ofApp::updateGame() {
 							rem.currentAlpha = 255;
 							activeRemovedCardAnimations.push_back(rem);
 
-							// 3. Conditional Effects (only host rolls in multiplayer)
-							if (!isClient()) {
-								// Use deterministic game RNG and include Luck per-die
-								int rawExtra = getGameRandom(1, 6);
-								int extraLuck = attackerRef.luck + computePassiveLuck(currentPlayerIndex);
-								int extra = rawExtra + extraLuck;
+							// 3. Conditional Effects (deterministic on both sides)
+							// Use deterministic game RNG and include Luck per-die
+							int rawExtra = getGameRandom(1, 6);
+							int extraLuck = attackerRef.luck + computePassiveLuck(currentPlayerIndex);
+							int extra = rawExtra + extraLuck;
 
-								if (revealed.type == CARD_SHOCK) {
-									applyDamageTo(*target, extra, DAMAGE_ELECTRIC, currentPlayerIndex);
-									target->isParalyzed = true;
-									target->paralysisHeadsCount = 0;
-									spawnFloatingText(tPos + glm::vec3(0, 0.6f, 0), "-" + ofToString(extra) + " Electric", ofColor::orange);
-									spawnFloatingText(tPos + glm::vec3(0, 1.0f, 0), "PARALYZED!", ofColor::yellow);
+							if (revealed.type == CARD_SHOCK) {
+								applyDamageTo(*target, extra, DAMAGE_ELECTRIC, currentPlayerIndex);
+								target->isParalyzed = true;
+								target->paralysisHeadsCount = 0;
+								spawnFloatingText(tPos + glm::vec3(0, 0.6f, 0), "-" + ofToString(extra) + " Electric", ofColor::orange);
+								spawnFloatingText(tPos + glm::vec3(0, 1.0f, 0), "PARALYZED!", ofColor::yellow);
 
-									// --- ADD THIS (SEND PACKET) ---
-									if (isHost()) {
-										sendCardActionBegin(CARD_SHOCK, pIndex, -1, -1, extra, 0, 0, 0, "Shoot Arrow Bonus");
-									}
-									// --- END ADD ---
+							} else if (revealed.type == CARD_FLAME_HIT) {
+								applyDamageTo(*target, extra, DAMAGE_FIRE, currentPlayerIndex);
+								target->onFire = true;
+								spawnFloatingText(tPos + glm::vec3(0, 0.6f, 0), "-" + ofToString(extra) + " Fire", ofColor::red);
+								spawnFloatingText(tPos + glm::vec3(0, 1.0f, 0), "ON FIRE!", ofColor::orange);
 
-								} else if (revealed.type == CARD_FLAME_HIT) {
-									applyDamageTo(*target, extra, DAMAGE_FIRE, currentPlayerIndex);
-									target->onFire = true;
-									spawnFloatingText(tPos + glm::vec3(0, 0.6f, 0), "-" + ofToString(extra) + " Fire", ofColor::red);
-									spawnFloatingText(tPos + glm::vec3(0, 1.0f, 0), "ON FIRE!", ofColor::orange);
-
-									// --- ADD THIS (SEND PACKET) ---
-									if (isHost()) {
-										sendCardActionBegin(CARD_FLAME_HIT, pIndex, -1, -1, extra, 0, 0, 0, "Shoot Arrow Bonus");
-									}
-									// --- END ADD ---
-
-								} else if (revealed.type == CARD_ADD_POISON) {
-									applyDamageTo(*target, extra, DAMAGE_POISON, currentPlayerIndex);
-									target->isPoisoned = true;
-									target->poisonReduction = 0;
-									spawnFloatingText(tPos + glm::vec3(0, 0.6f, 0), "-" + ofToString(extra) + " Poison", ofColor::green);
-									spawnFloatingText(tPos + glm::vec3(0, 1.0f, 0), "POISONED!", ofColor::green);
-
-									// --- ADD THIS (SEND PACKET) ---
-									if (isHost()) {
-										sendCardActionBegin(CARD_ADD_POISON, pIndex, -1, -1, extra, 0, 0, 0, "Shoot Arrow Bonus");
-									}
-									// --- END ADD ---
-								}
+							} else if (revealed.type == CARD_ADD_POISON) {
+								applyDamageTo(*target, extra, DAMAGE_POISON, currentPlayerIndex);
+								target->isPoisoned = true;
+								target->poisonReduction = 0;
+								spawnFloatingText(tPos + glm::vec3(0, 0.6f, 0), "-" + ofToString(extra) + " Poison", ofColor::green);
+								spawnFloatingText(tPos + glm::vec3(0, 1.0f, 0), "POISONED!", ofColor::green);
 							}
 						} else {
 							spawnFloatingText(gridToWorld(attackerRef.x, attackerRef.y), "Deck Empty", ofColor::gray);
@@ -3123,11 +3103,6 @@ void ofApp::updateGame() {
 							if (nx < 0 || nx >= BOARD_WIDTH || ny < 0 || ny >= BOARD_HEIGHT) continue;
 							for (int j = 0; j < (int)players.size(); ++j) {
 								if (players[j].isFaerie && players[j].x == nx && players[j].y == ny) {
-									// In multiplayer, only host rolls for resurrection
-									if (isClient()) {
-										// Client should wait for host to sync this state
-										continue;
-									}
 									// Use deterministic RNG and include Faerie's Luck
 									int raw = getGameRandom(1, 4);
 									int luckBonus = players[j].luck + computePassiveLuck(j);
@@ -3764,10 +3739,10 @@ void ofApp::updateGame() {
 			// Copy deck before erasing to avoid issues if multiple minions are summoned in the same frame
 			std::vector<Card> graveDeck = graveyard[gIndex].deck;
 			graveyard.erase(graveyard.begin() + gIndex);
-			if (!graveDeck.empty() && !isClient()) {
-				// Only host rolls for graveyard loot in multiplayer
-				std::uniform_int_distribution<int> graveDist(0, (int)graveDeck.size() - 1);
-				int r = graveDist(gameplayRNG);
+			if (!graveDeck.empty()) {
+				// Use deterministic game RNG (platform-independent) so both host and client
+				// consume the same RNG sequence in lockstep.
+				int r = getGameRandom(0, (int)graveDeck.size() - 1);
 				minion.deck.push_back(graveDeck[r]);
 				ofLogNotice("Raise Dead") << "Looted a card from the grave!";
 			}
@@ -6536,7 +6511,6 @@ void ofApp::updateGame() {
 	// Remove units instantly if they have 0 HP or no cards anywhere (deck+discard+hand)
 	std::vector<int> removeIndices;
 	for (size_t i = 0; i < players.size(); ++i) {
-		// --- CHANGE START ---
 		bool noCards = players[i].deck.empty() && players[i].discardPile.empty() && players[i].hand.empty();
 		bool shouldDie = (players[i].health <= 0);
 
@@ -6545,78 +6519,72 @@ void ofApp::updateGame() {
 			shouldDie = true;
 		}
 
-		if (shouldDie) {
-			// --- CHANGE END ---
-			// --- Faerie Resurrection Mechanic ---
-			Player & dying = players[i];
-			if (!dying.isFaerie && dying.x >= 0 && dying.y >= 0) {
-				// Check for adjacent faerie
-				bool resurrected = false;
-				for (int dx = -1; dx <= 1 && !resurrected; ++dx) {
-					for (int dy = -1; dy <= 1 && !resurrected; ++dy) {
-						if ((dx != 0 || dy != 0) && abs(dx) + abs(dy) == 1) { // orthogonal only
-							int nx = dying.x + dx, ny = dying.y + dy;
-							if (nx >= 0 && nx < BOARD_WIDTH && ny >= 0 && ny < BOARD_HEIGHT) {
-								for (size_t pidx = 0; pidx < players.size(); ++pidx) {
-									Player & p = players[pidx];
-									if (p.isFaerie && p.x == nx && p.y == ny && p.health > 0) {
-										// Roll 1d4 and include the Faerie's Luck so both host/client
-										// compute the same deterministic result.
-										if (!isClient()) {
-											int raw = getGameRandom(1, 4);
-											int luckBonus = p.luck + computePassiveLuck((int)pidx);
-											int roll = raw + luckBonus; // may exceed 4; that's intentional
-											int hp = (int)std::floor(dying.maxHealth * 0.25f * roll);
-											if (hp < 1) hp = 1;
-											dying.health = hp;
-											dying.onFire = false;
-											dying.isPoisoned = false;
-											dying.poisonReduction = 0;
-											dying.isParalyzed = false;
-											dying.paralysisHeadsCount = 0;
-											dying.sleepTurnsRemaining = 0;
-											dying.ward = 0;
-											dying.block = 0;
-											dying.fortification = 0;
-											dying.barrier = 0;
-											dying.holyBlock = 0;
-											dying.luck = 0;
-											dying.isReplicatePending = false;
-											dying.nextTurnAPBonus = 0;
-											dying.shocksPlayedThisTurn = 0;
-											dying.flurryOfFistsActive = false;
-											dying.isParalyzed = false;
-											dying.isPoisoned = false;
-											dying.poisonReduction = 0;
-											dying.nextAttackAddPoison = false;
-											dying.nextTurnD10AP = false;
-											dying.nextTurnExtraDraw = false;
-											dying.nextTurnBonusDiceFromMinions = false;
-											dying.strengthenElementsTurnsRemaining = 0;
-											dying.sleepTurnsRemaining = 0;
-											dying.inTortoiseForm = false;
-											dying.tortoiseDamageTaken = 0;
-											dying.pendingTortoiseDamage = false;
-											dying.pendingTortoiseDamageValue = 3;
-											dying.inGhostForm = false;
-											dying.ghostDamageTaken = 0;
-											dying.cardsPlayedThisTurn.clear();
-											dying.playedCardsPile.clear();
-											dying.summonedOnTurnCycle = globalTurnCounter;
-											spawnFloatingText(gridToWorld(dying.x, dying.y), "Faerie Resurrection!", ofColor::aqua);
-											ofLogNotice("Faerie") << "Unit " << dying.playerID << " resurrected by faerie at " << nx << "," << ny << " for " << hp << " HP.";
-											resurrected = true;
-										}
-									}
-								}
+		if (!shouldDie) continue;
+
+		// Attempt Faerie resurrection if applicable
+		Player & dying = players[i];
+		bool resurrected = false;
+		if (!dying.isFaerie && dying.x >= 0 && dying.y >= 0) {
+			// Check orthogonally-adjacent tiles for an alive Faerie
+			for (int dx = -1; dx <= 1 && !resurrected; ++dx) {
+				for (int dy = -1; dy <= 1 && !resurrected; ++dy) {
+					if ((dx != 0 || dy != 0) && abs(dx) + abs(dy) == 1) {
+						int nx = dying.x + dx, ny = dying.y + dy;
+						if (nx < 0 || nx >= BOARD_WIDTH || ny < 0 || ny >= BOARD_HEIGHT) continue;
+						for (size_t pidx = 0; pidx < players.size() && !resurrected; ++pidx) {
+							Player & p = players[pidx];
+							if (p.isFaerie && p.x == nx && p.y == ny && p.health > 0) {
+								// Deterministic resurrection roll
+								int raw = getGameRandom(1, 4);
+								int luckBonus = p.luck + computePassiveLuck((int)pidx);
+								int roll = raw + luckBonus; // may exceed 4; that's intentional
+								int hp = (int)std::floor(dying.maxHealth * 0.25f * roll);
+								if (hp < 1) hp = 1;
+								dying.health = hp;
+								dying.onFire = false;
+								dying.isPoisoned = false;
+								dying.poisonReduction = 0;
+								dying.isParalyzed = false;
+								dying.paralysisHeadsCount = 0;
+								dying.sleepTurnsRemaining = 0;
+								dying.ward = 0;
+								dying.block = 0;
+								dying.fortification = 0;
+								dying.barrier = 0;
+								dying.holyBlock = 0;
+								dying.luck = 0;
+								dying.isReplicatePending = false;
+								dying.nextTurnAPBonus = 0;
+								dying.shocksPlayedThisTurn = 0;
+								dying.flurryOfFistsActive = false;
+								dying.nextAttackAddPoison = false;
+								dying.nextTurnD10AP = false;
+								dying.nextTurnExtraDraw = false;
+								dying.nextTurnBonusDiceFromMinions = false;
+								dying.strengthenElementsTurnsRemaining = 0;
+								dying.inTortoiseForm = false;
+								dying.tortoiseDamageTaken = 0;
+								dying.pendingTortoiseDamage = false;
+								dying.pendingTortoiseDamageValue = 3;
+								dying.inGhostForm = false;
+								dying.ghostDamageTaken = 0;
+								dying.cardsPlayedThisTurn.clear();
+								dying.playedCardsPile.clear();
+								dying.summonedOnTurnCycle = globalTurnCounter;
+								spawnFloatingText(gridToWorld(dying.x, dying.y), "Faerie Resurrection!", ofColor::aqua);
+								ofLogNotice("Faerie") << "Unit " << dying.playerID << " resurrected by faerie at " << nx << "," << ny << " for " << hp << " HP.";
+								resurrected = true;
 							}
 						}
 					}
 				}
-				if (resurrected) continue; // skip normal death logic
 			}
-			removeIndices.push_back(i);
 		}
+
+		if (resurrected) continue; // skip normal death logic for this unit
+
+		// Not resurrected -> mark for removal
+		removeIndices.push_back((int)i);
 	}
 
 	if (!removeIndices.empty()) {
@@ -12677,6 +12645,19 @@ void ofApp::mousePressed(int x, int y, int button) {
 				// tag for watchdog deduplication
 				rpk.clientActionID = ++watchdogClientActionCounter;
 				steamManager.sendPacket(&rpk, sizeof(rpk));
+				// Also notify opponents via an ActionPacket so they remove the card UI
+				// and update AP immediately. Use the canonical card name/cost from allCards.
+				int riCost = 0;
+				std::string riName;
+				for (const auto & c : allCards) {
+					if (c.type == CARD_RENEWED_INSPIRATION) {
+						riCost = c.cost;
+						riName = c.name;
+						break;
+					}
+				}
+				if (isMultiplayer) sendActionPacket(-1, -1, -1, riCost, 0, riName);
+
 				// If we're a client, don't apply the effects locally — wait for the host
 				// to apply and forward the packet so all clients stay authoritative.
 				if (isClient()) {
@@ -17697,6 +17678,22 @@ CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 			currentPlayer.hand.push_back(drawnCard);
 			currentPlayer.hand.back().currentScale = 1.5f;
 			currentPlayer.hand.back().targetScale = 1.5f;
+
+			// Visual animation: show the drawn card flying into the player's hand
+			DrawCardAnimation anim;
+			anim.card = drawnCard;
+			anim.startTime = ofGetElapsedTimef();
+			anim.duration = 0.5f;
+			anim.ownerIndex = currentPlayerIndex;
+			anim.toMinionHand = currentPlayer.isMinion;
+			anim.startIsScreenSpace = false;
+			anim.startPos = gridToWorld(currentPlayer.x, currentPlayer.y) + glm::vec3(0, 1.5f, 0);
+			anim.targetPos = glm::vec2(ofGetWidth() / 2.0f, ofGetHeight() / 2.0f);
+			anim.currentPos = glm::vec2(anim.startPos.x, anim.startPos.y);
+			anim.currentScale = 1.0f;
+			anim.commitOnFinish = false;
+			activeDrawCardAnimations.push_back(anim);
+
 			ofLogNotice("Flurry of Fists") << "Drew " << drawnCard.name << (isHandRelated ? " (free this turn)" : "");
 		} else if (!currentPlayer.discardPile.empty()) {
 			// Reshuffle discard into deck first
@@ -17726,6 +17723,21 @@ CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 			currentPlayer.hand.push_back(drawnCard);
 			currentPlayer.hand.back().currentScale = 1.5f;
 			currentPlayer.hand.back().targetScale = 1.5f;
+
+			// Visual animation for draw from reshuffle
+			DrawCardAnimation anim2;
+			anim2.card = drawnCard;
+			anim2.startTime = ofGetElapsedTimef();
+			anim2.duration = 0.5f;
+			anim2.ownerIndex = currentPlayerIndex;
+			anim2.toMinionHand = currentPlayer.isMinion;
+			anim2.startIsScreenSpace = false;
+			anim2.startPos = gridToWorld(currentPlayer.x, currentPlayer.y) + glm::vec3(0, 1.5f, 0);
+			anim2.targetPos = glm::vec2(ofGetWidth() / 2.0f, ofGetHeight() / 2.0f);
+			anim2.currentPos = glm::vec2(anim2.startPos.x, anim2.startPos.y);
+			anim2.currentScale = 1.0f;
+			anim2.commitOnFinish = false;
+			activeDrawCardAnimations.push_back(anim2);
 		}
 
 		playedSuccessfully = true;
@@ -26320,33 +26332,12 @@ void ofApp::executeOpponentCardPlay(const ActionPacket & pkt) {
 		return;
 	}
 
-	// Special-case: Chain Lightning (target selected in packet)
-	if (cardDef.type == CARD_CHAIN_LIGHTNING) {
-		currentAP -= cardDef.cost;
-		opponentPlayer.playedCardsPile.push_back(cardDef);
-		if (opponentPlayer.isReplicatePending) {
-			opponentPlayer.playedCardsPile.push_back(cardDef);
-			opponentPlayer.isReplicatePending = false;
-		}
-		opponentPlayer.cardsPlayedThisTurn.push_back(cardDef.type);
-		opponentPlayer.hand.erase(opponentPlayer.hand.begin() + tempCardIndex);
-
-		pendingChainLightningTargetTile = glm::vec2(tx, ty);
-		pendingChainLightningRangeResult = startDiceRoll(2, 10, PURPOSE_RANGE, "Chain Lightning: Range");
-		isWaitingForChainLightningRange = true;
-
-		opponentPlayer.ap = pkt.updatedAP;
-		if (savedCurrentPlayerIndex == opponentPlayerIndex) {
-			currentAP = opponentPlayer.ap;
-		} else {
-			currentPlayerIndex = savedCurrentPlayerIndex;
-			currentAP = savedCurrentAP;
-		}
-		return;
-	}
-
 	// Special-case: Teleport (apply move from packet)
 	if (cardDef.type == CARD_TELEPORT) {
+		// Burn teleport dice RNG so both machines consume the same dice calls
+		for (int _ri = 0; _ri < cardDef.numDice; ++_ri) {
+			(void)getGameRandom(1, cardDef.diceSides);
+		}
 		// Track the card play
 		currentAP -= cardDef.cost;
 		opponentPlayer.playedCardsPile.push_back(cardDef);
@@ -26371,93 +26362,9 @@ void ofApp::executeOpponentCardPlay(const ActionPacket & pkt) {
 		return;
 	}
 
-	// Special-case: Summon Faerie (host should create authoritative minion placement)
-	if (cardDef.type == CARD_SUMMON_FAERIE) {
-		// Create Faerie minion at target tile (tx,ty) for the opponent
-		if (tx >= 0 && tx < BOARD_WIDTH && ty >= 0 && ty < BOARD_HEIGHT && !board[tx][ty].hasPlayer) {
-			Player minion;
-			minion.playerID = 6000 + (int)players.size();
-			minion.x = tx;
-			minion.y = ty;
-			minion.maxHealth = 5;
-			minion.health = 5;
-			minion.isMinion = true;
-			minion.isFaerie = true;
-			minion.hasRegeneration = true;
-			minion.originalModelType = "Faerie";
-
-			minion.directSummonerID = opponentPlayer.playerID;
-			minion.ownerID = opponentPlayer.isMinion ? opponentPlayer.ownerID : opponentPlayer.playerID;
-			minion.summonedOnTurnCycle = globalTurnCounter;
-			minion.summonOrder = ++nextSummonOrder;
-
-			// Build faerie deck
-			Card dispel, lesserHeal, magicBlast;
-			for (const auto & c : allCards) {
-				if (c.name == "Dispel") dispel = c;
-				if (c.name == "Lesser Heal") lesserHeal = c;
-				if (c.name == "Magic Blast") magicBlast = c;
-			}
-			minion.deck = { dispel, dispel, lesserHeal, lesserHeal, magicBlast };
-
-			// Track played card and AP BEFORE modifying the players vector
-			// to avoid invalidating the 'opponentPlayer' reference.
-			currentAP -= cardDef.cost;
-			opponentPlayer.playedCardsPile.push_back(cardDef);
-			if (opponentPlayer.isReplicatePending) {
-				opponentPlayer.playedCardsPile.push_back(cardDef);
-				opponentPlayer.isReplicatePending = false;
-			}
-			opponentPlayer.cardsPlayedThisTurn.push_back(cardDef.type);
-			if (tempCardIndex >= 0 && tempCardIndex < (int)opponentPlayer.hand.size()) opponentPlayer.hand.erase(opponentPlayer.hand.begin() + tempCardIndex);
-			opponentPlayer.ap = pkt.updatedAP;
-			invalidateTargetCache();
-
-			// Place and register
-			board[tx][ty].hasPlayer = true;
-			players.push_back(minion);
-			int newIdx = (int)players.size() - 1;
-			players[newIdx].visualPos = gridToWorld(players[newIdx].x, players[newIdx].y);
-			ofLogNotice("Network") << "Initialized visualPos for opponent-summoned minion idx=" << newIdx << " pos=" << players[newIdx].visualPos.x << "," << players[newIdx].visualPos.y << "," << players[newIdx].visualPos.z;
-			shuffleGameVector(players[newIdx].deck, newIdx);
-
-			// If host, broadcast placement to other clients
-			if (isMultiplayer && isHost()) {
-				PlaceSummonedMinionPacket pkt = {};
-				pkt.type = PKT_PLACE_SUMMONED_MINION;
-				pkt.playerID = myLocalPlayerID;
-				pkt.minionType = 7; // FAERIE
-				pkt.ownerPlayerID = minion.ownerID;
-				pkt.targetX = minion.x;
-				pkt.targetY = minion.y;
-				pkt.minionHP = minion.maxHealth;
-				pkt.minionAP = 0;
-				steamManager.sendPacket(&pkt, sizeof(pkt));
-				ofLogNotice("Network") << "Host sent PlaceSummonedMinion: FAERIE owner=" << pkt.ownerPlayerID << " target=(" << pkt.targetX << "," << pkt.targetY << ") HP=" << pkt.minionHP;
-			}
-
-			// Re-sort turn order and restore current player index
-			int savedID = players[savedCurrentPlayerIndex].playerID;
-			std::sort(players.begin(), players.end(), [](const Player & a, const Player & b) {
-				int ownerA = a.isMinion ? a.ownerID : a.playerID;
-				int ownerB = b.isMinion ? b.ownerID : b.playerID;
-				if (ownerA != ownerB) return ownerA < ownerB;
-				if (a.isMinion && !b.isMinion) return true;
-				if (!a.isMinion && b.isMinion) return false;
-				return a.summonOrder < b.summonOrder;
-			});
-			for (size_t i = 0; i < players.size(); i++) {
-				if (players[i].playerID == savedID) {
-					currentPlayerIndex = i;
-					break;
-				}
-			}
-		}
-		// Restore contexts
-		currentPlayerIndex = savedCurrentPlayerIndex;
-		currentAP = savedCurrentAP;
-		return;
-	}
+	// NOTE: Chain Lightning and Summon Faerie special-case intercepts removed.
+	// These were previously short-circuiting execution and bypassing `playCard()`.
+	// `playCard()` is authoritative for those effects; keep CARD_TELEPORT special-case only.
 
 	// Special-case: Renewed Inspiration (menu already resolved on sender)
 	if (cardDef.type == CARD_RENEWED_INSPIRATION) {
