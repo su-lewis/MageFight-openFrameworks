@@ -9,12 +9,12 @@
 #include <cstring>
 #include <glm/gtx/intersect.hpp>
 #include <limits>
+#include <new>
 #include <queue>
 #include <random>
 #include <set>
 #include <sstream>
 #include <unordered_map>
-#include <new>
 
 // Suppress warnings about unhandled enum values in switches across this file.
 #pragma GCC diagnostic push
