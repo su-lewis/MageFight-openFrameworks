@@ -1259,6 +1259,9 @@ private:
 	bool isShowingTooltip = false;
 	ofVec2f tooltipPos;
 	std::string tooltipText;
+	// Expanded tooltip state: when true, show full wrapped tooltip until closed
+	bool isTooltipExpanded = false;
+	std::string tooltipExpandedText;
 
 	bool isHoveringPile = false;
 	PileViewMode hoveredPileType = VIEW_NONE;

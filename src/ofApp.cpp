@@ -10078,8 +10078,33 @@ void ofApp::drawGame() {
 	}
 
 	// --- Draw Tooltip (drawn last to be on top of everything) ---
+
+	// Local helper: truncate a string to fit within maxWidth using font, adding ellipsis.
+	auto elideStringToWidth = [&](const std::string & s, const ofTrueTypeFont & font, float maxWidth) -> std::string {
+		if (s.empty()) return s;
+		ofRectangle r = font.getStringBoundingBox(s, 0, 0);
+		if (r.getWidth() <= maxWidth) return s;
+		const std::string ell = "...";
+		int lo = 0, hi = (int)s.size();
+		int best = 0;
+		while (lo <= hi) {
+			int mid = (lo + hi) / 2;
+			std::string cand = s.substr(0, mid) + ell;
+			if (font.getStringBoundingBox(cand, 0, 0).getWidth() <= maxWidth) {
+				best = mid;
+				lo = mid + 1;
+			} else {
+				hi = mid - 1;
+			}
+		}
+		if (best <= 0) return ell;
+		return s.substr(0, best) + ell;
+	};
 	if (isShowingTooltip) {
-		ofRectangle textBox = uiFont.getStringBoundingBox(tooltipText, 0, 0);
+		// Limit tooltip width to avoid extremely long single-line tooltips
+		float maxTooltipWidth = ofGetWidth() * 0.45f; // 45% of screen width
+		std::string displayTooltip = elideStringToWidth(tooltipText, uiFont, maxTooltipWidth);
+		ofRectangle textBox = uiFont.getStringBoundingBox(displayTooltip, 0, 0);
 		float textWidth = textBox.getWidth();
 		float textHeight = textBox.getHeight();
 		float padding = 8.0f;
@@ -10091,7 +10116,7 @@ void ofApp::drawGame() {
 		ofSetColor(10, 10, 10, 200);
 		ofDrawRectRounded(tooltipX, tooltipY, textWidth + 2 * padding, textHeight + 2 * padding, 5);
 		ofSetColor(ofColor::white);
-		uiFont.drawString(tooltipText, tooltipX + padding, tooltipY + textHeight + padding / 2.0f);
+		uiFont.drawString(displayTooltip, tooltipX + padding, tooltipY + textHeight + padding / 2.0f);
 	}
 
 	// --- DRAW OVERLAY UIs ---
@@ -11262,6 +11287,11 @@ cursor_check_done:;
 	}
 
 	// Update and send hover state to opponent if changed
+	// Collapse expanded tooltip when mouse moves away from tooltip targets
+	if (isTooltipExpanded && !isShowingTooltip) {
+		isTooltipExpanded = false;
+		tooltipExpandedText.clear();
+	}
 	HoverType effectiveHoverType = static_cast<HoverType>(newHoverType);
 	// Prevent hovering an opponent's pile from setting the LOCAL hover state in singleplayer
 	if (isHoveringPile && !isMultiplayer) {
@@ -14636,6 +14666,18 @@ void ofApp::mouseReleased(int x, int y, int button) {
 	}
 
 	if (button == OF_MOUSE_BUTTON_LEFT) {
+		// Toggle expanded tooltip on quick click when hovering
+		if (mouseDownPos.distance(ofVec2f(x, y)) < 5.0f) {
+			if (isShowingTooltip && !isTooltipExpanded) {
+				isTooltipExpanded = true;
+				tooltipExpandedText = tooltipText;
+				return;
+			} else if (isTooltipExpanded) {
+				isTooltipExpanded = false;
+				tooltipExpandedText.clear();
+				return;
+			}
+		}
 		if (players.empty() || currentPlayerIndex < 0) return;
 
 		Player & currentPlayer = players[currentPlayerIndex];
@@ -14899,7 +14941,9 @@ void ofApp::mouseScrolled(int x, int y, float scrollX, float scrollY) {
 //--------------------------------------------------------------
 void ofApp::keyPressed(int key) {
 	// Handle Chat Input first (highest priority)
-	if (isChatOpen && !isChatMinimized && currentState == STATE_GAMEPLAY) {
+	// Consume keys when chat is open (regardless of minimized state) to avoid
+	// triggering global hotkeys while typing.
+	if (isChatOpen && currentState == STATE_GAMEPLAY) {
 		if (key == OF_KEY_RETURN) {
 			// Send message and close chat
 			if (!chatInput.empty()) {
@@ -14970,6 +15014,8 @@ void ofApp::keyPressed(int key) {
 			enableC64Shader = false;
 			enableWorldPostProcess = false;
 			showWorldFboPreview = false;
+			// Ensure texture filtering is restored when disabling pixel-art mode
+			applyPixelArtSettings();
 		}
 		ofLogNotice("Debug") << "Default shaders toggled (O): now=" << (enableShaders ? "enabled" : "disabled");
 
@@ -15185,6 +15231,8 @@ void ofApp::keyReleased(int key) {
 			enableShaders = false;
 			enableWorldPostProcess = false;
 			showWorldFboPreview = false;
+			// Restore linear filtering if we just disabled pixel-art
+			applyPixelArtSettings();
 		}
 		ofLogNotice("C64") << "enableC64Shader=" << (enableC64Shader ? "true" : "false");
 
