@@ -26,6 +26,40 @@
 #pragma GCC diagnostic ignored "-Wunused-value"
 // Helper: Check for key under (x, y) and trigger pickup/draft if present
 
+// Human-readable key name helper used by settings UI
+static std::string getKeyName(int key) {
+	// Printable ASCII
+	if (key >= 32 && key < 127) {
+		// Show uppercase letters for clarity
+		char c = (char)key;
+		if (std::isalpha((unsigned char)c)) {
+			std::string s(1, (char)std::toupper((unsigned char)c));
+			return s;
+		}
+		return std::string(1, c);
+	}
+	switch (key) {
+	case OF_KEY_RETURN:
+		return "Enter";
+	case OF_KEY_ESC:
+		return "Esc";
+	case OF_KEY_BACKSPACE:
+		return "Backspace";
+	case OF_KEY_TAB:
+		return "Tab";
+	case OF_KEY_LEFT:
+		return "Left Arrow";
+	case OF_KEY_RIGHT:
+		return "Right Arrow";
+	case OF_KEY_UP:
+		return "Up Arrow";
+	case OF_KEY_DOWN:
+		return "Down Arrow";
+	default:
+		return std::to_string(key);
+	}
+}
+
 void ofApp::checkKeyPickupAndDraftAfterSummon(int x, int y, int minionOwnerID) {
 	// Only host or singleplayer should process key pickup
 	if (isMultiplayer && !isHost()) return;
@@ -430,14 +464,9 @@ void ofApp::setup() {
 	settingsMasterVolume = 1.0f;
 	settingsSfxVolume = 0.8f;
 
-	// Initialize default key bindings if empty
+	// Initialize default key bindings if empty — simplified: only Chat (Enter)
 	if (settingsKeyBindings.empty()) {
-		settingsKeyBindings.push_back({ "Confirm/Accept", OF_KEY_RETURN });
-		settingsKeyBindings.push_back({ "Cancel/Back", OF_KEY_ESC });
-		settingsKeyBindings.push_back({ "Move Up", 'w' });
-		settingsKeyBindings.push_back({ "Move Down", 's' });
-		settingsKeyBindings.push_back({ "Move Left", 'a' });
-		settingsKeyBindings.push_back({ "Move Right", 'd' });
+		settingsKeyBindings.push_back({ "Chat", OF_KEY_RETURN });
 	}
 
 	// Load persisted settings (overrides defaults)
@@ -1718,6 +1747,14 @@ void ofApp::draw() {
 		drawMainMenu();
 		break;
 	}
+
+	// Ensure picked-card animations are visible during in-game drafts or when
+	// draft-picked moves were scheduled while in gameplay. drawDraftScreen()
+	// already draws these when in STATE_DRAFTING, so only draw here for other
+	// states (e.g., STATE_GAMEPLAY) to avoid duplicate rendering.
+	if (currentState != STATE_DRAFTING && (!activeDraftPickedMoves.empty() || deckFlashStartTime > 0.0f)) {
+		drawActiveDraftPickedMoves();
+	}
 }
 
 //--------------------------------------------------------------
@@ -1979,7 +2016,7 @@ void ofApp::drawSettingsMenu() {
 		uiFont.drawString(sfxLabel, centerX - slb.width / 2, settingsAudioSfxSlider.y - 10);
 	}
 
-	// CONTROLS tab: show key bindings and allow rebinding
+	// CONTROLS tab: show all current game controls (read-only)
 	if (currentSettingsTab == SETTINGS_TAB_CONTROLS) {
 		ofSetColor(ofColor::white);
 		string controlsTitle = "Controls";
@@ -1988,30 +2025,45 @@ void ofApp::drawSettingsMenu() {
 
 		float listY = contentY + 60;
 		float itemH = 36;
-		float itemW = 600;
+		float itemW = 760;
 		float startX = centerX - itemW / 2;
-		for (size_t i = 0; i < settingsKeyBindings.size(); ++i) {
+
+		// Prepare a static list of current controls (label, key display)
+		std::vector<std::pair<std::string, std::string>> controls = {
+			{ "Left Click", "Select / Click UI / Dismiss" },
+			{ "Left Drag", "Drag cards (play via release)" },
+			{ "Right Click + Drag", "Pan camera" },
+			{ "Right Click (click)", "Cancel selection / targeting" },
+			{ "Mouse Wheel", "Zoom" },
+			{ "Enter", "Open / Send Chat; Confirm/Accept" },
+			{ "Esc", "Cancel / Back / Pause" },
+			{ "Tab", "Switch Chat tab (when chat open)" },
+			{ "Backspace", "Edit / delete in text inputs" },
+			{ "O", "Toggle default shaders" },
+			{ "P", "Toggle pixel-art shader" },
+			{ "M", "Toggle C64 shader" },
+			{ "L", "Toggle world post-process" },
+			{ "Y", "Toggle FBO preview" },
+			{ "T", "Toggle top-down view" },
+			{ "` (backtick)", "Toggle debug mode" },
+			{ "C", "Open card spawner (debug)" },
+			{ "U", "Debug: toggle unlimited AP" },
+			{ "S", "Debug: skip checksum validation" },
+			{ "Left / Right Arrows", "Settings tab navigation / slider adjust" }
+		};
+
+		// Draw each control row
+		for (size_t i = 0; i < controls.size(); ++i) {
 			ofRectangle itemRect(startX, listY + i * (itemH + 8), itemW, itemH);
-			// Dark list items; highlight selected with blue
-			ofSetColor((int)i == settingsRebindingIndex ? ofColor(70, 130, 200) : ofColor(40));
+			ofSetColor(ofColor(40));
 			ofDrawRectangle(itemRect);
 			ofSetColor(ofColor::white);
-			std::string label = settingsKeyBindings[i].first;
-			std::string keyName = ofToString((int)settingsKeyBindings[i].second);
-			// Try to show printable char for ASCII keys
-			int k = settingsKeyBindings[i].second;
-			if (k >= 32 && k < 127) keyName = std::string(1, (char)k);
-			ofRectangle lb = uiFont.getStringBoundingBox(label, 0, 0);
-			uiFont.drawString(label, itemRect.x + (itemRect.width - lb.width) / 2, itemRect.y + 24);
-			ofRectangle kb = uiFont.getStringBoundingBox(keyName, 0, 0);
-			uiFont.drawString(keyName, itemRect.x + (itemRect.width * 0.75f) - kb.width / 2, itemRect.y + 24);
-		}
-
-		if (settingsRebindingIndex >= 0) {
-			ofSetColor(ofColor::white);
-			string reb = "Press a key to rebind or Esc to cancel";
-			ofRectangle rb = uiFont.getStringBoundingBox(reb, 0, 0);
-			uiFont.drawString(reb, centerX - rb.width / 2, listY + settingsKeyBindings.size() * (itemH + 8) + 32);
+			std::string keyLabel = controls[i].first;
+			std::string desc = controls[i].second;
+			ofRectangle kb = uiFont.getStringBoundingBox(keyLabel, 0, 0);
+			uiFont.drawString(keyLabel, itemRect.x + 12, itemRect.y + 24);
+			ofRectangle db = uiFont.getStringBoundingBox(desc, 0, 0);
+			uiFont.drawString(desc, itemRect.x + itemRect.width * 0.35f, itemRect.y + 24);
 		}
 	}
 
@@ -3495,51 +3547,14 @@ void ofApp::updateGame() {
 
 			// compute proper start point on caster tile edge toward target
 			glm::vec2 startPointGrid = casterCenter;
-			{
-				float bestStartT = 1.0f;
-				bool foundStart = false;
-				glm::vec2 s2 = casterCenter;
-				glm::vec2 e2 = hitGrid;
-				glm::vec2 d2 = e2 - s2;
-				if (fabs(d2.x) > 1e-6f) {
-					float t1s = ((float)casterTile.x - s2.x) / d2.x;
-					float y1s = s2.y + d2.y * t1s;
-					if (t1s >= 0.0f && t1s <= 1.0f && y1s >= casterTile.y && y1s <= casterTile.y + 1.0f) {
-						if (!foundStart || t1s < bestStartT) {
-							bestStartT = t1s;
-							startPointGrid = s2 + d2 * t1s;
-							foundStart = true;
-						}
-					}
-					float t2s = ((float)casterTile.x + 1.0f - s2.x) / d2.x;
-					float y2s = s2.y + d2.y * t2s;
-					if (t2s >= 0.0f && t2s <= 1.0f && y2s >= casterTile.y && y2s <= casterTile.y + 1.0f) {
-						if (!foundStart || t2s < bestStartT) {
-							bestStartT = t2s;
-							startPointGrid = s2 + d2 * t2s;
-							foundStart = true;
-						}
-					}
-				}
-				if (fabs(d2.y) > 1e-6f) {
-					float t3s = ((float)casterTile.y - s2.y) / d2.y;
-					float x3s = s2.x + d2.x * t3s;
-					if (t3s >= 0.0f && t3s <= 1.0f && x3s >= casterTile.x && x3s <= casterTile.x + 1.0f) {
-						if (!foundStart || t3s < bestStartT) {
-							bestStartT = t3s;
-							startPointGrid = s2 + d2 * t3s;
-							foundStart = true;
-						}
-					}
-					float t4s = ((float)casterTile.y + 1.0f - s2.y) / d2.y;
-					float x4s = s2.x + d2.x * t4s;
-					if (t4s >= 0.0f && t4s <= 1.0f && x4s >= casterTile.x && x4s <= casterTile.x + 1.0f) {
-						if (!foundStart || t4s < bestStartT) {
-							bestStartT = t4s;
-							startPointGrid = s2 + d2 * t4s;
-							foundStart = true;
-						}
-					}
+			glm::vec2 d2 = hitGrid - casterCenter;
+			if (glm::length(d2) > 1e-6f) {
+				glm::vec2 nd = glm::normalize(d2);
+				// start from the midpoint of the caster tile face in the dominant direction
+				if (fabs(nd.x) >= fabs(nd.y)) {
+					startPointGrid = casterCenter + glm::vec2((nd.x > 0.0f) ? 0.5f : -0.5f, 0.0f);
+				} else {
+					startPointGrid = casterCenter + glm::vec2(0.0f, (nd.y > 0.0f) ? 0.5f : -0.5f);
 				}
 			}
 
@@ -3547,7 +3562,7 @@ void ofApp::updateGame() {
 			glm::vec3 worldEnd = gridFracToWorld(hitGrid);
 			worldStart.y += 0.6f;
 			worldEnd.y += 0.6f;
-			spawnTracer(worldStart, worldEnd, glm::ivec2((int)impactTile.x, (int)impactTile.y), ofColor(150, 180, 255), 3.0f);
+			spawnTracer(worldStart, worldEnd, glm::ivec2((int)impactTile.x, (int)impactTile.y), ofColor(150, 180, 255), 5.0f);
 		}
 	}
 
@@ -3616,7 +3631,7 @@ void ofApp::updateGame() {
 				glm::vec3 worldEnd = gridFracToWorld(hitGrid);
 				worldStart.y += 0.6f;
 				worldEnd.y += 0.6f;
-				spawnTracer(worldStart, worldEnd, glm::ivec2((int)fireballImpactTile.x, (int)fireballImpactTile.y), ofColor(255, 120, 40), 3.0f);
+				spawnTracer(worldStart, worldEnd, glm::ivec2((int)fireballImpactTile.x, (int)fireballImpactTile.y), ofColor(255, 120, 40), 5.0f);
 			}
 
 		} else {
@@ -3677,7 +3692,7 @@ void ofApp::updateGame() {
 				glm::vec3 worldEnd = gridFracToWorld(hitGrid);
 				worldStart.y += 0.6f;
 				worldEnd.y += 0.6f;
-				spawnTracer(worldStart, worldEnd, glm::ivec2((int)impactTile.x, (int)impactTile.y), ofColor(255, 120, 40), 3.0f);
+				spawnTracer(worldStart, worldEnd, glm::ivec2((int)impactTile.x, (int)impactTile.y), ofColor(255, 120, 40), 5.0f);
 			}
 		}
 	}
@@ -4014,7 +4029,7 @@ void ofApp::updateGame() {
 					glm::vec3 worldEnd = gridFracToWorld(hitGrid);
 					worldStart.y += 0.6f;
 					worldEnd.y += 0.6f;
-					spawnTracer(worldStart, worldEnd, glm::ivec2((int)pendingJoltTargetTile.x, (int)pendingJoltTargetTile.y), ofColor(200, 120, 255), 3.0f);
+					spawnTracer(worldStart, worldEnd, glm::ivec2((int)pendingJoltTargetTile.x, (int)pendingJoltTargetTile.y), ofColor(200, 120, 255), 5.0f);
 				}
 			}
 		} else {
@@ -4036,7 +4051,7 @@ void ofApp::updateGame() {
 				glm::vec3 worldEnd = gridFracToWorld(hitGrid);
 				worldStart.y += 0.6f;
 				worldEnd.y += 0.6f;
-				spawnTracer(worldStart, worldEnd, glm::ivec2((int)pendingJoltTargetTile.x, (int)pendingJoltTargetTile.y), ofColor(200, 120, 255), 3.0f);
+				spawnTracer(worldStart, worldEnd, glm::ivec2((int)pendingJoltTargetTile.x, (int)pendingJoltTargetTile.y), ofColor(200, 120, 255), 5.0f);
 			}
 		}
 	}
@@ -4305,67 +4320,25 @@ void ofApp::updateGame() {
 				return glm::vec3(wx, 0.0f, wz);
 			};
 
-			// Compute proper start point on caster tile edge (so tracer originates from
-			// the face toward the target rather than from behind the tile center)
+			// Compute proper start point on caster tile edge (use face midpoint)
 			glm::vec2 startPointGrid = casterCenter;
-			{
-				float bestStartT = 1.0f;
-				bool foundStart = false;
-				glm::vec2 s2 = casterCenter;
-				glm::vec2 e2 = pendingMagicBoltTargetTile + glm::vec2(0.5f, 0.5f);
-				glm::vec2 d2 = e2 - s2;
-				// check vertical (x) sides of caster tile
-				if (fabs(d2.x) > 1e-6f) {
-					float t1s = ((float)casterTile.x - s2.x) / d2.x;
-					float y1s = s2.y + d2.y * t1s;
-					if (t1s >= 0.0f && t1s <= 1.0f && y1s >= casterTile.y && y1s <= casterTile.y + 1.0f) {
-						if (!foundStart || t1s < bestStartT) {
-							bestStartT = t1s;
-							startPointGrid = s2 + d2 * t1s;
-							foundStart = true;
-						}
-					}
-					float t2s = ((float)casterTile.x + 1.0f - s2.x) / d2.x;
-					float y2s = s2.y + d2.y * t2s;
-					if (t2s >= 0.0f && t2s <= 1.0f && y2s >= casterTile.y && y2s <= casterTile.y + 1.0f) {
-						if (!foundStart || t2s < bestStartT) {
-							bestStartT = t2s;
-							startPointGrid = s2 + d2 * t2s;
-							foundStart = true;
-						}
-					}
-				}
-				// check horizontal (y) sides
-				if (fabs(d2.y) > 1e-6f) {
-					float t3s = ((float)casterTile.y - s2.y) / d2.y;
-					float x3s = s2.x + d2.x * t3s;
-					if (t3s >= 0.0f && t3s <= 1.0f && x3s >= casterTile.x && x3s <= casterTile.x + 1.0f) {
-						if (!foundStart || t3s < bestStartT) {
-							bestStartT = t3s;
-							startPointGrid = s2 + d2 * t3s;
-							foundStart = true;
-						}
-					}
-					float t4s = ((float)casterTile.y + 1.0f - s2.y) / d2.y;
-					float x4s = s2.x + d2.x * t4s;
-					if (t4s >= 0.0f && t4s <= 1.0f && x4s >= casterTile.x && x4s <= casterTile.x + 1.0f) {
-						if (!foundStart || t4s < bestStartT) {
-							bestStartT = t4s;
-							startPointGrid = s2 + d2 * t4s;
-							foundStart = true;
-						}
-					}
+			glm::vec2 d2 = targetCenter - casterCenter;
+			if (glm::length(d2) > 1e-6f) {
+				glm::vec2 nd = glm::normalize(d2);
+				if (fabs(nd.x) >= fabs(nd.y)) {
+					startPointGrid = casterCenter + glm::vec2((nd.x > 0.0f) ? 0.5f : -0.5f, 0.0f);
+				} else {
+					startPointGrid = casterCenter + glm::vec2(0.0f, (nd.y > 0.0f) ? 0.5f : -0.5f);
 				}
 			}
 
 			glm::vec3 worldStart = gridFracToWorld(startPointGrid);
 			glm::vec3 worldEnd = gridFracToWorld(hitPointGrid);
-			// Slightly raise line in Y so it's visible above ground
 			worldStart.y += 0.6f;
 			worldEnd.y += 0.6f;
 
 			// Spawn tracer with a purple color for magic bolt
-			spawnTracer(worldStart, worldEnd, glm::ivec2((int)impactTile.x, (int)impactTile.y), ofColor(180, 100, 255), 3.0f);
+			spawnTracer(worldStart, worldEnd, glm::ivec2((int)impactTile.x, (int)impactTile.y), ofColor(180, 100, 255), 5.0f);
 		}
 
 		// Check if impact was inside a wall
@@ -4499,7 +4472,7 @@ void ofApp::updateGame() {
 				glm::vec3 worldEnd = gridFracToWorld(hitGrid);
 				worldStart.y += 0.6f;
 				worldEnd.y += 0.6f;
-				spawnTracer(worldStart, worldEnd, glm::ivec2((int)pendingShootArrowTargetTile.x, (int)pendingShootArrowTargetTile.y), ofColor(200, 180, 100), 3.0f);
+				spawnTracer(worldStart, worldEnd, glm::ivec2((int)pendingShootArrowTargetTile.x, (int)pendingShootArrowTargetTile.y), ofColor(200, 180, 100), 5.0f);
 			}
 			pendingAttackRollResult = startDiceRoll(1, 6, PURPOSE_DAMAGE, "Shoot Arrow: Damage", currentPlayerIndex);
 			isWaitingForAttackDice = true;
@@ -4537,7 +4510,7 @@ void ofApp::updateGame() {
 				glm::vec3 worldEnd = gridFracToWorld(hitGrid);
 				worldStart.y += 0.6f;
 				worldEnd.y += 0.6f;
-				spawnTracer(worldStart, worldEnd, glm::ivec2((int)pendingShootArrowTargetTile.x, (int)pendingShootArrowTargetTile.y), ofColor(200, 180, 100), 3.0f);
+				spawnTracer(worldStart, worldEnd, glm::ivec2((int)pendingShootArrowTargetTile.x, (int)pendingShootArrowTargetTile.y), ofColor(200, 180, 100), 5.0f);
 			}
 			ofLogNotice("ShootArrow") << "Shoot Arrow fell short.";
 		}
@@ -4818,7 +4791,7 @@ void ofApp::updateGame() {
 				glm::vec3 worldEnd = gridFracToWorld(hitGrid);
 				worldStart.y += 0.6f;
 				worldEnd.y += 0.6f;
-				spawnTracer(worldStart, worldEnd, glm::ivec2((int)pendingChainLightningTargetTile.x, (int)pendingChainLightningTargetTile.y), ofColor(100, 255, 255), 3.0f);
+				spawnTracer(worldStart, worldEnd, glm::ivec2((int)pendingChainLightningTargetTile.x, (int)pendingChainLightningTargetTile.y), ofColor(100, 255, 255), 5.0f);
 			}
 		} else {
 			// FAIL: show where the bolt attempted to go
@@ -4874,7 +4847,7 @@ void ofApp::updateGame() {
 				glm::vec3 worldEnd = gridFracToWorld(hitGrid);
 				worldStart.y += 0.6f;
 				worldEnd.y += 0.6f;
-				spawnTracer(worldStart, worldEnd, glm::ivec2((int)impactTile.x, (int)impactTile.y), ofColor(100, 255, 255), 3.0f);
+				spawnTracer(worldStart, worldEnd, glm::ivec2((int)impactTile.x, (int)impactTile.y), ofColor(100, 255, 255), 5.0f);
 			}
 		}
 	}
@@ -6169,9 +6142,13 @@ void ofApp::updateGame() {
 			std::sort(groupIdx.begin(), groupIdx.end(), [&](size_t a, size_t b) {
 				return activeFloatingTexts[a].startTime < activeFloatingTexts[b].startTime;
 			});
+			// Center the group around the anchor so items expand left/right
+			// symmetrically as more texts appear.
 			for (size_t k = 0; k < groupIdx.size(); ++k) {
-				activeFloatingTexts[groupIdx[k]].xOffset = (float)k * spacing;
-				// Update worldPos.x to match new offset
+				float centered = ((float)k - ((float)groupIdx.size() - 1.0f) * 0.5f) * spacing;
+				activeFloatingTexts[groupIdx[k]].xOffset = centered;
+				// Update worldPos.x to match new offset (do not override worldPos.y so
+				// upward drift remains smooth)
 				activeFloatingTexts[groupIdx[k]].worldPos.x = activeFloatingTexts[groupIdx[k]].anchorPos.x + activeFloatingTexts[groupIdx[k]].xOffset;
 			}
 		}
@@ -10303,7 +10280,7 @@ void ofApp::drawGame() {
 	}
 
 	// --- Chat System ---
-	if (isMultiplayer) {
+	{
 		float currentTime = ofGetElapsedTimef();
 		bool shouldShowChat = isChatOpen || (currentTime - lastChatInteractionTime < chatVisibilityDuration);
 
@@ -14458,23 +14435,9 @@ void ofApp::mousePressed(int x, int y, int button) {
 			// Mute and loop toggles removed
 		}
 
-		// Controls tab interaction: click to start rebinding
+		// Controls tab interaction: simplified/read-only — clicking does nothing
 		if (currentSettingsTab == SETTINGS_TAB_CONTROLS) {
-			float centerX = ofGetWidth() / 2.0f;
-			float tabsY = ofGetHeight() * 0.22f;
-			float tabH = 48;
-			float contentY = tabsY + tabH + 30;
-			float listY = contentY + 60;
-			float itemH = 36;
-			float itemW = 600;
-			float startX = ofGetWidth() / 2.0f - itemW / 2;
-			for (size_t i = 0; i < settingsKeyBindings.size(); ++i) {
-				ofRectangle itemRect(startX, listY + i * (itemH + 8), itemW, itemH);
-				if (itemRect.inside(x, y)) {
-					settingsRebindingIndex = (int)i;
-					return;
-				}
-			}
+			// intentionally no-op: controls are read-only (Chat = Enter)
 		}
 
 		// Game tab interactions
@@ -19747,7 +19710,9 @@ void ofApp::spawnFloatingText(glm::vec3 pos, std::string text, ofColor color, st
 	}
 
 	// Count how many active texts already occupy this anchor so we can place
-	// the new one to the right (non-overlapping). New ones appear to the right.
+	// the new one offset (non-overlapping). New ones are given a horizontal
+	// slot but we also apply a small vertical offset so simultaneous texts
+	// are readable.
 	int groupCount = 0;
 	for (const auto & ef : activeFloatingTexts) {
 		float dist = glm::length(ef.anchorPos - pos);
@@ -19757,13 +19722,20 @@ void ofApp::spawnFloatingText(glm::vec3 pos, std::string text, ofColor color, st
 	FloatingText ft;
 	ft.text = text;
 	ft.anchorPos = pos;
-	float spacing = 0.8f; // world units to separate stacked texts
-	ft.xOffset = groupCount * spacing;
-	// Start slightly above the unit and apply horizontal offset
-	ft.worldPos = pos + glm::vec3(ft.xOffset, 1.5f, 0);
-	// Random slight drift left/right, consistent drift up
-	std::uniform_real_distribution<float> driftDist(-0.25f, 0.25f);
-	ft.velocity = glm::vec3(driftDist(visualRNG), 2.0f, driftDist(visualRNG));
+	float hSpacing = 0.9f; // horizontal separation in world units
+	float vSpacing = 0.45f; // vertical separation in world units
+	float baseHeight = 1.6f; // starting height above unit
+
+	// Assign initial offsets so newly spawned texts are staggered both
+	// horizontally and vertically to avoid overlapping.
+	ft.xOffset = groupCount * hSpacing;
+	ft.worldPos = pos + glm::vec3(ft.xOffset, baseHeight + groupCount * vSpacing, 0);
+
+	// Slight drift: slower upward motion so text remains readable longer
+	std::uniform_real_distribution<float> driftDist(-0.18f, 0.18f);
+	ft.velocity = glm::vec3(driftDist(visualRNG), 0.9f, driftDist(visualRNG));
+	// Ensure longer default duration (struct default is 3.0s), but let callers
+	// override via category detection above if needed.
 	ft.startTime = now;
 	ft.color = color;
 	ft.category = category;
@@ -24114,44 +24086,7 @@ void ofApp::drawDraftScreen() {
 	}
 
 	// Draw active picked-card move animations (on top)
-	for (auto & mv : activeDraftPickedMoves) {
-		if (mv.finished) continue;
-		float now = ofGetElapsedTimef();
-		if (now < mv.startTime + mv.delay) {
-			// Still holding: draw at startPos
-			float drawW = cardW;
-			float drawH = cardH;
-			float dx = mv.startPos.x - drawW / 2.0f;
-			float dy = mv.startPos.y - drawH / 2.0f;
-			ofSetColor(255);
-			cardSpriteSheet.drawSubsection(dx, dy, drawW, drawH,
-				mv.card.textureRect.x, mv.card.textureRect.y,
-				mv.card.textureRect.width, mv.card.textureRect.height);
-		} else {
-			float t = (now - mv.startTime - mv.delay) / mv.duration;
-			if (t >= 1.0f) t = 1.0f;
-			glm::vec2 pos = mv.startPos * (1.0f - t) + mv.endPos * t;
-			float scale = 1.0f - 0.5f * t;
-			float drawW = cardW * scale;
-			float drawH = cardH * scale;
-			float dx = pos.x - drawW / 2.0f;
-			float dy = pos.y - drawH / 2.0f;
-			ofSetColor(255);
-			cardSpriteSheet.drawSubsection(dx, dy, drawW, drawH,
-				mv.card.textureRect.x, mv.card.textureRect.y,
-				mv.card.textureRect.width, mv.card.textureRect.height);
-			if (t >= 1.0f) {
-				mv.finished = true;
-				deckFlashStartTime = now;
-				deckFlashOwnerIndex = mv.ownerIndex;
-			}
-		}
-	}
-
-	// Remove finished moves
-	for (int i = (int)activeDraftPickedMoves.size() - 1; i >= 0; --i) {
-		if (activeDraftPickedMoves[i].finished) activeDraftPickedMoves.erase(activeDraftPickedMoves.begin() + i);
-	}
+	drawActiveDraftPickedMoves();
 
 	// Deck flash visual
 	if (deckFlashStartTime > 0.0f) {
@@ -24217,6 +24152,52 @@ void ofApp::drawDraftScreen() {
 	} else {
 		// Hide accept: clear the rect so hits are ignored
 		draftAcceptButtonRect.set(0, 0, 0, 0);
+	}
+}
+
+// Draw and advance active draft-picked move animations (visual only)
+void ofApp::drawActiveDraftPickedMoves() {
+	// Use layout math consistent with drawDraftScreen (cardW/cardH computed there)
+	float uiScale = std::min(ofGetWidth() / 1920.0f, ofGetHeight() / 1080.0f);
+	float cardW = std::clamp(340.0f * uiScale, 160.0f, 420.0f);
+	float cardH = cardW * 1.4f;
+
+	for (auto & mv : activeDraftPickedMoves) {
+		if (mv.finished) continue;
+		float now = ofGetElapsedTimef();
+		if (now < mv.startTime + mv.delay) {
+			float drawW = cardW;
+			float drawH = cardH;
+			float dx = mv.startPos.x - drawW / 2.0f;
+			float dy = mv.startPos.y - drawH / 2.0f;
+			ofSetColor(255);
+			cardSpriteSheet.drawSubsection(dx, dy, drawW, drawH,
+				mv.card.textureRect.x, mv.card.textureRect.y,
+				mv.card.textureRect.width, mv.card.textureRect.height);
+		} else {
+			float t = (now - mv.startTime - mv.delay) / mv.duration;
+			if (t >= 1.0f) t = 1.0f;
+			glm::vec2 pos = mv.startPos * (1.0f - t) + mv.endPos * t;
+			float scale = 1.0f - 0.5f * t;
+			float drawW = cardW * scale;
+			float drawH = cardH * scale;
+			float dx = pos.x - drawW / 2.0f;
+			float dy = pos.y - drawH / 2.0f;
+			ofSetColor(255);
+			cardSpriteSheet.drawSubsection(dx, dy, drawW, drawH,
+				mv.card.textureRect.x, mv.card.textureRect.y,
+				mv.card.textureRect.width, mv.card.textureRect.height);
+			if (t >= 1.0f) {
+				mv.finished = true;
+				deckFlashStartTime = now;
+				deckFlashOwnerIndex = mv.ownerIndex;
+			}
+		}
+	}
+
+	// Remove finished moves
+	for (int i = (int)activeDraftPickedMoves.size() - 1; i >= 0; --i) {
+		if (activeDraftPickedMoves[i].finished) activeDraftPickedMoves.erase(activeDraftPickedMoves.begin() + i);
 	}
 }
 //--------------------------------------------------------------

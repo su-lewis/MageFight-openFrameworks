@@ -439,7 +439,7 @@ struct FloatingText {
 	glm::vec3 anchorPos; // Base anchor position for grouping
 	glm::vec3 velocity; // Upward drift
 	float startTime;
-	float duration = 1.5f;
+	float duration = 3.0f; // Increased default lifetime for readability
 	ofColor color;
 	std::string category; // Optional category (e.g., "dice_AP", "dice_fire")
 	float xOffset = 0.0f; // Horizontal offset in world units for side-by-side texts
@@ -892,6 +892,9 @@ private:
 	void startShuffleVisual(int playerIndex);
 	void scheduleGenerateDraftOptions(int classTier, float delaySeconds);
 
+	// Draw helper for active picked-card animations
+	void drawActiveDraftPickedMoves();
+
 	// -------------------------------------------------------------------------
 	//                          RENDERING & MESHES
 	// -------------------------------------------------------------------------
@@ -1018,14 +1021,14 @@ private:
 		glm::vec3 end;
 		glm::ivec2 impactTile; // tile being highlighted
 		float startTime = 0.0f;
-		float duration = 3.0f;
+		float duration = 5.0f;
 		ofColor color = ofColor::white;
 	};
 
 	std::vector<Tracer> activeTracers;
 
 	// Spawn a tracer line from world-space start -> end and highlight impact tile
-	void spawnTracer(glm::vec3 start, glm::vec3 end, glm::ivec2 impactTile, ofColor color, float duration = 3.0f);
+	void spawnTracer(glm::vec3 start, glm::vec3 end, glm::ivec2 impactTile, ofColor color, float duration = 5.0f);
 
 	// --- KEY ANIMATION (Floating Key on Floor) ---
 	std::vector<ofTexture> keyTextures; // loaded from Board/keys_1_*.png
