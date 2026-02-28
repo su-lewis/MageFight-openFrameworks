@@ -14,6 +14,7 @@
 #include <set>
 #include <sstream>
 #include <unordered_map>
+#include <new>
 
 // Suppress warnings about unhandled enum values in switches across this file.
 #pragma GCC diagnostic push
@@ -11713,21 +11714,38 @@ void ofApp::mousePressed(int x, int y, int button) {
 			}
 
 			// --- HOST / SINGLE PLAYER LOGIC ---
+			// Safety: ensure draftPlayerIndex is valid before indexing players
+			if (draftPlayerIndex < 0 || draftPlayerIndex >= (int)players.size()) {
+				ofLogError("Draft") << "ACCEPT: invalid draftPlayerIndex=" << draftPlayerIndex << ". Aborting accept to avoid crash.";
+				draftAcceptLocked = false;
+				return;
+			}
 			Player & p = players[draftPlayerIndex];
 			int copiesPerCard = (!isInGameDraft && draftStage == 0) ? 2 : 1;
 
-			// selectedDraftIndices contains pool indices; add matching cards
+			// Determine the correct pool for the current draft class
+			const std::vector<Card> * pool = &class1Cards;
+			if (currentDraftClassTier == 2) pool = &class2Cards;
+			if (currentDraftClassTier == 3) pool = &class3Cards;
+			if (pool->empty()) {
+				ofLogError("Draft") << "ACCEPT: card pool for class " << currentDraftClassTier << " is empty. Aborting.";
+				draftAcceptLocked = false;
+				return;
+			}
+
+			// selectedDraftIndices contains pool indices; add matching cards with validation
 			for (int poolIdx : selectedDraftIndices) {
-				if (poolIdx >= 0 && poolIdx < (int)class1Cards.size()) {
-					// Determine which pool to use based on currentDraftClassTier/draftStage may vary,
-					// but here we translate poolIdx -> Card by looking at the currently available pools.
-					const std::vector<Card> * pool = &class1Cards;
-					if (currentDraftClassTier == 2) pool = &class2Cards;
-					if (currentDraftClassTier == 3) pool = &class3Cards;
-					if (poolIdx >= 0 && poolIdx < (int)pool->size()) {
-						for (int k = 0; k < copiesPerCard; k++) {
-							p.deck.push_back((*pool)[poolIdx]);
-						}
+				if (poolIdx < 0 || poolIdx >= (int)pool->size()) {
+					ofLogWarning("Draft") << "ACCEPT: ignoring invalid poolIdx=" << poolIdx << " for class " << currentDraftClassTier;
+					continue;
+				}
+				for (int k = 0; k < copiesPerCard; ++k) {
+					try {
+						p.deck.push_back((*pool)[poolIdx]);
+					} catch (const std::bad_alloc & e) {
+						ofLogError("Draft") << "ACCEPT: memory allocation failed while adding card to deck: " << e.what();
+						draftAcceptLocked = false;
+						return;
 					}
 				}
 			}
