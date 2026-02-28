@@ -1753,7 +1753,7 @@ void ofApp::draw() {
 	// already draws these when in STATE_DRAFTING, so only draw here for other
 	// states (e.g., STATE_GAMEPLAY) to avoid duplicate rendering.
 	if (currentState != STATE_DRAFTING && (!activeDraftPickedMoves.empty() || deckFlashStartTime > 0.0f)) {
-		drawActiveDraftPickedMoves();
+		this->drawActiveDraftPickedMoves();
 	}
 }
 
@@ -24086,7 +24086,7 @@ void ofApp::drawDraftScreen() {
 	}
 
 	// Draw active picked-card move animations (on top)
-	drawActiveDraftPickedMoves();
+	this->drawActiveDraftPickedMoves();
 
 	// Deck flash visual
 	if (deckFlashStartTime > 0.0f) {
