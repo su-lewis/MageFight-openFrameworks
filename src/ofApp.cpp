@@ -1660,25 +1660,25 @@ void ofApp::update() {
 //--------------------------------------------------------------
 // Start a visual shuffle animation for the given player's deck
 void ofApp::startShuffleVisual(int playerIndex) {
-	ShuffleAnimation a;
-	a.playerIndex = playerIndex;
+	ShuffleAnimation anim;
+	anim.playerIndex = playerIndex;
 	// Only show the visual shuffle for the two main player decks here.
 	// Minions create their own ShuffleAnimation with a correct `deckRect`.
 	if (playerIndex == 0) {
-		a.deckRect = p0_deckRect;
+		anim.deckRect = p0_deckRect;
 	} else if (playerIndex == 1) {
-		a.deckRect = p1_deckRect;
+		anim.deckRect = p1_deckRect;
 	} else {
 		// Don't enqueue a generic shuffle visual for non-player actors
 		// (minions already spawn their own visual when appropriate).
 		return;
 	}
-	a.startTime = ofGetElapsedTimef();
-	a.duration = 0.9f;
-	a.currentAlpha = 255.0f;
-	a.currentScale = 1.0f;
-	a.rotation = 0.0f;
-	activeShuffleAnimations.push_back(a);
+	anim.startTime = ofGetElapsedTimef();
+	anim.duration = 0.9f;
+	anim.currentAlpha = 255.0f;
+	anim.currentScale = 1.0f;
+	anim.rotation = 0.0f;
+	activeShuffleAnimations.push_back(anim);
 }
 
 // Schedule generating draft options after a delay to allow animations to finish
@@ -2028,12 +2028,8 @@ void ofApp::drawSettingsMenu() {
 
 	// CONTROLS tab: show all current game controls (read-only)
 	if (currentSettingsTab == SETTINGS_TAB_CONTROLS) {
-		ofSetColor(ofColor::white);
-		string controlsTitle = "Controls";
-		ofRectangle ctb = uiFont.getStringBoundingBox(controlsTitle, 0, 0);
-		uiFont.drawString(controlsTitle, centerX - ctb.width / 2, contentY);
-
-		float listY = contentY + 60;
+		// Removed the explicit "Controls" title so the list appears compact.
+		float listY = contentY + 20;
 		float itemH = 36;
 		float itemW = 760;
 		float startX = centerX - itemW / 2;
@@ -3547,31 +3543,9 @@ void ofApp::updateGame() {
 
 		// Spawn tracer from caster to impact tile so player can see where it landed
 		{
-			glm::vec2 casterCenter = casterTile + glm::vec2(0.5f, 0.5f);
+			glm::vec3 worldStart, worldEnd;
 			glm::vec2 hitGrid = glm::vec2(impactTile.x + 0.5f, impactTile.y + 0.5f);
-			auto gridFracToWorld = [&](glm::vec2 g) {
-				float wx = (g.x - BOARD_WIDTH / 2.0f) * TILE_SIZE + (TILE_SIZE / 2.0f);
-				float wz = (g.y - BOARD_HEIGHT / 2.0f) * TILE_SIZE + (TILE_SIZE / 2.0f);
-				return glm::vec3(wx, 0.0f, wz);
-			};
-
-			// compute proper start point on caster tile edge toward target
-			glm::vec2 startPointGrid = casterCenter;
-			glm::vec2 d2 = hitGrid - casterCenter;
-			if (glm::length(d2) > 1e-6f) {
-				glm::vec2 nd = glm::normalize(d2);
-				// start from the midpoint of the caster tile face in the dominant direction
-				if (fabs(nd.x) >= fabs(nd.y)) {
-					startPointGrid = casterCenter + glm::vec2((nd.x > 0.0f) ? 0.5f : -0.5f, 0.0f);
-				} else {
-					startPointGrid = casterCenter + glm::vec2(0.0f, (nd.y > 0.0f) ? 0.5f : -0.5f);
-				}
-			}
-
-			glm::vec3 worldStart = gridFracToWorld(startPointGrid);
-			glm::vec3 worldEnd = gridFracToWorld(hitGrid);
-			worldStart.y += 0.6f;
-			worldEnd.y += 0.6f;
+			computeTracerEndpoints(casterTile, hitGrid, worldStart, worldEnd);
 			spawnTracer(worldStart, worldEnd, glm::ivec2((int)impactTile.x, (int)impactTile.y), ofColor(150, 180, 255), 5.0f);
 		}
 	}
@@ -3615,32 +3589,9 @@ void ofApp::updateGame() {
 
 			// Spawn tracer from caster to impact tile so player can see where it landed
 			{
-				glm::vec2 casterCenter = casterTile + glm::vec2(0.5f, 0.5f);
+				glm::vec3 worldStart, worldEnd;
 				glm::vec2 hitGrid = glm::vec2(fireballImpactTile.x + 0.5f, fireballImpactTile.y + 0.5f);
-				auto gridFracToWorld = [&](glm::vec2 g) {
-					float wx = (g.x - BOARD_WIDTH / 2.0f) * TILE_SIZE + (TILE_SIZE / 2.0f);
-					float wz = (g.y - BOARD_HEIGHT / 2.0f) * TILE_SIZE + (TILE_SIZE / 2.0f);
-					return glm::vec3(wx, 0.0f, wz);
-				};
-
-				// compute caster-edge start so tracer originates from tile face (simpler: face midpoint)
-				glm::vec2 startPointGrid = casterCenter;
-				glm::vec2 d2 = hitGrid - casterCenter;
-				if (glm::length(d2) > 1e-6f) {
-					glm::vec2 nd = glm::normalize(d2);
-					// start from the midpoint of the caster tile face in the dominant direction
-					if (fabs(nd.x) >= fabs(nd.y)) {
-						startPointGrid = casterCenter + glm::vec2((nd.x > 0.0f) ? 0.5f : -0.5f, 0.0f);
-					} else {
-						startPointGrid = casterCenter + glm::vec2(0.0f, (nd.y > 0.0f) ? 0.5f : -0.5f);
-					}
-					// If the hit is centered on the target tile, move the end to the face midpoint too (below)
-				}
-
-				glm::vec3 worldStart = gridFracToWorld(startPointGrid);
-				glm::vec3 worldEnd = gridFracToWorld(hitGrid);
-				worldStart.y += 0.6f;
-				worldEnd.y += 0.6f;
+				computeTracerEndpoints(casterTile, hitGrid, worldStart, worldEnd);
 				spawnTracer(worldStart, worldEnd, glm::ivec2((int)fireballImpactTile.x, (int)fireballImpactTile.y), ofColor(255, 120, 40), 5.0f);
 			}
 
@@ -3678,36 +3629,9 @@ void ofApp::updateGame() {
 			spawnFloatingText(failPos, "Out of Range", ofColor::white);
 
 			{
-				glm::vec2 casterCenter = casterTile + glm::vec2(0.5f, 0.5f);
+				glm::vec3 worldStart, worldEnd;
 				glm::vec2 hitGrid = impactTile + glm::vec2(0.5f, 0.5f);
-				auto gridFracToWorld = [&](glm::vec2 g) {
-					float wx = (g.x - BOARD_WIDTH / 2.0f) * TILE_SIZE + (TILE_SIZE / 2.0f);
-					float wz = (g.y - BOARD_HEIGHT / 2.0f) * TILE_SIZE + (TILE_SIZE / 2.0f);
-					return glm::vec3(wx, 0.0f, wz);
-				};
-
-				// compute caster-edge start so tracer originates from tile face (use face midpoint)
-				glm::vec2 startPointGrid = casterCenter;
-				// Choose the face midpoint closest to the target hit point. This is
-				// more robust than comparing normalized components and matches the
-				// expected "closest face" behavior.
-				glm::vec2 faceOffsets[4] = { glm::vec2(0.5f, 0.0f), glm::vec2(-0.5f, 0.0f), glm::vec2(0.0f, 0.5f), glm::vec2(0.0f, -0.5f) };
-				float bestDist = 1e30f;
-				glm::vec2 bestOffset = faceOffsets[0];
-				for (int fo = 0; fo < 4; ++fo) {
-					glm::vec2 candidate = casterCenter + faceOffsets[fo];
-					float d = glm::distance(candidate, hitGrid);
-					if (d < bestDist) {
-						bestDist = d;
-						bestOffset = faceOffsets[fo];
-					}
-				}
-				startPointGrid = casterCenter + bestOffset;
-
-				glm::vec3 worldStart = gridFracToWorld(startPointGrid);
-				glm::vec3 worldEnd = gridFracToWorld(hitGrid);
-				worldStart.y += 0.6f;
-				worldEnd.y += 0.6f;
+				computeTracerEndpoints(casterTile, hitGrid, worldStart, worldEnd);
 				spawnTracer(worldStart, worldEnd, glm::ivec2((int)impactTile.x, (int)impactTile.y), ofColor(255, 120, 40), 5.0f);
 			}
 		}
@@ -4021,30 +3945,9 @@ void ofApp::updateGame() {
 
 				// Spawn tracer from caster to target tile for Ethereal Jolt
 				{
-					glm::vec2 casterCenter = casterTile + glm::vec2(0.5f, 0.5f);
+					glm::vec3 worldStart, worldEnd;
 					glm::vec2 hitGrid = pendingJoltTargetTile + glm::vec2(0.5f, 0.5f);
-					auto gridFracToWorld = [&](glm::vec2 g) {
-						float wx = (g.x - BOARD_WIDTH / 2.0f) * TILE_SIZE + (TILE_SIZE / 2.0f);
-						float wz = (g.y - BOARD_HEIGHT / 2.0f) * TILE_SIZE + (TILE_SIZE / 2.0f);
-						return glm::vec3(wx, 0.0f, wz);
-					};
-
-					// compute caster-edge start so tracer originates from tile face (use face midpoint)
-					glm::vec2 startPointGrid = casterCenter;
-					glm::vec2 d2 = hitGrid - casterCenter;
-					if (glm::length(d2) > 1e-6f) {
-						glm::vec2 nd = glm::normalize(d2);
-						if (fabs(nd.x) >= fabs(nd.y)) {
-							startPointGrid = casterCenter + glm::vec2((nd.x > 0.0f) ? 0.5f : -0.5f, 0.0f);
-						} else {
-							startPointGrid = casterCenter + glm::vec2(0.0f, (nd.y > 0.0f) ? 0.5f : -0.5f);
-						}
-					}
-
-					glm::vec3 worldStart = gridFracToWorld(startPointGrid);
-					glm::vec3 worldEnd = gridFracToWorld(hitGrid);
-					worldStart.y += 0.6f;
-					worldEnd.y += 0.6f;
+					computeTracerEndpoints(casterTile, hitGrid, worldStart, worldEnd);
 					spawnTracer(worldStart, worldEnd, glm::ivec2((int)pendingJoltTargetTile.x, (int)pendingJoltTargetTile.y), ofColor(200, 120, 255), 5.0f);
 				}
 			}
@@ -4055,18 +3958,9 @@ void ofApp::updateGame() {
 
 			// Spawn a short tracer to show attempted path (fell short)
 			{
-				glm::vec2 casterCenter = casterTile + glm::vec2(0.5f, 0.5f);
+				glm::vec3 worldStart, worldEnd;
 				glm::vec2 hitGrid = pendingJoltTargetTile + glm::vec2(0.5f, 0.5f);
-				auto gridFracToWorld = [&](glm::vec2 g) {
-					float wx = (g.x - BOARD_WIDTH / 2.0f) * TILE_SIZE + (TILE_SIZE / 2.0f);
-					float wz = (g.y - BOARD_HEIGHT / 2.0f) * TILE_SIZE + (TILE_SIZE / 2.0f);
-					return glm::vec3(wx, 0.0f, wz);
-				};
-
-				glm::vec3 worldStart = gridFracToWorld(casterCenter);
-				glm::vec3 worldEnd = gridFracToWorld(hitGrid);
-				worldStart.y += 0.6f;
-				worldEnd.y += 0.6f;
+				computeTracerEndpoints(casterTile, hitGrid, worldStart, worldEnd);
 				spawnTracer(worldStart, worldEnd, glm::ivec2((int)pendingJoltTargetTile.x, (int)pendingJoltTargetTile.y), ofColor(200, 120, 255), 5.0f);
 			}
 		}
@@ -4329,32 +4223,13 @@ void ofApp::updateGame() {
 				}
 			}
 
-			// Convert fractional grid coords to world
-			auto gridFracToWorld = [&](glm::vec2 g) {
-				float wx = (g.x - BOARD_WIDTH / 2.0f) * TILE_SIZE + (TILE_SIZE / 2.0f);
-				float wz = (g.y - BOARD_HEIGHT / 2.0f) * TILE_SIZE + (TILE_SIZE / 2.0f);
-				return glm::vec3(wx, 0.0f, wz);
-			};
-
-			// Compute proper start point on caster tile edge (use face midpoint)
-			glm::vec2 startPointGrid = casterCenter;
-			glm::vec2 d2 = targetCenter - casterCenter;
-			if (glm::length(d2) > 1e-6f) {
-				glm::vec2 nd = glm::normalize(d2);
-				if (fabs(nd.x) >= fabs(nd.y)) {
-					startPointGrid = casterCenter + glm::vec2((nd.x > 0.0f) ? 0.5f : -0.5f, 0.0f);
-				} else {
-					startPointGrid = casterCenter + glm::vec2(0.0f, (nd.y > 0.0f) ? 0.5f : -0.5f);
-				}
+			// Compute standardized tracer endpoints (face-midpoint start, center end)
+			{
+				glm::vec3 worldStart, worldEnd;
+				glm::vec2 hitGrid = hitPointGrid; // fractional
+				computeTracerEndpoints(casterTile, hitGrid, worldStart, worldEnd);
+				spawnTracer(worldStart, worldEnd, glm::ivec2((int)impactTile.x, (int)impactTile.y), ofColor(180, 100, 255), 5.0f);
 			}
-
-			glm::vec3 worldStart = gridFracToWorld(startPointGrid);
-			glm::vec3 worldEnd = gridFracToWorld(hitPointGrid);
-			worldStart.y += 0.6f;
-			worldEnd.y += 0.6f;
-
-			// Spawn tracer with a purple color for magic bolt
-			spawnTracer(worldStart, worldEnd, glm::ivec2((int)impactTile.x, (int)impactTile.y), ofColor(180, 100, 255), 5.0f);
 		}
 
 		// Check if impact was inside a wall
@@ -4472,22 +4347,8 @@ void ofApp::updateGame() {
 					return glm::vec3(wx, 0.0f, wz);
 				};
 
-				// compute caster-edge start so tracer originates from tile face (use face midpoint)
-				glm::vec2 startPointGrid = casterCenter;
-				glm::vec2 d2 = hitGrid - casterCenter;
-				if (glm::length(d2) > 1e-6f) {
-					glm::vec2 nd = glm::normalize(d2);
-					if (fabs(nd.x) >= fabs(nd.y)) {
-						startPointGrid = casterCenter + glm::vec2((nd.x > 0.0f) ? 0.5f : -0.5f, 0.0f);
-					} else {
-						startPointGrid = casterCenter + glm::vec2(0.0f, (nd.y > 0.0f) ? 0.5f : -0.5f);
-					}
-				}
-
-				glm::vec3 worldStart = gridFracToWorld(startPointGrid);
-				glm::vec3 worldEnd = gridFracToWorld(hitGrid);
-				worldStart.y += 0.6f;
-				worldEnd.y += 0.6f;
+				glm::vec3 worldStart, worldEnd;
+				computeTracerEndpoints(casterTile, hitGrid, worldStart, worldEnd);
 				spawnTracer(worldStart, worldEnd, glm::ivec2((int)pendingShootArrowTargetTile.x, (int)pendingShootArrowTargetTile.y), ofColor(200, 180, 100), 5.0f);
 			}
 			pendingAttackRollResult = startDiceRoll(1, 6, PURPOSE_DAMAGE, "Shoot Arrow: Damage", currentPlayerIndex);
@@ -4510,22 +4371,8 @@ void ofApp::updateGame() {
 					return glm::vec3(wx, 0.0f, wz);
 				};
 
-				// compute caster-edge start so tracer originates from tile face (use face midpoint)
-				glm::vec2 startPointGrid = casterCenter;
-				glm::vec2 d2 = hitGrid - casterCenter;
-				if (glm::length(d2) > 1e-6f) {
-					glm::vec2 nd = glm::normalize(d2);
-					if (fabs(nd.x) >= fabs(nd.y)) {
-						startPointGrid = casterCenter + glm::vec2((nd.x > 0.0f) ? 0.5f : -0.5f, 0.0f);
-					} else {
-						startPointGrid = casterCenter + glm::vec2(0.0f, (nd.y > 0.0f) ? 0.5f : -0.5f);
-					}
-				}
-
-				glm::vec3 worldStart = gridFracToWorld(startPointGrid);
-				glm::vec3 worldEnd = gridFracToWorld(hitGrid);
-				worldStart.y += 0.6f;
-				worldEnd.y += 0.6f;
+				glm::vec3 worldStart, worldEnd;
+				computeTracerEndpoints(casterTile, hitGrid, worldStart, worldEnd);
 				spawnTracer(worldStart, worldEnd, glm::ivec2((int)pendingShootArrowTargetTile.x, (int)pendingShootArrowTargetTile.y), ofColor(200, 180, 100), 5.0f);
 			}
 			ofLogNotice("ShootArrow") << "Shoot Arrow fell short.";
@@ -4791,22 +4638,8 @@ void ofApp::updateGame() {
 					return glm::vec3(wx, 0.0f, wz);
 				};
 
-				// compute caster-edge start so tracer originates from tile face (use face midpoint)
-				glm::vec2 startPointGrid = casterCenter;
-				glm::vec2 d2 = hitGrid - casterCenter;
-				if (glm::length(d2) > 1e-6f) {
-					glm::vec2 nd = glm::normalize(d2);
-					if (fabs(nd.x) >= fabs(nd.y)) {
-						startPointGrid = casterCenter + glm::vec2((nd.x > 0.0f) ? 0.5f : -0.5f, 0.0f);
-					} else {
-						startPointGrid = casterCenter + glm::vec2(0.0f, (nd.y > 0.0f) ? 0.5f : -0.5f);
-					}
-				}
-
-				glm::vec3 worldStart = gridFracToWorld(startPointGrid);
-				glm::vec3 worldEnd = gridFracToWorld(hitGrid);
-				worldStart.y += 0.6f;
-				worldEnd.y += 0.6f;
+				glm::vec3 worldStart, worldEnd;
+				computeTracerEndpoints(casterTile, hitGrid, worldStart, worldEnd);
 				spawnTracer(worldStart, worldEnd, glm::ivec2((int)pendingChainLightningTargetTile.x, (int)pendingChainLightningTargetTile.y), ofColor(100, 255, 255), 5.0f);
 			}
 		} else {
@@ -4847,22 +4680,8 @@ void ofApp::updateGame() {
 					return glm::vec3(wx, 0.0f, wz);
 				};
 
-				// compute caster-edge start so tracer originates from tile face (use face midpoint)
-				glm::vec2 startPointGrid = casterCenter;
-				glm::vec2 d2 = hitGrid - casterCenter;
-				if (glm::length(d2) > 1e-6f) {
-					glm::vec2 nd = glm::normalize(d2);
-					if (fabs(nd.x) >= fabs(nd.y)) {
-						startPointGrid = casterCenter + glm::vec2((nd.x > 0.0f) ? 0.5f : -0.5f, 0.0f);
-					} else {
-						startPointGrid = casterCenter + glm::vec2(0.0f, (nd.y > 0.0f) ? 0.5f : -0.5f);
-					}
-				}
-
-				glm::vec3 worldStart = gridFracToWorld(startPointGrid);
-				glm::vec3 worldEnd = gridFracToWorld(hitGrid);
-				worldStart.y += 0.6f;
-				worldEnd.y += 0.6f;
+				glm::vec3 worldStart, worldEnd;
+				computeTracerEndpoints(casterTile, hitGrid, worldStart, worldEnd);
 				spawnTracer(worldStart, worldEnd, glm::ivec2((int)impactTile.x, (int)impactTile.y), ofColor(100, 255, 255), 5.0f);
 			}
 		}
@@ -9928,6 +9747,9 @@ void ofApp::drawGame() {
 			float viewCardHeight = baseCardHeight * viewCardScale;
 			float padding = 15.0f * (viewCardScale / 1.6f);
 			int gridWidthInCards = std::max(1, (int)floor((availableWidth - padding) / (viewCardWidth + padding)));
+			// Don't make more columns than there are cards — shrink panel to fit cards exactly
+			gridWidthInCards = std::min(gridWidthInCards, (int)cardsToShowInView.size());
+			if (gridWidthInCards <= 0) gridWidthInCards = 1;
 			int gridHeightInCards = ceil((float)cardsToShowInView.size() / gridWidthInCards);
 			float totalContentWidth = (gridWidthInCards * viewCardWidth) + ((gridWidthInCards - 1) * padding);
 			float totalContentHeight = (gridHeightInCards * viewCardHeight) + ((gridHeightInCards - 1) * padding);
@@ -10024,10 +9846,12 @@ void ofApp::drawGame() {
 		float viewCardHeight = baseCardHeight * viewCardScale;
 		float padding = 15.0f * (viewCardScale / 1.6f);
 
-		int gridWidthInCards = std::max(2, (int)floor((availableWidth - padding) / (viewCardWidth + padding)));
+		int gridWidthInCards = std::max(1, (int)floor((availableWidth - padding) / (viewCardWidth + padding)));
+		// Don't create more columns than cards we actually have
+		gridWidthInCards = std::min(gridWidthInCards, (int)amnesiaDeckCopy.size());
+		if (gridWidthInCards <= 0) gridWidthInCards = 1;
 
-		// CRITICAL FIX: The next line was likely missing or commented out in your file, causing the error.
-		int gridHeightInCards = ceil((float)amnesiaDeckCopy.size() / gridWidthInCards);
+		int gridHeightInCards = (int)ceil((float)amnesiaDeckCopy.size() / (float)gridWidthInCards);
 
 		float totalContentWidth = (gridWidthInCards * viewCardWidth) + ((gridWidthInCards - 1) * padding);
 		float totalContentHeight = (gridHeightInCards * viewCardHeight) + ((gridHeightInCards - 1) * padding);
@@ -13154,8 +12978,8 @@ void ofApp::mousePressed(int x, int y, int button) {
 			// Not this client's chooser - ignore clicks inside the selection UI
 			return;
 		}
-		float amnesiaCardWidth = 120;
-		float amnesiaCardHeight = amnesiaCardWidth * (585.0f / 409.0f);
+		float handBaseCardWidth = 120.0f;
+		float baseCardHeight = handBaseCardWidth * (585.0f / 409.0f);
 		float panelPadding = 20.0f;
 		float titleHeight = 60.0f;
 		float viewCardScale = 1.6f;
@@ -13163,8 +12987,8 @@ void ofApp::mousePressed(int x, int y, int button) {
 		float availableWidth = ofGetWidth() * 0.8f;
 
 		while (viewCardScale > 0.5f) {
-			float cardW = amnesiaCardWidth * viewCardScale;
-			float cardH = amnesiaCardHeight * viewCardScale;
+			float cardW = handBaseCardWidth * viewCardScale;
+			float cardH = baseCardHeight * viewCardScale;
 			float padding = 15.0f * (viewCardScale / 1.6f);
 			int cols = std::max(2, (int)floor((availableWidth - padding) / (cardW + padding)));
 			int rows = ceil((float)amnesiaDeckCopy.size() / cols);
@@ -13172,14 +12996,22 @@ void ofApp::mousePressed(int x, int y, int button) {
 			viewCardScale -= 0.1f;
 		}
 
-		float viewCardWidth = amnesiaCardWidth * viewCardScale;
-		float viewCardHeight = amnesiaCardHeight * viewCardScale;
+		float viewCardWidth = handBaseCardWidth * viewCardScale;
+		float viewCardHeight = baseCardHeight * viewCardScale;
 		float padding = 15.0f * (viewCardScale / 1.6f);
-		int gridWidthInCards = std::max(2, (int)floor((availableWidth - padding) / (viewCardWidth + padding)));
-		int gridHeightInCards = ceil((float)amnesiaDeckCopy.size() / gridWidthInCards);
+
+		// Match the draw layout: compute columns then cap to number of cards
+		int gridWidthInCards = std::max(1, (int)floor((availableWidth - padding) / (viewCardWidth + padding)));
+		// Don't create more columns than cards we actually have
+		gridWidthInCards = std::min(gridWidthInCards, (int)amnesiaDeckCopy.size());
+		if (gridWidthInCards <= 0) gridWidthInCards = 1;
+
+		int gridHeightInCards = (int)ceil((float)amnesiaDeckCopy.size() / (float)gridWidthInCards);
+
 		float totalContentWidth = (gridWidthInCards * viewCardWidth) + ((gridWidthInCards - 1) * padding);
+		float totalContentHeight = (gridHeightInCards * viewCardHeight) + ((gridHeightInCards - 1) * padding);
 		float panelWidth = totalContentWidth + 2 * panelPadding;
-		float panelHeight = (gridHeightInCards * (viewCardHeight + padding)) + titleHeight + 2 * panelPadding;
+		float panelHeight = totalContentHeight + titleHeight + 2 * panelPadding;
 		float panelX = ofGetWidth() / 2.0f - panelWidth / 2.0f;
 		float panelY = ofGetHeight() / 2.0f - panelHeight / 2.0f;
 
@@ -14159,10 +13991,10 @@ void ofApp::mousePressed(int x, int y, int button) {
 					? players[currentPlayerIndex].hand[cardIndex].cost
 					: 0;
 
-				// Require drag-release to play Form cards; disallow playing them via selection+click
+				// Require drag-release to play Form cards and Amnesia; disallow selection+click for them
 				if (cardIndex >= 0 && cardIndex < (int)players[currentPlayerIndex].hand.size()) {
 					CardType ct = players[currentPlayerIndex].hand[cardIndex].type;
-					if (ct == CARD_FORM_OF_TORTOISE || ct == CARD_FORM_OF_GHOST) {
+					if (ct == CARD_FORM_OF_TORTOISE || ct == CARD_FORM_OF_GHOST || ct == CARD_AMNESIA) {
 						spawnFloatingText(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y), "Drag out of hand to play", ofColor::yellow);
 						selectedCardIndex = -1;
 						calculateTargetHighlights();
@@ -14847,13 +14679,37 @@ void ofApp::mouseReleased(int x, int y, int button) {
 							return;
 						}
 
-						// --- C. AMNESIA: require select+click (disallow drag-release) ---
+						// --- C. AMNESIA: Enter targeting mode on drag-release ---
 						if (playedCard.type == CARD_AMNESIA) {
-							spawnFloatingText(gridToWorld(currentPlayer.x, currentPlayer.y), "Select card and click target to play", ofColor::yellow);
-							draggedCardIndex = -1;
+							// Start Amnesia targeting flow: player should click self or adjacent unit
+							pendingAmnesiaCardIndex = draggedCardIndex;
+							isTargetingAmnesia = true;
+							// Instruction: prompt player to choose a target
+							spawnFloatingText(gridToWorld(currentPlayer.x, currentPlayer.y), "Choose a target", ofColor::white);
+							draggedCardIndex = -1; // stop dragging
 							selectedCardIndex = -1;
-							calculateTargetHighlights();
-							return;
+							calculateTargetHighlights(pendingAmnesiaCardIndex);
+							// Ensure adjacent/self tiles are highlighted immediately for Amnesia
+							// (defensive: sometimes the general highlight calc can miss timing)
+							int px = currentPlayer.x;
+							int py = currentPlayer.y;
+							for (int dx = -1; dx <= 1; ++dx) {
+								for (int dy = -1; dy <= 1; ++dy) {
+									if (abs(dx) + abs(dy) > 1) continue; // only orthogonal + self
+									int nx = px + dx;
+									int ny = py + dy;
+									if (nx >= 0 && nx < BOARD_WIDTH && ny >= 0 && ny < BOARD_HEIGHT) {
+										// Mark previews only for self or adjacent units
+										if ((dx == 0 && dy == 0) || board[nx][ny].hasPlayer) {
+											if (!board[nx][ny].hasWall) {
+												board[nx][ny].isTargetPreview = true;
+												board[nx][ny].isTargetable = true;
+											}
+										}
+									}
+								}
+							}
+							return; // wait for target click
 						}
 
 						// --- D. TELEPORT: ROLL DICE FIRST, THEN TARGET ---
@@ -18076,6 +17932,9 @@ CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 			ofLogNotice("Render") << "Flat skeleton draw complete";
 			glUseProgram(prevProg2);
 		}
+		// Notify clients that a form is being entered (host authoritative)
+		if (isMultiplayer && isHost()) sendCardActionBegin(CARD_FORM_OF_TORTOISE, currentPlayerIndex, -1, -1, 0, 0, 0, 0, "Form of Tortoise");
+
 		// Consume AP and remove the form card from hand (keep it in-play via createCardDisplay)
 		currentAP -= costToPay;
 		if (cardIndex >= 0 && cardIndex < (int)currentPlayer.hand.size()) {
@@ -18144,6 +18003,9 @@ CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		ofLogNotice("Form of Ghost") << "Player " << currentPlayer.playerID << " entered ghost form.";
 
 		// 4. Handle "Keep in Play" (Do not add to played pile, just remove from hand)
+		// Notify clients that a form is being entered (host authoritative)
+		if (isMultiplayer && isHost()) sendCardActionBegin(CARD_FORM_OF_GHOST, currentPlayerIndex, -1, -1, 0, 0, 0, 0, "Form of Ghost");
+
 		currentAP -= costToPay;
 		currentPlayer.hand.erase(currentPlayer.hand.begin() + cardIndex);
 		createCardDisplay(playedCard, currentPlayerIndex);
@@ -19457,14 +19319,11 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 
 			case TARGET_ADJACENT_OR_SELF_UNIT: {
 				int distGrid = abs(x - px) + abs(y - py);
-				if (isTargetingAmnesia) {
-					if (distGrid == 1 && board[x][y].hasPlayer && !board[x][y].hasWall) {
-						isPreview = true;
-						isValidTarget = true;
-					}
-				} else {
-					if (distGrid == 0 || distGrid == 1) {
-						if (board[x][y].hasPlayer && !board[x][y].hasWall) {
+				// Amnesia allows targeting self or adjacent units. Ensure self (dist 0)
+				// is treated the same when amnesia targeting is active.
+				if (distGrid == 0 || distGrid == 1) {
+					if (board[x][y].hasPlayer || (distGrid == 0)) {
+						if (!board[x][y].hasWall) {
 							isPreview = true;
 							isValidTarget = true;
 						}
@@ -20712,6 +20571,37 @@ void ofApp::spawnTracer(glm::vec3 start, glm::vec3 end, glm::ivec2 impactTile, o
 	}
 
 	activeTracers.push_back(t);
+}
+
+// Compute tracer endpoints: start at caster tile face midpoint toward target,
+// end at the center of the impacted tile (always the tile center in world coords).
+void ofApp::computeTracerEndpoints(glm::vec2 casterTile, glm::vec2 hitGridFrac, glm::vec3 & outStart, glm::vec3 & outEnd) {
+	// casterTile is integer grid coords (tile indices)
+	glm::vec2 casterCenter = casterTile + glm::vec2(0.5f, 0.5f);
+
+	// World center of caster tile (respect camera flip)
+	glm::vec3 worldCasterCenter = transformGridToWorld((int)casterTile.x, (int)casterTile.y);
+
+	// Determine dominant face direction toward hitGridFrac (choose face midpoint on caster tile)
+	glm::vec2 d = hitGridFrac - casterCenter;
+	float ox = 0.0f, oz = 0.0f;
+	if (glm::length(d) > 1e-6f) {
+		glm::vec2 nd = glm::normalize(d);
+		if (fabs(nd.x) >= fabs(nd.y))
+			ox = (nd.x > 0.0f) ? (TILE_SIZE * 0.5f) : (-TILE_SIZE * 0.5f);
+		else
+			oz = (nd.y > 0.0f) ? (TILE_SIZE * 0.5f) : (-TILE_SIZE * 0.5f);
+	}
+
+	outStart = worldCasterCenter + glm::vec3(ox, 0.6f, oz);
+
+	// Ensure tracer ALWAYS ends at the exact center of the impacted tile
+	int tx = (int)floor(hitGridFrac.x);
+	int ty = (int)floor(hitGridFrac.y);
+	tx = std::clamp(tx, 0, BOARD_WIDTH - 1);
+	ty = std::clamp(ty, 0, BOARD_HEIGHT - 1);
+	glm::vec3 worldTargetCenter = transformGridToWorld(tx, ty);
+	outEnd = glm::vec3(worldTargetCenter.x, 0.6f, worldTargetCenter.z);
 }
 
 //--------------------------------------------------------------

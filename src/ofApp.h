@@ -1030,6 +1030,10 @@ private:
 	// Spawn a tracer line from world-space start -> end and highlight impact tile
 	void spawnTracer(glm::vec3 start, glm::vec3 end, glm::ivec2 impactTile, ofColor color, float duration = 5.0f);
 
+	// Compute tracer world-space endpoints such that tracer starts at the caster's
+	// closest face midpoint and ends at the center of the hit grid fraction.
+	void computeTracerEndpoints(glm::vec2 casterTile, glm::vec2 hitGridFrac, glm::vec3 & outStart, glm::vec3 & outEnd);
+
 	// --- KEY ANIMATION (Floating Key on Floor) ---
 	std::vector<ofTexture> keyTextures; // loaded from Board/keys_1_*.png
 	std::vector<ofTexture> keyTexturesSilver; // loaded from Board/keys_2_*.png
