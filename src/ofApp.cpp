@@ -41,29 +41,35 @@ void ofApp::checkKeyPickupAndDraftAfterSummon(int x, int y, int minionOwnerID) {
 				classToDraft = 3;
 			// Find owner index (must be a non-minion player)
 			int ownerIndex = -1;
+			int minionIndex = -1;
 			for (int p = 0; p < (int)players.size(); ++p) {
 				if (players[p].playerID == minionOwnerID && !players[p].isMinion) {
 					ownerIndex = p;
-					break;
+				}
+				// Also detect a minion at this world position - that minion should receive the draft
+				if (players[p].isMinion && players[p].x == x && players[p].y == y) {
+					minionIndex = p;
 				}
 			}
-			if (ownerIndex != -1) {
+			if (ownerIndex != -1 || minionIndex != -1) {
 				// Host still notifies clients immediately, but delay opening the draft UI until
 				// the summoned minion's health/UI are visible (one-frame delay).
 				if (isHost()) {
 					KeyPickupPacket kpkt = {};
 					kpkt.type = PKT_KEY_PICKUP;
 					kpkt.playerID = myLocalPlayerID;
-					kpkt.playerIndex = ownerIndex;
+					// Send the target playerIndex as the minion index if present, otherwise the owner index
+					kpkt.playerIndex = (minionIndex != -1) ? minionIndex : ownerIndex;
 					kpkt.classTier = classToDraft;
 					kpkt.keyX = x;
 					kpkt.keyY = y;
 					steamManager.sendPacket(&kpkt, sizeof(kpkt));
-					ofLogNotice("Network") << "Host sent KeyPickup (summon): player=" << ownerIndex << " class=" << classToDraft;
+					ofLogNotice("Network") << "Host sent KeyPickup (summon): player=" << kpkt.playerIndex << " class=" << classToDraft;
 				}
 				// Schedule draft to run after the minion HP/UI are visible
 				pendingKeyDraftAccept = true;
-				pendingKeyDraftPlayer = ownerIndex;
+				// Draft should target the minion that picked up the key if available
+				pendingKeyDraftPlayer = (minionIndex != -1) ? minionIndex : ownerIndex;
 				pendingKeyDraftClass = classToDraft;
 				pendingKeyDraftTriggerTime = ofGetElapsedTimef();
 				// Color by key set: 1=gold, 2=silver, 3=bronze
@@ -19754,47 +19760,57 @@ void ofApp::invalidateTargetCache() {
 
 // Apply nearest filtering and pixel-art related settings to textures and FBOs
 void ofApp::applyPixelArtSettings() {
-	// Set nearest filtering for model and board textures
-	auto setNearestIfAllocatedTex = [&](ofTexture & t) {
-		if (t.isAllocated()) t.setTextureMinMagFilter(GL_NEAREST, GL_NEAREST);
+	// Set nearest filtering for pixel-art mode, otherwise restore linear filtering
+	auto setFilterIfAllocatedTex = [&](ofTexture & t, GLint minf, GLint magf) {
+		if (t.isAllocated()) t.setTextureMinMagFilter(minf, magf);
 	};
-	auto setNearestIfAllocatedImg = [&](ofImage & img) {
-		if (img.isAllocated()) img.getTexture().setTextureMinMagFilter(GL_NEAREST, GL_NEAREST);
+	auto setFilterIfAllocatedImg = [&](ofImage & img, GLint minf, GLint magf) {
+		if (img.isAllocated()) img.getTexture().setTextureMinMagFilter(minf, magf);
 	};
 
-	setNearestIfAllocatedTex(playerTexture);
-	setNearestIfAllocatedTex(skeletonTexture);
-	setNearestIfAllocatedTex(wolfBodyTex);
-	setNearestIfAllocatedTex(wolfFaceTex);
-	setNearestIfAllocatedTex(wolfFurTex);
-	setNearestIfAllocatedTex(golemTexBase);
-	setNearestIfAllocatedTex(golemTexRock);
-	setNearestIfAllocatedTex(golemTexFire);
-	setNearestIfAllocatedTex(golemTexElectric);
-	setNearestIfAllocatedTex(tortoiseTexture);
-	setNearestIfAllocatedTex(ghostBaseTex);
-	setNearestIfAllocatedTex(koboldKingTexture);
-	setNearestIfAllocatedTex(wallTexture);
-	setNearestIfAllocatedTex(wallUnitTexture);
-	setNearestIfAllocatedTex(roomTexture);
+	const GLint minFilter = (enablePixelArt ? GL_NEAREST : GL_LINEAR);
+	const GLint magFilter = (enablePixelArt ? GL_NEAREST : GL_LINEAR);
+
+	setFilterIfAllocatedTex(playerTexture, minFilter, magFilter);
+	setFilterIfAllocatedTex(skeletonTexture, minFilter, magFilter);
+	setFilterIfAllocatedTex(wolfBodyTex, minFilter, magFilter);
+	setFilterIfAllocatedTex(wolfFaceTex, minFilter, magFilter);
+	setFilterIfAllocatedTex(wolfFurTex, minFilter, magFilter);
+	setFilterIfAllocatedTex(golemTexBase, minFilter, magFilter);
+	setFilterIfAllocatedTex(golemTexRock, minFilter, magFilter);
+	setFilterIfAllocatedTex(golemTexFire, minFilter, magFilter);
+	setFilterIfAllocatedTex(golemTexElectric, minFilter, magFilter);
+	setFilterIfAllocatedTex(tortoiseTexture, minFilter, magFilter);
+	setFilterIfAllocatedTex(ghostBaseTex, minFilter, magFilter);
+	setFilterIfAllocatedTex(koboldKingTexture, minFilter, magFilter);
+	setFilterIfAllocatedTex(wallTexture, minFilter, magFilter);
+	setFilterIfAllocatedTex(wallUnitTexture, minFilter, magFilter);
+	setFilterIfAllocatedTex(roomTexture, minFilter, magFilter);
 
 	for (auto & ft : floorTextures)
-		setNearestIfAllocatedTex(ft);
+		setFilterIfAllocatedTex(ft, minFilter, magFilter);
 	for (auto & kt : keyTextures)
-		setNearestIfAllocatedTex(kt);
+		setFilterIfAllocatedTex(kt, minFilter, magFilter);
+
+	// Ensure world FBO texture sampling is restored when disabling pixel art
+	if (worldFbo.isAllocated())
+		worldFbo.getTexture().setTextureMinMagFilter(minFilter, magFilter);
+	if (pixelLowFbo.isAllocated())
+		pixelLowFbo.getTexture().setTextureMinMagFilter(minFilter, magFilter);
+
+	for (auto & ft : floorTextures)
+		setFilterIfAllocatedTex(ft, minFilter, magFilter);
+	for (auto & kt : keyTextures)
+		setFilterIfAllocatedTex(kt, minFilter, magFilter);
 	for (auto & kt : keyTexturesSilver)
-		setNearestIfAllocatedTex(kt);
+		setFilterIfAllocatedTex(kt, minFilter, magFilter);
 	for (auto & kt : keyTexturesBronze)
-		setNearestIfAllocatedTex(kt);
+		setFilterIfAllocatedTex(kt, minFilter, magFilter);
 
-	if (cardSpriteSheet.isAllocated()) cardSpriteSheet.getTexture().setTextureMinMagFilter(GL_NEAREST, GL_NEAREST);
-	if (cardBackImage.isAllocated()) cardBackImage.getTexture().setTextureMinMagFilter(GL_NEAREST, GL_NEAREST);
-	if (shadowTexture.isAllocated()) shadowTexture.getTexture().setTextureMinMagFilter(GL_NEAREST, GL_NEAREST);
-	if (fireTexture.isAllocated()) fireTexture.getTexture().setTextureMinMagFilter(GL_NEAREST, GL_NEAREST);
-
-	// Ensure our low-res FBO uses nearest sampling
-	if (pixelLowFbo.isAllocated()) pixelLowFbo.getTexture().setTextureMinMagFilter(GL_NEAREST, GL_NEAREST);
-	if (worldFbo.isAllocated()) worldFbo.getTexture().setTextureMinMagFilter(GL_NEAREST, GL_NEAREST);
+	if (cardSpriteSheet.isAllocated()) cardSpriteSheet.getTexture().setTextureMinMagFilter(minFilter, magFilter);
+	if (cardBackImage.isAllocated()) cardBackImage.getTexture().setTextureMinMagFilter(minFilter, magFilter);
+	if (shadowTexture.isAllocated()) shadowTexture.getTexture().setTextureMinMagFilter(minFilter, magFilter);
+	if (fireTexture.isAllocated()) fireTexture.getTexture().setTextureMinMagFilter(minFilter, magFilter);
 
 	// Optionally adjust material settings to reduce specular for pixel-art
 	modelMaterial.setShininess(2.0f);
