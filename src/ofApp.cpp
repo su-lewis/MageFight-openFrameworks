@@ -1662,7 +1662,17 @@ void ofApp::update() {
 void ofApp::startShuffleVisual(int playerIndex) {
 	ShuffleAnimation a;
 	a.playerIndex = playerIndex;
-	a.deckRect = (playerIndex == 0) ? p0_deckRect : p1_deckRect;
+	// Only show the visual shuffle for the two main player decks here.
+	// Minions create their own ShuffleAnimation with a correct `deckRect`.
+	if (playerIndex == 0) {
+		a.deckRect = p0_deckRect;
+	} else if (playerIndex == 1) {
+		a.deckRect = p1_deckRect;
+	} else {
+		// Don't enqueue a generic shuffle visual for non-player actors
+		// (minions already spawn their own visual when appropriate).
+		return;
+	}
 	a.startTime = ofGetElapsedTimef();
 	a.duration = 0.9f;
 	a.currentAlpha = 255.0f;
@@ -3678,15 +3688,21 @@ void ofApp::updateGame() {
 
 				// compute caster-edge start so tracer originates from tile face (use face midpoint)
 				glm::vec2 startPointGrid = casterCenter;
-				glm::vec2 d2 = hitGrid - casterCenter;
-				if (glm::length(d2) > 1e-6f) {
-					glm::vec2 nd = glm::normalize(d2);
-					if (fabs(nd.x) >= fabs(nd.y)) {
-						startPointGrid = casterCenter + glm::vec2((nd.x > 0.0f) ? 0.5f : -0.5f, 0.0f);
-					} else {
-						startPointGrid = casterCenter + glm::vec2(0.0f, (nd.y > 0.0f) ? 0.5f : -0.5f);
+				// Choose the face midpoint closest to the target hit point. This is
+				// more robust than comparing normalized components and matches the
+				// expected "closest face" behavior.
+				glm::vec2 faceOffsets[4] = { glm::vec2(0.5f, 0.0f), glm::vec2(-0.5f, 0.0f), glm::vec2(0.0f, 0.5f), glm::vec2(0.0f, -0.5f) };
+				float bestDist = 1e30f;
+				glm::vec2 bestOffset = faceOffsets[0];
+				for (int fo = 0; fo < 4; ++fo) {
+					glm::vec2 candidate = casterCenter + faceOffsets[fo];
+					float d = glm::distance(candidate, hitGrid);
+					if (d < bestDist) {
+						bestDist = d;
+						bestOffset = faceOffsets[fo];
 					}
 				}
+				startPointGrid = casterCenter + bestOffset;
 
 				glm::vec3 worldStart = gridFracToWorld(startPointGrid);
 				glm::vec3 worldEnd = gridFracToWorld(hitGrid);
@@ -6536,11 +6552,13 @@ void ofApp::updateGame() {
 	// Remove units instantly if they have 0 HP or no cards anywhere (deck+discard+hand)
 	std::vector<int> removeIndices;
 	for (size_t i = 0; i < players.size(); ++i) {
-		bool noCards = players[i].deck.empty() && players[i].discardPile.empty() && players[i].hand.empty();
+		// Consider played cards as well when deciding "no cards" for main players.
+		bool noCards = players[i].deck.empty() && players[i].discardPile.empty() && players[i].hand.empty() && players[i].playedCardsPile.empty();
 		bool shouldDie = (players[i].health <= 0);
 
-		// The "no cards" rule should only apply to main players, not minions.
-		if (!players[i].isMinion && noCards) {
+		// If a unit (player or minion) truly has no cards anywhere (deck,
+		// discard, hand, or played pile), they should be removed.
+		if (noCards) {
 			shouldDie = true;
 		}
 
@@ -13218,6 +13236,37 @@ void ofApp::mousePressed(int x, int y, int button) {
 								}
 							}
 							steamManager.sendPacket(&pkt, sizeof(pkt));
+							// Ensure the caster's Amnesia card was consumed and AP deducted.
+							if (amnesiaChooserPlayerID != -1) {
+								int chooserIdx = findPlayerIndexByID(amnesiaChooserPlayerID);
+								if (chooserIdx >= 0 && chooserIdx < (int)players.size()) {
+									Player & chooser = players[chooserIdx];
+									for (int hi = 0; hi < (int)chooser.hand.size(); ++hi) {
+										if (chooser.hand[hi].type == CARD_AMNESIA) {
+											Card amCard = chooser.hand[hi];
+											int amCost = amCard.cost;
+											chooser.playedCardsPile.push_back(amCard);
+											if (chooser.isReplicatePending) {
+												chooser.playedCardsPile.push_back(amCard);
+												chooser.isReplicatePending = false;
+											}
+											chooser.hand.erase(chooser.hand.begin() + hi);
+											// Adjust AP for chooser (currentAP if they're current player)
+											if (chooserIdx == currentPlayerIndex) {
+												currentAP -= amCost;
+												if (currentAP < 0) currentAP = 0;
+												players[currentPlayerIndex].ap = currentAP;
+											} else {
+												players[chooserIdx].ap -= amCost;
+												if (players[chooserIdx].ap < 0) players[chooserIdx].ap = 0;
+											}
+											// Notify opponents of the play (best-effort)
+											if (isMultiplayer) sendActionPacket(hi, -1, -1, amCost, 0, amCard.name);
+											break;
+										}
+									}
+								}
+							}
 						} else {
 							// client: send selection to host and wait for authoritative update
 							steamManager.sendPacket(&pkt, sizeof(pkt));
@@ -13245,6 +13294,35 @@ void ofApp::mousePressed(int x, int y, int button) {
 									anim.startTime = ofGetElapsedTimef();
 									activeRemovedCardAnimations.push_back(anim);
 									targetPlayer->deck.erase(targetPlayer->deck.begin() + selectedIdx);
+								}
+							}
+						}
+						// Ensure the caster's Amnesia card was consumed and AP deducted (singleplayer)
+						if (amnesiaChooserPlayerID != -1) {
+							int chooserIdx = findPlayerIndexByID(amnesiaChooserPlayerID);
+							if (chooserIdx >= 0 && chooserIdx < (int)players.size()) {
+								Player & chooser = players[chooserIdx];
+								for (int hi = 0; hi < (int)chooser.hand.size(); ++hi) {
+									if (chooser.hand[hi].type == CARD_AMNESIA) {
+										Card amCard = chooser.hand[hi];
+										int amCost = amCard.cost;
+										chooser.playedCardsPile.push_back(amCard);
+										if (chooser.isReplicatePending) {
+											chooser.playedCardsPile.push_back(amCard);
+											chooser.isReplicatePending = false;
+										}
+										chooser.hand.erase(chooser.hand.begin() + hi);
+										// Adjust AP for chooser (currentAP if they're current player)
+										if (chooserIdx == currentPlayerIndex) {
+											currentAP -= amCost;
+											if (currentAP < 0) currentAP = 0;
+											players[currentPlayerIndex].ap = currentAP;
+										} else {
+											players[chooserIdx].ap -= amCost;
+											if (players[chooserIdx].ap < 0) players[chooserIdx].ap = 0;
+										}
+										break;
+									}
 								}
 							}
 						}
@@ -14080,6 +14158,17 @@ void ofApp::mousePressed(int x, int y, int button) {
 				int cost = (cardIndex >= 0 && cardIndex < (int)players[currentPlayerIndex].hand.size())
 					? players[currentPlayerIndex].hand[cardIndex].cost
 					: 0;
+
+				// Require drag-release to play Form cards; disallow playing them via selection+click
+				if (cardIndex >= 0 && cardIndex < (int)players[currentPlayerIndex].hand.size()) {
+					CardType ct = players[currentPlayerIndex].hand[cardIndex].type;
+					if (ct == CARD_FORM_OF_TORTOISE || ct == CARD_FORM_OF_GHOST) {
+						spawnFloatingText(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y), "Drag out of hand to play", ofColor::yellow);
+						selectedCardIndex = -1;
+						calculateTargetHighlights();
+						return;
+					}
+				}
 				CardPlayResult result = playCard(cardIndex, gridX, gridY);
 				if (isMultiplayer && result == CARD_PLAYED_IMMEDIATELY) {
 					players[currentPlayerIndex].ap = currentAP;
@@ -14758,20 +14847,12 @@ void ofApp::mouseReleased(int x, int y, int button) {
 							return;
 						}
 
-						// --- C. AMNESIA: SHOW MENU (Self vs Adjacent) ---
+						// --- C. AMNESIA: require select+click (disallow drag-release) ---
 						if (playedCard.type == CARD_AMNESIA) {
-							pendingAmnesiaCardIndex = draggedCardIndex;
-							isAmnesiaMenuOpen = true;
-							// Setup UI Geometry
-							float w = 500, h = 250;
-							float mx = ofGetWidth() / 2 - w / 2, my = ofGetHeight() / 2 - h / 2;
-							amnesiaMenuRect.set(mx, my, w, h);
-							float btnW = 200, btnH = 80;
-							float spacing = 40;
-							amnesiaBtnSelf.set(mx + (w - (btnW * 2 + spacing)) / 2, my + 120, btnW, btnH);
-							amnesiaBtnAdjacent.set(amnesiaBtnSelf.getRight() + spacing, my + 120, btnW, btnH);
+							spawnFloatingText(gridToWorld(currentPlayer.x, currentPlayer.y), "Select card and click target to play", ofColor::yellow);
 							draggedCardIndex = -1;
 							selectedCardIndex = -1;
+							calculateTargetHighlights();
 							return;
 						}
 
@@ -17995,7 +18076,14 @@ CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 			ofLogNotice("Render") << "Flat skeleton draw complete";
 			glUseProgram(prevProg2);
 		}
+		// Consume AP and remove the form card from hand (keep it in-play via createCardDisplay)
+		currentAP -= costToPay;
+		if (cardIndex >= 0 && cardIndex < (int)currentPlayer.hand.size()) {
+			currentPlayer.hand.erase(currentPlayer.hand.begin() + cardIndex);
+		}
+		createCardDisplay(playedCard, currentPlayerIndex);
 		invalidateTargetCache();
+		// Track play history
 		currentPlayer.cardsPlayedThisTurn.push_back(playedCard.type);
 		if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) players[currentPlayerIndex].ap = currentAP;
 		return CARD_PLAYED_IMMEDIATELY; // Skip normal cleanup since we handled AP and removal

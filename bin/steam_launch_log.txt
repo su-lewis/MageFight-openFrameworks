@@ -1,6 +1,6 @@
 ERROR: ld.so: object '/usr/lib/extest/libextest.so' from LD_PRELOAD cannot be preloaded (cannot open shared object file): ignored.
 ERROR: ld.so: object '/var/home/lewis/.local/share/Steam/ubuntu12_32/gameoverlayrenderer.so' from LD_PRELOAD cannot be preloaded (wrong ELF class: ELFCLASS32): ignored.
---- Launching MageFight at Fri Feb 27 19:29:51 GMT 2026 ---
+--- Launching MageFight at Sat Feb 28 00:50:50 GMT 2026 ---
 Script directory: /home/lewis/of_workspace/openFrameworks/apps/myApps/MageFight/bin
 Original LD_PRELOAD=/usr/lib/extest/libextest.so:/var/home/lewis/.local/share/Steam/ubuntu12_32/gameoverlayrenderer.so:/var/home/lewis/.local/share/Steam/ubuntu12_64/gameoverlayrenderer.so
 Dropping missing LD_PRELOAD entry: /usr/lib/extest/libextest.so
@@ -92,35 +92,45 @@ SteamInternal_SetMinidumpSteamID:  Caching Steam ID:  76561198261715869 [API loa
 [notice ] Power: Singleplayer suspended: window inactive. Audio muted and game logic paused.
 [notice ] Power: Singleplayer resumed: window active. Audio restored and game logic will continue.
 [notice ] Network: DEBUG: Still in STATE_MAIN_MENU. hasOpponent()=0 isMultiplayer=0 isHost=0
-[notice ] Steam: Requesting Lobby Creation...
-[notice ] Steam: Lobby Created. Creating Listen Socket...
-[notice ] Steam: Incoming Connection Request...
-[notice ] Steam: Accepted Connection!
-[notice ] Network: DEBUG: hasOpponent() is true, currentState=0
-[notice ] Network: Host: Opponent found. Starting game & sending seed.
-[notice ] Setup: Host generated seed: 1772220674 platform=Linux
-[notice ] Setup: Host sending handshake: type=0 playerID=0 seq=0 seed=1772220674 platform=Linux
-[notice ] Game: Host: waiting for client ready signal before starting initiative.
-[notice ] Steam: Connection Fully Active!
-[notice ] Steam: Opponent ID: 76561198743068920
-[notice ] NetTrace: RECV raw size=8
-[notice ] NetTrace: processNetworkPackets: queueSize=1
-[notice ] Network: Host: Received Seed Request. Resending Seed: 1772220674
-[notice ] NetTrace: RECV pkt type=1 seq=1 size=10
-[notice ] NetTrace: processNetworkPackets: queueSize=1
-[notice ] Network: ClientReady received from playerID=1
-[notice ] Network: All clients ready - starting initiative phase.
-[notice ] Network: Skipping DiceRollPacket send for purpose=4 (handled authoritatively).
-[notice ] Dice: Final total result for 1d6: 4
-[notice ] Network: Skipping DiceRollPacket send for purpose=4 (handled authoritatively).
+[notice ] Setup: Singleplayer generated seed: 1772239863
+[notice ] Dice: Final total result for 1d6: 3
 [notice ] Dice: Final total result for 1d6: 1
 [notice ] Game: --- INITIATIVE ROLL STARTED ---
 [notice ] Post: World post-process branch executed (shader active).
+[notice ] C64: enableC64Shader=true
+[notice ] C64: enableC64Shader=false
+[notice ] C64: enableC64Shader=true
+[notice ] C64: enableC64Shader=false
+[notice ] PixelArt: enablePixelArt=1
+[notice ] PixelArt: Low-res FBO summary: size=853x480 avgRGB=(28,27,29)
+[notice ] PixelArt: Pixel-art post-process branch executed (shader active).
+[notice ] PixelArt: enablePixelArt=0
 [notice ] Initiative: Player 1 goes first
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=0 stage=0) names=Flame Hit, Dispel, Summon Wall
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=0 stage=0) names=Flame Hit, Dispel, Summon Wall
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=0 stage=0) names=Flame Hit, Dispel, Summon Wall
-[notice ] Draft: drawDraftScreen: drawing 3 options (player=0 stage=0) names=Flame Hit, Dispel, Summon Wall
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=0 stage=0) names=Study, Mind Theft, Punch
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=0 stage=0) names=Study, Mind Theft, Punch
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=0 stage=0) names=Study, Mind Theft, Punch
+[notice ] Draft: DRAFT CLICK: mousePos=(1354,756) selections=0 required=2 inGameDraft=0 draftStage=0 acceptRect=(1133.33,1200,293.333,80)
+[notice ] Draft: DRAFT CLICK: mousePos=(1665,924) selections=1 required=2 inGameDraft=0 draftStage=0 acceptRect=(1133.33,1200,293.333,80)
+[notice ] Draft: DRAFT CLICK: mousePos=(1302,1212) selections=2 required=2 inGameDraft=0 draftStage=0 acceptRect=(1133.33,1200,293.333,80)
+[notice ] Draft: ACCEPT BUTTON CLICKED: selections=2 required=2
+[notice ] DraftDebug: Attempting Accept: localIdx=0 myLocalPlayerID=0 draftPlayerIndex=0 draftPlayerID=0 selected=2 required=2 waitingForDraftOptions=0 draftAcceptLocked=0
+[notice ] DraftDebug: drawDraftScreen: called but draftOptions.empty() currentState=5 draftPlayerIndex=0 localIdx=0 myLocalPlayerID=0 waitingForDraftOptions=0
+[notice ] DraftDebug: drawDraftScreen: called but draftOptions.empty() currentState=5 draftPlayerIndex=0 localIdx=0 myLocalPlayerID=0 waitingForDraftOptions=0
+[notice ] Draft: DRAFT CLICK IGNORED: accept already sent.
+[notice ] Game: --- GAME SESSION CLEANED UP ---
+[notice ] Draft: DRAFT CLICK: mousePos=(1339,980) selections=0 required=1 inGameDraft=0 draftStage=1 acceptRect=(1133.33,1200,293.333,80)
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=0 stage=1) names=Raise Dead, Call for Kobolds, Fortify
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=0 stage=1) names=Raise Dead, Call for Kobolds, Fortify
+[notice ] Draft: DRAFT CLICK: mousePos=(1281,1261) selections=1 required=1 inGameDraft=0 draftStage=1 acceptRect=(1133.33,1200,293.333,80)
+[notice ] Draft: ACCEPT BUTTON CLICKED: selections=1 required=1
+[notice ] DraftDebug: Attempting Accept: localIdx=-1 myLocalPlayerID=0 draftPlayerIndex=0 draftPlayerID=-1 selected=1 required=1 waitingForDraftOptions=0 draftAcceptLocked=0
+[ error ] Draft: ACCEPT: invalid draftPlayerIndex=0. Aborting accept to avoid crash.
+[notice ] Draft: DRAFT CLICK: mousePos=(1296,1239) selections=1 required=1 inGameDraft=0 draftStage=1 acceptRect=(1133.33,1200,293.333,80)
+[notice ] Draft: ACCEPT BUTTON CLICKED: selections=1 required=1
+[notice ] DraftDebug: Attempting Accept: localIdx=-1 myLocalPlayerID=0 draftPlayerIndex=0 draftPlayerID=-1 selected=1 required=1 waitingForDraftOptions=0 draftAcceptLocked=0
+[ error ] Draft: ACCEPT: invalid draftPlayerIndex=0. Aborting accept to avoid crash.
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=0 stage=1) names=Raise Dead, Call for Kobolds, Fortify
+[notice ] Game: --- GAME SESSION CLEANED UP ---
 [notice ] Settings: Saved settings to Config/settings.json
 [notice ] SteamManager: Steam API Shutdown.
 [S_API FAIL] Tried to access Steam interface SteamNetworkingSockets012 before SteamAPI_Init succeeded.
