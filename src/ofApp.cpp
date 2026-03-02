@@ -451,6 +451,9 @@ void ofApp::setup() {
 
 	cardBackImage.load("UI/card_back.png");
 	cardSpriteSheet.load("UI/TTS_Sheet.png");
+	// Pixel-art UI assets: use nearest filtering to keep them crisp when scaled
+	if (cardBackImage.isAllocated()) cardBackImage.getTexture().setTextureMinMagFilter(GL_NEAREST, GL_NEAREST);
+	if (cardSpriteSheet.isAllocated()) cardSpriteSheet.getTexture().setTextureMinMagFilter(GL_NEAREST, GL_NEAREST);
 
 	// Load main menu music (data path: bin/data/Sounds/Music/...)
 	mainMenuMusic.load("Sounds/Music/591981__fromlorenzo__the-last-standing-warrior.wav");
@@ -1142,6 +1145,13 @@ void ofApp::setup() {
 	// Set initial cursor
 	GLFWwindow * window = (GLFWwindow *)ofGetWindowPtr()->getWindowContext();
 	if (glfwArrow) glfwSetCursor(window, glfwArrow);
+
+	// Ensure the GLFW swap interval is set to 1 to enable vsync at the GL level
+	if (window) {
+		// Make sure the context is current before calling glfwSwapInterval
+		glfwMakeContextCurrent(window);
+		glfwSwapInterval(1);
+	}
 }
 //--------------------------------------------------------------
 Player * ofApp::getPlayer(int index) {
@@ -2337,6 +2347,12 @@ void ofApp::allocateWorldFbo(int w, int h) {
 	if (!worldFbo.isAllocated()) {
 		ofLogWarning("FBO") << "worldFbo failed to allocate at " << w << "x" << h;
 	} else {
+		// Use nearest sampling for the world FBO so pixel-art textures (walls/keys)
+		// remain crisp when the FBO is scaled/drawn to the screen.
+		if (worldFbo.getTexture().isAllocated()) {
+			worldFbo.getTexture().setTextureMinMagFilter(GL_NEAREST, GL_NEAREST);
+		}
+
 		ofLogNotice("FBO") << "worldFbo allocated " << w << "x" << h;
 	}
 }
@@ -15005,6 +15021,74 @@ void ofApp::keyPressed(int key) {
 		return;
 	}
 
+	// Handle Card Spawner text input (krunner-style search) - processed early
+	if (isCardSpawnerOpen && !isCardEncyclopediaOpen) {
+		if (key == OF_KEY_RETURN) {
+			// Add the first matching card (or exact match)
+			if (!filteredCards.empty()) {
+				for (int q = 0; q < cardSpawnerQuantity; q++) {
+					players[currentPlayerIndex].hand.push_back(filteredCards[0]);
+					players[currentPlayerIndex].hand.back().currentPos = ofVec2f(ofGetWidth() / 2, 0);
+					players[currentPlayerIndex].hand.back().currentScale = 1.5f;
+					players[currentPlayerIndex].hand.back().targetScale = 1.5f;
+				}
+				spawnFloatingText(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y),
+					"+" + ofToString(cardSpawnerQuantity) + "x " + filteredCards[0].name, ofColor::cyan);
+
+				// Sync spawned cards with opponent. Host will send an authoritative
+				// snapshot so clients receive the full game state; avoid ad-hoc DrawCards
+				// packets here which can cause hand/order mismatches.
+				if (isMultiplayer && isHost()) {
+					sendSnapshotToClient();
+					ofLogNotice("Debug") << "Card Spawner: Host sent snapshot to clients.";
+				}
+				isCardSpawnerOpen = false;
+			}
+		} else if (key == OF_KEY_BACKSPACE) {
+			if (!cardSpawnerInput.empty()) {
+				cardSpawnerInput = cardSpawnerInput.substr(0, cardSpawnerInput.size() - 1);
+				// Update filtered cards
+				filteredCards.clear();
+				if (!cardSpawnerInput.empty()) {
+					std::string lowerInput = ofToLower(cardSpawnerInput);
+					for (const auto & card : allCards) {
+						if (ofToLower(card.name).find(lowerInput) != std::string::npos) {
+							filteredCards.push_back(card);
+						}
+					}
+					// Sort by how early the match appears
+					std::sort(filteredCards.begin(), filteredCards.end(), [&lowerInput](const Card & a, const Card & b) {
+						size_t posA = ofToLower(a.name).find(lowerInput);
+						size_t posB = ofToLower(b.name).find(lowerInput);
+						if (posA != posB) return posA < posB;
+						return a.name < b.name;
+					});
+				}
+			}
+		} else if (key == OF_KEY_ESC) {
+			isCardSpawnerOpen = false;
+		} else if (key >= 32 && key <= 126) {
+			// Printable ASCII characters
+			cardSpawnerInput += (char)key;
+			// Update filtered cards
+			filteredCards.clear();
+			std::string lowerInput = ofToLower(cardSpawnerInput);
+			for (const auto & card : allCards) {
+				if (ofToLower(card.name).find(lowerInput) != std::string::npos) {
+					filteredCards.push_back(card);
+				}
+			}
+			// Sort by how early the match appears
+			std::sort(filteredCards.begin(), filteredCards.end(), [&lowerInput](const Card & a, const Card & b) {
+				size_t posA = ofToLower(a.name).find(lowerInput);
+				size_t posB = ofToLower(b.name).find(lowerInput);
+				if (posA != posB) return posA < posB;
+				return a.name < b.name;
+			});
+		}
+		return; // Consume all keys when spawner is open
+	}
+
 	// Toggle default shaders on/off (O). When enabling, turn other shader modes off.
 	if (key == 'o' || key == 'O') {
 		enableShaders = !enableShaders;
@@ -15081,7 +15165,9 @@ void ofApp::keyPressed(int key) {
 			enableWorldPostProcess = false;
 			showWorldFboPreview = false;
 		}
-		applyPixelArtSettings();
+		// Do not change texture filtering when toggling the pixel-art shader here;
+		// the shader should operate as a post-process without altering source texture sampling.
+		// applyPixelArtSettings();
 		ofLogNotice("PixelArt") << "enablePixelArt=" << (enablePixelArt ? 1 : 0);
 
 		if (currentState == STATE_GAMEPLAY) {
@@ -15090,72 +15176,13 @@ void ofApp::keyPressed(int key) {
 		return;
 	}
 
-	// Handle Card Spawner text input
-	if (isCardSpawnerOpen && !isCardEncyclopediaOpen) {
-		if (key == OF_KEY_RETURN) {
-			// Add the first matching card (or exact match)
-			if (!filteredCards.empty()) {
-				for (int q = 0; q < cardSpawnerQuantity; q++) {
-					players[currentPlayerIndex].hand.push_back(filteredCards[0]);
-					players[currentPlayerIndex].hand.back().currentPos = ofVec2f(ofGetWidth() / 2, 0);
-					players[currentPlayerIndex].hand.back().currentScale = 1.5f;
-					players[currentPlayerIndex].hand.back().targetScale = 1.5f;
-				}
-				spawnFloatingText(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y),
-					"+" + ofToString(cardSpawnerQuantity) + "x " + filteredCards[0].name, ofColor::cyan);
-
-				// Sync spawned cards with opponent. Host will send an authoritative
-				// snapshot so clients receive the full game state; avoid ad-hoc DrawCards
-				// packets here which can cause hand/order mismatches.
-				if (isMultiplayer && isHost()) {
-					sendSnapshotToClient();
-					ofLogNotice("Debug") << "Card Spawner: Host sent snapshot to clients.";
-				}
-				isCardSpawnerOpen = false;
-			}
-		} else if (key == OF_KEY_BACKSPACE) {
-			if (!cardSpawnerInput.empty()) {
-				cardSpawnerInput = cardSpawnerInput.substr(0, cardSpawnerInput.size() - 1);
-				// Update filtered cards
-				filteredCards.clear();
-				if (!cardSpawnerInput.empty()) {
-					std::string lowerInput = ofToLower(cardSpawnerInput);
-					for (const auto & card : allCards) {
-						if (ofToLower(card.name).find(lowerInput) != std::string::npos) {
-							filteredCards.push_back(card);
-						}
-					}
-					// Sort by how early the match appears
-					std::sort(filteredCards.begin(), filteredCards.end(), [&lowerInput](const Card & a, const Card & b) {
-						size_t posA = ofToLower(a.name).find(lowerInput);
-						size_t posB = ofToLower(b.name).find(lowerInput);
-						if (posA != posB) return posA < posB;
-						return a.name < b.name;
-					});
-				}
-			}
-		} else if (key == OF_KEY_ESC) {
-			isCardSpawnerOpen = false;
-		} else if (key >= 32 && key <= 126) {
-			// Printable ASCII characters
-			cardSpawnerInput += (char)key;
-			// Update filtered cards
-			filteredCards.clear();
-			std::string lowerInput = ofToLower(cardSpawnerInput);
-			for (const auto & card : allCards) {
-				if (ofToLower(card.name).find(lowerInput) != std::string::npos) {
-					filteredCards.push_back(card);
-				}
-			}
-			// Sort by how early the match appears
-			std::sort(filteredCards.begin(), filteredCards.end(), [&lowerInput](const Card & a, const Card & b) {
-				size_t posA = ofToLower(a.name).find(lowerInput);
-				size_t posB = ofToLower(b.name).find(lowerInput);
-				if (posA != posB) return posA < posB;
-				return a.name < b.name;
-			});
-		}
-		return; // Consume all keys when spawner is open
+	// Force End Turn (E) - only when in gameplay and not typing/searching
+	if ((key == 'e' || key == 'E') && currentState == STATE_GAMEPLAY) {
+		// If chat or the card spawner (krunner-style search) is open, consume and ignore
+		if (isChatOpen || isCardSpawnerOpen) return;
+		// Otherwise trigger end-turn flow
+		startNewTurn();
+		return;
 	}
 
 	// Handle Encyclopedia scrolling
@@ -15231,8 +15258,6 @@ void ofApp::keyReleased(int key) {
 			enableShaders = false;
 			enableWorldPostProcess = false;
 			showWorldFboPreview = false;
-			// Restore linear filtering if we just disabled pixel-art
-			applyPixelArtSettings();
 		}
 		ofLogNotice("C64") << "enableC64Shader=" << (enableC64Shader ? "true" : "false");
 

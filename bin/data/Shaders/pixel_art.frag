@@ -8,7 +8,8 @@ uniform vec2 uLowRes; // low-res FBO size in pixels
 uniform vec3 edgeColor; // color to use for edges
 uniform float edgeStrength; // multiplier for edge smoothstep range
 // Internal softness factor (0.0 = crisp original, 1.0 = very soft)
-const float SOFTNESS = 0.6;
+// Set to 0.0 to avoid introducing a blur when preserving pixel-art crispness
+const float SOFTNESS = 0.0;
 out vec4 fragColor;
 
 // Simple Bayer 4x4 matrix for dithering
