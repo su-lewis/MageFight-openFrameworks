@@ -2097,7 +2097,7 @@ void ofApp::drawSettingsMenu() {
 
 		// Prepare a static list of current controls (label, key display)
 		std::vector<std::pair<std::string, std::string>> controls = {
-			{ "Left Click", "Select / Click UI / Dismiss" },
+			{ "Left Click", "Select" },
 			{ "Left Drag", "Drag cards (play via release)" },
 			{ "Right Click + Drag", "Pan camera" },
 			{ "Right Click (click)", "Cancel selection / targeting" },
@@ -2105,10 +2105,8 @@ void ofApp::drawSettingsMenu() {
 			{ "Enter", "Open / Send Chat; Confirm/Accept" },
 			{ "Esc", "Cancel / Back / Pause" },
 			{ "Tab", "Switch Chat tab (when chat open)" },
-			{ "Backspace", "Edit / delete in text inputs" },
-			{ "O", "Toggle default shaders" },
-			{ "P", "Toggle pixel-art shader" },
-			{ "M", "Toggle C64 shader" },
+			{ "P", "Pixel shader toggle" },
+			{ "M", "C64 Shader toggle" },
 			{ "L", "Toggle world post-process" },
 			{ "Y", "Toggle FBO preview" },
 			{ "T", "Toggle top-down view" },
