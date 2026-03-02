@@ -15601,6 +15601,7 @@ void ofApp::keyPressed(int key) {
 
 	// Enable default shaders (O). Note: disabling via 'O' is no longer permitted.
 	if (key == 'o' || key == 'O') {
+		if (!isDebugMode) return;
 		if (!enableShaders) {
 			enableShaders = true;
 			// turn other shader modes off to ensure only default shaders run
@@ -15765,6 +15766,7 @@ void ofApp::keyReleased(int key) {
 
 	// 2b. Post-processing toggles (debug)
 	if (key == 'l' || key == 'L') {
+		if (!isDebugMode) return;
 		enableWorldPostProcess = !enableWorldPostProcess;
 		ofLogNotice("Post") << "enableWorldPostProcess=" << (enableWorldPostProcess ? "true" : "false");
 
@@ -15773,6 +15775,7 @@ void ofApp::keyReleased(int key) {
 		}
 	}
 	if (key == 'y' || key == 'Y') {
+		if (!isDebugMode) return;
 		showWorldFboPreview = !showWorldFboPreview;
 		ofLogNotice("Post") << "showWorldFboPreview=" << (showWorldFboPreview ? "true" : "false");
 
@@ -15813,6 +15816,7 @@ void ofApp::keyReleased(int key) {
 
 		// 'c' - Open Card Spawner
 		if (key == 'c' || key == 'C') {
+			if (!isDebugMode) return;
 			isCardSpawnerOpen = true;
 			cardSpawnerInput = "";
 			cardSpawnerQuantity = 1;
@@ -15823,6 +15827,7 @@ void ofApp::keyReleased(int key) {
 
 		// 's' - Skip Checksum Validation (for testing without unlimited AP)
 		if (key == 's' || key == 'S') {
+			if (!isDebugMode) return;
 			skipChecksumValidation = !skipChecksumValidation;
 			ofLogNotice("Debug") << "Skip Checksum: " << (skipChecksumValidation ? "ON" : "OFF");
 			addGameLog("Checksum Validation: " + std::string(skipChecksumValidation ? "DISABLED" : "ENABLED"));
