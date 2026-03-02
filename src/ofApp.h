@@ -411,6 +411,9 @@ struct Player {
 	std::vector<Card> deck;
 	std::vector<Card> discardPile;
 
+	// Track whether this actor (player or minion) has performed their "once-per-turn" draw
+	bool hasDrawnThisTurn = false;
+
 	// When true the player's deck has been modified and requires an authoritative shuffle
 	// before the next draw to ensure randomness (host will perform/broadcast the shuffle).
 	bool deckNeedsShuffle = false;

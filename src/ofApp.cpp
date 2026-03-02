@@ -116,6 +116,8 @@ void ofApp::drawMinionCard(int minionIndex, int ownerIndex) {
 			drawn.drawnThisTurn = true;
 			// Commit the drawn card to the minion's hand immediately (visual-only animation)
 			minion.hand.push_back(drawn);
+			// Mark that this minion has performed its once-per-turn draw
+			minion.hasDrawnThisTurn = true;
 			minion.hand.back().currentScale = 1.5f;
 			minion.hand.back().targetScale = 1.5f;
 			minion.hand.back().drawnThisTurn = true;
@@ -2114,6 +2116,7 @@ void ofApp::drawSettingsMenu() {
 			{ "C", "Debug: Open Card Spawner" },
 			{ "U", "Debug: Toggle Unlimited AP" },
 			{ "S", "Debug Multiplayer: Skip Checksum Validation" },
+			{ "F", "Draw For Unit" },
 		};
 
 		// Draw each control row
@@ -3846,7 +3849,6 @@ void ofApp::updateGame() {
 		// Authoritative shuffle for the new minion
 		int newSkeletonIdx = (int)players.size() - 1;
 		shuffleGameVector(players[newSkeletonIdx].deck, newSkeletonIdx);
-		this->checkKeyPickupAndDraftAfterSummon(minion.x, minion.y, minion.ownerID);
 
 		// Notify clients about the placed skeleton (authoritative HP)
 		if (isMultiplayer && isHost()) {
@@ -3873,6 +3875,12 @@ void ofApp::updateGame() {
 			if (!a.isMinion && b.isMinion) return false;
 			return a.summonOrder < b.summonOrder;
 		});
+
+		// After sorting, check for any key pickup at the newly spawned minion's tile.
+		// We intentionally perform this after the players vector is sorted so the
+		// host's `PKT_KEY_PICKUP` uses a stable actor index that matches the
+		// post-sort ordering sent to clients.
+		this->checkKeyPickupAndDraftAfterSummon(minion.x, minion.y, minion.ownerID);
 
 		// 6. Fix CurrentPlayerIndex
 		for (size_t i = 0; i < players.size(); i++) {
@@ -6389,8 +6397,8 @@ void ofApp::updateGame() {
 						}
 
 						// If no minion actor found, fall back to the owner player
+						int ownerID = mover.isMinion ? mover.ownerID : mover.playerID;
 						if (targetIndex == -1) {
-							int ownerID = mover.isMinion ? mover.ownerID : mover.playerID;
 							for (int p = 0; p < (int)players.size(); ++p) {
 								if (players[p].playerID == ownerID && !players[p].isMinion) {
 									targetIndex = p;
@@ -9505,7 +9513,15 @@ void ofApp::drawGame() {
 		}
 	}
 
-	if (!disableAllGlow && displayedAPForCurrent <= 0 && hasDrawnCardsThisTurn && !rerollAvailable && myTurn) {
+	// Determine whether the active actor (player or minion) has performed their draw
+	bool activeActorHasDrawn = false;
+	if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) {
+		activeActorHasDrawn = players[currentPlayerIndex].hasDrawnThisTurn;
+	} else {
+		activeActorHasDrawn = hasDrawnCardsThisTurn; // fallback
+	}
+
+	if (!disableAllGlow && displayedAPForCurrent <= 0 && activeActorHasDrawn && !rerollAvailable && myTurn) {
 		// Draw a small green glow behind the button so the outline is always
 		// fully visible (avoid relying on stroke rendering which can clip).
 		ofPushStyle();
@@ -9827,14 +9843,19 @@ void ofApp::drawGame() {
 			std::reverse(cardsToShowInView.begin(), cardsToShowInView.end());
 		}
 
-		int vpIdx = -1;
-		for (int i = 0; i < (int)players.size(); ++i) {
-			if (players[i].playerID == viewPlayer.playerID && !players[i].isMinion) {
-				vpIdx = i;
-				break;
+		// Prefer a minion-friendly display name when viewing a minion's piles.
+		if (viewPlayer.isMinion) {
+			viewTitle = getPlayerDisplayName(currentPileViewPlayerIndex) + "'s " + viewTitle;
+		} else {
+			int vpIdx = -1;
+			for (int i = 0; i < (int)players.size(); ++i) {
+				if (players[i].playerID == viewPlayer.playerID && !players[i].isMinion) {
+					vpIdx = i;
+					break;
+				}
 			}
+			viewTitle = (vpIdx != -1) ? (getPlayerSteamName(vpIdx) + "'s " + viewTitle) : (("Player " + ofToString(viewPlayer.playerID)) + "'s " + viewTitle);
 		}
-		viewTitle = (vpIdx != -1) ? getPlayerSteamName(vpIdx) : ("Player " + ofToString(viewPlayer.playerID)) + "'s " + viewTitle;
 
 		if (!cardsToShowInView.empty()) {
 			float panelPadding = 20.0f;
@@ -11625,10 +11646,16 @@ void ofApp::mousePressed(int x, int y, int button) {
 					mv.delay = draftAnimHoldDuration;
 					mv.duration = 0.35f;
 					mv.startPos = center;
-					ofRectangle deckRect = (draftPlayerIndex == 0) ? p0_deckRect : p1_deckRect;
+					// If the drafting actor is a minion, map to its owner player slot for the main deck UI
+					int animOwnerSlot = draftPlayerIndex;
+					if (draftPlayerIndex >= 0 && draftPlayerIndex < (int)players.size() && players[draftPlayerIndex].isMinion) {
+						int resolved = findPlayerIndexByID(players[draftPlayerIndex].ownerID);
+						if (resolved >= 0) animOwnerSlot = resolved;
+					}
+					ofRectangle deckRect = (animOwnerSlot == 0) ? p0_deckRect : p1_deckRect;
 					mv.endPos = glm::vec2(deckRect.x + deckRect.width / 2.0f, deckRect.y + deckRect.height / 2.0f);
 					mv.finished = false;
-					mv.ownerIndex = draftPlayerIndex;
+					mv.ownerIndex = animOwnerSlot;
 					activeDraftPickedMoves.push_back(mv);
 				}
 
@@ -14039,10 +14066,13 @@ void ofApp::mousePressed(int x, int y, int button) {
 					this->drawMinionCard(ui.playerIndex, ownerIndex);
 
 					// Mark appropriate drawn flag depending on whether the minion belongs to the local player.
-					if (belongsToLocalPlayer)
+					if (belongsToLocalPlayer) {
 						hasDrawnCardsThisTurn = true;
-					else
+						players[ui.playerIndex].hasDrawnThisTurn = true;
+					} else {
 						opponentHasDrawnCardsThisTurn = true;
+						players[ui.playerIndex].hasDrawnThisTurn = true;
+					}
 					return; // Click handled
 				}
 			}
@@ -14140,8 +14170,10 @@ void ofApp::mousePressed(int x, int y, int button) {
 				// Mark drawn flag depending on whether the active player is local or opponent
 				if (activePlayer.playerID == myLocalPlayerID) {
 					hasDrawnCardsThisTurn = true;
+					players[localPlayerIndex].hasDrawnThisTurn = true;
 				} else {
 					opponentHasDrawnCardsThisTurn = true;
+					players[localPlayerIndex].hasDrawnThisTurn = true;
 				}
 			}
 		}
@@ -15157,6 +15189,80 @@ void ofApp::keyPressed(int key) {
 	}
 
 	// Handle Card Spawner text input (krunner-style search) - processed early
+		// Quick-draw hotkey: 'F' -> Draw active player's deck (acts like clicking your deck)
+		if ((key == 'f' || key == 'F') && currentState == STATE_GAMEPLAY) {
+			// Only allow when not typing/chatting and not in card spawner
+			if (isChatOpen || isCardSpawnerOpen) return;
+			// Reuse the main-deck draw logic from mousePressed (simplified for keyboard)
+			if (players.empty() || currentPlayerIndex < 0) return;
+			Player & activePlayer = players[currentPlayerIndex];
+			// Determine which local player object represents "us" for drawing.
+			Player * localPlayer = nullptr;
+			if (isMultiplayer) {
+				localPlayer = (myLocalPlayerID == 0) ? nullptr : nullptr; // placeholder; we'll compute index below
+			}
+
+			// Determine whether main-deck draw is allowed for the active actor
+			bool isLocalPlayersTurnForMainDeck = false;
+			if (isMultiplayer) {
+				isLocalPlayersTurnForMainDeck = (activePlayer.playerID == myLocalPlayerID && !activePlayer.isMinion);
+			} else {
+				isLocalPlayersTurnForMainDeck = (!activePlayer.isMinion);
+			}
+
+			// Determine active deck rect owner index
+			int localPlayerIndex = -1;
+			if (isMultiplayer) {
+				for (size_t i = 0; i < players.size(); i++) {
+					if (players[i].playerID == myLocalPlayerID && !players[i].isMinion) {
+						localPlayerIndex = (int)i;
+						localPlayer = &players[i];
+						break;
+					}
+				}
+				if (localPlayerIndex == -1) localPlayerIndex = 0;
+			} else {
+				localPlayerIndex = currentPlayerIndex;
+				localPlayer = &players[localPlayerIndex];
+			}
+
+			if (!localPlayer) return;
+
+			bool activeAlreadyDrew = (activePlayer.playerID == myLocalPlayerID) ? hasDrawnCardsThisTurn : opponentHasDrawnCardsThisTurn;
+			if (!isLocalPlayersTurnForMainDeck || activeAlreadyDrew) return;
+
+			int baseDraw = localPlayer->isDemon ? 3 : 2;
+			int cardsToDraw = localPlayer->nextTurnExtraDraw ? (baseDraw + 1) : baseDraw;
+			for (int i = 0; i < cardsToDraw; ++i) drawCard(false);
+
+			if (isMultiplayer) {
+				DrawCardsPacket out = {};
+				out.type = PKT_DRAW_CARDS;
+				out.playerID = myLocalPlayerID;
+				out.playerIndex = localPlayerIndex;
+				out.numCards = cardsToDraw;
+				out.clientActionID = ++watchdogClientActionCounter;
+				memset(out.cardNames, 0, sizeof(out.cardNames));
+				steamManager.sendPacket(&out, sizeof(out));
+				if (isClient()) {
+					lastSentDrawCardsPacket = out;
+					lastSentDrawCardsValid = true;
+					lastSentDrawCardsTime = ofGetElapsedTimef();
+					lastSentDrawCardsAttempts = 0;
+				}
+			}
+
+			localPlayer->nextTurnExtraDraw = false;
+			if (activePlayer.playerID == myLocalPlayerID) {
+				hasDrawnCardsThisTurn = true;
+				players[localPlayerIndex].hasDrawnThisTurn = true;
+			} else {
+				opponentHasDrawnCardsThisTurn = true;
+				players[localPlayerIndex].hasDrawnThisTurn = true;
+			}
+
+			return;
+		}
 	if (isCardSpawnerOpen && !isCardEncyclopediaOpen) {
 		if (key == OF_KEY_RETURN) {
 			// Add the first matching card (or exact match)
@@ -15945,6 +16051,9 @@ void ofApp::continueNewTurn() {
 
 	// Clear any lingering targeting state from previous turn
 	cancelAllTargeting();
+
+	// Reset per-actor "has drawn" flags for this new turn
+	for (auto & p : players) p.hasDrawnThisTurn = false;
 
 	// Only clear AP-related visual dice here to avoid removing unrelated visual dice
 	activeDiceRolls.erase(std::remove_if(activeDiceRolls.begin(), activeDiceRolls.end(), [&](const DiceRoll & r) {
@@ -23641,7 +23750,7 @@ void ofApp::drawMinionManagerUI() {
 			ofSetColor(20, 20, 20, 200);
 			ofDrawRectRounded(ui.deckRect, 3);
 		}
-		if (ui.playerIndex == currentPlayerIndex && !hasDrawnCardsThisTurn) {
+		if (ui.playerIndex == currentPlayerIndex && !players[ui.playerIndex].hasDrawnThisTurn) {
 			ofPushStyle();
 			ofNoFill();
 			ofSetColor(ofColor::green);
@@ -23993,6 +24102,31 @@ void ofApp::onCardPicked(int optionIndex) {
 		// Keep game logic immediate (card is added and deck shuffled),
 		// but also spawn the picked-card visual move so the player sees the card fly into the deck.
 		p.deck.push_back(picked);
+		// If this pick belongs to a minion actor, spawn a minion-specific shuffle visual
+		bool targetIsMinion = (draftPlayerIndex >= 0 && draftPlayerIndex < (int)players.size() && players[draftPlayerIndex].isMinion);
+		if (targetIsMinion) {
+			ShuffleAnimation s;
+			s.playerIndex = draftPlayerIndex;
+			bool assignedRect = false;
+			for (const auto & mui : activeMinionUIs) {
+				if (mui.playerIndex == draftPlayerIndex) {
+					s.deckRect = mui.deckRect;
+					assignedRect = true;
+					break;
+				}
+			}
+			if (!assignedRect) {
+				int ownerSlot = findPlayerIndexByID(players[draftPlayerIndex].ownerID);
+				if (ownerSlot >= 0) s.deckRect = (players[ownerSlot].playerID == 0) ? p0_deckRect : p1_deckRect;
+				else s.deckRect = (players[draftPlayerIndex].ownerID == 0) ? p0_deckRect : p1_deckRect;
+			}
+			s.startTime = ofGetElapsedTimef();
+			s.duration = 0.9f;
+			s.currentAlpha = 255.0f;
+			s.currentScale = 1.0f;
+			s.rotation = 0.0f;
+			activeShuffleAnimations.push_back(s);
+		}
 		// Shuffle deck to include new card (host-authoritative will also send PKT_SHUFFLE)
 		shuffleGameVector(p.deck, draftPlayerIndex);
 
@@ -24023,10 +24157,30 @@ void ofApp::onCardPicked(int optionIndex) {
 		mv.delay = draftAnimHoldDuration;
 		mv.duration = 0.35f;
 		mv.startPos = center;
-		ofRectangle deckRect = (draftPlayerIndex == 0) ? p0_deckRect : p1_deckRect;
-		mv.endPos = glm::vec2(deckRect.x + deckRect.width / 2.0f, deckRect.y + deckRect.height / 2.0f);
-		mv.finished = false;
-		mv.ownerIndex = draftPlayerIndex;
+		// If the drafting actor is a minion, target its MinionUI deck rect; otherwise target the player deck
+		if (draftPlayerIndex >= 0 && draftPlayerIndex < (int)players.size() && players[draftPlayerIndex].isMinion) {
+			bool found = false;
+			for (const auto & mui : activeMinionUIs) {
+				if (mui.playerIndex == draftPlayerIndex) {
+					mv.endPos = glm::vec2(mui.deckRect.x + mui.deckRect.width / 2.0f, mui.deckRect.y + mui.deckRect.height / 2.0f);
+					found = true;
+					break;
+				}
+			}
+			if (!found) {
+				int ownerSlot = findPlayerIndexByID(players[draftPlayerIndex].ownerID);
+				ofRectangle deckRect = (ownerSlot == 0) ? p0_deckRect : p1_deckRect;
+				mv.endPos = glm::vec2(deckRect.x + deckRect.width / 2.0f, deckRect.y + deckRect.height / 2.0f);
+			}
+			mv.finished = false;
+			// mark ownerIndex as the minion actor so we can avoid flashing main decks
+			mv.ownerIndex = draftPlayerIndex;
+		} else {
+			ofRectangle deckRect = (draftPlayerIndex == 0) ? p0_deckRect : p1_deckRect;
+			mv.endPos = glm::vec2(deckRect.x + deckRect.width / 2.0f, deckRect.y + deckRect.height / 2.0f);
+			mv.finished = false;
+			mv.ownerIndex = draftPlayerIndex;
+		}
 		activeDraftPickedMoves.push_back(mv);
 
 		draftOptions.clear();
@@ -24425,8 +24579,11 @@ void ofApp::drawActiveDraftPickedMoves() {
 				mv.card.textureRect.width, mv.card.textureRect.height);
 			if (t >= 1.0f) {
 				mv.finished = true;
-				deckFlashStartTime = now;
-				deckFlashOwnerIndex = mv.ownerIndex;
+				// Only flash main player decks; minion targets use their own shuffle visuals
+				if (mv.ownerIndex >= 0 && mv.ownerIndex < (int)players.size() && !players[mv.ownerIndex].isMinion) {
+					deckFlashStartTime = now;
+					deckFlashOwnerIndex = mv.ownerIndex;
+				}
 			}
 		}
 	}

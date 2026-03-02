@@ -78,8 +78,9 @@ void main() {
     vec3 colorWithEdge = mix(q, edgeTint * 0.85, edgeFactor * 0.9);
     colorWithEdge *= mix(1.0, 0.9, edgeFactor * 0.6); // slight darkening
 
-    // final gamma correction to keep colors vibrant
-    vec3 finalCol = pow(colorWithEdge, vec3(1.0 / 2.2));
+    // Avoid additional gamma boosting — use the composed color directly
+    // (removing the previous pow(...) which made the image too bright)
+    vec3 finalCol = colorWithEdge * 0.96; // slight overall tone-down
 
     fragColor = vec4(clamp(finalCol, 0.0, 1.0), 1.0);
 }
