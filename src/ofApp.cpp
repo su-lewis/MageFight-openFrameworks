@@ -15227,10 +15227,10 @@ void ofApp::keyPressed(int key) {
 		return; // Consume all keys when spawner is open
 	}
 
-	// Toggle default shaders on/off (O). When enabling, turn other shader modes off.
+	// Enable default shaders (O). Note: disabling via 'O' is no longer permitted.
 	if (key == 'o' || key == 'O') {
-		enableShaders = !enableShaders;
-		if (enableShaders) {
+		if (!enableShaders) {
+			enableShaders = true;
 			// turn other shader modes off to ensure only default shaders run
 			enablePixelArt = false;
 			enableC64Shader = false;
@@ -15238,12 +15238,11 @@ void ofApp::keyPressed(int key) {
 			showWorldFboPreview = false;
 			// Ensure texture filtering is restored when disabling pixel-art mode
 			applyPixelArtSettings();
-		}
-		ofLogNotice("Debug") << "Default shaders toggled (O): now=" << (enableShaders ? "enabled" : "disabled");
-
-		// Visible on-screen feedback
-		if (currentState == STATE_GAMEPLAY) {
-			spawnFloatingText(gridToWorld(6, 4), std::string("Shaders: ") + (enableShaders ? "ON" : "OFF"), ofColor::white);
+			ofLogNotice("Debug") << "Default shaders enabled (O).";
+			// Visible on-screen feedback
+			if (currentState == STATE_GAMEPLAY) {
+				spawnFloatingText(gridToWorld(6, 4), std::string("Shaders: ON"), ofColor::white);
+			}
 		}
 		return;
 	}
