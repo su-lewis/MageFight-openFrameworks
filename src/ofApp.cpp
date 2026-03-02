@@ -13917,6 +13917,21 @@ void ofApp::mousePressed(int x, int y, int button) {
 						int newKoboldIdx = (int)players.size() - 1;
 						shuffleGameVector(players[newKoboldIdx].deck, newKoboldIdx);
 
+						// Notify clients about the placed kobold in multiplayer (host-authoritative HP/AP)
+						if (isMultiplayer && isHost()) {
+							PlaceSummonedMinionPacket pkt = {};
+							pkt.type = PKT_PLACE_SUMMONED_MINION;
+							pkt.playerID = myLocalPlayerID;
+							pkt.minionType = 1; // KOBOLD
+							pkt.ownerPlayerID = kobold.ownerID;
+							pkt.targetX = gx;
+							pkt.targetY = gy;
+							pkt.minionHP = kobold.health;
+							pkt.minionAP = kobold.ap;
+							steamManager.sendPacket(&pkt, sizeof(pkt));
+							ofLogNotice("Network") << "Host sent PlaceSummonedMinion: KOBOLD owner=" << pkt.ownerPlayerID << " target=(" << pkt.targetX << "," << pkt.targetY << ") HP=" << pkt.minionHP;
+						}
+
 						ofLogNotice("Summon") << "[DEBUG] Players after early placement (count=" << players.size() << ")";
 						koboldsRemainingToPlace--;
 						if (koboldsRemainingToPlace > 0) {
