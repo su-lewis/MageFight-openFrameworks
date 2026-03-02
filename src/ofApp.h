@@ -597,6 +597,7 @@ private:
 	void applySettings();
 	void recalculateUI(int w, int h);
 	void updateDebugRects();
+	void debugSkipDraftRandomCards();
 
 	// -------------------------------------------------------------------------
 	//                              GAMEPLAY LOGIC
@@ -714,8 +715,10 @@ private:
 			steamManager.sendPacket(&sp, sizeof(sp));
 			ofLogNotice("Network") << "Host sent Shuffle packet: player=" << sp.playerIndex << " nonce=" << sp.nonce;
 
-			// Start visual shuffle on host for this player
-			startShuffleVisual(ownerPlayerIndex);
+			// Start visual shuffle on host for main players only (minions handle their own visuals)
+			if (ownerPlayerIndex == 0 || ownerPlayerIndex == 1) {
+				startShuffleVisual(ownerPlayerIndex);
+			}
 
 			// Clear dirty flag for this player's deck since we've just shuffled it authoritatively
 			if (ownerPlayerIndex >= 0 && ownerPlayerIndex < (int)players.size()) {
@@ -727,8 +730,11 @@ private:
 		// Singleplayer or generic shuffle: use gameplayRNG
 		deterministic_shuffle(vec, gameplayRNG);
 
-		// Start visual shuffle for singleplayer/local shuffle
-		startShuffleVisual(ownerPlayerIndex);
+		// Start visual shuffle only for main players (players 0 and 1).
+		// Minions handle their own shuffle visuals in their draw code.
+		if (ownerPlayerIndex == 0 || ownerPlayerIndex == 1) {
+			startShuffleVisual(ownerPlayerIndex);
+		}
 
 		// If this shuffle was for a specific player's deck, clear the dirty flag
 		if (ownerPlayerIndex >= 0 && ownerPlayerIndex < (int)players.size()) {
@@ -790,6 +796,7 @@ private:
 	bool isInitiativeRolling = false;
 	float initiativeTimer = 0.0f;
 	int draftPlayerIndex = 0; // The player currently drafting
+	int inGameDraftTargetIdx = -1; // (HOST) During in-game key draft, which player index should receive cards
 	int draftStage = 0; // 0 = Class 1 (Pick 2), 1 = Class 2 (Pick 1)
 	int draftPicksRemaining = 0;
 	bool isInGameDraft = false;
@@ -879,6 +886,7 @@ private:
 		glm::vec2 endPos; // screen-space center (deck)
 		bool finished = false;
 		int ownerIndex = -1; // which player's deck we're animating into
+		float endScale = 1.0f; // final scale when reaching destination (e.g., 0.3f for minion UI)
 	};
 
 	std::vector<DraftPickedMove> activeDraftPickedMoves;
@@ -1649,6 +1657,7 @@ private:
 	float savedMasterVolume = 1.0f; // store previous master volume when suspending
 	// Remember whether main menu music was playing when suspending
 	bool savedMainMenuWasPlaying = false;
+	bool musicMutedDueToMinimize = false; // Track if music is intentionally muted (not stopped)
 	// Saved per-player audio volumes when suspending
 	float savedMainMenuVolume = 0.6f;
 	std::vector<float> savedFootstepVolumes;
@@ -1680,6 +1689,7 @@ private:
 	ofRectangle debugSpawnCardButton;
 	ofRectangle debugDrawCardButton;
 	ofRectangle debugUnlimitedAPButton;
+	ofRectangle debugSkipDraftButton;
 	ofRectangle debugForceEndTurnButton;
 	bool isDebugDiceDropdownOpen = false;
 

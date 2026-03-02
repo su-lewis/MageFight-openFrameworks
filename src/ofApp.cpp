@@ -190,7 +190,8 @@ void ofApp::checkKeyPickupAndDraftAfterSummon(int x, int y, int minionOwnerID) {
 				int keySet = floatingKeyInstances[k].set; // Get the key set
 				floatingKeyInstances.erase(floatingKeyInstances.begin() + k); // Remove the key instance
 				// Map key set to draft class tier
-				int classToDraft = (keySet == 3) ? 1 : (keySet == 2) ? 2 : 3;
+				int classToDraft = (keySet == 3) ? 1 : (keySet == 2) ? 2
+																	 : 3;
 
 				// Determine target actor: prefer the minion at the tile, otherwise the owning player
 				int targetIndex = -1;
@@ -225,6 +226,7 @@ void ofApp::checkKeyPickupAndDraftAfterSummon(int x, int y, int minionOwnerID) {
 
 					// Enter draft state for the target
 					isInGameDraft = true;
+					inGameDraftTargetIdx = targetIndex; // HOST: Remember which player gets this draft
 					draftPlayerIndex = targetIndex;
 					generateDraftOptions(classToDraft);
 					draftPicksRemaining = 1;
@@ -459,7 +461,8 @@ void ofApp::setup() {
 	// Load persisted settings (overrides defaults)
 	loadSettings();
 
-	if ((currentState == STATE_MAIN_MENU || currentState == STATE_SETTINGS) && mainMenuMusic.isLoaded()) mainMenuMusic.play();
+	// Don't play music here - let update() handle it when window is actually focused
+	// This prevents music playing during loading if window is minimized
 
 	// --- Load Player Model ---
 	if (playerModel.load("Units/Player/model.glb")) {
@@ -1189,7 +1192,7 @@ std::string ofApp::getPlayerDisplayName(int index) {
 		if (i == index) break;
 		Player & other = players[i];
 		if (!other.isMinion) continue;
-		if ((prefix == "Faerie" && other.isFaerie) || (prefix == "Kobold" && other.isKobold) || (prefix == "Wolf" && other.isWolf) || (prefix == "Hellhound" && other.isHellhound) || (prefix == "Golem" && other.isGolem) || (prefix == "Skeleton" && other.isSkeleton) || (prefix == "Demon" && other.isDemon) || (prefix == "Wall" && other.isWallUnit)) {
+		if ((prefix == "Faerie" && other.isFaerie) || (prefix == "Kobold" && other.isKobold) || (prefix == "Assistant" && other.isAssistant) || (prefix == "Wolf" && other.isWolf) || (prefix == "Hellhound" && other.isHellhound) || (prefix == "Golem" && other.isGolem) || (prefix == "Skeleton" && other.isSkeleton) || (prefix == "Demon" && other.isDemon) || (prefix == "Wall" && other.isWallUnit)) {
 			if (other.ownerID == p->ownerID) ord++;
 		}
 	}
@@ -1246,7 +1249,8 @@ void ofApp::update() {
 					// Save current playback position (ms)
 					savedMainMenuPositionMS = mainMenuMusic.getPositionMS();
 					mainMenuMusic.setVolume(0.0f);
-					if (savedMainMenuWasPlaying) mainMenuMusic.stop();
+					musicMutedDueToMinimize = true;
+					// Keep playing silently instead of stopping
 				}
 				// Save and mute footstep sounds (if any)
 				savedFootstepVolumes.clear();
@@ -1261,14 +1265,10 @@ void ofApp::update() {
 			if (gameSuspendedDueToInactivity) {
 				gameSuspendedDueToInactivity = false;
 				// Restore audio to previous levels (per-player)
-				// Restore main menu music volume and resume if it was playing
+				// Restore main menu music volume (it's still playing, just muted)
 				if (mainMenuMusic.isLoaded()) {
 					mainMenuMusic.setVolume(savedMainMenuVolume);
-					if (!mainMenuMusic.isPlaying() && savedMainMenuWasPlaying && (currentState == STATE_MAIN_MENU || currentState == STATE_SETTINGS)) {
-						// Try to restore playback position and resume
-						mainMenuMusic.setPositionMS(savedMainMenuPositionMS);
-						mainMenuMusic.play();
-					}
+					musicMutedDueToMinimize = false;
 				}
 				// Restore footstep volumes
 				for (size_t i = 0; i < footstepSounds.size() && i < savedFootstepVolumes.size(); ++i) {
@@ -1401,7 +1401,10 @@ void ofApp::update() {
 		// Play menu music if entering main menu or settings
 		if (currentState == STATE_MAIN_MENU || currentState == STATE_SETTINGS) {
 			if (mainMenuMusic.isLoaded()) {
-				if (!mainMenuMusic.isPlaying()) mainMenuMusic.play();
+				// Only start playing if it's actually stopped (not just muted from minimize)
+				if (!mainMenuMusic.isPlaying()) {
+					mainMenuMusic.play();
+				}
 			} else {
 				ofLogError("Audio") << "Main menu music not loaded when entering main menu/settings.";
 			}
@@ -1827,8 +1830,8 @@ void ofApp::drawMainMenu() {
 	ofDisableLighting();
 	ofSetColor(ofColor::white);
 
-	// Ensure main menu music is playing while main menu is visible
-	if (mainMenuMusic.isLoaded() && !mainMenuMusic.isPlaying()) {
+	// Ensure main menu music is playing while main menu is visible (unless just muted from minimize)
+	if (mainMenuMusic.isLoaded() && !mainMenuMusic.isPlaying() && !musicMutedDueToMinimize) {
 		mainMenuMusic.play();
 	} else if (!mainMenuMusic.isLoaded()) {
 		ofLogWarning("Audio") << "Main menu music not loaded when drawing main menu.";
@@ -2857,12 +2860,12 @@ void ofApp::updateGame() {
 				selectedDraftIndices.clear();
 			}
 			currentState = STATE_DRAFTING;
-			// clear pending
+			// clear pending (but keep keyX/keyY for Accept remapping)
 			pendingKeyDraftAccept = false;
-				pendingKeyDraftPlayer = -1;
-				pendingKeyDraftPlayerID = -1;
-				pendingKeyDraftKeyX = -1;
-				pendingKeyDraftKeyY = -1;
+			pendingKeyDraftPlayer = -1;
+			pendingKeyDraftPlayerID = -1;
+			// DON'T clear pendingKeyDraftKeyX/Y yet - client needs them to remap forwarded Accept
+			// They'll be cleared when Accept is processed or draft ends
 			pendingKeyDraftClass = 0;
 			pendingKeyDraftTriggerTime = 0.0f;
 			ofLogNotice("Key") << "Triggering delayed draft for player=" << draftPlayerIndex << " class=" << pendingKeyDraftClass;
@@ -4529,11 +4532,24 @@ void ofApp::updateGame() {
 		players.push_back(minion);
 		int newHellhoundIdx = (int)players.size() - 1;
 		players[newHellhoundIdx].visualPos = gridToWorld(players[newHellhoundIdx].x, players[newHellhoundIdx].y);
-		ofLogNotice("Summon") << "Initialized visualPos for hellhound idx=" << newHellhoundIdx << " pos=" << players[newHellhoundIdx].visualPos.x << "," << players[newHellhoundIdx].visualPos.y << "," << players[newHellhoundIdx].visualPos.z;
 		shuffleGameVector(players[newHellhoundIdx].deck, newHellhoundIdx);
-		checkKeyPickupAndDraftAfterSummon(minion.x, minion.y, minion.ownerID);
 
 		ofLogNotice("Summon") << "Hellhound summoned with " << minion.health << " HP.";
+
+		// Sort turn order
+		std::sort(players.begin(), players.end(), [](const Player & a, const Player & b) {
+			int ownerA = a.isMinion ? a.ownerID : a.playerID;
+			int ownerB = b.isMinion ? b.ownerID : b.playerID;
+			if (ownerA != ownerB) return ownerA < ownerB;
+			if (a.isMinion && !b.isMinion) return true;
+			if (!a.isMinion && b.isMinion) return false;
+			return a.summonOrder < b.summonOrder;
+		});
+
+		invalidateTargetCache();
+
+		// Execute Key Pickup AFTER sorting so array index matches network packet targeting
+		checkKeyPickupAndDraftAfterSummon(minion.x, minion.y, minion.ownerID);
 
 		// Notify clients about the Kobold King (authoritative HP)
 		if (isMultiplayer && isHost()) {
@@ -4651,9 +4667,7 @@ void ofApp::updateGame() {
 		players.push_back(minion);
 		int newDemonIdx = (int)players.size() - 1;
 		players[newDemonIdx].visualPos = gridToWorld(players[newDemonIdx].x, players[newDemonIdx].y);
-		ofLogNotice("Summon") << "Initialized visualPos for demon idx=" << newDemonIdx << " pos=" << players[newDemonIdx].visualPos.x << "," << players[newDemonIdx].visualPos.y << "," << players[newDemonIdx].visualPos.z;
 		shuffleGameVector(players[newDemonIdx].deck, newDemonIdx);
-		checkKeyPickupAndDraftAfterSummon(minion.x, minion.y, minion.ownerID);
 
 		ofLogNotice("Summon") << "Demon summoned with " << minion.health << " HP.";
 
@@ -4697,6 +4711,8 @@ void ofApp::updateGame() {
 		}),
 			activeDiceRolls.end());
 		invalidateTargetCache();
+
+		checkKeyPickupAndDraftAfterSummon(minion.x, minion.y, minion.ownerID);
 	}
 
 	// --- CHAIN LIGHTNING: RANGE RESOLUTION ---
@@ -9846,18 +9862,30 @@ void ofApp::drawGame() {
 		if (viewPlayer.isMinion) {
 			int foundNumber = 0;
 			for (const auto & mui : activeMinionUIs) {
-				if (mui.playerIndex == currentPileViewPlayerIndex) { foundNumber = mui.displayNumber; break; }
+				if (mui.playerIndex == currentPileViewPlayerIndex) {
+					foundNumber = mui.displayNumber;
+					break;
+				}
 			}
 			std::string prefix = "Minion";
-			if (viewPlayer.isFaerie) prefix = "Faerie";
-			else if (viewPlayer.isWallUnit) prefix = "Wall";
-			else if (viewPlayer.isKobold) prefix = "Kobold";
-			else if (viewPlayer.isAssistant) prefix = "Assistant";
-			else if (viewPlayer.isWolf) prefix = "Wolf";
-			else if (viewPlayer.isHellhound) prefix = "Hellhound";
-			else if (viewPlayer.isGolem) prefix = "Golem";
-			else if (viewPlayer.isSkeleton) prefix = "Skeleton";
-			else if (viewPlayer.isDemon) prefix = "Demon";
+			if (viewPlayer.isFaerie)
+				prefix = "Faerie";
+			else if (viewPlayer.isWallUnit)
+				prefix = "Wall";
+			else if (viewPlayer.isKobold)
+				prefix = "Kobold";
+			else if (viewPlayer.isAssistant)
+				prefix = "Assistant";
+			else if (viewPlayer.isWolf)
+				prefix = "Wolf";
+			else if (viewPlayer.isHellhound)
+				prefix = "Hellhound";
+			else if (viewPlayer.isGolem)
+				prefix = "Golem";
+			else if (viewPlayer.isSkeleton)
+				prefix = "Skeleton";
+			else if (viewPlayer.isDemon)
+				prefix = "Demon";
 
 			if (foundNumber > 0) {
 				viewTitle = prefix + " " + ofToString(foundNumber) + "'s " + viewTitle;
@@ -10078,6 +10106,7 @@ void ofApp::drawGame() {
 
 		calculatedHeight += btnHeight + padding; // Spawn Unit
 		calculatedHeight += btnHeight + padding; // Unlimited AP
+		calculatedHeight += btnHeight + padding; // Skip Draft
 		calculatedHeight += btnHeight + padding; // Skip Checksum (status indicator)
 		// Force End Turn button removed
 
@@ -10148,6 +10177,11 @@ void ofApp::drawGame() {
 		debugUnlimitedAPButton.set(panelX + padding, currentY, panelWidth - 2 * padding, btnHeight);
 		std::string unlimitedAPLabel = hasUnlimitedAP ? "Unlimited AP: ON" : "Unlimited AP: OFF";
 		drawDebugButton(debugUnlimitedAPButton, unlimitedAPLabel, true, hasUnlimitedAP);
+		currentY += btnHeight + padding;
+
+		debugSkipDraftButton.set(panelX + padding, currentY, panelWidth - 2 * padding, btnHeight);
+		bool canSkipDraft = !isMultiplayer && currentState == STATE_DRAFTING && draftOptions.size() > 0;
+		drawDebugButton(debugSkipDraftButton, "Skip Draft (Random)", canSkipDraft);
 		currentY += btnHeight + padding;
 
 		// Skip Checksum Status Indicator (non-clickable, just shows state)
@@ -11555,6 +11589,94 @@ void ofApp::mousePressed(int x, int y, int button) {
 		}
 	}
 
+	// Debug button handling (allow in any state)
+	if (isDebugMode && button == OF_MOUSE_BUTTON_LEFT) {
+		if (debugPanel.inside(x, y)) {
+			if (isMultiplayer && !isHost()) {
+				addGameLog("Debug tools are host-only in multiplayer.");
+				return;
+			}
+			// Handle specific debug buttons
+			if (debugDrawCardButton.inside(x, y)) {
+				drawCard();
+				if (isMultiplayer && isHost()) {
+					sendSnapshotToClient();
+				}
+				return;
+			}
+
+			if (debugSpawnCardButton.inside(x, y)) {
+				// Open the in-game card spawner UI
+				isCardSpawnerOpen = true;
+				cardSpawnerInput = "";
+				filteredCards.clear();
+				return;
+			}
+
+			if (debugDiceDropdownButton.inside(x, y)) {
+				isDebugDiceDropdownOpen = !isDebugDiceDropdownOpen;
+				return;
+			}
+
+			// Only check dropdown buttons if open
+			if (isDebugDiceDropdownOpen) {
+				if (debugFlipCoinButton.inside(x, y)) {
+					startDiceRoll(1, 2, PURPOSE_DEBUG, "Debug Coin", currentPlayerIndex);
+					isDebugDiceDropdownOpen = false;
+					return;
+				}
+				if (debugRollD4Button.inside(x, y)) {
+					startDiceRoll(1, 4, PURPOSE_DEBUG, "Debug D4", currentPlayerIndex);
+					isDebugDiceDropdownOpen = false;
+					return;
+				}
+				if (debugRollD6Button.inside(x, y)) {
+					startDiceRoll(1, 6, PURPOSE_DEBUG, "Debug D6", currentPlayerIndex);
+					isDebugDiceDropdownOpen = false;
+					return;
+				}
+				if (debugRollD10Button.inside(x, y)) {
+					startDiceRoll(1, 10, PURPOSE_DEBUG, "Debug D10", currentPlayerIndex);
+					isDebugDiceDropdownOpen = false;
+					return;
+				}
+				if (debugRollD20Button.inside(x, y)) {
+					startDiceRoll(1, 20, PURPOSE_DEBUG, "Debug D20", currentPlayerIndex);
+					isDebugDiceDropdownOpen = false;
+					return;
+				}
+			}
+
+			if (debugSpawnUnitButton.inside(x, y)) {
+				isSpawningUnit = !isSpawningUnit;
+				return;
+			}
+			if (debugUnlimitedAPButton.inside(x, y)) {
+				hasUnlimitedAP = !hasUnlimitedAP;
+				if (isMultiplayer && isHost()) {
+					sendSnapshotToClient();
+				}
+				return;
+			}
+			if (debugSkipDraftButton.inside(x, y)) {
+				if (!isMultiplayer && currentState == STATE_DRAFTING && draftOptions.size() > 0) {
+					debugSkipDraftRandomCards();
+				}
+				return;
+			}
+			// Force End Turn debug control removed
+
+			return; // Clicked panel background
+		}
+	}
+
+	// Allow pile view interactions even during draft
+	if (isShowingPileView && button == OF_MOUSE_BUTTON_LEFT && pileViewRect.inside(x, y)) {
+		// If pile view is showing and we clicked inside it, allow ESC to close it or handle any interactions
+		// For now, just consume the click to prevent draft card selection interference
+		return;
+	}
+
 	if (currentState == STATE_DRAFTING && button == OF_MOUSE_BUTTON_LEFT) {
 		if (draftAcceptLocked) {
 			ofLogNotice("Draft") << "DRAFT CLICK IGNORED: accept already sent.";
@@ -11662,14 +11784,33 @@ void ofApp::mousePressed(int x, int y, int button) {
 					mv.delay = draftAnimHoldDuration;
 					mv.duration = 0.35f;
 					mv.startPos = center;
-					// If the drafting actor is a minion, map to its owner player slot for the main deck UI
-					int animOwnerSlot = draftPlayerIndex;
+					mv.endScale = 1.0f; // Default to full size
+					// If the drafting actor is a minion, target its MinionUI deck rect
 					if (draftPlayerIndex >= 0 && draftPlayerIndex < (int)players.size() && players[draftPlayerIndex].isMinion) {
-						int resolved = findPlayerIndexByID(players[draftPlayerIndex].ownerID);
-						if (resolved >= 0) animOwnerSlot = resolved;
+						bool found = false;
+						for (const auto & mui : activeMinionUIs) {
+							if (mui.playerIndex == draftPlayerIndex) {
+								mv.endPos = glm::vec2(mui.deckRect.x + mui.deckRect.width / 2.0f, mui.deckRect.y + mui.deckRect.height / 2.0f);
+								// Scale down to fit minion UI deck
+								mv.endScale = std::min(mui.deckRect.width, mui.deckRect.height) / std::max(cardW, cardH);
+								found = true;
+								break;
+							}
+						}
+						if (!found) {
+							mv.endPos = glm::vec2(-100, -100);
+						}
+					} else if (draftPlayerIndex >= 0 && draftPlayerIndex < (int)players.size()) {
+						// For players, use myLocalPlayerID to determine which rect is theirs
+						int ownerID = players[draftPlayerIndex].playerID;
+						ofRectangle deckRect = (ownerID == myLocalPlayerID) ? p0_deckRect : p1_deckRect;
+						if (!isMultiplayer) deckRect = (ownerID == 0) ? p0_deckRect : p1_deckRect;
+						mv.endPos = glm::vec2(deckRect.x + deckRect.width / 2.0f, deckRect.y + deckRect.height / 2.0f);
+						// Scale down to fit player deck
+						mv.endScale = std::min(deckRect.width, deckRect.height) / std::max(cardW, cardH);
+					} else {
+						mv.endPos = glm::vec2(-100, -100);
 					}
-					ofRectangle deckRect = (animOwnerSlot == 0) ? p0_deckRect : p1_deckRect;
-					mv.endPos = glm::vec2(deckRect.x + deckRect.width / 2.0f, deckRect.y + deckRect.height / 2.0f);
 					mv.finished = false;
 					// Use the actual drafting player's index for proper animation targeting
 					mv.ownerIndex = draftPlayerIndex;
@@ -11808,7 +11949,35 @@ void ofApp::mousePressed(int x, int y, int button) {
 
 			shuffleGameVector(p.deck, draftPlayerIndex);
 			// Trigger visual shuffle for this player's deck
-			startShuffleVisual(draftPlayerIndex);
+			// If drafting actor is a minion, create minion-specific shuffle visual
+			bool targetIsMinion = (draftPlayerIndex >= 0 && draftPlayerIndex < (int)players.size() && players[draftPlayerIndex].isMinion);
+			if (targetIsMinion) {
+				ShuffleAnimation s;
+				s.playerIndex = draftPlayerIndex;
+				bool assignedRect = false;
+				for (const auto & mui : activeMinionUIs) {
+					if (mui.playerIndex == draftPlayerIndex) {
+						s.deckRect = mui.deckRect;
+						assignedRect = true;
+						break;
+					}
+				}
+				if (!assignedRect) {
+					int ownerSlot = findPlayerIndexByID(players[draftPlayerIndex].ownerID);
+					if (ownerSlot >= 0)
+						s.deckRect = (players[ownerSlot].playerID == 0) ? p0_deckRect : p1_deckRect;
+					else
+						s.deckRect = (players[draftPlayerIndex].ownerID == 0) ? p0_deckRect : p1_deckRect;
+				}
+				s.startTime = ofGetElapsedTimef();
+				s.duration = 0.9f;
+				s.currentAlpha = 255.0f;
+				s.currentScale = 1.0f;
+				s.rotation = 0.0f;
+				activeShuffleAnimations.push_back(s);
+			} else {
+				startShuffleVisual(draftPlayerIndex);
+			}
 
 			selectedDraftIndices.clear();
 			draftOptions.clear();
@@ -11913,6 +12082,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 							ofLogNotice("Network") << "Host sent DraftState (after own toggle) to clients.";
 						}
 					}
+
 					return; // Click was on a card, handled.
 				}
 			}
@@ -12054,12 +12224,9 @@ void ofApp::mousePressed(int x, int y, int button) {
 						int newKoboldIdx = (int)players.size() - 1;
 						// Initialize visual position so the kobold is visible immediately
 						players[newKoboldIdx].visualPos = gridToWorld(players[newKoboldIdx].x, players[newKoboldIdx].y);
-						ofLogNotice("Summon") << "Initialized visualPos for new kobold idx=" << newKoboldIdx << " pos=" << players[newKoboldIdx].visualPos.x << "," << players[newKoboldIdx].visualPos.y << "," << players[newKoboldIdx].visualPos.z;
 						shuffleGameVector(players[newKoboldIdx].deck, newKoboldIdx);
 
 						ofLogNotice("Summon") << "Placed Kobold (main handler): idx=" << newKoboldIdx << " players.size=" << players.size() << " boardHasPlayer=" << board[gx][gy].hasPlayer;
-
-						// Immediate debug dump to verify players vector and board state
 						ofLogNotice("Summon") << "[DEBUG] Players after main placement (count=" << players.size() << ")";
 						for (size_t _pi = 0; _pi < players.size(); ++_pi) {
 							auto & _pp = players[_pi];
@@ -12101,6 +12268,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 							}
 						}
 						invalidateTargetCache();
+						checkKeyPickupAndDraftAfterSummon(kobold.x, kobold.y, kobold.ownerID);
 						return; // Click handled
 					}
 				}
@@ -13637,16 +13805,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 						int newKoboldIdx = (int)players.size() - 1;
 						shuffleGameVector(players[newKoboldIdx].deck, newKoboldIdx);
 
-						ofLogNotice("Summon") << "Placed Kobold (early handler): idx=" << newKoboldIdx << " players.size=" << players.size() << " boardHasPlayer=" << board[gx][gy].hasPlayer;
-
-						// Immediate debug dump to verify players vector and board state (early handler)
 						ofLogNotice("Summon") << "[DEBUG] Players after early placement (count=" << players.size() << ")";
-						for (size_t _pi = 0; _pi < players.size(); ++_pi) {
-							auto & _pp = players[_pi];
-							ofLogNotice("Summon") << "[DEBUG] idx=" << _pi << " id=" << _pp.playerID << " x=" << _pp.x << " y=" << _pp.y << " isKobold=" << (_pp.isKobold ? 1 : 0) << " isMinion=" << (_pp.isMinion ? 1 : 0) << " health=" << _pp.health;
-						}
-
-						// --- HANDLE LOGIC FLOW --
 						koboldsRemainingToPlace--;
 						if (koboldsRemainingToPlace > 0) {
 							// still placing
@@ -13807,81 +13966,6 @@ void ofApp::mousePressed(int x, int y, int button) {
 			}
 			isSpawningUnit = false;
 			return;
-		}
-
-		// 3b. Debug UI Interactions (Buttons)
-		if (isDebugMode && button == OF_MOUSE_BUTTON_LEFT) {
-			if (debugPanel.inside(x, y)) {
-				if (isMultiplayer && !isHost()) {
-					addGameLog("Debug tools are host-only in multiplayer.");
-					return;
-				}
-				// Handle specific debug buttons
-				if (debugDrawCardButton.inside(x, y)) {
-					drawCard();
-					if (isMultiplayer && isHost()) {
-						sendSnapshotToClient();
-					}
-					return;
-				}
-
-				if (debugSpawnCardButton.inside(x, y)) {
-					// Open the in-game card spawner UI
-					isCardSpawnerOpen = true;
-					cardSpawnerInput = "";
-					filteredCards.clear();
-					return;
-				}
-
-				if (debugDiceDropdownButton.inside(x, y)) {
-					isDebugDiceDropdownOpen = !isDebugDiceDropdownOpen;
-					return;
-				}
-
-				// Only check dropdown buttons if open
-				if (isDebugDiceDropdownOpen) {
-					if (debugFlipCoinButton.inside(x, y)) {
-						startDiceRoll(1, 2, PURPOSE_DEBUG, "Debug Coin", currentPlayerIndex);
-						isDebugDiceDropdownOpen = false;
-						return;
-					}
-					if (debugRollD4Button.inside(x, y)) {
-						startDiceRoll(1, 4, PURPOSE_DEBUG, "Debug D4", currentPlayerIndex);
-						isDebugDiceDropdownOpen = false;
-						return;
-					}
-					if (debugRollD6Button.inside(x, y)) {
-						startDiceRoll(1, 6, PURPOSE_DEBUG, "Debug D6", currentPlayerIndex);
-						isDebugDiceDropdownOpen = false;
-						return;
-					}
-					if (debugRollD10Button.inside(x, y)) {
-						startDiceRoll(1, 10, PURPOSE_DEBUG, "Debug D10", currentPlayerIndex);
-						isDebugDiceDropdownOpen = false;
-						return;
-					}
-					if (debugRollD20Button.inside(x, y)) {
-						startDiceRoll(1, 20, PURPOSE_DEBUG, "Debug D20", currentPlayerIndex);
-						isDebugDiceDropdownOpen = false;
-						return;
-					}
-				}
-
-				if (debugSpawnUnitButton.inside(x, y)) {
-					isSpawningUnit = !isSpawningUnit;
-					return;
-				}
-				if (debugUnlimitedAPButton.inside(x, y)) {
-					hasUnlimitedAP = !hasUnlimitedAP;
-					if (isMultiplayer && isHost()) {
-						sendSnapshotToClient();
-					}
-					return;
-				}
-				// Force End Turn debug control removed
-
-				return; // Clicked panel background
-			}
 		}
 
 		// --- RENEWED INSPIRATION: REAL-TIME SELECTION ---
@@ -15203,94 +15287,95 @@ void ofApp::keyPressed(int key) {
 	}
 
 	// Handle Card Spawner text input (krunner-style search) - processed early
-		// Quick-draw hotkey: 'F' -> Draw active player's deck (acts like clicking your deck)
-		if ((key == 'f' || key == 'F') && currentState == STATE_GAMEPLAY) {
-			// Only allow when not typing/chatting and not in card spawner
-			if (isChatOpen || isCardSpawnerOpen) return;
-			// Reuse the main-deck draw logic from mousePressed (simplified for keyboard)
-			if (players.empty() || currentPlayerIndex < 0) return;
-			Player & activePlayer = players[currentPlayerIndex];
-			// Determine which local player object represents "us" for drawing.
-			Player * localPlayer = nullptr;
-			if (isMultiplayer) {
-				localPlayer = (myLocalPlayerID == 0) ? nullptr : nullptr; // placeholder; we'll compute index below
-			}
-
-			// Determine whether main-deck draw is allowed for the active actor
-			bool isLocalPlayersTurnForMainDeck = false;
-			if (isMultiplayer) {
-				// Allow drawing if the active actor is you (player) OR your minion
-				if (activePlayer.isMinion) {
-					isLocalPlayersTurnForMainDeck = (activePlayer.ownerID == myLocalPlayerID);
-				} else {
-					isLocalPlayersTurnForMainDeck = (activePlayer.playerID == myLocalPlayerID);
-				}
-			} else {
-				// In singleplayer, allow drawing for all players/minions
-				isLocalPlayersTurnForMainDeck = true;
-			}
-
-			// Determine active deck rect owner index
-			int localPlayerIndex = -1;
-			if (isMultiplayer) {
-				for (size_t i = 0; i < players.size(); i++) {
-					if (players[i].playerID == myLocalPlayerID && !players[i].isMinion) {
-						localPlayerIndex = (int)i;
-						localPlayer = &players[i];
-						break;
-					}
-				}
-				if (localPlayerIndex == -1) localPlayerIndex = 0;
-			} else {
-				localPlayerIndex = currentPlayerIndex;
-				localPlayer = &players[localPlayerIndex];
-			}
-
-			if (!localPlayer) return;
-
-			// Check if active actor (player or minion) already drew this turn
-			bool activeActorBelongsToLocal = false;
-			if (activePlayer.isMinion) {
-				activeActorBelongsToLocal = (activePlayer.ownerID == myLocalPlayerID);
-			} else {
-				activeActorBelongsToLocal = (activePlayer.playerID == myLocalPlayerID);
-			}
-			bool activeAlreadyDrew = activeActorBelongsToLocal ? hasDrawnCardsThisTurn : opponentHasDrawnCardsThisTurn;
-			if (!isLocalPlayersTurnForMainDeck || activeAlreadyDrew) return;
-
-			int baseDraw = localPlayer->isDemon ? 3 : 2;
-			int cardsToDraw = localPlayer->nextTurnExtraDraw ? (baseDraw + 1) : baseDraw;
-			for (int i = 0; i < cardsToDraw; ++i) drawCard(false);
-
-			if (isMultiplayer) {
-				DrawCardsPacket out = {};
-				out.type = PKT_DRAW_CARDS;
-				out.playerID = myLocalPlayerID;
-				out.playerIndex = currentPlayerIndex; // Send the active actor's index (could be minion)
-				out.numCards = cardsToDraw;
-				out.clientActionID = ++watchdogClientActionCounter;
-				memset(out.cardNames, 0, sizeof(out.cardNames));
-				steamManager.sendPacket(&out, sizeof(out));
-				if (isClient()) {
-					lastSentDrawCardsPacket = out;
-					lastSentDrawCardsValid = true;
-					lastSentDrawCardsTime = ofGetElapsedTimef();
-					lastSentDrawCardsAttempts = 0;
-				}
-			}
-
-			localPlayer->nextTurnExtraDraw = false;
-			if (activeActorBelongsToLocal) {
-				hasDrawnCardsThisTurn = true;
-				players[currentPlayerIndex].hasDrawnThisTurn = true; // Mark the active actor (player or minion)
-			} else {
-				opponentHasDrawnCardsThisTurn = true;
-				players[localPlayerIndex].hasDrawnThisTurn = true;
-			}
-
-			return;
+	// Quick-draw hotkey: 'F' -> Draw active player's deck (acts like clicking your deck)
+	if ((key == 'f' || key == 'F') && currentState == STATE_GAMEPLAY) {
+		// Only allow when not typing/chatting or using card spawner
+		if (isChatOpen || isCardSpawnerOpen) return;
+		// Reuse the main-deck draw logic from mousePressed (simplified for keyboard)
+		if (players.empty() || currentPlayerIndex < 0) return;
+		Player & activePlayer = players[currentPlayerIndex];
+		// Determine which local player object represents "us" for drawing.
+		Player * localPlayer = nullptr;
+		if (isMultiplayer) {
+			localPlayer = (myLocalPlayerID == 0) ? nullptr : nullptr; // placeholder; we'll compute index below
 		}
-		// End-turn hotkey removed
+
+		// Determine whether main-deck draw is allowed for the active actor
+		bool isLocalPlayersTurnForMainDeck = false;
+		if (isMultiplayer) {
+			// Allow drawing if the active actor is you (player) OR your minion
+			if (activePlayer.isMinion) {
+				isLocalPlayersTurnForMainDeck = (activePlayer.ownerID == myLocalPlayerID);
+			} else {
+				isLocalPlayersTurnForMainDeck = (activePlayer.playerID == myLocalPlayerID);
+			}
+		} else {
+			// In singleplayer, allow drawing for all players/minions
+			isLocalPlayersTurnForMainDeck = true;
+		}
+
+		// Determine active deck rect owner index
+		int localPlayerIndex = -1;
+		if (isMultiplayer) {
+			for (size_t i = 0; i < players.size(); i++) {
+				if (players[i].playerID == myLocalPlayerID && !players[i].isMinion) {
+					localPlayerIndex = (int)i;
+					localPlayer = &players[i];
+					break;
+				}
+			}
+			if (localPlayerIndex == -1) localPlayerIndex = 0;
+		} else {
+			localPlayerIndex = currentPlayerIndex;
+			localPlayer = &players[localPlayerIndex];
+		}
+
+		if (!localPlayer) return;
+
+		// Check if active actor (player or minion) already drew this turn
+		bool activeActorBelongsToLocal = false;
+		if (activePlayer.isMinion) {
+			activeActorBelongsToLocal = (activePlayer.ownerID == myLocalPlayerID);
+		} else {
+			activeActorBelongsToLocal = (activePlayer.playerID == myLocalPlayerID);
+		}
+		bool activeAlreadyDrew = activeActorBelongsToLocal ? hasDrawnCardsThisTurn : opponentHasDrawnCardsThisTurn;
+		if (!isLocalPlayersTurnForMainDeck || activeAlreadyDrew) return;
+
+		int baseDraw = localPlayer->isDemon ? 3 : 2;
+		int cardsToDraw = localPlayer->nextTurnExtraDraw ? (baseDraw + 1) : baseDraw;
+		for (int i = 0; i < cardsToDraw; ++i)
+			drawCard(false);
+
+		if (isMultiplayer) {
+			DrawCardsPacket out = {};
+			out.type = PKT_DRAW_CARDS;
+			out.playerID = myLocalPlayerID;
+			out.playerIndex = currentPlayerIndex; // Send the active actor's index (could be minion)
+			out.numCards = cardsToDraw;
+			out.clientActionID = ++watchdogClientActionCounter;
+			memset(out.cardNames, 0, sizeof(out.cardNames));
+			steamManager.sendPacket(&out, sizeof(out));
+			if (isClient()) {
+				lastSentDrawCardsPacket = out;
+				lastSentDrawCardsValid = true;
+				lastSentDrawCardsTime = ofGetElapsedTimef();
+				lastSentDrawCardsAttempts = 0;
+			}
+		}
+
+		localPlayer->nextTurnExtraDraw = false;
+		if (activeActorBelongsToLocal) {
+			hasDrawnCardsThisTurn = true;
+			players[currentPlayerIndex].hasDrawnThisTurn = true; // Mark the active actor (player or minion)
+		} else {
+			opponentHasDrawnCardsThisTurn = true;
+			players[localPlayerIndex].hasDrawnThisTurn = true;
+		}
+
+		return;
+	}
+	// End-turn hotkey removed
 	if (isCardSpawnerOpen && !isCardEncyclopediaOpen) {
 		if (key == OF_KEY_RETURN) {
 			// Add the first matching card (or exact match)
@@ -16103,7 +16188,8 @@ void ofApp::continueNewTurn() {
 	cancelAllTargeting();
 
 	// Reset per-actor "has drawn" flags for this new turn
-	for (auto & p : players) p.hasDrawnThisTurn = false;
+	for (auto & p : players)
+		p.hasDrawnThisTurn = false;
 
 	// Only clear AP-related visual dice here to avoid removing unrelated visual dice
 	activeDiceRolls.erase(std::remove_if(activeDiceRolls.begin(), activeDiceRolls.end(), [&](const DiceRoll & r) {
@@ -17259,9 +17345,7 @@ CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		// Authoritative shuffle for the new minion deck
 		int newKoboldKingIdx = (int)players.size() - 1;
 		players[newKoboldKingIdx].visualPos = gridToWorld(players[newKoboldKingIdx].x, players[newKoboldKingIdx].y);
-		ofLogNotice("Summon") << "Initialized visualPos for kobold king idx=" << newKoboldKingIdx << " pos=" << players[newKoboldKingIdx].visualPos.x << "," << players[newKoboldKingIdx].visualPos.y << "," << players[newKoboldKingIdx].visualPos.z;
 		shuffleGameVector(players[newKoboldKingIdx].deck, newKoboldKingIdx);
-		checkKeyPickupAndDraftAfterSummon(minion.x, minion.y, minion.ownerID);
 
 		ofLogNotice("Summon") << "Kobold King summoned with " << kingHP << " HP.";
 
@@ -17284,6 +17368,8 @@ CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		}
 
 		if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) players[currentPlayerIndex].ap = currentAP;
+
+		checkKeyPickupAndDraftAfterSummon(minion.x, minion.y, minion.ownerID);
 		return CARD_PLAYED_IMMEDIATELY; // Cleanup handled manually above
 	}
 
@@ -17354,9 +17440,7 @@ CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		players.push_back(minion);
 		int newAssistantIdx = (int)players.size() - 1;
 		players[newAssistantIdx].visualPos = gridToWorld(players[newAssistantIdx].x, players[newAssistantIdx].y);
-		ofLogNotice("Summon") << "Initialized visualPos for assistant idx=" << newAssistantIdx << " pos=" << players[newAssistantIdx].visualPos.x << "," << players[newAssistantIdx].visualPos.y << "," << players[newAssistantIdx].visualPos.z;
 		shuffleGameVector(players[newAssistantIdx].deck, newAssistantIdx);
-		checkKeyPickupAndDraftAfterSummon(minion.x, minion.y, minion.ownerID);
 
 		ofLogNotice("Summon") << "Assistant summoned.";
 
@@ -17392,6 +17476,8 @@ CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		}
 
 		if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) players[currentPlayerIndex].ap = currentAP;
+
+		checkKeyPickupAndDraftAfterSummon(minion.x, minion.y, minion.ownerID);
 		return CARD_PLAYED_IMMEDIATELY;
 	}
 
@@ -17457,9 +17543,7 @@ CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		players.push_back(minion);
 		int newFaerieIdx = (int)players.size() - 1;
 		players[newFaerieIdx].visualPos = gridToWorld(players[newFaerieIdx].x, players[newFaerieIdx].y);
-		ofLogNotice("Summon") << "Initialized visualPos for faerie idx=" << newFaerieIdx << " pos=" << players[newFaerieIdx].visualPos.x << "," << players[newFaerieIdx].visualPos.y << "," << players[newFaerieIdx].visualPos.z;
 		shuffleGameVector(players[newFaerieIdx].deck, newFaerieIdx);
-		checkKeyPickupAndDraftAfterSummon(minion.x, minion.y, minion.ownerID);
 
 		ofLogNotice("Summon") << "Faerie summoned.";
 
@@ -17495,6 +17579,8 @@ CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		}
 
 		if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) players[currentPlayerIndex].ap = currentAP;
+
+		checkKeyPickupAndDraftAfterSummon(minion.x, minion.y, minion.ownerID);
 		return CARD_PLAYED_IMMEDIATELY;
 	}
 
@@ -17641,9 +17727,7 @@ CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		// Ensure visual position is initialized for newly summoned minion
 		int newSkeletonIdx = (int)players.size() - 1;
 		players[newSkeletonIdx].visualPos = gridToWorld(players[newSkeletonIdx].x, players[newSkeletonIdx].y);
-		ofLogNotice("Raise Dead") << "Initialized visualPos for new skeleton idx=" << newSkeletonIdx << " pos=" << players[newSkeletonIdx].visualPos.x << "," << players[newSkeletonIdx].visualPos.y << "," << players[newSkeletonIdx].visualPos.z;
 
-		checkKeyPickupAndDraftAfterSummon(minion.x, minion.y, minion.ownerID);
 		// Sort turn order
 		std::sort(players.begin(), players.end(), [](const Player & a, const Player & b) {
 			int ownerA = a.isMinion ? a.ownerID : a.playerID;
@@ -17676,6 +17760,8 @@ CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 			steamManager.sendPacket(&pkt, sizeof(pkt));
 			ofLogNotice("Network") << "Host sent PlaceSummonedMinion: GOLEM owner=" << pkt.ownerPlayerID << " target=(" << pkt.targetX << "," << pkt.targetY << ") HP=" << pkt.minionHP;
 		}
+
+		checkKeyPickupAndDraftAfterSummon(minion.x, minion.y, minion.ownerID);
 		return CARD_PLAYED_IMMEDIATELY;
 	}
 
@@ -17786,7 +17872,6 @@ CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		int newWallUnitIdx = (int)players.size() - 1;
 		players[newWallUnitIdx].visualPos = gridToWorld(players[newWallUnitIdx].x, players[newWallUnitIdx].y);
 		shuffleGameVector(players[newWallUnitIdx].deck, newWallUnitIdx);
-		checkKeyPickupAndDraftAfterSummon(minion.x, minion.y, minion.ownerID);
 
 		// Notify clients about the placed Wall Unit (authoritative HP)
 		if (isMultiplayer && isHost()) {
@@ -17823,6 +17908,8 @@ CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		}
 
 		if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) players[currentPlayerIndex].ap = currentAP;
+
+		checkKeyPickupAndDraftAfterSummon(minion.x, minion.y, minion.ownerID);
 		return CARD_PLAYED_IMMEDIATELY;
 	}
 
@@ -20786,11 +20873,11 @@ void ofApp::applySnapshotString(const std::string & data) {
 	animatingPlayerIndex = -1;
 	endTurnLocked = false;
 	waitingForTurnStartFromHost = false;
-		pendingKeyDraftAccept = false;
-		pendingKeyDraftPlayer = -1;
-		pendingKeyDraftClass = 0;
-		pendingKeyDraftKeyX = -1;
-		pendingKeyDraftKeyY = -1;
+	pendingKeyDraftAccept = false;
+	pendingKeyDraftPlayer = -1;
+	pendingKeyDraftClass = 0;
+	pendingKeyDraftKeyX = -1;
+	pendingKeyDraftKeyY = -1;
 
 	playerAction = NONE;
 	selectedPieceGridX = -1;
@@ -23164,6 +23251,91 @@ void ofApp::updateDebugRects() {
 	debugPanel.set(panelX, panelY, panelWidth, curY - panelY);
 }
 //--------------------------------------------------------------
+void ofApp::debugSkipDraftRandomCards() {
+	// Only works in singleplayer during draft
+	if (isMultiplayer || currentState != STATE_DRAFTING) {
+		ofLogWarning("Debug") << "Cannot skip draft: multiplayer=" << isMultiplayer << " state=" << currentState;
+		return;
+	}
+
+	ofLogNotice("Debug") << "Skipping entire draft and adding random cards";
+
+	// Add random cards from ALL classes to simulate full draft for both players
+	for (size_t pIdx = 0; pIdx < players.size(); ++pIdx) {
+		if (players[pIdx].isMinion) continue;
+
+		Player & targetPlayer = players[pIdx];
+
+		// Class 1: Add 2 random cards, 2 copies each
+		for (int pick = 0; pick < 2; ++pick) {
+			if (!class1Cards.empty()) {
+				int randomIdx = rand() % class1Cards.size();
+				Card card = class1Cards[randomIdx];
+				targetPlayer.deck.push_back(card);
+				targetPlayer.deck.push_back(card);
+			}
+		}
+
+		// Class 2: Add 1 random card, 1 copy
+		if (!class2Cards.empty()) {
+			int randomIdx = rand() % class2Cards.size();
+			Card card = class2Cards[randomIdx];
+			targetPlayer.deck.push_back(card);
+		}
+
+		shuffleGameVector(targetPlayer.deck, pIdx);
+
+		// Create shuffle animation
+		ShuffleAnimation s;
+		s.playerIndex = pIdx;
+		s.deckRect = (players[pIdx].playerID == 0) ? p0_deckRect : p1_deckRect;
+		s.startTime = ofGetElapsedTimef();
+		s.duration = 0.9f;
+		s.currentAlpha = 255.0f;
+		s.currentScale = 1.0f;
+		s.rotation = 0.0f;
+		activeShuffleAnimations.push_back(s);
+
+		// Trigger visual shuffle
+		startShuffleVisual(pIdx);
+	}
+
+	// Clear draft state
+	draftOptions.clear();
+	isInGameDraft = false;
+	inGameDraftTargetIdx = -1;
+	pendingKeyDraftKeyX = -1;
+	pendingKeyDraftKeyY = -1;
+	selectedDraftIndices.clear();
+	draftAcceptLocked = false;
+	waitingForDraftOptions = false;
+
+	// Initialize game - move directly to gameplay
+	ofLogNotice("Debug") << "Draft skipped, starting gameplay";
+
+	// Set up the first player to move
+	currentPlayerIndex = 0;
+	if (!isMultiplayer && players.size() > 0) {
+		// Find player 0 index
+		for (size_t i = 0; i < players.size(); ++i) {
+			if (players[i].playerID == 0) {
+				currentPlayerIndex = i;
+				break;
+			}
+		}
+	}
+
+	// Initialize turn state
+	currentAP = 3; // Standard starting AP
+	players[currentPlayerIndex].ap = currentAP;
+	hasDrawnCardsThisTurn = false;
+
+	// NO DRAWING - decks are pre-populated with cards from draft
+
+	// Set state to gameplay
+	currentState = STATE_GAMEPLAY;
+}
+//--------------------------------------------------------------
 void ofApp::cleanupGame() {
 	players.clear();
 	activeDiceRolls.clear();
@@ -24168,8 +24340,10 @@ void ofApp::onCardPicked(int optionIndex) {
 			}
 			if (!assignedRect) {
 				int ownerSlot = findPlayerIndexByID(players[draftPlayerIndex].ownerID);
-				if (ownerSlot >= 0) s.deckRect = (players[ownerSlot].playerID == 0) ? p0_deckRect : p1_deckRect;
-				else s.deckRect = (players[draftPlayerIndex].ownerID == 0) ? p0_deckRect : p1_deckRect;
+				if (ownerSlot >= 0)
+					s.deckRect = (players[ownerSlot].playerID == 0) ? p0_deckRect : p1_deckRect;
+				else
+					s.deckRect = (players[draftPlayerIndex].ownerID == 0) ? p0_deckRect : p1_deckRect;
 			}
 			s.startTime = ofGetElapsedTimef();
 			s.duration = 0.9f;
@@ -24208,27 +24382,42 @@ void ofApp::onCardPicked(int optionIndex) {
 		mv.delay = draftAnimHoldDuration;
 		mv.duration = 0.35f;
 		mv.startPos = center;
-		// If the drafting actor is a minion, target its MinionUI deck rect; otherwise target the player deck
+		mv.endScale = 1.0f; // Default to full size
+		// If the drafting actor is a minion, target its MinionUI deck rect
 		if (draftPlayerIndex >= 0 && draftPlayerIndex < (int)players.size() && players[draftPlayerIndex].isMinion) {
 			bool found = false;
 			for (const auto & mui : activeMinionUIs) {
 				if (mui.playerIndex == draftPlayerIndex) {
 					mv.endPos = glm::vec2(mui.deckRect.x + mui.deckRect.width / 2.0f, mui.deckRect.y + mui.deckRect.height / 2.0f);
+					// Scale down to fit minion UI deck
+					float uiScale = std::min(ofGetWidth() / 1920.0f, ofGetHeight() / 1080.0f);
+					float cardW = std::clamp(340.0f * uiScale, 160.0f, 420.0f);
+					float cardH = cardW * 1.4f;
+					mv.endScale = std::min(mui.deckRect.width, mui.deckRect.height) / std::max(cardW, cardH);
 					found = true;
 					break;
 				}
 			}
 			if (!found) {
-				int ownerSlot = findPlayerIndexByID(players[draftPlayerIndex].ownerID);
-				ofRectangle deckRect = (ownerSlot == 0) ? p0_deckRect : p1_deckRect;
-				mv.endPos = glm::vec2(deckRect.x + deckRect.width / 2.0f, deckRect.y + deckRect.height / 2.0f);
+				mv.endPos = glm::vec2(-100, -100);
 			}
 			mv.finished = false;
 			// mark ownerIndex as the minion actor so we can avoid flashing main decks
 			mv.ownerIndex = draftPlayerIndex;
-		} else {
-			ofRectangle deckRect = (draftPlayerIndex == 0) ? p0_deckRect : p1_deckRect;
+		} else if (draftPlayerIndex >= 0 && draftPlayerIndex < (int)players.size()) {
+			int ownerID = players[draftPlayerIndex].playerID;
+			ofRectangle deckRect = (ownerID == myLocalPlayerID) ? p0_deckRect : p1_deckRect;
+			if (!isMultiplayer) deckRect = (ownerID == 0) ? p0_deckRect : p1_deckRect;
 			mv.endPos = glm::vec2(deckRect.x + deckRect.width / 2.0f, deckRect.y + deckRect.height / 2.0f);
+			// Scale down to fit player deck
+			float uiScale = std::min(ofGetWidth() / 1920.0f, ofGetHeight() / 1080.0f);
+			float cardW = std::clamp(340.0f * uiScale, 160.0f, 420.0f);
+			float cardH = cardW * 1.4f;
+			mv.endScale = std::min(deckRect.width, deckRect.height) / std::max(cardW, cardH);
+			mv.finished = false;
+			mv.ownerIndex = draftPlayerIndex;
+		} else {
+			mv.endPos = glm::vec2(-100, -100);
 			mv.finished = false;
 			mv.ownerIndex = draftPlayerIndex;
 		}
@@ -24236,6 +24425,7 @@ void ofApp::onCardPicked(int optionIndex) {
 
 		draftOptions.clear();
 		isInGameDraft = false;
+		inGameDraftTargetIdx = -1;
 
 		// Return to game
 		currentState = STATE_GAMEPLAY;
@@ -24623,7 +24813,7 @@ void ofApp::drawActiveDraftPickedMoves() {
 			float t = (now - mv.startTime - mv.delay) / mv.duration;
 			if (t >= 1.0f) t = 1.0f;
 			glm::vec2 pos = mv.startPos * (1.0f - t) + mv.endPos * t;
-			float scale = 1.0f - 0.5f * t;
+			float scale = 1.0f * (1.0f - t) + mv.endScale * t;
 			float drawW = cardW * scale;
 			float drawH = cardH * scale;
 			float dx = pos.x - drawW / 2.0f;
@@ -24677,18 +24867,30 @@ void ofApp::drawPileViewFor(int viewPlayerIndex, PileViewMode viewMode) {
 		// Find the matching MinionUI to reuse its displayNumber (ensures Assistant 1/2 match the side UI)
 		int foundNumber = 0;
 		for (const auto & mui : activeMinionUIs) {
-			if (mui.playerIndex == viewPlayerIndex) { foundNumber = mui.displayNumber; break; }
+			if (mui.playerIndex == viewPlayerIndex) {
+				foundNumber = mui.displayNumber;
+				break;
+			}
 		}
 		std::string prefix = "Minion";
-		if (viewPlayer.isFaerie) prefix = "Faerie";
-		else if (viewPlayer.isWallUnit) prefix = "Wall";
-		else if (viewPlayer.isKobold) prefix = "Kobold";
-		else if (viewPlayer.isAssistant) prefix = "Assistant";
-		else if (viewPlayer.isWolf) prefix = "Wolf";
-		else if (viewPlayer.isHellhound) prefix = "Hellhound";
-		else if (viewPlayer.isGolem) prefix = "Golem";
-		else if (viewPlayer.isSkeleton) prefix = "Skeleton";
-		else if (viewPlayer.isDemon) prefix = "Demon";
+		if (viewPlayer.isFaerie)
+			prefix = "Faerie";
+		else if (viewPlayer.isWallUnit)
+			prefix = "Wall";
+		else if (viewPlayer.isKobold)
+			prefix = "Kobold";
+		else if (viewPlayer.isAssistant)
+			prefix = "Assistant";
+		else if (viewPlayer.isWolf)
+			prefix = "Wolf";
+		else if (viewPlayer.isHellhound)
+			prefix = "Hellhound";
+		else if (viewPlayer.isGolem)
+			prefix = "Golem";
+		else if (viewPlayer.isSkeleton)
+			prefix = "Skeleton";
+		else if (viewPlayer.isDemon)
+			prefix = "Demon";
 
 		if (foundNumber > 0) {
 			viewTitle = prefix + " " + ofToString(foundNumber) + "'s " + viewTitle;
@@ -26563,6 +26765,7 @@ void ofApp::processNetworkPackets() {
 				} else if (pkt->actionType == 1) {
 					// Client accepted draft with choices -> apply on host
 					ofLogNotice("Draft") << "HOST: Received client AcceptDraft from player=" << pkt->playerID << " draftPlayerIdx=" << pkt->draftPlayerIdx << " picks=" << (int)pkt->numSelected << " indices=" << (int)pkt->selectedIdx0 << "," << (int)pkt->selectedIdx1 << "," << (int)pkt->selectedIdx2;
+					ofLogNotice("Draft") << "HOST: isInGameDraft=" << isInGameDraft << " inGameDraftTargetIdx=" << inGameDraftTargetIdx;
 					int picks = pkt->numSelected;
 					std::vector<int> sel;
 					if (picks > 0) sel.push_back(pkt->selectedIdx0);
@@ -26571,65 +26774,58 @@ void ofApp::processNetworkPackets() {
 
 					// Resolve the intended drafting target robustly. Clients send a
 					// `draftPlayerIdx` that may be a local index; map it to the
-					// host's authoritative index. Prefer the sent index if it
-					// matches the sender (either by playerID or as an owned minion).
+					// host's authoritative index.
 					int targetIdx = pkt->draftPlayerIdx;
 					bool needsRemap = false;
-					if (targetIdx < 0 || targetIdx >= (int)players.size())
-						needsRemap = true;
-					else if (!(players[targetIdx].playerID == pkt->playerID || players[targetIdx].ownerID == (int)pkt->playerID))
-						needsRemap = true;
 
-					if (needsRemap) {
-						// HOST: Use the current draftPlayerIndex (which was set by checkKeyPickupAndDraftAfterSummon)
-						// as the authoritative target. This ensures we use the minion that was detected at the key tile.
-						int found = draftPlayerIndex;
-						if (found >= 0 && found < (int)players.size()) {
-							// Verify this is a valid target for the sender
-							if (players[found].playerID == (int)pkt->playerID || (players[found].isMinion && players[found].ownerID == (int)pkt->playerID)) {
-								ofLogNotice("Draft") << "HOST: remapped draftPlayerIdx " << pkt->draftPlayerIdx << " -> " << found << " (using host draftPlayerIndex set by key pickup)";
-								targetIdx = found;
-							} else {
-								ofLogWarning("Draft") << "HOST: draftPlayerIndex " << found << " doesn't belong to sender " << pkt->playerID << ". Searching for valid target.";
-								// Fallback searches below
-								found = -1;
-							}
-						}
-						if (found == -1) {
+					// If this is an in-game key draft, use the pre-determined target
+					if (isInGameDraft && inGameDraftTargetIdx >= 0 && inGameDraftTargetIdx < (int)players.size()) {
+						targetIdx = inGameDraftTargetIdx;
+						ofLogNotice("Draft") << "HOST: In-game draft - using pre-determined target idx=" << targetIdx;
+					} else {
+						// Otherwise, validate or remap the client-provided index
+						if (targetIdx < 0 || targetIdx >= (int)players.size())
+							needsRemap = true;
+						else if (!(players[targetIdx].playerID == pkt->playerID || players[targetIdx].ownerID == (int)pkt->playerID))
+							needsRemap = true;
+
+						if (needsRemap) {
 							// Try to find a player whose playerID matches the integer sent
+							int found = -1;
 							for (int i = 0; i < (int)players.size(); ++i) {
 								if (players[i].playerID == pkt->draftPlayerIdx) {
 									found = i;
 									break;
 								}
 							}
-						}
-						if (found == -1) {
-							// Otherwise, try to find ANY minion owned by the sending player
-							for (int i = 0; i < (int)players.size(); ++i) {
-								if (players[i].isMinion && players[i].ownerID == (int)pkt->playerID) {
-									found = i;
-									break;
+							if (found == -1) {
+								// Otherwise, try to find ANY minion owned by the sending player
+								for (int i = 0; i < (int)players.size(); ++i) {
+									if (players[i].isMinion && players[i].ownerID == (int)pkt->playerID) {
+										found = i;
+										break;
+									}
 								}
 							}
-						}
-						if (found == -1) {
-							// Fallback: find the owner/player index for the sending client
-							for (int i = 0; i < (int)players.size(); ++i) {
-								if (players[i].playerID == (int)pkt->playerID) {
-									found = i;
-									break;
+							if (found == -1) {
+								// Fallback: find the owner/player index for the sending client
+								for (int i = 0; i < (int)players.size(); ++i) {
+									if (players[i].playerID == (int)pkt->playerID) {
+										found = i;
+										break;
+									}
 								}
 							}
-						}
-						if (found != -1 && found != targetIdx) {
-							ofLogNotice("Draft") << "HOST: remapped draftPlayerIdx " << pkt->draftPlayerIdx << " -> " << found << " for sender playerID=" << pkt->playerID;
-							targetIdx = found;
-						} else if (found == -1) {
-							ofLogWarning("Draft") << "HOST: unable to remap draftPlayerIdx " << pkt->draftPlayerIdx << " for sender playerID=" << pkt->playerID << ". Using raw index.";
+							if (found != -1) {
+								ofLogNotice("Draft") << "HOST: remapped draftPlayerIdx " << pkt->draftPlayerIdx << " -> " << found;
+								targetIdx = found;
+							} else {
+								ofLogWarning("Draft") << "HOST: unable to remap draftPlayerIdx " << pkt->draftPlayerIdx << ". Using as-is.";
+							}
 						}
 					}
 					Player & p = players[targetIdx];
+					ofLogNotice("Draft") << "HOST: Adding cards to targetIdx=" << targetIdx << " playerID=" << p.playerID << " isMinion=" << p.isMinion << " ownerID=" << p.ownerID;
 					int copiesPerCard = 1;
 					if (!isInGameDraft && pkt->classTier == 1) copiesPerCard = 2;
 					const std::vector<Card> * pool = &class1Cards;
@@ -26800,23 +26996,37 @@ void ofApp::processNetworkPackets() {
 					if (picks > 2) sel.push_back(pkt->selectedIdx2);
 
 					int localTargetIdx = pkt->draftPlayerIdx;
-					// Client: remap host-provided index to our local index when possible.
+					// Client: remap host-provided index to our local index.
+					// The host sends pkt->draftPlayerIdx which is the host's player array index.
+					// We need to map this to OUR local player array index by matching playerID.
 					if (isClient()) {
-						// Prefer the client's mapped draftPlayerIndex if available (from DraftState).
-						if (draftPlayerIndex >= 0 && draftPlayerIndex < (int)players.size()) {
-							localTargetIdx = draftPlayerIndex;
-						}
+						// First, try to extract the playerID from the host's player at that index.
+						// If pkt->draftPlayerIdx is valid and matches a playerID, map it.
+						// (Note: host index space might differ from client's if players joined in different order)
+
 						// If we have pending key coords (pickup), prefer the minion at that tile.
+						bool foundByKeyCoords = false;
 						if (pendingKeyDraftKeyX >= 0 && pendingKeyDraftKeyY >= 0) {
 							for (int i = 0; i < (int)players.size(); ++i) {
 								if (players[i].isMinion && players[i].x == pendingKeyDraftKeyX && players[i].y == pendingKeyDraftKeyY) {
 									localTargetIdx = i;
+									foundByKeyCoords = true;
+									ofLogNotice("Draft") << "CLIENT: Mapped Accept to minion at key tile (" << pendingKeyDraftKeyX << "," << pendingKeyDraftKeyY << ") -> localIdx=" << i;
 									break;
 								}
 							}
 						}
-						// Defensive clamp
-						if (localTargetIdx < 0 || localTargetIdx >= (int)players.size()) localTargetIdx = pkt->draftPlayerIdx;
+
+						// If not found by key coords, trust host's index (assume host and client have same player order)
+						// In most cases, the host's draftPlayerIdx should match our local index directly.
+						if (!foundByKeyCoords) {
+							if (localTargetIdx >= 0 && localTargetIdx < (int)players.size()) {
+								ofLogNotice("Draft") << "CLIENT: Using host draftPlayerIdx=" << localTargetIdx << " directly";
+							} else {
+								ofLogWarning("Draft") << "CLIENT: host draftPlayerIdx=" << pkt->draftPlayerIdx << " out of range, clamping";
+								localTargetIdx = 0;
+							}
+						}
 					}
 					Player & p = players[localTargetIdx];
 					int copiesPerCard = 1;
@@ -26863,23 +27073,17 @@ void ofApp::processNetworkPackets() {
 				if (isInGameDraft) {
 					draftOptions.clear();
 					isInGameDraft = false;
+					// Clear pending key coords now that in-game draft is done
+					pendingKeyDraftKeyX = -1;
+					pendingKeyDraftKeyY = -1;
 					currentState = STATE_GAMEPLAY;
 					continue;
 				}
-
 				// If we haven't received the KeyPickup yet, remember this accept so we can close on arrival
 				if (currentState != STATE_DRAFTING) {
 					pendingKeyDraftAccept = true;
 					pendingKeyDraftPlayer = pkt->draftPlayerIdx;
 					pendingKeyDraftClass = pkt->classTier;
-				}
-
-				waitingForDraftOptions = true;
-				waitingForDraftOptionsStartTime = ofGetElapsedTimef();
-				ofLogNotice("Draft") << "Client: Received forwarded Accept. Waiting for host state/options. (preserving local options until authoritative packet arrives)";
-
-				// Handle Ack packets for reliable sends
-				if (header->type == PKT_ACK && buffer.size() >= sizeof(AckPacket)) {
 					AckPacket * ack = (AckPacket *)header;
 					// If this ACK corresponds to an Action we sent, clear resend state
 					if (isClient() && ack->ackType == PKT_ACTION) {

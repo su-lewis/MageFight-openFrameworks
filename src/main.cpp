@@ -9,5 +9,6 @@ int main() {
 	settings.windowMode = OF_GAME_MODE;
 
 	auto window = ofCreateWindow(settings);
+
 	ofRunApp(new ofApp());
 }
