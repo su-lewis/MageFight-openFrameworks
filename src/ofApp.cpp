@@ -11671,7 +11671,8 @@ void ofApp::mousePressed(int x, int y, int button) {
 					ofRectangle deckRect = (animOwnerSlot == 0) ? p0_deckRect : p1_deckRect;
 					mv.endPos = glm::vec2(deckRect.x + deckRect.width / 2.0f, deckRect.y + deckRect.height / 2.0f);
 					mv.finished = false;
-					mv.ownerIndex = animOwnerSlot;
+					// Use the actual drafting player's index for proper animation targeting
+					mv.ownerIndex = draftPlayerIndex;
 					activeDraftPickedMoves.push_back(mv);
 				}
 
@@ -15218,9 +15219,15 @@ void ofApp::keyPressed(int key) {
 			// Determine whether main-deck draw is allowed for the active actor
 			bool isLocalPlayersTurnForMainDeck = false;
 			if (isMultiplayer) {
-				isLocalPlayersTurnForMainDeck = (activePlayer.playerID == myLocalPlayerID && !activePlayer.isMinion);
+				// Allow drawing if the active actor is you (player) OR your minion
+				if (activePlayer.isMinion) {
+					isLocalPlayersTurnForMainDeck = (activePlayer.ownerID == myLocalPlayerID);
+				} else {
+					isLocalPlayersTurnForMainDeck = (activePlayer.playerID == myLocalPlayerID);
+				}
 			} else {
-				isLocalPlayersTurnForMainDeck = (!activePlayer.isMinion);
+				// In singleplayer, allow drawing for all players/minions
+				isLocalPlayersTurnForMainDeck = true;
 			}
 
 			// Determine active deck rect owner index
@@ -15241,7 +15248,14 @@ void ofApp::keyPressed(int key) {
 
 			if (!localPlayer) return;
 
-			bool activeAlreadyDrew = (activePlayer.playerID == myLocalPlayerID) ? hasDrawnCardsThisTurn : opponentHasDrawnCardsThisTurn;
+			// Check if active actor (player or minion) already drew this turn
+			bool activeActorBelongsToLocal = false;
+			if (activePlayer.isMinion) {
+				activeActorBelongsToLocal = (activePlayer.ownerID == myLocalPlayerID);
+			} else {
+				activeActorBelongsToLocal = (activePlayer.playerID == myLocalPlayerID);
+			}
+			bool activeAlreadyDrew = activeActorBelongsToLocal ? hasDrawnCardsThisTurn : opponentHasDrawnCardsThisTurn;
 			if (!isLocalPlayersTurnForMainDeck || activeAlreadyDrew) return;
 
 			int baseDraw = localPlayer->isDemon ? 3 : 2;
@@ -15252,7 +15266,7 @@ void ofApp::keyPressed(int key) {
 				DrawCardsPacket out = {};
 				out.type = PKT_DRAW_CARDS;
 				out.playerID = myLocalPlayerID;
-				out.playerIndex = localPlayerIndex;
+				out.playerIndex = currentPlayerIndex; // Send the active actor's index (could be minion)
 				out.numCards = cardsToDraw;
 				out.clientActionID = ++watchdogClientActionCounter;
 				memset(out.cardNames, 0, sizeof(out.cardNames));
@@ -15266,9 +15280,9 @@ void ofApp::keyPressed(int key) {
 			}
 
 			localPlayer->nextTurnExtraDraw = false;
-			if (activePlayer.playerID == myLocalPlayerID) {
+			if (activeActorBelongsToLocal) {
 				hasDrawnCardsThisTurn = true;
-				players[localPlayerIndex].hasDrawnThisTurn = true;
+				players[currentPlayerIndex].hasDrawnThisTurn = true; // Mark the active actor (player or minion)
 			} else {
 				opponentHasDrawnCardsThisTurn = true;
 				players[localPlayerIndex].hasDrawnThisTurn = true;
@@ -24557,12 +24571,16 @@ void ofApp::drawDraftScreen() {
 		float btnW = std::clamp(220.0f * uiScale, 140.0f, 320.0f);
 		float btnH = std::clamp(60.0f * uiScale, 40.0f, 96.0f);
 		float btnX = (ofGetWidth() - btnW) / 2.0f;
-		float btnY = startY + cardH + std::clamp(24.0f * uiScale, 12.0f, 48.0f);
+		// Use a fixed calculation based on screen height to prevent jumping
+		float btnY = ofGetHeight() * 0.75f;
 
 		// Ensure button isn't placed off-screen on short displays
 		float minBottomMargin = 20.0f * uiScale;
 		float maxBtnY = ofGetHeight() - btnH - minBottomMargin;
 		if (btnY > maxBtnY) btnY = maxBtnY;
+		// Also ensure it's below the cards
+		float minBtnY = startY + cardH + std::clamp(24.0f * uiScale, 12.0f, 48.0f);
+		if (btnY < minBtnY) btnY = minBtnY;
 
 		draftAcceptButtonRect.set(btnX, btnY, btnW, btnH);
 
@@ -26563,17 +26581,31 @@ void ofApp::processNetworkPackets() {
 						needsRemap = true;
 
 					if (needsRemap) {
-						// Try to find a player whose playerID matches the integer sent
-						// (in case the client accidentally encoded an ID rather than an index)
-						int found = -1;
-						for (int i = 0; i < (int)players.size(); ++i) {
-							if (players[i].playerID == pkt->draftPlayerIdx) {
-								found = i;
-								break;
+						// HOST: Use the current draftPlayerIndex (which was set by checkKeyPickupAndDraftAfterSummon)
+						// as the authoritative target. This ensures we use the minion that was detected at the key tile.
+						int found = draftPlayerIndex;
+						if (found >= 0 && found < (int)players.size()) {
+							// Verify this is a valid target for the sender
+							if (players[found].playerID == (int)pkt->playerID || (players[found].isMinion && players[found].ownerID == (int)pkt->playerID)) {
+								ofLogNotice("Draft") << "HOST: remapped draftPlayerIdx " << pkt->draftPlayerIdx << " -> " << found << " (using host draftPlayerIndex set by key pickup)";
+								targetIdx = found;
+							} else {
+								ofLogWarning("Draft") << "HOST: draftPlayerIndex " << found << " doesn't belong to sender " << pkt->playerID << ". Searching for valid target.";
+								// Fallback searches below
+								found = -1;
 							}
 						}
 						if (found == -1) {
-							// Otherwise, try to find a minion owned by the sending player
+							// Try to find a player whose playerID matches the integer sent
+							for (int i = 0; i < (int)players.size(); ++i) {
+								if (players[i].playerID == pkt->draftPlayerIdx) {
+									found = i;
+									break;
+								}
+							}
+						}
+						if (found == -1) {
+							// Otherwise, try to find ANY minion owned by the sending player
 							for (int i = 0; i < (int)players.size(); ++i) {
 								if (players[i].isMinion && players[i].ownerID == (int)pkt->playerID) {
 									found = i;
@@ -26590,10 +26622,10 @@ void ofApp::processNetworkPackets() {
 								}
 							}
 						}
-						if (found != -1) {
+						if (found != -1 && found != targetIdx) {
 							ofLogNotice("Draft") << "HOST: remapped draftPlayerIdx " << pkt->draftPlayerIdx << " -> " << found << " for sender playerID=" << pkt->playerID;
 							targetIdx = found;
-						} else {
+						} else if (found == -1) {
 							ofLogWarning("Draft") << "HOST: unable to remap draftPlayerIdx " << pkt->draftPlayerIdx << " for sender playerID=" << pkt->playerID << ". Using raw index.";
 						}
 					}
@@ -26803,6 +26835,7 @@ void ofApp::processNetworkPackets() {
 					}
 					// In multiplayer clients, mark that we will skip the immediate local shuffle and
 					// wait for the host's authoritative `PKT_SHUFFLE` for this player's deck.
+					ofLogNotice("Draft") << "CLIENT: Using localTargetIdx=" << localTargetIdx << " for shuffle (was pkt->draftPlayerIdx=" << pkt->draftPlayerIdx << ")";
 					if (isClient()) {
 						int pid = localTargetIdx; // map to our local index
 						if (pid >= 0 && pid < (int)players.size()) {
