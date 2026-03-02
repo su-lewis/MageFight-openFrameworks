@@ -16,6 +16,22 @@
 #include <sstream>
 #include <unordered_map>
 
+namespace {
+float p0_minionScroll = 0.0f;
+float p1_minionScroll = 0.0f;
+float p0_minionTotalH = 0.0f;
+float p1_minionTotalH = 0.0f;
+float p0_minionViewH = 0.0f;
+float p1_minionViewH = 0.0f;
+float p0_minionTop = 0.0f;
+float p1_minionTop = 0.0f;
+float p0_minionLeft = 0.0f;
+float p1_minionLeft = 0.0f;
+float minionPanelW = 0.0f;
+int lastAutoScrollTurnUnit = -1;
+int lastHoveredUnit = -1;
+}
+
 // Suppress warnings about unhandled enum values in switches across this file.
 
 void ofApp::startInitiativePhase() {
@@ -2759,18 +2775,58 @@ void ofApp::updateGame() {
 			}
 		}
 
-		// 3. HELPER LAMBDA TO BUILD UI LIST (now takes top/bottom limits)
-		auto buildMinionList = [&](const std::vector<int> & indices, float startX, float topLimit, float bottomLimit, int & skelCount, int & golemCount, int & wolfCount, int & houndCount, int & demonCount, int & koboldCount, int & assistantCount, int & wallCount, int & faerieCount) {
-			// A. Calculate Dynamic Scaling
+		// 3. HELPER LAMBDA TO BUILD UI LIST (now handles scroll state)
+		auto buildMinionList = [&](const std::vector<int> & indices, float startX, float topLimit, float bottomLimit, int listSide, int & skelCount, int & golemCount, int & wolfCount, int & houndCount, int & demonCount, int & koboldCount, int & assistantCount, int & wallCount, int & faerieCount) {
 			float localAvailableHeight = bottomLimit - topLimit;
-			float totalRequiredHeight = indices.size() * (standardEntryHeight + gap);
 			float actualEntryHeight = standardEntryHeight;
 			float actualGap = gap;
+			float totalRequiredHeight = indices.size() * (actualEntryHeight + actualGap);
 
-			if (totalRequiredHeight > localAvailableHeight && !indices.empty()) {
-				float shrinkFactor = localAvailableHeight / totalRequiredHeight;
-				actualEntryHeight = standardEntryHeight * shrinkFactor;
-				actualGap = gap * shrinkFactor;
+			float & scrollRef = (listSide == 0) ? p0_minionScroll : p1_minionScroll;
+			float maxScroll = std::max(0.0f, totalRequiredHeight - localAvailableHeight);
+			scrollRef = std::clamp(scrollRef, 0.0f, maxScroll);
+
+			if (listSide == 0) {
+				p0_minionTotalH = totalRequiredHeight;
+				p0_minionViewH = localAvailableHeight;
+				p0_minionTop = topLimit;
+				p0_minionLeft = startX;
+			} else {
+				p1_minionTotalH = totalRequiredHeight;
+				p1_minionViewH = localAvailableHeight;
+				p1_minionTop = topLimit;
+				p1_minionLeft = startX;
+			}
+			minionPanelW = panelWidth;
+
+			// Auto-scroll check for active unit
+			if (currentPlayerIndex != lastAutoScrollTurnUnit && currentPlayerIndex >= 0) {
+				for (size_t i = 0; i < indices.size(); ++i) {
+					if (indices[i] == currentPlayerIndex) {
+						float targetY = i * (actualEntryHeight + actualGap);
+						if (targetY < scrollRef) {
+							scrollRef = targetY;
+						} else if (targetY + actualEntryHeight > scrollRef + localAvailableHeight) {
+							scrollRef = targetY + actualEntryHeight - localAvailableHeight;
+						}
+						break;
+					}
+				}
+			}
+
+			// Auto-scroll check for hovered unit
+			if (this->hoveredUnitIndex != lastHoveredUnit && this->hoveredUnitIndex >= 0) {
+				for (size_t i = 0; i < indices.size(); ++i) {
+					if (indices[i] == this->hoveredUnitIndex) {
+						float targetY = i * (actualEntryHeight + actualGap);
+						if (targetY < scrollRef) {
+							scrollRef = targetY;
+						} else if (targetY + actualEntryHeight > scrollRef + localAvailableHeight) {
+							scrollRef = targetY + actualEntryHeight - localAvailableHeight;
+						}
+						break;
+					}
+				}
 			}
 
 			// B. Create UIs
@@ -2801,7 +2857,7 @@ void ofApp::updateGame() {
 				else if (players[pIndex].isFaerie)
 					ui.displayNumber = ++faerieCount;
 
-				float currentY = topLimit + (i * (actualEntryHeight + actualGap));
+				float currentY = topLimit - scrollRef + (i * (actualEntryHeight + actualGap));
 
 				ui.bounds.set(startX, currentY, panelWidth, actualEntryHeight);
 				activeMinionUIs.push_back(ui);
@@ -2809,15 +2865,22 @@ void ofApp::updateGame() {
 		};
 
 		// 4. BUILD LISTS WITH PLAYER-SPECIFIC BOUNDARIES
-		float p0_startX = 10 * scale;
+		float p0_startX = 25 * scale; // Moved right slightly to accommodate the scrollbar
 		int p0_assistant = 0;
 		int p0_faerie = 0;
-		buildMinionList(p0_minionIndices, p0_startX, p0_topLimitY, p0_bottomLimitY, p0_skeleton, p0_golem, p0_wolf, p0_hound, p0_demon, p0_kobold, p0_assistant, p0_wall, p0_faerie);
+		buildMinionList(p0_minionIndices, p0_startX, p0_topLimitY, p0_bottomLimitY, 0, p0_skeleton, p0_golem, p0_wolf, p0_hound, p0_demon, p0_kobold, p0_assistant, p0_wall, p0_faerie);
 
 		float p1_startX = ofGetWidth() - panelWidth - (10 * scale);
 		int p1_assistant = 0;
 		int p1_faerie = 0;
-		buildMinionList(p1_minionIndices, p1_startX, p1_topLimitY, p1_bottomLimitY, p1_skeleton, p1_golem, p1_wolf, p1_hound, p1_demon, p1_kobold, p1_assistant, p1_wall, p1_faerie);
+		buildMinionList(p1_minionIndices, p1_startX, p1_topLimitY, p1_bottomLimitY, 1, p1_skeleton, p1_golem, p1_wolf, p1_hound, p1_demon, p1_kobold, p1_assistant, p1_wall, p1_faerie);
+
+		if (currentPlayerIndex != lastAutoScrollTurnUnit) {
+			lastAutoScrollTurnUnit = currentPlayerIndex;
+		}
+		if (this->hoveredUnitIndex != lastHoveredUnit) {
+			lastHoveredUnit = this->hoveredUnitIndex;
+		}
 	}
 	// --- END MINION UI REBUILD ---
 
@@ -13353,6 +13416,31 @@ void ofApp::mousePressed(int x, int y, int button) {
 					sendActionPacket(pendingTeleportCardIndex, gx, gy, __teleport_cost, 0, __teleport_cardName);
 				}
 
+				// Check if teleport destination has a key - if so, trigger draft
+				int keyIdx = -1;
+				for (int k = 0; k < (int)floatingKeyInstances.size(); ++k) {
+					if (floatingKeyInstances[k].pos.x == gx && floatingKeyInstances[k].pos.y == gy) {
+						keyIdx = k;
+						break;
+					}
+				}
+
+				if (keyIdx >= 0) {
+					int keySet = floatingKeyInstances[keyIdx].set;
+					// Map key set to draft class: set 1 (gold) = class 3, set 2 (silver) = class 2, set 3 (bronze) = class 1
+					int keyClass = (keySet == 1) ? 3 : (keySet == 2) ? 2
+																	 : 1;
+
+					pendingKeyDraftAccept = true;
+					pendingKeyDraftTriggerTime = ofGetElapsedTimef();
+					pendingKeyDraftClass = keyClass;
+					pendingKeyDraftPlayer = currentPlayerIndex;
+					pendingKeyDraftPlayerID = caster.playerID;
+					pendingKeyDraftKeyX = gx;
+					pendingKeyDraftKeyY = gy;
+					ofLogNotice("Teleport") << "Teleported into key tile! Triggering draft for class " << keyClass;
+				}
+
 				// Clean up state (AP was already deducted when card was first clicked)
 				isTargetingTeleport = false;
 				pendingTeleportCardIndex = -1;
@@ -14376,15 +14464,28 @@ void ofApp::mousePressed(int x, int y, int button) {
 			}
 			if (endTurnLocked) return;
 
-			// --- GHOST FORM CHECK ---
+			// --- GHOST FORM CHECK: Cannot end turn in wall/unit unless 0 AP left ---
 			Player & p = players[currentPlayerIndex];
-			// Only block end-turn if the player clicked to enter the wall themselves.
-			if (p.inGhostForm && board[p.x][p.y].hasWall && p.enteredWallByClick) {
-				spawnFloatingText(gridToWorld(p.x, p.y), "Cannot end turn in wall!", ofColor::red);
-				ofLogNotice("Game") << "Prevented ending turn inside wall (Ghost Form, clicked in).";
+			bool isInWall = board[p.x][p.y].hasWall;
+			bool isInUnitTile = board[p.x][p.y].hasPlayer && (p.x != p.x || p.y != p.y); // Check if another unit is here
+
+			// Actually, let's check properly for units
+			bool isInUnitTile_correct = false;
+			for (size_t i = 0; i < players.size(); ++i) {
+				if ((int)i != currentPlayerIndex && players[i].x == p.x && players[i].y == p.y) {
+					isInUnitTile_correct = true;
+					break;
+				}
+			}
+			isInUnitTile = isInUnitTile_correct;
+
+			// Can't end turn in wall or unit unless AP is 0
+			if ((isInWall || isInUnitTile) && currentAP > 0) {
+				spawnFloatingText(gridToWorld(p.x, p.y), "Must use remaining AP or move out!", ofColor::red);
+				ofLogNotice("Game") << "Prevented ending turn in wall/unit with AP remaining.";
 				return;
 			}
-			// ------------------------
+			// -----------------------------------------------
 
 			endTurnLocked = true;
 			startNewTurn();
@@ -14438,13 +14539,12 @@ void ofApp::mousePressed(int x, int y, int button) {
 			if (playerAction == PIECE_SELECTED) {
 				if (board[gridX][gridY].isHighlighted && !hoverPath.empty()) {
 
-					// --- GHOST WALL LOGIC: Check if destination is valid ---
+					// --- GHOST FORM LOGIC: Check if destination is valid ---
 					bool isWall = board[gridX][gridY].hasWall;
-					bool canEnter = !isWall; // Normal units can't enter walls
+					bool hasUnitAlready = board[gridX][gridY].hasPlayer;
+					bool canEnter = !isWall && !hasUnitAlready; // Normal units can't enter walls or occupied tiles
 
-					// Ghosts can enter walls IF they have enough AP to exit (AP > 1)
-					// or if it's just a pass-through (handled by pathfinding).
-					// But for the final click, we rely on isHighlighted (which already checks AP logic).
+					// Ghosts can move through both walls AND units (no movement restrictions)
 					if (controlledPlayer->inGhostForm) canEnter = true;
 
 					if (canEnter) {
@@ -14478,13 +14578,50 @@ void ofApp::mousePressed(int x, int y, int button) {
 						if (apNow >= moveAPCost) {
 							int remainingAP = apNow - moveAPCost;
 
-							// Prevent ghosts from entering a wall if this click would leave them with exactly 1 AP
-							if (isWall && controlledPlayer->inGhostForm && remainingAP == 1) {
-								spawnFloatingText(gridToWorld(controlledPlayer->x, controlledPlayer->y), "Not enough AP to enter wall", ofColor::red);
-								ofLogNotice("Movement") << "Blocked ghost entering wall with only 1 AP remaining.";
-								playerAction = NONE;
-								clearHighlights();
-								return;
+							// Check if entering wall/unit: Calculate if player can escape to nearest empty tile
+							if (isWall || hasUnitAlready) {
+								// Use BFS to find nearest empty tile and calculate escape cost
+								std::queue<std::pair<int, int>> bfsQueue;
+								std::vector<std::vector<int>> distMap(BOARD_WIDTH, std::vector<int>(BOARD_HEIGHT, -1));
+
+								bfsQueue.push({ gridX, gridY });
+								distMap[gridX][gridY] = 0;
+
+								int escapeAPCost = INT_MAX;
+
+								while (!bfsQueue.empty() && escapeAPCost == INT_MAX) {
+									auto [cx, cy] = bfsQueue.front();
+									bfsQueue.pop();
+
+									// Check if current tile is empty (can escape here)
+									if (!(board[cx][cy].hasWall || board[cx][cy].hasPlayer)) {
+										escapeAPCost = distMap[cx][cy];
+										break;
+									}
+
+									// Explore neighbors
+									int dx[] = { 0, 1, 0, -1 };
+									int dy[] = { 1, 0, -1, 0 };
+
+									for (int d = 0; d < 4; ++d) {
+										int nx = cx + dx[d];
+										int ny = cy + dy[d];
+
+										if (nx >= 0 && nx < BOARD_WIDTH && ny >= 0 && ny < BOARD_HEIGHT && distMap[nx][ny] == -1) {
+											distMap[nx][ny] = distMap[cx][cy] + 1;
+											bfsQueue.push({ nx, ny });
+										}
+									}
+								}
+
+								// If can't escape (no empty tiles found), block the move
+								if (escapeAPCost == INT_MAX || remainingAP < escapeAPCost) {
+									spawnFloatingText(gridToWorld(controlledPlayer->x, controlledPlayer->y), "Not enough AP to escape", ofColor::red);
+									ofLogNotice("Movement") << "Blocked entering wall/unit: need " << escapeAPCost << " AP to escape, have " << remainingAP;
+									playerAction = NONE;
+									clearHighlights();
+									return;
+								}
 							}
 
 							currentAP = remainingAP;
@@ -14936,6 +15073,11 @@ void ofApp::mouseReleased(int x, int y, int button) {
 				ofLogNotice("Draft") << "Right-click ignored during in-game key draft (must pick a card).";
 				return;
 			}
+			// If we are targeting teleport and have rolled (can't cancel after dice roll)
+			if (isTargetingTeleport && pendingTeleportRollResult > 0) {
+				ofLogNotice("Teleport") << "Right-click ignored after teleport dice roll (must choose destination).";
+				return;
+			}
 			selectedCardIndex = -1;
 			draggedCardIndex = -1;
 			playerAction = NONE;
@@ -15182,6 +15324,22 @@ void ofApp::mouseReleased(int x, int y, int button) {
 }
 //--------------------------------------------------------------
 void ofApp::mouseScrolled(int x, int y, float scrollX, float scrollY) {
+	// Handle minion UI scrolling
+	float scale = ofGetHeight() / 1080.0f;
+	ofRectangle p0Area(p0_minionLeft - 20 * scale, p0_minionTop, minionPanelW + 20 * scale, p0_minionViewH);
+	ofRectangle p1Area(p1_minionLeft - 20 * scale, p1_minionTop, minionPanelW + 20 * scale, p1_minionViewH);
+
+	if (p0_minionTotalH > p0_minionViewH && p0Area.inside(x, y)) {
+		p0_minionScroll -= scrollY * 40.0f;
+		p0_minionScroll = std::clamp(p0_minionScroll, 0.0f, p0_minionTotalH - p0_minionViewH);
+		return;
+	}
+	if (p1_minionTotalH > p1_minionViewH && p1Area.inside(x, y)) {
+		p1_minionScroll -= scrollY * 40.0f;
+		p1_minionScroll = std::clamp(p1_minionScroll, 0.0f, p1_minionTotalH - p1_minionViewH);
+		return;
+	}
+
 	// Allow zooming during draft
 	if (currentState == STATE_DRAFTING) {
 		cameraTargetZoom -= scrollY * 4.0f;
@@ -15287,95 +15445,7 @@ void ofApp::keyPressed(int key) {
 	}
 
 	// Handle Card Spawner text input (krunner-style search) - processed early
-	// Quick-draw hotkey: 'F' -> Draw active player's deck (acts like clicking your deck)
-	if ((key == 'f' || key == 'F') && currentState == STATE_GAMEPLAY) {
-		// Only allow when not typing/chatting or using card spawner
-		if (isChatOpen || isCardSpawnerOpen) return;
-		// Reuse the main-deck draw logic from mousePressed (simplified for keyboard)
-		if (players.empty() || currentPlayerIndex < 0) return;
-		Player & activePlayer = players[currentPlayerIndex];
-		// Determine which local player object represents "us" for drawing.
-		Player * localPlayer = nullptr;
-		if (isMultiplayer) {
-			localPlayer = (myLocalPlayerID == 0) ? nullptr : nullptr; // placeholder; we'll compute index below
-		}
-
-		// Determine whether main-deck draw is allowed for the active actor
-		bool isLocalPlayersTurnForMainDeck = false;
-		if (isMultiplayer) {
-			// Allow drawing if the active actor is you (player) OR your minion
-			if (activePlayer.isMinion) {
-				isLocalPlayersTurnForMainDeck = (activePlayer.ownerID == myLocalPlayerID);
-			} else {
-				isLocalPlayersTurnForMainDeck = (activePlayer.playerID == myLocalPlayerID);
-			}
-		} else {
-			// In singleplayer, allow drawing for all players/minions
-			isLocalPlayersTurnForMainDeck = true;
-		}
-
-		// Determine active deck rect owner index
-		int localPlayerIndex = -1;
-		if (isMultiplayer) {
-			for (size_t i = 0; i < players.size(); i++) {
-				if (players[i].playerID == myLocalPlayerID && !players[i].isMinion) {
-					localPlayerIndex = (int)i;
-					localPlayer = &players[i];
-					break;
-				}
-			}
-			if (localPlayerIndex == -1) localPlayerIndex = 0;
-		} else {
-			localPlayerIndex = currentPlayerIndex;
-			localPlayer = &players[localPlayerIndex];
-		}
-
-		if (!localPlayer) return;
-
-		// Check if active actor (player or minion) already drew this turn
-		bool activeActorBelongsToLocal = false;
-		if (activePlayer.isMinion) {
-			activeActorBelongsToLocal = (activePlayer.ownerID == myLocalPlayerID);
-		} else {
-			activeActorBelongsToLocal = (activePlayer.playerID == myLocalPlayerID);
-		}
-		bool activeAlreadyDrew = activeActorBelongsToLocal ? hasDrawnCardsThisTurn : opponentHasDrawnCardsThisTurn;
-		if (!isLocalPlayersTurnForMainDeck || activeAlreadyDrew) return;
-
-		int baseDraw = localPlayer->isDemon ? 3 : 2;
-		int cardsToDraw = localPlayer->nextTurnExtraDraw ? (baseDraw + 1) : baseDraw;
-		for (int i = 0; i < cardsToDraw; ++i)
-			drawCard(false);
-
-		if (isMultiplayer) {
-			DrawCardsPacket out = {};
-			out.type = PKT_DRAW_CARDS;
-			out.playerID = myLocalPlayerID;
-			out.playerIndex = currentPlayerIndex; // Send the active actor's index (could be minion)
-			out.numCards = cardsToDraw;
-			out.clientActionID = ++watchdogClientActionCounter;
-			memset(out.cardNames, 0, sizeof(out.cardNames));
-			steamManager.sendPacket(&out, sizeof(out));
-			if (isClient()) {
-				lastSentDrawCardsPacket = out;
-				lastSentDrawCardsValid = true;
-				lastSentDrawCardsTime = ofGetElapsedTimef();
-				lastSentDrawCardsAttempts = 0;
-			}
-		}
-
-		localPlayer->nextTurnExtraDraw = false;
-		if (activeActorBelongsToLocal) {
-			hasDrawnCardsThisTurn = true;
-			players[currentPlayerIndex].hasDrawnThisTurn = true; // Mark the active actor (player or minion)
-		} else {
-			opponentHasDrawnCardsThisTurn = true;
-			players[localPlayerIndex].hasDrawnThisTurn = true;
-		}
-
-		return;
-	}
-	// End-turn hotkey removed
+	// Card Spawner must be checked BEFORE the F-key deck draw handler to allow typing 'F'
 	if (isCardSpawnerOpen && !isCardEncyclopediaOpen) {
 		if (key == OF_KEY_RETURN) {
 			// Add the first matching card (or exact match)
@@ -15422,7 +15492,7 @@ void ofApp::keyPressed(int key) {
 		} else if (key == OF_KEY_ESC) {
 			isCardSpawnerOpen = false;
 		} else if (key >= 32 && key <= 126) {
-			// Printable ASCII characters
+			// Printable ASCII characters (including 'F' and 'f')
 			cardSpawnerInput += (char)key;
 			// Update filtered cards
 			filteredCards.clear();
@@ -15441,6 +15511,92 @@ void ofApp::keyPressed(int key) {
 			});
 		}
 		return; // Consume all keys when spawner is open
+	}
+
+	// Quick-draw hotkey: 'F' -> Draw active player's deck (only when card spawner is NOT open)
+	if ((key == 'f' || key == 'F') && currentState == STATE_GAMEPLAY) {
+		// Only allow when not typing/chatting
+		if (isChatOpen) return;
+
+		// Reuse the main-deck draw logic from mousePressed (simplified for keyboard)
+		if (players.empty() || currentPlayerIndex < 0) return;
+		Player & activePlayer = players[currentPlayerIndex];
+
+		// Determine which local player object represents "us" for drawing.
+		int localPlayerIndex = -1;
+		Player * localPlayer = nullptr;
+		if (isMultiplayer) {
+			for (size_t i = 0; i < players.size(); i++) {
+				if (players[i].playerID == myLocalPlayerID && !players[i].isMinion) {
+					localPlayerIndex = (int)i;
+					localPlayer = &players[i];
+					break;
+				}
+			}
+			if (localPlayerIndex == -1) localPlayerIndex = 0;
+		} else {
+			localPlayerIndex = currentPlayerIndex;
+			localPlayer = &players[localPlayerIndex];
+		}
+
+		if (!localPlayer) return;
+
+		// Determine whether main-deck draw is allowed for the active actor
+		bool isLocalPlayersTurnForMainDeck = false;
+		if (isMultiplayer) {
+			// Allow drawing if the active actor is you (player) OR your minion
+			if (activePlayer.isMinion) {
+				isLocalPlayersTurnForMainDeck = (activePlayer.ownerID == myLocalPlayerID);
+			} else {
+				isLocalPlayersTurnForMainDeck = (activePlayer.playerID == myLocalPlayerID);
+			}
+		} else {
+			// In singleplayer, allow drawing for all players/minions
+			isLocalPlayersTurnForMainDeck = true;
+		}
+
+		// Check if active actor (player or minion) already drew this turn
+		bool activeActorBelongsToLocal = false;
+		if (activePlayer.isMinion) {
+			activeActorBelongsToLocal = (activePlayer.ownerID == myLocalPlayerID);
+		} else {
+			activeActorBelongsToLocal = (activePlayer.playerID == myLocalPlayerID);
+		}
+		bool activeAlreadyDrew = activeActorBelongsToLocal ? hasDrawnCardsThisTurn : opponentHasDrawnCardsThisTurn;
+		if (!isLocalPlayersTurnForMainDeck || activeAlreadyDrew) return;
+
+		int baseDraw = localPlayer->isDemon ? 3 : 2;
+		int cardsToDraw = localPlayer->nextTurnExtraDraw ? (baseDraw + 1) : baseDraw;
+		for (int i = 0; i < cardsToDraw; ++i)
+			drawCard(false);
+
+		if (isMultiplayer) {
+			DrawCardsPacket out = {};
+			out.type = PKT_DRAW_CARDS;
+			out.playerID = myLocalPlayerID;
+			out.playerIndex = currentPlayerIndex;
+			out.numCards = cardsToDraw;
+			out.clientActionID = ++watchdogClientActionCounter;
+			memset(out.cardNames, 0, sizeof(out.cardNames));
+			steamManager.sendPacket(&out, sizeof(out));
+			if (isClient()) {
+				lastSentDrawCardsPacket = out;
+				lastSentDrawCardsValid = true;
+				lastSentDrawCardsTime = ofGetElapsedTimef();
+				lastSentDrawCardsAttempts = 0;
+			}
+		}
+
+		localPlayer->nextTurnExtraDraw = false;
+		if (activeActorBelongsToLocal) {
+			hasDrawnCardsThisTurn = true;
+			players[currentPlayerIndex].hasDrawnThisTurn = true;
+		} else {
+			opponentHasDrawnCardsThisTurn = true;
+			players[localPlayerIndex].hasDrawnThisTurn = true;
+		}
+
+		return;
 	}
 
 	// Enable default shaders (O). Note: disabling via 'O' is no longer permitted.
@@ -19890,7 +20046,7 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 					isPreview = true;
 
 					bool isWall = board[x][y].hasWall;
-					bool isOccupied = board[x][y].hasPlayer;
+					bool isOccupied = board[x][y].hasPlayer && !(x == px && y == py); // Allow targeting current square
 
 					if (!isOccupied) {
 						if (!isWall) {
@@ -23702,10 +23858,19 @@ void ofApp::drawMinionManagerUI() {
 	if (activeMinionUIs.empty()) return;
 
 	float scale = ofGetHeight() / 1080.0f;
+	float sfX = (float)ofGetViewportWidth() / ofGetWidth();
+	float sfY = (float)ofGetViewportHeight() / ofGetHeight();
 
 	for (size_t i = 0; i < activeMinionUIs.size(); i++) {
 		auto & ui = activeMinionUIs[i];
 		Player & minion = players[ui.playerIndex];
+
+		bool isLeft = ui.bounds.x < ofGetWidth() / 2.0f;
+		float topY = isLeft ? p0_minionTop : p1_minionTop;
+		float viewH = isLeft ? p0_minionViewH : p1_minionViewH;
+
+		// Skip if completely out of view bounds vertically
+		if (ui.bounds.getBottom() < topY || ui.bounds.y > topY + viewH) continue;
 
 		// --- Render Model to FBO ---
 		modelFbo.begin();
@@ -23874,18 +24039,43 @@ void ofApp::drawMinionManagerUI() {
 		ofDisableDepthTest();
 		modelFbo.end();
 
+		// Setup Scissor clipping to hide overflowing elements
+		glEnable(GL_SCISSOR_TEST);
+		int scX = (int)((isLeft ? p0_minionLeft - 30 : p1_minionLeft - 30) * sfX);
+		int scW = (int)((minionPanelW + 60) * sfX);
+		int scY = (int)((ofGetHeight() - (topY + viewH)) * sfY);
+		int scH = (int)(viewH * sfY);
+		glScissor(scX, scY, scW, scH);
+
 		// --- Draw UI Panel ---
 		ofSetColor(0, 0, 0, 150);
 		ofDrawRectRounded(ui.bounds, 10 * scale);
 
-		// Outline the UI panel when the mouse is hovering over that minion (quick visual mapping)
-		if (hoveredUnitIndex == ui.playerIndex) {
+		// New Visual Outlines for Active and Hovered states
+		bool isActive = (currentPlayerIndex == ui.playerIndex);
+		bool isHovered = (hoveredUnitIndex == ui.playerIndex);
+
+		if (isActive) {
 			ofPushStyle();
 			ofNoFill();
-			ofSetColor(ofColor::green);
-			ofSetLineWidth(3 * scale);
+			ofSetColor(ofColor::white);
+			ofSetLineWidth(4 * scale);
 			ofDrawRectRounded(ui.bounds, 10 * scale);
 			ofPopStyle();
+		}
+
+		if (isHovered) {
+			ofPushStyle();
+			ofNoFill();
+			ofSetColor(ofColor::white);
+			ofSetLineWidth(4 * scale);
+			ofDrawRectRounded(ui.bounds, 10 * scale);
+			ofPopStyle();
+
+			// Highlight the minion's tile on the board with yellow outline
+			if (ui.playerIndex >= 0 && ui.playerIndex < (int)players.size()) {
+				board[players[ui.playerIndex].x][players[ui.playerIndex].y].isTargetPreview = true;
+			}
 		}
 
 		// --- DETERMINE NAME ---
@@ -23991,7 +24181,28 @@ void ofApp::drawMinionManagerUI() {
 		}
 
 		// (Minion status effects are shown only in the hover tooltip above the unit)
+		glDisable(GL_SCISSOR_TEST);
 	} // End of loop
+
+	// --- Draw Scrollbars ---
+	auto drawScrollbar = [&](float startX, float topY, float viewH, float totalH, float scroll) {
+		if (totalH <= viewH) return;
+		float scrollbarW = 6.0f * scale;
+		float scrollbarX = startX - scrollbarW - 8.0f * scale;
+
+		// Background Track
+		ofSetColor(30, 30, 30, 200);
+		ofDrawRectRounded(scrollbarX, topY, scrollbarW, viewH, scrollbarW / 2);
+
+		// Movable Handle
+		float handleH = std::max(20.0f * scale, (viewH / totalH) * viewH);
+		float handleY = topY + (scroll / (totalH - viewH)) * (viewH - handleH);
+		ofSetColor(150, 150, 150, 255);
+		ofDrawRectRounded(scrollbarX, handleY, scrollbarW, handleH, scrollbarW / 2);
+	};
+
+	drawScrollbar(p0_minionLeft, p0_minionTop, p0_minionViewH, p0_minionTotalH, p0_minionScroll);
+	drawScrollbar(p1_minionLeft, p1_minionTop, p1_minionViewH, p1_minionTotalH, p1_minionScroll);
 }
 //--------------------------------------------------------------
 void ofApp::cancelMagicHand() {
