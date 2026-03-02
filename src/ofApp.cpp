@@ -26136,12 +26136,12 @@ void ofApp::processNetworkPackets() {
 				pendingKeyDraftPlayer = -1;
 				pendingKeyDraftPlayerID = -1;
 
-				// 1) If playerIndex points to a local minion at the key coords, use it
-				if (kpkt->playerIndex >= 0 && kpkt->playerIndex < (int)players.size()) {
-					Player & candidate = players[kpkt->playerIndex];
-					if (candidate.isMinion && candidate.x == kpkt->keyX && candidate.y == kpkt->keyY) {
-						pendingKeyDraftPlayer = kpkt->playerIndex;
-						pendingKeyDraftPlayerID = candidate.playerID;
+				// 1) Prefer the local minion sitting on the key tile, if any
+				for (int i = 0; i < (int)players.size(); ++i) {
+					if (players[i].isMinion && players[i].x == kpkt->keyX && players[i].y == kpkt->keyY) {
+						pendingKeyDraftPlayer = i;
+						pendingKeyDraftPlayerID = players[i].playerID;
+						break;
 					}
 				}
 
@@ -26169,18 +26169,24 @@ void ofApp::processNetworkPackets() {
 				pendingKeyDraftKeyX = kpkt->keyX;
 				pendingKeyDraftKeyY = kpkt->keyY;
 
-				// If an Accept arrived before this KeyPickup, close immediately
-				if (pendingKeyDraftAccept && pendingKeyDraftPlayer == kpkt->playerIndex && pendingKeyDraftClass == kpkt->classTier) {
-					// Defer leaving the draft state until visual animations finish.
-					pendingKeyDraftAccept = false;
-					pendingKeyDraftPlayer = -1;
-					pendingKeyDraftClass = 0;
-					selectedDraftIndices.clear();
-					draftOptions.clear();
-					isInGameDraft = false;
-					pendingDraftFinalize = true; // will transition to gameplay once animations complete
-					pendingKeyDraftKeyX = -1;
-					pendingKeyDraftKeyY = -1;
+				// If an Accept arrived before this KeyPickup, close immediately.
+				// Match by host index OR by playerID OR by key coordinates to be robust
+				if (pendingKeyDraftAccept && pendingKeyDraftClass == kpkt->classTier) {
+					bool match = false;
+					if (pendingKeyDraftPlayer == kpkt->playerIndex) match = true;
+					if (!match && pendingKeyDraftPlayerID >= 0 && pendingKeyDraftPlayerID == kpkt->playerID) match = true;
+					if (!match && pendingKeyDraftKeyX == kpkt->keyX && pendingKeyDraftKeyY == kpkt->keyY) match = true;
+					if (match) {
+						pendingKeyDraftAccept = false;
+						pendingKeyDraftPlayer = -1;
+						pendingKeyDraftClass = 0;
+						selectedDraftIndices.clear();
+						draftOptions.clear();
+						isInGameDraft = false;
+						pendingDraftFinalize = true; // will transition to gameplay once animations complete
+						pendingKeyDraftKeyX = -1;
+						pendingKeyDraftKeyY = -1;
+					}
 				}
 
 				// Color by tier: 1=gold,2=silver,3=bronze
@@ -26761,7 +26767,26 @@ void ofApp::processNetworkPackets() {
 					if (picks > 1) sel.push_back(pkt->selectedIdx1);
 					if (picks > 2) sel.push_back(pkt->selectedIdx2);
 
-					Player & p = players[pkt->draftPlayerIdx];
+					int localTargetIdx = pkt->draftPlayerIdx;
+					// Client: remap host-provided index to our local index when possible.
+					if (isClient()) {
+						// Prefer the client's mapped draftPlayerIndex if available (from DraftState).
+						if (draftPlayerIndex >= 0 && draftPlayerIndex < (int)players.size()) {
+							localTargetIdx = draftPlayerIndex;
+						}
+						// If we have pending key coords (pickup), prefer the minion at that tile.
+						if (pendingKeyDraftKeyX >= 0 && pendingKeyDraftKeyY >= 0) {
+							for (int i = 0; i < (int)players.size(); ++i) {
+								if (players[i].isMinion && players[i].x == pendingKeyDraftKeyX && players[i].y == pendingKeyDraftKeyY) {
+									localTargetIdx = i;
+									break;
+								}
+							}
+						}
+						// Defensive clamp
+						if (localTargetIdx < 0 || localTargetIdx >= (int)players.size()) localTargetIdx = pkt->draftPlayerIdx;
+					}
+					Player & p = players[localTargetIdx];
 					int copiesPerCard = 1;
 					if (!isInGameDraft && pkt->classTier == 1) copiesPerCard = 2;
 					const std::vector<Card> * pool = &class1Cards;
@@ -26779,7 +26804,7 @@ void ofApp::processNetworkPackets() {
 					// In multiplayer clients, mark that we will skip the immediate local shuffle and
 					// wait for the host's authoritative `PKT_SHUFFLE` for this player's deck.
 					if (isClient()) {
-						int pid = pkt->draftPlayerIdx;
+						int pid = localTargetIdx; // map to our local index
 						if (pid >= 0 && pid < (int)players.size()) {
 							auto it = pendingShuffleNonces.find(pid);
 							if (it != pendingShuffleNonces.end() && !it->second.empty()) {
@@ -26798,7 +26823,7 @@ void ofApp::processNetworkPackets() {
 							}
 						}
 					} else {
-						shuffleGameVector(p.deck, pkt->draftPlayerIdx);
+						shuffleGameVector(p.deck, localTargetIdx);
 					}
 				}
 				selectedDraftIndices.clear();
