@@ -24536,33 +24536,10 @@ void ofApp::onCardPicked(int optionIndex) {
 		// Keep game logic immediate (card is added and deck shuffled),
 		// but also spawn the picked-card visual move so the player sees the card fly into the deck.
 		p.deck.push_back(picked);
-		// If this pick belongs to a minion actor, spawn a minion-specific shuffle visual
+
+		// Check if this pick belongs to a minion actor
 		bool targetIsMinion = (draftPlayerIndex >= 0 && draftPlayerIndex < (int)players.size() && players[draftPlayerIndex].isMinion);
-		if (targetIsMinion) {
-			ShuffleAnimation s;
-			s.playerIndex = draftPlayerIndex;
-			bool assignedRect = false;
-			for (const auto & mui : activeMinionUIs) {
-				if (mui.playerIndex == draftPlayerIndex) {
-					s.deckRect = mui.deckRect;
-					assignedRect = true;
-					break;
-				}
-			}
-			if (!assignedRect) {
-				int ownerSlot = findPlayerIndexByID(players[draftPlayerIndex].ownerID);
-				if (ownerSlot >= 0)
-					s.deckRect = (players[ownerSlot].playerID == 0) ? p0_deckRect : p1_deckRect;
-				else
-					s.deckRect = (players[draftPlayerIndex].ownerID == 0) ? p0_deckRect : p1_deckRect;
-			}
-			s.startTime = ofGetElapsedTimef();
-			s.duration = 0.9f;
-			s.currentAlpha = 255.0f;
-			s.currentScale = 1.0f;
-			s.rotation = 0.0f;
-			activeShuffleAnimations.push_back(s);
-		}
+
 		// Shuffle deck to include new card (host-authoritative will also send PKT_SHUFFLE)
 		shuffleGameVector(p.deck, draftPlayerIndex);
 
@@ -24594,8 +24571,12 @@ void ofApp::onCardPicked(int optionIndex) {
 		mv.duration = 0.35f;
 		mv.startPos = center;
 		mv.endScale = 1.0f; // Default to full size
+
+		// Determine end position and prepare shuffle animation timing
+		float shuffleAnimStartDelay = 0.0f; // When to start the shuffle animation
+
 		// If the drafting actor is a minion, target its MinionUI deck rect
-		if (draftPlayerIndex >= 0 && draftPlayerIndex < (int)players.size() && players[draftPlayerIndex].isMinion) {
+		if (targetIsMinion) {
 			bool found = false;
 			for (const auto & mui : activeMinionUIs) {
 				if (mui.playerIndex == draftPlayerIndex) {
@@ -24615,6 +24596,9 @@ void ofApp::onCardPicked(int optionIndex) {
 			mv.finished = false;
 			// mark ownerIndex as the minion actor so we can avoid flashing main decks
 			mv.ownerIndex = draftPlayerIndex;
+
+			// Schedule shuffle animation to start after card animation completes
+			shuffleAnimStartDelay = mv.delay + mv.duration;
 		} else if (draftPlayerIndex >= 0 && draftPlayerIndex < (int)players.size()) {
 			int ownerID = players[draftPlayerIndex].playerID;
 			ofRectangle deckRect = (ownerID == myLocalPlayerID) ? p0_deckRect : p1_deckRect;
@@ -24634,10 +24618,32 @@ void ofApp::onCardPicked(int optionIndex) {
 		}
 		activeDraftPickedMoves.push_back(mv);
 
-		draftOptions.clear();
-		isInGameDraft = false;
-		inGameDraftTargetIdx = -1;
-
+		// Create shuffle animation for minion, scheduled to start after card animation
+		if (targetIsMinion) {
+			ShuffleAnimation s;
+			s.playerIndex = draftPlayerIndex;
+			bool assignedRect = false;
+			for (const auto & mui : activeMinionUIs) {
+				if (mui.playerIndex == draftPlayerIndex) {
+					s.deckRect = mui.deckRect;
+					assignedRect = true;
+					break;
+				}
+			}
+			if (!assignedRect) {
+				int ownerSlot = findPlayerIndexByID(players[draftPlayerIndex].ownerID);
+				if (ownerSlot >= 0)
+					s.deckRect = (players[ownerSlot].playerID == 0) ? p0_deckRect : p1_deckRect;
+				else
+					s.deckRect = (players[draftPlayerIndex].ownerID == 0) ? p0_deckRect : p1_deckRect;
+			}
+			s.startTime = ofGetElapsedTimef() + shuffleAnimStartDelay;
+			s.duration = 0.9f;
+			s.currentAlpha = 255.0f;
+			s.currentScale = 1.0f;
+			s.rotation = 0.0f;
+			activeShuffleAnimations.push_back(s);
+		}
 		// Return to game
 		currentState = STATE_GAMEPLAY;
 		return;
