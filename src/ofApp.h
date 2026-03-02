@@ -1534,6 +1534,7 @@ private:
 	int wolfPlacementSourceY = -1;
 	int wolfSummonCount = 0; // To track "Wolf 1", "Wolf 2"
 	int wolfSummonStage = 0; // 0=None, 1=First Wolf, 2=Second Wolf
+	int pendingWolfOwnerID = -1; // Capture owner at start of wolf placement
 
 	// --- Call For Kobolds State ---
 	bool isWaitingForKoboldDice = false;
@@ -1543,6 +1544,7 @@ private:
 	int koboldPlacementSourceY = -1;
 	int koboldSummonCount = 0;
 	int koboldSummonStage = 0;
+	int pendingKoboldOwnerID = -1; // Capture owner at start of kobold placement
 
 	// Remote kobold placement visualization (when another player is placing kobolds)
 	bool remoteIsPlacingKobolds = false;

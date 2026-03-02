@@ -2410,10 +2410,9 @@ void ofApp::allocateWorldFbo(int w, int h) {
 	if (!worldFbo.isAllocated()) {
 		ofLogWarning("FBO") << "worldFbo failed to allocate at " << w << "x" << h;
 	} else {
-		// Use nearest sampling for the world FBO so pixel-art textures (walls/keys)
-		// remain crisp when the FBO is scaled/drawn to the screen.
 		if (worldFbo.getTexture().isAllocated()) {
-			worldFbo.getTexture().setTextureMinMagFilter(GL_NEAREST, GL_NEAREST);
+			GLint filter = enablePixelArt ? GL_NEAREST : GL_LINEAR;
+			worldFbo.getTexture().setTextureMinMagFilter(filter, filter);
 		}
 
 		ofLogNotice("FBO") << "worldFbo allocated " << w << "x" << h;
@@ -3380,6 +3379,7 @@ void ofApp::updateGame() {
 			}
 
 			std::sort(finalRemove.begin(), finalRemove.end(), std::greater<int>());
+			bool activePlayerDied = false;
 			for (int idx : finalRemove) {
 				if (idx < 0 || idx >= (int)players.size()) continue;
 
@@ -3400,6 +3400,10 @@ void ofApp::updateGame() {
 						r.associatedUnit = -1;
 					else if (r.associatedUnit > idx)
 						r.associatedUnit -= 1;
+				}
+
+				if (currentPlayerIndex == idx) {
+					activePlayerDied = true;
 				}
 
 				// Remove earthquake unit entries referencing this index
@@ -3423,6 +3427,12 @@ void ofApp::updateGame() {
 						currentPlayerIndex -= 1;
 					}
 				}
+			}
+
+			if (activePlayerDied && !players.empty()) {
+				// Step back so startNewTurn() increments into the correct next unit
+				currentPlayerIndex = (currentPlayerIndex - 1 + (int)players.size()) % (int)players.size();
+				startNewTurn();
 			}
 			invalidateTargetCache();
 
@@ -4565,7 +4575,8 @@ void ofApp::updateGame() {
 		minion.isHellhound = true;
 
 		// Set owner and summoning sickness
-		minion.ownerID = players[currentPlayerIndex].isMinion ? players[currentPlayerIndex].ownerID : players[currentPlayerIndex].playerID;
+		int summoner = (pendingSummonPlayerIndex >= 0 && pendingSummonPlayerIndex < (int)players.size()) ? pendingSummonPlayerIndex : currentPlayerIndex;
+		minion.ownerID = players[summoner].isMinion ? players[summoner].ownerID : players[summoner].playerID;
 		minion.summonedOnTurnCycle = globalTurnCounter;
 		minion.summonOrder = ++nextSummonOrder;
 
@@ -4697,7 +4708,8 @@ void ofApp::updateGame() {
 		minion.isDemon = true; // Flag for drawing/AP/Weakness
 
 		// Set owner and summoning sickness
-		minion.ownerID = players[currentPlayerIndex].isMinion ? players[currentPlayerIndex].ownerID : players[currentPlayerIndex].playerID;
+		int summoner = (pendingSummonPlayerIndex >= 0 && pendingSummonPlayerIndex < (int)players.size()) ? pendingSummonPlayerIndex : currentPlayerIndex;
+		minion.ownerID = players[summoner].isMinion ? players[summoner].ownerID : players[summoner].playerID;
 		minion.summonedOnTurnCycle = globalTurnCounter;
 		minion.summonOrder = ++nextSummonOrder;
 
@@ -6635,6 +6647,7 @@ void ofApp::updateGame() {
 
 	if (!removeIndices.empty()) {
 		std::sort(removeIndices.begin(), removeIndices.end(), std::greater<int>());
+		bool activePlayerDied = false;
 		for (int idx : removeIndices) {
 			if (idx < 0 || idx >= (int)players.size()) continue;
 
@@ -6655,6 +6668,10 @@ void ofApp::updateGame() {
 					r.associatedUnit = -1;
 				else if (r.associatedUnit > idx)
 					r.associatedUnit -= 1;
+			}
+
+			if (currentPlayerIndex == idx) {
+				activePlayerDied = true;
 			}
 
 			// Remove or adjust earthquake unit entries
@@ -6678,6 +6695,12 @@ void ofApp::updateGame() {
 					currentPlayerIndex -= 1;
 				}
 			}
+		}
+
+		if (activePlayerDied && !players.empty()) {
+			// Step back so startNewTurn() increments into the correct next unit
+			currentPlayerIndex = (currentPlayerIndex - 1 + (int)players.size()) % (int)players.size();
+			startNewTurn();
 		}
 
 		invalidateTargetCache();
@@ -8448,7 +8471,7 @@ void ofApp::drawGame() {
 					ofNoFill();
 					ofSetLineWidth(4);
 					ofPushMatrix();
-					ofTranslate(0, surfaceY + 0.02f, 0);
+					ofTranslate(0, surfaceY + 0.04f, 0);
 					ofRotateXDeg(90);
 					ofDrawRectangle(-TILE_SIZE * 0.5f, -TILE_SIZE * 0.5f, TILE_SIZE, TILE_SIZE);
 					ofPopMatrix();
@@ -8481,7 +8504,7 @@ void ofApp::drawGame() {
 						// Draw pulsing golden ring around current player's unit
 						float pulseScale = 0.75f + 0.25f * sin(ofGetElapsedTimef() * 2.5f);
 						ofPushMatrix();
-						ofTranslate(0, surfaceY + 0.01f, 0);
+						ofTranslate(0, surfaceY + 0.03f, 0);
 						ofRotateXDeg(90);
 						ofNoFill();
 						ofSetLineWidth(3.5f);
@@ -12235,7 +12258,8 @@ void ofApp::mousePressed(int x, int y, int button) {
 						kobold.isMinion = true;
 						kobold.isKobold = true;
 						kobold.isSkeleton = false;
-						kobold.ownerID = players[currentPlayerIndex].isMinion ? players[currentPlayerIndex].ownerID : players[currentPlayerIndex].playerID;
+						// Set owner using captured owner ID (not currentPlayerIndex which may have changed)
+						kobold.ownerID = pendingKoboldOwnerID;
 						// Give summoned kobolds summoning sickness this cycle and record ordering
 						kobold.summonedOnTurnCycle = globalTurnCounter;
 						kobold.summonOrder = ++nextSummonOrder;
@@ -13875,8 +13899,8 @@ void ofApp::mousePressed(int x, int y, int button) {
 						kobold.isKobold = true;
 						kobold.isSkeleton = false;
 
-						// Set owner and summoning sickness
-						kobold.ownerID = players[currentPlayerIndex].isMinion ? players[currentPlayerIndex].ownerID : players[currentPlayerIndex].playerID;
+						// Set owner using captured owner ID (not currentPlayerIndex which may have changed)
+						kobold.ownerID = pendingKoboldOwnerID;
 						kobold.summonedOnTurnCycle = globalTurnCounter;
 						kobold.summonOrder = ++nextSummonOrder;
 						Card hb, pu, callCard;
@@ -13951,8 +13975,8 @@ void ofApp::mousePressed(int x, int y, int button) {
 						wolf.isMinion = true;
 						wolf.isWolf = true;
 
-						// Set owner and summoning sickness
-						wolf.ownerID = players[currentPlayerIndex].isMinion ? players[currentPlayerIndex].ownerID : players[currentPlayerIndex].playerID;
+						// Set owner using captured owner ID (not currentPlayerIndex which may have changed)
+						wolf.ownerID = pendingWolfOwnerID;
 						wolf.summonedOnTurnCycle = globalTurnCounter;
 						Card slashCard, callCard;
 						for (const auto & c : allCards) {
@@ -15675,9 +15699,7 @@ void ofApp::keyPressed(int key) {
 			enableWorldPostProcess = false;
 			showWorldFboPreview = false;
 		}
-		// Do not change texture filtering when toggling the pixel-art shader here;
-		// the shader should operate as a post-process without altering source texture sampling.
-		// applyPixelArtSettings();
+		applyPixelArtSettings();
 		ofLogNotice("PixelArt") << "enablePixelArt=" << (enablePixelArt ? 1 : 0);
 
 		if (currentState == STATE_GAMEPLAY) {
@@ -18113,6 +18135,7 @@ CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		// 3. Setup State for Wolf #1
 		wolfPlacementSourceX = currentPlayer.x;
 		wolfPlacementSourceY = currentPlayer.y;
+		pendingWolfOwnerID = currentPlayer.isMinion ? currentPlayer.ownerID : currentPlayer.playerID;
 
 		isPlacingWolves = true;
 		wolfSummonStage = 1; // Start with the first wolf
@@ -18161,6 +18184,7 @@ CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		// 3. Setup State for Kobold roll and placement
 		koboldPlacementSourceX = currentPlayer.x;
 		koboldPlacementSourceY = currentPlayer.y;
+		pendingKoboldOwnerID = currentPlayer.isMinion ? currentPlayer.ownerID : currentPlayer.playerID;
 
 		// Roll 1d4 for number of kobolds
 		pendingSummonRollResult = startDiceRoll(1, 4, PURPOSE_SUMMON_KOBOLDS, "Call for Kobolds");
@@ -18176,6 +18200,7 @@ CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		if (board[targetX][targetY].hasWall || board[targetX][targetY].hasPlayer) break;
 
 		pendingSummonTile = glm::vec2(targetX, targetY);
+		pendingSummonPlayerIndex = currentPlayerIndex;
 		// Roll 2d6 for HP (visual) and compute AP silently (AP should be applied on the
 		// hellhound's turn rather than showing AP dice immediately after summoning).
 		pendingSummonRollResult = startDiceRoll(playedCard.numDice, playedCard.diceSides, PURPOSE_HP, "Hellhound HP");
@@ -18209,6 +18234,7 @@ CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		if (board[targetX][targetY].hasWall || board[targetX][targetY].hasPlayer) break;
 
 		pendingSummonTile = glm::vec2(targetX, targetY);
+		pendingSummonPlayerIndex = currentPlayerIndex;
 		// Roll 3d10 for HP
 		pendingSummonRollResult = startDiceRoll(playedCard.numDice, playedCard.diceSides, PURPOSE_HP, "Demon HP");
 		isWaitingForDemonHP = true;
@@ -22542,10 +22568,10 @@ void ofApp::drawJoinedOutlines(bool highlightedTiles[BOARD_WIDTH][BOARD_HEIGHT],
 			glm::vec3 worldPos = gridToWorld(x, y);
 
 			// Calculate height based on wall status - draw on top of walls
-			float height = surfaceY + 0.01f;
+			float height = surfaceY + 0.03f;
 			if (board[x][y].hasWall) {
 				// Draw on top of wall (wall is TILE_SIZE * 0.5 tall)
-				height = (TILE_SIZE * 0.5f) + 0.06f;
+				height = (TILE_SIZE * 0.5f) + 0.08f;
 			}
 
 			// Check each of the 4 edges: top, right, bottom, left
