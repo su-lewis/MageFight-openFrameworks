@@ -17,109 +17,6 @@
 #include <unordered_map>
 
 // Suppress warnings about unhandled enum values in switches across this file.
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wswitch-enum"
-#pragma GCC diagnostic ignored "-Wswitch"
-#pragma GCC diagnostic ignored "-Wsign-compare"
-#pragma GCC diagnostic ignored "-Wunused-variable"
-#pragma GCC diagnostic ignored "-Wunused-but-set-variable"
-#pragma GCC diagnostic ignored "-Wunused-value"
-// Helper: Check for key under (x, y) and trigger pickup/draft if present
-
-// Human-readable key name helper used by settings UI
-static std::string getKeyName(int key) {
-	// Printable ASCII
-	if (key >= 32 && key < 127) {
-		// Show uppercase letters for clarity
-		char c = (char)key;
-		if (std::isalpha((unsigned char)c)) {
-			std::string s(1, (char)std::toupper((unsigned char)c));
-			return s;
-		}
-		return std::string(1, c);
-	}
-	switch (key) {
-	case OF_KEY_RETURN:
-		return "Enter";
-	case OF_KEY_ESC:
-		return "Esc";
-	case OF_KEY_BACKSPACE:
-		return "Backspace";
-	case OF_KEY_TAB:
-		return "Tab";
-	case OF_KEY_LEFT:
-		return "Left Arrow";
-	case OF_KEY_RIGHT:
-		return "Right Arrow";
-	case OF_KEY_UP:
-		return "Up Arrow";
-	case OF_KEY_DOWN:
-		return "Down Arrow";
-	default:
-		return std::to_string(key);
-	}
-}
-
-void ofApp::checkKeyPickupAndDraftAfterSummon(int x, int y, int minionOwnerID) {
-	// Only host or singleplayer should process key pickup
-	if (isMultiplayer && !isHost()) return;
-	for (int k = 0; k < (int)floatingKeyInstances.size(); ++k) {
-		if (floatingKeyInstances[k].pos.x == x && floatingKeyInstances[k].pos.y == y) {
-			int keySet = floatingKeyInstances[k].set;
-			floatingKeyInstances.erase(floatingKeyInstances.begin() + k);
-			int classToDraft = 1;
-			if (keySet == 3)
-				classToDraft = 1;
-			else if (keySet == 2)
-				classToDraft = 2;
-			else if (keySet == 1)
-				classToDraft = 3;
-			// Find owner index (must be a non-minion player)
-			int ownerIndex = -1;
-			int minionIndex = -1;
-			for (int p = 0; p < (int)players.size(); ++p) {
-				if (players[p].playerID == minionOwnerID && !players[p].isMinion) {
-					ownerIndex = p;
-				}
-				// Also detect a minion at this world position - that minion should receive the draft
-				if (players[p].isMinion && players[p].x == x && players[p].y == y) {
-					minionIndex = p;
-				}
-			}
-			if (ownerIndex != -1 || minionIndex != -1) {
-				// Host still notifies clients immediately, but delay opening the draft UI until
-				// the summoned minion's health/UI are visible (one-frame delay).
-				if (isHost()) {
-					KeyPickupPacket kpkt = {};
-					kpkt.type = PKT_KEY_PICKUP;
-					kpkt.playerID = myLocalPlayerID;
-					// Send the target playerIndex as the minion index if present, otherwise the owner index
-					kpkt.playerIndex = (minionIndex != -1) ? minionIndex : ownerIndex;
-					kpkt.classTier = classToDraft;
-					kpkt.keyX = x;
-					kpkt.keyY = y;
-					steamManager.sendPacket(&kpkt, sizeof(kpkt));
-					ofLogNotice("Network") << "Host sent KeyPickup (summon): player=" << kpkt.playerIndex << " class=" << classToDraft;
-				}
-				// Schedule draft to run after the minion HP/UI are visible
-				pendingKeyDraftAccept = true;
-				// Draft should target the minion that picked up the key if available
-				pendingKeyDraftPlayer = (minionIndex != -1) ? minionIndex : ownerIndex;
-				pendingKeyDraftClass = classToDraft;
-				pendingKeyDraftTriggerTime = ofGetElapsedTimef();
-				// Color by key set: 1=gold, 2=silver, 3=bronze
-				ofColor kcol = ofColor::gold;
-				if (keySet == 2)
-					kcol = ofColor(192, 192, 192);
-				else if (keySet == 3)
-					kcol = ofColor(205, 127, 50);
-				spawnFloatingText(gridToWorld(x, y), "Key Found!", kcol);
-				ofLogNotice("Key") << "Player " << minionOwnerID << " picked up key (Class " << classToDraft << ") via summon (delayed draft)";
-			}
-			break;
-		}
-	}
-}
 
 void ofApp::startInitiativePhase() {
 	currentState = STATE_INITIATIVE_ROLL;
@@ -184,8 +81,28 @@ void ofApp::drawMinionCard(int minionIndex, int ownerIndex) {
 			// Spawn shuffle animation for this minion's owner deck
 			{
 				ShuffleAnimation s;
-				s.playerIndex = minion.isMinion ? minion.playerID : minion.playerID;
-				s.deckRect = (minion.playerID == 0) ? p0_deckRect : p1_deckRect;
+				// Use the minion's actor index for the animation owner, and the
+				// minion's owner (playerID) to pick the correct UI deck rect.
+				s.playerIndex = minionIndex;
+				// If we have a Minion UI for this minion, target its deck rect; otherwise
+				// fall back to the owning player's deck rect (p0/p1).
+				bool assignedRect = false;
+				for (const auto & mui : activeMinionUIs) {
+					if (mui.playerIndex == minionIndex) {
+						s.deckRect = mui.deckRect;
+						assignedRect = true;
+						break;
+					}
+				}
+				if (!assignedRect) {
+					int ownerSlot = findPlayerIndexByID(minion.ownerID);
+					if (ownerSlot >= 0) {
+						s.deckRect = (players[ownerSlot].playerID == 0) ? p0_deckRect : p1_deckRect;
+					} else {
+						// Fallback: choose p0/p1 based on ownerID directly
+						s.deckRect = (minion.ownerID == 0) ? p0_deckRect : p1_deckRect;
+					}
+				}
 				s.startTime = ofGetElapsedTimef();
 				s.duration = 0.9f;
 				activeShuffleAnimations.push_back(s);
@@ -250,8 +167,8 @@ void ofApp::drawMinionCard(int minionIndex, int ownerIndex) {
 
 	ofLogNotice("MinionDraw") << "drawMinionCard complete: minionIndex=" << minionIndex << " pushedAnims=" << pushedAnims << " totalActiveAnims=" << activeDrawCardAnimations.size();
 
-	// Visual feedback
-	spawnFloatingText(gridToWorld(minion.x, minion.y), "Minion Draw!", ofColor::yellow);
+	// Visual feedback: removed "Minion Draw!" floating text per UX request
+	// (previously: spawnFloatingText(gridToWorld(minion.x, minion.y), "Minion Draw!", ofColor::yellow));
 
 	// Mark drawn flag for the owner so main-deck outline clears correctly
 	if (ownerIndex >= 0) {
@@ -262,6 +179,79 @@ void ofApp::drawMinionCard(int minionIndex, int ownerIndex) {
 	}
 }
 //--------------------------------------------------------------
+
+void ofApp::checkKeyPickupAndDraftAfterSummon(int x, int y, int minionOwnerID) {
+	// Only process key pickup on host (or singleplayer)
+	if (!isMultiplayer || isHost()) {
+		for (int k = 0; k < (int)floatingKeyInstances.size(); ++k) {
+			if (floatingKeyInstances[k].pos.x == x && floatingKeyInstances[k].pos.y == y) {
+				int keySet = floatingKeyInstances[k].set;
+				// Remove the key instance
+				floatingKeyInstances.erase(floatingKeyInstances.begin() + k);
+
+				// Map key set to draft class tier
+				int classToDraft = 1;
+				if (keySet == 3)
+					classToDraft = 1;
+				else if (keySet == 2)
+					classToDraft = 2;
+				else if (keySet == 1)
+					classToDraft = 3;
+
+				// Determine target actor: prefer the minion at the tile, otherwise the owning player
+				int targetIndex = -1;
+				for (int p = 0; p < (int)players.size(); ++p) {
+					if (players[p].isMinion && players[p].x == x && players[p].y == y) {
+						targetIndex = p;
+						break;
+					}
+				}
+				if (targetIndex == -1) {
+					for (int p = 0; p < (int)players.size(); ++p) {
+						if (!players[p].isMinion && players[p].playerID == minionOwnerID) {
+							targetIndex = p;
+							break;
+						}
+					}
+				}
+
+				if (targetIndex != -1) {
+					if (isHost()) {
+						KeyPickupPacket kpkt = {};
+						kpkt.type = PKT_KEY_PICKUP;
+						kpkt.playerID = myLocalPlayerID;
+						kpkt.playerIndex = targetIndex;
+						kpkt.playerID = (targetIndex >= 0 && targetIndex < (int)players.size()) ? players[targetIndex].playerID : -1;
+						kpkt.classTier = classToDraft;
+						kpkt.keyX = x;
+						kpkt.keyY = y;
+						steamManager.sendPacket(&kpkt, sizeof(kpkt));
+						ofLogNotice("Network") << "Host sent KeyPickup: playerIndex=" << targetIndex << " class=" << classToDraft;
+					}
+
+					// Enter draft state for the target
+					isInGameDraft = true;
+					draftPlayerIndex = targetIndex;
+					generateDraftOptions(classToDraft);
+					draftPicksRemaining = 1;
+					selectedDraftIndices.clear();
+					currentState = STATE_DRAFTING;
+
+					ofColor keyCol = ofColor::gold;
+					if (keySet == 2)
+						keyCol = ofColor(192, 192, 192);
+					else if (keySet == 3)
+						keyCol = ofColor(205, 127, 50);
+					spawnFloatingText(gridToWorld(x, y), "Key Found!", keyCol);
+
+					int loggedPlayerID = (targetIndex >= 0 && targetIndex < (int)players.size()) ? players[targetIndex].playerID : minionOwnerID;
+					ofLogNotice("Key") << "Player " << loggedPlayerID << " picked up key (Class " << classToDraft << ")";
+				}
+				break;
+			}
+		}
+	}
+}
 
 ofPixels scalePixelsNearest(ofPixels & src, int scale) {
 	int w = src.getWidth();
@@ -1226,6 +1216,18 @@ void ofApp::update() {
 			generateDraftOptions(ct);
 		}
 	}
+	// Execute scheduled end-of-draft transition (wait for visuals to finish)
+	if (draftEndScheduled) {
+		float now = ofGetElapsedTimef();
+		if (now >= draftEndAt) {
+			draftEndScheduled = false;
+			if (draftEndNextPlayerIndex >= 0 && draftEndNextPlayerIndex < (int)players.size()) {
+				currentPlayerIndex = draftEndNextPlayerIndex;
+			}
+			currentState = STATE_GAMEPLAY;
+			continueNewTurn();
+		}
+	}
 
 	// --- INACTIVITY SUSPEND (Singleplayer only) ---
 	// If the window is not focused or minimized, suspend game logic and mute audio
@@ -1313,6 +1315,44 @@ void ofApp::update() {
 		}
 	}
 
+	// If we have a pending draft finalization, wait for pick animations and
+	// shuffle visuals to complete before leaving the draft state.
+	if (pendingDraftFinalize) {
+		// Wait until picked-card fly animations complete
+		bool picksDone = activeDraftPickedMoves.empty();
+		// Wait until any shuffle visuals (player decks or minion UIs) finish
+		bool shufflesDone = activeShuffleAnimations.empty();
+
+		// If picks finished and we still need to trigger the authoritative
+		// end-of-draft shuffles, do that now (host only). This will enqueue
+		// shuffle visuals and broadcast PKT_SHUFFLE to clients.
+		if (picksDone && pendingDraftShuffleNeeded) {
+			if (isHost()) {
+				for (size_t pi = 0; pi < players.size(); ++pi) {
+					shuffleGameVector(players[pi].deck, (int)pi);
+				}
+			} else {
+				// Clients will receive PKT_SHUFFLE from host; ensure we don't
+				// reject any local shuffles accidentally.
+			}
+			pendingDraftShuffleNeeded = false;
+			// Give shuffle visuals a short window to play (they are tracked
+			// via `activeShuffleAnimations`) so we fall through to waiting
+			// on `activeShuffleAnimations.empty()` above.
+		}
+
+		if (picksDone && shufflesDone && diceVisualsFinishedAndLinger()) {
+			pendingDraftFinalize = false;
+			// Mark that the initial draft completed now that shuffles are done
+			initialDraftComplete = true;
+			// Determine who starts based on initiative: winner was first to draft
+			currentPlayerIndex = (draftPlayerIndex + 1) % 2;
+			currentState = STATE_GAMEPLAY;
+			// Proceed to start/continue the first turn
+			continueNewTurn();
+		}
+	}
+
 	// Resend watchdog for client-sent DraftActionPackets (retry until host forwards/acks)
 	if (isClient() && lastSentDraftActionValid && (waitingForDraftOptions || draftAcceptLocked)) {
 		float now = ofGetElapsedTimef();
@@ -1374,6 +1414,15 @@ void ofApp::update() {
 		} else {
 			if (mainMenuMusic.isPlaying()) mainMenuMusic.stop();
 		}
+		// Reset transient UI hover/pile state when changing major states
+		isHoveringPile = false;
+		isShowingPileView = false;
+		hoveredPilePlayerIndex = -1;
+		currentPileViewPlayerIndex = -1;
+		hoveredPileType = VIEW_NONE;
+		currentPileView = VIEW_NONE;
+		pileHoverStartTime = 0.0f;
+
 		prevState = currentState;
 	}
 
@@ -1630,7 +1679,7 @@ void ofApp::update() {
 		// Logic is primarily handled in mousePressed (card selection)
 		// Allow deck/discard hover view during drafting
 		if (isHoveringPile && !isShowingPileView) {
-			if (ofGetElapsedTimef() - pileHoverStartTime > 0.6f) { // Reduced hover time
+			if (ofGetElapsedTimef() - pileHoverStartTime > 0.08f) { // Reduced hover time
 				isShowingPileView = true;
 				currentPileView = hoveredPileType;
 				currentPileViewPlayerIndex = hoveredPilePlayerIndex;
@@ -1701,6 +1750,8 @@ void ofApp::scheduleGenerateDraftOptions(int classTier, float delaySeconds) {
 //--------------------------------------------------------------
 void ofApp::drawTileGlow(int gridX, int gridY, ofColor color, float thickness) {
 	// Draw a glowing outline around the tile at (gridX, gridY)
+	// Respect global flag to disable all glow effects
+	if (disableAllGlow) return;
 	ofVec3f worldPos = gridToWorld(gridX, gridY);
 
 	// Draw a quad outline at ground level around the tile edges
@@ -2781,8 +2832,28 @@ void ofApp::updateGame() {
 	{
 		const float KEY_DRAFT_UI_DELAY = 0.03f; // seconds (≈ one frame)
 		if (pendingKeyDraftAccept && (ofGetElapsedTimef() - pendingKeyDraftTriggerTime) >= KEY_DRAFT_UI_DELAY && !isWaitingForSummonHealth && !isWaitingForHellhoundHP && !isWaitingForDemonHP) {
+			// Diagnostic: remap stable playerID -> current actor index (handles players[] reordering)
+			int resolvedIdx = -1;
+			if (pendingKeyDraftPlayerID >= 0) {
+				for (int i = 0; i < (int)players.size(); ++i) {
+					if (players[i].playerID == pendingKeyDraftPlayerID) {
+						resolvedIdx = i;
+						break;
+					}
+				}
+			}
+			if (resolvedIdx == -1) resolvedIdx = pendingKeyDraftPlayer; // fallback to previous index
+			if (resolvedIdx >= 0 && resolvedIdx < (int)players.size()) {
+				ofLogNotice("Key") << "Triggering delayed draft: resolvedIdx=" << resolvedIdx
+								   << " isMinion=" << players[resolvedIdx].isMinion
+								   << " ownerID=" << players[resolvedIdx].ownerID
+								   << " playerID=" << players[resolvedIdx].playerID
+								   << " pendingPlayerID=" << pendingKeyDraftPlayerID;
+			} else {
+				ofLogNotice("Key") << "Triggering delayed draft: resolvedIdx=" << resolvedIdx << " (out of range) pendingPlayerID=" << pendingKeyDraftPlayerID;
+			}
 			isInGameDraft = true;
-			draftPlayerIndex = pendingKeyDraftPlayer;
+			draftPlayerIndex = resolvedIdx;
 			// Only generate options here if we haven't already received them from the Host
 			if (!(isMultiplayer && isClient() && !draftOptions.empty())) {
 				generateDraftOptions(pendingKeyDraftClass);
@@ -2796,6 +2867,7 @@ void ofApp::updateGame() {
 			// clear pending
 			pendingKeyDraftAccept = false;
 			pendingKeyDraftPlayer = -1;
+			pendingKeyDraftPlayerID = -1;
 			pendingKeyDraftClass = 0;
 			pendingKeyDraftTriggerTime = 0.0f;
 			ofLogNotice("Key") << "Triggering delayed draft for player=" << draftPlayerIndex << " class=" << pendingKeyDraftClass;
@@ -2812,7 +2884,7 @@ void ofApp::updateGame() {
 
 	// --- Pile View Hover Logic ---
 	if (isHoveringPile && !isShowingPileView) {
-		if (ofGetElapsedTimef() - pileHoverStartTime > 0.6f) { // Reduced hover time
+		if (ofGetElapsedTimef() - pileHoverStartTime > 0.8f) { // Reduced hover time
 			isShowingPileView = true;
 			currentPileView = hoveredPileType;
 			currentPileViewPlayerIndex = hoveredPilePlayerIndex;
@@ -2917,7 +2989,7 @@ void ofApp::updateGame() {
 	endTurnButtonCurrentPos = endTurnButtonCurrentPos.getInterpolated(endTurnButtonTargetPos, 0.2f);
 
 	// --- Delayed Attack Logic (Rock Crush, Stab with Dice, etc.) ---
-	if (isWaitingForAttackDice && activeDiceRolls.empty()) {
+	if (isWaitingForAttackDice && diceVisualsFinishedAndLinger()) {
 		isWaitingForAttackDice = false;
 		int baseDamage = pendingAttackRollResult;
 		Player & attacker = players[currentPlayerIndex];
@@ -3162,7 +3234,7 @@ void ofApp::updateGame() {
 	}
 
 	// --- Poison Attack Damage Resolution ---
-	if (isWaitingForPoisonAttackDice && activeDiceRolls.empty()) {
+	if (isWaitingForPoisonAttackDice && diceVisualsFinishedAndLinger()) {
 		isWaitingForPoisonAttackDice = false;
 		int poisonDamage = pendingPoisonAttackRollResult;
 
@@ -3303,7 +3375,7 @@ void ofApp::updateGame() {
 	}
 
 	// --- Amnesia Logic ---
-	if (isWaitingForAmnesiaDice && activeDiceRolls.empty()) {
+	if (isWaitingForAmnesiaDice && diceVisualsFinishedAndLinger()) {
 		isWaitingForAmnesiaDice = false;
 		Player * amnesiaTarget = getPlayer(amnesiaTargetPlayerIndex);
 		if (amnesiaTarget) {
@@ -3321,7 +3393,7 @@ void ofApp::updateGame() {
 	}
 
 	// --- MAGIC HAND DAMAGE & DISPLACEMENT ---
-	if (isWaitingForMagicHandDamage && activeDiceRolls.empty()) {
+	if (isWaitingForMagicHandDamage && diceVisualsFinishedAndLinger()) {
 		isWaitingForMagicHandDamage = false;
 
 		// 1. Execute Move of Caster and Wall (Visuals)
@@ -3485,7 +3557,7 @@ void ofApp::updateGame() {
 	}
 
 	// --- MAGIC BLAST RESOLUTION ---
-	if (isWaitingForMagicBlastDice && std::none_of(activeDiceRolls.begin(), activeDiceRolls.end(), [](const DiceRoll & r) { return !r.isFinishedVisual; })) {
+	if (isWaitingForMagicBlastDice && diceVisualsFinishedAndLinger()) {
 		isWaitingForMagicBlastDice = false;
 		Player & caster = players[currentPlayerIndex];
 		glm::vec2 casterTile = { (float)caster.x, (float)caster.y };
@@ -3567,7 +3639,7 @@ void ofApp::updateGame() {
 	}
 
 	// --- FIREBALL RANGE RESOLUTION ---
-	if (isWaitingForFireballRangeDice && std::none_of(activeDiceRolls.begin(), activeDiceRolls.end(), [](const DiceRoll & r) { return !r.isFinishedVisual; })) {
+	if (isWaitingForFireballRangeDice && diceVisualsFinishedAndLinger()) {
 		isWaitingForFireballRangeDice = false;
 		Player & caster = players[currentPlayerIndex];
 		glm::vec2 casterTile = { (float)caster.x, (float)caster.y };
@@ -3654,7 +3726,7 @@ void ofApp::updateGame() {
 	}
 
 	// [Keep Fireball Damage Dice Completion Logic]
-	if (isWaitingForFireballDamageDice && activeDiceRolls.empty()) {
+	if (isWaitingForFireballDamageDice && diceVisualsFinishedAndLinger()) {
 		isWaitingForFireballDamageDice = false;
 		ofLogNotice("Fireball") << "Damage roll result: " << pendingFireballDamageResult;
 		Player * target = getPlayer(fireballTargetPlayerIndex);
@@ -3823,7 +3895,7 @@ void ofApp::updateGame() {
 	}
 
 	// --- DEATH RESOLUTION ---
-	if (isWaitingForDeathDice && activeDiceRolls.empty()) {
+	if (isWaitingForDeathDice && diceVisualsFinishedAndLinger()) {
 		isWaitingForDeathDice = false;
 
 		Player * target = getPlayer(pendingDeathTargetIndex);
@@ -3858,12 +3930,12 @@ void ofApp::updateGame() {
 	}
 
 	// --- SLEEP DURATION RESOLUTION ---
-	if (isWaitingForSleepDuration && activeDiceRolls.empty()) {
+	if (isWaitingForSleepDuration && diceVisualsFinishedAndLinger()) {
 		isWaitingForSleepDuration = false;
 	}
 
 	// --- ETHEREAL JOLT RESOLUTION ---
-	if (isWaitingForJoltRangeDice && std::none_of(activeDiceRolls.begin(), activeDiceRolls.end(), [](const DiceRoll & r) { return !r.isFinishedVisual; })) {
+	if (isWaitingForJoltRangeDice && diceVisualsFinishedAndLinger()) {
 		isWaitingForJoltRangeDice = false;
 		Player & caster = players[currentPlayerIndex];
 		glm::vec2 casterTile = { (float)caster.x, (float)caster.y };
@@ -3983,7 +4055,7 @@ void ofApp::updateGame() {
 	}
 
 	// --- HEAL RESOLUTION ---
-	if (isWaitingForHealDice && activeDiceRolls.empty()) {
+	if (isWaitingForHealDice && diceVisualsFinishedAndLinger()) {
 		isWaitingForHealDice = false;
 
 		Player * target = getPlayer(pendingHealTargetIndex);
@@ -4008,7 +4080,7 @@ void ofApp::updateGame() {
 	}
 
 	// --- PSIONIC WAVE: RANGE RESOLUTION ---
-	if (isWaitingForPsionicRange && activeDiceRolls.empty()) {
+	if (isWaitingForPsionicRange && diceVisualsFinishedAndLinger()) {
 		isWaitingForPsionicRange = false;
 
 		// 1. Calculate Radius
@@ -4056,7 +4128,7 @@ void ofApp::updateGame() {
 	}
 
 	// --- PSIONIC WAVE: EFFECT RESOLUTION ---
-	if (isWaitingForPsionicAmount && activeDiceRolls.empty()) {
+	if (isWaitingForPsionicAmount && diceVisualsFinishedAndLinger()) {
 		isWaitingForPsionicAmount = false;
 
 		int cardsToRemove = pendingPsionicAmountResult;
@@ -4098,7 +4170,7 @@ void ofApp::updateGame() {
 	}
 
 	// --- Time Vortex Logic ---
-	if (isWaitingForTimeVortexDice && activeDiceRolls.empty()) {
+	if (isWaitingForTimeVortexDice && diceVisualsFinishedAndLinger()) {
 		isWaitingForTimeVortexDice = false;
 
 		// The 'pendingTimeVortexResult' is populated by startDiceRoll.
@@ -4132,7 +4204,8 @@ void ofApp::updateGame() {
 	}
 
 	// --- MAGIC BOLT RESOLUTION ---
-	if (isWaitingForMagicBoltRange && std::none_of(activeDiceRolls.begin(), activeDiceRolls.end(), [](const DiceRoll & r) { return !r.isFinishedVisual; })) {
+	if (isWaitingForMagicBoltRange && diceVisualsFinishedAndLinger()) {
+		isWaitingForMagicBoltRange = false;
 		isWaitingForMagicBoltRange = false;
 
 		Player & caster = players[currentPlayerIndex];
@@ -4341,7 +4414,7 @@ void ofApp::updateGame() {
 	}
 
 	// --- SHOOT ARROW HIT RESOLUTION ---
-	if (isWaitingForShootArrow && std::none_of(activeDiceRolls.begin(), activeDiceRolls.end(), [](const DiceRoll & r) { return !r.isFinishedVisual; })) {
+	if (isWaitingForShootArrow && diceVisualsFinishedAndLinger()) {
 		isWaitingForShootArrow = false;
 		Player & caster = players[currentPlayerIndex];
 		glm::vec2 casterTile = { (float)caster.x, (float)caster.y };
@@ -4627,7 +4700,7 @@ void ofApp::updateGame() {
 	}
 
 	// --- CHAIN LIGHTNING: RANGE RESOLUTION ---
-	if (isWaitingForChainLightningRange && std::none_of(activeDiceRolls.begin(), activeDiceRolls.end(), [](const DiceRoll & r) { return !r.isFinishedVisual; })) {
+	if (isWaitingForChainLightningRange && diceVisualsFinishedAndLinger()) {
 		isWaitingForChainLightningRange = false;
 
 		Player & caster = players[currentPlayerIndex];
@@ -4704,7 +4777,7 @@ void ofApp::updateGame() {
 	}
 
 	// --- CHAIN LIGHTNING: DAMAGE RESOLUTION ---
-	if (isWaitingForChainLightningDamage && std::none_of(activeDiceRolls.begin(), activeDiceRolls.end(), [](const DiceRoll & r) { return !r.isFinishedVisual; })) {
+	if (isWaitingForChainLightningDamage && diceVisualsFinishedAndLinger()) {
 		isWaitingForChainLightningDamage = false;
 
 		Player & caster = players[currentPlayerIndex];
@@ -5209,7 +5282,7 @@ void ofApp::updateGame() {
 	}
 
 	// --- FLAIL RESOLUTION ---
-	if (isWaitingForFlailDice && activeDiceRolls.empty()) {
+	if (isWaitingForFlailDice && diceVisualsFinishedAndLinger()) {
 		isWaitingForFlailDice = false;
 
 		Player & caster = players[currentPlayerIndex];
@@ -5295,7 +5368,7 @@ void ofApp::updateGame() {
 	}
 
 	// --- SPARK OF GENIUS RESOLUTION ---
-	if (isWaitingForSparkOfGeniusDice && activeDiceRolls.empty()) {
+	if (isWaitingForSparkOfGeniusDice && diceVisualsFinishedAndLinger()) {
 		isWaitingForSparkOfGeniusDice = false;
 
 		int cardsToDraw = pendingSparkOfGeniusRollResult;
@@ -5313,7 +5386,7 @@ void ofApp::updateGame() {
 	}
 
 	// --- Dispel Barrier Dice ---
-	if (isWaitingForBarrierDice && activeDiceRolls.empty()) {
+	if (isWaitingForBarrierDice && diceVisualsFinishedAndLinger()) {
 		isWaitingForBarrierDice = false;
 		Player & p = players[currentPlayerIndex];
 		p.barrier += pendingDispelRollResult;
@@ -5329,7 +5402,7 @@ void ofApp::updateGame() {
 		tryTriggerShellSpike();
 	}
 	// --- Teleport Logic: After dice roll, enter targeting mode ---
-	if (isWaitingForTeleportDice && activeDiceRolls.empty()) {
+	if (isWaitingForTeleportDice && diceVisualsFinishedAndLinger()) {
 		isWaitingForTeleportDice = false;
 		// Now enter targeting mode - player will click where to teleport
 		isTargetingTeleport = true;
@@ -5347,7 +5420,7 @@ void ofApp::updateGame() {
 	}
 
 	// --- On Fire Logic ---
-	if (isWaitingForOnFireDice && activeDiceRolls.empty()) {
+	if (isWaitingForOnFireDice && diceVisualsFinishedAndLinger()) {
 		isWaitingForOnFireDice = false;
 		int rollResult = pendingOnFireRollResult;
 		Player & burningPlayer = players[currentPlayerIndex];
@@ -5397,7 +5470,7 @@ void ofApp::updateGame() {
 		return;
 	}
 	// --- Poison Status Logic ---
-	if (isWaitingForPoisonDice && activeDiceRolls.empty()) {
+	if (isWaitingForPoisonDice && diceVisualsFinishedAndLinger()) {
 		isWaitingForPoisonDice = false;
 		int rollResult = pendingPoisonRollResult;
 		Player & poisonedPlayer = players[currentPlayerIndex];
@@ -6304,35 +6377,50 @@ void ofApp::updateGame() {
 						else if (keySet == 1)
 							classToDraft = 3;
 
-						// Identify Owner (If minion steps on key, Summoner gets the card)
+						// Identify target for key pickup.
+						// If a minion moved over the key, the minion actor itself should
+						// receive the in-game draft. Otherwise target the owning player.
 						Player & mover = players[animatingPlayerIndex];
-						int ownerID = mover.isMinion ? mover.ownerID : mover.playerID;
+						int targetIndex = -1;
 
-						int ownerIndex = -1;
+						// Prefer the local minion actor at the key tile (covers pass-over cases)
 						for (int p = 0; p < (int)players.size(); ++p) {
-							if (players[p].playerID == ownerID && !players[p].isMinion) {
-								ownerIndex = p;
+							if (players[p].isMinion && players[p].x == cx && players[p].y == cy) {
+								targetIndex = p;
 								break;
 							}
 						}
 
-						if (ownerIndex != -1) {
+						// If no minion actor found, fall back to the owner player
+						if (targetIndex == -1) {
+							int ownerID = mover.isMinion ? mover.ownerID : mover.playerID;
+							for (int p = 0; p < (int)players.size(); ++p) {
+								if (players[p].playerID == ownerID && !players[p].isMinion) {
+									targetIndex = p;
+									break;
+								}
+							}
+						}
+
+						if (targetIndex != -1) {
 							// HOST: Send key pickup packet to clients
 							if (isHost()) {
 								KeyPickupPacket kpkt = {};
 								kpkt.type = PKT_KEY_PICKUP;
 								kpkt.playerID = myLocalPlayerID;
-								kpkt.playerIndex = ownerIndex;
+								kpkt.playerIndex = targetIndex;
+								// Include stable playerID so clients can remap actor indices
+								kpkt.playerID = (targetIndex >= 0 && targetIndex < (int)players.size()) ? players[targetIndex].playerID : -1;
 								kpkt.classTier = classToDraft;
 								kpkt.keyX = cx;
 								kpkt.keyY = cy;
 								steamManager.sendPacket(&kpkt, sizeof(kpkt));
-								ofLogNotice("Network") << "Host sent KeyPickup: player=" << ownerIndex << " class=" << classToDraft;
+								ofLogNotice("Network") << "Host sent KeyPickup: playerIndex=" << targetIndex << " class=" << classToDraft;
 							}
 
 							// Setup In-Game Draft State
 							isInGameDraft = true;
-							draftPlayerIndex = ownerIndex;
+							draftPlayerIndex = targetIndex;
 							generateDraftOptions(classToDraft);
 							draftPicksRemaining = 1; // Keys always give 1 pick
 							selectedDraftIndices.clear(); // Reset UI selection
@@ -6347,7 +6435,8 @@ void ofApp::updateGame() {
 									keyCol = ofColor(205, 127, 50);
 								spawnFloatingText(gridToWorld(cx, cy), "Key Found!", keyCol);
 							}
-							ofLogNotice("Key") << "Player " << ownerID << " picked up key (Class " << classToDraft << ")";
+							int loggedPlayerID = (targetIndex >= 0 && targetIndex < (int)players.size()) ? players[targetIndex].playerID : mover.playerID;
+							ofLogNotice("Key") << "Player " << loggedPlayerID << " picked up key (Class " << classToDraft << ")";
 							return; // Stop update to freeze game/animation until draft is done
 						}
 						break;
@@ -7771,12 +7860,15 @@ void ofApp::drawGame() {
 
 		// --- HOVER GLOW RENDERING ---
 		// Draw white glow for local player's hover
-		if (localHoverType == HOVER_UNIT && localHoverGridX >= 0 && localHoverGridX < BOARD_WIDTH && localHoverGridY >= 0 && localHoverGridY < BOARD_HEIGHT) {
+		// NOTE: suppress the local hover outline while the player has a piece selected
+		// (movement preview / hoverPath draws separate indicators which can appear
+		// on other tiles and look like an extra white highlight).
+		if (playerAction != PIECE_SELECTED && localHoverType == HOVER_UNIT && localHoverGridX >= 0 && localHoverGridX < BOARD_WIDTH && localHoverGridY >= 0 && localHoverGridY < BOARD_HEIGHT) {
 			drawTileGlow(localHoverGridX, localHoverGridY, ofColor(255, 255, 255, 200), 4.0f);
 		}
 
-		// Draw red glow for opponent's hover
-		if (opponentHoverType == HOVER_UNIT && opponentHoverGridX >= 0 && opponentHoverGridX < BOARD_WIDTH && opponentHoverGridY >= 0 && opponentHoverGridY < BOARD_HEIGHT) {
+		// Draw red glow for opponent's hover (only in multiplayer)
+		if (isMultiplayer && opponentHoverType == HOVER_UNIT && opponentHoverGridX >= 0 && opponentHoverGridX < BOARD_WIDTH && opponentHoverGridY >= 0 && opponentHoverGridY < BOARD_HEIGHT) {
 			drawTileGlow(opponentHoverGridX, opponentHoverGridY, ofColor(255, 0, 0, 200), 4.0f);
 		}
 
@@ -8480,9 +8572,9 @@ void ofApp::drawGame() {
 			pixelArtShader.setUniform1i("useDither", pixelArtDither ? 1 : 0);
 			pixelArtShader.setUniform2f("uResolution", ofGetWidth(), ofGetHeight());
 			pixelArtShader.setUniform2f("uLowRes", pixelLowFbo.getWidth(), pixelLowFbo.getHeight());
-			// Edge color + strength defaults (further softened to reduce sharpening)
-			pixelArtShader.setUniform3f("edgeColor", 0.22f, 0.22f, 0.22f);
-			pixelArtShader.setUniform1f("edgeStrength", 0.08f);
+			// Edge color + strength defaults. Disable edge/glow for crisp visuals.
+			pixelArtShader.setUniform3f("edgeColor", 0.0f, 0.0f, 0.0f);
+			pixelArtShader.setUniform1f("edgeStrength", 0.0f);
 			pixelLowFbo.getTexture().draw(0, 0, ofGetWidth(), ofGetHeight());
 			pixelArtShader.end();
 		} else {
@@ -8868,7 +8960,7 @@ void ofApp::drawGame() {
 		}
 
 		// Draw hover glow for deck
-		if (localHoverType == HOVER_DECK) {
+		if (!disableAllGlow && localHoverType == HOVER_DECK) {
 			ofPushStyle();
 			ofNoFill();
 			ofSetColor(232, 232, 232, 200); // #e8e8e8 glow
@@ -8916,7 +9008,7 @@ void ofApp::drawGame() {
 		}
 
 		// Draw hover glow for discard
-		if (localHoverType == HOVER_DISCARD) {
+		if (!disableAllGlow && localHoverType == HOVER_DISCARD) {
 			ofPushStyle();
 			ofNoFill();
 			ofSetColor(255, 255, 255, 200); // White glow
@@ -8950,8 +9042,8 @@ void ofApp::drawGame() {
 			ofDrawRectRounded(p1_deckRect, 10 * scale);
 		}
 
-		// Draw hover glow for opponent deck/discard
-		if (opponentHoverType == HOVER_DECK) {
+		// Draw hover glow for opponent deck/discard (only in multiplayer)
+		if (isMultiplayer && !disableAllGlow && opponentHoverType == HOVER_DECK) {
 			ofPushStyle();
 			ofNoFill();
 			ofSetColor(255, 0, 0, 200); // Red glow
@@ -8959,7 +9051,7 @@ void ofApp::drawGame() {
 			ofDrawRectangle(p1_deckRect);
 			ofPopStyle();
 		}
-		if (opponentHoverType == HOVER_DISCARD) {
+		if (isMultiplayer && !disableAllGlow && opponentHoverType == HOVER_DISCARD) {
 			ofPushStyle();
 			ofNoFill();
 			ofSetColor(255, 0, 0, 200); // Red glow
@@ -9055,13 +9147,18 @@ void ofApp::drawGame() {
 		bool skipDrawP0AP = false;
 		if (currentState == STATE_DRAFTING) skipDrawP0AP = true;
 		if (currentState == STATE_INITIATIVE_ROLL) skipDrawP0AP = true; // Hide AP during initiative roll
-		if (currentPlayerIndex >= 0) {
-			// Bottom deck is always local player, so only show AP when current turn is local player
-			if (isMultiplayer && players[currentPlayerIndex].playerID != myLocalPlayerID) {
-				skipDrawP0AP = true;
-			} else if (!isMultiplayer && players[currentPlayerIndex].playerID == 1) {
-				// Single player: don't show P0 AP if current player is player 1
-				skipDrawP0AP = true;
+		int activeOwnerID = -1;
+		if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) {
+			if (players[currentPlayerIndex].isMinion)
+				activeOwnerID = players[currentPlayerIndex].ownerID;
+			else
+				activeOwnerID = players[currentPlayerIndex].playerID;
+			// Bottom deck is always local player: show only when the active owner matches local player
+			if (isMultiplayer) {
+				if (activeOwnerID != myLocalPlayerID) skipDrawP0AP = true;
+			} else {
+				// Singleplayer: hide bottom AP if active owner is player 1
+				if (activeOwnerID == 1) skipDrawP0AP = true;
 			}
 		}
 		if (!skipDrawP0AP) {
@@ -9159,12 +9256,17 @@ void ofApp::drawGame() {
 		if (currentState == STATE_DRAFTING) skipDrawP1AP = true;
 		if (currentState == STATE_INITIATIVE_ROLL) skipDrawP1AP = true; // Hide AP during initiative roll
 		if (currentPlayerIndex >= 0) {
-			// Top deck is opponent in multiplayer, so only show AP when NOT local player's turn
-			if (isMultiplayer && isCurrentPlayerLocal()) {
-				skipDrawP1AP = true;
-			} else if (!isMultiplayer && players[currentPlayerIndex].playerID == 0) {
-				// Single player: don't show P1 AP if current player is player 0
-				skipDrawP1AP = true;
+			int activeOwnerID_p1 = -1;
+			if (players[currentPlayerIndex].isMinion)
+				activeOwnerID_p1 = players[currentPlayerIndex].ownerID;
+			else
+				activeOwnerID_p1 = players[currentPlayerIndex].playerID;
+			// For multiplayer, show top AP only when active owner is NOT local player
+			if (isMultiplayer) {
+				if (activeOwnerID_p1 == myLocalPlayerID) skipDrawP1AP = true;
+			} else {
+				// Singleplayer: hide top AP if active owner is player 0
+				if (activeOwnerID_p1 == 0) skipDrawP1AP = true;
 			}
 		}
 		if (!skipDrawP1AP) {
@@ -9406,7 +9508,7 @@ void ofApp::drawGame() {
 		}
 	}
 
-	if (displayedAPForCurrent <= 0 && hasDrawnCardsThisTurn && !rerollAvailable && myTurn) {
+	if (!disableAllGlow && displayedAPForCurrent <= 0 && hasDrawnCardsThisTurn && !rerollAvailable && myTurn) {
 		// Draw a small green glow behind the button so the outline is always
 		// fully visible (avoid relying on stroke rendering which can clip).
 		ofPushStyle();
@@ -9600,7 +9702,7 @@ void ofApp::drawGame() {
 				ofDrawRectangle(drawX - 2, drawY - 2, w + 4, h + 4);
 				ofPopStyle();
 			}
-			if (opponentHoverType == HOVER_HAND_CARD && opponentHoverCardIndex == index) {
+			if (isMultiplayer && opponentHoverType == HOVER_HAND_CARD && opponentHoverCardIndex == index) {
 				ofPushStyle();
 				ofNoFill();
 				ofSetColor(255, 0, 0, 200); // Red glow
@@ -10893,6 +10995,13 @@ cursor_check_done:;
 				hoveredPileType = newHoveredPileType;
 				hoveredPilePlayerIndex = newHoveredPileIndex;
 				pileHoverStartTime = ofGetElapsedTimef();
+				// If we're currently in the drafting modal, immediately show the pile view
+				// because the main update loop may be effectively paused for draft UI.
+				if (currentState == STATE_DRAFTING) {
+					isShowingPileView = true;
+					currentPileView = hoveredPileType;
+					currentPileViewPlayerIndex = hoveredPilePlayerIndex;
+				}
 			}
 			currentCursor = CURSOR_CLICK;
 		} else {
@@ -11368,6 +11477,15 @@ void ofApp::mousePressed(int x, int y, int button) {
 		return;
 	}
 
+	// If user right-clicks to start panning, close any tooltips immediately
+	if (button == OF_MOUSE_BUTTON_RIGHT) {
+		if (isShowingTooltip) isShowingTooltip = false;
+		if (isTooltipExpanded) {
+			isTooltipExpanded = false;
+			tooltipExpandedText.clear();
+		}
+	}
+
 	// Click-to-dismiss played card animation or card displays
 	if (button == OF_MOUSE_BUTTON_LEFT) {
 		// First, check card displays (opponent popups) so clicks on them dismiss immediately
@@ -11599,6 +11717,10 @@ void ofApp::mousePressed(int x, int y, int button) {
 			}
 
 			// selectedDraftIndices contains pool indices; add matching cards with validation
+			// Diagnostic: Log who will receive the picked cards
+			ofLogNotice("Draft") << "ACCEPT: applying picks to draftPlayerIndex=" << draftPlayerIndex
+								 << " isMinion=" << p.isMinion << " ownerID=" << p.ownerID << " playerID=" << p.playerID << " currentDeckSize=" << p.deck.size();
+
 			for (int poolIdx : selectedDraftIndices) {
 				if (poolIdx < 0 || poolIdx >= (int)pool->size()) {
 					ofLogWarning("Draft") << "ACCEPT: ignoring invalid poolIdx=" << poolIdx << " for class " << currentDraftClassTier;
@@ -11616,6 +11738,19 @@ void ofApp::mousePressed(int x, int y, int button) {
 			}
 
 			if (isHost()) {
+				// Send authoritative DraftState first so clients can map draft index -> player
+				DraftStatePacket dsp = {};
+				dsp.type = PKT_DRAFT_STATE;
+				dsp.playerID = myLocalPlayerID;
+				dsp.classTier = currentDraftClassTier;
+				dsp.draftPlayerIdx = draftPlayerIndex;
+				dsp.draftPlayerID = (dsp.draftPlayerIdx >= 0 && dsp.draftPlayerIdx < (int)players.size()) ? players[dsp.draftPlayerIdx].playerID : -1;
+				dsp.picksRemaining = draftPicksRemaining;
+				dsp.draftStage = draftStage;
+				dsp.isInGameDraft = isInGameDraft ? 1 : 0;
+				dsp.currentPlayerIndex = currentPlayerIndex;
+				steamManager.sendPacket(&dsp, sizeof(dsp));
+
 				DraftActionPacket acceptPkt = {};
 				acceptPkt.type = PKT_DRAFT_ACTION;
 				acceptPkt.playerID = myLocalPlayerID;
@@ -11654,9 +11789,12 @@ void ofApp::mousePressed(int x, int y, int button) {
 					draftStage = 0;
 					scheduleGenerateDraftOptions(1, delay);
 				} else {
-					currentPlayerIndex = nextPlayerIdx;
-					currentState = STATE_GAMEPLAY;
-					continueNewTurn();
+					// Instead of immediately returning to gameplay, schedule the transition
+					// to occur after the draft-picked animations finish so the visuals complete.
+					float delay = draftAnimHoldDuration + 0.35f + 0.9f + 0.1f; // same delay used above
+					draftEndScheduled = true;
+					draftEndAt = ofGetElapsedTimef() + delay;
+					draftEndNextPlayerIndex = nextPlayerIdx;
 				}
 			}
 			return; // We handled the Accept, so we're done with this click.
@@ -11873,6 +12011,9 @@ void ofApp::mousePressed(int x, int y, int button) {
 						board[gx][gy].hasPlayer = true;
 						players.push_back(kobold);
 						int newKoboldIdx = (int)players.size() - 1;
+						// Initialize visual position so the kobold is visible immediately
+						players[newKoboldIdx].visualPos = gridToWorld(players[newKoboldIdx].x, players[newKoboldIdx].y);
+						ofLogNotice("Summon") << "Initialized visualPos for new kobold idx=" << newKoboldIdx << " pos=" << players[newKoboldIdx].visualPos.x << "," << players[newKoboldIdx].visualPos.y << "," << players[newKoboldIdx].visualPos.z;
 						shuffleGameVector(players[newKoboldIdx].deck, newKoboldIdx);
 
 						ofLogNotice("Summon") << "Placed Kobold (main handler): idx=" << newKoboldIdx << " players.size=" << players.size() << " boardHasPlayer=" << board[gx][gy].hasPlayer;
@@ -12300,7 +12441,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 			if (menuChoice == 1) {
 				p.nextTurnAPBonus += 3;
 				ofLogNotice("APDebug") << "Train: playerIndex=" << currentPlayerIndex << " nextTurnAPBonus(after)=" << p.nextTurnAPBonus;
-				spawnFloatingText(gridToWorld(p.x, p.y), "Training: AP", ofColor::yellow);
+				spawnFloatingText(gridToWorld(p.x, p.y), "+3 AP next turn", ofColor::yellow);
 			} else {
 				isInGameDraft = true;
 				draftPlayerIndex = currentPlayerIndex;
@@ -12511,18 +12652,14 @@ void ofApp::mousePressed(int x, int y, int button) {
 					int casterOwner = caster.isMinion ? caster.ownerID : caster.playerID;
 					int targetOwner = target->isMinion ? target->ownerID : target->playerID;
 
-					// --- STRICT TARGET VALIDATION ---
-					if (burstChoice == 0) { // DAMAGE
-						if (casterOwner == targetOwner) {
-							spawnFloatingText(gridToWorld(target->x, target->y), "Cannot damage ally", ofColor::red);
+					// --- BURST TARGET VALIDATION & EFFECTS ---
+					if (burstChoice == 0) { // DAMAGE: allow any unit except self
+						if (target->playerID == caster.playerID) {
+							spawnFloatingText(gridToWorld(target->x, target->y), "Cannot target self", ofColor::red);
 							return; // Don't cancel, let them pick again
 						}
 						applyDamageTo(*target, 3, DAMAGE_HOLY, currentPlayerIndex);
-					} else { // HEAL
-						if (casterOwner != targetOwner) {
-							spawnFloatingText(gridToWorld(target->x, target->y), "Cannot heal enemy", ofColor::red);
-							return; // Don't cancel, let them pick again
-						}
+					} else { // HEAL: allow healing any unit (including self)
 						int healAmt = 3;
 						int healed = std::min(healAmt, target->maxHealth - target->health);
 						if (healed > 0) {
@@ -14132,12 +14269,8 @@ void ofApp::mousePressed(int x, int y, int button) {
 			ofVec2f boardPos = mouseToBoard(x, y);
 			int gridX = floor(boardPos.x), gridY = floor(boardPos.y);
 
-			// Clicked Outside? Deselect everything.
+			// Clicked Outside? Ignore (do not deselect) — keep current selection.
 			if (gridX < 0 || gridX >= BOARD_WIDTH || gridY < 0 || gridY >= BOARD_HEIGHT) {
-				selectedCardIndex = -1;
-				playerAction = NONE;
-				clearHighlights();
-				calculateTargetHighlights();
 				return;
 			}
 
@@ -14271,9 +14404,8 @@ void ofApp::mousePressed(int x, int y, int button) {
 				return;
 			}
 
-			// Deselect if clicking random empty tile
-			selectedCardIndex = -1;
-			calculateTargetHighlights();
+			// Clicked an empty/non-actionable tile: do not deselect selection.
+			// (Selection persists; only real-target clicks or right-click cancel.)
 		}
 		break;
 	}
@@ -14552,6 +14684,12 @@ void ofApp::mouseDragged(int x, int y, int button) {
 		// For camera2: invert both X and Z to mirror the view (180° rotation)
 		float panMultX = shouldFlipCamera() ? -1.0f : 1.0f;
 		float panMultZ = 1.0f;
+		// While panning, ensure tooltips are closed so they don't linger
+		if (isShowingTooltip) isShowingTooltip = false;
+		if (isTooltipExpanded) {
+			isTooltipExpanded = false;
+			tooltipExpandedText.clear();
+		}
 		cameraTargetPan.x += dx * 0.05f * (TILE_SIZE / 4.0f) * panMultX;
 		cameraTargetPan.z += dy * 0.05f * (TILE_SIZE / 4.0f) * panMultZ;
 		return;
@@ -19249,6 +19387,48 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 	};
 
 	// --- ITERATE BOARD ---
+
+	// --- SPECIAL CASE: Burst of Light targeting (choose damage or heal via menu)
+	if (card.type == CARD_BURST_OF_LIGHT) {
+		// Show white previews for all tiles that are within line-of-sight from the caster.
+		// Also keep green outlines for valid unit targets (enemies for damage, allies/self for heal).
+		Player & caster = currentPlayer;
+		glm::vec2 casterPos(px, py);
+
+		// 1) Mark LOS tiles as preview (white outlines)
+		for (int tx = 0; tx < BOARD_WIDTH; ++tx) {
+			for (int ty = 0; ty < BOARD_HEIGHT; ++ty) {
+				TargetInfo info = isLosTargetValid(casterPos, glm::vec2(tx, ty), 9999.0f, CARD_BURST_OF_LIGHT);
+				// Treat VALID and INVALID_SELF as previewable (so caster tile shows preview)
+				if (info.reason == VALID || info.reason == INVALID_SELF) {
+					board[tx][ty].isTargetPreview = true;
+					board[tx][ty].hasTooltipInfo = true;
+				}
+			}
+		}
+
+		// 2) For unit tiles, apply green targetable outlines based on burstChoice
+		for (const auto & p : players) {
+			TargetInfo info = isLosTargetValid(casterPos, glm::vec2(p.x, p.y), 9999.0f, CARD_BURST_OF_LIGHT);
+			int pOwner = p.isMinion ? p.ownerID : p.playerID;
+			int casterOwner = caster.isMinion ? caster.ownerID : caster.playerID;
+
+			if (burstChoice == 0) { // DAMAGE -> enemies only
+				if (info.reason == VALID && pOwner != casterOwner) {
+					board[p.x][p.y].isTargetable = true; // green outline
+					board[p.x][p.y].isTargetPreview = true;
+				}
+			} else { // HEAL -> allies including self
+				if ((p.x == caster.x && p.y == caster.y) || (info.reason == VALID && pOwner == casterOwner)) {
+					board[p.x][p.y].isTargetable = true; // green outline
+					board[p.x][p.y].isTargetPreview = true;
+				}
+			}
+		}
+
+		return;
+	}
+
 	for (int x = 0; x < BOARD_WIDTH; x++) {
 		for (int y = 0; y < BOARD_HEIGHT; y++) {
 			bool isPreview = false;
@@ -21163,6 +21343,20 @@ int ofApp::startDiceRoll(int numDice, int sides, DicePurpose purpose, std::strin
 	}
 	return totalRollResult;
 }
+
+//--------------------------------------------------------------
+bool ofApp::diceVisualsFinishedAndLinger() const {
+	// All dice visuals finished?
+	bool allFinished = std::none_of(activeDiceRolls.begin(), activeDiceRolls.end(), [](const DiceRoll & r) { return !r.isFinishedVisual; });
+
+	if (!allFinished) return false;
+
+	// If no global dice result text is present, don't wait for linger
+	if (diceRollResultText.empty()) return true;
+
+	// Otherwise wait until the configured duration elapses
+	return (ofGetElapsedTimef() - diceRollResultStartTime) >= diceRollResultDuration;
+}
 //--------------------------------------------------------------
 std::vector<Player *> ofApp::findCleaveTargets(glm::vec2 direction) {
 	std::vector<Player *> hittablePlayers;
@@ -21892,30 +22086,29 @@ void ofApp::drawBurstUI() {
 
 	ofRectangle panelRect = burstMenuRect;
 
-	// --- CHECK FOR VALID ENEMIES ---
-	bool hasValidEnemy = false;
+	// --- CHECK FOR VALID UNIT TARGETS (any unit except self for damage) ---
+	bool hasValidUnit = false;
 	Player & caster = players[currentPlayerIndex];
 	glm::vec2 casterPos(caster.x, caster.y);
 
-	int casterOwner = caster.isMinion ? caster.ownerID : caster.playerID;
-
 	for (const auto & p : players) {
-		// Skip self and allies
-		int pOwner = p.isMinion ? p.ownerID : p.playerID;
-		if (pOwner == casterOwner) continue;
+		// Skip self only (damage cannot target self), but here we are just
+		// checking whether there exists any OTHER unit in LOS to enable the
+		// "Deal" button. So skip the caster actor.
+		if (p.playerID == caster.playerID) continue;
 
 		// Check LOS (Infinite Range for Burst)
 		TargetInfo info = isLosTargetValid(casterPos, glm::vec2(p.x, p.y), 9999.0f, CARD_BURST_OF_LIGHT);
-		if (info.reason == VALID) {
-			hasValidEnemy = true;
+		if (info.reason == VALID || info.reason == INVALID_SELF) {
+			hasValidUnit = true;
 			break;
 		}
 	}
 
 	// Use standardized helper to draw primary (Deal 3 Holy) and secondary (Heal 3 HP).
 	drawCardChoicePanel(panelRect, title, desc, burstBtnDamage, burstBtnHeal,
-		hasValidEnemy ? "Deal 3 Holy" : "No Enemy in Sight", "Heal 3 HP",
-		holyAccent, healAccent, hasValidEnemy, true);
+		hasValidUnit ? "Deal 3 Holy" : "No Unit in Sight", "Heal 3 HP",
+		holyAccent, healAccent, hasValidUnit, true);
 }
 
 //--------------------------------------------------------------
@@ -21923,6 +22116,9 @@ void ofApp::drawBurstUI() {
 void ofApp::drawJoinedOutlines(bool highlightedTiles[BOARD_WIDTH][BOARD_HEIGHT], ofColor color, float surfaceY) {
 	// This function draws outlines around groups of adjacent highlighted tiles
 	// such that the outlines merge to form larger connected shapes
+
+	// Respect global flag to disable all glow/outline effects
+	if (disableAllGlow) return;
 
 	ofNoFill();
 	ofSetLineWidth(6); // Thicker lines
@@ -23782,6 +23978,17 @@ void ofApp::applyDraftOptionsFromPool(int classTier, const std::vector<int> & in
 void ofApp::onCardPicked(int optionIndex) {
 	if (optionIndex < 0 || optionIndex >= (int)draftOptions.size()) return;
 
+	// Diagnostic: log which actor index is being used for this pick
+	if (draftPlayerIndex >= 0 && draftPlayerIndex < (int)players.size()) {
+		ofLogNotice("Draft") << "onCardPicked: draftPlayerIndex=" << draftPlayerIndex
+							 << " isMinion=" << players[draftPlayerIndex].isMinion
+							 << " ownerID=" << players[draftPlayerIndex].ownerID
+							 << " playerID=" << players[draftPlayerIndex].playerID
+							 << " deckSize=" << players[draftPlayerIndex].deck.size();
+	} else {
+		ofLogNotice("Draft") << "onCardPicked: draftPlayerIndex=" << draftPlayerIndex << " (out of range)";
+	}
+
 	Player & p = players[draftPlayerIndex];
 	Card picked = draftOptions[optionIndex];
 
@@ -23859,32 +24066,10 @@ void ofApp::onCardPicked(int optionIndex) {
 			} else {
 				// Both done! Start Game.
 
-				// Shuffle decks (host-authoritative per player)
-				for (size_t pi = 0; pi < players.size(); ++pi) {
-					shuffleGameVector(players[pi].deck, (int)pi);
-				}
-
-				// Determine who starts based on initiative winner (who drafted first)
-				// The winner (highest roller) was the *first* to draft and should go first in gameplay.
-				// After both finish drafting, draftPlayerIndex points to whoever drafted SECOND.
-				// So the winner (who should go first) is (draftPlayerIndex + 1) % 2.
-
-				currentPlayerIndex = (draftPlayerIndex + 1) % 2;
-
-				// FINAL SETUP
-				currentState = STATE_GAMEPLAY;
-				initialDraftComplete = true;
-
-				// CLIENT: Wait for host's TurnStart packet (contains authoritative first dice roll)
-				if (isClient()) {
-					ofLogNotice("Network") << "CLIENT: Draft complete, waiting for host's first TurnStart packet.";
-					waitingForTurnStartFromHost = true;
-					// Don't call startNewTurn() - host will send PKT_TURN_START
-				} else {
-					// Host: can proceed with local turn start
-					ofLogNotice("Network") << "HOST: Draft complete, starting first turn.";
-					startNewTurn();
-				}
+				// Defer final shuffling and transition until pick animations finish.
+				// We'll perform shuffles when `pendingDraftFinalize` resolves in `update()`.
+				pendingDraftFinalize = true;
+				pendingDraftShuffleNeeded = true;
 			}
 		}
 	}
@@ -24204,6 +24389,10 @@ void ofApp::drawDraftScreen() {
 		// Hide accept: clear the rect so hits are ignored
 		draftAcceptButtonRect.set(0, 0, 0, 0);
 	}
+
+	if (isShowingPileView && currentPileViewPlayerIndex != -1) {
+		drawPileViewFor(currentPileViewPlayerIndex, currentPileView);
+	}
 }
 
 // Draw and advance active draft-picked move animations (visual only)
@@ -24249,6 +24438,111 @@ void ofApp::drawActiveDraftPickedMoves() {
 	// Remove finished moves
 	for (int i = (int)activeDraftPickedMoves.size() - 1; i >= 0; --i) {
 		if (activeDraftPickedMoves[i].finished) activeDraftPickedMoves.erase(activeDraftPickedMoves.begin() + i);
+	}
+}
+// Draw the pile view panel for a given player and view mode (consolidated helper)
+void ofApp::drawPileViewFor(int viewPlayerIndex, PileViewMode viewMode) {
+	if (viewPlayerIndex < 0 || viewPlayerIndex >= (int)players.size()) return;
+	Player & viewPlayer = players[viewPlayerIndex];
+	string viewTitle;
+	std::vector<Card> cardsToShow;
+
+	float handBaseCardWidth = 120;
+	float aspectRatio = 585.0f / 409.0f;
+	float baseCardHeight = handBaseCardWidth * aspectRatio;
+
+	if (viewMode == VIEW_DECK) {
+		viewTitle = "Deck";
+		cardsToShow = viewPlayer.deck;
+		std::sort(cardsToShow.begin(), cardsToShow.end(), [](const Card & a, const Card & b) {
+			if (a.cost != b.cost) return a.cost < b.cost;
+			return a.name < b.name;
+		});
+	} else {
+		viewTitle = "Discard Pile";
+		cardsToShow = viewPlayer.discardPile;
+		std::reverse(cardsToShow.begin(), cardsToShow.end());
+	}
+
+	int vpIdx = -1;
+	for (int i = 0; i < (int)players.size(); ++i) {
+		if (players[i].playerID == viewPlayer.playerID && !players[i].isMinion) {
+			vpIdx = i;
+			break;
+		}
+	}
+	viewTitle = (vpIdx != -1) ? getPlayerSteamName(vpIdx) : ("Player " + ofToString(viewPlayer.playerID)) + "'s " + viewTitle;
+
+	if (cardsToShow.empty()) {
+		isShowingPileView = false;
+		return;
+	}
+
+	float panelPadding = 20.0f;
+	float titleHeight = 40.0f;
+	float viewCardScale = 1.6f;
+	float availableHeight = ofGetHeight() - (2 * panelPadding) - titleHeight;
+	float availableWidth = ofGetWidth() * 0.7f;
+
+	while (viewCardScale > 0.5f) {
+		float cardW = handBaseCardWidth * viewCardScale;
+		float cardH = baseCardHeight * viewCardScale;
+		float padding = 15.0f * (viewCardScale / 1.6f);
+		int cols = std::max(1, (int)floor((availableWidth - padding) / (cardW + padding)));
+		int rows = ceil((float)cardsToShow.size() / cols);
+		if (rows * (cardH + padding) - padding <= availableHeight) break;
+		viewCardScale -= 0.1f;
+	}
+
+	float viewCardWidth = handBaseCardWidth * viewCardScale;
+	float viewCardHeight = baseCardHeight * viewCardScale;
+	float padding = 15.0f * (viewCardScale / 1.6f);
+	int gridWidthInCards = std::max(1, (int)floor((availableWidth - padding) / (viewCardWidth + padding)));
+	gridWidthInCards = std::min(gridWidthInCards, (int)cardsToShow.size());
+	if (gridWidthInCards <= 0) gridWidthInCards = 1;
+	int gridHeightInCards = ceil((float)cardsToShow.size() / gridWidthInCards);
+	float totalContentWidth = (gridWidthInCards * viewCardWidth) + ((gridWidthInCards - 1) * padding);
+	float totalContentHeight = (gridHeightInCards * viewCardHeight) + ((gridHeightInCards - 1) * padding);
+
+	float startX;
+	bool anchored = false;
+	if (viewPlayer.isMinion) {
+		for (const auto & mui : activeMinionUIs) {
+			if (mui.playerIndex == viewPlayerIndex) {
+				float rightSpace = ofGetWidth() - mui.deckRect.getRight();
+				if (rightSpace > totalContentWidth + 60.0f) {
+					startX = mui.deckRect.getRight() + 30.0f;
+				} else {
+					startX = mui.deckRect.getLeft() - totalContentWidth - 30.0f - (2 * panelPadding);
+				}
+				anchored = true;
+				break;
+			}
+		}
+	}
+	if (!anchored) {
+		bool viewingLocal = (viewPlayer.playerID == myLocalPlayerID);
+		if (viewingLocal)
+			startX = p0_deckRect.getRight() + 30.0f;
+		else
+			startX = p1_deckRect.getLeft() - totalContentWidth - 30.0f - (2 * panelPadding);
+	}
+	float startY = ofGetHeight() / 2.0f - totalContentHeight / 2.0f;
+
+	pileViewRect.set(startX, startY - titleHeight - panelPadding, totalContentWidth + 2 * panelPadding, totalContentHeight + titleHeight + 2 * panelPadding);
+
+	ofSetColor(20, 20, 20, 220);
+	ofDrawRectRounded(pileViewRect, 15);
+	ofSetColor(ofColor::white);
+	uiFont.drawString(viewTitle + " (" + ofToString(cardsToShow.size()) + " cards)", startX + panelPadding, startY - 15);
+
+	for (size_t i = 0; i < cardsToShow.size(); ++i) {
+		int row = i / gridWidthInCards;
+		int col = i % gridWidthInCards;
+		float drawX = startX + panelPadding + col * (viewCardWidth + padding);
+		float drawY = startY + row * (viewCardHeight + padding);
+		const Card & card = cardsToShow[i];
+		cardSpriteSheet.drawSubsection(drawX, drawY, viewCardWidth, viewCardHeight, card.textureRect.x, card.textureRect.y, card.textureRect.width, card.textureRect.height);
 	}
 }
 //--------------------------------------------------------------
@@ -24398,7 +24692,7 @@ void ofApp::processNetworkPackets() {
 					int incomingPlayerID = dp->draftPlayerID;
 					int mappedIdx = -1;
 					for (int i = 0; i < (int)players.size(); ++i) {
-						if (!players[i].isMinion && players[i].playerID == incomingPlayerID) {
+						if (players[i].playerID == incomingPlayerID) {
 							mappedIdx = i;
 							break;
 						}
@@ -25591,20 +25885,54 @@ void ofApp::processNetworkPackets() {
 				// Schedule in-game draft (don't open UI immediately) so the summoned minion's
 				// HP roll / minion UI can appear first.
 				pendingKeyDraftAccept = true;
-				pendingKeyDraftPlayer = kpkt->playerIndex;
+				// Prefer a mapping that preserves minion-targeting: if the host provided
+				// an actor index that refers to a minion currently sitting on the key
+				// tile, prefer that mapping. Otherwise prefer the stable playerID mapping
+				// and finally fallback to the raw actor index.
+				pendingKeyDraftPlayer = -1;
+				pendingKeyDraftPlayerID = -1;
+
+				// 1) If playerIndex points to a local minion at the key coords, use it
+				if (kpkt->playerIndex >= 0 && kpkt->playerIndex < (int)players.size()) {
+					Player & candidate = players[kpkt->playerIndex];
+					if (candidate.isMinion && candidate.x == kpkt->keyX && candidate.y == kpkt->keyY) {
+						pendingKeyDraftPlayer = kpkt->playerIndex;
+						pendingKeyDraftPlayerID = candidate.playerID;
+					}
+				}
+
+				// 2) If not resolved yet, prefer stable playerID mapping (authoritative)
+				if (pendingKeyDraftPlayer == -1 && kpkt->playerID >= 0) {
+					for (int i = 0; i < (int)players.size(); ++i) {
+						if (players[i].playerID == kpkt->playerID) {
+							pendingKeyDraftPlayer = i;
+							pendingKeyDraftPlayerID = kpkt->playerID;
+							break;
+						}
+					}
+				}
+
+				// 3) Fallback: use the provided actor index (may be out-of-range)
+				if (pendingKeyDraftPlayer == -1) {
+					pendingKeyDraftPlayer = kpkt->playerIndex;
+					if (kpkt->playerIndex >= 0 && kpkt->playerIndex < (int)players.size())
+						pendingKeyDraftPlayerID = players[kpkt->playerIndex].playerID;
+					else
+						pendingKeyDraftPlayerID = -1;
+				}
 				pendingKeyDraftClass = kpkt->classTier;
 				pendingKeyDraftTriggerTime = ofGetElapsedTimef();
 
 				// If an Accept arrived before this KeyPickup, close immediately
 				if (pendingKeyDraftAccept && pendingKeyDraftPlayer == kpkt->playerIndex && pendingKeyDraftClass == kpkt->classTier) {
+					// Defer leaving the draft state until visual animations finish.
 					pendingKeyDraftAccept = false;
 					pendingKeyDraftPlayer = -1;
 					pendingKeyDraftClass = 0;
 					selectedDraftIndices.clear();
 					draftOptions.clear();
 					isInGameDraft = false;
-					currentState = STATE_GAMEPLAY;
-					return;
+					pendingDraftFinalize = true; // will transition to gameplay once animations complete
 				}
 
 				// Color by tier: 1=gold,2=silver,3=bronze
@@ -25641,6 +25969,8 @@ void ofApp::processNetworkPackets() {
 			// Show chat for 5 seconds when message received
 			lastChatInteractionTime = ofGetElapsedTimef();
 		} else if (header->type == PKT_HOVER) {
+			// Ignore hover packets in singleplayer builds
+			if (!isMultiplayer) continue;
 			HoverPacket * pkt = (HoverPacket *)header;
 			int hoverTypeInt = static_cast<int>(pkt->hoverType);
 			if (hoverTypeInt >= HOVER_NONE && hoverTypeInt <= HOVER_UNIT_SELECTED) {
@@ -25728,7 +26058,7 @@ void ofApp::processNetworkPackets() {
 				// draftPlayerID may be -1 when unset; treat >=0 as valid
 				if (sp->draftPlayerID >= 0) {
 					for (int i = 0; i < (int)players.size(); ++i) {
-						if (!players[i].isMinion && players[i].playerID == sp->draftPlayerID) {
+						if (players[i].playerID == sp->draftPlayerID) {
 							mappedIdx = i;
 							break;
 						}
@@ -25967,7 +26297,53 @@ void ofApp::processNetworkPackets() {
 					if (picks > 1) sel.push_back(pkt->selectedIdx1);
 					if (picks > 2) sel.push_back(pkt->selectedIdx2);
 
-					Player & p = players[pkt->draftPlayerIdx];
+					// Resolve the intended drafting target robustly. Clients send a
+					// `draftPlayerIdx` that may be a local index; map it to the
+					// host's authoritative index. Prefer the sent index if it
+					// matches the sender (either by playerID or as an owned minion).
+					int targetIdx = pkt->draftPlayerIdx;
+					bool needsRemap = false;
+					if (targetIdx < 0 || targetIdx >= (int)players.size())
+						needsRemap = true;
+					else if (!(players[targetIdx].playerID == pkt->playerID || players[targetIdx].ownerID == (int)pkt->playerID))
+						needsRemap = true;
+
+					if (needsRemap) {
+						// Try to find a player whose playerID matches the integer sent
+						// (in case the client accidentally encoded an ID rather than an index)
+						int found = -1;
+						for (int i = 0; i < (int)players.size(); ++i) {
+							if (players[i].playerID == pkt->draftPlayerIdx) {
+								found = i;
+								break;
+							}
+						}
+						if (found == -1) {
+							// Otherwise, try to find a minion owned by the sending player
+							for (int i = 0; i < (int)players.size(); ++i) {
+								if (players[i].isMinion && players[i].ownerID == (int)pkt->playerID) {
+									found = i;
+									break;
+								}
+							}
+						}
+						if (found == -1) {
+							// Fallback: find the owner/player index for the sending client
+							for (int i = 0; i < (int)players.size(); ++i) {
+								if (players[i].playerID == (int)pkt->playerID) {
+									found = i;
+									break;
+								}
+							}
+						}
+						if (found != -1) {
+							ofLogNotice("Draft") << "HOST: remapped draftPlayerIdx " << pkt->draftPlayerIdx << " -> " << found << " for sender playerID=" << pkt->playerID;
+							targetIdx = found;
+						} else {
+							ofLogWarning("Draft") << "HOST: unable to remap draftPlayerIdx " << pkt->draftPlayerIdx << " for sender playerID=" << pkt->playerID << ". Using raw index.";
+						}
+					}
+					Player & p = players[targetIdx];
 					int copiesPerCard = 1;
 					if (!isInGameDraft && pkt->classTier == 1) copiesPerCard = 2;
 					const std::vector<Card> * pool = &class1Cards;
@@ -25981,8 +26357,25 @@ void ofApp::processNetworkPackets() {
 						}
 					}
 
-					// Forward accept to clients BEFORE any new draft options/state are generated
+					// Immediately shuffle the host's authoritative deck for the target player/minion
+					shuffleGameVector(p.deck, targetIdx);
+
+					// Send an authoritative DraftState first so clients can map player indices
+					DraftStatePacket dsp = {};
+					dsp.type = PKT_DRAFT_STATE;
+					dsp.playerID = myLocalPlayerID;
+					dsp.classTier = pkt->classTier;
+					dsp.draftPlayerIdx = targetIdx;
+					dsp.draftPlayerID = (dsp.draftPlayerIdx >= 0 && dsp.draftPlayerIdx < (int)players.size()) ? players[dsp.draftPlayerIdx].playerID : -1;
+					dsp.picksRemaining = draftPicksRemaining;
+					dsp.draftStage = draftStage;
+					dsp.isInGameDraft = isInGameDraft ? 1 : 0;
+					dsp.currentPlayerIndex = currentPlayerIndex;
+					steamManager.sendPacket(&dsp, sizeof(dsp));
+
+					// Now forward the AcceptDraft with the host-authoritative index
 					DraftActionPacket outPkt = *pkt;
+					outPkt.draftPlayerIdx = targetIdx;
 					ofLogNotice("NetTrace") << "Host: forwarding AcceptDraft to clients: draftPlayer=" << outPkt.draftPlayerIdx << " numSelected=" << (int)outPkt.numSelected;
 					steamManager.sendPacket(&outPkt, sizeof(outPkt));
 
@@ -25992,7 +26385,7 @@ void ofApp::processNetworkPackets() {
 					ack.playerID = myLocalPlayerID;
 					ack.clientActionID = pkt->clientActionID;
 					ack.actionType = pkt->actionType;
-					ack.draftPlayerIdx = pkt->draftPlayerIdx;
+					ack.draftPlayerIdx = targetIdx;
 					ack.numSelected = (uint8_t)pkt->numSelected;
 					ack.selectedIdx0 = pkt->selectedIdx0;
 					ack.selectedIdx1 = pkt->selectedIdx1;
@@ -26640,7 +27033,7 @@ void ofApp::executeOpponentCardPlay(const ActionPacket & pkt) {
 
 		if (pkt.menuChoice == 1) {
 			opponentPlayer.nextTurnAPBonus += 3;
-			spawnFloatingText(gridToWorld(opponentPlayer.x, opponentPlayer.y), "Training: AP", ofColor::yellow);
+			spawnFloatingText(gridToWorld(opponentPlayer.x, opponentPlayer.y), "+3 AP next turn", ofColor::yellow);
 		} else {
 			// --- CHANGE START ---
 			// OLD:

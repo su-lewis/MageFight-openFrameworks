@@ -324,6 +324,7 @@ struct RenewedInspireDiscardsPacket : PacketHeader {
 // For Key Pickup: Host tells client a player picked up a key
 struct KeyPickupPacket : PacketHeader {
 	int32_t playerIndex; // Which player picked up the key
+	int32_t playerID; // Stable playerID of the picking player (helps client map actor index)
 	uint8_t classTier; // 1, 2, or 3
 	int32_t keyX; // Grid position of the key
 	int32_t keyY;

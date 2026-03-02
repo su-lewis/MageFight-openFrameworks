@@ -604,6 +604,9 @@ private:
 	void createCardDisplay(const Card & card, int playerIndex); // Create card display animation
 	std::string currentDiceLabel = "";
 	int startDiceRoll(int numDice, int sides, DicePurpose purpose, std::string label = "", int ownerIndex = -1);
+
+	// Return true when all active dice visuals are finished and the result linger time passed
+	bool diceVisualsFinishedAndLinger() const;
 	void recalcTempLuck();
 	void checkKeyPickupAndDraftAfterSummon(int x, int y, int minionOwnerID);
 
@@ -888,6 +891,11 @@ private:
 	int draftNextClassTier = -1;
 	float draftNextAt = 0.0f; // epoch time when to run generateDraftOptions
 
+	// Schedule end-of-draft transition (wait for visuals before returning to gameplay)
+	bool draftEndScheduled = false;
+	int draftEndNextPlayerIndex = -1;
+	float draftEndAt = 0.0f;
+
 	// Helpers
 	void startShuffleVisual(int playerIndex);
 	void scheduleGenerateDraftOptions(int classTier, float delaySeconds);
@@ -1068,6 +1076,7 @@ private:
 	bool opponentHasDrawnCardsThisTurn = false;
 	bool pendingKeyDraftAccept = false;
 	int pendingKeyDraftPlayer = -1;
+	int pendingKeyDraftPlayerID = -1; // Stable playerID used to remap actor index when players vector changes
 	int pendingKeyDraftClass = 0;
 	float pendingKeyDraftTriggerTime = 0.0f; // time when pending draft was scheduled (used to ensure UI appears first)
 	// When true, `updateGame()` should not send PKT_TURN_START until status effects
@@ -1206,6 +1215,10 @@ private:
 	int pixelArtLevels = 12; // posterize levels per channel (higher => less posterize / preserve brightness)
 	bool pixelArtDither = true;
 
+	// Master switch to disable all glow/outline visual effects (for crisp visuals)
+	// Default is false so outlines and target glows appear normally.
+	bool disableAllGlow = false; // default: enable glows
+
 	// --- ANIMATIONS ---
 	bool isPlayerAnimating = false;
 	int animatingPlayerIndex = -1; // Which player is currently animating
@@ -1276,6 +1289,13 @@ private:
 	bool isShowingPileView = false;
 	PileViewMode currentPileView = VIEW_NONE;
 	int currentPileViewPlayerIndex = -1;
+	// When true, the finalization of a draft is pending until visuals finish
+	bool pendingDraftFinalize = false;
+	// When true, host will perform the end-of-draft shuffles once animations complete
+	bool pendingDraftShuffleNeeded = false;
+
+	// Draw the pile view panel for a given player and view mode
+	void drawPileViewFor(int viewPlayerIndex, PileViewMode viewMode);
 	std::vector<Card> cardsToShowInView;
 	ofRectangle pileViewRect;
 	ofRectangle p0_deckRect, p0_discardRect;

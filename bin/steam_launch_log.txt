@@ -1,6 +1,6 @@
 ERROR: ld.so: object '/usr/lib/extest/libextest.so' from LD_PRELOAD cannot be preloaded (cannot open shared object file): ignored.
 ERROR: ld.so: object '/var/home/lewis/.local/share/Steam/ubuntu12_32/gameoverlayrenderer.so' from LD_PRELOAD cannot be preloaded (wrong ELF class: ELFCLASS32): ignored.
---- Launching MageFight at Sat Feb 28 21:29:50 GMT 2026 ---
+--- Launching MageFight at Mon Mar  2 00:47:04 GMT 2026 ---
 Script directory: /home/lewis/of_workspace/openFrameworks/apps/myApps/MageFight/bin
 Original LD_PRELOAD=/usr/lib/extest/libextest.so:/var/home/lewis/.local/share/Steam/ubuntu12_32/gameoverlayrenderer.so:/var/home/lewis/.local/share/Steam/ubuntu12_64/gameoverlayrenderer.so
 Dropping missing LD_PRELOAD entry: /usr/lib/extest/libextest.so
@@ -92,76 +92,105 @@ SteamInternal_SetMinidumpSteamID:  Caching Steam ID:  76561198261715869 [API loa
 [notice ] Power: Singleplayer suspended: window inactive. Audio muted and game logic paused.
 [notice ] Power: Singleplayer resumed: window active. Audio restored and game logic will continue.
 [notice ] Network: DEBUG: Still in STATE_MAIN_MENU. hasOpponent()=0 isMultiplayer=0 isHost=0
-[notice ] Steam: Requesting Lobby Creation...
-[notice ] Game: --- GAME SESSION CLEANED UP ---
-[notice ] Steam: Lobby Created. Creating Listen Socket...
-[notice ] Game: --- GAME SESSION CLEANED UP ---
-[notice ] GL: Vendor: AMD | Renderer: AMD Radeon RX 9070 XT (radeonsi, gfx1201, LLVM 21.1.6, DRM 3.64, 6.17.7-ba25.fc43.x86_64) | Version: 4.6 (Core Profile) Mesa 25.3.4-arch1.1 | GLSL: 4.60
-[notice ] Setup: Post shader files: vertOk=true fragOk=true linked=true
-[notice ] Setup: Pixel art shader loaded successfully.
-[notice ] Setup: C64 shader files: vertOk=true fragOk=true linked=true
-[notice ] Setup: Bloom shaders loaded.
-[ error ] ofFbo: FRAMEBUFFER_INCOMPLETE_ATTACHMENT
-[notice ] Setup: Shadow shader files: vertOk=true fragOk=true linked=true
-[notice ] Setup: PBR shader files: vertOk=true fragOk=true linked=true
-[notice ] Post: enableWorldPostProcess=true
-[notice ] Settings: Saved settings to Config/settings.json
-[notice ] FBO: worldFbo allocated 2560x1368
-[notice ] GL: Vendor: AMD | Renderer: AMD Radeon RX 9070 XT (radeonsi, gfx1201, LLVM 21.1.6, DRM 3.64, 6.17.7-ba25.fc43.x86_64) | Version: 4.6 (Core Profile) Mesa 25.3.4-arch1.1 | GLSL: 4.60
-[notice ] Setup: Post shader files: vertOk=true fragOk=true linked=true
-[notice ] Setup: Pixel art shader loaded successfully.
-[notice ] Setup: C64 shader files: vertOk=true fragOk=true linked=true
-[notice ] Setup: Bloom shaders loaded.
-[ error ] ofFbo: FRAMEBUFFER_INCOMPLETE_ATTACHMENT
-[notice ] Setup: Shadow shader files: vertOk=true fragOk=true linked=true
-[notice ] Setup: PBR shader files: vertOk=true fragOk=true linked=true
-[notice ] FBO: worldFbo allocated 2560x1440
-[notice ] Post: enableWorldPostProcess=true
-[notice ] Settings: Saved settings to Config/settings.json
-[notice ] GL: Vendor: AMD | Renderer: AMD Radeon RX 9070 XT (radeonsi, gfx1201, LLVM 21.1.6, DRM 3.64, 6.17.7-ba25.fc43.x86_64) | Version: 4.6 (Core Profile) Mesa 25.3.4-arch1.1 | GLSL: 4.60
-[notice ] Setup: Post shader files: vertOk=true fragOk=true linked=true
-[notice ] Setup: Pixel art shader loaded successfully.
-[notice ] Setup: C64 shader files: vertOk=true fragOk=true linked=true
-[notice ] Setup: Bloom shaders loaded.
-[ error ] ofFbo: FRAMEBUFFER_INCOMPLETE_ATTACHMENT
-[notice ] Setup: Shadow shader files: vertOk=true fragOk=true linked=true
-[notice ] Setup: PBR shader files: vertOk=true fragOk=true linked=true
-[notice ] Post: enableWorldPostProcess=true
-[notice ] Settings: Saved settings to Config/settings.json
-[notice ] FBO: worldFbo allocated 2560x1368
-[notice ] GL: Vendor: AMD | Renderer: AMD Radeon RX 9070 XT (radeonsi, gfx1201, LLVM 21.1.6, DRM 3.64, 6.17.7-ba25.fc43.x86_64) | Version: 4.6 (Core Profile) Mesa 25.3.4-arch1.1 | GLSL: 4.60
-[notice ] Setup: Post shader files: vertOk=true fragOk=true linked=true
-[notice ] Setup: Pixel art shader loaded successfully.
-[notice ] Setup: C64 shader files: vertOk=true fragOk=true linked=true
-[notice ] Setup: Bloom shaders loaded.
-[ error ] ofFbo: FRAMEBUFFER_INCOMPLETE_ATTACHMENT
-[notice ] Setup: Shadow shader files: vertOk=true fragOk=true linked=true
-[notice ] Setup: PBR shader files: vertOk=true fragOk=true linked=true
-[notice ] FBO: worldFbo allocated 2560x1440
-[notice ] Post: enableWorldPostProcess=true
-[notice ] Settings: Saved settings to Config/settings.json
-[notice ] GL: Vendor: AMD | Renderer: AMD Radeon RX 9070 XT (radeonsi, gfx1201, LLVM 21.1.6, DRM 3.64, 6.17.7-ba25.fc43.x86_64) | Version: 4.6 (Core Profile) Mesa 25.3.4-arch1.1 | GLSL: 4.60
-[notice ] Setup: Post shader files: vertOk=true fragOk=true linked=true
-[notice ] Setup: Pixel art shader loaded successfully.
-[notice ] Setup: C64 shader files: vertOk=true fragOk=true linked=true
-[notice ] Setup: Bloom shaders loaded.
-[ error ] ofFbo: FRAMEBUFFER_INCOMPLETE_ATTACHMENT
-[notice ] Setup: Shadow shader files: vertOk=true fragOk=true linked=true
-[notice ] Setup: PBR shader files: vertOk=true fragOk=true linked=true
-[notice ] Post: enableWorldPostProcess=true
-[notice ] Settings: Saved settings to Config/settings.json
-[notice ] FBO: worldFbo allocated 2560x1368
-[notice ] GL: Vendor: AMD | Renderer: AMD Radeon RX 9070 XT (radeonsi, gfx1201, LLVM 21.1.6, DRM 3.64, 6.17.7-ba25.fc43.x86_64) | Version: 4.6 (Core Profile) Mesa 25.3.4-arch1.1 | GLSL: 4.60
-[notice ] Setup: Post shader files: vertOk=true fragOk=true linked=true
-[notice ] Setup: Pixel art shader loaded successfully.
-[notice ] Setup: C64 shader files: vertOk=true fragOk=true linked=true
-[notice ] Setup: Bloom shaders loaded.
-[ error ] ofFbo: FRAMEBUFFER_INCOMPLETE_ATTACHMENT
-[notice ] Setup: Shadow shader files: vertOk=true fragOk=true linked=true
-[notice ] Setup: PBR shader files: vertOk=true fragOk=true linked=true
-[notice ] FBO: worldFbo allocated 2560x1440
-[notice ] Post: enableWorldPostProcess=true
-[notice ] Settings: Saved settings to Config/settings.json
+[notice ] Setup: Singleplayer generated seed: 1772412454
+[notice ] Dice: Final total result for 1d6: 4
+[notice ] Dice: Final total result for 1d6: 3
+[notice ] Game: --- INITIATIVE ROLL STARTED ---
+[notice ] Post: World post-process branch executed (shader active).
+[notice ] Initiative: Player 1 goes first
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=0 stage=0) names=Double Handed, Add Poison, Shoot Arrow
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=0 stage=0) names=Double Handed, Add Poison, Shoot Arrow
+[notice ] Draft: DRAFT CLICK: mousePos=(1401,875) selections=0 required=2 inGameDraft=0 draftStage=0 acceptRect=(1133.33,1200,293.333,80)
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=0 stage=0) names=Double Handed, Add Poison, Shoot Arrow
+[notice ] Draft: DRAFT CLICK: mousePos=(1366,889) selections=1 required=2 inGameDraft=0 draftStage=0 acceptRect=(1133.33,1200,293.333,80)
+[notice ] Draft: DRAFT CLICK: mousePos=(1363,898) selections=0 required=2 inGameDraft=0 draftStage=0 acceptRect=(1133.33,1200,293.333,80)
+[notice ] Draft: DRAFT CLICK: mousePos=(1408,921) selections=1 required=2 inGameDraft=0 draftStage=0 acceptRect=(1133.33,1200,293.333,80)
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=0 stage=0) names=Double Handed, Add Poison, Shoot Arrow
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=0 stage=0) names=Double Handed, Add Poison, Shoot Arrow
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=0 stage=0) names=Double Handed, Add Poison, Shoot Arrow
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=0 stage=0) names=Double Handed, Add Poison, Shoot Arrow
+[notice ] Draft: DRAFT CLICK: mousePos=(1434,850) selections=0 required=2 inGameDraft=0 draftStage=0 acceptRect=(1133.33,1200,293.333,80)
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=0 stage=0) names=Double Handed, Add Poison, Shoot Arrow
+[notice ] Draft: DRAFT CLICK: mousePos=(1671,864) selections=1 required=2 inGameDraft=0 draftStage=0 acceptRect=(1133.33,1200,293.333,80)
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=0 stage=0) names=Double Handed, Add Poison, Shoot Arrow
+[notice ] Draft: DRAFT CLICK: mousePos=(1331,1236) selections=2 required=2 inGameDraft=0 draftStage=0 acceptRect=(1133.33,1200,293.333,80)
+[notice ] Draft: ACCEPT BUTTON CLICKED: selections=2 required=2
+[notice ] DraftDebug: Attempting Accept: localIdx=0 myLocalPlayerID=0 draftPlayerIndex=0 draftPlayerID=0 selected=2 required=2 waitingForDraftOptions=0 draftAcceptLocked=0
+[notice ] DraftDebug: drawDraftScreen: called but draftOptions.empty() currentState=5 draftPlayerIndex=0 localIdx=0 myLocalPlayerID=0 waitingForDraftOptions=0
+[notice ] Draft: DRAFT CLICK IGNORED: accept already sent.
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=0 stage=1) names=Summon Magic Wall, Rock Crush, Magic Blast
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=0 stage=1) names=Summon Magic Wall, Rock Crush, Magic Blast
+[notice ] Draft: DRAFT CLICK: mousePos=(1257,1046) selections=0 required=1 inGameDraft=0 draftStage=1 acceptRect=(1133.33,1200,293.333,80)
+[notice ] Draft: DRAFT CLICK: mousePos=(1309,1245) selections=1 required=1 inGameDraft=0 draftStage=1 acceptRect=(1133.33,1200,293.333,80)
+[notice ] Draft: ACCEPT BUTTON CLICKED: selections=1 required=1
+[notice ] DraftDebug: Attempting Accept: localIdx=0 myLocalPlayerID=0 draftPlayerIndex=0 draftPlayerID=0 selected=1 required=1 waitingForDraftOptions=0 draftAcceptLocked=0
+[notice ] DraftDebug: drawDraftScreen: called but draftOptions.empty() currentState=5 draftPlayerIndex=1 localIdx=0 myLocalPlayerID=0 waitingForDraftOptions=0
+[notice ] DraftDebug: drawDraftScreen: called but draftOptions.empty() currentState=5 draftPlayerIndex=1 localIdx=0 myLocalPlayerID=0 waitingForDraftOptions=0
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Add Poison, Shoot Arrow, Train
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Add Poison, Shoot Arrow, Train
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Add Poison, Shoot Arrow, Train
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Add Poison, Shoot Arrow, Train
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Add Poison, Shoot Arrow, Train
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Add Poison, Shoot Arrow, Train
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Add Poison, Shoot Arrow, Train
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Add Poison, Shoot Arrow, Train
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Add Poison, Shoot Arrow, Train
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Add Poison, Shoot Arrow, Train
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Add Poison, Shoot Arrow, Train
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Add Poison, Shoot Arrow, Train
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Add Poison, Shoot Arrow, Train
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Add Poison, Shoot Arrow, Train
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Add Poison, Shoot Arrow, Train
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Add Poison, Shoot Arrow, Train
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Add Poison, Shoot Arrow, Train
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Add Poison, Shoot Arrow, Train
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Add Poison, Shoot Arrow, Train
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Add Poison, Shoot Arrow, Train
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Add Poison, Shoot Arrow, Train
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Add Poison, Shoot Arrow, Train
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Add Poison, Shoot Arrow, Train
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Add Poison, Shoot Arrow, Train
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Add Poison, Shoot Arrow, Train
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Add Poison, Shoot Arrow, Train
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Add Poison, Shoot Arrow, Train
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Add Poison, Shoot Arrow, Train
+[notice ] Draft: DRAFT CLICK: mousePos=(1571,1242) selections=0 required=2 inGameDraft=0 draftStage=0 acceptRect=(1133.33,1200,293.333,80)
+[notice ] Draft: DRAFT CLICK: mousePos=(1573,1245) selections=0 required=2 inGameDraft=0 draftStage=0 acceptRect=(1133.33,1200,293.333,80)
+[notice ] Draft: DRAFT CLICK: mousePos=(1573,1245) selections=0 required=2 inGameDraft=0 draftStage=0 acceptRect=(1133.33,1200,293.333,80)
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Add Poison, Shoot Arrow, Train
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Add Poison, Shoot Arrow, Train
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Add Poison, Shoot Arrow, Train
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Add Poison, Shoot Arrow, Train
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Add Poison, Shoot Arrow, Train
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Add Poison, Shoot Arrow, Train
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Add Poison, Shoot Arrow, Train
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Add Poison, Shoot Arrow, Train
+[notice ] Power: Singleplayer suspended: window inactive. Audio muted and game logic paused.
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Add Poison, Shoot Arrow, Train
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Add Poison, Shoot Arrow, Train
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Add Poison, Shoot Arrow, Train
+[notice ] Power: Singleplayer resumed: window active. Audio restored and game logic will continue.
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Add Poison, Shoot Arrow, Train
+[notice ] Draft: DRAFT CLICK: mousePos=(1407,1104) selections=0 required=2 inGameDraft=0 draftStage=0 acceptRect=(1133.33,1200,293.333,80)
+[notice ] Draft: DRAFT CLICK: mousePos=(1502,1157) selections=1 required=2 inGameDraft=0 draftStage=0 acceptRect=(1133.33,1200,293.333,80)
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Add Poison, Shoot Arrow, Train
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Add Poison, Shoot Arrow, Train
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Add Poison, Shoot Arrow, Train
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Add Poison, Shoot Arrow, Train
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Add Poison, Shoot Arrow, Train
+[notice ] Draft: DRAFT CLICK: mousePos=(1392,890) selections=1 required=2 inGameDraft=0 draftStage=0 acceptRect=(1133.33,1200,293.333,80)
+[notice ] Draft: DRAFT CLICK: mousePos=(1440,454) selections=0 required=2 inGameDraft=0 draftStage=0 acceptRect=(1133.33,1200,293.333,80)
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Add Poison, Shoot Arrow, Train
+[notice ] Power: Singleplayer suspended: window inactive. Audio muted and game logic paused.
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Add Poison, Shoot Arrow, Train
+[notice ] Power: Singleplayer resumed: window active. Audio restored and game logic will continue.
+[notice ] Draft: DRAFT CLICK: mousePos=(1551,1285) selections=0 required=2 inGameDraft=0 draftStage=0 acceptRect=(1133.33,1200,293.333,80)
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Add Poison, Shoot Arrow, Train
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Add Poison, Shoot Arrow, Train
+[notice ] Power: Singleplayer suspended: window inactive. Audio muted and game logic paused.
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Add Poison, Shoot Arrow, Train
+[notice ] Draft: drawDraftScreen: drawing 3 options (player=1 stage=0) names=Add Poison, Shoot Arrow, Train
+[notice ] Power: Singleplayer resumed: window active. Audio restored and game logic will continue.
 [notice ] Settings: Saved settings to Config/settings.json
 [notice ] SteamManager: Steam API Shutdown.
 [S_API FAIL] Tried to access Steam interface SteamNetworkingSockets012 before SteamAPI_Init succeeded.
