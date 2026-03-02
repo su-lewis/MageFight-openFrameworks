@@ -1082,6 +1082,8 @@ private:
 	int pendingKeyDraftPlayerID = -1; // Stable playerID used to remap actor index when players vector changes
 	int pendingKeyDraftClass = 0;
 	float pendingKeyDraftTriggerTime = 0.0f; // time when pending draft was scheduled (used to ensure UI appears first)
+	int pendingKeyDraftKeyX = -1;
+	int pendingKeyDraftKeyY = -1;
 	// When true, `updateGame()` should not send PKT_TURN_START until status effects
 	// (paralysis/poison/onFire/etc.) that occur at the start of a turn have finished.
 	bool isHandlingTurnStartEffects = false;

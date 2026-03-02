@@ -187,18 +187,10 @@ void ofApp::checkKeyPickupAndDraftAfterSummon(int x, int y, int minionOwnerID) {
 	if (!isMultiplayer || isHost()) {
 		for (int k = 0; k < (int)floatingKeyInstances.size(); ++k) {
 			if (floatingKeyInstances[k].pos.x == x && floatingKeyInstances[k].pos.y == y) {
-				int keySet = floatingKeyInstances[k].set;
-				// Remove the key instance
-				floatingKeyInstances.erase(floatingKeyInstances.begin() + k);
-
+				int keySet = floatingKeyInstances[k].set; // Get the key set
+				floatingKeyInstances.erase(floatingKeyInstances.begin() + k); // Remove the key instance
 				// Map key set to draft class tier
-				int classToDraft = 1;
-				if (keySet == 3)
-					classToDraft = 1;
-				else if (keySet == 2)
-					classToDraft = 2;
-				else if (keySet == 1)
-					classToDraft = 3;
+				int classToDraft = (keySet == 3) ? 1 : (keySet == 2) ? 2 : 3;
 
 				// Determine target actor: prefer the minion at the tile, otherwise the owning player
 				int targetIndex = -1;
@@ -2116,7 +2108,8 @@ void ofApp::drawSettingsMenu() {
 			{ "C", "Debug: Open Card Spawner" },
 			{ "U", "Debug: Toggle Unlimited AP" },
 			{ "S", "Debug Multiplayer: Skip Checksum Validation" },
-			{ "F", "Draw For Unit" },
+			{ "F", "Draw (click your deck)" },
+			{ "E", "End Turn" },
 		};
 
 		// Draw each control row
@@ -2866,8 +2859,10 @@ void ofApp::updateGame() {
 			currentState = STATE_DRAFTING;
 			// clear pending
 			pendingKeyDraftAccept = false;
-			pendingKeyDraftPlayer = -1;
-			pendingKeyDraftPlayerID = -1;
+				pendingKeyDraftPlayer = -1;
+				pendingKeyDraftPlayerID = -1;
+				pendingKeyDraftKeyX = -1;
+				pendingKeyDraftKeyY = -1;
 			pendingKeyDraftClass = 0;
 			pendingKeyDraftTriggerTime = 0.0f;
 			ofLogNotice("Key") << "Triggering delayed draft for player=" << draftPlayerIndex << " class=" << pendingKeyDraftClass;
@@ -9478,20 +9473,24 @@ void ofApp::drawGame() {
 	// 2. Draw Yellow Highlight (New Logic)
 	// If no AP left AND player has already used their draw, suggest ending turn.
 	// But do not highlight if an assistant reroll is possible.
-	// Determine displayed AP for current unit (again) and whether an AP roll animation is active
+	// Determine displayed AP for current unit (player or minion) and whether an AP roll animation is active
 	int displayedAPForCurrent = 0;
 	bool apRollActive = false;
 	if (currentPlayerIndex >= 0) {
+		// Start with authoritative AP for the active actor (handles minions and players)
+		if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) {
+			displayedAPForCurrent = players[currentPlayerIndex].ap;
+		}
+		// Add any finished AP dice targeted at this actor (for immediate visual updates)
 		for (const auto & r : activeDiceRolls) {
 			if (r.purpose == PURPOSE_AP || r.purpose == PURPOSE_BONUS_AP) {
 				if (!r.isFinishedVisual && r.associatedUnit == currentPlayerIndex) apRollActive = true;
 				if (r.isFinishedVisual && r.associatedUnit == currentPlayerIndex) displayedAPForCurrent += r.result;
 			}
 		}
+		// Include any next-turn bonus that affects this actor
 		if (players[currentPlayerIndex].nextTurnAPBonus > 0) displayedAPForCurrent += players[currentPlayerIndex].nextTurnAPBonus;
-		// If `currentAP` has already been updated elsewhere (dice resolution) prefer
-		// the current value. Also make sure that when the player spends AP, the
-		// displayed value decreases immediately (avoid lingering higher display).
+		// Also make sure we don't display more AP than the global `currentAP` when that reflects the same actor
 		if (currentAP < displayedAPForCurrent) {
 			displayedAPForCurrent = currentAP;
 		} else {
@@ -9845,7 +9844,26 @@ void ofApp::drawGame() {
 
 		// Prefer a minion-friendly display name when viewing a minion's piles.
 		if (viewPlayer.isMinion) {
-			viewTitle = getPlayerDisplayName(currentPileViewPlayerIndex) + "'s " + viewTitle;
+			int foundNumber = 0;
+			for (const auto & mui : activeMinionUIs) {
+				if (mui.playerIndex == currentPileViewPlayerIndex) { foundNumber = mui.displayNumber; break; }
+			}
+			std::string prefix = "Minion";
+			if (viewPlayer.isFaerie) prefix = "Faerie";
+			else if (viewPlayer.isWallUnit) prefix = "Wall";
+			else if (viewPlayer.isKobold) prefix = "Kobold";
+			else if (viewPlayer.isAssistant) prefix = "Assistant";
+			else if (viewPlayer.isWolf) prefix = "Wolf";
+			else if (viewPlayer.isHellhound) prefix = "Hellhound";
+			else if (viewPlayer.isGolem) prefix = "Golem";
+			else if (viewPlayer.isSkeleton) prefix = "Skeleton";
+			else if (viewPlayer.isDemon) prefix = "Demon";
+
+			if (foundNumber > 0) {
+				viewTitle = prefix + " " + ofToString(foundNumber) + "'s " + viewTitle;
+			} else {
+				viewTitle = getPlayerDisplayName(currentPileViewPlayerIndex) + "'s " + viewTitle;
+			}
 		} else {
 			int vpIdx = -1;
 			for (int i = 0; i < (int)players.size(); ++i) {
@@ -10061,7 +10079,7 @@ void ofApp::drawGame() {
 		calculatedHeight += btnHeight + padding; // Spawn Unit
 		calculatedHeight += btnHeight + padding; // Unlimited AP
 		calculatedHeight += btnHeight + padding; // Skip Checksum (status indicator)
-		calculatedHeight += btnHeight + padding; // Force End Turn
+		// Force End Turn button removed
 
 		// --- STEP 2: Draw Background ---
 		debugPanel.set(panelX, panelY, panelWidth, calculatedHeight);
@@ -10139,9 +10157,7 @@ void ofApp::drawGame() {
 		drawDebugButton(checksumIndicator, checksumLabel, true, !skipChecksumValidation); // Green when enabled (safe), red when disabled
 		currentY += btnHeight + padding;
 
-		debugForceEndTurnButton.set(panelX + padding, currentY, panelWidth - 2 * padding, btnHeight);
-		drawDebugButton(debugForceEndTurnButton, "Force End Turn");
-		currentY += btnHeight + padding;
+		// Force End Turn button removed
 
 		ofPopStyle();
 	}
@@ -13861,10 +13877,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 					}
 					return;
 				}
-				if (debugForceEndTurnButton.inside(x, y)) {
-					startNewTurn();
-					return;
-				}
+				// Force End Turn debug control removed
 
 				return; // Clicked panel background
 			}
@@ -15263,6 +15276,7 @@ void ofApp::keyPressed(int key) {
 
 			return;
 		}
+		// End-turn hotkey removed
 	if (isCardSpawnerOpen && !isCardEncyclopediaOpen) {
 		if (key == OF_KEY_RETURN) {
 			// Add the first matching card (or exact match)
@@ -15416,11 +15430,33 @@ void ofApp::keyPressed(int key) {
 		return;
 	}
 
-	// Force End Turn (E) - only when in gameplay and not typing/searching
+	// Quick End Turn hotkey: 'E' -> act like clicking End Turn
 	if ((key == 'e' || key == 'E') && currentState == STATE_GAMEPLAY) {
-		// If chat or the card spawner (krunner-style search) is open, consume and ignore
 		if (isChatOpen || isCardSpawnerOpen) return;
-		// Otherwise trigger end-turn flow
+		// In multiplayer, only allow if it's our turn. In singleplayer, allow.
+		if (isMultiplayer && !isMyTurn()) return;
+		// Prevent ending turn while AP roll animation is still running for this unit
+		bool apRollActiveLocal = false;
+		for (const auto & r : activeDiceRolls) {
+			if ((r.purpose == PURPOSE_AP || r.purpose == PURPOSE_BONUS_AP) && !r.isFinishedVisual && r.associatedUnit == currentPlayerIndex) {
+				apRollActiveLocal = true;
+				break;
+			}
+		}
+		if (apRollActiveLocal) {
+			spawnFloatingText(glm::vec3(endTurnButtonRect.getCenter().x, endTurnButtonRect.getCenter().y, 0.0f), "AP roll in progress", ofColor::yellow);
+			ofLogNotice("Turn") << "End Turn (key) ignored: AP roll still active for current unit.";
+			return;
+		}
+		if (endTurnLocked) return;
+		// Ghost form check similar to mouse click
+		Player & p = players[currentPlayerIndex];
+		if (p.inGhostForm && board[p.x][p.y].hasWall && p.enteredWallByClick) {
+			spawnFloatingText(gridToWorld(p.x, p.y), "Cannot end turn in wall!", ofColor::red);
+			ofLogNotice("Game") << "Prevented ending turn inside wall (Ghost Form, clicked in).";
+			return;
+		}
+		endTurnLocked = true;
 		startNewTurn();
 		return;
 	}
@@ -20736,9 +20772,11 @@ void ofApp::applySnapshotString(const std::string & data) {
 	animatingPlayerIndex = -1;
 	endTurnLocked = false;
 	waitingForTurnStartFromHost = false;
-	pendingKeyDraftAccept = false;
-	pendingKeyDraftPlayer = -1;
-	pendingKeyDraftClass = 0;
+		pendingKeyDraftAccept = false;
+		pendingKeyDraftPlayer = -1;
+		pendingKeyDraftClass = 0;
+		pendingKeyDraftKeyX = -1;
+		pendingKeyDraftKeyY = -1;
 
 	playerAction = NONE;
 	selectedPieceGridX = -1;
@@ -23107,8 +23145,7 @@ void ofApp::updateDebugRects() {
 	curY += btnH + pad;
 	debugUnlimitedAPButton.set(panelX + pad, curY, panelWidth - 2 * pad, btnH);
 	curY += btnH + pad;
-	debugForceEndTurnButton.set(panelX + pad, curY, panelWidth - 2 * pad, btnH);
-	curY += btnH + pad;
+	// Force End Turn button removed
 
 	debugPanel.set(panelX, panelY, panelWidth, curY - panelY);
 }
@@ -24617,14 +24654,40 @@ void ofApp::drawPileViewFor(int viewPlayerIndex, PileViewMode viewMode) {
 		std::reverse(cardsToShow.begin(), cardsToShow.end());
 	}
 
-	int vpIdx = -1;
-	for (int i = 0; i < (int)players.size(); ++i) {
-		if (players[i].playerID == viewPlayer.playerID && !players[i].isMinion) {
-			vpIdx = i;
-			break;
+	// Prefer human-friendly names. For minions, prefer the same numbering used in the Minion UI
+	if (viewPlayer.isMinion) {
+		// Find the matching MinionUI to reuse its displayNumber (ensures Assistant 1/2 match the side UI)
+		int foundNumber = 0;
+		for (const auto & mui : activeMinionUIs) {
+			if (mui.playerIndex == viewPlayerIndex) { foundNumber = mui.displayNumber; break; }
 		}
+		std::string prefix = "Minion";
+		if (viewPlayer.isFaerie) prefix = "Faerie";
+		else if (viewPlayer.isWallUnit) prefix = "Wall";
+		else if (viewPlayer.isKobold) prefix = "Kobold";
+		else if (viewPlayer.isAssistant) prefix = "Assistant";
+		else if (viewPlayer.isWolf) prefix = "Wolf";
+		else if (viewPlayer.isHellhound) prefix = "Hellhound";
+		else if (viewPlayer.isGolem) prefix = "Golem";
+		else if (viewPlayer.isSkeleton) prefix = "Skeleton";
+		else if (viewPlayer.isDemon) prefix = "Demon";
+
+		if (foundNumber > 0) {
+			viewTitle = prefix + " " + ofToString(foundNumber) + "'s " + viewTitle;
+		} else {
+			// Fallback to existing display-name logic
+			viewTitle = getPlayerDisplayName(viewPlayerIndex) + "'s " + viewTitle;
+		}
+	} else {
+		int vpIdx = -1;
+		for (int i = 0; i < (int)players.size(); ++i) {
+			if (players[i].playerID == viewPlayer.playerID && !players[i].isMinion) {
+				vpIdx = i;
+				break;
+			}
+		}
+		viewTitle = (vpIdx != -1) ? getPlayerSteamName(vpIdx) : ("Player " + ofToString(viewPlayer.playerID)) + "'s " + viewTitle;
 	}
-	viewTitle = (vpIdx != -1) ? getPlayerSteamName(vpIdx) : ("Player " + ofToString(viewPlayer.playerID)) + "'s " + viewTitle;
 
 	if (cardsToShow.empty()) {
 		isShowingPileView = false;
@@ -25538,6 +25601,23 @@ void ofApp::processNetworkPackets() {
 					}
 				}
 
+				// Host-side validation: only allow draws from the active player
+				if (isHost()) {
+					if (currentPlayerIndex < 0 || currentPlayerIndex >= (int)players.size()) {
+						ofLogWarning("Network") << "Host: Received DrawCards but no active player. Ignoring.";
+						continue;
+					}
+					int activePlayerID = players[currentPlayerIndex].playerID;
+					if (static_cast<int>(dcpkt->playerID) != activePlayerID) {
+						ofLogWarning("Network") << "Host: Ignoring DrawCards from non-active player (player=" << dcpkt->playerID << ") active=" << activePlayerID;
+						continue;
+					}
+					// Prevent clients from drawing on behalf of minion actors
+					if (players[currentPlayerIndex].isMinion) {
+						ofLogWarning("Network") << "Host: Active actor is a minion; ignoring client DrawCards.";
+						continue;
+					}
+				}
 				ofLogNotice("Network") << "Received DrawCards from opponent: playerIdx=" << dcpkt->playerIndex << " num=" << dcpkt->numCards;
 
 				// UI Flag for opponent drawing
@@ -25953,6 +26033,17 @@ void ofApp::processNetworkPackets() {
 		}
 		if (header->type == PKT_END_TURN) {
 			ofLogNotice("Net") << "Opponent ended turn.";
+
+			// Host-side validation: only the currently active player may end the turn.
+			if (isHost()) {
+				if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) {
+					int activePlayerID = players[currentPlayerIndex].playerID;
+					if (static_cast<int>(header->playerID) != activePlayerID) {
+						ofLogWarning("Network") << "Ignoring END_TURN from non-active player (player=" << header->playerID << ") active=" << activePlayerID;
+						continue;
+					}
+				}
+			}
 			// CLIENT: Always wait for host's TurnStart packet (contains authoritative dice)
 			// Never roll dice locally for any turn - host controls all RNG
 			if (isClient()) {
@@ -26075,6 +26166,8 @@ void ofApp::processNetworkPackets() {
 				}
 				pendingKeyDraftClass = kpkt->classTier;
 				pendingKeyDraftTriggerTime = ofGetElapsedTimef();
+				pendingKeyDraftKeyX = kpkt->keyX;
+				pendingKeyDraftKeyY = kpkt->keyY;
 
 				// If an Accept arrived before this KeyPickup, close immediately
 				if (pendingKeyDraftAccept && pendingKeyDraftPlayer == kpkt->playerIndex && pendingKeyDraftClass == kpkt->classTier) {
@@ -26086,6 +26179,8 @@ void ofApp::processNetworkPackets() {
 					draftOptions.clear();
 					isInGameDraft = false;
 					pendingDraftFinalize = true; // will transition to gameplay once animations complete
+					pendingKeyDraftKeyX = -1;
+					pendingKeyDraftKeyY = -1;
 				}
 
 				// Color by tier: 1=gold,2=silver,3=bronze
