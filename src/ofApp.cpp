@@ -24666,9 +24666,11 @@ void ofApp::drawMinionManagerUI() {
 			ofDrawRectRounded(ui.bounds, 10 * scale);
 			ofPopStyle();
 
-			// Highlight the minion's tile on the board with yellow outline
-			if (ui.playerIndex >= 0 && ui.playerIndex < (int)players.size()) {
-				board[players[ui.playerIndex].x][players[ui.playerIndex].y].isTargetPreview = true;
+			// Draw a stable tile glow directly (avoid relying on board flags that
+			// may be modified elsewhere and cause flicker when moving the mouse).
+			if (ui.playerIndex >= 0 && ui.playerIndex < (int)players.size() && !disableAllGlow) {
+				Player & p = players[ui.playerIndex];
+				drawTileGlow(p.x, p.y, ofColor(255, 215, 0, 220), 4.0f); // gold/yellow highlight
 			}
 		}
 
@@ -24779,10 +24781,18 @@ void ofApp::drawMinionManagerUI() {
 	} // End of loop
 
 	// --- Draw Scrollbars ---
-	auto drawScrollbar = [&](float startX, float topY, float viewH, float totalH, float scroll) {
+	auto drawScrollbar = [&](float startX, float panelW, float topY, float viewH, float totalH, float scroll) {
 		if (totalH <= viewH) return;
 		float scrollbarW = 6.0f * scale;
-		float scrollbarX = startX - scrollbarW - 8.0f * scale;
+		float scrollbarX = 0.0f;
+		// Place scrollbar on the inner side for left panels, and on the outer edge for right panels
+		if (startX + panelW * 0.5f < ofGetWidth() * 0.5f) {
+			// left-side panel: scrollbar on the left of the panel
+			scrollbarX = startX - scrollbarW - 8.0f * scale;
+		} else {
+			// right-side panel: place scrollbar on the right edge of the panel
+			scrollbarX = startX + panelW + 8.0f * scale;
+		}
 
 		// Background Track
 		ofSetColor(30, 30, 30, 200);
@@ -24795,8 +24805,8 @@ void ofApp::drawMinionManagerUI() {
 		ofDrawRectRounded(scrollbarX, handleY, scrollbarW, handleH, scrollbarW / 2);
 	};
 
-	drawScrollbar(p0_minionLeft, p0_minionTop, p0_minionViewH, p0_minionTotalH, p0_minionScroll);
-	drawScrollbar(p1_minionLeft, p1_minionTop, p1_minionViewH, p1_minionTotalH, p1_minionScroll);
+	drawScrollbar(p0_minionLeft, minionPanelW, p0_minionTop, p0_minionViewH, p0_minionTotalH, p0_minionScroll);
+	drawScrollbar(p1_minionLeft, minionPanelW, p1_minionTop, p1_minionViewH, p1_minionTotalH, p1_minionScroll);
 }
 //--------------------------------------------------------------
 void ofApp::cancelMagicHand() {
