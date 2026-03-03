@@ -1718,6 +1718,13 @@ private:
 	bool isSpawningUnit = false;
 	bool hasUnlimitedAP = false;
 	bool skipChecksumValidation = false; // When true, host/client don't validate checksums (for testing)
+	enum DebugSpawnMode {
+		DEBUG_SPAWN_NONE = 0,
+		DEBUG_SPAWN_PLAYER1,
+		DEBUG_SPAWN_PLAYER2,
+		DEBUG_SPAWN_FULL_DECK
+	};
+	DebugSpawnMode debugSpawnMode = DEBUG_SPAWN_NONE;
 	ofRectangle debugPanel;
 	ofRectangle debugDiceDropdownButton;
 	ofRectangle debugRollD6Button;
@@ -1731,6 +1738,18 @@ private:
 	ofRectangle debugUnlimitedAPButton;
 	ofRectangle debugSkipDraftButton;
 	ofRectangle debugForceEndTurnButton;
+	ofRectangle debugSpawnPlayer1Button;
+	ofRectangle debugSpawnPlayer2Button;
+	std::vector<ofRectangle> debugP1PlusButtons;
+	std::vector<ofRectangle> debugP1MinusButtons;
+	std::vector<ofRectangle> debugP2PlusButtons;
+	std::vector<ofRectangle> debugP2MinusButtons;
+	std::vector<Card> debugSavedP1Deck;
+	std::vector<Card> debugSavedP1Discard;
+	std::vector<Card> debugSavedP2Deck;
+	std::vector<Card> debugSavedP2Discard;
+	bool hasDebugSavedP1State = false;
+	bool hasDebugSavedP2State = false;
 	bool isDebugDiceDropdownOpen = false;
 
 	// --- Debug Card Spawner UI (KRunner-style) ---

@@ -2873,6 +2873,20 @@ void ofApp::updateGame() {
 	// Keep temp luck accurate every frame
 	recalcTempLuck();
 
+	// Cache latest main player deck/discard states for debug respawn tools
+	for (const auto & p : players) {
+		if (p.isMinion) continue;
+		if (p.playerID == 0) {
+			debugSavedP1Deck = p.deck;
+			debugSavedP1Discard = p.discardPile;
+			hasDebugSavedP1State = true;
+		} else if (p.playerID == 1) {
+			debugSavedP2Deck = p.deck;
+			debugSavedP2Discard = p.discardPile;
+			hasDebugSavedP2State = true;
+		}
+	}
+
 	// --- Update floating key animation (advance by real time, tied to game update loop) ---
 	if (!keyAnimSequence.empty() && !keyTextures.empty()) {
 		// Use base interval scaled by the selected preset multiplier
@@ -10551,7 +10565,8 @@ void ofApp::drawGame() {
 			float margin = 8.0f * scale;
 			float chatMaxWidth = 450 * scale;
 			float chatBoxHeight = isChatMinimized ? 120 * scale : 250 * scale;
-			float tabHeight = 25 * scale;
+			bool showTabs = (isChatOpen && !isChatMinimized);
+			float tabHeight = showTabs ? (25 * scale) : 0.0f;
 			float messageHeight = 18 * scale;
 
 			// Determine X range when minion UI exists: place chat between minion panel and end-turn button
@@ -10593,51 +10608,56 @@ void ofApp::drawGame() {
 			ofFill();
 			ofPopStyle();
 
-			// Draw tabs at the top
-			float tabWidth = 80 * scale;
-			ofPushStyle();
+			// Draw tabs only when chat is open (full mode)
+			if (showTabs) {
+				float tabWidth = 80 * scale;
+				ofPushStyle();
 
-			// Store tab rectangles for click detection
-			ofRectangle chatTabRect(chatX, chatY - chatBoxHeight - tabHeight, tabWidth, tabHeight);
-			ofRectangle logTabRect(chatX + tabWidth + 2, chatY - chatBoxHeight - tabHeight, tabWidth, tabHeight);
-			ofRectangle debugTabRect(chatX + tabWidth * 2 + 4, chatY - chatBoxHeight - tabHeight, tabWidth, tabHeight);
+				// Store tab rectangles for click detection
+				ofRectangle chatTabRect(chatX, chatY - chatBoxHeight - tabHeight, tabWidth, tabHeight);
+				ofRectangle logTabRect(chatX + tabWidth + 2, chatY - chatBoxHeight - tabHeight, tabWidth, tabHeight);
+				ofRectangle debugTabRect(chatX + tabWidth * 2 + 4, chatY - chatBoxHeight - tabHeight, tabWidth, tabHeight);
 
-			// Chat tab
-			if (currentChatTab == ChatTab::CHAT) {
-				ofSetColor(60, 60, 60, 220); // Active tab - brighter
-			} else {
-				ofSetColor(20, 20, 20, 150); // Inactive tab
+				// Chat tab
+				if (currentChatTab == ChatTab::CHAT) {
+					ofSetColor(60, 60, 60, 220); // Active tab - brighter
+				} else {
+					ofSetColor(20, 20, 20, 150); // Inactive tab
+				}
+				ofDrawRectangle(chatTabRect);
+				ofSetColor(255, 255, 255);
+				ofRectangle chatBox = uiFont.getStringBoundingBox("CHAT", 0, 0);
+				uiFont.drawString("CHAT", chatX + (tabWidth - chatBox.width) / 2, chatY - chatBoxHeight - tabHeight + (tabHeight + chatBox.height) / 2);
+
+				// Log tab
+				if (currentChatTab == ChatTab::LOG) {
+					ofSetColor(60, 60, 60, 220); // Active tab - brighter
+				} else {
+					ofSetColor(20, 20, 20, 150); // Inactive tab
+				}
+				ofDrawRectangle(logTabRect);
+				ofSetColor(255, 255, 255);
+				ofRectangle logBox = uiFont.getStringBoundingBox("LOG", 0, 0);
+				uiFont.drawString("LOG", chatX + tabWidth + 2 + (tabWidth - logBox.width) / 2, chatY - chatBoxHeight - tabHeight + (tabHeight + logBox.height) / 2);
+
+				// Debug tab
+				if (currentChatTab == ChatTab::DEBUG) {
+					ofSetColor(60, 60, 60, 220); // Active tab - brighter
+				} else {
+					ofSetColor(20, 20, 20, 150); // Inactive tab
+				}
+				ofDrawRectangle(debugTabRect);
+				ofSetColor(255, 255, 255);
+				ofRectangle debugBox = uiFont.getStringBoundingBox("DEBUG", 0, 0);
+				uiFont.drawString("DEBUG", chatX + tabWidth * 2 + 4 + (tabWidth - debugBox.width) / 2, chatY - chatBoxHeight - tabHeight + (tabHeight + debugBox.height) / 2);
+				ofPopStyle();
 			}
-			ofDrawRectangle(chatTabRect);
-			ofSetColor(255, 255, 255);
-			ofRectangle chatBox = uiFont.getStringBoundingBox("CHAT", 0, 0);
-			uiFont.drawString("CHAT", chatX + (tabWidth - chatBox.width) / 2, chatY - chatBoxHeight - tabHeight + (tabHeight + chatBox.height) / 2);
 
-			// Log tab
-			if (currentChatTab == ChatTab::LOG) {
-				ofSetColor(60, 60, 60, 220); // Active tab - brighter
-			} else {
-				ofSetColor(20, 20, 20, 150); // Inactive tab
-			}
-			ofDrawRectangle(logTabRect);
-			ofSetColor(255, 255, 255);
-			ofRectangle logBox = uiFont.getStringBoundingBox("LOG", 0, 0);
-			uiFont.drawString("LOG", chatX + tabWidth + 2 + (tabWidth - logBox.width) / 2, chatY - chatBoxHeight - tabHeight + (tabHeight + logBox.height) / 2);
-
-			// Debug tab
-			if (currentChatTab == ChatTab::DEBUG) {
-				ofSetColor(60, 60, 60, 220); // Active tab - brighter
-			} else {
-				ofSetColor(20, 20, 20, 150); // Inactive tab
-			}
-			ofDrawRectangle(debugTabRect);
-			ofSetColor(255, 255, 255);
-			ofRectangle debugBox = uiFont.getStringBoundingBox("DEBUG", 0, 0);
-			uiFont.drawString("DEBUG", chatX + tabWidth * 2 + 4 + (tabWidth - debugBox.width) / 2, chatY - chatBoxHeight - tabHeight + (tabHeight + debugBox.height) / 2);
-			ofPopStyle();
+			// When minimized, always show normal chat messages instead of current tab content
+			ChatTab visibleTab = showTabs ? currentChatTab : ChatTab::CHAT;
 
 			// Draw content based on active tab
-			if (currentChatTab == ChatTab::CHAT) {
+			if (visibleTab == ChatTab::CHAT) {
 				// Lambda for text wrapping (shared between input and history)
 				auto wrapText = [&](const std::string & text, float maxWidth) {
 					std::vector<std::string> lines;
@@ -10755,102 +10775,151 @@ void ofApp::drawGame() {
 					uiFont.drawString(charCount, chatX + chatMaxWidth - 60, inputStartY);
 					ofPopStyle();
 				}
-			} else if (currentChatTab == ChatTab::LOG) {
-				// Draw game log - properly positioned in content area
-				float contentTop = chatY - chatBoxHeight;
+			} else if (visibleTab == ChatTab::LOG) {
+				// Draw game log with wrapping, constrained to content area
+				auto wrapLogText = [&](const std::string & text, float maxWidth) {
+					std::vector<std::string> lines;
+					std::string currentLine;
+					for (char c : text) {
+						if (c == '\n') {
+							if (!currentLine.empty()) lines.push_back(currentLine);
+							currentLine.clear();
+							continue;
+						}
+						if (currentLine.empty() && c == ' ') continue;
+						std::string testLine = currentLine + c;
+						if (uiFont.stringWidth(testLine) <= maxWidth || currentLine.empty()) {
+							currentLine = testLine;
+						} else {
+							lines.push_back(currentLine);
+							currentLine = std::string(1, c);
+						}
+					}
+					if (!currentLine.empty()) lines.push_back(currentLine);
+					if (lines.empty()) lines.push_back(" ");
+					return lines;
+				};
+
 				float contentPadding = 8.0f * scale;
-				float logY = contentTop - contentPadding;
-				int visibleLogs = 0;
-				int maxVisible = isChatMinimized ? 5 : 12;
+				float contentTop = chatY - chatBoxHeight + contentPadding;
+				float contentBottom = chatY - contentPadding;
+				float logY = contentBottom;
+				float maxWidth = chatMaxWidth - 20.0f;
 
-				for (int i = (int)gameLog.size() - 1; i >= 0 && visibleLogs < maxVisible; i--) {
+				for (int i = (int)gameLog.size() - 1; i >= 0; i--) {
 					GameLogEntry & entry = gameLog[i];
+					std::vector<std::string> wrappedLines = wrapLogText(entry.text, maxWidth);
 
-					ofPushStyle();
-					ofSetColor(200, 200, 200);
-					uiFont.drawString(entry.text, chatX + 10, logY);
-					ofPopStyle();
-
-					logY -= messageHeight;
-					visibleLogs++;
+					for (auto it = wrappedLines.rbegin(); it != wrappedLines.rend(); ++it) {
+						if (logY - messageHeight < contentTop) {
+							i = -1; // stop outer loop too
+							break;
+						}
+						ofPushStyle();
+						ofSetColor(200, 200, 200);
+						uiFont.drawString(*it, chatX + 10, logY);
+						ofPopStyle();
+						logY -= messageHeight;
+					}
 				}
-			} else if (currentChatTab == ChatTab::DEBUG) {
-				// Render debug controls inside chat window - properly positioned
+			} else if (visibleTab == ChatTab::DEBUG) {
+				// Render debug controls: split players (left/right) + general controls
 				float contentTop = chatY - chatBoxHeight;
 				float contentPadding = 8.0f * scale;
 				float padding = contentPadding;
-				float btnHeight = 36.0f * scale;
 				float availableW = chatWindowRect.width - 2 * padding;
 				float curY = contentTop + padding;
 
 				auto drawChatDebugButton = [&](const ofRectangle & rect, const std::string & label, bool isToggle = false, bool state = false) {
 					ofSetColor(isToggle ? (state ? ofColor::green : ofColor::darkRed) : ofColor::slateGray);
-					ofDrawRectRounded(rect, 6);
+					ofDrawRectRounded(rect, 5.0f * scale);
 					ofSetColor(ofColor::white);
 					ofRectangle tb = uiFont.getStringBoundingBox(label, 0, 0);
 					uiFont.drawString(label, rect.getCenter().x - tb.width / 2, rect.getCenter().y + tb.height / 2);
 				};
 
-				// Title
-				ofSetColor(ofColor::yellow);
-				uiFont.drawString("Debug Menu", chatWindowRect.x + padding, curY + uiFont.getLineHeight());
-				curY += uiFont.getLineHeight() + padding;
+				const std::vector<std::string> rowLabels = {
+					"HP", "MaxHP", "CardDeck", "CardDiscard", "Block", "Ward", "Fortify", "Barrier", "HolyBlock"
+				};
+				curY += (2.0f * scale);
 
-				// Buttons
-				debugDrawCardButton.set(chatWindowRect.x + padding, curY, availableW, btnHeight);
-				drawChatDebugButton(debugDrawCardButton, "Draw Card");
-				curY += btnHeight + padding;
+				float panelGap = 10.0f * scale;
+				float panelW = (availableW - panelGap) * 0.5f;
+				float leftX = chatWindowRect.x + padding;
+				float rightX = leftX + panelW + panelGap;
+				float rowH = 24.0f * scale;
+				float rowGap = 4.0f * scale;
+				float inPad = 4.0f * scale;
+				float btnGap = 4.0f * scale;
+				float btnW = (panelW - (2.0f * inPad) - btnGap) * 0.5f;
 
-				debugSpawnCardButton.set(chatWindowRect.x + padding, curY, availableW, btnHeight);
-				drawChatDebugButton(debugSpawnCardButton, "Spawn Card...");
-				curY += btnHeight + padding;
+				ofSetColor(ofColor::lightSteelBlue);
+				uiFont.drawString("Player 1", leftX + inPad, curY + uiFont.getLineHeight());
+				uiFont.drawString("Player 2", rightX + inPad, curY + uiFont.getLineHeight());
+				curY += uiFont.getLineHeight() + (4.0f * scale);
 
-				string diceLabel = isDebugDiceDropdownOpen ? "Roll Dice ▲" : "Roll Dice ▼";
-				debugDiceDropdownButton.set(chatWindowRect.x + padding, curY, availableW, btnHeight);
-				drawChatDebugButton(debugDiceDropdownButton, diceLabel);
-				curY += btnHeight + padding;
+				debugP1PlusButtons.assign(rowLabels.size(), ofRectangle());
+				debugP1MinusButtons.assign(rowLabels.size(), ofRectangle());
+				debugP2PlusButtons.assign(rowLabels.size(), ofRectangle());
+				debugP2MinusButtons.assign(rowLabels.size(), ofRectangle());
 
-				if (isDebugDiceDropdownOpen) {
-					debugFlipCoinButton.set(chatWindowRect.x + padding, curY, availableW, btnHeight);
-					drawChatDebugButton(debugFlipCoinButton, "Flip Coin");
-					curY += btnHeight + padding;
+				for (size_t i = 0; i < rowLabels.size(); ++i) {
+					float y = curY + i * (rowH + rowGap);
+					debugP1PlusButtons[i].set(leftX + inPad, y, btnW, rowH);
+					debugP1MinusButtons[i].set(leftX + inPad + btnW + btnGap, y, btnW, rowH);
+					debugP2PlusButtons[i].set(rightX + inPad, y, btnW, rowH);
+					debugP2MinusButtons[i].set(rightX + inPad + btnW + btnGap, y, btnW, rowH);
 
-					debugRollD4Button.set(chatWindowRect.x + padding, curY, availableW, btnHeight);
-					drawChatDebugButton(debugRollD4Button, "Roll 1D4");
-					curY += btnHeight + padding;
-
-					debugRollD6Button.set(chatWindowRect.x + padding, curY, availableW, btnHeight);
-					drawChatDebugButton(debugRollD6Button, "Roll 1D6");
-					curY += btnHeight + padding;
-
-					debugRollD10Button.set(chatWindowRect.x + padding, curY, availableW, btnHeight);
-					drawChatDebugButton(debugRollD10Button, "Roll 1D10");
-					curY += btnHeight + padding;
-
-					debugRollD20Button.set(chatWindowRect.x + padding, curY, availableW, btnHeight);
-					drawChatDebugButton(debugRollD20Button, "Roll 1D20");
-					curY += btnHeight + padding;
+					drawChatDebugButton(debugP1PlusButtons[i], "+" + rowLabels[i]);
+					drawChatDebugButton(debugP1MinusButtons[i], "-" + rowLabels[i]);
+					drawChatDebugButton(debugP2PlusButtons[i], "+" + rowLabels[i]);
+					drawChatDebugButton(debugP2MinusButtons[i], "-" + rowLabels[i]);
 				}
 
-				debugSpawnUnitButton.set(chatWindowRect.x + padding, curY, availableW, btnHeight);
-				drawChatDebugButton(debugSpawnUnitButton, "Spawn Player", true, isSpawningUnit);
-				curY += btnHeight + padding;
+				curY += rowLabels.size() * (rowH + rowGap) + (8.0f * scale);
 
-				debugUnlimitedAPButton.set(chatWindowRect.x + padding, curY, availableW, btnHeight);
-				std::string unlimitedAPLabel = hasUnlimitedAP ? "Unlimited AP: ON" : "Unlimited AP: OFF";
-				drawChatDebugButton(debugUnlimitedAPButton, unlimitedAPLabel, true, hasUnlimitedAP);
-				curY += btnHeight + padding;
+				ofSetColor(ofColor::yellow);
+				uiFont.drawString("General", chatWindowRect.x + padding, curY + uiFont.getLineHeight());
+				curY += uiFont.getLineHeight() + (4.0f * scale);
 
-				debugSkipDraftButton.set(chatWindowRect.x + padding, curY, availableW, btnHeight);
-				bool canSkipDraft = !isMultiplayer && currentState == STATE_DRAFTING && draftOptions.size() > 0;
-				drawChatDebugButton(debugSkipDraftButton, "Skip Draft (Random)", canSkipDraft);
-				curY += btnHeight + padding;
+				float gGap = 6.0f * scale;
+				float gH = 26.0f * scale;
+				int gCols = 3;
+				float gW = (availableW - (gCols - 1) * gGap) / gCols;
+				auto setGridRect = [&](ofRectangle & r, int idx) {
+					int col = idx % gCols;
+					int row = idx / gCols;
+					r.set(chatWindowRect.x + padding + col * (gW + gGap), curY + row * (gH + gGap), gW, gH);
+				};
 
-				ofRectangle checksumIndicator;
-				checksumIndicator.set(chatWindowRect.x + padding, curY, availableW, btnHeight);
-				std::string checksumLabel = skipChecksumValidation ? "Checksum: DISABLED" : "Checksum: ENABLED";
-				drawChatDebugButton(checksumIndicator, checksumLabel, true, !skipChecksumValidation);
-				curY += btnHeight + padding;
+				int gi = 0;
+				setGridRect(debugSpawnCardButton, gi++);
+				setGridRect(debugSkipDraftButton, gi++);
+				setGridRect(debugDrawCardButton, gi++);
+				setGridRect(debugFlipCoinButton, gi++);
+				setGridRect(debugRollD4Button, gi++);
+				setGridRect(debugRollD6Button, gi++);
+				setGridRect(debugRollD10Button, gi++);
+				setGridRect(debugRollD20Button, gi++);
+				setGridRect(debugUnlimitedAPButton, gi++);
+				setGridRect(debugForceEndTurnButton, gi++);
+				setGridRect(debugSpawnPlayer1Button, gi++);
+				setGridRect(debugSpawnPlayer2Button, gi++);
+				setGridRect(debugSpawnUnitButton, gi++);
+
+				drawChatDebugButton(debugSpawnCardButton, "CardSpawner");
+				drawChatDebugButton(debugSkipDraftButton, "SkipDraft");
+				drawChatDebugButton(debugDrawCardButton, "DrawCard");
+				drawChatDebugButton(debugFlipCoinButton, "Coin");
+				drawChatDebugButton(debugRollD4Button, "D4");
+				drawChatDebugButton(debugRollD6Button, "D6");
+				drawChatDebugButton(debugRollD10Button, "D10");
+				drawChatDebugButton(debugRollD20Button, "D20");
+				drawChatDebugButton(debugUnlimitedAPButton, hasUnlimitedAP ? "Unlimited AP: ON" : "Unlimited AP: OFF", true, hasUnlimitedAP);
+				drawChatDebugButton(debugForceEndTurnButton, "ForceEndTurn");
+				drawChatDebugButton(debugSpawnPlayer1Button, "SpawnPlayer1", true, debugSpawnMode == DEBUG_SPAWN_PLAYER1);
+				drawChatDebugButton(debugSpawnPlayer2Button, "SpawnPlayer2", true, debugSpawnMode == DEBUG_SPAWN_PLAYER2);
+				drawChatDebugButton(debugSpawnUnitButton, "SpawnPlayer", true, debugSpawnMode == DEBUG_SPAWN_FULL_DECK);
 			}
 		}
 	}
@@ -11866,28 +11935,31 @@ void ofApp::mousePressed(int x, int y, int button) {
 			if (chatWindowRect.inside(x, y)) {
 				float scale = ofGetHeight() / 1080.0f;
 				float chatBoxHeight = isChatMinimized ? 120 * scale : 250 * scale;
-				float tabHeight = 25 * scale;
+				bool showTabs = (isChatOpen && !isChatMinimized);
+				float tabHeight = showTabs ? (25 * scale) : 0.0f;
 				float tabWidth = 80 * scale;
 				float chatX = chatWindowRect.x;
 				float chatY = chatWindowRect.y + chatWindowRect.height;
 
-				// Check if clicking on Chat tab
-				if (ofRectangle(chatX, chatY - chatBoxHeight - tabHeight, tabWidth, tabHeight).inside(x, y)) {
-					currentChatTab = ChatTab::CHAT;
-					lastChatInteractionTime = ofGetElapsedTimef();
-					return;
-				}
-				// Check if clicking on Log tab
-				if (ofRectangle(chatX + tabWidth + 2, chatY - chatBoxHeight - tabHeight, tabWidth, tabHeight).inside(x, y)) {
-					currentChatTab = ChatTab::LOG;
-					lastChatInteractionTime = ofGetElapsedTimef();
-					return;
-				}
-				// Check if clicking on Debug tab
-				if (ofRectangle(chatX + tabWidth * 2 + 4, chatY - chatBoxHeight - tabHeight, tabWidth, tabHeight).inside(x, y)) {
-					currentChatTab = ChatTab::DEBUG;
-					lastChatInteractionTime = ofGetElapsedTimef();
-					return;
+				if (showTabs) {
+					// Check if clicking on Chat tab
+					if (ofRectangle(chatX, chatY - chatBoxHeight - tabHeight, tabWidth, tabHeight).inside(x, y)) {
+						currentChatTab = ChatTab::CHAT;
+						lastChatInteractionTime = ofGetElapsedTimef();
+						return;
+					}
+					// Check if clicking on Log tab
+					if (ofRectangle(chatX + tabWidth + 2, chatY - chatBoxHeight - tabHeight, tabWidth, tabHeight).inside(x, y)) {
+						currentChatTab = ChatTab::LOG;
+						lastChatInteractionTime = ofGetElapsedTimef();
+						return;
+					}
+					// Check if clicking on Debug tab
+					if (ofRectangle(chatX + tabWidth * 2 + 4, chatY - chatBoxHeight - tabHeight, tabWidth, tabHeight).inside(x, y)) {
+						currentChatTab = ChatTab::DEBUG;
+						lastChatInteractionTime = ofGetElapsedTimef();
+						return;
+					}
 				}
 				// Clicking inside chat window keeps it open
 				lastChatInteractionTime = ofGetElapsedTimef();
@@ -11952,13 +12024,101 @@ void ofApp::mousePressed(int x, int y, int button) {
 		}
 	}
 
-	// Debug button handling moved inside Chat DEBUG tab
-	if (button == OF_MOUSE_BUTTON_LEFT && currentChatTab == ChatTab::DEBUG && chatWindowRect.inside(x, y)) {
+	// Debug button handling moved inside Chat DEBUG tab (only when chat is fully open)
+	if (button == OF_MOUSE_BUTTON_LEFT && isChatOpen && !isChatMinimized && currentChatTab == ChatTab::DEBUG && chatWindowRect.inside(x, y)) {
 		if (isMultiplayer && !isHost()) {
 			addGameLog("Debug tools are host-only in multiplayer.");
 			return;
 		}
-		// Map debug button hits (buttons' rects are positioned inside chat DEBUG rendering)
+		bool changedState = false;
+		auto findMainPlayerIndexByID = [&](int id) {
+			for (int i = 0; i < (int)players.size(); ++i) {
+				if (!players[i].isMinion && players[i].playerID == id) return i;
+			}
+			return -1;
+		};
+
+		auto applyPlayerRow = [&](int playerID, int rowIndex, int sign) {
+			int pIdx = findMainPlayerIndexByID(playerID);
+			if (pIdx < 0) return false;
+			Player & p = players[pIdx];
+			switch (rowIndex) {
+			case 0: // HP
+				p.health = std::max(0, std::min(p.maxHealth, p.health + sign));
+				return true;
+			case 1: // MaxHP
+				p.maxHealth = std::max(1, p.maxHealth + sign);
+				p.health = std::min(p.health, p.maxHealth);
+				return true;
+			case 2: // CardDeck
+				if (sign > 0) {
+					if (!allCards.empty()) {
+						int r = getGameRandom(0, (int)allCards.size() - 1);
+						p.deck.push_back(allCards[r]);
+						return true;
+					}
+				} else if (!p.deck.empty()) {
+					p.deck.pop_back();
+					return true;
+				}
+				return false;
+			case 3: // CardDiscard
+				if (sign > 0) {
+					if (!allCards.empty()) {
+						int r = getGameRandom(0, (int)allCards.size() - 1);
+						p.discardPile.push_back(allCards[r]);
+						return true;
+					}
+				} else if (!p.discardPile.empty()) {
+					p.discardPile.pop_back();
+					return true;
+				}
+				return false;
+			case 4: // Block
+				p.block = std::max(0, p.block + sign);
+				return true;
+			case 5: // Ward
+				p.ward = std::max(0, p.ward + sign);
+				return true;
+			case 6: // Fortify
+				p.fortification = std::max(0, p.fortification + sign);
+				return true;
+			case 7: // Barrier
+				p.barrier = std::max(0, p.barrier + sign);
+				return true;
+			case 8: // HolyBlock
+				p.holyBlock = std::max(0, p.holyBlock + sign);
+				return true;
+			default:
+				return false;
+			}
+		};
+
+		size_t rowCount = std::min({ debugP1PlusButtons.size(), debugP1MinusButtons.size(), debugP2PlusButtons.size(), debugP2MinusButtons.size() });
+		for (size_t i = 0; i < rowCount; ++i) {
+			if (debugP1PlusButtons[i].inside(x, y)) {
+				changedState = applyPlayerRow(0, (int)i, +1) || changedState;
+				if (changedState && isMultiplayer && isHost()) sendSnapshotToClient();
+				return;
+			}
+			if (debugP1MinusButtons[i].inside(x, y)) {
+				changedState = applyPlayerRow(0, (int)i, -1) || changedState;
+				if (changedState && isMultiplayer && isHost()) sendSnapshotToClient();
+				return;
+			}
+			if (debugP2PlusButtons[i].inside(x, y)) {
+				changedState = applyPlayerRow(1, (int)i, +1) || changedState;
+				if (changedState && isMultiplayer && isHost()) sendSnapshotToClient();
+				return;
+			}
+			if (debugP2MinusButtons[i].inside(x, y)) {
+				changedState = applyPlayerRow(1, (int)i, -1) || changedState;
+				if (changedState && isMultiplayer && isHost()) sendSnapshotToClient();
+				return;
+			}
+		}
+
+		// General buttons
 		if (debugDrawCardButton.inside(x, y)) {
 			drawCard();
 			if (isMultiplayer && isHost()) sendSnapshotToClient();
@@ -11970,39 +12130,24 @@ void ofApp::mousePressed(int x, int y, int button) {
 			filteredCards.clear();
 			return;
 		}
-		if (debugDiceDropdownButton.inside(x, y)) {
-			isDebugDiceDropdownOpen = !isDebugDiceDropdownOpen;
+		if (debugFlipCoinButton.inside(x, y)) {
+			startDiceRoll(1, 2, PURPOSE_DEBUG, "Debug Coin", currentPlayerIndex);
 			return;
 		}
-		if (isDebugDiceDropdownOpen) {
-			if (debugFlipCoinButton.inside(x, y)) {
-				startDiceRoll(1, 2, PURPOSE_DEBUG, "Debug Coin", currentPlayerIndex);
-				isDebugDiceDropdownOpen = false;
-				return;
-			}
-			if (debugRollD4Button.inside(x, y)) {
-				startDiceRoll(1, 4, PURPOSE_DEBUG, "Debug D4", currentPlayerIndex);
-				isDebugDiceDropdownOpen = false;
-				return;
-			}
-			if (debugRollD6Button.inside(x, y)) {
-				startDiceRoll(1, 6, PURPOSE_DEBUG, "Debug D6", currentPlayerIndex);
-				isDebugDiceDropdownOpen = false;
-				return;
-			}
-			if (debugRollD10Button.inside(x, y)) {
-				startDiceRoll(1, 10, PURPOSE_DEBUG, "Debug D10", currentPlayerIndex);
-				isDebugDiceDropdownOpen = false;
-				return;
-			}
-			if (debugRollD20Button.inside(x, y)) {
-				startDiceRoll(1, 20, PURPOSE_DEBUG, "Debug D20", currentPlayerIndex);
-				isDebugDiceDropdownOpen = false;
-				return;
-			}
+		if (debugRollD4Button.inside(x, y)) {
+			startDiceRoll(1, 4, PURPOSE_DEBUG, "Debug D4", currentPlayerIndex);
+			return;
 		}
-		if (debugSpawnUnitButton.inside(x, y)) {
-			isSpawningUnit = !isSpawningUnit;
+		if (debugRollD6Button.inside(x, y)) {
+			startDiceRoll(1, 6, PURPOSE_DEBUG, "Debug D6", currentPlayerIndex);
+			return;
+		}
+		if (debugRollD10Button.inside(x, y)) {
+			startDiceRoll(1, 10, PURPOSE_DEBUG, "Debug D10", currentPlayerIndex);
+			return;
+		}
+		if (debugRollD20Button.inside(x, y)) {
+			startDiceRoll(1, 20, PURPOSE_DEBUG, "Debug D20", currentPlayerIndex);
 			return;
 		}
 		if (debugUnlimitedAPButton.inside(x, y)) {
@@ -12012,6 +12157,26 @@ void ofApp::mousePressed(int x, int y, int button) {
 		}
 		if (debugSkipDraftButton.inside(x, y)) {
 			if (!isMultiplayer && currentState == STATE_DRAFTING && draftOptions.size() > 0) debugSkipDraftRandomCards();
+			return;
+		}
+		if (debugForceEndTurnButton.inside(x, y)) {
+			if (currentState == STATE_GAMEPLAY) {
+				endTurnLocked = false;
+				startNewTurn();
+				if (isMultiplayer && isHost()) sendSnapshotToClient();
+			}
+			return;
+		}
+		if (debugSpawnPlayer1Button.inside(x, y)) {
+			debugSpawnMode = (debugSpawnMode == DEBUG_SPAWN_PLAYER1) ? DEBUG_SPAWN_NONE : DEBUG_SPAWN_PLAYER1;
+			return;
+		}
+		if (debugSpawnPlayer2Button.inside(x, y)) {
+			debugSpawnMode = (debugSpawnMode == DEBUG_SPAWN_PLAYER2) ? DEBUG_SPAWN_NONE : DEBUG_SPAWN_PLAYER2;
+			return;
+		}
+		if (debugSpawnUnitButton.inside(x, y)) {
+			debugSpawnMode = (debugSpawnMode == DEBUG_SPAWN_FULL_DECK) ? DEBUG_SPAWN_NONE : DEBUG_SPAWN_FULL_DECK;
 			return;
 		}
 		// Click consumed
@@ -14316,10 +14481,10 @@ void ofApp::mousePressed(int x, int y, int button) {
 		}
 
 		// 3a. Debug Spawn Logic
-		if (isSpawningUnit && button == OF_MOUSE_BUTTON_LEFT) {
+		if (debugSpawnMode != DEBUG_SPAWN_NONE && button == OF_MOUSE_BUTTON_LEFT) {
 			if (isMultiplayer && !isHost()) {
 				addGameLog("Debug spawning is host-only in multiplayer.");
-				isSpawningUnit = false;
+				debugSpawnMode = DEBUG_SPAWN_NONE;
 				return;
 			}
 			ofVec2f boardPos = mouseToBoard(x, y);
@@ -14329,19 +14494,45 @@ void ofApp::mousePressed(int x, int y, int button) {
 					Player newPlayer;
 					newPlayer.x = gx;
 					newPlayer.y = gy;
-					newPlayer.playerID = (int)players.size();
-					newPlayer.deck = allCards;
-					players.push_back(newPlayer);
-					int newDebugIdx = (int)players.size() - 1;
-					shuffleGameVector(players[newDebugIdx].deck, newDebugIdx);
-					board[gx][gy].hasPlayer = true;
-					ofLogNotice("Debug") << "Spawned new player.";
-					if (isMultiplayer && isHost()) {
-						sendSnapshotToClient();
+
+					if (debugSpawnMode == DEBUG_SPAWN_PLAYER1 || debugSpawnMode == DEBUG_SPAWN_PLAYER2) {
+						int wantedID = (debugSpawnMode == DEBUG_SPAWN_PLAYER1) ? 0 : 1;
+						bool exists = false;
+						for (const auto & p : players) {
+							if (!p.isMinion && p.playerID == wantedID) {
+								exists = true;
+								break;
+							}
+						}
+						if (!exists) {
+							newPlayer.playerID = wantedID;
+							if (wantedID == 0 && hasDebugSavedP1State) {
+								newPlayer.deck = debugSavedP1Deck;
+								newPlayer.discardPile = debugSavedP1Discard;
+							} else if (wantedID == 1 && hasDebugSavedP2State) {
+								newPlayer.deck = debugSavedP2Deck;
+								newPlayer.discardPile = debugSavedP2Discard;
+							}
+							players.push_back(newPlayer);
+							int newIdx = (int)players.size() - 1;
+							if (!players[newIdx].deck.empty()) shuffleGameVector(players[newIdx].deck, newIdx);
+							board[gx][gy].hasPlayer = true;
+							ofLogNotice("Debug") << "Spawned Player " << wantedID;
+							if (isMultiplayer && isHost()) sendSnapshotToClient();
+						}
+					} else {
+						newPlayer.playerID = (int)players.size();
+						newPlayer.deck = allCards;
+						players.push_back(newPlayer);
+						int newDebugIdx = (int)players.size() - 1;
+						shuffleGameVector(players[newDebugIdx].deck, newDebugIdx);
+						board[gx][gy].hasPlayer = true;
+						ofLogNotice("Debug") << "Spawned new full-deck player.";
+						if (isMultiplayer && isHost()) sendSnapshotToClient();
 					}
 				}
 			}
-			isSpawningUnit = false;
+			debugSpawnMode = DEBUG_SPAWN_NONE;
 			return;
 		}
 
@@ -15676,7 +15867,7 @@ void ofApp::keyPressed(int key) {
 	// triggering global hotkeys while typing.
 	if (isChatOpen && (currentState == STATE_GAMEPLAY || currentState == STATE_DRAFTING)) {
 		if (key == OF_KEY_RETURN) {
-			// Send message and close chat (also works to close minimized chat)
+			// Send message but keep chat open in full mode
 			if (!chatInput.empty() && !isChatMinimized) {
 				if (isMultiplayer) {
 					ChatMessagePacket pkt = {};
@@ -15698,8 +15889,8 @@ void ofApp::keyPressed(int key) {
 				}
 			}
 			chatInput = "";
-			isChatOpen = false;
-			isChatMinimized = true;
+			isChatOpen = true;
+			isChatMinimized = false;
 			lastChatInteractionTime = ofGetElapsedTimef();
 			return;
 		} else if (key == OF_KEY_ESC) {
@@ -16037,13 +16228,20 @@ void ofApp::keyReleased(int key) {
 		return;
 	}
 
-	// 1. Debug Toggle
+	// 1. Open Chat Debug tab with backtick
 	if (key == '`') {
 		if (isMultiplayer && !isHost()) {
 			addGameLog("Debug mode is host-only in multiplayer.");
 			return;
 		}
-		isDebugMode = !isDebugMode;
+		isDebugMode = true;
+		if (currentState == STATE_GAMEPLAY || currentState == STATE_DRAFTING) {
+			isChatOpen = true;
+			isChatMinimized = false;
+			currentChatTab = ChatTab::DEBUG;
+			lastChatInteractionTime = ofGetElapsedTimef();
+		}
+		return;
 	}
 
 	// 2. Top-Down Camera Toggle
