@@ -301,6 +301,7 @@ struct DrawCardAnimation {
 	float currentAlpha = 255.0f;
 	float currentScale = 1.0f; // visual scale multiplier used during animation
 	int ownerIndex; // Player or minion index
+	int ownerPlayerID = -1; // Stable playerID used to resolve owner after reordering
 	bool toMinionHand; // True if animating to minion hand
 	bool startIsScreenSpace = false; // true when startPos is already screen coordinates
 	// If true, do not commit the card into the player's hand when the animation

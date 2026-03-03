@@ -52,22 +52,85 @@ ofApp::~ofApp() { }
 
 void ofApp::applyReplicateCopyToHand(Player & caster, const Card & playedCard) {
 	if (!caster.isReplicatePending) return;
+
+	// Do not replicate the Replicate card itself — Replicate should arm
+	// for the next card played, not create a copy of itself immediately.
+	if (playedCard.type == CARD_REPLICATE) {
+		// Keep replicate armed for the next played card and return.
+		caster.isReplicatePending = true;
+		return;
+	}
+
+	// Create a visual animation that flies the copied card from the board
+	// center into the caster's hand, and commit it when the animation
+	// completes. This avoids instantaneous appearance.
 	Card duplicateCard = playedCard;
-	caster.hand.push_back(duplicateCard);
+	duplicateCard.isCopied = true;
+
+	// Find the caster's index in players[] to assign animation ownership
+	int ownerIndex = findPlayerIndexByID(caster.playerID);
+	if (ownerIndex < 0) {
+		// Fallback: just push immediately if we can't find the owner
+		caster.hand.push_back(duplicateCard);
+		caster.isReplicatePending = (duplicateCard.type == CARD_REPLICATE);
+		return;
+	}
+
+	DrawCardAnimation anim;
+	anim.card = duplicateCard;
+	anim.startTime = ofGetElapsedTimef();
+	anim.duration = 0.45f;
+	anim.ownerIndex = ownerIndex;
+	anim.ownerPlayerID = caster.playerID;
+	anim.toMinionHand = caster.isMinion;
+	anim.startIsScreenSpace = false;
+	// Start from approximate board center
+	glm::vec3 boardCenter = gridToWorld(3, 3);
+	anim.startPos = boardCenter;
+	anim.currentPos = glm::vec2(boardCenter.x, boardCenter.y);
+
+	// Compute target hand position for the owner (reserve space for incoming card)
+	size_t numCards = caster.hand.size() + 1;
+	float handCenterY = ofGetHeight() - 130;
+	float handBaseCardWidth = 120;
+	int cardsToFit = std::max(5, (int)numCards);
+	float handAreaWidth = ofGetWidth() * 0.6f;
+	float totalCardWidths = cardsToFit * handBaseCardWidth;
+	float padding = (cardsToFit > 1) ? (handAreaWidth - totalCardWidths) / (cardsToFit - 1) : 0;
+	padding = std::min(padding, 20.0f);
+	float totalHandWidth = (cardsToFit * handBaseCardWidth) + ((cardsToFit - 1) * padding);
+	float startX = (ofGetWidth() - totalHandWidth) / 2.0f;
+
+	// Compute actual spacing so the current cards are centered within the hand area
+	float totalActualCardWidths = (numCards > 0) ? (numCards * handBaseCardWidth) : 0;
+	float paddingActual = (numCards > 1) ? (handAreaWidth - totalActualCardWidths) / (numCards - 1) : 0;
+	paddingActual = std::min(paddingActual, 20.0f);
+	float totalActualHandWidth = (numCards > 0) ? ((numCards * handBaseCardWidth) + ((numCards - 1) * paddingActual)) : 0;
+	float startXActual = (ofGetWidth() - totalActualHandWidth) / 2.0f;
+
+	// Position the incoming card into the centered slot among actual cards
+	float cardCenterX = startXActual + (numCards - 1) * (handBaseCardWidth + paddingActual) + (handBaseCardWidth / 2.0f);
+	anim.targetPos = glm::vec2(cardCenterX, handCenterY);
+	anim.endPos = anim.startPos;
+	anim.currentScale = 1.0f;
+	anim.commitOnFinish = true; // will add to hand on completion
+
+	activeDrawCardAnimations.push_back(anim);
+
 	// Replicate is consumed by default; if the copied card is Replicate,
-	// immediately re-arm it for the next card played.
+	// re-arm it for the next card played.
 	caster.isReplicatePending = (duplicateCard.type == CARD_REPLICATE);
 }
 //--------------------------------------------------------------
 void ofApp::finishPlayCard(Player & caster, const Card & playedCard, int handIndex) {
 	// Add card to played pile
 	caster.playedCardsPile.push_back(playedCard);
-	// Apply replicate copy if pending
-	applyReplicateCopyToHand(caster, playedCard);
-	// Remove from hand
+	// Remove from hand FIRST (before applying replicate, which might add cards)
 	if (handIndex >= 0 && handIndex < (int)caster.hand.size()) {
 		caster.hand.erase(caster.hand.begin() + handIndex);
 	}
+	// Apply replicate copy if pending (after removing original)
+	applyReplicateCopyToHand(caster, playedCard);
 }
 //--------------------------------------------------------------
 void ofApp::updatePlayerAP(Player & player, int newAP) {
@@ -245,11 +308,12 @@ void ofApp::drawMinionCard(int minionIndex, int ownerIndex) {
 			size_t numCards = minion.hand.size() + 1 + animatingToThis; // as-if this card were present
 			float handCenterY = ofGetHeight() - 160;
 			float handBaseCardWidth = 120;
+			float cardsToFit = std::max(5, (int)numCards);
 			float handAreaWidth = ofGetWidth() * 0.6f;
-			float totalCardWidths = numCards * handBaseCardWidth;
-			float padding = (numCards > 1) ? (handAreaWidth - totalCardWidths) / (numCards - 1) : 0;
+			float totalCardWidths = cardsToFit * handBaseCardWidth;
+			float padding = (cardsToFit > 1) ? (handAreaWidth - totalCardWidths) / (cardsToFit - 1) : 0;
 			padding = std::min(padding, 16.0f);
-			float totalHandWidth = (numCards * handBaseCardWidth) + ((numCards - 1) * padding);
+			float totalHandWidth = (cardsToFit * handBaseCardWidth) + ((cardsToFit - 1) * padding);
 			float startX = (ofGetWidth() - totalHandWidth) / 2.0f;
 			float cardCenterX = startX + (numCards - 1) * (handBaseCardWidth + padding) + (handBaseCardWidth / 2.0f);
 			anim.targetPos = glm::vec2(cardCenterX, handCenterY);
@@ -3357,19 +3421,19 @@ void ofApp::updateGame() {
 					}
 
 				} else {
-					// Only show "Blocked" if they weren't phased
+					// Only show damage if they weren't phased
 					if (!target->inGhostForm || appliedDamage > 0) {
-						spawnFloatingText(tPos, "Blocked", ofColor::gray);
+						spawnFloatingText(tPos, "-" + ofToString(appliedDamage) + typeLabel, ofColor::gray);
 					}
-				}
 
-				// Apply poison if damage was dealt (or if logic allows poison on block, strictly appliedDamage > 0 is safer)
-				if (applyPoisonBuff && !target->inGhostForm) {
-					// store stable playerID instead of a transient players[] index
-					pendingPoisonTargetIndices.push_back(players[pIndex].playerID);
-					target->isPoisoned = true;
-					target->poisonReduction = 0;
-					spawnFloatingText(tPos + glm::vec3(0, 0.5f, 0), "Poisoned!", ofColor::green);
+					// Apply poison if damage was dealt (or if logic allows poison on block, strictly appliedDamage > 0 is safer)
+					if (applyPoisonBuff && !target->inGhostForm) {
+						// store stable playerID instead of a transient players[] index
+						pendingPoisonTargetIndices.push_back(players[pIndex].playerID);
+						target->isPoisoned = true;
+						target->poisonReduction = 0;
+						spawnFloatingText(tPos + glm::vec3(0, 0.5f, 0), "Poisoned!", ofColor::green);
+					}
 				}
 			}
 		}
@@ -6390,7 +6454,13 @@ void ofApp::updateGame() {
 		// First, add finished animations' cards to the appropriate player's hand
 		for (const auto & anim : activeDrawCardAnimations) {
 			if ((now - anim.startTime) >= anim.duration) {
-				int owner = anim.ownerIndex;
+				int owner = -1;
+				// Prefer resolving by stable playerID (handles reordering/resizing)
+				if (anim.ownerPlayerID != -1) {
+					owner = findPlayerIndexByID(anim.ownerPlayerID);
+				} else {
+					owner = anim.ownerIndex;
+				}
 				if (owner >= 0 && owner < (int)players.size()) {
 					Player & p = players[owner];
 					if (anim.commitOnFinish) {
@@ -6407,7 +6477,10 @@ void ofApp::updateGame() {
 						// Set to hand display scale immediately for all draws
 						c.currentScale = 1.5f;
 						c.targetScale = 1.5f;
-						c.drawnThisTurn = true;
+						// Only mark as drawn if it's not a copied card
+						if (!c.isCopied) {
+							c.drawnThisTurn = true;
+						}
 						ofLogNotice("DrawDebug") << "Committing drawn card '" << c.name << "' to playerIndex=" << owner << " handSizeBefore=" << p.hand.size();
 						p.hand.push_back(c);
 						ofLogNotice("DrawDebug") << "Committed drawn card '" << c.name << "' to playerIndex=" << owner << " handSizeAfter=" << p.hand.size();
@@ -6502,17 +6575,22 @@ void ofApp::updateGame() {
 			size_t numCards = handPlayer->hand.size();
 			float handCenterY = ofGetHeight() - 130;
 			float handBaseCardWidth = 120;
+			float cardsToFit = std::max(5, (int)numCards);
 			float handAreaWidth = ofGetWidth() * 0.6f;
 
-			float totalCardWidths = numCards * handBaseCardWidth;
-			float padding = (numCards > 1) ? (handAreaWidth - totalCardWidths) / (numCards - 1) : 0;
+			float totalCardWidths = cardsToFit * handBaseCardWidth;
+			float padding = (cardsToFit > 1) ? (handAreaWidth - totalCardWidths) / (cardsToFit - 1) : 0;
 			padding = std::min(padding, 20.0f);
-			float totalHandWidth = (numCards * handBaseCardWidth) + ((numCards - 1) * padding);
+			float totalHandWidth = (cardsToFit * handBaseCardWidth) + ((cardsToFit - 1) * padding);
 			float startX = (ofGetWidth() - totalHandWidth) / 2.0f;
 
 			// Position the cards for the active local unit (player or minion)
 			for (size_t i = 0; i < numCards; i++) {
-				float cardCenterX = startX + i * (handBaseCardWidth + padding) + (handBaseCardWidth / 2.0f);
+				float paddingActualInline = (numCards > 1) ? (handAreaWidth - (numCards * handBaseCardWidth)) / (numCards - 1) : 0;
+				paddingActualInline = std::min(paddingActualInline, 20.0f);
+				float totalActualHandWidthInline = (numCards > 0) ? ((numCards * handBaseCardWidth) + ((numCards - 1) * paddingActualInline)) : 0;
+				float startXActualInline = (ofGetWidth() - totalActualHandWidthInline) / 2.0f;
+				float cardCenterX = startXActualInline + i * (handBaseCardWidth + paddingActualInline) + (handBaseCardWidth / 2.0f);
 				handPlayer->hand[i].targetPos = ofVec2f(cardCenterX, handCenterY);
 
 				if (static_cast<int>(i) != draggedCardIndex) {
@@ -9870,6 +9948,43 @@ void ofApp::drawGame() {
 			lastLoggedHandSize = numCards;
 		}
 
+		// Draw hand area box (rounded corners, taller, anchored to bottom)
+		{
+			float handBaseCardWidth = 120;
+			float cardHeight = handBaseCardWidth * (585.0f / 409.0f); // Card aspect ratio
+
+			// Fixed box for up to 5 cards, scales for more
+			int cardsToFit = std::max(5, (int)numCards);
+			float handAreaWidth = ofGetWidth() * 0.6f;
+			float totalCardWidths = cardsToFit * handBaseCardWidth;
+			float padding = (cardsToFit > 1) ? (handAreaWidth - totalCardWidths) / (cardsToFit - 1) : 0;
+			padding = std::min(padding, 20.0f);
+			float totalHandWidth = (cardsToFit * handBaseCardWidth) + ((cardsToFit - 1) * padding);
+			float startX = (ofGetWidth() - totalHandWidth) / 2.0f;
+
+			// Larger vertical padding to make the box taller and attach to bottom
+			float boxPaddingX = 28.0f;
+			float boxPaddingY = 44.0f; // increased vertical padding
+			float boxLeft = startX - boxPaddingX;
+			float boxRight = startX + totalHandWidth + boxPaddingX;
+			float boxBottom = ofGetHeight(); // attach directly to the bottom of the screen
+			float boxTop = boxBottom - (cardHeight + 2.0f * boxPaddingY);
+			float boxWidth = boxRight - boxLeft;
+			float boxHeight = boxBottom - boxTop;
+			float cornerRadius = 16.0f * scale;
+
+			ofPushStyle();
+			ofFill();
+			ofSetColor(0, 0, 0, 160); // Transparent black background (no outline)
+			ofDrawRectRounded(boxLeft, boxTop, boxWidth, boxHeight, cornerRadius);
+			ofPopStyle();
+
+			// Use the box center as the hand center so cards are vertically centered inside
+			float handCenterY = boxTop + boxHeight / 2.0f;
+			// store into a local name the code later may expect; shadowing is intentional
+			(void)handCenterY; // keep compiler happy if not otherwise used here
+		}
+
 		// How much a hovered card is lifted (pixels). Always lift upward.
 		float hoverDirection = -180.0f;
 
@@ -12953,6 +13068,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 			isBurstMenuOpen = false;
 			isTargetingBurst = true;
 			calculateTargetHighlights(pendingBurstCardIndex);
+
 			return;
 		} else if (!burstMenuRect.inside(x, y)) {
 			cancelBurst();
@@ -12970,6 +13086,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 			isDoubleHandedMenuOpen = false;
 			isTargetingDoubleHanded = true;
 			calculateTargetHighlights(pendingDoubleHandedCardIndex);
+
 			return;
 		} else if (!doubleHandedMenuRect.inside(x, y)) {
 			cancelDoubleHanded();
@@ -14468,48 +14585,13 @@ void ofApp::mousePressed(int x, int y, int button) {
 			}
 		}
 
-		// 3e. Card Selection
+		// 3e. Card clicks: click-to-select is disabled (use drag-to-play).
+		// If the player clicks a hand card, clear transient highlights and ignore the click.
 		if (button == OF_MOUSE_BUTTON_LEFT) {
 			int foundClickIndex = hoveredCardIndex;
 			if (foundClickIndex != -1) {
 				playerAction = NONE;
 				clearHighlights();
-				selectedCardIndex = (selectedCardIndex == foundClickIndex) ? -1 : foundClickIndex;
-				calculateTargetHighlights(selectedCardIndex);
-				return;
-			}
-		}
-
-		// 3f. Casting Spells (Card Selected + Click Board)
-		if (selectedCardIndex != -1 && button == OF_MOUSE_BUTTON_LEFT) {
-			ofVec2f boardPos = mouseToBoard(x, y);
-			int gridX = floor(boardPos.x), gridY = floor(boardPos.y);
-			if (gridX >= 0 && gridX < BOARD_WIDTH && gridY >= 0 && gridY < BOARD_HEIGHT && board[gridX][gridY].isTargetable) {
-				int cardIndex = selectedCardIndex;
-				std::string cardName = (cardIndex >= 0 && cardIndex < (int)players[currentPlayerIndex].hand.size())
-					? players[currentPlayerIndex].hand[cardIndex].name
-					: "";
-				int cost = (cardIndex >= 0 && cardIndex < (int)players[currentPlayerIndex].hand.size())
-					? players[currentPlayerIndex].hand[cardIndex].cost
-					: 0;
-
-				// Require drag-release to play Form cards and Amnesia; disallow selection+click for them
-				if (cardIndex >= 0 && cardIndex < (int)players[currentPlayerIndex].hand.size()) {
-					CardType ct = players[currentPlayerIndex].hand[cardIndex].type;
-					if (ct == CARD_FORM_OF_TORTOISE || ct == CARD_FORM_OF_GHOST || ct == CARD_AMNESIA) {
-						spawnFloatingText(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y), "Drag out of hand to play", ofColor::yellow);
-						selectedCardIndex = -1;
-						calculateTargetHighlights();
-						return;
-					}
-				}
-				CardPlayResult result = playCard(cardIndex, gridX, gridY);
-				if (isMultiplayer && result == CARD_PLAYED_IMMEDIATELY) {
-					players[currentPlayerIndex].ap = currentAP;
-					sendActionPacket(cardIndex, gridX, gridY, cost, 0, cardName);
-				}
-				selectedCardIndex = -1;
-				calculateTargetHighlights();
 				return;
 			}
 		}
@@ -15225,6 +15307,7 @@ void ofApp::mouseReleased(int x, int y, int button) {
 							selectedCardIndex = -1;
 							// Show highlights for the bolt immediately
 							calculateTargetHighlights(magicBoltCardIndex);
+
 							return; // Wait for next click
 						}
 
@@ -15326,6 +15409,7 @@ void ofApp::mouseReleased(int x, int y, int button) {
 							draggedCardIndex = -1;
 							selectedCardIndex = -1;
 							calculateTargetHighlights(deathCardIndex);
+
 							return;
 						}
 
@@ -15336,6 +15420,7 @@ void ofApp::mouseReleased(int x, int y, int button) {
 							draggedCardIndex = -1;
 							selectedCardIndex = -1;
 							calculateTargetHighlights(healCardIndex);
+
 							return;
 						}
 
@@ -15346,6 +15431,7 @@ void ofApp::mouseReleased(int x, int y, int button) {
 							draggedCardIndex = -1;
 							selectedCardIndex = -1;
 							calculateTargetHighlights(chainLightningCardIndex);
+
 							return;
 						}
 
@@ -15356,6 +15442,7 @@ void ofApp::mouseReleased(int x, int y, int button) {
 							draggedCardIndex = -1;
 							selectedCardIndex = -1;
 							calculateTargetHighlights(hellhoundCardIndex);
+
 							return;
 						}
 
@@ -16081,14 +16168,26 @@ void ofApp::windowResized(int w, int h) {
 		float handAreaWidth = w * 0.4f;
 
 		size_t numCards = currentPlayer.hand.size();
-		float totalCardWidths = numCards * handBaseCardWidth;
-		float padding = (numCards > 1) ? (handAreaWidth - totalCardWidths) / (numCards - 1) : 0;
+		int cardsToFit = std::max(5, (int)numCards);
+		float totalCardWidths = cardsToFit * handBaseCardWidth;
+		float padding = (cardsToFit > 1) ? (handAreaWidth - totalCardWidths) / (cardsToFit - 1) : 0;
 		padding = std::min(padding, 20.0f);
-		float totalHandWidth = (numCards * handBaseCardWidth) + ((numCards - 1) * padding);
+		float totalHandWidth = (cardsToFit * handBaseCardWidth) + ((cardsToFit - 1) * padding);
 		float startX = (w - totalHandWidth) / 2.0f;
 
+		// Compute actual spacing so the current cards are centered within the hand area
+		float totalActualCardWidths = (numCards > 0) ? (numCards * handBaseCardWidth) : 0;
+		float paddingActual = (numCards > 1) ? (handAreaWidth - totalActualCardWidths) / (numCards - 1) : 0;
+		paddingActual = std::min(paddingActual, 20.0f);
+		float totalActualHandWidth = (numCards > 0) ? ((numCards * handBaseCardWidth) + ((numCards - 1) * paddingActual)) : 0;
+		float startXActual = (w - totalActualHandWidth) / 2.0f;
+
 		for (size_t i = 0; i < numCards; i++) {
-			float cardCenterX = startX + i * (handBaseCardWidth + padding) + (handBaseCardWidth / 2.0f);
+			float paddingActualInline = (numCards > 1) ? (handAreaWidth - (numCards * handBaseCardWidth)) / (numCards - 1) : 0;
+			paddingActualInline = std::min(paddingActualInline, 20.0f);
+			float totalActualHandWidthInline = (numCards > 0) ? ((numCards * handBaseCardWidth) + ((numCards - 1) * paddingActualInline)) : 0;
+			float startXActualInline = (w - totalActualHandWidthInline) / 2.0f;
+			float cardCenterX = startXActualInline + i * (handBaseCardWidth + paddingActualInline) + (handBaseCardWidth / 2.0f);
 			currentPlayer.hand[i].targetPos = ofVec2f(cardCenterX, handCenterY);
 
 			// FORCE SNAP
@@ -16827,10 +16926,11 @@ void ofApp::drawCard(bool sendPacket) {
 		float handCenterY_now = ofGetHeight() - 130;
 		float handBaseCardWidth_now = 120;
 		float handAreaWidth_now = ofGetWidth() * 0.6f;
-		float totalCardWidths_now = numCardsNow * handBaseCardWidth_now;
-		float padding_now = (numCardsNow > 1) ? (handAreaWidth_now - totalCardWidths_now) / (numCardsNow - 1) : 0;
+		int cardsToFitNow = std::max(5, (int)numCardsNow);
+		float totalCardWidths_now = cardsToFitNow * handBaseCardWidth_now;
+		float padding_now = (cardsToFitNow > 1) ? (handAreaWidth_now - totalCardWidths_now) / (cardsToFitNow - 1) : 0;
 		padding_now = std::min(padding_now, 20.0f);
-		float totalHandWidth_now = (numCardsNow * handBaseCardWidth_now) + ((numCardsNow - 1) * padding_now);
+		float totalHandWidth_now = (cardsToFitNow * handBaseCardWidth_now) + ((cardsToFitNow - 1) * padding_now);
 		float startX_now = (ofGetWidth() - totalHandWidth_now) / 2.0f;
 		float cardCenterX_now = startX_now + (numCardsNow - 1) * (handBaseCardWidth_now + padding_now) + (handBaseCardWidth_now / 2.0f);
 		// Initialize the in-hand card visual state to final position/scale but hidden until animation completes
@@ -18910,22 +19010,45 @@ CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		currentAP -= costToPay;
 
 		// 2. Handle Replicate (BEFORE removing original from hand)
-		// If Replicate is active, we create a copy, mark it as copied,
-		// and put it in the hand immediately so it can be discarded for value.
+		// If Replicate is active, we create a copy and animate it from board center to hand
 		if (currentPlayer.isReplicatePending) {
 			Card copy = playedCard; // Copy data
 			copy.isCopied = true; // Mark as copied (Essential for eligibility)
 
-			// Init position to match the card being played for a smooth visual pop-in
-			copy.currentPos = currentPlayer.hand[cardIndex].currentPos;
-			copy.targetPos = currentPlayer.hand[cardIndex].targetPos;
-			copy.currentScale = currentPlayer.hand[cardIndex].currentScale;
+			// Create animation from board center to hand
+			DrawCardAnimation anim;
+			anim.card = copy;
+			anim.startTime = ofGetElapsedTimef();
+			anim.duration = 0.36f;
+			anim.ownerIndex = currentPlayerIndex;
+			anim.toMinionHand = false;
 
-			// Add to hand
-			currentPlayer.hand.push_back(copy);
-			currentPlayer.hand.back().currentScale = currentPlayer.hand.back().targetScale = 1.5f;
+			// Start from board center
+			glm::vec3 boardCenter = gridToWorld(3, 3); // Center of the board
+			anim.startPos = boardCenter;
+			anim.startIsScreenSpace = false;
+			anim.currentPos = glm::vec2(boardCenter.x, boardCenter.y);
+
+			// Calculate target hand position (using new hand size after adding this card)
+			size_t numCards = currentPlayer.hand.size() + 1;
+			float handCenterY = ofGetHeight() - 130;
+			float handBaseCardWidth = 120;
+			int cardsToFit = std::max(5, (int)numCards);
+			float handAreaWidth = ofGetWidth() * 0.6f;
+			float totalCardWidths = cardsToFit * handBaseCardWidth;
+			float padding = (cardsToFit > 1) ? (handAreaWidth - totalCardWidths) / (cardsToFit - 1) : 0;
+			padding = std::min(padding, 20.0f);
+			float totalHandWidth = (cardsToFit * handBaseCardWidth) + ((cardsToFit - 1) * padding);
+			float startX = (ofGetWidth() - totalHandWidth) / 2.0f;
+			float cardCenterX = startX + (numCards - 1) * (handBaseCardWidth + padding) + (handBaseCardWidth / 2.0f);
+			anim.targetPos = glm::vec2(cardCenterX, handCenterY);
+			anim.endPos = anim.startPos;
+
+			anim.currentScale = 1.0f;
+			anim.commitOnFinish = true; // This will add the card to hand when animation completes
+			activeDrawCardAnimations.push_back(anim);
+
 			currentPlayer.isReplicatePending = false;
-
 			spawnFloatingText(gridToWorld(currentPlayer.x, currentPlayer.y), "Replicated!", ofColor::cyan);
 		}
 
@@ -24158,7 +24281,9 @@ void ofApp::drawMinionManagerUI() {
 		if (isActive) {
 			ofPushStyle();
 			ofNoFill();
-			ofSetColor(ofColor::white);
+			// Yellow outline for minions, white for players
+			ofColor outlineColor = players[ui.playerIndex].isMinion ? ofColor::yellow : ofColor::white;
+			ofSetColor(outlineColor);
 			ofSetLineWidth(4 * scale);
 			ofDrawRectRounded(ui.bounds, 10 * scale);
 			ofPopStyle();
