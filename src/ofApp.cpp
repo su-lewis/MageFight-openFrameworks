@@ -10564,7 +10564,10 @@ void ofApp::drawGame() {
 			// Default: top-left corner with a small margin
 			float margin = 8.0f * scale;
 			float chatMaxWidth = 450 * scale;
-			float chatBoxHeight = isChatMinimized ? 120 * scale : 250 * scale;
+			float chatBoxHeight = isChatMinimized ? 138 * scale : 268 * scale;
+			if (!isChatMinimized && currentChatTab == ChatTab::DEBUG) {
+				chatBoxHeight = 430 * scale;
+			}
 			bool showTabs = (isChatOpen && !isChatMinimized);
 			float tabHeight = showTabs ? (25 * scale) : 0.0f;
 			float messageHeight = 18 * scale;
@@ -10702,26 +10705,22 @@ void ofApp::drawGame() {
 
 				// If chat is open, reserve space for input at bottom
 				if (isChatOpen && !isChatMinimized) {
-					contentBottom -= (inputLineCount * messageHeight + contentPadding);
+					contentBottom -= (inputLineCount * messageHeight + 2.0f * scale);
 				}
 
-				// Start drawing messages from near the top
+				// Collect messages to display (latest first)
+				std::vector<ChatMessage> messagesToDraw;
+				int maxVisible = isChatMinimized ? 5 : 12;
+				for (int i = (int)chatHistory.size() - 1; i >= 0 && (int)messagesToDraw.size() < maxVisible; i--) {
+					messagesToDraw.push_back(chatHistory[i]);
+				}
+
+				// Reverse to draw from top to bottom (latest at bottom)
+				std::reverse(messagesToDraw.begin(), messagesToDraw.end());
+
+				// Draw messages from top down
 				float messageY = contentTop + messageHeight;
-				int visibleMessages = 0;
-				int maxVisible = isChatMinimized ? 4 : 11; // Increased from 10 to 11 for full mode
-				for (int i = (int)chatHistory.size() - 1; i >= 0 && visibleMessages < maxVisible; i--) {
-					ChatMessage & msg = chatHistory[i];
-					float age = currentTime - msg.timestamp;
-
-					// Fade out messages after chatMessageLifetime seconds (unless chat is open)
-					float alpha = 255.0f;
-					if (!isChatOpen && age > chatMessageLifetime) {
-						continue; // Don't draw old messages when chat is closed
-					} else if (!isChatOpen && age > chatMessageLifetime * 0.7f) {
-						float fadeProgress = (age - chatMessageLifetime * 0.7f) / (chatMessageLifetime * 0.3f);
-						alpha = 255.0f * (1.0f - fadeProgress);
-					}
-
+				for (const auto & msg : messagesToDraw) {
 					// Stop if we've reached the content bottom
 					if (messageY + messageHeight > contentBottom) {
 						break;
@@ -10729,7 +10728,7 @@ void ofApp::drawGame() {
 
 					// Draw message text with format "Steam name: message" with word wrapping
 					ofPushStyle();
-					ofSetColor(255, 255, 255, alpha);
+					ofSetColor(255, 255, 255, 255);
 					string fullMsg = msg.playerName + ": " + msg.message;
 
 					// Word wrap the message to fit in chat box
@@ -10737,19 +10736,19 @@ void ofApp::drawGame() {
 					std::vector<string> wrappedLines = wrapText(fullMsg, maxWidth);
 
 					// Draw each line
-					for (auto it = wrappedLines.rbegin(); it != wrappedLines.rend(); ++it) {
-						uiFont.drawString(*it, chatX + 10, messageY);
+					for (const auto & line : wrappedLines) {
+						if (messageY + messageHeight > contentBottom) break;
+						uiFont.drawString(line, chatX + 10, messageY);
 						messageY += messageHeight;
-						visibleMessages++;
-						if (visibleMessages >= maxVisible || messageY > contentBottom) break;
 					}
 					ofPopStyle();
 				}
 
 				// Draw chat input box when chat is open (only in full mode)
 				if (isChatOpen && !isChatMinimized) {
-					// Input sits at bottom of content area
-					float inputStartY = contentBottom - (inputLineCount * messageHeight) + messageHeight;
+					// Keep input anchored to the bottom edge of the chat content area
+					float inputBottomY = chatY - contentPadding;
+					float inputStartY = inputBottomY - (inputLineCount - 1) * messageHeight;
 
 					// Draw input text with word wrapping
 					ofPushStyle();
@@ -10803,23 +10802,28 @@ void ofApp::drawGame() {
 				float contentPadding = 8.0f * scale;
 				float contentTop = chatY - chatBoxHeight + contentPadding;
 				float contentBottom = chatY - contentPadding;
-				float logY = contentBottom;
 				float maxWidth = chatMaxWidth - 20.0f;
 
-				for (int i = (int)gameLog.size() - 1; i >= 0; i--) {
+				// Collect log entries to display (from start, showing first entries up to visible limit)
+				int maxVisibleLogLines = isChatMinimized ? 5 : 12;
+				int lineCount = 0;
+				float logY = contentTop + messageHeight;
+
+				for (int i = 0; i < (int)gameLog.size() && lineCount < maxVisibleLogLines; i++) {
 					GameLogEntry & entry = gameLog[i];
 					std::vector<std::string> wrappedLines = wrapLogText(entry.text, maxWidth);
 
-					for (auto it = wrappedLines.rbegin(); it != wrappedLines.rend(); ++it) {
-						if (logY - messageHeight < contentTop) {
-							i = -1; // stop outer loop too
+					for (const auto & line : wrappedLines) {
+						if (logY + messageHeight > contentBottom || lineCount >= maxVisibleLogLines) {
+							i = (int)gameLog.size(); // stop outer loop
 							break;
 						}
 						ofPushStyle();
 						ofSetColor(200, 200, 200);
-						uiFont.drawString(*it, chatX + 10, logY);
+						uiFont.drawString(line, chatX + 10, logY);
 						ofPopStyle();
-						logY -= messageHeight;
+						logY += messageHeight;
+						lineCount++;
 					}
 				}
 			} else if (visibleTab == ChatTab::DEBUG) {
@@ -10830,8 +10834,16 @@ void ofApp::drawGame() {
 				float availableW = chatWindowRect.width - 2 * padding;
 				float curY = contentTop + padding;
 
-				auto drawChatDebugButton = [&](const ofRectangle & rect, const std::string & label, bool isToggle = false, bool state = false) {
-					ofSetColor(isToggle ? (state ? ofColor::green : ofColor::darkRed) : ofColor::slateGray);
+				auto drawChatDebugButton = [&](const ofRectangle & rect, const std::string & label, bool isToggle = false, bool state = false, ofColor overrideColor = ofColor()) {
+					ofColor btnColor = ofColor();
+					if (overrideColor != ofColor()) {
+						btnColor = overrideColor;
+					} else if (isToggle) {
+						btnColor = (state ? ofColor::green : ofColor::darkRed);
+					} else {
+						btnColor = ofColor::slateGray;
+					}
+					ofSetColor(btnColor);
 					ofDrawRectRounded(rect, 5.0f * scale);
 					ofSetColor(ofColor::white);
 					ofRectangle tb = uiFont.getStringBoundingBox(label, 0, 0);
@@ -10847,8 +10859,8 @@ void ofApp::drawGame() {
 				float panelW = (availableW - panelGap) * 0.5f;
 				float leftX = chatWindowRect.x + padding;
 				float rightX = leftX + panelW + panelGap;
-				float rowH = 24.0f * scale;
-				float rowGap = 4.0f * scale;
+				float rowH = 22.0f * scale;
+				float rowGap = 3.0f * scale;
 				float inPad = 4.0f * scale;
 				float btnGap = 4.0f * scale;
 				float btnW = (panelW - (2.0f * inPad) - btnGap) * 0.5f;
@@ -10870,10 +10882,10 @@ void ofApp::drawGame() {
 					debugP2PlusButtons[i].set(rightX + inPad, y, btnW, rowH);
 					debugP2MinusButtons[i].set(rightX + inPad + btnW + btnGap, y, btnW, rowH);
 
-					drawChatDebugButton(debugP1PlusButtons[i], "+" + rowLabels[i]);
-					drawChatDebugButton(debugP1MinusButtons[i], "-" + rowLabels[i]);
-					drawChatDebugButton(debugP2PlusButtons[i], "+" + rowLabels[i]);
-					drawChatDebugButton(debugP2MinusButtons[i], "-" + rowLabels[i]);
+					drawChatDebugButton(debugP1PlusButtons[i], "+" + rowLabels[i], false, false, ofColor::green);
+					drawChatDebugButton(debugP1MinusButtons[i], "-" + rowLabels[i], false, false, ofColor::red);
+					drawChatDebugButton(debugP2PlusButtons[i], "+" + rowLabels[i], false, false, ofColor::green);
+					drawChatDebugButton(debugP2MinusButtons[i], "-" + rowLabels[i], false, false, ofColor::red);
 				}
 
 				curY += rowLabels.size() * (rowH + rowGap) + (8.0f * scale);
@@ -10882,8 +10894,8 @@ void ofApp::drawGame() {
 				uiFont.drawString("General", chatWindowRect.x + padding, curY + uiFont.getLineHeight());
 				curY += uiFont.getLineHeight() + (4.0f * scale);
 
-				float gGap = 6.0f * scale;
-				float gH = 26.0f * scale;
+				float gGap = 5.0f * scale;
+				float gH = 24.0f * scale;
 				int gCols = 3;
 				float gW = (availableW - (gCols - 1) * gGap) / gCols;
 				auto setGridRect = [&](ofRectangle & r, int idx) {
@@ -11934,7 +11946,10 @@ void ofApp::mousePressed(int x, int y, int button) {
 			// Check if clicking inside chat window
 			if (chatWindowRect.inside(x, y)) {
 				float scale = ofGetHeight() / 1080.0f;
-				float chatBoxHeight = isChatMinimized ? 120 * scale : 250 * scale;
+				float chatBoxHeight = isChatMinimized ? 138 * scale : 268 * scale;
+				if (!isChatMinimized && currentChatTab == ChatTab::DEBUG) {
+					chatBoxHeight = 430 * scale;
+				}
 				bool showTabs = (isChatOpen && !isChatMinimized);
 				float tabHeight = showTabs ? (25 * scale) : 0.0f;
 				float tabWidth = 80 * scale;
@@ -11961,9 +11976,13 @@ void ofApp::mousePressed(int x, int y, int button) {
 						return;
 					}
 				}
-				// Clicking inside chat window keeps it open
+				// Clicking inside chat window keeps it open. If DEBUG tab is active
+				// and chat is fully open, allow processing to continue so the
+				// DEBUG-specific click handler (below) can handle button presses.
 				lastChatInteractionTime = ofGetElapsedTimef();
-				return;
+				if (!(isChatOpen && !isChatMinimized && currentChatTab == ChatTab::DEBUG)) {
+					return;
+				}
 			} else if (isChatOpen) {
 				// Clicking outside chat window closes it
 				isChatOpen = false;
@@ -12231,7 +12250,10 @@ void ofApp::mousePressed(int x, int y, int button) {
 
 		float topTextBottom = ty + lineH;
 		if (!instr.empty()) topTextBottom = instrTy + lineH;
-		if (!classTierText.empty()) topTextBottom = classTy + lineH;
+		// Keep draft card/button layout stable across stage transitions by reserving
+		// the class-tier line space for setup drafts, even when class text is empty
+		// (e.g. transient stage after final accept before leaving draft screen).
+		if (!isInGameDraft) topTextBottom = classTy + lineH;
 
 		float startY = topTextBottom + 24.0f; // This is the TRUE visual Y position of the cards
 		// ------------------------------
@@ -16298,16 +16320,8 @@ void ofApp::keyReleased(int key) {
 
 	// 2c. Debug Hotkeys (when debug mode is enabled)
 	if (isDebugMode && currentState == STATE_GAMEPLAY) {
-		// 'u' - Toggle Unlimited AP (keeps checksums ON for realistic testing)
-		if (key == 'u' || key == 'U') {
-			hasUnlimitedAP = !hasUnlimitedAP;
-			ofLogNotice("Debug") << "Unlimited AP: " << (hasUnlimitedAP ? "ON (checksums still active)" : "OFF");
-			addGameLog("Unlimited AP: " + std::string(hasUnlimitedAP ? "ON (checksums still active)" : "OFF"));
-			if (isMultiplayer && isHost()) {
-				sendSnapshotToClient(); // Sync state
-			}
-			return;
-		}
+		// 'u' keybind removed to avoid accidental toggles; use the
+		// Debug panel's "Unlimited AP" button to toggle instead.
 
 		// 'c' - Open Card Spawner
 		if (key == 'c' || key == 'C') {
@@ -25407,9 +25421,9 @@ void ofApp::drawDraftScreen() {
 	// frame-to-frame shifts caused by glyph bounding-box variation.
 	float topTextBottom = ty + lineH;
 	if (!instr.empty()) topTextBottom = instrTy + lineH;
-	if (!classTierText.empty()) {
-		topTextBottom = classTy + lineH;
-	}
+	// Keep draft card/button layout stable across stage transitions by reserving
+	// class-tier line space for setup drafts, even when class text is empty.
+	if (!isInGameDraft) topTextBottom = classTy + lineH;
 	float startY = topTextBottom + 24.0f; // fixed padding below text
 
 	// Throttled debug: if we're in draft state but have no options, log mapping once per second
@@ -25542,7 +25556,7 @@ void ofApp::drawDraftScreen() {
 		if (!players.empty() && players[draftPlayerIndex].playerID != myLocalPlayerID) showAccept = false;
 	}
 
-	if (showAccept) {
+	if (showAccept && !draftOptions.empty()) {
 		float btnW = std::clamp(220.0f * uiScale, 140.0f, 320.0f);
 		float btnH = std::clamp(60.0f * uiScale, 40.0f, 96.0f);
 		float btnX = (ofGetWidth() - btnW) / 2.0f;
