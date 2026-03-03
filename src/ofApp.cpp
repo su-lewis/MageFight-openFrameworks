@@ -2913,6 +2913,12 @@ void ofApp::updateGame() {
 		// Minion UI region: occupy the vertical space from near top down to just above the local discard/AP area
 		float p0_topLimitY = 20 * scale; // near top of screen
 		float p0_bottomLimitY = std::max(p0_topLimitY + 50.0f * scale, p0_discardRect.y - (40.0f * scale)); // stop above local discard/AP
+		// Avoid overlapping the AP counter: estimate AP top and clamp bottom limit
+		{
+			float estimatedAPHeight = (titleFont.getLineHeight() * scale) + (20.0f * scale);
+			float estimatedAPTop = p0_discardRect.y - (10.0f * scale) - estimatedAPHeight;
+			p0_bottomLimitY = std::min(p0_bottomLimitY, estimatedAPTop - (6.0f * scale));
+		}
 
 		// Player 1 (right side): Below P1's AP counter (and luck text), above P0's HP bar
 		// P1 AP center is at: 20 + cardHeight + 20 + cardHeight + 60 = ~546 * scale
@@ -2920,6 +2926,12 @@ void ofApp::updateGame() {
 		// Opponent minion region mirrored on right side: top area down to just above opponent discard/AP
 		float p1_topLimitY = 20 * scale;
 		float p1_bottomLimitY = std::max(p1_topLimitY + 50.0f * scale, p1_discardRect.y - (40.0f * scale));
+		// Mirror for opponent AP box
+		{
+			float estimatedAPHeight = (titleFont.getLineHeight() * scale) + (20.0f * scale);
+			float estimatedAPTop = p1_discardRect.y - (10.0f * scale) - estimatedAPHeight;
+			p1_bottomLimitY = std::min(p1_bottomLimitY, estimatedAPTop - (6.0f * scale));
+		}
 
 		// 2. SEPARATE MINIONS BY OWNER (Accounting for perspective in multiplayer)
 		std::vector<int> p0_minionIndices;
@@ -10710,7 +10722,7 @@ void ofApp::drawGame() {
 
 				// Collect messages to display (latest first)
 				std::vector<ChatMessage> messagesToDraw;
-				int maxVisible = isChatMinimized ? 6 : 12;
+				int maxVisible = isChatMinimized ? 7 : 12;
 				for (int i = (int)chatHistory.size() - 1; i >= 0 && (int)messagesToDraw.size() < maxVisible; i--) {
 					messagesToDraw.push_back(chatHistory[i]);
 				}
