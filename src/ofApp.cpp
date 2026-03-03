@@ -12858,9 +12858,9 @@ void ofApp::mousePressed(int x, int y, int button) {
 				currentState = STATE_DRAFTING;
 			}
 			currentAP -= cost;
-				Card trainCard = p.hand[cardIndex];
-				finishPlayCard(p, trainCard, cardIndex);
-				updatePlayerAP(p, currentAP);
+			Card trainCard = p.hand[cardIndex];
+			finishPlayCard(p, trainCard, cardIndex);
+			updatePlayerAP(p, currentAP);
 			updatePlayerAP(players[currentPlayerIndex], currentAP);
 
 			// Notify opponent after local resolution so packet reflects post-play AP
@@ -18301,10 +18301,8 @@ CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 
 		// Cleanup Logic
 		currentAP -= costToPay;
-		currentPlayer.playedCardsPile.push_back(playedCard);
-		applyReplicateCopyToHand(currentPlayer, playedCard);
+		finishPlayCard(currentPlayer, playedCard, cardIndex);
 		currentPlayer.cardsPlayedThisTurn.push_back(playedCard.type);
-		currentPlayer.hand.erase(currentPlayer.hand.begin() + cardIndex);
 		completeCardPlayAnimation(playedCard, currentPlayerIndex);
 
 		updatePlayerAP(currentPlayer, currentAP);
@@ -18323,10 +18321,8 @@ CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 
 		// Cleanup
 		currentAP -= costToPay;
-		currentPlayer.playedCardsPile.push_back(playedCard);
-		applyReplicateCopyToHand(currentPlayer, playedCard);
+		finishPlayCard(currentPlayer, playedCard, cardIndex);
 		currentPlayer.cardsPlayedThisTurn.push_back(playedCard.type);
-		currentPlayer.hand.erase(currentPlayer.hand.begin() + cardIndex);
 		completeCardPlayAnimation(playedCard, currentPlayerIndex);
 
 		updatePlayerAP(currentPlayer, currentAP);
