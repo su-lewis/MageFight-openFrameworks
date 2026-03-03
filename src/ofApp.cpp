@@ -5665,22 +5665,38 @@ void ofApp::updateGame() {
 				} else {
 					// Regular dice - show results for ALL dice types (damage, HP, healing, range, etc.)
 					if (groupRolls.size() == 1) {
-						resultText = "Rolled " + ofToString(roll.result);
+						int rawRoll = roll.rawResult;
+						int finalRoll = roll.result;
+						int luckApplied = finalRoll - rawRoll;
+
+						if (luckApplied > 0) {
+							resultText = "Rolled " + ofToString(rawRoll) + " + " + ofToString(luckApplied) + " (Luck) = " + ofToString(finalRoll);
+						} else {
+							resultText = "Rolled " + ofToString(finalRoll);
+						}
 					} else {
 						// Multiple dice - show individual rolls in order, then total
 						if (checkPurpose == PURPOSE_EARTHQUAKE_DISTANCE || checkPurpose == PURPOSE_EARTHQUAKE_DAMAGE) {
 							// FIX: Do not sum or show global UI text for individual earthquake rolls
 							resultText = "";
 						} else {
+							int rawTotal = 0;
+							int finalTotal = 0;
 							resultText = "Rolled ";
 							for (size_t i = 0; i < groupRolls.size(); i++) {
 								resultText += ofToString(groupRolls[i]->result);
-								total += groupRolls[i]->result;
+								finalTotal += groupRolls[i]->result;
+								rawTotal += groupRolls[i]->rawResult;
 								if (i < groupRolls.size() - 1) {
 									resultText += " + ";
 								}
 							}
-							resultText += " = " + ofToString(total);
+							int luckApplied = finalTotal - rawTotal;
+							if (luckApplied > 0) {
+								resultText += " = " + ofToString(rawTotal) + " + " + ofToString(luckApplied) + " (Luck) = " + ofToString(finalTotal);
+							} else {
+								resultText += " = " + ofToString(finalTotal);
+							}
 						}
 					}
 				}
@@ -10666,7 +10682,7 @@ void ofApp::drawGame() {
 
 	// --- HEAL INSTRUCTION ---
 	if (isTargetingHeal) {
-		string msg = "Select Target to Heal (Self or Ally)";
+		string msg = "Select unit to heal";
 		ofRectangle bbox = titleFont.getStringBoundingBox(msg, 0, 0);
 		float tx = (ofGetWidth() / 2.0f) - (bbox.width / 2.0f);
 		float ty = ofGetHeight() * 0.25f;
@@ -16456,6 +16472,38 @@ void ofApp::continueNewTurn() {
 		ofLogNotice("Backup") << "Host: Proactively saved Turn-Start Master Backup at turn " << globalTurnCounter;
 	}
 
+	// Assistant Adjacency Bonus: Give minions/players +1 luck per adjacent friendly Assistant
+	if (startingPlayer.health > 0) {
+		int rollerOwnerID = startingPlayer.isMinion ? startingPlayer.ownerID : startingPlayer.playerID;
+		int rx = startingPlayer.x;
+		int ry = startingPlayer.y;
+
+		// Check 4 orthogonally adjacent tiles for friendly Assistants
+		int adjacentAssistantCount = 0;
+		int adjacentOffsets[4][2] = { { 0, -1 }, { 0, 1 }, { -1, 0 }, { 1, 0 } }; // up, down, left, right
+		for (int i = 0; i < 4; i++) {
+			int nx = rx + adjacentOffsets[i][0];
+			int ny = ry + adjacentOffsets[i][1];
+			if (nx < 0 || nx >= BOARD_SIZE || ny < 0 || ny >= BOARD_SIZE) continue;
+
+			// Find unit at this position
+			for (size_t j = 0; j < players.size(); j++) {
+				Player & other = players[j];
+				if (other.x == nx && other.y == ny && other.health > 0 && other.isAssistant) {
+					// Check if it's owned by the same player
+					int assistantOwnerID = other.ownerID;
+					if (assistantOwnerID == rollerOwnerID) {
+						adjacentAssistantCount++;
+						break; // Only count one Assistant per direction
+					}
+				}
+			}
+		}
+
+		// Update luck: baseLuck + Assistant adjacency bonus
+		startingPlayer.luck = startingPlayer.baseLuck + adjacentAssistantCount;
+	}
+
 	// Wolf AP: 1d10
 	if (startingPlayer.isWolf) {
 		lastAPDiceNum = 1;
@@ -16860,6 +16908,7 @@ CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 	// --- CASE: FOUR-LEAF CLOVER ---
 	case CARD_FOUR_LEAF_CLOVER: {
 		// Normal TARGET_SELF behavior: apply to current player regardless of release coords
+		currentPlayer.baseLuck += 1;
 		currentPlayer.luck += 1;
 		spawnFloatingText(gridToWorld(currentPlayer.x, currentPlayer.y), "+1 Luck!", ofColor::green);
 		playedSuccessfully = true;
@@ -17360,16 +17409,6 @@ CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 			}
 		}
 		if (targetIndex == -1) break;
-
-		// Friendly Check (Cannot heal enemies)
-		Player * target = getPlayer(targetIndex);
-		int casterOwner = currentPlayer.isMinion ? currentPlayer.ownerID : currentPlayer.playerID;
-		int targetOwner = target->isMinion ? target->ownerID : target->playerID;
-
-		if (casterOwner != targetOwner) {
-			ofLogNotice("Heal") << "Cannot heal enemies!";
-			break;
-		}
 
 		// Apply
 		pendingHealTargetIndex = targetIndex;
@@ -19028,6 +19067,7 @@ CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		}
 
 		// Apply luck to the unit that played the card (even if it's 0)
+		currentPlayer.baseLuck += skeletonCount;
 		currentPlayer.luck += skeletonCount;
 
 		if (skeletonCount > 0) {
@@ -19348,15 +19388,6 @@ CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 			}
 		}
 		if (targetIndex == -1) break;
-
-		// Friendly Check
-		Player * target = getPlayer(targetIndex);
-		int casterOwner = currentPlayer.isMinion ? currentPlayer.ownerID : currentPlayer.playerID;
-		int targetOwner = target->isMinion ? target->ownerID : target->playerID;
-		if (casterOwner != targetOwner) {
-			ofLogNotice("Heal") << "Cannot heal enemies!";
-			break;
-		}
 
 		// Start Dice Roll
 		pendingHealTargetIndex = targetIndex;
@@ -20272,6 +20303,9 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 						board[x][y].minRollRequired = minRoll;
 						board[x][y].hitChance = hitChance;
 					}
+				} else if ((card.type == CARD_HEAL || card.type == CARD_LESSER_HEAL) && info.reason == INVALID_SELF) {
+					// Special case: Heal and Lesser Heal can target the caster's own tile
+					isPreview = true;
 				}
 
 				// --- Determine Green Outline (is it a valid final target?) ---
@@ -20308,10 +20342,19 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 				}
 				// --- HEAL / LESSER HEAL / DEATH LOGIC ---
 				else if (card.type == CARD_HEAL || card.type == CARD_LESSER_HEAL || card.type == CARD_DEATH) {
-					// Must target a unit (Self included for Heal)
+					// Heal/Lesser Heal can target self or allies. Death only targets other units.
 					// Only allow clicking if the tile is also a red preview (LOS & not a wall)
-					if (isPreview && isOccupied) {
-						canBeClicked = true;
+					bool isSelfTile = (x == (int)casterPos.x && y == (int)casterPos.y);
+					if (card.type == CARD_DEATH) {
+						// Death must target a different unit
+						if (isPreview && isOccupied && !isSelfTile) {
+							canBeClicked = true;
+						}
+					} else {
+						// Heal and Lesser Heal can target self or any unit
+						if (isPreview && (isOccupied || isSelfTile)) {
+							canBeClicked = true;
+						}
 					}
 				}
 				// --- MAGIC BOLT LOGIC ---
@@ -20741,7 +20784,7 @@ std::string ofApp::buildSnapshotString() {
 		   << p.playerID << "\t" << p.x << "\t" << p.y << "\t"
 		   << p.health << "\t" << p.maxHealth << "\t" << p.block << "\t" << p.ward << "\t"
 		   << p.fortification << "\t" << p.barrier << "\t" << p.holyBlock << "\t" << p.luck << "\t"
-		   << p.bonusTurns << "\t" << p.facingAngle << "\t"
+		   << p.baseLuck << "\t" << p.bonusTurns << "\t" << p.facingAngle << "\t"
 		   << (p.onFire ? 1 : 0) << "\t" << (p.hasRegeneration ? 1 : 0) << "\t"
 		   << p.nextTurnAPBonus << "\t" << p.shocksPlayedThisTurn << "\t"
 		   << (p.flurryOfFistsActive ? 1 : 0) << "\t" << (p.isParalyzed ? 1 : 0) << "\t"
@@ -20938,6 +20981,7 @@ void ofApp::applySnapshotString(const std::string & data) {
 				p.barrier = std::stoi(parts[idx++]);
 				p.holyBlock = std::stoi(parts[idx++]);
 				p.luck = std::stoi(parts[idx++]);
+				p.baseLuck = std::stoi(parts[idx++]);
 				p.bonusTurns = std::stoi(parts[idx++]);
 				p.facingAngle = std::stof(parts[idx++]);
 				p.onFire = (std::stoi(parts[idx++]) != 0);

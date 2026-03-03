@@ -337,6 +337,7 @@ struct Player {
 	int barrier = 0;
 	int holyBlock = 0;
 	int luck = 0;
+	int baseLuck = 0; // Base luck from cards/effects (excluding Assistant bonus)
 	int bonusTurns = 0;
 	int ap = 0; // Action Points for this player
 	int playerID = 0;
@@ -355,6 +356,7 @@ struct Player {
 	bool nextAttackAddPoison = false; // Buff from Add Poison card
 	bool nextTurnD10AP = false;
 	bool nextTurnExtraDraw = false;
+	int nextTurnExtraDrawSetOnCycle = -1; // Track when the extra draw flag was set
 	bool isReplicatePending = false;
 	bool nextTurnBonusDiceFromMinions = false;
 	int strengthenElementsTurnsRemaining = 0;
