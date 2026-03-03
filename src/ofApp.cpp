@@ -10710,7 +10710,7 @@ void ofApp::drawGame() {
 
 				// Collect messages to display (latest first)
 				std::vector<ChatMessage> messagesToDraw;
-				int maxVisible = isChatMinimized ? 5 : 12;
+				int maxVisible = isChatMinimized ? 6 : 12;
 				for (int i = (int)chatHistory.size() - 1; i >= 0 && (int)messagesToDraw.size() < maxVisible; i--) {
 					messagesToDraw.push_back(chatHistory[i]);
 				}
@@ -10805,7 +10805,7 @@ void ofApp::drawGame() {
 				float maxWidth = chatMaxWidth - 20.0f;
 
 				// Collect log entries to display (from start, showing first entries up to visible limit)
-				int maxVisibleLogLines = isChatMinimized ? 5 : 12;
+				int maxVisibleLogLines = isChatMinimized ? 6 : 12;
 				int lineCount = 0;
 				float logY = contentTop + messageHeight;
 
