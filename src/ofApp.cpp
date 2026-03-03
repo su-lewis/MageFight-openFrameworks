@@ -59,6 +59,86 @@ void ofApp::applyReplicateCopyToHand(Player & caster, const Card & playedCard) {
 	caster.isReplicatePending = (duplicateCard.type == CARD_REPLICATE);
 }
 //--------------------------------------------------------------
+void ofApp::finishPlayCard(Player & caster, const Card & playedCard, int handIndex) {
+	// Add card to played pile
+	caster.playedCardsPile.push_back(playedCard);
+	// Apply replicate copy if pending
+	applyReplicateCopyToHand(caster, playedCard);
+	// Remove from hand
+	if (handIndex >= 0 && handIndex < (int)caster.hand.size()) {
+		caster.hand.erase(caster.hand.begin() + handIndex);
+	}
+}
+//--------------------------------------------------------------
+void ofApp::updatePlayerAP(Player & player, int newAP) {
+	// Find this player in the players vector and update AP
+	for (auto & p : players) {
+		if (&p == &player) {
+			p.ap = newAP;
+			return;
+		}
+	}
+}
+//--------------------------------------------------------------
+void ofApp::completeCardPlayAnimation(const Card & playedCard, int playerIndex) {
+	// Display the played card animation
+	createCardDisplay(playedCard, playerIndex);
+	// Invalidate targeting highlights
+	invalidateTargetCache();
+	// Track cards played this turn
+	if (playerIndex >= 0 && playerIndex < (int)players.size()) {
+		players[playerIndex].cardsPlayedThisTurn.push_back(playedCard.type);
+	}
+	// Update AP display for current player
+	if (playerIndex >= 0 && playerIndex < (int)players.size()) {
+		players[playerIndex].ap = currentAP;
+	}
+}
+//--------------------------------------------------------------
+int ofApp::applyDamageWithMitigations(Player & target, int baseDamage, DamageType type, int attackerIndex) {
+	int dmg = baseDamage;
+	// Apply barrier mitigation
+	int barrierDmg = std::min(target.barrier, dmg);
+	target.barrier -= barrierDmg;
+	dmg -= barrierDmg;
+	// Apply ward mitigation
+	if (dmg > 0) {
+		int wardDmg = std::min(target.ward, dmg);
+		target.ward -= wardDmg;
+		dmg -= wardDmg;
+	}
+	// Apply remaining damage to health
+	if (dmg > 0) {
+		target.health -= dmg;
+	}
+	return dmg; // Return actual damage dealt to health
+}
+//--------------------------------------------------------------
+Player ofApp::createSummonedMinion(CardType type, int targetX, int targetY, const Player & caster, int turnCounter, int & nextSummonID) {
+	Player minion;
+	minion.playerID = nextSummonID++;
+	minion.x = targetX;
+	minion.y = targetY;
+	minion.isMinion = true;
+	minion.isWallUnit = false;
+	minion.ownerID = caster.isMinion ? caster.ownerID : caster.playerID;
+	minion.summonedOnTurnCycle = turnCounter;
+	minion.summonOrder = ++nextSummonOrder;
+	// Card-specific setup happens after this call
+	return minion;
+}
+//--------------------------------------------------------------
+void ofApp::resolveMenuCardChoice(CardType cardType, int choiceIndex, Player & caster, Player * target) {
+	// This is a dispatcher stub; specific menu card logic remains in playCard handlers
+	// but this provides a unified entry point for future refactoring of menu resolution
+	(void)cardType;
+	(void)choiceIndex;
+	(void)caster;
+	(void)target;
+	// Specific handlers (Wisdom Boon, Burst, Double Handed, Dispel) will call this
+	// and it can be expanded to consolidate common menu logic in the future.
+}
+//--------------------------------------------------------------
 void ofApp::drawMinionCard(int minionIndex, int ownerIndex) {
 	// Safety checks
 	if (minionIndex < 0 || minionIndex >= (int)players.size()) return;
@@ -12819,28 +12899,16 @@ void ofApp::mousePressed(int x, int y, int button) {
 				target->block += effectValue;
 				spawnFloatingText(targetPos, "+" + ofToString(effectValue) + " Block", ofColor::gray);
 			} else {
-				int dmg = effectValue;
-				int barrierDmg = std::min(target->barrier, dmg);
-				target->barrier -= barrierDmg;
-				dmg -= barrierDmg;
-				if (dmg > 0) {
-					int wardDmg = std::min(target->ward, dmg);
-					target->ward -= wardDmg;
-					dmg -= wardDmg;
-				}
-				if (dmg > 0) {
-					target->health -= dmg;
-					spawnFloatingText(targetPos, "-" + ofToString(dmg) + " Magic", ofColor::red);
+				int dmgDealt = applyDamageWithMitigations(*target, effectValue, DAMAGE_MAGIC, currentPlayerIndex);
+				if (dmgDealt > 0) {
+					spawnFloatingText(targetPos, "-" + ofToString(dmgDealt) + " Magic", ofColor::red);
 				} else {
 					spawnFloatingText(targetPos, "Absorbed", ofColor::gray);
 				}
 			}
-			currentAP -= cost;
-			if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) players[currentPlayerIndex].ap = currentAP;
+			updatePlayerAP(caster, currentAP);
 			Card playedCard = caster.hand[cardIndex];
-			caster.playedCardsPile.push_back(playedCard);
-			applyReplicateCopyToHand(caster, playedCard);
-			caster.hand.erase(caster.hand.begin() + pendingWisdomBoonCardIndex);
+			finishPlayCard(caster, playedCard, pendingWisdomBoonCardIndex);
 			if (isSelfTarget) {
 				tryTriggerShellSpike();
 			}
@@ -13060,11 +13128,9 @@ void ofApp::mousePressed(int x, int y, int button) {
 			// Inform opponent of the card play in multiplayer so host/client AP stays in sync
 			// Consume AP and discard card now, then notify opponent
 			currentAP -= amnesiaCard.cost;
-			caster.playedCardsPile.push_back(amnesiaCard);
-			applyReplicateCopyToHand(caster, amnesiaCard);
-			caster.hand.erase(caster.hand.begin() + pendingAmnesiaCardIndex);
+			finishPlayCard(caster, amnesiaCard, pendingAmnesiaCardIndex);
 			// Sync AP so UI reflects the spent AP immediately
-			if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) players[currentPlayerIndex].ap = currentAP;
+			updatePlayerAP(caster, currentAP);
 			if (isMultiplayer) {
 				sendActionPacket(pendingAmnesiaCardIndex, -1, -1, amnesiaCard.cost, 0, amnesiaCard.name);
 			}
@@ -13656,9 +13722,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 									if (chooser.hand[hi].type == CARD_AMNESIA) {
 										Card amCard = chooser.hand[hi];
 										int amCost = amCard.cost;
-										chooser.playedCardsPile.push_back(amCard);
-										applyReplicateCopyToHand(chooser, amCard);
-										chooser.hand.erase(chooser.hand.begin() + hi);
+										finishPlayCard(chooser, amCard, hi);
 										// Adjust AP for chooser (currentAP if they're current player)
 										if (chooserIdx == currentPlayerIndex) {
 											currentAP -= amCost;
@@ -17482,19 +17546,9 @@ CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		// Handle Replicate
 		applyReplicateCopyToHand(currentPlayer, playedCard);
 
-		currentPlayer.cardsPlayedThisTurn.push_back(playedCard.type);
 		currentPlayer.hand.erase(currentPlayer.hand.begin() + cardIndex);
-		ofLogNotice("Summon") << "RAISE_DEAD: Hand size AFTER erase = " << currentPlayer.hand.size();
-		{
-			// Use centralized helper so local-player displays are omitted
-			createCardDisplay(playedCard, currentPlayerIndex);
-		}
-		invalidateTargetCache();
-		// -----------------------------
-
-		// We set this to false because we handled the cleanup manually above.
-		// We don't want the bottom block to run again.
-		if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) players[currentPlayerIndex].ap = currentAP;
+		completeCardPlayAnimation(playedCard, currentPlayerIndex);
+		updatePlayerAP(currentPlayer, currentAP);
 		return CARD_PLAYED_IMMEDIATELY;
 	}
 
@@ -17577,11 +17631,7 @@ CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		currentPlayer.cardsPlayedThisTurn.push_back(playedCard.type);
 		currentPlayer.hand.erase(currentPlayer.hand.begin() + cardIndex);
 
-		{
-			// Use centralized helper so local-player displays are omitted
-			createCardDisplay(playedCard, currentPlayerIndex);
-		}
-		invalidateTargetCache();
+		completeCardPlayAnimation(playedCard, currentPlayerIndex);
 		// --- CRITICAL FIX END ---
 
 		// 4. Add to Board (Now safe to resize vector)
@@ -17673,10 +17723,8 @@ CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		if (isMultiplayer) activePlayedCardAnimations.push_back(cardAnim);
 
 		applyReplicateCopyToHand(currentPlayer, playedCard);
-		currentPlayer.cardsPlayedThisTurn.push_back(playedCard.type);
 		currentPlayer.hand.erase(currentPlayer.hand.begin() + cardIndex);
-		createCardDisplay(playedCard, currentPlayerIndex);
-		invalidateTargetCache();
+		completeCardPlayAnimation(playedCard, currentPlayerIndex);
 
 		board[targetX][targetY].hasPlayer = true;
 		players.push_back(minion);
@@ -17775,8 +17823,7 @@ CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		applyReplicateCopyToHand(currentPlayer, playedCard);
 		currentPlayer.cardsPlayedThisTurn.push_back(playedCard.type);
 		currentPlayer.hand.erase(currentPlayer.hand.begin() + cardIndex);
-		createCardDisplay(playedCard, currentPlayerIndex);
-		invalidateTargetCache();
+		completeCardPlayAnimation(playedCard, currentPlayerIndex);
 
 		board[targetX][targetY].hasPlayer = true;
 		players.push_back(minion);
@@ -17956,8 +18003,7 @@ CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		currentPlayer.cardsPlayedThisTurn.push_back(playedCard.type); // Track history
 		currentPlayer.hand.erase(currentPlayer.hand.begin() + cardIndex);
 
-		createCardDisplay(playedCard, currentPlayerIndex);
-		invalidateTargetCache();
+		completeCardPlayAnimation(playedCard, currentPlayerIndex);
 		// --- CRASH FIX END ---
 
 		// 5. Add to board
@@ -18098,10 +18144,8 @@ CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		currentAP -= costToPay;
 		currentPlayer.playedCardsPile.push_back(playedCard);
 		applyReplicateCopyToHand(currentPlayer, playedCard);
-		currentPlayer.cardsPlayedThisTurn.push_back(playedCard.type);
 		currentPlayer.hand.erase(currentPlayer.hand.begin() + cardIndex);
-		createCardDisplay(playedCard, currentPlayerIndex);
-		invalidateTargetCache();
+		completeCardPlayAnimation(playedCard, currentPlayerIndex);
 		// --- CRASH FIX END ---
 
 		// Add minion to players
@@ -18179,9 +18223,7 @@ CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 
 		// 2. Pay Cost & Cleanup Hand
 		currentAP -= costToPay;
-		currentPlayer.playedCardsPile.push_back(playedCard);
-		applyReplicateCopyToHand(currentPlayer, playedCard);
-		currentPlayer.hand.erase(currentPlayer.hand.begin() + cardIndex);
+		finishPlayCard(currentPlayer, playedCard, cardIndex);
 
 		// 3. Setup State for Wolf #1
 		wolfPlacementSourceX = currentPlayer.x;
@@ -18225,9 +18267,7 @@ CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 
 		// 2. Pay Cost & Cleanup Hand
 		currentAP -= costToPay;
-		currentPlayer.playedCardsPile.push_back(playedCard);
-		applyReplicateCopyToHand(currentPlayer, playedCard);
-		currentPlayer.hand.erase(currentPlayer.hand.begin() + cardIndex);
+		finishPlayCard(currentPlayer, playedCard, cardIndex);
 
 		// 3. Setup State for Kobold roll and placement
 		koboldPlacementSourceX = currentPlayer.x;
@@ -18270,10 +18310,9 @@ CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		applyReplicateCopyToHand(currentPlayer, playedCard);
 		currentPlayer.cardsPlayedThisTurn.push_back(playedCard.type);
 		currentPlayer.hand.erase(currentPlayer.hand.begin() + cardIndex);
-		createCardDisplay(playedCard, currentPlayerIndex);
-		invalidateTargetCache();
+		completeCardPlayAnimation(playedCard, currentPlayerIndex);
 
-		if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) players[currentPlayerIndex].ap = currentAP;
+		updatePlayerAP(currentPlayer, currentAP);
 		return CARD_PLAYED_IMMEDIATELY; // Prevent double cleanup
 	}
 
@@ -18293,10 +18332,9 @@ CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		applyReplicateCopyToHand(currentPlayer, playedCard);
 		currentPlayer.cardsPlayedThisTurn.push_back(playedCard.type);
 		currentPlayer.hand.erase(currentPlayer.hand.begin() + cardIndex);
-		createCardDisplay(playedCard, currentPlayerIndex);
-		invalidateTargetCache();
+		completeCardPlayAnimation(playedCard, currentPlayerIndex);
 
-		if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) players[currentPlayerIndex].ap = currentAP;
+		updatePlayerAP(currentPlayer, currentAP);
 		return CARD_PLAYED_IMMEDIATELY;
 	}
 
@@ -18620,16 +18658,16 @@ CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		// Notify clients that a form is being entered (host authoritative)
 		if (isMultiplayer && isHost()) sendCardActionBegin(CARD_FORM_OF_TORTOISE, currentPlayerIndex, -1, -1, 0, 0, 0, 0, "Form of Tortoise");
 
-		// Consume AP and remove the form card from hand (keep it in-play via createCardDisplay)
+		// Consume AP and remove the form card from hand (keep it in-play via completeCardPlayAnimation)
 		currentAP -= costToPay;
 		if (cardIndex >= 0 && cardIndex < (int)currentPlayer.hand.size()) {
 			currentPlayer.hand.erase(currentPlayer.hand.begin() + cardIndex);
 		}
-		createCardDisplay(playedCard, currentPlayerIndex);
+		completeCardPlayAnimation(playedCard, currentPlayerIndex);
 		invalidateTargetCache();
 		// Track play history
 		currentPlayer.cardsPlayedThisTurn.push_back(playedCard.type);
-		if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) players[currentPlayerIndex].ap = currentAP;
+		updatePlayerAP(currentPlayer, currentAP);
 		return CARD_PLAYED_IMMEDIATELY; // Skip normal cleanup since we handled AP and removal
 	}
 
@@ -18693,13 +18731,12 @@ CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 
 		currentAP -= costToPay;
 		currentPlayer.hand.erase(currentPlayer.hand.begin() + cardIndex);
-		createCardDisplay(playedCard, currentPlayerIndex);
-		invalidateTargetCache();
+		completeCardPlayAnimation(playedCard, currentPlayerIndex);
 
 		// Track play history
 		currentPlayer.cardsPlayedThisTurn.push_back(playedCard.type);
 
-		if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) players[currentPlayerIndex].ap = currentAP;
+		updatePlayerAP(currentPlayer, currentAP);
 		return CARD_PLAYED_IMMEDIATELY; // Skip standard cleanup
 	}
 
@@ -19623,15 +19660,9 @@ CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		}
 		// -----------------------------------
 
-		currentPlayer.playedCardsPile.push_back(playedCard);
-
-		applyReplicateCopyToHand(currentPlayer, playedCard);
-
-		currentPlayer.hand.erase(currentPlayer.hand.begin() + cardIndex);
-		createCardDisplay(playedCard, currentPlayerIndex);
-		invalidateTargetCache();
-		currentPlayer.cardsPlayedThisTurn.push_back(playedCard.type);
-		if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) players[currentPlayerIndex].ap = currentAP;
+		finishPlayCard(currentPlayer, playedCard, cardIndex);
+		completeCardPlayAnimation(playedCard, currentPlayerIndex);
+		updatePlayerAP(currentPlayer, currentAP);
 		return CARD_PLAYED_IMMEDIATELY;
 	}
 
@@ -27887,9 +27918,7 @@ void ofApp::executeOpponentCardPlay(const ActionPacket & pkt) {
 		}
 
 		currentAP -= cardDef.cost;
-		opponentPlayer.playedCardsPile.push_back(cardDef);
-		applyReplicateCopyToHand(opponentPlayer, cardDef);
-		opponentPlayer.hand.erase(opponentPlayer.hand.begin() + tempCardIndex);
+		finishPlayCard(opponentPlayer, cardDef, tempCardIndex);
 		opponentPlayer.ap = pkt.updatedAP;
 
 		if (savedCurrentPlayerIndex == opponentPlayerIndex) {

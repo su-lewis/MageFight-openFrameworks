@@ -607,6 +607,12 @@ private:
 	void drawCard(bool sendPacket = true);
 	CardPlayResult playCard(int cardIndex, int targetX, int targetY);
 	void applyReplicateCopyToHand(Player & caster, const Card & playedCard);
+	void finishPlayCard(Player & caster, const Card & playedCard, int handIndex);
+	void completeCardPlayAnimation(const Card & playedCard, int playerIndex);
+	int applyDamageWithMitigations(Player & target, int baseDamage, DamageType type, int attackerIndex);
+	Player createSummonedMinion(CardType type, int targetX, int targetY, const Player & caster, int turnCounter, int & nextSummonID);
+	void resolveMenuCardChoice(CardType cardType, int choiceIndex, Player & caster, Player * target);
+	void updatePlayerAP(Player & player, int newAP);
 	void applyMovement(int playerIndex, int targetX, int targetY, int newAP, const std::vector<glm::vec2> * pathOverride = nullptr);
 	void createCardDisplay(const Card & card, int playerIndex); // Create card display animation
 	std::string currentDiceLabel = "";
