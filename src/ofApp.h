@@ -10,6 +10,7 @@
 // --- Standard Library Includes ---
 #include <algorithm>
 #include <array>
+#include <functional>
 #include <limits>
 #include <queue>
 #include <random>
@@ -467,6 +468,20 @@ struct Particle {
 class ofApp : public ofBaseApp {
 
 public:
+	// Public-facing TargetingContext struct so public methods can reference it
+	struct TargetingContext {
+		int sourceCardIndex = -1; // index in caster's hand
+		int sourcePlayerIndex = -1; // which player's hand the source card belongs to
+		TargetingType type = TARGET_NONE;
+		// Validate whether a grid tile is acceptable for this targeting context
+		std::function<bool(int, int)> isValid = nullptr;
+		// Called when a valid target is selected (gx, gy)
+		std::function<void(int, int)> onSelected = nullptr;
+		// Optional cancel callback
+		std::function<void()> onCancel = nullptr;
+		// Instruction text to show while targeting
+		std::string instruction;
+	};
 	// --- AUDIO SLIDER DRAG STATE ---
 	bool draggingAudioMaster = false;
 	bool draggingAudioMenu = false;
@@ -634,6 +649,11 @@ private:
 	void calculateTargetHighlights(int cardToCalculate = -1);
 	void invalidateTargetCache();
 	void clearHighlights();
+
+	// Centralized targeting helpers
+	void enterTargetingMode(const TargetingContext & ctx);
+	void cancelTargetingMode();
+	void resolveTargetAt(int gx, int gy);
 
 	// --- DETERMINISTIC RNG ---
 	// The synced Random Number Generator
@@ -1288,8 +1308,16 @@ private:
 	bool isTargetingDeath = false;
 	int deathCardIndex = -1;
 
+	// Centralized targeting state members (struct defined in public area)
+	bool isInTargetingMode = false;
+	TargetingContext targetingContext;
+
 	bool isTargetingHeal = false;
 	int healCardIndex = -1;
+
+	// Punch targeting: set after dragging a Punch card and releasing to enter targeting mode
+	bool isTargetingPunch = false;
+	int pendingPunchCardIndex = -1;
 
 	// Tooltips & Piles
 	bool isShowingTooltip = false;
@@ -1761,7 +1789,8 @@ private:
 		float timestamp;
 	};
 	enum class ChatTab { CHAT,
-		LOG };
+		LOG,
+		DEBUG };
 
 	std::vector<ChatMessage> chatHistory;
 	std::vector<GameLogEntry> gameLog;

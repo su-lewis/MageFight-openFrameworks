@@ -2896,14 +2896,16 @@ void ofApp::updateGame() {
 		// Player 0 (left side): Below P1's HP bar (top left), above P0's AP counter (middle left)
 		// P0 AP center is at: ofGetHeight() - cardHeight - 20 - cardHeight - 20 - 60 = ofGetHeight() - ~546 * scale
 		// Luck text is above that, so bottom limit should be around ofGetHeight() - 600 * scale
-		float p0_topLimitY = 140 * scale; // Below P1's HP bar (top left) - reduced gap
-		float p0_bottomLimitY = ofGetHeight() - (600 * scale); // Above P0's AP counter and luck text - raised up
+		// Minion UI region: occupy the vertical space from near top down to just above the local discard/AP area
+		float p0_topLimitY = 20 * scale; // near top of screen
+		float p0_bottomLimitY = std::max(p0_topLimitY + 50.0f * scale, p0_discardRect.y - (40.0f * scale)); // stop above local discard/AP
 
 		// Player 1 (right side): Below P1's AP counter (and luck text), above P0's HP bar
 		// P1 AP center is at: 20 + cardHeight + 20 + cardHeight + 60 = ~546 * scale
 		// Plus half AP box height (~40) + luck text = ~620 * scale minimum
-		float p1_topLimitY = 580 * scale; // Below P1's AP counter and luck text
-		float p1_bottomLimitY = ofGetHeight() - (140 * scale); // Above P0's HP bar (slight gap reduction)
+		// Opponent minion region mirrored on right side: top area down to just above opponent discard/AP
+		float p1_topLimitY = 20 * scale;
+		float p1_bottomLimitY = std::max(p1_topLimitY + 50.0f * scale, p1_discardRect.y - (40.0f * scale));
 
 		// 2. SEPARATE MINIONS BY OWNER (Accounting for perspective in multiplayer)
 		std::vector<int> p0_minionIndices;
@@ -9212,27 +9214,35 @@ void ofApp::drawGame() {
 			opponentPlayer = player0;
 		}
 
-		// 1. Calculate positions - bottom = local player, top = opponent
-		float p0_deckX = 20 * scale;
-		float p0_deckY = ofGetHeight() - staticUICardHeight - (20 * scale) - staticUICardHeight - (20 * scale);
+		// 1. Calculate positions - bottom = local player (left side), mirrored opponent on right side
+		float margin = 20.0f * scale;
+		float verticalGap = 20.0f * scale;
+
+		// Local player (P0) - deck should be at the bottom-left, discard above it
+		float p0_deckX = 20.0f * scale;
+		float p0_deckY = ofGetHeight() - staticUICardHeight - margin; // bottom-aligned deck
 		p0_deckRect.set(p0_deckX, p0_deckY, staticUICardWidth, staticUICardHeight);
 
 		float p0_discardX = p0_deckX;
-		float p0_discardY = p0_deckY + staticUICardHeight + (20 * scale);
+		float p0_discardY = p0_deckY - staticUICardHeight - verticalGap; // discard sits above deck
 		p0_discardRect.set(p0_discardX, p0_discardY, staticUICardWidth, staticUICardHeight);
 
-		// --- CHANGES ARE HERE ---
-		float p1_discardX = ofGetWidth() - staticUICardWidth - (20 * scale); // Was 30 (Moved right)
-		float p1_discardY = 20 * scale; // Was 40 (Moved up)
-		p1_discardRect.set(p1_discardX, p1_discardY, staticUICardWidth, staticUICardHeight);
-
-		float p1_deckX = p1_discardX;
-		float p1_deckY = p1_discardY + staticUICardHeight + (20 * scale); // Was 40 (Reduced gap)
+		// Opponent (P1) mirrored on the right side - deck at bottom-right, discard above it
+		float p1_deckX = ofGetWidth() - staticUICardWidth - (20.0f * scale);
+		float p1_deckY = ofGetHeight() - staticUICardHeight - margin; // bottom-aligned deck on right
 		p1_deckRect.set(p1_deckX, p1_deckY, staticUICardWidth, staticUICardHeight);
 
+		float p1_discardX = p1_deckX;
+		float p1_discardY = p1_deckY - staticUICardHeight - verticalGap; // discard sits above opponent deck
+		p1_discardRect.set(p1_discardX, p1_discardY, staticUICardWidth, staticUICardHeight);
+
 		// 2. Draw Player 0 (Bottom) UI - this is the LOCAL player
-		float p0_healthX = ofGetWidth() - (220 * scale) - (50 * scale);
-		float p0_healthY = ofGetHeight() - (65 * scale) - (40 * scale);
+		// Place health bar near the deck's right side with a small gap (mirrored for opponent)
+		float healthBarWidth = 220.0f * scale;
+		float gap = 8.0f * scale;
+		// Local player: place health bar immediately to the right of the deck
+		float p0_healthX = p0_deckRect.getRight() + gap;
+		float p0_healthY = ofGetHeight() - healthBarHeight - (20.0f * scale); // bottom-aligned
 		drawHealthBar(*localPlayer, p0_healthX, p0_healthY, ofColor::green);
 
 		// P0 Deck (LOCAL player's deck)
@@ -9302,9 +9312,10 @@ void ofApp::drawGame() {
 			ofPopStyle();
 		}
 
-		// 3. Draw Player 1 (Top) UI - this is the OPPONENT player
-		float p1_healthX = 40 * scale;
-		float p1_healthY = 40 * scale;
+		// 3. Draw Player 1 (Right) UI - opponent mirrored on right side
+		// Opponent: mirror the layout and place health bar immediately to the left of their deck
+		float p1_healthX = p1_deckRect.getLeft() - gap - healthBarWidth;
+		float p1_healthY = ofGetHeight() - healthBarHeight - (20.0f * scale);
 		drawHealthBar(*opponentPlayer, p1_healthX, p1_healthY, ofColor::red);
 
 		// P1 Discard -- show opponent's top card face
@@ -9423,11 +9434,13 @@ void ofApp::drawGame() {
 		}
 
 		// --- Draw P0 AP Box (BOTTOM - Local Player) ---
-		float p0_apCenterX = 20 * scale + staticUICardWidth / 2;
-		float p0_apCenterY = ofGetHeight() - staticUICardHeight - (20 * scale) - staticUICardHeight - (20 * scale) - 60 * scale;
+		// Position AP above the discard pile for the local player
+		float p0_apCenterX = p0_discardRect.getCenter().x;
 		ofRectangle p0_apTextBox = titleFont.getStringBoundingBox(p0_apText, 0, 0);
 		float p0_apRectWidth = (p0_apTextBox.width * fontScale) + (40 * scale);
 		float p0_apRectHeight = (p0_apTextBox.height * fontScale) + (20 * scale);
+		// Place AP box slightly above the discard pile
+		float p0_apCenterY = p0_discardRect.y - (10.0f * scale) - (p0_apRectHeight / 2.0f);
 		// In multiplayer, only show bottom AP counter when it's the local player's turn
 		bool skipDrawP0AP = false;
 		if (currentState == STATE_DRAFTING) skipDrawP0AP = true;
@@ -9530,12 +9543,14 @@ void ofApp::drawGame() {
 		// are intentionally not shown next to the AP counter — those statuses
 		// are represented with in-world effects/icons already.
 
-		/// --- Draw P1 AP Box (TOP - Opponent in Multiplayer) ---
-		float p1_apCenterX = ofGetWidth() - staticUICardWidth - (20 * scale) + staticUICardWidth / 2;
-		float p1_apCenterY = 20 * scale + staticUICardHeight + (20 * scale) + staticUICardHeight + 60 * scale;
+		/// --- Draw P1 AP Box (RIGHT - Opponent) ---
+		// Position opponent AP above their discard pile (mirrored layout)
+		float p1_apCenterX = p1_discardRect.getCenter().x;
 		ofRectangle p1_apTextBox = titleFont.getStringBoundingBox(p1_apText, 0, 0);
 		float p1_apRectWidth = (p1_apTextBox.width * fontScale) + (40 * scale);
 		float p1_apRectHeight = (p1_apTextBox.height * fontScale) + (20 * scale);
+		// Place opponent AP box slightly above their discard pile
+		float p1_apCenterY = p1_discardRect.y - (10.0f * scale) - (p1_apRectHeight / 2.0f);
 		// In multiplayer, only show top AP counter when it's the opponent's turn (not local player)
 		bool skipDrawP1AP = false;
 		if (currentState == STATE_DRAFTING) skipDrawP1AP = true;
@@ -10384,123 +10399,7 @@ void ofApp::drawGame() {
 		}
 	}
 
-	if (isDebugMode) {
-		ofPushStyle();
-
-		float panelWidth = 220;
-		float panelX = ofGetWidth() - panelWidth - 20;
-		float panelY = 40;
-
-		if (players.size() >= 2 && currentPlayerIndex != -1) {
-			panelY = p1_deckRect.getBottom() + 20;
-		}
-
-		float btnHeight = 45;
-		float padding = 10;
-
-		// --- STEP 1: Calculate Height First (Don't draw yet) ---
-		// We calculate how tall the menu WILL be based on current state
-		float calculatedHeight = padding + uiFont.getLineHeight() + padding; // Title space
-
-		calculatedHeight += btnHeight + padding; // Draw Card
-		calculatedHeight += btnHeight + padding; // Spawn Card
-		calculatedHeight += btnHeight + padding; // Dropdown toggle
-
-		if (isDebugDiceDropdownOpen) {
-			calculatedHeight += (btnHeight + padding) * 5; // CHANGED from 3 to 5
-		}
-
-		calculatedHeight += btnHeight + padding; // Spawn Unit
-		calculatedHeight += btnHeight + padding; // Unlimited AP
-		calculatedHeight += btnHeight + padding; // Skip Draft
-		calculatedHeight += btnHeight + padding; // Skip Checksum (status indicator)
-		// Force End Turn button removed
-
-		// --- STEP 2: Draw Background ---
-		debugPanel.set(panelX, panelY, panelWidth, calculatedHeight);
-		ofSetColor(20, 20, 20, 255); // Fully opaque background (or 240 for slight transparency)
-		ofDrawRectRounded(debugPanel, 10);
-
-		// --- STEP 3: Draw Content on Top ---
-		float currentY = panelY + padding;
-
-		// Draw Title
-		ofSetColor(ofColor::white);
-		uiFont.drawString("Debug", panelX + padding, currentY + uiFont.getLineHeight() * 0.8f);
-		currentY += uiFont.getLineHeight() + padding;
-
-		// Lambda to draw buttons
-		auto drawDebugButton = [&](const ofRectangle & rect, const string & label, bool isToggled = false, bool toggledState = false) {
-			ofSetColor(isToggled ? (toggledState ? ofColor::green : ofColor::darkRed) : ofColor::slateGray);
-			ofDrawRectRounded(rect, 5);
-			ofSetColor(ofColor::white);
-			ofRectangle textBox = uiFont.getStringBoundingBox(label, 0, 0);
-			uiFont.drawString(label, rect.getCenter().x - textBox.width / 2, rect.getCenter().y + textBox.height / 2);
-		};
-
-		// Draw Buttons
-		debugDrawCardButton.set(panelX + padding, currentY, panelWidth - 2 * padding, btnHeight);
-		drawDebugButton(debugDrawCardButton, "Draw Card");
-		currentY += btnHeight + padding;
-
-		debugSpawnCardButton.set(panelX + padding, currentY, panelWidth - 2 * padding, btnHeight);
-		drawDebugButton(debugSpawnCardButton, "Spawn Card...");
-		currentY += btnHeight + padding;
-
-		string diceLabel = isDebugDiceDropdownOpen ? "Roll Dice \xE2\x96\xB2" : "Roll Dice \xE2\x96\xBC";
-		debugDiceDropdownButton.set(panelX + padding, currentY, panelWidth - 2 * padding, btnHeight);
-		drawDebugButton(debugDiceDropdownButton, diceLabel);
-		currentY += btnHeight + padding;
-
-		// Dice Dropdown Options
-		if (isDebugDiceDropdownOpen) {
-
-			debugFlipCoinButton.set(panelX + padding, currentY, panelWidth - 2 * padding, btnHeight);
-			drawDebugButton(debugFlipCoinButton, "Flip Coin");
-			currentY += btnHeight + padding;
-
-			debugRollD4Button.set(panelX + padding, currentY, panelWidth - 2 * padding, btnHeight);
-			drawDebugButton(debugRollD4Button, "Roll 1D4");
-			currentY += btnHeight + padding;
-
-			debugRollD6Button.set(panelX + padding, currentY, panelWidth - 2 * padding, btnHeight);
-			drawDebugButton(debugRollD6Button, "Roll 1D6");
-			currentY += btnHeight + padding;
-
-			debugRollD10Button.set(panelX + padding, currentY, panelWidth - 2 * padding, btnHeight);
-			drawDebugButton(debugRollD10Button, "Roll 1D10");
-			currentY += btnHeight + padding;
-
-			debugRollD20Button.set(panelX + padding, currentY, panelWidth - 2 * padding, btnHeight);
-			drawDebugButton(debugRollD20Button, "Roll 1D20");
-			currentY += btnHeight + padding;
-		}
-
-		debugSpawnUnitButton.set(panelX + padding, currentY, panelWidth - 2 * padding, btnHeight);
-		drawDebugButton(debugSpawnUnitButton, "Spawn Player", true, isSpawningUnit);
-		currentY += btnHeight + padding;
-
-		debugUnlimitedAPButton.set(panelX + padding, currentY, panelWidth - 2 * padding, btnHeight);
-		std::string unlimitedAPLabel = hasUnlimitedAP ? "Unlimited AP: ON" : "Unlimited AP: OFF";
-		drawDebugButton(debugUnlimitedAPButton, unlimitedAPLabel, true, hasUnlimitedAP);
-		currentY += btnHeight + padding;
-
-		debugSkipDraftButton.set(panelX + padding, currentY, panelWidth - 2 * padding, btnHeight);
-		bool canSkipDraft = !isMultiplayer && currentState == STATE_DRAFTING && draftOptions.size() > 0;
-		drawDebugButton(debugSkipDraftButton, "Skip Draft (Random)", canSkipDraft);
-		currentY += btnHeight + padding;
-
-		// Skip Checksum Status Indicator (non-clickable, just shows state)
-		ofRectangle checksumIndicator;
-		checksumIndicator.set(panelX + padding, currentY, panelWidth - 2 * padding, btnHeight);
-		std::string checksumLabel = skipChecksumValidation ? "Checksum: DISABLED" : "Checksum: ENABLED";
-		drawDebugButton(checksumIndicator, checksumLabel, true, !skipChecksumValidation); // Green when enabled (safe), red when disabled
-		currentY += btnHeight + padding;
-
-		// Force End Turn button removed
-
-		ofPopStyle();
-	}
+	// Debug panel now integrated into chat window UI (rendered within chat when DEBUG tab is active)
 
 	// --- Draw Card Draw Animations (on top of board, below UI hand) ---
 	for (const auto & anim : activeDrawCardAnimations) {
@@ -10644,18 +10543,39 @@ void ofApp::drawGame() {
 		bool shouldShowChat = isChatOpen || (currentTime - lastChatInteractionTime < chatVisibilityDuration);
 
 		if (shouldShowChat) {
-			// Position chat to the right of discard pile, aligned at bottom
-			float chatX = p0_discardRect.x + staticUICardWidth + 30 * scale;
-			// Align chat bottom with discard pile bottom
-			float chatY = p0_discardRect.y + p0_discardRect.height;
+			// Default: top-left corner with a small margin
+			float margin = 8.0f * scale;
 			float chatMaxWidth = 450 * scale;
-
-			// Determine size based on state: minimized = smaller, full = larger
 			float chatBoxHeight = isChatMinimized ? 120 * scale : 250 * scale;
 			float tabHeight = 25 * scale;
 			float messageHeight = 18 * scale;
 
-			// Store rect for click detection
+			// Determine X range when minion UI exists: place chat between minion panel and end-turn button
+			float chatX = margin;
+			float chatY = margin + tabHeight + chatBoxHeight; // top-aligned: chatWindowRect uses y - height - tab
+
+			if (!activeMinionUIs.empty() && minionPanelW > 0.0f) {
+				float smallGap = 12.0f * scale;
+				// Right edge of minion area
+				float minionRight = p0_minionLeft + minionPanelW;
+				// Left edge available before end-turn button
+				float endTurnLeft = endTurnButtonRect.x;
+
+				// Compute available area between minion UI and end-turn button
+				float leftBound = minionRight + smallGap;
+				float rightBound = endTurnLeft - smallGap;
+
+				if (rightBound - leftBound > 150.0f * scale) {
+					chatX = leftBound;
+					// clamp width to fit between bounds
+					chatMaxWidth = std::min(chatMaxWidth, rightBound - chatX - margin);
+				} else {
+					// Fallback to top-left if not enough room
+					chatX = margin;
+				}
+			}
+
+			// Store rect for click detection (chatWindowRect stores top-left via y - height - tab)
 			chatWindowRect.set(chatX, chatY - chatBoxHeight - tabHeight, chatMaxWidth, chatBoxHeight + tabHeight);
 
 			// Draw main chat box background (50% opacity black with black outline)
@@ -10692,6 +10612,16 @@ void ofApp::drawGame() {
 			ofDrawRectangle(chatX + tabWidth + 2, chatY - chatBoxHeight - tabHeight, tabWidth, tabHeight);
 			ofSetColor(255, 255, 255);
 			uiFont.drawString("LOG", chatX + tabWidth + 12, chatY - chatBoxHeight - 5);
+
+			// Debug tab
+			if (currentChatTab == ChatTab::DEBUG) {
+				ofSetColor(40, 40, 40, 200);
+			} else {
+				ofSetColor(20, 20, 20, 150);
+			}
+			ofDrawRectangle(chatX + tabWidth * 2 + 4, chatY - chatBoxHeight - tabHeight, tabWidth, tabHeight);
+			ofSetColor(255, 255, 255);
+			uiFont.drawString("DEBUG", chatX + tabWidth * 2 + 12, chatY - chatBoxHeight - 5);
 			ofPopStyle();
 
 			// Draw content based on active tab
@@ -10818,276 +10748,363 @@ void ofApp::drawGame() {
 					logY -= messageHeight;
 					visibleLogs++;
 				}
+			} else if (currentChatTab == ChatTab::DEBUG) {
+				// Render debug controls inside chat window
+				float padding = 8.0f * scale;
+				float btnHeight = 36.0f * scale;
+				float availableW = chatWindowRect.width - 2 * padding;
+				float curY = chatWindowRect.y + padding + uiFont.getLineHeight();
+
+				auto drawChatDebugButton = [&](const ofRectangle & rect, const std::string & label, bool isToggle = false, bool state = false) {
+					ofSetColor(isToggle ? (state ? ofColor::green : ofColor::darkRed) : ofColor::slateGray);
+					ofDrawRectRounded(rect, 6);
+					ofSetColor(ofColor::white);
+					ofRectangle tb = uiFont.getStringBoundingBox(label, 0, 0);
+					uiFont.drawString(label, rect.getCenter().x - tb.width / 2, rect.getCenter().y + tb.height / 2);
+				};
+
+				// Title
+				ofSetColor(ofColor::white);
+				uiFont.drawString("Debug", chatWindowRect.x + padding, chatWindowRect.y + padding + uiFont.getLineHeight() * 0.8f);
+
+				// Buttons
+				debugDrawCardButton.set(chatWindowRect.x + padding, curY + padding, availableW, btnHeight);
+				drawChatDebugButton(debugDrawCardButton, "Draw Card");
+				curY += btnHeight + padding;
+
+				debugSpawnCardButton.set(chatWindowRect.x + padding, curY + padding, availableW, btnHeight);
+				drawChatDebugButton(debugSpawnCardButton, "Spawn Card...");
+				curY += btnHeight + padding;
+
+				string diceLabel = isDebugDiceDropdownOpen ? "Roll Dice \xE2\x96\xB2" : "Roll Dice \xE2\x96\xBC";
+				debugDiceDropdownButton.set(chatWindowRect.x + padding, curY + padding, availableW, btnHeight);
+				drawChatDebugButton(debugDiceDropdownButton, diceLabel);
+				curY += btnHeight + padding;
+
+				if (isDebugDiceDropdownOpen) {
+					debugFlipCoinButton.set(chatWindowRect.x + padding, curY + padding, availableW, btnHeight);
+					drawChatDebugButton(debugFlipCoinButton, "Flip Coin");
+					curY += btnHeight + padding;
+
+					debugRollD4Button.set(chatWindowRect.x + padding, curY + padding, availableW, btnHeight);
+					drawChatDebugButton(debugRollD4Button, "Roll 1D4");
+					curY += btnHeight + padding;
+
+					debugRollD6Button.set(chatWindowRect.x + padding, curY + padding, availableW, btnHeight);
+					drawChatDebugButton(debugRollD6Button, "Roll 1D6");
+					curY += btnHeight + padding;
+
+					debugRollD10Button.set(chatWindowRect.x + padding, curY + padding, availableW, btnHeight);
+					drawChatDebugButton(debugRollD10Button, "Roll 1D10");
+					curY += btnHeight + padding;
+
+					debugRollD20Button.set(chatWindowRect.x + padding, curY + padding, availableW, btnHeight);
+					drawChatDebugButton(debugRollD20Button, "Roll 1D20");
+					curY += btnHeight + padding;
+				}
+
+				debugSpawnUnitButton.set(chatWindowRect.x + padding, curY + padding, availableW, btnHeight);
+				drawChatDebugButton(debugSpawnUnitButton, "Spawn Player", true, isSpawningUnit);
+				curY += btnHeight + padding;
+
+				debugUnlimitedAPButton.set(chatWindowRect.x + padding, curY + padding, availableW, btnHeight);
+				std::string unlimitedAPLabel = hasUnlimitedAP ? "Unlimited AP: ON" : "Unlimited AP: OFF";
+				drawChatDebugButton(debugUnlimitedAPButton, unlimitedAPLabel, true, hasUnlimitedAP);
+				curY += btnHeight + padding;
+
+				debugSkipDraftButton.set(chatWindowRect.x + padding, curY + padding, availableW, btnHeight);
+				bool canSkipDraft = !isMultiplayer && currentState == STATE_DRAFTING && draftOptions.size() > 0;
+				drawChatDebugButton(debugSkipDraftButton, "Skip Draft (Random)", canSkipDraft);
+				curY += btnHeight + padding;
+
+				ofRectangle checksumIndicator;
+				checksumIndicator.set(chatWindowRect.x + padding, curY + padding, availableW, btnHeight);
+				std::string checksumLabel = skipChecksumValidation ? "Checksum: DISABLED" : "Checksum: ENABLED";
+				drawChatDebugButton(checksumIndicator, checksumLabel, true, !skipChecksumValidation);
+				curY += btnHeight + padding;
 			}
 		}
 	}
 
-	// --- Debug Card Spawner UI (KRunner-style) ---
-	if (isCardSpawnerOpen) {
-		drawCardSpawnerUI();
-	}
-	if (isCardEncyclopediaOpen) {
-		drawCardEncyclopediaUI();
-	}
+// --- Debug Card Spawner UI (KRunner-style) ---
+if (isCardSpawnerOpen) {
+	drawCardSpawnerUI();
+}
+if (isCardEncyclopediaOpen) {
+	drawCardEncyclopediaUI();
+}
 
-	// --- TOP INSTRUCTION TEXT (Wolf Placement) ---
-	if (isPlacingWolves && !isWaitingForWolfCoin) {
-		string msg = "Choose Wolf Spawn Square";
+// --- TOP INSTRUCTION TEXT (Wolf Placement) ---
+if (isPlacingWolves && !isWaitingForWolfCoin) {
+	string msg = "Choose Wolf Spawn Square";
 
-		// Optional: Change text if it's the second wolf
-		if (wolfSummonStage == 2) msg = "Heads! Choose 2nd Wolf Spawn Square";
+	// Optional: Change text if it's the second wolf
+	if (wolfSummonStage == 2) msg = "Heads! Choose 2nd Wolf Spawn Square";
 
-		// Calculate center position
+	// Calculate center position
+	ofRectangle bbox = titleFont.getStringBoundingBox(msg, 0, 0);
+	float tx = (ofGetWidth() / 2.0f) - (bbox.width / 2.0f);
+
+	// MOVED LOWER: 25% down the screen
+	float ty = ofGetHeight() * 0.25f;
+
+	// Draw Text Shadow/Outline for visibility
+	ofSetColor(0, 0, 0, 255);
+	titleFont.drawString(msg, tx + 2, ty + 2);
+	titleFont.drawString(msg, tx - 2, ty - 2);
+	titleFont.drawString(msg, tx + 2, ty - 2);
+	titleFont.drawString(msg, tx - 2, ty + 2);
+
+	// Draw Main Text
+	ofSetColor(ofColor::white);
+	titleFont.drawString(msg, tx, ty);
+}
+
+// --- MAGIC BOLT INSTRUCTION TEXT ---
+if (isTargetingMagicBolt) {
+	string msg = "Choose Target Tile for Magic Bolt";
+	ofRectangle bbox = titleFont.getStringBoundingBox(msg, 0, 0);
+	float tx = (ofGetWidth() / 2.0f) - (bbox.width / 2.0f);
+	float ty = ofGetHeight() * 0.25f;
+
+	// Shadow
+	ofSetColor(0, 0, 0, 255);
+	titleFont.drawString(msg, tx + 2, ty + 2);
+	// Text
+	ofSetColor(ofColor::cyan);
+	titleFont.drawString(msg, tx, ty);
+}
+
+// --- DEATH INSTRUCTION ---
+if (isTargetingDeath) {
+	string msg = "Select Target for Death";
+	// ... standard text drawing code (copy from magic bolt) ...
+	ofRectangle bbox = titleFont.getStringBoundingBox(msg, 0, 0);
+	float tx = (ofGetWidth() / 2.0f) - (bbox.width / 2.0f);
+	float ty = ofGetHeight() * 0.25f;
+	ofSetColor(0, 0, 0, 255);
+	titleFont.drawString(msg, tx + 2, ty + 2);
+	ofSetColor(ofColor::red);
+	titleFont.drawString(msg, tx, ty);
+}
+
+// --- HEAL INSTRUCTION ---
+if (isTargetingHeal) {
+	string msg = "Select unit to heal";
+	ofRectangle bbox = titleFont.getStringBoundingBox(msg, 0, 0);
+	float tx = (ofGetWidth() / 2.0f) - (bbox.width / 2.0f);
+	float ty = ofGetHeight() * 0.25f;
+	ofSetColor(0, 0, 0, 255);
+	titleFont.drawString(msg, tx + 2, ty + 2);
+	ofSetColor(ofColor::green);
+	titleFont.drawString(msg, tx, ty);
+}
+
+// --- DOUBLE HANDED TARGETING INSTRUCTION TEXT ---
+if (isTargetingDoubleHanded) {
+	string msg = "Choose Target for Double Handed (2x " + pendingDoubleHandedChoice + ")";
+	ofRectangle bbox = titleFont.getStringBoundingBox(msg, 0, 0);
+	float tx = (ofGetWidth() / 2.0f) - (bbox.width / 2.0f);
+	float ty = ofGetHeight() * 0.25f;
+
+	ofSetColor(0, 0, 0, 255);
+	titleFont.drawString(msg, tx + 2, ty + 2);
+	ofSetColor(ofColor::green);
+	titleFont.drawString(msg, tx, ty);
+}
+
+// --- AMNESIA TARGETING INSTRUCTION TEXT ---
+if (isTargetingAmnesia) {
+	string msg = "Choose Adjacent Unit for Amnesia";
+	ofRectangle bbox = titleFont.getStringBoundingBox(msg, 0, 0);
+	float tx = (ofGetWidth() / 2.0f) - (bbox.width / 2.0f);
+	float ty = ofGetHeight() * 0.25f;
+
+	ofSetColor(0, 0, 0, 255);
+	titleFont.drawString(msg, tx + 2, ty + 2);
+	ofSetColor(ofColor::magenta);
+	titleFont.drawString(msg, tx, ty);
+}
+
+// --- PUNCH TARGETING INSTRUCTION TEXT ---
+if (isTargetingPunch) {
+	string msg = "Punch: Choose Adjacent Unit";
+	ofRectangle bbox = titleFont.getStringBoundingBox(msg, 0, 0);
+	float tx = (ofGetWidth() / 2.0f) - (bbox.width / 2.0f);
+	float ty = ofGetHeight() * 0.25f;
+
+	ofSetColor(0, 0, 0, 255);
+	titleFont.drawString(msg, tx + 2, ty + 2);
+	ofSetColor(ofColor::orange);
+	titleFont.drawString(msg, tx, ty);
+}
+
+// --- TORTOISE DAMAGE TARGETING INSTRUCTION TEXT ---
+if (isTargetingTortoiseDamage) {
+	string msg = "Shell Spike: Choose Adjacent Unit";
+	ofRectangle bbox = titleFont.getStringBoundingBox(msg, 0, 0);
+	float tx = (ofGetWidth() / 2.0f) - (bbox.width / 2.0f);
+	float ty = ofGetHeight() * 0.25f;
+
+	ofSetColor(0, 0, 0, 255);
+	titleFont.drawString(msg, tx + 2, ty + 2);
+	ofSetColor(ofColor::darkGreen);
+	titleFont.drawString(msg, tx, ty);
+}
+
+// --- HELLHOUND INSTRUCTION TEXT ---
+if (isTargetingHellhound) {
+	string msg = "Choose Adjacent Tile for Hellhound";
+	ofRectangle bbox = titleFont.getStringBoundingBox(msg, 0, 0);
+	float tx = (ofGetWidth() / 2.0f) - (bbox.width / 2.0f);
+	float ty = ofGetHeight() * 0.25f;
+
+	// Shadow
+	ofSetColor(0, 0, 0, 255);
+	titleFont.drawString(msg, tx + 2, ty + 2);
+	// Text (Orange for fire/hell)
+	ofSetColor(ofColor::orangeRed);
+	titleFont.drawString(msg, tx, ty);
+}
+
+// --- TELEPORT TARGETING INSTRUCTION TEXT ---
+if (isTargetingTeleport) {
+	string msg = "Choose Teleport Destination (Range: " + ofToString(pendingTeleportRollResult) + " ft)";
+	ofRectangle bbox = titleFont.getStringBoundingBox(msg, 0, 0);
+	float tx = (ofGetWidth() / 2.0f) - (bbox.width / 2.0f);
+	float ty = ofGetHeight() * 0.25f;
+
+	ofSetColor(0, 0, 0, 255);
+	titleFont.drawString(msg, tx + 2, ty + 2);
+	ofSetColor(ofColor::cyan);
+	titleFont.drawString(msg, tx, ty);
+}
+
+// --- DICE ROLL RESULT TEXT ---
+if (!diceRollResultText.empty() && (ofGetElapsedTimef() - diceRollResultStartTime) < diceRollResultDuration) {
+	ofRectangle bbox = titleFont.getStringBoundingBox(diceRollResultText, 0, 0);
+	float tx = (ofGetWidth() / 2.0f) - (bbox.width / 2.0f);
+	float ty = ofGetHeight() * 0.25f;
+
+	// Shadow
+	ofSetColor(0, 0, 0, 255);
+	titleFont.drawString(diceRollResultText, tx + 2, ty + 2);
+	// Text (yellow/gold for dice results)
+	ofSetColor(ofColor::gold);
+	titleFont.drawString(diceRollResultText, tx, ty);
+}
+
+// FIX: Added Burst Targeting Instructions
+if (isTargetingBurst) {
+	string msg = (burstChoice == 0) ? "Select Enemy to Damage (3 Holy)" : "Select Ally to Heal (3 HP)";
+	ofRectangle bbox = titleFont.getStringBoundingBox(msg, 0, 0);
+	float tx = (ofGetWidth() / 2.0f) - (bbox.width / 2.0f);
+	float ty = ofGetHeight() * 0.25f;
+
+	ofSetColor(0, 0, 0, 255);
+	titleFont.drawString(msg, tx + 2, ty + 2);
+	ofSetColor(burstChoice == 0 ? ofColor::orange : ofColor::green);
+	titleFont.drawString(msg, tx, ty);
+}
+
+// --- BONUS TURNS COUNTER ---
+if (currentPlayerIndex != -1) {
+	Player & currentPlayer = players[currentPlayerIndex];
+	if (currentPlayer.bonusTurns > 0) {
+		string msg = "Extra Turns: " + ofToString(currentPlayer.bonusTurns);
+
+		// Calculate position to the right of the End Turn button
 		ofRectangle bbox = titleFont.getStringBoundingBox(msg, 0, 0);
-		float tx = (ofGetWidth() / 2.0f) - (bbox.width / 2.0f);
+		float tx = endTurnButtonRect.getRight() + 20 * scale;
+		float ty = endTurnButtonRect.getCenter().y + bbox.height / 2;
 
-		// MOVED LOWER: 25% down the screen
-		float ty = ofGetHeight() * 0.25f;
-
-		// Draw Text Shadow/Outline for visibility
+		// Draw shadow/outline for visibility
 		ofSetColor(0, 0, 0, 255);
 		titleFont.drawString(msg, tx + 2, ty + 2);
 		titleFont.drawString(msg, tx - 2, ty - 2);
 		titleFont.drawString(msg, tx + 2, ty - 2);
 		titleFont.drawString(msg, tx - 2, ty + 2);
 
-		// Draw Main Text
+		// Draw main text
 		ofSetColor(ofColor::white);
 		titleFont.drawString(msg, tx, ty);
 	}
+}
 
-	// --- MAGIC BOLT INSTRUCTION TEXT ---
-	if (isTargetingMagicBolt) {
-		string msg = "Choose Target Tile for Magic Bolt";
-		ofRectangle bbox = titleFont.getStringBoundingBox(msg, 0, 0);
-		float tx = (ofGetWidth() / 2.0f) - (bbox.width / 2.0f);
-		float ty = ofGetHeight() * 0.25f;
+// --- DRAW DICE LABEL ---
+// Only draw the generic bottom label if NOT in initiative roll (since that has custom text)
+if (!activeDiceRolls.empty() && currentState != STATE_INITIATIVE_ROLL) {
+	ofPushMatrix();
 
-		// Shadow
-		ofSetColor(0, 0, 0, 255);
-		titleFont.drawString(msg, tx + 2, ty + 2);
-		// Text
-		ofSetColor(ofColor::cyan);
-		titleFont.drawString(msg, tx, ty);
-	}
+	// FIXED POSITION CALCULATION:
+	// We calculate position based on the screen top, not the button.
+	// Button sits at 20*scale. Height is 60. Padding 50.
+	float fixedY = (20 * scale) + (60 * scale) + (50 * scale);
+	float fixedX = ofGetWidth() / 2.0f;
 
-	// --- DEATH INSTRUCTION ---
-	if (isTargetingDeath) {
-		string msg = "Select Target for Death";
-		// ... standard text drawing code (copy from magic bolt) ...
-		ofRectangle bbox = titleFont.getStringBoundingBox(msg, 0, 0);
-		float tx = (ofGetWidth() / 2.0f) - (bbox.width / 2.0f);
-		float ty = ofGetHeight() * 0.25f;
-		ofSetColor(0, 0, 0, 255);
-		titleFont.drawString(msg, tx + 2, ty + 2);
-		ofSetColor(ofColor::red);
-		titleFont.drawString(msg, tx, ty);
-	}
+	// Draw Shadow
+	ofSetColor(0, 0, 0, 255);
+	ofRectangle bounds = titleFont.getStringBoundingBox(currentDiceLabel, 0, 0);
 
-	// --- HEAL INSTRUCTION ---
-	if (isTargetingHeal) {
-		string msg = "Select unit to heal";
-		ofRectangle bbox = titleFont.getStringBoundingBox(msg, 0, 0);
-		float tx = (ofGetWidth() / 2.0f) - (bbox.width / 2.0f);
-		float ty = ofGetHeight() * 0.25f;
-		ofSetColor(0, 0, 0, 255);
-		titleFont.drawString(msg, tx + 2, ty + 2);
-		ofSetColor(ofColor::green);
-		titleFont.drawString(msg, tx, ty);
-	}
+	// Scale text
+	float textScale = 0.8f;
 
-	// --- DOUBLE HANDED TARGETING INSTRUCTION TEXT ---
-	if (isTargetingDoubleHanded) {
-		string msg = "Choose Target for Double Handed (2x " + pendingDoubleHandedChoice + ")";
-		ofRectangle bbox = titleFont.getStringBoundingBox(msg, 0, 0);
-		float tx = (ofGetWidth() / 2.0f) - (bbox.width / 2.0f);
-		float ty = ofGetHeight() * 0.25f;
+	ofTranslate(fixedX, fixedY);
+	ofScale(textScale, textScale);
 
-		ofSetColor(0, 0, 0, 255);
-		titleFont.drawString(msg, tx + 2, ty + 2);
-		ofSetColor(ofColor::green);
-		titleFont.drawString(msg, tx, ty);
-	}
+	titleFont.drawString(currentDiceLabel, -bounds.width / 2 + 3, 3); // Shadow offset
 
-	// --- AMNESIA TARGETING INSTRUCTION TEXT ---
-	if (isTargetingAmnesia) {
-		string msg = "Choose Adjacent Unit for Amnesia";
-		ofRectangle bbox = titleFont.getStringBoundingBox(msg, 0, 0);
-		float tx = (ofGetWidth() / 2.0f) - (bbox.width / 2.0f);
-		float ty = ofGetHeight() * 0.25f;
+	// Draw Main Text (Gold)
+	ofSetColor(255, 215, 0);
+	titleFont.drawString(currentDiceLabel, -bounds.width / 2, 0);
 
-		ofSetColor(0, 0, 0, 255);
-		titleFont.drawString(msg, tx + 2, ty + 2);
-		ofSetColor(ofColor::magenta);
-		titleFont.drawString(msg, tx, ty);
-	}
+	ofPopMatrix();
+}
 
-	// --- TORTOISE DAMAGE TARGETING INSTRUCTION TEXT ---
-	if (isTargetingTortoiseDamage) {
-		string msg = "Shell Spike: Choose Adjacent Unit";
-		ofRectangle bbox = titleFont.getStringBoundingBox(msg, 0, 0);
-		float tx = (ofGetWidth() / 2.0f) - (bbox.width / 2.0f);
-		float ty = ofGetHeight() * 0.25f;
+// --- RENEWED INSPIRATION UI (Text & Buttons) ---
+if (isSelectingRenewedInspiration) {
+	// 1. Draw Top Instruction Text
+	string msg = "Select cards to discard (Draw 2 each)";
+	ofRectangle bbox = titleFont.getStringBoundingBox(msg, 0, 0);
+	float tx = (ofGetWidth() / 2.0f) - (bbox.width / 2.0f);
+	float ty = ofGetHeight() * 0.25f;
 
-		ofSetColor(0, 0, 0, 255);
-		titleFont.drawString(msg, tx + 2, ty + 2);
-		ofSetColor(ofColor::darkGreen);
-		titleFont.drawString(msg, tx, ty);
-	}
+	// Shadow
+	ofSetColor(0, 0, 0, 255);
+	titleFont.drawString(msg, tx + 2, ty + 2);
+	// Text
+	ofSetColor(ofColor::lightGreen);
+	titleFont.drawString(msg, tx, ty);
 
-	// --- HELLHOUND INSTRUCTION TEXT ---
-	if (isTargetingHellhound) {
-		string msg = "Choose Adjacent Tile for Hellhound";
-		ofRectangle bbox = titleFont.getStringBoundingBox(msg, 0, 0);
-		float tx = (ofGetWidth() / 2.0f) - (bbox.width / 2.0f);
-		float ty = ofGetHeight() * 0.25f;
+	// 2. Draw Control Panel (Background for Buttons)
+	float panelW = 240;
+	float panelH = 70;
+	float panelX = riConfirmBtn.x - 20;
+	float panelY = riConfirmBtn.y - 10;
 
-		// Shadow
-		ofSetColor(0, 0, 0, 255);
-		titleFont.drawString(msg, tx + 2, ty + 2);
-		// Text (Orange for fire/hell)
-		ofSetColor(ofColor::orangeRed);
-		titleFont.drawString(msg, tx, ty);
-	}
+	ofSetColor(50, 50, 50, 240); // Grey background
+	ofDrawRectRounded(panelX, panelY, panelW, panelH, 10);
 
-	// --- TELEPORT TARGETING INSTRUCTION TEXT ---
-	if (isTargetingTeleport) {
-		string msg = "Choose Teleport Destination (Range: " + ofToString(pendingTeleportRollResult) + " ft)";
-		ofRectangle bbox = titleFont.getStringBoundingBox(msg, 0, 0);
-		float tx = (ofGetWidth() / 2.0f) - (bbox.width / 2.0f);
-		float ty = ofGetHeight() * 0.25f;
+	// 3. Draw Confirm Button
+	ofSetColor(0, 180, 0); // Green
+	if (riConfirmBtn.inside(ofGetMouseX(), ofGetMouseY())) ofSetColor(0, 220, 0);
+	ofDrawRectRounded(riConfirmBtn, 8);
 
-		ofSetColor(0, 0, 0, 255);
-		titleFont.drawString(msg, tx + 2, ty + 2);
-		ofSetColor(ofColor::cyan);
-		titleFont.drawString(msg, tx, ty);
-	}
+	ofSetColor(255);
+	ofRectangle cBox = uiFont.getStringBoundingBox("Accept", 0, 0);
+	uiFont.drawString("Accept", riConfirmBtn.getCenter().x - cBox.width / 2, riConfirmBtn.getCenter().y + cBox.height / 2);
 
-	// --- DICE ROLL RESULT TEXT ---
-	if (!diceRollResultText.empty() && (ofGetElapsedTimef() - diceRollResultStartTime) < diceRollResultDuration) {
-		ofRectangle bbox = titleFont.getStringBoundingBox(diceRollResultText, 0, 0);
-		float tx = (ofGetWidth() / 2.0f) - (bbox.width / 2.0f);
-		float ty = ofGetHeight() * 0.25f;
+	// 4. Draw Cancel Button
+	ofSetColor(180, 0, 0); // Red
+	if (riCancelBtn.inside(ofGetMouseX(), ofGetMouseY())) ofSetColor(220, 0, 0);
+	ofDrawRectRounded(riCancelBtn, 8);
 
-		// Shadow
-		ofSetColor(0, 0, 0, 255);
-		titleFont.drawString(diceRollResultText, tx + 2, ty + 2);
-		// Text (yellow/gold for dice results)
-		ofSetColor(ofColor::gold);
-		titleFont.drawString(diceRollResultText, tx, ty);
-	}
-
-	// FIX: Added Burst Targeting Instructions
-	if (isTargetingBurst) {
-		string msg = (burstChoice == 0) ? "Select Enemy to Damage (3 Holy)" : "Select Ally to Heal (3 HP)";
-		ofRectangle bbox = titleFont.getStringBoundingBox(msg, 0, 0);
-		float tx = (ofGetWidth() / 2.0f) - (bbox.width / 2.0f);
-		float ty = ofGetHeight() * 0.25f;
-
-		ofSetColor(0, 0, 0, 255);
-		titleFont.drawString(msg, tx + 2, ty + 2);
-		ofSetColor(burstChoice == 0 ? ofColor::orange : ofColor::green);
-		titleFont.drawString(msg, tx, ty);
-	}
-
-	// --- BONUS TURNS COUNTER ---
-	if (currentPlayerIndex != -1) {
-		Player & currentPlayer = players[currentPlayerIndex];
-		if (currentPlayer.bonusTurns > 0) {
-			string msg = "Extra Turns: " + ofToString(currentPlayer.bonusTurns);
-
-			// Calculate position to the right of the End Turn button
-			ofRectangle bbox = titleFont.getStringBoundingBox(msg, 0, 0);
-			float tx = endTurnButtonRect.getRight() + 20 * scale;
-			float ty = endTurnButtonRect.getCenter().y + bbox.height / 2;
-
-			// Draw shadow/outline for visibility
-			ofSetColor(0, 0, 0, 255);
-			titleFont.drawString(msg, tx + 2, ty + 2);
-			titleFont.drawString(msg, tx - 2, ty - 2);
-			titleFont.drawString(msg, tx + 2, ty - 2);
-			titleFont.drawString(msg, tx - 2, ty + 2);
-
-			// Draw main text
-			ofSetColor(ofColor::white);
-			titleFont.drawString(msg, tx, ty);
-		}
-	}
-
-	// --- DRAW DICE LABEL ---
-	// Only draw the generic bottom label if NOT in initiative roll (since that has custom text)
-	if (!activeDiceRolls.empty() && currentState != STATE_INITIATIVE_ROLL) {
-		ofPushMatrix();
-
-		// FIXED POSITION CALCULATION:
-		// We calculate position based on the screen top, not the button.
-		// Button sits at 20*scale. Height is 60. Padding 50.
-		float fixedY = (20 * scale) + (60 * scale) + (50 * scale);
-		float fixedX = ofGetWidth() / 2.0f;
-
-		// Draw Shadow
-		ofSetColor(0, 0, 0, 255);
-		ofRectangle bounds = titleFont.getStringBoundingBox(currentDiceLabel, 0, 0);
-
-		// Scale text
-		float textScale = 0.8f;
-
-		ofTranslate(fixedX, fixedY);
-		ofScale(textScale, textScale);
-
-		titleFont.drawString(currentDiceLabel, -bounds.width / 2 + 3, 3); // Shadow offset
-
-		// Draw Main Text (Gold)
-		ofSetColor(255, 215, 0);
-		titleFont.drawString(currentDiceLabel, -bounds.width / 2, 0);
-
-		ofPopMatrix();
-	}
-
-	// --- RENEWED INSPIRATION UI (Text & Buttons) ---
-	if (isSelectingRenewedInspiration) {
-		// 1. Draw Top Instruction Text
-		string msg = "Select cards to discard (Draw 2 each)";
-		ofRectangle bbox = titleFont.getStringBoundingBox(msg, 0, 0);
-		float tx = (ofGetWidth() / 2.0f) - (bbox.width / 2.0f);
-		float ty = ofGetHeight() * 0.25f;
-
-		// Shadow
-		ofSetColor(0, 0, 0, 255);
-		titleFont.drawString(msg, tx + 2, ty + 2);
-		// Text
-		ofSetColor(ofColor::lightGreen);
-		titleFont.drawString(msg, tx, ty);
-
-		// 2. Draw Control Panel (Background for Buttons)
-		float panelW = 240;
-		float panelH = 70;
-		float panelX = riConfirmBtn.x - 20;
-		float panelY = riConfirmBtn.y - 10;
-
-		ofSetColor(50, 50, 50, 240); // Grey background
-		ofDrawRectRounded(panelX, panelY, panelW, panelH, 10);
-
-		// 3. Draw Confirm Button
-		ofSetColor(0, 180, 0); // Green
-		if (riConfirmBtn.inside(ofGetMouseX(), ofGetMouseY())) ofSetColor(0, 220, 0);
-		ofDrawRectRounded(riConfirmBtn, 8);
-
-		ofSetColor(255);
-		ofRectangle cBox = uiFont.getStringBoundingBox("Accept", 0, 0);
-		uiFont.drawString("Accept", riConfirmBtn.getCenter().x - cBox.width / 2, riConfirmBtn.getCenter().y + cBox.height / 2);
-
-		// 4. Draw Cancel Button
-		ofSetColor(180, 0, 0); // Red
-		if (riCancelBtn.inside(ofGetMouseX(), ofGetMouseY())) ofSetColor(220, 0, 0);
-		ofDrawRectRounded(riCancelBtn, 8);
-
-		ofSetColor(255);
-		ofRectangle xBox = uiFont.getStringBoundingBox("Cancel", 0, 0);
-		uiFont.drawString("Cancel", riCancelBtn.getCenter().x - xBox.width / 2, riCancelBtn.getCenter().y + xBox.height / 2);
-	}
-	// --- DEBUG: DRAW FPS ---
-	ofDrawBitmapString("FPS: " + ofToString(ofGetFrameRate(), 2), 10, 20);
+	ofSetColor(255);
+	ofRectangle xBox = uiFont.getStringBoundingBox("Cancel", 0, 0);
+	uiFont.drawString("Cancel", riCancelBtn.getCenter().x - xBox.width / 2, riCancelBtn.getCenter().y + xBox.height / 2);
+}
+// --- DEBUG: DRAW FPS ---
+ofDrawBitmapString("FPS: " + ofToString(ofGetFrameRate(), 2), 10, 20);
 }
 //--------------------------------------------------------------
 void ofApp::mouseMoved(int x, int y) {
@@ -11837,6 +11854,12 @@ void ofApp::mousePressed(int x, int y, int button) {
 					lastChatInteractionTime = ofGetElapsedTimef();
 					return;
 				}
+				// Check if clicking on Debug tab
+				if (ofRectangle(chatX + tabWidth * 2 + 4, chatY - chatBoxHeight - tabHeight, tabWidth, tabHeight).inside(x, y)) {
+					currentChatTab = ChatTab::DEBUG;
+					lastChatInteractionTime = ofGetElapsedTimef();
+					return;
+				}
 				// Clicking inside chat window keeps it open
 				lastChatInteractionTime = ofGetElapsedTimef();
 				return;
@@ -11900,85 +11923,70 @@ void ofApp::mousePressed(int x, int y, int button) {
 		}
 	}
 
-	// Debug button handling (allow in any state)
-	if (isDebugMode && button == OF_MOUSE_BUTTON_LEFT) {
-		if (debugPanel.inside(x, y)) {
-			if (isMultiplayer && !isHost()) {
-				addGameLog("Debug tools are host-only in multiplayer.");
-				return;
-			}
-			// Handle specific debug buttons
-			if (debugDrawCardButton.inside(x, y)) {
-				drawCard();
-				if (isMultiplayer && isHost()) {
-					sendSnapshotToClient();
-				}
-				return;
-			}
-
-			if (debugSpawnCardButton.inside(x, y)) {
-				// Open the in-game card spawner UI
-				isCardSpawnerOpen = true;
-				cardSpawnerInput = "";
-				filteredCards.clear();
-				return;
-			}
-
-			if (debugDiceDropdownButton.inside(x, y)) {
-				isDebugDiceDropdownOpen = !isDebugDiceDropdownOpen;
-				return;
-			}
-
-			// Only check dropdown buttons if open
-			if (isDebugDiceDropdownOpen) {
-				if (debugFlipCoinButton.inside(x, y)) {
-					startDiceRoll(1, 2, PURPOSE_DEBUG, "Debug Coin", currentPlayerIndex);
-					isDebugDiceDropdownOpen = false;
-					return;
-				}
-				if (debugRollD4Button.inside(x, y)) {
-					startDiceRoll(1, 4, PURPOSE_DEBUG, "Debug D4", currentPlayerIndex);
-					isDebugDiceDropdownOpen = false;
-					return;
-				}
-				if (debugRollD6Button.inside(x, y)) {
-					startDiceRoll(1, 6, PURPOSE_DEBUG, "Debug D6", currentPlayerIndex);
-					isDebugDiceDropdownOpen = false;
-					return;
-				}
-				if (debugRollD10Button.inside(x, y)) {
-					startDiceRoll(1, 10, PURPOSE_DEBUG, "Debug D10", currentPlayerIndex);
-					isDebugDiceDropdownOpen = false;
-					return;
-				}
-				if (debugRollD20Button.inside(x, y)) {
-					startDiceRoll(1, 20, PURPOSE_DEBUG, "Debug D20", currentPlayerIndex);
-					isDebugDiceDropdownOpen = false;
-					return;
-				}
-			}
-
-			if (debugSpawnUnitButton.inside(x, y)) {
-				isSpawningUnit = !isSpawningUnit;
-				return;
-			}
-			if (debugUnlimitedAPButton.inside(x, y)) {
-				hasUnlimitedAP = !hasUnlimitedAP;
-				if (isMultiplayer && isHost()) {
-					sendSnapshotToClient();
-				}
-				return;
-			}
-			if (debugSkipDraftButton.inside(x, y)) {
-				if (!isMultiplayer && currentState == STATE_DRAFTING && draftOptions.size() > 0) {
-					debugSkipDraftRandomCards();
-				}
-				return;
-			}
-			// Force End Turn debug control removed
-
-			return; // Clicked panel background
+	// Debug button handling moved inside Chat DEBUG tab
+	if (button == OF_MOUSE_BUTTON_LEFT && currentChatTab == ChatTab::DEBUG && chatWindowRect.inside(x, y)) {
+		if (isMultiplayer && !isHost()) {
+			addGameLog("Debug tools are host-only in multiplayer.");
+			return;
 		}
+		// Map debug button hits (buttons' rects are positioned inside chat DEBUG rendering)
+		if (debugDrawCardButton.inside(x, y)) {
+			drawCard();
+			if (isMultiplayer && isHost()) sendSnapshotToClient();
+			return;
+		}
+		if (debugSpawnCardButton.inside(x, y)) {
+			isCardSpawnerOpen = true;
+			cardSpawnerInput.clear();
+			filteredCards.clear();
+			return;
+		}
+		if (debugDiceDropdownButton.inside(x, y)) {
+			isDebugDiceDropdownOpen = !isDebugDiceDropdownOpen;
+			return;
+		}
+		if (isDebugDiceDropdownOpen) {
+			if (debugFlipCoinButton.inside(x, y)) {
+				startDiceRoll(1, 2, PURPOSE_DEBUG, "Debug Coin", currentPlayerIndex);
+				isDebugDiceDropdownOpen = false;
+				return;
+			}
+			if (debugRollD4Button.inside(x, y)) {
+				startDiceRoll(1, 4, PURPOSE_DEBUG, "Debug D4", currentPlayerIndex);
+				isDebugDiceDropdownOpen = false;
+				return;
+			}
+			if (debugRollD6Button.inside(x, y)) {
+				startDiceRoll(1, 6, PURPOSE_DEBUG, "Debug D6", currentPlayerIndex);
+				isDebugDiceDropdownOpen = false;
+				return;
+			}
+			if (debugRollD10Button.inside(x, y)) {
+				startDiceRoll(1, 10, PURPOSE_DEBUG, "Debug D10", currentPlayerIndex);
+				isDebugDiceDropdownOpen = false;
+				return;
+			}
+			if (debugRollD20Button.inside(x, y)) {
+				startDiceRoll(1, 20, PURPOSE_DEBUG, "Debug D20", currentPlayerIndex);
+				isDebugDiceDropdownOpen = false;
+				return;
+			}
+		}
+		if (debugSpawnUnitButton.inside(x, y)) {
+			isSpawningUnit = !isSpawningUnit;
+			return;
+		}
+		if (debugUnlimitedAPButton.inside(x, y)) {
+			hasUnlimitedAP = !hasUnlimitedAP;
+			if (isMultiplayer && isHost()) sendSnapshotToClient();
+			return;
+		}
+		if (debugSkipDraftButton.inside(x, y)) {
+			if (!isMultiplayer && currentState == STATE_DRAFTING && draftOptions.size() > 0) debugSkipDraftRandomCards();
+			return;
+		}
+		// Click consumed
+		return;
 	}
 
 	// Allow pile view interactions even during draft
@@ -14016,6 +14024,37 @@ void ofApp::mousePressed(int x, int y, int button) {
 		return;
 	}
 
+	// --- 1m. Punch Targeting Click ---
+	if (isTargetingPunch && button == OF_MOUSE_BUTTON_LEFT) {
+		ofVec2f boardPos = mouseToBoard(x, y);
+		int gx = floor(boardPos.x), gy = floor(boardPos.y);
+		if (gx >= 0 && gx < BOARD_WIDTH && gy >= 0 && gy < BOARD_HEIGHT) {
+			if (board[gx][gy].isTargetable) {
+				int cardIndex = pendingPunchCardIndex;
+				std::string cardName = (cardIndex >= 0 && cardIndex < (int)players[currentPlayerIndex].hand.size())
+					? players[currentPlayerIndex].hand[cardIndex].name
+					: "";
+				int cost = (cardIndex >= 0 && cardIndex < (int)players[currentPlayerIndex].hand.size())
+					? players[currentPlayerIndex].hand[cardIndex].cost
+					: 0;
+				CardPlayResult result = playCard(cardIndex, gx, gy);
+				if (isMultiplayer && result == CARD_PLAYED_IMMEDIATELY) {
+					players[currentPlayerIndex].ap = currentAP;
+					sendActionPacket(cardIndex, gx, gy, cost, 0, cardName);
+				}
+				isTargetingPunch = false;
+				pendingPunchCardIndex = -1;
+				clearHighlights();
+				return;
+			}
+		}
+		// Cancel
+		isTargetingPunch = false;
+		pendingPunchCardIndex = -1;
+		clearHighlights();
+		return;
+	}
+
 	// --- 1l. Heal Targeting Click ---
 	if (isTargetingHeal && button == OF_MOUSE_BUTTON_LEFT) {
 		ofVec2f boardPos = mouseToBoard(x, y);
@@ -15443,6 +15482,16 @@ void ofApp::mouseReleased(int x, int y, int button) {
 							selectedCardIndex = -1;
 							calculateTargetHighlights(hellhoundCardIndex);
 
+							return;
+						}
+
+						// --- PUNCH: Enter adjacent-targeting mode (drag-release)
+						if (playedCard.name == "Punch") {
+							isTargetingPunch = true;
+							pendingPunchCardIndex = draggedCardIndex;
+							draggedCardIndex = -1;
+							selectedCardIndex = -1;
+							calculateTargetHighlights(pendingPunchCardIndex);
 							return;
 						}
 
@@ -19940,6 +19989,7 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 	if (isTargetingDoubleHanded) activeCardIndex = pendingDoubleHandedCardIndex;
 	if (isTargetingHellhound) activeCardIndex = hellhoundCardIndex;
 	if (isTargetingBurst) activeCardIndex = pendingBurstCardIndex;
+	if (isTargetingPunch) activeCardIndex = pendingPunchCardIndex;
 
 	// Safety Check
 	if (activeCardIndex < 0 || activeCardIndex >= (int)currentPlayer.hand.size()) return;
@@ -20628,6 +20678,26 @@ void ofApp::applyPixelArtSettings() {
 	// Optionally adjust material settings to reduce specular for pixel-art
 	modelMaterial.setShininess(2.0f);
 	diceMaterial.setShininess(2.0f);
+
+	// If we just disabled pixel-art mode, regenerate mipmaps for textures
+	// that may have been sampled at reduced resolution so linear filtering
+	// can look crisp again when restored.
+	if (!enablePixelArt) {
+		if (wallTexture.isAllocated()) wallTexture.generateMipmap();
+		if (wallDarkTexture.isAllocated()) wallDarkTexture.generateMipmap();
+		if (wallUnitTexture.isAllocated()) wallUnitTexture.generateMipmap();
+		if (roomTexture.isAllocated()) roomTexture.generateMipmap();
+		for (auto & ft : floorTextures)
+			if (ft.isAllocated()) ft.generateMipmap();
+		for (auto & kt : keyTextures)
+			if (kt.isAllocated()) kt.generateMipmap();
+		for (auto & kt : keyTexturesSilver)
+			if (kt.isAllocated()) kt.generateMipmap();
+		for (auto & kt : keyTexturesBronze)
+			if (kt.isAllocated()) kt.generateMipmap();
+		if (cardSpriteSheet.isAllocated()) cardSpriteSheet.getTexture().generateMipmap();
+		if (cardBackImage.isAllocated()) cardBackImage.getTexture().generateMipmap();
+	}
 }
 //--------------------------------------------------------------
 
@@ -20638,6 +20708,38 @@ void ofApp::clearHighlights() {
 			board[x][y].isTargetPreview = false; // <--- ADD THIS
 		}
 	hoverPath.clear();
+}
+
+// --------------------------------------------------------------
+void ofApp::enterTargetingMode(const ofApp::TargetingContext & ctx) {
+	targetingContext = ctx;
+	isInTargetingMode = true;
+	clearHighlights();
+	// If the context has a source card index, use it to prime highlights
+	calculateTargetHighlights(targetingContext.sourceCardIndex);
+}
+
+void ofApp::cancelTargetingMode() {
+	if (isInTargetingMode && targetingContext.onCancel) {
+		targetingContext.onCancel();
+	}
+	isInTargetingMode = false;
+	targetingContext = ofApp::TargetingContext();
+	clearHighlights();
+}
+
+void ofApp::resolveTargetAt(int gx, int gy) {
+	if (!isInTargetingMode) return;
+	if (targetingContext.isValid) {
+		if (!targetingContext.isValid(gx, gy)) {
+			ofLogWarning("Targeting") << "Attempted to resolve invalid target: " << gx << "," << gy;
+			return;
+		}
+	}
+	if (targetingContext.onSelected) {
+		targetingContext.onSelected(gx, gy);
+	}
+	cancelTargetingMode();
 }
 
 //--------------------------------------------------------------
