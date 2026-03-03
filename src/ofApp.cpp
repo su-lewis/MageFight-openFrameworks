@@ -3019,12 +3019,14 @@ void ofApp::updateGame() {
 		};
 
 		// 4. BUILD LISTS WITH PLAYER-SPECIFIC BOUNDARIES
-		float p0_startX = 25 * scale; // Moved right slightly to accommodate the scrollbar
+		// Align local minion panel to the local discard's left edge.
+		float p0_startX = p0_discardRect.x;
 		int p0_assistant = 0;
 		int p0_faerie = 0;
 		buildMinionList(p0_minionIndices, p0_startX, p0_topLimitY, p0_bottomLimitY, 0, p0_skeleton, p0_golem, p0_wolf, p0_hound, p0_demon, p0_kobold, p0_assistant, p0_wall, p0_faerie);
 
-		float p1_startX = ofGetWidth() - panelWidth - (10 * scale);
+		// Mirror on enemy side: align panel right edge to enemy discard right edge.
+		float p1_startX = p1_discardRect.getRight() - panelWidth;
 		int p1_assistant = 0;
 		int p1_faerie = 0;
 		buildMinionList(p1_minionIndices, p1_startX, p1_topLimitY, p1_bottomLimitY, 1, p1_skeleton, p1_golem, p1_wolf, p1_hound, p1_demon, p1_kobold, p1_assistant, p1_wall, p1_faerie);
@@ -9217,10 +9219,11 @@ void ofApp::drawGame() {
 		// 1. Calculate positions - bottom = local player (left side), mirrored opponent on right side
 		float margin = 20.0f * scale;
 		float verticalGap = 20.0f * scale;
+		float uiStackYOffset = 12.0f * scale; // move deck/discard/AP stack slightly down
 
 		// Local player (P0) - deck should be at the bottom-left, discard above it
 		float p0_deckX = 20.0f * scale;
-		float p0_deckY = ofGetHeight() - staticUICardHeight - margin; // bottom-aligned deck
+		float p0_deckY = ofGetHeight() - staticUICardHeight - margin + uiStackYOffset;
 		p0_deckRect.set(p0_deckX, p0_deckY, staticUICardWidth, staticUICardHeight);
 
 		float p0_discardX = p0_deckX;
@@ -9229,7 +9232,7 @@ void ofApp::drawGame() {
 
 		// Opponent (P1) mirrored on the right side - deck at bottom-right, discard above it
 		float p1_deckX = ofGetWidth() - staticUICardWidth - (20.0f * scale);
-		float p1_deckY = ofGetHeight() - staticUICardHeight - margin; // bottom-aligned deck on right
+		float p1_deckY = ofGetHeight() - staticUICardHeight - margin + uiStackYOffset;
 		p1_deckRect.set(p1_deckX, p1_deckY, staticUICardWidth, staticUICardHeight);
 
 		float p1_discardX = p1_deckX;
@@ -9240,8 +9243,9 @@ void ofApp::drawGame() {
 		// Place health bar near the deck's right side with a small gap (mirrored for opponent)
 		float healthBarWidth = 220.0f * scale;
 		float gap = 8.0f * scale;
+		float healthBarInwardNudge = 6.0f * scale; // slight inward move, mirrored per side
 		// Local player: place health bar immediately to the right of the deck
-		float p0_healthX = p0_deckRect.getRight() + gap;
+		float p0_healthX = p0_deckRect.getRight() + gap - healthBarInwardNudge;
 		float p0_healthY = ofGetHeight() - healthBarHeight - (20.0f * scale); // bottom-aligned
 		drawHealthBar(*localPlayer, p0_healthX, p0_healthY, ofColor::green);
 
@@ -9314,7 +9318,7 @@ void ofApp::drawGame() {
 
 		// 3. Draw Player 1 (Right) UI - opponent mirrored on right side
 		// Opponent: mirror the layout and place health bar immediately to the left of their deck
-		float p1_healthX = p1_deckRect.getLeft() - gap - healthBarWidth;
+		float p1_healthX = p1_deckRect.getLeft() - gap - healthBarWidth + healthBarInwardNudge;
 		float p1_healthY = ofGetHeight() - healthBarHeight - (20.0f * scale);
 		drawHealthBar(*opponentPlayer, p1_healthX, p1_healthY, ofColor::red);
 
@@ -10826,285 +10830,285 @@ void ofApp::drawGame() {
 		}
 	}
 
-// --- Debug Card Spawner UI (KRunner-style) ---
-if (isCardSpawnerOpen) {
-	drawCardSpawnerUI();
-}
-if (isCardEncyclopediaOpen) {
-	drawCardEncyclopediaUI();
-}
+	// --- Debug Card Spawner UI (KRunner-style) ---
+	if (isCardSpawnerOpen) {
+		drawCardSpawnerUI();
+	}
+	if (isCardEncyclopediaOpen) {
+		drawCardEncyclopediaUI();
+	}
 
-// --- TOP INSTRUCTION TEXT (Wolf Placement) ---
-if (isPlacingWolves && !isWaitingForWolfCoin) {
-	string msg = "Choose Wolf Spawn Square";
+	// --- TOP INSTRUCTION TEXT (Wolf Placement) ---
+	if (isPlacingWolves && !isWaitingForWolfCoin) {
+		string msg = "Choose Wolf Spawn Square";
 
-	// Optional: Change text if it's the second wolf
-	if (wolfSummonStage == 2) msg = "Heads! Choose 2nd Wolf Spawn Square";
+		// Optional: Change text if it's the second wolf
+		if (wolfSummonStage == 2) msg = "Heads! Choose 2nd Wolf Spawn Square";
 
-	// Calculate center position
-	ofRectangle bbox = titleFont.getStringBoundingBox(msg, 0, 0);
-	float tx = (ofGetWidth() / 2.0f) - (bbox.width / 2.0f);
-
-	// MOVED LOWER: 25% down the screen
-	float ty = ofGetHeight() * 0.25f;
-
-	// Draw Text Shadow/Outline for visibility
-	ofSetColor(0, 0, 0, 255);
-	titleFont.drawString(msg, tx + 2, ty + 2);
-	titleFont.drawString(msg, tx - 2, ty - 2);
-	titleFont.drawString(msg, tx + 2, ty - 2);
-	titleFont.drawString(msg, tx - 2, ty + 2);
-
-	// Draw Main Text
-	ofSetColor(ofColor::white);
-	titleFont.drawString(msg, tx, ty);
-}
-
-// --- MAGIC BOLT INSTRUCTION TEXT ---
-if (isTargetingMagicBolt) {
-	string msg = "Choose Target Tile for Magic Bolt";
-	ofRectangle bbox = titleFont.getStringBoundingBox(msg, 0, 0);
-	float tx = (ofGetWidth() / 2.0f) - (bbox.width / 2.0f);
-	float ty = ofGetHeight() * 0.25f;
-
-	// Shadow
-	ofSetColor(0, 0, 0, 255);
-	titleFont.drawString(msg, tx + 2, ty + 2);
-	// Text
-	ofSetColor(ofColor::cyan);
-	titleFont.drawString(msg, tx, ty);
-}
-
-// --- DEATH INSTRUCTION ---
-if (isTargetingDeath) {
-	string msg = "Select Target for Death";
-	// ... standard text drawing code (copy from magic bolt) ...
-	ofRectangle bbox = titleFont.getStringBoundingBox(msg, 0, 0);
-	float tx = (ofGetWidth() / 2.0f) - (bbox.width / 2.0f);
-	float ty = ofGetHeight() * 0.25f;
-	ofSetColor(0, 0, 0, 255);
-	titleFont.drawString(msg, tx + 2, ty + 2);
-	ofSetColor(ofColor::red);
-	titleFont.drawString(msg, tx, ty);
-}
-
-// --- HEAL INSTRUCTION ---
-if (isTargetingHeal) {
-	string msg = "Select unit to heal";
-	ofRectangle bbox = titleFont.getStringBoundingBox(msg, 0, 0);
-	float tx = (ofGetWidth() / 2.0f) - (bbox.width / 2.0f);
-	float ty = ofGetHeight() * 0.25f;
-	ofSetColor(0, 0, 0, 255);
-	titleFont.drawString(msg, tx + 2, ty + 2);
-	ofSetColor(ofColor::green);
-	titleFont.drawString(msg, tx, ty);
-}
-
-// --- DOUBLE HANDED TARGETING INSTRUCTION TEXT ---
-if (isTargetingDoubleHanded) {
-	string msg = "Choose Target for Double Handed (2x " + pendingDoubleHandedChoice + ")";
-	ofRectangle bbox = titleFont.getStringBoundingBox(msg, 0, 0);
-	float tx = (ofGetWidth() / 2.0f) - (bbox.width / 2.0f);
-	float ty = ofGetHeight() * 0.25f;
-
-	ofSetColor(0, 0, 0, 255);
-	titleFont.drawString(msg, tx + 2, ty + 2);
-	ofSetColor(ofColor::green);
-	titleFont.drawString(msg, tx, ty);
-}
-
-// --- AMNESIA TARGETING INSTRUCTION TEXT ---
-if (isTargetingAmnesia) {
-	string msg = "Choose Adjacent Unit for Amnesia";
-	ofRectangle bbox = titleFont.getStringBoundingBox(msg, 0, 0);
-	float tx = (ofGetWidth() / 2.0f) - (bbox.width / 2.0f);
-	float ty = ofGetHeight() * 0.25f;
-
-	ofSetColor(0, 0, 0, 255);
-	titleFont.drawString(msg, tx + 2, ty + 2);
-	ofSetColor(ofColor::magenta);
-	titleFont.drawString(msg, tx, ty);
-}
-
-// --- PUNCH TARGETING INSTRUCTION TEXT ---
-if (isTargetingPunch) {
-	string msg = "Punch: Choose Adjacent Unit";
-	ofRectangle bbox = titleFont.getStringBoundingBox(msg, 0, 0);
-	float tx = (ofGetWidth() / 2.0f) - (bbox.width / 2.0f);
-	float ty = ofGetHeight() * 0.25f;
-
-	ofSetColor(0, 0, 0, 255);
-	titleFont.drawString(msg, tx + 2, ty + 2);
-	ofSetColor(ofColor::orange);
-	titleFont.drawString(msg, tx, ty);
-}
-
-// --- TORTOISE DAMAGE TARGETING INSTRUCTION TEXT ---
-if (isTargetingTortoiseDamage) {
-	string msg = "Shell Spike: Choose Adjacent Unit";
-	ofRectangle bbox = titleFont.getStringBoundingBox(msg, 0, 0);
-	float tx = (ofGetWidth() / 2.0f) - (bbox.width / 2.0f);
-	float ty = ofGetHeight() * 0.25f;
-
-	ofSetColor(0, 0, 0, 255);
-	titleFont.drawString(msg, tx + 2, ty + 2);
-	ofSetColor(ofColor::darkGreen);
-	titleFont.drawString(msg, tx, ty);
-}
-
-// --- HELLHOUND INSTRUCTION TEXT ---
-if (isTargetingHellhound) {
-	string msg = "Choose Adjacent Tile for Hellhound";
-	ofRectangle bbox = titleFont.getStringBoundingBox(msg, 0, 0);
-	float tx = (ofGetWidth() / 2.0f) - (bbox.width / 2.0f);
-	float ty = ofGetHeight() * 0.25f;
-
-	// Shadow
-	ofSetColor(0, 0, 0, 255);
-	titleFont.drawString(msg, tx + 2, ty + 2);
-	// Text (Orange for fire/hell)
-	ofSetColor(ofColor::orangeRed);
-	titleFont.drawString(msg, tx, ty);
-}
-
-// --- TELEPORT TARGETING INSTRUCTION TEXT ---
-if (isTargetingTeleport) {
-	string msg = "Choose Teleport Destination (Range: " + ofToString(pendingTeleportRollResult) + " ft)";
-	ofRectangle bbox = titleFont.getStringBoundingBox(msg, 0, 0);
-	float tx = (ofGetWidth() / 2.0f) - (bbox.width / 2.0f);
-	float ty = ofGetHeight() * 0.25f;
-
-	ofSetColor(0, 0, 0, 255);
-	titleFont.drawString(msg, tx + 2, ty + 2);
-	ofSetColor(ofColor::cyan);
-	titleFont.drawString(msg, tx, ty);
-}
-
-// --- DICE ROLL RESULT TEXT ---
-if (!diceRollResultText.empty() && (ofGetElapsedTimef() - diceRollResultStartTime) < diceRollResultDuration) {
-	ofRectangle bbox = titleFont.getStringBoundingBox(diceRollResultText, 0, 0);
-	float tx = (ofGetWidth() / 2.0f) - (bbox.width / 2.0f);
-	float ty = ofGetHeight() * 0.25f;
-
-	// Shadow
-	ofSetColor(0, 0, 0, 255);
-	titleFont.drawString(diceRollResultText, tx + 2, ty + 2);
-	// Text (yellow/gold for dice results)
-	ofSetColor(ofColor::gold);
-	titleFont.drawString(diceRollResultText, tx, ty);
-}
-
-// FIX: Added Burst Targeting Instructions
-if (isTargetingBurst) {
-	string msg = (burstChoice == 0) ? "Select Enemy to Damage (3 Holy)" : "Select Ally to Heal (3 HP)";
-	ofRectangle bbox = titleFont.getStringBoundingBox(msg, 0, 0);
-	float tx = (ofGetWidth() / 2.0f) - (bbox.width / 2.0f);
-	float ty = ofGetHeight() * 0.25f;
-
-	ofSetColor(0, 0, 0, 255);
-	titleFont.drawString(msg, tx + 2, ty + 2);
-	ofSetColor(burstChoice == 0 ? ofColor::orange : ofColor::green);
-	titleFont.drawString(msg, tx, ty);
-}
-
-// --- BONUS TURNS COUNTER ---
-if (currentPlayerIndex != -1) {
-	Player & currentPlayer = players[currentPlayerIndex];
-	if (currentPlayer.bonusTurns > 0) {
-		string msg = "Extra Turns: " + ofToString(currentPlayer.bonusTurns);
-
-		// Calculate position to the right of the End Turn button
+		// Calculate center position
 		ofRectangle bbox = titleFont.getStringBoundingBox(msg, 0, 0);
-		float tx = endTurnButtonRect.getRight() + 20 * scale;
-		float ty = endTurnButtonRect.getCenter().y + bbox.height / 2;
+		float tx = (ofGetWidth() / 2.0f) - (bbox.width / 2.0f);
 
-		// Draw shadow/outline for visibility
+		// MOVED LOWER: 25% down the screen
+		float ty = ofGetHeight() * 0.25f;
+
+		// Draw Text Shadow/Outline for visibility
 		ofSetColor(0, 0, 0, 255);
 		titleFont.drawString(msg, tx + 2, ty + 2);
 		titleFont.drawString(msg, tx - 2, ty - 2);
 		titleFont.drawString(msg, tx + 2, ty - 2);
 		titleFont.drawString(msg, tx - 2, ty + 2);
 
-		// Draw main text
+		// Draw Main Text
 		ofSetColor(ofColor::white);
 		titleFont.drawString(msg, tx, ty);
 	}
-}
 
-// --- DRAW DICE LABEL ---
-// Only draw the generic bottom label if NOT in initiative roll (since that has custom text)
-if (!activeDiceRolls.empty() && currentState != STATE_INITIATIVE_ROLL) {
-	ofPushMatrix();
+	// --- MAGIC BOLT INSTRUCTION TEXT ---
+	if (isTargetingMagicBolt) {
+		string msg = "Choose Target Tile for Magic Bolt";
+		ofRectangle bbox = titleFont.getStringBoundingBox(msg, 0, 0);
+		float tx = (ofGetWidth() / 2.0f) - (bbox.width / 2.0f);
+		float ty = ofGetHeight() * 0.25f;
 
-	// FIXED POSITION CALCULATION:
-	// We calculate position based on the screen top, not the button.
-	// Button sits at 20*scale. Height is 60. Padding 50.
-	float fixedY = (20 * scale) + (60 * scale) + (50 * scale);
-	float fixedX = ofGetWidth() / 2.0f;
+		// Shadow
+		ofSetColor(0, 0, 0, 255);
+		titleFont.drawString(msg, tx + 2, ty + 2);
+		// Text
+		ofSetColor(ofColor::cyan);
+		titleFont.drawString(msg, tx, ty);
+	}
 
-	// Draw Shadow
-	ofSetColor(0, 0, 0, 255);
-	ofRectangle bounds = titleFont.getStringBoundingBox(currentDiceLabel, 0, 0);
+	// --- DEATH INSTRUCTION ---
+	if (isTargetingDeath) {
+		string msg = "Select Target for Death";
+		// ... standard text drawing code (copy from magic bolt) ...
+		ofRectangle bbox = titleFont.getStringBoundingBox(msg, 0, 0);
+		float tx = (ofGetWidth() / 2.0f) - (bbox.width / 2.0f);
+		float ty = ofGetHeight() * 0.25f;
+		ofSetColor(0, 0, 0, 255);
+		titleFont.drawString(msg, tx + 2, ty + 2);
+		ofSetColor(ofColor::red);
+		titleFont.drawString(msg, tx, ty);
+	}
 
-	// Scale text
-	float textScale = 0.8f;
+	// --- HEAL INSTRUCTION ---
+	if (isTargetingHeal) {
+		string msg = "Select unit to heal";
+		ofRectangle bbox = titleFont.getStringBoundingBox(msg, 0, 0);
+		float tx = (ofGetWidth() / 2.0f) - (bbox.width / 2.0f);
+		float ty = ofGetHeight() * 0.25f;
+		ofSetColor(0, 0, 0, 255);
+		titleFont.drawString(msg, tx + 2, ty + 2);
+		ofSetColor(ofColor::green);
+		titleFont.drawString(msg, tx, ty);
+	}
 
-	ofTranslate(fixedX, fixedY);
-	ofScale(textScale, textScale);
+	// --- DOUBLE HANDED TARGETING INSTRUCTION TEXT ---
+	if (isTargetingDoubleHanded) {
+		string msg = "Choose Target for Double Handed (2x " + pendingDoubleHandedChoice + ")";
+		ofRectangle bbox = titleFont.getStringBoundingBox(msg, 0, 0);
+		float tx = (ofGetWidth() / 2.0f) - (bbox.width / 2.0f);
+		float ty = ofGetHeight() * 0.25f;
 
-	titleFont.drawString(currentDiceLabel, -bounds.width / 2 + 3, 3); // Shadow offset
+		ofSetColor(0, 0, 0, 255);
+		titleFont.drawString(msg, tx + 2, ty + 2);
+		ofSetColor(ofColor::green);
+		titleFont.drawString(msg, tx, ty);
+	}
 
-	// Draw Main Text (Gold)
-	ofSetColor(255, 215, 0);
-	titleFont.drawString(currentDiceLabel, -bounds.width / 2, 0);
+	// --- AMNESIA TARGETING INSTRUCTION TEXT ---
+	if (isTargetingAmnesia) {
+		string msg = "Choose Adjacent Unit for Amnesia";
+		ofRectangle bbox = titleFont.getStringBoundingBox(msg, 0, 0);
+		float tx = (ofGetWidth() / 2.0f) - (bbox.width / 2.0f);
+		float ty = ofGetHeight() * 0.25f;
 
-	ofPopMatrix();
-}
+		ofSetColor(0, 0, 0, 255);
+		titleFont.drawString(msg, tx + 2, ty + 2);
+		ofSetColor(ofColor::magenta);
+		titleFont.drawString(msg, tx, ty);
+	}
 
-// --- RENEWED INSPIRATION UI (Text & Buttons) ---
-if (isSelectingRenewedInspiration) {
-	// 1. Draw Top Instruction Text
-	string msg = "Select cards to discard (Draw 2 each)";
-	ofRectangle bbox = titleFont.getStringBoundingBox(msg, 0, 0);
-	float tx = (ofGetWidth() / 2.0f) - (bbox.width / 2.0f);
-	float ty = ofGetHeight() * 0.25f;
+	// --- PUNCH TARGETING INSTRUCTION TEXT ---
+	if (isTargetingPunch) {
+		string msg = "Punch: Choose Adjacent Unit";
+		ofRectangle bbox = titleFont.getStringBoundingBox(msg, 0, 0);
+		float tx = (ofGetWidth() / 2.0f) - (bbox.width / 2.0f);
+		float ty = ofGetHeight() * 0.25f;
 
-	// Shadow
-	ofSetColor(0, 0, 0, 255);
-	titleFont.drawString(msg, tx + 2, ty + 2);
-	// Text
-	ofSetColor(ofColor::lightGreen);
-	titleFont.drawString(msg, tx, ty);
+		ofSetColor(0, 0, 0, 255);
+		titleFont.drawString(msg, tx + 2, ty + 2);
+		ofSetColor(ofColor::orange);
+		titleFont.drawString(msg, tx, ty);
+	}
 
-	// 2. Draw Control Panel (Background for Buttons)
-	float panelW = 240;
-	float panelH = 70;
-	float panelX = riConfirmBtn.x - 20;
-	float panelY = riConfirmBtn.y - 10;
+	// --- TORTOISE DAMAGE TARGETING INSTRUCTION TEXT ---
+	if (isTargetingTortoiseDamage) {
+		string msg = "Shell Spike: Choose Adjacent Unit";
+		ofRectangle bbox = titleFont.getStringBoundingBox(msg, 0, 0);
+		float tx = (ofGetWidth() / 2.0f) - (bbox.width / 2.0f);
+		float ty = ofGetHeight() * 0.25f;
 
-	ofSetColor(50, 50, 50, 240); // Grey background
-	ofDrawRectRounded(panelX, panelY, panelW, panelH, 10);
+		ofSetColor(0, 0, 0, 255);
+		titleFont.drawString(msg, tx + 2, ty + 2);
+		ofSetColor(ofColor::darkGreen);
+		titleFont.drawString(msg, tx, ty);
+	}
 
-	// 3. Draw Confirm Button
-	ofSetColor(0, 180, 0); // Green
-	if (riConfirmBtn.inside(ofGetMouseX(), ofGetMouseY())) ofSetColor(0, 220, 0);
-	ofDrawRectRounded(riConfirmBtn, 8);
+	// --- HELLHOUND INSTRUCTION TEXT ---
+	if (isTargetingHellhound) {
+		string msg = "Choose Adjacent Tile for Hellhound";
+		ofRectangle bbox = titleFont.getStringBoundingBox(msg, 0, 0);
+		float tx = (ofGetWidth() / 2.0f) - (bbox.width / 2.0f);
+		float ty = ofGetHeight() * 0.25f;
 
-	ofSetColor(255);
-	ofRectangle cBox = uiFont.getStringBoundingBox("Accept", 0, 0);
-	uiFont.drawString("Accept", riConfirmBtn.getCenter().x - cBox.width / 2, riConfirmBtn.getCenter().y + cBox.height / 2);
+		// Shadow
+		ofSetColor(0, 0, 0, 255);
+		titleFont.drawString(msg, tx + 2, ty + 2);
+		// Text (Orange for fire/hell)
+		ofSetColor(ofColor::orangeRed);
+		titleFont.drawString(msg, tx, ty);
+	}
 
-	// 4. Draw Cancel Button
-	ofSetColor(180, 0, 0); // Red
-	if (riCancelBtn.inside(ofGetMouseX(), ofGetMouseY())) ofSetColor(220, 0, 0);
-	ofDrawRectRounded(riCancelBtn, 8);
+	// --- TELEPORT TARGETING INSTRUCTION TEXT ---
+	if (isTargetingTeleport) {
+		string msg = "Choose Teleport Destination (Range: " + ofToString(pendingTeleportRollResult) + " ft)";
+		ofRectangle bbox = titleFont.getStringBoundingBox(msg, 0, 0);
+		float tx = (ofGetWidth() / 2.0f) - (bbox.width / 2.0f);
+		float ty = ofGetHeight() * 0.25f;
 
-	ofSetColor(255);
-	ofRectangle xBox = uiFont.getStringBoundingBox("Cancel", 0, 0);
-	uiFont.drawString("Cancel", riCancelBtn.getCenter().x - xBox.width / 2, riCancelBtn.getCenter().y + xBox.height / 2);
-}
-// --- DEBUG: DRAW FPS ---
-ofDrawBitmapString("FPS: " + ofToString(ofGetFrameRate(), 2), 10, 20);
+		ofSetColor(0, 0, 0, 255);
+		titleFont.drawString(msg, tx + 2, ty + 2);
+		ofSetColor(ofColor::cyan);
+		titleFont.drawString(msg, tx, ty);
+	}
+
+	// --- DICE ROLL RESULT TEXT ---
+	if (!diceRollResultText.empty() && (ofGetElapsedTimef() - diceRollResultStartTime) < diceRollResultDuration) {
+		ofRectangle bbox = titleFont.getStringBoundingBox(diceRollResultText, 0, 0);
+		float tx = (ofGetWidth() / 2.0f) - (bbox.width / 2.0f);
+		float ty = ofGetHeight() * 0.25f;
+
+		// Shadow
+		ofSetColor(0, 0, 0, 255);
+		titleFont.drawString(diceRollResultText, tx + 2, ty + 2);
+		// Text (yellow/gold for dice results)
+		ofSetColor(ofColor::gold);
+		titleFont.drawString(diceRollResultText, tx, ty);
+	}
+
+	// FIX: Added Burst Targeting Instructions
+	if (isTargetingBurst) {
+		string msg = (burstChoice == 0) ? "Select Enemy to Damage (3 Holy)" : "Select Ally to Heal (3 HP)";
+		ofRectangle bbox = titleFont.getStringBoundingBox(msg, 0, 0);
+		float tx = (ofGetWidth() / 2.0f) - (bbox.width / 2.0f);
+		float ty = ofGetHeight() * 0.25f;
+
+		ofSetColor(0, 0, 0, 255);
+		titleFont.drawString(msg, tx + 2, ty + 2);
+		ofSetColor(burstChoice == 0 ? ofColor::orange : ofColor::green);
+		titleFont.drawString(msg, tx, ty);
+	}
+
+	// --- BONUS TURNS COUNTER ---
+	if (currentPlayerIndex != -1) {
+		Player & currentPlayer = players[currentPlayerIndex];
+		if (currentPlayer.bonusTurns > 0) {
+			string msg = "Extra Turns: " + ofToString(currentPlayer.bonusTurns);
+
+			// Calculate position to the right of the End Turn button
+			ofRectangle bbox = titleFont.getStringBoundingBox(msg, 0, 0);
+			float tx = endTurnButtonRect.getRight() + 20 * scale;
+			float ty = endTurnButtonRect.getCenter().y + bbox.height / 2;
+
+			// Draw shadow/outline for visibility
+			ofSetColor(0, 0, 0, 255);
+			titleFont.drawString(msg, tx + 2, ty + 2);
+			titleFont.drawString(msg, tx - 2, ty - 2);
+			titleFont.drawString(msg, tx + 2, ty - 2);
+			titleFont.drawString(msg, tx - 2, ty + 2);
+
+			// Draw main text
+			ofSetColor(ofColor::white);
+			titleFont.drawString(msg, tx, ty);
+		}
+	}
+
+	// --- DRAW DICE LABEL ---
+	// Only draw the generic bottom label if NOT in initiative roll (since that has custom text)
+	if (!activeDiceRolls.empty() && currentState != STATE_INITIATIVE_ROLL) {
+		ofPushMatrix();
+
+		// FIXED POSITION CALCULATION:
+		// We calculate position based on the screen top, not the button.
+		// Button sits at 20*scale. Height is 60. Padding 50.
+		float fixedY = (20 * scale) + (60 * scale) + (50 * scale);
+		float fixedX = ofGetWidth() / 2.0f;
+
+		// Draw Shadow
+		ofSetColor(0, 0, 0, 255);
+		ofRectangle bounds = titleFont.getStringBoundingBox(currentDiceLabel, 0, 0);
+
+		// Scale text
+		float textScale = 0.8f;
+
+		ofTranslate(fixedX, fixedY);
+		ofScale(textScale, textScale);
+
+		titleFont.drawString(currentDiceLabel, -bounds.width / 2 + 3, 3); // Shadow offset
+
+		// Draw Main Text (Gold)
+		ofSetColor(255, 215, 0);
+		titleFont.drawString(currentDiceLabel, -bounds.width / 2, 0);
+
+		ofPopMatrix();
+	}
+
+	// --- RENEWED INSPIRATION UI (Text & Buttons) ---
+	if (isSelectingRenewedInspiration) {
+		// 1. Draw Top Instruction Text
+		string msg = "Select cards to discard (Draw 2 each)";
+		ofRectangle bbox = titleFont.getStringBoundingBox(msg, 0, 0);
+		float tx = (ofGetWidth() / 2.0f) - (bbox.width / 2.0f);
+		float ty = ofGetHeight() * 0.25f;
+
+		// Shadow
+		ofSetColor(0, 0, 0, 255);
+		titleFont.drawString(msg, tx + 2, ty + 2);
+		// Text
+		ofSetColor(ofColor::lightGreen);
+		titleFont.drawString(msg, tx, ty);
+
+		// 2. Draw Control Panel (Background for Buttons)
+		float panelW = 240;
+		float panelH = 70;
+		float panelX = riConfirmBtn.x - 20;
+		float panelY = riConfirmBtn.y - 10;
+
+		ofSetColor(50, 50, 50, 240); // Grey background
+		ofDrawRectRounded(panelX, panelY, panelW, panelH, 10);
+
+		// 3. Draw Confirm Button
+		ofSetColor(0, 180, 0); // Green
+		if (riConfirmBtn.inside(ofGetMouseX(), ofGetMouseY())) ofSetColor(0, 220, 0);
+		ofDrawRectRounded(riConfirmBtn, 8);
+
+		ofSetColor(255);
+		ofRectangle cBox = uiFont.getStringBoundingBox("Accept", 0, 0);
+		uiFont.drawString("Accept", riConfirmBtn.getCenter().x - cBox.width / 2, riConfirmBtn.getCenter().y + cBox.height / 2);
+
+		// 4. Draw Cancel Button
+		ofSetColor(180, 0, 0); // Red
+		if (riCancelBtn.inside(ofGetMouseX(), ofGetMouseY())) ofSetColor(220, 0, 0);
+		ofDrawRectRounded(riCancelBtn, 8);
+
+		ofSetColor(255);
+		ofRectangle xBox = uiFont.getStringBoundingBox("Cancel", 0, 0);
+		uiFont.drawString("Cancel", riCancelBtn.getCenter().x - xBox.width / 2, riCancelBtn.getCenter().y + xBox.height / 2);
+	}
+	// --- DEBUG: DRAW FPS ---
+	ofDrawBitmapString("FPS: " + ofToString(ofGetFrameRate(), 2), 10, 20);
 }
 //--------------------------------------------------------------
 void ofApp::mouseMoved(int x, int y) {
