@@ -15313,6 +15313,34 @@ void ofApp::mouseReleased(int x, int y, int button) {
 							int gy = floor(boardPos.y);
 
 							if (gx >= 0 && gx < BOARD_WIDTH && gy >= 0 && gy < BOARD_HEIGHT) {
+								// Special-case: Slash card - click on adjacent square to determine direction
+								if (playedCard.name == "Slash") {
+									int px = currentPlayer.x;
+									int py = currentPlayer.y;
+									int dx = gx - px;
+									int dy = gy - py;
+									int dist = abs(dx) + abs(dy); // Manhattan distance
+
+									// Check if release is on an adjacent square
+									if (dist == 1 && (dx == 0 || dy == 0)) { // Orthogonal adjacent only
+										ofLogNotice("CardPlay") << "Slash: Adjacent square clicked at (" << gx << "," << gy << "), direction=(" << dx << "," << dy << ")";
+										const std::string playedCardName = playedCard.name;
+										// Pass the adjacent tile as the target to determine direction in playCard
+										CardPlayResult result = playCard(draggedCardIndex, gx, gy);
+										if (isMultiplayer && result == CARD_PLAYED_IMMEDIATELY) {
+											players[currentPlayerIndex].ap = currentAP;
+											sendActionPacket(draggedCardIndex, gx, gy, playedCard.cost, 0, playedCardName);
+										}
+									} else {
+										spawnFloatingText(gridToWorld(currentPlayer.x, currentPlayer.y), "Click adjacent square", ofColor::orange);
+										ofLogNotice("CardPlay") << "Slash: Invalid target. Must be orthogonal adjacent square.";
+									}
+									draggedCardIndex = -1;
+									selectedCardIndex = -1;
+									calculateTargetHighlights();
+									return;
+								}
+
 								// Special-case: allow drag-release to play Blocking Boon even without a highlighted tile
 								if (playedCard.type == CARD_BLOCKING_BOON) {
 									const std::string playedCardName = playedCard.name;
@@ -19962,54 +19990,58 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 			}
 
 			case TARGET_CLEAVE_ADJACENT: {
-				// List of directions to render previews for
-				std::vector<glm::vec2> dirsToCheck;
+				// For Slash: Show adjacent squares as targetable
+				// The adjacent square clicked will determine the cleave direction
+				int distGrid = abs(x - px) + abs(y - py);
+				if (distGrid == 1 && (abs(x - px) == 0 || abs(y - py) == 0)) {
+					// Adjacent square (orthogonal only)
+					// Always show as preview (white outline)
+					isPreview = true;
 
-				if (isAimingOnBoard) {
-					dirsToCheck.push_back(aimDir);
-				} else {
-					dirsToCheck.push_back({ 0, 1 });
-					dirsToCheck.push_back({ 0, -1 });
-					dirsToCheck.push_back({ 1, 0 });
-					dirsToCheck.push_back({ -1, 0 });
-				}
+					// Determine direction based on which adjacent square this is
+					glm::vec2 direction = { x - px, y - py };
 
-				for (auto & dir : dirsToCheck) {
-					std::vector<glm::vec2> arcTiles;
-					glm::vec2 center = casterPos + dir;
-					arcTiles.push_back(center);
+					// Check what's in the 3-tile cleave area for this direction
+					glm::vec2 centerTile = { px + direction.x, py + direction.y };
+					std::vector<glm::vec2> cleaveTiles;
 
-					if (dir.x != 0) {
-						arcTiles.push_back({ center.x, center.y - 1 });
-						arcTiles.push_back({ center.x, center.y + 1 });
-					} else {
-						arcTiles.push_back({ center.x - 1, center.y });
-						arcTiles.push_back({ center.x + 1, center.y });
+					if (direction.y != 0) { // Vertical Aim
+						cleaveTiles.push_back({ centerTile.x - 1, centerTile.y }); // Left side
+						cleaveTiles.push_back({ centerTile.x, centerTile.y }); // Center
+						cleaveTiles.push_back({ centerTile.x + 1, centerTile.y }); // Right side
+					} else { // Horizontal Aim
+						cleaveTiles.push_back({ centerTile.x, centerTile.y - 1 }); // Top side
+						cleaveTiles.push_back({ centerTile.x, centerTile.y }); // Center
+						cleaveTiles.push_back({ centerTile.x, centerTile.y + 1 }); // Bottom side
 					}
 
-					for (auto & tile : arcTiles) {
-						if (tile.x == x && tile.y == y) {
-							isPreview = true;
-							if (isAimingOnBoard && dir == aimDir) {
-								if (board[x][y].hasPlayer && !board[x][y].hasWall) {
-									bool blocked = false;
-									if (px != x && py != y) {
-										if (isTileWall(px, y) && isTileWall(x, py)) blocked = true;
-									}
-									if (!blocked) isValidTarget = true;
-								}
-							} else {
-								// When not aiming, show green outlines for any valid adjacent unit
-								if (board[x][y].hasPlayer && !board[x][y].hasWall) {
-									bool blocked = false;
-									if (px != x && py != y) {
-										if (isTileWall(px, y) && isTileWall(x, py)) blocked = true;
-									}
-									if (!blocked) isValidTarget = true;
+					// Check if there are any units in the cleave area
+					bool hasUnitsInCleave = false;
+					for (const auto & cleavePos : cleaveTiles) {
+						int cx = (int)cleavePos.x;
+						int cy = (int)cleavePos.y;
+						if (cx >= 0 && cx < BOARD_WIDTH && cy >= 0 && cy < BOARD_HEIGHT) {
+							for (const auto & p : players) {
+								if (p.x == cx && p.y == cy) {
+									hasUnitsInCleave = true;
+									break;
 								}
 							}
+							if (hasUnitsInCleave) break;
 						}
 					}
+
+					// Adjacent square is valid to click only if there are units in the cleave area
+					if (hasUnitsInCleave) {
+						// Only set as valid target if there are units to hit in the cleave area
+						if (!board[x][y].hasWall && !board[x][y].hasPlayer) {
+							isValidTarget = true; // Green outline for empty adjacent square
+						} else if (board[x][y].hasWall) {
+							// Wall is ok if there's a unit in the cleave area
+							isValidTarget = true;
+						}
+					}
+					// Otherwise just white preview (isPreview is already true, but not a valid target)
 				}
 				break;
 			}
