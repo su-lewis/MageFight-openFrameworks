@@ -49,6 +49,15 @@ void ofApp::startInitiativePhase() {
 }
 // Define destructor to ensure vtable is emitted in this translation unit
 ofApp::~ofApp() { }
+
+void ofApp::applyReplicateCopyToHand(Player & caster, const Card & playedCard) {
+	if (!caster.isReplicatePending) return;
+	Card duplicateCard = playedCard;
+	caster.hand.push_back(duplicateCard);
+	// Replicate is consumed by default; if the copied card is Replicate,
+	// immediately re-arm it for the next card played.
+	caster.isReplicatePending = (duplicateCard.type == CARD_REPLICATE);
+}
 //--------------------------------------------------------------
 void ofApp::drawMinionCard(int minionIndex, int ownerIndex) {
 	// Safety checks
@@ -11601,6 +11610,11 @@ cursor_check_done:;
 // Unified minion card draw logic
 // ----------------- FULL mousePressed FUNCTION -----------------
 void ofApp::mousePressed(int x, int y, int button) {
+	// Always track mouse down position at the start for drag detection
+	if (button == OF_MOUSE_BUTTON_LEFT || button == OF_MOUSE_BUTTON_RIGHT) {
+		mouseDownPos.set(x, y);
+	}
+
 	// Handle chat clicking (if chat is visible)
 	if (currentState == STATE_GAMEPLAY && isMultiplayer && button == OF_MOUSE_BUTTON_LEFT) {
 		float currentTime = ofGetElapsedTimef();
@@ -12825,11 +12839,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 			if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) players[currentPlayerIndex].ap = currentAP;
 			Card playedCard = caster.hand[cardIndex];
 			caster.playedCardsPile.push_back(playedCard);
-			if (caster.isReplicatePending) {
-				Card dup = playedCard;
-				caster.playedCardsPile.push_back(dup);
-				caster.isReplicatePending = false;
-			}
+			applyReplicateCopyToHand(caster, playedCard);
 			caster.hand.erase(caster.hand.begin() + pendingWisdomBoonCardIndex);
 			if (isSelfTarget) {
 				tryTriggerShellSpike();
@@ -12991,10 +13001,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 					caster.playedCardsPile.push_back(playedCard);
 					// Sync AP so UI reflects the spent AP immediately
 					if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) players[currentPlayerIndex].ap = currentAP;
-					if (caster.isReplicatePending) {
-						caster.playedCardsPile.push_back(playedCard);
-						caster.isReplicatePending = false;
-					}
+					applyReplicateCopyToHand(caster, playedCard);
 					caster.hand.erase(caster.hand.begin() + pendingBurstCardIndex);
 					if (isMultiplayer) {
 						int menuChoice = (burstChoice == 0) ? 1 : 2;
@@ -13054,10 +13061,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 			// Consume AP and discard card now, then notify opponent
 			currentAP -= amnesiaCard.cost;
 			caster.playedCardsPile.push_back(amnesiaCard);
-			if (caster.isReplicatePending) {
-				caster.playedCardsPile.push_back(amnesiaCard);
-				caster.isReplicatePending = false;
-			}
+			applyReplicateCopyToHand(caster, amnesiaCard);
 			caster.hand.erase(caster.hand.begin() + pendingAmnesiaCardIndex);
 			// Sync AP so UI reflects the spent AP immediately
 			if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) players[currentPlayerIndex].ap = currentAP;
@@ -13386,10 +13390,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 					Player & caster = players[currentPlayerIndex];
 					currentAP -= amCost;
 					caster.playedCardsPile.push_back((cardIndex >= 0 && cardIndex < (int)caster.hand.size()) ? caster.hand[cardIndex] : Card());
-					if (caster.isReplicatePending) {
-						caster.playedCardsPile.push_back((cardIndex >= 0 && cardIndex < (int)caster.hand.size()) ? caster.hand[cardIndex] : Card());
-						caster.isReplicatePending = false;
-					}
+					applyReplicateCopyToHand(caster, (cardIndex >= 0 && cardIndex < (int)caster.hand.size()) ? caster.hand[cardIndex] : Card());
 					caster.cardsPlayedThisTurn.push_back(CARD_AMNESIA);
 
 					// Remove card from hand
@@ -13598,10 +13599,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 											Card amCard = chooser.hand[hi];
 											int amCost = amCard.cost;
 											chooser.playedCardsPile.push_back(amCard);
-											if (chooser.isReplicatePending) {
-												chooser.playedCardsPile.push_back(amCard);
-												chooser.isReplicatePending = false;
-											}
+											applyReplicateCopyToHand(chooser, amCard);
 											chooser.hand.erase(chooser.hand.begin() + hi);
 											// Adjust AP for chooser (currentAP if they're current player)
 											if (chooserIdx == currentPlayerIndex) {
@@ -13659,10 +13657,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 										Card amCard = chooser.hand[hi];
 										int amCost = amCard.cost;
 										chooser.playedCardsPile.push_back(amCard);
-										if (chooser.isReplicatePending) {
-											chooser.playedCardsPile.push_back(amCard);
-											chooser.isReplicatePending = false;
-										}
+										applyReplicateCopyToHand(chooser, amCard);
 										chooser.hand.erase(chooser.hand.begin() + hi);
 										// Adjust AP for chooser (currentAP if they're current player)
 										if (chooserIdx == currentPlayerIndex) {
@@ -13784,10 +13779,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 
 				currentAP -= __cl_cost;
 				caster.playedCardsPile.push_back(c);
-				if (caster.isReplicatePending) {
-					caster.playedCardsPile.push_back(c);
-					caster.isReplicatePending = false;
-				}
+				applyReplicateCopyToHand(caster, c);
 				caster.cardsPlayedThisTurn.push_back(c.type);
 				caster.hand.erase(caster.hand.begin() + chainLightningCardIndex);
 
@@ -13879,10 +13871,8 @@ void ofApp::mousePressed(int x, int y, int button) {
 		return;
 	}
 	// ==============================================================================
-	// PHASE 2: GLOBAL MOUSE TRACKING
+	// PHASE 2: GLOBAL MOUSE TRACKING (Now at function start)
 	// ==============================================================================
-	if (button != OF_MOUSE_BUTTON_LEFT && button != OF_MOUSE_BUTTON_RIGHT) return;
-	mouseDownPos.set(x, y);
 
 	// ==============================================================================
 	// PHASE 3: STATE-DEPENDENT LOGIC
@@ -14522,17 +14512,15 @@ void ofApp::mousePressed(int x, int y, int button) {
 			// --- GHOST FORM CHECK: Cannot end turn in wall/unit unless 0 AP left ---
 			Player & p = players[currentPlayerIndex];
 			bool isInWall = board[p.x][p.y].hasWall;
-			bool isInUnitTile = board[p.x][p.y].hasPlayer && (p.x != p.x || p.y != p.y); // Check if another unit is here
 
-			// Actually, let's check properly for units
-			bool isInUnitTile_correct = false;
+			// Check properly for units
+			bool isInUnitTile = false;
 			for (size_t i = 0; i < players.size(); ++i) {
 				if ((int)i != currentPlayerIndex && players[i].x == p.x && players[i].y == p.y) {
-					isInUnitTile_correct = true;
+					isInUnitTile = true;
 					break;
 				}
 			}
-			isInUnitTile = isInUnitTile_correct;
 
 			// Can't end turn in wall or unit unless AP is 0
 			if ((isInWall || isInUnitTile) && currentAP > 0) {
@@ -15243,10 +15231,7 @@ void ofApp::mouseReleased(int x, int y, int button) {
 							// Pay cost and mark as played (card remains in hand until destination chosen)
 							currentAP -= playedCard.cost;
 							currentPlayer.playedCardsPile.push_back(playedCard);
-							if (currentPlayer.isReplicatePending) {
-								currentPlayer.playedCardsPile.push_back(playedCard);
-								currentPlayer.isReplicatePending = false;
-							}
+							applyReplicateCopyToHand(currentPlayer, playedCard);
 							currentPlayer.cardsPlayedThisTurn.push_back(playedCard.type);
 
 							// Notify clients that a multi-stage card action has begun (host authoritative)
@@ -16484,7 +16469,7 @@ void ofApp::continueNewTurn() {
 		for (int i = 0; i < 4; i++) {
 			int nx = rx + adjacentOffsets[i][0];
 			int ny = ry + adjacentOffsets[i][1];
-			if (nx < 0 || nx >= BOARD_SIZE || ny < 0 || ny >= BOARD_SIZE) continue;
+			if (nx < 0 || nx >= BOARD_WIDTH || ny < 0 || ny >= BOARD_HEIGHT) continue;
 
 			// Find unit at this position
 			for (size_t j = 0; j < players.size(); j++) {
@@ -17398,7 +17383,8 @@ CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		// This function will still fail if there is a Wall blocking the view
 		TargetInfo validationResult = isLosTargetValid(casterTile, targetTile, maxRange, playedCard.type);
 
-		if (validationResult.reason != VALID) break;
+		// Allow self-targeting for heal cards
+		if (validationResult.reason != VALID && validationResult.reason != INVALID_SELF) break;
 
 		// Find Target Unit
 		int targetIndex = -1;
@@ -17494,10 +17480,7 @@ CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		if (isMultiplayer) activePlayedCardAnimations.push_back(cardAnim);
 
 		// Handle Replicate
-		if (currentPlayer.isReplicatePending) {
-			currentPlayer.playedCardsPile.push_back(playedCard);
-			currentPlayer.isReplicatePending = false;
-		}
+		applyReplicateCopyToHand(currentPlayer, playedCard);
 
 		currentPlayer.cardsPlayedThisTurn.push_back(playedCard.type);
 		currentPlayer.hand.erase(currentPlayer.hand.begin() + cardIndex);
@@ -17589,10 +17572,7 @@ CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		cardAnim.currentAlpha = 255.0f;
 		if (isMultiplayer) activePlayedCardAnimations.push_back(cardAnim);
 
-		if (currentPlayer.isReplicatePending) {
-			currentPlayer.playedCardsPile.push_back(playedCard);
-			currentPlayer.isReplicatePending = false;
-		}
+		applyReplicateCopyToHand(currentPlayer, playedCard);
 
 		currentPlayer.cardsPlayedThisTurn.push_back(playedCard.type);
 		currentPlayer.hand.erase(currentPlayer.hand.begin() + cardIndex);
@@ -17692,10 +17672,7 @@ CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		cardAnim.currentAlpha = 255.0f;
 		if (isMultiplayer) activePlayedCardAnimations.push_back(cardAnim);
 
-		if (currentPlayer.isReplicatePending) {
-			currentPlayer.playedCardsPile.push_back(playedCard);
-			currentPlayer.isReplicatePending = false;
-		}
+		applyReplicateCopyToHand(currentPlayer, playedCard);
 		currentPlayer.cardsPlayedThisTurn.push_back(playedCard.type);
 		currentPlayer.hand.erase(currentPlayer.hand.begin() + cardIndex);
 		createCardDisplay(playedCard, currentPlayerIndex);
@@ -17795,10 +17772,7 @@ CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		int myID = currentPlayer.playerID;
 		currentAP -= costToPay;
 		currentPlayer.playedCardsPile.push_back(playedCard);
-		if (currentPlayer.isReplicatePending) {
-			currentPlayer.playedCardsPile.push_back(playedCard);
-			currentPlayer.isReplicatePending = false;
-		}
+		applyReplicateCopyToHand(currentPlayer, playedCard);
 		currentPlayer.cardsPlayedThisTurn.push_back(playedCard.type);
 		currentPlayer.hand.erase(currentPlayer.hand.begin() + cardIndex);
 		createCardDisplay(playedCard, currentPlayerIndex);
@@ -17978,6 +17952,7 @@ CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 
 		currentAP -= costToPay;
 		currentPlayer.playedCardsPile.push_back(playedCard);
+		applyReplicateCopyToHand(currentPlayer, playedCard);
 		currentPlayer.cardsPlayedThisTurn.push_back(playedCard.type); // Track history
 		currentPlayer.hand.erase(currentPlayer.hand.begin() + cardIndex);
 
@@ -18122,10 +18097,7 @@ CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		int myID = currentPlayer.playerID;
 		currentAP -= costToPay;
 		currentPlayer.playedCardsPile.push_back(playedCard);
-		if (currentPlayer.isReplicatePending) {
-			currentPlayer.playedCardsPile.push_back(playedCard);
-			currentPlayer.isReplicatePending = false;
-		}
+		applyReplicateCopyToHand(currentPlayer, playedCard);
 		currentPlayer.cardsPlayedThisTurn.push_back(playedCard.type);
 		currentPlayer.hand.erase(currentPlayer.hand.begin() + cardIndex);
 		createCardDisplay(playedCard, currentPlayerIndex);
@@ -18208,10 +18180,7 @@ CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		// 2. Pay Cost & Cleanup Hand
 		currentAP -= costToPay;
 		currentPlayer.playedCardsPile.push_back(playedCard);
-		if (currentPlayer.isReplicatePending) {
-			currentPlayer.playedCardsPile.push_back(playedCard);
-			currentPlayer.isReplicatePending = false;
-		}
+		applyReplicateCopyToHand(currentPlayer, playedCard);
 		currentPlayer.hand.erase(currentPlayer.hand.begin() + cardIndex);
 
 		// 3. Setup State for Wolf #1
@@ -18257,10 +18226,7 @@ CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		// 2. Pay Cost & Cleanup Hand
 		currentAP -= costToPay;
 		currentPlayer.playedCardsPile.push_back(playedCard);
-		if (currentPlayer.isReplicatePending) {
-			currentPlayer.playedCardsPile.push_back(playedCard);
-			currentPlayer.isReplicatePending = false;
-		}
+		applyReplicateCopyToHand(currentPlayer, playedCard);
 		currentPlayer.hand.erase(currentPlayer.hand.begin() + cardIndex);
 
 		// 3. Setup State for Kobold roll and placement
@@ -18301,7 +18267,7 @@ CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		// Cleanup Logic
 		currentAP -= costToPay;
 		currentPlayer.playedCardsPile.push_back(playedCard);
-		// ... (Replicate logic) ...
+		applyReplicateCopyToHand(currentPlayer, playedCard);
 		currentPlayer.cardsPlayedThisTurn.push_back(playedCard.type);
 		currentPlayer.hand.erase(currentPlayer.hand.begin() + cardIndex);
 		createCardDisplay(playedCard, currentPlayerIndex);
@@ -18324,10 +18290,7 @@ CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		// Cleanup
 		currentAP -= costToPay;
 		currentPlayer.playedCardsPile.push_back(playedCard);
-		if (currentPlayer.isReplicatePending) {
-			currentPlayer.playedCardsPile.push_back(playedCard);
-			currentPlayer.isReplicatePending = false;
-		}
+		applyReplicateCopyToHand(currentPlayer, playedCard);
 		currentPlayer.cardsPlayedThisTurn.push_back(playedCard.type);
 		currentPlayer.hand.erase(currentPlayer.hand.begin() + cardIndex);
 		createCardDisplay(playedCard, currentPlayerIndex);
@@ -19662,11 +19625,7 @@ CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 
 		currentPlayer.playedCardsPile.push_back(playedCard);
 
-		if (currentPlayer.isReplicatePending && playedCard.type != CARD_REPLICATE) {
-			Card duplicateCard = playedCard;
-			currentPlayer.playedCardsPile.push_back(duplicateCard);
-			currentPlayer.isReplicatePending = false;
-		}
+		applyReplicateCopyToHand(currentPlayer, playedCard);
 
 		currentPlayer.hand.erase(currentPlayer.hand.begin() + cardIndex);
 		createCardDisplay(playedCard, currentPlayerIndex);
@@ -22458,10 +22417,7 @@ void ofApp::resolveDoubleHanded(std::string cardName) {
 				currentAP -= dhCost;
 				caster.playedCardsPile.push_back(playedCard);
 				// Handle Replicate if active
-				if (caster.isReplicatePending) {
-					caster.playedCardsPile.push_back(playedCard);
-					caster.isReplicatePending = false;
-				}
+				applyReplicateCopyToHand(caster, playedCard);
 				// Ensure authoritative AP field is updated before any network sends
 				if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) players[currentPlayerIndex].ap = currentAP;
 				caster.hand.erase(caster.hand.begin() + pendingDoubleHandedCardIndex);
@@ -27783,10 +27739,7 @@ void ofApp::executeOpponentCardPlay(const ActionPacket & pkt) {
 		// Track the card play
 		currentAP -= cardDef.cost;
 		opponentPlayer.playedCardsPile.push_back(cardDef);
-		if (opponentPlayer.isReplicatePending) {
-			opponentPlayer.playedCardsPile.push_back(cardDef);
-			opponentPlayer.isReplicatePending = false;
-		}
+		applyReplicateCopyToHand(opponentPlayer, cardDef);
 		opponentPlayer.cardsPlayedThisTurn.push_back(cardDef.type);
 
 		pendingMagicHandCardIndex = tempCardIndex;
@@ -27843,10 +27796,7 @@ void ofApp::executeOpponentCardPlay(const ActionPacket & pkt) {
 		opponentPlayer.playedCardsPile.push_back(cardDef);
 
 		// 2. Handle Replicate
-		if (opponentPlayer.isReplicatePending) {
-			opponentPlayer.playedCardsPile.push_back(cardDef);
-			opponentPlayer.isReplicatePending = false;
-		}
+		applyReplicateCopyToHand(opponentPlayer, cardDef);
 
 		// 3. Remove from Hand
 		if (tempCardIndex >= 0 && tempCardIndex < (int)opponentPlayer.hand.size()) {
@@ -27873,10 +27823,7 @@ void ofApp::executeOpponentCardPlay(const ActionPacket & pkt) {
 	if (cardDef.type == CARD_TRAIN && (pkt.menuChoice == 1 || pkt.menuChoice == 2)) {
 		currentAP -= cardDef.cost;
 		opponentPlayer.playedCardsPile.push_back(cardDef);
-		if (opponentPlayer.isReplicatePending) {
-			opponentPlayer.playedCardsPile.push_back(cardDef);
-			opponentPlayer.isReplicatePending = false;
-		}
+		applyReplicateCopyToHand(opponentPlayer, cardDef);
 		opponentPlayer.cardsPlayedThisTurn.push_back(cardDef.type);
 		opponentPlayer.hand.erase(opponentPlayer.hand.begin() + tempCardIndex);
 
@@ -27941,10 +27888,7 @@ void ofApp::executeOpponentCardPlay(const ActionPacket & pkt) {
 
 		currentAP -= cardDef.cost;
 		opponentPlayer.playedCardsPile.push_back(cardDef);
-		if (opponentPlayer.isReplicatePending) {
-			opponentPlayer.playedCardsPile.push_back(cardDef);
-			opponentPlayer.isReplicatePending = false;
-		}
+		applyReplicateCopyToHand(opponentPlayer, cardDef);
 		opponentPlayer.hand.erase(opponentPlayer.hand.begin() + tempCardIndex);
 		opponentPlayer.ap = pkt.updatedAP;
 
@@ -27996,10 +27940,7 @@ void ofApp::executeOpponentCardPlay(const ActionPacket & pkt) {
 
 		currentAP -= cardDef.cost;
 		opponentPlayer.playedCardsPile.push_back(cardDef);
-		if (opponentPlayer.isReplicatePending) {
-			opponentPlayer.playedCardsPile.push_back(cardDef);
-			opponentPlayer.isReplicatePending = false;
-		}
+		applyReplicateCopyToHand(opponentPlayer, cardDef);
 		opponentPlayer.ap = pkt.updatedAP;
 		opponentPlayer.hand.erase(opponentPlayer.hand.begin() + tempCardIndex);
 
@@ -28039,10 +27980,7 @@ void ofApp::executeOpponentCardPlay(const ActionPacket & pkt) {
 
 		currentAP -= cardDef.cost;
 		opponentPlayer.playedCardsPile.push_back(cardDef);
-		if (opponentPlayer.isReplicatePending) {
-			opponentPlayer.playedCardsPile.push_back(cardDef);
-			opponentPlayer.isReplicatePending = false;
-		}
+		applyReplicateCopyToHand(opponentPlayer, cardDef);
 		opponentPlayer.ap = pkt.updatedAP;
 		opponentPlayer.hand.erase(opponentPlayer.hand.begin() + tempCardIndex);
 
@@ -28067,10 +28005,7 @@ void ofApp::executeOpponentCardPlay(const ActionPacket & pkt) {
 		if (targetIndex >= 0) {
 			currentAP -= cardDef.cost;
 			opponentPlayer.playedCardsPile.push_back(cardDef);
-			if (opponentPlayer.isReplicatePending) {
-				opponentPlayer.playedCardsPile.push_back(cardDef);
-				opponentPlayer.isReplicatePending = false;
-			}
+			applyReplicateCopyToHand(opponentPlayer, cardDef);
 			opponentPlayer.cardsPlayedThisTurn.push_back(cardDef.type);
 			// DO NOT erase here - resolveDoubleHanded() handles card removal
 			pendingDoubleHandedCardIndex = tempCardIndex;
@@ -28098,10 +28033,7 @@ void ofApp::executeOpponentCardPlay(const ActionPacket & pkt) {
 		// Track the card play
 		currentAP -= cardDef.cost;
 		opponentPlayer.playedCardsPile.push_back(cardDef);
-		if (opponentPlayer.isReplicatePending) {
-			opponentPlayer.playedCardsPile.push_back(cardDef);
-			opponentPlayer.isReplicatePending = false;
-		}
+		applyReplicateCopyToHand(opponentPlayer, cardDef);
 		opponentPlayer.cardsPlayedThisTurn.push_back(cardDef.type);
 
 		// Move player
@@ -28133,8 +28065,7 @@ void ofApp::executeOpponentCardPlay(const ActionPacket & pkt) {
 			copy.isCopied = true;
 			opponentPlayer.hand.push_back(copy);
 			opponentPlayer.hand.back().currentScale = opponentPlayer.hand.back().targetScale = 1.5f;
-			opponentPlayer.playedCardsPile.push_back(cardDef);
-			opponentPlayer.isReplicatePending = false;
+			opponentPlayer.isReplicatePending = (copy.type == CARD_REPLICATE);
 		}
 		opponentPlayer.cardsPlayedThisTurn.push_back(cardDef.type);
 		// Remove the card from the opponent's hand if present. If we added a temporary
