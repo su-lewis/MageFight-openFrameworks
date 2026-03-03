@@ -5815,7 +5815,7 @@ void ofApp::updateGame() {
 						players[currentPlayerIndex].nextTurnAPBonus = 0;
 					}
 					// Sync AP to player struct
-					players[currentPlayerIndex].ap = currentAP;
+					updatePlayerAP(players[currentPlayerIndex], currentAP);
 					ofLogNotice("APDebug") << "AP roll applied: currentAP(after)=" << currentAP;
 
 					// If AP is zero, check for adjacent assistants belonging to this unit
@@ -12776,7 +12776,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 			currentAP -= dispelCard.cost;
 			p.discardPile.push_back(dispelCard);
 			p.hand.erase(p.hand.begin() + pendingDispelCardIndex);
-			if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) players[currentPlayerIndex].ap = currentAP;
+			updatePlayerAP(players[currentPlayerIndex], currentAP);
 			ofLogNotice("Dispel") << "Rolling for Non-Physical Barrier...";
 
 			// Notify opponent of the action in multiplayer (include card name)
@@ -12858,9 +12858,10 @@ void ofApp::mousePressed(int x, int y, int button) {
 				currentState = STATE_DRAFTING;
 			}
 			currentAP -= cost;
-			p.playedCardsPile.push_back(p.hand[cardIndex]);
-			p.hand.erase(p.hand.begin() + cardIndex);
-			if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) players[currentPlayerIndex].ap = currentAP;
+				Card trainCard = p.hand[cardIndex];
+				finishPlayCard(p, trainCard, cardIndex);
+				updatePlayerAP(p, currentAP);
+			updatePlayerAP(players[currentPlayerIndex], currentAP);
 
 			// Notify opponent after local resolution so packet reflects post-play AP
 			if (isMultiplayer) {
@@ -13066,11 +13067,9 @@ void ofApp::mousePressed(int x, int y, int button) {
 					// Consume AP and cleanup, then notify opponent
 					currentAP -= cost;
 					Card playedCard = caster.hand[pendingBurstCardIndex];
-					caster.playedCardsPile.push_back(playedCard);
+					finishPlayCard(caster, playedCard, pendingBurstCardIndex);
 					// Sync AP so UI reflects the spent AP immediately
-					if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) players[currentPlayerIndex].ap = currentAP;
-					applyReplicateCopyToHand(caster, playedCard);
-					caster.hand.erase(caster.hand.begin() + pendingBurstCardIndex);
+					updatePlayerAP(caster, currentAP);
 					if (isMultiplayer) {
 						int menuChoice = (burstChoice == 0) ? 1 : 2;
 						sendActionPacket(cardIndex, gx, gy, cost, menuChoice, cardName);
@@ -13166,7 +13165,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 					}
 				}
 				currentAP += riCost;
-				if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) players[currentPlayerIndex].ap = currentAP;
+				updatePlayerAP(players[currentPlayerIndex], currentAP);
 				// Restore original played card back to hand (if present)
 				if (!p.playedCardsPile.empty() && p.playedCardsPile.back().type == CARD_RENEWED_INSPIRATION) {
 					Card rc = p.playedCardsPile.back();
@@ -13295,7 +13294,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 			spawnFloatingText(gridToWorld(p.x, p.y), "+" + ofToString(cardsToDraw) + " Cards", ofColor::cyan);
 			// Ensure authoritative AP field reflects local UI immediately
 			if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) {
-				players[currentPlayerIndex].ap = currentAP;
+				updatePlayerAP(players[currentPlayerIndex], currentAP);
 			}
 
 			isSelectingRenewedInspiration = false;
@@ -13316,7 +13315,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 			}
 
 			// Sync authoritative AP so UI and network reflect refund
-			if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) players[currentPlayerIndex].ap = currentAP;
+			updatePlayerAP(players[currentPlayerIndex], currentAP);
 			isSelectingRenewedInspiration = false;
 			return;
 		}
@@ -13465,7 +13464,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 					}
 
 					// Sync AP so UI reflects spend immediately
-					if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) players[currentPlayerIndex].ap = currentAP;
+					updatePlayerAP(players[currentPlayerIndex], currentAP);
 
 					// Notify network (name included so clients can accept name-only sends)
 					if (isMultiplayer) {
@@ -13519,7 +13518,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 
 				// Now notify opponent with authoritative updated AP
 				if (isMultiplayer && !__teleport_cardName.empty()) {
-					players[currentPlayerIndex].ap = currentAP;
+					updatePlayerAP(players[currentPlayerIndex], currentAP);
 					sendActionPacket(pendingTeleportCardIndex, gx, gy, __teleport_cost, 0, __teleport_cardName);
 				}
 
@@ -13842,13 +13841,9 @@ void ofApp::mousePressed(int x, int y, int button) {
 				int __cl_cost = c.cost;
 
 				currentAP -= __cl_cost;
-				caster.playedCardsPile.push_back(c);
-				applyReplicateCopyToHand(caster, c);
+				finishPlayCard(caster, c, chainLightningCardIndex);
 				caster.cardsPlayedThisTurn.push_back(c.type);
-				caster.hand.erase(caster.hand.begin() + chainLightningCardIndex);
-
-				// Sync AP to player struct so UI updates
-				if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) players[currentPlayerIndex].ap = currentAP;
+				updatePlayerAP(caster, currentAP);
 
 				// Now notify opponent with authoritative updated AP and metadata
 				if (isMultiplayer) {
@@ -14253,7 +14248,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 				spawnFloatingText(gridToWorld(p.x, p.y), "+" + ofToString(cardsToDraw) + " Cards", ofColor::cyan);
 				// Ensure authoritative AP field reflects local UI immediately
 				if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) {
-					players[currentPlayerIndex].ap = currentAP;
+					updatePlayerAP(players[currentPlayerIndex], currentAP);
 				}
 
 				isSelectingRenewedInspiration = false;
@@ -14274,7 +14269,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 				}
 
 				// Sync authoritative AP so UI and network reflect refund
-				if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) players[currentPlayerIndex].ap = currentAP;
+				updatePlayerAP(players[currentPlayerIndex], currentAP);
 				isSelectingRenewedInspiration = false;
 				return;
 			}
@@ -15302,7 +15297,7 @@ void ofApp::mouseReleased(int x, int y, int button) {
 							if (isMultiplayer && isHost()) sendCardActionBegin(CARD_TELEPORT, currentPlayerIndex, -1, -1, 0, 0, 0, 0, "Teleport");
 
 							// Sync AP so player's AP struct reflects the spend immediately
-							if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) players[currentPlayerIndex].ap = currentAP;
+							updatePlayerAP(players[currentPlayerIndex], currentAP);
 							draggedCardIndex = -1;
 							selectedCardIndex = -1;
 							return;
@@ -17239,7 +17234,7 @@ CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 			amnesiaChooserPlayerID = caster.isMinion ? caster.ownerID : caster.playerID;
 		}
 		// Ensure AP is synced to player struct for UI
-		if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) players[currentPlayerIndex].ap = currentAP;
+		updatePlayerAP(players[currentPlayerIndex], currentAP);
 		return CARD_PLAYED_IMMEDIATELY; // We've already handled cleanup above
 	}
 
@@ -17662,7 +17657,7 @@ CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 			}
 		}
 
-		if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) players[currentPlayerIndex].ap = currentAP;
+		updatePlayerAP(players[currentPlayerIndex], currentAP);
 
 		checkKeyPickupAndDraftAfterSummon(minion.x, minion.y, minion.ownerID);
 		return CARD_PLAYED_IMMEDIATELY; // Cleanup handled manually above
@@ -17765,7 +17760,7 @@ CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 			}
 		}
 
-		if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) players[currentPlayerIndex].ap = currentAP;
+		updatePlayerAP(players[currentPlayerIndex], currentAP);
 
 		checkKeyPickupAndDraftAfterSummon(minion.x, minion.y, minion.ownerID);
 		return CARD_PLAYED_IMMEDIATELY;
@@ -17864,7 +17859,7 @@ CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 			}
 		}
 
-		if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) players[currentPlayerIndex].ap = currentAP;
+		updatePlayerAP(players[currentPlayerIndex], currentAP);
 
 		checkKeyPickupAndDraftAfterSummon(minion.x, minion.y, minion.ownerID);
 		return CARD_PLAYED_IMMEDIATELY;
@@ -18188,7 +18183,7 @@ CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 			}
 		}
 
-		if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) players[currentPlayerIndex].ap = currentAP;
+		updatePlayerAP(players[currentPlayerIndex], currentAP);
 
 		checkKeyPickupAndDraftAfterSummon(minion.x, minion.y, minion.ownerID);
 		return CARD_PLAYED_IMMEDIATELY;
@@ -18234,7 +18229,7 @@ CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		wolfSummonStage = 1; // Start with the first wolf
 
 		invalidateTargetCache();
-		if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) players[currentPlayerIndex].ap = currentAP;
+		updatePlayerAP(players[currentPlayerIndex], currentAP);
 		return CARD_PLAYED_IMMEDIATELY; // Cleanup handled manually
 	}
 
@@ -18279,7 +18274,7 @@ CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		isWaitingForKoboldDice = true;
 
 		invalidateTargetCache();
-		if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) players[currentPlayerIndex].ap = currentAP;
+		updatePlayerAP(players[currentPlayerIndex], currentAP);
 		return CARD_PLAYED_IMMEDIATELY; // Cleanup handled manually
 	}
 
@@ -18949,7 +18944,7 @@ CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 
 		// 5. Multiplayer: notify host of the card play so AP and played-pile stay authoritative
 		if (isMultiplayer) {
-			players[currentPlayerIndex].ap = currentAP;
+			updatePlayerAP(players[currentPlayerIndex], currentAP);
 		}
 
 		// 6. Enter Selection Mode
@@ -19599,7 +19594,7 @@ CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 
 		// Ensure authoritative AP struct matches the displayed/current AP
 		if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) {
-			players[currentPlayerIndex].ap = currentAP;
+			updatePlayerAP(players[currentPlayerIndex], currentAP);
 		}
 
 		// --- STRENGTHEN ELEMENTS TRIGGER ---
@@ -22450,7 +22445,7 @@ void ofApp::resolveDoubleHanded(std::string cardName) {
 				// Handle Replicate if active
 				applyReplicateCopyToHand(caster, playedCard);
 				// Ensure authoritative AP field is updated before any network sends
-				if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) players[currentPlayerIndex].ap = currentAP;
+				updatePlayerAP(players[currentPlayerIndex], currentAP);
 				caster.hand.erase(caster.hand.begin() + pendingDoubleHandedCardIndex);
 				calculateTargetHighlights();
 			}
@@ -25905,7 +25900,7 @@ void ofApp::processNetworkPackets() {
 					}
 					// Sync AP to player struct for multiplayer
 					if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) {
-						players[currentPlayerIndex].ap = currentAP;
+						updatePlayerAP(players[currentPlayerIndex], currentAP);
 					}
 
 					// Clear transient defensive stats on turn START (clients must mirror host)
