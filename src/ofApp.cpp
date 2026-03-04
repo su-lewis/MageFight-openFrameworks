@@ -100,6 +100,7 @@ void ofApp::applyReplicateCopyToHand(Player & caster, const Card & playedCard) {
 	padding = std::min(padding, 20.0f);
 	float totalHandWidth = (cardsToFit * handBaseCardWidth) + ((cardsToFit - 1) * padding);
 	float startX = (ofGetWidth() - totalHandWidth) / 2.0f;
+	(void)startX; // unused
 
 	// Compute actual spacing so the current cards are centered within the hand area
 	float totalActualCardWidths = (numCards > 0) ? (numCards * handBaseCardWidth) : 0;
@@ -1358,7 +1359,7 @@ std::string ofApp::getPlayerDisplayName(int index) {
 	// Derive a simple ordinal by counting same-type minions for the same owner
 	int ord = 1;
 	for (size_t i = 0; i < players.size(); ++i) {
-		if (i == index) break;
+		if (i == (size_t)index) break;
 		Player & other = players[i];
 		if (!other.isMinion) continue;
 		if ((prefix == "Faerie" && other.isFaerie) || (prefix == "Kobold" && other.isKobold) || (prefix == "Assistant" && other.isAssistant) || (prefix == "Wolf" && other.isWolf) || (prefix == "Hellhound" && other.isHellhound) || (prefix == "Golem" && other.isGolem) || (prefix == "Skeleton" && other.isSkeleton) || (prefix == "Demon" && other.isDemon) || (prefix == "Wall" && other.isWallUnit)) {
@@ -1754,6 +1755,8 @@ void ofApp::update() {
 	case STATE_MAIN_MENU:
 		break;
 	case STATE_SETTINGS:
+			case STATE_DESYNC:
+				break;
 		break;
 
 	// --- INITIATIVE ROLL STATE ---
@@ -2120,6 +2123,7 @@ void ofApp::drawSettingsMenu() {
 		float settingY = contentY;
 		float settingSpacing = 100;
 		float labelOffset = 350;
+		(void)labelOffset; // unused
 		float controlWidth = 250;
 
 		// --- Helper for drawing a setting row ---
@@ -4688,12 +4692,14 @@ void ofApp::updateGame() {
 			// Spawn tracer from caster to target (hit)
 			{
 				glm::vec2 casterCenter = casterTile + glm::vec2(0.5f, 0.5f);
+				(void)casterCenter; // unused
 				glm::vec2 hitGrid = pendingShootArrowTargetTile + glm::vec2(0.5f, 0.5f);
 				auto gridFracToWorld = [&](glm::vec2 g) {
 					float wx = (g.x - BOARD_WIDTH / 2.0f) * TILE_SIZE + (TILE_SIZE / 2.0f);
 					float wz = (g.y - BOARD_HEIGHT / 2.0f) * TILE_SIZE + (TILE_SIZE / 2.0f);
 					return glm::vec3(wx, 0.0f, wz);
 				};
+				(void)gridFracToWorld; // unused
 
 				glm::vec3 worldStart, worldEnd;
 				computeTracerEndpoints(casterTile, hitGrid, worldStart, worldEnd);
@@ -4712,12 +4718,14 @@ void ofApp::updateGame() {
 			// Also spawn a tracer so player can see where the arrow landed/shortened
 			{
 				glm::vec2 casterCenter = casterTile + glm::vec2(0.5f, 0.5f);
+				(void)casterCenter; // unused
 				glm::vec2 hitGrid = pendingShootArrowTargetTile + glm::vec2(0.5f, 0.5f);
 				auto gridFracToWorld = [&](glm::vec2 g) {
 					float wx = (g.x - BOARD_WIDTH / 2.0f) * TILE_SIZE + (TILE_SIZE / 2.0f);
 					float wz = (g.y - BOARD_HEIGHT / 2.0f) * TILE_SIZE + (TILE_SIZE / 2.0f);
 					return glm::vec3(wx, 0.0f, wz);
 				};
+				(void)gridFracToWorld; // unused
 
 				glm::vec3 worldStart, worldEnd;
 				computeTracerEndpoints(casterTile, hitGrid, worldStart, worldEnd);
@@ -4994,12 +5002,14 @@ void ofApp::updateGame() {
 			// Spawn a tracer from caster to the primary target tile
 			{
 				glm::vec2 casterCenter = casterTile + glm::vec2(0.5f, 0.5f);
+				(void)casterCenter; // unused
 				glm::vec2 hitGrid = pendingChainLightningTargetTile + glm::vec2(0.5f, 0.5f);
 				auto gridFracToWorld = [&](glm::vec2 g) {
 					float wx = (g.x - BOARD_WIDTH / 2.0f) * TILE_SIZE + (TILE_SIZE / 2.0f);
 					float wz = (g.y - BOARD_HEIGHT / 2.0f) * TILE_SIZE + (TILE_SIZE / 2.0f);
 					return glm::vec3(wx, 0.0f, wz);
 				};
+				(void)gridFracToWorld; // unused
 
 				glm::vec3 worldStart, worldEnd;
 				computeTracerEndpoints(casterTile, hitGrid, worldStart, worldEnd);
@@ -5036,12 +5046,14 @@ void ofApp::updateGame() {
 			// Spawn tracer to show attempted endpoint
 			{
 				glm::vec2 casterCenter = casterTile + glm::vec2(0.5f, 0.5f);
+				(void)casterCenter; // unused
 				glm::vec2 hitGrid = impactTile + glm::vec2(0.5f, 0.5f);
 				auto gridFracToWorld = [&](glm::vec2 g) {
 					float wx = (g.x - BOARD_WIDTH / 2.0f) * TILE_SIZE + (TILE_SIZE / 2.0f);
 					float wz = (g.y - BOARD_HEIGHT / 2.0f) * TILE_SIZE + (TILE_SIZE / 2.0f);
 					return glm::vec3(wx, 0.0f, wz);
 				};
+				(void)gridFracToWorld; // unused
 
 				glm::vec3 worldStart, worldEnd;
 				computeTracerEndpoints(casterTile, hitGrid, worldStart, worldEnd);
@@ -5162,7 +5174,7 @@ void ofApp::updateGame() {
 			}
 
 			// Only proceed if we found all the dice and they are finished
-			if (ready && foundDiceCount == earthquakeUnits.size()) {
+			if (ready && foundDiceCount == (int)earthquakeUnits.size()) {
 				// Capture results and remove those dice from activeDiceRolls safely
 				std::vector<int> toErase;
 				for (auto & unit : earthquakeUnits) {
@@ -5182,7 +5194,7 @@ void ofApp::updateGame() {
 				// Erase in descending order
 				sort(toErase.begin(), toErase.end(), std::greater<int>());
 				for (int idx : toErase) {
-					if (idx >= 0 && idx < activeDiceRolls.size()) {
+					if (idx >= 0 && idx < (int)activeDiceRolls.size()) {
 						activeDiceRolls.erase(activeDiceRolls.begin() + idx);
 					}
 				}
@@ -5825,6 +5837,7 @@ void ofApp::updateGame() {
 			if (allGroupFinished && !groupRolls.empty()) {
 				std::string resultText = "";
 				int total = 0;
+				(void)total; // unused
 				int headsCount = 0;
 				int tailsCount = 0;
 
@@ -6613,6 +6626,7 @@ void ofApp::updateGame() {
 			padding = std::min(padding, 20.0f);
 			float totalHandWidth = (cardsToFit * handBaseCardWidth) + ((cardsToFit - 1) * padding);
 			float startX = (ofGetWidth() - totalHandWidth) / 2.0f;
+			(void)startX; // unused
 
 			// Position the cards for the active local unit (player or minion)
 			for (size_t i = 0; i < numCards; i++) {
@@ -8854,8 +8868,8 @@ void ofApp::drawGame() {
 				if (px.getWidth() > 0 && px.getHeight() > 0) {
 					uint64_t rsum = 0, gsum = 0, bsum = 0;
 					int count = 0;
-					for (int y = 0; y < px.getHeight(); ++y) {
-						for (int x = 0; x < px.getWidth(); ++x) {
+					for (int y = 0; y < (int)px.getHeight(); ++y) {
+						for (int x = 0; x < (int)px.getWidth(); ++x) {
 							ofColor c = px.getColor(x, y);
 							rsum += c.r;
 							gsum += c.g;
@@ -11810,6 +11824,7 @@ cursor_check_done:;
 				// Since we haven't updated drawHealthBar yet, this section is a placeholder.
 				// See Step 2 below where we implement the combined bar drawing.
 			};
+			(void)checkMainPlayerShields; // unused
 
 			// B. Check Minions
 			for (const auto & ui : activeMinionUIs) {
@@ -13228,6 +13243,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 
 			ofLogNotice("MagicBlast") << "Player " << targetPlayer->playerID << " chose Damage (Magic).";
 			choiceMade = true;
+			(void)choiceMade; // unused
 		}
 
 		if (magicBlastDiscardButton.inside(x, y)) {
@@ -13458,6 +13474,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 			TargetInfo info = isLosTargetValid(casterPos, glm::vec2(p.x, p.y), 9999.0f, CARD_BURST_OF_LIGHT);
 			if (info.reason == VALID) {
 				hasValidEnemy = true;
+						(void)hasValidEnemy; // set but not used
 				break;
 			}
 		}
@@ -13559,6 +13576,8 @@ void ofApp::mousePressed(int x, int y, int button) {
 
 					int casterOwner = caster.isMinion ? caster.ownerID : caster.playerID;
 					int targetOwner = target->isMinion ? target->ownerID : target->playerID;
+					(void)casterOwner; // unused
+					(void)targetOwner; // unused
 
 					// --- BURST TARGET VALIDATION & EFFECTS ---
 					if (burstChoice == 0) { // DAMAGE: allow any unit except self
@@ -16653,14 +16672,16 @@ void ofApp::windowResized(int w, int h) {
 		float padding = (cardsToFit > 1) ? (handAreaWidth - totalCardWidths) / (cardsToFit - 1) : 0;
 		padding = std::min(padding, 20.0f);
 		float totalHandWidth = (cardsToFit * handBaseCardWidth) + ((cardsToFit - 1) * padding);
-		float startX = (w - totalHandWidth) / 2.0f;
+			float startX = (w - totalHandWidth) / 2.0f;
+			(void)startX; // unused
 
 		// Compute actual spacing so the current cards are centered within the hand area
 		float totalActualCardWidths = (numCards > 0) ? (numCards * handBaseCardWidth) : 0;
 		float paddingActual = (numCards > 1) ? (handAreaWidth - totalActualCardWidths) / (numCards - 1) : 0;
 		paddingActual = std::min(paddingActual, 20.0f);
 		float totalActualHandWidth = (numCards > 0) ? ((numCards * handBaseCardWidth) + ((numCards - 1) * paddingActual)) : 0;
-		float startXActual = (w - totalActualHandWidth) / 2.0f;
+			float startXActual = (w - totalActualHandWidth) / 2.0f;
+			(void)startXActual; // unused
 
 		for (size_t i = 0; i < numCards; i++) {
 			float paddingActualInline = (numCards > 1) ? (handAreaWidth - (numCards * handBaseCardWidth)) / (numCards - 1) : 0;
@@ -17444,7 +17465,9 @@ void ofApp::drawCard(bool sendPacket) {
 			// Owner is a player; use the appropriate deck rect (p0/p1)
 			float scale = ofGetHeight() / 1080.0f;
 			float staticUICardWidth = (120 * 1.3f) * scale;
+			(void)staticUICardWidth; // unused
 			float staticUICardHeight = ((120 * (585.0f / 409.0f)) * 1.3f) * scale;
+			(void)staticUICardHeight; // unused
 			// Determine deck UI start position based on the owning player's playerID
 			int owner = anim.ownerIndex;
 			glm::vec2 start2D;
@@ -18571,6 +18594,7 @@ CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 
 		// --- CRASH FIX START ---
 		int myID = currentPlayer.playerID;
+		(void)myID; // unused
 
 		currentAP -= costToPay;
 		currentPlayer.playedCardsPile.push_back(playedCard);
@@ -18716,6 +18740,7 @@ CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		// --- CRASH FIX START ---
 		// We MUST erase the card and handle AP *before* we push_back to the players vector!
 		int myID = currentPlayer.playerID;
+		(void)myID; // unused
 		currentAP -= costToPay;
 		currentPlayer.playedCardsPile.push_back(playedCard);
 		applyReplicateCopyToHand(currentPlayer, playedCard);
@@ -20439,6 +20464,7 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 	glm::vec2 mouseTile = mouseToBoard(ofGetMouseX(), ofGetMouseY());
 	glm::vec2 aimDir = { 0, 0 };
 	bool isAimingOnBoard = false;
+	(void)isAimingOnBoard; // unused
 
 	if (mouseTile.x >= 0 && mouseTile.x < BOARD_WIDTH && mouseTile.y >= 0 && mouseTile.y < BOARD_HEIGHT) {
 		if (mouseTile != casterPos) {
@@ -21061,6 +21087,7 @@ void ofApp::applyPixelArtSettings() {
 	auto setFilterIfAllocatedImg = [&](ofImage & img, GLint minf, GLint magf) {
 		if (img.isAllocated()) img.getTexture().setTextureMinMagFilter(minf, magf);
 	};
+	(void)setFilterIfAllocatedImg; // unused
 
 	const GLint minFilter = (enablePixelArt ? GL_NEAREST : GL_LINEAR);
 	const GLint magFilter = (enablePixelArt ? GL_NEAREST : GL_LINEAR);
@@ -25933,7 +25960,7 @@ void ofApp::drawActiveDraftPickedMoves() {
 	}
 
 	// Remove finished moves
-	for (int i = (int)activeDraftPickedMoves.size() - 1; i >= 0; --i) {
+	for (size_t i = activeDraftPickedMoves.size(); i-- > 0; ) {
 		if (activeDraftPickedMoves[i].finished) activeDraftPickedMoves.erase(activeDraftPickedMoves.begin() + i);
 	}
 }
