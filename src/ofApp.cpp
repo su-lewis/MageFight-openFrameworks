@@ -1924,7 +1924,8 @@ void ofApp::drawTileGlow(int gridX, int gridY, ofColor color, float thickness) {
 	ofVec3f worldPos = gridToWorld(gridX, gridY);
 
 	// Draw a quad outline at ground level around the tile edges
-	float halfTile = 0.5f;
+	// Expand to cover whole tile plus some margin
+	float halfTile = 0.6f;
 	float glowHeight = 0.02f; // Slightly above ground to avoid z-fighting
 
 	// Save render state
@@ -24985,15 +24986,9 @@ void ofApp::drawMinionManagerUI() {
 			ofPopStyle();
 		}
 
-		if (isHovered) {
+		if (isHovered && !isActive) {
+			// Only show white outline when hovering (if not already active)
 			ofPushStyle();
-			// Draw glow background to ensure outline is fully visible
-			ofSetColor(255, 255, 255, 80);
-			float glow = 4.0f * scale;
-			ofDrawRectRounded(ui.bounds.x - glow, ui.bounds.y - glow,
-				ui.bounds.width + glow * 2.0f, ui.bounds.height + glow * 2.0f,
-				(10 * scale) + glow);
-			// Draw crisp outline on top
 			ofNoFill();
 			ofSetColor(ofColor::white);
 			ofSetLineWidth(3 * scale);
