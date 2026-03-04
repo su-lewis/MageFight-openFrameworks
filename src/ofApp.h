@@ -1782,6 +1782,10 @@ private:
 	std::vector<int> encyclopediaSelectedIndices;
 	// Accept button rect for the modal
 	ofRectangle encyclopediaAcceptButton;
+	// Hover tracking for encyclopedia cards
+	int encyclopediaHoveredIndex = -1;
+	float encyclopediaHoverStartTime = 0.0f;
+	bool encyclopediaHoverScaled = false;
 
 	// We still load the sheet to generate the data
 	ofImage cursorSheet;

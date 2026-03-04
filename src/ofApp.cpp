@@ -12968,24 +12968,41 @@ void ofApp::mousePressed(int x, int y, int button) {
 
 		float panelX = encyclopediaRect.x;
 		float panelY = encyclopediaRect.y;
+		float panelWidth = encyclopediaRect.width;
 		float contentY = panelY + 60;
 		float contentHeight = encyclopediaRect.height - 110; // leave room for Accept button
-		float cardScale = 1.2f;
+		float padding = 10.0f;
+
+		// Fixed layout: 10 columns (same as draw)
+		int cols = 10;
+		float cardScale = ((panelWidth - 2 * padding) / cols - padding) / kBaseCardWidth;
 		float cardW = kBaseCardWidth * cardScale;
 		float cardH = kBaseCardHeight * cardScale;
-		float padding = 15.0f;
-
-		int cols = std::max(1, (int)floor((encyclopediaRect.width - 2 * padding) / (cardW + padding)));
-		float startX = panelX + padding + ((encyclopediaRect.width - 2 * padding) - (cols * (cardW + padding) - padding)) / 2.0f;
+		float startX = panelX + padding + ((panelWidth - 2 * padding) - (cols * (cardW + padding) - padding)) / 2.0f;
 
 		int row = 0;
 		int col = 0;
 		for (size_t i = 0; i < displayedCards.size(); i++) {
-			float drawX = startX + col * (cardW + padding);
-			float drawY = contentY + row * (cardH + padding) - encyclopediaScrollOffset;
+			float baseDrawX = startX + col * (cardW + padding);
+			float baseDrawY = contentY + row * (cardH + padding) - encyclopediaScrollOffset;
 
-			if (drawY + cardH > contentY && drawY < contentY + contentHeight) {
-				ofRectangle cardRect(drawX, drawY, cardW, cardH);
+			// Apply hover scale if this card is hovered and scaled
+			bool isThisCardHovered = (encyclopediaHoverScaled && (int)i == encyclopediaHoveredIndex);
+			float thisCardW = cardW;
+			float thisCardH = cardH;
+			float drawX = baseDrawX;
+			float drawY = baseDrawY;
+
+			if (isThisCardHovered) {
+				float scaleUp = 1.6f;
+				thisCardW = cardW * scaleUp;
+				thisCardH = cardH * scaleUp;
+				drawX = baseDrawX - (thisCardW - cardW) / 2.0f;
+				drawY = baseDrawY - (thisCardH - cardH) / 2.0f;
+			}
+
+			if (drawY + thisCardH > contentY && drawY < contentY + contentHeight) {
+				ofRectangle cardRect(drawX, drawY, thisCardW, thisCardH);
 				if (cardRect.inside(x, y)) {
 					// Toggle selection on click
 					auto it = std::find(encyclopediaSelectedIndices.begin(), encyclopediaSelectedIndices.end(), (int)i);
@@ -22947,20 +22964,13 @@ void ofApp::drawCardEncyclopediaUI() {
 	ofSetColor(ofColor::white);
 	uiFont.drawString("X", encyclopediaCloseButton.x + 9, encyclopediaCloseButton.y + 22);
 
-	// Card grid
+	// Card grid - calculate layout to fit equal rows
 	const float kBaseCardWidth = 120.0f;
 	const float kCardAspectRatio = 1.4f;
 	const float kBaseCardHeight = kBaseCardWidth * kCardAspectRatio;
 
 	float contentY = panelY + 60;
 	float contentHeight = panelHeight - 70;
-	float cardScale = 1.2f;
-	float cardW = kBaseCardWidth * cardScale;
-	float cardH = kBaseCardHeight * cardScale;
-	float padding = 15.0f;
-
-	int cols = std::max(1, (int)floor((panelWidth - 2 * padding) / (cardW + padding)));
-	float startX = panelX + padding + ((panelWidth - 2 * padding) - (cols * (cardW + padding) - padding)) / 2.0f;
 
 	// Build displayed list depending on current encyclopedia mode
 	std::vector<Card> displayList;
@@ -22992,55 +23002,136 @@ void ofApp::drawCardEncyclopediaUI() {
 	ofRectangle titleBox2 = uiFont.getStringBoundingBox(titleFull, 0, 0);
 	uiFont.drawString(titleFull, panelX + (panelWidth - titleBox2.width) / 2, panelY + 32);
 
+	// Calculate optimal layout for equal rows
+	int totalCards = displayList.size();
+	if (totalCards == 0) return;
+
+	// Fixed layout: 10 columns, 7 rows
+	int cols = 10;
+	float padding = 10.0f;
+	float cardScale = ((panelWidth - 2 * padding) / cols - padding) / kBaseCardWidth;
+	float cardW = kBaseCardWidth * cardScale;
+	float cardH = kBaseCardHeight * cardScale;
+	float startX = panelX + padding + ((panelWidth - 2 * padding) - (cols * (cardW + padding) - padding)) / 2.0f;
+
+	// Check for hover and update hover state
+	int currentHoveredIndex = -1;
 	int row = 0;
 	int col = 0;
 	for (size_t i = 0; i < displayList.size(); i++) {
 		float drawX = startX + col * (cardW + padding);
 		float drawY = contentY + row * (cardH + padding) - encyclopediaScrollOffset;
 
-		// Only draw if visible
 		if (drawY + cardH > contentY && drawY < contentY + contentHeight) {
-			const Card & card = displayList[i];
-
-			// Card rect
 			ofRectangle cardRect(drawX, drawY, cardW, cardH);
-
-			// Hover glow
-			bool isHovered = cardRect.inside(ofGetMouseX(), ofGetMouseY()) && drawY >= contentY;
-			if (isHovered) {
-				ofSetColor(100, 150, 255, 100);
-				ofDrawRectRounded(drawX - 3, drawY - 3, cardW + 6, cardH + 6, 8);
+			if (cardRect.inside(ofGetMouseX(), ofGetMouseY()) && drawY >= contentY) {
+				currentHoveredIndex = i;
+				break;
 			}
-
-			// Draw card art
-			ofSetColor(255);
-			cardSpriteSheet.drawSubsection(drawX, drawY, cardW, cardH,
-				card.textureRect.x, card.textureRect.y,
-				card.textureRect.width, card.textureRect.height);
-
-			// If selected, draw a yellow outline
-			if (std::find(encyclopediaSelectedIndices.begin(), encyclopediaSelectedIndices.end(), (int)i) != encyclopediaSelectedIndices.end()) {
-				ofNoFill();
-				ofSetLineWidth(6);
-				ofSetColor(ofColor::yellow);
-				ofDrawRectRounded(drawX - 4, drawY - 4, cardW + 8, cardH + 8, 10);
-				ofFill();
-			}
-
-			// Draw card name below
-			if (isHovered)
-				ofSetColor(255, 255, 100);
-			else
-				ofSetColor(200, 200, 200);
-			string shortName = card.name;
-			if (shortName.length() > 15) shortName = shortName.substr(0, 12) + "...";
-			uiFont.drawString(shortName, drawX, drawY + cardH + 18);
 		}
 
 		col++;
 		if (col >= cols) {
 			col = 0;
 			row++;
+		}
+	}
+
+	// Update hover timing
+	if (currentHoveredIndex != encyclopediaHoveredIndex) {
+		encyclopediaHoveredIndex = currentHoveredIndex;
+		encyclopediaHoverStartTime = ofGetElapsedTimef();
+		encyclopediaHoverScaled = false;
+	} else if (currentHoveredIndex >= 0) {
+		float hoverDuration = ofGetElapsedTimef() - encyclopediaHoverStartTime;
+		if (hoverDuration >= 0.4f) {
+			encyclopediaHoverScaled = true;
+		}
+	}
+
+	// Draw cards (draw non-hovered first, then hovered on top)
+	row = 0;
+	col = 0;
+	for (int pass = 0; pass < 2; pass++) {
+		row = 0;
+		col = 0;
+		for (size_t i = 0; i < displayList.size(); i++) {
+			bool isThisCardHovered = (encyclopediaHoverScaled && (int)i == encyclopediaHoveredIndex);
+			if ((pass == 0 && isThisCardHovered) || (pass == 1 && !isThisCardHovered)) {
+				col++;
+				if (col >= cols) {
+					col = 0;
+					row++;
+				}
+				continue;
+			}
+
+			float baseDrawX = startX + col * (cardW + padding);
+			float baseDrawY = contentY + row * (cardH + padding) - encyclopediaScrollOffset;
+
+			// Only draw if visible
+			if (baseDrawY + cardH > contentY - 100 && baseDrawY < contentY + contentHeight + 100) {
+				const Card & card = displayList[i];
+
+				// Apply hover scale
+				float thisCardW = cardW;
+				float thisCardH = cardH;
+				float drawX = baseDrawX;
+				float drawY = baseDrawY;
+
+				if (isThisCardHovered) {
+					float scaleUp = 1.6f;
+					thisCardW = cardW * scaleUp;
+					thisCardH = cardH * scaleUp;
+					// Center the scaled card on its original position
+					drawX = baseDrawX - (thisCardW - cardW) / 2.0f;
+					drawY = baseDrawY - (thisCardH - cardH) / 2.0f;
+
+					// Add glow for scaled card
+					ofSetColor(255, 255, 100, 150);
+					ofDrawRectRounded(drawX - 5, drawY - 5, thisCardW + 10, thisCardH + 10, 12);
+				}
+
+				// Card rect for interaction
+				ofRectangle cardRect(drawX, drawY, thisCardW, thisCardH);
+
+				// Hover glow for non-scaled hover
+				bool isHovered = (int)i == encyclopediaHoveredIndex && !encyclopediaHoverScaled;
+				if (isHovered) {
+					ofSetColor(100, 150, 255, 100);
+					ofDrawRectRounded(drawX - 3, drawY - 3, thisCardW + 6, thisCardH + 6, 8);
+				}
+
+				// Draw card art
+				ofSetColor(255);
+				cardSpriteSheet.drawSubsection(drawX, drawY, thisCardW, thisCardH,
+					card.textureRect.x, card.textureRect.y,
+					card.textureRect.width, card.textureRect.height);
+
+				// If selected, draw a yellow outline
+				if (std::find(encyclopediaSelectedIndices.begin(), encyclopediaSelectedIndices.end(), (int)i) != encyclopediaSelectedIndices.end()) {
+					ofNoFill();
+					ofSetLineWidth(6);
+					ofSetColor(ofColor::yellow);
+					ofDrawRectRounded(drawX - 4, drawY - 4, thisCardW + 8, thisCardH + 8, 10);
+					ofFill();
+				}
+
+				// Draw card name below
+				if (isHovered || isThisCardHovered)
+					ofSetColor(255, 255, 100);
+				else
+					ofSetColor(200, 200, 200);
+				string shortName = card.name;
+				if (shortName.length() > 15) shortName = shortName.substr(0, 12) + "...";
+				uiFont.drawString(shortName, drawX, drawY + thisCardH + 18);
+			}
+
+			col++;
+			if (col >= cols) {
+				col = 0;
+				row++;
+			}
 		}
 	}
 
@@ -25343,7 +25434,9 @@ void ofApp::onCardPicked(int optionIndex) {
 		float lineH = titleFont.getLineHeight();
 		float instrTy = ty + lineH + 8;
 		float classTy = instrTy + lineH + 12;
+		(void)classTy; // unused
 		float topTextBottom = ty + lineH;
+		(void)topTextBottom; // unused
 		// if any of the text lines are present adjust position
 		// (we can't exactly know inGame vs tier text here, but use instr as default)
 		float startY = instrTy + lineH + 24.0f;
@@ -25678,7 +25771,7 @@ void ofApp::drawDraftScreen() {
 		float drawY = startY + (cardH - h) / 2.0f;
 
 		// Check Selection: compare against authoritative pool index for this slot
-		int slotPoolIdx = (i >= 0 && i < (int)currentDraftOptionPoolIndices.size()) ? currentDraftOptionPoolIndices[i] : -1;
+		int slotPoolIdx = (i < currentDraftOptionPoolIndices.size()) ? currentDraftOptionPoolIndices[i] : -1;
 		bool isSelected = false;
 		if (slotPoolIdx >= 0) {
 			for (int sel : selectedDraftIndices) {
@@ -27792,7 +27885,7 @@ void ofApp::processNetworkPackets() {
 						// Otherwise, validate or remap the client-provided index
 						if (targetIdx < 0 || targetIdx >= (int)players.size())
 							needsRemap = true;
-						else if (!(players[targetIdx].playerID == pkt->playerID || players[targetIdx].ownerID == (int)pkt->playerID))
+						else if (!(players[targetIdx].playerID == (int)pkt->playerID || players[targetIdx].ownerID == (int)pkt->playerID))
 							needsRemap = true;
 
 						if (needsRemap) {
