@@ -10048,13 +10048,11 @@ void ofApp::drawGame() {
 		float totalCardWidths = cardsToFit * handBaseCardWidth;
 		float padding = (cardsToFit > 1) ? (handAreaWidth - totalCardWidths) / (cardsToFit - 1) : 0;
 		padding = std::min(padding, 20.0f);
-		float totalHandWidth = (cardsToFit * handBaseCardWidth) + ((cardsToFit - 1) * padding);
-		// startX and handCenterY calculations removed as they were unused
+		// totalHandWidth and hand layout calculations removed as they were unused
 
 		float boxPaddingY = 44.0f;
 		float boxBottom = ofGetHeight();
 		float boxTop = boxBottom - (cardHeight + 2.0f * boxPaddingY);
-		float boxHeight = boxBottom - boxTop;
 
 		// How much a hovered card is lifted (pixels). Always lift upward.
 		float hoverDirection = -180.0f;
