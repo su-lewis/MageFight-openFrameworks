@@ -1924,8 +1924,8 @@ void ofApp::drawTileGlow(int gridX, int gridY, ofColor color, float thickness) {
 	ofVec3f worldPos = gridToWorld(gridX, gridY);
 
 	// Draw a quad outline at ground level around the tile edges
-	// Expand to cover whole tile plus some margin
-	float halfTile = 0.6f;
+	// Use TILE_SIZE/2 to cover the actual tile boundaries
+	float halfTile = TILE_SIZE / 2.0f;
 	float glowHeight = 0.02f; // Slightly above ground to avoid z-fighting
 
 	// Save render state
@@ -11258,8 +11258,6 @@ void ofApp::drawGame() {
 		ofRectangle xBox = uiFont.getStringBoundingBox("Cancel", 0, 0);
 		uiFont.drawString("Cancel", riCancelBtn.getCenter().x - xBox.width / 2, riCancelBtn.getCenter().y + xBox.height / 2);
 	}
-	// --- DEBUG: DRAW FPS ---
-	ofDrawBitmapString("FPS: " + ofToString(ofGetFrameRate(), 2), 10, 20);
 }
 //--------------------------------------------------------------
 void ofApp::mouseMoved(int x, int y) {
