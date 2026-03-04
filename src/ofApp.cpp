@@ -2679,11 +2679,11 @@ void ofApp::setupGame() {
 	isTopDownView = false;
 
 	// Setup Player 0's camera (south side) — tilt a bit more toward board
-	cam.setPosition(0, cameraCurrentZoom * 1.20f, cameraCurrentZoom * 0.65f);
+	cam.setPosition(0, cameraCurrentZoom * 1.05f, cameraCurrentZoom * 0.75f);
 	cam.lookAt(cameraCurrentPan);
 
 	// Setup Player 1's camera (north side, 180° opposite)
-	cam2.setPosition(0, cameraCurrentZoom * 1.20f, -(cameraCurrentZoom * 0.65f));
+	cam2.setPosition(0, cameraCurrentZoom * 1.05f, -(cameraCurrentZoom * 0.75f));
 	cam2.lookAt(glm::vec3(cameraCurrentPan.x, cameraCurrentPan.y, -cameraCurrentPan.z));
 	cameraCurrentPos = cam.getPosition();
 	cameraCurrentPos2 = cam2.getPosition();
@@ -2800,9 +2800,9 @@ void ofApp::initialiseGameStateCommon() {
 	cameraCurrentPan = glm::vec3(0, 0, 0);
 	isTopDownView = false;
 
-	cam.setPosition(0, cameraCurrentZoom * 1.20f, cameraCurrentZoom * 0.65f);
+	cam.setPosition(0, cameraCurrentZoom * 1.05f, cameraCurrentZoom * 0.75f);
 	cam.lookAt(cameraCurrentPan);
-	cam2.setPosition(0, cameraCurrentZoom * 1.20f, -(cameraCurrentZoom * 0.65f));
+	cam2.setPosition(0, cameraCurrentZoom * 1.05f, -(cameraCurrentZoom * 0.75f));
 	cam2.lookAt(glm::vec3(cameraCurrentPan.x, cameraCurrentPan.y, -cameraCurrentPan.z));
 	cameraCurrentPos = cam.getPosition();
 	cameraCurrentPos2 = cam2.getPosition();
@@ -3170,8 +3170,8 @@ void ofApp::updateGame() {
 	} else {
 		// Use updated multipliers at runtime target: raise Y a bit to look more
 		// top-down while keeping the same Z back offset.
-		targetPos = glm::vec3(cameraCurrentPan.x, cameraCurrentZoom * 1.20f, cameraCurrentPan.z + cameraCurrentZoom * 0.65f);
-		targetPos2 = glm::vec3(cameraCurrentPan2.x, cameraCurrentZoom * 1.20f, cameraCurrentPan2.z - cameraCurrentZoom * 0.65f); // Opposite Z
+		targetPos = glm::vec3(cameraCurrentPan.x, cameraCurrentZoom * 1.05f, cameraCurrentPan.z + cameraCurrentZoom * 0.75f);
+		targetPos2 = glm::vec3(cameraCurrentPan2.x, cameraCurrentZoom * 1.05f, cameraCurrentPan2.z - cameraCurrentZoom * 0.75f); // Opposite Z
 	}
 	cameraCurrentPos = glm::mix(cameraCurrentPos, targetPos, frame_independent_smoothing);
 	cameraCurrentPos2 = glm::mix(cameraCurrentPos2, targetPos2, frame_independent_smoothing);
@@ -9877,7 +9877,7 @@ void ofApp::drawGame() {
 		// Thin crisp border on top using a modest line width
 		ofNoFill();
 		ofSetColor(ofColor::green);
-		ofSetLineWidth(2 * scale);
+		ofSetLineWidth(3 * scale);
 		ofDrawRectRounded(endTurnButtonRect, 10 * scale);
 		ofPopStyle();
 	}
@@ -16344,27 +16344,6 @@ void ofApp::keyPressed(int key) {
 		return;
 	}
 
-	// Enable default shaders (O). Note: disabling via 'O' is no longer permitted.
-	if (key == 'o' || key == 'O') {
-		if (!isDebugMode) return;
-		if (!enableShaders) {
-			enableShaders = true;
-			// turn other shader modes off to ensure only default shaders run
-			enablePixelArt = false;
-			enableC64Shader = false;
-			enableWorldPostProcess = false;
-			showWorldFboPreview = false;
-			// Ensure texture filtering is restored when disabling pixel-art mode
-			applyPixelArtSettings();
-			ofLogNotice("Debug") << "Default shaders enabled (O).";
-			// Visible on-screen feedback
-			if (currentState == STATE_GAMEPLAY) {
-				spawnFloatingText(gridToWorld(6, 4), std::string("Shaders: ON"), ofColor::white);
-			}
-		}
-		return;
-	}
-
 	// Settings keyboard handling (global within settings)
 	if (currentState == STATE_SETTINGS) {
 		// If we are rebinding a key, capture it here
@@ -16417,8 +16396,6 @@ void ofApp::keyPressed(int key) {
 			// pixel mode should be exclusive: turn off other shader modes
 			enableC64Shader = false;
 			enableShaders = false;
-			enableWorldPostProcess = false;
-			showWorldFboPreview = false;
 		}
 		applyPixelArtSettings();
 		ofLogNotice("PixelArt") << "enablePixelArt=" << (enablePixelArt ? 1 : 0);
@@ -16515,15 +16492,6 @@ void ofApp::keyReleased(int key) {
 	}
 
 	// 2b. Post-processing toggles (debug)
-	if (key == 'l' || key == 'L') {
-		if (!isDebugMode) return;
-		enableWorldPostProcess = !enableWorldPostProcess;
-		ofLogNotice("Post") << "enableWorldPostProcess=" << (enableWorldPostProcess ? "true" : "false");
-
-		if (currentState == STATE_GAMEPLAY) {
-			spawnFloatingText(gridToWorld(6, 4), std::string("World Post: ") + (enableWorldPostProcess ? "ON" : "OFF"), ofColor::white);
-		}
-	}
 	if (key == 'y' || key == 'Y') {
 		if (!isDebugMode) return;
 		showWorldFboPreview = !showWorldFboPreview;
@@ -16540,8 +16508,6 @@ void ofApp::keyReleased(int key) {
 		if (enableC64Shader) {
 			enablePixelArt = false;
 			enableShaders = false;
-			enableWorldPostProcess = false;
-			showWorldFboPreview = false;
 		}
 		ofLogNotice("C64") << "enableC64Shader=" << (enableC64Shader ? "true" : "false");
 
@@ -21894,9 +21860,9 @@ void ofApp::applySnapshotString(const std::string & data) {
 	cameraTargetPan = glm::vec3(0, 0, 0);
 	cameraCurrentPan = glm::vec3(0, 0, 0);
 	isTopDownView = false;
-	cam.setPosition(0, cameraCurrentZoom * 1.20f, cameraCurrentZoom * 0.65f);
+	cam.setPosition(0, cameraCurrentZoom * 1.05f, cameraCurrentZoom * 0.75f);
 	cam.lookAt(cameraCurrentPan);
-	cam2.setPosition(0, cameraCurrentZoom * 1.20f, -(cameraCurrentZoom * 0.65f));
+	cam2.setPosition(0, cameraCurrentZoom * 1.05f, -(cameraCurrentZoom * 0.75f));
 	cam2.lookAt(glm::vec3(cameraCurrentPan.x, cameraCurrentPan.y, -cameraCurrentPan.z));
 	cameraCurrentPos = cam.getPosition();
 	cameraCurrentPos2 = cam2.getPosition();
@@ -25018,20 +24984,34 @@ void ofApp::drawMinionManagerUI() {
 
 		if (isActive) {
 			ofPushStyle();
-			ofNoFill();
 			// Yellow outline for minions, white for players
 			ofColor outlineColor = players[ui.playerIndex].isMinion ? ofColor::yellow : ofColor::white;
+			// Draw glow background to ensure outline is fully visible
+			ofSetColor(outlineColor.r, outlineColor.g, outlineColor.b, 80);
+			float glow = 4.0f * scale;
+			ofDrawRectRounded(ui.bounds.x - glow, ui.bounds.y - glow,
+				ui.bounds.width + glow * 2.0f, ui.bounds.height + glow * 2.0f,
+				(10 * scale) + glow);
+			// Draw crisp outline on top
+			ofNoFill();
 			ofSetColor(outlineColor);
-			ofSetLineWidth(4 * scale);
+			ofSetLineWidth(3 * scale);
 			ofDrawRectRounded(ui.bounds, 10 * scale);
 			ofPopStyle();
 		}
 
 		if (isHovered) {
 			ofPushStyle();
+			// Draw glow background to ensure outline is fully visible
+			ofSetColor(255, 255, 255, 80);
+			float glow = 4.0f * scale;
+			ofDrawRectRounded(ui.bounds.x - glow, ui.bounds.y - glow,
+				ui.bounds.width + glow * 2.0f, ui.bounds.height + glow * 2.0f,
+				(10 * scale) + glow);
+			// Draw crisp outline on top
 			ofNoFill();
 			ofSetColor(ofColor::white);
-			ofSetLineWidth(4 * scale);
+			ofSetLineWidth(3 * scale);
 			ofDrawRectRounded(ui.bounds, 10 * scale);
 			ofPopStyle();
 
