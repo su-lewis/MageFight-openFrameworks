@@ -2679,11 +2679,11 @@ void ofApp::setupGame() {
 	isTopDownView = false;
 
 	// Setup Player 0's camera (south side) — tilt a bit more toward board
-	cam.setPosition(0, cameraCurrentZoom * 1.05f, cameraCurrentZoom * 0.90f);
+	cam.setPosition(0, cameraCurrentZoom * 1.20f, cameraCurrentZoom * 0.65f);
 	cam.lookAt(cameraCurrentPan);
 
 	// Setup Player 1's camera (north side, 180° opposite)
-	cam2.setPosition(0, cameraCurrentZoom * 1.05f, -(cameraCurrentZoom * 0.90f));
+	cam2.setPosition(0, cameraCurrentZoom * 1.20f, -(cameraCurrentZoom * 0.65f));
 	cam2.lookAt(glm::vec3(cameraCurrentPan.x, cameraCurrentPan.y, -cameraCurrentPan.z));
 	cameraCurrentPos = cam.getPosition();
 	cameraCurrentPos2 = cam2.getPosition();
@@ -2800,9 +2800,9 @@ void ofApp::initialiseGameStateCommon() {
 	cameraCurrentPan = glm::vec3(0, 0, 0);
 	isTopDownView = false;
 
-	cam.setPosition(0, cameraCurrentZoom * 1.05f, cameraCurrentZoom * 0.90f);
+	cam.setPosition(0, cameraCurrentZoom * 1.20f, cameraCurrentZoom * 0.65f);
 	cam.lookAt(cameraCurrentPan);
-	cam2.setPosition(0, cameraCurrentZoom * 1.05f, -(cameraCurrentZoom * 0.90f));
+	cam2.setPosition(0, cameraCurrentZoom * 1.20f, -(cameraCurrentZoom * 0.65f));
 	cam2.lookAt(glm::vec3(cameraCurrentPan.x, cameraCurrentPan.y, -cameraCurrentPan.z));
 	cameraCurrentPos = cam.getPosition();
 	cameraCurrentPos2 = cam2.getPosition();
@@ -3170,8 +3170,8 @@ void ofApp::updateGame() {
 	} else {
 		// Use updated multipliers at runtime target: raise Y a bit to look more
 		// top-down while keeping the same Z back offset.
-		targetPos = glm::vec3(cameraCurrentPan.x, cameraCurrentZoom * 1.05f, cameraCurrentPan.z + cameraCurrentZoom * 0.90f);
-		targetPos2 = glm::vec3(cameraCurrentPan2.x, cameraCurrentZoom * 1.05f, cameraCurrentPan2.z - cameraCurrentZoom * 0.90f); // Opposite Z
+		targetPos = glm::vec3(cameraCurrentPan.x, cameraCurrentZoom * 1.20f, cameraCurrentPan.z + cameraCurrentZoom * 0.65f);
+		targetPos2 = glm::vec3(cameraCurrentPan2.x, cameraCurrentZoom * 1.20f, cameraCurrentPan2.z - cameraCurrentZoom * 0.65f); // Opposite Z
 	}
 	cameraCurrentPos = glm::mix(cameraCurrentPos, targetPos, frame_independent_smoothing);
 	cameraCurrentPos2 = glm::mix(cameraCurrentPos2, targetPos2, frame_independent_smoothing);
@@ -21142,14 +21142,13 @@ void ofApp::applyPixelArtSettings() {
 	setFilterIfAllocatedTex(tortoiseTexture, minFilter, magFilter);
 	setFilterIfAllocatedTex(ghostBaseTex, minFilter, magFilter);
 	setFilterIfAllocatedTex(koboldKingTexture, minFilter, magFilter);
-	setFilterIfAllocatedTex(wallTexture, minFilter, magFilter);
-	setFilterIfAllocatedTex(wallUnitTexture, minFilter, magFilter);
+	// wallTexture and wallUnitTexture are pixel art assets - always keep GL_NEAREST
+	// (same for keyTextures - handled below)
 	setFilterIfAllocatedTex(roomTexture, minFilter, magFilter);
 
 	for (auto & ft : floorTextures)
 		setFilterIfAllocatedTex(ft, minFilter, magFilter);
-	for (auto & kt : keyTextures)
-		setFilterIfAllocatedTex(kt, minFilter, magFilter);
+	// keyTextures are pixel art assets - always keep GL_NEAREST (don't change them)
 
 	// Ensure world FBO texture sampling is restored when disabling pixel art
 	if (worldFbo.isAllocated())
@@ -21159,12 +21158,7 @@ void ofApp::applyPixelArtSettings() {
 
 	for (auto & ft : floorTextures)
 		setFilterIfAllocatedTex(ft, minFilter, magFilter);
-	for (auto & kt : keyTextures)
-		setFilterIfAllocatedTex(kt, minFilter, magFilter);
-	for (auto & kt : keyTexturesSilver)
-		setFilterIfAllocatedTex(kt, minFilter, magFilter);
-	for (auto & kt : keyTexturesBronze)
-		setFilterIfAllocatedTex(kt, minFilter, magFilter);
+	// keyTextures are pixel art - don't modify (already commented out above)
 
 	if (cardSpriteSheet.isAllocated()) cardSpriteSheet.getTexture().setTextureMinMagFilter(minFilter, magFilter);
 	if (cardBackImage.isAllocated()) cardBackImage.getTexture().setTextureMinMagFilter(minFilter, magFilter);
@@ -21900,9 +21894,9 @@ void ofApp::applySnapshotString(const std::string & data) {
 	cameraTargetPan = glm::vec3(0, 0, 0);
 	cameraCurrentPan = glm::vec3(0, 0, 0);
 	isTopDownView = false;
-	cam.setPosition(0, cameraCurrentZoom * 1.05f, cameraCurrentZoom * 0.90f);
+	cam.setPosition(0, cameraCurrentZoom * 1.20f, cameraCurrentZoom * 0.65f);
 	cam.lookAt(cameraCurrentPan);
-	cam2.setPosition(0, cameraCurrentZoom * 1.05f, -(cameraCurrentZoom * 0.90f));
+	cam2.setPosition(0, cameraCurrentZoom * 1.20f, -(cameraCurrentZoom * 0.65f));
 	cam2.lookAt(glm::vec3(cameraCurrentPan.x, cameraCurrentPan.y, -cameraCurrentPan.z));
 	cameraCurrentPos = cam.getPosition();
 	cameraCurrentPos2 = cam2.getPosition();
