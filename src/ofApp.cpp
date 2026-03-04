@@ -1927,21 +1927,24 @@ void ofApp::drawTileGlow(int gridX, int gridY, ofColor color, float thickness) {
 	float halfTile = 0.5f;
 	float glowHeight = 0.02f; // Slightly above ground to avoid z-fighting
 
+	// Save render state
+	ofPushStyle();
 	ofSetColor(color);
 	ofSetLineWidth(thickness);
 
 	// Draw outline around tile
 	ofPushMatrix();
-	ofTranslate(worldPos.x, worldPos.y, glowHeight);
+	ofTranslate(worldPos.x, 0.0f, worldPos.z);
+	ofTranslate(0, glowHeight, 0);
 
 	// Draw four lines forming a square around the tile
-	ofDrawLine(-halfTile, -halfTile, 0, halfTile, -halfTile, 0); // Bottom edge
-	ofDrawLine(halfTile, -halfTile, 0, halfTile, halfTile, 0); // Right edge
-	ofDrawLine(halfTile, halfTile, 0, -halfTile, halfTile, 0); // Top edge
-	ofDrawLine(-halfTile, halfTile, 0, -halfTile, -halfTile, 0); // Left edge
+	ofDrawLine(-halfTile, 0, -halfTile, halfTile, 0, -halfTile); // Bottom edge
+	ofDrawLine(halfTile, 0, -halfTile, halfTile, 0, halfTile); // Right edge
+	ofDrawLine(halfTile, 0, halfTile, -halfTile, 0, halfTile); // Top edge
+	ofDrawLine(-halfTile, 0, halfTile, -halfTile, 0, -halfTile); // Left edge
 
 	ofPopMatrix();
-	ofSetLineWidth(1);
+	ofPopStyle();
 }
 //--------------------------------------------------------------
 void ofApp::draw() {
@@ -8189,10 +8192,7 @@ void ofApp::drawGame() {
 
 		// --- HOVER GLOW RENDERING ---
 		// Draw white glow for local player's hover
-		// NOTE: suppress the local hover outline while the player has a piece selected
-		// (movement preview / hoverPath draws separate indicators which can appear
-		// on other tiles and look like an extra white highlight).
-		if (playerAction != PIECE_SELECTED && localHoverType == HOVER_UNIT && localHoverGridX >= 0 && localHoverGridX < BOARD_WIDTH && localHoverGridY >= 0 && localHoverGridY < BOARD_HEIGHT) {
+		if (localHoverType == HOVER_UNIT && localHoverGridX >= 0 && localHoverGridX < BOARD_WIDTH && localHoverGridY >= 0 && localHoverGridY < BOARD_HEIGHT) {
 			drawTileGlow(localHoverGridX, localHoverGridY, ofColor(255, 255, 255, 200), 4.0f);
 		}
 
@@ -10048,13 +10048,12 @@ void ofApp::drawGame() {
 		float padding = (cardsToFit > 1) ? (handAreaWidth - totalCardWidths) / (cardsToFit - 1) : 0;
 		padding = std::min(padding, 20.0f);
 		float totalHandWidth = (cardsToFit * handBaseCardWidth) + ((cardsToFit - 1) * padding);
-		float startX = (ofGetWidth() - totalHandWidth) / 2.0f;
+		// startX and handCenterY calculations removed as they were unused
 
 		float boxPaddingY = 44.0f;
 		float boxBottom = ofGetHeight();
 		float boxTop = boxBottom - (cardHeight + 2.0f * boxPaddingY);
 		float boxHeight = boxBottom - boxTop;
-		float handCenterY = boxTop + boxHeight / 2.0f;
 
 		// How much a hovered card is lifted (pixels). Always lift upward.
 		float hoverDirection = -180.0f;
@@ -11382,6 +11381,8 @@ cursor_check_done:;
 
 	// --- LOGIC UPDATES ---
 	switch (currentState) {
+	case STATE_DESYNC:
+		break;
 	case STATE_GAMEPLAY: {
 		bool isDiceSpinning = false;
 		for (const auto & roll : activeDiceRolls) {
@@ -14682,36 +14683,17 @@ void ofApp::mousePressed(int x, int y, int button) {
 							// First wolf placed. Now flip the coin.
 							ofLogNotice("Wolves") << "Wolf 1 placed. Flipping coin for 2nd...";
 
-							if (isMultiplayer && isHost()) sendCardActionBegin(CARD_CALL_FOR_WOLVES, currentPlayerIndex, -1, -1, 0, 0, 0, 0, "Call for Wolves");
-							startDiceRoll(1, 2, PURPOSE_COIN_FLIP, "Flip for 2nd Wolf", currentPlayerIndex);
+							// Check for key pickup on first wolf's tile
+							checkKeyPickupAndDraftAfterSummon(gx, gy, wolf.ownerID);
 
-							isWaitingForWolfCoin = true;
 							// Do NOT turn off isPlacingWolves yet.
 						} else if (wolfSummonStage == 2) {
 							// Second wolf placed. We are done.
 							isPlacingWolves = false;
 							wolfSummonStage = 0;
 
-							// --- CRITICAL FIX: CAPTURE ID BEFORE SORT ---
-							int myID = players[currentPlayerIndex].playerID;
-
-							// Re-sort turn order
-							std::sort(players.begin(), players.end(), [](const Player & a, const Player & b) {
-								int ownerA = a.isMinion ? a.ownerID : a.playerID;
-								int ownerB = b.isMinion ? b.ownerID : b.playerID;
-								if (ownerA != ownerB) return ownerA < ownerB;
-								if (a.isMinion && !b.isMinion) return true;
-								if (!a.isMinion && b.isMinion) return false;
-								return a.summonOrder < b.summonOrder;
-							});
-
-							// Fix current player index
-							for (size_t i = 0; i < players.size(); i++) {
-								if (players[i].playerID == myID) {
-									currentPlayerIndex = i;
-									break;
-								}
-							}
+							// Check for key pickup on second wolf's tile
+							checkKeyPickupAndDraftAfterSummon(gx, gy, wolf.ownerID);
 						}
 
 						return; // Click handled
@@ -24975,8 +24957,11 @@ void ofApp::drawMinionManagerUI() {
 		glScissor(scX, scY, scW, scH);
 
 		// --- Draw UI Panel ---
+		ofPushStyle();
+		ofEnableAlphaBlending();
 		ofSetColor(0, 0, 0, 150);
 		ofDrawRectRounded(ui.bounds, 10 * scale);
+		ofPopStyle();
 
 		// New Visual Outlines for Active and Hovered states
 		bool isActive = (currentPlayerIndex == ui.playerIndex);
@@ -25014,13 +24999,6 @@ void ofApp::drawMinionManagerUI() {
 			ofSetLineWidth(3 * scale);
 			ofDrawRectRounded(ui.bounds, 10 * scale);
 			ofPopStyle();
-
-			// Draw a stable tile glow directly (avoid relying on board flags that
-			// may be modified elsewhere and cause flicker when moving the mouse).
-			if (ui.playerIndex >= 0 && ui.playerIndex < (int)players.size() && !disableAllGlow) {
-				Player & p = players[ui.playerIndex];
-				drawTileGlow(p.x, p.y, ofColor(255, 255, 255, 200), 4.0f); // white highlight to match UI outline
-			}
 		}
 
 		// --- DETERMINE NAME ---
