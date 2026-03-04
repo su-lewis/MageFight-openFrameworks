@@ -1755,8 +1755,8 @@ void ofApp::update() {
 	case STATE_MAIN_MENU:
 		break;
 	case STATE_SETTINGS:
-			case STATE_DESYNC:
-				break;
+	case STATE_DESYNC:
+		break;
 		break;
 
 	// --- INITIATIVE ROLL STATE ---
@@ -12664,7 +12664,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 				if (ofRectangle(cx, startY, cardW, cardH).inside(x, y)) {
 
 					// Use the authoritative pool index for selections (avoid slot vs pool index mismatch)
-					int poolIdx = (i >= 0 && i < (int)currentDraftOptionPoolIndices.size()) ? currentDraftOptionPoolIndices[i] : -1;
+					int poolIdx = (i < currentDraftOptionPoolIndices.size()) ? currentDraftOptionPoolIndices[i] : -1;
 					if (poolIdx < 0) return; // invalid slot
 					auto it = std::find(selectedDraftIndices.begin(), selectedDraftIndices.end(), poolIdx);
 					bool nowSelected = false;
@@ -12958,7 +12958,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 
 		// Prepare displayed list depending on mode
 		std::vector<Card> displayedCards;
-		if (encyclopediaMode == ENC_ADD_FROM_ALL) {
+		if (encyclopediaMode == ENC_SPAWN_TO_HAND || encyclopediaMode == ENC_ADD_FROM_ALL) {
 			displayedCards = allCards;
 		} else if (encyclopediaMode == ENC_REMOVE_FROM_PILE) {
 			if (encyclopediaTargetPlayerIndex < 0 || encyclopediaTargetPlayerIndex >= (int)players.size()) {
@@ -12977,29 +12977,33 @@ void ofApp::mousePressed(int x, int y, int button) {
 		}
 
 		// Panel metrics (match draw logic)
-		const float kBaseCardWidth = 120.0f;
 		const float kCardAspectRatio = 1.4f;
-		const float kBaseCardHeight = kBaseCardWidth * kCardAspectRatio;
 
 		float panelX = encyclopediaRect.x;
 		float panelY = encyclopediaRect.y;
 		float panelWidth = encyclopediaRect.width;
 		float contentY = panelY + 60;
-		float contentHeight = encyclopediaRect.height - 110; // leave room for Accept button
-		float padding = 10.0f;
+		float acceptY = panelY + encyclopediaRect.height - 70;
+		float contentBottom = acceptY - 12.0f;
 
-		// Fixed layout: 10 columns (same as draw)
-		int cols = 10;
-		float cardScale = ((panelWidth - 2 * padding) / cols - padding) / kBaseCardWidth;
-		float cardW = kBaseCardWidth * cardScale;
-		float cardH = kBaseCardHeight * cardScale;
-		float startX = panelX + padding + ((panelWidth - 2 * padding) - (cols * (cardW + padding) - padding)) / 2.0f;
+		// Fixed horizontal layout: 10 columns (same as draw)
+		const int cols = 10;
+		const float padX = 8.0f;
+		const float padY = 10.0f;
+		const float nameBand = 16.0f;
+
+		float cardW = (panelWidth - 2.0f * padX - (cols - 1) * padX) / (float)cols;
+		cardW = std::max(12.0f, cardW);
+		float cardH = cardW * kCardAspectRatio;
+		float rowStep = cardH + padY + nameBand;
+		float gridWidth = cols * cardW + (cols - 1) * padX;
+		float startX = panelX + (panelWidth - gridWidth) / 2.0f;
 
 		int row = 0;
 		int col = 0;
 		for (size_t i = 0; i < displayedCards.size(); i++) {
-			float baseDrawX = startX + col * (cardW + padding);
-			float baseDrawY = contentY + row * (cardH + padding) - encyclopediaScrollOffset;
+			float baseDrawX = startX + col * (cardW + padX);
+			float baseDrawY = contentY + row * rowStep - encyclopediaScrollOffset;
 
 			// Apply hover scale if this card is hovered and scaled
 			bool isThisCardHovered = (encyclopediaHoverScaled && (int)i == encyclopediaHoveredIndex);
@@ -13016,7 +13020,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 				drawY = baseDrawY - (thisCardH - cardH) / 2.0f;
 			}
 
-			if (drawY + thisCardH > contentY && drawY < contentY + contentHeight) {
+			if (drawY + thisCardH > contentY && drawY < contentBottom) {
 				ofRectangle cardRect(drawX, drawY, thisCardW, thisCardH);
 				if (cardRect.inside(x, y)) {
 					// Toggle selection on click
@@ -13044,12 +13048,30 @@ void ofApp::mousePressed(int x, int y, int button) {
 		if (encyclopediaAcceptButton.inside(x, y)) {
 			// Apply selections
 			if (!encyclopediaSelectedIndices.empty()) {
-				if (encyclopediaMode == ENC_ADD_FROM_ALL) {
+				if (encyclopediaMode == ENC_SPAWN_TO_HAND) {
+					if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) {
+						Player & tgt = players[currentPlayerIndex];
+						for (int selIdx : encyclopediaSelectedIndices) {
+							if (selIdx < 0 || selIdx >= (int)allCards.size()) continue;
+							for (int q = 0; q < cardSpawnerQuantity; q++) {
+								tgt.hand.push_back(allCards[selIdx]);
+								tgt.hand.back().currentPos = ofVec2f(ofGetWidth() / 2, 0);
+								tgt.hand.back().currentScale = 1.5f;
+								tgt.hand.back().targetScale = 1.5f;
+								tgt.hand.back().drawnThisTurn = true;
+							}
+						}
+						spawnFloatingText(gridToWorld(tgt.x, tgt.y), "+" + ofToString((int)encyclopediaSelectedIndices.size() * cardSpawnerQuantity) + " card(s)", ofColor::cyan);
+						if (isMultiplayer && isHost()) {
+							sendSnapshotToClient();
+							ofLogNotice("Debug") << "Card Spawner Encyclopedia: Host sent snapshot to clients.";
+						}
+					}
+				} else if (encyclopediaMode == ENC_ADD_FROM_ALL) {
 					if (encyclopediaTargetPlayerIndex >= 0 && encyclopediaTargetPlayerIndex < (int)players.size()) {
 						Player & tgt = players[encyclopediaTargetPlayerIndex];
 						for (int selIdx : encyclopediaSelectedIndices) {
 							if (selIdx < 0 || selIdx >= (int)allCards.size()) continue;
-							tgt.discardPile; // ensure access
 							// Add one copy of the selected card to target pile
 							if (encyclopediaTargetIsDiscard)
 								tgt.discardPile.push_back(allCards[selIdx]);
@@ -13075,16 +13097,12 @@ void ofApp::mousePressed(int x, int y, int button) {
 			// Clear and close
 			encyclopediaSelectedIndices.clear();
 			isCardEncyclopediaOpen = false;
+			if (encyclopediaMode == ENC_SPAWN_TO_HAND) isCardSpawnerOpen = false;
 			encyclopediaMode = ENC_NONE;
 			return;
 		}
 
-		// Clicked outside - close
-		if (!encyclopediaRect.inside(x, y) && !encyclopediaAcceptButton.inside(x, y)) {
-			isCardEncyclopediaOpen = false;
-			encyclopediaSelectedIndices.clear();
-			encyclopediaMode = ENC_NONE;
-		}
+		// Clicking outside should NOT close the encyclopedia.
 		return;
 	}
 
@@ -13112,6 +13130,12 @@ void ofApp::mousePressed(int x, int y, int button) {
 
 		if (cardSpawnerEncyclopediaButton.inside(x, y)) {
 			isCardEncyclopediaOpen = true;
+			encyclopediaMode = ENC_SPAWN_TO_HAND;
+			encyclopediaSelectedIndices.clear();
+			encyclopediaHoveredIndex = -1;
+			encyclopediaHoverScaled = false;
+			encyclopediaTargetPlayerIndex = -1;
+			encyclopediaTargetIsDiscard = false;
 			encyclopediaScrollOffset = 0;
 			return;
 		}
@@ -13416,7 +13440,6 @@ void ofApp::mousePressed(int x, int y, int button) {
 			return;
 		}
 
-		bool choiceMade = false;
 		int effectValue = (int)caster.deck.size();
 		bool isSelfTarget = (pendingWisdomBoonTargetIndex == currentPlayerIndex);
 
@@ -13474,7 +13497,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 			TargetInfo info = isLosTargetValid(casterPos, glm::vec2(p.x, p.y), 9999.0f, CARD_BURST_OF_LIGHT);
 			if (info.reason == VALID) {
 				hasValidEnemy = true;
-						(void)hasValidEnemy; // set but not used
+				(void)hasValidEnemy; // set but not used
 				break;
 			}
 		}
@@ -16050,17 +16073,32 @@ void ofApp::mouseScrolled(int x, int y, float scrollX, float scrollY) {
 
 	// Handle encyclopedia scrolling
 	if (isCardEncyclopediaOpen && encyclopediaRect.inside(x, y)) {
-		const float kBaseCardWidth = 120.0f;
+		// Scroll for lower rows while keeping Accept area clear.
 		const float kCardAspectRatio = 1.4f;
-		const float kBaseCardHeight = kBaseCardWidth * kCardAspectRatio;
+		const int cols = 10;
+		const float padX = 8.0f;
+		const float padY = 10.0f;
+		const float nameBand = 16.0f;
+		float panelY = encyclopediaRect.y;
+		float panelWidth = encyclopediaRect.width;
+		float contentY = panelY + 60;
+		float acceptY = panelY + encyclopediaRect.height - 70;
+		float contentBottom = acceptY - 12.0f;
+		float contentHeight = std::max(0.0f, contentBottom - contentY);
 
-		float cardScale = 1.2f;
-		float cardH = kBaseCardHeight * cardScale;
-		float padding = 15.0f;
-		int cols = std::max(1, (int)floor((encyclopediaRect.width - 2 * padding) / (kBaseCardWidth * cardScale + padding)));
-		int totalRows = (allCards.size() + cols - 1) / cols;
-		float totalContentHeight = totalRows * (cardH + padding);
-		float contentHeight = encyclopediaRect.height - 70;
+		float cardW = (panelWidth - 2.0f * padX - (cols - 1) * padX) / (float)cols;
+		cardW = std::max(12.0f, cardW);
+		float cardH = cardW * kCardAspectRatio;
+		float rowStep = cardH + padY + nameBand;
+
+		int cardCount = (int)allCards.size();
+		if (encyclopediaMode == ENC_REMOVE_FROM_PILE && encyclopediaTargetPlayerIndex >= 0 && encyclopediaTargetPlayerIndex < (int)players.size()) {
+			Player & tgt = players[encyclopediaTargetPlayerIndex];
+			cardCount = encyclopediaTargetIsDiscard ? (int)tgt.discardPile.size() : (int)tgt.deck.size();
+		}
+
+		int totalRows = (cardCount + cols - 1) / cols;
+		float totalContentHeight = totalRows * rowStep;
 		float maxScroll = std::max(0.0f, totalContentHeight - contentHeight);
 
 		encyclopediaScrollOffset -= scrollY * 40.0f;
@@ -16672,16 +16710,16 @@ void ofApp::windowResized(int w, int h) {
 		float padding = (cardsToFit > 1) ? (handAreaWidth - totalCardWidths) / (cardsToFit - 1) : 0;
 		padding = std::min(padding, 20.0f);
 		float totalHandWidth = (cardsToFit * handBaseCardWidth) + ((cardsToFit - 1) * padding);
-			float startX = (w - totalHandWidth) / 2.0f;
-			(void)startX; // unused
+		float startX = (w - totalHandWidth) / 2.0f;
+		(void)startX; // unused
 
 		// Compute actual spacing so the current cards are centered within the hand area
 		float totalActualCardWidths = (numCards > 0) ? (numCards * handBaseCardWidth) : 0;
 		float paddingActual = (numCards > 1) ? (handAreaWidth - totalActualCardWidths) / (numCards - 1) : 0;
 		paddingActual = std::min(paddingActual, 20.0f);
 		float totalActualHandWidth = (numCards > 0) ? ((numCards * handBaseCardWidth) + ((numCards - 1) * paddingActual)) : 0;
-			float startXActual = (w - totalActualHandWidth) / 2.0f;
-			(void)startXActual; // unused
+		float startXActual = (w - totalActualHandWidth) / 2.0f;
+		(void)startXActual; // unused
 
 		for (size_t i = 0; i < numCards; i++) {
 			float paddingActualInline = (numCards > 1) ? (handAreaWidth - (numCards * handBaseCardWidth)) / (numCards - 1) : 0;
@@ -22892,18 +22930,24 @@ void ofApp::drawCardSpawnerUI() {
 	// Quantity number
 	ofSetColor(ofColor::white);
 	string qtyStr = ofToString(cardSpawnerQuantity);
-	uiFont.drawString(qtyStr, quantityX + btnSize + 12, btnY + btnSize / 2 + 6);
+	float plusX = quantityX + btnSize + 20;
+	float minusCenterX = quantityX + btnSize * 0.5f;
+	float plusCenterX = plusX + btnSize * 0.5f;
+	float qtyCenterX = (minusCenterX + plusCenterX) * 0.5f;
+	ofRectangle qtyBox = uiFont.getStringBoundingBox(qtyStr, 0, 0);
+	uiFont.drawString(qtyStr, qtyCenterX - qtyBox.width * 0.5f, btnY + btnSize / 2 + qtyBox.height * 0.5f);
 
 	// Plus button
-	cardSpawnerPlusButton.set(quantityX + btnSize + 35, btnY, btnSize, btnSize);
+	cardSpawnerPlusButton.set(plusX, btnY, btnSize, btnSize);
 	ofSetColor(60, 60, 60);
 	ofDrawRectRounded(cardSpawnerPlusButton, 5);
 	ofSetColor(ofColor::white);
-	uiFont.drawString("+", quantityX + btnSize + 44, btnY + btnSize / 2 + 6);
+	uiFont.drawString("+", plusX + 9, btnY + btnSize / 2 + 6);
 
 	// Encyclopedia button
 	float encBtnWidth = 40.0f;
-	cardSpawnerEncyclopediaButton.set(barX + barWidth - encBtnWidth - 45, btnY, encBtnWidth, btnSize);
+	float closeBtnX = barX + barWidth - 40;
+	cardSpawnerEncyclopediaButton.set(closeBtnX - encBtnWidth - 6, btnY, encBtnWidth, btnSize);
 	ofSetColor(70, 50, 100);
 	ofDrawRectRounded(cardSpawnerEncyclopediaButton, 5);
 	// Draw 3 horizontal lines (hamburger menu icon)
@@ -22919,7 +22963,7 @@ void ofApp::drawCardSpawnerUI() {
 	ofDrawLine(lineX, lineY3, lineX + lineWidth, lineY3);
 
 	// Close button (X)
-	cardSpawnerCloseButton.set(barX + barWidth - 40, btnY, btnSize, btnSize);
+	cardSpawnerCloseButton.set(closeBtnX, btnY, btnSize, btnSize);
 	ofSetColor(100, 40, 40);
 	ofDrawRectRounded(cardSpawnerCloseButton, 5);
 	ofSetColor(ofColor::white);
@@ -22991,18 +23035,23 @@ void ofApp::drawCardEncyclopediaUI() {
 	ofSetColor(ofColor::white);
 	uiFont.drawString("X", encyclopediaCloseButton.x + 9, encyclopediaCloseButton.y + 22);
 
-	// Card grid - calculate layout to fit equal rows
-	const float kBaseCardWidth = 120.0f;
+	// Card grid - 10 cards per row, fills width; vertical scrolling for extra rows
 	const float kCardAspectRatio = 1.4f;
-	const float kBaseCardHeight = kBaseCardWidth * kCardAspectRatio;
 
 	float contentY = panelY + 60;
-	float contentHeight = panelHeight - 70;
+	float acceptW = 160.0f;
+	float acceptH = 44.0f;
+	float acceptY = panelY + panelHeight - 70;
+	float contentBottom = acceptY - 12.0f;
+	float contentHeight = std::max(0.0f, contentBottom - contentY);
 
 	// Build displayed list depending on current encyclopedia mode
 	std::vector<Card> displayList;
 	string titleSuffix = "";
-	if (encyclopediaMode == ENC_ADD_FROM_ALL) {
+	if (encyclopediaMode == ENC_SPAWN_TO_HAND) {
+		displayList = allCards;
+		titleSuffix = "Spawner - Select Cards for Hand";
+	} else if (encyclopediaMode == ENC_ADD_FROM_ALL) {
 		displayList = allCards;
 		titleSuffix = "Add from All Cards";
 	} else if (encyclopediaMode == ENC_REMOVE_FROM_PILE) {
@@ -23023,35 +23072,45 @@ void ofApp::drawCardEncyclopediaUI() {
 	}
 
 	// Update title depending on mode
-	string titleMode = (encyclopediaMode == ENC_REMOVE_FROM_PILE) ? "Select to Remove" : "Select to Add";
+	string titleMode = "Select to Add";
+	if (encyclopediaMode == ENC_REMOVE_FROM_PILE) titleMode = "Select to Remove";
+	if (encyclopediaMode == ENC_SPAWN_TO_HAND) titleMode = "Select then Accept (adds to hand)";
 	string titleFull = "Card Encyclopedia - " + titleSuffix + " - " + titleMode;
 	ofSetColor(ofColor::white);
 	ofRectangle titleBox2 = uiFont.getStringBoundingBox(titleFull, 0, 0);
 	uiFont.drawString(titleFull, panelX + (panelWidth - titleBox2.width) / 2, panelY + 32);
 
-	// Calculate optimal layout for equal rows
+	// Fixed horizontal layout (10 columns)
 	int totalCards = displayList.size();
 	if (totalCards == 0) return;
 
-	// Fixed layout: 10 columns, 7 rows
-	int cols = 10;
-	float padding = 10.0f;
-	float cardScale = ((panelWidth - 2 * padding) / cols - padding) / kBaseCardWidth;
-	float cardW = kBaseCardWidth * cardScale;
-	float cardH = kBaseCardHeight * cardScale;
-	float startX = panelX + padding + ((panelWidth - 2 * padding) - (cols * (cardW + padding) - padding)) / 2.0f;
+	// Keep exactly 10 cards per row and use scroll for additional rows.
+	const int cols = 10;
+	const float padX = 8.0f;
+	const float padY = 10.0f;
+	const float nameBand = 16.0f; // reserved text strip below each card
+	float cardW = (panelWidth - 2.0f * padX - (cols - 1) * padX) / (float)cols;
+	cardW = std::max(12.0f, cardW);
+	float cardH = cardW * kCardAspectRatio;
+	float rowStep = cardH + padY + nameBand;
+	float gridWidth = cols * cardW + (cols - 1) * padX;
+	float startX = panelX + (panelWidth - gridWidth) / 2.0f;
+	int totalRows = (totalCards + cols - 1) / cols;
+	float totalContentHeight = totalRows * rowStep;
+	float maxScroll = std::max(0.0f, totalContentHeight - contentHeight);
+	encyclopediaScrollOffset = ofClamp(encyclopediaScrollOffset, 0.0f, maxScroll);
 
 	// Check for hover and update hover state
 	int currentHoveredIndex = -1;
 	int row = 0;
 	int col = 0;
 	for (size_t i = 0; i < displayList.size(); i++) {
-		float drawX = startX + col * (cardW + padding);
-		float drawY = contentY + row * (cardH + padding) - encyclopediaScrollOffset;
+		float drawX = startX + col * (cardW + padX);
+		float drawY = contentY + row * rowStep - encyclopediaScrollOffset;
 
-		if (drawY + cardH > contentY && drawY < contentY + contentHeight) {
+		if (drawY + cardH > contentY && drawY < contentBottom) {
 			ofRectangle cardRect(drawX, drawY, cardW, cardH);
-			if (cardRect.inside(ofGetMouseX(), ofGetMouseY()) && drawY >= contentY) {
+			if (cardRect.inside(ofGetMouseX(), ofGetMouseY()) && drawY >= contentY && drawY < contentBottom) {
 				currentHoveredIndex = i;
 				break;
 			}
@@ -23076,6 +23135,15 @@ void ofApp::drawCardEncyclopediaUI() {
 		}
 	}
 
+	// Clip card rendering to content area so cards never obscure Accept button
+	ofPushStyle();
+	glEnable(GL_SCISSOR_TEST);
+	int scX = (int)panelX;
+	int scW = (int)panelWidth;
+	int scY = (int)(ofGetHeight() - (contentY + contentHeight));
+	int scH = (int)contentHeight;
+	glScissor(scX, scY, scW, scH);
+
 	// Draw cards (draw non-hovered first, then hovered on top)
 	row = 0;
 	col = 0;
@@ -23093,11 +23161,11 @@ void ofApp::drawCardEncyclopediaUI() {
 				continue;
 			}
 
-			float baseDrawX = startX + col * (cardW + padding);
-			float baseDrawY = contentY + row * (cardH + padding) - encyclopediaScrollOffset;
+			float baseDrawX = startX + col * (cardW + padX);
+			float baseDrawY = contentY + row * rowStep - encyclopediaScrollOffset;
 
 			// Only draw if visible
-			if (baseDrawY + cardH > contentY - 100 && baseDrawY < contentY + contentHeight + 100) {
+			if (baseDrawY + cardH > contentY && baseDrawY < contentBottom) {
 				const Card & card = displayList[i];
 
 				// Apply hover scale
@@ -23151,7 +23219,10 @@ void ofApp::drawCardEncyclopediaUI() {
 					ofSetColor(200, 200, 200);
 				string shortName = card.name;
 				if (shortName.length() > 15) shortName = shortName.substr(0, 12) + "...";
-				uiFont.drawString(shortName, drawX, drawY + thisCardH + 18);
+				ofRectangle nameBounds = uiFont.getStringBoundingBox(shortName, 0, 0);
+				float nameX = drawX + (thisCardW - nameBounds.width) * 0.5f;
+				float nameY = drawY + thisCardH + std::max(14.0f, nameBounds.height + 2.0f);
+				uiFont.drawString(shortName, nameX, nameY);
 			}
 
 			col++;
@@ -23162,20 +23233,21 @@ void ofApp::drawCardEncyclopediaUI() {
 		}
 	}
 
-	// Scroll indicators
-	int totalRows = (displayList.size() + cols - 1) / cols;
-	float totalContentHeight = totalRows * (cardH + padding);
-	if (totalContentHeight > contentHeight) {
+	glDisable(GL_SCISSOR_TEST);
+	ofPopStyle();
+
+	// Scroll indicator
+	if (maxScroll > 0.0f) {
 		float scrollBarHeight = contentHeight * (contentHeight / totalContentHeight);
-		float scrollBarY = contentY + (encyclopediaScrollOffset / (totalContentHeight - contentHeight)) * (contentHeight - scrollBarHeight);
-		ofSetColor(80, 80, 80);
-		ofDrawRectRounded(panelX + panelWidth - 15, scrollBarY, 10, scrollBarHeight, 5);
+		scrollBarHeight = std::max(28.0f, scrollBarHeight);
+		float scrollBarY = contentY + (encyclopediaScrollOffset / maxScroll) * (contentHeight - scrollBarHeight);
+		ofSetColor(80, 80, 80, 220);
+		float scrollBarX = panelX + panelWidth + 6.0f;
+		ofDrawRectRounded(scrollBarX, scrollBarY, 8, scrollBarHeight, 4);
 	}
 
 	// Draw Accept button at bottom center
-	float acceptW = 160.0f;
-	float acceptH = 44.0f;
-	encyclopediaAcceptButton.set(panelX + (panelWidth - acceptW) / 2.0f, panelY + panelHeight - 70, acceptW, acceptH);
+	encyclopediaAcceptButton.set(panelX + (panelWidth - acceptW) / 2.0f, acceptY, acceptW, acceptH);
 	ofSetColor(0, 160, 0);
 	if (encyclopediaAcceptButton.inside(ofGetMouseX(), ofGetMouseY())) ofSetColor(0, 200, 0);
 	ofDrawRectRounded(encyclopediaAcceptButton, 8);
@@ -25960,7 +26032,7 @@ void ofApp::drawActiveDraftPickedMoves() {
 	}
 
 	// Remove finished moves
-	for (size_t i = activeDraftPickedMoves.size(); i-- > 0; ) {
+	for (size_t i = activeDraftPickedMoves.size(); i-- > 0;) {
 		if (activeDraftPickedMoves[i].finished) activeDraftPickedMoves.erase(activeDraftPickedMoves.begin() + i);
 	}
 }

@@ -1770,6 +1770,7 @@ private:
 	// Encyclopedia modal mode for debug +/- carddeck/carddiscard
 	enum EncyclopediaMode {
 		ENC_NONE = 0,
+		ENC_SPAWN_TO_HAND, // Card spawner encyclopedia: selected cards go to current hand on Accept
 		ENC_ADD_FROM_ALL, // + : show allCards to add to target pile
 		ENC_REMOVE_FROM_PILE // - : show target player's pile to remove cards from
 	};
