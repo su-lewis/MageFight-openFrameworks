@@ -9961,6 +9961,38 @@ void ofApp::drawGame() {
 	}
 
 	// --- OPTIMIsED HAND DRAWING ...
+	// Always draw the hand area box first (even with no player/cards yet)
+	{
+		float handBaseCardWidth = 120;
+		float cardHeight = handBaseCardWidth * (585.0f / 409.0f); // Card aspect ratio
+
+		// Fixed box for up to 5 cards minimum
+		int cardsToFit = 5;
+		float handAreaWidth = ofGetWidth() * 0.6f;
+		float totalCardWidths = cardsToFit * handBaseCardWidth;
+		float padding = (cardsToFit > 1) ? (handAreaWidth - totalCardWidths) / (cardsToFit - 1) : 0;
+		padding = std::min(padding, 20.0f);
+		float totalHandWidth = (cardsToFit * handBaseCardWidth) + ((cardsToFit - 1) * padding);
+		float startX = (ofGetWidth() - totalHandWidth) / 2.0f;
+
+		// Larger vertical padding to make the box taller and attach to bottom
+		float boxPaddingX = 28.0f;
+		float boxPaddingY = 44.0f; // increased vertical padding
+		float boxLeft = startX - boxPaddingX;
+		float boxRight = startX + totalHandWidth + boxPaddingX;
+		float boxBottom = ofGetHeight(); // attach directly to the bottom of the screen
+		float boxTop = boxBottom - (cardHeight + 2.0f * boxPaddingY);
+		float boxWidth = boxRight - boxLeft;
+		float boxHeight = boxBottom - boxTop;
+		float cornerRadius = 16.0f * scale;
+
+		ofPushStyle();
+		ofFill();
+		ofSetColor(0, 0, 0, 160); // Transparent black background (no outline)
+		ofDrawRectRounded(boxLeft, boxTop, boxWidth, boxHeight, cornerRadius);
+		ofPopStyle();
+	}
+
 	if (!players.empty() && currentPlayerIndex >= 0) {
 		// In multiplayer, show BOTH players' hands at bottom in a shared space
 		// Get both local and opponent player
@@ -9993,42 +10025,22 @@ void ofApp::drawGame() {
 			lastLoggedHandSize = numCards;
 		}
 
-		// Draw hand area box (rounded corners, taller, anchored to bottom)
-		{
-			float handBaseCardWidth = 120;
-			float cardHeight = handBaseCardWidth * (585.0f / 409.0f); // Card aspect ratio
+		// Calculate hand area dimensions for positioning cards within the pre-drawn box
+		float handBaseCardWidth = 120;
+		float cardHeight = handBaseCardWidth * (585.0f / 409.0f); // Card aspect ratio
+		int cardsToFit = std::max(5, (int)numCards);
+		float handAreaWidth = ofGetWidth() * 0.6f;
+		float totalCardWidths = cardsToFit * handBaseCardWidth;
+		float padding = (cardsToFit > 1) ? (handAreaWidth - totalCardWidths) / (cardsToFit - 1) : 0;
+		padding = std::min(padding, 20.0f);
+		float totalHandWidth = (cardsToFit * handBaseCardWidth) + ((cardsToFit - 1) * padding);
+		float startX = (ofGetWidth() - totalHandWidth) / 2.0f;
 
-			// Fixed box for up to 5 cards, scales for more
-			int cardsToFit = std::max(5, (int)numCards);
-			float handAreaWidth = ofGetWidth() * 0.6f;
-			float totalCardWidths = cardsToFit * handBaseCardWidth;
-			float padding = (cardsToFit > 1) ? (handAreaWidth - totalCardWidths) / (cardsToFit - 1) : 0;
-			padding = std::min(padding, 20.0f);
-			float totalHandWidth = (cardsToFit * handBaseCardWidth) + ((cardsToFit - 1) * padding);
-			float startX = (ofGetWidth() - totalHandWidth) / 2.0f;
-
-			// Larger vertical padding to make the box taller and attach to bottom
-			float boxPaddingX = 28.0f;
-			float boxPaddingY = 44.0f; // increased vertical padding
-			float boxLeft = startX - boxPaddingX;
-			float boxRight = startX + totalHandWidth + boxPaddingX;
-			float boxBottom = ofGetHeight(); // attach directly to the bottom of the screen
-			float boxTop = boxBottom - (cardHeight + 2.0f * boxPaddingY);
-			float boxWidth = boxRight - boxLeft;
-			float boxHeight = boxBottom - boxTop;
-			float cornerRadius = 16.0f * scale;
-
-			ofPushStyle();
-			ofFill();
-			ofSetColor(0, 0, 0, 160); // Transparent black background (no outline)
-			ofDrawRectRounded(boxLeft, boxTop, boxWidth, boxHeight, cornerRadius);
-			ofPopStyle();
-
-			// Use the box center as the hand center so cards are vertically centered inside
-			float handCenterY = boxTop + boxHeight / 2.0f;
-			// store into a local name the code later may expect; shadowing is intentional
-			(void)handCenterY; // keep compiler happy if not otherwise used here
-		}
+		float boxPaddingY = 44.0f;
+		float boxBottom = ofGetHeight();
+		float boxTop = boxBottom - (cardHeight + 2.0f * boxPaddingY);
+		float boxHeight = boxBottom - boxTop;
+		float handCenterY = boxTop + boxHeight / 2.0f;
 
 		// How much a hovered card is lifted (pixels). Always lift upward.
 		float hoverDirection = -180.0f;
