@@ -3048,6 +3048,17 @@ void ofApp::updateGame() {
 				float currentY = topLimit - scrollRef + (i * (actualEntryHeight + actualGap));
 
 				ui.bounds.set(startX, currentY, panelWidth, actualEntryHeight);
+
+				// Pre-calculate deck and discard rects for hover detection
+				// These will be refined during the draw phase, but we need them now for mouseMoved checks
+				float cardAspectRatio = 585.0f / 409.0f; // cardBackImage aspect ratio
+				float iconMargin = 8.0f;
+				float iconHeight = ui.bounds.height - (iconMargin * 2);
+				float iconWidth = iconHeight * cardAspectRatio;
+				float iconsY = ui.bounds.y + iconMargin;
+				ui.discardRect.set(ui.bounds.getRight() - (iconWidth + iconMargin), iconsY, iconWidth, iconHeight);
+				ui.deckRect.set(ui.bounds.getRight() - (iconWidth * 2 + iconMargin + 5), iconsY, iconWidth, iconHeight);
+
 				activeMinionUIs.push_back(ui);
 			}
 		};
