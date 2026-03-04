@@ -1848,7 +1848,7 @@ void ofApp::update() {
 		// Logic is primarily handled in mousePressed (card selection)
 		// Allow deck/discard hover view during drafting
 		if (isHoveringPile && !isShowingPileView) {
-			if (ofGetElapsedTimef() - pileHoverStartTime > 0.08f) { // Reduced hover time
+			if (ofGetElapsedTimef() - pileHoverStartTime > 0.6f) { // Reduced hover time
 				isShowingPileView = true;
 				currentPileView = hoveredPileType;
 				currentPileViewPlayerIndex = hoveredPilePlayerIndex;
@@ -3146,7 +3146,7 @@ void ofApp::updateGame() {
 
 	// --- Pile View Hover Logic ---
 	if (isHoveringPile && !isShowingPileView) {
-		if (ofGetElapsedTimef() - pileHoverStartTime > 0.8f) { // Reduced hover time
+		if (ofGetElapsedTimef() - pileHoverStartTime > 0.6f) { // Reduced hover time
 			isShowingPileView = true;
 			currentPileView = hoveredPileType;
 			currentPileViewPlayerIndex = hoveredPilePlayerIndex;
@@ -25689,7 +25689,12 @@ void ofApp::drawInitiativeRoll() {
 //--------------------------------------------------------------
 void ofApp::drawDraftScreen() {
 	// 1. Construct Specific Instruction Text
-	string pName = (draftPlayerIndex == 0) ? player0SteamName : player1SteamName;
+	string pName = "";
+	if (draftPlayerIndex >= 0 && draftPlayerIndex < (int)players.size()) {
+		pName = getPlayerSteamName(draftPlayerIndex);
+	} else {
+		pName = (draftPlayerIndex == 0) ? player0SteamName : player1SteamName;
+	}
 	string header = "";
 	string instr = "";
 
