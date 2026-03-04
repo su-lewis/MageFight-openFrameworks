@@ -9999,12 +9999,11 @@ void ofApp::drawGame() {
 		float boxTop = boxBottom - (cardHeight + 2.0f * boxPaddingY);
 		float boxWidth = boxRight - boxLeft;
 		float boxHeight = boxBottom - boxTop;
-		float cornerRadius = 16.0f * scale;
 
 		ofPushStyle();
 		ofFill();
-		ofSetColor(0, 0, 0, 160); // Transparent black background (no outline)
-		ofDrawRectRounded(boxLeft, boxTop, boxWidth, boxHeight, cornerRadius);
+		ofSetColor(0, 0, 0, 150); // Transparent black background (matches deck)
+		ofDrawRectRounded(boxLeft, boxTop, boxWidth, boxHeight, 10 * scale);
 		ofPopStyle();
 	}
 
