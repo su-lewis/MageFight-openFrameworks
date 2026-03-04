@@ -10588,7 +10588,16 @@ void ofApp::drawGame() {
 			float chatX = margin;
 			float chatY = margin + tabHeight + chatBoxHeight; // top-aligned: chatWindowRect uses y - height - tab
 
-			if (!activeMinionUIs.empty() && minionPanelW > 0.0f) {
+			// Check if local player (myLocalPlayerID) has any minions
+			bool hasLocalMinions = false;
+			for (const auto & p : players) {
+				if (p.isMinion && p.ownerID == myLocalPlayerID) {
+					hasLocalMinions = true;
+					break;
+				}
+			}
+
+			if (hasLocalMinions && minionPanelW > 0.0f) {
 				float smallGap = 12.0f * scale;
 				// Right edge of minion area
 				float minionRight = p0_minionLeft + minionPanelW;
@@ -10722,7 +10731,7 @@ void ofApp::drawGame() {
 
 				// Collect messages to display (latest first)
 				std::vector<ChatMessage> messagesToDraw;
-				int maxVisible = isChatMinimized ? 7 : 12;
+				int maxVisible = isChatMinimized ? 8 : 12;
 				for (int i = (int)chatHistory.size() - 1; i >= 0 && (int)messagesToDraw.size() < maxVisible; i--) {
 					messagesToDraw.push_back(chatHistory[i]);
 				}
@@ -11319,6 +11328,18 @@ void ofApp::mouseMoved(int x, int y) {
 						newHoverGridY = gy;
 					}
 					goto cursor_check_done;
+				}
+			}
+			// Check if hovering over any unit (including minions) for white outline
+			if (!isTargetingMode && board[gx][gy].hasPlayer && newHoverType == HOVER_NONE) {
+				// Find which player/minion is at this position
+				for (int i = 0; i < (int)players.size(); ++i) {
+					if (players[i].x == gx && players[i].y == gy) {
+						newHoverType = HOVER_UNIT;
+						newHoverGridX = gx;
+						newHoverGridY = gy;
+						break;
+					}
 				}
 			}
 			if (isMovingMode && board[gx][gy].isHighlighted) {
@@ -11988,6 +12009,13 @@ void ofApp::mousePressed(int x, int y, int button) {
 						return;
 					}
 				}
+				// If chat is minimized, clicking opens it back up
+				if (isChatMinimized) {
+					isChatOpen = true;
+					isChatMinimized = false;
+					lastChatInteractionTime = ofGetElapsedTimef();
+					return;
+				}
 				// Clicking inside chat window keeps it open. If DEBUG tab is active
 				// and chat is fully open, allow processing to continue so the
 				// DEBUG-specific click handler (below) can handle button presses.
@@ -12127,22 +12155,64 @@ void ofApp::mousePressed(int x, int y, int button) {
 
 		size_t rowCount = std::min({ debugP1PlusButtons.size(), debugP1MinusButtons.size(), debugP2PlusButtons.size(), debugP2MinusButtons.size() });
 		for (size_t i = 0; i < rowCount; ++i) {
+			// Player 1 +
 			if (debugP1PlusButtons[i].inside(x, y)) {
+				if ((int)i == 2 || (int)i == 3) {
+					// Open encyclopedia to ADD from all cards into P1 deck/discard
+					isCardEncyclopediaOpen = true;
+					encyclopediaMode = ENC_ADD_FROM_ALL;
+					encyclopediaTargetPlayerIndex = findMainPlayerIndexByID(0);
+					encyclopediaTargetIsDiscard = ((int)i == 3);
+					encyclopediaScrollOffset = 0;
+					encyclopediaSelectedIndices.clear();
+					return;
+				}
 				changedState = applyPlayerRow(0, (int)i, +1) || changedState;
 				if (changedState && isMultiplayer && isHost()) sendSnapshotToClient();
 				return;
 			}
+			// Player 1 -
 			if (debugP1MinusButtons[i].inside(x, y)) {
+				if ((int)i == 2 || (int)i == 3) {
+					// Open encyclopedia to REMOVE from P1 deck/discard
+					isCardEncyclopediaOpen = true;
+					encyclopediaMode = ENC_REMOVE_FROM_PILE;
+					encyclopediaTargetPlayerIndex = findMainPlayerIndexByID(0);
+					encyclopediaTargetIsDiscard = ((int)i == 3);
+					encyclopediaScrollOffset = 0;
+					encyclopediaSelectedIndices.clear();
+					return;
+				}
 				changedState = applyPlayerRow(0, (int)i, -1) || changedState;
 				if (changedState && isMultiplayer && isHost()) sendSnapshotToClient();
 				return;
 			}
+			// Player 2 +
 			if (debugP2PlusButtons[i].inside(x, y)) {
+				if ((int)i == 2 || (int)i == 3) {
+					isCardEncyclopediaOpen = true;
+					encyclopediaMode = ENC_ADD_FROM_ALL;
+					encyclopediaTargetPlayerIndex = findMainPlayerIndexByID(1);
+					encyclopediaTargetIsDiscard = ((int)i == 3);
+					encyclopediaScrollOffset = 0;
+					encyclopediaSelectedIndices.clear();
+					return;
+				}
 				changedState = applyPlayerRow(1, (int)i, +1) || changedState;
 				if (changedState && isMultiplayer && isHost()) sendSnapshotToClient();
 				return;
 			}
+			// Player 2 -
 			if (debugP2MinusButtons[i].inside(x, y)) {
+				if ((int)i == 2 || (int)i == 3) {
+					isCardEncyclopediaOpen = true;
+					encyclopediaMode = ENC_REMOVE_FROM_PILE;
+					encyclopediaTargetPlayerIndex = findMainPlayerIndexByID(1);
+					encyclopediaTargetIsDiscard = ((int)i == 3);
+					encyclopediaScrollOffset = 0;
+					encyclopediaSelectedIndices.clear();
+					return;
+				}
 				changedState = applyPlayerRow(1, (int)i, -1) || changedState;
 				if (changedState && isMultiplayer && isHost()) sendSnapshotToClient();
 				return;
@@ -12156,6 +12226,9 @@ void ofApp::mousePressed(int x, int y, int button) {
 			return;
 		}
 		if (debugSpawnCardButton.inside(x, y)) {
+			// Close chat and open the krunner-style card spawner
+			isChatOpen = false;
+			isChatMinimized = true;
 			isCardSpawnerOpen = true;
 			cardSpawnerInput.clear();
 			filteredCards.clear();
@@ -12831,80 +12904,142 @@ void ofApp::mousePressed(int x, int y, int button) {
 	// ==============================================================================
 
 	// --- Card Encyclopedia UI ---
-	if (isCardEncyclopediaOpen && button == OF_MOUSE_BUTTON_LEFT) {
+	if (isCardEncyclopediaOpen) {
+		// Right-click cancels the modal
+		if (button == OF_MOUSE_BUTTON_RIGHT) {
+			isCardEncyclopediaOpen = false;
+			encyclopediaSelectedIndices.clear();
+			encyclopediaMode = ENC_NONE;
+			return;
+		}
+
+		if (button != OF_MOUSE_BUTTON_LEFT) return;
+
 		if (isMultiplayer && !isHost()) {
 			addGameLog("Debug spawner is host-only in multiplayer.");
 			isCardEncyclopediaOpen = false;
 			isCardSpawnerOpen = false;
 			return;
 		}
+
 		if (encyclopediaCloseButton.inside(x, y)) {
 			isCardEncyclopediaOpen = false;
+			encyclopediaSelectedIndices.clear();
+			encyclopediaMode = ENC_NONE;
 			return;
 		}
 
-		// Check if clicking on a card in the encyclopedia
-		if (encyclopediaRect.inside(x, y)) {
-			const float kBaseCardWidth = 120.0f;
-			const float kCardAspectRatio = 1.4f;
-			const float kBaseCardHeight = kBaseCardWidth * kCardAspectRatio;
+		// Prepare displayed list depending on mode
+		std::vector<Card> displayedCards;
+		if (encyclopediaMode == ENC_ADD_FROM_ALL) {
+			displayedCards = allCards;
+		} else if (encyclopediaMode == ENC_REMOVE_FROM_PILE) {
+			if (encyclopediaTargetPlayerIndex < 0 || encyclopediaTargetPlayerIndex >= (int)players.size()) {
+				isCardEncyclopediaOpen = false;
+				encyclopediaMode = ENC_NONE;
+				return;
+			}
+			Player & tgt = players[encyclopediaTargetPlayerIndex];
+			if (encyclopediaTargetIsDiscard)
+				displayedCards = tgt.discardPile;
+			else
+				displayedCards = tgt.deck;
+		} else {
+			// Fallback: show all cards
+			displayedCards = allCards;
+		}
 
-			float panelX = encyclopediaRect.x;
-			float panelY = encyclopediaRect.y;
-			float contentY = panelY + 60;
-			float contentHeight = encyclopediaRect.height - 70;
-			float cardScale = 1.2f;
-			float cardW = kBaseCardWidth * cardScale;
-			float cardH = kBaseCardHeight * cardScale;
-			float padding = 15.0f;
+		// Panel metrics (match draw logic)
+		const float kBaseCardWidth = 120.0f;
+		const float kCardAspectRatio = 1.4f;
+		const float kBaseCardHeight = kBaseCardWidth * kCardAspectRatio;
 
-			int cols = std::max(1, (int)floor((encyclopediaRect.width - 2 * padding) / (cardW + padding)));
-			float startX = panelX + padding + ((encyclopediaRect.width - 2 * padding) - (cols * (cardW + padding) - padding)) / 2.0f;
+		float panelX = encyclopediaRect.x;
+		float panelY = encyclopediaRect.y;
+		float contentY = panelY + 60;
+		float contentHeight = encyclopediaRect.height - 110; // leave room for Accept button
+		float cardScale = 1.2f;
+		float cardW = kBaseCardWidth * cardScale;
+		float cardH = kBaseCardHeight * cardScale;
+		float padding = 15.0f;
 
-			// Sort cards same as in draw
-			std::vector<Card> sortedCards = allCards;
-			std::sort(sortedCards.begin(), sortedCards.end(), [](const Card & a, const Card & b) {
-				if (a.cost != b.cost) return a.cost < b.cost;
-				return a.name < b.name;
-			});
+		int cols = std::max(1, (int)floor((encyclopediaRect.width - 2 * padding) / (cardW + padding)));
+		float startX = panelX + padding + ((encyclopediaRect.width - 2 * padding) - (cols * (cardW + padding) - padding)) / 2.0f;
 
-			int row = 0;
-			int col = 0;
-			for (size_t i = 0; i < sortedCards.size(); i++) {
-				float drawX = startX + col * (cardW + padding);
-				float drawY = contentY + row * (cardH + padding) - encyclopediaScrollOffset;
+		int row = 0;
+		int col = 0;
+		for (size_t i = 0; i < displayedCards.size(); i++) {
+			float drawX = startX + col * (cardW + padding);
+			float drawY = contentY + row * (cardH + padding) - encyclopediaScrollOffset;
 
-				if (drawY >= contentY && drawY + cardH <= contentY + contentHeight) {
-					ofRectangle cardRect(drawX, drawY, cardW, cardH);
-					if (cardRect.inside(x, y)) {
-						// Add this card to current player's hand
-						for (int q = 0; q < cardSpawnerQuantity; q++) {
-							players[currentPlayerIndex].hand.push_back(sortedCards[i]);
-							players[currentPlayerIndex].hand.back().currentPos = ofVec2f(ofGetWidth() / 2, 0);
-							players[currentPlayerIndex].hand.back().currentScale = 1.5f;
-							players[currentPlayerIndex].hand.back().targetScale = 1.5f;
-							players[currentPlayerIndex].hand.back().drawnThisTurn = true;
-						}
-						spawnFloatingText(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y),
-							"+" + ofToString(cardSpawnerQuantity) + "x " + sortedCards[i].name, ofColor::cyan);
-						if (isMultiplayer && isHost()) {
-							sendSnapshotToClient();
-						}
-						return;
+			if (drawY + cardH > contentY && drawY < contentY + contentHeight) {
+				ofRectangle cardRect(drawX, drawY, cardW, cardH);
+				if (cardRect.inside(x, y)) {
+					// Toggle selection on click
+					auto it = std::find(encyclopediaSelectedIndices.begin(), encyclopediaSelectedIndices.end(), (int)i);
+					if (it != encyclopediaSelectedIndices.end()) {
+						encyclopediaSelectedIndices.erase(it);
+					} else {
+						encyclopediaSelectedIndices.push_back((int)i);
 					}
+					return;
 				}
+			}
 
-				col++;
-				if (col >= cols) {
-					col = 0;
-					row++;
-				}
+			col++;
+			if (col >= cols) {
+				col = 0;
+				row++;
 			}
 		}
 
-		// Clicked outside - close
-		if (!encyclopediaRect.inside(x, y)) {
+		// Accept button rect (bottom center)
+		float acceptW = 160.0f;
+		float acceptH = 44.0f;
+		encyclopediaAcceptButton.set(panelX + (encyclopediaRect.width - acceptW) / 2.0f, panelY + encyclopediaRect.height - 70, acceptW, acceptH);
+		if (encyclopediaAcceptButton.inside(x, y)) {
+			// Apply selections
+			if (!encyclopediaSelectedIndices.empty()) {
+				if (encyclopediaMode == ENC_ADD_FROM_ALL) {
+					if (encyclopediaTargetPlayerIndex >= 0 && encyclopediaTargetPlayerIndex < (int)players.size()) {
+						Player & tgt = players[encyclopediaTargetPlayerIndex];
+						for (int selIdx : encyclopediaSelectedIndices) {
+							if (selIdx < 0 || selIdx >= (int)allCards.size()) continue;
+							tgt.discardPile; // ensure access
+							// Add one copy of the selected card to target pile
+							if (encyclopediaTargetIsDiscard)
+								tgt.discardPile.push_back(allCards[selIdx]);
+							else
+								tgt.deck.push_back(allCards[selIdx]);
+						}
+						if (isMultiplayer && isHost()) sendSnapshotToClient();
+					}
+				} else if (encyclopediaMode == ENC_REMOVE_FROM_PILE) {
+					if (encyclopediaTargetPlayerIndex >= 0 && encyclopediaTargetPlayerIndex < (int)players.size()) {
+						Player & tgt = players[encyclopediaTargetPlayerIndex];
+						std::vector<Card> & pile = (encyclopediaTargetIsDiscard) ? tgt.discardPile : tgt.deck;
+						// Remove selected indices from pile (descending order to keep indices valid)
+						std::sort(encyclopediaSelectedIndices.begin(), encyclopediaSelectedIndices.end(), std::greater<int>());
+						for (int selIdx : encyclopediaSelectedIndices) {
+							if (selIdx < 0 || selIdx >= (int)pile.size()) continue;
+							pile.erase(pile.begin() + selIdx);
+						}
+						if (isMultiplayer && isHost()) sendSnapshotToClient();
+					}
+				}
+			}
+			// Clear and close
+			encyclopediaSelectedIndices.clear();
 			isCardEncyclopediaOpen = false;
+			encyclopediaMode = ENC_NONE;
+			return;
+		}
+
+		// Clicked outside - close
+		if (!encyclopediaRect.inside(x, y) && !encyclopediaAcceptButton.inside(x, y)) {
+			isCardEncyclopediaOpen = false;
+			encyclopediaSelectedIndices.clear();
+			encyclopediaMode = ENC_NONE;
 		}
 		return;
 	}
@@ -22791,10 +22926,7 @@ void ofApp::drawCardEncyclopediaUI() {
 	// Fix bottom corners of title bar
 	ofDrawRectangle(panelX, panelY + 35, panelWidth, 15);
 
-	ofSetColor(ofColor::white);
-	string title = "Card Encyclopedia - Click to Add (x" + ofToString(cardSpawnerQuantity) + ")";
-	ofRectangle titleBox = uiFont.getStringBoundingBox(title, 0, 0);
-	uiFont.drawString(title, panelX + (panelWidth - titleBox.width) / 2, panelY + 32);
+	// Title will be drawn based on mode below
 
 	// Close button
 	encyclopediaCloseButton.set(panelX + panelWidth - 45, panelY + 10, 30, 30);
@@ -22818,44 +22950,76 @@ void ofApp::drawCardEncyclopediaUI() {
 	int cols = std::max(1, (int)floor((panelWidth - 2 * padding) / (cardW + padding)));
 	float startX = panelX + padding + ((panelWidth - 2 * padding) - (cols * (cardW + padding) - padding)) / 2.0f;
 
-	// Sort cards by cost for display
-	std::vector<Card> sortedCards = allCards;
-	std::sort(sortedCards.begin(), sortedCards.end(), [](const Card & a, const Card & b) {
-		if (a.cost != b.cost) return a.cost < b.cost;
-		return a.name < b.name;
-	});
+	// Build displayed list depending on current encyclopedia mode
+	std::vector<Card> displayList;
+	string titleSuffix = "";
+	if (encyclopediaMode == ENC_ADD_FROM_ALL) {
+		displayList = allCards;
+		titleSuffix = "Add from All Cards";
+	} else if (encyclopediaMode == ENC_REMOVE_FROM_PILE) {
+		if (encyclopediaTargetPlayerIndex >= 0 && encyclopediaTargetPlayerIndex < (int)players.size()) {
+			Player & tgt = players[encyclopediaTargetPlayerIndex];
+			if (encyclopediaTargetIsDiscard)
+				displayList = tgt.discardPile;
+			else
+				displayList = tgt.deck;
+			titleSuffix = "Modify Player " + ofToString(tgt.playerID) + (encyclopediaTargetIsDiscard ? " Discard" : " Deck");
+		} else {
+			displayList = allCards;
+			titleSuffix = "All Cards";
+		}
+	} else {
+		displayList = allCards;
+		titleSuffix = "All Cards";
+	}
+
+	// Update title depending on mode
+	string titleMode = (encyclopediaMode == ENC_REMOVE_FROM_PILE) ? "Select to Remove" : "Select to Add";
+	string titleFull = "Card Encyclopedia - " + titleSuffix + " - " + titleMode;
+	ofSetColor(ofColor::white);
+	ofRectangle titleBox2 = uiFont.getStringBoundingBox(titleFull, 0, 0);
+	uiFont.drawString(titleFull, panelX + (panelWidth - titleBox2.width) / 2, panelY + 32);
 
 	int row = 0;
 	int col = 0;
-	for (size_t i = 0; i < sortedCards.size(); i++) {
+	for (size_t i = 0; i < displayList.size(); i++) {
 		float drawX = startX + col * (cardW + padding);
 		float drawY = contentY + row * (cardH + padding) - encyclopediaScrollOffset;
 
 		// Only draw if visible
 		if (drawY + cardH > contentY && drawY < contentY + contentHeight) {
-			const Card & card = sortedCards[i];
+			const Card & card = displayList[i];
 
-			// Check if mouse is hovering
+			// Card rect
 			ofRectangle cardRect(drawX, drawY, cardW, cardH);
-			bool isHovered = cardRect.inside(ofGetMouseX(), ofGetMouseY()) && drawY >= contentY;
 
+			// Hover glow
+			bool isHovered = cardRect.inside(ofGetMouseX(), ofGetMouseY()) && drawY >= contentY;
 			if (isHovered) {
-				// Glow effect
 				ofSetColor(100, 150, 255, 100);
 				ofDrawRectRounded(drawX - 3, drawY - 3, cardW + 6, cardH + 6, 8);
 			}
 
+			// Draw card art
 			ofSetColor(255);
 			cardSpriteSheet.drawSubsection(drawX, drawY, cardW, cardH,
 				card.textureRect.x, card.textureRect.y,
 				card.textureRect.width, card.textureRect.height);
 
-			// Draw card name below (for easier identification)
-			if (isHovered) {
-				ofSetColor(255, 255, 100);
-			} else {
-				ofSetColor(200, 200, 200);
+			// If selected, draw a yellow outline
+			if (std::find(encyclopediaSelectedIndices.begin(), encyclopediaSelectedIndices.end(), (int)i) != encyclopediaSelectedIndices.end()) {
+				ofNoFill();
+				ofSetLineWidth(6);
+				ofSetColor(ofColor::yellow);
+				ofDrawRectRounded(drawX - 4, drawY - 4, cardW + 8, cardH + 8, 10);
+				ofFill();
 			}
+
+			// Draw card name below
+			if (isHovered)
+				ofSetColor(255, 255, 100);
+			else
+				ofSetColor(200, 200, 200);
 			string shortName = card.name;
 			if (shortName.length() > 15) shortName = shortName.substr(0, 12) + "...";
 			uiFont.drawString(shortName, drawX, drawY + cardH + 18);
@@ -22869,16 +23033,25 @@ void ofApp::drawCardEncyclopediaUI() {
 	}
 
 	// Scroll indicators
-	int totalRows = (sortedCards.size() + cols - 1) / cols;
+	int totalRows = (displayList.size() + cols - 1) / cols;
 	float totalContentHeight = totalRows * (cardH + padding);
 	if (totalContentHeight > contentHeight) {
-		// Show scroll bar
 		float scrollBarHeight = contentHeight * (contentHeight / totalContentHeight);
 		float scrollBarY = contentY + (encyclopediaScrollOffset / (totalContentHeight - contentHeight)) * (contentHeight - scrollBarHeight);
-
 		ofSetColor(80, 80, 80);
 		ofDrawRectRounded(panelX + panelWidth - 15, scrollBarY, 10, scrollBarHeight, 5);
 	}
+
+	// Draw Accept button at bottom center
+	float acceptW = 160.0f;
+	float acceptH = 44.0f;
+	encyclopediaAcceptButton.set(panelX + (panelWidth - acceptW) / 2.0f, panelY + panelHeight - 70, acceptW, acceptH);
+	ofSetColor(0, 160, 0);
+	if (encyclopediaAcceptButton.inside(ofGetMouseX(), ofGetMouseY())) ofSetColor(0, 200, 0);
+	ofDrawRectRounded(encyclopediaAcceptButton, 8);
+	ofSetColor(255);
+	ofRectangle aBox = uiFont.getStringBoundingBox("Accept", 0, 0);
+	uiFont.drawString("Accept", encyclopediaAcceptButton.getCenter().x - aBox.width / 2, encyclopediaAcceptButton.getCenter().y + aBox.height / 2 - 2);
 }
 
 // Cancel Helper
@@ -24670,7 +24843,7 @@ void ofApp::drawMinionManagerUI() {
 			// may be modified elsewhere and cause flicker when moving the mouse).
 			if (ui.playerIndex >= 0 && ui.playerIndex < (int)players.size() && !disableAllGlow) {
 				Player & p = players[ui.playerIndex];
-				drawTileGlow(p.x, p.y, ofColor(255, 215, 0, 220), 4.0f); // gold/yellow highlight
+				drawTileGlow(p.x, p.y, ofColor(255, 255, 255, 200), 4.0f); // white highlight to match UI outline
 			}
 		}
 

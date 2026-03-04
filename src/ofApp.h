@@ -1767,6 +1767,22 @@ private:
 	ofRectangle encyclopediaCloseButton;
 	ofRectangle encyclopediaRect;
 
+	// Encyclopedia modal mode for debug +/- carddeck/carddiscard
+	enum EncyclopediaMode {
+		ENC_NONE = 0,
+		ENC_ADD_FROM_ALL, // + : show allCards to add to target pile
+		ENC_REMOVE_FROM_PILE // - : show target player's pile to remove cards from
+	};
+	EncyclopediaMode encyclopediaMode = ENC_NONE;
+	// When the encyclopedia modal is opened for debug, which player index is targeted
+	int encyclopediaTargetPlayerIndex = -1;
+	// Whether the modal is operating on the player's discard (true) or deck (false)
+	bool encyclopediaTargetIsDiscard = false;
+	// indices (into the currently displayed list) selected by the user
+	std::vector<int> encyclopediaSelectedIndices;
+	// Accept button rect for the modal
+	ofRectangle encyclopediaAcceptButton;
+
 	// We still load the sheet to generate the data
 	ofImage cursorSheet;
 
