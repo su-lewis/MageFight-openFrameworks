@@ -1887,7 +1887,7 @@ void ofApp::update() {
 }
 //--------------------------------------------------------------
 // Start a visual shuffle animation for the given player's deck
-void ofApp::startShuffleVisual(int playerIndex) {
+void ofApp::startShuffleVisual(int playerIndex, float delaySeconds) {
 	ShuffleAnimation anim;
 	anim.playerIndex = playerIndex;
 	// Only show the visual shuffle for the two main player decks here.
@@ -1901,7 +1901,7 @@ void ofApp::startShuffleVisual(int playerIndex) {
 		// (minions already spawn their own visual when appropriate).
 		return;
 	}
-	anim.startTime = ofGetElapsedTimef();
+	anim.startTime = ofGetElapsedTimef() + delaySeconds;
 	anim.duration = 0.9f;
 	anim.currentAlpha = 255.0f;
 	anim.currentScale = 1.0f;
@@ -3254,6 +3254,7 @@ void ofApp::updateGame() {
 	if (isWaitingForAttackDice && diceVisualsFinishedAndLinger()) {
 		isWaitingForAttackDice = false;
 		int baseDamage = pendingAttackRollResult;
+		ofLogNotice("AttackDamage") << "Resolving " << pendingAttackCardName << " - Targets: " << pendingAttackTargetIndices.size() << ", Damage: " << baseDamage;
 		Player & attacker = players[currentPlayerIndex];
 
 		// Preserve the card name for special-resolution effects (e.g., Shoot Arrow)
@@ -11438,10 +11439,8 @@ cursor_check_done:;
 					break;
 				}
 			}
-		}
-		hoveredCardIndex = foundHoverIndex;
-		// Update target highlights on hover change (when not dragging)
-		if (draggedCardIndex == -1) {
+			hoveredCardIndex = foundHoverIndex;
+			// Update target highlights on hover change (when not dragging)
 			if (hoveredCardIndex != lastHoveredCardIndex) {
 				lastHoveredCardIndex = hoveredCardIndex;
 				if (hoveredCardIndex != -1) {
@@ -11505,6 +11504,8 @@ cursor_check_done:;
 		else if (isTargetingHeal)
 			activeCardForHighlight = healCardIndex;
 		// ---------------------
+		else if (draggedCardIndex != -1)
+			activeCardForHighlight = draggedCardIndex; // Dragging card - use dragged card for highlights
 		else if (selectedCardIndex != -1)
 			activeCardForHighlight = selectedCardIndex;
 		else
@@ -12606,6 +12607,8 @@ void ofApp::mousePressed(int x, int y, int button) {
 			// Trigger visual shuffle for this player's deck
 			// If drafting actor is a minion, create minion-specific shuffle visual
 			bool targetIsMinion = (draftPlayerIndex >= 0 && draftPlayerIndex < (int)players.size() && players[draftPlayerIndex].isMinion);
+			// Card animation: draftAnimHoldDuration (hold) + 0.35f (fly duration)
+			float cardAnimDuration = draftAnimHoldDuration + 0.35f;
 			if (targetIsMinion) {
 				ShuffleAnimation s;
 				s.playerIndex = draftPlayerIndex;
@@ -12624,14 +12627,14 @@ void ofApp::mousePressed(int x, int y, int button) {
 					else
 						s.deckRect = (players[draftPlayerIndex].ownerID == 0) ? p0_deckRect : p1_deckRect;
 				}
-				s.startTime = ofGetElapsedTimef();
+				s.startTime = ofGetElapsedTimef() + cardAnimDuration;
 				s.duration = 0.9f;
 				s.currentAlpha = 255.0f;
 				s.currentScale = 1.0f;
 				s.rotation = 0.0f;
 				activeShuffleAnimations.push_back(s);
 			} else {
-				startShuffleVisual(draftPlayerIndex);
+				startShuffleVisual(draftPlayerIndex, cardAnimDuration);
 			}
 
 			selectedDraftIndices.clear();
@@ -12758,9 +12761,9 @@ void ofApp::mousePressed(int x, int y, int button) {
 		// Shuffle deck
 		shuffleGameVector(p.deck, draftPlayerIndex);
 		// Trigger visual shuffle for this player's deck (in-game draft)
-		startShuffleVisual(draftPlayerIndex);
-
-		// CHECK QUEUE: Are there more drafts pending?
+		// Delay shuffle animation to match card animation duration
+		float cardAnimDuration = draftAnimHoldDuration + 0.35f;
+		startShuffleVisual(draftPlayerIndex, cardAnimDuration);
 		if (!pendingDraftQueue.empty()) {
 			// Pop next and stay in drafting
 			int nextClass = pendingDraftQueue.front();
@@ -15191,6 +15194,42 @@ void ofApp::mousePressed(int x, int y, int button) {
 
 			if (!controlledPlayer) return;
 
+			// --- HANDLE CARD TARGETING: If a card is selected, play it on the clicked tile ---
+			if (selectedCardIndex >= 0 && selectedCardIndex < (int)currentPlayer.hand.size()) {
+				Card & selectedCard = currentPlayer.hand[selectedCardIndex];
+
+				// Find the nearest targetable tile (helps with wall outlines which are higher)
+				int targetGridX = gridX, targetGridY = gridY;
+				if (findNearestTargetableTile(gridX, gridY, targetGridX, targetGridY)) {
+					// Check if player has enough AP
+					if (currentAP >= selectedCard.cost) {
+						const std::string cardName = selectedCard.name;
+						int cost = selectedCard.cost;
+
+						// Play the card on the target tile
+						CardPlayResult result = playCard(selectedCardIndex, targetGridX, targetGridY);
+
+						// Send action packet if in multiplayer
+						if (isMultiplayer && result == CARD_PLAYED_IMMEDIATELY) {
+							players[currentPlayerIndex].ap = currentAP;
+							sendActionPacket(selectedCardIndex, targetGridX, targetGridY, cost, 0, cardName);
+						}
+
+						// Clear selection and highlights
+						selectedCardIndex = -1;
+						calculateTargetHighlights();
+						return;
+					} else {
+						spawnFloatingText(gridToWorld(currentPlayer.x, currentPlayer.y), "Not enough AP", ofColor::red);
+						return;
+					}
+				} else {
+					// Clicked on non-targetable tile - show feedback but don't cancel selection
+					spawnFloatingText(gridToWorld(currentPlayer.x, currentPlayer.y), "Invalid target", ofColor::orange);
+					return;
+				}
+			}
+
 			// Clicked Self? Select for Movement.
 			if (board[gridX][gridY].hasPlayer && gridX == controlledPlayer->x && gridY == controlledPlayer->y) {
 				if (playerAction == PIECE_SELECTED) {
@@ -15676,7 +15715,7 @@ void ofApp::mouseDragged(int x, int y, int button) {
 		if (draggedCardIndex != -1) {
 			if (selectedCardIndex != -1) {
 				selectedCardIndex = -1;
-				calculateTargetHighlights();
+				// Don't clear highlights here - will update with draggedCardIndex below
 			}
 			players[currentPlayerIndex].hand[draggedCardIndex].currentPos = ofVec2f(x, y) - dragOffset;
 			// While dragging, keep target highlights up-to-date so swipe shows previews without hovering
@@ -15934,85 +15973,24 @@ void ofApp::mouseReleased(int x, int y, int button) {
 							return;
 						}
 
-						// --- PUNCH: Enter adjacent-targeting mode (drag-release)
-						if (playedCard.name == "Punch") {
-							isTargetingPunch = true;
-							pendingPunchCardIndex = draggedCardIndex;
-							draggedCardIndex = -1;
-							selectedCardIndex = -1;
-							calculateTargetHighlights(pendingPunchCardIndex);
+						// --- GENERAL TARGETING FOR NON-SELF CARDS ---
+						// For any card that is not TARGET_SELF, enter targeting mode with green highlights
+						if (playedCard.targeting != TARGET_SELF) {
+							// Enter generic targeting mode - player clicks green highlight
+							selectedCardIndex = draggedCardIndex; // Keep card selected
+							draggedCardIndex = -1; // Stop dragging
+							calculateTargetHighlights(selectedCardIndex); // Show green highlights
+							spawnFloatingText(gridToWorld(currentPlayer.x, currentPlayer.y), "Choose a target", ofColor::white);
 							return;
 						}
 
-						// --- STANDARD PLAY ---
+						// --- STANDARD PLAY (TARGET_SELF cards) ---
 						if (playedCard.targeting == TARGET_SELF) {
 							const std::string playedCardName = playedCard.name;
 							CardPlayResult result = playCard(draggedCardIndex, -1, -1);
 							if (isMultiplayer && result == CARD_PLAYED_IMMEDIATELY) {
 								players[currentPlayerIndex].ap = currentAP;
 								sendActionPacket(draggedCardIndex, -1, -1, playedCard.cost, 0, playedCardName);
-							}
-						} else {
-							ofVec2f boardPos = mouseToBoard(x, y);
-							int gx = floor(boardPos.x);
-							int gy = floor(boardPos.y);
-
-							if (gx >= 0 && gx < BOARD_WIDTH && gy >= 0 && gy < BOARD_HEIGHT) {
-								// Special-case: Slash card - click on adjacent square to determine direction
-								if (playedCard.name == "Slash") {
-									int px = currentPlayer.x;
-									int py = currentPlayer.y;
-									int dx = gx - px;
-									int dy = gy - py;
-									int dist = abs(dx) + abs(dy); // Manhattan distance
-
-									// Check if release is on an adjacent square
-									if (dist == 1 && (dx == 0 || dy == 0)) { // Orthogonal adjacent only
-										ofLogNotice("CardPlay") << "Slash: Adjacent square clicked at (" << gx << "," << gy << "), direction=(" << dx << "," << dy << ")";
-										const std::string playedCardName = playedCard.name;
-										// Pass the adjacent tile as the target to determine direction in playCard
-										CardPlayResult result = playCard(draggedCardIndex, gx, gy);
-										if (isMultiplayer && result == CARD_PLAYED_IMMEDIATELY) {
-											players[currentPlayerIndex].ap = currentAP;
-											sendActionPacket(draggedCardIndex, gx, gy, playedCard.cost, 0, playedCardName);
-										}
-									} else {
-										spawnFloatingText(gridToWorld(currentPlayer.x, currentPlayer.y), "Click adjacent square", ofColor::orange);
-										ofLogNotice("CardPlay") << "Slash: Invalid target. Must be orthogonal adjacent square.";
-									}
-									draggedCardIndex = -1;
-									selectedCardIndex = -1;
-									calculateTargetHighlights();
-									return;
-								}
-
-								// Special-case: allow drag-release to play Blocking Boon even without a highlighted tile
-								if (playedCard.type == CARD_BLOCKING_BOON) {
-									const std::string playedCardName = playedCard.name;
-									CardPlayResult result = playCard(draggedCardIndex, -1, -1);
-									if (isMultiplayer && result == CARD_PLAYED_IMMEDIATELY) {
-										players[currentPlayerIndex].ap = currentAP;
-										sendActionPacket(draggedCardIndex, -1, -1, playedCard.cost, 0, playedCardName);
-									}
-									// Clear drag/selection state like other handlers
-									draggedCardIndex = -1;
-									selectedCardIndex = -1;
-									calculateTargetHighlights();
-									return;
-								}
-
-								// Only play if green highlight is active
-								if (board[gx][gy].isTargetable) {
-									ofLogNotice("CardPlay") << "Playing " << playedCard.name << " on tile (" << gx << "," << gy << ") isMultiplayer=" << isMultiplayer;
-									const std::string playedCardName = playedCard.name;
-									CardPlayResult result = playCard(draggedCardIndex, gx, gy);
-									if (isMultiplayer && result == CARD_PLAYED_IMMEDIATELY) {
-										players[currentPlayerIndex].ap = currentAP;
-										sendActionPacket(draggedCardIndex, gx, gy, playedCard.cost, 0, playedCardName);
-									}
-								} else {
-									ofLogWarning("CardPlay") << "Target not targetable! gx=" << gx << " gy=" << gy << " isTargetable=" << (gx >= 0 && gx < BOARD_WIDTH && gy >= 0 && gy < BOARD_HEIGHT ? board[gx][gy].isTargetable : false);
-								}
 							}
 						}
 					} else {
@@ -20085,9 +20063,10 @@ CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		}
 
 		if (pendingAttackTargetIndices.empty()) {
-			ofLogNotice("Attack") << "No valid targets. Action Cancelled.";
+			ofLogNotice("Attack") << "NO TARGETS for " << playedCard.name << " at (" << targetX << "," << targetY << ") - Cancelled";
 			break;
 		}
+		ofLogNotice("Attack") << "FOUND " << pendingAttackTargetIndices.size() << " target(s) for " << playedCard.name;
 
 		// --- EXECUTE DAMAGE ---
 		if (playedCard.numDice > 0 && playedCard.diceSides > 0) {
@@ -21974,6 +21953,124 @@ glm::vec3 ofApp::gridToWorld(int gridX, int gridY) {
 	float worldX = (gridX - BOARD_WIDTH / 2.0f) * TILE_SIZE + (TILE_SIZE / 2.0f);
 	float worldZ = (gridY - BOARD_HEIGHT / 2.0f) * TILE_SIZE + (TILE_SIZE / 2.0f);
 	return glm::vec3(worldX, 0, worldZ);
+}
+
+// Find targetable tile by checking if the 2D click is within the rendered green outline bounds
+// This properly handles walls which render taller and have green outlines above the base board
+bool ofApp::findNearestTargetableTile(int clickGridX, int clickGridY, int & outGridX, int & outGridY) {
+	// First, check the clicked tile itself
+	if (clickGridX >= 0 && clickGridX < BOARD_WIDTH && clickGridY >= 0 && clickGridY < BOARD_HEIGHT) {
+		if (board[clickGridX][clickGridY].isTargetable) {
+			outGridX = clickGridX;
+			outGridY = clickGridY;
+			return true;
+		}
+	}
+
+	// If direct click missed, check all targetable tiles to see if the screen-space click
+	// falls within their rendered bounds (accounting for wall height)
+	ofCamera & cam = getActiveCamera();
+	int mouseX = ofGetMouseX();
+	int mouseY = ofGetMouseY();
+
+	float closestDist = FLT_MAX;
+	int closestX = -1, closestY = -1;
+
+	for (int tx = 0; tx < BOARD_WIDTH; tx++) {
+		for (int ty = 0; ty < BOARD_HEIGHT; ty++) {
+			if (!board[tx][ty].isTargetable) continue;
+
+			// Get the world position of this tile
+			glm::vec3 tileWorldPos = gridToWorld(tx, ty);
+			float halfTile = TILE_SIZE / 2.0f;
+			bool clickHit = false;
+
+			// For walls, check multiple height slices to ensure clicks work anywhere on the wall face
+			if (board[tx][ty].hasWall) {
+				float wallHeight = TILE_SIZE * 0.5f;
+				// Check 5 horizontal slices from base to top of wall
+				for (int slice = 0; slice <= 4; slice++) {
+					float heightAtSlice = (wallHeight * slice) / 4.0f;
+
+					glm::vec3 corners[4] = {
+						glm::vec3(tileWorldPos.x - halfTile, heightAtSlice, tileWorldPos.z - halfTile),
+						glm::vec3(tileWorldPos.x + halfTile, heightAtSlice, tileWorldPos.z - halfTile),
+						glm::vec3(tileWorldPos.x + halfTile, heightAtSlice, tileWorldPos.z + halfTile),
+						glm::vec3(tileWorldPos.x - halfTile, heightAtSlice, tileWorldPos.z + halfTile)
+					};
+
+					// Project corners to screen space
+					glm::vec3 screenCorners[4];
+					for (int i = 0; i < 4; i++) {
+						screenCorners[i] = cam.worldToScreen(corners[i]);
+					}
+
+					// Check if mouse is inside the screen-space quad using point-in-polygon test
+					bool inside = false;
+					int j = 3;
+					for (int i = 0; i < 4; i++) {
+						if (((screenCorners[i].y > mouseY) != (screenCorners[j].y > mouseY)) && (mouseX < (screenCorners[j].x - screenCorners[i].x) * (mouseY - screenCorners[i].y) / (screenCorners[j].y - screenCorners[i].y) + screenCorners[i].x)) {
+							inside = !inside;
+						}
+						j = i;
+					}
+
+					if (inside) {
+						clickHit = true;
+						break;
+					}
+				}
+			} else {
+				// For non-wall tiles, just check the base surface
+				glm::vec3 corners[4] = {
+					glm::vec3(tileWorldPos.x - halfTile, 0.0f, tileWorldPos.z - halfTile),
+					glm::vec3(tileWorldPos.x + halfTile, 0.0f, tileWorldPos.z - halfTile),
+					glm::vec3(tileWorldPos.x + halfTile, 0.0f, tileWorldPos.z + halfTile),
+					glm::vec3(tileWorldPos.x - halfTile, 0.0f, tileWorldPos.z + halfTile)
+				};
+
+				// Project corners to screen space
+				glm::vec3 screenCorners[4];
+				for (int i = 0; i < 4; i++) {
+					screenCorners[i] = cam.worldToScreen(corners[i]);
+				}
+
+				// Check if mouse is inside the screen-space quad using point-in-polygon test
+				bool inside = false;
+				int j = 3;
+				for (int i = 0; i < 4; i++) {
+					if (((screenCorners[i].y > mouseY) != (screenCorners[j].y > mouseY)) && (mouseX < (screenCorners[j].x - screenCorners[i].x) * (mouseY - screenCorners[i].y) / (screenCorners[j].y - screenCorners[i].y) + screenCorners[i].x)) {
+						inside = !inside;
+					}
+					j = i;
+				}
+
+				if (inside) {
+					clickHit = true;
+				}
+			}
+
+			if (clickHit) {
+				// Calculate distance from original click grid position
+				float dx = tx - clickGridX;
+				float dy = ty - clickGridY;
+				float dist = sqrt(dx * dx + dy * dy);
+				if (dist < closestDist) {
+					closestDist = dist;
+					closestX = tx;
+					closestY = ty;
+				}
+			}
+		}
+	}
+
+	if (closestX != -1) {
+		outGridX = closestX;
+		outGridY = closestY;
+		return true;
+	}
+
+	return false;
 }
 
 // Spawn a tracer line in world space and highlight the impacted tile until tracer expires

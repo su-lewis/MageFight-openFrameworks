@@ -1,30 +1,30 @@
 # MageFight Cards - Template Reference
 
 ## 1. Punch
-- **Type:** Attack
+- **Type:** Physical
 - **Cost:** 1 AP
 - **Targeting:** Adjacent Unit
 - **Class:** 1
 - **Picture:** 
-- **Effect Text:** Deal 2 physical damage to an adjacent unit.
+- **Effect Text:** Deal 2 damage
 ---
 
 ## 2. Kick
-- **Type:** Attack
+- **Type:** Physical
 - **Cost:** 3 AP
 - **Targeting:** Adjacent Unit
 - **Class:** 1
 - **Picture:** 
-- **Effect Text:** Deal 4 physical damage to an adjacent unit.
+- **Effect Text:** Deal 4 damage
 ---
 
 ## 3. Hand Block
-- **Type:** Defense
+- **Type:**
 - **Cost:** 1 AP
 - **Targeting:** Self
 - **Class:** 1
 - **Picture:** 
-- **Effect Text:** Gain 2 physical block.
+- **Effect Text:** Gain +2 physical block until start of unit's next turn
 ---
 
 ## 4. Bash

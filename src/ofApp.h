@@ -787,6 +787,7 @@ private:
 	glm::vec2 getCardDisplayUIPosition(int playerIndex); // Get UI position for card display popup
 	glm::vec2 worldToGrid(glm::vec3 worldPos);
 	glm::vec3 gridToWorld(int gridX, int gridY);
+	bool findNearestTargetableTile(int clickGridX, int clickGridY, int & outGridX, int & outGridY);
 	Player * getPlayer(int index);
 	int findPlayerIndexByID(int playerID);
 	std::string getPlayerDisplayName(int index);
@@ -938,7 +939,7 @@ private:
 	float draftEndAt = 0.0f;
 
 	// Helpers
-	void startShuffleVisual(int playerIndex);
+	void startShuffleVisual(int playerIndex, float delaySeconds = 0.0f);
 	void scheduleGenerateDraftOptions(int classTier, float delaySeconds);
 
 	// Draw helper for active picked-card animations
