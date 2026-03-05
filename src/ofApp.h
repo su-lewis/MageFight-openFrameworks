@@ -1379,6 +1379,7 @@ private:
 	std::vector<Card> amnesiaDeckCopy;
 	std::vector<int> amnesiaSelectedIndices;
 	std::vector<ofRectangle> amnesiaCardRects;
+	ofRectangle amnesiaAcceptButton;
 
 	// Which local player ID is allowed to choose Amnesia removals (playerID, e.g., 0 or 1). -1 = none
 	int amnesiaChooserPlayerID = -1;

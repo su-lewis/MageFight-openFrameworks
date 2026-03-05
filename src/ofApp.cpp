@@ -10365,18 +10365,6 @@ void ofApp::drawGame() {
 		pileViewRect.set(0, 0, 0, 0);
 	}
 
-	// --- Draw Chain Lightning Targeting UI ---
-	if (isTargetingChainLightning) {
-		string msg = "Chain Lightning: Choose target";
-		ofRectangle bbox = titleFont.getStringBoundingBox(msg, 0, 0);
-		float tx = (ofGetWidth() / 2.0f) - (bbox.width / 2.0f);
-		float ty = ofGetHeight() * 0.25f;
-		ofSetColor(0, 0, 0, 255);
-		titleFont.drawString(msg, tx + 2, ty + 2);
-		ofSetColor(ofColor::yellow); // Electric Color
-		titleFont.drawString(msg, tx, ty);
-	}
-
 	// --- Draw Magic Hand UI ---
 	if (isMagicHandMenuOpen) {
 		drawMagicHandUI();
@@ -10394,8 +10382,10 @@ void ofApp::drawGame() {
 
 		float panelPadding = 20.0f;
 		float titleHeight = 60.0f;
+		float acceptBtnHeight = 44.0f;
+		float acceptBtnPadding = 20.0f;
 		float viewCardScale = 1.6f;
-		float availableHeight = ofGetHeight() - (2 * panelPadding) - titleHeight;
+		float availableHeight = ofGetHeight() - (2 * panelPadding) - titleHeight - acceptBtnHeight - acceptBtnPadding;
 		float availableWidth = ofGetWidth() * 0.8f;
 
 		while (viewCardScale > 0.5f) {
@@ -10462,6 +10452,24 @@ void ofApp::drawGame() {
 				ofPopStyle();
 			}
 		}
+
+		// Draw Accept button at bottom
+		float acceptW = 160.0f;
+		float acceptH = 44.0f;
+		float acceptY = panelY + panelHeight - acceptH - 15.0f;
+		amnesiaAcceptButton.set(panelX + (panelWidth - acceptW) / 2.0f, acceptY, acceptW, acceptH);
+
+		bool canAccept = (amnesiaSelectedIndices.size() == static_cast<size_t>(numCardsToRemove));
+		if (canAccept) {
+			ofSetColor(0, 160, 0);
+			if (amnesiaAcceptButton.inside(ofGetMouseX(), ofGetMouseY())) ofSetColor(0, 200, 0);
+		} else {
+			ofSetColor(80, 80, 80);
+		}
+		ofDrawRectRounded(amnesiaAcceptButton, 8);
+		ofSetColor(canAccept ? ofColor::white : ofColor(150, 150, 150));
+		ofRectangle aBox = uiFont.getStringBoundingBox("Accept", 0, 0);
+		uiFont.drawString("Accept", amnesiaAcceptButton.getCenter().x - aBox.width / 2, amnesiaAcceptButton.getCenter().y + aBox.height / 2 - 2);
 	}
 
 	// Debug panel now integrated into chat window UI (rendered within chat when DEBUG tab is active)
@@ -11026,46 +11034,6 @@ void ofApp::drawGame() {
 		titleFont.drawString(msg, tx, ty);
 	}
 
-	// --- MAGIC BOLT INSTRUCTION TEXT ---
-	if (isTargetingMagicBolt) {
-		string msg = "Magic Bolt: Choose target";
-		ofRectangle bbox = titleFont.getStringBoundingBox(msg, 0, 0);
-		float tx = (ofGetWidth() / 2.0f) - (bbox.width / 2.0f);
-		float ty = ofGetHeight() * 0.25f;
-
-		// Shadow
-		ofSetColor(0, 0, 0, 255);
-		titleFont.drawString(msg, tx + 2, ty + 2);
-		// Text
-		ofSetColor(ofColor::cyan);
-		titleFont.drawString(msg, tx, ty);
-	}
-
-	// --- DEATH INSTRUCTION ---
-	if (isTargetingDeath) {
-		string msg = "Death: Choose target";
-		// ... standard text drawing code (copy from magic bolt) ...
-		ofRectangle bbox = titleFont.getStringBoundingBox(msg, 0, 0);
-		float tx = (ofGetWidth() / 2.0f) - (bbox.width / 2.0f);
-		float ty = ofGetHeight() * 0.25f;
-		ofSetColor(0, 0, 0, 255);
-		titleFont.drawString(msg, tx + 2, ty + 2);
-		ofSetColor(ofColor::red);
-		titleFont.drawString(msg, tx, ty);
-	}
-
-	// --- HEAL INSTRUCTION ---
-	if (isTargetingHeal) {
-		string msg = "Heal: Choose ally";
-		ofRectangle bbox = titleFont.getStringBoundingBox(msg, 0, 0);
-		float tx = (ofGetWidth() / 2.0f) - (bbox.width / 2.0f);
-		float ty = ofGetHeight() * 0.25f;
-		ofSetColor(0, 0, 0, 255);
-		titleFont.drawString(msg, tx + 2, ty + 2);
-		ofSetColor(ofColor::green);
-		titleFont.drawString(msg, tx, ty);
-	}
-
 	// --- DOUBLE HANDED TARGETING INSTRUCTION TEXT ---
 	if (isTargetingDoubleHanded) {
 		string msg = "Double Handed: Choose target (2x " + pendingDoubleHandedChoice + ")";
@@ -11092,44 +11060,16 @@ void ofApp::drawGame() {
 		titleFont.drawString(msg, tx, ty);
 	}
 
-	// --- PUNCH TARGETING INSTRUCTION TEXT ---
-	if (isTargetingPunch) {
-		string msg = "Punch: Choose Adjacent Unit";
+	// --- AMNESIA TARGETING INSTRUCTION TEXT ---
+	if (isTargetingAmnesia) {
+		string msg = "Amnesia: Choose adjacent unit";
 		ofRectangle bbox = titleFont.getStringBoundingBox(msg, 0, 0);
 		float tx = (ofGetWidth() / 2.0f) - (bbox.width / 2.0f);
 		float ty = ofGetHeight() * 0.25f;
 
 		ofSetColor(0, 0, 0, 255);
 		titleFont.drawString(msg, tx + 2, ty + 2);
-		ofSetColor(ofColor::orange);
-		titleFont.drawString(msg, tx, ty);
-	}
-
-	// --- TORTOISE DAMAGE TARGETING INSTRUCTION TEXT ---
-	if (isTargetingTortoiseDamage) {
-		string msg = "Shell Spike: Choose adjacent unit";
-		ofRectangle bbox = titleFont.getStringBoundingBox(msg, 0, 0);
-		float tx = (ofGetWidth() / 2.0f) - (bbox.width / 2.0f);
-		float ty = ofGetHeight() * 0.25f;
-
-		ofSetColor(0, 0, 0, 255);
-		titleFont.drawString(msg, tx + 2, ty + 2);
-		ofSetColor(ofColor::darkGreen);
-		titleFont.drawString(msg, tx, ty);
-	}
-
-	// --- HELLHOUND INSTRUCTION TEXT ---
-	if (isTargetingHellhound) {
-		string msg = "Hellhound: Choose adjacent tile";
-		ofRectangle bbox = titleFont.getStringBoundingBox(msg, 0, 0);
-		float tx = (ofGetWidth() / 2.0f) - (bbox.width / 2.0f);
-		float ty = ofGetHeight() * 0.25f;
-
-		// Shadow
-		ofSetColor(0, 0, 0, 255);
-		titleFont.drawString(msg, tx + 2, ty + 2);
-		// Text (Orange for fire/hell)
-		ofSetColor(ofColor::orangeRed);
+		ofSetColor(ofColor::magenta);
 		titleFont.drawString(msg, tx, ty);
 	}
 
@@ -11175,7 +11115,8 @@ void ofApp::drawGame() {
 
 	// --- GENERIC CARD TARGETING INSTRUCTION ---
 	// For all other cards using the generic targeting system (selectedCardIndex)
-	if (selectedCardIndex != -1 && currentPlayerIndex >= 0 && !isTargetingTeleport && !isTargetingAmnesia && !isTargetingDoubleHanded && !isTargetingBurst) {
+	// Only exclude cards that need custom formatting (Teleport shows range, Burst/Double Handed show choices, Amnesia has menu)
+	if (selectedCardIndex != -1 && currentPlayerIndex >= 0 && !isTargetingTeleport && !isTargetingDoubleHanded && !isTargetingBurst && !isTargetingAmnesia) {
 		Player & currentPlayer = players[currentPlayerIndex];
 		if (selectedCardIndex < (int)currentPlayer.hand.size()) {
 			Card & selectedCard = currentPlayer.hand[selectedCardIndex];
@@ -14207,134 +14148,135 @@ void ofApp::mousePressed(int x, int y, int button) {
 						amnesiaSelectedIndices.push_back(cardIndex);
 					}
 				}
-
-				if (amnesiaSelectedIndices.size() == static_cast<size_t>(numCardsToRemove)) {
-					// finalize selection -> apply or send to host
-					std::vector<int> sel = amnesiaSelectedIndices;
-					std::sort(sel.rbegin(), sel.rend());
-
-					if (isMultiplayer) {
-						AmnesiaChoicePacket pkt = {};
-						pkt.type = PKT_AMNESIA_CHOICE;
-						pkt.playerID = myLocalPlayerID;
-						pkt.targetPlayerIndex = amnesiaTargetPlayerIndex;
-						pkt.numCardsToRemove = (uint8_t)sel.size();
-						for (size_t si = 0; si < sel.size() && si < 8; ++si)
-							pkt.selectedIndices[si] = sel[si];
-
-						if (isHost()) {
-							// apply immediately on host and broadcast
-							Player * targetPlayer = getPlayer(amnesiaTargetPlayerIndex);
-							if (targetPlayer) {
-								for (int selectedIdx : sel) {
-									if (static_cast<size_t>(selectedIdx) < targetPlayer->deck.size()) {
-										Card selectedCard = targetPlayer->deck[selectedIdx];
-										RemovedCardAnimation anim;
-										anim.card = selectedCard;
-										anim.startPos = {
-											panelX + panelPadding + (selectedIdx % gridWidthInCards) * (viewCardWidth + padding) + viewCardWidth / 2,
-											panelY + panelPadding + titleHeight + (selectedIdx / gridWidthInCards) * (viewCardHeight + padding) + viewCardHeight / 2
-										};
-										anim.startTime = ofGetElapsedTimef();
-										activeRemovedCardAnimations.push_back(anim);
-										targetPlayer->deck.erase(targetPlayer->deck.begin() + selectedIdx);
-									}
-								}
-							}
-							steamManager.sendPacket(&pkt, sizeof(pkt));
-							// Ensure the caster's Amnesia card was consumed and AP deducted.
-							if (amnesiaChooserPlayerID != -1) {
-								int chooserIdx = findPlayerIndexByID(amnesiaChooserPlayerID);
-								if (chooserIdx >= 0 && chooserIdx < (int)players.size()) {
-									Player & chooser = players[chooserIdx];
-									for (int hi = 0; hi < (int)chooser.hand.size(); ++hi) {
-										if (chooser.hand[hi].type == CARD_AMNESIA) {
-											Card amCard = chooser.hand[hi];
-											int amCost = amCard.cost;
-											chooser.playedCardsPile.push_back(amCard);
-											applyReplicateCopyToHand(chooser, amCard);
-											chooser.hand.erase(chooser.hand.begin() + hi);
-											// Adjust AP for chooser (currentAP if they're current player)
-											if (chooserIdx == currentPlayerIndex) {
-												currentAP -= amCost;
-												if (currentAP < 0) currentAP = 0;
-												players[currentPlayerIndex].ap = currentAP;
-											} else {
-												players[chooserIdx].ap -= amCost;
-												if (players[chooserIdx].ap < 0) players[chooserIdx].ap = 0;
-											}
-											// Notify opponents of the play (best-effort)
-											if (isMultiplayer) sendActionPacket(hi, -1, -1, amCost, 0, amCard.name);
-											break;
-										}
-									}
-								}
-							}
-						} else {
-							// client: send selection to host and wait for authoritative update
-							steamManager.sendPacket(&pkt, sizeof(pkt));
-						}
-
-						// clear UI locally; wait for host-applied state to reflect removals
-						isAmnesiaSelectionActive = false;
-						amnesiaSelectedIndices.clear();
-						amnesiaDeckCopy.clear();
-						amnesiaTargetPlayerIndex = -1;
-						amnesiaChooserPlayerID = -1;
-					} else {
-						// singleplayer: apply immediately
-						Player * targetPlayer = getPlayer(amnesiaTargetPlayerIndex);
-						if (targetPlayer) {
-							for (int selectedIdx : sel) {
-								if (static_cast<size_t>(selectedIdx) < targetPlayer->deck.size()) {
-									Card selectedCard = targetPlayer->deck[selectedIdx];
-									RemovedCardAnimation anim;
-									anim.card = selectedCard;
-									anim.startPos = {
-										panelX + panelPadding + (selectedIdx % gridWidthInCards) * (viewCardWidth + padding) + viewCardWidth / 2,
-										panelY + panelPadding + titleHeight + (selectedIdx / gridWidthInCards) * (viewCardHeight + padding) + viewCardHeight / 2
-									};
-									anim.startTime = ofGetElapsedTimef();
-									activeRemovedCardAnimations.push_back(anim);
-									targetPlayer->deck.erase(targetPlayer->deck.begin() + selectedIdx);
-								}
-							}
-						}
-						// Ensure the caster's Amnesia card was consumed and AP deducted (singleplayer)
-						if (amnesiaChooserPlayerID != -1) {
-							int chooserIdx = findPlayerIndexByID(amnesiaChooserPlayerID);
-							if (chooserIdx >= 0 && chooserIdx < (int)players.size()) {
-								Player & chooser = players[chooserIdx];
-								for (int hi = 0; hi < (int)chooser.hand.size(); ++hi) {
-									if (chooser.hand[hi].type == CARD_AMNESIA) {
-										Card amCard = chooser.hand[hi];
-										int amCost = amCard.cost;
-										finishPlayCard(chooser, amCard, hi);
-										// Adjust AP for chooser (currentAP if they're current player)
-										if (chooserIdx == currentPlayerIndex) {
-											currentAP -= amCost;
-											if (currentAP < 0) currentAP = 0;
-											players[currentPlayerIndex].ap = currentAP;
-										} else {
-											players[chooserIdx].ap -= amCost;
-											if (players[chooserIdx].ap < 0) players[chooserIdx].ap = 0;
-										}
-										break;
-									}
-								}
-							}
-						}
-						isAmnesiaSelectionActive = false;
-						amnesiaSelectedIndices.clear();
-						amnesiaDeckCopy.clear();
-						amnesiaTargetPlayerIndex = -1;
-						amnesiaChooserPlayerID = -1;
-					}
-				}
 				return;
 			}
 		}
-		if (ofRectangle(panelX, panelY, panelWidth, panelHeight).inside(x, y)) return;
+
+		// Check for Accept button click
+		if (amnesiaAcceptButton.inside(x, y) && amnesiaSelectedIndices.size() == static_cast<size_t>(numCardsToRemove)) {
+			// finalize selection -> apply or send to host
+			std::vector<int> sel = amnesiaSelectedIndices;
+			std::sort(sel.rbegin(), sel.rend());
+
+			if (isMultiplayer) {
+				AmnesiaChoicePacket pkt = {};
+				pkt.type = PKT_AMNESIA_CHOICE;
+				pkt.playerID = myLocalPlayerID;
+				pkt.targetPlayerIndex = amnesiaTargetPlayerIndex;
+				pkt.numCardsToRemove = (uint8_t)sel.size();
+				for (size_t si = 0; si < sel.size() && si < 8; ++si)
+					pkt.selectedIndices[si] = sel[si];
+
+				if (isHost()) {
+					// apply immediately on host and broadcast
+					Player * targetPlayer = getPlayer(amnesiaTargetPlayerIndex);
+					if (targetPlayer) {
+						for (int selectedIdx : sel) {
+							if (static_cast<size_t>(selectedIdx) < targetPlayer->deck.size()) {
+								Card selectedCard = targetPlayer->deck[selectedIdx];
+								RemovedCardAnimation anim;
+								anim.card = selectedCard;
+								anim.startPos = {
+									panelX + panelPadding + (selectedIdx % gridWidthInCards) * (viewCardWidth + padding) + viewCardWidth / 2,
+									panelY + panelPadding + titleHeight + (selectedIdx / gridWidthInCards) * (viewCardHeight + padding) + viewCardHeight / 2
+								};
+								anim.startTime = ofGetElapsedTimef();
+								activeRemovedCardAnimations.push_back(anim);
+								targetPlayer->deck.erase(targetPlayer->deck.begin() + selectedIdx);
+							}
+						}
+					}
+					steamManager.sendPacket(&pkt, sizeof(pkt));
+					// Ensure the caster's Amnesia card was consumed and AP deducted.
+					if (amnesiaChooserPlayerID != -1) {
+						int chooserIdx = findPlayerIndexByID(amnesiaChooserPlayerID);
+						if (chooserIdx >= 0 && chooserIdx < (int)players.size()) {
+							Player & chooser = players[chooserIdx];
+							for (int hi = 0; hi < (int)chooser.hand.size(); ++hi) {
+								if (chooser.hand[hi].type == CARD_AMNESIA) {
+									Card amCard = chooser.hand[hi];
+									int amCost = amCard.cost;
+									chooser.playedCardsPile.push_back(amCard);
+									applyReplicateCopyToHand(chooser, amCard);
+									chooser.hand.erase(chooser.hand.begin() + hi);
+									// Adjust AP for chooser (currentAP if they're current player)
+									if (chooserIdx == currentPlayerIndex) {
+										currentAP -= amCost;
+										if (currentAP < 0) currentAP = 0;
+										players[currentPlayerIndex].ap = currentAP;
+									} else {
+										players[chooserIdx].ap -= amCost;
+										if (players[chooserIdx].ap < 0) players[chooserIdx].ap = 0;
+									}
+									// Notify opponents of the play (best-effort)
+									if (isMultiplayer) sendActionPacket(hi, -1, -1, amCost, 0, amCard.name);
+									break;
+								}
+							}
+						}
+					}
+				} else {
+					// client: send selection to host and wait for authoritative update
+					steamManager.sendPacket(&pkt, sizeof(pkt));
+				}
+
+				// clear UI locally; wait for host-applied state to reflect removals
+				isAmnesiaSelectionActive = false;
+				amnesiaSelectedIndices.clear();
+				amnesiaDeckCopy.clear();
+				amnesiaTargetPlayerIndex = -1;
+				amnesiaChooserPlayerID = -1;
+			} else {
+				// singleplayer: apply immediately
+				Player * targetPlayer = getPlayer(amnesiaTargetPlayerIndex);
+				if (targetPlayer) {
+					for (int selectedIdx : sel) {
+						if (static_cast<size_t>(selectedIdx) < targetPlayer->deck.size()) {
+							Card selectedCard = targetPlayer->deck[selectedIdx];
+							RemovedCardAnimation anim;
+							anim.card = selectedCard;
+							anim.startPos = {
+								panelX + panelPadding + (selectedIdx % gridWidthInCards) * (viewCardWidth + padding) + viewCardWidth / 2,
+								panelY + panelPadding + titleHeight + (selectedIdx / gridWidthInCards) * (viewCardHeight + padding) + viewCardHeight / 2
+							};
+							anim.startTime = ofGetElapsedTimef();
+							activeRemovedCardAnimations.push_back(anim);
+							targetPlayer->deck.erase(targetPlayer->deck.begin() + selectedIdx);
+						}
+					}
+				}
+				// Ensure the caster's Amnesia card was consumed and AP deducted (singleplayer)
+				if (amnesiaChooserPlayerID != -1) {
+					int chooserIdx = findPlayerIndexByID(amnesiaChooserPlayerID);
+					if (chooserIdx >= 0 && chooserIdx < (int)players.size()) {
+						Player & chooser = players[chooserIdx];
+						for (int hi = 0; hi < (int)chooser.hand.size(); ++hi) {
+							if (chooser.hand[hi].type == CARD_AMNESIA) {
+								Card amCard = chooser.hand[hi];
+								int amCost = amCard.cost;
+								finishPlayCard(chooser, amCard, hi);
+								// Adjust AP for chooser (currentAP if they're current player)
+								if (chooserIdx == currentPlayerIndex) {
+									currentAP -= amCost;
+									if (currentAP < 0) currentAP = 0;
+									players[currentPlayerIndex].ap = currentAP;
+								} else {
+									players[chooserIdx].ap -= amCost;
+									if (players[chooserIdx].ap < 0) players[chooserIdx].ap = 0;
+								}
+								break;
+							}
+						}
+					}
+				}
+				isAmnesiaSelectionActive = false;
+				amnesiaSelectedIndices.clear();
+				amnesiaDeckCopy.clear();
+				amnesiaTargetPlayerIndex = -1;
+				amnesiaChooserPlayerID = -1;
+			}
+		}
+		return;
 	}
 
 	// --- 1h. Magic Bolt Targeting Click ---
@@ -20446,7 +20388,7 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 	glm::vec2 casterPos(px, py);
 
 	// Check AP (Targeting modes imply AP check passed already)
-	bool inTargetingMode = isTargetingAmnesia || isTargetingDoubleHanded || isTargetingTeleport || isTargetingMagicBolt || isTargetingHellhound || isTargetingChainLightning || isTargetingBurst;
+	bool inTargetingMode = isTargetingDoubleHanded || isTargetingTeleport || isTargetingBurst || isTargetingAmnesia || (selectedCardIndex != -1);
 
 	bool hasEnoughAP = inTargetingMode || (currentAP >= card.cost);
 
