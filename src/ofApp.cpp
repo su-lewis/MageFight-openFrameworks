@@ -1296,8 +1296,8 @@ void ofApp::setup() {
 	// Load PNG cursors from UI folder
 	glfwArrow = createGLFWCursorFromPNG("UI/pointer.png", 0, 0); // pointer.png, hotspot top-left
 	glfwHandPoint = createGLFWCursorFromPNG("UI/link.png", 0, 0); // link.png, hotspot top-left
-	glfwHandOpen = createGLFWCursorFromPNG("UI/grab_hover.png", 8, 8); // grab_hover.png, hotspot center
-	glfwHandClosed = createGLFWCursorFromPNG("UI/grab.png", 8, 8); // grab.png, hotspot center
+	glfwHandOpen = createGLFWCursorFromPNG("UI/grab_hover.png", 6, 6); // grab_hover.png, hotspot center (24x24)
+	glfwHandClosed = createGLFWCursorFromPNG("UI/grab.png", 6, 6); // grab.png, hotspot center (24x24)
 
 	// Set initial cursor
 	GLFWwindow * window = (GLFWwindow *)ofGetWindowPtr()->getWindowContext();
@@ -11060,19 +11060,6 @@ void ofApp::drawGame() {
 		titleFont.drawString(msg, tx, ty);
 	}
 
-	// --- AMNESIA TARGETING INSTRUCTION TEXT ---
-	if (isTargetingAmnesia) {
-		string msg = "Amnesia: Choose adjacent unit";
-		ofRectangle bbox = titleFont.getStringBoundingBox(msg, 0, 0);
-		float tx = (ofGetWidth() / 2.0f) - (bbox.width / 2.0f);
-		float ty = ofGetHeight() * 0.25f;
-
-		ofSetColor(0, 0, 0, 255);
-		titleFont.drawString(msg, tx + 2, ty + 2);
-		ofSetColor(ofColor::magenta);
-		titleFont.drawString(msg, tx, ty);
-	}
-
 	// --- TELEPORT TARGETING INSTRUCTION TEXT ---
 	if (isTargetingTeleport) {
 		string msg = "Teleport: Choose destination (Range: " + ofToString(pendingTeleportRollResult) + " ft)";
@@ -11390,12 +11377,28 @@ cursor_check_done:;
 		float baseCardHeight = handBaseCardWidth * aspectRatio;
 
 		if (draggedCardIndex == -1) {
-			for (int i = static_cast<int>(currentPlayer.hand.size()) - 1; i >= 0; i--) {
+			// Calculate hand layout to use same detection area as drag detection
+			int numCards = static_cast<int>(currentPlayer.hand.size());
+			float handAreaWidth = ofGetWidth() * 0.4f;
+			float totalCardWidths = numCards * handBaseCardWidth;
+			float padding = (numCards > 1) ? (handAreaWidth - totalCardWidths) / (numCards - 1) : 0;
+			padding = std::min(padding, 20.0f);
+			float totalHandWidth = (numCards * handBaseCardWidth) + ((numCards - 1) * padding);
+			float startX = (ofGetWidth() - totalHandWidth) / 2.0f;
+
+			// Check all cards and select the rightmost one that contains the mouse position
+			// Use extended detection area (1.6x height) to match drag detection
+			float detectionHeight = baseCardHeight * 1.6f;
+			for (int i = 0; i < numCards; i++) {
 				Card & card = currentPlayer.hand[i];
-				ofRectangle cardRect(card.currentPos.x - handBaseCardWidth / 2, card.currentPos.y - baseCardHeight / 2, handBaseCardWidth, baseCardHeight);
-				if (cardRect.inside(x, y)) {
-					foundHoverIndex = i;
-					break;
+				float detectionX = startX + i * (handBaseCardWidth + padding);
+				float detectionY = card.targetPos.y - detectionHeight / 2;
+				ofRectangle detectionRect(detectionX, detectionY, handBaseCardWidth, detectionHeight);
+				if (detectionRect.inside(x, y)) {
+					// Keep track of the rightmost card that contains the cursor
+					if (foundHoverIndex == -1 || currentPlayer.hand[i].currentPos.x > currentPlayer.hand[foundHoverIndex].currentPos.x) {
+						foundHoverIndex = i;
+					}
 				}
 			}
 			hoveredCardIndex = foundHoverIndex;
@@ -15668,7 +15671,8 @@ void ofApp::mouseDragged(int x, int y, int button) {
 
 			if (ofRectangle(detectionX, detectionY, detectionWidth, detectionHeight).inside(ofGetPreviousMouseX(), ofGetPreviousMouseY())) {
 				draggedCardIndex = sourceIndex;
-				dragOffset = ofVec2f(x, y) - card.currentPos;
+				// Use targetPos to maintain consistent drag offset (card may be animating to this position)
+				dragOffset = ofVec2f(x, y) - card.targetPos;
 			}
 		}
 
@@ -15936,10 +15940,32 @@ void ofApp::mouseReleased(int x, int y, int button) {
 						// --- GENERAL TARGETING FOR NON-SELF CARDS ---
 						// For any card that is not TARGET_SELF, enter targeting mode with green highlights
 						if (playedCard.targeting != TARGET_SELF) {
+							// First, calculate highlights to see if there are any valid targets
+							calculateTargetHighlights(draggedCardIndex);
+
+							// Count how many valid targets are available
+							int validTargetCount = 0;
+							for (int x = 0; x < BOARD_WIDTH; x++) {
+								for (int y = 0; y < BOARD_HEIGHT; y++) {
+									if (board[x][y].isTargetable) {
+										validTargetCount++;
+									}
+								}
+							}
+
+							// If no valid targets, reject the card play
+							if (validTargetCount == 0) {
+								ofLogWarning("CardPlay") << "No valid targets for " << playedCard.name;
+								spawnFloatingText(gridToWorld(currentPlayer.x, currentPlayer.y), "No valid targets", ofColor::red);
+								draggedCardIndex = -1;
+								selectedCardIndex = -1;
+								calculateTargetHighlights(); // Clear highlights
+								return;
+							}
+
 							// Enter generic targeting mode - player clicks green highlight
 							selectedCardIndex = draggedCardIndex; // Keep card selected
 							draggedCardIndex = -1; // Stop dragging
-							calculateTargetHighlights(selectedCardIndex); // Show green highlights
 							spawnFloatingText(gridToWorld(currentPlayer.x, currentPlayer.y), "Choose a target", ofColor::white);
 							return;
 						}
