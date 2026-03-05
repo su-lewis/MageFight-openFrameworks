@@ -10367,7 +10367,7 @@ void ofApp::drawGame() {
 
 	// --- Draw Chain Lightning Targeting UI ---
 	if (isTargetingChainLightning) {
-		string msg = "Choose Target for Chain Lightning (2d10 Range)";
+		string msg = "Chain Lightning: Choose target";
 		ofRectangle bbox = titleFont.getStringBoundingBox(msg, 0, 0);
 		float tx = (ofGetWidth() / 2.0f) - (bbox.width / 2.0f);
 		float ty = ofGetHeight() * 0.25f;
@@ -11002,10 +11002,10 @@ void ofApp::drawGame() {
 
 	// --- TOP INSTRUCTION TEXT (Wolf Placement) ---
 	if (isPlacingWolves && !isWaitingForWolfCoin) {
-		string msg = "Choose Wolf Spawn Square";
+		string msg = "Wolf: Choose spawn tile";
 
 		// Optional: Change text if it's the second wolf
-		if (wolfSummonStage == 2) msg = "Heads! Choose 2nd Wolf Spawn Square";
+		if (wolfSummonStage == 2) msg = "Wolf: Choose 2nd spawn tile (Heads!)";
 
 		// Calculate center position
 		ofRectangle bbox = titleFont.getStringBoundingBox(msg, 0, 0);
@@ -11028,7 +11028,7 @@ void ofApp::drawGame() {
 
 	// --- MAGIC BOLT INSTRUCTION TEXT ---
 	if (isTargetingMagicBolt) {
-		string msg = "Choose Target Tile for Magic Bolt";
+		string msg = "Magic Bolt: Choose target";
 		ofRectangle bbox = titleFont.getStringBoundingBox(msg, 0, 0);
 		float tx = (ofGetWidth() / 2.0f) - (bbox.width / 2.0f);
 		float ty = ofGetHeight() * 0.25f;
@@ -11043,7 +11043,7 @@ void ofApp::drawGame() {
 
 	// --- DEATH INSTRUCTION ---
 	if (isTargetingDeath) {
-		string msg = "Select Target for Death";
+		string msg = "Death: Choose target";
 		// ... standard text drawing code (copy from magic bolt) ...
 		ofRectangle bbox = titleFont.getStringBoundingBox(msg, 0, 0);
 		float tx = (ofGetWidth() / 2.0f) - (bbox.width / 2.0f);
@@ -11056,7 +11056,7 @@ void ofApp::drawGame() {
 
 	// --- HEAL INSTRUCTION ---
 	if (isTargetingHeal) {
-		string msg = "Select unit to heal";
+		string msg = "Heal: Choose ally";
 		ofRectangle bbox = titleFont.getStringBoundingBox(msg, 0, 0);
 		float tx = (ofGetWidth() / 2.0f) - (bbox.width / 2.0f);
 		float ty = ofGetHeight() * 0.25f;
@@ -11068,7 +11068,7 @@ void ofApp::drawGame() {
 
 	// --- DOUBLE HANDED TARGETING INSTRUCTION TEXT ---
 	if (isTargetingDoubleHanded) {
-		string msg = "Choose Target for Double Handed (2x " + pendingDoubleHandedChoice + ")";
+		string msg = "Double Handed: Choose target (2x " + pendingDoubleHandedChoice + ")";
 		ofRectangle bbox = titleFont.getStringBoundingBox(msg, 0, 0);
 		float tx = (ofGetWidth() / 2.0f) - (bbox.width / 2.0f);
 		float ty = ofGetHeight() * 0.25f;
@@ -11081,7 +11081,7 @@ void ofApp::drawGame() {
 
 	// --- AMNESIA TARGETING INSTRUCTION TEXT ---
 	if (isTargetingAmnesia) {
-		string msg = "Choose Adjacent Unit for Amnesia";
+		string msg = "Amnesia: Choose adjacent unit";
 		ofRectangle bbox = titleFont.getStringBoundingBox(msg, 0, 0);
 		float tx = (ofGetWidth() / 2.0f) - (bbox.width / 2.0f);
 		float ty = ofGetHeight() * 0.25f;
@@ -11107,7 +11107,7 @@ void ofApp::drawGame() {
 
 	// --- TORTOISE DAMAGE TARGETING INSTRUCTION TEXT ---
 	if (isTargetingTortoiseDamage) {
-		string msg = "Shell Spike: Choose Adjacent Unit";
+		string msg = "Shell Spike: Choose adjacent unit";
 		ofRectangle bbox = titleFont.getStringBoundingBox(msg, 0, 0);
 		float tx = (ofGetWidth() / 2.0f) - (bbox.width / 2.0f);
 		float ty = ofGetHeight() * 0.25f;
@@ -11120,7 +11120,7 @@ void ofApp::drawGame() {
 
 	// --- HELLHOUND INSTRUCTION TEXT ---
 	if (isTargetingHellhound) {
-		string msg = "Choose Adjacent Tile for Hellhound";
+		string msg = "Hellhound: Choose adjacent tile";
 		ofRectangle bbox = titleFont.getStringBoundingBox(msg, 0, 0);
 		float tx = (ofGetWidth() / 2.0f) - (bbox.width / 2.0f);
 		float ty = ofGetHeight() * 0.25f;
@@ -11135,7 +11135,7 @@ void ofApp::drawGame() {
 
 	// --- TELEPORT TARGETING INSTRUCTION TEXT ---
 	if (isTargetingTeleport) {
-		string msg = "Choose Teleport Destination (Range: " + ofToString(pendingTeleportRollResult) + " ft)";
+		string msg = "Teleport: Choose destination (Range: " + ofToString(pendingTeleportRollResult) + " ft)";
 		ofRectangle bbox = titleFont.getStringBoundingBox(msg, 0, 0);
 		float tx = (ofGetWidth() / 2.0f) - (bbox.width / 2.0f);
 		float ty = ofGetHeight() * 0.25f;
@@ -11162,7 +11162,7 @@ void ofApp::drawGame() {
 
 	// FIX: Added Burst Targeting Instructions
 	if (isTargetingBurst) {
-		string msg = (burstChoice == 0) ? "Select Enemy to Damage (3 Holy)" : "Select Ally to Heal (3 HP)";
+		string msg = (burstChoice == 0) ? "Burst of Light: Choose enemy (3 Holy)" : "Burst of Light: Choose ally (3 HP)";
 		ofRectangle bbox = titleFont.getStringBoundingBox(msg, 0, 0);
 		float tx = (ofGetWidth() / 2.0f) - (bbox.width / 2.0f);
 		float ty = ofGetHeight() * 0.25f;
@@ -11171,6 +11171,24 @@ void ofApp::drawGame() {
 		titleFont.drawString(msg, tx + 2, ty + 2);
 		ofSetColor(burstChoice == 0 ? ofColor::orange : ofColor::green);
 		titleFont.drawString(msg, tx, ty);
+	}
+
+	// --- GENERIC CARD TARGETING INSTRUCTION ---
+	// For all other cards using the generic targeting system (selectedCardIndex)
+	if (selectedCardIndex != -1 && currentPlayerIndex >= 0 && !isTargetingTeleport && !isTargetingAmnesia && !isTargetingDoubleHanded && !isTargetingBurst) {
+		Player & currentPlayer = players[currentPlayerIndex];
+		if (selectedCardIndex < (int)currentPlayer.hand.size()) {
+			Card & selectedCard = currentPlayer.hand[selectedCardIndex];
+			string msg = selectedCard.name + ": Choose target";
+			ofRectangle bbox = titleFont.getStringBoundingBox(msg, 0, 0);
+			float tx = (ofGetWidth() / 2.0f) - (bbox.width / 2.0f);
+			float ty = ofGetHeight() * 0.25f;
+
+			ofSetColor(0, 0, 0, 255);
+			titleFont.drawString(msg, tx + 2, ty + 2);
+			ofSetColor(ofColor::cyan);
+			titleFont.drawString(msg, tx, ty);
+		}
 	}
 
 	// --- BONUS TURNS COUNTER ---
