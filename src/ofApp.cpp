@@ -11297,19 +11297,6 @@ void ofApp::mouseMoved(int x, int y) {
 			bool isTargetingMode = (draggedCardIndex != -1) || (selectedCardIndex != -1) || isTargetingMagicBolt || isTargetingTeleport || isTargetingHellhound || isTargetingChainLightning || isTargetingAmnesia || isTargetingDoubleHanded || isTargetingTortoiseDamage;
 			bool isMovingMode = (playerAction == PIECE_SELECTED);
 
-			if (!isTargetingMode && !players.empty() && currentPlayerIndex >= 0) {
-				Player & p = players[currentPlayerIndex];
-				if (p.x == gx && p.y == gy) {
-					currentCursor = CURSOR_CLICK;
-					if (p.playerID == myLocalPlayerID && newHoverType == HOVER_NONE) {
-						newHoverType = HOVER_UNIT;
-						newHoverGridX = gx;
-						newHoverGridY = gy;
-					}
-					goto cursor_check_done;
-				}
-			}
-			// Check if hovering over any unit (including minions) for white outline
 			if (!isTargetingMode && board[gx][gy].hasPlayer && newHoverType == HOVER_NONE) {
 				// Find which player/minion is at this position
 				for (int i = 0; i < (int)players.size(); ++i) {
@@ -11317,6 +11304,10 @@ void ofApp::mouseMoved(int x, int y) {
 						newHoverType = HOVER_UNIT;
 						newHoverGridX = gx;
 						newHoverGridY = gy;
+						// Set cursor to click if hovering local player's unit
+						if (players[i].playerID == myLocalPlayerID) {
+							currentCursor = CURSOR_CLICK;
+						}
 						break;
 					}
 				}
@@ -20638,6 +20629,9 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 							isValidTarget = true; // Green outline for empty adjacent square
 						} else if (board[x][y].hasWall) {
 							// Wall is ok if there's a unit in the cleave area
+							isValidTarget = true;
+						} else if (board[x][y].hasPlayer) {
+							// Player/unit on adjacent tile is also a valid target (will be included in cleave)
 							isValidTarget = true;
 						}
 					}
