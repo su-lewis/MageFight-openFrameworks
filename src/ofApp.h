@@ -1100,6 +1100,12 @@ private:
 	// Track which minion playerIDs we've logged during render to avoid flooding logs
 	std::unordered_set<int> renderLoggedMinions;
 	int currentPlayerIndex = -1;
+
+	// --- TURN TIMER ---
+	float turnStartTime = 0.0f; // when the current turn began (ofGetElapsedTimef())
+	float turnDurationSeconds = 90.0f; // 90 seconds for regular units, 60 for minions
+	bool turnTimerEnabled = true; // whether to enforce auto-end-turn on timeout
+	
 	std::vector<DeathMarker> graveyard;
 	std::vector<FloatingText> activeFloatingTexts;
 	std::vector<Particle> particles;

@@ -7689,6 +7689,16 @@ void ofApp::updateGame() {
 		invalidateTargetCache();
 	}
 
+	// --- TURN TIMER CHECK ---
+	if (turnTimerEnabled && currentState == STATE_GAMEPLAY && currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size() && isMyTurn()) {
+		float elapsedSeconds = ofGetElapsedTimef() - turnStartTime;
+		if (elapsedSeconds >= turnDurationSeconds) {
+			// Turn has expired - auto-end turn
+			ofLogNotice("Timer") << "Turn time limit exceeded (" << turnDurationSeconds << "s). Auto-ending turn.";
+			startNewTurn();
+		}
+	}
+
 	if (hasUnlimitedAP) currentAP = 99;
 }
 //----------------------------------------------------
@@ -9818,6 +9828,42 @@ void ofApp::drawGame() {
 	float fontScale = scale * 1.0f;
 	(void)fontScale;
 
+	// --- DRAW TURN TIMER BAR AT TOP OF SCREEN ---
+	if (turnTimerEnabled && currentState == STATE_GAMEPLAY && currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) {
+		float elapsedSeconds = ofGetElapsedTimef() - turnStartTime;
+		float progress = std::min(1.0f, elapsedSeconds / turnDurationSeconds); // 0 to 1
+		
+		// Bar dimensions: stretch from left to right, thin at top
+		float barHeight = 8 * scale;
+		float barWidth = ofGetWidth();
+		float barY = 0;
+		
+		// Background (full bar, dark)
+		ofSetColor(30, 30, 40, 180);
+		ofDrawRectangle(0, barY, barWidth, barHeight);
+		
+		// Progress fill - color transitions from green -> yellow -> red based on progress
+		ofColor barColor;
+		if (progress < 0.5f) {
+			// Green to yellow (0 to 0.5)
+			float t = progress * 2.0f; // 0 to 1
+			barColor = ofColor(0, 255, 0).getLerped(ofColor(255, 255, 0), t);
+		} else {
+			// Yellow to red (0.5 to 1.0)
+			float t = (progress - 0.5f) * 2.0f; // 0 to 1
+			barColor = ofColor(255, 255, 0).getLerped(ofColor(255, 50, 50), t);
+		}
+		ofSetColor(barColor);
+		ofDrawRectangle(0, barY, barWidth * progress, barHeight);
+		
+		// Border
+		ofNoFill();
+		ofSetColor(100, 100, 120, 200);
+		ofSetLineWidth(1);
+		ofDrawRectangle(0, barY, barWidth, barHeight);
+		ofFill();
+	}
+
 	float handBaseCardWidth = 120;
 	float handCardAspectRatio = 585.0f / 409.0f;
 	float baseCardHeight = handBaseCardWidth * handCardAspectRatio;
@@ -11331,8 +11377,9 @@ void ofApp::drawGame() {
 		bool shouldShowChat = isChatOpen || (currentTime - lastChatInteractionTime < chatVisibilityDuration);
 
 		if (shouldShowChat) {
-			// Default: top-left corner with a small margin
-			float margin = 8.0f * scale;
+			// Default: top-left corner with a small margin (offset below turn timer bar)
+			float timerBarHeight = 8.0f * scale; // Match the timer bar height
+			float margin = 8.0f * scale + timerBarHeight; // Add timer bar height to margin
 			float chatMaxWidth = 450 * scale;
 			float chatBoxHeight = isChatMinimized ? 138 * scale : 268 * scale;
 			if (!isChatMinimized && currentChatTab == ChatTab::DEBUG) {
@@ -17988,6 +18035,14 @@ void ofApp::continueNewTurn() {
 	clearHighlights();
 	calculateTargetHighlights();
 
+	// --- TURN TIMER INITIALIZATION ---
+	turnStartTime = ofGetElapsedTimef();
+	if (startingPlayer.isMinion) {
+		turnDurationSeconds = 60.0f; // 60 seconds for minions
+	} else {
+		turnDurationSeconds = 90.0f; // 90 seconds for regular units
+	}
+
 	// FIX: Snap visual position instantly to the new unit so it doesn't "fly" across the board
 	playerVisualPos = gridToWorld(startingPlayer.x, startingPlayer.y);
 	animationPath.clear();
@@ -21257,13 +21312,15 @@ glm::vec2 ofApp::getCardDisplayUIPosition(int playerIndex) {
 }
 //--------------------------------------------------------------
 void ofApp::createCardDisplay(const Card & card, int playerIndex) {
-	// Don't show card animation for the local player who played it
+	// In singleplayer, don't show card animations at all
+	if (!isMultiplayer) {
+		return;
+	}
+	
+	// In multiplayer: Don't show card animation for the local player who played it
 	if (playerIndex >= 0 && playerIndex < (int)players.size()) {
 		int playingPlayerID = players[playerIndex].playerID;
-		if (!isMultiplayer && playingPlayerID == 0) {
-			return; // Don't show animation for local player in single-player
-		}
-		if (isMultiplayer && playingPlayerID == myLocalPlayerID) {
+		if (playingPlayerID == myLocalPlayerID) {
 			return; // Don't show animation for local player in multiplayer
 		}
 	}
