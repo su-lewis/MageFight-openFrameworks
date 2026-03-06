@@ -2745,10 +2745,10 @@ void ofApp::drawSingleplayerMenu() {
 	float centerX = ofGetWidth() / 2.0f;
 	float startY = ofGetHeight() / 2.0f - btnHeight;
 
-	// Layout: Continue, Load, New Game, Back
-	singleplayerContinueButton.set(centerX - btnWidth / 2, startY, btnWidth, btnHeight);
-	singleplayerLoadButton.set(centerX - btnWidth / 2, startY + btnHeight + 18, btnWidth, btnHeight);
-	singleplayerNewGameButton.set(centerX - btnWidth / 2, startY + (btnHeight + 18) * 2, btnWidth, btnHeight);
+	// Layout: New Game, Continue, Load, Back
+	singleplayerNewGameButton.set(centerX - btnWidth / 2, startY, btnWidth, btnHeight);
+	singleplayerContinueButton.set(centerX - btnWidth / 2, startY + btnHeight + 18, btnWidth, btnHeight);
+	singleplayerLoadButton.set(centerX - btnWidth / 2, startY + (btnHeight + 18) * 2, btnWidth, btnHeight);
 	singleplayerBackButton.set(centerX - btnWidth / 2, startY + (btnHeight + 18) * 3, btnWidth, btnHeight);
 
 	auto drawBtn = [&](const ofRectangle & r, const string & txt) {
@@ -2789,9 +2789,9 @@ void ofApp::drawSingleplayerMenu() {
 		// ignore filesystem errors
 	}
 
+	drawBtn(singleplayerNewGameButton, "New Game");
 	drawBtn(singleplayerContinueButton, contText);
 	drawBtn(singleplayerLoadButton, "Load");
-	drawBtn(singleplayerNewGameButton, "New Game");
 	drawBtn(singleplayerBackButton, "Back");
 
 	// Short customization hint
@@ -9832,16 +9832,16 @@ void ofApp::drawGame() {
 	if (turnTimerEnabled && currentState == STATE_GAMEPLAY && currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) {
 		float elapsedSeconds = ofGetElapsedTimef() - turnStartTime;
 		float progress = std::min(1.0f, elapsedSeconds / turnDurationSeconds); // 0 to 1
-		
+
 		// Bar dimensions: stretch from left to right, thin at top
 		float barHeight = 8 * scale;
 		float barWidth = ofGetWidth();
 		float barY = 0;
-		
+
 		// Background (full bar, dark)
 		ofSetColor(30, 30, 40, 180);
 		ofDrawRectangle(0, barY, barWidth, barHeight);
-		
+
 		// Progress fill - color transitions from green -> yellow -> red based on progress
 		ofColor barColor;
 		if (progress < 0.5f) {
@@ -9855,7 +9855,7 @@ void ofApp::drawGame() {
 		}
 		ofSetColor(barColor);
 		ofDrawRectangle(0, barY, barWidth * progress, barHeight);
-		
+
 		// Border
 		ofNoFill();
 		ofSetColor(100, 100, 120, 200);
@@ -21316,7 +21316,7 @@ void ofApp::createCardDisplay(const Card & card, int playerIndex) {
 	if (!isMultiplayer) {
 		return;
 	}
-	
+
 	// In multiplayer: Don't show card animation for the local player who played it
 	if (playerIndex >= 0 && playerIndex < (int)players.size()) {
 		int playingPlayerID = players[playerIndex].playerID;
