@@ -10381,10 +10381,10 @@ void ofApp::drawGame() {
 		// Position these relative to the opponent's health bar: top-left, stacked below the HP counter
 		// Left-align P1 statuses to the health bar start (top-left area)
 		float p1_statusXStart = p1_healthX + 5 * scale;
-		// Account for stacked form bars below the health bar so statuses sit on top of them
+		// Account for stacked form bars below the health bar so statuses sit above them
 		int p1_formsBelow = (opponentPlayer->inTortoiseForm ? 1 : 0) + (opponentPlayer->inGhostForm ? 1 : 0);
 		float p1_totalFormsHeight = p1_formsBelow * (formBarHeight + formSpacing);
-		float p1_statusY = p1_healthY + healthBarHeight + 10 * scale + p1_totalFormsHeight;
+		float p1_statusY = p1_healthY - 10 * scale - p1_totalFormsHeight; // start above the topmost form, same as P0
 
 		// Draw combined Luck (permanent + passive) for opponent
 		int opponentPlayerIndex = -1;
@@ -10404,11 +10404,11 @@ void ofApp::drawGame() {
 			ofRectangle luckBox = titleFont.getStringBoundingBox(luckText, 0, 0);
 			ofSetColor(ofColor::darkGreen);
 			ofPushMatrix();
-			ofTranslate(p1_statusXStart, p1_statusY + (luckBox.height * smallFontScale));
+			ofTranslate(p1_statusXStart, p1_statusY);
 			ofScale(smallFontScale, smallFontScale);
 			titleFont.drawString(luckText, 0, 0);
 			ofPopMatrix();
-			p1_statusY += (luckBox.height * smallFontScale) + (5 * scale);
+			p1_statusY -= (luckBox.height * smallFontScale) + (5 * scale);
 		}
 
 		// --- NEW STATUSES ---
@@ -10418,11 +10418,11 @@ void ofApp::drawGame() {
 			ofRectangle d10Box = titleFont.getStringBoundingBox(d10Text, 0, 0);
 			ofSetColor(ofColor::white);
 			ofPushMatrix();
-			ofTranslate(p1_statusXStart, p1_statusY + (d10Box.height * smallFontScale));
+			ofTranslate(p1_statusXStart, p1_statusY);
 			ofScale(smallFontScale, smallFontScale);
 			titleFont.drawString(d10Text, 0, 0);
 			ofPopMatrix();
-			p1_statusY += (d10Box.height * smallFontScale) + (5 * scale);
+			p1_statusY -= (d10Box.height * smallFontScale) + (5 * scale);
 		}
 
 		if (opponentPlayer->strengthenElementsTurnsRemaining > 0) {
@@ -10430,11 +10430,11 @@ void ofApp::drawGame() {
 			ofRectangle elemBox = titleFont.getStringBoundingBox(elemText, 0, 0);
 			ofSetColor(ofColor::orange);
 			ofPushMatrix();
-			ofTranslate(p1_statusXStart, p1_statusY + (elemBox.height * smallFontScale));
+			ofTranslate(p1_statusXStart, p1_statusY);
 			ofScale(smallFontScale, smallFontScale);
 			titleFont.drawString(elemText, 0, 0);
 			ofPopMatrix();
-			p1_statusY += (elemBox.height * smallFontScale) + (5 * scale);
+			p1_statusY -= (elemBox.height * smallFontScale) + (5 * scale);
 		}
 
 		if (opponentPlayer->nextTurnAPBonus > 0) {
@@ -10442,11 +10442,11 @@ void ofApp::drawGame() {
 			ofRectangle bonusBox = titleFont.getStringBoundingBox(bonusText, 0, 0);
 			ofSetColor(ofColor::green);
 			ofPushMatrix();
-			ofTranslate(p1_statusXStart, p1_statusY + (bonusBox.height * smallFontScale));
+			ofTranslate(p1_statusXStart, p1_statusY);
 			ofScale(smallFontScale, smallFontScale);
 			titleFont.drawString(bonusText, 0, 0);
 			ofPopMatrix();
-			p1_statusY += (bonusBox.height * smallFontScale) + (5 * scale);
+			p1_statusY -= (bonusBox.height * smallFontScale) + (5 * scale);
 		}
 
 		// Note: see comment above — remove in-AP status texts for these effects.
