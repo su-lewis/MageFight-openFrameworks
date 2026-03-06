@@ -10,6 +10,7 @@
 #include <glm/gtx/intersect.hpp>
 #include <limits>
 #include <new>
+#include <nlohmann/json.hpp>
 #include <queue>
 #include <random>
 #include <set>
@@ -32,6 +33,245 @@ int lastAutoScrollTurnUnit = -1;
 int lastHoveredUnit = -1;
 }
 
+// Helper converters for JSON
+static nlohmann::json cardToJson(const Card & c) {
+	nlohmann::json j;
+	j["name"] = c.name;
+	j["type"] = (int)c.type;
+	j["value"] = c.value;
+	j["numDice"] = c.numDice;
+	j["diceSides"] = c.diceSides;
+	j["damageType"] = (int)c.damageType;
+	j["cost"] = c.cost;
+	j["targeting"] = (int)c.targeting;
+	j["drawnThisTurn"] = c.drawnThisTurn;
+	j["isCopied"] = c.isCopied;
+	j["cardClass"] = c.cardClass;
+	j["currentScale"] = c.currentScale;
+	j["targetScale"] = c.targetScale;
+	j["currentPos"] = { c.currentPos.x, c.currentPos.y };
+	return j;
+}
+
+static Card jsonToCard(const nlohmann::json & j) {
+	Card c;
+	c.name = j.value("name", std::string());
+	c.type = (CardType)j.value("type", 0);
+	c.value = j.value("value", 0);
+	c.numDice = j.value("numDice", 0);
+	c.diceSides = j.value("diceSides", 0);
+	c.damageType = (DamageType)j.value("damageType", 0);
+	c.cost = j.value("cost", 0);
+	c.targeting = (TargetingType)j.value("targeting", 0);
+	c.drawnThisTurn = j.value("drawnThisTurn", false);
+	c.isCopied = j.value("isCopied", false);
+	c.cardClass = j.value("cardClass", 1);
+	c.currentScale = j.value("currentScale", 1.0f);
+	c.targetScale = j.value("targetScale", 1.0f);
+	if (j.contains("currentPos") && j["currentPos"].is_array() && j["currentPos"].size() == 2) {
+		c.currentPos.x = j["currentPos"][0].get<float>();
+		c.currentPos.y = j["currentPos"][1].get<float>();
+	}
+	return c;
+}
+
+bool ofApp::saveGameStateToFile(const std::string & path) {
+	try {
+		nlohmann::json j;
+		j["globalTurnCounter"] = globalTurnCounter;
+		j["currentPlayerIndex"] = currentPlayerIndex;
+		j["isMultiplayer"] = isMultiplayer;
+		// record host steam id if multiplayer
+		if (isMultiplayer) {
+			uint64_t hostId = 0;
+			if (isHost())
+				hostId = steamManager.getLocalSteamID().ConvertToUint64();
+			else
+				hostId = steamManager.getLocalSteamID().ConvertToUint64();
+			j["hostSteamID"] = hostId;
+		}
+
+		// Board
+		for (int x = 0; x < BOARD_WIDTH; ++x) {
+			for (int y = 0; y < BOARD_HEIGHT; ++y) {
+				nlohmann::json bt;
+				bt["hasPlayer"] = board[x][y].hasPlayer;
+				bt["hasWall"] = board[x][y].hasWall;
+				bt["isMagicWall"] = board[x][y].isMagicWall;
+				bt["isHighlighted"] = board[x][y].isHighlighted;
+				bt["isTargetable"] = board[x][y].isTargetable;
+				bt["isTargetPreview"] = board[x][y].isTargetPreview;
+				j["board"][x][y] = bt;
+			}
+		}
+
+		// Players
+		for (const auto & p : players) {
+			nlohmann::json pj;
+			pj["x"] = p.x;
+			pj["y"] = p.y;
+			pj["visualPos"] = { p.visualPos.x, p.visualPos.y, p.visualPos.z };
+			pj["health"] = p.health;
+			pj["maxHealth"] = p.maxHealth;
+			pj["block"] = p.block;
+			pj["ward"] = p.ward;
+			pj["playerID"] = p.playerID;
+			pj["ap"] = p.ap;
+			pj["isMinion"] = p.isMinion;
+			pj["ownerID"] = p.ownerID;
+			pj["nextTurnExtraDraw"] = p.nextTurnExtraDraw;
+			pj["nextTurnExtraDrawSetOnCycle"] = p.nextTurnExtraDrawSetOnCycle;
+			pj["summonedOnTurnCycle"] = p.summonedOnTurnCycle;
+			pj["summonOrder"] = p.summonOrder;
+
+			// Piles
+			for (const auto & c : p.hand)
+				pj["hand"].push_back(cardToJson(c));
+			for (const auto & c : p.deck)
+				pj["deck"].push_back(cardToJson(c));
+			for (const auto & c : p.discardPile)
+				pj["discard"].push_back(cardToJson(c));
+			for (const auto & c : p.playedCardsPile)
+				pj["playedPile"].push_back((int)c.type);
+
+			j["players"].push_back(pj);
+		}
+
+		// Graveyard (serialize minimal)
+		for (const auto & g : graveyard) {
+			nlohmann::json gj;
+			gj["x"] = g.x;
+			gj["y"] = g.y;
+			gj["turnDied"] = g.turnDied;
+			j["graveyard"].push_back(gj);
+		}
+
+		// Serialize gameplay RNG state
+		try {
+			std::ostringstream sstr;
+			sstr << gameplayRNG;
+			j["gameplayRNG"] = sstr.str();
+		} catch (...) {
+			ofLogWarning("Save") << "Failed to serialize gameplayRNG; continuing without it.";
+		}
+
+		// Write file
+		std::ofstream ofs(path);
+		if (!ofs) return false;
+		ofs << j.dump(2);
+		ofs.close();
+		ofLogNotice("Save") << "Saved game state to " << path;
+		return true;
+	} catch (const std::exception & e) {
+		ofLogWarning("Save") << "Exception saving state: " << e.what();
+		return false;
+	}
+}
+
+bool ofApp::loadGameStateFromFile(const std::string & path) {
+	try {
+		std::ifstream ifs(path);
+		if (!ifs) return false;
+		nlohmann::json j;
+		ifs >> j;
+
+		// If multiplayer, only host should load authoritative states and ensure steam id matches
+		if (isMultiplayer) {
+			if (!isHost()) {
+				ofLogWarning("Save") << "Only host may load saved game state in multiplayer.";
+				return false;
+			}
+			if (j.contains("hostSteamID")) {
+				uint64_t hostIdSaved = j.value("hostSteamID", (uint64_t)0);
+				uint64_t myId = steamManager.getLocalSteamID().ConvertToUint64();
+				if (hostIdSaved != 0 && hostIdSaved != myId) {
+					ofLogWarning("Save") << "Saved game host SteamID doesn't match local host. Aborting load.";
+					return false;
+				}
+			}
+		}
+
+		// Restore simple globals
+		globalTurnCounter = j.value("globalTurnCounter", globalTurnCounter);
+		currentPlayerIndex = j.value("currentPlayerIndex", currentPlayerIndex);
+
+		// Restore gameplay RNG state if present
+		if (j.contains("gameplayRNG") && j["gameplayRNG"].is_string()) {
+			try {
+				std::istringstream istr(j["gameplayRNG"].get<std::string>());
+				istr >> gameplayRNG;
+				ofLogNotice("Save") << "Restored gameplayRNG state from save.";
+			} catch (...) {
+				ofLogWarning("Save") << "Failed to restore gameplayRNG state from save.";
+			}
+		}
+
+		// Restore board flags
+		if (j.contains("board")) {
+			for (int x = 0; x < BOARD_WIDTH; ++x) {
+				for (int y = 0; y < BOARD_HEIGHT; ++y) {
+					if (j["board"].contains(std::to_string(x)) && j["board"][std::to_string(x)].contains(std::to_string(y))) {
+						auto & bt = j["board"][std::to_string(x)][std::to_string(y)];
+						board[x][y].hasPlayer = bt.value("hasPlayer", false);
+						board[x][y].hasWall = bt.value("hasWall", false);
+						board[x][y].isMagicWall = bt.value("isMagicWall", false);
+						board[x][y].isHighlighted = bt.value("isHighlighted", false);
+						board[x][y].isTargetable = bt.value("isTargetable", false);
+						board[x][y].isTargetPreview = bt.value("isTargetPreview", false);
+					}
+				}
+			}
+		}
+
+		// Restore players
+		players.clear();
+		if (j.contains("players") && j["players"].is_array()) {
+			for (const auto & pj : j["players"]) {
+				Player p;
+				p.x = pj.value("x", 0);
+				p.y = pj.value("y", 0);
+				if (pj.contains("visualPos") && pj["visualPos"].is_array() && pj["visualPos"].size() == 3) {
+					p.visualPos.x = pj["visualPos"][0].get<float>();
+					p.visualPos.y = pj["visualPos"][1].get<float>();
+					p.visualPos.z = pj["visualPos"][2].get<float>();
+				}
+				p.health = pj.value("health", p.health);
+				p.maxHealth = pj.value("maxHealth", p.maxHealth);
+				p.block = pj.value("block", p.block);
+				p.ward = pj.value("ward", p.ward);
+				p.playerID = pj.value("playerID", p.playerID);
+				p.ap = pj.value("ap", p.ap);
+				p.isMinion = pj.value("isMinion", p.isMinion);
+				p.ownerID = pj.value("ownerID", p.ownerID);
+				p.nextTurnExtraDraw = pj.value("nextTurnExtraDraw", p.nextTurnExtraDraw);
+				p.nextTurnExtraDrawSetOnCycle = pj.value("nextTurnExtraDrawSetOnCycle", p.nextTurnExtraDrawSetOnCycle);
+				p.summonedOnTurnCycle = pj.value("summonedOnTurnCycle", p.summonedOnTurnCycle);
+				p.summonOrder = pj.value("summonOrder", p.summonOrder);
+
+				if (pj.contains("hand")) {
+					for (const auto & cj : pj["hand"])
+						p.hand.push_back(jsonToCard(cj));
+				}
+				if (pj.contains("deck")) {
+					for (const auto & cj : pj["deck"])
+						p.deck.push_back(jsonToCard(cj));
+				}
+				if (pj.contains("discard")) {
+					for (const auto & cj : pj["discard"])
+						p.discardPile.push_back(jsonToCard(cj));
+				}
+
+				players.push_back(p);
+			}
+		}
+
+		ofLogNotice("Save") << "Loaded game state from " << path;
+		return true;
+	} catch (const std::exception & e) {
+		ofLogWarning("Save") << "Exception loading state: " << e.what();
+		return false;
+	}
+}
 // Suppress warnings about unhandled enum values in switches across this file.
 
 void ofApp::startInitiativePhase() {
@@ -1973,6 +2213,9 @@ void ofApp::draw() {
 	case STATE_GAMEPLAY:
 		drawGame();
 		break;
+	case STATE_SINGLEPLAYER_MENU:
+		drawSingleplayerMenu();
+		break;
 	case STATE_PAUSED:
 		drawGame(); // Draw game underneath
 		// If we paused during draft or initiative, draw those underneath the pause menu too
@@ -2057,7 +2300,7 @@ void ofApp::drawMainMenu() {
 		uiFont.drawString(text, textX, textY);
 	};
 
-	drawButton(mainMenuPlayAIButton, "Play vs AI", mainMenuHoveredIndex == 0);
+	drawButton(mainMenuPlayAIButton, "Singleplayer", mainMenuHoveredIndex == 0);
 
 	// Logic: If we are already in a lobby, show "Invite", otherwise show "Host"
 	if (!steamManager.isConnected()) {
@@ -2321,6 +2564,65 @@ void ofApp::drawSettingsMenu() {
 	ofFill();
 	ofRectangle backBox = uiFont.getStringBoundingBox("Back", 0, 0);
 	uiFont.drawString("Back", settingsBackButton.getCenter().x - backBox.getWidth() / 2, settingsBackButton.getCenter().y + backBox.getHeight() / 2);
+}
+
+void ofApp::drawSingleplayerMenu() {
+	ofSetColor(ofColor::white);
+	string title = "Singleplayer";
+	ofRectangle titleBox = titleFont.getStringBoundingBox(title, 0, 0);
+	titleFont.drawString(title, ofGetWidth() / 2 - titleBox.getWidth() / 2, ofGetHeight() * 0.15);
+
+	float btnWidth = 420;
+	float btnHeight = 72;
+	float centerX = ofGetWidth() / 2.0f;
+	float startY = ofGetHeight() / 2.0f - btnHeight;
+
+	singleplayerContinueButton.set(centerX - btnWidth / 2, startY, btnWidth, btnHeight);
+	singleplayerNewGameButton.set(centerX - btnWidth / 2, startY + btnHeight + 18, btnWidth, btnHeight);
+	singleplayerBackButton.set(centerX - btnWidth / 2, startY + (btnHeight + 18) * 2, btnWidth, btnHeight);
+
+	auto drawBtn = [&](const ofRectangle & r, const string & txt) {
+		ofSetColor(ofColor::lightGray);
+		ofDrawRectRounded(r, 12);
+		ofSetColor(ofColor::black);
+		ofNoFill();
+		ofSetLineWidth(2);
+		ofDrawRectRounded(r, 12);
+		ofFill();
+		ofSetColor(ofColor::black);
+		ofRectangle tb = uiFont.getStringBoundingBox(txt, 0, 0);
+		uiFont.drawString(txt, r.getCenter().x - tb.getWidth() / 2, r.getCenter().y + tb.getHeight() / 2);
+	};
+
+	// Continue button shows autosave timestamp if available
+	std::string contText = "Continue";
+	std::string autosavePath = "autosave.json";
+	try {
+		namespace fs = std::filesystem;
+		if (fs::exists(autosavePath)) {
+			auto ftime = fs::last_write_time(autosavePath);
+			auto sctp = std::chrono::time_point_cast<std::chrono::system_clock::duration>(
+				ftime - fs::file_time_type::clock::now() + std::chrono::system_clock::now());
+			std::time_t tt = std::chrono::system_clock::to_time_t(sctp);
+			char buf[64];
+			std::strftime(buf, sizeof(buf), "%F %T", std::localtime(&tt));
+			contText += " (Last saved: ";
+			contText += buf;
+			contText += ")";
+		}
+	} catch (...) {
+		// ignore filesystem errors
+	}
+
+	drawBtn(singleplayerContinueButton, contText);
+	drawBtn(singleplayerNewGameButton, "New Game");
+	drawBtn(singleplayerBackButton, "Back");
+
+	// Short customization hint
+	string hint = "Customize rules and options after starting a New Game (placeholder)";
+	ofRectangle hb = uiFont.getStringBoundingBox(hint, 0, 0);
+	ofSetColor(200);
+	uiFont.drawString(hint, centerX - hb.getWidth() / 2, singleplayerBackButton.getBottom() + 36);
 }
 //--------------------------------------------------------------
 void ofApp::applySettings() {
@@ -9925,6 +10227,43 @@ void ofApp::drawGame() {
 		ofPopMatrix();
 	}
 
+	// --- Save / Load Buttons (small, to the right of End Turn) ---
+	// Hidden during active gameplay; visible in other states (pause/menu overlays)
+	if (currentState != STATE_GAMEPLAY) {
+		float smallW = 90 * scale;
+		float smallH = 28 * scale;
+		float gap = 12 * scale;
+		float left = endTurnButtonRect.getRight() + gap;
+		float top = endTurnButtonRect.getCenter().y - smallH - (gap / 2.0f);
+		saveGameButtonRect.set(left, top, smallW, smallH);
+		loadGameButtonRect.set(left, endTurnButtonRect.getCenter().y + (gap / 2.0f), smallW, smallH);
+
+		// Draw Save button
+		ofSetColor(isHoveringEndTurn ? ofColor(80, 140, 80) : ofColor(70, 130, 70));
+		ofDrawRectRounded(saveGameButtonRect, 6 * scale);
+		ofSetColor(ofColor::white);
+		float fs = fontScale * 0.6f;
+		ofPushMatrix();
+		ofTranslate(saveGameButtonRect.getCenter().x, saveGameButtonRect.getCenter().y + (uiFont.getStringBoundingBox("Save", 0, 0).height * fs / 2));
+		ofScale(fs, fs);
+		uiFont.drawString("Save", -uiFont.getStringBoundingBox("Save", 0, 0).width / 2, 0);
+		ofPopMatrix();
+
+		// Draw Load button
+		ofSetColor(isHoveringEndTurn ? ofColor(80, 80, 140) : ofColor(70, 70, 130));
+		ofDrawRectRounded(loadGameButtonRect, 6 * scale);
+		ofSetColor(ofColor::white);
+		ofPushMatrix();
+		ofTranslate(loadGameButtonRect.getCenter().x, loadGameButtonRect.getCenter().y + (uiFont.getStringBoundingBox("Load", 0, 0).height * fs / 2));
+		ofScale(fs, fs);
+		uiFont.drawString("Load", -uiFont.getStringBoundingBox("Load", 0, 0).width / 2, 0);
+		ofPopMatrix();
+	} else {
+		// When hidden, move rects offscreen to avoid accidental hits
+		saveGameButtonRect.set(-1000, -1000, 0, 0);
+		loadGameButtonRect.set(-1000, -1000, 0, 0);
+	}
+
 	// --- ASSISTANT AP REROLL BUTTON ---
 	if (players.size() > 0 && currentPlayerIndex != -1) {
 		Player & curr = players[currentPlayerIndex];
@@ -11240,11 +11579,15 @@ void ofApp::mouseMoved(int x, int y) {
 	bool overPauseMenuButton = false;
 	bool overMainMenuButton = false;
 	bool overSettingsButton = false;
+	bool overSingleplayerButton = false;
 	if (currentState == STATE_PAUSED) {
 		overPauseMenuButton = pauseMenuResumeButton.inside(x, y) || pauseMenuSettingsButton.inside(x, y) || pauseMenuQuitButton.inside(x, y);
 	}
 	if (currentState == STATE_MAIN_MENU) {
 		overMainMenuButton = mainMenuPlayAIButton.inside(x, y) || mainMenuMultiplayerButton.inside(x, y) || mainMenuSettingsButton.inside(x, y) || mainMenuQuitButton.inside(x, y);
+	}
+	if (currentState == STATE_SINGLEPLAYER_MENU) {
+		overSingleplayerButton = singleplayerContinueButton.inside(x, y) || singleplayerNewGameButton.inside(x, y) || singleplayerBackButton.inside(x, y);
 	}
 	if (currentState == STATE_SETTINGS) {
 		overSettingsButton = settingsBackButton.inside(x, y) || settingsResLeftButton.inside(x, y) || settingsResRightButton.inside(x, y) || settingsFullscreenButton.inside(x, y) || settingsTabVideoRect.inside(x, y) || settingsTabAudioRect.inside(x, y) || settingsTabGameRect.inside(x, y) || settingsTabControlsRect.inside(x, y) || settingsAudioVolumeSlider.inside(x, y) || settingsAudioMasterSlider.inside(x, y) || settingsAudioSfxSlider.inside(x, y);
@@ -11258,6 +11601,7 @@ void ofApp::mouseMoved(int x, int y) {
 		}()) {
 		currentCursor = CURSOR_CLICK;
 	}
+	if (overSingleplayerButton) currentCursor = CURSOR_CLICK;
 
 	// Check deck/discard hover for glow (for current player - works in both gameplay and drafting)
 	if (!players.empty() && currentPlayerIndex >= 0 && (currentState == STATE_GAMEPLAY || currentState == STATE_DRAFTING)) {
@@ -11967,6 +12311,36 @@ void ofApp::mousePressed(int x, int y, int button) {
 		mouseDownPos.set(x, y);
 	}
 
+	// Singleplayer menu button clicks
+	if (currentState == STATE_SINGLEPLAYER_MENU && button == OF_MOUSE_BUTTON_LEFT) {
+		if (singleplayerContinueButton.inside(x, y)) {
+			bool ok = loadGameStateFromFile("autosave.json");
+			if (ok) {
+				isMultiplayer = false;
+				currentState = STATE_GAMEPLAY;
+				buildLevelMesh();
+				buildFloorMesh();
+				invalidateTargetCache();
+				clearHighlights();
+				calculateTargetHighlights();
+				addGameLog("Loaded autosave and resumed singleplayer.");
+			} else {
+				addGameLog("No autosave to continue.");
+			}
+			return;
+		}
+		if (singleplayerNewGameButton.inside(x, y)) {
+			isMultiplayer = false;
+			isLoadingGame = true; // setupGame will be called by update loop
+			currentState = STATE_GAMEPLAY;
+			return;
+		}
+		if (singleplayerBackButton.inside(x, y)) {
+			currentState = STATE_MAIN_MENU;
+			return;
+		}
+	}
+
 	// Handle chat clicking (if chat is visible)
 	if ((currentState == STATE_GAMEPLAY || currentState == STATE_DRAFTING) && button == OF_MOUSE_BUTTON_LEFT) {
 		float currentTime = ofGetElapsedTimef();
@@ -12282,6 +12656,43 @@ void ofApp::mousePressed(int x, int y, int button) {
 		}
 		// Click consumed
 		return;
+	}
+
+	// Handle Save/Load HUD clicks (left mouse) — only when buttons are visible
+	if (button == OF_MOUSE_BUTTON_LEFT && currentState != STATE_GAMEPLAY) {
+		if (saveGameButtonRect.inside(x, y)) {
+			if (isMultiplayer && !isHost()) {
+				addGameLog("Save is host-only in multiplayer.");
+				return;
+			}
+			bool ok = saveGameStateToFile("autosave.json");
+			if (ok) {
+				addGameLog("Game saved to autosave.json");
+				// If host in multiplayer, broadcast snapshot to clients as authoritative state
+				if (isMultiplayer && isHost()) sendSnapshotToClient();
+			} else {
+				addGameLog("Failed to save game state.");
+			}
+			return;
+		}
+		if (loadGameButtonRect.inside(x, y)) {
+			if (isMultiplayer && !isHost()) {
+				addGameLog("Load is host-only in multiplayer.");
+				return;
+			}
+			bool ok = loadGameStateFromFile("autosave.json");
+			if (ok) {
+				addGameLog("Loaded autosave.json");
+				// Host should broadcast state so clients can resume
+				if (isMultiplayer && isHost()) {
+					sendSnapshotToClient();
+					addGameLog("Broadcasted snapshot to clients.");
+				}
+			} else {
+				addGameLog("Failed to load autosave.json");
+			}
+			return;
+		}
 	}
 
 	// Allow pile view interactions even during draft
@@ -15337,8 +15748,9 @@ void ofApp::mousePressed(int x, int y, int button) {
 
 	case STATE_MAIN_MENU: {
 		if (mainMenuPlayAIButton.inside(x, y)) {
-			isLoadingGame = true;
-			isMultiplayer = false; // Ensure single player mode
+			// Open the Singleplayer submenu rather than immediately starting
+			currentState = STATE_SINGLEPLAYER_MENU;
+			break;
 		}
 		// ADD STEAM HOST LOGIC
 		else if (mainMenuHostButton.inside(x, y)) {
@@ -16328,6 +16740,22 @@ void ofApp::keyPressed(int key) {
 				return;
 			}
 		}
+		return;
+	}
+
+	// Hotkeys for save/load game state (R = restore autosave)
+	if ((key == 'r' || key == 'R') && currentState == STATE_GAMEPLAY) {
+		// Only allow restoring from autosave for host or singleplayer
+		if (isMultiplayer && !isHost()) {
+			ofLogWarning("Save") << "Only host can restore saved game state in multiplayer.";
+			return;
+		}
+		bool ok = loadGameStateFromFile("autosave.json");
+		if (ok)
+			ofLogNotice("Save") << "Loaded autosave.json";
+		else
+			ofLogWarning("Save") << "Failed to load autosave.json";
+		return;
 	}
 
 	// Toggle pixel-art mode (P)
@@ -16650,6 +17078,18 @@ void ofApp::startNewTurn() {
 	// does not prematurely send PKT_TURN_START to clients.
 	isHandlingTurnStartEffects = true;
 	ofLogNotice("Turn") << "startNewTurn() called. isMultiplayer=" << isMultiplayer << " currentPlayerIndex=" << currentPlayerIndex << " myLocalPlayerID=" << myLocalPlayerID << " isCurrentPlayerLocal()=" << isCurrentPlayerLocal();
+
+	// Autosave full game state at the start of every new turn so host/clients
+	// can recover if someone crashes. Also useful for singleplayer saves.
+	// Primary autosave path (overwritten each turn)
+	try {
+		saveGameStateToFile("autosave.json");
+		// Also write a turn-stamped file for manual inspection
+		std::string stamped = "autosave_turn_" + std::to_string(globalTurnCounter) + ".json";
+		saveGameStateToFile(stamped);
+	} catch (...) {
+		ofLogWarning("Save") << "Failed to autosave game state at turn start.";
+	}
 
 	// If it was MY turn and I am ending it:
 	if (isMultiplayer && isCurrentPlayerLocal()) {

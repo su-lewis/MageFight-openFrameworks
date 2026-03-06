@@ -40,6 +40,7 @@ enum GameState {
 	STATE_PAUSED,
 	STATE_INITIATIVE_ROLL, // <--- New
 	STATE_DRAFTING, // <--- New
+	STATE_SINGLEPLAYER_MENU,
 	STATE_DESYNC // Desync detected; abort match
 };
 
@@ -1003,6 +1004,18 @@ private:
 	ofRectangle mainMenuHostButton;
 	ofRectangle mainMenuInviteButton;
 
+	// Save/Load UI buttons (gameplay HUD)
+	ofRectangle saveGameButtonRect;
+	ofRectangle loadGameButtonRect;
+
+	// Singleplayer menu UI
+	ofRectangle singleplayerContinueButton;
+	ofRectangle singleplayerNewGameButton;
+	ofRectangle singleplayerBackButton;
+
+	// Draw singleplayer menu
+	void drawSingleplayerMenu();
+
 	// Settings tabs
 	enum SettingsTab {
 		SETTINGS_TAB_VIDEO = 0,
@@ -1048,6 +1061,10 @@ private:
 	// Persistence helpers
 	void loadSettings();
 	void saveSettings();
+
+	// Save / Load full game state (JSON)
+	bool saveGameStateToFile(const std::string & path);
+	bool loadGameStateFromFile(const std::string & path);
 
 	// Helper to know if we are waiting in a lobby
 	bool isInLobby = false;
