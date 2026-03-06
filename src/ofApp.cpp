@@ -11037,40 +11037,18 @@ void ofApp::drawGame() {
 	// --- DOUBLE HANDED TARGETING INSTRUCTION TEXT ---
 	if (isTargetingDoubleHanded) {
 		string msg = "Double Handed: Choose target (2x " + pendingDoubleHandedChoice + ")";
-		ofRectangle bbox = titleFont.getStringBoundingBox(msg, 0, 0);
-		float tx = (ofGetWidth() / 2.0f) - (bbox.width / 2.0f);
-		float ty = ofGetHeight() * 0.25f;
-
-		ofSetColor(0, 0, 0, 255);
-		titleFont.drawString(msg, tx + 2, ty + 2);
-		ofSetColor(ofColor::green);
-		titleFont.drawString(msg, tx, ty);
+		drawInstructionText(msg);
 	}
 
 	// --- AMNESIA TARGETING INSTRUCTION TEXT ---
 	if (isTargetingAmnesia) {
-		string msg = "Amnesia: Choose adjacent unit";
-		ofRectangle bbox = titleFont.getStringBoundingBox(msg, 0, 0);
-		float tx = (ofGetWidth() / 2.0f) - (bbox.width / 2.0f);
-		float ty = ofGetHeight() * 0.25f;
-
-		ofSetColor(0, 0, 0, 255);
-		titleFont.drawString(msg, tx + 2, ty + 2);
-		ofSetColor(ofColor::magenta);
-		titleFont.drawString(msg, tx, ty);
+		drawInstructionText("Amnesia: Choose adjacent unit");
 	}
 
 	// --- TELEPORT TARGETING INSTRUCTION TEXT ---
 	if (isTargetingTeleport) {
 		string msg = "Teleport: Choose destination (Range: " + ofToString(pendingTeleportRollResult) + " ft)";
-		ofRectangle bbox = titleFont.getStringBoundingBox(msg, 0, 0);
-		float tx = (ofGetWidth() / 2.0f) - (bbox.width / 2.0f);
-		float ty = ofGetHeight() * 0.25f;
-
-		ofSetColor(0, 0, 0, 255);
-		titleFont.drawString(msg, tx + 2, ty + 2);
-		ofSetColor(ofColor::cyan);
-		titleFont.drawString(msg, tx, ty);
+		drawInstructionText(msg);
 	}
 
 	// --- DICE ROLL RESULT TEXT ---
@@ -11090,14 +11068,7 @@ void ofApp::drawGame() {
 	// FIX: Added Burst Targeting Instructions
 	if (isTargetingBurst) {
 		string msg = (burstChoice == 0) ? "Burst of Light: Choose enemy (3 Holy)" : "Burst of Light: Choose ally (3 HP)";
-		ofRectangle bbox = titleFont.getStringBoundingBox(msg, 0, 0);
-		float tx = (ofGetWidth() / 2.0f) - (bbox.width / 2.0f);
-		float ty = ofGetHeight() * 0.25f;
-
-		ofSetColor(0, 0, 0, 255);
-		titleFont.drawString(msg, tx + 2, ty + 2);
-		ofSetColor(burstChoice == 0 ? ofColor::orange : ofColor::green);
-		titleFont.drawString(msg, tx, ty);
+		drawInstructionText(msg);
 	}
 
 	// --- GENERIC CARD TARGETING INSTRUCTION ---
@@ -11108,14 +11079,7 @@ void ofApp::drawGame() {
 		if (selectedCardIndex < (int)currentPlayer.hand.size()) {
 			Card & selectedCard = currentPlayer.hand[selectedCardIndex];
 			string msg = selectedCard.name + ": Choose target";
-			ofRectangle bbox = titleFont.getStringBoundingBox(msg, 0, 0);
-			float tx = (ofGetWidth() / 2.0f) - (bbox.width / 2.0f);
-			float ty = ofGetHeight() * 0.25f;
-
-			ofSetColor(0, 0, 0, 255);
-			titleFont.drawString(msg, tx + 2, ty + 2);
-			ofSetColor(ofColor::cyan);
-			titleFont.drawString(msg, tx, ty);
+			drawInstructionText(msg);
 		}
 	}
 
@@ -11176,17 +11140,7 @@ void ofApp::drawGame() {
 	// --- RENEWED INSPIRATION UI (Text & Buttons) ---
 	if (isSelectingRenewedInspiration) {
 		// 1. Draw Top Instruction Text
-		string msg = "Select cards to discard (Draw 2 each)";
-		ofRectangle bbox = titleFont.getStringBoundingBox(msg, 0, 0);
-		float tx = (ofGetWidth() / 2.0f) - (bbox.width / 2.0f);
-		float ty = ofGetHeight() * 0.25f;
-
-		// Shadow
-		ofSetColor(0, 0, 0, 255);
-		titleFont.drawString(msg, tx + 2, ty + 2);
-		// Text
-		ofSetColor(ofColor::lightGreen);
-		titleFont.drawString(msg, tx, ty);
+		drawInstructionText("Select cards to discard (Draw 2 each)");
 
 		// 2. Draw Control Panel (Background for Buttons)
 		float panelW = 240;
@@ -22776,6 +22730,20 @@ void ofApp::drawDispelUI() {
 			uiFont.drawString(label, statusSelectButtons[i].getCenter().x - labelBox.width / 2, statusSelectButtons[i].getCenter().y + labelBox.height / 2);
 		}
 	}
+}
+//--------------------------------------------------------------
+void ofApp::drawInstructionText(const string& message, ofColor color) {
+	ofRectangle bbox = titleFont.getStringBoundingBox(message, 0, 0);
+	float tx = (ofGetWidth() / 2.0f) - (bbox.width / 2.0f);
+	float ty = ofGetHeight() * 0.25f;
+
+	// Draw shadow
+	ofSetColor(0, 0, 0, 255);
+	titleFont.drawString(message, tx + 2, ty + 2);
+	
+	// Draw main text
+	ofSetColor(color);
+	titleFont.drawString(message, tx, ty);
 }
 //--------------------------------------------------------------
 void ofApp::drawDoubleHandedUI() {

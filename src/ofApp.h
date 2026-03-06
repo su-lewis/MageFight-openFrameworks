@@ -1649,6 +1649,8 @@ private:
 	void drawCardEncyclopediaUI();
 	// UI Functions
 	void drawMagicHandUI();
+	// Helper to draw centered instruction text with shadow
+	void drawInstructionText(const std::string& message, ofColor color = ofColor::white);
 	// Cancel any active targeting modes/menus and reset related state
 	void cancelAllTargeting();
 	void resolveMagicHandPull();
