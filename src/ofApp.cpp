@@ -3631,26 +3631,31 @@ void ofApp::updateGame() {
 		// P0 AP center is at: ofGetHeight() - cardHeight - 20 - cardHeight - 20 - 60 = ofGetHeight() - ~546 * scale
 		// Luck text is above that, so bottom limit should be around ofGetHeight() - 600 * scale
 		// Minion UI region: occupy the vertical space from near top down to just above the local discard/AP area
-		float p0_topLimitY = 20 * scale; // near top of screen
-		float p0_bottomLimitY = std::max(p0_topLimitY + 50.0f * scale, p0_discardRect.y - (40.0f * scale)); // stop above local discard/AP
+		// Compute a safe top margin so UI outlines/glow aren't clipped at the very top
+		float topSafe = std::max(20.0f * scale, (6.0f + 2.0f + 3.0f) * scale);
+		float p0_topLimitY = topSafe; // near top of screen
+		// Allow minion UI to extend slightly closer to the AP/discard area (smaller gap)
+		float p0_bottomLimitY = std::max(p0_topLimitY + 50.0f * scale, p0_discardRect.y - (30.0f * scale)); // stop above local discard/AP
 		// Avoid overlapping the AP counter: estimate AP top and clamp bottom limit
 		{
 			float estimatedAPHeight = (titleFont.getLineHeight() * scale) + (20.0f * scale);
 			float estimatedAPTop = p0_discardRect.y - (10.0f * scale) - estimatedAPHeight;
-			p0_bottomLimitY = std::min(p0_bottomLimitY, estimatedAPTop - (6.0f * scale));
+			// Reduce buffer so minion UI can extend a little further downward
+			p0_bottomLimitY = std::min(p0_bottomLimitY, estimatedAPTop - (3.0f * scale));
 		}
 
 		// Player 1 (right side): Below P1's AP counter (and luck text), above P0's HP bar
 		// P1 AP center is at: 20 + cardHeight + 20 + cardHeight + 60 = ~546 * scale
 		// Plus half AP box height (~40) + luck text = ~620 * scale minimum
 		// Opponent minion region mirrored on right side: top area down to just above opponent discard/AP
-		float p1_topLimitY = 20 * scale;
-		float p1_bottomLimitY = std::max(p1_topLimitY + 50.0f * scale, p1_discardRect.y - (40.0f * scale));
+		float p1_topLimitY = topSafe;
+		float p1_bottomLimitY = std::max(p1_topLimitY + 50.0f * scale, p1_discardRect.y - (30.0f * scale));
 		// Mirror for opponent AP box
 		{
 			float estimatedAPHeight = (titleFont.getLineHeight() * scale) + (20.0f * scale);
 			float estimatedAPTop = p1_discardRect.y - (10.0f * scale) - estimatedAPHeight;
-			p1_bottomLimitY = std::min(p1_bottomLimitY, estimatedAPTop - (6.0f * scale));
+			// Mirror the reduced buffer for the opponent side as well
+			p1_bottomLimitY = std::min(p1_bottomLimitY, estimatedAPTop - (3.0f * scale));
 		}
 
 		// 2. SEPARATE MINIONS BY OWNER (Accounting for perspective in multiplayer)
@@ -3945,7 +3950,8 @@ void ofApp::updateGame() {
 	float visibleY = 20 * scale;
 	// Ensure visibleY leaves room for the end-turn glow (glow = 6.0f * scale)
 	float glowMargin = 6.0f * scale + 2.0f * scale;
-	visibleY = std::max(visibleY, glowMargin);
+	// Add stroke width margin so outlines / borders don't get clipped at the top
+	visibleY = std::max(visibleY, glowMargin + (3.0f * scale));
 	float hiddenY = -100 * scale;
 
 	// Show end turn button / turn indicator
@@ -10453,7 +10459,8 @@ void ofApp::drawGame() {
 		float btnWidth_tmp = 250 * scale;
 		float visibleY = 20 * scale;
 		float glowMargin = 6.0f * scale + 2.0f * scale;
-		visibleY = std::max(visibleY, glowMargin);
+		// Ensure extra room for stroke/glow so top outlines aren't clipped
+		visibleY = std::max(visibleY, glowMargin + (3.0f * scale));
 		float hiddenY = -100 * scale;
 		bool myTurn = isMyTurn();
 		if (myTurn)
@@ -15493,7 +15500,12 @@ void ofApp::mousePressed(int x, int y, int button) {
 							// Check for key pickup on first wolf's tile
 							checkKeyPickupAndDraftAfterSummon(gx, gy, wolf.ownerID);
 
-							// Do NOT turn off isPlacingWolves yet.
+							// Start a single coin flip to determine if the second wolf can be placed.
+							// This sets the global waiting flag so the dice result handler resolves the outcome.
+							startDiceRoll(1, 2, PURPOSE_COIN_FLIP, "Call for Wolves Coin", currentPlayerIndex);
+							isWaitingForWolfCoin = true;
+
+							// Do NOT turn off isPlacingWolves yet; wait for coin result to decide next step.
 						} else if (wolfSummonStage == 2) {
 							// Second wolf placed. We are done.
 							isPlacingWolves = false;
@@ -16812,8 +16824,39 @@ void ofApp::mouseReleased(int x, int y, int button) {
 
 							// If no valid targets, reject the card play
 							if (validTargetCount == 0) {
-								ofLogWarning("CardPlay") << "No valid targets for " << playedCard.name;
-								spawnFloatingText(gridToWorld(currentPlayer.x, currentPlayer.y), "No valid targets", ofColor::red);
+								// Fallback: some units (minions) may not have been marked targetable
+								// due to timing or special-case logic. For simple adjacent-target cards
+								// (e.g. Shock), consider any adjacent unit (except the caster) as a
+								// valid target so friendly minions can be targeted.
+								bool foundFallbackTarget = false;
+								if (playedCard.targeting == TARGET_ADJACENT_UNIT || playedCard.targeting == TARGET_ADJACENT_UNIT_OR_WALL || playedCard.targeting == TARGET_ADJACENT_OR_SELF_UNIT) {
+									int px = currentPlayer.x;
+									int py = currentPlayer.y;
+									for (int dx = -1; dx <= 1 && !foundFallbackTarget; ++dx) {
+										for (int dy = -1; dy <= 1; ++dy) {
+											if (abs(dx) + abs(dy) != 1) continue; // only orthogonal neighbors
+											int nx = px + dx;
+											int ny = py + dy;
+											if (nx >= 0 && nx < BOARD_WIDTH && ny >= 0 && ny < BOARD_HEIGHT) {
+												if (board[nx][ny].hasPlayer) {
+													foundFallbackTarget = true;
+													break;
+												}
+											}
+										}
+									}
+								}
+								if (!foundFallbackTarget) {
+									ofLogWarning("CardPlay") << "No valid targets for " << playedCard.name;
+									spawnFloatingText(gridToWorld(currentPlayer.x, currentPlayer.y), "No valid targets", ofColor::red);
+									draggedCardIndex = -1;
+									selectedCardIndex = -1;
+									calculateTargetHighlights(); // Clear highlights
+									return;
+								} else {
+									// Treat as if we found a valid target so UI enters targeting mode
+									validTargetCount = 1;
+								}
 								draggedCardIndex = -1;
 								selectedCardIndex = -1;
 								calculateTargetHighlights(); // Clear highlights
@@ -17499,7 +17542,7 @@ void ofApp::windowResized(int w, int h) {
 	float btnWidth = 250 * scale;
 	float visibleY = 20 * scale;
 	float glowMargin = 6.0f * scale + 2.0f * scale;
-	visibleY = std::max(visibleY, glowMargin);
+	visibleY = std::max(visibleY, glowMargin + (3.0f * scale));
 	float hiddenY = -100 * scale;
 
 	bool showEndTurnButton = false;
@@ -21042,12 +21085,19 @@ CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 	// --- CASE: SHOCK ---
 	case CARD_SHOCK: {
 		int targetIndex = -1;
+		// Prefer a non-self occupant if multiple units share the tile (ghost overlap)
+		int fallbackIndex = -1;
 		for (size_t i = 0; i < players.size(); i++) {
 			if (players[i].x == targetX && players[i].y == targetY) {
-				targetIndex = (int)i;
-				break;
+				if ((int)i != currentPlayerIndex) {
+					targetIndex = (int)i; // non-self preferred
+					break;
+				} else {
+					fallbackIndex = (int)i; // remember self in case no other found
+				}
 			}
 		}
+		if (targetIndex == -1) targetIndex = fallbackIndex;
 		if (targetIndex != -1) {
 			Player * target = getPlayer(targetIndex);
 			applyDamageTo(*target, playedCard.value, DAMAGE_ELECTRIC, currentPlayerIndex);
@@ -22025,6 +22075,21 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 				break;
 			}
 
+			// If the tile is occupied, ensure the occupant is NOT the caster itself.
+			if (isValidTarget && board[x][y].hasPlayer && currentPlayerIndex >= 0) {
+				bool hasOtherOccupant = false;
+				for (size_t pi = 0; pi < players.size(); ++pi) {
+					if ((int)pi == currentPlayerIndex) continue;
+					if (players[pi].x == x && players[pi].y == y) {
+						hasOtherOccupant = true;
+						break;
+					}
+				}
+				if (!hasOtherOccupant) {
+					// Only occupant is caster; not a valid non-self target
+					isValidTarget = false;
+				}
+			}
 			if (isPreview) board[x][y].isTargetPreview = true; // Red
 			if (isValidTarget && hasEnoughAP) board[x][y].isTargetable = true; // Green
 		}
@@ -25202,6 +25267,26 @@ TargetInfo ofApp::isLosTargetValid(glm::vec2 casterTile, glm::vec2 targetTile, f
 
 	// --- 0. BASIC SANITY CHECKS ---
 	if (casterTile == targetTile) {
+		// Special-case: if the caster is in Ghost form and shares the tile with
+		// another unit (i.e. occupant count > ghost occupant count), allow
+		// targeting the other unit when clicking the caster tile. Otherwise
+		// treat as invalid self-target.
+		int occupants = 0;
+		int ghostOccupants = 0;
+		for (size_t i = 0; i < players.size(); ++i) {
+			if (players[i].x == (int)casterTile.x && players[i].y == (int)casterTile.y) {
+				occupants++;
+				if (players[i].inGhostForm) ghostOccupants++;
+			}
+		}
+		if (ghostOccupants > 0 && occupants > ghostOccupants) {
+			// There is at least one ghost and at least one other occupant;
+			// allow targeting the other occupant via this tile click.
+			result.reason = VALID;
+			result.isTargetable = true;
+			return result;
+		}
+
 		result.reason = INVALID_SELF;
 		return result;
 	}
@@ -30333,19 +30418,33 @@ bool ofApp::validateActionPacketOnHost(const ActionPacket & pkt, std::string & r
 	case CARD_DEATH:
 	case CARD_CHAIN_LIGHTNING:
 	case CARD_FIREBALL: {
-		// Disallow targeting a wall tile for these ranged/damage cards (Magic Bolt etc.)
+		// Disallow targeting a wall tile only when it does NOT contain a unit.
 		if (tx >= 0 && tx < BOARD_WIDTH && ty >= 0 && ty < BOARD_HEIGHT) {
-			if (board[tx][ty].hasWall) {
+			if (board[tx][ty].hasWall && !board[tx][ty].hasPlayer) {
 				reason = "Play rejected - cannot target wall";
 				return false;
 			}
 		}
-		// Require that the chosen target tile would hit an other-than-self unit
-		if (tileHasOtherPlayer(tx, ty)) return true;
-		// For splash effects like MAGIC_BLAST we'd check neighbors, but these types
-		// require direct non-self target per client heuristics.
-		reason = "Play rejected - no non-self target at chosen tile";
-		return false;
+		// For most ranged/damage cards we require a non-self unit on the chosen tile.
+		// Magic Bolt is special: it may target empty ground if an adjacent non-self
+		// unit would be hit by the splash. Handle that case here.
+		if (cardDef.type == CARD_MAGIC_BOLT) {
+			if (tileHasOtherPlayer(tx, ty)) return true;
+			// Check orthogonal neighbors for a non-self unit (Magic Bolt AOE)
+			const glm::ivec2 nbors[4] = { { tx + 1, ty }, { tx - 1, ty }, { tx, ty + 1 }, { tx, ty - 1 } };
+			for (auto n : nbors) {
+				if (n.x >= 0 && n.x < BOARD_WIDTH && n.y >= 0 && n.y < BOARD_HEIGHT) {
+					if (tileHasOtherPlayer(n.x, n.y)) return true;
+				}
+			}
+			// No non-self unit would be affected
+			reason = "Play rejected - no non-self target at chosen tile";
+			return false;
+		} else {
+			if (tileHasOtherPlayer(tx, ty)) return true;
+			reason = "Play rejected - no non-self target at chosen tile";
+			return false;
+		}
 	}
 	case CARD_MAGIC_BLAST: {
 		// Direct or neighbor must contain non-self
@@ -30451,6 +30550,15 @@ void ofApp::applyMovement(int playerIndex, int targetX, int targetY, int newAP, 
 
 	// Log the movement
 	addGameLog(getPlayerSteamName(playerIndex) + " moved to (" + ofToString(targetX) + "," + ofToString(targetY) + ")");
+
+	// Safety: Prevent ending movement on a tile occupied by another unit.
+	// Movement selection should normally prevent this, but enforce here
+	// to avoid overlapping units (which can happen with networked packets
+	// or edge cases). Allow if target == previous position (no-op).
+	if (!(targetX == prevX && targetY == prevY) && board[targetX][targetY].hasPlayer) {
+		ofLogWarning("Movement") << "applyMovement blocked: target (" << targetX << "," << targetY << ") is occupied; movement aborted.";
+		return;
+	}
 
 	board[prevX][prevY].hasPlayer = false;
 

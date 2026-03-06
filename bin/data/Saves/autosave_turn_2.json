@@ -42,6 +42,80 @@
         "isTargetable": false
       },
       {
+        "hasPlayer": true,
+        "hasWall": false,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      },
+      {
+        "hasPlayer": true,
+        "hasWall": false,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      },
+      {
+        "hasPlayer": true,
+        "hasWall": false,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      },
+      {
+        "hasPlayer": true,
+        "hasWall": false,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      }
+    ],
+    [
+      {
+        "hasPlayer": false,
+        "hasWall": false,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      },
+      {
+        "hasPlayer": false,
+        "hasWall": false,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      },
+      {
+        "hasPlayer": false,
+        "hasWall": false,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      },
+      {
+        "hasPlayer": false,
+        "hasWall": false,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      },
+      {
+        "hasPlayer": false,
+        "hasWall": true,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      },
+      {
         "hasPlayer": false,
         "hasWall": false,
         "isHighlighted": false,
@@ -58,7 +132,7 @@
         "isTargetable": false
       },
       {
-        "hasPlayer": false,
+        "hasPlayer": true,
         "hasWall": false,
         "isHighlighted": false,
         "isMagicWall": false,
@@ -66,81 +140,7 @@
         "isTargetable": false
       },
       {
-        "hasPlayer": false,
-        "hasWall": false,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      }
-    ],
-    [
-      {
-        "hasPlayer": false,
-        "hasWall": false,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      },
-      {
-        "hasPlayer": false,
-        "hasWall": false,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      },
-      {
-        "hasPlayer": false,
-        "hasWall": false,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      },
-      {
-        "hasPlayer": false,
-        "hasWall": false,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      },
-      {
-        "hasPlayer": false,
-        "hasWall": true,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      },
-      {
-        "hasPlayer": false,
-        "hasWall": false,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      },
-      {
-        "hasPlayer": false,
-        "hasWall": false,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      },
-      {
-        "hasPlayer": false,
-        "hasWall": false,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      },
-      {
-        "hasPlayer": false,
+        "hasPlayer": true,
         "hasWall": false,
         "isHighlighted": false,
         "isMagicWall": false,
@@ -800,80 +800,6 @@
       {
         "hasPlayer": false,
         "hasWall": true,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      },
-      {
-        "hasPlayer": false,
-        "hasWall": false,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      }
-    ],
-    [
-      {
-        "hasPlayer": false,
-        "hasWall": false,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      },
-      {
-        "hasPlayer": false,
-        "hasWall": false,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      },
-      {
-        "hasPlayer": false,
-        "hasWall": false,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      },
-      {
-        "hasPlayer": false,
-        "hasWall": false,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      },
-      {
-        "hasPlayer": false,
-        "hasWall": true,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      },
-      {
-        "hasPlayer": false,
-        "hasWall": false,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      },
-      {
-        "hasPlayer": false,
-        "hasWall": false,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      },
-      {
-        "hasPlayer": false,
-        "hasWall": false,
         "isHighlighted": false,
         "isMagicWall": false,
         "isTargetPreview": false,
@@ -898,7 +824,81 @@
         "isTargetable": false
       },
       {
+        "hasPlayer": true,
+        "hasWall": false,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      },
+      {
+        "hasPlayer": true,
+        "hasWall": false,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      },
+      {
         "hasPlayer": false,
+        "hasWall": false,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      },
+      {
+        "hasPlayer": false,
+        "hasWall": true,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      },
+      {
+        "hasPlayer": false,
+        "hasWall": false,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      },
+      {
+        "hasPlayer": false,
+        "hasWall": false,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      },
+      {
+        "hasPlayer": false,
+        "hasWall": false,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      },
+      {
+        "hasPlayer": false,
+        "hasWall": false,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      }
+    ],
+    [
+      {
+        "hasPlayer": false,
+        "hasWall": false,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      },
+      {
+        "hasPlayer": true,
         "hasWall": false,
         "isHighlighted": false,
         "isMagicWall": false,
@@ -963,1348 +963,16 @@
       }
     ]
   ],
-  "currentPlayerIndex": 0,
-  "gameplayRNG": "630803885 1418203971 3227165944 1274983481 3260868355 1374229917 980085565 2931237284 4259977632 2604566013 1665556840 4081098103 2007967775 1330127377 1077815863 3564684262 1903909718 4065884296 3523060708 1212516556 3704222108 1944171744 252790363 1277101667 2439191500 2302268403 2665031964 4288850569 3667221349 2882701425 24040157 1634131084 1099829533 3736144001 3662206122 717356202 73057838 3333881955 4252076408 3711942166 2855403716 985559469 3490997208 2257842480 963974464 2266778124 3095495566 2676822297 2891395316 2251828717 826880319 3268586544 1253373118 1690581067 2495179243 1791970288 410387733 2324546727 926491600 2665115943 3483795296 2706223221 4214335006 2149606677 1439401791 3319359282 2471644949 4096485817 3938106618 1282119986 3605069457 1820185758 3662984952 2982499587 3501610998 3881756951 3767862962 4151086061 1489390658 3110054963 2169990165 2608760152 1806723707 2222213253 1425892102 1264866937 3680791276 3817654582 3520987976 98026941 3818923514 2268659843 3697232742 1983787571 674428797 73325421 398852609 1773197519 423893251 1502937736 2195335639 1764888686 2325222719 401937221 2432927162 2386993852 3764501589 3504188145 1693202400 2745948710 2216065053 4191071778 3218660786 2897830736 2097130048 4127748087 1266638272 2662430913 3012178218 1815423609 152389413 208893930 1922769439 1222130244 281690404 1744491685 393855574 1072634607 944309595 2683252345 1249559379 3447142768 2207935265 4044851904 1343606769 2958217925 812525099 1125196097 2630306570 2945679442 4278265500 774915503 3432189418 1665134109 3519544634 2055508328 222938721 3955959059 975756307 3153297052 2146961257 223223964 1906424862 2012362667 1517091031 2817307872 2108913909 2977570505 458516917 2399688937 1512417974 242025460 647423250 2421742144 3229114791 3877491387 3390758472 1895701118 1002895920 1012440375 2269426540 368439868 999005876 2671370700 3195281717 3559676798 3650222329 107609126 1500854629 2081244498 3960135536 2703346771 1717914684 3849904617 1623630477 2375891680 3209469600 938339537 3267912924 4042253209 656626227 712761370 566234808 2522227978 1800733925 1187942603 3557597851 2491363072 1885509802 2730366102 2279386509 3522221067 2293265614 1273048195 4253158247 2057276310 3827465258 3772574332 2625096868 1603682095 1419365288 1487848823 879153505 1457324692 2433084735 396999720 2105354626 341259936 2565656253 1253692232 2786918396 1514802256 2288405650 4040534361 3464540932 1053189644 2449209137 1931885621 3858402038 4061705661 1909143142 321050080 365681061 216424880 3856169920 4276106314 1228264463 2685335090 3831239892 1559273688 924357464 2357699707 3440108493 246640730 2587479750 935127651 3175233931 3357804776 4100422527 4211422288 3783255197 4002979026 3696326815 2871346951 4293263952 3656705144 679203679 2795943498 3049504285 2915804317 191747270 996088551 3203292776 2495093078 3496227193 3946758335 203038570 1049249180 1952262330 2448199661 277598111 4104181072 4152217229 644097649 2503355333 3929951823 146706019 4174819885 3492562479 1845559673 914000406 2609008085 4255875116 3905743552 1980503709 1315253075 4122264491 582378588 11029685 3875879378 569634247 1444713868 728266017 3500523361 1854417713 643197713 245711618 3545185044 3838148431 54427412 3385986304 1222049361 3970031797 2678656597 3098334692 61418883 2060864949 1621567950 1175285012 3014197827 3776915081 3092510390 4243770049 2475716663 1882109421 174146526 1878252548 111540172 94635984 1031626570 3128956150 3441702744 2350397169 2221070621 364102160 2633703308 449973955 3699071489 3752893091 3753508891 2571319363 1888414965 912454677 3542593376 3284016306 843189586 430374939 3660635941 1736634172 1929808753 4144263326 1865131185 1279197672 315651601 1418154402 950176126 416012203 2368519360 775752361 3679099152 3128625599 421478592 3064080755 4233233154 2557183416 1932990436 286852011 3853304586 2038616638 2759250632 2854866735 879377002 2189315146 2768718887 1970152681 1711835587 1522819655 2474011475 542276281 3465324429 2203029045 4009253911 1629413446 126583680 2045931084 2750616098 4279811622 1002183405 3036797330 1240876333 444657536 3830143328 22971128 328358443 3718430887 3724097364 2778966275 3868945071 3684715886 3868274564 2513948419 3704708756 1642616967 1790317201 3650654082 781162661 3901830338 1067200184 4269759834 1977377492 1465658654 1183888349 987139510 3497291300 3929345391 957188411 1049654443 2306912468 3854947019 1591879417 3013028157 404855642 3382060559 2519452858 981532437 3878737400 2334037381 4117496088 1349136951 3480322695 144077031 2702100894 159003732 2460165041 1996318228 442842925 2396981341 1821779560 8951497 123145195 657066514 53983202 3292475667 4151196785 472896760 3952384248 1456174838 2077986768 1237042577 1098066846 1294352830 3930418923 813269020 3569009481 3335081560 2068016365 4050696669 4131830923 2729605345 2356679381 1102915682 2942996031 1007281872 2888590494 419240713 1391421035 1859304844 3147048027 1725256135 2344070785 220110608 3627576775 2478809010 2678373127 4250037563 2783209413 4045959065 952597272 636483214 2405752111 2567111312 208268030 105630113 616512125 3453447461 2272406805 3868631843 2182817396 3622486109 1791629645 1437143412 3195705954 492571831 4172152537 2967325832 2473918304 3104580714 974570913 1055774893 2405964879 3839110640 2013782144 1414716052 771364945 862484333 1816476599 770196779 1365298158 2140692225 239016261 3614696454 3260384621 375235640 1975564490 4135089521 2468096897 3080675246 3930307316 3394057352 2382012007 2475472932 2348851529 3670356187 942020565 26789477 2657729371 4208471256 36850226 769919350 2677128102 2028404226 33009319 113038583 2368758443 3624891475 2842739434 3499776368 251689667 1433448854 4179499321 1720013856 3330264165 366015265 2121385280 3770204069 3788342025 1907952743 2043668368 3991854837 3505616060 2694816293 3155482482 2067644857 3236314046 2461454330 3022572991 2563340052 4110729060 187030 646123604 930988279 1090344072 825453663 118517266 744253947 2908330217 3649783520 3758224378 249917847 3490552851 1524412426 1670666585 4215120271 2409845842 3468223966 1705932318 3950487083 820661923 1723118152 1474384818 3135663697 1925828475 828054288 1259797057 958354542 535319580 3667826988 2215853426 1139443344 4109218148 2067194600 1472435774 1829424919 725395368 3122417579 768331387 1067611977 687406622 1318046286 441201816 3398455985 2319725147 3770074677 3996037264 1903731770 1438132708 3943876867 1793054114 181209392 1045568815 3294072939 3713016816 1632028714 534084791 3415198571 3052721118 2545267554 2397172717 4206195581 1959598277 1308615099 3325677989 1805930359 2179498396 2720149651 2578844971 1721161270 160263476 2536747585 720944221 3181305043 843778600 2244844826 1666523851 259",
+  "currentPlayerIndex": 10,
+  "gameplayRNG": "1983984110 4119145663 702469204 2042532827 2187307210 2374081076 896432370 3258606619 118645609 118533501 1423505758 764379461 1290039119 3880028995 2472944271 188230893 2397356416 199202805 890036506 1323841977 1345208971 2811576305 328404473 3831115393 3900418015 1092993549 3103996091 2413292738 847077487 3731289586 1189900184 1950323921 3693051902 1401458179 1159127007 3975928885 3485202421 605863992 1563190103 3976336338 2768658346 3341800458 1159625565 983479074 1424461162 3895632109 264222178 510553538 543931332 3458951775 722772649 594754875 4221790065 2381684056 1664947282 340118291 2588735248 3226629079 267472499 2495692544 594073085 1900980592 2854210535 2340372924 2073858756 228833056 2726727168 4063827132 1244921921 3075208830 2914016995 2954642256 2290324918 97865190 859049440 323243366 335909859 928510397 2946328375 1471841352 228235662 300867708 128605281 4038995151 2201476024 3723036206 543618666 339417930 710315828 2970693982 3075092241 3123020220 3601788485 897519810 594911490 527941463 3388104403 1050117849 540840755 1386405268 1210017587 3725867973 3804833164 1810998171 2057162111 3910587062 1515354753 2549047930 3821882273 3201551139 1160589997 1571017637 2759656393 2553699510 3707232057 382924400 2588443050 1803922941 439718996 2285662884 3074441860 2346567770 4016679254 2026226 335099413 4137276034 2209254544 1308942286 357011371 2817806821 1687413543 1273942653 1685620869 3343544777 768531761 3613951508 3363319278 1149701178 4247404286 3408210643 3727873446 4053349045 2895373777 1462025666 1227359142 2822251790 750874801 72637683 1377490289 2852813819 355088279 2877119427 2106849690 3307639794 4166234601 62226520 2060361788 1945642740 681442104 3855321592 1049102227 874704025 2639708482 614311475 3415564309 1660193463 2430126606 3512642716 3350492061 199543145 1200280820 1527267211 3367347010 2090696286 1738568146 2675385714 3980115037 1563785942 1125727709 3774290667 1193085188 1144814536 3938333940 128903239 433854567 1889271846 87263868 2673537482 3512133687 613695424 1939333344 2972336197 1889098764 1075741611 3527874536 727048997 863869995 2257781153 1992593245 1468280184 545450894 2966992797 265933096 3964086922 3719405315 1873464597 314261125 2922793932 1156264843 2122884883 301857444 812915018 3198743482 68460515 3310870986 3743421917 1597631099 2887419933 336619869 395405438 640125097 174335966 1425465398 2269594571 3291973309 3314445221 2777810148 3367093208 1840089919 4011208624 302509779 1779298982 466898680 2894701451 3970267069 2479786000 1115283569 2093099885 200638220 3815962471 692581402 1241675326 84078207 3954224889 865408799 2765064890 1435069680 153907055 1530079227 59151487 856510366 539744341 1567673527 2827313498 664699737 136911419 3175379022 2948297347 3610138331 3595449461 3268218757 2572565485 3816867714 2296095399 4075054500 3621179438 2332460745 1230859535 772025048 270027806 3661765740 1248559319 25499526 1204769296 3677836149 3240439474 843585874 1694601059 2786698969 305018948 224185433 4091939672 1244224759 4213738999 4176253619 3545055670 3667174121 902769536 3768931662 317454384 2039051645 1869397164 3369895680 1000676927 4085680410 901550646 2781072196 2963958932 1082522796 3250699958 2713717423 6289701 29329765 223044388 4130846164 231629041 2942378374 1818642020 1743192184 3528210680 2440472734 957954340 1729685242 1695619301 3387864886 2975232884 2444568146 908646083 2386562511 1522853675 240308714 2314892230 2631411648 75388205 1257389612 2246572306 3474143634 3463350303 3874525427 1167368950 2501421853 1689883068 1464833788 1897809649 4251481237 1205552091 296312125 1210098019 3653102997 1872507988 3295388026 3061123253 587353578 1749061104 2168723938 1427422598 1896393111 2789974606 542421733 3091228834 2699510750 257851034 1277971014 2474298056 2732068319 2014530806 2943930355 1581106758 1267646422 1074806958 2429896240 928680899 1506535140 151460031 168489454 3868043173 2105781906 4228351144 3981840196 3689612728 478628790 1256739800 810919329 3711605612 2778207913 1467076932 1189525092 600218986 4004859167 95138677 3186761893 1880233202 795787166 2479914262 4254394690 3844471452 2764152174 412115555 568558012 3655504565 2789230298 738659043 2467512548 2822540303 4140712001 1212333803 1051525967 3604658268 89119107 3724913330 3418395385 2060568051 374812515 629427365 1686145334 2875648832 1952252129 4066742620 3231053336 1543530305 3160877831 592948718 446442511 3169654797 1434851279 1264905068 441320279 2520556174 1685848283 2656772631 4195371858 2527875294 4063091580 3781152061 2412866421 2028934436 4238421557 580653310 1594862121 874741286 3569122970 2032226310 3593365008 1805062085 2914531328 221009456 3669565805 566775236 226715428 1140542780 2652202437 1724107737 538144188 973373762 4164059828 739233745 1139644493 555517782 2864271482 832249397 3860942229 615415405 1590472375 1134092074 85376308 3904590165 4077360048 1923438745 601695881 434999433 1483710530 2583789639 2657807660 516781704 3239266711 1033750926 2615547180 3114759414 2144166530 3220820329 1932612126 3323330267 552641014 2494731286 811117170 4234582069 3417876126 3857981501 1027970523 195030508 1462403831 207056306 836686176 5993242 261094293 2466808320 1853795056 3936582643 4034550903 197128083 277125699 753228785 3758099509 811481414 3701605975 2616539882 3307091669 1539350332 560503397 3470900754 385289167 3881541507 2487549075 1973624526 2752592209 12533814 2349939062 2734404023 1517065684 541947310 2956501149 3279501153 2312920388 3704573074 2995155415 1340993741 2480530081 3673125337 3921937657 1504365047 2128995035 3350414307 1881080742 2560472466 3668423448 2339840297 3977095818 238511894 4217909329 1198748286 3803590576 2267124200 923159960 658534515 1766413108 416662393 3256944348 2233491935 3634441910 1364054421 157260482 457929558 2607841129 1358437955 325200842 302700096 890868370 3072874996 1784539083 2807287341 1302597327 259359375 1308710707 1265001648 4103374726 634676460 1578174335 2702641721 1373572418 3929178659 4214965046 415587810 2464408258 3863913901 2769507420 3847921646 1902704385 3792121823 4225554486 1931516813 3791948783 1410367944 2011870972 2227190032 1489532845 663011113 1750855804 921560121 227907702 1431708280 448017807 970013133 978393764 3957044496 4131553578 508445577 3017478218 2805026141 776869657 1992518605 151679160 875313925 2764220808 1786905464 1445915660 2178923528 2274213254 39228439 2235119692 3993694574 2416853752 3905258335 4070551712 1866503697 686206048 3079303321 3962734040 2995334799 2488549130 477276426 4052817595 1320259512 1587478664 2905258788 4039765366 122995802 3085527999 788633308 1102420419 1241549526 2787350117 2728128559 2567506486 1166908344 50",
   "globalTurnCounter": 2,
-  "graveyard": [
-    {
-      "turnDied": 0,
-      "x": 0,
-      "y": 6
-    },
-    {
-      "turnDied": 0,
-      "x": -1000,
-      "y": 6
-    },
-    {
-      "turnDied": 0,
-      "x": 0,
-      "y": 6
-    },
-    {
-      "turnDied": 0,
-      "x": -1000,
-      "y": 6
-    },
-    {
-      "turnDied": 0,
-      "x": 12,
-      "y": 0
-    },
-    {
-      "turnDied": 0,
-      "x": 12,
-      "y": 2
-    }
-  ],
   "isMultiplayer": false,
   "players": [
     {
-      "ap": 2,
+      "ap": 5,
       "barrier": 0,
       "block": 0,
       "deck": [
-        {
-          "cardClass": 2,
-          "cost": 1,
-          "currentPos": [
-            0.0,
-            0.0
-          ],
-          "currentScale": 1.0,
-          "damageType": 0,
-          "diceSides": 0,
-          "drawnThisTurn": false,
-          "isCopied": false,
-          "name": "Hasten",
-          "numDice": 0,
-          "targetScale": 1.0,
-          "targeting": 5,
-          "textureRect": [
-            2045.0,
-            585.0,
-            409.0,
-            585.0
-          ],
-          "type": 20,
-          "value": 0
-        },
-        {
-          "cardClass": 1,
-          "cost": 3,
-          "currentPos": [
-            0.0,
-            0.0
-          ],
-          "currentScale": 1.0,
-          "damageType": 0,
-          "diceSides": 20,
-          "drawnThisTurn": false,
-          "isCopied": false,
-          "name": "Shoot Arrow",
-          "numDice": 2,
-          "targetScale": 1.0,
-          "targeting": 9,
-          "textureRect": [
-            3272.0,
-            3510.0,
-            409.0,
-            585.0
-          ],
-          "type": 64,
-          "value": 0
-        },
-        {
-          "cardClass": 2,
-          "cost": 4,
-          "currentPos": [
-            0.0,
-            0.0
-          ],
-          "currentScale": 1.0,
-          "damageType": 0,
-          "diceSides": 10,
-          "drawnThisTurn": false,
-          "isCopied": false,
-          "name": "Rock Crush",
-          "numDice": 2,
-          "targetScale": 1.0,
-          "targeting": 11,
-          "textureRect": [
-            818.0,
-            585.0,
-            409.0,
-            585.0
-          ],
-          "type": 14,
-          "value": 0
-        },
-        {
-          "cardClass": 2,
-          "cost": 5,
-          "currentPos": [
-            0.0,
-            0.0
-          ],
-          "currentScale": 1.0,
-          "damageType": 0,
-          "diceSides": 0,
-          "drawnThisTurn": false,
-          "isCopied": false,
-          "name": "Earthquake",
-          "numDice": 0,
-          "targetScale": 1.0,
-          "targeting": 5,
-          "textureRect": [
-            1636.0,
-            2925.0,
-            409.0,
-            585.0
-          ],
-          "type": 51,
-          "value": 0
-        },
-        {
-          "cardClass": 2,
-          "cost": 3,
-          "currentPos": [
-            0.0,
-            0.0
-          ],
-          "currentScale": 1.0,
-          "damageType": 0,
-          "diceSides": 4,
-          "drawnThisTurn": false,
-          "isCopied": false,
-          "name": "Amnesia",
-          "numDice": 1,
-          "targetScale": 1.0,
-          "targeting": 8,
-          "textureRect": [
-            3272.0,
-            0.0,
-            409.0,
-            585.0
-          ],
-          "type": 17,
-          "value": 0
-        },
-        {
-          "cardClass": 2,
-          "cost": 2,
-          "currentPos": [
-            0.0,
-            0.0
-          ],
-          "currentScale": 1.0,
-          "damageType": 0,
-          "diceSides": 0,
-          "drawnThisTurn": false,
-          "isCopied": false,
-          "name": "Dark Shield",
-          "numDice": 0,
-          "targetScale": 1.0,
-          "targeting": 5,
-          "textureRect": [
-            2045.0,
-            1170.0,
-            409.0,
-            585.0
-          ],
-          "type": 29,
-          "value": 7
-        },
-        {
-          "cardClass": 2,
-          "cost": 3,
-          "currentPos": [
-            0.0,
-            0.0
-          ],
-          "currentScale": 1.0,
-          "damageType": 0,
-          "diceSides": 4,
-          "drawnThisTurn": false,
-          "isCopied": false,
-          "name": "Spark of Genius",
-          "numDice": 1,
-          "targetScale": 1.0,
-          "targeting": 5,
-          "textureRect": [
-            409.0,
-            2925.0,
-            409.0,
-            585.0
-          ],
-          "type": 49,
-          "value": 0
-        },
-        {
-          "cardClass": 2,
-          "cost": 4,
-          "currentPos": [
-            0.0,
-            0.0
-          ],
-          "currentScale": 1.0,
-          "damageType": 0,
-          "diceSides": 0,
-          "drawnThisTurn": false,
-          "isCopied": false,
-          "name": "Full Restore",
-          "numDice": 0,
-          "targetScale": 1.0,
-          "targeting": 5,
-          "textureRect": [
-            2045.0,
-            3510.0,
-            409.0,
-            585.0
-          ],
-          "type": 65,
-          "value": 0
-        },
-        {
-          "cardClass": 1,
-          "cost": 1,
-          "currentPos": [
-            0.0,
-            0.0
-          ],
-          "currentScale": 1.0,
-          "damageType": 0,
-          "diceSides": 6,
-          "drawnThisTurn": false,
-          "isCopied": false,
-          "name": "Lesser Heal",
-          "numDice": 1,
-          "targetScale": 1.0,
-          "targeting": 9,
-          "textureRect": [
-            3272.0,
-            2925.0,
-            409.0,
-            585.0
-          ],
-          "type": 55,
-          "value": 0
-        },
-        {
-          "cardClass": 1,
-          "cost": 6,
-          "currentPos": [
-            0.0,
-            0.0
-          ],
-          "currentScale": 1.0,
-          "damageType": 0,
-          "diceSides": 0,
-          "drawnThisTurn": false,
-          "isCopied": false,
-          "name": "Study",
-          "numDice": 0,
-          "targetScale": 1.0,
-          "targeting": 5,
-          "textureRect": [
-            409.0,
-            2340.0,
-            409.0,
-            585.0
-          ],
-          "type": 67,
-          "value": 0
-        },
-        {
-          "cardClass": 2,
-          "cost": 4,
-          "currentPos": [
-            0.0,
-            0.0
-          ],
-          "currentScale": 1.0,
-          "damageType": 0,
-          "diceSides": 4,
-          "drawnThisTurn": false,
-          "isCopied": false,
-          "name": "Call for Kobolds",
-          "numDice": 1,
-          "targetScale": 1.0,
-          "targeting": 5,
-          "textureRect": [
-            3272.0,
-            2340.0,
-            409.0,
-            585.0
-          ],
-          "type": 47,
-          "value": 0
-        },
-        {
-          "cardClass": 3,
-          "cost": 4,
-          "currentPos": [
-            0.0,
-            0.0
-          ],
-          "currentScale": 1.0,
-          "damageType": 0,
-          "diceSides": 10,
-          "drawnThisTurn": false,
-          "isCopied": false,
-          "name": "Summon Golem",
-          "numDice": 1,
-          "targetScale": 1.0,
-          "targeting": 12,
-          "textureRect": [
-            818.0,
-            1170.0,
-            409.0,
-            585.0
-          ],
-          "type": 27,
-          "value": 0
-        },
-        {
-          "cardClass": 3,
-          "cost": 6,
-          "currentPos": [
-            0.0,
-            0.0
-          ],
-          "currentScale": 1.0,
-          "damageType": 2,
-          "diceSides": 20,
-          "drawnThisTurn": false,
-          "isCopied": false,
-          "name": "Magic Bolt",
-          "numDice": 2,
-          "targetScale": 1.0,
-          "targeting": 9,
-          "textureRect": [
-            1227.0,
-            1755.0,
-            409.0,
-            585.0
-          ],
-          "type": 36,
-          "value": 0
-        },
-        {
-          "cardClass": 1,
-          "cost": 2,
-          "currentPos": [
-            0.0,
-            0.0
-          ],
-          "currentScale": 1.0,
-          "damageType": 0,
-          "diceSides": 20,
-          "drawnThisTurn": false,
-          "isCopied": false,
-          "name": "Dispel",
-          "numDice": 1,
-          "targetScale": 1.0,
-          "targeting": 5,
-          "textureRect": [
-            1227.0,
-            585.0,
-            409.0,
-            585.0
-          ],
-          "type": 18,
-          "value": 0
-        },
-        {
-          "cardClass": 1,
-          "cost": 2,
-          "currentPos": [
-            0.0,
-            0.0
-          ],
-          "currentScale": 1.0,
-          "damageType": 4,
-          "diceSides": 0,
-          "drawnThisTurn": false,
-          "isCopied": false,
-          "name": "Flame Hit",
-          "numDice": 0,
-          "targetScale": 1.0,
-          "targeting": 4,
-          "textureRect": [
-            3681.0,
-            585.0,
-            409.0,
-            585.0
-          ],
-          "type": 24,
-          "value": 1
-        },
-        {
-          "cardClass": 1,
-          "cost": 5,
-          "currentPos": [
-            0.0,
-            0.0
-          ],
-          "currentScale": 1.0,
-          "damageType": 0,
-          "diceSides": 6,
-          "drawnThisTurn": false,
-          "isCopied": false,
-          "name": "Teleport",
-          "numDice": 3,
-          "targetScale": 1.0,
-          "targeting": 1,
-          "textureRect": [
-            1636.0,
-            585.0,
-            409.0,
-            585.0
-          ],
-          "type": 19,
-          "value": 0
-        },
-        {
-          "cardClass": 2,
-          "cost": 3,
-          "currentPos": [
-            0.0,
-            0.0
-          ],
-          "currentScale": 1.0,
-          "damageType": 0,
-          "diceSides": 0,
-          "drawnThisTurn": false,
-          "isCopied": false,
-          "name": "Flurry of Fists",
-          "numDice": 0,
-          "targetScale": 1.0,
-          "targeting": 4,
-          "textureRect": [
-            1636.0,
-            2340.0,
-            409.0,
-            585.0
-          ],
-          "type": 45,
-          "value": 0
-        },
-        {
-          "cardClass": 1,
-          "cost": 3,
-          "currentPos": [
-            0.0,
-            0.0
-          ],
-          "currentScale": 1.0,
-          "damageType": 0,
-          "diceSides": 0,
-          "drawnThisTurn": false,
-          "isCopied": false,
-          "name": "Train",
-          "numDice": 0,
-          "targetScale": 1.0,
-          "targeting": 5,
-          "textureRect": [
-            3681.0,
-            1755.0,
-            409.0,
-            585.0
-          ],
-          "type": 66,
-          "value": 0
-        },
-        {
-          "cardClass": 3,
-          "cost": 5,
-          "currentPos": [
-            0.0,
-            0.0
-          ],
-          "currentScale": 1.0,
-          "damageType": 0,
-          "diceSides": 0,
-          "drawnThisTurn": false,
-          "isCopied": false,
-          "name": "Form of Tortoise",
-          "numDice": 0,
-          "targetScale": 1.0,
-          "targeting": 5,
-          "textureRect": [
-            2045.0,
-            2340.0,
-            409.0,
-            585.0
-          ],
-          "type": 46,
-          "value": 0
-        },
-        {
-          "cardClass": 2,
-          "cost": 2,
-          "currentPos": [
-            0.0,
-            0.0
-          ],
-          "currentScale": 1.0,
-          "damageType": 0,
-          "diceSides": 0,
-          "drawnThisTurn": false,
-          "isCopied": false,
-          "name": "Giant Magic Hand",
-          "numDice": 0,
-          "targetScale": 1.0,
-          "targeting": 13,
-          "textureRect": [
-            2454.0,
-            2925.0,
-            409.0,
-            585.0
-          ],
-          "type": 53,
-          "value": 0
-        },
-        {
-          "cardClass": 2,
-          "cost": 4,
-          "currentPos": [
-            0.0,
-            0.0
-          ],
-          "currentScale": 1.0,
-          "damageType": 2,
-          "diceSides": 20,
-          "drawnThisTurn": false,
-          "isCopied": false,
-          "name": "Magic Blast",
-          "numDice": 1,
-          "targetScale": 1.0,
-          "targeting": 9,
-          "textureRect": [
-            3681.0,
-            0.0,
-            409.0,
-            585.0
-          ],
-          "type": 11,
-          "value": 0
-        },
-        {
-          "cardClass": 1,
-          "cost": 2,
-          "currentPos": [
-            0.0,
-            0.0
-          ],
-          "currentScale": 1.0,
-          "damageType": 1,
-          "diceSides": 6,
-          "drawnThisTurn": false,
-          "isCopied": false,
-          "name": "Stab",
-          "numDice": 1,
-          "targetScale": 1.0,
-          "targeting": 6,
-          "textureRect": [
-            2045.0,
-            0.0,
-            409.0,
-            585.0
-          ],
-          "type": 5,
-          "value": 0
-        },
-        {
-          "cardClass": 3,
-          "cost": 5,
-          "currentPos": [
-            0.0,
-            0.0
-          ],
-          "currentScale": 1.0,
-          "damageType": 0,
-          "diceSides": 0,
-          "drawnThisTurn": false,
-          "isCopied": false,
-          "name": "Transform Wall",
-          "numDice": 0,
-          "targetScale": 1.0,
-          "targeting": 13,
-          "textureRect": [
-            3681.0,
-            2925.0,
-            409.0,
-            585.0
-          ],
-          "type": 56,
-          "value": 0
-        },
-        {
-          "cardClass": 3,
-          "cost": 10,
-          "currentPos": [
-            0.0,
-            0.0
-          ],
-          "currentScale": 1.0,
-          "damageType": 0,
-          "diceSides": 10,
-          "drawnThisTurn": false,
-          "isCopied": false,
-          "name": "Summon Demon",
-          "numDice": 3,
-          "targetScale": 1.0,
-          "targeting": 12,
-          "textureRect": [
-            2863.0,
-            1755.0,
-            409.0,
-            585.0
-          ],
-          "type": 40,
-          "value": 0
-        },
-        {
-          "cardClass": 3,
-          "cost": 3,
-          "currentPos": [
-            0.0,
-            0.0
-          ],
-          "currentScale": 1.0,
-          "damageType": 0,
-          "diceSides": 0,
-          "drawnThisTurn": false,
-          "isCopied": false,
-          "name": "Necromancer's Blessing",
-          "numDice": 0,
-          "targetScale": 1.0,
-          "targeting": 5,
-          "textureRect": [
-            0.0,
-            1755.0,
-            409.0,
-            585.0
-          ],
-          "type": 33,
-          "value": 0
-        },
-        {
-          "cardClass": 1,
-          "cost": 2,
-          "currentPos": [
-            0.0,
-            0.0
-          ],
-          "currentScale": 1.0,
-          "damageType": 0,
-          "diceSides": 0,
-          "drawnThisTurn": false,
-          "isCopied": false,
-          "name": "Consume Health Potion",
-          "numDice": 0,
-          "targetScale": 1.0,
-          "targeting": 5,
-          "textureRect": [
-            818.0,
-            2340.0,
-            409.0,
-            585.0
-          ],
-          "type": 43,
-          "value": 0
-        },
-        {
-          "cardClass": 2,
-          "cost": 6,
-          "currentPos": [
-            0.0,
-            0.0
-          ],
-          "currentScale": 1.0,
-          "damageType": 2,
-          "diceSides": 20,
-          "drawnThisTurn": false,
-          "isCopied": false,
-          "name": "Ethereal Jolt",
-          "numDice": 1,
-          "targetScale": 1.0,
-          "targeting": 9,
-          "textureRect": [
-            3272.0,
-            585.0,
-            409.0,
-            585.0
-          ],
-          "type": 23,
-          "value": 7
-        },
-        {
-          "cardClass": 1,
-          "cost": 2,
-          "currentPos": [
-            0.0,
-            0.0
-          ],
-          "currentScale": 1.0,
-          "damageType": 0,
-          "diceSides": 0,
-          "drawnThisTurn": false,
-          "isCopied": false,
-          "name": "Summon Wall",
-          "numDice": 0,
-          "targetScale": 1.0,
-          "targeting": 12,
-          "textureRect": [
-            1636.0,
-            1170.0,
-            409.0,
-            585.0
-          ],
-          "type": 2,
-          "value": 0
-        },
-        {
-          "cardClass": 1,
-          "cost": 3,
-          "currentPos": [
-            0.0,
-            0.0
-          ],
-          "currentScale": 1.0,
-          "damageType": 0,
-          "diceSides": 0,
-          "drawnThisTurn": false,
-          "isCopied": false,
-          "name": "Shield Bash",
-          "numDice": 0,
-          "targetScale": 1.0,
-          "targeting": 4,
-          "textureRect": [
-            3272.0,
-            1755.0,
-            409.0,
-            585.0
-          ],
-          "type": 41,
-          "value": 0
-        },
-        {
-          "cardClass": 1,
-          "cost": 2,
-          "currentPos": [
-            0.0,
-            0.0
-          ],
-          "currentScale": 1.0,
-          "damageType": 0,
-          "diceSides": 0,
-          "drawnThisTurn": false,
-          "isCopied": false,
-          "name": "Ward",
-          "numDice": 0,
-          "targetScale": 1.0,
-          "targeting": 5,
-          "textureRect": [
-            1636.0,
-            0.0,
-            409.0,
-            585.0
-          ],
-          "type": 10,
-          "value": 5
-        },
-        {
-          "cardClass": 1,
-          "cost": 3,
-          "currentPos": [
-            0.0,
-            0.0
-          ],
-          "currentScale": 1.0,
-          "damageType": 0,
-          "diceSides": 4,
-          "drawnThisTurn": false,
-          "isCopied": false,
-          "name": "Bash",
-          "numDice": 2,
-          "targetScale": 1.0,
-          "targeting": 4,
-          "textureRect": [
-            1227.0,
-            0.0,
-            409.0,
-            585.0
-          ],
-          "type": 5,
-          "value": 0
-        },
-        {
-          "cardClass": 2,
-          "cost": 4,
-          "currentPos": [
-            0.0,
-            0.0
-          ],
-          "currentScale": 1.0,
-          "damageType": 0,
-          "diceSides": 0,
-          "drawnThisTurn": false,
-          "isCopied": false,
-          "name": "Consume Large Health Potion",
-          "numDice": 0,
-          "targetScale": 1.0,
-          "targeting": 5,
-          "textureRect": [
-            2863.0,
-            2925.0,
-            409.0,
-            585.0
-          ],
-          "type": 54,
-          "value": 0
-        },
-        {
-          "cardClass": 2,
-          "cost": 4,
-          "currentPos": [
-            0.0,
-            0.0
-          ],
-          "currentScale": 1.0,
-          "damageType": 0,
-          "diceSides": 0,
-          "drawnThisTurn": false,
-          "isCopied": false,
-          "name": "Summon Faerie",
-          "numDice": 0,
-          "targetScale": 1.0,
-          "targeting": 12,
-          "textureRect": [
-            3681.0,
-            3510.0,
-            409.0,
-            585.0
-          ],
-          "type": 59,
-          "value": 0
-        },
-        {
-          "cardClass": 1,
-          "cost": 2,
-          "currentPos": [
-            0.0,
-            0.0
-          ],
-          "currentScale": 1.0,
-          "damageType": 3,
-          "diceSides": 0,
-          "drawnThisTurn": false,
-          "isCopied": false,
-          "name": "Shock",
-          "numDice": 0,
-          "targetScale": 1.0,
-          "targeting": 4,
-          "textureRect": [
-            409.0,
-            585.0,
-            409.0,
-            585.0
-          ],
-          "type": 13,
-          "value": 2
-        },
-        {
-          "cardClass": 1,
-          "cost": 3,
-          "currentPos": [
-            0.0,
-            0.0
-          ],
-          "currentScale": 1.0,
-          "damageType": 0,
-          "diceSides": 0,
-          "drawnThisTurn": false,
-          "isCopied": false,
-          "name": "Blocking Boon",
-          "numDice": 0,
-          "targetScale": 1.0,
-          "targeting": 4,
-          "textureRect": [
-            3272.0,
-            1170.0,
-            409.0,
-            585.0
-          ],
-          "type": 68,
-          "value": 0
-        },
-        {
-          "cardClass": 1,
-          "cost": 2,
-          "currentPos": [
-            0.0,
-            0.0
-          ],
-          "currentScale": 1.0,
-          "damageType": 0,
-          "diceSides": 0,
-          "drawnThisTurn": false,
-          "isCopied": false,
-          "name": "Drain Punch",
-          "numDice": 0,
-          "targetScale": 1.0,
-          "targeting": 4,
-          "textureRect": [
-            2454.0,
-            1170.0,
-            409.0,
-            585.0
-          ],
-          "type": 30,
-          "value": 2
-        },
-        {
-          "cardClass": 2,
-          "cost": 3,
-          "currentPos": [
-            0.0,
-            0.0
-          ],
-          "currentScale": 1.0,
-          "damageType": 3,
-          "diceSides": 10,
-          "drawnThisTurn": false,
-          "isCopied": false,
-          "name": "Chain Lightning",
-          "numDice": 2,
-          "targetScale": 1.0,
-          "targeting": 9,
-          "textureRect": [
-            0.0,
-            2340.0,
-            409.0,
-            585.0
-          ],
-          "type": 42,
-          "value": 0
-        },
-        {
-          "cardClass": 1,
-          "cost": 3,
-          "currentPos": [
-            0.0,
-            0.0
-          ],
-          "currentScale": 1.0,
-          "damageType": 0,
-          "diceSides": 0,
-          "drawnThisTurn": false,
-          "isCopied": false,
-          "name": "Vampire Bite",
-          "numDice": 0,
-          "targetScale": 1.0,
-          "targeting": 4,
-          "textureRect": [
-            2863.0,
-            2340.0,
-            409.0,
-            585.0
-          ],
-          "type": 4,
-          "value": 3
-        },
-        {
-          "cardClass": 2,
-          "cost": 2,
-          "currentPos": [
-            0.0,
-            0.0
-          ],
-          "currentScale": 1.0,
-          "damageType": 0,
-          "diceSides": 0,
-          "drawnThisTurn": false,
-          "isCopied": false,
-          "name": "Summon Magic Wall",
-          "numDice": 0,
-          "targetScale": 1.0,
-          "targeting": 12,
-          "textureRect": [
-            1227.0,
-            2925.0,
-            409.0,
-            585.0
-          ],
-          "type": 2,
-          "value": 0
-        },
-        {
-          "cardClass": 3,
-          "cost": 5,
-          "currentPos": [
-            0.0,
-            0.0
-          ],
-          "currentScale": 1.0,
-          "damageType": 0,
-          "diceSides": 6,
-          "drawnThisTurn": false,
-          "isCopied": false,
-          "name": "Summon Hellhound",
-          "numDice": 2,
-          "targetScale": 1.0,
-          "targeting": 12,
-          "textureRect": [
-            2045.0,
-            1755.0,
-            409.0,
-            585.0
-          ],
-          "type": 38,
-          "value": 0
-        },
-        {
-          "cardClass": 1,
-          "cost": 3,
-          "currentPos": [
-            0.0,
-            0.0
-          ],
-          "currentScale": 1.0,
-          "damageType": 0,
-          "diceSides": 0,
-          "drawnThisTurn": false,
-          "isCopied": false,
-          "name": "Mind Theft",
-          "numDice": 0,
-          "targetScale": 1.0,
-          "targeting": 4,
-          "textureRect": [
-            2863.0,
-            0.0,
-            409.0,
-            585.0
-          ],
-          "type": 16,
-          "value": 0
-        },
-        {
-          "cardClass": 3,
-          "cost": 8,
-          "currentPos": [
-            0.0,
-            0.0
-          ],
-          "currentScale": 1.0,
-          "damageType": 0,
-          "diceSides": 20,
-          "drawnThisTurn": false,
-          "isCopied": false,
-          "name": "Psionic Wave",
-          "numDice": 2,
-          "targetScale": 1.0,
-          "targeting": 5,
-          "textureRect": [
-            818.0,
-            2925.0,
-            409.0,
-            585.0
-          ],
-          "type": 50,
-          "value": 0
-        },
-        {
-          "cardClass": 2,
-          "cost": 3,
-          "currentPos": [
-            0.0,
-            0.0
-          ],
-          "currentScale": 1.0,
-          "damageType": 0,
-          "diceSides": 6,
-          "drawnThisTurn": false,
-          "isCopied": false,
-          "name": "Flail",
-          "numDice": 1,
-          "targetScale": 1.0,
-          "targeting": 5,
-          "textureRect": [
-            1636.0,
-            1755.0,
-            409.0,
-            585.0
-          ],
-          "type": 37,
-          "value": 0
-        },
-        {
-          "cardClass": 2,
-          "cost": 3,
-          "currentPos": [
-            0.0,
-            0.0
-          ],
-          "currentScale": 1.0,
-          "damageType": 0,
-          "diceSides": 0,
-          "drawnThisTurn": false,
-          "isCopied": false,
-          "name": "Fortify",
-          "numDice": 0,
-          "targetScale": 1.0,
-          "targeting": 11,
-          "textureRect": [
-            2454.0,
-            2340.0,
-            409.0,
-            585.0
-          ],
-          "type": 3,
-          "value": 0
-        },
-        {
-          "cardClass": 2,
-          "cost": 0,
-          "currentPos": [
-            0.0,
-            0.0
-          ],
-          "currentScale": 1.0,
-          "damageType": 0,
-          "diceSides": 0,
-          "drawnThisTurn": false,
-          "isCopied": false,
-          "name": "Sprint",
-          "numDice": 0,
-          "targetScale": 1.0,
-          "targeting": 5,
-          "textureRect": [
-            1636.0,
-            3510.0,
-            409.0,
-            585.0
-          ],
-          "type": 61,
-          "value": 0
-        },
-        {
-          "cardClass": 2,
-          "cost": 2,
-          "currentPos": [
-            0.0,
-            0.0
-          ],
-          "currentScale": 1.0,
-          "damageType": 0,
-          "diceSides": 6,
-          "drawnThisTurn": false,
-          "isCopied": false,
-          "name": "Raise Dead",
-          "numDice": 1,
-          "targetScale": 1.0,
-          "targeting": 12,
-          "textureRect": [
-            409.0,
-            1170.0,
-            409.0,
-            585.0
-          ],
-          "type": 26,
-          "value": 0
-        },
-        {
-          "cardClass": 1,
-          "cost": 2,
-          "currentPos": [
-            0.0,
-            0.0
-          ],
-          "currentScale": 1.0,
-          "damageType": 0,
-          "diceSides": 0,
-          "drawnThisTurn": false,
-          "isCopied": false,
-          "name": "Add Poison",
-          "numDice": 0,
-          "targetScale": 1.0,
-          "targeting": 5,
-          "textureRect": [
-            1227.0,
-            2340.0,
-            409.0,
-            585.0
-          ],
-          "type": 44,
-          "value": 0
-        },
-        {
-          "cardClass": 3,
-          "cost": 7,
-          "currentPos": [
-            0.0,
-            0.0
-          ],
-          "currentScale": 1.0,
-          "damageType": 0,
-          "diceSides": 4,
-          "drawnThisTurn": false,
-          "isCopied": false,
-          "name": "Time Vortex",
-          "numDice": 1,
-          "targetScale": 1.0,
-          "targeting": 5,
-          "textureRect": [
-            409.0,
-            1755.0,
-            409.0,
-            585.0
-          ],
-          "type": 34,
-          "value": 0
-        },
-        {
-          "cardClass": 2,
-          "cost": 10,
-          "currentPos": [
-            0.0,
-            0.0
-          ],
-          "currentScale": 1.0,
-          "damageType": 0,
-          "diceSides": 0,
-          "drawnThisTurn": false,
-          "isCopied": false,
-          "name": "Four-leaf clover",
-          "numDice": 0,
-          "targetScale": 1.0,
-          "targeting": 5,
-          "textureRect": [
-            1227.0,
-            3510.0,
-            409.0,
-            585.0
-          ],
-          "type": 60,
-          "value": 0
-        },
-        {
-          "cardClass": 1,
-          "cost": 2,
-          "currentPos": [
-            0.0,
-            0.0
-          ],
-          "currentScale": 1.0,
-          "damageType": 0,
-          "diceSides": 0,
-          "drawnThisTurn": false,
-          "isCopied": false,
-          "name": "Renewed Inspiration",
-          "numDice": 0,
-          "targetScale": 1.0,
-          "targeting": 5,
-          "textureRect": [
-            0.0,
-            2925.0,
-            409.0,
-            585.0
-          ],
-          "type": 48,
-          "value": 0
-        },
-        {
-          "cardClass": 2,
-          "cost": 4,
-          "currentPos": [
-            0.0,
-            0.0
-          ],
-          "currentScale": 1.0,
-          "damageType": 0,
-          "diceSides": 0,
-          "drawnThisTurn": false,
-          "isCopied": false,
-          "name": "Replicate",
-          "numDice": 0,
-          "targetScale": 1.0,
-          "targeting": 5,
-          "textureRect": [
-            2454.0,
-            585.0,
-            409.0,
-            585.0
-          ],
-          "type": 21,
-          "value": 0
-        },
-        {
-          "cardClass": 3,
-          "cost": 3,
-          "currentPos": [
-            0.0,
-            0.0
-          ],
-          "currentScale": 1.0,
-          "damageType": 0,
-          "diceSides": 0,
-          "drawnThisTurn": false,
-          "isCopied": false,
-          "name": "Strengthen Elements",
-          "numDice": 0,
-          "targetScale": 1.0,
-          "targeting": 5,
-          "textureRect": [
-            1227.0,
-            1170.0,
-            409.0,
-            585.0
-          ],
-          "type": 28,
-          "value": 0
-        },
         {
           "cardClass": 2,
           "cost": 7,
@@ -2328,31 +996,6 @@
             585.0
           ],
           "type": 32,
-          "value": 0
-        },
-        {
-          "cardClass": 3,
-          "cost": 4,
-          "currentPos": [
-            0.0,
-            0.0
-          ],
-          "currentScale": 1.0,
-          "damageType": 0,
-          "diceSides": 0,
-          "drawnThisTurn": false,
-          "isCopied": false,
-          "name": "Constitution Boon",
-          "numDice": 0,
-          "targetScale": 1.0,
-          "targeting": 5,
-          "textureRect": [
-            818.0,
-            3510.0,
-            409.0,
-            585.0
-          ],
-          "type": 69,
           "value": 0
         },
         {
@@ -2382,81 +1025,317 @@
         },
         {
           "cardClass": 1,
-          "cost": 1,
+          "cost": 2,
           "currentPos": [
             0.0,
             0.0
           ],
           "currentScale": 1.0,
           "damageType": 0,
-          "diceSides": 0,
+          "diceSides": 6,
           "drawnThisTurn": false,
           "isCopied": false,
-          "name": "Punch",
-          "numDice": 0,
+          "name": "Slash",
+          "numDice": 1,
           "targetScale": 1.0,
-          "targeting": 4,
+          "targeting": 7,
           "textureRect": [
-            0.0,
+            2454.0,
             0.0,
             409.0,
             585.0
           ],
           "type": 5,
-          "value": 2
-        },
-        {
-          "cardClass": 2,
-          "cost": 3,
-          "currentPos": [
-            0.0,
-            0.0
-          ],
-          "currentScale": 1.0,
-          "damageType": 5,
-          "diceSides": 0,
-          "drawnThisTurn": false,
-          "isCopied": false,
-          "name": "Smite",
-          "numDice": 0,
-          "targetScale": 1.0,
-          "targeting": 4,
-          "textureRect": [
-            2454.0,
-            3510.0,
-            409.0,
-            585.0
-          ],
-          "type": 62,
-          "value": 5
+          "value": 0
         },
         {
           "cardClass": 1,
-          "cost": 3,
+          "cost": 2,
           "currentPos": [
             0.0,
             0.0
           ],
           "currentScale": 1.0,
           "damageType": 0,
-          "diceSides": 0,
+          "diceSides": 6,
           "drawnThisTurn": false,
           "isCopied": false,
-          "name": "Kick",
-          "numDice": 0,
+          "name": "Slash",
+          "numDice": 1,
           "targetScale": 1.0,
-          "targeting": 4,
+          "targeting": 7,
           "textureRect": [
-            409.0,
+            2454.0,
             0.0,
             409.0,
             585.0
           ],
           "type": 5,
-          "value": 4
+          "value": 0
+        }
+      ],
+      "deckNeedsShuffle": false,
+      "flurryOfFistsActive": false,
+      "hasDrawnCardsThisTurn": false,
+      "hasDrawnThisTurn": false,
+      "hasDrawnThisTurn_flag": false,
+      "health": 4,
+      "holyBlock": 0,
+      "inTortoiseForm": false,
+      "isMinion": true,
+      "isParalyzed": false,
+      "isPoisoned": false,
+      "maxHealth": 4,
+      "nextAttackAddPoison": false,
+      "nextTurnAPBonus": 0,
+      "nextTurnD10AP": false,
+      "nextTurnExtraDraw": false,
+      "nextTurnExtraDrawSetOnCycle": -1,
+      "ownerID": 0,
+      "paralysisHeadsCount": 0,
+      "playerID": 202,
+      "poisonReduction": 0,
+      "shocksPlayedThisTurn": 0,
+      "sleepTurnsRemaining": 0,
+      "strengthenElementsTurnsRemaining": 0,
+      "summonOrder": 0,
+      "summonedOnTurnCycle": 0,
+      "tortoiseDamageTaken": 0,
+      "visualPos": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "ward": 0,
+      "x": 0,
+      "y": 7
+    },
+    {
+      "ap": 992,
+      "barrier": 0,
+      "block": 0,
+      "deck": [
+        {
+          "cardClass": 1,
+          "cost": 2,
+          "currentPos": [
+            0.0,
+            0.0
+          ],
+          "currentScale": 1.0,
+          "damageType": 0,
+          "diceSides": 6,
+          "drawnThisTurn": false,
+          "isCopied": false,
+          "name": "Slash",
+          "numDice": 1,
+          "targetScale": 1.0,
+          "targeting": 7,
+          "textureRect": [
+            2454.0,
+            0.0,
+            409.0,
+            585.0
+          ],
+          "type": 5,
+          "value": 0
         },
         {
-          "cardClass": 3,
+          "cardClass": 1,
+          "cost": 2,
+          "currentPos": [
+            0.0,
+            0.0
+          ],
+          "currentScale": 1.0,
+          "damageType": 0,
+          "diceSides": 6,
+          "drawnThisTurn": false,
+          "isCopied": false,
+          "name": "Slash",
+          "numDice": 1,
+          "targetScale": 1.0,
+          "targeting": 7,
+          "textureRect": [
+            2454.0,
+            0.0,
+            409.0,
+            585.0
+          ],
+          "type": 5,
+          "value": 0
+        }
+      ],
+      "deckNeedsShuffle": false,
+      "discard": [
+        {
+          "cardClass": 1,
+          "cost": 2,
+          "currentPos": [
+            1279.999755859375,
+            1309.999755859375
+          ],
+          "currentScale": 1.5,
+          "damageType": 0,
+          "diceSides": 6,
+          "drawnThisTurn": true,
+          "isCopied": false,
+          "name": "Slash",
+          "numDice": 1,
+          "targetScale": 1.5,
+          "targeting": 7,
+          "textureRect": [
+            2454.0,
+            0.0,
+            409.0,
+            585.0
+          ],
+          "type": 5,
+          "value": 0
+        },
+        {
+          "cardClass": 2,
+          "cost": 7,
+          "currentPos": [
+            1176.0,
+            659.0
+          ],
+          "currentScale": 2.3961944580078125,
+          "damageType": 0,
+          "diceSides": 0,
+          "drawnThisTurn": true,
+          "isCopied": false,
+          "name": "Call for Wolves",
+          "numDice": 0,
+          "targetScale": 2.4000000953674316,
+          "targeting": 5,
+          "textureRect": [
+            3681.0,
+            1170.0,
+            409.0,
+            585.0
+          ],
+          "type": 32,
+          "value": 0
+        }
+      ],
+      "flurryOfFistsActive": false,
+      "hasDrawnCardsThisTurn": false,
+      "hasDrawnThisTurn": false,
+      "hasDrawnThisTurn_flag": false,
+      "health": 4,
+      "holyBlock": 0,
+      "inTortoiseForm": false,
+      "isMinion": true,
+      "isParalyzed": false,
+      "isPoisoned": false,
+      "maxHealth": 4,
+      "nextAttackAddPoison": false,
+      "nextTurnAPBonus": 0,
+      "nextTurnD10AP": false,
+      "nextTurnExtraDraw": false,
+      "nextTurnExtraDrawSetOnCycle": -1,
+      "ownerID": 0,
+      "paralysisHeadsCount": 0,
+      "playerID": 203,
+      "poisonReduction": 0,
+      "shocksPlayedThisTurn": 0,
+      "sleepTurnsRemaining": 0,
+      "strengthenElementsTurnsRemaining": 0,
+      "summonOrder": 0,
+      "summonedOnTurnCycle": 0,
+      "tortoiseDamageTaken": 0,
+      "visualPos": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "ward": 0,
+      "x": 0,
+      "y": 6
+    },
+    {
+      "ap": 0,
+      "barrier": 0,
+      "block": 0,
+      "deck": [
+        {
+          "cardClass": 1,
+          "cost": 2,
+          "currentPos": [
+            0.0,
+            0.0
+          ],
+          "currentScale": 1.0,
+          "damageType": 0,
+          "diceSides": 6,
+          "drawnThisTurn": false,
+          "isCopied": false,
+          "name": "Slash",
+          "numDice": 1,
+          "targetScale": 1.0,
+          "targeting": 7,
+          "textureRect": [
+            2454.0,
+            0.0,
+            409.0,
+            585.0
+          ],
+          "type": 5,
+          "value": 0
+        },
+        {
+          "cardClass": 1,
+          "cost": 2,
+          "currentPos": [
+            0.0,
+            0.0
+          ],
+          "currentScale": 1.0,
+          "damageType": 0,
+          "diceSides": 6,
+          "drawnThisTurn": false,
+          "isCopied": false,
+          "name": "Slash",
+          "numDice": 1,
+          "targetScale": 1.0,
+          "targeting": 7,
+          "textureRect": [
+            2454.0,
+            0.0,
+            409.0,
+            585.0
+          ],
+          "type": 5,
+          "value": 0
+        },
+        {
+          "cardClass": 1,
+          "cost": 2,
+          "currentPos": [
+            0.0,
+            0.0
+          ],
+          "currentScale": 1.0,
+          "damageType": 0,
+          "diceSides": 6,
+          "drawnThisTurn": false,
+          "isCopied": false,
+          "name": "Slash",
+          "numDice": 1,
+          "targetScale": 1.0,
+          "targeting": 7,
+          "textureRect": [
+            2454.0,
+            0.0,
+            409.0,
+            585.0
+          ],
+          "type": 5,
+          "value": 0
+        },
+        {
+          "cardClass": 2,
           "cost": 7,
           "currentPos": [
             0.0,
@@ -2467,225 +1346,64 @@
           "diceSides": 0,
           "drawnThisTurn": false,
           "isCopied": false,
-          "name": "Form of Ghost",
+          "name": "Call for Wolves",
           "numDice": 0,
           "targetScale": 1.0,
           "targeting": 5,
           "textureRect": [
-            2045.0,
-            2925.0,
-            409.0,
-            585.0
-          ],
-          "type": 52,
-          "value": 0
-        },
-        {
-          "cardClass": 1,
-          "cost": 5,
-          "currentPos": [
-            0.0,
-            0.0
-          ],
-          "currentScale": 1.0,
-          "damageType": 2,
-          "diceSides": 0,
-          "drawnThisTurn": false,
-          "isCopied": false,
-          "name": "Wisdom Boon",
-          "numDice": 0,
-          "targetScale": 1.0,
-          "targeting": 8,
-          "textureRect": [
-            2863.0,
-            585.0,
-            409.0,
-            585.0
-          ],
-          "type": 22,
-          "value": 0
-        },
-        {
-          "cardClass": 2,
-          "cost": 3,
-          "currentPos": [
-            0.0,
-            0.0
-          ],
-          "currentScale": 1.0,
-          "damageType": 4,
-          "diceSides": 6,
-          "drawnThisTurn": false,
-          "isCopied": false,
-          "name": "Fireball",
-          "numDice": 2,
-          "targetScale": 1.0,
-          "targeting": 9,
-          "textureRect": [
-            0.0,
-            585.0,
-            409.0,
-            585.0
-          ],
-          "type": 12,
-          "value": 0
-        },
-        {
-          "cardClass": 3,
-          "cost": 8,
-          "currentPos": [
-            0.0,
-            0.0
-          ],
-          "currentScale": 1.0,
-          "damageType": 0,
-          "diceSides": 20,
-          "drawnThisTurn": false,
-          "isCopied": false,
-          "name": "Death",
-          "numDice": 1,
-          "targetScale": 1.0,
-          "targeting": 9,
-          "textureRect": [
-            2454.0,
-            1755.0,
-            409.0,
-            585.0
-          ],
-          "type": 39,
-          "value": 0
-        },
-        {
-          "cardClass": 1,
-          "cost": 3,
-          "currentPos": [
-            0.0,
-            0.0
-          ],
-          "currentScale": 1.0,
-          "damageType": 0,
-          "diceSides": 0,
-          "drawnThisTurn": false,
-          "isCopied": false,
-          "name": "Burst of Light",
-          "numDice": 0,
-          "targetScale": 1.0,
-          "targeting": 9,
-          "textureRect": [
-            2863.0,
-            3510.0,
-            409.0,
-            585.0
-          ],
-          "type": 63,
-          "value": 0
-        },
-        {
-          "cardClass": 3,
-          "cost": 2,
-          "currentPos": [
-            0.0,
-            0.0
-          ],
-          "currentScale": 1.0,
-          "damageType": 0,
-          "diceSides": 0,
-          "drawnThisTurn": false,
-          "isCopied": false,
-          "name": "Master Fist",
-          "numDice": 0,
-          "targetScale": 1.0,
-          "targeting": 4,
-          "textureRect": [
-            818.0,
-            1755.0,
-            409.0,
-            585.0
-          ],
-          "type": 35,
-          "value": 2
-        },
-        {
-          "cardClass": 1,
-          "cost": 3,
-          "currentPos": [
-            0.0,
-            0.0
-          ],
-          "currentScale": 1.0,
-          "damageType": 0,
-          "diceSides": 6,
-          "drawnThisTurn": false,
-          "isCopied": false,
-          "name": "Heal",
-          "numDice": 2,
-          "targetScale": 1.0,
-          "targeting": 9,
-          "textureRect": [
-            0.0,
+            3681.0,
             1170.0,
             409.0,
             585.0
           ],
-          "type": 25,
-          "value": 0
-        },
-        {
-          "cardClass": 1,
-          "cost": 4,
-          "currentPos": [
-            0.0,
-            0.0
-          ],
-          "currentScale": 1.0,
-          "damageType": 0,
-          "diceSides": 0,
-          "drawnThisTurn": false,
-          "isCopied": false,
-          "name": "Summon Assistant",
-          "numDice": 0,
-          "targetScale": 1.0,
-          "targeting": 12,
-          "textureRect": [
-            409.0,
-            3510.0,
-            409.0,
-            585.0
-          ],
-          "type": 58,
-          "value": 0
-        },
-        {
-          "cardClass": 3,
-          "cost": 4,
-          "currentPos": [
-            0.0,
-            0.0
-          ],
-          "currentScale": 1.0,
-          "damageType": 0,
-          "diceSides": 0,
-          "drawnThisTurn": false,
-          "isCopied": false,
-          "name": "Summon Kobold King",
-          "numDice": 0,
-          "targetScale": 1.0,
-          "targeting": 12,
-          "textureRect": [
-            0.0,
-            3510.0,
-            409.0,
-            585.0
-          ],
-          "type": 57,
+          "type": 32,
           "value": 0
         }
       ],
       "deckNeedsShuffle": false,
-      "discard": [
+      "flurryOfFistsActive": false,
+      "hasDrawnCardsThisTurn": false,
+      "hasDrawnThisTurn": false,
+      "hasDrawnThisTurn_flag": false,
+      "health": 4,
+      "holyBlock": 0,
+      "inTortoiseForm": false,
+      "isMinion": true,
+      "isParalyzed": false,
+      "isPoisoned": false,
+      "maxHealth": 4,
+      "nextAttackAddPoison": false,
+      "nextTurnAPBonus": 0,
+      "nextTurnD10AP": false,
+      "nextTurnExtraDraw": false,
+      "nextTurnExtraDrawSetOnCycle": -1,
+      "ownerID": 0,
+      "paralysisHeadsCount": 0,
+      "playerID": 207,
+      "poisonReduction": 0,
+      "shocksPlayedThisTurn": 0,
+      "sleepTurnsRemaining": 0,
+      "strengthenElementsTurnsRemaining": 0,
+      "summonOrder": 0,
+      "summonedOnTurnCycle": 2,
+      "tortoiseDamageTaken": 0,
+      "visualPos": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "ward": 0,
+      "x": 0,
+      "y": 5
+    },
+    {
+      "ap": 0,
+      "barrier": 0,
+      "block": 0,
+      "deck": [
         {
-          "cardClass": 1,
-          "cost": 2,
+          "cardClass": 2,
+          "cost": 7,
           "currentPos": [
             0.0,
             0.0
@@ -2695,17 +1413,159 @@
           "diceSides": 0,
           "drawnThisTurn": false,
           "isCopied": false,
-          "name": "Double Handed",
+          "name": "Call for Wolves",
           "numDice": 0,
           "targetScale": 1.0,
-          "targeting": 8,
+          "targeting": 5,
           "textureRect": [
-            2863.0,
+            3681.0,
             1170.0,
             409.0,
             585.0
           ],
-          "type": 31,
+          "type": 32,
+          "value": 0
+        },
+        {
+          "cardClass": 1,
+          "cost": 2,
+          "currentPos": [
+            0.0,
+            0.0
+          ],
+          "currentScale": 1.0,
+          "damageType": 0,
+          "diceSides": 6,
+          "drawnThisTurn": false,
+          "isCopied": false,
+          "name": "Slash",
+          "numDice": 1,
+          "targetScale": 1.0,
+          "targeting": 7,
+          "textureRect": [
+            2454.0,
+            0.0,
+            409.0,
+            585.0
+          ],
+          "type": 5,
+          "value": 0
+        },
+        {
+          "cardClass": 1,
+          "cost": 2,
+          "currentPos": [
+            0.0,
+            0.0
+          ],
+          "currentScale": 1.0,
+          "damageType": 0,
+          "diceSides": 6,
+          "drawnThisTurn": false,
+          "isCopied": false,
+          "name": "Slash",
+          "numDice": 1,
+          "targetScale": 1.0,
+          "targeting": 7,
+          "textureRect": [
+            2454.0,
+            0.0,
+            409.0,
+            585.0
+          ],
+          "type": 5,
+          "value": 0
+        },
+        {
+          "cardClass": 1,
+          "cost": 2,
+          "currentPos": [
+            0.0,
+            0.0
+          ],
+          "currentScale": 1.0,
+          "damageType": 0,
+          "diceSides": 6,
+          "drawnThisTurn": false,
+          "isCopied": false,
+          "name": "Slash",
+          "numDice": 1,
+          "targetScale": 1.0,
+          "targeting": 7,
+          "textureRect": [
+            2454.0,
+            0.0,
+            409.0,
+            585.0
+          ],
+          "type": 5,
+          "value": 0
+        }
+      ],
+      "deckNeedsShuffle": false,
+      "flurryOfFistsActive": false,
+      "hasDrawnCardsThisTurn": false,
+      "hasDrawnThisTurn": false,
+      "hasDrawnThisTurn_flag": false,
+      "health": 4,
+      "holyBlock": 0,
+      "inTortoiseForm": false,
+      "isMinion": true,
+      "isParalyzed": false,
+      "isPoisoned": false,
+      "maxHealth": 4,
+      "nextAttackAddPoison": false,
+      "nextTurnAPBonus": 0,
+      "nextTurnD10AP": false,
+      "nextTurnExtraDraw": false,
+      "nextTurnExtraDrawSetOnCycle": -1,
+      "ownerID": 0,
+      "paralysisHeadsCount": 0,
+      "playerID": 208,
+      "poisonReduction": 0,
+      "shocksPlayedThisTurn": 0,
+      "sleepTurnsRemaining": 0,
+      "strengthenElementsTurnsRemaining": 0,
+      "summonOrder": 0,
+      "summonedOnTurnCycle": 2,
+      "tortoiseDamageTaken": 0,
+      "visualPos": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "ward": 0,
+      "x": 1,
+      "y": 6
+    },
+    {
+      "ap": 0,
+      "barrier": 0,
+      "block": 0,
+      "deck": [
+        {
+          "cardClass": 2,
+          "cost": 4,
+          "currentPos": [
+            0.0,
+            0.0
+          ],
+          "currentScale": 1.0,
+          "damageType": 0,
+          "diceSides": 4,
+          "drawnThisTurn": false,
+          "isCopied": false,
+          "name": "Call for Kobolds",
+          "numDice": 1,
+          "targetScale": 1.0,
+          "targeting": 5,
+          "textureRect": [
+            3272.0,
+            2340.0,
+            409.0,
+            585.0
+          ],
+          "type": 47,
           "value": 0
         },
         {
@@ -2735,7 +1595,7 @@
         },
         {
           "cardClass": 1,
-          "cost": 6,
+          "cost": 1,
           "currentPos": [
             0.0,
             0.0
@@ -2745,17 +1605,404 @@
           "diceSides": 0,
           "drawnThisTurn": false,
           "isCopied": false,
-          "name": "Demolition",
+          "name": "Hand Block",
           "numDice": 0,
           "targetScale": 1.0,
-          "targeting": 11,
+          "targeting": 5,
           "textureRect": [
-            3681.0,
+            818.0,
+            0.0,
+            409.0,
+            585.0
+          ],
+          "type": 9,
+          "value": 2
+        },
+        {
+          "cardClass": 1,
+          "cost": 1,
+          "currentPos": [
+            0.0,
+            0.0
+          ],
+          "currentScale": 1.0,
+          "damageType": 0,
+          "diceSides": 0,
+          "drawnThisTurn": false,
+          "isCopied": false,
+          "name": "Punch",
+          "numDice": 0,
+          "targetScale": 1.0,
+          "targeting": 4,
+          "textureRect": [
+            0.0,
+            0.0,
+            409.0,
+            585.0
+          ],
+          "type": 5,
+          "value": 2
+        }
+      ],
+      "deckNeedsShuffle": false,
+      "flurryOfFistsActive": false,
+      "hasDrawnCardsThisTurn": false,
+      "hasDrawnThisTurn": false,
+      "hasDrawnThisTurn_flag": false,
+      "health": 1,
+      "holyBlock": 0,
+      "inTortoiseForm": false,
+      "isMinion": true,
+      "isParalyzed": false,
+      "isPoisoned": false,
+      "maxHealth": 1,
+      "nextAttackAddPoison": false,
+      "nextTurnAPBonus": 0,
+      "nextTurnD10AP": false,
+      "nextTurnExtraDraw": false,
+      "nextTurnExtraDrawSetOnCycle": -1,
+      "ownerID": 0,
+      "paralysisHeadsCount": 0,
+      "playerID": 309,
+      "poisonReduction": 0,
+      "shocksPlayedThisTurn": 0,
+      "sleepTurnsRemaining": 0,
+      "strengthenElementsTurnsRemaining": 0,
+      "summonOrder": 4,
+      "summonedOnTurnCycle": 2,
+      "tortoiseDamageTaken": 0,
+      "visualPos": [
+        -25.0,
+        0.0,
+        15.0
+      ],
+      "ward": 0,
+      "x": 1,
+      "y": 7
+    },
+    {
+      "ap": 0,
+      "barrier": 0,
+      "block": 0,
+      "deck": [
+        {
+          "cardClass": 2,
+          "cost": 4,
+          "currentPos": [
+            0.0,
+            0.0
+          ],
+          "currentScale": 1.0,
+          "damageType": 0,
+          "diceSides": 4,
+          "drawnThisTurn": false,
+          "isCopied": false,
+          "name": "Call for Kobolds",
+          "numDice": 1,
+          "targetScale": 1.0,
+          "targeting": 5,
+          "textureRect": [
+            3272.0,
             2340.0,
             409.0,
             585.0
           ],
-          "type": 15,
+          "type": 47,
+          "value": 0
+        },
+        {
+          "cardClass": 1,
+          "cost": 1,
+          "currentPos": [
+            0.0,
+            0.0
+          ],
+          "currentScale": 1.0,
+          "damageType": 0,
+          "diceSides": 0,
+          "drawnThisTurn": false,
+          "isCopied": false,
+          "name": "Hand Block",
+          "numDice": 0,
+          "targetScale": 1.0,
+          "targeting": 5,
+          "textureRect": [
+            818.0,
+            0.0,
+            409.0,
+            585.0
+          ],
+          "type": 9,
+          "value": 2
+        },
+        {
+          "cardClass": 1,
+          "cost": 1,
+          "currentPos": [
+            0.0,
+            0.0
+          ],
+          "currentScale": 1.0,
+          "damageType": 0,
+          "diceSides": 0,
+          "drawnThisTurn": false,
+          "isCopied": false,
+          "name": "Hand Block",
+          "numDice": 0,
+          "targetScale": 1.0,
+          "targeting": 5,
+          "textureRect": [
+            818.0,
+            0.0,
+            409.0,
+            585.0
+          ],
+          "type": 9,
+          "value": 2
+        },
+        {
+          "cardClass": 1,
+          "cost": 1,
+          "currentPos": [
+            0.0,
+            0.0
+          ],
+          "currentScale": 1.0,
+          "damageType": 0,
+          "diceSides": 0,
+          "drawnThisTurn": false,
+          "isCopied": false,
+          "name": "Punch",
+          "numDice": 0,
+          "targetScale": 1.0,
+          "targeting": 4,
+          "textureRect": [
+            0.0,
+            0.0,
+            409.0,
+            585.0
+          ],
+          "type": 5,
+          "value": 2
+        }
+      ],
+      "deckNeedsShuffle": false,
+      "flurryOfFistsActive": false,
+      "hasDrawnCardsThisTurn": false,
+      "hasDrawnThisTurn": false,
+      "hasDrawnThisTurn_flag": false,
+      "health": 1,
+      "holyBlock": 0,
+      "inTortoiseForm": false,
+      "isMinion": true,
+      "isParalyzed": false,
+      "isPoisoned": false,
+      "maxHealth": 1,
+      "nextAttackAddPoison": false,
+      "nextTurnAPBonus": 0,
+      "nextTurnD10AP": false,
+      "nextTurnExtraDraw": false,
+      "nextTurnExtraDrawSetOnCycle": -1,
+      "ownerID": 0,
+      "paralysisHeadsCount": 0,
+      "playerID": 310,
+      "poisonReduction": 0,
+      "shocksPlayedThisTurn": 0,
+      "sleepTurnsRemaining": 0,
+      "strengthenElementsTurnsRemaining": 0,
+      "summonOrder": 5,
+      "summonedOnTurnCycle": 2,
+      "tortoiseDamageTaken": 0,
+      "visualPos": [
+        -30.0,
+        0.0,
+        20.0
+      ],
+      "ward": 0,
+      "x": 0,
+      "y": 8
+    },
+    {
+      "ap": 995,
+      "barrier": 0,
+      "block": 0,
+      "deck": [
+        {
+          "cardClass": 1,
+          "cost": 3,
+          "currentPos": [
+            0.0,
+            0.0
+          ],
+          "currentScale": 1.0,
+          "damageType": 0,
+          "diceSides": 0,
+          "drawnThisTurn": false,
+          "isCopied": false,
+          "name": "Mind Theft",
+          "numDice": 0,
+          "targetScale": 1.0,
+          "targeting": 4,
+          "textureRect": [
+            2863.0,
+            0.0,
+            409.0,
+            585.0
+          ],
+          "type": 16,
+          "value": 0
+        }
+      ],
+      "deckNeedsShuffle": false,
+      "discard": [
+        {
+          "cardClass": 1,
+          "cost": 3,
+          "currentPos": [
+            1209.999755859375,
+            1310.0
+          ],
+          "currentScale": 1.5,
+          "damageType": 0,
+          "diceSides": 0,
+          "drawnThisTurn": true,
+          "isCopied": false,
+          "name": "Blocking Boon",
+          "numDice": 0,
+          "targetScale": 1.5,
+          "targeting": 4,
+          "textureRect": [
+            3272.0,
+            1170.0,
+            409.0,
+            585.0
+          ],
+          "type": 68,
+          "value": 0
+        },
+        {
+          "cardClass": 1,
+          "cost": 3,
+          "currentPos": [
+            1349.999755859375,
+            1310.0
+          ],
+          "currentScale": 1.5,
+          "damageType": 0,
+          "diceSides": 0,
+          "drawnThisTurn": true,
+          "isCopied": false,
+          "name": "Mind Theft",
+          "numDice": 0,
+          "targetScale": 1.5,
+          "targeting": 4,
+          "textureRect": [
+            2863.0,
+            0.0,
+            409.0,
+            585.0
+          ],
+          "type": 16,
+          "value": 0
+        },
+        {
+          "cardClass": 2,
+          "cost": 7,
+          "currentPos": [
+            1224.0,
+            667.0
+          ],
+          "currentScale": 2.3978593349456787,
+          "damageType": 0,
+          "diceSides": 0,
+          "drawnThisTurn": true,
+          "isCopied": false,
+          "name": "Call for Wolves",
+          "numDice": 0,
+          "targetScale": 2.4000000953674316,
+          "targeting": 5,
+          "textureRect": [
+            3681.0,
+            1170.0,
+            409.0,
+            585.0
+          ],
+          "type": 32,
+          "value": 0
+        },
+        {
+          "cardClass": 2,
+          "cost": 3,
+          "currentPos": [
+            1209.999755859375,
+            1310.0
+          ],
+          "currentScale": 1.5,
+          "damageType": 5,
+          "diceSides": 0,
+          "drawnThisTurn": true,
+          "isCopied": false,
+          "name": "Smite",
+          "numDice": 0,
+          "targetScale": 1.5,
+          "targeting": 4,
+          "textureRect": [
+            2454.0,
+            3510.0,
+            409.0,
+            585.0
+          ],
+          "type": 62,
+          "value": 5
+        },
+        {
+          "cardClass": 1,
+          "cost": 3,
+          "currentPos": [
+            1349.999755859375,
+            1310.0
+          ],
+          "currentScale": 1.5,
+          "damageType": 0,
+          "diceSides": 0,
+          "drawnThisTurn": true,
+          "isCopied": false,
+          "name": "Blocking Boon",
+          "numDice": 0,
+          "targetScale": 1.5,
+          "targeting": 4,
+          "textureRect": [
+            3272.0,
+            1170.0,
+            409.0,
+            585.0
+          ],
+          "type": 68,
+          "value": 0
+        },
+        {
+          "cardClass": 2,
+          "cost": 4,
+          "currentPos": [
+            1254.0,
+            732.0
+          ],
+          "currentScale": 2.3983945846557617,
+          "damageType": 0,
+          "diceSides": 4,
+          "drawnThisTurn": true,
+          "isCopied": false,
+          "name": "Call for Kobolds",
+          "numDice": 1,
+          "targetScale": 2.4000000953674316,
+          "targeting": 5,
+          "textureRect": [
+            3272.0,
+            2340.0,
+            409.0,
+            585.0
+          ],
+          "type": 47,
           "value": 0
         }
       ],
@@ -2777,7 +2024,7 @@
       "nextTurnExtraDrawSetOnCycle": -1,
       "ownerID": -1,
       "paralysisHeadsCount": 0,
-      "playerID": 2,
+      "playerID": 0,
       "poisonReduction": 0,
       "shocksPlayedThisTurn": 0,
       "sleepTurnsRemaining": 0,
@@ -2791,8 +2038,8 @@
         0.0
       ],
       "ward": 0,
-      "x": 0,
-      "y": 6
+      "x": 1,
+      "y": 8
     },
     {
       "ap": 4,
@@ -2801,54 +2048,430 @@
       "deck": [
         {
           "cardClass": 1,
-          "cost": 2,
+          "cost": 1,
           "currentPos": [
             0.0,
             0.0
           ],
           "currentScale": 1.0,
           "damageType": 0,
-          "diceSides": 20,
+          "diceSides": 0,
           "drawnThisTurn": false,
           "isCopied": false,
-          "name": "Dispel",
-          "numDice": 1,
+          "name": "Hand Block",
+          "numDice": 0,
           "targetScale": 1.0,
           "targeting": 5,
           "textureRect": [
-            1227.0,
-            585.0,
+            818.0,
+            0.0,
             409.0,
             585.0
           ],
-          "type": 18,
-          "value": 0
+          "type": 9,
+          "value": 2
         },
         {
           "cardClass": 1,
-          "cost": 2,
+          "cost": 1,
           "currentPos": [
             0.0,
             0.0
           ],
           "currentScale": 1.0,
-          "damageType": 3,
+          "damageType": 0,
           "diceSides": 0,
           "drawnThisTurn": false,
           "isCopied": false,
-          "name": "Shock",
+          "name": "Punch",
           "numDice": 0,
           "targetScale": 1.0,
           "targeting": 4,
           "textureRect": [
-            409.0,
-            585.0,
+            0.0,
+            0.0,
             409.0,
             585.0
           ],
-          "type": 13,
+          "type": 5,
           "value": 2
         },
+        {
+          "cardClass": 1,
+          "cost": 1,
+          "currentPos": [
+            0.0,
+            0.0
+          ],
+          "currentScale": 1.0,
+          "damageType": 0,
+          "diceSides": 0,
+          "drawnThisTurn": false,
+          "isCopied": false,
+          "name": "Hand Block",
+          "numDice": 0,
+          "targetScale": 1.0,
+          "targeting": 5,
+          "textureRect": [
+            818.0,
+            0.0,
+            409.0,
+            585.0
+          ],
+          "type": 9,
+          "value": 2
+        },
+        {
+          "cardClass": 2,
+          "cost": 4,
+          "currentPos": [
+            0.0,
+            0.0
+          ],
+          "currentScale": 1.0,
+          "damageType": 0,
+          "diceSides": 4,
+          "drawnThisTurn": false,
+          "isCopied": false,
+          "name": "Call for Kobolds",
+          "numDice": 1,
+          "targetScale": 1.0,
+          "targeting": 5,
+          "textureRect": [
+            3272.0,
+            2340.0,
+            409.0,
+            585.0
+          ],
+          "type": 47,
+          "value": 0
+        }
+      ],
+      "deckNeedsShuffle": false,
+      "flurryOfFistsActive": false,
+      "hasDrawnCardsThisTurn": false,
+      "hasDrawnThisTurn": false,
+      "hasDrawnThisTurn_flag": false,
+      "health": 1,
+      "holyBlock": 0,
+      "inTortoiseForm": false,
+      "isMinion": true,
+      "isParalyzed": false,
+      "isPoisoned": false,
+      "maxHealth": 1,
+      "nextAttackAddPoison": false,
+      "nextTurnAPBonus": 0,
+      "nextTurnD10AP": false,
+      "nextTurnExtraDraw": false,
+      "nextTurnExtraDrawSetOnCycle": -1,
+      "ownerID": 1,
+      "paralysisHeadsCount": 0,
+      "playerID": 304,
+      "poisonReduction": 0,
+      "shocksPlayedThisTurn": 0,
+      "sleepTurnsRemaining": 0,
+      "strengthenElementsTurnsRemaining": 0,
+      "summonOrder": 1,
+      "summonedOnTurnCycle": 1,
+      "tortoiseDamageTaken": 0,
+      "visualPos": [
+        25.0,
+        0.0,
+        -20.0
+      ],
+      "ward": 0,
+      "x": 11,
+      "y": 0
+    },
+    {
+      "ap": 2,
+      "barrier": 0,
+      "block": 0,
+      "deck": [
+        {
+          "cardClass": 2,
+          "cost": 4,
+          "currentPos": [
+            0.0,
+            0.0
+          ],
+          "currentScale": 1.0,
+          "damageType": 0,
+          "diceSides": 4,
+          "drawnThisTurn": false,
+          "isCopied": false,
+          "name": "Call for Kobolds",
+          "numDice": 1,
+          "targetScale": 1.0,
+          "targeting": 5,
+          "textureRect": [
+            3272.0,
+            2340.0,
+            409.0,
+            585.0
+          ],
+          "type": 47,
+          "value": 0
+        },
+        {
+          "cardClass": 1,
+          "cost": 1,
+          "currentPos": [
+            0.0,
+            0.0
+          ],
+          "currentScale": 1.0,
+          "damageType": 0,
+          "diceSides": 0,
+          "drawnThisTurn": false,
+          "isCopied": false,
+          "name": "Hand Block",
+          "numDice": 0,
+          "targetScale": 1.0,
+          "targeting": 5,
+          "textureRect": [
+            818.0,
+            0.0,
+            409.0,
+            585.0
+          ],
+          "type": 9,
+          "value": 2
+        },
+        {
+          "cardClass": 1,
+          "cost": 1,
+          "currentPos": [
+            0.0,
+            0.0
+          ],
+          "currentScale": 1.0,
+          "damageType": 0,
+          "diceSides": 0,
+          "drawnThisTurn": false,
+          "isCopied": false,
+          "name": "Hand Block",
+          "numDice": 0,
+          "targetScale": 1.0,
+          "targeting": 5,
+          "textureRect": [
+            818.0,
+            0.0,
+            409.0,
+            585.0
+          ],
+          "type": 9,
+          "value": 2
+        },
+        {
+          "cardClass": 1,
+          "cost": 1,
+          "currentPos": [
+            0.0,
+            0.0
+          ],
+          "currentScale": 1.0,
+          "damageType": 0,
+          "diceSides": 0,
+          "drawnThisTurn": false,
+          "isCopied": false,
+          "name": "Punch",
+          "numDice": 0,
+          "targetScale": 1.0,
+          "targeting": 4,
+          "textureRect": [
+            0.0,
+            0.0,
+            409.0,
+            585.0
+          ],
+          "type": 5,
+          "value": 2
+        }
+      ],
+      "deckNeedsShuffle": false,
+      "flurryOfFistsActive": false,
+      "hasDrawnCardsThisTurn": false,
+      "hasDrawnThisTurn": false,
+      "hasDrawnThisTurn_flag": false,
+      "health": 1,
+      "holyBlock": 0,
+      "inTortoiseForm": false,
+      "isMinion": true,
+      "isParalyzed": false,
+      "isPoisoned": false,
+      "maxHealth": 1,
+      "nextAttackAddPoison": false,
+      "nextTurnAPBonus": 0,
+      "nextTurnD10AP": false,
+      "nextTurnExtraDraw": false,
+      "nextTurnExtraDrawSetOnCycle": -1,
+      "ownerID": 1,
+      "paralysisHeadsCount": 0,
+      "playerID": 305,
+      "poisonReduction": 0,
+      "shocksPlayedThisTurn": 0,
+      "sleepTurnsRemaining": 0,
+      "strengthenElementsTurnsRemaining": 0,
+      "summonOrder": 2,
+      "summonedOnTurnCycle": 1,
+      "tortoiseDamageTaken": 0,
+      "visualPos": [
+        30.0,
+        0.0,
+        -15.0
+      ],
+      "ward": 0,
+      "x": 12,
+      "y": 1
+    },
+    {
+      "ap": 3,
+      "barrier": 0,
+      "block": 0,
+      "deck": [
+        {
+          "cardClass": 1,
+          "cost": 1,
+          "currentPos": [
+            0.0,
+            0.0
+          ],
+          "currentScale": 1.0,
+          "damageType": 0,
+          "diceSides": 0,
+          "drawnThisTurn": false,
+          "isCopied": false,
+          "name": "Hand Block",
+          "numDice": 0,
+          "targetScale": 1.0,
+          "targeting": 5,
+          "textureRect": [
+            818.0,
+            0.0,
+            409.0,
+            585.0
+          ],
+          "type": 9,
+          "value": 2
+        },
+        {
+          "cardClass": 1,
+          "cost": 1,
+          "currentPos": [
+            0.0,
+            0.0
+          ],
+          "currentScale": 1.0,
+          "damageType": 0,
+          "diceSides": 0,
+          "drawnThisTurn": false,
+          "isCopied": false,
+          "name": "Punch",
+          "numDice": 0,
+          "targetScale": 1.0,
+          "targeting": 4,
+          "textureRect": [
+            0.0,
+            0.0,
+            409.0,
+            585.0
+          ],
+          "type": 5,
+          "value": 2
+        },
+        {
+          "cardClass": 2,
+          "cost": 4,
+          "currentPos": [
+            0.0,
+            0.0
+          ],
+          "currentScale": 1.0,
+          "damageType": 0,
+          "diceSides": 4,
+          "drawnThisTurn": false,
+          "isCopied": false,
+          "name": "Call for Kobolds",
+          "numDice": 1,
+          "targetScale": 1.0,
+          "targeting": 5,
+          "textureRect": [
+            3272.0,
+            2340.0,
+            409.0,
+            585.0
+          ],
+          "type": 47,
+          "value": 0
+        },
+        {
+          "cardClass": 1,
+          "cost": 1,
+          "currentPos": [
+            0.0,
+            0.0
+          ],
+          "currentScale": 1.0,
+          "damageType": 0,
+          "diceSides": 0,
+          "drawnThisTurn": false,
+          "isCopied": false,
+          "name": "Hand Block",
+          "numDice": 0,
+          "targetScale": 1.0,
+          "targeting": 5,
+          "textureRect": [
+            818.0,
+            0.0,
+            409.0,
+            585.0
+          ],
+          "type": 9,
+          "value": 2
+        }
+      ],
+      "deckNeedsShuffle": false,
+      "flurryOfFistsActive": false,
+      "hasDrawnCardsThisTurn": false,
+      "hasDrawnThisTurn": false,
+      "hasDrawnThisTurn_flag": false,
+      "health": 1,
+      "holyBlock": 0,
+      "inTortoiseForm": false,
+      "isMinion": true,
+      "isParalyzed": false,
+      "isPoisoned": false,
+      "maxHealth": 1,
+      "nextAttackAddPoison": false,
+      "nextTurnAPBonus": 0,
+      "nextTurnD10AP": false,
+      "nextTurnExtraDraw": false,
+      "nextTurnExtraDrawSetOnCycle": -1,
+      "ownerID": 1,
+      "paralysisHeadsCount": 0,
+      "playerID": 306,
+      "poisonReduction": 0,
+      "shocksPlayedThisTurn": 0,
+      "sleepTurnsRemaining": 0,
+      "strengthenElementsTurnsRemaining": 0,
+      "summonOrder": 3,
+      "summonedOnTurnCycle": 1,
+      "tortoiseDamageTaken": 0,
+      "visualPos": [
+        25.0,
+        0.0,
+        -10.0
+      ],
+      "ward": 0,
+      "x": 11,
+      "y": 2
+    },
+    {
+      "ap": 6,
+      "barrier": 0,
+      "block": 0,
+      "deck": [
         {
           "cardClass": 1,
           "cost": 2,
@@ -2883,54 +2506,131 @@
           ],
           "currentScale": 1.0,
           "damageType": 0,
-          "diceSides": 6,
+          "diceSides": 4,
           "drawnThisTurn": false,
           "isCopied": false,
-          "name": "Flail",
+          "name": "Spark of Genius",
           "numDice": 1,
           "targetScale": 1.0,
           "targeting": 5,
           "textureRect": [
-            1636.0,
-            1755.0,
+            409.0,
+            2925.0,
             409.0,
             585.0
           ],
-          "type": 37,
+          "type": 49,
           "value": 0
         },
         {
           "cardClass": 1,
-          "cost": 2,
+          "cost": 5,
           "currentPos": [
             0.0,
             0.0
           ],
           "currentScale": 1.0,
-          "damageType": 0,
-          "diceSides": 20,
+          "damageType": 2,
+          "diceSides": 0,
           "drawnThisTurn": false,
           "isCopied": false,
-          "name": "Dispel",
-          "numDice": 1,
+          "name": "Wisdom Boon",
+          "numDice": 0,
           "targetScale": 1.0,
-          "targeting": 5,
+          "targeting": 8,
           "textureRect": [
-            1227.0,
+            2863.0,
             585.0,
             409.0,
             585.0
           ],
-          "type": 18,
+          "type": 22,
           "value": 0
         }
       ],
       "deckNeedsShuffle": false,
+      "discard": [
+        {
+          "cardClass": 1,
+          "cost": 2,
+          "currentPos": [
+            1209.999755859375,
+            1310.0
+          ],
+          "currentScale": 1.5,
+          "damageType": 3,
+          "diceSides": 0,
+          "drawnThisTurn": true,
+          "isCopied": false,
+          "name": "Shock",
+          "numDice": 0,
+          "targetScale": 1.5,
+          "targeting": 4,
+          "textureRect": [
+            409.0,
+            585.0,
+            409.0,
+            585.0
+          ],
+          "type": 13,
+          "value": 2
+        },
+        {
+          "cardClass": 1,
+          "cost": 5,
+          "currentPos": [
+            1349.999755859375,
+            1310.0
+          ],
+          "currentScale": 1.5,
+          "damageType": 2,
+          "diceSides": 0,
+          "drawnThisTurn": true,
+          "isCopied": false,
+          "name": "Wisdom Boon",
+          "numDice": 0,
+          "targetScale": 1.5,
+          "targeting": 8,
+          "textureRect": [
+            2863.0,
+            585.0,
+            409.0,
+            585.0
+          ],
+          "type": 22,
+          "value": 0
+        },
+        {
+          "cardClass": 2,
+          "cost": 4,
+          "currentPos": [
+            1592.0,
+            664.0
+          ],
+          "currentScale": 2.3999979496002197,
+          "damageType": 0,
+          "diceSides": 4,
+          "drawnThisTurn": true,
+          "isCopied": false,
+          "name": "Call for Kobolds",
+          "numDice": 1,
+          "targetScale": 2.4000000953674316,
+          "targeting": 5,
+          "textureRect": [
+            3272.0,
+            2340.0,
+            409.0,
+            585.0
+          ],
+          "type": 47,
+          "value": 0
+        }
+      ],
       "flurryOfFistsActive": false,
       "hasDrawnCardsThisTurn": false,
       "hasDrawnThisTurn": false,
       "hasDrawnThisTurn_flag": false,
-      "health": 10,
+      "health": 15,
       "holyBlock": 0,
       "inTortoiseForm": false,
       "isMinion": false,
@@ -2958,8 +2658,8 @@
         0.0
       ],
       "ward": 0,
-      "x": 12,
-      "y": 0
+      "x": 11,
+      "y": 1
     }
   ]
 }
