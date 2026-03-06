@@ -11110,6 +11110,21 @@ void ofApp::drawGame() {
 		drawInstructionText("Summon Hellhound: Choose spawn tile");
 	}
 
+	// --- MAGIC BOLT TARGETING ---
+	if (isTargetingMagicBolt) {
+		drawInstructionText("Magic Bolt: Choose target");
+	}
+
+	// --- PUNCH TARGETING ---
+	if (isTargetingPunch) {
+		drawInstructionText("Punch: Choose target");
+	}
+
+	// --- TORTOISE SHELL SPIKE TARGETING ---
+	if (isTargetingTortoiseDamage) {
+		drawInstructionText("Tortoise Shell Spike: Choose target");
+	}
+
 	// --- GENERIC CARD TARGETING INSTRUCTION ---
 	// For all other cards using the generic targeting system (selectedCardIndex)
 	// Only exclude cards that need custom formatting (Teleport shows range, Burst/Double Handed show choices, Amnesia has menu)
