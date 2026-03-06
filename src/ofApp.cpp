@@ -5194,9 +5194,8 @@ void ofApp::updateGame() {
 		ofLogNotice("Time Vortex") << "Unit " << currentPlayer.playerID << " gained " << turnsGained << " bonus turns.";
 	}
 
-	// --- MAGIC BOLT RESOLUTION ---
+	// --- MAGIC BOLT RESOLUTION (Stage 1: Range) ---
 	if (isWaitingForMagicBoltRange && diceVisualsFinishedAndLinger()) {
-		isWaitingForMagicBoltRange = false;
 		isWaitingForMagicBoltRange = false;
 
 		Player & caster = players[currentPlayerIndex];
@@ -5242,9 +5241,9 @@ void ofApp::updateGame() {
 			ofLogNotice("Magic Bolt") << "Fell short! Impact at (" << impactTile.x << ", " << impactTile.y << ")";
 		}
 
-		// 3. APPLY EFFECTS
-
-		// Spawn tracer and highlight the impact tile so players can see where the bolt landed
+		// 3. APPLY EFFECTS: spawn tracer and record impact tile, then start
+		// the PRIMARY DAMAGE roll. We purposely do NOT resolve primary damage
+		// yet — we wait for its visuals to finish (stage 2) before rolling AOE.
 		// Compute exact hit point on the impacted tile edge (in grid-space fractions)
 		{
 			glm::vec2 casterCenter = casterTile + glm::vec2(0.5f, 0.5f);
@@ -5312,93 +5311,116 @@ void ofApp::updateGame() {
 			}
 		}
 
-		// Check if impact was inside a wall
-		if (isTileWall((int)impactTile.x, (int)impactTile.y)) {
+		// 3. APPLY EFFECTS: spawn tracer and store impactTile for subsequent stages
+
+		pendingMagicBoltImpactTile = impactTile;
+
+		// Spawn tracer and highlight the impact tile so players can see where the bolt landed
+		{
+			glm::vec2 casterCenter = casterTile + glm::vec2(0.5f, 0.5f);
+			glm::vec2 hitGrid = pendingMagicBoltTargetTile + glm::vec2(0.5f, 0.5f);
+			glm::vec3 worldStart, worldEnd;
+			computeTracerEndpoints(casterTile, hitGrid, worldStart, worldEnd);
+			spawnTracer(worldStart, worldEnd, glm::ivec2((int)pendingMagicBoltImpactTile.x, (int)pendingMagicBoltImpactTile.y), ofColor(180, 100, 255), 5.0f);
+		}
+
+		// If impact was inside a wall, show fizzle and finish (no further rolls)
+		if (isTileWall((int)pendingMagicBoltImpactTile.x, (int)pendingMagicBoltImpactTile.y)) {
 			ofLogNotice("Magic Bolt") << "Bolt fizzled inside a wall. No AOE.";
-			spawnFloatingText(gridToWorld((int)impactTile.x, (int)impactTile.y), "Fizzle!", ofColor::gray);
+			spawnFloatingText(gridToWorld((int)pendingMagicBoltImpactTile.x, (int)pendingMagicBoltImpactTile.y), "Fizzle!", ofColor::gray);
 		} else {
-			// Primary Damage
-			int primaryDamage = startDiceRoll(1, 20, PURPOSE_DAMAGE, "Magic Bolt: Primary Damage", currentPlayerIndex);
+			// Start PRIMARY damage roll (1d20). Wait for its visuals to complete before
+			// applying damage and then rolling the AOE radius.
+			pendingMagicBoltPrimaryResult = startDiceRoll(1, 20, PURPOSE_DAMAGE, "Magic Bolt: Primary Damage", currentPlayerIndex);
+			isWaitingForMagicBoltPrimary = true;
+		}
+	}
 
-			// Find if a unit was on the impact tile
-			Player * directHitTarget = nullptr;
-			for (auto & p : players) {
-				if (p.x == (int)impactTile.x && p.y == (int)impactTile.y) {
-					directHitTarget = &p;
-					break;
-				}
+	// --- MAGIC BOLT RESOLUTION (Stage 2: Primary Damage) ---
+	if (isWaitingForMagicBoltPrimary && diceVisualsFinishedAndLinger()) {
+		isWaitingForMagicBoltPrimary = false;
+
+		// Apply primary damage to unit on impact tile (if any)
+		Player * directHitTarget = nullptr;
+		for (auto & p : players) {
+			if (p.x == (int)pendingMagicBoltImpactTile.x && p.y == (int)pendingMagicBoltImpactTile.y) {
+				directHitTarget = &p;
+				break;
 			}
+		}
 
-			if (directHitTarget) {
-				ofLogNotice("Magic Bolt") << "Direct Hit! Dealing " << primaryDamage << " Magic damage.";
+		int primaryDamage = pendingMagicBoltPrimaryResult;
+		if (directHitTarget) {
+			ofLogNotice("Magic Bolt") << "Direct Hit! Dealing " << primaryDamage << " Magic damage.";
+			int dmg = primaryDamage;
+			int barrierDmg = std::min(directHitTarget->barrier, dmg);
+			directHitTarget->barrier -= barrierDmg;
+			dmg -= barrierDmg;
+			int wardDmg = std::min(directHitTarget->ward, dmg);
+			directHitTarget->ward -= wardDmg;
+			dmg -= wardDmg;
 
-				int dmg = primaryDamage;
-				int barrierDmg = std::min(directHitTarget->barrier, dmg);
-				directHitTarget->barrier -= barrierDmg;
+			if (dmg > 0) {
+				directHitTarget->health -= dmg;
+				spawnFloatingText(gridToWorld(directHitTarget->x, directHitTarget->y), "-" + ofToString(dmg) + " Magic", ofColor::red);
+			} else {
+				spawnFloatingText(gridToWorld(directHitTarget->x, directHitTarget->y), "Absorbed", ofColor::gray);
+			}
+		} else {
+			spawnFloatingText(gridToWorld((int)pendingMagicBoltImpactTile.x, (int)pendingMagicBoltImpactTile.y), ofToString(primaryDamage) + "!", ofColor::purple);
+		}
+
+		// After primary damage visuals complete, start AOE radius roll (1d20)
+		pendingMagicBoltAoeResult = startDiceRoll(1, 20, PURPOSE_RANGE, "Magic Bolt: AOE Radius", currentPlayerIndex);
+		isWaitingForMagicBoltAoe = true;
+	}
+
+	// --- MAGIC BOLT RESOLUTION (Stage 3: AOE) ---
+	if (isWaitingForMagicBoltAoe && diceVisualsFinishedAndLinger()) {
+		isWaitingForMagicBoltAoe = false;
+
+		int diceRoll = pendingMagicBoltAoeResult;
+		int aoeRadiusFeet = diceRoll + 3;
+
+		ofLogNotice("Magic Bolt") << "AOE Roll: " << diceRoll << " + 3ft = " << aoeRadiusFeet << "ft Radius.";
+
+		for (auto & p : players) {
+			// Don't hit the direct target again
+			if (p.x == (int)pendingMagicBoltImpactTile.x && p.y == (int)pendingMagicBoltImpactTile.y) continue;
+
+			// Calculate Distance from Impact Center to Unit Center (Euclidean)
+			float distToTargetUnits = glm::distance(pendingMagicBoltImpactTile, glm::vec2(p.x, p.y));
+			float distToTargetFeet = distToTargetUnits * 5.0f;
+
+			if (distToTargetFeet <= aoeRadiusFeet + 0.01f) {
+				// Ensure AOE doesn't go through walls: verify LOS from impact center to unit center
+				auto losPath = getLineOfSightPath(pendingMagicBoltImpactTile + glm::vec2(0.5f, 0.5f), glm::vec2(p.x, p.y) + glm::vec2(0.5f, 0.5f));
+				bool blockedByWall = false;
+				for (const auto & step : losPath) {
+					if ((int)step.x == (int)pendingMagicBoltImpactTile.x && (int)step.y == (int)pendingMagicBoltImpactTile.y) continue;
+					if ((int)step.x == p.x && (int)step.y == p.y) break;
+					if (isTileWall((int)step.x, (int)step.y)) {
+						blockedByWall = true;
+						break;
+					}
+				}
+				if (blockedByWall) continue;
+
+				ofLogNotice("Magic Bolt") << "AOE Hit on Unit " << p.playerID << " (Dist: " << distToTargetFeet << ")";
+
+				int dmg = 3;
+				int barrierDmg = std::min(p.barrier, dmg);
+				p.barrier -= barrierDmg;
 				dmg -= barrierDmg;
-				int wardDmg = std::min(directHitTarget->ward, dmg);
-				directHitTarget->ward -= wardDmg;
+				int wardDmg = std::min(p.ward, dmg);
+				p.ward -= wardDmg;
 				dmg -= wardDmg;
 
 				if (dmg > 0) {
-					directHitTarget->health -= dmg;
-					spawnFloatingText(gridToWorld(directHitTarget->x, directHitTarget->y), "-" + ofToString(dmg) + " Magic", ofColor::red);
+					p.health -= dmg;
+					spawnFloatingText(gridToWorld(p.x, p.y), "-" + ofToString(dmg) + " Electric", ofColor::yellow);
 				} else {
-					spawnFloatingText(gridToWorld(directHitTarget->x, directHitTarget->y), "Absorbed", ofColor::gray);
-				}
-			} else {
-				spawnFloatingText(gridToWorld((int)impactTile.x, (int)impactTile.y), ofToString(primaryDamage) + "!", ofColor::purple);
-			}
-
-			// --- SECONDARY AOE (3 Electric Damage) ---
-			// AOE Roll (1d20): roll 1d20 for AOE radius, then add 3ft buffer so it at least reaches one tile
-			int diceRoll = startDiceRoll(1, 20, PURPOSE_RANGE, "Magic Bolt: AOE Radius", currentPlayerIndex);
-
-			// Add automatic 3ft buffer
-			int aoeRadiusFeet = diceRoll + 3;
-
-			ofLogNotice("Magic Bolt") << "AOE Roll: " << diceRoll << " + 3ft = " << aoeRadiusFeet << "ft Radius.";
-
-			for (auto & p : players) {
-				// Don't hit the direct target again
-				if (&p == directHitTarget) continue;
-
-				// Calculate Distance from Impact Center to Unit Center
-				float distToTargetUnits = glm::distance(impactTile, glm::vec2(p.x, p.y));
-				float distToTargetFeet = distToTargetUnits * 5.0f;
-
-				// Check Radius
-				if (distToTargetFeet <= aoeRadiusFeet + 0.01f) {
-					// Ensure AOE doesn't go through walls: verify line-of-sight from impact center to unit center
-					auto losPath = getLineOfSightPath(impactTile + glm::vec2(0.5f, 0.5f), glm::vec2(p.x, p.y) + glm::vec2(0.5f, 0.5f));
-					bool blockedByWall = false;
-					for (const auto & step : losPath) {
-						// skip the impact tile and the final target tile
-						if ((int)step.x == (int)impactTile.x && (int)step.y == (int)impactTile.y) continue;
-						if ((int)step.x == p.x && (int)step.y == p.y) break;
-						if (isTileWall((int)step.x, (int)step.y)) {
-							blockedByWall = true;
-							break;
-						}
-					}
-					if (blockedByWall) continue;
-
-					ofLogNotice("Magic Bolt") << "AOE Hit on Unit " << p.playerID << " (Dist: " << distToTargetFeet << ")";
-
-					int dmg = 3;
-					int barrierDmg = std::min(p.barrier, dmg);
-					p.barrier -= barrierDmg;
-					dmg -= barrierDmg;
-					int wardDmg = std::min(p.ward, dmg);
-					p.ward -= wardDmg;
-					dmg -= wardDmg;
-
-					if (dmg > 0) {
-						p.health -= dmg;
-						spawnFloatingText(gridToWorld(p.x, p.y), "-" + ofToString(dmg) + " Electric", ofColor::yellow);
-					} else {
-						spawnFloatingText(gridToWorld(p.x, p.y), "Absorbed", ofColor::gray);
-					}
+					spawnFloatingText(gridToWorld(p.x, p.y), "Absorbed", ofColor::gray);
 				}
 			}
 		}
@@ -10703,38 +10725,8 @@ void ofApp::drawGame() {
 		}
 	}
 
-	// --- OPTIMIsED HAND DRAWING ...
-	// Always draw the hand area box first (even with no player/cards yet)
-	{
-		float handBaseCardWidth = 120;
-		float cardHeight = handBaseCardWidth * (585.0f / 409.0f); // Card aspect ratio
-
-		// Fixed box for up to 5 cards minimum
-		int cardsToFit = 5;
-		float handAreaWidth = ofGetWidth() * 0.6f;
-		float totalCardWidths = cardsToFit * handBaseCardWidth;
-		float padding = (cardsToFit > 1) ? (handAreaWidth - totalCardWidths) / (cardsToFit - 1) : 0;
-		padding = std::min(padding, 20.0f);
-		float totalHandWidth = (cardsToFit * handBaseCardWidth) + ((cardsToFit - 1) * padding);
-		float startX = (ofGetWidth() - totalHandWidth) / 2.0f;
-
-		// Larger vertical padding to make the box taller and attach to bottom
-		float boxPaddingX = 28.0f;
-		float boxPaddingY = 44.0f; // increased vertical padding
-		float boxLeft = startX - boxPaddingX;
-		float boxRight = startX + totalHandWidth + boxPaddingX;
-		float boxBottom = ofGetHeight(); // attach directly to the bottom of the screen
-		float boxTop = boxBottom - (cardHeight + 2.0f * boxPaddingY);
-		float boxWidth = boxRight - boxLeft;
-		float boxHeight = boxBottom - boxTop;
-
-		ofPushStyle();
-		ofFill();
-		ofSetColor(0, 0, 0, 150); // Transparent black background (matches deck)
-		ofDrawRectRounded(boxLeft, boxTop, boxWidth, boxHeight, 10 * scale);
-		ofPopStyle();
-	}
-
+	// --- OPTIMIsED HAND DRAWING ---
+	// Draw the hand area only when we have a valid player/context (match rest of UI)
 	if (!players.empty() && currentPlayerIndex >= 0) {
 		// In multiplayer, show BOTH players' hands at bottom in a shared space
 		// Get both local and opponent player
@@ -21346,11 +21338,38 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 					float distFeet = glm::distance(casterPos, glm::vec2((float)tx, (float)ty)) * 5.0f;
 					if (distFeet <= maxRangeFeet + 3.0f) {
 						preview = true;
-						// Valid (green) only if another unit sits on the tile
+						// Valid (green) if another unit sits on the tile OR if an AOE from
+						// this tile (max possible 1d20 + 3 ft) could hit another unit.
 						for (size_t i = 0; i < players.size(); ++i) {
-							if (players[i].x == tx && players[i].y == ty && (int)i != currentPlayerIndex) {
+							if ((int)i == currentPlayerIndex) continue;
+							if (players[i].x == tx && players[i].y == ty) {
 								valid = true;
 								break;
+							}
+						}
+						if (!valid) {
+							// Check max possible AOE reach: 1d20 + 3ft (max 23 ft)
+							int maxAoeFeet = 20 + 3;
+							for (size_t i = 0; i < players.size(); ++i) {
+								if ((int)i == currentPlayerIndex) continue;
+								float distToPlayerFeet = glm::distance(glm::vec2(tx, ty), glm::vec2(players[i].x, players[i].y)) * 5.0f;
+								if (distToPlayerFeet <= maxAoeFeet + 0.01f) {
+									// Ensure LOS from impact tile to unit (AOE cannot go through walls)
+									auto losPath = getLineOfSightPath(glm::vec2((float)tx, (float)ty) + glm::vec2(0.5f, 0.5f), glm::vec2(players[i].x, players[i].y) + glm::vec2(0.5f, 0.5f));
+									bool blocked = false;
+									for (const auto & step : losPath) {
+										if ((int)step.x == tx && (int)step.y == ty) continue;
+										if ((int)step.x == players[i].x && (int)step.y == players[i].y) break;
+										if (isTileWall((int)step.x, (int)step.y)) {
+											blocked = true;
+											break;
+										}
+									}
+									if (!blocked) {
+										valid = true;
+										break;
+									}
+								}
 							}
 						}
 					}
@@ -21964,7 +21983,30 @@ bool ofApp::hasValidNonSelfTargetForHandIndex(int handIndex) {
 			// For each card type we care about, check whether this target tile
 			// would result in damaging a unit other than the caster.
 			switch (card.type) {
-			case CARD_MAGIC_BOLT:
+			case CARD_MAGIC_BOLT: {
+				// Magic Bolt: direct hit OR potential AOE (1d20 + 3ft) from the impact tile
+				if (tileHasOtherPlayer(x, y)) return true;
+				int maxAoeFeet = 20 + 3; // 1d20 + 3ft buffer
+				for (size_t i = 0; i < players.size(); ++i) {
+					if ((int)i == currentPlayerIndex) continue;
+					float distToPlayerFeet = glm::distance(glm::vec2(x, y), glm::vec2(players[i].x, players[i].y)) * 5.0f;
+					if (distToPlayerFeet <= maxAoeFeet + 0.01f) {
+						// Ensure AOE line-of-sight from impact tile to unit (AOE can't go through walls)
+						auto losPath = getLineOfSightPath(glm::vec2((float)x, (float)y) + glm::vec2(0.5f, 0.5f), glm::vec2(players[i].x, players[i].y) + glm::vec2(0.5f, 0.5f));
+						bool blocked = false;
+						for (const auto & step : losPath) {
+							if ((int)step.x == x && (int)step.y == y) continue;
+							if ((int)step.x == players[i].x && (int)step.y == players[i].y) break;
+							if (isTileWall((int)step.x, (int)step.y)) {
+								blocked = true;
+								break;
+							}
+						}
+						if (!blocked) return true;
+					}
+				}
+				break;
+			}
 			case CARD_SHOOT_ARROW:
 			case CARD_DEATH:
 			case CARD_CHAIN_LIGHTNING: {
@@ -27994,11 +28036,10 @@ void ofApp::processNetworkPackets() {
 						}
 					}
 				} else {
-					// CARD PLAY ACTION: Execute card play
+					// CARD PLAY ACTION: Host-side validation first (if host)
 					ofLogNotice("Sync") << "Opponent played card index: " << pkt->cardIndex;
 					// Special-case: Shell Spike pseudo-action (cardIndex == -2)
 					if (pkt->cardIndex == -2 && std::string(pkt->cardName) == "Shell Spike") {
-						// Find the target at the provided coordinates and apply physical damage
 						Player * target = nullptr;
 						for (auto & p : players) {
 							if (p.x == pkt->targetX && p.y == pkt->targetY) {
@@ -28014,9 +28055,32 @@ void ofApp::processNetworkPackets() {
 						}
 						continue;
 					}
-					// EXECUTE REMOTE MOVE
-					// Because gameplayRNG is synced, if this card causes a dice roll,
-					// it will roll the exact same number here as it did on the opponent's screen.
+
+					if (isHost()) {
+						std::string rejectReason;
+						if (!validateActionPacketOnHost(*pkt, rejectReason)) {
+							// Reject: inform submitting client and ACK so they stop resending
+							ofLogWarning("Network") << "Host: Rejecting ActionPacket from player=" << pkt->playerID << " reason='" << rejectReason << "'";
+							// Send chat-style message to the originating client for feedback
+							ChatMessagePacket msg = {};
+							msg.type = PKT_CHAT_MESSAGE;
+							msg.playerID = myLocalPlayerID;
+							strncpy(msg.message, ("Play rejected: " + rejectReason).c_str(), sizeof(msg.message) - 1);
+							msg.message[sizeof(msg.message) - 1] = '\0';
+							steamManager.sendPacket(&msg, sizeof(msg));
+
+							// Send ACK back so the client stops resending this ActionPacket
+							AckPacket ack = {};
+							ack.type = PKT_ACK;
+							ack.playerID = myLocalPlayerID;
+							ack.ackSeq = pkt->clientActionID;
+							ack.ackType = PKT_ACTION;
+							steamManager.sendPacket(&ack, sizeof(ack));
+							continue; // Do not execute the rejected action
+						}
+					}
+
+					// Execute the action (host accepted it)
 					executeAction(*pkt);
 
 					// Host: send ACK back to originating client so they stop resending
@@ -28024,7 +28088,6 @@ void ofApp::processNetworkPackets() {
 						AckPacket ack = {};
 						ack.type = PKT_ACK;
 						ack.playerID = myLocalPlayerID;
-						// If client provided a clientActionID, echo it so the client can match ACKs
 						ack.ackSeq = pkt->clientActionID;
 						ack.ackType = PKT_ACTION;
 						steamManager.sendPacket(&ack, sizeof(ack));
@@ -30080,6 +30143,151 @@ void ofApp::executeOpponentCardPlay(const ActionPacket & pkt) {
 		currentPlayerIndex = savedCurrentPlayerIndex;
 		currentAP = savedCurrentAP;
 	}
+}
+
+// Host-side validation for incoming ActionPackets (card plays).
+// Ensures the chosen target(s) are still valid under the host's authoritative
+// board state (e.g. non-self targets required for certain damage cards).
+bool ofApp::validateActionPacketOnHost(const ActionPacket & pkt, std::string & reason) {
+	reason.clear();
+	// We only validate card plays here (cardIndex >= 0)
+	if (pkt.cardIndex < 0) return true;
+
+	// Resolve acting unit index: prefer actorIndex if in-range, otherwise map by playerID
+	int actorIdx = -1;
+	if (pkt.actorIndex >= 0 && pkt.actorIndex < (int)players.size())
+		actorIdx = pkt.actorIndex;
+	else {
+		for (size_t i = 0; i < players.size(); ++i) {
+			if ((uint32_t)players[i].playerID == pkt.playerID && !players[i].isMinion) {
+				actorIdx = (int)i;
+				break;
+			}
+		}
+	}
+	if (actorIdx < 0) {
+		reason = "Invalid acting unit";
+		return false;
+	}
+
+	// Lookup card definition by name (ActionPacket carries the card name)
+	Card cardDef;
+	bool found = false;
+	std::string cardName(pkt.cardName);
+	for (const auto & c : allCards) {
+		if (c.name == cardName) {
+			cardDef = c;
+			found = true;
+			break;
+		}
+	}
+	if (!found) {
+		// If we don't know the card, be conservative and accept (but log)
+		ofLogWarning("Network") << "Host: Unknown card name in ActionPacket: '" << cardName << "' - skipping validation.";
+		return true;
+	}
+
+	auto tileHasOtherPlayer = [&](int tx, int ty) {
+		for (size_t i = 0; i < players.size(); ++i) {
+			if (players[i].x == tx && players[i].y == ty) {
+				if ((int)i != actorIdx) return true;
+			}
+		}
+		return false;
+	};
+
+	int tx = pkt.targetX;
+	int ty = pkt.targetY;
+	Player & caster = players[actorIdx];
+	glm::vec2 casterPos((float)caster.x, (float)caster.y);
+
+	// Card-specific validation rules (match client-side heuristics)
+	switch (cardDef.type) {
+	case CARD_BURST_OF_LIGHT: {
+		// pkt.menuChoice: 1 = Damage, 2 = Heal (sender encodes as such)
+		if (pkt.menuChoice == 1) {
+			// Damage must not target self and must be a valid LOS target
+			int targetIndex = -1;
+			for (size_t i = 0; i < players.size(); ++i)
+				if (players[i].x == tx && players[i].y == ty) {
+					targetIndex = (int)i;
+					break;
+				}
+			if (targetIndex == -1) {
+				reason = "Burst: No unit at target";
+				return false;
+			}
+			if (targetIndex == actorIdx) {
+				reason = "Burst: Cannot damage self";
+				return false;
+			}
+			TargetInfo info = isLosTargetValid(casterPos, glm::vec2(tx, ty), 9999.0f, CARD_BURST_OF_LIGHT);
+			if (info.reason != VALID) {
+				reason = "Burst: Target not in line of sight";
+				return false;
+			}
+		}
+		return true;
+	}
+	case CARD_SHIELD_BASH: {
+		// Must target an adjacent unit
+		int targetIndex = -1;
+		for (size_t i = 0; i < players.size(); ++i)
+			if (players[i].x == tx && players[i].y == ty) {
+				targetIndex = (int)i;
+				break;
+			}
+		if (targetIndex == -1) {
+			reason = "Shield Bash: No unit at target";
+			return false;
+		}
+		int dx = abs(players[targetIndex].x - caster.x);
+		int dy = abs(players[targetIndex].y - caster.y);
+		if (dx + dy != 1) {
+			reason = "Shield Bash: Target not adjacent";
+			return false;
+		}
+		return true;
+	}
+	case CARD_MAGIC_BOLT:
+	case CARD_SHOOT_ARROW:
+	case CARD_DEATH:
+	case CARD_CHAIN_LIGHTNING:
+	case CARD_FIREBALL: {
+		// Require that the chosen target tile would hit an other-than-self unit
+		if (tileHasOtherPlayer(tx, ty)) return true;
+		// For splash effects like MAGIC_BLAST we'd check neighbors, but these types
+		// require direct non-self target per client heuristics.
+		reason = "Play rejected - no non-self target at chosen tile";
+		return false;
+	}
+	case CARD_MAGIC_BLAST: {
+		// Direct or neighbor must contain non-self
+		if (tileHasOtherPlayer(tx, ty)) return true;
+		const glm::ivec2 nbors[4] = { { tx + 1, ty }, { tx - 1, ty }, { tx, ty + 1 }, { tx, ty - 1 } };
+		for (auto n : nbors)
+			if (n.x >= 0 && n.x < BOARD_WIDTH && n.y >= 0 && n.y < BOARD_HEIGHT) {
+				if (tileHasOtherPlayer(n.x, n.y)) return true;
+			}
+		reason = "Magic Blast: no non-self unit at target or neighbors";
+		return false;
+	}
+	case CARD_PSIONIC_WAVE: {
+		// Psionic Wave affects area around caster; ensure at least one other unit exists in max radius
+		for (size_t i = 0; i < players.size(); ++i) {
+			if ((int)i == actorIdx) continue;
+			// Use an approximate check: if any other unit is on board, allow (more precise checks are expensive)
+			if (players[i].x >= 0) return true;
+		}
+		reason = "Psionic Wave: no other units would be affected";
+		return false;
+	}
+	default:
+		break;
+	}
+
+	// Default: accept the action
+	return true;
 }
 
 // Verify sync

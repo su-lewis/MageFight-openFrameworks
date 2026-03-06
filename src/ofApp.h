@@ -524,6 +524,11 @@ public:
 	void sendMenuState(int menuType, int targetIndex, int hoveredChoice, int cardIndex);
 	void executeAction(const ActionPacket & pkt);
 	void executeOpponentCardPlay(const ActionPacket & pkt);
+
+	// Host-side validation for client-submitted ActionPackets. Returns true
+	// if the action is valid against the host's authoritative board; if
+	// false, `reason` is filled with a short explanation for logging/feedback.
+	bool validateActionPacketOnHost(const ActionPacket & pkt, std::string & reason);
 	long long calculateChecksum();
 
 	// Reliable send tracking for certain client-originated packets
@@ -1624,6 +1629,13 @@ private:
 	bool isTargetingMagicBolt = false;
 	int magicBoltCardIndex = -1;
 	glm::vec2 pendingMagicBoltTargetTile;
+
+	// Magic Bolt intermediate resolution state (primary damage and AOE)
+	bool isWaitingForMagicBoltPrimary = false;
+	int pendingMagicBoltPrimaryResult = 0;
+	bool isWaitingForMagicBoltAoe = false;
+	int pendingMagicBoltAoeResult = 0;
+	glm::vec2 pendingMagicBoltImpactTile;
 
 	// Shoot Arrow State
 	bool isWaitingForShootArrow = false;
