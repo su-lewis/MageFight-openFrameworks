@@ -9588,6 +9588,40 @@ void ofApp::drawGame() {
 			ofDisableDepthTest();
 		}
 
+		// 5b. Draw Dispel Targeting Highlights
+		if (isDispelTargeting && dispelMode == 2) {
+			// Purge mode: highlight valid targets (self or adjacent with removable statuses)
+			glDepthMask(GL_TRUE);
+			ofEnableDepthTest();
+
+			Player & caster = players[currentPlayerIndex];
+
+			for (size_t i = 0; i < players.size(); ++i) {
+				Player & p = players[i];
+
+				// Check if valid target (self or adjacent)
+				int distance = abs(p.x - caster.x) + abs(p.y - caster.y);
+				bool isValidDistance = (distance <= 1);
+
+				if (isValidDistance) {
+					// Check if target has removable statuses
+					bool hasRemovableStatus = p.onFire || p.isParalyzed;
+
+					glm::vec3 targetPos = gridToWorld(p.x, p.y);
+					ofColor highlightColor = hasRemovableStatus ? ofColor::green : ofColor::white;
+					int alpha = hasRemovableStatus ? 180 : 100;
+
+					ofSetColor(highlightColor, alpha);
+					ofPushMatrix();
+					ofTranslate(targetPos.x, 0.08f, targetPos.z);
+					ofRotateXDeg(90);
+					ofDrawCircle(0, 0, TILE_SIZE * 0.4f);
+					ofPopMatrix();
+				}
+			}
+			ofDisableDepthTest();
+		}
+
 		// Draw active tracers (ranged spell visuals)
 		{
 			float now = ofGetElapsedTimef();
@@ -11426,6 +11460,9 @@ void ofApp::drawGame() {
 		bool shouldShowChat = isChatOpen || (currentTime - lastChatInteractionTime < chatVisibilityDuration);
 
 		if (shouldShowChat) {
+			// Reset scroll offset to show latest messages (top of chat displays oldest, bottom displays newest)
+			chatScrollOffset = 0;
+
 			// Default: top-left corner with a small margin (offset below turn timer bar)
 			float timerBarHeight = 8.0f * scale; // Match the timer bar height
 			float margin = 8.0f * scale + timerBarHeight; // Add timer bar height to margin
