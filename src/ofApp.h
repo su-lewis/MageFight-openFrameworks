@@ -660,6 +660,19 @@ private:
 	void invalidateTargetCache();
 	void clearHighlights();
 
+	// --- TARGETING HELPERS (consolidated logic) ---
+	// Returns list of player indices present at tile (tx, ty)
+	std::vector<int> getTileOccupants(int tx, int ty);
+	// Returns true if tile contains at least one unit other than excludePlayerIndex
+	bool tileHasOtherThan(int tx, int ty, int excludePlayerIndex);
+	// Unified target info: computes validity for a card targeting (tx, ty) from caster
+	// Handles LOS, range, wall rules, ghost-overlap, and card-specific logic.
+	// Used by both client preview and host validation for consistency.
+	TargetInfo computeTargetInfo(const Card & card, int casterIdx, int tx, int ty);
+	// Returns true if a click on (tx, ty) would affect a unit other than caster
+	// (used to determine if card play is legal without hitting only self)
+	bool wouldAffectOtherUnit(const Card & card, int casterIdx, int tx, int ty);
+
 	// Centralized targeting helpers
 	void enterTargetingMode(const TargetingContext & ctx);
 	void cancelTargetingMode();

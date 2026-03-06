@@ -21469,14 +21469,9 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 
 						// Valid (green) if another unit sits on the tile OR if an AOE
 						// from this tile (max possible 1d20 + 3 ft) could hit another unit.
-						for (size_t i = 0; i < players.size(); ++i) {
-							if ((int)i == currentPlayerIndex) continue;
-							if (players[i].x == tx && players[i].y == ty) {
-								valid = true;
-								break;
-							}
-						}
-						if (!valid) {
+						if (tileHasOtherThan(tx, ty, currentPlayerIndex)) {
+							valid = true;
+						} else {
 							int maxAoeFeet = 20 + 3;
 							for (size_t i = 0; i < players.size(); ++i) {
 								if ((int)i == currentPlayerIndex) continue;
@@ -21505,11 +21500,8 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 					TargetInfo info = isLosTargetValid(casterPos, glm::vec2((float)tx, (float)ty), 9999.0f, CARD_CHAIN_LIGHTNING);
 					if (info.reason == VALID || info.reason == INVALID_SELF) preview = true;
 					if (info.reason == VALID) {
-						for (size_t i = 0; i < players.size(); ++i) {
-							if (players[i].x == tx && players[i].y == ty && (int)i != currentPlayerIndex) {
-								valid = true;
-								break;
-							}
+						if (tileHasOtherThan(tx, ty, currentPlayerIndex)) {
+							valid = true;
 						}
 					}
 				}
@@ -22077,15 +22069,7 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 
 			// If the tile is occupied, ensure the occupant is NOT the caster itself.
 			if (isValidTarget && board[x][y].hasPlayer && currentPlayerIndex >= 0) {
-				bool hasOtherOccupant = false;
-				for (size_t pi = 0; pi < players.size(); ++pi) {
-					if ((int)pi == currentPlayerIndex) continue;
-					if (players[pi].x == x && players[pi].y == y) {
-						hasOtherOccupant = true;
-						break;
-					}
-				}
-				if (!hasOtherOccupant) {
+				if (!tileHasOtherThan(x, y, currentPlayerIndex)) {
 					// Only occupant is caster; not a valid non-self target
 					isValidTarget = false;
 				}
@@ -22104,88 +22088,18 @@ bool ofApp::hasValidNonSelfTargetForHandIndex(int handIndex) {
 	Player & caster = players[currentPlayerIndex];
 	if (handIndex < 0 || handIndex >= (int)caster.hand.size()) return false;
 
-	// Compute highlights for this card (populates board[x][y].isTargetable)
-	calculateTargetHighlights(handIndex);
-
 	Card & card = caster.hand[handIndex];
 
-	auto tileHasOtherPlayer = [&](int tx, int ty) {
-		for (size_t i = 0; i < players.size(); ++i) {
-			if (players[i].x == tx && players[i].y == ty) {
-				if ((int)i != currentPlayerIndex) return true;
-			}
-		}
-		return false;
-	};
-
+	// Iterate all board tiles and check if any would affect another unit
 	for (int x = 0; x < BOARD_WIDTH; ++x) {
 		for (int y = 0; y < BOARD_HEIGHT; ++y) {
-			if (!board[x][y].isTargetable) continue;
-
-			// For each card type we care about, check whether this target tile
-			// would result in damaging a unit other than the caster.
-			switch (card.type) {
-			case CARD_MAGIC_BOLT: {
-				// Magic Bolt: direct hit OR potential AOE (1d20 + 3ft) from the impact tile
-				if (tileHasOtherPlayer(x, y)) return true;
-				int maxAoeFeet = 20 + 3; // 1d20 + 3ft buffer
-				for (size_t i = 0; i < players.size(); ++i) {
-					if ((int)i == currentPlayerIndex) continue;
-					float distToPlayerFeet = glm::distance(glm::vec2(x, y), glm::vec2(players[i].x, players[i].y)) * 5.0f;
-					if (distToPlayerFeet <= maxAoeFeet + 0.01f) {
-						// Ensure AOE line-of-sight from impact tile to unit (AOE can't go through walls)
-						auto losPath = getLineOfSightPath(glm::vec2((float)x, (float)y) + glm::vec2(0.5f, 0.5f), glm::vec2(players[i].x, players[i].y) + glm::vec2(0.5f, 0.5f));
-						bool blocked = false;
-						for (const auto & step : losPath) {
-							if ((int)step.x == x && (int)step.y == y) continue;
-							if ((int)step.x == players[i].x && (int)step.y == players[i].y) break;
-							if (isTileWall((int)step.x, (int)step.y)) {
-								blocked = true;
-								break;
-							}
-						}
-						if (!blocked) return true;
-					}
-				}
-				break;
-			}
-			case CARD_SHOOT_ARROW:
-			case CARD_DEATH:
-			case CARD_CHAIN_LIGHTNING: {
-				if (tileHasOtherPlayer(x, y)) return true;
-				break;
-			}
-			case CARD_MAGIC_BLAST: {
-				// Direct hit on non-self
-				if (tileHasOtherPlayer(x, y)) return true;
-				// Splash neighbors
-				const glm::vec2 nbors[4] = { { (float)(x + 1), (float)y }, { (float)(x - 1), (float)y }, { (float)x, (float)(y + 1) }, { (float)x, (float)(y - 1) } };
-				for (auto & n : nbors) {
-					int nx = (int)n.x, ny = (int)n.y;
-					if (nx >= 0 && nx < BOARD_WIDTH && ny >= 0 && ny < BOARD_HEIGHT) {
-						if (tileHasOtherPlayer(nx, ny)) return true;
-					}
-				}
-				break;
-			}
-			case CARD_FIREBALL: {
-				// Fireball requires a unit at the impact tile to roll damage
-				if (tileHasOtherPlayer(x, y)) return true;
-				break;
-			}
-			default: {
-				// Generic heuristic: if any other unit is present on this target tile
-				// assume it could be damaged. This covers other multi-target spells
-				// handled similarly by calculateTargetHighlights.
-				if (tileHasOtherPlayer(x, y)) return true;
-				break;
-			}
+			if (wouldAffectOtherUnit(card, currentPlayerIndex, x, y)) {
+				return true;
 			}
 		}
 	}
 
-	// No non-self damage possibility found; clear highlights and return false
-	clearHighlights();
+	// No non-self damage possibility found
 	return false;
 }
 //--------------------------------------------------------------
@@ -23365,6 +23279,123 @@ int ofApp::getVisualPlayerIndex(int actualPlayerIndex) {
 		return actualPlayerIndex == 0 ? 1 : 0;
 	}
 	return actualPlayerIndex;
+}
+
+//--------------------------------------------------------------
+// TARGETING HELPERS - Consolidated targeting logic to unify client preview and host validation
+//--------------------------------------------------------------
+
+std::vector<int> ofApp::getTileOccupants(int tx, int ty) {
+	std::vector<int> occupants;
+	if (tx < 0 || tx >= BOARD_WIDTH || ty < 0 || ty >= BOARD_HEIGHT) return occupants;
+	for (size_t i = 0; i < players.size(); ++i) {
+		if (players[i].x == tx && players[i].y == ty) {
+			occupants.push_back((int)i);
+		}
+	}
+	return occupants;
+}
+
+bool ofApp::tileHasOtherThan(int tx, int ty, int excludePlayerIndex) {
+	auto occupants = getTileOccupants(tx, ty);
+	for (int idx : occupants) {
+		if (idx != excludePlayerIndex) return true;
+	}
+	return false;
+}
+
+TargetInfo ofApp::computeTargetInfo(const Card & card, int casterIdx, int tx, int ty) {
+	TargetInfo result;
+	result.reason = VALID;
+	result.isTargetable = false;
+
+	if (casterIdx < 0 || casterIdx >= (int)players.size()) {
+		result.reason = INVALID_OUT_OF_RANGE;
+		return result;
+	}
+
+	Player & caster = players[casterIdx];
+	glm::vec2 casterTile((float)caster.x, (float)caster.y);
+	glm::vec2 targetTile((float)tx, (float)ty);
+
+	// Out of bounds
+	if (tx < 0 || tx >= BOARD_WIDTH || ty < 0 || ty >= BOARD_HEIGHT) {
+		result.reason = INVALID_OUT_OF_RANGE;
+		return result;
+	}
+
+	// Self-target check (allow only if card targeting permits)
+	if (casterTile == targetTile) {
+		// Special-case: if caster is in Ghost form and shares tile with another unit,
+		// allow targeting the other unit.
+		if (caster.inGhostForm) {
+			auto occupants = getTileOccupants(tx, ty);
+			if (occupants.size() > 1) {
+				// Multiple occupants: prefer non-ghost occupant
+				for (int idx : occupants) {
+					if (idx != casterIdx) {
+						result.reason = VALID;
+						result.isTargetable = true;
+						return result;
+					}
+				}
+			}
+		}
+		// Standard self-target rejection
+		result.reason = INVALID_SELF;
+		return result;
+	}
+
+	// For TARGET_LINE_OF_SIGHT_TILE cards (Magic Bolt, Heal, etc): check LOS and range
+	if (card.targeting == TARGET_LINE_OF_SIGHT_TILE) {
+		float maxRange = 9999.0f; // Default: infinite
+		if (card.type == CARD_MAGIC_BOLT && players[casterIdx].playerID == currentPlayerIndex && pendingMagicBoltRangeResult > 0) {
+			maxRange = (float)pendingMagicBoltRangeResult;
+		} else if (card.numDice > 0 && card.diceSides > 0) {
+			maxRange = (float)(card.numDice * card.diceSides);
+		}
+
+		TargetInfo losInfo = isLosTargetValid(casterTile, targetTile, maxRange, card.type);
+		if (losInfo.reason != VALID && losInfo.reason != INVALID_SELF) {
+			result.reason = losInfo.reason;
+			return result;
+		}
+		result.isTargetable = losInfo.isTargetable;
+	}
+	// For TARGET_ADJACENT_* cards: check adjacency
+	else if (card.targeting == TARGET_ADJACENT_UNIT || card.targeting == TARGET_ADJACENT_UNIT_OR_WALL || card.targeting == TARGET_ADJACENT_OR_SELF_UNIT) {
+		int dist = abs(tx - caster.x) + abs(ty - caster.y);
+		if (dist != 1) {
+			result.reason = INVALID_OUT_OF_RANGE;
+			return result;
+		}
+		// Tile is adjacent; check occupancy
+		bool hasOccupant = board[tx][ty].hasPlayer;
+		bool hasWall = board[tx][ty].hasWall;
+		if (hasOccupant && !hasWall) {
+			result.isTargetable = true;
+		}
+	}
+	// For other targeting types, delegate to basic occupancy check
+	else {
+		if (board[tx][ty].hasPlayer) {
+			result.isTargetable = true;
+		}
+	}
+
+	// Reject tiles with only the caster occupant (unless card explicitly allows self)
+	if (result.isTargetable && card.targeting != TARGET_SELF) {
+		if (!tileHasOtherThan(tx, ty, casterIdx)) {
+			result.isTargetable = false;
+		}
+	}
+
+	return result;
+}
+
+bool ofApp::wouldAffectOtherUnit(const Card & card, int casterIdx, int tx, int ty) {
+	TargetInfo info = computeTargetInfo(card, casterIdx, tx, ty);
+	return info.isTargetable && info.reason == VALID;
 }
 
 //--------------------------------------------------------------
@@ -30352,12 +30383,7 @@ bool ofApp::validateActionPacketOnHost(const ActionPacket & pkt, std::string & r
 	}
 
 	auto tileHasOtherPlayer = [&](int tx, int ty) {
-		for (size_t i = 0; i < players.size(); ++i) {
-			if (players[i].x == tx && players[i].y == ty) {
-				if ((int)i != actorIdx) return true;
-			}
-		}
-		return false;
+		return tileHasOtherThan(tx, ty, actorIdx);
 	};
 
 	int tx = pkt.targetX;
