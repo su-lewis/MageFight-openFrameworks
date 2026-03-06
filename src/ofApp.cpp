@@ -35,7 +35,7 @@ int lastHoveredUnit = -1;
 }
 
 // Prune old stamped autosave files, keeping at most `keep` newest ones
-static const std::string kSavesDir = "data/Saves";
+static const std::string kSavesDir = "data/saves";
 
 static std::string makeSavePath(const std::string & p) {
 	// If path contains a directory separator, assume it's a full/relative path and use as-is

@@ -34,862 +34,6 @@
         "isTargetable": false
       },
       {
-        "hasPlayer": false,
-        "hasWall": false,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      },
-      {
-        "hasPlayer": false,
-        "hasWall": false,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      },
-      {
-        "hasPlayer": false,
-        "hasWall": false,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      },
-      {
-        "hasPlayer": false,
-        "hasWall": false,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      },
-      {
-        "hasPlayer": false,
-        "hasWall": false,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      }
-    ],
-    [
-      {
-        "hasPlayer": false,
-        "hasWall": false,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      },
-      {
-        "hasPlayer": false,
-        "hasWall": false,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      },
-      {
-        "hasPlayer": false,
-        "hasWall": false,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      },
-      {
-        "hasPlayer": false,
-        "hasWall": false,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      },
-      {
-        "hasPlayer": false,
-        "hasWall": true,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      },
-      {
-        "hasPlayer": false,
-        "hasWall": false,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      },
-      {
-        "hasPlayer": false,
-        "hasWall": false,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      },
-      {
-        "hasPlayer": false,
-        "hasWall": false,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      },
-      {
-        "hasPlayer": false,
-        "hasWall": false,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      }
-    ],
-    [
-      {
-        "hasPlayer": false,
-        "hasWall": false,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      },
-      {
-        "hasPlayer": false,
-        "hasWall": true,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      },
-      {
-        "hasPlayer": false,
-        "hasWall": true,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      },
-      {
-        "hasPlayer": false,
-        "hasWall": false,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      },
-      {
-        "hasPlayer": false,
-        "hasWall": true,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      },
-      {
-        "hasPlayer": false,
-        "hasWall": false,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      },
-      {
-        "hasPlayer": false,
-        "hasWall": true,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      },
-      {
-        "hasPlayer": false,
-        "hasWall": true,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      },
-      {
-        "hasPlayer": false,
-        "hasWall": false,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      }
-    ],
-    [
-      {
-        "hasPlayer": false,
-        "hasWall": false,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      },
-      {
-        "hasPlayer": false,
-        "hasWall": true,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      },
-      {
-        "hasPlayer": false,
-        "hasWall": false,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      },
-      {
-        "hasPlayer": true,
-        "hasWall": false,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      },
-      {
-        "hasPlayer": false,
-        "hasWall": true,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      },
-      {
-        "hasPlayer": false,
-        "hasWall": false,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      },
-      {
-        "hasPlayer": false,
-        "hasWall": false,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      },
-      {
-        "hasPlayer": false,
-        "hasWall": true,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      },
-      {
-        "hasPlayer": false,
-        "hasWall": false,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      }
-    ],
-    [
-      {
-        "hasPlayer": false,
-        "hasWall": false,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      },
-      {
-        "hasPlayer": false,
-        "hasWall": true,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      },
-      {
-        "hasPlayer": false,
-        "hasWall": false,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      },
-      {
-        "hasPlayer": false,
-        "hasWall": false,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      },
-      {
-        "hasPlayer": false,
-        "hasWall": false,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      },
-      {
-        "hasPlayer": false,
-        "hasWall": false,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      },
-      {
-        "hasPlayer": false,
-        "hasWall": false,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      },
-      {
-        "hasPlayer": false,
-        "hasWall": true,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      },
-      {
-        "hasPlayer": false,
-        "hasWall": false,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      }
-    ],
-    [
-      {
-        "hasPlayer": false,
-        "hasWall": false,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      },
-      {
-        "hasPlayer": false,
-        "hasWall": false,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      },
-      {
-        "hasPlayer": false,
-        "hasWall": false,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      },
-      {
-        "hasPlayer": false,
-        "hasWall": false,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      },
-      {
-        "hasPlayer": false,
-        "hasWall": true,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      },
-      {
-        "hasPlayer": false,
-        "hasWall": false,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      },
-      {
-        "hasPlayer": false,
-        "hasWall": false,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      },
-      {
-        "hasPlayer": false,
-        "hasWall": false,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      },
-      {
-        "hasPlayer": false,
-        "hasWall": false,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      }
-    ],
-    [
-      {
-        "hasPlayer": false,
-        "hasWall": false,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      },
-      {
-        "hasPlayer": false,
-        "hasWall": false,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      },
-      {
-        "hasPlayer": false,
-        "hasWall": false,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      },
-      {
-        "hasPlayer": false,
-        "hasWall": true,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      },
-      {
-        "hasPlayer": false,
-        "hasWall": false,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      },
-      {
-        "hasPlayer": false,
-        "hasWall": true,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      },
-      {
-        "hasPlayer": false,
-        "hasWall": false,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      },
-      {
-        "hasPlayer": false,
-        "hasWall": false,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      },
-      {
-        "hasPlayer": false,
-        "hasWall": false,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      }
-    ],
-    [
-      {
-        "hasPlayer": false,
-        "hasWall": false,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      },
-      {
-        "hasPlayer": false,
-        "hasWall": false,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      },
-      {
-        "hasPlayer": false,
-        "hasWall": false,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      },
-      {
-        "hasPlayer": false,
-        "hasWall": false,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      },
-      {
-        "hasPlayer": false,
-        "hasWall": true,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      },
-      {
-        "hasPlayer": false,
-        "hasWall": false,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      },
-      {
-        "hasPlayer": false,
-        "hasWall": false,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      },
-      {
-        "hasPlayer": false,
-        "hasWall": false,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      },
-      {
-        "hasPlayer": false,
-        "hasWall": false,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      }
-    ],
-    [
-      {
-        "hasPlayer": false,
-        "hasWall": false,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      },
-      {
-        "hasPlayer": false,
-        "hasWall": true,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      },
-      {
-        "hasPlayer": false,
-        "hasWall": false,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      },
-      {
-        "hasPlayer": false,
-        "hasWall": false,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      },
-      {
-        "hasPlayer": false,
-        "hasWall": false,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      },
-      {
-        "hasPlayer": false,
-        "hasWall": false,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      },
-      {
-        "hasPlayer": false,
-        "hasWall": false,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      },
-      {
-        "hasPlayer": false,
-        "hasWall": true,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      },
-      {
-        "hasPlayer": false,
-        "hasWall": false,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      }
-    ],
-    [
-      {
-        "hasPlayer": false,
-        "hasWall": false,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      },
-      {
-        "hasPlayer": false,
-        "hasWall": true,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      },
-      {
-        "hasPlayer": false,
-        "hasWall": false,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      },
-      {
-        "hasPlayer": false,
-        "hasWall": false,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      },
-      {
-        "hasPlayer": false,
-        "hasWall": true,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      },
-      {
-        "hasPlayer": false,
-        "hasWall": false,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      },
-      {
-        "hasPlayer": false,
-        "hasWall": false,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      },
-      {
-        "hasPlayer": false,
-        "hasWall": true,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      },
-      {
-        "hasPlayer": false,
-        "hasWall": false,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      }
-    ],
-    [
-      {
-        "hasPlayer": false,
-        "hasWall": false,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      },
-      {
-        "hasPlayer": false,
-        "hasWall": true,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      },
-      {
-        "hasPlayer": false,
-        "hasWall": true,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      },
-      {
-        "hasPlayer": false,
-        "hasWall": false,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      },
-      {
-        "hasPlayer": false,
-        "hasWall": true,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      },
-      {
-        "hasPlayer": false,
-        "hasWall": false,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      },
-      {
-        "hasPlayer": false,
-        "hasWall": true,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      },
-      {
-        "hasPlayer": false,
-        "hasWall": true,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      },
-      {
-        "hasPlayer": false,
-        "hasWall": false,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      }
-    ],
-    [
-      {
-        "hasPlayer": false,
-        "hasWall": false,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      },
-      {
-        "hasPlayer": false,
-        "hasWall": false,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      },
-      {
-        "hasPlayer": false,
-        "hasWall": false,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      },
-      {
-        "hasPlayer": false,
-        "hasWall": false,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      },
-      {
-        "hasPlayer": false,
-        "hasWall": true,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      },
-      {
-        "hasPlayer": false,
-        "hasWall": false,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      },
-      {
-        "hasPlayer": false,
-        "hasWall": false,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      },
-      {
-        "hasPlayer": false,
-        "hasWall": false,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      },
-      {
-        "hasPlayer": false,
-        "hasWall": false,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      }
-    ],
-    [
-      {
         "hasPlayer": true,
         "hasWall": false,
         "isHighlighted": false,
@@ -907,6 +51,862 @@
       },
       {
         "hasPlayer": false,
+        "hasWall": false,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      },
+      {
+        "hasPlayer": false,
+        "hasWall": false,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      },
+      {
+        "hasPlayer": false,
+        "hasWall": false,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      }
+    ],
+    [
+      {
+        "hasPlayer": false,
+        "hasWall": false,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      },
+      {
+        "hasPlayer": false,
+        "hasWall": false,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      },
+      {
+        "hasPlayer": false,
+        "hasWall": false,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      },
+      {
+        "hasPlayer": false,
+        "hasWall": false,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      },
+      {
+        "hasPlayer": false,
+        "hasWall": true,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      },
+      {
+        "hasPlayer": false,
+        "hasWall": false,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      },
+      {
+        "hasPlayer": false,
+        "hasWall": false,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      },
+      {
+        "hasPlayer": false,
+        "hasWall": false,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      },
+      {
+        "hasPlayer": false,
+        "hasWall": false,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      }
+    ],
+    [
+      {
+        "hasPlayer": false,
+        "hasWall": false,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      },
+      {
+        "hasPlayer": false,
+        "hasWall": true,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      },
+      {
+        "hasPlayer": false,
+        "hasWall": true,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      },
+      {
+        "hasPlayer": false,
+        "hasWall": false,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      },
+      {
+        "hasPlayer": false,
+        "hasWall": true,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      },
+      {
+        "hasPlayer": false,
+        "hasWall": false,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      },
+      {
+        "hasPlayer": false,
+        "hasWall": true,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      },
+      {
+        "hasPlayer": false,
+        "hasWall": true,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      },
+      {
+        "hasPlayer": false,
+        "hasWall": false,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      }
+    ],
+    [
+      {
+        "hasPlayer": false,
+        "hasWall": false,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      },
+      {
+        "hasPlayer": false,
+        "hasWall": true,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      },
+      {
+        "hasPlayer": false,
+        "hasWall": false,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      },
+      {
+        "hasPlayer": false,
+        "hasWall": false,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      },
+      {
+        "hasPlayer": false,
+        "hasWall": true,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      },
+      {
+        "hasPlayer": false,
+        "hasWall": false,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      },
+      {
+        "hasPlayer": false,
+        "hasWall": false,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      },
+      {
+        "hasPlayer": false,
+        "hasWall": true,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      },
+      {
+        "hasPlayer": false,
+        "hasWall": false,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      }
+    ],
+    [
+      {
+        "hasPlayer": false,
+        "hasWall": false,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      },
+      {
+        "hasPlayer": false,
+        "hasWall": true,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      },
+      {
+        "hasPlayer": false,
+        "hasWall": false,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      },
+      {
+        "hasPlayer": false,
+        "hasWall": false,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      },
+      {
+        "hasPlayer": false,
+        "hasWall": false,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      },
+      {
+        "hasPlayer": false,
+        "hasWall": false,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      },
+      {
+        "hasPlayer": false,
+        "hasWall": false,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      },
+      {
+        "hasPlayer": false,
+        "hasWall": true,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      },
+      {
+        "hasPlayer": false,
+        "hasWall": false,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      }
+    ],
+    [
+      {
+        "hasPlayer": false,
+        "hasWall": false,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      },
+      {
+        "hasPlayer": false,
+        "hasWall": false,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      },
+      {
+        "hasPlayer": false,
+        "hasWall": false,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      },
+      {
+        "hasPlayer": false,
+        "hasWall": false,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      },
+      {
+        "hasPlayer": false,
+        "hasWall": true,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      },
+      {
+        "hasPlayer": false,
+        "hasWall": false,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      },
+      {
+        "hasPlayer": false,
+        "hasWall": false,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      },
+      {
+        "hasPlayer": false,
+        "hasWall": false,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      },
+      {
+        "hasPlayer": false,
+        "hasWall": false,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      }
+    ],
+    [
+      {
+        "hasPlayer": false,
+        "hasWall": false,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      },
+      {
+        "hasPlayer": false,
+        "hasWall": false,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      },
+      {
+        "hasPlayer": false,
+        "hasWall": false,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      },
+      {
+        "hasPlayer": false,
+        "hasWall": true,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      },
+      {
+        "hasPlayer": false,
+        "hasWall": false,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      },
+      {
+        "hasPlayer": false,
+        "hasWall": true,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      },
+      {
+        "hasPlayer": false,
+        "hasWall": false,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      },
+      {
+        "hasPlayer": false,
+        "hasWall": false,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      },
+      {
+        "hasPlayer": false,
+        "hasWall": false,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      }
+    ],
+    [
+      {
+        "hasPlayer": false,
+        "hasWall": false,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      },
+      {
+        "hasPlayer": false,
+        "hasWall": false,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      },
+      {
+        "hasPlayer": false,
+        "hasWall": false,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      },
+      {
+        "hasPlayer": false,
+        "hasWall": false,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      },
+      {
+        "hasPlayer": false,
+        "hasWall": true,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      },
+      {
+        "hasPlayer": false,
+        "hasWall": false,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      },
+      {
+        "hasPlayer": false,
+        "hasWall": false,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      },
+      {
+        "hasPlayer": false,
+        "hasWall": false,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      },
+      {
+        "hasPlayer": false,
+        "hasWall": false,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      }
+    ],
+    [
+      {
+        "hasPlayer": false,
+        "hasWall": false,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      },
+      {
+        "hasPlayer": false,
+        "hasWall": true,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      },
+      {
+        "hasPlayer": false,
+        "hasWall": false,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      },
+      {
+        "hasPlayer": false,
+        "hasWall": false,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      },
+      {
+        "hasPlayer": false,
+        "hasWall": false,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      },
+      {
+        "hasPlayer": false,
+        "hasWall": false,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      },
+      {
+        "hasPlayer": false,
+        "hasWall": false,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      },
+      {
+        "hasPlayer": false,
+        "hasWall": true,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      },
+      {
+        "hasPlayer": false,
+        "hasWall": false,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      }
+    ],
+    [
+      {
+        "hasPlayer": false,
+        "hasWall": false,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      },
+      {
+        "hasPlayer": false,
+        "hasWall": true,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      },
+      {
+        "hasPlayer": false,
+        "hasWall": false,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      },
+      {
+        "hasPlayer": false,
+        "hasWall": false,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      },
+      {
+        "hasPlayer": false,
+        "hasWall": true,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      },
+      {
+        "hasPlayer": false,
+        "hasWall": false,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      },
+      {
+        "hasPlayer": false,
+        "hasWall": false,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      },
+      {
+        "hasPlayer": false,
+        "hasWall": true,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      },
+      {
+        "hasPlayer": false,
+        "hasWall": false,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      }
+    ],
+    [
+      {
+        "hasPlayer": false,
+        "hasWall": false,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      },
+      {
+        "hasPlayer": false,
+        "hasWall": true,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      },
+      {
+        "hasPlayer": false,
+        "hasWall": true,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      },
+      {
+        "hasPlayer": false,
+        "hasWall": false,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      },
+      {
+        "hasPlayer": false,
+        "hasWall": true,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      },
+      {
+        "hasPlayer": false,
+        "hasWall": false,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      },
+      {
+        "hasPlayer": false,
+        "hasWall": true,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      },
+      {
+        "hasPlayer": false,
+        "hasWall": true,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      },
+      {
+        "hasPlayer": false,
+        "hasWall": false,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      }
+    ],
+    [
+      {
+        "hasPlayer": false,
+        "hasWall": false,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      },
+      {
+        "hasPlayer": false,
+        "hasWall": false,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      },
+      {
+        "hasPlayer": false,
+        "hasWall": false,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      },
+      {
+        "hasPlayer": false,
+        "hasWall": false,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      },
+      {
+        "hasPlayer": false,
+        "hasWall": true,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      },
+      {
+        "hasPlayer": false,
+        "hasWall": false,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      },
+      {
+        "hasPlayer": false,
+        "hasWall": false,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      },
+      {
+        "hasPlayer": false,
+        "hasWall": false,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      },
+      {
+        "hasPlayer": false,
+        "hasWall": false,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      }
+    ],
+    [
+      {
+        "hasPlayer": false,
+        "hasWall": false,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      },
+      {
+        "hasPlayer": false,
+        "hasWall": false,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      },
+      {
+        "hasPlayer": true,
         "hasWall": false,
         "isHighlighted": false,
         "isMagicWall": false,
@@ -963,13 +963,235 @@
       }
     ]
   ],
-  "currentPlayerIndex": 1,
-  "gameplayRNG": "495685694 2423578211 2777222497 2801255145 410403319 2331129534 2546387331 2248816213 2144716144 253844816 159104896 2986733887 963844160 3905903176 1390405841 2541133193 1983928939 57342106 2903348567 313844166 1943298260 38145085 3846654816 475473539 3211207635 2363835887 890439891 2862622833 2845599708 1198148096 2766506450 235912680 1461943132 2916183476 4059492130 3794958247 588261132 3645887644 3849428111 3393203105 806571882 3852905635 278703813 3130038750 30418321 1035368167 2303121762 2513496041 3438579577 2995469896 2678794432 1709544444 2458288203 271372648 3357362204 707702 1000188518 1149105638 3037241588 1069958200 2573509050 1070123100 1865858173 639254832 3355341365 2044184536 2710966058 3887504382 1705359704 964068833 3209128955 1394894937 1388638945 1307701729 465150499 2386996808 3249888181 1080907753 2356519083 934089072 3991411825 2797366528 2058123828 835074682 3707810362 1226036546 3121147239 262731068 4217403502 3771143510 3991392505 1939526773 1694125200 874554242 3840914274 2493373305 2034638783 113684436 1956453167 2697690920 2814288905 1634175346 722603089 3225738672 1702034382 3399361878 2418612021 3994378848 4261234992 76758129 1837236572 3998995113 2131444077 5530487 3707072145 968523100 3726956692 1845052048 1820777261 738957737 2255650866 1992929014 4163763982 3462940775 209974480 2313287423 350836526 2792678727 3369138382 2223688225 3754508432 1941698684 4142126978 560825987 125154910 2286648803 1658228825 1959403811 1378352967 2267621005 503590529 1497583704 3539869940 2199741890 3087776725 3541193876 1830052811 3918200393 1186085442 3313531392 3980021146 1657991209 2178341347 915868530 2017365034 2796813608 2827313530 2139356696 2015609267 1427806798 4168133256 874096208 3684230271 2401417610 434548721 2954713237 1800662318 3912622275 356871165 3993828253 3735211340 3049034056 349712037 4158931352 3668324778 1874908768 548340374 2488468518 128408070 3585984873 2010543741 2121250967 4184777332 3382688742 565254219 318455419 897010307 1323627604 686321050 4290426354 649909611 2951126086 1573606873 150151403 2911160580 1301417521 1023364734 4027673420 3311247441 1565665391 1433484403 2892729501 3496832315 1678534938 2430096213 521530981 247249677 1460893605 1123268201 306919709 922176339 3498962153 2679889812 4218299895 3686294988 2718993435 2595839204 1761134773 2666888220 1515352813 916947391 2240039134 1626313964 2142919556 780881129 2206247136 966481195 64068091 6235799 859503778 3262134398 3349354876 3922386190 229083339 3795414275 2337548500 3601319447 3505247961 2210905143 3663680040 746306257 4193894087 1527003191 3044441784 1428216788 3997409521 2745651680 1798292333 3299060982 83272135 2928508809 2504727892 3363660768 803013561 753181695 1250962625 2875545008 3624508725 2125374490 2553333392 2783278336 2538566606 3129406480 1488878174 3125466474 179476218 1688405225 2103735262 1155357686 857128252 2372697769 3023197027 2807530353 1280953118 2986724706 1532153525 4244815135 2621458462 3962250498 1942323018 2476880021 460815309 1885818205 3037832334 1792199186 1779764673 1628312001 2579467639 3452281231 1996272176 2439718941 3735883065 3600677705 2733577843 78698 1993605235 4033199384 730401121 1962594264 2805143798 3140101085 1372018658 1519692736 2030318839 2904969746 3873432985 289129846 1338379524 1843106254 2209717622 3100318761 2006258799 3553942163 1386377346 2238031772 1286459610 1158627420 4195056209 2764088038 2903821052 1591359503 621939762 3698998563 923241014 2221625252 4071025296 2618527518 387409010 3994684661 2469352833 571677764 892328950 1595226935 1888832094 1889455636 1731685950 2133116442 3205036718 3938079156 1390739830 1314036456 2740806800 2132003330 2509564083 2342561765 286952201 545603133 2540753440 2577044228 2767372293 1836923838 885382366 3160598038 3237773082 2911320156 3767949207 2175164067 2792158194 1050902025 3845619295 4004837084 4163749837 1261089834 2899376893 132866216 3151246659 1707980011 1271006673 3219099690 3295029518 524119878 642774361 3503412152 547490231 1910116657 2971786609 878333154 3249198676 2076609439 4036781842 1003493620 1863968439 1264959932 2255166509 789299321 467811602 520391386 2629820931 1030971676 2440770395 438840482 3926489770 271538578 1366241235 2953604647 204214087 631085775 788602918 1813605724 3151506155 82623711 3161607820 1848611610 2036154311 1103738275 2439159078 2189476829 1735261101 4277422996 1729385952 2967061588 2813444142 462266008 1130570106 2001562603 4085163069 3228064809 3756119857 1494892156 543698207 1281805283 3131165695 2845657499 188379267 3195998655 4149882341 1351756259 553725444 3309156490 317048275 1578085159 1975869628 3291179569 3908981295 2256181823 2278159318 54906224 1281323044 3875210856 759643192 1179970835 2423135347 1441696279 2286637561 3955149349 794339711 2474937154 4004776263 3260222031 1751927290 2320130735 1327417186 2986253964 3313071714 3782222674 2111108672 166446536 2002235080 1571614961 1865845027 1802153139 603404170 2870220636 1639704714 122432081 969244166 545104579 17339327 4133044932 376063874 1889892488 3456742370 3398543997 1355646335 3960520095 1127362120 367472417 3208448036 539386043 3543516928 3839477203 3666673031 2363908721 1143267429 1489402382 3042175803 4080728785 33460628 747546266 3306626679 1701389589 1045095562 519105662 600670361 3137173901 4059996623 4066713848 1762768027 463976134 3732475632 1979410828 1497295121 3418868413 1760436289 2393541258 4141931619 2789215304 2020362038 3689304413 2319227381 2080038364 2940751651 571342399 761965149 1038072869 3819909932 1644259636 3941285601 2254975422 2487446699 1470680639 1850300405 2081525504 3653147005 1160227916 2255553298 1659437250 835829363 1939504050 3559983700 1906151332 3422918774 3488728744 2152764603 732278841 2593500027 410024823 492205475 3411908646 2997972274 90941283 3207934536 1818527420 2844199910 287602954 3919553388 2030536139 4203244700 2600862691 3985498810 1738071688 2281918894 953869348 1287954520 667089495 1308445515 294741509 3688722128 2891358343 2830058301 2924694077 2446973847 3528565892 1694339561 511046792 3838626796 3458616442 3359899450 3201215584 2138406351 803365266 2154264497 3937899633 1265442208 3684473982 3730722975 662065309 4143319991 360184988 1594428810 1848250964 4092084911 654042069 1077214494 3431896340 3910349612 3221172864 3740687101 2606959028 2277734340 3359251767 2510390011 2365290068 2565801917 4160487992 3200499538 12313910 2673046425 132011143 753441470 3052473761 2478539049 610009886 2453036397 1586828085 3671579799 1673486287 3084855431 1972400904 1321307440 1707541792 1167469576 924039784 2569582850 4195110727 3758087900 762907883 433968034 1569019456 594781837 828527980 674935996 1047665145 727208656 31",
+  "currentPlayerIndex": 0,
+  "gameplayRNG": "858316868 956200443 1339192743 1913087960 3166035543 3878152658 1005968520 3951213137 854500556 1905220040 1699491062 322330349 3655301464 993662658 3036077241 88904490 2169735767 496371955 3481164576 3551179685 2875133930 1116094451 3150687349 2386555887 2754516674 2530309062 432355104 285239215 1379170693 3371927368 1398333802 1468559207 2500518815 1071304558 538908753 733400507 2297382409 1284224958 1605273228 1486843481 3082785499 1461503693 3399189150 4122326095 4201156721 1495860701 2886580847 43315532 1020981390 32298811 3316044635 334748339 2262987804 3669746789 3716664639 1666251361 4009661876 2861150495 4056759514 1257784770 1484182958 17379611 2461102332 3885650039 3878340395 2665980419 3195879013 3800893621 1858598492 810566999 1572493857 1144712753 1999455058 1923857503 993431944 2892978855 112597615 2070819175 4075397251 630418769 1015211761 3631093398 4150326993 2088965213 2458864552 375694893 3060705719 2896523328 2591074860 2482613985 2415711503 3952402218 2816589051 2645365239 1615644608 450874645 1546245305 1140769675 2958127609 2861463788 3795819570 2244942001 1901336658 112398179 1685877171 1228958445 1859420562 560559828 841917413 3626730944 4240525184 3215998439 4205460973 1904668021 3290248970 2264570454 3685784640 2109173072 2373078694 3379896372 3472947379 1767206719 2512584098 1069664802 4052150266 4135812044 2795226040 3174355206 2878902955 1201698611 2115463148 3850034242 2400280053 2492117390 3009814047 3123281597 1493846267 2771362062 2876902457 3805843868 3585150042 3165632126 3052739648 1763181262 3756849649 1171347052 2273788366 3164437270 888505663 2001272621 1465290861 1594298956 2849631154 4176367934 3096996422 1276695339 1759598907 1807596017 1289945980 3021117760 2927729963 3913783488 1199999649 3152366251 2119511768 2908403791 2038422680 1808723805 3013992385 3257521651 4213059925 2747930785 2836348432 2197883991 2851670244 321378850 2522694095 981048644 2205000777 2424283217 3090229453 3440902670 2535480446 1698512068 3921534385 1035434112 627432288 638472698 2112348922 2075612264 3773742901 164162178 4047612955 1953861399 4216400563 257694090 4098547762 3871373141 3152974945 658561006 3996006811 2423016931 820898531 453833480 2381865599 3959542822 4061618576 4195096203 1008387014 2273156659 3461758972 3743401637 734650853 3426395960 2423911138 3616277252 4102326471 961329511 457384279 1382089797 1373365208 3178091441 2771973415 2050852100 1430582794 2375125302 4121705038 2974781201 1349200903 2396614542 1756019180 2841354415 1610451265 1815461726 1705304941 3627804993 2632758306 988067085 4026491947 3543049229 3692617857 3828628947 2502855358 1122767830 325742000 3420952010 1248714679 949823546 783279174 97340466 1187114730 896540719 2591263533 1612863985 1632611053 2417054459 3427390448 1776354419 2066540150 129802921 2063373011 1349488638 651397626 2360275232 2928323629 1027165290 257040130 3499323859 1382832556 2361574393 1874520506 2035675234 314498753 4244327829 3550373891 4089545760 183200233 3410786366 3539028115 945671706 1950825875 2186029162 2754552847 1874857854 4244283962 3815073778 3233589834 2499415361 1431513219 3973876242 3500766045 185458639 1033822213 4088355246 1939746496 4108482267 676244136 1797750033 1786119433 3705698797 3963614454 2837237888 3749572127 3281369591 1613393449 3133817159 3134073699 3792448070 2179472684 4016036908 3797155822 1490016056 1496340536 3714210614 2177370997 821011658 1774393992 2680657762 1484055893 4055132126 1954814204 1858077317 2418654224 4044918320 3547138500 1404074156 2059951945 38041392 963652539 2090014972 2216287479 2387167974 4294062634 2102324109 3588631158 364155164 2277711091 4192533320 1238532558 3189928176 2386572572 2456226004 780741576 3595228177 2317256115 4009311000 4148741986 1453283362 1244503320 229204153 977239444 2522254617 3525644350 949857978 3918846006 2747712009 2692402157 996006751 707254384 70784717 3960376491 612703424 2741731797 1962878021 3038051153 3760388596 1911459547 694112578 1952695159 1335578273 3128117381 1551801598 1877419537 294910639 3893093855 1160259739 1152054286 2185984875 1753231681 1169907265 1646950139 769562154 617192071 2706866775 1158789091 4160833326 729209085 173235946 954936034 2545677471 2214496144 3710963386 181602501 488753521 167607645 567488614 2322588869 2610359087 2575915325 1005234889 3221927785 2826831579 3870730178 2388717674 2828684920 1005501850 1570486114 1367556845 164423635 475368936 1790379145 4135170462 2333285894 1864921831 2282275639 1923805456 2596371248 4276850465 3684330567 1108089602 2779491997 2040333154 1824143099 1779214070 3730581115 1569509548 3424456805 3855495521 2120885217 1724400448 3793083414 2453746306 39761085 2481617026 3200435072 821244663 281234627 1989289531 1576270121 2246700407 282648895 550077178 1090207163 2074372456 953970598 924460371 34409678 791468682 3440516579 103303189 2672951078 873202756 3627101430 4244185069 594946812 3631577224 3165898409 4077742537 3282303792 3131851120 2796589488 3377345628 1782580819 2710058475 1584641166 553925393 3435877368 2197850287 1755264028 557015692 4221126757 670352184 3260742797 1081038663 2907565944 3273008821 3348290882 4294633625 4154210496 770763616 2665880769 1347241425 4107247438 1823647778 2193964034 2119560687 4289329565 1367819640 2107166944 2207146840 1373326878 864251551 2096953903 373082162 1973966827 369739290 1700495373 224822065 882268284 1119630068 1458664361 4180718473 3934435584 1104126440 516825117 295038668 2087149967 611207153 416097053 1128322190 2147517147 2763962301 2004838766 1203481527 3339677378 399375823 1480059187 3085330627 1012852419 4197084173 3072267659 81224185 3272015598 3359329355 2875941337 3853143066 2662625654 3150461756 1435631424 3804606811 3322742375 1352518387 3781444195 3348570311 2632941713 616863330 1567913650 2817942435 2965909742 149473038 1582193845 417653415 330463273 3283995654 610377656 1274588511 227510121 1117420262 1475765890 1628143340 785450130 999656873 3194314432 489154566 1771414206 3582399831 3721055766 3340958572 1828712672 3796196255 3299330515 3356163208 2597118092 467139803 4120911112 670834702 2971346558 3969555355 2768693446 2659800574 1422995652 1283253323 3755872812 632754951 775737019 3614457064 1605257792 295521226 3069905907 121070442 882434070 2658760786 3550206118 364742867 2900413033 2208186219 4251166924 2212346506 1940544697 4043778474 4151633624 399466602 356161194 1126545109 1959181189 1605166042 74513176 2789145773 3158780537 1992540149 2946299472 2997487341 2197387016 3279986189 2393678278 1253764401 2080370771 3052099653 472300802 3084656371 3691578529 3881545166 510101984 1896387966 3200212695 1626566433 1904549118 3302407168 596599823 1335802024 3391954556 3839912618 2915883846 2482738407 20",
   "globalTurnCounter": 1,
   "isMultiplayer": false,
   "players": [
     {
+      "ap": 4,
+      "barrier": 0,
+      "block": 0,
+      "deck": [
+        {
+          "cardClass": 1,
+          "cost": 3,
+          "currentPos": [
+            0.0,
+            0.0
+          ],
+          "currentScale": 1.0,
+          "damageType": 0,
+          "diceSides": 0,
+          "drawnThisTurn": false,
+          "isCopied": false,
+          "name": "Kick",
+          "numDice": 0,
+          "targetScale": 1.0,
+          "targeting": 4,
+          "textureRect": [
+            409.0,
+            0.0,
+            409.0,
+            585.0
+          ],
+          "type": 5,
+          "value": 4
+        },
+        {
+          "cardClass": 1,
+          "cost": 3,
+          "currentPos": [
+            0.0,
+            0.0
+          ],
+          "currentScale": 1.0,
+          "damageType": 0,
+          "diceSides": 4,
+          "drawnThisTurn": false,
+          "isCopied": false,
+          "name": "Bash",
+          "numDice": 2,
+          "targetScale": 1.0,
+          "targeting": 4,
+          "textureRect": [
+            1227.0,
+            0.0,
+            409.0,
+            585.0
+          ],
+          "type": 5,
+          "value": 0
+        },
+        {
+          "cardClass": 1,
+          "cost": 3,
+          "currentPos": [
+            0.0,
+            0.0
+          ],
+          "currentScale": 1.0,
+          "damageType": 0,
+          "diceSides": 4,
+          "drawnThisTurn": false,
+          "isCopied": false,
+          "name": "Bash",
+          "numDice": 2,
+          "targetScale": 1.0,
+          "targeting": 4,
+          "textureRect": [
+            1227.0,
+            0.0,
+            409.0,
+            585.0
+          ],
+          "type": 5,
+          "value": 0
+        }
+      ],
+      "deckNeedsShuffle": false,
+      "discard": [
+        {
+          "cardClass": 1,
+          "cost": 3,
+          "currentPos": [
+            1210.000244140625,
+            1310.0
+          ],
+          "currentScale": 1.5,
+          "damageType": 0,
+          "diceSides": 4,
+          "drawnThisTurn": true,
+          "isCopied": false,
+          "name": "Bash",
+          "numDice": 2,
+          "targetScale": 1.5,
+          "targeting": 4,
+          "textureRect": [
+            1227.0,
+            0.0,
+            409.0,
+            585.0
+          ],
+          "type": 5,
+          "value": 0
+        },
+        {
+          "cardClass": 2,
+          "cost": 3,
+          "currentPos": [
+            1350.000244140625,
+            1310.0
+          ],
+          "currentScale": 1.5,
+          "damageType": 0,
+          "diceSides": 0,
+          "drawnThisTurn": true,
+          "isCopied": false,
+          "name": "Fortify",
+          "numDice": 0,
+          "targetScale": 1.5,
+          "targeting": 11,
+          "textureRect": [
+            2454.0,
+            2340.0,
+            409.0,
+            585.0
+          ],
+          "type": 3,
+          "value": 0
+        }
+      ],
+      "flurryOfFistsActive": false,
+      "hand": [
+        {
+          "cardClass": 2,
+          "cost": 4,
+          "currentPos": [
+            1210.000244140625,
+            1310.0
+          ],
+          "currentScale": 1.5,
+          "damageType": 0,
+          "diceSides": 0,
+          "drawnThisTurn": true,
+          "isCopied": false,
+          "name": "Consume Large Health Potion",
+          "numDice": 0,
+          "targetScale": 1.5,
+          "targeting": 5,
+          "textureRect": [
+            2863.0,
+            2925.0,
+            409.0,
+            585.0
+          ],
+          "type": 54,
+          "value": 0
+        },
+        {
+          "cardClass": 1,
+          "cost": 3,
+          "currentPos": [
+            1350.000244140625,
+            1310.0
+          ],
+          "currentScale": 1.5,
+          "damageType": 0,
+          "diceSides": 0,
+          "drawnThisTurn": true,
+          "isCopied": false,
+          "name": "Kick",
+          "numDice": 0,
+          "targetScale": 1.5,
+          "targeting": 4,
+          "textureRect": [
+            409.0,
+            0.0,
+            409.0,
+            585.0
+          ],
+          "type": 5,
+          "value": 4
+        }
+      ],
+      "hasDrawnCardsThisTurn": true,
+      "hasDrawnThisTurn": true,
+      "hasDrawnThisTurn_flag": true,
+      "health": 15,
+      "holyBlock": 0,
+      "inTortoiseForm": false,
+      "isMinion": false,
+      "isParalyzed": false,
+      "isPoisoned": false,
+      "maxHealth": 15,
+      "nextAttackAddPoison": false,
+      "nextTurnAPBonus": 0,
+      "nextTurnD10AP": false,
+      "nextTurnExtraDraw": false,
+      "nextTurnExtraDrawSetOnCycle": -1,
+      "ownerID": -1,
+      "paralysisHeadsCount": 0,
+      "playerID": 0,
+      "poisonReduction": 0,
+      "shocksPlayedThisTurn": 0,
+      "sleepTurnsRemaining": 0,
+      "strengthenElementsTurnsRemaining": 0,
+      "summonOrder": 0,
+      "summonedOnTurnCycle": -1,
+      "tortoiseDamageTaken": 0,
+      "visualPos": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "ward": 0,
+      "x": 0,
+      "y": 4
+    },
+    {
       "ap": 0,
+      "barrier": 0,
       "block": 0,
       "deck": [
         {
@@ -988,12 +1210,18 @@
           "numDice": 0,
           "targetScale": 1.0,
           "targeting": 4,
+          "textureRect": [
+            409.0,
+            585.0,
+            409.0,
+            585.0
+          ],
           "type": 13,
           "value": 2
         },
         {
           "cardClass": 1,
-          "cost": 3,
+          "cost": 2,
           "currentPos": [
             0.0,
             0.0
@@ -1003,16 +1231,22 @@
           "diceSides": 0,
           "drawnThisTurn": false,
           "isCopied": false,
-          "name": "Train",
+          "name": "Consume Health Potion",
           "numDice": 0,
           "targetScale": 1.0,
           "targeting": 5,
-          "type": 66,
+          "textureRect": [
+            818.0,
+            2340.0,
+            409.0,
+            585.0
+          ],
+          "type": 43,
           "value": 0
         },
         {
-          "cardClass": 2,
-          "cost": 10,
+          "cardClass": 1,
+          "cost": 2,
           "currentPos": [
             0.0,
             0.0
@@ -1022,29 +1256,44 @@
           "diceSides": 0,
           "drawnThisTurn": false,
           "isCopied": false,
-          "name": "Four-leaf clover",
+          "name": "Consume Health Potion",
           "numDice": 0,
           "targetScale": 1.0,
           "targeting": 5,
-          "type": 60,
+          "textureRect": [
+            818.0,
+            2340.0,
+            409.0,
+            585.0
+          ],
+          "type": 43,
           "value": 0
-        },
+        }
+      ],
+      "deckNeedsShuffle": false,
+      "discard": [
         {
           "cardClass": 2,
           "cost": 5,
           "currentPos": [
-            0.0,
-            0.0
+            1210.000244140625,
+            1310.0
           ],
-          "currentScale": 1.0,
+          "currentScale": 1.5,
           "damageType": 0,
           "diceSides": 0,
-          "drawnThisTurn": false,
+          "drawnThisTurn": true,
           "isCopied": false,
           "name": "Earthquake",
           "numDice": 0,
-          "targetScale": 1.0,
+          "targetScale": 1.5,
           "targeting": 5,
+          "textureRect": [
+            1636.0,
+            2925.0,
+            409.0,
+            585.0
+          ],
           "type": 51,
           "value": 0
         },
@@ -1052,210 +1301,54 @@
           "cardClass": 1,
           "cost": 2,
           "currentPos": [
-            0.0,
-            0.0
+            1350.000244140625,
+            1310.0
           ],
-          "currentScale": 1.0,
+          "currentScale": 1.5,
           "damageType": 3,
           "diceSides": 0,
-          "drawnThisTurn": false,
+          "drawnThisTurn": true,
           "isCopied": false,
           "name": "Shock",
           "numDice": 0,
-          "targetScale": 1.0,
+          "targetScale": 1.5,
           "targeting": 4,
+          "textureRect": [
+            409.0,
+            585.0,
+            409.0,
+            585.0
+          ],
           "type": 13,
           "value": 2
-        },
-        {
-          "cardClass": 1,
-          "cost": 3,
-          "currentPos": [
-            0.0,
-            0.0
-          ],
-          "currentScale": 1.0,
-          "damageType": 0,
-          "diceSides": 0,
-          "drawnThisTurn": false,
-          "isCopied": false,
-          "name": "Blocking Boon",
-          "numDice": 0,
-          "targetScale": 1.0,
-          "targeting": 4,
-          "type": 68,
-          "value": 0
         }
       ],
-      "discard": [
-        {
-          "cardClass": 1,
-          "cost": 2,
-          "currentPos": [
-            1210.000244140625,
-            1310.0
-          ],
-          "currentScale": 1.500000238418579,
-          "damageType": 0,
-          "diceSides": 0,
-          "drawnThisTurn": true,
-          "isCopied": false,
-          "name": "Drain Punch",
-          "numDice": 0,
-          "targetScale": 1.5,
-          "targeting": 4,
-          "type": 30,
-          "value": 2
-        },
-        {
-          "cardClass": 1,
-          "cost": 2,
-          "currentPos": [
-            1350.000244140625,
-            1310.0
-          ],
-          "currentScale": 1.500000238418579,
-          "damageType": 0,
-          "diceSides": 0,
-          "drawnThisTurn": true,
-          "isCopied": false,
-          "name": "Drain Punch",
-          "numDice": 0,
-          "targetScale": 1.5,
-          "targeting": 4,
-          "type": 30,
-          "value": 2
-        }
-      ],
+      "flurryOfFistsActive": false,
+      "hasDrawnCardsThisTurn": false,
+      "hasDrawnThisTurn": false,
+      "hasDrawnThisTurn_flag": false,
       "health": 15,
+      "holyBlock": 0,
+      "inTortoiseForm": false,
       "isMinion": false,
+      "isParalyzed": false,
+      "isPoisoned": false,
       "maxHealth": 15,
+      "nextAttackAddPoison": false,
+      "nextTurnAPBonus": 0,
+      "nextTurnD10AP": false,
       "nextTurnExtraDraw": false,
       "nextTurnExtraDrawSetOnCycle": -1,
       "ownerID": -1,
-      "playerID": 0,
-      "summonOrder": 0,
-      "summonedOnTurnCycle": -1,
-      "visualPos": [
-        0.0,
-        0.0,
-        0.0
-      ],
-      "ward": 0,
-      "x": 3,
-      "y": 3
-    },
-    {
-      "ap": 2,
-      "block": 0,
-      "deck": [
-        {
-          "cardClass": 2,
-          "cost": 4,
-          "currentPos": [
-            0.0,
-            0.0
-          ],
-          "currentScale": 1.0,
-          "damageType": 0,
-          "diceSides": 0,
-          "drawnThisTurn": false,
-          "isCopied": false,
-          "name": "Consume Large Health Potion",
-          "numDice": 0,
-          "targetScale": 1.0,
-          "targeting": 5,
-          "type": 54,
-          "value": 0
-        },
-        {
-          "cardClass": 1,
-          "cost": 5,
-          "currentPos": [
-            0.0,
-            0.0
-          ],
-          "currentScale": 1.0,
-          "damageType": 2,
-          "diceSides": 0,
-          "drawnThisTurn": false,
-          "isCopied": false,
-          "name": "Wisdom Boon",
-          "numDice": 0,
-          "targetScale": 1.0,
-          "targeting": 8,
-          "type": 22,
-          "value": 0
-        },
-        {
-          "cardClass": 1,
-          "cost": 3,
-          "currentPos": [
-            0.0,
-            0.0
-          ],
-          "currentScale": 1.0,
-          "damageType": 0,
-          "diceSides": 0,
-          "drawnThisTurn": false,
-          "isCopied": false,
-          "name": "Blocking Boon",
-          "numDice": 0,
-          "targetScale": 1.0,
-          "targeting": 4,
-          "type": 68,
-          "value": 0
-        }
-      ],
-      "hand": [
-        {
-          "cardClass": 1,
-          "cost": 3,
-          "currentPos": [
-            1210.000244140625,
-            1310.0
-          ],
-          "currentScale": 1.5,
-          "damageType": 0,
-          "diceSides": 0,
-          "drawnThisTurn": true,
-          "isCopied": false,
-          "name": "Blocking Boon",
-          "numDice": 0,
-          "targetScale": 1.5,
-          "targeting": 4,
-          "type": 68,
-          "value": 0
-        },
-        {
-          "cardClass": 1,
-          "cost": 5,
-          "currentPos": [
-            1350.000244140625,
-            1310.0
-          ],
-          "currentScale": 1.5,
-          "damageType": 2,
-          "diceSides": 0,
-          "drawnThisTurn": true,
-          "isCopied": false,
-          "name": "Wisdom Boon",
-          "numDice": 0,
-          "targetScale": 1.5,
-          "targeting": 8,
-          "type": 22,
-          "value": 0
-        }
-      ],
-      "health": 15,
-      "isMinion": false,
-      "maxHealth": 15,
-      "nextTurnExtraDraw": false,
-      "nextTurnExtraDrawSetOnCycle": -1,
-      "ownerID": -1,
+      "paralysisHeadsCount": 0,
       "playerID": 1,
+      "poisonReduction": 0,
+      "shocksPlayedThisTurn": 0,
+      "sleepTurnsRemaining": 0,
+      "strengthenElementsTurnsRemaining": 0,
       "summonOrder": 0,
       "summonedOnTurnCycle": -1,
+      "tortoiseDamageTaken": 0,
       "visualPos": [
         0.0,
         0.0,
@@ -1263,7 +1356,7 @@
       ],
       "ward": 0,
       "x": 12,
-      "y": 0
+      "y": 2
     }
   ]
 }
