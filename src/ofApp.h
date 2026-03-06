@@ -257,6 +257,55 @@ struct Card {
 	int cardClass = 1;
 };
 
+// ===================================================================================================
+// CARD STATE SYSTEM - Unified state machine for all 70 cards
+// ===================================================================================================
+// All cards flow through states: IDLE -> MENU -> TARGETING -> EFFECT -> OUTCOME -> PACKET -> IDLE
+enum CardPlayState {
+	CARD_STATE_IDLE = 0, // No card action in progress
+	CARD_STATE_MENU = 1, // Waiting for user menu choice (Wisdom Boon, Dispel, etc)
+	CARD_STATE_TARGETING = 2, // Waiting for user to select target
+	CARD_STATE_DICE = 3, // Waiting for dice roll result
+	CARD_STATE_EFFECT = 4, // Effect is being applied (animation/movement)
+	CARD_STATE_OUTCOME = 5, // Effect complete, ready to send outcome packet
+	CARD_STATE_FINISHED = 6 // Card action finished, sent to network
+};
+
+// Unified structure for all card outcomes (instead of scattered pending* variables)
+struct CardOutcome {
+	CardType cardType = CARD_NONE;
+	int cardIndex = -1; // Index in hand that played this card
+	int casterIndex = -1; // Who cast it
+
+	// Menu choices
+	std::string menuChoice = ""; // For Wisdom Boon (damage/block), Dispel (barrier/purge), etc
+
+	// Targeting
+	glm::ivec2 primaryTarget = { -1, -1 }; // Main target tile
+	std::vector<glm::ivec2> secondaryTargets; // AOE, chain lightning chains, etc
+	int targetPlayerIndex = -1; // If targeting a specific player
+	std::vector<int> targetedPlayers; // For effects hitting multiple players
+
+	// Dice results (stored as they complete)
+	std::vector<int> diceResults; // All dice rolls for this card (damage, healing, etc)
+	std::map<std::string, int> namedDiceResults; // Purpose -> result mapping (e.g. "barrier_gain" -> 15)
+
+	// Effect outcomes (computed from dice/choices)
+	int damageDealt = 0;
+	int healingDealt = 0;
+	int apGained = 0;
+	int blockGained = 0;
+	int barierGained = 0;
+	std::vector<std::string> statusesApplied; // "onFire", "isParalyzed", etc
+	std::vector<int> unitsMovedBy; // Distance each unit moved for earthquake, etc
+	std::vector<glm::ivec2> wallsCreated; // Positions where walls were built
+	std::vector<int> minionsSpawned; // Indices of newly spawned minions
+
+	// State tracking
+	bool isComplete = false; // Ready to send outcome packet
+	CardPlayState currentState = CARD_STATE_IDLE;
+};
+
 struct PlayedCardDisplay {
 	Card card;
 	float startTime;
@@ -629,6 +678,17 @@ private:
 	// -------------------------------------------------------------------------
 	void drawCard(bool sendPacket = true);
 	CardPlayResult playCard(int cardIndex, int targetX, int targetY);
+
+	// === CARD STATE MACHINE HANDLERS ===
+	void processCardStateInput(int mouseX, int mouseY, int button); // Handle clicks during card states
+	void updateCardStateMachine(); // Called in update() to process state transitions
+	void advanceCardState(CardPlayState newState); // Transition to new state
+	void sendCardOutcomePacket(); // Send unified outcome packet to clients
+	void applyCardOutcomeEffects(); // Apply the completed outcome to game state
+	void handleCardMenuInput(const std::string & choice); // Menu choice made
+	void handleCardTargetInput(int gridX, int gridY); // Target selected
+	void handleCardDiceResult(int result, DicePurpose purpose); // Dice roll completed
+
 	void applyReplicateCopyToHand(Player & caster, const Card & playedCard);
 	void finishPlayCard(Player & caster, const Card & playedCard, int handIndex);
 	void completeCardPlayAnimation(const Card & playedCard, int playerIndex);
@@ -1088,6 +1148,7 @@ private:
 	// Save / Load full game state (JSON)
 	bool saveGameStateToFile(const std::string & path);
 	bool loadGameStateFromFile(const std::string & path);
+	void pruneOldSaves(int keepCount);
 
 	// Helper to know if we are waiting in a lobby
 	bool isInLobby = false;
@@ -1401,7 +1462,35 @@ private:
 	ofRectangle p0_apStatusRect;
 	ofRectangle p1_apStatusRect;
 
+	// Minion manager panel layout/scroll metrics (computed in updateGame, consumed by draw/input)
+	float p0_minionLeft = 0.0f;
+	float p1_minionLeft = 0.0f;
+	float p0_minionTop = 0.0f;
+	float p1_minionTop = 0.0f;
+	float p0_minionViewH = 0.0f;
+	float p1_minionViewH = 0.0f;
+	float p0_minionTotalH = 0.0f;
+	float p1_minionTotalH = 0.0f;
+	float p0_minionScroll = 0.0f;
+	float p1_minionScroll = 0.0f;
+	float minionPanelW = 260.0f;
+	int lastAutoScrollTurnUnit = -1;
+	int lastHoveredUnit = -1;
+
 	// --- CARD SPECIFIC VARIABLES ---
+
+	// === UNIFIED CARD STATE SYSTEM ===
+	// All cards use this single outcome structure instead of scattered pending* variables
+	CardOutcome currentCardOutcome; // Currently active card's outcome data
+	CardPlayState cardPlayState = CARD_STATE_IDLE; // Current state of card action
+	int activeCardIndex = -1; // Index of card currently being played (-1 if none)
+
+	// Helper function to reset card state between plays
+	void resetCardState() {
+		currentCardOutcome = CardOutcome();
+		cardPlayState = CARD_STATE_IDLE;
+		activeCardIndex = -1;
+	}
 
 	// Attack
 	bool isWaitingForAttackDice = false;
