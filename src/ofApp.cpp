@@ -84,6 +84,8 @@ static nlohmann::json cardToJson(const Card & c) {
 	j["currentScale"] = c.currentScale;
 	j["targetScale"] = c.targetScale;
 	j["currentPos"] = { c.currentPos.x, c.currentPos.y };
+	// Persist texture rectangle so texture coordinates are restored on load
+	j["textureRect"] = { c.textureRect.x, c.textureRect.y, c.textureRect.width, c.textureRect.height };
 	return j;
 }
 
@@ -105,6 +107,13 @@ static Card jsonToCard(const nlohmann::json & j) {
 	if (j.contains("currentPos") && j["currentPos"].is_array() && j["currentPos"].size() == 2) {
 		c.currentPos.x = j["currentPos"][0].get<float>();
 		c.currentPos.y = j["currentPos"][1].get<float>();
+	}
+	// Restore texture rectangle if present; fall back to defaults otherwise
+	if (j.contains("textureRect") && j["textureRect"].is_array() && j["textureRect"].size() == 4) {
+		c.textureRect.x = j["textureRect"][0].get<float>();
+		c.textureRect.y = j["textureRect"][1].get<float>();
+		c.textureRect.width = j["textureRect"][2].get<float>();
+		c.textureRect.height = j["textureRect"][3].get<float>();
 	}
 	return c;
 }
@@ -3173,12 +3182,25 @@ void ofApp::drawPauseMenu() {
 	float btnHeight = 70;
 	float centerX = ofGetWidth() / 2.0f;
 	float centerY = ofGetHeight() / 2.0f;
-	// Layout: Resume, Save, Load, Settings, Quit
-	pauseMenuResumeButton.set(centerX - btnWidth / 2, centerY - btnHeight * 2.5 - 28, btnWidth, btnHeight);
-	pauseMenuSaveButton.set(centerX - btnWidth / 2, centerY - btnHeight * 1.5 - 20, btnWidth, btnHeight);
-	pauseMenuLoadButton.set(centerX - btnWidth / 2, centerY - btnHeight / 2 - 6, btnWidth, btnHeight);
-	pauseMenuSettingsButton.set(centerX - btnWidth / 2, centerY + btnHeight / 2 + 8, btnWidth, btnHeight);
-	pauseMenuQuitButton.set(centerX - btnWidth / 2, centerY + btnHeight * 1.5 + 36, btnWidth, btnHeight);
+
+	// Build list of visible buttons in order
+	std::vector<std::pair<ofRectangle *, std::string>> visible;
+	visible.push_back({ &pauseMenuResumeButton, "Resume" });
+	if (!isMultiplayer) {
+		visible.push_back({ &pauseMenuSaveButton, "Save" });
+		visible.push_back({ &pauseMenuLoadButton, "Load" });
+	}
+	visible.push_back({ &pauseMenuSettingsButton, "Settings" });
+	visible.push_back({ &pauseMenuQuitButton, "Quit to Main Menu" });
+
+	// Evenly space visible buttons vertically centered at centerY
+	float gap = 20.0f; // spacing between buttons
+	float totalH = visible.size() * btnHeight + (visible.size() - 1) * gap;
+	float startY = centerY - totalH / 2.0f;
+	for (size_t i = 0; i < visible.size(); ++i) {
+		ofRectangle * r = visible[i].first;
+		r->set(centerX - btnWidth / 2.0f, startY + i * (btnHeight + gap), btnWidth, btnHeight);
+	}
 
 	// --- Draw Buttons ---
 	auto drawButton = [&](const ofRectangle & rect, const string & text, bool isHovered) {
@@ -3196,17 +3218,38 @@ void ofApp::drawPauseMenu() {
 		uiFont.drawString(text, textX, textY);
 	};
 
-	drawButton(pauseMenuResumeButton, "Resume", pauseMenuHoveredIndex == 0);
-	// Only show Save/Load in singleplayer
-	if (!isMultiplayer) {
-		drawButton(pauseMenuSaveButton, "Save", pauseMenuHoveredIndex == 1);
-		drawButton(pauseMenuLoadButton, "Load", pauseMenuHoveredIndex == 2);
-		drawButton(pauseMenuSettingsButton, "Settings", pauseMenuHoveredIndex == 3);
-		drawButton(pauseMenuQuitButton, "Quit to Main Menu", pauseMenuHoveredIndex == 4);
-	} else {
-		// shift indices when multiplayer (no save/load)
-		drawButton(pauseMenuSettingsButton, "Settings", pauseMenuHoveredIndex == 1);
-		drawButton(pauseMenuQuitButton, "Quit to Main Menu", pauseMenuHoveredIndex == 2);
+	// Draw in the same order
+	for (size_t i = 0, idx = 0; i < visible.size(); ++i, ++idx) {
+		ofRectangle * r = visible[i].first;
+		// Map hovered index values to the visible ordering (pauseMenuHoveredIndex uses global mapping)
+		bool hovered = false;
+		// Compute expected hovered index mapping consistent with earlier logic
+		if (!isMultiplayer) {
+			// 0: Resume, 1: Save, 2: Load, 3: Settings, 4: Quit
+			int globalIndex = -1;
+			if (r == &pauseMenuResumeButton)
+				globalIndex = 0;
+			else if (r == &pauseMenuSaveButton)
+				globalIndex = 1;
+			else if (r == &pauseMenuLoadButton)
+				globalIndex = 2;
+			else if (r == &pauseMenuSettingsButton)
+				globalIndex = 3;
+			else if (r == &pauseMenuQuitButton)
+				globalIndex = 4;
+			hovered = (pauseMenuHoveredIndex == globalIndex);
+		} else {
+			// 0: Resume, 1: Settings, 2: Quit
+			int globalIndex = -1;
+			if (r == &pauseMenuResumeButton)
+				globalIndex = 0;
+			else if (r == &pauseMenuSettingsButton)
+				globalIndex = 1;
+			else if (r == &pauseMenuQuitButton)
+				globalIndex = 2;
+			hovered = (pauseMenuHoveredIndex == globalIndex);
+		}
+		drawButton(*r, visible[i].second, hovered);
 	}
 }
 // Recalculate ui
