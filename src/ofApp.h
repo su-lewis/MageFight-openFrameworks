@@ -1801,6 +1801,7 @@ private:
 	int cardSpawnerQuantity = 1;
 	std::vector<Card> filteredCards; // Cards matching current input
 	int encyclopediaScrollOffset = 0;
+	int settingsControlsScrollOffset = 0;
 	ofRectangle cardSpawnerInputRect;
 	ofRectangle cardSpawnerPlusButton;
 	ofRectangle cardSpawnerMinusButton;

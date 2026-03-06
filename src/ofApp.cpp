@@ -2643,49 +2643,79 @@ void ofApp::drawSettingsMenu() {
 		uiFont.drawString(sfxLabel, centerX - slb.width / 2, settingsAudioSfxSlider.y - 10);
 	}
 
-	// CONTROLS tab: show all current game controls (read-only)
+	// CONTROLS tab: show all current game controls (read-only) with scrolling
 	if (currentSettingsTab == SETTINGS_TAB_CONTROLS) {
-		// Removed the explicit "Controls" title so the list appears compact.
+		// compact title removed; show a scrollable list and ensure Back button doesn't overlap
 		float listY = contentY + 20;
 		float itemH = 36;
 		float itemW = 760;
 		float startX = centerX - itemW / 2;
 
-		// Prepare a static list of current controls (label, key display)
+		// Prepare a static list of current controls sorted by importance (most important first)
 		std::vector<std::pair<std::string, std::string>> controls = {
 			{ "Left Click", "Select" },
 			{ "Left Drag", "Drag cards (play via release)" },
-			{ "Middle Mouse + Drag", "Pan camera" },
-			{ "Right Click", "Cancel" },
-			{ "Mouse Wheel", "Zoom" },
 			{ "Enter", "Open Chat" },
 			{ "Esc", "Open Menu" },
+			{ "E", "End Turn" },
+			{ "F", "Draw (click your deck)" },
+			{ "Mouse Wheel", "Zoom" },
+			{ "Middle Mouse + Drag", "Pan camera" },
+			{ "Right Click", "Cancel" },
 			{ "Tab", "Switch Chat Tab" },
+			{ "T", "Toggle Top-down View" },
 			{ "P", "Pixel Shader Toggle" },
-			{ "M", "C64 Shader Toggle" },
 			{ "L", "Toggle World Post-Process" },
 			{ "Y", "Toggle FBO Preview" },
-			{ "T", "Toggle Top-down View" },
+			{ "M", "C64 Shader Toggle" },
 			{ "` (tilde)", "Toggle Debug Mode" },
 			{ "C", "Debug: Open Card Spawner" },
 			{ "U", "Debug: Toggle Unlimited AP" },
 			{ "S", "Debug Multiplayer: Skip Checksum Validation" },
-			{ "F", "Draw (click your deck)" },
-			{ "E", "End Turn" },
 		};
 
-		// Draw each control row
+		// Calculate content bounds so Back button doesn't overlap
+		float contentBottom = ofGetHeight() * 0.8f - 20.0f; // leave margin for back button area
+		float contentHeight = std::max(0.0f, contentBottom - listY);
+
+		// Compute total content height and scrolling limits
+		float totalContentHeight = controls.size() * (itemH + 8.0f);
+		float maxScroll = std::max(0.0f, totalContentHeight - contentHeight);
+		settingsControlsScrollOffset = std::clamp(settingsControlsScrollOffset, 0, (int)maxScroll);
+
+		// Clip rendering to content area so text never appears under the Back button
+		ofPushStyle();
+		glEnable(GL_SCISSOR_TEST);
+		int scX = (int)startX;
+		int scW = (int)itemW;
+		int scY = (int)(ofGetHeight() - (listY + contentHeight));
+		int scH = (int)contentHeight;
+		glScissor(scX, scY, scW, scH);
+
+		// Draw each control row with vertical offset
 		for (size_t i = 0; i < controls.size(); ++i) {
-			ofRectangle itemRect(startX, listY + i * (itemH + 8), itemW, itemH);
+			float drawY = listY + i * (itemH + 8.0f) - settingsControlsScrollOffset;
+			ofRectangle itemRect(startX, drawY, itemW, itemH);
 			ofSetColor(ofColor(40));
 			ofDrawRectangle(itemRect);
 			ofSetColor(ofColor::white);
 			std::string keyLabel = controls[i].first;
 			std::string desc = controls[i].second;
-			ofRectangle kb = uiFont.getStringBoundingBox(keyLabel, 0, 0);
 			uiFont.drawString(keyLabel, itemRect.x + 12, itemRect.y + 24);
-			ofRectangle db = uiFont.getStringBoundingBox(desc, 0, 0);
 			uiFont.drawString(desc, itemRect.x + itemRect.width * 0.35f, itemRect.y + 24);
+		}
+
+		glDisable(GL_SCISSOR_TEST);
+		ofPopStyle();
+
+		// Draw scrollbar if needed (right side of list)
+		if (maxScroll > 0.0f) {
+			float scrollBarHeight = contentHeight * (contentHeight / totalContentHeight);
+			scrollBarHeight = std::max(28.0f, scrollBarHeight);
+			float scrollBarY = listY + ((float)settingsControlsScrollOffset / maxScroll) * (contentHeight - scrollBarHeight);
+			ofSetColor(80, 80, 80, 220);
+			float scrollBarX = startX + itemW + 6.0f;
+			ofDrawRectRounded(scrollBarX, scrollBarY, 8, scrollBarHeight, 4);
 		}
 	}
 
@@ -3193,13 +3223,41 @@ void ofApp::drawPauseMenu() {
 	visible.push_back({ &pauseMenuSettingsButton, "Settings" });
 	visible.push_back({ &pauseMenuQuitButton, "Quit to Main Menu" });
 
-	// Evenly space visible buttons vertically centered at centerY
-	float gap = 20.0f; // spacing between buttons
-	float totalH = visible.size() * btnHeight + (visible.size() - 1) * gap;
+	// Layout buttons. If Save+Load are both visible in singleplayer, place them side-by-side
+	float gap = 20.0f; // vertical spacing between rows
+	bool hasSave = false, hasLoad = false;
+	for (auto & p : visible) {
+		if (p.first == &pauseMenuSaveButton) hasSave = true;
+		if (p.first == &pauseMenuLoadButton) hasLoad = true;
+	}
+	bool combineSaveLoad = (!isMultiplayer && hasSave && hasLoad);
+
+	int totalRows = (int)visible.size();
+	if (combineSaveLoad) totalRows = totalRows - 1; // save+load share one row
+
+	float totalH = totalRows * btnHeight + std::max(0, totalRows - 1) * (int)gap;
 	float startY = centerY - totalH / 2.0f;
-	for (size_t i = 0; i < visible.size(); ++i) {
+
+	// Fill positions row by row
+	int i = 0;
+	int row = 0;
+	while (i < (int)visible.size()) {
 		ofRectangle * r = visible[i].first;
-		r->set(centerX - btnWidth / 2.0f, startY + i * (btnHeight + gap), btnWidth, btnHeight);
+		if (combineSaveLoad && r == &pauseMenuSaveButton) {
+			// place Save (left) and Load (right) on same row
+			float pairGap = 12.0f;
+			float pairW = btnWidth;
+			float halfW = (pairW - pairGap) / 2.0f;
+			float y = startY + row * (btnHeight + gap);
+			pauseMenuSaveButton.set(centerX - pairW / 2.0f, y, halfW, btnHeight);
+			pauseMenuLoadButton.set(centerX - pairW / 2.0f + halfW + pairGap, y, halfW, btnHeight);
+			i += 2; // skip load (assumed next)
+			row++;
+		} else {
+			r->set(centerX - btnWidth / 2.0f, startY + row * (btnHeight + gap), btnWidth, btnHeight);
+			i++;
+			row++;
+		}
 	}
 
 	// --- Draw Buttons ---
@@ -14229,21 +14287,26 @@ void ofApp::mousePressed(int x, int y, int button) {
 	// --- 1e2. Burst of Light Menu ---
 	if (isBurstMenuOpen && button == OF_MOUSE_BUTTON_LEFT) {
 
-		// Recalculate validity to prevent clicking the gray button
-		// We consider any valid unit (ally or enemy) as a valid target for Burst
+		// Recalculate validity: enable damage only if there exists at least one OTHER unit in LOS
 		bool hasValidTarget = false;
 		Player & caster = players[currentPlayerIndex];
 		glm::vec2 casterPos(caster.x, caster.y);
 		for (const auto & p : players) {
+			if (&p == &caster) continue; // require at least one target that's NOT self for damage
 			TargetInfo info = isLosTargetValid(casterPos, glm::vec2(p.x, p.y), 9999.0f, CARD_BURST_OF_LIGHT);
-			if (info.reason == VALID || info.reason == INVALID_SELF) {
+			if (info.reason == VALID) {
 				hasValidTarget = true;
 				break;
 			}
 		}
 
 		if (burstBtnDamage.inside(x, y) || burstBtnHeal.inside(x, y)) {
-			// Always set the choice locally and enter targeting mode.
+			// If player clicked Damage but no valid other targets exist, ignore and show hint
+			if (burstBtnDamage.inside(x, y) && !hasValidTarget) {
+				spawnFloatingText(glm::vec3(burstMenuRect.getCenter().x, burstMenuRect.getCenter().y, 0.0f), "No valid enemy targets for Damage", ofColor::gray);
+				return;
+			}
+			// Otherwise set the choice locally and enter targeting mode.
 			burstChoice = burstBtnDamage.inside(x, y) ? 0 : 1;
 			isBurstMenuOpen = false;
 			isTargetingBurst = true;
@@ -14337,6 +14400,11 @@ void ofApp::mousePressed(int x, int y, int button) {
 						return;
 					}
 
+					// Prevent choosing self as damage target
+					if (burstChoice == 0 && targetIndex == currentPlayerIndex) {
+						spawnFloatingText(gridToWorld(target->x, target->y), "Cannot damage yourself with this effect", ofColor::gray);
+						return;
+					}
 					int casterOwner = caster.isMinion ? caster.ownerID : caster.playerID;
 					int targetOwner = target->isMinion ? target->ownerID : target->playerID;
 					(void)casterOwner; // unused
@@ -16779,6 +16847,31 @@ void ofApp::mouseScrolled(int x, int y, float scrollX, float scrollY) {
 		p1_minionScroll -= scrollY * 40.0f;
 		p1_minionScroll = std::clamp(p1_minionScroll, 0.0f, p1_minionTotalH - p1_minionViewH);
 		return;
+	}
+
+	// Settings -> Controls scrolling by mouse wheel when the mouse is over the controls list
+	if (currentState == STATE_SETTINGS && currentSettingsTab == SETTINGS_TAB_CONTROLS) {
+		float centerX = ofGetWidth() / 2.0f;
+		float tabsY = ofGetHeight() * 0.22f;
+		float tabH = 48;
+		float contentY = tabsY + tabH + 30;
+		float listY = contentY + 20;
+		float itemH = 36.0f;
+		float itemW = 760.0f;
+		float startX = centerX - itemW / 2.0f;
+		// number of controls (kept in sync with drawSettingsMenu ordering)
+		int controlsCount = 19;
+		float contentBottom = ofGetHeight() * 0.8f - 20.0f;
+		float contentHeight = std::max(0.0f, contentBottom - listY);
+		float totalContentHeight = controlsCount * (itemH + 8.0f);
+		float maxScroll = std::max(0.0f, totalContentHeight - contentHeight);
+
+		ofRectangle hitRect(startX, listY, itemW, contentHeight);
+		if (contentHeight > 0 && hitRect.inside(x, y) && maxScroll > 0.0f) {
+			settingsControlsScrollOffset -= (int)(scrollY * 40.0f);
+			settingsControlsScrollOffset = std::clamp(settingsControlsScrollOffset, 0, (int)maxScroll);
+			return;
+		}
 	}
 
 	// Allow zooming during draft
