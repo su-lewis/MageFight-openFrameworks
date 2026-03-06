@@ -13513,14 +13513,13 @@ void ofApp::mousePressed(int x, int y, int button) {
 				return;
 			}
 			if (!isMultiplayer && pauseMenuSaveButton.inside(x, y)) {
-				bool ok = saveGameStateToFile("autosave.json");
+				// Manual save (user-initiated) — keep separate name from autosaves
+				bool ok = saveGameStateToFile("manual_save.json");
 				if (ok) {
-					// also write a turn-stamped copy
-					std::string stamped = "autosave_turn_" + std::to_string(globalTurnCounter) + ".json";
+					std::string stamped = "manual_save_turn_" + std::to_string(globalTurnCounter) + ".json";
 					saveGameStateToFile(stamped);
-					// prune old stamped saves
-					pruneOldSaves(5);
-					addGameLog("Game saved to autosave.json");
+					pruneOldSaves(10); // keep a few manual-stamped saves
+					addGameLog("Game saved to manual_save.json");
 					if (isMultiplayer && isHost()) sendSnapshotToClient();
 				} else {
 					addGameLog("Failed to save game state.");
@@ -17998,6 +17997,19 @@ void ofApp::continueNewTurn() {
 		ofLogNotice("Backup") << "Host: Proactively saved Turn-Start Master Backup at turn " << globalTurnCounter;
 	}
 
+	// Autosave at the start of each turn (singleplayer or host in multiplayer).
+	if (!isMultiplayer || isHost()) {
+		bool ok = saveGameStateToFile("autosave.json");
+		if (ok) {
+			std::string stamped = "autosave_turn_" + std::to_string(globalTurnCounter) + ".json";
+			saveGameStateToFile(stamped);
+			pruneOldSaves(5);
+			addGameLog("Autosaved turn-start (autosave.json)");
+		} else {
+			ofLogWarning("Save") << "Failed to autosave turn-start.";
+		}
+	}
+
 	// Assistant Adjacency Bonus: Give minions/players +1 luck per adjacent friendly Assistant
 	if (startingPlayer.health > 0) {
 		int rollerOwnerID = startingPlayer.isMinion ? startingPlayer.ownerID : startingPlayer.playerID;
@@ -20813,6 +20825,14 @@ CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 			break;
 		}
 
+		// Disallow targeting a wall tile directly
+		if (targetX >= 0 && targetX < BOARD_WIDTH && targetY >= 0 && targetY < BOARD_HEIGHT) {
+			if (board[targetX][targetY].hasWall) {
+				ofLogNotice("Magic Bolt") << "Target is a wall; cannot target.";
+				break;
+			}
+		}
+
 		// Start the range roll
 		pendingMagicBoltTargetTile = glm::vec2(targetX, targetY);
 		isWaitingForMagicBoltRange = true;
@@ -21334,12 +21354,71 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 				bool preview = false;
 				bool valid = false;
 				if (card.type == CARD_MAGIC_BOLT) {
+					// Allow targeting a wall only if a unit actually occupies that
+					// wall tile (e.g. a Ghost). Otherwise skip wall tiles - the
+					// AOE cannot leave the wall, so targeting an empty wall is
+					// invalid.
+					if (board[tx][ty].hasWall && !board[tx][ty].hasPlayer) continue;
+
 					// Magic Bolt ignores LOS; use Euclidean distance (feet)
 					float distFeet = glm::distance(casterPos, glm::vec2((float)tx, (float)ty)) * 5.0f;
 					if (distFeet <= maxRangeFeet + 3.0f) {
 						preview = true;
-						// Valid (green) if another unit sits on the tile OR if an AOE from
-						// this tile (max possible 1d20 + 3 ft) could hit another unit.
+
+						// Compute min-roll / hit chance for the tooltip (same logic
+						// as the generic range tooltip calculation) so the UI shows
+						// meaningful numbers for Magic Bolt targets.
+						int minRoll = (int)ceil(distFeet);
+						int maxPossibleRoll = card.numDice * card.diceSides;
+						if (minRoll < card.numDice) minRoll = card.numDice;
+						if (minRoll > maxPossibleRoll) minRoll = maxPossibleRoll;
+
+						float hitChance = 0.0f;
+						if (minRoll <= maxPossibleRoll) {
+							if (card.numDice == 1) {
+								int successOutcomes = card.diceSides - minRoll + 1;
+								hitChance = (float)successOutcomes / (float)card.diceSides;
+							} else if (card.numDice == 2 || card.numDice == 3) {
+								int sides = card.diceSides;
+								int numDice = card.numDice;
+								std::vector<std::vector<int>> dp(numDice + 1, std::vector<int>(maxPossibleRoll + 1, 0));
+								dp[0][0] = 1;
+								for (int d = 1; d <= numDice; d++) {
+									for (int s = d; s <= d * sides; s++) {
+										for (int face = 1; face <= sides && face <= s; face++) {
+											dp[d][s] += dp[d - 1][s - face];
+										}
+									}
+								}
+								int successCount = 0;
+								for (int s = minRoll; s <= maxPossibleRoll; s++)
+									successCount += dp[numDice][s];
+								int totalOutcomes = 1;
+								for (int i = 0; i < numDice; i++)
+									totalOutcomes *= sides;
+								hitChance = (float)successCount / (float)totalOutcomes;
+							} else {
+								float mean = card.numDice * (card.diceSides + 1) / 2.0f;
+								float variance = card.numDice * (card.diceSides * card.diceSides - 1) / 12.0f;
+								float stdDev = sqrt(variance);
+								float z = (minRoll - 0.5f - mean) / stdDev;
+								if (z <= -3.0f)
+									hitChance = 1.0f;
+								else if (z >= 3.0f)
+									hitChance = 0.0f;
+								else {
+									hitChance = 0.5f - (z * 0.15f);
+									if (hitChance < 0.0f) hitChance = 0.0f;
+									if (hitChance > 1.0f) hitChance = 1.0f;
+								}
+							}
+						}
+
+						board[tx][ty].minRollRequired = minRoll;
+						board[tx][ty].hitChance = hitChance;
+
+						// Valid (green) if another unit sits on the tile OR if an AOE
+						// from this tile (max possible 1d20 + 3 ft) could hit another unit.
 						for (size_t i = 0; i < players.size(); ++i) {
 							if ((int)i == currentPlayerIndex) continue;
 							if (players[i].x == tx && players[i].y == ty) {
@@ -21348,13 +21427,11 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 							}
 						}
 						if (!valid) {
-							// Check max possible AOE reach: 1d20 + 3ft (max 23 ft)
 							int maxAoeFeet = 20 + 3;
 							for (size_t i = 0; i < players.size(); ++i) {
 								if ((int)i == currentPlayerIndex) continue;
 								float distToPlayerFeet = glm::distance(glm::vec2(tx, ty), glm::vec2(players[i].x, players[i].y)) * 5.0f;
 								if (distToPlayerFeet <= maxAoeFeet + 0.01f) {
-									// Ensure LOS from impact tile to unit (AOE cannot go through walls)
 									auto losPath = getLineOfSightPath(glm::vec2((float)tx, (float)ty) + glm::vec2(0.5f, 0.5f), glm::vec2(players[i].x, players[i].y) + glm::vec2(0.5f, 0.5f));
 									bool blocked = false;
 									for (const auto & step : losPath) {
@@ -25132,10 +25209,12 @@ TargetInfo ofApp::isLosTargetValid(glm::vec2 casterTile, glm::vec2 targetTile, f
 	// --- CHECK IF TARGET IS A WALL ---
 	if (isTileWall((int)targetTile.x, (int)targetTile.y)) {
 
-		// EXCEPTION: If the card can target through walls (Jolt/Bolt/Wave/Death)
-		// AND there is a player inside that wall (Ghost), allow it.
+		// EXCEPTION: Some special cards (Ethereal Jolt, Psionic Wave, Death)
+		// may target tiles that are walls *only* if a unit (e.g. a ghost) is
+		// actually occupying that wall tile. Magic Bolt explicitly should NOT
+		// be allowed to target a wall tile even if no unit is present.
 		bool allowWallTarget = false;
-		if (cardType == CARD_ETHEREAL_JOLT || cardType == CARD_MAGIC_BOLT || cardType == CARD_PSIONIC_WAVE || cardType == CARD_DEATH) {
+		if (cardType == CARD_ETHEREAL_JOLT || cardType == CARD_PSIONIC_WAVE || cardType == CARD_DEATH || cardType == CARD_MAGIC_BOLT) {
 			if (board[(int)targetTile.x][(int)targetTile.y].hasPlayer) {
 				allowWallTarget = true;
 			}
@@ -30254,6 +30333,13 @@ bool ofApp::validateActionPacketOnHost(const ActionPacket & pkt, std::string & r
 	case CARD_DEATH:
 	case CARD_CHAIN_LIGHTNING:
 	case CARD_FIREBALL: {
+		// Disallow targeting a wall tile for these ranged/damage cards (Magic Bolt etc.)
+		if (tx >= 0 && tx < BOARD_WIDTH && ty >= 0 && ty < BOARD_HEIGHT) {
+			if (board[tx][ty].hasWall) {
+				reason = "Play rejected - cannot target wall";
+				return false;
+			}
+		}
 		// Require that the chosen target tile would hit an other-than-self unit
 		if (tileHasOtherPlayer(tx, ty)) return true;
 		// For splash effects like MAGIC_BLAST we'd check neighbors, but these types
