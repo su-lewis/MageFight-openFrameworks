@@ -2745,9 +2745,11 @@ void ofApp::drawSingleplayerMenu() {
 	float centerX = ofGetWidth() / 2.0f;
 	float startY = ofGetHeight() / 2.0f - btnHeight;
 
+	// Layout: Continue, Load, New Game, Back
 	singleplayerContinueButton.set(centerX - btnWidth / 2, startY, btnWidth, btnHeight);
-	singleplayerNewGameButton.set(centerX - btnWidth / 2, startY + btnHeight + 18, btnWidth, btnHeight);
-	singleplayerBackButton.set(centerX - btnWidth / 2, startY + (btnHeight + 18) * 2, btnWidth, btnHeight);
+	singleplayerLoadButton.set(centerX - btnWidth / 2, startY + btnHeight + 18, btnWidth, btnHeight);
+	singleplayerNewGameButton.set(centerX - btnWidth / 2, startY + (btnHeight + 18) * 2, btnWidth, btnHeight);
+	singleplayerBackButton.set(centerX - btnWidth / 2, startY + (btnHeight + 18) * 3, btnWidth, btnHeight);
 
 	auto drawBtn = [&](const ofRectangle & r, const string & txt) {
 		// White by default; hover -> light gray
@@ -2766,7 +2768,7 @@ void ofApp::drawSingleplayerMenu() {
 		uiFont.drawString(txt, r.getCenter().x - tb.getWidth() / 2, r.getCenter().y + tb.getHeight() / 2);
 	};
 
-	// Continue button shows autosave timestamp if available
+	// Continue button shows autosave timestamp (YYYY-MM-DD HH:MM)
 	std::string contText = "Continue";
 	try {
 		namespace fs = std::filesystem;
@@ -2777,8 +2779,9 @@ void ofApp::drawSingleplayerMenu() {
 				ftime - fs::file_time_type::clock::now() + std::chrono::system_clock::now());
 			std::time_t tt = std::chrono::system_clock::to_time_t(sctp);
 			char buf[64];
-			std::strftime(buf, sizeof(buf), "%F %T", std::localtime(&tt));
-			contText += " (Last saved: ";
+			// Format: YYYY-MM-DD HH:MM (no seconds)
+			std::strftime(buf, sizeof(buf), "%Y-%m-%d %H:%M", std::localtime(&tt));
+			contText += " (";
 			contText += buf;
 			contText += ")";
 		}
@@ -2787,11 +2790,12 @@ void ofApp::drawSingleplayerMenu() {
 	}
 
 	drawBtn(singleplayerContinueButton, contText);
+	drawBtn(singleplayerLoadButton, "Load");
 	drawBtn(singleplayerNewGameButton, "New Game");
 	drawBtn(singleplayerBackButton, "Back");
 
 	// Short customization hint
-	string hint = "Customize rules and options after starting a New Game (placeholder)";
+	string hint = "Customisation coming soon";
 	ofRectangle hb = uiFont.getStringBoundingBox(hint, 0, 0);
 	ofSetColor(200);
 	uiFont.drawString(hint, centerX - hb.getWidth() / 2, singleplayerBackButton.getBottom() + 36);
@@ -11946,7 +11950,7 @@ void ofApp::mouseMoved(int x, int y) {
 		overMainMenuButton = mainMenuPlayAIButton.inside(x, y) || mainMenuMultiplayerButton.inside(x, y) || mainMenuSettingsButton.inside(x, y) || mainMenuQuitButton.inside(x, y);
 	}
 	if (currentState == STATE_SINGLEPLAYER_MENU) {
-		overSingleplayerButton = singleplayerContinueButton.inside(x, y) || singleplayerNewGameButton.inside(x, y) || singleplayerBackButton.inside(x, y);
+		overSingleplayerButton = singleplayerContinueButton.inside(x, y) || singleplayerLoadButton.inside(x, y) || singleplayerNewGameButton.inside(x, y) || singleplayerBackButton.inside(x, y);
 	}
 	if (currentState == STATE_SETTINGS) {
 		overSettingsButton = settingsBackButton.inside(x, y) || settingsResLeftButton.inside(x, y) || settingsResRightButton.inside(x, y) || settingsFullscreenButton.inside(x, y) || settingsTabVideoRect.inside(x, y) || settingsTabAudioRect.inside(x, y) || settingsTabGameRect.inside(x, y) || settingsTabControlsRect.inside(x, y) || settingsAudioVolumeSlider.inside(x, y) || settingsAudioMasterSlider.inside(x, y) || settingsAudioSfxSlider.inside(x, y);
@@ -12712,6 +12716,13 @@ void ofApp::mousePressed(int x, int y, int button) {
 			} else {
 				addGameLog("No autosave to continue.");
 			}
+			return;
+		}
+
+		if (singleplayerLoadButton.inside(x, y)) {
+			// Open Save Browser; remember to return to singleplayer menu if cancelled
+			saveBrowserReturnState = STATE_SINGLEPLAYER_MENU;
+			currentState = STATE_SAVE_BROWSER;
 			return;
 		}
 		if (singleplayerNewGameButton.inside(x, y)) {
@@ -13525,7 +13536,8 @@ void ofApp::mousePressed(int x, int y, int button) {
 				return;
 			}
 			if (!isMultiplayer && pauseMenuLoadButton.inside(x, y)) {
-				// Open Save Browser menu
+				// Open Save Browser menu; return here when closing
+				saveBrowserReturnState = STATE_PAUSED;
 				currentState = STATE_SAVE_BROWSER;
 				return;
 			}
@@ -13551,7 +13563,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 		if (button == OF_MOUSE_BUTTON_LEFT) {
 			// Back
 			if (saveBrowserBackButton.inside(x, y)) {
-				currentState = STATE_PAUSED;
+				currentState = saveBrowserReturnState;
 				return;
 			}
 
@@ -16625,6 +16637,13 @@ void ofApp::mouseReleased(int x, int y, int button) {
 
 						// --- A. MAGIC BOLT: ENTER TARGETING MODE ---
 						if (playedCard.type == CARD_MAGIC_BOLT) {
+							// Block entering targeting if there is no possible non-self target
+							if (!hasValidNonSelfTargetForHandIndex(draggedCardIndex)) {
+								spawnFloatingText(gridToWorld(currentPlayer.x, currentPlayer.y), "No valid non-self targets", ofColor::gray);
+								draggedCardIndex = -1;
+								selectedCardIndex = -1;
+								return;
+							}
 							isTargetingMagicBolt = true;
 							magicBoltCardIndex = draggedCardIndex;
 							draggedCardIndex = -1; // Stop dragging
@@ -16728,6 +16747,13 @@ void ofApp::mouseReleased(int x, int y, int button) {
 						}
 						// --- E. DEATH TARGETING ---
 						if (playedCard.type == CARD_DEATH) {
+							// Never allow using Death on self; require at least one other unit option
+							if (!hasValidNonSelfTargetForHandIndex(draggedCardIndex)) {
+								spawnFloatingText(gridToWorld(currentPlayer.x, currentPlayer.y), "No valid targets for Death", ofColor::gray);
+								draggedCardIndex = -1;
+								selectedCardIndex = -1;
+								return;
+							}
 							isTargetingDeath = true;
 							deathCardIndex = draggedCardIndex;
 							draggedCardIndex = -1;
@@ -16750,6 +16776,13 @@ void ofApp::mouseReleased(int x, int y, int button) {
 
 						// --- CHAIN LIGHTNING ---
 						if (playedCard.type == CARD_CHAIN_LIGHTNING) {
+							// Prevent entering chain lightning targeting if no non-self target is possible
+							if (!hasValidNonSelfTargetForHandIndex(draggedCardIndex)) {
+								spawnFloatingText(gridToWorld(currentPlayer.x, currentPlayer.y), "No valid non-self targets", ofColor::gray);
+								draggedCardIndex = -1;
+								selectedCardIndex = -1;
+								return;
+							}
 							isTargetingChainLightning = true;
 							chainLightningCardIndex = draggedCardIndex;
 							draggedCardIndex = -1;
@@ -16794,6 +16827,19 @@ void ofApp::mouseReleased(int x, int y, int button) {
 								selectedCardIndex = -1;
 								calculateTargetHighlights(); // Clear highlights
 								return;
+							}
+
+							// For damage-capable cards we enforce the 'must hit a non-self unit' rule.
+							bool requiresNonSelf = (playedCard.type == CARD_MAGIC_BLAST || playedCard.type == CARD_MAGIC_BOLT || playedCard.type == CARD_CHAIN_LIGHTNING || playedCard.type == CARD_SHOOT_ARROW || playedCard.type == CARD_DEATH || playedCard.type == CARD_FIREBALL || playedCard.type == CARD_PSIONIC_WAVE);
+							if (requiresNonSelf) {
+								if (!hasValidNonSelfTargetForHandIndex(draggedCardIndex)) {
+									ofLogNotice("CardPlay") << "No valid non-self targets for " << playedCard.name;
+									spawnFloatingText(gridToWorld(currentPlayer.x, currentPlayer.y), "No valid non-self targets", ofColor::gray);
+									draggedCardIndex = -1;
+									selectedCardIndex = -1;
+									calculateTargetHighlights();
+									return;
+								}
 							}
 
 							// Enter generic targeting mode - player clicks green highlight
@@ -19846,8 +19892,8 @@ CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		if (targetIndex != -1) {
 			Player * target = getPlayer(targetIndex);
 
-			// 1. Calculate Total Block
-			int totalBlock = currentPlayer.block + currentPlayer.barrier + currentPlayer.ward + currentPlayer.holyBlock;
+			// 1. Calculate Total Block (include fortification as a blocking source)
+			int totalBlock = currentPlayer.block + currentPlayer.barrier + currentPlayer.ward + currentPlayer.holyBlock + currentPlayer.fortification;
 
 			// Check if Add Poison buff is active
 			bool applyPoisonBuff = currentPlayer.nextAttackAddPoison;
@@ -19876,11 +19922,12 @@ CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 				spawnFloatingText(gridToWorld(target->x, target->y), "0 Damage", ofColor::gray);
 			}
 
-			// 3. Remove All Block from Caster
+			// 3. Remove All Block from Caster (clear fortification as well)
 			currentPlayer.block = 0;
 			currentPlayer.barrier = 0;
 			currentPlayer.ward = 0;
 			currentPlayer.holyBlock = 0;
+			currentPlayer.fortification = 0;
 
 			spawnFloatingText(gridToWorld(currentPlayer.x, currentPlayer.y), "Shields Broken!", ofColor::yellow);
 
@@ -21283,6 +21330,56 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 	int py = currentPlayer.y;
 	glm::vec2 casterPos(px, py);
 
+	// Special preview/targeting for Magic Bolt and Chain Lightning:
+	// show white preview for tiles that are in-range/previewable but not valid
+	// green only when the tile would be a valid non-self unit target.
+	if (card.type == CARD_MAGIC_BOLT || card.type == CARD_CHAIN_LIGHTNING) {
+		float maxRangeFeet = 9999.0f;
+		if (card.type == CARD_MAGIC_BOLT) maxRangeFeet = (float)(card.numDice * card.diceSides);
+		for (int tx = 0; tx < BOARD_WIDTH; ++tx) {
+			for (int ty = 0; ty < BOARD_HEIGHT; ++ty) {
+				// Determine previewability
+				bool preview = false;
+				bool valid = false;
+				if (card.type == CARD_MAGIC_BOLT) {
+					// Magic Bolt ignores LOS; use Euclidean distance (feet)
+					float distFeet = glm::distance(casterPos, glm::vec2((float)tx, (float)ty)) * 5.0f;
+					if (distFeet <= maxRangeFeet + 3.0f) {
+						preview = true;
+						// Valid (green) only if another unit sits on the tile
+						for (size_t i = 0; i < players.size(); ++i) {
+							if (players[i].x == tx && players[i].y == ty && (int)i != currentPlayerIndex) {
+								valid = true;
+								break;
+							}
+						}
+					}
+				} else {
+					// Chain Lightning: respect LOS rules used elsewhere
+					TargetInfo info = isLosTargetValid(casterPos, glm::vec2((float)tx, (float)ty), 9999.0f, CARD_CHAIN_LIGHTNING);
+					if (info.reason == VALID || info.reason == INVALID_SELF) preview = true;
+					if (info.reason == VALID) {
+						for (size_t i = 0; i < players.size(); ++i) {
+							if (players[i].x == tx && players[i].y == ty && (int)i != currentPlayerIndex) {
+								valid = true;
+								break;
+							}
+						}
+					}
+				}
+
+				if (preview) {
+					board[tx][ty].isTargetPreview = true; // white outline
+					board[tx][ty].hasTooltipInfo = true;
+				}
+				if (valid) {
+					board[tx][ty].isTargetable = true; // green outline
+				}
+			}
+		}
+		return; // we've set previews for these cards; skip generic logic
+	}
+
 	// Check AP (Targeting modes imply AP check passed already)
 	bool inTargetingMode = isTargetingDoubleHanded || isTargetingTeleport || isTargetingBurst || isTargetingAmnesia || (selectedCardIndex != -1);
 
@@ -21352,8 +21449,13 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 		// 2) For unit tiles, apply green targetable outlines based on burstChoice
 		for (const auto & p : players) {
 			TargetInfo info = isLosTargetValid(casterPos, glm::vec2(p.x, p.y), 9999.0f, CARD_BURST_OF_LIGHT);
-			// Allow both DAMAGE and HEAL choices to target any valid unit (including allies and minions)
+			// Allow valid unit targets to be outlined green. When DAMAGE is chosen
+			// (burstChoice == 0) do NOT mark the caster itself as a green target.
 			if (info.reason == VALID || info.reason == INVALID_SELF) {
+				if (burstChoice == 0 && p.x == (int)caster.x && p.y == (int)caster.y) {
+					// Skip marking self as targetable when dealing damage
+					continue;
+				}
 				board[p.x][p.y].isTargetable = true; // green outline
 				board[p.x][p.y].isTargetPreview = true;
 			}
@@ -21831,6 +21933,76 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 			if (isValidTarget && hasEnoughAP) board[x][y].isTargetable = true; // Green
 		}
 	}
+}
+
+// Helper: determine whether clicking any of the currently targetable tiles
+// for the specified hand index could result in damaging a unit other than
+// the caster. This is used to block plays that would only ever hurt the caster.
+bool ofApp::hasValidNonSelfTargetForHandIndex(int handIndex) {
+	if (players.empty() || currentPlayerIndex < 0) return false;
+	Player & caster = players[currentPlayerIndex];
+	if (handIndex < 0 || handIndex >= (int)caster.hand.size()) return false;
+
+	// Compute highlights for this card (populates board[x][y].isTargetable)
+	calculateTargetHighlights(handIndex);
+
+	Card & card = caster.hand[handIndex];
+
+	auto tileHasOtherPlayer = [&](int tx, int ty) {
+		for (size_t i = 0; i < players.size(); ++i) {
+			if (players[i].x == tx && players[i].y == ty) {
+				if ((int)i != currentPlayerIndex) return true;
+			}
+		}
+		return false;
+	};
+
+	for (int x = 0; x < BOARD_WIDTH; ++x) {
+		for (int y = 0; y < BOARD_HEIGHT; ++y) {
+			if (!board[x][y].isTargetable) continue;
+
+			// For each card type we care about, check whether this target tile
+			// would result in damaging a unit other than the caster.
+			switch (card.type) {
+			case CARD_MAGIC_BOLT:
+			case CARD_SHOOT_ARROW:
+			case CARD_DEATH:
+			case CARD_CHAIN_LIGHTNING: {
+				if (tileHasOtherPlayer(x, y)) return true;
+				break;
+			}
+			case CARD_MAGIC_BLAST: {
+				// Direct hit on non-self
+				if (tileHasOtherPlayer(x, y)) return true;
+				// Splash neighbors
+				const glm::vec2 nbors[4] = { { (float)(x + 1), (float)y }, { (float)(x - 1), (float)y }, { (float)x, (float)(y + 1) }, { (float)x, (float)(y - 1) } };
+				for (auto & n : nbors) {
+					int nx = (int)n.x, ny = (int)n.y;
+					if (nx >= 0 && nx < BOARD_WIDTH && ny >= 0 && ny < BOARD_HEIGHT) {
+						if (tileHasOtherPlayer(nx, ny)) return true;
+					}
+				}
+				break;
+			}
+			case CARD_FIREBALL: {
+				// Fireball requires a unit at the impact tile to roll damage
+				if (tileHasOtherPlayer(x, y)) return true;
+				break;
+			}
+			default: {
+				// Generic heuristic: if any other unit is present on this target tile
+				// assume it could be damaged. This covers other multi-target spells
+				// handled similarly by calculateTargetHighlights.
+				if (tileHasOtherPlayer(x, y)) return true;
+				break;
+			}
+			}
+		}
+	}
+
+	// No non-self damage possibility found; clear highlights and return false
+	clearHighlights();
+	return false;
 }
 //--------------------------------------------------------------
 void ofApp::spawnFloatingText(glm::vec3 pos, std::string text, ofColor color, std::string category) {

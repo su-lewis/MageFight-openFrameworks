@@ -649,6 +649,9 @@ private:
 
 	void calculateHighlights();
 	void calculateTargetHighlights(int cardToCalculate = -1);
+	// Returns true if there exists at least one possible target tile for the given
+	// hand index such that the card could damage a unit other than the caster.
+	bool hasValidNonSelfTargetForHandIndex(int handIndex);
 	void invalidateTargetCache();
 	void clearHighlights();
 
@@ -1011,6 +1014,7 @@ private:
 
 	// Singleplayer menu UI
 	ofRectangle singleplayerContinueButton;
+	ofRectangle singleplayerLoadButton;
 	ofRectangle singleplayerNewGameButton;
 	ofRectangle singleplayerBackButton;
 
@@ -1725,6 +1729,8 @@ private:
 	bool saveBrowserConfirmVisible = false;
 	ofRectangle saveBrowserConfirmLoadButton;
 	ofRectangle saveBrowserConfirmCancelButton;
+	// Where to return after closing the save browser (e.g., pause menu or singleplayer menu)
+	GameState saveBrowserReturnState = STATE_PAUSED;
 
 	// --- DICE & SOUND ---
 	std::vector<DiceRoll> activeDiceRolls;
