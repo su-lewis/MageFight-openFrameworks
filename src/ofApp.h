@@ -41,6 +41,7 @@ enum GameState {
 	STATE_INITIATIVE_ROLL, // <--- New
 	STATE_DRAFTING, // <--- New
 	STATE_SINGLEPLAYER_MENU,
+	STATE_SAVE_BROWSER,
 	STATE_DESYNC // Desync detected; abort match
 };
 
@@ -1708,6 +1709,22 @@ private:
 	ofRectangle pauseMenuSettingsButton;
 	ofRectangle pauseMenuQuitButton;
 	int pauseMenuHoveredIndex = -1;
+
+	// Pause menu Save/Load buttons
+	ofRectangle pauseMenuSaveButton;
+	ofRectangle pauseMenuLoadButton;
+
+	// Save browser UI (lists previous saves)
+	void drawSaveBrowser();
+	ofRectangle saveBrowserBackButton;
+	int saveBrowserHoveredIndex = -1;
+	std::vector<std::string> saveFilePaths;
+	std::vector<ofRectangle> saveFileRects;
+	// Save Browser selection/confirmation
+	int saveBrowserPendingIndex = -1; // index selected for confirmation
+	bool saveBrowserConfirmVisible = false;
+	ofRectangle saveBrowserConfirmLoadButton;
+	ofRectangle saveBrowserConfirmCancelButton;
 
 	// --- DICE & SOUND ---
 	std::vector<DiceRoll> activeDiceRolls;

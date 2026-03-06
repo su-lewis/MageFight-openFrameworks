@@ -7,6 +7,7 @@
 #include <chrono>
 #include <cmath>
 #include <cstring>
+#include <filesystem>
 #include <glm/gtx/intersect.hpp>
 #include <limits>
 #include <new>
@@ -31,6 +32,39 @@ float p1_minionLeft = 0.0f;
 float minionPanelW = 0.0f;
 int lastAutoScrollTurnUnit = -1;
 int lastHoveredUnit = -1;
+}
+
+// Prune old stamped autosave files, keeping at most `keep` newest ones
+static const std::string kSavesDir = "data/Saves";
+
+static std::string makeSavePath(const std::string & p) {
+	// If path contains a directory separator, assume it's a full/relative path and use as-is
+	if (p.find('/') != std::string::npos || p.find('\\') != std::string::npos) return p;
+	return kSavesDir + "/" + p;
+}
+
+static void pruneOldSaves(int keep = 5) {
+	try {
+		namespace fs = std::filesystem;
+		fs::path dir = fs::current_path() / fs::path(kSavesDir);
+		if (!fs::exists(dir)) return;
+		std::vector<std::pair<std::filesystem::file_time_type, fs::path>> files;
+		for (auto & entry : fs::directory_iterator(dir)) {
+			if (!entry.is_regular_file()) continue;
+			std::string name = entry.path().filename().string();
+			if (name.rfind("autosave_turn_", 0) == 0 && name.size() > 12 && name.substr(name.size() - 5) == ".json") {
+				files.emplace_back(fs::last_write_time(entry.path()), entry.path());
+			}
+		}
+		std::sort(files.begin(), files.end(), [](auto & a, auto & b) { return a.first > b.first; });
+		for (size_t i = keep; i < files.size(); ++i) {
+			try {
+				fs::remove(files[i].second);
+			} catch (...) { }
+		}
+	} catch (...) {
+		// ignore
+	}
 }
 
 // Helper converters for JSON
@@ -77,6 +111,7 @@ static Card jsonToCard(const nlohmann::json & j) {
 
 bool ofApp::saveGameStateToFile(const std::string & path) {
 	try {
+		std::string fullPath = makeSavePath(path);
 		nlohmann::json j;
 		j["globalTurnCounter"] = globalTurnCounter;
 		j["currentPlayerIndex"] = currentPlayerIndex;
@@ -115,10 +150,31 @@ bool ofApp::saveGameStateToFile(const std::string & path) {
 			pj["maxHealth"] = p.maxHealth;
 			pj["block"] = p.block;
 			pj["ward"] = p.ward;
+			pj["barrier"] = p.barrier;
+			pj["holyBlock"] = p.holyBlock;
 			pj["playerID"] = p.playerID;
 			pj["ap"] = p.ap;
 			pj["isMinion"] = p.isMinion;
 			pj["ownerID"] = p.ownerID;
+			pj["hasDrawnThisTurn"] = p.hasDrawnThisTurn;
+			pj["hasDrawnCardsThisTurn"] = p.hasDrawnThisTurn; // legacy alias
+			pj["hasDrawnThisTurn_flag"] = p.hasDrawnThisTurn;
+			pj["nextTurnAPBonus"] = p.nextTurnAPBonus;
+			pj["shocksPlayedThisTurn"] = p.shocksPlayedThisTurn;
+			pj["flurryOfFistsActive"] = p.flurryOfFistsActive;
+			pj["isParalyzed"] = p.isParalyzed;
+			pj["paralysisHeadsCount"] = p.paralysisHeadsCount;
+			pj["isPoisoned"] = p.isPoisoned;
+			pj["poisonReduction"] = p.poisonReduction;
+			pj["nextAttackAddPoison"] = p.nextAttackAddPoison;
+			pj["nextTurnD10AP"] = p.nextTurnD10AP;
+			pj["nextTurnExtraDraw"] = p.nextTurnExtraDraw;
+			pj["nextTurnExtraDrawSetOnCycle"] = p.nextTurnExtraDrawSetOnCycle;
+			pj["strengthenElementsTurnsRemaining"] = p.strengthenElementsTurnsRemaining;
+			pj["sleepTurnsRemaining"] = p.sleepTurnsRemaining;
+			pj["inTortoiseForm"] = p.inTortoiseForm;
+			pj["tortoiseDamageTaken"] = p.tortoiseDamageTaken;
+			pj["deckNeedsShuffle"] = p.deckNeedsShuffle;
 			pj["nextTurnExtraDraw"] = p.nextTurnExtraDraw;
 			pj["nextTurnExtraDrawSetOnCycle"] = p.nextTurnExtraDrawSetOnCycle;
 			pj["summonedOnTurnCycle"] = p.summonedOnTurnCycle;
@@ -133,6 +189,9 @@ bool ofApp::saveGameStateToFile(const std::string & path) {
 				pj["discard"].push_back(cardToJson(c));
 			for (const auto & c : p.playedCardsPile)
 				pj["playedPile"].push_back((int)c.type);
+			// Card types played this turn
+			for (const auto & ct : p.cardsPlayedThisTurn)
+				pj["cardsPlayedThisTurn"].push_back((int)ct);
 
 			j["players"].push_back(pj);
 		}
@@ -155,12 +214,19 @@ bool ofApp::saveGameStateToFile(const std::string & path) {
 			ofLogWarning("Save") << "Failed to serialize gameplayRNG; continuing without it.";
 		}
 
+		// Ensure save directory exists when using the saves folder
+		try {
+			namespace fs = std::filesystem;
+			fs::path dir = fs::path(fullPath).parent_path();
+			if (!dir.empty() && !fs::exists(dir)) fs::create_directories(dir);
+		} catch (...) { }
+
 		// Write file
-		std::ofstream ofs(path);
+		std::ofstream ofs(fullPath);
 		if (!ofs) return false;
 		ofs << j.dump(2);
 		ofs.close();
-		ofLogNotice("Save") << "Saved game state to " << path;
+		ofLogNotice("Save") << "Saved game state to " << fullPath;
 		return true;
 	} catch (const std::exception & e) {
 		ofLogWarning("Save") << "Exception saving state: " << e.what();
@@ -170,7 +236,8 @@ bool ofApp::saveGameStateToFile(const std::string & path) {
 
 bool ofApp::loadGameStateFromFile(const std::string & path) {
 	try {
-		std::ifstream ifs(path);
+		std::string fullPath = makeSavePath(path);
+		std::ifstream ifs(fullPath);
 		if (!ifs) return false;
 		nlohmann::json j;
 		ifs >> j;
@@ -208,16 +275,35 @@ bool ofApp::loadGameStateFromFile(const std::string & path) {
 
 		// Restore board flags
 		if (j.contains("board")) {
+			auto & boardJson = j["board"];
 			for (int x = 0; x < BOARD_WIDTH; ++x) {
 				for (int y = 0; y < BOARD_HEIGHT; ++y) {
-					if (j["board"].contains(std::to_string(x)) && j["board"][std::to_string(x)].contains(std::to_string(y))) {
-						auto & bt = j["board"][std::to_string(x)][std::to_string(y)];
-						board[x][y].hasPlayer = bt.value("hasPlayer", false);
-						board[x][y].hasWall = bt.value("hasWall", false);
-						board[x][y].isMagicWall = bt.value("isMagicWall", false);
-						board[x][y].isHighlighted = bt.value("isHighlighted", false);
-						board[x][y].isTargetable = bt.value("isTargetable", false);
-						board[x][y].isTargetPreview = bt.value("isTargetPreview", false);
+					try {
+						if (boardJson.is_array()) {
+							if ((int)boardJson.size() > x && boardJson[x].is_array() && (int)boardJson[x].size() > y) {
+								auto & bt = boardJson[x][y];
+								board[x][y].hasPlayer = bt.value("hasPlayer", false);
+								board[x][y].hasWall = bt.value("hasWall", false);
+								board[x][y].isMagicWall = bt.value("isMagicWall", false);
+								board[x][y].isHighlighted = bt.value("isHighlighted", false);
+								board[x][y].isTargetable = bt.value("isTargetable", false);
+								board[x][y].isTargetPreview = bt.value("isTargetPreview", false);
+							}
+						} else if (boardJson.is_object()) {
+							std::string sx = std::to_string(x);
+							std::string sy = std::to_string(y);
+							if (boardJson.contains(sx) && boardJson[sx].contains(sy)) {
+								auto & bt = boardJson[sx][sy];
+								board[x][y].hasPlayer = bt.value("hasPlayer", false);
+								board[x][y].hasWall = bt.value("hasWall", false);
+								board[x][y].isMagicWall = bt.value("isMagicWall", false);
+								board[x][y].isHighlighted = bt.value("isHighlighted", false);
+								board[x][y].isTargetable = bt.value("isTargetable", false);
+								board[x][y].isTargetPreview = bt.value("isTargetPreview", false);
+							}
+						}
+					} catch (...) {
+						// ignore malformed entries
 					}
 				}
 			}
@@ -239,10 +325,29 @@ bool ofApp::loadGameStateFromFile(const std::string & path) {
 				p.maxHealth = pj.value("maxHealth", p.maxHealth);
 				p.block = pj.value("block", p.block);
 				p.ward = pj.value("ward", p.ward);
+				p.barrier = pj.value("barrier", p.barrier);
+				p.holyBlock = pj.value("holyBlock", p.holyBlock);
 				p.playerID = pj.value("playerID", p.playerID);
 				p.ap = pj.value("ap", p.ap);
 				p.isMinion = pj.value("isMinion", p.isMinion);
 				p.ownerID = pj.value("ownerID", p.ownerID);
+				p.hasDrawnThisTurn = pj.value("hasDrawnThisTurn", p.hasDrawnThisTurn);
+				p.nextTurnAPBonus = pj.value("nextTurnAPBonus", p.nextTurnAPBonus);
+				p.shocksPlayedThisTurn = pj.value("shocksPlayedThisTurn", p.shocksPlayedThisTurn);
+				p.flurryOfFistsActive = pj.value("flurryOfFistsActive", p.flurryOfFistsActive);
+				p.isParalyzed = pj.value("isParalyzed", p.isParalyzed);
+				p.paralysisHeadsCount = pj.value("paralysisHeadsCount", p.paralysisHeadsCount);
+				p.isPoisoned = pj.value("isPoisoned", p.isPoisoned);
+				p.poisonReduction = pj.value("poisonReduction", p.poisonReduction);
+				p.nextAttackAddPoison = pj.value("nextAttackAddPoison", p.nextAttackAddPoison);
+				p.nextTurnD10AP = pj.value("nextTurnD10AP", p.nextTurnD10AP);
+				p.nextTurnExtraDraw = pj.value("nextTurnExtraDraw", p.nextTurnExtraDraw);
+				p.nextTurnExtraDrawSetOnCycle = pj.value("nextTurnExtraDrawSetOnCycle", p.nextTurnExtraDrawSetOnCycle);
+				p.strengthenElementsTurnsRemaining = pj.value("strengthenElementsTurnsRemaining", p.strengthenElementsTurnsRemaining);
+				p.sleepTurnsRemaining = pj.value("sleepTurnsRemaining", p.sleepTurnsRemaining);
+				p.inTortoiseForm = pj.value("inTortoiseForm", p.inTortoiseForm);
+				p.tortoiseDamageTaken = pj.value("tortoiseDamageTaken", p.tortoiseDamageTaken);
+				p.deckNeedsShuffle = pj.value("deckNeedsShuffle", p.deckNeedsShuffle);
 				p.nextTurnExtraDraw = pj.value("nextTurnExtraDraw", p.nextTurnExtraDraw);
 				p.nextTurnExtraDrawSetOnCycle = pj.value("nextTurnExtraDrawSetOnCycle", p.nextTurnExtraDrawSetOnCycle);
 				p.summonedOnTurnCycle = pj.value("summonedOnTurnCycle", p.summonedOnTurnCycle);
@@ -260,12 +365,26 @@ bool ofApp::loadGameStateFromFile(const std::string & path) {
 					for (const auto & cj : pj["discard"])
 						p.discardPile.push_back(jsonToCard(cj));
 				}
+				if (pj.contains("cardsPlayedThisTurn")) {
+					for (const auto & v : pj["cardsPlayedThisTurn"])
+						p.cardsPlayedThisTurn.push_back((CardType)v.get<int>());
+				}
 
 				players.push_back(p);
 			}
 		}
 
-		ofLogNotice("Save") << "Loaded game state from " << path;
+		// Rebuild board occupancy from players (ensure visibility)
+		for (int x = 0; x < BOARD_WIDTH; ++x)
+			for (int y = 0; y < BOARD_HEIGHT; ++y)
+				board[x][y].hasPlayer = false;
+		for (const auto & p : players) {
+			if (p.x >= 0 && p.x < BOARD_WIDTH && p.y >= 0 && p.y < BOARD_HEIGHT) {
+				board[p.x][p.y].hasPlayer = true;
+			}
+		}
+
+		ofLogNotice("Save") << "Loaded game state from " << fullPath;
 		return true;
 	} catch (const std::exception & e) {
 		ofLogWarning("Save") << "Exception loading state: " << e.what();
@@ -814,6 +933,13 @@ static std::vector<std::string> splitEscapedList(const std::string & input) {
 //--------------------------------------------------------------
 void ofApp::setup() {
 	steamManager.setup();
+
+	// Ensure saves directory exists
+	try {
+		namespace fs = std::filesystem;
+		fs::path dir = fs::current_path() / fs::path(kSavesDir);
+		if (!fs::exists(dir)) fs::create_directories(dir);
+	} catch (...) { }
 
 	// Runtime sanity: log sizes of important network packets to detect cross-platform layout mismatches
 	ofLogNotice("NetTrace") << "Packet sizeofs: PacketHeader=" << sizeof(PacketHeader)
@@ -2213,6 +2339,9 @@ void ofApp::draw() {
 	case STATE_GAMEPLAY:
 		drawGame();
 		break;
+	case STATE_SAVE_BROWSER:
+		drawSaveBrowser();
+		break;
 	case STATE_SINGLEPLAYER_MENU:
 		drawSingleplayerMenu();
 		break;
@@ -2582,7 +2711,11 @@ void ofApp::drawSingleplayerMenu() {
 	singleplayerBackButton.set(centerX - btnWidth / 2, startY + (btnHeight + 18) * 2, btnWidth, btnHeight);
 
 	auto drawBtn = [&](const ofRectangle & r, const string & txt) {
-		ofSetColor(ofColor::lightGray);
+		// White by default; hover -> light gray
+		if (r.inside(ofGetMouseX(), ofGetMouseY()))
+			ofSetColor(ofColor::lightGray);
+		else
+			ofSetColor(ofColor::white);
 		ofDrawRectRounded(r, 12);
 		ofSetColor(ofColor::black);
 		ofNoFill();
@@ -2596,11 +2729,11 @@ void ofApp::drawSingleplayerMenu() {
 
 	// Continue button shows autosave timestamp if available
 	std::string contText = "Continue";
-	std::string autosavePath = "autosave.json";
 	try {
 		namespace fs = std::filesystem;
-		if (fs::exists(autosavePath)) {
-			auto ftime = fs::last_write_time(autosavePath);
+		fs::path p = fs::current_path() / fs::path(kSavesDir) / fs::path("autosave.json");
+		if (fs::exists(p)) {
+			auto ftime = fs::last_write_time(p);
 			auto sctp = std::chrono::time_point_cast<std::chrono::system_clock::duration>(
 				ftime - fs::file_time_type::clock::now() + std::chrono::system_clock::now());
 			std::time_t tt = std::chrono::system_clock::to_time_t(sctp);
@@ -2623,6 +2756,152 @@ void ofApp::drawSingleplayerMenu() {
 	ofRectangle hb = uiFont.getStringBoundingBox(hint, 0, 0);
 	ofSetColor(200);
 	uiFont.drawString(hint, centerX - hb.getWidth() / 2, singleplayerBackButton.getBottom() + 36);
+}
+
+void ofApp::drawSaveBrowser() {
+	ofSetColor(ofColor::white);
+	string title = "Load Saved Game";
+	ofRectangle titleBox = titleFont.getStringBoundingBox(title, 0, 0);
+	titleFont.drawString(title, ofGetWidth() / 2 - titleBox.getWidth() / 2, ofGetHeight() * 0.12);
+
+	// Gather save files from the saves folder (data/Saves)
+	saveFilePaths.clear();
+	try {
+		namespace fs = std::filesystem;
+		fs::path dir = fs::current_path() / fs::path(kSavesDir);
+		if (fs::exists(dir)) {
+			for (auto & entry : fs::directory_iterator(dir)) {
+				if (!entry.is_regular_file()) continue;
+				std::string name = entry.path().filename().string();
+				if (name.size() > 5 && name.substr(name.size() - 5) == ".json") {
+					if (name.rfind("autosave", 0) == 0 || name.rfind("save", 0) == 0) {
+						saveFilePaths.push_back(entry.path().string()); // store full path
+					}
+				}
+			}
+		}
+		// Sort by last_write_time descending
+		std::sort(saveFilePaths.begin(), saveFilePaths.end(), [&](const std::string & a, const std::string & b) {
+			try {
+				auto ta = fs::last_write_time(fs::path(a));
+				auto tb = fs::last_write_time(fs::path(b));
+				return ta > tb;
+			} catch (...) {
+				return a > b;
+			}
+		});
+	} catch (...) {
+		// ignore
+	}
+
+	float centerX = ofGetWidth() / 2.0f;
+	float startY = ofGetHeight() * 0.2f;
+	float btnW = std::min(800.0f, ofGetWidth() * 0.7f);
+	float btnH = 56.0f;
+	float gap = 12.0f;
+
+	saveFileRects.clear();
+	for (size_t i = 0; i < saveFilePaths.size(); ++i) {
+		ofRectangle r(centerX - btnW / 2, startY + i * (btnH + gap), btnW, btnH);
+		saveFileRects.push_back(r);
+		// Draw
+		bool hovered = (saveBrowserHoveredIndex == (int)i);
+		bool pending = (saveBrowserPendingIndex == (int)i);
+		// If pending selection, highlight it (lighter + white outline)
+		if (pending) {
+			ofSetColor(ofColor(240, 240, 240));
+			ofDrawRectRounded(r, 10);
+			ofSetColor(ofColor::white);
+			ofNoFill();
+			ofSetLineWidth(3);
+			ofDrawRectRounded(r, 10);
+			ofFill();
+		} else {
+			ofSetColor(hovered ? ofColor::lightGray : ofColor::white);
+			ofDrawRectRounded(r, 10);
+			ofSetColor(ofColor::black);
+			ofNoFill();
+			ofSetLineWidth(2);
+			ofDrawRectRounded(r, 10);
+			ofFill();
+		}
+
+		// Compose display text with timestamp (show filename only)
+		std::string display;
+		try {
+			namespace fs = std::filesystem;
+			fs::path p(saveFilePaths[i]);
+			display = p.filename().string();
+			auto ftime = fs::last_write_time(p);
+			auto sctp = std::chrono::time_point_cast<std::chrono::system_clock::duration>(
+				ftime - fs::file_time_type::clock::now() + std::chrono::system_clock::now());
+			std::time_t tt = std::chrono::system_clock::to_time_t(sctp);
+			char buf[64];
+			std::strftime(buf, sizeof(buf), "%F %T", std::localtime(&tt));
+			display += " (";
+			display += buf;
+			display += ")";
+		} catch (...) {
+			display = saveFilePaths[i];
+		}
+
+		ofSetColor(ofColor::black);
+		ofRectangle tb = uiFont.getStringBoundingBox(display, 0, 0);
+		uiFont.drawString(display, r.getCenter().x - tb.getWidth() / 2, r.getCenter().y + tb.getHeight() / 2);
+	}
+
+	// Back button
+	saveBrowserBackButton.set(centerX - 180, ofGetHeight() - 120, 360, 64);
+	bool backHovered = (saveBrowserHoveredIndex == -2);
+	ofSetColor(backHovered ? ofColor::lightGray : ofColor::white);
+	ofDrawRectRounded(saveBrowserBackButton, 12);
+	ofSetColor(ofColor::black);
+	ofRectangle bb = uiFont.getStringBoundingBox("Back", 0, 0);
+	uiFont.drawString("Back", saveBrowserBackButton.getCenter().x - bb.getWidth() / 2, saveBrowserBackButton.getCenter().y + bb.getHeight() / 2);
+
+	// Confirmation overlay
+	if (saveBrowserConfirmVisible && saveBrowserPendingIndex >= 0 && saveBrowserPendingIndex < (int)saveFilePaths.size()) {
+		ofSetColor(0, 0, 0, 180);
+		ofDrawRectangle(0, 0, ofGetWidth(), ofGetHeight());
+
+		// Highlight selected file area by drawing a larger light box in center
+		ofRectangle selRect = saveFileRects[saveBrowserPendingIndex];
+		ofRectangle highlight = selRect;
+		highlight.scaleFromCenter(1.05);
+		ofSetColor(255);
+		ofDrawRectRounded(highlight, 12);
+		ofNoFill();
+		ofSetColor(ofColor::white);
+		ofSetLineWidth(4);
+		ofDrawRectRounded(highlight, 12);
+		ofFill();
+
+		// Confirmation box
+		namespace fs = std::filesystem;
+		string msg = "Load save: " + fs::path(saveFilePaths[saveBrowserPendingIndex]).filename().string() + "?";
+		ofRectangle mBox = uiFont.getStringBoundingBox(msg, 0, 0);
+		ofRectangle confirmBox(ofGetWidth() / 2 - 360, ofGetHeight() / 2 - 80, 720, 160);
+		ofSetColor(ofColor::white);
+		ofDrawRectRounded(confirmBox, 10);
+		ofSetColor(ofColor::black);
+		uiFont.drawString(msg, confirmBox.getCenter().x - mBox.getWidth() / 2, confirmBox.getCenter().y - 8);
+
+		// Confirm / Cancel buttons
+		saveBrowserConfirmLoadButton.set(confirmBox.getCenter().x - 160 - 12, confirmBox.getCenter().y + 18, 160, 44);
+		saveBrowserConfirmCancelButton.set(confirmBox.getCenter().x + 12, confirmBox.getCenter().y + 18, 160, 44);
+
+		ofSetColor(ofColor::lightGray);
+		ofDrawRectRounded(saveBrowserConfirmLoadButton, 8);
+		ofSetColor(ofColor::black);
+		ofRectangle lb = uiFont.getStringBoundingBox("Load", 0, 0);
+		uiFont.drawString("Load", saveBrowserConfirmLoadButton.getCenter().x - lb.getWidth() / 2, saveBrowserConfirmLoadButton.getCenter().y + lb.getHeight() / 2);
+
+		ofSetColor(ofColor::white);
+		ofDrawRectRounded(saveBrowserConfirmCancelButton, 8);
+		ofSetColor(ofColor::black);
+		ofRectangle cb = uiFont.getStringBoundingBox("Cancel", 0, 0);
+		uiFont.drawString("Cancel", saveBrowserConfirmCancelButton.getCenter().x - cb.getWidth() / 2, saveBrowserConfirmCancelButton.getCenter().y + cb.getHeight() / 2);
+	}
 }
 //--------------------------------------------------------------
 void ofApp::applySettings() {
@@ -2894,9 +3173,12 @@ void ofApp::drawPauseMenu() {
 	float btnHeight = 70;
 	float centerX = ofGetWidth() / 2.0f;
 	float centerY = ofGetHeight() / 2.0f;
-	pauseMenuResumeButton.set(centerX - btnWidth / 2, centerY - btnHeight * 1.5 - 20, btnWidth, btnHeight);
-	pauseMenuSettingsButton.set(centerX - btnWidth / 2, centerY - btnHeight / 2, btnWidth, btnHeight);
-	pauseMenuQuitButton.set(centerX - btnWidth / 2, centerY + btnHeight / 2 + 20, btnWidth, btnHeight);
+	// Layout: Resume, Save, Load, Settings, Quit
+	pauseMenuResumeButton.set(centerX - btnWidth / 2, centerY - btnHeight * 2.5 - 28, btnWidth, btnHeight);
+	pauseMenuSaveButton.set(centerX - btnWidth / 2, centerY - btnHeight * 1.5 - 20, btnWidth, btnHeight);
+	pauseMenuLoadButton.set(centerX - btnWidth / 2, centerY - btnHeight / 2 - 6, btnWidth, btnHeight);
+	pauseMenuSettingsButton.set(centerX - btnWidth / 2, centerY + btnHeight / 2 + 8, btnWidth, btnHeight);
+	pauseMenuQuitButton.set(centerX - btnWidth / 2, centerY + btnHeight * 1.5 + 36, btnWidth, btnHeight);
 
 	// --- Draw Buttons ---
 	auto drawButton = [&](const ofRectangle & rect, const string & text, bool isHovered) {
@@ -2915,8 +3197,17 @@ void ofApp::drawPauseMenu() {
 	};
 
 	drawButton(pauseMenuResumeButton, "Resume", pauseMenuHoveredIndex == 0);
-	drawButton(pauseMenuSettingsButton, "Settings", pauseMenuHoveredIndex == 1);
-	drawButton(pauseMenuQuitButton, "Quit to Main Menu", pauseMenuHoveredIndex == 2);
+	// Only show Save/Load in singleplayer
+	if (!isMultiplayer) {
+		drawButton(pauseMenuSaveButton, "Save", pauseMenuHoveredIndex == 1);
+		drawButton(pauseMenuLoadButton, "Load", pauseMenuHoveredIndex == 2);
+		drawButton(pauseMenuSettingsButton, "Settings", pauseMenuHoveredIndex == 3);
+		drawButton(pauseMenuQuitButton, "Quit to Main Menu", pauseMenuHoveredIndex == 4);
+	} else {
+		// shift indices when multiplayer (no save/load)
+		drawButton(pauseMenuSettingsButton, "Settings", pauseMenuHoveredIndex == 1);
+		drawButton(pauseMenuQuitButton, "Quit to Main Menu", pauseMenuHoveredIndex == 2);
+	}
 }
 // Recalculate ui
 void ofApp::recalculateUI(int w, int h) {
@@ -10227,42 +10518,9 @@ void ofApp::drawGame() {
 		ofPopMatrix();
 	}
 
-	// --- Save / Load Buttons (small, to the right of End Turn) ---
-	// Hidden during active gameplay; visible in other states (pause/menu overlays)
-	if (currentState != STATE_GAMEPLAY) {
-		float smallW = 90 * scale;
-		float smallH = 28 * scale;
-		float gap = 12 * scale;
-		float left = endTurnButtonRect.getRight() + gap;
-		float top = endTurnButtonRect.getCenter().y - smallH - (gap / 2.0f);
-		saveGameButtonRect.set(left, top, smallW, smallH);
-		loadGameButtonRect.set(left, endTurnButtonRect.getCenter().y + (gap / 2.0f), smallW, smallH);
-
-		// Draw Save button
-		ofSetColor(isHoveringEndTurn ? ofColor(80, 140, 80) : ofColor(70, 130, 70));
-		ofDrawRectRounded(saveGameButtonRect, 6 * scale);
-		ofSetColor(ofColor::white);
-		float fs = fontScale * 0.6f;
-		ofPushMatrix();
-		ofTranslate(saveGameButtonRect.getCenter().x, saveGameButtonRect.getCenter().y + (uiFont.getStringBoundingBox("Save", 0, 0).height * fs / 2));
-		ofScale(fs, fs);
-		uiFont.drawString("Save", -uiFont.getStringBoundingBox("Save", 0, 0).width / 2, 0);
-		ofPopMatrix();
-
-		// Draw Load button
-		ofSetColor(isHoveringEndTurn ? ofColor(80, 80, 140) : ofColor(70, 70, 130));
-		ofDrawRectRounded(loadGameButtonRect, 6 * scale);
-		ofSetColor(ofColor::white);
-		ofPushMatrix();
-		ofTranslate(loadGameButtonRect.getCenter().x, loadGameButtonRect.getCenter().y + (uiFont.getStringBoundingBox("Load", 0, 0).height * fs / 2));
-		ofScale(fs, fs);
-		uiFont.drawString("Load", -uiFont.getStringBoundingBox("Load", 0, 0).width / 2, 0);
-		ofPopMatrix();
-	} else {
-		// When hidden, move rects offscreen to avoid accidental hits
-		saveGameButtonRect.set(-1000, -1000, 0, 0);
-		loadGameButtonRect.set(-1000, -1000, 0, 0);
-	}
+	// Disable small HUD Save/Load buttons next to End Turn (moved to pause menu)
+	saveGameButtonRect.set(-1000, -1000, 0, 0);
+	loadGameButtonRect.set(-1000, -1000, 0, 0);
 
 	// --- ASSISTANT AP REROLL BUTTON ---
 	if (players.size() > 0 && currentPlayerIndex != -1) {
@@ -11581,7 +11839,7 @@ void ofApp::mouseMoved(int x, int y) {
 	bool overSettingsButton = false;
 	bool overSingleplayerButton = false;
 	if (currentState == STATE_PAUSED) {
-		overPauseMenuButton = pauseMenuResumeButton.inside(x, y) || pauseMenuSettingsButton.inside(x, y) || pauseMenuQuitButton.inside(x, y);
+		overPauseMenuButton = pauseMenuResumeButton.inside(x, y) || pauseMenuSaveButton.inside(x, y) || pauseMenuLoadButton.inside(x, y) || pauseMenuSettingsButton.inside(x, y) || pauseMenuQuitButton.inside(x, y);
 	}
 	if (currentState == STATE_MAIN_MENU) {
 		overMainMenuButton = mainMenuPlayAIButton.inside(x, y) || mainMenuMultiplayerButton.inside(x, y) || mainMenuSettingsButton.inside(x, y) || mainMenuQuitButton.inside(x, y);
@@ -11591,6 +11849,16 @@ void ofApp::mouseMoved(int x, int y) {
 	}
 	if (currentState == STATE_SETTINGS) {
 		overSettingsButton = settingsBackButton.inside(x, y) || settingsResLeftButton.inside(x, y) || settingsResRightButton.inside(x, y) || settingsFullscreenButton.inside(x, y) || settingsTabVideoRect.inside(x, y) || settingsTabAudioRect.inside(x, y) || settingsTabGameRect.inside(x, y) || settingsTabControlsRect.inside(x, y) || settingsAudioVolumeSlider.inside(x, y) || settingsAudioMasterSlider.inside(x, y) || settingsAudioSfxSlider.inside(x, y);
+	}
+	if (currentState == STATE_SAVE_BROWSER) {
+		saveBrowserHoveredIndex = -1;
+		for (int i = 0; i < (int)saveFileRects.size(); ++i) {
+			if (saveFileRects[i].inside(x, y)) {
+				saveBrowserHoveredIndex = i;
+				break;
+			}
+		}
+		if (saveBrowserBackButton.inside(x, y)) saveBrowserHoveredIndex = -2;
 	}
 	if (endTurnButtonRect.inside(x, y) || overMainMenuButton || overSettingsButton || overPauseMenuButton ||
 		[&]() {
@@ -12217,9 +12485,25 @@ cursor_check_done:;
 	}
 	case STATE_PAUSED: {
 		pauseMenuHoveredIndex = -1;
-		if (pauseMenuResumeButton.inside(x, y)) pauseMenuHoveredIndex = 0;
-		if (pauseMenuSettingsButton.inside(x, y)) pauseMenuHoveredIndex = 1;
-		if (pauseMenuQuitButton.inside(x, y)) pauseMenuHoveredIndex = 2;
+		if (!isMultiplayer) {
+			if (pauseMenuResumeButton.inside(x, y))
+				pauseMenuHoveredIndex = 0;
+			else if (pauseMenuSaveButton.inside(x, y))
+				pauseMenuHoveredIndex = 1;
+			else if (pauseMenuLoadButton.inside(x, y))
+				pauseMenuHoveredIndex = 2;
+			else if (pauseMenuSettingsButton.inside(x, y))
+				pauseMenuHoveredIndex = 3;
+			else if (pauseMenuQuitButton.inside(x, y))
+				pauseMenuHoveredIndex = 4;
+		} else {
+			if (pauseMenuResumeButton.inside(x, y))
+				pauseMenuHoveredIndex = 0;
+			else if (pauseMenuSettingsButton.inside(x, y))
+				pauseMenuHoveredIndex = 1;
+			else if (pauseMenuQuitButton.inside(x, y))
+				pauseMenuHoveredIndex = 2;
+		}
 		break;
 	}
 	case STATE_INITIATIVE_ROLL:
@@ -12658,42 +12942,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 		return;
 	}
 
-	// Handle Save/Load HUD clicks (left mouse) — only when buttons are visible
-	if (button == OF_MOUSE_BUTTON_LEFT && currentState != STATE_GAMEPLAY) {
-		if (saveGameButtonRect.inside(x, y)) {
-			if (isMultiplayer && !isHost()) {
-				addGameLog("Save is host-only in multiplayer.");
-				return;
-			}
-			bool ok = saveGameStateToFile("autosave.json");
-			if (ok) {
-				addGameLog("Game saved to autosave.json");
-				// If host in multiplayer, broadcast snapshot to clients as authoritative state
-				if (isMultiplayer && isHost()) sendSnapshotToClient();
-			} else {
-				addGameLog("Failed to save game state.");
-			}
-			return;
-		}
-		if (loadGameButtonRect.inside(x, y)) {
-			if (isMultiplayer && !isHost()) {
-				addGameLog("Load is host-only in multiplayer.");
-				return;
-			}
-			bool ok = loadGameStateFromFile("autosave.json");
-			if (ok) {
-				addGameLog("Loaded autosave.json");
-				// Host should broadcast state so clients can resume
-				if (isMultiplayer && isHost()) {
-					sendSnapshotToClient();
-					addGameLog("Broadcasted snapshot to clients.");
-				}
-			} else {
-				addGameLog("Failed to load autosave.json");
-			}
-			return;
-		}
-	}
+	// Save/Load HUD removed; pause menu now provides Save/Load
 
 	// Allow pile view interactions even during draft
 	if (isShowingPileView && button == OF_MOUSE_BUTTON_LEFT && pileViewRect.inside(x, y)) {
@@ -13159,6 +13408,26 @@ void ofApp::mousePressed(int x, int y, int button) {
 				currentState = pausedFromState;
 				return;
 			}
+			if (!isMultiplayer && pauseMenuSaveButton.inside(x, y)) {
+				bool ok = saveGameStateToFile("autosave.json");
+				if (ok) {
+					// also write a turn-stamped copy
+					std::string stamped = "autosave_turn_" + std::to_string(globalTurnCounter) + ".json";
+					saveGameStateToFile(stamped);
+					// prune old stamped saves
+					pruneOldSaves(5);
+					addGameLog("Game saved to autosave.json");
+					if (isMultiplayer && isHost()) sendSnapshotToClient();
+				} else {
+					addGameLog("Failed to save game state.");
+				}
+				return;
+			}
+			if (!isMultiplayer && pauseMenuLoadButton.inside(x, y)) {
+				// Open Save Browser menu
+				currentState = STATE_SAVE_BROWSER;
+				return;
+			}
 			if (pauseMenuSettingsButton.inside(x, y)) {
 				stateBeforeSettings = STATE_PAUSED;
 				currentState = STATE_SETTINGS;
@@ -13173,6 +13442,60 @@ void ofApp::mousePressed(int x, int y, int button) {
 			}
 		}
 		// For other buttons or mouse buttons, swallow the click so gameplay handlers don't run
+		return;
+	}
+
+	// Save Browser: list of saves to load
+	if (currentState == STATE_SAVE_BROWSER) {
+		if (button == OF_MOUSE_BUTTON_LEFT) {
+			// Back
+			if (saveBrowserBackButton.inside(x, y)) {
+				currentState = STATE_PAUSED;
+				return;
+			}
+
+			// If confirmation visible, handle confirm/cancel
+			if (saveBrowserConfirmVisible) {
+				if (saveBrowserConfirmLoadButton.inside(x, y)) {
+					int i = saveBrowserPendingIndex;
+					if (i >= 0 && i < (int)saveFilePaths.size()) {
+						std::string path = saveFilePaths[i];
+						if (isMultiplayer && !isHost()) {
+							addGameLog("Load is host-only in multiplayer.");
+							// dismiss confirm
+							saveBrowserConfirmVisible = false;
+							saveBrowserPendingIndex = -1;
+							return;
+						}
+						bool ok = loadGameStateFromFile(path);
+						if (ok) {
+							addGameLog("Loaded " + path);
+							if (isMultiplayer && isHost()) sendSnapshotToClient();
+							currentState = STATE_GAMEPLAY;
+						} else {
+							addGameLog("Failed to load " + path);
+						}
+					}
+					saveBrowserConfirmVisible = false;
+					saveBrowserPendingIndex = -1;
+					return;
+				}
+				if (saveBrowserConfirmCancelButton.inside(x, y)) {
+					saveBrowserConfirmVisible = false;
+					saveBrowserPendingIndex = -1;
+					return;
+				}
+			}
+			// Files
+			for (int i = 0; i < (int)saveFileRects.size(); ++i) {
+				if (saveFileRects[i].inside(x, y)) {
+					// Start confirmation flow instead of immediate load
+					saveBrowserPendingIndex = i;
+					saveBrowserConfirmVisible = true;
+					return;
+				}
+			}
+		}
 		return;
 	}
 
