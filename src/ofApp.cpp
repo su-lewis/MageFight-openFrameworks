@@ -2230,6 +2230,17 @@ void ofApp::update() {
 				currentPileViewPlayerIndex = hoveredPilePlayerIndex;
 			}
 		}
+
+		// Auto-accept draft if timer locked it (timer expired and auto-picked cards)
+		if (draftAcceptLocked && (int)selectedDraftIndices.size() > 0) {
+			int requiredPicks = (!isInGameDraft && draftStage == 0) ? 2 : 1;
+			if ((int)selectedDraftIndices.size() >= requiredPicks) {
+				// Trigger the accept logic by simulating a button click at the center of the accept button
+				ofLogNotice("Timer") << "Auto-accepting draft picks due to timer expiration.";
+				mousePressed(draftAcceptButtonRect.getCenter().x, draftAcceptButtonRect.getCenter().y, OF_MOUSE_BUTTON_LEFT);
+				draftAcceptLocked = false; // Reset for next draft phase if needed
+			}
+		}
 		break;
 
 	case STATE_GAMEPLAY:
@@ -7690,12 +7701,50 @@ void ofApp::updateGame() {
 	}
 
 	// --- TURN TIMER CHECK ---
-	if (turnTimerEnabled && currentState == STATE_GAMEPLAY && currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size() && isMyTurn()) {
+	if (turnTimerEnabled && (currentState == STATE_GAMEPLAY || currentState == STATE_DRAFTING) && currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size() && (!isMultiplayer || isMyTurn())) {
 		float elapsedSeconds = ofGetElapsedTimef() - turnStartTime;
 		if (elapsedSeconds >= turnDurationSeconds) {
-			// Turn has expired - auto-end turn
-			ofLogNotice("Timer") << "Turn time limit exceeded (" << turnDurationSeconds << "s). Auto-ending turn.";
-			startNewTurn();
+			if (currentState == STATE_DRAFTING) {
+				// Timer expired during drafting: auto-pick remaining cards or accept selected ones
+				int requiredPicks = (!isInGameDraft && draftStage == 0) ? 2 : 1;
+
+				// If player has made some selections, auto-accept them
+				if ((int)selectedDraftIndices.size() > 0) {
+					ofLogNotice("Timer") << "Draft timer expired with " << selectedDraftIndices.size() << " cards selected. Auto-accepting.";
+					draftAcceptLocked = true; // Prevent double-accept
+					// Cards will be added to hand in the normal accept flow
+				} else if ((int)selectedDraftIndices.size() < requiredPicks) {
+					// No selections made: randomly pick remaining cards using gameplayRNG
+					const std::vector<Card> * pool = &class1Cards;
+					if (currentDraftClassTier == 2) pool = &class2Cards;
+					if (currentDraftClassTier == 3) pool = &class3Cards;
+
+					int numNeedToPick = requiredPicks - (int)selectedDraftIndices.size();
+					for (int i = 0; i < numNeedToPick; ++i) {
+						if (currentDraftOptionPoolIndices.empty()) break;
+						int randomIdx = getGameRandom(0, (int)currentDraftOptionPoolIndices.size() - 1);
+						int poolIdx = currentDraftOptionPoolIndices[randomIdx];
+
+						// Add to selections (avoid duplicates)
+						bool alreadySelected = false;
+						for (int sel : selectedDraftIndices) {
+							if (sel == poolIdx) {
+								alreadySelected = true;
+								break;
+							}
+						}
+						if (!alreadySelected) {
+							selectedDraftIndices.push_back(poolIdx);
+						}
+					}
+					ofLogNotice("Timer") << "Draft timer expired with no selections. Randomly picked " << numNeedToPick << " cards.";
+					draftAcceptLocked = true;
+				}
+			} else {
+				// Timer expired during gameplay: end turn normally
+				ofLogNotice("Timer") << "Turn time limit exceeded (" << turnDurationSeconds << "s). Auto-ending turn.";
+				startNewTurn();
+			}
 		}
 	}
 
@@ -9829,7 +9878,7 @@ void ofApp::drawGame() {
 	(void)fontScale;
 
 	// --- DRAW TURN TIMER BAR AT TOP OF SCREEN ---
-	if (turnTimerEnabled && currentState == STATE_GAMEPLAY && currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) {
+	if (turnTimerEnabled && (currentState == STATE_GAMEPLAY || currentState == STATE_DRAFTING) && currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) {
 		float elapsedSeconds = ofGetElapsedTimef() - turnStartTime;
 		float progress = std::min(1.0f, elapsedSeconds / turnDurationSeconds); // 0 to 1
 
@@ -14182,24 +14231,13 @@ void ofApp::mousePressed(int x, int y, int button) {
 	// --- 1b. Dispel Menu ---
 	if (isDispelMenuOpen && button == OF_MOUSE_BUTTON_LEFT) {
 		if (dispelBtnBarrier.inside(x, y)) {
-			Player & p = players[currentPlayerIndex];
-			Card dispelCard = p.hand[pendingDispelCardIndex];
-			// Resolve locally first so UI reflects changes immediately
-			isWaitingForBarrierDice = true;
-			pendingDispelRollResult = startDiceRoll(1, 20, PURPOSE_BARRIER_GAIN, "Dispel: Barrier Amount", currentPlayerIndex);
-			currentAP -= dispelCard.cost;
-			p.discardPile.push_back(dispelCard);
-			p.hand.erase(p.hand.begin() + pendingDispelCardIndex);
-			updatePlayerAP(players[currentPlayerIndex], currentAP);
-			ofLogNotice("Dispel") << "Rolling for Non-Physical Barrier...";
-
-			// Notify opponent of the action in multiplayer (include card name)
-			if (isMultiplayer) {
-				sendActionPacket(pendingDispelCardIndex, -1, -1, dispelCard.cost, 1, dispelCard.name);
-			}
-
-			cancelDispel();
+			// Barrier can be applied to self or adjacent unit - open targeting mode
+			dispelMode = 1; // Barrier mode
+			isDispelMenuOpen = false;
+			isDispelTargeting = true;
 		} else if (dispelBtnPurge.inside(x, y)) {
+			// Purge removes status effects - also requires targeting
+			dispelMode = 2; // Purge mode
 			isDispelMenuOpen = false;
 			isDispelTargeting = true;
 		} else if (!dispelMenuRect.inside(x, y)) {
@@ -14236,7 +14274,29 @@ void ofApp::mousePressed(int x, int y, int button) {
 					Player & curr = players[currentPlayerIndex];
 					if (abs(curr.x - gx) + abs(curr.y - gy) <= 1) {
 						pendingDispelTargetIndex = (int)i;
-						determineStatusOptions(&players[i]);
+
+						// Handle based on dispel mode
+						if (dispelMode == 1) {
+							// Barrier mode: apply D20 roll to target or self
+							Player & p = players[currentPlayerIndex];
+							Card dispelCard = p.hand[pendingDispelCardIndex];
+							isWaitingForBarrierDice = true;
+							pendingDispelRollResult = startDiceRoll(1, 20, PURPOSE_BARRIER_GAIN, "Dispel: Barrier Amount", currentPlayerIndex);
+							currentAP -= dispelCard.cost;
+							p.discardPile.push_back(dispelCard);
+							p.hand.erase(p.hand.begin() + pendingDispelCardIndex);
+							updatePlayerAP(players[currentPlayerIndex], currentAP);
+							ofLogNotice("Dispel") << "Rolling for Non-Physical Barrier on target...";
+
+							if (isMultiplayer) {
+								sendActionPacket(pendingDispelCardIndex, (int)i, -1, dispelCard.cost, 1, dispelCard.name);
+							}
+
+							cancelDispel();
+						} else if (dispelMode == 2) {
+							// Purge mode: open status selection menu
+							determineStatusOptions(&players[i]);
+						}
 						foundTarget = true;
 					}
 					break;
@@ -24030,6 +24090,7 @@ void ofApp::cancelDispel() {
 	isDispelStatusSelectOpen = false;
 	pendingDispelCardIndex = -1;
 	pendingDispelTargetIndex = -1;
+	dispelMode = 0;
 	ofLogNotice("Dispel") << "Cancelled.";
 }
 

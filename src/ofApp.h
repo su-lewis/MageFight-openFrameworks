@@ -1503,6 +1503,7 @@ private:
 	int pendingDispelTargetIndex = -1;
 	int pendingDispelRollResult = 0;
 	bool isWaitingForBarrierDice = false;
+	int dispelMode = 0; // 0 = none, 1 = barrier, 2 = purge
 	ofRectangle dispelMenuRect;
 	ofRectangle dispelBtnBarrier;
 	ofRectangle dispelBtnPurge;
