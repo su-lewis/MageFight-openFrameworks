@@ -215,6 +215,7 @@ void ofApp::drawMinionCard(int minionIndex, int ownerIndex) {
 	if (minion.nextTurnExtraDraw) {
 		drawCount++;
 		minion.nextTurnExtraDraw = false;
+		minion.nextTurnExtraDrawSetOnCycle = -1;
 	}
 
 	// In multiplayer, the minion's owner should send the packet so the host/opponent
@@ -2786,6 +2787,19 @@ void ofApp::initialiseGameStateCommon() {
 	waitingForDraftOptions = false;
 	hasDrawnCardsThisTurn = false;
 	opponentHasDrawnCardsThisTurn = false;
+
+	// Clear expired Study buffs: if a player didn't draw on their turn after Study was used, remove it
+	for (auto & p : players) {
+		if (p.nextTurnExtraDraw && p.nextTurnExtraDrawSetOnCycle >= 0) {
+			// If this is a new turn (globalTurnCounter) after the one where Study was used, and they haven't drawn, clear it
+			if (globalTurnCounter > p.nextTurnExtraDrawSetOnCycle + 1) {
+				p.nextTurnExtraDraw = false;
+				p.nextTurnExtraDrawSetOnCycle = -1;
+				ofLogNotice("Study") << "Expired unused Study buff for player " << p.playerID;
+			}
+		}
+	}
+
 	draftStage = 0;
 	draftGenerationCounter = 0; // <--- FIX: reset draft generation counter
 	// ------------------------------------------------------------------
@@ -11071,6 +11085,31 @@ void ofApp::drawGame() {
 		drawInstructionText(msg);
 	}
 
+	// --- HEAL / LESSER HEAL TARGETING INSTRUCTION ---
+	if (isTargetingHeal) {
+		string msg = "Heal: Choose target";
+		if (currentPlayerIndex >= 0 && healCardIndex >= 0 && healCardIndex < (int)players[currentPlayerIndex].hand.size()) {
+			Card & c = players[currentPlayerIndex].hand[healCardIndex];
+			msg = c.name + ": Choose target";
+		}
+		drawInstructionText(msg);
+	}
+
+	// --- DEATH TARGETING INSTRUCTION ---
+	if (isTargetingDeath) {
+		drawInstructionText("Death: Choose target");
+	}
+
+	// --- CHAIN LIGHTNING TARGETING INSTRUCTION ---
+	if (isTargetingChainLightning) {
+		drawInstructionText("Chain Lightning: Choose initial target");
+	}
+
+	// --- HELLHOUND TARGETING / SUMMON ---
+	if (isTargetingHellhound) {
+		drawInstructionText("Summon Hellhound: Choose spawn tile");
+	}
+
 	// --- GENERIC CARD TARGETING INSTRUCTION ---
 	// For all other cards using the generic targeting system (selectedCardIndex)
 	// Only exclude cards that need custom formatting (Teleport shows range, Burst/Double Handed show choices, Amnesia has menu)
@@ -12510,12 +12549,12 @@ void ofApp::mousePressed(int x, int y, int button) {
 				steamManager.sendPacket(&acceptPkt, sizeof(acceptPkt));
 			}
 
-			shuffleGameVector(p.deck, draftPlayerIndex);
-			// Trigger visual shuffle for this player's deck
-			// If drafting actor is a minion, create minion-specific shuffle visual
-			bool targetIsMinion = (draftPlayerIndex >= 0 && draftPlayerIndex < (int)players.size() && players[draftPlayerIndex].isMinion);
 			// Card animation: draftAnimHoldDuration (hold) + 0.35f (fly duration)
 			float cardAnimDuration = draftAnimHoldDuration + 0.35f;
+			// Shuffle deck (delay visual until card animation completes)
+			shuffleGameVector(p.deck, draftPlayerIndex, cardAnimDuration);
+			// If drafting actor is a minion, create minion-specific shuffle visual
+			bool targetIsMinion = (draftPlayerIndex >= 0 && draftPlayerIndex < (int)players.size() && players[draftPlayerIndex].isMinion);
 			if (targetIsMinion) {
 				ShuffleAnimation s;
 				s.playerIndex = draftPlayerIndex;
@@ -12540,8 +12579,6 @@ void ofApp::mousePressed(int x, int y, int button) {
 				s.currentScale = 1.0f;
 				s.rotation = 0.0f;
 				activeShuffleAnimations.push_back(s);
-			} else {
-				startShuffleVisual(draftPlayerIndex, cardAnimDuration);
 			}
 
 			selectedDraftIndices.clear();
@@ -12665,12 +12702,9 @@ void ofApp::mousePressed(int x, int y, int button) {
 		// Reference drafting player
 		Player & p = players[draftPlayerIndex];
 
-		// Shuffle deck
-		shuffleGameVector(p.deck, draftPlayerIndex);
-		// Trigger visual shuffle for this player's deck (in-game draft)
-		// Delay shuffle animation to match card animation duration
+		// Shuffle deck (delay visual to match card animation duration)
 		float cardAnimDuration = draftAnimHoldDuration + 0.35f;
-		startShuffleVisual(draftPlayerIndex, cardAnimDuration);
+		shuffleGameVector(p.deck, draftPlayerIndex, cardAnimDuration);
 		if (!pendingDraftQueue.empty()) {
 			// Pop next and stay in drafting
 			int nextClass = pendingDraftQueue.front();
@@ -13404,18 +13438,14 @@ void ofApp::mousePressed(int x, int y, int button) {
 	if (isBurstMenuOpen && button == OF_MOUSE_BUTTON_LEFT) {
 
 		// Recalculate validity to prevent clicking the gray button
-		bool hasValidEnemy = false;
+		// We consider any valid unit (ally or enemy) as a valid target for Burst
+		bool hasValidTarget = false;
 		Player & caster = players[currentPlayerIndex];
 		glm::vec2 casterPos(caster.x, caster.y);
-		int casterOwner = caster.isMinion ? caster.ownerID : caster.playerID;
-
 		for (const auto & p : players) {
-			int pOwner = p.isMinion ? p.ownerID : p.playerID;
-			if (pOwner == casterOwner) continue; // Skip allies
 			TargetInfo info = isLosTargetValid(casterPos, glm::vec2(p.x, p.y), 9999.0f, CARD_BURST_OF_LIGHT);
-			if (info.reason == VALID) {
-				hasValidEnemy = true;
-				(void)hasValidEnemy; // set but not used
+			if (info.reason == VALID || info.reason == INVALID_SELF) {
+				hasValidTarget = true;
 				break;
 			}
 		}
@@ -13521,11 +13551,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 					(void)targetOwner; // unused
 
 					// --- BURST TARGET VALIDATION & EFFECTS ---
-					if (burstChoice == 0) { // DAMAGE: allow any unit except self
-						if (target->playerID == caster.playerID) {
-							spawnFloatingText(gridToWorld(target->x, target->y), "Cannot target self", ofColor::red);
-							return; // Don't cancel, let them pick again
-						}
+					if (burstChoice == 0) { // DAMAGE: allow damaging any unit (including allies/self)
 						applyDamageTo(*target, 3, DAMAGE_HOLY, currentPlayerIndex);
 					} else { // HEAL: allow healing any unit (including self)
 						int healAmt = 3;
@@ -14973,6 +14999,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 				}
 
 				localPlayer->nextTurnExtraDraw = false;
+				localPlayer->nextTurnExtraDrawSetOnCycle = -1;
 				// Mark drawn flag depending on whether the active player is local or opponent
 				if (activePlayer.playerID == myLocalPlayerID) {
 					hasDrawnCardsThisTurn = true;
@@ -16231,6 +16258,7 @@ void ofApp::keyPressed(int key) {
 		}
 
 		localPlayer->nextTurnExtraDraw = false;
+		localPlayer->nextTurnExtraDrawSetOnCycle = -1;
 		if (activeActorBelongsToLocal) {
 			hasDrawnCardsThisTurn = true;
 			players[currentPlayerIndex].hasDrawnThisTurn = true;
@@ -16650,8 +16678,8 @@ void ofApp::startNewTurn() {
 				// Reshuffle discard into deck if needed
 				if (localPlayer.deck.empty() && !localPlayer.discardPile.empty()) {
 					localPlayer.deck = localPlayer.discardPile;
-					// Spawn shuffle animation for local player's deck
-					{
+					// Spawn a client-local shuffle animation only on clients (host will start via shuffleGameVector)
+					if (isClient()) {
 						ShuffleAnimation s;
 						s.playerIndex = localPlayer.playerID;
 						s.deckRect = (localPlayer.playerID == 0) ? p0_deckRect : p1_deckRect;
@@ -16754,8 +16782,8 @@ void ofApp::startNewTurn() {
 				ofLogNotice("Deck") << "  Discard before reshuffle: " << before;
 			}
 			endingPlayer.deck = endingPlayer.discardPile;
-			// Spawn shuffle animation for ending player's deck
-			{
+			// Spawn a client-local shuffle animation only on clients (host will start via shuffleGameVector)
+			if (isClient()) {
 				ShuffleAnimation s;
 				s.playerIndex = endingPlayer.playerID;
 				s.deckRect = (endingPlayer.playerID == 0) ? p0_deckRect : p1_deckRect;
@@ -17256,20 +17284,11 @@ void ofApp::drawCard(bool sendPacket) {
 		// Move Discard -> Deck
 		currentPlayer.deck = currentPlayer.discardPile;
 
-		// Spawn shuffle animation for this player's deck
-		{
-			ShuffleAnimation s;
-			s.playerIndex = currentPlayer.playerID;
-			s.deckRect = (currentPlayer.playerID == 0) ? p0_deckRect : p1_deckRect;
-			s.startTime = ofGetElapsedTimef();
-			s.duration = 0.9f;
-			activeShuffleAnimations.push_back(s);
-		}
-
 		// Clear Discard (This causes the discard pile visual to disappear, which is correct)
 		currentPlayer.discardPile.clear();
 
 		// Shuffle the new Deck (authoritative via host in multiplayer)
+		// Note: shuffleGameVector handles the visual animation
 		shuffleGameVector(currentPlayer.deck, currentPlayerIndex);
 	}
 
@@ -17586,9 +17605,9 @@ CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 	// --- CASE: STUDY ---
 	case CARD_STUDY: {
 		// 1. Apply "Draw Extra Card Next Turn"
-		// Note: We need to ensure this stacks or handles existing flags.
-		// For now, setting it to true works.
+		// Track the current cycle so we can expire it if not used
 		currentPlayer.nextTurnExtraDraw = true;
+		currentPlayer.nextTurnExtraDrawSetOnCycle = globalTurnCounter;
 		spawnFloatingText(gridToWorld(currentPlayer.x, currentPlayer.y), "Studying...", ofColor::blue);
 
 		// 2. Trigger Draft (Class 2)
@@ -19033,16 +19052,8 @@ CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		} else if (!currentPlayer.discardPile.empty()) {
 			// Reshuffle discard into deck first
 			currentPlayer.deck = currentPlayer.discardPile;
-			// Spawn shuffle animation for this player's deck
-			{
-				ShuffleAnimation s;
-				s.playerIndex = currentPlayer.playerID;
-				s.deckRect = (currentPlayer.playerID == 0) ? p0_deckRect : p1_deckRect;
-				s.startTime = ofGetElapsedTimef();
-				s.duration = 0.9f;
-				activeShuffleAnimations.push_back(s);
-			}
 			currentPlayer.discardPile.clear();
+			// shuffleGameVector handles the visual animation
 			shuffleGameVector(currentPlayer.deck, currentPlayerIndex);
 			Card drawnCard = currentPlayer.deck.back();
 			currentPlayer.deck.pop_back();
@@ -20427,19 +20438,10 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 		// 2) For unit tiles, apply green targetable outlines based on burstChoice
 		for (const auto & p : players) {
 			TargetInfo info = isLosTargetValid(casterPos, glm::vec2(p.x, p.y), 9999.0f, CARD_BURST_OF_LIGHT);
-			int pOwner = p.isMinion ? p.ownerID : p.playerID;
-			int casterOwner = caster.isMinion ? caster.ownerID : caster.playerID;
-
-			if (burstChoice == 0) { // DAMAGE -> enemies only
-				if (info.reason == VALID && pOwner != casterOwner) {
-					board[p.x][p.y].isTargetable = true; // green outline
-					board[p.x][p.y].isTargetPreview = true;
-				}
-			} else { // HEAL -> allies including self
-				if ((p.x == caster.x && p.y == caster.y) || (info.reason == VALID && pOwner == casterOwner)) {
-					board[p.x][p.y].isTargetable = true; // green outline
-					board[p.x][p.y].isTargetPreview = true;
-				}
+			// Allow both DAMAGE and HEAL choices to target any valid unit (including allies and minions)
+			if (info.reason == VALID || info.reason == INVALID_SELF) {
+				board[p.x][p.y].isTargetable = true; // green outline
+				board[p.x][p.y].isTargetPreview = true;
 			}
 		}
 
@@ -22675,13 +22677,9 @@ void ofApp::cancelDispel() {
 
 //--------------------------------------------------------------
 void ofApp::drawDispelUI() {
-	ofEnableBlendMode(OF_BLENDMODE_ALPHA);
-
 	// --- PHASE 1: INITIAL CHOICE ---
 	if (isDispelMenuOpen) {
-		// 1. Dark Overlay
-		ofSetColor(0, 0, 0, 180);
-		ofDrawRectangle(0, 0, ofGetWidth(), ofGetHeight());
+		drawMenuOverlay();
 
 		// Use standardized panel helper (Barrier = hotPink, Purge = cyan)
 		drawCardChoicePanel(dispelMenuRect, "Choose Dispel Effect", "(1d20 vs Magic/Fire)",
@@ -22732,7 +22730,7 @@ void ofApp::drawDispelUI() {
 	}
 }
 //--------------------------------------------------------------
-void ofApp::drawInstructionText(const string& message, ofColor color) {
+void ofApp::drawInstructionText(const string & message, ofColor color) {
 	ofRectangle bbox = titleFont.getStringBoundingBox(message, 0, 0);
 	float tx = (ofGetWidth() / 2.0f) - (bbox.width / 2.0f);
 	float ty = ofGetHeight() * 0.25f;
@@ -22740,28 +22738,33 @@ void ofApp::drawInstructionText(const string& message, ofColor color) {
 	// Draw shadow
 	ofSetColor(0, 0, 0, 255);
 	titleFont.drawString(message, tx + 2, ty + 2);
-	
+
 	// Draw main text
 	ofSetColor(color);
 	titleFont.drawString(message, tx, ty);
 }
 //--------------------------------------------------------------
-void ofApp::drawDoubleHandedUI() {
+void ofApp::drawMenuOverlay() {
 	ofEnableBlendMode(OF_BLENDMODE_ALPHA);
-
-	// Dark Overlay
 	ofSetColor(0, 0, 0, 180);
 	ofDrawRectangle(0, 0, ofGetWidth(), ofGetHeight());
-
-	// Background
+}
+//--------------------------------------------------------------
+void ofApp::drawMenuBackground(const ofRectangle & menuRect, float cornerRadius) {
 	ofSetColor(50, 50, 50, 255);
-	ofDrawRectRounded(doubleHandedMenuRect, 15);
-
-	// Title
+	ofDrawRectRounded(menuRect, cornerRadius);
+}
+//--------------------------------------------------------------
+void ofApp::drawMenuTitle(const string & title, const ofRectangle & menuRect, float yOffset) {
 	ofSetColor(ofColor::white);
-	string title = "Double Handed: Choose Cards";
 	ofRectangle titleBox = uiFont.getStringBoundingBox(title, 0, 0);
-	uiFont.drawString(title, doubleHandedMenuRect.getCenter().x - titleBox.width / 2, doubleHandedMenuRect.y + 60);
+	uiFont.drawString(title, menuRect.getCenter().x - titleBox.width / 2, menuRect.y + yOffset);
+}
+//--------------------------------------------------------------
+void ofApp::drawDoubleHandedUI() {
+	drawMenuOverlay();
+	drawMenuBackground(doubleHandedMenuRect);
+	drawMenuTitle("Double Handed: Choose Cards", doubleHandedMenuRect);
 
 	// Punch Button
 	ofSetColor(ofColor::indianRed);
@@ -22777,21 +22780,9 @@ void ofApp::drawDoubleHandedUI() {
 }
 //--------------------------------------------------------------
 void ofApp::drawAmnesiaMenuUI() {
-	ofEnableBlendMode(OF_BLENDMODE_ALPHA);
-
-	// Dark Overlay
-	ofSetColor(0, 0, 0, 180);
-	ofDrawRectangle(0, 0, ofGetWidth(), ofGetHeight());
-
-	// Background
-	ofSetColor(50, 50, 50, 255);
-	ofDrawRectRounded(amnesiaMenuRect, 15);
-
-	// Title
-	ofSetColor(ofColor::white);
-	string title = "Amnesia: Choose Target";
-	ofRectangle titleBox = uiFont.getStringBoundingBox(title, 0, 0);
-	uiFont.drawString(title, amnesiaMenuRect.getCenter().x - titleBox.width / 2, amnesiaMenuRect.y + 60);
+	drawMenuOverlay();
+	drawMenuBackground(amnesiaMenuRect);
+	drawMenuTitle("Amnesia: Choose Target", amnesiaMenuRect);
 
 	// Self Button
 	ofSetColor(ofColor::magenta);
@@ -22811,20 +22802,9 @@ void ofApp::drawAmnesiaMenuUI() {
 }
 //--------------------------------------------------------------
 void ofApp::drawMagicHandUI() {
-	ofEnableBlendMode(OF_BLENDMODE_ALPHA);
-	// 1. Dark Overlay
-	ofSetColor(0, 0, 0, 180);
-	ofDrawRectangle(0, 0, ofGetWidth(), ofGetHeight());
-
-	// 2. Menu Background (Matching Wisdom Boon theme)
-	ofSetColor(40, 40, 80, 255);
-	ofDrawRectRounded(wisdomMenuRect, 15);
-
-	// 3. Title
-	ofSetColor(ofColor::white);
-	string title = "Giant Magic Hand";
-	ofRectangle titleBox = uiFont.getStringBoundingBox(title, 0, 0);
-	uiFont.drawString(title, wisdomMenuRect.getCenter().x - titleBox.width / 2, wisdomMenuRect.y + 50);
+	drawMenuOverlay();
+	drawMenuBackground(ofRectangle(wisdomMenuRect.x, wisdomMenuRect.y, wisdomMenuRect.width, wisdomMenuRect.height), 15);
+	drawMenuTitle("Giant Magic Hand", wisdomMenuRect, 50);
 
 	// Calculate Buttons
 	float btnW = 200, btnH = 80;
@@ -22864,11 +22844,7 @@ void ofApp::drawMagicHandUI() {
 }
 //--------------------------------------------------------------
 void ofApp::drawCardSpawnerUI() {
-	ofEnableBlendMode(OF_BLENDMODE_ALPHA);
-
-	// Semi-transparent dark overlay
-	ofSetColor(0, 0, 0, 150);
-	ofDrawRectangle(0, 0, ofGetWidth(), ofGetHeight());
+	drawMenuOverlay();
 
 	// KRunner-style bar - centered horizontally, near top
 	float barWidth = 600.0f;
@@ -22997,11 +22973,7 @@ void ofApp::drawCardSpawnerUI() {
 
 //--------------------------------------------------------------
 void ofApp::drawCardEncyclopediaUI() {
-	ofEnableBlendMode(OF_BLENDMODE_ALPHA);
-
-	// Full overlay
-	ofSetColor(0, 0, 0, 200);
-	ofDrawRectangle(0, 0, ofGetWidth(), ofGetHeight());
+	drawMenuOverlay();
 
 	// Encyclopedia panel
 	float panelWidth = ofGetWidth() * 0.85f;
@@ -23405,11 +23377,7 @@ void ofApp::cancelBurst() {
 }
 //--------------------------------------------------------------
 void ofApp::drawWisdomBoonUI() {
-	ofEnableBlendMode(OF_BLENDMODE_ALPHA);
-
-	// 1. Dark Overlay
-	ofSetColor(0, 0, 0, 180);
-	ofDrawRectangle(0, 0, ofGetWidth(), ofGetHeight());
+	drawMenuOverlay();
 
 	// 2. Menu Background
 
@@ -23434,9 +23402,7 @@ void ofApp::drawWisdomBoonUI() {
 }
 //--------------------------------------------------------------
 void ofApp::drawBurstUI() {
-	ofEnableBlendMode(OF_BLENDMODE_ALPHA);
-	ofSetColor(0, 0, 0, 180);
-	ofDrawRectangle(0, 0, ofGetWidth(), ofGetHeight());
+	drawMenuOverlay();
 
 	string title = "Burst of Light";
 	string desc = "Choose an effect:";
@@ -23869,9 +23835,7 @@ void ofApp::drawMagicBlastChoiceUI() {
 	}
 
 	// Draw a semi-transparent overlay to focus the player
-	ofEnableBlendMode(OF_BLENDMODE_ALPHA);
-	ofSetColor(0, 0, 0, 180);
-	ofDrawRectangle(0, 0, ofGetWidth(), ofGetHeight());
+	drawMenuOverlay();
 
 	// Panel properties
 	float panelWidth = 800;
@@ -24401,20 +24365,6 @@ void ofApp::debugSkipDraftRandomCards() {
 		}
 
 		shuffleGameVector(targetPlayer.deck, pIdx);
-
-		// Create shuffle animation
-		ShuffleAnimation s;
-		s.playerIndex = pIdx;
-		s.deckRect = (players[pIdx].playerID == 0) ? p0_deckRect : p1_deckRect;
-		s.startTime = ofGetElapsedTimef();
-		s.duration = 0.9f;
-		s.currentAlpha = 255.0f;
-		s.currentScale = 1.0f;
-		s.rotation = 0.0f;
-		activeShuffleAnimations.push_back(s);
-
-		// Trigger visual shuffle
-		startShuffleVisual(pIdx);
 	}
 
 	// Clear draft state
@@ -24451,6 +24401,13 @@ void ofApp::debugSkipDraftRandomCards() {
 
 	// Set state to gameplay
 	currentState = STATE_GAMEPLAY;
+
+	// Ensure visuals and turn-start logic are initialized for the chosen active player
+	if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) {
+		playerVisualPos = gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y);
+		// Run the normal continue-of-turn initialization so AP, draws, and effects are correct
+		continueNewTurn();
+	}
 }
 //--------------------------------------------------------------
 void ofApp::cleanupGame() {
@@ -26184,10 +26141,7 @@ void ofApp::drawPileViewFor(int viewPlayerIndex, PileViewMode viewMode) {
 }
 //--------------------------------------------------------------
 void ofApp::drawTrainMenuUI() {
-	ofEnableBlendMode(OF_BLENDMODE_ALPHA);
-	// Dark Overlay
-	ofSetColor(0, 0, 0, 180);
-	ofDrawRectangle(0, 0, ofGetWidth(), ofGetHeight());
+	drawMenuOverlay();
 
 	// Title & Desc
 	string title = "Train";
@@ -28868,17 +28822,13 @@ void ofApp::executeOpponentCardPlay(const ActionPacket & pkt) {
 		}
 		if (targetIndex >= 0) {
 			Player * target = getPlayer(targetIndex);
-			int casterOwner = opponentPlayer.isMinion ? opponentPlayer.ownerID : opponentPlayer.playerID;
-			int targetOwner = target->isMinion ? target->ownerID : target->playerID;
 			if (pkt.menuChoice == 1) {
-				if (casterOwner != targetOwner) {
-					applyDamageTo(*target, 3, DAMAGE_HOLY, currentPlayerIndex);
-				}
+				// Damage choice: apply to the chosen unit regardless of ownership
+				applyDamageTo(*target, 3, DAMAGE_HOLY, currentPlayerIndex);
 			} else {
-				if (casterOwner == targetOwner) {
-					int healAmt = 3;
-					target->health = std::min(target->maxHealth, target->health + healAmt);
-				}
+				// Heal choice: apply to the chosen unit regardless of ownership
+				int healAmt = 3;
+				target->health = std::min(target->maxHealth, target->health + healAmt);
 			}
 		}
 

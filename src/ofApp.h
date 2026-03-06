@@ -716,7 +716,7 @@ private:
 		}
 	}
 	template <class T>
-	void shuffleGameVector(std::vector<T> & vec, int ownerPlayerIndex = -1) {
+	void shuffleGameVector(std::vector<T> & vec, int ownerPlayerIndex = -1, float visualDelaySeconds = 0.0f) {
 		// If the client was instructed to skip the next local shuffle for this player (e.g., due to a forwarded Accept),
 		// consume the flag and do nothing. This prevents inadvertent consumption of `gameplayRNG`.
 		if (isClient() && ownerPlayerIndex >= 0 && skipClientShuffleFor == ownerPlayerIndex) {
@@ -747,7 +747,7 @@ private:
 
 			// Start visual shuffle on host for main players only (minions handle their own visuals)
 			if (ownerPlayerIndex == 0 || ownerPlayerIndex == 1) {
-				startShuffleVisual(ownerPlayerIndex);
+				startShuffleVisual(ownerPlayerIndex, visualDelaySeconds);
 			}
 
 			// Clear dirty flag for this player's deck since we've just shuffled it authoritatively
@@ -763,7 +763,7 @@ private:
 		// Start visual shuffle only for main players (players 0 and 1).
 		// Minions handle their own shuffle visuals in their draw code.
 		if (ownerPlayerIndex == 0 || ownerPlayerIndex == 1) {
-			startShuffleVisual(ownerPlayerIndex);
+			startShuffleVisual(ownerPlayerIndex, visualDelaySeconds);
 		}
 
 		// If this shuffle was for a specific player's deck, clear the dirty flag
@@ -1650,7 +1650,11 @@ private:
 	// UI Functions
 	void drawMagicHandUI();
 	// Helper to draw centered instruction text with shadow
-	void drawInstructionText(const std::string& message, ofColor color = ofColor::white);
+	void drawInstructionText(const std::string & message, ofColor color = ofColor::white);
+	// Helpers to draw card menu overlays and titles
+	void drawMenuOverlay();
+	void drawMenuBackground(const ofRectangle & menuRect, float cornerRadius = 15);
+	void drawMenuTitle(const std::string & title, const ofRectangle & menuRect, float yOffset = 60);
 	// Cancel any active targeting modes/menus and reset related state
 	void cancelAllTargeting();
 	void resolveMagicHandPull();
