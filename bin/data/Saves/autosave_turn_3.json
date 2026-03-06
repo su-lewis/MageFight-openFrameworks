@@ -109,7 +109,7 @@
       },
       {
         "hasPlayer": false,
-        "hasWall": true,
+        "hasWall": false,
         "isHighlighted": false,
         "isMagicWall": false,
         "isTargetPreview": false,
@@ -604,6 +604,302 @@
       {
         "hasPlayer": false,
         "hasWall": true,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      },
+      {
+        "hasPlayer": false,
+        "hasWall": false,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      },
+      {
+        "hasPlayer": false,
+        "hasWall": false,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      },
+      {
+        "hasPlayer": false,
+        "hasWall": false,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      },
+      {
+        "hasPlayer": false,
+        "hasWall": false,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      },
+      {
+        "hasPlayer": false,
+        "hasWall": false,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      },
+      {
+        "hasPlayer": false,
+        "hasWall": true,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      },
+      {
+        "hasPlayer": false,
+        "hasWall": false,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      }
+    ],
+    [
+      {
+        "hasPlayer": false,
+        "hasWall": false,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      },
+      {
+        "hasPlayer": false,
+        "hasWall": true,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      },
+      {
+        "hasPlayer": false,
+        "hasWall": false,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      },
+      {
+        "hasPlayer": false,
+        "hasWall": false,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      },
+      {
+        "hasPlayer": false,
+        "hasWall": true,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      },
+      {
+        "hasPlayer": false,
+        "hasWall": false,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      },
+      {
+        "hasPlayer": false,
+        "hasWall": false,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      },
+      {
+        "hasPlayer": false,
+        "hasWall": true,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      },
+      {
+        "hasPlayer": false,
+        "hasWall": false,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      }
+    ],
+    [
+      {
+        "hasPlayer": false,
+        "hasWall": false,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      },
+      {
+        "hasPlayer": false,
+        "hasWall": true,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      },
+      {
+        "hasPlayer": false,
+        "hasWall": true,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      },
+      {
+        "hasPlayer": false,
+        "hasWall": false,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      },
+      {
+        "hasPlayer": false,
+        "hasWall": true,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      },
+      {
+        "hasPlayer": false,
+        "hasWall": false,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      },
+      {
+        "hasPlayer": false,
+        "hasWall": true,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      },
+      {
+        "hasPlayer": false,
+        "hasWall": true,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      },
+      {
+        "hasPlayer": false,
+        "hasWall": false,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      }
+    ],
+    [
+      {
+        "hasPlayer": false,
+        "hasWall": false,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      },
+      {
+        "hasPlayer": false,
+        "hasWall": false,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      },
+      {
+        "hasPlayer": false,
+        "hasWall": false,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      },
+      {
+        "hasPlayer": false,
+        "hasWall": false,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      },
+      {
+        "hasPlayer": false,
+        "hasWall": true,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      },
+      {
+        "hasPlayer": false,
+        "hasWall": false,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      },
+      {
+        "hasPlayer": false,
+        "hasWall": false,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      },
+      {
+        "hasPlayer": false,
+        "hasWall": false,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      },
+      {
+        "hasPlayer": false,
+        "hasWall": false,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      }
+    ],
+    [
+      {
+        "hasPlayer": true,
+        "hasWall": false,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      },
+      {
+        "hasPlayer": false,
+        "hasWall": false,
         "isHighlighted": false,
         "isMagicWall": false,
         "isTargetPreview": false,
@@ -619,302 +915,6 @@
       },
       {
         "hasPlayer": true,
-        "hasWall": false,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      },
-      {
-        "hasPlayer": true,
-        "hasWall": false,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      },
-      {
-        "hasPlayer": true,
-        "hasWall": false,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      },
-      {
-        "hasPlayer": false,
-        "hasWall": false,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      },
-      {
-        "hasPlayer": false,
-        "hasWall": true,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      },
-      {
-        "hasPlayer": false,
-        "hasWall": false,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      }
-    ],
-    [
-      {
-        "hasPlayer": false,
-        "hasWall": false,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      },
-      {
-        "hasPlayer": false,
-        "hasWall": true,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      },
-      {
-        "hasPlayer": false,
-        "hasWall": false,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      },
-      {
-        "hasPlayer": false,
-        "hasWall": false,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      },
-      {
-        "hasPlayer": false,
-        "hasWall": true,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      },
-      {
-        "hasPlayer": false,
-        "hasWall": false,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      },
-      {
-        "hasPlayer": false,
-        "hasWall": false,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      },
-      {
-        "hasPlayer": false,
-        "hasWall": true,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      },
-      {
-        "hasPlayer": false,
-        "hasWall": false,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      }
-    ],
-    [
-      {
-        "hasPlayer": false,
-        "hasWall": false,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      },
-      {
-        "hasPlayer": false,
-        "hasWall": true,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      },
-      {
-        "hasPlayer": false,
-        "hasWall": true,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      },
-      {
-        "hasPlayer": false,
-        "hasWall": false,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      },
-      {
-        "hasPlayer": false,
-        "hasWall": true,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      },
-      {
-        "hasPlayer": false,
-        "hasWall": false,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      },
-      {
-        "hasPlayer": false,
-        "hasWall": true,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      },
-      {
-        "hasPlayer": false,
-        "hasWall": true,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      },
-      {
-        "hasPlayer": false,
-        "hasWall": false,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      }
-    ],
-    [
-      {
-        "hasPlayer": false,
-        "hasWall": false,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      },
-      {
-        "hasPlayer": false,
-        "hasWall": false,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      },
-      {
-        "hasPlayer": false,
-        "hasWall": false,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      },
-      {
-        "hasPlayer": false,
-        "hasWall": false,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      },
-      {
-        "hasPlayer": false,
-        "hasWall": true,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      },
-      {
-        "hasPlayer": false,
-        "hasWall": false,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      },
-      {
-        "hasPlayer": false,
-        "hasWall": false,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      },
-      {
-        "hasPlayer": false,
-        "hasWall": false,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      },
-      {
-        "hasPlayer": false,
-        "hasWall": false,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      }
-    ],
-    [
-      {
-        "hasPlayer": false,
-        "hasWall": false,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      },
-      {
-        "hasPlayer": false,
-        "hasWall": false,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      },
-      {
-        "hasPlayer": false,
-        "hasWall": false,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      },
-      {
-        "hasPlayer": false,
         "hasWall": false,
         "isHighlighted": false,
         "isMagicWall": false,
@@ -963,23 +963,23 @@
       }
     ]
   ],
-  "currentPlayerIndex": 2,
-  "gameplayRNG": "2575665141 631494208 2290032046 1551047842 81489805 3867714649 2178977941 130340178 3669989035 608702475 254058608 4117563435 62636139 711910372 809668203 1998345427 3269035836 1930081681 106627234 412450468 1259362169 2882397005 3525082337 2271315938 3679964120 3151131798 1416389085 1460048474 3068827698 1502390404 3901036259 3243555757 4120014217 4101565350 1573713966 1322673449 1452979227 2493491296 665217519 2929063286 3587898558 4242401192 396665761 2955660050 375173052 3261612213 2032486514 1940241787 947199799 3739630952 3434057296 698569288 2325690391 2379734512 2350544966 1456693557 1841397441 7623551 3679182435 4172675342 443037903 2645844465 1363366719 580405703 535962902 2915343534 1481205106 1609919229 594442192 2038138116 868274308 2140295293 2374656720 3253942004 213864263 635652429 4239469211 183173062 3545151626 3063827600 2277750437 481059822 3726808251 487536463 3507864555 1014534718 860783702 1628740958 1798257479 952534586 3182974716 1113418384 1754096952 2971220757 3458359320 4008018299 1300393421 3405730558 707728276 2600650871 1318834004 262848270 400867901 1430563769 1409897033 832269506 1373889550 2540010248 3704672691 1989343498 2895219142 3001943693 1774307972 3667076789 68351223 807398577 1641237615 162384517 2472611396 3169829946 3023133202 2027206498 3905975496 1902654456 2135001120 3319322430 1157123438 4135294903 2294004859 1021578311 2369763127 404608026 352244362 295458829 258292019 2925794183 3994346917 2449925715 1973568054 3035764572 1930625514 1112117346 1355742930 3336581083 4094117776 2224707024 425389448 1070386290 1786007859 1032193579 1173123257 1892503280 1876079537 2023322924 3335683670 2049132066 729407947 3777185251 2262530335 2142410596 3887031957 227633104 2978364421 555247664 1720361102 4142853844 3920139082 1310145113 1790255693 826877563 2404315730 1113248031 2478855886 2968944316 2921625941 3007507462 2789322225 843185531 272891870 957436029 2950482049 1729288469 1299991091 1749146854 275802403 3294962156 333981008 1460240470 2084663044 1142144622 3516838241 3562510671 3702081890 1981710301 876273355 2381002189 2083885846 1487717635 155771690 2123163795 2662754117 53441773 1502611834 1477450108 3639429024 1344126702 2913306933 3000100243 4166698833 1442257792 1162415445 3219564531 1129663827 1867698466 1645708762 2695614574 253938622 222761454 1518570495 2918678669 3531567234 2115248061 993867056 2927937556 1117303771 2113151524 4142446414 2180617061 4148678712 466590073 1286834412 1230677266 74803788 3118182578 425297625 2620610883 3177811498 2541170160 2634105195 2250021854 1042529305 1787442318 3681398238 3703571816 3977861840 2954738942 3751235518 3119397924 1051623252 799482508 1324797729 2079645499 2006824390 3364276382 540112761 524799980 2341944283 2057166991 2440450243 3495210337 3111221636 456956796 2325565108 3171542369 659770146 316238745 3760691293 2838261926 3560178969 2917006704 1675790527 2965032023 835928347 634173899 3154303877 2828813993 3495537034 2732046154 2082336173 2393471730 933797066 2752677024 971721302 2598083316 2658031936 1623863581 1283173829 914000059 2169050870 211777744 2574894532 241736264 314893017 1725961641 1237980240 402454533 1423508564 2639067532 3169114273 358394744 3388495560 941513476 450811892 1072841126 2134507292 1374407960 3819046104 4004847810 95901982 3371836912 3479374685 629214974 2212796847 2002430366 4042405124 3700561233 4141259619 720770828 218751208 1529986240 3035252542 2374637355 1749771108 2964875627 1980962686 1914244909 365768200 2566874192 1847776087 3148699542 2378071976 3510118920 1679650774 1794314117 2985192761 1690492611 3731951206 3315466789 3569475851 4138969441 2964555793 3925589342 4177414128 3368993796 3960358735 4255892437 3994495754 3737109009 1130426098 1255272230 2305440184 908961574 114961042 4233831283 1562481235 3196104578 1479430778 29597598 2084654915 4041295179 3212285272 1053842196 4115122145 2324302332 3650943602 1214480522 2468487882 2834041288 283839669 1295584862 226542174 699185692 2492327932 800863647 1721237614 437214238 1633060320 45967830 3865153191 3070656275 1821618926 4255636511 354293240 2625295712 931867349 1014826144 2403129021 2210771216 1535973209 2696317909 4116613079 3002189730 3020461861 3088523071 2667049999 4287205399 1815364086 3975755089 843680347 848481631 975117037 395466251 492678007 2609085313 133542614 3946123096 4005534497 2022533526 1093732466 3129606737 2878460608 3992521892 515464408 2860012471 2615707333 2158704952 3914505710 2716386182 2966530317 1563940915 1644724054 788481121 2055933016 435281277 536848986 2090984871 331656791 662455110 3328034101 4152055273 3446427504 1116419766 2129949750 1494276034 950209517 1157903263 2417672309 2840571150 1041317827 3359780693 1527105294 3647874542 179638309 554128636 849673589 3276221080 3924182018 3278070985 2884186992 3921674749 3700474887 3514283799 1319427632 596734287 3934753268 239515777 3309676833 4014113257 2980811393 932931502 2823848305 1149301416 1343293579 1436313533 281829247 303419039 2906599245 4187040240 1431465317 1166942037 2593008463 3012415802 1878915970 1065276904 2142641262 2576958178 4181254309 3254630737 979540339 1615066782 295980108 3185149026 1113727153 3808729061 867209487 3863249179 3692137151 2713841678 2956146117 2722159495 3953950979 1409145895 939748411 1621316113 3274322914 1718290104 768569857 4125047601 3680053355 2708413596 522008750 1739341179 2755538714 3738228241 2103559467 3584366039 1867098012 1637804964 2087367350 4024565776 4057293150 2049866422 2478372362 2123949868 1868886919 2798955864 2061959184 1694549953 2917667218 1588891457 3451990154 2086280481 2030606061 4193524683 1881843704 2228123103 158862600 3446656496 2977947131 3887247083 2835458224 3179509351 1447201385 2998281443 1886444367 3861447100 447381719 792595070 2491067224 2739970916 323074285 1188542203 444756890 338318007 2625176244 1759000743 2005458735 214887918 776202249 1706465152 650869427 2519263877 4203744186 3446434115 2422457212 1935299109 1230207292 3589990259 652370894 1478805283 1678935281 3476999803 72013048 1136647338 4040663145 500060922 2239137592 1690246728 3138225484 3008695404 1988699506 3499355780 2704351062 3668390084 2343978860 1157398147 2935599785 3007793161 1639282530 1044424036 2576474683 3443568049 3665087232 2531813920 1290394229 238853940 3986093696 4001406080 2289799317 3847306460 1202356976 1480065460 464961241 3135447074 2264668844 3919365599 2590631855 2857558402 3511818294 3731613836 4121564289 3066279470 245769605 1903913909 2370329790 469291735 1007404790 2635530008 741877048 3121023388 586439751 2034305978 4140874727 244785855 3280870818 27720074 408362617 2977779448 921235645 684995410 3863626409 2549270378 164162403 4194185939 41",
+  "currentPlayerIndex": 1,
+  "gameplayRNG": "825891336 1135478038 3658782201 3543070108 2611912703 3309562426 72648700 3320529813 3366558914 304920759 1015465067 3978546112 789059670 3393820030 3782570629 2046060407 3831456137 120329102 1206163938 2290093356 1578379013 3948476572 921275383 429219194 1523559260 579169733 3971171050 3628290738 3668174248 515076708 2383537728 1170888519 3406871456 2806986462 552402898 4054219240 3602008491 298607853 614629968 4009435644 2066911687 3156330241 3684336832 3075919192 2322537559 3082890022 1180052539 335349930 37670231 2589628978 909567469 3351014071 1403534673 3502071051 1132987791 3130731554 3528390642 1374914981 667424389 459911883 1210412657 2553285171 3227979839 4089453173 4156614792 3620148379 623926823 3008615032 2955223017 2203521636 3071044918 3984343416 1798547291 1875646791 3928170674 171517103 733333441 1619865208 4095308372 2119598399 3910052535 4004237801 2358882912 800379140 3060565180 592504890 1767630741 1223214800 110403697 4090952179 69035479 3107465332 539465014 1162136729 916467955 1529175111 3297520929 992783620 685824105 3252256399 2535080453 4114521337 1265201718 3225116799 3836570898 2923047155 1415860874 23963292 3010858834 3261014930 3015294163 4138085016 346080052 2382807934 962795980 1349857455 868051685 2761377043 2783884074 636219716 2398198902 2949289447 3973155979 2063496374 323248128 2185813882 3156576180 2345518867 653621396 3279355349 4094731536 2120525940 2731263200 3164174166 2827507259 4080498649 1673394820 1632360696 3693157452 3158316004 3379699545 1108456758 3828410826 4020966045 489118312 2461551730 3680769854 1217009371 3598753334 725748124 3945759788 1320915506 1324195778 3996206479 1707840366 2611645488 1900353350 3915871949 42422453 3036287768 2954792611 3121767801 4095391510 3507174334 106431160 2988420537 2637397206 213211400 3239796595 455619440 1050204634 1193415757 2661717248 2149065389 2136677957 2719757652 2726448887 3676150191 2896223457 1185687409 1841728540 4229971232 180274934 1899490367 113407784 659931534 3344460848 471821281 484069204 1922121689 2276989978 305161892 160658209 2157422548 983687323 428948421 2189239440 2118435965 207585068 2280151433 2470786031 153243856 2475166558 3216915614 260676419 1029421827 3764615916 1521775714 54875980 1661337806 1843182697 3906178915 2904180769 495374579 2951778689 1263451587 758200725 4259882901 4214850667 3285195907 2696481347 3565966241 2010642262 1725551179 3040419631 3998223019 2012658566 546689591 3231321476 1470666144 4232172952 1669806911 2061622602 1710301671 2702406911 405260610 280601107 102204224 3417577441 2476928934 1680218274 3206174406 3002234667 1813242509 1871574945 3970227077 1580431755 2509282865 3399977338 3404754810 2359937906 2231272989 1055911746 2738517943 1097871709 5309936 977124114 1433642681 2013826421 68562220 2872014890 604456213 1338571057 3315360073 3011626908 791175291 805970996 3341330259 1058236611 298726234 2672778539 1390635196 2651859609 4043255922 2596988354 4212283778 981710993 1044497050 703488625 1683439160 2935461964 2692790925 1242915492 2794030772 11599073 703774438 4052738861 1081095036 1055658333 2969566526 3556103644 1580694438 1219724259 2213554128 397322236 3861846271 319172857 57218744 1562534189 293457206 152540322 702960720 1591961689 2007255754 3476100680 2904167979 3855199316 1864387384 3565058100 1823180710 3729013448 3730445322 1286415544 3614855635 2175435930 3471752474 3572848806 2695773650 1284344493 1732856149 3509490409 2771916658 579799176 1590139905 1784336783 1154098556 3928335632 1166871158 2244930145 2900931165 1732647689 3904415297 916405065 3537218407 1740855269 351237274 1837300982 3534496728 3830664491 1770973392 3556597960 968811701 3154098547 2001599123 1793481555 221758191 4013351631 1727110720 1917229838 1988004603 1078266843 3144003772 735931674 3552461843 2893058644 2159517996 787703546 2480794328 978417863 2350638771 3093154928 2806479496 112862185 1834860677 2344848017 3657942217 2005316592 1369483015 1158454374 2464436068 2823634410 2086124064 2201126311 3186885217 223844191 3285132262 3085994639 1793152024 2116638485 2157169779 3650230360 3881040373 4117840795 2462648861 28861739 276608907 723962352 1832168638 2305628294 1789195737 2721604757 3123963402 407812515 2245858216 3314031927 26420369 1242768213 1987345185 2336273403 1955826781 680059232 1533220518 4044492274 3288135514 3104410614 126341028 3073566812 1018694327 646616609 4014632275 3065509812 4013432062 2920959242 1438160007 1649994766 2656481862 1239749565 2012150425 3988918009 737250621 4014812194 2222257111 2493104072 2002195338 2918121866 2736564668 1732375245 2329404434 2153413800 1280365190 3189557459 1469224343 3845971005 1304006755 2385854323 3247637156 689838357 596730292 11303707 3981354107 2264730226 888351739 1490745450 2003787187 1262472854 3369219264 2749460007 199917274 1839400192 474419370 2095118923 3016611789 1662684792 4037980424 56390332 1523958326 133513875 4023707292 3720990361 1993865193 3227295501 2688060463 2367619946 2382523073 159094012 4022922740 3490827302 1745525448 1918197304 658166870 1168692229 2420891093 658609316 4108417921 844604696 4280637318 3122023176 2027407789 1659630230 1909267515 1332707360 1251645700 3679073926 3522598177 3553957480 3709039745 3035528217 2977571948 4044329533 2672371291 3932935256 1285206971 2866658922 2632723972 1742913486 1824413348 2856926494 3065739787 1824800240 1582381131 2799833115 3362232257 73786520 1146743745 1974615870 9811136 482645784 442021827 723231196 2263035495 3755623575 2689684671 2657139420 3449098103 1139088458 1078788584 4069805447 2565006407 2614638524 2358267958 2660767097 1214333617 485002273 1710949887 656077231 3156764309 3514077100 4267023091 2444740993 777496237 2137148106 2534710311 251437857 3222529856 1543328666 513044966 1114782534 157956499 3349948638 1389514762 1222945860 966131564 859144722 4138178373 4189292095 156105600 2549140199 4198970106 2766606134 1147898308 1857546435 2237747429 3799904222 2724074769 3666231507 1865953777 404135107 402303838 3649847644 4274218048 2434064377 2093926026 3705142074 3557459406 1938414394 4284640007 3548628088 3738045383 3997429704 1629553074 669739928 243126083 992346830 1099131334 3530624018 1296600271 1173284611 3823983535 1949605456 3668978763 1273608420 924438 846975207 697074930 1434232246 3030095796 4172938410 1908643327 4142289222 2097886011 335058076 757427961 1246832717 2293128306 4260459010 1638942282 2661231197 4063024553 3466490981 3915801332 4185909592 737401077 3402632724 4185499522 2204620333 1670776468 1073992707 1926648170 298495590 3373968822 2625689784 1458420429 4101042433 1278406055 2013071239 2980845367 1875860069 2157156084 4078707650 2105418528 2812855600 336133294 161966105 311307857 46",
   "globalTurnCounter": 3,
   "isMultiplayer": false,
   "players": [
     {
-      "ap": 997,
+      "ap": 6,
       "barrier": 0,
       "block": 0,
       "cardsPlayedThisTurn": [
-        13,
-        13
+        15,
+        24
       ],
       "deck": [
         {
-          "cardClass": 2,
-          "cost": 3,
+          "cardClass": 1,
+          "cost": 2,
           "currentPos": [
             0.0,
             0.0
@@ -989,18 +989,18 @@
           "diceSides": 0,
           "drawnThisTurn": false,
           "isCopied": false,
-          "name": "Flurry of Fists",
+          "name": "Ward",
           "numDice": 0,
           "targetScale": 1.0,
-          "targeting": 4,
+          "targeting": 5,
           "textureRect": [
             1636.0,
-            2340.0,
+            0.0,
             409.0,
             585.0
           ],
-          "type": 45,
-          "value": 0
+          "type": 10,
+          "value": 5
         },
         {
           "cardClass": 1,
@@ -1011,536 +1011,21 @@
           ],
           "currentScale": 1.0,
           "damageType": 0,
-          "diceSides": 4,
+          "diceSides": 0,
           "drawnThisTurn": false,
           "isCopied": false,
-          "name": "Bash",
-          "numDice": 2,
+          "name": "Kick",
+          "numDice": 0,
           "targetScale": 1.0,
           "targeting": 4,
           "textureRect": [
-            1227.0,
+            409.0,
             0.0,
             409.0,
             585.0
           ],
           "type": 5,
-          "value": 0
-        },
-        {
-          "cardClass": 1,
-          "cost": 1,
-          "currentPos": [
-            0.0,
-            0.0
-          ],
-          "currentScale": 1.0,
-          "damageType": 0,
-          "diceSides": 6,
-          "drawnThisTurn": false,
-          "isCopied": false,
-          "name": "Lesser Heal",
-          "numDice": 1,
-          "targetScale": 1.0,
-          "targeting": 9,
-          "textureRect": [
-            3272.0,
-            2925.0,
-            409.0,
-            585.0
-          ],
-          "type": 55,
-          "value": 0
-        },
-        {
-          "cardClass": 1,
-          "cost": 2,
-          "currentPos": [
-            0.0,
-            0.0
-          ],
-          "currentScale": 1.0,
-          "damageType": 0,
-          "diceSides": 20,
-          "drawnThisTurn": false,
-          "isCopied": false,
-          "name": "Dispel",
-          "numDice": 1,
-          "targetScale": 1.0,
-          "targeting": 5,
-          "textureRect": [
-            1227.0,
-            585.0,
-            409.0,
-            585.0
-          ],
-          "type": 18,
-          "value": 0
-        }
-      ],
-      "deckNeedsShuffle": false,
-      "discard": [
-        {
-          "cardClass": 1,
-          "cost": 2,
-          "currentPos": [
-            1362.0,
-            606.0
-          ],
-          "currentScale": 2.390979766845703,
-          "damageType": 0,
-          "diceSides": 20,
-          "drawnThisTurn": true,
-          "isCopied": false,
-          "name": "Dispel",
-          "numDice": 1,
-          "targetScale": 1.5,
-          "targeting": 5,
-          "textureRect": [
-            1227.0,
-            585.0,
-            409.0,
-            585.0
-          ],
-          "type": 18,
-          "value": 0
-        },
-        {
-          "cardClass": 1,
-          "cost": 2,
-          "currentPos": [
-            1338.0,
-            654.0
-          ],
-          "currentScale": 2.3996191024780273,
-          "damageType": 0,
-          "diceSides": 20,
-          "drawnThisTurn": true,
-          "isCopied": false,
-          "name": "Dispel",
-          "numDice": 1,
-          "targetScale": 1.5,
-          "targeting": 5,
-          "textureRect": [
-            1227.0,
-            585.0,
-            409.0,
-            585.0
-          ],
-          "type": 18,
-          "value": 0
-        },
-        {
-          "cardClass": 1,
-          "cost": 3,
-          "currentPos": [
-            1210.000244140625,
-            1310.0
-          ],
-          "currentScale": 1.5,
-          "damageType": 0,
-          "diceSides": 4,
-          "drawnThisTurn": true,
-          "isCopied": false,
-          "name": "Bash",
-          "numDice": 2,
-          "targetScale": 1.5,
-          "targeting": 4,
-          "textureRect": [
-            1227.0,
-            0.0,
-            409.0,
-            585.0
-          ],
-          "type": 5,
-          "value": 0
-        },
-        {
-          "cardClass": 1,
-          "cost": 2,
-          "currentPos": [
-            1349.999755859375,
-            1309.999755859375
-          ],
-          "currentScale": 1.500000238418579,
-          "damageType": 0,
-          "diceSides": 20,
-          "drawnThisTurn": true,
-          "isCopied": false,
-          "name": "Dispel",
-          "numDice": 1,
-          "targetScale": 1.5,
-          "targeting": 5,
-          "textureRect": [
-            1227.0,
-            585.0,
-            409.0,
-            585.0
-          ],
-          "type": 18,
-          "value": 0
-        },
-        {
-          "cardClass": 1,
-          "cost": 2,
-          "currentPos": [
-            1337.0,
-            816.0
-          ],
-          "currentScale": 2.3996191024780273,
-          "damageType": 0,
-          "diceSides": 20,
-          "drawnThisTurn": true,
-          "isCopied": false,
-          "name": "Dispel",
-          "numDice": 1,
-          "targetScale": 1.5,
-          "targeting": 5,
-          "textureRect": [
-            1227.0,
-            585.0,
-            409.0,
-            585.0
-          ],
-          "type": 18,
-          "value": 0
-        },
-        {
-          "cardClass": 1,
-          "cost": 2,
-          "currentPos": [
-            1280.0,
-            1309.999755859375
-          ],
-          "currentScale": 1.5,
-          "damageType": 0,
-          "diceSides": 20,
-          "drawnThisTurn": true,
-          "isCopied": false,
-          "name": "Dispel",
-          "numDice": 1,
-          "targetScale": 1.5,
-          "targeting": 5,
-          "textureRect": [
-            1227.0,
-            585.0,
-            409.0,
-            585.0
-          ],
-          "type": 18,
-          "value": 0
-        },
-        {
-          "cardClass": 1,
-          "cost": 2,
-          "currentPos": [
-            1280.000244140625,
-            1309.999755859375
-          ],
-          "currentScale": 1.500000238418579,
-          "damageType": 3,
-          "diceSides": 0,
-          "drawnThisTurn": true,
-          "isCopied": false,
-          "name": "Shock",
-          "numDice": 0,
-          "targetScale": 1.5,
-          "targeting": 4,
-          "textureRect": [
-            409.0,
-            585.0,
-            409.0,
-            585.0
-          ],
-          "type": 13,
-          "value": 2
-        },
-        {
-          "cardClass": 1,
-          "cost": 2,
-          "currentPos": [
-            1210.000244140625,
-            1309.999755859375
-          ],
-          "currentScale": 1.500000238418579,
-          "damageType": 3,
-          "diceSides": 0,
-          "drawnThisTurn": true,
-          "isCopied": false,
-          "name": "Shock",
-          "numDice": 0,
-          "targetScale": 1.5,
-          "targeting": 4,
-          "textureRect": [
-            409.0,
-            585.0,
-            409.0,
-            585.0
-          ],
-          "type": 13,
-          "value": 2
-        }
-      ],
-      "flurryOfFistsActive": false,
-      "hasDrawnCardsThisTurn": false,
-      "hasDrawnThisTurn": false,
-      "hasDrawnThisTurn_flag": false,
-      "health": 13,
-      "holyBlock": 0,
-      "inTortoiseForm": false,
-      "isMinion": false,
-      "isParalyzed": false,
-      "isPoisoned": false,
-      "maxHealth": 15,
-      "nextAttackAddPoison": false,
-      "nextTurnAPBonus": 4,
-      "nextTurnD10AP": false,
-      "nextTurnExtraDraw": false,
-      "nextTurnExtraDrawSetOnCycle": -1,
-      "ownerID": -1,
-      "paralysisHeadsCount": 0,
-      "playerID": 0,
-      "poisonReduction": 0,
-      "shocksPlayedThisTurn": 0,
-      "sleepTurnsRemaining": 0,
-      "strengthenElementsTurnsRemaining": 0,
-      "summonOrder": 0,
-      "summonedOnTurnCycle": -1,
-      "tortoiseDamageTaken": 0,
-      "visualPos": [
-        0.0,
-        0.0,
-        0.0
-      ],
-      "ward": 0,
-      "x": 8,
-      "y": 5
-    },
-    {
-      "ap": 0,
-      "barrier": 0,
-      "block": 0,
-      "deck": [
-        {
-          "cardClass": 1,
-          "cost": 1,
-          "currentPos": [
-            0.0,
-            0.0
-          ],
-          "currentScale": 1.0,
-          "damageType": 0,
-          "diceSides": 0,
-          "drawnThisTurn": false,
-          "isCopied": false,
-          "name": "Hand Block",
-          "numDice": 0,
-          "targetScale": 1.0,
-          "targeting": 5,
-          "textureRect": [
-            818.0,
-            0.0,
-            409.0,
-            585.0
-          ],
-          "type": 9,
-          "value": 2
-        },
-        {
-          "cardClass": 1,
-          "cost": 1,
-          "currentPos": [
-            0.0,
-            0.0
-          ],
-          "currentScale": 1.0,
-          "damageType": 0,
-          "diceSides": 0,
-          "drawnThisTurn": false,
-          "isCopied": false,
-          "name": "Hand Block",
-          "numDice": 0,
-          "targetScale": 1.0,
-          "targeting": 5,
-          "textureRect": [
-            818.0,
-            0.0,
-            409.0,
-            585.0
-          ],
-          "type": 9,
-          "value": 2
-        },
-        {
-          "cardClass": 1,
-          "cost": 1,
-          "currentPos": [
-            0.0,
-            0.0
-          ],
-          "currentScale": 1.0,
-          "damageType": 0,
-          "diceSides": 0,
-          "drawnThisTurn": false,
-          "isCopied": false,
-          "name": "Hand Block",
-          "numDice": 0,
-          "targetScale": 1.0,
-          "targeting": 5,
-          "textureRect": [
-            818.0,
-            0.0,
-            409.0,
-            585.0
-          ],
-          "type": 9,
-          "value": 2
-        },
-        {
-          "cardClass": 1,
-          "cost": 1,
-          "currentPos": [
-            0.0,
-            0.0
-          ],
-          "currentScale": 1.0,
-          "damageType": 0,
-          "diceSides": 0,
-          "drawnThisTurn": false,
-          "isCopied": false,
-          "name": "Hand Block",
-          "numDice": 0,
-          "targetScale": 1.0,
-          "targeting": 5,
-          "textureRect": [
-            818.0,
-            0.0,
-            409.0,
-            585.0
-          ],
-          "type": 9,
-          "value": 2
-        },
-        {
-          "cardClass": 1,
-          "cost": 1,
-          "currentPos": [
-            0.0,
-            0.0
-          ],
-          "currentScale": 1.0,
-          "damageType": 0,
-          "diceSides": 6,
-          "drawnThisTurn": false,
-          "isCopied": false,
-          "name": "Lesser Heal",
-          "numDice": 1,
-          "targetScale": 1.0,
-          "targeting": 9,
-          "textureRect": [
-            3272.0,
-            2925.0,
-            409.0,
-            585.0
-          ],
-          "type": 55,
-          "value": 0
-        }
-      ],
-      "deckNeedsShuffle": false,
-      "flurryOfFistsActive": false,
-      "hasDrawnCardsThisTurn": false,
-      "hasDrawnThisTurn": false,
-      "hasDrawnThisTurn_flag": false,
-      "health": 1,
-      "holyBlock": 0,
-      "inTortoiseForm": false,
-      "isMinion": true,
-      "isParalyzed": false,
-      "isPoisoned": false,
-      "maxHealth": 1,
-      "nextAttackAddPoison": false,
-      "nextTurnAPBonus": 0,
-      "nextTurnD10AP": false,
-      "nextTurnExtraDraw": false,
-      "nextTurnExtraDrawSetOnCycle": -1,
-      "ownerID": 1,
-      "paralysisHeadsCount": 0,
-      "playerID": 5002,
-      "poisonReduction": 0,
-      "shocksPlayedThisTurn": 0,
-      "sleepTurnsRemaining": 0,
-      "strengthenElementsTurnsRemaining": 0,
-      "summonOrder": 1,
-      "summonedOnTurnCycle": 3,
-      "tortoiseDamageTaken": 0,
-      "visualPos": [
-        10.0,
-        0.0,
-        -5.0
-      ],
-      "ward": 0,
-      "x": 8,
-      "y": 3
-    },
-    {
-      "ap": 0,
-      "barrier": 0,
-      "block": 0,
-      "cardsPlayedThisTurn": [
-        13,
-        58
-      ],
-      "deck": [
-        {
-          "cardClass": 1,
-          "cost": 2,
-          "currentPos": [
-            0.0,
-            0.0
-          ],
-          "currentScale": 1.0,
-          "damageType": 3,
-          "diceSides": 0,
-          "drawnThisTurn": false,
-          "isCopied": false,
-          "name": "Shock",
-          "numDice": 0,
-          "targetScale": 1.0,
-          "targeting": 4,
-          "textureRect": [
-            409.0,
-            585.0,
-            409.0,
-            585.0
-          ],
-          "type": 13,
-          "value": 2
-        },
-        {
-          "cardClass": 1,
-          "cost": 3,
-          "currentPos": [
-            0.0,
-            0.0
-          ],
-          "currentScale": 1.0,
-          "damageType": 0,
-          "diceSides": 0,
-          "drawnThisTurn": false,
-          "isCopied": false,
-          "name": "Vampire Bite",
-          "numDice": 0,
-          "targetScale": 1.0,
-          "targeting": 4,
-          "textureRect": [
-            2863.0,
-            2340.0,
-            409.0,
-            585.0
-          ],
-          "type": 4,
-          "value": 3
+          "value": 4
         },
         {
           "cardClass": 3,
@@ -1566,50 +1051,47 @@
           ],
           "type": 34,
           "value": 0
-        }
-      ],
-      "deckNeedsShuffle": false,
-      "discard": [
+        },
         {
           "cardClass": 1,
-          "cost": 4,
+          "cost": 2,
           "currentPos": [
-            1210.000244140625,
-            1310.0
+            0.0,
+            0.0
           ],
-          "currentScale": 1.5,
+          "currentScale": 1.0,
           "damageType": 0,
           "diceSides": 0,
-          "drawnThisTurn": true,
+          "drawnThisTurn": false,
           "isCopied": false,
-          "name": "Summon Assistant",
+          "name": "Drain Punch",
           "numDice": 0,
-          "targetScale": 1.5,
-          "targeting": 12,
+          "targetScale": 1.0,
+          "targeting": 4,
           "textureRect": [
-            409.0,
-            3510.0,
+            2454.0,
+            1170.0,
             409.0,
             585.0
           ],
-          "type": 58,
-          "value": 0
+          "type": 30,
+          "value": 2
         },
         {
           "cardClass": 2,
           "cost": 0,
           "currentPos": [
-            1350.000244140625,
-            1310.0
+            0.0,
+            0.0
           ],
-          "currentScale": 1.5,
+          "currentScale": 1.0,
           "damageType": 0,
           "diceSides": 0,
-          "drawnThisTurn": true,
+          "drawnThisTurn": false,
           "isCopied": false,
           "name": "Sprint",
           "numDice": 0,
-          "targetScale": 1.5,
+          "targetScale": 1.0,
           "targeting": 5,
           "textureRect": [
             1636.0,
@@ -1621,11 +1103,164 @@
           "value": 0
         }
       ],
+      "deckNeedsShuffle": false,
+      "discard": [
+        {
+          "cardClass": 1,
+          "cost": 2,
+          "currentPos": [
+            1210.000244140625,
+            1310.0
+          ],
+          "currentScale": 1.5,
+          "damageType": 4,
+          "diceSides": 0,
+          "drawnThisTurn": true,
+          "isCopied": false,
+          "name": "Flame Hit",
+          "numDice": 0,
+          "targetScale": 1.5,
+          "targeting": 4,
+          "textureRect": [
+            3681.0,
+            585.0,
+            409.0,
+            585.0
+          ],
+          "type": 24,
+          "value": 1
+        },
+        {
+          "cardClass": 1,
+          "cost": 6,
+          "currentPos": [
+            1350.000244140625,
+            1310.0
+          ],
+          "currentScale": 1.5,
+          "damageType": 0,
+          "diceSides": 0,
+          "drawnThisTurn": true,
+          "isCopied": false,
+          "name": "Demolition",
+          "numDice": 0,
+          "targetScale": 1.5,
+          "targeting": 11,
+          "textureRect": [
+            3681.0,
+            2340.0,
+            409.0,
+            585.0
+          ],
+          "type": 15,
+          "value": 0
+        },
+        {
+          "cardClass": 1,
+          "cost": 6,
+          "currentPos": [
+            1350.000244140625,
+            1309.999755859375
+          ],
+          "currentScale": 1.500000238418579,
+          "damageType": 0,
+          "diceSides": 0,
+          "drawnThisTurn": true,
+          "isCopied": false,
+          "name": "Demolition",
+          "numDice": 0,
+          "targetScale": 1.5,
+          "targeting": 11,
+          "textureRect": [
+            3681.0,
+            2340.0,
+            409.0,
+            585.0
+          ],
+          "type": 15,
+          "value": 0
+        },
+        {
+          "cardClass": 1,
+          "cost": 2,
+          "currentPos": [
+            1280.000244140625,
+            1309.999755859375
+          ],
+          "currentScale": 1.500000238418579,
+          "damageType": 4,
+          "diceSides": 0,
+          "drawnThisTurn": true,
+          "isCopied": false,
+          "name": "Flame Hit",
+          "numDice": 0,
+          "targetScale": 1.5,
+          "targeting": 4,
+          "textureRect": [
+            3681.0,
+            585.0,
+            409.0,
+            585.0
+          ],
+          "type": 24,
+          "value": 1
+        },
+        {
+          "cardClass": 2,
+          "cost": 3,
+          "currentPos": [
+            1210.000244140625,
+            1310.0
+          ],
+          "currentScale": 1.5,
+          "damageType": 3,
+          "diceSides": 10,
+          "drawnThisTurn": true,
+          "isCopied": false,
+          "name": "Chain Lightning",
+          "numDice": 2,
+          "targetScale": 1.5,
+          "targeting": 9,
+          "textureRect": [
+            0.0,
+            2340.0,
+            409.0,
+            585.0
+          ],
+          "type": 42,
+          "value": 0
+        },
+        {
+          "cardClass": 1,
+          "cost": 2,
+          "currentPos": [
+            1350.000244140625,
+            1310.0
+          ],
+          "currentScale": 1.5,
+          "damageType": 0,
+          "diceSides": 6,
+          "drawnThisTurn": true,
+          "isCopied": false,
+          "name": "Slash",
+          "numDice": 1,
+          "targetScale": 1.5,
+          "targeting": 7,
+          "textureRect": [
+            2454.0,
+            0.0,
+            409.0,
+            585.0
+          ],
+          "type": 5,
+          "value": 0
+        }
+      ],
       "flurryOfFistsActive": false,
-      "hasDrawnCardsThisTurn": true,
-      "hasDrawnThisTurn": true,
-      "hasDrawnThisTurn_flag": true,
-      "health": 11,
+      "hasDrawnCardsThisTurn": false,
+      "hasDrawnThisTurn": false,
+      "hasDrawnThisTurn_flag": false,
+      "health": 13,
       "holyBlock": 0,
       "inTortoiseForm": false,
       "isMinion": false,
@@ -1633,15 +1268,15 @@
       "isPoisoned": false,
       "maxHealth": 15,
       "nextAttackAddPoison": false,
-      "nextTurnAPBonus": 2,
+      "nextTurnAPBonus": 0,
       "nextTurnD10AP": false,
       "nextTurnExtraDraw": false,
       "nextTurnExtraDrawSetOnCycle": -1,
       "ownerID": -1,
       "paralysisHeadsCount": 0,
-      "playerID": 1,
+      "playerID": 0,
       "poisonReduction": 0,
-      "shocksPlayedThisTurn": 1,
+      "shocksPlayedThisTurn": 0,
       "sleepTurnsRemaining": 0,
       "strengthenElementsTurnsRemaining": 0,
       "summonOrder": 0,
@@ -1653,8 +1288,177 @@
         0.0
       ],
       "ward": 0,
-      "x": 8,
-      "y": 4
+      "x": 12,
+      "y": 3
+    },
+    {
+      "ap": 3,
+      "barrier": 0,
+      "block": 0,
+      "deck": [
+        {
+          "cardClass": 2,
+          "cost": 4,
+          "currentPos": [
+            0.0,
+            0.0
+          ],
+          "currentScale": 1.0,
+          "damageType": 0,
+          "diceSides": 0,
+          "drawnThisTurn": false,
+          "isCopied": false,
+          "name": "Summon Faerie",
+          "numDice": 0,
+          "targetScale": 1.0,
+          "targeting": 12,
+          "textureRect": [
+            3681.0,
+            3510.0,
+            409.0,
+            585.0
+          ],
+          "type": 59,
+          "value": 0
+        },
+        {
+          "cardClass": 1,
+          "cost": 3,
+          "currentPos": [
+            0.0,
+            0.0
+          ],
+          "currentScale": 1.0,
+          "damageType": 0,
+          "diceSides": 6,
+          "drawnThisTurn": false,
+          "isCopied": false,
+          "name": "Heal",
+          "numDice": 2,
+          "targetScale": 1.0,
+          "targeting": 9,
+          "textureRect": [
+            0.0,
+            1170.0,
+            409.0,
+            585.0
+          ],
+          "type": 25,
+          "value": 0
+        },
+        {
+          "cardClass": 1,
+          "cost": 3,
+          "currentPos": [
+            0.0,
+            0.0
+          ],
+          "currentScale": 1.0,
+          "damageType": 0,
+          "diceSides": 6,
+          "drawnThisTurn": false,
+          "isCopied": false,
+          "name": "Heal",
+          "numDice": 2,
+          "targetScale": 1.0,
+          "targeting": 9,
+          "textureRect": [
+            0.0,
+            1170.0,
+            409.0,
+            585.0
+          ],
+          "type": 25,
+          "value": 0
+        }
+      ],
+      "deckNeedsShuffle": false,
+      "discard": [
+        {
+          "cardClass": 1,
+          "cost": 3,
+          "currentPos": [
+            1210.000244140625,
+            1310.0
+          ],
+          "currentScale": 1.5,
+          "damageType": 0,
+          "diceSides": 0,
+          "drawnThisTurn": true,
+          "isCopied": false,
+          "name": "Kick",
+          "numDice": 0,
+          "targetScale": 1.5,
+          "targeting": 4,
+          "textureRect": [
+            409.0,
+            0.0,
+            409.0,
+            585.0
+          ],
+          "type": 5,
+          "value": 4
+        },
+        {
+          "cardClass": 1,
+          "cost": 3,
+          "currentPos": [
+            1350.000244140625,
+            1310.0
+          ],
+          "currentScale": 1.5,
+          "damageType": 0,
+          "diceSides": 0,
+          "drawnThisTurn": true,
+          "isCopied": false,
+          "name": "Kick",
+          "numDice": 0,
+          "targetScale": 1.5,
+          "targeting": 4,
+          "textureRect": [
+            409.0,
+            0.0,
+            409.0,
+            585.0
+          ],
+          "type": 5,
+          "value": 4
+        }
+      ],
+      "flurryOfFistsActive": false,
+      "hasDrawnCardsThisTurn": false,
+      "hasDrawnThisTurn": false,
+      "hasDrawnThisTurn_flag": false,
+      "health": 8,
+      "holyBlock": 0,
+      "inTortoiseForm": false,
+      "isMinion": false,
+      "isParalyzed": false,
+      "isPoisoned": false,
+      "maxHealth": 15,
+      "nextAttackAddPoison": false,
+      "nextTurnAPBonus": 0,
+      "nextTurnD10AP": false,
+      "nextTurnExtraDraw": false,
+      "nextTurnExtraDrawSetOnCycle": -1,
+      "ownerID": -1,
+      "paralysisHeadsCount": 0,
+      "playerID": 1,
+      "poisonReduction": 0,
+      "shocksPlayedThisTurn": 0,
+      "sleepTurnsRemaining": 0,
+      "strengthenElementsTurnsRemaining": 0,
+      "summonOrder": 0,
+      "summonedOnTurnCycle": -1,
+      "tortoiseDamageTaken": 0,
+      "visualPos": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "ward": 0,
+      "x": 12,
+      "y": 0
     }
   ]
 }

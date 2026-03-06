@@ -688,6 +688,7 @@ private:
 	void handleCardMenuInput(const std::string & choice); // Menu choice made
 	void handleCardTargetInput(int gridX, int gridY); // Target selected
 	void handleCardDiceResult(int result, DicePurpose purpose); // Dice roll completed
+	bool executeCardByType(const Card & playedCard, int cardIndex, int targetX, int targetY, bool & playedSuccessfully, CardPlayResult & immediateResult); // centralized execution entry (incremental migration)
 
 	void applyReplicateCopyToHand(Player & caster, const Card & playedCard);
 	void finishPlayCard(Player & caster, const Card & playedCard, int handIndex);
@@ -1905,6 +1906,7 @@ private:
 	ofRectangle debugSpawnCardButton;
 	ofRectangle debugDrawCardButton;
 	ofRectangle debugUnlimitedAPButton;
+	ofRectangle debugUnlimitedTimeButton;
 	ofRectangle debugSkipDraftButton;
 	ofRectangle debugForceEndTurnButton;
 	ofRectangle debugSpawnPlayer1Button;

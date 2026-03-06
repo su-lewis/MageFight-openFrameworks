@@ -4285,24 +4285,21 @@ void ofApp::updateGame() {
 			if (players[i].health <= 0) removePoisoned.push_back(i);
 		}
 		if (!removePoisoned.empty()) {
-			// For each dying unit, check if adjacent to ANY faerie (even if the faerie is dying)
+			// For each dying unit, check orthogonally-adjacent alive faeries.
 			std::vector<int> finalRemove;
 			for (int idx : removePoisoned) {
 				bool resurrected = false;
 				int x = players[idx].x;
 				int y = players[idx].y;
-				// Only non-faerie units can be resurrected by faerie
-				// Only non-faerie units can be resurrected by faerie (no graveyard loot)
-				// Graveyard loot is only for Raise Dead, not faerie resurrection
 				if (!players[idx].isFaerie) {
 					for (int dx = -1; dx <= 1 && !resurrected; ++dx) {
 						for (int dy = -1; dy <= 1 && !resurrected; ++dy) {
-							if (dx == 0 && dy == 0) continue;
+							if (abs(dx) + abs(dy) != 1) continue; // orthogonal only
 							int nx = x + dx;
 							int ny = y + dy;
 							if (nx < 0 || nx >= BOARD_WIDTH || ny < 0 || ny >= BOARD_HEIGHT) continue;
 							for (int j = 0; j < (int)players.size(); ++j) {
-								if (players[j].isFaerie && players[j].x == nx && players[j].y == ny) {
+								if (players[j].isFaerie && players[j].x == nx && players[j].y == ny && players[j].health > 0) {
 									// Use deterministic RNG and include Faerie's Luck
 									int raw = getGameRandom(1, 4);
 									int luckBonus = players[j].luck + computePassiveLuck(j);
@@ -6367,37 +6364,32 @@ void ofApp::updateGame() {
 		Player & caster = players[currentPlayerIndex];
 		int damage = pendingFlailRollResult + 2; // 1d6 + 2
 
-		// Define local damage applier
 		auto hitTarget = [&](Player & t, int dmg) {
 			int finalDmg = dmg;
 
-			// --- GHOST CHECK (Flail is Physical) ---
 			if (t.inGhostForm) {
 				finalDmg = 0;
 				spawnFloatingText(gridToWorld(t.x, t.y), "Phased!", ofColor::cyan);
 			}
-			// ---------------------------------------
 
-			// Block
 			int blockDmg = std::min(t.block, finalDmg);
 			t.block -= blockDmg;
 			finalDmg -= blockDmg;
-			// Barrier
+
 			int barrierDmg = std::min(t.barrier, finalDmg);
 			t.barrier -= barrierDmg;
 			finalDmg -= barrierDmg;
-			// Ward
+
 			if (finalDmg > 0) {
 				int wardDmg = std::min(t.ward, finalDmg);
 				t.ward -= wardDmg;
 				finalDmg -= wardDmg;
 			}
-			// Health
+
 			if (finalDmg > 0) {
 				t.health -= finalDmg;
 				spawnFloatingText(gridToWorld(t.x, t.y), "-" + ofToString(finalDmg) + " Physical", ofColor::red);
 
-				// Check Death (Simple check)
 				if (t.health <= 0) {
 					DeathMarker death;
 					death.x = t.x;
@@ -6405,7 +6397,9 @@ void ofApp::updateGame() {
 					death.turnDied = globalTurnCounter;
 					death.deck = t.deck;
 					graveyard.push_back(death);
-					board[t.x][t.y].hasPlayer = false;
+					if (t.x >= 0 && t.x < BOARD_WIDTH && t.y >= 0 && t.y < BOARD_HEIGHT) {
+						board[t.x][t.y].hasPlayer = false;
+					}
 					t.x = -1000;
 				}
 			} else {
@@ -6413,29 +6407,22 @@ void ofApp::updateGame() {
 			}
 		};
 
-		// Iterate all players to find neighbors
-		// (We iterate players instead of tiles because it's slightly faster/safer)
 		for (auto & target : players) {
-			if (&target == &caster) continue; // Don't hit self
-			if (target.health <= 0) continue; // Skip dead
+			if (&target == &caster) continue;
+			if (target.health <= 0) continue;
 
 			int dx = target.x - caster.x;
 			int dy = target.y - caster.y;
 
-			// Check if neighbor (Chebyshev distance == 1)
 			if (std::max(abs(dx), abs(dy)) == 1) {
-
 				bool isBlocked = false;
 
-				// Diagonal Pinch Check
 				if (abs(dx) == 1 && abs(dy) == 1) {
-					// If both shared orthogonal tiles are walls, the diagonal is blocked
 					if (isTileWall(caster.x + dx, caster.y) && isTileWall(caster.x, caster.y + dy)) {
 						isBlocked = true;
 					}
 				}
 
-				// Also check if target is inside a wall (shouldn't happen, but safety)
 				if (isTileWall(target.x, target.y)) isBlocked = true;
 
 				if (!isBlocked) {
@@ -7604,7 +7591,7 @@ void ofApp::updateGame() {
 		Player & dying = players[i];
 		bool resurrected = false;
 		if (!dying.isFaerie && dying.x >= 0 && dying.y >= 0) {
-			// Check orthogonally-adjacent tiles for an alive Faerie
+			// Check orthogonally-adjacent tiles for an alive Faerie.
 			for (int dx = -1; dx <= 1 && !resurrected; ++dx) {
 				for (int dy = -1; dy <= 1 && !resurrected; ++dy) {
 					if ((dx != 0 || dy != 0) && abs(dx) + abs(dy) == 1) {
@@ -11853,6 +11840,7 @@ void ofApp::drawGame() {
 				setGridRect(debugRollD10Button, gi++);
 				setGridRect(debugRollD20Button, gi++);
 				setGridRect(debugUnlimitedAPButton, gi++);
+				setGridRect(debugUnlimitedTimeButton, gi++);
 				setGridRect(debugForceEndTurnButton, gi++);
 				setGridRect(debugSpawnPlayer1Button, gi++);
 				setGridRect(debugSpawnPlayer2Button, gi++);
@@ -11867,6 +11855,7 @@ void ofApp::drawGame() {
 				drawChatDebugButton(debugRollD10Button, "D10");
 				drawChatDebugButton(debugRollD20Button, "D20");
 				drawChatDebugButton(debugUnlimitedAPButton, hasUnlimitedAP ? "Unlimited AP: ON" : "Unlimited AP: OFF", true, hasUnlimitedAP);
+				drawChatDebugButton(debugUnlimitedTimeButton, !turnTimerEnabled ? "Unlimited Time: ON" : "Unlimited Time: OFF", true, !turnTimerEnabled);
 				drawChatDebugButton(debugForceEndTurnButton, "ForceEndTurn");
 				drawChatDebugButton(debugSpawnPlayer1Button, "SpawnPlayer1", true, debugSpawnMode == DEBUG_SPAWN_PLAYER1);
 				drawChatDebugButton(debugSpawnPlayer2Button, "SpawnPlayer2", true, debugSpawnMode == DEBUG_SPAWN_PLAYER2);
@@ -12862,9 +12851,32 @@ void ofApp::mousePressed(int x, int y, int button) {
 	// === CARD STATE MACHINE INPUT HANDLER ===
 	// Process card state input first if a card action is in progress
 	if (cardPlayState != CARD_STATE_IDLE && currentState == STATE_GAMEPLAY) {
-		processCardStateInput(x, y, button);
-		// If state machine handled it, don't process further
-		if (cardPlayState != CARD_STATE_IDLE) return;
+		// Only MENU/TARGETING are directly clickable by mousePressed.
+		// Other states are non-interactive and should not permanently lock all input.
+		if (cardPlayState == CARD_STATE_MENU || cardPlayState == CARD_STATE_TARGETING) {
+			processCardStateInput(x, y, button);
+			// If still in an interactive card sub-state, consume this click.
+			if (cardPlayState == CARD_STATE_MENU || cardPlayState == CARD_STATE_TARGETING) return;
+		} else if (cardPlayState == CARD_STATE_DICE) {
+			bool hasActiveDiceVisual = false;
+			for (const auto & roll : activeDiceRolls) {
+				if (!roll.isFinishedVisual) {
+					hasActiveDiceVisual = true;
+					break;
+				}
+			}
+
+			// While dice visuals are active, clicks are intentionally blocked.
+			if (hasActiveDiceVisual) return;
+
+			// Safety: stale DICE state with no active dice visuals should not brick input.
+			ofLogWarning("CardState") << "Recovering from stale CARD_STATE_DICE in mousePressed";
+			resetCardState();
+		} else {
+			// Safety: EFFECT/OUTCOME/FINISHED should be transient; recover if stale.
+			ofLogWarning("CardState") << "Recovering from stale card state=" << (int)cardPlayState << " in mousePressed";
+			resetCardState();
+		}
 	}
 
 	// Singleplayer menu button clicks
@@ -13190,6 +13202,17 @@ void ofApp::mousePressed(int x, int y, int button) {
 		}
 		if (debugUnlimitedAPButton.inside(x, y)) {
 			hasUnlimitedAP = !hasUnlimitedAP;
+			if (isMultiplayer && isHost()) sendSnapshotToClient();
+			return;
+		}
+		if (debugUnlimitedTimeButton.inside(x, y)) {
+			turnTimerEnabled = !turnTimerEnabled;
+			if (turnTimerEnabled) {
+				turnStartTime = ofGetElapsedTimef();
+				addGameLog("Turn timer enabled.");
+			} else {
+				addGameLog("Unlimited time enabled (turn timer disabled).");
+			}
 			if (isMultiplayer && isHost()) sendSnapshotToClient();
 			return;
 		}
@@ -19006,63 +19029,26 @@ void ofApp::processCardStateInput(int mouseX, int mouseY, int button) {
 	}
 }
 
-//--------------------------------------------------------------
-CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
+bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int targetX, int targetY, bool & playedSuccessfully, CardPlayResult & immediateResult) {
+	immediateResult = CARD_NOT_PLAYABLE;
 	Player & currentPlayer = players[currentPlayerIndex];
-	if (cardIndex < 0 || cardIndex >= static_cast<int>(currentPlayer.hand.size())) return CARD_NOT_PLAYABLE;
 
-	Card playedCard = currentPlayer.hand[cardIndex];
-
-	// === INITIALIZE UNIFIED CARD OUTCOME ===
-	resetCardState();
-	currentCardOutcome.cardType = playedCard.type;
-	currentCardOutcome.cardIndex = cardIndex;
-	currentCardOutcome.casterIndex = currentPlayerIndex;
-	currentCardOutcome.primaryTarget = { targetX, targetY };
-	activeCardIndex = cardIndex;
-
-	// Determine effective cost (Kick may be free due to Sprint)
-	int costToPay = playedCard.cost;
-	if (playedCard.name == "Kick" && currentPlayer.freeKickTurns > 0) costToPay = 0;
-
-	// DEBUG: Unlimited AP mode
-	if (hasUnlimitedAP) {
-		currentAP = 999; // Set to max for debug testing
-	}
-
-	if (currentAP < costToPay) return CARD_NOT_PLAYABLE;
-
-	// Log card played
-	addGameLog(getPlayerSteamName(currentPlayerIndex) + " played " + playedCard.name);
-
-	// (Magic Wall handling moved into the CARD_CREATE_WALL switch-case below.)
-
-	// Damage handling moved to member helper `applyDamageTo` to allow reuse from other handlers.
-
-	bool playedSuccessfully = false;
-
-	// === CARD LOGIC SWITCH - Now populates CardOutcome instead of immediate effects ===
 	switch (playedCard.type) {
-
-	// --- CASE: FOUR-LEAF CLOVER ---
 	case CARD_FOUR_LEAF_CLOVER: {
-		// Simple immediate effect - no menu/targeting/dice needed
 		currentPlayer.baseLuck += 1;
 		currentPlayer.luck += 1;
 		spawnFloatingText(gridToWorld(currentPlayer.x, currentPlayer.y), "+1 Luck!", ofColor::green);
 		playedSuccessfully = true;
-		advanceCardState(CARD_STATE_OUTCOME); // Ready to send packet
-		break;
+		advanceCardState(CARD_STATE_OUTCOME);
+		return true;
 	}
 
-		// --- CASE: BLOCKING BOON ---
 	case CARD_BLOCKING_BOON: {
-		// Prevent re-entry if a Blocking Boon is already resolving
 		if (blockingBoonActive) {
 			spawnFloatingText(gridToWorld(currentPlayer.x, currentPlayer.y), "Blocking Boon already resolving", ofColor::gray);
-			break;
+			return true;
 		}
-		// Allow playing without an adjacent target: target is optional for the Tails effect.
+
 		int targetIndex = -1;
 		for (size_t i = 0; i < players.size(); i++) {
 			if (players[i].x == targetX && players[i].y == targetY) {
@@ -19070,31 +19056,24 @@ CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 				break;
 			}
 		}
-		blockingBoonTargetIndex = targetIndex; // may be -1 (no target)
+		blockingBoonTargetIndex = targetIndex;
 
-		// 1. Physical Block -> Coins (resolve first)
-		// Note: `ward` counts toward BOTH physical and non-physical blocking.
-		// Also include `fortification` (from Fortify) as a physical/piercing block source.
 		int physBlock = currentPlayer.block + currentPlayer.fortification + currentPlayer.ward;
-		// Fortification reduces both physical and piercing damage; count it for non-physical resolution too
 		int nonPhys = currentPlayer.holyBlock + currentPlayer.barrier + currentPlayer.ward + currentPlayer.fortification;
 
 		if (physBlock > 0) {
 			ofLogNotice("Blocking Boon") << "Rolling " << physBlock << " coins for Physical Block (resolve first).";
-			// Start coin flips and track them; D20s will be queued until coins complete.
 			startDiceRoll(physBlock, 2, PURPOSE_BLOCKING_BOON_COIN, "Boon: Phys Flip", currentPlayerIndex);
 			isWaitingForBlockingBoonCoins = true;
 			pendingBlockingBoonCoinsRemaining = physBlock;
-			pendingBlockingBoonNonPhys = nonPhys; // roll these after coins finish
+			pendingBlockingBoonNonPhys = nonPhys;
 			pendingBlockingBoonTotal = physBlock + nonPhys;
 			blockingBoonActive = true;
 			playedSuccessfully = true;
 		} else {
-			// No coins to flip, roll D20s immediately (if any)
 			if (nonPhys > 0) {
 				ofLogNotice("Blocking Boon") << "No physical block; Rolling " << nonPhys << " D20s for Non-Phys Block.";
 				startDiceRoll(nonPhys, 20, PURPOSE_BLOCKING_BOON_D20, "Boon: Magic Roll", currentPlayerIndex);
-				// Mark non-phys as already handled so coins finishing later won't re-roll them
 				pendingBlockingBoonNonPhys = 0;
 				pendingBlockingBoonTotal = nonPhys;
 				blockingBoonActive = true;
@@ -19104,14 +19083,40 @@ CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 			}
 		}
 
-		break;
+		return true;
 	}
 
-	// --- CASE: CONSTITUTION BOON ---
+	case CARD_SPRINT: {
+		currentAP += 2;
+		currentPlayer.nextTurnAPBonus += 2;
+		currentPlayer.freeKickTurns = 2;
+		currentCardOutcome.apGained = 2;
+		spawnFloatingText(gridToWorld(currentPlayer.x, currentPlayer.y), "+2 AP Now", ofColor::yellow);
+		spawnFloatingText(gridToWorld(currentPlayer.x, currentPlayer.y) + glm::vec3(0, 0.5f, 0), "+2 AP Next Turn", ofColor::yellow);
+		spawnFloatingText(gridToWorld(currentPlayer.x, currentPlayer.y) + glm::vec3(0, 1.0f, 0), "Kick is Free!", ofColor::cyan);
+		playedSuccessfully = true;
+		advanceCardState(CARD_STATE_OUTCOME);
+		return true;
+	}
+
+	case CARD_HASTEN: {
+		currentPlayer.nextTurnD10AP = true;
+		currentPlayer.nextTurnExtraDraw = true;
+		spawnFloatingText(gridToWorld(currentPlayer.x, currentPlayer.y), "Hastened!", ofColor::cyan);
+		playedSuccessfully = true;
+		advanceCardState(CARD_STATE_OUTCOME);
+		return true;
+	}
+
+	case CARD_REPLICATE: {
+		currentPlayer.isReplicatePending = true;
+		spawnFloatingText(gridToWorld(currentPlayer.x, currentPlayer.y), "Next Card Copied!", ofColor::purple);
+		playedSuccessfully = true;
+		advanceCardState(CARD_STATE_OUTCOME);
+		return true;
+	}
+
 	case CARD_CONSTITUTION_BOON: {
-		// === NEW STATE SYSTEM ===
-		// When played, grants a chained draft based on the caster's max HP:
-		// 16-20 => Class 1, 21-25 => Class 2, 26-30 => Class 3, >30 => immediate win
 		int mh = currentPlayer.maxHealth;
 		int tier = 0;
 		if (mh >= 16 && mh <= 20)
@@ -19122,7 +19127,6 @@ CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 			tier = 3;
 
 		if (mh > 30) {
-			// Win condition: show message and return to main menu
 			spawnFloatingText(gridToWorld(currentPlayer.x, currentPlayer.y), "You Win!", ofColor::gold);
 			ofLogNotice("Constitution Boon") << "Player " << currentPlayer.playerID << " triggered instant win via Constitution Boon.";
 			currentState = STATE_MAIN_MENU;
@@ -19133,44 +19137,22 @@ CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 			spawnFloatingText(gridToWorld(currentPlayer.x, currentPlayer.y), "Draft Class " + ofToString(tier), ofColor::cyan);
 			ofLogNotice("Constitution Boon") << "Player " << currentPlayer.playerID << " queued draft Class " << tier;
 			playedSuccessfully = true;
-			advanceCardState(CARD_STATE_EFFECT); // Draft happens
+			advanceCardState(CARD_STATE_EFFECT);
 		} else {
 			spawnFloatingText(gridToWorld(currentPlayer.x, currentPlayer.y), "No Effect", ofColor::gray);
 		}
-
-		break;
+		return true;
 	}
 
-	// --- CASE: SPRINT ---
-	case CARD_SPRINT: {
-		// === NEW STATE SYSTEM ===
-		// Immediate +2 AP and +2 AP next turn. Also make Kick cost-free until end of next turn.
-		currentAP += 2;
-		currentPlayer.nextTurnAPBonus += 2;
-		currentPlayer.freeKickTurns = 2; // Current turn + next turn
-		currentCardOutcome.apGained = 2;
-		spawnFloatingText(gridToWorld(currentPlayer.x, currentPlayer.y), "+2 AP Now", ofColor::yellow);
-		spawnFloatingText(gridToWorld(currentPlayer.x, currentPlayer.y) + glm::vec3(0, 0.5f, 0), "+2 AP Next Turn", ofColor::yellow);
-		spawnFloatingText(gridToWorld(currentPlayer.x, currentPlayer.y) + glm::vec3(0, 1.0f, 0), "Kick is Free!", ofColor::cyan);
-		playedSuccessfully = true;
-		advanceCardState(CARD_STATE_OUTCOME);
-		break;
-	}
-
-		// --- CASE: TRAIN ---
 	case CARD_TRAIN: {
-		// === NEW STATE SYSTEM ===
 		pendingTrainCardIndex = cardIndex;
 		isTrainMenuOpen = true;
 		advanceCardState(CARD_STATE_MENU);
 
-		// Setup UI Geometry
 		float w = 600, h = 300;
 		float x = ofGetWidth() / 2 - w / 2, y = ofGetHeight() / 2 - h / 2;
 		trainMenuRect.set(x, y, w, h);
 
-		// Button positioning handled in drawTrainMenuUI logic usually,
-		// but we define rects here for mouse detection consistency
 		float btnW = 260, btnH = 80, spacing = 30;
 		float startX = x + (w - (btnW * 2 + spacing)) / 2;
 		float btnY = y + 130;
@@ -19179,60 +19161,435 @@ CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		trainBtnDraft.set(startX + btnW + spacing, btnY, btnW, btnH);
 
 		playedSuccessfully = true;
-		// Don't set playedSuccessfully yet; waiting for menu choice
-		return CARD_AWAITING_MENU_CHOICE;
+		immediateResult = CARD_AWAITING_MENU_CHOICE;
+		return true;
 	}
 
-	// --- CASE: STUDY ---
 	case CARD_STUDY: {
-		// === NEW STATE SYSTEM ===
-		// 1. Apply "Draw Extra Card Next Turn"
-		// Track the current cycle so we can expire it if not used
 		currentPlayer.nextTurnExtraDraw = true;
 		currentPlayer.nextTurnExtraDrawSetOnCycle = globalTurnCounter;
 		spawnFloatingText(gridToWorld(currentPlayer.x, currentPlayer.y), "Studying...", ofColor::blue);
 
-		// 2. Trigger Draft (Class 2)
 		isInGameDraft = true;
-		draftPlayerIndex = currentPlayerIndex; // The current unit gets the card
-		generateDraftOptions(2); // Class 2
+		draftPlayerIndex = currentPlayerIndex;
+		generateDraftOptions(2);
 		draftPicksRemaining = 1;
 		selectedDraftIndices.clear();
-		draftStage = 0; // Context reset
-
-		// 3. Switch State
+		draftStage = 0;
 		currentState = STATE_DRAFTING;
 
 		playedSuccessfully = true;
-		advanceCardState(CARD_STATE_EFFECT); // Draft is the effect
-		break;
+		advanceCardState(CARD_STATE_EFFECT);
+		return true;
 	}
 
-	// --- CASE: BURST OF LIGHT ---
 	case CARD_BURST_OF_LIGHT: {
-		// === NEW STATE SYSTEM ===
-		// Open a small choice menu: Deal 3 Holy OR Heal 3 HP (Line of Sight)
-		// Determine target tile validity first (we allow any LOS target)
 		pendingBurstCardIndex = cardIndex;
 		isBurstMenuOpen = true;
 		advanceCardState(CARD_STATE_MENU);
-		sendMenuState(2, currentPlayerIndex, -1, cardIndex); // Notify opponent
+		sendMenuState(2, currentPlayerIndex, -1, cardIndex);
 
-		// Menu geometry (similar to Wisdom Boon)
 		float w = 520, h = 260;
 		float x = ofGetWidth() / 2 - w / 2, y = ofGetHeight() / 2 - h / 2;
 		burstMenuRect.set(x, y, w, h);
 		float btnW = 300, btnH = 80;
 		burstBtnDamage.set(x + (w - btnW) / 2, y + 110, btnW, btnH);
 		burstBtnHeal.set(0, 0, 0, 0);
+
 		playedSuccessfully = true;
-		return CARD_AWAITING_MENU_CHOICE;
+		immediateResult = CARD_AWAITING_MENU_CHOICE;
+		return true;
 	}
 
-	// --- CASE: SMITE ---
+	case CARD_FULL_RESTORE: {
+		Player & target = currentPlayer;
+		int healAmount = target.maxHealth - target.health;
+		target.health = target.maxHealth;
+		currentCardOutcome.healingDealt = healAmount;
+
+		target.onFire = false;
+		target.isPoisoned = false;
+		target.poisonReduction = 0;
+		target.isParalyzed = false;
+		target.paralysisHeadsCount = 0;
+		target.sleepTurnsRemaining = 0;
+
+		spawnFloatingText(gridToWorld(target.x, target.y), "Fully Restored!", ofColor::gold);
+		ofLogNotice("Full Restore") << "Unit " << target.playerID << " healed to " << target.maxHealth << " and cured.";
+
+		playedSuccessfully = true;
+		advanceCardState(CARD_STATE_OUTCOME);
+		return true;
+	}
+
+	case CARD_CONSUME_HEALTH_POTION: {
+		currentPlayer.maxHealth++;
+		spawnFloatingText(gridToWorld(currentPlayer.x, currentPlayer.y), "+1 Max HP", ofColor::cyan);
+		ofLogNotice("Consume Health Potion") << "Player " << currentPlayer.playerID << " increased max HP to " << currentPlayer.maxHealth;
+		playedSuccessfully = true;
+		advanceCardState(CARD_STATE_OUTCOME);
+		return true;
+	}
+
+	case CARD_STRENGTHEN_ELEMENTS: {
+		currentPlayer.strengthenElementsTurnsRemaining = 3;
+		spawnFloatingText(gridToWorld(currentPlayer.x, currentPlayer.y), "Elemental Flow!", ofColor::orange);
+		ofLogNotice("Game") << "Player " << currentPlayer.playerID << " strengthened elements for 3 turns.";
+		playedSuccessfully = true;
+		advanceCardState(CARD_STATE_OUTCOME);
+		return true;
+	}
+
+	case CARD_ADD_POISON: {
+		currentPlayer.nextAttackAddPoison = true;
+		spawnFloatingText(gridToWorld(currentPlayer.x, currentPlayer.y), "Poison Ready!", ofColor::green);
+		ofLogNotice("Add Poison") << "Player " << currentPlayer.playerID << " primed next attack with poison.";
+		playedSuccessfully = true;
+		advanceCardState(CARD_STATE_OUTCOME);
+		return true;
+	}
+
+	case CARD_DARK_SHIELD: {
+		currentPlayer.holyBlock += playedCard.value;
+		currentPlayer.nextTurnBonusDiceFromMinions = true;
+		spawnFloatingText(gridToWorld(currentPlayer.x, currentPlayer.y),
+			"+" + ofToString(playedCard.value) + " Holy Block",
+			ofColor::yellow);
+		ofLogNotice("Game") << "Gained Dark Shield and bonus dice next turn.";
+		playedSuccessfully = true;
+		advanceCardState(CARD_STATE_OUTCOME);
+		return true;
+	}
+
+	case CARD_NECRO_BLESSING: {
+		int skeletonCount = 0;
+		int ownerID = currentPlayer.isMinion ? currentPlayer.ownerID : currentPlayer.playerID;
+		for (const auto & p : players) {
+			if (p.isSkeleton && (p.ownerID == ownerID || p.playerID == ownerID)) {
+				skeletonCount++;
+			}
+		}
+		currentPlayer.luck += skeletonCount;
+		if (skeletonCount > 0) {
+			spawnFloatingText(gridToWorld(currentPlayer.x, currentPlayer.y),
+				"+" + ofToString(skeletonCount) + " LUCK!",
+				ofColor::purple);
+			ofLogNotice("NecroBlessing") << "Unit " << currentPlayer.playerID << " gained " << skeletonCount << " luck.";
+		} else {
+			spawnFloatingText(gridToWorld(currentPlayer.x, currentPlayer.y),
+				"No Skeletons! (+0 Luck)",
+				ofColor::gray);
+			ofLogNotice("NecroBlessing") << "No skeletons found, no luck gained.";
+		}
+		playedSuccessfully = true;
+		advanceCardState(CARD_STATE_OUTCOME);
+		return true;
+	}
+
+	case CARD_SHOCK: {
+		int targetIndex = -1;
+		int fallbackIndex = -1;
+		for (size_t i = 0; i < players.size(); i++) {
+			if (players[i].x == targetX && players[i].y == targetY) {
+				if ((int)i != currentPlayerIndex) {
+					targetIndex = (int)i;
+					break;
+				} else {
+					fallbackIndex = (int)i;
+				}
+			}
+		}
+		if (targetIndex == -1) targetIndex = fallbackIndex;
+		if (targetIndex != -1) {
+			Player * target = getPlayer(targetIndex);
+			applyDamageTo(*target, playedCard.value, DAMAGE_ELECTRIC, currentPlayerIndex);
+			currentCardOutcome.targetPlayerIndex = targetIndex;
+			currentCardOutcome.damageDealt = playedCard.value;
+			if (currentPlayer.shocksPlayedThisTurn > 0 && !target->isParalyzed) {
+				target->isParalyzed = true;
+				target->paralysisHeadsCount = 0;
+				currentCardOutcome.statusesApplied.push_back("Paralyzed");
+			}
+		}
+		currentPlayer.nextTurnAPBonus += 2;
+		currentPlayer.shocksPlayedThisTurn++;
+		currentCardOutcome.apGained = 2;
+		playedSuccessfully = true;
+		advanceCardState(CARD_STATE_OUTCOME);
+		return true;
+	}
+
+	case CARD_DEMOLITION: {
+		int manhattan = abs(targetX - currentPlayer.x) + abs(targetY - currentPlayer.y);
+		if (manhattan != 1) return true;
+		if (board[targetX][targetY].hasWall) {
+			board[targetX][targetY].hasWall = false;
+			buildLevelMesh();
+			currentPlayer.nextTurnAPBonus += 6;
+			currentCardOutcome.apGained = 6;
+			spawnFloatingText(gridToWorld(currentPlayer.x, currentPlayer.y), "+6 AP Next Turn", ofColor::yellow);
+			playedSuccessfully = true;
+			advanceCardState(CARD_STATE_OUTCOME);
+		}
+		return true;
+	}
+
+	case CARD_PSIONIC_WAVE: {
+		pendingPsionicRangeResult = startDiceRoll(playedCard.numDice, playedCard.diceSides, PURPOSE_PSIONIC_WAVE_RANGE, "Psionic Wave: Range");
+		isWaitingForPsionicRange = true;
+		playedSuccessfully = true;
+		advanceCardState(CARD_STATE_DICE);
+		return true;
+	}
+
+	case CARD_TIME_VORTEX: {
+		isWaitingForTimeVortexDice = true;
+		pendingTimeVortexResult = startDiceRoll(playedCard.numDice, playedCard.diceSides, PURPOSE_TIME_VORTEX, "Time Vortex: Extra Turns");
+		playedSuccessfully = true;
+		advanceCardState(CARD_STATE_DICE);
+		return true;
+	}
+
+	case CARD_MAGIC_BOLT: {
+		float maxRangeFeet = (float)(playedCard.numDice * playedCard.diceSides);
+		glm::vec2 cPos((float)currentPlayer.x, (float)currentPlayer.y);
+		glm::vec2 tPos((float)targetX, (float)targetY);
+		float distFeet = glm::distance(cPos, tPos) * 5.0f;
+		if (distFeet > maxRangeFeet + 3.0f) return true;
+
+		if (targetX >= 0 && targetX < BOARD_WIDTH && targetY >= 0 && targetY < BOARD_HEIGHT) {
+			if (board[targetX][targetY].hasWall) {
+				return true;
+			}
+		}
+
+		pendingMagicBoltTargetTile = glm::vec2(targetX, targetY);
+		isWaitingForMagicBoltRange = true;
+		pendingMagicBoltRangeResult = startDiceRoll(playedCard.numDice, playedCard.diceSides, PURPOSE_RANGE, "Magic Bolt: Range Check");
+
+		playedSuccessfully = true;
+		advanceCardState(CARD_STATE_DICE);
+		return true;
+	}
+
+	case CARD_FLAIL: {
+		if (isMultiplayer && isHost()) sendCardActionBegin(CARD_FLAIL, currentPlayerIndex, -1, -1, 0, 0, 0, 0, "Flail");
+		pendingFlailRollResult = startDiceRoll(playedCard.numDice, playedCard.diceSides, PURPOSE_DAMAGE, "Flail: Swing Damage", currentPlayerIndex);
+		isWaitingForFlailDice = true;
+		playedSuccessfully = true;
+		advanceCardState(CARD_STATE_DICE);
+		return true;
+	}
+
+	case CARD_SPARK_OF_GENIUS: {
+		pendingSparkOfGeniusRollResult = startDiceRoll(playedCard.numDice, playedCard.diceSides, PURPOSE_SPARK_OF_GENIUS_DRAW, "Spark of Genius: Draw Cards");
+		isWaitingForSparkOfGeniusDice = true;
+		playedSuccessfully = true;
+		advanceCardState(CARD_STATE_DICE);
+		return true;
+	}
+
+	case CARD_DISPEL: {
+		pendingDispelCardIndex = cardIndex;
+		isDispelMenuOpen = true;
+		advanceCardState(CARD_STATE_MENU);
+
+		float w = 600, h = 300;
+		float x = ofGetWidth() / 2 - w / 2, y = ofGetHeight() / 2 - h / 2;
+		dispelMenuRect.set(x, y, w, h);
+
+		float btnWidth = 260;
+		float btnHeight = 80;
+		float spacing = 30;
+		float totalBtnWidth = (btnWidth * 2) + spacing;
+		float startX = x + (w - totalBtnWidth) / 2;
+		float btnY = y + 130;
+
+		dispelBtnBarrier.set(startX, btnY, btnWidth, btnHeight);
+		dispelBtnPurge.set(startX + btnWidth + spacing, btnY, btnWidth, btnHeight);
+
+		playedSuccessfully = true;
+		immediateResult = CARD_AWAITING_MENU_CHOICE;
+		return true;
+	}
+
+	case CARD_WISDOM_BOON: {
+		int targetIndex = -1;
+		for (size_t i = 0; i < players.size(); i++) {
+			if (players[i].x == targetX && players[i].y == targetY) {
+				targetIndex = (int)i;
+				break;
+			}
+		}
+		if (targetIndex == -1) return true;
+
+		Player * t = getPlayer(targetIndex);
+		bool isSelf = (targetIndex == currentPlayerIndex);
+		bool isAdjacent = (abs(t->x - currentPlayer.x) + abs(t->y - currentPlayer.y) == 1);
+		if (!isSelf && !isAdjacent) return true;
+
+		currentCardOutcome.targetPlayerIndex = targetIndex;
+		pendingWisdomBoonCardIndex = cardIndex;
+		pendingWisdomBoonTargetIndex = targetIndex;
+		isWisdomBoonMenuOpen = true;
+		advanceCardState(CARD_STATE_MENU);
+		sendMenuState(1, targetIndex, -1, cardIndex);
+
+		float w = 600, h = 300;
+		float x = ofGetWidth() / 2 - w / 2, y = ofGetHeight() / 2 - h / 2;
+		wisdomMenuRect.set(x, y, w, h);
+		wisdomBtnDamage.set(x + (w - 300) / 2, y + 150, 300, 80);
+		wisdomBtnBlock.set(0, 0, 0, 0);
+
+		playedSuccessfully = true;
+		immediateResult = CARD_AWAITING_MENU_CHOICE;
+		return true;
+	}
+
+	case CARD_HEAL: {
+		glm::vec2 casterTile = { (float)currentPlayer.x, (float)currentPlayer.y };
+		glm::vec2 targetTile = { (float)targetX, (float)targetY };
+		float maxRange = 9999.0f;
+		TargetInfo validationResult = isLosTargetValid(casterTile, targetTile, maxRange, playedCard.type);
+		if (validationResult.reason != VALID && validationResult.reason != INVALID_SELF) return true;
+
+		int targetIndex = -1;
+		for (size_t i = 0; i < players.size(); i++) {
+			if (players[i].x == targetX && players[i].y == targetY) {
+				targetIndex = (int)i;
+				break;
+			}
+		}
+		if (targetIndex == -1) return true;
+
+		pendingHealTargetIndex = targetIndex;
+		pendingHealRollResult = startDiceRoll(playedCard.numDice, playedCard.diceSides, PURPOSE_HEALING, "Heal: HP Amount");
+
+		isWaitingForHealDice = true;
+		playedSuccessfully = true;
+		advanceCardState(CARD_STATE_DICE);
+		return true;
+	}
+
+	case CARD_LESSER_HEAL: {
+		glm::vec2 casterTile = { (float)currentPlayer.x, (float)currentPlayer.y };
+		glm::vec2 targetTile = { (float)targetX, (float)targetY };
+		TargetInfo validationResult = isLosTargetValid(casterTile, targetTile, 9999.0f, playedCard.type);
+		bool isSelf = (currentPlayer.x == targetX && currentPlayer.y == targetY);
+		if (!isSelf && validationResult.reason != VALID) return true;
+
+		int targetIndex = -1;
+		for (size_t i = 0; i < players.size(); i++) {
+			if (players[i].x == targetX && players[i].y == targetY) {
+				targetIndex = (int)i;
+				break;
+			}
+		}
+		if (targetIndex == -1) return true;
+
+		pendingHealTargetIndex = targetIndex;
+		pendingHealRollResult = startDiceRoll(playedCard.numDice, playedCard.diceSides, PURPOSE_HEALING, "Lesser Heal");
+		isWaitingForHealDice = true;
+		playedSuccessfully = true;
+		advanceCardState(CARD_STATE_DICE);
+		return true;
+	}
+
+	case CARD_SHOOT_ARROW: {
+		glm::vec2 casterTile = { (float)currentPlayer.x, (float)currentPlayer.y };
+		glm::vec2 targetTile = { (float)targetX, (float)targetY };
+		float maxRange = 2.0f * 20.0f;
+
+		TargetInfo validationResult = isLosTargetValid(casterTile, targetTile, maxRange, playedCard.type);
+		if (validationResult.reason != VALID) return true;
+
+		int targetIndex = -1;
+		if (targetX == -1 && targetY == -1) {
+			targetIndex = currentPlayerIndex;
+		} else {
+			for (size_t i = 0; i < players.size(); i++) {
+				if (players[i].x == targetX && players[i].y == targetY) {
+					targetIndex = (int)i;
+					break;
+				}
+			}
+		}
+		if (targetIndex == -1) return true;
+
+		if (isMultiplayer && isHost()) sendCardActionBegin(CARD_SHOOT_ARROW, currentPlayerIndex, targetX, targetY, 0, 0, 0, 0, "Shoot Arrow");
+		pendingShootArrowHitResult = startDiceRoll(2, 20, PURPOSE_RANGE, "Shoot Arrow: Range", currentPlayerIndex);
+		isWaitingForShootArrow = true;
+		pendingShootArrowTargetTile = targetTile;
+		pendingShootArrowTargetIndex = targetIndex;
+		playedSuccessfully = true;
+		advanceCardState(CARD_STATE_DICE);
+		return true;
+	}
+
+	case CARD_MAGIC_BLAST: {
+		glm::vec2 casterTile = { (float)currentPlayer.x, (float)currentPlayer.y };
+		glm::vec2 targetTile = { (float)targetX, (float)targetY };
+		float maxRange = (float)(playedCard.numDice * playedCard.diceSides);
+
+		TargetInfo validationResult = isLosTargetValid(casterTile, targetTile, maxRange, playedCard.type);
+		if (validationResult.reason != VALID) return true;
+
+		bool validTarget = false;
+		if (board[targetX][targetY].hasPlayer) {
+			validTarget = true;
+		} else {
+			glm::vec2 neighbors[4] = { { targetX + 1, targetY }, { targetX - 1, targetY }, { targetX, targetY + 1 }, { targetX, targetY - 1 } };
+			for (const auto & n : neighbors) {
+				if (n.x >= 0 && n.x < BOARD_WIDTH && n.y >= 0 && n.y < BOARD_HEIGHT && board[(int)n.x][(int)n.y].hasPlayer) {
+					validTarget = true;
+					break;
+				}
+			}
+		}
+		if (!validTarget) return true;
+
+		pendingMagicBlastRollResult = startDiceRoll(playedCard.numDice, playedCard.diceSides, PURPOSE_RANGE, "Magic Blast: Range Check");
+		isWaitingForMagicBlastDice = true;
+		pendingMagicBlastTargetTile = targetTile;
+		playedSuccessfully = true;
+		advanceCardState(CARD_STATE_DICE);
+		return true;
+	}
+
+	case CARD_FIREBALL: {
+		glm::vec2 casterTile = { (float)currentPlayer.x, (float)currentPlayer.y };
+		glm::vec2 targetTile = { (float)targetX, (float)targetY };
+		float maxRange = (float)(playedCard.numDice * playedCard.diceSides);
+
+		TargetInfo validationResult = isLosTargetValid(casterTile, targetTile, maxRange, playedCard.type);
+		if (validationResult.reason != VALID || !board[targetX][targetY].hasPlayer) return true;
+
+		pendingFireballRangeResult = startDiceRoll(playedCard.numDice, playedCard.diceSides, PURPOSE_RANGE, "Fireball: Range Check");
+		isWaitingForFireballRangeDice = true;
+		pendingFireballTargetTile = targetTile;
+		playedSuccessfully = true;
+		advanceCardState(CARD_STATE_DICE);
+		return true;
+	}
+
+	case CARD_CHAIN_LIGHTNING: {
+		glm::vec2 casterTile = { (float)currentPlayer.x, (float)currentPlayer.y };
+		glm::vec2 targetTile = { (float)targetX, (float)targetY };
+
+		TargetInfo validationResult = isLosTargetValid(casterTile, targetTile, 9999.0f, playedCard.type);
+		if (validationResult.reason != VALID) return true;
+
+		if (isMultiplayer && isHost()) sendCardActionBegin(CARD_CHAIN_LIGHTNING, currentPlayerIndex, targetX, targetY, 0, 0, 0, 0, "Chain Lightning");
+
+		pendingChainLightningTargetTile = targetTile;
+		pendingChainLightningRangeResult = startDiceRoll(playedCard.numDice, playedCard.diceSides, PURPOSE_RANGE, "Chain Lightning: Range", currentPlayerIndex);
+		isWaitingForChainLightningRange = true;
+		playedSuccessfully = true;
+		advanceCardState(CARD_STATE_DICE);
+		return true;
+	}
+
 	case CARD_SMITE: {
-		// === NEW STATE SYSTEM ===
-		// Target an adjacent unit and deal 5 holy damage
 		int targetIndex = -1;
 		for (size_t i = 0; i < players.size(); i++) {
 			if (players[i].x == targetX && players[i].y == targetY) {
@@ -19250,48 +19607,10 @@ CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 				advanceCardState(CARD_STATE_OUTCOME);
 			}
 		}
-		break;
+		return true;
 	}
 
-		// --- CASE: SHOOT ARROW ---
-	case CARD_SHOOT_ARROW: {
-		// Line-of-sight ranged attack (range = 2 * 20 = 40 ft). Choose target first (handled by click), then roll 1d6 piercing.
-		glm::vec2 casterTile = { (float)currentPlayer.x, (float)currentPlayer.y };
-		glm::vec2 targetTile = { (float)targetX, (float)targetY };
-		float maxRange = 2.0f * 20.0f; // 2d20 ft
-
-		TargetInfo validationResult = isLosTargetValid(casterTile, targetTile, maxRange, playedCard.type);
-		if (validationResult.reason != VALID) break;
-
-		// Must target a unit tile
-		int targetIndex = -1;
-		// Allow (-1,-1) to represent "self" when sent from remote client
-		if (targetX == -1 && targetY == -1) {
-			targetIndex = currentPlayerIndex;
-		} else {
-			for (size_t i = 0; i < players.size(); i++) {
-				if (players[i].x == targetX && players[i].y == targetY) {
-					targetIndex = (int)i;
-					break;
-				}
-			}
-		}
-		if (targetIndex == -1) break;
-
-		// Start hit roll first (2d20) to determine if arrow reaches target
-		if (isMultiplayer && isHost()) sendCardActionBegin(CARD_SHOOT_ARROW, currentPlayerIndex, targetX, targetY, 0, 0, 0, 0, "Shoot Arrow");
-		pendingShootArrowHitResult = startDiceRoll(2, 20, PURPOSE_RANGE, "Shoot Arrow: Range", currentPlayerIndex);
-		isWaitingForShootArrow = true;
-		pendingShootArrowTargetTile = targetTile;
-		pendingShootArrowTargetIndex = targetIndex;
-		playedSuccessfully = true;
-		advanceCardState(CARD_STATE_DICE);
-		break;
-	}
-
-	// --- CASE: MIND THEFT ---
 	case CARD_MIND_THEFT: {
-		// === NEW STATE SYSTEM ===
 		int targetIndex = -1;
 		for (size_t i = 0; i < players.size(); i++) {
 			if (players[i].x == targetX && players[i].y == targetY) {
@@ -19301,7 +19620,6 @@ CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		}
 
 		Player * targetPlayer = getPlayer(targetIndex);
-
 		if (targetPlayer && !targetPlayer->deck.empty()) {
 			Card stolenCard = targetPlayer->deck.back();
 			targetPlayer->deck.pop_back();
@@ -19319,123 +19637,9 @@ CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 			playedSuccessfully = true;
 			advanceCardState(CARD_STATE_OUTCOME);
 		}
-		break;
+		return true;
 	}
 
-	// --- CASE: AMNESIA ---
-	case CARD_AMNESIA: {
-		int targetIndex = -1;
-		// ADD THIS OVERRIDE FOR SELF-TARGETING
-		if (targetX == -1 && targetY == -1) {
-			targetIndex = currentPlayerIndex;
-		} else {
-			for (size_t i = 0; i < players.size(); i++) {
-				if (players[i].x == targetX && players[i].y == targetY) {
-					targetIndex = (int)i;
-					break;
-				}
-			}
-		}
-		if (targetIndex == -1) break;
-
-		Player * targetP = getPlayer(targetIndex);
-		if (targetP->deck.empty()) break;
-
-		amnesiaTargetPlayerIndex = targetIndex;
-
-		if (isMultiplayer && isHost()) sendCardActionBegin(CARD_AMNESIA, currentPlayerIndex, targetX, targetY, 0, 0, 0, 0, "Amnesia");
-		pendingAmnesiaRollResult = startDiceRoll(playedCard.numDice, playedCard.diceSides, PURPOSE_DEBUG, "Amnesia: Cards to Remove", currentPlayerIndex);
-		isWaitingForAmnesiaDice = true;
-		// Record which playerID should be allowed to choose removals (caster)
-		{
-			Player & caster = players[currentPlayerIndex];
-			amnesiaChooserPlayerID = caster.isMinion ? caster.ownerID : caster.playerID;
-		}
-		playedSuccessfully = true;
-		advanceCardState(CARD_STATE_DICE);
-		// Ensure AP is synced to player struct for UI
-		updatePlayerAP(players[currentPlayerIndex], currentAP);
-		return CARD_PLAYED_IMMEDIATELY; // We've already handled cleanup above
-	}
-
-	// --- CASE: MAGIC BLAST (Confirming fix from previous step) ---
-	case CARD_MAGIC_BLAST: {
-		glm::vec2 casterTile = { (float)currentPlayer.x, (float)currentPlayer.y };
-		glm::vec2 targetTile = { (float)targetX, (float)targetY };
-
-		// FIX: Range is numDice * diceSides (e.g. 1 * 20 = 20ft)
-		float maxRange = (float)(playedCard.numDice * playedCard.diceSides);
-
-		TargetInfo validationResult = isLosTargetValid(casterTile, targetTile, maxRange, playedCard.type);
-
-		if (validationResult.reason != VALID) break;
-
-		// Validation: Must hit a unit directly, or target an empty tile only if it is adjacent to a unit
-		bool validTarget = false;
-		if (board[targetX][targetY].hasPlayer) {
-			validTarget = true; // Directly targeting a unit
-		} else {
-			// Only allow targeting empty tiles that are adjacent to a unit
-			glm::vec2 neighbors[4] = { { targetX + 1, targetY }, { targetX - 1, targetY }, { targetX, targetY + 1 }, { targetX, targetY - 1 } };
-			for (const auto & n : neighbors) {
-				if (n.x >= 0 && n.x < BOARD_WIDTH && n.y >= 0 && n.y < BOARD_HEIGHT && board[(int)n.x][(int)n.y].hasPlayer) {
-					validTarget = true;
-					break;
-				}
-			}
-		}
-		if (!validTarget) break;
-
-		pendingMagicBlastRollResult = startDiceRoll(playedCard.numDice, playedCard.diceSides, PURPOSE_RANGE, "Magic Blast: Range Check");
-
-		isWaitingForMagicBlastDice = true;
-		pendingMagicBlastTargetTile = targetTile;
-		playedSuccessfully = true;
-		advanceCardState(CARD_STATE_DICE);
-		break;
-	}
-
-		// --- CASE: FIREBALL (Confirming fix from previous step) ---
-	case CARD_FIREBALL: {
-		glm::vec2 casterTile = { (float)currentPlayer.x, (float)currentPlayer.y };
-		glm::vec2 targetTile = { (float)targetX, (float)targetY };
-
-		// FIX: Range is numDice * diceSides (e.g. 2 * 6 = 12ft)
-		float maxRange = (float)(playedCard.numDice * playedCard.diceSides);
-
-		TargetInfo validationResult = isLosTargetValid(casterTile, targetTile, maxRange, playedCard.type);
-
-		if (validationResult.reason != VALID || !board[targetX][targetY].hasPlayer) break;
-
-		pendingFireballRangeResult = startDiceRoll(playedCard.numDice, playedCard.diceSides, PURPOSE_RANGE, "Fireball: Range Check");
-		isWaitingForFireballRangeDice = true;
-		pendingFireballTargetTile = targetTile;
-		playedSuccessfully = true;
-		advanceCardState(CARD_STATE_DICE);
-		break;
-	}
-
-	// --- CASE: CHAIN LIGHTNING ---
-	case CARD_CHAIN_LIGHTNING: {
-		glm::vec2 casterTile = { (float)currentPlayer.x, (float)currentPlayer.y };
-		glm::vec2 targetTile = { (float)targetX, (float)targetY };
-
-		// Range roll to determine chain reach (numDice * diceSides interpreted by roll)
-		TargetInfo validationResult = isLosTargetValid(casterTile, targetTile, 9999.0f, playedCard.type);
-		if (validationResult.reason != VALID) break;
-
-		// Notify clients (host authoritative) that chain lightning action begins
-		if (isMultiplayer && isHost()) sendCardActionBegin(CARD_CHAIN_LIGHTNING, currentPlayerIndex, targetX, targetY, 0, 0, 0, 0, "Chain Lightning");
-
-		pendingChainLightningTargetTile = targetTile;
-		pendingChainLightningRangeResult = startDiceRoll(playedCard.numDice, playedCard.diceSides, PURPOSE_RANGE, "Chain Lightning: Range", currentPlayerIndex);
-		isWaitingForChainLightningRange = true;
-		playedSuccessfully = true;
-		advanceCardState(CARD_STATE_DICE);
-		break;
-	}
-
-	// --- CASE: ROCK CRUSH ---
 	case CARD_ROCK_CRUSH: {
 		if (board[targetX][targetY].hasWall) {
 			board[targetX][targetY].hasWall = false;
@@ -19453,9 +19657,7 @@ CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 				}
 			}
 			if (targetIndex != -1) {
-
 				pendingAttackRollResult = startDiceRoll(playedCard.numDice, playedCard.diceSides, PURPOSE_DAMAGE, "Rock Crush: Damage", currentPlayerIndex);
-
 				isWaitingForAttackDice = true;
 				pendingAttackDamageType = playedCard.damageType;
 				pendingAttackTargetIndices.clear();
@@ -19463,178 +19665,31 @@ CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 				playedSuccessfully = true;
 			}
 		}
-		break;
+		return true;
 	}
 
-	// --- CASE: DEMOLITION ---
-	case CARD_DEMOLITION: {
-		// === NEW STATE SYSTEM ===
-		// Only allow targeted adjacent walls (player must click an adjacent tile)
-		int manhattan = abs(targetX - currentPlayer.x) + abs(targetY - currentPlayer.y);
-		if (manhattan != 1) break;
-		if (board[targetX][targetY].hasWall) {
-			board[targetX][targetY].hasWall = false;
-			buildLevelMesh();
-			// Grant +6 AP next turn
-			currentPlayer.nextTurnAPBonus += 6;
-			currentCardOutcome.apGained = 6; // Next turn
-			spawnFloatingText(gridToWorld(currentPlayer.x, currentPlayer.y), "+6 AP Next Turn", ofColor::yellow);
-			playedSuccessfully = true;
-			advanceCardState(CARD_STATE_OUTCOME);
-		}
-		break;
-	}
-
-	// --- CASE: DISPEL ---
-	case CARD_DISPEL: {
-		// === NEW STATE SYSTEM ===
-		pendingDispelCardIndex = cardIndex;
-		isDispelMenuOpen = true;
-		advanceCardState(CARD_STATE_MENU);
-
-		// 1. Setup Panel Geometry (Standardized Size)
-		float w = 600, h = 300;
-		float x = ofGetWidth() / 2 - w / 2, y = ofGetHeight() / 2 - h / 2;
-		dispelMenuRect.set(x, y, w, h);
-
-		// 2. Setup Button Geometry (Centered, wider buttons)
-		float btnWidth = 260; // Wider to fit "Non-Phys Barrier"
-		float btnHeight = 80;
-		float spacing = 30;
-
-		// Calculate X to center the group of buttons
-		float totalBtnWidth = (btnWidth * 2) + spacing;
-		float startX = x + (w - totalBtnWidth) / 2;
-		float btnY = y + 130;
-
-		dispelBtnBarrier.set(startX, btnY, btnWidth, btnHeight);
-		dispelBtnPurge.set(startX + btnWidth + spacing, btnY, btnWidth, btnHeight);
-		playedSuccessfully = true;
-		return CARD_AWAITING_MENU_CHOICE;
-	}
-	// --- CASE: TELEPORT (Now handled via drag -> dice roll -> targeting) ---
-	case CARD_TELEPORT: {
-		// Teleport is now initiated from mouseReleased, not playCard
-		// This case should not be reached in normal gameplay
-		break;
-	}
-	// --- CASE: HASTEN ---
-	case CARD_HASTEN: {
-		// === NEW STATE SYSTEM ===
-		currentPlayer.nextTurnD10AP = true;
-		currentPlayer.nextTurnExtraDraw = true;
-		spawnFloatingText(gridToWorld(currentPlayer.x, currentPlayer.y), "Hastened!", ofColor::cyan);
-		playedSuccessfully = true;
-		advanceCardState(CARD_STATE_OUTCOME);
-		break;
-	}
-
-	// --- CASE: REPLICATE ---
-	case CARD_REPLICATE: {
-		// === NEW STATE SYSTEM ===
-		currentPlayer.isReplicatePending = true;
-		spawnFloatingText(gridToWorld(currentPlayer.x, currentPlayer.y), "Next Card Copied!", ofColor::purple);
-		playedSuccessfully = true;
-		advanceCardState(CARD_STATE_OUTCOME);
-		break;
-	}
-
-	// --- CASE: WISDOM BOON ---
-	case CARD_WISDOM_BOON: {
-		int targetIndex = -1;
-		for (size_t i = 0; i < players.size(); i++) {
-			if (players[i].x == targetX && players[i].y == targetY) {
-				targetIndex = (int)i;
-				break;
-			}
-		}
-		if (targetIndex == -1) break;
-
-		Player * t = getPlayer(targetIndex);
-		bool isSelf = (targetIndex == currentPlayerIndex);
-		bool isAdjacent = (abs(t->x - currentPlayer.x) + abs(t->y - currentPlayer.y) == 1);
-
-		if (!isSelf && !isAdjacent) break;
-
-		// === NEW STATE SYSTEM ===
-		currentCardOutcome.targetPlayerIndex = targetIndex;
-		pendingWisdomBoonCardIndex = cardIndex;
-		pendingWisdomBoonTargetIndex = targetIndex;
-		isWisdomBoonMenuOpen = true;
-		advanceCardState(CARD_STATE_MENU);
-		sendMenuState(1, targetIndex, -1, cardIndex); // Notify opponent
-		// Menu geometry
-		float w = 600, h = 300;
-		float x = ofGetWidth() / 2 - w / 2, y = ofGetHeight() / 2 - h / 2;
-		wisdomMenuRect.set(x, y, w, h);
-		wisdomBtnDamage.set(x + (w - 300) / 2, y + 150, 300, 80);
-		wisdomBtnBlock.set(0, 0, 0, 0);
-		playedSuccessfully = true;
-		return CARD_AWAITING_MENU_CHOICE;
-	}
-
-		// --- CASE: HEAL ---
-	case CARD_HEAL: {
-		glm::vec2 casterTile = { (float)currentPlayer.x, (float)currentPlayer.y };
-		glm::vec2 targetTile = { (float)targetX, (float)targetY };
-
-		// FIX: Heal has infinite range (Line of Sight only)
-		float maxRange = 9999.0f;
-
-		// This function will still fail if there is a Wall blocking the view
-		TargetInfo validationResult = isLosTargetValid(casterTile, targetTile, maxRange, playedCard.type);
-
-		// Allow self-targeting for heal cards
-		if (validationResult.reason != VALID && validationResult.reason != INVALID_SELF) break;
-
-		// Find Target Unit
-		int targetIndex = -1;
-		for (size_t i = 0; i < players.size(); i++) {
-			if (players[i].x == targetX && players[i].y == targetY) {
-				targetIndex = (int)i;
-				break;
-			}
-		}
-		if (targetIndex == -1) break;
-
-		// Apply
-		pendingHealTargetIndex = targetIndex;
-
-		// Roll for Amount (Not Range)
-		pendingHealRollResult = startDiceRoll(playedCard.numDice, playedCard.diceSides, PURPOSE_HEALING, "Heal: HP Amount");
-
-		isWaitingForHealDice = true;
-		playedSuccessfully = true;
-		advanceCardState(CARD_STATE_DICE);
-		break;
-	}
-
-	// --- CASE: ETHEREAL JOLT ---
 	case CARD_ETHEREAL_JOLT: {
 		glm::vec2 targetTile = { (float)targetX, (float)targetY };
 		glm::vec2 casterTile = { (float)currentPlayer.x, (float)currentPlayer.y };
-
-		// FIX: Range is numDice * diceSides (e.g. 1 * 20 = 20ft)
 		float maxRange = (float)(playedCard.numDice * playedCard.diceSides);
 
-		// Validation Check (Reduces red error messages if you click too far)
-		// Pass the card type so it knows to ignore walls for LOS
 		TargetInfo validationResult = isLosTargetValid(casterTile, targetTile, maxRange, playedCard.type);
-
-		if (validationResult.reason != VALID) break;
+		if (validationResult.reason != VALID) return true;
 
 		pendingJoltRangeResult = startDiceRoll(playedCard.numDice, playedCard.diceSides, PURPOSE_RANGE, "Ethereal Jolt: Range Check");
-
 		isWaitingForJoltRangeDice = true;
 		pendingJoltTargetTile = targetTile;
 		playedSuccessfully = true;
 		advanceCardState(CARD_STATE_DICE);
-		break;
+		return true;
 	}
 
-	// --- CASE: FLAME HIT ---
-	case CARD_FLAME_HIT: {
-		// === NEW STATE SYSTEM ===
+	case CARD_DEATH: {
+		glm::vec2 casterTile = { (float)currentPlayer.x, (float)currentPlayer.y };
+		glm::vec2 targetTile = { (float)targetX, (float)targetY };
+		TargetInfo validationResult = isLosTargetValid(casterTile, targetTile, 9999.0f, playedCard.type);
+		if (validationResult.reason != VALID) return true;
+
 		int targetIndex = -1;
 		for (size_t i = 0; i < players.size(); i++) {
 			if (players[i].x == targetX && players[i].y == targetY) {
@@ -19642,7 +19697,98 @@ CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 				break;
 			}
 		}
-		if (targetIndex == -1) break;
+		if (targetIndex == -1) return true;
+
+		Player * target = getPlayer(targetIndex);
+		pendingDeathTargetIndex = targetIndex;
+
+		if (target->sleepTurnsRemaining > 0) {
+			spawnFloatingText(gridToWorld(target->x, target->y), "Nightmare!", ofColor::darkRed);
+
+			DeathMarker death;
+			death.x = target->x;
+			death.y = target->y;
+			death.turnDied = globalTurnCounter;
+			death.deck = target->deck;
+			graveyard.push_back(death);
+			board[target->x][target->y].hasPlayer = false;
+			target->x = -1000;
+			target->health = 0;
+
+			currentCardOutcome.targetPlayerIndex = targetIndex;
+			currentCardOutcome.statusesApplied.push_back("Instant Death");
+			playedSuccessfully = true;
+			advanceCardState(CARD_STATE_OUTCOME);
+		} else {
+			if (isMultiplayer && isHost()) sendCardActionBegin(CARD_DEATH, currentPlayerIndex, targetX, targetY, 0, 0, 0, 0, "Death Check");
+			pendingDeathRollResult = startDiceRoll(1, 20, PURPOSE_DEATH_CHECK, "Death Check", currentPlayerIndex);
+			isWaitingForDeathDice = true;
+			playedSuccessfully = true;
+			advanceCardState(CARD_STATE_DICE);
+		}
+		return true;
+	}
+
+	case CARD_SHIELD_BASH: {
+		int targetIndex = -1;
+		for (size_t i = 0; i < players.size(); i++) {
+			if (players[i].x == targetX && players[i].y == targetY) {
+				targetIndex = (int)i;
+				break;
+			}
+		}
+
+		if (targetIndex != -1) {
+			Player * target = getPlayer(targetIndex);
+
+			int totalBlock = currentPlayer.block + currentPlayer.barrier + currentPlayer.ward + currentPlayer.holyBlock + currentPlayer.fortification;
+
+			bool applyPoisonBuff = currentPlayer.nextAttackAddPoison;
+			if (applyPoisonBuff) {
+				currentPlayer.nextAttackAddPoison = false;
+			}
+
+			if (totalBlock > 0) {
+				ofLogNotice("Shield Bash") << "Converting " << totalBlock << " total block into damage.";
+				applyDamageTo(*target, totalBlock, DAMAGE_PHYSICAL, currentPlayerIndex);
+
+				if (applyPoisonBuff) {
+					target->isPoisoned = true;
+					target->poisonReduction = 0;
+					glm::vec3 tPos = gridToWorld(target->x, target->y);
+					spawnFloatingText(tPos + glm::vec3(0, 0.5f, 0), "Poisoned!", ofColor::green);
+					pendingPoisonTargetIndices.clear();
+					pendingPoisonTargetIndices.push_back(players[targetIndex].playerID);
+					pendingPoisonAttackRollResult = startDiceRoll(1, 6, PURPOSE_DAMAGE, "Poison Damage", currentPlayerIndex);
+					isWaitingForPoisonAttackDice = true;
+				}
+			} else {
+				spawnFloatingText(gridToWorld(target->x, target->y), "0 Damage", ofColor::gray);
+			}
+
+			currentPlayer.block = 0;
+			currentPlayer.barrier = 0;
+			currentPlayer.ward = 0;
+			currentPlayer.holyBlock = 0;
+			currentPlayer.fortification = 0;
+
+			spawnFloatingText(gridToWorld(currentPlayer.x, currentPlayer.y), "Shields Broken!", ofColor::yellow);
+
+			playedSuccessfully = true;
+			advanceCardState(CARD_STATE_OUTCOME);
+		}
+		return true;
+	}
+
+	case CARD_FLAME_HIT: {
+		int targetIndex = -1;
+		for (size_t i = 0; i < players.size(); i++) {
+			if (players[i].x == targetX && players[i].y == targetY) {
+				targetIndex = (int)i;
+				break;
+			}
+		}
+		if (targetIndex == -1) return true;
 
 		Player * target = getPlayer(targetIndex);
 		bool healthHit = applyDamageTo(*target, playedCard.value, DAMAGE_FIRE, currentPlayerIndex);
@@ -19654,12 +19800,680 @@ CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		currentCardOutcome.damageDealt = playedCard.value;
 		playedSuccessfully = true;
 		advanceCardState(CARD_STATE_OUTCOME);
-		break;
+		return true;
 	}
 
-	// --- CASE: RAISE DEAD ---
+	case CARD_DRAIN_PUNCH: {
+		int targetIndex = -1;
+		for (size_t i = 0; i < players.size(); i++) {
+			if (players[i].x == targetX && players[i].y == targetY) {
+				targetIndex = (int)i;
+				break;
+			}
+		}
+
+		if (targetIndex != -1) {
+			Player * target = getPlayer(targetIndex);
+			int damage = playedCard.value;
+
+			for (const auto & c : currentPlayer.playedCardsPile) {
+				if (c.name == "Punch" || c.name == "Bash" || c.name == "Drain Punch" || c.name == "Master Fist" || c.name == "Flurry of Fists" || c.name == "Giant Magic Hand") {
+					damage += 2;
+				}
+			}
+
+			if (currentPlayer.flurryOfFistsActive) {
+				damage *= 2;
+			}
+
+			bool applyPoisonBuff = currentPlayer.nextAttackAddPoison;
+			if (applyPoisonBuff) {
+				currentPlayer.nextAttackAddPoison = false;
+			}
+
+			int hpBefore = target->health;
+			applyDamageTo(*target, damage, DAMAGE_PHYSICAL, currentPlayerIndex);
+
+			if (applyPoisonBuff) {
+				target->isPoisoned = true;
+				target->poisonReduction = 0;
+				glm::vec3 tPos = gridToWorld(target->x, target->y);
+				spawnFloatingText(tPos + glm::vec3(0, 0.5f, 0), "Poisoned!", ofColor::green);
+				pendingPoisonTargetIndices.clear();
+				pendingPoisonTargetIndices.push_back(players[targetIndex].playerID);
+				pendingPoisonAttackRollResult = startDiceRoll(1, 6, PURPOSE_DAMAGE, "Poison Damage", currentPlayerIndex);
+				isWaitingForPoisonAttackDice = true;
+			}
+
+			int hpAfter = target->health;
+			int actualDamageDealt = hpBefore - hpAfter;
+
+			if (actualDamageDealt > 0) {
+				currentPlayer.health += actualDamageDealt;
+				if (currentPlayer.health > currentPlayer.maxHealth) {
+					currentPlayer.health = currentPlayer.maxHealth;
+				}
+
+				spawnFloatingText(gridToWorld(currentPlayer.x, currentPlayer.y), "+" + ofToString(actualDamageDealt) + " HP", ofColor::green);
+				ofLogNotice("Drain Punch") << "Healed player for " << actualDamageDealt;
+			}
+
+			playedSuccessfully = true;
+			advanceCardState(CARD_STATE_OUTCOME);
+		}
+		return true;
+	}
+
+	case CARD_VAMPIRE_BITE: {
+		int targetIndex = -1;
+		for (size_t i = 0; i < players.size(); i++) {
+			if (players[i].x == targetX && players[i].y == targetY) {
+				targetIndex = (int)i;
+				break;
+			}
+		}
+
+		if (targetIndex != -1) {
+			Player * target = getPlayer(targetIndex);
+
+			bool healthHit = applyDamageTo(*target, playedCard.value, DAMAGE_PHYSICAL, currentPlayerIndex);
+			currentCardOutcome.targetPlayerIndex = targetIndex;
+			currentCardOutcome.damageDealt = playedCard.value;
+
+			if (healthHit) {
+				currentPlayer.health += 2;
+				if (currentPlayer.health > currentPlayer.maxHealth) currentPlayer.health = currentPlayer.maxHealth;
+				currentCardOutcome.healingDealt = 2;
+				spawnFloatingText(gridToWorld(currentPlayer.x, currentPlayer.y), "+2 HP", ofColor::green);
+
+				Card cardToAdd;
+				bool found = false;
+				for (const auto & c : allCards) {
+					if (c.type == CARD_VAMPIRE_BITE) {
+						cardToAdd = c;
+						found = true;
+						break;
+					}
+				}
+
+				if (found) {
+					target->deck.push_back(cardToAdd);
+					shuffleGameVector(target->deck, targetIndex);
+					spawnFloatingText(gridToWorld(target->x, target->y), "Shuffled 1x Vampire Bite", ofColor::magenta);
+					ofLogNotice("Vampire Bite") << "Shuffled a Vampire Bite into Player " << target->playerID << "'s deck.";
+				}
+			}
+
+			playedSuccessfully = true;
+			advanceCardState(CARD_STATE_OUTCOME);
+		}
+		return true;
+	}
+
+	case CARD_DOUBLE_HANDED: {
+		int targetIndex = -1;
+		for (size_t i = 0; i < players.size(); i++) {
+			if (players[i].x == targetX && players[i].y == targetY) {
+				targetIndex = (int)i;
+				break;
+			}
+		}
+
+		if (targetIndex == -1) return true;
+
+		pendingDoubleHandedCardIndex = cardIndex;
+		pendingDoubleHandedTargetIndex = targetIndex;
+		isDoubleHandedMenuOpen = true;
+		currentCardOutcome.targetPlayerIndex = targetIndex;
+		advanceCardState(CARD_STATE_MENU);
+		sendMenuState(3, targetIndex, -1, cardIndex);
+
+		float w = 500, h = 250;
+		float x = ofGetWidth() / 2 - w / 2, y = ofGetHeight() / 2 - h / 2;
+		doubleHandedMenuRect.set(x, y, w, h);
+
+		float btnW = 200, btnH = 80;
+		float spacing = 40;
+		btnAddPunches.set(x + (w - (btnW * 2 + spacing)) / 2, y + 120, btnW, btnH);
+		btnAddBlocks.set(btnAddPunches.getRight() + spacing, y + 120, btnW, btnH);
+
+		playedSuccessfully = true;
+		immediateResult = CARD_AWAITING_MENU_CHOICE;
+		return true;
+	}
+
+	case CARD_GIANT_MAGIC_HAND: {
+		if (!board[targetX][targetY].hasWall) return true;
+
+		pendingMagicHandCardIndex = cardIndex;
+		magicHandTargetTile = { targetX, targetY };
+		isMagicHandMenuOpen = true;
+		advanceCardState(CARD_STATE_MENU);
+
+		float w = 500, h = 250;
+		float mx = ofGetWidth() / 2 - w / 2, my = ofGetHeight() / 2 - h / 2;
+		wisdomMenuRect.set(mx, my, w, h);
+
+		playedSuccessfully = true;
+		immediateResult = CARD_AWAITING_MENU_CHOICE;
+		return true;
+	}
+
+	case CARD_FORTIFY: {
+		if (!board[targetX][targetY].hasWall) return true;
+
+		std::vector<glm::ivec2> stack;
+		std::set<std::pair<int, int>> visited;
+		stack.push_back({ targetX, targetY });
+
+		int linkedCount = 0;
+		while (!stack.empty()) {
+			glm::ivec2 cur = stack.back();
+			stack.pop_back();
+			int wx = cur.x, wy = cur.y;
+			std::pair<int, int> key = { wx, wy };
+			if (visited.count(key)) continue;
+			if (wx < 0 || wx >= BOARD_WIDTH || wy < 0 || wy >= BOARD_HEIGHT) continue;
+			if (!board[wx][wy].hasWall) continue;
+			visited.insert(key);
+			linkedCount++;
+			for (int dx = -1; dx <= 1; ++dx) {
+				for (int dy = -1; dy <= 1; ++dy) {
+					if (dx == 0 && dy == 0) continue;
+					stack.push_back({ wx + dx, wy + dy });
+				}
+			}
+		}
+
+		currentPlayer.fortification += linkedCount;
+		spawnFloatingText(gridToWorld(currentPlayer.x, currentPlayer.y), "+" + ofToString(linkedCount) + " Fortify", ofColor::lightGray);
+		ofLogNotice("Fortify") << "Player " << currentPlayer.playerID << " gained " << linkedCount << " fortification.";
+
+		std::set<int> damagedIndices;
+		for (const auto & p : visited) {
+			int wx = p.first, wy = p.second;
+			const int ortho[4][2] = { { 1, 0 }, { -1, 0 }, { 0, 1 }, { 0, -1 } };
+			for (int d = 0; d < 4; ++d) {
+				int ux = wx + ortho[d][0], uy = wy + ortho[d][1];
+				if (ux < 0 || ux >= BOARD_WIDTH || uy < 0 || uy >= BOARD_HEIGHT) continue;
+				for (size_t i = 0; i < players.size(); i++) {
+					if (players[i].x == ux && players[i].y == uy) {
+						if (players[i].playerID == currentPlayer.playerID) continue;
+						damagedIndices.insert((int)i);
+					}
+				}
+			}
+		}
+
+		for (int idx : damagedIndices) {
+			Player * target = getPlayer(idx);
+			if (target) {
+				applyDamageTo(*target, 3, DAMAGE_PHYSICAL, currentPlayerIndex);
+			}
+		}
+
+		playedSuccessfully = true;
+		advanceCardState(CARD_STATE_OUTCOME);
+		return true;
+	}
+
+	case CARD_FLURRY_OF_FISTS: {
+		int targetIndex = -1;
+		for (size_t i = 0; i < players.size(); i++) {
+			if (players[i].x == targetX && players[i].y == targetY) {
+				targetIndex = (int)i;
+				break;
+			}
+		}
+		if (targetIndex == -1) return true;
+
+		Player * target = getPlayer(targetIndex);
+
+		int damage = currentPlayer.flurryOfFistsActive ? 4 : 2;
+		applyDamageTo(*target, damage, DAMAGE_PHYSICAL, currentPlayerIndex);
+
+		currentPlayer.flurryOfFistsActive = true;
+		spawnFloatingText(gridToWorld(currentPlayer.x, currentPlayer.y), "Flurry!", ofColor::orange);
+
+		if (!currentPlayer.deck.empty()) {
+			Card drawnCard = currentPlayer.deck.back();
+			currentPlayer.deck.pop_back();
+
+			bool isHandRelated = (drawnCard.name == "Punch" || drawnCard.name == "Hand Block" || drawnCard.name == "Bash" || drawnCard.name == "Drain Punch" || drawnCard.name == "Double Handed" || drawnCard.name == "Master Fist" || drawnCard.name == "Flurry of Fists" || drawnCard.name == "Giant Magic Hand");
+
+			if (isHandRelated) {
+				drawnCard.cost = 0;
+				spawnFloatingText(gridToWorld(currentPlayer.x, currentPlayer.y) + glm::vec3(0, 0.5f, 0),
+					drawnCard.name + " (0 AP)!", ofColor::yellow);
+			}
+
+			currentPlayer.hand.push_back(drawnCard);
+			currentPlayer.hand.back().currentScale = 1.5f;
+			currentPlayer.hand.back().targetScale = 1.5f;
+
+			DrawCardAnimation anim;
+			anim.card = drawnCard;
+			anim.startTime = ofGetElapsedTimef();
+			anim.duration = 0.5f;
+			anim.ownerIndex = currentPlayerIndex;
+			anim.toMinionHand = currentPlayer.isMinion;
+			anim.startIsScreenSpace = false;
+			anim.startPos = gridToWorld(currentPlayer.x, currentPlayer.y) + glm::vec3(0, 1.5f, 0);
+			anim.targetPos = glm::vec2(ofGetWidth() / 2.0f, ofGetHeight() / 2.0f);
+			anim.currentPos = glm::vec2(anim.startPos.x, anim.startPos.y);
+			anim.currentScale = 1.0f;
+			anim.commitOnFinish = false;
+			activeDrawCardAnimations.push_back(anim);
+
+			ofLogNotice("Flurry of Fists") << "Drew " << drawnCard.name << (isHandRelated ? " (free this turn)" : "");
+		} else if (!currentPlayer.discardPile.empty()) {
+			currentPlayer.deck = currentPlayer.discardPile;
+			currentPlayer.discardPile.clear();
+			shuffleGameVector(currentPlayer.deck, currentPlayerIndex);
+			Card drawnCard = currentPlayer.deck.back();
+			currentPlayer.deck.pop_back();
+
+			bool isHandRelated = (drawnCard.name == "Punch" || drawnCard.name == "Hand Block" || drawnCard.name == "Bash" || drawnCard.name == "Drain Punch" || drawnCard.name == "Double Handed" || drawnCard.name == "Master Fist" || drawnCard.name == "Flurry of Fists" || drawnCard.name == "Giant Magic Hand");
+
+			if (isHandRelated) {
+				drawnCard.cost = 0;
+				spawnFloatingText(gridToWorld(currentPlayer.x, currentPlayer.y) + glm::vec3(0, 0.5f, 0),
+					drawnCard.name + " (0 AP)!", ofColor::yellow);
+			}
+
+			currentPlayer.hand.push_back(drawnCard);
+			currentPlayer.hand.back().currentScale = 1.5f;
+			currentPlayer.hand.back().targetScale = 1.5f;
+
+			DrawCardAnimation anim2;
+			anim2.card = drawnCard;
+			anim2.startTime = ofGetElapsedTimef();
+			anim2.duration = 0.5f;
+			anim2.ownerIndex = currentPlayerIndex;
+			anim2.toMinionHand = currentPlayer.isMinion;
+			anim2.startIsScreenSpace = false;
+			anim2.startPos = gridToWorld(currentPlayer.x, currentPlayer.y) + glm::vec3(0, 1.5f, 0);
+			anim2.targetPos = glm::vec2(ofGetWidth() / 2.0f, ofGetHeight() / 2.0f);
+			anim2.currentPos = glm::vec2(anim2.startPos.x, anim2.startPos.y);
+			anim2.currentScale = 1.0f;
+			anim2.commitOnFinish = false;
+			activeDrawCardAnimations.push_back(anim2);
+		}
+
+		playedSuccessfully = true;
+		advanceCardState(CARD_STATE_OUTCOME);
+		return true;
+	}
+
+	case CARD_MASTER_FIST: {
+		int targetIndex = -1;
+		for (size_t i = 0; i < players.size(); i++) {
+			if (players[i].x == targetX && players[i].y == targetY) {
+				targetIndex = (int)i;
+				break;
+			}
+		}
+
+		if (targetIndex != -1) {
+			Player * target = getPlayer(targetIndex);
+
+			int damage = 0;
+			int handCardsInDiscard = 0;
+			std::vector<std::string> handAttackNames = { "Punch", "Bash", "Drain Punch", "Master Fist", "Flurry of Fists", "Giant Magic Hand" };
+
+			for (const auto & cardInPile : currentPlayer.discardPile) {
+				for (const auto & name : handAttackNames) {
+					if (cardInPile.name == name) {
+						handCardsInDiscard++;
+						break;
+					}
+				}
+			}
+
+			damage = (handCardsInDiscard * 2);
+			ofLogNotice("Master Fist") << "Found " << handCardsInDiscard << " hand cards in discard. Total damage: " << damage;
+
+			if (currentPlayer.flurryOfFistsActive) {
+				damage *= 2;
+				ofLogNotice("Master Fist") << "Flurry doubled damage to: " << damage;
+			}
+
+			bool applyPoisonBuff = currentPlayer.nextAttackAddPoison;
+			if (applyPoisonBuff) {
+				currentPlayer.nextAttackAddPoison = false;
+			}
+
+			if (damage > 0) {
+				applyDamageTo(*target, damage, DAMAGE_PHYSICAL, currentPlayerIndex);
+			} else {
+				spawnFloatingText(gridToWorld(target->x, target->y), "0 Damage (Empty Discard)", ofColor::gray);
+			}
+
+			if (applyPoisonBuff) {
+				target->isPoisoned = true;
+				target->poisonReduction = 0;
+				glm::vec3 tPos = gridToWorld(target->x, target->y);
+				spawnFloatingText(tPos + glm::vec3(0, 0.5f, 0), "Poisoned!", ofColor::green);
+				pendingPoisonTargetIndices.clear();
+				pendingPoisonTargetIndices.push_back(players[targetIndex].playerID);
+				pendingPoisonAttackRollResult = startDiceRoll(1, 6, PURPOSE_DAMAGE, "Poison Damage");
+				isWaitingForPoisonAttackDice = true;
+			}
+
+			if (!target->deck.empty()) {
+				Card removedCard = target->deck.back();
+				target->deck.pop_back();
+
+				RemovedCardAnimation anim;
+				anim.card = removedCard;
+				anim.startPos = glm::vec2(getActiveCamera().worldToScreen(gridToWorld(target->x, target->y)));
+				anim.startTime = ofGetElapsedTimef();
+				anim.currentScale = 1.0f;
+				activeRemovedCardAnimations.push_back(anim);
+
+				spawnFloatingText(gridToWorld(target->x, target->y) + glm::vec3(0, 1.0f, 0), "Milled!", ofColor::purple);
+			}
+		}
+
+		currentPlayer.luck++;
+		spawnFloatingText(gridToWorld(currentPlayer.x, currentPlayer.y), "+1 LUCK!", ofColor::gold);
+
+		currentPlayer.maxHealth++;
+		spawnFloatingText(gridToWorld(currentPlayer.x, currentPlayer.y), "+1 Max HP!", ofColor::limeGreen);
+
+		playedSuccessfully = true;
+		advanceCardState(CARD_STATE_OUTCOME);
+		return true;
+	}
+
+	case CARD_CONSUME_LARGE_HEALTH_POTION: {
+		currentPlayer.maxHealth += 3;
+		spawnFloatingText(gridToWorld(currentPlayer.x, currentPlayer.y), "+3 Max HP", ofColor::limeGreen);
+
+		if (currentPlayer.health < currentPlayer.maxHealth) {
+			currentPlayer.health += 1;
+			currentCardOutcome.healingDealt = 1;
+			spawnFloatingText(gridToWorld(currentPlayer.x, currentPlayer.y) + glm::vec3(0, 0.5f, 0), "+1 HP", ofColor::green);
+		}
+
+		ofLogNotice("Potion") << "Player " << currentPlayer.playerID << " consumed large potion.";
+		playedSuccessfully = true;
+		advanceCardState(CARD_STATE_OUTCOME);
+		return true;
+	}
+
+	case CARD_GAIN_AP:
+		currentAP += playedCard.value;
+		currentCardOutcome.apGained = playedCard.value;
+		spawnFloatingText(gridToWorld(currentPlayer.x, currentPlayer.y), "+" + ofToString(playedCard.value) + " AP", ofColor::yellow);
+		playedSuccessfully = true;
+		advanceCardState(CARD_STATE_OUTCOME);
+		return true;
+
+	case CARD_GAIN_BLOCK: {
+		int blockValue = playedCard.value;
+		if (playedCard.name == "Hand Block" && currentPlayer.flurryOfFistsActive) {
+			blockValue *= 2;
+		}
+		players[currentPlayerIndex].block += blockValue;
+		currentCardOutcome.blockGained = blockValue;
+		spawnFloatingText(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y), "+" + ofToString(blockValue) + " Block", ofColor::gray);
+		playedSuccessfully = true;
+		advanceCardState(CARD_STATE_OUTCOME);
+		return true;
+	}
+
+	case CARD_GAIN_WARD:
+		players[currentPlayerIndex].ward += playedCard.value;
+		spawnFloatingText(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y), "+" + ofToString(playedCard.value) + " Ward", ofColor::black);
+		playedSuccessfully = true;
+		advanceCardState(CARD_STATE_OUTCOME);
+		return true;
+
+	case CARD_AMNESIA: {
+		int targetIndex = -1;
+		// Allow self-targeting
+		if (targetX == -1 && targetY == -1) {
+			targetIndex = currentPlayerIndex;
+		} else {
+			for (size_t i = 0; i < players.size(); i++) {
+				if (players[i].x == targetX && players[i].y == targetY) {
+					targetIndex = (int)i;
+					break;
+				}
+			}
+		}
+		if (targetIndex == -1) return true;
+
+		Player * targetP = getPlayer(targetIndex);
+		if (targetP->deck.empty()) return true;
+
+		amnesiaTargetPlayerIndex = targetIndex;
+
+		if (isMultiplayer && isHost()) sendCardActionBegin(CARD_AMNESIA, currentPlayerIndex, targetX, targetY, 0, 0, 0, 0, "Amnesia");
+		pendingAmnesiaRollResult = startDiceRoll(playedCard.numDice, playedCard.diceSides, PURPOSE_DEBUG, "Amnesia: Cards to Remove", currentPlayerIndex);
+		isWaitingForAmnesiaDice = true;
+		// Record which playerID should be allowed to choose removals (caster)
+		{
+			Player & caster = players[currentPlayerIndex];
+			amnesiaChooserPlayerID = caster.isMinion ? caster.ownerID : caster.playerID;
+		}
+		playedSuccessfully = true;
+		advanceCardState(CARD_STATE_DICE);
+		// Ensure AP is synced to player struct for UI
+		updatePlayerAP(players[currentPlayerIndex], currentAP);
+		immediateResult = CARD_PLAYED_IMMEDIATELY;
+		return true;
+	}
+
+	case CARD_RENEWED_INSPIRATION: {
+		// 0. Prevent playing if there are no other cards to discard
+		int availableDiscardable = (int)currentPlayer.hand.size() - 1; // exclude the Renewed Inspiration being played
+		if (currentPlayer.isReplicatePending) availableDiscardable += 1; // replicate will add a copy
+		if (availableDiscardable <= 0) {
+			spawnFloatingText(gridToWorld(currentPlayer.x, currentPlayer.y), "Not enough cards to discard", ofColor::gray);
+			immediateResult = CARD_NOT_PLAYABLE;
+			return true;
+		}
+
+		// 1. Pay Cost
+		currentAP -= playedCard.cost;
+
+		// 2. Handle Replicate (BEFORE removing original from hand)
+		// If Replicate is active, we create a copy and animate it from board center to hand
+		if (currentPlayer.isReplicatePending) {
+			Card copy = playedCard; // Copy data
+			copy.isCopied = true; // Mark as copied (Essential for eligibility)
+
+			// Create animation from board center to hand
+			DrawCardAnimation anim;
+			anim.card = copy;
+			anim.startTime = ofGetElapsedTimef();
+			anim.duration = 0.36f;
+			anim.ownerIndex = currentPlayerIndex;
+			anim.toMinionHand = false;
+
+			// Start from board center
+			glm::vec3 boardCenter = gridToWorld(3, 3); // Center of the board
+			anim.startPos = boardCenter;
+			anim.startIsScreenSpace = false;
+			anim.currentPos = glm::vec2(boardCenter.x, boardCenter.y);
+
+			// Calculate target hand position (using new hand size after adding this card)
+			size_t numCards = currentPlayer.hand.size() + 1;
+			float handCenterY = ofGetHeight() - 130;
+			float handBaseCardWidth = 120;
+			int cardsToFit = std::max(5, (int)numCards);
+			float handAreaWidth = ofGetWidth() * 0.6f;
+			float totalCardWidths = cardsToFit * handBaseCardWidth;
+			float padding = (cardsToFit > 1) ? (handAreaWidth - totalCardWidths) / (cardsToFit - 1) : 0;
+			padding = std::min(padding, 20.0f);
+			float totalHandWidth = (cardsToFit * handBaseCardWidth) + ((cardsToFit - 1) * padding);
+			float startX = (ofGetWidth() - totalHandWidth) / 2.0f;
+			float cardCenterX = startX + (numCards - 1) * (handBaseCardWidth + padding) + (handBaseCardWidth / 2.0f);
+			anim.targetPos = glm::vec2(cardCenterX, handCenterY);
+			anim.endPos = anim.startPos;
+
+			anim.currentScale = 1.0f;
+			anim.commitOnFinish = true; // This will add the card to hand when animation completes
+			activeDrawCardAnimations.push_back(anim);
+
+			currentPlayer.isReplicatePending = false;
+			spawnFloatingText(gridToWorld(currentPlayer.x, currentPlayer.y), "Replicated!", ofColor::cyan);
+		}
+
+		// 3. Move Original to Played Pile
+		currentPlayer.playedCardsPile.push_back(playedCard);
+		currentPlayer.cardsPlayedThisTurn.push_back(playedCard.type);
+
+		// 4. Remove Original from Hand (Using iterator to be safe)
+		if (cardIndex >= 0 && cardIndex < (int)currentPlayer.hand.size()) {
+			currentPlayer.hand.erase(currentPlayer.hand.begin() + cardIndex);
+		}
+
+		// 5. Multiplayer: notify host of the card play so AP and played-pile stay authoritative
+		if (isMultiplayer) {
+			updatePlayerAP(players[currentPlayerIndex], currentAP);
+		}
+
+		// 6. Enter Selection Mode
+		isSelectingRenewedInspiration = true;
+		renewedSelectedHandIndices.clear();
+
+		// 6. Setup UI Buttons
+		float cx = ofGetWidth() / 2.0f;
+		float cy = ofGetHeight() - 450.0f;
+		if (currentPlayer.playerID == 1) cy = 350.0f;
+
+		riConfirmBtn.set(cx - 110, cy, 100, 50);
+		riCancelBtn.set(cx + 10, cy, 100, 50);
+
+		// 7. Visuals & prevent auto-cleanup
+		invalidateTargetCache();
+		immediateResult = CARD_AWAITING_MENU_CHOICE;
+		return true;
+	}
+
+	case CARD_EARTHQUAKE: {
+		ofLogNotice("Earthquake") << "CARD_EARTHQUAKE triggered by playerIndex=" << currentPlayerIndex << " playerID=" << currentPlayer.playerID;
+		// Multiplayer clients should NOT start the earthquake locally. Host is authoritative.
+		if (isMultiplayer && !isHost()) {
+			ofLogNotice("Earthquake") << "Client played Earthquake: deferring to host (waiting for EarthquakeBegin)";
+			// Consume AP and remove card locally for responsive UI, but wait for host to start earthquake
+			currentAP -= playedCard.cost;
+			currentPlayer.playedCardsPile.push_back(playedCard);
+			currentPlayer.cardsPlayedThisTurn.push_back(playedCard.type);
+			currentPlayer.hand.erase(currentPlayer.hand.begin() + cardIndex);
+			players[currentPlayerIndex].ap = currentAP;
+			isWaitingForEarthquakeBegin = true;
+			immediateResult = CARD_PLAYED_IMMEDIATELY;
+			return true;
+		}
+
+		// Host: Initialize Earthquake System and broadcast directions before rolling
+		// 2. Pay Cost & Cleanup Hand
+		currentAP -= playedCard.cost;
+		currentPlayer.playedCardsPile.push_back(playedCard);
+		// (Handle Replicate logic here if you want)
+		currentPlayer.cardsPlayedThisTurn.push_back(playedCard.type);
+		currentPlayer.hand.erase(currentPlayer.hand.begin() + cardIndex);
+
+		// 2. Initialize Earthquake System
+		isEarthquakeActive = true;
+		isEarthquakeDiceRolling = true;
+		isEarthquakeAnimatingStep = false;
+		earthquakeUnits.clear();
+
+		// 3. Setup Units (choose directions) - distances will be filled after dice arrive
+		for (int i = 0; i < (int)players.size(); ++i) {
+			EarthquakeState state;
+			state.playerIndex = i;
+			state.startGrid = { players[i].x, players[i].y };
+			state.visualPos = gridToWorld(players[i].x, players[i].y);
+			state.isMoving = true;
+			state.crashed = false;
+			state.tilesToMove = 0;
+			state.originalDistance = 0;
+
+			// Random Direction (N, E, S, W)
+			int r = getGameRandom(0, 3);
+			if (r == 0)
+				state.direction = { 0, 1 }; // South
+			else if (r == 1)
+				state.direction = { 0, -1 }; // North
+			else if (r == 2)
+				state.direction = { 1, 0 }; // East
+			else
+				state.direction = { -1, 0 }; // West
+
+			state.diceIndex = -1;
+			earthquakeUnits.push_back(state);
+		}
+
+		// Broadcast EarthquakeBegin so clients can set up directions identically
+		if (isMultiplayer && isHost()) {
+			EarthquakeBeginPacket eb = {};
+			eb.type = PKT_EARTHQUAKE_BEGIN;
+			eb.playerID = myLocalPlayerID;
+			eb.numUnits = (int32_t)earthquakeUnits.size();
+			for (int i = 0; i < (int)earthquakeUnits.size() && i < 16; ++i) {
+				eb.playerIndex[i] = earthquakeUnits[i].playerIndex;
+				eb.dirX[i] = (int8_t)earthquakeUnits[i].direction.x;
+				eb.dirY[i] = (int8_t)earthquakeUnits[i].direction.y;
+			}
+			steamManager.sendPacket(&eb, sizeof(eb));
+			ofLogNotice("Network") << "Host sent EarthquakeBegin with " << eb.numUnits << " units";
+		}
+
+		// 4. Roll Dice now (host performs dice and will send DiceRollPacket(s))
+		for (int i = 0; i < (int)earthquakeUnits.size(); ++i) {
+			// FIX: Pass the unit's index so the die is mapped to them, not the caster!
+			startDiceRoll(1, 4, PURPOSE_EARTHQUAKE_DISTANCE, "Quake Dist", earthquakeUnits[i].playerIndex);
+		}
+		ofLogNotice("Earthquake") << "Host started earthquake dice for " << earthquakeUnits.size() << " units";
+
+		immediateResult = CARD_PLAYED_IMMEDIATELY;
+		return true;
+	}
+
+	case CARD_CREATE_WALL: {
+		Tile & tile = board[targetX][targetY];
+		if (playedCard.name == "Summon Magic Wall") {
+			// Do not allow turning an already-magic wall into a magic wall again
+			if (tile.hasWall && tile.isMagicWall) {
+				spawnFloatingText(gridToWorld(targetX, targetY), "Already Magic Wall", ofColor::red);
+				return true;
+			}
+			if (!tile.hasWall && !tile.hasPlayer) {
+				tile.hasWall = true;
+				tile.isMagicWall = true;
+				buildLevelMesh();
+				invalidateTargetCache();
+				currentCardOutcome.wallsCreated.push_back({ targetX, targetY });
+				playedSuccessfully = true;
+				advanceCardState(CARD_STATE_OUTCOME);
+			} else if (tile.hasWall) {
+				tile.isMagicWall = true;
+				buildLevelMesh();
+				invalidateTargetCache();
+				playedSuccessfully = true;
+				advanceCardState(CARD_STATE_OUTCOME);
+			}
+		} else {
+			if (!tile.hasWall && !tile.hasPlayer) {
+				tile.hasWall = true;
+				buildLevelMesh();
+				invalidateTargetCache();
+				currentCardOutcome.wallsCreated.push_back({ targetX, targetY });
+				playedSuccessfully = true;
+				advanceCardState(CARD_STATE_OUTCOME);
+			}
+		}
+		return true;
+	}
+
 	case CARD_RAISE_DEAD: {
-		if (board[targetX][targetY].hasWall || board[targetX][targetY].hasPlayer) break;
+		if (board[targetX][targetY].hasWall || board[targetX][targetY].hasPlayer) return true;
 
 		// In multiplayer, the Host is authoritative for placement; clients still
 		// run the local visual/cleanup path and wait for the Host packet to finalize.
@@ -19677,7 +20491,7 @@ CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		// --- CRASH PREVENTION FIX ---
 		// Perform cleanup NOW before the players vector potentially changes
 		ofLogNotice("Summon") << "RAISE_DEAD: Hand size BEFORE erase = " << currentPlayer.hand.size();
-		currentAP -= costToPay;
+		currentAP -= playedCard.cost;
 		currentPlayer.playedCardsPile.push_back(playedCard);
 
 		// Show played card animation (right side, no scale-up)
@@ -19697,10 +20511,164 @@ CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		currentPlayer.hand.erase(currentPlayer.hand.begin() + cardIndex);
 		completeCardPlayAnimation(playedCard, currentPlayerIndex);
 		updatePlayerAP(currentPlayer, currentAP);
-		return CARD_PLAYED_IMMEDIATELY;
+		immediateResult = CARD_PLAYED_IMMEDIATELY;
+		return true;
 	}
 
-	// --- CASE: SUMMON KOBOLD KING ---
+	case CARD_FORM_OF_TORTOISE: {
+		// Cannot enter form if already in form
+		if (currentPlayer.inTortoiseForm) {
+			ofLogNotice("Form of Tortoise") << "Already in tortoise form!";
+			return true;
+		}
+
+		// 1. Store original model type for later restoration
+		if (currentPlayer.isMagicWallUnit)
+			currentPlayer.originalModelType = "magic_wall_unit";
+		else if (currentPlayer.isWallUnit)
+			currentPlayer.originalModelType = "wall_unit";
+		else if (currentPlayer.isKoboldKing)
+			currentPlayer.originalModelType = "kobold_king";
+		else if (currentPlayer.isAssistant)
+			currentPlayer.originalModelType = "assistant";
+		else if (currentPlayer.isFaerie)
+			currentPlayer.originalModelType = "faerie";
+		else if (currentPlayer.isSkeleton)
+			currentPlayer.originalModelType = "skeleton";
+		else if (currentPlayer.isGolem)
+			currentPlayer.originalModelType = "golem";
+		else if (currentPlayer.isWolf)
+			currentPlayer.originalModelType = "wolf";
+		else if (currentPlayer.isHellhound)
+			currentPlayer.originalModelType = "hellhound";
+		else if (currentPlayer.isKobold)
+			currentPlayer.originalModelType = "kobold";
+		else if (currentPlayer.isDemon)
+			currentPlayer.originalModelType = "demon";
+		else
+			currentPlayer.originalModelType = "player";
+
+		// 2. Activate tortoise form
+		currentPlayer.inTortoiseForm = true;
+		currentPlayer.tortoiseDamageTaken = 0;
+		currentPlayer.tortoiseFormCard = playedCard;
+
+		// 3. +5 max HP
+		currentPlayer.maxHealth += 5;
+		spawnFloatingText(gridToWorld(currentPlayer.x, currentPlayer.y), "+5 Max HP!", ofColor::limeGreen);
+
+		// 4. Heal 5 HP
+		int healAmount = std::min(5, currentPlayer.maxHealth - currentPlayer.health);
+		currentPlayer.health += healAmount;
+		if (healAmount > 0) {
+			spawnFloatingText(gridToWorld(currentPlayer.x, currentPlayer.y) + glm::vec3(0, 0.3f, 0),
+				"+" + ofToString(healAmount) + " HP", ofColor::green);
+		}
+
+		// 5. Shuffle 2x Dispel into deck
+		Card dispelCard;
+		bool foundDispel = false;
+		for (const auto & c : allCards) {
+			if (c.type == CARD_DISPEL) {
+				dispelCard = c;
+				foundDispel = true;
+				break;
+			}
+		}
+		if (foundDispel) {
+			currentPlayer.deck.push_back(dispelCard);
+			currentPlayer.deck.push_back(dispelCard);
+			shuffleGameVector(currentPlayer.deck, currentPlayerIndex);
+		}
+
+		// 6. Visuals
+		spawnFloatingText(gridToWorld(currentPlayer.x, currentPlayer.y) + glm::vec3(0, 0.8f, 0), "TORTOISE FORM!", ofColor::yellow);
+		ofLogNotice("Form of Tortoise") << "Player " << currentPlayer.playerID << " entered tortoise form.";
+
+		// 7. Handle "Keep in Play" (Do not add to played pile, just remove from hand)
+		if (isMultiplayer && isHost()) sendCardActionBegin(CARD_FORM_OF_TORTOISE, currentPlayerIndex, -1, -1, 0, 0, 0, 0, "Form of Tortoise");
+
+		currentAP -= playedCard.cost;
+		if (cardIndex >= 0 && cardIndex < (int)currentPlayer.hand.size()) {
+			currentPlayer.hand.erase(currentPlayer.hand.begin() + cardIndex);
+		}
+		completeCardPlayAnimation(playedCard, currentPlayerIndex);
+		invalidateTargetCache();
+
+		// Track play history
+		currentPlayer.cardsPlayedThisTurn.push_back(playedCard.type);
+
+		updatePlayerAP(currentPlayer, currentAP);
+		immediateResult = CARD_PLAYED_IMMEDIATELY;
+		return true;
+	}
+
+	case CARD_FORM_OF_GHOST: {
+		if (currentPlayer.inGhostForm) {
+			ofLogNotice("Form of Ghost") << "Already in ghost form!";
+			return true;
+		}
+
+		// 1. Store original model type for later restoration
+		if (currentPlayer.isMagicWallUnit)
+			currentPlayer.originalModelType = "magic_wall_unit";
+		else if (currentPlayer.isWallUnit)
+			currentPlayer.originalModelType = "wall_unit";
+		else if (currentPlayer.isKoboldKing)
+			currentPlayer.originalModelType = "kobold_king";
+		else if (currentPlayer.isAssistant)
+			currentPlayer.originalModelType = "assistant";
+		else if (currentPlayer.isFaerie)
+			currentPlayer.originalModelType = "faerie";
+		else if (currentPlayer.isSkeleton)
+			currentPlayer.originalModelType = "skeleton";
+		else if (currentPlayer.isGolem)
+			currentPlayer.originalModelType = "golem";
+		else if (currentPlayer.isWolf)
+			currentPlayer.originalModelType = "wolf";
+		else if (currentPlayer.isHellhound)
+			currentPlayer.originalModelType = "hellhound";
+		else if (currentPlayer.isKobold)
+			currentPlayer.originalModelType = "kobold";
+		else if (currentPlayer.isDemon)
+			currentPlayer.originalModelType = "demon";
+		else
+			currentPlayer.originalModelType = "player";
+
+		// 2. Activate Form
+		currentPlayer.inGhostForm = true;
+		currentPlayer.ghostDamageTaken = 0;
+		currentPlayer.ghostFormCard = playedCard;
+
+		// 3. Grant Regeneration (if not already active)
+		if (!currentPlayer.hasRegeneration) {
+			currentPlayer.hasRegeneration = true;
+			spawnFloatingText(gridToWorld(currentPlayer.x, currentPlayer.y), "Regeneration Gained", ofColor::green);
+		}
+
+		// 4. Visuals
+		spawnFloatingText(gridToWorld(currentPlayer.x, currentPlayer.y) + glm::vec3(0, 1.0f, 0), "GHOST FORM!", ofColor::white);
+		ofLogNotice("Form of Ghost") << "Player " << currentPlayer.playerID << " entered ghost form.";
+
+		// 5. Handle "Keep in Play" (Do not add to played pile, just remove from hand)
+		// Notify clients that a form is being entered (host authoritative)
+		if (isMultiplayer && isHost()) sendCardActionBegin(CARD_FORM_OF_GHOST, currentPlayerIndex, -1, -1, 0, 0, 0, 0, "Form of Ghost");
+
+		currentAP -= playedCard.cost;
+		if (cardIndex >= 0 && cardIndex < (int)currentPlayer.hand.size()) {
+			currentPlayer.hand.erase(currentPlayer.hand.begin() + cardIndex);
+		}
+		completeCardPlayAnimation(playedCard, currentPlayerIndex);
+		invalidateTargetCache();
+
+		// Track play history
+		currentPlayer.cardsPlayedThisTurn.push_back(playedCard.type);
+
+		updatePlayerAP(currentPlayer, currentAP);
+		immediateResult = CARD_PLAYED_IMMEDIATELY;
+		return true;
+	}
+
 	case CARD_SUMMON_KOBOLD_KING: {
 		// Validation: Must be empty adjacent tile
 		if (board[targetX][targetY].hasWall || board[targetX][targetY].hasPlayer) break;
@@ -19760,7 +20728,7 @@ CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 
 		int myID = currentPlayer.playerID; // Save ID to find index later
 
-		currentAP -= costToPay;
+		currentAP -= playedCard.cost;
 		currentPlayer.playedCardsPile.push_back(playedCard);
 
 		// Show played card animation (right side, no scale-up)
@@ -19813,10 +20781,10 @@ CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		updatePlayerAP(players[currentPlayerIndex], currentAP);
 
 		checkKeyPickupAndDraftAfterSummon(minion.x, minion.y, minion.ownerID);
-		return CARD_PLAYED_IMMEDIATELY; // Cleanup handled manually above
+		immediateResult = CARD_PLAYED_IMMEDIATELY; // Cleanup handled manually above
+		return true;
 	}
 
-	// --- CASE: SUMMON ASSISTANT ---
 	case CARD_SUMMON_ASSISTANT: {
 		if (board[targetX][targetY].hasWall || board[targetX][targetY].hasPlayer) break;
 
@@ -19856,7 +20824,7 @@ CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 
 		// 4. Cleanup & Add
 		int myID = currentPlayer.playerID;
-		currentAP -= costToPay;
+		currentAP -= playedCard.cost;
 		currentPlayer.playedCardsPile.push_back(playedCard);
 
 		// Show played card animation (right side, no scale-up)
@@ -19916,10 +20884,10 @@ CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		updatePlayerAP(players[currentPlayerIndex], currentAP);
 
 		checkKeyPickupAndDraftAfterSummon(minion.x, minion.y, minion.ownerID);
-		return CARD_PLAYED_IMMEDIATELY;
+		immediateResult = CARD_PLAYED_IMMEDIATELY;
+		return true;
 	}
 
-	// --- CASE: SUMMON FAERIE ---
 	case CARD_SUMMON_FAERIE: {
 		if (board[targetX][targetY].hasWall || board[targetX][targetY].hasPlayer) break;
 
@@ -19966,7 +20934,7 @@ CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 
 		// 4. Cleanup & Add
 		int myID = currentPlayer.playerID;
-		currentAP -= costToPay;
+		currentAP -= playedCard.cost;
 		currentPlayer.playedCardsPile.push_back(playedCard);
 		applyReplicateCopyToHand(currentPlayer, playedCard);
 		currentPlayer.cardsPlayedThisTurn.push_back(playedCard.type);
@@ -20015,37 +20983,10 @@ CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		updatePlayerAP(players[currentPlayerIndex], currentAP);
 
 		checkKeyPickupAndDraftAfterSummon(minion.x, minion.y, minion.ownerID);
-		return CARD_PLAYED_IMMEDIATELY;
+		immediateResult = CARD_PLAYED_IMMEDIATELY;
+		return true;
 	}
 
-	// --- CASE: FULL RESTORE ---
-	case CARD_FULL_RESTORE: {
-		// === NEW STATE SYSTEM ===
-		// Target is Self
-		Player & target = currentPlayer; // Since targeting is TARGET_SELF
-
-		// 1. Heal to Max
-		int healAmount = target.maxHealth - target.health;
-		target.health = target.maxHealth;
-		currentCardOutcome.healingDealt = healAmount;
-
-		// 2. Remove Status Effects
-		target.onFire = false;
-		target.isPoisoned = false;
-		target.poisonReduction = 0;
-		target.isParalyzed = false;
-		target.paralysisHeadsCount = 0;
-		target.sleepTurnsRemaining = 0;
-
-		spawnFloatingText(gridToWorld(target.x, target.y), "Fully Restored!", ofColor::gold);
-		ofLogNotice("Full Restore") << "Unit " << target.playerID << " healed to " << target.maxHealth << " and cured.";
-
-		playedSuccessfully = true;
-		advanceCardState(CARD_STATE_OUTCOME);
-		break;
-	}
-
-	// --- CASE: SUMMON GOLEM ---
 	case CARD_SUMMON_GOLEM: {
 		// 1. Validation
 		if (board[targetX][targetY].hasWall || board[targetX][targetY].hasPlayer) break;
@@ -20148,9 +21089,8 @@ CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 
 		// --- CRASH FIX START ---
 		int myID = currentPlayer.playerID;
-		(void)myID; // unused
 
-		currentAP -= costToPay;
+		currentAP -= playedCard.cost;
 		currentPlayer.playedCardsPile.push_back(playedCard);
 		applyReplicateCopyToHand(currentPlayer, playedCard);
 		currentPlayer.cardsPlayedThisTurn.push_back(playedCard.type); // Track history
@@ -20201,10 +21141,10 @@ CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		}
 
 		checkKeyPickupAndDraftAfterSummon(minion.x, minion.y, minion.ownerID);
-		return CARD_PLAYED_IMMEDIATELY;
+		immediateResult = CARD_PLAYED_IMMEDIATELY;
+		return true;
 	}
 
-		// --- CASE: TRANSFORM WALL ---
 	case CARD_TRANSFORM_WALL: {
 		// Debug: log attempted transform target and wall state
 		ofLogNotice("Transform") << "Attempting Transform Wall at (" << targetX << "," << targetY << ") hasWall=" << (board[targetX][targetY].hasWall ? "true" : "false");
@@ -20294,8 +21234,7 @@ CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		// --- CRASH FIX START ---
 		// We MUST erase the card and handle AP *before* we push_back to the players vector!
 		int myID = currentPlayer.playerID;
-		(void)myID; // unused
-		currentAP -= costToPay;
+		currentAP -= playedCard.cost;
 		currentPlayer.playedCardsPile.push_back(playedCard);
 		applyReplicateCopyToHand(currentPlayer, playedCard);
 		currentPlayer.hand.erase(currentPlayer.hand.begin() + cardIndex);
@@ -20345,10 +21284,10 @@ CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		updatePlayerAP(players[currentPlayerIndex], currentAP);
 
 		checkKeyPickupAndDraftAfterSummon(minion.x, minion.y, minion.ownerID);
-		return CARD_PLAYED_IMMEDIATELY;
+		immediateResult = CARD_PLAYED_IMMEDIATELY;
+		return true;
 	}
 
-	// --- CASE: CALL FOR WOLVES ---
 	case CARD_CALL_FOR_WOLVES: {
 		// 1. Check for valid adjacent space BEFORE playing
 		bool hasSpace = false;
@@ -20376,7 +21315,7 @@ CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		// run the local visual/cleanup path and wait for the Host packet to finalize.
 
 		// 2. Pay Cost & Cleanup Hand
-		currentAP -= costToPay;
+		currentAP -= playedCard.cost;
 		finishPlayCard(currentPlayer, playedCard, cardIndex);
 
 		// 3. Setup State for Wolf #1
@@ -20389,10 +21328,10 @@ CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 
 		invalidateTargetCache();
 		updatePlayerAP(players[currentPlayerIndex], currentAP);
-		return CARD_PLAYED_IMMEDIATELY; // Cleanup handled manually
+		immediateResult = CARD_PLAYED_IMMEDIATELY; // Cleanup handled manually
+		return true;
 	}
 
-		// --- CASE: CALL FOR KOBOLDS ---
 	case CARD_CALL_FOR_KOBOLDS: {
 		// 1. Check for valid adjacent space BEFORE playing
 		bool hasSpace = false;
@@ -20420,7 +21359,7 @@ CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		// run the local visual/cleanup path and wait for the Host packet to finalize.
 
 		// 2. Pay Cost & Cleanup Hand
-		currentAP -= costToPay;
+		currentAP -= playedCard.cost;
 		finishPlayCard(currentPlayer, playedCard, cardIndex);
 
 		// 3. Setup State for Kobold roll and placement
@@ -20434,10 +21373,10 @@ CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 
 		invalidateTargetCache();
 		updatePlayerAP(players[currentPlayerIndex], currentAP);
-		return CARD_PLAYED_IMMEDIATELY; // Cleanup handled manually
+		immediateResult = CARD_PLAYED_IMMEDIATELY; // Cleanup handled manually
+		return true;
 	}
 
-		// --- CASE: SUMMON HELLHOUND ---
 	case CARD_SUMMON_HELLHOUND: {
 		if (board[targetX][targetY].hasWall || board[targetX][targetY].hasPlayer) break;
 
@@ -20459,16 +21398,16 @@ CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		isWaitingForHellhoundHP = true;
 
 		// Cleanup Logic
-		currentAP -= costToPay;
+		currentAP -= playedCard.cost;
 		finishPlayCard(currentPlayer, playedCard, cardIndex);
 		currentPlayer.cardsPlayedThisTurn.push_back(playedCard.type);
 		completeCardPlayAnimation(playedCard, currentPlayerIndex);
 
 		updatePlayerAP(currentPlayer, currentAP);
-		return CARD_PLAYED_IMMEDIATELY; // Prevent double cleanup
+		immediateResult = CARD_PLAYED_IMMEDIATELY; // Prevent double cleanup
+		return true;
 	}
 
-		// --- CASE: SUMMON DEMON ---
 	case CARD_SUMMON_DEMON: {
 		if (board[targetX][targetY].hasWall || board[targetX][targetY].hasPlayer) break;
 
@@ -20479,114 +21418,1315 @@ CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		isWaitingForDemonHP = true;
 
 		// Cleanup
-		currentAP -= costToPay;
+		currentAP -= playedCard.cost;
 		finishPlayCard(currentPlayer, playedCard, cardIndex);
 		currentPlayer.cardsPlayedThisTurn.push_back(playedCard.type);
 		completeCardPlayAnimation(playedCard, currentPlayerIndex);
 
 		updatePlayerAP(currentPlayer, currentAP);
-		return CARD_PLAYED_IMMEDIATELY;
+		immediateResult = CARD_PLAYED_IMMEDIATELY;
+		return true;
 	}
 
-		// --- CASE: DEATH ---
-	case CARD_DEATH: {
-		// Range Check (Infinite / LOS)
-		glm::vec2 casterTile = { (float)currentPlayer.x, (float)currentPlayer.y };
-		glm::vec2 targetTile = { (float)targetX, (float)targetY };
-		TargetInfo validationResult = isLosTargetValid(casterTile, targetTile, 9999.0f, playedCard.type);
+	default:
+		// Card not found in centralized handler - fall back to legacy switch
+		return false;
+	}
 
-		if (validationResult.reason != VALID) break;
+	// If we broke out of the switch (validation failed), return false to let legacy handle it
+	return false;
+}
 
-		// Find Target
-		int targetIndex = -1;
-		for (size_t i = 0; i < players.size(); i++) {
-			if (players[i].x == targetX && players[i].y == targetY) {
-				targetIndex = (int)i;
+//--------------------------------------------------------------
+CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
+	Player & currentPlayer = players[currentPlayerIndex];
+	if (cardIndex < 0 || cardIndex >= static_cast<int>(currentPlayer.hand.size())) return CARD_NOT_PLAYABLE;
+
+	Card playedCard = currentPlayer.hand[cardIndex];
+
+	// === INITIALIZE UNIFIED CARD OUTCOME ===
+	resetCardState();
+	currentCardOutcome.cardType = playedCard.type;
+	currentCardOutcome.cardIndex = cardIndex;
+	currentCardOutcome.casterIndex = currentPlayerIndex;
+	currentCardOutcome.primaryTarget = { targetX, targetY };
+	activeCardIndex = cardIndex;
+
+	// Determine effective cost (Kick may be free due to Sprint)
+	int costToPay = playedCard.cost;
+	if (playedCard.name == "Kick" && currentPlayer.freeKickTurns > 0) costToPay = 0;
+
+	// DEBUG: Unlimited AP mode
+	if (hasUnlimitedAP) {
+		currentAP = 999; // Set to max for debug testing
+	}
+
+	if (currentAP < costToPay) return CARD_NOT_PLAYABLE;
+
+	// Log card played
+	addGameLog(getPlayerSteamName(currentPlayerIndex) + " played " + playedCard.name);
+
+	// (Magic Wall handling moved into the CARD_CREATE_WALL switch-case below.)
+
+	// Damage handling moved to member helper `applyDamageTo` to allow reuse from other handlers.
+
+	bool playedSuccessfully = false;
+	CardPlayResult immediateResult = CARD_NOT_PLAYABLE;
+
+	// Incremental centralized execution path (first batch of stable cards)
+	if (executeCardByType(playedCard, cardIndex, targetX, targetY, playedSuccessfully, immediateResult)) {
+		if (immediateResult != CARD_NOT_PLAYABLE) {
+			return immediateResult;
+		}
+	}
+
+	// === CARD LOGIC SWITCH - Now populates CardOutcome instead of immediate effects ===
+	if (!playedSuccessfully) {
+		switch (playedCard.type) {
+
+		// --- CASE: FOUR-LEAF CLOVER ---
+		case CARD_FOUR_LEAF_CLOVER: {
+			// Simple immediate effect - no menu/targeting/dice needed
+			currentPlayer.baseLuck += 1;
+			currentPlayer.luck += 1;
+			spawnFloatingText(gridToWorld(currentPlayer.x, currentPlayer.y), "+1 Luck!", ofColor::green);
+			playedSuccessfully = true;
+			advanceCardState(CARD_STATE_OUTCOME); // Ready to send packet
+			break;
+		}
+
+			// --- CASE: BLOCKING BOON ---
+		case CARD_BLOCKING_BOON: {
+			// Prevent re-entry if a Blocking Boon is already resolving
+			if (blockingBoonActive) {
+				spawnFloatingText(gridToWorld(currentPlayer.x, currentPlayer.y), "Blocking Boon already resolving", ofColor::gray);
 				break;
 			}
+			// Allow playing without an adjacent target: target is optional for the Tails effect.
+			int targetIndex = -1;
+			for (size_t i = 0; i < players.size(); i++) {
+				if (players[i].x == targetX && players[i].y == targetY) {
+					targetIndex = (int)i;
+					break;
+				}
+			}
+			blockingBoonTargetIndex = targetIndex; // may be -1 (no target)
+
+			// 1. Physical Block -> Coins (resolve first)
+			// Note: `ward` counts toward BOTH physical and non-physical blocking.
+			// Also include `fortification` (from Fortify) as a physical/piercing block source.
+			int physBlock = currentPlayer.block + currentPlayer.fortification + currentPlayer.ward;
+			// Fortification reduces both physical and piercing damage; count it for non-physical resolution too
+			int nonPhys = currentPlayer.holyBlock + currentPlayer.barrier + currentPlayer.ward + currentPlayer.fortification;
+
+			if (physBlock > 0) {
+				ofLogNotice("Blocking Boon") << "Rolling " << physBlock << " coins for Physical Block (resolve first).";
+				// Start coin flips and track them; D20s will be queued until coins complete.
+				startDiceRoll(physBlock, 2, PURPOSE_BLOCKING_BOON_COIN, "Boon: Phys Flip", currentPlayerIndex);
+				isWaitingForBlockingBoonCoins = true;
+				pendingBlockingBoonCoinsRemaining = physBlock;
+				pendingBlockingBoonNonPhys = nonPhys; // roll these after coins finish
+				pendingBlockingBoonTotal = physBlock + nonPhys;
+				blockingBoonActive = true;
+				playedSuccessfully = true;
+			} else {
+				// No coins to flip, roll D20s immediately (if any)
+				if (nonPhys > 0) {
+					ofLogNotice("Blocking Boon") << "No physical block; Rolling " << nonPhys << " D20s for Non-Phys Block.";
+					startDiceRoll(nonPhys, 20, PURPOSE_BLOCKING_BOON_D20, "Boon: Magic Roll", currentPlayerIndex);
+					// Mark non-phys as already handled so coins finishing later won't re-roll them
+					pendingBlockingBoonNonPhys = 0;
+					pendingBlockingBoonTotal = nonPhys;
+					blockingBoonActive = true;
+					playedSuccessfully = true;
+				} else {
+					spawnFloatingText(gridToWorld(currentPlayer.x, currentPlayer.y), "No Block!", ofColor::gray);
+				}
+			}
+
+			break;
 		}
-		if (targetIndex == -1) break;
 
-		Player * target = getPlayer(targetIndex);
-		pendingDeathTargetIndex = targetIndex;
+		// --- CASE: CONSTITUTION BOON ---
+		case CARD_CONSTITUTION_BOON: {
+			// === NEW STATE SYSTEM ===
+			// When played, grants a chained draft based on the caster's max HP:
+			// 16-20 => Class 1, 21-25 => Class 2, 26-30 => Class 3, >30 => immediate win
+			int mh = currentPlayer.maxHealth;
+			int tier = 0;
+			if (mh >= 16 && mh <= 20)
+				tier = 1;
+			else if (mh >= 21 && mh <= 25)
+				tier = 2;
+			else if (mh >= 26 && mh <= 30)
+				tier = 3;
 
-		// 1. Check if already asleep -> INSTANT DEATH
-		if (target->sleepTurnsRemaining > 0) {
-			spawnFloatingText(gridToWorld(target->x, target->y), "Nightmare!", ofColor::darkRed);
+			if (mh > 30) {
+				// Win condition: show message and return to main menu
+				spawnFloatingText(gridToWorld(currentPlayer.x, currentPlayer.y), "You Win!", ofColor::gold);
+				ofLogNotice("Constitution Boon") << "Player " << currentPlayer.playerID << " triggered instant win via Constitution Boon.";
+				currentState = STATE_MAIN_MENU;
+				playedSuccessfully = true;
+				advanceCardState(CARD_STATE_OUTCOME);
+			} else if (tier > 0) {
+				pendingDraftQueue.push_back(tier);
+				spawnFloatingText(gridToWorld(currentPlayer.x, currentPlayer.y), "Draft Class " + ofToString(tier), ofColor::cyan);
+				ofLogNotice("Constitution Boon") << "Player " << currentPlayer.playerID << " queued draft Class " << tier;
+				playedSuccessfully = true;
+				advanceCardState(CARD_STATE_EFFECT); // Draft happens
+			} else {
+				spawnFloatingText(gridToWorld(currentPlayer.x, currentPlayer.y), "No Effect", ofColor::gray);
+			}
 
-			// Kill logic
-			DeathMarker death;
-			death.x = target->x;
-			death.y = target->y;
-			death.turnDied = globalTurnCounter;
-			death.deck = target->deck;
-			graveyard.push_back(death);
-			board[target->x][target->y].hasPlayer = false;
-			target->x = -1000;
-			target->health = 0;
+			break;
+		}
 
-			currentCardOutcome.targetPlayerIndex = targetIndex;
-			currentCardOutcome.statusesApplied.push_back("Instant Death");
+		// --- CASE: SPRINT ---
+		case CARD_SPRINT: {
+			// === NEW STATE SYSTEM ===
+			// Immediate +2 AP and +2 AP next turn. Also make Kick cost-free until end of next turn.
+			currentAP += 2;
+			currentPlayer.nextTurnAPBonus += 2;
+			currentPlayer.freeKickTurns = 2; // Current turn + next turn
+			currentCardOutcome.apGained = 2;
+			spawnFloatingText(gridToWorld(currentPlayer.x, currentPlayer.y), "+2 AP Now", ofColor::yellow);
+			spawnFloatingText(gridToWorld(currentPlayer.x, currentPlayer.y) + glm::vec3(0, 0.5f, 0), "+2 AP Next Turn", ofColor::yellow);
+			spawnFloatingText(gridToWorld(currentPlayer.x, currentPlayer.y) + glm::vec3(0, 1.0f, 0), "Kick is Free!", ofColor::cyan);
 			playedSuccessfully = true;
 			advanceCardState(CARD_STATE_OUTCOME);
+			break;
 		}
-		// 2. Otherwise -> Roll Death Check
-		else {
-			// Notify clients of the multi-stage Death card action
-			if (isMultiplayer && isHost()) sendCardActionBegin(CARD_DEATH, currentPlayerIndex, targetX, targetY, 0, 0, 0, 0, "Death Check");
-			// Roll 1d20
-			pendingDeathRollResult = startDiceRoll(1, 20, PURPOSE_DEATH_CHECK, "Death Check", currentPlayerIndex);
-			isWaitingForDeathDice = true;
+
+			// --- CASE: TRAIN ---
+		case CARD_TRAIN: {
+			// === NEW STATE SYSTEM ===
+			pendingTrainCardIndex = cardIndex;
+			isTrainMenuOpen = true;
+			advanceCardState(CARD_STATE_MENU);
+
+			// Setup UI Geometry
+			float w = 600, h = 300;
+			float x = ofGetWidth() / 2 - w / 2, y = ofGetHeight() / 2 - h / 2;
+			trainMenuRect.set(x, y, w, h);
+
+			// Button positioning handled in drawTrainMenuUI logic usually,
+			// but we define rects here for mouse detection consistency
+			float btnW = 260, btnH = 80, spacing = 30;
+			float startX = x + (w - (btnW * 2 + spacing)) / 2;
+			float btnY = y + 130;
+
+			trainBtnAP.set(startX, btnY, btnW, btnH);
+			trainBtnDraft.set(startX + btnW + spacing, btnY, btnW, btnH);
+
+			playedSuccessfully = true;
+			// Don't set playedSuccessfully yet; waiting for menu choice
+			return CARD_AWAITING_MENU_CHOICE;
+		}
+
+		// --- CASE: STUDY ---
+		case CARD_STUDY: {
+			// === NEW STATE SYSTEM ===
+			// 1. Apply "Draw Extra Card Next Turn"
+			// Track the current cycle so we can expire it if not used
+			currentPlayer.nextTurnExtraDraw = true;
+			currentPlayer.nextTurnExtraDrawSetOnCycle = globalTurnCounter;
+			spawnFloatingText(gridToWorld(currentPlayer.x, currentPlayer.y), "Studying...", ofColor::blue);
+
+			// 2. Trigger Draft (Class 2)
+			isInGameDraft = true;
+			draftPlayerIndex = currentPlayerIndex; // The current unit gets the card
+			generateDraftOptions(2); // Class 2
+			draftPicksRemaining = 1;
+			selectedDraftIndices.clear();
+			draftStage = 0; // Context reset
+
+			// 3. Switch State
+			currentState = STATE_DRAFTING;
+
+			playedSuccessfully = true;
+			advanceCardState(CARD_STATE_EFFECT); // Draft is the effect
+			break;
+		}
+
+		// --- CASE: BURST OF LIGHT ---
+		case CARD_BURST_OF_LIGHT: {
+			// === NEW STATE SYSTEM ===
+			// Open a small choice menu: Deal 3 Holy OR Heal 3 HP (Line of Sight)
+			// Determine target tile validity first (we allow any LOS target)
+			pendingBurstCardIndex = cardIndex;
+			isBurstMenuOpen = true;
+			advanceCardState(CARD_STATE_MENU);
+			sendMenuState(2, currentPlayerIndex, -1, cardIndex); // Notify opponent
+
+			// Menu geometry (similar to Wisdom Boon)
+			float w = 520, h = 260;
+			float x = ofGetWidth() / 2 - w / 2, y = ofGetHeight() / 2 - h / 2;
+			burstMenuRect.set(x, y, w, h);
+			float btnW = 300, btnH = 80;
+			burstBtnDamage.set(x + (w - btnW) / 2, y + 110, btnW, btnH);
+			burstBtnHeal.set(0, 0, 0, 0);
+			playedSuccessfully = true;
+			return CARD_AWAITING_MENU_CHOICE;
+		}
+
+		// --- CASE: SMITE ---
+		case CARD_SMITE: {
+			// === NEW STATE SYSTEM ===
+			// Target an adjacent unit and deal 5 holy damage
+			int targetIndex = -1;
+			for (size_t i = 0; i < players.size(); i++) {
+				if (players[i].x == targetX && players[i].y == targetY) {
+					targetIndex = (int)i;
+					break;
+				}
+			}
+			if (targetIndex != -1) {
+				Player * target = getPlayer(targetIndex);
+				if (target) {
+					int dmgDealt = applyDamageWithMitigations(*target, 5, DAMAGE_HOLY, currentPlayerIndex);
+					currentCardOutcome.damageDealt = dmgDealt;
+					currentCardOutcome.targetPlayerIndex = targetIndex;
+					playedSuccessfully = (dmgDealt > 0);
+					advanceCardState(CARD_STATE_OUTCOME);
+				}
+			}
+			break;
+		}
+
+			// --- CASE: SHOOT ARROW ---
+		case CARD_SHOOT_ARROW: {
+			// Line-of-sight ranged attack (range = 2 * 20 = 40 ft). Choose target first (handled by click), then roll 1d6 piercing.
+			glm::vec2 casterTile = { (float)currentPlayer.x, (float)currentPlayer.y };
+			glm::vec2 targetTile = { (float)targetX, (float)targetY };
+			float maxRange = 2.0f * 20.0f; // 2d20 ft
+
+			TargetInfo validationResult = isLosTargetValid(casterTile, targetTile, maxRange, playedCard.type);
+			if (validationResult.reason != VALID) break;
+
+			// Must target a unit tile
+			int targetIndex = -1;
+			// Allow (-1,-1) to represent "self" when sent from remote client
+			if (targetX == -1 && targetY == -1) {
+				targetIndex = currentPlayerIndex;
+			} else {
+				for (size_t i = 0; i < players.size(); i++) {
+					if (players[i].x == targetX && players[i].y == targetY) {
+						targetIndex = (int)i;
+						break;
+					}
+				}
+			}
+			if (targetIndex == -1) break;
+
+			// Start hit roll first (2d20) to determine if arrow reaches target
+			if (isMultiplayer && isHost()) sendCardActionBegin(CARD_SHOOT_ARROW, currentPlayerIndex, targetX, targetY, 0, 0, 0, 0, "Shoot Arrow");
+			pendingShootArrowHitResult = startDiceRoll(2, 20, PURPOSE_RANGE, "Shoot Arrow: Range", currentPlayerIndex);
+			isWaitingForShootArrow = true;
+			pendingShootArrowTargetTile = targetTile;
+			pendingShootArrowTargetIndex = targetIndex;
 			playedSuccessfully = true;
 			advanceCardState(CARD_STATE_DICE);
+			break;
 		}
-		break;
-	}
 
-	// --- CASE: STRENGTHEN ELEMENTS ---
-	case CARD_STRENGTHEN_ELEMENTS: {
-		// === NEW STATE SYSTEM ===
-		// Set duration to 3 (Current Turn + Next 2 Turns)
-		currentPlayer.strengthenElementsTurnsRemaining = 3;
-
-		spawnFloatingText(gridToWorld(currentPlayer.x, currentPlayer.y), "Elemental Flow!", ofColor::orange);
-		ofLogNotice("Game") << "Player " << currentPlayer.playerID << " strengthened elements for 3 turns.";
-
-		playedSuccessfully = true;
-		advanceCardState(CARD_STATE_OUTCOME);
-		break;
-	}
-
-		// --- CASE: SHIELD BASH ---
-	case CARD_SHIELD_BASH: {
-		int targetIndex = -1;
-		for (size_t i = 0; i < players.size(); i++) {
-			if (players[i].x == targetX && players[i].y == targetY) {
-				targetIndex = (int)i;
-				break;
+		// --- CASE: MIND THEFT ---
+		case CARD_MIND_THEFT: {
+			// === NEW STATE SYSTEM ===
+			int targetIndex = -1;
+			for (size_t i = 0; i < players.size(); i++) {
+				if (players[i].x == targetX && players[i].y == targetY) {
+					targetIndex = (int)i;
+					break;
+				}
 			}
+
+			Player * targetPlayer = getPlayer(targetIndex);
+
+			if (targetPlayer && !targetPlayer->deck.empty()) {
+				Card stolenCard = targetPlayer->deck.back();
+				targetPlayer->deck.pop_back();
+				currentPlayer.deck.push_back(stolenCard);
+				shuffleGameVector(currentPlayer.deck, currentPlayerIndex);
+
+				StolenCardAnimation newAnim;
+				newAnim.card = stolenCard;
+				newAnim.startTime = ofGetElapsedTimef();
+				newAnim.startPos = gridToWorld(targetPlayer->x, targetPlayer->y);
+				newAnim.targetPos = { ofGetWidth() / 2.0f, ofGetHeight() / 2.0f };
+				newAnim.currentPos = getActiveCamera().worldToScreen(newAnim.startPos);
+				activeStolenCardAnimations.push_back(newAnim);
+				currentCardOutcome.targetPlayerIndex = targetIndex;
+				playedSuccessfully = true;
+				advanceCardState(CARD_STATE_OUTCOME);
+			}
+			break;
 		}
 
-		// Validation: Must have a valid target (and usually must have block, but we allow 0 dmg hit)
-		if (targetIndex != -1) {
+		// --- CASE: AMNESIA ---
+		case CARD_AMNESIA: {
+			int targetIndex = -1;
+			// ADD THIS OVERRIDE FOR SELF-TARGETING
+			if (targetX == -1 && targetY == -1) {
+				targetIndex = currentPlayerIndex;
+			} else {
+				for (size_t i = 0; i < players.size(); i++) {
+					if (players[i].x == targetX && players[i].y == targetY) {
+						targetIndex = (int)i;
+						break;
+					}
+				}
+			}
+			if (targetIndex == -1) break;
+
+			Player * targetP = getPlayer(targetIndex);
+			if (targetP->deck.empty()) break;
+
+			amnesiaTargetPlayerIndex = targetIndex;
+
+			if (isMultiplayer && isHost()) sendCardActionBegin(CARD_AMNESIA, currentPlayerIndex, targetX, targetY, 0, 0, 0, 0, "Amnesia");
+			pendingAmnesiaRollResult = startDiceRoll(playedCard.numDice, playedCard.diceSides, PURPOSE_DEBUG, "Amnesia: Cards to Remove", currentPlayerIndex);
+			isWaitingForAmnesiaDice = true;
+			// Record which playerID should be allowed to choose removals (caster)
+			{
+				Player & caster = players[currentPlayerIndex];
+				amnesiaChooserPlayerID = caster.isMinion ? caster.ownerID : caster.playerID;
+			}
+			playedSuccessfully = true;
+			advanceCardState(CARD_STATE_DICE);
+			// Ensure AP is synced to player struct for UI
+			updatePlayerAP(players[currentPlayerIndex], currentAP);
+			return CARD_PLAYED_IMMEDIATELY; // We've already handled cleanup above
+		}
+
+		// --- CASE: MAGIC BLAST (Confirming fix from previous step) ---
+		case CARD_MAGIC_BLAST: {
+			glm::vec2 casterTile = { (float)currentPlayer.x, (float)currentPlayer.y };
+			glm::vec2 targetTile = { (float)targetX, (float)targetY };
+
+			// FIX: Range is numDice * diceSides (e.g. 1 * 20 = 20ft)
+			float maxRange = (float)(playedCard.numDice * playedCard.diceSides);
+
+			TargetInfo validationResult = isLosTargetValid(casterTile, targetTile, maxRange, playedCard.type);
+
+			if (validationResult.reason != VALID) break;
+
+			// Validation: Must hit a unit directly, or target an empty tile only if it is adjacent to a unit
+			bool validTarget = false;
+			if (board[targetX][targetY].hasPlayer) {
+				validTarget = true; // Directly targeting a unit
+			} else {
+				// Only allow targeting empty tiles that are adjacent to a unit
+				glm::vec2 neighbors[4] = { { targetX + 1, targetY }, { targetX - 1, targetY }, { targetX, targetY + 1 }, { targetX, targetY - 1 } };
+				for (const auto & n : neighbors) {
+					if (n.x >= 0 && n.x < BOARD_WIDTH && n.y >= 0 && n.y < BOARD_HEIGHT && board[(int)n.x][(int)n.y].hasPlayer) {
+						validTarget = true;
+						break;
+					}
+				}
+			}
+			if (!validTarget) break;
+
+			pendingMagicBlastRollResult = startDiceRoll(playedCard.numDice, playedCard.diceSides, PURPOSE_RANGE, "Magic Blast: Range Check");
+
+			isWaitingForMagicBlastDice = true;
+			pendingMagicBlastTargetTile = targetTile;
+			playedSuccessfully = true;
+			advanceCardState(CARD_STATE_DICE);
+			break;
+		}
+
+			// --- CASE: FIREBALL (Confirming fix from previous step) ---
+		case CARD_FIREBALL: {
+			glm::vec2 casterTile = { (float)currentPlayer.x, (float)currentPlayer.y };
+			glm::vec2 targetTile = { (float)targetX, (float)targetY };
+
+			// FIX: Range is numDice * diceSides (e.g. 2 * 6 = 12ft)
+			float maxRange = (float)(playedCard.numDice * playedCard.diceSides);
+
+			TargetInfo validationResult = isLosTargetValid(casterTile, targetTile, maxRange, playedCard.type);
+
+			if (validationResult.reason != VALID || !board[targetX][targetY].hasPlayer) break;
+
+			pendingFireballRangeResult = startDiceRoll(playedCard.numDice, playedCard.diceSides, PURPOSE_RANGE, "Fireball: Range Check");
+			isWaitingForFireballRangeDice = true;
+			pendingFireballTargetTile = targetTile;
+			playedSuccessfully = true;
+			advanceCardState(CARD_STATE_DICE);
+			break;
+		}
+
+		// --- CASE: CHAIN LIGHTNING ---
+		case CARD_CHAIN_LIGHTNING: {
+			glm::vec2 casterTile = { (float)currentPlayer.x, (float)currentPlayer.y };
+			glm::vec2 targetTile = { (float)targetX, (float)targetY };
+
+			// Range roll to determine chain reach (numDice * diceSides interpreted by roll)
+			TargetInfo validationResult = isLosTargetValid(casterTile, targetTile, 9999.0f, playedCard.type);
+			if (validationResult.reason != VALID) break;
+
+			// Notify clients (host authoritative) that chain lightning action begins
+			if (isMultiplayer && isHost()) sendCardActionBegin(CARD_CHAIN_LIGHTNING, currentPlayerIndex, targetX, targetY, 0, 0, 0, 0, "Chain Lightning");
+
+			pendingChainLightningTargetTile = targetTile;
+			pendingChainLightningRangeResult = startDiceRoll(playedCard.numDice, playedCard.diceSides, PURPOSE_RANGE, "Chain Lightning: Range", currentPlayerIndex);
+			isWaitingForChainLightningRange = true;
+			playedSuccessfully = true;
+			advanceCardState(CARD_STATE_DICE);
+			break;
+		}
+
+		// --- CASE: ROCK CRUSH ---
+		case CARD_ROCK_CRUSH: {
+			if (board[targetX][targetY].hasWall) {
+				board[targetX][targetY].hasWall = false;
+				buildLevelMesh();
+				currentCardOutcome.primaryTarget = { targetX, targetY };
+				currentCardOutcome.damageDealt = 0;
+				playedSuccessfully = true;
+				advanceCardState(CARD_STATE_OUTCOME);
+			} else {
+				int targetIndex = -1;
+				for (size_t i = 0; i < players.size(); i++) {
+					if (players[i].x == targetX && players[i].y == targetY) {
+						targetIndex = (int)i;
+						break;
+					}
+				}
+				if (targetIndex != -1) {
+
+					pendingAttackRollResult = startDiceRoll(playedCard.numDice, playedCard.diceSides, PURPOSE_DAMAGE, "Rock Crush: Damage", currentPlayerIndex);
+
+					isWaitingForAttackDice = true;
+					pendingAttackDamageType = playedCard.damageType;
+					pendingAttackTargetIndices.clear();
+					pendingAttackTargetIndices.push_back(targetIndex);
+					playedSuccessfully = true;
+				}
+			}
+			break;
+		}
+
+		// --- CASE: DEMOLITION ---
+		case CARD_DEMOLITION: {
+			// === NEW STATE SYSTEM ===
+			// Only allow targeted adjacent walls (player must click an adjacent tile)
+			int manhattan = abs(targetX - currentPlayer.x) + abs(targetY - currentPlayer.y);
+			if (manhattan != 1) break;
+			if (board[targetX][targetY].hasWall) {
+				board[targetX][targetY].hasWall = false;
+				buildLevelMesh();
+				// Grant +6 AP next turn
+				currentPlayer.nextTurnAPBonus += 6;
+				currentCardOutcome.apGained = 6; // Next turn
+				spawnFloatingText(gridToWorld(currentPlayer.x, currentPlayer.y), "+6 AP Next Turn", ofColor::yellow);
+				playedSuccessfully = true;
+				advanceCardState(CARD_STATE_OUTCOME);
+			}
+			break;
+		}
+
+		// --- CASE: DISPEL ---
+		case CARD_DISPEL: {
+			// === NEW STATE SYSTEM ===
+			pendingDispelCardIndex = cardIndex;
+			isDispelMenuOpen = true;
+			advanceCardState(CARD_STATE_MENU);
+
+			// 1. Setup Panel Geometry (Standardized Size)
+			float w = 600, h = 300;
+			float x = ofGetWidth() / 2 - w / 2, y = ofGetHeight() / 2 - h / 2;
+			dispelMenuRect.set(x, y, w, h);
+
+			// 2. Setup Button Geometry (Centered, wider buttons)
+			float btnWidth = 260; // Wider to fit "Non-Phys Barrier"
+			float btnHeight = 80;
+			float spacing = 30;
+
+			// Calculate X to center the group of buttons
+			float totalBtnWidth = (btnWidth * 2) + spacing;
+			float startX = x + (w - totalBtnWidth) / 2;
+			float btnY = y + 130;
+
+			dispelBtnBarrier.set(startX, btnY, btnWidth, btnHeight);
+			dispelBtnPurge.set(startX + btnWidth + spacing, btnY, btnWidth, btnHeight);
+			playedSuccessfully = true;
+			return CARD_AWAITING_MENU_CHOICE;
+		}
+		// --- CASE: TELEPORT (Now handled via drag -> dice roll -> targeting) ---
+		case CARD_TELEPORT: {
+			// Teleport is now initiated from mouseReleased, not playCard
+			// This case should not be reached in normal gameplay
+			break;
+		}
+		// --- CASE: HASTEN ---
+		case CARD_HASTEN: {
+			// === NEW STATE SYSTEM ===
+			currentPlayer.nextTurnD10AP = true;
+			currentPlayer.nextTurnExtraDraw = true;
+			spawnFloatingText(gridToWorld(currentPlayer.x, currentPlayer.y), "Hastened!", ofColor::cyan);
+			playedSuccessfully = true;
+			advanceCardState(CARD_STATE_OUTCOME);
+			break;
+		}
+
+		// --- CASE: REPLICATE ---
+		case CARD_REPLICATE: {
+			// === NEW STATE SYSTEM ===
+			currentPlayer.isReplicatePending = true;
+			spawnFloatingText(gridToWorld(currentPlayer.x, currentPlayer.y), "Next Card Copied!", ofColor::purple);
+			playedSuccessfully = true;
+			advanceCardState(CARD_STATE_OUTCOME);
+			break;
+		}
+
+		// --- CASE: WISDOM BOON ---
+		case CARD_WISDOM_BOON: {
+			int targetIndex = -1;
+			for (size_t i = 0; i < players.size(); i++) {
+				if (players[i].x == targetX && players[i].y == targetY) {
+					targetIndex = (int)i;
+					break;
+				}
+			}
+			if (targetIndex == -1) break;
+
+			Player * t = getPlayer(targetIndex);
+			bool isSelf = (targetIndex == currentPlayerIndex);
+			bool isAdjacent = (abs(t->x - currentPlayer.x) + abs(t->y - currentPlayer.y) == 1);
+
+			if (!isSelf && !isAdjacent) break;
+
+			// === NEW STATE SYSTEM ===
+			currentCardOutcome.targetPlayerIndex = targetIndex;
+			pendingWisdomBoonCardIndex = cardIndex;
+			pendingWisdomBoonTargetIndex = targetIndex;
+			isWisdomBoonMenuOpen = true;
+			advanceCardState(CARD_STATE_MENU);
+			sendMenuState(1, targetIndex, -1, cardIndex); // Notify opponent
+			// Menu geometry
+			float w = 600, h = 300;
+			float x = ofGetWidth() / 2 - w / 2, y = ofGetHeight() / 2 - h / 2;
+			wisdomMenuRect.set(x, y, w, h);
+			wisdomBtnDamage.set(x + (w - 300) / 2, y + 150, 300, 80);
+			wisdomBtnBlock.set(0, 0, 0, 0);
+			playedSuccessfully = true;
+			return CARD_AWAITING_MENU_CHOICE;
+		}
+
+			// --- CASE: HEAL ---
+		case CARD_HEAL: {
+			glm::vec2 casterTile = { (float)currentPlayer.x, (float)currentPlayer.y };
+			glm::vec2 targetTile = { (float)targetX, (float)targetY };
+
+			// FIX: Heal has infinite range (Line of Sight only)
+			float maxRange = 9999.0f;
+
+			// This function will still fail if there is a Wall blocking the view
+			TargetInfo validationResult = isLosTargetValid(casterTile, targetTile, maxRange, playedCard.type);
+
+			// Allow self-targeting for heal cards
+			if (validationResult.reason != VALID && validationResult.reason != INVALID_SELF) break;
+
+			// Find Target Unit
+			int targetIndex = -1;
+			for (size_t i = 0; i < players.size(); i++) {
+				if (players[i].x == targetX && players[i].y == targetY) {
+					targetIndex = (int)i;
+					break;
+				}
+			}
+			if (targetIndex == -1) break;
+
+			// Apply
+			pendingHealTargetIndex = targetIndex;
+
+			// Roll for Amount (Not Range)
+			pendingHealRollResult = startDiceRoll(playedCard.numDice, playedCard.diceSides, PURPOSE_HEALING, "Heal: HP Amount");
+
+			isWaitingForHealDice = true;
+			playedSuccessfully = true;
+			advanceCardState(CARD_STATE_DICE);
+			break;
+		}
+
+		// --- CASE: ETHEREAL JOLT ---
+		case CARD_ETHEREAL_JOLT: {
+			glm::vec2 targetTile = { (float)targetX, (float)targetY };
+			glm::vec2 casterTile = { (float)currentPlayer.x, (float)currentPlayer.y };
+
+			// FIX: Range is numDice * diceSides (e.g. 1 * 20 = 20ft)
+			float maxRange = (float)(playedCard.numDice * playedCard.diceSides);
+
+			// Validation Check (Reduces red error messages if you click too far)
+			// Pass the card type so it knows to ignore walls for LOS
+			TargetInfo validationResult = isLosTargetValid(casterTile, targetTile, maxRange, playedCard.type);
+
+			if (validationResult.reason != VALID) break;
+
+			pendingJoltRangeResult = startDiceRoll(playedCard.numDice, playedCard.diceSides, PURPOSE_RANGE, "Ethereal Jolt: Range Check");
+
+			isWaitingForJoltRangeDice = true;
+			pendingJoltTargetTile = targetTile;
+			playedSuccessfully = true;
+			advanceCardState(CARD_STATE_DICE);
+			break;
+		}
+
+		// --- CASE: FLAME HIT ---
+		case CARD_FLAME_HIT: {
+			// === NEW STATE SYSTEM ===
+			int targetIndex = -1;
+			for (size_t i = 0; i < players.size(); i++) {
+				if (players[i].x == targetX && players[i].y == targetY) {
+					targetIndex = (int)i;
+					break;
+				}
+			}
+			if (targetIndex == -1) break;
+
+			Player * target = getPlayer(targetIndex);
+			bool healthHit = applyDamageTo(*target, playedCard.value, DAMAGE_FIRE, currentPlayerIndex);
+			if (healthHit) {
+				target->onFire = true;
+				currentCardOutcome.statusesApplied.push_back("Burning");
+			}
+			currentCardOutcome.targetPlayerIndex = targetIndex;
+			currentCardOutcome.damageDealt = playedCard.value;
+			playedSuccessfully = true;
+			advanceCardState(CARD_STATE_OUTCOME);
+			break;
+		}
+
+		// --- CASE: RAISE DEAD ---
+		case CARD_RAISE_DEAD: {
+			if (board[targetX][targetY].hasWall || board[targetX][targetY].hasPlayer) break;
+
+			// In multiplayer, the Host is authoritative for placement; clients still
+			// run the local visual/cleanup path and wait for the Host packet to finalize.
+
+			// 1. Roll for HP
+			pendingSummonTile = glm::vec2(targetX, targetY);
+			pendingSummonPlayerIndex = currentPlayerIndex; // Track which player summoned
+
+			pendingSummonRollResult = startDiceRoll(1, 6, PURPOSE_HP, "Raise Dead: Skeleton HP");
+
+			isWaitingForSummonHealth = true;
+			playedSuccessfully = true;
+			advanceCardState(CARD_STATE_DICE);
+
+			// --- CRASH PREVENTION FIX ---
+			// Perform cleanup NOW before the players vector potentially changes
+			ofLogNotice("Summon") << "RAISE_DEAD: Hand size BEFORE erase = " << currentPlayer.hand.size();
+			currentAP -= costToPay;
+			currentPlayer.playedCardsPile.push_back(playedCard);
+
+			// Show played card animation (right side, no scale-up)
+			PlayedCardAnimation cardAnim;
+			cardAnim.card = playedCard;
+			cardAnim.startTime = ofGetElapsedTimef();
+			float handBaseCardWidth = 120.0f;
+			float w = handBaseCardWidth * 2.6f;
+			cardAnim.pos = glm::vec2(ofGetWidth() - (w / 2.0f) - 40.0f, ofGetHeight() / 2.0f);
+			cardAnim.currentScale = 2.6f;
+			cardAnim.currentAlpha = 255.0f;
+			if (isMultiplayer) activePlayedCardAnimations.push_back(cardAnim);
+
+			// Handle Replicate
+			applyReplicateCopyToHand(currentPlayer, playedCard);
+
+			currentPlayer.hand.erase(currentPlayer.hand.begin() + cardIndex);
+			completeCardPlayAnimation(playedCard, currentPlayerIndex);
+			updatePlayerAP(currentPlayer, currentAP);
+			return CARD_PLAYED_IMMEDIATELY;
+		}
+
+			// --- CASE: DEATH ---
+		case CARD_DEATH: {
+			// Range Check (Infinite / LOS)
+			glm::vec2 casterTile = { (float)currentPlayer.x, (float)currentPlayer.y };
+			glm::vec2 targetTile = { (float)targetX, (float)targetY };
+			TargetInfo validationResult = isLosTargetValid(casterTile, targetTile, 9999.0f, playedCard.type);
+
+			if (validationResult.reason != VALID) break;
+
+			// Find Target
+			int targetIndex = -1;
+			for (size_t i = 0; i < players.size(); i++) {
+				if (players[i].x == targetX && players[i].y == targetY) {
+					targetIndex = (int)i;
+					break;
+				}
+			}
+			if (targetIndex == -1) break;
+
+			Player * target = getPlayer(targetIndex);
+			pendingDeathTargetIndex = targetIndex;
+
+			// 1. Check if already asleep -> INSTANT DEATH
+			if (target->sleepTurnsRemaining > 0) {
+				spawnFloatingText(gridToWorld(target->x, target->y), "Nightmare!", ofColor::darkRed);
+
+				// Kill logic
+				DeathMarker death;
+				death.x = target->x;
+				death.y = target->y;
+				death.turnDied = globalTurnCounter;
+				death.deck = target->deck;
+				graveyard.push_back(death);
+				board[target->x][target->y].hasPlayer = false;
+				target->x = -1000;
+				target->health = 0;
+
+				currentCardOutcome.targetPlayerIndex = targetIndex;
+				currentCardOutcome.statusesApplied.push_back("Instant Death");
+				playedSuccessfully = true;
+				advanceCardState(CARD_STATE_OUTCOME);
+			}
+			// 2. Otherwise -> Roll Death Check
+			else {
+				// Notify clients of the multi-stage Death card action
+				if (isMultiplayer && isHost()) sendCardActionBegin(CARD_DEATH, currentPlayerIndex, targetX, targetY, 0, 0, 0, 0, "Death Check");
+				// Roll 1d20
+				pendingDeathRollResult = startDiceRoll(1, 20, PURPOSE_DEATH_CHECK, "Death Check", currentPlayerIndex);
+				isWaitingForDeathDice = true;
+				playedSuccessfully = true;
+				advanceCardState(CARD_STATE_DICE);
+			}
+			break;
+		}
+
+		// --- CASE: STRENGTHEN ELEMENTS ---
+		case CARD_STRENGTHEN_ELEMENTS: {
+			// === NEW STATE SYSTEM ===
+			// Set duration to 3 (Current Turn + Next 2 Turns)
+			currentPlayer.strengthenElementsTurnsRemaining = 3;
+
+			spawnFloatingText(gridToWorld(currentPlayer.x, currentPlayer.y), "Elemental Flow!", ofColor::orange);
+			ofLogNotice("Game") << "Player " << currentPlayer.playerID << " strengthened elements for 3 turns.";
+
+			playedSuccessfully = true;
+			advanceCardState(CARD_STATE_OUTCOME);
+			break;
+		}
+
+			// --- CASE: SHIELD BASH ---
+		case CARD_SHIELD_BASH: {
+			int targetIndex = -1;
+			for (size_t i = 0; i < players.size(); i++) {
+				if (players[i].x == targetX && players[i].y == targetY) {
+					targetIndex = (int)i;
+					break;
+				}
+			}
+
+			// Validation: Must have a valid target (and usually must have block, but we allow 0 dmg hit)
+			if (targetIndex != -1) {
+				Player * target = getPlayer(targetIndex);
+
+				// 1. Calculate Total Block (include fortification as a blocking source)
+				int totalBlock = currentPlayer.block + currentPlayer.barrier + currentPlayer.ward + currentPlayer.holyBlock + currentPlayer.fortification;
+
+				// Check if Add Poison buff is active
+				bool applyPoisonBuff = currentPlayer.nextAttackAddPoison;
+				if (applyPoisonBuff) {
+					currentPlayer.nextAttackAddPoison = false;
+				}
+
+				// 2. Deal Damage based on Total Block
+				// Note: Even if 0 block, the card plays (wasting AP), consistent with other mechanics
+				if (totalBlock > 0) {
+					ofLogNotice("Shield Bash") << "Converting " << totalBlock << " total block into damage.";
+					applyDamageTo(*target, totalBlock, DAMAGE_PHYSICAL, currentPlayerIndex);
+
+					// Apply poison if buff was active
+					if (applyPoisonBuff) {
+						target->isPoisoned = true;
+						target->poisonReduction = 0;
+						glm::vec3 tPos = gridToWorld(target->x, target->y);
+						spawnFloatingText(tPos + glm::vec3(0, 0.5f, 0), "Poisoned!", ofColor::green);
+						pendingPoisonTargetIndices.clear();
+						pendingPoisonTargetIndices.push_back(players[targetIndex].playerID);
+						pendingPoisonAttackRollResult = startDiceRoll(1, 6, PURPOSE_DAMAGE, "Poison Damage", currentPlayerIndex);
+						isWaitingForPoisonAttackDice = true;
+					}
+				} else {
+					spawnFloatingText(gridToWorld(target->x, target->y), "0 Damage", ofColor::gray);
+				}
+
+				// 3. Remove All Block from Caster (clear fortification as well)
+				currentPlayer.block = 0;
+				currentPlayer.barrier = 0;
+				currentPlayer.ward = 0;
+				currentPlayer.holyBlock = 0;
+				currentPlayer.fortification = 0;
+
+				spawnFloatingText(gridToWorld(currentPlayer.x, currentPlayer.y), "Shields Broken!", ofColor::yellow);
+
+				playedSuccessfully = true;
+				advanceCardState(CARD_STATE_OUTCOME);
+			}
+			break;
+		}
+			// --- CASE: CONSUME HEALTH POTION ---
+		case CARD_CONSUME_HEALTH_POTION: {
+			// === NEW STATE SYSTEM ===
+			// Increase max HP by 1 (does not heal to it)
+			currentPlayer.maxHealth++;
+			spawnFloatingText(gridToWorld(currentPlayer.x, currentPlayer.y), "+1 Max HP", ofColor::cyan);
+			ofLogNotice("Consume Health Potion") << "Player " << currentPlayer.playerID << " increased max HP to " << currentPlayer.maxHealth;
+			playedSuccessfully = true;
+			advanceCardState(CARD_STATE_OUTCOME);
+			break;
+		}
+			// --- CASE: ADD POISON ---
+		case CARD_ADD_POISON: {
+			// === NEW STATE SYSTEM ===
+			// Buff: next physical/piercing damage card this turn adds 1d6 poison damage
+			currentPlayer.nextAttackAddPoison = true;
+			spawnFloatingText(gridToWorld(currentPlayer.x, currentPlayer.y), "Poison Ready!", ofColor::green);
+			ofLogNotice("Add Poison") << "Player " << currentPlayer.playerID << " primed next attack with poison.";
+			playedSuccessfully = true;
+			advanceCardState(CARD_STATE_OUTCOME);
+			break;
+		}
+			// --- CASE: FLURRY OF FISTS ---
+		case CARD_FLURRY_OF_FISTS: {
+			// Find adjacent target
+			int targetIndex = -1;
+			for (size_t i = 0; i < players.size(); i++) {
+				if (players[i].x == targetX && players[i].y == targetY) {
+					targetIndex = (int)i;
+					break;
+				}
+			}
+			if (targetIndex == -1) break;
+
 			Player * target = getPlayer(targetIndex);
 
-			// 1. Calculate Total Block (include fortification as a blocking source)
-			int totalBlock = currentPlayer.block + currentPlayer.barrier + currentPlayer.ward + currentPlayer.holyBlock + currentPlayer.fortification;
+			// 1. Deal 2 physical damage (doubled if flurry already active)
+			int damage = currentPlayer.flurryOfFistsActive ? 4 : 2;
+			applyDamageTo(*target, damage, DAMAGE_PHYSICAL, currentPlayerIndex);
 
-			// Check if Add Poison buff is active
-			bool applyPoisonBuff = currentPlayer.nextAttackAddPoison;
-			if (applyPoisonBuff) {
-				currentPlayer.nextAttackAddPoison = false;
+			// 2. Activate flurry buff for this turn
+			currentPlayer.flurryOfFistsActive = true;
+			spawnFloatingText(gridToWorld(currentPlayer.x, currentPlayer.y), "Flurry!", ofColor::orange);
+
+			// 3. Draw a card for free (without using draw action)
+			if (!currentPlayer.deck.empty()) {
+				Card drawnCard = currentPlayer.deck.back();
+				currentPlayer.deck.pop_back();
+
+				// Check if drawn card is hand-related
+				bool isHandRelated = (drawnCard.name == "Punch" || drawnCard.name == "Hand Block" || drawnCard.name == "Bash" || drawnCard.name == "Drain Punch" || drawnCard.name == "Double Handed" || drawnCard.name == "Master Fist" || drawnCard.name == "Flurry of Fists" || drawnCard.name == "Giant Magic Hand");
+
+				if (isHandRelated) {
+					// Make it cost 0 AP this turn
+					drawnCard.cost = 0;
+					spawnFloatingText(gridToWorld(currentPlayer.x, currentPlayer.y) + glm::vec3(0, 0.5f, 0),
+						drawnCard.name + " (0 AP)!", ofColor::yellow);
+				}
+
+				currentPlayer.hand.push_back(drawnCard);
+				currentPlayer.hand.back().currentScale = 1.5f;
+				currentPlayer.hand.back().targetScale = 1.5f;
+
+				// Visual animation: show the drawn card flying into the player's hand
+				DrawCardAnimation anim;
+				anim.card = drawnCard;
+				anim.startTime = ofGetElapsedTimef();
+				anim.duration = 0.5f;
+				anim.ownerIndex = currentPlayerIndex;
+				anim.toMinionHand = currentPlayer.isMinion;
+				anim.startIsScreenSpace = false;
+				anim.startPos = gridToWorld(currentPlayer.x, currentPlayer.y) + glm::vec3(0, 1.5f, 0);
+				anim.targetPos = glm::vec2(ofGetWidth() / 2.0f, ofGetHeight() / 2.0f);
+				anim.currentPos = glm::vec2(anim.startPos.x, anim.startPos.y);
+				anim.currentScale = 1.0f;
+				anim.commitOnFinish = false;
+				activeDrawCardAnimations.push_back(anim);
+
+				ofLogNotice("Flurry of Fists") << "Drew " << drawnCard.name << (isHandRelated ? " (free this turn)" : "");
+			} else if (!currentPlayer.discardPile.empty()) {
+				// Reshuffle discard into deck first
+				currentPlayer.deck = currentPlayer.discardPile;
+				currentPlayer.discardPile.clear();
+				// shuffleGameVector handles the visual animation
+				shuffleGameVector(currentPlayer.deck, currentPlayerIndex);
+				Card drawnCard = currentPlayer.deck.back();
+				currentPlayer.deck.pop_back();
+
+				bool isHandRelated = (drawnCard.name == "Punch" || drawnCard.name == "Hand Block" || drawnCard.name == "Bash" || drawnCard.name == "Drain Punch" || drawnCard.name == "Double Handed" || drawnCard.name == "Master Fist" || drawnCard.name == "Flurry of Fists" || drawnCard.name == "Giant Magic Hand");
+
+				if (isHandRelated) {
+					drawnCard.cost = 0;
+					spawnFloatingText(gridToWorld(currentPlayer.x, currentPlayer.y) + glm::vec3(0, 0.5f, 0),
+						drawnCard.name + " (0 AP)!", ofColor::yellow);
+				}
+
+				currentPlayer.hand.push_back(drawnCard);
+				currentPlayer.hand.back().currentScale = 1.5f;
+				currentPlayer.hand.back().targetScale = 1.5f;
+
+				// Visual animation for draw from reshuffle
+				DrawCardAnimation anim2;
+				anim2.card = drawnCard;
+				anim2.startTime = ofGetElapsedTimef();
+				anim2.duration = 0.5f;
+				anim2.ownerIndex = currentPlayerIndex;
+				anim2.toMinionHand = currentPlayer.isMinion;
+				anim2.startIsScreenSpace = false;
+				anim2.startPos = gridToWorld(currentPlayer.x, currentPlayer.y) + glm::vec3(0, 1.5f, 0);
+				anim2.targetPos = glm::vec2(ofGetWidth() / 2.0f, ofGetHeight() / 2.0f);
+				anim2.currentPos = glm::vec2(anim2.startPos.x, anim2.startPos.y);
+				anim2.currentScale = 1.0f;
+				anim2.commitOnFinish = false;
+				activeDrawCardAnimations.push_back(anim2);
 			}
 
-			// 2. Deal Damage based on Total Block
-			// Note: Even if 0 block, the card plays (wasting AP), consistent with other mechanics
-			if (totalBlock > 0) {
-				ofLogNotice("Shield Bash") << "Converting " << totalBlock << " total block into damage.";
-				applyDamageTo(*target, totalBlock, DAMAGE_PHYSICAL, currentPlayerIndex);
+			playedSuccessfully = true;
+			advanceCardState(CARD_STATE_OUTCOME);
+			break;
+		}
 
-				// Apply poison if buff was active
+		// --- CASE: FORM OF TORTOISE ---
+		case CARD_FORM_OF_TORTOISE: {
+			// Cannot enter form if already in form
+			if (currentPlayer.inTortoiseForm) {
+				ofLogNotice("Form of Tortoise") << "Already in tortoise form!";
+				break;
+			}
+
+			// 1. Store original model type for later restoration
+			if (currentPlayer.isMagicWallUnit)
+				currentPlayer.originalModelType = "magic_wall_unit";
+			else if (currentPlayer.isWallUnit)
+				currentPlayer.originalModelType = "wall_unit";
+			else if (currentPlayer.isKoboldKing)
+				currentPlayer.originalModelType = "kobold_king";
+			else if (currentPlayer.isAssistant)
+				currentPlayer.originalModelType = "assistant";
+			else if (currentPlayer.isFaerie)
+				currentPlayer.originalModelType = "faerie";
+			else if (currentPlayer.isSkeleton)
+				currentPlayer.originalModelType = "skeleton";
+			else if (currentPlayer.isGolem)
+				currentPlayer.originalModelType = "golem";
+			else if (currentPlayer.isWolf)
+				currentPlayer.originalModelType = "wolf";
+			else if (currentPlayer.isHellhound)
+				currentPlayer.originalModelType = "hellhound";
+			else if (currentPlayer.isKobold)
+				currentPlayer.originalModelType = "kobold";
+			else if (currentPlayer.isDemon)
+				currentPlayer.originalModelType = "demon";
+			else
+				currentPlayer.originalModelType = "player";
+
+			// 2. Activate tortoise form
+			currentPlayer.inTortoiseForm = true;
+			currentPlayer.tortoiseDamageTaken = 0;
+			currentPlayer.tortoiseFormCard = playedCard;
+
+			// 3. +5 max HP
+			currentPlayer.maxHealth += 5;
+			spawnFloatingText(gridToWorld(currentPlayer.x, currentPlayer.y), "+5 Max HP!", ofColor::limeGreen);
+
+			// 4. Heal 5 HP
+			int healAmount = std::min(5, currentPlayer.maxHealth - currentPlayer.health);
+			currentPlayer.health += healAmount;
+			if (healAmount > 0) {
+				spawnFloatingText(gridToWorld(currentPlayer.x, currentPlayer.y) + glm::vec3(0, 0.3f, 0),
+					"+" + ofToString(healAmount) + " HP", ofColor::green);
+			}
+
+			// 5. Shuffle 2x Dispel into deck
+			Card dispelCard;
+			bool foundDispel = false;
+			for (const auto & c : allCards) {
+				if (c.type == CARD_DISPEL) {
+					dispelCard = c;
+					foundDispel = true;
+					break;
+				}
+			}
+			if (foundDispel) {
+				currentPlayer.deck.push_back(dispelCard);
+				currentPlayer.deck.push_back(dispelCard);
+				shuffleGameVector(currentPlayer.deck, currentPlayerIndex);
+				spawnFloatingText(gridToWorld(currentPlayer.x, currentPlayer.y) + glm::vec3(0, 0.6f, 0),
+					"+2 Dispel", ofColor::cyan);
+			}
+
+			// 6. Visual feedback
+			if (debugFlatSkeletonDraw) {
+				GLint prevProg2 = 0;
+				glGetIntegerv(GL_CURRENT_PROGRAM, &prevProg2);
+				glUseProgram(0);
+				ofLogNotice("Render") << "Performing flat skeleton draw (debug)";
+				GLboolean depthWas = glIsEnabled(GL_DEPTH_TEST);
+				if (depthWas) glDisable(GL_DEPTH_TEST);
+				ofSetColor(255, 100, 100);
+				skeletonModel.drawFaces();
+				ofSetColor(255);
+				if (depthWas) glEnable(GL_DEPTH_TEST);
+				GLenum flatErr = glGetError();
+				if (flatErr != GL_NO_ERROR) ofLogError("Render") << "GL error after flat skeleton draw: " << flatErr;
+				ofLogNotice("Render") << "Flat skeleton draw complete";
+				glUseProgram(prevProg2);
+			}
+			// Notify clients that a form is being entered (host authoritative)
+			if (isMultiplayer && isHost()) sendCardActionBegin(CARD_FORM_OF_TORTOISE, currentPlayerIndex, -1, -1, 0, 0, 0, 0, "Form of Tortoise");
+
+			// Consume AP and remove the form card from hand (keep it in-play via completeCardPlayAnimation)
+			currentAP -= costToPay;
+			if (cardIndex >= 0 && cardIndex < (int)currentPlayer.hand.size()) {
+				currentPlayer.hand.erase(currentPlayer.hand.begin() + cardIndex);
+			}
+			completeCardPlayAnimation(playedCard, currentPlayerIndex);
+			invalidateTargetCache();
+			// Track play history
+			currentPlayer.cardsPlayedThisTurn.push_back(playedCard.type);
+			updatePlayerAP(currentPlayer, currentAP);
+			return CARD_PLAYED_IMMEDIATELY; // Skip normal cleanup since we handled AP and removal
+		}
+
+		// --- CASE: SUMMON WALL / MAGIC WALL ---
+		case CARD_CREATE_WALL: {
+			// === NEW STATE SYSTEM ===
+			Tile & tile = board[targetX][targetY];
+			if (playedCard.name == "Summon Magic Wall") {
+				// Do not allow turning an already-magic wall into a magic wall again
+				if (tile.hasWall && tile.isMagicWall) {
+					spawnFloatingText(gridToWorld(targetX, targetY), "Already Magic Wall", ofColor::red);
+					break;
+				}
+				if (!tile.hasWall && !tile.hasPlayer) {
+					tile.hasWall = true;
+					tile.isMagicWall = true;
+					buildLevelMesh();
+					invalidateTargetCache();
+					currentCardOutcome.wallsCreated.push_back({ targetX, targetY });
+					playedSuccessfully = true;
+					advanceCardState(CARD_STATE_OUTCOME);
+				} else if (tile.hasWall) {
+					tile.isMagicWall = true;
+					buildLevelMesh();
+					invalidateTargetCache();
+					playedSuccessfully = true;
+					advanceCardState(CARD_STATE_OUTCOME);
+				}
+			} else {
+				if (!tile.hasWall && !tile.hasPlayer) {
+					tile.hasWall = true;
+					buildLevelMesh();
+					invalidateTargetCache();
+					currentCardOutcome.wallsCreated.push_back({ targetX, targetY });
+					playedSuccessfully = true;
+					advanceCardState(CARD_STATE_OUTCOME);
+				}
+			}
+			break;
+		}
+
+			// --- CASE: FORM OF GHOST ---
+		case CARD_FORM_OF_GHOST: {
+			if (currentPlayer.inGhostForm) {
+				ofLogNotice("Form of Ghost") << "Already in ghost form!";
+				break;
+			}
+
+			// 1. Store original model type for later restoration
+			if (currentPlayer.isMagicWallUnit)
+				currentPlayer.originalModelType = "magic_wall_unit";
+			else if (currentPlayer.isWallUnit)
+				currentPlayer.originalModelType = "wall_unit";
+			else if (currentPlayer.isKoboldKing)
+				currentPlayer.originalModelType = "kobold_king";
+			else if (currentPlayer.isAssistant)
+				currentPlayer.originalModelType = "assistant";
+			else if (currentPlayer.isFaerie)
+				currentPlayer.originalModelType = "faerie";
+			else if (currentPlayer.isSkeleton)
+				currentPlayer.originalModelType = "skeleton";
+			else if (currentPlayer.isGolem)
+				currentPlayer.originalModelType = "golem";
+			else if (currentPlayer.isWolf)
+				currentPlayer.originalModelType = "wolf";
+			else if (currentPlayer.isHellhound)
+				currentPlayer.originalModelType = "hellhound";
+			else if (currentPlayer.isKobold)
+				currentPlayer.originalModelType = "kobold";
+			else if (currentPlayer.isDemon)
+				currentPlayer.originalModelType = "demon";
+			else
+				currentPlayer.originalModelType = "player";
+
+			// 2. Activate Form
+			currentPlayer.inGhostForm = true;
+			currentPlayer.ghostDamageTaken = 0;
+			currentPlayer.ghostFormCard = playedCard;
+
+			// 3. Grant Regeneration (if not already active)
+			if (!currentPlayer.hasRegeneration) {
+				currentPlayer.hasRegeneration = true;
+				spawnFloatingText(gridToWorld(currentPlayer.x, currentPlayer.y), "Regeneration Gained", ofColor::green);
+			}
+
+			// 4. Visuals
+			spawnFloatingText(gridToWorld(currentPlayer.x, currentPlayer.y) + glm::vec3(0, 1.0f, 0), "GHOST FORM!", ofColor::white);
+			ofLogNotice("Form of Ghost") << "Player " << currentPlayer.playerID << " entered ghost form.";
+
+			// 5. Handle "Keep in Play" (Do not add to played pile, just remove from hand)
+			// Notify clients that a form is being entered (host authoritative)
+			if (isMultiplayer && isHost()) sendCardActionBegin(CARD_FORM_OF_GHOST, currentPlayerIndex, -1, -1, 0, 0, 0, 0, "Form of Ghost");
+
+			currentAP -= costToPay;
+			if (cardIndex >= 0 && cardIndex < (int)currentPlayer.hand.size()) {
+				currentPlayer.hand.erase(currentPlayer.hand.begin() + cardIndex);
+			}
+			completeCardPlayAnimation(playedCard, currentPlayerIndex);
+			invalidateTargetCache();
+
+			// Track play history
+			currentPlayer.cardsPlayedThisTurn.push_back(playedCard.type);
+
+			updatePlayerAP(currentPlayer, currentAP);
+			return CARD_PLAYED_IMMEDIATELY; // Skip standard cleanup
+		}
+
+		// --- CASE: FORTIFY ---
+		case CARD_FORTIFY: {
+			// Must target a wall tile
+			if (!board[targetX][targetY].hasWall) break;
+
+			// Flood-fill connected walls using 8-neighbor connectivity
+			std::vector<glm::ivec2> stack;
+			std::set<std::pair<int, int>> visited;
+			stack.push_back({ targetX, targetY });
+
+			// Perform flood-fill to count connected wall tiles (8-neighbor connectivity)
+			int linkedCount = 0;
+			while (!stack.empty()) {
+				glm::ivec2 cur = stack.back();
+				stack.pop_back();
+				int wx = cur.x, wy = cur.y;
+				std::pair<int, int> key = { wx, wy };
+				if (visited.count(key)) continue;
+				if (wx < 0 || wx >= BOARD_WIDTH || wy < 0 || wy >= BOARD_HEIGHT) continue;
+				if (!board[wx][wy].hasWall) continue;
+				visited.insert(key);
+				linkedCount++;
+				for (int dx = -1; dx <= 1; ++dx) {
+					for (int dy = -1; dy <= 1; ++dy) {
+						if (dx == 0 && dy == 0) continue;
+						stack.push_back({ wx + dx, wy + dy });
+					}
+				}
+			}
+			// Grant fortification equal to number of linked walls
+			currentPlayer.fortification += linkedCount;
+			spawnFloatingText(gridToWorld(currentPlayer.x, currentPlayer.y), "+" + ofToString(linkedCount) + " Fortify", ofColor::lightGray);
+			ofLogNotice("Fortify") << "Player " << currentPlayer.playerID << " gained " << linkedCount << " fortification.";
+
+			// Damage any other unit orthogonally adjacent to any of the linked walls (no diagonals, skip caster)
+			std::set<int> damagedIndices;
+			for (const auto & p : visited) {
+				int wx = p.first, wy = p.second;
+				// Only orthogonal directions
+				const int ortho[4][2] = { { 1, 0 }, { -1, 0 }, { 0, 1 }, { 0, -1 } };
+				for (int d = 0; d < 4; ++d) {
+					int ux = wx + ortho[d][0], uy = wy + ortho[d][1];
+					if (ux < 0 || ux >= BOARD_WIDTH || uy < 0 || uy >= BOARD_HEIGHT) continue;
+					for (size_t i = 0; i < players.size(); i++) {
+						if (players[i].x == ux && players[i].y == uy) {
+							if (players[i].playerID == currentPlayer.playerID) continue; // skip caster
+							damagedIndices.insert((int)i);
+						}
+					}
+				}
+			}
+
+			for (int idx : damagedIndices) {
+				Player * target = getPlayer(idx);
+				if (target) {
+					applyDamageTo(*target, 3, DAMAGE_PHYSICAL, currentPlayerIndex);
+				}
+			}
+
+			playedSuccessfully = true;
+			advanceCardState(CARD_STATE_OUTCOME);
+			break;
+		}
+			// --- CASE: DARK SHIELD ---
+		case CARD_DARK_SHIELD: {
+			// === NEW STATE SYSTEM ===
+			currentPlayer.holyBlock += playedCard.value; // value is 7
+			currentPlayer.nextTurnBonusDiceFromMinions = true;
+
+			// Show Holy Block gain in the holy color (yellow) to match UI stat color
+			spawnFloatingText(gridToWorld(currentPlayer.x, currentPlayer.y),
+				"+" + ofToString(playedCard.value) + " Holy Block",
+				ofColor::yellow);
+
+			ofLogNotice("Game") << "Gained Dark Shield and bonus dice next turn.";
+			playedSuccessfully = true;
+			advanceCardState(CARD_STATE_OUTCOME);
+			break;
+		}
+
+			// --- CASE: PSIONIC WAVE ---
+		case CARD_PSIONIC_WAVE: {
+			// Roll 2d20 for Range
+			pendingPsionicRangeResult = startDiceRoll(playedCard.numDice, playedCard.diceSides, PURPOSE_PSIONIC_WAVE_RANGE, "Psionic Wave: Range");
+			isWaitingForPsionicRange = true;
+			playedSuccessfully = true;
+			advanceCardState(CARD_STATE_DICE);
+			break;
+		}
+
+		// --- CASE: DRAIN PUNCH ---
+		case CARD_DRAIN_PUNCH: {
+			int targetIndex = -1;
+			for (size_t i = 0; i < players.size(); i++) {
+				if (players[i].x == targetX && players[i].y == targetY) {
+					targetIndex = (int)i;
+					break;
+				}
+			}
+
+			if (targetIndex != -1) {
+				Player * target = getPlayer(targetIndex);
+
+				// 1. Calculate Damage
+				int damage = playedCard.value; // Base damage (2)
+
+				// Check playedCardsPile for previous "hand-related" attacks this turn
+				// Hand-related attack cards: Punch, Bash, Drain Punch, Master Fist, Flurry of Fists
+				// (Double Handed and Hand Block are NOT attacks)
+				for (const auto & c : currentPlayer.playedCardsPile) {
+					if (c.name == "Punch" || c.name == "Bash" || c.name == "Drain Punch" || c.name == "Master Fist" || c.name == "Flurry of Fists" || c.name == "Giant Magic Hand") {
+						damage += 2;
+					}
+				}
+
+				// Double damage if Flurry of Fists is active
+				if (currentPlayer.flurryOfFistsActive) {
+					damage *= 2;
+				}
+
+				// Check if Add Poison buff is active
+				bool applyPoisonBuff = currentPlayer.nextAttackAddPoison;
+				if (applyPoisonBuff) {
+					currentPlayer.nextAttackAddPoison = false;
+				}
+
+				// 2. Track Health Before Impact
+				int hpBefore = target->health;
+
+				// 3. Apply Damage
+				applyDamageTo(*target, damage, DAMAGE_PHYSICAL, currentPlayerIndex);
+
+				// 4. Apply poison if buff was active
 				if (applyPoisonBuff) {
 					target->isPoisoned = true;
 					target->poisonReduction = 0;
@@ -20597,1239 +22737,790 @@ CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 					pendingPoisonAttackRollResult = startDiceRoll(1, 6, PURPOSE_DAMAGE, "Poison Damage", currentPlayerIndex);
 					isWaitingForPoisonAttackDice = true;
 				}
-			} else {
-				spawnFloatingText(gridToWorld(target->x, target->y), "0 Damage", ofColor::gray);
+
+				// 5. Calculate Lifesteal (Actual HP lost by enemy)
+				int hpAfter = target->health;
+				int actualDamageDealt = hpBefore - hpAfter;
+
+				// 5. Heal Caster
+				if (actualDamageDealt > 0) {
+					currentPlayer.health += actualDamageDealt;
+					if (currentPlayer.health > currentPlayer.maxHealth) {
+						currentPlayer.health = currentPlayer.maxHealth;
+					}
+
+					// Visual Feedback for Heal
+					spawnFloatingText(
+						gridToWorld(currentPlayer.x, currentPlayer.y),
+						"+" + ofToString(actualDamageDealt) + " HP",
+						ofColor::green);
+
+					ofLogNotice("Drain Punch") << "Healed player for " << actualDamageDealt;
+				}
+
+				playedSuccessfully = true;
+				advanceCardState(CARD_STATE_OUTCOME);
 			}
-
-			// 3. Remove All Block from Caster (clear fortification as well)
-			currentPlayer.block = 0;
-			currentPlayer.barrier = 0;
-			currentPlayer.ward = 0;
-			currentPlayer.holyBlock = 0;
-			currentPlayer.fortification = 0;
-
-			spawnFloatingText(gridToWorld(currentPlayer.x, currentPlayer.y), "Shields Broken!", ofColor::yellow);
-
-			playedSuccessfully = true;
-			advanceCardState(CARD_STATE_OUTCOME);
-		}
-		break;
-	}
-		// --- CASE: CONSUME HEALTH POTION ---
-	case CARD_CONSUME_HEALTH_POTION: {
-		// === NEW STATE SYSTEM ===
-		// Increase max HP by 1 (does not heal to it)
-		currentPlayer.maxHealth++;
-		spawnFloatingText(gridToWorld(currentPlayer.x, currentPlayer.y), "+1 Max HP", ofColor::cyan);
-		ofLogNotice("Consume Health Potion") << "Player " << currentPlayer.playerID << " increased max HP to " << currentPlayer.maxHealth;
-		playedSuccessfully = true;
-		advanceCardState(CARD_STATE_OUTCOME);
-		break;
-	}
-		// --- CASE: ADD POISON ---
-	case CARD_ADD_POISON: {
-		// === NEW STATE SYSTEM ===
-		// Buff: next physical/piercing damage card this turn adds 1d6 poison damage
-		currentPlayer.nextAttackAddPoison = true;
-		spawnFloatingText(gridToWorld(currentPlayer.x, currentPlayer.y), "Poison Ready!", ofColor::green);
-		ofLogNotice("Add Poison") << "Player " << currentPlayer.playerID << " primed next attack with poison.";
-		playedSuccessfully = true;
-		advanceCardState(CARD_STATE_OUTCOME);
-		break;
-	}
-		// --- CASE: FLURRY OF FISTS ---
-	case CARD_FLURRY_OF_FISTS: {
-		// Find adjacent target
-		int targetIndex = -1;
-		for (size_t i = 0; i < players.size(); i++) {
-			if (players[i].x == targetX && players[i].y == targetY) {
-				targetIndex = (int)i;
-				break;
-			}
-		}
-		if (targetIndex == -1) break;
-
-		Player * target = getPlayer(targetIndex);
-
-		// 1. Deal 2 physical damage (doubled if flurry already active)
-		int damage = currentPlayer.flurryOfFistsActive ? 4 : 2;
-		applyDamageTo(*target, damage, DAMAGE_PHYSICAL, currentPlayerIndex);
-
-		// 2. Activate flurry buff for this turn
-		currentPlayer.flurryOfFistsActive = true;
-		spawnFloatingText(gridToWorld(currentPlayer.x, currentPlayer.y), "Flurry!", ofColor::orange);
-
-		// 3. Draw a card for free (without using draw action)
-		if (!currentPlayer.deck.empty()) {
-			Card drawnCard = currentPlayer.deck.back();
-			currentPlayer.deck.pop_back();
-
-			// Check if drawn card is hand-related
-			bool isHandRelated = (drawnCard.name == "Punch" || drawnCard.name == "Hand Block" || drawnCard.name == "Bash" || drawnCard.name == "Drain Punch" || drawnCard.name == "Double Handed" || drawnCard.name == "Master Fist" || drawnCard.name == "Flurry of Fists" || drawnCard.name == "Giant Magic Hand");
-
-			if (isHandRelated) {
-				// Make it cost 0 AP this turn
-				drawnCard.cost = 0;
-				spawnFloatingText(gridToWorld(currentPlayer.x, currentPlayer.y) + glm::vec3(0, 0.5f, 0),
-					drawnCard.name + " (0 AP)!", ofColor::yellow);
-			}
-
-			currentPlayer.hand.push_back(drawnCard);
-			currentPlayer.hand.back().currentScale = 1.5f;
-			currentPlayer.hand.back().targetScale = 1.5f;
-
-			// Visual animation: show the drawn card flying into the player's hand
-			DrawCardAnimation anim;
-			anim.card = drawnCard;
-			anim.startTime = ofGetElapsedTimef();
-			anim.duration = 0.5f;
-			anim.ownerIndex = currentPlayerIndex;
-			anim.toMinionHand = currentPlayer.isMinion;
-			anim.startIsScreenSpace = false;
-			anim.startPos = gridToWorld(currentPlayer.x, currentPlayer.y) + glm::vec3(0, 1.5f, 0);
-			anim.targetPos = glm::vec2(ofGetWidth() / 2.0f, ofGetHeight() / 2.0f);
-			anim.currentPos = glm::vec2(anim.startPos.x, anim.startPos.y);
-			anim.currentScale = 1.0f;
-			anim.commitOnFinish = false;
-			activeDrawCardAnimations.push_back(anim);
-
-			ofLogNotice("Flurry of Fists") << "Drew " << drawnCard.name << (isHandRelated ? " (free this turn)" : "");
-		} else if (!currentPlayer.discardPile.empty()) {
-			// Reshuffle discard into deck first
-			currentPlayer.deck = currentPlayer.discardPile;
-			currentPlayer.discardPile.clear();
-			// shuffleGameVector handles the visual animation
-			shuffleGameVector(currentPlayer.deck, currentPlayerIndex);
-			Card drawnCard = currentPlayer.deck.back();
-			currentPlayer.deck.pop_back();
-
-			bool isHandRelated = (drawnCard.name == "Punch" || drawnCard.name == "Hand Block" || drawnCard.name == "Bash" || drawnCard.name == "Drain Punch" || drawnCard.name == "Double Handed" || drawnCard.name == "Master Fist" || drawnCard.name == "Flurry of Fists" || drawnCard.name == "Giant Magic Hand");
-
-			if (isHandRelated) {
-				drawnCard.cost = 0;
-				spawnFloatingText(gridToWorld(currentPlayer.x, currentPlayer.y) + glm::vec3(0, 0.5f, 0),
-					drawnCard.name + " (0 AP)!", ofColor::yellow);
-			}
-
-			currentPlayer.hand.push_back(drawnCard);
-			currentPlayer.hand.back().currentScale = 1.5f;
-			currentPlayer.hand.back().targetScale = 1.5f;
-
-			// Visual animation for draw from reshuffle
-			DrawCardAnimation anim2;
-			anim2.card = drawnCard;
-			anim2.startTime = ofGetElapsedTimef();
-			anim2.duration = 0.5f;
-			anim2.ownerIndex = currentPlayerIndex;
-			anim2.toMinionHand = currentPlayer.isMinion;
-			anim2.startIsScreenSpace = false;
-			anim2.startPos = gridToWorld(currentPlayer.x, currentPlayer.y) + glm::vec3(0, 1.5f, 0);
-			anim2.targetPos = glm::vec2(ofGetWidth() / 2.0f, ofGetHeight() / 2.0f);
-			anim2.currentPos = glm::vec2(anim2.startPos.x, anim2.startPos.y);
-			anim2.currentScale = 1.0f;
-			anim2.commitOnFinish = false;
-			activeDrawCardAnimations.push_back(anim2);
-		}
-
-		playedSuccessfully = true;
-		advanceCardState(CARD_STATE_OUTCOME);
-		break;
-	}
-
-	// --- CASE: FORM OF TORTOISE ---
-	case CARD_FORM_OF_TORTOISE: {
-		// Cannot enter form if already in form
-		if (currentPlayer.inTortoiseForm) {
-			ofLogNotice("Form of Tortoise") << "Already in tortoise form!";
 			break;
 		}
 
-		// 1. Store original model type for later restoration
-		if (currentPlayer.isSkeleton)
-			currentPlayer.originalModelType = "skeleton";
-		else if (currentPlayer.isGolem)
-			currentPlayer.originalModelType = "golem";
-		else if (currentPlayer.isWolf)
-			currentPlayer.originalModelType = "wolf";
-		else if (currentPlayer.isHellhound)
-			currentPlayer.originalModelType = "hellhound";
-		else if (currentPlayer.isDemon)
-			currentPlayer.originalModelType = "demon";
-		else
-			currentPlayer.originalModelType = "player";
-
-		// 2. Activate tortoise form
-		currentPlayer.inTortoiseForm = true;
-		currentPlayer.tortoiseDamageTaken = 0;
-		currentPlayer.tortoiseFormCard = playedCard;
-
-		// 3. +5 max HP
-		currentPlayer.maxHealth += 5;
-		spawnFloatingText(gridToWorld(currentPlayer.x, currentPlayer.y), "+5 Max HP!", ofColor::limeGreen);
-
-		// 4. Heal 5 HP
-		int healAmount = std::min(5, currentPlayer.maxHealth - currentPlayer.health);
-		currentPlayer.health += healAmount;
-		if (healAmount > 0) {
-			spawnFloatingText(gridToWorld(currentPlayer.x, currentPlayer.y) + glm::vec3(0, 0.3f, 0),
-				"+" + ofToString(healAmount) + " HP", ofColor::green);
-		}
-
-		// 5. Shuffle 2x Dispel into deck
-		Card dispelCard;
-		bool foundDispel = false;
-		for (const auto & c : allCards) {
-			if (c.type == CARD_DISPEL) {
-				dispelCard = c;
-				foundDispel = true;
-				break;
-			}
-		}
-		if (foundDispel) {
-			currentPlayer.deck.push_back(dispelCard);
-			currentPlayer.deck.push_back(dispelCard);
-			shuffleGameVector(currentPlayer.deck, currentPlayerIndex);
-			spawnFloatingText(gridToWorld(currentPlayer.x, currentPlayer.y) + glm::vec3(0, 0.6f, 0),
-				"+2 Dispel", ofColor::cyan);
-		}
-
-		// 6. Visual feedback
-		if (debugFlatSkeletonDraw) {
-			GLint prevProg2 = 0;
-			glGetIntegerv(GL_CURRENT_PROGRAM, &prevProg2);
-			glUseProgram(0);
-			ofLogNotice("Render") << "Performing flat skeleton draw (debug)";
-			GLboolean depthWas = glIsEnabled(GL_DEPTH_TEST);
-			if (depthWas) glDisable(GL_DEPTH_TEST);
-			ofSetColor(255, 100, 100);
-			skeletonModel.drawFaces();
-			ofSetColor(255);
-			if (depthWas) glEnable(GL_DEPTH_TEST);
-			GLenum flatErr = glGetError();
-			if (flatErr != GL_NO_ERROR) ofLogError("Render") << "GL error after flat skeleton draw: " << flatErr;
-			ofLogNotice("Render") << "Flat skeleton draw complete";
-			glUseProgram(prevProg2);
-		}
-		// Notify clients that a form is being entered (host authoritative)
-		if (isMultiplayer && isHost()) sendCardActionBegin(CARD_FORM_OF_TORTOISE, currentPlayerIndex, -1, -1, 0, 0, 0, 0, "Form of Tortoise");
-
-		// Consume AP and remove the form card from hand (keep it in-play via completeCardPlayAnimation)
-		currentAP -= costToPay;
-		if (cardIndex >= 0 && cardIndex < (int)currentPlayer.hand.size()) {
-			currentPlayer.hand.erase(currentPlayer.hand.begin() + cardIndex);
-		}
-		completeCardPlayAnimation(playedCard, currentPlayerIndex);
-		invalidateTargetCache();
-		// Track play history
-		currentPlayer.cardsPlayedThisTurn.push_back(playedCard.type);
-		updatePlayerAP(currentPlayer, currentAP);
-		return CARD_PLAYED_IMMEDIATELY; // Skip normal cleanup since we handled AP and removal
-	}
-
-	// --- CASE: SUMMON WALL / MAGIC WALL ---
-	case CARD_CREATE_WALL: {
-		// === NEW STATE SYSTEM ===
-		Tile & tile = board[targetX][targetY];
-		if (playedCard.name == "Summon Magic Wall") {
-			// Do not allow turning an already-magic wall into a magic wall again
-			if (tile.hasWall && tile.isMagicWall) {
-				spawnFloatingText(gridToWorld(targetX, targetY), "Already Magic Wall", ofColor::red);
-				break;
-			}
-			if (!tile.hasWall && !tile.hasPlayer) {
-				tile.hasWall = true;
-				tile.isMagicWall = true;
-				buildLevelMesh();
-				invalidateTargetCache();
-				currentCardOutcome.wallsCreated.push_back({ targetX, targetY });
-				playedSuccessfully = true;
-				advanceCardState(CARD_STATE_OUTCOME);
-			} else if (tile.hasWall) {
-				tile.isMagicWall = true;
-				buildLevelMesh();
-				invalidateTargetCache();
-				playedSuccessfully = true;
-				advanceCardState(CARD_STATE_OUTCOME);
-			}
-		} else {
-			if (!tile.hasWall && !tile.hasPlayer) {
-				tile.hasWall = true;
-				buildLevelMesh();
-				invalidateTargetCache();
-				currentCardOutcome.wallsCreated.push_back({ targetX, targetY });
-				playedSuccessfully = true;
-				advanceCardState(CARD_STATE_OUTCOME);
-			}
-		}
-		break;
-	}
-
-		// --- CASE: FORM OF GHOST ---
-	case CARD_FORM_OF_GHOST: {
-		if (currentPlayer.inGhostForm) {
-			ofLogNotice("Form of Ghost") << "Already in ghost form!";
-			break;
-		}
-
-		// 1. Activate Form
-		currentPlayer.inGhostForm = true;
-		currentPlayer.ghostDamageTaken = 0;
-		currentPlayer.ghostFormCard = playedCard;
-
-		// 2. Grant Regeneration (if not already active)
-		if (!currentPlayer.hasRegeneration) {
-			currentPlayer.hasRegeneration = true;
-			spawnFloatingText(gridToWorld(currentPlayer.x, currentPlayer.y), "Regeneration Gained", ofColor::green);
-		}
-
-		// 3. Visuals
-		spawnFloatingText(gridToWorld(currentPlayer.x, currentPlayer.y) + glm::vec3(0, 1.0f, 0), "GHOST FORM!", ofColor::white);
-		ofLogNotice("Form of Ghost") << "Player " << currentPlayer.playerID << " entered ghost form.";
-
-		// 4. Handle "Keep in Play" (Do not add to played pile, just remove from hand)
-		// Notify clients that a form is being entered (host authoritative)
-		if (isMultiplayer && isHost()) sendCardActionBegin(CARD_FORM_OF_GHOST, currentPlayerIndex, -1, -1, 0, 0, 0, 0, "Form of Ghost");
-
-		currentAP -= costToPay;
-		if (cardIndex >= 0 && cardIndex < (int)currentPlayer.hand.size()) {
-			currentPlayer.hand.erase(currentPlayer.hand.begin() + cardIndex);
-		}
-		completeCardPlayAnimation(playedCard, currentPlayerIndex);
-		invalidateTargetCache();
-
-		// Track play history
-		currentPlayer.cardsPlayedThisTurn.push_back(playedCard.type);
-
-		updatePlayerAP(currentPlayer, currentAP);
-		return CARD_PLAYED_IMMEDIATELY; // Skip standard cleanup
-	}
-
-	// --- CASE: FORTIFY ---
-	case CARD_FORTIFY: {
-		// Must target a wall tile
-		if (!board[targetX][targetY].hasWall) break;
-
-		// Flood-fill connected walls using 8-neighbor connectivity
-		std::vector<glm::ivec2> stack;
-		std::set<std::pair<int, int>> visited;
-		stack.push_back({ targetX, targetY });
-
-		// Perform flood-fill to count connected wall tiles (8-neighbor connectivity)
-		int linkedCount = 0;
-		while (!stack.empty()) {
-			glm::ivec2 cur = stack.back();
-			stack.pop_back();
-			int wx = cur.x, wy = cur.y;
-			std::pair<int, int> key = { wx, wy };
-			if (visited.count(key)) continue;
-			if (wx < 0 || wx >= BOARD_WIDTH || wy < 0 || wy >= BOARD_HEIGHT) continue;
-			if (!board[wx][wy].hasWall) continue;
-			visited.insert(key);
-			linkedCount++;
-			for (int dx = -1; dx <= 1; ++dx) {
-				for (int dy = -1; dy <= 1; ++dy) {
-					if (dx == 0 && dy == 0) continue;
-					stack.push_back({ wx + dx, wy + dy });
-				}
-			}
-		}
-		// Grant fortification equal to number of linked walls
-		currentPlayer.fortification += linkedCount;
-		spawnFloatingText(gridToWorld(currentPlayer.x, currentPlayer.y), "+" + ofToString(linkedCount) + " Fortify", ofColor::lightGray);
-		ofLogNotice("Fortify") << "Player " << currentPlayer.playerID << " gained " << linkedCount << " fortification.";
-
-		// Damage any other unit orthogonally adjacent to any of the linked walls (no diagonals, skip caster)
-		std::set<int> damagedIndices;
-		for (const auto & p : visited) {
-			int wx = p.first, wy = p.second;
-			// Only orthogonal directions
-			const int ortho[4][2] = { { 1, 0 }, { -1, 0 }, { 0, 1 }, { 0, -1 } };
-			for (int d = 0; d < 4; ++d) {
-				int ux = wx + ortho[d][0], uy = wy + ortho[d][1];
-				if (ux < 0 || ux >= BOARD_WIDTH || uy < 0 || uy >= BOARD_HEIGHT) continue;
-				for (size_t i = 0; i < players.size(); i++) {
-					if (players[i].x == ux && players[i].y == uy) {
-						if (players[i].playerID == currentPlayer.playerID) continue; // skip caster
-						damagedIndices.insert((int)i);
-					}
-				}
-			}
-		}
-
-		for (int idx : damagedIndices) {
-			Player * target = getPlayer(idx);
-			if (target) {
-				applyDamageTo(*target, 3, DAMAGE_PHYSICAL, currentPlayerIndex);
-			}
-		}
-
-		playedSuccessfully = true;
-		advanceCardState(CARD_STATE_OUTCOME);
-		break;
-	}
-		// --- CASE: DARK SHIELD ---
-	case CARD_DARK_SHIELD: {
-		// === NEW STATE SYSTEM ===
-		currentPlayer.holyBlock += playedCard.value; // value is 7
-		currentPlayer.nextTurnBonusDiceFromMinions = true;
-
-		// Show Holy Block gain in the holy color (yellow) to match UI stat color
-		spawnFloatingText(gridToWorld(currentPlayer.x, currentPlayer.y),
-			"+" + ofToString(playedCard.value) + " Holy Block",
-			ofColor::yellow);
-
-		ofLogNotice("Game") << "Gained Dark Shield and bonus dice next turn.";
-		playedSuccessfully = true;
-		advanceCardState(CARD_STATE_OUTCOME);
-		break;
-	}
-
-		// --- CASE: PSIONIC WAVE ---
-	case CARD_PSIONIC_WAVE: {
-		// Roll 2d20 for Range
-		pendingPsionicRangeResult = startDiceRoll(playedCard.numDice, playedCard.diceSides, PURPOSE_PSIONIC_WAVE_RANGE, "Psionic Wave: Range");
-		isWaitingForPsionicRange = true;
-		playedSuccessfully = true;
-		advanceCardState(CARD_STATE_DICE);
-		break;
-	}
-
-	// --- CASE: DRAIN PUNCH ---
-	case CARD_DRAIN_PUNCH: {
-		int targetIndex = -1;
-		for (size_t i = 0; i < players.size(); i++) {
-			if (players[i].x == targetX && players[i].y == targetY) {
-				targetIndex = (int)i;
-				break;
-			}
-		}
-
-		if (targetIndex != -1) {
-			Player * target = getPlayer(targetIndex);
-
-			// 1. Calculate Damage
-			int damage = playedCard.value; // Base damage (2)
-
-			// Check playedCardsPile for previous "hand-related" attacks this turn
-			// Hand-related attack cards: Punch, Bash, Drain Punch, Master Fist, Flurry of Fists
-			// (Double Handed and Hand Block are NOT attacks)
-			for (const auto & c : currentPlayer.playedCardsPile) {
-				if (c.name == "Punch" || c.name == "Bash" || c.name == "Drain Punch" || c.name == "Master Fist" || c.name == "Flurry of Fists" || c.name == "Giant Magic Hand") {
-					damage += 2;
-				}
+			// --- CASE: RENEWED INSPIRATION ---
+		case CARD_RENEWED_INSPIRATION: {
+			// 0. Prevent playing if there are no other cards to discard
+			int availableDiscardable = (int)currentPlayer.hand.size() - 1; // exclude the Renewed Inspiration being played
+			if (currentPlayer.isReplicatePending) availableDiscardable += 1; // replicate will add a copy
+			if (availableDiscardable <= 0) {
+				spawnFloatingText(gridToWorld(currentPlayer.x, currentPlayer.y), "Not enough cards to discard", ofColor::gray);
+				return CARD_NOT_PLAYABLE;
 			}
 
-			// Double damage if Flurry of Fists is active
-			if (currentPlayer.flurryOfFistsActive) {
-				damage *= 2;
-			}
-
-			// Check if Add Poison buff is active
-			bool applyPoisonBuff = currentPlayer.nextAttackAddPoison;
-			if (applyPoisonBuff) {
-				currentPlayer.nextAttackAddPoison = false;
-			}
-
-			// 2. Track Health Before Impact
-			int hpBefore = target->health;
-
-			// 3. Apply Damage
-			applyDamageTo(*target, damage, DAMAGE_PHYSICAL, currentPlayerIndex);
-
-			// 4. Apply poison if buff was active
-			if (applyPoisonBuff) {
-				target->isPoisoned = true;
-				target->poisonReduction = 0;
-				glm::vec3 tPos = gridToWorld(target->x, target->y);
-				spawnFloatingText(tPos + glm::vec3(0, 0.5f, 0), "Poisoned!", ofColor::green);
-				pendingPoisonTargetIndices.clear();
-				pendingPoisonTargetIndices.push_back(players[targetIndex].playerID);
-				pendingPoisonAttackRollResult = startDiceRoll(1, 6, PURPOSE_DAMAGE, "Poison Damage", currentPlayerIndex);
-				isWaitingForPoisonAttackDice = true;
-			}
-
-			// 5. Calculate Lifesteal (Actual HP lost by enemy)
-			int hpAfter = target->health;
-			int actualDamageDealt = hpBefore - hpAfter;
-
-			// 5. Heal Caster
-			if (actualDamageDealt > 0) {
-				currentPlayer.health += actualDamageDealt;
-				if (currentPlayer.health > currentPlayer.maxHealth) {
-					currentPlayer.health = currentPlayer.maxHealth;
-				}
-
-				// Visual Feedback for Heal
-				spawnFloatingText(
-					gridToWorld(currentPlayer.x, currentPlayer.y),
-					"+" + ofToString(actualDamageDealt) + " HP",
-					ofColor::green);
-
-				ofLogNotice("Drain Punch") << "Healed player for " << actualDamageDealt;
-			}
-
-			playedSuccessfully = true;
-			advanceCardState(CARD_STATE_OUTCOME);
-		}
-		break;
-	}
-
-		// --- CASE: RENEWED INSPIRATION ---
-	case CARD_RENEWED_INSPIRATION: {
-		// 0. Prevent playing if there are no other cards to discard
-		int availableDiscardable = (int)currentPlayer.hand.size() - 1; // exclude the Renewed Inspiration being played
-		if (currentPlayer.isReplicatePending) availableDiscardable += 1; // replicate will add a copy
-		if (availableDiscardable <= 0) {
-			spawnFloatingText(gridToWorld(currentPlayer.x, currentPlayer.y), "Not enough cards to discard", ofColor::gray);
-			return CARD_NOT_PLAYABLE;
-		}
-
-		// 1. Pay Cost
-		currentAP -= costToPay;
-
-		// 2. Handle Replicate (BEFORE removing original from hand)
-		// If Replicate is active, we create a copy and animate it from board center to hand
-		if (currentPlayer.isReplicatePending) {
-			Card copy = playedCard; // Copy data
-			copy.isCopied = true; // Mark as copied (Essential for eligibility)
-
-			// Create animation from board center to hand
-			DrawCardAnimation anim;
-			anim.card = copy;
-			anim.startTime = ofGetElapsedTimef();
-			anim.duration = 0.36f;
-			anim.ownerIndex = currentPlayerIndex;
-			anim.toMinionHand = false;
-
-			// Start from board center
-			glm::vec3 boardCenter = gridToWorld(3, 3); // Center of the board
-			anim.startPos = boardCenter;
-			anim.startIsScreenSpace = false;
-			anim.currentPos = glm::vec2(boardCenter.x, boardCenter.y);
-
-			// Calculate target hand position (using new hand size after adding this card)
-			size_t numCards = currentPlayer.hand.size() + 1;
-			float handCenterY = ofGetHeight() - 130;
-			float handBaseCardWidth = 120;
-			int cardsToFit = std::max(5, (int)numCards);
-			float handAreaWidth = ofGetWidth() * 0.6f;
-			float totalCardWidths = cardsToFit * handBaseCardWidth;
-			float padding = (cardsToFit > 1) ? (handAreaWidth - totalCardWidths) / (cardsToFit - 1) : 0;
-			padding = std::min(padding, 20.0f);
-			float totalHandWidth = (cardsToFit * handBaseCardWidth) + ((cardsToFit - 1) * padding);
-			float startX = (ofGetWidth() - totalHandWidth) / 2.0f;
-			float cardCenterX = startX + (numCards - 1) * (handBaseCardWidth + padding) + (handBaseCardWidth / 2.0f);
-			anim.targetPos = glm::vec2(cardCenterX, handCenterY);
-			anim.endPos = anim.startPos;
-
-			anim.currentScale = 1.0f;
-			anim.commitOnFinish = true; // This will add the card to hand when animation completes
-			activeDrawCardAnimations.push_back(anim);
-
-			currentPlayer.isReplicatePending = false;
-			spawnFloatingText(gridToWorld(currentPlayer.x, currentPlayer.y), "Replicated!", ofColor::cyan);
-		}
-
-		// 3. Move Original to Played Pile
-		currentPlayer.playedCardsPile.push_back(playedCard);
-		currentPlayer.cardsPlayedThisTurn.push_back(playedCard.type);
-
-		// 4. Remove Original from Hand (Using iterator to be safe)
-		if (cardIndex >= 0 && cardIndex < (int)currentPlayer.hand.size()) {
-			currentPlayer.hand.erase(currentPlayer.hand.begin() + cardIndex);
-		}
-
-		// 5. Multiplayer: notify host of the card play so AP and played-pile stay authoritative
-		if (isMultiplayer) {
-			updatePlayerAP(players[currentPlayerIndex], currentAP);
-		}
-
-		// 6. Enter Selection Mode
-		isSelectingRenewedInspiration = true;
-		renewedSelectedHandIndices.clear();
-
-		// 6. Setup UI Buttons
-		float cx = ofGetWidth() / 2.0f;
-		float cy = ofGetHeight() - 450.0f;
-		if (currentPlayer.playerID == 1) cy = 350.0f;
-
-		riConfirmBtn.set(cx - 110, cy, 100, 50);
-		riCancelBtn.set(cx + 10, cy, 100, 50);
-
-		// 7. Visuals & prevent auto-cleanup
-		invalidateTargetCache();
-		return CARD_AWAITING_MENU_CHOICE;
-	}
-
-	// --- CASE: VAMPIRE BITE ---
-	case CARD_VAMPIRE_BITE: {
-		// === NEW STATE SYSTEM ===
-		int targetIndex = -1;
-		for (size_t i = 0; i < players.size(); i++) {
-			if (players[i].x == targetX && players[i].y == targetY) {
-				targetIndex = (int)i;
-				break;
-			}
-		}
-
-		if (targetIndex != -1) {
-			Player * target = getPlayer(targetIndex);
-
-			// 1. Deal flat physical damage (value from card JSON)
-			bool healthHit = applyDamageTo(*target, playedCard.value, DAMAGE_PHYSICAL, currentPlayerIndex);
-			currentCardOutcome.targetPlayerIndex = targetIndex;
-			currentCardOutcome.damageDealt = playedCard.value;
-
-			// 2. If the unit took HP damage, heal caster 2 HP and shuffle 1x Vampire Bite into that unit's deck
-			if (healthHit) {
-				currentPlayer.health += 2;
-				if (currentPlayer.health > currentPlayer.maxHealth) currentPlayer.health = currentPlayer.maxHealth;
-				currentCardOutcome.healingDealt = 2;
-				spawnFloatingText(gridToWorld(currentPlayer.x, currentPlayer.y), "+2 HP", ofColor::green);
-
-				// Find the card template in allCards
-				Card cardToAdd;
-				bool found = false;
-				for (const auto & c : allCards) {
-					if (c.type == CARD_VAMPIRE_BITE) {
-						cardToAdd = c;
-						found = true;
-						break;
-					}
-				}
-
-				if (found) {
-					target->deck.push_back(cardToAdd);
-					shuffleGameVector(target->deck, targetIndex);
-					spawnFloatingText(gridToWorld(target->x, target->y), "Shuffled 1x Vampire Bite", ofColor::magenta);
-					ofLogNotice("Vampire Bite") << "Shuffled a Vampire Bite into Player " << target->playerID << "'s deck.";
-				}
-			}
-
-			playedSuccessfully = true;
-			advanceCardState(CARD_STATE_OUTCOME);
-		}
-		break;
-	}
-
-	// --- CASE: DOUBLE HANDED ---
-	case CARD_DOUBLE_HANDED: {
-		int targetIndex = -1;
-		for (size_t i = 0; i < players.size(); i++) {
-			if (players[i].x == targetX && players[i].y == targetY) {
-				targetIndex = (int)i;
-				break;
-			}
-		}
-
-		// Safety check: Ensure target exists
-		if (targetIndex == -1) break;
-
-		// Open the Choice UI
-		pendingDoubleHandedCardIndex = cardIndex;
-		pendingDoubleHandedTargetIndex = targetIndex;
-		isDoubleHandedMenuOpen = true;
-		currentCardOutcome.targetPlayerIndex = targetIndex;
-		advanceCardState(CARD_STATE_MENU);
-		sendMenuState(3, targetIndex, -1, cardIndex); // Notify opponent
-
-		// Setup UI Geometry
-		float w = 500, h = 250;
-		float x = ofGetWidth() / 2 - w / 2, y = ofGetHeight() / 2 - h / 2;
-		doubleHandedMenuRect.set(x, y, w, h);
-
-		float btnW = 200, btnH = 80;
-		float spacing = 40;
-		btnAddPunches.set(x + (w - (btnW * 2 + spacing)) / 2, y + 120, btnW, btnH);
-		btnAddBlocks.set(btnAddPunches.getRight() + spacing, y + 120, btnW, btnH);
-
-		// Do NOT set playedSuccessfully = true yet.
-		// We wait for the user to click a button.
-		return CARD_AWAITING_MENU_CHOICE;
-	}
-
-		// --- CASE: NECROMANCER'S BLESSING ---
-	case CARD_NECRO_BLESSING: {
-		// === NEW STATE SYSTEM ===
-		int skeletonCount = 0;
-
-		// Determine the owner of the unit playing the card
-		int ownerID = currentPlayer.isMinion ? currentPlayer.ownerID : currentPlayer.playerID;
-
-		// Count skeletons owned by that player
-		for (const auto & p : players) {
-			if (p.isSkeleton) {
-				int skeletonOwnerID = p.isMinion ? p.ownerID : p.playerID;
-				if (skeletonOwnerID == ownerID) {
-					skeletonCount++;
-				}
-			}
-		}
-
-		// Apply luck to the unit that played the card (even if it's 0)
-		currentPlayer.baseLuck += skeletonCount;
-		currentPlayer.luck += skeletonCount;
-
-		if (skeletonCount > 0) {
-			// Visual Feedback for gaining luck
-			spawnFloatingText(
-				gridToWorld(currentPlayer.x, currentPlayer.y),
-				"+" + ofToString(skeletonCount) + " LUCK!",
-				ofColor::purple);
-			ofLogNotice("NecroBlessing") << "Unit " << currentPlayer.playerID << " gained " << skeletonCount << " luck.";
-		} else {
-			// Visual Feedback for gaining 0 luck
-			spawnFloatingText(
-				gridToWorld(currentPlayer.x, currentPlayer.y),
-				"No Skeletons! (+0 Luck)",
-				ofColor::gray);
-			ofLogNotice("NecroBlessing") << "No skeletons found, no luck gained.";
-		}
-
-		playedSuccessfully = true;
-		advanceCardState(CARD_STATE_OUTCOME);
-		break;
-	}
-
-	// --- CASE: EARTHQUAKE ---
-	case CARD_EARTHQUAKE: {
-		ofLogNotice("Earthquake") << "CARD_EARTHQUAKE triggered by playerIndex=" << currentPlayerIndex << " playerID=" << currentPlayer.playerID;
-		// Multiplayer clients should NOT start the earthquake locally. Host is authoritative.
-		if (isMultiplayer && !isHost()) {
-			ofLogNotice("Earthquake") << "Client played Earthquake: deferring to host (waiting for EarthquakeBegin)";
-			// Consume AP and remove card locally for responsive UI, but wait for host to start earthquake
+			// 1. Pay Cost
 			currentAP -= costToPay;
+
+			// 2. Handle Replicate (BEFORE removing original from hand)
+			// If Replicate is active, we create a copy and animate it from board center to hand
+			if (currentPlayer.isReplicatePending) {
+				Card copy = playedCard; // Copy data
+				copy.isCopied = true; // Mark as copied (Essential for eligibility)
+
+				// Create animation from board center to hand
+				DrawCardAnimation anim;
+				anim.card = copy;
+				anim.startTime = ofGetElapsedTimef();
+				anim.duration = 0.36f;
+				anim.ownerIndex = currentPlayerIndex;
+				anim.toMinionHand = false;
+
+				// Start from board center
+				glm::vec3 boardCenter = gridToWorld(3, 3); // Center of the board
+				anim.startPos = boardCenter;
+				anim.startIsScreenSpace = false;
+				anim.currentPos = glm::vec2(boardCenter.x, boardCenter.y);
+
+				// Calculate target hand position (using new hand size after adding this card)
+				size_t numCards = currentPlayer.hand.size() + 1;
+				float handCenterY = ofGetHeight() - 130;
+				float handBaseCardWidth = 120;
+				int cardsToFit = std::max(5, (int)numCards);
+				float handAreaWidth = ofGetWidth() * 0.6f;
+				float totalCardWidths = cardsToFit * handBaseCardWidth;
+				float padding = (cardsToFit > 1) ? (handAreaWidth - totalCardWidths) / (cardsToFit - 1) : 0;
+				padding = std::min(padding, 20.0f);
+				float totalHandWidth = (cardsToFit * handBaseCardWidth) + ((cardsToFit - 1) * padding);
+				float startX = (ofGetWidth() - totalHandWidth) / 2.0f;
+				float cardCenterX = startX + (numCards - 1) * (handBaseCardWidth + padding) + (handBaseCardWidth / 2.0f);
+				anim.targetPos = glm::vec2(cardCenterX, handCenterY);
+				anim.endPos = anim.startPos;
+
+				anim.currentScale = 1.0f;
+				anim.commitOnFinish = true; // This will add the card to hand when animation completes
+				activeDrawCardAnimations.push_back(anim);
+
+				currentPlayer.isReplicatePending = false;
+				spawnFloatingText(gridToWorld(currentPlayer.x, currentPlayer.y), "Replicated!", ofColor::cyan);
+			}
+
+			// 3. Move Original to Played Pile
 			currentPlayer.playedCardsPile.push_back(playedCard);
 			currentPlayer.cardsPlayedThisTurn.push_back(playedCard.type);
-			currentPlayer.hand.erase(currentPlayer.hand.begin() + cardIndex);
-			players[currentPlayerIndex].ap = currentAP;
-			isWaitingForEarthquakeBegin = true;
-			return CARD_PLAYED_IMMEDIATELY;
+
+			// 4. Remove Original from Hand (Using iterator to be safe)
+			if (cardIndex >= 0 && cardIndex < (int)currentPlayer.hand.size()) {
+				currentPlayer.hand.erase(currentPlayer.hand.begin() + cardIndex);
+			}
+
+			// 5. Multiplayer: notify host of the card play so AP and played-pile stay authoritative
+			if (isMultiplayer) {
+				updatePlayerAP(players[currentPlayerIndex], currentAP);
+			}
+
+			// 6. Enter Selection Mode
+			isSelectingRenewedInspiration = true;
+			renewedSelectedHandIndices.clear();
+
+			// 6. Setup UI Buttons
+			float cx = ofGetWidth() / 2.0f;
+			float cy = ofGetHeight() - 450.0f;
+			if (currentPlayer.playerID == 1) cy = 350.0f;
+
+			riConfirmBtn.set(cx - 110, cy, 100, 50);
+			riCancelBtn.set(cx + 10, cy, 100, 50);
+
+			// 7. Visuals & prevent auto-cleanup
+			invalidateTargetCache();
+			return CARD_AWAITING_MENU_CHOICE;
 		}
 
-		// Host: Initialize Earthquake System and broadcast directions before rolling
-		// 2. Pay Cost & Cleanup Hand
-		currentAP -= costToPay;
-		currentPlayer.playedCardsPile.push_back(playedCard);
-		// (Handle Replicate logic here if you want)
-		currentPlayer.cardsPlayedThisTurn.push_back(playedCard.type);
-		currentPlayer.hand.erase(currentPlayer.hand.begin() + cardIndex);
-
-		// 2. Initialize Earthquake System
-		isEarthquakeActive = true;
-		isEarthquakeDiceRolling = true;
-		isEarthquakeAnimatingStep = false;
-		earthquakeUnits.clear();
-
-		// 3. Setup Units (choose directions) - distances will be filled after dice arrive
-		for (int i = 0; i < (int)players.size(); ++i) {
-			EarthquakeState state;
-			state.playerIndex = i;
-			state.startGrid = { players[i].x, players[i].y };
-			state.visualPos = gridToWorld(players[i].x, players[i].y);
-			state.isMoving = true;
-			state.crashed = false;
-			state.tilesToMove = 0;
-			state.originalDistance = 0;
-
-			// Random Direction (N, E, S, W)
-			int r = getGameRandom(0, 3);
-			if (r == 0)
-				state.direction = { 0, 1 }; // South
-			else if (r == 1)
-				state.direction = { 0, -1 }; // North
-			else if (r == 2)
-				state.direction = { 1, 0 }; // East
-			else
-				state.direction = { -1, 0 }; // West
-
-			state.diceIndex = -1;
-			earthquakeUnits.push_back(state);
-		}
-
-		// Broadcast EarthquakeBegin so clients can set up directions identically
-		if (isMultiplayer && isHost()) {
-			EarthquakeBeginPacket eb = {};
-			eb.type = PKT_EARTHQUAKE_BEGIN;
-			eb.playerID = myLocalPlayerID;
-			eb.numUnits = (int32_t)earthquakeUnits.size();
-			for (int i = 0; i < (int)earthquakeUnits.size() && i < 16; ++i) {
-				eb.playerIndex[i] = earthquakeUnits[i].playerIndex;
-				eb.dirX[i] = (int8_t)earthquakeUnits[i].direction.x;
-				eb.dirY[i] = (int8_t)earthquakeUnits[i].direction.y;
-			}
-			steamManager.sendPacket(&eb, sizeof(eb));
-			ofLogNotice("Network") << "Host sent EarthquakeBegin with " << eb.numUnits << " units";
-		}
-
-		// 4. Roll Dice now (host performs dice and will send DiceRollPacket(s))
-		for (int i = 0; i < (int)earthquakeUnits.size(); ++i) {
-			// FIX: Pass the unit's index so the die is mapped to them, not the caster!
-			startDiceRoll(1, 4, PURPOSE_EARTHQUAKE_DISTANCE, "Quake Dist", earthquakeUnits[i].playerIndex);
-		}
-		ofLogNotice("Earthquake") << "Host started earthquake dice for " << earthquakeUnits.size() << " units";
-
-		return CARD_PLAYED_IMMEDIATELY; // Cleanup handled above
-	}
-
-		// --- CASE: TIME VORTEX ---
-	case CARD_TIME_VORTEX: {
-		// Start the dice roll and set the waiting flag
-		isWaitingForTimeVortexDice = true;
-
-		pendingTimeVortexResult = startDiceRoll(playedCard.numDice, playedCard.diceSides, PURPOSE_TIME_VORTEX, "Time Vortex: Extra Turns");
-
-		// Don't apply the turns yet. We wait for the dice animation.
-
-		playedSuccessfully = true;
-		advanceCardState(CARD_STATE_DICE);
-		break;
-	}
-
-		// --- CASE: GIANT MAGIC HAND ---
-	case CARD_GIANT_MAGIC_HAND: {
-		// Must target a wall
-		if (!board[targetX][targetY].hasWall) break;
-
-		// Save state and open UI
-		pendingMagicHandCardIndex = cardIndex;
-		magicHandTargetTile = { targetX, targetY };
-		isMagicHandMenuOpen = true;
-		advanceCardState(CARD_STATE_MENU);
-
-		// Define UI Rect
-		float w = 500, h = 250;
-		float mx = ofGetWidth() / 2 - w / 2, my = ofGetHeight() / 2 - h / 2;
-		// Re-use wisdom menu rect variable or create new one. Let's reuse wisdomMenuRect for layout simplicity
-		wisdomMenuRect.set(mx, my, w, h);
-
-		// Do not set playedSuccessfully yet
-		return CARD_AWAITING_MENU_CHOICE;
-	}
-
-		// --- CASE: MASTER FIST ---
-	case CARD_MASTER_FIST: {
-		int targetIndex = -1;
-		for (size_t i = 0; i < players.size(); i++) {
-			if (players[i].x == targetX && players[i].y == targetY) {
-				targetIndex = (int)i;
-				break;
-			}
-		}
-
-		if (targetIndex != -1) {
-			Player * target = getPlayer(targetIndex);
-
-			// --- 1. Calculate Combo Damage ---
-			int damage = 0; // Starts at 0 (Removed base 2)
-			int handCardsInDiscard = 0;
-
-			// Define which cards count as "hand-related" attack cards
-			std::vector<std::string> handAttackNames = { "Punch", "Bash", "Drain Punch", "Master Fist", "Flurry of Fists", "Giant Magic Hand" };
-
-			// Count matching cards in the caster's discard pile
-			for (const auto & cardInPile : currentPlayer.discardPile) {
-				for (const auto & name : handAttackNames) {
-					if (cardInPile.name == name) {
-						handCardsInDiscard++;
-						break;
-					}
-				}
-			}
-
-			damage = (handCardsInDiscard * 2);
-			ofLogNotice("Master Fist") << "Found " << handCardsInDiscard << " hand cards in discard. Total damage: " << damage;
-
-			// Double damage if Flurry of Fists is active
-			if (currentPlayer.flurryOfFistsActive) {
-				damage *= 2;
-				ofLogNotice("Master Fist") << "Flurry doubled damage to: " << damage;
-			}
-
-			// Check if Add Poison buff is active
-			bool applyPoisonBuff = currentPlayer.nextAttackAddPoison;
-			if (applyPoisonBuff) {
-				currentPlayer.nextAttackAddPoison = false;
-			}
-
-			// --- 2. Apply Damage ---
-			if (damage > 0) {
-				applyDamageTo(*target, damage, DAMAGE_PHYSICAL, currentPlayerIndex);
-			} else {
-				spawnFloatingText(gridToWorld(target->x, target->y), "0 Damage (Empty Discard)", ofColor::gray);
-			}
-
-			// Apply poison if buff was active
-			if (applyPoisonBuff) {
-				target->isPoisoned = true;
-				target->poisonReduction = 0;
-				glm::vec3 tPos = gridToWorld(target->x, target->y);
-				spawnFloatingText(tPos + glm::vec3(0, 0.5f, 0), "Poisoned!", ofColor::green);
-				pendingPoisonTargetIndices.clear();
-				pendingPoisonTargetIndices.push_back(players[targetIndex].playerID);
-				pendingPoisonAttackRollResult = startDiceRoll(1, 6, PURPOSE_DAMAGE, "Poison Damage");
-				isWaitingForPoisonAttackDice = true;
-			}
-
-			// --- 3. Mill Target's Top Card ---
-			if (!target->deck.empty()) {
-				Card removedCard = target->deck.back();
-				target->deck.pop_back();
-
-				// Visuals for Mill
-				RemovedCardAnimation anim;
-				anim.card = removedCard;
-				// Use screen-space start so the animation targets the correct
-				// UI location regardless of player vector reordering.
-				anim.startPos = glm::vec2(getActiveCamera().worldToScreen(gridToWorld(target->x, target->y)));
-				anim.startTime = ofGetElapsedTimef();
-				anim.currentScale = 1.0f;
-				activeRemovedCardAnimations.push_back(anim);
-
-				spawnFloatingText(gridToWorld(target->x, target->y) + glm::vec3(0, 1.0f, 0), "Milled!", ofColor::purple);
-			}
-		}
-
-		// --- 4. Buff the Caster ---
-		currentPlayer.luck++;
-		spawnFloatingText(
-			gridToWorld(currentPlayer.x, currentPlayer.y),
-			"+1 LUCK!",
-			ofColor::gold);
-
-		currentPlayer.maxHealth++;
-		spawnFloatingText(
-			gridToWorld(currentPlayer.x, currentPlayer.y),
-			"+1 Max HP!",
-			ofColor::limeGreen);
-
-		playedSuccessfully = true;
-		advanceCardState(CARD_STATE_OUTCOME);
-		break;
-	}
-
-		// --- CASE: MAGIC BOLT ---
-	case CARD_MAGIC_BOLT: {
-		// This card targets through walls, so we don't need a Line of Sight check here.
-		// We just need to check if the target tile is within the max possible range.
-
-		// FIX: Range is numDice * diceSides (e.g. 2 * 20 = 40ft)
-		float maxRangeFeet = (float)(playedCard.numDice * playedCard.diceSides);
-
-		// Calculate Distance in Feet (Face-to-Face logic)
-		// We calculate distance from Caster to Target Tile
-		glm::vec2 cPos((float)currentPlayer.x, (float)currentPlayer.y);
-		glm::vec2 tPos((float)targetX, (float)targetY);
-
-		// Use standard Euclidean distance * 5 for Magic Bolt (since it flies over walls)
-		// Or getFaceToFaceDistance if you want grid logic.
-		// Using Euclidean here as it's a projectile over walls.
-		float distFeet = glm::distance(cPos, tPos) * 5.0f;
-
-		// Add 3ft buffer for center-to-edge calculation
-		if (distFeet > maxRangeFeet + 3.0f) {
-			ofLogNotice("Magic Bolt") << "Target is too far.";
-			break;
-		}
-
-		// Disallow targeting a wall tile directly
-		if (targetX >= 0 && targetX < BOARD_WIDTH && targetY >= 0 && targetY < BOARD_HEIGHT) {
-			if (board[targetX][targetY].hasWall) {
-				ofLogNotice("Magic Bolt") << "Target is a wall; cannot target.";
-				break;
-			}
-		}
-
-		// Start the range roll
-		pendingMagicBoltTargetTile = glm::vec2(targetX, targetY);
-		isWaitingForMagicBoltRange = true;
-
-		pendingMagicBoltRangeResult = startDiceRoll(playedCard.numDice, playedCard.diceSides, PURPOSE_RANGE, "Magic Bolt: Range Check");
-
-		playedSuccessfully = true;
-		advanceCardState(CARD_STATE_DICE);
-		break;
-	}
-
-		// --- CASE: FLAIL ---
-	case CARD_FLAIL: {
-		// Roll 1d6. We will add +2 in the update loop.
-		if (isMultiplayer && isHost()) sendCardActionBegin(CARD_FLAIL, currentPlayerIndex, -1, -1, 0, 0, 0, 0, "Flail");
-		pendingFlailRollResult = startDiceRoll(playedCard.numDice, playedCard.diceSides, PURPOSE_DAMAGE, "Flail: Swing Damage", currentPlayerIndex);
-		isWaitingForFlailDice = true;
-		playedSuccessfully = true;
-		advanceCardState(CARD_STATE_DICE);
-		break;
-	}
-
-		// --- CASE: CONSUME LARGE HEALTH POTION ---
-	case CARD_CONSUME_LARGE_HEALTH_POTION: {
-		// === NEW STATE SYSTEM ===
-		// +3 Max HP
-		currentPlayer.maxHealth += 3;
-		spawnFloatingText(gridToWorld(currentPlayer.x, currentPlayer.y), "+3 Max HP", ofColor::limeGreen);
-
-		// Heal 1 HP
-		if (currentPlayer.health < currentPlayer.maxHealth) {
-			currentPlayer.health += 1;
-			currentCardOutcome.healingDealt = 1;
-			spawnFloatingText(gridToWorld(currentPlayer.x, currentPlayer.y) + glm::vec3(0, 0.5f, 0), "+1 HP", ofColor::green);
-		}
-
-		ofLogNotice("Potion") << "Player " << currentPlayer.playerID << " consumed large potion.";
-		playedSuccessfully = true;
-		advanceCardState(CARD_STATE_OUTCOME);
-		break;
-	}
-
-	// --- CASE: LESSER HEAL ---
-	case CARD_LESSER_HEAL: {
-		// Range Check (Line of Sight)
-		glm::vec2 casterTile = { (float)currentPlayer.x, (float)currentPlayer.y };
-		glm::vec2 targetTile = { (float)targetX, (float)targetY };
-
-		// Validate LOS (Infinite Range)
-		TargetInfo validationResult = isLosTargetValid(casterTile, targetTile, 9999.0f, playedCard.type);
-
-		// Allow SELF targeting for heals (isLosTargetValid usually blocks self)
-		bool isSelf = (currentPlayer.x == targetX && currentPlayer.y == targetY);
-
-		if (!isSelf && validationResult.reason != VALID) break;
-
-		// Find Target
-		int targetIndex = -1;
-		for (size_t i = 0; i < players.size(); i++) {
-			if (players[i].x == targetX && players[i].y == targetY) {
-				targetIndex = (int)i;
-				break;
-			}
-		}
-		if (targetIndex == -1) break;
-
-		// Start Dice Roll
-		pendingHealTargetIndex = targetIndex;
-		pendingHealRollResult = startDiceRoll(playedCard.numDice, playedCard.diceSides, PURPOSE_HEALING, "Lesser Heal"); // Reusing PURPOSE_HEALING logic
-		isWaitingForHealDice = true;
-		playedSuccessfully = true;
-		advanceCardState(CARD_STATE_DICE);
-		int px = players[currentPlayerIndex].x;
-		int py = players[currentPlayerIndex].y;
-		pendingAttackTargetIndices.clear();
-
-		// 1. CLEAVE LOGIC
-		if (playedCard.targeting == TARGET_CLEAVE_ADJACENT) {
-			glm::vec2 dir = { (float)(targetX - px), (float)(targetY - py) };
-			std::vector<Player *> targetsToHit = findCleaveTargets(dir);
-			for (auto * targetPlayer : targetsToHit) {
-				for (size_t i = 0; i < players.size(); i++) {
-					if (&players[i] == targetPlayer) pendingAttackTargetIndices.push_back((int)i);
-				}
-			}
-		}
-		// 2. PIERCE LOGIC
-		else if (playedCard.targeting == TARGET_LINEAR_PIERCE) {
-			glm::vec2 dir = { (float)(targetX - px), (float)(targetY - py) };
-			if (std::abs(dir.x) > std::abs(dir.y)) {
-				dir.x = (dir.x > 0) ? 1.0f : -1.0f;
-				dir.y = 0.0f;
-			} else {
-				dir.x = 0.0f;
-				dir.y = (dir.y > 0) ? 1.0f : -1.0f;
-			}
-
-			glm::vec2 pos1 = { px + dir.x, py + dir.y };
-			glm::vec2 pos2 = { px + dir.x * 2, py + dir.y * 2 };
-
-			// A. Adjacent
+		// --- CASE: VAMPIRE BITE ---
+		case CARD_VAMPIRE_BITE: {
+			// === NEW STATE SYSTEM ===
+			int targetIndex = -1;
 			for (size_t i = 0; i < players.size(); i++) {
-				if (players[i].x == (int)pos1.x && players[i].y == (int)pos1.y) {
-					pendingAttackTargetIndices.push_back((int)i);
+				if (players[i].x == targetX && players[i].y == targetY) {
+					targetIndex = (int)i;
 					break;
 				}
 			}
-			// B. Behind (only if not blocked by wall)
-			if (!isTileWall((int)pos1.x, (int)pos1.y)) {
+
+			if (targetIndex != -1) {
+				Player * target = getPlayer(targetIndex);
+
+				// 1. Deal flat physical damage (value from card JSON)
+				bool healthHit = applyDamageTo(*target, playedCard.value, DAMAGE_PHYSICAL, currentPlayerIndex);
+				currentCardOutcome.targetPlayerIndex = targetIndex;
+				currentCardOutcome.damageDealt = playedCard.value;
+
+				// 2. If the unit took HP damage, heal caster 2 HP and shuffle 1x Vampire Bite into that unit's deck
+				if (healthHit) {
+					currentPlayer.health += 2;
+					if (currentPlayer.health > currentPlayer.maxHealth) currentPlayer.health = currentPlayer.maxHealth;
+					currentCardOutcome.healingDealt = 2;
+					spawnFloatingText(gridToWorld(currentPlayer.x, currentPlayer.y), "+2 HP", ofColor::green);
+
+					// Find the card template in allCards
+					Card cardToAdd;
+					bool found = false;
+					for (const auto & c : allCards) {
+						if (c.type == CARD_VAMPIRE_BITE) {
+							cardToAdd = c;
+							found = true;
+							break;
+						}
+					}
+
+					if (found) {
+						target->deck.push_back(cardToAdd);
+						shuffleGameVector(target->deck, targetIndex);
+						spawnFloatingText(gridToWorld(target->x, target->y), "Shuffled 1x Vampire Bite", ofColor::magenta);
+						ofLogNotice("Vampire Bite") << "Shuffled a Vampire Bite into Player " << target->playerID << "'s deck.";
+					}
+				}
+
+				playedSuccessfully = true;
+				advanceCardState(CARD_STATE_OUTCOME);
+			}
+			break;
+		}
+
+		// --- CASE: DOUBLE HANDED ---
+		case CARD_DOUBLE_HANDED: {
+			int targetIndex = -1;
+			for (size_t i = 0; i < players.size(); i++) {
+				if (players[i].x == targetX && players[i].y == targetY) {
+					targetIndex = (int)i;
+					break;
+				}
+			}
+
+			// Safety check: Ensure target exists
+			if (targetIndex == -1) break;
+
+			// Open the Choice UI
+			pendingDoubleHandedCardIndex = cardIndex;
+			pendingDoubleHandedTargetIndex = targetIndex;
+			isDoubleHandedMenuOpen = true;
+			currentCardOutcome.targetPlayerIndex = targetIndex;
+			advanceCardState(CARD_STATE_MENU);
+			sendMenuState(3, targetIndex, -1, cardIndex); // Notify opponent
+
+			// Setup UI Geometry
+			float w = 500, h = 250;
+			float x = ofGetWidth() / 2 - w / 2, y = ofGetHeight() / 2 - h / 2;
+			doubleHandedMenuRect.set(x, y, w, h);
+
+			float btnW = 200, btnH = 80;
+			float spacing = 40;
+			btnAddPunches.set(x + (w - (btnW * 2 + spacing)) / 2, y + 120, btnW, btnH);
+			btnAddBlocks.set(btnAddPunches.getRight() + spacing, y + 120, btnW, btnH);
+
+			// Do NOT set playedSuccessfully = true yet.
+			// We wait for the user to click a button.
+			return CARD_AWAITING_MENU_CHOICE;
+		}
+
+			// --- CASE: NECROMANCER'S BLESSING ---
+		case CARD_NECRO_BLESSING: {
+			// === NEW STATE SYSTEM ===
+			int skeletonCount = 0;
+
+			// Determine the owner of the unit playing the card
+			int ownerID = currentPlayer.isMinion ? currentPlayer.ownerID : currentPlayer.playerID;
+
+			// Count skeletons owned by that player
+			for (const auto & p : players) {
+				if (p.isSkeleton) {
+					int skeletonOwnerID = p.isMinion ? p.ownerID : p.playerID;
+					if (skeletonOwnerID == ownerID) {
+						skeletonCount++;
+					}
+				}
+			}
+
+			// Apply luck to the unit that played the card (even if it's 0)
+			currentPlayer.baseLuck += skeletonCount;
+			currentPlayer.luck += skeletonCount;
+
+			if (skeletonCount > 0) {
+				// Visual Feedback for gaining luck
+				spawnFloatingText(
+					gridToWorld(currentPlayer.x, currentPlayer.y),
+					"+" + ofToString(skeletonCount) + " LUCK!",
+					ofColor::purple);
+				ofLogNotice("NecroBlessing") << "Unit " << currentPlayer.playerID << " gained " << skeletonCount << " luck.";
+			} else {
+				// Visual Feedback for gaining 0 luck
+				spawnFloatingText(
+					gridToWorld(currentPlayer.x, currentPlayer.y),
+					"No Skeletons! (+0 Luck)",
+					ofColor::gray);
+				ofLogNotice("NecroBlessing") << "No skeletons found, no luck gained.";
+			}
+
+			playedSuccessfully = true;
+			advanceCardState(CARD_STATE_OUTCOME);
+			break;
+		}
+
+		// --- CASE: EARTHQUAKE ---
+		case CARD_EARTHQUAKE: {
+			ofLogNotice("Earthquake") << "CARD_EARTHQUAKE triggered by playerIndex=" << currentPlayerIndex << " playerID=" << currentPlayer.playerID;
+			// Multiplayer clients should NOT start the earthquake locally. Host is authoritative.
+			if (isMultiplayer && !isHost()) {
+				ofLogNotice("Earthquake") << "Client played Earthquake: deferring to host (waiting for EarthquakeBegin)";
+				// Consume AP and remove card locally for responsive UI, but wait for host to start earthquake
+				currentAP -= costToPay;
+				currentPlayer.playedCardsPile.push_back(playedCard);
+				currentPlayer.cardsPlayedThisTurn.push_back(playedCard.type);
+				currentPlayer.hand.erase(currentPlayer.hand.begin() + cardIndex);
+				players[currentPlayerIndex].ap = currentAP;
+				isWaitingForEarthquakeBegin = true;
+				return CARD_PLAYED_IMMEDIATELY;
+			}
+
+			// Host: Initialize Earthquake System and broadcast directions before rolling
+			// 2. Pay Cost & Cleanup Hand
+			currentAP -= costToPay;
+			currentPlayer.playedCardsPile.push_back(playedCard);
+			// (Handle Replicate logic here if you want)
+			currentPlayer.cardsPlayedThisTurn.push_back(playedCard.type);
+			currentPlayer.hand.erase(currentPlayer.hand.begin() + cardIndex);
+
+			// 2. Initialize Earthquake System
+			isEarthquakeActive = true;
+			isEarthquakeDiceRolling = true;
+			isEarthquakeAnimatingStep = false;
+			earthquakeUnits.clear();
+
+			// 3. Setup Units (choose directions) - distances will be filled after dice arrive
+			for (int i = 0; i < (int)players.size(); ++i) {
+				EarthquakeState state;
+				state.playerIndex = i;
+				state.startGrid = { players[i].x, players[i].y };
+				state.visualPos = gridToWorld(players[i].x, players[i].y);
+				state.isMoving = true;
+				state.crashed = false;
+				state.tilesToMove = 0;
+				state.originalDistance = 0;
+
+				// Random Direction (N, E, S, W)
+				int r = getGameRandom(0, 3);
+				if (r == 0)
+					state.direction = { 0, 1 }; // South
+				else if (r == 1)
+					state.direction = { 0, -1 }; // North
+				else if (r == 2)
+					state.direction = { 1, 0 }; // East
+				else
+					state.direction = { -1, 0 }; // West
+
+				state.diceIndex = -1;
+				earthquakeUnits.push_back(state);
+			}
+
+			// Broadcast EarthquakeBegin so clients can set up directions identically
+			if (isMultiplayer && isHost()) {
+				EarthquakeBeginPacket eb = {};
+				eb.type = PKT_EARTHQUAKE_BEGIN;
+				eb.playerID = myLocalPlayerID;
+				eb.numUnits = (int32_t)earthquakeUnits.size();
+				for (int i = 0; i < (int)earthquakeUnits.size() && i < 16; ++i) {
+					eb.playerIndex[i] = earthquakeUnits[i].playerIndex;
+					eb.dirX[i] = (int8_t)earthquakeUnits[i].direction.x;
+					eb.dirY[i] = (int8_t)earthquakeUnits[i].direction.y;
+				}
+				steamManager.sendPacket(&eb, sizeof(eb));
+				ofLogNotice("Network") << "Host sent EarthquakeBegin with " << eb.numUnits << " units";
+			}
+
+			// 4. Roll Dice now (host performs dice and will send DiceRollPacket(s))
+			for (int i = 0; i < (int)earthquakeUnits.size(); ++i) {
+				// FIX: Pass the unit's index so the die is mapped to them, not the caster!
+				startDiceRoll(1, 4, PURPOSE_EARTHQUAKE_DISTANCE, "Quake Dist", earthquakeUnits[i].playerIndex);
+			}
+			ofLogNotice("Earthquake") << "Host started earthquake dice for " << earthquakeUnits.size() << " units";
+
+			return CARD_PLAYED_IMMEDIATELY; // Cleanup handled above
+		}
+
+			// --- CASE: TIME VORTEX ---
+		case CARD_TIME_VORTEX: {
+			// Start the dice roll and set the waiting flag
+			isWaitingForTimeVortexDice = true;
+
+			pendingTimeVortexResult = startDiceRoll(playedCard.numDice, playedCard.diceSides, PURPOSE_TIME_VORTEX, "Time Vortex: Extra Turns");
+
+			// Don't apply the turns yet. We wait for the dice animation.
+
+			playedSuccessfully = true;
+			advanceCardState(CARD_STATE_DICE);
+			break;
+		}
+
+			// --- CASE: GIANT MAGIC HAND ---
+		case CARD_GIANT_MAGIC_HAND: {
+			// Must target a wall
+			if (!board[targetX][targetY].hasWall) break;
+
+			// Save state and open UI
+			pendingMagicHandCardIndex = cardIndex;
+			magicHandTargetTile = { targetX, targetY };
+			isMagicHandMenuOpen = true;
+			advanceCardState(CARD_STATE_MENU);
+
+			// Define UI Rect
+			float w = 500, h = 250;
+			float mx = ofGetWidth() / 2 - w / 2, my = ofGetHeight() / 2 - h / 2;
+			// Re-use wisdom menu rect variable or create new one. Let's reuse wisdomMenuRect for layout simplicity
+			wisdomMenuRect.set(mx, my, w, h);
+
+			// Do not set playedSuccessfully yet
+			return CARD_AWAITING_MENU_CHOICE;
+		}
+
+			// --- CASE: MASTER FIST ---
+		case CARD_MASTER_FIST: {
+			int targetIndex = -1;
+			for (size_t i = 0; i < players.size(); i++) {
+				if (players[i].x == targetX && players[i].y == targetY) {
+					targetIndex = (int)i;
+					break;
+				}
+			}
+
+			if (targetIndex != -1) {
+				Player * target = getPlayer(targetIndex);
+
+				// --- 1. Calculate Combo Damage ---
+				int damage = 0; // Starts at 0 (Removed base 2)
+				int handCardsInDiscard = 0;
+
+				// Define which cards count as "hand-related" attack cards
+				std::vector<std::string> handAttackNames = { "Punch", "Bash", "Drain Punch", "Master Fist", "Flurry of Fists", "Giant Magic Hand" };
+
+				// Count matching cards in the caster's discard pile
+				for (const auto & cardInPile : currentPlayer.discardPile) {
+					for (const auto & name : handAttackNames) {
+						if (cardInPile.name == name) {
+							handCardsInDiscard++;
+							break;
+						}
+					}
+				}
+
+				damage = (handCardsInDiscard * 2);
+				ofLogNotice("Master Fist") << "Found " << handCardsInDiscard << " hand cards in discard. Total damage: " << damage;
+
+				// Double damage if Flurry of Fists is active
+				if (currentPlayer.flurryOfFistsActive) {
+					damage *= 2;
+					ofLogNotice("Master Fist") << "Flurry doubled damage to: " << damage;
+				}
+
+				// Check if Add Poison buff is active
+				bool applyPoisonBuff = currentPlayer.nextAttackAddPoison;
+				if (applyPoisonBuff) {
+					currentPlayer.nextAttackAddPoison = false;
+				}
+
+				// --- 2. Apply Damage ---
+				if (damage > 0) {
+					applyDamageTo(*target, damage, DAMAGE_PHYSICAL, currentPlayerIndex);
+				} else {
+					spawnFloatingText(gridToWorld(target->x, target->y), "0 Damage (Empty Discard)", ofColor::gray);
+				}
+
+				// Apply poison if buff was active
+				if (applyPoisonBuff) {
+					target->isPoisoned = true;
+					target->poisonReduction = 0;
+					glm::vec3 tPos = gridToWorld(target->x, target->y);
+					spawnFloatingText(tPos + glm::vec3(0, 0.5f, 0), "Poisoned!", ofColor::green);
+					pendingPoisonTargetIndices.clear();
+					pendingPoisonTargetIndices.push_back(players[targetIndex].playerID);
+					pendingPoisonAttackRollResult = startDiceRoll(1, 6, PURPOSE_DAMAGE, "Poison Damage");
+					isWaitingForPoisonAttackDice = true;
+				}
+
+				// --- 3. Mill Target's Top Card ---
+				if (!target->deck.empty()) {
+					Card removedCard = target->deck.back();
+					target->deck.pop_back();
+
+					// Visuals for Mill
+					RemovedCardAnimation anim;
+					anim.card = removedCard;
+					// Use screen-space start so the animation targets the correct
+					// UI location regardless of player vector reordering.
+					anim.startPos = glm::vec2(getActiveCamera().worldToScreen(gridToWorld(target->x, target->y)));
+					anim.startTime = ofGetElapsedTimef();
+					anim.currentScale = 1.0f;
+					activeRemovedCardAnimations.push_back(anim);
+
+					spawnFloatingText(gridToWorld(target->x, target->y) + glm::vec3(0, 1.0f, 0), "Milled!", ofColor::purple);
+				}
+			}
+
+			// --- 4. Buff the Caster ---
+			currentPlayer.luck++;
+			spawnFloatingText(
+				gridToWorld(currentPlayer.x, currentPlayer.y),
+				"+1 LUCK!",
+				ofColor::gold);
+
+			currentPlayer.maxHealth++;
+			spawnFloatingText(
+				gridToWorld(currentPlayer.x, currentPlayer.y),
+				"+1 Max HP!",
+				ofColor::limeGreen);
+
+			playedSuccessfully = true;
+			advanceCardState(CARD_STATE_OUTCOME);
+			break;
+		}
+
+			// --- CASE: MAGIC BOLT ---
+		case CARD_MAGIC_BOLT: {
+			// This card targets through walls, so we don't need a Line of Sight check here.
+			// We just need to check if the target tile is within the max possible range.
+
+			// FIX: Range is numDice * diceSides (e.g. 2 * 20 = 40ft)
+			float maxRangeFeet = (float)(playedCard.numDice * playedCard.diceSides);
+
+			// Calculate Distance in Feet (Face-to-Face logic)
+			// We calculate distance from Caster to Target Tile
+			glm::vec2 cPos((float)currentPlayer.x, (float)currentPlayer.y);
+			glm::vec2 tPos((float)targetX, (float)targetY);
+
+			// Use standard Euclidean distance * 5 for Magic Bolt (since it flies over walls)
+			// Or getFaceToFaceDistance if you want grid logic.
+			// Using Euclidean here as it's a projectile over walls.
+			float distFeet = glm::distance(cPos, tPos) * 5.0f;
+
+			// Add 3ft buffer for center-to-edge calculation
+			if (distFeet > maxRangeFeet + 3.0f) {
+				ofLogNotice("Magic Bolt") << "Target is too far.";
+				break;
+			}
+
+			// Disallow targeting a wall tile directly
+			if (targetX >= 0 && targetX < BOARD_WIDTH && targetY >= 0 && targetY < BOARD_HEIGHT) {
+				if (board[targetX][targetY].hasWall) {
+					ofLogNotice("Magic Bolt") << "Target is a wall; cannot target.";
+					break;
+				}
+			}
+
+			// Start the range roll
+			pendingMagicBoltTargetTile = glm::vec2(targetX, targetY);
+			isWaitingForMagicBoltRange = true;
+
+			pendingMagicBoltRangeResult = startDiceRoll(playedCard.numDice, playedCard.diceSides, PURPOSE_RANGE, "Magic Bolt: Range Check");
+
+			playedSuccessfully = true;
+			advanceCardState(CARD_STATE_DICE);
+			break;
+		}
+
+			// --- CASE: FLAIL ---
+		case CARD_FLAIL: {
+			// Roll 1d6. We will add +2 in the update loop.
+			if (isMultiplayer && isHost()) sendCardActionBegin(CARD_FLAIL, currentPlayerIndex, -1, -1, 0, 0, 0, 0, "Flail");
+			pendingFlailRollResult = startDiceRoll(playedCard.numDice, playedCard.diceSides, PURPOSE_DAMAGE, "Flail: Swing Damage", currentPlayerIndex);
+			isWaitingForFlailDice = true;
+			playedSuccessfully = true;
+			advanceCardState(CARD_STATE_DICE);
+			break;
+		}
+
+			// --- CASE: CONSUME LARGE HEALTH POTION ---
+		case CARD_CONSUME_LARGE_HEALTH_POTION: {
+			// === NEW STATE SYSTEM ===
+			// +3 Max HP
+			currentPlayer.maxHealth += 3;
+			spawnFloatingText(gridToWorld(currentPlayer.x, currentPlayer.y), "+3 Max HP", ofColor::limeGreen);
+
+			// Heal 1 HP
+			if (currentPlayer.health < currentPlayer.maxHealth) {
+				currentPlayer.health += 1;
+				currentCardOutcome.healingDealt = 1;
+				spawnFloatingText(gridToWorld(currentPlayer.x, currentPlayer.y) + glm::vec3(0, 0.5f, 0), "+1 HP", ofColor::green);
+			}
+
+			ofLogNotice("Potion") << "Player " << currentPlayer.playerID << " consumed large potion.";
+			playedSuccessfully = true;
+			advanceCardState(CARD_STATE_OUTCOME);
+			break;
+		}
+
+		// --- CASE: LESSER HEAL ---
+		case CARD_LESSER_HEAL: {
+			// Range Check (Line of Sight)
+			glm::vec2 casterTile = { (float)currentPlayer.x, (float)currentPlayer.y };
+			glm::vec2 targetTile = { (float)targetX, (float)targetY };
+
+			// Validate LOS (Infinite Range)
+			TargetInfo validationResult = isLosTargetValid(casterTile, targetTile, 9999.0f, playedCard.type);
+
+			// Allow SELF targeting for heals (isLosTargetValid usually blocks self)
+			bool isSelf = (currentPlayer.x == targetX && currentPlayer.y == targetY);
+
+			if (!isSelf && validationResult.reason != VALID) break;
+
+			// Find Target
+			int targetIndex = -1;
+			for (size_t i = 0; i < players.size(); i++) {
+				if (players[i].x == targetX && players[i].y == targetY) {
+					targetIndex = (int)i;
+					break;
+				}
+			}
+			if (targetIndex == -1) break;
+
+			// Start Dice Roll
+			pendingHealTargetIndex = targetIndex;
+			pendingHealRollResult = startDiceRoll(playedCard.numDice, playedCard.diceSides, PURPOSE_HEALING, "Lesser Heal"); // Reusing PURPOSE_HEALING logic
+			isWaitingForHealDice = true;
+			playedSuccessfully = true;
+			advanceCardState(CARD_STATE_DICE);
+			int px = players[currentPlayerIndex].x;
+			int py = players[currentPlayerIndex].y;
+			pendingAttackTargetIndices.clear();
+
+			// 1. CLEAVE LOGIC
+			if (playedCard.targeting == TARGET_CLEAVE_ADJACENT) {
+				glm::vec2 dir = { (float)(targetX - px), (float)(targetY - py) };
+				std::vector<Player *> targetsToHit = findCleaveTargets(dir);
+				for (auto * targetPlayer : targetsToHit) {
+					for (size_t i = 0; i < players.size(); i++) {
+						if (&players[i] == targetPlayer) pendingAttackTargetIndices.push_back((int)i);
+					}
+				}
+			}
+			// 2. PIERCE LOGIC
+			else if (playedCard.targeting == TARGET_LINEAR_PIERCE) {
+				glm::vec2 dir = { (float)(targetX - px), (float)(targetY - py) };
+				if (std::abs(dir.x) > std::abs(dir.y)) {
+					dir.x = (dir.x > 0) ? 1.0f : -1.0f;
+					dir.y = 0.0f;
+				} else {
+					dir.x = 0.0f;
+					dir.y = (dir.y > 0) ? 1.0f : -1.0f;
+				}
+
+				glm::vec2 pos1 = { px + dir.x, py + dir.y };
+				glm::vec2 pos2 = { px + dir.x * 2, py + dir.y * 2 };
+
+				// A. Adjacent
 				for (size_t i = 0; i < players.size(); i++) {
-					if (players[i].x == (int)pos2.x && players[i].y == (int)pos2.y) {
+					if (players[i].x == (int)pos1.x && players[i].y == (int)pos1.y) {
 						pendingAttackTargetIndices.push_back((int)i);
 						break;
 					}
 				}
-			}
-		}
-		// 3. STANDARD SINGLE TARGET (e.g., Punch)
-		else {
-			if (playedCard.targeting == TARGET_ADJACENT_UNIT) {
-				int dist = abs(targetX - px) + abs(targetY - py);
-				if (dist == 1 && board[targetX][targetY].hasPlayer) {
+				// B. Behind (only if not blocked by wall)
+				if (!isTileWall((int)pos1.x, (int)pos1.y)) {
 					for (size_t i = 0; i < players.size(); i++) {
-						if (players[i].x == targetX && players[i].y == targetY) {
+						if (players[i].x == (int)pos2.x && players[i].y == (int)pos2.y) {
 							pendingAttackTargetIndices.push_back((int)i);
 							break;
 						}
 					}
 				}
+			}
+			// 3. STANDARD SINGLE TARGET (e.g., Punch)
+			else {
+				if (playedCard.targeting == TARGET_ADJACENT_UNIT) {
+					int dist = abs(targetX - px) + abs(targetY - py);
+					if (dist == 1 && board[targetX][targetY].hasPlayer) {
+						for (size_t i = 0; i < players.size(); i++) {
+							if (players[i].x == targetX && players[i].y == targetY) {
+								pendingAttackTargetIndices.push_back((int)i);
+								break;
+							}
+						}
+					}
+				} else {
+					glm::vec2 casterTile = { (float)px, (float)py };
+					glm::vec2 targetTile = { (float)targetX, (float)targetY };
+					TargetInfo info = isLosTargetValid(casterTile, targetTile, 5.0f, playedCard.type);
+
+					if (info.reason == VALID && info.isTargetable) {
+						for (size_t i = 0; i < players.size(); i++) {
+							if (players[i].x == targetX && players[i].y == targetY) {
+								pendingAttackTargetIndices.push_back((int)i);
+								break;
+							}
+						}
+					}
+				}
+			}
+
+			if (pendingAttackTargetIndices.empty()) {
+				ofLogNotice("Attack") << "NO TARGETS for " << playedCard.name << " at (" << targetX << "," << targetY << ") - Cancelled";
+				break;
+			}
+			ofLogNotice("Attack") << "FOUND " << pendingAttackTargetIndices.size() << " target(s) for " << playedCard.name;
+
+			// --- EXECUTE DAMAGE ---
+			if (playedCard.numDice > 0 && playedCard.diceSides > 0) {
+				// DICE PATH (Rock Crush, etc) -> Handled in updateGame loop
+				pendingAttackRollResult = startDiceRoll(playedCard.numDice, playedCard.diceSides, PURPOSE_DAMAGE, playedCard.name + ": Damage", currentPlayerIndex);
+				pendingAttackCardName = playedCard.name;
+
+				isWaitingForAttackDice = true;
+				pendingAttackDamageType = playedCard.damageType;
+				playedSuccessfully = true;
+				advanceCardState(CARD_STATE_DICE);
 			} else {
-				glm::vec2 casterTile = { (float)px, (float)py };
-				glm::vec2 targetTile = { (float)targetX, (float)targetY };
-				TargetInfo info = isLosTargetValid(casterTile, targetTile, 5.0f, playedCard.type);
+				// INSTANT PATH (Punch, Kick) -> Handled immediately via applyDamage
+				int damage = playedCard.value;
 
-				if (info.reason == VALID && info.isTargetable) {
-					for (size_t i = 0; i < players.size(); i++) {
-						if (players[i].x == targetX && players[i].y == targetY) {
-							pendingAttackTargetIndices.push_back((int)i);
-							break;
+				if ((playedCard.name == "Punch") && currentPlayer.flurryOfFistsActive) {
+					damage *= 2;
+				}
+
+				bool applyPoisonBuff = currentPlayer.nextAttackAddPoison && (playedCard.damageType == DAMAGE_PHYSICAL || playedCard.damageType == DAMAGE_PIERCING);
+
+				if (applyPoisonBuff) {
+					currentPlayer.nextAttackAddPoison = false;
+					pendingPoisonTargetIndices.clear();
+				}
+
+				for (size_t i = 0; i < pendingAttackTargetIndices.size(); i++) {
+					int pIndex = pendingAttackTargetIndices[i];
+					Player * target = getPlayer(pIndex);
+					if (target) {
+						int finalDamage = damage;
+						if (playedCard.damageType == DAMAGE_PIERCING && i > 0) finalDamage /= 2;
+
+						// applyDamage handles Ghost immunity automatically
+						applyDamageTo(*target, finalDamage, playedCard.damageType, currentPlayerIndex);
+
+						if (applyPoisonBuff) {
+							// Only apply poison if not phased (damage check handled inside dice logic usually,
+							// but here we just check immunity directly for instant attacks)
+							if (!target->inGhostForm) {
+								pendingPoisonTargetIndices.push_back(players[pIndex].playerID);
+								target->isPoisoned = true;
+								target->poisonReduction = 0;
+								glm::vec3 tPos = gridToWorld(target->x, target->y);
+								spawnFloatingText(tPos + glm::vec3(0, 0.5f, 0), "Poisoned!", ofColor::green);
+							}
 						}
 					}
 				}
-			}
-		}
 
-		if (pendingAttackTargetIndices.empty()) {
-			ofLogNotice("Attack") << "NO TARGETS for " << playedCard.name << " at (" << targetX << "," << targetY << ") - Cancelled";
+				if (applyPoisonBuff && !pendingPoisonTargetIndices.empty()) {
+					pendingPoisonAttackRollResult = startDiceRoll(1, 6, PURPOSE_DAMAGE, "Poison Damage");
+					isWaitingForPoisonAttackDice = true;
+				}
+				playedSuccessfully = true;
+				advanceCardState(CARD_STATE_OUTCOME);
+			}
 			break;
 		}
-		ofLogNotice("Attack") << "FOUND " << pendingAttackTargetIndices.size() << " target(s) for " << playedCard.name;
 
-		// --- EXECUTE DAMAGE ---
-		if (playedCard.numDice > 0 && playedCard.diceSides > 0) {
-			// DICE PATH (Rock Crush, etc) -> Handled in updateGame loop
-			pendingAttackRollResult = startDiceRoll(playedCard.numDice, playedCard.diceSides, PURPOSE_DAMAGE, playedCard.name + ": Damage", currentPlayerIndex);
-			pendingAttackCardName = playedCard.name;
-
-			isWaitingForAttackDice = true;
-			pendingAttackDamageType = playedCard.damageType;
-			playedSuccessfully = true;
-			advanceCardState(CARD_STATE_DICE);
-		} else {
-			// INSTANT PATH (Punch, Kick) -> Handled immediately via applyDamage
-			int damage = playedCard.value;
-
-			if ((playedCard.name == "Punch") && currentPlayer.flurryOfFistsActive) {
-				damage *= 2;
-			}
-
-			bool applyPoisonBuff = currentPlayer.nextAttackAddPoison && (playedCard.damageType == DAMAGE_PHYSICAL || playedCard.damageType == DAMAGE_PIERCING);
-
-			if (applyPoisonBuff) {
-				currentPlayer.nextAttackAddPoison = false;
-				pendingPoisonTargetIndices.clear();
-			}
-
-			for (size_t i = 0; i < pendingAttackTargetIndices.size(); i++) {
-				int pIndex = pendingAttackTargetIndices[i];
-				Player * target = getPlayer(pIndex);
-				if (target) {
-					int finalDamage = damage;
-					if (playedCard.damageType == DAMAGE_PIERCING && i > 0) finalDamage /= 2;
-
-					// applyDamage handles Ghost immunity automatically
-					applyDamageTo(*target, finalDamage, playedCard.damageType, currentPlayerIndex);
-
-					if (applyPoisonBuff) {
-						// Only apply poison if not phased (damage check handled inside dice logic usually,
-						// but here we just check immunity directly for instant attacks)
-						if (!target->inGhostForm) {
-							pendingPoisonTargetIndices.push_back(players[pIndex].playerID);
-							target->isPoisoned = true;
-							target->poisonReduction = 0;
-							glm::vec3 tPos = gridToWorld(target->x, target->y);
-							spawnFloatingText(tPos + glm::vec3(0, 0.5f, 0), "Poisoned!", ofColor::green);
-						}
+		// --- CASE: SHOCK ---
+		case CARD_SHOCK: {
+			// === NEW STATE SYSTEM ===
+			int targetIndex = -1;
+			// Prefer a non-self occupant if multiple units share the tile (ghost overlap)
+			int fallbackIndex = -1;
+			for (size_t i = 0; i < players.size(); i++) {
+				if (players[i].x == targetX && players[i].y == targetY) {
+					if ((int)i != currentPlayerIndex) {
+						targetIndex = (int)i; // non-self preferred
+						break;
+					} else {
+						fallbackIndex = (int)i; // remember self in case no other found
 					}
 				}
 			}
-
-			if (applyPoisonBuff && !pendingPoisonTargetIndices.empty()) {
-				pendingPoisonAttackRollResult = startDiceRoll(1, 6, PURPOSE_DAMAGE, "Poison Damage");
-				isWaitingForPoisonAttackDice = true;
-			}
-			playedSuccessfully = true;
-			advanceCardState(CARD_STATE_OUTCOME);
-		}
-		break;
-	}
-
-	// --- CASE: SHOCK ---
-	case CARD_SHOCK: {
-		// === NEW STATE SYSTEM ===
-		int targetIndex = -1;
-		// Prefer a non-self occupant if multiple units share the tile (ghost overlap)
-		int fallbackIndex = -1;
-		for (size_t i = 0; i < players.size(); i++) {
-			if (players[i].x == targetX && players[i].y == targetY) {
-				if ((int)i != currentPlayerIndex) {
-					targetIndex = (int)i; // non-self preferred
-					break;
-				} else {
-					fallbackIndex = (int)i; // remember self in case no other found
+			if (targetIndex == -1) targetIndex = fallbackIndex;
+			if (targetIndex != -1) {
+				Player * target = getPlayer(targetIndex);
+				applyDamageTo(*target, playedCard.value, DAMAGE_ELECTRIC, currentPlayerIndex);
+				currentCardOutcome.targetPlayerIndex = targetIndex;
+				currentCardOutcome.damageDealt = playedCard.value;
+				if (currentPlayer.shocksPlayedThisTurn > 0 && !target->isParalyzed) {
+					target->isParalyzed = true;
+					target->paralysisHeadsCount = 0;
+					currentCardOutcome.statusesApplied.push_back("Paralyzed");
 				}
 			}
+			currentPlayer.nextTurnAPBonus += 2;
+			currentPlayer.shocksPlayedThisTurn++;
+			currentCardOutcome.apGained = 2; // Next turn bonus
+			playedSuccessfully = true;
+			advanceCardState(CARD_STATE_OUTCOME);
+			break;
 		}
-		if (targetIndex == -1) targetIndex = fallbackIndex;
-		if (targetIndex != -1) {
-			Player * target = getPlayer(targetIndex);
-			applyDamageTo(*target, playedCard.value, DAMAGE_ELECTRIC, currentPlayerIndex);
-			currentCardOutcome.targetPlayerIndex = targetIndex;
-			currentCardOutcome.damageDealt = playedCard.value;
-			if (currentPlayer.shocksPlayedThisTurn > 0 && !target->isParalyzed) {
-				target->isParalyzed = true;
-				target->paralysisHeadsCount = 0;
-				currentCardOutcome.statusesApplied.push_back("Paralyzed");
+
+			// --- CASE: SPARK OF GENIUS ---
+		case CARD_SPARK_OF_GENIUS: {
+			// Roll 1d4 (defined in JSON)
+			pendingSparkOfGeniusRollResult = startDiceRoll(playedCard.numDice, playedCard.diceSides, PURPOSE_SPARK_OF_GENIUS_DRAW, "Spark of Genius: Draw Cards");
+			isWaitingForSparkOfGeniusDice = true;
+			playedSuccessfully = true;
+			advanceCardState(CARD_STATE_DICE);
+			break;
+		}
+
+		case CARD_GAIN_AP:
+			// === NEW STATE SYSTEM ===
+			currentAP += playedCard.value;
+			currentCardOutcome.apGained = playedCard.value;
+			spawnFloatingText(gridToWorld(currentPlayer.x, currentPlayer.y), "+" + ofToString(playedCard.value) + " AP", ofColor::yellow);
+			playedSuccessfully = true;
+			advanceCardState(CARD_STATE_OUTCOME);
+			break;
+
+		case CARD_GAIN_BLOCK: {
+			// === NEW STATE SYSTEM ===
+			int blockValue = playedCard.value;
+			// Double block for Hand Block if Flurry of Fists is active
+			if (playedCard.name == "Hand Block" && currentPlayer.flurryOfFistsActive) {
+				blockValue *= 2;
 			}
+			players[currentPlayerIndex].block += blockValue;
+			currentCardOutcome.blockGained = blockValue;
+			spawnFloatingText(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y), "+" + ofToString(blockValue) + " Block", ofColor::gray);
+			playedSuccessfully = true;
+			advanceCardState(CARD_STATE_OUTCOME);
+			break;
 		}
-		currentPlayer.nextTurnAPBonus += 2;
-		currentPlayer.shocksPlayedThisTurn++;
-		currentCardOutcome.apGained = 2; // Next turn bonus
-		playedSuccessfully = true;
-		advanceCardState(CARD_STATE_OUTCOME);
-		break;
-	}
 
-		// --- CASE: SPARK OF GENIUS ---
-	case CARD_SPARK_OF_GENIUS: {
-		// Roll 1d4 (defined in JSON)
-		pendingSparkOfGeniusRollResult = startDiceRoll(playedCard.numDice, playedCard.diceSides, PURPOSE_SPARK_OF_GENIUS_DRAW, "Spark of Genius: Draw Cards");
-		isWaitingForSparkOfGeniusDice = true;
-		playedSuccessfully = true;
-		advanceCardState(CARD_STATE_DICE);
-		break;
-	}
+		case CARD_GAIN_WARD:
+			// === NEW STATE SYSTEM ===
+			players[currentPlayerIndex].ward += playedCard.value;
+			spawnFloatingText(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y), "+" + ofToString(playedCard.value) + " Ward", ofColor::black);
+			playedSuccessfully = true;
+			advanceCardState(CARD_STATE_OUTCOME);
+			break;
 
-	case CARD_GAIN_AP:
-		// === NEW STATE SYSTEM ===
-		currentAP += playedCard.value;
-		currentCardOutcome.apGained = playedCard.value;
-		spawnFloatingText(gridToWorld(currentPlayer.x, currentPlayer.y), "+" + ofToString(playedCard.value) + " AP", ofColor::yellow);
-		playedSuccessfully = true;
-		advanceCardState(CARD_STATE_OUTCOME);
-		break;
-
-	case CARD_GAIN_BLOCK: {
-		// === NEW STATE SYSTEM ===
-		int blockValue = playedCard.value;
-		// Double block for Hand Block if Flurry of Fists is active
-		if (playedCard.name == "Hand Block" && currentPlayer.flurryOfFistsActive) {
-			blockValue *= 2;
+		default:
+			break;
 		}
-		players[currentPlayerIndex].block += blockValue;
-		currentCardOutcome.blockGained = blockValue;
-		spawnFloatingText(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y), "+" + ofToString(blockValue) + " Block", ofColor::gray);
-		playedSuccessfully = true;
-		advanceCardState(CARD_STATE_OUTCOME);
-		break;
-	}
-
-	case CARD_GAIN_WARD:
-		// === NEW STATE SYSTEM ===
-		players[currentPlayerIndex].ward += playedCard.value;
-		spawnFloatingText(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y), "+" + ofToString(playedCard.value) + " Ward", ofColor::black);
-		playedSuccessfully = true;
-		advanceCardState(CARD_STATE_OUTCOME);
-		break;
-
-	default:
-		break;
 	}
 
 	// --- 3. COMMON CLEANUP ---
@@ -22752,8 +24443,10 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 				break;
 			}
 
-			// If the tile is occupied, ensure the occupant is NOT the caster itself.
-			if (isValidTarget && board[x][y].hasPlayer && currentPlayerIndex >= 0) {
+			// If the tile is occupied, ensure the occupant is NOT the caster itself,
+			// except for cards that intentionally allow self-target.
+			bool allowSelfOccupiedTarget = (card.type == CARD_WISDOM_BOON);
+			if (isValidTarget && board[x][y].hasPlayer && currentPlayerIndex >= 0 && !allowSelfOccupiedTarget) {
 				if (!tileHasOtherThan(x, y, currentPlayerIndex)) {
 					// Only occupant is caster; not a valid non-self target
 					isValidTarget = false;
@@ -25773,6 +27466,75 @@ bool ofApp::applyDamageTo(Player & target, int damage, DamageType type, int atta
 
 	if (target.health <= 0) {
 		ofLogNotice("Game") << "Player " << target.playerID << " defeated!";
+
+		// Faerie Resurrection (orthogonal adjacency only; no diagonals)
+		bool resurrected = false;
+		if (!target.isFaerie && target.x >= 0 && target.y >= 0) {
+			for (int dx = -1; dx <= 1 && !resurrected; ++dx) {
+				for (int dy = -1; dy <= 1 && !resurrected; ++dy) {
+					if (abs(dx) + abs(dy) != 1) continue; // orthogonal only
+					int nx = target.x + dx;
+					int ny = target.y + dy;
+					if (nx < 0 || nx >= BOARD_WIDTH || ny < 0 || ny >= BOARD_HEIGHT) continue;
+
+					for (size_t pidx = 0; pidx < players.size() && !resurrected; ++pidx) {
+						Player & p = players[pidx];
+						if (p.playerID == target.playerID) continue;
+						if (p.isFaerie && p.x == nx && p.y == ny && p.health > 0) {
+							int raw = getGameRandom(1, 4);
+							int luckBonus = p.luck + computePassiveLuck((int)pidx);
+							int roll = raw + luckBonus;
+							int hp = (int)std::floor(target.maxHealth * 0.25f * roll);
+							if (hp < 1) hp = 1;
+
+							target.health = hp;
+							target.onFire = false;
+							target.isPoisoned = false;
+							target.poisonReduction = 0;
+							target.isParalyzed = false;
+							target.paralysisHeadsCount = 0;
+							target.sleepTurnsRemaining = 0;
+							target.ward = 0;
+							target.block = 0;
+							target.fortification = 0;
+							target.barrier = 0;
+							target.holyBlock = 0;
+							target.luck = 0;
+							target.isReplicatePending = false;
+							target.nextTurnAPBonus = 0;
+							target.shocksPlayedThisTurn = 0;
+							target.flurryOfFistsActive = false;
+							target.nextAttackAddPoison = false;
+							target.nextTurnD10AP = false;
+							target.nextTurnExtraDraw = false;
+							target.nextTurnBonusDiceFromMinions = false;
+							target.strengthenElementsTurnsRemaining = 0;
+							target.inTortoiseForm = false;
+							target.tortoiseDamageTaken = 0;
+							target.pendingTortoiseDamage = false;
+							target.pendingTortoiseDamageValue = 3;
+							target.inGhostForm = false;
+							target.ghostDamageTaken = 0;
+							target.cardsPlayedThisTurn.clear();
+							target.playedCardsPile.clear();
+							target.summonedOnTurnCycle = globalTurnCounter;
+
+							if (target.x >= 0 && target.x < BOARD_WIDTH && target.y >= 0 && target.y < BOARD_HEIGHT) {
+								board[target.x][target.y].hasPlayer = true;
+							}
+
+							spawnFloatingText(gridToWorld(target.x, target.y), "Faerie Resurrection!", ofColor::aqua);
+							ofLogNotice("Faerie") << "Unit " << target.playerID << " resurrected by faerie at " << nx << "," << ny << " for " << hp << " HP.";
+							resurrected = true;
+						}
+					}
+				}
+			}
+		}
+
+		if (resurrected) {
+			return target.health < initialHealth;
+		}
 
 		// --- NEW: DEMON KILL REWARD ---
 		if (target.isDemon && attackerIndex != -1) {
