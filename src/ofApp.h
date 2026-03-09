@@ -690,6 +690,38 @@ private:
 	void handleCardDiceResult(int result, DicePurpose purpose); // Dice roll completed
 	bool executeCardByType(const Card & playedCard, int cardIndex, int targetX, int targetY, bool & playedSuccessfully, CardPlayResult & immediateResult); // centralized execution entry (incremental migration)
 
+	// --- Async Resolution Helpers (Centralized Dice/State Resolution) ---
+	void resolveAttackDamage();
+	void resolvePoisonDamage();
+	void resolveMagicHandDamage();
+	void resolveFireballDamage();
+	void resolveSummonHealth();
+	void resolveAmnesiaDice();
+	void resolveMagicBlastDice();
+	void resolveDeathDice();
+	void resolveSleepDuration();
+	void resolveJoltRangeDice();
+	void resolveHealDice();
+	void resolvePsionicRangeDice();
+	void resolvePsionicAmountDice();
+	void resolveTimeVortexDice();
+	void resolveMagicBoltRangeDice();
+	void resolveMagicBoltPrimaryDice();
+	void resolveMagicBoltAoeDice();
+	void resolveShootArrowDice();
+	void resolveChainLightningRangeDice();
+	void resolveChainLightningDamageDice();
+	void resolveFlailDice();
+	void resolveSparkOfGeniusDice();
+	void resolveBarrierDice();
+	void resolveTeleportDice();
+	void resolveOnFireDice();
+	void resolvePoisonStatusDice();
+	void resolveHellhoundHPDice();
+	void resolveDemonHPDice();
+	void resolveParalysisCoinFlip();
+	void resolveWolfCoinFlip();
+
 	void applyReplicateCopyToHand(Player & caster, const Card & playedCard);
 	void finishPlayCard(Player & caster, const Card & playedCard, int handIndex);
 	void completeCardPlayAnimation(const Card & playedCard, int playerIndex);

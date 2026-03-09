@@ -109,450 +109,6 @@
       },
       {
         "hasPlayer": false,
-        "hasWall": false,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      },
-      {
-        "hasPlayer": false,
-        "hasWall": false,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      },
-      {
-        "hasPlayer": false,
-        "hasWall": false,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      },
-      {
-        "hasPlayer": false,
-        "hasWall": false,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      },
-      {
-        "hasPlayer": false,
-        "hasWall": false,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      }
-    ],
-    [
-      {
-        "hasPlayer": false,
-        "hasWall": false,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      },
-      {
-        "hasPlayer": false,
-        "hasWall": true,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      },
-      {
-        "hasPlayer": false,
-        "hasWall": true,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      },
-      {
-        "hasPlayer": false,
-        "hasWall": false,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      },
-      {
-        "hasPlayer": false,
-        "hasWall": true,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      },
-      {
-        "hasPlayer": false,
-        "hasWall": false,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      },
-      {
-        "hasPlayer": false,
-        "hasWall": true,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      },
-      {
-        "hasPlayer": false,
-        "hasWall": true,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      },
-      {
-        "hasPlayer": false,
-        "hasWall": false,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      }
-    ],
-    [
-      {
-        "hasPlayer": false,
-        "hasWall": false,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      },
-      {
-        "hasPlayer": false,
-        "hasWall": true,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      },
-      {
-        "hasPlayer": false,
-        "hasWall": false,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      },
-      {
-        "hasPlayer": false,
-        "hasWall": false,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      },
-      {
-        "hasPlayer": false,
-        "hasWall": true,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      },
-      {
-        "hasPlayer": false,
-        "hasWall": false,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      },
-      {
-        "hasPlayer": false,
-        "hasWall": false,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      },
-      {
-        "hasPlayer": false,
-        "hasWall": true,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      },
-      {
-        "hasPlayer": false,
-        "hasWall": false,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      }
-    ],
-    [
-      {
-        "hasPlayer": false,
-        "hasWall": false,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      },
-      {
-        "hasPlayer": false,
-        "hasWall": true,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      },
-      {
-        "hasPlayer": false,
-        "hasWall": false,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      },
-      {
-        "hasPlayer": false,
-        "hasWall": false,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      },
-      {
-        "hasPlayer": false,
-        "hasWall": false,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      },
-      {
-        "hasPlayer": false,
-        "hasWall": false,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      },
-      {
-        "hasPlayer": false,
-        "hasWall": false,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      },
-      {
-        "hasPlayer": false,
-        "hasWall": true,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      },
-      {
-        "hasPlayer": false,
-        "hasWall": false,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      }
-    ],
-    [
-      {
-        "hasPlayer": false,
-        "hasWall": false,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      },
-      {
-        "hasPlayer": false,
-        "hasWall": false,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      },
-      {
-        "hasPlayer": false,
-        "hasWall": false,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      },
-      {
-        "hasPlayer": false,
-        "hasWall": false,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      },
-      {
-        "hasPlayer": false,
-        "hasWall": true,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      },
-      {
-        "hasPlayer": false,
-        "hasWall": false,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      },
-      {
-        "hasPlayer": false,
-        "hasWall": false,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      },
-      {
-        "hasPlayer": false,
-        "hasWall": false,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      },
-      {
-        "hasPlayer": false,
-        "hasWall": false,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      }
-    ],
-    [
-      {
-        "hasPlayer": false,
-        "hasWall": false,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      },
-      {
-        "hasPlayer": false,
-        "hasWall": false,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      },
-      {
-        "hasPlayer": false,
-        "hasWall": false,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      },
-      {
-        "hasPlayer": false,
-        "hasWall": true,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      },
-      {
-        "hasPlayer": false,
-        "hasWall": false,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      },
-      {
-        "hasPlayer": false,
-        "hasWall": true,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      },
-      {
-        "hasPlayer": false,
-        "hasWall": false,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      },
-      {
-        "hasPlayer": false,
-        "hasWall": false,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      },
-      {
-        "hasPlayer": false,
-        "hasWall": false,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      }
-    ],
-    [
-      {
-        "hasPlayer": false,
-        "hasWall": false,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      },
-      {
-        "hasPlayer": false,
-        "hasWall": false,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      },
-      {
-        "hasPlayer": false,
-        "hasWall": false,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      },
-      {
-        "hasPlayer": false,
-        "hasWall": false,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      },
-      {
-        "hasPlayer": false,
         "hasWall": true,
         "isHighlighted": false,
         "isMagicWall": false,
@@ -611,31 +167,7 @@
       },
       {
         "hasPlayer": false,
-        "hasWall": false,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      },
-      {
-        "hasPlayer": false,
-        "hasWall": false,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      },
-      {
-        "hasPlayer": false,
-        "hasWall": false,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      },
-      {
-        "hasPlayer": false,
-        "hasWall": false,
+        "hasWall": true,
         "isHighlighted": false,
         "isMagicWall": false,
         "isTargetPreview": false,
@@ -652,6 +184,30 @@
       {
         "hasPlayer": false,
         "hasWall": true,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      },
+      {
+        "hasPlayer": false,
+        "hasWall": false,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      },
+      {
+        "hasPlayer": false,
+        "hasWall": true,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      },
+      {
+        "hasPlayer": false,
+        "hasWall": false,
         "isHighlighted": false,
         "isMagicWall": false,
         "isTargetPreview": false,
@@ -758,6 +314,450 @@
         "isTargetable": false
       },
       {
+        "hasPlayer": true,
+        "hasWall": false,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      },
+      {
+        "hasPlayer": true,
+        "hasWall": false,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      },
+      {
+        "hasPlayer": true,
+        "hasWall": false,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      },
+      {
+        "hasPlayer": false,
+        "hasWall": false,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      },
+      {
+        "hasPlayer": false,
+        "hasWall": false,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      },
+      {
+        "hasPlayer": false,
+        "hasWall": true,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      },
+      {
+        "hasPlayer": false,
+        "hasWall": false,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      }
+    ],
+    [
+      {
+        "hasPlayer": false,
+        "hasWall": false,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      },
+      {
+        "hasPlayer": false,
+        "hasWall": false,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      },
+      {
+        "hasPlayer": false,
+        "hasWall": false,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      },
+      {
+        "hasPlayer": false,
+        "hasWall": false,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      },
+      {
+        "hasPlayer": false,
+        "hasWall": true,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      },
+      {
+        "hasPlayer": false,
+        "hasWall": false,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      },
+      {
+        "hasPlayer": false,
+        "hasWall": false,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      },
+      {
+        "hasPlayer": false,
+        "hasWall": false,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      },
+      {
+        "hasPlayer": false,
+        "hasWall": false,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      }
+    ],
+    [
+      {
+        "hasPlayer": false,
+        "hasWall": false,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      },
+      {
+        "hasPlayer": false,
+        "hasWall": false,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      },
+      {
+        "hasPlayer": false,
+        "hasWall": false,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      },
+      {
+        "hasPlayer": false,
+        "hasWall": true,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      },
+      {
+        "hasPlayer": false,
+        "hasWall": false,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      },
+      {
+        "hasPlayer": false,
+        "hasWall": true,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      },
+      {
+        "hasPlayer": false,
+        "hasWall": false,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      },
+      {
+        "hasPlayer": false,
+        "hasWall": false,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      },
+      {
+        "hasPlayer": false,
+        "hasWall": false,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      }
+    ],
+    [
+      {
+        "hasPlayer": false,
+        "hasWall": false,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      },
+      {
+        "hasPlayer": false,
+        "hasWall": false,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      },
+      {
+        "hasPlayer": false,
+        "hasWall": false,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      },
+      {
+        "hasPlayer": false,
+        "hasWall": false,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      },
+      {
+        "hasPlayer": false,
+        "hasWall": true,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      },
+      {
+        "hasPlayer": false,
+        "hasWall": false,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      },
+      {
+        "hasPlayer": false,
+        "hasWall": false,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      },
+      {
+        "hasPlayer": false,
+        "hasWall": false,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      },
+      {
+        "hasPlayer": false,
+        "hasWall": false,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      }
+    ],
+    [
+      {
+        "hasPlayer": false,
+        "hasWall": false,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      },
+      {
+        "hasPlayer": false,
+        "hasWall": true,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      },
+      {
+        "hasPlayer": false,
+        "hasWall": false,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      },
+      {
+        "hasPlayer": false,
+        "hasWall": false,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      },
+      {
+        "hasPlayer": false,
+        "hasWall": false,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      },
+      {
+        "hasPlayer": false,
+        "hasWall": false,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      },
+      {
+        "hasPlayer": false,
+        "hasWall": false,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      },
+      {
+        "hasPlayer": false,
+        "hasWall": true,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      },
+      {
+        "hasPlayer": false,
+        "hasWall": false,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      }
+    ],
+    [
+      {
+        "hasPlayer": false,
+        "hasWall": false,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      },
+      {
+        "hasPlayer": false,
+        "hasWall": true,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      },
+      {
+        "hasPlayer": false,
+        "hasWall": false,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      },
+      {
+        "hasPlayer": false,
+        "hasWall": false,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      },
+      {
+        "hasPlayer": false,
+        "hasWall": true,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      },
+      {
+        "hasPlayer": false,
+        "hasWall": false,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      },
+      {
+        "hasPlayer": false,
+        "hasWall": false,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      },
+      {
+        "hasPlayer": false,
+        "hasWall": true,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      },
+      {
+        "hasPlayer": false,
+        "hasWall": false,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      }
+    ],
+    [
+      {
+        "hasPlayer": false,
+        "hasWall": false,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      },
+      {
+        "hasPlayer": false,
+        "hasWall": true,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      },
+      {
         "hasPlayer": false,
         "hasWall": true,
         "isHighlighted": false,
@@ -816,7 +816,7 @@
     ],
     [
       {
-        "hasPlayer": false,
+        "hasPlayer": true,
         "hasWall": false,
         "isHighlighted": false,
         "isMagicWall": false,
@@ -832,7 +832,7 @@
         "isTargetable": false
       },
       {
-        "hasPlayer": false,
+        "hasPlayer": true,
         "hasWall": false,
         "isHighlighted": false,
         "isMagicWall": false,
@@ -840,7 +840,7 @@
         "isTargetable": false
       },
       {
-        "hasPlayer": false,
+        "hasPlayer": true,
         "hasWall": false,
         "isHighlighted": false,
         "isMagicWall": false,
@@ -914,7 +914,7 @@
         "isTargetable": false
       },
       {
-        "hasPlayer": true,
+        "hasPlayer": false,
         "hasWall": false,
         "isHighlighted": false,
         "isMagicWall": false,
@@ -963,281 +963,100 @@
       }
     ]
   ],
-  "currentPlayerIndex": 1,
-  "gameplayRNG": "825891336 1135478038 3658782201 3543070108 2611912703 3309562426 72648700 3320529813 3366558914 304920759 1015465067 3978546112 789059670 3393820030 3782570629 2046060407 3831456137 120329102 1206163938 2290093356 1578379013 3948476572 921275383 429219194 1523559260 579169733 3971171050 3628290738 3668174248 515076708 2383537728 1170888519 3406871456 2806986462 552402898 4054219240 3602008491 298607853 614629968 4009435644 2066911687 3156330241 3684336832 3075919192 2322537559 3082890022 1180052539 335349930 37670231 2589628978 909567469 3351014071 1403534673 3502071051 1132987791 3130731554 3528390642 1374914981 667424389 459911883 1210412657 2553285171 3227979839 4089453173 4156614792 3620148379 623926823 3008615032 2955223017 2203521636 3071044918 3984343416 1798547291 1875646791 3928170674 171517103 733333441 1619865208 4095308372 2119598399 3910052535 4004237801 2358882912 800379140 3060565180 592504890 1767630741 1223214800 110403697 4090952179 69035479 3107465332 539465014 1162136729 916467955 1529175111 3297520929 992783620 685824105 3252256399 2535080453 4114521337 1265201718 3225116799 3836570898 2923047155 1415860874 23963292 3010858834 3261014930 3015294163 4138085016 346080052 2382807934 962795980 1349857455 868051685 2761377043 2783884074 636219716 2398198902 2949289447 3973155979 2063496374 323248128 2185813882 3156576180 2345518867 653621396 3279355349 4094731536 2120525940 2731263200 3164174166 2827507259 4080498649 1673394820 1632360696 3693157452 3158316004 3379699545 1108456758 3828410826 4020966045 489118312 2461551730 3680769854 1217009371 3598753334 725748124 3945759788 1320915506 1324195778 3996206479 1707840366 2611645488 1900353350 3915871949 42422453 3036287768 2954792611 3121767801 4095391510 3507174334 106431160 2988420537 2637397206 213211400 3239796595 455619440 1050204634 1193415757 2661717248 2149065389 2136677957 2719757652 2726448887 3676150191 2896223457 1185687409 1841728540 4229971232 180274934 1899490367 113407784 659931534 3344460848 471821281 484069204 1922121689 2276989978 305161892 160658209 2157422548 983687323 428948421 2189239440 2118435965 207585068 2280151433 2470786031 153243856 2475166558 3216915614 260676419 1029421827 3764615916 1521775714 54875980 1661337806 1843182697 3906178915 2904180769 495374579 2951778689 1263451587 758200725 4259882901 4214850667 3285195907 2696481347 3565966241 2010642262 1725551179 3040419631 3998223019 2012658566 546689591 3231321476 1470666144 4232172952 1669806911 2061622602 1710301671 2702406911 405260610 280601107 102204224 3417577441 2476928934 1680218274 3206174406 3002234667 1813242509 1871574945 3970227077 1580431755 2509282865 3399977338 3404754810 2359937906 2231272989 1055911746 2738517943 1097871709 5309936 977124114 1433642681 2013826421 68562220 2872014890 604456213 1338571057 3315360073 3011626908 791175291 805970996 3341330259 1058236611 298726234 2672778539 1390635196 2651859609 4043255922 2596988354 4212283778 981710993 1044497050 703488625 1683439160 2935461964 2692790925 1242915492 2794030772 11599073 703774438 4052738861 1081095036 1055658333 2969566526 3556103644 1580694438 1219724259 2213554128 397322236 3861846271 319172857 57218744 1562534189 293457206 152540322 702960720 1591961689 2007255754 3476100680 2904167979 3855199316 1864387384 3565058100 1823180710 3729013448 3730445322 1286415544 3614855635 2175435930 3471752474 3572848806 2695773650 1284344493 1732856149 3509490409 2771916658 579799176 1590139905 1784336783 1154098556 3928335632 1166871158 2244930145 2900931165 1732647689 3904415297 916405065 3537218407 1740855269 351237274 1837300982 3534496728 3830664491 1770973392 3556597960 968811701 3154098547 2001599123 1793481555 221758191 4013351631 1727110720 1917229838 1988004603 1078266843 3144003772 735931674 3552461843 2893058644 2159517996 787703546 2480794328 978417863 2350638771 3093154928 2806479496 112862185 1834860677 2344848017 3657942217 2005316592 1369483015 1158454374 2464436068 2823634410 2086124064 2201126311 3186885217 223844191 3285132262 3085994639 1793152024 2116638485 2157169779 3650230360 3881040373 4117840795 2462648861 28861739 276608907 723962352 1832168638 2305628294 1789195737 2721604757 3123963402 407812515 2245858216 3314031927 26420369 1242768213 1987345185 2336273403 1955826781 680059232 1533220518 4044492274 3288135514 3104410614 126341028 3073566812 1018694327 646616609 4014632275 3065509812 4013432062 2920959242 1438160007 1649994766 2656481862 1239749565 2012150425 3988918009 737250621 4014812194 2222257111 2493104072 2002195338 2918121866 2736564668 1732375245 2329404434 2153413800 1280365190 3189557459 1469224343 3845971005 1304006755 2385854323 3247637156 689838357 596730292 11303707 3981354107 2264730226 888351739 1490745450 2003787187 1262472854 3369219264 2749460007 199917274 1839400192 474419370 2095118923 3016611789 1662684792 4037980424 56390332 1523958326 133513875 4023707292 3720990361 1993865193 3227295501 2688060463 2367619946 2382523073 159094012 4022922740 3490827302 1745525448 1918197304 658166870 1168692229 2420891093 658609316 4108417921 844604696 4280637318 3122023176 2027407789 1659630230 1909267515 1332707360 1251645700 3679073926 3522598177 3553957480 3709039745 3035528217 2977571948 4044329533 2672371291 3932935256 1285206971 2866658922 2632723972 1742913486 1824413348 2856926494 3065739787 1824800240 1582381131 2799833115 3362232257 73786520 1146743745 1974615870 9811136 482645784 442021827 723231196 2263035495 3755623575 2689684671 2657139420 3449098103 1139088458 1078788584 4069805447 2565006407 2614638524 2358267958 2660767097 1214333617 485002273 1710949887 656077231 3156764309 3514077100 4267023091 2444740993 777496237 2137148106 2534710311 251437857 3222529856 1543328666 513044966 1114782534 157956499 3349948638 1389514762 1222945860 966131564 859144722 4138178373 4189292095 156105600 2549140199 4198970106 2766606134 1147898308 1857546435 2237747429 3799904222 2724074769 3666231507 1865953777 404135107 402303838 3649847644 4274218048 2434064377 2093926026 3705142074 3557459406 1938414394 4284640007 3548628088 3738045383 3997429704 1629553074 669739928 243126083 992346830 1099131334 3530624018 1296600271 1173284611 3823983535 1949605456 3668978763 1273608420 924438 846975207 697074930 1434232246 3030095796 4172938410 1908643327 4142289222 2097886011 335058076 757427961 1246832717 2293128306 4260459010 1638942282 2661231197 4063024553 3466490981 3915801332 4185909592 737401077 3402632724 4185499522 2204620333 1670776468 1073992707 1926648170 298495590 3373968822 2625689784 1458420429 4101042433 1278406055 2013071239 2980845367 1875860069 2157156084 4078707650 2105418528 2812855600 336133294 161966105 311307857 46",
+  "currentPlayerIndex": 6,
+  "gameplayRNG": "2418789158 1996592610 3515836176 3873702716 4011306233 3146605959 2420050775 1607128165 3835178723 1309522474 2856547539 1320319779 4004856388 972589440 2628680447 1095549464 3137321496 1454111666 595858743 2595706105 610432353 2354528942 568626556 1965420341 183580448 2342072562 2804594960 2755595648 1654698453 1586981855 1773996895 2553716219 3146811081 743648695 2368578767 899242454 815691999 2619602684 209687004 1529969513 575670939 3199297958 2552120665 467885037 4030197339 3432774531 754700716 2699827988 423983163 3565110823 3767631350 356467694 3673045042 2119250670 3658855546 1693046249 3345736329 47084170 1804126547 816036609 1545952756 4282456258 2461837660 3815340494 4011394417 2192210381 1238760807 622700160 4051644821 1190477031 1319074026 2257430070 3264555114 1290969254 3341450189 19311044 1864857967 454115807 2953192560 4078866755 864348269 662802350 4286863360 1500890088 2626790792 3996012951 747650056 1508328609 1435938510 3810969422 1529160652 942122406 2709542326 738868860 3247745743 1650188017 1426755701 3641369427 2228447970 2271590730 2906321425 1747683374 4031439736 883878258 903417348 4131268274 1883347530 1202760641 3961942211 3447203849 2713154550 228987553 567604190 3081033095 3170124714 428826178 4229437208 4033599171 1141102573 2334357585 895869691 682934729 3139015549 1090000116 2771315292 1210282081 134066664 1256711888 3735590181 3313808885 3066958608 3431844029 2406422135 559436262 2635380426 2586857437 228325763 3749293101 262343455 175079200 3416546167 368739393 1379466003 3355632183 3145718951 3039129298 2532496697 2401759808 565421973 1435386822 140681733 120021485 3841411185 1037352666 1197193372 196651282 2567455598 936820626 246094197 1384266713 284706970 405163914 2651040887 3687599419 2621027004 3589736505 3195600509 1843150022 2204692203 2739971613 3766423595 2057199110 291789210 453538864 2188564831 334735305 772030567 1483689317 1723175562 3899449565 938312389 1982602348 1575109735 3404287558 227961890 4234475935 862172238 255324437 2884705635 1774880778 1287399454 2352599311 980835485 1580653823 1223339512 3138523563 3029590411 2312877851 715532972 2540991240 576030159 2703126979 3219494445 3436515712 3713319355 3989097179 3268828204 2835238658 564231814 2441449512 4092101416 230047309 3657389352 148021192 2637199011 1415238884 943305322 3783921677 708705152 227616387 1005354605 749083935 177405905 3088664720 1375583912 3518600747 984220729 2885740375 1206539096 185067555 2477379995 1813732399 3082402867 4184984201 1126357979 3400845967 1290147311 3962259480 3398390898 1154303147 3099043895 1498848952 1863237436 79979175 3680552247 3965323260 2840412139 3519605523 1760920617 2011291622 4020854485 4253939545 307414993 1185061069 1851747569 3791560146 1083200948 261443852 4105557109 295108140 3737259937 3213811231 1031131280 2133086296 653818596 1396269439 3825262690 765375921 1488303620 4226489642 984182388 2065143059 4138409293 3482319509 872756108 2285768923 3696593727 4242390773 3884249444 3973861671 536861901 1735422123 2404561998 3510189679 2733965081 1530598104 585137432 407723516 386039040 4178033089 3046225694 4053790163 696562542 1072940419 551263674 2935734350 3391296195 3781040507 541148338 3750828311 2390553339 1428324225 1959628064 4075593358 811999006 672589023 2230651810 2928480675 26688940 2126904008 1095955593 2941478761 2657801784 4277397026 162189109 248209833 165944909 967518748 668619204 3626971929 351916322 6821598 1217580651 2239063505 3181157156 1657383902 1745611096 3612159793 211821682 1336037892 4144500258 4200132741 3616528605 3055627818 175765905 3046613854 853172706 2693420507 2842134292 580095650 1500185251 4107441127 4267390010 3166113074 1008742591 3630975388 3781078842 3250204182 2506404734 3715397217 775862823 1637186239 1940973934 3581715678 1218252161 2939433575 3433472410 2359583854 3840184481 370746074 1588379680 1206501887 2808975719 4157141363 1014191150 642478236 1795976852 1087635142 2068981111 3329953397 4179077726 478145441 550659162 1577069245 3935686576 2461053524 2772979694 135470901 2839643551 2927377643 2524800389 1072024376 1093999513 2638780409 2376572958 1337464686 2991386629 885025643 718971648 421784911 2971993615 1660013628 1524956121 386616048 2898963613 1116772549 2806029715 4082593254 2571706522 1780476744 122273893 4023107762 1202580561 1926493504 2356294514 3976347696 4221322378 1540447871 1259370637 3658485756 2961873663 3386636005 2229746625 2550056454 3714927159 1263138386 2341606862 1648236390 3348381774 1283707791 1371866464 756467665 2174388504 1105597588 2094319933 721469630 1793017475 779881269 313127524 3685713593 3069844691 2108031789 1715163809 421297868 2822398053 724872699 389576412 1009847784 975102084 44259201 1122124362 3814192687 1478671400 1292614869 2857587850 1882211389 2309643564 2709862000 1736857757 1494316865 871893502 4002141982 1492311739 3514486461 1280321517 825200384 1281998231 2449012082 2349356189 3475780529 3996008298 666709706 3154234981 2761153633 1552403994 3250569064 3759560799 3766275915 3008533596 743062769 3270049311 465414708 2607242028 2111418912 2837704954 2448540894 2153176354 3842500163 324920324 450220779 3220102181 956312782 592554602 2613257097 2051598648 2059412099 764254975 1548142747 3361392772 4135746086 1099838029 2545712842 3684601003 1162022589 2845578137 3887530694 671691249 2777459092 1785339284 2934673045 1560782712 3527091871 1658044376 2921878290 2404394494 1219204541 2005089443 2673320325 1424736751 997203220 871250083 3368322819 1461977901 544296626 3302558555 2676106963 2838155031 2348015215 4207162776 428722933 216168285 4110582743 3034788796 2619955238 1680978939 3239480994 1083478650 1064883920 3142200815 1705813246 1277918670 897780443 2440384707 2985244504 3964679782 746267497 1522773168 3595067201 3591527431 988967105 1866875633 2752079255 4124188301 81099866 2755172832 2870762633 3206678746 3765717683 3850434620 839222484 2895650800 1231306653 2796894134 2965607954 2759520285 4061164324 3593488888 277660366 974226059 1399395133 3722558827 3724171077 3316144864 2479565567 1238521101 3341171543 789866911 2036589454 3398574711 1479305082 2049565086 2346469967 1667962346 2950228061 1739838731 4127716209 3232326879 1078404955 170178458 2404753593 1276419403 4010620761 1409886521 2765261630 3179428069 1888848848 2142702137 2523703805 2056827996 1162723707 443956765 1213646262 1287350436 3745486264 2793158586 332043619 4152164276 1993501315 1718122924 2165214586 3739313061 1576185613 1424961975 1556176576 2642309545 2042294955 3874481119 2571665713 2927553491 3924743457 1470059081 966889838 4283987340 3276668634 1488263703 3276956392 2884585335 2519743319 442062649 3145095546 3357199272 1239226757 4116574112 4015355904 73",
   "globalTurnCounter": 3,
   "isMultiplayer": false,
   "players": [
     {
       "ap": 6,
+      "assistantRerollUsedThisTurn": false,
       "barrier": 0,
       "block": 0,
-      "cardsPlayedThisTurn": [
-        15,
-        24
-      ],
       "deck": [
+        {
+          "cardClass": 2,
+          "cost": 7,
+          "currentPos": [
+            1222.0,
+            865.0
+          ],
+          "currentScale": 2.3996191024780273,
+          "damageType": 0,
+          "diceSides": 0,
+          "drawnThisTurn": true,
+          "isCopied": false,
+          "name": "Call for Wolves",
+          "numDice": 0,
+          "targetScale": 2.4000000953674316,
+          "targeting": 5,
+          "textureRect": [
+            3681.0,
+            1170.0,
+            409.0,
+            585.0
+          ],
+          "type": 32,
+          "value": 0
+        },
         {
           "cardClass": 1,
           "cost": 2,
           "currentPos": [
-            0.0,
-            0.0
+            1420.000244140625,
+            1309.999755859375
           ],
-          "currentScale": 1.0,
+          "currentScale": 1.500000238418579,
           "damageType": 0,
-          "diceSides": 0,
-          "drawnThisTurn": false,
+          "diceSides": 6,
+          "drawnThisTurn": true,
           "isCopied": false,
-          "name": "Ward",
-          "numDice": 0,
-          "targetScale": 1.0,
-          "targeting": 5,
+          "name": "Slash",
+          "numDice": 1,
+          "targetScale": 1.5,
+          "targeting": 7,
           "textureRect": [
-            1636.0,
-            0.0,
-            409.0,
-            585.0
-          ],
-          "type": 10,
-          "value": 5
-        },
-        {
-          "cardClass": 1,
-          "cost": 3,
-          "currentPos": [
-            0.0,
-            0.0
-          ],
-          "currentScale": 1.0,
-          "damageType": 0,
-          "diceSides": 0,
-          "drawnThisTurn": false,
-          "isCopied": false,
-          "name": "Kick",
-          "numDice": 0,
-          "targetScale": 1.0,
-          "targeting": 4,
-          "textureRect": [
-            409.0,
+            2454.0,
             0.0,
             409.0,
             585.0
           ],
           "type": 5,
-          "value": 4
-        },
-        {
-          "cardClass": 3,
-          "cost": 7,
-          "currentPos": [
-            0.0,
-            0.0
-          ],
-          "currentScale": 1.0,
-          "damageType": 0,
-          "diceSides": 4,
-          "drawnThisTurn": false,
-          "isCopied": false,
-          "name": "Time Vortex",
-          "numDice": 1,
-          "targetScale": 1.0,
-          "targeting": 5,
-          "textureRect": [
-            409.0,
-            1755.0,
-            409.0,
-            585.0
-          ],
-          "type": 34,
           "value": 0
         },
         {
           "cardClass": 1,
           "cost": 2,
           "currentPos": [
-            0.0,
-            0.0
+            1280.0,
+            1309.999755859375
           ],
-          "currentScale": 1.0,
+          "currentScale": 1.500000238418579,
           "damageType": 0,
-          "diceSides": 0,
-          "drawnThisTurn": false,
+          "diceSides": 6,
+          "drawnThisTurn": true,
           "isCopied": false,
-          "name": "Drain Punch",
-          "numDice": 0,
-          "targetScale": 1.0,
-          "targeting": 4,
+          "name": "Slash",
+          "numDice": 1,
+          "targetScale": 1.5,
+          "targeting": 7,
           "textureRect": [
             2454.0,
-            1170.0,
-            409.0,
-            585.0
-          ],
-          "type": 30,
-          "value": 2
-        },
-        {
-          "cardClass": 2,
-          "cost": 0,
-          "currentPos": [
             0.0,
-            0.0
-          ],
-          "currentScale": 1.0,
-          "damageType": 0,
-          "diceSides": 0,
-          "drawnThisTurn": false,
-          "isCopied": false,
-          "name": "Sprint",
-          "numDice": 0,
-          "targetScale": 1.0,
-          "targeting": 5,
-          "textureRect": [
-            1636.0,
-            3510.0,
             409.0,
             585.0
           ],
-          "type": 61,
+          "type": 5,
           "value": 0
-        }
-      ],
-      "deckNeedsShuffle": false,
-      "discard": [
+        },
         {
           "cardClass": 1,
           "cost": 2,
           "currentPos": [
-            1210.000244140625,
+            1140.000244140625,
             1310.0
-          ],
-          "currentScale": 1.5,
-          "damageType": 4,
-          "diceSides": 0,
-          "drawnThisTurn": true,
-          "isCopied": false,
-          "name": "Flame Hit",
-          "numDice": 0,
-          "targetScale": 1.5,
-          "targeting": 4,
-          "textureRect": [
-            3681.0,
-            585.0,
-            409.0,
-            585.0
-          ],
-          "type": 24,
-          "value": 1
-        },
-        {
-          "cardClass": 1,
-          "cost": 6,
-          "currentPos": [
-            1350.000244140625,
-            1310.0
-          ],
-          "currentScale": 1.5,
-          "damageType": 0,
-          "diceSides": 0,
-          "drawnThisTurn": true,
-          "isCopied": false,
-          "name": "Demolition",
-          "numDice": 0,
-          "targetScale": 1.5,
-          "targeting": 11,
-          "textureRect": [
-            3681.0,
-            2340.0,
-            409.0,
-            585.0
-          ],
-          "type": 15,
-          "value": 0
-        },
-        {
-          "cardClass": 1,
-          "cost": 6,
-          "currentPos": [
-            1350.000244140625,
-            1309.999755859375
           ],
           "currentScale": 1.500000238418579,
-          "damageType": 0,
-          "diceSides": 0,
-          "drawnThisTurn": true,
-          "isCopied": false,
-          "name": "Demolition",
-          "numDice": 0,
-          "targetScale": 1.5,
-          "targeting": 11,
-          "textureRect": [
-            3681.0,
-            2340.0,
-            409.0,
-            585.0
-          ],
-          "type": 15,
-          "value": 0
-        },
-        {
-          "cardClass": 1,
-          "cost": 2,
-          "currentPos": [
-            1280.000244140625,
-            1309.999755859375
-          ],
-          "currentScale": 1.500000238418579,
-          "damageType": 4,
-          "diceSides": 0,
-          "drawnThisTurn": true,
-          "isCopied": false,
-          "name": "Flame Hit",
-          "numDice": 0,
-          "targetScale": 1.5,
-          "targeting": 4,
-          "textureRect": [
-            3681.0,
-            585.0,
-            409.0,
-            585.0
-          ],
-          "type": 24,
-          "value": 1
-        },
-        {
-          "cardClass": 2,
-          "cost": 3,
-          "currentPos": [
-            1210.000244140625,
-            1310.0
-          ],
-          "currentScale": 1.5,
-          "damageType": 3,
-          "diceSides": 10,
-          "drawnThisTurn": true,
-          "isCopied": false,
-          "name": "Chain Lightning",
-          "numDice": 2,
-          "targetScale": 1.5,
-          "targeting": 9,
-          "textureRect": [
-            0.0,
-            2340.0,
-            409.0,
-            585.0
-          ],
-          "type": 42,
-          "value": 0
-        },
-        {
-          "cardClass": 1,
-          "cost": 2,
-          "currentPos": [
-            1350.000244140625,
-            1310.0
-          ],
-          "currentScale": 1.5,
           "damageType": 0,
           "diceSides": 6,
           "drawnThisTurn": true,
@@ -1256,16 +1075,478 @@
           "value": 0
         }
       ],
+      "deckNeedsShuffle": false,
+      "directSummonerID": -1,
       "flurryOfFistsActive": false,
+      "freeKickTurns": 0,
+      "ghostDamageTaken": 0,
       "hasDrawnCardsThisTurn": false,
       "hasDrawnThisTurn": false,
       "hasDrawnThisTurn_flag": false,
-      "health": 13,
+      "health": 1,
       "holyBlock": 0,
+      "inGhostForm": false,
       "inTortoiseForm": false,
+      "isAssistant": false,
+      "isDemon": false,
+      "isFaerie": false,
+      "isGolem": false,
+      "isHellhound": false,
+      "isKobold": false,
+      "isKoboldKing": false,
+      "isMagicWallUnit": false,
+      "isMinion": true,
+      "isParalyzed": false,
+      "isPoisoned": false,
+      "isSkeleton": false,
+      "isWallUnit": false,
+      "isWolf": false,
+      "maxHealth": 4,
+      "nextAttackAddPoison": false,
+      "nextTurnAPBonus": 0,
+      "nextTurnD10AP": false,
+      "nextTurnExtraDraw": false,
+      "nextTurnExtraDrawSetOnCycle": -1,
+      "ownerID": 0,
+      "paralysisHeadsCount": 0,
+      "playerID": 203,
+      "poisonReduction": 0,
+      "shocksPlayedThisTurn": 0,
+      "sleepTurnsRemaining": 0,
+      "strengthenElementsTurnsRemaining": 0,
+      "summonOrder": 0,
+      "summonedOnTurnCycle": 1,
+      "tortoiseDamageTaken": 0,
+      "visualPos": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "ward": 0,
+      "x": 4,
+      "y": 3
+    },
+    {
+      "ap": 7,
+      "assistantRerollUsedThisTurn": false,
+      "barrier": 0,
+      "block": 0,
+      "deck": [
+        {
+          "cardClass": 1,
+          "cost": 2,
+          "currentPos": [
+            0.0,
+            0.0
+          ],
+          "currentScale": 1.0,
+          "damageType": 0,
+          "diceSides": 6,
+          "drawnThisTurn": false,
+          "isCopied": false,
+          "name": "Slash",
+          "numDice": 1,
+          "targetScale": 1.0,
+          "targeting": 7,
+          "textureRect": [
+            2454.0,
+            0.0,
+            409.0,
+            585.0
+          ],
+          "type": 5,
+          "value": 0
+        },
+        {
+          "cardClass": 1,
+          "cost": 2,
+          "currentPos": [
+            0.0,
+            0.0
+          ],
+          "currentScale": 1.0,
+          "damageType": 0,
+          "diceSides": 6,
+          "drawnThisTurn": false,
+          "isCopied": false,
+          "name": "Slash",
+          "numDice": 1,
+          "targetScale": 1.0,
+          "targeting": 7,
+          "textureRect": [
+            2454.0,
+            0.0,
+            409.0,
+            585.0
+          ],
+          "type": 5,
+          "value": 0
+        },
+        {
+          "cardClass": 2,
+          "cost": 7,
+          "currentPos": [
+            0.0,
+            0.0
+          ],
+          "currentScale": 1.0,
+          "damageType": 0,
+          "diceSides": 0,
+          "drawnThisTurn": false,
+          "isCopied": false,
+          "name": "Call for Wolves",
+          "numDice": 0,
+          "targetScale": 1.0,
+          "targeting": 5,
+          "textureRect": [
+            3681.0,
+            1170.0,
+            409.0,
+            585.0
+          ],
+          "type": 32,
+          "value": 0
+        },
+        {
+          "cardClass": 1,
+          "cost": 2,
+          "currentPos": [
+            0.0,
+            0.0
+          ],
+          "currentScale": 1.0,
+          "damageType": 0,
+          "diceSides": 6,
+          "drawnThisTurn": false,
+          "isCopied": false,
+          "name": "Slash",
+          "numDice": 1,
+          "targetScale": 1.0,
+          "targeting": 7,
+          "textureRect": [
+            2454.0,
+            0.0,
+            409.0,
+            585.0
+          ],
+          "type": 5,
+          "value": 0
+        }
+      ],
+      "deckNeedsShuffle": false,
+      "directSummonerID": -1,
+      "flurryOfFistsActive": false,
+      "freeKickTurns": 0,
+      "ghostDamageTaken": 0,
+      "hasDrawnCardsThisTurn": false,
+      "hasDrawnThisTurn": false,
+      "hasDrawnThisTurn_flag": false,
+      "health": 4,
+      "holyBlock": 0,
+      "inGhostForm": false,
+      "inTortoiseForm": false,
+      "isAssistant": false,
+      "isDemon": false,
+      "isFaerie": false,
+      "isGolem": false,
+      "isHellhound": false,
+      "isKobold": false,
+      "isKoboldKing": false,
+      "isMagicWallUnit": false,
+      "isMinion": true,
+      "isParalyzed": false,
+      "isPoisoned": false,
+      "isSkeleton": false,
+      "isWallUnit": false,
+      "isWolf": false,
+      "maxHealth": 4,
+      "nextAttackAddPoison": false,
+      "nextTurnAPBonus": 0,
+      "nextTurnD10AP": false,
+      "nextTurnExtraDraw": false,
+      "nextTurnExtraDrawSetOnCycle": -1,
+      "ownerID": 0,
+      "paralysisHeadsCount": 0,
+      "playerID": 206,
+      "poisonReduction": 0,
+      "shocksPlayedThisTurn": 0,
+      "sleepTurnsRemaining": 0,
+      "strengthenElementsTurnsRemaining": 0,
+      "summonOrder": 0,
+      "summonedOnTurnCycle": 2,
+      "tortoiseDamageTaken": 0,
+      "visualPos": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "ward": 0,
+      "x": 4,
+      "y": 2
+    },
+    {
+      "ap": 1,
+      "assistantRerollUsedThisTurn": false,
+      "barrier": 0,
+      "block": 0,
+      "cardsPlayedThisTurn": [
+        15
+      ],
+      "deck": [
+        {
+          "cardClass": 1,
+          "cost": 3,
+          "currentPos": [
+            1210.000244140625,
+            1309.999755859375
+          ],
+          "currentScale": 1.500000238418579,
+          "damageType": 0,
+          "diceSides": 0,
+          "drawnThisTurn": true,
+          "isCopied": false,
+          "name": "Burst of Light",
+          "numDice": 0,
+          "targetScale": 1.5,
+          "targeting": 9,
+          "textureRect": [
+            2863.0,
+            3510.0,
+            409.0,
+            585.0
+          ],
+          "type": 63,
+          "value": 0
+        },
+        {
+          "cardClass": 2,
+          "cost": 7,
+          "currentPos": [
+            1279.0,
+            696.0
+          ],
+          "currentScale": 2.3996191024780273,
+          "damageType": 0,
+          "diceSides": 0,
+          "drawnThisTurn": true,
+          "isCopied": false,
+          "name": "Call for Wolves",
+          "numDice": 0,
+          "targetScale": 2.4000000953674316,
+          "targeting": 5,
+          "textureRect": [
+            3681.0,
+            1170.0,
+            409.0,
+            585.0
+          ],
+          "type": 32,
+          "value": 0
+        },
+        {
+          "cardClass": 1,
+          "cost": 3,
+          "currentPos": [
+            1280.000244140625,
+            1310.0
+          ],
+          "currentScale": 1.5,
+          "damageType": 0,
+          "diceSides": 0,
+          "drawnThisTurn": true,
+          "isCopied": false,
+          "name": "Mind Theft",
+          "numDice": 0,
+          "targetScale": 1.5,
+          "targeting": 4,
+          "textureRect": [
+            2863.0,
+            0.0,
+            409.0,
+            585.0
+          ],
+          "type": 16,
+          "value": 0
+        },
+        {
+          "cardClass": 1,
+          "cost": 3,
+          "currentPos": [
+            1209.999755859375,
+            1310.0
+          ],
+          "currentScale": 1.500000238418579,
+          "damageType": 0,
+          "diceSides": 0,
+          "drawnThisTurn": true,
+          "isCopied": false,
+          "name": "Shield Bash",
+          "numDice": 0,
+          "targetScale": 1.5,
+          "targeting": 4,
+          "textureRect": [
+            3272.0,
+            1755.0,
+            409.0,
+            585.0
+          ],
+          "type": 41,
+          "value": 0
+        },
+        {
+          "cardClass": 1,
+          "cost": 3,
+          "currentPos": [
+            1279.999755859375,
+            1310.0
+          ],
+          "currentScale": 1.5,
+          "damageType": 0,
+          "diceSides": 0,
+          "drawnThisTurn": true,
+          "isCopied": false,
+          "name": "Burst of Light",
+          "numDice": 0,
+          "targetScale": 1.5,
+          "targeting": 9,
+          "textureRect": [
+            2863.0,
+            3510.0,
+            409.0,
+            585.0
+          ],
+          "type": 63,
+          "value": 0
+        },
+        {
+          "cardClass": 1,
+          "cost": 6,
+          "currentPos": [
+            1420.000244140625,
+            1309.999755859375
+          ],
+          "currentScale": 1.500000238418579,
+          "damageType": 0,
+          "diceSides": 0,
+          "drawnThisTurn": true,
+          "isCopied": false,
+          "name": "Demolition",
+          "numDice": 0,
+          "targetScale": 1.5,
+          "targeting": 11,
+          "textureRect": [
+            3681.0,
+            2340.0,
+            409.0,
+            585.0
+          ],
+          "type": 15,
+          "value": 0
+        }
+      ],
+      "deckNeedsShuffle": false,
+      "directSummonerID": -1,
+      "discard": [
+        {
+          "cardClass": 1,
+          "cost": 2,
+          "currentPos": [
+            1140.000244140625,
+            1309.999755859375
+          ],
+          "currentScale": 1.500000238418579,
+          "damageType": 1,
+          "diceSides": 6,
+          "drawnThisTurn": true,
+          "isCopied": false,
+          "name": "Stab",
+          "numDice": 1,
+          "targetScale": 1.5,
+          "targeting": 6,
+          "textureRect": [
+            2045.0,
+            0.0,
+            409.0,
+            585.0
+          ],
+          "type": 5,
+          "value": 0
+        },
+        {
+          "cardClass": 3,
+          "cost": 5,
+          "currentPos": [
+            1280.000244140625,
+            1310.0
+          ],
+          "currentScale": 1.500000238418579,
+          "damageType": 0,
+          "diceSides": 0,
+          "drawnThisTurn": true,
+          "isCopied": false,
+          "name": "Form of Tortoise",
+          "numDice": 0,
+          "targetScale": 1.5,
+          "targeting": 5,
+          "textureRect": [
+            2045.0,
+            2340.0,
+            409.0,
+            585.0
+          ],
+          "type": 46,
+          "value": 0
+        },
+        {
+          "cardClass": 1,
+          "cost": 3,
+          "currentPos": [
+            1420.000244140625,
+            1310.0
+          ],
+          "currentScale": 1.500000238418579,
+          "damageType": 0,
+          "diceSides": 0,
+          "drawnThisTurn": true,
+          "isCopied": false,
+          "name": "Shield Bash",
+          "numDice": 0,
+          "targetScale": 1.5,
+          "targeting": 4,
+          "textureRect": [
+            3272.0,
+            1755.0,
+            409.0,
+            585.0
+          ],
+          "type": 41,
+          "value": 0
+        }
+      ],
+      "flurryOfFistsActive": false,
+      "freeKickTurns": 0,
+      "ghostDamageTaken": 0,
+      "hasDrawnCardsThisTurn": false,
+      "hasDrawnThisTurn": false,
+      "hasDrawnThisTurn_flag": false,
+      "health": 15,
+      "holyBlock": 0,
+      "inGhostForm": false,
+      "inTortoiseForm": false,
+      "isAssistant": false,
+      "isDemon": false,
+      "isFaerie": false,
+      "isGolem": false,
+      "isHellhound": false,
+      "isKobold": false,
+      "isKoboldKing": false,
+      "isMagicWallUnit": false,
       "isMinion": false,
       "isParalyzed": false,
       "isPoisoned": false,
+      "isSkeleton": false,
+      "isWallUnit": false,
+      "isWolf": false,
       "maxHealth": 15,
       "nextAttackAddPoison": false,
       "nextTurnAPBonus": 0,
@@ -1288,11 +1569,197 @@
         0.0
       ],
       "ward": 0,
-      "x": 12,
+      "x": 4,
+      "y": 4
+    },
+    {
+      "ap": 1,
+      "assistantRerollUsedThisTurn": false,
+      "barrier": 0,
+      "block": 0,
+      "deck": [
+        {
+          "cardClass": 1,
+          "cost": 3,
+          "currentPos": [
+            0.0,
+            0.0
+          ],
+          "currentScale": 1.0,
+          "damageType": 0,
+          "diceSides": 0,
+          "drawnThisTurn": false,
+          "isCopied": false,
+          "name": "Blocking Boon",
+          "numDice": 0,
+          "targetScale": 1.0,
+          "targeting": 4,
+          "textureRect": [
+            3272.0,
+            1170.0,
+            409.0,
+            585.0
+          ],
+          "type": 68,
+          "value": 0
+        },
+        {
+          "cardClass": 1,
+          "cost": 1,
+          "currentPos": [
+            0.0,
+            0.0
+          ],
+          "currentScale": 1.0,
+          "damageType": 0,
+          "diceSides": 0,
+          "drawnThisTurn": false,
+          "isCopied": false,
+          "name": "Hand Block",
+          "numDice": 0,
+          "targetScale": 1.0,
+          "targeting": 5,
+          "textureRect": [
+            818.0,
+            0.0,
+            409.0,
+            585.0
+          ],
+          "type": 9,
+          "value": 2
+        },
+        {
+          "cardClass": 1,
+          "cost": 1,
+          "currentPos": [
+            0.0,
+            0.0
+          ],
+          "currentScale": 1.0,
+          "damageType": 0,
+          "diceSides": 0,
+          "drawnThisTurn": false,
+          "isCopied": false,
+          "name": "Punch",
+          "numDice": 0,
+          "targetScale": 1.0,
+          "targeting": 4,
+          "textureRect": [
+            0.0,
+            0.0,
+            409.0,
+            585.0
+          ],
+          "type": 5,
+          "value": 2
+        }
+      ],
+      "deckNeedsShuffle": false,
+      "directSummonerID": -1,
+      "discard": [
+        {
+          "cardClass": 1,
+          "cost": 1,
+          "currentPos": [
+            1210.000244140625,
+            1310.0
+          ],
+          "currentScale": 1.5,
+          "damageType": 0,
+          "diceSides": 0,
+          "drawnThisTurn": true,
+          "isCopied": false,
+          "name": "Punch",
+          "numDice": 0,
+          "targetScale": 1.5,
+          "targeting": 4,
+          "textureRect": [
+            0.0,
+            0.0,
+            409.0,
+            585.0
+          ],
+          "type": 5,
+          "value": 2
+        },
+        {
+          "cardClass": 1,
+          "cost": 1,
+          "currentPos": [
+            1350.000244140625,
+            1310.0
+          ],
+          "currentScale": 1.5,
+          "damageType": 0,
+          "diceSides": 0,
+          "drawnThisTurn": true,
+          "isCopied": false,
+          "name": "Hand Block",
+          "numDice": 0,
+          "targetScale": 1.5,
+          "targeting": 5,
+          "textureRect": [
+            818.0,
+            0.0,
+            409.0,
+            585.0
+          ],
+          "type": 9,
+          "value": 2
+        }
+      ],
+      "flurryOfFistsActive": false,
+      "freeKickTurns": 0,
+      "ghostDamageTaken": 0,
+      "hasDrawnCardsThisTurn": false,
+      "hasDrawnThisTurn": false,
+      "hasDrawnThisTurn_flag": false,
+      "health": 5,
+      "holyBlock": 0,
+      "inGhostForm": false,
+      "inTortoiseForm": false,
+      "isAssistant": false,
+      "isDemon": false,
+      "isFaerie": false,
+      "isGolem": false,
+      "isHellhound": false,
+      "isKobold": false,
+      "isKoboldKing": false,
+      "isMagicWallUnit": false,
+      "isMinion": true,
+      "isParalyzed": false,
+      "isPoisoned": false,
+      "isSkeleton": false,
+      "isWallUnit": false,
+      "isWolf": false,
+      "maxHealth": 5,
+      "nextAttackAddPoison": false,
+      "nextTurnAPBonus": 0,
+      "nextTurnD10AP": false,
+      "nextTurnExtraDraw": false,
+      "nextTurnExtraDrawSetOnCycle": -1,
+      "ownerID": 1,
+      "paralysisHeadsCount": 0,
+      "playerID": 102,
+      "poisonReduction": 0,
+      "shocksPlayedThisTurn": 0,
+      "sleepTurnsRemaining": 0,
+      "strengthenElementsTurnsRemaining": 0,
+      "summonOrder": 1,
+      "summonedOnTurnCycle": 0,
+      "tortoiseDamageTaken": 0,
+      "visualPos": [
+        30.0,
+        0.0,
+        -15.0
+      ],
+      "ward": 0,
+      "x": 11,
       "y": 3
     },
     {
-      "ap": 3,
+      "ap": 2,
+      "assistantRerollUsedThisTurn": false,
       "barrier": 0,
       "block": 0,
       "deck": [
@@ -1305,103 +1772,183 @@
           ],
           "currentScale": 1.0,
           "damageType": 0,
+          "diceSides": 4,
+          "drawnThisTurn": false,
+          "isCopied": false,
+          "name": "Call for Kobolds",
+          "numDice": 1,
+          "targetScale": 1.0,
+          "targeting": 5,
+          "textureRect": [
+            3272.0,
+            2340.0,
+            409.0,
+            585.0
+          ],
+          "type": 47,
+          "value": 0
+        },
+        {
+          "cardClass": 1,
+          "cost": 1,
+          "currentPos": [
+            0.0,
+            0.0
+          ],
+          "currentScale": 1.0,
+          "damageType": 0,
           "diceSides": 0,
           "drawnThisTurn": false,
           "isCopied": false,
-          "name": "Summon Faerie",
+          "name": "Hand Block",
           "numDice": 0,
           "targetScale": 1.0,
-          "targeting": 12,
+          "targeting": 5,
           "textureRect": [
-            3681.0,
-            3510.0,
+            818.0,
+            0.0,
             409.0,
             585.0
           ],
-          "type": 59,
-          "value": 0
+          "type": 9,
+          "value": 2
         },
         {
           "cardClass": 1,
-          "cost": 3,
+          "cost": 1,
           "currentPos": [
             0.0,
             0.0
           ],
           "currentScale": 1.0,
           "damageType": 0,
-          "diceSides": 6,
+          "diceSides": 0,
           "drawnThisTurn": false,
           "isCopied": false,
-          "name": "Heal",
-          "numDice": 2,
+          "name": "Hand Block",
+          "numDice": 0,
           "targetScale": 1.0,
-          "targeting": 9,
+          "targeting": 5,
           "textureRect": [
+            818.0,
             0.0,
-            1170.0,
             409.0,
             585.0
           ],
-          "type": 25,
-          "value": 0
+          "type": 9,
+          "value": 2
         },
         {
           "cardClass": 1,
-          "cost": 3,
+          "cost": 1,
           "currentPos": [
             0.0,
             0.0
           ],
           "currentScale": 1.0,
           "damageType": 0,
-          "diceSides": 6,
+          "diceSides": 0,
           "drawnThisTurn": false,
           "isCopied": false,
-          "name": "Heal",
-          "numDice": 2,
+          "name": "Punch",
+          "numDice": 0,
           "targetScale": 1.0,
-          "targeting": 9,
+          "targeting": 4,
           "textureRect": [
             0.0,
-            1170.0,
+            0.0,
             409.0,
             585.0
           ],
-          "type": 25,
-          "value": 0
+          "type": 5,
+          "value": 2
         }
       ],
       "deckNeedsShuffle": false,
-      "discard": [
+      "directSummonerID": -1,
+      "flurryOfFistsActive": false,
+      "freeKickTurns": 0,
+      "ghostDamageTaken": 0,
+      "hasDrawnCardsThisTurn": false,
+      "hasDrawnThisTurn": false,
+      "hasDrawnThisTurn_flag": false,
+      "health": 1,
+      "holyBlock": 0,
+      "inGhostForm": false,
+      "inTortoiseForm": false,
+      "isAssistant": false,
+      "isDemon": false,
+      "isFaerie": false,
+      "isGolem": false,
+      "isHellhound": false,
+      "isKobold": false,
+      "isKoboldKing": false,
+      "isMagicWallUnit": false,
+      "isMinion": true,
+      "isParalyzed": false,
+      "isPoisoned": false,
+      "isSkeleton": false,
+      "isWallUnit": false,
+      "isWolf": false,
+      "maxHealth": 1,
+      "nextAttackAddPoison": false,
+      "nextTurnAPBonus": 0,
+      "nextTurnD10AP": false,
+      "nextTurnExtraDraw": false,
+      "nextTurnExtraDrawSetOnCycle": -1,
+      "ownerID": 1,
+      "paralysisHeadsCount": 0,
+      "playerID": 304,
+      "poisonReduction": 0,
+      "shocksPlayedThisTurn": 0,
+      "sleepTurnsRemaining": 0,
+      "strengthenElementsTurnsRemaining": 0,
+      "summonOrder": 2,
+      "summonedOnTurnCycle": 1,
+      "tortoiseDamageTaken": 0,
+      "visualPos": [
+        25.0,
+        0.0,
+        -20.0
+      ],
+      "ward": 0,
+      "x": 11,
+      "y": 0
+    },
+    {
+      "ap": 0,
+      "assistantRerollUsedThisTurn": false,
+      "barrier": 0,
+      "block": 0,
+      "deck": [
         {
           "cardClass": 1,
-          "cost": 3,
+          "cost": 1,
           "currentPos": [
-            1210.000244140625,
-            1310.0
+            1209.999755859375,
+            1309.999755859375
           ],
           "currentScale": 1.5,
           "damageType": 0,
           "diceSides": 0,
           "drawnThisTurn": true,
           "isCopied": false,
-          "name": "Kick",
+          "name": "Hand Block",
           "numDice": 0,
           "targetScale": 1.5,
-          "targeting": 4,
+          "targeting": 5,
           "textureRect": [
-            409.0,
+            818.0,
             0.0,
             409.0,
             585.0
           ],
-          "type": 5,
-          "value": 4
+          "type": 9,
+          "value": 2
         },
         {
           "cardClass": 1,
-          "cost": 3,
+          "cost": 1,
           "currentPos": [
             1350.000244140625,
             1310.0
@@ -1411,30 +1958,309 @@
           "diceSides": 0,
           "drawnThisTurn": true,
           "isCopied": false,
-          "name": "Kick",
+          "name": "Hand Block",
+          "numDice": 0,
+          "targetScale": 1.5,
+          "targeting": 5,
+          "textureRect": [
+            818.0,
+            0.0,
+            409.0,
+            585.0
+          ],
+          "type": 9,
+          "value": 2
+        },
+        {
+          "cardClass": 2,
+          "cost": 4,
+          "currentPos": [
+            1210.000244140625,
+            1310.0
+          ],
+          "currentScale": 1.5,
+          "damageType": 0,
+          "diceSides": 4,
+          "drawnThisTurn": true,
+          "isCopied": false,
+          "name": "Call for Kobolds",
+          "numDice": 1,
+          "targetScale": 1.5,
+          "targeting": 5,
+          "textureRect": [
+            3272.0,
+            2340.0,
+            409.0,
+            585.0
+          ],
+          "type": 47,
+          "value": 0
+        },
+        {
+          "cardClass": 1,
+          "cost": 1,
+          "currentPos": [
+            1350.000244140625,
+            1309.999755859375
+          ],
+          "currentScale": 1.5,
+          "damageType": 0,
+          "diceSides": 0,
+          "drawnThisTurn": true,
+          "isCopied": false,
+          "name": "Punch",
           "numDice": 0,
           "targetScale": 1.5,
           "targeting": 4,
           "textureRect": [
-            409.0,
+            0.0,
             0.0,
             409.0,
             585.0
           ],
           "type": 5,
-          "value": 4
+          "value": 2
         }
       ],
+      "deckNeedsShuffle": false,
+      "directSummonerID": -1,
       "flurryOfFistsActive": false,
+      "freeKickTurns": 0,
+      "ghostDamageTaken": 0,
       "hasDrawnCardsThisTurn": false,
       "hasDrawnThisTurn": false,
       "hasDrawnThisTurn_flag": false,
-      "health": 8,
+      "health": 1,
       "holyBlock": 0,
+      "inGhostForm": false,
       "inTortoiseForm": false,
+      "isAssistant": false,
+      "isDemon": false,
+      "isFaerie": false,
+      "isGolem": false,
+      "isHellhound": false,
+      "isKobold": false,
+      "isKoboldKing": false,
+      "isMagicWallUnit": false,
+      "isMinion": true,
+      "isParalyzed": false,
+      "isPoisoned": false,
+      "isSkeleton": false,
+      "isWallUnit": false,
+      "isWolf": false,
+      "maxHealth": 1,
+      "nextAttackAddPoison": false,
+      "nextTurnAPBonus": 0,
+      "nextTurnD10AP": false,
+      "nextTurnExtraDraw": false,
+      "nextTurnExtraDrawSetOnCycle": -1,
+      "ownerID": 1,
+      "paralysisHeadsCount": 0,
+      "playerID": 305,
+      "poisonReduction": 0,
+      "shocksPlayedThisTurn": 0,
+      "sleepTurnsRemaining": 0,
+      "strengthenElementsTurnsRemaining": 0,
+      "summonOrder": 3,
+      "summonedOnTurnCycle": 1,
+      "tortoiseDamageTaken": 0,
+      "visualPos": [
+        30.0,
+        0.0,
+        -15.0
+      ],
+      "ward": 0,
+      "x": 11,
+      "y": 2
+    },
+    {
+      "ap": 1,
+      "assistantRerollUsedThisTurn": false,
+      "barrier": 0,
+      "block": 0,
+      "cardsPlayedThisTurn": [
+        26
+      ],
+      "deck": [
+        {
+          "cardClass": 2,
+          "cost": 4,
+          "currentPos": [
+            1255.0,
+            720.0
+          ],
+          "currentScale": 2.399949073791504,
+          "damageType": 0,
+          "diceSides": 4,
+          "drawnThisTurn": true,
+          "isCopied": false,
+          "name": "Call for Kobolds",
+          "numDice": 1,
+          "targetScale": 2.4000000953674316,
+          "targeting": 5,
+          "textureRect": [
+            3272.0,
+            2340.0,
+            409.0,
+            585.0
+          ],
+          "type": 47,
+          "value": 0
+        },
+        {
+          "cardClass": 2,
+          "cost": 2,
+          "currentPos": [
+            1420.000244140625,
+            1309.999755859375
+          ],
+          "currentScale": 1.500000238418579,
+          "damageType": 0,
+          "diceSides": 6,
+          "drawnThisTurn": true,
+          "isCopied": false,
+          "name": "Raise Dead",
+          "numDice": 1,
+          "targetScale": 1.5,
+          "targeting": 12,
+          "textureRect": [
+            409.0,
+            1170.0,
+            409.0,
+            585.0
+          ],
+          "type": 26,
+          "value": 0
+        },
+        {
+          "cardClass": 1,
+          "cost": 2,
+          "currentPos": [
+            1209.999755859375,
+            1310.0
+          ],
+          "currentScale": 1.5,
+          "damageType": 4,
+          "diceSides": 0,
+          "drawnThisTurn": true,
+          "isCopied": false,
+          "name": "Flame Hit",
+          "numDice": 0,
+          "targetScale": 1.5,
+          "targeting": 4,
+          "textureRect": [
+            3681.0,
+            585.0,
+            409.0,
+            585.0
+          ],
+          "type": 24,
+          "value": 1
+        },
+        {
+          "cardClass": 1,
+          "cost": 2,
+          "currentPos": [
+            1280.000244140625,
+            1310.0
+          ],
+          "currentScale": 1.5,
+          "damageType": 4,
+          "diceSides": 0,
+          "drawnThisTurn": true,
+          "isCopied": false,
+          "name": "Flame Hit",
+          "numDice": 0,
+          "targetScale": 1.5,
+          "targeting": 4,
+          "textureRect": [
+            3681.0,
+            585.0,
+            409.0,
+            585.0
+          ],
+          "type": 24,
+          "value": 1
+        }
+      ],
+      "deckNeedsShuffle": false,
+      "directSummonerID": -1,
+      "discard": [
+        {
+          "cardClass": 1,
+          "cost": 5,
+          "currentPos": [
+            1209.999755859375,
+            1310.0
+          ],
+          "currentScale": 1.5,
+          "damageType": 2,
+          "diceSides": 0,
+          "drawnThisTurn": true,
+          "isCopied": false,
+          "name": "Wisdom Boon",
+          "numDice": 0,
+          "targetScale": 1.5,
+          "targeting": 8,
+          "textureRect": [
+            2863.0,
+            585.0,
+            409.0,
+            585.0
+          ],
+          "type": 22,
+          "value": 0
+        },
+        {
+          "cardClass": 1,
+          "cost": 5,
+          "currentPos": [
+            1349.999755859375,
+            1310.0
+          ],
+          "currentScale": 1.5,
+          "damageType": 2,
+          "diceSides": 0,
+          "drawnThisTurn": true,
+          "isCopied": false,
+          "name": "Wisdom Boon",
+          "numDice": 0,
+          "targetScale": 1.5,
+          "targeting": 8,
+          "textureRect": [
+            2863.0,
+            585.0,
+            409.0,
+            585.0
+          ],
+          "type": 22,
+          "value": 0
+        }
+      ],
+      "flurryOfFistsActive": false,
+      "freeKickTurns": 0,
+      "ghostDamageTaken": 0,
+      "hasDrawnCardsThisTurn": false,
+      "hasDrawnThisTurn": false,
+      "hasDrawnThisTurn_flag": false,
+      "health": 15,
+      "holyBlock": 0,
+      "inGhostForm": false,
+      "inTortoiseForm": false,
+      "isAssistant": false,
+      "isDemon": false,
+      "isFaerie": false,
+      "isGolem": false,
+      "isHellhound": false,
+      "isKobold": false,
+      "isKoboldKing": false,
+      "isMagicWallUnit": false,
       "isMinion": false,
       "isParalyzed": false,
       "isPoisoned": false,
+      "isSkeleton": false,
+      "isWallUnit": false,
+      "isWolf": false,
       "maxHealth": 15,
       "nextAttackAddPoison": false,
       "nextTurnAPBonus": 0,
