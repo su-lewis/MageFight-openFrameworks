@@ -689,6 +689,7 @@ private:
 	CardPlayResult playCard(int cardIndex, int targetX, int targetY);
 
 	// === CARD STATE MACHINE HANDLERS ===
+	void updateMenuButtonRectangles(); // Update button rectangles for current menu
 	void processCardStateInput(int mouseX, int mouseY, int button); // Handle clicks during card states
 	void updateCardStateMachine(); // Called in update() to process state transitions
 	void advanceCardState(CardPlayState newState); // Transition to new state
@@ -1436,6 +1437,7 @@ private:
 	// --- UI INTERACTION ---
 	int selectedCardIndex = -1;
 	int draggedCardIndex = -1;
+	int pressedCardIndex = -1; // Card being pressed down (set in mousePressed)
 	int hoveredCardIndex = -1;
 	int lastHoveredCardIndex = -1;
 	ofVec2f dragOffset;
@@ -1461,6 +1463,7 @@ private:
 	int interactionTargetIndex = -1; // Index of chosen target (if applicable)
 	std::string interactionMenuChoice; // Selected menu option (Burst: damage/heal, Double-Handed: Punch/Block, etc.)
 	bool interactionNeedsStatusSelect = false; // Special: Dispel status selection required
+	int interactionDiceRoll = 0; // Cached dice result if interaction requires roll (Teleport range, etc.)
 
 	// --- Legacy Targeting States (to be deprecated after consolidation) ---
 	bool isTargetingDeath = false;
