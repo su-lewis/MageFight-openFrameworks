@@ -1683,8 +1683,9 @@ private:
 	// Burst of Light (choice UI + targeting)
 	bool isBurstMenuOpen = false;
 	int pendingBurstCardIndex = -1;
-	bool isTargetingBurst = false; // true while choosing target after menu
-	int burstChoice = 0; // 0 = Damage, 1 = Heal
+	int pendingBurstTargetIndex = -1;
+	bool isTargetingBurst = false; // true while choosing target before menu
+	int burstChoice = -1; // -1 = undecided, 0 = Damage, 1 = Heal
 	ofRectangle burstMenuRect;
 	ofRectangle burstBtnDamage;
 	ofRectangle burstBtnHeal;
@@ -1784,6 +1785,7 @@ private:
 	int pendingShootArrowHitResult = 0;
 	glm::vec2 pendingShootArrowTargetTile;
 	int pendingShootArrowTargetIndex = -1;
+	CardType pendingShootArrowDestroyedType = CARD_NONE;
 
 	// --- Giant Magic Hand ---
 	bool isMagicHandMenuOpen = false;

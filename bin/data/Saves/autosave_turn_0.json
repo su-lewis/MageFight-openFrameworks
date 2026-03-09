@@ -207,7 +207,451 @@
       },
       {
         "hasPlayer": false,
+        "hasWall": true,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      },
+      {
+        "hasPlayer": false,
         "hasWall": false,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      }
+    ],
+    [
+      {
+        "hasPlayer": false,
+        "hasWall": false,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      },
+      {
+        "hasPlayer": false,
+        "hasWall": true,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      },
+      {
+        "hasPlayer": false,
+        "hasWall": false,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      },
+      {
+        "hasPlayer": false,
+        "hasWall": false,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      },
+      {
+        "hasPlayer": false,
+        "hasWall": true,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      },
+      {
+        "hasPlayer": false,
+        "hasWall": false,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      },
+      {
+        "hasPlayer": false,
+        "hasWall": false,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      },
+      {
+        "hasPlayer": false,
+        "hasWall": true,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      },
+      {
+        "hasPlayer": false,
+        "hasWall": false,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      }
+    ],
+    [
+      {
+        "hasPlayer": false,
+        "hasWall": false,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      },
+      {
+        "hasPlayer": false,
+        "hasWall": true,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      },
+      {
+        "hasPlayer": false,
+        "hasWall": false,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      },
+      {
+        "hasPlayer": false,
+        "hasWall": false,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      },
+      {
+        "hasPlayer": false,
+        "hasWall": false,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      },
+      {
+        "hasPlayer": false,
+        "hasWall": false,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      },
+      {
+        "hasPlayer": false,
+        "hasWall": false,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      },
+      {
+        "hasPlayer": false,
+        "hasWall": true,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      },
+      {
+        "hasPlayer": false,
+        "hasWall": false,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      }
+    ],
+    [
+      {
+        "hasPlayer": false,
+        "hasWall": false,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      },
+      {
+        "hasPlayer": false,
+        "hasWall": false,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      },
+      {
+        "hasPlayer": false,
+        "hasWall": false,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      },
+      {
+        "hasPlayer": false,
+        "hasWall": false,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      },
+      {
+        "hasPlayer": false,
+        "hasWall": true,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      },
+      {
+        "hasPlayer": false,
+        "hasWall": false,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      },
+      {
+        "hasPlayer": false,
+        "hasWall": false,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      },
+      {
+        "hasPlayer": false,
+        "hasWall": false,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      },
+      {
+        "hasPlayer": false,
+        "hasWall": false,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      }
+    ],
+    [
+      {
+        "hasPlayer": false,
+        "hasWall": false,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      },
+      {
+        "hasPlayer": false,
+        "hasWall": false,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      },
+      {
+        "hasPlayer": false,
+        "hasWall": false,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      },
+      {
+        "hasPlayer": false,
+        "hasWall": true,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      },
+      {
+        "hasPlayer": false,
+        "hasWall": false,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      },
+      {
+        "hasPlayer": false,
+        "hasWall": true,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      },
+      {
+        "hasPlayer": false,
+        "hasWall": false,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      },
+      {
+        "hasPlayer": false,
+        "hasWall": false,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      },
+      {
+        "hasPlayer": false,
+        "hasWall": false,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      }
+    ],
+    [
+      {
+        "hasPlayer": false,
+        "hasWall": false,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      },
+      {
+        "hasPlayer": false,
+        "hasWall": false,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      },
+      {
+        "hasPlayer": false,
+        "hasWall": false,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      },
+      {
+        "hasPlayer": false,
+        "hasWall": false,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      },
+      {
+        "hasPlayer": false,
+        "hasWall": true,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      },
+      {
+        "hasPlayer": false,
+        "hasWall": false,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      },
+      {
+        "hasPlayer": false,
+        "hasWall": false,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      },
+      {
+        "hasPlayer": false,
+        "hasWall": false,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      },
+      {
+        "hasPlayer": false,
+        "hasWall": false,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      }
+    ],
+    [
+      {
+        "hasPlayer": false,
+        "hasWall": false,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      },
+      {
+        "hasPlayer": false,
+        "hasWall": true,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      },
+      {
+        "hasPlayer": false,
+        "hasWall": false,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      },
+      {
+        "hasPlayer": false,
+        "hasWall": false,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      },
+      {
+        "hasPlayer": false,
+        "hasWall": false,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      },
+      {
+        "hasPlayer": false,
+        "hasWall": false,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      },
+      {
+        "hasPlayer": false,
+        "hasWall": false,
+        "isHighlighted": false,
+        "isMagicWall": false,
+        "isTargetPreview": false,
+        "isTargetable": false
+      },
+      {
+        "hasPlayer": false,
+        "hasWall": true,
         "isHighlighted": false,
         "isMagicWall": false,
         "isTargetPreview": false,
@@ -315,7 +759,7 @@
       },
       {
         "hasPlayer": false,
-        "hasWall": false,
+        "hasWall": true,
         "isHighlighted": false,
         "isMagicWall": false,
         "isTargetPreview": false,
@@ -331,7 +775,7 @@
       },
       {
         "hasPlayer": false,
-        "hasWall": false,
+        "hasWall": true,
         "isHighlighted": false,
         "isMagicWall": false,
         "isTargetPreview": false,
@@ -347,7 +791,7 @@
       },
       {
         "hasPlayer": false,
-        "hasWall": false,
+        "hasWall": true,
         "isHighlighted": false,
         "isMagicWall": false,
         "isTargetPreview": false,
@@ -382,30 +826,6 @@
       {
         "hasPlayer": false,
         "hasWall": false,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      },
-      {
-        "hasPlayer": false,
-        "hasWall": false,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      },
-      {
-        "hasPlayer": false,
-        "hasWall": false,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      },
-      {
-        "hasPlayer": false,
-        "hasWall": true,
         "isHighlighted": false,
         "isMagicWall": false,
         "isTargetPreview": false,
@@ -429,426 +849,6 @@
       },
       {
         "hasPlayer": false,
-        "hasWall": false,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      },
-      {
-        "hasPlayer": false,
-        "hasWall": false,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      }
-    ],
-    [
-      {
-        "hasPlayer": false,
-        "hasWall": false,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      },
-      {
-        "hasPlayer": false,
-        "hasWall": false,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      },
-      {
-        "hasPlayer": false,
-        "hasWall": false,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      },
-      {
-        "hasPlayer": false,
-        "hasWall": true,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      },
-      {
-        "hasPlayer": false,
-        "hasWall": false,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      },
-      {
-        "hasPlayer": false,
-        "hasWall": true,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      },
-      {
-        "hasPlayer": false,
-        "hasWall": false,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      },
-      {
-        "hasPlayer": false,
-        "hasWall": false,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      },
-      {
-        "hasPlayer": false,
-        "hasWall": false,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      }
-    ],
-    [
-      {
-        "hasPlayer": false,
-        "hasWall": false,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      },
-      {
-        "hasPlayer": false,
-        "hasWall": false,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      },
-      {
-        "hasPlayer": false,
-        "hasWall": false,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      },
-      {
-        "hasPlayer": false,
-        "hasWall": false,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      },
-      {
-        "hasPlayer": false,
-        "hasWall": true,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      },
-      {
-        "hasPlayer": false,
-        "hasWall": false,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      },
-      {
-        "hasPlayer": false,
-        "hasWall": false,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      },
-      {
-        "hasPlayer": false,
-        "hasWall": false,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      },
-      {
-        "hasPlayer": false,
-        "hasWall": false,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      }
-    ],
-    [
-      {
-        "hasPlayer": false,
-        "hasWall": false,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      },
-      {
-        "hasPlayer": false,
-        "hasWall": true,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      },
-      {
-        "hasPlayer": false,
-        "hasWall": false,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      },
-      {
-        "hasPlayer": false,
-        "hasWall": false,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      },
-      {
-        "hasPlayer": false,
-        "hasWall": false,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      },
-      {
-        "hasPlayer": false,
-        "hasWall": false,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      },
-      {
-        "hasPlayer": false,
-        "hasWall": false,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      },
-      {
-        "hasPlayer": false,
-        "hasWall": true,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      },
-      {
-        "hasPlayer": false,
-        "hasWall": false,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      }
-    ],
-    [
-      {
-        "hasPlayer": false,
-        "hasWall": false,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      },
-      {
-        "hasPlayer": false,
-        "hasWall": true,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      },
-      {
-        "hasPlayer": false,
-        "hasWall": false,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      },
-      {
-        "hasPlayer": false,
-        "hasWall": false,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      },
-      {
-        "hasPlayer": false,
-        "hasWall": true,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      },
-      {
-        "hasPlayer": false,
-        "hasWall": false,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      },
-      {
-        "hasPlayer": false,
-        "hasWall": false,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      },
-      {
-        "hasPlayer": false,
-        "hasWall": true,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      },
-      {
-        "hasPlayer": false,
-        "hasWall": false,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      }
-    ],
-    [
-      {
-        "hasPlayer": false,
-        "hasWall": false,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      },
-      {
-        "hasPlayer": false,
-        "hasWall": true,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      },
-      {
-        "hasPlayer": false,
-        "hasWall": true,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      },
-      {
-        "hasPlayer": false,
-        "hasWall": false,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      },
-      {
-        "hasPlayer": false,
-        "hasWall": true,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      },
-      {
-        "hasPlayer": false,
-        "hasWall": false,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      },
-      {
-        "hasPlayer": false,
-        "hasWall": true,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      },
-      {
-        "hasPlayer": false,
-        "hasWall": true,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      },
-      {
-        "hasPlayer": false,
-        "hasWall": false,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      }
-    ],
-    [
-      {
-        "hasPlayer": false,
-        "hasWall": false,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      },
-      {
-        "hasPlayer": false,
-        "hasWall": false,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      },
-      {
-        "hasPlayer": false,
-        "hasWall": false,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      },
-      {
-        "hasPlayer": false,
-        "hasWall": false,
-        "isHighlighted": false,
-        "isMagicWall": false,
-        "isTargetPreview": false,
-        "isTargetable": false
-      },
-      {
-        "hasPlayer": false,
         "hasWall": true,
         "isHighlighted": false,
         "isMagicWall": false,
@@ -898,7 +898,7 @@
         "isTargetable": false
       },
       {
-        "hasPlayer": true,
+        "hasPlayer": false,
         "hasWall": false,
         "isHighlighted": false,
         "isMagicWall": false,
@@ -963,19 +963,72 @@
       }
     ]
   ],
-  "currentPlayerIndex": 2,
-  "gameplayRNG": "2418789158 1996592610 3515836176 3873702716 4011306233 3146605959 2420050775 1607128165 3835178723 1309522474 2856547539 1320319779 4004856388 972589440 2628680447 1095549464 3137321496 1454111666 595858743 2595706105 610432353 2354528942 568626556 1965420341 183580448 2342072562 2804594960 2755595648 1654698453 1586981855 1773996895 2553716219 3146811081 743648695 2368578767 899242454 815691999 2619602684 209687004 1529969513 575670939 3199297958 2552120665 467885037 4030197339 3432774531 754700716 2699827988 423983163 3565110823 3767631350 356467694 3673045042 2119250670 3658855546 1693046249 3345736329 47084170 1804126547 816036609 1545952756 4282456258 2461837660 3815340494 4011394417 2192210381 1238760807 622700160 4051644821 1190477031 1319074026 2257430070 3264555114 1290969254 3341450189 19311044 1864857967 454115807 2953192560 4078866755 864348269 662802350 4286863360 1500890088 2626790792 3996012951 747650056 1508328609 1435938510 3810969422 1529160652 942122406 2709542326 738868860 3247745743 1650188017 1426755701 3641369427 2228447970 2271590730 2906321425 1747683374 4031439736 883878258 903417348 4131268274 1883347530 1202760641 3961942211 3447203849 2713154550 228987553 567604190 3081033095 3170124714 428826178 4229437208 4033599171 1141102573 2334357585 895869691 682934729 3139015549 1090000116 2771315292 1210282081 134066664 1256711888 3735590181 3313808885 3066958608 3431844029 2406422135 559436262 2635380426 2586857437 228325763 3749293101 262343455 175079200 3416546167 368739393 1379466003 3355632183 3145718951 3039129298 2532496697 2401759808 565421973 1435386822 140681733 120021485 3841411185 1037352666 1197193372 196651282 2567455598 936820626 246094197 1384266713 284706970 405163914 2651040887 3687599419 2621027004 3589736505 3195600509 1843150022 2204692203 2739971613 3766423595 2057199110 291789210 453538864 2188564831 334735305 772030567 1483689317 1723175562 3899449565 938312389 1982602348 1575109735 3404287558 227961890 4234475935 862172238 255324437 2884705635 1774880778 1287399454 2352599311 980835485 1580653823 1223339512 3138523563 3029590411 2312877851 715532972 2540991240 576030159 2703126979 3219494445 3436515712 3713319355 3989097179 3268828204 2835238658 564231814 2441449512 4092101416 230047309 3657389352 148021192 2637199011 1415238884 943305322 3783921677 708705152 227616387 1005354605 749083935 177405905 3088664720 1375583912 3518600747 984220729 2885740375 1206539096 185067555 2477379995 1813732399 3082402867 4184984201 1126357979 3400845967 1290147311 3962259480 3398390898 1154303147 3099043895 1498848952 1863237436 79979175 3680552247 3965323260 2840412139 3519605523 1760920617 2011291622 4020854485 4253939545 307414993 1185061069 1851747569 3791560146 1083200948 261443852 4105557109 295108140 3737259937 3213811231 1031131280 2133086296 653818596 1396269439 3825262690 765375921 1488303620 4226489642 984182388 2065143059 4138409293 3482319509 872756108 2285768923 3696593727 4242390773 3884249444 3973861671 536861901 1735422123 2404561998 3510189679 2733965081 1530598104 585137432 407723516 386039040 4178033089 3046225694 4053790163 696562542 1072940419 551263674 2935734350 3391296195 3781040507 541148338 3750828311 2390553339 1428324225 1959628064 4075593358 811999006 672589023 2230651810 2928480675 26688940 2126904008 1095955593 2941478761 2657801784 4277397026 162189109 248209833 165944909 967518748 668619204 3626971929 351916322 6821598 1217580651 2239063505 3181157156 1657383902 1745611096 3612159793 211821682 1336037892 4144500258 4200132741 3616528605 3055627818 175765905 3046613854 853172706 2693420507 2842134292 580095650 1500185251 4107441127 4267390010 3166113074 1008742591 3630975388 3781078842 3250204182 2506404734 3715397217 775862823 1637186239 1940973934 3581715678 1218252161 2939433575 3433472410 2359583854 3840184481 370746074 1588379680 1206501887 2808975719 4157141363 1014191150 642478236 1795976852 1087635142 2068981111 3329953397 4179077726 478145441 550659162 1577069245 3935686576 2461053524 2772979694 135470901 2839643551 2927377643 2524800389 1072024376 1093999513 2638780409 2376572958 1337464686 2991386629 885025643 718971648 421784911 2971993615 1660013628 1524956121 386616048 2898963613 1116772549 2806029715 4082593254 2571706522 1780476744 122273893 4023107762 1202580561 1926493504 2356294514 3976347696 4221322378 1540447871 1259370637 3658485756 2961873663 3386636005 2229746625 2550056454 3714927159 1263138386 2341606862 1648236390 3348381774 1283707791 1371866464 756467665 2174388504 1105597588 2094319933 721469630 1793017475 779881269 313127524 3685713593 3069844691 2108031789 1715163809 421297868 2822398053 724872699 389576412 1009847784 975102084 44259201 1122124362 3814192687 1478671400 1292614869 2857587850 1882211389 2309643564 2709862000 1736857757 1494316865 871893502 4002141982 1492311739 3514486461 1280321517 825200384 1281998231 2449012082 2349356189 3475780529 3996008298 666709706 3154234981 2761153633 1552403994 3250569064 3759560799 3766275915 3008533596 743062769 3270049311 465414708 2607242028 2111418912 2837704954 2448540894 2153176354 3842500163 324920324 450220779 3220102181 956312782 592554602 2613257097 2051598648 2059412099 764254975 1548142747 3361392772 4135746086 1099838029 2545712842 3684601003 1162022589 2845578137 3887530694 671691249 2777459092 1785339284 2934673045 1560782712 3527091871 1658044376 2921878290 2404394494 1219204541 2005089443 2673320325 1424736751 997203220 871250083 3368322819 1461977901 544296626 3302558555 2676106963 2838155031 2348015215 4207162776 428722933 216168285 4110582743 3034788796 2619955238 1680978939 3239480994 1083478650 1064883920 3142200815 1705813246 1277918670 897780443 2440384707 2985244504 3964679782 746267497 1522773168 3595067201 3591527431 988967105 1866875633 2752079255 4124188301 81099866 2755172832 2870762633 3206678746 3765717683 3850434620 839222484 2895650800 1231306653 2796894134 2965607954 2759520285 4061164324 3593488888 277660366 974226059 1399395133 3722558827 3724171077 3316144864 2479565567 1238521101 3341171543 789866911 2036589454 3398574711 1479305082 2049565086 2346469967 1667962346 2950228061 1739838731 4127716209 3232326879 1078404955 170178458 2404753593 1276419403 4010620761 1409886521 2765261630 3179428069 1888848848 2142702137 2523703805 2056827996 1162723707 443956765 1213646262 1287350436 3745486264 2793158586 332043619 4152164276 1993501315 1718122924 2165214586 3739313061 1576185613 1424961975 1556176576 2642309545 2042294955 3874481119 2571665713 2927553491 3924743457 1470059081 966889838 4283987340 3276668634 1488263703 3276956392 2884585335 2519743319 442062649 3145095546 3357199272 1239226757 4116574112 4015355904 23",
+  "currentPlayerIndex": 1,
+  "gameplayRNG": "3920982485 2179294145 3873784060 2142791169 170632996 4213683227 1876801457 858925221 1479699545 4112645184 3247576452 63128496 1441087458 1678308828 3390649889 4195351659 492436638 3828886034 2681882901 2681543521 1585254457 1689757057 2596161151 2279254777 2948165384 3098922536 2011504447 1343783144 461893185 2868066703 947500718 1493620366 2215010509 3772527147 866720514 2929045044 556559977 3559808107 148571067 3170164399 4266130637 1103542308 2568655586 4106331243 1799025827 1520061344 4061794316 1914822030 2857196568 441061945 1287218065 2235988111 2094047567 958042089 596092077 2312748420 910034173 1199515456 1217715958 542130913 2701360012 3488005871 140854907 1765286711 3460235287 4246355227 2733928898 4034077514 3277045000 1285405316 3655402212 1353465959 1768035407 1387823433 2524830502 103511 3298893707 511186151 3733155607 3419202589 1381408095 2298090333 689591764 640599015 1723976450 1167292218 2453583433 3428673166 2248152608 4194175918 1606565194 2053755809 4240579547 4001660037 1184143429 1402342361 454842637 466099281 4051810221 3453958272 113898353 3899767094 36513593 1389266117 1420569821 4157110281 3910112332 3131625401 3263736495 389420632 2417436752 3498412735 3839603433 3288413732 1674831651 2870357541 3212434109 3607738708 863920607 2244880158 647255368 4171598727 3200401489 1446001761 994502159 1260058279 4097421 752829156 1649907149 55300771 505467988 993496218 2702240110 328444533 3340056418 3032554404 3137081778 1005081079 121788018 3327825861 2642044998 2368141519 1332167898 3761036623 1877690162 1174179033 692417242 3967966268 1354922974 3238913453 2749770544 2958588262 3341231606 1098267292 1758327006 2693243053 1310561545 484854813 4075177376 1272338279 3992233395 500198453 1767941167 3990353581 1703349370 1261693899 634680354 3814280863 3191238609 1201813858 629423403 3793895561 124072597 3774017742 4039853207 2011844492 3656512381 1197620776 231216389 636284078 2091730041 1095990272 633231047 305027311 4176376232 2927424196 1670218111 2644368541 2306128101 2162223676 790542977 2132787264 1994642482 1294818660 648131922 3849027952 575258695 1434391178 2987322266 655676840 2093041738 1513389549 1414750021 4170124986 2856652632 2266537531 2123251871 633280675 1228216126 3432537441 566241568 3189681007 3761372288 2861298790 388106244 3946179776 1330789687 4122070383 2163570765 3749595069 452150946 493323813 1950656232 237218164 4105594960 350768719 4213193310 2498578858 3533315866 3758044454 1757644841 861665560 2857708579 1357492540 1240297153 3031647367 2038549828 728239984 3157316865 1749825596 2045990941 2392750872 2034545730 4051919326 1956613624 1059369948 1018604183 697355645 530537449 2105779004 2012534344 3305529409 2971931606 1739496586 3291079647 4111748993 197906923 1474116941 1896261197 248728881 3584249135 2680663572 692766523 2705971952 4011308734 2341460772 3942543730 3407371130 314437155 2818122408 2717700538 1094295646 2048981420 1549455140 2148646854 2255730949 2105423728 4080557892 1422781362 4143632120 288759470 3503202223 504463077 3945599673 1412256808 1337388641 3251602307 3938582576 1985962892 1568683865 3107376520 1436537324 2674645189 1709968477 2838539169 2432926702 2184608492 1228643905 1001809064 2931960862 499625469 3614530086 3103703327 3480058784 2904239287 3001135496 3343734042 608669863 3523058391 1719399078 3211223469 4286426314 1602979672 3910034661 3487926690 2351496922 1565593137 1479278485 3288160996 4285415353 1587282192 874494589 2018916021 2512004386 805243988 266485147 1290037199 3647840549 3677564952 2848593307 3648541932 3860410468 53079199 3261789752 2373418663 1834987072 4181325434 2201121066 2105126315 2358988725 2361964074 44264117 3712245460 2147200620 2853281566 3345011446 693019002 1569290072 4136193590 3414650702 610817625 4110645263 1522494713 918204490 1434628198 3811910076 508653224 207339614 2393997024 3646350854 1280680097 2882827484 3447500135 2014056607 806496788 1175356563 991638541 3101081485 2417718093 1847187929 3728707540 3354835070 3942067391 1635083145 821253366 3000160851 1732883812 3523711968 2381350630 1021053308 3546784004 3082882574 3110222064 515886085 3640584995 1990553415 909724054 1434248933 2854992421 1121317697 2511691244 2379819283 4286196870 622541693 746872987 2105197684 2051989497 2729197140 3762881299 735061023 4172903203 3860113117 3499171496 3765799084 1528842714 1237797807 4068639027 2759008075 1658376960 3447242748 4008635670 2991757721 1500318117 1345851834 4058454603 1053472202 849754723 68037072 2055535929 781167896 3086302322 1488943593 3585875773 2510691967 3683566242 1677916112 1817696836 1756355768 2428961415 3912006504 420442579 2438551294 3701874005 738656827 3153766385 2175628329 3278702100 1747583167 1676665217 871261729 3398792396 3215407738 673281506 3789108873 694562830 1644978302 307203074 4238650794 3622958260 3431479918 2277194069 1120169797 3753105513 56383468 1449906442 1403787636 2326346785 338447978 1725937338 3144298995 2557713592 2959268357 982509270 3319162939 2316736167 3187387408 3854783869 3698469424 534620067 3754887564 615147834 3574676162 3363447523 831165658 3401006411 2066194335 1187368211 3488678843 1437575125 985094704 299535409 2063475050 1146364317 880865034 1079885863 1113658248 1749226187 949488477 1895383067 1453491537 3428312623 898208095 3852006304 1720165392 3561379137 1140017657 1479081768 2702454734 2239566499 4198139493 347670500 3515204070 110094913 2530376927 999113226 4017587081 1798301910 2347820468 3684272325 1119944659 2137146155 2837491801 2743816117 2459668592 834458004 4162313576 1812185765 1939688145 1331081848 4089044744 1480884933 1077604970 1937637503 3941465309 1878879823 2481401160 1616451772 3763239812 1946139775 3271664211 3683706136 3356790192 3211640072 3845929617 369408562 1251304847 2000197540 3638368145 3355650982 3554199771 3279267304 1617747359 1607567259 2281625235 829793594 1333516789 2968437462 622451304 9514592 3172316859 3888607988 3870146578 91353791 1824692614 3658975408 3853850055 2709788767 2448721980 140802103 474484939 258428230 1961244051 2879488244 1714802598 3642725565 241923810 2991985966 352481536 1312409510 3798870600 965567149 2410188125 3787589558 3916341459 1372231736 3406732342 3799838877 3639595819 1157565362 443121352 2688182242 3539879537 2356241823 3725526839 1074365730 3366006422 111032769 2756701131 838396044 997673575 4034241378 3307612002 3994251673 1670657472 1965813239 381730407 982635256 4290216420 3832526512 369359081 3798085487 3184536949 2571280767 2879278618 3254474374 3487532852 4036894157 722476406 661268640 944574807 1940643748 119963640 1126264894 3950154100 880076663 1697252639 578944410 866138237 266108727 1636541878 33207113 2881652265 1298003871 2543638476 43",
   "globalTurnCounter": 0,
   "isMultiplayer": false,
   "players": [
     {
-      "ap": 84,
+      "ap": 996,
+      "assistantRerollUsedThisTurn": false,
       "barrier": 0,
       "block": 0,
       "cardsPlayedThisTurn": [
-        15
+        62,
+        5,
+        64
       ],
       "deck": [
+        {
+          "cardClass": 3,
+          "cost": 8,
+          "currentPos": [
+            0.0,
+            0.0
+          ],
+          "currentScale": 1.0,
+          "damageType": 0,
+          "diceSides": 20,
+          "drawnThisTurn": false,
+          "isCopied": false,
+          "name": "Death",
+          "numDice": 1,
+          "targetScale": 1.0,
+          "targeting": 9,
+          "textureRect": [
+            2454.0,
+            1755.0,
+            409.0,
+            585.0
+          ],
+          "type": 39,
+          "value": 0
+        },
+        {
+          "cardClass": 1,
+          "cost": 2,
+          "currentPos": [
+            0.0,
+            0.0
+          ],
+          "currentScale": 1.0,
+          "damageType": 0,
+          "diceSides": 6,
+          "drawnThisTurn": false,
+          "isCopied": false,
+          "name": "Slash",
+          "numDice": 1,
+          "targetScale": 1.0,
+          "targeting": 7,
+          "textureRect": [
+            2454.0,
+            0.0,
+            409.0,
+            585.0
+          ],
+          "type": 5,
+          "value": 0
+        },
         {
           "cardClass": 1,
           "cost": 3,
@@ -988,44 +1041,73 @@
           "diceSides": 0,
           "drawnThisTurn": false,
           "isCopied": false,
-          "name": "Mind Theft",
+          "name": "Vampire Bite",
           "numDice": 0,
           "targetScale": 1.0,
           "targeting": 4,
           "textureRect": [
             2863.0,
-            0.0,
+            2340.0,
             409.0,
             585.0
           ],
-          "type": 16,
-          "value": 0
+          "type": 4,
+          "value": 3
         },
         {
           "cardClass": 1,
-          "cost": 3,
+          "cost": 2,
           "currentPos": [
             0.0,
             0.0
           ],
           "currentScale": 1.0,
           "damageType": 0,
-          "diceSides": 0,
+          "diceSides": 6,
           "drawnThisTurn": false,
           "isCopied": false,
-          "name": "Burst of Light",
-          "numDice": 0,
+          "name": "Slash",
+          "numDice": 1,
           "targetScale": 1.0,
-          "targeting": 9,
+          "targeting": 7,
           "textureRect": [
-            2863.0,
-            3510.0,
+            2454.0,
+            0.0,
             409.0,
             585.0
           ],
-          "type": 63,
+          "type": 5,
           "value": 0
         },
+        {
+          "cardClass": 1,
+          "cost": 2,
+          "currentPos": [
+            0.0,
+            0.0
+          ],
+          "currentScale": 1.0,
+          "damageType": 0,
+          "diceSides": 6,
+          "drawnThisTurn": false,
+          "isCopied": false,
+          "name": "Slash",
+          "numDice": 1,
+          "targetScale": 1.0,
+          "targeting": 7,
+          "textureRect": [
+            2454.0,
+            0.0,
+            409.0,
+            585.0
+          ],
+          "type": 5,
+          "value": 0
+        }
+      ],
+      "deckNeedsShuffle": false,
+      "directSummonerID": -1,
+      "discard": [
         {
           "cardClass": 2,
           "cost": 7,
@@ -1052,122 +1134,108 @@
           "value": 0
         },
         {
-          "cardClass": 1,
+          "cardClass": 2,
           "cost": 3,
           "currentPos": [
-            0.0,
-            0.0
+            1419.999755859375,
+            1309.999755859375
           ],
-          "currentScale": 1.0,
-          "damageType": 0,
+          "currentScale": 1.500000238418579,
+          "damageType": 5,
           "diceSides": 0,
-          "drawnThisTurn": false,
+          "drawnThisTurn": true,
           "isCopied": false,
-          "name": "Burst of Light",
+          "name": "Smite",
           "numDice": 0,
-          "targetScale": 1.0,
-          "targeting": 9,
+          "targetScale": 1.5,
+          "targeting": 4,
           "textureRect": [
-            2863.0,
+            2454.0,
             3510.0,
             409.0,
             585.0
           ],
-          "type": 63,
-          "value": 0
-        }
-      ],
-      "deckNeedsShuffle": false,
-      "discard": [
-        {
-          "cardClass": 1,
-          "cost": 3,
-          "currentPos": [
-            1209.999755859375,
-            1310.0
-          ],
-          "currentScale": 1.500000238418579,
-          "damageType": 0,
-          "diceSides": 0,
-          "drawnThisTurn": true,
-          "isCopied": false,
-          "name": "Shield Bash",
-          "numDice": 0,
-          "targetScale": 1.5,
-          "targeting": 4,
-          "textureRect": [
-            3272.0,
-            1755.0,
-            409.0,
-            585.0
-          ],
-          "type": 41,
-          "value": 0
+          "type": 62,
+          "value": 5
         },
         {
           "cardClass": 1,
-          "cost": 3,
+          "cost": 2,
           "currentPos": [
-            1349.999755859375,
-            1310.0
-          ],
-          "currentScale": 1.500000238418579,
-          "damageType": 0,
-          "diceSides": 0,
-          "drawnThisTurn": true,
-          "isCopied": false,
-          "name": "Shield Bash",
-          "numDice": 0,
-          "targetScale": 1.5,
-          "targeting": 4,
-          "textureRect": [
-            3272.0,
-            1755.0,
-            409.0,
-            585.0
-          ],
-          "type": 41,
-          "value": 0
-        },
-        {
-          "cardClass": 1,
-          "cost": 6,
-          "currentPos": [
-            1420.000244140625,
+            1350.000244140625,
             1309.999755859375
           ],
           "currentScale": 1.500000238418579,
           "damageType": 0,
-          "diceSides": 0,
+          "diceSides": 6,
           "drawnThisTurn": true,
           "isCopied": false,
-          "name": "Demolition",
-          "numDice": 0,
+          "name": "Slash",
+          "numDice": 1,
           "targetScale": 1.5,
-          "targeting": 11,
+          "targeting": 7,
           "textureRect": [
-            3681.0,
-            2340.0,
+            2454.0,
+            0.0,
             409.0,
             585.0
           ],
-          "type": 15,
+          "type": 5,
+          "value": 0
+        },
+        {
+          "cardClass": 1,
+          "cost": 3,
+          "currentPos": [
+            1280.000244140625,
+            1309.999755859375
+          ],
+          "currentScale": 1.500000238418579,
+          "damageType": 0,
+          "diceSides": 20,
+          "drawnThisTurn": true,
+          "isCopied": false,
+          "name": "Shoot Arrow",
+          "numDice": 2,
+          "targetScale": 1.5,
+          "targeting": 9,
+          "textureRect": [
+            3272.0,
+            3510.0,
+            409.0,
+            585.0
+          ],
+          "type": 64,
           "value": 0
         }
       ],
       "flurryOfFistsActive": false,
+      "freeKickTurns": 0,
+      "ghostDamageTaken": 0,
       "hasDrawnCardsThisTurn": false,
       "hasDrawnThisTurn": false,
       "hasDrawnThisTurn_flag": false,
       "health": 15,
       "holyBlock": 0,
+      "inGhostForm": false,
       "inTortoiseForm": false,
+      "isAssistant": false,
+      "isDemon": false,
+      "isFaerie": false,
+      "isGolem": false,
+      "isHellhound": false,
+      "isKobold": false,
+      "isKoboldKing": false,
+      "isMagicWallUnit": false,
       "isMinion": false,
       "isParalyzed": false,
       "isPoisoned": false,
+      "isSkeleton": false,
+      "isWallUnit": false,
+      "isWolf": false,
       "maxHealth": 15,
       "nextAttackAddPoison": false,
-      "nextTurnAPBonus": 6,
+      "nextTurnAPBonus": 0,
       "nextTurnD10AP": false,
       "nextTurnExtraDraw": false,
       "nextTurnExtraDrawSetOnCycle": -1,
@@ -1187,183 +1255,42 @@
         0.0
       ],
       "ward": 0,
-      "x": 5,
-      "y": 6
+      "x": 11,
+      "y": 3
     },
     {
-      "ap": 0,
-      "barrier": 0,
-      "block": 0,
-      "deck": [
-        {
-          "cardClass": 1,
-          "cost": 1,
-          "currentPos": [
-            0.0,
-            0.0
-          ],
-          "currentScale": 1.0,
-          "damageType": 0,
-          "diceSides": 0,
-          "drawnThisTurn": false,
-          "isCopied": false,
-          "name": "Punch",
-          "numDice": 0,
-          "targetScale": 1.0,
-          "targeting": 4,
-          "textureRect": [
-            0.0,
-            0.0,
-            409.0,
-            585.0
-          ],
-          "type": 5,
-          "value": 2
-        },
-        {
-          "cardClass": 1,
-          "cost": 1,
-          "currentPos": [
-            0.0,
-            0.0
-          ],
-          "currentScale": 1.0,
-          "damageType": 0,
-          "diceSides": 0,
-          "drawnThisTurn": false,
-          "isCopied": false,
-          "name": "Hand Block",
-          "numDice": 0,
-          "targetScale": 1.0,
-          "targeting": 5,
-          "textureRect": [
-            818.0,
-            0.0,
-            409.0,
-            585.0
-          ],
-          "type": 9,
-          "value": 2
-        },
-        {
-          "cardClass": 1,
-          "cost": 1,
-          "currentPos": [
-            0.0,
-            0.0
-          ],
-          "currentScale": 1.0,
-          "damageType": 0,
-          "diceSides": 0,
-          "drawnThisTurn": false,
-          "isCopied": false,
-          "name": "Hand Block",
-          "numDice": 0,
-          "targetScale": 1.0,
-          "targeting": 5,
-          "textureRect": [
-            818.0,
-            0.0,
-            409.0,
-            585.0
-          ],
-          "type": 9,
-          "value": 2
-        },
-        {
-          "cardClass": 1,
-          "cost": 1,
-          "currentPos": [
-            0.0,
-            0.0
-          ],
-          "currentScale": 1.0,
-          "damageType": 0,
-          "diceSides": 0,
-          "drawnThisTurn": false,
-          "isCopied": false,
-          "name": "Punch",
-          "numDice": 0,
-          "targetScale": 1.0,
-          "targeting": 4,
-          "textureRect": [
-            0.0,
-            0.0,
-            409.0,
-            585.0
-          ],
-          "type": 5,
-          "value": 2
-        }
-      ],
-      "deckNeedsShuffle": false,
-      "flurryOfFistsActive": false,
-      "hasDrawnCardsThisTurn": false,
-      "hasDrawnThisTurn": false,
-      "hasDrawnThisTurn_flag": false,
-      "health": 5,
-      "holyBlock": 0,
-      "inTortoiseForm": false,
-      "isMinion": true,
-      "isParalyzed": false,
-      "isPoisoned": false,
-      "maxHealth": 5,
-      "nextAttackAddPoison": false,
-      "nextTurnAPBonus": 0,
-      "nextTurnD10AP": false,
-      "nextTurnExtraDraw": false,
-      "nextTurnExtraDrawSetOnCycle": -1,
-      "ownerID": 1,
-      "paralysisHeadsCount": 0,
-      "playerID": 102,
-      "poisonReduction": 0,
-      "shocksPlayedThisTurn": 0,
-      "sleepTurnsRemaining": 0,
-      "strengthenElementsTurnsRemaining": 0,
-      "summonOrder": 1,
-      "summonedOnTurnCycle": 0,
-      "tortoiseDamageTaken": 0,
-      "visualPos": [
-        30.0,
-        0.0,
-        -15.0
-      ],
-      "ward": 0,
-      "x": 12,
-      "y": 1
-    },
-    {
-      "ap": 0,
+      "ap": 996,
+      "assistantRerollUsedThisTurn": false,
       "barrier": 0,
       "block": 0,
       "cardsPlayedThisTurn": [
-        26
+        64
       ],
       "deck": [
         {
-          "cardClass": 1,
-          "cost": 5,
+          "cardClass": 2,
+          "cost": 2,
           "currentPos": [
             0.0,
             0.0
           ],
           "currentScale": 1.0,
-          "damageType": 2,
+          "damageType": 0,
           "diceSides": 0,
           "drawnThisTurn": false,
           "isCopied": false,
-          "name": "Wisdom Boon",
+          "name": "Dark Shield",
           "numDice": 0,
           "targetScale": 1.0,
-          "targeting": 8,
+          "targeting": 5,
           "textureRect": [
-            2863.0,
-            585.0,
+            2045.0,
+            1170.0,
             409.0,
             585.0
           ],
-          "type": 22,
-          "value": 0
+          "type": 29,
+          "value": 7
         },
         {
           "cardClass": 1,
@@ -1373,112 +1300,125 @@
             0.0
           ],
           "currentScale": 1.0,
-          "damageType": 4,
-          "diceSides": 0,
-          "drawnThisTurn": false,
-          "isCopied": false,
-          "name": "Flame Hit",
-          "numDice": 0,
-          "targetScale": 1.0,
-          "targeting": 4,
-          "textureRect": [
-            3681.0,
-            585.0,
-            409.0,
-            585.0
-          ],
-          "type": 24,
-          "value": 1
-        },
-        {
-          "cardClass": 2,
-          "cost": 4,
-          "currentPos": [
-            0.0,
-            0.0
-          ],
-          "currentScale": 1.0,
           "damageType": 0,
-          "diceSides": 4,
+          "diceSides": 20,
           "drawnThisTurn": false,
           "isCopied": false,
-          "name": "Call for Kobolds",
+          "name": "Dispel",
           "numDice": 1,
           "targetScale": 1.0,
           "targeting": 5,
           "textureRect": [
-            3272.0,
-            2340.0,
+            1227.0,
+            585.0,
             409.0,
             585.0
           ],
-          "type": 47,
+          "type": 18,
           "value": 0
-        }
-      ],
-      "deckNeedsShuffle": false,
-      "flurryOfFistsActive": false,
-      "hand": [
+        },
         {
           "cardClass": 1,
           "cost": 2,
           "currentPos": [
-            1209.999755859375,
-            1310.0
+            0.0,
+            0.0
           ],
-          "currentScale": 1.5,
-          "damageType": 4,
-          "diceSides": 0,
-          "drawnThisTurn": true,
+          "currentScale": 1.0,
+          "damageType": 0,
+          "diceSides": 20,
+          "drawnThisTurn": false,
           "isCopied": false,
-          "name": "Flame Hit",
-          "numDice": 0,
-          "targetScale": 1.5,
-          "targeting": 4,
+          "name": "Dispel",
+          "numDice": 1,
+          "targetScale": 1.0,
+          "targeting": 5,
           "textureRect": [
-            3681.0,
+            1227.0,
             585.0,
             409.0,
             585.0
           ],
-          "type": 24,
-          "value": 1
+          "type": 18,
+          "value": 0
         },
         {
           "cardClass": 1,
-          "cost": 5,
+          "cost": 2,
           "currentPos": [
-            1349.999755859375,
-            1310.0
+            0.0,
+            0.0
           ],
-          "currentScale": 1.5,
-          "damageType": 2,
+          "currentScale": 1.0,
+          "damageType": 3,
           "diceSides": 0,
-          "drawnThisTurn": true,
+          "drawnThisTurn": false,
           "isCopied": false,
-          "name": "Wisdom Boon",
+          "name": "Shock",
           "numDice": 0,
-          "targetScale": 1.5,
-          "targeting": 8,
+          "targetScale": 1.0,
+          "targeting": 4,
           "textureRect": [
-            2863.0,
+            409.0,
             585.0,
             409.0,
             585.0
           ],
-          "type": 22,
-          "value": 0
+          "type": 13,
+          "value": 2
+        },
+        {
+          "cardClass": 1,
+          "cost": 2,
+          "currentPos": [
+            0.0,
+            0.0
+          ],
+          "currentScale": 1.0,
+          "damageType": 3,
+          "diceSides": 0,
+          "drawnThisTurn": false,
+          "isCopied": false,
+          "name": "Shock",
+          "numDice": 0,
+          "targetScale": 1.0,
+          "targeting": 4,
+          "textureRect": [
+            409.0,
+            585.0,
+            409.0,
+            585.0
+          ],
+          "type": 13,
+          "value": 2
         }
       ],
-      "hasDrawnCardsThisTurn": true,
-      "hasDrawnThisTurn": true,
-      "hasDrawnThisTurn_flag": true,
-      "health": 15,
+      "deckNeedsShuffle": false,
+      "directSummonerID": -1,
+      "flurryOfFistsActive": false,
+      "freeKickTurns": 0,
+      "ghostDamageTaken": 0,
+      "hasDrawnCardsThisTurn": false,
+      "hasDrawnThisTurn": false,
+      "hasDrawnThisTurn_flag": false,
+      "health": 3,
       "holyBlock": 0,
+      "inGhostForm": false,
       "inTortoiseForm": false,
+      "isAssistant": false,
+      "isDemon": false,
+      "isFaerie": false,
+      "isGolem": false,
+      "isHellhound": false,
+      "isKobold": false,
+      "isKoboldKing": false,
+      "isMagicWallUnit": false,
       "isMinion": false,
       "isParalyzed": false,
       "isPoisoned": false,
+      "isSkeleton": false,
+      "isWallUnit": false,
+      "isWolf": false,
       "maxHealth": 15,
       "nextAttackAddPoison": false,
       "nextTurnAPBonus": 0,
@@ -1488,7 +1428,7 @@
       "ownerID": -1,
       "paralysisHeadsCount": 0,
       "playedPile": [
-        26
+        64
       ],
       "playerID": 1,
       "poisonReduction": 0,

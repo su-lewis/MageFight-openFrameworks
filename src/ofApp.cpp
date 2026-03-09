@@ -9803,13 +9803,13 @@ void ofApp::drawGame() {
 
 	// --- DOUBLE HANDED TARGETING INSTRUCTION TEXT ---
 	if (isTargetingDoubleHanded) {
-		string msg = "Double Handed: Choose target (2x " + pendingDoubleHandedChoice + ")";
+		string msg = "Double Handed: Choose self or adjacent unit";
 		drawInstructionText(msg);
 	}
 
 	// --- AMNESIA TARGETING INSTRUCTION TEXT ---
 	if (isTargetingAmnesia) {
-		drawInstructionText("Amnesia: Choose adjacent unit");
+		drawInstructionText("Amnesia: Choose self or adjacent unit");
 	}
 
 	// --- TELEPORT TARGETING INSTRUCTION TEXT ---
@@ -9834,7 +9834,7 @@ void ofApp::drawGame() {
 
 	// FIX: Added Burst Targeting Instructions
 	if (isTargetingBurst) {
-		string msg = (burstChoice == 0) ? "Burst of Light: Choose enemy (3 Holy)" : "Burst of Light: Choose ally (3 HP)";
+		string msg = "Burst of Light: Choose a target unit";
 		drawInstructionText(msg);
 	}
 
@@ -10772,8 +10772,8 @@ void ofApp::mousePressed(int x, int y, int button) {
 			// While dice visuals are active, clicks are intentionally blocked.
 			if (hasActiveDiceVisual) return;
 
-			// Safety: stale DICE state with no active dice visuals should not brick input.
-			ofLogWarning("CardState") << "Recovering from stale CARD_STATE_DICE in mousePressed";
+			// Safety: stale dice-wait state with no active dice visuals should not brick input.
+			ofLogWarning("CardState") << "Recovering from stale dice-wait state in mousePressed";
 			resetCardState();
 		} else {
 			// Safety: EFFECT/OUTCOME/FINISHED should be transient; recover if stale.
@@ -12228,16 +12228,35 @@ void ofApp::mousePressed(int x, int y, int button) {
 
 	// --- 1b. Dispel Menu ---
 	if (isDispelMenuOpen && button == OF_MOUSE_BUTTON_LEFT) {
-		if (dispelBtnBarrier.inside(x, y)) {
-			// Barrier can be applied to self or adjacent unit - open targeting mode
-			dispelMode = 1; // Barrier mode
-			isDispelMenuOpen = false;
-			isDispelTargeting = true;
-		} else if (dispelBtnPurge.inside(x, y)) {
-			// Purge removes status effects - also requires targeting
-			dispelMode = 2; // Purge mode
-			isDispelMenuOpen = false;
-			isDispelTargeting = true;
+		if (dispelBtnBarrier.inside(x, y) || dispelBtnPurge.inside(x, y)) {
+			Player * target = getPlayer(pendingDispelTargetIndex);
+			if (!target) {
+				cancelDispel();
+				return;
+			}
+
+			if (dispelBtnBarrier.inside(x, y)) {
+				// Barrier mode: apply D20 roll to selected target
+				Player & p = players[currentPlayerIndex];
+				if (pendingDispelCardIndex < 0 || pendingDispelCardIndex >= (int)p.hand.size()) {
+					cancelDispel();
+					return;
+				}
+				Card dispelCard = p.hand[pendingDispelCardIndex];
+				isWaitingForBarrierDice = true;
+				pendingDispelRollResult = startDiceRoll(1, 20, PURPOSE_BARRIER_GAIN, "Dispel: Barrier Amount", currentPlayerIndex);
+				currentAP -= dispelCard.cost;
+				p.discardPile.push_back(dispelCard);
+				p.hand.erase(p.hand.begin() + pendingDispelCardIndex);
+				updatePlayerAP(players[currentPlayerIndex], currentAP);
+				if (isMultiplayer) {
+					sendActionPacket(pendingDispelCardIndex, target->x, target->y, dispelCard.cost, 1, dispelCard.name);
+				}
+				cancelDispel();
+			} else {
+				// Purge mode: open status selection for selected target
+				determineStatusOptions(target);
+			}
 		} else if (!dispelMenuRect.inside(x, y)) {
 			cancelDispel();
 		}
@@ -12273,9 +12292,22 @@ void ofApp::mousePressed(int x, int y, int button) {
 					if (abs(curr.x - gx) + abs(curr.y - gy) <= 1) {
 						pendingDispelTargetIndex = (int)i;
 
-						// Handle based on dispel mode
-						if (dispelMode == 1) {
-							// Barrier mode: apply D20 roll to target or self
+						if (dispelMode == 0) {
+							// New flow: target first, then open menu
+							isDispelTargeting = false;
+							isDispelMenuOpen = true;
+							float w = 600, h = 300;
+							float mx = ofGetWidth() / 2 - w / 2, my = ofGetHeight() / 2 - h / 2;
+							dispelMenuRect.set(mx, my, w, h);
+							float btnWidth = 260;
+							float btnHeight = 80;
+							float spacing = 30;
+							float totalBtnWidth = (btnWidth * 2) + spacing;
+							float startX = mx + (w - totalBtnWidth) / 2;
+							float btnY = my + 130;
+							dispelBtnBarrier.set(startX, btnY, btnWidth, btnHeight);
+							dispelBtnPurge.set(startX + btnWidth + spacing, btnY, btnWidth, btnHeight);
+						} else if (dispelMode == 1) {
 							Player & p = players[currentPlayerIndex];
 							Card dispelCard = p.hand[pendingDispelCardIndex];
 							isWaitingForBarrierDice = true;
@@ -12284,15 +12316,11 @@ void ofApp::mousePressed(int x, int y, int button) {
 							p.discardPile.push_back(dispelCard);
 							p.hand.erase(p.hand.begin() + pendingDispelCardIndex);
 							updatePlayerAP(players[currentPlayerIndex], currentAP);
-							ofLogNotice("Dispel") << "Rolling for Non-Physical Barrier on target...";
-
 							if (isMultiplayer) {
-								sendActionPacket(pendingDispelCardIndex, (int)i, -1, dispelCard.cost, 1, dispelCard.name);
+								sendActionPacket(pendingDispelCardIndex, players[i].x, players[i].y, dispelCard.cost, 1, dispelCard.name);
 							}
-
 							cancelDispel();
 						} else if (dispelMode == 2) {
-							// Purge mode: open status selection menu
 							determineStatusOptions(&players[i]);
 						}
 						foundTarget = true;
@@ -12401,32 +12429,58 @@ void ofApp::mousePressed(int x, int y, int button) {
 
 	// --- 1e2. Burst of Light Menu ---
 	if (isBurstMenuOpen && button == OF_MOUSE_BUTTON_LEFT) {
-
-		// Recalculate validity: enable damage only if there exists at least one OTHER unit in LOS
-		bool hasValidTarget = false;
-		Player & caster = players[currentPlayerIndex];
-		glm::vec2 casterPos(caster.x, caster.y);
-		for (const auto & p : players) {
-			if (&p == &caster) continue; // require at least one target that's NOT self for damage
-			TargetInfo info = isLosTargetValid(casterPos, glm::vec2(p.x, p.y), 9999.0f, CARD_BURST_OF_LIGHT);
-			if (info.reason == VALID) {
-				hasValidTarget = true;
-				break;
-			}
-		}
-
 		if (burstBtnDamage.inside(x, y) || burstBtnHeal.inside(x, y)) {
-			// If player clicked Damage but no valid other targets exist, ignore and show hint
-			if (burstBtnDamage.inside(x, y) && !hasValidTarget) {
-				spawnFloatingText(glm::vec3(burstMenuRect.getCenter().x, burstMenuRect.getCenter().y, 0.0f), "No valid enemy targets for Damage", ofColor::gray);
+			burstChoice = burstBtnDamage.inside(x, y) ? 0 : 1;
+
+			Player & caster = players[currentPlayerIndex];
+			Player * target = getPlayer(pendingBurstTargetIndex);
+			if (!target) {
+				cancelBurst();
 				return;
 			}
-			// Otherwise set the choice locally and enter targeting mode.
-			burstChoice = burstBtnDamage.inside(x, y) ? 0 : 1;
-			isBurstMenuOpen = false;
-			isTargetingBurst = true;
-			calculateTargetHighlights(pendingBurstCardIndex);
 
+			// Self-target Burst must heal; never allow self-damage.
+			if (pendingBurstTargetIndex == currentPlayerIndex && burstChoice == 0) {
+				burstChoice = 1;
+			}
+
+			// Healing cannot be selected on a full-HP target.
+			if (burstChoice == 1 && target->health >= target->maxHealth) {
+				spawnFloatingText(gridToWorld(target->x, target->y), "Already Full HP", ofColor::gray);
+				return;
+			}
+
+			if (burstChoice == 0) {
+				applyDamageTo(*target, 3, DAMAGE_HOLY, currentPlayerIndex);
+			} else {
+				int healAmt = 3;
+				int healed = std::min(healAmt, target->maxHealth - target->health);
+				if (healed > 0) {
+					target->health += healed;
+					spawnFloatingText(gridToWorld(target->x, target->y), "+" + ofToString(healed) + " HP", ofColor::green);
+				} else {
+					spawnFloatingText(gridToWorld(target->x, target->y), "Full HP", ofColor::gray);
+				}
+			}
+
+			int cardIndex = pendingBurstCardIndex;
+			int cost = (cardIndex >= 0 && cardIndex < (int)caster.hand.size()) ? caster.hand[cardIndex].cost : 0;
+			std::string cardName = (cardIndex >= 0 && cardIndex < (int)caster.hand.size()) ? caster.hand[cardIndex].name : "";
+
+			currentAP -= cost;
+			if (pendingBurstCardIndex >= 0 && pendingBurstCardIndex < (int)caster.hand.size()) {
+				Card playedCard = caster.hand[pendingBurstCardIndex];
+				finishPlayCard(caster, playedCard, pendingBurstCardIndex);
+			}
+			updatePlayerAP(caster, currentAP);
+
+			if (isMultiplayer) {
+				int menuChoice = (burstChoice == 0) ? 1 : 2;
+				sendActionPacket(cardIndex, target->x, target->y, cost, menuChoice, cardName);
+			}
+
+			cancelBurst();
+			calculateTargetHighlights();
 			return;
 		} else if (!burstMenuRect.inside(x, y)) {
 			cancelBurst();
@@ -12437,13 +12491,22 @@ void ofApp::mousePressed(int x, int y, int button) {
 	// --- 1f. Double-Handed Menu ---
 	if (isDoubleHandedMenuOpen && button == OF_MOUSE_BUTTON_LEFT) {
 		if (btnAddPunches.inside(x, y) || btnAddBlocks.inside(x, y)) {
-			// Capture the choice locally and enter targeting mode. Resolution
-			// will be performed when a target is selected; that handler will
-			// send the action packet if multiplayer.
 			pendingDoubleHandedChoice = btnAddPunches.inside(x, y) ? "Punch" : "Hand Block";
-			isDoubleHandedMenuOpen = false;
-			isTargetingDoubleHanded = true;
-			calculateTargetHighlights(pendingDoubleHandedCardIndex);
+			int cardIndex = pendingDoubleHandedCardIndex;
+			Player & caster = players[currentPlayerIndex];
+			int cost = (cardIndex >= 0 && cardIndex < (int)caster.hand.size()) ? caster.hand[cardIndex].cost : 0;
+			std::string cardName = (cardIndex >= 0 && cardIndex < (int)caster.hand.size()) ? caster.hand[cardIndex].name : "";
+			int menuChoice = (pendingDoubleHandedChoice == "Punch") ? 1 : 2;
+			int tx = -1, ty = -1;
+			if (pendingDoubleHandedTargetIndex >= 0 && pendingDoubleHandedTargetIndex < (int)players.size()) {
+				tx = players[pendingDoubleHandedTargetIndex].x;
+				ty = players[pendingDoubleHandedTargetIndex].y;
+			}
+			if (isMultiplayer && tx >= 0 && ty >= 0) {
+				sendActionPacket(cardIndex, tx, ty, cost, menuChoice, cardName);
+			}
+
+			resolveDoubleHanded(pendingDoubleHandedChoice);
 
 			return;
 		} else if (!doubleHandedMenuRect.inside(x, y)) {
@@ -12468,23 +12531,16 @@ void ofApp::mousePressed(int x, int y, int button) {
 				}
 				if (targetIndex != -1) {
 					pendingDoubleHandedTargetIndex = targetIndex;
-					int cardIndex = pendingDoubleHandedCardIndex;
-					Player & caster = players[currentPlayerIndex];
-					int cost = (cardIndex >= 0 && cardIndex < (int)caster.hand.size()) ? caster.hand[cardIndex].cost : 0;
-					std::string cardName = (cardIndex >= 0 && cardIndex < (int)caster.hand.size()) ? caster.hand[cardIndex].name : "";
-					// Capture details, resolve locally, then notify opponent
-					int menuChoice = (pendingDoubleHandedChoice == "Punch") ? 1 : 2;
-					if (pendingDoubleHandedCardIndex >= 0 && pendingDoubleHandedCardIndex < (int)players[currentPlayerIndex].hand.size()) {
-						// local resolution will consume the card and AP
-						resolveDoubleHanded(pendingDoubleHandedChoice);
-						if (isMultiplayer) {
-							sendActionPacket(cardIndex, gx, gy, cost, menuChoice, cardName);
-						}
-					} else {
-						// Fallback: still resolve and notify
-						resolveDoubleHanded(pendingDoubleHandedChoice);
-						if (isMultiplayer) sendActionPacket(cardIndex, gx, gy, cost, menuChoice, cardName);
-					}
+					isTargetingDoubleHanded = false;
+					isDoubleHandedMenuOpen = true;
+					float w = 500, h = 250;
+					float mx = ofGetWidth() / 2 - w / 2, my = ofGetHeight() / 2 - h / 2;
+					doubleHandedMenuRect.set(mx, my, w, h);
+					float btnW = 200, btnH = 80;
+					float spacing = 40;
+					btnAddPunches.set(mx + (w - (btnW * 2 + spacing)) / 2, my + 120, btnW, btnH);
+					btnAddBlocks.set(btnAddPunches.getRight() + spacing, my + 120, btnW, btnH);
+					calculateTargetHighlights();
 				}
 			}
 		}
@@ -12506,55 +12562,16 @@ void ofApp::mousePressed(int x, int y, int button) {
 						break;
 					}
 				}
-
-				Player & caster = players[currentPlayerIndex];
 				if (targetIndex != -1) {
-					Player * target = getPlayer(targetIndex);
-					if (!target) {
-						cancelBurst();
-						return;
-					}
-
-					// Prevent choosing self as damage target
-					if (burstChoice == 0 && targetIndex == currentPlayerIndex) {
-						spawnFloatingText(gridToWorld(target->x, target->y), "Cannot damage yourself with this effect", ofColor::gray);
-						return;
-					}
-					int casterOwner = caster.isMinion ? caster.ownerID : caster.playerID;
-					int targetOwner = target->isMinion ? target->ownerID : target->playerID;
-					(void)casterOwner; // unused
-					(void)targetOwner; // unused
-
-					// --- BURST TARGET VALIDATION & EFFECTS ---
-					if (burstChoice == 0) { // DAMAGE: allow damaging any unit (including allies/self)
-						applyDamageTo(*target, 3, DAMAGE_HOLY, currentPlayerIndex);
-					} else { // HEAL: allow healing any unit (including self)
-						int healAmt = 3;
-						int healed = std::min(healAmt, target->maxHealth - target->health);
-						if (healed > 0) {
-							target->health += healed;
-							spawnFloatingText(gridToWorld(target->x, target->y), "+" + ofToString(healed) + " HP", ofColor::green);
-						} else {
-							spawnFloatingText(gridToWorld(target->x, target->y), "Full HP", ofColor::gray);
-						}
-					}
-
-					int cardIndex = pendingBurstCardIndex;
-					int cost = (cardIndex >= 0 && cardIndex < (int)caster.hand.size()) ? caster.hand[cardIndex].cost : 0;
-					std::string cardName = (cardIndex >= 0 && cardIndex < (int)caster.hand.size()) ? caster.hand[cardIndex].name : "";
-					// Consume AP and cleanup, then notify opponent
-					currentAP -= cost;
-					Card playedCard = caster.hand[pendingBurstCardIndex];
-					finishPlayCard(caster, playedCard, pendingBurstCardIndex);
-					// Sync AP so UI reflects the spent AP immediately
-					updatePlayerAP(caster, currentAP);
-					if (isMultiplayer) {
-						int menuChoice = (burstChoice == 0) ? 1 : 2;
-						sendActionPacket(cardIndex, gx, gy, cost, menuChoice, cardName);
-					}
-
+					pendingBurstTargetIndex = targetIndex;
 					isTargetingBurst = false;
-					pendingBurstCardIndex = -1;
+					isBurstMenuOpen = true;
+					float w = 520, h = 260;
+					float mx = ofGetWidth() / 2 - w / 2, my = ofGetHeight() / 2 - h / 2;
+					burstMenuRect.set(mx, my, w, h);
+					float btnW = 300, btnH = 80;
+					burstBtnDamage.set(mx + (w - btnW) / 2, my + 110, btnW, btnH);
+					burstBtnHeal.set(0, 0, 0, 0);
 					calculateTargetHighlights();
 				}
 			}
@@ -12893,7 +12910,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 								target.x = -1000;
 							}
 						} else {
-							spawnFloatingText(gridToWorld(target.x, target.y), "Blocked", ofColor::gray);
+							spawnFloatingText(gridToWorld(target.x, target.y), "-0 Physical", ofColor::gray);
 						}
 
 						// Network-sync the Shell Spike so opponent mirrors the damage
@@ -12918,33 +12935,17 @@ void ofApp::mousePressed(int x, int y, int button) {
 		int gx = floor(boardPos.x), gy = floor(boardPos.y);
 		if (gx >= 0 && gx < BOARD_WIDTH && gy >= 0 && gy < BOARD_HEIGHT) {
 			if (board[gx][gy].isTargetable) {
-				// Play amnesia on target (this triggers the dice roll in playCard)
 				int cardIndex = pendingAmnesiaCardIndex;
+				std::string amName = "";
+				int amCost = 0;
+				if (cardIndex >= 0 && cardIndex < (int)players[currentPlayerIndex].hand.size()) {
+					amName = players[currentPlayerIndex].hand[cardIndex].name;
+					amCost = players[currentPlayerIndex].hand[cardIndex].cost;
+				}
+
 				CardPlayResult result = playCard(cardIndex, gx, gy);
 				if (result == CARD_PLAYED_IMMEDIATELY) {
-					// Capture metadata (card still in hand at this point)
-					std::string amName = "";
-					int amCost = 0;
-					if (cardIndex >= 0 && cardIndex < (int)players[currentPlayerIndex].hand.size()) {
-						amName = players[currentPlayerIndex].hand[cardIndex].name;
-					}
-
-					// Consume AP and move card to played pile (local)
-					Player & caster = players[currentPlayerIndex];
-					currentAP -= amCost;
-					caster.playedCardsPile.push_back((cardIndex >= 0 && cardIndex < (int)caster.hand.size()) ? caster.hand[cardIndex] : Card());
-					applyReplicateCopyToHand(caster, (cardIndex >= 0 && cardIndex < (int)caster.hand.size()) ? caster.hand[cardIndex] : Card());
-					caster.cardsPlayedThisTurn.push_back(CARD_AMNESIA);
-
-					// Remove card from hand
-					if (cardIndex >= 0 && cardIndex < (int)caster.hand.size()) {
-						caster.hand.erase(caster.hand.begin() + cardIndex);
-					}
-
-					// Sync AP so UI reflects spend immediately
-					updatePlayerAP(players[currentPlayerIndex], currentAP);
-
-					// Notify network (name included so clients can accept name-only sends)
+					// Notify network (card already resolved locally by playCard)
 					if (isMultiplayer) {
 						sendActionPacket(cardIndex, gx, gy, amCost, 0, amName);
 					}
@@ -13414,7 +13415,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 		ofVec2f boardPos = mouseToBoard(x, y);
 		int gx = floor(boardPos.x), gy = floor(boardPos.y);
 		if (gx >= 0 && gx < BOARD_WIDTH && gy >= 0 && gy < BOARD_HEIGHT) {
-			if (board[gx][gy].isTargetable || (gx == players[currentPlayerIndex].x && gy == players[currentPlayerIndex].y)) {
+			if (board[gx][gy].isTargetable) {
 				int cardIndex = healCardIndex;
 				std::string cardName = (cardIndex >= 0 && cardIndex < (int)players[currentPlayerIndex].hand.size())
 					? players[currentPlayerIndex].hand[cardIndex].name
@@ -13431,6 +13432,12 @@ void ofApp::mousePressed(int x, int y, int button) {
 				healCardIndex = -1;
 				clearHighlights();
 				return;
+			}
+			for (const auto & p : players) {
+				if (p.x == gx && p.y == gy && p.health >= p.maxHealth) {
+					spawnFloatingText(gridToWorld(gx, gy), "Already Full HP", ofColor::gray);
+					return;
+				}
 			}
 		}
 		// Cancel
@@ -14732,6 +14739,18 @@ void ofApp::mouseReleased(int x, int y, int button) {
 		if (players.empty() || currentPlayerIndex < 0) return;
 
 		Player & currentPlayer = players[currentPlayerIndex];
+		auto hasAdjacentUnit = [&]() {
+			for (int dx = -1; dx <= 1; ++dx) {
+				for (int dy = -1; dy <= 1; ++dy) {
+					if (abs(dx) + abs(dy) != 1) continue;
+					int nx = currentPlayer.x + dx;
+					int ny = currentPlayer.y + dy;
+					if (nx < 0 || nx >= BOARD_WIDTH || ny < 0 || ny >= BOARD_HEIGHT) continue;
+					if (board[nx][ny].hasPlayer) return true;
+				}
+			}
+			return false;
+		};
 		const float dragThreshold = 5.0f;
 		float dist = mouseDownPos.distance(ofVec2f(x, y));
 
@@ -14762,55 +14781,53 @@ void ofApp::mouseReleased(int x, int y, int button) {
 							return; // Wait for next click
 						}
 
-						// --- B. DOUBLE HANDED: SHOW MENU FIRST ---
+						// --- B. DOUBLE HANDED: target first; if no adjacent unit, auto-target self then menu ---
 						if (playedCard.type == CARD_DOUBLE_HANDED) {
 							pendingDoubleHandedCardIndex = draggedCardIndex;
-							isDoubleHandedMenuOpen = true;
 							pendingDoubleHandedChoice = "";
-							// Setup UI Geometry
-							float w = 500, h = 250;
-							float mx = ofGetWidth() / 2 - w / 2, my = ofGetHeight() / 2 - h / 2;
-							doubleHandedMenuRect.set(mx, my, w, h);
-							float btnW = 200, btnH = 80;
-							float spacing = 40;
-							btnAddPunches.set(mx + (w - (btnW * 2 + spacing)) / 2, my + 120, btnW, btnH);
-							btnAddBlocks.set(btnAddPunches.getRight() + spacing, my + 120, btnW, btnH);
+
+							if (!hasAdjacentUnit()) {
+								pendingDoubleHandedTargetIndex = currentPlayerIndex;
+								isDoubleHandedMenuOpen = true;
+								float w = 500, h = 250;
+								float mx = ofGetWidth() / 2 - w / 2, my = ofGetHeight() / 2 - h / 2;
+								doubleHandedMenuRect.set(mx, my, w, h);
+								float btnW = 200, btnH = 80;
+								float spacing = 40;
+								btnAddPunches.set(mx + (w - (btnW * 2 + spacing)) / 2, my + 120, btnW, btnH);
+								btnAddBlocks.set(btnAddPunches.getRight() + spacing, my + 120, btnW, btnH);
+							} else {
+								isTargetingDoubleHanded = true;
+								spawnFloatingText(gridToWorld(currentPlayer.x, currentPlayer.y), "Choose self or adjacent target", ofColor::white);
+								calculateTargetHighlights(pendingDoubleHandedCardIndex);
+							}
+
 							draggedCardIndex = -1;
 							selectedCardIndex = -1;
 							return;
 						}
 
-						// --- C. AMNESIA: Enter targeting mode on drag-release ---
+						// --- C. AMNESIA: auto-self if no adjacent unit; otherwise target self/adjacent ---
 						if (playedCard.type == CARD_AMNESIA) {
-							// Start Amnesia targeting flow: player should click self or adjacent unit
+							if (!hasAdjacentUnit()) {
+								const std::string playedCardName = playedCard.name;
+								CardPlayResult result = playCard(draggedCardIndex, currentPlayer.x, currentPlayer.y);
+								if (isMultiplayer && result == CARD_PLAYED_IMMEDIATELY) {
+									players[currentPlayerIndex].ap = currentAP;
+									sendActionPacket(draggedCardIndex, currentPlayer.x, currentPlayer.y, playedCard.cost, 0, playedCardName);
+								}
+								draggedCardIndex = -1;
+								selectedCardIndex = -1;
+								return;
+							}
+
 							pendingAmnesiaCardIndex = draggedCardIndex;
 							isTargetingAmnesia = true;
-							// Instruction: prompt player to choose a target
-							spawnFloatingText(gridToWorld(currentPlayer.x, currentPlayer.y), "Choose a target", ofColor::white);
-							draggedCardIndex = -1; // stop dragging
+							spawnFloatingText(gridToWorld(currentPlayer.x, currentPlayer.y), "Choose self or adjacent target", ofColor::white);
+							draggedCardIndex = -1;
 							selectedCardIndex = -1;
 							calculateTargetHighlights(pendingAmnesiaCardIndex);
-							// Ensure adjacent/self tiles are highlighted immediately for Amnesia
-							// (defensive: sometimes the general highlight calc can miss timing)
-							int px = currentPlayer.x;
-							int py = currentPlayer.y;
-							for (int dx = -1; dx <= 1; ++dx) {
-								for (int dy = -1; dy <= 1; ++dy) {
-									if (abs(dx) + abs(dy) > 1) continue; // only orthogonal + self
-									int nx = px + dx;
-									int ny = py + dy;
-									if (nx >= 0 && nx < BOARD_WIDTH && ny >= 0 && ny < BOARD_HEIGHT) {
-										// Mark previews only for self or adjacent units
-										if ((dx == 0 && dy == 0) || board[nx][ny].hasPlayer) {
-											if (!board[nx][ny].hasWall) {
-												board[nx][ny].isTargetPreview = true;
-												board[nx][ny].isTargetable = true;
-											}
-										}
-									}
-								}
-							}
-							return; // wait for target click
+							return;
 						}
 
 						// --- D. TELEPORT: ROLL DICE FIRST, THEN TARGET ---
@@ -14837,20 +14854,16 @@ void ofApp::mouseReleased(int x, int y, int button) {
 							return;
 						}
 
-						// --- BURST OF LIGHT: SHOW CHOICE MENU ON DRAG-RELEASE ---
+						// --- BURST OF LIGHT: TARGET FIRST, THEN CHOOSE DAMAGE/HEAL ---
 						if (playedCard.type == CARD_BURST_OF_LIGHT) {
 							pendingBurstCardIndex = draggedCardIndex;
-							isBurstMenuOpen = true;
-
-							// Menu geometry (similar to Wisdom Boon)
-							float w = 520, h = 260;
-							float mx = ofGetWidth() / 2 - w / 2, my = ofGetHeight() / 2 - h / 2;
-							burstMenuRect.set(mx, my, w, h);
-							float btnW = 300, btnH = 80;
-							burstBtnDamage.set(mx + (w - btnW) / 2, my + 110, btnW, btnH);
-							burstBtnHeal.set(0, 0, 0, 0);
+							pendingBurstTargetIndex = -1;
+							burstChoice = -1;
+							isTargetingBurst = true;
+							spawnFloatingText(gridToWorld(currentPlayer.x, currentPlayer.y), "Choose a target", ofColor::white);
 							draggedCardIndex = -1;
 							selectedCardIndex = -1;
+							calculateTargetHighlights(pendingBurstCardIndex);
 							return;
 						}
 						// --- E. DEATH TARGETING ---
@@ -14908,6 +14921,61 @@ void ofApp::mouseReleased(int x, int y, int button) {
 							selectedCardIndex = -1;
 							calculateTargetHighlights(hellhoundCardIndex);
 
+							return;
+						}
+
+						// --- DISPEL: if no adjacent units, auto-target self then menu; otherwise target first ---
+						if (playedCard.type == CARD_DISPEL) {
+							pendingDispelCardIndex = draggedCardIndex;
+							dispelMode = 0;
+							if (!hasAdjacentUnit()) {
+								pendingDispelTargetIndex = currentPlayerIndex;
+								isDispelMenuOpen = true;
+								float w = 600, h = 300;
+								float mx = ofGetWidth() / 2 - w / 2, my = ofGetHeight() / 2 - h / 2;
+								dispelMenuRect.set(mx, my, w, h);
+								float btnWidth = 260;
+								float btnHeight = 80;
+								float spacing = 30;
+								float totalBtnWidth = (btnWidth * 2) + spacing;
+								float startX = mx + (w - totalBtnWidth) / 2;
+								float btnY = my + 130;
+								dispelBtnBarrier.set(startX, btnY, btnWidth, btnHeight);
+								dispelBtnPurge.set(startX + btnWidth + spacing, btnY, btnWidth, btnHeight);
+							} else {
+								pendingDispelTargetIndex = -1;
+								isDispelTargeting = true;
+								spawnFloatingText(gridToWorld(currentPlayer.x, currentPlayer.y), "Choose self or adjacent target", ofColor::white);
+								calculateTargetHighlights(draggedCardIndex);
+							}
+							draggedCardIndex = -1;
+							selectedCardIndex = -1;
+							return;
+						}
+
+						// --- BLOCKING BOON: auto-self if no adjacent units ---
+						if (playedCard.type == CARD_BLOCKING_BOON && !hasAdjacentUnit()) {
+							const std::string playedCardName = playedCard.name;
+							CardPlayResult result = playCard(draggedCardIndex, currentPlayer.x, currentPlayer.y);
+							if (isMultiplayer && result == CARD_PLAYED_IMMEDIATELY) {
+								players[currentPlayerIndex].ap = currentAP;
+								sendActionPacket(draggedCardIndex, currentPlayer.x, currentPlayer.y, playedCard.cost, 0, playedCardName);
+							}
+							draggedCardIndex = -1;
+							selectedCardIndex = -1;
+							return;
+						}
+
+						// --- WISDOM BOON: auto-self block if no adjacent units ---
+						if (playedCard.type == CARD_WISDOM_BOON && !hasAdjacentUnit()) {
+							const std::string playedCardName = playedCard.name;
+							CardPlayResult result = playCard(draggedCardIndex, currentPlayer.x, currentPlayer.y);
+							if (isMultiplayer && result == CARD_PLAYED_IMMEDIATELY) {
+								players[currentPlayerIndex].ap = currentAP;
+								sendActionPacket(draggedCardIndex, currentPlayer.x, currentPlayer.y, playedCard.cost, 1, playedCardName);
+							}
+							draggedCardIndex = -1;
+							selectedCardIndex = -1;
 							return;
 						}
 
@@ -16309,7 +16377,8 @@ void ofApp::cancelAllTargeting() {
 	// Pending indices / choices
 	magicBoltCardIndex = -1;
 	pendingBurstCardIndex = -1;
-	burstChoice = 0;
+	pendingBurstTargetIndex = -1;
+	burstChoice = -1;
 	deathCardIndex = -1;
 	healCardIndex = -1;
 	chainLightningCardIndex = -1;
@@ -16360,6 +16429,25 @@ int ofApp::computePassiveLuck(int playerIndex) {
 void ofApp::drawCard(bool sendPacket) {
 	if (players.empty() || currentPlayerIndex < 0) return;
 	Player & currentPlayer = players[currentPlayerIndex];
+
+	// --- DISPEL TARGETING HIGHLIGHTING (self + adjacent units) ---
+	if (isDispelTargeting) {
+		int px = currentPlayer.x;
+		int py = currentPlayer.y;
+		for (int dx = -1; dx <= 1; ++dx) {
+			for (int dy = -1; dy <= 1; ++dy) {
+				if (abs(dx) + abs(dy) > 1) continue;
+				int tx = px + dx;
+				int ty = py + dy;
+				if (tx < 0 || tx >= BOARD_WIDTH || ty < 0 || ty >= BOARD_HEIGHT) continue;
+				if (board[tx][ty].hasPlayer) {
+					board[tx][ty].isTargetPreview = true;
+					board[tx][ty].isTargetable = true;
+				}
+			}
+		}
+		return;
+	}
 
 	// --- CHANGE START: REMOVE ZOMBIE CLIENT CHECK ---
 	// In Deterministic mode, Clients manage their own decks.
@@ -17088,19 +17176,39 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 
 	case CARD_BURST_OF_LIGHT: {
 		pendingBurstCardIndex = cardIndex;
-		isBurstMenuOpen = true;
-		advanceCardState(CARD_STATE_MENU);
-		sendMenuState(2, currentPlayerIndex, -1, cardIndex);
+		pendingBurstTargetIndex = -1;
+		burstChoice = -1;
 
-		float w = 520, h = 260;
-		float x = ofGetWidth() / 2 - w / 2, y = ofGetHeight() / 2 - h / 2;
-		burstMenuRect.set(x, y, w, h);
-		float btnW = 300, btnH = 80;
-		burstBtnDamage.set(x + (w - btnW) / 2, y + 110, btnW, btnH);
-		burstBtnHeal.set(0, 0, 0, 0);
+		int targetIndex = -1;
+		for (size_t i = 0; i < players.size(); i++) {
+			if (players[i].x == targetX && players[i].y == targetY) {
+				targetIndex = (int)i;
+				break;
+			}
+		}
 
+		if (targetIndex != -1) {
+			pendingBurstTargetIndex = targetIndex;
+			isBurstMenuOpen = true;
+			advanceCardState(CARD_STATE_MENU);
+			sendMenuState(2, targetIndex, -1, cardIndex);
+
+			float w = 520, h = 260;
+			float x = ofGetWidth() / 2 - w / 2, y = ofGetHeight() / 2 - h / 2;
+			burstMenuRect.set(x, y, w, h);
+			float btnW = 300, btnH = 80;
+			burstBtnDamage.set(x + (w - btnW) / 2, y + 110, btnW, btnH);
+			burstBtnHeal.set(0, 0, 0, 0);
+
+			playedSuccessfully = true;
+			immediateResult = CARD_AWAITING_MENU_CHOICE;
+			return true;
+		}
+
+		isTargetingBurst = true;
+		advanceCardState(CARD_STATE_TARGETING);
 		playedSuccessfully = true;
-		immediateResult = CARD_AWAITING_MENU_CHOICE;
+		immediateResult = CARD_AWAITING_TARGETING;
 		return true;
 	}
 
@@ -17332,20 +17440,42 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 		if (!isSelf && !isAdjacent) return true;
 
 		currentCardOutcome.targetPlayerIndex = targetIndex;
-		pendingWisdomBoonCardIndex = cardIndex;
-		pendingWisdomBoonTargetIndex = targetIndex;
-		isWisdomBoonMenuOpen = true;
-		advanceCardState(CARD_STATE_MENU);
-		sendMenuState(1, targetIndex, -1, cardIndex);
+		Player & caster = players[currentPlayerIndex];
+		int effectValue = (int)caster.deck.size();
+		glm::vec3 targetPos = gridToWorld(t->x, t->y);
 
-		float w = 600, h = 300;
-		float x = ofGetWidth() / 2 - w / 2, y = ofGetHeight() / 2 - h / 2;
-		wisdomMenuRect.set(x, y, w, h);
-		wisdomBtnDamage.set(x + (w - 300) / 2, y + 150, 300, 80);
-		wisdomBtnBlock.set(0, 0, 0, 0);
+		// If targeting self, apply block immediately
+		if (isSelf) {
+			caster.block += effectValue;
+			spawnFloatingText(targetPos, "+" + ofToString(effectValue) + " Block", ofColor::gray);
+			updatePlayerAP(caster, currentAP);
+			Card playedCard = caster.hand[cardIndex];
+			finishPlayCard(caster, playedCard, cardIndex);
+			tryTriggerShellSpike();
+			if (isMultiplayer) {
+				sendActionPacket(cardIndex, t->x, t->y, playedCard.cost, 1, playedCard.name);
+			}
+			playedSuccessfully = true;
+			immediateResult = CARD_PLAYED_IMMEDIATELY;
+			return true;
+		}
+
+		// If targeting adjacent unit, apply damage
+		int dmgDealt = applyDamageWithMitigations(*t, effectValue, DAMAGE_MAGIC, currentPlayerIndex);
+		if (dmgDealt > 0) {
+			spawnFloatingText(targetPos, "-" + ofToString(dmgDealt) + " Magic", ofColor::red);
+		} else {
+			spawnFloatingText(targetPos, "Absorbed", ofColor::gray);
+		}
+		updatePlayerAP(caster, currentAP);
+		Card playedCard = caster.hand[cardIndex];
+		finishPlayCard(caster, playedCard, cardIndex);
+		if (isMultiplayer) {
+			sendActionPacket(cardIndex, t->x, t->y, playedCard.cost, 1, playedCard.name);
+		}
 
 		playedSuccessfully = true;
-		immediateResult = CARD_AWAITING_MENU_CHOICE;
+		immediateResult = CARD_PLAYED_IMMEDIATELY;
 		return true;
 	}
 
@@ -17364,6 +17494,10 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 			}
 		}
 		if (targetIndex == -1) return true;
+		if (players[targetIndex].health >= players[targetIndex].maxHealth) {
+			spawnFloatingText(gridToWorld(players[targetIndex].x, players[targetIndex].y), "Already Full HP", ofColor::gray);
+			return true;
+		}
 
 		pendingHealTargetIndex = targetIndex;
 		pendingHealRollResult = startDiceRoll(playedCard.numDice, playedCard.diceSides, PURPOSE_HEALING, "Heal: HP Amount");
@@ -17389,6 +17523,10 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 			}
 		}
 		if (targetIndex == -1) return true;
+		if (players[targetIndex].health >= players[targetIndex].maxHealth) {
+			spawnFloatingText(gridToWorld(players[targetIndex].x, players[targetIndex].y), "Already Full HP", ofColor::gray);
+			return true;
+		}
 
 		pendingHealTargetIndex = targetIndex;
 		pendingHealRollResult = startDiceRoll(playedCard.numDice, playedCard.diceSides, PURPOSE_HEALING, "Lesser Heal");
@@ -17642,10 +17780,12 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 		if (targetIndex != -1) {
 			Player * target = getPlayer(targetIndex);
 			if (target) {
-				int dmgDealt = applyDamageWithMitigations(*target, 5, DAMAGE_HOLY, currentPlayerIndex);
+				int hpBefore = target->health;
+				applyDamageTo(*target, 5, DAMAGE_HOLY, currentPlayerIndex);
+				int dmgDealt = std::max(0, hpBefore - target->health);
 				currentCardOutcome.damageDealt = dmgDealt;
 				currentCardOutcome.targetPlayerIndex = targetIndex;
-				playedSuccessfully = (dmgDealt > 0);
+				playedSuccessfully = true;
 				advanceCardState(CARD_STATE_OUTCOME);
 			}
 		}
@@ -19635,51 +19775,32 @@ void ofApp::resolveAttackDamage() {
 					}
 
 					// --- SPECIAL RESOLUTION FOR SHOOT ARROW ---
-					if (resolvedAttackCardName == "Shoot Arrow") {
+					if (resolvedAttackCardName == "Shoot Arrow" && pendingShootArrowDestroyedType != CARD_NONE) {
 						Player & attackerRef = players[currentPlayerIndex];
-						if (!attackerRef.deck.empty()) {
-							Card revealed = attackerRef.deck.back();
-							attackerRef.deck.pop_back();
-							attackerRef.discardPile.push_back(revealed);
+						CardType destroyedType = pendingShootArrowDestroyedType;
+						pendingShootArrowDestroyedType = CARD_NONE;
 
-							StolenCardAnimation newAnim;
-							newAnim.card = revealed;
-							newAnim.startTime = ofGetElapsedTimef();
-							newAnim.startPos = gridToWorld(attackerRef.x, attackerRef.y);
-							newAnim.targetPos = { ofGetWidth() / 2.0f, ofGetHeight() / 2.0f };
-							newAnim.currentPos = getActiveCamera().worldToScreen(newAnim.startPos);
-							activeStolenCardAnimations.push_back(newAnim);
+						int rawExtra = getGameRandom(1, 6);
+						int extraLuck = attackerRef.luck + computePassiveLuck(currentPlayerIndex);
+						int extra = rawExtra + extraLuck;
 
-							RemovedCardAnimation rem;
-							rem.card = revealed;
-							rem.startPos = newAnim.targetPos;
-							rem.startTime = ofGetElapsedTimef() + 0.5f;
-							rem.currentScale = 3.0f;
-							rem.currentAlpha = 255;
-							activeRemovedCardAnimations.push_back(rem);
-
-							int rawExtra = getGameRandom(1, 6);
-							int extraLuck = attackerRef.luck + computePassiveLuck(currentPlayerIndex);
-							int extra = rawExtra + extraLuck;
-
-							if (revealed.type == CARD_SHOCK) {
-								applyDamageTo(*target, extra, DAMAGE_ELECTRIC, currentPlayerIndex);
-								target->isParalyzed = true;
-								target->paralysisHeadsCount = 0;
-								spawnFloatingText(tPos + glm::vec3(0, 0.6f, 0), "-" + ofToString(extra) + " Electric", ofColor::orange);
-								spawnFloatingText(tPos + glm::vec3(0, 1.0f, 0), "PARALYZED!", ofColor::yellow);
-							} else if (revealed.type == CARD_FLAME_HIT) {
-								applyDamageTo(*target, extra, DAMAGE_FIRE, currentPlayerIndex);
-								target->onFire = true;
-								spawnFloatingText(tPos + glm::vec3(0, 0.6f, 0), "-" + ofToString(extra) + " Fire", ofColor::red);
-								spawnFloatingText(tPos + glm::vec3(0, 1.0f, 0), "ON FIRE!", ofColor::orange);
-							} else if (revealed.type == CARD_ADD_POISON) {
-								applyDamageTo(*target, extra, DAMAGE_POISON, currentPlayerIndex);
-								target->isPoisoned = true;
-								target->poisonReduction = 0;
-								spawnFloatingText(tPos + glm::vec3(0, 0.6f, 0), "-" + ofToString(extra) + " Poison", ofColor::green);
-								spawnFloatingText(tPos + glm::vec3(0, 1.0f, 0), "POISONED!", ofColor::green);
-							}
+						if (destroyedType == CARD_SHOCK) {
+							applyDamageTo(*target, extra, DAMAGE_ELECTRIC, currentPlayerIndex);
+							target->isParalyzed = true;
+							target->paralysisHeadsCount = 0;
+							spawnFloatingText(tPos + glm::vec3(0, 0.6f, 0), "-" + ofToString(extra) + " Electric", ofColor::orange);
+							spawnFloatingText(tPos + glm::vec3(0, 1.0f, 0), "PARALYZED!", ofColor::yellow);
+						} else if (destroyedType == CARD_FLAME_HIT) {
+							applyDamageTo(*target, extra, DAMAGE_FIRE, currentPlayerIndex);
+							target->onFire = true;
+							spawnFloatingText(tPos + glm::vec3(0, 0.6f, 0), "-" + ofToString(extra) + " Fire", ofColor::red);
+							spawnFloatingText(tPos + glm::vec3(0, 1.0f, 0), "ON FIRE!", ofColor::orange);
+						} else if (destroyedType == CARD_ADD_POISON) {
+							applyDamageTo(*target, extra, DAMAGE_POISON, currentPlayerIndex);
+							target->isPoisoned = true;
+							target->poisonReduction = 0;
+							spawnFloatingText(tPos + glm::vec3(0, 0.6f, 0), "-" + ofToString(extra) + " Poison", ofColor::green);
+							spawnFloatingText(tPos + glm::vec3(0, 1.0f, 0), "POISONED!", ofColor::green);
 						}
 					}
 				} else {
@@ -19694,6 +19815,9 @@ void ofApp::resolveAttackDamage() {
 					}
 				}
 			}
+		}
+		if (resolvedAttackCardName == "Shoot Arrow") {
+			pendingShootArrowDestroyedType = CARD_NONE;
 		}
 		pendingAttackTargetIndices.clear();
 
@@ -20074,10 +20198,16 @@ void ofApp::resolveFireballDamage() {
 
 			glm::vec3 targetPos = gridToWorld(target->x, target->y);
 
+			if (wardDamage > 0) {
+				spawnFloatingText(targetPos, "-" + ofToString(wardDamage) + " Fire", ofColor::black);
+			}
+
 			if (damage > 0) {
 				spawnFloatingText(targetPos, "-" + ofToString(damage) + " Fire", ofColor::red);
 			} else {
-				spawnFloatingText(targetPos, "Blocked", ofColor::gray);
+				if (wardDamage == 0) {
+					spawnFloatingText(targetPos, "-0 Fire", ofColor::gray);
+				}
 			}
 
 			// Form Break
@@ -20395,9 +20525,11 @@ void ofApp::resolveHealDice() {
 		Player * target = getPlayer(pendingHealTargetIndex);
 		if (target) {
 			int healAmount = pendingHealRollResult;
+			int missingHp = std::max(0, target->maxHealth - target->health);
+			int actualHeal = std::min(healAmount, missingHp);
 
 			// Apply Heal
-			target->health += healAmount;
+			target->health += actualHeal;
 
 			// Cap at Max Health
 			if (target->health > target->maxHealth) {
@@ -20406,7 +20538,11 @@ void ofApp::resolveHealDice() {
 
 			// ADD THIS: Green Text
 			glm::vec3 tPos = gridToWorld(target->x, target->y);
-			spawnFloatingText(tPos, "+" + ofToString(healAmount) + " HP", ofColor::green);
+			if (actualHeal > 0) {
+				spawnFloatingText(tPos, "+" + ofToString(actualHeal) + " HP", ofColor::green);
+			} else {
+				spawnFloatingText(tPos, "Already Full HP", ofColor::gray);
+			}
 
 			ofLogNotice("Heal") << "Player " << target->playerID << " healed.";
 		}
@@ -20802,9 +20938,34 @@ void ofApp::resolveShootArrowDice() {
 
 		ofLogNotice("ShootArrow") << "Rolled Range: " << pendingShootArrowHitResult << "ft. Needed: " << (neededDistUnits * 5.0f) << "ft.";
 
+		// Shoot Arrow rule: always destroy top card after range roll (hit or miss).
+		pendingShootArrowDestroyedType = CARD_NONE;
+		if (!caster.deck.empty()) {
+			Card destroyed = caster.deck.back();
+			caster.deck.pop_back(); // Destroyed: removed from deck and not moved to discard.
+			pendingShootArrowDestroyedType = destroyed.type;
+
+			StolenCardAnimation newAnim;
+			newAnim.card = destroyed;
+			newAnim.startTime = ofGetElapsedTimef();
+			newAnim.startPos = gridToWorld(caster.x, caster.y);
+			newAnim.targetPos = { ofGetWidth() / 2.0f, ofGetHeight() / 2.0f };
+			newAnim.currentPos = getActiveCamera().worldToScreen(newAnim.startPos);
+			activeStolenCardAnimations.push_back(newAnim);
+
+			RemovedCardAnimation rem;
+			rem.card = destroyed;
+			rem.startPos = newAnim.targetPos;
+			rem.startTime = ofGetElapsedTimef() + 0.5f;
+			rem.currentScale = 3.0f;
+			rem.currentAlpha = 255;
+			activeRemovedCardAnimations.push_back(rem);
+
+			ofLogNotice("ShootArrow") << "Destroyed top card after range roll: '" << destroyed.name << "'.";
+		}
+
 		if (maxDistUnits >= neededDistUnits - 0.01f) {
 			// Hit: start damage roll 1d6 piercing and queue attack resolution
-			// Spawn tracer from caster to target (hit)
 			{
 				glm::vec2 casterCenter = casterTile + glm::vec2(0.5f, 0.5f);
 				(void)casterCenter; // unused
@@ -20830,6 +20991,7 @@ void ofApp::resolveShootArrowDice() {
 		} else {
 			// Miss: notify
 			spawnFloatingText(gridToWorld((int)pendingShootArrowTargetTile.x, (int)pendingShootArrowTargetTile.y), "Missed!", ofColor::gray);
+
 			// Also spawn a tracer so player can see where the arrow landed/shortened
 			{
 				glm::vec2 casterCenter = casterTile + glm::vec2(0.5f, 0.5f);
@@ -20845,6 +21007,12 @@ void ofApp::resolveShootArrowDice() {
 				glm::vec3 worldStart, worldEnd;
 				computeTracerEndpoints(casterTile, hitGrid, worldStart, worldEnd);
 				spawnTracer(worldStart, worldEnd, glm::ivec2((int)pendingShootArrowTargetTile.x, (int)pendingShootArrowTargetTile.y), ofColor(200, 180, 100), 5.0f);
+			}
+
+			// No damage roll on miss; clear pending rider type and finish the card state.
+			pendingShootArrowDestroyedType = CARD_NONE;
+			if (cardPlayState != CARD_STATE_IDLE) {
+				advanceCardState(CARD_STATE_OUTCOME);
 			}
 		}
 	}
@@ -21528,9 +21696,11 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 							isValidTarget = true;
 						}
 					}
-					// 2. Wall Destruction / Fortification
-					else if (card.type == CARD_ROCK_CRUSH || card.type == CARD_FORTIFY || card.type == CARD_DEMOLITION) {
+					// 2. Wall / mixed adjacent cards
+					else if (card.type == CARD_ROCK_CRUSH) {
 						if (board[x][y].hasWall || board[x][y].hasPlayer) isValidTarget = true;
+					} else if (card.type == CARD_FORTIFY || card.type == CARD_DEMOLITION) {
+						if (board[x][y].hasWall) isValidTarget = true;
 					}
 					// 3. Standard Summoning / Creation (Must be empty)
 					// ADD CARD_SUMMON_KOBOLD_KING TO THIS LIST:
@@ -21773,8 +21943,19 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 							canBeClicked = true;
 						}
 					} else {
-						// Heal and Lesser Heal can target self or any unit
-						if (isPreview && (isOccupied || isSelfTile)) {
+						// Heal and Lesser Heal can target self or any unit, but only if missing HP.
+						bool canReceiveHeal = false;
+						if (isSelfTile) {
+							canReceiveHeal = (currentPlayer.health < currentPlayer.maxHealth);
+						} else if (isOccupied) {
+							for (const auto & p : players) {
+								if (p.x == x && p.y == y) {
+									canReceiveHeal = (p.health < p.maxHealth);
+									break;
+								}
+							}
+						}
+						if (isPreview && (isOccupied || isSelfTile) && canReceiveHeal) {
 							canBeClicked = true;
 						}
 					}
@@ -21818,7 +21999,7 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 
 			// If the tile is occupied, ensure the occupant is NOT the caster itself,
 			// except for cards that intentionally allow self-target.
-			bool allowSelfOccupiedTarget = (card.type == CARD_WISDOM_BOON);
+			bool allowSelfOccupiedTarget = (card.type == CARD_WISDOM_BOON || card.type == CARD_DOUBLE_HANDED || card.type == CARD_AMNESIA || card.type == CARD_HEAL || card.type == CARD_LESSER_HEAL);
 			if (isValidTarget && board[x][y].hasPlayer && currentPlayerIndex >= 0 && !allowSelfOccupiedTarget) {
 				if (!tileHasOtherThan(x, y, currentPlayerIndex)) {
 					// Only occupant is caster; not a valid non-self target
@@ -23077,6 +23258,12 @@ TargetInfo ofApp::computeTargetInfo(const Card & card, int casterIdx, int tx, in
 
 	// Self-target check (allow only if card targeting permits)
 	if (casterTile == targetTile) {
+		if (card.type == CARD_DOUBLE_HANDED || card.type == CARD_AMNESIA || card.type == CARD_WISDOM_BOON) {
+			result.reason = VALID;
+			result.isTargetable = true;
+			return result;
+		}
+
 		// Special-case: if caster is in Ghost form and shares tile with another unit,
 		// allow targeting the other unit.
 		if (caster.inGhostForm) {
@@ -23123,7 +23310,11 @@ TargetInfo ofApp::computeTargetInfo(const Card & card, int casterIdx, int tx, in
 		// Tile is adjacent; check occupancy
 		bool hasOccupant = board[tx][ty].hasPlayer;
 		bool hasWall = board[tx][ty].hasWall;
-		if (hasOccupant && !hasWall) {
+		if (card.type == CARD_DEMOLITION || card.type == CARD_FORTIFY) {
+			result.isTargetable = hasWall;
+		} else if (card.type == CARD_ROCK_CRUSH) {
+			result.isTargetable = (hasWall || (hasOccupant && !hasWall));
+		} else if (hasOccupant && !hasWall) {
 			result.isTargetable = true;
 		}
 	}
@@ -23135,7 +23326,7 @@ TargetInfo ofApp::computeTargetInfo(const Card & card, int casterIdx, int tx, in
 	}
 
 	// Reject tiles with only the caster occupant (unless card explicitly allows self)
-	if (result.isTargetable && card.targeting != TARGET_SELF) {
+	if (result.isTargetable && card.targeting != TARGET_SELF && card.type != CARD_DOUBLE_HANDED && card.type != CARD_AMNESIA && card.type != CARD_WISDOM_BOON) {
 		if (!tileHasOtherThan(tx, ty, casterIdx)) {
 			result.isTargetable = false;
 		}
@@ -24423,8 +24614,9 @@ void ofApp::cancelWisdomBoon() {
 void ofApp::cancelBurst() {
 	isBurstMenuOpen = false;
 	pendingBurstCardIndex = -1;
+	pendingBurstTargetIndex = -1;
 	isTargetingBurst = false;
-	burstChoice = 0;
+	burstChoice = -1;
 	sendMenuState(0, -1, -1, -1); // Notify opponent that menu is closed
 	ofLogNotice("Burst") << "Cancelled.";
 }
@@ -24458,7 +24650,7 @@ void ofApp::drawBurstUI() {
 	drawMenuOverlay();
 
 	string title = "Burst of Light";
-	string desc = "Choose an effect:";
+	string desc = "Choose effect for selected target:";
 
 	// Accent colors: holy = yellow, heal = light green
 	ofColor holyAccent(255, 213, 79); // golden yellow
@@ -24466,29 +24658,16 @@ void ofApp::drawBurstUI() {
 
 	ofRectangle panelRect = burstMenuRect;
 
-	// --- CHECK FOR VALID UNIT TARGETS (any unit except self for damage) ---
-	bool hasValidUnit = false;
-	Player & caster = players[currentPlayerIndex];
-	glm::vec2 casterPos(caster.x, caster.y);
-
-	for (const auto & p : players) {
-		// Skip self only (damage cannot target self), but here we are just
-		// checking whether there exists any OTHER unit in LOS to enable the
-		// "Deal" button. So skip the caster actor.
-		if (p.playerID == caster.playerID) continue;
-
-		// Check LOS (Infinite Range for Burst)
-		TargetInfo info = isLosTargetValid(casterPos, glm::vec2(p.x, p.y), 9999.0f, CARD_BURST_OF_LIGHT);
-		if (info.reason == VALID || info.reason == INVALID_SELF) {
-			hasValidUnit = true;
-			break;
-		}
+	bool selfTarget = (pendingBurstTargetIndex == currentPlayerIndex);
+	bool healEnabled = true;
+	if (pendingBurstTargetIndex >= 0 && pendingBurstTargetIndex < (int)players.size()) {
+		healEnabled = (players[pendingBurstTargetIndex].health < players[pendingBurstTargetIndex].maxHealth);
 	}
 
 	// Use standardized helper to draw primary (Deal 3 Holy) and secondary (Heal 3 HP).
 	drawCardChoicePanel(panelRect, title, desc, burstBtnDamage, burstBtnHeal,
-		hasValidUnit ? "Deal 3 Holy" : "No Unit in Sight", "Heal 3 HP",
-		holyAccent, healAccent, hasValidUnit, true);
+		selfTarget ? "Cannot Damage Self" : "Deal 3 Holy", healEnabled ? "Heal 3 HP" : "Target Full HP",
+		holyAccent, healAccent, !selfTarget, healEnabled);
 }
 
 //--------------------------------------------------------------
@@ -24774,36 +24953,39 @@ bool ofApp::applyDamageTo(Player & target, int damage, DamageType type, int atta
 	// - Physical: block -> fortification -> ward
 	// - Piercing: fortification -> ward
 	// - Other non-physical (magic, electric, fire, poison): barrier -> ward
-	auto absorbFrom = [&](int & source, int & remaining, const char * name) {
+	auto absorbFrom = [&](int & source, int & remaining, const char * name, const ofColor & c) {
 		int a = std::min(source, remaining);
 		source -= a;
 		remaining -= a;
-		if (a > 0) ofLogNotice("Game") << name << " absorbed " << a;
+		if (a > 0) {
+			spawnFloatingText(gridToWorld(target.x, target.y), "-" + ofToString(a) + typeLabel, c);
+			ofLogNotice("Game") << name << " absorbed " << a;
+		}
 	};
 
 	switch (type) {
 	case DAMAGE_HOLY:
-		absorbFrom(target.holyBlock, remainingDmg, "Holy Block");
-		absorbFrom(target.barrier, remainingDmg, "Barrier");
-		absorbFrom(target.ward, remainingDmg, "Ward");
+		absorbFrom(target.holyBlock, remainingDmg, "Holy Block", ofColor(255, 215, 0));
+		absorbFrom(target.barrier, remainingDmg, "Barrier", ofColor(70, 170, 255));
+		absorbFrom(target.ward, remainingDmg, "Ward", ofColor::black);
 		break;
 
 	case DAMAGE_PHYSICAL:
-		absorbFrom(target.block, remainingDmg, "Block");
-		absorbFrom(target.fortification, remainingDmg, "Fortification");
-		absorbFrom(target.ward, remainingDmg, "Ward");
+		absorbFrom(target.block, remainingDmg, "Block", ofColor::gray);
+		absorbFrom(target.fortification, remainingDmg, "Fortification", ofColor::lightGray);
+		absorbFrom(target.ward, remainingDmg, "Ward", ofColor::black);
 		break;
 
 	case DAMAGE_PIERCING:
 		// Piercing bypasses normal `block`, but is reduced by `fortification`.
-		absorbFrom(target.fortification, remainingDmg, "Fortification");
-		absorbFrom(target.ward, remainingDmg, "Ward");
+		absorbFrom(target.fortification, remainingDmg, "Fortification", ofColor::lightGray);
+		absorbFrom(target.ward, remainingDmg, "Ward", ofColor::black);
 		break;
 
 	default:
 		// MAGIC, ELECTRIC, FIRE, POISON and others
-		absorbFrom(target.barrier, remainingDmg, "Barrier");
-		absorbFrom(target.ward, remainingDmg, "Ward");
+		absorbFrom(target.barrier, remainingDmg, "Barrier", ofColor(70, 170, 255));
+		absorbFrom(target.ward, remainingDmg, "Ward", ofColor::black);
 		break;
 	}
 
@@ -24834,7 +25016,7 @@ bool ofApp::applyDamageTo(Player & target, int damage, DamageType type, int atta
 			}
 		}
 	} else {
-		spawnFloatingText(targetPos, "Blocked", ofColor::gray);
+		spawnFloatingText(targetPos, "-0" + typeLabel, ofColor::gray);
 	}
 
 	if (target.health <= 0) {
@@ -30571,7 +30753,7 @@ void ofApp::resolveChainLightningRangeDice() {
 			spawnFloatingText(impactTile, "Chain!", ofColor::yellow);
 		} else {
 			// Fizzle
-			spawnFloatingText(impactTile, "Blocked", ofColor::gray);
+			spawnFloatingText(impactTile, "No LOS", ofColor::gray);
 		}
 	} else {
 		// Out of range
@@ -30676,15 +30858,25 @@ void ofApp::resolveFlailDice() {
 		int blockDmg = std::min(t.block, finalDmg);
 		t.block -= blockDmg;
 		finalDmg -= blockDmg;
+		if (blockDmg > 0) {
+			spawnFloatingText(gridToWorld(t.x, t.y), "-" + ofToString(blockDmg) + " Physical", ofColor::gray);
+		}
 
 		int barrierDmg = std::min(t.barrier, finalDmg);
 		t.barrier -= barrierDmg;
 		finalDmg -= barrierDmg;
+		if (barrierDmg > 0) {
+			spawnFloatingText(gridToWorld(t.x, t.y), "-" + ofToString(barrierDmg) + " Physical", ofColor(70, 170, 255));
+		}
 
+		int wardDmg = 0;
 		if (finalDmg > 0) {
-			int wardDmg = std::min(t.ward, finalDmg);
+			wardDmg = std::min(t.ward, finalDmg);
 			t.ward -= wardDmg;
 			finalDmg -= wardDmg;
+			if (wardDmg > 0) {
+				spawnFloatingText(gridToWorld(t.x, t.y), "-" + ofToString(wardDmg) + " Physical", ofColor::black);
+			}
 		}
 
 		if (finalDmg > 0) {
@@ -30704,7 +30896,9 @@ void ofApp::resolveFlailDice() {
 				t.x = -1000;
 			}
 		} else {
-			spawnFloatingText(gridToWorld(t.x, t.y), "Blocked", ofColor::gray);
+			if (blockDmg == 0 && barrierDmg == 0 && wardDmg == 0) {
+				spawnFloatingText(gridToWorld(t.x, t.y), "-0 Physical", ofColor::gray);
+			}
 		}
 	};
 
