@@ -16445,7 +16445,8 @@ void ofApp::handleCardTargetClick(int gridX, int gridY) {
 	}
 
 	default: {
-		// Route standard targeted cards through playCard for AP/hand/discard consistency
+		// --- THE FIX FOR SHOCK, FIREBALL, CLEAVE, ETC ---
+		// Funnel the generic targeted cards into playCard() to handle physics/damage!
 		CardPlayResult result = playCard(cardIndex, gridX, gridY);
 
 		if (isMultiplayer && result == CARD_PLAYED_IMMEDIATELY) {
@@ -16456,6 +16457,7 @@ void ofApp::handleCardTargetClick(int gridX, int gridY) {
 		if (result == CARD_PLAYED_IMMEDIATELY || result == CARD_NOT_PLAYABLE) {
 			resetCardInteraction();
 		} else if (result == CARD_AWAITING_MENU_CHOICE) {
+			// If playCard decides it needs a menu (like Dispel/Wisdom Boon), transition to it
 			updateCardInteractionState(CARD_INTERACTION_MENU, cardIndex, interactingCardType);
 		}
 		break;
@@ -16533,12 +16535,40 @@ void ofApp::handleCardMenuClick(const std::string & buttonId) {
 	}
 
 	case CARD_DOUBLE_HANDED: {
-		// Menu choice: "Punch" or "Block" (or "Hand Block")
-		if (buttonId == "Punch" || buttonId == "Punch") {
+		if (buttonId == "Punch") {
 			resolveDoubleHanded("Punch");
-		} else if (buttonId == "Block" || buttonId == "Hand Block") {
+		} else if (buttonId == "Block") {
 			resolveDoubleHanded("Hand Block");
 		}
+		currentAP -= card.cost;
+		updatePlayerAP(caster, currentAP);
+		finishPlayCard(caster, card, interactingCardIndex);
+		resetCardInteraction();
+		if (isMultiplayer) {
+			int menuChoice = (buttonId == "Punch") ? 1 : 2;
+			sendActionPacket(interactingCardIndex, target.x, target.y, card.cost, menuChoice, card.name);
+		}
+		break;
+	}
+
+	case CARD_TRAIN: {
+		if (buttonId == "draft") {
+			isInGameDraft = true;
+			draftPlayerIndex = currentPlayerIndex;
+			generateDraftOptions(1);
+			draftPicksRemaining = 1;
+			selectedDraftIndices.clear();
+			draftStage = 0;
+			currentState = STATE_DRAFTING;
+		} else {
+			caster.nextTurnAPBonus += 3;
+			spawnFloatingText(gridToWorld(caster.x, caster.y), "+3 AP next turn", ofColor::yellow);
+		}
+		
+		currentAP -= card.cost;
+		updatePlayerAP(caster, currentAP);
+		finishPlayCard(caster, card, interactingCardIndex);
+		if (isMultiplayer) sendActionPacket(interactingCardIndex, -1, -1, card.cost, buttonId == "ap" ? 1 : 2, card.name);
 		resetCardInteraction();
 		break;
 	}
@@ -16583,6 +16613,20 @@ void ofApp::handleCardMenuClick(const std::string & buttonId) {
 			updateCardInteractionState(CARD_INTERACTION_STATUS, interactingCardIndex, interactingCardType);
 			determineStatusOptions(&target);
 			// Will show status selection UI next frame
+		}
+		break;
+	}
+
+	case CARD_GIANT_MAGIC_HAND: {
+		if (buttonId == "push" || buttonId == "PUSH") resolveMagicHandPush();
+		else resolveMagicHandPull();
+		currentAP -= card.cost;
+		updatePlayerAP(caster, currentAP);
+		finishPlayCard(caster, card, interactingCardIndex);
+		resetCardInteraction();
+		if (isMultiplayer) {
+			int menuChoice = (buttonId == "push" || buttonId == "PUSH") ? 1 : 2;
+			sendActionPacket(interactingCardIndex, target.x, target.y, card.cost, menuChoice, card.name);
 		}
 		break;
 	}
@@ -21677,12 +21721,14 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 	if (isTargetingBurst) activeCardIndex = pendingBurstCardIndex;
 	if (isTargetingPunch) activeCardIndex = pendingPunchCardIndex;
 
-	// Centralized card-interaction state should drive active card selection.
+	// === KEEP HIGHLIGHTS ACTIVE WHILE IN NEW TARGETING/MENU INTERACTION STATES ===
+	// This ensures target squares persist when card is released and we're waiting for user interaction
 	if (cardInteractionState == CARD_INTERACTION_TARGETING || cardInteractionState == CARD_INTERACTION_MENU) {
 		if (interactingCardIndex >= 0) {
 			activeCardIndex = interactingCardIndex;
 		}
 	}
+	// ================================================================================
 
 	// Safety Check
 	if (activeCardIndex < 0 || activeCardIndex >= (int)currentPlayer.hand.size()) return;
