@@ -192,6 +192,15 @@ enum DicePurpose {
 	PURPOSE_BLOCKING_BOON_D20
 };
 
+// Unified card interaction state machine (replaces per-card isTargeting*/is*MenuOpen flags)
+enum CardInteractionState {
+	CARD_INTERACTION_IDLE, // No card interaction in progress
+	CARD_INTERACTION_TARGETING, // Waiting for player to click target on board
+	CARD_INTERACTION_MENU, // Waiting for player to choose menu option
+	CARD_INTERACTION_STATUS, // Waiting for status selection (Dispel only)
+	CARD_INTERACTION_PLACING // Waiting for placement click (Wolves, Kobolds)
+};
+
 enum TargetValidity {
 	VALID,
 	INVALID_OUT_OF_RANGE,
@@ -1445,7 +1454,15 @@ private:
 	ofFbo modelFbo;
 	std::vector<MinionUI> activeMinionUIs;
 
-	// --- Targeting States ---
+	// ===== UNIFIED CARD INTERACTION STATE (Replaces 20+ per-card bool flags) =====
+	CardInteractionState cardInteractionState = CARD_INTERACTION_IDLE;
+	int interactingCardIndex = -1; // Index in currentPlayer.hand of card being interacted with
+	int interactingCardType = CARD_NONE; // Type of card being interacted with (cached)
+	int interactionTargetIndex = -1; // Index of chosen target (if applicable)
+	std::string interactionMenuChoice; // Selected menu option (Burst: damage/heal, Double-Handed: Punch/Block, etc.)
+	bool interactionNeedsStatusSelect = false; // Special: Dispel status selection required
+
+	// --- Legacy Targeting States (to be deprecated after consolidation) ---
 	bool isTargetingDeath = false;
 	int deathCardIndex = -1;
 
@@ -1833,6 +1850,15 @@ private:
 	void drawMenuOverlay();
 	void drawMenuBackground(const ofRectangle & menuRect, float cornerRadius = 15);
 	void drawMenuTitle(const std::string & title, const ofRectangle & menuRect, float yOffset = 60);
+
+	// ===== CENTRALIZED CARD INTERACTION SYSTEM =====
+	void updateCardInteractionState(CardInteractionState newState, int cardIdx = -1, int cardType = CARD_NONE);
+	void resetCardInteraction();
+	void handleCardDragToPlay(int cardIndex);
+	void handleCardTargetClick(int gridX, int gridY);
+	void handleCardMenuClick(const std::string & buttonId);
+	void drawActiveCardInteractionUI();
+
 	// Cancel any active targeting modes/menus and reset related state
 	void cancelAllTargeting();
 	void resolveMagicHandPull();

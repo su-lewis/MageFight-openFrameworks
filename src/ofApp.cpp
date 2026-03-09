@@ -16348,16 +16348,29 @@ void ofApp::continueNewTurn() {
 }
 
 // Cancel any active targeting modes/menus and reset related state
-void ofApp::cancelAllTargeting() {
-	// Menus
+// ===== CENTRALIZED CARD INTERACTION SYSTEM =====
+// Unified state management for all card interactions (targeting, menus, placements)
+void ofApp::updateCardInteractionState(CardInteractionState newState, int cardIdx, int cardType) {
+	cardInteractionState = newState;
+	interactingCardIndex = cardIdx;
+	interactingCardType = cardType;
+	if (newState == CARD_INTERACTION_IDLE) {
+		interactionTargetIndex = -1;
+		interactionMenuChoice.clear();
+		interactionNeedsStatusSelect = false;
+	}
+	ofLogNotice("CardInteraction") << "State: " << (int)newState << " | Card: " << cardIdx << " Type: " << cardType;
+}
+
+void ofApp::resetCardInteraction() {
+	updateCardInteractionState(CARD_INTERACTION_IDLE, -1, CARD_NONE);
+	// Also reset all legacy per-card flags for safety during transition period
 	isBurstMenuOpen = false;
 	isDoubleHandedMenuOpen = false;
 	isAmnesiaMenuOpen = false;
 	isDispelMenuOpen = false;
 	isWisdomBoonMenuOpen = false;
 	isMagicHandMenuOpen = false;
-
-	// Targeting flags
 	isTargetingMagicBolt = false;
 	isTargetingBurst = false;
 	isTargetingDeath = false;
@@ -16368,7 +16381,82 @@ void ofApp::cancelAllTargeting() {
 	isTargetingAmnesia = false;
 	isTargetingTortoiseDamage = false;
 	isTargetingHellhound = false;
+	clearHighlights();
+	calculateTargetHighlights();
+}
 
+void ofApp::handleCardDragToPlay(int cardIndex) {
+	// To be implemented: consolidate all drag-to-play handlers from lines 14690-15030
+	// For now, this is a placeholder that will replace per-card if/else blocks
+	if (cardIndex < 0 || cardIndex >= (int)players[currentPlayerIndex].hand.size()) return;
+
+	Card & card = players[currentPlayerIndex].hand[cardIndex];
+	updateCardInteractionState(CARD_INTERACTION_IDLE, cardIndex, card.type);
+
+	// This function will be filled in during Phase 2 consolidation
+	// Currently, the old per-card drag handlers in lines 14690-15030 are still active
+	ofLogNotice("CardDrag") << "Drag initiated for card: " << card.name << " (index " << cardIndex << ")";
+}
+
+void ofApp::handleCardTargetClick(int gridX, int gridY) {
+	// To be implemented: consolidate all target-click handlers from lines 12230-13020
+	// For now, this is a placeholder that will replace per-card if/else blocks
+
+	if (cardInteractionState != CARD_INTERACTION_TARGETING) return;
+	if (gridX < 0 || gridX >= BOARD_WIDTH || gridY < 0 || gridY >= BOARD_HEIGHT) return;
+
+	// Find player at target position
+	int targetIndex = -1;
+	for (size_t i = 0; i < players.size(); i++) {
+		if (players[i].x == gridX && players[i].y == gridY) {
+			targetIndex = (int)i;
+			break;
+		}
+	}
+
+	if (targetIndex != -1) {
+		interactionTargetIndex = targetIndex;
+		updateCardInteractionState(CARD_INTERACTION_MENU, interactingCardIndex, interactingCardType);
+	}
+	ofLogNotice("CardTarget") << "Target click at (" << gridX << ", " << gridY << ") -> index " << targetIndex;
+}
+
+void ofApp::handleCardMenuClick(const std::string & buttonId) {
+	// To be implemented: consolidate all menu-click handlers from lines 12230-13020
+	// For now, this is a placeholder that will replace per-card menu if/else blocks
+
+	if (cardInteractionState != CARD_INTERACTION_MENU) return;
+	interactionMenuChoice = buttonId;
+	ofLogNotice("CardMenu") << "Menu choice: " << buttonId << " for card type " << interactingCardType;
+	// Actual execution will depend on card type and choice
+}
+
+void ofApp::drawActiveCardInteractionUI() {
+	// To be implemented: consolidate all draw calls from lines 9351-9836
+	// Unified draw dispatcher based on cardInteractionState
+
+	if (cardInteractionState == CARD_INTERACTION_IDLE) return;
+
+	// Generic dispatch based on card type and interaction state
+	switch (interactingCardType) {
+	case CARD_BURST_OF_LIGHT:
+	case CARD_WISDOM_BOON:
+	case CARD_DOUBLE_HANDED:
+	case CARD_AMNESIA:
+	case CARD_DISPEL:
+		// These will call their respective drawXxxUI() functions
+		// To be connected during Phase 2
+		break;
+	default:
+		break;
+	}
+}
+
+void ofApp::cancelAllTargeting() {
+	// Reset centralized card interaction state
+	resetCardInteraction();
+
+	// Clear additional state not covered by resetCardInteraction()
 	// Waiting/rolling flags
 	isWaitingForTeleportDice = false;
 	isWaitingForMagicBoltRange = false;
@@ -16392,10 +16480,6 @@ void ofApp::cancelAllTargeting() {
 	pendingAttackTargetIndices.clear();
 	pendingPoisonTargetIndices.clear();
 	magicBlastSplashTargetIndices.clear();
-
-	// UI and highlights
-	clearHighlights();
-	calculateTargetHighlights();
 }
 
 void ofApp::recalcTempLuck() {
