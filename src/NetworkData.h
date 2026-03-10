@@ -181,6 +181,44 @@ struct RenewedInspirationPacket : PacketHeader {
 	uint32_t clientActionID; // client-local monotonic id for reliable deduplication (optional)
 };
 
+// ============================================================================
+// LOCKSTEP DETERMINISTIC INPUT SYSTEM
+// ============================================================================
+
+enum InputCommandType : uint8_t {
+	CMD_NONE = 0,
+	CMD_PLAY_CARD = 1,
+	CMD_MOVE_UNIT = 2,
+	CMD_DRAW_CARDS = 3,
+	CMD_MENU_CHOICE = 4,
+	CMD_END_TURN = 5,
+	CMD_DRAFT_ACTION = 6,
+	CMD_ASSISTANT_REROLL = 7,
+	CMD_RENEWED_INSPIRATION = 8
+};
+
+// Canonical deterministic input packet - replaces ActionPacket for lockstep
+struct InputCommandPacket : PacketHeader {
+	uint32_t commandId; // Global monotonic command ID for ordering
+	uint32_t turnNumber; // Turn when command was issued
+	uint8_t commandType; // InputCommandType enum
+	int32_t params[8]; // Generic parameter array for all command types
+	char stringData[64]; // For card names or labels
+	uint32_t clientActionID; // Client-local ID for ACK matching
+
+	// Parameter layouts by command type:
+	// CMD_PLAY_CARD: params[0]=cardIndex, params[1]=targetX, params[2]=targetY, params[3]=menuChoice, stringData=cardName
+	// CMD_MOVE_UNIT: params[0]=fromX, params[1]=fromY, params[2]=toX, params[3]=toY
+	// CMD_DRAW_CARDS: params[0]=playerIndex, params[1]=numCards
+	// CMD_MENU_CHOICE: params[0]=menuType, params[1]=targetIndex, params[2]=choice, params[3]=cardIndex
+	// CMD_END_TURN: no params
+	// CMD_DRAFT_ACTION: params[0]=actionType, params[1]=optionIndex, params[2]=draftPlayerIdx, params[3]=classTier
+	// CMD_ASSISTANT_REROLL: params[0]=assistantIndex, params[1]=numDice, params[2]=diceSides
+	// CMD_RENEWED_INSPIRATION: params[0]=playerIndex, params[1]=count, stringData contains concatenated card names
+};
+
+static_assert(sizeof(InputCommandPacket) <= 128, "InputCommandPacket too large for efficient networking");
+
 // For drafting actions (selecting a card, accepting the draft)
 // NOTE: `clientActionID` is a client-local monotonic id that the host will
 // echo back in `PKT_DRAFT_ACK` so clients can reliably match ACKs.

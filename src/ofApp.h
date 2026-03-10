@@ -12,6 +12,7 @@
 #include <array>
 #include <functional>
 #include <limits>
+#include <memory>
 #include <queue>
 #include <random>
 #include <set>
@@ -128,7 +129,7 @@ enum CardType {
 	CARD_DRAIN_PUNCH,
 	CARD_DOUBLE_HANDED,
 	CARD_CALL_FOR_WOLVES,
-	CARD_NECRO_BLESSING,
+	CARD_NECROMANCER_S_BLESSING,
 	CARD_TIME_VORTEX,
 	CARD_MASTER_FIST,
 	CARD_MAGIC_BOLT,
@@ -152,7 +153,7 @@ enum CardType {
 	CARD_CONSUME_LARGE_HEALTH_POTION,
 	CARD_LESSER_HEAL,
 	CARD_TRANSFORM_WALL,
-	CARD_SUMMON_KOBOLD_KING, // Add this
+	CARD_SUMMON_KOBOLD_KING,
 	CARD_SUMMON_ASSISTANT,
 	CARD_SUMMON_FAERIE,
 	CARD_FOUR_LEAF_CLOVER,
@@ -161,10 +162,19 @@ enum CardType {
 	CARD_BURST_OF_LIGHT,
 	CARD_SHOOT_ARROW,
 	CARD_FULL_RESTORE,
-	CARD_TRAIN, // <--- Add
+	CARD_TRAIN,
 	CARD_STUDY,
 	CARD_BLOCKING_BOON,
-	CARD_CONSTITUTION_BOON
+	CARD_CONSTITUTION_BOON,
+	CARD_PUNCH,
+	CARD_KICK,
+	CARD_HAND_BLOCK,
+	CARD_BASH,
+	CARD_WARD,
+	CARD_STAB,
+	CARD_SLASH,
+	CARD_SUMMON_WALL,
+	CARD_SUMMON_MAGIC_WALL
 };
 
 enum DicePurpose {
@@ -267,6 +277,92 @@ struct Card {
 };
 
 // ===================================================================================================
+// EFFECT QUEUE SYSTEM - centralized card execution pipeline
+// ===================================================================================================
+// ============================================================================
+// DATA-ORIENTED DETERMINISTIC EFFECT SYSTEM
+// ============================================================================
+
+enum class EffectOpType : uint8_t {
+	NONE = 0,
+	ROLL_DICE,
+	DAMAGE,
+	HEAL,
+	MOVE_UNIT,
+	SPAWN_UNIT,
+	MODIFY_STAT,
+	DRAW_CARDS,
+	DISCARD_CARDS,
+	APPLY_STATUS,
+	REMOVE_STATUS,
+	CONDITIONAL_BRANCH,
+	WAIT_VISUAL
+};
+
+struct RollDiceData {
+	int numDice;
+	int sides;
+	DicePurpose purpose;
+	int ownerIndex;
+	int outputSlot; // Where to store result in blackboard
+	char label[32];
+};
+
+struct DamageData {
+	int targetIndex;
+	DamageType damageType;
+	int fixedDamage;
+	int damageFromSlot; // -1 = use fixedDamage, else read from blackboard
+};
+
+struct HealData {
+	int targetIndex;
+	int amount;
+	int amountFromSlot; // -1 = use fixed amount
+};
+
+struct MoveUnitData {
+	int unitIndex;
+	int toX;
+	int toY;
+};
+
+struct DrawCardsData {
+	int playerIndex;
+	int numCards;
+};
+
+struct ModifyStatData {
+	int targetIndex;
+	int statType; // 0=HP, 1=MaxHP, 2=AP, 3=MaxAP, 4=Armor, etc
+	int delta;
+	int deltaFromSlot; // -1 = use fixed delta
+};
+
+struct EffectOp {
+	EffectOpType type;
+	union {
+		RollDiceData rollDice;
+		DamageData damage;
+		HealData heal;
+		MoveUnitData moveUnit;
+		DrawCardsData drawCards;
+		ModifyStatData modifyStat;
+	} data;
+
+	// Visual wait state (not serialized to network, computed locally)
+	bool visualStarted = false;
+	int visualFrame = 0;
+};
+
+struct EffectSequence {
+	std::vector<EffectOp> ops;
+	size_t currentOp = 0;
+	int blackboard[16] = { 0 }; // Shared state between effects
+	bool isComplete = false;
+};
+
+// ===================================================================================================
 // CARD STATE SYSTEM - Unified state machine for all 70 cards
 // ===================================================================================================
 // All cards flow through states: IDLE -> MENU -> TARGETING -> EFFECT -> OUTCOME -> PACKET -> IDLE
@@ -276,8 +372,9 @@ enum CardPlayState {
 	CARD_STATE_TARGETING = 2, // Waiting for user to select target
 	CARD_STATE_DICE = 3, // Waiting for dice roll result
 	CARD_STATE_EFFECT = 4, // Effect is being applied (animation/movement)
-	CARD_STATE_OUTCOME = 5, // Effect complete, ready to send outcome packet
-	CARD_STATE_FINISHED = 6 // Card action finished, sent to network
+	CARD_STATE_EFFECT_SEQUENCE = 5, // Processing lockstep effect sequence
+	CARD_STATE_OUTCOME = 6, // Effect complete, ready to send outcome packet
+	CARD_STATE_FINISHED = 7 // Card action finished, sent to network
 };
 
 // Unified structure for all card outcomes (instead of scattered pending* variables)
@@ -743,6 +840,14 @@ private:
 	void createCardDisplay(const Card & card, int playerIndex); // Create card display animation
 	std::string currentDiceLabel = "";
 	int startDiceRoll(int numDice, int sides, DicePurpose purpose, std::string label = "", int ownerIndex = -1);
+
+	// Data-oriented effect system
+	void beginEffectSequence();
+	void queueEffect(const EffectOp & op);
+	void updateEffectSequence();
+	bool isEffectSequenceComplete() const;
+
+	bool hasFinishedDiceRollFor(DicePurpose purpose, int ownerIndex) const;
 
 	// Return true when all active dice visuals are finished and the result linger time passed
 	bool diceVisualsFinishedAndLinger() const;
@@ -1530,6 +1635,31 @@ private:
 	int lastAutoScrollTurnUnit = -1;
 	int lastHoveredUnit = -1;
 
+	// ============================================================================
+	// LOCKSTEP DETERMINISTIC SIMULATION STATE
+	// ============================================================================
+
+	// Command queue for deterministic input processing
+	std::vector<InputCommandPacket> commandQueue;
+	uint32_t nextCommandId = 1;
+	uint32_t lastProcessedCommandId = 0;
+
+	// Fixed-step simulation
+	const float SIMULATION_TIMESTEP = 1.0f / 60.0f; // 60Hz fixed tick
+	float simulationAccumulator = 0.0f;
+	uint32_t simulationFrame = 0;
+
+	// Effect sequence for current card
+	EffectSequence currentEffectSequence;
+	bool isProcessingEffect = false;
+
+	// Lockstep functions
+	void queueInputCommand(const InputCommandPacket & cmd);
+	void processCommandQueue();
+	void simulationTick();
+	void executeInputCommand(const InputCommandPacket & cmd);
+	void processEffectOp(EffectOp & op);
+
 	// --- CARD SPECIFIC VARIABLES ---
 
 	// === UNIFIED CARD STATE SYSTEM ===
@@ -1845,6 +1975,17 @@ private:
 	void drawAmnesiaMenuUI();
 	void drawCardSpawnerUI();
 	void drawCardEncyclopediaUI();
+
+	// === EXTRACTED CARD EFFECT FUNCTIONS (Phase 2 + 3: Consolidation) ===
+	// These are called from executeCardByType(), resolveCardMenu(), and resolveCardDice() to eliminate duplication
+	void applyBurstOfLight(int targetPlayerIndex, const std::string & choice);
+	void applyWisdomBoon(int targetPlayerIndex, const std::string & choice);
+	void applyDoubleHandedChoice(int targetPlayerIndex, const std::string & choice);
+	void applyTrainCard(const std::string & choice);
+	void applyDispelChoice(int targetPlayerIndex, const std::string & choice);
+	void applyShockEffect(int targetPlayerIndex, int damageAmount, int casterIndex);
+	void applyFireballHit(int targetPlayerIndex, int damageAmount);
+	void applyDrainPunch(int targetPlayerIndex, int baseDamage, int casterIndex);
 	// UI Functions
 	void drawMagicHandUI();
 	// Helper to draw centered instruction text with shadow
