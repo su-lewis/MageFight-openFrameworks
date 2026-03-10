@@ -10,6 +10,7 @@
 // --- Standard Library Includes ---
 #include <algorithm>
 #include <array>
+#include <deque>
 #include <functional>
 #include <limits>
 #include <memory>
@@ -1305,7 +1306,7 @@ private:
 	const float TILE_SIZE = 5.0f;
 	Tile board[BOARD_WIDTH][BOARD_HEIGHT];
 	TargetInfo targetCache[BOARD_WIDTH][BOARD_HEIGHT];
-	std::vector<Player> players;
+	std::deque<Player> players;
 	// Track which minion playerIDs we've logged during render to avoid flooding logs
 	std::unordered_set<int> renderLoggedMinions;
 	int currentPlayerIndex = -1;
@@ -1652,6 +1653,7 @@ private:
 	// Effect sequence for current card
 	EffectSequence currentEffectSequence;
 	bool isProcessingEffect = false;
+	bool isExecutingLockstepCommand = false;
 
 	// Lockstep functions
 	void queueInputCommand(const InputCommandPacket & cmd);
@@ -1990,6 +1992,8 @@ private:
 	void drawMagicHandUI();
 	// Helper to draw centered instruction text with shadow
 	void drawInstructionText(const std::string & message, ofColor color = ofColor::white);
+	// Helper to draw centered dice label text with shadow
+	void drawDiceLabel(const std::string & message, ofColor color = ofColor(255, 215, 0), float yPos = 0);
 	// Helpers to draw card menu overlays and titles
 	void drawMenuOverlay();
 	void drawMenuBackground(const ofRectangle & menuRect, float cornerRadius = 15);

@@ -22,6 +22,7 @@ enum PacketType {
 	PKT_KEY_PICKUP, // Host -> Client: a player picked up a key (trigger in-game draft)
 	PKT_CHAT_MESSAGE, // Chat message between players
 	PKT_HOVER, // Hover state update for showing opponent's hover
+	PKT_INPUT_COMMAND, // Client/Host: deterministic input command (replaces async ActionPacket)
 	PKT_DRAW_CARDS, // Client -> Host: player drew cards from deck
 	PKT_SNAPSHOT_REQUEST, // Client -> Host: request authoritative snapshot from host
 	PKT_SNAPSHOT_BEGIN, // Host -> Client: begin state snapshot
@@ -194,7 +195,9 @@ enum InputCommandType : uint8_t {
 	CMD_END_TURN = 5,
 	CMD_DRAFT_ACTION = 6,
 	CMD_ASSISTANT_REROLL = 7,
-	CMD_RENEWED_INSPIRATION = 8
+	CMD_RENEWED_INSPIRATION = 8,
+	CMD_PSEUDO_ACTION = 9,
+	CMD_STATUS_ACTION = 10
 };
 
 // Canonical deterministic input packet - replaces ActionPacket for lockstep
@@ -215,6 +218,8 @@ struct InputCommandPacket : PacketHeader {
 	// CMD_DRAFT_ACTION: params[0]=actionType, params[1]=optionIndex, params[2]=draftPlayerIdx, params[3]=classTier
 	// CMD_ASSISTANT_REROLL: params[0]=assistantIndex, params[1]=numDice, params[2]=diceSides
 	// CMD_RENEWED_INSPIRATION: params[0]=playerIndex, params[1]=count, stringData contains concatenated card names
+	// CMD_PSEUDO_ACTION: params[0]=targetX, params[1]=targetY, stringData=actionName (e.g. "Shell Spike")
+	// CMD_STATUS_ACTION: params[0]=cardIndex, params[1]=targetX, params[2]=targetY, params[3]=statusIndex, params[4]=cost, stringData=cardName
 };
 
 static_assert(sizeof(InputCommandPacket) <= 128, "InputCommandPacket too large for efficient networking");
