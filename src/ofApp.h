@@ -793,7 +793,6 @@ private:
 	void advanceCardState(CardPlayState newState); // Transition to new state
 	void sendCardOutcomePacket(); // Send unified outcome packet to clients
 	void applyCardOutcomeEffects(); // Apply the completed outcome to game state
-	void handleCardMenuInput(const std::string & choice); // Menu choice made
 	void handleCardTargetInput(int gridX, int gridY); // Target selected
 	void handleCardDiceResult(int result, DicePurpose purpose); // Dice roll completed
 	bool executeCardByType(const Card & playedCard, int cardIndex, int targetX, int targetY, bool & playedSuccessfully, CardPlayResult & immediateResult); // centralized execution entry (incremental migration)
@@ -1185,9 +1184,6 @@ private:
 
 	// Specific UI Drawers
 	void drawMagicBlastChoiceUI();
-	void drawWisdomBoonUI();
-	void cancelBurst();
-	void drawBurstUI();
 	void drawOpponentMenu(); // Draw opponent's active menu with red outlines
 
 	// Board highlight helpers
@@ -1208,7 +1204,6 @@ private:
 
 	// General damage application helper (used by multiple flows)
 	bool applyDamageTo(Player & target, int damage, DamageType type, int attackerIndex = -1);
-	void cancelWisdomBoon();
 	void drawDispelUI();
 	void cancelDispel();
 	void determineStatusOptions(Player * target);
@@ -1971,10 +1966,7 @@ private:
 	int pendingSparkOfGeniusRollResult = 0;
 
 	// Helper functions
-	void drawDoubleHandedUI();
-	void cancelDoubleHanded();
 	void resolveDoubleHanded(std::string cardName);
-	void drawAmnesiaMenuUI();
 	void drawCardSpawnerUI();
 	void drawCardEncyclopediaUI();
 
@@ -1988,8 +1980,6 @@ private:
 	void applyShockEffect(int targetPlayerIndex, int damageAmount, int casterIndex);
 	void applyFireballHit(int targetPlayerIndex, int damageAmount);
 	void applyDrainPunch(int targetPlayerIndex, int baseDamage, int casterIndex);
-	// UI Functions
-	void drawMagicHandUI();
 	// Helper to draw centered instruction text with shadow
 	void drawInstructionText(const std::string & message, ofColor color = ofColor::white);
 	// Helper to draw centered dice label text with shadow

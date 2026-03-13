@@ -8,6 +8,7 @@
 #include <cmath>
 #include <cstring>
 #include <filesystem>
+#include <fstream>
 #include <glm/gtx/intersect.hpp>
 #include <limits>
 #include <new>
@@ -18,41 +19,21 @@
 #include <sstream>
 #include <unordered_map>
 
-// DEPRECATED: These were moved to ofApp.h member variables
-// Keeping for reference but commented out to avoid unused warnings
-/*
-namespace {
-float p0_minionScroll = 0.0f;
-float p1_minionScroll = 0.0f;
-float p0_minionTotalH = 0.0f;
-float p1_minionTotalH = 0.0f;
-float p0_minionViewH = 0.0f;
-float p1_minionViewH = 0.0f;
-float p0_minionTop = 0.0f;
-float p1_minionTop = 0.0f;
-float p0_minionLeft = 0.0f;
-float p1_minionLeft = 0.0f;
-float minionPanelW = 0.0f;
-int lastAutoScrollTurnUnit = -1;
-int lastHoveredUnit = -1;
-}
-*/
-
 // Prune old stamped autosave files, keeping at most `keep` newest ones
 static const std::string kSavesDir = "data/Saves";
 
 static std::string makeSavePath(const std::string & p) {
-	// If path contains a directory separator, assume it's a full/relative path and use as-is
 	if (p.find('/') != std::string::npos || p.find('\\') != std::string::npos) return p;
 	return kSavesDir + "/" + p;
 }
 
 // Unused currently but may be used for save file cleanup
-[[maybe_unused]] static void pruneOldSaves(int keep = 5) {
+[[maybe_unused]] static void pruneOldStampedSaves(int keep = 5) {
 	try {
 		namespace fs = std::filesystem;
 		fs::path dir = fs::current_path() / fs::path(kSavesDir);
 		if (!fs::exists(dir)) return;
+
 		std::vector<std::pair<std::filesystem::file_time_type, fs::path>> files;
 		for (auto & entry : fs::directory_iterator(dir)) {
 			if (!entry.is_regular_file()) continue;
@@ -61,6 +42,7 @@ static std::string makeSavePath(const std::string & p) {
 				files.emplace_back(fs::last_write_time(entry.path()), entry.path());
 			}
 		}
+
 		std::sort(files.begin(), files.end(), [](auto & a, auto & b) { return a.first > b.first; });
 		for (size_t i = keep; i < files.size(); ++i) {
 			try {
@@ -72,194 +54,21 @@ static std::string makeSavePath(const std::string & p) {
 	}
 }
 
-static nlohmann::json cardToJson(const Card & c) {
-	nlohmann::json j;
-	j["name"] = c.name;
-	j["type"] = (int)c.type;
-	j["value"] = c.value;
-	j["numDice"] = c.numDice;
-	j["diceSides"] = c.diceSides;
-	j["damageType"] = (int)c.damageType;
-	j["cost"] = c.cost;
-	j["targeting"] = (int)c.targeting;
-	j["drawnThisTurn"] = c.drawnThisTurn;
-	j["isCopied"] = c.isCopied;
-	j["cardClass"] = c.cardClass;
-	j["currentScale"] = c.currentScale;
-	j["targetScale"] = c.targetScale;
-	j["currentPos"] = { c.currentPos.x, c.currentPos.y };
-	// Persist texture rectangle so texture coordinates are restored on load
-	j["textureRect"] = { c.textureRect.x, c.textureRect.y, c.textureRect.width, c.textureRect.height };
-	return j;
-}
-
-static Card jsonToCard(const nlohmann::json & j) {
-	Card c;
-	c.name = j.value("name", std::string());
-	c.type = (CardType)j.value("type", 0);
-	c.value = j.value("value", 0);
-	c.numDice = j.value("numDice", 0);
-	c.diceSides = j.value("diceSides", 0);
-	c.damageType = (DamageType)j.value("damageType", 0);
-	c.cost = j.value("cost", 0);
-	c.targeting = (TargetingType)j.value("targeting", 0);
-	c.drawnThisTurn = j.value("drawnThisTurn", false);
-	c.isCopied = j.value("isCopied", false);
-	c.cardClass = j.value("cardClass", 1);
-	c.currentScale = j.value("currentScale", 1.0f);
-	c.targetScale = j.value("targetScale", 1.0f);
-	if (j.contains("currentPos") && j["currentPos"].is_array() && j["currentPos"].size() == 2) {
-		c.currentPos.x = j["currentPos"][0].get<float>();
-		c.currentPos.y = j["currentPos"][1].get<float>();
-	}
-	// Restore texture rectangle if present; fall back to defaults otherwise
-	if (j.contains("textureRect") && j["textureRect"].is_array() && j["textureRect"].size() == 4) {
-		c.textureRect.x = j["textureRect"][0].get<float>();
-		c.textureRect.y = j["textureRect"][1].get<float>();
-		c.textureRect.width = j["textureRect"][2].get<float>();
-		c.textureRect.height = j["textureRect"][3].get<float>();
-	}
-	return c;
-}
-
 bool ofApp::saveGameStateToFile(const std::string & path) {
 	try {
 		std::string fullPath = makeSavePath(path);
-		nlohmann::json j;
-		j["globalTurnCounter"] = globalTurnCounter;
-		j["currentPlayerIndex"] = currentPlayerIndex;
-		j["isMultiplayer"] = isMultiplayer;
-		// record host steam id if multiplayer
-		if (isMultiplayer) {
-			uint64_t hostId = 0;
-			if (isHost())
-				hostId = steamManager.getLocalSteamID().ConvertToUint64();
-			else
-				hostId = steamManager.getLocalSteamID().ConvertToUint64();
-			j["hostSteamID"] = hostId;
+		namespace fs = std::filesystem;
+		fs::path out = fs::path(fullPath);
+		if (!out.parent_path().empty() && !fs::exists(out.parent_path())) {
+			fs::create_directories(out.parent_path());
 		}
 
-		// Board
-		for (int x = 0; x < BOARD_WIDTH; ++x) {
-			for (int y = 0; y < BOARD_HEIGHT; ++y) {
-				nlohmann::json bt;
-				bt["hasPlayer"] = board[x][y].hasPlayer;
-				bt["hasWall"] = board[x][y].hasWall;
-				bt["isMagicWall"] = board[x][y].isMagicWall;
-				bt["isHighlighted"] = board[x][y].isHighlighted;
-				bt["isTargetable"] = board[x][y].isTargetable;
-				bt["isTargetPreview"] = board[x][y].isTargetPreview;
-				j["board"][x][y] = bt;
-			}
-		}
-
-		// Players
-		for (const auto & p : players) {
-			nlohmann::json pj;
-			pj["x"] = p.x;
-			pj["y"] = p.y;
-			pj["visualPos"] = { p.visualPos.x, p.visualPos.y, p.visualPos.z };
-			pj["health"] = p.health;
-			pj["maxHealth"] = p.maxHealth;
-			pj["block"] = p.block;
-			pj["ward"] = p.ward;
-			pj["barrier"] = p.barrier;
-			pj["holyBlock"] = p.holyBlock;
-			pj["playerID"] = p.playerID;
-			pj["ap"] = p.ap;
-			pj["isMinion"] = p.isMinion;
-			pj["ownerID"] = p.ownerID;
-			// Minion/model identity flags (required to restore correct unit models on load)
-			pj["isSkeleton"] = p.isSkeleton;
-			pj["isGolem"] = p.isGolem;
-			pj["isHellhound"] = p.isHellhound;
-			pj["isWolf"] = p.isWolf;
-			pj["isKobold"] = p.isKobold;
-			pj["isDemon"] = p.isDemon;
-			pj["isWallUnit"] = p.isWallUnit;
-			pj["isMagicWallUnit"] = p.isMagicWallUnit;
-			pj["isKoboldKing"] = p.isKoboldKing;
-			pj["isFaerie"] = p.isFaerie;
-			pj["isAssistant"] = p.isAssistant;
-			pj["directSummonerID"] = p.directSummonerID;
-			pj["assistantRerollUsedThisTurn"] = p.assistantRerollUsedThisTurn;
-			pj["freeKickTurns"] = p.freeKickTurns;
-			pj["inGhostForm"] = p.inGhostForm;
-			pj["ghostDamageTaken"] = p.ghostDamageTaken;
-			pj["hasDrawnThisTurn"] = p.hasDrawnThisTurn;
-			pj["hasDrawnCardsThisTurn"] = p.hasDrawnThisTurn; // legacy alias
-			pj["hasDrawnThisTurn_flag"] = p.hasDrawnThisTurn;
-			pj["nextTurnAPBonus"] = p.nextTurnAPBonus;
-			pj["shocksPlayedThisTurn"] = p.shocksPlayedThisTurn;
-			pj["flurryOfFistsActive"] = p.flurryOfFistsActive;
-			pj["isParalyzed"] = p.isParalyzed;
-			pj["paralysisHeadsCount"] = p.paralysisHeadsCount;
-			pj["isPoisoned"] = p.isPoisoned;
-			pj["poisonReduction"] = p.poisonReduction;
-			pj["nextAttackAddPoison"] = p.nextAttackAddPoison;
-			pj["nextTurnD10AP"] = p.nextTurnD10AP;
-			pj["nextTurnExtraDraw"] = p.nextTurnExtraDraw;
-			pj["nextTurnExtraDrawSetOnCycle"] = p.nextTurnExtraDrawSetOnCycle;
-			pj["strengthenElementsTurnsRemaining"] = p.strengthenElementsTurnsRemaining;
-			pj["sleepTurnsRemaining"] = p.sleepTurnsRemaining;
-			pj["inTortoiseForm"] = p.inTortoiseForm;
-			pj["tortoiseDamageTaken"] = p.tortoiseDamageTaken;
-			pj["deckNeedsShuffle"] = p.deckNeedsShuffle;
-			pj["nextTurnExtraDraw"] = p.nextTurnExtraDraw;
-			pj["nextTurnExtraDrawSetOnCycle"] = p.nextTurnExtraDrawSetOnCycle;
-			pj["summonedOnTurnCycle"] = p.summonedOnTurnCycle;
-			pj["summonOrder"] = p.summonOrder;
-
-			// Piles
-			for (const auto & c : p.hand)
-				pj["hand"].push_back(cardToJson(c));
-			for (const auto & c : p.deck)
-				pj["deck"].push_back(cardToJson(c));
-			for (const auto & c : p.discardPile)
-				pj["discard"].push_back(cardToJson(c));
-			for (const auto & c : p.playedCardsPile)
-				pj["playedPile"].push_back((int)c.type);
-			// Card types played this turn
-			for (const auto & ct : p.cardsPlayedThisTurn)
-				pj["cardsPlayedThisTurn"].push_back((int)ct);
-
-			j["players"].push_back(pj);
-		}
-
-		// Graveyard (serialize minimal)
-		for (const auto & g : graveyard) {
-			nlohmann::json gj;
-			gj["x"] = g.x;
-			gj["y"] = g.y;
-			gj["turnDied"] = g.turnDied;
-			j["graveyard"].push_back(gj);
-		}
-
-		// Serialize gameplay RNG state
-		try {
-			std::ostringstream sstr;
-			sstr << gameplayRNG;
-			j["gameplayRNG"] = sstr.str();
-		} catch (...) {
-			ofLogWarning("Save") << "Failed to serialize gameplayRNG; continuing without it.";
-		}
-
-		// Ensure save directory exists when using the saves folder
-		try {
-			namespace fs = std::filesystem;
-			fs::path dir = fs::path(fullPath).parent_path();
-			if (!dir.empty() && !fs::exists(dir)) fs::create_directories(dir);
-		} catch (...) { }
-
-		// Write file
-		std::ofstream ofs(fullPath);
+		std::ofstream ofs(fullPath, std::ios::binary);
 		if (!ofs) return false;
-		ofs << j.dump(2);
+		ofs << buildSnapshotString();
 		ofs.close();
-		ofLogNotice("Save") << "Saved game state to " << fullPath;
 		return true;
-	} catch (const std::exception & e) {
-		ofLogWarning("Save") << "Exception saving state: " << e.what();
+	} catch (...) {
 		return false;
 	}
 }
@@ -267,190 +76,27 @@ bool ofApp::saveGameStateToFile(const std::string & path) {
 bool ofApp::loadGameStateFromFile(const std::string & path) {
 	try {
 		std::string fullPath = makeSavePath(path);
-		std::ifstream ifs(fullPath);
+		std::ifstream ifs(fullPath, std::ios::binary);
 		if (!ifs) return false;
-		nlohmann::json j;
-		ifs >> j;
-
-		// If multiplayer, only host should load authoritative states and ensure steam id matches
-		if (isMultiplayer) {
-			if (!isHost()) {
-				ofLogWarning("Save") << "Only host may load saved game state in multiplayer.";
-				return false;
-			}
-			if (j.contains("hostSteamID")) {
-				uint64_t hostIdSaved = j.value("hostSteamID", (uint64_t)0);
-				uint64_t myId = steamManager.getLocalSteamID().ConvertToUint64();
-				if (hostIdSaved != 0 && hostIdSaved != myId) {
-					ofLogWarning("Save") << "Saved game host SteamID doesn't match local host. Aborting load.";
-					return false;
-				}
-			}
-		}
-
-		// Restore simple globals
-		globalTurnCounter = j.value("globalTurnCounter", globalTurnCounter);
-		currentPlayerIndex = j.value("currentPlayerIndex", currentPlayerIndex);
-
-		// Restore gameplay RNG state if present
-		if (j.contains("gameplayRNG") && j["gameplayRNG"].is_string()) {
-			try {
-				std::istringstream istr(j["gameplayRNG"].get<std::string>());
-				istr >> gameplayRNG;
-				ofLogNotice("Save") << "Restored gameplayRNG state from save.";
-			} catch (...) {
-				ofLogWarning("Save") << "Failed to restore gameplayRNG state from save.";
-			}
-		}
-
-		// Restore board flags
-		if (j.contains("board")) {
-			auto & boardJson = j["board"];
-			for (int x = 0; x < BOARD_WIDTH; ++x) {
-				for (int y = 0; y < BOARD_HEIGHT; ++y) {
-					try {
-						if (boardJson.is_array()) {
-							if ((int)boardJson.size() > x && boardJson[x].is_array() && (int)boardJson[x].size() > y) {
-								auto & bt = boardJson[x][y];
-								board[x][y].hasPlayer = bt.value("hasPlayer", false);
-								board[x][y].hasWall = bt.value("hasWall", false);
-								board[x][y].isMagicWall = bt.value("isMagicWall", false);
-								board[x][y].isHighlighted = bt.value("isHighlighted", false);
-								board[x][y].isTargetable = bt.value("isTargetable", false);
-								board[x][y].isTargetPreview = bt.value("isTargetPreview", false);
-							}
-						} else if (boardJson.is_object()) {
-							std::string sx = std::to_string(x);
-							std::string sy = std::to_string(y);
-							if (boardJson.contains(sx) && boardJson[sx].contains(sy)) {
-								auto & bt = boardJson[sx][sy];
-								board[x][y].hasPlayer = bt.value("hasPlayer", false);
-								board[x][y].hasWall = bt.value("hasWall", false);
-								board[x][y].isMagicWall = bt.value("isMagicWall", false);
-								board[x][y].isHighlighted = bt.value("isHighlighted", false);
-								board[x][y].isTargetable = bt.value("isTargetable", false);
-								board[x][y].isTargetPreview = bt.value("isTargetPreview", false);
-							}
-						}
-					} catch (...) {
-						// ignore malformed entries
-					}
-				}
-			}
-		}
-
-		// Restore players
-		players.clear();
-		if (j.contains("players") && j["players"].is_array()) {
-			for (const auto & pj : j["players"]) {
-				Player p;
-				p.x = pj.value("x", 0);
-				p.y = pj.value("y", 0);
-				if (pj.contains("visualPos") && pj["visualPos"].is_array() && pj["visualPos"].size() == 3) {
-					p.visualPos.x = pj["visualPos"][0].get<float>();
-					p.visualPos.y = pj["visualPos"][1].get<float>();
-					p.visualPos.z = pj["visualPos"][2].get<float>();
-				}
-				p.health = pj.value("health", p.health);
-				p.maxHealth = pj.value("maxHealth", p.maxHealth);
-				p.block = pj.value("block", p.block);
-				p.ward = pj.value("ward", p.ward);
-				p.barrier = pj.value("barrier", p.barrier);
-				p.holyBlock = pj.value("holyBlock", p.holyBlock);
-				p.playerID = pj.value("playerID", p.playerID);
-				p.ap = pj.value("ap", p.ap);
-				p.isMinion = pj.value("isMinion", p.isMinion);
-				p.ownerID = pj.value("ownerID", p.ownerID);
-				// Restore minion/model identity flags
-				p.isSkeleton = pj.value("isSkeleton", p.isSkeleton);
-				p.isGolem = pj.value("isGolem", p.isGolem);
-				p.isHellhound = pj.value("isHellhound", p.isHellhound);
-				p.isWolf = pj.value("isWolf", p.isWolf);
-				p.isKobold = pj.value("isKobold", p.isKobold);
-				p.isDemon = pj.value("isDemon", p.isDemon);
-				p.isWallUnit = pj.value("isWallUnit", p.isWallUnit);
-				p.isMagicWallUnit = pj.value("isMagicWallUnit", p.isMagicWallUnit);
-				p.isKoboldKing = pj.value("isKoboldKing", p.isKoboldKing);
-				p.isFaerie = pj.value("isFaerie", p.isFaerie);
-				p.isAssistant = pj.value("isAssistant", p.isAssistant);
-				p.directSummonerID = pj.value("directSummonerID", p.directSummonerID);
-				p.assistantRerollUsedThisTurn = pj.value("assistantRerollUsedThisTurn", p.assistantRerollUsedThisTurn);
-				p.freeKickTurns = pj.value("freeKickTurns", p.freeKickTurns);
-				p.inGhostForm = pj.value("inGhostForm", p.inGhostForm);
-				p.ghostDamageTaken = pj.value("ghostDamageTaken", p.ghostDamageTaken);
-				p.hasDrawnThisTurn = pj.value("hasDrawnThisTurn", p.hasDrawnThisTurn);
-				p.nextTurnAPBonus = pj.value("nextTurnAPBonus", p.nextTurnAPBonus);
-				p.shocksPlayedThisTurn = pj.value("shocksPlayedThisTurn", p.shocksPlayedThisTurn);
-				p.flurryOfFistsActive = pj.value("flurryOfFistsActive", p.flurryOfFistsActive);
-				p.isParalyzed = pj.value("isParalyzed", p.isParalyzed);
-				p.paralysisHeadsCount = pj.value("paralysisHeadsCount", p.paralysisHeadsCount);
-				p.isPoisoned = pj.value("isPoisoned", p.isPoisoned);
-				p.poisonReduction = pj.value("poisonReduction", p.poisonReduction);
-				p.nextAttackAddPoison = pj.value("nextAttackAddPoison", p.nextAttackAddPoison);
-				p.nextTurnD10AP = pj.value("nextTurnD10AP", p.nextTurnD10AP);
-				p.nextTurnExtraDraw = pj.value("nextTurnExtraDraw", p.nextTurnExtraDraw);
-				p.nextTurnExtraDrawSetOnCycle = pj.value("nextTurnExtraDrawSetOnCycle", p.nextTurnExtraDrawSetOnCycle);
-				p.strengthenElementsTurnsRemaining = pj.value("strengthenElementsTurnsRemaining", p.strengthenElementsTurnsRemaining);
-				p.sleepTurnsRemaining = pj.value("sleepTurnsRemaining", p.sleepTurnsRemaining);
-				p.inTortoiseForm = pj.value("inTortoiseForm", p.inTortoiseForm);
-				p.tortoiseDamageTaken = pj.value("tortoiseDamageTaken", p.tortoiseDamageTaken);
-				p.deckNeedsShuffle = pj.value("deckNeedsShuffle", p.deckNeedsShuffle);
-				p.nextTurnExtraDraw = pj.value("nextTurnExtraDraw", p.nextTurnExtraDraw);
-				p.nextTurnExtraDrawSetOnCycle = pj.value("nextTurnExtraDrawSetOnCycle", p.nextTurnExtraDrawSetOnCycle);
-				p.summonedOnTurnCycle = pj.value("summonedOnTurnCycle", p.summonedOnTurnCycle);
-				p.summonOrder = pj.value("summonOrder", p.summonOrder);
-
-				if (pj.contains("hand")) {
-					for (const auto & cj : pj["hand"])
-						p.hand.push_back(jsonToCard(cj));
-				}
-				if (pj.contains("deck")) {
-					for (const auto & cj : pj["deck"])
-						p.deck.push_back(jsonToCard(cj));
-				}
-				if (pj.contains("discard")) {
-					for (const auto & cj : pj["discard"])
-						p.discardPile.push_back(jsonToCard(cj));
-				}
-				if (pj.contains("cardsPlayedThisTurn")) {
-					for (const auto & v : pj["cardsPlayedThisTurn"])
-						p.cardsPlayedThisTurn.push_back((CardType)v.get<int>());
-				}
-
-				players.push_back(p);
-			}
-		}
-
-		// Rebuild board occupancy from players (ensure visibility)
-		for (int x = 0; x < BOARD_WIDTH; ++x)
-			for (int y = 0; y < BOARD_HEIGHT; ++y)
-				board[x][y].hasPlayer = false;
-		for (const auto & p : players) {
-			if (p.x >= 0 && p.x < BOARD_WIDTH && p.y >= 0 && p.y < BOARD_HEIGHT) {
-				board[p.x][p.y].hasPlayer = true;
-			}
-		}
-
-		ofLogNotice("Save") << "Loaded game state from " << fullPath;
+		std::stringstream buffer;
+		buffer << ifs.rdbuf();
+		ifs.close();
+		applySnapshotString(buffer.str());
 		return true;
-	} catch (const std::exception & e) {
-		ofLogWarning("Save") << "Exception loading state: " << e.what();
+	} catch (...) {
 		return false;
 	}
 }
 
 void ofApp::pruneOldSaves(int keepCount) {
-	// Best-effort cleanup hook; intentionally conservative to avoid deleting user saves unexpectedly.
-	(void)keepCount;
+	pruneOldStampedSaves(keepCount);
 }
-// Suppress warnings about unhandled enum values in switches across this file.
 
 void ofApp::startInitiativePhase() {
 	currentState = STATE_INITIATIVE_ROLL;
 	isInitiativeRolling = true;
 	initiativeTimer = 0.0f;
 
-	// All players roll initiative using shared deterministic RNG
 	startDiceRoll(1, 6, PURPOSE_DEBUG, "", currentPlayerIndex);
 	startDiceRoll(1, 6, PURPOSE_DEBUG, "", currentPlayerIndex);
 
@@ -458,30 +104,21 @@ void ofApp::startInitiativePhase() {
 	cam.setAspectRatio((float)ofGetWidth() / (float)ofGetHeight());
 	cam2.setAspectRatio((float)ofGetWidth() / (float)ofGetHeight());
 }
-// Define destructor to ensure vtable is emitted in this translation unit
-ofApp::~ofApp() { }
 
+ofApp::~ofApp() { }
 void ofApp::applyReplicateCopyToHand(Player & caster, const Card & playedCard) {
 	if (!caster.isReplicatePending) return;
 
-	// Do not replicate the Replicate card itself — Replicate should arm
-	// for the next card played, not create a copy of itself immediately.
 	if (playedCard.type == CARD_REPLICATE) {
-		// Keep replicate armed for the next played card and return.
 		caster.isReplicatePending = true;
 		return;
 	}
 
-	// Create a visual animation that flies the copied card from the board
-	// center into the caster's hand, and commit it when the animation
-	// completes. This avoids instantaneous appearance.
 	Card duplicateCard = playedCard;
 	duplicateCard.isCopied = true;
 
-	// Find the caster's index in players[] to assign animation ownership
 	int ownerIndex = findPlayerIndexByID(caster.playerID);
 	if (ownerIndex < 0) {
-		// Fallback: just push immediately if we can't find the owner
 		caster.hand.push_back(duplicateCard);
 		caster.isReplicatePending = (duplicateCard.type == CARD_REPLICATE);
 		return;
@@ -495,12 +132,10 @@ void ofApp::applyReplicateCopyToHand(Player & caster, const Card & playedCard) {
 	anim.ownerPlayerID = caster.playerID;
 	anim.toMinionHand = caster.isMinion;
 	anim.startIsScreenSpace = false;
-	// Start from approximate board center
 	glm::vec3 boardCenter = gridToWorld(3, 3);
 	anim.startPos = boardCenter;
 	anim.currentPos = glm::vec2(boardCenter.x, boardCenter.y);
 
-	// Compute target hand position for the owner (reserve space for incoming card)
 	size_t numCards = caster.hand.size() + 1;
 	float handCenterY = ofGetHeight() - 130;
 	float handBaseCardWidth = 120;
@@ -511,42 +146,34 @@ void ofApp::applyReplicateCopyToHand(Player & caster, const Card & playedCard) {
 	padding = std::min(padding, 20.0f);
 	float totalHandWidth = (cardsToFit * handBaseCardWidth) + ((cardsToFit - 1) * padding);
 	float startX = (ofGetWidth() - totalHandWidth) / 2.0f;
-	(void)startX; // unused
+	(void)startX;
 
-	// Compute actual spacing so the current cards are centered within the hand area
 	float totalActualCardWidths = (numCards > 0) ? (numCards * handBaseCardWidth) : 0;
 	float paddingActual = (numCards > 1) ? (handAreaWidth - totalActualCardWidths) / (numCards - 1) : 0;
 	paddingActual = std::min(paddingActual, 20.0f);
 	float totalActualHandWidth = (numCards > 0) ? ((numCards * handBaseCardWidth) + ((numCards - 1) * paddingActual)) : 0;
 	float startXActual = (ofGetWidth() - totalActualHandWidth) / 2.0f;
 
-	// Position the incoming card into the centered slot among actual cards
 	float cardCenterX = startXActual + (numCards - 1) * (handBaseCardWidth + paddingActual) + (handBaseCardWidth / 2.0f);
 	anim.targetPos = glm::vec2(cardCenterX, handCenterY);
 	anim.endPos = anim.startPos;
 	anim.currentScale = 1.0f;
-	anim.commitOnFinish = true; // will add to hand on completion
+	anim.commitOnFinish = true;
 
 	activeDrawCardAnimations.push_back(anim);
 
-	// Replicate is consumed by default; if the copied card is Replicate,
-	// re-arm it for the next card played.
 	caster.isReplicatePending = (duplicateCard.type == CARD_REPLICATE);
 }
-//--------------------------------------------------------------
+
 void ofApp::finishPlayCard(Player & caster, const Card & playedCard, int handIndex) {
-	// Add card to played pile
 	caster.playedCardsPile.push_back(playedCard);
-	// Remove from hand FIRST (before applying replicate, which might add cards)
 	if (handIndex >= 0 && handIndex < (int)caster.hand.size()) {
 		caster.hand.erase(caster.hand.begin() + handIndex);
 	}
-	// Apply replicate copy if pending (after removing original)
 	applyReplicateCopyToHand(caster, playedCard);
 }
-//--------------------------------------------------------------
+
 void ofApp::updatePlayerAP(Player & player, int newAP) {
-	// Find this player in the players vector and update AP
 	for (auto & p : players) {
 		if (&p == &player) {
 			p.ap = newAP;
@@ -554,41 +181,34 @@ void ofApp::updatePlayerAP(Player & player, int newAP) {
 		}
 	}
 }
-//--------------------------------------------------------------
+
 void ofApp::completeCardPlayAnimation(const Card & playedCard, int playerIndex) {
-	// Display the played card animation
 	createCardDisplay(playedCard, playerIndex);
-	// Invalidate targeting highlights
 	invalidateTargetCache();
-	// Track cards played this turn
 	if (playerIndex >= 0 && playerIndex < (int)players.size()) {
 		players[playerIndex].cardsPlayedThisTurn.push_back(playedCard.type);
 	}
-	// Update AP display for current player
 	if (playerIndex >= 0 && playerIndex < (int)players.size()) {
 		players[playerIndex].ap = currentAP;
 	}
 }
-//--------------------------------------------------------------
+
 int ofApp::applyDamageWithMitigations(Player & target, int baseDamage, DamageType type, int attackerIndex) {
 	int dmg = baseDamage;
-	// Apply barrier mitigation
 	int barrierDmg = std::min(target.barrier, dmg);
 	target.barrier -= barrierDmg;
 	dmg -= barrierDmg;
-	// Apply ward mitigation
 	if (dmg > 0) {
 		int wardDmg = std::min(target.ward, dmg);
 		target.ward -= wardDmg;
 		dmg -= wardDmg;
 	}
-	// Apply remaining damage to health
 	if (dmg > 0) {
 		target.health -= dmg;
 	}
-	return dmg; // Return actual damage dealt to health
+	return dmg;
 }
-//--------------------------------------------------------------
+
 Player ofApp::createSummonedMinion(CardType type, int targetX, int targetY, const Player & caster, int turnCounter, int & nextSummonID) {
 	Player minion;
 	minion.playerID = nextSummonID++;
@@ -599,29 +219,21 @@ Player ofApp::createSummonedMinion(CardType type, int targetX, int targetY, cons
 	minion.ownerID = caster.isMinion ? caster.ownerID : caster.playerID;
 	minion.summonedOnTurnCycle = turnCounter;
 	minion.summonOrder = ++nextSummonOrder;
-	// Card-specific setup happens after this call
 	return minion;
 }
-//--------------------------------------------------------------
+
 void ofApp::resolveMenuCardChoice(CardType cardType, int choiceIndex, Player & caster, Player * target) {
-	// This is a dispatcher stub; specific menu card logic remains in playCard handlers
-	// but this provides a unified entry point for future refactoring of menu resolution
 	(void)cardType;
 	(void)choiceIndex;
 	(void)caster;
 	(void)target;
-	// Specific handlers (Wisdom Boon, Burst, Double Handed, Dispel) will call this
-	// and it can be expanded to consolidate common menu logic in the future.
 }
-//--------------------------------------------------------------
+
 void ofApp::drawMinionCard(int minionIndex, int ownerIndex) {
-	// Safety checks
 	if (minionIndex < 0 || minionIndex >= (int)players.size()) return;
 	Player & minion = players[minionIndex];
 	if (!minion.isMinion) return;
 
-	// Determine how many cards this minion type should draw
-	// Determine how many cards this minion type should draw
 	int drawCount = minion.isDemon ? 3 : 2;
 	if (minion.nextTurnExtraDraw) {
 		drawCount++;
@@ -629,18 +241,14 @@ void ofApp::drawMinionCard(int minionIndex, int ownerIndex) {
 		minion.nextTurnExtraDrawSetOnCycle = -1;
 	}
 
-	// In multiplayer, the minion's owner should send the packet so the host/opponent
-	// receive an authoritative notification. `ownerIndex` is the owner's playerID.
 	if (isMultiplayer && ownerIndex == myLocalPlayerID && !processingNetworkPacket) {
 		DrawCardsPacket req = {};
 		req.type = PKT_DRAW_CARDS;
 		req.playerID = myLocalPlayerID;
 		req.playerIndex = minionIndex;
 		req.numCards = drawCount;
-		// clientActionID for watchdog deduplication
 		req.clientActionID = ++watchdogClientActionCounter;
 		steamManager.sendPacket(&req, sizeof(req));
-		ofLogNotice("Network") << "Sent Minion DrawCards packet: " << drawCount << " cards for minionIndex=" << minionIndex << " ownerPlayerID=" << ownerIndex;
 
 		if (isClient()) {
 			lastSentDrawCardsPacket = req;
@@ -649,24 +257,14 @@ void ofApp::drawMinionCard(int minionIndex, int ownerIndex) {
 		}
 	}
 
-	ofLogNotice("MinionDraw") << "drawMinionCard: minionIndex=" << minionIndex << " ownerIndex=" << ownerIndex << " drawCount=" << drawCount << " deckSize=" << minion.deck.size() << " discardSize=" << minion.discardPile.size();
-
-	int pushedAnimsBefore = (int)activeDrawCardAnimations.size();
 	int pushedAnims = 0;
-
-	// Perform the authoritative draw logic locally (for single-player, host, and client)
 	for (int i = 0; i < drawCount; ++i) {
 		if (minion.deck.empty()) {
 			if (minion.discardPile.empty()) break;
 			minion.deck = minion.discardPile;
-			// Spawn shuffle animation for this minion's owner deck
 			{
 				ShuffleAnimation s;
-				// Use the minion's actor index for the animation owner, and the
-				// minion's owner (playerID) to pick the correct UI deck rect.
 				s.playerIndex = minionIndex;
-				// If we have a Minion UI for this minion, target its deck rect; otherwise
-				// fall back to the owning player's deck rect (p0/p1).
 				bool assignedRect = false;
 				for (const auto & mui : activeMinionUIs) {
 					if (mui.playerIndex == minionIndex) {
@@ -680,7 +278,6 @@ void ofApp::drawMinionCard(int minionIndex, int ownerIndex) {
 					if (ownerSlot >= 0) {
 						s.deckRect = (players[ownerSlot].playerID == 0) ? p0_deckRect : p1_deckRect;
 					} else {
-						// Fallback: choose p0/p1 based on ownerID directly
 						s.deckRect = (minion.ownerID == 0) ? p0_deckRect : p1_deckRect;
 					}
 				}
@@ -691,20 +288,18 @@ void ofApp::drawMinionCard(int minionIndex, int ownerIndex) {
 			minion.discardPile.clear();
 			shuffleGameVector(minion.deck, minionIndex);
 		}
+
 		if (!minion.deck.empty()) {
 			Card drawn = minion.deck.back();
 			minion.deck.pop_back();
 			drawn.drawnThisTurn = true;
-			// Commit the drawn card to the minion's hand immediately (visual-only animation)
 			minion.hand.push_back(drawn);
-			// Mark that this minion has performed its once-per-turn draw
 			minion.hasDrawnThisTurn = true;
 			minion.hand.back().currentScale = 1.5f;
 			minion.hand.back().targetScale = 1.5f;
 			minion.hand.back().drawnThisTurn = true;
 			minion.hand.back().isAnimating = true;
 
-			// Setup animation: from minion's deck to minion's hand (simple, quick)
 			DrawCardAnimation anim;
 			anim.card = drawn;
 			anim.startTime = ofGetElapsedTimef();
@@ -713,12 +308,11 @@ void ofApp::drawMinionCard(int minionIndex, int ownerIndex) {
 			anim.toMinionHand = true;
 			anim.startPos = gridToWorld(minion.x, minion.y) + glm::vec3(0, 1.5f, 0);
 
-			// Compute final hand slot: account for current hand and other animations targeting this minion
 			int animatingToThis = 0;
 			for (const auto & a : activeDrawCardAnimations) {
 				if (a.ownerIndex == minionIndex && a.toMinionHand) animatingToThis++;
 			}
-			size_t numCards = minion.hand.size() + 1 + animatingToThis; // as-if this card were present
+			size_t numCards = minion.hand.size() + 1 + animatingToThis;
 			float handCenterY = ofGetHeight() - 160;
 			float handBaseCardWidth = 120;
 			float cardsToFit = std::max(5, (int)numCards);
@@ -732,29 +326,20 @@ void ofApp::drawMinionCard(int minionIndex, int ownerIndex) {
 			anim.targetPos = glm::vec2(cardCenterX, handCenterY);
 			anim.endPos = anim.startPos;
 			ofVec3f sp = getActiveCamera().worldToScreen(anim.startPos);
-			// Offset simultaneous draws slightly so multiple flying cards are visible
-			int offsetIndex = animatingToThis + pushedAnims; // include ones we're adding in this batch
+			int offsetIndex = animatingToThis + pushedAnims;
 			float uiScaleLocal = ofGetHeight() / 1080.0f;
 			float perCardOffset = std::clamp(84.0f * uiScaleLocal, 36.0f, 160.0f);
-			float offsetPixels = offsetIndex * perCardOffset; // shift each successive card to the right
+			float offsetPixels = offsetIndex * perCardOffset;
 			anim.startIsScreenSpace = true;
 			anim.currentPos = glm::vec2((float)sp.x + offsetPixels, (float)sp.y);
 			anim.startPos = glm::vec3(anim.currentPos.x, anim.currentPos.y, 0);
 			anim.currentScale = 1.0f;
-
 			anim.commitOnFinish = false;
 			activeDrawCardAnimations.push_back(anim);
 			pushedAnims++;
-			ofLogNotice("MinionDraw") << "Pushed draw animation for minionIndex=" << minionIndex << " card='" << drawn.name << "' animCountNow=" << (pushedAnimsBefore + pushedAnims);
 		}
 	}
 
-	ofLogNotice("MinionDraw") << "drawMinionCard complete: minionIndex=" << minionIndex << " pushedAnims=" << pushedAnims << " totalActiveAnims=" << activeDrawCardAnimations.size();
-
-	// Visual feedback: removed "Minion Draw!" floating text per UX request
-	// (previously: spawnFloatingText(gridToWorld(minion.x, minion.y), "Minion Draw!", ofColor::yellow));
-
-	// Mark drawn flag for the owner so main-deck outline clears correctly
 	if (ownerIndex >= 0) {
 		if (ownerIndex == myLocalPlayerID)
 			hasDrawnCardsThisTurn = true;
@@ -762,20 +347,16 @@ void ofApp::drawMinionCard(int minionIndex, int ownerIndex) {
 			opponentHasDrawnCardsThisTurn = true;
 	}
 }
-//--------------------------------------------------------------
 
 void ofApp::checkKeyPickupAndDraftAfterSummon(int x, int y, int minionOwnerID) {
-	// Only process key pickup on host (or singleplayer)
 	if (!isMultiplayer || isHost()) {
 		for (int k = 0; k < (int)floatingKeyInstances.size(); ++k) {
 			if (floatingKeyInstances[k].pos.x == x && floatingKeyInstances[k].pos.y == y) {
-				int keySet = floatingKeyInstances[k].set; // Get the key set
-				floatingKeyInstances.erase(floatingKeyInstances.begin() + k); // Remove the key instance
-				// Map key set to draft class tier
+				int keySet = floatingKeyInstances[k].set;
+				floatingKeyInstances.erase(floatingKeyInstances.begin() + k);
 				int classToDraft = (keySet == 3) ? 1 : (keySet == 2) ? 2
 																	 : 3;
 
-				// Determine target actor: prefer the minion at the tile, otherwise the owning player
 				int targetIndex = -1;
 				for (int p = 0; p < (int)players.size(); ++p) {
 					if (players[p].isMinion && players[p].x == x && players[p].y == y) {
@@ -803,12 +384,10 @@ void ofApp::checkKeyPickupAndDraftAfterSummon(int x, int y, int minionOwnerID) {
 						kpkt.keyX = x;
 						kpkt.keyY = y;
 						steamManager.sendPacket(&kpkt, sizeof(kpkt));
-						ofLogNotice("Network") << "Host sent KeyPickup: playerIndex=" << targetIndex << " class=" << classToDraft;
 					}
 
-					// Enter draft state for the target
 					isInGameDraft = true;
-					inGameDraftTargetIdx = targetIndex; // HOST: Remember which player gets this draft
+					inGameDraftTargetIdx = targetIndex;
 					draftPlayerIndex = targetIndex;
 					generateDraftOptions(classToDraft);
 					draftPicksRemaining = 1;
@@ -821,9 +400,6 @@ void ofApp::checkKeyPickupAndDraftAfterSummon(int x, int y, int minionOwnerID) {
 					else if (keySet == 3)
 						keyCol = ofColor(205, 127, 50);
 					spawnFloatingText(gridToWorld(x, y), "Key Found!", keyCol);
-
-					int loggedPlayerID = (targetIndex >= 0 && targetIndex < (int)players.size()) ? players[targetIndex].playerID : minionOwnerID;
-					ofLogNotice("Key") << "Player " << loggedPlayerID << " picked up key (Class " << classToDraft << ")";
 				}
 				break;
 			}
@@ -3913,8 +3489,9 @@ void ofApp::updateGame() {
 	// 1. UPDATE UI POSITIONS
 	updateDebugRects();
 
-	// 2. Magic Blast / Dispel Freeze Check
-	if (isMagicBlastChoiceActive || isDispelMenuOpen || isDispelTargeting || isDispelStatusSelectOpen || isBurstMenuOpen) {
+	// 2. Modal freeze check (unified card interaction + special legacy Magic Blast)
+	bool hasUnifiedCardModal = (cardInteractionState == CARD_INTERACTION_MENU || cardInteractionState == CARD_INTERACTION_STATUS);
+	if (isMagicBlastChoiceActive || hasUnifiedCardModal) {
 		return;
 	}
 
@@ -9141,15 +8718,7 @@ void ofApp::drawGame() {
 		pileViewRect.set(0, 0, 0, 0);
 	}
 
-	// --- Draw Magic Hand UI ---
-	if (isMagicHandMenuOpen) {
-		drawMagicHandUI();
-	}
-
-	// --- Draw Train Menu UI ---
-	if (isTrainMenuOpen) {
-		drawTrainMenuUI();
-	}
+	// Menu-capable card UIs are now drawn centrally by drawActiveCardInteractionUI().
 
 	// --- Draw Amnesia Selection UI ---
 	if (isAmnesiaSelectionActive) {
@@ -9362,23 +8931,6 @@ void ofApp::drawGame() {
 	// --- DRAW OVERLAY UIs ---
 	if (isMagicBlastChoiceActive) {
 		drawMagicBlastChoiceUI();
-	}
-	if (isDispelMenuOpen || isDispelTargeting || isDispelStatusSelectOpen) {
-		drawDispelUI();
-	}
-	// ADD THIS:
-	if (isWisdomBoonMenuOpen) {
-		drawWisdomBoonUI();
-	}
-	if (isDoubleHandedMenuOpen) {
-		drawDoubleHandedUI();
-	}
-	if (isAmnesiaMenuOpen) {
-		drawAmnesiaMenuUI();
-	}
-	// FIX: Added Burst UI call
-	if (isBurstMenuOpen) {
-		drawBurstUI();
 	}
 
 	// === PHASE 2-3: NEW UNIFIED CARD INTERACTION UI ===
@@ -9827,13 +9379,11 @@ void ofApp::drawGame() {
 		string msg = interactionCard.name + ": Choose target";
 		if (interactingCardType == CARD_TELEPORT) {
 			msg = "Teleport: Choose destination (Range: " + ofToString(pendingTeleportRollResult) + " ft)";
+		} else if (interactingCardType == CARD_DOUBLE_HANDED) {
+			msg = "Double Handed: Choose self or adjacent unit";
+		} else if (interactingCardType == CARD_BURST_OF_LIGHT) {
+			msg = "Burst of Light: Choose a target unit";
 		}
-		drawInstructionText(msg);
-	}
-
-	// --- DOUBLE HANDED TARGETING INSTRUCTION TEXT ---
-	if (isTargetingDoubleHanded) {
-		string msg = "Double Handed: Choose self or adjacent unit";
 		drawInstructionText(msg);
 	}
 
@@ -9860,12 +9410,6 @@ void ofApp::drawGame() {
 		// Text (yellow/gold for dice results)
 		ofSetColor(ofColor::gold);
 		titleFont.drawString(diceRollResultText, tx, ty);
-	}
-
-	// FIX: Added Burst Targeting Instructions
-	if (isTargetingBurst) {
-		string msg = "Burst of Light: Choose a target unit";
-		drawInstructionText(msg);
 	}
 
 	// --- HEAL / LESSER HEAL TARGETING INSTRUCTION ---
@@ -9910,8 +9454,8 @@ void ofApp::drawGame() {
 
 	// --- GENERIC CARD TARGETING INSTRUCTION ---
 	// For all other cards using the generic targeting system (selectedCardIndex)
-	// Only exclude cards that need custom formatting (Teleport shows range, Burst/Double Handed show choices, Amnesia has menu)
-	if (cardInteractionState != CARD_INTERACTION_TARGETING && selectedCardIndex != -1 && currentPlayerIndex >= 0 && !isTargetingTeleport && !isTargetingDoubleHanded && !isTargetingBurst && !isTargetingAmnesia) {
+	// Only exclude cards that need custom formatting (Teleport shows range, Amnesia has menu)
+	if (cardInteractionState != CARD_INTERACTION_TARGETING && selectedCardIndex != -1 && currentPlayerIndex >= 0 && !isTargetingTeleport && !isTargetingAmnesia) {
 		Player & currentPlayer = players[currentPlayerIndex];
 		if (selectedCardIndex < (int)currentPlayer.hand.size()) {
 			Card & selectedCard = currentPlayer.hand[selectedCardIndex];
@@ -10085,7 +9629,15 @@ void ofApp::mouseMoved(int x, int y) {
 		int gy = floor(boardPos.y);
 
 		if (gx >= 0 && gx < BOARD_WIDTH && gy >= 0 && gy < BOARD_HEIGHT) {
-			bool isTargetingMode = (draggedCardIndex != -1) || (selectedCardIndex != -1) || isTargetingMagicBolt || isTargetingTeleport || isTargetingHellhound || isTargetingChainLightning || isTargetingAmnesia || isTargetingDoubleHanded || isTargetingTortoiseDamage;
+			bool isTargetingMode = (draggedCardIndex != -1)
+				|| (selectedCardIndex != -1)
+				|| (cardInteractionState == CARD_INTERACTION_TARGETING)
+				|| isTargetingMagicBolt
+				|| isTargetingTeleport
+				|| isTargetingHellhound
+				|| isTargetingChainLightning
+				|| isTargetingAmnesia
+				|| isTargetingTortoiseDamage;
 			bool isMovingMode = (playerAction == PIECE_SELECTED);
 
 			if (!isTargetingMode && board[gx][gy].hasPlayer && newHoverType == HOVER_NONE) {
@@ -10240,8 +9792,8 @@ cursor_check_done:;
 			activeCardForHighlight = chainLightningCardIndex;
 		else if (isTargetingAmnesia)
 			activeCardForHighlight = pendingAmnesiaCardIndex;
-		else if (isTargetingDoubleHanded)
-			activeCardForHighlight = pendingDoubleHandedCardIndex;
+		else if (cardInteractionState == CARD_INTERACTION_TARGETING)
+			activeCardForHighlight = interactingCardIndex;
 		else if (isTargetingMagicBolt)
 			activeCardForHighlight = magicBoltCardIndex;
 		else if (isTargetingDeath)
@@ -10806,9 +10358,9 @@ void ofApp::mousePressed(int x, int y, int button) {
 	// === CARD STATE MACHINE INPUT HANDLER ===
 	// Centralized interaction state is authoritative for click routing.
 	if (currentState == STATE_GAMEPLAY) {
-		if (cardInteractionState == CARD_INTERACTION_MENU || cardInteractionState == CARD_INTERACTION_TARGETING) {
+		if (cardInteractionState == CARD_INTERACTION_MENU || cardInteractionState == CARD_INTERACTION_TARGETING || cardInteractionState == CARD_INTERACTION_STATUS) {
 			processCardStateInput(x, y, button);
-			if (cardInteractionState == CARD_INTERACTION_MENU || cardInteractionState == CARD_INTERACTION_TARGETING) return;
+			if (cardInteractionState == CARD_INTERACTION_MENU || cardInteractionState == CARD_INTERACTION_TARGETING || cardInteractionState == CARD_INTERACTION_STATUS) return;
 		}
 
 		// Keep dice lockout from the legacy play-state while visuals are still active.
@@ -12165,1412 +11717,6 @@ void ofApp::mousePressed(int x, int y, int button) {
 	}
 
 	// ==================================================================================
-	// === PHASE 3 CLEANUP: OLD PER-CARD HANDLERS COMMENTED OUT (REPLACED BY PHASE 2) ===
-	// === The following 1300+ lines of per-card targeting/menu logic have been       ===
-	// === consolidated into centralized handlers:                                    ===
-	// ===   - handleCardDragToPlay() in mouseReleased()                              ===
-	// ===   - handleCardTargetClick() in processCardStateInput()                     ===
-	// ===   - handleCardMenuClick() in processCardStateInput()                       ===
-	// === These old handlers are preserved here for reference during transition.     ===
-	// ==================================================================================
-	/*
-	// --- 1a. Magic Blast Choice Menu ---
-	if (isMagicBlastChoiceActive && button == OF_MOUSE_BUTTON_LEFT) {
-		Player * targetPlayer = getPlayer(magicBlastTargetPlayerIndex);
-		if (!targetPlayer) {
-			// Logic to try and find the next splash target if the current one became invalid
-			while (!magicBlastSplashTargetIndices.empty()) {
-				int pid = magicBlastSplashTargetIndices.front();
-				magicBlastSplashTargetIndices.erase(magicBlastSplashTargetIndices.begin());
-				int idx = findPlayerIndexByID(pid);
-				if (idx != -1) {
-					magicBlastTargetPlayerIndex = idx;
-					magicBlastChoicesRemaining = 1;
-					return;
-				}
-				// otherwise continue to next queued pid
-			}
-			isMagicBlastChoiceActive = false;
-			return;
-		}
-		// Only allow the correct player to interact in multiplayer
-		if (isMultiplayer && targetPlayer->playerID != myLocalPlayerID) {
-			return;
-		}
-		bool choiceMade = false;
-		if (magicBlastDamageButton.inside(x, y)) {
-			int damage = 5;
-
-			// --- MITIGATION LOGIC (Magic) ---
-			// 1. Barrier (Blocks Magic)
-			int barrierDamage = std::min(targetPlayer->barrier, damage);
-			targetPlayer->barrier -= barrierDamage;
-			damage -= barrierDamage;
-
-			// 2. Ward (Blocks Everything)
-			if (damage > 0) {
-				int wardDamage = std::min(targetPlayer->ward, damage);
-				targetPlayer->ward -= wardDamage;
-				damage -= wardDamage;
-			}
-
-			// 3. Health
-			if (damage > 0) {
-				targetPlayer->health -= damage;
-				spawnFloatingText(gridToWorld(targetPlayer->x, targetPlayer->y), "-" + ofToString(damage) + " Magic", ofColor::red);
-
-				// Form tracking
-				if (targetPlayer->inTortoiseForm) {
-					targetPlayer->tortoiseDamageTaken += damage;
-					if (targetPlayer->tortoiseDamageTaken >= 5) {
-						targetPlayer->inTortoiseForm = false;
-						targetPlayer->tortoiseDamageTaken = 0;
-						targetPlayer->discardPile.push_back(targetPlayer->tortoiseFormCard);
-						spawnFloatingText(gridToWorld(targetPlayer->x, targetPlayer->y) + glm::vec3(0, 0.5f, 0), "Form Ended!", ofColor::darkGreen);
-					}
-				}
-				if (targetPlayer->inGhostForm) {
-					targetPlayer->ghostDamageTaken += damage;
-					if (targetPlayer->ghostDamageTaken >= 4) {
-						targetPlayer->inGhostForm = false;
-						targetPlayer->ghostDamageTaken = 0;
-						targetPlayer->discardPile.push_back(targetPlayer->ghostFormCard);
-						spawnFloatingText(gridToWorld(targetPlayer->x, targetPlayer->y) + glm::vec3(0, 0.5f, 0), "Ghost Form Broken!", ofColor::white);
-						if (board[targetPlayer->x][targetPlayer->y].hasWall) targetPlayer->health = 0;
-					}
-				}
-			} else {
-				spawnFloatingText(gridToWorld(targetPlayer->x, targetPlayer->y), "Absorbed", ofColor::gray);
-			}
-
-			ofLogNotice("MagicBlast") << "Player " << targetPlayer->playerID << " chose Damage (Magic).";
-			choiceMade = true;
-			(void)choiceMade; // unused
-		}
-
-		if (magicBlastDiscardButton.inside(x, y)) {
-			// Remove top card of deck (if any) and place into discard
-			if (!targetPlayer->deck.empty()) {
-				Card removed = targetPlayer->deck.back();
-				targetPlayer->deck.pop_back();
-				targetPlayer->discardPile.push_back(removed);
-				spawnFloatingText(gridToWorld(targetPlayer->x, targetPlayer->y), "Discarded: " + removed.name, ofColor::white);
-				ofLogNotice("MagicBlast") << "Player " << targetPlayer->playerID << " discarded top card: " << removed.name;
-			} else {
-				spawnFloatingText(gridToWorld(targetPlayer->x, targetPlayer->y), "No Cards", ofColor::gray);
-				ofLogNotice("MagicBlast") << "Player " << targetPlayer->playerID << " attempted to discard but deck empty.";
-			}
-
-			choiceMade = true;
-		}
-
-		if (choiceMade) {
-			magicBlastChoicesRemaining--;
-			if (magicBlastChoicesRemaining <= 0) {
-				if (!magicBlastSplashTargetIndices.empty()) {
-					// pop queued playerIDs until we find a live player, or exhaust the list
-					bool moved = false;
-					while (!magicBlastSplashTargetIndices.empty()) {
-						int pid = magicBlastSplashTargetIndices.front();
-						magicBlastSplashTargetIndices.erase(magicBlastSplashTargetIndices.begin());
-						int idx = findPlayerIndexByID(pid);
-						if (idx != -1) {
-							magicBlastTargetPlayerIndex = idx;
-							magicBlastChoicesRemaining = 1;
-							moved = true;
-							break;
-						}
-					}
-					if (moved) {
-						ofLogNotice("MagicBlast") << "Moving to splash target...";
-					} else {
-						isMagicBlastChoiceActive = false;
-						magicBlastTargetPlayerIndex = -1;
-						ofLogNotice("MagicBlast") << "Sequence Complete.";
-					}
-				} else {
-					isMagicBlastChoiceActive = false;
-					magicBlastTargetPlayerIndex = -1;
-					ofLogNotice("MagicBlast") << "Sequence Complete.";
-				}
-			}
-		}
-		return;
-	}
-
-	// --- 1b. Dispel Menu ---
-	if (isDispelMenuOpen && button == OF_MOUSE_BUTTON_LEFT) {
-		if (dispelBtnBarrier.inside(x, y) || dispelBtnPurge.inside(x, y)) {
-			Player * target = getPlayer(pendingDispelTargetIndex);
-			if (!target) {
-				cancelDispel();
-				return;
-			}
-
-			if (dispelBtnBarrier.inside(x, y)) {
-				// Barrier mode: apply D20 roll to selected target
-				Player & p = players[currentPlayerIndex];
-				if (pendingDispelCardIndex < 0 || pendingDispelCardIndex >= (int)p.hand.size()) {
-					cancelDispel();
-					return;
-				}
-				Card dispelCard = p.hand[pendingDispelCardIndex];
-				if (isMultiplayer) {
-					queueMenuChoice(CARD_DISPEL, pendingDispelTargetIndex, 1, pendingDispelCardIndex, dispelCard.name);
-					cancelDispel();
-					return;
-				}
-				isWaitingForBarrierDice = true;
-				pendingDispelRollResult = startDiceRoll(1, 20, PURPOSE_BARRIER_GAIN, "Dispel: Barrier Amount", currentPlayerIndex);
-				currentAP -= dispelCard.cost;
-				p.discardPile.push_back(dispelCard);
-				p.hand.erase(p.hand.begin() + pendingDispelCardIndex);
-				updatePlayerAP(players[currentPlayerIndex], currentAP);
-				cancelDispel();
-			} else {
-				// Purge mode: open status selection for selected target
-				determineStatusOptions(target);
-			}
-		} else if (!dispelMenuRect.inside(x, y)) {
-			cancelDispel();
-		}
-		return;
-	}
-
-	// --- 1c. Dispel Status Selection ---
-	if (isDispelStatusSelectOpen && button == OF_MOUSE_BUTTON_LEFT) {
-		bool clickedOption = false;
-		for (size_t i = 0; i < statusSelectButtons.size(); i++) {
-			if (statusSelectButtons[i].inside(x, y)) {
-				Player* target = getPlayer(pendingDispelTargetIndex);
-				if (target && pendingDispelCardIndex != -1 && currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) {
-					Player& p = players[currentPlayerIndex];
-					int cost = p.hand[pendingDispelCardIndex].cost;
-					std::string cardName = p.hand[pendingDispelCardIndex].name;
-					if (isMultiplayer) {
-						queueStatusAction(pendingDispelCardIndex, target->x, target->y, (int)i, cost, cardName);
-						isDispelStatusSelectOpen = false;
-						pendingDispelCardIndex = -1;
-						pendingDispelTargetIndex = -1;
-					} else {
-						// Singleplayer: call directly
-						applyDispelEffect((int)i);
-					}
-				}
-				clickedOption = true;
-				break;
-			}
-		}
-		if (!clickedOption && !statusSelectMenuRect.inside(x, y)) {
-			cancelDispel();
-		}
-		return;
-	}
-
-	// --- 1d. Dispel Targeting ---
-	if (isDispelTargeting && button == OF_MOUSE_BUTTON_LEFT) {
-		ofVec2f boardPos = mouseToBoard(x, y);
-		int gx = floor(boardPos.x);
-		int gy = floor(boardPos.y);
-		bool foundTarget = false;
-		if (gx >= 0 && gx < BOARD_WIDTH && gy >= 0 && gy < BOARD_HEIGHT) {
-			for (size_t i = 0; i < players.size(); i++) {
-				if (players[i].x == gx && players[i].y == gy) {
-					Player & curr = players[currentPlayerIndex];
-					if (abs(curr.x - gx) + abs(curr.y - gy) <= 1) {
-						pendingDispelTargetIndex = (int)i;
-
-						if (dispelMode == 0) {
-							// New flow: target first, then open menu
-							isDispelTargeting = false;
-							isDispelMenuOpen = true;
-							float w = 600, h = 300;
-							float mx = ofGetWidth() / 2 - w / 2, my = ofGetHeight() / 2 - h / 2;
-							dispelMenuRect.set(mx, my, w, h);
-							float btnWidth = 260;
-							float btnHeight = 80;
-							float spacing = 30;
-							float totalBtnWidth = (btnWidth * 2) + spacing;
-							float startX = mx + (w - totalBtnWidth) / 2;
-							float btnY = my + 130;
-							dispelBtnBarrier.set(startX, btnY, btnWidth, btnHeight);
-							dispelBtnPurge.set(startX + btnWidth + spacing, btnY, btnWidth, btnHeight);
-						} else if (dispelMode == 1) {
-							Player & p = players[currentPlayerIndex];
-							Card dispelCard = p.hand[pendingDispelCardIndex];
-							if (isMultiplayer) {
-								queueMenuChoice(CARD_DISPEL, pendingDispelTargetIndex, 1, pendingDispelCardIndex, dispelCard.name);
-								cancelDispel();
-								return;
-							}
-							isWaitingForBarrierDice = true;
-							pendingDispelRollResult = startDiceRoll(1, 20, PURPOSE_BARRIER_GAIN, "Dispel: Barrier Amount", currentPlayerIndex);
-							currentAP -= dispelCard.cost;
-							p.discardPile.push_back(dispelCard);
-							p.hand.erase(p.hand.begin() + pendingDispelCardIndex);
-							updatePlayerAP(players[currentPlayerIndex], currentAP);
-							cancelDispel();
-						} else if (dispelMode == 2) {
-							determineStatusOptions(&players[i]);
-						}
-						foundTarget = true;
-					}
-					break;
-				}
-			}
-		}
-		if (!foundTarget) cancelDispel();
-		return;
-	}
-
-	// --- Train Menu Interaction ---
-	if (isTrainMenuOpen && button == OF_MOUSE_BUTTON_LEFT) {
-		Player & p = players[currentPlayerIndex];
-
-		if (trainBtnAP.inside(x, y) || trainBtnDraft.inside(x, y)) {
-			int cardIndex = pendingTrainCardIndex;
-			int cost = (cardIndex >= 0 && cardIndex < (int)p.hand.size()) ? p.hand[cardIndex].cost : 0;
-			std::string cardName = (cardIndex >= 0 && cardIndex < (int)p.hand.size()) ? p.hand[cardIndex].name : "";
-			int menuChoice = trainBtnAP.inside(x, y) ? 1 : 2;
-
-			if (isMultiplayer) {
-				queueMenuChoice(CARD_TRAIN, currentPlayerIndex, menuChoice, cardIndex, cardName);
-				isTrainMenuOpen = false;
-				pendingTrainCardIndex = -1;
-				calculateTargetHighlights();
-				return;
-			}
-
-			// Resolve locally first so UI updates immediately
-			if (menuChoice == 1) {
-				p.nextTurnAPBonus += 3;
-				ofLogNotice("APDebug") << "Train: playerIndex=" << currentPlayerIndex << " nextTurnAPBonus(after)=" << p.nextTurnAPBonus;
-				spawnFloatingText(gridToWorld(p.x, p.y), "+3 AP next turn", ofColor::yellow);
-			} else {
-				isInGameDraft = true;
-				draftPlayerIndex = currentPlayerIndex;
-				generateDraftOptions(1); // Class 1
-				draftPicksRemaining = 1;
-				selectedDraftIndices.clear();
-				draftStage = 0;
-				currentState = STATE_DRAFTING;
-			}
-			currentAP -= cost;
-			Card trainCard = p.hand[cardIndex];
-			finishPlayCard(p, trainCard, cardIndex);
-			updatePlayerAP(p, currentAP);
-			updatePlayerAP(players[currentPlayerIndex], currentAP);
-
-			isTrainMenuOpen = false;
-			pendingTrainCardIndex = -1;
-			calculateTargetHighlights();
-		}
-		// Click outside does not cancel (must choose)
-		return;
-	}
-
-	// --- 1e. Wisdom Boon Menu ---
-	if (isWisdomBoonMenuOpen && button == OF_MOUSE_BUTTON_LEFT) {
-		Player * target = getPlayer(pendingWisdomBoonTargetIndex);
-		Player & caster = players[currentPlayerIndex];
-		if (!target) {
-			cancelWisdomBoon();
-			return;
-		}
-
-		int effectValue = (int)caster.deck.size();
-		bool isSelfTarget = (pendingWisdomBoonTargetIndex == currentPlayerIndex);
-
-		if (wisdomBtnDamage.inside(x, y)) {
-			int cardIndex = pendingWisdomBoonCardIndex;
-			int cost = (cardIndex >= 0 && cardIndex < (int)caster.hand.size()) ? caster.hand[cardIndex].cost : 0;
-			std::string cardName = (cardIndex >= 0 && cardIndex < (int)caster.hand.size()) ? caster.hand[cardIndex].name : "";
-
-			if (isMultiplayer) {
-				queueMenuChoice(CARD_WISDOM_BOON, pendingWisdomBoonTargetIndex, 1, cardIndex, cardName);
-				cancelWisdomBoon();
-				calculateTargetHighlights();
-				return;
-			}
-
-			// Resolve locally first so UI updates immediately
-			glm::vec3 targetPos = gridToWorld(target->x, target->y);
-			if (isSelfTarget) {
-				target->block += effectValue;
-				spawnFloatingText(targetPos, "+" + ofToString(effectValue) + " Block", ofColor::gray);
-			} else {
-				int dmgDealt = applyDamageWithMitigations(*target, effectValue, DAMAGE_MAGIC, currentPlayerIndex);
-				if (dmgDealt > 0) {
-					spawnFloatingText(targetPos, "-" + ofToString(dmgDealt) + " Magic", ofColor::red);
-				} else {
-					spawnFloatingText(targetPos, "Absorbed", ofColor::gray);
-				}
-			}
-			updatePlayerAP(caster, currentAP);
-			Card playedCard = caster.hand[cardIndex];
-			finishPlayCard(caster, playedCard, pendingWisdomBoonCardIndex);
-			if (isSelfTarget) {
-				tryTriggerShellSpike();
-			}
-
-			cancelWisdomBoon();
-			calculateTargetHighlights();
-		} else if (!wisdomMenuRect.inside(x, y)) {
-			cancelWisdomBoon();
-			return;
-		}
-		return;
-	}
-
-	// --- 1e2. Burst of Light Menu ---
-	if (isBurstMenuOpen && button == OF_MOUSE_BUTTON_LEFT) {
-		if (burstBtnDamage.inside(x, y) || burstBtnHeal.inside(x, y)) {
-			burstChoice = burstBtnDamage.inside(x, y) ? 0 : 1;
-
-			Player & caster = players[currentPlayerIndex];
-			Player * target = getPlayer(pendingBurstTargetIndex);
-			if (!target) {
-				cancelBurst();
-				return;
-			}
-
-
-			// Self-target Burst must heal; never allow self-damage.
-			if (pendingBurstTargetIndex == currentPlayerIndex && burstChoice == 0) {
-				burstChoice = 1;
-			}
-
-			// Healing cannot be selected on a full-HP target.
-			if (burstChoice == 1 && target->health >= target->maxHealth) {
-				spawnFloatingText(gridToWorld(target->x, target->y), "Already Full HP", ofColor::gray);
-				return;
-			}
-
-			int cardIndex = pendingBurstCardIndex;
-			std::string cardName = (cardIndex >= 0 && cardIndex < (int)caster.hand.size()) ? caster.hand[cardIndex].name : "";
-			if (isMultiplayer) {
-				int menuChoice = (burstChoice == 0) ? 1 : 2;
-				queueMenuChoice(CARD_BURST_OF_LIGHT, pendingBurstTargetIndex, menuChoice, cardIndex, cardName);
-				cancelBurst();
-				calculateTargetHighlights();
-				return;
-			}
-
-			if (burstChoice == 0) {
-				EffectOp burstDamageOp;
-				burstDamageOp.type = EffectOpType::DAMAGE;
-				burstDamageOp.data.damage.targetIndex = pendingBurstTargetIndex;
-				burstDamageOp.data.damage.damageType = DAMAGE_HOLY;
-				burstDamageOp.data.damage.fixedDamage = 3;
-				burstDamageOp.data.damage.damageFromSlot = -1;
-				processEffectOp(burstDamageOp);
-			} else {
-				EffectOp burstHealOp;
-				burstHealOp.type = EffectOpType::HEAL;
-				burstHealOp.data.heal.targetIndex = pendingBurstTargetIndex;
-				burstHealOp.data.heal.amount = 3;
-				burstHealOp.data.heal.amountFromSlot = -1;
-				processEffectOp(burstHealOp);
-			}
-
-			int cost = (cardIndex >= 0 && cardIndex < (int)caster.hand.size()) ? caster.hand[cardIndex].cost : 0;
-
-			currentAP -= cost;
-			if (pendingBurstCardIndex >= 0 && pendingBurstCardIndex < (int)caster.hand.size()) {
-				Card playedCard = caster.hand[pendingBurstCardIndex];
-				finishPlayCard(caster, playedCard, pendingBurstCardIndex);
-			}
-			updatePlayerAP(caster, currentAP);
-
-			cancelBurst();
-			calculateTargetHighlights();
-			return;
-		} else if (!burstMenuRect.inside(x, y)) {
-			cancelBurst();
-			return;
-		}
-		return;
-	}
-	// --- 1f. Double-Handed Menu ---
-	if (isDoubleHandedMenuOpen && button == OF_MOUSE_BUTTON_LEFT) {
-		if (btnAddPunches.inside(x, y) || btnAddBlocks.inside(x, y)) {
-			pendingDoubleHandedChoice = btnAddPunches.inside(x, y) ? "Punch" : "Hand Block";
-			int cardIndex = pendingDoubleHandedCardIndex;
-			Player & caster = players[currentPlayerIndex];
-			int cost = (cardIndex >= 0 && cardIndex < (int)caster.hand.size()) ? caster.hand[cardIndex].cost : 0;
-			std::string cardName = (cardIndex >= 0 && cardIndex < (int)caster.hand.size()) ? caster.hand[cardIndex].name : "";
-			int menuChoice = (pendingDoubleHandedChoice == "Punch") ? 1 : 2;
-			if (isMultiplayer) {
-				queueMenuChoice(CARD_DOUBLE_HANDED, pendingDoubleHandedTargetIndex, menuChoice, cardIndex, cardName);
-				cancelDoubleHanded();
-				return;
-			}
-
-			resolveDoubleHanded(pendingDoubleHandedChoice);
-
-			return;
-		} else if (!doubleHandedMenuRect.inside(x, y)) {
-			cancelDoubleHanded();
-			return;
-		}
-		return;
-	}
-	// --- 1f2. Double-Handed Targeting ---
-	if (isTargetingDoubleHanded && button == OF_MOUSE_BUTTON_LEFT) {
-		ofVec2f boardPos = mouseToBoard(x, y);
-		int gx = floor(boardPos.x), gy = floor(boardPos.y);
-		if (gx >= 0 && gx < BOARD_WIDTH && gy >= 0 && gy < BOARD_HEIGHT) {
-			if (board[gx][gy].isTargetable) {
-				// Find target player
-				int targetIndex = -1;
-				for (size_t i = 0; i < players.size(); i++) {
-					if (players[i].x == gx && players[i].y == gy) {
-						targetIndex = (int)i;
-						break;
-					}
-				}
-				if (targetIndex != -1) {
-					pendingDoubleHandedTargetIndex = targetIndex;
-					isTargetingDoubleHanded = false;
-					isDoubleHandedMenuOpen = true;
-					float w = 500, h = 250;
-					float mx = ofGetWidth() / 2 - w / 2, my = ofGetHeight() / 2 - h / 2;
-					doubleHandedMenuRect.set(mx, my, w, h);
-					float btnW = 200, btnH = 80;
-					float spacing = 40;
-					btnAddPunches.set(mx + (w - (btnW * 2 + spacing)) / 2, my + 120, btnW, btnH);
-					btnAddBlocks.set(btnAddPunches.getRight() + spacing, my + 120, btnW, btnH);
-					calculateTargetHighlights();
-				}
-			}
-		}
-		return;
-	}
-
-	// --- 1f3. Burst Targeting ---
-	if (isTargetingBurst && button == OF_MOUSE_BUTTON_LEFT) {
-		ofVec2f boardPos = mouseToBoard(x, y);
-		int gx = floor(boardPos.x), gy = floor(boardPos.y);
-
-		if (gx >= 0 && gx < BOARD_WIDTH && gy >= 0 && gy < BOARD_HEIGHT) {
-			// Check board targetability (Green Highlight)
-			if (board[gx][gy].isTargetable) {
-				int targetIndex = -1;
-				for (size_t i = 0; i < players.size(); i++) {
-					if (players[i].x == gx && players[i].y == gy) {
-						targetIndex = (int)i;
-						break;
-					}
-				}
-				if (targetIndex != -1) {
-					pendingBurstTargetIndex = targetIndex;
-					isTargetingBurst = false;
-					isBurstMenuOpen = true;
-					float w = 520, h = 260;
-					float mx = ofGetWidth() / 2 - w / 2, my = ofGetHeight() / 2 - h / 2;
-					burstMenuRect.set(mx, my, w, h);
-					float btnW = 300, btnH = 80;
-					burstBtnDamage.set(mx + (w - btnW) / 2, my + 110, btnW, btnH);
-					burstBtnHeal.set(0, 0, 0, 0);
-					calculateTargetHighlights();
-				}
-			}
-		}
-		return;
-	}
-
-	// --- Giant Magic Hand Menu ---
-	if (isMagicHandMenuOpen && button == OF_MOUSE_BUTTON_LEFT) {
-		float w = 500, h = 250;
-		float mx = ofGetWidth() / 2 - w / 2, my = ofGetHeight() / 2 - h / 2;
-		float btnW = 200, btnH = 80;
-		float spacing = 40;
-		float startX = mx + (w - (btnW * 2 + spacing)) / 2;
-		float btnY = my + 120;
-
-		ofRectangle btnPush(startX, btnY, btnW, btnH);
-		ofRectangle btnPull(startX + btnW + spacing, btnY, btnW, btnH);
-
-		if (btnPush.inside(x, y) || btnPull.inside(x, y)) {
-			// Always resolve locally (resolve* will send the network resolution
-			// packet so we avoid sending another ActionPacket here).
-			if (btnPush.inside(x, y)) {
-				resolveMagicHandPush();
-			} else {
-				resolveMagicHandPull();
-			}
-			return;
-		} else if (!wisdomMenuRect.inside(x, y)) {
-			cancelMagicHand();
-			return;
-		}
-		return;
-	}
-	// --- 1f3. Amnesia Menu ---
-	if (isAmnesiaMenuOpen && button == OF_MOUSE_BUTTON_LEFT) {
-		Player & caster = players[currentPlayerIndex];
-		Card & amnesiaCard = caster.hand[pendingAmnesiaCardIndex];
-
-		if (amnesiaBtnSelf.inside(x, y)) {
-			// Use on self - directly start dice roll
-			isAmnesiaMenuOpen = false;
-			amnesiaTargetPlayerIndex = currentPlayerIndex;
-			pendingAmnesiaRollResult = startDiceRoll(amnesiaCard.numDice, amnesiaCard.diceSides, PURPOSE_DEBUG, "Amnesia: Cards to Remove", currentPlayerIndex);
-			isWaitingForAmnesiaDice = true;
-			// Record chooser player ID (the caster's owner/playerID)
-			amnesiaChooserPlayerID = caster.isMinion ? caster.ownerID : caster.playerID;
-			
-			if (isMultiplayer) {
-				queueOrPlayTargetedCard(pendingAmnesiaCardIndex, -1, -1, 0);
-			} else {
-				// Singleplayer: immediate execution
-				currentAP -= amnesiaCard.cost;
-				finishPlayCard(caster, amnesiaCard, pendingAmnesiaCardIndex);
-				updatePlayerAP(caster, currentAP);
-			}
-			pendingAmnesiaCardIndex = -1;
-		} else if (amnesiaBtnAdjacent.inside(x, y)) {
-			// Enter targeting mode for adjacent units
-			isAmnesiaMenuOpen = false;
-			isTargetingAmnesia = true;
-			calculateTargetHighlights(pendingAmnesiaCardIndex);
-		} else if (!amnesiaMenuRect.inside(x, y)) {
-			// Clicked outside menu -> Cancel
-			isAmnesiaMenuOpen = false;
-			pendingAmnesiaCardIndex = -1;
-		}
-		return;
-	}
-
-	// --- RENEWED INSPIRATION: REAL-TIME SELECTION ---
-	if (isSelectingRenewedInspiration && button == OF_MOUSE_BUTTON_LEFT) {
-
-		// 1. Check Confirm Button
-		if (riConfirmBtn.inside(x, y)) {
-			Player & p = players[currentPlayerIndex];
-
-			// If the player confirmed with NO selected cards, treat as a cancel: refund and restore the original card.
-			if (renewedSelectedHandIndices.empty()) {
-				// Refund AP for the Renewed Inspiration play
-				int riCost = 0;
-				for (const auto & c : allCards) {
-					if (c.type == CARD_RENEWED_INSPIRATION) {
-						riCost = c.cost;
-						break;
-					}
-				}
-				currentAP += riCost;
-				updatePlayerAP(players[currentPlayerIndex], currentAP);
-				// Restore original played card back to hand (if present)
-				if (!p.playedCardsPile.empty() && p.playedCardsPile.back().type == CARD_RENEWED_INSPIRATION) {
-					Card rc = p.playedCardsPile.back();
-					p.playedCardsPile.pop_back();
-					p.hand.push_back(rc);
-				}
-				isSelectingRenewedInspiration = false;
-				spawnFloatingText(gridToWorld(p.x, p.y), "Cancelled: no cards selected", ofColor::gray);
-				return;
-			}
-
-			if (isMultiplayer) {
-				RenewedInspirationPacket rpk = {};
-				rpk.type = PKT_RENEWED_INSPIRATION;
-				rpk.playerID = myLocalPlayerID;
-				rpk.playerIndex = currentPlayerIndex;
-				// Send card NAMES instead of indices to avoid hand-order mismatches
-				rpk.count = std::min((int)renewedSelectedHandIndices.size(), 16);
-				for (int i = 0; i < rpk.count; ++i) {
-					int idx = renewedSelectedHandIndices[i];
-					if (idx >= 0 && idx < (int)p.hand.size()) {
-						strncpy(rpk.cardNames[i], p.hand[idx].name.c_str(), 63);
-						rpk.cardNames[i][63] = '\0';
-					} else {
-						rpk.cardNames[i][0] = '\0';
-					}
-				}
-				// tag for watchdog deduplication
-				rpk.clientActionID = ++watchdogClientActionCounter;
-				steamManager.sendPacket(&rpk, sizeof(rpk));
-				// Also notify opponents via an ActionPacket so they remove the card UI
-				// and update AP immediately. Use the canonical card name/cost from allCards.
-				int riCost = 0;
-				std::string riName;
-				for (const auto & c : allCards) {
-					if (c.type == CARD_RENEWED_INSPIRATION) {
-						riCost = c.cost;
-						riName = c.name;
-						break;
-					}
-				}
-				if (isMultiplayer) {
-					queueOrPlayTargetedCard(-1, -1, -1, 0);
-				}
-
-				// If we're a client, don't apply the effects locally — wait for the host
-				// to apply and forward the packet so all clients stay authoritative.
-				if (isClient()) {
-					// Track for reliable resend until host ACKs
-					lastSentRenewedInspirationPacket = rpk;
-					lastSentRenewedInspirationValid = true;
-					lastSentRenewedInspirationTime = ofGetElapsedTimef();
-					lastSentRenewedInspirationAttempts = 0;
-
-					ofLogNotice("Network") << "Client: Sent RenewedInspiration to host; waiting for authoritative packet.";
-					isSelectingRenewedInspiration = false;
-					return;
-				}
-			}
-
-			// Sort indices descending so we can delete safely from back to front
-			std::sort(renewedSelectedHandIndices.begin(), renewedSelectedHandIndices.end(), std::greater<int>());
-
-			int cardsToDraw = 0;
-			for (int idx : renewedSelectedHandIndices) {
-				if (idx < (int)p.hand.size()) {
-					// Discard
-					p.discardPile.push_back(p.hand[idx]);
-					p.hand.erase(p.hand.begin() + idx);
-					cardsToDraw += 2;
-				}
-			}
-
-			// Remember hand size before drawing to get the new cards
-			size_t handSizeBefore = p.hand.size();
-
-			// Draw new cards
-			for (int i = 0; i < cardsToDraw; i++)
-				drawCard(false);
-
-			// NOTE: Do NOT send a duplicate ActionPacket here. The ActionPacket for
-			// the initial card play is already sent by playCard() when the card
-			// is first played. Sending another packet here caused duplicate
-			// processing on the host and clients and led to deck/hand desyncs.
-
-			// Send DrawCards packet to opponent so they know what was drawn
-			if (isMultiplayer && cardsToDraw > 0) {
-				DrawCardsPacket dcpkt = {};
-				dcpkt.type = PKT_DRAW_CARDS;
-				dcpkt.playerID = myLocalPlayerID;
-				dcpkt.playerIndex = currentPlayerIndex;
-				dcpkt.numCards = cardsToDraw;
-				// clientActionID for watchdog deduplication
-				dcpkt.clientActionID = ++watchdogClientActionCounter;
-
-				// Include the card names that were just drawn
-				for (int i = 0; i < cardsToDraw && i < 3; i++) {
-					size_t cardIndex = handSizeBefore + i;
-					if (cardIndex < p.hand.size()) {
-						strncpy(dcpkt.cardNames[i], p.hand[cardIndex].name.c_str(), 63);
-						dcpkt.cardNames[i][63] = '\0';
-					} else {
-						dcpkt.cardNames[i][0] = '\0';
-					}
-				}
-
-				steamManager.sendPacket(&dcpkt, sizeof(dcpkt));
-				ofLogNotice("Network") << "Sent DrawCards packet for Renewed Inspiration: " << cardsToDraw << " cards";
-				if (isClient()) {
-					lastSentDrawCardsPacket = dcpkt;
-					lastSentDrawCardsValid = true;
-					lastSentDrawCardsTime = ofGetElapsedTimef();
-					lastSentDrawCardsAttempts = 0;
-				}
-				if (isClient()) {
-					lastSentDrawCardsPacket = dcpkt;
-					lastSentDrawCardsValid = true;
-					lastSentDrawCardsTime = ofGetElapsedTimef();
-				}
-			}
-
-			// Show played card animation now that the effect is confirmed
-			if (!p.playedCardsPile.empty()) {
-				createCardDisplay(p.playedCardsPile.back(), currentPlayerIndex);
-			}
-
-			// Visual feedback
-			spawnFloatingText(gridToWorld(p.x, p.y), "+" + ofToString(cardsToDraw) + " Cards", ofColor::cyan);
-			// Ensure authoritative AP field reflects local UI immediately
-			if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) {
-				updatePlayerAP(players[currentPlayerIndex], currentAP);
-			}
-
-			isSelectingRenewedInspiration = false;
-			return;
-		}
-
-		// 2. Check Cancel Button (Undo)
-		if (riCancelBtn.inside(x, y)) {
-			Player & p = players[currentPlayerIndex];
-			// Refund AP
-			currentAP += 2;
-
-			// Return card to hand (pop from played pile, push back to hand)
-			if (!p.playedCardsPile.empty()) {
-				Card c = p.playedCardsPile.back();
-				p.playedCardsPile.pop_back();
-				p.hand.push_back(c);
-			}
-
-			// Sync authoritative AP so UI and network reflect refund
-			updatePlayerAP(players[currentPlayerIndex], currentAP);
-			isSelectingRenewedInspiration = false;
-			return;
-		}
-
-		// 3. Check Clicking Cards in Hand (Toggle Selection)
-		Player & p = players[currentPlayerIndex];
-		float handBaseCardWidth = 120;
-		float aspectRatio = 585.0f / 409.0f;
-		float baseCardHeight = handBaseCardWidth * aspectRatio;
-
-		// Reverse loop to check top-most cards first (standard UI practice)
-		for (int i = (int)p.hand.size() - 1; i >= 0; --i) {
-			Card & card = p.hand[i];
-
-			// Use the CURRENT position (includes hover animation) for accurate clicking
-			float w = handBaseCardWidth * card.currentScale;
-			float h = baseCardHeight * card.currentScale;
-			ofRectangle cardRect(card.currentPos.x - w / 2, card.currentPos.y - h / 2, w, h);
-
-			if (cardRect.inside(x, y)) {
-				// Check eligibility (Drawn this turn OR Copied)
-				if (!card.drawnThisTurn && !card.isCopied) {
-					spawnFloatingText(gridToWorld(p.x, p.y), "Must be drawn this turn", ofColor::red);
-					return;
-				}
-
-				// Toggle selection
-				auto it = std::find(renewedSelectedHandIndices.begin(), renewedSelectedHandIndices.end(), i);
-				if (it != renewedSelectedHandIndices.end()) {
-					renewedSelectedHandIndices.erase(it); // Deselect
-				} else {
-					renewedSelectedHandIndices.push_back(i); // Select
-				}
-				return; // Stop checking other cards
-			}
-		}
-		return; // Consume click so we don't move/attack while selecting
-	}
-	// --- 1f4b. Tortoise Damage Targeting ---
-	if (isTargetingTortoiseDamage && button == OF_MOUSE_BUTTON_LEFT) {
-		ofVec2f boardPos = mouseToBoard(x, y);
-		int gx = floor(boardPos.x), gy = floor(boardPos.y);
-		if (gx >= 0 && gx < BOARD_WIDTH && gy >= 0 && gy < BOARD_HEIGHT) {
-			Player & caster = players[currentPlayerIndex];
-
-			// Check if clicking on an adjacent unit (any unit, including allies)
-			int dx = abs(gx - caster.x);
-			int dy = abs(gy - caster.y);
-			bool isAdjacent = (dx <= 1 && dy <= 1) && (dx + dy > 0);
-
-			if (isAdjacent) {
-				// Find target at this position
-				for (size_t i = 0; i < players.size(); i++) {
-					Player & target = players[i];
-					if (target.x == gx && target.y == gy) {
-						// Allow targeting ANY adjacent unit (including friendly units)
-						// Deal 3 physical damage
-						int damage = 3;
-
-						// Block mitigation
-						int blockAbsorb = std::min(target.block, damage);
-						target.block -= blockAbsorb;
-						damage -= blockAbsorb;
-
-						// Ward mitigation
-						int wardAbsorb = std::min(target.ward, damage);
-						target.ward -= wardAbsorb;
-						damage -= wardAbsorb;
-
-						// Apply to health
-						if (damage > 0) {
-							target.health -= damage;
-							spawnFloatingText(gridToWorld(target.x, target.y),
-								"-" + ofToString(damage) + " Shell Spike", ofColor::red);
-
-							// Tortoise form damage tracking on target if they have it
-							if (target.inTortoiseForm) {
-								target.tortoiseDamageTaken += damage;
-								if (target.tortoiseDamageTaken >= 5) {
-									target.inTortoiseForm = false;
-									target.tortoiseDamageTaken = 0;
-									target.discardPile.push_back(target.tortoiseFormCard);
-									spawnFloatingText(gridToWorld(target.x, target.y) + glm::vec3(0, 0.5f, 0),
-										"Form Ended!", ofColor::darkGreen);
-								}
-							}
-
-							// Check death
-							if (target.health <= 0) {
-								DeathMarker death;
-								death.x = target.x;
-								death.y = target.y;
-								death.turnDied = globalTurnCounter;
-								death.deck = target.deck;
-								graveyard.push_back(death);
-								board[target.x][target.y].hasPlayer = false;
-								target.x = -1000;
-							}
-						} else {
-							spawnFloatingText(gridToWorld(target.x, target.y), "-0 Physical", ofColor::gray);
-						}
-
-						// Network-sync the Shell Spike so opponent mirrors the damage
-						if (isMultiplayer) {
-							queuePseudoAction(target.x, target.y, "Shell Spike");
-						}
-
-						isTargetingTortoiseDamage = false;
-						ofLogNotice("Tortoise Form") << "Shell Spike dealt damage to adjacent unit.";
-						return;
-					}
-				}
-			}
-		}
-		return;
-	}
-
-	auto queueOrPlayTargetedCard = [&](int cardIndex, int tx, int ty, int menuChoice = 0) {
-		if (isMultiplayer) {
-			InputCommandPacket cmd = {};
-			cmd.type = PKT_INPUT_COMMAND;
-			cmd.playerID = myLocalPlayerID;
-			cmd.seq = 0;
-			cmd.commandId = nextCommandId++;
-			cmd.turnNumber = globalTurnCounter;
-			cmd.commandType = CMD_PLAY_CARD;
-			cmd.params[0] = cardIndex;
-			cmd.params[1] = tx;
-			cmd.params[2] = ty;
-			cmd.params[3] = menuChoice;
-
-			if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size() && cardIndex >= 0 && cardIndex < (int)players[currentPlayerIndex].hand.size()) {
-				strncpy(cmd.stringData, players[currentPlayerIndex].hand[cardIndex].name.c_str(), sizeof(cmd.stringData) - 1);
-				cmd.stringData[sizeof(cmd.stringData) - 1] = '\0';
-			}
-
-			steamManager.sendPacket(&cmd, sizeof(cmd));
-			queueInputCommand(cmd);
-		} else {
-			playCard(cardIndex, tx, ty);
-		}
-	};
-
-	auto queueMenuChoice = [&](CardType menuCardType, int targetIndex, int choice, int cardIndex, const std::string & cardName) {
-		InputCommandPacket cmd = {};
-		cmd.type = PKT_INPUT_COMMAND;
-		cmd.playerID = myLocalPlayerID;
-		cmd.seq = 0;
-		cmd.commandId = nextCommandId++;
-		cmd.turnNumber = globalTurnCounter;
-		cmd.commandType = CMD_MENU_CHOICE;
-		cmd.params[0] = (int)menuCardType;
-		cmd.params[1] = targetIndex;
-		cmd.params[2] = choice;
-		cmd.params[3] = cardIndex;
-		strncpy(cmd.stringData, cardName.c_str(), sizeof(cmd.stringData) - 1);
-		cmd.stringData[sizeof(cmd.stringData) - 1] = '\0';
-		steamManager.sendPacket(&cmd, sizeof(cmd));
-		queueInputCommand(cmd);
-	};
-
-	auto queuePseudoAction = [&](int targetX, int targetY, const std::string & actionName) {
-		InputCommandPacket cmd = {};
-		cmd.type = PKT_INPUT_COMMAND;
-		cmd.playerID = myLocalPlayerID;
-		cmd.seq = 0;
-		cmd.commandId = nextCommandId++;
-		cmd.turnNumber = globalTurnCounter;
-		cmd.commandType = CMD_PSEUDO_ACTION;
-		cmd.params[0] = targetX;
-		cmd.params[1] = targetY;
-		strncpy(cmd.stringData, actionName.c_str(), sizeof(cmd.stringData) - 1);
-		cmd.stringData[sizeof(cmd.stringData) - 1] = '\0';
-		steamManager.sendPacket(&cmd, sizeof(cmd));
-		queueInputCommand(cmd);
-	};
-
-	auto queueStatusAction = [&](int cardIndex, int targetX, int targetY, int statusIndex, int cost, const std::string & cardName) {
-		InputCommandPacket cmd = {};
-		cmd.type = PKT_INPUT_COMMAND;
-		cmd.playerID = myLocalPlayerID;
-		cmd.seq = 0;
-		cmd.commandId = nextCommandId++;
-		cmd.turnNumber = globalTurnCounter;
-		cmd.commandType = CMD_STATUS_ACTION;
-		cmd.params[0] = cardIndex;
-		cmd.params[1] = targetX;
-		cmd.params[2] = targetY;
-		cmd.params[3] = statusIndex;
-		cmd.params[4] = cost;
-		strncpy(cmd.stringData, cardName.c_str(), sizeof(cmd.stringData) - 1);
-		cmd.stringData[sizeof(cmd.stringData) - 1] = '\0';
-		steamManager.sendPacket(&cmd, sizeof(cmd));
-		queueInputCommand(cmd);
-	};
-
-	// --- 1f4. Amnesia Targeting ---
-	if (isTargetingAmnesia && button == OF_MOUSE_BUTTON_LEFT) {
-		ofVec2f boardPos = mouseToBoard(x, y);
-		int gx = floor(boardPos.x), gy = floor(boardPos.y);
-		if (gx >= 0 && gx < BOARD_WIDTH && gy >= 0 && gy < BOARD_HEIGHT) {
-			if (board[gx][gy].isTargetable) {
-				int cardIndex = pendingAmnesiaCardIndex;
-				queueOrPlayTargetedCard(cardIndex, gx, gy, 0);
-
-				isTargetingAmnesia = false;
-				pendingAmnesiaCardIndex = -1;
-				calculateTargetHighlights();
-			}
-		}
-		return;
-	}
-
-	// --- 1f5. Teleport Targeting ---
-	if (isTargetingTeleport && button == OF_MOUSE_BUTTON_LEFT) {
-		ofVec2f boardPos = mouseToBoard(x, y);
-		int gx = floor(boardPos.x), gy = floor(boardPos.y);
-		if (gx >= 0 && gx < BOARD_WIDTH && gy >= 0 && gy < BOARD_HEIGHT) {
-
-			// Use the board flag which we set in calculateTargetHighlights
-			if (board[gx][gy].isTargetable) {
-				if (isMultiplayer) {
-					queueOrPlayTargetedCard(pendingTeleportCardIndex, gx, gy, 0);
-					isTargetingTeleport = false;
-					pendingTeleportCardIndex = -1;
-					pendingTeleportRollResult = 0;
-					calculateTargetHighlights();
-					return;
-				}
-
-				Player & caster = players[currentPlayerIndex];
-
-				// Capture card metadata now, but defer sending until after we apply
-				// the local movement and hand removal so the packet contains
-				// authoritative post-play AP.
-				std::string __teleport_cardName = "";
-				int __teleport_cost = 0;
-				if (isMultiplayer && pendingTeleportCardIndex >= 0 && pendingTeleportCardIndex < (int)caster.hand.size()) {
-					__teleport_cardName = caster.hand[pendingTeleportCardIndex].name;
-					__teleport_cost = caster.hand[pendingTeleportCardIndex].cost;
-				}
-
-				// Move player
-				board[caster.x][caster.y].hasPlayer = false;
-				caster.x = gx;
-				caster.y = gy;
-				board[gx][gy].hasPlayer = true; // Set occupancy (even if wall)
-				playerVisualPos = gridToWorld(gx, gy);
-				invalidateTargetCache();
-
-				spawnFloatingText(gridToWorld(gx, gy), "Teleport!", ofColor::cyan);
-				ofLogNotice("Teleport") << "Teleported to (" << gx << ", " << gy << ")";
-
-				// Remove teleport card from hand
-				if (pendingTeleportCardIndex >= 0 && pendingTeleportCardIndex < (int)players[currentPlayerIndex].hand.size()) {
-					players[currentPlayerIndex].hand.erase(players[currentPlayerIndex].hand.begin() + pendingTeleportCardIndex);
-				}
-
-				// Check if teleport destination has a key - if so, trigger draft
-				int keyIdx = -1;
-				for (int k = 0; k < (int)floatingKeyInstances.size(); ++k) {
-					if (floatingKeyInstances[k].pos.x == gx && floatingKeyInstances[k].pos.y == gy) {
-						keyIdx = k;
-						break;
-					}
-				}
-
-				if (keyIdx >= 0) {
-					int keySet = floatingKeyInstances[keyIdx].set;
-					// Map key set to draft class: set 1 (gold) = class 3, set 2 (silver) = class 2, set 3 (bronze) = class 1
-					int keyClass = (keySet == 1) ? 3 : (keySet == 2) ? 2
-																	 : 1;
-
-					pendingKeyDraftAccept = true;
-					pendingKeyDraftTriggerTime = ofGetElapsedTimef();
-					pendingKeyDraftClass = keyClass;
-					pendingKeyDraftPlayer = currentPlayerIndex;
-					pendingKeyDraftPlayerID = caster.playerID;
-					pendingKeyDraftKeyX = gx;
-					pendingKeyDraftKeyY = gy;
-					ofLogNotice("Teleport") << "Teleported into key tile! Triggering draft for class " << keyClass;
-				}
-
-				// Clean up state (AP was already deducted when card was first clicked)
-				isTargetingTeleport = false;
-				pendingTeleportCardIndex = -1;
-				pendingTeleportRollResult = 0;
-				calculateTargetHighlights();
-			}
-		}
-		return;
-	}
-
-	// --- 1g. Amnesia Selection UI ---
-	if (isAmnesiaSelectionActive && button == OF_MOUSE_BUTTON_LEFT) {
-		// Only the player who played Amnesia may choose removals
-		if (amnesiaChooserPlayerID != -1 && amnesiaChooserPlayerID != myLocalPlayerID) {
-			// Not this client's chooser - ignore clicks inside the selection UI
-			return;
-		}
-		float handBaseCardWidth = 120.0f;
-		float baseCardHeight = handBaseCardWidth * (585.0f / 409.0f);
-		float panelPadding = 20.0f;
-		float titleHeight = 60.0f;
-		float acceptBtnHeight = 44.0f;
-		float acceptBtnPadding = 20.0f;
-		float viewCardScale = 1.6f;
-		float availableHeight = ofGetHeight() - (2 * panelPadding) - titleHeight - acceptBtnHeight - acceptBtnPadding;
-		float availableWidth = ofGetWidth() * 0.8f;
-
-		while (viewCardScale > 0.5f) {
-			float cardW = handBaseCardWidth * viewCardScale;
-			float cardH = baseCardHeight * viewCardScale;
-			float padding = 15.0f * (viewCardScale / 1.6f);
-			int cols = std::max(2, (int)floor((availableWidth - padding) / (cardW + padding)));
-			int rows = ceil((float)amnesiaDeckCopy.size() / cols);
-			if (rows * (cardH + padding) - padding <= availableHeight) break;
-			viewCardScale -= 0.1f;
-		}
-
-		float viewCardWidth = handBaseCardWidth * viewCardScale;
-		float viewCardHeight = baseCardHeight * viewCardScale;
-		float padding = 15.0f * (viewCardScale / 1.6f);
-
-		// Match the draw layout: compute columns then cap to number of cards
-		int gridWidthInCards = std::max(1, (int)floor((availableWidth - padding) / (viewCardWidth + padding)));
-		// Don't create more columns than cards we actually have
-		gridWidthInCards = std::min(gridWidthInCards, (int)amnesiaDeckCopy.size());
-		if (gridWidthInCards <= 0) gridWidthInCards = 1;
-
-		int gridHeightInCards = (int)ceil((float)amnesiaDeckCopy.size() / (float)gridWidthInCards);
-
-		float totalContentWidth = (gridWidthInCards * viewCardWidth) + ((gridWidthInCards - 1) * padding);
-		float totalContentHeight = (gridHeightInCards * viewCardHeight) + ((gridHeightInCards - 1) * padding);
-		float panelWidth = totalContentWidth + 2 * panelPadding;
-		float panelHeight = totalContentHeight + titleHeight + acceptBtnHeight + acceptBtnPadding + 2 * panelPadding;
-		float panelX = ofGetWidth() / 2.0f - panelWidth / 2.0f;
-		float panelY = ofGetHeight() / 2.0f - panelHeight / 2.0f;
-
-		for (size_t i = 0; i < amnesiaDeckCopy.size(); ++i) {
-			int row = (int)i / gridWidthInCards;
-			int col = (int)i % gridWidthInCards;
-			ofRectangle cardRect(
-				panelX + panelPadding + col * (viewCardWidth + padding),
-				panelY + panelPadding + titleHeight + row * (viewCardHeight + padding),
-				viewCardWidth, viewCardHeight);
-
-			if (cardRect.inside(x, y)) {
-				int cardIndex = static_cast<int>(i);
-				auto it = std::find(amnesiaSelectedIndices.begin(), amnesiaSelectedIndices.end(), cardIndex);
-				if (it != amnesiaSelectedIndices.end()) {
-					amnesiaSelectedIndices.erase(it);
-				} else {
-					if (amnesiaSelectedIndices.size() < static_cast<size_t>(numCardsToRemove)) {
-						amnesiaSelectedIndices.push_back(cardIndex);
-					}
-				}
-				return;
-			}
-		}
-
-		// Check for Accept button click
-		if (amnesiaAcceptButton.inside(x, y) && amnesiaSelectedIndices.size() == static_cast<size_t>(numCardsToRemove)) {
-			// finalize selection -> apply or send to host
-			std::vector<int> sel = amnesiaSelectedIndices;
-			std::sort(sel.rbegin(), sel.rend());
-
-			if (isMultiplayer) {
-				AmnesiaChoicePacket pkt = {};
-				pkt.type = PKT_AMNESIA_CHOICE;
-				pkt.playerID = myLocalPlayerID;
-				pkt.targetPlayerIndex = amnesiaTargetPlayerIndex;
-				pkt.numCardsToRemove = (uint8_t)sel.size();
-				for (size_t si = 0; si < sel.size() && si < 8; ++si)
-					pkt.selectedIndices[si] = sel[si];
-
-				if (isHost()) {
-					// apply immediately on host and broadcast
-					Player * targetPlayer = getPlayer(amnesiaTargetPlayerIndex);
-					if (targetPlayer) {
-						for (int selectedIdx : sel) {
-							if (static_cast<size_t>(selectedIdx) < targetPlayer->deck.size()) {
-								Card selectedCard = targetPlayer->deck[selectedIdx];
-								RemovedCardAnimation anim;
-								anim.card = selectedCard;
-								anim.startPos = {
-									panelX + panelPadding + (selectedIdx % gridWidthInCards) * (viewCardWidth + padding) + viewCardWidth / 2,
-									panelY + panelPadding + titleHeight + (selectedIdx / gridWidthInCards) * (viewCardHeight + padding) + viewCardHeight / 2
-								};
-								anim.startTime = ofGetElapsedTimef();
-								activeRemovedCardAnimations.push_back(anim);
-								targetPlayer->deck.erase(targetPlayer->deck.begin() + selectedIdx);
-							}
-						}
-					}
-					steamManager.sendPacket(&pkt, sizeof(pkt));
-					// Ensure the caster's Amnesia card was consumed and AP deducted.
-					if (amnesiaChooserPlayerID != -1) {
-						int chooserIdx = findPlayerIndexByID(amnesiaChooserPlayerID);
-						if (chooserIdx >= 0 && chooserIdx < (int)players.size()) {
-							Player & chooser = players[chooserIdx];
-							for (int hi = 0; hi < (int)chooser.hand.size(); ++hi) {
-								if (chooser.hand[hi].type == CARD_AMNESIA) {
-									Card amCard = chooser.hand[hi];
-									int amCost = amCard.cost;
-									chooser.playedCardsPile.push_back(amCard);
-									applyReplicateCopyToHand(chooser, amCard);
-									chooser.hand.erase(chooser.hand.begin() + hi);
-									// Adjust AP for chooser (currentAP if they're current player)
-									if (chooserIdx == currentPlayerIndex) {
-										currentAP -= amCost;
-										if (currentAP < 0) currentAP = 0;
-										players[currentPlayerIndex].ap = currentAP;
-									} else {
-										players[chooserIdx].ap -= amCost;
-										if (players[chooserIdx].ap < 0) players[chooserIdx].ap = 0;
-									}
-									// Queue command for multiplayer
-									if (isMultiplayer) {
-										queueOrPlayTargetedCard(hi, -1, -1, 0);
-									}
-									break;
-								}
-							}
-						}
-					}
-				} else {
-					// client: send selection to host and wait for authoritative update
-					steamManager.sendPacket(&pkt, sizeof(pkt));
-				}
-
-				// clear UI locally; wait for host-applied state to reflect removals
-				isAmnesiaSelectionActive = false;
-				amnesiaSelectedIndices.clear();
-				amnesiaDeckCopy.clear();
-				amnesiaTargetPlayerIndex = -1;
-				amnesiaChooserPlayerID = -1;
-			} else {
-				// singleplayer: apply immediately
-				Player * targetPlayer = getPlayer(amnesiaTargetPlayerIndex);
-				if (targetPlayer) {
-					for (int selectedIdx : sel) {
-						if (static_cast<size_t>(selectedIdx) < targetPlayer->deck.size()) {
-							Card selectedCard = targetPlayer->deck[selectedIdx];
-							RemovedCardAnimation anim;
-							anim.card = selectedCard;
-							anim.startPos = {
-								panelX + panelPadding + (selectedIdx % gridWidthInCards) * (viewCardWidth + padding) + viewCardWidth / 2,
-								panelY + panelPadding + titleHeight + (selectedIdx / gridWidthInCards) * (viewCardHeight + padding) + viewCardHeight / 2
-							};
-							anim.startTime = ofGetElapsedTimef();
-							activeRemovedCardAnimations.push_back(anim);
-							targetPlayer->deck.erase(targetPlayer->deck.begin() + selectedIdx);
-						}
-					}
-				}
-				// Ensure the caster's Amnesia card was consumed and AP deducted (singleplayer)
-				if (amnesiaChooserPlayerID != -1) {
-					int chooserIdx = findPlayerIndexByID(amnesiaChooserPlayerID);
-					if (chooserIdx >= 0 && chooserIdx < (int)players.size()) {
-						Player & chooser = players[chooserIdx];
-						for (int hi = 0; hi < (int)chooser.hand.size(); ++hi) {
-							if (chooser.hand[hi].type == CARD_AMNESIA) {
-								Card amCard = chooser.hand[hi];
-								int amCost = amCard.cost;
-								finishPlayCard(chooser, amCard, hi);
-								// Adjust AP for chooser (currentAP if they're current player)
-								if (chooserIdx == currentPlayerIndex) {
-									currentAP -= amCost;
-									if (currentAP < 0) currentAP = 0;
-									players[currentPlayerIndex].ap = currentAP;
-								} else {
-									players[chooserIdx].ap -= amCost;
-									if (players[chooserIdx].ap < 0) players[chooserIdx].ap = 0;
-								}
-								break;
-							}
-						}
-					}
-				}
-				isAmnesiaSelectionActive = false;
-				amnesiaSelectedIndices.clear();
-				amnesiaDeckCopy.clear();
-				amnesiaTargetPlayerIndex = -1;
-				amnesiaChooserPlayerID = -1;
-			}
-		}
-		return;
-	}
-
-	// --- 1h. Magic Bolt Targeting Click ---
-	if (isTargetingMagicBolt && button == OF_MOUSE_BUTTON_LEFT) {
-		ofVec2f boardPos = mouseToBoard(x, y);
-		int gx = floor(boardPos.x);
-		int gy = floor(boardPos.y);
-
-		// Clicked valid target?
-		if (gx >= 0 && gx < BOARD_WIDTH && gy >= 0 && gy < BOARD_HEIGHT) {
-			if (board[gx][gy].isTargetable) {
-				int cardIndex = magicBoltCardIndex;
-				queueOrPlayTargetedCard(cardIndex, gx, gy, 0);
-
-				// Reset State
-				isTargetingMagicBolt = false;
-				magicBoltCardIndex = -1;
-				clearHighlights();
-				return;
-			}
-		}
-
-		// Clicked invalid? Cancel.
-		isTargetingMagicBolt = false;
-		magicBoltCardIndex = -1;
-		clearHighlights();
-		return;
-	}
-
-	// --- 1i. Hellhound Targeting Click ---
-	if (isTargetingHellhound && button == OF_MOUSE_BUTTON_LEFT) {
-		ofVec2f boardPos = mouseToBoard(x, y);
-		int gx = floor(boardPos.x);
-		int gy = floor(boardPos.y);
-
-		// Clicked valid target?
-		if (gx >= 0 && gx < BOARD_WIDTH && gy >= 0 && gy < BOARD_HEIGHT) {
-			if (board[gx][gy].isTargetable) {
-				// This calls the playCard logic we wrote earlier (which rolls dice)
-				int cardIndex = hellhoundCardIndex;
-				queueOrPlayTargetedCard(cardIndex, gx, gy, 0);
-
-				// Reset State
-				isTargetingHellhound = false;
-				hellhoundCardIndex = -1;
-				clearHighlights();
-				return;
-			}
-		}
-
-		// Clicked invalid? Cancel.
-		isTargetingHellhound = false;
-		hellhoundCardIndex = -1;
-		clearHighlights();
-		return;
-	}
-
-	// --- 1j. Chain Lightning Click ---
-	if (isTargetingChainLightning && button == OF_MOUSE_BUTTON_LEFT) {
-		ofVec2f boardPos = mouseToBoard(x, y);
-		int gx = floor(boardPos.x);
-		int gy = floor(boardPos.y);
-
-		if (gx >= 0 && gx < BOARD_WIDTH && gy >= 0 && gy < BOARD_HEIGHT) {
-			if (board[gx][gy].isTargetable) {
-				if (isMultiplayer) {
-					queueOrPlayTargetedCard(chainLightningCardIndex, gx, gy, 0);
-				} else {
-					// 1. Consume Resources
-					Player & caster = players[currentPlayerIndex];
-					Card & c = caster.hand[chainLightningCardIndex];
-
-					currentAP -= c.cost;
-					finishPlayCard(caster, c, chainLightningCardIndex);
-					caster.cardsPlayedThisTurn.push_back(c.type);
-					updatePlayerAP(caster, currentAP);
-
-					// 2. Start Range Roll (2d10)
-					pendingChainLightningTargetTile = glm::vec2(gx, gy);
-					pendingChainLightningRangeResult = startDiceRoll(2, 10, PURPOSE_RANGE, "Chain Lightning: Range", currentPlayerIndex);
-					isWaitingForChainLightningRange = true;
-				}
-
-				// 3. Reset State
-				isTargetingChainLightning = false;
-				chainLightningCardIndex = -1;
-				clearHighlights();
-				return;
-			}
-		}
-		// Cancel if clicked invalid
-		isTargetingChainLightning = false;
-		chainLightningCardIndex = -1;
-		clearHighlights();
-		return;
-	}
-	// --- 1k. Death Targeting Click ---
-	if (isTargetingDeath && button == OF_MOUSE_BUTTON_LEFT) {
-		ofVec2f boardPos = mouseToBoard(x, y);
-		int gx = floor(boardPos.x), gy = floor(boardPos.y);
-		if (gx >= 0 && gx < BOARD_WIDTH && gy >= 0 && gy < BOARD_HEIGHT) {
-			if (board[gx][gy].isTargetable) {
-				int cardIndex = deathCardIndex;
-				queueOrPlayTargetedCard(cardIndex, gx, gy, 0);
-				isTargetingDeath = false;
-				deathCardIndex = -1;
-				clearHighlights();
-				return;
-			}
-		}
-		// Cancel
-		isTargetingDeath = false;
-		deathCardIndex = -1;
-		clearHighlights();
-		return;
-	}
-
-	// --- 1m. Punch Targeting Click ---
-	if (isTargetingPunch && button == OF_MOUSE_BUTTON_LEFT) {
-		ofVec2f boardPos = mouseToBoard(x, y);
-		int gx = floor(boardPos.x), gy = floor(boardPos.y);
-		if (gx >= 0 && gx < BOARD_WIDTH && gy >= 0 && gy < BOARD_HEIGHT) {
-			if (board[gx][gy].isTargetable) {
-				int cardIndex = pendingPunchCardIndex;
-				queueOrPlayTargetedCard(cardIndex, gx, gy, 0);
-				isTargetingPunch = false;
-				pendingPunchCardIndex = -1;
-				clearHighlights();
-				return;
-			}
-		}
-		// Cancel
-		isTargetingPunch = false;
-		pendingPunchCardIndex = -1;
-		clearHighlights();
-		return;
-	}
-
-	// --- 1l. Heal Targeting Click ---
-	if (isTargetingHeal && button == OF_MOUSE_BUTTON_LEFT) {
-		ofVec2f boardPos = mouseToBoard(x, y);
-		int gx = floor(boardPos.x), gy = floor(boardPos.y);
-		if (gx >= 0 && gx < BOARD_WIDTH && gy >= 0 && gy < BOARD_HEIGHT) {
-			if (board[gx][gy].isTargetable) {
-				int cardIndex = healCardIndex;
-				queueOrPlayTargetedCard(cardIndex, gx, gy, 0);
-				isTargetingHeal = false;
-				healCardIndex = -1;
-				clearHighlights();
-				return;
-			}
-			for (const auto & p : players) {
-				if (p.x == gx && p.y == gy && p.health >= p.maxHealth) {
-					spawnFloatingText(gridToWorld(gx, gy), "Already Full HP", ofColor::gray);
-					return;
-				}
-			}
-		}
-		// Cancel
-		isTargetingHeal = false;
-		healCardIndex = -1;
-		clearHighlights();
-		return;
-	}
-	// ==============================================================================
-	// PHASE 2: GLOBAL MOUSE TRACKING (Now at function start)
-	// ==============================================================================
-	*/
-	// ==================================================================================
-	// === END OF PHASE 3 CLEANUP COMMENTED BLOCK ===
 	// ==================================================================================
 
 	// ==============================================================================
@@ -14903,7 +13049,7 @@ void ofApp::mouseReleased(int x, int y, int button) {
 		float dist = mouseDownPos.distance(ofVec2f(x, y));
 
 		// Handle menu button clicks
-		if (cardInteractionState == CARD_INTERACTION_MENU) {
+		if (cardInteractionState == CARD_INTERACTION_MENU || cardInteractionState == CARD_INTERACTION_STATUS) {
 			processCardStateInput(x, y, button);
 			return;
 		}
@@ -16255,23 +14401,15 @@ void ofApp::updateCardInteractionState(CardInteractionState newState, int cardId
 
 void ofApp::resetCardInteraction() {
 	updateCardInteractionState(CARD_INTERACTION_IDLE, -1, CARD_NONE);
-	// Also reset all legacy per-card flags for safety during transition period
-	isBurstMenuOpen = false;
-	isDoubleHandedMenuOpen = false;
-	isAmnesiaMenuOpen = false;
-	isDispelMenuOpen = false;
-	isWisdomBoonMenuOpen = false;
-	isMagicHandMenuOpen = false;
-	isTargetingMagicBolt = false;
-	isTargetingBurst = false;
-	isTargetingDeath = false;
-	isTargetingHeal = false;
-	isTargetingChainLightning = false;
-	isTargetingTeleport = false;
-	isTargetingDoubleHanded = false;
-	isTargetingAmnesia = false;
-	isTargetingTortoiseDamage = false;
-	isTargetingHellhound = false;
+	// Clear centralized interaction helpers and transient UI lists only.
+	interactionMenuChoice.clear();
+	interactionTargetIndex = -1;
+	interactionNeedsStatusSelect = false;
+	statusSelectLabels.clear();
+	statusSelectButtons.clear();
+	statusSelectMenuRect.set(0, 0, 0, 0);
+	// Keep legacy boolean flags untouched here — other code paths migrated to
+	// respect `cardInteractionState` and `processCardStateInput()` as authority.
 	clearHighlights();
 	calculateTargetHighlights();
 }
@@ -16565,23 +14703,18 @@ void ofApp::handleCardTargetClick(int gridX, int gridY) {
 		updateCardInteractionState(CARD_INTERACTION_MENU, cardIndex, interactingCardType);
 
 		if (interactingCardType == CARD_BURST_OF_LIGHT) {
-			isBurstMenuOpen = true;
 			pendingBurstTargetIndex = targetIndex;
 			pendingBurstCardIndex = cardIndex;
 		} else if (interactingCardType == CARD_WISDOM_BOON) {
-			isWisdomBoonMenuOpen = true;
 			pendingWisdomBoonTargetIndex = targetIndex;
 			pendingWisdomBoonCardIndex = cardIndex;
 		} else if (interactingCardType == CARD_DOUBLE_HANDED) {
-			isDoubleHandedMenuOpen = true;
 			pendingDoubleHandedTargetIndex = targetIndex;
 			pendingDoubleHandedCardIndex = cardIndex;
 		} else if (interactingCardType == CARD_DISPEL) {
-			isDispelMenuOpen = true;
 			pendingDispelTargetIndex = targetIndex;
 			pendingDispelCardIndex = cardIndex;
 		} else if (interactingCardType == CARD_GIANT_MAGIC_HAND) {
-			isMagicHandMenuOpen = true;
 			magicHandTargetTile = { gridX, gridY };
 			pendingMagicHandCardIndex = cardIndex;
 		}
@@ -16832,6 +14965,12 @@ void ofApp::drawActiveCardInteractionUI() {
 	// Draw UI based on current card interaction state
 	if (cardInteractionState == CARD_INTERACTION_IDLE) return;
 
+	if (cardInteractionState == CARD_INTERACTION_STATUS) {
+		// Currently used by Dispel -> Purge status selection.
+		drawDispelUI();
+		return;
+	}
+
 	// Draw menu UI if in MENU state
 	if (cardInteractionState == CARD_INTERACTION_MENU) {
 		switch (interactingCardType) {
@@ -16947,6 +15086,23 @@ void ofApp::drawActiveCardInteractionUI() {
 			break;
 		}
 
+		case CARD_GIANT_MAGIC_HAND: {
+			drawMenuOverlay();
+			float w = 500, h = 250;
+			float mx = ofGetWidth() / 2 - w / 2, my = ofGetHeight() / 2 - h / 2;
+			ofRectangle menuRect(mx, my, w, h);
+
+			ofColor pushAccent = ofColor::indianRed;
+			ofColor pullAccent = ofColor::royalBlue;
+
+			ofRectangle btnPush;
+			ofRectangle btnPull;
+			drawCardChoicePanel(menuRect, "Giant Magic Hand", "Choose force direction:",
+				btnPush, btnPull, "PUSH", "PULL",
+				pushAccent, pullAccent, true, true);
+			break;
+		}
+
 		default:
 			break;
 		}
@@ -17014,25 +15170,6 @@ int ofApp::computePassiveLuck(int playerIndex) {
 void ofApp::drawCard(bool sendPacket) {
 	if (players.empty() || currentPlayerIndex < 0) return;
 	Player & currentPlayer = players[currentPlayerIndex];
-
-	// --- DISPEL TARGETING HIGHLIGHTING (self + adjacent units) ---
-	if (isDispelTargeting) {
-		int px = currentPlayer.x;
-		int py = currentPlayer.y;
-		for (int dx = -1; dx <= 1; ++dx) {
-			for (int dy = -1; dy <= 1; ++dy) {
-				if (abs(dx) + abs(dy) > 1) continue;
-				int tx = px + dx;
-				int ty = py + dy;
-				if (tx < 0 || tx >= BOARD_WIDTH || ty < 0 || ty >= BOARD_HEIGHT) continue;
-				if (board[tx][ty].hasPlayer) {
-					board[tx][ty].isTargetPreview = true;
-					board[tx][ty].isTargetable = true;
-				}
-			}
-		}
-		return;
-	}
 
 	// --- CHANGE START: REMOVE ZOMBIE CLIENT CHECK ---
 	// In Deterministic mode, Clients manage their own decks.
@@ -17650,7 +15787,7 @@ void ofApp::updateCardStateMachine() {
 
 	// State machine progression happens via explicit transitions from:
 	// - handleCardDiceResult() when dice complete
-	// - handleCardMenuInput() when menu choice made
+	// - handleCardMenuClick() / processCardStateInput() when menu choice made
 	// - handleCardTargetInput() when target selected
 	// - update() when animations/effects complete
 
@@ -17675,96 +15812,6 @@ void ofApp::updateCardStateMachine() {
 void ofApp::advanceCardState(CardPlayState newState) {
 	cardPlayState = newState;
 	currentCardOutcome.currentState = newState;
-}
-
-void ofApp::handleCardMenuInput(const std::string & choice) {
-	if (cardPlayState != CARD_STATE_MENU) return;
-
-	currentCardOutcome.menuChoice = choice;
-
-	// After menu, determine next state based on card type and choice
-	switch (currentCardOutcome.cardType) {
-	case CARD_DISPEL:
-		// Both barrier and purge need targeting
-		advanceCardState(CARD_STATE_TARGETING);
-		break;
-
-	case CARD_WISDOM_BOON:
-		// Wisdom Boon applies effect immediately based on choice
-		// Target was already selected when entering menu
-		{
-			beginEffectSequence();
-			Player * target = getPlayer(currentCardOutcome.targetPlayerIndex);
-			Player & caster = players[currentCardOutcome.casterIndex];
-
-			if (target) {
-				int effectValue = (int)caster.deck.size();
-				bool isSelfTarget = (currentCardOutcome.targetPlayerIndex == currentCardOutcome.casterIndex);
-				glm::vec3 targetPos = gridToWorld(target->x, target->y);
-
-				if (choice == "damage") {
-					if (isSelfTarget) {
-						EffectOp blockOp;
-						blockOp.type = EffectOpType::MODIFY_STAT;
-						blockOp.data.modifyStat.targetIndex = currentCardOutcome.targetPlayerIndex;
-						blockOp.data.modifyStat.statType = 5; // Block
-						blockOp.data.modifyStat.delta = effectValue;
-						blockOp.data.modifyStat.deltaFromSlot = -1;
-						queueEffect(blockOp);
-						target->block += effectValue;
-						spawnFloatingText(targetPos, "+" + ofToString(effectValue) + " Block", ofColor::gray);
-					} else {
-						EffectOp damageOp;
-						damageOp.type = EffectOpType::DAMAGE;
-						damageOp.data.damage.targetIndex = currentCardOutcome.targetPlayerIndex;
-						damageOp.data.damage.damageType = DAMAGE_MAGIC;
-						damageOp.data.damage.fixedDamage = effectValue;
-						damageOp.data.damage.damageFromSlot = -1;
-						queueEffect(damageOp);
-					}
-				}
-
-				if (isSelfTarget) {
-					tryTriggerShellSpike();
-				}
-			}
-		}
-		advanceCardState(CARD_STATE_EFFECT_SEQUENCE);
-		break;
-
-	case CARD_BURST_OF_LIGHT:
-		// Burst needs targeting after menu choice
-		advanceCardState(CARD_STATE_TARGETING);
-		burstChoice = (choice == "damage") ? 0 : 1;
-		break;
-
-	case CARD_TRAIN:
-		if (choice == "draft") {
-			// Go straight to draft (handled by old system for now)
-			advanceCardState(CARD_STATE_EFFECT);
-		} else {
-			// "ap" choice: immediate effect
-			beginEffectSequence();
-			Player & p = players[currentCardOutcome.casterIndex];
-			p.nextTurnAPBonus += 3;
-			spawnFloatingText(gridToWorld(p.x, p.y), "+3 AP next turn", ofColor::yellow);
-			advanceCardState(CARD_STATE_EFFECT_SEQUENCE);
-		}
-		break;
-
-	case CARD_DOUBLE_HANDED:
-		// Choice determines card to add; targeting happens next.
-		pendingDoubleHandedChoice = (choice == "punch") ? "Punch" : "Hand Block";
-		isTargetingDoubleHanded = true;
-		calculateTargetHighlights(pendingDoubleHandedCardIndex);
-		advanceCardState(CARD_STATE_TARGETING);
-		break;
-
-	default:
-		// Unknown card, try to advance to targeting
-		advanceCardState(CARD_STATE_TARGETING);
-		break;
-	}
 }
 
 void ofApp::handleCardTargetInput(int gridX, int gridY) {
@@ -17867,11 +15914,15 @@ void ofApp::handleCardDiceResult(int result, DicePurpose purpose) {
 void ofApp::sendCardOutcomePacket() {
 	if (!isHost()) return; // Only host sends authoritative outcomes
 
-	// For now, just apply effects locally until full network integration
-	// TODO: Implement PKT_CARD_OUTCOME packet type in NetworkData.h
-	// and sendPacketToAll() function for unified card outcome transmission
-
+	// Apply the outcome on host (authoritative), then push authoritative
+	// state to clients using existing snapshot transport so clients stay
+	// fully authoritative and deterministic.
 	applyCardOutcomeEffects();
+
+	// Send authoritative snapshot to clients to reflect the outcome.
+	if (isMultiplayer) {
+		sendSnapshotToClient();
+	}
 }
 
 void ofApp::applyCardOutcomeEffects() {
@@ -18038,8 +16089,74 @@ void ofApp::processCardStateInput(int mouseX, int mouseY, int button) {
 			}
 			break;
 
+		case CARD_GIANT_MAGIC_HAND: {
+			float w = 500, h = 250;
+			float mx = ofGetWidth() / 2 - w / 2, my = ofGetHeight() / 2 - h / 2;
+			float btnW = 200, btnH = 80;
+			float spacing = 40;
+			float startX = mx + (w - (btnW * 2 + spacing)) / 2;
+			float btnY = my + 120;
+			ofRectangle btnPush(startX, btnY, btnW, btnH);
+			ofRectangle btnPull(startX + btnW + spacing, btnY, btnW, btnH);
+
+			if (btnPush.inside(mouseX, mouseY)) {
+				handleCardMenuClick("push");
+			} else if (btnPull.inside(mouseX, mouseY)) {
+				handleCardMenuClick("pull");
+			}
+			break;
+		}
+
 		default:
 			break;
+		}
+	} else if (cardInteractionState == CARD_INTERACTION_STATUS) {
+		if (button != OF_MOUSE_BUTTON_LEFT) return;
+
+		bool clickedOption = false;
+		for (size_t i = 0; i < statusSelectButtons.size(); ++i) {
+			if (!statusSelectButtons[i].inside(mouseX, mouseY)) continue;
+
+			Player * target = getPlayer(pendingDispelTargetIndex);
+			if (target && pendingDispelCardIndex != -1 && currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) {
+				Player & p = players[currentPlayerIndex];
+				if (pendingDispelCardIndex >= 0 && pendingDispelCardIndex < (int)p.hand.size()) {
+					int cost = p.hand[pendingDispelCardIndex].cost;
+					std::string cardName = p.hand[pendingDispelCardIndex].name;
+
+					if (isMultiplayer && !isExecutingLockstepCommand) {
+						InputCommandPacket cmd = {};
+						cmd.type = PKT_INPUT_COMMAND;
+						cmd.playerID = myLocalPlayerID;
+						cmd.seq = 0;
+						cmd.commandId = nextCommandId++;
+						cmd.turnNumber = globalTurnCounter;
+						cmd.commandType = CMD_STATUS_ACTION;
+						cmd.params[0] = pendingDispelCardIndex;
+						cmd.params[1] = target->x;
+						cmd.params[2] = target->y;
+						cmd.params[3] = (int)i;
+						cmd.params[4] = cost;
+						strncpy(cmd.stringData, cardName.c_str(), sizeof(cmd.stringData) - 1);
+						cmd.stringData[sizeof(cmd.stringData) - 1] = '\0';
+						queueInputCommand(cmd);
+						pendingDispelCardIndex = -1;
+						pendingDispelTargetIndex = -1;
+						resetCardInteraction();
+					} else {
+						applyDispelEffect((int)i);
+						resetCardInteraction();
+					}
+				}
+			}
+
+			clickedOption = true;
+			break;
+		}
+
+		if (!clickedOption && !statusSelectMenuRect.inside(mouseX, mouseY)) {
+			cancelDispel();
+			resetCardInteraction();
 		}
 	}
 }
@@ -18231,7 +16348,8 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 
 		if (targetIndex != -1) {
 			pendingBurstTargetIndex = targetIndex;
-			isBurstMenuOpen = true;
+			updateCardInteractionState(CARD_INTERACTION_MENU, cardIndex, playedCard.type);
+			interactionTargetIndex = targetIndex;
 			advanceCardState(CARD_STATE_MENU);
 			sendMenuState(2, targetIndex, -1, cardIndex);
 
@@ -18247,7 +16365,7 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 			return true;
 		}
 
-		isTargetingBurst = true;
+		updateCardInteractionState(CARD_INTERACTION_TARGETING, cardIndex, playedCard.type);
 		advanceCardState(CARD_STATE_TARGETING);
 		playedSuccessfully = true;
 		immediateResult = CARD_AWAITING_TARGETING;
@@ -18530,7 +16648,7 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 
 	case CARD_DISPEL: {
 		pendingDispelCardIndex = cardIndex;
-		isDispelMenuOpen = true;
+		updateCardInteractionState(CARD_INTERACTION_MENU, cardIndex, playedCard.type);
 		advanceCardState(CARD_STATE_MENU);
 
 		float w = 600, h = 300;
@@ -19328,7 +17446,8 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 
 		pendingDoubleHandedCardIndex = cardIndex;
 		pendingDoubleHandedTargetIndex = targetIndex;
-		isDoubleHandedMenuOpen = true;
+		updateCardInteractionState(CARD_INTERACTION_MENU, cardIndex, playedCard.type);
+		interactionTargetIndex = targetIndex;
 		currentCardOutcome.targetPlayerIndex = targetIndex;
 		advanceCardState(CARD_STATE_MENU);
 		sendMenuState(3, targetIndex, -1, cardIndex);
@@ -19352,7 +17471,7 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 
 		pendingMagicHandCardIndex = cardIndex;
 		magicHandTargetTile = { targetX, targetY };
-		isMagicHandMenuOpen = true;
+		updateCardInteractionState(CARD_INTERACTION_MENU, cardIndex, playedCard.type);
 		advanceCardState(CARD_STATE_MENU);
 
 		float w = 500, h = 250;
@@ -20917,7 +19036,8 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 	}
 
 	default:
-		// Card not found in centralized handler - fall back to legacy switch
+		// Card not found in centralized handler - log and fall back to legacy switch
+		ofLogWarning("CardExec") << "Centralized handler missing cardType=" << (int)playedCard.type << ", delegating to legacy path.";
 		return false;
 	}
 
@@ -22756,9 +20876,7 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 	if (isTargetingMagicBolt) activeCardIndex = magicBoltCardIndex;
 	if (isTargetingTeleport) activeCardIndex = pendingTeleportCardIndex;
 	if (isTargetingAmnesia) activeCardIndex = pendingAmnesiaCardIndex;
-	if (isTargetingDoubleHanded) activeCardIndex = pendingDoubleHandedCardIndex;
 	if (isTargetingHellhound) activeCardIndex = hellhoundCardIndex;
-	if (isTargetingBurst) activeCardIndex = pendingBurstCardIndex;
 	if (isTargetingPunch) activeCardIndex = pendingPunchCardIndex;
 
 	// === KEEP HIGHLIGHTS ACTIVE WHILE IN NEW TARGETING/MENU INTERACTION STATES ===
@@ -22905,7 +21023,10 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 	}
 
 	// Check AP (Targeting modes imply AP check passed already)
-	bool inTargetingMode = isTargetingDoubleHanded || isTargetingTeleport || isTargetingBurst || isTargetingAmnesia || (selectedCardIndex != -1);
+	bool inTargetingMode = (cardInteractionState == CARD_INTERACTION_TARGETING)
+		|| isTargetingTeleport
+		|| isTargetingAmnesia
+		|| (selectedCardIndex != -1);
 
 	bool hasEnoughAP = inTargetingMode || (currentAP >= card.cost);
 
@@ -25384,62 +23505,40 @@ void ofApp::cancelDispel() {
 	isDispelStatusSelectOpen = false;
 	pendingDispelCardIndex = -1;
 	pendingDispelTargetIndex = -1;
+	statusSelectLabels.clear();
+	statusSelectButtons.clear();
+	statusSelectMenuRect.set(0, 0, 0, 0);
 	dispelMode = 0;
 	ofLogNotice("Dispel") << "Cancelled.";
 }
 
 //--------------------------------------------------------------
 void ofApp::drawDispelUI() {
-	// --- PHASE 1: INITIAL CHOICE ---
-	if (isDispelMenuOpen) {
-		drawMenuOverlay();
+	if (cardInteractionState != CARD_INTERACTION_STATUS || interactingCardType != CARD_DISPEL) return;
 
-		// Use standardized panel helper (Barrier = hotPink, Purge = cyan)
-		drawCardChoicePanel(dispelMenuRect, "Choose Dispel Effect", "(1d20 vs Magic/Fire)",
-			dispelBtnBarrier, dispelBtnPurge, "Non-Phys Barrier", "Remove Status",
-			ofColor::hotPink, ofColor::cyan, true, true);
-	}
+	// Overlay
+	ofSetColor(0, 0, 0, 180);
+	ofDrawRectangle(0, 0, ofGetWidth(), ofGetHeight());
 
-	// --- PHASE 2: TARGETING (Top Prompt) ---
-	if (isDispelTargeting) {
-		float promptW = 600;
-		float promptX = ofGetWidth() / 2 - promptW / 2;
+	// Background
+	ofSetColor(50, 50, 50, 255);
+	ofDrawRectRounded(statusSelectMenuRect, 15);
 
-		ofSetColor(0, 0, 0, 200);
-		ofDrawRectRounded(promptX, 50, promptW, 60, 10);
+	// Title
+	ofSetColor(ofColor::white);
+	string title = "Select Status to Remove";
+	ofRectangle titleBox = uiFont.getStringBoundingBox(title, 0, 0);
+	uiFont.drawString(title, statusSelectMenuRect.getCenter().x - titleBox.width / 2, statusSelectMenuRect.y + 45);
 
-		ofSetColor(ofColor::white);
-		string text = "Select Self or Adjacent Unit to Cure";
-		ofRectangle textBox = uiFont.getStringBoundingBox(text, 0, 0);
-		uiFont.drawString(text, ofGetWidth() / 2 - textBox.width / 2, 90);
-	}
+	// Buttons
+	for (size_t i = 0; i < statusSelectButtons.size(); i++) {
+		ofSetColor(ofColor::orange);
+		ofDrawRectRounded(statusSelectButtons[i], 10);
 
-	// --- PHASE 3: STATUS SELECTION ---
-	if (isDispelStatusSelectOpen) {
-		// Overlay
-		ofSetColor(0, 0, 0, 180);
-		ofDrawRectangle(0, 0, ofGetWidth(), ofGetHeight());
-
-		// Background
-		ofSetColor(50, 50, 50, 255);
-		ofDrawRectRounded(statusSelectMenuRect, 15);
-
-		// Title
-		ofSetColor(ofColor::white);
-		string title = "Select Status to Remove";
-		ofRectangle titleBox = uiFont.getStringBoundingBox(title, 0, 0);
-		uiFont.drawString(title, statusSelectMenuRect.getCenter().x - titleBox.width / 2, statusSelectMenuRect.y + 45);
-
-		// Buttons
-		for (size_t i = 0; i < statusSelectButtons.size(); i++) {
-			ofSetColor(ofColor::orange);
-			ofDrawRectRounded(statusSelectButtons[i], 10);
-
-			ofSetColor(ofColor::black);
-			string label = statusSelectLabels[i];
-			ofRectangle labelBox = uiFont.getStringBoundingBox(label, 0, 0);
-			uiFont.drawString(label, statusSelectButtons[i].getCenter().x - labelBox.width / 2, statusSelectButtons[i].getCenter().y + labelBox.height / 2);
-		}
+		ofSetColor(ofColor::black);
+		string label = statusSelectLabels[i];
+		ofRectangle labelBox = uiFont.getStringBoundingBox(label, 0, 0);
+		uiFont.drawString(label, statusSelectButtons[i].getCenter().x - labelBox.width / 2, statusSelectButtons[i].getCenter().y + labelBox.height / 2);
 	}
 }
 //--------------------------------------------------------------
@@ -25502,92 +23601,8 @@ void ofApp::drawMenuTitle(const string & title, const ofRectangle & menuRect, fl
 	uiFont.drawString(title, menuRect.getCenter().x - titleBox.width / 2, menuRect.y + yOffset);
 }
 //--------------------------------------------------------------
-void ofApp::drawDoubleHandedUI() {
-	drawMenuOverlay();
-	drawMenuBackground(doubleHandedMenuRect);
-	drawMenuTitle("Double Handed: Choose Cards", doubleHandedMenuRect);
-
-	// Punch Button
-	ofSetColor(ofColor::indianRed);
-	ofDrawRectRounded(btnAddPunches, 10);
-	ofSetColor(ofColor::white);
-	uiFont.drawString("Add 2x Punch", btnAddPunches.x + 20, btnAddPunches.getCenter().y + 5);
-
-	// Block Button
-	ofSetColor(ofColor::slateGray);
-	ofDrawRectRounded(btnAddBlocks, 10);
-	ofSetColor(ofColor::white);
-	uiFont.drawString("Add 2x Hand Block", btnAddBlocks.x + 10, btnAddBlocks.getCenter().y + 5);
-}
-//--------------------------------------------------------------
-void ofApp::drawAmnesiaMenuUI() {
-	drawMenuOverlay();
-	drawMenuBackground(amnesiaMenuRect);
-	drawMenuTitle("Amnesia: Choose Target", amnesiaMenuRect);
-
-	// Self Button
-	ofSetColor(ofColor::magenta);
-	ofDrawRectRounded(amnesiaBtnSelf, 10);
-	ofSetColor(ofColor::white);
-	string selfLabel = "Self";
-	ofRectangle selfBox = uiFont.getStringBoundingBox(selfLabel, 0, 0);
-	uiFont.drawString(selfLabel, amnesiaBtnSelf.getCenter().x - selfBox.width / 2, amnesiaBtnSelf.getCenter().y + 5);
-
-	// Adjacent Button
-	ofSetColor(ofColor::purple);
-	ofDrawRectRounded(amnesiaBtnAdjacent, 10);
-	ofSetColor(ofColor::white);
-	string adjLabel = "Adjacent Unit";
-	ofRectangle adjBox = uiFont.getStringBoundingBox(adjLabel, 0, 0);
-	uiFont.drawString(adjLabel, amnesiaBtnAdjacent.getCenter().x - adjBox.width / 2, amnesiaBtnAdjacent.getCenter().y + 5);
-}
-//--------------------------------------------------------------
-void ofApp::drawMagicHandUI() {
-	drawMenuOverlay();
-	drawMenuBackground(ofRectangle(wisdomMenuRect.x, wisdomMenuRect.y, wisdomMenuRect.width, wisdomMenuRect.height), 15);
-	drawMenuTitle("Giant Magic Hand", wisdomMenuRect, 50);
-
-	// Calculate Buttons
-	float btnW = 200, btnH = 80;
-	float spacing = 40;
-	float startX = wisdomMenuRect.x + (wisdomMenuRect.width - (btnW * 2 + spacing)) / 2;
-	float btnY = wisdomMenuRect.y + 120;
-
-	// Use temp rects for drawing (input handling uses same math in mousePressed)
-	ofRectangle btnPush(startX, btnY, btnW, btnH);
-	ofRectangle btnPull(startX + btnW + spacing, btnY, btnW, btnH);
-
-	// Draw Push (Reddish)
-	ofSetColor(ofColor::indianRed);
-	ofDrawRectRounded(btnPush, 10);
-	ofSetColor(ofColor::white);
-	string pushTxt = "PUSH";
-	ofRectangle pBox = uiFont.getStringBoundingBox(pushTxt, 0, 0);
-	uiFont.drawString(pushTxt, btnPush.getCenter().x - pBox.width / 2, btnPush.getCenter().y + pBox.height / 2);
-
-	// Draw Pull (Blueish)
-	ofSetColor(ofColor::royalBlue);
-	ofDrawRectRounded(btnPull, 10);
-	ofSetColor(ofColor::white);
-	string pullTxt = "PULL";
-	ofRectangle plBox = uiFont.getStringBoundingBox(pullTxt, 0, 0);
-	uiFont.drawString(pullTxt, btnPull.getCenter().x - plBox.width / 2, btnPull.getCenter().y + plBox.height / 2);
-
-	// Subtext
-	ofSetColor(200, 200, 200);
-	string sub = "Push: Dmg units behind | Pull: Move back";
-	ofRectangle sBox = uiFont.getStringBoundingBox(sub, 0, 0);
-	ofPushMatrix();
-	ofTranslate(wisdomMenuRect.getCenter().x - (sBox.width * 0.7) / 2, wisdomMenuRect.y + 90);
-	ofScale(0.7, 0.7);
-	uiFont.drawString(sub, 0, 0);
-	ofPopMatrix();
-}
-//--------------------------------------------------------------
 void ofApp::drawCardSpawnerUI() {
 	drawMenuOverlay();
-
-	// KRunner-style bar - centered horizontally, near top
 	float barWidth = 600.0f;
 	float barHeight = 50.0f;
 	float barX = (ofGetWidth() - barWidth) / 2.0f;
@@ -25963,17 +23978,6 @@ void ofApp::drawCardEncyclopediaUI() {
 	uiFont.drawString("Accept", encyclopediaAcceptButton.getCenter().x - aBox.width / 2, encyclopediaAcceptButton.getCenter().y + aBox.height / 2 - 2);
 }
 
-// Cancel Helper
-void ofApp::cancelDoubleHanded() {
-	isDoubleHandedMenuOpen = false;
-	isTargetingDoubleHanded = false;
-	pendingDoubleHandedCardIndex = -1;
-	pendingDoubleHandedTargetIndex = -1;
-	pendingDoubleHandedChoice = "";
-	sendMenuState(0, -1, -1, -1); // Notify opponent that menu is closed
-	calculateTargetHighlights();
-}
-
 // Resolve Logic (Adds cards and consumes AP)
 void ofApp::resolveDoubleHanded(std::string cardName) {
 	Player * target = getPlayer(pendingDoubleHandedTargetIndex);
@@ -26021,7 +24025,14 @@ void ofApp::resolveDoubleHanded(std::string cardName) {
 			}
 		}
 	}
-	cancelDoubleHanded();
+
+	isDoubleHandedMenuOpen = false;
+	isTargetingDoubleHanded = false;
+	pendingDoubleHandedCardIndex = -1;
+	pendingDoubleHandedTargetIndex = -1;
+	pendingDoubleHandedChoice = "";
+	sendMenuState(0, -1, -1, -1);
+	calculateTargetHighlights();
 }
 //--------------------------------------------------------------
 void ofApp::determineStatusOptions(Player * target) {
@@ -26040,12 +24051,14 @@ void ofApp::determineStatusOptions(Player * target) {
 			spawnFloatingText(glm::vec3(ofGetWidth() / 2, ofGetHeight() / 2, 0), "Target has no status effects!", ofColor::yellow);
 		}
 		cancelDispel();
+		resetCardInteraction();
 		return;
 	}
 
 	// If only one, apply immediately
 	if (statusSelectLabels.size() == 1) {
 		applyDispelEffect(0);
+		resetCardInteraction();
 		return;
 	}
 
@@ -26059,9 +24072,6 @@ void ofApp::determineStatusOptions(Player * target) {
 	for (size_t i = 0; i < statusSelectLabels.size(); i++) {
 		statusSelectButtons.push_back(ofRectangle(x + 20, y + 60 + (i * 60), w - 40, 50));
 	}
-
-	isDispelTargeting = false;
-	isDispelStatusSelectOpen = true;
 }
 
 void ofApp::applyDrainPunch(int targetPlayerIndex, int baseDamage, int casterIndex) {
@@ -26158,74 +24168,6 @@ void ofApp::applyDispelEffect(int statusIndex) {
 
 	cancelDispel(); // Close menus
 }
-// ----------------- WISDOM BOON HELPERS -----------------
-
-void ofApp::cancelWisdomBoon() {
-	isWisdomBoonMenuOpen = false;
-	pendingWisdomBoonCardIndex = -1;
-	pendingWisdomBoonTargetIndex = -1;
-	sendMenuState(0, -1, -1, -1); // Notify opponent that menu is closed
-	ofLogNotice("WisdomBoon") << "Cancelled.";
-}
-//--------------------------------------------------------------
-void ofApp::cancelBurst() {
-	isBurstMenuOpen = false;
-	pendingBurstCardIndex = -1;
-	pendingBurstTargetIndex = -1;
-	isTargetingBurst = false;
-	burstChoice = -1;
-	sendMenuState(0, -1, -1, -1); // Notify opponent that menu is closed
-	ofLogNotice("Burst") << "Cancelled.";
-}
-//--------------------------------------------------------------
-void ofApp::drawWisdomBoonUI() {
-	drawMenuOverlay();
-
-	// 2. Menu Background
-
-	// 3. Determine Context
-	bool isSelfTarget = (pendingWisdomBoonTargetIndex == currentPlayerIndex);
-	int deckSize = 0;
-	if (currentPlayerIndex >= 0) deckSize = players[currentPlayerIndex].deck.size();
-
-	// 4. Title & Description
-	string title = "Wisdom Boon";
-	string desc = "Effect Strength: " + ofToString(deckSize) + " (Your Deck Size)";
-
-	// Choose accent colors: block = slateGray, magic = lighter purple
-	ofColor magicAccent(180, 140, 230);
-	ofColor blockAccent(120, 120, 120);
-
-	if (isSelfTarget) {
-		drawCardChoicePanel(wisdomMenuRect, title, desc, wisdomBtnDamage, wisdomBtnBlock, "Gain Block", "", blockAccent, blockAccent, true, false);
-	} else {
-		drawCardChoicePanel(wisdomMenuRect, title, desc, wisdomBtnDamage, wisdomBtnBlock, "Deal Magic Dmg", "", magicAccent, magicAccent, true, false);
-	}
-}
-//--------------------------------------------------------------
-void ofApp::drawBurstUI() {
-	drawMenuOverlay();
-
-	string title = "Burst of Light";
-	string desc = "Choose effect for selected target:";
-
-	// Accent colors: holy = yellow, heal = light green
-	ofColor holyAccent(255, 213, 79); // golden yellow
-	ofColor healAccent(144, 238, 144); // light green
-
-	ofRectangle panelRect = burstMenuRect;
-
-	bool selfTarget = (pendingBurstTargetIndex == currentPlayerIndex);
-	bool healEnabled = true;
-	if (pendingBurstTargetIndex >= 0 && pendingBurstTargetIndex < (int)players.size()) {
-		healEnabled = (players[pendingBurstTargetIndex].health < players[pendingBurstTargetIndex].maxHealth);
-	}
-
-	// Use standardized helper to draw primary (Deal 3 Holy) and secondary (Heal 3 HP).
-	drawCardChoicePanel(panelRect, title, desc, burstBtnDamage, burstBtnHeal,
-		selfTarget ? "Cannot Damage Self" : "Deal 3 Holy", healEnabled ? "Heal 3 HP" : "Target Full HP",
-		holyAccent, healAccent, !selfTarget, healEnabled);
-}
 
 //--------------------------------------------------------------
 // Helper function to draw white outlined tiles that join together when adjacent
@@ -26320,62 +24262,64 @@ void ofApp::drawJoinedOutlines(bool highlightedTiles[BOARD_WIDTH][BOARD_HEIGHT],
 
 //--------------------------------------------------------------
 void ofApp::drawOpponentMenu() {
-	// Reuse the existing menu draw functions but with opponent's menu state
-	// This leverages the UI that's already built instead of duplicating it
+	// Draw opponent menus directly using shared panel primitives (no legacy state swapping).
+	drawMenuOverlay();
+	ofEnableBlendMode(OF_BLENDMODE_ALPHA);
+	ofSetColor(0, 0, 0, 100);
+	ofDrawRectangle(0, 0, ofGetWidth(), ofGetHeight());
 
 	if (opponentMenuType == 1) {
-		// Wisdom Boon - temporarily swap state, draw, then restore
-		bool wasOpen = isWisdomBoonMenuOpen;
-		int savedCardIdx = pendingWisdomBoonCardIndex;
-		int savedTargetIdx = pendingWisdomBoonTargetIndex;
+		// Wisdom Boon preview
+		bool isSelfTarget = (opponentMenuTargetIndex >= 0 && opponentMenuTargetIndex < (int)players.size() && currentPlayerIndex >= 0
+			&& opponentMenuTargetIndex == currentPlayerIndex);
+		int deckSize = 0;
+		if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) deckSize = (int)players[currentPlayerIndex].deck.size();
 
-		isWisdomBoonMenuOpen = true;
-		pendingWisdomBoonCardIndex = opponentMenuCardIndex;
-		pendingWisdomBoonTargetIndex = opponentMenuTargetIndex;
+		string title = "Wisdom Boon";
+		string desc = "Effect Strength: " + ofToString(deckSize) + " (Deck Size)";
+		ofColor magicAccent(180, 140, 230);
+		ofColor blockAccent(120, 120, 120);
 
-		// Draw with semi-transparent overlay to indicate it's opponent's
-		ofEnableBlendMode(OF_BLENDMODE_ALPHA);
-		ofSetColor(0, 0, 0, 100); // Light overlay
-		ofDrawRectangle(0, 0, ofGetWidth(), ofGetHeight());
-		drawWisdomBoonUI();
-
-		// Restore state
-		isWisdomBoonMenuOpen = wasOpen;
-		pendingWisdomBoonCardIndex = savedCardIdx;
-		pendingWisdomBoonTargetIndex = savedTargetIdx;
+		float w = 520, h = 260;
+		float x = ofGetWidth() / 2 - w / 2, y = ofGetHeight() / 2 - h / 2;
+		ofRectangle menuRect(x, y, w, h);
+		ofRectangle btnDamage, btnBlock;
+		if (isSelfTarget) {
+			drawCardChoicePanel(menuRect, title, desc, btnDamage, btnBlock, "Gain Block", "", blockAccent, blockAccent, true, false);
+		} else {
+			drawCardChoicePanel(menuRect, title, desc, btnDamage, btnBlock, "Deal Magic Dmg", "", magicAccent, magicAccent, true, false);
+		}
 	} else if (opponentMenuType == 2) {
-		// Burst of Light
-		bool wasOpen = isBurstMenuOpen;
-		int savedCardIdx = pendingBurstCardIndex;
+		// Burst of Light preview
+		bool selfTarget = (opponentMenuTargetIndex >= 0 && opponentMenuTargetIndex < (int)players.size() && currentPlayerIndex >= 0
+			&& opponentMenuTargetIndex == currentPlayerIndex);
+		bool healEnabled = true;
+		if (opponentMenuTargetIndex >= 0 && opponentMenuTargetIndex < (int)players.size()) {
+			healEnabled = (players[opponentMenuTargetIndex].health < players[opponentMenuTargetIndex].maxHealth);
+		}
 
-		isBurstMenuOpen = true;
-		pendingBurstCardIndex = opponentMenuCardIndex;
-
-		ofEnableBlendMode(OF_BLENDMODE_ALPHA);
-		ofSetColor(0, 0, 0, 100);
-		ofDrawRectangle(0, 0, ofGetWidth(), ofGetHeight());
-		drawBurstUI();
-
-		isBurstMenuOpen = wasOpen;
-		pendingBurstCardIndex = savedCardIdx;
+		float w = 520, h = 260;
+		float x = ofGetWidth() / 2 - w / 2, y = ofGetHeight() / 2 - h / 2;
+		ofRectangle menuRect(x, y, w, h);
+		ofRectangle btnDamage, btnHeal;
+		ofColor holyAccent(255, 213, 79);
+		ofColor healAccent(144, 238, 144);
+		drawCardChoicePanel(menuRect, "Burst of Light", "Choose effect for selected target:",
+			btnDamage, btnHeal,
+			selfTarget ? "Cannot Damage Self" : "Deal 3 Holy",
+			healEnabled ? "Heal 3 HP" : "Target Full HP",
+			holyAccent, healAccent, !selfTarget, healEnabled);
 	} else if (opponentMenuType == 3) {
-		// Double Handed
-		bool wasOpen = isDoubleHandedMenuOpen;
-		int savedCardIdx = pendingDoubleHandedCardIndex;
-		int savedTargetIdx = pendingDoubleHandedTargetIndex;
-
-		isDoubleHandedMenuOpen = true;
-		pendingDoubleHandedCardIndex = opponentMenuCardIndex;
-		pendingDoubleHandedTargetIndex = opponentMenuTargetIndex;
-
-		ofEnableBlendMode(OF_BLENDMODE_ALPHA);
-		ofSetColor(0, 0, 0, 100);
-		ofDrawRectangle(0, 0, ofGetWidth(), ofGetHeight());
-		drawDoubleHandedUI();
-
-		isDoubleHandedMenuOpen = wasOpen;
-		pendingDoubleHandedCardIndex = savedCardIdx;
-		pendingDoubleHandedTargetIndex = savedTargetIdx;
+		// Double Handed preview
+		float w = 600, h = 300;
+		float mx = ofGetWidth() / 2 - w / 2, my = ofGetHeight() / 2 - h / 2;
+		ofRectangle menuRect(mx, my, w, h);
+		ofRectangle btnPunch, btnBlock;
+		ofColor punchAccent(200, 100, 100);
+		ofColor blockAccent(100, 150, 200);
+		drawCardChoicePanel(menuRect, "Double-Handed", "Choose ability:",
+			btnPunch, btnBlock, "Punch", "Block",
+			punchAccent, blockAccent, true, true);
 	}
 }
 
