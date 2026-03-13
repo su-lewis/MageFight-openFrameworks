@@ -825,8 +825,6 @@ private:
 	void resolveTeleportDice();
 	void resolveOnFireDice();
 	void resolvePoisonStatusDice();
-	void resolveHellhoundHPDice();
-	void resolveDemonHPDice();
 	void resolveParalysisCoinFlip();
 	void resolveWolfCoinFlip();
 
@@ -1848,9 +1846,15 @@ private:
 	int pendingHealTargetIndex = -1;
 
 	// Summon (Raise Dead)
+	enum PendingSummonKind {
+		PENDING_SUMMON_NONE = 0,
+		PENDING_SUMMON_SKELETON = 1,
+		PENDING_SUMMON_HELLHOUND = 2,
+		PENDING_SUMMON_DEMON = 3
+	};
 	bool isWaitingForSummonHealth = false;
+	int pendingSummonKind = PENDING_SUMMON_NONE;
 	int pendingSummonRollResult = 0;
-	int pendingHellhoundAPResult = 0; // Hellhound AP roll result
 	glm::vec2 pendingSummonTile;
 	int pendingSummonPlayerIndex = -1; // Track which player the pending summon belongs to
 
@@ -1952,13 +1956,9 @@ private:
 	bool isWaitingForFlailDice = false;
 	int pendingFlailRollResult = 0;
 
-	// Hellhound Summoning
-	bool isWaitingForHellhoundHP = false;
+	// Hellhound targeting
 	bool isTargetingHellhound = false;
 	int hellhoundCardIndex = -1;
-
-	// Demon Summoning
-	bool isWaitingForDemonHP = false;
 
 	// Death Card Logic
 	bool isWaitingForDeathDice = false;
@@ -2112,6 +2112,7 @@ private:
 	ofRectangle debugFlipCoinButton;
 	ofRectangle debugSpawnUnitButton;
 	ofRectangle debugSpawnCardButton;
+	ofRectangle debugAddAllCardsButton;
 	ofRectangle debugDrawCardButton;
 	ofRectangle debugUnlimitedAPButton;
 	ofRectangle debugUnlimitedTimeButton;

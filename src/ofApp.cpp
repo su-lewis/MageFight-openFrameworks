@@ -3865,7 +3865,7 @@ void ofApp::updateGame() {
 	// before the summoned minion's HP/UI shows up.
 	{
 		const float KEY_DRAFT_UI_DELAY = 0.03f; // seconds (≈ one frame)
-		if (pendingKeyDraftAccept && (ofGetElapsedTimef() - pendingKeyDraftTriggerTime) >= KEY_DRAFT_UI_DELAY && !isWaitingForSummonHealth && !isWaitingForHellhoundHP && !isWaitingForDemonHP) {
+		if (pendingKeyDraftAccept && (ofGetElapsedTimef() - pendingKeyDraftTriggerTime) >= KEY_DRAFT_UI_DELAY && !isWaitingForSummonHealth) {
 			// Diagnostic: remap stable playerID -> current actor index (handles players[] reordering)
 			int resolvedIdx = -1;
 			if (pendingKeyDraftPlayerID >= 0) {
@@ -4042,10 +4042,6 @@ void ofApp::updateGame() {
 	// === CENTRALIZED ASYNC RESOLUTION HELPERS ===
 	updateEffectSequence();
 
-	// All dice/state resolution for cards now dispatched through helpers
-	resolveAttackDamage();
-	resolvePoisonDamage();
-
 	// --- Amnesia Logic ---
 	// === CENTRALIZED ASYNC RESOLUTION HELPERS ===
 	// All dice/state resolution for cards now dispatched through helpers
@@ -4075,8 +4071,6 @@ void ofApp::updateGame() {
 	resolveTeleportDice();
 	resolveOnFireDice();
 	resolvePoisonStatusDice();
-	resolveHellhoundHPDice();
-	resolveDemonHPDice();
 	resolveParalysisCoinFlip();
 	resolveWolfCoinFlip();
 
@@ -9759,6 +9753,7 @@ void ofApp::drawGame() {
 
 				int gi = 0;
 				setGridRect(debugSpawnCardButton, gi++);
+				setGridRect(debugAddAllCardsButton, gi++);
 				setGridRect(debugSkipDraftButton, gi++);
 				setGridRect(debugDrawCardButton, gi++);
 				setGridRect(debugFlipCoinButton, gi++);
@@ -9774,6 +9769,7 @@ void ofApp::drawGame() {
 				setGridRect(debugSpawnUnitButton, gi++);
 
 				drawChatDebugButton(debugSpawnCardButton, "CardSpawner");
+				drawChatDebugButton(debugAddAllCardsButton, "AddAll70");
 				drawChatDebugButton(debugSkipDraftButton, "SkipDraft");
 				drawChatDebugButton(debugDrawCardButton, "DrawCard");
 				drawChatDebugButton(debugFlipCoinButton, "Coin");
@@ -11132,6 +11128,21 @@ void ofApp::mousePressed(int x, int y, int button) {
 			isCardSpawnerOpen = true;
 			cardSpawnerInput.clear();
 			filteredCards.clear();
+			return;
+		}
+		if (debugAddAllCardsButton.inside(x, y)) {
+			// Add all 70 cards to current player's hand
+			if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) {
+				Player & p = players[currentPlayerIndex];
+				int beforeCount = p.hand.size();
+				for (const Card & card : allCards) {
+					p.hand.push_back(card);
+				}
+				int addedCount = p.hand.size() - beforeCount;
+				spawnFloatingText(gridToWorld(p.x, p.y), "+" + ofToString(addedCount) + " cards", ofColor::cyan);
+				addGameLog("Debug: Added all " + ofToString(addedCount) + " cards to hand");
+				if (isMultiplayer && isHost()) sendSnapshotToClient();
+			}
 			return;
 		}
 		if (debugFlipCoinButton.inside(x, y)) {
@@ -17558,6 +17569,7 @@ void ofApp::processEffectOp(EffectOp & op) {
 
 		if (targetIndex >= 0 && targetIndex < (int)players.size()) {
 			Player & target = players[targetIndex];
+			glm::vec3 tPos = gridToWorld(target.x, target.y);
 			switch (op.data.modifyStat.statType) {
 			case 0: // HP
 				target.health = std::max(0, std::min(target.health + delta, target.maxHealth));
@@ -17572,15 +17584,31 @@ void ofApp::processEffectOp(EffectOp & op) {
 				break;
 			case 5: // Block
 				target.block += delta;
+				if (delta != 0) {
+					std::string s = (delta > 0 ? "+" : "") + ofToString(delta) + " Block";
+					spawnFloatingText(tPos, s, ofColor::gray);
+				}
 				break;
 			case 6: // Barrier
 				target.barrier += delta;
+				if (delta != 0) {
+					std::string s = (delta > 0 ? "+" : "") + ofToString(delta) + " Barrier";
+					spawnFloatingText(tPos, s, ofColor(70, 170, 255));
+				}
 				break;
 			case 7: // HolyBlock
 				target.holyBlock += delta;
+				if (delta != 0) {
+					std::string s = (delta > 0 ? "+" : "") + ofToString(delta) + " Holy Block";
+					spawnFloatingText(tPos, s, ofColor(255, 215, 0));
+				}
 				break;
 			case 8: // Ward
 				target.ward += delta;
+				if (delta != 0) {
+					std::string s = (delta > 0 ? "+" : "") + ofToString(delta) + " Ward";
+					spawnFloatingText(tPos, s, ofColor(160, 120, 255));
+				}
 				break;
 			case 10: // Luck
 				target.luck += delta;
@@ -17755,7 +17783,6 @@ void ofApp::handleCardTargetInput(int gridX, int gridY) {
 	// After targeting, check if card needs dice
 	bool needsDice = false;
 	switch (currentCardOutcome.cardType) {
-	case CARD_PUNCH:
 	case CARD_KICK:
 	case CARD_BASH:
 	case CARD_STAB:
@@ -18677,7 +18704,7 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 	case CARD_SLASH:
 	case CARD_ATTACK_SINGLE_TILE: {
 		if (playedCard.type == CARD_PUNCH) {
-			// === LOCKSTEP MIGRATION: Data-oriented effect sequence ===
+			// Punch is deterministic: always 2 Physical damage to one adjacent chosen unit.
 			int px = players[currentPlayerIndex].x;
 			int py = players[currentPlayerIndex].y;
 			int targetIndex = -1;
@@ -18699,25 +18726,12 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 
 			beginEffectSequence();
 
-			// Roll dice for damage
-			EffectOp rollOp;
-			rollOp.type = EffectOpType::ROLL_DICE;
-			rollOp.data.rollDice.numDice = playedCard.numDice;
-			rollOp.data.rollDice.sides = playedCard.diceSides;
-			rollOp.data.rollDice.purpose = PURPOSE_DAMAGE;
-			rollOp.data.rollDice.ownerIndex = currentPlayerIndex;
-			rollOp.data.rollDice.outputSlot = 0; // Store result in blackboard[0]
-			strncpy(rollOp.data.rollDice.label, "Punch: Damage", 31);
-			rollOp.data.rollDice.label[31] = '\0';
-			queueEffect(rollOp);
-
-			// Apply damage from dice result
 			EffectOp damageOp;
 			damageOp.type = EffectOpType::DAMAGE;
 			damageOp.data.damage.targetIndex = targetIndex;
-			damageOp.data.damage.damageType = playedCard.damageType;
-			damageOp.data.damage.fixedDamage = 0;
-			damageOp.data.damage.damageFromSlot = 0; // Read from blackboard[0]
+			damageOp.data.damage.damageType = DAMAGE_PHYSICAL;
+			damageOp.data.damage.fixedDamage = 2;
+			damageOp.data.damage.damageFromSlot = -1;
 			queueEffect(damageOp);
 
 			playedSuccessfully = true;
@@ -19940,6 +19954,7 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 		// 1. Roll for HP
 		pendingSummonTile = glm::vec2(targetX, targetY);
 		pendingSummonPlayerIndex = currentPlayerIndex; // Track which player summoned
+		pendingSummonKind = PENDING_SUMMON_SKELETON;
 
 		pendingSummonRollResult = startDiceRoll(1, 6, PURPOSE_HP, "Raise Dead: Skeleton HP");
 
@@ -20865,17 +20880,8 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 		// Roll 2d6 for HP (visual) and compute AP silently (AP should be applied on the
 		// hellhound's turn rather than showing AP dice immediately after summoning).
 		pendingSummonRollResult = startDiceRoll(playedCard.numDice, playedCard.diceSides, PURPOSE_HP, "Hellhound HP");
-		// Compute AP deterministically using gameplayRNG but do NOT create a visual DiceRoll.
-		{
-			int apSum = 0;
-			for (int _i = 0; _i < playedCard.numDice; ++_i) {
-				int raw = getGameRandom(1, playedCard.diceSides);
-				apSum += raw;
-			}
-			pendingHellhoundAPResult = apSum;
-			ofLogNotice("Summon") << "Hellhound AP rolled silently: " << pendingHellhoundAPResult;
-		}
-		isWaitingForHellhoundHP = true;
+		pendingSummonKind = PENDING_SUMMON_HELLHOUND;
+		isWaitingForSummonHealth = true;
 
 		// Cleanup Logic
 		currentAP -= playedCard.cost;
@@ -20896,7 +20902,8 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 		pendingSummonPlayerIndex = currentPlayerIndex;
 		// Roll 3d10 for HP
 		pendingSummonRollResult = startDiceRoll(playedCard.numDice, playedCard.diceSides, PURPOSE_HP, "Demon HP");
-		isWaitingForDemonHP = true;
+		pendingSummonKind = PENDING_SUMMON_DEMON;
+		isWaitingForSummonHealth = true;
 
 		// Cleanup
 		currentAP -= playedCard.cost;
@@ -20977,6 +20984,7 @@ void ofApp::resolveAttackDamage() {
 			Player * target = getPlayer(pIndex);
 			if (target) {
 				int appliedDamage = baseDamage;
+				int absorbedDamage = 0;
 
 				if (pendingAttackDamageType == DAMAGE_PIERCING && i > 0) appliedDamage /= 2;
 
@@ -21020,29 +21028,37 @@ void ofApp::resolveAttackDamage() {
 					absorb = std::min(target->holyBlock, appliedDamage);
 					target->holyBlock -= absorb;
 					appliedDamage -= absorb;
+					absorbedDamage += absorb;
 				}
 				if (pendingAttackDamageType == DAMAGE_PHYSICAL) {
 					absorb = std::min(target->block, appliedDamage);
 					target->block -= absorb;
 					appliedDamage -= absorb;
+					absorbedDamage += absorb;
 				}
 				if (pendingAttackDamageType == DAMAGE_PHYSICAL || pendingAttackDamageType == DAMAGE_PIERCING) {
 					absorb = std::min(target->fortification, appliedDamage);
 					target->fortification -= absorb;
 					appliedDamage -= absorb;
+					absorbedDamage += absorb;
 				}
 				if (pendingAttackDamageType != DAMAGE_PHYSICAL) {
 					absorb = std::min(target->barrier, appliedDamage);
 					target->barrier -= absorb;
 					appliedDamage -= absorb;
+					absorbedDamage += absorb;
 				}
 				if (appliedDamage > 0) {
 					absorb = std::min(target->ward, appliedDamage);
 					target->ward -= absorb;
 					appliedDamage -= absorb;
+					absorbedDamage += absorb;
 				}
 
 				glm::vec3 tPos = gridToWorld(target->x, target->y);
+				if (absorbedDamage > 0) {
+					spawnFloatingText(tPos + glm::vec3(0, 0.5f, 0), "-" + ofToString(absorbedDamage) + " Absorbed", ofColor::lightGray);
+				}
 				if (appliedDamage > 0) {
 					target->health -= appliedDamage;
 					spawnFloatingText(tPos, "-" + ofToString(appliedDamage) + typeLabel, ofColor::red);
@@ -21558,10 +21574,137 @@ void ofApp::resolveFireballDamage() {
 	}
 }
 
-//--- SUMMON HP RESOLUTION (Placeholder - logic still in updateGame for now) ---
+//--- SUMMON HP RESOLUTION (Unified for Raise Dead / Hellhound / Demon) ---
 void ofApp::resolveSummonHealth() {
-	// TODO: Move complete summon HP resolution logic here from updateGame()
-	// For now, summon resolution remains in updateGame() but this helper exists for future consolidation
+	if (!isWaitingForSummonHealth) return;
+	if (!diceVisualsFinishedAndLinger()) return;
+
+	isWaitingForSummonHealth = false;
+
+	int sx = (int)pendingSummonTile.x;
+	int sy = (int)pendingSummonTile.y;
+	if (sx < 0 || sy < 0 || sx >= BOARD_WIDTH || sy >= BOARD_HEIGHT || board[sx][sy].hasPlayer || board[sx][sy].hasWall) {
+		ofLogWarning("Summon") << "Summon aborted: invalid/occupied tile (" << sx << "," << sy << ")";
+		pendingSummonKind = PENDING_SUMMON_NONE;
+		return;
+	}
+
+	// Client: visuals only. Host/local singleplayer is authoritative for spawned unit.
+	if (isMultiplayer && isClient()) {
+		pendingSummonKind = PENDING_SUMMON_NONE;
+		return;
+	}
+
+	if (pendingSummonKind == PENDING_SUMMON_NONE) {
+		ofLogWarning("Summon") << "Summon aborted: no pending summon kind set.";
+		return;
+	}
+
+	Player minion;
+	if (pendingSummonKind == PENDING_SUMMON_SKELETON) {
+		minion.playerID = 9000 + (int)players.size();
+		minion.isSkeleton = true;
+		minion.hasRegeneration = true;
+	} else if (pendingSummonKind == PENDING_SUMMON_HELLHOUND) {
+		minion.playerID = 1000 + (int)players.size();
+		minion.isHellhound = true;
+	} else if (pendingSummonKind == PENDING_SUMMON_DEMON) {
+		minion.playerID = 2000 + (int)players.size();
+		minion.isDemon = true;
+	}
+
+	minion.x = sx;
+	minion.y = sy;
+	minion.maxHealth = pendingSummonRollResult;
+	minion.health = pendingSummonRollResult;
+	minion.ap = 0; // summoning sickness
+	minion.isMinion = true;
+
+	int summoner = (pendingSummonPlayerIndex >= 0 && pendingSummonPlayerIndex < (int)players.size()) ? pendingSummonPlayerIndex : currentPlayerIndex;
+	if (summoner < 0 || summoner >= (int)players.size()) {
+		ofLogWarning("Summon") << "Summon aborted: invalid summoner index.";
+		pendingSummonKind = PENDING_SUMMON_NONE;
+		return;
+	}
+	minion.ownerID = players[summoner].isMinion ? players[summoner].ownerID : players[summoner].playerID;
+	minion.summonedOnTurnCycle = globalTurnCounter;
+	minion.summonOrder = ++nextSummonOrder;
+
+	auto findCard = [&](const std::string & name, CardType type) -> Card {
+		for (const auto & c : allCards) {
+			if (c.name == name) return c;
+		}
+		for (const auto & c : allCards) {
+			if (c.type == type) return c;
+		}
+		return Card();
+	};
+
+	if (pendingSummonKind == PENDING_SUMMON_SKELETON) {
+		Card slash = findCard("Slash", CARD_SLASH);
+		Card drainPunch = findCard("Drain Punch", CARD_DRAIN_PUNCH);
+		Card darkShield = findCard("Dark Shield", CARD_DARK_SHIELD);
+		minion.deck = { slash, slash, drainPunch, drainPunch, darkShield, darkShield };
+	} else if (pendingSummonKind == PENDING_SUMMON_HELLHOUND) {
+		Card slash = findCard("Slash", CARD_SLASH);
+		Card flameHit = findCard("Flame Hit", CARD_FLAME_HIT);
+		Card fireball = findCard("Fireball", CARD_FIREBALL);
+		Card darkShield = findCard("Dark Shield", CARD_DARK_SHIELD);
+		minion.deck = { slash, slash, flameHit, flameHit, fireball, fireball, darkShield, darkShield, darkShield };
+	} else if (pendingSummonKind == PENDING_SUMMON_DEMON) {
+		Card death = findCard("Death", CARD_DEATH);
+		Card flail = findCard("Flail", CARD_FLAIL);
+		Card fireball = findCard("Fireball", CARD_FIREBALL);
+		Card summonHellhound = findCard("Summon Hellhound", CARD_SUMMON_HELLHOUND);
+		Card darkShield = findCard("Dark Shield", CARD_DARK_SHIELD);
+		minion.deck = { death, death, flail, flail, fireball, fireball, summonHellhound, darkShield, darkShield, darkShield };
+	}
+
+	board[minion.x][minion.y].hasPlayer = true;
+	players.push_back(minion);
+	int newIdx = (int)players.size() - 1;
+	players[newIdx].visualPos = gridToWorld(players[newIdx].x, players[newIdx].y);
+	shuffleGameVector(players[newIdx].deck, newIdx);
+
+	if (isMultiplayer && isHost()) {
+		PlaceSummonedMinionPacket pkt = {};
+		pkt.type = PKT_PLACE_SUMMONED_MINION;
+		pkt.playerID = myLocalPlayerID;
+		pkt.minionType = (pendingSummonKind == PENDING_SUMMON_SKELETON) ? 9 : (pendingSummonKind == PENDING_SUMMON_HELLHOUND) ? 3
+																															  : 4;
+		pkt.ownerPlayerID = minion.ownerID;
+		pkt.targetX = minion.x;
+		pkt.targetY = minion.y;
+		pkt.minionHP = minion.maxHealth;
+		pkt.minionAP = minion.ap;
+		steamManager.sendPacket(&pkt, sizeof(pkt));
+	}
+
+	int currentID = -1;
+	if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) {
+		currentID = players[currentPlayerIndex].playerID;
+	}
+	std::sort(players.begin(), players.end(), [](const Player & a, const Player & b) {
+		int ownerA = a.isMinion ? a.ownerID : a.playerID;
+		int ownerB = b.isMinion ? b.ownerID : b.playerID;
+		if (ownerA != ownerB) return ownerA < ownerB;
+		if (a.isMinion && !b.isMinion) return true;
+		if (!a.isMinion && b.isMinion) return false;
+		return a.summonOrder < b.summonOrder;
+	});
+
+	if (currentID >= 0) {
+		for (size_t i = 0; i < players.size(); i++) {
+			if (players[i].playerID == currentID) {
+				currentPlayerIndex = i;
+				break;
+			}
+		}
+	}
+
+	invalidateTargetCache();
+	checkKeyPickupAndDraftAfterSummon(minion.x, minion.y, minion.ownerID);
+	pendingSummonKind = PENDING_SUMMON_NONE;
 }
 
 //--------------------------------------------------------------
@@ -32561,217 +32704,6 @@ void ofApp::resolvePoisonStatusDice() {
 	}
 
 	continueNewTurn();
-}
-
-void ofApp::resolveHellhoundHPDice() {
-	if (!isWaitingForHellhoundHP) return;
-
-	// Check if dice are finished visually
-	bool diceFinished = true;
-	for (const auto & d : activeDiceRolls) {
-		if (!d.isFinishedVisual) {
-			diceFinished = false;
-			break;
-		}
-	}
-	if (!diceFinished) return;
-
-	// Multiplayer: remove summon dice
-	if (isMultiplayer && isClient()) {
-		activeDiceRolls.erase(std::remove_if(activeDiceRolls.begin(), activeDiceRolls.end(), [&](const DiceRoll & r) {
-			return (r.purpose == PURPOSE_HP && r.result == pendingSummonRollResult);
-		}),
-			activeDiceRolls.end());
-		return;
-	}
-
-	// Create unit
-	Player minion;
-	minion.playerID = 1000 + (int)players.size();
-	minion.x = (int)pendingSummonTile.x;
-	minion.y = (int)pendingSummonTile.y;
-	minion.maxHealth = pendingSummonRollResult;
-	minion.health = pendingSummonRollResult;
-	minion.ap = pendingHellhoundAPResult;
-
-	minion.isMinion = true;
-	minion.isHellhound = true;
-
-	int summoner = (pendingSummonPlayerIndex >= 0 && pendingSummonPlayerIndex < (int)players.size()) ? pendingSummonPlayerIndex : currentPlayerIndex;
-	minion.ownerID = players[summoner].isMinion ? players[summoner].ownerID : players[summoner].playerID;
-	minion.summonedOnTurnCycle = globalTurnCounter;
-	minion.summonOrder = ++nextSummonOrder;
-
-	// Build deck: 2x Slash, 2x Flame Hit, 2x Fireball, 3x Dark Shield
-	for (const auto & c : allCards) {
-		if (c.name == "Slash") {
-			minion.deck.push_back(c);
-			minion.deck.push_back(c);
-		}
-		if (c.type == CARD_FLAME_HIT) {
-			minion.deck.push_back(c);
-			minion.deck.push_back(c);
-		}
-		if (c.type == CARD_FIREBALL) {
-			minion.deck.push_back(c);
-			minion.deck.push_back(c);
-		}
-		if (c.type == CARD_DARK_SHIELD) {
-			minion.deck.push_back(c);
-			minion.deck.push_back(c);
-			minion.deck.push_back(c);
-		}
-	}
-
-	// Add to board
-	board[minion.x][minion.y].hasPlayer = true;
-	players.push_back(minion);
-	int newHellhoundIdx = (int)players.size() - 1;
-	players[newHellhoundIdx].visualPos = gridToWorld(players[newHellhoundIdx].x, players[newHellhoundIdx].y);
-	shuffleGameVector(players[newHellhoundIdx].deck, newHellhoundIdx);
-
-	ofLogNotice("Summon") << "Hellhound summoned with " << minion.health << " HP.";
-
-	// Sort turn order
-	std::sort(players.begin(), players.end(), [](const Player & a, const Player & b) {
-		int ownerA = a.isMinion ? a.ownerID : a.playerID;
-		int ownerB = b.isMinion ? b.ownerID : b.playerID;
-		if (ownerA != ownerB) return ownerA < ownerB;
-		if (a.isMinion && !b.isMinion) return true;
-		if (!a.isMinion && b.isMinion) return false;
-		return a.summonOrder < b.summonOrder;
-	});
-
-	invalidateTargetCache();
-
-	// Check key pickup
-	checkKeyPickupAndDraftAfterSummon(minion.x, minion.y, minion.ownerID);
-
-	// Network notification
-	if (isMultiplayer && isHost()) {
-		PlaceSummonedMinionPacket pkt = {};
-		pkt.type = PKT_PLACE_SUMMONED_MINION;
-		pkt.playerID = myLocalPlayerID;
-		pkt.minionType = 3; // HELLHOUND
-		pkt.ownerPlayerID = minion.ownerID;
-		pkt.targetX = minion.x;
-		pkt.targetY = minion.y;
-		pkt.minionHP = minion.maxHealth;
-		pkt.minionAP = minion.ap;
-		steamManager.sendPacket(&pkt, sizeof(pkt));
-		ofLogNotice("Network") << "Host sent PlaceSummonedMinion: HELLHOUND owner=" << pkt.ownerPlayerID << " target=(" << pkt.targetX << "," << pkt.targetY << ") HP=" << pkt.minionHP << " AP=" << pkt.minionAP;
-	}
-}
-
-void ofApp::resolveDemonHPDice() {
-	if (!isWaitingForDemonHP) return;
-
-	// Check if dice are finished visually
-	bool diceFinished = true;
-	for (const auto & d : activeDiceRolls) {
-		if (!d.isFinishedVisual) {
-			diceFinished = false;
-			break;
-		}
-	}
-	if (!diceFinished) return;
-
-	// Multiplayer: remove summon dice
-	if (isMultiplayer && isClient()) {
-		activeDiceRolls.erase(std::remove_if(activeDiceRolls.begin(), activeDiceRolls.end(), [&](const DiceRoll & r) {
-			return (r.purpose == PURPOSE_HP && r.result == pendingSummonRollResult);
-		}),
-			activeDiceRolls.end());
-		return;
-	}
-
-	// Create demon unit
-	Player minion;
-	minion.playerID = 2000 + (int)players.size();
-	minion.x = (int)pendingSummonTile.x;
-	minion.y = (int)pendingSummonTile.y;
-	minion.maxHealth = pendingSummonRollResult;
-	minion.health = pendingSummonRollResult;
-
-	minion.isMinion = true;
-	minion.isDemon = true;
-
-	int summoner = (pendingSummonPlayerIndex >= 0 && pendingSummonPlayerIndex < (int)players.size()) ? pendingSummonPlayerIndex : currentPlayerIndex;
-	minion.ownerID = players[summoner].isMinion ? players[summoner].ownerID : players[summoner].playerID;
-	minion.summonedOnTurnCycle = globalTurnCounter;
-	minion.summonOrder = ++nextSummonOrder;
-
-	// Deck: 2x Death, 2x Flail, 2x Fireball, 1x Summon Hellhound, 3x Dark Shield
-	for (const auto & c : allCards) {
-		if (c.type == CARD_DEATH) {
-			minion.deck.push_back(c);
-			minion.deck.push_back(c);
-		}
-		if (c.type == CARD_FLAIL) {
-			minion.deck.push_back(c);
-			minion.deck.push_back(c);
-		}
-		if (c.type == CARD_FIREBALL) {
-			minion.deck.push_back(c);
-			minion.deck.push_back(c);
-		}
-		if (c.type == CARD_SUMMON_HELLHOUND) {
-			minion.deck.push_back(c);
-		}
-		if (c.type == CARD_DARK_SHIELD) {
-			minion.deck.push_back(c);
-			minion.deck.push_back(c);
-			minion.deck.push_back(c);
-		}
-	}
-
-	// Add to board
-	board[minion.x][minion.y].hasPlayer = true;
-	players.push_back(minion);
-	int newDemonIdx = (int)players.size() - 1;
-	players[newDemonIdx].visualPos = gridToWorld(players[newDemonIdx].x, players[newDemonIdx].y);
-	shuffleGameVector(players[newDemonIdx].deck, newDemonIdx);
-
-	ofLogNotice("Summon") << "Demon summoned with " << minion.health << " HP.";
-
-	// Network notification
-	if (isMultiplayer && isHost()) {
-		PlaceSummonedMinionPacket pkt = {};
-		pkt.type = PKT_PLACE_SUMMONED_MINION;
-		pkt.playerID = myLocalPlayerID;
-		pkt.minionType = 4; // DEMON
-		pkt.ownerPlayerID = minion.ownerID;
-		pkt.targetX = minion.x;
-		pkt.targetY = minion.y;
-		pkt.minionHP = minion.maxHealth;
-		pkt.minionAP = 0;
-		steamManager.sendPacket(&pkt, sizeof(pkt));
-		ofLogNotice("Network") << "Host sent PlaceSummonedMinion: DEMON owner=" << pkt.ownerPlayerID << " target=(" << pkt.targetX << "," << pkt.targetY << ") HP=" << pkt.minionHP;
-	}
-
-	// Sort turn order
-	int currentID = players[currentPlayerIndex].playerID;
-	std::sort(players.begin(), players.end(), [](const Player & a, const Player & b) {
-		int ownerA = a.isMinion ? a.ownerID : a.playerID;
-		int ownerB = b.isMinion ? b.ownerID : b.playerID;
-		if (ownerA != ownerB) return ownerA < ownerB;
-		if (a.isMinion && !b.isMinion) return true;
-		if (!a.isMinion && b.isMinion) return false;
-		return a.summonOrder < b.summonOrder;
-	});
-
-	// Restore current player index
-	for (size_t i = 0; i < players.size(); i++) {
-		if (players[i].playerID == currentID) {
-			currentPlayerIndex = i;
-			break;
-		}
-	}
-
-	invalidateTargetCache();
-
-	// Check key pickup
-	checkKeyPickupAndDraftAfterSummon(minion.x, minion.y, minion.ownerID);
 }
 
 // ======================================
