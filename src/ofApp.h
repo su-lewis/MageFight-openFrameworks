@@ -533,7 +533,7 @@ struct Player {
 	bool nextTurnD10AP = false;
 	bool nextTurnExtraDraw = false;
 	int nextTurnExtraDrawSetOnCycle = -1; // Track when the extra draw flag was set
-	bool isReplicatePending = false;
+	bool replicateQueued = false;
 	bool nextTurnBonusDiceFromMinions = false;
 	int strengthenElementsTurnsRemaining = 0;
 	int sleepTurnsRemaining = 0;
@@ -566,8 +566,9 @@ struct Player {
 	int tortoiseDamageTaken = 0; // Tracks HP damage while in form, ends at 5
 	Card tortoiseFormCard; // The card to discard when form ends
 	std::string originalModelType = ""; // To restore original model
-	bool pendingTortoiseDamage = false; // If we need to deal damage to adjacent after block/heal
-	int pendingTortoiseDamageValue = 3;
+	// Accumulated tortoise pending damage (0 = none). Replaces prior
+	// `pendingTortoiseDamage` (bool) + `pendingTortoiseDamageValue` (int).
+	int tortoiseAccumulatedDamage = 0;
 
 	ofTexture * minionTexture = nullptr;
 	int ownerID = -1;
@@ -1421,6 +1422,10 @@ private:
 		std::unordered_map<int, int> actionByActor;
 		int networkActionActor = -1;
 		int networkActionPrevPlayer = -1;
+
+		// Save browser pending selection/confirmation (migrated from top-level)
+		int saveBrowserPendingIndex = -1;
+		bool saveBrowserConfirmVisible = false;
 	} networkPending;
 	float cameraCurrentZoom = 35.0f;
 	glm::vec3 cameraTargetPan = glm::vec3(0, 0, 0);
@@ -2022,9 +2027,7 @@ private:
 	int saveBrowserHoveredIndex = -1;
 	std::vector<std::string> saveFilePaths;
 	std::vector<ofRectangle> saveFileRects;
-	// Save Browser selection/confirmation
-	int saveBrowserPendingIndex = -1; // index selected for confirmation
-	bool saveBrowserConfirmVisible = false;
+	// Save Browser selection/confirmation (migrated into `networkPending`)
 	ofRectangle saveBrowserConfirmLoadButton;
 	ofRectangle saveBrowserConfirmCancelButton;
 	// Where to return after closing the save browser (e.g., pause menu or singleplayer menu)

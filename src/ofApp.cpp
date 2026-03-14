@@ -110,10 +110,10 @@ void ofApp::startInitiativePhase() {
 
 ofApp::~ofApp() { }
 void ofApp::applyReplicateCopyToHand(Player & caster, const Card & playedCard) {
-	if (!caster.isReplicatePending) return;
+	if (!caster.replicateQueued) return;
 
 	if (playedCard.type == CARD_REPLICATE) {
-		caster.isReplicatePending = true;
+		caster.replicateQueued = true;
 		return;
 	}
 
@@ -123,7 +123,7 @@ void ofApp::applyReplicateCopyToHand(Player & caster, const Card & playedCard) {
 	int ownerIndex = findPlayerIndexByID(caster.playerID);
 	if (ownerIndex < 0) {
 		caster.hand.push_back(duplicateCard);
-		caster.isReplicatePending = (duplicateCard.type == CARD_REPLICATE);
+		caster.replicateQueued = (duplicateCard.type == CARD_REPLICATE);
 		return;
 	}
 
@@ -165,7 +165,7 @@ void ofApp::applyReplicateCopyToHand(Player & caster, const Card & playedCard) {
 
 	activeDrawCardAnimations.push_back(anim);
 
-	caster.isReplicatePending = (duplicateCard.type == CARD_REPLICATE);
+	caster.replicateQueued = (duplicateCard.type == CARD_REPLICATE);
 }
 
 void ofApp::finishPlayCard(Player & caster, const Card & playedCard, int handIndex) {
@@ -2483,7 +2483,7 @@ void ofApp::drawSaveBrowser() {
 		saveFileRects.push_back(r);
 		// Draw
 		bool hovered = (saveBrowserHoveredIndex == (int)i);
-		bool pending = (saveBrowserPendingIndex == (int)i);
+		bool pending = (networkPending.saveBrowserPendingIndex == (int)i);
 		// If pending selection, highlight it (lighter + white outline)
 		if (pending) {
 			ofSetColor(ofColor(240, 240, 240));
@@ -2537,12 +2537,12 @@ void ofApp::drawSaveBrowser() {
 	uiFont.drawString("Back", saveBrowserBackButton.getCenter().x - bb.getWidth() / 2, saveBrowserBackButton.getCenter().y + bb.getHeight() / 2);
 
 	// Confirmation overlay
-	if (saveBrowserConfirmVisible && saveBrowserPendingIndex >= 0 && saveBrowserPendingIndex < (int)saveFilePaths.size()) {
+	if (networkPending.saveBrowserConfirmVisible && networkPending.saveBrowserPendingIndex >= 0 && networkPending.saveBrowserPendingIndex < (int)saveFilePaths.size()) {
 		ofSetColor(0, 0, 0, 180);
 		ofDrawRectangle(0, 0, ofGetWidth(), ofGetHeight());
 
 		// Highlight selected file area by drawing a larger light box in center
-		ofRectangle selRect = saveFileRects[saveBrowserPendingIndex];
+		ofRectangle selRect = saveFileRects[networkPending.saveBrowserPendingIndex];
 		ofRectangle highlight = selRect;
 		highlight.scaleFromCenter(1.05);
 		ofSetColor(255);
@@ -2555,7 +2555,7 @@ void ofApp::drawSaveBrowser() {
 
 		// Confirmation box
 		namespace fs = std::filesystem;
-		string msg = "Load save: " + fs::path(saveFilePaths[saveBrowserPendingIndex]).filename().string() + "?";
+		string msg = "Load save: " + fs::path(saveFilePaths[networkPending.saveBrowserPendingIndex]).filename().string() + "?";
 		ofRectangle mBox = uiFont.getStringBoundingBox(msg, 0, 0);
 		ofRectangle confirmBox(ofGetWidth() / 2 - 360, ofGetHeight() / 2 - 80, 720, 160);
 		ofSetColor(ofColor::white);
@@ -5120,7 +5120,7 @@ void ofApp::updateGame() {
 								dying.barrier = 0;
 								dying.holyBlock = 0;
 								dying.luck = 0;
-								dying.isReplicatePending = false;
+								dying.replicateQueued = false;
 								dying.nextTurnAPBonus = 0;
 								dying.shocksPlayedThisTurn = 0;
 								dying.flurryOfFistsStacks = 0;
@@ -5131,8 +5131,7 @@ void ofApp::updateGame() {
 								dying.strengthenElementsTurnsRemaining = 0;
 								dying.inTortoiseForm = false;
 								dying.tortoiseDamageTaken = 0;
-								dying.pendingTortoiseDamage = false;
-								dying.pendingTortoiseDamageValue = 3;
+								dying.tortoiseAccumulatedDamage = 0;
 								dying.inGhostForm = false;
 								dying.ghostDamageTaken = 0;
 								dying.cardsPlayedThisTurn.clear();
@@ -11250,16 +11249,16 @@ void ofApp::mousePressed(int x, int y, int button) {
 			}
 
 			// If confirmation visible, handle confirm/cancel
-			if (saveBrowserConfirmVisible) {
+			if (networkPending.saveBrowserConfirmVisible) {
 				if (saveBrowserConfirmLoadButton.inside(x, y)) {
-					int i = saveBrowserPendingIndex;
+					int i = networkPending.saveBrowserPendingIndex;
 					if (i >= 0 && i < (int)saveFilePaths.size()) {
 						std::string path = saveFilePaths[i];
 						if (isMultiplayer && !isHost()) {
 							addGameLog("Load is host-only in multiplayer.");
 							// dismiss confirm
-							saveBrowserConfirmVisible = false;
-							saveBrowserPendingIndex = -1;
+							networkPending.saveBrowserConfirmVisible = false;
+							networkPending.saveBrowserPendingIndex = -1;
 							return;
 						}
 						bool ok = loadGameStateFromFile(path);
@@ -11271,13 +11270,13 @@ void ofApp::mousePressed(int x, int y, int button) {
 							addGameLog("Failed to load " + path);
 						}
 					}
-					saveBrowserConfirmVisible = false;
-					saveBrowserPendingIndex = -1;
+					networkPending.saveBrowserConfirmVisible = false;
+					networkPending.saveBrowserPendingIndex = -1;
 					return;
 				}
 				if (saveBrowserConfirmCancelButton.inside(x, y)) {
-					saveBrowserConfirmVisible = false;
-					saveBrowserPendingIndex = -1;
+					networkPending.saveBrowserConfirmVisible = false;
+					networkPending.saveBrowserPendingIndex = -1;
 					return;
 				}
 			}
@@ -11285,8 +11284,8 @@ void ofApp::mousePressed(int x, int y, int button) {
 			for (int i = 0; i < (int)saveFileRects.size(); ++i) {
 				if (saveFileRects[i].inside(x, y)) {
 					// Start confirmation flow instead of immediate load
-					saveBrowserPendingIndex = i;
-					saveBrowserConfirmVisible = true;
+					networkPending.saveBrowserPendingIndex = i;
+					networkPending.saveBrowserConfirmVisible = true;
 					return;
 				}
 			}
@@ -16218,7 +16217,7 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 	case CARD_REPLICATE: {
 		// LOCKSTEP MIGRATION: Status flag modification
 		beginEffectSequence();
-		currentPlayer.isReplicatePending = true;
+		currentPlayer.replicateQueued = true;
 		playedSuccessfully = true;
 		advanceCardState(CARD_STATE_EFFECT_SEQUENCE);
 		return true;
@@ -17799,7 +17798,7 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 	case CARD_RENEWED_INSPIRATION: {
 		// 0. Prevent playing if there are no other cards to discard
 		int availableDiscardable = (int)currentPlayer.hand.size() - 1; // exclude the Renewed Inspiration being played
-		if (currentPlayer.isReplicatePending) availableDiscardable += 1; // replicate will add a copy
+		if (currentPlayer.replicateQueued) availableDiscardable += 1; // replicate will add a copy
 		if (availableDiscardable <= 0) {
 			spawnFloatingText(gridToWorld(currentPlayer.x, currentPlayer.y), "Not enough cards to discard", ofColor::gray);
 			immediateResult = CARD_NOT_PLAYABLE;
@@ -17811,7 +17810,7 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 
 		// 2. Handle Replicate (BEFORE removing original from hand)
 		// If Replicate is active, we create a copy and animate it from board center to hand
-		if (currentPlayer.isReplicatePending) {
+		if (currentPlayer.replicateQueued) {
 			Card copy = playedCard; // Copy data
 			copy.isCopied = true; // Mark as copied (Essential for eligibility)
 
@@ -17848,7 +17847,7 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 			anim.commitOnFinish = true; // This will add the card to hand when animation completes
 			activeDrawCardAnimations.push_back(anim);
 
-			currentPlayer.isReplicatePending = false;
+			currentPlayer.replicateQueued = false;
 			spawnFloatingText(gridToWorld(currentPlayer.x, currentPlayer.y), "Replicated!", ofColor::cyan);
 		}
 
@@ -22000,7 +21999,7 @@ std::string ofApp::buildSnapshotString() {
 		   << p.flurryOfFistsStacks << "\t" << (p.isParalyzed ? 1 : 0) << "\t"
 		   << p.paralysisHeadsCount << "\t" << (p.isPoisoned ? 1 : 0) << "\t" << p.poisonReduction << "\t"
 		   << (p.nextAttackAddPoison ? 1 : 0) << "\t" << (p.nextTurnD10AP ? 1 : 0) << "\t"
-		   << (p.nextTurnExtraDraw ? 1 : 0) << "\t" << (p.isReplicatePending ? 1 : 0) << "\t"
+		   << (p.nextTurnExtraDraw ? 1 : 0) << "\t" << (p.replicateQueued ? 1 : 0) << "\t"
 		   << (p.nextTurnBonusDiceFromMinions ? 1 : 0) << "\t" << p.strengthenElementsTurnsRemaining << "\t"
 		   << p.sleepTurnsRemaining << "\t" << p.summonedOnTurnCycle << "\t" << p.summonOrder << "\t"
 		   << (p.isMinion ? 1 : 0) << "\t" << (p.isSkeleton ? 1 : 0) << "\t" << (p.isGolem ? 1 : 0) << "\t"
@@ -22008,8 +22007,7 @@ std::string ofApp::buildSnapshotString() {
 		   << (p.isDemon ? 1 : 0) << "\t" << (p.isWallUnit ? 1 : 0) << "\t" << (p.isMagicWallUnit ? 1 : 0) << "\t"
 		   << (p.isKoboldKing ? 1 : 0) << "\t" << (p.isFaerie ? 1 : 0) << "\t" << (p.isAssistant ? 1 : 0) << "\t"
 		   << p.directSummonerID << "\t" << (p.assistantRerollUsedThisTurn ? 1 : 0) << "\t" << p.freeKickTurns << "\t"
-		   << (p.inTortoiseForm ? 1 : 0) << "\t" << p.tortoiseDamageTaken << "\t" << (p.pendingTortoiseDamage ? 1 : 0) << "\t"
-		   << p.pendingTortoiseDamageValue << "\t" << p.ownerID << "\t" << (p.inGhostForm ? 1 : 0) << "\t"
+		   << (p.inTortoiseForm ? 1 : 0) << "\t" << p.tortoiseDamageTaken << "\t" << p.tortoiseAccumulatedDamage << "\t" << p.ownerID << "\t" << (p.inGhostForm ? 1 : 0) << "\t"
 		   << p.ghostDamageTaken << "\t" << escapeField(p.originalModelType) << "\t";
 
 		auto encodeCards = [&](const std::vector<Card> & cards) {
@@ -22197,7 +22195,7 @@ void ofApp::applySnapshotString(const std::string & data) {
 				p.nextAttackAddPoison = (std::stoi(parts[idx++]) != 0);
 				p.nextTurnD10AP = (std::stoi(parts[idx++]) != 0);
 				p.nextTurnExtraDraw = (std::stoi(parts[idx++]) != 0);
-				p.isReplicatePending = (std::stoi(parts[idx++]) != 0);
+				p.replicateQueued = (std::stoi(parts[idx++]) != 0);
 				p.nextTurnBonusDiceFromMinions = (std::stoi(parts[idx++]) != 0);
 				p.strengthenElementsTurnsRemaining = std::stoi(parts[idx++]);
 				p.sleepTurnsRemaining = std::stoi(parts[idx++]);
@@ -22220,8 +22218,7 @@ void ofApp::applySnapshotString(const std::string & data) {
 				p.freeKickTurns = std::stoi(parts[idx++]);
 				p.inTortoiseForm = (std::stoi(parts[idx++]) != 0);
 				p.tortoiseDamageTaken = std::stoi(parts[idx++]);
-				p.pendingTortoiseDamage = (std::stoi(parts[idx++]) != 0);
-				p.pendingTortoiseDamageValue = std::stoi(parts[idx++]);
+				p.tortoiseAccumulatedDamage = std::stoi(parts[idx++]);
 				p.ownerID = std::stoi(parts[idx++]);
 				p.inGhostForm = (std::stoi(parts[idx++]) != 0);
 				p.ghostDamageTaken = std::stoi(parts[idx++]);
@@ -24476,7 +24473,7 @@ bool ofApp::applyDamageTo(Player & target, int damage, DamageType type, int atta
 							target.fortification = 0;
 							target.barrier = 0;
 							target.holyBlock = 0;
-							target.isReplicatePending = false;
+							target.replicateQueued = false;
 							target.nextTurnAPBonus = 0;
 							target.shocksPlayedThisTurn = 0;
 							target.flurryOfFistsStacks = 0;
@@ -24487,8 +24484,7 @@ bool ofApp::applyDamageTo(Player & target, int damage, DamageType type, int atta
 							target.strengthenElementsTurnsRemaining = 0;
 							target.inTortoiseForm = false;
 							target.tortoiseDamageTaken = 0;
-							target.pendingTortoiseDamage = false;
-							target.pendingTortoiseDamageValue = 3;
+							target.tortoiseAccumulatedDamage = 0;
 							target.inGhostForm = false;
 							target.ghostDamageTaken = 0;
 							target.cardsPlayedThisTurn.clear();
@@ -29756,13 +29752,13 @@ void ofApp::executeOpponentCardPlay(const ActionPacket & pkt) {
 	if (cardDef.type == CARD_RENEWED_INSPIRATION) {
 		currentAP -= cardDef.cost;
 		opponentPlayer.playedCardsPile.push_back(cardDef);
-		if (opponentPlayer.isReplicatePending) {
+		if (opponentPlayer.replicateQueued) {
 			// Create a replicated copy and add it to hand (matching local behavior)
 			Card copy = cardDef;
 			copy.isCopied = true;
 			opponentPlayer.hand.push_back(copy);
 			opponentPlayer.hand.back().currentScale = opponentPlayer.hand.back().targetScale = 1.5f;
-			opponentPlayer.isReplicatePending = (copy.type == CARD_REPLICATE);
+			opponentPlayer.replicateQueued = (copy.type == CARD_REPLICATE);
 		}
 		opponentPlayer.cardsPlayedThisTurn.push_back(cardDef.type);
 		// Remove the card from the opponent's hand if present. If we added a temporary
@@ -30039,7 +30035,7 @@ long long ofApp::calculateChecksum() {
 		mix((uint64_t)p.nextAttackAddPoison);
 		mix((uint64_t)p.nextTurnD10AP);
 		mix((uint64_t)p.nextTurnExtraDraw);
-		mix((uint64_t)p.isReplicatePending);
+		mix((uint64_t)p.replicateQueued);
 		mix((uint64_t)p.nextTurnBonusDiceFromMinions);
 		mix((uint64_t)p.strengthenElementsTurnsRemaining);
 		mix((uint64_t)p.sleepTurnsRemaining);
