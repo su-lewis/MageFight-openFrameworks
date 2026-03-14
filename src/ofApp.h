@@ -408,6 +408,22 @@ struct CardOutcome {
 	std::vector<glm::ivec2> wallsCreated; // Positions where walls were built
 	std::vector<int> minionsSpawned; // Indices of newly spawned minions
 
+	// For cards that destroy a card as part of resolution (e.g. Shoot Arrow)
+	CardType destroyedCardType = CARD_NONE;
+
+	// Attack-specific outcome data
+	DamageType attackDamageType = DAMAGE_PHYSICAL;
+	std::vector<int> attackTargetIndices; // indices into `players`
+
+	// Poison targets stored as stable playerIDs for later resolution
+	std::vector<int> poisonTargetPlayerIDs;
+
+	// Summon kind for summon cards (mapped from PendingSummonKind)
+	int summonKind = 0;
+
+	// Owner playerID for summoned minions (captured at play-time)
+	int summonOwnerPlayerID = -1;
+
 	// State tracking
 	bool isComplete = false; // Ready to send outcome packet
 	CardPlayState currentState = CARD_STATE_IDLE;
@@ -508,7 +524,7 @@ struct Player {
 	// Status & Buffs
 	int nextTurnAPBonus = 0;
 	int shocksPlayedThisTurn = 0;
-	bool flurryOfFistsActive = false; // Double hand-related damage, 0 AP cost for drawn hand cards
+	int flurryOfFistsStacks = 0; // Number of Flurry stacks: each stack doubles hand-related effects and drawn-card counts
 	bool isParalyzed = false;
 	int paralysisHeadsCount = 0;
 	bool isPoisoned = false;
@@ -892,13 +908,7 @@ private:
 	std::mt19937 visualRNG;
 
 	// Networked multi-step action helpers
-	// Maps actorIndex -> CardType for pending network-initiated actions
-	std::unordered_map<int, int> pendingActionByActor;
-	// When a network-initiated action is active on the client, we temporarily
-	// override `currentPlayerIndex` so resolution code that uses it can run
-	// against the remote actor. Store previous value to restore after resolution.
-	int pendingNetworkActionActor = -1;
-	int pendingNetworkActionPrevPlayer = -1;
+	// (Moved into `networkPending.actionByActor`, `networkPending.networkActionActor`, etc.)
 
 	// Flag set when the host-provided gameplay seed has been applied
 	bool gameplaySeededByHost = false;
@@ -916,12 +926,7 @@ private:
 	float lastSnapshotRequestTime = 0.0f;
 	// Client: handle out-of-order shuffle packets during draft
 	// Client: handle out-of-order shuffle packets during draft
-	// We store a FIFO queue of pending shuffle nonces per actor (players and minions)
-	// so multiple shuffle packets received during drafting are applied in order.
-	// Use a map keyed by actor index so minions (which extend the players vector)
-	// are supported without fixed-size arrays.
-	std::unordered_map<int, std::deque<uint32_t>> pendingShuffleNonces;
-	std::unordered_map<int, uint32_t> lastAppliedShuffleNonce;
+	// (Shuffle nonce queue moved into `networkPending.shuffleNonces`)
 
 	// Helper to get synced numbers
 	int getGameRandom(int min, int max);
@@ -1076,8 +1081,7 @@ private:
 	bool draftAcceptLocked = false; // Prevent double-accept clicks per draft screen
 	bool draftAcceptApplied = false; // Prevent duplicate forwarded Accept application
 	uint32_t draftGenerationCounter = 0; // Increments each time generateDraftOptions is called to ensure variety
-	bool pendingDraftStateAvailable = false; // If a state packet arrives while we're waiting, stash it
-	DraftStatePacket pendingDraftState;
+	// (Moved into `networkPending.draftStateAvailable` / `networkPending.draftState`)
 	bool initialDraftComplete = false; // True once the initial (pre-game) draft finishes
 
 	// Reliability helpers for client-sent DraftAction packets (resend until host ACK/forward)
@@ -1365,13 +1369,7 @@ private:
 	int currentAP = 0;
 	bool hasDrawnCardsThisTurn = false;
 	bool opponentHasDrawnCardsThisTurn = false;
-	bool pendingKeyDraftAccept = false;
-	int pendingKeyDraftPlayer = -1;
-	int pendingKeyDraftPlayerID = -1; // Stable playerID used to remap actor index when players vector changes
-	int pendingKeyDraftClass = 0;
-	float pendingKeyDraftTriggerTime = 0.0f; // time when pending draft was scheduled (used to ensure UI appears first)
-	int pendingKeyDraftKeyX = -1;
-	int pendingKeyDraftKeyY = -1;
+	// Network/UI staging: moved into `networkPending` struct (see below)
 	// When true, `updateGame()` should not send PKT_TURN_START until status effects
 	// (paralysis/poison/onFire/etc.) that occur at the start of a turn have finished.
 	bool isHandlingTurnStartEffects = false;
@@ -1392,6 +1390,38 @@ private:
 	float lightNoiseOffset = 0.0f;
 
 	float cameraTargetZoom = 35.0f;
+
+	// Centralized container for network/UI pending state that was previously
+	// scattered as top-level `pending*` variables. Use `networkPending` to
+	// access/modify these fields instead of the old globals.
+	struct NetworkPending {
+		// Key-draft (scheduled in-game draft when a key pickup arrives)
+		bool keyDraftAccept = false;
+		int keyDraftPlayer = -1;
+		int keyDraftPlayerID = -1; // stable playerID mapping
+		int keyDraftClass = 0;
+		float keyDraftTriggerTime = 0.0f;
+		int keyDraftKeyX = -1;
+		int keyDraftKeyY = -1;
+
+		// Draft finalization/shuffle coordination (host/client)
+		bool draftFinalize = false;
+		bool draftShuffleNeeded = false;
+		std::vector<int> draftQueue; // class IDs queue
+
+		// Pending shuffle nonces per actor
+		std::unordered_map<int, std::deque<uint32_t>> shuffleNonces;
+		std::unordered_map<int, uint32_t> lastAppliedShuffleNonce;
+
+		// Pending draft state packet (if host sends state while client is waiting)
+		bool draftStateAvailable = false;
+		DraftStatePacket draftState;
+
+		// Network action staging
+		std::unordered_map<int, int> actionByActor;
+		int networkActionActor = -1;
+		int networkActionPrevPlayer = -1;
+	} networkPending;
 	float cameraCurrentZoom = 35.0f;
 	glm::vec3 cameraTargetPan = glm::vec3(0, 0, 0);
 	glm::vec3 cameraCurrentPan = glm::vec3(0, 0, 0);
@@ -1563,21 +1593,18 @@ private:
 	std::string interactionMenuChoice; // Selected menu option (Burst: damage/heal, Double-Handed: Punch/Block, etc.)
 	bool interactionNeedsStatusSelect = false; // Special: Dispel status selection required
 	int interactionDiceRoll = 0; // Cached dice result if interaction requires roll (Teleport range, etc.)
+	glm::vec2 interactionTargetTile; // Tile target for interactions that require a grid position (Teleport)
+	std::string interactingCardName; // Optional: store card name for resolution logging
 
 	// --- Legacy Targeting States (to be deprecated after consolidation) ---
-	bool isTargetingDeath = false;
 	int deathCardIndex = -1;
 
 	// Centralized targeting state members (struct defined in public area)
-	bool isInTargetingMode = false;
 	TargetingContext targetingContext;
 
-	bool isTargetingHeal = false;
 	int healCardIndex = -1;
 
-	// Punch targeting: set after dragging a Punch card and releasing to enter targeting mode
-	bool isTargetingPunch = false;
-	int pendingPunchCardIndex = -1;
+	// Punch targeting: migrated to centralized `interactingCardIndex` and `cardInteractionState`
 
 	// Tooltips & Piles
 	bool isShowingTooltip = false;
@@ -1600,10 +1627,7 @@ private:
 	bool isShowingPileView = false;
 	PileViewMode currentPileView = VIEW_NONE;
 	int currentPileViewPlayerIndex = -1;
-	// When true, the finalization of a draft is pending until visuals finish
-	bool pendingDraftFinalize = false;
-	// When true, host will perform the end-of-draft shuffles once animations complete
-	bool pendingDraftShuffleNeeded = false;
+	// Draft finalization/shuffle coordination moved into `networkPending`.
 
 	// Draw the pile view panel for a given player and view mode
 	void drawPileViewFor(int viewPlayerIndex, PileViewMode viewMode);
@@ -1672,21 +1696,18 @@ private:
 
 	// Attack
 	bool isWaitingForAttackDice = false;
-	int pendingAttackRollResult = 0;
-	DamageType pendingAttackDamageType;
-	std::vector<int> pendingAttackTargetIndices;
-	std::string pendingAttackCardName = ""; // For flurry damage doubling
+	// Attack dice/result now use centralized `interactionDiceRoll` and
+	// `interactingCardName` for logging/special cases. Targets & damage type
+	// are stored in `currentCardOutcome.attackTargetIndices` and
+	// `currentCardOutcome.attackDamageType`.
 
 	// Poison (from Add Poison card)
 	bool isWaitingForPoisonAttackDice = false;
-	int pendingPoisonAttackRollResult = 0;
-	// Stores playerIDs (stable) for queued poison targets. Resolve to indices at processing time.
-	std::vector<int> pendingPoisonTargetIndices;
+	// Poison damage rolls are stored in `currentCardOutcome.namedDiceResults["poison_attack"]`.
+	// Targets are in `currentCardOutcome.poisonTargetPlayerIDs`.
 
 	// Amnesia
-	bool isAmnesiaSelectionActive = false;
 	bool isWaitingForAmnesiaDice = false;
-	int pendingAmnesiaRollResult = 0;
 	int amnesiaTargetPlayerIndex = -1;
 	int numCardsToRemove = 0;
 	std::vector<Card> amnesiaDeckCopy;
@@ -1698,23 +1719,24 @@ private:
 	int amnesiaChooserPlayerID = -1;
 
 	// Blocking Boon
-	std::vector<int> pendingDraftQueue; // Stores class IDs (1, 2, or 3) for chained drafts
+	// Draft queue moved into `networkPending.draftQueue`.
 	int blockingBoonTargetIndex = -1; // Stores target for the "Tails" effect
 
 	// Blocking Boon staged resolution
 	bool isWaitingForBlockingBoonCoins = false; // true while coin flips are resolving
-	int pendingBlockingBoonCoinsRemaining = 0; // number of coin flips outstanding
-	int pendingBlockingBoonNonPhys = 0; // number of D20s to roll after coins
-	int pendingBlockingBoonTotal = 0; // total outstanding blocking-boon dice (coins + D20s)
+	// Counters moved into `currentCardOutcome.namedDiceResults`:
+	//  - "blocking_boon_coins_remaining"
+	//  - "blocking_boon_nonphys"
+	//  - "blocking_boon_total"
 
 	// Prevent duplicate plays while a Blocking Boon is resolving
 	bool blockingBoonActive = false;
 
 	// Magic Blast
 	bool isWaitingForMagicBlastDice = false;
-	int pendingMagicBlastRollResult = 0;
-	glm::vec2 pendingMagicBlastTargetTile;
-	bool isMagicBlastChoiceActive = false;
+	// Magic Blast range/target resolved via centralized interaction fields:
+	// `interactionDiceRoll` and `interactionTargetTile` are used instead of per-card pending variables.
+	// Magic Blast choice UI now uses centralized cardInteractionState
 	int magicBlastTargetPlayerIndex = -1;
 	int magicBlastChoicesRemaining = 0;
 	// Stores playerIDs (stable) for queued magic blast splash targets. Resolve to indices at processing time.
@@ -1724,37 +1746,28 @@ private:
 
 	// --- Psionic Wave ---
 	bool isWaitingForPsionicRange = false;
-	int pendingPsionicRangeResult = 0;
 	bool isWaitingForPsionicAmount = false;
-	int pendingPsionicAmountResult = 0;
 	std::vector<int> psionicWaveTargetIndices; // Store who got hit by the range check
 
 	// Fireball
 	bool isWaitingForFireballRangeDice = false;
-	int pendingFireballRangeResult = 0;
-	glm::vec2 pendingFireballTargetTile;
+	// `interactionDiceRoll` and `interactionTargetTile` are used instead of per-card pending variables
 	bool isWaitingForFireballDamageDice = false;
-	int pendingFireballDamageResult = 0;
 	glm::vec2 fireballImpactTile;
 	int fireballTargetPlayerIndex = -1;
 
 	// Ethereal Jolt
 	bool isWaitingForJoltRangeDice = false;
-	int pendingJoltRangeResult = 0;
-	glm::vec2 pendingJoltTargetTile;
+	// uses `interactionDiceRoll` and `interactionTargetTile`
 
 	// Chain Lightning
-	bool isTargetingChainLightning = false;
 	int chainLightningCardIndex = -1;
 	bool isWaitingForChainLightningRange = false;
 	bool isWaitingForChainLightningDamage = false;
-	int pendingChainLightningRangeResult = 0;
-	int pendingChainLightningDamageResult = 0;
-	glm::vec2 pendingChainLightningTargetTile;
+	// Chain Lightning uses `interactionDiceRoll` and `interactionTargetTile`
 
 	// Train Menu UI
-	bool isTrainMenuOpen = false;
-	int pendingTrainCardIndex = -1;
+	// Train menu now uses `interactingCardIndex` and `cardInteractionState`
 	ofRectangle trainMenuRect;
 	ofRectangle trainBtnAP;
 	ofRectangle trainBtnDraft;
@@ -1762,13 +1775,7 @@ private:
 	// Function Declaration
 	void drawTrainMenuUI();
 
-	// Dispel
-	bool isDispelMenuOpen = false;
-	bool isDispelTargeting = false;
-	bool isDispelStatusSelectOpen = false;
-	int pendingDispelCardIndex = -1;
-	int pendingDispelTargetIndex = -1;
-	int pendingDispelRollResult = 0;
+	// Dispel (UI state migrated to centralized cardInteractionState)
 	bool isWaitingForBarrierDice = false;
 	int dispelMode = 0; // 0 = none, 1 = barrier, 2 = purge
 	ofRectangle dispelMenuRect;
@@ -1780,10 +1787,7 @@ private:
 
 	// Teleport
 	bool isWaitingForTeleportDice = false;
-	bool isTargetingTeleport = false; // After dice roll, waiting for target click
-	int pendingTeleportCardIndex = -1;
-	int pendingTeleportRollResult = 0;
-	glm::vec2 pendingTeleportTarget;
+	// Teleport now uses centralized interaction fields: `interactingCardIndex`, `interactionDiceRoll`, `interactionTargetTile`
 
 	// --- EARTHQUAKE SYSTEM ---
 	struct EarthquakeState {
@@ -1817,19 +1821,12 @@ private:
 	// When a client plays earthquake, it waits for host to send EarthquakeBegin
 	bool isWaitingForEarthquakeBegin = false;
 
-	// Wisdom Boon
-	bool isWisdomBoonMenuOpen = false;
-	int pendingWisdomBoonCardIndex = -1;
-	int pendingWisdomBoonTargetIndex = -1;
+	// Wisdom Boon (uses centralized interaction state)
 	ofRectangle wisdomMenuRect;
 	ofRectangle wisdomBtnDamage;
 	ofRectangle wisdomBtnBlock;
 
-	// Burst of Light (choice UI + targeting)
-	bool isBurstMenuOpen = false;
-	int pendingBurstCardIndex = -1;
-	int pendingBurstTargetIndex = -1;
-	bool isTargetingBurst = false; // true while choosing target before menu
+	// Burst of Light (choice UI + targeting) — centralized via interaction state
 	int burstChoice = -1; // -1 = undecided, 0 = Damage, 1 = Heal
 	ofRectangle burstMenuRect;
 	ofRectangle burstBtnDamage;
@@ -1837,8 +1834,6 @@ private:
 
 	// Heal
 	bool isWaitingForHealDice = false;
-	int pendingHealRollResult = 0;
-	int pendingHealTargetIndex = -1;
 
 	// Summon (Raise Dead)
 	enum PendingSummonKind {
@@ -1848,122 +1843,104 @@ private:
 		PENDING_SUMMON_DEMON = 3
 	};
 	bool isWaitingForSummonHealth = false;
-	int pendingSummonKind = PENDING_SUMMON_NONE;
-	int pendingSummonRollResult = 0;
-	glm::vec2 pendingSummonTile;
-	int pendingSummonPlayerIndex = -1; // Track which player the pending summon belongs to
+	// Summon placement/HP use centralized interaction fields:
+	// - `interactionDiceRoll` stores the rolled HP/count
+	// - `interactionTargetTile` stores the target grid tile
+	// - `interactionTargetIndex` stores the summoner player index
 
-	// --- Double Handed State ---
-	bool isDoubleHandedMenuOpen = false;
-	bool isTargetingDoubleHanded = false;
-	int pendingDoubleHandedCardIndex = -1;
-	int pendingDoubleHandedTargetIndex = -1;
-	std::string pendingDoubleHandedChoice = "";
+	// --- Double Handed State (centralized interaction state used) ---
 	ofRectangle doubleHandedMenuRect;
 	ofRectangle btnAddPunches;
 	ofRectangle btnAddBlocks;
 
-	// --- Opponent Menu State (for visualizing opponent's menu choices) ---
-	bool opponentMenuOpen = false;
-	int opponentMenuType = 0; // 0=none, 1=wisdom, 2=burst, 3=doubleHanded
-	int opponentMenuTargetIndex = -1;
-	int opponentMenuHoveredChoice = -1; // -1=none, 0=first option, 1=second option
-	int opponentMenuCardIndex = -1;
+	// --- Opponent Interaction State (centralized visualization for remote players) ---
+	struct OpponentInteraction {
+		bool open = false;
+		int type = 0; // 0=none, 1=wisdom, 2=burst, 3=doubleHanded
+		int targetIndex = -1;
+		int hoveredChoice = -1; // -1=none, 0=first option, 1=second option
+		int cardIndex = -1;
+	} opponentInteraction;
 
 	// --- Amnesia State ---
-	bool isAmnesiaMenuOpen = false; // Choosing Self vs Adjacent
-	bool isTargetingAmnesia = false;
-	int pendingAmnesiaCardIndex = -1;
+
 	ofRectangle amnesiaMenuRect;
 	ofRectangle amnesiaBtnSelf;
 	ofRectangle amnesiaBtnAdjacent;
 
 	// --- Renewed Inspiration State (REAL-TIME) ---
-	bool isSelectingRenewedInspiration = false;
+	// Uses centralized `cardInteractionState` (CARD_INTERACTION_MENU + CARD_RENEWED_INSPIRATION)
 	std::vector<int> renewedSelectedHandIndices; // Indices of cards currently selected in hand
 	ofRectangle riConfirmBtn;
 	ofRectangle riCancelBtn;
 
 	// --- Tortoise Form Targeting State ---
-	bool isTargetingTortoiseDamage = false;
 
 	// --- Call For Wolves State ---
 	bool isWaitingForWolfCoin = false;
-	bool isPlacingWolves = false;
 	int wolvesRemainingToPlace = 0;
 	int wolfPlacementSourceX = -1; // Where the summoner is standing
 	int wolfPlacementSourceY = -1;
 	int wolfSummonCount = 0; // To track "Wolf 1", "Wolf 2"
 	int wolfSummonStage = 0; // 0=None, 1=First Wolf, 2=Second Wolf
-	int pendingWolfOwnerID = -1; // Capture owner at start of wolf placement
 
 	// --- Call For Kobolds State ---
 	bool isWaitingForKoboldDice = false;
-	bool isPlacingKobolds = false;
 	int koboldsRemainingToPlace = 0;
 	int koboldPlacementSourceX = -1;
 	int koboldPlacementSourceY = -1;
 	int koboldSummonCount = 0;
 	int koboldSummonStage = 0;
-	int pendingKoboldOwnerID = -1; // Capture owner at start of kobold placement
 
 	// Remote kobold placement visualization (when another player is placing kobolds)
-	bool remoteIsPlacingKobolds = false;
 	int remoteKoboldPlacementSourceX = -1;
 	int remoteKoboldPlacementSourceY = -1;
 	int remoteKoboldsRemaining = 0;
 
 	// Time Vortex
 	bool isWaitingForTimeVortexDice = false;
-	int pendingTimeVortexResult = 0;
 
 	// --- Magic Bolt State ---
 	bool isWaitingForMagicBoltRange = false;
-	int pendingMagicBoltRangeResult = 0;
-	bool isTargetingMagicBolt = false;
+	// Magic Bolt range/target resolved via centralized interaction fields:
+	// `interactionDiceRoll` and `interactionTargetTile` are used instead of per-card pending variables.
 	int magicBoltCardIndex = -1;
-	glm::vec2 pendingMagicBoltTargetTile;
 
 	// Magic Bolt intermediate resolution state (primary damage and AOE)
 	bool isWaitingForMagicBoltPrimary = false;
-	int pendingMagicBoltPrimaryResult = 0;
 	bool isWaitingForMagicBoltAoe = false;
-	int pendingMagicBoltAoeResult = 0;
-	glm::vec2 pendingMagicBoltImpactTile;
+	// Impact tile and dice results are stored in `currentCardOutcome`:
+	// - `currentCardOutcome.primaryTarget` stores the impact tile (grid coords)
+	// - `currentCardOutcome.namedDiceResults["magicbolt_primary"]` stores primary damage
+	// - `currentCardOutcome.namedDiceResults["magicbolt_aoe"]` stores AOE radius roll
 
 	// Shoot Arrow State
 	bool isWaitingForShootArrow = false;
-	int pendingShootArrowHitResult = 0;
-	glm::vec2 pendingShootArrowTargetTile;
-	int pendingShootArrowTargetIndex = -1;
-	CardType pendingShootArrowDestroyedType = CARD_NONE;
+	// Shoot Arrow uses centralized interaction fields for range/target and dice:
+	// `interactionDiceRoll` and `interactionTargetTile`/`interactionTargetIndex` are used instead.
+	// Destroyed card type for Shoot Arrow is stored in `currentCardOutcome.destroyedCardType`
 
 	// --- Giant Magic Hand ---
-	bool isMagicHandMenuOpen = false;
+	// Magic hand menu UI migrated to centralized `cardInteractionState`
 	glm::ivec2 magicHandTargetTile;
-	int pendingMagicHandCardIndex = -1;
 	bool isWaitingForMagicHandDamage = false;
 	int magicHandPushedUnitIndex = -1;
 	glm::ivec2 magicHandPushDir;
-	int pendingMagicHandRollResult = 0;
 
 	// Flail
 	bool isWaitingForFlailDice = false;
-	int pendingFlailRollResult = 0;
 
 	// Hellhound targeting
-	bool isTargetingHellhound = false;
 	int hellhoundCardIndex = -1;
 
 	// Death Card Logic
 	bool isWaitingForDeathDice = false;
 	bool isWaitingForSleepDuration = false;
-	int pendingDeathTargetIndex = -1;
-	int pendingDeathRollResult = 0;
+	// Death target and roll stored in `currentCardOutcome.targetPlayerIndex` and
+	// `currentCardOutcome.namedDiceResults["death_check"]` respectively.
 
 	// --- Spark of genius Logic ---
 	bool isWaitingForSparkOfGeniusDice = false;
-	int pendingSparkOfGeniusRollResult = 0;
 
 	// Helper functions
 	void resolveDoubleHanded(std::string cardName);
@@ -2005,10 +1982,11 @@ private:
 
 	// Status Effects
 	bool isWaitingForOnFireDice = false;
-	int pendingOnFireRollResult = 0;
 	bool isWaitingForParalysisCoin = false;
 	bool isWaitingForPoisonDice = false;
-	int pendingPoisonRollResult = 0;
+	// NOTE: status dice results (onFire/poison/etc) are stored in
+	// `currentCardOutcome.namedDiceResults["status_onfire"]` and
+	// `currentCardOutcome.namedDiceResults["status_poison"]` respectively.
 
 	// --- MENU UI VARIABLES ---
 	ofRectangle mainMenuPlayAIButton;
