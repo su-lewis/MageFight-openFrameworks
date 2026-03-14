@@ -113,7 +113,17 @@ void ofApp::applyReplicateCopyToHand(Player & caster, const Card & playedCard) {
 	if (!caster.replicateQueued) return;
 
 	if (playedCard.type == CARD_REPLICATE) {
-		caster.replicateQueued = true;
+		int ownerIndexLocal = findPlayerIndexByID(caster.playerID);
+		if (ownerIndexLocal >= 0) {
+			EffectOp op = {};
+			op.type = EffectOpType::APPLY_STATUS;
+			op.data.status.targetIndex = ownerIndexLocal;
+			op.data.status.statusType = STATUS_REPLICATE_QUEUED;
+			op.data.status.duration = 0;
+			processEffectOp(op);
+		} else {
+			caster.replicateQueued = true;
+		}
 		return;
 	}
 
@@ -123,7 +133,26 @@ void ofApp::applyReplicateCopyToHand(Player & caster, const Card & playedCard) {
 	int ownerIndex = findPlayerIndexByID(caster.playerID);
 	if (ownerIndex < 0) {
 		caster.hand.push_back(duplicateCard);
-		caster.replicateQueued = (duplicateCard.type == CARD_REPLICATE);
+		int ownerIndexNow = findPlayerIndexByID(caster.playerID);
+		if (ownerIndexNow >= 0) {
+			if (duplicateCard.type == CARD_REPLICATE) {
+				EffectOp op = {};
+				op.type = EffectOpType::APPLY_STATUS;
+				op.data.status.targetIndex = ownerIndexNow;
+				op.data.status.statusType = STATUS_REPLICATE_QUEUED;
+				op.data.status.duration = 0;
+				processEffectOp(op);
+			} else {
+				EffectOp op = {};
+				op.type = EffectOpType::REMOVE_STATUS;
+				op.data.status.targetIndex = ownerIndexNow;
+				op.data.status.statusType = STATUS_REPLICATE_QUEUED;
+				op.data.status.duration = 0;
+				processEffectOp(op);
+			}
+		} else {
+			caster.replicateQueued = (duplicateCard.type == CARD_REPLICATE);
+		}
 		return;
 	}
 
@@ -165,7 +194,26 @@ void ofApp::applyReplicateCopyToHand(Player & caster, const Card & playedCard) {
 
 	activeDrawCardAnimations.push_back(anim);
 
-	caster.replicateQueued = (duplicateCard.type == CARD_REPLICATE);
+	int ownerIndexFinal = findPlayerIndexByID(caster.playerID);
+	if (ownerIndexFinal >= 0) {
+		if (duplicateCard.type == CARD_REPLICATE) {
+			EffectOp op = {};
+			op.type = EffectOpType::APPLY_STATUS;
+			op.data.status.targetIndex = ownerIndexFinal;
+			op.data.status.statusType = STATUS_REPLICATE_QUEUED;
+			op.data.status.duration = 0;
+			processEffectOp(op);
+		} else {
+			EffectOp op = {};
+			op.type = EffectOpType::REMOVE_STATUS;
+			op.data.status.targetIndex = ownerIndexFinal;
+			op.data.status.statusType = STATUS_REPLICATE_QUEUED;
+			op.data.status.duration = 0;
+			processEffectOp(op);
+		}
+	} else {
+		caster.replicateQueued = (duplicateCard.type == CARD_REPLICATE);
+	}
 }
 
 void ofApp::finishPlayCard(Player & caster, const Card & playedCard, int handIndex) {
@@ -5108,10 +5156,32 @@ void ofApp::updateGame() {
 								int hp = (int)std::floor(dying.maxHealth * 0.25f * roll);
 								if (hp < 1) hp = 1;
 								dying.health = hp;
-								dying.onFire = false;
-								dying.isPoisoned = false;
+								// Clear common status flags via deterministic REMOVE_STATUS ops
+								{
+									EffectOp op = {};
+									op.type = EffectOpType::REMOVE_STATUS;
+									op.data.status.targetIndex = (int)i;
+									op.data.status.statusType = STATUS_ON_FIRE;
+									op.data.status.duration = 0;
+									processEffectOp(op);
+								}
+								{
+									EffectOp op = {};
+									op.type = EffectOpType::REMOVE_STATUS;
+									op.data.status.targetIndex = (int)i;
+									op.data.status.statusType = STATUS_POISONED;
+									op.data.status.duration = 0;
+									processEffectOp(op);
+								}
 								dying.poisonReduction = 0;
-								dying.isParalyzed = false;
+								{
+									EffectOp op = {};
+									op.type = EffectOpType::REMOVE_STATUS;
+									op.data.status.targetIndex = (int)i;
+									op.data.status.statusType = STATUS_PARALYZED;
+									op.data.status.duration = 0;
+									processEffectOp(op);
+								}
 								dying.paralysisHeadsCount = 0;
 								dying.sleepTurnsRemaining = 0;
 								dying.ward = 0;
@@ -5120,19 +5190,47 @@ void ofApp::updateGame() {
 								dying.barrier = 0;
 								dying.holyBlock = 0;
 								dying.luck = 0;
-								dying.replicateQueued = false;
+								{
+									EffectOp op = {};
+									op.type = EffectOpType::REMOVE_STATUS;
+									op.data.status.targetIndex = (int)i;
+									op.data.status.statusType = STATUS_REPLICATE_QUEUED;
+									op.data.status.duration = 0;
+									processEffectOp(op);
+								}
 								dying.nextTurnAPBonus = 0;
 								dying.shocksPlayedThisTurn = 0;
 								dying.flurryOfFistsStacks = 0;
-								dying.nextAttackAddPoison = false;
+								{
+									EffectOp op = {};
+									op.type = EffectOpType::REMOVE_STATUS;
+									op.data.status.targetIndex = (int)i;
+									op.data.status.statusType = STATUS_ADD_POISON;
+									op.data.status.duration = 0;
+									processEffectOp(op);
+								}
 								dying.nextTurnD10AP = false;
 								dying.nextTurnExtraDraw = false;
 								dying.nextTurnBonusDiceFromMinions = false;
 								dying.strengthenElementsTurnsRemaining = 0;
-								dying.inTortoiseForm = false;
+								{
+									EffectOp op = {};
+									op.type = EffectOpType::REMOVE_STATUS;
+									op.data.status.targetIndex = (int)i;
+									op.data.status.statusType = STATUS_TORTOISE_FORM;
+									op.data.status.duration = 0;
+									processEffectOp(op);
+								}
 								dying.tortoiseDamageTaken = 0;
 								dying.tortoiseAccumulatedDamage = 0;
-								dying.inGhostForm = false;
+								{
+									EffectOp op = {};
+									op.type = EffectOpType::REMOVE_STATUS;
+									op.data.status.targetIndex = (int)i;
+									op.data.status.statusType = STATUS_GHOST_FORM;
+									op.data.status.duration = 0;
+									processEffectOp(op);
+								}
 								dying.ghostDamageTaken = 0;
 								dying.cardsPlayedThisTurn.clear();
 								dying.playedCardsPile.clear();
@@ -13816,6 +13914,15 @@ void ofApp::startNewTurn() {
 
 				// Clear buffs
 				localPlayer.shocksPlayedThisTurn = 0;
+				// Queue removal of add-poison buff deterministically
+				{
+					EffectOp rmPoisonBuff = {};
+					rmPoisonBuff.type = EffectOpType::REMOVE_STATUS;
+					rmPoisonBuff.data.status.targetIndex = (int)i;
+					rmPoisonBuff.data.status.statusType = STATUS_ADD_POISON;
+					rmPoisonBuff.data.status.duration = 0;
+					queueEffect(rmPoisonBuff);
+				}
 				localPlayer.nextAttackAddPoison = false;
 				localPlayer.flurryOfFistsStacks = 0;
 
@@ -13913,7 +14020,15 @@ void ofApp::startNewTurn() {
 		endingPlayer.playedCardsPile.clear();
 
 		endingPlayer.shocksPlayedThisTurn = 0;
-		endingPlayer.nextAttackAddPoison = false; // Clear poison buff at end of turn
+		// Clear poison buff at end of turn via deterministic effect
+		{
+			EffectOp rm = {};
+			rm.type = EffectOpType::REMOVE_STATUS;
+			rm.data.status.targetIndex = currentPlayerIndex;
+			rm.data.status.statusType = STATUS_ADD_POISON;
+			rm.data.status.duration = 0;
+			processEffectOp(rm);
+		}
 		endingPlayer.flurryOfFistsStacks = 0; // Clear flurry buff at end of turn
 
 		// Reshuffle discard into deck if needed
@@ -15556,6 +15671,23 @@ void ofApp::beginEffectSequence() {
 
 void ofApp::queueEffect(const EffectOp & op) {
 	currentEffectSequence.ops.push_back(op);
+	// Lightweight tracing for lockstep verification
+	switch (op.type) {
+	case EffectOpType::SPAWN_UNIT:
+		ofLogNotice("EffectQueue") << "QUEUED SPAWN_UNIT to=(" << op.data.spawnUnit.toX << "," << op.data.spawnUnit.toY << ") kind=" << op.data.spawnUnit.summonKind << " owner=" << op.data.spawnUnit.ownerPlayerID;
+		break;
+	case EffectOpType::ROLL_DICE:
+		ofLogNotice("EffectQueue") << "QUEUED ROLL_DICE num=" << op.data.rollDice.numDice << " sides=" << op.data.rollDice.sides << " purpose=" << (int)op.data.rollDice.purpose << " ownerIndex=" << op.data.rollDice.ownerIndex << " outSlot=" << op.data.rollDice.outputSlot;
+		break;
+	case EffectOpType::APPLY_STATUS:
+		ofLogNotice("EffectQueue") << "QUEUED APPLY_STATUS target=" << op.data.status.targetIndex << " status=" << op.data.status.statusType;
+		break;
+	case EffectOpType::REMOVE_STATUS:
+		ofLogNotice("EffectQueue") << "QUEUED REMOVE_STATUS target=" << op.data.status.targetIndex << " status=" << op.data.status.statusType;
+		break;
+	default:
+		break;
+	}
 }
 
 bool ofApp::isEffectSequenceComplete() const {
@@ -15584,6 +15716,7 @@ void ofApp::updateEffectSequence() {
 }
 
 void ofApp::processEffectOp(EffectOp & op) {
+	ofLogNotice("EffectQueue") << "PROCESSING opType=" << (int)op.type << " curOpIndex=" << currentEffectSequence.currentOp;
 	bool opComplete = false;
 
 	switch (op.type) {
@@ -16217,6 +16350,15 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 	case CARD_REPLICATE: {
 		// LOCKSTEP MIGRATION: Status flag modification
 		beginEffectSequence();
+		// Queue replicate status deterministically
+		{
+			EffectOp apRep = {};
+			apRep.type = EffectOpType::APPLY_STATUS;
+			apRep.data.status.targetIndex = currentPlayerIndex;
+			apRep.data.status.statusType = STATUS_REPLICATE_QUEUED;
+			apRep.data.status.duration = 0;
+			queueEffect(apRep);
+		}
 		currentPlayer.replicateQueued = true;
 		playedSuccessfully = true;
 		advanceCardState(CARD_STATE_EFFECT_SEQUENCE);
@@ -16344,11 +16486,32 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 		queueEffect(healOp);
 		currentPlayer.health += healAmount;
 
-		// Remove all negative status effects
-		currentPlayer.onFire = false;
-		currentPlayer.isPoisoned = false;
+		// Remove common negative status effects via deterministic effect ops
+		{
+			EffectOp op = {};
+			op.type = EffectOpType::REMOVE_STATUS;
+			op.data.status.targetIndex = currentPlayerIndex;
+			op.data.status.statusType = STATUS_ON_FIRE;
+			op.data.status.duration = 0;
+			queueEffect(op);
+		}
+		{
+			EffectOp op = {};
+			op.type = EffectOpType::REMOVE_STATUS;
+			op.data.status.targetIndex = currentPlayerIndex;
+			op.data.status.statusType = STATUS_POISONED;
+			op.data.status.duration = 0;
+			queueEffect(op);
+		}
 		currentPlayer.poisonReduction = 0;
-		currentPlayer.isParalyzed = false;
+		{
+			EffectOp op = {};
+			op.type = EffectOpType::REMOVE_STATUS;
+			op.data.status.targetIndex = currentPlayerIndex;
+			op.data.status.statusType = STATUS_PARALYZED;
+			op.data.status.duration = 0;
+			queueEffect(op);
+		}
 		currentPlayer.paralysisHeadsCount = 0;
 		currentPlayer.sleepTurnsRemaining = 0;
 
@@ -16393,7 +16556,15 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 	case CARD_ADD_POISON: {
 		// LOCKSTEP MIGRATION: Status flag modification
 		beginEffectSequence();
-		currentPlayer.nextAttackAddPoison = true;
+		// Queue status application instead of direct boolean write
+		{
+			EffectOp s = {};
+			s.type = EffectOpType::APPLY_STATUS;
+			s.data.status.targetIndex = currentPlayerIndex;
+			s.data.status.statusType = STATUS_ADD_POISON;
+			s.data.status.duration = 0;
+			queueEffect(s);
+		}
 		playedSuccessfully = true;
 		advanceCardState(CARD_STATE_EFFECT_SEQUENCE);
 		return true;
@@ -16470,6 +16641,15 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 			currentCardOutcome.targetPlayerIndex = targetIndex;
 			currentCardOutcome.damageDealt = playedCard.value;
 			if (currentPlayer.shocksPlayedThisTurn > 0 && !target->isParalyzed) {
+				// Queue deterministic status application and preserve local state
+				{
+					EffectOp apPar = {};
+					apPar.type = EffectOpType::APPLY_STATUS;
+					apPar.data.status.targetIndex = targetIndex;
+					apPar.data.status.statusType = STATUS_PARALYZED;
+					apPar.data.status.duration = 0;
+					queueEffect(apPar);
+				}
 				target->isParalyzed = true;
 				target->paralysisHeadsCount = 0;
 				currentCardOutcome.statusesApplied.push_back("Paralyzed");
@@ -16916,6 +17096,15 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 			bool applyPoisonBuff = currentPlayer.nextAttackAddPoison && (playedCard.damageType == DAMAGE_PHYSICAL || playedCard.damageType == DAMAGE_PIERCING);
 
 			if (applyPoisonBuff) {
+				// Queue removal of the add-poison buff deterministically
+				{
+					EffectOp rmPoisonBuff = {};
+					rmPoisonBuff.type = EffectOpType::REMOVE_STATUS;
+					rmPoisonBuff.data.status.targetIndex = currentPlayerIndex;
+					rmPoisonBuff.data.status.statusType = STATUS_ADD_POISON;
+					rmPoisonBuff.data.status.duration = 0;
+					queueEffect(rmPoisonBuff);
+				}
 				currentPlayer.nextAttackAddPoison = false;
 				currentCardOutcome.poisonTargetPlayerIDs.clear();
 			}
@@ -16938,6 +17127,15 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 					if (applyPoisonBuff) {
 						if (!target->inGhostForm) {
 							currentCardOutcome.poisonTargetPlayerIDs.push_back(players[pIndex].playerID);
+							// Queue deterministic poison application
+							{
+								EffectOp apPoison = {};
+								apPoison.type = EffectOpType::APPLY_STATUS;
+								apPoison.data.status.targetIndex = pIndex;
+								apPoison.data.status.statusType = STATUS_POISONED;
+								apPoison.data.status.duration = 0;
+								queueEffect(apPoison);
+							}
 							target->isPoisoned = true;
 							target->poisonReduction = 0;
 							glm::vec3 tPos = gridToWorld(target->x, target->y);
@@ -17229,6 +17427,15 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 
 			bool applyPoisonBuff = currentPlayer.nextAttackAddPoison;
 			if (applyPoisonBuff) {
+				// Queue removal of add-poison buff
+				{
+					EffectOp rmPoisonBuff = {};
+					rmPoisonBuff.type = EffectOpType::REMOVE_STATUS;
+					rmPoisonBuff.data.status.targetIndex = currentPlayerIndex;
+					rmPoisonBuff.data.status.statusType = STATUS_ADD_POISON;
+					rmPoisonBuff.data.status.duration = 0;
+					queueEffect(rmPoisonBuff);
+				}
 				currentPlayer.nextAttackAddPoison = false;
 			}
 
@@ -17243,6 +17450,15 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 				queueEffect(damageOp);
 
 				if (applyPoisonBuff) {
+					// Queue deterministic poison application
+					{
+						EffectOp apPoison = {};
+						apPoison.type = EffectOpType::APPLY_STATUS;
+						apPoison.data.status.targetIndex = targetIndex;
+						apPoison.data.status.statusType = STATUS_POISONED;
+						apPoison.data.status.duration = 0;
+						queueEffect(apPoison);
+					}
 					target->isPoisoned = true;
 					target->poisonReduction = 0;
 					glm::vec3 tPos = gridToWorld(target->x, target->y);
@@ -17292,7 +17508,15 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 		damageOp.data.damage.damageFromSlot = -1;
 		queueEffect(damageOp);
 
-		// Apply burning status
+		// Apply burning status deterministically
+		{
+			EffectOp apFire = {};
+			apFire.type = EffectOpType::APPLY_STATUS;
+			apFire.data.status.targetIndex = targetIndex;
+			apFire.data.status.statusType = STATUS_ON_FIRE;
+			apFire.data.status.duration = 0;
+			queueEffect(apFire);
+		}
 		players[targetIndex].onFire = true;
 		currentCardOutcome.statusesApplied.push_back("Burning");
 		currentCardOutcome.targetPlayerIndex = targetIndex;
@@ -17634,6 +17858,15 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 			}
 
 			if (applyPoisonBuff) {
+				// Queue deterministic poison application
+				{
+					EffectOp apPoison = {};
+					apPoison.type = EffectOpType::APPLY_STATUS;
+					apPoison.data.status.targetIndex = targetIndex;
+					apPoison.data.status.statusType = STATUS_POISONED;
+					apPoison.data.status.duration = 0;
+					queueEffect(apPoison);
+				}
 				target->isPoisoned = true;
 				target->poisonReduction = 0;
 				glm::vec3 tPos = gridToWorld(target->x, target->y);
@@ -17847,6 +18080,15 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 			anim.commitOnFinish = true; // This will add the card to hand when animation completes
 			activeDrawCardAnimations.push_back(anim);
 
+			// Queue replicate removal deterministically
+			{
+				EffectOp rmRep = {};
+				rmRep.type = EffectOpType::REMOVE_STATUS;
+				rmRep.data.status.targetIndex = currentPlayerIndex;
+				rmRep.data.status.statusType = STATUS_REPLICATE_QUEUED;
+				rmRep.data.status.duration = 0;
+				queueEffect(rmRep);
+			}
 			currentPlayer.replicateQueued = false;
 			spawnFloatingText(gridToWorld(currentPlayer.x, currentPlayer.y), "Replicated!", ofColor::cyan);
 		}
@@ -18084,7 +18326,15 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 		else
 			currentPlayer.originalModelType = "player";
 
-		// 2. Activate tortoise form
+		// 2. Activate tortoise form (deterministic status)
+		{
+			EffectOp apTort = {};
+			apTort.type = EffectOpType::APPLY_STATUS;
+			apTort.data.status.targetIndex = currentPlayerIndex;
+			apTort.data.status.statusType = STATUS_TORTOISE_FORM;
+			apTort.data.status.duration = 0;
+			queueEffect(apTort);
+		}
 		currentPlayer.inTortoiseForm = true;
 		currentPlayer.tortoiseDamageTaken = 0;
 		currentPlayer.tortoiseFormCard = playedCard;
@@ -18185,13 +18435,27 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 		else
 			currentPlayer.originalModelType = "player";
 
-		// 2. Activate Form
+		// 2. Activate Form (deterministic)
+		{
+			EffectOp apGhost = {};
+			apGhost.type = EffectOpType::APPLY_STATUS;
+			apGhost.data.status.targetIndex = currentPlayerIndex;
+			apGhost.data.status.statusType = STATUS_GHOST_FORM;
+			apGhost.data.status.duration = 0;
+			queueEffect(apGhost);
+		}
 		currentPlayer.inGhostForm = true;
 		currentPlayer.ghostDamageTaken = 0;
 		currentPlayer.ghostFormCard = playedCard;
 
 		// 3. Grant Regeneration (if not already active)
 		if (!currentPlayer.hasRegeneration) {
+			EffectOp apRegen = {};
+			apRegen.type = EffectOpType::APPLY_STATUS;
+			apRegen.data.status.targetIndex = currentPlayerIndex;
+			apRegen.data.status.statusType = STATUS_REGENERATING;
+			apRegen.data.status.duration = 0;
+			queueEffect(apRegen);
 			currentPlayer.hasRegeneration = true;
 			spawnFloatingText(gridToWorld(currentPlayer.x, currentPlayer.y), "Regeneration Gained", ofColor::green);
 		}
@@ -18484,6 +18748,20 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 		Card lesserHeal = findCard("Lesser Heal", CARD_LESSER_HEAL);
 		Card magicBlast = findCard("Magic Blast", CARD_MAGIC_BLAST);
 		minion.deck = { dispel, dispel, lesserHeal, lesserHeal, magicBlast };
+
+		// Queue deterministic spawn via EffectSequence (host still sends authoritative packet)
+		{
+			EffectOp spawnOp = {};
+			spawnOp.type = EffectOpType::SPAWN_UNIT;
+			spawnOp.data.spawnUnit.toX = minion.x;
+			spawnOp.data.spawnUnit.toY = minion.y;
+			spawnOp.data.spawnUnit.summonKind = 7; // FAERIE (matches PlaceSummonedMinion minionType)
+			spawnOp.data.spawnUnit.ownerPlayerID = minion.ownerID;
+			spawnOp.data.spawnUnit.maxHealth = minion.maxHealth;
+			spawnOp.data.spawnUnit.ap = 0;
+			spawnOp.data.spawnUnit.summonerPlayerID = minion.directSummonerID;
+			queueEffect(spawnOp);
+		}
 
 		// 4. Cleanup & Add
 		int myID = currentPlayer.playerID;
@@ -19038,7 +19316,13 @@ void ofApp::resolveAttackDamage() {
 		bool applyPoisonBuff = attacker.nextAttackAddPoison && (currentCardOutcome.attackDamageType == DAMAGE_PHYSICAL || currentCardOutcome.attackDamageType == DAMAGE_PIERCING);
 
 		if (applyPoisonBuff) {
-			attacker.nextAttackAddPoison = false;
+			// Clear the add-poison buff via deterministic effect
+			EffectOp rmPoisonBuff = {};
+			rmPoisonBuff.type = EffectOpType::REMOVE_STATUS;
+			rmPoisonBuff.data.status.targetIndex = currentPlayerIndex;
+			rmPoisonBuff.data.status.statusType = STATUS_ADD_POISON;
+			rmPoisonBuff.data.status.duration = 0;
+			queueEffect(rmPoisonBuff);
 			currentCardOutcome.poisonTargetPlayerIDs.clear();
 		}
 
@@ -19130,7 +19414,13 @@ void ofApp::resolveAttackDamage() {
 					if (target->inGhostForm) {
 						target->ghostDamageTaken += appliedDamage;
 						if (target->ghostDamageTaken >= 4) {
-							target->inGhostForm = false;
+							// Remove ghost form via effect op
+							EffectOp rmGhost = {};
+							rmGhost.type = EffectOpType::REMOVE_STATUS;
+							rmGhost.data.status.targetIndex = pIndex;
+							rmGhost.data.status.statusType = STATUS_GHOST_FORM;
+							rmGhost.data.status.duration = 0;
+							queueEffect(rmGhost);
 							target->ghostDamageTaken = 0;
 							target->discardPile.push_back(target->ghostFormCard);
 							spawnFloatingText(tPos + glm::vec3(0, 0.5f, 0), "Ghost Form Broken!", ofColor::white);
@@ -19145,7 +19435,13 @@ void ofApp::resolveAttackDamage() {
 					if (target->inTortoiseForm) {
 						target->tortoiseDamageTaken += appliedDamage;
 						if (target->tortoiseDamageTaken >= 5) {
-							target->inTortoiseForm = false;
+							// Remove tortoise form via effect op
+							EffectOp rmTort = {};
+							rmTort.type = EffectOpType::REMOVE_STATUS;
+							rmTort.data.status.targetIndex = pIndex;
+							rmTort.data.status.statusType = STATUS_TORTOISE_FORM;
+							rmTort.data.status.duration = 0;
+							queueEffect(rmTort);
 							target->tortoiseDamageTaken = 0;
 							target->discardPile.push_back(target->tortoiseFormCard);
 							spawnFloatingText(tPos + glm::vec3(0, 0.5f, 0), "Form Ended!", ofColor::darkGreen);
@@ -19170,7 +19466,13 @@ void ofApp::resolveAttackDamage() {
 							shockDamageOp.data.damage.fixedDamage = extra;
 							shockDamageOp.data.damage.damageFromSlot = -1;
 							processEffectOp(shockDamageOp);
-							target->isParalyzed = true;
+							// Apply paralyzed status via effect op
+							EffectOp apPar = {};
+							apPar.type = EffectOpType::APPLY_STATUS;
+							apPar.data.status.targetIndex = pIndex;
+							apPar.data.status.statusType = STATUS_PARALYZED;
+							apPar.data.status.duration = 0;
+							queueEffect(apPar);
 							target->paralysisHeadsCount = 0;
 							spawnFloatingText(tPos + glm::vec3(0, 0.6f, 0), "-" + ofToString(extra) + " Electric", ofColor::orange);
 							spawnFloatingText(tPos + glm::vec3(0, 1.0f, 0), "PARALYZED!", ofColor::yellow);
@@ -19182,7 +19484,13 @@ void ofApp::resolveAttackDamage() {
 							flameDamageOp.data.damage.fixedDamage = extra;
 							flameDamageOp.data.damage.damageFromSlot = -1;
 							processEffectOp(flameDamageOp);
-							target->onFire = true;
+							// Apply on-fire via effect op
+							EffectOp apFire = {};
+							apFire.type = EffectOpType::APPLY_STATUS;
+							apFire.data.status.targetIndex = pIndex;
+							apFire.data.status.statusType = STATUS_ON_FIRE;
+							apFire.data.status.duration = 0;
+							queueEffect(apFire);
 							spawnFloatingText(tPos + glm::vec3(0, 0.6f, 0), "-" + ofToString(extra) + " Fire", ofColor::red);
 							spawnFloatingText(tPos + glm::vec3(0, 1.0f, 0), "ON FIRE!", ofColor::orange);
 						} else if (destroyedType == CARD_ADD_POISON) {
@@ -19193,7 +19501,13 @@ void ofApp::resolveAttackDamage() {
 							poisonDamageOp.data.damage.fixedDamage = extra;
 							poisonDamageOp.data.damage.damageFromSlot = -1;
 							processEffectOp(poisonDamageOp);
-							target->isPoisoned = true;
+							// Apply poisoned via effect op
+							EffectOp apPoison = {};
+							apPoison.type = EffectOpType::APPLY_STATUS;
+							apPoison.data.status.targetIndex = pIndex;
+							apPoison.data.status.statusType = STATUS_POISONED;
+							apPoison.data.status.duration = 0;
+							queueEffect(apPoison);
 							target->poisonReduction = 0;
 							spawnFloatingText(tPos + glm::vec3(0, 0.6f, 0), "-" + ofToString(extra) + " Poison", ofColor::green);
 							spawnFloatingText(tPos + glm::vec3(0, 1.0f, 0), "POISONED!", ofColor::green);
@@ -19609,6 +19923,15 @@ void ofApp::resolveFireballDamage() {
 			if (target->inTortoiseForm) {
 				target->tortoiseDamageTaken += damage;
 				if (target->tortoiseDamageTaken >= 5) {
+					// Queue REMOVE_STATUS for tortoise form
+					{
+						EffectOp rm = {};
+						rm.type = EffectOpType::REMOVE_STATUS;
+						rm.data.status.targetIndex = fireballTargetPlayerIndex;
+						rm.data.status.statusType = STATUS_TORTOISE_FORM;
+						rm.data.status.duration = 0;
+						queueEffect(rm);
+					}
 					target->inTortoiseForm = false;
 					target->tortoiseDamageTaken = 0;
 					target->discardPile.push_back(target->tortoiseFormCard);
@@ -19618,6 +19941,15 @@ void ofApp::resolveFireballDamage() {
 			if (target->inGhostForm) {
 				target->ghostDamageTaken += damage;
 				if (target->ghostDamageTaken >= 4) {
+					// Queue REMOVE_STATUS for ghost form
+					{
+						EffectOp rm = {};
+						rm.type = EffectOpType::REMOVE_STATUS;
+						rm.data.status.targetIndex = fireballTargetPlayerIndex;
+						rm.data.status.statusType = STATUS_GHOST_FORM;
+						rm.data.status.duration = 0;
+						queueEffect(rm);
+					}
 					target->inGhostForm = false;
 					target->ghostDamageTaken = 0;
 					target->discardPile.push_back(target->ghostFormCard);
@@ -19625,7 +19957,15 @@ void ofApp::resolveFireballDamage() {
 				}
 			}
 
-			// Fire Status
+			// Fire Status (queue)
+			{
+				EffectOp ap = {};
+				ap.type = EffectOpType::APPLY_STATUS;
+				ap.data.status.targetIndex = fireballTargetPlayerIndex;
+				ap.data.status.statusType = STATUS_ON_FIRE;
+				ap.data.status.duration = 0;
+				queueEffect(ap);
+			}
 			target->onFire = true;
 			spawnFloatingText(targetPos + glm::vec3(0, 0.6f, 0), "ON FIRE!", ofColor::orange);
 
@@ -24014,6 +24354,15 @@ void ofApp::applyDrainPunch(int targetPlayerIndex, int baseDamage, int casterInd
 	// Handle poison buff
 	bool applyPoisonBuff = caster->nextAttackAddPoison;
 	if (applyPoisonBuff) {
+		// Queue removal of add-poison buff deterministically
+		{
+			EffectOp rm = {};
+			rm.type = EffectOpType::REMOVE_STATUS;
+			rm.data.status.targetIndex = casterIndex;
+			rm.data.status.statusType = STATUS_ADD_POISON;
+			rm.data.status.duration = 0;
+			queueEffect(rm);
+		}
 		caster->nextAttackAddPoison = false;
 	}
 
@@ -24462,9 +24811,34 @@ bool ofApp::applyDamageTo(Player & target, int damage, DamageType type, int atta
 							if (hp < 1) hp = 1;
 
 							target.health = hp;
+							// Remove transient statuses deterministically via effect ops
+							{
+								EffectOp rm = {};
+								rm.type = EffectOpType::REMOVE_STATUS;
+								rm.data.status.targetIndex = (int)pidx; // index in players
+								rm.data.status.statusType = STATUS_ON_FIRE;
+								rm.data.status.duration = 0;
+								queueEffect(rm);
+							}
 							target.onFire = false;
+							{
+								EffectOp rm = {};
+								rm.type = EffectOpType::REMOVE_STATUS;
+								rm.data.status.targetIndex = (int)pidx;
+								rm.data.status.statusType = STATUS_POISONED;
+								rm.data.status.duration = 0;
+								queueEffect(rm);
+							}
 							target.isPoisoned = false;
 							target.poisonReduction = 0;
+							{
+								EffectOp rm = {};
+								rm.type = EffectOpType::REMOVE_STATUS;
+								rm.data.status.targetIndex = (int)pidx;
+								rm.data.status.statusType = STATUS_PARALYZED;
+								rm.data.status.duration = 0;
+								queueEffect(rm);
+							}
 							target.isParalyzed = false;
 							target.paralysisHeadsCount = 0;
 							target.sleepTurnsRemaining = 0;
@@ -24473,18 +24847,50 @@ bool ofApp::applyDamageTo(Player & target, int damage, DamageType type, int atta
 							target.fortification = 0;
 							target.barrier = 0;
 							target.holyBlock = 0;
+							{
+								EffectOp rm = {};
+								rm.type = EffectOpType::REMOVE_STATUS;
+								rm.data.status.targetIndex = (int)pidx;
+								rm.data.status.statusType = STATUS_REPLICATE_QUEUED;
+								rm.data.status.duration = 0;
+								queueEffect(rm);
+							}
 							target.replicateQueued = false;
 							target.nextTurnAPBonus = 0;
 							target.shocksPlayedThisTurn = 0;
 							target.flurryOfFistsStacks = 0;
+							{
+								EffectOp rm = {};
+								rm.type = EffectOpType::REMOVE_STATUS;
+								rm.data.status.targetIndex = (int)pidx;
+								rm.data.status.statusType = STATUS_ADD_POISON;
+								rm.data.status.duration = 0;
+								queueEffect(rm);
+							}
 							target.nextAttackAddPoison = false;
 							target.nextTurnD10AP = false;
 							target.nextTurnExtraDraw = false;
 							target.nextTurnBonusDiceFromMinions = false;
 							target.strengthenElementsTurnsRemaining = 0;
+							{
+								EffectOp rm = {};
+								rm.type = EffectOpType::REMOVE_STATUS;
+								rm.data.status.targetIndex = (int)pidx;
+								rm.data.status.statusType = STATUS_TORTOISE_FORM;
+								rm.data.status.duration = 0;
+								queueEffect(rm);
+							}
 							target.inTortoiseForm = false;
 							target.tortoiseDamageTaken = 0;
 							target.tortoiseAccumulatedDamage = 0;
+							{
+								EffectOp rm = {};
+								rm.type = EffectOpType::REMOVE_STATUS;
+								rm.data.status.targetIndex = (int)pidx;
+								rm.data.status.statusType = STATUS_GHOST_FORM;
+								rm.data.status.duration = 0;
+								queueEffect(rm);
+							}
 							target.inGhostForm = false;
 							target.ghostDamageTaken = 0;
 							target.cardsPlayedThisTurn.clear();
@@ -27988,8 +28394,17 @@ void ofApp::processNetworkPackets() {
 								shockOp.data.damage.damageFromSlot = -1;
 								processEffectOp(shockOp);
 							}
-								target->isParalyzed = true;
-								target->paralysisHeadsCount = 0;
+							// Apply paralyzed deterministically
+							{
+								EffectOp ap = {};
+								ap.type = EffectOpType::APPLY_STATUS;
+								ap.data.status.targetIndex = pkt->actorIndex;
+								ap.data.status.statusType = STATUS_PARALYZED;
+								ap.data.status.duration = 0;
+								queueEffect(ap);
+							}
+							target->isParalyzed = true;
+							target->paralysisHeadsCount = 0;
 								spawnFloatingText(tPos + glm::vec3(0, 0.6f, 0), "-" + ofToString(extraDamage) + " Electric", ofColor::orange);
 								spawnFloatingText(tPos + glm::vec3(0, 1.0f, 0), "PARALYZED!", ofColor::yellow);
 								break;
@@ -28002,7 +28417,16 @@ void ofApp::processNetworkPackets() {
 								flameOp.data.damage.damageFromSlot = -1;
 								processEffectOp(flameOp);
 							}
-								target->onFire = true;
+							// Apply on-fire deterministically
+							{
+								EffectOp ap = {};
+								ap.type = EffectOpType::APPLY_STATUS;
+								ap.data.status.targetIndex = pkt->actorIndex;
+								ap.data.status.statusType = STATUS_ON_FIRE;
+								ap.data.status.duration = 0;
+								queueEffect(ap);
+							}
+							target->onFire = true;
 								spawnFloatingText(tPos + glm::vec3(0, 0.6f, 0), "-" + ofToString(extraDamage) + " Fire", ofColor::red);
 								spawnFloatingText(tPos + glm::vec3(0, 1.0f, 0), "ON FIRE!", ofColor::orange);
 								break;
@@ -28015,8 +28439,17 @@ void ofApp::processNetworkPackets() {
 								poisonOp.data.damage.damageFromSlot = -1;
 								processEffectOp(poisonOp);
 							}
-								target->isPoisoned = true;
-								target->poisonReduction = 0;
+							// Apply poisoned deterministically
+							{
+								EffectOp ap = {};
+								ap.type = EffectOpType::APPLY_STATUS;
+								ap.data.status.targetIndex = pkt->actorIndex;
+								ap.data.status.statusType = STATUS_POISONED;
+								ap.data.status.duration = 0;
+								queueEffect(ap);
+							}
+							target->isPoisoned = true;
+							target->poisonReduction = 0;
 								spawnFloatingText(tPos + glm::vec3(0, 0.6f, 0), "-" + ofToString(extraDamage) + " Poison", ofColor::green);
 								spawnFloatingText(tPos + glm::vec3(0, 1.0f, 0), "POISONED!", ofColor::green);
 								break;
@@ -29758,7 +30191,24 @@ void ofApp::executeOpponentCardPlay(const ActionPacket & pkt) {
 			copy.isCopied = true;
 			opponentPlayer.hand.push_back(copy);
 			opponentPlayer.hand.back().currentScale = opponentPlayer.hand.back().targetScale = 1.5f;
-			opponentPlayer.replicateQueued = (copy.type == CARD_REPLICATE);
+			// Queue replicate status for opponent player
+			if (copy.type == CARD_REPLICATE) {
+				EffectOp ap = {};
+				ap.type = EffectOpType::APPLY_STATUS;
+				ap.data.status.targetIndex = opponentPlayerIndex;
+				ap.data.status.statusType = STATUS_REPLICATE_QUEUED;
+				ap.data.status.duration = 0;
+				queueEffect(ap);
+				opponentPlayer.replicateQueued = true;
+			} else {
+				EffectOp rm = {};
+				rm.type = EffectOpType::REMOVE_STATUS;
+				rm.data.status.targetIndex = opponentPlayerIndex;
+				rm.data.status.statusType = STATUS_REPLICATE_QUEUED;
+				rm.data.status.duration = 0;
+				queueEffect(rm);
+				opponentPlayer.replicateQueued = false;
+			}
 		}
 		opponentPlayer.cardsPlayedThisTurn.push_back(cardDef.type);
 		// Remove the card from the opponent's hand if present. If we added a temporary
@@ -30492,7 +30942,16 @@ void ofApp::resolveOnFireDice() {
 	if (burningPlayer.inTortoiseForm) {
 		burningPlayer.tortoiseDamageTaken += rollResult;
 		if (burningPlayer.tortoiseDamageTaken >= 5) {
-			burningPlayer.inTortoiseForm = false;
+					// Queue removal of tortoise form deterministically
+					{
+						EffectOp rm = {};
+						rm.type = EffectOpType::REMOVE_STATUS;
+						rm.data.status.targetIndex = currentPlayerIndex;
+						rm.data.status.statusType = STATUS_TORTOISE_FORM;
+						rm.data.status.duration = 0;
+						queueEffect(rm);
+					}
+					burningPlayer.inTortoiseForm = false;
 			burningPlayer.tortoiseDamageTaken = 0;
 			burningPlayer.discardPile.push_back(burningPlayer.tortoiseFormCard);
 			spawnFloatingText(gridToWorld(burningPlayer.x, burningPlayer.y) + glm::vec3(0, 0.5f, 0), "Form Ended!", ofColor::darkGreen);
@@ -30501,7 +30960,16 @@ void ofApp::resolveOnFireDice() {
 	if (burningPlayer.inGhostForm) {
 		burningPlayer.ghostDamageTaken += rollResult;
 		if (burningPlayer.ghostDamageTaken >= 4) {
-			burningPlayer.inGhostForm = false;
+					// Queue removal of ghost form deterministically
+					{
+						EffectOp rm = {};
+						rm.type = EffectOpType::REMOVE_STATUS;
+						rm.data.status.targetIndex = currentPlayerIndex;
+						rm.data.status.statusType = STATUS_GHOST_FORM;
+						rm.data.status.duration = 0;
+						queueEffect(rm);
+					}
+					burningPlayer.inGhostForm = false;
 			burningPlayer.ghostDamageTaken = 0;
 			burningPlayer.discardPile.push_back(burningPlayer.ghostFormCard);
 			spawnFloatingText(gridToWorld(burningPlayer.x, burningPlayer.y) + glm::vec3(0, 0.5f, 0), "Ghost Form Broken!", ofColor::white);
@@ -30515,7 +30983,16 @@ void ofApp::resolveOnFireDice() {
 
 	// Check if fire is extinguished
 	if (rollResult == 1 || rollResult == 2) {
-		burningPlayer.onFire = false;
+			// Queue removal of on-fire status
+			{
+				EffectOp rm = {};
+				rm.type = EffectOpType::REMOVE_STATUS;
+				rm.data.status.targetIndex = currentPlayerIndex;
+				rm.data.status.statusType = STATUS_ON_FIRE;
+				rm.data.status.duration = 0;
+				queueEffect(rm);
+			}
+			burningPlayer.onFire = false;
 		spawnFloatingText(gridToWorld(burningPlayer.x, burningPlayer.y) + glm::vec3(0, 0.8f, 0), "Extinguished", ofColor::white);
 	}
 
@@ -30546,6 +31023,15 @@ void ofApp::resolvePoisonStatusDice() {
 		if (poisonedPlayer.inTortoiseForm) {
 			poisonedPlayer.tortoiseDamageTaken += actualDamage;
 			if (poisonedPlayer.tortoiseDamageTaken >= 5) {
+				// Queue removal of tortoise form deterministically
+				{
+					EffectOp rm = {};
+					rm.type = EffectOpType::REMOVE_STATUS;
+					rm.data.status.targetIndex = currentPlayerIndex;
+					rm.data.status.statusType = STATUS_TORTOISE_FORM;
+					rm.data.status.duration = 0;
+					queueEffect(rm);
+				}
 				poisonedPlayer.inTortoiseForm = false;
 				poisonedPlayer.tortoiseDamageTaken = 0;
 				poisonedPlayer.discardPile.push_back(poisonedPlayer.tortoiseFormCard);
@@ -30555,6 +31041,15 @@ void ofApp::resolvePoisonStatusDice() {
 		if (poisonedPlayer.inGhostForm) {
 			poisonedPlayer.ghostDamageTaken += actualDamage;
 			if (poisonedPlayer.ghostDamageTaken >= 4) {
+				// Queue removal of ghost form deterministically
+				{
+					EffectOp rm = {};
+					rm.type = EffectOpType::REMOVE_STATUS;
+					rm.data.status.targetIndex = currentPlayerIndex;
+					rm.data.status.statusType = STATUS_GHOST_FORM;
+					rm.data.status.duration = 0;
+					queueEffect(rm);
+				}
 				poisonedPlayer.inGhostForm = false;
 				poisonedPlayer.ghostDamageTaken = 0;
 				poisonedPlayer.discardPile.push_back(poisonedPlayer.ghostFormCard);

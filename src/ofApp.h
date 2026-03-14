@@ -291,11 +291,12 @@ enum class EffectOpType : uint8_t {
 	HEAL,
 	MOVE_UNIT,
 	SPAWN_UNIT,
+	SPAWN_PLAYER,
 	MODIFY_STAT,
 	DRAW_CARDS,
 	DISCARD_CARDS,
 	APPLY_STATUS,
-	REMOVE_STATUS,
+	REMOVE_STATUS, // Added REMOVE_STATUS for effect operations
 	CONDITIONAL_BRANCH,
 	WAIT_VISUAL
 };
@@ -340,6 +341,42 @@ struct ModifyStatData {
 	int deltaFromSlot; // -1 = use fixed delta
 };
 
+struct SpawnUnitData {
+	int toX;
+	int toY;
+	int summonKind; // PENDING_SUMMON_* value
+	int ownerPlayerID;
+	int maxHealth;
+	int ap;
+	int summonerPlayerID; // optional: specific unit/player that summoned this minion
+};
+
+struct SpawnPlayerData {
+	int x;
+	int y;
+	int playerID;
+	int deckChoice; // 0=empty, 1=allCards, 2=debugSavedDeckForPlayerID
+};
+
+enum StatusType : int {
+	STATUS_NONE = 0,
+	STATUS_ADD_POISON = 1,
+	STATUS_STRENGTHEN_ELEMENTS = 2,
+	STATUS_POISONED = 3,
+	STATUS_ON_FIRE = 4,
+	STATUS_PARALYZED = 5,
+	STATUS_GHOST_FORM = 6,
+	STATUS_TORTOISE_FORM = 7,
+	STATUS_REGENERATING = 8,
+	STATUS_REPLICATE_QUEUED = 9,
+};
+
+struct StatusData {
+	int targetIndex;
+	int statusType;
+	int duration; // optional
+};
+
 struct EffectOp {
 	EffectOpType type;
 	union {
@@ -349,6 +386,9 @@ struct EffectOp {
 		MoveUnitData moveUnit;
 		DrawCardsData drawCards;
 		ModifyStatData modifyStat;
+		StatusData status;
+		SpawnUnitData spawnUnit;
+		SpawnPlayerData spawnPlayer;
 	} data;
 
 	// Visual wait state (not serialized to network, computed locally)
@@ -824,7 +864,13 @@ private:
 	void resolveMagicBlastDice();
 	void resolveDeathDice();
 	void resolveSleepDuration();
+	void resolveAPRoll();
+	void resolveBlockingBoon(const DiceRoll & finishedRoll);
+	void resolveSummonKobolds(const DiceRoll & finishedRoll);
 	void resolveJoltRangeDice();
+
+	// Earthquake simulation update (migrated from updateGame())
+	void updateEarthquakeSimulation();
 	void resolveHealDice();
 	void resolvePsionicRangeDice();
 	void resolvePsionicAmountDice();
@@ -1845,7 +1891,15 @@ private:
 		PENDING_SUMMON_NONE = 0,
 		PENDING_SUMMON_SKELETON = 1,
 		PENDING_SUMMON_HELLHOUND = 2,
-		PENDING_SUMMON_DEMON = 3
+		PENDING_SUMMON_DEMON = 3,
+		PENDING_SUMMON_KOBOLD = 4,
+		PENDING_SUMMON_WOLF = 5,
+		PENDING_SUMMON_KOBOLD_KING = 6,
+		PENDING_SUMMON_ASSISTANT = 7,
+		PENDING_SUMMON_FAERIE = 8,
+		PENDING_SUMMON_GOLEM = 9,
+		PENDING_SUMMON_WALL = 10,
+		PENDING_SUMMON_MAGIC_WALL = 11
 	};
 	bool isWaitingForSummonHealth = false;
 	// Summon placement/HP use centralized interaction fields:
