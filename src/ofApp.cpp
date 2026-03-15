@@ -40,7 +40,6 @@ static std::string makeSavePath(const std::string & p) {
 	if (p.find('/') != std::string::npos || p.find('\\') != std::string::npos) return p;
 	return kSavesDir + "/" + p;
 }
-
 // Unused currently but may be used for save file cleanup
 [[maybe_unused]] static void pruneOldStampedSaves(int keep = 5) {
 	try {
@@ -239,7 +238,7 @@ void ofApp::finishPlayCard(Player & caster, const Card & playedCard, int handInd
 void ofApp::updatePlayerAP(Player & player, int newAP) {
 	for (auto & p : players) {
 		if (&p == &player) {
-			p.ap = newAP + (currentCardOutcome.summonKind == PENDING_SUMMON_HELLHOUND ? 1 : 0);
+			p.ap = newAP;
 			return;
 		}
 	}
@@ -250,8 +249,6 @@ void ofApp::completeCardPlayAnimation(const Card & playedCard, int playerIndex) 
 	invalidateTargetCache();
 	if (playerIndex >= 0 && playerIndex < (int)players.size()) {
 		players[playerIndex].cardsPlayedThisTurn.push_back(playedCard.type);
-	}
-	if (playerIndex >= 0 && playerIndex < (int)players.size()) {
 		players[playerIndex].ap = currentAP;
 	}
 }
@@ -522,6 +519,7 @@ ofPixels scalePixelsNearest(ofPixels & src, int scale) {
 }
 
 //--------------------------------------------------------------
+
 // Helper to create a GLFW cursor from a PNG file
 GLFWcursor * createGLFWCursorFromPNG(const std::string & path, int xHot, int yHot) {
 	ofImage img;
@@ -3868,61 +3866,9 @@ void ofApp::updateGame() {
 	// --- EARTHQUAKE LOGIC ---
 	if (isEarthquakeActive) {
 
-		// PHASE 1: WAIT FOR DICE
+		// PHASE 1: WAIT FOR DICE (delegated)
 		if (isEarthquakeDiceRolling) {
-			bool ready = true;
-			int foundDiceCount = 0;
-
-			// Ensure all earthquake distance dice have finished visually
-			for (auto & unit : earthquakeUnits) {
-				bool unitDieReady = false;
-				for (const auto & roll : activeDiceRolls) {
-					if (roll.purpose == PURPOSE_EARTHQUAKE_DISTANCE && roll.associatedUnit == unit.playerIndex) {
-						foundDiceCount++;
-						if (roll.isFinishedVisual) {
-							unitDieReady = true;
-						}
-						break;
-					}
-				}
-				if (!unitDieReady) {
-					ready = false;
-					break;
-				}
-			}
-
-			// Only proceed if we found all the dice and they are finished
-			if (ready && foundDiceCount == (int)earthquakeUnits.size()) {
-				// Capture results and remove those dice from activeDiceRolls safely
-				std::vector<int> toErase;
-				for (auto & unit : earthquakeUnits) {
-					for (int i = 0; i < (int)activeDiceRolls.size(); ++i) {
-						if (activeDiceRolls[i].purpose == PURPOSE_EARTHQUAKE_DISTANCE && activeDiceRolls[i].associatedUnit == unit.playerIndex) {
-							int result = activeDiceRolls[i].result;
-							unit.tilesToMove = result;
-							unit.originalDistance = result;
-							unit.nextGrid = unit.startGrid + unit.direction;
-							unit.isMoving = (result > 0);
-							toErase.push_back(i);
-							break;
-						}
-					}
-				}
-
-				// Erase in descending order
-				sort(toErase.begin(), toErase.end(), std::greater<int>());
-				for (int idx : toErase) {
-					if (idx >= 0 && idx < (int)activeDiceRolls.size()) {
-						activeDiceRolls.erase(activeDiceRolls.begin() + idx);
-					}
-				}
-
-				isEarthquakeDiceRolling = false;
-				isEarthquakeWaiting = true;
-				earthquakeWaitTimer = 2.0f; // 2 seconds delay
-				isEarthquakeAnimatingStep = false;
-				earthquakeT = 0.0f;
-			}
+			resolveEarthquakeDistance();
 		}
 
 		// PHASE 1.5: WAIT BEFORE ANIMATION
@@ -4223,60 +4169,8 @@ void ofApp::updateGame() {
 				if (elapsedTime > spinDuration && !roll.isFinishedVisual) {
 					roll.isFinishedVisual = true;
 					if (roll.purpose == PURPOSE_EARTHQUAKE_DAMAGE) {
-						int uidx = roll.associatedUnit;
-						if (uidx >= 0 && uidx < (int)players.size()) {
-							if (players[uidx].inGhostForm) {
-								glm::vec3 textPos = gridToWorld(players[uidx].x, players[uidx].y);
-								for (const auto & eu : earthquakeUnits) {
-									if (eu.playerIndex == uidx) {
-										textPos = eu.visualPos;
-										break;
-									}
-								}
-								spawnFloatingText(textPos + glm::vec3(0, 0.8f, 0), "Phased (0 Dmg)", ofColor::cyan);
-							} else {
-								players[uidx].health -= roll.result;
-								glm::vec3 textPos = gridToWorld(players[uidx].x, players[uidx].y);
-								for (const auto & eu : earthquakeUnits) {
-									if (eu.playerIndex == uidx) {
-										textPos = eu.visualPos;
-										break;
-									}
-								}
-								spawnFloatingText(textPos + glm::vec3(0, 0.8f, 0), "-" + ofToString(roll.result), ofColor::red);
-
-								if (players[uidx].health <= 0) {
-									DeathMarker death;
-									death.x = players[uidx].x;
-									death.y = players[uidx].y;
-									death.turnDied = globalTurnCounter;
-									death.deck = players[uidx].deck;
-									graveyard.push_back(death);
-									if (death.x >= 0 && death.x < BOARD_WIDTH && death.y >= 0 && death.y < BOARD_HEIGHT) {
-										board[death.x][death.y].hasPlayer = false;
-									}
-									players.erase(players.begin() + uidx);
-									for (auto eit = earthquakeUnits.begin(); eit != earthquakeUnits.end();) {
-										if (eit->playerIndex == uidx)
-											eit = earthquakeUnits.erase(eit);
-										else {
-											if (eit->playerIndex > uidx) eit->playerIndex--;
-											++eit;
-										}
-									}
-									for (auto & r : activeDiceRolls) {
-										if (r.associatedUnit == uidx)
-											r.associatedUnit = -1;
-										else if (r.associatedUnit > uidx)
-											r.associatedUnit--;
-									}
-									if (currentPlayerIndex == uidx)
-										currentPlayerIndex = std::min<int>(uidx, (int)players.size() - 1);
-									else if (currentPlayerIndex > uidx)
-										currentPlayerIndex--;
-								}
-							}
-						}
+						// Delegate to centralized earthquake damage resolver
+						resolveEarthquakeDamage(roll);
 						it = activeDiceRolls.erase(it);
 						continue;
 					}
@@ -4389,109 +4283,11 @@ void ofApp::updateGame() {
 			// THEN execute all the game-related logic inside this block.
 			if (roll.purpose != PURPOSE_DEBUG && roll.purpose != PURPOSE_HP && roll.purpose != PURPOSE_HEALING) {
 				if (roll.purpose == PURPOSE_AP) {
-					// Sum all finished AP and BONUS_AP dice rolls belonging to the current unit
-					int apSum = 0;
-					for (const auto & r : activeDiceRolls) {
-						if ((r.purpose == PURPOSE_AP || r.purpose == PURPOSE_BONUS_AP) && r.isFinishedVisual && r.associatedUnit == currentPlayerIndex) {
-							apSum += r.result;
-						}
-					}
-					ofLogNotice("APDebug") << "AP roll finished: apSum=" << apSum << " nextTurnAPBonus(before)=" << players[currentPlayerIndex].nextTurnAPBonus << " currentAP(before)=" << currentAP;
-					currentAP = apSum;
-					if (players[currentPlayerIndex].nextTurnAPBonus > 0) {
-						currentAP += players[currentPlayerIndex].nextTurnAPBonus;
-						players[currentPlayerIndex].nextTurnAPBonus = 0;
-					}
-					// Sync AP to player struct
-					updatePlayerAP(players[currentPlayerIndex], currentAP);
-					ofLogNotice("APDebug") << "AP roll applied: currentAP(after)=" << currentAP;
-
-					// If AP is zero, check for adjacent assistants belonging to this unit
-					if (currentAP == 0) {
-						Player & actor = players[currentPlayerIndex];
-						for (auto & a : players) {
-							if (a.isAssistant && a.health > 0 && a.directSummonerID == actor.playerID && !a.assistantRerollUsedThisTurn) {
-								int dist = abs(a.x - actor.x) + abs(a.y - actor.y);
-								if (dist <= 1) {
-									// consume assistant's reroll and grant a bonus reroll matching the original AP dice
-									a.assistantRerollUsedThisTurn = true;
-									int rerollNum = lastAPDiceNum > 0 ? lastAPDiceNum : 1;
-									int rerollSides = lastAPDiceSides > 0 ? lastAPDiceSides : 6;
-									// Mark any previous AP dice as debug so they won't be included twice
-									for (auto & oldR : activeDiceRolls) {
-										if (oldR.purpose == PURPOSE_AP) oldR.purpose = PURPOSE_DEBUG;
-									}
-									// Start a bonus AP roll (added on top of the original result)
-									startDiceRoll(rerollNum, rerollSides, PURPOSE_BONUS_AP, "Assistant Auto Reroll", currentPlayerIndex);
-									spawnFloatingText(gridToWorld(a.x, a.y), "Assistant Reroll!", ofColor::gold);
-								}
-							}
-						}
-					}
-					ofLogNotice("Game") << "AP Roll Finished: " << currentAP << " AP awarded (sum of all dice).";
-
-					// HOST: Send TurnStart packet to client once AP dice are finished (for BOTH turns)
-					bool allDiceFinished = true;
-					for (const auto & d : activeDiceRolls) {
-						if (!d.isFinishedVisual && (d.purpose == PURPOSE_AP || d.purpose == PURPOSE_BONUS_AP)) {
-							allDiceFinished = false;
-							break;
-						}
-					}
-					static int lastTurnStartSentPlayer = -1;
-					static int lastTurnStartSentCounter = -1;
-					bool alreadySent = (lastTurnStartSentPlayer == currentPlayerIndex && lastTurnStartSentCounter == globalTurnCounter);
-					if (isHost() && isMultiplayer && allDiceFinished && !alreadySent && !isHandlingTurnStartEffects) {
-						TurnStartPacket tpk = {};
-						tpk.type = PKT_TURN_START;
-						tpk.playerID = myLocalPlayerID;
-						tpk.currentPlayerIndex = currentPlayerIndex;
-						tpk.diceNum = 0;
-						tpk.diceSides = (uint8_t)lastAPDiceSides;
-						tpk.purpose = PURPOSE_AP;
-						tpk.finalTotal = currentAP;
-						// Count actual AP/BONUS_AP dice and populate packet
-						for (const auto & d : activeDiceRolls) {
-							if ((d.purpose == PURPOSE_AP || d.purpose == PURPOSE_BONUS_AP) && tpk.diceNum < 8) {
-								tpk.rawResults[tpk.diceNum] = (uint8_t)d.rawResult;
-								tpk.finalResults[tpk.diceNum] = (uint8_t)d.result;
-								tpk.diceNum++;
-							}
-						}
-						// Only send TurnStart if we're not in the middle of handling
-						// turn-start status effects (paralysis/poison/onFire), which
-						// may trigger coin flips or other waits.
-						if (!isHandlingTurnStartEffects) {
-							steamManager.sendPacket(&tpk, sizeof(tpk));
-							// Host: send authoritative checksum immediately after TurnStart so clients can validate
-							if (isHost()) {
-								ChecksumPacket chk = {};
-								chk.type = PKT_CHECKSUM_CHECK;
-								chk.playerID = myLocalPlayerID;
-								chk.checksum = calculateChecksum();
-								chk.turnNumber = globalTurnCounter;
-								steamManager.sendPacket(&chk, sizeof(chk));
-								ofLogNotice("Checksum") << "Host sent Checksum (turn=" << chk.turnNumber << ") value=" << chk.checksum;
-								if (isHost()) {
-									// Save the authoritative turn-start state
-									turnStartBackupSnapshot = buildSnapshotString();
-									ofLogNotice("Network") << "Host saved Turn-Start Master Backup.";
-								}
-							}
-							lastTurnStartSentPlayer = currentPlayerIndex;
-							lastTurnStartSentCounter = globalTurnCounter;
-							ofLogNotice("Network") << "Host sent TurnStart (continueNewTurn): player=" << tpk.currentPlayerIndex << " dice=" << (int)tpk.diceNum << " total=" << tpk.finalTotal;
-						}
-					}
+					resolveAPRoll();
 				} else if (roll.purpose == PURPOSE_SLEEP_DURATION) {
-					Player * t = getPlayer(currentCardOutcome.targetPlayerIndex);
-					if (t) {
-						t->sleepTurnsRemaining = roll.result;
-						spawnFloatingText(gridToWorld(t->x, t->y), ofToString(roll.result) + " Turns Sleep", ofColor::cyan);
-					}
-					currentCardOutcome.targetPlayerIndex = -1;
+					resolveSleepDurationRoll(roll);
 				} else if (roll.purpose == PURPOSE_DEATH_CHECK) {
-					currentCardOutcome.namedDiceResults["death_check"] = roll.result;
+					resolveDeathCheckRoll(roll);
 					// Logic is handled in the separate updateGame block
 				} else if (roll.purpose == PURPOSE_EARTHQUAKE_DAMAGE) {
 					// Find associated unit and apply damage now (during animation)
@@ -4523,220 +4319,26 @@ void ofApp::updateGame() {
 						}
 					}
 				} else if (roll.purpose == PURPOSE_BONUS_AP) {
-					currentAP += roll.result;
-					spawnFloatingText(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y),
-						"+" + ofToString(roll.result) + " Bonus AP",
-						ofColor::yellow);
-					ofLogNotice("Game") << "Bonus Dice Finished: " << roll.result << " AP awarded.";
-				} else if (roll.purpose == PURPOSE_BLOCKING_BOON_COIN) {
-					// Result 2 = Heads, 1 = Tails
-					// Heads: Raise Max HP
-					// Tails: Lower Target Max HP
-					if (roll.result >= 2) {
-						// Heads
-						players[currentPlayerIndex].maxHealth++;
-						spawnFloatingText(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y), "+1 Max HP", ofColor::green);
-					} else {
-						// Tails
-						Player * t = getPlayer(blockingBoonTargetIndex);
-						if (t) {
-							t->maxHealth = std::max(1, t->maxHealth - 1);
-							// Clamp current health if it exceeds new max
-							if (t->health > t->maxHealth) t->health = t->maxHealth;
-							spawnFloatingText(gridToWorld(t->x, t->y), "-1 Max HP", ofColor::darkRed);
-						}
-					}
-
-					// If we're resolving a staged Blocking Boon, decrement the outstanding coin count
-					if (isWaitingForBlockingBoonCoins) {
-						currentCardOutcome.namedDiceResults["blocking_boon_coins_remaining"] = std::max(0, currentCardOutcome.namedDiceResults["blocking_boon_coins_remaining"] - 1);
-						// Decrement combined outstanding counter as well
-						currentCardOutcome.namedDiceResults["blocking_boon_total"] = std::max(0, currentCardOutcome.namedDiceResults["blocking_boon_total"] - 1);
-
-						// --- START FIX ---
-						// This block is now simplified. It ONLY updates the state.
-						// The startDiceRoll() call has been moved outside the loop.
-						if (currentCardOutcome.namedDiceResults["blocking_boon_coins_remaining"] == 0) {
-							// All coin flips have finished processing.
-							// Set the flag to false so the next stage can be triggered outside this loop.
-							isWaitingForBlockingBoonCoins = false;
-
-							// If our combined counter says everything's done, clear the active guard.
-							// This happens if there were only coin rolls and no D20s.
-							if (currentCardOutcome.namedDiceResults["blocking_boon_total"] == 0) {
-								blockingBoonActive = false;
-							}
-						}
-						// --- END FIX ---
-					}
-				} else if (roll.purpose == PURPOSE_BLOCKING_BOON_D20) {
-					// Result includes Luck
-					int val = roll.result;
-					int classReward = 0;
-
-					if (val >= 20)
-						classReward = 3;
-					else if (val >= 16)
-						classReward = 2;
-					else if (val >= 10)
-						classReward = 1;
-
-					if (classReward > 0) {
-						networkPending.draftQueue.push_back(classReward);
-						spawnFloatingText(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y), "Draft C" + ofToString(classReward), ofColor::cyan);
-					} else {
-						// Fail (1-9)
-						spawnFloatingText(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y), "Fizzle", ofColor::gray);
-					}
-
-					// After processing a D20 result, clear active flag if there are no UNPROCESSED blocking-boon dice left
-					// Decrement combined outstanding counter and clear guard if finished
-					currentCardOutcome.namedDiceResults["blocking_boon_total"] = std::max(0, currentCardOutcome.namedDiceResults["blocking_boon_total"] - 1);
-					if (currentCardOutcome.namedDiceResults["blocking_boon_total"] == 0) blockingBoonActive = false;
+					resolveBonusAP(roll);
+				} else if (roll.purpose == PURPOSE_BLOCKING_BOON_COIN || roll.purpose == PURPOSE_BLOCKING_BOON_D20) {
+					// Delegate to centralized resolver for Blocking Boon
+					resolveBlockingBoon(roll);
+					return;
 				} else if (roll.purpose == PURPOSE_SUMMON_KOBOLDS) {
-					// Resolve Call for Kobolds roll
-					isWaitingForKoboldDice = false;
-					int count = roll.result;
-					if (count <= 0) {
-						spawnFloatingText(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y), "No Kobolds!", ofColor::gray);
-						// End kobold placement mode
-						updateCardInteractionState(CARD_INTERACTION_IDLE, -1, CARD_NONE);
-					} else {
-						// Count available adjacent empty tiles
-						int avail = 0;
-						glm::vec2 adj[] = { { 1, 0 }, { -1, 0 }, { 0, 1 }, { 0, -1 } };
-						for (auto & d : adj) {
-							int nx = koboldPlacementSourceX + (int)d.x;
-							int ny = koboldPlacementSourceY + (int)d.y;
-							if (nx >= 0 && nx < BOARD_WIDTH && ny >= 0 && ny < BOARD_HEIGHT) {
-								if (!board[nx][ny].hasWall && !board[nx][ny].hasPlayer) avail++;
-							}
-						}
-						int allowed = std::min<int>(count, std::min(avail, 4));
-						if (allowed <= 0) {
-							spawnFloatingText(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y), "No Space!", ofColor::red);
-							updateCardInteractionState(CARD_INTERACTION_IDLE, -1, CARD_NONE);
-						} else {
-							// --- MULTIPLAYER FIX: Only enter placement mode if it is the LOCAL player's turn ---
-							if (isCurrentPlayerLocal()) {
-								koboldsRemainingToPlace = allowed;
-								koboldSummonCount = 0;
-								updateCardInteractionState(CARD_INTERACTION_PLACING, -1, CARD_CALL_FOR_KOBOLDS);
-								ofLogNotice("Summon") << "CallForKobolds: will place " << koboldsRemainingToPlace << " kobolds (source=" << koboldPlacementSourceX << "," << koboldPlacementSourceY << ")";
-								// Instruction UI
-								tooltipText = "Place Kobold: click an adjacent empty tile";
-								isShowingTooltip = true;
-								spawnFloatingText(gridToWorld(koboldPlacementSourceX, koboldPlacementSourceY), ofToString(koboldsRemainingToPlace) + " Kobolds!", ofColor::gold);
-								invalidateTargetCache();
-							} else {
-								// It's the opponent. Do NOT enter placement mode locally.
-								// We wait for their PKT_PLACE_SUMMONED_MINION packet.
-								ofLogNotice("Summon") << "Opponent rolled " << count << " kobolds. Waiting for placement packet.";
-							}
-						}
-					}
+					// Centralized summon handling
+					resolveSummonKobolds(roll);
 					return;
 				} else if (roll.purpose == PURPOSE_COIN_FLIP) {
-					// Paralysis and Wolf coin flips now handled by helpers (resolveParalysisCoinFlip, resolveWolfCoinFlip)
-					if (false) { // Placeholder - resolution delegated to helpers
-						isWaitingForWolfCoin = false;
-						int flipResult = roll.result; // 1=Tails, 2=Heads
-
-						// Find Summoner for Text Position
-						Player * summoner = nullptr;
-						for (auto & p : players) {
-							if (p.x == wolfPlacementSourceX && p.y == wolfPlacementSourceY) {
-								summoner = &p;
-								break;
-							}
-						}
-						glm::vec3 textPos = summoner ? gridToWorld(summoner->x, summoner->y) : glm::vec3(0, 0, 0);
-
-						if (flipResult == 1) {
-							// TAILS: FAIL
-							ofLogNotice("Wolves") << "Tails! The call fizzles.";
-							spawnFloatingText(textPos, "Fizzles...", ofColor::gray);
-
-							// End the sequence
-							updateCardInteractionState(CARD_INTERACTION_IDLE, -1, CARD_NONE);
-							wolfSummonStage = 0;
-
-							// --- CRITICAL FIX: CAPTURE ID BEFORE SORT ---
-							int myID = players[currentPlayerIndex].playerID;
-
-							// Cleanup Turn Order
-							std::sort(players.begin(), players.end(), [](const Player & a, const Player & b) {
-								int ownerA = a.isMinion ? a.ownerID : a.playerID;
-								int ownerB = b.isMinion ? b.ownerID : b.playerID;
-								if (ownerA != ownerB) return ownerA < ownerB;
-								if (a.isMinion && !b.isMinion) return true;
-								if (!a.isMinion && b.isMinion) return false;
-								return a.summonOrder < b.summonOrder;
-							});
-
-							// Fix index
-							for (size_t i = 0; i < players.size(); i++) {
-								if (players[i].playerID == myID) {
-									currentPlayerIndex = i;
-									break;
-								}
-							}
-						} else {
-							// HEADS: Check if we have space for the 2nd wolf
-							bool hasSpace = false;
-							glm::vec2 adj[] = { { 1, 0 }, { -1, 0 }, { 0, 1 }, { 0, -1 } };
-							for (auto & d : adj) {
-								int nx = wolfPlacementSourceX + (int)d.x;
-								int ny = wolfPlacementSourceY + (int)d.y;
-								if (nx >= 0 && nx < BOARD_WIDTH && ny >= 0 && ny < BOARD_HEIGHT) {
-									if (!board[nx][ny].hasWall && !board[nx][ny].hasPlayer) {
-										hasSpace = true;
-										break;
-									}
-								}
-							}
-
-							if (hasSpace) {
-								// SUCCESS
-								// --- MULTIPLAYER FIX: Only prompt for 2nd placement if LOCAL player ---
-								if (isCurrentPlayerLocal()) {
-									ofLogNotice("Wolves") << "Heads! You can place another wolf.";
-									spawnFloatingText(textPos, "Double Summon!", ofColor::gold);
-									wolfSummonStage = 2; // Advance stage to Wolf 2
-									// Placement remains active (centralized state)
-								} else {
-									spawnFloatingText(textPos, "Opponent choosing 2nd Wolf...", ofColor::gold);
-									// Disable local placement UI so we don't lock up waiting for opponent's click
-									updateCardInteractionState(CARD_INTERACTION_IDLE, -1, CARD_NONE);
-									wolfSummonStage = 0;
-								}
-							} else {
-								// HEADS BUT BLOCKED
-								ofLogNotice("Wolves") << "Heads, but no space for 2nd wolf.";
-								spawnFloatingText(textPos, "No Space!", ofColor::red);
-								updateCardInteractionState(CARD_INTERACTION_IDLE, -1, CARD_NONE);
-								wolfSummonStage = 0;
-
-								// --- CRITICAL FIX: CAPTURE ID BEFORE SORT ---
-								int myID = players[currentPlayerIndex].playerID;
-
-								std::sort(players.begin(), players.end(), [](const Player & a, const Player & b) {
-									int ownerA = a.isMinion ? a.ownerID : a.playerID;
-									int ownerB = b.isMinion ? b.ownerID : b.playerID;
-									if (ownerA != ownerB) return ownerA < ownerB;
-									if (a.isMinion && !b.isMinion) return true;
-									if (!a.isMinion && b.isMinion) return false;
-									return a.summonOrder < b.summonOrder;
-								});
-								for (size_t i = 0; i < players.size(); i++) {
-									if (players[i].playerID == myID) {
-										currentPlayerIndex = i;
-										break;
-									}
-								}
-							}
-						}
+					// Paralysis and Wolf coin flips handled by dedicated resolvers when active
+					if (isWaitingForParalysisCoin) {
+						resolveParalysisCoinFlip();
+						return;
 					}
+					if (isWaitingForWolfCoin) {
+						resolveWolfCoinFlip();
+						return;
+					}
+					// No ad-hoc handling here when not waiting for specific coin-driven flows.
 				}
 			}
 		}
@@ -10490,7 +10092,6 @@ cursor_check_done:;
 			break;
 		}
 	}
-
 		// Close switch(currentState) block
 	}
 
@@ -11522,132 +11123,15 @@ void ofApp::mousePressed(int x, int y, int button) {
 		return;
 	}
 
-	// --- EARLY HANDLER: KOBOLD PLACEMENT (take precedence like wolves) ---
-	if (cardInteractionState == CARD_INTERACTION_PLACING && interactingCardType == CARD_CALL_FOR_KOBOLDS && !isWaitingForKoboldDice) {
-		// Only allow placement clicks; swallow all other clicks while placing kobolds
+	// Centralized placement handler: delegate placement clicks to `handleCardTargetClick()`
+	if (cardInteractionState == CARD_INTERACTION_PLACING) {
 		if (button == OF_MOUSE_BUTTON_LEFT) {
 			ofVec2f boardPos = mouseToBoard(x, y);
 			int gx = floor(boardPos.x), gy = floor(boardPos.y);
-			if (gx >= 0 && gx < BOARD_WIDTH && gy >= 0 && gy < BOARD_HEIGHT) {
-				if (!board[gx][gy].hasWall && !board[gx][gy].hasPlayer) {
-					int dist = abs(gx - koboldPlacementSourceX) + abs(gy - koboldPlacementSourceY);
-					if (dist == 1) {
-						// Spawn kobold (mirrors the placement logic in the main handler)
-						koboldSummonCount++;
-						Player kobold;
-						kobold.playerID = 300 + (int)players.size();
-						kobold.x = gx;
-						kobold.y = gy;
-						kobold.maxHealth = 1;
-						kobold.health = 1;
-						kobold.isMinion = true;
-						kobold.isKobold = true;
-						kobold.isSkeleton = false;
-						// Set owner using captured owner ID (not currentPlayerIndex which may have changed)
-						kobold.ownerID = currentCardOutcome.summonOwnerPlayerID;
-						// Give summoned kobolds summoning sickness this cycle and record ordering
-						kobold.summonedOnTurnCycle = globalTurnCounter;
-						kobold.summonOrder = ++nextSummonOrder;
-						// Build basic kobold deck with fallbacks
-						Card hb, pu, callCard;
-
-						// Use a flag to ensure we find them, or create defaults if missing
-						bool foundHB = false, foundPU = false, foundCall = false;
-
-						for (const auto & c : allCards) {
-							if (c.name == "Hand Block") {
-								hb = c;
-								foundHB = true;
-							}
-							if (c.name == "Punch") {
-								pu = c;
-								foundPU = true;
-							}
-							if (c.type == CARD_CALL_FOR_KOBOLDS) {
-								callCard = c;
-								foundCall = true;
-							}
-						}
-
-						// Fallbacks to prevent immediate death due to empty deck
-						if (!foundHB) {
-							hb.name = "Hand Block";
-							hb.type = CARD_HAND_BLOCK;
-							hb.cost = 1;
-							hb.value = 2;
-						}
-						if (!foundPU) {
-							pu.name = "Punch";
-							pu.type = CARD_PUNCH;
-							pu.cost = 1;
-							pu.value = 2;
-						}
-						if (!foundCall) {
-							callCard.name = "Call for Kobolds";
-							callCard.type = CARD_CALL_FOR_KOBOLDS;
-							callCard.cost = 4;
-						}
-
-						kobold.deck = { hb, hb, pu, callCard };
-
-						// Add to board
-						board[gx][gy].hasPlayer = true;
-						players.push_back(kobold);
-						int newKoboldIdx = (int)players.size() - 1;
-						// Initialize visual position so the kobold is visible immediately
-						players[newKoboldIdx].visualPos = gridToWorld(players[newKoboldIdx].x, players[newKoboldIdx].y);
-						shuffleGameVector(players[newKoboldIdx].deck, newKoboldIdx);
-
-						ofLogNotice("Summon") << "Placed Kobold (main handler): idx=" << newKoboldIdx << " players.size=" << players.size() << " boardHasPlayer=" << board[gx][gy].hasPlayer;
-						ofLogNotice("Summon") << "[DEBUG] Players after main placement (count=" << players.size() << ")";
-						for (size_t _pi = 0; _pi < players.size(); ++_pi) {
-							auto & _pp = players[_pi];
-							ofLogNotice("Summon") << "[DEBUG] idx=" << _pi << " id=" << _pp.playerID << " x=" << _pp.x << " y=" << _pp.y << " isKobold=" << (_pp.isKobold ? 1 : 0) << " isMinion=" << (_pp.isMinion ? 1 : 0) << " health=" << _pp.health;
-						}
-
-						// Notify clients about the placed kobold in multiplayer (host-authoritative HP/AP)
-						if (isMultiplayer && isHost()) {
-							PlaceSummonedMinionPacket pkt = {};
-							pkt.type = PKT_PLACE_SUMMONED_MINION;
-							pkt.playerID = myLocalPlayerID;
-							pkt.minionType = 1; // KOBOLD
-							pkt.ownerPlayerID = kobold.ownerID;
-							pkt.targetX = gx;
-							pkt.targetY = gy;
-							pkt.minionHP = kobold.health;
-							pkt.minionAP = kobold.ap; // usually 0 for kobolds
-							steamManager.sendPacket(&pkt, sizeof(pkt));
-							ofLogNotice("Network") << "Host sent PlaceSummonedMinion: KOBOLD owner=" << pkt.ownerPlayerID << " target=(" << pkt.targetX << "," << pkt.targetY << ") HP=" << pkt.minionHP << " AP=" << pkt.minionAP;
-						}
-						ofLogNotice("Summon") << "Summoned Kobold " << koboldSummonCount;
-						koboldsRemainingToPlace--;
-						if (koboldsRemainingToPlace <= 0) {
-							updateCardInteractionState(CARD_INTERACTION_IDLE, -1, CARD_NONE);
-							int myID = players[currentPlayerIndex].playerID;
-							std::sort(players.begin(), players.end(), [](const Player & a, const Player & b) {
-								int ownerA = a.isMinion ? a.ownerID : a.playerID;
-								int ownerB = b.isMinion ? b.ownerID : b.playerID;
-								if (ownerA != ownerB) return ownerA < ownerB;
-								if (a.isMinion && !b.isMinion) return true;
-								if (!a.isMinion && b.isMinion) return false;
-								return a.summonOrder < b.summonOrder;
-							});
-							for (size_t i = 0; i < players.size(); i++) {
-								if (players[i].playerID == myID) {
-									currentPlayerIndex = i;
-									break;
-								}
-							}
-						}
-						invalidateTargetCache();
-						checkKeyPickupAndDraftAfterSummon(kobold.x, kobold.y, kobold.ownerID);
-						return; // Click handled
-					}
-				}
-			}
-			// Click ignored while placing kobolds
-			return;
+			handleCardTargetClick(gx, gy);
 		}
+		// Swallow the click while placing
+		return;
 	}
 
 	// ==============================================================================
@@ -11930,98 +11414,14 @@ void ofApp::mousePressed(int x, int y, int button) {
 
 	case STATE_GAMEPLAY: {
 
-		// --- KOBOLD PLACEMENT LOGIC (MUST BE BEFORE WOLF LOGIC) ---
-		if (cardInteractionState == CARD_INTERACTION_PLACING && interactingCardType == CARD_CALL_FOR_KOBOLDS && !isWaitingForKoboldDice && button == OF_MOUSE_BUTTON_LEFT) {
+		// Delegate placement clicks to centralized handler
+		if (cardInteractionState == CARD_INTERACTION_PLACING && button == OF_MOUSE_BUTTON_LEFT) {
 			ofVec2f boardPos = mouseToBoard(x, y);
 			int gx = floor(boardPos.x), gy = floor(boardPos.y);
-
-			// Validation: In bounds, Empty, Adjacent to Summoner
-			if (gx >= 0 && gx < BOARD_WIDTH && gy >= 0 && gy < BOARD_HEIGHT) {
-				if (!board[gx][gy].hasWall && !board[gx][gy].hasPlayer) {
-					int dist = abs(gx - koboldPlacementSourceX) + abs(gy - koboldPlacementSourceY);
-					if (dist == 1) {
-
-						// --- SPAWN THE KOBOLD ---
-						koboldSummonCount++; // Increment name counter
-
-						Player kobold;
-						kobold.playerID = 300 + (int)players.size();
-						kobold.x = gx;
-						kobold.y = gy;
-						kobold.maxHealth = 1;
-						kobold.health = 1;
-						kobold.isMinion = true;
-						kobold.isKobold = true;
-						kobold.isSkeleton = false;
-
-						// Set owner using captured owner ID (not currentPlayerIndex which may have changed)
-						kobold.ownerID = currentCardOutcome.summonOwnerPlayerID;
-						kobold.summonedOnTurnCycle = globalTurnCounter;
-						kobold.summonOrder = ++nextSummonOrder;
-						Card hb, pu, callCard;
-						for (const auto & c : allCards) {
-							if (c.name == "Hand Block") hb = c;
-							if (c.name == "Punch") pu = c;
-							if (c.type == CARD_CALL_FOR_KOBOLDS) callCard = c;
-						}
-						kobold.deck = { hb, hb, pu, callCard };
-
-						// Add to board
-						board[gx][gy].hasPlayer = true;
-						players.push_back(kobold);
-						int newKoboldIdx = (int)players.size() - 1;
-						shuffleGameVector(players[newKoboldIdx].deck, newKoboldIdx);
-
-						// Notify clients about the placed kobold in multiplayer (host-authoritative HP/AP)
-						if (isMultiplayer && isHost()) {
-							PlaceSummonedMinionPacket pkt = {};
-							pkt.type = PKT_PLACE_SUMMONED_MINION;
-							pkt.playerID = myLocalPlayerID;
-							pkt.minionType = 1; // KOBOLD
-							pkt.ownerPlayerID = kobold.ownerID;
-							pkt.targetX = gx;
-							pkt.targetY = gy;
-							pkt.minionHP = kobold.health;
-							pkt.minionAP = kobold.ap;
-							steamManager.sendPacket(&pkt, sizeof(pkt));
-							ofLogNotice("Network") << "Host sent PlaceSummonedMinion: KOBOLD owner=" << pkt.ownerPlayerID << " target=(" << pkt.targetX << "," << pkt.targetY << ") HP=" << pkt.minionHP;
-						}
-
-						ofLogNotice("Summon") << "[DEBUG] Players after early placement (count=" << players.size() << ")";
-						koboldsRemainingToPlace--;
-						if (koboldsRemainingToPlace > 0) {
-							// still placing
-						} else {
-							updateCardInteractionState(CARD_INTERACTION_IDLE, -1, CARD_NONE);
-							koboldSummonStage = 0;
-							// --- CRITICAL FIX: CAPTURE ID BEFORE SORT ---
-							int myID = players[currentPlayerIndex].playerID;
-
-							// Re-sort turn order
-							std::sort(players.begin(), players.end(), [](const Player & a, const Player & b) {
-								int ownerA = a.isMinion ? a.ownerID : a.playerID;
-								int ownerB = b.isMinion ? b.ownerID : b.playerID;
-								if (ownerA != ownerB) return ownerA < ownerB;
-								if (a.isMinion && !b.isMinion) return true;
-								if (!a.isMinion && b.isMinion) return false;
-								return a.summonOrder < b.summonOrder;
-							});
-
-							// Fix current player index
-							for (size_t i = 0; i < players.size(); i++) {
-								if (players[i].playerID == myID) {
-									currentPlayerIndex = i;
-									break;
-								}
-							}
-						}
-
-						return; // Click handled
-					}
-				}
-			}
+			handleCardTargetClick(gx, gy);
+			// Click consumed by placement flow
+			return;
 		}
-
 		// --- WOLF PLACEMENT LOGIC ---
 		if (cardInteractionState == CARD_INTERACTION_PLACING && interactingCardType == CARD_CALL_FOR_WOLVES && !isWaitingForWolfCoin && button == OF_MOUSE_BUTTON_LEFT) {
 			ofVec2f boardPos = mouseToBoard(x, y);
@@ -12079,137 +11479,57 @@ void ofApp::mousePressed(int x, int y, int button) {
 						// --- HANDLE LOGIC FLOW ---
 
 						if (wolfSummonStage == 1) {
-							// First wolf placed. Now flip the coin.
-							ofLogNotice("Wolves") << "Wolf 1 placed. Flipping coin for 2nd...";
-
-							// Check for key pickup on first wolf's tile
-							checkKeyPickupAndDraftAfterSummon(gx, gy, wolf.ownerID);
-
-							// Start a single coin flip to determine if the second wolf can be placed.
-							// This sets the global waiting flag so the dice result handler resolves the outcome.
-							startDiceRoll(1, 2, PURPOSE_COIN_FLIP, "Call for Wolves Coin", currentPlayerIndex);
-							isWaitingForWolfCoin = true;
-
-							// Do NOT turn off isPlacingWolves yet; wait for coin result to decide next step.
-						} else if (wolfSummonStage == 2) {
-							// Second wolf placed. We are done.
-							updateCardInteractionState(CARD_INTERACTION_IDLE, -1, CARD_NONE);
-							wolfSummonStage = 0;
-
-							// Check for key pickup on second wolf's tile
-							checkKeyPickupAndDraftAfterSummon(gx, gy, wolf.ownerID);
+							// Wolf/kobold placement (delegated)
+							// The centralized handler will perform validation and actual placement for
+							// both `CARD_CALL_FOR_KOBOLDS` and `CARD_CALL_FOR_WOLVES`.
+							if (cardInteractionState == CARD_INTERACTION_PLACING && button == OF_MOUSE_BUTTON_LEFT) {
+								ofVec2f boardPos = mouseToBoard(x, y);
+								int gx = floor(boardPos.x), gy = floor(boardPos.y);
+								handleCardTargetClick(gx, gy);
+								return;
+							}
 						}
-
-						return; // Click handled
 					}
 				}
-			}
-		}
 
-		// 3a. Debug Spawn Logic
-		if (debugSpawnMode != DEBUG_SPAWN_NONE && button == OF_MOUSE_BUTTON_LEFT) {
-			if (isMultiplayer && !isHost()) {
-				addGameLog("Debug spawning is host-only in multiplayer.");
-				debugSpawnMode = DEBUG_SPAWN_NONE;
-				return;
-			}
-			ofVec2f boardPos = mouseToBoard(x, y);
-			int gx = floor(boardPos.x), gy = floor(boardPos.y);
-			if (gx >= 0 && gx < BOARD_WIDTH && gy >= 0 && gy < BOARD_HEIGHT) {
-				if (!board[gx][gy].hasWall && !board[gx][gy].hasPlayer) {
-					Player newPlayer;
-					newPlayer.x = gx;
-					newPlayer.y = gy;
-
-					if (debugSpawnMode == DEBUG_SPAWN_PLAYER1 || debugSpawnMode == DEBUG_SPAWN_PLAYER2) {
-						int wantedID = (debugSpawnMode == DEBUG_SPAWN_PLAYER1) ? 0 : 1;
-						bool exists = false;
-						for (const auto & p : players) {
-							if (!p.isMinion && p.playerID == wantedID) {
-								exists = true;
-								break;
-							}
-						}
-						if (!exists) {
-							newPlayer.playerID = wantedID;
-							if (wantedID == 0 && hasDebugSavedP1State) {
-								newPlayer.deck = debugSavedP1Deck;
-								newPlayer.discardPile = debugSavedP1Discard;
-							} else if (wantedID == 1 && hasDebugSavedP2State) {
-								newPlayer.deck = debugSavedP2Deck;
-								newPlayer.discardPile = debugSavedP2Discard;
-							}
-							players.push_back(newPlayer);
-							int newIdx = (int)players.size() - 1;
-							if (!players[newIdx].deck.empty()) shuffleGameVector(players[newIdx].deck, newIdx);
-							board[gx][gy].hasPlayer = true;
-							ofLogNotice("Debug") << "Spawned Player " << wantedID;
-							if (isMultiplayer && isHost()) sendSnapshotToClient();
-						}
+				// Renewed Inspiration: package selection and send
+				RenewedInspirationPacket rpk = {};
+				// Build packet using explicit indexing (avoid local alias to prevent scope issues)
+				rpk.clientActionID = ++watchdogClientActionCounter;
+				rpk.playerIndex = currentPlayerIndex;
+				// Send card NAMES instead of indices to avoid hand-order mismatches
+				rpk.count = std::min((int)renewedSelectedHandIndices.size(), 16);
+				for (int i = 0; i < rpk.count; ++i) {
+					int idx = renewedSelectedHandIndices[i];
+					if (idx >= 0 && idx < (int)players[currentPlayerIndex].hand.size()) {
+						strncpy(rpk.cardNames[i], players[currentPlayerIndex].hand[idx].name.c_str(), 63);
+						rpk.cardNames[i][63] = '\0';
 					} else {
-						newPlayer.playerID = (int)players.size();
-						newPlayer.deck = allCards;
-						players.push_back(newPlayer);
-						int newDebugIdx = (int)players.size() - 1;
-						shuffleGameVector(players[newDebugIdx].deck, newDebugIdx);
-						board[gx][gy].hasPlayer = true;
-						ofLogNotice("Debug") << "Spawned new full-deck player.";
-						if (isMultiplayer && isHost()) sendSnapshotToClient();
+						rpk.cardNames[i][0] = '\0';
 					}
 				}
-			}
-			debugSpawnMode = DEBUG_SPAWN_NONE;
-			return;
-		}
+				steamManager.sendPacket(&rpk, sizeof(rpk));
 
-		// --- RENEWED INSPIRATION: REAL-TIME SELECTION ---
-		if (cardInteractionState == CARD_INTERACTION_MENU && interactingCardType == CARD_RENEWED_INSPIRATION && button == OF_MOUSE_BUTTON_LEFT) {
-
-			// 1. Check Confirm Button
-			if (riConfirmBtn.inside(x, y)) {
-				Player & p = players[currentPlayerIndex];
-
-				if (isMultiplayer) {
-					RenewedInspirationPacket rpk = {};
-					rpk.type = PKT_RENEWED_INSPIRATION;
-					rpk.playerID = myLocalPlayerID;
-					// clientActionID for watchdog deduplication
-					rpk.clientActionID = ++watchdogClientActionCounter;
-					rpk.playerIndex = currentPlayerIndex;
-					// Send card NAMES instead of indices to avoid hand-order mismatches
-					rpk.count = std::min((int)renewedSelectedHandIndices.size(), 16);
-					for (int i = 0; i < rpk.count; ++i) {
-						int idx = renewedSelectedHandIndices[i];
-						if (idx >= 0 && idx < (int)p.hand.size()) {
-							strncpy(rpk.cardNames[i], p.hand[idx].name.c_str(), 63);
-							rpk.cardNames[i][63] = '\0';
-						} else {
-							rpk.cardNames[i][0] = '\0';
-						}
-					}
-					steamManager.sendPacket(&rpk, sizeof(rpk));
-
-					// --- DETERMINISTIC MODE FIX ---
-					// We removed the "if (isClient) return" here.
-					// The Client applies changes locally immediately for responsiveness.
-					// The Host receives the packet and updates their view of the Client.
-				}
+				// --- DETERMINISTIC MODE FIX ---
+				// We removed the "if (isClient) return" here.
+				// The Client applies changes locally immediately for responsiveness.
+				// The Host receives the packet and updates their view of the Client.
 
 				// Sort indices descending so we can delete safely from back to front
 				std::sort(renewedSelectedHandIndices.begin(), renewedSelectedHandIndices.end(), std::greater<int>());
 
 				int cardsToDraw = 0;
 				for (int idx : renewedSelectedHandIndices) {
-					if (idx < (int)p.hand.size()) {
+					if (idx < (int)players[currentPlayerIndex].hand.size()) {
 						// Discard
-						p.discardPile.push_back(p.hand[idx]);
-						p.hand.erase(p.hand.begin() + idx);
+						players[currentPlayerIndex].discardPile.push_back(players[currentPlayerIndex].hand[idx]);
+						players[currentPlayerIndex].hand.erase(players[currentPlayerIndex].hand.begin() + idx);
 						cardsToDraw += 2;
 					}
 				}
 
 				// Remember hand size before drawing to get the new cards
-				size_t handSizeBefore = p.hand.size();
+				size_t handSizeBefore = players[currentPlayerIndex].hand.size();
 
 				// Draw new cards (Local Deterministic Draw)
 				for (int i = 0; i < cardsToDraw; i++)
@@ -12229,8 +11549,8 @@ void ofApp::mousePressed(int x, int y, int button) {
 					// Include the card names (optional for opponent, but good for anti-cheat logs)
 					for (int i = 0; i < cardsToDraw && i < 3; i++) {
 						size_t cardIndex = handSizeBefore + i;
-						if (cardIndex < p.hand.size()) {
-							strncpy(dcpkt.cardNames[i], p.hand[cardIndex].name.c_str(), 63);
+						if (cardIndex < players[currentPlayerIndex].hand.size()) {
+							strncpy(dcpkt.cardNames[i], players[currentPlayerIndex].hand[cardIndex].name.c_str(), 63);
 							dcpkt.cardNames[i][63] = '\0';
 						} else {
 							dcpkt.cardNames[i][0] = '\0';
@@ -12242,12 +11562,12 @@ void ofApp::mousePressed(int x, int y, int button) {
 				}
 
 				// Show played card animation now that the effect is confirmed
-				if (!p.playedCardsPile.empty()) {
-					createCardDisplay(p.playedCardsPile.back(), currentPlayerIndex);
+				if (!players[currentPlayerIndex].playedCardsPile.empty()) {
+					createCardDisplay(players[currentPlayerIndex].playedCardsPile.back(), currentPlayerIndex);
 				}
 
 				// Visual feedback
-				spawnFloatingText(gridToWorld(p.x, p.y), "+" + ofToString(cardsToDraw) + " Cards", ofColor::cyan);
+				spawnFloatingText(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y), "+" + ofToString(cardsToDraw) + " Cards", ofColor::cyan);
 				// Ensure authoritative AP field reflects local UI immediately
 				if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) {
 					updatePlayerAP(players[currentPlayerIndex], currentAP);
@@ -12319,482 +11639,482 @@ void ofApp::mousePressed(int x, int y, int button) {
 		Player & currentPlayer = players[currentPlayerIndex];
 
 		bool isDiceSpinning = false;
-		for (const auto & roll : activeDiceRolls) {
-			if (!roll.isFinishedVisual) {
-				isDiceSpinning = true;
-				break;
-			}
-		}
-		if (isPlayerAnimating || isDiceSpinning) return;
-
-		// 3c. TURN VALIDATION: Only block interactions when in multiplayer and it's not our turn.
-		if (isMultiplayer && currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) {
-			const Player & currentPlayer = players[currentPlayerIndex];
-			int controlledPlayerID = currentPlayer.isMinion ? currentPlayer.ownerID : currentPlayer.playerID;
-			if (controlledPlayerID != myLocalPlayerID) {
-				// Not our turn in multiplayer - ignore all gameplay clicks
-				return;
-			}
-		}
-
-		// 3d. Deck Clicking (Drawing Cards)
-		if (button == OF_MOUSE_BUTTON_LEFT) {
-
-			// --- MINION DECK CLICK LOGIC ---
-			for (const auto & ui : activeMinionUIs) {
-				// Check if it's this minion's turn and their deck UI was clicked
-				if (ui.playerIndex == currentPlayerIndex && ui.deckRect.inside(x, y)) {
-
-					// Determine owner/player identity for this minion
-					int ownerIndex = players[ui.playerIndex].isMinion ? players[ui.playerIndex].ownerID : players[ui.playerIndex].playerID;
-
-					// Decide which "has drawn" flag applies: if the minion belongs to the local player
-					// then use `hasDrawnCardsThisTurn`, otherwise use `opponentHasDrawnCardsThisTurn`.
-					bool belongsToLocalPlayer = (players[ui.playerIndex].playerID == myLocalPlayerID);
-					bool canDraw = belongsToLocalPlayer ? !hasDrawnCardsThisTurn : !opponentHasDrawnCardsThisTurn;
-					if (!canDraw) continue;
-
-					// Call the unified draw function. It handles draw count and networking internally.
-					this->drawMinionCard(ui.playerIndex, ownerIndex);
-
-					// Mark appropriate drawn flag depending on whether the minion belongs to the local player.
-					if (belongsToLocalPlayer) {
-						hasDrawnCardsThisTurn = true;
-						players[ui.playerIndex].hasDrawnThisTurn = true;
-					} else {
-						opponentHasDrawnCardsThisTurn = true;
-						players[ui.playerIndex].hasDrawnThisTurn = true;
-					}
-					return; // Click handled
-				}
-			}
-
-			if (players.empty() || currentPlayerIndex < 0) return;
-
-			// --- MAIN PLAYER DECK CLICK LOGIC ---
-			Player * p0 = nullptr;
-			Player * p1 = nullptr;
-			for (auto & p : players) {
-				if (p.playerID == 0 && !p.isMinion) p0 = &p;
-				if (p.playerID == 1 && !p.isMinion) p1 = &p;
-			}
-
-			if (!p0 || !p1) return;
-
-			Player & activePlayer = players[currentPlayerIndex];
-
-			// Determine which local player object represents "us" for drawing.
-			// In multiplayer this is fixed by `myLocalPlayerID`. In singleplayer
-			// the local controller should be whichever player is currently active
-			// so that Player 2 can be clicked to draw when it's their turn.
-			Player * localPlayer = nullptr;
-			if (isMultiplayer) {
-				localPlayer = (myLocalPlayerID == 0) ? p0 : p1;
-			} else {
-				localPlayer = &activePlayer;
-			}
-
-			bool isLocalPlayersTurnForMainDeck = false;
-			if (isMultiplayer) {
-				isLocalPlayersTurnForMainDeck = (activePlayer.playerID == myLocalPlayerID && !activePlayer.isMinion);
-			} else {
-				// Singleplayer: allow drawing for whichever non-minion is currently active
-				isLocalPlayersTurnForMainDeck = (!activePlayer.isMinion);
-			}
-
-			// Main Deck Click: determine which player's deck UI should be clickable
-			ofRectangle activeDeckRect = (activePlayer.playerID == 0) ? p0_deckRect : p1_deckRect;
-			// Only allow draw if it's the active player's main-deck turn and they haven't drawn yet
-			bool activePlayerIsLocal = (activePlayer.playerID == myLocalPlayerID);
-			bool activeAlreadyDrew = activePlayerIsLocal ? hasDrawnCardsThisTurn : opponentHasDrawnCardsThisTurn;
-			if (activeDeckRect.inside(x, y) && isLocalPlayersTurnForMainDeck && !activeAlreadyDrew) {
-				int localPlayerIndex = -1;
-				if (isMultiplayer) {
-					for (size_t i = 0; i < players.size(); i++) {
-						if (players[i].playerID == myLocalPlayerID && !players[i].isMinion) {
-							localPlayerIndex = (int)i;
-							break;
-						}
-					}
-					if (localPlayerIndex == -1) localPlayerIndex = 0; // Fallback
-				} else {
-					// Singleplayer: the authoritative index is the active player
-					localPlayerIndex = currentPlayerIndex;
-				}
-
-				int baseDraw = localPlayer->isDemon ? 3 : 2;
-				int cardsToDraw = localPlayer->nextTurnExtraDraw ? (baseDraw + 1) : baseDraw;
-
-				size_t handSizeBefore = localPlayer->hand.size();
-
-				// Both Host and Client draw locally. drawCard() generates the animation.
-				for (int i = 0; i < cardsToDraw; ++i) {
-					drawCard(false);
-				}
-
-				// Ensure any newly-added cards are normalized to full scale so
-				// click-and-hold draw doesn't leave them small.
-				for (size_t idx = handSizeBefore; idx < localPlayer->hand.size(); ++idx) {
-					localPlayer->hand[idx].currentScale = 1.0f;
-					localPlayer->hand[idx].targetScale = 1.0f;
-				}
-
-				if (isMultiplayer) {
-					DrawCardsPacket out = {};
-					out.type = PKT_DRAW_CARDS;
-					out.playerID = myLocalPlayerID;
-					out.playerIndex = localPlayerIndex;
-					out.numCards = cardsToDraw;
-					// clientActionID for watchdog deduplication
-					out.clientActionID = ++watchdogClientActionCounter;
-					// No need to send card names in deterministic mode
-					memset(out.cardNames, 0, sizeof(out.cardNames));
-					steamManager.sendPacket(&out, sizeof(out));
-					if (isClient()) {
-						lastSentDrawCardsPacket = out;
-						lastSentDrawCardsValid = true;
-						lastSentDrawCardsTime = ofGetElapsedTimef();
-						lastSentDrawCardsAttempts = 0;
-					}
-				}
-
-				localPlayer->nextTurnExtraDraw = false;
-				localPlayer->nextTurnExtraDrawSetOnCycle = -1;
-				// Mark drawn flag depending on whether the active player is local or opponent
-				if (activePlayer.playerID == myLocalPlayerID) {
-					hasDrawnCardsThisTurn = true;
-					players[localPlayerIndex].hasDrawnThisTurn = true;
-				} else {
-					opponentHasDrawnCardsThisTurn = true;
-					players[localPlayerIndex].hasDrawnThisTurn = true;
-				}
-			}
-		}
-
-		// 3e. Card clicks: click-to-select is disabled (use drag-to-play).
-		// If the player clicks a hand card, clear transient highlights and ignore the click.
-		if (button == OF_MOUSE_BUTTON_LEFT) {
-			int foundClickIndex = hoveredCardIndex;
-			if (foundClickIndex != -1) {
-				playerAction = NONE;
-				clearHighlights();
-				return;
-			}
-		}
-
-		// 3g-ALT. Reroll Button
-		if (rerollButtonRect.inside(x, y) && button == OF_MOUSE_BUTTON_LEFT) {
-			Player & curr = players[currentPlayerIndex];
-
-			// Find the assistant to consume
-			int assistantIndex = -1;
-			for (int i = 0; i < (int)players.size(); i++) {
-				Player & p = players[i];
-				if (p.isAssistant && p.health > 0 && p.directSummonerID == curr.playerID && !p.assistantRerollUsedThisTurn) {
-					int dist = abs(p.x - curr.x) + abs(p.y - curr.y);
-					if (dist <= 1) {
-						assistantIndex = i;
-						break;
-					}
-				}
-			}
-
-			if (assistantIndex != -1) {
-				// Mark used
-				players[assistantIndex].assistantRerollUsedThisTurn = true;
-
-				// Assistant reroll: use same dice configuration as the original AP roll
-				int rerollNum = lastAPDiceNum > 0 ? lastAPDiceNum : 1;
-				int rerollSides = lastAPDiceSides > 0 ? lastAPDiceSides : 6;
-				// Mark any previous AP dice as debug so they won't be included twice
-				for (auto & oldR : activeDiceRolls) {
-					if (oldR.purpose == PURPOSE_AP) oldR.purpose = PURPOSE_DEBUG;
-				}
-				// Start a bonus AP roll (added on top of the original result)
-				startDiceRoll(rerollNum, rerollSides, PURPOSE_BONUS_AP, "Assistant Reroll", currentPlayerIndex);
-
-				spawnFloatingText(gridToWorld(players[assistantIndex].x, players[assistantIndex].y), "Reroll!", ofColor::gold);
-			}
-			return;
-		}
-		// --- PASTE HERE END ---
-
-		// 3g. End Turn Button
-		if (endTurnButtonRect.inside(x, y) && button == OF_MOUSE_BUTTON_LEFT) {
-			// Prevent ending turn while AP roll animation is still running for this unit
-			bool apRollActiveLocal = false;
-			for (const auto & r : activeDiceRolls) {
-				if ((r.purpose == PURPOSE_AP || r.purpose == PURPOSE_BONUS_AP) && !r.isFinishedVisual && r.associatedUnit == currentPlayerIndex) {
-					apRollActiveLocal = true;
+		{
+			for (const auto & roll : activeDiceRolls) {
+				if (!roll.isFinishedVisual) {
+					isDiceSpinning = true;
 					break;
 				}
 			}
-			if (apRollActiveLocal) {
-				spawnFloatingText(glm::vec3(endTurnButtonRect.getCenter().x, endTurnButtonRect.getCenter().y, 0.0f), "AP roll in progress", ofColor::yellow);
-				ofLogNotice("Turn") << "End Turn click ignored: AP roll still active for current unit.";
-				return;
-			}
-			if (endTurnLocked) return;
+			if (isPlayerAnimating || isDiceSpinning) return;
 
-			// --- GHOST FORM CHECK: Cannot end turn in wall/unit unless 0 AP left ---
-			Player & p = players[currentPlayerIndex];
-			bool isInWall = board[p.x][p.y].hasWall;
-
-			// Check properly for units
-			bool isInUnitTile = false;
-			for (size_t i = 0; i < players.size(); ++i) {
-				if ((int)i != currentPlayerIndex && players[i].x == p.x && players[i].y == p.y) {
-					isInUnitTile = true;
-					break;
-				}
-			}
-
-			// Can't end turn in wall or unit unless AP is 0
-			if ((isInWall || isInUnitTile) && currentAP > 0) {
-				spawnFloatingText(gridToWorld(p.x, p.y), "Must use remaining AP or move out!", ofColor::red);
-				ofLogNotice("Game") << "Prevented ending turn in wall/unit with AP remaining.";
-				return;
-			}
-			// -----------------------------------------------
-
-			endTurnLocked = true;
-			startNewTurn();
-			return;
-		}
-
-		// 3h. Unit Movement Selection
-		if (button == OF_MOUSE_BUTTON_LEFT) {
-			ofVec2f boardPos = mouseToBoard(x, y);
-			int gridX = floor(boardPos.x), gridY = floor(boardPos.y);
-
-			// Clicked Outside? Ignore (do not deselect) — keep current selection.
-			if (gridX < 0 || gridX >= BOARD_WIDTH || gridY < 0 || gridY >= BOARD_HEIGHT) {
-				return;
-			}
-
-			// In multiplayer, client should always interact with their own player
-			// In single player, use currentPlayer
-			Player * controlledPlayer = nullptr;
-			if (isMultiplayer && isClient()) {
-				// Find the player with matching playerID
-				for (size_t i = 0; i < players.size(); i++) {
-					if (players[i].playerID == myLocalPlayerID && !players[i].isMinion) {
-						controlledPlayer = &players[i];
-						break;
-					}
-				}
-			} else {
-				controlledPlayer = &currentPlayer;
-			}
-
-			if (!controlledPlayer) return;
-
-			// --- HANDLE CARD TARGETING: If a card is selected, play it on the clicked tile ---
-			if (selectedCardIndex >= 0 && selectedCardIndex < (int)currentPlayer.hand.size()) {
-				Card & selectedCard = currentPlayer.hand[selectedCardIndex];
-
-				// Find the nearest targetable tile (helps with wall outlines which are higher)
-				int targetGridX = gridX, targetGridY = gridY;
-				if (findNearestTargetableTile(gridX, gridY, targetGridX, targetGridY)) {
-					// Check if player has enough AP
-					if (currentAP >= selectedCard.cost) {
-						const std::string cardName = selectedCard.name;
-
-						if (isMultiplayer) {
-							InputCommandPacket cmd = {};
-							cmd.type = PKT_ACTION; // Local queue bookkeeping type
-							cmd.playerID = myLocalPlayerID;
-							cmd.seq = 0;
-							cmd.commandId = nextCommandId++;
-							cmd.turnNumber = globalTurnCounter;
-							cmd.commandType = CMD_PLAY_CARD;
-							cmd.params[0] = selectedCardIndex;
-							cmd.params[1] = targetGridX;
-							cmd.params[2] = targetGridY;
-							cmd.params[3] = 0;
-							strncpy(cmd.stringData, cardName.c_str(), sizeof(cmd.stringData) - 1);
-							cmd.stringData[sizeof(cmd.stringData) - 1] = '\0';
-							queueInputCommand(cmd);
-						} else {
-							// Single-player keeps immediate execution for responsiveness
-							playCard(selectedCardIndex, targetGridX, targetGridY);
-						}
-
-						// Clear selection and highlights
-						selectedCardIndex = -1;
-						calculateTargetHighlights();
-						return;
-					} else {
-						spawnFloatingText(gridToWorld(currentPlayer.x, currentPlayer.y), "Not enough AP", ofColor::red);
-						return;
-					}
-				} else {
-					// Clicked on non-targetable tile - show feedback but don't cancel selection
-					spawnFloatingText(gridToWorld(currentPlayer.x, currentPlayer.y), "Invalid target", ofColor::orange);
+			// 3c. TURN VALIDATION: Only block interactions when in multiplayer and it's not our turn.
+			if (isMultiplayer && currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) {
+				const Player & currentPlayer = players[currentPlayerIndex];
+				int controlledPlayerID = currentPlayer.isMinion ? currentPlayer.ownerID : currentPlayer.playerID;
+				if (controlledPlayerID != myLocalPlayerID) {
+					// Not our turn in multiplayer - ignore all gameplay clicks
 					return;
 				}
 			}
 
-			// Clicked Self? Select for Movement.
-			if (board[gridX][gridY].hasPlayer && gridX == controlledPlayer->x && gridY == controlledPlayer->y) {
-				if (playerAction == PIECE_SELECTED) {
-					playerAction = NONE;
-					clearHighlights();
-				} else {
-					selectedPieceGridX = controlledPlayer->x;
-					selectedPieceGridY = controlledPlayer->y;
-					playerAction = PIECE_SELECTED;
-					selectedCardIndex = -1;
-					calculateTargetHighlights();
-					calculateHighlights();
+			// 3d. Deck Clicking (Drawing Cards)
+			if (button == OF_MOUSE_BUTTON_LEFT) {
+
+				// --- MINION DECK CLICK LOGIC ---
+				for (const auto & ui : activeMinionUIs) {
+					// Check if it's this minion's turn and their deck UI was clicked
+					if (ui.playerIndex == currentPlayerIndex && ui.deckRect.inside(x, y)) {
+
+						// Determine owner/player identity for this minion
+						int ownerIndex = players[ui.playerIndex].isMinion ? players[ui.playerIndex].ownerID : players[ui.playerIndex].playerID;
+
+						// Decide which "has drawn" flag applies: if the minion belongs to the local player
+						// then use `hasDrawnCardsThisTurn`, otherwise use `opponentHasDrawnCardsThisTurn`.
+						bool belongsToLocalPlayer = (players[ui.playerIndex].playerID == myLocalPlayerID);
+						bool canDraw = belongsToLocalPlayer ? !hasDrawnCardsThisTurn : !opponentHasDrawnCardsThisTurn;
+						if (!canDraw) continue;
+
+						// Call the unified draw function. It handles draw count and networking internally.
+						this->drawMinionCard(ui.playerIndex, ownerIndex);
+
+						// Mark appropriate drawn flag depending on whether the minion belongs to the local player.
+						if (belongsToLocalPlayer) {
+							hasDrawnCardsThisTurn = true;
+							players[ui.playerIndex].hasDrawnThisTurn = true;
+						} else {
+							opponentHasDrawnCardsThisTurn = true;
+							players[ui.playerIndex].hasDrawnThisTurn = true;
+						}
+						return; // Click handled
+					}
 				}
-				return;
+
+				if (players.empty() || currentPlayerIndex < 0) return;
+
+				// --- MAIN PLAYER DECK CLICK LOGIC ---
+				Player * p0 = nullptr;
+				Player * p1 = nullptr;
+				for (auto & p : players) {
+					if (p.playerID == 0 && !p.isMinion) p0 = &p;
+					if (p.playerID == 1 && !p.isMinion) p1 = &p;
+				}
+
+				if (!p0 || !p1) return;
+
+				Player & activePlayer = players[currentPlayerIndex];
+
+				// Determine which local player object represents "us" for drawing.
+				// In multiplayer this is fixed by `myLocalPlayerID`. In singleplayer
+				// the local controller should be whichever player is currently active
+				// so that Player 2 can be clicked to draw when it's their turn.
+				Player * localPlayer = nullptr;
+				if (isMultiplayer) {
+					localPlayer = (myLocalPlayerID == 0) ? p0 : p1;
+				} else {
+					localPlayer = &activePlayer;
+				}
+
+				bool isLocalPlayersTurnForMainDeck = false;
+				if (isMultiplayer) {
+					isLocalPlayersTurnForMainDeck = (activePlayer.playerID == myLocalPlayerID && !activePlayer.isMinion);
+				} else {
+					// Singleplayer: allow drawing for whichever non-minion is currently active
+					isLocalPlayersTurnForMainDeck = (!activePlayer.isMinion);
+				}
+
+				// Main Deck Click: determine which player's deck UI should be clickable
+				ofRectangle activeDeckRect = (activePlayer.playerID == 0) ? p0_deckRect : p1_deckRect;
+				// Only allow draw if it's the active player's main-deck turn and they haven't drawn yet
+				bool activePlayerIsLocal = (activePlayer.playerID == myLocalPlayerID);
+				bool activeAlreadyDrew = activePlayerIsLocal ? hasDrawnCardsThisTurn : opponentHasDrawnCardsThisTurn;
+				if (activeDeckRect.inside(x, y) && isLocalPlayersTurnForMainDeck && !activeAlreadyDrew) {
+					int localPlayerIndex = -1;
+					if (isMultiplayer) {
+						for (size_t i = 0; i < players.size(); i++) {
+							if (players[i].playerID == myLocalPlayerID && !players[i].isMinion) {
+								localPlayerIndex = (int)i;
+								break;
+							}
+						}
+						if (localPlayerIndex == -1) localPlayerIndex = 0; // Fallback
+					} else {
+						// Singleplayer: the authoritative index is the active player
+						localPlayerIndex = currentPlayerIndex;
+					}
+
+					int baseDraw = localPlayer->isDemon ? 3 : 2;
+					int cardsToDraw = localPlayer->nextTurnExtraDraw ? (baseDraw + 1) : baseDraw;
+
+					size_t handSizeBefore = localPlayer->hand.size();
+
+					// Both Host and Client draw locally. drawCard() generates the animation.
+					for (int i = 0; i < cardsToDraw; ++i) {
+						drawCard(false);
+					}
+
+					// Ensure any newly-added cards are normalized to full scale so
+					// click-and-hold draw doesn't leave them small.
+					for (size_t idx = handSizeBefore; idx < localPlayer->hand.size(); ++idx) {
+						localPlayer->hand[idx].currentScale = 1.0f;
+						localPlayer->hand[idx].targetScale = 1.0f;
+					}
+
+					if (isMultiplayer) {
+						DrawCardsPacket out = {};
+						out.type = PKT_DRAW_CARDS;
+						out.playerID = myLocalPlayerID;
+						out.playerIndex = localPlayerIndex;
+						out.numCards = cardsToDraw;
+						// clientActionID for watchdog deduplication
+						out.clientActionID = ++watchdogClientActionCounter;
+						// No need to send card names in deterministic mode
+						memset(out.cardNames, 0, sizeof(out.cardNames));
+						steamManager.sendPacket(&out, sizeof(out));
+						if (isClient()) {
+							lastSentDrawCardsPacket = out;
+							lastSentDrawCardsValid = true;
+							lastSentDrawCardsTime = ofGetElapsedTimef();
+							lastSentDrawCardsAttempts = 0;
+						}
+					}
+
+					localPlayer->nextTurnExtraDraw = false;
+					localPlayer->nextTurnExtraDrawSetOnCycle = -1;
+					// Mark drawn flag depending on whether the active player is local or opponent
+					if (activePlayer.playerID == myLocalPlayerID) {
+						hasDrawnCardsThisTurn = true;
+						players[localPlayerIndex].hasDrawnThisTurn = true;
+					} else {
+						opponentHasDrawnCardsThisTurn = true;
+						players[localPlayerIndex].hasDrawnThisTurn = true;
+					}
+				}
 			}
 
-			// Clicked Move Destination?
-			if (playerAction == PIECE_SELECTED) {
-				if (board[gridX][gridY].isHighlighted && !hoverPath.empty()) {
+			// 3e. Card clicks: click-to-select is disabled (use drag-to-play).
+			// If the player clicks a hand card, clear transient highlights and ignore the click.
+			if (button == OF_MOUSE_BUTTON_LEFT) {
+				int foundClickIndex = hoveredCardIndex;
+				if (foundClickIndex != -1) {
+					playerAction = NONE;
+					clearHighlights();
+					return;
+				}
+			}
 
-					// --- GHOST FORM LOGIC: Check if destination is valid ---
-					bool isWall = board[gridX][gridY].hasWall;
-					bool hasUnitAlready = board[gridX][gridY].hasPlayer;
-					bool canEnter = !isWall && !hasUnitAlready; // Normal units can't enter walls or occupied tiles
+			// 3g-ALT. Reroll Button
+			if (rerollButtonRect.inside(x, y) && button == OF_MOUSE_BUTTON_LEFT) {
+				Player & curr = players[currentPlayerIndex];
 
-					// Ghosts can move through both walls AND units (no movement restrictions)
-					if (controlledPlayer->inGhostForm) canEnter = true;
-
-					if (canEnter) {
-						int moveAPCost = static_cast<int>(hoverPath.size()) - 1;
-
-						// Get the controlled player's index for AP calculations
-						int controlledPlayerIndex = currentPlayerIndex;
-						if (isMultiplayer && isClient()) {
-							// Find the index of the controlled player
-							for (size_t i = 0; i < players.size(); i++) {
-								if (players[i].playerID == myLocalPlayerID && !players[i].isMinion) {
-									controlledPlayerIndex = i;
-									break;
-								}
-							}
-						}
-
-						// Recompute available AP from any dice that have finished spinning this frame
-						int apNow = 0;
-						for (const auto & r : activeDiceRolls) {
-							if ((r.purpose == PURPOSE_AP || r.purpose == PURPOSE_BONUS_AP) && r.isFinishedVisual && r.associatedUnit == controlledPlayerIndex) {
-								apNow += r.result;
-							}
-						}
-						if (players[controlledPlayerIndex].nextTurnAPBonus > 0) {
-							ofLogNotice("APDebug") << "Movement: nextTurnAPBonus present (will NOT be consumed here). bonus=" << players[controlledPlayerIndex].nextTurnAPBonus;
-						}
-						if (currentAP > 0) apNow = std::max(apNow, currentAP);
-
-						ofLogNotice("APDebug") << "Movement AP recompute: apNow=" << apNow << " currentAP(before)=" << currentAP << " moveCost=" << moveAPCost;
-						if (apNow >= moveAPCost) {
-							int remainingAP = apNow - moveAPCost;
-
-							// Check if entering wall/unit: Calculate if player can escape to nearest empty tile
-							if (isWall || hasUnitAlready) {
-								// Use BFS to find nearest empty tile and calculate escape cost
-								std::queue<std::pair<int, int>> bfsQueue;
-								std::vector<std::vector<int>> distMap(BOARD_WIDTH, std::vector<int>(BOARD_HEIGHT, -1));
-
-								bfsQueue.push({ gridX, gridY });
-								distMap[gridX][gridY] = 0;
-
-								int escapeAPCost = INT_MAX;
-
-								while (!bfsQueue.empty() && escapeAPCost == INT_MAX) {
-									auto [cx, cy] = bfsQueue.front();
-									bfsQueue.pop();
-
-									// Check if current tile is empty (can escape here)
-									if (!(board[cx][cy].hasWall || board[cx][cy].hasPlayer)) {
-										escapeAPCost = distMap[cx][cy];
-										break;
-									}
-
-									// Explore neighbors
-									int dx[] = { 0, 1, 0, -1 };
-									int dy[] = { 1, 0, -1, 0 };
-
-									for (int d = 0; d < 4; ++d) {
-										int nx = cx + dx[d];
-										int ny = cy + dy[d];
-
-										if (nx >= 0 && nx < BOARD_WIDTH && ny >= 0 && ny < BOARD_HEIGHT && distMap[nx][ny] == -1) {
-											distMap[nx][ny] = distMap[cx][cy] + 1;
-											bfsQueue.push({ nx, ny });
-										}
-									}
-								}
-
-								// If can't escape (no empty tiles found), block the move
-								if (escapeAPCost == INT_MAX || remainingAP < escapeAPCost) {
-									spawnFloatingText(gridToWorld(controlledPlayer->x, controlledPlayer->y), "Not enough AP to escape", ofColor::red);
-									ofLogNotice("Movement") << "Blocked entering wall/unit: need " << escapeAPCost << " AP to escape, have " << remainingAP;
-									playerAction = NONE;
-									clearHighlights();
-									return;
-								}
-							}
-
-							currentAP = remainingAP;
-
-							// Execute movement locally (client-side prediction)
-							applyMovement(controlledPlayerIndex, gridX, gridY, currentAP, &hoverPath);
-
-							// If we clicked to enter a wall while in ghost form, mark the player so
-							// they cannot end their turn. External effects (earthquake, pushes)
-							// should NOT set this flag.
-							if (isWall && controlledPlayer->inGhostForm) {
-								players[controlledPlayerIndex].enteredWallByClick = true;
-							}
-
-							// Send packet to opponent so they see the movement too
-							if (isMultiplayer) {
-								ActionPacket movePkt = {};
-								movePkt.type = PKT_ACTION;
-								movePkt.playerID = myLocalPlayerID;
-								movePkt.actorIndex = currentPlayerIndex;
-								movePkt.cardIndex = -1; // -1 indicates movement, not card play
-								movePkt.targetX = gridX;
-								movePkt.targetY = gridY;
-								movePkt.cost = currentAP; // Send current AP so opponent sees the cost
-								movePkt.updatedAP = currentAP; // Ensure opponent updates AP to post-move value
-								// FIX: Assign clientActionID for deduplication so movement
-								// packets share the same monotonic timeline as card plays.
-								if (isClient()) {
-									movePkt.clientActionID = ++actionClientActionCounter;
-									// Record for resend watchdog (same mechanism as card plays)
-									lastSentActionPacket = movePkt;
-									lastSentActionValid = true;
-									lastSentActionTime = ofGetElapsedTimef();
-									lastSentActionResendCount = 0;
-								}
-								steamManager.sendPacket(&movePkt, sizeof(movePkt));
-								ofLogNotice("Network") << (isClient() ? "Client" : "Host") << " sent movement to (" << gridX << "," << gridY << ") with AP=" << currentAP << " actionID=" << movePkt.clientActionID;
-							}
+				// Find the assistant to consume
+				int assistantIndex = -1;
+				for (int i = 0; i < (int)players.size(); i++) {
+					Player & p = players[i];
+					if (p.isAssistant && p.health > 0 && p.directSummonerID == curr.playerID && !p.assistantRerollUsedThisTurn) {
+						int dist = abs(p.x - curr.x) + abs(p.y - curr.y);
+						if (dist <= 1) {
+							assistantIndex = i;
+							break;
 						}
 					}
 				}
-				playerAction = NONE;
-				clearHighlights();
+
+				if (assistantIndex != -1) {
+					// Mark used
+					players[assistantIndex].assistantRerollUsedThisTurn = true;
+
+					// Assistant reroll: use same dice configuration as the original AP roll
+					int rerollNum = lastAPDiceNum > 0 ? lastAPDiceNum : 1;
+					int rerollSides = lastAPDiceSides > 0 ? lastAPDiceSides : 6;
+					// Mark any previous AP dice as debug so they won't be included twice
+					for (auto & oldR : activeDiceRolls) {
+						if (oldR.purpose == PURPOSE_AP) oldR.purpose = PURPOSE_DEBUG;
+					}
+					// Start a bonus AP roll (added on top of the original result)
+					startDiceRoll(rerollNum, rerollSides, PURPOSE_BONUS_AP, "Assistant Reroll", currentPlayerIndex);
+
+					spawnFloatingText(gridToWorld(players[assistantIndex].x, players[assistantIndex].y), "Reroll!", ofColor::gold);
+				}
+				return;
+			}
+			// --- PASTE HERE END ---
+
+			// 3g. End Turn Button
+			if (endTurnButtonRect.inside(x, y) && button == OF_MOUSE_BUTTON_LEFT) {
+				// Prevent ending turn while AP roll animation is still running for this unit
+				bool apRollActiveLocal = false;
+				for (const auto & r : activeDiceRolls) {
+					if ((r.purpose == PURPOSE_AP || r.purpose == PURPOSE_BONUS_AP) && !r.isFinishedVisual && r.associatedUnit == currentPlayerIndex) {
+						apRollActiveLocal = true;
+						break;
+					}
+				}
+				if (apRollActiveLocal) {
+					spawnFloatingText(glm::vec3(endTurnButtonRect.getCenter().x, endTurnButtonRect.getCenter().y, 0.0f), "AP roll in progress", ofColor::yellow);
+					ofLogNotice("Turn") << "End Turn click ignored: AP roll still active for current unit.";
+					return;
+				}
+				if (endTurnLocked) return;
+
+				// --- GHOST FORM CHECK: Cannot end turn in wall/unit unless 0 AP left ---
+				Player & p = players[currentPlayerIndex];
+				bool isInWall = board[p.x][p.y].hasWall;
+
+				// Check properly for units
+				bool isInUnitTile = false;
+				for (size_t i = 0; i < players.size(); ++i) {
+					if ((int)i != currentPlayerIndex && players[i].x == p.x && players[i].y == p.y) {
+						isInUnitTile = true;
+						break;
+					}
+				}
+
+				// Can't end turn in wall or unit unless AP is 0
+				if ((isInWall || isInUnitTile) && currentAP > 0) {
+					spawnFloatingText(gridToWorld(p.x, p.y), "Must use remaining AP or move out!", ofColor::red);
+					ofLogNotice("Game") << "Prevented ending turn in wall/unit with AP remaining.";
+					return;
+				}
+				// -----------------------------------------------
+
+				endTurnLocked = true;
+				startNewTurn();
 				return;
 			}
 
-			// Clicked an empty/non-actionable tile: do not deselect selection.
-			// (Selection persists; only real-target clicks or right-click cancel.)
+			// 3h. Unit Movement Selection
+			if (button == OF_MOUSE_BUTTON_LEFT) {
+				ofVec2f boardPos = mouseToBoard(x, y);
+				int gridX = floor(boardPos.x), gridY = floor(boardPos.y);
+
+				// Clicked Outside? Ignore (do not deselect) — keep current selection.
+				if (gridX < 0 || gridX >= BOARD_WIDTH || gridY < 0 || gridY >= BOARD_HEIGHT) {
+					return;
+				}
+
+				// In multiplayer, client should always interact with their own player
+				// In single player, use currentPlayer
+				Player * controlledPlayer = nullptr;
+				if (isMultiplayer && isClient()) {
+					// Find the player with matching playerID
+					for (size_t i = 0; i < players.size(); i++) {
+						if (players[i].playerID == myLocalPlayerID && !players[i].isMinion) {
+							controlledPlayer = &players[i];
+							break;
+						}
+					}
+				} else {
+					controlledPlayer = &currentPlayer;
+				}
+
+				if (!controlledPlayer) return;
+
+				// --- HANDLE CARD TARGETING: If a card is selected, play it on the clicked tile ---
+				if (selectedCardIndex >= 0 && selectedCardIndex < (int)currentPlayer.hand.size()) {
+					Card & selectedCard = currentPlayer.hand[selectedCardIndex];
+
+					// Find the nearest targetable tile (helps with wall outlines which are higher)
+					int targetGridX = gridX, targetGridY = gridY;
+					if (findNearestTargetableTile(gridX, gridY, targetGridX, targetGridY)) {
+						// Check if player has enough AP
+						if (currentAP >= selectedCard.cost) {
+							const std::string cardName = selectedCard.name;
+
+							if (isMultiplayer) {
+								InputCommandPacket cmd = {};
+								cmd.type = PKT_ACTION; // Local queue bookkeeping type
+								cmd.playerID = myLocalPlayerID;
+								cmd.seq = 0;
+								cmd.commandId = nextCommandId++;
+								cmd.turnNumber = globalTurnCounter;
+								cmd.commandType = CMD_PLAY_CARD;
+								cmd.params[0] = selectedCardIndex;
+								cmd.params[1] = targetGridX;
+								cmd.params[2] = targetGridY;
+								cmd.params[3] = 0;
+								strncpy(cmd.stringData, cardName.c_str(), sizeof(cmd.stringData) - 1);
+								cmd.stringData[sizeof(cmd.stringData) - 1] = '\0';
+								queueInputCommand(cmd);
+							} else {
+								// Single-player keeps immediate execution for responsiveness
+								playCard(selectedCardIndex, targetGridX, targetGridY);
+							}
+
+							// Clear selection and highlights
+							selectedCardIndex = -1;
+							calculateTargetHighlights();
+							return;
+						} else {
+							spawnFloatingText(gridToWorld(currentPlayer.x, currentPlayer.y), "Not enough AP", ofColor::red);
+							return;
+						}
+					} else {
+						// Clicked on non-targetable tile - show feedback but don't cancel selection
+						spawnFloatingText(gridToWorld(currentPlayer.x, currentPlayer.y), "Invalid target", ofColor::orange);
+						return;
+					}
+				}
+
+				// Clicked Self? Select for Movement.
+				if (board[gridX][gridY].hasPlayer && gridX == controlledPlayer->x && gridY == controlledPlayer->y) {
+					if (playerAction == PIECE_SELECTED) {
+						playerAction = NONE;
+						clearHighlights();
+					} else {
+						selectedPieceGridX = controlledPlayer->x;
+						selectedPieceGridY = controlledPlayer->y;
+						playerAction = PIECE_SELECTED;
+						selectedCardIndex = -1;
+						calculateTargetHighlights();
+						calculateHighlights();
+					}
+					return;
+				}
+
+				// Clicked Move Destination?
+				if (playerAction == PIECE_SELECTED) {
+					if (board[gridX][gridY].isHighlighted && !hoverPath.empty()) {
+
+						// --- GHOST FORM LOGIC: Check if destination is valid ---
+						bool isWall = board[gridX][gridY].hasWall;
+						bool hasUnitAlready = board[gridX][gridY].hasPlayer;
+						bool canEnter = !isWall && !hasUnitAlready; // Normal units can't enter walls or occupied tiles
+
+						// Ghosts can move through both walls AND units (no movement restrictions)
+						if (controlledPlayer->inGhostForm) canEnter = true;
+
+						if (canEnter) {
+							int moveAPCost = static_cast<int>(hoverPath.size()) - 1;
+
+							// Get the controlled player's index for AP calculations
+							int controlledPlayerIndex = currentPlayerIndex;
+							if (isMultiplayer && isClient()) {
+								// Find the index of the controlled player
+								for (size_t i = 0; i < players.size(); i++) {
+									if (players[i].playerID == myLocalPlayerID && !players[i].isMinion) {
+										controlledPlayerIndex = i;
+										break;
+									}
+								}
+							}
+
+							// Recompute available AP from any dice that have finished spinning this frame
+							int apNow = 0;
+							for (const auto & r : activeDiceRolls) {
+								if ((r.purpose == PURPOSE_AP || r.purpose == PURPOSE_BONUS_AP) && r.isFinishedVisual && r.associatedUnit == controlledPlayerIndex) {
+									apNow += r.result;
+								}
+							}
+							if (players[controlledPlayerIndex].nextTurnAPBonus > 0) {
+								ofLogNotice("APDebug") << "Movement: nextTurnAPBonus present (will NOT be consumed here). bonus=" << players[controlledPlayerIndex].nextTurnAPBonus;
+							}
+							if (currentAP > 0) apNow = std::max(apNow, currentAP);
+
+							ofLogNotice("APDebug") << "Movement AP recompute: apNow=" << apNow << " currentAP(before)=" << currentAP << " moveCost=" << moveAPCost;
+							if (apNow >= moveAPCost) {
+								int remainingAP = apNow - moveAPCost;
+
+								// Check if entering wall/unit: Calculate if player can escape to nearest empty tile
+								if (isWall || hasUnitAlready) {
+									// Use BFS to find nearest empty tile and calculate escape cost
+									std::queue<std::pair<int, int>> bfsQueue;
+									std::vector<std::vector<int>> distMap(BOARD_WIDTH, std::vector<int>(BOARD_HEIGHT, -1));
+
+									bfsQueue.push({ gridX, gridY });
+									distMap[gridX][gridY] = 0;
+
+									int escapeAPCost = INT_MAX;
+
+									while (!bfsQueue.empty() && escapeAPCost == INT_MAX) {
+										auto [cx, cy] = bfsQueue.front();
+										bfsQueue.pop();
+
+										// Check if current tile is empty (can escape here)
+										if (!(board[cx][cy].hasWall || board[cx][cy].hasPlayer)) {
+											escapeAPCost = distMap[cx][cy];
+											break;
+										}
+
+										// Explore neighbors
+										int dx[] = { 0, 1, 0, -1 };
+										int dy[] = { 1, 0, -1, 0 };
+
+										for (int d = 0; d < 4; ++d) {
+											int nx = cx + dx[d];
+											int ny = cy + dy[d];
+
+											if (nx >= 0 && nx < BOARD_WIDTH && ny >= 0 && ny < BOARD_HEIGHT && distMap[nx][ny] == -1) {
+												distMap[nx][ny] = distMap[cx][cy] + 1;
+												bfsQueue.push({ nx, ny });
+											}
+										}
+									}
+
+									// If can't escape (no empty tiles found), block the move
+									if (escapeAPCost == INT_MAX || remainingAP < escapeAPCost) {
+										spawnFloatingText(gridToWorld(controlledPlayer->x, controlledPlayer->y), "Not enough AP to escape", ofColor::red);
+										ofLogNotice("Movement") << "Blocked entering wall/unit: need " << escapeAPCost << " AP to escape, have " << remainingAP;
+										playerAction = NONE;
+										clearHighlights();
+										return;
+									}
+								}
+
+								currentAP = remainingAP;
+
+								// Execute movement locally (client-side prediction)
+								applyMovement(controlledPlayerIndex, gridX, gridY, currentAP, &hoverPath);
+
+								// If we clicked to enter a wall while in ghost form, mark the player so
+								// they cannot end their turn. External effects (earthquake, pushes)
+								// should NOT set this flag.
+								if (isWall && controlledPlayer->inGhostForm) {
+									players[controlledPlayerIndex].enteredWallByClick = true;
+								}
+
+								// Send packet to opponent so they see the movement too
+								if (isMultiplayer) {
+									ActionPacket movePkt = {};
+									movePkt.type = PKT_ACTION;
+									movePkt.playerID = myLocalPlayerID;
+									movePkt.actorIndex = currentPlayerIndex;
+									movePkt.cardIndex = -1; // -1 indicates movement, not card play
+									movePkt.targetX = gridX;
+									movePkt.targetY = gridY;
+									movePkt.cost = currentAP; // Send current AP so opponent sees the cost
+									movePkt.updatedAP = currentAP; // Ensure opponent updates AP to post-move value
+									// FIX: Assign clientActionID for deduplication so movement
+									// packets share the same monotonic timeline as card plays.
+									if (isClient()) {
+										movePkt.clientActionID = ++actionClientActionCounter;
+										// Record for resend watchdog (same mechanism as card plays)
+										lastSentActionPacket = movePkt;
+										lastSentActionValid = true;
+										lastSentActionTime = ofGetElapsedTimef();
+										lastSentActionResendCount = 0;
+									}
+									steamManager.sendPacket(&movePkt, sizeof(movePkt));
+									ofLogNotice("Network") << (isClient() ? "Client" : "Host") << " sent movement to (" << gridX << "," << gridY << ") with AP=" << currentAP << " actionID=" << movePkt.clientActionID;
+								}
+							}
+						}
+					}
+					playerAction = NONE;
+					clearHighlights();
+					return;
+				}
+
+				// Clicked an empty/non-actionable tile: do not deselect selection.
+				// (Selection persists; only real-target clicks or right-click cancel.)
+			}
 		}
 		break;
 	}
-
 	case STATE_MAIN_MENU: {
 		if (mainMenuPlayAIButton.inside(x, y)) {
 			// Open the Singleplayer submenu rather than immediately starting
 			currentState = STATE_SINGLEPLAYER_MENU;
-			break;
 		}
 		// ADD STEAM HOST LOGIC
 		else if (mainMenuHostButton.inside(x, y)) {
@@ -15113,6 +14433,22 @@ void ofApp::handleCardTargetClick(int gridX, int gridY) {
 			magicHandTargetTile = { gridX, gridY };
 			interactingCardIndex = cardIndex;
 		}
+
+		// Notify opponents for supported choice-menus (wisdom, burst, double-handed)
+		if (isMultiplayer) {
+			int menuType = 0;
+			if (interactingCardType == CARD_WISDOM_BOON)
+				menuType = 1;
+			else if (interactingCardType == CARD_BURST_OF_LIGHT)
+				menuType = 2;
+			else if (interactingCardType == CARD_DOUBLE_HANDED)
+				menuType = 3;
+			if (menuType != 0) {
+				int tgt = interactionTargetIndex;
+				// Giant Magic Hand targets tiles, not players — skip mapping
+				sendMenuState(menuType, tgt, -1, cardIndex);
+			}
+		}
 		break;
 	}
 
@@ -15206,6 +14542,8 @@ void ofApp::handleCardMenuClick(const std::string & buttonId) {
 			strncpy(cmd.stringData, card.name.c_str(), sizeof(cmd.stringData) - 1);
 			cmd.stringData[sizeof(cmd.stringData) - 1] = '\0';
 			queueInputCommand(cmd);
+			// Notify opponents that the menu closed (visual sync)
+			sendMenuState(0, -1, -1, -1);
 			resetCardInteraction();
 			return;
 		}
@@ -20097,6 +19435,345 @@ void ofApp::resolveAttackDamage() {
 			advanceCardState(CARD_STATE_EFFECT_SEQUENCE);
 		}
 	}
+}
+
+// --- AP roll centralized resolver ---
+void ofApp::resolveAPRoll() {
+	// Sum all finished AP and BONUS_AP dice rolls belonging to the current unit
+	int apSum = 0;
+	for (const auto & r : activeDiceRolls) {
+		if ((r.purpose == PURPOSE_AP || r.purpose == PURPOSE_BONUS_AP) && r.isFinishedVisual && r.associatedUnit == currentPlayerIndex) {
+			apSum += r.result;
+		}
+	}
+	ofLogNotice("APDebug") << "AP roll finished: apSum=" << apSum << " nextTurnAPBonus(before)=" << players[currentPlayerIndex].nextTurnAPBonus << " currentAP(before)=" << currentAP;
+	currentAP = apSum;
+	if (players[currentPlayerIndex].nextTurnAPBonus > 0) {
+		currentAP += players[currentPlayerIndex].nextTurnAPBonus;
+		players[currentPlayerIndex].nextTurnAPBonus = 0;
+	}
+	// Sync AP to player struct
+	updatePlayerAP(players[currentPlayerIndex], currentAP);
+	ofLogNotice("APDebug") << "AP roll applied: currentAP(after)=" << currentAP;
+
+	// If AP is zero, check for adjacent assistants belonging to this unit
+	if (currentAP == 0) {
+		Player & actor = players[currentPlayerIndex];
+		for (auto & a : players) {
+			if (a.isAssistant && a.health > 0 && a.directSummonerID == actor.playerID && !a.assistantRerollUsedThisTurn) {
+				int dist = abs(a.x - actor.x) + abs(a.y - actor.y);
+				if (dist <= 1) {
+					// consume assistant's reroll and grant a bonus reroll matching the original AP dice
+					a.assistantRerollUsedThisTurn = true;
+					int rerollNum = lastAPDiceNum > 0 ? lastAPDiceNum : 1;
+					int rerollSides = lastAPDiceSides > 0 ? lastAPDiceSides : 6;
+					// Mark any previous AP dice as debug so they won't be included twice
+					for (auto & oldR : activeDiceRolls) {
+						if (oldR.purpose == PURPOSE_AP) oldR.purpose = PURPOSE_DEBUG;
+					}
+					// Start a bonus AP roll (added on top of the original result)
+					startDiceRoll(rerollNum, rerollSides, PURPOSE_BONUS_AP, "Assistant Auto Reroll", currentPlayerIndex);
+					spawnFloatingText(gridToWorld(a.x, a.y), "Assistant Reroll!", ofColor::gold);
+				}
+			}
+		}
+	}
+	ofLogNotice("Game") << "AP Roll Finished: " << currentAP << " AP awarded (sum of all dice).";
+
+	// HOST: Send TurnStart packet to client once AP dice are finished (for BOTH turns)
+	bool allDiceFinished = true;
+	for (const auto & d : activeDiceRolls) {
+		if (!d.isFinishedVisual && (d.purpose == PURPOSE_AP || d.purpose == PURPOSE_BONUS_AP)) {
+			allDiceFinished = false;
+			break;
+		}
+	}
+	static int lastTurnStartSentPlayer = -1;
+	static int lastTurnStartSentCounter = -1;
+	bool alreadySent = (lastTurnStartSentPlayer == currentPlayerIndex && lastTurnStartSentCounter == globalTurnCounter);
+	if (isHost() && isMultiplayer && allDiceFinished && !alreadySent && !isHandlingTurnStartEffects) {
+		TurnStartPacket tpk = {};
+		tpk.type = PKT_TURN_START;
+		tpk.playerID = myLocalPlayerID;
+		tpk.currentPlayerIndex = currentPlayerIndex;
+		tpk.diceNum = 0;
+		tpk.diceSides = (uint8_t)lastAPDiceSides;
+		tpk.purpose = PURPOSE_AP;
+		tpk.finalTotal = currentAP;
+		// Count actual AP/BONUS_AP dice and populate packet
+		for (const auto & d : activeDiceRolls) {
+			if ((d.purpose == PURPOSE_AP || d.purpose == PURPOSE_BONUS_AP) && tpk.diceNum < 8) {
+				tpk.rawResults[tpk.diceNum] = (uint8_t)d.rawResult;
+				tpk.finalResults[tpk.diceNum] = (uint8_t)d.result;
+				tpk.diceNum++;
+			}
+		}
+		// Only send TurnStart if we're not in the middle of handling
+		// turn-start status effects (paralysis/poison/onFire), which
+		// may trigger coin flips or other waits.
+		if (!isHandlingTurnStartEffects) {
+			steamManager.sendPacket(&tpk, sizeof(tpk));
+			// Host: send authoritative checksum immediately after TurnStart so clients can validate
+			if (isHost()) {
+				ChecksumPacket chk = {};
+				chk.type = PKT_CHECKSUM_CHECK;
+				chk.playerID = myLocalPlayerID;
+				chk.checksum = calculateChecksum();
+				chk.turnNumber = globalTurnCounter;
+				steamManager.sendPacket(&chk, sizeof(chk));
+				ofLogNotice("Checksum") << "Host sent Checksum (turn=" << chk.turnNumber << ") value=" << chk.checksum;
+				// Save the authoritative turn-start state
+				turnStartBackupSnapshot = buildSnapshotString();
+				ofLogNotice("Network") << "Host saved Turn-Start Master Backup.";
+			}
+		}
+		lastTurnStartSentPlayer = currentPlayerIndex;
+		lastTurnStartSentCounter = globalTurnCounter;
+		ofLogNotice("Network") << "Host sent TurnStart (continueNewTurn): player=" << tpk.currentPlayerIndex << " dice=" << (int)tpk.diceNum << " total=" << tpk.finalTotal;
+	}
+}
+
+// --- Summon Kobolds centralized resolver ---
+void ofApp::resolveSummonKobolds(const DiceRoll & finishedRoll) {
+	if (!isWaitingForKoboldDice) return;
+	isWaitingForKoboldDice = false;
+	int count = finishedRoll.result;
+	if (count <= 0) {
+		spawnFloatingText(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y), "No Kobolds!", ofColor::gray);
+		// End kobold placement mode
+		updateCardInteractionState(CARD_INTERACTION_IDLE, -1, CARD_NONE);
+		return;
+	}
+	// Count available adjacent empty tiles
+	int avail = 0;
+	glm::vec2 adj[] = { { 1, 0 }, { -1, 0 }, { 0, 1 }, { 0, -1 } };
+	for (auto & d : adj) {
+		int nx = koboldPlacementSourceX + (int)d.x;
+		int ny = koboldPlacementSourceY + (int)d.y;
+		if (nx >= 0 && nx < BOARD_WIDTH && ny >= 0 && ny < BOARD_HEIGHT) {
+			if (!board[nx][ny].hasWall && !board[nx][ny].hasPlayer) avail++;
+		}
+	}
+	int allowed = std::min<int>(count, std::min(avail, 4));
+	if (allowed <= 0) {
+		spawnFloatingText(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y), "No Space!", ofColor::red);
+		updateCardInteractionState(CARD_INTERACTION_IDLE, -1, CARD_NONE);
+		return;
+	}
+	// --- MULTIPLAYER: Only enter placement mode if it is the LOCAL player's turn ---
+	if (isCurrentPlayerLocal()) {
+		koboldsRemainingToPlace = allowed;
+		koboldSummonCount = 0;
+		updateCardInteractionState(CARD_INTERACTION_PLACING, -1, CARD_CALL_FOR_KOBOLDS);
+		ofLogNotice("Summon") << "CallForKobolds: will place " << koboldsRemainingToPlace << " kobolds (source=" << koboldPlacementSourceX << "," << koboldPlacementSourceY << ")";
+		// Instruction UI
+		tooltipText = "Place Kobold: click an adjacent empty tile";
+		isShowingTooltip = true;
+		spawnFloatingText(gridToWorld(koboldPlacementSourceX, koboldPlacementSourceY), ofToString(koboldsRemainingToPlace) + " Kobolds!", ofColor::gold);
+		invalidateTargetCache();
+	} else {
+		// It's the opponent. Do NOT enter placement mode locally.
+		// We wait for their PKT_PLACE_SUMMONED_MINION packet.
+		ofLogNotice("Summon") << "Opponent rolled " << count << " kobolds. Waiting for placement packet.";
+	}
+}
+
+// --------------------------------------------------------------
+// Blocking Boon centralized resolver
+// Handles both coin flips (PURPOSE_BLOCKING_BOON_COIN) and D20 class rewards (PURPOSE_BLOCKING_BOON_D20)
+void ofApp::resolveBlockingBoon(const DiceRoll & finishedRoll) {
+	if (finishedRoll.purpose == PURPOSE_BLOCKING_BOON_COIN) {
+		// Result 2 = Heads, 1 = Tails
+		if (finishedRoll.result >= 2) {
+			// Heads: raise own max HP
+			players[currentPlayerIndex].maxHealth++;
+			spawnFloatingText(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y), "+1 Max HP", ofColor::green);
+		} else {
+			// Tails: lower target max HP
+			Player * t = getPlayer(blockingBoonTargetIndex);
+			if (t) {
+				t->maxHealth = std::max(1, t->maxHealth - 1);
+				if (t->health > t->maxHealth) t->health = t->maxHealth;
+				spawnFloatingText(gridToWorld(t->x, t->y), "-1 Max HP", ofColor::darkRed);
+			}
+		}
+
+		if (isWaitingForBlockingBoonCoins) {
+			currentCardOutcome.namedDiceResults["blocking_boon_coins_remaining"] = std::max(0, currentCardOutcome.namedDiceResults["blocking_boon_coins_remaining"] - 1);
+			currentCardOutcome.namedDiceResults["blocking_boon_total"] = std::max(0, currentCardOutcome.namedDiceResults["blocking_boon_total"] - 1);
+
+			if (currentCardOutcome.namedDiceResults["blocking_boon_coins_remaining"] == 0) {
+				isWaitingForBlockingBoonCoins = false;
+				if (currentCardOutcome.namedDiceResults["blocking_boon_total"] == 0) {
+					blockingBoonActive = false;
+				}
+			}
+		}
+	} else if (finishedRoll.purpose == PURPOSE_BLOCKING_BOON_D20) {
+		int val = finishedRoll.result;
+		int classReward = 0;
+		if (val >= 20)
+			classReward = 3;
+		else if (val >= 16)
+			classReward = 2;
+		else if (val >= 10)
+			classReward = 1;
+
+		if (classReward > 0) {
+			networkPending.draftQueue.push_back(classReward);
+			spawnFloatingText(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y), "Draft C" + ofToString(classReward), ofColor::cyan);
+		} else {
+			spawnFloatingText(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y), "Fizzle", ofColor::gray);
+		}
+
+		currentCardOutcome.namedDiceResults["blocking_boon_total"] = std::max(0, currentCardOutcome.namedDiceResults["blocking_boon_total"] - 1);
+		if (currentCardOutcome.namedDiceResults["blocking_boon_total"] == 0) blockingBoonActive = false;
+	}
+}
+
+// --------------------------------------------------------------
+// Small resolver: BONUS AP
+void ofApp::resolveBonusAP(const DiceRoll & finishedRoll) {
+	currentAP += finishedRoll.result;
+	spawnFloatingText(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y),
+		"+" + ofToString(finishedRoll.result) + " Bonus AP",
+		ofColor::yellow);
+	ofLogNotice("Game") << "Bonus Dice Finished: " << finishedRoll.result << " AP awarded.";
+}
+
+// --------------------------------------------------------------
+// Resolve earthquake distance dice: collect finished dice, set movement parameters,
+// remove the consumed dice, and advance earthquake state to waiting/animation.
+void ofApp::resolveEarthquakeDistance() {
+	bool ready = true;
+	int foundDiceCount = 0;
+
+	// Ensure all earthquake distance dice have finished visually
+	for (auto & unit : earthquakeUnits) {
+		bool unitDieReady = false;
+		for (const auto & roll : activeDiceRolls) {
+			if (roll.purpose == PURPOSE_EARTHQUAKE_DISTANCE && roll.associatedUnit == unit.playerIndex) {
+				foundDiceCount++;
+				if (roll.isFinishedVisual) {
+					unitDieReady = true;
+				}
+				break;
+			}
+		}
+		if (!unitDieReady) {
+			ready = false;
+			break;
+		}
+	}
+
+	// Only proceed if we found all the dice and they are finished
+	if (ready && foundDiceCount == (int)earthquakeUnits.size()) {
+		// Capture results and remove those dice from activeDiceRolls safely
+		std::vector<int> toErase;
+		for (auto & unit : earthquakeUnits) {
+			for (int i = 0; i < (int)activeDiceRolls.size(); ++i) {
+				if (activeDiceRolls[i].purpose == PURPOSE_EARTHQUAKE_DISTANCE && activeDiceRolls[i].associatedUnit == unit.playerIndex) {
+					int result = activeDiceRolls[i].result;
+					unit.tilesToMove = result;
+					unit.originalDistance = result;
+					unit.nextGrid = unit.startGrid + unit.direction;
+					unit.isMoving = (result > 0);
+					toErase.push_back(i);
+					break;
+				}
+			}
+		}
+
+		// Erase in descending order
+		sort(toErase.begin(), toErase.end(), std::greater<int>());
+		for (int idx : toErase) {
+			if (idx >= 0 && idx < (int)activeDiceRolls.size()) {
+				activeDiceRolls.erase(activeDiceRolls.begin() + idx);
+			}
+		}
+
+		isEarthquakeDiceRolling = false;
+		isEarthquakeWaiting = true;
+		earthquakeWaitTimer = 2.0f; // 2 seconds delay
+		isEarthquakeAnimatingStep = false;
+		earthquakeT = 0.0f;
+	}
+}
+
+// --------------------------------------------------------------
+// Small resolver: apply earthquake damage result from finished die
+void ofApp::resolveEarthquakeDamage(const DiceRoll & finishedRoll) {
+	int uidx = finishedRoll.associatedUnit;
+	if (uidx >= 0 && uidx < (int)players.size()) {
+		if (players[uidx].inGhostForm) {
+			glm::vec3 textPos = gridToWorld(players[uidx].x, players[uidx].y);
+			for (const auto & eu : earthquakeUnits) {
+				if (eu.playerIndex == uidx) {
+					textPos = eu.visualPos;
+					break;
+				}
+			}
+			spawnFloatingText(textPos + glm::vec3(0, 0.8f, 0), "Phased (0 Dmg)", ofColor::cyan);
+		} else {
+			players[uidx].health -= finishedRoll.result;
+			glm::vec3 textPos = gridToWorld(players[uidx].x, players[uidx].y);
+			for (const auto & eu : earthquakeUnits) {
+				if (eu.playerIndex == uidx) {
+					textPos = eu.visualPos;
+					break;
+				}
+			}
+			spawnFloatingText(textPos + glm::vec3(0, 0.8f, 0), "-" + ofToString(finishedRoll.result), ofColor::red);
+
+			if (players[uidx].health <= 0) {
+				DeathMarker death;
+				death.x = players[uidx].x;
+				death.y = players[uidx].y;
+				death.turnDied = globalTurnCounter;
+				death.deck = players[uidx].deck;
+				graveyard.push_back(death);
+				if (death.x >= 0 && death.x < BOARD_WIDTH && death.y >= 0 && death.y < BOARD_HEIGHT) {
+					board[death.x][death.y].hasPlayer = false;
+				}
+				players.erase(players.begin() + uidx);
+				for (auto eit = earthquakeUnits.begin(); eit != earthquakeUnits.end();) {
+					if (eit->playerIndex == uidx)
+						eit = earthquakeUnits.erase(eit);
+					else {
+						if (eit->playerIndex > uidx) eit->playerIndex--;
+						++eit;
+					}
+				}
+				for (auto & r : activeDiceRolls) {
+					if (r.associatedUnit == uidx)
+						r.associatedUnit = -1;
+					else if (r.associatedUnit > uidx)
+						r.associatedUnit--;
+				}
+				if (currentPlayerIndex == uidx)
+					currentPlayerIndex = std::min<int>(uidx, (int)players.size() - 1);
+				else if (currentPlayerIndex > uidx)
+					currentPlayerIndex--;
+			}
+		}
+	}
+}
+
+// --------------------------------------------------------------
+// Small resolver: death-check die finished (store to named results)
+void ofApp::resolveDeathCheckRoll(const DiceRoll & finishedRoll) {
+	currentCardOutcome.namedDiceResults["death_check"] = finishedRoll.result;
+}
+
+// --------------------------------------------------------------
+// Small resolver: sleep-duration die finished (apply sleep to target)
+void ofApp::resolveSleepDurationRoll(const DiceRoll & finishedRoll) {
+	Player * t = getPlayer(currentCardOutcome.targetPlayerIndex);
+	if (t) {
+		t->sleepTurnsRemaining = finishedRoll.result;
+		spawnFloatingText(gridToWorld(t->x, t->y), ofToString(finishedRoll.result) + " Turns Sleep", ofColor::cyan);
+	}
+	currentCardOutcome.targetPlayerIndex = -1;
 }
 
 //--- POISON DAMAGE RESOLUTION ---
@@ -29337,6 +29014,38 @@ void ofApp::processNetworkPackets() {
 			}
 			continue;
 		}
+
+		// Handle MenuState visualization from opponents (open/close/hover)
+		if (header->type == PKT_MENU_STATE) {
+			if (buffer.size() < sizeof(MenuStatePacket)) continue;
+			MenuStatePacket * msp = (MenuStatePacket *)header;
+			// Map incoming playerID to local player index
+			int mappedIdx = -1;
+			for (int i = 0; i < (int)players.size(); ++i) {
+				if (players[i].playerID == (int)msp->playerID) {
+					mappedIdx = i;
+					break;
+				}
+			}
+			// Only update visualization for remote players
+			if (mappedIdx >= 0 && mappedIdx != getLocalPlayerIndex()) {
+				if (msp->menuType == 0) {
+					opponentInteraction.open = false;
+					opponentInteraction.type = 0;
+					opponentInteraction.targetIndex = -1;
+					opponentInteraction.hoveredChoice = -1;
+					opponentInteraction.cardIndex = -1;
+				} else {
+					opponentInteraction.open = true;
+					opponentInteraction.type = msp->menuType;
+					opponentInteraction.targetIndex = msp->targetIndex;
+					opponentInteraction.hoveredChoice = msp->hoveredChoice;
+					opponentInteraction.cardIndex = msp->cardIndex;
+				}
+				ofLogNotice("Network") << "Received MenuState from playerID=" << msp->playerID << " type=" << msp->menuType << " hover=" << msp->hoveredChoice;
+			}
+			continue;
+		}
 		if (header->type == PKT_END_TURN) {
 			ofLogNotice("Net") << "Opponent ended turn.";
 
@@ -30320,8 +30029,19 @@ void ofApp::sendCardActionBegin(int cardType, int actorIndex, int targetX, int t
 // Send menu state for opponent visualization
 void ofApp::sendMenuState(int menuType, int targetIndex, int hoveredChoice, int cardIndex) {
 	if (!isMultiplayer) return;
-	// Opponent menu visualization is disabled.
-	return;
+
+	MenuStatePacket pkt = {};
+	pkt.type = PKT_MENU_STATE;
+	pkt.playerID = myLocalPlayerID;
+	pkt.seq = 0; // steamManager will stamp a seq
+	pkt.menuType = menuType;
+	pkt.targetIndex = targetIndex;
+	pkt.hoveredChoice = hoveredChoice;
+	pkt.cardIndex = cardIndex;
+
+	// Send to opponent for visualization (host/client both forward/receive as needed)
+	steamManager.sendPacket(&pkt, sizeof(pkt));
+	ofLogNotice("Network") << "Sent MenuState: type=" << menuType << " target=" << targetIndex << " hover=" << hoveredChoice << " cardIndex=" << cardIndex;
 }
 
 // When I click a card

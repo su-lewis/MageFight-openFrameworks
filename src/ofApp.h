@@ -864,10 +864,16 @@ private:
 	void resolveMagicBlastDice();
 	void resolveDeathDice();
 	void resolveSleepDuration();
+	// New small resolvers for inline dice handling sweep
+	void resolveSleepDurationRoll(const DiceRoll & finishedRoll);
+	void resolveDeathCheckRoll(const DiceRoll & finishedRoll);
+	void resolveEarthquakeDamage(const DiceRoll & finishedRoll);
 	void resolveAPRoll();
 	void resolveBlockingBoon(const DiceRoll & finishedRoll);
 	void resolveSummonKobolds(const DiceRoll & finishedRoll);
 	void resolveJoltRangeDice();
+	void resolveEarthquakeDistance();
+	void resolveBonusAP(const DiceRoll & finishedRoll);
 
 	// Earthquake simulation update (migrated from updateGame())
 	void updateEarthquakeSimulation();
