@@ -20,6 +20,8 @@
 #include <sstream>
 #include <unordered_map>
 
+// Path constants
+
 // Legacy `pending*` macros have been migrated; use `networkPending.*`
 // fields directly. The old macro aliases were removed.
 
@@ -1845,6 +1847,9 @@ void ofApp::update() {
 	case STATE_SETTINGS:
 	case STATE_DESYNC:
 		break;
+		break;
+	case STATE_SAVE_BROWSER:
+	case STATE_SINGLEPLAYER_MENU:
 		break;
 
 	// --- INITIATIVE ROLL STATE ---
@@ -8641,9 +8646,6 @@ void ofApp::drawGame() {
 		padding = std::min(padding, 20.0f);
 		// totalHandWidth and hand layout calculations removed as they were unused
 
-		float boxPaddingY = 44.0f;
-		float boxBottom = ofGetHeight();
-
 		// How much a hovered card is lifted (pixels). Always lift upward.
 		float hoverDirection = -180.0f;
 
@@ -14873,7 +14875,8 @@ void ofApp::handleCardDragToPlay(int cardIndex) {
 }
 
 void ofApp::handleCardTargetClick(int gridX, int gridY) {
-	if (cardInteractionState != CARD_INTERACTION_TARGETING) return;
+	// Allow both targeting and placing interactions to be handled here
+	if (cardInteractionState != CARD_INTERACTION_TARGETING && cardInteractionState != CARD_INTERACTION_PLACING) return;
 	if (gridX < 0 || gridX >= BOARD_WIDTH || gridY < 0 || gridY >= BOARD_HEIGHT) return;
 	if (!board[gridX][gridY].isTargetable) return;
 	if (players.empty() || currentPlayerIndex < 0) return;
@@ -19345,7 +19348,6 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 		}
 
 		// 4. Cleanup & Add
-		int myID = currentPlayer.playerID;
 		currentAP -= playedCard.cost;
 		currentPlayer.playedCardsPile.push_back(playedCard);
 		applyReplicateCopyToHand(currentPlayer, playedCard);
@@ -28754,7 +28756,7 @@ void ofApp::processNetworkPackets() {
 						// Derive the card/menu type: ActionPacket no longer contains cardType
 						CardType menuType = CARD_NONE;
 						if (pkt->actorIndex >= 0 && pkt->actorIndex < (int)players.size() && pkt->cardIndex >= 0) {
-							Player &p = players[pkt->actorIndex];
+							Player & p = players[pkt->actorIndex];
 							if (pkt->cardIndex < (int)p.hand.size()) {
 								menuType = p.hand[pkt->cardIndex].type;
 							}
@@ -30526,79 +30528,43 @@ void ofApp::executeOpponentCardPlay(const ActionPacket & pkt) {
 
 	ofLogNotice("Network") << "executeOpponentCardPlay: Executing playCard with cardIndex=" << tempCardIndex << " currentPlayerIndex=" << currentPlayerIndex << " AP=" << currentAP;
 	ofLogNotice("Network") << "executeOpponentCardPlay: Hand size before playCard = " << opponentPlayer.hand.size() << ", Played pile size = " << opponentPlayer.playedCardsPile.size();
-
-	// Special-case: resolve Giant Magic Hand using the sender's menu choice
-	if (cardDef.type == CARD_GIANT_MAGIC_HAND && pkt.menuChoice != 0) {
-		// Track the card play
-		currentAP -= cardDef.cost;
-		opponentPlayer.playedCardsPile.push_back(cardDef);
-		applyReplicateCopyToHand(opponentPlayer, cardDef);
-		opponentPlayer.cardsPlayedThisTurn.push_back(cardDef.type);
-
-		interactingCardIndex = tempCardIndex;
-		magicHandTargetTile = { tx, ty };
-		updateCardInteractionState(CARD_INTERACTION_IDLE, -1, CARD_NONE);
-		if (pkt.menuChoice == 1) {
-			resolveMagicHandPush();
-		} else if (pkt.menuChoice == 2) {
-			resolveMagicHandPull();
-		}
-
-		// Save the updated AP back to the player
-		opponentPlayer.ap = pkt.updatedAP;
-
-		// Remove the card from opponent's hand
+	// If this ActionPacket contains a menuChoice, centralize handling by
+	// queueing a CMD_MENU_CHOICE into the deterministic command queue and
+	// returning. The lockstep handler (`executeInputCommand`) will perform
+	// the actual resolution so we don't duplicate logic here.
+	if (pkt.menuChoice > 0) {
+		CardType menuType = CARD_NONE;
 		if (tempCardIndex >= 0 && tempCardIndex < (int)opponentPlayer.hand.size()) {
-			opponentPlayer.hand.erase(opponentPlayer.hand.begin() + tempCardIndex);
+			menuType = opponentPlayer.hand[tempCardIndex].type;
 		}
-		interactingCardIndex = -1;
-
-		if (savedCurrentPlayerIndex == opponentPlayerIndex) {
-			currentAP = opponentPlayer.ap;
-		} else {
-			currentPlayerIndex = savedCurrentPlayerIndex;
-			if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) {
-				currentAP = players[currentPlayerIndex].ap;
-			} else {
-				currentAP = savedCurrentAP;
-			}
+		if (menuType == CARD_NONE) {
+			menuType = stringToCardType(cardName);
 		}
-		return;
-	}
 
-	// Special-case: Dispel with menuChoice (1=barrier, 2=purge)
-	if (cardDef.type == CARD_DISPEL && pkt.menuChoice == 1) {
-		// Apply barrier directly without opening menu
-		currentAP -= cardDef.cost;
+		InputCommandPacket cmd = {};
+		cmd.type = PKT_INPUT_COMMAND;
+		cmd.playerID = pkt.playerID;
+		cmd.seq = pkt.seq;
+		cmd.commandId = nextCommandId++;
+		cmd.turnNumber = globalTurnCounter;
+		cmd.commandType = CMD_MENU_CHOICE;
+		cmd.params[0] = (int)menuType;
+		cmd.params[1] = pkt.actorIndex;
+		cmd.params[2] = pkt.menuChoice;
+		cmd.params[3] = tempCardIndex;
+		strncpy(cmd.stringData, pkt.cardName, sizeof(cmd.stringData) - 1);
+		cmd.stringData[sizeof(cmd.stringData) - 1] = '\0';
+		queueInputCommand(cmd);
 
-		// --- SHARED RNG CHECK ---
-		// Both Host and Client must use gameplayRNG here. Also include the
-		// caster's Luck (both direct and passive) so the two sides compute
-		// identical results and avoid checksum desyncs.
-		int rawRoll = getGameRandom(1, 20);
-		int luckBonus = opponentPlayer.luck + computePassiveLuck(opponentPlayerIndex);
-		int rollResult = rawRoll + luckBonus;
-
-		opponentPlayer.barrier += rollResult;
-		ofLogNotice("Dispel") << "Opponent gained " << rollResult << " barrier (Synced RNG + Luck)";
-
+		// Keep AP in sync with sender
 		opponentPlayer.ap = pkt.updatedAP;
 
-		// --- HAND/DISCARD UPDATE CHECK (Condition 3) ---
-		// 1. Add to played (visuals)
-		opponentPlayer.playedCardsPile.push_back(cardDef);
-
-		// 2. Handle Replicate
-		applyReplicateCopyToHand(opponentPlayer, cardDef);
-
-		// 3. Remove from Hand
+		// Remove any temporary card we added earlier (the lockstep handler will manage played cards)
 		if (tempCardIndex >= 0 && tempCardIndex < (int)opponentPlayer.hand.size()) {
 			opponentPlayer.hand.erase(opponentPlayer.hand.begin() + tempCardIndex);
 		}
 
-		// 4. Note: playedCardsPile moves to discardPile automatically
-		// in startNewTurn / PKT_END_TURN handler.
-
+		// Restore context and return early
 		if (savedCurrentPlayerIndex == opponentPlayerIndex) {
 			currentAP = opponentPlayer.ap;
 		} else {
@@ -30612,228 +30578,10 @@ void ofApp::executeOpponentCardPlay(const ActionPacket & pkt) {
 		return;
 	}
 
-	// Special-case: Train menuChoice (1=AP, 2=Draft)
-	if (cardDef.type == CARD_TRAIN && (pkt.menuChoice == 1 || pkt.menuChoice == 2)) {
-		currentAP -= cardDef.cost;
-		opponentPlayer.playedCardsPile.push_back(cardDef);
-		applyReplicateCopyToHand(opponentPlayer, cardDef);
-		opponentPlayer.cardsPlayedThisTurn.push_back(cardDef.type);
-		opponentPlayer.hand.erase(opponentPlayer.hand.begin() + tempCardIndex);
-
-		if (pkt.menuChoice == 1) {
-			opponentPlayer.nextTurnAPBonus += 3;
-			spawnFloatingText(gridToWorld(opponentPlayer.x, opponentPlayer.y), "+3 AP next turn", ofColor::yellow);
-		} else {
-			// --- CHANGE START ---
-			// OLD:
-			/*
-            isInGameDraft = true;
-            draftPlayerIndex = currentPlayerIndex; // This is the OPPONENT index here
-            generateDraftOptions(1);
-            // ...
-            currentState = STATE_DRAFTING;
-            */
-
-			// NEW:
-			// Do NOT open draft screen for opponent. Host handles the logic.
-			// Client just shows visual feedback.
-			spawnFloatingText(gridToWorld(opponentPlayer.x, opponentPlayer.y), "Training: Drafting...", ofColor::orange);
-			// --- CHANGE END ---
-		}
-
-		opponentPlayer.ap = pkt.updatedAP;
-		if (savedCurrentPlayerIndex == opponentPlayerIndex) {
-			currentAP = opponentPlayer.ap;
-		} else {
-			currentPlayerIndex = savedCurrentPlayerIndex;
-			if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) {
-				currentAP = players[currentPlayerIndex].ap;
-			} else {
-				currentAP = savedCurrentAP;
-			}
-		}
-		return;
-	}
-
-	// Special-case: Dispel purge with encoded status index (menuChoice >= 100)
-	if (cardDef.type == CARD_DISPEL && pkt.menuChoice >= 100) {
-		int statusIndex = pkt.menuChoice - 100;
-		Player * target = nullptr;
-		for (size_t i = 0; i < players.size(); i++) {
-			if (players[i].x == tx && players[i].y == ty) {
-				target = &players[i];
-				break;
-			}
-		}
-		if (target) {
-			std::vector<std::string> statuses;
-			if (target->onFire) statuses.push_back("Fire");
-			if (target->isParalyzed) statuses.push_back("Paralysis");
-			if (statusIndex >= 0 && statusIndex < (int)statuses.size()) {
-				const std::string & status = statuses[statusIndex];
-				int idx = findPlayerIndexByID(target->playerID);
-				if (idx >= 0) {
-					if (status == "Fire") {
-						EffectOp rm = {};
-						rm.type = EffectOpType::REMOVE_STATUS;
-						rm.data.status.targetIndex = idx;
-						rm.data.status.statusType = STATUS_ON_FIRE;
-						rm.data.status.duration = 0;
-						queueEffect(rm);
-					}
-					if (status == "Paralysis") {
-						EffectOp rm = {};
-						rm.type = EffectOpType::REMOVE_STATUS;
-						rm.data.status.targetIndex = idx;
-						rm.data.status.statusType = STATUS_PARALYZED;
-						rm.data.status.duration = 0;
-						queueEffect(rm);
-					}
-				}
-				// Client will rely on effect processing to clear local fields
-			}
-		}
-
-		currentAP -= cardDef.cost;
-		finishPlayCard(opponentPlayer, cardDef, tempCardIndex);
-		opponentPlayer.ap = pkt.updatedAP;
-
-		if (savedCurrentPlayerIndex == opponentPlayerIndex) {
-			currentAP = opponentPlayer.ap;
-		} else {
-			currentPlayerIndex = savedCurrentPlayerIndex;
-			if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) {
-				currentAP = players[currentPlayerIndex].ap;
-			} else {
-				currentAP = savedCurrentAP;
-			}
-		}
-		return;
-	}
-
-	// Special-case: Wisdom Boon with menuChoice (1=confirm)
-	if (cardDef.type == CARD_WISDOM_BOON && pkt.menuChoice == 1) {
-		int targetIndex = -1;
-		for (size_t i = 0; i < players.size(); i++) {
-			if (players[i].x == tx && players[i].y == ty) {
-				targetIndex = (int)i;
-				break;
-			}
-		}
-		if (targetIndex >= 0) {
-			Player * target = getPlayer(targetIndex);
-			bool isSelf = (targetIndex == currentPlayerIndex);
-			bool isAdjacent = target && (abs(target->x - opponentPlayer.x) + abs(target->y - opponentPlayer.y) == 1);
-			if (target && (isSelf || isAdjacent)) {
-				int effectValue = (int)opponentPlayer.deck.size();
-				if (isSelf) {
-					target->block += effectValue;
-					tryTriggerShellSpike();
-				} else {
-					int dmg = effectValue;
-					int barrierDmg = std::min(target->barrier, dmg);
-					target->barrier -= barrierDmg;
-					dmg -= barrierDmg;
-					if (dmg > 0) {
-						int wardDmg = std::min(target->ward, dmg);
-						target->ward -= wardDmg;
-						dmg -= wardDmg;
-					}
-					if (dmg > 0) target->health -= dmg;
-				}
-			}
-		}
-
-		currentAP -= cardDef.cost;
-		opponentPlayer.playedCardsPile.push_back(cardDef);
-		applyReplicateCopyToHand(opponentPlayer, cardDef);
-		opponentPlayer.ap = pkt.updatedAP;
-		opponentPlayer.hand.erase(opponentPlayer.hand.begin() + tempCardIndex);
-
-		currentPlayerIndex = savedCurrentPlayerIndex;
-		if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) {
-			currentAP = players[currentPlayerIndex].ap;
-		} else {
-			currentAP = savedCurrentAP;
-		}
-		return;
-	}
-
-	// Special-case: Burst of Light with menuChoice (1=damage, 2=heal)
-	if (cardDef.type == CARD_BURST_OF_LIGHT && (pkt.menuChoice == 1 || pkt.menuChoice == 2)) {
-		int targetIndex = -1;
-		for (size_t i = 0; i < players.size(); i++) {
-			if (players[i].x == tx && players[i].y == ty) {
-				targetIndex = (int)i;
-				break;
-			}
-		}
-		if (targetIndex >= 0) {
-			if (pkt.menuChoice == 1) {
-				// Damage choice: apply to the chosen unit regardless of ownership
-				EffectOp burstDamageOp;
-				burstDamageOp.type = EffectOpType::DAMAGE;
-				burstDamageOp.data.damage.targetIndex = targetIndex;
-				burstDamageOp.data.damage.damageType = DAMAGE_HOLY;
-				burstDamageOp.data.damage.fixedDamage = 3;
-				burstDamageOp.data.damage.damageFromSlot = -1;
-				processEffectOp(burstDamageOp);
-			} else {
-				// Heal choice: apply to the chosen unit regardless of ownership
-				EffectOp burstHealOp;
-				burstHealOp.type = EffectOpType::HEAL;
-				burstHealOp.data.heal.targetIndex = targetIndex;
-				burstHealOp.data.heal.amount = 3;
-				burstHealOp.data.heal.amountFromSlot = -1;
-				processEffectOp(burstHealOp);
-			}
-		}
-
-		currentAP -= cardDef.cost;
-		opponentPlayer.playedCardsPile.push_back(cardDef);
-		applyReplicateCopyToHand(opponentPlayer, cardDef);
-		opponentPlayer.ap = pkt.updatedAP;
-		opponentPlayer.hand.erase(opponentPlayer.hand.begin() + tempCardIndex);
-
-		if (savedCurrentPlayerIndex == opponentPlayerIndex) {
-			currentAP = opponentPlayer.ap;
-		} else {
-			currentPlayerIndex = savedCurrentPlayerIndex;
-			currentAP = savedCurrentAP;
-		}
-		return;
-	}
-
-	// Special-case: Double Handed with menuChoice (1=Punch, 2=Hand Block)
-	if (cardDef.type == CARD_DOUBLE_HANDED && (pkt.menuChoice == 1 || pkt.menuChoice == 2)) {
-		int targetIndex = -1;
-		for (size_t i = 0; i < players.size(); i++) {
-			if (players[i].x == tx && players[i].y == ty) {
-				targetIndex = (int)i;
-				break;
-			}
-		}
-		if (targetIndex >= 0) {
-			currentAP -= cardDef.cost;
-			opponentPlayer.playedCardsPile.push_back(cardDef);
-			applyReplicateCopyToHand(opponentPlayer, cardDef);
-			opponentPlayer.cardsPlayedThisTurn.push_back(cardDef.type);
-			// DO NOT erase here - resolveDoubleHanded() handles card removal
-			interactingCardIndex = tempCardIndex;
-			interactionTargetIndex = targetIndex;
-			resolveDoubleHanded(pkt.menuChoice == 1 ? "Punch" : "Hand Block");
-		}
-
-		opponentPlayer.ap = pkt.updatedAP;
-
-		if (savedCurrentPlayerIndex == opponentPlayerIndex) {
-			currentAP = opponentPlayer.ap;
-		} else {
-			currentPlayerIndex = savedCurrentPlayerIndex;
-			currentAP = savedCurrentAP;
-		}
-		return;
-	}
+	// Menu-driven opponent choices are centralized; prior special-case handling
+	// for menu cards was removed to avoid duplicating logic. The early handler
+	// above queues a CMD_MENU_CHOICE into the deterministic command queue and
+	// returns, so we should not process menu choices here.
 
 	// Special-case: Teleport (apply move from packet)
 	if (cardDef.type == CARD_TELEPORT) {
