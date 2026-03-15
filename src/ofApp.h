@@ -295,6 +295,8 @@ enum class EffectOpType : uint8_t {
 	MODIFY_STAT,
 	MODIFY_TILE,
 	ADD_CARD_TO_DECK,
+	RESHUFFLE_DISCARD_TO_DECK,
+	REMOVE_TOP_CARD_FROM_DECK,
 	DRAW_CARDS,
 	DISCARD_CARDS,
 	APPLY_STATUS,
@@ -364,6 +366,14 @@ struct AddCardToDeckData {
 	int cardType; // CardType enum value
 };
 
+struct RemoveTopCardData {
+	int targetIndex;
+};
+
+struct ReshuffleDiscardData {
+	int targetIndex;
+};
+
 struct SpawnPlayerData {
 	int x;
 	int y;
@@ -406,6 +416,8 @@ struct EffectOp {
 		ModifyStatData modifyStat;
 		ModifyTileData modifyTile;
 		AddCardToDeckData addCard;
+		RemoveTopCardData removeTopCard;
+		ReshuffleDiscardData reshuffle;
 		StatusData status;
 		SpawnUnitData spawnUnit;
 		SpawnPlayerData spawnPlayer;

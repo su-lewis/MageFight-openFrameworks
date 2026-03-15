@@ -321,32 +321,13 @@ void ofApp::drawMinionCard(int minionIndex, int ownerIndex) {
 	for (int i = 0; i < drawCount; ++i) {
 		if (minion.deck.empty()) {
 			if (minion.discardPile.empty()) break;
-			minion.deck = minion.discardPile;
+			// Deterministic reshuffle: use effect op to centralize behavior
 			{
-				ShuffleAnimation s;
-				s.playerIndex = minionIndex;
-				bool assignedRect = false;
-				for (const auto & mui : activeMinionUIs) {
-					if (mui.playerIndex == minionIndex) {
-						s.deckRect = mui.deckRect;
-						assignedRect = true;
-						break;
-					}
-				}
-				if (!assignedRect) {
-					int ownerSlot = findPlayerIndexByID(minion.ownerID);
-					if (ownerSlot >= 0) {
-						s.deckRect = (players[ownerSlot].playerID == 0) ? p0_deckRect : p1_deckRect;
-					} else {
-						s.deckRect = (minion.ownerID == 0) ? p0_deckRect : p1_deckRect;
-					}
-				}
-				s.startTime = ofGetElapsedTimef();
-				s.duration = 0.9f;
-				activeShuffleAnimations.push_back(s);
+				EffectOp rs = {};
+				rs.type = EffectOpType::RESHUFFLE_DISCARD_TO_DECK;
+				rs.data.reshuffle.targetIndex = minionIndex;
+				processEffectOp(rs);
 			}
-			minion.discardPile.clear();
-			shuffleGameVector(minion.deck, minionIndex);
 		}
 
 		if (!minion.deck.empty()) {
@@ -4303,16 +4284,10 @@ void ofApp::updateGame() {
 							}
 						}
 						if (!alreadyApplied) {
-							players[uidx].health -= roll.result;
-							// Prefer visualPos (unit may be mid-move). Find earthquake unit entry if present.
-							glm::vec3 textPos = gridToWorld(players[uidx].x, players[uidx].y);
-							for (const auto & eu : earthquakeUnits) {
-								if (eu.playerIndex == uidx) {
-									textPos = eu.visualPos;
-									break;
-								}
-							}
-							spawnFloatingText(textPos + glm::vec3(0, 0.8f, 0), "-" + ofToString(roll.result), ofColor::red);
+							// Use centralized damage application so shields/statuses and effects
+							// are handled consistently (and deterministic via effect ops when
+							// used elsewhere).
+							applyDamageTo(players[uidx], roll.result, DAMAGE_PHYSICAL, -1);
 							ofLogNotice("Earthquake") << "Player " << uidx << " took " << roll.result << " quake damage.";
 						} else {
 							ofLogNotice("Earthquake") << "Skipping duplicate quake damage for Player " << uidx << ".";
@@ -13387,27 +13362,11 @@ void ofApp::startNewTurn() {
 
 				// Reshuffle discard into deck if needed
 				if (localPlayer.deck.empty() && !localPlayer.discardPile.empty()) {
-					localPlayer.deck = localPlayer.discardPile;
-					// Spawn a client-local shuffle animation only on clients (host will start via shuffleGameVector)
-					if (isClient()) {
-						ShuffleAnimation s;
-						s.playerIndex = localPlayer.playerID;
-						s.deckRect = (localPlayer.playerID == 0) ? p0_deckRect : p1_deckRect;
-						s.startTime = ofGetElapsedTimef();
-						s.duration = 0.9f;
-						activeShuffleAnimations.push_back(s);
-					}
-					// Use player index for shuffle (find it again since we're in a loop)
-					int playerIdx = -1;
-					for (size_t j = 0; j < players.size(); j++) {
-						if (players[j].playerID == myLocalPlayerID && !players[j].isMinion) {
-							playerIdx = j;
-							break;
-						}
-					}
-					shuffleGameVector(localPlayer.deck, playerIdx);
-					localPlayer.discardPile.clear();
-					ofLogNotice("Deck") << "Client reshuffled discard into deck for player " << localPlayer.playerID;
+					// Use effect op to reshuffle discard into deck deterministically
+					EffectOp rs = {};
+					rs.type = EffectOpType::RESHUFFLE_DISCARD_TO_DECK;
+					rs.data.reshuffle.targetIndex = (int)i;
+					processEffectOp(rs);
 				}
 
 				// Decrement buff timers
@@ -13490,38 +13449,11 @@ void ofApp::startNewTurn() {
 		// Reshuffle discard into deck if needed
 		if (endingPlayer.deck.empty() && !endingPlayer.discardPile.empty()) {
 			ofLogNotice("Deck") << "Reshuffle triggered for player " << endingPlayer.playerID << " at turn " << globalTurnCounter << " (host=" << isHost() << ")";
-			// Dump brief deck/discard summary for diagnostics
-			{
-				std::string before;
-				for (const auto & c : endingPlayer.discardPile) {
-					if (!before.empty()) before += ",";
-					before += c.name;
-				}
-				ofLogNotice("Deck") << "  Discard before reshuffle: " << before;
-			}
-			endingPlayer.deck = endingPlayer.discardPile;
-			// Spawn a client-local shuffle animation only on clients (host will start via shuffleGameVector)
-			if (isClient()) {
-				ShuffleAnimation s;
-				s.playerIndex = endingPlayer.playerID;
-				s.deckRect = (endingPlayer.playerID == 0) ? p0_deckRect : p1_deckRect;
-				s.startTime = ofGetElapsedTimef();
-				s.duration = 0.9f;
-				activeShuffleAnimations.push_back(s);
-			}
-			shuffleGameVector(endingPlayer.deck, currentPlayerIndex);
-			endingPlayer.discardPile.clear();
-			// Dump post-reshuffle deck summary
-			{
-				std::string after;
-				for (size_t i = 0; i < endingPlayer.deck.size() && i < 8; ++i) {
-					if (!after.empty()) after += ",";
-					after += endingPlayer.deck[i].name;
-				}
-				if (endingPlayer.deck.size() > 8) after += ",...";
-				ofLogNotice("Deck") << "  Deck after reshuffle (top->bottom shown last element first): " << after << " (size=" << endingPlayer.deck.size() << ")";
-			}
-			ofLogNotice("Deck") << "Reshuffled discard into deck for player " << endingPlayer.playerID;
+			// Use effect op to reshuffle discard into deck deterministically
+			EffectOp rs = {};
+			rs.type = EffectOpType::RESHUFFLE_DISCARD_TO_DECK;
+			rs.data.reshuffle.targetIndex = currentPlayerIndex;
+			processEffectOp(rs);
 		}
 
 		// Decrement buff timers
@@ -14960,15 +14892,11 @@ void ofApp::drawCard(bool sendPacket) {
 
 		ofLogNotice("Game") << "Deck is empty. Reshuffling Discard Pile into Deck...";
 
-		// Move Discard -> Deck
-		currentPlayer.deck = currentPlayer.discardPile;
-
-		// Clear Discard (This causes the discard pile visual to disappear, which is correct)
-		currentPlayer.discardPile.clear();
-
-		// Shuffle the new Deck (authoritative via host in multiplayer)
-		// Note: shuffleGameVector handles the visual animation
-		shuffleGameVector(currentPlayer.deck, currentPlayerIndex);
+		// Deterministic reshuffle via effect op
+		EffectOp rs = {};
+		rs.type = EffectOpType::RESHUFFLE_DISCARD_TO_DECK;
+		rs.data.reshuffle.targetIndex = currentPlayerIndex;
+		processEffectOp(rs);
 	}
 
 	// If some effect earlier marked the deck as "dirty" (cards were added without
@@ -15459,6 +15387,49 @@ void ofApp::processEffectOp(EffectOp & op) {
 						ofLogNotice("EffectQueue") << "Added card " << c.name << " to deck of player " << target.playerID;
 						break;
 					}
+				}
+			}
+		}
+		opComplete = true;
+		break;
+	}
+
+	case EffectOpType::REMOVE_TOP_CARD_FROM_DECK: {
+		{
+			int tidx = op.data.removeTopCard.targetIndex;
+			if (tidx >= 0 && tidx < (int)players.size()) {
+				Player & target = players[tidx];
+				if (!target.deck.empty()) {
+					target.deck.pop_back();
+					spawnFloatingText(gridToWorld(target.x, target.y), "Card Removed", ofColor::magenta);
+					ofLogNotice("EffectQueue") << "Removed top card from deck of player " << target.playerID;
+				}
+			}
+		}
+		opComplete = true;
+		break;
+	}
+
+	case EffectOpType::RESHUFFLE_DISCARD_TO_DECK: {
+		{
+			int tidx = op.data.reshuffle.targetIndex;
+			if (tidx >= 0 && tidx < (int)players.size()) {
+				Player & target = players[tidx];
+				if (!target.discardPile.empty()) {
+					// Move discard -> deck
+					target.deck = target.discardPile;
+					// Client-local shuffle animation
+					if (isClient()) {
+						ShuffleAnimation s;
+						s.playerIndex = target.playerID;
+						s.deckRect = (target.playerID == 0) ? p0_deckRect : p1_deckRect;
+						s.startTime = ofGetElapsedTimef();
+						s.duration = 0.9f;
+						activeShuffleAnimations.push_back(s);
+					}
+					shuffleGameVector(target.deck, tidx);
+					target.discardPile.clear();
+					ofLogNotice("EffectQueue") << "Reshuffled discard into deck for player " << target.playerID;
 				}
 			}
 		}
@@ -16909,14 +16880,24 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 
 		// If targeting self, apply block immediately
 		if (isSelf) {
-			caster.block += effectValue;
+			beginEffectSequence();
+			// Queue block gain deterministically
+			{
+				EffectOp op = {};
+				op.type = EffectOpType::MODIFY_STAT;
+				op.data.modifyStat.targetIndex = currentPlayerIndex;
+				op.data.modifyStat.statType = 5; // Block
+				op.data.modifyStat.delta = effectValue;
+				op.data.modifyStat.deltaFromSlot = -1;
+				queueEffect(op);
+			}
 			spawnFloatingText(targetPos, "+" + ofToString(effectValue) + " Block", ofColor::gray);
 			updatePlayerAP(caster, currentAP);
 			Card playedCard = caster.hand[cardIndex];
 			finishPlayCard(caster, playedCard, cardIndex);
 			tryTriggerShellSpike();
 			playedSuccessfully = true;
-			immediateResult = CARD_PLAYED_IMMEDIATELY;
+			advanceCardState(CARD_STATE_EFFECT_SEQUENCE);
 			return true;
 		}
 
@@ -17372,12 +17353,28 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 
 		Player * targetPlayer = getPlayer(targetIndex);
 		if (targetPlayer && !targetPlayer->deck.empty()) {
-			beginEffectSequence();
+			// Capture the stolen card type deterministically, then queue ops
 			Card stolenCard = targetPlayer->deck.back();
-			targetPlayer->deck.pop_back();
-			currentPlayer.deck.push_back(stolenCard);
-			shuffleGameVector(currentPlayer.deck, currentPlayerIndex);
+			beginEffectSequence();
 
+			// Queue removal of the top card from the target's deck
+			{
+				EffectOp removeOp = {};
+				removeOp.type = EffectOpType::REMOVE_TOP_CARD_FROM_DECK;
+				removeOp.data.removeTopCard.targetIndex = targetIndex;
+				queueEffect(removeOp);
+			}
+
+			// Queue adding that card type to the current player's deck
+			{
+				EffectOp addOp = {};
+				addOp.type = EffectOpType::ADD_CARD_TO_DECK;
+				addOp.data.addCard.targetIndex = currentPlayerIndex;
+				addOp.data.addCard.cardType = (int)stolenCard.type;
+				queueEffect(addOp);
+			}
+
+			// Visual: push stolen-card animation (uses captured card)
 			StolenCardAnimation newAnim;
 			newAnim.card = stolenCard;
 			newAnim.startTime = ofGetElapsedTimef();
@@ -17395,8 +17392,17 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 	case CARD_ROCK_CRUSH: {
 		if (board[targetX][targetY].hasWall) {
 			beginEffectSequence();
-			board[targetX][targetY].hasWall = false;
-			buildLevelMesh();
+
+			// Queue deterministic tile modification to remove the wall
+			{
+				EffectOp tileOp = {};
+				tileOp.type = EffectOpType::MODIFY_TILE;
+				tileOp.data.modifyTile.toX = targetX;
+				tileOp.data.modifyTile.toY = targetY;
+				tileOp.data.modifyTile.setHasWall = -1; // clear wall
+				queueEffect(tileOp);
+			}
+
 			currentCardOutcome.primaryTarget = { targetX, targetY };
 			currentCardOutcome.damageDealt = 0;
 			playedSuccessfully = true;
@@ -19906,27 +19912,10 @@ void ofApp::resolveEarthquakeDamage(const DiceRoll & finishedRoll) {
 			}
 			spawnFloatingText(textPos + glm::vec3(0, 0.8f, 0), "Phased (0 Dmg)", ofColor::cyan);
 		} else {
-			players[uidx].health -= finishedRoll.result;
-			glm::vec3 textPos = gridToWorld(players[uidx].x, players[uidx].y);
-			for (const auto & eu : earthquakeUnits) {
-				if (eu.playerIndex == uidx) {
-					textPos = eu.visualPos;
-					break;
-				}
-			}
-			spawnFloatingText(textPos + glm::vec3(0, 0.8f, 0), "-" + ofToString(finishedRoll.result), ofColor::red);
-
+			// Centralized damage handling (applyDamageTo will handle block/absorb, floating text, and graveyard entries)
+			applyDamageTo(players[uidx], finishedRoll.result, DAMAGE_PHYSICAL, -1);
+			// If the player died as a result, remove them from runtime containers (applyDamageTo already pushed graveyard/cleared board/x)
 			if (players[uidx].health <= 0) {
-				DeathMarker death;
-				death.x = players[uidx].x;
-				death.y = players[uidx].y;
-				death.turnDied = globalTurnCounter;
-				death.deck = players[uidx].deck;
-				graveyard.push_back(death);
-				if (death.x >= 0 && death.x < BOARD_WIDTH && death.y >= 0 && death.y < BOARD_HEIGHT) {
-					board[death.x][death.y].hasPlayer = false;
-				}
-				players.erase(players.begin() + uidx);
 				for (auto eit = earthquakeUnits.begin(); eit != earthquakeUnits.end();) {
 					if (eit->playerIndex == uidx)
 						eit = earthquakeUnits.erase(eit);
@@ -19945,6 +19934,7 @@ void ofApp::resolveEarthquakeDamage(const DiceRoll & finishedRoll) {
 					currentPlayerIndex = std::min<int>(uidx, (int)players.size() - 1);
 				else if (currentPlayerIndex > uidx)
 					currentPlayerIndex--;
+				players.erase(players.begin() + uidx);
 			}
 		}
 	}
@@ -19977,30 +19967,8 @@ void ofApp::resolvePoisonDamage() {
 			int pIndex = findPlayerIndexByID(pID);
 			Player * target = getPlayer(pIndex);
 			if (target) {
-				target->health -= poisonDamage;
-				glm::vec3 tPos = gridToWorld(target->x, target->y);
-				spawnFloatingText(tPos, "-" + ofToString(poisonDamage) + " Poison", ofColor::green);
-				ofLogNotice("Poison") << "Dealt " << poisonDamage << " poison damage to Player " << target->playerID;
-
-				if (target->inTortoiseForm) {
-					target->tortoiseDamageTaken += poisonDamage;
-					if (target->tortoiseDamageTaken >= 5) {
-						// inTortoiseForm will be cleared when the REMOVE_STATUS op is processed
-						target->tortoiseDamageTaken = 0;
-						target->discardPile.push_back(target->tortoiseFormCard);
-						spawnFloatingText(tPos + glm::vec3(0, 0.5f, 0), "Form Ended!", ofColor::darkGreen);
-					}
-				}
-				if (target->inGhostForm) {
-					target->ghostDamageTaken += poisonDamage;
-					if (target->ghostDamageTaken >= 4) {
-						// inGhostForm will be cleared when the REMOVE_STATUS op is processed
-						target->ghostDamageTaken = 0;
-						target->discardPile.push_back(target->ghostFormCard);
-						spawnFloatingText(tPos + glm::vec3(0, 0.5f, 0), "Ghost Form Broken!", ofColor::white);
-						if (board[target->x][target->y].hasWall) target->health = 0;
-					}
-				}
+				// Centralized poison damage handling
+				applyDamageTo(*target, poisonDamage, DAMAGE_POISON, -1);
 			}
 		}
 		currentCardOutcome.poisonTargetPlayerIDs.clear();
@@ -20009,74 +19977,22 @@ void ofApp::resolvePoisonDamage() {
 			advanceCardState(CARD_STATE_EFFECT_SEQUENCE);
 		}
 
-		// --- DEATH & FAERIE RESURRECTION CLEANUP ---
+		// --- DEATH CLEANUP ---
 		std::vector<int> removePoisoned;
 		for (size_t i = 0; i < players.size(); ++i) {
-			if (players[i].health <= 0) removePoisoned.push_back(i);
+			if (players[i].health <= 0) removePoisoned.push_back((int)i);
 		}
 		if (!removePoisoned.empty()) {
-			std::vector<int> finalRemove;
+			// Remove in descending order and adjust runtime indices. applyDamageTo already handled graveyard and board updates.
+			sort(removePoisoned.begin(), removePoisoned.end(), std::greater<int>());
 			for (int idx : removePoisoned) {
-				bool resurrected = false;
-				int x = players[idx].x;
-				int y = players[idx].y;
-				if (!players[idx].isFaerie) {
-					for (int dx = -1; dx <= 1 && !resurrected; ++dx) {
-						for (int dy = -1; dy <= 1 && !resurrected; ++dy) {
-							if (abs(dx) + abs(dy) != 1) continue;
-							int nx = x + dx;
-							int ny = y + dy;
-							if (nx < 0 || nx >= BOARD_WIDTH || ny < 0 || ny >= BOARD_HEIGHT) continue;
-							for (int j = 0; j < (int)players.size(); ++j) {
-								if (players[j].isFaerie && players[j].x == nx && players[j].y == ny && players[j].health > 0) {
-									int raw = getGameRandom(1, 4);
-									int luckBonus = players[j].luck + computePassiveLuck(j);
-									int d4 = raw + luckBonus;
-									float healF = players[idx].maxHealth * 0.25f * d4;
-									int heal = (int)healF;
-									if (heal > players[idx].maxHealth) heal = players[idx].maxHealth;
-									if (heal >= 1) {
-										players[idx].health = heal;
-										spawnFloatingText(gridToWorld(players[idx].x, players[idx].y), "Faerie Resurrection! +" + ofToString(heal) + " HP", ofColor::aqua);
-										resurrected = true;
-									}
-								}
-							}
-						}
-					}
-				}
-				if (!resurrected) {
-					finalRemove.push_back(idx);
-				}
-			}
-
-			std::sort(finalRemove.begin(), finalRemove.end(), std::greater<int>());
-			bool activePlayerDied = false;
-			for (int idx : finalRemove) {
 				if (idx < 0 || idx >= (int)players.size()) continue;
-
-				DeathMarker death;
-				death.x = players[idx].x;
-				death.y = players[idx].y;
-				death.turnDied = globalTurnCounter;
-				death.deck = players[idx].deck;
-				graveyard.push_back(death);
-
-				if (players[idx].x >= 0 && players[idx].x < BOARD_WIDTH && players[idx].y >= 0 && players[idx].y < BOARD_HEIGHT) {
-					board[players[idx].x][players[idx].y].hasPlayer = false;
-				}
-
 				for (auto & r : activeDiceRolls) {
 					if (r.associatedUnit == idx)
 						r.associatedUnit = -1;
 					else if (r.associatedUnit > idx)
 						r.associatedUnit -= 1;
 				}
-
-				if (currentPlayerIndex == idx) {
-					activePlayerDied = true;
-				}
-
 				for (auto it = earthquakeUnits.begin(); it != earthquakeUnits.end();) {
 					if (it->playerIndex == idx)
 						it = earthquakeUnits.erase(it);
@@ -20085,9 +20001,7 @@ void ofApp::resolvePoisonDamage() {
 						++it;
 					}
 				}
-
 				players.erase(players.begin() + idx);
-
 				if (players.empty()) {
 					currentPlayerIndex = -1;
 				} else {
@@ -20097,11 +20011,6 @@ void ofApp::resolvePoisonDamage() {
 						currentPlayerIndex -= 1;
 					}
 				}
-			}
-
-			if (activePlayerDied && !players.empty()) {
-				currentPlayerIndex = (currentPlayerIndex - 1 + (int)players.size()) % (int)players.size();
-				startNewTurn();
 			}
 			invalidateTargetCache();
 		}
