@@ -213,7 +213,14 @@ bool SteamManager::sendPacket(const void * data, uint32_t size) {
 				ofLogNotice("NetTrace") << "  PLACE_SUMMONED minionType=" << (int)psp->minionType << " ownerID=" << psp->ownerPlayerID << " target=(" << psp->targetX << "," << psp->targetY << ") HP=" << psp->minionHP << " AP=" << psp->minionAP;
 			} else if (outHdr->type == PKT_DICE_ROLL && size >= sizeof(DiceRollPacket)) {
 				DiceRollPacket * drp = (DiceRollPacket *)buffer.data();
-				ofLogNotice("NetTrace") << "  DICE_ROLL owner=" << drp->ownerIndex << " numDice=" << (int)drp->numDice << " sides=" << (int)drp->sides;
+				std::string rawList, finalList;
+				for (int ri = 0; ri < drp->numDice && ri < 8; ++ri) {
+					if (!rawList.empty()) rawList += ",";
+					rawList += std::to_string((int)drp->rawResults[ri]);
+					if (!finalList.empty()) finalList += ",";
+					finalList += std::to_string((int)drp->finalResults[ri]);
+				}
+				ofLogNotice("NetTrace") << "  DICE_ROLL owner=" << drp->ownerIndex << " numDice=" << (int)drp->numDice << " sides=" << (int)drp->sides << " label='" << drp->label << "' raw=[" << rawList << "] final=[" << finalList << "]";
 			} else if (outHdr->type == PKT_CHECKSUM_CHECK && size >= sizeof(ChecksumPacket)) {
 				ChecksumPacket * ckp = (ChecksumPacket *)buffer.data();
 				ofLogNotice("NetTrace") << "  CHECKSUM turn=" << ckp->turnNumber << " value=" << ckp->checksum;

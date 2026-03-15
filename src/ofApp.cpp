@@ -9,6 +9,7 @@
 #include <cstring>
 #include <filesystem>
 #include <fstream>
+#include <glm/gtc/constants.hpp>
 #include <glm/gtx/intersect.hpp>
 #include <limits>
 #include <new>
@@ -22,6 +23,14 @@
 // Legacy `pending*` macros have been migrated; use `networkPending.*`
 // fields directly. The old macro aliases were removed.
 
+void ofApp::triggerCameraShake(float intensity, float duration) {
+	cameraShakeIntensity = intensity;
+	cameraShakeDuration = std::max(0.001f, duration);
+	cameraShakeTimer = cameraShakeDuration;
+	// Seed a small initial offset
+	std::uniform_real_distribution<float> off(-1.0f, 1.0f);
+	cameraShakeOffset = glm::vec3(off(visualRNG), off(visualRNG) * 0.5f, off(visualRNG)) * cameraShakeIntensity;
+}
 // Prune old stamped autosave files, keeping at most `keep` newest ones
 static const std::string kSavesDir = "data/Saves";
 
@@ -202,14 +211,14 @@ void ofApp::applyReplicateCopyToHand(Player & caster, const Card & playedCard) {
 			op.data.status.targetIndex = ownerIndexFinal;
 			op.data.status.statusType = STATUS_REPLICATE_QUEUED;
 			op.data.status.duration = 0;
-			processEffectOp(op);
+			processEffectOp(op); // nextAttackAddPoison will be cleared when the REMOVE_STATUS op is processed
 		} else {
 			EffectOp op = {};
 			op.type = EffectOpType::REMOVE_STATUS;
 			op.data.status.targetIndex = ownerIndexFinal;
 			op.data.status.statusType = STATUS_REPLICATE_QUEUED;
 			op.data.status.duration = 0;
-			processEffectOp(op);
+			processEffectOp(op); // nextAttackAddPoison will be cleared when the REMOVE_STATUS op is processed
 		}
 	} else {
 		caster.replicateQueued = (duplicateCard.type == CARD_REPLICATE);
@@ -222,7 +231,7 @@ void ofApp::finishPlayCard(Player & caster, const Card & playedCard, int handInd
 		caster.hand.erase(caster.hand.begin() + handIndex);
 	}
 	interactingCardIndex = handIndex; // Update the interacting card index
-	applyReplicateCopyToHand(caster, playedCard);
+	applyReplicateCopyToHand(caster, playedCard); // nextAttackAddPoison will be cleared when the REMOVE_STATUS op is processed
 }
 
 void ofApp::updatePlayerAP(Player & player, int newAP) {
@@ -446,6 +455,10 @@ void ofApp::checkKeyPickupAndDraftAfterSummon(int x, int y, int minionOwnerID) {
 					selectedDraftIndices.clear();
 					currentState = STATE_DRAFTING;
 
+					// If this draft belongs to another player while it's currently someone's turn,
+					// pause the active player's turn timer and start an opponent decision timer.
+					pauseTurnTimerForOpponentDecision(targetIndex);
+
 					ofColor keyCol = ofColor::gold;
 					if (keySet == 2)
 						keyCol = ofColor(192, 192, 192);
@@ -456,6 +469,34 @@ void ofApp::checkKeyPickupAndDraftAfterSummon(int x, int y, int minionOwnerID) {
 				break;
 			}
 		}
+	}
+}
+
+void ofApp::pauseTurnTimerForOpponentDecision(int decidingPlayerIndex) {
+	if (!turnTimerEnabled) return;
+	// Only pause if it's currently someone's turn and the deciding player is not the active player
+	if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size() && currentPlayerIndex != decidingPlayerIndex) {
+		if (!turnTimerPaused) {
+			float now = ofGetElapsedTimef();
+			turnTimerPaused = true;
+			turnTimerPausedRemaining = std::max(0.0f, (turnStartTime + turnDurationSeconds) - now);
+			opponentDecisionTimerActive = true;
+			opponentDecisionStartTime = now;
+			opponentDecisionPlayerIndex = decidingPlayerIndex;
+		}
+	}
+}
+
+void ofApp::resumeTurnTimerIfPausedForOpponent(int decidingPlayerIndex) {
+	if (!turnTimerEnabled) return;
+	if (turnTimerPaused && opponentDecisionTimerActive && opponentDecisionPlayerIndex == decidingPlayerIndex) {
+		float now = ofGetElapsedTimef();
+		turnTimerPaused = false;
+		// Restore turnStartTime such that remaining time equals turnTimerPausedRemaining
+		turnStartTime = now - (turnDurationSeconds - turnTimerPausedRemaining);
+		turnTimerPausedRemaining = 0.0f;
+		opponentDecisionTimerActive = false;
+		opponentDecisionPlayerIndex = -1;
 	}
 }
 
@@ -509,7 +550,7 @@ void drawStatText(ofTrueTypeFont & font, std::string text, float x, float y, flo
 }
 
 //--------------------------------------------------------------
-static std::string escapeField(const std::string & input) {
+[[maybe_unused]] static std::string escapeField(const std::string & input) {
 	std::string out;
 	out.reserve(input.size());
 	for (char c : input) {
@@ -534,7 +575,7 @@ static std::string escapeField(const std::string & input) {
 	return out;
 }
 
-static std::string unescapeField(const std::string & input) {
+[[maybe_unused]] static std::string unescapeField(const std::string & input) {
 	std::string out;
 	out.reserve(input.size());
 	bool esc = false;
@@ -569,7 +610,7 @@ static std::string unescapeField(const std::string & input) {
 	return out;
 }
 
-static std::vector<std::string> splitTabs(const std::string & line) {
+[[maybe_unused]] static std::vector<std::string> splitTabs(const std::string & line) {
 	std::vector<std::string> out;
 	std::string current;
 	for (char c : line) {
@@ -584,7 +625,7 @@ static std::vector<std::string> splitTabs(const std::string & line) {
 	return out;
 }
 
-static std::vector<std::string> splitEscapedList(const std::string & input) {
+[[maybe_unused]] static std::vector<std::string> splitEscapedList(const std::string & input) {
 	std::vector<std::string> out;
 	std::string current;
 	bool esc = false;
@@ -3525,6 +3566,9 @@ void ofApp::updateGame() {
 			if (!(isClient() && lastSentDraftActionValid)) {
 				selectedDraftIndices.clear();
 			}
+
+			// Pause active player's timer if this draft belongs to another player
+			pauseTurnTimerForOpponentDecision(resolvedIdx);
 			currentState = STATE_DRAFTING;
 			// clear pending (but keep keyX/keyY for Accept remapping)
 			networkPending.keyDraftAccept = false;
@@ -3540,6 +3584,37 @@ void ofApp::updateGame() {
 
 	// 1. UPDATE UI POSITIONS
 	updateDebugRects();
+
+	// --- TURN TIMER CHECK (run early so it continues during modal menus/drafting) ---
+	if (turnTimerEnabled && currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size() && (!isMultiplayer || isMyTurn())) {
+		// Run timer checks even if modal UI is open; drafting/gameplay variations handled inside
+		if (currentState == STATE_GAMEPLAY || currentState == STATE_DRAFTING) {
+			float elapsedSeconds = ofGetElapsedTimef() - turnStartTime;
+			if (elapsedSeconds >= turnDurationSeconds) {
+				if (currentState == STATE_DRAFTING) {
+					int requiredPicks = (!isInGameDraft && draftStage == 0) ? 2 : 1;
+					if ((int)selectedDraftIndices.size() > 0) {
+						ofLogNotice("Timer") << "Draft timer expired with " << selectedDraftIndices.size() << " cards selected. Auto-accepting.";
+						draftAcceptLocked = true;
+					} else if ((int)selectedDraftIndices.size() < requiredPicks) {
+						const std::vector<Card> * pool = &class1Cards;
+						if (currentDraftClassTier == 2) pool = &class2Cards;
+						// Randomly pick
+						int picks = requiredPicks;
+						for (int i = 0; i < picks; ++i) {
+							int pickIdx = (int)(gameplayRNG() % pool->size());
+							selectedDraftIndices.push_back(pickIdx);
+						}
+						draftAcceptLocked = true;
+					}
+				} else {
+					// Auto-end-turn during gameplay
+					ofLogNotice("Timer") << "Turn time limit exceeded (" << turnDurationSeconds << "s). Auto-ending turn.";
+					startNewTurn();
+				}
+			}
+		}
+	}
 
 	// 2. Modal freeze check (unified card interaction + special legacy Magic Blast)
 	bool hasUnifiedCardModal = (cardInteractionState == CARD_INTERACTION_MENU || cardInteractionState == CARD_INTERACTION_STATUS);
@@ -3596,11 +3671,46 @@ void ofApp::updateGame() {
 	cameraCurrentLookAt = glm::mix(cameraCurrentLookAt, targetLookAt, frame_independent_smoothing);
 	cameraCurrentLookAt2 = glm::mix(cameraCurrentLookAt2, targetLookAt2, frame_independent_smoothing);
 
-	// Update both cameras
-	cam.setPosition(cameraCurrentPos);
-	cam.lookAt(cameraCurrentLookAt);
-	cam2.setPosition(cameraCurrentPos2);
-	cam2.lookAt(cameraCurrentLookAt2);
+	// Apply camera shake (visual only)
+	{
+		float dt = ofGetLastFrameTime();
+		// Determine if any earthquake unit is still moving
+		bool quakeMoving = false;
+		for (const auto & eu : earthquakeUnits) {
+			if (eu.isMoving && eu.tilesToMove > 0) {
+				quakeMoving = true;
+				break;
+			}
+		}
+
+		if (!quakeMoving && cameraShakeTimer > 0.0f) {
+			cameraShakeTimer = std::max(0.0f, cameraShakeTimer - dt);
+		}
+
+		float life = 0.0f;
+		if (quakeMoving) {
+			// keep full shake while units are moving
+			life = 1.0f;
+		} else {
+			life = (cameraShakeDuration > 0.0f) ? (cameraShakeTimer / cameraShakeDuration) : 0.0f;
+		}
+		float falloff = life; // linear falloff
+		if (life > 0.0f) {
+			std::uniform_real_distribution<float> off(-1.0f, 1.0f);
+			float rx = off(visualRNG);
+			float ry = off(visualRNG);
+			float rz = off(visualRNG);
+			cameraShakeOffset = glm::vec3(rx, ry * 0.5f, rz) * cameraShakeIntensity * falloff;
+		} else {
+			cameraShakeOffset = glm::vec3(0.0f);
+		}
+	}
+
+	// Update both cameras (apply shake offset)
+	cam.setPosition(cameraCurrentPos + cameraShakeOffset);
+	cam.lookAt(cameraCurrentLookAt + cameraShakeOffset * 0.5f);
+	cam2.setPosition(cameraCurrentPos2 + cameraShakeOffset);
+	cam2.lookAt(cameraCurrentLookAt2 + cameraShakeOffset * 0.5f);
 
 	// --- TORCH FLICKER LOGIC (SLOWER) ---
 	float time = ofGetElapsedTimef();
@@ -3817,6 +3927,8 @@ void ofApp::updateGame() {
 				isEarthquakeWaiting = false;
 				isEarthquakeAnimatingStep = true;
 				earthquakeT = 0.0f;
+				// Trigger camera shake at earthquake start (visual only)
+				triggerCameraShake(1.2f, 0.9f);
 			}
 		}
 
@@ -4977,139 +5089,142 @@ void ofApp::updateGame() {
 	}
 
 	if (isPlayerAnimating && animatingPlayerIndex >= 0 && animatingPlayerIndex < (int)players.size()) {
-		glm::vec3 targetPos = animationPath[currentPathIndex];
-		// Cap deltaTime at 0.016f (60fps) to prevent instant movement on high framerates
-		float clampedDeltaTime = std::min(deltaTime, 0.016f);
-		// Smooth animation: 0.05 second movement per tile (faster movement)
-		float player_speed = clampedDeltaTime / 0.05f;
+		// Per-segment eased movement with hop for nicer motion
+		auto easeInOutCubic = [](float t) {
+			if (t < 0.5f) return 4.0f * t * t * t;
+			float f = ((2.0f * t) - 2.0f);
+			return 0.5f * f * f * f + 1.0f;
+		};
 
-		// Calculate facing direction
-		glm::vec3 direction = targetPos - playerVisualPos;
-		if (glm::length(glm::vec2(direction.x, direction.z)) > 0.01f) {
-			playerFacingAngle = glm::degrees(atan2(direction.x, direction.z)) + 180.0f;
-			players[animatingPlayerIndex].facingAngle = playerFacingAngle;
-		}
+		// Ensure we have at least two points (start + next) for a valid segment
+		if (currentPathIndex < 0) currentPathIndex = 0;
+		if (currentPathIndex + 1 >= (int)animationPath.size()) {
+			// Nothing to move to: finish animation
+			isPlayerAnimating = false;
+			animatingPlayerIndex = -1;
+		} else {
+			glm::vec3 startPos = animationPath[currentPathIndex];
+			glm::vec3 targetPos = animationPath[currentPathIndex + 1];
 
-		playerVisualPos = glm::mix(playerVisualPos, targetPos, player_speed);
+			float segmentDuration = 0.20f; // seconds per tile (slower movement)
+			float elapsed = ofGetElapsedTimef() - animationSegmentStartTime;
+			float t = std::clamp(elapsed / segmentDuration, 0.0f, 1.0f);
+			float easeT = easeInOutCubic(t);
 
-		// Check if unit arrived at the center of the tile
-		if (glm::distance(playerVisualPos, targetPos) < 0.05f) {
-			playerVisualPos = targetPos; // Snap to exact position
+			// Facing based on movement direction (horizontal X/Z plane)
+			glm::vec3 dir = targetPos - startPos;
+			if (glm::length(glm::vec2(dir.x, dir.z)) > 0.001f) {
+				playerFacingAngle = glm::degrees(atan2(dir.x, dir.z)) + 180.0f;
+				players[animatingPlayerIndex].facingAngle = playerFacingAngle;
+			}
 
-			// --- KEY PICKUP LOGIC START ---
-			// Only process key pickup on host - clients wait for PKT_KEY_PICKUP packet
-			if (!isMultiplayer || isHost()) {
-				// Use non-flipped world-to-grid conversion for key pickup
-				int cx = (int)std::round((playerVisualPos.x - TILE_SIZE / 2.0f) / TILE_SIZE + BOARD_WIDTH / 2.0f);
-				int cy = (int)std::round((playerVisualPos.z - TILE_SIZE / 2.0f) / TILE_SIZE + BOARD_HEIGHT / 2.0f);
-				cx = std::clamp(cx, 0, BOARD_WIDTH - 1);
-				cy = std::clamp(cy, 0, BOARD_HEIGHT - 1);
+			// Interpolate with easing
+			playerVisualPos = glm::mix(startPos, targetPos, easeT);
 
-				for (int k = 0; k < (int)floatingKeyInstances.size(); ++k) {
-					if (floatingKeyInstances[k].pos.x == cx && floatingKeyInstances[k].pos.y == cy) {
-						// KEY FOUND
-						int keySet = floatingKeyInstances[k].set;
+			// Add a small vertical hop for visual weight
+			float hop = sinf(easeT * glm::pi<float>()) * movementHopHeight;
+			playerVisualPos.y += hop;
 
-						// Remove the key immediately
-						floatingKeyInstances.erase(floatingKeyInstances.begin() + k);
+			// Arrival
+			if (t >= 0.999f) {
+				// Snap to exact tile
+				playerVisualPos = targetPos;
 
-						// Map Key Color to Card Class
-						// Set 3 (Bronze) = Class 1
-						// Set 2 (Silver) = Class 2
-						// Set 1 (Gold)   = Class 3
-						int classToDraft = 1;
-						if (keySet == 3)
-							classToDraft = 1;
-						else if (keySet == 2)
-							classToDraft = 2;
-						else if (keySet == 1)
-							classToDraft = 3;
+				// --- KEY PICKUP LOGIC START ---
+				if (!isMultiplayer || isHost()) {
+					int cx = (int)std::round((playerVisualPos.x - TILE_SIZE / 2.0f) / TILE_SIZE + BOARD_WIDTH / 2.0f);
+					int cy = (int)std::round((playerVisualPos.z - TILE_SIZE / 2.0f) / TILE_SIZE + BOARD_HEIGHT / 2.0f);
+					cx = std::clamp(cx, 0, BOARD_WIDTH - 1);
+					cy = std::clamp(cy, 0, BOARD_HEIGHT - 1);
 
-						// Identify target for key pickup.
-						// If a minion moved over the key, the minion actor itself should
-						// receive the in-game draft. Otherwise target the owning player.
-						Player & mover = players[animatingPlayerIndex];
-						int targetIndex = -1;
+					for (int k = 0; k < (int)floatingKeyInstances.size(); ++k) {
+						if (floatingKeyInstances[k].pos.x == cx && floatingKeyInstances[k].pos.y == cy) {
+							int keySet = floatingKeyInstances[k].set;
+							floatingKeyInstances.erase(floatingKeyInstances.begin() + k);
+							int classToDraft = 1;
+							if (keySet == 3)
+								classToDraft = 1;
+							else if (keySet == 2)
+								classToDraft = 2;
+							else if (keySet == 1)
+								classToDraft = 3;
 
-						// Prefer the local minion actor at the key tile (covers pass-over cases)
-						for (int p = 0; p < (int)players.size(); ++p) {
-							if (players[p].isMinion && players[p].x == cx && players[p].y == cy) {
-								targetIndex = p;
-								break;
-							}
-						}
-
-						// If no minion actor found, fall back to the owner player
-						int ownerID = mover.isMinion ? mover.ownerID : mover.playerID;
-						if (targetIndex == -1) {
+							Player & mover = players[animatingPlayerIndex];
+							int targetIndex = -1;
 							for (int p = 0; p < (int)players.size(); ++p) {
-								if (players[p].playerID == ownerID && !players[p].isMinion) {
+								if (players[p].isMinion && players[p].x == cx && players[p].y == cy) {
 									targetIndex = p;
 									break;
 								}
 							}
-						}
 
-						if (targetIndex != -1) {
-							// HOST: Send key pickup packet to clients
-							if (isHost()) {
-								KeyPickupPacket kpkt = {};
-								kpkt.type = PKT_KEY_PICKUP;
-								kpkt.playerID = myLocalPlayerID;
-								kpkt.playerIndex = targetIndex;
-								// Include stable playerID so clients can remap actor indices
-								kpkt.playerID = (targetIndex >= 0 && targetIndex < (int)players.size()) ? players[targetIndex].playerID : -1;
-								kpkt.classTier = classToDraft;
-								kpkt.keyX = cx;
-								kpkt.keyY = cy;
-								steamManager.sendPacket(&kpkt, sizeof(kpkt));
-								ofLogNotice("Network") << "Host sent KeyPickup: playerIndex=" << targetIndex << " class=" << classToDraft;
+							int ownerID = mover.isMinion ? mover.ownerID : mover.playerID;
+							if (targetIndex == -1) {
+								for (int p = 0; p < (int)players.size(); ++p) {
+									if (players[p].playerID == ownerID && !players[p].isMinion) {
+										targetIndex = p;
+										break;
+									}
+								}
 							}
 
-							// Setup In-Game Draft State
-							isInGameDraft = true;
-							draftPlayerIndex = targetIndex;
-							generateDraftOptions(classToDraft);
-							draftPicksRemaining = 1; // Keys always give 1 pick
-							selectedDraftIndices.clear(); // Reset UI selection
-							currentState = STATE_DRAFTING;
+							if (targetIndex != -1) {
+								if (isHost()) {
+									KeyPickupPacket kpkt = {};
+									kpkt.type = PKT_KEY_PICKUP;
+									kpkt.playerID = myLocalPlayerID;
+									kpkt.playerIndex = targetIndex;
+									kpkt.playerID = (targetIndex >= 0 && targetIndex < (int)players.size()) ? players[targetIndex].playerID : -1;
+									kpkt.classTier = classToDraft;
+									kpkt.keyX = cx;
+									kpkt.keyY = cy;
+									steamManager.sendPacket(&kpkt, sizeof(kpkt));
+									ofLogNotice("Network") << "Host sent KeyPickup: playerIndex=" << targetIndex << " class=" << classToDraft;
+								}
 
-							// Color by key set: 1=gold, 2=silver, 3=bronze
-							{
+								isInGameDraft = true;
+								draftPlayerIndex = targetIndex;
+								generateDraftOptions(classToDraft);
+								draftPicksRemaining = 1;
+								selectedDraftIndices.clear();
+								currentState = STATE_DRAFTING;
+
 								ofColor keyCol = ofColor::gold;
 								if (keySet == 2)
 									keyCol = ofColor(192, 192, 192);
 								else if (keySet == 3)
 									keyCol = ofColor(205, 127, 50);
 								spawnFloatingText(gridToWorld(cx, cy), "Key Found!", keyCol);
+								int loggedPlayerID = (targetIndex >= 0 && targetIndex < (int)players.size()) ? players[targetIndex].playerID : mover.playerID;
+								ofLogNotice("Key") << "Player " << loggedPlayerID << " picked up key (Class " << classToDraft << ")";
+								return; // freeze update until draft resolved
 							}
-							int loggedPlayerID = (targetIndex >= 0 && targetIndex < (int)players.size()) ? players[targetIndex].playerID : mover.playerID;
-							ofLogNotice("Key") << "Player " << loggedPlayerID << " picked up key (Class " << classToDraft << ")";
-							return; // Stop update to freeze game/animation until draft is done
+							break;
 						}
-						break;
 					}
 				}
-			} // End host-only key pickup logic
-			// --- KEY PICKUP LOGIC END ---
+				// --- KEY PICKUP LOGIC END ---
 
-			currentPathIndex++;
+				// Advance to next segment
+				currentPathIndex++;
+				animationSegmentStartTime = ofGetElapsedTimef();
 
-			// Play Footstep Sound
-			if (currentPathIndex < static_cast<int>(animationPath.size()) && !footstepSounds.empty()) {
-				std::uniform_int_distribution<int> footIdx(0, (int)footstepSounds.size() - 1);
-				int idx = footIdx(visualRNG);
-				std::uniform_real_distribution<float> footSpeed(0.9f, 1.1f);
-				footstepSounds[idx].setSpeed(footSpeed(visualRNG));
-				footstepSounds[idx].play();
-			}
+				// Play Footstep Sound when starting next segment
+				if (currentPathIndex < static_cast<int>(animationPath.size()) && !footstepSounds.empty()) {
+					std::uniform_int_distribution<int> footIdx(0, (int)footstepSounds.size() - 1);
+					int idx = footIdx(visualRNG);
+					std::uniform_real_distribution<float> footSpeed(0.9f, 1.1f);
+					footstepSounds[idx].setSpeed(footSpeed(visualRNG));
+					footstepSounds[idx].play();
+				}
 
-			if (currentPathIndex >= static_cast<int>(animationPath.size())) {
-				isPlayerAnimating = false;
-				animatingPlayerIndex = -1;
-				// Reset visual position to the current player so we don't display the wrong unit
-				if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) {
-					playerVisualPos = gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y);
+				if (currentPathIndex >= static_cast<int>(animationPath.size()) - 1) {
+					// Finished all segments
+					isPlayerAnimating = false;
+					animatingPlayerIndex = -1;
+					if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) {
+						playerVisualPos = gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y);
+					}
 				}
 			}
 		}
@@ -6974,7 +7089,7 @@ void ofApp::drawGame() {
 				int pIndex = (int)(&player - &players[0]);
 				if (isEarthquakeActive) {
 					for (const auto & eq : earthquakeUnits) {
-						if (eq.playerIndex == pIndex && (eq.originalDistance > 0 || eq.crashed)) {
+						if (eq.playerIndex == pIndex && (eq.tilesToMove > 0 || eq.originalDistance > 0 || eq.crashed)) {
 							// Determine displayed remaining tiles: decrement once the step progress crosses halfway
 							int displayedRemaining = 0;
 							if (eq.crashed)
@@ -7465,6 +7580,15 @@ void ofApp::drawGame() {
 				worldPostShader.begin();
 				worldPostShader.setUniformTexture("tex0", worldFbo.getTexture(), 0);
 				worldPostShader.setUniform2f("uResolution", ofGetWidth(), ofGetHeight());
+				// Dynamic DOF focus: use active player's screen Y if available
+				float focusY = 0.5f;
+				if (currentPlayerIndex >= 0) {
+					ofVec3f sp = getActiveCamera().worldToScreen(playerVisualPos);
+					focusY = sp.y / (float)ofGetHeight();
+				}
+				worldPostShader.setUniform1f("uFocusY", focusY);
+				worldPostShader.setUniform1f("uFocusRadius", 0.12f);
+				worldPostShader.setUniform1f("uMaxBlur", 6.0f);
 				worldFbo.getTexture().draw(0, 0, ofGetWidth(), ofGetHeight());
 				worldPostShader.end();
 			}
@@ -7524,7 +7648,8 @@ void ofApp::drawGame() {
 	(void)fontScale;
 
 	// --- DRAW TURN TIMER BAR AT TOP OF SCREEN ---
-	if (turnTimerEnabled && (currentState == STATE_GAMEPLAY || currentState == STATE_DRAFTING) && currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) {
+	// Always show the turn timer for the active player (including during forced in-game menus/drafting)
+	if (turnTimerEnabled && currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size() && (!isMultiplayer || isMyTurn())) {
 		float elapsedSeconds = ofGetElapsedTimef() - turnStartTime;
 		float progress = std::min(1.0f, elapsedSeconds / turnDurationSeconds); // 0 to 1
 
@@ -11153,6 +11278,8 @@ void ofApp::mousePressed(int x, int y, int button) {
 
 			if (isInGameDraft) {
 				isInGameDraft = false;
+				// Resume any paused turn timer caused by an opponent-driven draft
+				resumeTurnTimerIfPausedForOpponent(draftPlayerIndex);
 				currentState = STATE_GAMEPLAY;
 				return;
 			}
@@ -11289,6 +11416,8 @@ void ofApp::mousePressed(int x, int y, int button) {
 
 		// No more drafts, return to game
 		isInGameDraft = false;
+		// Resume any paused turn timer caused by an opponent-driven draft
+		resumeTurnTimerIfPausedForOpponent(draftPlayerIndex);
 		currentState = STATE_GAMEPLAY;
 		return;
 	}
@@ -13074,6 +13203,11 @@ void ofApp::mouseReleased(int x, int y, int button) {
 				ofLogNotice("Draft") << "Right-click ignored during in-game key draft (must pick a card).";
 				return;
 			}
+			// If a card menu is open (must choose), ignore right-click cancels
+			if (cardInteractionState == CARD_INTERACTION_MENU || cardInteractionState == CARD_INTERACTION_STATUS) {
+				ofLogNotice("Input") << "Right-click ignored while menu open (must choose).";
+				return;
+			}
 			// If we are targeting teleport and have rolled (can't cancel after dice roll)
 			if (cardInteractionState == CARD_INTERACTION_TARGETING && interactingCardType == CARD_TELEPORT && interactionDiceRoll > 0) {
 				ofLogNotice("Teleport") << "Right-click ignored after teleport dice roll (must choose destination).";
@@ -13923,7 +14057,7 @@ void ofApp::startNewTurn() {
 					rmPoisonBuff.data.status.duration = 0;
 					queueEffect(rmPoisonBuff);
 				}
-				localPlayer.nextAttackAddPoison = false;
+				// nextAttackAddPoison will be cleared when the REMOVE_STATUS op is processed
 				localPlayer.flurryOfFistsStacks = 0;
 
 				// NOTE: Defensive stats (block, ward, etc.) are NOT cleared here!
@@ -14485,6 +14619,43 @@ void ofApp::updateCardInteractionState(CardInteractionState newState, int cardId
 		interactionTargetIndex = -1;
 		interactionMenuChoice.clear();
 		interactionNeedsStatusSelect = false;
+
+		// If we had paused the turn timer for an opponent decision, resume it now
+		if (turnTimerPaused) {
+			turnTimerPaused = false;
+			// restore remaining time
+			turnStartTime = ofGetElapsedTimef() - (turnDurationSeconds - turnTimerPausedRemaining);
+			turnTimerPausedRemaining = 0.0f;
+		}
+
+		// Stop any opponent decision timer
+		opponentDecisionTimerActive = false;
+		opponentDecisionPlayerIndex = -1;
+	}
+	// When entering a menu, start the menu-open scale animation
+	if (newState == CARD_INTERACTION_MENU) {
+		menuOpenStartTime = ofGetElapsedTimef();
+		// start slightly small
+		menuOpenScale = 0.6f;
+
+		// If this menu is a modal that targets another player (e.g., Magic Blast choices),
+		// pause the current player's turn timer and start a decision timer for the target.
+		if (interactingCardType == CARD_MAGIC_BLAST) {
+			// magicBlastTargetPlayerIndex is set by the resolver when applicable
+			if (magicBlastTargetPlayerIndex >= 0 && magicBlastTargetPlayerIndex != currentPlayerIndex) {
+				// Pause current player's timer
+				if (!turnTimerPaused) {
+					float elapsed = ofGetElapsedTimef() - turnStartTime;
+					turnTimerPausedRemaining = std::max(0.0f, turnDurationSeconds - elapsed);
+					turnTimerPaused = true;
+				}
+				// Start opponent decision timer
+				opponentDecisionTimerActive = true;
+				opponentDecisionStartTime = ofGetElapsedTimef();
+				opponentDecisionDuration = std::min(30.0f, turnDurationSeconds); // cap at 30s
+				opponentDecisionPlayerIndex = magicBlastTargetPlayerIndex;
+			}
+		}
 	}
 	ofLogNotice("CardInteraction") << "State: " << (int)newState << " | Card: " << cardIdx << " Type: " << cardType;
 }
@@ -14721,6 +14892,147 @@ void ofApp::handleCardTargetClick(int gridX, int gridY) {
 	Card & card = caster.hand[interactingCardIndex];
 	interactionTargetIndex = targetIndex;
 	int cardIndex = interactingCardIndex;
+
+	// Handle placement interactions (minions) centrally here so mouseReleased
+	// no longer needs ad-hoc placement logic.
+	if (cardInteractionState == CARD_INTERACTION_PLACING) {
+		// KOBOLD PLACEMENT
+		if (interactingCardType == CARD_CALL_FOR_KOBOLDS && !isWaitingForKoboldDice) {
+			int gx = gridX, gy = gridY;
+			if (gx >= 0 && gx < BOARD_WIDTH && gy >= 0 && gy < BOARD_HEIGHT) {
+				if (!board[gx][gy].hasWall && !board[gx][gy].hasPlayer) {
+					int dist = abs(gx - koboldPlacementSourceX) + abs(gy - koboldPlacementSourceY);
+					if (dist == 1) {
+						koboldSummonCount++;
+
+						Player kobold;
+						kobold.playerID = 300 + (int)players.size();
+						kobold.x = gx;
+						kobold.y = gy;
+						kobold.maxHealth = 1;
+						kobold.health = 1;
+						kobold.isMinion = true;
+						kobold.isKobold = true;
+						kobold.isSkeleton = false;
+
+						kobold.ownerID = currentCardOutcome.summonOwnerPlayerID;
+						kobold.summonedOnTurnCycle = globalTurnCounter;
+						kobold.summonOrder = ++nextSummonOrder;
+						Card hb, pu, callCard;
+						for (const auto & c : allCards) {
+							if (c.name == "Hand Block") hb = c;
+							if (c.name == "Punch") pu = c;
+							if (c.type == CARD_CALL_FOR_KOBOLDS) callCard = c;
+						}
+						kobold.deck = { hb, hb, pu, callCard };
+
+						board[gx][gy].hasPlayer = true;
+						players.push_back(kobold);
+						int newKoboldIdx = (int)players.size() - 1;
+						shuffleGameVector(players[newKoboldIdx].deck, newKoboldIdx);
+
+						if (isMultiplayer && isHost()) {
+							PlaceSummonedMinionPacket pkt = {};
+							pkt.type = PKT_PLACE_SUMMONED_MINION;
+							pkt.playerID = myLocalPlayerID;
+							pkt.minionType = 1; // KOBOLD
+							pkt.ownerPlayerID = kobold.ownerID;
+							pkt.targetX = gx;
+							pkt.targetY = gy;
+							pkt.minionHP = kobold.health;
+							pkt.minionAP = kobold.ap;
+							steamManager.sendPacket(&pkt, sizeof(pkt));
+							ofLogNotice("Network") << "Host sent PlaceSummonedMinion: KOBOLD owner=" << pkt.ownerPlayerID << " target=(" << pkt.targetX << "," << pkt.targetY << ") HP=" << pkt.minionHP;
+						}
+
+						koboldsRemainingToPlace--;
+						if (koboldsRemainingToPlace <= 0) {
+							updateCardInteractionState(CARD_INTERACTION_IDLE, -1, CARD_NONE);
+							koboldSummonStage = 0;
+							int myID = players[currentPlayerIndex].playerID;
+							std::sort(players.begin(), players.end(), [](const Player & a, const Player & b) {
+								int ownerA = a.isMinion ? a.ownerID : a.playerID;
+								int ownerB = b.isMinion ? b.ownerID : b.playerID;
+								if (ownerA != ownerB) return ownerA < ownerB;
+								if (a.isMinion && !b.isMinion) return true;
+								if (!a.isMinion && b.isMinion) return false;
+								return a.summonOrder < b.summonOrder;
+							});
+							for (size_t i = 0; i < players.size(); i++) {
+								if (players[i].playerID == myID) {
+									currentPlayerIndex = i;
+									break;
+								}
+							}
+						}
+
+						return;
+					}
+				}
+			}
+		}
+		// WOLF PLACEMENT
+		if (interactingCardType == CARD_CALL_FOR_WOLVES && !isWaitingForWolfCoin) {
+			int gx = gridX, gy = gridY;
+			if (gx >= 0 && gx < BOARD_WIDTH && gy >= 0 && gy < BOARD_HEIGHT) {
+				if (!board[gx][gy].hasWall && !board[gx][gy].hasPlayer) {
+					int dist = abs(gx - wolfPlacementSourceX) + abs(gy - wolfPlacementSourceY);
+					if (dist == 1) {
+						wolfSummonCount++;
+
+						Player wolf;
+						wolf.playerID = 200 + (int)players.size();
+						wolf.x = gx;
+						wolf.y = gy;
+						wolf.maxHealth = 4;
+						wolf.health = 4;
+						wolf.isMinion = true;
+						wolf.isWolf = true;
+
+						wolf.ownerID = currentCardOutcome.summonOwnerPlayerID;
+						wolf.summonedOnTurnCycle = globalTurnCounter;
+						Card slashCard, callCard;
+						for (const auto & c : allCards) {
+							if (c.name == "Slash") slashCard = c;
+							if (c.type == CARD_CALL_FOR_WOLVES) callCard = c;
+						}
+						wolf.deck = { slashCard, slashCard, slashCard, callCard };
+
+						board[gx][gy].hasPlayer = true;
+						players.push_back(wolf);
+						int newWolfIdx = (int)players.size() - 1;
+						shuffleGameVector(players[newWolfIdx].deck, newWolfIdx);
+
+						if (isMultiplayer && isHost()) {
+							PlaceSummonedMinionPacket pkt = {};
+							pkt.type = PKT_PLACE_SUMMONED_MINION;
+							pkt.playerID = myLocalPlayerID;
+							pkt.minionType = 2; // WOLF
+							pkt.ownerPlayerID = wolf.ownerID;
+							pkt.targetX = wolf.x;
+							pkt.targetY = wolf.y;
+							pkt.minionHP = wolf.maxHealth;
+							pkt.minionAP = 0;
+							steamManager.sendPacket(&pkt, sizeof(pkt));
+							ofLogNotice("Network") << "Host sent PlaceSummonedMinion: WOLF owner=" << pkt.ownerPlayerID << " target=(" << pkt.targetX << "," << pkt.targetY << ") HP=" << pkt.minionHP;
+						}
+
+						if (wolfSummonStage == 1) {
+							checkKeyPickupAndDraftAfterSummon(gx, gy, wolf.ownerID);
+							startDiceRoll(1, 2, PURPOSE_COIN_FLIP, "Call for Wolves Coin", currentPlayerIndex);
+							isWaitingForWolfCoin = true;
+						} else if (wolfSummonStage == 2) {
+							updateCardInteractionState(CARD_INTERACTION_IDLE, -1, CARD_NONE);
+							wolfSummonStage = 0;
+							checkKeyPickupAndDraftAfterSummon(gx, gy, wolf.ownerID);
+						}
+
+						return;
+					}
+				}
+			}
+		}
+	}
 
 	switch (interactingCardType) {
 	case CARD_TELEPORT: {
@@ -15050,6 +15362,23 @@ void ofApp::drawActiveCardInteractionUI() {
 		return;
 	}
 
+	// Compute menu scale (tween from small -> 1.0)
+	float scale = 1.0f;
+	if (cardInteractionState == CARD_INTERACTION_MENU) {
+		float elapsed = ofGetElapsedTimef() - menuOpenStartTime;
+		float t = (menuOpenDuration > 0.0f) ? std::clamp(elapsed / menuOpenDuration, 0.0f, 1.0f) : 1.0f;
+		// Ease out cubic
+		float ease = 1.0f - powf(1.0f - t, 3.0f);
+		scale = glm::mix(menuOpenScale, 1.0f, ease);
+		// apply centered scale around screen center
+		ofPushMatrix();
+		float cx = ofGetWidth() * 0.5f;
+		float cy = ofGetHeight() * 0.5f;
+		ofTranslate(cx, cy);
+		ofScale(scale, scale);
+		ofTranslate(-cx, -cy);
+	}
+
 	// Draw menu UI if in MENU state
 	if (cardInteractionState == CARD_INTERACTION_MENU) {
 		switch (interactingCardType) {
@@ -15185,6 +15514,10 @@ void ofApp::drawActiveCardInteractionUI() {
 		default:
 			break;
 		}
+	}
+
+	if (cardInteractionState == CARD_INTERACTION_MENU) {
+		ofPopMatrix();
 	}
 }
 
@@ -15753,6 +16086,161 @@ void ofApp::processEffectOp(EffectOp & op) {
 		break;
 	}
 
+	case EffectOpType::SPAWN_UNIT: {
+		int tx = op.data.spawnUnit.toX;
+		int ty = op.data.spawnUnit.toY;
+		int sk = op.data.spawnUnit.summonKind;
+		if (tx >= 0 && tx < BOARD_WIDTH && ty >= 0 && ty < BOARD_HEIGHT) {
+			if (!board[tx][ty].hasPlayer) {
+				Player minion;
+				minion.playerID = 300 + (int)players.size();
+				minion.x = tx;
+				minion.y = ty;
+				minion.maxHealth = (op.data.spawnUnit.maxHealth > 0) ? op.data.spawnUnit.maxHealth : 1;
+				minion.health = minion.maxHealth;
+				minion.ap = op.data.spawnUnit.ap;
+				minion.isMinion = true;
+				// Decode summon kind into flags
+				switch (sk) {
+				case 1:
+					minion.isKobold = true;
+					break;
+				case 2:
+					minion.isWolf = true;
+					break;
+				case 3:
+					minion.isHellhound = true;
+					break;
+				case 4:
+					minion.isDemon = true;
+					break;
+				case 5:
+					minion.isKoboldKing = true;
+					break;
+				case 6:
+					minion.isAssistant = true;
+					break;
+				case 7: // Faerie
+					minion.isFaerie = true;
+					minion.minionTexture = nullptr;
+					minion.originalModelType = "Faerie";
+					minion.hasRegeneration = true;
+					break;
+				case 8:
+					minion.isGolem = true;
+					break;
+				case 9:
+					minion.isSkeleton = true;
+					minion.hasRegeneration = true;
+					break;
+				case 10:
+					minion.isWallUnit = true;
+					minion.isMagicWallUnit = false;
+					break;
+				case 11:
+					minion.isWallUnit = true;
+					minion.isMagicWallUnit = true;
+					break;
+				default:
+					break;
+				}
+				minion.ownerID = op.data.spawnUnit.ownerPlayerID;
+				minion.summonedOnTurnCycle = globalTurnCounter;
+				minion.summonOrder = ++nextSummonOrder;
+
+				// Build specialized deck for Faerie; default to a small kobold-like deck otherwise
+				auto findCard = [&](const std::string & name, CardType type) -> Card {
+					for (const auto & c : allCards) {
+						if (c.type == type && c.name == name) return c;
+					}
+					for (const auto & c : allCards) {
+						if (c.type == type) return c;
+					}
+					for (const auto & c : allCards) {
+						if (c.name == name) return c;
+					}
+					return Card();
+				};
+
+				if (minion.isFaerie) {
+					Card dispel = findCard("Dispel", CARD_DISPEL);
+					Card lesserHeal = findCard("Lesser Heal", CARD_LESSER_HEAL);
+					Card magicBlast = findCard("Magic Blast", CARD_MAGIC_BLAST);
+					minion.deck = { dispel, dispel, lesserHeal, lesserHeal, magicBlast };
+				} else if (minion.isSkeleton) {
+					Card slash = findCard("Slash", CARD_SLASH);
+					Card drainPunch = findCard("Drain Punch", CARD_DRAIN_PUNCH);
+					Card darkShield = findCard("Dark Shield", CARD_DARK_SHIELD);
+					minion.deck = { slash, slash, drainPunch, drainPunch, darkShield, darkShield };
+				} else if (minion.isHellhound) {
+					Card slash = findCard("Slash", CARD_SLASH);
+					Card flameHit = findCard("Flame Hit", CARD_FLAME_HIT);
+					Card fireball = findCard("Fireball", CARD_FIREBALL);
+					Card darkShield = findCard("Dark Shield", CARD_DARK_SHIELD);
+					minion.deck = { slash, slash, flameHit, flameHit, fireball, fireball, darkShield, darkShield, darkShield };
+				} else if (minion.isDemon) {
+					Card death = findCard("Death", CARD_DEATH);
+					Card flail = findCard("Flail", CARD_FLAIL);
+					Card fireball = findCard("Fireball", CARD_FIREBALL);
+					Card summonHellhound = findCard("Summon Hellhound", CARD_SUMMON_HELLHOUND);
+					Card darkShield = findCard("Dark Shield", CARD_DARK_SHIELD);
+					minion.deck = { death, death, flail, flail, fireball, fireball, summonHellhound, darkShield, darkShield, darkShield };
+				} else {
+					// Basic placeholder deck (kobold-like)
+					Card hb, pu, callCard;
+					for (const auto & c : allCards) {
+						if (c.name == "Hand Block") hb = c;
+						if (c.name == "Punch") pu = c;
+						if (c.type == CARD_CALL_FOR_KOBOLDS) callCard = c;
+					}
+					minion.deck = { hb, hb, pu, callCard };
+				}
+
+				// Place on board and add
+				board[minion.x][minion.y].hasPlayer = true;
+				players.push_back(minion);
+				int newIdx = (int)players.size() - 1;
+				players[newIdx].visualPos = gridToWorld(players[newIdx].x, players[newIdx].y);
+				ofLogNotice("EffectQueue") << "Processed SPAWN_UNIT: placed minion idx=" << newIdx << " type=" << sk << " owner=" << minion.ownerID;
+				shuffleGameVector(players[newIdx].deck, newIdx);
+
+				// Re-sort turn order to match host
+				int currentID = -1;
+				if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) currentID = players[currentPlayerIndex].playerID;
+				std::sort(players.begin(), players.end(), [](const Player & a, const Player & b) {
+					int ownerA = a.isMinion ? a.ownerID : a.playerID;
+					int ownerB = b.isMinion ? b.ownerID : b.playerID;
+					if (ownerA != ownerB) return ownerA < ownerB;
+					if (a.isMinion && !b.isMinion) return true;
+					if (!a.isMinion && b.isMinion) return false;
+					return a.summonOrder < b.summonOrder;
+				});
+				if (currentID >= 0) {
+					for (size_t i = 0; i < players.size(); i++) {
+						if (players[i].playerID == currentID) {
+							currentPlayerIndex = i;
+							break;
+						}
+					}
+				}
+
+				invalidateTargetCache();
+				checkKeyPickupAndDraftAfterSummon(minion.x, minion.y, minion.ownerID);
+			} else {
+				// If a minion already exists at this tile, update authoritative stats
+				for (auto & p : players) {
+					if (p.x == tx && p.y == ty && p.isMinion) {
+						p.maxHealth = (op.data.spawnUnit.maxHealth > 0) ? op.data.spawnUnit.maxHealth : p.maxHealth;
+						p.health = p.maxHealth;
+						p.ap = (op.data.spawnUnit.ap >= 0) ? op.data.spawnUnit.ap : p.ap;
+						break;
+					}
+				}
+			}
+		}
+		opComplete = true;
+		break;
+	}
 	case EffectOpType::HEAL: {
 		int amount = op.data.heal.amount;
 		if (op.data.heal.amountFromSlot >= 0) {
@@ -15852,9 +16340,100 @@ void ofApp::processEffectOp(EffectOp & op) {
 	}
 
 	case EffectOpType::APPLY_STATUS: {
-		// Status application logic would go here
-		// For now just mark complete
-		opComplete = true;
+		{
+			int tidx = op.data.status.targetIndex;
+			int st = op.data.status.statusType;
+			int dur = op.data.status.duration;
+			if (tidx >= 0 && tidx < (int)players.size()) {
+				Player & target = players[tidx];
+				switch (st) {
+				case STATUS_ADD_POISON:
+					target.nextAttackAddPoison = true;
+					break;
+				case STATUS_REPLICATE_QUEUED:
+					target.replicateQueued = true;
+					break;
+				case STATUS_PARALYZED:
+					target.isParalyzed = true;
+					if (dur > 0)
+						target.paralysisHeadsCount = dur;
+					else if (target.paralysisHeadsCount == 0)
+						target.paralysisHeadsCount = 1;
+					break;
+				case STATUS_POISONED:
+					target.isPoisoned = true;
+					// Reset poison reduction counter when first poisoned
+					if (dur >= 0) target.poisonReduction = 0;
+					break;
+				case STATUS_ON_FIRE:
+					target.onFire = true;
+					break;
+				case STATUS_TORTOISE_FORM:
+					target.inTortoiseForm = true;
+					target.tortoiseDamageTaken = 0;
+					target.tortoiseAccumulatedDamage = 0;
+					break;
+				case STATUS_GHOST_FORM:
+					target.inGhostForm = true;
+					target.ghostDamageTaken = 0;
+					break;
+				case STATUS_STRENGTHEN_ELEMENTS:
+					if (dur > 0) target.strengthenElementsTurnsRemaining = dur;
+					break;
+				case STATUS_REGENERATING:
+					// visual/flag only - handled elsewhere
+					break;
+				default:
+					break;
+				}
+			}
+			opComplete = true;
+		}
+		break;
+	}
+
+	case EffectOpType::REMOVE_STATUS: {
+		{
+			int tidx = op.data.status.targetIndex;
+			int st = op.data.status.statusType;
+			if (tidx >= 0 && tidx < (int)players.size()) {
+				Player & target = players[tidx];
+				switch (st) {
+				case STATUS_ADD_POISON:
+					target.nextAttackAddPoison = false;
+					break;
+				case STATUS_REPLICATE_QUEUED:
+					target.replicateQueued = false;
+					break;
+				case STATUS_PARALYZED:
+					target.isParalyzed = false;
+					target.paralysisHeadsCount = 0;
+					break;
+				case STATUS_POISONED:
+					target.isPoisoned = false;
+					target.poisonReduction = 0;
+					break;
+				case STATUS_ON_FIRE:
+					target.onFire = false;
+					break;
+				case STATUS_TORTOISE_FORM:
+					target.inTortoiseForm = false;
+					target.tortoiseDamageTaken = 0;
+					target.tortoiseAccumulatedDamage = 0;
+					break;
+				case STATUS_GHOST_FORM:
+					target.inGhostForm = false;
+					target.ghostDamageTaken = 0;
+					break;
+				case STATUS_STRENGTHEN_ELEMENTS:
+					target.strengthenElementsTurnsRemaining = 0;
+					break;
+				default:
+					break;
+				}
+			}
+			opComplete = true;
+		}
 		break;
 	}
 
@@ -16359,7 +16938,7 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 			apRep.data.status.duration = 0;
 			queueEffect(apRep);
 		}
-		currentPlayer.replicateQueued = true;
+		// replicateQueued will be set when the APPLY_STATUS op is processed
 		playedSuccessfully = true;
 		advanceCardState(CARD_STATE_EFFECT_SEQUENCE);
 		return true;
@@ -16650,7 +17229,7 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 					apPar.data.status.duration = 0;
 					queueEffect(apPar);
 				}
-				target->isParalyzed = true;
+				// isParalyzed will be set when the APPLY_STATUS op is processed
 				target->paralysisHeadsCount = 0;
 				currentCardOutcome.statusesApplied.push_back("Paralyzed");
 			}
@@ -17105,7 +17684,7 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 					rmPoisonBuff.data.status.duration = 0;
 					queueEffect(rmPoisonBuff);
 				}
-				currentPlayer.nextAttackAddPoison = false;
+				// nextAttackAddPoison will be cleared when the REMOVE_STATUS op is processed
 				currentCardOutcome.poisonTargetPlayerIDs.clear();
 			}
 
@@ -17136,8 +17715,7 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 								apPoison.data.status.duration = 0;
 								queueEffect(apPoison);
 							}
-							target->isPoisoned = true;
-							target->poisonReduction = 0;
+							// isPoisoned and poisonReduction will be set when the APPLY_STATUS op is processed
 							glm::vec3 tPos = gridToWorld(target->x, target->y);
 							spawnFloatingText(tPos + glm::vec3(0, 0.5f, 0), "Poisoned!", ofColor::green);
 						}
@@ -17436,7 +18014,7 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 					rmPoisonBuff.data.status.duration = 0;
 					queueEffect(rmPoisonBuff);
 				}
-				currentPlayer.nextAttackAddPoison = false;
+				// nextAttackAddPoison will be cleared when the REMOVE_STATUS op is processed
 			}
 
 			if (totalBlock > 0) {
@@ -17459,8 +18037,7 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 						apPoison.data.status.duration = 0;
 						queueEffect(apPoison);
 					}
-					target->isPoisoned = true;
-					target->poisonReduction = 0;
+					// isPoisoned and poisonReduction will be set when the APPLY_STATUS op is processed
 					glm::vec3 tPos = gridToWorld(target->x, target->y);
 					spawnFloatingText(tPos + glm::vec3(0, 0.5f, 0), "Poisoned!", ofColor::green);
 					currentCardOutcome.poisonTargetPlayerIDs.clear();
@@ -17517,7 +18094,7 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 			apFire.data.status.duration = 0;
 			queueEffect(apFire);
 		}
-		players[targetIndex].onFire = true;
+		// onFire will be set when the APPLY_STATUS op is processed
 		currentCardOutcome.statusesApplied.push_back("Burning");
 		currentCardOutcome.targetPlayerIndex = targetIndex;
 		currentCardOutcome.damageDealt = playedCard.value;
@@ -17842,7 +18419,12 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 
 			bool applyPoisonBuff = currentPlayer.nextAttackAddPoison;
 			if (applyPoisonBuff) {
-				currentPlayer.nextAttackAddPoison = false;
+				EffectOp rmPoisonBuff = {};
+				rmPoisonBuff.type = EffectOpType::REMOVE_STATUS;
+				rmPoisonBuff.data.status.targetIndex = currentPlayerIndex;
+				rmPoisonBuff.data.status.statusType = STATUS_ADD_POISON;
+				rmPoisonBuff.data.status.duration = 0;
+				queueEffect(rmPoisonBuff);
 			}
 
 			if (damage > 0) {
@@ -17867,8 +18449,7 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 					apPoison.data.status.duration = 0;
 					queueEffect(apPoison);
 				}
-				target->isPoisoned = true;
-				target->poisonReduction = 0;
+				// isPoisoned and poisonReduction will be set when the APPLY_STATUS op is processed
 				glm::vec3 tPos = gridToWorld(target->x, target->y);
 				spawnFloatingText(tPos + glm::vec3(0, 0.5f, 0), "Poisoned!", ofColor::green);
 				currentCardOutcome.poisonTargetPlayerIDs.clear();
@@ -18089,7 +18670,7 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 				rmRep.data.status.duration = 0;
 				queueEffect(rmRep);
 			}
-			currentPlayer.replicateQueued = false;
+			// replicateQueued will be cleared when the REMOVE_STATUS op is processed
 			spawnFloatingText(gridToWorld(currentPlayer.x, currentPlayer.y), "Replicated!", ofColor::cyan);
 		}
 
@@ -18335,7 +18916,7 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 			apTort.data.status.duration = 0;
 			queueEffect(apTort);
 		}
-		currentPlayer.inTortoiseForm = true;
+		// inTortoiseForm and related fields will be set when the APPLY_STATUS op is processed
 		currentPlayer.tortoiseDamageTaken = 0;
 		currentPlayer.tortoiseFormCard = playedCard;
 
@@ -18444,7 +19025,7 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 			apGhost.data.status.duration = 0;
 			queueEffect(apGhost);
 		}
-		currentPlayer.inGhostForm = true;
+		// inGhostForm and related fields will be set when the APPLY_STATUS op is processed
 		currentPlayer.ghostDamageTaken = 0;
 		currentPlayer.ghostFormCard = playedCard;
 
@@ -18456,7 +19037,7 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 			apRegen.data.status.statusType = STATUS_REGENERATING;
 			apRegen.data.status.duration = 0;
 			queueEffect(apRegen);
-			currentPlayer.hasRegeneration = true;
+			// hasRegeneration will be set when the APPLY_STATUS op is processed
 			spawnFloatingText(gridToWorld(currentPlayer.x, currentPlayer.y), "Regeneration Gained", ofColor::green);
 		}
 
@@ -18720,7 +19301,7 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 		minion.health = 5;
 		minion.isMinion = true;
 		minion.isFaerie = true;
-		minion.hasRegeneration = true;
+		// minion.hasRegeneration is set in SPAWN_UNIT handler when appropriate
 		minion.originalModelType = "Faerie";
 
 		// Faerie AP: 1d4 per turn (handled in AP logic)
@@ -18772,14 +19353,6 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 		currentPlayer.hand.erase(currentPlayer.hand.begin() + cardIndex);
 		completeCardPlayAnimation(playedCard, currentPlayerIndex);
 
-		board[targetX][targetY].hasPlayer = true;
-		players.push_back(minion);
-		int newFaerieIdx = (int)players.size() - 1;
-		players[newFaerieIdx].visualPos = gridToWorld(players[newFaerieIdx].x, players[newFaerieIdx].y);
-		shuffleGameVector(players[newFaerieIdx].deck, newFaerieIdx);
-
-		ofLogNotice("Summon") << "Faerie summoned.";
-
 		// Notify clients about the Faerie (authoritative HP)
 		if (isMultiplayer && isHost()) {
 			PlaceSummonedMinionPacket pkt = {};
@@ -18795,25 +19368,7 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 			ofLogNotice("Network") << "Host sent PlaceSummonedMinion: FAERIE owner=" << pkt.ownerPlayerID << " target=(" << pkt.targetX << "," << pkt.targetY << ") HP=" << pkt.minionHP;
 		}
 
-		// Sort & Restore Index
-		std::sort(players.begin(), players.end(), [](const Player & a, const Player & b) {
-			int ownerA = a.isMinion ? a.ownerID : a.playerID;
-			int ownerB = b.isMinion ? b.ownerID : b.playerID;
-			if (ownerA != ownerB) return ownerA < ownerB;
-			if (a.isMinion && !b.isMinion) return true;
-			if (!a.isMinion && b.isMinion) return false;
-			return a.summonOrder < b.summonOrder;
-		});
-		for (size_t i = 0; i < players.size(); i++) {
-			if (players[i].playerID == myID) {
-				currentPlayerIndex = i;
-				break;
-			}
-		}
-
-		updatePlayerAP(players[currentPlayerIndex], currentAP);
-
-		checkKeyPickupAndDraftAfterSummon(minion.x, minion.y, minion.ownerID);
+		// The SPAWN_UNIT effect will perform placement, deck shuffle, sorting and pickup checks
 		immediateResult = CARD_PLAYED_IMMEDIATELY;
 		return true;
 	}
@@ -19519,7 +20074,7 @@ void ofApp::resolveAttackDamage() {
 					}
 					if (applyPoisonBuff && !target->inGhostForm) {
 						currentCardOutcome.poisonTargetPlayerIDs.push_back(players[pIndex].playerID);
-						target->isPoisoned = true;
+						// isPoisoned will be set when the APPLY_STATUS op is processed
 						target->poisonReduction = 0;
 						spawnFloatingText(tPos + glm::vec3(0, 0.5f, 0), "Poisoned!", ofColor::green);
 					}
@@ -19560,7 +20115,7 @@ void ofApp::resolvePoisonDamage() {
 				if (target->inTortoiseForm) {
 					target->tortoiseDamageTaken += poisonDamage;
 					if (target->tortoiseDamageTaken >= 5) {
-						target->inTortoiseForm = false;
+						// inTortoiseForm will be cleared when the REMOVE_STATUS op is processed
 						target->tortoiseDamageTaken = 0;
 						target->discardPile.push_back(target->tortoiseFormCard);
 						spawnFloatingText(tPos + glm::vec3(0, 0.5f, 0), "Form Ended!", ofColor::darkGreen);
@@ -19569,7 +20124,7 @@ void ofApp::resolvePoisonDamage() {
 				if (target->inGhostForm) {
 					target->ghostDamageTaken += poisonDamage;
 					if (target->ghostDamageTaken >= 4) {
-						target->inGhostForm = false;
+						// inGhostForm will be cleared when the REMOVE_STATUS op is processed
 						target->ghostDamageTaken = 0;
 						target->discardPile.push_back(target->ghostFormCard);
 						spawnFloatingText(tPos + glm::vec3(0, 0.5f, 0), "Ghost Form Broken!", ofColor::white);
@@ -19736,7 +20291,7 @@ void ofApp::resolveMagicHandDamage() {
 				if (victim->inGhostForm) {
 					victim->ghostDamageTaken += dmg;
 					if (victim->ghostDamageTaken >= 4) {
-						victim->inGhostForm = false;
+						// inGhostForm will be cleared when the REMOVE_STATUS op is processed
 						victim->ghostDamageTaken = 0;
 						victim->discardPile.push_back(victim->ghostFormCard);
 						spawnFloatingText(gridToWorld(victim->x, victim->y), "Form Broken!", ofColor::white);
@@ -19745,7 +20300,7 @@ void ofApp::resolveMagicHandDamage() {
 				if (victim->inTortoiseForm) {
 					victim->tortoiseDamageTaken += dmg;
 					if (victim->tortoiseDamageTaken >= 5) {
-						victim->inTortoiseForm = false;
+						// inTortoiseForm will be cleared when the REMOVE_STATUS op is processed
 						victim->tortoiseDamageTaken = 0;
 						victim->discardPile.push_back(victim->tortoiseFormCard);
 						spawnFloatingText(gridToWorld(victim->x, victim->y), "Form Broken!", ofColor::darkGreen);
@@ -19932,7 +20487,7 @@ void ofApp::resolveFireballDamage() {
 						rm.data.status.duration = 0;
 						queueEffect(rm);
 					}
-					target->inTortoiseForm = false;
+					// inTortoiseForm will be cleared when the REMOVE_STATUS op is processed
 					target->tortoiseDamageTaken = 0;
 					target->discardPile.push_back(target->tortoiseFormCard);
 					spawnFloatingText(targetPos + glm::vec3(0, 0.5f, 0), "Form Ended!", ofColor::darkGreen);
@@ -19950,7 +20505,7 @@ void ofApp::resolveFireballDamage() {
 						rm.data.status.duration = 0;
 						queueEffect(rm);
 					}
-					target->inGhostForm = false;
+					// inGhostForm will be cleared when the REMOVE_STATUS op is processed
 					target->ghostDamageTaken = 0;
 					target->discardPile.push_back(target->ghostFormCard);
 					spawnFloatingText(targetPos + glm::vec3(0, 0.5f, 0), "Ghost Form Broken!", ofColor::white);
@@ -19966,7 +20521,7 @@ void ofApp::resolveFireballDamage() {
 				ap.data.status.duration = 0;
 				queueEffect(ap);
 			}
-			target->onFire = true;
+			// onFire will be set when the APPLY_STATUS op is processed
 			spawnFloatingText(targetPos + glm::vec3(0, 0.6f, 0), "ON FIRE!", ofColor::orange);
 
 			if (cardPlayState != CARD_STATE_IDLE) {
@@ -20340,9 +20895,16 @@ void ofApp::resolveJoltRangeDice() {
 				}
 				ofLogNotice("Jolt") << "Dealt Damage. Health now: " << target->health;
 
-				// Effect 2: Paralyze
-				target->isParalyzed = true;
-				target->paralysisHeadsCount = 0;
+				// Effect 2: Paralyze - queue deterministic APPLY_STATUS
+				{
+					EffectOp ap = {};
+					ap.type = EffectOpType::APPLY_STATUS;
+					ap.data.status.targetIndex = findPlayerIndexByID(target->playerID);
+					ap.data.status.statusType = STATUS_PARALYZED;
+					ap.data.status.duration = 0;
+					queueEffect(ap);
+				}
+				// isParalyzed/paralysisHeadsCount will be set when APPLY_STATUS is processed
 				// Offset Y slightly so text doesn't overlap damage numbers
 				spawnFloatingText(targetPos + glm::vec3(0, 0.6f, 0), "PARALYZED!", ofColor::yellow);
 				ofLogNotice("Jolt") << "Target Paralyzed.";
@@ -24363,7 +24925,7 @@ void ofApp::applyDrainPunch(int targetPlayerIndex, int baseDamage, int casterInd
 			rm.data.status.duration = 0;
 			queueEffect(rm);
 		}
-		caster->nextAttackAddPoison = false;
+		// nextAttackAddPoison will be cleared when the REMOVE_STATUS op is processed
 	}
 
 	int hpBefore = target->health;
@@ -24376,8 +24938,7 @@ void ofApp::applyDrainPunch(int targetPlayerIndex, int baseDamage, int casterInd
 	processEffectOp(drainPunchDamageOp);
 
 	if (applyPoisonBuff) {
-		target->isPoisoned = true;
-		target->poisonReduction = 0;
+		// isPoisoned and poisonReduction will be set when APPLY_STATUS is processed
 		glm::vec3 tPos = gridToWorld(target->x, target->y);
 		spawnFloatingText(tPos + glm::vec3(0, 0.5f, 0), "Poisoned!", ofColor::green);
 		currentCardOutcome.poisonTargetPlayerIDs.clear();
@@ -24410,10 +24971,23 @@ void ofApp::applyDispelEffect(int statusIndex) {
 	if (!target) return;
 
 	string statusToRemove = statusSelectLabels[statusIndex];
-	if (statusToRemove == "Fire") target->onFire = false;
+	if (statusToRemove == "Fire") {
+		EffectOp rm = {};
+		rm.type = EffectOpType::REMOVE_STATUS;
+		rm.data.status.targetIndex = interactionTargetIndex;
+		rm.data.status.statusType = STATUS_ON_FIRE;
+		rm.data.status.duration = 0;
+		queueEffect(rm);
+		// onFire will be cleared when REMOVE_STATUS is processed
+	}
 	if (statusToRemove == "Paralysis") {
-		target->isParalyzed = false;
-		target->paralysisHeadsCount = 0;
+		EffectOp rm = {};
+		rm.type = EffectOpType::REMOVE_STATUS;
+		rm.data.status.targetIndex = interactionTargetIndex;
+		rm.data.status.statusType = STATUS_PARALYZED;
+		rm.data.status.duration = 0;
+		queueEffect(rm);
+		// isParalyzed and paralysisHeadsCount will be cleared when REMOVE_STATUS is processed
 	}
 
 	ofLogNotice("Dispel") << "Removed " << statusToRemove;
@@ -24764,7 +25338,16 @@ bool ofApp::applyDamageTo(Player & target, int damage, DamageType type, int atta
 		if (target.inTortoiseForm) {
 			target.tortoiseDamageTaken += remainingDmg;
 			if (target.tortoiseDamageTaken >= 5) {
-				target.inTortoiseForm = false;
+				// Queue REMOVE_STATUS for tortoise form deterministically
+				{
+					EffectOp rm = {};
+					rm.type = EffectOpType::REMOVE_STATUS;
+					rm.data.status.targetIndex = findPlayerIndexByID(target.playerID);
+					rm.data.status.statusType = STATUS_TORTOISE_FORM;
+					rm.data.status.duration = 0;
+					queueEffect(rm);
+				}
+				// inTortoiseForm will be cleared when REMOVE_STATUS is processed
 				target.tortoiseDamageTaken = 0;
 				target.discardPile.push_back(target.tortoiseFormCard);
 				spawnFloatingText(targetPos + glm::vec3(0, 0.5f, 0), "Form Ended!", ofColor::darkGreen);
@@ -24773,7 +25356,16 @@ bool ofApp::applyDamageTo(Player & target, int damage, DamageType type, int atta
 		if (target.inGhostForm) {
 			target.ghostDamageTaken += remainingDmg;
 			if (target.ghostDamageTaken >= 4) {
-				target.inGhostForm = false;
+				// Queue REMOVE_STATUS for ghost form deterministically
+				{
+					EffectOp rm = {};
+					rm.type = EffectOpType::REMOVE_STATUS;
+					rm.data.status.targetIndex = findPlayerIndexByID(target.playerID);
+					rm.data.status.statusType = STATUS_GHOST_FORM;
+					rm.data.status.duration = 0;
+					queueEffect(rm);
+				}
+				// inGhostForm will be cleared when REMOVE_STATUS is processed
 				target.ghostDamageTaken = 0;
 				target.discardPile.push_back(target.ghostFormCard);
 				spawnFloatingText(targetPos + glm::vec3(0, 0.5f, 0), "Ghost Form Broken!", ofColor::white);
@@ -24820,7 +25412,7 @@ bool ofApp::applyDamageTo(Player & target, int damage, DamageType type, int atta
 								rm.data.status.duration = 0;
 								queueEffect(rm);
 							}
-							target.onFire = false;
+							// onFire will be cleared when the REMOVE_STATUS op is processed
 							{
 								EffectOp rm = {};
 								rm.type = EffectOpType::REMOVE_STATUS;
@@ -24829,8 +25421,7 @@ bool ofApp::applyDamageTo(Player & target, int damage, DamageType type, int atta
 								rm.data.status.duration = 0;
 								queueEffect(rm);
 							}
-							target.isPoisoned = false;
-							target.poisonReduction = 0;
+							// isPoisoned and poisonReduction will be cleared when the REMOVE_STATUS op is processed
 							{
 								EffectOp rm = {};
 								rm.type = EffectOpType::REMOVE_STATUS;
@@ -24839,8 +25430,7 @@ bool ofApp::applyDamageTo(Player & target, int damage, DamageType type, int atta
 								rm.data.status.duration = 0;
 								queueEffect(rm);
 							}
-							target.isParalyzed = false;
-							target.paralysisHeadsCount = 0;
+							// isParalyzed and paralysisHeadsCount will be cleared when the REMOVE_STATUS op is processed
 							target.sleepTurnsRemaining = 0;
 							target.ward = 0;
 							target.block = 0;
@@ -24855,7 +25445,7 @@ bool ofApp::applyDamageTo(Player & target, int damage, DamageType type, int atta
 								rm.data.status.duration = 0;
 								queueEffect(rm);
 							}
-							target.replicateQueued = false;
+							// replicateQueued will be cleared when the REMOVE_STATUS op is processed
 							target.nextTurnAPBonus = 0;
 							target.shocksPlayedThisTurn = 0;
 							target.flurryOfFistsStacks = 0;
@@ -24867,7 +25457,7 @@ bool ofApp::applyDamageTo(Player & target, int damage, DamageType type, int atta
 								rm.data.status.duration = 0;
 								queueEffect(rm);
 							}
-							target.nextAttackAddPoison = false;
+							// nextAttackAddPoison will be cleared when the REMOVE_STATUS op is processed
 							target.nextTurnD10AP = false;
 							target.nextTurnExtraDraw = false;
 							target.nextTurnBonusDiceFromMinions = false;
@@ -24880,7 +25470,7 @@ bool ofApp::applyDamageTo(Player & target, int damage, DamageType type, int atta
 								rm.data.status.duration = 0;
 								queueEffect(rm);
 							}
-							target.inTortoiseForm = false;
+							// inTortoiseForm and related fields will be cleared when the REMOVE_STATUS op is processed
 							target.tortoiseDamageTaken = 0;
 							target.tortoiseAccumulatedDamage = 0;
 							{
@@ -24891,7 +25481,7 @@ bool ofApp::applyDamageTo(Player & target, int damage, DamageType type, int atta
 								rm.data.status.duration = 0;
 								queueEffect(rm);
 							}
-							target.inGhostForm = false;
+							// inGhostForm and related fields will be cleared when the REMOVE_STATUS op is processed
 							target.ghostDamageTaken = 0;
 							target.cardsPlayedThisTurn.clear();
 							target.playedCardsPile.clear();
@@ -24995,6 +25585,35 @@ void ofApp::drawMagicBlastChoiceUI() {
 	// Use standardized panel helper (Damage = red, Discard = slate blue)
 	drawCardChoicePanel(panelRect, prompt, choicesLeft, magicBlastDamageButton, magicBlastDiscardButton,
 		"Take 5 Damage", "Remove Top Card of Deck", ofColor::indianRed, ofColor::darkSlateBlue, isLocalTarget, isLocalTarget);
+
+	// Opponent decision timer display (progress bar + seconds) when active for this target
+	if (opponentDecisionTimerActive && opponentDecisionPlayerIndex == magicBlastTargetPlayerIndex) {
+		float elapsed = ofGetElapsedTimef() - opponentDecisionStartTime;
+		float remaining = std::max(0.0f, opponentDecisionDuration - elapsed);
+		float pct = (opponentDecisionDuration > 0.0f) ? (remaining / opponentDecisionDuration) : 0.0f;
+
+		// Draw a small progress bar at the top-right of the panel
+		float barW = 160.0f;
+		float barH = 16.0f;
+		float barX = panelRect.x + panelRect.getWidth() - barW - 20.0f;
+		float barY = panelRect.y + 18.0f;
+
+		ofSetColor(20, 20, 30, 220);
+		ofDrawRectRounded(barX - 4.0f, barY - 4.0f, barW + 8.0f, barH + 8.0f, 6.0f);
+		// Background
+		ofSetColor(60, 60, 70);
+		ofDrawRectRounded(barX, barY, barW, barH, 4.0f);
+		// Foreground (progress)
+		ofSetColor(ofColor::fromHsb(120 * pct, 200, 220));
+		ofDrawRectRounded(barX, barY, barW * pct, barH, 4.0f);
+
+		// Remaining seconds text
+		int secs = (int)std::ceil(remaining);
+		ofSetColor(ofColor::white);
+		std::string secsText = ofToString(secs) + "s";
+		ofRectangle tb = uiFont.getStringBoundingBox(secsText, 0, 0);
+		uiFont.drawString(secsText, barX + barW / 2.0f - tb.getWidth() / 2.0f, barY + barH / 2.0f + tb.getHeight() / 4.0f);
+	}
 }
 
 //------------------------------------------------------------------------
@@ -27500,10 +28119,17 @@ void ofApp::processNetworkPackets() {
 					ofLogNotice("NetTrace") << "  RINSP playerIndex=" << rip->playerIndex << " count=" << (int)rip->count;
 				} else if (header->type == PKT_PLACE_SUMMONED_MINION && buffer.size() >= sizeof(PlaceSummonedMinionPacket)) {
 					PlaceSummonedMinionPacket * psp = (PlaceSummonedMinionPacket *)header;
-					ofLogNotice("NetTrace") << "  PLACE_SUMMONED minionType=" << (int)psp->minionType << " ownerID=" << psp->ownerPlayerID << " target=(" << psp->targetX << "," << psp->targetY << ") HP=" << psp->minionHP << " AP=" << psp->minionAP;
+					ofLogNotice("NetTrace") << "  PLACE_SUMMONED minionType=" << (int)psp->minionType << " ownerID=" << psp->ownerPlayerID << " target=(" << psp->targetX << "," << psp->targetY << ") HP=" << psp->minionHP << " AP=" << psp->minionAP << " players=" << players.size();
 				} else if (header->type == PKT_DICE_ROLL && buffer.size() >= sizeof(DiceRollPacket)) {
 					DiceRollPacket * drp = (DiceRollPacket *)buffer.data();
-					ofLogNotice("NetTrace") << "  DICE_ROLL owner=" << drp->ownerIndex << " numDice=" << (int)drp->numDice << " sides=" << (int)drp->sides;
+					std::string rawList, finalList;
+					for (int ri = 0; ri < drp->numDice && ri < 8; ++ri) {
+						if (!rawList.empty()) rawList += ",";
+						rawList += std::to_string((int)drp->rawResults[ri]);
+						if (!finalList.empty()) finalList += ",";
+						finalList += std::to_string((int)drp->finalResults[ri]);
+					}
+					ofLogNotice("NetTrace") << "  DICE_ROLL owner=" << drp->ownerIndex << " numDice=" << (int)drp->numDice << " sides=" << (int)drp->sides << " label='" << drp->label << "' raw=[" << rawList << "] final=[" << finalList << "]";
 				} else if (header->type == PKT_CHECKSUM_CHECK && buffer.size() >= sizeof(ChecksumPacket)) {
 					ChecksumPacket * ckp = (ChecksumPacket *)buffer.data();
 					ofLogNotice("NetTrace") << "  CHECKSUM turn=" << ckp->turnNumber << " value=" << ckp->checksum;
@@ -28123,6 +28749,48 @@ void ofApp::processNetworkPackets() {
 						continue;
 					}
 
+					// Centralize menu-driven actions: if this action is a menu choice, queue as CMD_MENU_CHOICE
+					if (pkt->menuChoice > 0) {
+						// Derive the card/menu type: ActionPacket no longer contains cardType
+						CardType menuType = CARD_NONE;
+						if (pkt->actorIndex >= 0 && pkt->actorIndex < (int)players.size() && pkt->cardIndex >= 0) {
+							Player &p = players[pkt->actorIndex];
+							if (pkt->cardIndex < (int)p.hand.size()) {
+								menuType = p.hand[pkt->cardIndex].type;
+							}
+						}
+						if (menuType == CARD_NONE) {
+							menuType = stringToCardType(std::string(pkt->cardName));
+						}
+
+						InputCommandPacket cmd = {};
+						cmd.type = PKT_INPUT_COMMAND;
+						cmd.playerID = pkt->playerID;
+						cmd.seq = pkt->seq;
+						cmd.commandId = nextCommandId++;
+						cmd.turnNumber = globalTurnCounter;
+						cmd.commandType = CMD_MENU_CHOICE;
+						cmd.params[0] = (int)menuType;
+						cmd.params[1] = pkt->actorIndex;
+						cmd.params[2] = pkt->menuChoice;
+						cmd.params[3] = pkt->cardIndex;
+						strncpy(cmd.stringData, pkt->cardName, sizeof(cmd.stringData) - 1);
+						cmd.stringData[sizeof(cmd.stringData) - 1] = '\0';
+						queueInputCommand(cmd);
+						ofLogNotice("Lockstep") << "Centralized PKT_ACTION menuChoice: cardType=" << (int)menuType << " actorIndex=" << pkt->actorIndex << " menuChoice=" << pkt->menuChoice << " cardIndex=" << pkt->cardIndex;
+						// Host: send ACK back to originating client so they stop resending
+						if (isHost()) {
+							AckPacket ack = {};
+							ack.type = PKT_ACK;
+							ack.playerID = myLocalPlayerID;
+							ack.ackSeq = pkt->clientActionID;
+							ack.ackType = PKT_ACTION;
+							steamManager.sendPacket(&ack, sizeof(ack));
+							ofLogNotice("NetTrace") << "Host: sent ACK for ActionPacket clientActionID=" << ack.ackSeq;
+						}
+						continue;
+					}
+
 					if (isHost()) {
 						std::string rejectReason;
 						if (!validateActionPacketOnHost(*pkt, rejectReason)) {
@@ -28394,17 +29062,16 @@ void ofApp::processNetworkPackets() {
 								shockOp.data.damage.damageFromSlot = -1;
 								processEffectOp(shockOp);
 							}
-							// Apply paralyzed deterministically
-							{
-								EffectOp ap = {};
-								ap.type = EffectOpType::APPLY_STATUS;
-								ap.data.status.targetIndex = pkt->actorIndex;
-								ap.data.status.statusType = STATUS_PARALYZED;
-								ap.data.status.duration = 0;
-								queueEffect(ap);
-							}
-							target->isParalyzed = true;
-							target->paralysisHeadsCount = 0;
+								// Apply paralyzed deterministically
+								{
+									EffectOp ap = {};
+									ap.type = EffectOpType::APPLY_STATUS;
+									ap.data.status.targetIndex = pkt->actorIndex;
+									ap.data.status.statusType = STATUS_PARALYZED;
+									ap.data.status.duration = 0;
+									queueEffect(ap);
+								}
+								// isParalyzed and paralysisHeadsCount will be set when APPLY_STATUS is processed
 								spawnFloatingText(tPos + glm::vec3(0, 0.6f, 0), "-" + ofToString(extraDamage) + " Electric", ofColor::orange);
 								spawnFloatingText(tPos + glm::vec3(0, 1.0f, 0), "PARALYZED!", ofColor::yellow);
 								break;
@@ -28417,16 +29084,16 @@ void ofApp::processNetworkPackets() {
 								flameOp.data.damage.damageFromSlot = -1;
 								processEffectOp(flameOp);
 							}
-							// Apply on-fire deterministically
-							{
-								EffectOp ap = {};
-								ap.type = EffectOpType::APPLY_STATUS;
-								ap.data.status.targetIndex = pkt->actorIndex;
-								ap.data.status.statusType = STATUS_ON_FIRE;
-								ap.data.status.duration = 0;
-								queueEffect(ap);
-							}
-							target->onFire = true;
+								// Apply on-fire deterministically
+								{
+									EffectOp ap = {};
+									ap.type = EffectOpType::APPLY_STATUS;
+									ap.data.status.targetIndex = pkt->actorIndex;
+									ap.data.status.statusType = STATUS_ON_FIRE;
+									ap.data.status.duration = 0;
+									queueEffect(ap);
+								}
+								// onFire will be set when APPLY_STATUS is processed
 								spawnFloatingText(tPos + glm::vec3(0, 0.6f, 0), "-" + ofToString(extraDamage) + " Fire", ofColor::red);
 								spawnFloatingText(tPos + glm::vec3(0, 1.0f, 0), "ON FIRE!", ofColor::orange);
 								break;
@@ -28439,17 +29106,16 @@ void ofApp::processNetworkPackets() {
 								poisonOp.data.damage.damageFromSlot = -1;
 								processEffectOp(poisonOp);
 							}
-							// Apply poisoned deterministically
-							{
-								EffectOp ap = {};
-								ap.type = EffectOpType::APPLY_STATUS;
-								ap.data.status.targetIndex = pkt->actorIndex;
-								ap.data.status.statusType = STATUS_POISONED;
-								ap.data.status.duration = 0;
-								queueEffect(ap);
-							}
-							target->isPoisoned = true;
-							target->poisonReduction = 0;
+								// Apply poisoned deterministically
+								{
+									EffectOp ap = {};
+									ap.type = EffectOpType::APPLY_STATUS;
+									ap.data.status.targetIndex = pkt->actorIndex;
+									ap.data.status.statusType = STATUS_POISONED;
+									ap.data.status.duration = 0;
+									queueEffect(ap);
+								}
+								// isPoisoned and poisonReduction will be set when APPLY_STATUS is processed
 								spawnFloatingText(tPos + glm::vec3(0, 0.6f, 0), "-" + ofToString(extraDamage) + " Poison", ofColor::green);
 								spawnFloatingText(tPos + glm::vec3(0, 1.0f, 0), "POISONED!", ofColor::green);
 								break;
@@ -29308,6 +29974,8 @@ void ofApp::processNetworkPackets() {
 					draftOptions.clear();
 					if (isInGameDraft) {
 						isInGameDraft = false;
+						// Resume any paused turn timer caused by an opponent-driven draft
+						resumeTurnTimerIfPausedForOpponent(draftPlayerIndex);
 						currentState = STATE_GAMEPLAY;
 						continue;
 					}
@@ -29494,6 +30162,8 @@ void ofApp::processNetworkPackets() {
 					// Clear pending key coords now that in-game draft is done
 					networkPending.keyDraftKeyX = -1;
 					networkPending.keyDraftKeyY = -1;
+					// Resume any paused turn timer caused by an opponent-driven draft
+					resumeTurnTimerIfPausedForOpponent(draftPlayerIndex);
 					currentState = STATE_GAMEPLAY;
 					continue;
 				}
@@ -30001,11 +30671,26 @@ void ofApp::executeOpponentCardPlay(const ActionPacket & pkt) {
 			if (target->isParalyzed) statuses.push_back("Paralysis");
 			if (statusIndex >= 0 && statusIndex < (int)statuses.size()) {
 				const std::string & status = statuses[statusIndex];
-				if (status == "Fire") target->onFire = false;
-				if (status == "Paralysis") {
-					target->isParalyzed = false;
-					target->paralysisHeadsCount = 0;
+				int idx = findPlayerIndexByID(target->playerID);
+				if (idx >= 0) {
+					if (status == "Fire") {
+						EffectOp rm = {};
+						rm.type = EffectOpType::REMOVE_STATUS;
+						rm.data.status.targetIndex = idx;
+						rm.data.status.statusType = STATUS_ON_FIRE;
+						rm.data.status.duration = 0;
+						queueEffect(rm);
+					}
+					if (status == "Paralysis") {
+						EffectOp rm = {};
+						rm.type = EffectOpType::REMOVE_STATUS;
+						rm.data.status.targetIndex = idx;
+						rm.data.status.statusType = STATUS_PARALYZED;
+						rm.data.status.duration = 0;
+						queueEffect(rm);
+					}
 				}
+				// Client will rely on effect processing to clear local fields
 			}
 		}
 
@@ -30199,7 +30884,7 @@ void ofApp::executeOpponentCardPlay(const ActionPacket & pkt) {
 				ap.data.status.statusType = STATUS_REPLICATE_QUEUED;
 				ap.data.status.duration = 0;
 				queueEffect(ap);
-				opponentPlayer.replicateQueued = true;
+				// replicateQueued will be set when the APPLY_STATUS op is processed
 			} else {
 				EffectOp rm = {};
 				rm.type = EffectOpType::REMOVE_STATUS;
@@ -30207,7 +30892,7 @@ void ofApp::executeOpponentCardPlay(const ActionPacket & pkt) {
 				rm.data.status.statusType = STATUS_REPLICATE_QUEUED;
 				rm.data.status.duration = 0;
 				queueEffect(rm);
-				opponentPlayer.replicateQueued = false;
+				// replicateQueued will be cleared when the REMOVE_STATUS op is processed
 			}
 		}
 		opponentPlayer.cardsPlayedThisTurn.push_back(cardDef.type);
@@ -30566,6 +31251,7 @@ void ofApp::applyMovement(int playerIndex, int targetX, int targetY, int newAP, 
 	if (!animationPath.empty()) {
 		isPlayerAnimating = true;
 		animatingPlayerIndex = playerIndex;
+		animationSegmentStartTime = ofGetElapsedTimef();
 	}
 
 	board[targetX][targetY].hasPlayer = true;
@@ -30942,16 +31628,16 @@ void ofApp::resolveOnFireDice() {
 	if (burningPlayer.inTortoiseForm) {
 		burningPlayer.tortoiseDamageTaken += rollResult;
 		if (burningPlayer.tortoiseDamageTaken >= 5) {
-					// Queue removal of tortoise form deterministically
-					{
-						EffectOp rm = {};
-						rm.type = EffectOpType::REMOVE_STATUS;
-						rm.data.status.targetIndex = currentPlayerIndex;
-						rm.data.status.statusType = STATUS_TORTOISE_FORM;
-						rm.data.status.duration = 0;
-						queueEffect(rm);
-					}
-					burningPlayer.inTortoiseForm = false;
+			// Queue removal of tortoise form deterministically
+			{
+				EffectOp rm = {};
+				rm.type = EffectOpType::REMOVE_STATUS;
+				rm.data.status.targetIndex = currentPlayerIndex;
+				rm.data.status.statusType = STATUS_TORTOISE_FORM;
+				rm.data.status.duration = 0;
+				queueEffect(rm);
+			}
+			// inTortoiseForm will be cleared when the REMOVE_STATUS op is processed
 			burningPlayer.tortoiseDamageTaken = 0;
 			burningPlayer.discardPile.push_back(burningPlayer.tortoiseFormCard);
 			spawnFloatingText(gridToWorld(burningPlayer.x, burningPlayer.y) + glm::vec3(0, 0.5f, 0), "Form Ended!", ofColor::darkGreen);
@@ -30960,16 +31646,16 @@ void ofApp::resolveOnFireDice() {
 	if (burningPlayer.inGhostForm) {
 		burningPlayer.ghostDamageTaken += rollResult;
 		if (burningPlayer.ghostDamageTaken >= 4) {
-					// Queue removal of ghost form deterministically
-					{
-						EffectOp rm = {};
-						rm.type = EffectOpType::REMOVE_STATUS;
-						rm.data.status.targetIndex = currentPlayerIndex;
-						rm.data.status.statusType = STATUS_GHOST_FORM;
-						rm.data.status.duration = 0;
-						queueEffect(rm);
-					}
-					burningPlayer.inGhostForm = false;
+			// Queue removal of ghost form deterministically
+			{
+				EffectOp rm = {};
+				rm.type = EffectOpType::REMOVE_STATUS;
+				rm.data.status.targetIndex = currentPlayerIndex;
+				rm.data.status.statusType = STATUS_GHOST_FORM;
+				rm.data.status.duration = 0;
+				queueEffect(rm);
+			}
+			// inGhostForm will be cleared when the REMOVE_STATUS op is processed
 			burningPlayer.ghostDamageTaken = 0;
 			burningPlayer.discardPile.push_back(burningPlayer.ghostFormCard);
 			spawnFloatingText(gridToWorld(burningPlayer.x, burningPlayer.y) + glm::vec3(0, 0.5f, 0), "Ghost Form Broken!", ofColor::white);
@@ -30983,16 +31669,16 @@ void ofApp::resolveOnFireDice() {
 
 	// Check if fire is extinguished
 	if (rollResult == 1 || rollResult == 2) {
-			// Queue removal of on-fire status
-			{
-				EffectOp rm = {};
-				rm.type = EffectOpType::REMOVE_STATUS;
-				rm.data.status.targetIndex = currentPlayerIndex;
-				rm.data.status.statusType = STATUS_ON_FIRE;
-				rm.data.status.duration = 0;
-				queueEffect(rm);
-			}
-			burningPlayer.onFire = false;
+		// Queue removal of on-fire status
+		{
+			EffectOp rm = {};
+			rm.type = EffectOpType::REMOVE_STATUS;
+			rm.data.status.targetIndex = currentPlayerIndex;
+			rm.data.status.statusType = STATUS_ON_FIRE;
+			rm.data.status.duration = 0;
+			queueEffect(rm);
+		}
+		// onFire will be cleared when the REMOVE_STATUS op is processed
 		spawnFloatingText(gridToWorld(burningPlayer.x, burningPlayer.y) + glm::vec3(0, 0.8f, 0), "Extinguished", ofColor::white);
 	}
 
@@ -31032,7 +31718,7 @@ void ofApp::resolvePoisonStatusDice() {
 					rm.data.status.duration = 0;
 					queueEffect(rm);
 				}
-				poisonedPlayer.inTortoiseForm = false;
+				// inTortoiseForm will be cleared when the REMOVE_STATUS op is processed
 				poisonedPlayer.tortoiseDamageTaken = 0;
 				poisonedPlayer.discardPile.push_back(poisonedPlayer.tortoiseFormCard);
 				spawnFloatingText(gridToWorld(poisonedPlayer.x, poisonedPlayer.y) + glm::vec3(0, 0.5f, 0), "Form Ended!", ofColor::darkGreen);
@@ -31050,7 +31736,7 @@ void ofApp::resolvePoisonStatusDice() {
 					rm.data.status.duration = 0;
 					queueEffect(rm);
 				}
-				poisonedPlayer.inGhostForm = false;
+				// inGhostForm will be cleared when the REMOVE_STATUS op is processed
 				poisonedPlayer.ghostDamageTaken = 0;
 				poisonedPlayer.discardPile.push_back(poisonedPlayer.ghostFormCard);
 				spawnFloatingText(gridToWorld(poisonedPlayer.x, poisonedPlayer.y) + glm::vec3(0, 0.5f, 0), "Ghost Form Broken!", ofColor::white);
@@ -31068,7 +31754,15 @@ void ofApp::resolvePoisonStatusDice() {
 	poisonedPlayer.poisonReduction++;
 
 	if (poisonedPlayer.poisonReduction >= 6) {
-		poisonedPlayer.isPoisoned = false;
+		// Queue deterministic removal of poison
+		{
+			EffectOp rm = {};
+			rm.type = EffectOpType::REMOVE_STATUS;
+			rm.data.status.targetIndex = currentPlayerIndex;
+			rm.data.status.statusType = STATUS_POISONED;
+			rm.data.status.duration = 0;
+			queueEffect(rm);
+		}
 		poisonedPlayer.poisonReduction = 0;
 		spawnFloatingText(gridToWorld(poisonedPlayer.x, poisonedPlayer.y) + glm::vec3(0, 0.8f, 0), "Poison Cured!", ofColor::white);
 	}
@@ -31114,7 +31808,15 @@ void ofApp::resolveParalysisCoinFlip() {
 		// If 2 heads in a row, cure paralysis
 		if (p.paralysisHeadsCount >= 2) {
 			ofLogNotice("Paralysis") << "2nd Heads! Paralysis is cured.";
-			p.isParalyzed = false;
+			// Queue removal of paralysis deterministically
+			{
+				EffectOp rm = {};
+				rm.type = EffectOpType::REMOVE_STATUS;
+				rm.data.status.targetIndex = currentPlayerIndex;
+				rm.data.status.statusType = STATUS_PARALYZED;
+				rm.data.status.duration = 0;
+				queueEffect(rm);
+			}
 			p.paralysisHeadsCount = 0;
 		} else {
 			ofLogNotice("Paralysis") << "Heads! Can play this turn (" << p.paralysisHeadsCount << "/2 heads).";

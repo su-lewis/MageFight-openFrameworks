@@ -1360,6 +1360,16 @@ private:
 	float turnDurationSeconds = 90.0f; // 90 seconds for regular units, 60 for minions
 	bool turnTimerEnabled = true; // whether to enforce auto-end-turn on timeout
 
+	// Pause/resume support when modal choices are presented to other players
+	bool turnTimerPaused = false;
+	float turnTimerPausedRemaining = 0.0f; // seconds remaining when paused
+
+	// Opponent decision timer (when a modal requires the opponent to choose)
+	bool opponentDecisionTimerActive = false;
+	float opponentDecisionStartTime = 0.0f;
+	float opponentDecisionDuration = 20.0f; // default opponent decision window
+	int opponentDecisionPlayerIndex = -1; // which player must decide
+
 	std::vector<DeathMarker> graveyard;
 	std::vector<FloatingText> activeFloatingTexts;
 	std::vector<Particle> particles;
@@ -1601,6 +1611,26 @@ private:
 	std::vector<glm::vec3> animationPath;
 	int currentPathIndex = 0;
 	float animationSegmentStartTime = 0.0f; // Time when current segment started
+	// Visual hop amplitude for movement (world units)
+	float movementHopHeight = 0.35f;
+
+	// Camera shake (visual only)
+	float cameraShakeIntensity = 0.0f; // current intensity
+	float cameraShakeTimer = 0.0f; // remaining time
+	float cameraShakeDuration = 0.0f; // total duration for decay calculations
+	glm::vec3 cameraShakeOffset = glm::vec3(0.0f);
+
+	// Trigger a camera shake: intensity in world units, duration in seconds
+	void triggerCameraShake(float intensity, float duration);
+
+	// Pause / resume helpers for opponent-driven decisions (keys, magic blast)
+	void pauseTurnTimerForOpponentDecision(int decidingPlayerIndex);
+	void resumeTurnTimerIfPausedForOpponent(int decidingPlayerIndex);
+
+	// Menu open scale animation (scale from small to 1.0)
+	float menuOpenScale = 1.0f;
+	float menuOpenStartTime = 0.0f;
+	float menuOpenDuration = 0.2f; // seconds
 	std::vector<glm::vec2> hoverPath;
 	glm::vec2 lastHoverGridPos = { -1, -1 };
 
