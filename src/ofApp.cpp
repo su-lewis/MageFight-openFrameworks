@@ -15427,6 +15427,45 @@ void ofApp::processEffectOp(EffectOp & op) {
 		break;
 	}
 
+	case EffectOpType::MODIFY_TILE: {
+		{
+			ModifyTileData tile = op.data.modifyTile;
+			int x = tile.toX;
+			int y = tile.toY;
+			if (x >= 0 && x < BOARD_WIDTH && y >= 0 && y < BOARD_HEIGHT) {
+				if (tile.setHasWall == -1)
+					board[x][y].hasWall = false;
+				else if (tile.setHasWall == 1)
+					board[x][y].hasWall = true;
+				buildLevelMesh();
+			}
+		}
+		opComplete = true;
+		break;
+	}
+
+	case EffectOpType::ADD_CARD_TO_DECK: {
+		{
+			int tidx = op.data.addCard.targetIndex;
+			int ctype = op.data.addCard.cardType;
+			if (tidx >= 0 && tidx < (int)players.size()) {
+				Player & target = players[tidx];
+				// Find a card template by type
+				for (const auto & c : allCards) {
+					if (c.type == (CardType)ctype) {
+						target.deck.push_back(c);
+						shuffleGameVector(target.deck, tidx);
+						spawnFloatingText(gridToWorld(target.x, target.y), "Shuffled 1x " + c.name, ofColor::magenta);
+						ofLogNotice("EffectQueue") << "Added card " << c.name << " to deck of player " << target.playerID;
+						break;
+					}
+				}
+			}
+		}
+		opComplete = true;
+		break;
+	}
+
 	case EffectOpType::SPAWN_UNIT: {
 		int tx = op.data.spawnUnit.toX;
 		int ty = op.data.spawnUnit.toY;
@@ -15671,6 +15710,27 @@ void ofApp::processEffectOp(EffectOp & op) {
 				target.luck += delta;
 				target.baseLuck += delta;
 				break;
+			case 13: // Fortification
+				target.fortification += delta;
+				if (delta != 0) {
+					std::string s = (delta > 0 ? "+" : "") + ofToString(delta) + " Fortify";
+					spawnFloatingText(tPos, s, ofColor::lightGray);
+				}
+				break;
+			case 14: // Flurry stacks
+				target.flurryOfFistsStacks += delta;
+				if (delta > 0) spawnFloatingText(tPos, "Flurry!", ofColor::orange);
+				break;
+			case 11: // Next-turn AP bonus
+				target.nextTurnAPBonus += delta;
+				if (delta != 0) {
+					std::string s = (delta > 0 ? "+" : "") + ofToString(delta) + " AP Next Turn";
+					spawnFloatingText(tPos, s, ofColor::yellow);
+				}
+				break;
+			case 12: // Shocks played this turn (counter)
+				target.shocksPlayedThisTurn += delta;
+				break;
 			default:
 				ofLogWarning("EffectOp") << "Unknown stat type: " << op.data.modifyStat.statType;
 				break;
@@ -15693,6 +15753,21 @@ void ofApp::processEffectOp(EffectOp & op) {
 					break;
 				case STATUS_REPLICATE_QUEUED:
 					target.replicateQueued = true;
+					break;
+				case STATUS_NEXT_TURN_EXTRA_DRAW:
+					target.nextTurnExtraDraw = true;
+					// Record when this flag was set so other logic can expire it deterministically
+					target.nextTurnExtraDrawSetOnCycle = globalTurnCounter;
+					break;
+				case STATUS_NEXT_TURN_D10AP:
+					target.nextTurnD10AP = true;
+					break;
+				case STATUS_NEXT_TURN_BONUS_DICE:
+					target.nextTurnBonusDiceFromMinions = true;
+					break;
+				case STATUS_SLEEP:
+					// dur can encode number of turns to sleep
+					target.sleepTurnsRemaining = dur;
 					break;
 				case STATUS_PARALYZED:
 					target.isParalyzed = true;
@@ -15768,6 +15843,19 @@ void ofApp::processEffectOp(EffectOp & op) {
 					break;
 				case STATUS_STRENGTHEN_ELEMENTS:
 					target.strengthenElementsTurnsRemaining = 0;
+					break;
+				case STATUS_NEXT_TURN_EXTRA_DRAW:
+					target.nextTurnExtraDraw = false;
+					target.nextTurnExtraDrawSetOnCycle = -1;
+					break;
+				case STATUS_NEXT_TURN_D10AP:
+					target.nextTurnD10AP = false;
+					break;
+				case STATUS_NEXT_TURN_BONUS_DICE:
+					target.nextTurnBonusDiceFromMinions = false;
+					break;
+				case STATUS_SLEEP:
+					target.sleepTurnsRemaining = 0;
 					break;
 				default:
 					break;
@@ -16260,8 +16348,23 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 	case CARD_HASTEN: {
 		// LOCKSTEP MIGRATION: Status flag modification (no effect ops needed, direct state)
 		beginEffectSequence();
-		currentPlayer.nextTurnD10AP = true;
-		currentPlayer.nextTurnExtraDraw = true;
+		// Queue status applications instead of mutating player state directly
+		{
+			EffectOp op = {};
+			op.type = EffectOpType::APPLY_STATUS;
+			op.data.status.targetIndex = currentPlayerIndex;
+			op.data.status.statusType = STATUS_NEXT_TURN_D10AP;
+			op.data.status.duration = 0;
+			queueEffect(op);
+		}
+		{
+			EffectOp op = {};
+			op.type = EffectOpType::APPLY_STATUS;
+			op.data.status.targetIndex = currentPlayerIndex;
+			op.data.status.statusType = STATUS_NEXT_TURN_EXTRA_DRAW;
+			op.data.status.duration = 0;
+			queueEffect(op);
+		}
 		playedSuccessfully = true;
 		advanceCardState(CARD_STATE_EFFECT_SEQUENCE);
 		return true;
@@ -16337,8 +16440,16 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 	}
 
 	case CARD_STUDY: {
-		currentPlayer.nextTurnExtraDraw = true;
-		currentPlayer.nextTurnExtraDrawSetOnCycle = globalTurnCounter;
+		// Queue deterministic status for extra draw next turn
+		beginEffectSequence();
+		{
+			EffectOp op = {};
+			op.type = EffectOpType::APPLY_STATUS;
+			op.data.status.targetIndex = currentPlayerIndex;
+			op.data.status.statusType = STATUS_NEXT_TURN_EXTRA_DRAW;
+			op.data.status.duration = 0;
+			queueEffect(op);
+		}
 		spawnFloatingText(gridToWorld(currentPlayer.x, currentPlayer.y), "Studying...", ofColor::blue);
 
 		isInGameDraft = true;
@@ -16350,7 +16461,7 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 		currentState = STATE_DRAFTING;
 
 		playedSuccessfully = true;
-		advanceCardState(CARD_STATE_EFFECT);
+		advanceCardState(CARD_STATE_EFFECT_SEQUENCE);
 		return true;
 	}
 
@@ -16404,7 +16515,6 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 		healOp.data.heal.amount = healAmount;
 		healOp.data.heal.amountFromSlot = -1;
 		queueEffect(healOp);
-		currentPlayer.health += healAmount;
 
 		// Remove common negative status effects via deterministic effect ops
 		{
@@ -16423,7 +16533,14 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 			op.data.status.duration = 0;
 			queueEffect(op);
 		}
-		currentPlayer.poisonReduction = 0;
+		{
+			EffectOp op = {};
+			op.type = EffectOpType::REMOVE_STATUS;
+			op.data.status.targetIndex = currentPlayerIndex;
+			op.data.status.statusType = STATUS_SLEEP;
+			op.data.status.duration = 0;
+			queueEffect(op);
+		}
 		{
 			EffectOp op = {};
 			op.type = EffectOpType::REMOVE_STATUS;
@@ -16432,8 +16549,7 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 			op.data.status.duration = 0;
 			queueEffect(op);
 		}
-		currentPlayer.paralysisHeadsCount = 0;
-		currentPlayer.sleepTurnsRemaining = 0;
+		// paralysisHeadsCount and sleepTurnsRemaining will be cleared when REMOVE_STATUS ops process
 
 		currentCardOutcome.healingDealt = healAmount;
 		playedSuccessfully = true;
@@ -16461,12 +16577,15 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 	case CARD_STRENGTHEN_ELEMENTS: {
 		// LOCKSTEP MIGRATION: Status application
 		beginEffectSequence();
-		currentPlayer.strengthenElementsTurnsRemaining = 3;
-
-		EffectOp statusOp;
-		statusOp.type = EffectOpType::APPLY_STATUS;
-		// Status data would go here in future expansion
-		queueEffect(statusOp);
+		// Queue status application deterministically (3 turns)
+		{
+			EffectOp statusOp = {};
+			statusOp.type = EffectOpType::APPLY_STATUS;
+			statusOp.data.status.targetIndex = currentPlayerIndex;
+			statusOp.data.status.statusType = STATUS_STRENGTHEN_ELEMENTS;
+			statusOp.data.status.duration = 3;
+			queueEffect(statusOp);
+		}
 
 		playedSuccessfully = true;
 		advanceCardState(CARD_STATE_EFFECT_SEQUENCE);
@@ -16499,8 +16618,15 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 		holyBlockOp.data.modifyStat.delta = playedCard.value;
 		holyBlockOp.data.modifyStat.deltaFromSlot = -1;
 		queueEffect(holyBlockOp);
-
-		currentPlayer.nextTurnBonusDiceFromMinions = true;
+		// Queue status for next-turn bonus dice from minions
+		{
+			EffectOp op = {};
+			op.type = EffectOpType::APPLY_STATUS;
+			op.data.status.targetIndex = currentPlayerIndex;
+			op.data.status.statusType = STATUS_NEXT_TURN_BONUS_DICE;
+			op.data.status.duration = 0;
+			queueEffect(op);
+		}
 		playedSuccessfully = true;
 		advanceCardState(CARD_STATE_EFFECT_SEQUENCE);
 		return true;
@@ -16571,12 +16697,29 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 					queueEffect(apPar);
 				}
 				// isParalyzed will be set when the APPLY_STATUS op is processed
-				target->paralysisHeadsCount = 0;
+				// paralysisHeadsCount will be set/cleared by APPLY_STATUS handler
 				currentCardOutcome.statusesApplied.push_back("Paralyzed");
 			}
 		}
-		currentPlayer.nextTurnAPBonus += 2;
-		currentPlayer.shocksPlayedThisTurn++;
+		// Queue deterministic updates for next-turn AP bonus and shocks counter
+		{
+			EffectOp apBonus = {};
+			apBonus.type = EffectOpType::MODIFY_STAT;
+			apBonus.data.modifyStat.targetIndex = currentPlayerIndex;
+			apBonus.data.modifyStat.statType = 11; // Next-turn AP bonus
+			apBonus.data.modifyStat.delta = 2;
+			apBonus.data.modifyStat.deltaFromSlot = -1;
+			queueEffect(apBonus);
+		}
+		{
+			EffectOp shockCnt = {};
+			shockCnt.type = EffectOpType::MODIFY_STAT;
+			shockCnt.data.modifyStat.targetIndex = currentPlayerIndex;
+			shockCnt.data.modifyStat.statType = 12; // Shocks played counter
+			shockCnt.data.modifyStat.delta = 1;
+			shockCnt.data.modifyStat.deltaFromSlot = -1;
+			queueEffect(shockCnt);
+		}
 		currentCardOutcome.apGained = 2;
 		playedSuccessfully = true;
 		advanceCardState(CARD_STATE_EFFECT_SEQUENCE);
@@ -16590,11 +16733,26 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 		if (board[targetX][targetY].hasWall) {
 			beginEffectSequence();
 
-			board[targetX][targetY].hasWall = false;
-			buildLevelMesh();
+			// Queue deterministic tile modification to remove the wall
+			{
+				EffectOp tileOp = {};
+				tileOp.type = EffectOpType::MODIFY_TILE;
+				tileOp.data.modifyTile.toX = targetX;
+				tileOp.data.modifyTile.toY = targetY;
+				tileOp.data.modifyTile.setHasWall = -1; // clear wall
+				queueEffect(tileOp);
+			}
 
-			// +6 AP next turn
-			currentPlayer.nextTurnAPBonus += 6;
+			// +6 AP next turn via MODIFY_STAT
+			{
+				EffectOp apOp = {};
+				apOp.type = EffectOpType::MODIFY_STAT;
+				apOp.data.modifyStat.targetIndex = currentPlayerIndex;
+				apOp.data.modifyStat.statType = 11; // Next-turn AP bonus
+				apOp.data.modifyStat.delta = 6;
+				apOp.data.modifyStat.deltaFromSlot = -1;
+				queueEffect(apOp);
+			}
 			currentCardOutcome.apGained = 6;
 
 			playedSuccessfully = true;
@@ -17390,11 +17548,52 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 				spawnFloatingText(gridToWorld(target->x, target->y), "0 Damage", ofColor::gray);
 			}
 
-			currentPlayer.block = 0;
-			currentPlayer.barrier = 0;
-			currentPlayer.ward = 0;
-			currentPlayer.holyBlock = 0;
-			currentPlayer.fortification = 0;
+			// Queue deterministic resets for shields
+			if (currentPlayer.block > 0) {
+				EffectOp op = {};
+				op.type = EffectOpType::MODIFY_STAT;
+				op.data.modifyStat.targetIndex = currentPlayerIndex;
+				op.data.modifyStat.statType = 5; // Block
+				op.data.modifyStat.delta = -currentPlayer.block;
+				op.data.modifyStat.deltaFromSlot = -1;
+				queueEffect(op);
+			}
+			if (currentPlayer.barrier > 0) {
+				EffectOp op = {};
+				op.type = EffectOpType::MODIFY_STAT;
+				op.data.modifyStat.targetIndex = currentPlayerIndex;
+				op.data.modifyStat.statType = 6; // Barrier
+				op.data.modifyStat.delta = -currentPlayer.barrier;
+				op.data.modifyStat.deltaFromSlot = -1;
+				queueEffect(op);
+			}
+			if (currentPlayer.ward > 0) {
+				EffectOp op = {};
+				op.type = EffectOpType::MODIFY_STAT;
+				op.data.modifyStat.targetIndex = currentPlayerIndex;
+				op.data.modifyStat.statType = 8; // Ward
+				op.data.modifyStat.delta = -currentPlayer.ward;
+				op.data.modifyStat.deltaFromSlot = -1;
+				queueEffect(op);
+			}
+			if (currentPlayer.holyBlock > 0) {
+				EffectOp op = {};
+				op.type = EffectOpType::MODIFY_STAT;
+				op.data.modifyStat.targetIndex = currentPlayerIndex;
+				op.data.modifyStat.statType = 7; // HolyBlock
+				op.data.modifyStat.delta = -currentPlayer.holyBlock;
+				op.data.modifyStat.deltaFromSlot = -1;
+				queueEffect(op);
+			}
+			if (currentPlayer.fortification > 0) {
+				EffectOp op = {};
+				op.type = EffectOpType::MODIFY_STAT;
+				op.data.modifyStat.targetIndex = currentPlayerIndex;
+				op.data.modifyStat.statType = 13; // Fortification (new)
+				op.data.modifyStat.delta = -currentPlayer.fortification;
+				op.data.modifyStat.deltaFromSlot = -1;
+				queueEffect(op);
+			}
 
 			spawnFloatingText(gridToWorld(currentPlayer.x, currentPlayer.y), "Shields Broken!", ofColor::yellow);
 
@@ -17500,6 +17699,7 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 			damageOp.data.damage.damageType = DAMAGE_PHYSICAL;
 			damageOp.data.damage.fixedDamage = playedCard.value;
 			damageOp.data.damage.damageFromSlot = -1;
+			// Apply damage immediately here to compute outcome synchronously
 			processEffectOp(damageOp);
 			int hpAfter = target ? target->health : hpBefore;
 			bool healthHit = (hpAfter < hpBefore);
@@ -17507,10 +17707,16 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 			currentCardOutcome.damageDealt = std::max(0, hpBefore - hpAfter);
 
 			if (healthHit) {
-				currentPlayer.health += 2;
-				if (currentPlayer.health > currentPlayer.maxHealth) currentPlayer.health = currentPlayer.maxHealth;
+				// Queue a heal for caster
+				{
+					EffectOp healOp = {};
+					healOp.type = EffectOpType::HEAL;
+					healOp.data.heal.targetIndex = currentPlayerIndex;
+					healOp.data.heal.amount = 2;
+					healOp.data.heal.amountFromSlot = -1;
+					queueEffect(healOp);
+				}
 				currentCardOutcome.healingDealt = 2;
-				spawnFloatingText(gridToWorld(currentPlayer.x, currentPlayer.y), "+2 HP", ofColor::green);
 
 				Card cardToAdd;
 				bool found = false;
@@ -17523,10 +17729,11 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 				}
 
 				if (found) {
-					target->deck.push_back(cardToAdd);
-					shuffleGameVector(target->deck, targetIndex);
-					spawnFloatingText(gridToWorld(target->x, target->y), "Shuffled 1x Vampire Bite", ofColor::magenta);
-					ofLogNotice("Vampire Bite") << "Shuffled a Vampire Bite into Player " << target->playerID << "'s deck.";
+					EffectOp addOp = {};
+					addOp.type = EffectOpType::ADD_CARD_TO_DECK;
+					addOp.data.addCard.targetIndex = targetIndex;
+					addOp.data.addCard.cardType = (int)CARD_VAMPIRE_BITE;
+					queueEffect(addOp);
 				}
 			}
 
@@ -17613,9 +17820,18 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 			}
 		}
 
-		currentPlayer.fortification += linkedCount;
-		spawnFloatingText(gridToWorld(currentPlayer.x, currentPlayer.y), "+" + ofToString(linkedCount) + " Fortify", ofColor::lightGray);
-		ofLogNotice("Fortify") << "Player " << currentPlayer.playerID << " gained " << linkedCount << " fortification.";
+		// Queue deterministic fortification increase
+		if (linkedCount > 0) {
+			EffectOp op = {};
+			op.type = EffectOpType::MODIFY_STAT;
+			op.data.modifyStat.targetIndex = currentPlayerIndex;
+			op.data.modifyStat.statType = 13; // Fortification
+			op.data.modifyStat.delta = linkedCount;
+			op.data.modifyStat.deltaFromSlot = -1;
+			queueEffect(op);
+			spawnFloatingText(gridToWorld(currentPlayer.x, currentPlayer.y), "+" + ofToString(linkedCount) + " Fortify", ofColor::lightGray);
+			ofLogNotice("Fortify") << "Player " << currentPlayer.playerID << " queued " << linkedCount << " fortification.";
+		}
 
 		std::set<int> damagedIndices;
 		for (const auto & p : visited) {
@@ -17672,50 +17888,25 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 		damageOp.data.damage.damageFromSlot = -1;
 		queueEffect(damageOp);
 
-		// Increase flurry stacks (stacking doubles)
-		currentPlayer.flurryOfFistsStacks++;
+		// Increase flurry stacks deterministically and queue draws
+		{
+			EffectOp op = {};
+			op.type = EffectOpType::MODIFY_STAT;
+			op.data.modifyStat.targetIndex = currentPlayerIndex;
+			op.data.modifyStat.statType = 14; // Flurry stacks
+			op.data.modifyStat.delta = 1;
+			op.data.modifyStat.deltaFromSlot = -1;
+			queueEffect(op);
+		}
 		spawnFloatingText(gridToWorld(currentPlayer.x, currentPlayer.y), "Flurry!", ofColor::orange);
 
-		// Draw N cards (draw count equals 2^stacks)
-		int drawCount = (1 << currentPlayer.flurryOfFistsStacks);
-		for (int di = 0; di < drawCount; ++di) {
-			if (currentPlayer.deck.empty() && !currentPlayer.discardPile.empty()) {
-				currentPlayer.deck = currentPlayer.discardPile;
-				currentPlayer.discardPile.clear();
-				shuffleGameVector(currentPlayer.deck, currentPlayerIndex);
-			}
-			if (!currentPlayer.deck.empty()) {
-				Card drawnCard = currentPlayer.deck.back();
-				currentPlayer.deck.pop_back();
-
-				bool isHandRelated = (drawnCard.name == "Punch" || drawnCard.name == "Hand Block" || drawnCard.name == "Bash" || drawnCard.name == "Drain Punch" || drawnCard.name == "Double Handed" || drawnCard.name == "Master Fist" || drawnCard.name == "Flurry of Fists" || drawnCard.name == "Giant Magic Hand");
-
-				if (isHandRelated) {
-					drawnCard.cost = 0;
-					spawnFloatingText(gridToWorld(currentPlayer.x, currentPlayer.y) + glm::vec3(0, 0.5f, 0),
-						drawnCard.name + " (0 AP)!", ofColor::yellow);
-				}
-
-				currentPlayer.hand.push_back(drawnCard);
-				currentPlayer.hand.back().currentScale = 1.5f;
-				currentPlayer.hand.back().targetScale = 1.5f;
-
-				DrawCardAnimation anim;
-				anim.card = drawnCard;
-				anim.startTime = ofGetElapsedTimef();
-				anim.duration = 0.5f;
-				anim.ownerIndex = currentPlayerIndex;
-				anim.toMinionHand = currentPlayer.isMinion;
-				anim.startIsScreenSpace = false;
-				anim.startPos = gridToWorld(currentPlayer.x, currentPlayer.y) + glm::vec3(0, 1.5f, 0);
-				anim.targetPos = glm::vec2(ofGetWidth() / 2.0f, ofGetHeight() / 2.0f);
-				anim.currentPos = glm::vec2(anim.startPos.x, anim.startPos.y);
-				anim.currentScale = 1.0f;
-				anim.commitOnFinish = false;
-				activeDrawCardAnimations.push_back(anim);
-
-				ofLogNotice("Flurry of Fists") << "Drew " << drawnCard.name << (isHandRelated ? " (free this turn)" : "");
-			}
+		int drawCount = (1 << (preFlurryStacks + 1));
+		if (drawCount > 0) {
+			EffectOp drawOp = {};
+			drawOp.type = EffectOpType::DRAW_CARDS;
+			drawOp.data.drawCards.playerIndex = currentPlayerIndex;
+			drawOp.data.drawCards.numCards = drawCount;
+			queueEffect(drawOp);
 		}
 
 		playedSuccessfully = true;

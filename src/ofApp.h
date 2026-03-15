@@ -293,6 +293,8 @@ enum class EffectOpType : uint8_t {
 	SPAWN_UNIT,
 	SPAWN_PLAYER,
 	MODIFY_STAT,
+	MODIFY_TILE,
+	ADD_CARD_TO_DECK,
 	DRAW_CARDS,
 	DISCARD_CARDS,
 	APPLY_STATUS,
@@ -351,6 +353,17 @@ struct SpawnUnitData {
 	int summonerPlayerID; // optional: specific unit/player that summoned this minion
 };
 
+struct ModifyTileData {
+	int toX;
+	int toY;
+	int setHasWall; // 0 = no change, 1 = set true, -1 = set false
+};
+
+struct AddCardToDeckData {
+	int targetIndex;
+	int cardType; // CardType enum value
+};
+
 struct SpawnPlayerData {
 	int x;
 	int y;
@@ -369,6 +382,11 @@ enum StatusType : int {
 	STATUS_TORTOISE_FORM = 7,
 	STATUS_REGENERATING = 8,
 	STATUS_REPLICATE_QUEUED = 9,
+	// New centralized status flags (used by EffectOps)
+	STATUS_NEXT_TURN_EXTRA_DRAW = 10,
+	STATUS_NEXT_TURN_D10AP = 11,
+	STATUS_NEXT_TURN_BONUS_DICE = 12,
+	STATUS_SLEEP = 13,
 };
 
 struct StatusData {
@@ -386,6 +404,8 @@ struct EffectOp {
 		MoveUnitData moveUnit;
 		DrawCardsData drawCards;
 		ModifyStatData modifyStat;
+		ModifyTileData modifyTile;
+		AddCardToDeckData addCard;
 		StatusData status;
 		SpawnUnitData spawnUnit;
 		SpawnPlayerData spawnPlayer;
