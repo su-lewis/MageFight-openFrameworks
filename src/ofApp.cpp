@@ -10475,23 +10475,118 @@ void ofApp::mousePressed(int x, int y, int button) {
 			return;
 		}
 		if (debugFlipCoinButton.inside(x, y)) {
-			startDiceRoll(1, 2, PURPOSE_DEBUG, "Debug Coin", currentPlayerIndex);
+			InputCommandPacket cmd = {};
+			cmd.type = PKT_ACTION;
+			cmd.playerID = myLocalPlayerID;
+			cmd.seq = 0;
+			cmd.commandId = nextCommandId++;
+			cmd.turnNumber = globalTurnCounter;
+			cmd.commandType = CMD_ROLL_DICE;
+			cmd.params[0] = 1; // numDice
+			cmd.params[1] = 2; // sides
+			cmd.params[2] = PURPOSE_DEBUG;
+			cmd.params[3] = currentPlayerIndex;
+			strncpy(cmd.stringData, "Debug Coin", sizeof(cmd.stringData) - 1);
+			cmd.stringData[sizeof(cmd.stringData) - 1] = '\0';
+			if (isMultiplayer)
+				queueInputCommand(cmd);
+			else {
+				isExecutingLockstepCommand = true;
+				executeInputCommand(cmd);
+				isExecutingLockstepCommand = false;
+			}
 			return;
 		}
 		if (debugRollD4Button.inside(x, y)) {
-			startDiceRoll(1, 4, PURPOSE_DEBUG, "Debug D4", currentPlayerIndex);
+			InputCommandPacket cmd = {};
+			cmd.type = PKT_ACTION;
+			cmd.playerID = myLocalPlayerID;
+			cmd.seq = 0;
+			cmd.commandId = nextCommandId++;
+			cmd.turnNumber = globalTurnCounter;
+			cmd.commandType = CMD_ROLL_DICE;
+			cmd.params[0] = 1;
+			cmd.params[1] = 4;
+			cmd.params[2] = PURPOSE_DEBUG;
+			cmd.params[3] = currentPlayerIndex;
+			strncpy(cmd.stringData, "Debug D4", sizeof(cmd.stringData) - 1);
+			cmd.stringData[sizeof(cmd.stringData) - 1] = '\0';
+			if (isMultiplayer)
+				queueInputCommand(cmd);
+			else {
+				isExecutingLockstepCommand = true;
+				executeInputCommand(cmd);
+				isExecutingLockstepCommand = false;
+			}
 			return;
 		}
 		if (debugRollD6Button.inside(x, y)) {
-			startDiceRoll(1, 6, PURPOSE_DEBUG, "Debug D6", currentPlayerIndex);
+			InputCommandPacket cmd = {};
+			cmd.type = PKT_ACTION;
+			cmd.playerID = myLocalPlayerID;
+			cmd.seq = 0;
+			cmd.commandId = nextCommandId++;
+			cmd.turnNumber = globalTurnCounter;
+			cmd.commandType = CMD_ROLL_DICE;
+			cmd.params[0] = 1;
+			cmd.params[1] = 6;
+			cmd.params[2] = PURPOSE_DEBUG;
+			cmd.params[3] = currentPlayerIndex;
+			strncpy(cmd.stringData, "Debug D6", sizeof(cmd.stringData) - 1);
+			cmd.stringData[sizeof(cmd.stringData) - 1] = '\0';
+			if (isMultiplayer)
+				queueInputCommand(cmd);
+			else {
+				isExecutingLockstepCommand = true;
+				executeInputCommand(cmd);
+				isExecutingLockstepCommand = false;
+			}
 			return;
 		}
 		if (debugRollD10Button.inside(x, y)) {
-			startDiceRoll(1, 10, PURPOSE_DEBUG, "Debug D10", currentPlayerIndex);
+			InputCommandPacket cmd = {};
+			cmd.type = PKT_ACTION;
+			cmd.playerID = myLocalPlayerID;
+			cmd.seq = 0;
+			cmd.commandId = nextCommandId++;
+			cmd.turnNumber = globalTurnCounter;
+			cmd.commandType = CMD_ROLL_DICE;
+			cmd.params[0] = 1;
+			cmd.params[1] = 10;
+			cmd.params[2] = PURPOSE_DEBUG;
+			cmd.params[3] = currentPlayerIndex;
+			strncpy(cmd.stringData, "Debug D10", sizeof(cmd.stringData) - 1);
+			cmd.stringData[sizeof(cmd.stringData) - 1] = '\0';
+			if (isMultiplayer)
+				queueInputCommand(cmd);
+			else {
+				isExecutingLockstepCommand = true;
+				executeInputCommand(cmd);
+				isExecutingLockstepCommand = false;
+			}
 			return;
 		}
 		if (debugRollD20Button.inside(x, y)) {
-			startDiceRoll(1, 20, PURPOSE_DEBUG, "Debug D20", currentPlayerIndex);
+			InputCommandPacket cmd = {};
+			cmd.type = PKT_ACTION;
+			cmd.playerID = myLocalPlayerID;
+			cmd.seq = 0;
+			cmd.commandId = nextCommandId++;
+			cmd.turnNumber = globalTurnCounter;
+			cmd.commandType = CMD_ROLL_DICE;
+			cmd.params[0] = 1;
+			cmd.params[1] = 20;
+			cmd.params[2] = PURPOSE_DEBUG;
+			cmd.params[3] = currentPlayerIndex;
+			strncpy(cmd.stringData, "Debug D20", sizeof(cmd.stringData) - 1);
+			cmd.stringData[sizeof(cmd.stringData) - 1] = '\0';
+			if (isMultiplayer)
+				queueInputCommand(cmd);
+			else {
+				isExecutingLockstepCommand = true;
+				executeInputCommand(cmd);
+				isExecutingLockstepCommand = false;
+			}
 			return;
 		}
 		if (debugUnlimitedAPButton.inside(x, y)) {
@@ -13491,17 +13586,80 @@ void ofApp::startNewTurn() {
 			// Check Status Effects: on fire, poison, paralysis, sleep
 			if (startingPlayer.onFire) {
 				isWaitingForOnFireDice = true;
-				currentCardOutcome.namedDiceResults["status_onfire"] = startDiceRoll(1, 6, PURPOSE_DAMAGE, "Fire Status Damage");
+				{
+					InputCommandPacket cmd = {};
+					cmd.type = PKT_ACTION;
+					cmd.playerID = myLocalPlayerID;
+					cmd.seq = 0;
+					cmd.commandId = nextCommandId++;
+					cmd.turnNumber = globalTurnCounter;
+					cmd.commandType = CMD_ROLL_DICE;
+					cmd.params[0] = 1;
+					cmd.params[1] = 6;
+					cmd.params[2] = PURPOSE_DAMAGE;
+					cmd.params[3] = currentPlayerIndex;
+					strncpy(cmd.stringData, "status_onfire", sizeof(cmd.stringData) - 1);
+					cmd.stringData[sizeof(cmd.stringData) - 1] = '\0';
+					if (isMultiplayer)
+						queueInputCommand(cmd);
+					else {
+						isExecutingLockstepCommand = true;
+						executeInputCommand(cmd);
+						isExecutingLockstepCommand = false;
+					}
+				}
 				return;
 			}
 			if (startingPlayer.isPoisoned) {
 				isWaitingForPoisonDice = true;
-				currentCardOutcome.namedDiceResults["status_poison"] = startDiceRoll(1, 6, PURPOSE_DAMAGE, "Poison Status Damage");
+				{
+					InputCommandPacket cmd = {};
+					cmd.type = PKT_ACTION;
+					cmd.playerID = myLocalPlayerID;
+					cmd.seq = 0;
+					cmd.commandId = nextCommandId++;
+					cmd.turnNumber = globalTurnCounter;
+					cmd.commandType = CMD_ROLL_DICE;
+					cmd.params[0] = 1;
+					cmd.params[1] = 6;
+					cmd.params[2] = PURPOSE_DAMAGE;
+					cmd.params[3] = currentPlayerIndex;
+					strncpy(cmd.stringData, "status_poison", sizeof(cmd.stringData) - 1);
+					cmd.stringData[sizeof(cmd.stringData) - 1] = '\0';
+					if (isMultiplayer)
+						queueInputCommand(cmd);
+					else {
+						isExecutingLockstepCommand = true;
+						executeInputCommand(cmd);
+						isExecutingLockstepCommand = false;
+					}
+				}
 				return;
 			}
 			if (startingPlayer.isParalyzed) {
-				startDiceRoll(1, 2, PURPOSE_COIN_FLIP, "Paralysis Check");
 				isWaitingForParalysisCoin = true;
+				{
+					InputCommandPacket cmd = {};
+					cmd.type = PKT_ACTION;
+					cmd.playerID = myLocalPlayerID;
+					cmd.seq = 0;
+					cmd.commandId = nextCommandId++;
+					cmd.turnNumber = globalTurnCounter;
+					cmd.commandType = CMD_ROLL_DICE;
+					cmd.params[0] = 1;
+					cmd.params[1] = 2;
+					cmd.params[2] = PURPOSE_COIN_FLIP;
+					cmd.params[3] = currentPlayerIndex;
+					strncpy(cmd.stringData, "paralysis_coin", sizeof(cmd.stringData) - 1);
+					cmd.stringData[sizeof(cmd.stringData) - 1] = '\0';
+					if (isMultiplayer)
+						queueInputCommand(cmd);
+					else {
+						isExecutingLockstepCommand = true;
+						executeInputCommand(cmd);
+						isExecutingLockstepCommand = false;
+					}
+				}
 				return;
 			}
 			if (startingPlayer.sleepTurnsRemaining > 0) {
@@ -13509,7 +13667,28 @@ void ofApp::startNewTurn() {
 				spawnFloatingText(gridToWorld(startingPlayer.x, startingPlayer.y), "Zzz...", ofColor::cyan);
 				if (startingPlayer.onFire) {
 					isWaitingForOnFireDice = true;
-					currentCardOutcome.namedDiceResults["status_onfire"] = startDiceRoll(1, 6, PURPOSE_DAMAGE, "Sleeping Fire Damage");
+					{
+						InputCommandPacket cmd = {};
+						cmd.type = PKT_ACTION;
+						cmd.playerID = myLocalPlayerID;
+						cmd.seq = 0;
+						cmd.commandId = nextCommandId++;
+						cmd.turnNumber = globalTurnCounter;
+						cmd.commandType = CMD_ROLL_DICE;
+						cmd.params[0] = 1;
+						cmd.params[1] = 6;
+						cmd.params[2] = PURPOSE_DAMAGE;
+						cmd.params[3] = currentPlayerIndex;
+						strncpy(cmd.stringData, "status_onfire", sizeof(cmd.stringData) - 1);
+						cmd.stringData[sizeof(cmd.stringData) - 1] = '\0';
+						if (isMultiplayer)
+							queueInputCommand(cmd);
+						else {
+							isExecutingLockstepCommand = true;
+							executeInputCommand(cmd);
+							isExecutingLockstepCommand = false;
+						}
+					}
 					return;
 				}
 				startNewTurn();
@@ -13563,17 +13742,80 @@ void ofApp::startNewTurn() {
 	// Check status effects: on fire, poison, paralysis, sleep
 	if (startingPlayer.onFire) {
 		isWaitingForOnFireDice = true;
-		currentCardOutcome.namedDiceResults["status_onfire"] = startDiceRoll(1, 6, PURPOSE_DAMAGE, "Fire Status Damage");
+		{
+			InputCommandPacket cmd = {};
+			cmd.type = PKT_ACTION;
+			cmd.playerID = myLocalPlayerID;
+			cmd.seq = 0;
+			cmd.commandId = nextCommandId++;
+			cmd.turnNumber = globalTurnCounter;
+			cmd.commandType = CMD_ROLL_DICE;
+			cmd.params[0] = 1; // numDice
+			cmd.params[1] = 6; // sides
+			cmd.params[2] = PURPOSE_DAMAGE;
+			cmd.params[3] = currentPlayerIndex;
+			strncpy(cmd.stringData, "status_onfire", sizeof(cmd.stringData) - 1);
+			cmd.stringData[sizeof(cmd.stringData) - 1] = '\0';
+			if (isMultiplayer)
+				queueInputCommand(cmd);
+			else {
+				isExecutingLockstepCommand = true;
+				executeInputCommand(cmd);
+				isExecutingLockstepCommand = false;
+			}
+		}
 		return;
 	}
 	if (startingPlayer.isPoisoned) {
 		isWaitingForPoisonDice = true;
-		currentCardOutcome.namedDiceResults["status_poison"] = startDiceRoll(1, 6, PURPOSE_DAMAGE, "Poison Status Damage");
+		{
+			InputCommandPacket cmd = {};
+			cmd.type = PKT_ACTION;
+			cmd.playerID = myLocalPlayerID;
+			cmd.seq = 0;
+			cmd.commandId = nextCommandId++;
+			cmd.turnNumber = globalTurnCounter;
+			cmd.commandType = CMD_ROLL_DICE;
+			cmd.params[0] = 1; // numDice
+			cmd.params[1] = 6; // sides
+			cmd.params[2] = PURPOSE_DAMAGE;
+			cmd.params[3] = currentPlayerIndex;
+			strncpy(cmd.stringData, "status_poison", sizeof(cmd.stringData) - 1);
+			cmd.stringData[sizeof(cmd.stringData) - 1] = '\0';
+			if (isMultiplayer)
+				queueInputCommand(cmd);
+			else {
+				isExecutingLockstepCommand = true;
+				executeInputCommand(cmd);
+				isExecutingLockstepCommand = false;
+			}
+		}
 		return;
 	}
 	if (startingPlayer.isParalyzed) {
-		startDiceRoll(1, 2, PURPOSE_COIN_FLIP, "Paralysis Check");
 		isWaitingForParalysisCoin = true;
+		{
+			InputCommandPacket cmd = {};
+			cmd.type = PKT_ACTION;
+			cmd.playerID = myLocalPlayerID;
+			cmd.seq = 0;
+			cmd.commandId = nextCommandId++;
+			cmd.turnNumber = globalTurnCounter;
+			cmd.commandType = CMD_ROLL_DICE;
+			cmd.params[0] = 1; // numDice
+			cmd.params[1] = 2; // sides
+			cmd.params[2] = PURPOSE_COIN_FLIP;
+			cmd.params[3] = currentPlayerIndex;
+			strncpy(cmd.stringData, "paralysis_coin", sizeof(cmd.stringData) - 1);
+			cmd.stringData[sizeof(cmd.stringData) - 1] = '\0';
+			if (isMultiplayer)
+				queueInputCommand(cmd);
+			else {
+				isExecutingLockstepCommand = true;
+				executeInputCommand(cmd);
+				isExecutingLockstepCommand = false;
+			}
+		}
 		return;
 	}
 	if (startingPlayer.sleepTurnsRemaining > 0) {
@@ -13581,7 +13823,28 @@ void ofApp::startNewTurn() {
 		spawnFloatingText(gridToWorld(startingPlayer.x, startingPlayer.y), "Zzz...", ofColor::cyan);
 		if (startingPlayer.onFire) {
 			isWaitingForOnFireDice = true;
-			currentCardOutcome.namedDiceResults["status_onfire"] = startDiceRoll(1, 6, PURPOSE_DAMAGE, "Sleeping Fire Damage");
+			{
+				InputCommandPacket cmd = {};
+				cmd.type = PKT_ACTION;
+				cmd.playerID = myLocalPlayerID;
+				cmd.seq = 0;
+				cmd.commandId = nextCommandId++;
+				cmd.turnNumber = globalTurnCounter;
+				cmd.commandType = CMD_ROLL_DICE;
+				cmd.params[0] = 1;
+				cmd.params[1] = 6;
+				cmd.params[2] = PURPOSE_DAMAGE;
+				cmd.params[3] = currentPlayerIndex;
+				strncpy(cmd.stringData, "status_onfire", sizeof(cmd.stringData) - 1);
+				cmd.stringData[sizeof(cmd.stringData) - 1] = '\0';
+				if (isMultiplayer)
+					queueInputCommand(cmd);
+				else {
+					isExecutingLockstepCommand = true;
+					executeInputCommand(cmd);
+					isExecutingLockstepCommand = false;
+				}
+			}
 			return;
 		}
 		startNewTurn();
@@ -13680,7 +13943,28 @@ void ofApp::continueNewTurn() {
 		// If on fire while sleeping, roll damage first, then the update loop will end the turn
 		if (startingPlayer.onFire) {
 			isWaitingForOnFireDice = true;
-			currentCardOutcome.namedDiceResults["status_onfire"] = startDiceRoll(1, 6, PURPOSE_DAMAGE, "Sleeping Fire Damage");
+			{
+				InputCommandPacket cmd = {};
+				cmd.type = PKT_ACTION;
+				cmd.playerID = myLocalPlayerID;
+				cmd.seq = 0;
+				cmd.commandId = nextCommandId++;
+				cmd.turnNumber = globalTurnCounter;
+				cmd.commandType = CMD_ROLL_DICE;
+				cmd.params[0] = 1;
+				cmd.params[1] = 6;
+				cmd.params[2] = PURPOSE_DAMAGE;
+				cmd.params[3] = currentPlayerIndex;
+				strncpy(cmd.stringData, "status_onfire", sizeof(cmd.stringData) - 1);
+				cmd.stringData[sizeof(cmd.stringData) - 1] = '\0';
+				if (isMultiplayer)
+					queueInputCommand(cmd);
+				else {
+					isExecutingLockstepCommand = true;
+					executeInputCommand(cmd);
+					isExecutingLockstepCommand = false;
+				}
+			}
 			return;
 		}
 
@@ -15943,6 +16227,26 @@ void ofApp::handleCardDragToPlay(int cardIndex) {
 				}
 
 				ofLogNotice("Lockstep") << "Execute CMD_PLAY_CARD: card=" << cardName << " target=(" << targetX << "," << targetY << ") result=" << (int)result;
+				break;
+			}
+			case CMD_ROLL_DICE: {
+				int numDice = cmd.params[0];
+				int sides = cmd.params[1];
+				int purposeInt = cmd.params[2];
+				int ownerIndex = cmd.params[3];
+				std::string label = cmd.stringData;
+
+				DicePurpose purpose = (DicePurpose)purposeInt;
+				int result = startDiceRoll(numDice, sides, purpose, label, ownerIndex);
+				ofLogNotice("Lockstep") << "Execute CMD_ROLL_DICE: " << label << " result=" << result << " owner=" << ownerIndex;
+				// Store named dice results for status flows so resolver functions can read them
+				if (label == "status_onfire") {
+					currentCardOutcome.namedDiceResults["status_onfire"] = result;
+				} else if (label == "status_poison") {
+					currentCardOutcome.namedDiceResults["status_poison"] = result;
+				} else if (label == "paralysis_coin") {
+					currentCardOutcome.namedDiceResults["paralysis_coin"] = result;
+				}
 				break;
 			}
 			case CMD_MOVE_UNIT: {
@@ -31835,7 +32139,28 @@ void ofApp::handleCardDragToPlay(int cardIndex) {
 				// Continue turn
 				if (p.onFire) {
 					isWaitingForOnFireDice = true;
-					currentCardOutcome.namedDiceResults["status_onfire"] = startDiceRoll(1, 6, PURPOSE_DAMAGE, "", currentPlayerIndex);
+					{
+						InputCommandPacket cmd = {};
+						cmd.type = PKT_ACTION;
+						cmd.playerID = myLocalPlayerID;
+						cmd.seq = 0;
+						cmd.commandId = nextCommandId++;
+						cmd.turnNumber = globalTurnCounter;
+						cmd.commandType = CMD_ROLL_DICE;
+						cmd.params[0] = 1;
+						cmd.params[1] = 6;
+						cmd.params[2] = PURPOSE_DAMAGE;
+						cmd.params[3] = currentPlayerIndex;
+						strncpy(cmd.stringData, "status_onfire", sizeof(cmd.stringData) - 1);
+						cmd.stringData[sizeof(cmd.stringData) - 1] = '\0';
+						if (isMultiplayer)
+							queueInputCommand(cmd);
+						else {
+							isExecutingLockstepCommand = true;
+							executeInputCommand(cmd);
+							isExecutingLockstepCommand = false;
+						}
+					}
 				} else {
 					continueNewTurn();
 				}
@@ -31962,4 +32287,8 @@ void ofApp::handleCardDragToPlay(int cardIndex) {
 			}
 		}
 
-	//--------------------------------------------------------------
+		//--------------------------------------------------------------
+
+		// Closing braces added to balance earlier open scopes introduced during refactor
+	}
+}
