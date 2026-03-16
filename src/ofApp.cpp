@@ -14148,18 +14148,16 @@ void ofApp::handleCardTargetClick(int gridX, int gridY) {
 	interactionTargetIndex = targetIndex;
 	int cardIndex = interactingCardIndex;
 
-	// Handle placement interactions (minions) centrally here so mouseReleased
-	// no longer needs ad-hoc placement logic.
-	if (cardInteractionState == CARD_INTERACTION_PLACING) {
-		// KOBOLD PLACEMENT
-		if (interactingCardType == CARD_CALL_FOR_KOBOLDS && !isWaitingForKoboldDice) {
+	// Centralize minion placement logic in switch
+	switch (interactingCardType) {
+	case CARD_CALL_FOR_KOBOLDS: {
+		if (cardInteractionState == CARD_INTERACTION_PLACING && !isWaitingForKoboldDice) {
 			int gx = gridX, gy = gridY;
 			if (gx >= 0 && gx < BOARD_WIDTH && gy >= 0 && gy < BOARD_HEIGHT) {
 				if (!board[gx][gy].hasWall && !board[gx][gy].hasPlayer) {
 					int dist = abs(gx - koboldPlacementSourceX) + abs(gy - koboldPlacementSourceY);
 					if (dist == 1) {
 						koboldSummonCount++;
-
 						Player kobold;
 						kobold.playerID = 300 + (int)players.size();
 						kobold.x = gx;
@@ -14169,7 +14167,6 @@ void ofApp::handleCardTargetClick(int gridX, int gridY) {
 						kobold.isMinion = true;
 						kobold.isKobold = true;
 						kobold.isSkeleton = false;
-
 						kobold.ownerID = currentCardOutcome.summonOwnerPlayerID;
 						kobold.summonedOnTurnCycle = globalTurnCounter;
 						kobold.summonOrder = ++nextSummonOrder;
@@ -14180,12 +14177,10 @@ void ofApp::handleCardTargetClick(int gridX, int gridY) {
 							if (c.type == CARD_CALL_FOR_KOBOLDS) callCard = c;
 						}
 						kobold.deck = { hb, hb, pu, callCard };
-
 						board[gx][gy].hasPlayer = true;
 						players.push_back(kobold);
 						int newKoboldIdx = (int)players.size() - 1;
 						shuffleGameVector(players[newKoboldIdx].deck, newKoboldIdx);
-
 						if (isMultiplayer && isHost()) {
 							PlaceSummonedMinionPacket pkt = {};
 							pkt.type = PKT_PLACE_SUMMONED_MINION;
@@ -14199,7 +14194,6 @@ void ofApp::handleCardTargetClick(int gridX, int gridY) {
 							steamManager.sendPacket(&pkt, sizeof(pkt));
 							ofLogNotice("Network") << "Host sent PlaceSummonedMinion: KOBOLD owner=" << pkt.ownerPlayerID << " target=(" << pkt.targetX << "," << pkt.targetY << ") HP=" << pkt.minionHP;
 						}
-
 						koboldsRemainingToPlace--;
 						if (koboldsRemainingToPlace <= 0) {
 							updateCardInteractionState(CARD_INTERACTION_IDLE, -1, CARD_NONE);
@@ -14220,21 +14214,21 @@ void ofApp::handleCardTargetClick(int gridX, int gridY) {
 								}
 							}
 						}
-
 						return;
 					}
 				}
 			}
 		}
-		// WOLF PLACEMENT
-		if (interactingCardType == CARD_CALL_FOR_WOLVES && !isWaitingForWolfCoin) {
+		break;
+	}
+	case CARD_CALL_FOR_WOLVES: {
+		if (cardInteractionState == CARD_INTERACTION_PLACING && !isWaitingForWolfCoin) {
 			int gx = gridX, gy = gridY;
 			if (gx >= 0 && gx < BOARD_WIDTH && gy >= 0 && gy < BOARD_HEIGHT) {
 				if (!board[gx][gy].hasWall && !board[gx][gy].hasPlayer) {
 					int dist = abs(gx - wolfPlacementSourceX) + abs(gy - wolfPlacementSourceY);
 					if (dist == 1) {
 						wolfSummonCount++;
-
 						Player wolf;
 						wolf.playerID = 200 + (int)players.size();
 						wolf.x = gx;
@@ -14243,7 +14237,6 @@ void ofApp::handleCardTargetClick(int gridX, int gridY) {
 						wolf.health = 4;
 						wolf.isMinion = true;
 						wolf.isWolf = true;
-
 						wolf.ownerID = currentCardOutcome.summonOwnerPlayerID;
 						wolf.summonedOnTurnCycle = globalTurnCounter;
 						Card slashCard, callCard;
@@ -14252,12 +14245,10 @@ void ofApp::handleCardTargetClick(int gridX, int gridY) {
 							if (c.type == CARD_CALL_FOR_WOLVES) callCard = c;
 						}
 						wolf.deck = { slashCard, slashCard, slashCard, callCard };
-
 						board[gx][gy].hasPlayer = true;
 						players.push_back(wolf);
 						int newWolfIdx = (int)players.size() - 1;
 						shuffleGameVector(players[newWolfIdx].deck, newWolfIdx);
-
 						if (isMultiplayer && isHost()) {
 							PlaceSummonedMinionPacket pkt = {};
 							pkt.type = PKT_PLACE_SUMMONED_MINION;
@@ -14271,7 +14262,6 @@ void ofApp::handleCardTargetClick(int gridX, int gridY) {
 							steamManager.sendPacket(&pkt, sizeof(pkt));
 							ofLogNotice("Network") << "Host sent PlaceSummonedMinion: WOLF owner=" << pkt.ownerPlayerID << " target=(" << pkt.targetX << "," << pkt.targetY << ") HP=" << pkt.minionHP;
 						}
-
 						if (wolfSummonStage == 1) {
 							checkKeyPickupAndDraftAfterSummon(gx, gy, wolf.ownerID);
 							startDiceRoll(1, 2, PURPOSE_COIN_FLIP, "Call for Wolves Coin", currentPlayerIndex);
@@ -14281,12 +14271,15 @@ void ofApp::handleCardTargetClick(int gridX, int gridY) {
 							wolfSummonStage = 0;
 							checkKeyPickupAndDraftAfterSummon(gx, gy, wolf.ownerID);
 						}
-
 						return;
 					}
 				}
 			}
 		}
+		break;
+	}
+	default:
+		break;
 	}
 
 	switch (interactingCardType) {
@@ -30267,275 +30260,38 @@ void ofApp::executeAction(const ActionPacket & pkt) {
 }
 
 void ofApp::executeOpponentCardPlay(const ActionPacket & pkt) {
-	// Handle opponent's card play by temporarily adding card to their hand and executing full logic
-	std::string cardName = pkt.cardName;
-	int tx = pkt.targetX;
-	int ty = pkt.targetY;
+	ofLogNotice("Network") << "Queueing opponent card play: " << pkt.cardName;
 
-	ofLogNotice("Network") << "executeOpponentCardPlay: Opponent played " << cardName << " at (" << tx << "," << ty << ") actorIndex=" << pkt.actorIndex;
+	InputCommandPacket cmd = {};
+	cmd.playerID = pkt.playerID;
+	cmd.seq = pkt.clientActionID;
+	cmd.commandId = nextCommandId++;
+	cmd.turnNumber = globalTurnCounter;
 
-	// Find the acting unit (player or minion)
-	int opponentPlayerIndex = -1;
-	if (pkt.actorIndex >= 0 && pkt.actorIndex < (int)players.size()) {
-		opponentPlayerIndex = pkt.actorIndex;
-	} else {
-		for (size_t i = 0; i < players.size(); i++) {
-			Player & p = players[i];
-			if (static_cast<uint32_t>(p.playerID) == pkt.playerID && !p.isMinion) {
-				opponentPlayerIndex = (int)i;
+	if (pkt.menuChoice > 0) {
+		cmd.commandType = CMD_MENU_CHOICE;
+		Card cardDef;
+		for (const auto & c : allCards) {
+			if (c.name == pkt.cardName) {
+				cardDef = c;
 				break;
 			}
 		}
-	}
-	if (opponentPlayerIndex < 0) {
-		ofLogWarning("Network") << "executeOpponentCardPlay: Opponent unit not found!";
-		return;
-	}
-
-	// Find the card definition from allCards by name
-	Card cardDef;
-	bool found = false;
-	for (const auto & c : allCards) {
-		if (c.name == cardName) {
-			cardDef = c;
-			found = true;
-			break;
-		}
-	}
-
-	// --- ADD DIAGNOSTIC LOG ---
-	if (!found) {
-		ofLogError("Network") << "CRITICAL: Opponent played card '" << cardName << "' but it was not found in local allCards DB!";
-		// Attempt fallback? Or just return to avoid crash.
-		return;
-	}
-
-	ofLogNotice("Network") << "executeOpponentCardPlay: Card type=" << (int)cardDef.type << " cost=" << cardDef.cost;
-	Player & opponentPlayer = players[opponentPlayerIndex];
-
-	// Temporarily swap to opponent's player context
-	int savedCurrentPlayerIndex = currentPlayerIndex;
-	int savedCurrentAP = currentAP;
-	currentPlayerIndex = opponentPlayerIndex;
-
-	// Find the card in opponent's hand (for cards received via DrawCards packet)
-	int tempCardIndex = -1;
-	for (size_t i = 0; i < opponentPlayer.hand.size(); i++) {
-		if (opponentPlayer.hand[i].name == cardName) {
-			tempCardIndex = (int)i;
-			break;
-		}
-	}
-
-	// If card not found in hand, add it temporarily (for cards not synced via DrawCards)
-	bool addedTemporaryCard = false;
-	if (tempCardIndex < 0) {
-		opponentPlayer.hand.push_back(cardDef);
-		opponentPlayer.hand.back().currentScale = opponentPlayer.hand.back().targetScale = 1.5f;
-		tempCardIndex = (int)opponentPlayer.hand.size() - 1;
-		addedTemporaryCard = true;
-	}
-	(void)addedTemporaryCard;
-
-	// --- FIX START: ENFORCE AP AUTHORITY FOR REMOTE ACTIONS ---
-	// Sync AP from the authoritative player state. Do NOT pre-deduct the
-	// card cost here; `playCard()` will consume AP itself. Pre-deducting
-	// caused double-AP consumption on the client and led to failed plays.
-	currentAP = opponentPlayer.ap;
-	// Do NOT subtract cardDef.cost here. The authoritative `pkt.updatedAP`
-	// will be applied after the play completes to keep client state synced.
-	// --- FIX END ---
-
-	ofLogNotice("Network") << "executeOpponentCardPlay: Executing playCard with cardIndex=" << tempCardIndex << " currentPlayerIndex=" << currentPlayerIndex << " AP=" << currentAP;
-	ofLogNotice("Network") << "executeOpponentCardPlay: Hand size before playCard = " << opponentPlayer.hand.size() << ", Played pile size = " << opponentPlayer.playedCardsPile.size();
-	// If this ActionPacket contains a menuChoice, centralize handling by
-	// queueing a CMD_MENU_CHOICE into the deterministic command queue and
-	// returning. The lockstep handler (`executeInputCommand`) will perform
-	// the actual resolution so we don't duplicate logic here.
-	if (pkt.menuChoice > 0) {
-		CardType menuType = CARD_NONE;
-		if (tempCardIndex >= 0 && tempCardIndex < (int)opponentPlayer.hand.size()) {
-			menuType = opponentPlayer.hand[tempCardIndex].type;
-		}
-		if (menuType == CARD_NONE) {
-			menuType = stringToCardType(cardName);
-		}
-
-		InputCommandPacket cmd = {};
-		cmd.type = PKT_INPUT_COMMAND;
-		cmd.playerID = pkt.playerID;
-		cmd.seq = pkt.seq;
-		cmd.commandId = nextCommandId++;
-		cmd.turnNumber = globalTurnCounter;
-		cmd.commandType = CMD_MENU_CHOICE;
-		cmd.params[0] = (int)menuType;
-		cmd.params[1] = pkt.actorIndex;
+		cmd.params[0] = (int)cardDef.type;
+		cmd.params[1] = pkt.targetX;
 		cmd.params[2] = pkt.menuChoice;
-		cmd.params[3] = tempCardIndex;
-		strncpy(cmd.stringData, pkt.cardName, sizeof(cmd.stringData) - 1);
-		cmd.stringData[sizeof(cmd.stringData) - 1] = '\0';
-		queueInputCommand(cmd);
-
-		// Keep AP in sync with sender
-		opponentPlayer.ap = pkt.updatedAP;
-
-		// Remove any temporary card we added earlier (the lockstep handler will manage played cards)
-		if (tempCardIndex >= 0 && tempCardIndex < (int)opponentPlayer.hand.size()) {
-			opponentPlayer.hand.erase(opponentPlayer.hand.begin() + tempCardIndex);
-		}
-
-		// Restore context and return early
-		if (savedCurrentPlayerIndex == opponentPlayerIndex) {
-			currentAP = opponentPlayer.ap;
-		} else {
-			currentPlayerIndex = savedCurrentPlayerIndex;
-			if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) {
-				currentAP = players[currentPlayerIndex].ap;
-			} else {
-				currentAP = savedCurrentAP;
-			}
-		}
-		return;
-	}
-
-	// Menu-driven opponent choices are centralized; prior special-case handling
-	// for menu cards was removed to avoid duplicating logic. The early handler
-	// above queues a CMD_MENU_CHOICE into the deterministic command queue and
-	// returns, so we should not process menu choices here.
-
-	// Special-case: Teleport (apply move from packet)
-	if (cardDef.type == CARD_TELEPORT) {
-		// Burn teleport dice RNG so both machines consume the same dice calls
-		for (int _ri = 0; _ri < cardDef.numDice; ++_ri) {
-			(void)getGameRandom(1, cardDef.diceSides);
-		}
-		// Track the card play
-		currentAP -= cardDef.cost;
-		opponentPlayer.playedCardsPile.push_back(cardDef);
-		applyReplicateCopyToHand(opponentPlayer, cardDef);
-		opponentPlayer.cardsPlayedThisTurn.push_back(cardDef.type);
-
-		// Move player
-		board[opponentPlayer.x][opponentPlayer.y].hasPlayer = false;
-		opponentPlayer.x = tx;
-		opponentPlayer.y = ty;
-		board[tx][ty].hasPlayer = true;
-		playerVisualPos = gridToWorld(tx, ty);
-		invalidateTargetCache();
-
-		opponentPlayer.hand.erase(opponentPlayer.hand.begin() + tempCardIndex);
-		opponentPlayer.ap = pkt.updatedAP;
-		currentPlayerIndex = savedCurrentPlayerIndex;
-		currentAP = savedCurrentAP;
-		return;
-	}
-
-	// NOTE: Chain Lightning and Summon Faerie special-case intercepts removed.
-	// These were previously short-circuiting execution and bypassing `playCard()`.
-	// `playCard()` is authoritative for those effects; keep CARD_TELEPORT special-case only.
-
-	// Special-case: Renewed Inspiration (menu already resolved on sender)
-	if (cardDef.type == CARD_RENEWED_INSPIRATION) {
-		currentAP -= cardDef.cost;
-		opponentPlayer.playedCardsPile.push_back(cardDef);
-		if (opponentPlayer.replicateQueued) {
-			// Create a replicated copy and add it to hand (matching local behavior)
-			Card copy = cardDef;
-			copy.isCopied = true;
-			opponentPlayer.hand.push_back(copy);
-			opponentPlayer.hand.back().currentScale = opponentPlayer.hand.back().targetScale = 1.5f;
-			// Queue replicate status for opponent player
-			if (copy.type == CARD_REPLICATE) {
-				EffectOp ap = {};
-				ap.type = EffectOpType::APPLY_STATUS;
-				ap.data.status.targetIndex = opponentPlayerIndex;
-				ap.data.status.statusType = STATUS_REPLICATE_QUEUED;
-				ap.data.status.duration = 0;
-				queueEffect(ap);
-				// replicateQueued will be set when the APPLY_STATUS op is processed
-			} else {
-				EffectOp rm = {};
-				rm.type = EffectOpType::REMOVE_STATUS;
-				rm.data.status.targetIndex = opponentPlayerIndex;
-				rm.data.status.statusType = STATUS_REPLICATE_QUEUED;
-				rm.data.status.duration = 0;
-				queueEffect(rm);
-				// replicateQueued will be cleared when the REMOVE_STATUS op is processed
-			}
-		}
-		opponentPlayer.cardsPlayedThisTurn.push_back(cardDef.type);
-		// Remove the card from the opponent's hand if present. If we added a temporary
-		// card just above, this will remove that temporary entry as well.
-		if (tempCardIndex >= 0 && tempCardIndex < (int)opponentPlayer.hand.size()) {
-			opponentPlayer.hand.erase(opponentPlayer.hand.begin() + tempCardIndex);
-		}
-		createCardDisplay(cardDef, opponentPlayerIndex);
-		opponentPlayer.ap = pkt.updatedAP;
-		currentPlayerIndex = savedCurrentPlayerIndex;
-		currentAP = savedCurrentAP;
-		return;
-	}
-
-	// --- CHANGE START: DELETE THE SKIP LOGIC ---
-	// We want to execute playCard() for EVERYTHING, including dice cards.
-	/*
-    if (cardDef.type == CARD_RAISE_DEAD || ... ) {
-        // ... code that skips playCard ...
-        return;
-    }
-    */
-	// --- CHANGE END ---
-
-	// ADD FAILSAFE BEFORE playCard() TO AVOID OPPONENT MENU-CARD FALL-THROUGH UI SOFTLOCK
-	if (cardDef.type == CARD_WISDOM_BOON || cardDef.type == CARD_BURST_OF_LIGHT || cardDef.type == CARD_DOUBLE_HANDED || cardDef.type == CARD_GIANT_MAGIC_HAND || cardDef.type == CARD_DISPEL || cardDef.type == CARD_TRAIN) {
-		ofLogError("Network") << "Failsafe: Opponent menu card fell through! Aborting to prevent UI softlock.";
-		currentPlayerIndex = savedCurrentPlayerIndex;
-		currentAP = savedCurrentAP;
-		return;
-	}
-
-	// Execute the card play using the normal playCard logic
-	CardPlayResult result = playCard(tempCardIndex, tx, ty);
-
-	ofLogNotice("Network") << "executeOpponentCardPlay: After playCard result=" << result << " Hand size=" << opponentPlayer.hand.size() << " Played pile size=" << opponentPlayer.playedCardsPile.size();
-
-	if (result == CARD_NOT_PLAYABLE) {
-		ofLogError("Network") << "Opponent playCard failed locally! Sync issue likely.";
-		// Force cleanup since playCard didn't consume it.
-		// Be defensive: only erase if the card at tempCardIndex still matches
-		// the expected card name. Otherwise search for the named card and remove
-		// the first matching instance to avoid deleting an unrelated card.
-		if (tempCardIndex >= 0) {
-			if (tempCardIndex < (int)opponentPlayer.hand.size() && opponentPlayer.hand[tempCardIndex].name == cardName) {
-				opponentPlayer.hand.erase(opponentPlayer.hand.begin() + tempCardIndex);
-			} else {
-				bool erased = false;
-				for (size_t i = 0; i < opponentPlayer.hand.size(); ++i) {
-					if (opponentPlayer.hand[i].name == cardName) {
-						opponentPlayer.hand.erase(opponentPlayer.hand.begin() + i);
-						erased = true;
-						break;
-					}
-				}
-				if (!erased) {
-					ofLogNotice("Network") << "Cleanup: expected card '" << cardName << "' not found in opponent hand; nothing erased.";
-				}
-			}
-		}
+		cmd.params[3] = pkt.cardIndex;
 	} else {
-		// playCard succeeded. It consumed the AP and removed the card from hand.
-		// Use the AP value sent by the opponent (includes any AP bonuses like Sprint)
-		opponentPlayer.ap = pkt.updatedAP;
+		cmd.commandType = CMD_PLAY_CARD;
+		cmd.params[0] = pkt.cardIndex;
+		cmd.params[1] = pkt.targetX;
+		cmd.params[2] = pkt.targetY;
+		cmd.params[3] = 0;
 	}
 
-	// Restore current player context
-	if (savedCurrentPlayerIndex == opponentPlayerIndex) {
-		// If it was the opponent's turn, keep the AP value that resulted from the play
-		currentAP = opponentPlayer.ap;
-	} else {
-		currentPlayerIndex = savedCurrentPlayerIndex;
-		currentAP = savedCurrentAP;
-	}
+	strncpy(cmd.stringData, pkt.cardName, sizeof(cmd.stringData) - 1);
+	cmd.stringData[sizeof(cmd.stringData) - 1] = '\0';
+	queueInputCommand(cmd);
 }
 
 // Host-side validation for incoming ActionPackets (card plays).
