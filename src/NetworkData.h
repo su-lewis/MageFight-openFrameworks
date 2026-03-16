@@ -197,7 +197,8 @@ enum InputCommandType : uint8_t {
 	CMD_ASSISTANT_REROLL = 7,
 	CMD_RENEWED_INSPIRATION = 8,
 	CMD_PSEUDO_ACTION = 9,
-	CMD_STATUS_ACTION = 10
+	CMD_STATUS_ACTION = 10,
+	CMD_ACCEPT_DRAFT = 11
 };
 
 // Canonical deterministic input packet - replaces ActionPacket for lockstep
