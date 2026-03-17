@@ -458,6 +458,25 @@ struct VisualEvent {
 	float startTime = 0.0f;
 	float duration = 0.0f; // seconds
 	bool completed = false;
+	// Extended payloads for common visual types
+	// Dice visual
+	int diceNum = 0;
+	int diceSides = 6;
+	int diceResult = 0; // deterministic total result (for display)
+	int dicePurpose = 0; // DicePurpose
+	std::vector<int> diceRawResults; // per-die raw faces (for visual spinner)
+	bool visualStarted = false; // whether the visual spinner has been started
+	bool textSpawned = false; // whether the result text has been spawned
+
+	// Tracer / positional visuals
+	glm::vec3 startPos = { 0.0f, 0.0f, 0.0f };
+	glm::vec3 endPos = { 0.0f, 0.0f, 0.0f };
+	ofColor color = ofColor::white;
+
+	// Floating text
+	std::string text = "";
+	float textXOffset = 0.0f;
+	bool spawned = false; // internal: whether visual has been spawned
 };
 
 // ===================================================================================================
@@ -922,7 +941,6 @@ private:
 	void resolveAttackDamage();
 	void resolvePoisonDamage();
 	void resolveMagicHandDamage();
-	void resolveFireballDamage();
 	void resolveSummonHealth();
 	void resolveAmnesiaDice();
 	void resolveMagicBlastDice();
@@ -974,6 +992,10 @@ private:
 	void createCardDisplay(const Card & card, int playerIndex); // Create card display animation
 	std::string currentDiceLabel = "";
 	int startDiceRoll(int numDice, int sides, DicePurpose purpose, std::string label = "", int ownerIndex = -1);
+	// Start a purely-visual dice spinner using precomputed raw faces (does not consume gameplay RNG)
+	void startVisualDiceRoll(const VisualEvent & ev);
+	// Resolve dice but also return raw per-die faces
+	int resolveDiceRollDetailed(int numDice, int sides, std::vector<int> & outRaw);
 
 	// Data-oriented effect system
 	void beginEffectSequence();
@@ -1904,9 +1926,7 @@ private:
 	std::vector<int> psionicWaveTargetIndices; // Store who got hit by the range check
 
 	// Fireball
-	bool isWaitingForFireballRangeDice = false;
-	// `interactionDiceRoll` and `interactionTargetTile` are used instead of per-card pending variables
-	bool isWaitingForFireballDamageDice = false;
+	// (migrated to deterministic instant-resolve + visual queue)
 	glm::vec2 fireballImpactTile;
 	int fireballTargetPlayerIndex = -1;
 

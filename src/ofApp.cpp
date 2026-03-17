@@ -1885,148 +1885,165 @@ void ofApp::update() {
 		break;
 	case STATE_SETTINGS:
 	case STATE_DESYNC:
-		break;
-		break;
-	case STATE_SAVE_BROWSER:
-	case STATE_SINGLEPLAYER_MENU:
-		break;
-
-	// --- INITIATIVE ROLL STATE ---
-	case STATE_INITIATIVE_ROLL: {
-		// Wait for dice to finish spinning
-		bool allFinished = true;
-		if (activeDiceRolls.size() < 2) allFinished = false; // Waiting for start
-		for (auto & d : activeDiceRolls)
-			if (!d.isFinishedVisual) allFinished = false;
-
-		if (allFinished) {
-			initiativeTimer += ofGetLastFrameTime();
-			if (initiativeTimer > 2.0f) {
-				// Determine Winner
-				int p1Roll = activeDiceRolls[0].result;
-				int p2Roll = activeDiceRolls[1].result;
-
-				activeDiceRolls.clear(); // Clear visual dice
-
-				if (p1Roll > p2Roll) {
-					// Lock camera before drafting starts
-					draftingCameraLockedToClient = (isMultiplayer && myLocalPlayerID == 1);
-					draftPlayerIndex = 0; // P1 Wins
-					currentState = STATE_DRAFTING;
-					draftStage = 0;
-					// Host/Singleplayer generates options. Client waits for host packets to avoid double-generation.
-					if (!isClient()) {
-						generateDraftOptions(1);
-					}
-					ofLogNotice("Initiative") << "Player 1 goes first";
-					if (isHost()) {
-						DraftStatePacket sp = {};
-						sp.type = PKT_DRAFT_STATE;
-						sp.playerID = myLocalPlayerID;
-						sp.classTier = 1;
-						sp.draftPlayerIdx = draftPlayerIndex;
-						sp.draftPlayerID = (draftPlayerIndex >= 0 && draftPlayerIndex < (int)players.size()) ? players[draftPlayerIndex].playerID : -1;
-						sp.draftPlayerID = (draftPlayerIndex >= 0 && draftPlayerIndex < (int)players.size()) ? players[draftPlayerIndex].playerID : -1;
-						sp.picksRemaining = draftPicksRemaining;
-						sp.draftStage = draftStage;
-						sp.isInGameDraft = isInGameDraft ? 1 : 0;
-						sp.currentPlayerIndex = currentPlayerIndex;
-						steamManager.sendPacket(&sp, sizeof(sp));
-					}
-				} else if (p2Roll > p1Roll) {
-					draftPlayerIndex = 1; // P2 Wins
-					currentState = STATE_DRAFTING;
-					// Lock camera before drafting starts
-					draftingCameraLockedToClient = (isMultiplayer && myLocalPlayerID == 1);
-					draftStage = 0;
-					// Host/Singleplayer generates options. Client waits for host packets to avoid double-generation.
-					if (!isClient()) {
-						generateDraftOptions(1);
-					}
-					ofLogNotice("Initiative") << "Player 2 goes first";
-					if (isHost()) {
-						DraftStatePacket sp = {};
-						sp.type = PKT_DRAFT_STATE;
-						sp.playerID = myLocalPlayerID;
-						sp.classTier = 1;
-						sp.draftPlayerIdx = draftPlayerIndex;
-						sp.draftPlayerID = (draftPlayerIndex >= 0 && draftPlayerIndex < (int)players.size()) ? players[draftPlayerIndex].playerID : -1;
-						sp.picksRemaining = draftPicksRemaining;
-						sp.draftStage = draftStage;
-						sp.isInGameDraft = isInGameDraft ? 1 : 0;
-						sp.currentPlayerIndex = currentPlayerIndex;
-						steamManager.sendPacket(&sp, sizeof(sp));
-					}
-				} else {
-					// TIE - Reroll: spawn two dice again so the initiative UI shows properly
-					startDiceRoll(1, 6, PURPOSE_DEBUG, "Initiative Reroll", currentPlayerIndex);
-					startDiceRoll(1, 6, PURPOSE_DEBUG, "Initiative Reroll", currentPlayerIndex);
-					initiativeTimer = 0.0f;
-					ofLogNotice("Initiative") << "Tie! Rerolling...";
-				}
+		// New deterministic instant-resolve flow: apply damage, compute HP lost, heal caster, and queue visuals.
+		int targetIndex = -1;
+		for (size_t i = 0; i < players.size(); i++) {
+			if (players[i].x == targetX && players[i].y == targetY) {
+				targetIndex = (int)i;
+				break;
 			}
 		}
 
-		// Update dice visuals (Simple rotation)
-		for (auto & d : activeDiceRolls) {
-			d.currentRotation += diceSpinSpeed * ofGetLastFrameTime();
-			if (ofGetElapsedTimef() - d.startTime > 1.0f) d.isFinishedVisual = true;
+		if (targetIndex != -1) {
+			Player * target = getPlayer(targetIndex);
+			Player & caster = players[currentPlayerIndex];
+
+			// 1) Instant math: apply damage and get actual HP lost
+			int hpBefore = target ? target->health : 0;
+			int damageDealt = applyDamageWithMitigations(*target, playedCard.value, DAMAGE_PHYSICAL, currentPlayerIndex);
+			int hpAfter = target ? target->health : hpBefore;
+			int actualHpLost = std::max(0, hpBefore - hpAfter);
+
+			// 2) Apply healing instantly to caster (clamped)
+			int actualHealed = 0;
+			if (actualHpLost > 0) {
+				int newHp = caster.health + actualHpLost;
+				actualHealed = newHp - caster.health;
+				caster.health = std::min(caster.maxHealth, newHp);
+			}
+
+			// 3) Queue visuals: damage float and optional heal float
+			VisualEvent vDmg;
+			vDmg.type = VE_CUSTOM;
+			vDmg.startPos = target ? gridToWorld(target->x, target->y) : glm::vec3(0, 0, 0);
+			vDmg.text = "-" + ofToString(damageDealt) + " Phys";
+			vDmg.color = ofColor::red;
+			vDmg.duration = 1.2f;
+			queueVisualEvent(vDmg);
+
+			if (actualHealed > 0) {
+				VisualEvent vHeal;
+				vHeal.type = VE_CUSTOM;
+				vHeal.startPos = gridToWorld(caster.x, caster.y);
+				vHeal.text = "+" + ofToString(actualHealed) + " HP";
+				vHeal.color = ofColor::green;
+				vHeal.duration = 1.4f;
+				// Slight delay so heal pops after damage
+				vHeal.startTime = ofGetElapsedTimef() + 0.25f;
+				queueVisualEvent(vHeal);
+			}
+
+			// Record outcome and finish immediately (no EffectSequence)
+			currentCardOutcome.targetPlayerIndex = targetIndex;
+			currentCardOutcome.damageDealt = damageDealt;
+			currentCardOutcome.healingDealt = actualHealed;
+			playedSuccessfully = true;
+			advanceCardState(CARD_STATE_FINISHED);
 		}
-		break;
+		return true;
+		sp.draftPlayerID = (draftPlayerIndex >= 0 && draftPlayerIndex < (int)players.size()) ? players[draftPlayerIndex].playerID : -1;
+		sp.picksRemaining = draftPicksRemaining;
+		sp.draftStage = draftStage;
+		sp.isInGameDraft = isInGameDraft ? 1 : 0;
+		sp.currentPlayerIndex = currentPlayerIndex;
+		steamManager.sendPacket(&sp, sizeof(sp));
 	}
-
-	// --- DRAFTING STATE ---
-	case STATE_DRAFTING:
-		// Logic is primarily handled in mousePressed (card selection)
-		// Allow deck/discard hover view during drafting
-		if (isHoveringPile && !isShowingPileView) {
-			if (ofGetElapsedTimef() - pileHoverStartTime > 0.6f) { // Reduced hover time
-				isShowingPileView = true;
-				currentPileView = hoveredPileType;
-				currentPileViewPlayerIndex = hoveredPilePlayerIndex;
-			}
-		}
-
-		// Auto-accept draft if timer locked it (timer expired and auto-picked cards)
-		if (draftAcceptLocked && (int)selectedDraftIndices.size() > 0) {
-			int requiredPicks = (!isInGameDraft && draftStage == 0) ? 2 : 1;
-			if ((int)selectedDraftIndices.size() >= requiredPicks) {
-				// Trigger the accept logic by simulating a button click at the center of the accept button
-				ofLogNotice("Timer") << "Auto-accepting draft picks due to timer expiration.";
-				mousePressed(draftAcceptButtonRect.getCenter().x, draftAcceptButtonRect.getCenter().y, OF_MOUSE_BUTTON_LEFT);
-				draftAcceptLocked = false; // Reset for next draft phase if needed
-			}
-		}
-		break;
-
-	case STATE_GAMEPLAY:
-		updateGame();
-		break;
-	case STATE_PAUSED:
-		break;
+}
+else if (p2Roll > p1Roll) {
+	draftPlayerIndex = 1; // P2 Wins
+	currentState = STATE_DRAFTING;
+	// Lock camera before drafting starts
+	draftingCameraLockedToClient = (isMultiplayer && myLocalPlayerID == 1);
+	draftStage = 0;
+	// Host/Singleplayer generates options. Client waits for host packets to avoid double-generation.
+	if (!isClient()) {
+		generateDraftOptions(1);
 	}
-
-	// --- HARDWARE CURSOR UPDATE ---
-	if (currentCursor != previousCursor) {
-		GLFWwindow * window = (GLFWwindow *)ofGetWindowPtr()->getWindowContext();
-		if (window) {
-			switch (currentCursor) {
-			case CURSOR_DEFAULT:
-				if (glfwArrow) glfwSetCursor(window, glfwArrow);
-				break;
-			case CURSOR_CLICK:
-				if (glfwHandPoint) glfwSetCursor(window, glfwHandPoint);
-				break;
-			case CURSOR_GRAB:
-				if (glfwHandOpen) glfwSetCursor(window, glfwHandOpen);
-				break;
-			case CURSOR_HOLD:
-				if (glfwHandClosed) glfwSetCursor(window, glfwHandClosed);
-				break;
-			}
-		}
-		previousCursor = currentCursor;
+	ofLogNotice("Initiative") << "Player 2 goes first";
+	if (isHost()) {
+		DraftStatePacket sp = {};
+		sp.type = PKT_DRAFT_STATE;
+		sp.playerID = myLocalPlayerID;
+		sp.classTier = 1;
+		sp.draftPlayerIdx = draftPlayerIndex;
+		sp.draftPlayerID = (draftPlayerIndex >= 0 && draftPlayerIndex < (int)players.size()) ? players[draftPlayerIndex].playerID : -1;
+		sp.picksRemaining = draftPicksRemaining;
+		sp.draftStage = draftStage;
+		sp.isInGameDraft = isInGameDraft ? 1 : 0;
+		sp.currentPlayerIndex = currentPlayerIndex;
+		steamManager.sendPacket(&sp, sizeof(sp));
 	}
+}
+else {
+	// TIE - Reroll: spawn two dice again so the initiative UI shows properly
+	startDiceRoll(1, 6, PURPOSE_DEBUG, "Initiative Reroll", currentPlayerIndex);
+	startDiceRoll(1, 6, PURPOSE_DEBUG, "Initiative Reroll", currentPlayerIndex);
+	initiativeTimer = 0.0f;
+	ofLogNotice("Initiative") << "Tie! Rerolling...";
+}
+}
+}
+
+// Update dice visuals (Simple rotation)
+for (auto & d : activeDiceRolls) {
+	d.currentRotation += diceSpinSpeed * ofGetLastFrameTime();
+	if (ofGetElapsedTimef() - d.startTime > 1.0f) d.isFinishedVisual = true;
+}
+break;
+}
+
+// --- DRAFTING STATE ---
+case STATE_DRAFTING:
+// Logic is primarily handled in mousePressed (card selection)
+// Allow deck/discard hover view during drafting
+if (isHoveringPile && !isShowingPileView) {
+	if (ofGetElapsedTimef() - pileHoverStartTime > 0.6f) { // Reduced hover time
+		isShowingPileView = true;
+		currentPileView = hoveredPileType;
+		currentPileViewPlayerIndex = hoveredPilePlayerIndex;
+	}
+}
+
+// Auto-accept draft if timer locked it (timer expired and auto-picked cards)
+if (draftAcceptLocked && (int)selectedDraftIndices.size() > 0) {
+	int requiredPicks = (!isInGameDraft && draftStage == 0) ? 2 : 1;
+	if ((int)selectedDraftIndices.size() >= requiredPicks) {
+		// Trigger the accept logic by simulating a button click at the center of the accept button
+		ofLogNotice("Timer") << "Auto-accepting draft picks due to timer expiration.";
+		mousePressed(draftAcceptButtonRect.getCenter().x, draftAcceptButtonRect.getCenter().y, OF_MOUSE_BUTTON_LEFT);
+		draftAcceptLocked = false; // Reset for next draft phase if needed
+	}
+}
+break;
+
+case STATE_GAMEPLAY:
+updateGame();
+break;
+case STATE_PAUSED:
+break;
+}
+
+// --- HARDWARE CURSOR UPDATE ---
+if (currentCursor != previousCursor) {
+	GLFWwindow * window = (GLFWwindow *)ofGetWindowPtr()->getWindowContext();
+	if (window) {
+		switch (currentCursor) {
+		case CURSOR_DEFAULT:
+			if (glfwArrow) glfwSetCursor(window, glfwArrow);
+			break;
+		case CURSOR_CLICK:
+			if (glfwHandPoint) glfwSetCursor(window, glfwHandPoint);
+			break;
+		case CURSOR_GRAB:
+			if (glfwHandOpen) glfwSetCursor(window, glfwHandOpen);
+			break;
+		case CURSOR_HOLD:
+			if (glfwHandClosed) glfwSetCursor(window, glfwHandClosed);
+			break;
+		}
+	}
+	previousCursor = currentCursor;
+}
 }
 //--------------------------------------------------------------
 // Start a visual shuffle animation for the given player's deck
@@ -3831,7 +3848,7 @@ void ofApp::updateGame() {
 	resolveAttackDamage();
 	resolvePoisonDamage();
 	resolveMagicHandDamage();
-	resolveFireballDamage();
+	// Fireball resolution migrated to instant deterministic path; visuals are queued
 	resolveSummonHealth();
 	resolveAmnesiaDice();
 	resolveMagicBlastDice();
@@ -16008,10 +16025,44 @@ void ofApp::processVisualEvents() {
 		if (ev.type == VE_WAIT) {
 			if (now - ev.startTime >= ev.duration) ev.completed = true;
 		} else if (ev.type == VE_DICE) {
-			// For now treat dice event as duration-based visual
-			if (now - ev.startTime >= ev.duration) ev.completed = true;
+			// Dice visual: start the spinner immediately (if not started), then spawn result text when done
+			if (!ev.visualStarted) {
+				// Start visual spinner using precomputed raw faces when available
+				startVisualDiceRoll(ev);
+				ev.visualStarted = true;
+			}
+
+			// When duration elapses, spawn the summary/result text
+			if (now - ev.startTime >= ev.duration) {
+				if (!ev.textSpawned) {
+					glm::vec3 pos = { 0.0f, 0.0f, 0.0f };
+					if (ev.targetIndex >= 0 && ev.targetIndex < (int)players.size()) {
+						pos = gridToWorld(players[ev.targetIndex].x, players[ev.targetIndex].y);
+					} else if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) {
+						pos = gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y);
+					}
+					spawnFloatingText(pos + glm::vec3(0, 0.6f, 0), ofToString(ev.diceResult), ofColor::white);
+					ev.textSpawned = true;
+				}
+				ev.completed = true;
+			}
 		} else if (ev.type == VE_CUSTOM) {
-			// Custom events can be marked completed externally
+			// Custom events: support tracer (startPos->endPos) and floating text (text)
+			if (!ev.spawned) {
+				// Tracer: only spawn if both start and end positions are valid (non-zero)
+				glm::vec3 zeroV(0.0f, 0.0f, 0.0f);
+				bool hasStart = glm::length(ev.startPos - zeroV) > 0.001f;
+				bool hasEnd = glm::length(ev.endPos - zeroV) > 0.001f;
+				if (hasStart && hasEnd && glm::length(ev.endPos - ev.startPos) > 0.001f) {
+					spawnTracer(ev.startPos, ev.endPos, glm::ivec2((int)floor(ev.endPos.x), (int)floor(ev.endPos.y)), ev.color, 5.0f);
+				}
+				// Floating text
+				if (!ev.text.empty()) {
+					spawnFloatingText(ev.startPos, ev.text, ev.color);
+				}
+				ev.spawned = true;
+			}
+			if (now - ev.startTime >= ev.duration) ev.completed = true;
 		}
 	}
 	// Erase completed
@@ -17343,7 +17394,7 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 	}
 
 	case CARD_HEAL: {
-		// LOCKSTEP MIGRATION: Dice roll for heal amount
+		// Instant deterministic heal: resolve amount, apply authoritative state change, then queue visuals
 		glm::vec2 casterTile = { (float)currentPlayer.x, (float)currentPlayer.y };
 		glm::vec2 targetTile = { (float)targetX, (float)targetY };
 		float maxRange = 9999.0f;
@@ -17363,30 +17414,54 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 			return true;
 		}
 
-		beginEffectSequence();
+		// 1) Resolve heal amount deterministically (capture raw faces for visuals)
+		std::vector<int> healRaw;
+		int healRoll = resolveDiceRollDetailed(playedCard.numDice, playedCard.diceSides, healRaw);
 
-		// Roll dice for heal amount
-		EffectOp rollOp;
-		rollOp.type = EffectOpType::ROLL_DICE;
-		rollOp.data.rollDice.numDice = playedCard.numDice;
-		rollOp.data.rollDice.sides = playedCard.diceSides;
-		rollOp.data.rollDice.purpose = PURPOSE_HEALING;
-		rollOp.data.rollDice.ownerIndex = currentPlayerIndex;
-		rollOp.data.rollDice.outputSlot = 0;
-		strncpy(rollOp.data.rollDice.label, "Heal: HP Amount", 31);
-		rollOp.data.rollDice.label[31] = '\0';
-		queueEffect(rollOp);
+		// Cap heal to not exceed missing HP
+		int missing = players[targetIndex].maxHealth - players[targetIndex].health;
+		int actualHeal = std::min(missing, healRoll);
 
-		// Apply heal from dice result
-		EffectOp healOp;
-		healOp.type = EffectOpType::HEAL;
-		healOp.data.heal.targetIndex = targetIndex;
-		healOp.data.heal.amount = 0;
-		healOp.data.heal.amountFromSlot = 0; // Read from blackboard[0]
-		queueEffect(healOp);
+		// 2) Apply authoritative heal immediately via EffectOp (ModifyStat HP)
+		EffectOp hpOp = {};
+		hpOp.type = EffectOpType::MODIFY_STAT;
+		hpOp.data.modifyStat.targetIndex = targetIndex;
+		hpOp.data.modifyStat.statType = 0; // HP
+		hpOp.data.modifyStat.delta = actualHeal; // positive = heal
+		hpOp.data.modifyStat.deltaFromSlot = -1;
+		processEffectOp(hpOp);
 
+		// 3) Queue visuals: dice roll, wait, floating text
+		VisualEvent vDice;
+		vDice.type = VE_DICE;
+		vDice.diceNum = playedCard.numDice;
+		vDice.diceSides = playedCard.diceSides;
+		vDice.diceResult = healRoll;
+		vDice.diceRawResults = healRaw;
+		vDice.dicePurpose = PURPOSE_HEALING;
+		vDice.targetIndex = targetIndex;
+		vDice.duration = 1.2f;
+		queueVisualEvent(vDice);
+
+		VisualEvent vWait;
+		vWait.type = VE_WAIT;
+		vWait.duration = 1.2f;
+		queueVisualEvent(vWait);
+
+		// Floating heal text
+		VisualEvent vText;
+		vText.type = VE_CUSTOM;
+		vText.text = "+" + ofToString(actualHeal) + " HP";
+		vText.startPos = gridToWorld(players[targetIndex].x, players[targetIndex].y);
+		vText.color = ofColor::green;
+		vText.duration = 1.4f;
+		queueVisualEvent(vText);
+
+		// Mark outcome and finish immediately
+		currentCardOutcome.primaryTarget = { targetX, targetY };
+		currentCardOutcome.healingDealt = actualHeal;
 		playedSuccessfully = true;
-		advanceCardState(CARD_STATE_EFFECT_SEQUENCE);
+		advanceCardState(CARD_STATE_FINISHED);
 		return true;
 	}
 
@@ -17751,30 +17826,198 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 	}
 
 	case CARD_FIREBALL: {
+		// Instant deterministic math & RNG, visuals queued separately.
 		glm::vec2 casterTile = { (float)currentPlayer.x, (float)currentPlayer.y };
 		glm::vec2 targetTile = { (float)targetX, (float)targetY };
 		float maxRange = (float)(playedCard.numDice * playedCard.diceSides);
 
 		TargetInfo validationResult = isLosTargetValid(casterTile, targetTile, maxRange, playedCard.type);
 		if (validationResult.reason != VALID || !board[targetX][targetY].hasPlayer) return true;
-		beginEffectSequence();
 
-		{
-			EffectOp rollOp = {};
-			rollOp.type = EffectOpType::ROLL_DICE;
-			rollOp.data.rollDice.numDice = playedCard.numDice;
-			rollOp.data.rollDice.sides = playedCard.diceSides;
-			rollOp.data.rollDice.purpose = PURPOSE_RANGE;
-			rollOp.data.rollDice.ownerIndex = currentPlayerIndex;
-			rollOp.data.rollDice.outputSlot = 0;
-			strncpy(rollOp.data.rollDice.label, "Fireball: Range Check", 31);
-			rollOp.data.rollDice.label[31] = '\0';
-			queueEffect(rollOp);
-			isWaitingForFireballRangeDice = true;
+		// 1) Resolve range roll deterministically right away (capture raw faces for visuals)
+		std::vector<int> rangeRaw;
+		int rangeRoll = resolveDiceRollDetailed(playedCard.numDice, playedCard.diceSides, rangeRaw);
+		float maxDistUnits = rangeRoll / 5.0f;
+		float neededDistUnits = getFaceToFaceDistance(casterTile, targetTile);
+
+		// 2) Queue range dice visual (forced result) then a short wait
+		VisualEvent vRange;
+		vRange.type = VE_DICE;
+		vRange.diceNum = playedCard.numDice;
+		vRange.diceSides = playedCard.diceSides;
+		vRange.diceResult = rangeRoll;
+		vRange.diceRawResults = rangeRaw;
+		vRange.dicePurpose = PURPOSE_RANGE;
+		vRange.targetIndex = currentPlayerIndex; // show near caster
+		vRange.duration = 1.5f;
+		queueVisualEvent(vRange);
+
+		VisualEvent vWait1;
+		vWait1.type = VE_WAIT;
+		vWait1.duration = 1.5f;
+		queueVisualEvent(vWait1);
+
+		// 3) If hit, queue tracer + damage visuals and apply damage immediately
+		if (maxDistUnits >= neededDistUnits - 0.001f) {
+			// tracer visual - compute proper world endpoints
+			glm::vec3 worldStart, worldEnd;
+			glm::vec2 hitGrid = glm::vec2(targetTile.x + 0.5f, targetTile.y + 0.5f);
+			computeTracerEndpoints(casterTile, hitGrid, worldStart, worldEnd);
+			VisualEvent vTracer;
+			vTracer.type = VE_CUSTOM;
+			vTracer.startPos = worldStart;
+			vTracer.endPos = worldEnd;
+			vTracer.color = ofColor(255, 120, 40);
+			vTracer.duration = 0.5f;
+			// Only queue tracer if not self-target
+			if (!(casterTile.x == targetTile.x && casterTile.y == targetTile.y)) queueVisualEvent(vTracer);
+
+			// damage roll (deterministic) - capture raw face
+			std::vector<int> dmgRaw;
+			int damageRoll = resolveDiceRollDetailed(1, 6, dmgRaw);
+
+			// Determine target index before queuing visuals
+			int targetIndex = -1;
+			for (size_t i = 0; i < players.size(); i++) {
+				if (players[i].x == targetX && players[i].y == targetY) {
+					targetIndex = (int)i;
+					break;
+				}
+			}
+
+			VisualEvent vDmgDice;
+			vDmgDice.type = VE_DICE;
+			vDmgDice.diceNum = 1;
+			vDmgDice.diceSides = 6;
+			vDmgDice.diceResult = damageRoll;
+			vDmgDice.diceRawResults = dmgRaw;
+			vDmgDice.dicePurpose = PURPOSE_DAMAGE;
+			vDmgDice.targetIndex = targetIndex;
+			vDmgDice.duration = 1.5f;
+			queueVisualEvent(vDmgDice);
+
+			queueVisualEvent(vWait1);
+			if (targetIndex != -1) {
+				Player * target = getPlayer(targetIndex);
+				if (target) {
+					int damage = damageRoll;
+
+					// Ward mitigation
+					int wardDamage = std::min(target->ward, damage);
+					if (wardDamage > 0) {
+						EffectOp wOp = {};
+						wOp.type = EffectOpType::MODIFY_STAT;
+						wOp.data.modifyStat.targetIndex = targetIndex;
+						wOp.data.modifyStat.statType = 8; // Ward
+						wOp.data.modifyStat.delta = -wardDamage;
+						wOp.data.modifyStat.deltaFromSlot = -1;
+						processEffectOp(wOp);
+					}
+					damage -= wardDamage;
+
+					if (damage > 0) {
+						EffectOp hpOp = {};
+						hpOp.type = EffectOpType::MODIFY_STAT;
+						hpOp.data.modifyStat.targetIndex = targetIndex;
+						hpOp.data.modifyStat.statType = 0; // HP
+						hpOp.data.modifyStat.delta = -damage;
+						hpOp.data.modifyStat.deltaFromSlot = -1;
+						processEffectOp(hpOp);
+					}
+
+					// Queue floating text visual for damage/ward
+					VisualEvent vTextWard;
+					if (wardDamage > 0) {
+						vTextWard.type = VE_CUSTOM;
+						vTextWard.text = "-" + ofToString(wardDamage) + " Fire";
+						vTextWard.startPos = gridToWorld(players[targetIndex].x, players[targetIndex].y);
+						vTextWard.color = ofColor::black;
+						vTextWard.duration = 1.2f;
+						queueVisualEvent(vTextWard);
+					}
+
+					VisualEvent vTextDmg;
+					vTextDmg.type = VE_CUSTOM;
+					vTextDmg.text = "-" + ofToString(damage) + " Fire";
+					vTextDmg.startPos = gridToWorld(players[targetIndex].x, players[targetIndex].y);
+					vTextDmg.color = (damage > 0) ? ofColor::red : ofColor::gray;
+					vTextDmg.duration = 1.4f;
+					queueVisualEvent(vTextDmg);
+
+					// Handle form-break/REMOVE_STATUS effects that previously were queued
+					if (players[targetIndex].inTortoiseForm) {
+						players[targetIndex].tortoiseDamageTaken += damage;
+						if (players[targetIndex].tortoiseDamageTaken >= 5) {
+							EffectOp rm = {};
+							rm.type = EffectOpType::REMOVE_STATUS;
+							rm.data.status.targetIndex = targetIndex;
+							rm.data.status.statusType = STATUS_TORTOISE_FORM;
+							rm.data.status.duration = 0;
+							queueEffect(rm);
+							players[targetIndex].tortoiseDamageTaken = 0;
+							players[targetIndex].discardPile.push_back(players[targetIndex].tortoiseFormCard);
+							VisualEvent vForm;
+							vForm.type = VE_CUSTOM;
+							vForm.text = "Form Ended!";
+							vForm.startPos = gridToWorld(players[targetIndex].x, players[targetIndex].y) + glm::vec3(0, 0.5f, 0);
+							vForm.color = ofColor::darkGreen;
+							vForm.duration = 1.6f;
+							queueVisualEvent(vForm);
+						}
+					}
+					if (players[targetIndex].inGhostForm) {
+						players[targetIndex].ghostDamageTaken += damage;
+						if (players[targetIndex].ghostDamageTaken >= 4) {
+							EffectOp rm = {};
+							rm.type = EffectOpType::REMOVE_STATUS;
+							rm.data.status.targetIndex = targetIndex;
+							rm.data.status.statusType = STATUS_GHOST_FORM;
+							rm.data.status.duration = 0;
+							queueEffect(rm);
+							players[targetIndex].ghostDamageTaken = 0;
+							players[targetIndex].discardPile.push_back(players[targetIndex].ghostFormCard);
+							VisualEvent vForm;
+							vForm.type = VE_CUSTOM;
+							vForm.text = "Form Ended!";
+							vForm.startPos = gridToWorld(players[targetIndex].x, players[targetIndex].y) + glm::vec3(0, 0.5f, 0);
+							vForm.color = ofColor::darkGreen;
+							vForm.duration = 1.6f;
+							queueVisualEvent(vForm);
+						}
+					}
+				}
+			}
+
+		} else {
+			// MISS: queue fizzle text + tracer to the short range
+			VisualEvent vFizzle;
+			vFizzle.type = VE_CUSTOM;
+			vFizzle.startPos = gridToWorld(targetX, targetY);
+			vFizzle.text = "Fell Short!";
+			vFizzle.color = ofColor::gray;
+			vFizzle.duration = 1.2f;
+			queueVisualEvent(vFizzle);
+
+			// Show tracer to impact point
+			glm::vec2 dir = targetTile - casterTile;
+			if (glm::length(dir) > 0.0f) dir = glm::normalize(dir);
+			glm::vec2 impactPos = casterTile + (dir * maxDistUnits);
+			glm::vec3 worldStart, worldEnd;
+			glm::vec2 hitGrid = impactPos;
+			computeTracerEndpoints(casterTile, hitGrid, worldStart, worldEnd);
+			VisualEvent vTracer2;
+			vTracer2.type = VE_CUSTOM;
+			vTracer2.startPos = worldStart;
+			vTracer2.endPos = worldEnd;
+			vTracer2.color = ofColor(255, 120, 40);
+			vTracer2.duration = 0.8f;
+			queueVisualEvent(vTracer2);
 		}
-		interactionTargetTile = targetTile;
+
+		// Finalize: immediate authoritative effect outcome and finish card state
+		currentCardOutcome.primaryTarget = { targetX, targetY };
 		playedSuccessfully = true;
-		advanceCardState(CARD_STATE_DICE);
+		advanceCardState(CARD_STATE_FINISHED);
 		return true;
 	}
 
@@ -18189,22 +18432,32 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 		if (targetIndex != -1) {
 			beginEffectSequence();
 
-			// Damage opponent
+			// Apply damage immediately so we can determine HP actually lost
+			Player * target = getPlayer(targetIndex);
+			int hpBefore = target ? target->health : 0;
 			EffectOp damageOp;
 			damageOp.type = EffectOpType::DAMAGE;
 			damageOp.data.damage.targetIndex = targetIndex;
 			damageOp.data.damage.damageType = DAMAGE_PHYSICAL;
 			damageOp.data.damage.fixedDamage = playedCard.value;
 			damageOp.data.damage.damageFromSlot = -1;
-			queueEffect(damageOp);
+			// Process now to compute hp change deterministically
+			processEffectOp(damageOp);
+			int hpAfter = target ? target->health : hpBefore;
+			int hpLost = std::max(0, hpBefore - hpAfter);
+			currentCardOutcome.targetPlayerIndex = targetIndex;
+			currentCardOutcome.damageDealt = hpLost;
 
-			// Heal self
-			EffectOp healOp;
-			healOp.type = EffectOpType::HEAL;
-			healOp.data.heal.targetIndex = currentPlayerIndex;
-			healOp.data.heal.amount = playedCard.value;
-			healOp.data.heal.amountFromSlot = -1;
-			queueEffect(healOp);
+			// Only heal caster for HP actually lost (skip if ward/block prevented HP loss)
+			if (hpLost > 0) {
+				EffectOp healOp;
+				healOp.type = EffectOpType::HEAL;
+				healOp.data.heal.targetIndex = currentPlayerIndex;
+				healOp.data.heal.amount = hpLost;
+				healOp.data.heal.amountFromSlot = -1;
+				queueEffect(healOp);
+				currentCardOutcome.healingDealt = hpLost;
+			}
 
 			playedSuccessfully = true;
 			advanceCardState(CARD_STATE_EFFECT_SEQUENCE);
@@ -20387,184 +20640,7 @@ void ofApp::resolveMagicHandDamage() {
 	}
 }
 
-//--- FIREBALL RANGE & DAMAGE RESOLUTION ---
-void ofApp::resolveFireballDamage() {
-	if (isWaitingForFireballRangeDice && diceVisualsFinishedAndLinger()) {
-		isWaitingForFireballRangeDice = false;
-		Player & caster = players[currentPlayerIndex];
-		glm::vec2 casterTile = { (float)caster.x, (float)caster.y };
-
-		float maxDistUnits = interactionDiceRoll / 5.0f;
-		float neededDist = getFaceToFaceDistance(casterTile, interactionTargetTile);
-		int requiredFeet = (neededDist > 1000.0f) ? 999 : (int)round(neededDist * 5.0f);
-
-		ofLogNotice("Fireball") << "Rolled: " << interactionDiceRoll << "ft (" << maxDistUnits << "). Needed: " << requiredFeet << "ft.";
-
-		if (maxDistUnits >= neededDist - 0.001f) {
-			ofLogNotice("Fireball") << "Direct Hit!";
-			fireballImpactTile = interactionTargetTile;
-
-			fireballTargetPlayerIndex = -1;
-			for (size_t i = 0; i < players.size(); i++) {
-				if (players[i].x == (int)fireballImpactTile.x && players[i].y == (int)fireballImpactTile.y) {
-					fireballTargetPlayerIndex = (int)i;
-					break;
-				}
-			}
-
-			if (fireballTargetPlayerIndex != -1) {
-				ofLogNotice("Fireball") << "Hit Player " << players[fireballTargetPlayerIndex].playerID << "! Rolling Damage...";
-				interactionDiceRoll = startDiceRoll(1, 6, PURPOSE_DAMAGE, "Fireball: Damage", currentPlayerIndex);
-				isWaitingForFireballDamageDice = true;
-			}
-
-			{
-				glm::vec3 worldStart, worldEnd;
-				glm::vec2 hitGrid = glm::vec2(fireballImpactTile.x + 0.5f, fireballImpactTile.y + 0.5f);
-				computeTracerEndpoints(casterTile, hitGrid, worldStart, worldEnd);
-				spawnTracer(worldStart, worldEnd, glm::ivec2((int)fireballImpactTile.x, (int)fireballImpactTile.y), ofColor(255, 120, 40), 5.0f);
-			}
-
-		} else {
-			ofLogNotice("Fireball") << "Fell short! The spell fizzles.";
-
-			glm::vec2 impactTile;
-			glm::vec2 dir = interactionTargetTile - casterTile;
-			if (glm::length(dir) > 0.0f) dir = glm::normalize(dir);
-
-			bool hitWall = false;
-			std::vector<glm::vec2> path = getLineOfSightPath(casterTile + 0.5f, interactionTargetTile + 0.5f);
-			for (const auto & step : path) {
-				float distToStep = getFaceToFaceDistance(casterTile, step);
-				if (distToStep > maxDistUnits) break;
-
-				if (isTileWall((int)step.x, (int)step.y)) {
-					impactTile = step;
-					hitWall = true;
-					break;
-				}
-			}
-
-			if (!hitWall) {
-				glm::vec2 impactPos = casterTile + (dir * maxDistUnits);
-				impactTile = { floor(impactPos.x), floor(impactPos.y) };
-			}
-
-			ofLogNotice("Fireball") << "Impact at (" << impactTile.x << ", " << impactTile.y << ")";
-
-			glm::vec3 failPos = gridToWorld((int)impactTile.x, (int)impactTile.y);
-			spawnFloatingText(failPos, "Out of Range", ofColor::white);
-
-			{
-				glm::vec3 worldStart, worldEnd;
-				glm::vec2 hitGrid = impactTile + glm::vec2(0.5f, 0.5f);
-				computeTracerEndpoints(casterTile, hitGrid, worldStart, worldEnd);
-				spawnTracer(worldStart, worldEnd, glm::ivec2((int)impactTile.x, (int)impactTile.y), ofColor(255, 120, 40), 5.0f);
-			}
-		}
-	}
-
-	if (isWaitingForFireballDamageDice && diceVisualsFinishedAndLinger()) {
-		isWaitingForFireballDamageDice = false;
-		ofLogNotice("Fireball") << "Damage roll result: " << interactionDiceRoll;
-		Player * target = getPlayer(fireballTargetPlayerIndex);
-		if (target) {
-			int damage = interactionDiceRoll;
-
-			// Apply Ward (EffectOp)
-			int wardDamage = std::min(target->ward, damage);
-			if (wardDamage > 0) {
-				EffectOp wOp = {};
-				wOp.type = EffectOpType::MODIFY_STAT;
-				wOp.data.modifyStat.targetIndex = fireballTargetPlayerIndex;
-				wOp.data.modifyStat.statType = 8; // Ward
-				wOp.data.modifyStat.delta = -wardDamage;
-				wOp.data.modifyStat.deltaFromSlot = -1;
-				processEffectOp(wOp);
-			}
-			damage -= wardDamage;
-
-			// Apply Health Damage (EffectOp)
-			if (damage > 0) {
-				EffectOp hpOp = {};
-				hpOp.type = EffectOpType::MODIFY_STAT;
-				hpOp.data.modifyStat.targetIndex = fireballTargetPlayerIndex;
-				hpOp.data.modifyStat.statType = 0; // HP
-				hpOp.data.modifyStat.delta = -damage;
-				hpOp.data.modifyStat.deltaFromSlot = -1;
-				processEffectOp(hpOp);
-			}
-
-			glm::vec3 targetPos = gridToWorld(target->x, target->y);
-
-			if (wardDamage > 0) {
-				spawnFloatingText(targetPos, "-" + ofToString(wardDamage) + " Fire", ofColor::black);
-			}
-
-			if (damage > 0) {
-				spawnFloatingText(targetPos, "-" + ofToString(damage) + " Fire", ofColor::red);
-			} else {
-				if (wardDamage == 0) {
-					spawnFloatingText(targetPos, "-0 Fire", ofColor::gray);
-				}
-			}
-
-			// Form Break
-			if (target->inTortoiseForm) {
-				target->tortoiseDamageTaken += damage;
-				if (target->tortoiseDamageTaken >= 5) {
-					// Queue REMOVE_STATUS for tortoise form
-					{
-						EffectOp rm = {};
-						rm.type = EffectOpType::REMOVE_STATUS;
-						rm.data.status.targetIndex = fireballTargetPlayerIndex;
-						rm.data.status.statusType = STATUS_TORTOISE_FORM;
-						rm.data.status.duration = 0;
-						queueEffect(rm);
-					}
-					// inTortoiseForm will be cleared when the REMOVE_STATUS op is processed
-					target->tortoiseDamageTaken = 0;
-					target->discardPile.push_back(target->tortoiseFormCard);
-					spawnFloatingText(targetPos + glm::vec3(0, 0.5f, 0), "Form Ended!", ofColor::darkGreen);
-				}
-			}
-			if (target->inGhostForm) {
-				target->ghostDamageTaken += damage;
-				if (target->ghostDamageTaken >= 4) {
-					// Queue REMOVE_STATUS for ghost form
-					{
-						EffectOp rm = {};
-						rm.type = EffectOpType::REMOVE_STATUS;
-						rm.data.status.targetIndex = fireballTargetPlayerIndex;
-						rm.data.status.statusType = STATUS_GHOST_FORM;
-						rm.data.status.duration = 0;
-						queueEffect(rm);
-					}
-					// inGhostForm will be cleared when the REMOVE_STATUS op is processed
-					target->ghostDamageTaken = 0;
-					target->discardPile.push_back(target->ghostFormCard);
-					spawnFloatingText(targetPos + glm::vec3(0, 0.5f, 0), "Ghost Form Broken!", ofColor::white);
-				}
-			}
-
-			// Fire Status (queue)
-			{
-				EffectOp ap = {};
-				ap.type = EffectOpType::APPLY_STATUS;
-				ap.data.status.targetIndex = fireballTargetPlayerIndex;
-				ap.data.status.statusType = STATUS_ON_FIRE;
-				ap.data.status.duration = 0;
-				queueEffect(ap);
-			}
-			// onFire will be set when the APPLY_STATUS op is processed
-			spawnFloatingText(targetPos + glm::vec3(0, 0.6f, 0), "ON FIRE!", ofColor::orange);
-
-			if (cardPlayState != CARD_STATE_IDLE) {
-				advanceCardState(CARD_STATE_EFFECT_SEQUENCE);
-			}
-		}
-	}
-}
+// FIREBALL resolution migrated into CARD_FIREBALL (instant deterministic + visual queue)
 
 //--- SUMMON HP RESOLUTION (Unified for Raise Dead / Hellhound / Demon) ---
 void ofApp::resolveSummonHealth() {
@@ -24321,6 +24397,42 @@ int ofApp::startDiceRoll(int numDice, int sides, DicePurpose purpose, std::strin
 		ofLogNotice("Dice") << "Final total result for " << numDice << "d" << sides << ": " << totalRollResult;
 	}
 	return totalRollResult;
+}
+
+// Start a purely-visual dice spinner using precomputed raw faces (does not consume gameplay RNG)
+void ofApp::startVisualDiceRoll(const VisualEvent & ev) {
+	// If no raw faces provided, fall back to generating plausible faces centered on total
+	int n = ev.diceNum > 0 ? ev.diceNum : 1;
+	std::vector<int> raw = ev.diceRawResults;
+	if ((int)raw.size() != n) {
+		raw.clear();
+		int avgFace = ev.diceSides > 0 ? std::max(1, ev.diceResult / n) : 1;
+		for (int i = 0; i < n; ++i)
+			raw.push_back(std::min(ev.diceSides, std::max(1, avgFace)));
+	}
+
+	for (int i = 0; i < n; ++i) {
+		DiceRoll newRoll;
+		newRoll.purpose = static_cast<DicePurpose>(ev.dicePurpose);
+		newRoll.sides = ev.diceSides > 0 ? ev.diceSides : 6;
+		newRoll.startTime = ofGetElapsedTimef();
+		newRoll.associatedUnit = ev.targetIndex;
+		newRoll.rawResult = raw[i];
+		// Determine final result for a single die visual (may differ from aggregate)
+		newRoll.result = newRoll.rawResult; // visuals show raw face; aggregate displayed separately
+
+		// Visual-only rotation/wobble
+		std::uniform_real_distribution<float> axisDist(-1.0f, 1.0f);
+		glm::vec3 rndAxis(axisDist(visualRNG), axisDist(visualRNG), axisDist(visualRNG));
+		if (glm::length(rndAxis) < 0.01f) rndAxis = glm::vec3(0, 1, 0);
+		newRoll.rotationAxis = glm::normalize(rndAxis);
+		std::uniform_real_distribution<float> wobbleDist(-25.0f, 25.0f);
+		float wobbleAmount = wobbleDist(visualRNG);
+		newRoll.finalQuat = getDiceFaceRotation(newRoll.sides, newRoll.rawResult, wobbleAmount);
+		newRoll.isFinishedVisual = false;
+		newRoll.currentRotation = 0.0f;
+		activeDiceRolls.push_back(newRoll);
+	}
 }
 
 //--------------------------------------------------------------
@@ -31670,6 +31782,18 @@ int ofApp::resolveDiceRoll(int numDice, int sides) {
 	int total = 0;
 	for (int i = 0; i < numDice; ++i) {
 		total += getGameRandom(1, sides);
+	}
+	return total;
+}
+
+// Resolve dice and return raw per-die faces in outRaw (does not add luck)
+int ofApp::resolveDiceRollDetailed(int numDice, int sides, std::vector<int> & outRaw) {
+	outRaw.clear();
+	int total = 0;
+	for (int i = 0; i < numDice; ++i) {
+		int r = getGameRandom(1, sides);
+		outRaw.push_back(r);
+		total += r;
 	}
 	return total;
 }
