@@ -281,7 +281,7 @@ int ofApp::applyDamageWithMitigations(Player & target, int baseDamage, DamageTyp
 			sourceRef -= a;
 		}
 		remaining -= a;
-		spawnFloatingText(gridToWorld(target.x, target.y), "-" + ofToString(a) + name, c);
+		queueFloatingTextVisual(gridToWorld(target.x, target.y), "-" + ofToString(a) + name, c);
 		ofLogNotice("Game") << name << " absorbed " << a;
 	};
 
@@ -501,7 +501,7 @@ void ofApp::checkKeyPickupAndDraftAfterSummon(int x, int y, int minionOwnerID) {
 						keyCol = ofColor(192, 192, 192);
 					else if (keySet == 3)
 						keyCol = ofColor(205, 127, 50);
-					spawnFloatingText(gridToWorld(x, y), "Key Found!", keyCol);
+					queueFloatingTextVisual(gridToWorld(x, y), "Key Found!", keyCol);
 				}
 				break;
 			}
@@ -4854,7 +4854,7 @@ void ofApp::updateGame() {
 									keyCol = ofColor(192, 192, 192);
 								else if (keySet == 3)
 									keyCol = ofColor(205, 127, 50);
-								spawnFloatingText(gridToWorld(cx, cy), "Key Found!", keyCol);
+								queueFloatingTextVisual(gridToWorld(cx, cy), "Key Found!", keyCol);
 								int loggedPlayerID = (targetIndex >= 0 && targetIndex < (int)players.size()) ? players[targetIndex].playerID : mover.playerID;
 								ofLogNotice("Key") << "Player " << loggedPlayerID << " picked up key (Class " << classToDraft << ")";
 								return; // freeze update until draft resolved
@@ -5010,7 +5010,7 @@ void ofApp::updateGame() {
 								dying.cardsPlayedThisTurn.clear();
 								dying.playedCardsPile.clear();
 								dying.summonedOnTurnCycle = globalTurnCounter;
-								spawnFloatingText(gridToWorld(dying.x, dying.y), "Faerie Resurrection!", ofColor::aqua);
+								queueFloatingTextVisual(gridToWorld(dying.x, dying.y), "Faerie Resurrection!", ofColor::aqua);
 								ofLogNotice("Faerie") << "Unit " << dying.playerID << " resurrected by faerie at " << nx << "," << ny << " for " << hp << " HP.";
 								resurrected = true;
 							}
@@ -10545,7 +10545,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 					p.hand.push_back(card);
 				}
 				int addedCount = p.hand.size() - beforeCount;
-				spawnFloatingText(gridToWorld(p.x, p.y), "+" + ofToString(addedCount) + " cards", ofColor::cyan);
+				queueFloatingTextVisual(gridToWorld(p.x, p.y), "+" + ofToString(addedCount) + " cards", ofColor::cyan);
 				addGameLog("Debug: Added all " + ofToString(addedCount) + " cards to hand");
 				if (isMultiplayer && isHost()) sendSnapshotToClient();
 			}
@@ -11305,7 +11305,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 								tgt.hand.back().drawnThisTurn = true;
 							}
 						}
-						spawnFloatingText(gridToWorld(tgt.x, tgt.y), "+" + ofToString((int)encyclopediaSelectedIndices.size() * cardSpawnerQuantity) + " card(s)", ofColor::cyan);
+						queueFloatingTextVisual(gridToWorld(tgt.x, tgt.y), "+" + ofToString((int)encyclopediaSelectedIndices.size() * cardSpawnerQuantity) + " card(s)", ofColor::cyan);
 						if (isMultiplayer && isHost()) {
 							sendSnapshotToClient();
 							ofLogNotice("Debug") << "Card Spawner Encyclopedia: Host sent snapshot to clients.";
@@ -11407,7 +11407,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 						players[currentPlayerIndex].hand.back().targetScale = 1.5f;
 						players[currentPlayerIndex].hand.back().drawnThisTurn = true;
 					}
-					spawnFloatingText(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y),
+					queueFloatingTextVisual(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y),
 						"+" + ofToString(cardSpawnerQuantity) + "x " + filteredCards[i].name, ofColor::cyan);
 
 					// Sync spawned cards with opponent. Host will send an authoritative
@@ -11603,7 +11603,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 				}
 
 				// Visual feedback
-				spawnFloatingText(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y), "+" + ofToString(cardsToDraw) + " Cards", ofColor::cyan);
+				queueFloatingTextVisual(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y), "+" + ofToString(cardsToDraw) + " Cards", ofColor::cyan);
 				// Ensure authoritative AP field reflects local UI immediately
 				if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) {
 					updatePlayerAP(players[currentPlayerIndex], currentAP);
@@ -11650,7 +11650,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 				if (cardRect.inside(x, y)) {
 					// Check eligibility (Drawn this turn OR Copied)
 					if (!card.drawnThisTurn && !card.isCopied) {
-						spawnFloatingText(gridToWorld(p.x, p.y), "Must be drawn this turn", ofColor::red);
+						queueFloatingTextVisual(gridToWorld(p.x, p.y), "Must be drawn this turn", ofColor::red);
 						return;
 					}
 
@@ -11881,7 +11881,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 						queueEffect(rollOp);
 					}
 
-					spawnFloatingText(gridToWorld(players[assistantIndex].x, players[assistantIndex].y), "Reroll!", ofColor::gold);
+					queueFloatingTextVisual(gridToWorld(players[assistantIndex].x, players[assistantIndex].y), "Reroll!", ofColor::gold);
 				}
 				return;
 			}
@@ -11898,7 +11898,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 					}
 				}
 				if (apRollActiveLocal) {
-					spawnFloatingText(glm::vec3(endTurnButtonRect.getCenter().x, endTurnButtonRect.getCenter().y, 0.0f), "AP roll in progress", ofColor::yellow);
+					queueFloatingTextVisual(glm::vec3(endTurnButtonRect.getCenter().x, endTurnButtonRect.getCenter().y, 0.0f), "AP roll in progress", ofColor::yellow);
 					ofLogNotice("Turn") << "End Turn click ignored: AP roll still active for current unit.";
 					return;
 				}
@@ -11919,7 +11919,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 
 				// Can't end turn in wall or unit unless AP is 0
 				if ((isInWall || isInUnitTile) && currentAP > 0) {
-					spawnFloatingText(gridToWorld(p.x, p.y), "Must use remaining AP or move out!", ofColor::red);
+					queueFloatingTextVisual(gridToWorld(p.x, p.y), "Must use remaining AP or move out!", ofColor::red);
 					ofLogNotice("Game") << "Prevented ending turn in wall/unit with AP remaining.";
 					return;
 				}
@@ -11989,12 +11989,12 @@ void ofApp::mousePressed(int x, int y, int button) {
 							calculateTargetHighlights();
 							return;
 						} else {
-							spawnFloatingText(gridToWorld(currentPlayer.x, currentPlayer.y), "Not enough AP", ofColor::red);
+							queueFloatingTextVisual(gridToWorld(currentPlayer.x, currentPlayer.y), "Not enough AP", ofColor::red);
 							return;
 						}
 					} else {
 						// Clicked on non-targetable tile - show feedback but don't cancel selection
-						spawnFloatingText(gridToWorld(currentPlayer.x, currentPlayer.y), "Invalid target", ofColor::orange);
+						queueFloatingTextVisual(gridToWorld(currentPlayer.x, currentPlayer.y), "Invalid target", ofColor::orange);
 						return;
 					}
 				}
@@ -12096,7 +12096,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 
 									// If can't escape (no empty tiles found), block the move
 									if (escapeAPCost == INT_MAX || remainingAP < escapeAPCost) {
-										spawnFloatingText(gridToWorld(controlledPlayer->x, controlledPlayer->y), "Not enough AP to escape", ofColor::red);
+										queueFloatingTextVisual(gridToWorld(controlledPlayer->x, controlledPlayer->y), "Not enough AP to escape", ofColor::red);
 										ofLogNotice("Movement") << "Blocked entering wall/unit: need " << escapeAPCost << " AP to escape, have " << remainingAP;
 										playerAction = NONE;
 										clearHighlights();
@@ -15345,7 +15345,7 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 				int tortoiseFormDamage = 2;
 				int damageDealt = applyDamageWithMitigations(*target, tortoiseFormDamage, DAMAGE_PHYSICAL, currentPlayerIndex);
 				if (damageDealt > 0) {
-					spawnFloatingText(gridToWorld(target->x, target->y), "-" + ofToString(damageDealt) + " Shell", ofColor(255, 140, 0));
+					queueFloatingTextVisual(gridToWorld(target->x, target->y), "-" + ofToString(damageDealt) + " Shell", ofColor(255, 140, 0));
 				}
 			}
 		}
@@ -15525,7 +15525,7 @@ void ofApp::processEffectOp(EffectOp & op) {
 					if (c.type == (CardType)ctype) {
 						target.deck.push_back(c);
 						shuffleGameVector(target.deck, tidx);
-						spawnFloatingText(gridToWorld(target.x, target.y), "Shuffled 1x " + c.name, ofColor::magenta);
+						queueFloatingTextVisual(gridToWorld(target.x, target.y), "Shuffled 1x " + c.name, ofColor::magenta);
 						ofLogNotice("EffectQueue") << "Added card " << c.name << " to deck of player " << target.playerID;
 						break;
 					}
@@ -15543,7 +15543,7 @@ void ofApp::processEffectOp(EffectOp & op) {
 				Player & target = players[tidx];
 				if (!target.deck.empty()) {
 					target.deck.pop_back();
-					spawnFloatingText(gridToWorld(target.x, target.y), "Card Removed", ofColor::magenta);
+					queueFloatingTextVisual(gridToWorld(target.x, target.y), "Card Removed", ofColor::magenta);
 					ofLogNotice("EffectQueue") << "Removed top card from deck of player " << target.playerID;
 				}
 			}
@@ -15748,9 +15748,9 @@ void ofApp::processEffectOp(EffectOp & op) {
 			int healed = target.health - before;
 			glm::vec3 tPos = gridToWorld(target.x, target.y);
 			if (healed > 0) {
-				spawnFloatingText(tPos, "+" + ofToString(healed) + " HP", ofColor::green);
+				queueFloatingTextVisual(tPos, "+" + ofToString(healed) + " HP", ofColor::green);
 			} else {
-				spawnFloatingText(tPos, "Full HP", ofColor::gray);
+				queueFloatingTextVisual(tPos, "Full HP", ofColor::gray);
 			}
 		}
 		opComplete = true;
@@ -15795,28 +15795,28 @@ void ofApp::processEffectOp(EffectOp & op) {
 				target.block += delta;
 				if (delta != 0) {
 					std::string s = (delta > 0 ? "+" : "") + ofToString(delta) + " Block";
-					spawnFloatingText(tPos, s, ofColor::gray);
+					queueFloatingTextVisual(tPos, s, ofColor::gray);
 				}
 				break;
 			case 6: // Barrier
 				target.barrier += delta;
 				if (delta != 0) {
 					std::string s = (delta > 0 ? "+" : "") + ofToString(delta) + " Barrier";
-					spawnFloatingText(tPos, s, ofColor(70, 170, 255));
+					queueFloatingTextVisual(tPos, s, ofColor(70, 170, 255));
 				}
 				break;
 			case 7: // HolyBlock
 				target.holyBlock += delta;
 				if (delta != 0) {
 					std::string s = (delta > 0 ? "+" : "") + ofToString(delta) + " Holy Block";
-					spawnFloatingText(tPos, s, ofColor(255, 215, 0));
+					queueFloatingTextVisual(tPos, s, ofColor(255, 215, 0));
 				}
 				break;
 			case 8: // Ward
 				target.ward += delta;
 				if (delta != 0) {
 					std::string s = (delta > 0 ? "+" : "") + ofToString(delta) + " Ward";
-					spawnFloatingText(tPos, s, ofColor(160, 120, 255));
+					queueFloatingTextVisual(tPos, s, ofColor(160, 120, 255));
 				}
 				break;
 			case 10: // Luck
@@ -15827,18 +15827,18 @@ void ofApp::processEffectOp(EffectOp & op) {
 				target.fortification += delta;
 				if (delta != 0) {
 					std::string s = (delta > 0 ? "+" : "") + ofToString(delta) + " Fortify";
-					spawnFloatingText(tPos, s, ofColor::lightGray);
+					queueFloatingTextVisual(tPos, s, ofColor::lightGray);
 				}
 				break;
 			case 14: // Flurry stacks
 				target.flurryOfFistsStacks += delta;
-				if (delta > 0) spawnFloatingText(tPos, "Flurry!", ofColor::orange);
+				if (delta > 0) queueFloatingTextVisual(tPos, "Flurry!", ofColor::orange);
 				break;
 			case 11: // Next-turn AP bonus
 				target.nextTurnAPBonus += delta;
 				if (delta != 0) {
 					std::string s = (delta > 0 ? "+" : "") + ofToString(delta) + " AP Next Turn";
-					spawnFloatingText(tPos, s, ofColor::yellow);
+					queueFloatingTextVisual(tPos, s, ofColor::yellow);
 				}
 				break;
 			case 12: // Shocks played this turn (counter)
@@ -16013,11 +16013,25 @@ void ofApp::processVisualEvents() {
 			// For now treat dice event as duration-based visual
 			if (now - ev.startTime >= ev.duration) ev.completed = true;
 		} else if (ev.type == VE_CUSTOM) {
-			// Custom events can be marked completed externally
+			// Custom events auto-complete after their duration unless handled externally
+			if (ev.duration > 0.0f) {
+				if (now - ev.startTime >= ev.duration) ev.completed = true;
+			}
 		}
 	}
 	// Erase completed
 	visualEvents.erase(std::remove_if(visualEvents.begin(), visualEvents.end(), [](const VisualEvent & v) { return v.completed; }), visualEvents.end());
+}
+
+// Queue a floating text via the visual event system (non-authoritative visual only)
+void ofApp::queueFloatingTextVisual(glm::vec3 pos, std::string text, ofColor color, float duration) {
+	VisualEvent ev = {};
+	ev.type = VE_CUSTOM;
+	ev.startPos = pos;
+	ev.text = text;
+	ev.color = color;
+	ev.duration = duration;
+	queueVisualEvent(ev);
 }
 
 //==============================================================================================
@@ -19405,7 +19419,7 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 
 		if (!hasSpace) {
 			ofLogNotice("Wolves") << "No adjacent space to summon wolves!";
-			spawnFloatingText(gridToWorld(cx, cy), "No Space!", ofColor::red);
+			queueFloatingTextVisual(gridToWorld(cx, cy), "No Space!", ofColor::red);
 			break; // Cancel card play
 		}
 
@@ -19447,7 +19461,7 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 
 		if (!hasSpace) {
 			ofLogNotice("Kobolds") << "No adjacent space to summon kobolds!";
-			spawnFloatingText(gridToWorld(cx, cy), "No Space!", ofColor::red);
+			queueFloatingTextVisual(gridToWorld(cx, cy), "No Space!", ofColor::red);
 			break; // Cancel card play
 		}
 
@@ -19752,8 +19766,8 @@ void ofApp::resolveAttackDamage() {
 							apPar.data.status.duration = 0;
 							queueEffect(apPar);
 							target->paralysisHeadsCount = 0;
-							spawnFloatingText(tPos + glm::vec3(0, 0.6f, 0), "-" + ofToString(extra) + " Electric", ofColor::orange);
-							spawnFloatingText(tPos + glm::vec3(0, 1.0f, 0), "PARALYZED!", ofColor::yellow);
+							queueFloatingTextVisual(tPos + glm::vec3(0, 0.6f, 0), "-" + ofToString(extra) + " Electric", ofColor::orange);
+							queueFloatingTextVisual(tPos + glm::vec3(0, 1.0f, 0), "PARALYZED!", ofColor::yellow);
 						} else if (destroyedType == CARD_FLAME_HIT) {
 							EffectOp flameDamageOp;
 							flameDamageOp.type = EffectOpType::DAMAGE;
@@ -19769,8 +19783,8 @@ void ofApp::resolveAttackDamage() {
 							apFire.data.status.statusType = STATUS_ON_FIRE;
 							apFire.data.status.duration = 0;
 							queueEffect(apFire);
-							spawnFloatingText(tPos + glm::vec3(0, 0.6f, 0), "-" + ofToString(extra) + " Fire", ofColor::red);
-							spawnFloatingText(tPos + glm::vec3(0, 1.0f, 0), "ON FIRE!", ofColor::orange);
+							queueFloatingTextVisual(tPos + glm::vec3(0, 0.6f, 0), "-" + ofToString(extra) + " Fire", ofColor::red);
+							queueFloatingTextVisual(tPos + glm::vec3(0, 1.0f, 0), "ON FIRE!", ofColor::orange);
 						} else if (destroyedType == CARD_ADD_POISON) {
 							EffectOp poisonDamageOp;
 							poisonDamageOp.type = EffectOpType::DAMAGE;
@@ -19940,7 +19954,7 @@ void ofApp::resolveSummonKobolds(const DiceRoll & finishedRoll) {
 	isWaitingForKoboldDice = false;
 	int count = finishedRoll.result;
 	if (count <= 0) {
-		spawnFloatingText(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y), "No Kobolds!", ofColor::gray);
+		queueFloatingTextVisual(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y), "No Kobolds!", ofColor::gray);
 		// End kobold placement mode
 		updateCardInteractionState(CARD_INTERACTION_IDLE, -1, CARD_NONE);
 		return;
@@ -19957,7 +19971,7 @@ void ofApp::resolveSummonKobolds(const DiceRoll & finishedRoll) {
 	}
 	int allowed = std::min<int>(count, std::min(avail, 4));
 	if (allowed <= 0) {
-		spawnFloatingText(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y), "No Space!", ofColor::red);
+		queueFloatingTextVisual(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y), "No Space!", ofColor::red);
 		updateCardInteractionState(CARD_INTERACTION_IDLE, -1, CARD_NONE);
 		return;
 	}
@@ -19970,7 +19984,7 @@ void ofApp::resolveSummonKobolds(const DiceRoll & finishedRoll) {
 		// Instruction UI
 		tooltipText = "Place Kobold: click an adjacent empty tile";
 		isShowingTooltip = true;
-		spawnFloatingText(gridToWorld(koboldPlacementSourceX, koboldPlacementSourceY), ofToString(koboldsRemainingToPlace) + " Kobolds!", ofColor::gold);
+		queueFloatingTextVisual(gridToWorld(koboldPlacementSourceX, koboldPlacementSourceY), ofToString(koboldsRemainingToPlace) + " Kobolds!", ofColor::gold);
 		invalidateTargetCache();
 	} else {
 		// It's the opponent. Do NOT enter placement mode locally.
@@ -19988,14 +20002,14 @@ void ofApp::resolveBlockingBoon(const DiceRoll & finishedRoll) {
 		if (finishedRoll.result >= 2) {
 			// Heads: raise own max HP
 			players[currentPlayerIndex].maxHealth++;
-			spawnFloatingText(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y), "+1 Max HP", ofColor::green);
+			queueFloatingTextVisual(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y), "+1 Max HP", ofColor::green);
 		} else {
 			// Tails: lower target max HP
 			Player * t = getPlayer(blockingBoonTargetIndex);
 			if (t) {
 				t->maxHealth = std::max(1, t->maxHealth - 1);
 				if (t->health > t->maxHealth) t->health = t->maxHealth;
-				spawnFloatingText(gridToWorld(t->x, t->y), "-1 Max HP", ofColor::darkRed);
+				queueFloatingTextVisual(gridToWorld(t->x, t->y), "-1 Max HP", ofColor::darkRed);
 			}
 		}
 
@@ -20024,7 +20038,7 @@ void ofApp::resolveBlockingBoon(const DiceRoll & finishedRoll) {
 			networkPending.draftQueue.push_back(classReward);
 			spawnFloatingText(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y), "Draft C" + ofToString(classReward), ofColor::cyan);
 		} else {
-			spawnFloatingText(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y), "Fizzle", ofColor::gray);
+			queueFloatingTextVisual(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y), "Fizzle", ofColor::gray);
 		}
 
 		currentCardOutcome.namedDiceResults["blocking_boon_total"] = std::max(0, currentCardOutcome.namedDiceResults["blocking_boon_total"] - 1);
@@ -21308,7 +21322,7 @@ void ofApp::resolveMagicBoltRangeDice() {
 		// If impact was inside a wall, show fizzle and finish (no further rolls)
 		if (isTileWall((int)currentCardOutcome.primaryTarget.x, (int)currentCardOutcome.primaryTarget.y)) {
 			ofLogNotice("Magic Bolt") << "Bolt fizzled inside a wall. No AOE.";
-			spawnFloatingText(gridToWorld((int)currentCardOutcome.primaryTarget.x, (int)currentCardOutcome.primaryTarget.y), "Fizzle!", ofColor::gray);
+			queueFloatingTextVisual(gridToWorld((int)currentCardOutcome.primaryTarget.x, (int)currentCardOutcome.primaryTarget.y), "Fizzle!", ofColor::gray);
 		} else {
 			// Start PRIMARY damage roll (1d20). Wait for its visuals to complete before
 			// applying damage and then rolling the AOE radius.
@@ -31597,7 +31611,7 @@ void ofApp::resolveWolfCoinFlip() {
 	if (flipResult == 1) {
 		// TAILS: FAIL
 		ofLogNotice("Wolves") << "Tails! The call fizzles.";
-		spawnFloatingText(textPos, "Fizzles...", ofColor::gray);
+		queueFloatingTextVisual(textPos, "Fizzles...", ofColor::gray);
 
 		// End the sequence
 		updateCardInteractionState(CARD_INTERACTION_IDLE, -1, CARD_NONE);
@@ -31651,7 +31665,7 @@ void ofApp::resolveWolfCoinFlip() {
 		} else {
 			// HEADS BUT BLOCKED
 			ofLogNotice("Wolves") << "Heads, but no space for 2nd wolf.";
-			spawnFloatingText(textPos, "No Space!", ofColor::red);
+			queueFloatingTextVisual(textPos, "No Space!", ofColor::red);
 			updateCardInteractionState(CARD_INTERACTION_IDLE, -1, CARD_NONE);
 			wolfSummonStage = 0;
 

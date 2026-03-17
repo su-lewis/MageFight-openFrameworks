@@ -1014,6 +1014,8 @@ private:
 	// Returns passive luck (from assistant auras and cards in deck) for the given player index.
 	int computePassiveLuck(int playerIndex);
 	void spawnFloatingText(glm::vec3 pos, std::string text, ofColor color, std::string category = "");
+	// Queue a floating-text visual event (non-authoritative, does not change game state)
+	void queueFloatingTextVisual(glm::vec3 pos, std::string text, ofColor color, float duration = 1.2f);
 	void spawnExplosion(glm::vec3 pos, int count, ofColor color);
 	void tryTriggerShellSpike(); // Tortoise Form: trigger 3 damage to adjacent unit
 
