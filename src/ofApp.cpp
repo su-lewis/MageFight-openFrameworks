@@ -256,18 +256,74 @@ void ofApp::completeCardPlayAnimation(const Card & playedCard, int playerIndex) 
 
 int ofApp::applyDamageWithMitigations(Player & target, int baseDamage, DamageType type, int attackerIndex) {
 	int dmg = baseDamage;
-	int barrierDmg = std::min(target.barrier, dmg);
-	target.barrier -= barrierDmg;
-	dmg -= barrierDmg;
-	if (dmg > 0) {
-		int wardDmg = std::min(target.ward, dmg);
-		target.ward -= wardDmg;
-		dmg -= wardDmg;
+	// Determine target index for EffectOps
+	int targetIndex = -1;
+	for (size_t i = 0; i < players.size(); ++i)
+		if (&players[i] == &target) {
+			targetIndex = (int)i;
+			break;
+		}
+
+	auto absorbFrom = [&](int & sourceRef, int & remaining, int statType, const char * name, const ofColor & c) {
+		int a = std::min(sourceRef, remaining);
+		if (a <= 0) return;
+		// Queue/process deterministic stat reduction
+		if (targetIndex >= 0) {
+			EffectOp op = {};
+			op.type = EffectOpType::MODIFY_STAT;
+			op.data.modifyStat.targetIndex = targetIndex;
+			op.data.modifyStat.statType = statType;
+			op.data.modifyStat.delta = -a;
+			op.data.modifyStat.deltaFromSlot = -1;
+			processEffectOp(op);
+		} else {
+			// Fallback: modify directly
+			sourceRef -= a;
+		}
+		remaining -= a;
+		spawnFloatingText(gridToWorld(target.x, target.y), "-" + ofToString(a) + name, c);
+		ofLogNotice("Game") << name << " absorbed " << a;
+	};
+
+	// Absorb in order
+	int remaining = dmg;
+	switch (type) {
+	case DAMAGE_HOLY:
+		absorbFrom(target.holyBlock, remaining, 7, " Holy", ofColor(255, 215, 0));
+		absorbFrom(target.barrier, remaining, 6, " Barrier", ofColor(70, 170, 255));
+		absorbFrom(target.ward, remaining, 8, " Ward", ofColor::black);
+		break;
+	case DAMAGE_PHYSICAL:
+		absorbFrom(target.block, remaining, 5, " Block", ofColor::gray);
+		absorbFrom(target.fortification, remaining, 13, " Fortification", ofColor::lightGray);
+		absorbFrom(target.ward, remaining, 8, " Ward", ofColor::black);
+		break;
+	case DAMAGE_PIERCING:
+		absorbFrom(target.fortification, remaining, 13, " Fortification", ofColor::lightGray);
+		absorbFrom(target.ward, remaining, 8, " Ward", ofColor::black);
+		break;
+	default:
+		absorbFrom(target.barrier, remaining, 6, " Barrier", ofColor(70, 170, 255));
+		absorbFrom(target.ward, remaining, 8, " Ward", ofColor::black);
+		break;
 	}
-	if (dmg > 0) {
-		target.health -= dmg;
+
+	// Apply remaining HP damage
+	if (remaining > 0) {
+		if (targetIndex >= 0) {
+			EffectOp hp = {};
+			hp.type = EffectOpType::MODIFY_STAT;
+			hp.data.modifyStat.targetIndex = targetIndex;
+			hp.data.modifyStat.statType = 0; // HP
+			hp.data.modifyStat.delta = -remaining;
+			hp.data.modifyStat.deltaFromSlot = -1;
+			processEffectOp(hp);
+		} else {
+			target.health -= remaining;
+		}
 	}
-	return dmg;
+
+	return remaining;
 }
 
 Player ofApp::createSummonedMinion(CardType type, int targetX, int targetY, const Player & caster, int turnCounter, int & nextSummonID) {
@@ -11909,25 +11965,21 @@ void ofApp::mousePressed(int x, int y, int button) {
 						if (currentAP >= selectedCard.cost) {
 							const std::string cardName = selectedCard.name;
 
-							if (isMultiplayer) {
-								InputCommandPacket cmd = {};
-								cmd.type = PKT_ACTION; // Local queue bookkeeping type
-								cmd.playerID = myLocalPlayerID;
-								cmd.seq = 0;
-								cmd.commandId = nextCommandId++;
-								cmd.turnNumber = globalTurnCounter;
-								cmd.commandType = CMD_PLAY_CARD;
-								cmd.params[0] = selectedCardIndex;
-								cmd.params[1] = targetGridX;
-								cmd.params[2] = targetGridY;
-								cmd.params[3] = 0;
-								strncpy(cmd.stringData, cardName.c_str(), sizeof(cmd.stringData) - 1);
-								cmd.stringData[sizeof(cmd.stringData) - 1] = '\0';
-								queueInputCommand(cmd);
-							} else {
-								// Single-player keeps immediate execution for responsiveness
-								playCard(selectedCardIndex, targetGridX, targetGridY);
-							}
+							// Always queue as a deterministic input command; singleplayer will be processed locally.
+							InputCommandPacket cmd = {};
+							cmd.type = PKT_ACTION; // Local queue bookkeeping type
+							cmd.playerID = myLocalPlayerID;
+							cmd.seq = 0;
+							cmd.commandId = nextCommandId++;
+							cmd.turnNumber = globalTurnCounter;
+							cmd.commandType = CMD_PLAY_CARD;
+							cmd.params[0] = selectedCardIndex;
+							cmd.params[1] = targetGridX;
+							cmd.params[2] = targetGridY;
+							cmd.params[3] = 0;
+							strncpy(cmd.stringData, cardName.c_str(), sizeof(cmd.stringData) - 1);
+							cmd.stringData[sizeof(cmd.stringData) - 1] = '\0';
+							queueInputCommand(cmd);
 
 							// Clear selection and highlights
 							selectedCardIndex = -1;
@@ -14121,9 +14173,20 @@ void ofApp::handleCardDragToPlay(int cardIndex) {
 		calculateTargetHighlights(cardIndex);
 		spawnFloatingText(gridToWorld(caster.x, caster.y), "Choose target", ofColor::white);
 	} else {
-		// Self-targeting or immediate cards: route through playCard()
-		CardPlayResult res = playCard(cardIndex, caster.x, caster.y);
-		(void)res; // playCard will set up any menu/ dice / effect state as needed
+		// Self-targeting or immediate cards: queue as deterministic input command
+		InputCommandPacket cmd = {};
+		cmd.type = PKT_ACTION;
+		cmd.playerID = myLocalPlayerID;
+		cmd.seq = 0;
+		cmd.commandId = nextCommandId++;
+		cmd.turnNumber = globalTurnCounter;
+		cmd.commandType = CMD_PLAY_CARD;
+		cmd.params[0] = cardIndex;
+		cmd.params[1] = caster.x;
+		cmd.params[2] = caster.y;
+		strncpy(cmd.stringData, card.name.c_str(), sizeof(cmd.stringData) - 1);
+		cmd.stringData[sizeof(cmd.stringData) - 1] = '\0';
+		queueInputCommand(cmd);
 	}
 
 	draggedCardIndex = -1;
@@ -14513,15 +14576,21 @@ void ofApp::handleCardMenuClick(const std::string & buttonId) {
 		bool isSelfTarget = (interactionTargetIndex == currentPlayerIndex);
 
 		if (buttonId == "damage") {
-			int dmgDealt = applyDamageWithMitigations(target, effectValue, DAMAGE_MAGIC, currentPlayerIndex);
-			if (dmgDealt > 0) {
-				spawnFloatingText(gridToWorld(target.x, target.y), "-" + ofToString(dmgDealt) + " Magic", ofColor::red);
-			} else {
-				spawnFloatingText(gridToWorld(target.x, target.y), "Absorbed", ofColor::gray);
-			}
+			EffectOp damageOp = {};
+			damageOp.type = EffectOpType::DAMAGE;
+			damageOp.data.damage.targetIndex = interactionTargetIndex;
+			damageOp.data.damage.damageType = DAMAGE_MAGIC;
+			damageOp.data.damage.fixedDamage = effectValue;
+			damageOp.data.damage.damageFromSlot = -1;
+			processEffectOp(damageOp);
 		} else if (buttonId == "block") {
-			target.block += effectValue;
-			spawnFloatingText(gridToWorld(target.x, target.y), "+" + ofToString(effectValue) + " Block", ofColor::gray);
+			EffectOp blockOp = {};
+			blockOp.type = EffectOpType::MODIFY_STAT;
+			blockOp.data.modifyStat.targetIndex = interactionTargetIndex;
+			blockOp.data.modifyStat.statType = 5; // Block
+			blockOp.data.modifyStat.delta = effectValue;
+			blockOp.data.modifyStat.deltaFromSlot = -1;
+			processEffectOp(blockOp);
 		}
 		currentAP -= card.cost;
 		updatePlayerAP(caster, currentAP);
@@ -15139,29 +15208,9 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 
 		const std::string cardName = cardSnapshot.name;
 
+		// Deterministic lockstep: every peer executes the same play logic
 		CardPlayResult result = CARD_NOT_PLAYABLE;
-
-		if (!isMultiplayer || isHost()) {
-			// Host (or singleplayer) executes the authoritative play
-			result = playCard(cardIndex, targetX, targetY);
-			if (isMultiplayer) {
-				players[currentPlayerIndex].ap = currentAP;
-			}
-		} else {
-			// Client: don't mutate authoritative game state. Show a visual card play animation for the remote player.
-			int ownerIndex = findPlayerIndexByID(cmd.playerID);
-			if (ownerIndex >= 0) {
-				// Find card template by name for visual display
-				Card remoteCard = {};
-				for (const auto & c : allCards) {
-					if (c.name == cardName) {
-						remoteCard = c;
-						break;
-					}
-				}
-				createCardDisplay(remoteCard, ownerIndex);
-			}
-		}
+		result = playCard(cardIndex, targetX, targetY);
 
 		ofLogNotice("Lockstep") << "Execute CMD_PLAY_CARD: card=" << cardName << " target=(" << targetX << "," << targetY << ") result=" << (int)result;
 		break;
@@ -19590,7 +19639,13 @@ void ofApp::resolveAttackDamage() {
 					spawnFloatingText(tPos + glm::vec3(0, 0.5f, 0), "-" + ofToString(absorbedDamage) + " Absorbed", ofColor::lightGray);
 				}
 				if (appliedDamage > 0) {
-					target->health -= appliedDamage;
+					EffectOp hpOp = {};
+					hpOp.type = EffectOpType::MODIFY_STAT;
+					hpOp.data.modifyStat.targetIndex = pIndex;
+					hpOp.data.modifyStat.statType = 0; // HP
+					hpOp.data.modifyStat.delta = -appliedDamage;
+					hpOp.data.modifyStat.deltaFromSlot = -1;
+					processEffectOp(hpOp);
 					spawnFloatingText(tPos, "-" + ofToString(appliedDamage) + typeLabel, ofColor::red);
 
 					// Ghost Break Logic
@@ -19608,7 +19663,14 @@ void ofApp::resolveAttackDamage() {
 							target->discardPile.push_back(target->ghostFormCard);
 							spawnFloatingText(tPos + glm::vec3(0, 0.5f, 0), "Ghost Form Broken!", ofColor::white);
 							if (board[target->x][target->y].hasWall) {
-								target->health = 0;
+								// Kill via effect op
+								EffectOp killOp = {};
+								killOp.type = EffectOpType::MODIFY_STAT;
+								killOp.data.modifyStat.targetIndex = pIndex;
+								killOp.data.modifyStat.statType = 0; // HP
+								killOp.data.modifyStat.delta = -players[pIndex].health;
+								killOp.data.modifyStat.deltaFromSlot = -1;
+								processEffectOp(killOp);
 								spawnFloatingText(tPos + glm::vec3(0, 1.0f, 0), "Materialized in Wall!", ofColor::red);
 							}
 						}
@@ -19735,11 +19797,29 @@ void ofApp::resolveAPRoll() {
 		}
 	}
 	ofLogNotice("APDebug") << "AP roll finished: apSum=" << apSum << " nextTurnAPBonus(before)=" << players[currentPlayerIndex].nextTurnAPBonus << " currentAP(before)=" << currentAP;
-	currentAP = apSum;
-	if (players[currentPlayerIndex].nextTurnAPBonus > 0) {
-		currentAP += players[currentPlayerIndex].nextTurnAPBonus;
-		players[currentPlayerIndex].nextTurnAPBonus = 0;
+	// Apply AP changes via EffectOps so state changes remain centralized
+	int deltaAP = apSum - currentAP;
+	if (deltaAP != 0) {
+		EffectOp apOp = {};
+		apOp.type = EffectOpType::MODIFY_STAT;
+		apOp.data.modifyStat.targetIndex = currentPlayerIndex;
+		apOp.data.modifyStat.statType = 3; // AP (current)
+		apOp.data.modifyStat.delta = deltaAP;
+		apOp.data.modifyStat.deltaFromSlot = -1;
+		processEffectOp(apOp);
 	}
+
+	if (players[currentPlayerIndex].nextTurnAPBonus > 0) {
+		int bonus = players[currentPlayerIndex].nextTurnAPBonus;
+		EffectOp bonusOp = {};
+		bonusOp.type = EffectOpType::MODIFY_STAT;
+		bonusOp.data.modifyStat.targetIndex = currentPlayerIndex;
+		bonusOp.data.modifyStat.statType = 11; // Next-turn AP bonus
+		bonusOp.data.modifyStat.delta = -bonus; // consume
+		bonusOp.data.modifyStat.deltaFromSlot = -1;
+		processEffectOp(bonusOp);
+	}
+
 	// Sync AP to player struct
 	updatePlayerAP(players[currentPlayerIndex], currentAP);
 	ofLogNotice("APDebug") << "AP roll applied: currentAP(after)=" << currentAP;
@@ -20143,37 +20223,75 @@ void ofApp::resolveMagicHandDamage() {
 				spawnFloatingText(gridToWorld(victim->x, victim->y), "Phased!", ofColor::cyan);
 			}
 
-			// Apply Physical Mitigation
-			int block = std::min(victim->block, dmg);
-			victim->block -= block;
-			dmg -= block;
-			int fort = std::min(victim->fortification, dmg);
-			victim->fortification -= fort;
-			dmg -= fort;
-			int ward = std::min(victim->ward, dmg);
-			victim->ward -= ward;
-			dmg -= ward;
-
-			if (dmg > 0) {
-				victim->health -= dmg;
-				spawnFloatingText(gridToWorld(victim->x, victim->y), "-" + ofToString(dmg) + " Phys", ofColor::red);
-
-				if (victim->inGhostForm) {
-					victim->ghostDamageTaken += dmg;
-					if (victim->ghostDamageTaken >= 4) {
-						// inGhostForm will be cleared when the REMOVE_STATUS op is processed
-						victim->ghostDamageTaken = 0;
-						victim->discardPile.push_back(victim->ghostFormCard);
-						spawnFloatingText(gridToWorld(victim->x, victim->y), "Form Broken!", ofColor::white);
-					}
+			// Apply Physical Mitigation via EffectOps
+			int vIndex = -1;
+			for (size_t _i = 0; _i < players.size(); ++_i)
+				if (&players[_i] == victim) {
+					vIndex = (int)_i;
+					break;
 				}
-				if (victim->inTortoiseForm) {
-					victim->tortoiseDamageTaken += dmg;
-					if (victim->tortoiseDamageTaken >= 5) {
-						// inTortoiseForm will be cleared when the REMOVE_STATUS op is processed
-						victim->tortoiseDamageTaken = 0;
-						victim->discardPile.push_back(victim->tortoiseFormCard);
-						spawnFloatingText(gridToWorld(victim->x, victim->y), "Form Broken!", ofColor::darkGreen);
+			if (vIndex >= 0) {
+				int block = std::min(victim->block, dmg);
+				if (block > 0) {
+					EffectOp bOp = {};
+					bOp.type = EffectOpType::MODIFY_STAT;
+					bOp.data.modifyStat.targetIndex = vIndex;
+					bOp.data.modifyStat.statType = 5; // Block
+					bOp.data.modifyStat.delta = -block;
+					bOp.data.modifyStat.deltaFromSlot = -1;
+					processEffectOp(bOp);
+				}
+				dmg -= block;
+
+				int fort = std::min(victim->fortification, dmg);
+				if (fort > 0) {
+					EffectOp fOp = {};
+					fOp.type = EffectOpType::MODIFY_STAT;
+					fOp.data.modifyStat.targetIndex = vIndex;
+					fOp.data.modifyStat.statType = 13; // Fortification
+					fOp.data.modifyStat.delta = -fort;
+					fOp.data.modifyStat.deltaFromSlot = -1;
+					processEffectOp(fOp);
+				}
+				dmg -= fort;
+
+				int ward = std::min(victim->ward, dmg);
+				if (ward > 0) {
+					EffectOp wOp = {};
+					wOp.type = EffectOpType::MODIFY_STAT;
+					wOp.data.modifyStat.targetIndex = vIndex;
+					wOp.data.modifyStat.statType = 8; // Ward
+					wOp.data.modifyStat.delta = -ward;
+					wOp.data.modifyStat.deltaFromSlot = -1;
+					processEffectOp(wOp);
+				}
+				dmg -= ward;
+
+				if (dmg > 0) {
+					EffectOp hpOp = {};
+					hpOp.type = EffectOpType::MODIFY_STAT;
+					hpOp.data.modifyStat.targetIndex = vIndex;
+					hpOp.data.modifyStat.statType = 0; // HP
+					hpOp.data.modifyStat.delta = -dmg;
+					hpOp.data.modifyStat.deltaFromSlot = -1;
+					processEffectOp(hpOp);
+					spawnFloatingText(gridToWorld(victim->x, victim->y), "-" + ofToString(dmg) + " Phys", ofColor::red);
+
+					if (victim->inGhostForm) {
+						victim->ghostDamageTaken += dmg;
+						if (victim->ghostDamageTaken >= 4) {
+							victim->ghostDamageTaken = 0;
+							victim->discardPile.push_back(victim->ghostFormCard);
+							spawnFloatingText(gridToWorld(victim->x, victim->y), "Form Broken!", ofColor::white);
+						}
+					}
+					if (victim->inTortoiseForm) {
+						victim->tortoiseDamageTaken += dmg;
+						if (victim->tortoiseDamageTaken >= 5) {
+							victim->tortoiseDamageTaken = 0;
+							victim->discardPile.push_back(victim->tortoiseFormCard);
+							spawnFloatingText(gridToWorld(victim->x, victim->y), "Form Broken!", ofColor::darkGreen);
+						}
 					}
 				}
 			}
@@ -20322,13 +20440,29 @@ void ofApp::resolveFireballDamage() {
 		if (target) {
 			int damage = interactionDiceRoll;
 
-			// Apply Ward
+			// Apply Ward (EffectOp)
 			int wardDamage = std::min(target->ward, damage);
-			target->ward -= wardDamage;
+			if (wardDamage > 0) {
+				EffectOp wOp = {};
+				wOp.type = EffectOpType::MODIFY_STAT;
+				wOp.data.modifyStat.targetIndex = fireballTargetPlayerIndex;
+				wOp.data.modifyStat.statType = 8; // Ward
+				wOp.data.modifyStat.delta = -wardDamage;
+				wOp.data.modifyStat.deltaFromSlot = -1;
+				processEffectOp(wOp);
+			}
 			damage -= wardDamage;
 
-			// Apply Health Damage
-			target->health -= damage;
+			// Apply Health Damage (EffectOp)
+			if (damage > 0) {
+				EffectOp hpOp = {};
+				hpOp.type = EffectOpType::MODIFY_STAT;
+				hpOp.data.modifyStat.targetIndex = fireballTargetPlayerIndex;
+				hpOp.data.modifyStat.statType = 0; // HP
+				hpOp.data.modifyStat.delta = -damage;
+				hpOp.data.modifyStat.deltaFromSlot = -1;
+				processEffectOp(hpOp);
+			}
 
 			glm::vec3 targetPos = gridToWorld(target->x, target->y);
 
@@ -20743,27 +20877,48 @@ void ofApp::resolveJoltRangeDice() {
 					}
 				}
 
-				// Barrier Check
+				// Barrier Check (EffectOps)
 				int barrierDmg = std::min(target->barrier, damage);
-				target->barrier -= barrierDmg;
+				if (barrierDmg > 0) {
+					EffectOp bOp = {};
+					bOp.type = EffectOpType::MODIFY_STAT;
+					bOp.data.modifyStat.targetIndex = findPlayerIndexByID(target->playerID);
+					bOp.data.modifyStat.statType = 6; // Barrier
+					bOp.data.modifyStat.delta = -barrierDmg;
+					bOp.data.modifyStat.deltaFromSlot = -1;
+					processEffectOp(bOp);
+				}
 				damage -= barrierDmg;
 
 				// Ward Check
 				if (damage > 0) {
 					int wardDmg = std::min(target->ward, damage);
-					target->ward -= wardDmg;
+					if (wardDmg > 0) {
+						EffectOp wOp = {};
+						wOp.type = EffectOpType::MODIFY_STAT;
+						wOp.data.modifyStat.targetIndex = findPlayerIndexByID(target->playerID);
+						wOp.data.modifyStat.statType = 8; // Ward
+						wOp.data.modifyStat.delta = -wardDmg;
+						wOp.data.modifyStat.deltaFromSlot = -1;
+						processEffectOp(wOp);
+					}
 					damage -= wardDmg;
 				}
 
 				// Health Damage & Text
 				if (damage > 0) {
-					target->health -= damage;
-					// CHANGE: Red Text + " Magic"
+					EffectOp hpOp = {};
+					hpOp.type = EffectOpType::MODIFY_STAT;
+					hpOp.data.modifyStat.targetIndex = findPlayerIndexByID(target->playerID);
+					hpOp.data.modifyStat.statType = 0; // HP
+					hpOp.data.modifyStat.delta = -damage;
+					hpOp.data.modifyStat.deltaFromSlot = -1;
+					processEffectOp(hpOp);
 					spawnFloatingText(targetPos, "-" + ofToString(damage) + " Magic", ofColor::red);
 				} else {
 					spawnFloatingText(targetPos, "Absorbed", ofColor::gray);
 				}
-				ofLogNotice("Jolt") << "Dealt Damage. Health now: " << target->health;
+				ofLogNotice("Jolt") << "Dealt Damage.";
 
 				// Effect 2: Paralyze - queue deterministic APPLY_STATUS
 				{
@@ -20821,12 +20976,14 @@ void ofApp::resolveHealDice() {
 			int missingHp = std::max(0, target->maxHealth - target->health);
 			int actualHeal = std::min(healAmount, missingHp);
 
-			// Apply Heal
-			target->health += actualHeal;
-
-			// Cap at Max Health
-			if (target->health > target->maxHealth) {
-				target->health = target->maxHealth;
+			// Apply Heal via EffectOp
+			{
+				EffectOp healOp = {};
+				healOp.type = EffectOpType::HEAL;
+				healOp.data.heal.targetIndex = findPlayerIndexByID(target->playerID);
+				healOp.data.heal.amount = actualHeal;
+				healOp.data.heal.amountFromSlot = -1;
+				processEffectOp(healOp);
 			}
 
 			// ADD THIS: Green Text
@@ -21139,14 +21296,52 @@ void ofApp::resolveMagicBoltPrimaryDice() {
 			ofLogNotice("Magic Bolt") << "Direct Hit! Dealing " << primaryDamage << " Magic damage.";
 			int dmg = primaryDamage;
 			int barrierDmg = std::min(directHitTarget->barrier, dmg);
-			directHitTarget->barrier -= barrierDmg;
+			if (barrierDmg > 0) {
+				EffectOp bOp = {};
+				bOp.type = EffectOpType::MODIFY_STAT;
+				bOp.data.modifyStat.targetIndex = /*player index lookup*/ -1;
+				// resolve target player index
+				for (size_t _i = 0; _i < players.size(); ++_i)
+					if (&players[_i] == directHitTarget) {
+						bOp.data.modifyStat.targetIndex = (int)_i;
+						break;
+					}
+				bOp.data.modifyStat.statType = 6; // Barrier
+				bOp.data.modifyStat.delta = -barrierDmg;
+				bOp.data.modifyStat.deltaFromSlot = -1;
+				processEffectOp(bOp);
+			}
 			dmg -= barrierDmg;
 			int wardDmg = std::min(directHitTarget->ward, dmg);
-			directHitTarget->ward -= wardDmg;
+			if (wardDmg > 0) {
+				EffectOp wOp = {};
+				wOp.type = EffectOpType::MODIFY_STAT;
+				wOp.data.modifyStat.targetIndex = -1;
+				for (size_t _i = 0; _i < players.size(); ++_i)
+					if (&players[_i] == directHitTarget) {
+						wOp.data.modifyStat.targetIndex = (int)_i;
+						break;
+					}
+				wOp.data.modifyStat.statType = 8; // Ward
+				wOp.data.modifyStat.delta = -wardDmg;
+				wOp.data.modifyStat.deltaFromSlot = -1;
+				processEffectOp(wOp);
+			}
 			dmg -= wardDmg;
 
 			if (dmg > 0) {
-				directHitTarget->health -= dmg;
+				EffectOp hpOp = {};
+				hpOp.type = EffectOpType::MODIFY_STAT;
+				hpOp.data.modifyStat.targetIndex = -1;
+				for (size_t _i = 0; _i < players.size(); ++_i)
+					if (&players[_i] == directHitTarget) {
+						hpOp.data.modifyStat.targetIndex = (int)_i;
+						break;
+					}
+				hpOp.data.modifyStat.statType = 0; // HP
+				hpOp.data.modifyStat.delta = -dmg;
+				hpOp.data.modifyStat.deltaFromSlot = -1;
+				processEffectOp(hpOp);
 				spawnFloatingText(gridToWorld(directHitTarget->x, directHitTarget->y), "-" + ofToString(dmg) + " Magic", ofColor::red);
 			} else {
 				spawnFloatingText(gridToWorld(directHitTarget->x, directHitTarget->y), "Absorbed", ofColor::gray);
@@ -21198,14 +21393,36 @@ void ofApp::resolveMagicBoltAoeDice() {
 
 				int dmg = 3;
 				int barrierDmg = std::min(p.barrier, dmg);
-				p.barrier -= barrierDmg;
+				if (barrierDmg > 0) {
+					EffectOp bOp = {};
+					bOp.type = EffectOpType::MODIFY_STAT;
+					bOp.data.modifyStat.targetIndex = (int)(&p - &players[0]);
+					bOp.data.modifyStat.statType = 6; // Barrier
+					bOp.data.modifyStat.delta = -barrierDmg;
+					bOp.data.modifyStat.deltaFromSlot = -1;
+					processEffectOp(bOp);
+				}
 				dmg -= barrierDmg;
 				int wardDmg = std::min(p.ward, dmg);
-				p.ward -= wardDmg;
+				if (wardDmg > 0) {
+					EffectOp wOp = {};
+					wOp.type = EffectOpType::MODIFY_STAT;
+					wOp.data.modifyStat.targetIndex = (int)(&p - &players[0]);
+					wOp.data.modifyStat.statType = 8; // Ward
+					wOp.data.modifyStat.delta = -wardDmg;
+					wOp.data.modifyStat.deltaFromSlot = -1;
+					processEffectOp(wOp);
+				}
 				dmg -= wardDmg;
 
 				if (dmg > 0) {
-					p.health -= dmg;
+					EffectOp hpOp = {};
+					hpOp.type = EffectOpType::MODIFY_STAT;
+					hpOp.data.modifyStat.targetIndex = (int)(&p - &players[0]);
+					hpOp.data.modifyStat.statType = 0; // HP
+					hpOp.data.modifyStat.delta = -dmg;
+					hpOp.data.modifyStat.deltaFromSlot = -1;
+					processEffectOp(hpOp);
 					spawnFloatingText(gridToWorld(p.x, p.y), "-" + ofToString(dmg) + " Electric", ofColor::yellow);
 				} else {
 					spawnFloatingText(gridToWorld(p.x, p.y), "Absorbed", ofColor::gray);
@@ -24820,13 +25037,14 @@ void ofApp::applyDrainPunch(int targetPlayerIndex, int baseDamage, int casterInd
 	int hpAfter = target->health;
 	int actualDamageDealt = hpBefore - hpAfter;
 
-	// Life steal
+	// Life steal (apply via EffectOp to centralize state changes)
 	if (actualDamageDealt > 0) {
-		caster->health += actualDamageDealt;
-		if (caster->health > caster->maxHealth) {
-			caster->health = caster->maxHealth;
-		}
-		spawnFloatingText(gridToWorld(caster->x, caster->y), "+" + ofToString(actualDamageDealt) + " HP", ofColor::green);
+		EffectOp healOp = {};
+		healOp.type = EffectOpType::HEAL;
+		healOp.data.heal.targetIndex = casterIndex;
+		healOp.data.heal.amount = actualDamageDealt;
+		healOp.data.heal.amountFromSlot = -1;
+		processEffectOp(healOp);
 		ofLogNotice("Drain Punch") << "Healed player for " << actualDamageDealt;
 	}
 
@@ -30352,8 +30570,21 @@ void ofApp::executeAction(const ActionPacket & pkt) {
 		// Opponent's card play - apply effect based on card name
 		executeOpponentCardPlay(pkt);
 	} else {
-		// Local player's card play (client-side prediction or single player)
-		playCard(pkt.cardIndex, pkt.targetX, pkt.targetY);
+		// Local player's card play: queue as deterministic input command so
+		// simulationTick/processCommandQueue handles the authoritative state changes.
+		InputCommandPacket cmd = {};
+		cmd.type = PKT_ACTION;
+		cmd.playerID = pkt.playerID;
+		cmd.seq = pkt.clientActionID;
+		cmd.commandId = nextCommandId++;
+		cmd.turnNumber = globalTurnCounter;
+		cmd.commandType = CMD_PLAY_CARD;
+		cmd.params[0] = pkt.cardIndex;
+		cmd.params[1] = pkt.targetX;
+		cmd.params[2] = pkt.targetY;
+		strncpy(cmd.stringData, pkt.cardName, sizeof(cmd.stringData) - 1);
+		cmd.stringData[sizeof(cmd.stringData) - 1] = '\0';
+		queueInputCommand(cmd);
 	}
 }
 
@@ -31042,8 +31273,16 @@ void ofApp::resolveOnFireDice() {
 	int rollResult = currentCardOutcome.namedDiceResults["status_onfire"];
 	Player & burningPlayer = players[currentPlayerIndex];
 
-	// Apply Damage
-	burningPlayer.health -= rollResult;
+	// Apply Damage via EffectOp
+	{
+		EffectOp dmg = {};
+		dmg.type = EffectOpType::MODIFY_STAT;
+		dmg.data.modifyStat.targetIndex = currentPlayerIndex;
+		dmg.data.modifyStat.statType = 0; // HP
+		dmg.data.modifyStat.delta = -rollResult;
+		dmg.data.modifyStat.deltaFromSlot = -1;
+		processEffectOp(dmg);
+	}
 	spawnFloatingText(gridToWorld(burningPlayer.x, burningPlayer.y), "-" + ofToString(rollResult) + " Fire", ofColor::red);
 
 	// Form tracking
@@ -31083,7 +31322,13 @@ void ofApp::resolveOnFireDice() {
 			spawnFloatingText(gridToWorld(burningPlayer.x, burningPlayer.y) + glm::vec3(0, 0.5f, 0), "Ghost Form Broken!", ofColor::white);
 
 			if (board[burningPlayer.x][burningPlayer.y].hasWall) {
-				burningPlayer.health = 0;
+				EffectOp killOp = {};
+				killOp.type = EffectOpType::MODIFY_STAT;
+				killOp.data.modifyStat.targetIndex = currentPlayerIndex;
+				killOp.data.modifyStat.statType = 0; // HP
+				killOp.data.modifyStat.delta = -players[currentPlayerIndex].health;
+				killOp.data.modifyStat.deltaFromSlot = -1;
+				processEffectOp(killOp);
 				spawnFloatingText(gridToWorld(burningPlayer.x, burningPlayer.y) + glm::vec3(0, 1.0f, 0), "Materialized in Wall!", ofColor::red);
 			}
 		}
@@ -31124,7 +31369,13 @@ void ofApp::resolvePoisonStatusDice() {
 	int actualDamage = std::max(0, rollResult - poisonedPlayer.poisonReduction);
 
 	if (actualDamage > 0) {
-		poisonedPlayer.health -= actualDamage;
+		EffectOp dmg = {};
+		dmg.type = EffectOpType::MODIFY_STAT;
+		dmg.data.modifyStat.targetIndex = currentPlayerIndex;
+		dmg.data.modifyStat.statType = 0; // HP
+		dmg.data.modifyStat.delta = -actualDamage;
+		dmg.data.modifyStat.deltaFromSlot = -1;
+		processEffectOp(dmg);
 		spawnFloatingText(gridToWorld(poisonedPlayer.x, poisonedPlayer.y), "-" + ofToString(actualDamage) + " Poison", ofColor::green);
 
 		// Form tracking
@@ -31164,7 +31415,13 @@ void ofApp::resolvePoisonStatusDice() {
 				spawnFloatingText(gridToWorld(poisonedPlayer.x, poisonedPlayer.y) + glm::vec3(0, 0.5f, 0), "Ghost Form Broken!", ofColor::white);
 
 				if (board[poisonedPlayer.x][poisonedPlayer.y].hasWall) {
-					poisonedPlayer.health = 0;
+					EffectOp killOp = {};
+					killOp.type = EffectOpType::MODIFY_STAT;
+					killOp.data.modifyStat.targetIndex = currentPlayerIndex;
+					killOp.data.modifyStat.statType = 0; // HP
+					killOp.data.modifyStat.delta = -players[currentPlayerIndex].health;
+					killOp.data.modifyStat.deltaFromSlot = -1;
+					processEffectOp(killOp);
 					spawnFloatingText(gridToWorld(poisonedPlayer.x, poisonedPlayer.y) + glm::vec3(0, 1.0f, 0), "Materialized in Wall!", ofColor::red);
 				}
 			}
