@@ -15896,6 +15896,7 @@ void ofApp::processEffectOp(EffectOp & op) {
 					break;
 				case STATUS_ON_FIRE:
 					target.onFire = true;
+					ofLogNotice("Status") << "APPLY_STATUS: STATUS_ON_FIRE applied to idx=" << tidx << " playerID=" << target.playerID;
 					break;
 				case STATUS_TORTOISE_FORM:
 					target.inTortoiseForm = true;
@@ -15944,6 +15945,7 @@ void ofApp::processEffectOp(EffectOp & op) {
 					break;
 				case STATUS_ON_FIRE:
 					target.onFire = false;
+					ofLogNotice("Status") << "REMOVE_STATUS: STATUS_ON_FIRE removed from idx=" << tidx << " playerID=" << target.playerID;
 					break;
 				case STATUS_TORTOISE_FORM:
 					target.inTortoiseForm = false;
@@ -31310,6 +31312,7 @@ void ofApp::resolveOnFireDice() {
 	isWaitingForOnFireDice = false;
 
 	int rollResult = currentCardOutcome.namedDiceResults["status_onfire"];
+	ofLogNotice("Status") << "resolveOnFireDice: roll=" << rollResult << " playerIndex=" << currentPlayerIndex << " playerID=" << players[currentPlayerIndex].playerID;
 	Player & burningPlayer = players[currentPlayerIndex];
 
 	// Apply Damage via EffectOp
