@@ -3982,8 +3982,17 @@ void ofApp::updateGame() {
 
 					if (damageDiceCount[i] > 0 && earthquakeUnits[i].crashDiceLastStep != earthquakeStep) {
 						earthquakeUnits[i].crashDiceLastStep = earthquakeStep;
+						// Queue deterministic roll as an effect so gameplay RNG is consumed
+						EffectOp rollOp = {};
+						rollOp.type = EffectOpType::ROLL_DICE;
+						rollOp.data.rollDice.numDice = damageDiceCount[i];
+						rollOp.data.rollDice.sides = 4;
+						rollOp.data.rollDice.purpose = PURPOSE_EARTHQUAKE_DAMAGE;
+						rollOp.data.rollDice.ownerIndex = earthquakeUnits[i].playerIndex;
+						rollOp.data.rollDice.outputSlot = 0;
+						rollOp.data.rollDice.label[0] = '\0';
+						queueEffect(rollOp);
 						int beforeIdx = (int)activeDiceRolls.size();
-						startDiceRoll(damageDiceCount[i], 4, PURPOSE_EARTHQUAKE_DAMAGE, "", earthquakeUnits[i].playerIndex);
 						int afterIdx = (int)activeDiceRolls.size();
 
 						if (afterIdx > beforeIdx) {
@@ -4333,7 +4342,16 @@ void ofApp::updateGame() {
 	if (!isWaitingForBlockingBoonCoins && currentCardOutcome.namedDiceResults["blocking_boon_nonphys"] > 0) {
 		int toRoll = currentCardOutcome.namedDiceResults["blocking_boon_nonphys"];
 		ofLogNotice("Blocking Boon") << "Coins finished; now rolling " << toRoll << " D20s for Non-Phys Block.";
-		startDiceRoll(toRoll, 20, PURPOSE_BLOCKING_BOON_D20, "Boon: Magic Roll", currentPlayerIndex);
+		EffectOp rollOp = {};
+		rollOp.type = EffectOpType::ROLL_DICE;
+		rollOp.data.rollDice.numDice = toRoll;
+		rollOp.data.rollDice.sides = 20;
+		rollOp.data.rollDice.purpose = PURPOSE_BLOCKING_BOON_D20;
+		rollOp.data.rollDice.ownerIndex = currentPlayerIndex;
+		rollOp.data.rollDice.outputSlot = 0;
+		strncpy(rollOp.data.rollDice.label, "Boon: Magic Roll", 31);
+		rollOp.data.rollDice.label[31] = '\0';
+		queueEffect(rollOp);
 		currentCardOutcome.namedDiceResults["blocking_boon_nonphys"] = 0; // Mark as rolled
 	}
 	// --- END FIX ---
@@ -11791,7 +11809,18 @@ void ofApp::mousePressed(int x, int y, int button) {
 						if (oldR.purpose == PURPOSE_AP) oldR.purpose = PURPOSE_DEBUG;
 					}
 					// Start a bonus AP roll (added on top of the original result)
-					startDiceRoll(rerollNum, rerollSides, PURPOSE_BONUS_AP, "Assistant Reroll", currentPlayerIndex);
+					{
+						EffectOp rollOp = {};
+						rollOp.type = EffectOpType::ROLL_DICE;
+						rollOp.data.rollDice.numDice = rerollNum;
+						rollOp.data.rollDice.sides = rerollSides;
+						rollOp.data.rollDice.purpose = PURPOSE_BONUS_AP;
+						rollOp.data.rollDice.ownerIndex = currentPlayerIndex;
+						rollOp.data.rollDice.outputSlot = 0;
+						strncpy(rollOp.data.rollDice.label, "Assistant Reroll", 31);
+						rollOp.data.rollDice.label[31] = '\0';
+						queueEffect(rollOp);
+					}
 
 					spawnFloatingText(gridToWorld(players[assistantIndex].x, players[assistantIndex].y), "Reroll!", ofColor::gold);
 				}
@@ -13491,16 +13520,22 @@ void ofApp::startNewTurn() {
 			// Check Status Effects: on fire, poison, paralysis, sleep
 			if (startingPlayer.onFire) {
 				isWaitingForOnFireDice = true;
-				currentCardOutcome.namedDiceResults["status_onfire"] = startDiceRoll(1, 6, PURPOSE_DAMAGE, "Fire Status Damage");
+				// Deterministic gameplay roll
+				currentCardOutcome.namedDiceResults["status_onfire"] = resolveDiceRoll(1, 6);
+				// Start a visual-only roll for UX (uses visual RNG)
+				startDiceRoll(1, 6, PURPOSE_DEBUG, "Fire Status Damage", currentPlayerIndex);
 				return;
 			}
 			if (startingPlayer.isPoisoned) {
 				isWaitingForPoisonDice = true;
-				currentCardOutcome.namedDiceResults["status_poison"] = startDiceRoll(1, 6, PURPOSE_DAMAGE, "Poison Status Damage");
+				currentCardOutcome.namedDiceResults["status_poison"] = resolveDiceRoll(1, 6);
+				startDiceRoll(1, 6, PURPOSE_DEBUG, "Poison Status Damage", currentPlayerIndex);
 				return;
 			}
 			if (startingPlayer.isParalyzed) {
-				startDiceRoll(1, 2, PURPOSE_COIN_FLIP, "Paralysis Check");
+				// Resolve coin flip deterministically, but still show a visual coin
+				currentCardOutcome.namedDiceResults["paralysis_coin"] = resolveDiceRoll(1, 2);
+				startDiceRoll(1, 2, PURPOSE_DEBUG, "Paralysis Check", currentPlayerIndex);
 				isWaitingForParalysisCoin = true;
 				return;
 			}
@@ -13509,7 +13544,8 @@ void ofApp::startNewTurn() {
 				spawnFloatingText(gridToWorld(startingPlayer.x, startingPlayer.y), "Zzz...", ofColor::cyan);
 				if (startingPlayer.onFire) {
 					isWaitingForOnFireDice = true;
-					currentCardOutcome.namedDiceResults["status_onfire"] = startDiceRoll(1, 6, PURPOSE_DAMAGE, "Sleeping Fire Damage");
+					currentCardOutcome.namedDiceResults["status_onfire"] = resolveDiceRoll(1, 6);
+					startDiceRoll(1, 6, PURPOSE_DEBUG, "Sleeping Fire Damage", currentPlayerIndex);
 					return;
 				}
 				startNewTurn();
@@ -13563,16 +13599,19 @@ void ofApp::startNewTurn() {
 	// Check status effects: on fire, poison, paralysis, sleep
 	if (startingPlayer.onFire) {
 		isWaitingForOnFireDice = true;
-		currentCardOutcome.namedDiceResults["status_onfire"] = startDiceRoll(1, 6, PURPOSE_DAMAGE, "Fire Status Damage");
+		currentCardOutcome.namedDiceResults["status_onfire"] = resolveDiceRoll(1, 6);
+		startDiceRoll(1, 6, PURPOSE_DEBUG, "Fire Status Damage", currentPlayerIndex);
 		return;
 	}
 	if (startingPlayer.isPoisoned) {
 		isWaitingForPoisonDice = true;
-		currentCardOutcome.namedDiceResults["status_poison"] = startDiceRoll(1, 6, PURPOSE_DAMAGE, "Poison Status Damage");
+		currentCardOutcome.namedDiceResults["status_poison"] = resolveDiceRoll(1, 6);
+		startDiceRoll(1, 6, PURPOSE_DEBUG, "Poison Status Damage", currentPlayerIndex);
 		return;
 	}
 	if (startingPlayer.isParalyzed) {
-		startDiceRoll(1, 2, PURPOSE_COIN_FLIP, "Paralysis Check");
+		currentCardOutcome.namedDiceResults["paralysis_coin"] = resolveDiceRoll(1, 2);
+		startDiceRoll(1, 2, PURPOSE_DEBUG, "Paralysis Check", currentPlayerIndex);
 		isWaitingForParalysisCoin = true;
 		return;
 	}
@@ -13581,7 +13620,8 @@ void ofApp::startNewTurn() {
 		spawnFloatingText(gridToWorld(startingPlayer.x, startingPlayer.y), "Zzz...", ofColor::cyan);
 		if (startingPlayer.onFire) {
 			isWaitingForOnFireDice = true;
-			currentCardOutcome.namedDiceResults["status_onfire"] = startDiceRoll(1, 6, PURPOSE_DAMAGE, "Sleeping Fire Damage");
+			currentCardOutcome.namedDiceResults["status_onfire"] = resolveDiceRoll(1, 6);
+			startDiceRoll(1, 6, PURPOSE_DEBUG, "Sleeping Fire Damage", currentPlayerIndex);
 			return;
 		}
 		startNewTurn();
@@ -13598,7 +13638,16 @@ void ofApp::startNewTurn() {
 		// Dark Shield: Roll Xd6 where X = total skeletons + hellhounds on board
 		// This REPLACES the normal AP roll, not adds to it
 		if (minionCount > 0) {
-			startDiceRoll(minionCount, 6, PURPOSE_AP, "Dark Shield AP Roll", currentPlayerIndex);
+			EffectOp rollOp = {};
+			rollOp.type = EffectOpType::ROLL_DICE;
+			rollOp.data.rollDice.numDice = minionCount;
+			rollOp.data.rollDice.sides = 6;
+			rollOp.data.rollDice.purpose = PURPOSE_AP;
+			rollOp.data.rollDice.ownerIndex = currentPlayerIndex;
+			rollOp.data.rollDice.outputSlot = 0;
+			strncpy(rollOp.data.rollDice.label, "Dark Shield AP Roll", 31);
+			rollOp.data.rollDice.label[31] = '\0';
+			queueEffect(rollOp);
 		}
 		// If minionCount is 0, no AP roll happens this turn!
 
@@ -13680,7 +13729,8 @@ void ofApp::continueNewTurn() {
 		// If on fire while sleeping, roll damage first, then the update loop will end the turn
 		if (startingPlayer.onFire) {
 			isWaitingForOnFireDice = true;
-			currentCardOutcome.namedDiceResults["status_onfire"] = startDiceRoll(1, 6, PURPOSE_DAMAGE, "Sleeping Fire Damage");
+			currentCardOutcome.namedDiceResults["status_onfire"] = resolveDiceRoll(1, 6);
+			startDiceRoll(1, 6, PURPOSE_DEBUG, "Sleeping Fire Damage", currentPlayerIndex);
 			return;
 		}
 
@@ -13753,43 +13803,121 @@ void ofApp::continueNewTurn() {
 	if (startingPlayer.isWolf) {
 		lastAPDiceNum = 1;
 		lastAPDiceSides = 10;
-		startDiceRoll(1, 10, PURPOSE_AP, "Wolf AP Roll", currentPlayerIndex);
+		{
+			EffectOp rollOp = {};
+			rollOp.type = EffectOpType::ROLL_DICE;
+			rollOp.data.rollDice.numDice = 1;
+			rollOp.data.rollDice.sides = 10;
+			rollOp.data.rollDice.purpose = PURPOSE_AP;
+			rollOp.data.rollDice.ownerIndex = currentPlayerIndex;
+			rollOp.data.rollDice.outputSlot = 0;
+			strncpy(rollOp.data.rollDice.label, "Wolf AP Roll", 31);
+			rollOp.data.rollDice.label[31] = '\0';
+			queueEffect(rollOp);
+		}
 	}
 	// HELLHOUND AP: 2d6
 	else if (startingPlayer.isHellhound) {
 		lastAPDiceNum = 2;
 		lastAPDiceSides = 6;
-		startDiceRoll(2, 6, PURPOSE_AP, "Hellhound AP Roll", currentPlayerIndex);
+		{
+			EffectOp rollOp = {};
+			rollOp.type = EffectOpType::ROLL_DICE;
+			rollOp.data.rollDice.numDice = 2;
+			rollOp.data.rollDice.sides = 6;
+			rollOp.data.rollDice.purpose = PURPOSE_AP;
+			rollOp.data.rollDice.ownerIndex = currentPlayerIndex;
+			rollOp.data.rollDice.outputSlot = 0;
+			strncpy(rollOp.data.rollDice.label, "Hellhound AP Roll", 31);
+			rollOp.data.rollDice.label[31] = '\0';
+			queueEffect(rollOp);
+		}
 	}
 	// Demon AP: 4d4
 	else if (startingPlayer.isDemon) {
 		lastAPDiceNum = 4;
 		lastAPDiceSides = 4;
-		startDiceRoll(4, 4, PURPOSE_AP, "Demon AP Roll", currentPlayerIndex);
+		{
+			EffectOp rollOp = {};
+			rollOp.type = EffectOpType::ROLL_DICE;
+			rollOp.data.rollDice.numDice = 4;
+			rollOp.data.rollDice.sides = 4;
+			rollOp.data.rollDice.purpose = PURPOSE_AP;
+			rollOp.data.rollDice.ownerIndex = currentPlayerIndex;
+			rollOp.data.rollDice.outputSlot = 0;
+			strncpy(rollOp.data.rollDice.label, "Demon AP Roll", 31);
+			rollOp.data.rollDice.label[31] = '\0';
+			queueEffect(rollOp);
+		}
 	}
 	// Kobold AP: 1d4
 	else if (startingPlayer.isKobold) {
 		lastAPDiceNum = 1;
 		lastAPDiceSides = 4;
-		startDiceRoll(1, 4, PURPOSE_AP, "Kobold AP Roll", currentPlayerIndex);
+		{
+			EffectOp rollOp = {};
+			rollOp.type = EffectOpType::ROLL_DICE;
+			rollOp.data.rollDice.numDice = 1;
+			rollOp.data.rollDice.sides = 4;
+			rollOp.data.rollDice.purpose = PURPOSE_AP;
+			rollOp.data.rollDice.ownerIndex = currentPlayerIndex;
+			rollOp.data.rollDice.outputSlot = 0;
+			strncpy(rollOp.data.rollDice.label, "Kobold AP Roll", 31);
+			rollOp.data.rollDice.label[31] = '\0';
+			queueEffect(rollOp);
+		}
 	}
 	// Wall Unit AP: 1d4 or 1d6
 	else if (startingPlayer.isWallUnit) {
 		if (startingPlayer.isMagicWallUnit) {
 			lastAPDiceNum = 1;
 			lastAPDiceSides = 6;
-			startDiceRoll(1, 6, PURPOSE_AP, "Magic Wall Unit AP", currentPlayerIndex);
+			{
+				EffectOp rollOp = {};
+				rollOp.type = EffectOpType::ROLL_DICE;
+				rollOp.data.rollDice.numDice = 1;
+				rollOp.data.rollDice.sides = 6;
+				rollOp.data.rollDice.purpose = PURPOSE_AP;
+				rollOp.data.rollDice.ownerIndex = currentPlayerIndex;
+				rollOp.data.rollDice.outputSlot = 0;
+				strncpy(rollOp.data.rollDice.label, "Magic Wall Unit AP", 31);
+				rollOp.data.rollDice.label[31] = '\0';
+				queueEffect(rollOp);
+			}
 		} else {
 			lastAPDiceNum = 1;
 			lastAPDiceSides = 4;
-			startDiceRoll(1, 4, PURPOSE_AP, "Wall Unit AP", currentPlayerIndex);
+			{
+				EffectOp rollOp = {};
+				rollOp.type = EffectOpType::ROLL_DICE;
+				rollOp.data.rollDice.numDice = 1;
+				rollOp.data.rollDice.sides = 4;
+				rollOp.data.rollDice.purpose = PURPOSE_AP;
+				rollOp.data.rollDice.ownerIndex = currentPlayerIndex;
+				rollOp.data.rollDice.outputSlot = 0;
+				strncpy(rollOp.data.rollDice.label, "Wall Unit AP", 31);
+				rollOp.data.rollDice.label[31] = '\0';
+				queueEffect(rollOp);
+			}
 		}
 	}
 	// Kobold King AP: 1d6
 	else if (startingPlayer.isKoboldKing) {
 		lastAPDiceNum = 1;
 		lastAPDiceSides = 6;
-		startDiceRoll(1, 6, PURPOSE_AP, "Kobold King AP", currentPlayerIndex);
+		{
+			EffectOp rollOp = {};
+			rollOp.type = EffectOpType::ROLL_DICE;
+			rollOp.data.rollDice.numDice = 1;
+			rollOp.data.rollDice.sides = 6;
+			rollOp.data.rollDice.purpose = PURPOSE_AP;
+			rollOp.data.rollDice.ownerIndex = currentPlayerIndex;
+			rollOp.data.rollDice.outputSlot = 0;
+			strncpy(rollOp.data.rollDice.label, "Kobold King AP Roll", 31);
+			rollOp.data.rollDice.label[31] = '\0';
+			queueEffect(rollOp);
+		}
+
 	}
 	// Assistant AP: Coinflip (Heads=2, Tails=1)
 	else if (startingPlayer.isAssistant) {
@@ -13798,20 +13926,54 @@ void ofApp::continueNewTurn() {
 		// We will interpret 1 as 1 AP, 2 as 2 AP.
 		lastAPDiceNum = 1;
 		lastAPDiceSides = 2;
-		startDiceRoll(1, 2, PURPOSE_AP, "Assistant AP (Coin)", currentPlayerIndex);
+		{
+			EffectOp rollOp = {};
+			rollOp.type = EffectOpType::ROLL_DICE;
+			rollOp.data.rollDice.numDice = 1;
+			rollOp.data.rollDice.sides = 2;
+			rollOp.data.rollDice.purpose = PURPOSE_AP;
+			rollOp.data.rollDice.ownerIndex = currentPlayerIndex;
+			rollOp.data.rollDice.outputSlot = 0;
+			strncpy(rollOp.data.rollDice.label, "Assistant AP (Coin)", 31);
+			rollOp.data.rollDice.label[31] = '\0';
+			queueEffect(rollOp);
+		}
 	}
 	// Faerie AP: 1d4
 	else if (startingPlayer.isFaerie) {
 		lastAPDiceNum = 1;
 		lastAPDiceSides = 4;
-		startDiceRoll(1, 4, PURPOSE_AP, "Faerie AP Roll", currentPlayerIndex);
+		{
+			EffectOp rollOp = {};
+			rollOp.type = EffectOpType::ROLL_DICE;
+			rollOp.data.rollDice.numDice = 1;
+			rollOp.data.rollDice.sides = 4;
+			rollOp.data.rollDice.purpose = PURPOSE_AP;
+			rollOp.data.rollDice.ownerIndex = currentPlayerIndex;
+			rollOp.data.rollDice.outputSlot = 0;
+			strncpy(rollOp.data.rollDice.label, "Faerie AP Roll", 31);
+			rollOp.data.rollDice.label[31] = '\0';
+			queueEffect(rollOp);
+		}
 	}
 	// Skeleton / generic minion AP: 1d6
 	else if (startingPlayer.isMinion) {
 		// Use the minion's display name (eg. "Golem 1") in the roll description
 		lastAPDiceNum = 1;
 		lastAPDiceSides = 6;
-		startDiceRoll(1, 6, PURPOSE_AP, getPlayerDisplayName(currentPlayerIndex) + " AP Roll", currentPlayerIndex);
+		{
+			std::string label = getPlayerDisplayName(currentPlayerIndex) + " AP Roll";
+			EffectOp rollOp = {};
+			rollOp.type = EffectOpType::ROLL_DICE;
+			rollOp.data.rollDice.numDice = 1;
+			rollOp.data.rollDice.sides = 6;
+			rollOp.data.rollDice.purpose = PURPOSE_AP;
+			rollOp.data.rollDice.ownerIndex = currentPlayerIndex;
+			rollOp.data.rollDice.outputSlot = 0;
+			strncpy(rollOp.data.rollDice.label, label.c_str(), 31);
+			rollOp.data.rollDice.label[31] = '\0';
+			queueEffect(rollOp);
+		}
 	} else {
 		// Players
 		int apDiceSides = 6;
@@ -13821,7 +13983,18 @@ void ofApp::continueNewTurn() {
 		}
 		lastAPDiceNum = 1;
 		lastAPDiceSides = apDiceSides;
-		startDiceRoll(1, apDiceSides, PURPOSE_AP, "Player AP Roll", currentPlayerIndex);
+		{
+			EffectOp rollOp = {};
+			rollOp.type = EffectOpType::ROLL_DICE;
+			rollOp.data.rollDice.numDice = 1;
+			rollOp.data.rollDice.sides = apDiceSides;
+			rollOp.data.rollDice.purpose = PURPOSE_AP;
+			rollOp.data.rollDice.ownerIndex = currentPlayerIndex;
+			rollOp.data.rollDice.outputSlot = 0;
+			strncpy(rollOp.data.rollDice.label, "Player AP Roll", 31);
+			rollOp.data.rollDice.label[31] = '\0';
+			queueEffect(rollOp);
+		}
 	}
 
 	// --- 3. OTHER STATUS CHECKS (Paralysis/Fire) ---
@@ -14966,10 +15139,28 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 
 		const std::string cardName = cardSnapshot.name;
 
-		CardPlayResult result = playCard(cardIndex, targetX, targetY);
+		CardPlayResult result = CARD_NOT_PLAYABLE;
 
-		if (isMultiplayer) {
-			players[currentPlayerIndex].ap = currentAP;
+		if (!isMultiplayer || isHost()) {
+			// Host (or singleplayer) executes the authoritative play
+			result = playCard(cardIndex, targetX, targetY);
+			if (isMultiplayer) {
+				players[currentPlayerIndex].ap = currentAP;
+			}
+		} else {
+			// Client: don't mutate authoritative game state. Show a visual card play animation for the remote player.
+			int ownerIndex = findPlayerIndexByID(cmd.playerID);
+			if (ownerIndex >= 0) {
+				// Find card template by name for visual display
+				Card remoteCard = {};
+				for (const auto & c : allCards) {
+					if (c.name == cardName) {
+						remoteCard = c;
+						break;
+					}
+				}
+				createCardDisplay(remoteCard, ownerIndex);
+			}
 		}
 
 		ofLogNotice("Lockstep") << "Execute CMD_PLAY_CARD: card=" << cardName << " target=(" << targetX << "," << targetY << ") result=" << (int)result;
@@ -15135,6 +15326,28 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 		}
 
 		ofLogNotice("Lockstep") << "Execute CMD_STATUS_ACTION: " << cardName << " purge status " << statusIndex;
+		break;
+	}
+	case CMD_ROLL_DICE: {
+		// params: [0]=numDice, [1]=sides, [2]=purpose, [3]=ownerIndex, [4]=outputSlot
+		int numDice = cmd.params[0];
+		int sides = cmd.params[1];
+		int purpose = cmd.params[2];
+		int ownerIndex = cmd.params[3];
+		int outputSlot = cmd.params[4];
+
+		EffectOp rollOp = {};
+		rollOp.type = EffectOpType::ROLL_DICE;
+		rollOp.data.rollDice.numDice = numDice;
+		rollOp.data.rollDice.sides = sides;
+		rollOp.data.rollDice.purpose = (DicePurpose)purpose;
+		rollOp.data.rollDice.ownerIndex = ownerIndex;
+		rollOp.data.rollDice.outputSlot = outputSlot;
+		strncpy(rollOp.data.rollDice.label, cmd.stringData, 31);
+		rollOp.data.rollDice.label[31] = '\0';
+		queueEffect(rollOp);
+
+		ofLogNotice("Lockstep") << "Execute CMD_ROLL_DICE: num=" << numDice << " sides=" << sides << " purpose=" << purpose << " owner=" << ownerIndex;
 		break;
 	}
 	default:
@@ -31034,7 +31247,8 @@ void ofApp::resolveParalysisCoinFlip() {
 		// Continue turn
 		if (p.onFire) {
 			isWaitingForOnFireDice = true;
-			currentCardOutcome.namedDiceResults["status_onfire"] = startDiceRoll(1, 6, PURPOSE_DAMAGE, "", currentPlayerIndex);
+			currentCardOutcome.namedDiceResults["status_onfire"] = resolveDiceRoll(1, 6);
+			startDiceRoll(1, 6, PURPOSE_DEBUG, "", currentPlayerIndex);
 		} else {
 			continueNewTurn();
 		}
