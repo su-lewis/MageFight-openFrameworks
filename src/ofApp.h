@@ -954,6 +954,7 @@ private:
 	void resolveBlockingBoon(const DiceRoll & finishedRoll);
 	void resolveSummonKobolds(const DiceRoll & finishedRoll);
 	void resolveJoltRangeDice();
+	void resolveFireballDamage();
 	void resolveEarthquakeDistance();
 	void resolveBonusAP(const DiceRoll & finishedRoll);
 
@@ -1929,6 +1930,8 @@ private:
 	// (migrated to deterministic instant-resolve + visual queue)
 	glm::vec2 fireballImpactTile;
 	int fireballTargetPlayerIndex = -1;
+	bool isWaitingForFireballRangeDice = false;
+	bool isWaitingForFireballDamageDice = false;
 
 	// Ethereal Jolt
 	bool isWaitingForJoltRangeDice = false;

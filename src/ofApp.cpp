@@ -20391,6 +20391,14 @@ void ofApp::resolveMagicHandDamage() {
 void ofApp::resolveFireballDamage() {
 	if (isWaitingForFireballRangeDice && diceVisualsFinishedAndLinger()) {
 		isWaitingForFireballRangeDice = false;
+		// If the range roll was produced by a queued EffectOp, its result
+		// is stored in the current effect sequence blackboard. Use that
+		// value to drive the resolver so queued and direct rolls behave
+		// identically.
+		if (currentEffectSequence.currentOp > 0 || currentEffectSequence.blackboard[0] != 0) {
+			interactionDiceRoll = currentEffectSequence.blackboard[0];
+		}
+
 		Player & caster = players[currentPlayerIndex];
 		glm::vec2 casterTile = { (float)caster.x, (float)caster.y };
 
