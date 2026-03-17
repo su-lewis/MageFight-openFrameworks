@@ -443,6 +443,23 @@ struct EffectSequence {
 	bool isComplete = false;
 };
 
+// Visual-only event queue (decouples visuals from deterministic simulation)
+enum VisualEventType {
+	VE_NONE = 0,
+	VE_WAIT = 1, // generic wait (duration)
+	VE_DICE = 2, // visual dice animation (associated with purpose/player)
+	VE_CUSTOM = 99
+};
+
+struct VisualEvent {
+	VisualEventType type = VE_NONE;
+	int targetIndex = -1; // player index or other target
+	int purpose = 0; // optional purpose (e.g., dice purpose)
+	float startTime = 0.0f;
+	float duration = 0.0f; // seconds
+	bool completed = false;
+};
+
 // ===================================================================================================
 // CARD STATE SYSTEM - Unified state machine for all 70 cards
 // ===================================================================================================
@@ -518,6 +535,8 @@ struct PlayedCardDisplay {
 	float startScale = 1.5f;
 	float currentAlpha = 255.0f; // Starts opaque, fades out
 };
+
+// Visual event queue members (declared in ofApp) - removed here; declared inside `ofApp` class
 
 struct StolenCardAnimation {
 	Card card;
@@ -746,6 +765,11 @@ public:
 	void setup();
 	void update();
 	void draw();
+
+	// Visual event queue (visual-only events processed locally)
+	std::vector<VisualEvent> visualEvents;
+	void queueVisualEvent(const VisualEvent & e);
+	void processVisualEvents();
 	void exit();
 	// Ensure vtable emission: declare destructor to define out-of-line in cpp
 	~ofApp();

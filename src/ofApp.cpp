@@ -1499,6 +1499,9 @@ std::string ofApp::getPlayerDisplayName(int index) {
 void ofApp::update() {
 	steamManager.update();
 
+	// Process any visual-only events (animations, waits)
+	processVisualEvents();
+
 	// Execute any scheduled draft generation (to allow animations to finish)
 	if (draftNextScheduled) {
 		float now = ofGetElapsedTimef();
@@ -15985,6 +15988,34 @@ void ofApp::processEffectOp(EffectOp & op) {
 	if (opComplete) {
 		currentEffectSequence.currentOp++;
 	}
+}
+
+// Visual event queue: enqueue a visual-only event
+void ofApp::queueVisualEvent(const VisualEvent & e) {
+	VisualEvent ev = e;
+	ev.startTime = ofGetElapsedTimef();
+	ev.completed = false;
+	visualEvents.push_back(ev);
+}
+
+// Process visual-only events each frame; completed events are removed
+void ofApp::processVisualEvents() {
+	if (visualEvents.empty()) return;
+	float now = ofGetElapsedTimef();
+	// Update and remove completed events
+	for (auto & ev : visualEvents) {
+		if (ev.completed) continue;
+		if (ev.type == VE_WAIT) {
+			if (now - ev.startTime >= ev.duration) ev.completed = true;
+		} else if (ev.type == VE_DICE) {
+			// For now treat dice event as duration-based visual
+			if (now - ev.startTime >= ev.duration) ev.completed = true;
+		} else if (ev.type == VE_CUSTOM) {
+			// Custom events can be marked completed externally
+		}
+	}
+	// Erase completed
+	visualEvents.erase(std::remove_if(visualEvents.begin(), visualEvents.end(), [](const VisualEvent & v) { return v.completed; }), visualEvents.end());
 }
 
 //==============================================================================================
