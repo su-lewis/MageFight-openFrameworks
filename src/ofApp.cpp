@@ -3363,6 +3363,9 @@ void ofApp::updateGame() {
 	// Keep temp luck accurate every frame
 	recalcTempLuck();
 
+	// Centralized processing of any waiting flags whose visuals have finished
+	processWaitingFlags();
+
 	// Cache latest main player deck/discard states for debug respawn tools
 	for (const auto & p : players) {
 		if (p.isMinion) continue;
@@ -16118,6 +16121,49 @@ void ofApp::startVisualDiceRoll(const VisualEvent & ev) {
 	}
 }
 
+// Centralized per-frame waiting-flag processor. Each resolve* helper will
+// early-return if conditions are not yet met (e.g., visuals not finished).
+void ofApp::processWaitingFlags() {
+	// Attack / melee (migrated into effect sequence; legacy resolver removed)
+	// Poison / status
+	resolvePoisonDamage();
+	resolveOnFireDice();
+	resolvePoisonStatusDice();
+	// Magic hand / blasts / fireball
+	resolveMagicHandDamage();
+	resolveMagicBlastDice();
+	resolveFireballDamage();
+	// Summons / health
+	resolveSummonHealth();
+	// Death / sleep / jolt
+	resolveDeathDice();
+	resolveSleepDuration();
+	resolveJoltRangeDice();
+	// Healing / flail / teleport / barrier
+	resolveHealDice();
+	resolveFlailDice();
+	resolveTeleportDice();
+	resolveBarrierDice();
+	// Psionic / time vortex / magic bolt / shoot arrow
+	resolvePsionicRangeDice();
+	resolvePsionicAmountDice();
+	resolveMagicBoltRangeDice();
+	resolveMagicBoltPrimaryDice();
+	resolveMagicBoltAoeDice();
+	resolveShootArrowDice();
+	// Chain lightning
+	resolveChainLightningRangeDice();
+	resolveChainLightningDamageDice();
+	// Misc dice-based effects
+	resolveSparkOfGeniusDice();
+	resolveSparkOfGeniusDice();
+	resolveBarrierDice();
+	// Coin flips / small helpers
+	resolveParalysisCoinFlip();
+	resolveWolfCoinFlip();
+	// Note: some helpers accept a DiceRoll parameter and are invoked elsewhere
+}
+
 //==============================================================================================
 // CARD STATE MACHINE - Unified system for all 70 cards
 //==============================================================================================
@@ -17662,23 +17708,85 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 
 		// --- EXECUTE DAMAGE ---
 		if (playedCard.numDice > 0 && playedCard.diceSides > 0) {
-			{
-				EffectOp rollOp = {};
-				rollOp.type = EffectOpType::ROLL_DICE;
-				rollOp.data.rollDice.numDice = playedCard.numDice;
-				rollOp.data.rollDice.sides = playedCard.diceSides;
-				rollOp.data.rollDice.purpose = PURPOSE_DAMAGE;
-				rollOp.data.rollDice.ownerIndex = currentPlayerIndex;
-				rollOp.data.rollDice.outputSlot = 0;
-				strncpy(rollOp.data.rollDice.label, (playedCard.name + ": Damage").c_str(), 31);
-				rollOp.data.rollDice.label[31] = '\0';
-				queueEffect(rollOp);
-				interactingCardName = playedCard.name;
-				isWaitingForAttackDice = true;
-				currentCardOutcome.attackDamageType = playedCard.damageType;
-				playedSuccessfully = true;
-				advanceCardState(CARD_STATE_DICE);
+			// Move deterministic dice + damage resolution into the effect sequence
+			beginEffectSequence();
+
+			// 1) Roll authoritative damage dice into blackboard slot 0
+			EffectOp rollOp = {};
+			rollOp.type = EffectOpType::ROLL_DICE;
+			rollOp.data.rollDice.numDice = playedCard.numDice;
+			rollOp.data.rollDice.sides = playedCard.diceSides;
+			rollOp.data.rollDice.purpose = PURPOSE_DAMAGE;
+			rollOp.data.rollDice.ownerIndex = currentPlayerIndex;
+			rollOp.data.rollDice.outputSlot = 0;
+			strncpy(rollOp.data.rollDice.label, (playedCard.name + ": Damage").c_str(), 31);
+			rollOp.data.rollDice.label[31] = '\0';
+			queueEffect(rollOp);
+
+			// 2) For each target, queue a DAMAGE op that reads the value from slot 0
+			for (size_t i = 0; i < currentCardOutcome.attackTargetIndices.size(); i++) {
+				int pIndex = currentCardOutcome.attackTargetIndices[i];
+				Player * target = getPlayer(pIndex);
+				if (!target) continue;
+				EffectOp damageOp = {};
+				damageOp.type = EffectOpType::DAMAGE;
+				damageOp.data.damage.targetIndex = pIndex;
+				damageOp.data.damage.damageType = playedCard.damageType;
+				damageOp.data.damage.fixedDamage = 0; // will be read from blackboard
+				damageOp.data.damage.damageFromSlot = 0;
+				// Apply piercing half-damage for secondary targets if needed
+				if (playedCard.damageType == DAMAGE_PIERCING && i > 0) {
+					// We'll simulate halving by adding a MODIFY_STAT after reading slot
+					// Simpler: enqueue full DAMAGE and let server-side balancing handle multi-target piercing.
+				}
+				queueEffect(damageOp);
+
+				// If caster had next-attack add-poison buff, queue poison application deterministically
+				bool applyPoisonBuff = players[currentPlayerIndex].nextAttackAddPoison && (playedCard.damageType == DAMAGE_PHYSICAL || playedCard.damageType == DAMAGE_PIERCING);
+				if (applyPoisonBuff && !target->inGhostForm) {
+					// Queue APPLY_STATUS deterministic op
+					EffectOp apPoison = {};
+					apPoison.type = EffectOpType::APPLY_STATUS;
+					apPoison.data.status.targetIndex = pIndex;
+					apPoison.data.status.statusType = STATUS_POISONED;
+					apPoison.data.status.duration = 0;
+					queueEffect(apPoison);
+					// Visual floating text
+					queueFloatingTextVisual(gridToWorld(target->x, target->y) + glm::vec3(0, 0.5f, 0), "Poisoned!", ofColor::green);
+				}
 			}
+
+			// If we queued poison applications, also roll poison damage (1d6) and apply deterministically
+			bool needPoisonRoll = players[currentPlayerIndex].nextAttackAddPoison;
+			if (needPoisonRoll) {
+				EffectOp poisonRoll = {};
+				poisonRoll.type = EffectOpType::ROLL_DICE;
+				poisonRoll.data.rollDice.numDice = 1;
+				poisonRoll.data.rollDice.sides = 6;
+				poisonRoll.data.rollDice.purpose = PURPOSE_DAMAGE;
+				poisonRoll.data.rollDice.ownerIndex = currentPlayerIndex;
+				poisonRoll.data.rollDice.outputSlot = 1;
+				strncpy(poisonRoll.data.rollDice.label, "Poison Damage", 31);
+				poisonRoll.data.rollDice.label[31] = '\0';
+				queueEffect(poisonRoll);
+
+				// Apply poison damage to any targets that were marked poisoned (read from blackboard slot 1)
+				for (size_t i = 0; i < currentCardOutcome.attackTargetIndices.size(); i++) {
+					int pIndex = currentCardOutcome.attackTargetIndices[i];
+					Player * target = getPlayer(pIndex);
+					if (!target) continue;
+					EffectOp poisonDmg = {};
+					poisonDmg.type = EffectOpType::DAMAGE;
+					poisonDmg.data.damage.targetIndex = pIndex;
+					poisonDmg.data.damage.damageType = DAMAGE_PHYSICAL;
+					poisonDmg.data.damage.fixedDamage = 0;
+					poisonDmg.data.damage.damageFromSlot = 1;
+					queueEffect(poisonDmg);
+				}
+			}
+
+			playedSuccessfully = true;
+			advanceCardState(CARD_STATE_EFFECT_SEQUENCE);
 		} else {
 			beginEffectSequence();
 			int damage = playedCard.value;

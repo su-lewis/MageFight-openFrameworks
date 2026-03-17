@@ -790,6 +790,8 @@ public:
 	std::vector<VisualEvent> visualEvents;
 	void queueVisualEvent(const VisualEvent & e);
 	void processVisualEvents();
+	// Centralized checker that invokes resolve helpers when visuals complete
+	void processWaitingFlags();
 	void exit();
 	// Ensure vtable emission: declare destructor to define out-of-line in cpp
 	~ofApp();
