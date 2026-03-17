@@ -290,6 +290,7 @@ enum class EffectOpType : uint8_t {
 	DAMAGE,
 	HEAL,
 	MOVE_UNIT,
+	CREATE_WALL,
 	SPAWN_UNIT,
 	SPAWN_PLAYER,
 	MODIFY_STAT,
@@ -336,6 +337,12 @@ struct MoveUnitData {
 struct DrawCardsData {
 	int playerIndex;
 	int numCards;
+};
+
+struct CreateWallData {
+	int x;
+	int y;
+	bool isMagic;
 };
 
 struct ModifyStatData {
@@ -420,6 +427,7 @@ struct EffectOp {
 		ReshuffleDiscardData reshuffle;
 		StatusData status;
 		SpawnUnitData spawnUnit;
+		CreateWallData createWall;
 		SpawnPlayerData spawnPlayer;
 	} data;
 
@@ -927,6 +935,9 @@ private:
 	void resolvePoisonStatusDice();
 	void resolveParalysisCoinFlip();
 	void resolveWolfCoinFlip();
+
+	// Simple inline dice resolver for legacy inline uses (sums N dS)
+	int resolveDiceRoll(int numDice, int sides);
 
 	void applyReplicateCopyToHand(Player & caster, const Card & playedCard);
 	void finishPlayCard(Player & caster, const Card & playedCard, int handIndex);
