@@ -16344,8 +16344,19 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 
 		if (physBlock > 0) {
 			ofLogNotice("Blocking Boon") << "Rolling " << physBlock << " coins for Physical Block (resolve first).";
-			startDiceRoll(physBlock, 2, PURPOSE_BLOCKING_BOON_COIN, "Boon: Phys Flip", currentPlayerIndex);
-			isWaitingForBlockingBoonCoins = true;
+			{
+				EffectOp rollOp = {};
+				rollOp.type = EffectOpType::ROLL_DICE;
+				rollOp.data.rollDice.numDice = physBlock;
+				rollOp.data.rollDice.sides = 2;
+				rollOp.data.rollDice.purpose = PURPOSE_BLOCKING_BOON_COIN;
+				rollOp.data.rollDice.ownerIndex = currentPlayerIndex;
+				rollOp.data.rollDice.outputSlot = 0;
+				strncpy(rollOp.data.rollDice.label, "Boon: Phys Flip", 31);
+				rollOp.data.rollDice.label[31] = '\0';
+				queueEffect(rollOp);
+				isWaitingForBlockingBoonCoins = true;
+			}
 			currentCardOutcome.namedDiceResults["blocking_boon_coins_remaining"] = physBlock;
 			currentCardOutcome.namedDiceResults["blocking_boon_nonphys"] = nonPhys;
 			currentCardOutcome.namedDiceResults["blocking_boon_total"] = physBlock + nonPhys;
@@ -16354,7 +16365,19 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 		} else {
 			if (nonPhys > 0) {
 				ofLogNotice("Blocking Boon") << "No physical block; Rolling " << nonPhys << " D20s for Non-Phys Block.";
-				startDiceRoll(nonPhys, 20, PURPOSE_BLOCKING_BOON_D20, "Boon: Magic Roll", currentPlayerIndex);
+				{
+					EffectOp rollOp = {};
+					rollOp.type = EffectOpType::ROLL_DICE;
+					rollOp.data.rollDice.numDice = nonPhys;
+					rollOp.data.rollDice.sides = 20;
+					rollOp.data.rollDice.purpose = PURPOSE_BLOCKING_BOON_D20;
+					rollOp.data.rollDice.ownerIndex = currentPlayerIndex;
+					rollOp.data.rollDice.outputSlot = 0;
+					strncpy(rollOp.data.rollDice.label, "Boon: Magic Roll", 31);
+					rollOp.data.rollDice.label[31] = '\0';
+					queueEffect(rollOp);
+					isWaitingForBlockingBoonCoins = true;
+				}
 				currentCardOutcome.namedDiceResults["blocking_boon_nonphys"] = 0;
 				currentCardOutcome.namedDiceResults["blocking_boon_total"] = nonPhys;
 				blockingBoonActive = true;
@@ -16804,8 +16827,19 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 
 	case CARD_PSIONIC_WAVE: {
 		beginEffectSequence();
-		currentCardOutcome.namedDiceResults["psionic_range"] = startDiceRoll(playedCard.numDice, playedCard.diceSides, PURPOSE_PSIONIC_WAVE_RANGE, "Psionic Wave: Range");
-		isWaitingForPsionicRange = true;
+		{
+			EffectOp rollOp = {};
+			rollOp.type = EffectOpType::ROLL_DICE;
+			rollOp.data.rollDice.numDice = playedCard.numDice;
+			rollOp.data.rollDice.sides = playedCard.diceSides;
+			rollOp.data.rollDice.purpose = PURPOSE_PSIONIC_WAVE_RANGE;
+			rollOp.data.rollDice.ownerIndex = currentPlayerIndex;
+			rollOp.data.rollDice.outputSlot = 0;
+			strncpy(rollOp.data.rollDice.label, "Psionic Wave: Range", 31);
+			rollOp.data.rollDice.label[31] = '\0';
+			queueEffect(rollOp);
+			isWaitingForPsionicRange = true;
+		}
 		playedSuccessfully = true;
 		advanceCardState(CARD_STATE_DICE);
 		return true;
@@ -16813,8 +16847,19 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 
 	case CARD_TIME_VORTEX: {
 		beginEffectSequence();
-		isWaitingForTimeVortexDice = true;
-		currentCardOutcome.namedDiceResults["time_vortex_turns"] = startDiceRoll(playedCard.numDice, playedCard.diceSides, PURPOSE_TIME_VORTEX, "Time Vortex: Extra Turns");
+		{
+			EffectOp rollOp = {};
+			rollOp.type = EffectOpType::ROLL_DICE;
+			rollOp.data.rollDice.numDice = playedCard.numDice;
+			rollOp.data.rollDice.sides = playedCard.diceSides;
+			rollOp.data.rollDice.purpose = PURPOSE_TIME_VORTEX;
+			rollOp.data.rollDice.ownerIndex = currentPlayerIndex;
+			rollOp.data.rollDice.outputSlot = 0;
+			strncpy(rollOp.data.rollDice.label, "Time Vortex: Extra Turns", 31);
+			rollOp.data.rollDice.label[31] = '\0';
+			queueEffect(rollOp);
+			isWaitingForTimeVortexDice = true;
+		}
 		playedSuccessfully = true;
 		advanceCardState(CARD_STATE_DICE);
 		return true;
@@ -16836,7 +16881,19 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 		interactionTargetTile = glm::vec2(targetX, targetY);
 		beginEffectSequence();
 		isWaitingForMagicBoltRange = true;
-		interactionDiceRoll = startDiceRoll(playedCard.numDice, playedCard.diceSides, PURPOSE_RANGE, "Magic Bolt: Range Check");
+		{
+			EffectOp rollOp = {};
+			rollOp.type = EffectOpType::ROLL_DICE;
+			rollOp.data.rollDice.numDice = playedCard.numDice;
+			rollOp.data.rollDice.sides = playedCard.diceSides;
+			rollOp.data.rollDice.purpose = PURPOSE_RANGE;
+			rollOp.data.rollDice.ownerIndex = currentPlayerIndex;
+			rollOp.data.rollDice.outputSlot = 0;
+			strncpy(rollOp.data.rollDice.label, "Magic Bolt: Range Check", 31);
+			rollOp.data.rollDice.label[31] = '\0';
+			queueEffect(rollOp);
+			interactionDiceRoll = 0;
+		}
 
 		playedSuccessfully = true;
 		advanceCardState(CARD_STATE_DICE);
@@ -16897,8 +16954,19 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 
 	case CARD_SPARK_OF_GENIUS: {
 		beginEffectSequence();
-		currentCardOutcome.namedDiceResults["spark_of_genius_draw"] = startDiceRoll(playedCard.numDice, playedCard.diceSides, PURPOSE_SPARK_OF_GENIUS_DRAW, "Spark of Genius: Draw Cards");
-		isWaitingForSparkOfGeniusDice = true;
+		{
+			EffectOp rollOp = {};
+			rollOp.type = EffectOpType::ROLL_DICE;
+			rollOp.data.rollDice.numDice = playedCard.numDice;
+			rollOp.data.rollDice.sides = playedCard.diceSides;
+			rollOp.data.rollDice.purpose = PURPOSE_SPARK_OF_GENIUS_DRAW;
+			rollOp.data.rollDice.ownerIndex = currentPlayerIndex;
+			rollOp.data.rollDice.outputSlot = 0;
+			strncpy(rollOp.data.rollDice.label, "Spark of Genius: Draw Cards", 31);
+			rollOp.data.rollDice.label[31] = '\0';
+			queueEffect(rollOp);
+			isWaitingForSparkOfGeniusDice = true;
+		}
 		playedSuccessfully = true;
 		advanceCardState(CARD_STATE_DICE);
 		return true;
