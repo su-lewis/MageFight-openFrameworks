@@ -1912,13 +1912,7 @@ void ofApp::update() {
 				if (p1Roll > p2Roll) {
 					// Lock camera before drafting starts
 					draftingCameraLockedToClient = (isMultiplayer && myLocalPlayerID == 1);
-					draftPlayerIndex = 0; // P1 Wins
-					currentState = STATE_DRAFTING;
-					draftStage = 0;
-					// Host/Singleplayer generates options. Client waits for host packets to avoid double-generation.
-					if (!isClient()) {
-						generateDraftOptions(1);
-					}
+					beginInitiativeDrafting(0);
 					ofLogNotice("Initiative") << "Player 1 goes first";
 					if (isHost()) {
 						DraftStatePacket sp = {};
@@ -1936,14 +1930,7 @@ void ofApp::update() {
 					}
 				} else if (p2Roll > p1Roll) {
 					draftPlayerIndex = 1; // P2 Wins
-					currentState = STATE_DRAFTING;
-					// Lock camera before drafting starts
-					draftingCameraLockedToClient = (isMultiplayer && myLocalPlayerID == 1);
-					draftStage = 0;
-					// Host/Singleplayer generates options. Client waits for host packets to avoid double-generation.
-					if (!isClient()) {
-						generateDraftOptions(1);
-					}
+					beginInitiativeDrafting(1);
 					ofLogNotice("Initiative") << "Player 2 goes first";
 					if (isHost()) {
 						DraftStatePacket sp = {};
@@ -2027,6 +2014,35 @@ void ofApp::update() {
 			}
 		}
 		previousCursor = currentCursor;
+	}
+}
+
+// Begin an initiative-driven draft sequence for the specified winner index.
+// This ensures the deterministic ordering: Winner drafts Class 1 (2 picks), then
+// Class 2; then the other player drafts the same sequence; finally gameplay
+// resumes with the appropriate starting player and AP roll.
+void ofApp::beginInitiativeDrafting(int winnerIndex) {
+	initialDraftComplete = false;
+	draftingCameraLockedToClient = (isMultiplayer && myLocalPlayerID == 1);
+	draftPlayerIndex = winnerIndex;
+	draftStage = 0;
+	currentState = STATE_DRAFTING;
+	// Host generates authoritative options; clients wait for packets.
+	if (!isClient()) {
+		generateDraftOptions(1);
+	}
+	if (isHost()) {
+		DraftStatePacket sp = {};
+		sp.type = PKT_DRAFT_STATE;
+		sp.playerID = myLocalPlayerID;
+		sp.classTier = 1;
+		sp.draftPlayerIdx = draftPlayerIndex;
+		sp.draftPlayerID = (draftPlayerIndex >= 0 && draftPlayerIndex < (int)players.size()) ? players[draftPlayerIndex].playerID : -1;
+		sp.picksRemaining = draftPicksRemaining;
+		sp.draftStage = draftStage;
+		sp.isInGameDraft = isInGameDraft ? 1 : 0;
+		sp.currentPlayerIndex = currentPlayerIndex;
+		steamManager.sendPacket(&sp, sizeof(sp));
 	}
 }
 //--------------------------------------------------------------
