@@ -14398,7 +14398,18 @@ void ofApp::handleCardMenuClick(const std::string & buttonId) {
 		// Menu choice: "Self" or adjacent targeting
 		if (buttonId == "Self") {
 			// Use on self
-			currentCardOutcome.namedDiceResults["amnesia_remove"] = startDiceRoll(card.numDice, card.diceSides, PURPOSE_DEBUG, "Amnesia: Cards to Remove", currentPlayerIndex);
+			{
+				EffectOp rollOp = {};
+				rollOp.type = EffectOpType::ROLL_DICE;
+				rollOp.data.rollDice.numDice = card.numDice;
+				rollOp.data.rollDice.sides = card.diceSides;
+				rollOp.data.rollDice.purpose = PURPOSE_DEBUG;
+				rollOp.data.rollDice.ownerIndex = currentPlayerIndex;
+				rollOp.data.rollDice.outputSlot = 0;
+				strncpy(rollOp.data.rollDice.label, "Amnesia: Cards to Remove", 31);
+				rollOp.data.rollDice.label[31] = '\0';
+				queueEffect(rollOp);
+			}
 			isWaitingForAmnesiaDice = true;
 			amnesiaTargetPlayerIndex = currentPlayerIndex;
 			amnesiaChooserPlayerID = caster.isMinion ? caster.ownerID : caster.playerID;
@@ -17258,12 +17269,23 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 
 		// --- EXECUTE DAMAGE ---
 		if (playedCard.numDice > 0 && playedCard.diceSides > 0) {
-			interactionDiceRoll = startDiceRoll(playedCard.numDice, playedCard.diceSides, PURPOSE_DAMAGE, playedCard.name + ": Damage", currentPlayerIndex);
-			interactingCardName = playedCard.name;
-			isWaitingForAttackDice = true;
-			currentCardOutcome.attackDamageType = playedCard.damageType;
-			playedSuccessfully = true;
-			advanceCardState(CARD_STATE_DICE);
+			{
+				EffectOp rollOp = {};
+				rollOp.type = EffectOpType::ROLL_DICE;
+				rollOp.data.rollDice.numDice = playedCard.numDice;
+				rollOp.data.rollDice.sides = playedCard.diceSides;
+				rollOp.data.rollDice.purpose = PURPOSE_DAMAGE;
+				rollOp.data.rollDice.ownerIndex = currentPlayerIndex;
+				rollOp.data.rollDice.outputSlot = 0;
+				strncpy(rollOp.data.rollDice.label, (playedCard.name + ": Damage").c_str(), 31);
+				rollOp.data.rollDice.label[31] = '\0';
+				queueEffect(rollOp);
+				interactingCardName = playedCard.name;
+				isWaitingForAttackDice = true;
+				currentCardOutcome.attackDamageType = playedCard.damageType;
+				playedSuccessfully = true;
+				advanceCardState(CARD_STATE_DICE);
+			}
 		} else {
 			beginEffectSequence();
 			int damage = playedCard.value;
@@ -17325,8 +17347,19 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 			}
 
 			if (applyPoisonBuff && !currentCardOutcome.poisonTargetPlayerIDs.empty()) {
-				currentCardOutcome.namedDiceResults["poison_attack"] = startDiceRoll(1, 6, PURPOSE_DAMAGE, "Poison Damage");
-				isWaitingForPoisonAttackDice = true;
+				{
+					EffectOp rollOp = {};
+					rollOp.type = EffectOpType::ROLL_DICE;
+					rollOp.data.rollDice.numDice = 1;
+					rollOp.data.rollDice.sides = 6;
+					rollOp.data.rollDice.purpose = PURPOSE_DAMAGE;
+					rollOp.data.rollDice.ownerIndex = currentPlayerIndex;
+					rollOp.data.rollDice.outputSlot = 0;
+					strncpy(rollOp.data.rollDice.label, "Poison Damage", 31);
+					rollOp.data.rollDice.label[31] = '\0';
+					queueEffect(rollOp);
+					isWaitingForPoisonAttackDice = true;
+				}
 			}
 			playedSuccessfully = true;
 			advanceCardState(CARD_STATE_EFFECT_SEQUENCE);
@@ -17362,8 +17395,19 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 
 		if (isMultiplayer && isHost()) sendCardActionBegin(CARD_SHOOT_ARROW, currentPlayerIndex, targetX, targetY, 0, 0, 0, 0, "Shoot Arrow");
 		beginEffectSequence();
-		interactionDiceRoll = startDiceRoll(2, 20, PURPOSE_RANGE, "Shoot Arrow: Range", currentPlayerIndex);
-		isWaitingForShootArrow = true;
+		{
+			EffectOp rollOp = {};
+			rollOp.type = EffectOpType::ROLL_DICE;
+			rollOp.data.rollDice.numDice = 2;
+			rollOp.data.rollDice.sides = 20;
+			rollOp.data.rollDice.purpose = PURPOSE_RANGE;
+			rollOp.data.rollDice.ownerIndex = currentPlayerIndex;
+			rollOp.data.rollDice.outputSlot = 0;
+			strncpy(rollOp.data.rollDice.label, "Shoot Arrow: Range", 31);
+			rollOp.data.rollDice.label[31] = '\0';
+			queueEffect(rollOp);
+			isWaitingForShootArrow = true;
+		}
 		interactionTargetTile = targetTile;
 		interactionTargetIndex = targetIndex;
 		playedSuccessfully = true;
@@ -17394,8 +17438,19 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 		if (!validTarget) return true;
 		beginEffectSequence();
 
-		interactionDiceRoll = startDiceRoll(playedCard.numDice, playedCard.diceSides, PURPOSE_RANGE, "Magic Blast: Range Check");
-		isWaitingForMagicBlastDice = true;
+		{
+			EffectOp rollOp = {};
+			rollOp.type = EffectOpType::ROLL_DICE;
+			rollOp.data.rollDice.numDice = playedCard.numDice;
+			rollOp.data.rollDice.sides = playedCard.diceSides;
+			rollOp.data.rollDice.purpose = PURPOSE_RANGE;
+			rollOp.data.rollDice.ownerIndex = currentPlayerIndex;
+			rollOp.data.rollDice.outputSlot = 0;
+			strncpy(rollOp.data.rollDice.label, "Magic Blast: Range Check", 31);
+			rollOp.data.rollDice.label[31] = '\0';
+			queueEffect(rollOp);
+			isWaitingForMagicBlastDice = true;
+		}
 		interactionTargetTile = targetTile;
 		playedSuccessfully = true;
 		advanceCardState(CARD_STATE_DICE);
@@ -17411,8 +17466,19 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 		if (validationResult.reason != VALID || !board[targetX][targetY].hasPlayer) return true;
 		beginEffectSequence();
 
-		interactionDiceRoll = startDiceRoll(playedCard.numDice, playedCard.diceSides, PURPOSE_RANGE, "Fireball: Range Check");
-		isWaitingForFireballRangeDice = true;
+		{
+			EffectOp rollOp = {};
+			rollOp.type = EffectOpType::ROLL_DICE;
+			rollOp.data.rollDice.numDice = playedCard.numDice;
+			rollOp.data.rollDice.sides = playedCard.diceSides;
+			rollOp.data.rollDice.purpose = PURPOSE_RANGE;
+			rollOp.data.rollDice.ownerIndex = currentPlayerIndex;
+			rollOp.data.rollDice.outputSlot = 0;
+			strncpy(rollOp.data.rollDice.label, "Fireball: Range Check", 31);
+			rollOp.data.rollDice.label[31] = '\0';
+			queueEffect(rollOp);
+			isWaitingForFireballRangeDice = true;
+		}
 		interactionTargetTile = targetTile;
 		playedSuccessfully = true;
 		advanceCardState(CARD_STATE_DICE);
@@ -17430,8 +17496,19 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 		beginEffectSequence();
 
 		interactionTargetTile = targetTile;
-		interactionDiceRoll = startDiceRoll(playedCard.numDice, playedCard.diceSides, PURPOSE_RANGE, "Chain Lightning: Range", currentPlayerIndex);
-		isWaitingForChainLightningRange = true;
+		{
+			EffectOp rollOp = {};
+			rollOp.type = EffectOpType::ROLL_DICE;
+			rollOp.data.rollDice.numDice = playedCard.numDice;
+			rollOp.data.rollDice.sides = playedCard.diceSides;
+			rollOp.data.rollDice.purpose = PURPOSE_RANGE;
+			rollOp.data.rollDice.ownerIndex = currentPlayerIndex;
+			rollOp.data.rollDice.outputSlot = 0;
+			strncpy(rollOp.data.rollDice.label, "Chain Lightning: Range", 31);
+			rollOp.data.rollDice.label[31] = '\0';
+			queueEffect(rollOp);
+			isWaitingForChainLightningRange = true;
+		}
 		playedSuccessfully = true;
 		advanceCardState(CARD_STATE_DICE);
 		return true;
@@ -17538,7 +17615,20 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 			}
 			if (targetIndex != -1) {
 				beginEffectSequence();
-				interactionDiceRoll = startDiceRoll(playedCard.numDice, playedCard.diceSides, PURPOSE_DAMAGE, "Rock Crush: Damage", currentPlayerIndex);
+				{
+					EffectOp rollOp = {};
+					rollOp.type = EffectOpType::ROLL_DICE;
+					rollOp.data.rollDice.numDice = playedCard.numDice;
+					rollOp.data.rollDice.sides = playedCard.diceSides;
+					rollOp.data.rollDice.purpose = PURPOSE_DAMAGE;
+					rollOp.data.rollDice.ownerIndex = currentPlayerIndex;
+					rollOp.data.rollDice.outputSlot = 0;
+					strncpy(rollOp.data.rollDice.label, "Rock Crush: Damage", 31);
+					rollOp.data.rollDice.label[31] = '\0';
+					queueEffect(rollOp);
+					interactionDiceRoll = 0;
+				}
+
 				interactingCardName = playedCard.name;
 				isWaitingForAttackDice = true;
 				currentCardOutcome.attackDamageType = playedCard.damageType;
@@ -17559,8 +17649,19 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 		if (validationResult.reason != VALID) return true;
 		beginEffectSequence();
 
-		interactionDiceRoll = startDiceRoll(playedCard.numDice, playedCard.diceSides, PURPOSE_RANGE, "Ethereal Jolt: Range Check");
-		isWaitingForJoltRangeDice = true;
+		{
+			EffectOp rollOp = {};
+			rollOp.type = EffectOpType::ROLL_DICE;
+			rollOp.data.rollDice.numDice = playedCard.numDice;
+			rollOp.data.rollDice.sides = playedCard.diceSides;
+			rollOp.data.rollDice.purpose = PURPOSE_RANGE;
+			rollOp.data.rollDice.ownerIndex = currentPlayerIndex;
+			rollOp.data.rollDice.outputSlot = 0;
+			strncpy(rollOp.data.rollDice.label, "Ethereal Jolt: Range Check", 31);
+			rollOp.data.rollDice.label[31] = '\0';
+			queueEffect(rollOp);
+			isWaitingForJoltRangeDice = true;
+		}
 		interactionTargetTile = targetTile;
 		playedSuccessfully = true;
 		advanceCardState(CARD_STATE_DICE);
@@ -17606,8 +17707,19 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 		} else {
 			if (isMultiplayer && isHost()) sendCardActionBegin(CARD_DEATH, currentPlayerIndex, targetX, targetY, 0, 0, 0, 0, "Death Check");
 			beginEffectSequence();
-			currentCardOutcome.namedDiceResults["death_check"] = startDiceRoll(1, 20, PURPOSE_DEATH_CHECK, "Death Check", currentPlayerIndex);
-			isWaitingForDeathDice = true;
+			{
+				EffectOp rollOp = {};
+				rollOp.type = EffectOpType::ROLL_DICE;
+				rollOp.data.rollDice.numDice = 1;
+				rollOp.data.rollDice.sides = 20;
+				rollOp.data.rollDice.purpose = PURPOSE_DEATH_CHECK;
+				rollOp.data.rollDice.ownerIndex = currentPlayerIndex;
+				rollOp.data.rollDice.outputSlot = 0;
+				strncpy(rollOp.data.rollDice.label, "Death Check", 31);
+				rollOp.data.rollDice.label[31] = '\0';
+				queueEffect(rollOp);
+				isWaitingForDeathDice = true;
+			}
 			playedSuccessfully = true;
 			advanceCardState(CARD_STATE_DICE);
 		}
