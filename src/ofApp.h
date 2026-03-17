@@ -448,6 +448,7 @@ enum VisualEventType {
 	VE_NONE = 0,
 	VE_WAIT = 1, // generic wait (duration)
 	VE_DICE = 2, // visual dice animation (associated with purpose/player)
+	VE_TRACER = 3, // tracer line visual (ranged spells)
 	VE_CUSTOM = 99
 };
 
@@ -1016,6 +1017,12 @@ private:
 	void spawnFloatingText(glm::vec3 pos, std::string text, ofColor color, std::string category = "");
 	// Queue a floating-text visual event (non-authoritative, does not change game state)
 	void queueFloatingTextVisual(glm::vec3 pos, std::string text, ofColor color, float duration = 1.2f);
+	// Queue a visual dice roll (non-authoritative). `rawResults` contains per-die face values.
+	void queueVisualDiceRoll(glm::vec3 pos, int numDice, int sides, const std::vector<int> & rawResults, int totalResult, int dicePurpose = 0, int ownerIndex = -1, float duration = 1.5f);
+	// Queue a tracer visual from world-space start -> end (non-authoritative)
+	void queueVisualTracer(glm::vec3 start, glm::vec3 end, ofColor color = ofColor::white, float duration = 1.2f);
+	// Queue a simple visual delay/wait
+	void queueVisualDelay(float seconds);
 	void spawnExplosion(glm::vec3 pos, int count, ofColor color);
 	void tryTriggerShellSpike(); // Tortoise Form: trigger 3 damage to adjacent unit
 

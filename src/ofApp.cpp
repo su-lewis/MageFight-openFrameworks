@@ -16010,11 +16010,27 @@ void ofApp::processVisualEvents() {
 		if (ev.type == VE_WAIT) {
 			if (now - ev.startTime >= ev.duration) ev.completed = true;
 		} else if (ev.type == VE_DICE) {
-			// For now treat dice event as duration-based visual
+			// Start visual dice roll when event begins
+			if (!ev.visualStarted) {
+				startVisualDiceRoll(ev);
+				ev.visualStarted = true;
+				// reset start time to measure duration after spawn
+				ev.startTime = now;
+			}
 			if (now - ev.startTime >= ev.duration) ev.completed = true;
 		} else if (ev.type == VE_CUSTOM) {
 			// Custom events auto-complete after their duration unless handled externally
 			if (ev.duration > 0.0f) {
+				if (now - ev.startTime >= ev.duration) ev.completed = true;
+			} else if (ev.type == VE_TRACER) {
+				// Spawn tracer on first frame then wait duration
+				if (!ev.spawned) {
+					// Compute impact tile from endPos for highlight
+					glm::ivec2 impact = transformWorldToGrid(ev.endPos);
+					spawnTracer(ev.startPos, ev.endPos, impact, ev.color, ev.duration);
+					ev.spawned = true;
+					ev.startTime = now;
+				}
 				if (now - ev.startTime >= ev.duration) ev.completed = true;
 			}
 		}
@@ -16032,6 +16048,74 @@ void ofApp::queueFloatingTextVisual(glm::vec3 pos, std::string text, ofColor col
 	ev.color = color;
 	ev.duration = duration;
 	queueVisualEvent(ev);
+}
+
+// Queue a visual dice roll event (non-authoritative visual only)
+void ofApp::queueVisualDiceRoll(glm::vec3 pos, int numDice, int sides, const std::vector<int> & rawResults, int totalResult, int dicePurpose, int ownerIndex, float duration) {
+	VisualEvent ev = {};
+	ev.type = VE_DICE;
+	ev.startPos = pos;
+	ev.diceNum = numDice;
+	ev.diceSides = sides;
+	ev.diceResult = totalResult;
+	ev.dicePurpose = dicePurpose;
+	ev.targetIndex = ownerIndex;
+	ev.diceRawResults = rawResults;
+	ev.duration = duration;
+	queueVisualEvent(ev);
+}
+
+// Queue a tracer visual event (non-authoritative)
+void ofApp::queueVisualTracer(glm::vec3 start, glm::vec3 end, ofColor color, float duration) {
+	VisualEvent ev = {};
+	ev.type = VE_TRACER;
+	ev.startPos = start;
+	ev.endPos = end;
+	ev.color = color;
+	ev.duration = duration;
+	queueVisualEvent(ev);
+}
+
+// Queue a simple visual delay
+void ofApp::queueVisualDelay(float seconds) {
+	VisualEvent ev = {};
+	ev.type = VE_WAIT;
+	ev.duration = seconds;
+	queueVisualEvent(ev);
+}
+
+// Start a purely-visual dice spinner using precomputed raw faces (does not consume gameplay RNG)
+void ofApp::startVisualDiceRoll(const VisualEvent & ev) {
+	int num = ev.diceNum;
+	int sides = ev.diceSides;
+	const std::vector<int> & raw = ev.diceRawResults;
+	for (int i = 0; i < num; ++i) {
+		DiceRoll newRoll;
+		newRoll.purpose = static_cast<DicePurpose>(ev.dicePurpose);
+		newRoll.sides = sides;
+		if ((int)raw.size() > i) {
+			newRoll.rawResult = raw[i];
+			newRoll.result = raw[i];
+		} else {
+			// Fallback: if no raw per-die results, distribute total evenly (visual fallback)
+			newRoll.rawResult = 1;
+			newRoll.result = 1;
+		}
+		newRoll.startTime = ofGetElapsedTimef();
+		newRoll.isFinishedVisual = false;
+		newRoll.associatedUnit = ev.targetIndex;
+
+		// Visual-only randomness for axis/wobble
+		std::uniform_real_distribution<float> axisDist(-1.0f, 1.0f);
+		glm::vec3 rndAxis(axisDist(visualRNG), axisDist(visualRNG), axisDist(visualRNG));
+		if (glm::length(rndAxis) < 0.01f) rndAxis = glm::vec3(0, 1, 0);
+		newRoll.rotationAxis = glm::normalize(rndAxis);
+		std::uniform_real_distribution<float> wobbleDist(-25.0f, 25.0f);
+		float wobbleAmount = wobbleDist(visualRNG);
+		newRoll.finalQuat = getDiceFaceRotation(newRoll.sides, newRoll.rawResult, wobbleAmount);
+
+		activeDiceRolls.push_back(newRoll);
+	}
 }
 
 //==============================================================================================
