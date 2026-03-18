@@ -17059,7 +17059,13 @@ void ofApp::processEffectOp(EffectOp & op) {
 				minion.playerID = 300 + (int)players.size();
 				minion.x = tx;
 				minion.y = ty;
-				minion.maxHealth = (op.data.spawnUnit.maxHealth > 0) ? op.data.spawnUnit.maxHealth : 1;
+				// If a maxHealthFromSlot is specified, read authoritative value from blackboard
+				if (op.data.spawnUnit.maxHealthFromSlot >= 0) {
+					int slotVal = currentEffectSequence.blackboard[op.data.spawnUnit.maxHealthFromSlot];
+					minion.maxHealth = (slotVal > 0) ? slotVal : 1;
+				} else {
+					minion.maxHealth = (op.data.spawnUnit.maxHealth > 0) ? op.data.spawnUnit.maxHealth : 1;
+				}
 				minion.health = minion.maxHealth;
 				minion.ap = op.data.spawnUnit.ap;
 				minion.isMinion = true;
@@ -20612,7 +20618,21 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 		spawnSkeletonOp.data.spawnUnit.summonKind = 11; // SKELETON
 		spawnSkeletonOp.data.spawnUnit.ownerPlayerID = currentPlayer.isMinion ? currentPlayer.ownerID : currentPlayer.playerID;
 		spawnSkeletonOp.data.spawnUnit.summonerPlayerID = currentPlayer.playerID;
-		spawnSkeletonOp.data.spawnUnit.maxHealth = resolveDiceRoll(1, 6);
+		// Queue authoritative roll for skeleton HP and reference via blackboard slot 0
+		{
+			EffectOp rollOp = {};
+			rollOp.type = EffectOpType::ROLL_DICE;
+			rollOp.data.rollDice.numDice = 1;
+			rollOp.data.rollDice.sides = 6;
+			rollOp.data.rollDice.purpose = PURPOSE_SUMMON;
+			rollOp.data.rollDice.ownerIndex = currentPlayerIndex;
+			rollOp.data.rollDice.outputSlot = 0;
+			strncpy(rollOp.data.rollDice.label, "Skeleton Summon HP", 31);
+			rollOp.data.rollDice.label[31] = '\0';
+			queueEffect(rollOp);
+		}
+		spawnSkeletonOp.data.spawnUnit.maxHealth = 0;
+		spawnSkeletonOp.data.spawnUnit.maxHealthFromSlot = -1;
 		spawnSkeletonOp.data.spawnUnit.ap = 0;
 		queueEffect(spawnSkeletonOp);
 
@@ -20914,15 +20934,21 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 		spawnGolemOp.data.spawnUnit.summonerPlayerID = currentPlayer.playerID;
 
 		// Variant HP dice
-		if (isElectric) {
-			spawnGolemOp.data.spawnUnit.maxHealth = resolveDiceRoll(1, 6);
-		} else if (isFire) {
-			spawnGolemOp.data.spawnUnit.maxHealth = resolveDiceRoll(1, 10);
-		} else if (isRock) {
-			spawnGolemOp.data.spawnUnit.maxHealth = resolveDiceRoll(1, 20);
-		} else {
-			spawnGolemOp.data.spawnUnit.maxHealth = resolveDiceRoll(1, 10);
+		// Queue authoritative roll for golem HP and reference via blackboard slot 1
+		{
+			EffectOp rollOp = {};
+			rollOp.type = EffectOpType::ROLL_DICE;
+			rollOp.data.rollDice.numDice = 1;
+			rollOp.data.rollDice.sides = isElectric ? 6 : (isFire ? 10 : (isRock ? 20 : 10));
+			rollOp.data.rollDice.purpose = PURPOSE_SUMMON;
+			rollOp.data.rollDice.ownerIndex = currentPlayerIndex;
+			rollOp.data.rollDice.outputSlot = 1;
+			strncpy(rollOp.data.rollDice.label, "Golem Summon HP", 31);
+			rollOp.data.rollDice.label[31] = '\0';
+			queueEffect(rollOp);
 		}
+		spawnGolemOp.data.spawnUnit.maxHealth = 0;
+		spawnGolemOp.data.spawnUnit.maxHealthFromSlot = -1;
 		spawnGolemOp.data.spawnUnit.ap = 0;
 		queueEffect(spawnGolemOp);
 
@@ -21246,7 +21272,21 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 		spawnHellhoundOp.data.spawnUnit.summonKind = 9; // HELLHOUND
 		spawnHellhoundOp.data.spawnUnit.ownerPlayerID = currentPlayer.isMinion ? currentPlayer.ownerID : currentPlayer.playerID;
 		spawnHellhoundOp.data.spawnUnit.summonerPlayerID = currentPlayer.playerID;
-		spawnHellhoundOp.data.spawnUnit.maxHealth = resolveDiceRoll(playedCard.numDice, playedCard.diceSides);
+		// Queue authoritative roll for hellhound HP and reference via blackboard slot 2
+		{
+			EffectOp rollOp = {};
+			rollOp.type = EffectOpType::ROLL_DICE;
+			rollOp.data.rollDice.numDice = playedCard.numDice;
+			rollOp.data.rollDice.sides = playedCard.diceSides;
+			rollOp.data.rollDice.purpose = PURPOSE_SUMMON;
+			rollOp.data.rollDice.ownerIndex = currentPlayerIndex;
+			rollOp.data.rollDice.outputSlot = 2;
+			strncpy(rollOp.data.rollDice.label, "Hellhound Summon HP", 31);
+			rollOp.data.rollDice.label[31] = '\0';
+			queueEffect(rollOp);
+		}
+		spawnHellhoundOp.data.spawnUnit.maxHealth = 0;
+		spawnHellhoundOp.data.spawnUnit.maxHealthFromSlot = -1;
 		spawnHellhoundOp.data.spawnUnit.ap = 0;
 		queueEffect(spawnHellhoundOp);
 
@@ -21267,7 +21307,21 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 		spawnDemonOp.data.spawnUnit.summonKind = 10; // DEMON
 		spawnDemonOp.data.spawnUnit.ownerPlayerID = currentPlayer.isMinion ? currentPlayer.ownerID : currentPlayer.playerID;
 		spawnDemonOp.data.spawnUnit.summonerPlayerID = currentPlayer.playerID;
-		spawnDemonOp.data.spawnUnit.maxHealth = resolveDiceRoll(playedCard.numDice, playedCard.diceSides);
+		// Queue authoritative roll for demon HP and reference via blackboard slot 3
+		{
+			EffectOp rollOp = {};
+			rollOp.type = EffectOpType::ROLL_DICE;
+			rollOp.data.rollDice.numDice = playedCard.numDice;
+			rollOp.data.rollDice.sides = playedCard.diceSides;
+			rollOp.data.rollDice.purpose = PURPOSE_SUMMON;
+			rollOp.data.rollDice.ownerIndex = currentPlayerIndex;
+			rollOp.data.rollDice.outputSlot = 3;
+			strncpy(rollOp.data.rollDice.label, "Demon Summon HP", 31);
+			rollOp.data.rollDice.label[31] = '\0';
+			queueEffect(rollOp);
+		}
+		spawnDemonOp.data.spawnUnit.maxHealth = 0;
+		spawnDemonOp.data.spawnUnit.maxHealthFromSlot = -1;
 		spawnDemonOp.data.spawnUnit.ap = 0;
 		queueEffect(spawnDemonOp);
 

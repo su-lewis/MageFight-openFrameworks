@@ -192,6 +192,7 @@ enum DicePurpose {
 	PURPOSE_DEATH_CHECK,
 	PURPOSE_SLEEP_DURATION,
 	PURPOSE_SUMMON_KOBOLDS,
+	PURPOSE_SUMMON,
 	PURPOSE_SPARK_OF_GENIUS_DRAW,
 	PURPOSE_PSIONIC_WAVE_RANGE,
 	PURPOSE_PSIONIC_WAVE_AMOUNT,
@@ -378,6 +379,7 @@ struct SpawnUnitData {
 	int summonKind; // PENDING_SUMMON_* value
 	int ownerPlayerID;
 	int maxHealth;
+	int maxHealthFromSlot; // if >=0, read authoritative HP from EffectSequence.blackboard[slot]
 	int ap;
 	int summonerPlayerID; // optional: specific unit/player that summoned this minion
 };
