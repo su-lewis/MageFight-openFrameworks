@@ -15630,6 +15630,173 @@ void ofApp::processEffectOp(EffectOp & op) {
 		break;
 	}
 
+	case EffectOpType::APPLY_MAGIC_HAND_DAMAGE: {
+		// Magic Hand: uses blackboard[0] for the 2d4 damage result
+		Player & caster = players[currentPlayerIndex];
+		glm::ivec2 wallOldPos = magicHandTargetTile;
+		glm::ivec2 wallNewPos = magicHandTargetTile + magicHandPushDir;
+
+		// Move Wall
+		bool wasMagic = board[wallOldPos.x][wallOldPos.y].isMagicWall;
+		board[wallOldPos.x][wallOldPos.y].hasWall = false;
+		board[wallNewPos.x][wallNewPos.y].hasWall = true;
+		board[wallNewPos.x][wallNewPos.y].isMagicWall = wasMagic;
+
+		// Move Caster
+		board[caster.x][caster.y].hasPlayer = false;
+		caster.x = wallOldPos.x;
+		caster.y = wallOldPos.y;
+		board[caster.x][caster.y].hasPlayer = true;
+		playerVisualPos = gridToWorld(caster.x, caster.y);
+
+		buildLevelMesh();
+
+		// Handle Pushed Unit
+		Player * victim = getPlayer(magicHandPushedUnitIndex);
+		if (victim) {
+			int dmg = currentEffectSequence.blackboard[0];
+
+			// --- GHOST IMMUNITY ---
+			if (victim->inGhostForm) {
+				dmg = 0;
+				queueFloatingTextVisual(gridToWorld(victim->x, victim->y), "Phased!", ofColor::cyan);
+			}
+
+			// Apply Physical Mitigation via EffectOps
+			int vIndex = -1;
+			for (size_t _i = 0; _i < players.size(); ++_i)
+				if (&players[_i] == victim) {
+					vIndex = (int)_i;
+					break;
+				}
+			if (vIndex >= 0) {
+				int block = std::min(victim->block, dmg);
+				if (block > 0) {
+					EffectOp bOp = {};
+					bOp.type = EffectOpType::MODIFY_STAT;
+					bOp.data.modifyStat.targetIndex = vIndex;
+					bOp.data.modifyStat.statType = 5; // Block
+					bOp.data.modifyStat.delta = -block;
+					bOp.data.modifyStat.deltaFromSlot = -1;
+					processEffectOp(bOp);
+				}
+				dmg -= block;
+
+				int fort = std::min(victim->fortification, dmg);
+				if (fort > 0) {
+					EffectOp fOp = {};
+					fOp.type = EffectOpType::MODIFY_STAT;
+					fOp.data.modifyStat.targetIndex = vIndex;
+					fOp.data.modifyStat.statType = 13; // Fortification
+					fOp.data.modifyStat.delta = -fort;
+					fOp.data.modifyStat.deltaFromSlot = -1;
+					processEffectOp(fOp);
+				}
+				dmg -= fort;
+
+				int ward = std::min(victim->ward, dmg);
+				if (ward > 0) {
+					EffectOp wOp = {};
+					wOp.type = EffectOpType::MODIFY_STAT;
+					wOp.data.modifyStat.targetIndex = vIndex;
+					wOp.data.modifyStat.statType = 8; // Ward
+					wOp.data.modifyStat.delta = -ward;
+					wOp.data.modifyStat.deltaFromSlot = -1;
+					processEffectOp(wOp);
+				}
+				dmg -= ward;
+
+				if (dmg > 0) {
+					EffectOp hpOp = {};
+					hpOp.type = EffectOpType::MODIFY_STAT;
+					hpOp.data.modifyStat.targetIndex = vIndex;
+					hpOp.data.modifyStat.statType = 0; // HP
+					hpOp.data.modifyStat.delta = -dmg;
+					hpOp.data.modifyStat.deltaFromSlot = -1;
+					processEffectOp(hpOp);
+					queueFloatingTextVisual(gridToWorld(victim->x, victim->y), "-" + ofToString(dmg) + " Phys", ofColor::red);
+
+					if (victim->inGhostForm) {
+						victim->ghostDamageTaken += dmg;
+						if (victim->ghostDamageTaken >= 4) {
+							victim->ghostDamageTaken = 0;
+							victim->discardPile.push_back(victim->ghostFormCard);
+							queueFloatingTextVisual(gridToWorld(victim->x, victim->y), "Form Broken!", ofColor::white);
+						}
+					}
+					if (victim->inTortoiseForm) {
+						victim->tortoiseDamageTaken += dmg;
+						if (victim->tortoiseDamageTaken >= 5) {
+							victim->tortoiseDamageTaken = 0;
+							victim->discardPile.push_back(victim->tortoiseFormCard);
+							queueFloatingTextVisual(gridToWorld(victim->x, victim->y), "Form Broken!", ofColor::darkGreen);
+						}
+					}
+				}
+			}
+
+			// --- DISPLACEMENT LOGIC ---
+			glm::ivec2 pushDest1 = wallNewPos + magicHandPushDir;
+			glm::ivec2 side1, side2;
+
+			if (magicHandPushDir.x != 0) {
+				side1 = wallNewPos + glm::ivec2(0, 1);
+				side2 = wallNewPos + glm::ivec2(0, -1);
+			} else {
+				side1 = wallNewPos + glm::ivec2(1, 0);
+				side2 = wallNewPos + glm::ivec2(-1, 0);
+			}
+
+			auto isValid = [&](glm::ivec2 p) {
+				if (p.x < 0 || p.x >= BOARD_WIDTH || p.y < 0 || p.y >= BOARD_HEIGHT) return false;
+				if (board[p.x][p.y].hasWall || board[p.x][p.y].hasPlayer) return false;
+				return true;
+			};
+
+			glm::ivec2 finalDest = { -1, -1 };
+
+			if (isValid(pushDest1))
+				finalDest = pushDest1;
+			else if (isValid(side1))
+				finalDest = side1;
+			else if (isValid(side2))
+				finalDest = side2;
+
+			if (finalDest.x != -1) {
+				board[victim->x][victim->y].hasPlayer = false;
+				victim->x = finalDest.x;
+				victim->y = finalDest.y;
+				board[victim->x][victim->y].hasPlayer = true;
+				queueFloatingTextVisual(gridToWorld(victim->x, victim->y), "Pushed!", ofColor::yellow);
+			} else {
+				queueFloatingTextVisual(gridToWorld(victim->x, victim->y), "CRUSHED!", ofColor::darkRed);
+				victim->health = 0;
+			}
+
+			// Death Check
+			if (victim->health <= 0) {
+				DeathMarker death;
+				death.x = victim->x;
+				death.y = victim->y;
+				death.turnDied = globalTurnCounter;
+				death.deck = victim->deck;
+				graveyard.push_back(death);
+				board[victim->x][victim->y].hasPlayer = false;
+
+				players.erase(players.begin() + magicHandPushedUnitIndex);
+				if (currentPlayerIndex == magicHandPushedUnitIndex)
+					currentPlayerIndex = std::min<int>(magicHandPushedUnitIndex, (int)players.size() - 1);
+				else if (currentPlayerIndex > magicHandPushedUnitIndex)
+					currentPlayerIndex--;
+			}
+		}
+
+		invalidateTargetCache();
+
+		opComplete = true;
+		break;
+	}
+
 	case EffectOpType::MOVE_UNIT: {
 		// Deterministic movement of a unit (teleport / forced move)
 		MoveUnitData m = op.data.moveUnit;
@@ -21811,170 +21978,8 @@ void ofApp::resolvePoisonDamage() {
 
 //--- MAGIC HAND DAMAGE RESOLUTION ---
 void ofApp::resolveMagicHandDamage() {
-	if (isWaitingForMagicHandDamage && diceVisualsFinishedAndLinger()) {
-		isWaitingForMagicHandDamage = false;
-
-		Player & caster = players[currentPlayerIndex];
-		glm::ivec2 wallOldPos = magicHandTargetTile;
-		glm::ivec2 wallNewPos = magicHandTargetTile + magicHandPushDir;
-
-		// Move Wall
-		bool wasMagic = board[wallOldPos.x][wallOldPos.y].isMagicWall;
-		board[wallOldPos.x][wallOldPos.y].hasWall = false;
-		board[wallNewPos.x][wallNewPos.y].hasWall = true;
-		board[wallNewPos.x][wallNewPos.y].isMagicWall = wasMagic;
-
-		// Move Caster
-		board[caster.x][caster.y].hasPlayer = false;
-		caster.x = wallOldPos.x;
-		caster.y = wallOldPos.y;
-		board[caster.x][caster.y].hasPlayer = true;
-		playerVisualPos = gridToWorld(caster.x, caster.y);
-
-		buildLevelMesh();
-
-		// Handle Pushed Unit
-		Player * victim = getPlayer(magicHandPushedUnitIndex);
-		if (victim) {
-			int dmg = interactionDiceRoll;
-
-			// --- GHOST IMMUNITY ---
-			if (victim->inGhostForm) {
-				dmg = 0;
-				queueFloatingTextVisual(gridToWorld(victim->x, victim->y), "Phased!", ofColor::cyan);
-			}
-
-			// Apply Physical Mitigation via EffectOps
-			int vIndex = -1;
-			for (size_t _i = 0; _i < players.size(); ++_i)
-				if (&players[_i] == victim) {
-					vIndex = (int)_i;
-					break;
-				}
-			if (vIndex >= 0) {
-				int block = std::min(victim->block, dmg);
-				if (block > 0) {
-					EffectOp bOp = {};
-					bOp.type = EffectOpType::MODIFY_STAT;
-					bOp.data.modifyStat.targetIndex = vIndex;
-					bOp.data.modifyStat.statType = 5; // Block
-					bOp.data.modifyStat.delta = -block;
-					bOp.data.modifyStat.deltaFromSlot = -1;
-					processEffectOp(bOp);
-				}
-				dmg -= block;
-
-				int fort = std::min(victim->fortification, dmg);
-				if (fort > 0) {
-					EffectOp fOp = {};
-					fOp.type = EffectOpType::MODIFY_STAT;
-					fOp.data.modifyStat.targetIndex = vIndex;
-					fOp.data.modifyStat.statType = 13; // Fortification
-					fOp.data.modifyStat.delta = -fort;
-					fOp.data.modifyStat.deltaFromSlot = -1;
-					processEffectOp(fOp);
-				}
-				dmg -= fort;
-
-				int ward = std::min(victim->ward, dmg);
-				if (ward > 0) {
-					EffectOp wOp = {};
-					wOp.type = EffectOpType::MODIFY_STAT;
-					wOp.data.modifyStat.targetIndex = vIndex;
-					wOp.data.modifyStat.statType = 8; // Ward
-					wOp.data.modifyStat.delta = -ward;
-					wOp.data.modifyStat.deltaFromSlot = -1;
-					processEffectOp(wOp);
-				}
-				dmg -= ward;
-
-				if (dmg > 0) {
-					EffectOp hpOp = {};
-					hpOp.type = EffectOpType::MODIFY_STAT;
-					hpOp.data.modifyStat.targetIndex = vIndex;
-					hpOp.data.modifyStat.statType = 0; // HP
-					hpOp.data.modifyStat.delta = -dmg;
-					hpOp.data.modifyStat.deltaFromSlot = -1;
-					processEffectOp(hpOp);
-					queueFloatingTextVisual(gridToWorld(victim->x, victim->y), "-" + ofToString(dmg) + " Phys", ofColor::red);
-
-					if (victim->inGhostForm) {
-						victim->ghostDamageTaken += dmg;
-						if (victim->ghostDamageTaken >= 4) {
-							victim->ghostDamageTaken = 0;
-							victim->discardPile.push_back(victim->ghostFormCard);
-							queueFloatingTextVisual(gridToWorld(victim->x, victim->y), "Form Broken!", ofColor::white);
-						}
-					}
-					if (victim->inTortoiseForm) {
-						victim->tortoiseDamageTaken += dmg;
-						if (victim->tortoiseDamageTaken >= 5) {
-							victim->tortoiseDamageTaken = 0;
-							victim->discardPile.push_back(victim->tortoiseFormCard);
-							queueFloatingTextVisual(gridToWorld(victim->x, victim->y), "Form Broken!", ofColor::darkGreen);
-						}
-					}
-				}
-			}
-
-			// --- DISPLACEMENT LOGIC ---
-			glm::ivec2 pushDest1 = wallNewPos + magicHandPushDir;
-			glm::ivec2 side1, side2;
-
-			if (magicHandPushDir.x != 0) {
-				side1 = wallNewPos + glm::ivec2(0, 1);
-				side2 = wallNewPos + glm::ivec2(0, -1);
-			} else {
-				side1 = wallNewPos + glm::ivec2(1, 0);
-				side2 = wallNewPos + glm::ivec2(-1, 0);
-			}
-
-			auto isValid = [&](glm::ivec2 p) {
-				if (p.x < 0 || p.x >= BOARD_WIDTH || p.y < 0 || p.y >= BOARD_HEIGHT) return false;
-				if (board[p.x][p.y].hasWall || board[p.x][p.y].hasPlayer) return false;
-				return true;
-			};
-
-			glm::ivec2 finalDest = { -1, -1 };
-
-			if (isValid(pushDest1))
-				finalDest = pushDest1;
-			else if (isValid(side1))
-				finalDest = side1;
-			else if (isValid(side2))
-				finalDest = side2;
-
-			if (finalDest.x != -1) {
-				board[victim->x][victim->y].hasPlayer = false;
-				victim->x = finalDest.x;
-				victim->y = finalDest.y;
-				board[victim->x][victim->y].hasPlayer = true;
-				queueFloatingTextVisual(gridToWorld(victim->x, victim->y), "Pushed!", ofColor::yellow);
-			} else {
-				queueFloatingTextVisual(gridToWorld(victim->x, victim->y), "CRUSHED!", ofColor::darkRed);
-				victim->health = 0;
-			}
-
-			// Death Check
-			if (victim->health <= 0) {
-				DeathMarker death;
-				death.x = victim->x;
-				death.y = victim->y;
-				death.turnDied = globalTurnCounter;
-				death.deck = victim->deck;
-				graveyard.push_back(death);
-				board[victim->x][victim->y].hasPlayer = false;
-
-				players.erase(players.begin() + magicHandPushedUnitIndex);
-				if (currentPlayerIndex == magicHandPushedUnitIndex)
-					currentPlayerIndex = std::min<int>(magicHandPushedUnitIndex, (int)players.size() - 1);
-				else if (currentPlayerIndex > magicHandPushedUnitIndex)
-					currentPlayerIndex--;
-			}
-		}
-
-		invalidateTargetCache();
-	}
+	// Magic Hand is now processed via EffectOps (APPLY_MAGIC_HAND_DAMAGE)
+	return;
 }
 
 //--- FIREBALL RANGE & DAMAGE RESOLUTION ---
@@ -28660,10 +28665,24 @@ void ofApp::resolveMagicHandPush() {
 			}
 		}
 
-		// Start Damage Roll (2d4 Physical)
+		// Queue deterministic damage roll (2d4 Physical) and apply op
 		magicHandPushDir = dir;
-		interactionDiceRoll = startDiceRoll(2, 4, PURPOSE_MAGIC_HAND_DAMAGE, "Magic Hand Crush");
-		isWaitingForMagicHandDamage = true;
+
+		beginEffectSequence();
+		EffectOp rollOp = {};
+		rollOp.type = EffectOpType::ROLL_DICE;
+		rollOp.data.rollDice.numDice = 2;
+		rollOp.data.rollDice.sides = 4;
+		rollOp.data.rollDice.purpose = PURPOSE_MAGIC_HAND_DAMAGE;
+		rollOp.data.rollDice.ownerIndex = currentPlayerIndex;
+		rollOp.data.rollDice.outputSlot = 0;
+		strncpy(rollOp.data.rollDice.label, "Magic Hand Crush", 31);
+		rollOp.data.rollDice.label[31] = '\0';
+		queueEffect(rollOp);
+
+		EffectOp applyOp = {};
+		applyOp.type = EffectOpType::APPLY_MAGIC_HAND_DAMAGE;
+		queueEffect(applyOp);
 
 		// Pay cost now (apply locally first so packet reflects post-play AP)
 		currentAP -= caster.hand[interactingCardIndex].cost;
@@ -28677,7 +28696,9 @@ void ofApp::resolveMagicHandPush() {
 		interactingCardIndex = -1;
 		updateCardInteractionState(CARD_INTERACTION_IDLE, -1, CARD_NONE);
 
-		// Move Caster and Wall happens AFTER dice logic to sync animations
+		// Move Caster and Wall happens inside APPLY_MAGIC_HAND_DAMAGE to sync animations
+		advanceCardState(CARD_STATE_EFFECT_SEQUENCE);
+		beginEffectSequence();
 		return;
 	}
 
