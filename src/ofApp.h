@@ -305,6 +305,13 @@ enum class EffectOpType : uint8_t {
 	CONDITIONAL_BRANCH,
 	APPLY_FIREBALL,
 	APPLY_POISON,
+	APPLY_AMNESIA,
+	APPLY_DEATH,
+	APPLY_ON_FIRE,
+	APPLY_PARALYSIS,
+	APPLY_WOLF_COIN,
+	APPLY_INITIATIVE_REROLL,
+	APPLY_SLEEP_DURATION,
 	APPLY_MAGIC_BLAST,
 	APPLY_MAGIC_BOLT,
 	APPLY_MAGIC_BOLT_PRIMARY,
@@ -803,6 +810,7 @@ public:
 	void processVisualEvents();
 	// Centralized checker that invokes resolve helpers when visuals complete
 	void processWaitingFlags();
+	void beginInitiativeDrafting(int winnerIndex);
 	void exit();
 	// Ensure vtable emission: declare destructor to define out-of-line in cpp
 	~ofApp();

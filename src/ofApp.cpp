@@ -1946,11 +1946,38 @@ void ofApp::update() {
 						steamManager.sendPacket(&sp, sizeof(sp));
 					}
 				} else {
-					// TIE - Reroll: spawn two dice again so the initiative UI shows properly
-					startDiceRoll(1, 6, PURPOSE_DEBUG, "Initiative Reroll", currentPlayerIndex);
-					startDiceRoll(1, 6, PURPOSE_DEBUG, "Initiative Reroll", currentPlayerIndex);
-					initiativeTimer = 0.0f;
-					ofLogNotice("Initiative") << "Tie! Rerolling...";
+					// TIE - Reroll via effect system so RNG is authoritative and visualizable
+					{
+						EffectOp r1 = {};
+						r1.type = EffectOpType::ROLL_DICE;
+						r1.data.rollDice.numDice = 1;
+						r1.data.rollDice.sides = 6;
+						r1.data.rollDice.purpose = PURPOSE_DEBUG;
+						r1.data.rollDice.ownerIndex = currentPlayerIndex;
+						r1.data.rollDice.outputSlot = 0;
+						strncpy(r1.data.rollDice.label, "Initiative Reroll", 31);
+						r1.data.rollDice.label[31] = '\0';
+						queueEffect(r1);
+
+						EffectOp r2 = {};
+						r2.type = EffectOpType::ROLL_DICE;
+						r2.data.rollDice.numDice = 1;
+						r2.data.rollDice.sides = 6;
+						r2.data.rollDice.purpose = PURPOSE_DEBUG;
+						r2.data.rollDice.ownerIndex = currentPlayerIndex;
+						r2.data.rollDice.outputSlot = 1;
+						strncpy(r2.data.rollDice.label, "Initiative Reroll", 31);
+						r2.data.rollDice.label[31] = '\0';
+						queueEffect(r2);
+
+						EffectOp ap = {};
+						ap.type = EffectOpType::APPLY_INITIATIVE_REROLL;
+						queueEffect(ap);
+
+						initiativeTimer = 0.0f;
+						ofLogNotice("Initiative") << "Tie! Rerolling...";
+						if (!isProcessingEffect) beginEffectSequence();
+					}
 				}
 			}
 		}
@@ -13589,11 +13616,24 @@ void ofApp::startNewTurn() {
 
 			// Check Status Effects: on fire, poison, paralysis, sleep
 			if (startingPlayer.onFire) {
-				isWaitingForOnFireDice = true;
-				// Deterministic gameplay roll
-				currentCardOutcome.namedDiceResults["status_onfire"] = resolveDiceRoll(1, 6);
-				// Start a visual-only roll for UX (uses visual RNG)
-				startDiceRoll(1, 6, PURPOSE_DEBUG, "Fire Status Damage", currentPlayerIndex);
+				// Queue authoritative fire damage roll and APPLY_ON_FIRE handler
+				EffectOp rollOp = {};
+				rollOp.type = EffectOpType::ROLL_DICE;
+				rollOp.data.rollDice.numDice = 1;
+				rollOp.data.rollDice.sides = 6;
+				rollOp.data.rollDice.purpose = PURPOSE_DEBUG;
+				rollOp.data.rollDice.ownerIndex = currentPlayerIndex;
+				rollOp.data.rollDice.outputSlot = 0;
+				strncpy(rollOp.data.rollDice.label, "Fire Status Damage", 31);
+				rollOp.data.rollDice.label[31] = '\0';
+				queueEffect(rollOp);
+
+				EffectOp applyOp = {};
+				applyOp.type = EffectOpType::APPLY_ON_FIRE;
+				queueEffect(applyOp);
+
+				advanceCardState(CARD_STATE_EFFECT_SEQUENCE);
+				beginEffectSequence();
 				return;
 			}
 			if (startingPlayer.isPoisoned) {
@@ -13603,19 +13643,47 @@ void ofApp::startNewTurn() {
 				return;
 			}
 			if (startingPlayer.isParalyzed) {
-				// Resolve coin flip deterministically, but still show a visual coin
-				currentCardOutcome.namedDiceResults["paralysis_coin"] = resolveDiceRoll(1, 2);
-				startDiceRoll(1, 2, PURPOSE_DEBUG, "Paralysis Check", currentPlayerIndex);
-				isWaitingForParalysisCoin = true;
+				// Queue authoritative coin flip and APPLY_PARALYSIS handler
+				EffectOp rollOp = {};
+				rollOp.type = EffectOpType::ROLL_DICE;
+				rollOp.data.rollDice.numDice = 1;
+				rollOp.data.rollDice.sides = 2;
+				rollOp.data.rollDice.purpose = PURPOSE_COIN_FLIP;
+				rollOp.data.rollDice.ownerIndex = currentPlayerIndex;
+				rollOp.data.rollDice.outputSlot = 0;
+				strncpy(rollOp.data.rollDice.label, "Paralysis Check", 31);
+				rollOp.data.rollDice.label[31] = '\0';
+				queueEffect(rollOp);
+
+				EffectOp applyOp = {};
+				applyOp.type = EffectOpType::APPLY_PARALYSIS;
+				queueEffect(applyOp);
+
+				advanceCardState(CARD_STATE_EFFECT_SEQUENCE);
+				beginEffectSequence();
 				return;
 			}
 			if (startingPlayer.sleepTurnsRemaining > 0) {
 				startingPlayer.sleepTurnsRemaining--;
 				queueFloatingTextVisual(gridToWorld(startingPlayer.x, startingPlayer.y), "Zzz...", ofColor::cyan);
 				if (startingPlayer.onFire) {
-					isWaitingForOnFireDice = true;
-					currentCardOutcome.namedDiceResults["status_onfire"] = resolveDiceRoll(1, 6);
-					startDiceRoll(1, 6, PURPOSE_DEBUG, "Sleeping Fire Damage", currentPlayerIndex);
+					EffectOp rollOp = {};
+					rollOp.type = EffectOpType::ROLL_DICE;
+					rollOp.data.rollDice.numDice = 1;
+					rollOp.data.rollDice.sides = 6;
+					rollOp.data.rollDice.purpose = PURPOSE_DEBUG;
+					rollOp.data.rollDice.ownerIndex = currentPlayerIndex;
+					rollOp.data.rollDice.outputSlot = 0;
+					strncpy(rollOp.data.rollDice.label, "Sleeping Fire Damage", 31);
+					rollOp.data.rollDice.label[31] = '\0';
+					queueEffect(rollOp);
+
+					EffectOp applyOp = {};
+					applyOp.type = EffectOpType::APPLY_ON_FIRE;
+					queueEffect(applyOp);
+
+					advanceCardState(CARD_STATE_EFFECT_SEQUENCE);
+					beginEffectSequence();
 					return;
 				}
 				startNewTurn();
@@ -13670,21 +13738,69 @@ void ofApp::startNewTurn() {
 
 	// Check status effects: on fire, poison, paralysis, sleep
 	if (startingPlayer.onFire) {
-		isWaitingForOnFireDice = true;
-		currentCardOutcome.namedDiceResults["status_onfire"] = resolveDiceRoll(1, 6);
-		startDiceRoll(1, 6, PURPOSE_DEBUG, "Fire Status Damage", currentPlayerIndex);
+		// Queue authoritative fire damage roll and handler
+		EffectOp rollOp = {};
+		rollOp.type = EffectOpType::ROLL_DICE;
+		rollOp.data.rollDice.numDice = 1;
+		rollOp.data.rollDice.sides = 6;
+		rollOp.data.rollDice.purpose = PURPOSE_DEBUG;
+		rollOp.data.rollDice.ownerIndex = currentPlayerIndex;
+		rollOp.data.rollDice.outputSlot = 0;
+		strncpy(rollOp.data.rollDice.label, "Fire Status Damage", 31);
+		rollOp.data.rollDice.label[31] = '\0';
+		queueEffect(rollOp);
+
+		EffectOp applyOp = {};
+		applyOp.type = EffectOpType::APPLY_ON_FIRE;
+		queueEffect(applyOp);
+
+		advanceCardState(CARD_STATE_EFFECT_SEQUENCE);
+		beginEffectSequence();
 		return;
 	}
 	if (startingPlayer.isPoisoned) {
-		isWaitingForPoisonDice = true;
-		currentCardOutcome.namedDiceResults["status_poison"] = resolveDiceRoll(1, 6);
-		startDiceRoll(1, 6, PURPOSE_DEBUG, "Poison Status Damage", currentPlayerIndex);
+		// Queue authoritative poison damage roll and handler
+		currentCardOutcome.poisonTargetPlayerIDs.clear();
+		currentCardOutcome.poisonTargetPlayerIDs.push_back(startingPlayer.playerID);
+
+		EffectOp rollOp = {};
+		rollOp.type = EffectOpType::ROLL_DICE;
+		rollOp.data.rollDice.numDice = 1;
+		rollOp.data.rollDice.sides = 6;
+		rollOp.data.rollDice.purpose = PURPOSE_DEBUG;
+		rollOp.data.rollDice.ownerIndex = currentPlayerIndex;
+		rollOp.data.rollDice.outputSlot = 0;
+		strncpy(rollOp.data.rollDice.label, "Poison Status Damage", 31);
+		rollOp.data.rollDice.label[31] = '\0';
+		queueEffect(rollOp);
+
+		EffectOp applyOp = {};
+		applyOp.type = EffectOpType::APPLY_POISON;
+		queueEffect(applyOp);
+
+		advanceCardState(CARD_STATE_EFFECT_SEQUENCE);
+		beginEffectSequence();
 		return;
 	}
 	if (startingPlayer.isParalyzed) {
-		currentCardOutcome.namedDiceResults["paralysis_coin"] = resolveDiceRoll(1, 2);
-		startDiceRoll(1, 2, PURPOSE_DEBUG, "Paralysis Check", currentPlayerIndex);
-		isWaitingForParalysisCoin = true;
+		// Queue authoritative coin flip and APPLY_PARALYSIS handler
+		EffectOp rollOp = {};
+		rollOp.type = EffectOpType::ROLL_DICE;
+		rollOp.data.rollDice.numDice = 1;
+		rollOp.data.rollDice.sides = 2;
+		rollOp.data.rollDice.purpose = PURPOSE_COIN_FLIP;
+		rollOp.data.rollDice.ownerIndex = currentPlayerIndex;
+		rollOp.data.rollDice.outputSlot = 0;
+		strncpy(rollOp.data.rollDice.label, "Paralysis Check", 31);
+		rollOp.data.rollDice.label[31] = '\0';
+		queueEffect(rollOp);
+
+		EffectOp applyOp = {};
+		applyOp.type = EffectOpType::APPLY_PARALYSIS;
+		queueEffect(applyOp);
+
+		advanceCardState(CARD_STATE_EFFECT_SEQUENCE);
+		beginEffectSequence();
 		return;
 	}
 	if (startingPlayer.sleepTurnsRemaining > 0) {
@@ -13876,40 +13992,20 @@ void ofApp::continueNewTurn() {
 		beginEffectSequence();
 		ofLogNotice("EffectQueue") << "Beginning effect sequence for turn-start of player " << startingPlayer.playerID;
 	}
-
-	// Wolf AP: 1d10
-	if (startingPlayer.isWolf) {
-		lastAPDiceNum = 1;
-		lastAPDiceSides = 10;
-		{
-			EffectOp rollOp = {};
-			rollOp.type = EffectOpType::ROLL_DICE;
-			rollOp.data.rollDice.numDice = 1;
-			rollOp.data.rollDice.sides = 10;
-			rollOp.data.rollDice.purpose = PURPOSE_AP;
-			rollOp.data.rollDice.ownerIndex = currentPlayerIndex;
-			rollOp.data.rollDice.outputSlot = 0;
-			strncpy(rollOp.data.rollDice.label, "Wolf AP Roll", 31);
-			rollOp.data.rollDice.label[31] = '\0';
-			queueEffect(rollOp);
-		}
-	}
-	// HELLHOUND AP: 2d6
-	else if (startingPlayer.isHellhound) {
+	// Hellhound AP: 2d6
+	if (startingPlayer.isHellhound) {
 		lastAPDiceNum = 2;
 		lastAPDiceSides = 6;
-		{
-			EffectOp rollOp = {};
-			rollOp.type = EffectOpType::ROLL_DICE;
-			rollOp.data.rollDice.numDice = 2;
-			rollOp.data.rollDice.sides = 6;
-			rollOp.data.rollDice.purpose = PURPOSE_AP;
-			rollOp.data.rollDice.ownerIndex = currentPlayerIndex;
-			rollOp.data.rollDice.outputSlot = 0;
-			strncpy(rollOp.data.rollDice.label, "Hellhound AP Roll", 31);
-			rollOp.data.rollDice.label[31] = '\0';
-			queueEffect(rollOp);
-		}
+		EffectOp rollOp = {};
+		rollOp.type = EffectOpType::ROLL_DICE;
+		rollOp.data.rollDice.numDice = 2;
+		rollOp.data.rollDice.sides = 6;
+		rollOp.data.rollDice.purpose = PURPOSE_AP;
+		rollOp.data.rollDice.ownerIndex = currentPlayerIndex;
+		rollOp.data.rollDice.outputSlot = 0;
+		strncpy(rollOp.data.rollDice.label, "Hellhound AP Roll", 31);
+		rollOp.data.rollDice.label[31] = '\0';
+		queueEffect(rollOp);
 	}
 	// Demon AP: 4d4
 	else if (startingPlayer.isDemon) {
@@ -14358,8 +14454,24 @@ void ofApp::handleCardTargetClick(int gridX, int gridY) {
 						}
 						if (wolfSummonStage == 1) {
 							checkKeyPickupAndDraftAfterSummon(gx, gy, wolf.ownerID);
-							startDiceRoll(1, 2, PURPOSE_COIN_FLIP, "Call for Wolves Coin", currentPlayerIndex);
-							isWaitingForWolfCoin = true;
+							// Queue authoritative coin flip and apply result via effect system
+							EffectOp rollOp = {};
+							rollOp.type = EffectOpType::ROLL_DICE;
+							rollOp.data.rollDice.numDice = 1;
+							rollOp.data.rollDice.sides = 2;
+							rollOp.data.rollDice.purpose = PURPOSE_COIN_FLIP;
+							rollOp.data.rollDice.ownerIndex = currentPlayerIndex;
+							rollOp.data.rollDice.outputSlot = 0;
+							strncpy(rollOp.data.rollDice.label, "Call for Wolves Coin", 31);
+							rollOp.data.rollDice.label[31] = '\0';
+							queueEffect(rollOp);
+
+							EffectOp applyOp = {};
+							applyOp.type = EffectOpType::APPLY_WOLF_COIN;
+							queueEffect(applyOp);
+
+							advanceCardState(CARD_STATE_EFFECT_SEQUENCE);
+							beginEffectSequence();
 						} else if (wolfSummonStage == 2) {
 							updateCardInteractionState(CARD_INTERACTION_IDLE, -1, CARD_NONE);
 							wolfSummonStage = 0;
@@ -14397,38 +14509,20 @@ void ofApp::handleCardTargetClick(int gridX, int gridY) {
 			break;
 		}
 
-		// Move player
-		board[caster.x][caster.y].hasPlayer = false;
-		caster.x = gridX;
-		caster.y = gridY;
-		board[gridX][gridY].hasPlayer = true;
-		playerVisualPos = gridToWorld(gridX, gridY);
-		queueFloatingTextVisual(gridToWorld(gridX, gridY), "Teleport!", ofColor::cyan);
+		// Queue deterministic MOVE_UNIT effect instead of moving immediately
+		beginEffectSequence();
 
+		EffectOp mv = {};
+		mv.type = EffectOpType::MOVE_UNIT;
+		mv.data.moveUnit.unitIndex = currentPlayerIndex;
+		mv.data.moveUnit.toX = gridX;
+		mv.data.moveUnit.toY = gridY;
+		queueEffect(mv);
+
+		// Visual feedback will be queued by the MOVE_UNIT processor
 		// Card AP and discard logic was handled upfront for teleport
 		if (cardIndex >= 0 && cardIndex < (int)caster.hand.size()) {
 			caster.hand.erase(caster.hand.begin() + cardIndex);
-		}
-
-		// Key check
-		int keyIdx = -1;
-		for (int k = 0; k < (int)floatingKeyInstances.size(); ++k) {
-			if (floatingKeyInstances[k].pos.x == gridX && floatingKeyInstances[k].pos.y == gridY) {
-				keyIdx = k;
-				break;
-			}
-		}
-		if (keyIdx >= 0) {
-			int keySet = floatingKeyInstances[keyIdx].set;
-			int keyClass = (keySet == 1) ? 3 : (keySet == 2) ? 2
-															 : 1;
-			networkPending.keyDraftAccept = true;
-			networkPending.keyDraftTriggerTime = ofGetElapsedTimef();
-			networkPending.keyDraftClass = keyClass;
-			networkPending.keyDraftPlayer = currentPlayerIndex;
-			networkPending.keyDraftPlayerID = caster.playerID;
-			networkPending.keyDraftKeyX = gridX;
-			networkPending.keyDraftKeyY = gridY;
 		}
 
 		resetCardInteraction();
@@ -14692,10 +14786,26 @@ void ofApp::handleCardMenuClick(const std::string & buttonId) {
 	case CARD_DISPEL: {
 		// Menu choice: "Barrier" or "Purge"
 		if (buttonId == "Barrier") {
-			// Roll barrier gain
-			int diceResult = startDiceRoll(1, 20, PURPOSE_BARRIER_GAIN, "Dispel: Barrier Amount", currentPlayerIndex);
-			isWaitingForBarrierDice = true;
-			interactionDiceRoll = diceResult;
+			// Use deterministic effect sequence: queue an AP roll then apply Barrier from blackboard
+			beginEffectSequence();
+			EffectOp rollOp = {};
+			rollOp.type = EffectOpType::ROLL_DICE;
+			rollOp.data.rollDice.numDice = 1;
+			rollOp.data.rollDice.sides = 20;
+			rollOp.data.rollDice.purpose = PURPOSE_BARRIER_GAIN;
+			rollOp.data.rollDice.ownerIndex = currentPlayerIndex;
+			rollOp.data.rollDice.outputSlot = 0;
+			strncpy(rollOp.data.rollDice.label, "Dispel: Barrier Amount", 31);
+			rollOp.data.rollDice.label[31] = '\0';
+			queueEffect(rollOp);
+
+			EffectOp applyBarrier = {};
+			applyBarrier.type = EffectOpType::MODIFY_STAT;
+			applyBarrier.data.modifyStat.targetIndex = currentPlayerIndex;
+			applyBarrier.data.modifyStat.statType = 6; // Barrier
+			applyBarrier.data.modifyStat.deltaFromSlot = 0; // use roll result
+			queueEffect(applyBarrier);
+
 			currentAP -= card.cost;
 			caster.discardPile.push_back(card);
 			caster.hand.erase(caster.hand.begin() + interactingCardIndex);
@@ -15520,6 +15630,34 @@ void ofApp::processEffectOp(EffectOp & op) {
 		break;
 	}
 
+	case EffectOpType::MOVE_UNIT: {
+		// Deterministic movement of a unit (teleport / forced move)
+		MoveUnitData m = op.data.moveUnit;
+		int uidx = m.unitIndex;
+		if (uidx >= 0 && uidx < (int)players.size()) {
+			Player & p = players[uidx];
+			// Clear previous board occupancy
+			if (p.x >= 0 && p.x < BOARD_WIDTH && p.y >= 0 && p.y < BOARD_HEIGHT) {
+				board[p.x][p.y].hasPlayer = false;
+			}
+			// Apply new position
+			int nx = m.toX;
+			int ny = m.toY;
+			p.x = nx;
+			p.y = ny;
+			if (nx >= 0 && nx < BOARD_WIDTH && ny >= 0 && ny < BOARD_HEIGHT) {
+				board[nx][ny].hasPlayer = true;
+			}
+			p.visualPos = gridToWorld(p.x, p.y);
+			if (uidx == currentPlayerIndex) playerVisualPos = gridToWorld(p.x, p.y);
+			queueFloatingTextVisual(gridToWorld(p.x, p.y), "Teleport!", ofColor::cyan);
+			// Host (or singleplayer) should check for key pickup/draft aftermath
+			checkKeyPickupAndDraftAfterSummon(p.x, p.y, p.ownerID);
+		}
+		opComplete = true;
+		break;
+	}
+
 	case EffectOpType::APPLY_FIREBALL: {
 		// Determine range roll from blackboard slot 0 (authoritative)
 		int rangeRoll = currentEffectSequence.blackboard[0];
@@ -15773,6 +15911,389 @@ void ofApp::processEffectOp(EffectOp & op) {
 			invalidateTargetCache();
 		}
 
+		opComplete = true;
+		break;
+	}
+
+	case EffectOpType::APPLY_PARALYSIS: {
+		// Read authoritative coin flip result from blackboard slot 0 (1=Tails, 2=Heads)
+		int flip = currentEffectSequence.blackboard[0];
+		Player & p = players[currentPlayerIndex];
+		if (flip == 2) {
+			// Heads
+			p.paralysisHeadsCount++;
+			if (p.paralysisHeadsCount >= 2) {
+				// Cure paralysis deterministically
+				EffectOp rm = {};
+				rm.type = EffectOpType::REMOVE_STATUS;
+				rm.data.status.targetIndex = currentPlayerIndex;
+				rm.data.status.statusType = STATUS_PARALYZED;
+				rm.data.status.duration = 0;
+				queueEffect(rm);
+				p.paralysisHeadsCount = 0;
+			} else {
+				ofLogNotice("Paralysis") << "Heads! Can play this turn (" << p.paralysisHeadsCount << "/2 heads).";
+			}
+			// Continue turn — if burning, queue on-fire resolution, else continue
+			if (p.onFire) {
+				EffectOp rollOp = {};
+				rollOp.type = EffectOpType::ROLL_DICE;
+				rollOp.data.rollDice.numDice = 1;
+				rollOp.data.rollDice.sides = 6;
+				rollOp.data.rollDice.purpose = PURPOSE_DEBUG;
+				rollOp.data.rollDice.ownerIndex = currentPlayerIndex;
+				rollOp.data.rollDice.outputSlot = 0; // reuse slot 0
+				strncpy(rollOp.data.rollDice.label, "Fire Status Damage", 31);
+				rollOp.data.rollDice.label[31] = '\0';
+				queueEffect(rollOp);
+
+				EffectOp applyOp = {};
+				applyOp.type = EffectOpType::APPLY_ON_FIRE;
+				queueEffect(applyOp);
+			} else {
+				continueNewTurn();
+			}
+		} else {
+			// Tails: reset heads and end turn
+			ofLogNotice("Paralysis") << "Tails! Player remains paralyzed and skips turn.";
+			p.paralysisHeadsCount = 0;
+			startNewTurn();
+		}
+
+		opComplete = true;
+		break;
+	}
+
+	case EffectOpType::APPLY_INITIATIVE_REROLL: {
+		// Read two authoritative reroll results from blackboard slots 0 and 1
+		int p1Roll = currentEffectSequence.blackboard[0];
+		int p2Roll = currentEffectSequence.blackboard[1];
+
+		// Clear visual dice created for these rerolls
+		activeDiceRolls.clear();
+
+		if (p1Roll > p2Roll) {
+			draftingCameraLockedToClient = (isMultiplayer && myLocalPlayerID == 1);
+			beginInitiativeDrafting(0);
+			ofLogNotice("Initiative") << "Player 1 goes first";
+			if (isHost()) {
+				DraftStatePacket sp = {};
+				sp.type = PKT_DRAFT_STATE;
+				sp.playerID = myLocalPlayerID;
+				sp.classTier = 1;
+				sp.draftPlayerIdx = draftPlayerIndex;
+				sp.draftPlayerID = (draftPlayerIndex >= 0 && draftPlayerIndex < (int)players.size()) ? players[draftPlayerIndex].playerID : -1;
+				sp.picksRemaining = draftPicksRemaining;
+				sp.draftStage = draftStage;
+				sp.isInGameDraft = isInGameDraft ? 1 : 0;
+				sp.currentPlayerIndex = currentPlayerIndex;
+				steamManager.sendPacket(&sp, sizeof(sp));
+			}
+		} else if (p2Roll > p1Roll) {
+			draftPlayerIndex = 1; // P2 Wins
+			beginInitiativeDrafting(1);
+			ofLogNotice("Initiative") << "Player 2 goes first";
+			if (isHost()) {
+				DraftStatePacket sp = {};
+				sp.type = PKT_DRAFT_STATE;
+				sp.playerID = myLocalPlayerID;
+				sp.classTier = 1;
+				sp.draftPlayerIdx = draftPlayerIndex;
+				sp.draftPlayerID = (draftPlayerIndex >= 0 && draftPlayerIndex < (int)players.size()) ? players[draftPlayerIndex].playerID : -1;
+				sp.picksRemaining = draftPicksRemaining;
+				sp.draftStage = draftStage;
+				sp.isInGameDraft = isInGameDraft ? 1 : 0;
+				sp.currentPlayerIndex = currentPlayerIndex;
+				steamManager.sendPacket(&sp, sizeof(sp));
+			}
+		} else {
+			// Tie again — queue another reroll sequence
+			EffectOp r1 = {};
+			r1.type = EffectOpType::ROLL_DICE;
+			r1.data.rollDice.numDice = 1;
+			r1.data.rollDice.sides = 6;
+			r1.data.rollDice.purpose = PURPOSE_DEBUG;
+			r1.data.rollDice.ownerIndex = currentPlayerIndex;
+			r1.data.rollDice.outputSlot = 0;
+			strncpy(r1.data.rollDice.label, "Initiative Reroll", 31);
+			r1.data.rollDice.label[31] = '\0';
+			queueEffect(r1);
+
+			EffectOp r2 = {};
+			r2.type = EffectOpType::ROLL_DICE;
+			r2.data.rollDice.numDice = 1;
+			r2.data.rollDice.sides = 6;
+			r2.data.rollDice.purpose = PURPOSE_DEBUG;
+			r2.data.rollDice.ownerIndex = currentPlayerIndex;
+			r2.data.rollDice.outputSlot = 1;
+			strncpy(r2.data.rollDice.label, "Initiative Reroll", 31);
+			r2.data.rollDice.label[31] = '\0';
+			queueEffect(r2);
+
+			EffectOp ap = {};
+			ap.type = EffectOpType::APPLY_INITIATIVE_REROLL;
+			queueEffect(ap);
+			ofLogNotice("Initiative") << "Tie again — queuing reroll...";
+		}
+
+		opComplete = true;
+		break;
+	}
+
+	case EffectOpType::APPLY_AMNESIA: {
+		// Read authoritative amnesia result from blackboard slot 0
+		{
+			int result = currentEffectSequence.blackboard[0];
+			currentCardOutcome.namedDiceResults["amnesia_remove"] = result;
+			Player * amnesiaTarget = getPlayer(amnesiaTargetPlayerIndex);
+			if (amnesiaTarget) {
+				int numCardsToRemoveLocal = std::min(result, (int)amnesiaTarget->deck.size());
+				if (numCardsToRemoveLocal > 0) {
+					updateCardInteractionState(CARD_INTERACTION_MENU, interactingCardIndex, CARD_AMNESIA);
+					amnesiaDeckCopy = amnesiaTarget->deck;
+					amnesiaSelectedIndices.clear();
+				} else {
+					amnesiaTargetPlayerIndex = -1;
+				}
+			} else {
+				amnesiaTargetPlayerIndex = -1;
+			}
+		}
+		opComplete = true;
+		break;
+	}
+
+	case EffectOpType::APPLY_WOLF_COIN: {
+		// Read authoritative coin flip result from blackboard slot 0 (1=Tails, 2=Heads)
+		int flipResult = currentEffectSequence.blackboard[0];
+		// Find Summoner for Text Position
+		Player * summoner = nullptr;
+		for (auto & p : players) {
+			if (p.x == wolfPlacementSourceX && p.y == wolfPlacementSourceY) {
+				summoner = &p;
+				break;
+			}
+		}
+		glm::vec3 textPos = summoner ? gridToWorld(summoner->x, summoner->y) : glm::vec3(0, 0, 0);
+
+		if (flipResult == 1) {
+			// TAILS: FAIL
+			ofLogNotice("Wolves") << "Tails! The call fizzles.";
+			queueFloatingTextVisual(textPos, "Fizzles...", ofColor::gray);
+
+			// End the sequence
+			updateCardInteractionState(CARD_INTERACTION_IDLE, -1, CARD_NONE);
+			wolfSummonStage = 0;
+
+			// Cleanup Turn Order
+			int myID = players[currentPlayerIndex].playerID;
+			std::sort(players.begin(), players.end(), [](const Player & a, const Player & b) {
+				int ownerA = a.isMinion ? a.ownerID : a.playerID;
+				int ownerB = b.isMinion ? b.ownerID : b.playerID;
+				if (ownerA != ownerB) return ownerA < ownerB;
+				if (a.isMinion && !b.isMinion) return true;
+				if (!a.isMinion && b.isMinion) return false;
+				return a.summonOrder < b.summonOrder;
+			});
+
+			// Fix index
+			for (size_t i = 0; i < players.size(); i++) {
+				if (players[i].playerID == myID) {
+					currentPlayerIndex = i;
+					break;
+				}
+			}
+		} else {
+			// HEADS: Check if we have space for the 2nd wolf
+			bool hasSpace = false;
+			glm::vec2 adj[] = { { 1, 0 }, { -1, 0 }, { 0, 1 }, { 0, -1 } };
+			for (auto & d : adj) {
+				int nx = wolfPlacementSourceX + (int)d.x;
+				int ny = wolfPlacementSourceY + (int)d.y;
+				if (nx >= 0 && nx < BOARD_WIDTH && ny >= 0 && ny < BOARD_HEIGHT) {
+					if (!board[nx][ny].hasWall && !board[nx][ny].hasPlayer) {
+						hasSpace = true;
+						break;
+					}
+				}
+			}
+
+			if (hasSpace) {
+				// SUCCESS - Prompt for 2nd placement if LOCAL player
+				if (isCurrentPlayerLocal()) {
+					ofLogNotice("Wolves") << "Heads! You can place another wolf.";
+					queueFloatingTextVisual(textPos, "Double Summon!", ofColor::gold);
+					wolfSummonStage = 2; // Advance stage to Wolf 2
+					// interaction remains CARD_INTERACTION_PLACING
+				} else {
+					queueFloatingTextVisual(textPos, "Opponent choosing 2nd Wolf...", ofColor::gold);
+					updateCardInteractionState(CARD_INTERACTION_IDLE, -1, CARD_NONE);
+					wolfSummonStage = 0;
+				}
+			} else {
+				// HEADS BUT BLOCKED
+				ofLogNotice("Wolves") << "Heads, but no space for 2nd wolf.";
+				queueFloatingTextVisual(textPos, "No Space!", ofColor::red);
+				updateCardInteractionState(CARD_INTERACTION_IDLE, -1, CARD_NONE);
+				wolfSummonStage = 0;
+
+				int myID = players[currentPlayerIndex].playerID;
+				std::sort(players.begin(), players.end(), [](const Player & a, const Player & b) {
+					int ownerA = a.isMinion ? a.ownerID : a.playerID;
+					int ownerB = b.isMinion ? b.ownerID : b.playerID;
+					if (ownerA != ownerB) return ownerA < ownerB;
+					if (a.isMinion && !b.isMinion) return true;
+					if (!a.isMinion && b.isMinion) return false;
+					return a.summonOrder < b.summonOrder;
+				});
+				for (size_t i = 0; i < players.size(); i++) {
+					if (players[i].playerID == myID) {
+						currentPlayerIndex = i;
+						break;
+					}
+				}
+			}
+		}
+
+		opComplete = true;
+		break;
+	}
+
+	case EffectOpType::APPLY_DEATH: {
+		// Read authoritative death-check result from blackboard slot 0
+		int roll = currentEffectSequence.blackboard[0];
+		Player * target = getPlayer(currentCardOutcome.targetPlayerIndex);
+		if (target) {
+			if (roll > target->health) {
+				// SUCCESS: kill the target
+				queueFloatingTextVisual(gridToWorld(target->x, target->y), "Executed!", ofColor::red);
+
+				DeathMarker death;
+				death.x = target->x;
+				death.y = target->y;
+				death.turnDied = globalTurnCounter;
+				death.deck = target->deck;
+				graveyard.push_back(death);
+				board[target->x][target->y].hasPlayer = false;
+				target->x = -1000;
+				target->health = 0;
+			} else {
+				// FAIL: apply Sleep — queue authoritative sleep-duration roll and APPLY_SLEEP_DURATION
+				queueFloatingTextVisual(gridToWorld(target->x, target->y), "Sleep...", ofColor::cyan);
+
+				EffectOp sleepRoll = {};
+				sleepRoll.type = EffectOpType::ROLL_DICE;
+				sleepRoll.data.rollDice.numDice = 1;
+				sleepRoll.data.rollDice.sides = 6;
+				sleepRoll.data.rollDice.purpose = PURPOSE_SLEEP_DURATION;
+				sleepRoll.data.rollDice.ownerIndex = currentPlayerIndex;
+				sleepRoll.data.rollDice.outputSlot = 1;
+				strncpy(sleepRoll.data.rollDice.label, "Sleep Duration", 31);
+				sleepRoll.data.rollDice.label[31] = '\0';
+				queueEffect(sleepRoll);
+
+				EffectOp applySleep = {};
+				applySleep.type = EffectOpType::APPLY_SLEEP_DURATION;
+				queueEffect(applySleep);
+			}
+		} else {
+			currentCardOutcome.targetPlayerIndex = -1;
+		}
+		opComplete = true;
+		break;
+	}
+
+	case EffectOpType::APPLY_ON_FIRE: {
+		// Read authoritative fire damage roll from blackboard slot 0
+		int rollResult = currentEffectSequence.blackboard[0];
+		currentCardOutcome.namedDiceResults["status_onfire"] = rollResult;
+		Player & burningPlayer = players[currentPlayerIndex];
+
+		// Queue damage application
+		{
+			EffectOp dmg = {};
+			dmg.type = EffectOpType::MODIFY_STAT;
+			dmg.data.modifyStat.targetIndex = currentPlayerIndex;
+			dmg.data.modifyStat.statType = 0; // HP
+			dmg.data.modifyStat.delta = -rollResult;
+			dmg.data.modifyStat.deltaFromSlot = -1;
+			queueEffect(dmg);
+		}
+		queueFloatingTextVisual(gridToWorld(burningPlayer.x, burningPlayer.y), "-" + ofToString(rollResult) + " Fire", ofColor::red);
+
+		// Form tracking
+		if (burningPlayer.inTortoiseForm) {
+			burningPlayer.tortoiseDamageTaken += rollResult;
+			if (burningPlayer.tortoiseDamageTaken >= 5) {
+				EffectOp rm = {};
+				rm.type = EffectOpType::REMOVE_STATUS;
+				rm.data.status.targetIndex = currentPlayerIndex;
+				rm.data.status.statusType = STATUS_TORTOISE_FORM;
+				rm.data.status.duration = 0;
+				queueEffect(rm);
+				burningPlayer.tortoiseDamageTaken = 0;
+				burningPlayer.discardPile.push_back(burningPlayer.tortoiseFormCard);
+				queueFloatingTextVisual(gridToWorld(burningPlayer.x, burningPlayer.y) + glm::vec3(0, 0.5f, 0), "Form Ended!", ofColor::darkGreen);
+			}
+		}
+		if (burningPlayer.inGhostForm) {
+			burningPlayer.ghostDamageTaken += rollResult;
+			if (burningPlayer.ghostDamageTaken >= 4) {
+				EffectOp rm = {};
+				rm.type = EffectOpType::REMOVE_STATUS;
+				rm.data.status.targetIndex = currentPlayerIndex;
+				rm.data.status.statusType = STATUS_GHOST_FORM;
+				rm.data.status.duration = 0;
+				queueEffect(rm);
+				burningPlayer.ghostDamageTaken = 0;
+				burningPlayer.discardPile.push_back(burningPlayer.ghostFormCard);
+				queueFloatingTextVisual(gridToWorld(burningPlayer.x, burningPlayer.y) + glm::vec3(0, 0.5f, 0), "Ghost Form Broken!", ofColor::white);
+
+				if (board[burningPlayer.x][burningPlayer.y].hasWall) {
+					EffectOp killOp = {};
+					killOp.type = EffectOpType::MODIFY_STAT;
+					killOp.data.modifyStat.targetIndex = currentPlayerIndex;
+					killOp.data.modifyStat.statType = 0; // HP
+					killOp.data.modifyStat.delta = -players[currentPlayerIndex].health;
+					killOp.data.modifyStat.deltaFromSlot = -1;
+					queueEffect(killOp);
+					queueFloatingTextVisual(gridToWorld(burningPlayer.x, burningPlayer.y) + glm::vec3(0, 1.0f, 0), "Materialized in Wall!", ofColor::red);
+				}
+			}
+		}
+
+		// Check if fire is extinguished
+		if (rollResult == 1 || rollResult == 2) {
+			EffectOp rm = {};
+			rm.type = EffectOpType::REMOVE_STATUS;
+			rm.data.status.targetIndex = currentPlayerIndex;
+			rm.data.status.statusType = STATUS_ON_FIRE;
+			rm.data.status.duration = 0;
+			queueEffect(rm);
+			queueFloatingTextVisual(gridToWorld(burningPlayer.x, burningPlayer.y) + glm::vec3(0, 0.8f, 0), "Extinguished", ofColor::white);
+		}
+
+		// Check sleep after fire
+		if (burningPlayer.sleepTurnsRemaining > 0) {
+			startNewTurn();
+			opComplete = true;
+			break;
+		}
+
+		continueNewTurn();
+		opComplete = true;
+		break;
+	}
+
+	case EffectOpType::APPLY_SLEEP_DURATION: {
+		// Sleep duration stored in blackboard slot 1
+		int dur = currentEffectSequence.blackboard[1];
+		Player * target = getPlayer(currentCardOutcome.targetPlayerIndex);
+		if (target) {
+			target->sleepTurnsRemaining = dur;
+			queueFloatingTextVisual(gridToWorld(target->x, target->y), ofToString(dur) + " Turns Sleep", ofColor::cyan);
+			currentCardOutcome.targetPlayerIndex = -1;
+		}
 		opComplete = true;
 		break;
 	}
@@ -18084,7 +18605,6 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 
 		interactionTargetTile = glm::vec2(targetX, targetY);
 		beginEffectSequence();
-		isWaitingForMagicBoltRange = true;
 		{
 			EffectOp rollOp = {};
 			rollOp.type = EffectOpType::ROLL_DICE;
@@ -18097,6 +18617,11 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 			rollOp.data.rollDice.label[31] = '\0';
 			queueEffect(rollOp);
 			interactionDiceRoll = 0;
+
+			// Queue APPLY op to deterministically resolve range -> primary -> AOE
+			EffectOp applyMb = {};
+			applyMb.type = EffectOpType::APPLY_MAGIC_BOLT;
+			queueEffect(applyMb);
 		}
 
 		playedSuccessfully = true;
@@ -18992,12 +19517,15 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 				strncpy(rollOp.data.rollDice.label, "Death Check", 31);
 				rollOp.data.rollDice.label[31] = '\0';
 				queueEffect(rollOp);
-				isWaitingForDeathDice = true;
+
+				EffectOp apply = {};
+				apply.type = EffectOpType::APPLY_DEATH;
+				queueEffect(apply);
 			}
 			playedSuccessfully = true;
 			advanceCardState(CARD_STATE_DICE);
+			return true;
 		}
-		return true;
 	}
 
 	case CARD_SHIELD_BASH: {
@@ -19637,13 +20165,31 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 		beginEffectSequence();
 
 		if (isMultiplayer && isHost()) sendCardActionBegin(CARD_AMNESIA, currentPlayerIndex, targetX, targetY, 0, 0, 0, 0, "Amnesia");
-		currentCardOutcome.namedDiceResults["amnesia_remove"] = startDiceRoll(playedCard.numDice, playedCard.diceSides, PURPOSE_DEBUG, "Amnesia: Cards to Remove", currentPlayerIndex);
-		isWaitingForAmnesiaDice = true;
+
+		// Queue authoritative roll for how many cards to remove, then apply Amnesia handling
+		{
+			EffectOp rollOp = {};
+			rollOp.type = EffectOpType::ROLL_DICE;
+			rollOp.data.rollDice.numDice = playedCard.numDice;
+			rollOp.data.rollDice.sides = playedCard.diceSides;
+			rollOp.data.rollDice.purpose = PURPOSE_DEBUG;
+			rollOp.data.rollDice.ownerIndex = currentPlayerIndex;
+			rollOp.data.rollDice.outputSlot = 0;
+			strncpy(rollOp.data.rollDice.label, "Amnesia: Cards to Remove", 31);
+			rollOp.data.rollDice.label[31] = '\0';
+			queueEffect(rollOp);
+
+			EffectOp applyOp = {};
+			applyOp.type = EffectOpType::APPLY_AMNESIA;
+			queueEffect(applyOp);
+		}
+
 		// Record which playerID should be allowed to choose removals (caster)
 		{
 			Player & caster = players[currentPlayerIndex];
 			amnesiaChooserPlayerID = caster.isMinion ? caster.ownerID : caster.playerID;
 		}
+
 		playedSuccessfully = true;
 		advanceCardState(CARD_STATE_DICE);
 		// Ensure AP is synced to player struct for UI
@@ -20904,8 +21450,18 @@ void ofApp::resolveAPRoll() {
 					for (auto & oldR : activeDiceRolls) {
 						if (oldR.purpose == PURPOSE_AP) oldR.purpose = PURPOSE_DEBUG;
 					}
-					// Start a bonus AP roll (added on top of the original result)
-					startDiceRoll(rerollNum, rerollSides, PURPOSE_BONUS_AP, "Assistant Auto Reroll", currentPlayerIndex);
+					// Queue a bonus AP roll via effect pipeline (visual + deterministic)
+					EffectOp rollOp = {};
+					rollOp.type = EffectOpType::ROLL_DICE;
+					rollOp.data.rollDice.numDice = rerollNum;
+					rollOp.data.rollDice.sides = rerollSides;
+					rollOp.data.rollDice.purpose = PURPOSE_BONUS_AP;
+					rollOp.data.rollDice.ownerIndex = currentPlayerIndex;
+					// use an innocuous blackboard slot (e.g., 3) for bonus AP
+					rollOp.data.rollDice.outputSlot = 3;
+					strncpy(rollOp.data.rollDice.label, "Assistant Auto Reroll", 31);
+					rollOp.data.rollDice.label[31] = '\0';
+					queueEffect(rollOp);
 					queueFloatingTextVisual(gridToWorld(a.x, a.y), "Assistant Reroll!", ofColor::gold);
 				}
 			}
@@ -21455,9 +22011,7 @@ void ofApp::resolveFireballDamage() {
 			}
 
 			if (fireballTargetPlayerIndex != -1) {
-				ofLogNotice("Fireball") << "Hit Player " << players[fireballTargetPlayerIndex].playerID << "! Rolling Damage...";
-				interactionDiceRoll = startDiceRoll(1, 6, PURPOSE_DAMAGE, "Fireball: Damage", currentPlayerIndex);
-				isWaitingForFireballDamageDice = true;
+				ofLogNotice("Fireball") << "Hit Player " << players[fireballTargetPlayerIndex].playerID << "! (damage roll queued via effect sequence)";
 			}
 
 			{
@@ -21506,106 +22060,7 @@ void ofApp::resolveFireballDamage() {
 		}
 	}
 
-	if (isWaitingForFireballDamageDice && diceVisualsFinishedAndLinger()) {
-		isWaitingForFireballDamageDice = false;
-		ofLogNotice("Fireball") << "Damage roll result: " << interactionDiceRoll;
-		Player * target = getPlayer(fireballTargetPlayerIndex);
-		if (target) {
-			int damage = interactionDiceRoll;
-
-			// Apply Ward (EffectOp)
-			int wardDamage = std::min(target->ward, damage);
-			if (wardDamage > 0) {
-				EffectOp wOp = {};
-				wOp.type = EffectOpType::MODIFY_STAT;
-				wOp.data.modifyStat.targetIndex = fireballTargetPlayerIndex;
-				wOp.data.modifyStat.statType = 8; // Ward
-				wOp.data.modifyStat.delta = -wardDamage;
-				wOp.data.modifyStat.deltaFromSlot = -1;
-				processEffectOp(wOp);
-			}
-			damage -= wardDamage;
-
-			// Apply Health Damage (EffectOp)
-			if (damage > 0) {
-				EffectOp hpOp = {};
-				hpOp.type = EffectOpType::MODIFY_STAT;
-				hpOp.data.modifyStat.targetIndex = fireballTargetPlayerIndex;
-				hpOp.data.modifyStat.statType = 0; // HP
-				hpOp.data.modifyStat.delta = -damage;
-				hpOp.data.modifyStat.deltaFromSlot = -1;
-				processEffectOp(hpOp);
-			}
-
-			glm::vec3 targetPos = gridToWorld(target->x, target->y);
-
-			if (wardDamage > 0) {
-				queueFloatingTextVisual(targetPos, "-" + ofToString(wardDamage) + " Fire", ofColor::black);
-			}
-
-			if (damage > 0) {
-				queueFloatingTextVisual(targetPos, "-" + ofToString(damage) + " Fire", ofColor::red);
-			} else {
-				if (wardDamage == 0) {
-					queueFloatingTextVisual(targetPos, "-0 Fire", ofColor::gray);
-				}
-			}
-
-			// Form Break
-			if (target->inTortoiseForm) {
-				target->tortoiseDamageTaken += damage;
-				if (target->tortoiseDamageTaken >= 5) {
-					// Queue REMOVE_STATUS for tortoise form
-					{
-						EffectOp rm = {};
-						rm.type = EffectOpType::REMOVE_STATUS;
-						rm.data.status.targetIndex = fireballTargetPlayerIndex;
-						rm.data.status.statusType = STATUS_TORTOISE_FORM;
-						rm.data.status.duration = 0;
-						queueEffect(rm);
-					}
-					// inTortoiseForm will be cleared when the REMOVE_STATUS op is processed
-					target->tortoiseDamageTaken = 0;
-					target->discardPile.push_back(target->tortoiseFormCard);
-					queueFloatingTextVisual(targetPos + glm::vec3(0, 0.5f, 0), "Form Ended!", ofColor::darkGreen);
-				}
-			}
-			if (target->inGhostForm) {
-				target->ghostDamageTaken += damage;
-				if (target->ghostDamageTaken >= 4) {
-					// Queue REMOVE_STATUS for ghost form
-					{
-						EffectOp rm = {};
-						rm.type = EffectOpType::REMOVE_STATUS;
-						rm.data.status.targetIndex = fireballTargetPlayerIndex;
-						rm.data.status.statusType = STATUS_GHOST_FORM;
-						rm.data.status.duration = 0;
-						queueEffect(rm);
-					}
-					// inGhostForm will be cleared when the REMOVE_STATUS op is processed
-					target->ghostDamageTaken = 0;
-					target->discardPile.push_back(target->ghostFormCard);
-					queueFloatingTextVisual(targetPos + glm::vec3(0, 0.5f, 0), "Ghost Form Broken!", ofColor::white);
-				}
-			}
-
-			// Fire Status (queue)
-			{
-				EffectOp ap = {};
-				ap.type = EffectOpType::APPLY_STATUS;
-				ap.data.status.targetIndex = fireballTargetPlayerIndex;
-				ap.data.status.statusType = STATUS_ON_FIRE;
-				ap.data.status.duration = 0;
-				queueEffect(ap);
-			}
-			// onFire will be set when the APPLY_STATUS op is processed
-			queueFloatingTextVisual(targetPos + glm::vec3(0, 0.6f, 0), "ON FIRE!", ofColor::orange);
-
-			if (cardPlayState != CARD_STATE_IDLE) {
-				advanceCardState(CARD_STATE_EFFECT_SEQUENCE);
-			}
-		}
-	}
+	// Damage application is handled by the queued APPLY_FIREBALL -> ROLL_DICE/DAMAGE ops
 }
 
 //--- SUMMON HP RESOLUTION (Unified for Raise Dead / Hellhound / Demon) ---
@@ -22564,13 +23019,27 @@ void ofApp::resolveShootArrowDice() {
 				computeTracerEndpoints(casterTile, hitGrid, worldStart, worldEnd);
 				spawnTracer(worldStart, worldEnd, glm::ivec2((int)interactionTargetTile.x, (int)interactionTargetTile.y), ofColor(200, 180, 100), 5.0f);
 			}
-			interactionDiceRoll = startDiceRoll(1, 6, PURPOSE_DAMAGE, "Shoot Arrow: Damage", currentPlayerIndex);
-			isWaitingForAttackDice = true;
+			// Queue a deterministic damage roll and apply via effect ops
+			EffectOp dmgRoll = {};
+			dmgRoll.type = EffectOpType::ROLL_DICE;
+			dmgRoll.data.rollDice.numDice = 1;
+			dmgRoll.data.rollDice.sides = 6;
+			dmgRoll.data.rollDice.purpose = PURPOSE_DAMAGE;
+			dmgRoll.data.rollDice.ownerIndex = currentPlayerIndex;
+			dmgRoll.data.rollDice.outputSlot = 1;
+			strncpy(dmgRoll.data.rollDice.label, "Shoot Arrow: Damage", 31);
+			dmgRoll.data.rollDice.label[31] = '\0';
+			queueEffect(dmgRoll);
+
+			EffectOp applyD = {};
+			applyD.type = EffectOpType::APPLY_SHOOT_ARROW_DAMAGE;
+			queueEffect(applyD);
+
 			currentCardOutcome.attackDamageType = DAMAGE_PIERCING;
 			currentCardOutcome.attackTargetIndices.clear();
 			currentCardOutcome.attackTargetIndices.push_back(interactionTargetIndex);
 			interactingCardName = "Shoot Arrow";
-			ofLogNotice("ShootArrow") << "Hit confirmed. Rolling damage.";
+			ofLogNotice("ShootArrow") << "Hit confirmed. Damage roll queued via effect sequence.";
 		} else {
 			// Miss: notify
 			queueFloatingTextVisual(gridToWorld((int)interactionTargetTile.x, (int)interactionTargetTile.y), "Missed!", ofColor::gray);
@@ -32118,9 +32587,7 @@ void ofApp::resolveChainLightningRangeDice() {
 		}
 
 		if (hasLOS) {
-			// Start damage roll
-			interactionDiceRoll = startDiceRoll(1, 10, PURPOSE_DAMAGE, "Chain Lightning Damage", currentPlayerIndex);
-			isWaitingForChainLightningDamage = true;
+			// Damage roll is queued via the effect pipeline (APPLY_CHAIN_LIGHTNING)
 			queueFloatingTextVisual(impactTile, "Chain!", ofColor::yellow);
 		} else {
 			// Fizzle
@@ -32134,80 +32601,8 @@ void ofApp::resolveChainLightningRangeDice() {
 }
 
 void ofApp::resolveChainLightningDamageDice() {
-	if (!isWaitingForChainLightningDamage || !diceVisualsFinishedAndLinger()) return;
-
-	isWaitingForChainLightningDamage = false;
-
-	Player & caster = players[currentPlayerIndex];
-	int damage = interactionDiceRoll; // Electric damage = 1d10
-
-	// 9-tile AOE: center + 8 neighbors
-	std::vector<std::pair<int, int>> aoeTiles;
-	for (int dx = -1; dx <= 1; dx++) {
-		for (int dy = -1; dy <= 1; dy++) {
-			if (dx == 0 && dy == 0) continue; // Skip center for now, only neighbors
-			aoeTiles.push_back({ caster.x + dx, caster.y + dy });
-		}
-	}
-
-	int unitCount = 0;
-	for (auto & target : players) {
-		if (&target == &caster || target.health <= 0) continue;
-
-		bool isInAOE = false;
-		for (auto & tile : aoeTiles) {
-			if (target.x == tile.first && target.y == tile.second) {
-				isInAOE = true;
-
-				// Check pinch blocking (diagonal blocked if both adjacent walls)
-				int dx = tile.first - caster.x;
-				int dy = tile.second - caster.y;
-				if (dx != 0 && dy != 0) { // diagonal
-					if (isTileWall(caster.x + dx, caster.y) && isTileWall(caster.x, caster.y + dy)) {
-						isInAOE = false;
-						break;
-					}
-				}
-				break;
-			}
-		}
-
-		if (isInAOE) {
-			unitCount++;
-
-			// Apply damage with mitigation
-			int finalDmg = damage;
-
-			if (target.inGhostForm) {
-				finalDmg = 0;
-				queueFloatingTextVisual(gridToWorld(target.x, target.y), "Phased!", ofColor::cyan);
-			}
-
-			// Barrier blocks first
-			int barrierDmg = std::min(target.barrier, finalDmg);
-			target.barrier -= barrierDmg;
-			finalDmg -= barrierDmg;
-
-			// Ward blocks remainder
-			if (finalDmg > 0) {
-				int wardDmg = std::min(target.ward, finalDmg);
-				target.ward -= wardDmg;
-				finalDmg -= wardDmg;
-			}
-
-			// Remaining damage to health
-			if (finalDmg > 0) {
-				target.health -= finalDmg;
-				queueFloatingTextVisual(gridToWorld(target.x, target.y), "-" + ofToString(finalDmg) + " ZAP!", ofColor::yellow);
-			}
-		}
-	}
-
-	// Conditional paralysis: only if >1 unit hit
-	if (unitCount > 1) {
-		caster.nextTurnAPBonus += 3;
-		queueFloatingTextVisual(gridToWorld(caster.x, caster.y), "+3 AP Next Turn", ofColor::cyan);
-	}
+	// Legacy resolver disabled: Chain Lightning handled by effect pipeline (APPLY_CHAIN_LIGHTNING -> ROLL_DICE -> APPLY_CHAIN_LIGHTNING_DAMAGE).
+	return;
 }
 
 void ofApp::resolveFlailDice() {
