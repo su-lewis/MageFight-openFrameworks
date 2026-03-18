@@ -33,6 +33,42 @@ void ofApp::triggerCameraShake(float intensity, float duration) {
 	std::uniform_real_distribution<float> off(-1.0f, 1.0f);
 	cameraShakeOffset = glm::vec3(off(visualRNG), off(visualRNG) * 0.5f, off(visualRNG)) * cameraShakeIntensity;
 }
+// Simple Pause Menu renderer (minimal, used when paused)
+void ofApp::drawPauseMenu() {
+	ofPushStyle();
+	ofSetColor(0, 0, 0, 180);
+	ofDrawRectangle(0, 0, ofGetWidth(), ofGetHeight());
+
+	auto drawButton = [&](const ofRectangle & rect, const std::string & text, bool isHovered) {
+		ofSetColor(isHovered ? ofColor::lightGray : ofColor::white);
+		ofFill();
+		ofDrawRectRounded(rect, 15);
+		ofSetColor(ofColor::black);
+		ofNoFill();
+		ofSetLineWidth(2);
+		ofDrawRectRounded(rect, 15);
+		ofFill();
+		ofRectangle textBox = uiFont.getStringBoundingBox(text, 0, 0);
+		float textX = round(rect.getCenter().x - textBox.getWidth() / 2.0f);
+		float textY = round(rect.getCenter().y + textBox.getHeight() / 2.0f);
+		uiFont.drawString(text, textX, textY);
+	};
+
+	// Layout depends on multiplayer
+	if (!isMultiplayer) {
+		drawButton(pauseMenuResumeButton, "Resume", pauseMenuHoveredIndex == 0);
+		drawButton(pauseMenuSaveButton, "Save", pauseMenuHoveredIndex == 1);
+		drawButton(pauseMenuLoadButton, "Load", pauseMenuHoveredIndex == 2);
+		drawButton(pauseMenuSettingsButton, "Settings", pauseMenuHoveredIndex == 3);
+		drawButton(pauseMenuQuitButton, "Quit", pauseMenuHoveredIndex == 4);
+	} else {
+		drawButton(pauseMenuResumeButton, "Resume", pauseMenuHoveredIndex == 0);
+		drawButton(pauseMenuSettingsButton, "Settings", pauseMenuHoveredIndex == 1);
+		drawButton(pauseMenuQuitButton, "Quit", pauseMenuHoveredIndex == 2);
+	}
+
+	ofPopStyle();
+}
 // Prune old stamped autosave files, keeping at most `keep` newest ones
 static const std::string kSavesDir = "data/Saves";
 
@@ -2986,144 +3022,19 @@ void ofApp::applySettings() {
 
 //--------------------------------------------------------------
 void ofApp::allocateWorldFbo(int w, int h) {
-	if (w <= 0 || h <= 0) return;
-
-	const int currentW = static_cast<int>(worldFbo.getWidth());
-	const int currentH = static_cast<int>(worldFbo.getHeight());
-	if (worldFbo.isAllocated() && currentW == w && currentH == h) return;
-
-	ofFbo::Settings settings;
-	settings.width = w;
-	settings.height = h;
-	settings.internalformat = GL_RGBA8;
-	settings.textureTarget = GL_TEXTURE_2D;
-	settings.useDepth = true;
-	settings.useStencil = false;
-	settings.depthStencilAsTexture = false;
-	settings.minFilter = GL_LINEAR;
-	settings.maxFilter = GL_LINEAR;
-
-	worldFbo.allocate(settings);
-	if (!worldFbo.isAllocated()) {
-		ofLogWarning("FBO") << "worldFbo failed to allocate at " << w << "x" << h;
-	} else {
-		if (worldFbo.getTexture().isAllocated()) {
-			GLint filter = enablePixelArt ? GL_NEAREST : GL_LINEAR;
-			worldFbo.getTexture().setTextureMinMagFilter(filter, filter);
-		}
-
-		ofLogNotice("FBO") << "worldFbo allocated " << w << "x" << h;
-	}
-}
-//--------------------------------------------------------------
-void ofApp::drawPauseMenu() {
-	// Draw a semi-transparent overlay
-	ofEnableBlendMode(OF_BLENDMODE_ALPHA);
-	ofSetColor(0, 0, 0, 180);
-	ofDrawRectangle(0, 0, ofGetWidth(), ofGetHeight());
-
-	// --- Update button positions (in case of resize) ---
-	float btnWidth = 350;
-	float btnHeight = 70;
-	float centerX = ofGetWidth() / 2.0f;
-	float centerY = ofGetHeight() / 2.0f;
-
-	// Build list of visible buttons in order
-	std::vector<std::pair<ofRectangle *, std::string>> visible;
-	visible.push_back({ &pauseMenuResumeButton, "Resume" });
-	if (!isMultiplayer) {
-		visible.push_back({ &pauseMenuSaveButton, "Save" });
-		visible.push_back({ &pauseMenuLoadButton, "Load" });
-	}
-	visible.push_back({ &pauseMenuSettingsButton, "Settings" });
-	visible.push_back({ &pauseMenuQuitButton, "Quit to Main Menu" });
-
-	// Layout buttons. If Save+Load are both visible in singleplayer, place them side-by-side
-	float gap = 20.0f; // vertical spacing between rows
-	bool hasSave = false, hasLoad = false;
-	for (auto & p : visible) {
-		if (p.first == &pauseMenuSaveButton) hasSave = true;
-		if (p.first == &pauseMenuLoadButton) hasLoad = true;
-	}
-	bool combineSaveLoad = (!isMultiplayer && hasSave && hasLoad);
-
-	int totalRows = (int)visible.size();
-	if (combineSaveLoad) totalRows = totalRows - 1; // save+load share one row
-
-	float totalH = totalRows * btnHeight + std::max(0, totalRows - 1) * (int)gap;
-	float startY = centerY - totalH / 2.0f;
-
-	// Fill positions row by row
-	int i = 0;
-	int row = 0;
-	while (i < (int)visible.size()) {
-		ofRectangle * r = visible[i].first;
-		if (combineSaveLoad && r == &pauseMenuSaveButton) {
-			// place Save (left) and Load (right) on same row
-			float pairGap = 12.0f;
-			float pairW = btnWidth;
-			float halfW = (pairW - pairGap) / 2.0f;
-			float y = startY + row * (btnHeight + gap);
-			pauseMenuSaveButton.set(centerX - pairW / 2.0f, y, halfW, btnHeight);
-			pauseMenuLoadButton.set(centerX - pairW / 2.0f + halfW + pairGap, y, halfW, btnHeight);
-			i += 2; // skip load (assumed next)
-			row++;
-		} else {
-			r->set(centerX - btnWidth / 2.0f, startY + row * (btnHeight + gap), btnWidth, btnHeight);
-			i++;
-			row++;
-		}
-	}
-
-	// --- Draw Buttons ---
-	auto drawButton = [&](const ofRectangle & rect, const string & text, bool isHovered) {
-		ofSetColor(isHovered ? ofColor::lightGray : ofColor::white);
-		ofFill();
-		ofDrawRectRounded(rect, 15);
-		ofSetColor(ofColor::black);
-		ofNoFill();
-		ofSetLineWidth(2);
-		ofDrawRectRounded(rect, 15);
-		ofFill();
-		ofRectangle textBox = uiFont.getStringBoundingBox(text, 0, 0);
-		float textX = round(rect.getCenter().x - textBox.getWidth() / 2.0f);
-		float textY = round(rect.getCenter().y + textBox.getHeight() / 2.0f);
-		uiFont.drawString(text, textX, textY);
-	};
-
-	// Draw in the same order
-	for (size_t i = 0, idx = 0; i < visible.size(); ++i, ++idx) {
-		ofRectangle * r = visible[i].first;
-		// Map hovered index values to the visible ordering (pauseMenuHoveredIndex uses global mapping)
-		bool hovered = false;
-		// Compute expected hovered index mapping consistent with earlier logic
-		if (!isMultiplayer) {
-			// 0: Resume, 1: Save, 2: Load, 3: Settings, 4: Quit
-			int globalIndex = -1;
-			if (r == &pauseMenuResumeButton)
-				globalIndex = 0;
-			else if (r == &pauseMenuSaveButton)
-				globalIndex = 1;
-			else if (r == &pauseMenuLoadButton)
-				globalIndex = 2;
-			else if (r == &pauseMenuSettingsButton)
-				globalIndex = 3;
-			else if (r == &pauseMenuQuitButton)
-				globalIndex = 4;
-			hovered = (pauseMenuHoveredIndex == globalIndex);
-		} else {
-			// 0: Resume, 1: Settings, 2: Quit
-			int globalIndex = -1;
-			if (r == &pauseMenuResumeButton)
-				globalIndex = 0;
-			else if (r == &pauseMenuSettingsButton)
-				globalIndex = 1;
-			else if (r == &pauseMenuQuitButton)
-				globalIndex = 2;
-			hovered = (pauseMenuHoveredIndex == globalIndex);
-		}
-		drawButton(*r, visible[i].second, hovered);
-	}
+	// Minimal allocator to ensure world FBOs exist. Full post-processing
+	// setup is handled elsewhere; keeping this simple avoids accidental
+	// large UI code being embedded here after prior edits.
+	ofFbo::Settings s;
+	s.width = std::max(2, w);
+	s.height = std::max(2, h);
+	s.internalformat = GL_RGBA8;
+	s.textureTarget = GL_TEXTURE_2D;
+	s.useDepth = true;
+	s.useStencil = false;
+	s.depthStencilAsTexture = false;
+	worldFbo.allocate(s);
+	// Leave additional post-processing FBO allocations as-is elsewhere
 }
 // Recalculate ui
 void ofApp::recalculateUI(int w, int h) {
@@ -3143,6 +3054,30 @@ void ofApp::recalculateUI(int w, int h) {
 	mainMenuMultiplayerButton.set(centerX - btnWidth / 2, startY + btnHeight + 20, btnWidth, btnHeight);
 	mainMenuSettingsButton.set(centerX - btnWidth / 2, startY + (btnHeight + 20) * 2, btnWidth, btnHeight);
 	mainMenuQuitButton.set(centerX - btnWidth / 2, startY + (btnHeight + 20) * 3, btnWidth, btnHeight);
+
+	// 3. Pause Menu Buttons (centered stack)
+	float pBtnWidth = 320;
+	float pBtnHeight = 64;
+	float pGap = 18;
+	float pStartY = h / 2.0f - (pBtnHeight * 2 + pGap * 2) / 2.0f; // center the stack vertically
+	// When not multiplayer we show Resume, Save, Load, Settings, Quit (5 buttons)
+	// When multiplayer we show Resume, Settings, Quit (3 buttons)
+	if (!isMultiplayer) {
+		pauseMenuResumeButton.set(centerX - pBtnWidth / 2, pStartY + (pBtnHeight + pGap) * 0, pBtnWidth, pBtnHeight);
+		pauseMenuSaveButton.set(centerX - pBtnWidth / 2, pStartY + (pBtnHeight + pGap) * 1, pBtnWidth, pBtnHeight);
+		pauseMenuLoadButton.set(centerX - pBtnWidth / 2, pStartY + (pBtnHeight + pGap) * 2, pBtnWidth, pBtnHeight);
+		pauseMenuSettingsButton.set(centerX - pBtnWidth / 2, pStartY + (pBtnHeight + pGap) * 3, pBtnWidth, pBtnHeight);
+		pauseMenuQuitButton.set(centerX - pBtnWidth / 2, pStartY + (pBtnHeight + pGap) * 4, pBtnWidth, pBtnHeight);
+	} else {
+		// compact 3-button layout for multiplayer
+		float mpStartY = h / 2.0f - (pBtnHeight * 3 + pGap * 2) / 2.0f;
+		pauseMenuResumeButton.set(centerX - pBtnWidth / 2, mpStartY + (pBtnHeight + pGap) * 0, pBtnWidth, pBtnHeight);
+		pauseMenuSettingsButton.set(centerX - pBtnWidth / 2, mpStartY + (pBtnHeight + pGap) * 1, pBtnWidth, pBtnHeight);
+		pauseMenuQuitButton.set(centerX - pBtnWidth / 2, mpStartY + (pBtnHeight + pGap) * 2, pBtnWidth, pBtnHeight);
+		// ensure Save/Load rects are set to offscreen so they don't intercept hits
+		pauseMenuSaveButton.set(-9999, -9999, 0, 0);
+		pauseMenuLoadButton.set(-9999, -9999, 0, 0);
+	}
 }
 //--------------------------------------------------------------
 void ofApp::setupGame() {
@@ -15983,6 +15918,47 @@ void ofApp::processEffectOp(EffectOp & op) {
 		break;
 	}
 
+	case EffectOpType::APPLY_PSIONIC_WAVE: {
+		// Read authoritative cards-to-remove from blackboard[0]
+		int cardsToRemove = currentEffectSequence.blackboard[0];
+		ofLogNotice("Psionic") << "Removing " << cardsToRemove << " cards from " << psionicWaveTargetIndices.size() << " targets.";
+
+		for (int pIndex : psionicWaveTargetIndices) {
+			Player * target = getPlayer(pIndex);
+			if (!target) continue;
+
+			int removedCount = 0;
+			for (int k = 0; k < cardsToRemove; ++k) {
+				if (!target->deck.empty()) {
+					Card c = target->deck.back();
+					target->deck.pop_back();
+
+					RemovedCardAnimation anim;
+					anim.card = c;
+					anim.startPos = glm::vec2(getActiveCamera().worldToScreen(gridToWorld(target->x, target->y)));
+					anim.startTime = ofGetElapsedTimef();
+					anim.currentScale = 1.0f;
+					activeRemovedCardAnimations.push_back(anim);
+
+					removedCount++;
+				}
+			}
+
+			if (removedCount > 0) {
+				queueFloatingTextVisual(gridToWorld(target->x, target->y), "-" + ofToString(removedCount) + " Cards", ofColor::purple);
+			} else {
+				queueFloatingTextVisual(gridToWorld(target->x, target->y), "Deck Empty!", ofColor::gray);
+			}
+		}
+		psionicWaveTargetIndices.clear();
+		if (cardPlayState != CARD_STATE_IDLE) {
+			advanceCardState(CARD_STATE_EFFECT_SEQUENCE);
+		}
+
+		opComplete = true;
+		break;
+	}
+
 	case EffectOpType::APPLY_EARTHQUAKE: {
 		// Read authoritative distance results from blackboard and apply to earthquakeUnits
 		int n = (int)earthquakeUnits.size();
@@ -22331,10 +22307,26 @@ void ofApp::resolveDeathDice() {
 				// FAIL: SLEEP (Roll Duration)
 				queueFloatingTextVisual(gridToWorld(target->x, target->y), "Sleep...", ofColor::cyan);
 
-				// Roll 1d6 for duration
-				startDiceRoll(1, 6, PURPOSE_SLEEP_DURATION, "Sleep Duration", currentPlayerIndex);
-				isWaitingForSleepDuration = true;
-				// Note: currentCardOutcome.targetPlayerIndex is still valid
+				// Queue authoritative 1d6 sleep-duration roll and apply via effect sequence
+				beginEffectSequence();
+				EffectOp sleepRoll = {};
+				sleepRoll.type = EffectOpType::ROLL_DICE;
+				sleepRoll.data.rollDice.numDice = 1;
+				sleepRoll.data.rollDice.sides = 6;
+				sleepRoll.data.rollDice.purpose = PURPOSE_SLEEP_DURATION;
+				sleepRoll.data.rollDice.ownerIndex = currentPlayerIndex;
+				sleepRoll.data.rollDice.outputSlot = 1; // APPLY_SLEEP_DURATION reads slot 1
+				strncpy(sleepRoll.data.rollDice.label, "Sleep Duration", 31);
+				sleepRoll.data.rollDice.label[31] = '\0';
+				queueEffect(sleepRoll);
+
+				EffectOp applySleep = {};
+				applySleep.type = EffectOpType::APPLY_SLEEP_DURATION;
+				queueEffect(applySleep);
+
+				advanceCardState(CARD_STATE_EFFECT_SEQUENCE);
+				beginEffectSequence();
+				// Note: currentCardOutcome.targetPlayerIndex will be used by APPLY handler
 			}
 		} else {
 			currentCardOutcome.targetPlayerIndex = -1;
@@ -22576,58 +22568,33 @@ void ofApp::resolvePsionicRangeDice() {
 				advanceCardState(CARD_STATE_EFFECT_SEQUENCE);
 			}
 		} else {
-			// 3. Roll for Effect (2d4 Cards)
-			currentCardOutcome.namedDiceResults["psionic_amount"] = startDiceRoll(2, 4, PURPOSE_PSIONIC_WAVE_AMOUNT, "Psionic Wave: Cards to Remove", currentPlayerIndex);
-			isWaitingForPsionicAmount = true;
+			// 3. Roll for Effect (2d4 Cards) — queue authoritative roll + apply
+			beginEffectSequence();
+			EffectOp rollOp = {};
+			rollOp.type = EffectOpType::ROLL_DICE;
+			rollOp.data.rollDice.numDice = 2;
+			rollOp.data.rollDice.sides = 4;
+			rollOp.data.rollDice.purpose = PURPOSE_PSIONIC_WAVE_AMOUNT;
+			rollOp.data.rollDice.ownerIndex = currentPlayerIndex;
+			rollOp.data.rollDice.outputSlot = 0;
+			strncpy(rollOp.data.rollDice.label, "Psionic Wave: Cards to Remove", 31);
+			rollOp.data.rollDice.label[31] = '\0';
+			queueEffect(rollOp);
+
+			EffectOp applyOp = {};
+			applyOp.type = EffectOpType::APPLY_PSIONIC_WAVE;
+			queueEffect(applyOp);
+
+			advanceCardState(CARD_STATE_EFFECT_SEQUENCE);
+			beginEffectSequence();
 		}
 	}
 }
 
 //--------------------------------------------------------------
 void ofApp::resolvePsionicAmountDice() {
-	if (isWaitingForPsionicAmount && diceVisualsFinishedAndLinger()) {
-		isWaitingForPsionicAmount = false;
-
-		int cardsToRemove = currentCardOutcome.namedDiceResults["psionic_amount"];
-		ofLogNotice("Psionic") << "Removing " << cardsToRemove << " cards from " << psionicWaveTargetIndices.size() << " targets.";
-
-		for (int pIndex : psionicWaveTargetIndices) {
-			Player * target = getPlayer(pIndex);
-			if (!target) continue;
-
-			int removedCount = 0;
-			// Remove top cards
-			for (int k = 0; k < cardsToRemove; k++) {
-				if (!target->deck.empty()) {
-					// Logic to remove
-					Card c = target->deck.back();
-					target->deck.pop_back();
-
-					// Spawn animation for visual feedback (Flying card disappearing)
-					RemovedCardAnimation anim;
-					anim.card = c;
-					// Convert world position to screen-space so the removed-card
-					// animation isn't affected if player vectors reorder later.
-					anim.startPos = glm::vec2(getActiveCamera().worldToScreen(gridToWorld(target->x, target->y)));
-					anim.startTime = ofGetElapsedTimef();
-					anim.currentScale = 1.0f;
-					activeRemovedCardAnimations.push_back(anim);
-
-					removedCount++;
-				} // If deck is empty, do nothing (no card removed)
-			}
-
-			if (removedCount > 0) {
-				queueFloatingTextVisual(gridToWorld(target->x, target->y), "-" + ofToString(removedCount) + " Cards", ofColor::purple);
-			} else {
-				queueFloatingTextVisual(gridToWorld(target->x, target->y), "Deck Empty!", ofColor::gray);
-			}
-		}
-		psionicWaveTargetIndices.clear();
-		if (cardPlayState != CARD_STATE_IDLE) {
-			advanceCardState(CARD_STATE_EFFECT_SEQUENCE);
-		}
-	}
+	// Psionic Wave handled via APPLY_PSIONIC_WAVE effect op
+	return;
 }
 
 //--------------------------------------------------------------
@@ -22802,91 +22769,33 @@ void ofApp::resolveMagicBoltRangeDice() {
 			ofLogNotice("Magic Bolt") << "Bolt fizzled inside a wall. No AOE.";
 			queueFloatingTextVisual(gridToWorld((int)currentCardOutcome.primaryTarget.x, (int)currentCardOutcome.primaryTarget.y), "Fizzle!", ofColor::gray);
 		} else {
-			// Start PRIMARY damage roll (1d20). Wait for its visuals to complete before
-			// applying damage and then rolling the AOE radius.
-			currentCardOutcome.namedDiceResults["magicbolt_primary"] = startDiceRoll(1, 20, PURPOSE_DAMAGE, "Magic Bolt: Primary Damage", currentPlayerIndex);
-			isWaitingForMagicBoltPrimary = true;
+			// Queue PRIMARY damage roll (1d20) and APPLY handler via effect sequence
+			beginEffectSequence();
+			EffectOp dmgRoll = {};
+			dmgRoll.type = EffectOpType::ROLL_DICE;
+			dmgRoll.data.rollDice.numDice = 1;
+			dmgRoll.data.rollDice.sides = 20;
+			dmgRoll.data.rollDice.purpose = PURPOSE_DAMAGE;
+			dmgRoll.data.rollDice.ownerIndex = currentPlayerIndex;
+			dmgRoll.data.rollDice.outputSlot = 1;
+			strncpy(dmgRoll.data.rollDice.label, "Magic Bolt: Primary Damage", 31);
+			dmgRoll.data.rollDice.label[31] = '\0';
+			queueEffect(dmgRoll);
+
+			EffectOp primaryApply = {};
+			primaryApply.type = EffectOpType::APPLY_MAGIC_BOLT_PRIMARY;
+			queueEffect(primaryApply);
+
+			advanceCardState(CARD_STATE_EFFECT_SEQUENCE);
+			beginEffectSequence();
 		}
 	}
 }
 
 //--------------------------------------------------------------
 void ofApp::resolveMagicBoltPrimaryDice() {
-	if (isWaitingForMagicBoltPrimary && diceVisualsFinishedAndLinger()) {
-		isWaitingForMagicBoltPrimary = false;
-
-		// Apply primary damage to unit on impact tile (if any)
-		Player * directHitTarget = nullptr;
-		for (auto & p : players) {
-			if (p.x == currentCardOutcome.primaryTarget.x && p.y == currentCardOutcome.primaryTarget.y) {
-				directHitTarget = &p;
-				break;
-			}
-		}
-
-		int primaryDamage = currentCardOutcome.namedDiceResults["magicbolt_primary"];
-		if (directHitTarget) {
-			ofLogNotice("Magic Bolt") << "Direct Hit! Dealing " << primaryDamage << " Magic damage.";
-			int dmg = primaryDamage;
-			int barrierDmg = std::min(directHitTarget->barrier, dmg);
-			if (barrierDmg > 0) {
-				EffectOp bOp = {};
-				bOp.type = EffectOpType::MODIFY_STAT;
-				bOp.data.modifyStat.targetIndex = /*player index lookup*/ -1;
-				// resolve target player index
-				for (size_t _i = 0; _i < players.size(); ++_i)
-					if (&players[_i] == directHitTarget) {
-						bOp.data.modifyStat.targetIndex = (int)_i;
-						break;
-					}
-				bOp.data.modifyStat.statType = 6; // Barrier
-				bOp.data.modifyStat.delta = -barrierDmg;
-				bOp.data.modifyStat.deltaFromSlot = -1;
-				processEffectOp(bOp);
-			}
-			dmg -= barrierDmg;
-			int wardDmg = std::min(directHitTarget->ward, dmg);
-			if (wardDmg > 0) {
-				EffectOp wOp = {};
-				wOp.type = EffectOpType::MODIFY_STAT;
-				wOp.data.modifyStat.targetIndex = -1;
-				for (size_t _i = 0; _i < players.size(); ++_i)
-					if (&players[_i] == directHitTarget) {
-						wOp.data.modifyStat.targetIndex = (int)_i;
-						break;
-					}
-				wOp.data.modifyStat.statType = 8; // Ward
-				wOp.data.modifyStat.delta = -wardDmg;
-				wOp.data.modifyStat.deltaFromSlot = -1;
-				processEffectOp(wOp);
-			}
-			dmg -= wardDmg;
-
-			if (dmg > 0) {
-				EffectOp hpOp = {};
-				hpOp.type = EffectOpType::MODIFY_STAT;
-				hpOp.data.modifyStat.targetIndex = -1;
-				for (size_t _i = 0; _i < players.size(); ++_i)
-					if (&players[_i] == directHitTarget) {
-						hpOp.data.modifyStat.targetIndex = (int)_i;
-						break;
-					}
-				hpOp.data.modifyStat.statType = 0; // HP
-				hpOp.data.modifyStat.delta = -dmg;
-				hpOp.data.modifyStat.deltaFromSlot = -1;
-				processEffectOp(hpOp);
-				queueFloatingTextVisual(gridToWorld(directHitTarget->x, directHitTarget->y), "-" + ofToString(dmg) + " Magic", ofColor::red);
-			} else {
-				queueFloatingTextVisual(gridToWorld(directHitTarget->x, directHitTarget->y), "Absorbed", ofColor::gray);
-			}
-		} else {
-			queueFloatingTextVisual(gridToWorld((int)currentCardOutcome.primaryTarget.x, (int)currentCardOutcome.primaryTarget.y), ofToString(primaryDamage) + "!", ofColor::purple);
-		}
-
-		// After primary damage visuals complete, start AOE radius roll (1d20)
-		currentCardOutcome.namedDiceResults["magicbolt_aoe"] = startDiceRoll(1, 20, PURPOSE_RANGE, "Magic Bolt: AOE Radius", currentPlayerIndex);
-		isWaitingForMagicBoltAoe = true;
-	}
+	// Magic Bolt primary resolved via APPLY_MAGIC_BOLT_PRIMARY effect op
+	return;
 }
 
 //--------------------------------------------------------------
@@ -29041,9 +28950,11 @@ void ofApp::onCardPicked(int optionIndex) {
 			s.rotation = 0.0f;
 			activeShuffleAnimations.push_back(s);
 		}
-		// Return to game
-		currentState = STATE_GAMEPLAY;
-		return;
+		// Return to game (only for in-game drafts)
+		if (isInGameDraft) {
+			currentState = STATE_GAMEPLAY;
+			return;
+		}
 	}
 	// Remove picked card from options so it can't be picked again this round
 	draftOptions.erase(draftOptions.begin() + optionIndex);
