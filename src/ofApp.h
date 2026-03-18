@@ -196,6 +196,7 @@ enum DicePurpose {
 	PURPOSE_SPARK_OF_GENIUS_DRAW,
 	PURPOSE_PSIONIC_WAVE_RANGE,
 	PURPOSE_PSIONIC_WAVE_AMOUNT,
+	PURPOSE_TELEPORT_RANGE,
 	PURPOSE_EARTHQUAKE_DISTANCE,
 	PURPOSE_EARTHQUAKE_DAMAGE,
 	PURPOSE_MAGIC_HAND_DAMAGE,
@@ -321,6 +322,7 @@ enum class EffectOpType : uint8_t {
 	APPLY_MAGIC_BOLT_AOE,
 	APPLY_ATTACK,
 	APPLY_PSIONIC_WAVE,
+	APPLY_TELEPORT,
 	APPLY_SHOOT_ARROW,
 	APPLY_SHOOT_ARROW_DAMAGE,
 	APPLY_CHAIN_LIGHTNING,
@@ -1000,7 +1002,7 @@ private:
 	void resolveFlailDice();
 	void resolveSparkOfGeniusDice();
 	void resolveBarrierDice();
-	void resolveTeleportDice();
+
 	void resolveOnFireDice();
 	void resolvePoisonStatusDice();
 	// Paralysis/Wolf coin resolvers removed; handled via effect ops.
@@ -1992,8 +1994,6 @@ private:
 	std::vector<ofRectangle> statusSelectButtons;
 	std::vector<std::string> statusSelectLabels;
 
-	// Teleport
-	bool isWaitingForTeleportDice = false;
 	// Teleport now uses centralized interaction fields: `interactingCardIndex`, `interactionDiceRoll`, `interactionTargetTile`
 
 	// --- EARTHQUAKE SYSTEM ---

@@ -3827,7 +3827,6 @@ void ofApp::updateGame() {
 	resolveFlailDice();
 	resolveSparkOfGeniusDice();
 	resolveBarrierDice();
-	resolveTeleportDice();
 	resolveOnFireDice();
 	resolvePoisonStatusDice();
 	// Paralysis & Wolf coin flips are handled via effect-ops (APPLY_PARALYSIS / APPLY_WOLF_COIN)
@@ -14188,6 +14187,32 @@ void ofApp::updateCardInteractionState(CardInteractionState newState, int cardId
 			}
 		}
 	}
+
+	// When entering targeting for Teleport, queue deterministic range roll via effect/op pipeline
+	if (newState == CARD_INTERACTION_TARGETING && cardType == CARD_TELEPORT && cardIdx >= 0 && currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) {
+		Player & caster = players[currentPlayerIndex];
+		if (cardIdx < (int)caster.hand.size()) {
+			Card & card = caster.hand[cardIdx];
+			beginEffectSequence();
+			EffectOp rollOp = {};
+			rollOp.type = EffectOpType::ROLL_DICE;
+			rollOp.data.rollDice.numDice = card.numDice;
+			rollOp.data.rollDice.sides = card.diceSides;
+			rollOp.data.rollDice.purpose = PURPOSE_TELEPORT_RANGE;
+			rollOp.data.rollDice.ownerIndex = currentPlayerIndex;
+			rollOp.data.rollDice.outputSlot = 0;
+			strncpy(rollOp.data.rollDice.label, "Teleport: Range", 31);
+			rollOp.data.rollDice.label[31] = '\0';
+			queueEffect(rollOp);
+
+			EffectOp applyOp = {};
+			applyOp.type = EffectOpType::APPLY_TELEPORT;
+			queueEffect(applyOp);
+
+			// reflect that we're awaiting dice for this interaction
+			cardPlayState = CARD_STATE_DICE;
+		}
+	}
 	ofLogNotice("CardInteraction") << "State: " << (int)newState << " | Card: " << cardIdx << " Type: " << cardType;
 }
 
@@ -14983,7 +15008,6 @@ void ofApp::cancelAllTargeting() {
 
 	// Clear additional state not covered by resetCardInteraction()
 	// Waiting/rolling flags
-	isWaitingForTeleportDice = false;
 	isWaitingForMagicBoltRange = false;
 	isWaitingForChainLightningRange = false;
 
@@ -16033,6 +16057,18 @@ void ofApp::processEffectOp(EffectOp & op) {
 			advanceCardState(CARD_STATE_EFFECT_SEQUENCE);
 		}
 
+		opComplete = true;
+		break;
+	}
+
+	case EffectOpType::APPLY_TELEPORT: {
+		// Read authoritative teleport range from blackboard[0] and enter targeting mode
+		interactionDiceRoll = currentEffectSequence.blackboard[0];
+		// Ensure centralized targeting state
+		updateCardInteractionState(CARD_INTERACTION_TARGETING, interactingCardIndex, CARD_TELEPORT);
+		ofLogNotice("Teleport") << "Rolled: " << interactionDiceRoll << "ft. Choose destination. CardIdx=" << interactingCardIndex;
+		// Compute valid highlights for teleport destinations
+		calculateTargetHighlights(interactingCardIndex);
 		opComplete = true;
 		break;
 	}
@@ -32474,25 +32510,7 @@ void ofApp::resolveBarrierDice() {
 	tryTriggerShellSpike();
 }
 
-void ofApp::resolveTeleportDice() {
-	if (!isWaitingForTeleportDice || !diceVisualsFinishedAndLinger()) return;
-
-	isWaitingForTeleportDice = false;
-
-	// Enter centralized targeting mode for Teleport (interacting fields already set)
-	updateCardInteractionState(CARD_INTERACTION_TARGETING, interactingCardIndex, CARD_TELEPORT);
-	ofLogNotice("Teleport") << "Rolled: " << interactionDiceRoll << "ft. Choose destination. CardIdx=" << interactingCardIndex;
-	calculateTargetHighlights(interactingCardIndex);
-
-	// Debug: count highlighted tiles
-	int targetableCount = 0;
-	for (int x = 0; x < BOARD_WIDTH; x++) {
-		for (int y = 0; y < BOARD_HEIGHT; y++) {
-			if (board[x][y].isTargetable) targetableCount++;
-		}
-	}
-	ofLogNotice("Teleport") << "Targetable tiles: " << targetableCount;
-}
+// Teleport resolution migrated to effect/op pipeline: APPLY_TELEPORT handles range->targeting
 
 void ofApp::resolveOnFireDice() {
 	if (!isWaitingForOnFireDice || !diceVisualsFinishedAndLinger()) return;

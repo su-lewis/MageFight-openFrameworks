@@ -1,14 +1,14 @@
 V	1
-STATE	2	2	0	0	0	0	1	3	0	0	0	1	6	1	1773823136
+STATE	2	1	0	0	0	0	1	2	0	1	2	1	6	0	1773849449
 QUEUE	0
 BOARD	000000000000000111000111000010000000100000000100000001110101011100000001000000001000000010000111000111000000000000000	000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
 DRAFTOPTS		SEL	
-PLAYERS	3
-P	302	4	5	1	1	0	0	0	0	0	0	0	0	0	0	1	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	1	1	0	0	0	0	0	0	0	0	0	1	0	-1	0	0	0	0	0	0	0	0	Faerie	DECK	Magic Blast,Dispel,Lesser Heal,Dispel,Lesser Heal	HAND		DISCARD		PLAYED		PLAYEDTYPES	
-P	0	4	4	15	15	0	0	0	0	0	0	0	0	360	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	-1	0	0	0	0	0	0	0	0	0	0	0	0	0	-1	0	0	0	0	0	-1	0	0		DECK	Call for Kobolds,Punch,Mind Theft	HAND		DISCARD	Punch,Mind Theft,Call for Kobolds,Call for Wolves,Punch,Kick,Hand Block,Bash,Ward,Stab,Slash,Mind Theft,Amnesia,Magic Blast,Fireball,Shock,Rock Crush,Dispel,Teleport,Hasten,Replicate,Wisdom Boon,Ethereal Jolt,Flame Hit,Heal,Raise Dead,Summon Golem,Strengthen Elements,Summon Wall,Dark Shield,Drain Punch,Double Handed,Blocking Boon,Call for Wolves,Necromancer's Blessing,Time Vortex,Master Fist,Magic Bolt,Flail,Summon Hellhound,Death,Summon Demon,Shield Bash,Train,Chain Lightning,Study,Consume Health Potion,Add Poison,Flurry of Fists,Form of Tortoise,Fortify,Vampire Bite,Call for Kobolds,Demolition,Renewed Inspiration,Spark of Genius,Psionic Wave,Summon Magic Wall,Earthquake,Form of Ghost,Giant Magic Hand,Consume Large Health Potion,Lesser Heal,Transform Wall,Summon Kobold King,Summon Assistant,Constitution Boon,Four-leaf clover,Sprint,Full Restore,Smite,Burst of Light,Shoot Arrow,Summon Faerie	PLAYED		PLAYEDTYPES	59
-P	1	12	0	15	15	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	-1	0	0	0	0	0	0	0	0	0	0	0	0	0	-1	0	0	0	0	0	-1	0	0		DECK	Heal,Heal,Drain Punch,Drain Punch,Full Restore	HAND		DISCARD		PLAYED		PLAYEDTYPES	
+PLAYERS	2
+P	0	0	4	15	15	0	0	0	0	0	0	0	0	360	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	-1	0	0	0	0	0	0	0	0	0	0	0	0	0	-1	0	0	0	0	0	-1	0	0		DECK	Magic Blast,Double Handed,Shield Bash,Double Handed,Shield Bash	HAND		DISCARD		PLAYED		PLAYEDTYPES	
+P	1	12	0	15	15	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	-1	0	0	0	0	0	0	0	0	0	0	0	0	0	-1	0	0	0	0	0	-1	0	0		DECK	Lesser Heal,Summon Faerie,Mind Theft	HAND	Mind Theft,Lesser Heal	DISCARD		PLAYED		PLAYEDTYPES	
 GRAVEYARD	0
-KEYS	15
+KEYS	16
+KEY	4	4	1
 KEY	6	4	1
 KEY	8	4	1
 KEY	0	0	2
@@ -16,7 +16,6 @@ KEY	6	1	2
 KEY	12	4	2
 KEY	12	8	2
 KEY	6	7	2
-KEY	0	4	2
 KEY	4	0	3
 KEY	8	0	3
 KEY	11	3	3
@@ -24,3 +23,4 @@ KEY	11	5	3
 KEY	8	8	3
 KEY	4	8	3
 KEY	1	3	3
+KEY	1	5	3
