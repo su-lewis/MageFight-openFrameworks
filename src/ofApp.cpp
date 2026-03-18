@@ -14662,20 +14662,25 @@ void ofApp::handleCardMenuClick(const std::string & buttonId) {
 	case CARD_BURST_OF_LIGHT: {
 		// Menu choice: "damage" or "heal"
 		if (buttonId == "damage") {
-			EffectOp burstDamageOp;
+			// Use effect-op pipeline so the change is authoritative and deterministic
+			beginEffectSequence();
+			EffectOp burstDamageOp = {};
 			burstDamageOp.type = EffectOpType::DAMAGE;
 			burstDamageOp.data.damage.targetIndex = interactionTargetIndex;
 			burstDamageOp.data.damage.damageType = DAMAGE_HOLY;
 			burstDamageOp.data.damage.fixedDamage = 3;
 			burstDamageOp.data.damage.damageFromSlot = -1;
-			processEffectOp(burstDamageOp);
+			queueEffect(burstDamageOp);
+			advanceCardState(CARD_STATE_EFFECT_SEQUENCE);
 		} else if (buttonId == "heal") {
-			EffectOp burstHealOp;
+			beginEffectSequence();
+			EffectOp burstHealOp = {};
 			burstHealOp.type = EffectOpType::HEAL;
 			burstHealOp.data.heal.targetIndex = interactionTargetIndex;
 			burstHealOp.data.heal.amount = 3;
 			burstHealOp.data.heal.amountFromSlot = -1;
-			processEffectOp(burstHealOp);
+			queueEffect(burstHealOp);
+			advanceCardState(CARD_STATE_EFFECT_SEQUENCE);
 		}
 		currentAP -= card.cost;
 		updatePlayerAP(caster, currentAP);
@@ -17491,38 +17496,64 @@ void ofApp::queueVisualEvent(const VisualEvent & e) {
 void ofApp::processVisualEvents() {
 	if (visualEvents.empty()) return;
 	float now = ofGetElapsedTimef();
-	// Update and remove completed events
+
+	// Update and handle visual events (spawn visuals on start, finalize on completion)
 	for (auto & ev : visualEvents) {
 		if (ev.completed) continue;
-		if (ev.type == VE_WAIT) {
+
+		switch (ev.type) {
+		case VE_WAIT:
 			if (now - ev.startTime >= ev.duration) ev.completed = true;
-		} else if (ev.type == VE_DICE) {
-			// Start visual dice roll when event begins
+			break;
+
+		case VE_DICE:
+			// Spawn the 3D dice visuals once at event start (uses precomputed raw faces)
 			if (!ev.visualStarted) {
 				startVisualDiceRoll(ev);
 				ev.visualStarted = true;
-				// reset start time to measure duration after spawn
+				ev.startTime = now; // measure duration after spawn
+			}
+			// When dice visual duration expires, simply complete the event.
+			if (now - ev.startTime >= ev.duration) {
+				ev.completed = true;
+			}
+			break;
+
+		case VE_TRACER: {
+			// Spawn tracer once then wait its duration
+			if (!ev.spawned) {
+				glm::ivec2 impact = transformWorldToGrid(ev.endPos);
+				spawnTracer(ev.startPos, ev.endPos, impact, ev.color, ev.duration);
+				ev.spawned = true;
 				ev.startTime = now;
 			}
 			if (now - ev.startTime >= ev.duration) ev.completed = true;
-		} else if (ev.type == VE_CUSTOM) {
-			// Custom events auto-complete after their duration unless handled externally
+		} break;
+
+		case VE_CUSTOM:
+			// Generic custom visuals (commonly used for floating text)
+			if (!ev.spawned) {
+				if (!ev.text.empty()) {
+					spawnFloatingText(ev.startPos, ev.text, ev.color);
+				}
+				ev.spawned = true;
+				ev.startTime = now;
+			}
 			if (ev.duration > 0.0f) {
 				if (now - ev.startTime >= ev.duration) ev.completed = true;
-			} else if (ev.type == VE_TRACER) {
-				// Spawn tracer on first frame then wait duration
-				if (!ev.spawned) {
-					// Compute impact tile from endPos for highlight
-					glm::ivec2 impact = transformWorldToGrid(ev.endPos);
-					spawnTracer(ev.startPos, ev.endPos, impact, ev.color, ev.duration);
-					ev.spawned = true;
-					ev.startTime = now;
-				}
-				if (now - ev.startTime >= ev.duration) ev.completed = true;
+			} else {
+				// default short lifetime when no duration specified
+				if (now - ev.startTime >= 1.2f) ev.completed = true;
 			}
+			break;
+
+		default:
+			ev.completed = true;
+			break;
 		}
 	}
-	// Erase completed
+
+	// Erase completed events
 	visualEvents.erase(std::remove_if(visualEvents.begin(), visualEvents.end(), [](const VisualEvent & v) { return v.completed; }), visualEvents.end());
 }
 
