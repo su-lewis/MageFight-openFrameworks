@@ -14367,6 +14367,12 @@ void ofApp::handleCardTargetClick(int gridX, int gridY) {
 							steamManager.sendPacket(&pkt, sizeof(pkt));
 							ofLogNotice("Network") << "Host sent PlaceSummonedMinion: KOBOLD owner=" << pkt.ownerPlayerID << " target=(" << pkt.targetX << "," << pkt.targetY << ") HP=" << pkt.minionHP;
 						}
+						// If this is the first kobold placed, release the played card from hand
+						if (koboldSummonCount == 1) {
+							currentAP -= card.cost;
+							updatePlayerAP(caster, currentAP);
+							finishPlayCard(caster, card, interactingCardIndex);
+						}
 						koboldsRemainingToPlace--;
 						if (koboldsRemainingToPlace <= 0) {
 							updateCardInteractionState(CARD_INTERACTION_IDLE, -1, CARD_NONE);
@@ -14437,6 +14443,11 @@ void ofApp::handleCardTargetClick(int gridX, int gridY) {
 						}
 						if (wolfSummonStage == 1) {
 							checkKeyPickupAndDraftAfterSummon(gx, gy, wolf.ownerID);
+							// Remove the played card from the caster's hand now that placement began
+							// and charge AP so the card is released from the player's hand.
+							currentAP -= card.cost;
+							updatePlayerAP(caster, currentAP);
+							finishPlayCard(caster, card, interactingCardIndex);
 							// Queue authoritative coin flip and apply result via effect system
 							EffectOp rollOp = {};
 							rollOp.type = EffectOpType::ROLL_DICE;
@@ -33007,11 +33018,13 @@ void ofApp::resolveParalysisCoinFlip() {
 void ofApp::resolveWolfCoinFlip() {
 	if (!isWaitingForWolfCoin) return;
 
-	// Check if dice are finished
+	// Capture finished visual coin result (if any)
 	bool diceFinished = false;
+	int flipResult = 0;
 	for (const auto & d : activeDiceRolls) {
 		if (d.purpose == PURPOSE_COIN_FLIP && d.isFinishedVisual) {
 			diceFinished = true;
+			flipResult = d.result; // 1=Tails, 2=Heads
 			break;
 		}
 	}
@@ -33019,103 +33032,13 @@ void ofApp::resolveWolfCoinFlip() {
 
 	isWaitingForWolfCoin = false;
 
-	// Get the coin flip result
-	int flipResult = 0;
-	for (const auto & d : activeDiceRolls) {
-		if (d.purpose == PURPOSE_COIN_FLIP && d.isFinishedVisual) {
-			flipResult = d.result; // 1=Tails, 2=Heads
-			break;
-		}
-	}
-
-	// Find Summoner for Text Position
-	Player * summoner = nullptr;
-	for (auto & p : players) {
-		if (p.x == wolfPlacementSourceX && p.y == wolfPlacementSourceY) {
-			summoner = &p;
-			break;
-		}
-	}
-	glm::vec3 textPos = summoner ? gridToWorld(summoner->x, summoner->y) : glm::vec3(0, 0, 0);
-
-	if (flipResult == 1) {
-		// TAILS: FAIL
-		ofLogNotice("Wolves") << "Tails! The call fizzles.";
-		queueFloatingTextVisual(textPos, "Fizzles...", ofColor::gray);
-
-		// End the sequence
-		updateCardInteractionState(CARD_INTERACTION_IDLE, -1, CARD_NONE);
-		wolfSummonStage = 0;
-
-		// Cleanup Turn Order
-		int myID = players[currentPlayerIndex].playerID;
-		std::sort(players.begin(), players.end(), [](const Player & a, const Player & b) {
-			int ownerA = a.isMinion ? a.ownerID : a.playerID;
-			int ownerB = b.isMinion ? b.ownerID : b.playerID;
-			if (ownerA != ownerB) return ownerA < ownerB;
-			if (a.isMinion && !b.isMinion) return true;
-			if (!a.isMinion && b.isMinion) return false;
-			return a.summonOrder < b.summonOrder;
-		});
-
-		// Fix index
-		for (size_t i = 0; i < players.size(); i++) {
-			if (players[i].playerID == myID) {
-				currentPlayerIndex = i;
-				break;
-			}
-		}
-	} else {
-		// HEADS: Check if we have space for the 2nd wolf
-		bool hasSpace = false;
-		glm::vec2 adj[] = { { 1, 0 }, { -1, 0 }, { 0, 1 }, { 0, -1 } };
-		for (auto & d : adj) {
-			int nx = wolfPlacementSourceX + (int)d.x;
-			int ny = wolfPlacementSourceY + (int)d.y;
-			if (nx >= 0 && nx < BOARD_WIDTH && ny >= 0 && ny < BOARD_HEIGHT) {
-				if (!board[nx][ny].hasWall && !board[nx][ny].hasPlayer) {
-					hasSpace = true;
-					break;
-				}
-			}
-		}
-
-		if (hasSpace) {
-			// SUCCESS - Prompt for 2nd placement if LOCAL player
-			if (isCurrentPlayerLocal()) {
-				ofLogNotice("Wolves") << "Heads! You can place another wolf.";
-				queueFloatingTextVisual(textPos, "Double Summon!", ofColor::gold);
-				wolfSummonStage = 2; // Advance stage to Wolf 2
-				// interaction remains CARD_INTERACTION_PLACING
-			} else {
-				queueFloatingTextVisual(textPos, "Opponent choosing 2nd Wolf...", ofColor::gold);
-				updateCardInteractionState(CARD_INTERACTION_IDLE, -1, CARD_NONE);
-				wolfSummonStage = 0;
-			}
-		} else {
-			// HEADS BUT BLOCKED
-			ofLogNotice("Wolves") << "Heads, but no space for 2nd wolf.";
-			queueFloatingTextVisual(textPos, "No Space!", ofColor::red);
-			updateCardInteractionState(CARD_INTERACTION_IDLE, -1, CARD_NONE);
-			wolfSummonStage = 0;
-
-			int myID = players[currentPlayerIndex].playerID;
-			std::sort(players.begin(), players.end(), [](const Player & a, const Player & b) {
-				int ownerA = a.isMinion ? a.ownerID : a.playerID;
-				int ownerB = b.isMinion ? b.ownerID : b.playerID;
-				if (ownerA != ownerB) return ownerA < ownerB;
-				if (a.isMinion && !b.isMinion) return true;
-				if (!a.isMinion && b.isMinion) return false;
-				return a.summonOrder < b.summonOrder;
-			});
-			for (size_t i = 0; i < players.size(); i++) {
-				if (players[i].playerID == myID) {
-					currentPlayerIndex = i;
-					break;
-				}
-			}
-		}
-	}
+	// Use effect sequence blackboard to pass the authoritative flip result
+	beginEffectSequence();
+	currentEffectSequence.blackboard[0] = flipResult;
+	EffectOp applyOp = {};
+	applyOp.type = EffectOpType::APPLY_WOLF_COIN;
+	queueEffect(applyOp);
+	advanceCardState(CARD_STATE_EFFECT_SEQUENCE);
 }
 
 //--------------------------------------------------------------
