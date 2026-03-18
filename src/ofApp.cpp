@@ -13572,9 +13572,27 @@ void ofApp::startNewTurn() {
 				return;
 			}
 			if (startingPlayer.isPoisoned) {
-				isWaitingForPoisonDice = true;
-				currentCardOutcome.namedDiceResults["status_poison"] = resolveDiceRoll(1, 6);
-				startDiceRoll(1, 6, PURPOSE_DEBUG, "Poison Status Damage", currentPlayerIndex);
+				// Queue authoritative poison damage roll and APPLY_POISON handler
+				currentCardOutcome.poisonTargetPlayerIDs.clear();
+				currentCardOutcome.poisonTargetPlayerIDs.push_back(players[currentPlayerIndex].playerID);
+
+				EffectOp rollOp = {};
+				rollOp.type = EffectOpType::ROLL_DICE;
+				rollOp.data.rollDice.numDice = 1;
+				rollOp.data.rollDice.sides = 6;
+				rollOp.data.rollDice.purpose = PURPOSE_DEBUG;
+				rollOp.data.rollDice.ownerIndex = currentPlayerIndex;
+				rollOp.data.rollDice.outputSlot = 0;
+				strncpy(rollOp.data.rollDice.label, "Poison Status Damage", 31);
+				rollOp.data.rollDice.label[31] = '\0';
+				queueEffect(rollOp);
+
+				EffectOp applyOp = {};
+				applyOp.type = EffectOpType::APPLY_POISON;
+				queueEffect(applyOp);
+
+				advanceCardState(CARD_STATE_EFFECT_SEQUENCE);
+				beginEffectSequence();
 				return;
 			}
 			if (startingPlayer.isParalyzed) {
@@ -13742,9 +13760,24 @@ void ofApp::startNewTurn() {
 		startingPlayer.sleepTurnsRemaining--;
 		queueFloatingTextVisual(gridToWorld(startingPlayer.x, startingPlayer.y), "Zzz...", ofColor::cyan);
 		if (startingPlayer.onFire) {
-			isWaitingForOnFireDice = true;
-			currentCardOutcome.namedDiceResults["status_onfire"] = resolveDiceRoll(1, 6);
-			startDiceRoll(1, 6, PURPOSE_DEBUG, "Sleeping Fire Damage", currentPlayerIndex);
+			// Queue authoritative fire damage roll and APPLY_ON_FIRE handler
+			EffectOp rollOp = {};
+			rollOp.type = EffectOpType::ROLL_DICE;
+			rollOp.data.rollDice.numDice = 1;
+			rollOp.data.rollDice.sides = 6;
+			rollOp.data.rollDice.purpose = PURPOSE_DEBUG;
+			rollOp.data.rollDice.ownerIndex = currentPlayerIndex;
+			rollOp.data.rollDice.outputSlot = 0;
+			strncpy(rollOp.data.rollDice.label, "Sleeping Fire Damage", 31);
+			rollOp.data.rollDice.label[31] = '\0';
+			queueEffect(rollOp);
+
+			EffectOp applyOp = {};
+			applyOp.type = EffectOpType::APPLY_ON_FIRE;
+			queueEffect(applyOp);
+
+			advanceCardState(CARD_STATE_EFFECT_SEQUENCE);
+			beginEffectSequence();
 			return;
 		}
 		startNewTurn();
@@ -13851,9 +13884,24 @@ void ofApp::continueNewTurn() {
 
 		// If on fire while sleeping, roll damage first, then the update loop will end the turn
 		if (startingPlayer.onFire) {
-			isWaitingForOnFireDice = true;
-			currentCardOutcome.namedDiceResults["status_onfire"] = resolveDiceRoll(1, 6);
-			startDiceRoll(1, 6, PURPOSE_DEBUG, "Sleeping Fire Damage", currentPlayerIndex);
+			// Queue authoritative fire damage roll and APPLY_ON_FIRE handler
+			EffectOp rollOp = {};
+			rollOp.type = EffectOpType::ROLL_DICE;
+			rollOp.data.rollDice.numDice = 1;
+			rollOp.data.rollDice.sides = 6;
+			rollOp.data.rollDice.purpose = PURPOSE_DEBUG;
+			rollOp.data.rollDice.ownerIndex = currentPlayerIndex;
+			rollOp.data.rollDice.outputSlot = 0;
+			strncpy(rollOp.data.rollDice.label, "Sleeping Fire Damage", 31);
+			rollOp.data.rollDice.label[31] = '\0';
+			queueEffect(rollOp);
+
+			EffectOp applyOp = {};
+			applyOp.type = EffectOpType::APPLY_ON_FIRE;
+			queueEffect(applyOp);
+
+			advanceCardState(CARD_STATE_EFFECT_SEQUENCE);
+			beginEffectSequence();
 			return;
 		}
 
