@@ -20632,7 +20632,7 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 			queueEffect(rollOp);
 		}
 		spawnSkeletonOp.data.spawnUnit.maxHealth = 0;
-		spawnSkeletonOp.data.spawnUnit.maxHealthFromSlot = -1;
+		spawnSkeletonOp.data.spawnUnit.maxHealthFromSlot = 0;
 		spawnSkeletonOp.data.spawnUnit.ap = 0;
 		queueEffect(spawnSkeletonOp);
 
@@ -20948,7 +20948,7 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 			queueEffect(rollOp);
 		}
 		spawnGolemOp.data.spawnUnit.maxHealth = 0;
-		spawnGolemOp.data.spawnUnit.maxHealthFromSlot = -1;
+		spawnGolemOp.data.spawnUnit.maxHealthFromSlot = 1;
 		spawnGolemOp.data.spawnUnit.ap = 0;
 		queueEffect(spawnGolemOp);
 
@@ -21286,7 +21286,7 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 			queueEffect(rollOp);
 		}
 		spawnHellhoundOp.data.spawnUnit.maxHealth = 0;
-		spawnHellhoundOp.data.spawnUnit.maxHealthFromSlot = -1;
+		spawnHellhoundOp.data.spawnUnit.maxHealthFromSlot = 2;
 		spawnHellhoundOp.data.spawnUnit.ap = 0;
 		queueEffect(spawnHellhoundOp);
 
@@ -21321,7 +21321,7 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 			queueEffect(rollOp);
 		}
 		spawnDemonOp.data.spawnUnit.maxHealth = 0;
-		spawnDemonOp.data.spawnUnit.maxHealthFromSlot = -1;
+		spawnDemonOp.data.spawnUnit.maxHealthFromSlot = 3;
 		spawnDemonOp.data.spawnUnit.ap = 0;
 		queueEffect(spawnDemonOp);
 
@@ -32980,11 +32980,13 @@ void ofApp::resolvePoisonStatusDice() {
 void ofApp::resolveParalysisCoinFlip() {
 	if (!isWaitingForParalysisCoin) return;
 
-	// Check if dice are finished
+	// Check for finished coin visual and capture the result
 	bool diceFinished = false;
+	int flipResult = 0;
 	for (const auto & d : activeDiceRolls) {
 		if (d.purpose == PURPOSE_COIN_FLIP && d.isFinishedVisual) {
 			diceFinished = true;
+			flipResult = d.result; // 1=Tails, 2=Heads
 			break;
 		}
 	}
@@ -32992,54 +32994,14 @@ void ofApp::resolveParalysisCoinFlip() {
 
 	isWaitingForParalysisCoin = false;
 
-	// Get the coin flip result
-	int flipResult = 0;
-	for (const auto & d : activeDiceRolls) {
-		if (d.purpose == PURPOSE_COIN_FLIP && d.isFinishedVisual) {
-			flipResult = d.result; // 1=Tails, 2=Heads
-			break;
-		}
-	}
-
-	Player & p = players[currentPlayerIndex];
-
-	// Check for 2 (Heads)
-	if (flipResult == 2) {
-		// Increment heads count
-		p.paralysisHeadsCount++;
-
-		// If 2 heads in a row, cure paralysis
-		if (p.paralysisHeadsCount >= 2) {
-			ofLogNotice("Paralysis") << "2nd Heads! Paralysis is cured.";
-			// Queue removal of paralysis deterministically
-			{
-				EffectOp rm = {};
-				rm.type = EffectOpType::REMOVE_STATUS;
-				rm.data.status.targetIndex = currentPlayerIndex;
-				rm.data.status.statusType = STATUS_PARALYZED;
-				rm.data.status.duration = 0;
-				queueEffect(rm);
-			}
-			p.paralysisHeadsCount = 0;
-		} else {
-			ofLogNotice("Paralysis") << "Heads! Can play this turn (" << p.paralysisHeadsCount << "/2 heads).";
-		}
-
-		// Continue turn
-		if (p.onFire) {
-			isWaitingForOnFireDice = true;
-			currentCardOutcome.namedDiceResults["status_onfire"] = resolveDiceRoll(1, 6);
-			startDiceRoll(1, 6, PURPOSE_DEBUG, "", currentPlayerIndex);
-		} else {
-			continueNewTurn();
-		}
-	} else { // Rolled 1 (Tails)
-		ofLogNotice("Paralysis") << "Tails! Player remains paralyzed and skips turn.";
-		// Reset heads count
-		p.paralysisHeadsCount = 0;
-		// End turn immediately
-		startNewTurn();
-	}
+	// Enter a short effect sequence: write authoritative flip to blackboard[0]
+	// and queue the existing APPLY_PARALYSIS handler to process it deterministically.
+	beginEffectSequence();
+	currentEffectSequence.blackboard[0] = flipResult;
+	EffectOp applyOp = {};
+	applyOp.type = EffectOpType::APPLY_PARALYSIS;
+	queueEffect(applyOp);
+	advanceCardState(CARD_STATE_EFFECT_SEQUENCE);
 }
 
 void ofApp::resolveWolfCoinFlip() {
