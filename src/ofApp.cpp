@@ -3811,9 +3811,9 @@ void ofApp::updateGame() {
 	// === CENTRALIZED ASYNC RESOLUTION HELPERS ===
 	// All dice/state resolution for cards now dispatched through helpers or effect-ops
 	resolveMagicHandDamage();
-	resolveFireballDamage();
-	resolveSummonHealth();
-	resolveAmnesiaDice();
+	// Fireball resolution handled by EffectOpType::APPLY_FIREBALL
+	// Summon health handled by queued EffectOps (SPAWN_UNIT)
+	// Amnesia resolution now handled via EffectOpType::APPLY_AMNESIA
 	resolveDeathDice();
 	resolveSleepDuration();
 	resolveJoltRangeDice();
@@ -4339,10 +4339,6 @@ void ofApp::updateGame() {
 					}
 				} else if (roll.purpose == PURPOSE_BONUS_AP) {
 					resolveBonusAP(roll);
-				} else if (roll.purpose == PURPOSE_BLOCKING_BOON_COIN || roll.purpose == PURPOSE_BLOCKING_BOON_D20) {
-					// Delegate to centralized resolver for Blocking Boon
-					resolveBlockingBoon(roll);
-					return;
 				} else if (roll.purpose == PURPOSE_SUMMON_KOBOLDS) {
 					// Centralized summon handling
 					resolveSummonKobolds(roll);
@@ -4370,25 +4366,7 @@ void ofApp::updateGame() {
 		}
 	} // This is the closing brace of the "for (auto it = activeDiceRolls.begin()..." loop
 
-	// --- START FIX: Blocking Boon Stage Transition ---
-	// After iterating through dice, check if the coin stage just finished and the D20 stage is queued.
-	// This safely starts the next set of dice rolls without modifying the vector during iteration.
-	if (!isWaitingForBlockingBoonCoins && currentCardOutcome.namedDiceResults["blocking_boon_nonphys"] > 0) {
-		int toRoll = currentCardOutcome.namedDiceResults["blocking_boon_nonphys"];
-		ofLogNotice("Blocking Boon") << "Coins finished; now rolling " << toRoll << " D20s for Non-Phys Block.";
-		EffectOp rollOp = {};
-		rollOp.type = EffectOpType::ROLL_DICE;
-		rollOp.data.rollDice.numDice = toRoll;
-		rollOp.data.rollDice.sides = 20;
-		rollOp.data.rollDice.purpose = PURPOSE_BLOCKING_BOON_D20;
-		rollOp.data.rollDice.ownerIndex = currentPlayerIndex;
-		rollOp.data.rollDice.outputSlot = 0;
-		strncpy(rollOp.data.rollDice.label, "Boon: Magic Roll", 31);
-		rollOp.data.rollDice.label[31] = '\0';
-		queueEffect(rollOp);
-		currentCardOutcome.namedDiceResults["blocking_boon_nonphys"] = 0; // Mark as rolled
-	}
-	// --- END FIX ---
+	// Blocking Boon sequencing is now handled by APPLY_BLOCKING_BOON_* ops
 
 	// ================== PASTE YOUR NEW CODE HERE ==================
 	// Check if we need to start a chained draft
@@ -14770,7 +14748,14 @@ void ofApp::handleCardMenuClick(const std::string & buttonId) {
 				rollOp.data.rollDice.label[31] = '\0';
 				queueEffect(rollOp);
 			}
-			isWaitingForAmnesiaDice = true;
+			// Queue authoritative apply op to handle amnesia result deterministically
+			{
+				EffectOp applyOp = {};
+				applyOp.type = EffectOpType::APPLY_AMNESIA;
+				queueEffect(applyOp);
+			}
+			advanceCardState(CARD_STATE_EFFECT_SEQUENCE);
+			beginEffectSequence();
 			amnesiaTargetPlayerIndex = currentPlayerIndex;
 			amnesiaChooserPlayerID = caster.isMinion ? caster.ownerID : caster.playerID;
 			currentAP -= card.cost;
@@ -16403,6 +16388,85 @@ void ofApp::processEffectOp(EffectOp & op) {
 		} else {
 			currentCardOutcome.targetPlayerIndex = -1;
 		}
+		opComplete = true;
+		break;
+	}
+
+	case EffectOpType::APPLY_BLOCKING_BOON_COIN: {
+		// Read authoritative coin flip result from blackboard slot 0 (1=Tails, 2=Heads)
+		int flip = currentEffectSequence.blackboard[0];
+
+		if (flip >= 2) {
+			// Heads: raise own max HP
+			players[currentPlayerIndex].maxHealth++;
+			queueFloatingTextVisual(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y), "+1 Max HP", ofColor::green);
+		} else {
+			// Tails: lower target max HP
+			Player * t = getPlayer(blockingBoonTargetIndex);
+			if (t) {
+				t->maxHealth = std::max(1, t->maxHealth - 1);
+				if (t->health > t->maxHealth) t->health = t->maxHealth;
+				queueFloatingTextVisual(gridToWorld(t->x, t->y), "-1 Max HP", ofColor::darkRed);
+			}
+		}
+
+		// Decrement counters stored in currentCardOutcome
+		currentCardOutcome.namedDiceResults["blocking_boon_coins_remaining"] = std::max(0, currentCardOutcome.namedDiceResults["blocking_boon_coins_remaining"] - 1);
+		currentCardOutcome.namedDiceResults["blocking_boon_total"] = std::max(0, currentCardOutcome.namedDiceResults["blocking_boon_total"] - 1);
+
+		// If we finished coins and have queued non-phys D20s, schedule them now
+		int nonphys = currentCardOutcome.namedDiceResults["blocking_boon_nonphys"];
+		if (currentCardOutcome.namedDiceResults["blocking_boon_coins_remaining"] == 0) {
+			// Mark coins stage finished
+			if (nonphys > 0) {
+				// Queue D20s for non-phys blocking
+				EffectOp rollOp = {};
+				rollOp.type = EffectOpType::ROLL_DICE;
+				rollOp.data.rollDice.numDice = nonphys;
+				rollOp.data.rollDice.sides = 20;
+				rollOp.data.rollDice.purpose = PURPOSE_BLOCKING_BOON_D20;
+				rollOp.data.rollDice.ownerIndex = currentPlayerIndex;
+				rollOp.data.rollDice.outputSlot = 0;
+				strncpy(rollOp.data.rollDice.label, "Boon: Magic Roll", 31);
+				rollOp.data.rollDice.label[31] = '\0';
+				queueEffect(rollOp);
+
+				EffectOp applyD20 = {};
+				applyD20.type = EffectOpType::APPLY_BLOCKING_BOON_D20;
+				queueEffect(applyD20);
+
+				// Mark nonphys as rolled
+				currentCardOutcome.namedDiceResults["blocking_boon_nonphys"] = 0;
+			} else {
+				// No more rolls; end active state
+				blockingBoonActive = false;
+			}
+		}
+
+		opComplete = true;
+		break;
+	}
+
+	case EffectOpType::APPLY_BLOCKING_BOON_D20: {
+		int val = currentEffectSequence.blackboard[0];
+		int classReward = 0;
+		if (val >= 20)
+			classReward = 3;
+		else if (val >= 16)
+			classReward = 2;
+		else if (val >= 10)
+			classReward = 1;
+
+		if (classReward > 0) {
+			networkPending.draftQueue.push_back(classReward);
+			queueFloatingTextVisual(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y), "Draft C" + ofToString(classReward), ofColor::cyan);
+		} else {
+			queueFloatingTextVisual(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y), "Fizzle", ofColor::gray);
+		}
+
+		currentCardOutcome.namedDiceResults["blocking_boon_total"] = std::max(0, currentCardOutcome.namedDiceResults["blocking_boon_total"] - 1);
+		if (currentCardOutcome.namedDiceResults["blocking_boon_total"] == 0) blockingBoonActive = false;
+
 		opComplete = true;
 		break;
 	}
@@ -18572,7 +18636,14 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 				strncpy(rollOp.data.rollDice.label, "Boon: Phys Flip", 31);
 				rollOp.data.rollDice.label[31] = '\0';
 				queueEffect(rollOp);
-				isWaitingForBlockingBoonCoins = true;
+				// Queue apply op (coin) to resolve each coin deterministically
+				{
+					EffectOp applyOp = {};
+					applyOp.type = EffectOpType::APPLY_BLOCKING_BOON_COIN;
+					queueEffect(applyOp);
+				}
+				advanceCardState(CARD_STATE_EFFECT_SEQUENCE);
+				beginEffectSequence();
 			}
 			currentCardOutcome.namedDiceResults["blocking_boon_coins_remaining"] = physBlock;
 			currentCardOutcome.namedDiceResults["blocking_boon_nonphys"] = nonPhys;
@@ -18593,7 +18664,13 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 					strncpy(rollOp.data.rollDice.label, "Boon: Magic Roll", 31);
 					rollOp.data.rollDice.label[31] = '\0';
 					queueEffect(rollOp);
-					isWaitingForBlockingBoonCoins = true;
+					{
+						EffectOp applyOp = {};
+						applyOp.type = EffectOpType::APPLY_BLOCKING_BOON_D20;
+						queueEffect(applyOp);
+					}
+					advanceCardState(CARD_STATE_EFFECT_SEQUENCE);
+					beginEffectSequence();
 				}
 				currentCardOutcome.namedDiceResults["blocking_boon_nonphys"] = 0;
 				currentCardOutcome.namedDiceResults["blocking_boon_total"] = nonPhys;
@@ -21819,55 +21896,7 @@ void ofApp::resolveSummonKobolds(const DiceRoll & finishedRoll) {
 // --------------------------------------------------------------
 // Blocking Boon centralized resolver
 // Handles both coin flips (PURPOSE_BLOCKING_BOON_COIN) and D20 class rewards (PURPOSE_BLOCKING_BOON_D20)
-void ofApp::resolveBlockingBoon(const DiceRoll & finishedRoll) {
-	if (finishedRoll.purpose == PURPOSE_BLOCKING_BOON_COIN) {
-		// Result 2 = Heads, 1 = Tails
-		if (finishedRoll.result >= 2) {
-			// Heads: raise own max HP
-			players[currentPlayerIndex].maxHealth++;
-			queueFloatingTextVisual(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y), "+1 Max HP", ofColor::green);
-		} else {
-			// Tails: lower target max HP
-			Player * t = getPlayer(blockingBoonTargetIndex);
-			if (t) {
-				t->maxHealth = std::max(1, t->maxHealth - 1);
-				if (t->health > t->maxHealth) t->health = t->maxHealth;
-				queueFloatingTextVisual(gridToWorld(t->x, t->y), "-1 Max HP", ofColor::darkRed);
-			}
-		}
-
-		if (isWaitingForBlockingBoonCoins) {
-			currentCardOutcome.namedDiceResults["blocking_boon_coins_remaining"] = std::max(0, currentCardOutcome.namedDiceResults["blocking_boon_coins_remaining"] - 1);
-			currentCardOutcome.namedDiceResults["blocking_boon_total"] = std::max(0, currentCardOutcome.namedDiceResults["blocking_boon_total"] - 1);
-
-			if (currentCardOutcome.namedDiceResults["blocking_boon_coins_remaining"] == 0) {
-				isWaitingForBlockingBoonCoins = false;
-				if (currentCardOutcome.namedDiceResults["blocking_boon_total"] == 0) {
-					blockingBoonActive = false;
-				}
-			}
-		}
-	} else if (finishedRoll.purpose == PURPOSE_BLOCKING_BOON_D20) {
-		int val = finishedRoll.result;
-		int classReward = 0;
-		if (val >= 20)
-			classReward = 3;
-		else if (val >= 16)
-			classReward = 2;
-		else if (val >= 10)
-			classReward = 1;
-
-		if (classReward > 0) {
-			networkPending.draftQueue.push_back(classReward);
-			queueFloatingTextVisual(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y), "Draft C" + ofToString(classReward), ofColor::cyan);
-		} else {
-			queueFloatingTextVisual(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y), "Fizzle", ofColor::gray);
-		}
-
-		currentCardOutcome.namedDiceResults["blocking_boon_total"] = std::max(0, currentCardOutcome.namedDiceResults["blocking_boon_total"] - 1);
-		if (currentCardOutcome.namedDiceResults["blocking_boon_total"] == 0) blockingBoonActive = false;
-	}
-}
+// Blocking Boon resolution migrated into EffectOp handlers: APPLY_BLOCKING_BOON_COIN & APPLY_BLOCKING_BOON_D20
 
 // --------------------------------------------------------------
 // Small resolver: BONUS AP
@@ -22006,244 +22035,13 @@ void ofApp::resolveMagicHandDamage() {
 	return;
 }
 
-//--- FIREBALL RANGE & DAMAGE RESOLUTION ---
-void ofApp::resolveFireballDamage() {
-	if (isWaitingForFireballRangeDice && diceVisualsFinishedAndLinger()) {
-		isWaitingForFireballRangeDice = false;
-		// If the range roll was produced by a queued EffectOp, its result
-		// is stored in the current effect sequence blackboard. Use that
-		// value to drive the resolver so queued and direct rolls behave
-		// identically.
-		if (currentEffectSequence.currentOp > 0 || currentEffectSequence.blackboard[0] != 0) {
-			interactionDiceRoll = currentEffectSequence.blackboard[0];
-		}
-
-		Player & caster = players[currentPlayerIndex];
-		glm::vec2 casterTile = { (float)caster.x, (float)caster.y };
-
-		float maxDistUnits = interactionDiceRoll / 5.0f;
-		float neededDist = getFaceToFaceDistance(casterTile, interactionTargetTile);
-		int requiredFeet = (neededDist > 1000.0f) ? 999 : (int)round(neededDist * 5.0f);
-
-		ofLogNotice("Fireball") << "Rolled: " << interactionDiceRoll << "ft (" << maxDistUnits << "). Needed: " << requiredFeet << "ft.";
-
-		if (maxDistUnits >= neededDist - 0.001f) {
-			ofLogNotice("Fireball") << "Direct Hit!";
-			fireballImpactTile = interactionTargetTile;
-
-			fireballTargetPlayerIndex = -1;
-			for (size_t i = 0; i < players.size(); i++) {
-				if (players[i].x == (int)fireballImpactTile.x && players[i].y == (int)fireballImpactTile.y) {
-					fireballTargetPlayerIndex = (int)i;
-					break;
-				}
-			}
-
-			if (fireballTargetPlayerIndex != -1) {
-				ofLogNotice("Fireball") << "Hit Player " << players[fireballTargetPlayerIndex].playerID << "! (damage roll queued via effect sequence)";
-			}
-
-			{
-				glm::vec3 worldStart, worldEnd;
-				glm::vec2 hitGrid = glm::vec2(fireballImpactTile.x + 0.5f, fireballImpactTile.y + 0.5f);
-				computeTracerEndpoints(casterTile, hitGrid, worldStart, worldEnd);
-				spawnTracer(worldStart, worldEnd, glm::ivec2((int)fireballImpactTile.x, (int)fireballImpactTile.y), ofColor(255, 120, 40), 5.0f);
-			}
-
-		} else {
-			ofLogNotice("Fireball") << "Fell short! The spell fizzles.";
-
-			glm::vec2 impactTile;
-			glm::vec2 dir = interactionTargetTile - casterTile;
-			if (glm::length(dir) > 0.0f) dir = glm::normalize(dir);
-
-			bool hitWall = false;
-			std::vector<glm::vec2> path = getLineOfSightPath(casterTile + 0.5f, interactionTargetTile + 0.5f);
-			for (const auto & step : path) {
-				float distToStep = getFaceToFaceDistance(casterTile, step);
-				if (distToStep > maxDistUnits) break;
-
-				if (isTileWall((int)step.x, (int)step.y)) {
-					impactTile = step;
-					hitWall = true;
-					break;
-				}
-			}
-
-			if (!hitWall) {
-				glm::vec2 impactPos = casterTile + (dir * maxDistUnits);
-				impactTile = { floor(impactPos.x), floor(impactPos.y) };
-			}
-
-			ofLogNotice("Fireball") << "Impact at (" << impactTile.x << ", " << impactTile.y << ")";
-
-			glm::vec3 failPos = gridToWorld((int)impactTile.x, (int)impactTile.y);
-			queueFloatingTextVisual(failPos, "Out of Range", ofColor::white);
-
-			{
-				glm::vec3 worldStart, worldEnd;
-				glm::vec2 hitGrid = impactTile + glm::vec2(0.5f, 0.5f);
-				computeTracerEndpoints(casterTile, hitGrid, worldStart, worldEnd);
-				spawnTracer(worldStart, worldEnd, glm::ivec2((int)impactTile.x, (int)impactTile.y), ofColor(255, 120, 40), 5.0f);
-			}
-		}
-	}
-
-	// Damage application is handled by the queued APPLY_FIREBALL -> ROLL_DICE/DAMAGE ops
-}
+// Fireball resolution migrated into EffectOpType::APPLY_FIREBALL handler
 
 //--- SUMMON HP RESOLUTION (Unified for Raise Dead / Hellhound / Demon) ---
-void ofApp::resolveSummonHealth() {
-	if (!isWaitingForSummonHealth) return;
-	if (!diceVisualsFinishedAndLinger()) return;
-
-	isWaitingForSummonHealth = false;
-
-	int sx = (int)interactionTargetTile.x;
-	int sy = (int)interactionTargetTile.y;
-	if (sx < 0 || sy < 0 || sx >= BOARD_WIDTH || sy >= BOARD_HEIGHT || board[sx][sy].hasPlayer || board[sx][sy].hasWall) {
-		ofLogWarning("Summon") << "Summon aborted: invalid/occupied tile (" << sx << "," << sy << ")";
-		currentCardOutcome.summonKind = PENDING_SUMMON_NONE;
-		return;
-	}
-
-	// Client: visuals only. Host/local singleplayer is authoritative for spawned unit.
-	if (isMultiplayer && isClient()) {
-		currentCardOutcome.summonKind = PENDING_SUMMON_NONE;
-		return;
-	}
-
-	if (currentCardOutcome.summonKind == PENDING_SUMMON_NONE) {
-		ofLogWarning("Summon") << "Summon aborted: no pending summon kind set.";
-		return;
-	}
-
-	Player minion;
-	if (currentCardOutcome.summonKind == PENDING_SUMMON_SKELETON) {
-		minion.playerID = 9000 + (int)players.size();
-		minion.isSkeleton = true;
-		minion.hasRegeneration = true;
-	} else if (currentCardOutcome.summonKind == PENDING_SUMMON_HELLHOUND) {
-		minion.playerID = 1000 + (int)players.size();
-		minion.isHellhound = true;
-	} else if (currentCardOutcome.summonKind == PENDING_SUMMON_DEMON) {
-		minion.playerID = 2000 + (int)players.size();
-		minion.isDemon = true;
-	}
-
-	minion.x = sx;
-	minion.y = sy;
-	minion.maxHealth = interactionDiceRoll;
-	minion.health = interactionDiceRoll;
-	minion.ap = 0; // summoning sickness
-	minion.isMinion = true;
-
-	int summoner = (interactionTargetIndex >= 0 && interactionTargetIndex < (int)players.size()) ? interactionTargetIndex : currentPlayerIndex;
-	if (summoner < 0 || summoner >= (int)players.size()) {
-		ofLogWarning("Summon") << "Summon aborted: invalid summoner index.";
-		currentCardOutcome.summonKind = PENDING_SUMMON_NONE;
-		return;
-	}
-	minion.ownerID = players[summoner].isMinion ? players[summoner].ownerID : players[summoner].playerID;
-	minion.summonedOnTurnCycle = globalTurnCounter;
-	minion.summonOrder = ++nextSummonOrder;
-
-	auto findCard = [&](const std::string & name, CardType type) -> Card {
-		for (const auto & c : allCards) {
-			if (c.name == name) return c;
-		}
-		for (const auto & c : allCards) {
-			if (c.type == type) return c;
-		}
-		return Card();
-	};
-
-	if (currentCardOutcome.summonKind == PENDING_SUMMON_SKELETON) {
-		Card slash = findCard("Slash", CARD_SLASH);
-		Card drainPunch = findCard("Drain Punch", CARD_DRAIN_PUNCH);
-		Card darkShield = findCard("Dark Shield", CARD_DARK_SHIELD);
-		minion.deck = { slash, slash, drainPunch, drainPunch, darkShield, darkShield };
-	} else if (currentCardOutcome.summonKind == PENDING_SUMMON_HELLHOUND) {
-		Card slash = findCard("Slash", CARD_SLASH);
-		Card flameHit = findCard("Flame Hit", CARD_FLAME_HIT);
-		Card fireball = findCard("Fireball", CARD_FIREBALL);
-		Card darkShield = findCard("Dark Shield", CARD_DARK_SHIELD);
-		minion.deck = { slash, slash, flameHit, flameHit, fireball, fireball, darkShield, darkShield, darkShield };
-	} else if (currentCardOutcome.summonKind == PENDING_SUMMON_DEMON) {
-		Card death = findCard("Death", CARD_DEATH);
-		Card flail = findCard("Flail", CARD_FLAIL);
-		Card fireball = findCard("Fireball", CARD_FIREBALL);
-		Card summonHellhound = findCard("Summon Hellhound", CARD_SUMMON_HELLHOUND);
-		Card darkShield = findCard("Dark Shield", CARD_DARK_SHIELD);
-		minion.deck = { death, death, flail, flail, fireball, fireball, summonHellhound, darkShield, darkShield, darkShield };
-	}
-
-	board[minion.x][minion.y].hasPlayer = true;
-	players.push_back(minion);
-	int newIdx = (int)players.size() - 1;
-	players[newIdx].visualPos = gridToWorld(players[newIdx].x, players[newIdx].y);
-	shuffleGameVector(players[newIdx].deck, newIdx);
-
-	if (isMultiplayer && isHost()) {
-		PlaceSummonedMinionPacket pkt = {};
-		pkt.type = PKT_PLACE_SUMMONED_MINION;
-		pkt.playerID = myLocalPlayerID;
-		pkt.minionType = (currentCardOutcome.summonKind == PENDING_SUMMON_SKELETON) ? 9 : (currentCardOutcome.summonKind == PENDING_SUMMON_HELLHOUND) ? 3
-																																					  : 4;
-		pkt.ownerPlayerID = minion.ownerID;
-		pkt.targetX = minion.x;
-		pkt.targetY = minion.y;
-		pkt.minionHP = minion.maxHealth;
-		pkt.minionAP = minion.ap;
-		steamManager.sendPacket(&pkt, sizeof(pkt));
-	}
-
-	int currentID = -1;
-	if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) {
-		currentID = players[currentPlayerIndex].playerID;
-	}
-	std::sort(players.begin(), players.end(), [](const Player & a, const Player & b) {
-		int ownerA = a.isMinion ? a.ownerID : a.playerID;
-		int ownerB = b.isMinion ? b.ownerID : b.playerID;
-		if (ownerA != ownerB) return ownerA < ownerB;
-		if (a.isMinion && !b.isMinion) return true;
-		if (!a.isMinion && b.isMinion) return false;
-		return a.summonOrder < b.summonOrder;
-	});
-
-	if (currentID >= 0) {
-		for (size_t i = 0; i < players.size(); i++) {
-			if (players[i].playerID == currentID) {
-				currentPlayerIndex = i;
-				break;
-			}
-		}
-	}
-
-	invalidateTargetCache();
-	checkKeyPickupAndDraftAfterSummon(minion.x, minion.y, minion.ownerID);
-	currentCardOutcome.summonKind = PENDING_SUMMON_NONE;
-}
+// Summon HP/placement handled by SPAWN_UNIT/EffectOp flow (spawn logic centralized in SPAWN_UNIT handler)
 
 //--------------------------------------------------------------
-void ofApp::resolveAmnesiaDice() {
-	if (isWaitingForAmnesiaDice && diceVisualsFinishedAndLinger()) {
-		isWaitingForAmnesiaDice = false;
-		Player * amnesiaTarget = getPlayer(amnesiaTargetPlayerIndex);
-		if (amnesiaTarget) {
-			numCardsToRemove = std::min(currentCardOutcome.namedDiceResults["amnesia_remove"], (int)amnesiaTarget->deck.size());
-			if (numCardsToRemove > 0) {
-				updateCardInteractionState(CARD_INTERACTION_MENU, interactingCardIndex, CARD_AMNESIA);
-				amnesiaDeckCopy = amnesiaTarget->deck;
-				amnesiaSelectedIndices.clear();
-			} else {
-				amnesiaTargetPlayerIndex = -1;
-			}
-		} else {
-			amnesiaTargetPlayerIndex = -1;
-		}
-	}
-}
+// Amnesia resolution handled by EffectOpType::APPLY_AMNESIA
 
 //--------------------------------------------------------------
 void ofApp::resolveMagicBlastDice() {

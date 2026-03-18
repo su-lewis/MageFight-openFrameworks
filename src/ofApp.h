@@ -311,6 +311,8 @@ enum class EffectOpType : uint8_t {
 	APPLY_ON_FIRE,
 	APPLY_PARALYSIS,
 	APPLY_WOLF_COIN,
+	APPLY_BLOCKING_BOON_COIN,
+	APPLY_BLOCKING_BOON_D20,
 	APPLY_INITIATIVE_REROLL,
 	APPLY_SLEEP_DURATION,
 	APPLY_MAGIC_BLAST,
@@ -968,7 +970,7 @@ private:
 
 	void resolveMagicHandDamage();
 	void resolveSummonHealth();
-	void resolveAmnesiaDice();
+	// Amnesia resolver removed; handled via EffectOpType::APPLY_AMNESIA
 	void resolveMagicBlastDice();
 	void resolveDeathDice();
 	void resolveSleepDuration();
@@ -977,10 +979,10 @@ private:
 	void resolveDeathCheckRoll(const DiceRoll & finishedRoll);
 	void resolveEarthquakeDamage(const DiceRoll & finishedRoll);
 	void resolveAPRoll();
-	void resolveBlockingBoon(const DiceRoll & finishedRoll);
+	// Blocking Boon resolution migrated to effect/op handlers (APPLY_BLOCKING_BOON_*)
 	void resolveSummonKobolds(const DiceRoll & finishedRoll);
 	void resolveJoltRangeDice();
-	void resolveFireballDamage();
+
 	void resolveEarthquakeDistance();
 	void resolveBonusAP(const DiceRoll & finishedRoll);
 
@@ -1917,8 +1919,7 @@ private:
 	// Poison damage rolls are stored in `currentCardOutcome.namedDiceResults["poison_attack"]`.
 	// Targets are in `currentCardOutcome.poisonTargetPlayerIDs`.
 
-	// Amnesia
-	bool isWaitingForAmnesiaDice = false;
+	// Amnesia (migrated to effect/op handlers)
 	int amnesiaTargetPlayerIndex = -1;
 	int numCardsToRemove = 0;
 	std::vector<Card> amnesiaDeckCopy;
@@ -1933,8 +1934,7 @@ private:
 	// Draft queue moved into `networkPending.draftQueue`.
 	int blockingBoonTargetIndex = -1; // Stores target for the "Tails" effect
 
-	// Blocking Boon staged resolution
-	bool isWaitingForBlockingBoonCoins = false; // true while coin flips are resolving
+	// Blocking Boon staged resolution (migrated to effect/op system)
 	// Counters moved into `currentCardOutcome.namedDiceResults`:
 	//  - "blocking_boon_coins_remaining"
 	//  - "blocking_boon_nonphys"
