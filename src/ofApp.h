@@ -989,8 +989,7 @@ private:
 	// Earthquake simulation update (migrated from updateGame())
 	void updateEarthquakeSimulation();
 	void resolveHealDice();
-	void resolvePsionicRangeDice();
-	void resolvePsionicAmountDice();
+
 	void resolveTimeVortexDice();
 	void resolveMagicBoltRangeDice();
 	void resolveMagicBoltPrimaryDice();
@@ -1004,8 +1003,7 @@ private:
 	void resolveTeleportDice();
 	void resolveOnFireDice();
 	void resolvePoisonStatusDice();
-	void resolveParalysisCoinFlip();
-	void resolveWolfCoinFlip();
+	// Paralysis/Wolf coin resolvers removed; handled via effect ops.
 
 	// Simple inline dice resolver for legacy inline uses (sums N dS)
 	int resolveDiceRoll(int numDice, int sides);
@@ -1956,8 +1954,6 @@ private:
 	ofRectangle magicBlastDiscardButton;
 
 	// --- Psionic Wave ---
-	bool isWaitingForPsionicRange = false;
-	bool isWaitingForPsionicAmount = false;
 	std::vector<int> psionicWaveTargetIndices; // Store who got hit by the range check
 
 	// Fireball
@@ -2096,7 +2092,6 @@ private:
 	// --- Tortoise Form Targeting State ---
 
 	// --- Call For Wolves State ---
-	bool isWaitingForWolfCoin = false;
 	int wolvesRemainingToPlace = 0;
 	int wolfPlacementSourceX = -1; // Where the summoner is standing
 	int wolfPlacementSourceY = -1;
@@ -2201,7 +2196,6 @@ private:
 
 	// Status Effects
 	bool isWaitingForOnFireDice = false;
-	bool isWaitingForParalysisCoin = false;
 	bool isWaitingForPoisonDice = false;
 	// NOTE: status dice results (onFire/poison/etc) are stored in
 	// `currentCardOutcome.namedDiceResults["status_onfire"]` and

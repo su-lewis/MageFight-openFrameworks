@@ -3818,8 +3818,6 @@ void ofApp::updateGame() {
 	resolveSleepDuration();
 	resolveJoltRangeDice();
 	resolveHealDice();
-	resolvePsionicRangeDice();
-	resolvePsionicAmountDice();
 	resolveTimeVortexDice();
 	// Magic Bolt now handled by effect-ops (APPLY_MAGIC_BOLT /* range */
 	// -> ROLL_DICE(primary) -> APPLY_MAGIC_BOLT_PRIMARY -> ROLL_DICE(aoe)
@@ -3832,8 +3830,7 @@ void ofApp::updateGame() {
 	resolveTeleportDice();
 	resolveOnFireDice();
 	resolvePoisonStatusDice();
-	resolveParalysisCoinFlip();
-	resolveWolfCoinFlip();
+	// Paralysis & Wolf coin flips are handled via effect-ops (APPLY_PARALYSIS / APPLY_WOLF_COIN)
 
 	// --- KOBOLD KING DYNAMIC HP LOGIC ---
 	// 1. Count current Kobolds
@@ -4343,17 +4340,6 @@ void ofApp::updateGame() {
 					// Centralized summon handling
 					resolveSummonKobolds(roll);
 					return;
-				} else if (roll.purpose == PURPOSE_COIN_FLIP) {
-					// Paralysis and Wolf coin flips handled by dedicated resolvers when active
-					if (isWaitingForParalysisCoin) {
-						resolveParalysisCoinFlip();
-						return;
-					}
-					if (isWaitingForWolfCoin) {
-						resolveWolfCoinFlip();
-						return;
-					}
-					// No ad-hoc handling here when not waiting for specific coin-driven flows.
 				}
 			}
 		}
@@ -9184,7 +9170,7 @@ void ofApp::drawGame() {
 	}
 
 	// --- TOP INSTRUCTION TEXT (Wolf Placement) ---
-	if (cardInteractionState == CARD_INTERACTION_PLACING && interactingCardType == CARD_CALL_FOR_WOLVES && !isWaitingForWolfCoin) {
+	if (cardInteractionState == CARD_INTERACTION_PLACING && interactingCardType == CARD_CALL_FOR_WOLVES) {
 		string msg = "Wolf: Choose spawn tile";
 
 		// Optional: Change text if it's the second wolf
@@ -11413,7 +11399,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 			return;
 		}
 		// --- WOLF PLACEMENT LOGIC ---
-		if (cardInteractionState == CARD_INTERACTION_PLACING && interactingCardType == CARD_CALL_FOR_WOLVES && !isWaitingForWolfCoin && button == OF_MOUSE_BUTTON_LEFT) {
+		if (cardInteractionState == CARD_INTERACTION_PLACING && interactingCardType == CARD_CALL_FOR_WOLVES && button == OF_MOUSE_BUTTON_LEFT) {
 			ofVec2f boardPos = mouseToBoard(x, y);
 			int gx = floor(boardPos.x), gy = floor(boardPos.y);
 
@@ -14378,7 +14364,7 @@ void ofApp::handleCardTargetClick(int gridX, int gridY) {
 		break;
 	}
 	case CARD_CALL_FOR_WOLVES: {
-		if (cardInteractionState == CARD_INTERACTION_PLACING && !isWaitingForWolfCoin) {
+		if (cardInteractionState == CARD_INTERACTION_PLACING) {
 			int gx = gridX, gy = gridY;
 			if (gx >= 0 && gx < BOARD_WIDTH && gy >= 0 && gy < BOARD_HEIGHT) {
 				if (!board[gx][gy].hasWall && !board[gx][gy].hasPlayer) {
@@ -15593,6 +15579,52 @@ void ofApp::processEffectOp(EffectOp & op) {
 			op.visualStarted = true;
 			// Do NOT wait for visuals to finish — effect sequence proceeds immediately.
 			opComplete = true;
+
+			// Special-case: Psionic Wave range roll should compute targets and
+			// enqueue the follow-up amount roll + apply op into the same effect sequence.
+			if (op.data.rollDice.purpose == PURPOSE_PSIONIC_WAVE_RANGE) {
+				int radiusFeet = currentEffectSequence.blackboard[op.data.rollDice.outputSlot];
+				float radiusUnits = radiusFeet / 5.0f;
+				Player & caster = players[currentPlayerIndex];
+				glm::vec2 casterTile((float)caster.x, (float)caster.y);
+				psionicWaveTargetIndices.clear();
+
+				ofLogNotice("Psionic") << "Range Roll: " << radiusFeet << "ft radius.";
+
+				// Identify targets (circular, through walls allowed)
+				for (size_t i = 0; i < players.size(); ++i) {
+					if ((int)i == currentPlayerIndex) continue;
+					float centerDistFeet = glm::distance(casterTile, glm::vec2(players[i].x, players[i].y)) * 5.0f;
+					float neededFeetRaw = std::max(0.0f, centerDistFeet - 2.5f);
+					int neededFeet = (int)floor(neededFeetRaw + 1e-4f);
+
+					if (neededFeet <= radiusFeet) {
+						psionicWaveTargetIndices.push_back((int)i);
+						glm::vec3 tPos = gridToWorld(players[i].x, players[i].y);
+						queueFloatingTextVisual(tPos, "Targeted!", ofColor::magenta);
+					}
+				}
+
+				if (psionicWaveTargetIndices.empty()) {
+					queueFloatingTextVisual(gridToWorld(caster.x, caster.y), "No Targets in Range", ofColor::gray);
+				} else {
+					// Queue follow-up authoritative roll (2d4 cards) into effect sequence
+					EffectOp rollOp = {};
+					rollOp.type = EffectOpType::ROLL_DICE;
+					rollOp.data.rollDice.numDice = 2;
+					rollOp.data.rollDice.sides = 4;
+					rollOp.data.rollDice.purpose = PURPOSE_PSIONIC_WAVE_AMOUNT;
+					rollOp.data.rollDice.ownerIndex = currentPlayerIndex;
+					rollOp.data.rollDice.outputSlot = 1; // Write amount to blackboard[1]
+					strncpy(rollOp.data.rollDice.label, "Psionic Wave: Cards to Remove", 31);
+					rollOp.data.rollDice.label[31] = '\0';
+					queueEffect(rollOp);
+
+					EffectOp applyOp = {};
+					applyOp.type = EffectOpType::APPLY_PSIONIC_WAVE;
+					queueEffect(applyOp);
+				}
+			}
 		}
 		break;
 	}
@@ -15965,8 +15997,8 @@ void ofApp::processEffectOp(EffectOp & op) {
 	}
 
 	case EffectOpType::APPLY_PSIONIC_WAVE: {
-		// Read authoritative cards-to-remove from blackboard[0]
-		int cardsToRemove = currentEffectSequence.blackboard[0];
+		// Read authoritative cards-to-remove from blackboard[1]
+		int cardsToRemove = currentEffectSequence.blackboard[1];
 		ofLogNotice("Psionic") << "Removing " << cardsToRemove << " cards from " << psionicWaveTargetIndices.size() << " targets.";
 
 		for (int pIndex : psionicWaveTargetIndices) {
@@ -19132,10 +19164,9 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 			strncpy(rollOp.data.rollDice.label, "Psionic Wave: Range", 31);
 			rollOp.data.rollDice.label[31] = '\0';
 			queueEffect(rollOp);
-			isWaitingForPsionicRange = true;
 		}
 		playedSuccessfully = true;
-		advanceCardState(CARD_STATE_DICE);
+		advanceCardState(CARD_STATE_EFFECT_SEQUENCE);
 		return true;
 	}
 
@@ -22371,77 +22402,8 @@ void ofApp::resolveHealDice() {
 	}
 }
 
-//--------------------------------------------------------------
-void ofApp::resolvePsionicRangeDice() {
-	if (isWaitingForPsionicRange && diceVisualsFinishedAndLinger()) {
-		isWaitingForPsionicRange = false;
-
-		// 1. Calculate Radius
-		// Center-origin radius: no flat +3 bonus.
-		int radiusFeet = currentCardOutcome.namedDiceResults["psionic_range"];
-		float radiusUnits = radiusFeet / 5.0f;
-		(void)radiusUnits;
-
-		Player & caster = players[currentPlayerIndex];
-		glm::vec2 casterTile((float)caster.x, (float)caster.y);
-
-		psionicWaveTargetIndices.clear();
-
-		ofLogNotice("Psionic") << "Range Roll: " << currentCardOutcome.namedDiceResults["psionic_range"] << "ft radius.";
-
-		// 2. Identify Targets (Circular, Through Walls)
-		for (size_t i = 0; i < players.size(); ++i) {
-			// Skip Self
-			if ((int)i == currentPlayerIndex) continue;
-
-			// Center-origin rule: center-to-center minus half tile (2.5ft), rounded down.
-			float centerDistFeet = glm::distance(casterTile, glm::vec2(players[i].x, players[i].y)) * 5.0f;
-			float neededFeetRaw = std::max(0.0f, centerDistFeet - 2.5f);
-			int neededFeet = (int)floor(neededFeetRaw + 1e-4f);
-
-			if (neededFeet <= radiusFeet) {
-				psionicWaveTargetIndices.push_back((int)i);
-
-				// Visual feedback for being targeted
-				glm::vec3 tPos = gridToWorld(players[i].x, players[i].y);
-				queueFloatingTextVisual(tPos, "Targeted!", ofColor::magenta);
-			}
-		}
-
-		if (psionicWaveTargetIndices.empty()) {
-			queueFloatingTextVisual(gridToWorld(caster.x, caster.y), "No Targets in Range", ofColor::gray);
-			if (cardPlayState != CARD_STATE_IDLE) {
-				advanceCardState(CARD_STATE_EFFECT_SEQUENCE);
-			}
-		} else {
-			// 3. Roll for Effect (2d4 Cards) — queue authoritative roll + apply
-			beginEffectSequence();
-			EffectOp rollOp = {};
-			rollOp.type = EffectOpType::ROLL_DICE;
-			rollOp.data.rollDice.numDice = 2;
-			rollOp.data.rollDice.sides = 4;
-			rollOp.data.rollDice.purpose = PURPOSE_PSIONIC_WAVE_AMOUNT;
-			rollOp.data.rollDice.ownerIndex = currentPlayerIndex;
-			rollOp.data.rollDice.outputSlot = 0;
-			strncpy(rollOp.data.rollDice.label, "Psionic Wave: Cards to Remove", 31);
-			rollOp.data.rollDice.label[31] = '\0';
-			queueEffect(rollOp);
-
-			EffectOp applyOp = {};
-			applyOp.type = EffectOpType::APPLY_PSIONIC_WAVE;
-			queueEffect(applyOp);
-
-			advanceCardState(CARD_STATE_EFFECT_SEQUENCE);
-			beginEffectSequence();
-		}
-	}
-}
-
-//--------------------------------------------------------------
-void ofApp::resolvePsionicAmountDice() {
-	// Psionic Wave handled via APPLY_PSIONIC_WAVE effect op
-	return;
-}
+// Psionic Wave range/amount resolution migrated to effect/op pipeline
+// (handled inside ROLL_DICE processing and EffectOpType::APPLY_PSIONIC_WAVE).
 
 //--------------------------------------------------------------
 void ofApp::resolveTimeVortexDice() {
@@ -23043,7 +23005,7 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 	}
 
 	// --- WOLF PLACEMENT HIGHLIGHTING ---
-	if (cardInteractionState == CARD_INTERACTION_PLACING && interactingCardType == CARD_CALL_FOR_WOLVES && !isWaitingForWolfCoin) {
+	if (cardInteractionState == CARD_INTERACTION_PLACING && interactingCardType == CARD_CALL_FOR_WOLVES) {
 		std::vector<glm::vec2> dirs = { { 0, 1 }, { 0, -1 }, { 1, 0 }, { -1, 0 } };
 		for (auto & dir : dirs) {
 			int nx = wolfPlacementSourceX + (int)dir.x;
@@ -32721,58 +32683,7 @@ void ofApp::resolvePoisonStatusDice() {
 // FINAL 5 HELPERS (Scattered Status Effects & Summoning)
 // ======================================
 
-void ofApp::resolveParalysisCoinFlip() {
-	if (!isWaitingForParalysisCoin) return;
-
-	// Check for finished coin visual and capture the result
-	bool diceFinished = false;
-	int flipResult = 0;
-	for (const auto & d : activeDiceRolls) {
-		if (d.purpose == PURPOSE_COIN_FLIP && d.isFinishedVisual) {
-			diceFinished = true;
-			flipResult = d.result; // 1=Tails, 2=Heads
-			break;
-		}
-	}
-	if (!diceFinished) return;
-
-	isWaitingForParalysisCoin = false;
-
-	// Enter a short effect sequence: write authoritative flip to blackboard[0]
-	// and queue the existing APPLY_PARALYSIS handler to process it deterministically.
-	beginEffectSequence();
-	currentEffectSequence.blackboard[0] = flipResult;
-	EffectOp applyOp = {};
-	applyOp.type = EffectOpType::APPLY_PARALYSIS;
-	queueEffect(applyOp);
-	advanceCardState(CARD_STATE_EFFECT_SEQUENCE);
-}
-
-void ofApp::resolveWolfCoinFlip() {
-	if (!isWaitingForWolfCoin) return;
-
-	// Capture finished visual coin result (if any)
-	bool diceFinished = false;
-	int flipResult = 0;
-	for (const auto & d : activeDiceRolls) {
-		if (d.purpose == PURPOSE_COIN_FLIP && d.isFinishedVisual) {
-			diceFinished = true;
-			flipResult = d.result; // 1=Tails, 2=Heads
-			break;
-		}
-	}
-	if (!diceFinished) return;
-
-	isWaitingForWolfCoin = false;
-
-	// Use effect sequence blackboard to pass the authoritative flip result
-	beginEffectSequence();
-	currentEffectSequence.blackboard[0] = flipResult;
-	EffectOp applyOp = {};
-	applyOp.type = EffectOpType::APPLY_WOLF_COIN;
-	queueEffect(applyOp);
-	advanceCardState(CARD_STATE_EFFECT_SEQUENCE);
-}
+// Paralysis and Wolf coin flip resolvers removed; handled via ROLL_DICE + APPLY_PARALYSIS / APPLY_WOLF_COIN effect ops.
 
 //--------------------------------------------------------------
 
