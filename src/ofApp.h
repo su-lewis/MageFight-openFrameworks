@@ -317,6 +317,7 @@ enum class EffectOpType : uint8_t {
 	APPLY_MAGIC_BOLT,
 	APPLY_MAGIC_BOLT_PRIMARY,
 	APPLY_MAGIC_BOLT_AOE,
+	APPLY_ATTACK,
 	APPLY_PSIONIC_WAVE,
 	APPLY_SHOOT_ARROW,
 	APPLY_SHOOT_ARROW_DAMAGE,
@@ -964,8 +965,7 @@ private:
 	bool executeCardByType(const Card & playedCard, int cardIndex, int targetX, int targetY, bool & playedSuccessfully, CardPlayResult & immediateResult); // centralized execution entry (incremental migration)
 
 	// --- Async Resolution Helpers (Centralized Dice/State Resolution) ---
-	void resolveAttackDamage();
-	void resolvePoisonDamage();
+
 	void resolveMagicHandDamage();
 	void resolveSummonHealth();
 	void resolveAmnesiaDice();

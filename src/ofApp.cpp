@@ -3810,7 +3810,6 @@ void ofApp::updateGame() {
 	// --- Amnesia Logic ---
 	// === CENTRALIZED ASYNC RESOLUTION HELPERS ===
 	// All dice/state resolution for cards now dispatched through helpers or effect-ops
-	resolveAttackDamage();
 	resolveMagicHandDamage();
 	resolveFireballDamage();
 	resolveSummonHealth();
@@ -15597,6 +15596,7 @@ void ofApp::processEffectOp(EffectOp & op) {
 
 	switch (op.type) {
 	case EffectOpType::ROLL_DICE: {
+		// Resolve dice immediately using gameplay RNG and spawn visuals without blocking
 		if (!op.visualStarted) {
 			int result = startDiceRoll(
 				op.data.rollDice.numDice,
@@ -15606,10 +15606,7 @@ void ofApp::processEffectOp(EffectOp & op) {
 				op.data.rollDice.ownerIndex);
 			currentEffectSequence.blackboard[op.data.rollDice.outputSlot] = result;
 			op.visualStarted = true;
-		}
-
-		// Wait for visual to complete
-		if (hasFinishedDiceRollFor(op.data.rollDice.purpose, op.data.rollDice.ownerIndex)) {
+			// Do NOT wait for visuals to finish — effect sequence proceeds immediately.
 			opComplete = true;
 		}
 		break;
@@ -16735,6 +16732,295 @@ void ofApp::processEffectOp(EffectOp & op) {
 		break;
 	}
 
+	case EffectOpType::APPLY_ATTACK: {
+		// Centralized attack resolver: read authoritative dice result from blackboard[0]
+		int baseDamage = currentEffectSequence.blackboard[0];
+		ofLogNotice("AttackDamage") << "Resolving attack - Targets: " << currentCardOutcome.attackTargetIndices.size() << ", Damage: " << baseDamage;
+		Player & attacker = players[currentPlayerIndex];
+
+		string resolvedAttackCardName = interactingCardName;
+
+		// Multiply damage for Bash according to flurry stacks
+		if (resolvedAttackCardName == "Bash" && attacker.flurryOfFistsStacks > 0) {
+			int mult = (1 << attacker.flurryOfFistsStacks);
+			baseDamage *= mult;
+		}
+		interactingCardName = ""; // Clear
+
+		string typeLabel = "";
+		switch (currentCardOutcome.attackDamageType) {
+		case DAMAGE_PHYSICAL:
+			typeLabel = " Physical";
+			break;
+		case DAMAGE_PIERCING:
+			typeLabel = " Piercing";
+			break;
+		case DAMAGE_MAGIC:
+			typeLabel = " Magic";
+			break;
+		case DAMAGE_ELECTRIC:
+			typeLabel = " Electric";
+			break;
+		case DAMAGE_FIRE:
+			typeLabel = " Fire";
+			break;
+		case DAMAGE_HOLY:
+			typeLabel = " Holy";
+			break;
+		case DAMAGE_POISON:
+			typeLabel = " Poison";
+			break;
+		}
+
+		bool applyPoisonBuff = attacker.nextAttackAddPoison && (currentCardOutcome.attackDamageType == DAMAGE_PHYSICAL || currentCardOutcome.attackDamageType == DAMAGE_PIERCING);
+
+		if (applyPoisonBuff) {
+			EffectOp rmPoisonBuff = {};
+			rmPoisonBuff.type = EffectOpType::REMOVE_STATUS;
+			rmPoisonBuff.data.status.targetIndex = currentPlayerIndex;
+			rmPoisonBuff.data.status.statusType = STATUS_ADD_POISON;
+			rmPoisonBuff.data.status.duration = 0;
+			queueEffect(rmPoisonBuff);
+			currentCardOutcome.poisonTargetPlayerIDs.clear();
+		}
+
+		for (size_t i = 0; i < currentCardOutcome.attackTargetIndices.size(); i++) {
+			int pIndex = currentCardOutcome.attackTargetIndices[i];
+			Player * target = getPlayer(pIndex);
+			if (target) {
+				int appliedDamage = baseDamage;
+				int absorbedDamage = 0;
+
+				if (currentCardOutcome.attackDamageType == DAMAGE_PIERCING && i > 0) appliedDamage /= 2;
+
+				// --- GHOST FORM CHECK ---
+				if (target->inGhostForm) {
+					if (currentCardOutcome.attackDamageType == DAMAGE_PHYSICAL || currentCardOutcome.attackDamageType == DAMAGE_PIERCING) {
+						appliedDamage = 0;
+						queueFloatingTextVisual(gridToWorld(target->x, target->y), "Phased!", ofColor::cyan);
+					}
+					if (currentCardOutcome.attackDamageType == DAMAGE_HOLY) {
+						appliedDamage *= 2;
+						queueFloatingTextVisual(gridToWorld(target->x, target->y), "Ghost: x2 Holy", ofColor::orange);
+					}
+				}
+				// --- VULNERABILITIES ---
+				if ((target->isHellhound || target->isDemon || target->isSkeleton) && currentCardOutcome.attackDamageType == DAMAGE_HOLY) {
+					appliedDamage *= 2;
+					queueFloatingTextVisual(gridToWorld(target->x, target->y), "Vulnerable: Holy (x2)", ofColor::orange);
+				}
+				if (currentCardOutcome.attackDamageType == DAMAGE_PIERCING) {
+					bool hasWolfCall = false;
+					for (const auto & c : target->deck)
+						if (c.type == CARD_CALL_FOR_WOLVES) {
+							hasWolfCall = true;
+							break;
+						}
+					if (!hasWolfCall)
+						for (const auto & c : target->discardPile)
+							if (c.type == CARD_CALL_FOR_WOLVES) {
+								hasWolfCall = true;
+								break;
+							}
+					if (hasWolfCall) {
+						appliedDamage *= 2;
+						queueFloatingTextVisual(gridToWorld(target->x, target->y), "Vulnerable: Piercing (x2)", ofColor::orange);
+					}
+				}
+				// --- MITIGATION ---
+				int absorb;
+				if (currentCardOutcome.attackDamageType == DAMAGE_HOLY) {
+					absorb = std::min(target->holyBlock, appliedDamage);
+					target->holyBlock -= absorb;
+					appliedDamage -= absorb;
+					absorbedDamage += absorb;
+				}
+				if (currentCardOutcome.attackDamageType == DAMAGE_PHYSICAL) {
+					absorb = std::min(target->block, appliedDamage);
+					target->block -= absorb;
+					appliedDamage -= absorb;
+					absorbedDamage += absorb;
+				}
+				if (currentCardOutcome.attackDamageType == DAMAGE_PHYSICAL || currentCardOutcome.attackDamageType == DAMAGE_PIERCING) {
+					absorb = std::min(target->fortification, appliedDamage);
+					target->fortification -= absorb;
+					appliedDamage -= absorb;
+					absorbedDamage += absorb;
+				}
+				if (currentCardOutcome.attackDamageType != DAMAGE_PHYSICAL) {
+					absorb = std::min(target->barrier, appliedDamage);
+					target->barrier -= absorb;
+					appliedDamage -= absorb;
+					absorbedDamage += absorb;
+				}
+				if (appliedDamage > 0) {
+					absorb = std::min(target->ward, appliedDamage);
+					target->ward -= absorb;
+					appliedDamage -= absorb;
+					absorbedDamage += absorb;
+				}
+
+				glm::vec3 tPos = gridToWorld(target->x, target->y);
+				if (absorbedDamage > 0) {
+					queueFloatingTextVisual(tPos + glm::vec3(0, 0.5f, 0), "-" + ofToString(absorbedDamage) + " Absorbed", ofColor::lightGray);
+				}
+				if (appliedDamage > 0) {
+					EffectOp hpOp = {};
+					hpOp.type = EffectOpType::MODIFY_STAT;
+					hpOp.data.modifyStat.targetIndex = pIndex;
+					hpOp.data.modifyStat.statType = 0; // HP
+					hpOp.data.modifyStat.delta = -appliedDamage;
+					hpOp.data.modifyStat.deltaFromSlot = -1;
+					processEffectOp(hpOp);
+					queueFloatingTextVisual(tPos, "-" + ofToString(appliedDamage) + typeLabel, ofColor::red);
+
+					// Ghost Break Logic
+					if (target->inGhostForm) {
+						target->ghostDamageTaken += appliedDamage;
+						if (target->ghostDamageTaken >= 4) {
+							EffectOp rmGhost = {};
+							rmGhost.type = EffectOpType::REMOVE_STATUS;
+							rmGhost.data.status.targetIndex = pIndex;
+							rmGhost.data.status.statusType = STATUS_GHOST_FORM;
+							rmGhost.data.status.duration = 0;
+							queueEffect(rmGhost);
+							target->ghostDamageTaken = 0;
+							target->discardPile.push_back(target->ghostFormCard);
+							queueFloatingTextVisual(tPos + glm::vec3(0, 0.5f, 0), "Ghost Form Broken!", ofColor::white);
+							if (board[target->x][target->y].hasWall) {
+								EffectOp killOp = {};
+								killOp.type = EffectOpType::MODIFY_STAT;
+								killOp.data.modifyStat.targetIndex = pIndex;
+								killOp.data.modifyStat.statType = 0; // HP
+								killOp.data.modifyStat.delta = -players[pIndex].health;
+								killOp.data.modifyStat.deltaFromSlot = -1;
+								processEffectOp(killOp);
+								queueFloatingTextVisual(tPos + glm::vec3(0, 1.0f, 0), "Materialized in Wall!", ofColor::red);
+							}
+						}
+					}
+
+					// Tortoise Break Logic
+					if (target->inTortoiseForm) {
+						target->tortoiseDamageTaken += appliedDamage;
+						if (target->tortoiseDamageTaken >= 5) {
+							EffectOp rmTort = {};
+							rmTort.type = EffectOpType::REMOVE_STATUS;
+							rmTort.data.status.targetIndex = pIndex;
+							rmTort.data.status.statusType = STATUS_TORTOISE_FORM;
+							rmTort.data.status.duration = 0;
+							queueEffect(rmTort);
+							target->tortoiseDamageTaken = 0;
+							target->discardPile.push_back(target->tortoiseFormCard);
+							queueFloatingTextVisual(tPos + glm::vec3(0, 0.5f, 0), "Form Ended!", ofColor::darkGreen);
+						}
+					}
+
+					// --- SPECIAL RESOLUTION FOR SHOOT ARROW ---
+					if (resolvedAttackCardName == "Shoot Arrow" && currentCardOutcome.destroyedCardType != CARD_NONE) {
+						Player & attackerRef = players[currentPlayerIndex];
+						CardType destroyedType = currentCardOutcome.destroyedCardType;
+						currentCardOutcome.destroyedCardType = CARD_NONE;
+
+						int rawExtra = getGameRandom(1, 6);
+						int extraLuck = attackerRef.luck + computePassiveLuck(currentPlayerIndex);
+						int extra = rawExtra + extraLuck;
+
+						if (destroyedType == CARD_SHOCK) {
+							EffectOp shockDamageOp;
+							shockDamageOp.type = EffectOpType::DAMAGE;
+							shockDamageOp.data.damage.targetIndex = pIndex;
+							shockDamageOp.data.damage.damageType = DAMAGE_ELECTRIC;
+							shockDamageOp.data.damage.fixedDamage = extra;
+							shockDamageOp.data.damage.damageFromSlot = -1;
+							processEffectOp(shockDamageOp);
+							EffectOp apPar = {};
+							apPar.type = EffectOpType::APPLY_STATUS;
+							apPar.data.status.targetIndex = pIndex;
+							apPar.data.status.statusType = STATUS_PARALYZED;
+							apPar.data.status.duration = 0;
+							queueEffect(apPar);
+							target->paralysisHeadsCount = 0;
+							queueFloatingTextVisual(tPos + glm::vec3(0, 0.6f, 0), "-" + ofToString(extra) + " Electric", ofColor::orange);
+							queueFloatingTextVisual(tPos + glm::vec3(0, 1.0f, 0), "PARALYZED!", ofColor::yellow);
+						} else if (destroyedType == CARD_FLAME_HIT) {
+							EffectOp flameDamageOp;
+							flameDamageOp.type = EffectOpType::DAMAGE;
+							flameDamageOp.data.damage.targetIndex = pIndex;
+							flameDamageOp.data.damage.damageType = DAMAGE_FIRE;
+							flameDamageOp.data.damage.fixedDamage = extra;
+							flameDamageOp.data.damage.damageFromSlot = -1;
+							processEffectOp(flameDamageOp);
+							EffectOp apFire = {};
+							apFire.type = EffectOpType::APPLY_STATUS;
+							apFire.data.status.targetIndex = pIndex;
+							apFire.data.status.statusType = STATUS_ON_FIRE;
+							apFire.data.status.duration = 0;
+							queueEffect(apFire);
+							queueFloatingTextVisual(tPos + glm::vec3(0, 0.6f, 0), "-" + ofToString(extra) + " Fire", ofColor::red);
+							queueFloatingTextVisual(tPos + glm::vec3(0, 1.0f, 0), "ON FIRE!", ofColor::orange);
+						} else if (destroyedType == CARD_ADD_POISON) {
+							EffectOp poisonDamageOp;
+							poisonDamageOp.type = EffectOpType::DAMAGE;
+							poisonDamageOp.data.damage.targetIndex = pIndex;
+							poisonDamageOp.data.damage.damageType = DAMAGE_POISON;
+							poisonDamageOp.data.damage.fixedDamage = extra;
+							poisonDamageOp.data.damage.damageFromSlot = -1;
+							processEffectOp(poisonDamageOp);
+							EffectOp apPoison = {};
+							apPoison.type = EffectOpType::APPLY_STATUS;
+							apPoison.data.status.targetIndex = pIndex;
+							apPoison.data.status.statusType = STATUS_POISONED;
+							apPoison.data.status.duration = 0;
+							queueEffect(apPoison);
+							target->poisonReduction = 0;
+							queueFloatingTextVisual(tPos + glm::vec3(0, 0.6f, 0), "-" + ofToString(extra) + " Poison", ofColor::green);
+							queueFloatingTextVisual(tPos + glm::vec3(0, 1.0f, 0), "POISONED!", ofColor::green);
+						}
+					}
+				} else {
+					if (!target->inGhostForm || appliedDamage > 0) {
+						queueFloatingTextVisual(tPos, "-" + ofToString(appliedDamage) + typeLabel, ofColor::gray);
+					}
+					if (applyPoisonBuff && !target->inGhostForm) {
+						currentCardOutcome.poisonTargetPlayerIDs.push_back(players[pIndex].playerID);
+						target->poisonReduction = 0;
+						queueFloatingTextVisual(tPos + glm::vec3(0, 0.5f, 0), "Poisoned!", ofColor::green);
+					}
+				}
+			}
+		}
+		if (resolvedAttackCardName == "Shoot Arrow") {
+			currentCardOutcome.destroyedCardType = CARD_NONE;
+		}
+		currentCardOutcome.attackTargetIndices.clear();
+
+		if (applyPoisonBuff && !currentCardOutcome.poisonTargetPlayerIDs.empty()) {
+			{
+				EffectOp rollOp = {};
+				rollOp.type = EffectOpType::ROLL_DICE;
+				rollOp.data.rollDice.numDice = 1;
+				rollOp.data.rollDice.sides = 6;
+				rollOp.data.rollDice.purpose = PURPOSE_DAMAGE;
+				rollOp.data.rollDice.ownerIndex = currentPlayerIndex;
+				rollOp.data.rollDice.outputSlot = 0;
+				strncpy(rollOp.data.rollDice.label, "Poison Damage", 31);
+				rollOp.data.rollDice.label[31] = '\0';
+				queueEffect(rollOp);
+				EffectOp ap = {};
+				ap.type = EffectOpType::APPLY_POISON;
+				queueEffect(ap);
+			}
+		}
+
+		if (cardPlayState != CARD_STATE_IDLE) {
+			advanceCardState(CARD_STATE_EFFECT_SEQUENCE);
+		}
+
+		opComplete = true;
+		break;
+	}
+
 	case EffectOpType::APPLY_CHAIN_LIGHTNING: {
 		// Read authoritative range roll from blackboard slot 0
 		int rangeRoll = currentEffectSequence.blackboard[0];
@@ -17639,43 +17925,10 @@ void ofApp::startVisualDiceRoll(const VisualEvent & ev) {
 // Centralized per-frame waiting-flag processor. Each resolve* helper will
 // early-return if conditions are not yet met (e.g., visuals not finished).
 void ofApp::processWaitingFlags() {
-	// Attack / melee (migrated into effect sequence; legacy resolver removed)
-	// Poison / status
-	resolvePoisonDamage();
-	resolveOnFireDice();
-	resolvePoisonStatusDice();
-	// Magic hand / blasts / fireball (now handled via EffectOps)
-	resolveMagicHandDamage();
-	resolveMagicBlastDice();
-	// Summons / health
-	resolveSummonHealth();
-	// Death / sleep / jolt
-	resolveDeathDice();
-	resolveSleepDuration();
-	resolveJoltRangeDice();
-	// Healing / flail / teleport / barrier
-	resolveHealDice();
-	resolveFlailDice();
-	resolveTeleportDice();
-	resolveBarrierDice();
-	// Psionic / time vortex / magic bolt
-	resolvePsionicRangeDice();
-	resolvePsionicAmountDice();
-	resolveMagicBoltRangeDice();
-	resolveMagicBoltPrimaryDice();
-	resolveMagicBoltAoeDice();
-	// Shoot Arrow migrated into EffectOp system (APPLY_SHOOT_ARROW)
-	// Chain lightning
-	resolveChainLightningRangeDice();
-	resolveChainLightningDamageDice();
-	// Misc dice-based effects
-	resolveSparkOfGeniusDice();
-	resolveSparkOfGeniusDice();
-	resolveBarrierDice();
-	// Coin flips / small helpers
-	resolveParalysisCoinFlip();
-	resolveWolfCoinFlip();
-	// Note: some helpers accept a DiceRoll parameter and are invoked elsewhere
+	// Legacy per-frame resolve* checks have been migrated into the lockstep
+	// effect sequences. This function is intentionally a no-op to avoid
+	// redundant polling of old waiting flags while migration is in progress.
+	(void)0;
 }
 
 //==============================================================================================
@@ -19664,15 +19917,20 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 					strncpy(rollOp.data.rollDice.label, "Rock Crush: Damage", 31);
 					rollOp.data.rollDice.label[31] = '\0';
 					queueEffect(rollOp);
-					interactionDiceRoll = 0;
 				}
 
+				// Set up attack resolution: queue dice roll then an APPLY_ATTACK op
 				interactingCardName = playedCard.name;
-				isWaitingForAttackDice = true;
 				currentCardOutcome.attackDamageType = playedCard.damageType;
 				currentCardOutcome.attackTargetIndices.clear();
 				currentCardOutcome.attackTargetIndices.push_back(targetIndex);
+
+				EffectOp applyAttackOp = {};
+				applyAttackOp.type = EffectOpType::APPLY_ATTACK;
+				queueEffect(applyAttackOp);
+
 				playedSuccessfully = true;
+				advanceCardState(CARD_STATE_EFFECT_SEQUENCE);
 			}
 		}
 		return true;
@@ -21388,302 +21646,6 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 // ============================================================
 
 //--- ATTACK DAMAGE RESOLUTION ---
-void ofApp::resolveAttackDamage() {
-	if (isWaitingForAttackDice && diceVisualsFinishedAndLinger()) {
-		isWaitingForAttackDice = false;
-		int baseDamage = interactionDiceRoll;
-		ofLogNotice("AttackDamage") << "Resolving " << interactingCardName << " - Targets: " << currentCardOutcome.attackTargetIndices.size() << ", Damage: " << baseDamage;
-		Player & attacker = players[currentPlayerIndex];
-
-		// Preserve the card name for special-resolution effects (e.g., Shoot Arrow)
-		string resolvedAttackCardName = interactingCardName;
-
-		// Multiply damage for Bash according to flurry stacks
-		if (resolvedAttackCardName == "Bash" && attacker.flurryOfFistsStacks > 0) {
-			int mult = (1 << attacker.flurryOfFistsStacks);
-			baseDamage *= mult;
-		}
-		interactingCardName = ""; // Clear
-
-		string typeLabel = "";
-		switch (currentCardOutcome.attackDamageType) {
-		case DAMAGE_PHYSICAL:
-			typeLabel = " Physical";
-			break;
-		case DAMAGE_PIERCING:
-			typeLabel = " Piercing";
-			break;
-		case DAMAGE_MAGIC:
-			typeLabel = " Magic";
-			break;
-		case DAMAGE_ELECTRIC:
-			typeLabel = " Electric";
-			break;
-		case DAMAGE_FIRE:
-			typeLabel = " Fire";
-			break;
-		case DAMAGE_HOLY:
-			typeLabel = " Holy";
-			break;
-		case DAMAGE_POISON:
-			typeLabel = " Poison";
-			break;
-		}
-
-		bool applyPoisonBuff = attacker.nextAttackAddPoison && (currentCardOutcome.attackDamageType == DAMAGE_PHYSICAL || currentCardOutcome.attackDamageType == DAMAGE_PIERCING);
-
-		if (applyPoisonBuff) {
-			// Clear the add-poison buff via deterministic effect
-			EffectOp rmPoisonBuff = {};
-			rmPoisonBuff.type = EffectOpType::REMOVE_STATUS;
-			rmPoisonBuff.data.status.targetIndex = currentPlayerIndex;
-			rmPoisonBuff.data.status.statusType = STATUS_ADD_POISON;
-			rmPoisonBuff.data.status.duration = 0;
-			queueEffect(rmPoisonBuff);
-			currentCardOutcome.poisonTargetPlayerIDs.clear();
-		}
-
-		for (size_t i = 0; i < currentCardOutcome.attackTargetIndices.size(); i++) {
-			int pIndex = currentCardOutcome.attackTargetIndices[i];
-			Player * target = getPlayer(pIndex);
-			if (target) {
-				int appliedDamage = baseDamage;
-				int absorbedDamage = 0;
-
-				if (currentCardOutcome.attackDamageType == DAMAGE_PIERCING && i > 0) appliedDamage /= 2;
-
-				// --- GHOST FORM CHECK ---
-				if (target->inGhostForm) {
-					if (currentCardOutcome.attackDamageType == DAMAGE_PHYSICAL || currentCardOutcome.attackDamageType == DAMAGE_PIERCING) {
-						appliedDamage = 0;
-						queueFloatingTextVisual(gridToWorld(target->x, target->y), "Phased!", ofColor::cyan);
-					}
-					if (currentCardOutcome.attackDamageType == DAMAGE_HOLY) {
-						appliedDamage *= 2;
-						queueFloatingTextVisual(gridToWorld(target->x, target->y), "Ghost: x2 Holy", ofColor::orange);
-					}
-				}
-				// --- VULNERABILITIES ---
-				if ((target->isHellhound || target->isDemon || target->isSkeleton) && currentCardOutcome.attackDamageType == DAMAGE_HOLY) {
-					appliedDamage *= 2;
-					queueFloatingTextVisual(gridToWorld(target->x, target->y), "Vulnerable: Holy (x2)", ofColor::orange);
-				}
-				if (currentCardOutcome.attackDamageType == DAMAGE_PIERCING) {
-					bool hasWolfCall = false;
-					for (const auto & c : target->deck)
-						if (c.type == CARD_CALL_FOR_WOLVES) {
-							hasWolfCall = true;
-							break;
-						}
-					if (!hasWolfCall)
-						for (const auto & c : target->discardPile)
-							if (c.type == CARD_CALL_FOR_WOLVES) {
-								hasWolfCall = true;
-								break;
-							}
-					if (hasWolfCall) {
-						appliedDamage *= 2;
-						queueFloatingTextVisual(gridToWorld(target->x, target->y), "Vulnerable: Piercing (x2)", ofColor::orange);
-					}
-				}
-				// --- MITIGATION ---
-				int absorb;
-				if (currentCardOutcome.attackDamageType == DAMAGE_HOLY) {
-					absorb = std::min(target->holyBlock, appliedDamage);
-					target->holyBlock -= absorb;
-					appliedDamage -= absorb;
-					absorbedDamage += absorb;
-				}
-				if (currentCardOutcome.attackDamageType == DAMAGE_PHYSICAL) {
-					absorb = std::min(target->block, appliedDamage);
-					target->block -= absorb;
-					appliedDamage -= absorb;
-					absorbedDamage += absorb;
-				}
-				if (currentCardOutcome.attackDamageType == DAMAGE_PHYSICAL || currentCardOutcome.attackDamageType == DAMAGE_PIERCING) {
-					absorb = std::min(target->fortification, appliedDamage);
-					target->fortification -= absorb;
-					appliedDamage -= absorb;
-					absorbedDamage += absorb;
-				}
-				if (currentCardOutcome.attackDamageType != DAMAGE_PHYSICAL) {
-					absorb = std::min(target->barrier, appliedDamage);
-					target->barrier -= absorb;
-					appliedDamage -= absorb;
-					absorbedDamage += absorb;
-				}
-				if (appliedDamage > 0) {
-					absorb = std::min(target->ward, appliedDamage);
-					target->ward -= absorb;
-					appliedDamage -= absorb;
-					absorbedDamage += absorb;
-				}
-
-				glm::vec3 tPos = gridToWorld(target->x, target->y);
-				if (absorbedDamage > 0) {
-					queueFloatingTextVisual(tPos + glm::vec3(0, 0.5f, 0), "-" + ofToString(absorbedDamage) + " Absorbed", ofColor::lightGray);
-				}
-				if (appliedDamage > 0) {
-					EffectOp hpOp = {};
-					hpOp.type = EffectOpType::MODIFY_STAT;
-					hpOp.data.modifyStat.targetIndex = pIndex;
-					hpOp.data.modifyStat.statType = 0; // HP
-					hpOp.data.modifyStat.delta = -appliedDamage;
-					hpOp.data.modifyStat.deltaFromSlot = -1;
-					processEffectOp(hpOp);
-					queueFloatingTextVisual(tPos, "-" + ofToString(appliedDamage) + typeLabel, ofColor::red);
-
-					// Ghost Break Logic
-					if (target->inGhostForm) {
-						target->ghostDamageTaken += appliedDamage;
-						if (target->ghostDamageTaken >= 4) {
-							// Remove ghost form via effect op
-							EffectOp rmGhost = {};
-							rmGhost.type = EffectOpType::REMOVE_STATUS;
-							rmGhost.data.status.targetIndex = pIndex;
-							rmGhost.data.status.statusType = STATUS_GHOST_FORM;
-							rmGhost.data.status.duration = 0;
-							queueEffect(rmGhost);
-							target->ghostDamageTaken = 0;
-							target->discardPile.push_back(target->ghostFormCard);
-							queueFloatingTextVisual(tPos + glm::vec3(0, 0.5f, 0), "Ghost Form Broken!", ofColor::white);
-							if (board[target->x][target->y].hasWall) {
-								// Kill via effect op
-								EffectOp killOp = {};
-								killOp.type = EffectOpType::MODIFY_STAT;
-								killOp.data.modifyStat.targetIndex = pIndex;
-								killOp.data.modifyStat.statType = 0; // HP
-								killOp.data.modifyStat.delta = -players[pIndex].health;
-								killOp.data.modifyStat.deltaFromSlot = -1;
-								processEffectOp(killOp);
-								queueFloatingTextVisual(tPos + glm::vec3(0, 1.0f, 0), "Materialized in Wall!", ofColor::red);
-							}
-						}
-					}
-
-					// Tortoise Break Logic
-					if (target->inTortoiseForm) {
-						target->tortoiseDamageTaken += appliedDamage;
-						if (target->tortoiseDamageTaken >= 5) {
-							// Remove tortoise form via effect op
-							EffectOp rmTort = {};
-							rmTort.type = EffectOpType::REMOVE_STATUS;
-							rmTort.data.status.targetIndex = pIndex;
-							rmTort.data.status.statusType = STATUS_TORTOISE_FORM;
-							rmTort.data.status.duration = 0;
-							queueEffect(rmTort);
-							target->tortoiseDamageTaken = 0;
-							target->discardPile.push_back(target->tortoiseFormCard);
-							queueFloatingTextVisual(tPos + glm::vec3(0, 0.5f, 0), "Form Ended!", ofColor::darkGreen);
-						}
-					}
-
-					// --- SPECIAL RESOLUTION FOR SHOOT ARROW ---
-					if (resolvedAttackCardName == "Shoot Arrow" && currentCardOutcome.destroyedCardType != CARD_NONE) {
-						Player & attackerRef = players[currentPlayerIndex];
-						CardType destroyedType = currentCardOutcome.destroyedCardType;
-						currentCardOutcome.destroyedCardType = CARD_NONE;
-
-						int rawExtra = getGameRandom(1, 6);
-						int extraLuck = attackerRef.luck + computePassiveLuck(currentPlayerIndex);
-						int extra = rawExtra + extraLuck;
-
-						if (destroyedType == CARD_SHOCK) {
-							EffectOp shockDamageOp;
-							shockDamageOp.type = EffectOpType::DAMAGE;
-							shockDamageOp.data.damage.targetIndex = pIndex;
-							shockDamageOp.data.damage.damageType = DAMAGE_ELECTRIC;
-							shockDamageOp.data.damage.fixedDamage = extra;
-							shockDamageOp.data.damage.damageFromSlot = -1;
-							processEffectOp(shockDamageOp);
-							// Apply paralyzed status via effect op
-							EffectOp apPar = {};
-							apPar.type = EffectOpType::APPLY_STATUS;
-							apPar.data.status.targetIndex = pIndex;
-							apPar.data.status.statusType = STATUS_PARALYZED;
-							apPar.data.status.duration = 0;
-							queueEffect(apPar);
-							target->paralysisHeadsCount = 0;
-							queueFloatingTextVisual(tPos + glm::vec3(0, 0.6f, 0), "-" + ofToString(extra) + " Electric", ofColor::orange);
-							queueFloatingTextVisual(tPos + glm::vec3(0, 1.0f, 0), "PARALYZED!", ofColor::yellow);
-						} else if (destroyedType == CARD_FLAME_HIT) {
-							EffectOp flameDamageOp;
-							flameDamageOp.type = EffectOpType::DAMAGE;
-							flameDamageOp.data.damage.targetIndex = pIndex;
-							flameDamageOp.data.damage.damageType = DAMAGE_FIRE;
-							flameDamageOp.data.damage.fixedDamage = extra;
-							flameDamageOp.data.damage.damageFromSlot = -1;
-							processEffectOp(flameDamageOp);
-							// Apply on-fire via effect op
-							EffectOp apFire = {};
-							apFire.type = EffectOpType::APPLY_STATUS;
-							apFire.data.status.targetIndex = pIndex;
-							apFire.data.status.statusType = STATUS_ON_FIRE;
-							apFire.data.status.duration = 0;
-							queueEffect(apFire);
-							queueFloatingTextVisual(tPos + glm::vec3(0, 0.6f, 0), "-" + ofToString(extra) + " Fire", ofColor::red);
-							queueFloatingTextVisual(tPos + glm::vec3(0, 1.0f, 0), "ON FIRE!", ofColor::orange);
-						} else if (destroyedType == CARD_ADD_POISON) {
-							EffectOp poisonDamageOp;
-							poisonDamageOp.type = EffectOpType::DAMAGE;
-							poisonDamageOp.data.damage.targetIndex = pIndex;
-							poisonDamageOp.data.damage.damageType = DAMAGE_POISON;
-							poisonDamageOp.data.damage.fixedDamage = extra;
-							poisonDamageOp.data.damage.damageFromSlot = -1;
-							processEffectOp(poisonDamageOp);
-							// Apply poisoned via effect op
-							EffectOp apPoison = {};
-							apPoison.type = EffectOpType::APPLY_STATUS;
-							apPoison.data.status.targetIndex = pIndex;
-							apPoison.data.status.statusType = STATUS_POISONED;
-							apPoison.data.status.duration = 0;
-							queueEffect(apPoison);
-							target->poisonReduction = 0;
-							queueFloatingTextVisual(tPos + glm::vec3(0, 0.6f, 0), "-" + ofToString(extra) + " Poison", ofColor::green);
-							queueFloatingTextVisual(tPos + glm::vec3(0, 1.0f, 0), "POISONED!", ofColor::green);
-						}
-					}
-				} else {
-					if (!target->inGhostForm || appliedDamage > 0) {
-						queueFloatingTextVisual(tPos, "-" + ofToString(appliedDamage) + typeLabel, ofColor::gray);
-					}
-					if (applyPoisonBuff && !target->inGhostForm) {
-						currentCardOutcome.poisonTargetPlayerIDs.push_back(players[pIndex].playerID);
-						// isPoisoned will be set when the APPLY_STATUS op is processed
-						target->poisonReduction = 0;
-						queueFloatingTextVisual(tPos + glm::vec3(0, 0.5f, 0), "Poisoned!", ofColor::green);
-					}
-				}
-			}
-		}
-		if (resolvedAttackCardName == "Shoot Arrow") {
-			currentCardOutcome.destroyedCardType = CARD_NONE;
-		}
-		currentCardOutcome.attackTargetIndices.clear();
-
-		if (applyPoisonBuff && !currentCardOutcome.poisonTargetPlayerIDs.empty()) {
-			{
-				EffectOp rollOp = {};
-				rollOp.type = EffectOpType::ROLL_DICE;
-				rollOp.data.rollDice.numDice = 1;
-				rollOp.data.rollDice.sides = 6;
-				rollOp.data.rollDice.purpose = PURPOSE_DAMAGE;
-				rollOp.data.rollDice.ownerIndex = currentPlayerIndex;
-				rollOp.data.rollDice.outputSlot = 0;
-				strncpy(rollOp.data.rollDice.label, "Poison Damage", 31);
-				rollOp.data.rollDice.label[31] = '\0';
-				queueEffect(rollOp);
-				EffectOp ap = {};
-				ap.type = EffectOpType::APPLY_POISON;
-				queueEffect(ap);
-			}
-		}
-
-		if (cardPlayState != CARD_STATE_IDLE && !isWaitingForPoisonAttackDice) {
-			advanceCardState(CARD_STATE_EFFECT_SEQUENCE);
-		}
-	}
-}
 
 // --- AP roll centralized resolver ---
 void ofApp::resolveAPRoll() {
@@ -22036,65 +21998,7 @@ void ofApp::resolveSleepDurationRoll(const DiceRoll & finishedRoll) {
 	currentCardOutcome.targetPlayerIndex = -1;
 }
 
-//--- POISON DAMAGE RESOLUTION ---
-void ofApp::resolvePoisonDamage() {
-	if (isWaitingForPoisonAttackDice && diceVisualsFinishedAndLinger()) {
-		isWaitingForPoisonAttackDice = false;
-		int poisonDamage = currentCardOutcome.namedDiceResults["poison_attack"];
-
-		for (int pID : currentCardOutcome.poisonTargetPlayerIDs) {
-			int pIndex = findPlayerIndexByID(pID);
-			Player * target = getPlayer(pIndex);
-			if (target) {
-				// Centralized poison damage handling
-				applyDamageTo(*target, poisonDamage, DAMAGE_POISON, -1);
-			}
-		}
-		currentCardOutcome.poisonTargetPlayerIDs.clear();
-
-		if (cardPlayState != CARD_STATE_IDLE) {
-			advanceCardState(CARD_STATE_EFFECT_SEQUENCE);
-		}
-
-		// --- DEATH CLEANUP ---
-		std::vector<int> removePoisoned;
-		for (size_t i = 0; i < players.size(); ++i) {
-			if (players[i].health <= 0) removePoisoned.push_back((int)i);
-		}
-		if (!removePoisoned.empty()) {
-			// Remove in descending order and adjust runtime indices. applyDamageTo already handled graveyard and board updates.
-			sort(removePoisoned.begin(), removePoisoned.end(), std::greater<int>());
-			for (int idx : removePoisoned) {
-				if (idx < 0 || idx >= (int)players.size()) continue;
-				for (auto & r : activeDiceRolls) {
-					if (r.associatedUnit == idx)
-						r.associatedUnit = -1;
-					else if (r.associatedUnit > idx)
-						r.associatedUnit -= 1;
-				}
-				for (auto it = earthquakeUnits.begin(); it != earthquakeUnits.end();) {
-					if (it->playerIndex == idx)
-						it = earthquakeUnits.erase(it);
-					else {
-						if (it->playerIndex > idx) it->playerIndex -= 1;
-						++it;
-					}
-				}
-				players.erase(players.begin() + idx);
-				if (players.empty()) {
-					currentPlayerIndex = -1;
-				} else {
-					if (currentPlayerIndex == idx) {
-						currentPlayerIndex = std::min<int>(idx, (int)players.size() - 1);
-					} else if (currentPlayerIndex > idx) {
-						currentPlayerIndex -= 1;
-					}
-				}
-			}
-			invalidateTargetCache();
-		}
-	}
-}
+// Poison damage handling migrated to EffectOpType::APPLY_POISON
 
 //--- MAGIC HAND DAMAGE RESOLUTION ---
 void ofApp::resolveMagicHandDamage() {
