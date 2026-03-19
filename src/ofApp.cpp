@@ -3804,15 +3804,11 @@ void ofApp::updateGame() {
 	updateEffectSequence();
 
 	// --- Amnesia Logic ---
-	// === CENTRALIZED ASYNC RESOLUTION HELPERS ===
-	// All dice/state resolution for cards now dispatched through helpers or effect-ops
+	// All dice/state resolution for cards now dispatched through the EffectOp pipeline
 	resolveMagicHandDamage();
 	// Fireball resolution handled by EffectOpType::APPLY_FIREBALL
 	// Summon health handled by queued EffectOps (SPAWN_UNIT)
 	// Amnesia resolution now handled via EffectOpType::APPLY_AMNESIA
-	resolveDeathDice();
-	resolveSleepDuration();
-	resolveJoltRangeDice();
 	// resolveHealDice migrated to effect/op pipeline (HEAL processed from EffectOps)
 	// resolveTimeVortexDice migrated to effect/op pipeline (APPLY_TIME_VORTEX handled from EffectOps)
 	// Magic Bolt now handled by effect-ops (APPLY_MAGIC_BOLT /* range */
@@ -4329,11 +4325,6 @@ void ofApp::updateGame() {
 			if (roll.purpose != PURPOSE_DEBUG && roll.purpose != PURPOSE_HP && roll.purpose != PURPOSE_HEALING) {
 				if (roll.purpose == PURPOSE_AP) {
 					resolveAPRoll();
-				} else if (roll.purpose == PURPOSE_SLEEP_DURATION) {
-					resolveSleepDurationRoll(roll);
-				} else if (roll.purpose == PURPOSE_DEATH_CHECK) {
-					resolveDeathCheckRoll(roll);
-					// Logic is handled in the separate updateGame block
 				} else if (roll.purpose == PURPOSE_EARTHQUAKE_DAMAGE) {
 					// Find associated unit and apply damage now (during animation)
 					int uidx = roll.associatedUnit;
@@ -16047,6 +16038,135 @@ void ofApp::processEffectOp(EffectOp & op) {
 		break;
 	}
 
+	case EffectOpType::APPLY_ETHEREAL_JOLT: {
+		// Read authoritative range roll from blackboard slot 0
+		interactionDiceRoll = currentEffectSequence.blackboard[0];
+		Player & caster = players[currentPlayerIndex];
+		glm::vec2 casterTile = { (float)caster.x, (float)caster.y };
+
+		// Jolt ignores walls; use pure Euclidean edge-to-edge
+		float maxDistUnits = interactionDiceRoll / 5.0f;
+		float centerDist = glm::distance(casterTile, interactionTargetTile);
+		float neededDist = std::max(0.0f, centerDist - 1.0f);
+
+		int requiredFeet = (int)ceil(neededDist * 5.0f);
+
+		ofLogNotice("Jolt") << "Rolled: " << interactionDiceRoll << "ft (" << maxDistUnits << "). Needed: " << requiredFeet << "ft.";
+
+		if (maxDistUnits >= neededDist - 0.001f) {
+			// Find target at impact tile
+			Player * target = nullptr;
+			for (auto & p : players) {
+				if (p.x == (int)interactionTargetTile.x && p.y == (int)interactionTargetTile.y) {
+					target = &p;
+					break;
+				}
+			}
+
+			if (target) {
+				glm::vec3 targetPos = gridToWorld(target->x, target->y);
+
+				int baseDamage = 7;
+				auto isAdjacentOrDiagonalToMagicWall = [&](int x, int y) {
+					for (int dx = -1; dx <= 1; ++dx) {
+						for (int dy = -1; dy <= 1; ++dy) {
+							if (dx == 0 && dy == 0) continue;
+							int nx = x + dx, ny = y + dy;
+							if (nx >= 0 && nx < BOARD_WIDTH && ny >= 0 && ny < BOARD_HEIGHT) {
+								if (board[nx][ny].hasWall && board[nx][ny].isMagicWall) return true;
+							}
+						}
+					}
+					return false;
+				};
+				int wallEffectCount = 0;
+				if (isAdjacentOrDiagonalToMagicWall(target->x, target->y)) wallEffectCount++;
+				if (isAdjacentOrDiagonalToMagicWall(players[currentPlayerIndex].x, players[currentPlayerIndex].y)) wallEffectCount++;
+				int damage = baseDamage;
+				if (wallEffectCount > 0) {
+					damage *= (1 << wallEffectCount);
+					for (int i = 0; i < wallEffectCount; ++i)
+						queueFloatingTextVisual(targetPos, "Magic Wall: x2 Magic", ofColor::purple);
+				}
+
+				int barrierDmg = std::min(target->barrier, damage);
+				if (barrierDmg > 0) {
+					EffectOp bOp = {};
+					bOp.type = EffectOpType::MODIFY_STAT;
+					bOp.data.modifyStat.targetIndex = findPlayerIndexByID(target->playerID);
+					bOp.data.modifyStat.statType = 6; // Barrier
+					bOp.data.modifyStat.delta = -barrierDmg;
+					bOp.data.modifyStat.deltaFromSlot = -1;
+					queueEffect(bOp);
+				}
+				damage -= barrierDmg;
+
+				if (damage > 0) {
+					int wardDmg = std::min(target->ward, damage);
+					if (wardDmg > 0) {
+						EffectOp wOp = {};
+						wOp.type = EffectOpType::MODIFY_STAT;
+						wOp.data.modifyStat.targetIndex = findPlayerIndexByID(target->playerID);
+						wOp.data.modifyStat.statType = 8; // Ward
+						wOp.data.modifyStat.delta = -wardDmg;
+						wOp.data.modifyStat.deltaFromSlot = -1;
+						queueEffect(wOp);
+					}
+					damage -= wardDmg;
+				}
+
+				if (damage > 0) {
+					EffectOp hpOp = {};
+					hpOp.type = EffectOpType::MODIFY_STAT;
+					hpOp.data.modifyStat.targetIndex = findPlayerIndexByID(target->playerID);
+					hpOp.data.modifyStat.statType = 0; // HP
+					hpOp.data.modifyStat.delta = -damage;
+					hpOp.data.modifyStat.deltaFromSlot = -1;
+					queueEffect(hpOp);
+					queueFloatingTextVisual(targetPos, "-" + ofToString(damage) + " Magic", ofColor::red);
+				} else {
+					queueFloatingTextVisual(targetPos, "Absorbed", ofColor::gray);
+				}
+
+				// Paralyze
+				{
+					EffectOp ap = {};
+					ap.type = EffectOpType::APPLY_STATUS;
+					ap.data.status.targetIndex = findPlayerIndexByID(target->playerID);
+					ap.data.status.statusType = STATUS_PARALYZED;
+					ap.data.status.duration = 0;
+					queueEffect(ap);
+				}
+				queueFloatingTextVisual(targetPos + glm::vec3(0, 0.6f, 0), "PARALYZED!", ofColor::yellow);
+
+				if (!target->deck.empty()) {
+					target->deck.pop_back();
+					queueFloatingTextVisual(targetPos + glm::vec3(0, 1.2f, 0), "Mind Rot!", ofColor::purple);
+				}
+
+				// Tracer
+				{
+					glm::vec3 worldStart, worldEnd;
+					glm::vec2 hitGrid = interactionTargetTile + glm::vec2(0.5f, 0.5f);
+					computeTracerEndpoints(casterTile, hitGrid, worldStart, worldEnd);
+					spawnTracer(worldStart, worldEnd, glm::ivec2((int)interactionTargetTile.x, (int)interactionTargetTile.y), ofColor(200, 120, 255), 5.0f);
+				}
+			}
+		} else {
+			ofLogNotice("Jolt") << "Fell short! (Rolled " << interactionDiceRoll << "ft, needed " << requiredFeet << "ft)";
+			glm::vec3 failPos = gridToWorld(interactionTargetTile.x, interactionTargetTile.y);
+			queueFloatingTextVisual(failPos, "Out of Range", ofColor::white);
+
+			glm::vec3 worldStart, worldEnd;
+			glm::vec2 hitGrid = interactionTargetTile + glm::vec2(0.5f, 0.5f);
+			computeTracerEndpoints(casterTile, hitGrid, worldStart, worldEnd);
+			spawnTracer(worldStart, worldEnd, glm::ivec2((int)interactionTargetTile.x, (int)interactionTargetTile.y), ofColor(200, 120, 255), 5.0f);
+		}
+
+		opComplete = true;
+		break;
+	}
+
 	case EffectOpType::APPLY_PSIONIC_WAVE: {
 		// Read authoritative cards-to-remove from blackboard[1]
 		int cardsToRemove = currentEffectSequence.blackboard[1];
@@ -20208,7 +20328,9 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 			strncpy(rollOp.data.rollDice.label, "Ethereal Jolt: Range Check", 31);
 			rollOp.data.rollDice.label[31] = '\0';
 			queueEffect(rollOp);
-			isWaitingForJoltRangeDice = true;
+			EffectOp applyJolt = {};
+			applyJolt.type = EffectOpType::APPLY_ETHEREAL_JOLT;
+			queueEffect(applyJolt);
 		}
 		interactionTargetTile = targetTile;
 		playedSuccessfully = true;
@@ -22087,22 +22209,7 @@ void ofApp::resolveSummonKobolds(const DiceRoll & finishedRoll) {
 
 // Earthquake damage is now applied by EffectOpType::APPLY_EARTHQUAKE_DAMAGE
 
-// --------------------------------------------------------------
-// Small resolver: death-check die finished (store to named results)
-void ofApp::resolveDeathCheckRoll(const DiceRoll & finishedRoll) {
-	currentCardOutcome.namedDiceResults["death_check"] = finishedRoll.result;
-}
-
-// --------------------------------------------------------------
-// Small resolver: sleep-duration die finished (apply sleep to target)
-void ofApp::resolveSleepDurationRoll(const DiceRoll & finishedRoll) {
-	Player * t = getPlayer(currentCardOutcome.targetPlayerIndex);
-	if (t) {
-		t->sleepTurnsRemaining = finishedRoll.result;
-		queueFloatingTextVisual(gridToWorld(t->x, t->y), ofToString(finishedRoll.result) + " Turns Sleep", ofColor::cyan);
-	}
-	currentCardOutcome.targetPlayerIndex = -1;
-}
+// Note: death-check, sleep-duration and jolt-range resolution migrated to EffectOp handlers
 
 // Poison damage handling migrated to EffectOpType::APPLY_POISON
 
@@ -22121,88 +22228,7 @@ void ofApp::resolveMagicHandDamage() {
 // Amnesia resolution handled by EffectOpType::APPLY_AMNESIA
 
 //--------------------------------------------------------------
-void ofApp::resolveMagicBlastDice() {
-	if (isWaitingForMagicBlastDice && diceVisualsFinishedAndLinger()) {
-		isWaitingForMagicBlastDice = false;
-		Player & caster = players[currentPlayerIndex];
-		glm::vec2 casterTile = { (float)caster.x, (float)caster.y };
-
-		// 1. Calculate Max Range (5ft = 1.0 Unit)
-		float maxDistUnits = interactionDiceRoll / 5.0f;
-
-		// 2. Calculate Required Distance (Face-to-Face)
-		float neededDist = getFaceToFaceDistance(casterTile, interactionTargetTile);
-
-		// Log
-		int requiredFeet = (neededDist > 1000.0f) ? 999 : (int)round(neededDist * 5.0f);
-		ofLogNotice("MagicBlast") << "Rolled: " << interactionDiceRoll << "ft (" << maxDistUnits << "). Needed: " << requiredFeet << "ft.";
-
-		glm::vec2 impactTile;
-
-		// 3. Determine Impact Location
-		if (maxDistUnits >= neededDist - 0.001f) {
-			impactTile = interactionTargetTile;
-			ofLogNotice("MagicBlast") << "Target Reached.";
-		} else {
-			ofLogNotice("MagicBlast") << "Fell short!";
-			glm::vec2 dir = interactionTargetTile - casterTile;
-			if (glm::length(dir) > 0) dir = glm::normalize(dir);
-			glm::vec2 impactPos = casterTile + (dir * (maxDistUnits + 1.0f));
-			impactTile = { round(impactPos.x), round(impactPos.y) };
-		}
-
-		// 4. Identify Targets
-		magicBlastTargetPlayerIndex = -1;
-		magicBlastSplashTargetIndices.clear();
-
-		// A. Check Direct Hit
-		for (size_t i = 0; i < players.size(); i++) {
-			if (players[i].x == (int)impactTile.x && players[i].y == (int)impactTile.y) {
-				magicBlastTargetPlayerIndex = (int)i;
-				break;
-			}
-		}
-
-		// B. Check Splash Neighbors
-		glm::vec2 neighbors[4] = { { impactTile.x + 1, impactTile.y }, { impactTile.x - 1, impactTile.y }, { impactTile.x, impactTile.y + 1 }, { impactTile.x, impactTile.y - 1 } };
-		for (const auto & n : neighbors) {
-			for (size_t i = 0; i < players.size(); i++) {
-				// Don't add the direct target to the splash list (they are handled separately)
-				if ((int)i != magicBlastTargetPlayerIndex && players[i].x == (int)n.x && players[i].y == (int)n.y) {
-					// store stable playerID instead of transient index
-					magicBlastSplashTargetIndices.push_back(players[i].playerID);
-				}
-			}
-		}
-
-		// 5. Initialize Choice Queue
-		if (magicBlastTargetPlayerIndex != -1) {
-			// Scenario A: Direct Hit exists.
-			// Start with Direct Target -> 3 Choices.
-			updateCardInteractionState(CARD_INTERACTION_MENU, -1, CARD_MAGIC_BLAST);
-			magicBlastChoicesRemaining = 3;
-		} else if (!magicBlastSplashTargetIndices.empty()) {
-			// Scenario B: No Direct Hit (hit empty ground), but Splash targets exist.
-			// Pop the first splash target -> 1 Choice. Resolve stored playerID to current index.
-			updateCardInteractionState(CARD_INTERACTION_MENU, -1, CARD_MAGIC_BLAST);
-			int targetPID = magicBlastSplashTargetIndices.front();
-			magicBlastSplashTargetIndices.erase(magicBlastSplashTargetIndices.begin());
-			int resolvedIndex = findPlayerIndexByID(targetPID);
-			magicBlastTargetPlayerIndex = resolvedIndex;
-			magicBlastChoicesRemaining = 1;
-		} else {
-			ofLogNotice("MagicBlast") << "No targets hit.";
-		}
-
-		// Spawn tracer from caster to impact tile so player can see where it landed
-		{
-			glm::vec3 worldStart, worldEnd;
-			glm::vec2 hitGrid = glm::vec2(impactTile.x + 0.5f, impactTile.y + 0.5f);
-			computeTracerEndpoints(casterTile, hitGrid, worldStart, worldEnd);
-			spawnTracer(worldStart, worldEnd, glm::ivec2((int)impactTile.x, (int)impactTile.y), ofColor(150, 180, 255), 5.0f);
-		}
-	}
-}
+// resolveMagicBlastDice removed: Magic Blast now handled by EffectOpType::APPLY_MAGIC_BLAST
 
 //--------------------------------------------------------------
 // Death resolution is handled by EffectOpType::APPLY_DEATH (queued with ROLL_DICE in play path)
@@ -22211,154 +22237,7 @@ void ofApp::resolveMagicBlastDice() {
 // Sleep duration resolved via EffectOpType::APPLY_SLEEP_DURATION
 
 //--------------------------------------------------------------
-void ofApp::resolveJoltRangeDice() {
-	if (isWaitingForJoltRangeDice && diceVisualsFinishedAndLinger()) {
-		isWaitingForJoltRangeDice = false;
-		Player & caster = players[currentPlayerIndex];
-		glm::vec2 casterTile = { (float)caster.x, (float)caster.y };
-
-		// 1. Calculate Max Range (5ft = 1.0 Unit)
-		float maxDistUnits = interactionDiceRoll / 5.0f;
-
-		// 2. Calculate Required Distance (IGNORING WALLS)
-		// Jolt goes through walls, so we use pure Euclidean Edge-to-Edge distance.
-		float centerDist = glm::distance(casterTile, interactionTargetTile);
-		float neededDist = std::max(0.0f, centerDist - 1.0f);
-
-		int requiredFeet = (int)ceil(neededDist * 5.0f);
-
-		ofLogNotice("Jolt") << "Rolled: " << interactionDiceRoll << "ft (" << maxDistUnits << "). Needed: " << requiredFeet << "ft.";
-
-		if (maxDistUnits >= neededDist - 0.001f) {
-			ofLogNotice("Jolt") << "Target Reached!";
-
-			// Find Target
-			Player * target = nullptr;
-			for (auto & p : players) {
-				if (p.x == (int)interactionTargetTile.x && p.y == (int)interactionTargetTile.y) {
-					target = &p;
-					break;
-				}
-			}
-
-			if (target) {
-				glm::vec3 targetPos = gridToWorld(target->x, target->y);
-
-				// Effect 1: Deal 7 Magic Damage (with Magic Wall stacking)
-				int baseDamage = 7;
-				// Check both caster and target for adjacency to magic wall
-				auto isAdjacentOrDiagonalToMagicWall = [&](int x, int y) {
-					for (int dx = -1; dx <= 1; ++dx) {
-						for (int dy = -1; dy <= 1; ++dy) {
-							if (dx == 0 && dy == 0) continue;
-							int nx = x + dx, ny = y + dy;
-							if (nx >= 0 && nx < BOARD_WIDTH && ny >= 0 && ny < BOARD_HEIGHT) {
-								if (board[nx][ny].hasWall && board[nx][ny].isMagicWall) return true;
-							}
-						}
-					}
-					return false;
-				};
-				int wallEffectCount = 0;
-				// Caster is currentPlayerIndex
-				if (isAdjacentOrDiagonalToMagicWall(target->x, target->y)) wallEffectCount++;
-				if (isAdjacentOrDiagonalToMagicWall(players[currentPlayerIndex].x, players[currentPlayerIndex].y)) wallEffectCount++;
-				int damage = baseDamage;
-				if (wallEffectCount > 0) {
-					damage *= (1 << wallEffectCount); // x2 for each
-					for (int i = 0; i < wallEffectCount; ++i) {
-						queueFloatingTextVisual(targetPos, "Magic Wall: x2 Magic", ofColor::purple);
-					}
-				}
-
-				// Barrier Check (EffectOps)
-				int barrierDmg = std::min(target->barrier, damage);
-				if (barrierDmg > 0) {
-					EffectOp bOp = {};
-					bOp.type = EffectOpType::MODIFY_STAT;
-					bOp.data.modifyStat.targetIndex = findPlayerIndexByID(target->playerID);
-					bOp.data.modifyStat.statType = 6; // Barrier
-					bOp.data.modifyStat.delta = -barrierDmg;
-					bOp.data.modifyStat.deltaFromSlot = -1;
-					processEffectOp(bOp);
-				}
-				damage -= barrierDmg;
-
-				// Ward Check
-				if (damage > 0) {
-					int wardDmg = std::min(target->ward, damage);
-					if (wardDmg > 0) {
-						EffectOp wOp = {};
-						wOp.type = EffectOpType::MODIFY_STAT;
-						wOp.data.modifyStat.targetIndex = findPlayerIndexByID(target->playerID);
-						wOp.data.modifyStat.statType = 8; // Ward
-						wOp.data.modifyStat.delta = -wardDmg;
-						wOp.data.modifyStat.deltaFromSlot = -1;
-						processEffectOp(wOp);
-					}
-					damage -= wardDmg;
-				}
-
-				// Health Damage & Text
-				if (damage > 0) {
-					EffectOp hpOp = {};
-					hpOp.type = EffectOpType::MODIFY_STAT;
-					hpOp.data.modifyStat.targetIndex = findPlayerIndexByID(target->playerID);
-					hpOp.data.modifyStat.statType = 0; // HP
-					hpOp.data.modifyStat.delta = -damage;
-					hpOp.data.modifyStat.deltaFromSlot = -1;
-					processEffectOp(hpOp);
-					queueFloatingTextVisual(targetPos, "-" + ofToString(damage) + " Magic", ofColor::red);
-				} else {
-					queueFloatingTextVisual(targetPos, "Absorbed", ofColor::gray);
-				}
-				ofLogNotice("Jolt") << "Dealt Damage.";
-
-				// Effect 2: Paralyze - queue deterministic APPLY_STATUS
-				{
-					EffectOp ap = {};
-					ap.type = EffectOpType::APPLY_STATUS;
-					ap.data.status.targetIndex = findPlayerIndexByID(target->playerID);
-					ap.data.status.statusType = STATUS_PARALYZED;
-					ap.data.status.duration = 0;
-					queueEffect(ap);
-				}
-				// isParalyzed/paralysisHeadsCount will be set when APPLY_STATUS is processed
-				// Offset Y slightly so text doesn't overlap damage numbers
-				queueFloatingTextVisual(targetPos + glm::vec3(0, 0.6f, 0), "PARALYZED!", ofColor::yellow);
-				ofLogNotice("Jolt") << "Target Paralyzed.";
-
-				// Effect 3: Mill Top Card
-				if (!target->deck.empty()) {
-					target->deck.pop_back();
-					// Offset Y even more
-					queueFloatingTextVisual(targetPos + glm::vec3(0, 1.2f, 0), "Mind Rot!", ofColor::purple);
-					ofLogNotice("Jolt") << "Target's top card removed.";
-				}
-
-				// Spawn tracer from caster to target tile for Ethereal Jolt
-				{
-					glm::vec3 worldStart, worldEnd;
-					glm::vec2 hitGrid = interactionTargetTile + glm::vec2(0.5f, 0.5f);
-					computeTracerEndpoints(casterTile, hitGrid, worldStart, worldEnd);
-					spawnTracer(worldStart, worldEnd, glm::ivec2((int)interactionTargetTile.x, (int)interactionTargetTile.y), ofColor(200, 120, 255), 5.0f);
-				}
-			}
-		} else {
-			ofLogNotice("Jolt") << "Fell short! (Rolled " << interactionDiceRoll << "ft, needed " << requiredFeet << "ft)";
-			glm::vec3 failPos = gridToWorld(interactionTargetTile.x, interactionTargetTile.y);
-			queueFloatingTextVisual(failPos, "Out of Range", ofColor::white);
-
-			// Spawn a short tracer to show attempted path (fell short)
-			{
-				glm::vec3 worldStart, worldEnd;
-				glm::vec2 hitGrid = interactionTargetTile + glm::vec2(0.5f, 0.5f);
-				computeTracerEndpoints(casterTile, hitGrid, worldStart, worldEnd);
-				spawnTracer(worldStart, worldEnd, glm::ivec2((int)interactionTargetTile.x, (int)interactionTargetTile.y), ofColor(200, 120, 255), 5.0f);
-			}
-		}
-	}
-}
+// Ethereal Jolt handling migrated to APPLY_ETHEREAL_JOLT
 
 // Heal resolution migrated to effect/op pipeline (handled by HEAL EffectOp)
 

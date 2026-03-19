@@ -326,6 +326,7 @@ enum class EffectOpType : uint8_t {
 	APPLY_BARRIER,
 	APPLY_ATTACK,
 	APPLY_PSIONIC_WAVE,
+	APPLY_ETHEREAL_JOLT,
 	APPLY_TELEPORT,
 	APPLY_SHOOT_ARROW,
 	APPLY_SHOOT_ARROW_DAMAGE,
@@ -978,17 +979,12 @@ private:
 	void resolveMagicHandDamage();
 	void resolveSummonHealth();
 	// Amnesia resolver removed; handled via EffectOpType::APPLY_AMNESIA
-	void resolveMagicBlastDice();
-	void resolveDeathDice();
-	void resolveSleepDuration();
-	// New small resolvers for inline dice handling sweep
-	void resolveSleepDurationRoll(const DiceRoll & finishedRoll);
-	void resolveDeathCheckRoll(const DiceRoll & finishedRoll);
+	// Magic Blast handled via EffectOpType::APPLY_MAGIC_BLAST
+	// Death, Sleep and Jolt range resolution migrated into EffectOp handlers
 	// Earthquake damage migrated to effect/op pipeline (APPLY_EARTHQUAKE_DAMAGE)
 	void resolveAPRoll();
 	// Blocking Boon resolution migrated to effect/op handlers (APPLY_BLOCKING_BOON_*)
 	void resolveSummonKobolds(const DiceRoll & finishedRoll);
-	void resolveJoltRangeDice();
 
 	void updateEarthquakeSimulation();
 	// Bonus AP handled via EffectOpType::APPLY_BONUS_AP
@@ -1940,8 +1936,7 @@ private:
 	// Prevent duplicate plays while a Blocking Boon is resolving
 	bool blockingBoonActive = false;
 
-	// Magic Blast
-	bool isWaitingForMagicBlastDice = false;
+	// Magic Blast (handled via effect/op pipeline)
 	// Magic Blast range/target resolved via centralized interaction fields:
 	// `interactionDiceRoll` and `interactionTargetTile` are used instead of per-card pending variables.
 	// Magic Blast choice UI now uses centralized cardInteractionState
@@ -1962,8 +1957,7 @@ private:
 	bool isWaitingForFireballRangeDice = false;
 	bool isWaitingForFireballDamageDice = false;
 
-	// Ethereal Jolt
-	bool isWaitingForJoltRangeDice = false;
+	// Ethereal Jolt handled via EffectOpType::APPLY_ETHEREAL_JOLT
 	// uses `interactionDiceRoll` and `interactionTargetTile`
 
 	// Chain Lightning
