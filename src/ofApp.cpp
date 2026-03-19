@@ -1912,7 +1912,7 @@ void ofApp::update() {
 	}
 
 	// Check for any "waiting" state that should lock player input
-	if (isWaitingForTimeVortexDice || isWaitingForMagicBoltRange) {
+	if (isWaitingForMagicBoltRange) {
 		updateGame();
 		return;
 	}
@@ -3817,8 +3817,8 @@ void ofApp::updateGame() {
 	resolveDeathDice();
 	resolveSleepDuration();
 	resolveJoltRangeDice();
-	resolveHealDice();
-	resolveTimeVortexDice();
+	// resolveHealDice migrated to effect/op pipeline (HEAL processed from EffectOps)
+	// resolveTimeVortexDice migrated to effect/op pipeline (APPLY_TIME_VORTEX handled from EffectOps)
 	// Magic Bolt now handled by effect-ops (APPLY_MAGIC_BOLT /* range */
 	// -> ROLL_DICE(primary) -> APPLY_MAGIC_BOLT_PRIMARY -> ROLL_DICE(aoe)
 	// -> APPLY_MAGIC_BOLT_AOE). Legacy per-frame resolvers removed.
@@ -3868,7 +3868,7 @@ void ofApp::updateGame() {
 
 	// NOTE: Ethereal Jolt range resolution is now centralized in resolveJoltRangeDice() helper
 
-	// NOTE: Heal dice resolution is now centralized in resolveHealDice() helper
+	// NOTE: Heal dice resolution migrated to HEAL EffectOp (effect/op pipeline)
 
 	// NOTE: Magic Bolt 3-stage resolution is now centralized
 	// in resolveMagicBoltRangeDice(), resolveMagicBoltPrimaryDice(), resolveMagicBoltAoeDice() helpers
@@ -16297,6 +16297,19 @@ void ofApp::processEffectOp(EffectOp & op) {
 		break;
 	}
 
+	case EffectOpType::APPLY_TIME_VORTEX: {
+		// Read authoritative extra-turns result from blackboard slot 0
+		int turns = currentEffectSequence.blackboard[0];
+		if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) {
+			Player & p = players[currentPlayerIndex];
+			p.bonusTurns += turns;
+			queueFloatingTextVisual(gridToWorld(p.x, p.y), "+" + ofToString(turns) + " Extra Turns!", ofColor::cyan);
+			ofLogNotice("Time Vortex") << "Unit " << p.playerID << " gained " << turns << " bonus turns.";
+		}
+		opComplete = true;
+		break;
+	}
+
 	case EffectOpType::APPLY_AMNESIA: {
 		// Read authoritative amnesia result from blackboard slot 0
 		{
@@ -19219,10 +19232,13 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 			strncpy(rollOp.data.rollDice.label, "Time Vortex: Extra Turns", 31);
 			rollOp.data.rollDice.label[31] = '\0';
 			queueEffect(rollOp);
-			isWaitingForTimeVortexDice = true;
+			// Queue an APPLY op to consume authoritative result from blackboard[0]
+			EffectOp applyOp = {};
+			applyOp.type = EffectOpType::APPLY_TIME_VORTEX;
+			queueEffect(applyOp);
 		}
 		playedSuccessfully = true;
-		advanceCardState(CARD_STATE_DICE);
+		advanceCardState(CARD_STATE_EFFECT_SEQUENCE);
 		return true;
 	}
 
@@ -22404,78 +22420,10 @@ void ofApp::resolveJoltRangeDice() {
 	}
 }
 
-//--------------------------------------------------------------
-void ofApp::resolveHealDice() {
-	if (isWaitingForHealDice && diceVisualsFinishedAndLinger()) {
-		isWaitingForHealDice = false;
-		Player * target = getPlayer(currentCardOutcome.targetPlayerIndex);
-		if (target) {
-			int healAmount = currentCardOutcome.namedDiceResults[std::to_string((int)PURPOSE_HEALING)];
-			int missingHp = std::max(0, target->maxHealth - target->health);
-			int actualHeal = std::min(healAmount, missingHp);
-
-			// Apply Heal via EffectOp
-			{
-				EffectOp healOp = {};
-				healOp.type = EffectOpType::HEAL;
-				healOp.data.heal.targetIndex = findPlayerIndexByID(target->playerID);
-				healOp.data.heal.amount = actualHeal;
-				healOp.data.heal.amountFromSlot = -1;
-				processEffectOp(healOp);
-			}
-
-			// ADD THIS: Green Text
-			glm::vec3 tPos = gridToWorld(target->x, target->y);
-			if (actualHeal > 0) {
-				queueFloatingTextVisual(tPos, "+" + ofToString(actualHeal) + " HP", ofColor::green);
-			} else {
-				queueFloatingTextVisual(tPos, "Already Full HP", ofColor::gray);
-			}
-
-			ofLogNotice("Heal") << "Player " << target->playerID << " healed.";
-		}
-		currentCardOutcome.targetPlayerIndex = -1;
-	}
-}
-
-// Psionic Wave range/amount resolution migrated to effect/op pipeline
-// (handled inside ROLL_DICE processing and EffectOpType::APPLY_PSIONIC_WAVE).
+// Heal resolution migrated to effect/op pipeline (handled by HEAL EffectOp)
 
 //--------------------------------------------------------------
-void ofApp::resolveTimeVortexDice() {
-	if (isWaitingForTimeVortexDice && diceVisualsFinishedAndLinger()) {
-		isWaitingForTimeVortexDice = false;
-
-		// The 'time vortex' result is stored in currentCardOutcome.namedDiceResults["time_vortex_turns"].
-		// In multiplayer, processNetworkPackets receives PKT_DICE_ROLL and populates activeDiceRolls.
-		// However, we need to ensure the result matches the host.
-
-		// This is tricky because startDiceRoll returns the result immediately on the caller.
-		// For Time Vortex, the simplest fix is to trust the visual dice result if we are the client.
-
-		// --- CHANGE START ---
-		// If client, force sync result from the visual dice received from host
-		if (isMultiplayer && isClient()) {
-			// We don't have the result yet if we just cleared the flag.
-			// We rely on the fact that processNetworkPackets populated 'activeDiceRolls'
-			// and those rolls had the correct 'result' from the host.
-		}
-		// --- CHANGE END ---
-
-		Player & currentPlayer = players[currentPlayerIndex];
-		int turnsGained = currentCardOutcome.namedDiceResults["time_vortex_turns"];
-
-		// Add the bonus turns to the current player/minion
-		currentPlayer.bonusTurns += turnsGained;
-
-		queueFloatingTextVisual(
-			gridToWorld(currentPlayer.x, currentPlayer.y),
-			"+" + ofToString(turnsGained) + " Extra Turns!",
-			ofColor::cyan);
-
-		ofLogNotice("Time Vortex") << "Unit " << currentPlayer.playerID << " gained " << turnsGained << " bonus turns.";
-	}
-}
+// Time Vortex resolution migrated to effect/op pipeline (APPLY_TIME_VORTEX handles application)
 
 //--------------------------------------------------------------
 void ofApp::resolveMagicBoltRangeDice() {

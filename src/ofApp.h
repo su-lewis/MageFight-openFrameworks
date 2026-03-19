@@ -320,6 +320,7 @@ enum class EffectOpType : uint8_t {
 	APPLY_MAGIC_BOLT,
 	APPLY_MAGIC_BOLT_PRIMARY,
 	APPLY_MAGIC_BOLT_AOE,
+	APPLY_TIME_VORTEX,
 	APPLY_ATTACK,
 	APPLY_PSIONIC_WAVE,
 	APPLY_TELEPORT,
@@ -990,9 +991,8 @@ private:
 
 	// Earthquake simulation update (migrated from updateGame())
 	void updateEarthquakeSimulation();
-	void resolveHealDice();
 
-	void resolveTimeVortexDice();
+	// Time Vortex resolution migrated to effect/op pipeline
 	void resolveMagicBoltRangeDice();
 	void resolveMagicBoltPrimaryDice();
 	void resolveMagicBoltAoeDice();
@@ -2039,8 +2039,7 @@ private:
 	ofRectangle burstBtnDamage;
 	ofRectangle burstBtnHeal;
 
-	// Heal
-	bool isWaitingForHealDice = false;
+	// Heal (handled via effect/op pipeline)
 
 	// Summon (Raise Dead)
 	enum PendingSummonKind {
@@ -2111,8 +2110,7 @@ private:
 	int remoteKoboldPlacementSourceY = -1;
 	int remoteKoboldsRemaining = 0;
 
-	// Time Vortex
-	bool isWaitingForTimeVortexDice = false;
+	// Time Vortex handled via effect/op pipeline
 
 	// --- Magic Bolt State ---
 	bool isWaitingForMagicBoltRange = false;
