@@ -332,6 +332,7 @@ enum class EffectOpType : uint8_t {
 	APPLY_CHAIN_LIGHTNING_DAMAGE,
 	APPLY_MAGIC_HAND_DAMAGE,
 	APPLY_EARTHQUAKE,
+	APPLY_EARTHQUAKE_DAMAGE,
 	WAIT_VISUAL
 };
 
@@ -982,22 +983,18 @@ private:
 	// New small resolvers for inline dice handling sweep
 	void resolveSleepDurationRoll(const DiceRoll & finishedRoll);
 	void resolveDeathCheckRoll(const DiceRoll & finishedRoll);
-	void resolveEarthquakeDamage(const DiceRoll & finishedRoll);
+	// Earthquake damage migrated to effect/op pipeline (APPLY_EARTHQUAKE_DAMAGE)
 	void resolveAPRoll();
 	// Blocking Boon resolution migrated to effect/op handlers (APPLY_BLOCKING_BOON_*)
 	void resolveSummonKobolds(const DiceRoll & finishedRoll);
 	void resolveJoltRangeDice();
 
-	void resolveEarthquakeDistance();
+	void updateEarthquakeSimulation();
 	void resolveBonusAP(const DiceRoll & finishedRoll);
 
 	// Earthquake simulation update (migrated from updateGame())
-	void updateEarthquakeSimulation();
 
 	// Time Vortex resolution migrated to effect/op pipeline
-	void resolveMagicBoltRangeDice();
-	void resolveMagicBoltPrimaryDice();
-	void resolveMagicBoltAoeDice();
 	// Chain Lightning handled by effect/op pipeline (APPLY_CHAIN_LIGHTNING)
 	void resolveChainLightningRangeDice();
 	// Flail, Spark of Genius, and Barrier handled by effect/op pipeline
@@ -2021,6 +2018,17 @@ private:
 
 	// Network-assisted earthquake assignment counter (used when client receives dice)
 	int earthquakeDiceAssignCounter = 0;
+
+	// Earthquake damage targets stored until APPLY_EARTHQUAKE_DAMAGE runs
+	struct EarthquakeDamageTarget {
+		int playerIndex = -1;
+		glm::vec3 visualPos = glm::vec3(0);
+		int gridX = -1;
+		int gridY = -1;
+		int blackboardSlot = -1;
+	};
+
+	std::vector<EarthquakeDamageTarget> earthquakeDamageTargets;
 
 	// When a client plays earthquake, it waits for host to send EarthquakeBegin
 	bool isWaitingForEarthquakeBegin = false;

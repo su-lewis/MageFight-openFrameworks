@@ -4013,7 +4013,12 @@ void ofApp::updateGame() {
 						rollOp.data.rollDice.sides = 4;
 						rollOp.data.rollDice.purpose = PURPOSE_EARTHQUAKE_DAMAGE;
 						rollOp.data.rollDice.ownerIndex = earthquakeUnits[i].playerIndex;
-						rollOp.data.rollDice.outputSlot = 0;
+						// Store per-unit crash damage in blackboard slots starting at slot 8
+						int quakeDamageBase = 8;
+						if (i >= 16 - quakeDamageBase)
+							rollOp.data.rollDice.outputSlot = quakeDamageBase + (i % (16 - quakeDamageBase));
+						else
+							rollOp.data.rollDice.outputSlot = quakeDamageBase + i;
 						rollOp.data.rollDice.label[0] = '\0';
 						queueEffect(rollOp);
 						int beforeIdx = (int)activeDiceRolls.size();
@@ -4036,6 +4041,32 @@ void ofApp::updateGame() {
 						cft.duration = 0.8f;
 						cft.color = ofColor::red;
 						activeFloatingTexts.push_back(cft);
+					}
+				}
+
+				// After queuing per-unit crash damage dice, record targets and queue APPLY_EARTHQUAKE_DAMAGE
+				{
+					int quakeDamageBase = 8;
+					bool anyDamage = false;
+					for (int i = 0; i < n; ++i) {
+						if (damageDiceCount[i] > 0) {
+							EarthquakeDamageTarget t;
+							t.playerIndex = earthquakeUnits[i].playerIndex;
+							t.visualPos = gridToWorld(earthquakeUnits[i].startGrid.x, earthquakeUnits[i].startGrid.y) + glm::vec3(0, 1.5f, 0);
+							t.gridX = earthquakeUnits[i].startGrid.x;
+							t.gridY = earthquakeUnits[i].startGrid.y;
+							if (i >= 16 - quakeDamageBase)
+								t.blackboardSlot = quakeDamageBase + (i % (16 - quakeDamageBase));
+							else
+								t.blackboardSlot = quakeDamageBase + i;
+							earthquakeDamageTargets.push_back(t);
+							anyDamage = true;
+						}
+					}
+					if (anyDamage) {
+						EffectOp apply = {};
+						apply.type = EffectOpType::APPLY_EARTHQUAKE_DAMAGE;
+						queueEffect(apply);
 					}
 				}
 
@@ -4184,8 +4215,7 @@ void ofApp::updateGame() {
 				if (elapsedTime > spinDuration && !roll.isFinishedVisual) {
 					roll.isFinishedVisual = true;
 					if (roll.purpose == PURPOSE_EARTHQUAKE_DAMAGE) {
-						// Delegate to centralized earthquake damage resolver
-						resolveEarthquakeDamage(roll);
+						// Damage application now handled by APPLY_EARTHQUAKE_DAMAGE effect op; just remove visual die
 						it = activeDiceRolls.erase(it);
 						continue;
 					}
@@ -16104,6 +16134,32 @@ void ofApp::processEffectOp(EffectOp & op) {
 		break;
 	}
 
+	case EffectOpType::APPLY_EARTHQUAKE_DAMAGE: {
+		// Apply authoritative crash damage for earthquake; values are stored in blackboard slots
+		for (size_t ti = 0; ti < earthquakeDamageTargets.size(); ++ti) {
+			EarthquakeDamageTarget & t = earthquakeDamageTargets[ti];
+			if (t.playerIndex < 0) continue;
+			int slot = t.blackboardSlot;
+			if (slot < 0 || slot >= 16) continue;
+			int dmg = currentEffectSequence.blackboard[slot];
+			if (dmg <= 0) {
+				queueFloatingTextVisual(t.visualPos + glm::vec3(0, 0.8f, 0), "Phased (0 Dmg)", ofColor::cyan);
+				continue;
+			}
+			int pidx = findPlayerIndexByID(players[t.playerIndex].playerID);
+			// players vector may have shifted; try to find by playerID else use index if valid
+			Player * target = nullptr;
+			if (pidx >= 0) target = getPlayer(pidx);
+			if (!target && t.playerIndex >= 0 && t.playerIndex < (int)players.size()) target = &players[t.playerIndex];
+			if (target) {
+				applyDamageTo(*target, dmg, DAMAGE_PHYSICAL, -1);
+			}
+		}
+		earthquakeDamageTargets.clear();
+		opComplete = true;
+		break;
+	}
+
 	case EffectOpType::APPLY_POISON: {
 		// Determine poison damage from blackboard slot 0 (authoritative)
 		int poisonDamage = currentEffectSequence.blackboard[0];
@@ -22012,107 +22068,9 @@ void ofApp::resolveBonusAP(const DiceRoll & finishedRoll) {
 	ofLogNotice("Game") << "Bonus Dice Finished: " << finishedRoll.result << " AP awarded.";
 }
 
-// --------------------------------------------------------------
-// Resolve earthquake distance dice: collect finished dice, set movement parameters,
-// remove the consumed dice, and advance earthquake state to waiting/animation.
-void ofApp::resolveEarthquakeDistance() {
-	bool ready = true;
-	int foundDiceCount = 0;
+// Earthquake distance resolution migrated to EffectOpType::APPLY_EARTHQUAKE
 
-	// Ensure all earthquake distance dice have finished visually
-	for (auto & unit : earthquakeUnits) {
-		bool unitDieReady = false;
-		for (const auto & roll : activeDiceRolls) {
-			if (roll.purpose == PURPOSE_EARTHQUAKE_DISTANCE && roll.associatedUnit == unit.playerIndex) {
-				foundDiceCount++;
-				if (roll.isFinishedVisual) {
-					unitDieReady = true;
-				}
-				break;
-			}
-		}
-		if (!unitDieReady) {
-			ready = false;
-			break;
-		}
-	}
-
-	// Only proceed if we found all the dice and they are finished
-	if (ready && foundDiceCount == (int)earthquakeUnits.size()) {
-		// Capture results and remove those dice from activeDiceRolls safely
-		std::vector<int> toErase;
-		for (auto & unit : earthquakeUnits) {
-			for (int i = 0; i < (int)activeDiceRolls.size(); ++i) {
-				if (activeDiceRolls[i].purpose == PURPOSE_EARTHQUAKE_DISTANCE && activeDiceRolls[i].associatedUnit == unit.playerIndex) {
-					int result = activeDiceRolls[i].result;
-					unit.tilesToMove = result;
-					unit.originalDistance = result;
-					unit.nextGrid = unit.startGrid + unit.direction;
-					unit.isMoving = (result > 0);
-					toErase.push_back(i);
-					break;
-				}
-			}
-		}
-
-		// Erase in descending order
-		sort(toErase.begin(), toErase.end(), std::greater<int>());
-		for (int idx : toErase) {
-			if (idx >= 0 && idx < (int)activeDiceRolls.size()) {
-				activeDiceRolls.erase(activeDiceRolls.begin() + idx);
-			}
-		}
-
-		isEarthquakeDiceRolling = false;
-		isEarthquakeWaiting = true;
-		earthquakeWaitTimer = 2.0f; // 2 seconds delay
-		isEarthquakeAnimatingStep = false;
-		earthquakeT = 0.0f;
-	}
-}
-
-// --------------------------------------------------------------
-// Small resolver: apply earthquake damage result from finished die
-void ofApp::resolveEarthquakeDamage(const DiceRoll & finishedRoll) {
-	int uidx = finishedRoll.associatedUnit;
-	if (uidx >= 0 && uidx < (int)players.size()) {
-		if (players[uidx].inGhostForm) {
-			glm::vec3 textPos = gridToWorld(players[uidx].x, players[uidx].y);
-			for (const auto & eu : earthquakeUnits) {
-				if (eu.playerIndex == uidx) {
-					textPos = eu.visualPos;
-					break;
-				}
-			}
-			queueFloatingTextVisual(textPos + glm::vec3(0, 0.8f, 0), "Phased (0 Dmg)", ofColor::cyan);
-		} else {
-			// Centralized damage handling (applyDamageTo will handle block/absorb, floating text, and graveyard entries)
-			applyDamageTo(players[uidx], finishedRoll.result, DAMAGE_PHYSICAL, -1);
-			// If the player died as a result, remove them from runtime containers (applyDamageTo already pushed graveyard/cleared board/x)
-			if (players[uidx].health <= 0) {
-				for (auto eit = earthquakeUnits.begin(); eit != earthquakeUnits.end();) {
-					if (eit->playerIndex == uidx)
-						eit = earthquakeUnits.erase(eit);
-					else {
-						if (eit->playerIndex > uidx) eit->playerIndex--;
-						++eit;
-					}
-				}
-				for (auto & r : activeDiceRolls) {
-					if (r.associatedUnit == uidx)
-						r.associatedUnit = -1;
-					else if (r.associatedUnit > uidx)
-						r.associatedUnit--;
-				}
-				if (currentPlayerIndex == uidx)
-					currentPlayerIndex = std::min<int>(uidx, (int)players.size() - 1);
-				else if (currentPlayerIndex > uidx)
-					currentPlayerIndex--;
-				players.erase(players.begin() + uidx);
-			}
-		}
-	}
-}
+// Earthquake damage is now applied by EffectOpType::APPLY_EARTHQUAKE_DAMAGE
 
 // --------------------------------------------------------------
 // Small resolver: death-check die finished (store to named results)
@@ -22451,10 +22409,7 @@ void ofApp::resolveJoltRangeDice() {
 // EffectOpType::APPLY_MAGIC_BOLT and its APPLY_* follow-ups (non-blocking visuals).
 
 //--------------------------------------------------------------
-void ofApp::resolveMagicBoltPrimaryDice() {
-	// Magic Bolt primary resolved via APPLY_MAGIC_BOLT_PRIMARY effect op
-	return;
-}
+// Magic Bolt primary resolver removed; handled via APPLY_MAGIC_BOLT_PRIMARY effect op
 
 //--------------------------------------------------------------
 // Magic Bolt AOE resolver removed: AOE is handled via EffectOpType::APPLY_MAGIC_BOLT_AOE
