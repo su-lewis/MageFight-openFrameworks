@@ -2138,11 +2138,7 @@ private:
 	// Hellhound targeting
 	int hellhoundCardIndex = -1;
 
-	// Death Card Logic
-	bool isWaitingForDeathDice = false;
-	bool isWaitingForSleepDuration = false;
-	// Death target and roll stored in `currentCardOutcome.targetPlayerIndex` and
-	// `currentCardOutcome.namedDiceResults["death_check"]` respectively.
+	// Death Card Logic handled via EffectOpType::APPLY_DEATH and APPLY_SLEEP_DURATION
 
 	// --- Spark of genius Logic ---
 	// Spark of Genius handled via effect/op pipeline

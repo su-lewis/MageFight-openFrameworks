@@ -22205,64 +22205,10 @@ void ofApp::resolveMagicBlastDice() {
 }
 
 //--------------------------------------------------------------
-void ofApp::resolveDeathDice() {
-	if (isWaitingForDeathDice && diceVisualsFinishedAndLinger()) {
-		isWaitingForDeathDice = false;
-
-		Player * target = getPlayer(currentCardOutcome.targetPlayerIndex);
-		if (target) {
-			int roll = currentCardOutcome.namedDiceResults["death_check"];
-
-			if (roll > target->health) {
-				// SUCCESS: DEATH
-				queueFloatingTextVisual(gridToWorld(target->x, target->y), "Executed!", ofColor::red);
-
-				DeathMarker death;
-				death.x = target->x;
-				death.y = target->y;
-				death.turnDied = globalTurnCounter;
-				death.deck = target->deck;
-				graveyard.push_back(death);
-				board[target->x][target->y].hasPlayer = false;
-				target->x = -1000;
-				target->health = 0;
-			} else {
-				// FAIL: SLEEP (Roll Duration)
-				queueFloatingTextVisual(gridToWorld(target->x, target->y), "Sleep...", ofColor::cyan);
-
-				// Queue authoritative 1d6 sleep-duration roll and apply via effect sequence
-				beginEffectSequence();
-				EffectOp sleepRoll = {};
-				sleepRoll.type = EffectOpType::ROLL_DICE;
-				sleepRoll.data.rollDice.numDice = 1;
-				sleepRoll.data.rollDice.sides = 6;
-				sleepRoll.data.rollDice.purpose = PURPOSE_SLEEP_DURATION;
-				sleepRoll.data.rollDice.ownerIndex = currentPlayerIndex;
-				sleepRoll.data.rollDice.outputSlot = 1; // APPLY_SLEEP_DURATION reads slot 1
-				strncpy(sleepRoll.data.rollDice.label, "Sleep Duration", 31);
-				sleepRoll.data.rollDice.label[31] = '\0';
-				queueEffect(sleepRoll);
-
-				EffectOp applySleep = {};
-				applySleep.type = EffectOpType::APPLY_SLEEP_DURATION;
-				queueEffect(applySleep);
-
-				advanceCardState(CARD_STATE_EFFECT_SEQUENCE);
-				beginEffectSequence();
-				// Note: currentCardOutcome.targetPlayerIndex will be used by APPLY handler
-			}
-		} else {
-			currentCardOutcome.targetPlayerIndex = -1;
-		}
-	}
-}
+// Death resolution is handled by EffectOpType::APPLY_DEATH (queued with ROLL_DICE in play path)
 
 //--------------------------------------------------------------
-void ofApp::resolveSleepDuration() {
-	if (isWaitingForSleepDuration && diceVisualsFinishedAndLinger()) {
-		isWaitingForSleepDuration = false;
-	}
-}
+// Sleep duration resolved via EffectOpType::APPLY_SLEEP_DURATION
 
 //--------------------------------------------------------------
 void ofApp::resolveJoltRangeDice() {
