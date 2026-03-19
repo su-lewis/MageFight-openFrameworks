@@ -3835,7 +3835,14 @@ void ofApp::updateGame() {
 				// If health is now higher than max, clamp it down.
 				// Do NOT heal up if max increases.
 				if (p.health > p.maxHealth) {
-					p.health = p.maxHealth;
+					int idx = (int)(&p - &players[0]);
+					EffectOp op = {};
+					op.type = EffectOpType::MODIFY_STAT;
+					op.data.modifyStat.targetIndex = idx;
+					op.data.modifyStat.statType = 0; // HP
+					op.data.modifyStat.delta = p.maxHealth - p.health;
+					op.data.modifyStat.deltaFromSlot = -1;
+					processEffectOp(op);
 				}
 			}
 		}
@@ -11485,33 +11492,20 @@ void ofApp::mousePressed(int x, int y, int button) {
 					int dist = abs(gx - wolfPlacementSourceX) + abs(gy - wolfPlacementSourceY);
 					if (dist == 1) {
 
-						// --- SPAWN THE WOLF ---
+						// --- SPAWN THE WOLF (queue SPAWN_UNIT) ---
 						wolfSummonCount++; // Increment name counter (Wolf 1, Wolf 2)
 
-						Player wolf;
-						wolf.playerID = 200 + (int)players.size();
-						wolf.x = gx;
-						wolf.y = gy;
-						wolf.maxHealth = 4;
-						wolf.health = 4;
-						wolf.isMinion = true;
-						wolf.isWolf = true;
-
-						// Set owner using captured owner ID (not currentPlayerIndex which may have changed)
-						wolf.ownerID = currentCardOutcome.summonOwnerPlayerID;
-						wolf.summonedOnTurnCycle = globalTurnCounter;
-						Card slashCard, callCard;
-						for (const auto & c : allCards) {
-							if (c.name == "Slash") slashCard = c;
-							if (c.type == CARD_CALL_FOR_WOLVES) callCard = c;
-						}
-						wolf.deck = { slashCard, slashCard, slashCard, callCard };
-
-						// Add to board
-						board[gx][gy].hasPlayer = true;
-						players.push_back(wolf);
-						int newWolfIdx = (int)players.size() - 1;
-						shuffleGameVector(players[newWolfIdx].deck, newWolfIdx);
+						EffectOp spawnOp = {};
+						spawnOp.type = EffectOpType::SPAWN_UNIT;
+						spawnOp.data.spawnUnit.toX = gx;
+						spawnOp.data.spawnUnit.toY = gy;
+						spawnOp.data.spawnUnit.summonKind = 2; // WOLF
+						spawnOp.data.spawnUnit.ownerPlayerID = currentCardOutcome.summonOwnerPlayerID;
+						spawnOp.data.spawnUnit.maxHealth = 4;
+						spawnOp.data.spawnUnit.maxHealthFromSlot = -1;
+						spawnOp.data.spawnUnit.ap = 0;
+						spawnOp.data.spawnUnit.summonerPlayerID = players[currentPlayerIndex].playerID;
+						queueEffect(spawnOp);
 
 						// Notify clients about the placed Wolf (authoritative HP)
 						if (isMultiplayer && isHost()) {
@@ -11519,10 +11513,10 @@ void ofApp::mousePressed(int x, int y, int button) {
 							pkt.type = PKT_PLACE_SUMMONED_MINION;
 							pkt.playerID = myLocalPlayerID;
 							pkt.minionType = 2; // WOLF
-							pkt.ownerPlayerID = wolf.ownerID;
-							pkt.targetX = wolf.x;
-							pkt.targetY = wolf.y;
-							pkt.minionHP = wolf.maxHealth;
+							pkt.ownerPlayerID = currentCardOutcome.summonOwnerPlayerID;
+							pkt.targetX = gx;
+							pkt.targetY = gy;
+							pkt.minionHP = 4;
 							pkt.minionAP = 0;
 							steamManager.sendPacket(&pkt, sizeof(pkt));
 							ofLogNotice("Network") << "Host sent PlaceSummonedMinion: WOLF owner=" << pkt.ownerPlayerID << " target=(" << pkt.targetX << "," << pkt.targetY << ") HP=" << pkt.minionHP;
@@ -21797,9 +21791,8 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 		// 4. Transform Board State
 		board[targetX][targetY].hasWall = false; // Remove static wall
 		board[targetX][targetY].isMagicWall = false; // Clear flag (unit carries property now)
-		board[targetX][targetY].hasPlayer = true; // Add unit
 
-		// Update Mesh (to remove the static wall visually)
+		// Update Mesh (remove static wall visually). SPAWN_UNIT will place the minion.
 		buildLevelMesh();
 
 		// --- CRASH FIX START ---
@@ -21811,11 +21804,18 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 		completeCardPlayAnimation(playedCard, currentPlayerIndex);
 		// --- CRASH FIX END ---
 
-		// Add minion to players
-		players.push_back(minion);
-		int newWallUnitIdx = (int)players.size() - 1;
-		players[newWallUnitIdx].visualPos = gridToWorld(players[newWallUnitIdx].x, players[newWallUnitIdx].y);
-		shuffleGameVector(players[newWallUnitIdx].deck, newWallUnitIdx);
+		// Queue deterministic spawn of wall-unit (authoritative placement handled by EffectOp)
+		EffectOp spawnOp = {};
+		spawnOp.type = EffectOpType::SPAWN_UNIT;
+		spawnOp.data.spawnUnit.toX = targetX;
+		spawnOp.data.spawnUnit.toY = targetY;
+		spawnOp.data.spawnUnit.summonKind = minion.isMagicWallUnit ? 11 : 10; // 10=Wall, 11=MagicWall
+		spawnOp.data.spawnUnit.ownerPlayerID = minion.ownerID;
+		spawnOp.data.spawnUnit.maxHealth = minion.maxHealth;
+		spawnOp.data.spawnUnit.maxHealthFromSlot = -1;
+		spawnOp.data.spawnUnit.ap = 0;
+		spawnOp.data.spawnUnit.summonerPlayerID = players[currentPlayerIndex].playerID;
+		queueEffect(spawnOp);
 
 		// Notify clients about the placed Wall Unit (authoritative HP)
 		if (isMultiplayer && isHost()) {
@@ -21830,25 +21830,6 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 			pkt.minionAP = 0;
 			steamManager.sendPacket(&pkt, sizeof(pkt));
 			ofLogNotice("Network") << "Host sent PlaceSummonedMinion: WALL owner=" << pkt.ownerPlayerID << " target=(" << pkt.targetX << "," << pkt.targetY << ") HP=" << pkt.minionHP << " magic=" << (minion.isMagicWallUnit ? 1 : 0);
-		}
-
-		// 5. Sort Turn Order
-		int currentID = savedCurrentID;
-		std::sort(players.begin(), players.end(), [](const Player & a, const Player & b) {
-			int ownerA = a.isMinion ? a.ownerID : a.playerID;
-			int ownerB = b.isMinion ? b.ownerID : b.playerID;
-			if (ownerA != ownerB) return ownerA < ownerB;
-			if (a.isMinion && !b.isMinion) return true;
-			if (!a.isMinion && b.isMinion) return false;
-			return a.summonOrder < b.summonOrder;
-		});
-
-		// Restore Index
-		for (size_t i = 0; i < players.size(); i++) {
-			if (players[i].playerID == currentID) {
-				currentPlayerIndex = i;
-				break;
-			}
 		}
 
 		updatePlayerAP(players[currentPlayerIndex], currentAP);
