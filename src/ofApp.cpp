@@ -269,7 +269,6 @@ void ofApp::finishPlayCard(Player & caster, const Card & playedCard, int handInd
 		applyReplicateCopyToHand(caster, playedCard); // Handle replication
 	}
 	interactingCardIndex = handIndex; // Update the interacting card index
-	// Note: replicate copy already applied when removing from hand above.
 }
 
 void ofApp::updatePlayerAP(Player & player, int newAP) {
@@ -14539,7 +14538,7 @@ void ofApp::handleCardTargetClick(int gridX, int gridY) {
 		// Secondary menu response required
 		updateCardInteractionState(CARD_INTERACTION_MENU, cardIndex, interactingCardType);
 
-		if (interactingCardType == CARD_BURST_OF_LIGHT || interactingCardType == CARD_WISDOM_BOON
+		if (interactingCardType == CARD_WISDOM_BOON || interactingCardType == CARD_BURST_OF_LIGHT
 			|| interactingCardType == CARD_DOUBLE_HANDED || interactingCardType == CARD_DISPEL) {
 			interactionTargetIndex = targetIndex;
 			interactingCardIndex = cardIndex;
@@ -14633,6 +14632,48 @@ void ofApp::handleCardMenuClick(const std::string & buttonId) {
 			break;
 		case CARD_DISPEL:
 			choice = (buttonId == "Barrier") ? 1 : 2;
+			break;
+
+		case CARD_MAGIC_BLAST:
+			if (magicBlastDamageButton.inside(mouseX, mouseY)) {
+				InputCommandPacket cmd = {};
+				cmd.type = PKT_ACTION;
+				cmd.playerID = myLocalPlayerID;
+				cmd.seq = 0;
+				cmd.commandId = nextCommandId++;
+				cmd.turnNumber = globalTurnCounter;
+				cmd.commandType = CMD_MENU_CHOICE;
+				cmd.params[0] = interactingCardType;
+				cmd.params[1] = magicBlastTargetPlayerIndex; // target resolved by APPLY_MAGIC_BLAST
+				cmd.params[2] = 1; // damage choice
+				cmd.params[3] = interactingCardIndex;
+				if (isMultiplayer)
+					queueInputCommand(cmd);
+				else {
+					isExecutingLockstepCommand = true;
+					executeInputCommand(cmd);
+					isExecutingLockstepCommand = false;
+				}
+			} else if (magicBlastDiscardButton.inside(mouseX, mouseY)) {
+				InputCommandPacket cmd = {};
+				cmd.type = PKT_ACTION;
+				cmd.playerID = myLocalPlayerID;
+				cmd.seq = 0;
+				cmd.commandId = nextCommandId++;
+				cmd.turnNumber = globalTurnCounter;
+				cmd.commandType = CMD_MENU_CHOICE;
+				cmd.params[0] = interactingCardType;
+				cmd.params[1] = magicBlastTargetPlayerIndex; // target resolved by APPLY_MAGIC_BLAST
+				cmd.params[2] = 2; // discard choice
+				cmd.params[3] = interactingCardIndex;
+				if (isMultiplayer)
+					queueInputCommand(cmd);
+				else {
+					isExecutingLockstepCommand = true;
+					executeInputCommand(cmd);
+					isExecutingLockstepCommand = false;
+				}
+			}
 			break;
 		case CARD_GIANT_MAGIC_HAND:
 			choice = (buttonId == "push" || buttonId == "PUSH") ? 1 : 2;
@@ -15403,6 +15444,9 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 		case CARD_GIANT_MAGIC_HAND:
 			buttonId = (choice == 1) ? "push" : "pull";
 			break;
+		case CARD_MAGIC_BLAST:
+			buttonId = (choice == 1) ? "damage" : "discard";
+			break;
 		default:
 			break;
 		}
@@ -15717,62 +15761,14 @@ void ofApp::processEffectOp(EffectOp & op) {
 				queueFloatingTextVisual(gridToWorld(victim->x, victim->y), "Phased!", ofColor::cyan);
 			}
 
-			// Apply Physical Mitigation via EffectOps
-			int vIndex = -1;
-			for (size_t _i = 0; _i < players.size(); ++_i)
-				if (&players[_i] == victim) {
-					vIndex = (int)_i;
-					break;
-				}
-			if (vIndex >= 0) {
-				int block = std::min(victim->block, dmg);
-				if (block > 0) {
-					EffectOp bOp = {};
-					bOp.type = EffectOpType::MODIFY_STAT;
-					bOp.data.modifyStat.targetIndex = vIndex;
-					bOp.data.modifyStat.statType = 5; // Block
-					bOp.data.modifyStat.delta = -block;
-					bOp.data.modifyStat.deltaFromSlot = -1;
-					processEffectOp(bOp);
-				}
-				dmg -= block;
-
-				int fort = std::min(victim->fortification, dmg);
-				if (fort > 0) {
-					EffectOp fOp = {};
-					fOp.type = EffectOpType::MODIFY_STAT;
-					fOp.data.modifyStat.targetIndex = vIndex;
-					fOp.data.modifyStat.statType = 13; // Fortification
-					fOp.data.modifyStat.delta = -fort;
-					fOp.data.modifyStat.deltaFromSlot = -1;
-					processEffectOp(fOp);
-				}
-				dmg -= fort;
-
-				int ward = std::min(victim->ward, dmg);
-				if (ward > 0) {
-					EffectOp wOp = {};
-					wOp.type = EffectOpType::MODIFY_STAT;
-					wOp.data.modifyStat.targetIndex = vIndex;
-					wOp.data.modifyStat.statType = 8; // Ward
-					wOp.data.modifyStat.delta = -ward;
-					wOp.data.modifyStat.deltaFromSlot = -1;
-					processEffectOp(wOp);
-				}
-				dmg -= ward;
-
-				if (dmg > 0) {
-					EffectOp hpOp = {};
-					hpOp.type = EffectOpType::MODIFY_STAT;
-					hpOp.data.modifyStat.targetIndex = vIndex;
-					hpOp.data.modifyStat.statType = 0; // HP
-					hpOp.data.modifyStat.delta = -dmg;
-					hpOp.data.modifyStat.deltaFromSlot = -1;
-					processEffectOp(hpOp);
-					queueFloatingTextVisual(gridToWorld(victim->x, victim->y), "-" + ofToString(dmg) + " Phys", ofColor::red);
+			// Use central mitigation helper to apply physical mitigation deterministically
+			if (dmg > 0) {
+				int applied = applyDamageWithMitigations(*victim, dmg, DAMAGE_PHYSICAL, currentPlayerIndex);
+				if (applied > 0) {
+					queueFloatingTextVisual(gridToWorld(victim->x, victim->y), "-" + ofToString(applied) + " Phys", ofColor::red);
 
 					if (victim->inGhostForm) {
-						victim->ghostDamageTaken += dmg;
+						victim->ghostDamageTaken += applied;
 						if (victim->ghostDamageTaken >= 4) {
 							victim->ghostDamageTaken = 0;
 							victim->discardPile.push_back(victim->ghostFormCard);
@@ -15780,7 +15776,7 @@ void ofApp::processEffectOp(EffectOp & op) {
 						}
 					}
 					if (victim->inTortoiseForm) {
-						victim->tortoiseDamageTaken += dmg;
+						victim->tortoiseDamageTaken += applied;
 						if (victim->tortoiseDamageTaken >= 5) {
 							victim->tortoiseDamageTaken = 0;
 							victim->discardPile.push_back(victim->tortoiseFormCard);
@@ -16014,6 +16010,7 @@ void ofApp::processEffectOp(EffectOp & op) {
 
 		if (magicBlastTargetPlayerIndex != -1) {
 			updateCardInteractionState(CARD_INTERACTION_MENU, -1, CARD_MAGIC_BLAST);
+			if (isMultiplayer) sendMenuState(4, magicBlastTargetPlayerIndex, -1, interactingCardIndex);
 			magicBlastChoicesRemaining = 3;
 		} else if (!magicBlastSplashTargetIndices.empty()) {
 			updateCardInteractionState(CARD_INTERACTION_MENU, -1, CARD_MAGIC_BLAST);
@@ -16022,6 +16019,7 @@ void ofApp::processEffectOp(EffectOp & op) {
 			int resolvedIndex = findPlayerIndexByID(targetPID);
 			magicBlastTargetPlayerIndex = resolvedIndex;
 			magicBlastChoicesRemaining = 1;
+			if (isMultiplayer) sendMenuState(4, magicBlastTargetPlayerIndex, -1, interactingCardIndex);
 		} else {
 			ofLogNotice("MagicBlast") << "No targets hit.";
 		}
@@ -16089,41 +16087,10 @@ void ofApp::processEffectOp(EffectOp & op) {
 						queueFloatingTextVisual(targetPos, "Magic Wall: x2 Magic", ofColor::purple);
 				}
 
-				int barrierDmg = std::min(target->barrier, damage);
-				if (barrierDmg > 0) {
-					EffectOp bOp = {};
-					bOp.type = EffectOpType::MODIFY_STAT;
-					bOp.data.modifyStat.targetIndex = findPlayerIndexByID(target->playerID);
-					bOp.data.modifyStat.statType = 6; // Barrier
-					bOp.data.modifyStat.delta = -barrierDmg;
-					bOp.data.modifyStat.deltaFromSlot = -1;
-					queueEffect(bOp);
-				}
-				damage -= barrierDmg;
-
-				if (damage > 0) {
-					int wardDmg = std::min(target->ward, damage);
-					if (wardDmg > 0) {
-						EffectOp wOp = {};
-						wOp.type = EffectOpType::MODIFY_STAT;
-						wOp.data.modifyStat.targetIndex = findPlayerIndexByID(target->playerID);
-						wOp.data.modifyStat.statType = 8; // Ward
-						wOp.data.modifyStat.delta = -wardDmg;
-						wOp.data.modifyStat.deltaFromSlot = -1;
-						queueEffect(wOp);
-					}
-					damage -= wardDmg;
-				}
-
-				if (damage > 0) {
-					EffectOp hpOp = {};
-					hpOp.type = EffectOpType::MODIFY_STAT;
-					hpOp.data.modifyStat.targetIndex = findPlayerIndexByID(target->playerID);
-					hpOp.data.modifyStat.statType = 0; // HP
-					hpOp.data.modifyStat.delta = -damage;
-					hpOp.data.modifyStat.deltaFromSlot = -1;
-					queueEffect(hpOp);
-					queueFloatingTextVisual(targetPos, "-" + ofToString(damage) + " Magic", ofColor::red);
+				// Use centralized mitigation helper to apply barrier/ward and HP reductions
+				int hpApplied = applyDamageWithMitigations(*target, damage, DAMAGE_MAGIC, currentPlayerIndex);
+				if (hpApplied > 0) {
+					queueFloatingTextVisual(targetPos, "-" + ofToString(hpApplied) + " Magic", ofColor::red);
 				} else {
 					queueFloatingTextVisual(targetPos, "Absorbed", ofColor::gray);
 				}
@@ -16954,37 +16921,10 @@ void ofApp::processEffectOp(EffectOp & op) {
 		if (directHitTarget) {
 			int tgtIdx = (int)(directHitTarget - &players[0]);
 			int dmg = primaryDamage;
-			int barrierDmg = std::min(directHitTarget->barrier, dmg);
-			if (barrierDmg > 0) {
-				EffectOp bOp = {};
-				bOp.type = EffectOpType::MODIFY_STAT;
-				bOp.data.modifyStat.targetIndex = tgtIdx;
-				bOp.data.modifyStat.statType = 6; // Barrier
-				bOp.data.modifyStat.delta = -barrierDmg;
-				bOp.data.modifyStat.deltaFromSlot = -1;
-				queueEffect(bOp);
-			}
-			dmg -= barrierDmg;
-			int wardDmg = std::min(directHitTarget->ward, dmg);
-			if (wardDmg > 0) {
-				EffectOp wOp = {};
-				wOp.type = EffectOpType::MODIFY_STAT;
-				wOp.data.modifyStat.targetIndex = tgtIdx;
-				wOp.data.modifyStat.statType = 8; // Ward
-				wOp.data.modifyStat.delta = -wardDmg;
-				wOp.data.modifyStat.deltaFromSlot = -1;
-				queueEffect(wOp);
-			}
-			dmg -= wardDmg;
-			if (dmg > 0) {
-				EffectOp hpOp = {};
-				hpOp.type = EffectOpType::MODIFY_STAT;
-				hpOp.data.modifyStat.targetIndex = tgtIdx;
-				hpOp.data.modifyStat.statType = 0; // HP
-				hpOp.data.modifyStat.delta = -dmg;
-				hpOp.data.modifyStat.deltaFromSlot = -1;
-				queueEffect(hpOp);
-				queueFloatingTextVisual(gridToWorld(directHitTarget->x, directHitTarget->y), "-" + ofToString(dmg) + " Magic", ofColor::red);
+			// Use centralized mitigation helper
+			int applied = applyDamageWithMitigations(*directHitTarget, dmg, DAMAGE_MAGIC, currentPlayerIndex);
+			if (applied > 0) {
+				queueFloatingTextVisual(gridToWorld(directHitTarget->x, directHitTarget->y), "-" + ofToString(applied) + " Magic", ofColor::red);
 			} else {
 				queueFloatingTextVisual(gridToWorld(directHitTarget->x, directHitTarget->y), "Absorbed", ofColor::gray);
 			}
@@ -17041,37 +16981,9 @@ void ofApp::processEffectOp(EffectOp & op) {
 				ofLogNotice("Magic Bolt") << "AOE Hit on Unit " << p.playerID << " (Needed: " << neededFeet << "ft)";
 
 				int dmg = 3;
-				int barrierDmg = std::min(p.barrier, dmg);
-				if (barrierDmg > 0) {
-					EffectOp bOp = {};
-					bOp.type = EffectOpType::MODIFY_STAT;
-					bOp.data.modifyStat.targetIndex = (int)(&p - &players[0]);
-					bOp.data.modifyStat.statType = 6; // Barrier
-					bOp.data.modifyStat.delta = -barrierDmg;
-					bOp.data.modifyStat.deltaFromSlot = -1;
-					queueEffect(bOp);
-				}
-				dmg -= barrierDmg;
-				int wardDmg = std::min(p.ward, dmg);
-				if (wardDmg > 0) {
-					EffectOp wOp = {};
-					wOp.type = EffectOpType::MODIFY_STAT;
-					wOp.data.modifyStat.targetIndex = (int)(&p - &players[0]);
-					wOp.data.modifyStat.statType = 8; // Ward
-					wOp.data.modifyStat.delta = -wardDmg;
-					wOp.data.modifyStat.deltaFromSlot = -1;
-					queueEffect(wOp);
-				}
-				dmg -= wardDmg;
-				if (dmg > 0) {
-					EffectOp hpOp = {};
-					hpOp.type = EffectOpType::MODIFY_STAT;
-					hpOp.data.modifyStat.targetIndex = (int)(&p - &players[0]);
-					hpOp.data.modifyStat.statType = 0; // HP
-					hpOp.data.modifyStat.delta = -dmg;
-					hpOp.data.modifyStat.deltaFromSlot = -1;
-					queueEffect(hpOp);
-					queueFloatingTextVisual(gridToWorld(p.x, p.y), "-" + ofToString(dmg) + " Electric", ofColor::yellow);
+				int applied = applyDamageWithMitigations(p, dmg, DAMAGE_ELECTRIC, currentPlayerIndex);
+				if (applied > 0) {
+					queueFloatingTextVisual(gridToWorld(p.x, p.y), "-" + ofToString(applied) + " Electric", ofColor::yellow);
 				} else {
 					queueFloatingTextVisual(gridToWorld(p.x, p.y), "Absorbed", ofColor::gray);
 				}
@@ -17484,37 +17396,9 @@ void ofApp::processEffectOp(EffectOp & op) {
 			}
 
 			int finalDmg = damage;
-			int barrierDmg = std::min(target.barrier, finalDmg);
-			if (barrierDmg > 0) {
-				EffectOp bOp = {};
-				bOp.type = EffectOpType::MODIFY_STAT;
-				bOp.data.modifyStat.targetIndex = (int)(&target - &players[0]);
-				bOp.data.modifyStat.statType = 6; // Barrier
-				bOp.data.modifyStat.delta = -barrierDmg;
-				bOp.data.modifyStat.deltaFromSlot = -1;
-				queueEffect(bOp);
-			}
-			finalDmg -= barrierDmg;
-			int wardDmg = std::min(target.ward, finalDmg);
-			if (wardDmg > 0) {
-				EffectOp wOp = {};
-				wOp.type = EffectOpType::MODIFY_STAT;
-				wOp.data.modifyStat.targetIndex = (int)(&target - &players[0]);
-				wOp.data.modifyStat.statType = 8; // Ward
-				wOp.data.modifyStat.delta = -wardDmg;
-				wOp.data.modifyStat.deltaFromSlot = -1;
-				queueEffect(wOp);
-			}
-			finalDmg -= wardDmg;
-			if (finalDmg > 0) {
-				EffectOp hpOp = {};
-				hpOp.type = EffectOpType::MODIFY_STAT;
-				hpOp.data.modifyStat.targetIndex = (int)(&target - &players[0]);
-				hpOp.data.modifyStat.statType = 0; // HP
-				hpOp.data.modifyStat.delta = -finalDmg;
-				hpOp.data.modifyStat.deltaFromSlot = -1;
-				queueEffect(hpOp);
-				queueFloatingTextVisual(gridToWorld(target.x, target.y), "-" + ofToString(finalDmg) + " ZAP!", ofColor::yellow);
+			int applied = applyDamageWithMitigations(target, finalDmg, DAMAGE_ELECTRIC, currentPlayerIndex);
+			if (applied > 0) {
+				queueFloatingTextVisual(gridToWorld(target.x, target.y), "-" + ofToString(applied) + " ZAP!", ofColor::yellow);
 			} else {
 				queueFloatingTextVisual(gridToWorld(target.x, target.y), "Absorbed", ofColor::gray);
 			}
@@ -25992,6 +25876,18 @@ void ofApp::drawOpponentMenu() {
 		drawCardChoicePanel(menuRect, "Double-Handed", "Choose ability:",
 			btnPunch, btnBlock, "Punch", "Block",
 			punchAccent, blockAccent, true, true);
+	} else if (opponentInteraction.type == 4) {
+		// Magic Blast preview for opponents (non-interactive)
+		int tgt = opponentInteraction.targetIndex;
+		string title = "Magic Blast";
+		string desc = "Waiting for player to choose...";
+		ofColor dmgAccent = ofColor::indianRed;
+		ofColor discAccent = ofColor::darkSlateBlue;
+		float w = 520, h = 260;
+		float x = ofGetWidth() / 2 - w / 2, y = ofGetHeight() / 2 - h / 2;
+		ofRectangle menuRect(x, y, w, h);
+		ofRectangle btnDamage, btnDiscard;
+		drawCardChoicePanel(menuRect, title, desc, btnDamage, btnDiscard, "Take 5 Damage", "Remove Top Card of Deck", dmgAccent, discAccent, false, false);
 	}
 }
 
