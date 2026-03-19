@@ -377,12 +377,7 @@ Player ofApp::createSummonedMinion(CardType type, int targetX, int targetY, cons
 	return minion;
 }
 
-void ofApp::resolveMenuCardChoice(CardType cardType, int choiceIndex, Player & caster, Player * target) {
-	(void)cardType;
-	(void)choiceIndex;
-	(void)caster;
-	(void)target;
-}
+// resolveMenuCardChoice removed: menu choices are handled via CMD_MENU_CHOICE lockstep commands
 
 void ofApp::drawMinionCard(int minionIndex, int ownerIndex) {
 	if (minionIndex < 0 || minionIndex >= (int)players.size()) return;
@@ -3805,9 +3800,8 @@ void ofApp::updateGame() {
 	// === CENTRALIZED ASYNC RESOLUTION HELPERS ===
 	updateEffectSequence();
 
-	// --- Amnesia Logic ---
-	// All dice/state resolution for cards now dispatched through the EffectOp pipeline
-	resolveMagicHandDamage();
+	// === CENTRALIZED ASYNC RESOLUTION HELPERS ===
+	// All dice/state resolution for cards is dispatched through the EffectOp pipeline
 	// Fireball resolution handled by EffectOpType::APPLY_FIREBALL
 	// Summon health handled by queued EffectOps (SPAWN_UNIT)
 	// Amnesia resolution now handled via EffectOpType::APPLY_AMNESIA
@@ -4885,7 +4879,15 @@ void ofApp::updateGame() {
 								int roll = raw + luckBonus; // may exceed 4; that's intentional
 								int hp = (int)std::floor(dying.maxHealth * 0.25f * roll);
 								if (hp < 1) hp = 1;
-								dying.health = hp;
+								{
+									EffectOp setHp = {};
+									setHp.type = EffectOpType::MODIFY_STAT;
+									setHp.data.modifyStat.targetIndex = (int)i;
+									setHp.data.modifyStat.statType = 0; // HP
+									setHp.data.modifyStat.delta = hp - dying.health;
+									setHp.data.modifyStat.deltaFromSlot = -1;
+									processEffectOp(setHp);
+								}
 								// Clear common status flags via deterministic REMOVE_STATUS ops
 								{
 									EffectOp op = {};
@@ -4914,11 +4916,66 @@ void ofApp::updateGame() {
 								}
 								dying.paralysisHeadsCount = 0;
 								dying.sleepTurnsRemaining = 0;
-								dying.ward = 0;
-								dying.block = 0;
-								dying.fortification = 0;
-								dying.barrier = 0;
-								dying.holyBlock = 0;
+								{
+									int prev = dying.ward;
+									if (prev > 0) {
+										EffectOp op = {};
+										op.type = EffectOpType::MODIFY_STAT;
+										op.data.modifyStat.targetIndex = (int)i;
+										op.data.modifyStat.statType = 8; // Ward
+										op.data.modifyStat.delta = -prev;
+										op.data.modifyStat.deltaFromSlot = -1;
+										processEffectOp(op);
+									}
+								}
+								{
+									int prev = dying.block;
+									if (prev > 0) {
+										EffectOp op = {};
+										op.type = EffectOpType::MODIFY_STAT;
+										op.data.modifyStat.targetIndex = (int)i;
+										op.data.modifyStat.statType = 5; // Block
+										op.data.modifyStat.delta = -prev;
+										op.data.modifyStat.deltaFromSlot = -1;
+										processEffectOp(op);
+									}
+								}
+								{
+									int prev = dying.fortification;
+									if (prev > 0) {
+										EffectOp op = {};
+										op.type = EffectOpType::MODIFY_STAT;
+										op.data.modifyStat.targetIndex = (int)i;
+										op.data.modifyStat.statType = 13; // Fortification
+										op.data.modifyStat.delta = -prev;
+										op.data.modifyStat.deltaFromSlot = -1;
+										processEffectOp(op);
+									}
+								}
+								{
+									int prev = dying.barrier;
+									if (prev > 0) {
+										EffectOp op = {};
+										op.type = EffectOpType::MODIFY_STAT;
+										op.data.modifyStat.targetIndex = (int)i;
+										op.data.modifyStat.statType = 6; // Barrier
+										op.data.modifyStat.delta = -prev;
+										op.data.modifyStat.deltaFromSlot = -1;
+										processEffectOp(op);
+									}
+								}
+								{
+									int prev = dying.holyBlock;
+									if (prev > 0) {
+										EffectOp op = {};
+										op.type = EffectOpType::MODIFY_STAT;
+										op.data.modifyStat.targetIndex = (int)i;
+										op.data.modifyStat.statType = 7; // HolyBlock
+										op.data.modifyStat.delta = -prev;
+										op.data.modifyStat.deltaFromSlot = -1;
+										processEffectOp(op);
+									}
+								}
 								dying.luck = 0;
 								{
 									EffectOp op = {};
@@ -14342,67 +14399,47 @@ void ofApp::handleCardTargetClick(int gridX, int gridY) {
 					int dist = abs(gx - koboldPlacementSourceX) + abs(gy - koboldPlacementSourceY);
 					if (dist == 1) {
 						koboldSummonCount++;
-						Player kobold;
-						kobold.playerID = 300 + (int)players.size();
-						kobold.x = gx;
-						kobold.y = gy;
-						kobold.maxHealth = 1;
-						kobold.health = 1;
-						kobold.isMinion = true;
-						kobold.isKobold = true;
-						kobold.isSkeleton = false;
-						kobold.ownerID = currentCardOutcome.summonOwnerPlayerID;
-						kobold.summonedOnTurnCycle = globalTurnCounter;
-						kobold.summonOrder = ++nextSummonOrder;
-						Card hb, pu, callCard;
-						for (const auto & c : allCards) {
-							if (c.name == "Hand Block") hb = c;
-							if (c.name == "Punch") pu = c;
-							if (c.type == CARD_CALL_FOR_KOBOLDS) callCard = c;
-						}
-						kobold.deck = { hb, hb, pu, callCard };
-						board[gx][gy].hasPlayer = true;
-						players.push_back(kobold);
-						int newKoboldIdx = (int)players.size() - 1;
-						shuffleGameVector(players[newKoboldIdx].deck, newKoboldIdx);
+						// Queue deterministic spawn via EffectOp
+						EffectOp spawnOp = {};
+						spawnOp.type = EffectOpType::SPAWN_UNIT;
+						spawnOp.data.spawnUnit.toX = gx;
+						spawnOp.data.spawnUnit.toY = gy;
+						spawnOp.data.spawnUnit.summonKind = 1; // KOBOLD
+						spawnOp.data.spawnUnit.ownerPlayerID = currentCardOutcome.summonOwnerPlayerID;
+						spawnOp.data.spawnUnit.maxHealth = 1;
+						spawnOp.data.spawnUnit.maxHealthFromSlot = -1;
+						spawnOp.data.spawnUnit.ap = 0;
+						spawnOp.data.spawnUnit.summonerPlayerID = players[currentPlayerIndex].playerID;
+						queueEffect(spawnOp);
+
+						// Host still informs clients for placement visuals
 						if (isMultiplayer && isHost()) {
 							PlaceSummonedMinionPacket pkt = {};
 							pkt.type = PKT_PLACE_SUMMONED_MINION;
 							pkt.playerID = myLocalPlayerID;
 							pkt.minionType = 1; // KOBOLD
-							pkt.ownerPlayerID = kobold.ownerID;
+							pkt.ownerPlayerID = currentCardOutcome.summonOwnerPlayerID;
 							pkt.targetX = gx;
 							pkt.targetY = gy;
-							pkt.minionHP = kobold.health;
-							pkt.minionAP = kobold.ap;
+							pkt.minionHP = 1;
+							pkt.minionAP = 0;
 							steamManager.sendPacket(&pkt, sizeof(pkt));
 							ofLogNotice("Network") << "Host sent PlaceSummonedMinion: KOBOLD owner=" << pkt.ownerPlayerID << " target=(" << pkt.targetX << "," << pkt.targetY << ") HP=" << pkt.minionHP;
 						}
+
 						// If this is the first kobold placed, release the played card from hand
 						if (koboldSummonCount == 1) {
 							currentAP -= card.cost;
 							updatePlayerAP(caster, currentAP);
 							finishPlayCard(caster, card, interactingCardIndex);
 						}
+
 						koboldsRemainingToPlace--;
 						if (koboldsRemainingToPlace <= 0) {
 							updateCardInteractionState(CARD_INTERACTION_IDLE, -1, CARD_NONE);
 							koboldSummonStage = 0;
-							int myID = players[currentPlayerIndex].playerID;
-							std::sort(players.begin(), players.end(), [](const Player & a, const Player & b) {
-								int ownerA = a.isMinion ? a.ownerID : a.playerID;
-								int ownerB = b.isMinion ? b.ownerID : b.playerID;
-								if (ownerA != ownerB) return ownerA < ownerB;
-								if (a.isMinion && !b.isMinion) return true;
-								if (!a.isMinion && b.isMinion) return false;
-								return a.summonOrder < b.summonOrder;
-							});
-							for (size_t i = 0; i < players.size(); i++) {
-								if (players[i].playerID == myID) {
-									currentPlayerIndex = i;
-									break;
-								}
-							}
+							// Recompute currentPlayerIndex after spawn sequence completes in effect processing
+							// The SPAWN_UNIT handler will call checkKeyPickupAndDraftAfterSummon when appropriate.
 						}
 						return;
 					}
@@ -14419,41 +14456,35 @@ void ofApp::handleCardTargetClick(int gridX, int gridY) {
 					int dist = abs(gx - wolfPlacementSourceX) + abs(gy - wolfPlacementSourceY);
 					if (dist == 1) {
 						wolfSummonCount++;
-						Player wolf;
-						wolf.playerID = 200 + (int)players.size();
-						wolf.x = gx;
-						wolf.y = gy;
-						wolf.maxHealth = 4;
-						wolf.health = 4;
-						wolf.isMinion = true;
-						wolf.isWolf = true;
-						wolf.ownerID = currentCardOutcome.summonOwnerPlayerID;
-						wolf.summonedOnTurnCycle = globalTurnCounter;
-						Card slashCard, callCard;
-						for (const auto & c : allCards) {
-							if (c.name == "Slash") slashCard = c;
-							if (c.type == CARD_CALL_FOR_WOLVES) callCard = c;
-						}
-						wolf.deck = { slashCard, slashCard, slashCard, callCard };
-						board[gx][gy].hasPlayer = true;
-						players.push_back(wolf);
-						int newWolfIdx = (int)players.size() - 1;
-						shuffleGameVector(players[newWolfIdx].deck, newWolfIdx);
+						// Queue deterministic spawn via EffectOp
+						EffectOp spawnOp = {};
+						spawnOp.type = EffectOpType::SPAWN_UNIT;
+						spawnOp.data.spawnUnit.toX = gx;
+						spawnOp.data.spawnUnit.toY = gy;
+						spawnOp.data.spawnUnit.summonKind = 2; // WOLF
+						spawnOp.data.spawnUnit.ownerPlayerID = currentCardOutcome.summonOwnerPlayerID;
+						spawnOp.data.spawnUnit.maxHealth = 4;
+						spawnOp.data.spawnUnit.maxHealthFromSlot = -1;
+						spawnOp.data.spawnUnit.ap = 0;
+						spawnOp.data.spawnUnit.summonerPlayerID = players[currentPlayerIndex].playerID;
+						queueEffect(spawnOp);
+
 						if (isMultiplayer && isHost()) {
 							PlaceSummonedMinionPacket pkt = {};
 							pkt.type = PKT_PLACE_SUMMONED_MINION;
 							pkt.playerID = myLocalPlayerID;
 							pkt.minionType = 2; // WOLF
-							pkt.ownerPlayerID = wolf.ownerID;
-							pkt.targetX = wolf.x;
-							pkt.targetY = wolf.y;
-							pkt.minionHP = wolf.maxHealth;
+							pkt.ownerPlayerID = currentCardOutcome.summonOwnerPlayerID;
+							pkt.targetX = gx;
+							pkt.targetY = gy;
+							pkt.minionHP = 4;
 							pkt.minionAP = 0;
 							steamManager.sendPacket(&pkt, sizeof(pkt));
 							ofLogNotice("Network") << "Host sent PlaceSummonedMinion: WOLF owner=" << pkt.ownerPlayerID << " target=(" << pkt.targetX << "," << pkt.targetY << ") HP=" << pkt.minionHP;
 						}
+
 						if (wolfSummonStage == 1) {
-							checkKeyPickupAndDraftAfterSummon(gx, gy, wolf.ownerID);
+							checkKeyPickupAndDraftAfterSummon(gx, gy, currentCardOutcome.summonOwnerPlayerID);
 							// Remove the played card from the caster's hand now that placement began
 							// and charge AP so the card is released from the player's hand.
 							currentAP -= card.cost;
@@ -14480,7 +14511,7 @@ void ofApp::handleCardTargetClick(int gridX, int gridY) {
 						} else if (wolfSummonStage == 2) {
 							updateCardInteractionState(CARD_INTERACTION_IDLE, -1, CARD_NONE);
 							wolfSummonStage = 0;
-							checkKeyPickupAndDraftAfterSummon(gx, gy, wolf.ownerID);
+							checkKeyPickupAndDraftAfterSummon(gx, gy, currentCardOutcome.summonOwnerPlayerID);
 						}
 						return;
 					}
@@ -15904,7 +15935,15 @@ void ofApp::processEffectOp(EffectOp & op) {
 				queueFloatingTextVisual(gridToWorld(victim->x, victim->y), "Pushed!", ofColor::yellow);
 			} else {
 				queueFloatingTextVisual(gridToWorld(victim->x, victim->y), "CRUSHED!", ofColor::darkRed);
-				victim->health = 0;
+				{
+					EffectOp kill = {};
+					kill.type = EffectOpType::MODIFY_STAT;
+					kill.data.modifyStat.targetIndex = magicHandPushedUnitIndex;
+					kill.data.modifyStat.statType = 0; // HP
+					kill.data.modifyStat.delta = -players[magicHandPushedUnitIndex].health;
+					kill.data.modifyStat.deltaFromSlot = -1;
+					processEffectOp(kill);
+				}
 			}
 
 			// Death Check
@@ -16705,7 +16744,15 @@ void ofApp::processEffectOp(EffectOp & op) {
 				graveyard.push_back(death);
 				board[target->x][target->y].hasPlayer = false;
 				target->x = -1000;
-				target->health = 0;
+				{
+					EffectOp kill = {};
+					kill.type = EffectOpType::MODIFY_STAT;
+					kill.data.modifyStat.targetIndex = currentCardOutcome.targetPlayerIndex;
+					kill.data.modifyStat.statType = 0; // HP
+					kill.data.modifyStat.delta = -players[currentCardOutcome.targetPlayerIndex].health;
+					kill.data.modifyStat.deltaFromSlot = -1;
+					processEffectOp(kill);
+				}
 			} else {
 				// FAIL: apply Sleep — queue authoritative sleep-duration roll and APPLY_SLEEP_DURATION
 				queueFloatingTextVisual(gridToWorld(target->x, target->y), "Sleep...", ofColor::cyan);
@@ -17002,7 +17049,6 @@ void ofApp::processEffectOp(EffectOp & op) {
 			}
 		}
 		if (directHitTarget) {
-			int tgtIdx = (int)(directHitTarget - &players[0]);
 			int dmg = primaryDamage;
 			// Use centralized mitigation helper
 			int applied = applyDamageWithMitigations(*directHitTarget, dmg, DAMAGE_MAGIC, currentPlayerIndex);
@@ -17138,7 +17184,6 @@ void ofApp::processEffectOp(EffectOp & op) {
 			Player * target = getPlayer(pIndex);
 			if (target) {
 				int appliedDamage = baseDamage;
-				int absorbedDamage = 0;
 
 				if (currentCardOutcome.attackDamageType == DAMAGE_PIERCING && i > 0) appliedDamage /= 2;
 
@@ -20331,7 +20376,15 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 			graveyard.push_back(death);
 			board[target->x][target->y].hasPlayer = false;
 			target->x = -1000;
-			target->health = 0;
+			{
+				EffectOp kill = {};
+				kill.type = EffectOpType::MODIFY_STAT;
+				kill.data.modifyStat.targetIndex = targetIndex;
+				kill.data.modifyStat.statType = 0; // HP
+				kill.data.modifyStat.delta = -players[targetIndex].health;
+				kill.data.modifyStat.deltaFromSlot = -1;
+				processEffectOp(kill);
+			}
 
 			currentCardOutcome.targetPlayerIndex = targetIndex;
 			currentCardOutcome.statusesApplied.push_back("Instant Death");
@@ -22177,10 +22230,7 @@ void ofApp::resolveSummonKobolds(const DiceRoll & finishedRoll) {
 // Poison damage handling migrated to EffectOpType::APPLY_POISON
 
 //--- MAGIC HAND DAMAGE RESOLUTION ---
-void ofApp::resolveMagicHandDamage() {
-	// Magic Hand is now processed via EffectOps (APPLY_MAGIC_HAND_DAMAGE)
-	return;
-}
+// resolveMagicHandDamage removed: handled by EffectOpType::APPLY_MAGIC_HAND_DAMAGE
 
 // Fireball resolution migrated into EffectOpType::APPLY_FIREBALL handler
 
@@ -25597,18 +25647,19 @@ void ofApp::resolveDoubleHanded(std::string cardName) {
 		}
 
 		if (found) {
-			// 2. Add copies to deck (2 * 2^stacks copies)
+			// 2. Add copies to deck via deterministic EffectOps (authoritative)
 			int copiesToAdd = 2 * (1 << caster.flurryOfFistsStacks);
 			for (int i = 0; i < copiesToAdd; i++) {
-				target->deck.push_back(cardToAdd);
+				EffectOp addOp = {};
+				addOp.type = EffectOpType::ADD_CARD_TO_DECK;
+				addOp.data.addCard.targetIndex = interactionTargetIndex;
+				// Find matching CardType id
+				addOp.data.addCard.cardType = (int)cardToAdd.type;
+				queueEffect(addOp);
 			}
 
-			// 3. Shuffle (authoritative)
-			shuffleGameVector(target->deck, interactionTargetIndex);
-
-			// 4. Visual Feedback
-			queueFloatingTextVisual(gridToWorld(target->x, target->y), "Added " + ofToString(copiesToAdd) + "x " + cardName, ofColor::cyan);
-			ofLogNotice("Double Handed") << "Shuffled " << copiesToAdd << "x " << cardName << " into Player " << target->playerID << "'s deck.";
+			// 3. Visual Feedback (effect handlers will show per-card messages)
+			ofLogNotice("Double Handed") << "Queued " << copiesToAdd << "x " << cardName << " into Player " << target->playerID << "'s deck via EffectOps.";
 
 			// 5. Finalize Play (Cost AP, Remove Card)
 			if (interactingCardIndex != -1) {
@@ -25957,7 +26008,6 @@ void ofApp::drawOpponentMenu() {
 			punchAccent, blockAccent, true, true);
 	} else if (opponentInteraction.type == 4) {
 		// Magic Blast preview for opponents (non-interactive)
-		int tgt = opponentInteraction.targetIndex;
 		string title = "Magic Blast";
 		string desc = "Waiting for player to choose...";
 		ofColor dmgAccent = ofColor::indianRed;
@@ -25968,7 +26018,6 @@ void ofApp::drawOpponentMenu() {
 		ofRectangle btnDamage, btnDiscard;
 		drawCardChoicePanel(menuRect, title, desc, btnDamage, btnDiscard, "Take 5 Damage", "Remove Top Card of Deck", dmgAccent, discAccent, false, false);
 	} else if (opponentInteraction.type == 5) {
-		int tgt = opponentInteraction.targetIndex;
 		string title = "Materialized in Wall";
 		string desc = "Waiting for player to choose a tile...";
 		float w = 520, h = 200;
@@ -27809,36 +27858,44 @@ void ofApp::resolveMagicHandPull() {
 		return; // Don't close menu, allow retry or cancel
 	}
 
-	// Execute Pull
-	// 1. Move Caster to BackPos
-	board[caster.x][caster.y].hasPlayer = false;
-	caster.x = backPos.x;
-	caster.y = backPos.y;
-	board[caster.x][caster.y].hasPlayer = true;
-	playerVisualPos = gridToWorld(caster.x, caster.y);
+	// Build deterministic effect sequence:
+	beginEffectSequence();
+	// 1) Move caster to backPos
+	EffectOp mv = {};
+	mv.type = EffectOpType::MOVE_UNIT;
+	mv.data.moveUnit.unitIndex = currentPlayerIndex;
+	mv.data.moveUnit.toX = backPos.x;
+	mv.data.moveUnit.toY = backPos.y;
+	queueEffect(mv);
 
-	// 2. Move Wall to Caster's Old Pos
-	board[wallPos.x][wallPos.y].hasWall = false;
-	board[casterPos.x][casterPos.y].hasWall = true;
-	if (board[wallPos.x][wallPos.y].isMagicWall) {
-		board[casterPos.x][casterPos.y].isMagicWall = true;
-		board[wallPos.x][wallPos.y].isMagicWall = false;
-	}
+	// 2) Remove wall at original wallPos
+	EffectOp remWall = {};
+	remWall.type = EffectOpType::MODIFY_TILE;
+	remWall.data.modifyTile.toX = wallPos.x;
+	remWall.data.modifyTile.toY = wallPos.y;
+	remWall.data.modifyTile.setHasWall = 0;
+	queueEffect(remWall);
 
-	// 3. Finalize
-	buildLevelMesh();
+	// 3) Create wall at caster's old position (preserve magic-flag)
+	EffectOp create = {};
+	create.type = EffectOpType::CREATE_WALL;
+	create.data.createWall.x = casterPos.x;
+	create.data.createWall.y = casterPos.y;
+	create.data.createWall.isMagic = board[wallPos.x][wallPos.y].isMagicWall;
+	queueEffect(create);
 
+	// Finalize: pay AP and remove card locally, then notify opponent
 	currentAP -= players[currentPlayerIndex].hand[interactingCardIndex].cost;
 	players[currentPlayerIndex].playedCardsPile.push_back(players[currentPlayerIndex].hand[interactingCardIndex]);
 	players[currentPlayerIndex].hand.erase(players[currentPlayerIndex].hand.begin() + interactingCardIndex);
-
-	// Notify opponent after local update so pkt.updatedAP contains the post-play AP
 	sendMagicHandResolutionPacket(2);
 
-	// Cleanup
+	// Cleanup local interaction state
 	interactingCardIndex = -1;
 	updateCardInteractionState(CARD_INTERACTION_IDLE, -1, CARD_NONE);
 	invalidateTargetCache();
+	advanceCardState(CARD_STATE_EFFECT_SEQUENCE);
+	beginEffectSequence();
 }
 
 void ofApp::resolveMagicHandPush() {
@@ -27907,24 +27964,31 @@ void ofApp::resolveMagicHandPush() {
 		return;
 	}
 
-	// Empty Space: Just Move
-	board[caster.x][caster.y].hasPlayer = false;
+	// Empty Space: queue deterministic effect ops for move + wall relocation
+	beginEffectSequence();
+	// 1) Move caster to wallPos
+	EffectOp mv = {};
+	mv.type = EffectOpType::MOVE_UNIT;
+	mv.data.moveUnit.unitIndex = currentPlayerIndex;
+	mv.data.moveUnit.toX = wallPos.x;
+	mv.data.moveUnit.toY = wallPos.y;
+	queueEffect(mv);
 
-	// Move Caster to Wall Pos
-	caster.x = wallPos.x;
-	caster.y = wallPos.y;
-	board[caster.x][caster.y].hasPlayer = true;
-	playerVisualPos = gridToWorld(caster.x, caster.y);
+	// 2) Remove original wall
+	EffectOp rem = {};
+	rem.type = EffectOpType::MODIFY_TILE;
+	rem.data.modifyTile.toX = wallPos.x;
+	rem.data.modifyTile.toY = wallPos.y;
+	rem.data.modifyTile.setHasWall = 0;
+	queueEffect(rem);
 
-	// Move Wall to Target Pos
-	board[wallPos.x][wallPos.y].hasWall = false;
-	board[targetPos.x][targetPos.y].hasWall = true;
-	if (board[wallPos.x][wallPos.y].isMagicWall) {
-		board[targetPos.x][targetPos.y].isMagicWall = true;
-		board[wallPos.x][wallPos.y].isMagicWall = false;
-	}
-
-	buildLevelMesh();
+	// 3) Create wall at targetPos (preserve magic flag)
+	EffectOp create = {};
+	create.type = EffectOpType::CREATE_WALL;
+	create.data.createWall.x = targetPos.x;
+	create.data.createWall.y = targetPos.y;
+	create.data.createWall.isMagic = board[wallPos.x][wallPos.y].isMagicWall;
+	queueEffect(create);
 
 	// Pay cost & finalize locally first
 	currentAP -= caster.hand[interactingCardIndex].cost;
@@ -27939,6 +28003,8 @@ void ofApp::resolveMagicHandPush() {
 
 	updateCardInteractionState(CARD_INTERACTION_IDLE, -1, CARD_NONE);
 	invalidateTargetCache();
+	advanceCardState(CARD_STATE_EFFECT_SEQUENCE);
+	beginEffectSequence();
 }
 //--------------------------------------------------------------
 void ofApp::generateDraftOptions(int classTier, const std::vector<int> * forcedIndices) {

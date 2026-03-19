@@ -977,7 +977,6 @@ private:
 
 	// --- Async Resolution Helpers (Centralized Dice/State Resolution) ---
 
-	void resolveMagicHandDamage();
 	void resolveSummonHealth();
 	// Amnesia resolver removed; handled via EffectOpType::APPLY_AMNESIA
 	// Magic Blast handled via EffectOpType::APPLY_MAGIC_BLAST
@@ -1009,7 +1008,7 @@ private:
 	void completeCardPlayAnimation(const Card & playedCard, int playerIndex);
 	int applyDamageWithMitigations(Player & target, int baseDamage, DamageType type, int attackerIndex);
 	Player createSummonedMinion(CardType type, int targetX, int targetY, const Player & caster, int turnCounter, int & nextSummonID);
-	void resolveMenuCardChoice(CardType cardType, int choiceIndex, Player & caster, Player * target);
+
 	void updatePlayerAP(Player & player, int newAP);
 	void applyMovement(int playerIndex, int targetX, int targetY, int newAP, const std::vector<glm::vec2> * pathOverride = nullptr);
 	void createCardDisplay(const Card & card, int playerIndex); // Create card display animation
