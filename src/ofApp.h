@@ -2110,18 +2110,10 @@ private:
 	// Time Vortex handled via effect/op pipeline
 
 	// --- Magic Bolt State ---
-	bool isWaitingForMagicBoltRange = false;
-	// Magic Bolt range/target resolved via centralized interaction fields:
-	// `interactionDiceRoll` and `interactionTargetTile` are used instead of per-card pending variables.
+	// Magic Bolt is now fully handled by the effect/op pipeline (APPLY_MAGIC_BOLT
+	// and follow-up APPLY_* ops). The impact tile and authoritative rolls are
+	// stored in `currentCardOutcome` and EffectSequence.blackboard slots.
 	int magicBoltCardIndex = -1;
-
-	// Magic Bolt intermediate resolution state (primary damage and AOE)
-	bool isWaitingForMagicBoltPrimary = false;
-	bool isWaitingForMagicBoltAoe = false;
-	// Impact tile and dice results are stored in `currentCardOutcome`:
-	// - `currentCardOutcome.primaryTarget` stores the impact tile (grid coords)
-	// - `currentCardOutcome.namedDiceResults["magicbolt_primary"]` stores primary damage
-	// - `currentCardOutcome.namedDiceResults["magicbolt_aoe"]` stores AOE radius roll
 
 	// Shoot Arrow handled via effect/op pipeline (APPLY_SHOOT_ARROW)
 

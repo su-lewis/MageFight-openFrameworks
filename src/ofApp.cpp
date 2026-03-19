@@ -1912,10 +1912,6 @@ void ofApp::update() {
 	}
 
 	// Check for any "waiting" state that should lock player input
-	if (isWaitingForMagicBoltRange) {
-		updateGame();
-		return;
-	}
 
 	switch (currentState) {
 	case STATE_MAIN_MENU:
@@ -15005,8 +15001,7 @@ void ofApp::cancelAllTargeting() {
 	resetCardInteraction();
 
 	// Clear additional state not covered by resetCardInteraction()
-	// Waiting/rolling flags
-	isWaitingForMagicBoltRange = false;
+	// Waiting/rolling flags (migrated to effect/op pipeline)
 
 	// Pending indices / choices
 	magicBoltCardIndex = -1;
@@ -22452,163 +22447,8 @@ void ofApp::resolveJoltRangeDice() {
 // Time Vortex resolution migrated to effect/op pipeline (APPLY_TIME_VORTEX handles application)
 
 //--------------------------------------------------------------
-void ofApp::resolveMagicBoltRangeDice() {
-	if (isWaitingForMagicBoltRange && diceVisualsFinishedAndLinger()) {
-		isWaitingForMagicBoltRange = false;
-
-		Player & caster = players[currentPlayerIndex];
-		glm::vec2 casterTile = { (float)caster.x, (float)caster.y };
-
-		// 1. Calculate Distances
-		// FIX: Use Face-To-Face distance. Adjacent squares now require 0ft range.
-		float maxDistUnits = interactionDiceRoll / 5.0f;
-		float neededDistUnits = getFaceToFaceDistance(casterTile, interactionTargetTile);
-
-		ofLogNotice("Magic Bolt") << "Rolled Range: " << interactionDiceRoll << "ft. Needed: " << (neededDistUnits * 5.0f) << "ft.";
-
-		// 2. Determine Impact Tile
-		glm::vec2 impactTile;
-		if (maxDistUnits >= neededDistUnits - 0.01f) {
-			// SUCCESS
-			impactTile = interactionTargetTile;
-			ofLogNotice("Magic Bolt") << "Target Reached.";
-		} else {
-			// FAILURE: Fell short.
-			glm::vec2 dir = interactionTargetTile - casterTile;
-			if (glm::length(dir) > 0) dir = glm::normalize(dir);
-
-			bool hitWall = false;
-			std::vector<glm::vec2> path = getLineOfSightPath(casterTile + 0.5f, interactionTargetTile + 0.5f);
-			for (const auto & step : path) {
-				// Stop if we exceed max rolled distance
-				float distToStep = getFaceToFaceDistance(casterTile, step);
-				if (distToStep > maxDistUnits) break;
-
-				if (isTileWall((int)step.x, (int)step.y)) {
-					impactTile = step;
-					hitWall = true;
-					break;
-				}
-			}
-
-			if (!hitWall) {
-				// Landed on ground at max range
-				glm::vec2 impactPos = casterTile + (dir * maxDistUnits);
-				impactTile = { floor(impactPos.x), floor(impactPos.y) };
-			}
-			ofLogNotice("Magic Bolt") << "Fell short! Impact at (" << impactTile.x << ", " << impactTile.y << ")";
-		}
-
-		// 3. APPLY EFFECTS: spawn tracer and record impact tile, then start
-		// the PRIMARY DAMAGE roll. We purposely do NOT resolve primary damage
-		// yet — we wait for its visuals to finish (stage 2) before rolling AOE.
-		// Compute exact hit point on the impacted tile edge (in grid-space fractions)
-		{
-			glm::vec2 casterCenter = casterTile + glm::vec2(0.5f, 0.5f);
-			glm::vec2 targetCenter = interactionTargetTile + glm::vec2(0.5f, 0.5f);
-			glm::vec2 dir = targetCenter - casterCenter;
-			float len = glm::length(dir);
-			if (len > 0.0001f) dir = dir / len; // normalize for ray tests
-
-			glm::vec2 hitPointGrid = glm::vec2(impactTile.x + 0.5f, impactTile.y + 0.5f); // fallback
-			// Try resolving intersection with the tile's rectangle edges
-			float bestT = 1.0f;
-			bool found = false;
-			glm::vec2 s = casterCenter;
-			glm::vec2 e = interactionTargetTile + glm::vec2(0.5f, 0.5f);
-			glm::vec2 d = e - s;
-			// Check vertical (x) sides
-			if (fabs(d.x) > 1e-6f) {
-				float t1 = ((float)impactTile.x - s.x) / d.x;
-				float y1 = s.y + d.y * t1;
-				if (t1 >= 0.0f && t1 <= 1.0f && y1 >= impactTile.y && y1 <= impactTile.y + 1.0f) {
-					if (!found || t1 < bestT) {
-						bestT = t1;
-						hitPointGrid = s + d * t1;
-						found = true;
-					}
-				}
-				float t2 = ((float)impactTile.x + 1.0f - s.x) / d.x;
-				float y2 = s.y + d.y * t2;
-				if (t2 >= 0.0f && t2 <= 1.0f && y2 >= impactTile.y && y2 <= impactTile.y + 1.0f) {
-					if (!found || t2 < bestT) {
-						bestT = t2;
-						hitPointGrid = s + d * t2;
-						found = true;
-					}
-				}
-			}
-			// Check horizontal (y) sides
-			if (fabs(d.y) > 1e-6f) {
-				float t3 = ((float)impactTile.y - s.y) / d.y;
-				float x3 = s.x + d.x * t3;
-				if (t3 >= 0.0f && t3 <= 1.0f && x3 >= impactTile.x && x3 <= impactTile.x + 1.0f) {
-					if (!found || t3 < bestT) {
-						bestT = t3;
-						hitPointGrid = s + d * t3;
-						found = true;
-					}
-				}
-				float t4 = ((float)impactTile.y + 1.0f - s.y) / d.y;
-				float x4 = s.x + d.x * t4;
-				if (t4 >= 0.0f && t4 <= 1.0f && x4 >= impactTile.x && x4 <= impactTile.x + 1.0f) {
-					if (!found || t4 < bestT) {
-						bestT = t4;
-						hitPointGrid = s + d * t4;
-						found = true;
-					}
-				}
-			}
-
-			// Compute standardized tracer endpoints (face-midpoint start, center end)
-			{
-				glm::vec3 worldStart, worldEnd;
-				glm::vec2 hitGrid = hitPointGrid; // fractional
-				computeTracerEndpoints(casterTile, hitGrid, worldStart, worldEnd);
-				spawnTracer(worldStart, worldEnd, glm::ivec2((int)impactTile.x, (int)impactTile.y), ofColor(180, 100, 255), 5.0f);
-			}
-		}
-
-		// 3. APPLY EFFECTS: spawn tracer and store impactTile for subsequent stages
-
-		currentCardOutcome.primaryTarget = glm::ivec2((int)impactTile.x, (int)impactTile.y);
-
-		// Spawn tracer and highlight the impact tile so players can see where the bolt landed
-		{
-			glm::vec2 casterCenter = casterTile + glm::vec2(0.5f, 0.5f);
-			glm::vec2 hitGrid = interactionTargetTile + glm::vec2(0.5f, 0.5f);
-			glm::vec3 worldStart, worldEnd;
-			computeTracerEndpoints(casterTile, hitGrid, worldStart, worldEnd);
-			spawnTracer(worldStart, worldEnd, glm::ivec2((int)currentCardOutcome.primaryTarget.x, (int)currentCardOutcome.primaryTarget.y), ofColor(180, 100, 255), 5.0f);
-		}
-
-		// If impact was inside a wall, show fizzle and finish (no further rolls)
-		if (isTileWall((int)currentCardOutcome.primaryTarget.x, (int)currentCardOutcome.primaryTarget.y)) {
-			ofLogNotice("Magic Bolt") << "Bolt fizzled inside a wall. No AOE.";
-			queueFloatingTextVisual(gridToWorld((int)currentCardOutcome.primaryTarget.x, (int)currentCardOutcome.primaryTarget.y), "Fizzle!", ofColor::gray);
-		} else {
-			// Queue PRIMARY damage roll (1d20) and APPLY handler via effect sequence
-			beginEffectSequence();
-			EffectOp dmgRoll = {};
-			dmgRoll.type = EffectOpType::ROLL_DICE;
-			dmgRoll.data.rollDice.numDice = 1;
-			dmgRoll.data.rollDice.sides = 20;
-			dmgRoll.data.rollDice.purpose = PURPOSE_DAMAGE;
-			dmgRoll.data.rollDice.ownerIndex = currentPlayerIndex;
-			dmgRoll.data.rollDice.outputSlot = 1;
-			strncpy(dmgRoll.data.rollDice.label, "Magic Bolt: Primary Damage", 31);
-			dmgRoll.data.rollDice.label[31] = '\0';
-			queueEffect(dmgRoll);
-
-			EffectOp primaryApply = {};
-			primaryApply.type = EffectOpType::APPLY_MAGIC_BOLT_PRIMARY;
-			queueEffect(primaryApply);
-
-			advanceCardState(CARD_STATE_EFFECT_SEQUENCE);
-			beginEffectSequence();
-		}
-	}
-}
+// Magic Bolt range resolver removed: range/primary/AOE handled by
+// EffectOpType::APPLY_MAGIC_BOLT and its APPLY_* follow-ups (non-blocking visuals).
 
 //--------------------------------------------------------------
 void ofApp::resolveMagicBoltPrimaryDice() {
@@ -22617,84 +22457,8 @@ void ofApp::resolveMagicBoltPrimaryDice() {
 }
 
 //--------------------------------------------------------------
-void ofApp::resolveMagicBoltAoeDice() {
-	if (isWaitingForMagicBoltAoe && diceVisualsFinishedAndLinger()) {
-		isWaitingForMagicBoltAoe = false;
-
-		int diceRoll = currentCardOutcome.namedDiceResults["magicbolt_aoe"];
-		int aoeRadiusFeet = diceRoll;
-
-		ofLogNotice("Magic Bolt") << "AOE Roll: " << diceRoll << "ft Radius.";
-
-		for (auto & p : players) {
-			// Don't hit the direct target again
-			if (p.x == currentCardOutcome.primaryTarget.x && p.y == currentCardOutcome.primaryTarget.y) continue;
-
-			// Center-origin rule: center-to-center minus half tile (2.5ft), rounded down.
-			float centerDistFeet = glm::distance(glm::vec2(currentCardOutcome.primaryTarget.x, currentCardOutcome.primaryTarget.y), glm::vec2(p.x, p.y)) * 5.0f;
-			float neededFeetRaw = std::max(0.0f, centerDistFeet - 2.5f);
-			int neededFeet = (int)floor(neededFeetRaw + 1e-4f);
-
-			if (neededFeet <= aoeRadiusFeet) {
-				// Ensure AOE doesn't go through walls: verify LOS from impact center to unit center
-				auto losPath = getLineOfSightPath(glm::vec2(currentCardOutcome.primaryTarget.x, currentCardOutcome.primaryTarget.y) + glm::vec2(0.5f, 0.5f), glm::vec2(p.x, p.y) + glm::vec2(0.5f, 0.5f));
-				bool blockedByWall = false;
-				for (const auto & step : losPath) {
-					if ((int)step.x == currentCardOutcome.primaryTarget.x && (int)step.y == currentCardOutcome.primaryTarget.y) continue;
-					if ((int)step.x == p.x && (int)step.y == p.y) break;
-					if (isTileWall((int)step.x, (int)step.y)) {
-						blockedByWall = true;
-						break;
-					}
-				}
-				if (blockedByWall) continue;
-
-				ofLogNotice("Magic Bolt") << "AOE Hit on Unit " << p.playerID << " (Needed: " << neededFeet << "ft)";
-
-				int dmg = 3;
-				int barrierDmg = std::min(p.barrier, dmg);
-				if (barrierDmg > 0) {
-					EffectOp bOp = {};
-					bOp.type = EffectOpType::MODIFY_STAT;
-					bOp.data.modifyStat.targetIndex = (int)(&p - &players[0]);
-					bOp.data.modifyStat.statType = 6; // Barrier
-					bOp.data.modifyStat.delta = -barrierDmg;
-					bOp.data.modifyStat.deltaFromSlot = -1;
-					processEffectOp(bOp);
-				}
-				dmg -= barrierDmg;
-				int wardDmg = std::min(p.ward, dmg);
-				if (wardDmg > 0) {
-					EffectOp wOp = {};
-					wOp.type = EffectOpType::MODIFY_STAT;
-					wOp.data.modifyStat.targetIndex = (int)(&p - &players[0]);
-					wOp.data.modifyStat.statType = 8; // Ward
-					wOp.data.modifyStat.delta = -wardDmg;
-					wOp.data.modifyStat.deltaFromSlot = -1;
-					processEffectOp(wOp);
-				}
-				dmg -= wardDmg;
-
-				if (dmg > 0) {
-					EffectOp hpOp = {};
-					hpOp.type = EffectOpType::MODIFY_STAT;
-					hpOp.data.modifyStat.targetIndex = (int)(&p - &players[0]);
-					hpOp.data.modifyStat.statType = 0; // HP
-					hpOp.data.modifyStat.delta = -dmg;
-					hpOp.data.modifyStat.deltaFromSlot = -1;
-					processEffectOp(hpOp);
-					queueFloatingTextVisual(gridToWorld(p.x, p.y), "-" + ofToString(dmg) + " Electric", ofColor::yellow);
-				} else {
-					queueFloatingTextVisual(gridToWorld(p.x, p.y), "Absorbed", ofColor::gray);
-				}
-			}
-		}
-
-		if (cardPlayState != CARD_STATE_IDLE) {
-			advanceCardState(CARD_STATE_EFFECT_SEQUENCE);
-		}
-	}
-}
+// Magic Bolt AOE resolver removed: AOE is handled via EffectOpType::APPLY_MAGIC_BOLT_AOE
+// which reads authoritative blackboard slots and queues MODIFY_STAT ops.
 
 //--------------------------------------------------------------
 // Shoot Arrow resolution migrated to effect/op pipeline (APPLY_SHOOT_ARROW handles range, destruction and damage queuing)
