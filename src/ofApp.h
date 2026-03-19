@@ -175,7 +175,8 @@ enum CardType {
 	CARD_STAB,
 	CARD_SLASH,
 	CARD_SUMMON_WALL,
-	CARD_SUMMON_MAGIC_WALL
+	CARD_SUMMON_MAGIC_WALL,
+	CARD_GHOST_RELOCATE // pseudo-card for ghost relocation UI
 };
 
 enum DicePurpose {
@@ -1360,6 +1361,7 @@ private:
 
 	// Specific UI Drawers
 	void drawMagicBlastChoiceUI();
+	void drawGhostRelocateUI();
 	void drawOpponentMenu(); // Draw opponent's active menu with red outlines
 
 	// Board highlight helpers
@@ -1492,7 +1494,7 @@ private:
 	// Opponent decision timer (when a modal requires the opponent to choose)
 	bool opponentDecisionTimerActive = false;
 	float opponentDecisionStartTime = 0.0f;
-	float opponentDecisionDuration = 20.0f; // default opponent decision window
+	float opponentDecisionDuration = 30.0f; // default opponent decision window (30s for menus)
 	int opponentDecisionPlayerIndex = -1; // which player must decide
 
 	std::vector<DeathMarker> graveyard;
@@ -2075,6 +2077,13 @@ private:
 		int hoveredChoice = -1; // -1=none, 0=first option, 1=second option
 		int cardIndex = -1;
 	} opponentInteraction;
+
+	// --- Ghost Relocate Interaction State ---
+	// Populated when a ghost form breaks inside a wall and the player may choose
+	// a nearby empty tile to teleport to instantly (no AP cost).
+	std::vector<glm::ivec2> ghostRelocateChoices;
+	std::vector<ofRectangle> ghostRelocateButtons;
+	int ghostRelocateTargetIndex = -1;
 
 	// --- Amnesia State ---
 

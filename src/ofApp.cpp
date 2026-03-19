@@ -20,6 +20,9 @@
 #include <sstream>
 #include <unordered_map>
 
+// Menu type for ghost relocation (when ghost materializes inside a wall)
+static const int MENU_GHOST_RELOCATE = 5;
+
 // Path constants
 
 // Legacy `pending*` macros have been migrated; use `networkPending.*`
@@ -8767,6 +8770,9 @@ void ofApp::drawGame() {
 	if (cardInteractionState == CARD_INTERACTION_MENU && interactingCardType == CARD_MAGIC_BLAST) {
 		drawMagicBlastChoiceUI();
 	}
+	if (cardInteractionState == CARD_INTERACTION_MENU && interactingCardType == CARD_GHOST_RELOCATE) {
+		drawGhostRelocateUI();
+	}
 
 	// === PHASE 2-3: NEW UNIFIED CARD INTERACTION UI ===
 	drawActiveCardInteractionUI();
@@ -14189,20 +14195,18 @@ void ofApp::updateCardInteractionState(CardInteractionState newState, int cardId
 
 		// If this menu is a modal that targets another player (e.g., Magic Blast choices),
 		// pause the current player's turn timer and start a decision timer for the target.
-		if (interactingCardType == CARD_MAGIC_BLAST) {
+		if (interactingCardType == CARD_MAGIC_BLAST || interactingCardType == CARD_GHOST_RELOCATE) {
 			// magicBlastTargetPlayerIndex is set by the resolver when applicable
-			if (magicBlastTargetPlayerIndex >= 0 && magicBlastTargetPlayerIndex != currentPlayerIndex) {
-				// Pause current player's timer
-				if (!turnTimerPaused) {
-					float elapsed = ofGetElapsedTimef() - turnStartTime;
-					turnTimerPausedRemaining = std::max(0.0f, turnDurationSeconds - elapsed);
-					turnTimerPaused = true;
-				}
-				// Start opponent decision timer
-				opponentDecisionTimerActive = true;
-				opponentDecisionStartTime = ofGetElapsedTimef();
-				opponentDecisionDuration = std::min(30.0f, turnDurationSeconds); // cap at 30s
-				opponentDecisionPlayerIndex = magicBlastTargetPlayerIndex;
+			int optPlayer = -1;
+			if (interactingCardType == CARD_MAGIC_BLAST)
+				optPlayer = magicBlastTargetPlayerIndex;
+			else if (interactingCardType == CARD_GHOST_RELOCATE)
+				optPlayer = ghostRelocateTargetIndex;
+			if (optPlayer >= 0 && optPlayer != currentPlayerIndex) {
+				// Use centralized helper to pause active player's timer and start opponent timer
+				pauseTurnTimerForOpponentDecision(optPlayer);
+				// Set decision window to 30 seconds (menus/ghost relocation)
+				opponentDecisionDuration = 30.0f;
 			}
 		}
 	}
@@ -14803,6 +14807,24 @@ void ofApp::handleCardMenuClick(const std::string & buttonId) {
 		resetCardInteraction();
 		break;
 	}
+	case CARD_GHOST_RELOCATE: {
+		// Mirror layout used by drawGhostRelocateUI so rectangles exist during input handling
+		float panelW = 720, panelH = 360;
+		float px = ofGetWidth() / 2.0f - panelW / 2.0f;
+		float py = ofGetHeight() / 2.0f - panelH / 2.0f;
+		int maxChoices = std::min((int)ghostRelocateChoices.size(), 4);
+		ghostRelocateButtons.clear();
+		float btnW = 300, btnH = 70;
+		float spacing = 20;
+		float startX = px + (panelW - (btnW * 2 + spacing)) / 2.0f;
+		float startY = py + panelH - 24 - btnH - 40;
+		for (int i = 0; i < maxChoices; ++i) {
+			float bx = startX + (i % 2) * (btnW + spacing);
+			float by = startY - (i / 2) * (btnH + spacing);
+			ghostRelocateButtons.emplace_back(bx, by, btnW, btnH);
+		}
+		break;
+	}
 
 	case CARD_AMNESIA: {
 		// Menu choice: "Self" or adjacent targeting
@@ -15050,6 +15072,32 @@ void ofApp::drawActiveCardInteractionUI() {
 			drawCardChoicePanel(menuRect, "Giant Magic Hand", "Choose force direction:",
 				btnPush, btnPull, "PUSH", "PULL",
 				pushAccent, pullAccent, true, true);
+			break;
+		}
+
+		case CARD_GHOST_RELOCATE: {
+			// Ghost relocation menu: up to 4 buttons stored in ghostRelocateButtons
+			for (size_t i = 0; i < ghostRelocateButtons.size(); ++i) {
+				if (!ghostRelocateButtons[i].inside(mouseX, mouseY)) continue;
+				InputCommandPacket cmd = {};
+				cmd.type = PKT_ACTION;
+				cmd.playerID = myLocalPlayerID;
+				cmd.seq = 0;
+				cmd.commandId = nextCommandId++;
+				cmd.turnNumber = globalTurnCounter;
+				cmd.commandType = CMD_MENU_CHOICE;
+				cmd.params[0] = MENU_GHOST_RELOCATE;
+				cmd.params[1] = ghostRelocateTargetIndex;
+				cmd.params[2] = (int)i; // choice index
+				cmd.params[3] = -1;
+				if (isMultiplayer)
+					queueInputCommand(cmd);
+				else {
+					isExecutingLockstepCommand = true;
+					executeInputCommand(cmd);
+					isExecutingLockstepCommand = false;
+				}
+			}
 			break;
 		}
 
@@ -15419,7 +15467,42 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 		int cardIndex = cmd.params[3];
 
 		if (currentPlayerIndex < 0 || currentPlayerIndex >= (int)players.size()) break;
-		if (cardIndex < 0 || cardIndex >= (int)players[currentPlayerIndex].hand.size()) break;
+		// Allow menu types that are not tied to a specific card index (e.g., ghost relocate)
+		if (menuType != MENU_GHOST_RELOCATE) {
+			if (cardIndex < 0 || cardIndex >= (int)players[currentPlayerIndex].hand.size()) break;
+		}
+
+		// Special-case: ghost relocation menu (deterministic teleport choice)
+		if (menuType == MENU_GHOST_RELOCATE) {
+			int tgt = targetIndex;
+			int ch = choice;
+			if (tgt < 0 || tgt >= (int)players.size()) break;
+			if (ch < 0 || ch >= (int)ghostRelocateChoices.size()) break;
+			// Execute deterministic move + remove ghost status
+			glm::ivec2 dest = ghostRelocateChoices[ch];
+			beginEffectSequence();
+			EffectOp mv = {};
+			mv.type = EffectOpType::MOVE_UNIT;
+			mv.data.moveUnit.unitIndex = tgt;
+			mv.data.moveUnit.toX = dest.x;
+			mv.data.moveUnit.toY = dest.y;
+			queueEffect(mv);
+			EffectOp rm = {};
+			rm.type = EffectOpType::REMOVE_STATUS;
+			rm.data.status.targetIndex = tgt;
+			rm.data.status.statusType = STATUS_GHOST_FORM;
+			rm.data.status.duration = 0;
+			queueEffect(rm);
+			// Visual / cleanup
+			queueFloatingTextVisual(gridToWorld(dest.x, dest.y), "Materialized: Teleported", ofColor::cyan);
+			// Close any open opponent visualization and local menu
+			if (isMultiplayer) sendMenuState(0, -1, -1, -1);
+			resetCardInteraction();
+			ghostRelocateChoices.clear();
+			ghostRelocateTargetIndex = -1;
+			opponentInteraction.open = false;
+			break;
+		}
 
 		std::string buttonId;
 		switch ((CardType)menuType) {
@@ -17093,56 +17176,20 @@ void ofApp::processEffectOp(EffectOp & op) {
 						queueFloatingTextVisual(gridToWorld(target->x, target->y), "Vulnerable: Piercing (x2)", ofColor::orange);
 					}
 				}
-				// --- MITIGATION ---
-				int absorb;
-				if (currentCardOutcome.attackDamageType == DAMAGE_HOLY) {
-					absorb = std::min(target->holyBlock, appliedDamage);
-					target->holyBlock -= absorb;
-					appliedDamage -= absorb;
-					absorbedDamage += absorb;
-				}
-				if (currentCardOutcome.attackDamageType == DAMAGE_PHYSICAL) {
-					absorb = std::min(target->block, appliedDamage);
-					target->block -= absorb;
-					appliedDamage -= absorb;
-					absorbedDamage += absorb;
-				}
-				if (currentCardOutcome.attackDamageType == DAMAGE_PHYSICAL || currentCardOutcome.attackDamageType == DAMAGE_PIERCING) {
-					absorb = std::min(target->fortification, appliedDamage);
-					target->fortification -= absorb;
-					appliedDamage -= absorb;
-					absorbedDamage += absorb;
-				}
-				if (currentCardOutcome.attackDamageType != DAMAGE_PHYSICAL) {
-					absorb = std::min(target->barrier, appliedDamage);
-					target->barrier -= absorb;
-					appliedDamage -= absorb;
-					absorbedDamage += absorb;
-				}
-				if (appliedDamage > 0) {
-					absorb = std::min(target->ward, appliedDamage);
-					target->ward -= absorb;
-					appliedDamage -= absorb;
-					absorbedDamage += absorb;
-				}
-
+				// --- MITIGATION: use central helper to apply and show absorbed/HP amounts ---
 				glm::vec3 tPos = gridToWorld(target->x, target->y);
-				if (absorbedDamage > 0) {
-					queueFloatingTextVisual(tPos + glm::vec3(0, 0.5f, 0), "-" + ofToString(absorbedDamage) + " Absorbed", ofColor::lightGray);
+				int pre = appliedDamage;
+				int applied = applyDamageWithMitigations(*target, appliedDamage, currentCardOutcome.attackDamageType, currentPlayerIndex);
+				int absorbed = pre - applied;
+				if (absorbed > 0) {
+					queueFloatingTextVisual(tPos + glm::vec3(0, 0.5f, 0), "-" + ofToString(absorbed) + " Absorbed", ofColor::lightGray);
 				}
-				if (appliedDamage > 0) {
-					EffectOp hpOp = {};
-					hpOp.type = EffectOpType::MODIFY_STAT;
-					hpOp.data.modifyStat.targetIndex = pIndex;
-					hpOp.data.modifyStat.statType = 0; // HP
-					hpOp.data.modifyStat.delta = -appliedDamage;
-					hpOp.data.modifyStat.deltaFromSlot = -1;
-					processEffectOp(hpOp);
-					queueFloatingTextVisual(tPos, "-" + ofToString(appliedDamage) + typeLabel, ofColor::red);
+				if (applied > 0) {
+					queueFloatingTextVisual(tPos, "-" + ofToString(applied) + typeLabel, ofColor::red);
 
 					// Ghost Break Logic
 					if (target->inGhostForm) {
-						target->ghostDamageTaken += appliedDamage;
+						target->ghostDamageTaken += applied;
 						if (target->ghostDamageTaken >= 4) {
 							EffectOp rmGhost = {};
 							rmGhost.type = EffectOpType::REMOVE_STATUS;
@@ -17154,21 +17201,53 @@ void ofApp::processEffectOp(EffectOp & op) {
 							target->discardPile.push_back(target->ghostFormCard);
 							queueFloatingTextVisual(tPos + glm::vec3(0, 0.5f, 0), "Ghost Form Broken!", ofColor::white);
 							if (board[target->x][target->y].hasWall) {
-								EffectOp killOp = {};
-								killOp.type = EffectOpType::MODIFY_STAT;
-								killOp.data.modifyStat.targetIndex = pIndex;
-								killOp.data.modifyStat.statType = 0; // HP
-								killOp.data.modifyStat.delta = -players[pIndex].health;
-								killOp.data.modifyStat.deltaFromSlot = -1;
-								processEffectOp(killOp);
-								queueFloatingTextVisual(tPos + glm::vec3(0, 1.0f, 0), "Materialized in Wall!", ofColor::red);
+								// Instead of instant death, present the ghosted player a choice of nearby empty tiles
+								ghostRelocateChoices.clear();
+								ghostRelocateTargetIndex = pIndex;
+								// Gather available empty tiles and sort by distance
+								struct Choice {
+									int x;
+									int y;
+									int dist2;
+								};
+								std::vector<Choice> choices;
+								for (int gx = 0; gx < BOARD_WIDTH; ++gx) {
+									for (int gy = 0; gy < BOARD_HEIGHT; ++gy) {
+										if (board[gx][gy].hasWall) continue;
+										if (board[gx][gy].hasPlayer) continue;
+										int dx = gx - target->x;
+										int dy = gy - target->y;
+										int d2 = dx * dx + dy * dy;
+										choices.push_back({ gx, gy, d2 });
+									}
+								}
+								std::sort(choices.begin(), choices.end(), [](const Choice & a, const Choice & b) { return a.dist2 < b.dist2; });
+								int take = std::min((int)choices.size(), 4);
+								for (int ci = 0; ci < take; ++ci) {
+									ghostRelocateChoices.push_back(glm::ivec2(choices[ci].x, choices[ci].y));
+								}
+								// If no available tiles, fall back to instant death
+								if (ghostRelocateChoices.empty()) {
+									EffectOp killOp = {};
+									killOp.type = EffectOpType::MODIFY_STAT;
+									killOp.data.modifyStat.targetIndex = pIndex;
+									killOp.data.modifyStat.statType = 0; // HP
+									killOp.data.modifyStat.delta = -players[pIndex].health;
+									killOp.data.modifyStat.deltaFromSlot = -1;
+									processEffectOp(killOp);
+									queueFloatingTextVisual(tPos + glm::vec3(0, 1.0f, 0), "Materialized in Wall!", ofColor::red);
+								} else {
+									// Open a modal menu for the affected player to choose relocation
+									updateCardInteractionState(CARD_INTERACTION_MENU, -1, CARD_GHOST_RELOCATE);
+									if (isMultiplayer) sendMenuState(5, ghostRelocateTargetIndex, -1, -1);
+								}
 							}
 						}
 					}
 
 					// Tortoise Break Logic
 					if (target->inTortoiseForm) {
-						target->tortoiseDamageTaken += appliedDamage;
+						target->tortoiseDamageTaken += applied;
 						if (target->tortoiseDamageTaken >= 5) {
 							EffectOp rmTort = {};
 							rmTort.type = EffectOpType::REMOVE_STATUS;
@@ -25888,6 +25967,20 @@ void ofApp::drawOpponentMenu() {
 		ofRectangle menuRect(x, y, w, h);
 		ofRectangle btnDamage, btnDiscard;
 		drawCardChoicePanel(menuRect, title, desc, btnDamage, btnDiscard, "Take 5 Damage", "Remove Top Card of Deck", dmgAccent, discAccent, false, false);
+	} else if (opponentInteraction.type == 5) {
+		int tgt = opponentInteraction.targetIndex;
+		string title = "Materialized in Wall";
+		string desc = "Waiting for player to choose a tile...";
+		float w = 520, h = 200;
+		float x = ofGetWidth() / 2 - w / 2, y = ofGetHeight() / 2 - h / 2;
+		ofRectangle menuRect(x, y, w, h);
+		ofSetColor(30, 30, 40, 240);
+		ofDrawRectRounded(menuRect, 12);
+		ofSetColor(ofColor::white);
+		ofRectangle tbox = uiFont.getStringBoundingBox(title, 0, 0);
+		uiFont.drawString(title, menuRect.getCenter().x - tbox.getWidth() / 2, menuRect.y + 48);
+		ofRectangle dbox = uiFont.getStringBoundingBox(desc, 0, 0);
+		uiFont.drawString(desc, menuRect.getCenter().x - dbox.getWidth() / 2, menuRect.y + 88);
 	}
 }
 
@@ -25920,7 +26013,7 @@ bool ofApp::applyDamageTo(Player & target, int damage, DamageType type, int atta
 
 	int calculatedDamage = damage;
 
-	// Ghost Form
+	// Ghost Form adjustments and wall/vulnerability modifiers remain outside mitigation helper
 	if (target.inGhostForm) {
 		if (type == DAMAGE_PHYSICAL || type == DAMAGE_PIERCING) {
 			calculatedDamage = 0;
@@ -26013,91 +26106,49 @@ bool ofApp::applyDamageTo(Player & target, int damage, DamageType type, int atta
 
 	ofLogNotice("Game") << "Dealing " << calculatedDamage << " damage to Player " << target.playerID;
 
+	// Preserve starting HP for resurrection/checks
 	int initialHealth = target.health;
-	int remainingDmg = calculatedDamage;
-
-	// Absorb damage from the most-specific block types first.
-	// Order is chosen per `DamageType` to prefer specific buffers:
-	// - Holy: holyBlock -> barrier -> ward
-	// - Physical: block -> fortification -> ward
-	// - Piercing: fortification -> ward
-	// - Other non-physical (magic, electric, fire, poison): barrier -> ward
-	auto absorbFrom = [&](int & source, int & remaining, const char * name, const ofColor & c) {
-		int a = std::min(source, remaining);
-		source -= a;
-		remaining -= a;
-		if (a > 0) {
-			queueFloatingTextVisual(gridToWorld(target.x, target.y), "-" + ofToString(a) + typeLabel, c);
-			ofLogNotice("Game") << name << " absorbed " << a;
-		}
-	};
-
-	switch (type) {
-	case DAMAGE_HOLY:
-		absorbFrom(target.holyBlock, remainingDmg, "Holy Block", ofColor(255, 215, 0));
-		absorbFrom(target.barrier, remainingDmg, "Barrier", ofColor(70, 170, 255));
-		absorbFrom(target.ward, remainingDmg, "Ward", ofColor::black);
-		break;
-
-	case DAMAGE_PHYSICAL:
-		absorbFrom(target.block, remainingDmg, "Block", ofColor::gray);
-		absorbFrom(target.fortification, remainingDmg, "Fortification", ofColor::lightGray);
-		absorbFrom(target.ward, remainingDmg, "Ward", ofColor::black);
-		break;
-
-	case DAMAGE_PIERCING:
-		// Piercing bypasses normal `block`, but is reduced by `fortification`.
-		absorbFrom(target.fortification, remainingDmg, "Fortification", ofColor::lightGray);
-		absorbFrom(target.ward, remainingDmg, "Ward", ofColor::black);
-		break;
-
-	default:
-		// MAGIC, ELECTRIC, FIRE, POISON and others
-		absorbFrom(target.barrier, remainingDmg, "Barrier", ofColor(70, 170, 255));
-		absorbFrom(target.ward, remainingDmg, "Ward", ofColor::black);
-		break;
-	}
-
+	// Delegate deterministic absorption + HP modification to helper
+	int applied = applyDamageWithMitigations(target, calculatedDamage, type, attackerIndex);
 	glm::vec3 targetPos = gridToWorld(target.x, target.y);
-	if (remainingDmg > 0) {
-		target.health -= remainingDmg;
-		queueFloatingTextVisual(targetPos, "-" + ofToString(remainingDmg) + typeLabel, ofColor::red);
+	if (applied > 0) {
+		queueFloatingTextVisual(targetPos, "-" + ofToString(applied) + typeLabel, ofColor::red);
+
 		if (target.inTortoiseForm) {
-			target.tortoiseDamageTaken += remainingDmg;
+			target.tortoiseDamageTaken += applied;
 			if (target.tortoiseDamageTaken >= 5) {
-				// Queue REMOVE_STATUS for tortoise form deterministically
-				{
-					EffectOp rm = {};
-					rm.type = EffectOpType::REMOVE_STATUS;
-					rm.data.status.targetIndex = findPlayerIndexByID(target.playerID);
-					rm.data.status.statusType = STATUS_TORTOISE_FORM;
-					rm.data.status.duration = 0;
-					queueEffect(rm);
-				}
-				// inTortoiseForm will be cleared when REMOVE_STATUS is processed
+				EffectOp rm = {};
+				rm.type = EffectOpType::REMOVE_STATUS;
+				rm.data.status.targetIndex = findPlayerIndexByID(target.playerID);
+				rm.data.status.statusType = STATUS_TORTOISE_FORM;
+				rm.data.status.duration = 0;
+				queueEffect(rm);
 				target.tortoiseDamageTaken = 0;
 				target.discardPile.push_back(target.tortoiseFormCard);
 				queueFloatingTextVisual(targetPos + glm::vec3(0, 0.5f, 0), "Form Ended!", ofColor::darkGreen);
 			}
 		}
 		if (target.inGhostForm) {
-			target.ghostDamageTaken += remainingDmg;
+			target.ghostDamageTaken += applied;
 			if (target.ghostDamageTaken >= 4) {
-				// Queue REMOVE_STATUS for ghost form deterministically
-				{
-					EffectOp rm = {};
-					rm.type = EffectOpType::REMOVE_STATUS;
-					rm.data.status.targetIndex = findPlayerIndexByID(target.playerID);
-					rm.data.status.statusType = STATUS_GHOST_FORM;
-					rm.data.status.duration = 0;
-					queueEffect(rm);
-				}
-				// inGhostForm will be cleared when REMOVE_STATUS is processed
+				EffectOp rm = {};
+				rm.type = EffectOpType::REMOVE_STATUS;
+				rm.data.status.targetIndex = findPlayerIndexByID(target.playerID);
+				rm.data.status.statusType = STATUS_GHOST_FORM;
+				rm.data.status.duration = 0;
+				queueEffect(rm);
 				target.ghostDamageTaken = 0;
 				target.discardPile.push_back(target.ghostFormCard);
 				queueFloatingTextVisual(targetPos + glm::vec3(0, 0.5f, 0), "Ghost Form Broken!", ofColor::white);
 				if (board[target.x][target.y].hasWall) {
-					target.health = 0;
+					// If materialized in wall, set HP to 0 via effect
+					EffectOp kill = {};
+					kill.type = EffectOpType::MODIFY_STAT;
+					kill.data.modifyStat.targetIndex = findPlayerIndexByID(target.playerID);
+					kill.data.modifyStat.statType = 0; // HP
+					kill.data.modifyStat.delta = -players[findPlayerIndexByID(target.playerID)].health;
+					kill.data.modifyStat.deltaFromSlot = -1;
+					queueEffect(kill);
 					queueFloatingTextVisual(targetPos + glm::vec3(0, 1.0f, 0), "Materialized in Wall!", ofColor::red);
 				}
 			}
@@ -26338,6 +26389,81 @@ void ofApp::drawMagicBlastChoiceUI() {
 		int secs = (int)std::ceil(remaining);
 		ofSetColor(ofColor::white);
 		std::string secsText = ofToString(secs) + "s";
+		ofRectangle tb = uiFont.getStringBoundingBox(secsText, 0, 0);
+		uiFont.drawString(secsText, barX + barW / 2.0f - tb.getWidth() / 2.0f, barY + barH / 2.0f + tb.getHeight() / 4.0f);
+	}
+}
+
+void ofApp::drawGhostRelocateUI() {
+	Player * targetPlayer = getPlayer(ghostRelocateTargetIndex);
+	if (!targetPlayer) return;
+
+	bool isLocalTarget = true;
+	if (isMultiplayer) {
+		isLocalTarget = (targetPlayer->playerID == myLocalPlayerID);
+	}
+
+	drawMenuOverlay();
+
+	string title = "Materialized in Wall";
+	string desc = isLocalTarget ? "Choose a nearby empty tile to teleport to:" : ("Waiting for Player " + ofToString(targetPlayer->playerID + 1) + "...");
+
+	float panelW = 720, panelH = 360;
+	float px = ofGetWidth() / 2.0f - panelW / 2.0f;
+	float py = ofGetHeight() / 2.0f - panelH / 2.0f;
+	ofRectangle panel(px, py, panelW, panelH);
+
+	ofSetColor(30, 30, 40, 240);
+	ofDrawRectRounded(panel, 12);
+
+	ofSetColor(ofColor::white);
+	ofRectangle tbox = uiFont.getStringBoundingBox(title, 0, 0);
+	uiFont.drawString(title, panel.getCenter().x - tbox.getWidth() / 2.0f, panel.y + 48);
+	ofRectangle dbox = uiFont.getStringBoundingBox(desc, 0, 0);
+	uiFont.drawString(desc, panel.getCenter().x - dbox.getWidth() / 2.0f, panel.y + 88);
+
+	// Layout up to 4 choice buttons
+	int maxChoices = std::min((int)ghostRelocateChoices.size(), 4);
+	ghostRelocateButtons.clear();
+	float btnW = 300, btnH = 70;
+	float spacing = 20;
+	float startX = panel.x + (panel.getWidth() - (btnW * 2 + spacing)) / 2.0f;
+	float startY = panel.y + panel.getHeight() - 24 - btnH - 40;
+
+	for (int i = 0; i < maxChoices; ++i) {
+		float bx = startX + (i % 2) * (btnW + spacing);
+		float by = startY - (i / 2) * (btnH + spacing);
+		ofRectangle br(bx, by, btnW, btnH);
+		ghostRelocateButtons.push_back(br);
+		if (isLocalTarget)
+			ofSetColor(100, 180, 220);
+		else
+			ofSetColor(70, 70, 70);
+		ofDrawRectRounded(br, 10);
+		glm::ivec2 g = ghostRelocateChoices[i];
+		string label = "Teleport to (" + ofToString(g.x) + "," + ofToString(g.y) + ")";
+		ofSetColor(ofColor::white);
+		ofRectangle lb = uiFont.getStringBoundingBox(label, 0, 0);
+		uiFont.drawString(label, br.getCenter().x - lb.getWidth() / 2.0f, br.getCenter().y + lb.getHeight() / 2.0f);
+	}
+
+	// Decision timer if applicable
+	if (opponentDecisionTimerActive && opponentDecisionPlayerIndex == ghostRelocateTargetIndex) {
+		float elapsed = ofGetElapsedTimef() - opponentDecisionStartTime;
+		float remaining = std::max(0.0f, opponentDecisionDuration - elapsed);
+		float pct = (opponentDecisionDuration > 0.0f) ? (remaining / opponentDecisionDuration) : 0.0f;
+		float barW = 160.0f, barH = 16.0f;
+		float barX = panel.x + panel.getWidth() - barW - 20.0f;
+		float barY = panel.y + 18.0f;
+		ofSetColor(20, 20, 30, 220);
+		ofDrawRectRounded(barX - 4.0f, barY - 4.0f, barW + 8.0f, barH + 8.0f, 6.0f);
+		ofSetColor(60, 60, 70);
+		ofDrawRectRounded(barX, barY, barW, barH, 4.0f);
+		ofSetColor(ofColor::fromHsb(120 * pct, 200, 220));
+		ofDrawRectRounded(barX, barY, barW * pct, barH, 4.0f);
+		int secs = (int)std::ceil(remaining);
+		ofSetColor(ofColor::white);
+		string secsText = ofToString(secs) + "s";
 		ofRectangle tb = uiFont.getStringBoundingBox(secsText, 0, 0);
 		uiFont.drawString(secsText, barX + barW / 2.0f - tb.getWidth() / 2.0f, barY + barH / 2.0f + tb.getHeight() / 4.0f);
 	}
