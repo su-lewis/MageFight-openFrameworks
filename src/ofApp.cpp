@@ -13572,17 +13572,65 @@ void ofApp::startNewTurn() {
 			}
 			// Tortoise form: ALL defensive stats don't expire
 			if (!startingPlayer.inTortoiseForm) {
-				startingPlayer.block = 0;
-				startingPlayer.holyBlock = 0;
-				startingPlayer.ward = 0;
-				startingPlayer.fortification = 0;
-				startingPlayer.barrier = 0;
+				int sidx = (int)(&startingPlayer - &players[0]);
+				if (startingPlayer.block > 0) {
+					EffectOp op = {};
+					op.type = EffectOpType::MODIFY_STAT;
+					op.data.modifyStat.targetIndex = sidx;
+					op.data.modifyStat.statType = 5; // Block
+					op.data.modifyStat.delta = -startingPlayer.block;
+					op.data.modifyStat.deltaFromSlot = -1;
+					processEffectOp(op);
+				}
+				if (startingPlayer.holyBlock > 0) {
+					EffectOp op = {};
+					op.type = EffectOpType::MODIFY_STAT;
+					op.data.modifyStat.targetIndex = sidx;
+					op.data.modifyStat.statType = 7; // HolyBlock
+					op.data.modifyStat.delta = -startingPlayer.holyBlock;
+					op.data.modifyStat.deltaFromSlot = -1;
+					processEffectOp(op);
+				}
+				if (startingPlayer.ward > 0) {
+					EffectOp op = {};
+					op.type = EffectOpType::MODIFY_STAT;
+					op.data.modifyStat.targetIndex = sidx;
+					op.data.modifyStat.statType = 8; // Ward
+					op.data.modifyStat.delta = -startingPlayer.ward;
+					op.data.modifyStat.deltaFromSlot = -1;
+					processEffectOp(op);
+				}
+				if (startingPlayer.fortification > 0) {
+					EffectOp op = {};
+					op.type = EffectOpType::MODIFY_STAT;
+					op.data.modifyStat.targetIndex = sidx;
+					op.data.modifyStat.statType = 13; // Fortification
+					op.data.modifyStat.delta = -startingPlayer.fortification;
+					op.data.modifyStat.deltaFromSlot = -1;
+					processEffectOp(op);
+				}
+				if (startingPlayer.barrier > 0) {
+					EffectOp op = {};
+					op.type = EffectOpType::MODIFY_STAT;
+					op.data.modifyStat.targetIndex = sidx;
+					op.data.modifyStat.statType = 6; // Barrier
+					op.data.modifyStat.delta = -startingPlayer.barrier;
+					op.data.modifyStat.deltaFromSlot = -1;
+					processEffectOp(op);
+				}
 			}
 
 			// Regeneration first
 			if (startingPlayer.hasRegeneration) {
 				if (startingPlayer.health < startingPlayer.maxHealth) {
-					startingPlayer.health++;
+					int sidx = (int)(&startingPlayer - &players[0]);
+					EffectOp op = {};
+					op.type = EffectOpType::MODIFY_STAT;
+					op.data.modifyStat.targetIndex = sidx;
+					op.data.modifyStat.statType = 0; // HP
+					op.data.modifyStat.delta = 1;
+					op.data.modifyStat.deltaFromSlot = -1;
+					processEffectOp(op);
 					queueFloatingTextVisual(gridToWorld(startingPlayer.x, startingPlayer.y), "+1 Regen", ofColor::green);
 				}
 			}
@@ -13712,17 +13760,65 @@ void ofApp::startNewTurn() {
 
 	// Tortoise form: ALL defensive stats don't expire
 	if (!startingPlayer.inTortoiseForm) {
-		startingPlayer.block = 0;
-		startingPlayer.holyBlock = 0;
-		startingPlayer.ward = 0;
-		startingPlayer.fortification = 0;
-		startingPlayer.barrier = 0;
+		int sidx = (int)(&startingPlayer - &players[0]);
+		if (startingPlayer.block > 0) {
+			EffectOp op = {};
+			op.type = EffectOpType::MODIFY_STAT;
+			op.data.modifyStat.targetIndex = sidx;
+			op.data.modifyStat.statType = 5; // Block
+			op.data.modifyStat.delta = -startingPlayer.block;
+			op.data.modifyStat.deltaFromSlot = -1;
+			processEffectOp(op);
+		}
+		if (startingPlayer.holyBlock > 0) {
+			EffectOp op = {};
+			op.type = EffectOpType::MODIFY_STAT;
+			op.data.modifyStat.targetIndex = sidx;
+			op.data.modifyStat.statType = 7; // HolyBlock
+			op.data.modifyStat.delta = -startingPlayer.holyBlock;
+			op.data.modifyStat.deltaFromSlot = -1;
+			processEffectOp(op);
+		}
+		if (startingPlayer.ward > 0) {
+			EffectOp op = {};
+			op.type = EffectOpType::MODIFY_STAT;
+			op.data.modifyStat.targetIndex = sidx;
+			op.data.modifyStat.statType = 8; // Ward
+			op.data.modifyStat.delta = -startingPlayer.ward;
+			op.data.modifyStat.deltaFromSlot = -1;
+			processEffectOp(op);
+		}
+		if (startingPlayer.fortification > 0) {
+			EffectOp op = {};
+			op.type = EffectOpType::MODIFY_STAT;
+			op.data.modifyStat.targetIndex = sidx;
+			op.data.modifyStat.statType = 13; // Fortification
+			op.data.modifyStat.delta = -startingPlayer.fortification;
+			op.data.modifyStat.deltaFromSlot = -1;
+			processEffectOp(op);
+		}
+		if (startingPlayer.barrier > 0) {
+			EffectOp op = {};
+			op.type = EffectOpType::MODIFY_STAT;
+			op.data.modifyStat.targetIndex = sidx;
+			op.data.modifyStat.statType = 6; // Barrier
+			op.data.modifyStat.delta = -startingPlayer.barrier;
+			op.data.modifyStat.deltaFromSlot = -1;
+			processEffectOp(op);
+		}
 	}
 
 	// Regeneration first
 	if (startingPlayer.hasRegeneration) {
 		if (startingPlayer.health < startingPlayer.maxHealth) {
-			startingPlayer.health++;
+			int sidx = (int)(&startingPlayer - &players[0]);
+			EffectOp op = {};
+			op.type = EffectOpType::MODIFY_STAT;
+			op.data.modifyStat.targetIndex = sidx;
+			op.data.modifyStat.statType = 0; // HP
+			op.data.modifyStat.delta = 1;
+			op.data.modifyStat.deltaFromSlot = -1;
+			processEffectOp(op);
 			queueFloatingTextVisual(gridToWorld(startingPlayer.x, startingPlayer.y), "+1 Regen", ofColor::green);
 		}
 	}
@@ -16997,7 +17093,6 @@ void ofApp::processEffectOp(EffectOp & op) {
 
 		// Spawn tracer visual for the bolt
 		{
-			glm::vec2 casterCenter = casterTile + glm::vec2(0.5f, 0.5f);
 			glm::vec2 hitGrid = glm::vec2((float)impactTile.x + 0.5f, (float)impactTile.y + 0.5f);
 			glm::vec3 worldStart, worldEnd;
 			computeTracerEndpoints(casterTile, hitGrid, worldStart, worldEnd);
@@ -17855,11 +17950,39 @@ void ofApp::processEffectOp(EffectOp & op) {
 				checkKeyPickupAndDraftAfterSummon(minion.x, minion.y, minion.ownerID);
 			} else {
 				// If a minion already exists at this tile, update authoritative stats
-				for (auto & p : players) {
+				for (size_t pi = 0; pi < players.size(); ++pi) {
+					auto & p = players[pi];
 					if (p.x == tx && p.y == ty && p.isMinion) {
-						p.maxHealth = (op.data.spawnUnit.maxHealth > 0) ? op.data.spawnUnit.maxHealth : p.maxHealth;
-						p.health = p.maxHealth;
-						p.ap = (op.data.spawnUnit.ap >= 0) ? op.data.spawnUnit.ap : p.ap;
+						int tgtIdx = (int)pi;
+						int newMax = (op.data.spawnUnit.maxHealth > 0) ? op.data.spawnUnit.maxHealth : p.maxHealth;
+						if (newMax != p.maxHealth) {
+							EffectOp setMax = {};
+							setMax.type = EffectOpType::MODIFY_STAT;
+							setMax.data.modifyStat.targetIndex = tgtIdx;
+							setMax.data.modifyStat.statType = 1; // MaxHP
+							setMax.data.modifyStat.delta = newMax - p.maxHealth;
+							setMax.data.modifyStat.deltaFromSlot = -1;
+							queueEffect(setMax);
+						}
+						int hpDelta = newMax - p.health;
+						if (hpDelta != 0) {
+							EffectOp setHp = {};
+							setHp.type = EffectOpType::MODIFY_STAT;
+							setHp.data.modifyStat.targetIndex = tgtIdx;
+							setHp.data.modifyStat.statType = 0; // HP
+							setHp.data.modifyStat.delta = hpDelta;
+							setHp.data.modifyStat.deltaFromSlot = -1;
+							queueEffect(setHp);
+						}
+						if (op.data.spawnUnit.ap >= 0 && op.data.spawnUnit.ap != p.ap) {
+							EffectOp setAp = {};
+							setAp.type = EffectOpType::MODIFY_STAT;
+							setAp.data.modifyStat.targetIndex = tgtIdx;
+							setAp.data.modifyStat.statType = 3; // AP
+							setAp.data.modifyStat.delta = op.data.spawnUnit.ap - p.ap;
+							setAp.data.modifyStat.deltaFromSlot = -1;
+							queueEffect(setAp);
+						}
 						break;
 					}
 				}
@@ -17877,11 +18000,17 @@ void ofApp::processEffectOp(EffectOp & op) {
 		int targetIndex = op.data.heal.targetIndex;
 		if (targetIndex >= 0 && targetIndex < (int)players.size()) {
 			Player & target = players[targetIndex];
-			int before = target.health;
-			target.health = std::min(target.health + amount, target.maxHealth);
-			int healed = target.health - before;
 			glm::vec3 tPos = gridToWorld(target.x, target.y);
+			int canHeal = std::max(0, target.maxHealth - target.health);
+			int healed = std::min(canHeal, amount);
 			if (healed > 0) {
+				EffectOp healOp = {};
+				healOp.type = EffectOpType::MODIFY_STAT;
+				healOp.data.modifyStat.targetIndex = targetIndex;
+				healOp.data.modifyStat.statType = 0; // HP
+				healOp.data.modifyStat.delta = healed;
+				healOp.data.modifyStat.deltaFromSlot = -1;
+				queueEffect(healOp);
 				queueFloatingTextVisual(tPos, "+" + ofToString(healed) + " HP", ofColor::green);
 			} else {
 				queueFloatingTextVisual(tPos, "Full HP", ofColor::gray);
@@ -21726,7 +21855,6 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 		// run the local visual/cleanup path and wait for the Host packet to finalize.
 
 		// Save current player's id safely (in case vector reallocates and indices shift)
-		int savedCurrentID = (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) ? players[currentPlayerIndex].playerID : -1;
 
 		// 2. Create Unit
 		Player minion;
@@ -26210,7 +26338,17 @@ bool ofApp::applyDamageTo(Player & target, int damage, DamageType type, int atta
 							int hp = (int)std::floor(target.maxHealth * 0.25f * roll);
 							if (hp < 1) hp = 1;
 
-							target.health = hp;
+							// Queue deterministic HP set and status removals
+							{
+								int tgtIdx = findPlayerIndexByID(target.playerID);
+								EffectOp setHp = {};
+								setHp.type = EffectOpType::MODIFY_STAT;
+								setHp.data.modifyStat.targetIndex = tgtIdx;
+								setHp.data.modifyStat.statType = 0; // HP
+								setHp.data.modifyStat.delta = hp - target.health;
+								setHp.data.modifyStat.deltaFromSlot = -1;
+								queueEffect(setHp);
+							}
 							// Remove transient statuses deterministically via effect ops
 							{
 								EffectOp rm = {};
@@ -26239,12 +26377,45 @@ bool ofApp::applyDamageTo(Player & target, int damage, DamageType type, int atta
 								queueEffect(rm);
 							}
 							// isParalyzed and paralysisHeadsCount will be cleared when the REMOVE_STATUS op is processed
-							target.sleepTurnsRemaining = 0;
-							target.ward = 0;
-							target.block = 0;
-							target.fortification = 0;
-							target.barrier = 0;
-							target.holyBlock = 0;
+							// Clear some transient numeric stats via MODIFY_STAT ops so changes are deterministic
+							{
+								int tgtIdx = findPlayerIndexByID(target.playerID);
+								EffectOp clearWard = {};
+								clearWard.type = EffectOpType::MODIFY_STAT;
+								clearWard.data.modifyStat.targetIndex = tgtIdx;
+								clearWard.data.modifyStat.statType = 8; // Ward
+								clearWard.data.modifyStat.delta = -target.ward;
+								clearWard.data.modifyStat.deltaFromSlot = -1;
+								queueEffect(clearWard);
+								EffectOp clearBlock = {};
+								clearBlock.type = EffectOpType::MODIFY_STAT;
+								clearBlock.data.modifyStat.targetIndex = tgtIdx;
+								clearBlock.data.modifyStat.statType = 5; // Block
+								clearBlock.data.modifyStat.delta = -target.block;
+								clearBlock.data.modifyStat.deltaFromSlot = -1;
+								queueEffect(clearBlock);
+								EffectOp clearFort = {};
+								clearFort.type = EffectOpType::MODIFY_STAT;
+								clearFort.data.modifyStat.targetIndex = tgtIdx;
+								clearFort.data.modifyStat.statType = 13; // Fortification
+								clearFort.data.modifyStat.delta = -target.fortification;
+								clearFort.data.modifyStat.deltaFromSlot = -1;
+								queueEffect(clearFort);
+								EffectOp clearBarrier = {};
+								clearBarrier.type = EffectOpType::MODIFY_STAT;
+								clearBarrier.data.modifyStat.targetIndex = tgtIdx;
+								clearBarrier.data.modifyStat.statType = 6; // Barrier
+								clearBarrier.data.modifyStat.delta = -target.barrier;
+								clearBarrier.data.modifyStat.deltaFromSlot = -1;
+								queueEffect(clearBarrier);
+								EffectOp clearHoly = {};
+								clearHoly.type = EffectOpType::MODIFY_STAT;
+								clearHoly.data.modifyStat.targetIndex = tgtIdx;
+								clearHoly.data.modifyStat.statType = 7; // HolyBlock
+								clearHoly.data.modifyStat.delta = -target.holyBlock;
+								clearHoly.data.modifyStat.deltaFromSlot = -1;
+								queueEffect(clearHoly);
+							}
 							{
 								EffectOp rm = {};
 								rm.type = EffectOpType::REMOVE_STATUS;
@@ -26305,8 +26476,15 @@ bool ofApp::applyDamageTo(Player & target, int damage, DamageType type, int atta
 								}
 							}
 
-							if (target.x >= 0 && target.x < BOARD_WIDTH && target.y >= 0 && target.y < BOARD_HEIGHT) {
-								board[target.x][target.y].hasPlayer = true;
+							// Ensure tile/player presence is set deterministically via a SPAWN_PLAYER op
+							{
+								EffectOp spawn = {};
+								spawn.type = EffectOpType::SPAWN_PLAYER;
+								spawn.data.spawnPlayer.x = target.x;
+								spawn.data.spawnPlayer.y = target.y;
+								spawn.data.spawnPlayer.playerID = target.playerID;
+								spawn.data.spawnPlayer.deckChoice = 0;
+								queueEffect(spawn);
 							}
 
 							queueFloatingTextVisual(gridToWorld(target.x, target.y), "Faerie Resurrection!", ofColor::aqua);
@@ -27781,34 +27959,7 @@ void ofApp::drawMinionManagerUI() {
 		glDisable(GL_SCISSOR_TEST);
 	} // End of loop
 
-	// --- Draw Scrollbars ---
-	auto drawScrollbar = [&](float startX, float panelW, float topY, float viewH, float totalH, float scroll) {
-		if (totalH <= viewH) return;
-		float scrollbarW = 6.0f * scale;
-		float scrollbarX = 0.0f;
-		// Place scrollbar on the inner side for left panels, and on the outer edge for right panels
-		if (startX + panelW * 0.5f < ofGetWidth() * 0.5f) {
-			// left-side panel: scrollbar on the left of the panel
-			scrollbarX = startX - scrollbarW - 8.0f * scale;
-		} else {
-			// right-side panel: place scrollbar on the right edge of the panel
-			scrollbarX = startX + panelW + 8.0f * scale;
-		}
-
-		// Background Track
-		ofSetColor(30, 30, 30, 200);
-		ofDrawRectRounded(scrollbarX, topY, scrollbarW, viewH, scrollbarW / 2);
-
-		// Movable Handle
-		float handleH = std::max(20.0f * scale, (viewH / totalH) * viewH);
-		float handleY = topY + (scroll / (totalH - viewH)) * (viewH - handleH);
-		ofSetColor(150, 150, 150, 255);
-		ofDrawRectRounded(scrollbarX, handleY, scrollbarW, handleH, scrollbarW / 2);
-	};
-
-	// Scrollbar drawing temporarily disabled here; panel metrics are managed in updateGame().
-	// drawScrollbar(p0_minionLeft, minionPanelW, p0_minionTop, p0_minionViewH, p0_minionTotalH, p0_minionScroll);
-	// drawScrollbar(p1_minionLeft, minionPanelW, p1_minionTop, p1_minionViewH, p1_minionTotalH, p1_minionScroll);
+	// Scrollbar drawing temporarily disabled; panel metrics are managed in updateGame().
 }
 //--------------------------------------------------------------
 void ofApp::cancelMagicHand() {
@@ -29464,11 +29615,48 @@ void ofApp::processNetworkPackets() {
 					if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) {
 						Player & sp = players[currentPlayerIndex];
 						if (!sp.inTortoiseForm) {
-							sp.block = 0;
-							sp.holyBlock = 0;
-							sp.ward = 0;
-							sp.fortification = 0;
-							sp.barrier = 0;
+							int tgt = currentPlayerIndex;
+							if (tgt >= 0) {
+								EffectOp clearBlock = {};
+								clearBlock.type = EffectOpType::MODIFY_STAT;
+								clearBlock.data.modifyStat.targetIndex = tgt;
+								clearBlock.data.modifyStat.statType = 5; // Block
+								clearBlock.data.modifyStat.delta = -sp.block;
+								clearBlock.data.modifyStat.deltaFromSlot = -1;
+								queueEffect(clearBlock);
+
+								EffectOp clearHoly = {};
+								clearHoly.type = EffectOpType::MODIFY_STAT;
+								clearHoly.data.modifyStat.targetIndex = tgt;
+								clearHoly.data.modifyStat.statType = 7; // HolyBlock
+								clearHoly.data.modifyStat.delta = -sp.holyBlock;
+								clearHoly.data.modifyStat.deltaFromSlot = -1;
+								queueEffect(clearHoly);
+
+								EffectOp clearWard = {};
+								clearWard.type = EffectOpType::MODIFY_STAT;
+								clearWard.data.modifyStat.targetIndex = tgt;
+								clearWard.data.modifyStat.statType = 8; // Ward
+								clearWard.data.modifyStat.delta = -sp.ward;
+								clearWard.data.modifyStat.deltaFromSlot = -1;
+								queueEffect(clearWard);
+
+								EffectOp clearFort = {};
+								clearFort.type = EffectOpType::MODIFY_STAT;
+								clearFort.data.modifyStat.targetIndex = tgt;
+								clearFort.data.modifyStat.statType = 13; // Fortification
+								clearFort.data.modifyStat.delta = -sp.fortification;
+								clearFort.data.modifyStat.deltaFromSlot = -1;
+								queueEffect(clearFort);
+
+								EffectOp clearBarrier = {};
+								clearBarrier.type = EffectOpType::MODIFY_STAT;
+								clearBarrier.data.modifyStat.targetIndex = tgt;
+								clearBarrier.data.modifyStat.statType = 6; // Barrier
+								clearBarrier.data.modifyStat.delta = -sp.barrier;
+								clearBarrier.data.modifyStat.deltaFromSlot = -1;
+								queueEffect(clearBarrier);
+							}
 						}
 					}
 
