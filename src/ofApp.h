@@ -321,6 +321,8 @@ enum class EffectOpType : uint8_t {
 	APPLY_MAGIC_BOLT_PRIMARY,
 	APPLY_MAGIC_BOLT_AOE,
 	APPLY_TIME_VORTEX,
+	APPLY_SPARK_OF_GENIUS,
+	APPLY_BARRIER,
 	APPLY_ATTACK,
 	APPLY_PSIONIC_WAVE,
 	APPLY_TELEPORT,
@@ -996,12 +998,9 @@ private:
 	void resolveMagicBoltRangeDice();
 	void resolveMagicBoltPrimaryDice();
 	void resolveMagicBoltAoeDice();
-	void resolveShootArrowDice();
+	// Chain Lightning handled by effect/op pipeline (APPLY_CHAIN_LIGHTNING)
 	void resolveChainLightningRangeDice();
-	void resolveChainLightningDamageDice();
-	void resolveFlailDice();
-	void resolveSparkOfGeniusDice();
-	void resolveBarrierDice();
+	// Flail, Spark of Genius, and Barrier handled by effect/op pipeline
 
 	void resolveOnFireDice();
 	void resolvePoisonStatusDice();
@@ -1971,8 +1970,6 @@ private:
 
 	// Chain Lightning
 	int chainLightningCardIndex = -1;
-	bool isWaitingForChainLightningRange = false;
-	bool isWaitingForChainLightningDamage = false;
 	// Chain Lightning uses `interactionDiceRoll` and `interactionTargetTile`
 
 	// Train Menu UI
@@ -1985,7 +1982,7 @@ private:
 	void drawTrainMenuUI();
 
 	// Dispel (UI state migrated to centralized cardInteractionState)
-	bool isWaitingForBarrierDice = false;
+	// Barrier handled via effect/op pipeline
 	int dispelMode = 0; // 0 = none, 1 = barrier, 2 = purge
 	ofRectangle dispelMenuRect;
 	ofRectangle dispelBtnBarrier;
@@ -2126,11 +2123,7 @@ private:
 	// - `currentCardOutcome.namedDiceResults["magicbolt_primary"]` stores primary damage
 	// - `currentCardOutcome.namedDiceResults["magicbolt_aoe"]` stores AOE radius roll
 
-	// Shoot Arrow State
-	bool isWaitingForShootArrow = false;
-	// Shoot Arrow uses centralized interaction fields for range/target and dice:
-	// `interactionDiceRoll` and `interactionTargetTile`/`interactionTargetIndex` are used instead.
-	// Destroyed card type for Shoot Arrow is stored in `currentCardOutcome.destroyedCardType`
+	// Shoot Arrow handled via effect/op pipeline (APPLY_SHOOT_ARROW)
 
 	// --- Giant Magic Hand ---
 	// Magic hand menu UI migrated to centralized `cardInteractionState`
@@ -2139,8 +2132,7 @@ private:
 	int magicHandPushedUnitIndex = -1;
 	glm::ivec2 magicHandPushDir;
 
-	// Flail
-	bool isWaitingForFlailDice = false;
+	// Flail handled via effect/op pipeline
 
 	// Hellhound targeting
 	int hellhoundCardIndex = -1;
@@ -2152,7 +2144,7 @@ private:
 	// `currentCardOutcome.namedDiceResults["death_check"]` respectively.
 
 	// --- Spark of genius Logic ---
-	bool isWaitingForSparkOfGeniusDice = false;
+	// Spark of Genius handled via effect/op pipeline
 
 	// Helper functions
 	void resolveDoubleHanded(std::string cardName);

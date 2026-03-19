@@ -3822,11 +3822,9 @@ void ofApp::updateGame() {
 	// Magic Bolt now handled by effect-ops (APPLY_MAGIC_BOLT /* range */
 	// -> ROLL_DICE(primary) -> APPLY_MAGIC_BOLT_PRIMARY -> ROLL_DICE(aoe)
 	// -> APPLY_MAGIC_BOLT_AOE). Legacy per-frame resolvers removed.
-	resolveShootArrowDice();
+	// resolveShootArrowDice migrated to APPLY_SHOOT_ARROW in the effect/op pipeline
 	// Chain Lightning handled by effect-ops (APPLY_CHAIN_LIGHTNING -> ROLL_DICE -> APPLY_CHAIN_LIGHTNING_DAMAGE)
-	resolveFlailDice();
-	resolveSparkOfGeniusDice();
-	resolveBarrierDice();
+	// Flail, Spark of Genius, and Barrier resolution migrated to effect/op pipeline (APPLY_* handlers)
 	resolveOnFireDice();
 	resolvePoisonStatusDice();
 	// Paralysis & Wolf coin flips are handled via effect-ops (APPLY_PARALYSIS / APPLY_WOLF_COIN)
@@ -3873,7 +3871,7 @@ void ofApp::updateGame() {
 	// NOTE: Magic Bolt 3-stage resolution is now centralized
 	// in resolveMagicBoltRangeDice(), resolveMagicBoltPrimaryDice(), resolveMagicBoltAoeDice() helpers
 
-	// NOTE: Shoot Arrow range resolution is now centralized in resolveShootArrowDice() helper
+	// NOTE: Shoot Arrow range resolution is now centralized in APPLY_SHOOT_ARROW effect op
 
 	// NOTE: Chain Lightning, Flail, Spark, Barrier, Teleport, OnFire, Poison Status, and Summon HP
 	// resolution (Hellhound/Demon) are now centralized in their respective helpers
@@ -15009,7 +15007,6 @@ void ofApp::cancelAllTargeting() {
 	// Clear additional state not covered by resetCardInteraction()
 	// Waiting/rolling flags
 	isWaitingForMagicBoltRange = false;
-	isWaitingForChainLightningRange = false;
 
 	// Pending indices / choices
 	magicBoltCardIndex = -1;
@@ -16305,6 +16302,32 @@ void ofApp::processEffectOp(EffectOp & op) {
 			p.bonusTurns += turns;
 			queueFloatingTextVisual(gridToWorld(p.x, p.y), "+" + ofToString(turns) + " Extra Turns!", ofColor::cyan);
 			ofLogNotice("Time Vortex") << "Unit " << p.playerID << " gained " << turns << " bonus turns.";
+		}
+		opComplete = true;
+		break;
+	}
+
+	case EffectOpType::APPLY_SPARK_OF_GENIUS: {
+		// Read authoritative draw count from blackboard[0]
+		int cards = currentEffectSequence.blackboard[0];
+		Player & p = players[currentPlayerIndex];
+		queueFloatingTextVisual(gridToWorld(p.x, p.y), "Spark! +" + ofToString(cards) + " Cards", ofColor::cyan);
+		for (int i = 0; i < cards; ++i) {
+			drawCard(false);
+		}
+		opComplete = true;
+		break;
+	}
+
+	case EffectOpType::APPLY_BARRIER: {
+		// Read authoritative barrier amount from blackboard[0]
+		int amount = currentEffectSequence.blackboard[0];
+		if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) {
+			Player & p = players[currentPlayerIndex];
+			p.barrier += amount;
+			queueFloatingTextVisual(gridToWorld(p.x, p.y), "+" + ofToString(amount) + " Barrier", ofColor::fromHex(0x480082));
+			ofLogNotice("Dispel") << "Gained " << amount << " Barrier.";
+			tryTriggerShellSpike();
 		}
 		opComplete = true;
 		break;
@@ -19346,10 +19369,13 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 			strncpy(rollOp.data.rollDice.label, "Spark of Genius: Draw Cards", 31);
 			rollOp.data.rollDice.label[31] = '\0';
 			queueEffect(rollOp);
-			isWaitingForSparkOfGeniusDice = true;
+			// Queue apply op to deterministically draw cards from blackboard[0]
+			EffectOp applyOp = {};
+			applyOp.type = EffectOpType::APPLY_SPARK_OF_GENIUS;
+			queueEffect(applyOp);
 		}
 		playedSuccessfully = true;
-		advanceCardState(CARD_STATE_DICE);
+		advanceCardState(CARD_STATE_EFFECT_SEQUENCE);
 		return true;
 	}
 
@@ -19850,7 +19876,7 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 		interactionTargetTile = targetTile;
 		interactionTargetIndex = targetIndex;
 		playedSuccessfully = true;
-		advanceCardState(CARD_STATE_DICE);
+		advanceCardState(CARD_STATE_EFFECT_SEQUENCE);
 		return true;
 	}
 
@@ -22671,110 +22697,7 @@ void ofApp::resolveMagicBoltAoeDice() {
 }
 
 //--------------------------------------------------------------
-void ofApp::resolveShootArrowDice() {
-	if (isWaitingForShootArrow && diceVisualsFinishedAndLinger()) {
-		isWaitingForShootArrow = false;
-		Player & caster = players[currentPlayerIndex];
-		glm::vec2 casterTile = { (float)caster.x, (float)caster.y };
-
-		float maxDistUnits = interactionDiceRoll / 5.0f;
-		float neededDistUnits = getFaceToFaceDistance(casterTile, interactionTargetTile);
-
-		ofLogNotice("ShootArrow") << "Rolled Range: " << interactionDiceRoll << "ft. Needed: " << (neededDistUnits * 5.0f) << "ft.";
-
-		// Shoot Arrow rule: always destroy top card after range roll (hit or miss).
-		currentCardOutcome.destroyedCardType = CARD_NONE;
-		if (!caster.deck.empty()) {
-			Card destroyed = caster.deck.back();
-			caster.deck.pop_back(); // Destroyed: removed from deck and not moved to discard.
-			currentCardOutcome.destroyedCardType = destroyed.type;
-
-			StolenCardAnimation newAnim;
-			newAnim.card = destroyed;
-			newAnim.startTime = ofGetElapsedTimef();
-			newAnim.startPos = gridToWorld(caster.x, caster.y);
-			newAnim.targetPos = { ofGetWidth() / 2.0f, ofGetHeight() / 2.0f };
-			newAnim.currentPos = getActiveCamera().worldToScreen(newAnim.startPos);
-			activeStolenCardAnimations.push_back(newAnim);
-
-			RemovedCardAnimation rem;
-			rem.card = destroyed;
-			rem.startPos = newAnim.targetPos;
-			rem.startTime = ofGetElapsedTimef() + 0.5f;
-			rem.currentScale = 3.0f;
-			rem.currentAlpha = 255;
-			activeRemovedCardAnimations.push_back(rem);
-
-			ofLogNotice("ShootArrow") << "Destroyed top card after range roll: '" << destroyed.name << "'.";
-		}
-
-		if (maxDistUnits >= neededDistUnits - 0.01f) {
-			// Hit: start damage roll 1d6 piercing and queue attack resolution
-			{
-				glm::vec2 casterCenter = casterTile + glm::vec2(0.5f, 0.5f);
-				(void)casterCenter; // unused
-				glm::vec2 hitGrid = interactionTargetTile + glm::vec2(0.5f, 0.5f);
-				auto gridFracToWorld = [&](glm::vec2 g) {
-					float wx = (g.x - BOARD_WIDTH / 2.0f) * TILE_SIZE + (TILE_SIZE / 2.0f);
-					float wz = (g.y - BOARD_HEIGHT / 2.0f) * TILE_SIZE + (TILE_SIZE / 2.0f);
-					return glm::vec3(wx, 0.0f, wz);
-				};
-				(void)gridFracToWorld; // unused
-
-				glm::vec3 worldStart, worldEnd;
-				computeTracerEndpoints(casterTile, hitGrid, worldStart, worldEnd);
-				spawnTracer(worldStart, worldEnd, glm::ivec2((int)interactionTargetTile.x, (int)interactionTargetTile.y), ofColor(200, 180, 100), 5.0f);
-			}
-			// Queue a deterministic damage roll and apply via effect ops
-			EffectOp dmgRoll = {};
-			dmgRoll.type = EffectOpType::ROLL_DICE;
-			dmgRoll.data.rollDice.numDice = 1;
-			dmgRoll.data.rollDice.sides = 6;
-			dmgRoll.data.rollDice.purpose = PURPOSE_DAMAGE;
-			dmgRoll.data.rollDice.ownerIndex = currentPlayerIndex;
-			dmgRoll.data.rollDice.outputSlot = 1;
-			strncpy(dmgRoll.data.rollDice.label, "Shoot Arrow: Damage", 31);
-			dmgRoll.data.rollDice.label[31] = '\0';
-			queueEffect(dmgRoll);
-
-			EffectOp applyD = {};
-			applyD.type = EffectOpType::APPLY_SHOOT_ARROW_DAMAGE;
-			queueEffect(applyD);
-
-			currentCardOutcome.attackDamageType = DAMAGE_PIERCING;
-			currentCardOutcome.attackTargetIndices.clear();
-			currentCardOutcome.attackTargetIndices.push_back(interactionTargetIndex);
-			interactingCardName = "Shoot Arrow";
-			ofLogNotice("ShootArrow") << "Hit confirmed. Damage roll queued via effect sequence.";
-		} else {
-			// Miss: notify
-			queueFloatingTextVisual(gridToWorld((int)interactionTargetTile.x, (int)interactionTargetTile.y), "Missed!", ofColor::gray);
-
-			// Also spawn a tracer so player can see where the arrow landed/shortened
-			{
-				glm::vec2 casterCenter = casterTile + glm::vec2(0.5f, 0.5f);
-				(void)casterCenter; // unused
-				glm::vec2 hitGrid = interactionTargetTile + glm::vec2(0.5f, 0.5f);
-				auto gridFracToWorld = [&](glm::vec2 g) {
-					float wx = (g.x - BOARD_WIDTH / 2.0f) * TILE_SIZE + (TILE_SIZE / 2.0f);
-					float wz = (g.y - BOARD_HEIGHT / 2.0f) * TILE_SIZE + (TILE_SIZE / 2.0f);
-					return glm::vec3(wx, 0.0f, wz);
-				};
-				(void)gridFracToWorld; // unused
-
-				glm::vec3 worldStart, worldEnd;
-				computeTracerEndpoints(casterTile, hitGrid, worldStart, worldEnd);
-				spawnTracer(worldStart, worldEnd, glm::ivec2((int)interactionTargetTile.x, (int)interactionTargetTile.y), ofColor(200, 180, 100), 5.0f);
-			}
-
-			// No damage roll on miss; clear destroyedCardType and finish the card state.
-			currentCardOutcome.destroyedCardType = CARD_NONE;
-			if (cardPlayState != CARD_STATE_IDLE) {
-				advanceCardState(CARD_STATE_EFFECT_SEQUENCE);
-			}
-		}
-	}
-}
+// Shoot Arrow resolution migrated to effect/op pipeline (APPLY_SHOOT_ARROW handles range, destruction and damage queuing)
 
 //--------------------------------------------------------------
 CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
@@ -32259,204 +32182,15 @@ void ofApp::logDeckStates(const std::string & reason) {
 // PHASE 5 HELPERS (10 REMAINING)
 // ======================================
 
-void ofApp::resolveChainLightningRangeDice() {
-	if (!isWaitingForChainLightningRange || !diceVisualsFinishedAndLinger()) return;
+// Chain Lightning range resolver removed: range checks are handled deterministically
+// by EffectOpType::APPLY_CHAIN_LIGHTNING which reads authoritative range from
+// currentEffectSequence.blackboard[0] and queues damage ops as needed.
 
-	isWaitingForChainLightningRange = false;
+// Chain Lightning resolution migrated to effect/op pipeline (APPLY_CHAIN_LIGHTNING -> ROLL_DICE -> APPLY_CHAIN_LIGHTNING_DAMAGE)
 
-	Player & caster = players[currentPlayerIndex];
-	int rangeRoll = interactionDiceRoll;
+// Spark of Genius migrated to effect/op pipeline (APPLY_SPARK_OF_GENIUS)
 
-	// Face-to-face distance check
-	glm::vec3 casterPos = gridToWorld(caster.x, caster.y);
-
-	int maxRangeDistFeet = 15; // max range
-	bool inRange = false;
-	glm::vec3 impactTile = casterPos;
-
-	for (auto & target : players) {
-		if (&target == &caster || target.health <= 0) continue;
-
-		glm::vec3 targetPos = gridToWorld(target.x, target.y);
-		float distFeet = glm::distance(casterPos, targetPos) * 5.0f;
-
-		if (distFeet <= (float)rangeRoll * 5.0f && distFeet <= (float)maxRangeDistFeet * 5.0f) {
-			inRange = true;
-			impactTile = targetPos;
-			break;
-		}
-	}
-
-	if (inRange) {
-		// Check for wall collision on line of sight
-		bool hasLOS = true;
-		int x1 = caster.x, y1 = caster.y;
-
-		// Convert world position back to grid
-		int x2 = (int)round((impactTile.x / TILE_SIZE) + BOARD_WIDTH / 2.0f);
-		int y2 = (int)round((impactTile.y / TILE_SIZE) + BOARD_HEIGHT / 2.0f);
-
-		// Simple Bresenham-like line check
-		int dx = abs(x2 - x1), dy = abs(y2 - y1);
-		int steps = std::max(dx, dy);
-		if (steps > 0) {
-			for (int i = 1; i < steps; i++) {
-				int checkX = x1 + (x2 - x1) * i / steps;
-				int checkY = y1 + (y2 - y1) * i / steps;
-				if (isTileWall(checkX, checkY)) {
-					hasLOS = false;
-					break;
-				}
-			}
-		}
-
-		if (hasLOS) {
-			// Damage roll is queued via the effect pipeline (APPLY_CHAIN_LIGHTNING)
-			queueFloatingTextVisual(impactTile, "Chain!", ofColor::yellow);
-		} else {
-			// Fizzle
-			queueFloatingTextVisual(impactTile, "No LOS", ofColor::gray);
-		}
-	} else {
-		// Out of range
-		int maxReachX = caster.x + 3, maxReachY = caster.y;
-		queueFloatingTextVisual(gridToWorld(maxReachX, maxReachY), "Out of Range", ofColor::red);
-	}
-}
-
-void ofApp::resolveChainLightningDamageDice() {
-	// Legacy resolver disabled: Chain Lightning handled by effect pipeline (APPLY_CHAIN_LIGHTNING -> ROLL_DICE -> APPLY_CHAIN_LIGHTNING_DAMAGE).
-	return;
-}
-
-void ofApp::resolveFlailDice() {
-	if (!isWaitingForFlailDice || !diceVisualsFinishedAndLinger()) return;
-
-	isWaitingForFlailDice = false;
-
-	Player & caster = players[currentPlayerIndex];
-	int damage = 0;
-	// Flail uses the effect sequence blackboard slot 0 for its roll result
-	if (!currentEffectSequence.isComplete) {
-		damage = currentEffectSequence.blackboard[0] + 2; // 1d6 + 2
-	} else {
-		damage = currentEffectSequence.blackboard[0] + 2;
-	}
-
-	auto hitTarget = [&](Player & t, int dmg) {
-		int finalDmg = dmg;
-
-		if (t.inGhostForm) {
-			finalDmg = 0;
-			queueFloatingTextVisual(gridToWorld(t.x, t.y), "Phased!", ofColor::cyan);
-		}
-
-		int blockDmg = std::min(t.block, finalDmg);
-		t.block -= blockDmg;
-		finalDmg -= blockDmg;
-		if (blockDmg > 0) {
-			queueFloatingTextVisual(gridToWorld(t.x, t.y), "-" + ofToString(blockDmg) + " Physical", ofColor::gray);
-		}
-
-		int barrierDmg = std::min(t.barrier, finalDmg);
-		t.barrier -= barrierDmg;
-		finalDmg -= barrierDmg;
-		if (barrierDmg > 0) {
-			queueFloatingTextVisual(gridToWorld(t.x, t.y), "-" + ofToString(barrierDmg) + " Physical", ofColor(70, 170, 255));
-		}
-
-		int wardDmg = 0;
-		if (finalDmg > 0) {
-			wardDmg = std::min(t.ward, finalDmg);
-			t.ward -= wardDmg;
-			finalDmg -= wardDmg;
-			if (wardDmg > 0) {
-				queueFloatingTextVisual(gridToWorld(t.x, t.y), "-" + ofToString(wardDmg) + " Physical", ofColor::black);
-			}
-		}
-
-		if (finalDmg > 0) {
-			t.health -= finalDmg;
-			queueFloatingTextVisual(gridToWorld(t.x, t.y), "-" + ofToString(finalDmg) + " Physical", ofColor::red);
-
-			if (t.health <= 0) {
-				DeathMarker death;
-				death.x = t.x;
-				death.y = t.y;
-				death.turnDied = globalTurnCounter;
-				death.deck = t.deck;
-				graveyard.push_back(death);
-				if (t.x >= 0 && t.x < BOARD_WIDTH && t.y >= 0 && t.y < BOARD_HEIGHT) {
-					board[t.x][t.y].hasPlayer = false;
-				}
-				t.x = -1000;
-			}
-		} else {
-			if (blockDmg == 0 && barrierDmg == 0 && wardDmg == 0) {
-				queueFloatingTextVisual(gridToWorld(t.x, t.y), "-0 Physical", ofColor::gray);
-			}
-		}
-	};
-
-	// Hit all adjacent unblocked units
-	for (auto & target : players) {
-		if (&target == &caster || target.health <= 0) continue;
-
-		int dx = target.x - caster.x;
-		int dy = target.y - caster.y;
-
-		if (std::max(abs(dx), abs(dy)) == 1) {
-			bool isBlocked = false;
-
-			// Check pinch blocking (diagonal)
-			if (abs(dx) == 1 && abs(dy) == 1) {
-				if (isTileWall(caster.x + dx, caster.y) && isTileWall(caster.x, caster.y + dy)) {
-					isBlocked = true;
-				}
-			}
-
-			if (isTileWall(target.x, target.y)) isBlocked = true;
-
-			if (!isBlocked) {
-				hitTarget(target, damage);
-			}
-		}
-	}
-}
-
-void ofApp::resolveSparkOfGeniusDice() {
-	if (!isWaitingForSparkOfGeniusDice || !diceVisualsFinishedAndLinger()) return;
-
-	isWaitingForSparkOfGeniusDice = false;
-
-	int cardsToDraw = currentCardOutcome.namedDiceResults["spark_of_genius_draw"];
-	Player & p = players[currentPlayerIndex];
-
-	ofLogNotice("Spark of Genius") << "Rolled a " << cardsToDraw << ". Drawing cards deterministically...";
-	queueFloatingTextVisual(gridToWorld(p.x, p.y), "Spark of Genius! +" + ofToString(cardsToDraw) + " Cards", ofColor::cyan);
-
-	for (int i = 0; i < cardsToDraw; i++) {
-		drawCard(false);
-	}
-}
-
-void ofApp::resolveBarrierDice() {
-	if (!isWaitingForBarrierDice || !diceVisualsFinishedAndLinger()) return;
-
-	isWaitingForBarrierDice = false;
-
-	Player & p = players[currentPlayerIndex];
-	p.barrier += interactionDiceRoll;
-
-	// MATCH UI COLOR: Indigo/Deep Purple
-	queueFloatingTextVisual(gridToWorld(p.x, p.y),
-		"+" + ofToString(interactionDiceRoll) + " Barrier",
-		ofColor::fromHex(0x480082));
-
-	ofLogNotice("Dispel") << "Gained " << interactionDiceRoll << " Barrier.";
-
-	tryTriggerShellSpike();
-}
+// Barrier migrated to effect/op pipeline (APPLY_BARRIER)
 
 // Teleport resolution migrated to effect/op pipeline: APPLY_TELEPORT handles range->targeting
 
