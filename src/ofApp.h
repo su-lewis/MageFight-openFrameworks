@@ -316,6 +316,7 @@ enum class EffectOpType : uint8_t {
 	APPLY_BLOCKING_BOON_D20,
 	APPLY_INITIATIVE_REROLL,
 	APPLY_SLEEP_DURATION,
+	APPLY_BONUS_AP,
 	APPLY_MAGIC_BLAST,
 	APPLY_MAGIC_BOLT,
 	APPLY_MAGIC_BOLT_PRIMARY,
@@ -990,7 +991,7 @@ private:
 	void resolveJoltRangeDice();
 
 	void updateEarthquakeSimulation();
-	void resolveBonusAP(const DiceRoll & finishedRoll);
+	// Bonus AP handled via EffectOpType::APPLY_BONUS_AP
 
 	// Earthquake simulation update (migrated from updateGame())
 

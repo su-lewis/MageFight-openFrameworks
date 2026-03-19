@@ -4358,7 +4358,7 @@ void ofApp::updateGame() {
 						}
 					}
 				} else if (roll.purpose == PURPOSE_BONUS_AP) {
-					resolveBonusAP(roll);
+					// Bonus AP authoritative application handled by APPLY_BONUS_AP effect op
 				} else if (roll.purpose == PURPOSE_SUMMON_KOBOLDS) {
 					// Centralized summon handling
 					resolveSummonKobolds(roll);
@@ -11838,10 +11838,15 @@ void ofApp::mousePressed(int x, int y, int button) {
 						rollOp.data.rollDice.sides = rerollSides;
 						rollOp.data.rollDice.purpose = PURPOSE_BONUS_AP;
 						rollOp.data.rollDice.ownerIndex = currentPlayerIndex;
-						rollOp.data.rollDice.outputSlot = 0;
+						// Use dedicated blackboard slot for bonus AP
+						rollOp.data.rollDice.outputSlot = 5;
 						strncpy(rollOp.data.rollDice.label, "Assistant Reroll", 31);
 						rollOp.data.rollDice.label[31] = '\0';
 						queueEffect(rollOp);
+						// Apply authoritative bonus AP after roll resolves
+						EffectOp applyBonus = {};
+						applyBonus.type = EffectOpType::APPLY_BONUS_AP;
+						queueEffect(applyBonus);
 					}
 
 					queueFloatingTextVisual(gridToWorld(players[assistantIndex].x, players[assistantIndex].y), "Reroll!", ofColor::gold);
@@ -16156,6 +16161,16 @@ void ofApp::processEffectOp(EffectOp & op) {
 			}
 		}
 		earthquakeDamageTargets.clear();
+		opComplete = true;
+		break;
+	}
+
+	case EffectOpType::APPLY_BONUS_AP: {
+		// Read bonus AP from agreed blackboard slot (5)
+		int val = currentEffectSequence.blackboard[5];
+		currentAP += val;
+		queueFloatingTextVisual(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y), "+" + ofToString(val) + " Bonus AP", ofColor::yellow);
+		ofLogNotice("Game") << "Bonus Dice Finished: " << val << " AP awarded.";
 		opComplete = true;
 		break;
 	}
@@ -21943,11 +21958,17 @@ void ofApp::resolveAPRoll() {
 					rollOp.data.rollDice.sides = rerollSides;
 					rollOp.data.rollDice.purpose = PURPOSE_BONUS_AP;
 					rollOp.data.rollDice.ownerIndex = currentPlayerIndex;
-					// use an innocuous blackboard slot (e.g., 3) for bonus AP
-					rollOp.data.rollDice.outputSlot = 3;
+					// use dedicated blackboard slot 5 for bonus AP
+					rollOp.data.rollDice.outputSlot = 5;
 					strncpy(rollOp.data.rollDice.label, "Assistant Auto Reroll", 31);
 					rollOp.data.rollDice.label[31] = '\0';
 					queueEffect(rollOp);
+					// Queue authoritative apply op
+					{
+						EffectOp apply = {};
+						apply.type = EffectOpType::APPLY_BONUS_AP;
+						queueEffect(apply);
+					}
 					queueFloatingTextVisual(gridToWorld(a.x, a.y), "Assistant Reroll!", ofColor::gold);
 				}
 			}
@@ -22060,13 +22081,7 @@ void ofApp::resolveSummonKobolds(const DiceRoll & finishedRoll) {
 
 // --------------------------------------------------------------
 // Small resolver: BONUS AP
-void ofApp::resolveBonusAP(const DiceRoll & finishedRoll) {
-	currentAP += finishedRoll.result;
-	queueFloatingTextVisual(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y),
-		"+" + ofToString(finishedRoll.result) + " Bonus AP",
-		ofColor::yellow);
-	ofLogNotice("Game") << "Bonus Dice Finished: " << finishedRoll.result << " AP awarded.";
-}
+// Bonus AP is now applied by EffectOpType::APPLY_BONUS_AP
 
 // Earthquake distance resolution migrated to EffectOpType::APPLY_EARTHQUAKE
 
