@@ -18439,20 +18439,38 @@ void ofApp::processEffectOp(EffectOp & op) {
 				spawnTracer(worldStart, worldEnd, glm::ivec2((int)interactionTargetTile.x, (int)interactionTargetTile.y), ofColor(200, 180, 100), 5.0f);
 			}
 
-			EffectOp dmgRoll = {};
-			dmgRoll.type = EffectOpType::ROLL_DICE;
-			dmgRoll.data.rollDice.numDice = 1;
-			dmgRoll.data.rollDice.sides = 6;
-			dmgRoll.data.rollDice.purpose = PURPOSE_DAMAGE;
-			dmgRoll.data.rollDice.ownerIndex = currentPlayerIndex;
-			dmgRoll.data.rollDice.outputSlot = 1;
-			strncpy(dmgRoll.data.rollDice.label, "Shoot Arrow: Damage", 31);
-			dmgRoll.data.rollDice.label[31] = '\0';
-			queueEffect(dmgRoll);
+			// Immediate authoritative damage roll and apply (single-pass)
+			int dmg = startDiceRoll(1, 6, PURPOSE_DAMAGE, std::string("Shoot Arrow: Damage"), currentPlayerIndex);
+			// Visual dice: capture raw result and show visually
+			std::vector<int> rawResults;
+			int startIdx = (int)activeDiceRolls.size() - 1; // last roll is this one
+			if (startIdx >= 0) rawResults.push_back(activeDiceRolls[startIdx].rawResult);
+			queueVisualDelay(0.6f);
+			queueVisualDiceRoll(gridToWorld((int)interactionTargetTile.x, (int)interactionTargetTile.y) + glm::vec3(0, 1.0f, 0), 1, 6, rawResults, dmg, PURPOSE_DAMAGE, currentPlayerIndex, 1.0f);
+			queueVisualDelay(0.6f);
 
-			EffectOp applyD = {};
-			applyD.type = EffectOpType::APPLY_SHOOT_ARROW_DAMAGE;
-			queueEffect(applyD);
+			// Find the target and apply damage immediately
+			int targetIdx = -1;
+			for (size_t i = 0; i < players.size(); ++i) {
+				if (players[i].x == (int)interactionTargetTile.x && players[i].y == (int)interactionTargetTile.y) {
+					targetIdx = (int)i;
+					break;
+				}
+			}
+			if (targetIdx >= 0) {
+				Player & target = players[targetIdx];
+				if (target.inGhostForm) {
+					queueFloatingTextVisual(gridToWorld(target.x, target.y), "Phased!", ofColor::cyan);
+				} else {
+					int applied = applyDamageWithMitigations(target, dmg, DAMAGE_PIERCING, currentPlayerIndex);
+					if (applied > 0)
+						queueFloatingTextVisual(gridToWorld(target.x, target.y), "-" + ofToString(applied) + "", ofColor::yellow);
+					else
+						queueFloatingTextVisual(gridToWorld(target.x, target.y), "Absorbed", ofColor::gray);
+				}
+			} else {
+				ofLogNotice("ShootArrow") << "No target found at impact tile after roll.";
+			}
 		} else {
 			// Miss: notify and spawn tracer for visual
 			queueFloatingTextVisual(gridToWorld((int)interactionTargetTile.x, (int)interactionTargetTile.y), "Missed!", ofColor::gray);
