@@ -14677,7 +14677,32 @@ void ofApp::handleCardTargetClick(int gridX, int gridY) {
 	// Allow both targeting and placing interactions to be handled here
 	if (cardInteractionState != CARD_INTERACTION_TARGETING && cardInteractionState != CARD_INTERACTION_PLACING) return;
 	if (gridX < 0 || gridX >= BOARD_WIDTH || gridY < 0 || gridY >= BOARD_HEIGHT) return;
-	if (!board[gridX][gridY].isTargetable) return;
+	// If this invocation came from an actual mouse click, require the click
+	// to be inside the visible targeting highlight (not just anywhere on the tile).
+	// Keyboard/gamepad targeting calls (which pass grid coords but mouse may be elsewhere)
+	// should bypass this stricter hit test.
+	{
+		ofVec2f clickBoard = mouseToBoard(ofGetMouseX(), ofGetMouseY());
+		int clickGX = (int)floor(clickBoard.x);
+		int clickGY = (int)floor(clickBoard.y);
+		// If the mouse is over the same tile, apply the tighter hit test.
+		if (clickGX == gridX && clickGY == gridY) {
+			// Only accept clicks on tiles that are targetable
+			if (!board[gridX][gridY].isTargetable) return;
+			// Compute local tile-space offset (tile = 1.0 unit square, center at +0.5)
+			float localX = clickBoard.x - (gridX + 0.5f);
+			float localY = clickBoard.y - (gridY + 0.5f);
+			float dist = sqrt(localX * localX + localY * localY);
+			// Accept only clicks reasonably close to the visible center highlight.
+			// This prevents clicks on tile corners/edges from counting when only the
+			// central targeting highlight is visible.
+			const float kAcceptRadius = 0.45f; // in grid units (0.5 is half-tile)
+			if (dist > kAcceptRadius) return;
+		} else {
+			// Mouse is not over this tile; if it's not targetable we still bail out.
+			if (!board[gridX][gridY].isTargetable) return;
+		}
+	}
 	if (players.empty() || currentPlayerIndex < 0) return;
 	if (interactingCardIndex < 0 || interactingCardIndex >= (int)players[currentPlayerIndex].hand.size()) return;
 
@@ -17524,6 +17549,24 @@ void ofApp::processEffectOp(EffectOp & op) {
 					board[x][y].hasWall = true;
 				buildLevelMesh();
 			}
+		}
+		opComplete = true;
+		break;
+	}
+
+	case EffectOpType::CREATE_WALL: {
+		// Authoritative creation of a wall at specified coordinates
+		int x = op.data.createWall.x;
+		int y = op.data.createWall.y;
+		if (x >= 0 && x < BOARD_WIDTH && y >= 0 && y < BOARD_HEIGHT) {
+			board[x][y].hasWall = true;
+			board[x][y].isMagicWall = op.data.createWall.isMagic ? true : false;
+			// Ensure we don't leave a player flagged under a wall
+			if (board[x][y].hasPlayer) {
+				// If a unit was somehow present, mark occupancy false (play validation should prevent this case)
+				board[x][y].hasPlayer = false;
+			}
+			buildLevelMesh();
 		}
 		opComplete = true;
 		break;
