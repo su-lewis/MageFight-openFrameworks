@@ -17390,7 +17390,7 @@ void ofApp::processEffectOp(EffectOp & op) {
 	}
 
 	case EffectOpType::APPLY_ATTACK: {
-		// Centralized attack resolver: read authoritative dice result from blackboard[0]
+		// Centralized attack resolver (queued-damage variant): read authoritative dice result from blackboard[0]
 		int baseDamage = currentEffectSequence.blackboard[0];
 		ofLogNotice("AttackDamage") << "Resolving attack - Targets: " << currentCardOutcome.attackTargetIndices.size() << ", Damage: " << baseDamage;
 		Player & attacker = players[currentPlayerIndex];
@@ -17441,230 +17441,202 @@ void ofApp::processEffectOp(EffectOp & op) {
 			currentCardOutcome.poisonTargetPlayerIDs.clear();
 		}
 
+		// Queue damage for each target using queued mitigation helper
+		int baseOut = 8; // starting blackboard slot for per-target applied amounts
+		currentCardOutcome.attackTargetPlayerIDs.clear();
+		int outIdx = 0;
 		for (size_t i = 0; i < currentCardOutcome.attackTargetIndices.size(); i++) {
 			int pIndex = currentCardOutcome.attackTargetIndices[i];
 			Player * target = getPlayer(pIndex);
-			if (target) {
-				int appliedDamage = baseDamage;
+			if (!target) continue;
 
-				if (currentCardOutcome.attackDamageType == DAMAGE_PIERCING && i > 0) appliedDamage /= 2;
+			int appliedDamage = baseDamage;
+			if (currentCardOutcome.attackDamageType == DAMAGE_PIERCING && i > 0) appliedDamage /= 2;
 
-				// --- GHOST FORM CHECK ---
-				if (target->inGhostForm) {
-					if (currentCardOutcome.attackDamageType == DAMAGE_PHYSICAL || currentCardOutcome.attackDamageType == DAMAGE_PIERCING) {
-						appliedDamage = 0;
-						queueFloatingTextVisual(gridToWorld(target->x, target->y), "Phased!", ofColor::cyan);
-					}
-					if (currentCardOutcome.attackDamageType == DAMAGE_HOLY) {
-						appliedDamage *= 2;
-						queueFloatingTextVisual(gridToWorld(target->x, target->y), "Ghost: x2 Holy", ofColor::orange);
-					}
+			// Immediate visuals for form/vulnerabilities (visual-only)
+			if (target->inGhostForm) {
+				if (currentCardOutcome.attackDamageType == DAMAGE_PHYSICAL || currentCardOutcome.attackDamageType == DAMAGE_PIERCING) {
+					// Phased: immunity to physical/piercing
+					queueFloatingTextVisual(gridToWorld(target->x, target->y), "Phased!", ofColor::cyan);
+					appliedDamage = 0;
 				}
-				// --- VULNERABILITIES ---
-				if ((target->isHellhound || target->isDemon || target->isSkeleton) && currentCardOutcome.attackDamageType == DAMAGE_HOLY) {
+				if (currentCardOutcome.attackDamageType == DAMAGE_HOLY) {
 					appliedDamage *= 2;
-					queueFloatingTextVisual(gridToWorld(target->x, target->y), "Vulnerable: Holy (x2)", ofColor::orange);
+					queueFloatingTextVisual(gridToWorld(target->x, target->y), "Ghost: x2 Holy", ofColor::orange);
 				}
-				if (currentCardOutcome.attackDamageType == DAMAGE_PIERCING) {
-					bool hasWolfCall = false;
-					for (const auto & c : target->deck)
+			}
+			if ((target->isHellhound || target->isDemon || target->isSkeleton) && currentCardOutcome.attackDamageType == DAMAGE_HOLY) {
+				appliedDamage *= 2;
+				queueFloatingTextVisual(gridToWorld(target->x, target->y), "Vulnerable: Holy (x2)", ofColor::orange);
+			}
+			if (currentCardOutcome.attackDamageType == DAMAGE_PIERCING) {
+				bool hasWolfCall = false;
+				for (const auto & c : target->deck)
+					if (c.type == CARD_CALL_FOR_WOLVES) {
+						hasWolfCall = true;
+						break;
+					}
+				if (!hasWolfCall)
+					for (const auto & c : target->discardPile)
 						if (c.type == CARD_CALL_FOR_WOLVES) {
 							hasWolfCall = true;
 							break;
 						}
-					if (!hasWolfCall)
-						for (const auto & c : target->discardPile)
-							if (c.type == CARD_CALL_FOR_WOLVES) {
-								hasWolfCall = true;
-								break;
-							}
-					if (hasWolfCall) {
-						appliedDamage *= 2;
-						queueFloatingTextVisual(gridToWorld(target->x, target->y), "Vulnerable: Piercing (x2)", ofColor::orange);
-					}
+				if (hasWolfCall) {
+					appliedDamage *= 2;
+					queueFloatingTextVisual(gridToWorld(target->x, target->y), "Vulnerable: Piercing (x2)", ofColor::orange);
 				}
-				// --- MITIGATION: use central helper to apply and show absorbed/HP amounts ---
-				glm::vec3 tPos = gridToWorld(target->x, target->y);
-				int pre = appliedDamage;
-				int applied = applyDamageWithMitigations(*target, appliedDamage, currentCardOutcome.attackDamageType, currentPlayerIndex);
-				int absorbed = pre - applied;
-				if (absorbed > 0) {
-					queueFloatingTextVisual(tPos + glm::vec3(0, 0.5f, 0), "-" + ofToString(absorbed) + " Absorbed", ofColor::lightGray);
-				}
+			}
+
+			// Queue queued-mitigation for this target to write applied amount into blackboard[baseOut + outIdx]
+			int outSlot = baseOut + outIdx;
+			applyDamageWithMitigationsQueued(*target, appliedDamage, currentCardOutcome.attackDamageType, currentPlayerIndex, outSlot);
+			currentCardOutcome.attackTargetPlayerIDs.push_back(target->playerID);
+			outIdx++;
+		}
+
+		// Enqueue resolve op which will read applied amounts from blackboard and perform form-break, death, special effects, and poison tracking
+		EffectOp res = {};
+		res.type = EffectOpType::APPLY_ATTACK_RESOLVE;
+		res.data.damage.damageFromSlot = baseOut; // first slot
+		res.data.damage.targetIndex = outIdx; // count
+		res.data.damage.damageType = currentCardOutcome.attackDamageType;
+		res.data.damage.fixedDamage = applyPoisonBuff ? 1 : 0; // flag
+		queueEffect(res);
+
+		// Clear immediate attack indices; resolve will use stored playerIDs
+		currentCardOutcome.attackTargetIndices.clear();
+
+		opComplete = true;
+		break;
+	}
+
+	case EffectOpType::APPLY_ATTACK_RESOLVE: {
+		int baseOut = op.data.damage.damageFromSlot;
+		int count = op.data.damage.targetIndex;
+		DamageType dtype = op.data.damage.damageType;
+		bool poisonFlag = (op.data.damage.fixedDamage != 0);
+
+		auto typeLabelAndColor = [&](DamageType dt) {
+			std::pair<std::string, ofColor> r;
+			switch (dt) {
+			case DAMAGE_PHYSICAL:
+				r = { " Physical", ofColor::red };
+				break;
+			case DAMAGE_PIERCING:
+				r = { " Piercing", ofColor::yellow };
+				break;
+			case DAMAGE_MAGIC:
+				r = { " Magic", ofColor::magenta };
+				break;
+			case DAMAGE_ELECTRIC:
+				r = { " Electric", ofColor::yellow };
+				break;
+			case DAMAGE_FIRE:
+				r = { " Fire", ofColor::orange };
+				break;
+			case DAMAGE_HOLY:
+				r = { " Holy", ofColor::orange };
+				break;
+			case DAMAGE_POISON:
+				r = { " Poison", ofColor::green };
+				break;
+			default:
+				r = { "", ofColor::white };
+				break;
+			}
+			return r;
+		};
+
+		for (int i = 0; i < count; ++i) {
+			int slot = baseOut + i;
+			int applied = 0;
+			if (slot >= 0 && slot < 16) applied = currentEffectSequence.blackboard[slot];
+			if (i < (int)currentCardOutcome.attackTargetPlayerIDs.size()) {
+				int pid = currentCardOutcome.attackTargetPlayerIDs[i];
+				int pidx = findPlayerIndexByID(pid);
+				Player * target = getPlayer(pidx);
+				if (!target) continue;
+				glm::vec3 tpos = gridToWorld(target->x, target->y);
+
+				auto tc = typeLabelAndColor(dtype);
 				if (applied > 0) {
-					queueFloatingTextVisual(tPos, "-" + ofToString(applied) + typeLabel, ofColor::red);
+					queueFloatingTextVisual(tpos, "-" + ofToString(applied) + tc.first, tc.second);
 
-					// Ghost Break Logic
-					if (target->inGhostForm) {
-						target->ghostDamageTaken += applied;
-						if (target->ghostDamageTaken >= 4) {
-							EffectOp rmGhost = {};
-							rmGhost.type = EffectOpType::REMOVE_STATUS;
-							rmGhost.data.status.targetIndex = pIndex;
-							rmGhost.data.status.statusType = STATUS_GHOST_FORM;
-							rmGhost.data.status.duration = 0;
-							queueEffect(rmGhost);
-							target->ghostDamageTaken = 0;
-							target->discardPile.push_back(target->ghostFormCard);
-							queueFloatingTextVisual(tPos + glm::vec3(0, 0.5f, 0), "Ghost Form Broken!", ofColor::white);
-							if (board[target->x][target->y].hasWall) {
-								// Instead of instant death, present the ghosted player a choice of nearby empty tiles
-								ghostRelocateChoices.clear();
-								ghostRelocateTargetIndex = pIndex;
-								// Gather available empty tiles and sort by distance
-								struct Choice {
-									int x;
-									int y;
-									int dist2;
-								};
-								std::vector<Choice> choices;
-								for (int gx = 0; gx < BOARD_WIDTH; ++gx) {
-									for (int gy = 0; gy < BOARD_HEIGHT; ++gy) {
-										if (board[gx][gy].hasWall) continue;
-										if (board[gx][gy].hasPlayer) continue;
-										int dx = gx - target->x;
-										int dy = gy - target->y;
-										int d2 = dx * dx + dy * dy;
-										choices.push_back({ gx, gy, d2 });
-									}
-								}
-								std::sort(choices.begin(), choices.end(), [](const Choice & a, const Choice & b) { return a.dist2 < b.dist2; });
-								int take = std::min((int)choices.size(), 4);
-								for (int ci = 0; ci < take; ++ci) {
-									ghostRelocateChoices.push_back(glm::ivec2(choices[ci].x, choices[ci].y));
-								}
-								// If no available tiles, fall back to instant death
-								if (ghostRelocateChoices.empty()) {
-									EffectOp killOp = {};
-									killOp.type = EffectOpType::MODIFY_STAT;
-									killOp.data.modifyStat.targetIndex = pIndex;
-									killOp.data.modifyStat.statType = 0; // HP
-									killOp.data.modifyStat.delta = -players[pIndex].health;
-									killOp.data.modifyStat.deltaFromSlot = -1;
-									processEffectOp(killOp);
-									queueFloatingTextVisual(tPos + glm::vec3(0, 1.0f, 0), "Materialized in Wall!", ofColor::red);
-								} else {
-									// Open a modal menu for the affected player to choose relocation
-									updateCardInteractionState(CARD_INTERACTION_MENU, -1, CARD_GHOST_RELOCATE);
-									if (isMultiplayer) sendMenuState(5, ghostRelocateTargetIndex, -1, -1);
-								}
-							}
-						}
-					}
-
-					// Tortoise Break Logic
+					// Form break checks
 					if (target->inTortoiseForm) {
 						target->tortoiseDamageTaken += applied;
 						if (target->tortoiseDamageTaken >= 5) {
-							EffectOp rmTort = {};
-							rmTort.type = EffectOpType::REMOVE_STATUS;
-							rmTort.data.status.targetIndex = pIndex;
-							rmTort.data.status.statusType = STATUS_TORTOISE_FORM;
-							rmTort.data.status.duration = 0;
-							queueEffect(rmTort);
+							EffectOp rm = {};
+							rm.type = EffectOpType::REMOVE_STATUS;
+							rm.data.status.targetIndex = pidx;
+							rm.data.status.statusType = STATUS_TORTOISE_FORM;
+							rm.data.status.duration = 0;
+							queueEffect(rm);
 							target->tortoiseDamageTaken = 0;
 							target->discardPile.push_back(target->tortoiseFormCard);
-							queueFloatingTextVisual(tPos + glm::vec3(0, 0.5f, 0), "Form Ended!", ofColor::darkGreen);
+							queueFloatingTextVisual(tpos + glm::vec3(0, 0.5f, 0), "Form Ended!", ofColor::darkGreen);
+						}
+					}
+					if (target->inGhostForm) {
+						target->ghostDamageTaken += applied;
+						if (target->ghostDamageTaken >= 4) {
+							EffectOp rm = {};
+							rm.type = EffectOpType::REMOVE_STATUS;
+							rm.data.status.targetIndex = pidx;
+							rm.data.status.statusType = STATUS_GHOST_FORM;
+							rm.data.status.duration = 0;
+							queueEffect(rm);
+							target->ghostDamageTaken = 0;
+							target->discardPile.push_back(target->ghostFormCard);
+							queueFloatingTextVisual(tpos + glm::vec3(0, 0.5f, 0), "Ghost Form Broken!", ofColor::white);
+
+							if (board[target->x][target->y].hasWall) {
+								EffectOp killOp = {};
+								killOp.type = EffectOpType::MODIFY_STAT;
+								killOp.data.modifyStat.targetIndex = pidx;
+								killOp.data.modifyStat.statType = 0; // HP
+								killOp.data.modifyStat.delta = -players[pidx].health;
+								killOp.data.modifyStat.deltaFromSlot = -1;
+								queueEffect(killOp);
+								queueFloatingTextVisual(tpos + glm::vec3(0, 1.0f, 0), "Materialized in Wall!", ofColor::red);
+							}
 						}
 					}
 
-					// --- SPECIAL RESOLUTION FOR SHOOT ARROW ---
-					if (resolvedAttackCardName == "Shoot Arrow" && currentCardOutcome.destroyedCardType != CARD_NONE) {
-						Player & attackerRef = players[currentPlayerIndex];
-						CardType destroyedType = currentCardOutcome.destroyedCardType;
-						currentCardOutcome.destroyedCardType = CARD_NONE;
-
-						int rawExtra = getGameRandom(1, 6);
-						int extraLuck = attackerRef.luck + computePassiveLuck(currentPlayerIndex);
-						int extra = rawExtra + extraLuck;
-
-						if (destroyedType == CARD_SHOCK) {
-							EffectOp shockDamageOp;
-							shockDamageOp.type = EffectOpType::DAMAGE;
-							shockDamageOp.data.damage.targetIndex = pIndex;
-							shockDamageOp.data.damage.damageType = DAMAGE_ELECTRIC;
-							shockDamageOp.data.damage.fixedDamage = extra;
-							shockDamageOp.data.damage.damageFromSlot = -1;
-							processEffectOp(shockDamageOp);
-							EffectOp apPar = {};
-							apPar.type = EffectOpType::APPLY_STATUS;
-							apPar.data.status.targetIndex = pIndex;
-							apPar.data.status.statusType = STATUS_PARALYZED;
-							apPar.data.status.duration = 0;
-							queueEffect(apPar);
-							target->paralysisHeadsCount = 0;
-							queueFloatingTextVisual(tPos + glm::vec3(0, 0.6f, 0), "-" + ofToString(extra) + " Electric", ofColor::orange);
-							queueFloatingTextVisual(tPos + glm::vec3(0, 1.0f, 0), "PARALYZED!", ofColor::yellow);
-						} else if (destroyedType == CARD_FLAME_HIT) {
-							EffectOp flameDamageOp;
-							flameDamageOp.type = EffectOpType::DAMAGE;
-							flameDamageOp.data.damage.targetIndex = pIndex;
-							flameDamageOp.data.damage.damageType = DAMAGE_FIRE;
-							flameDamageOp.data.damage.fixedDamage = extra;
-							flameDamageOp.data.damage.damageFromSlot = -1;
-							processEffectOp(flameDamageOp);
-							EffectOp apFire = {};
-							apFire.type = EffectOpType::APPLY_STATUS;
-							apFire.data.status.targetIndex = pIndex;
-							apFire.data.status.statusType = STATUS_ON_FIRE;
-							apFire.data.status.duration = 0;
-							queueEffect(apFire);
-							queueFloatingTextVisual(tPos + glm::vec3(0, 0.6f, 0), "-" + ofToString(extra) + " Fire", ofColor::red);
-							queueFloatingTextVisual(tPos + glm::vec3(0, 1.0f, 0), "ON FIRE!", ofColor::orange);
-						} else if (destroyedType == CARD_ADD_POISON) {
-							EffectOp poisonDamageOp;
-							poisonDamageOp.type = EffectOpType::DAMAGE;
-							poisonDamageOp.data.damage.targetIndex = pIndex;
-							poisonDamageOp.data.damage.damageType = DAMAGE_POISON;
-							poisonDamageOp.data.damage.fixedDamage = extra;
-							poisonDamageOp.data.damage.damageFromSlot = -1;
-							processEffectOp(poisonDamageOp);
-							EffectOp apPoison = {};
-							apPoison.type = EffectOpType::APPLY_STATUS;
-							apPoison.data.status.targetIndex = pIndex;
-							apPoison.data.status.statusType = STATUS_POISONED;
-							apPoison.data.status.duration = 0;
-							queueEffect(apPoison);
-							target->poisonReduction = 0;
-							queueFloatingTextVisual(tPos + glm::vec3(0, 0.6f, 0), "-" + ofToString(extra) + " Poison", ofColor::green);
-							queueFloatingTextVisual(tPos + glm::vec3(0, 1.0f, 0), "POISONED!", ofColor::green);
-						}
-					}
-				} else {
-					if (!target->inGhostForm || appliedDamage > 0) {
-						queueFloatingTextVisual(tPos, "-" + ofToString(appliedDamage) + typeLabel, ofColor::gray);
-					}
-					if (applyPoisonBuff && !target->inGhostForm) {
-						currentCardOutcome.poisonTargetPlayerIDs.push_back(players[pIndex].playerID);
+					// Poison flag handling: schedule poison application later
+					if (poisonFlag && !target->inGhostForm) {
+						currentCardOutcome.poisonTargetPlayerIDs.push_back(target->playerID);
 						target->poisonReduction = 0;
-						queueFloatingTextVisual(tPos + glm::vec3(0, 0.5f, 0), "Poisoned!", ofColor::green);
+						queueFloatingTextVisual(tpos + glm::vec3(0, 0.5f, 0), "Poisoned!", ofColor::green);
 					}
+
+				} else {
+					// Absorbed or phased
+					queueFloatingTextVisual(tpos, "Absorbed", ofColor::gray);
 				}
 			}
 		}
-		if (resolvedAttackCardName == "Shoot Arrow") {
-			currentCardOutcome.destroyedCardType = CARD_NONE;
-		}
-		currentCardOutcome.attackTargetIndices.clear();
 
-		if (applyPoisonBuff && !currentCardOutcome.poisonTargetPlayerIDs.empty()) {
-			{
-				EffectOp rollOp = {};
-				rollOp.type = EffectOpType::ROLL_DICE;
-				rollOp.data.rollDice.numDice = 1;
-				rollOp.data.rollDice.sides = 6;
-				rollOp.data.rollDice.purpose = PURPOSE_DAMAGE;
-				rollOp.data.rollDice.ownerIndex = currentPlayerIndex;
-				rollOp.data.rollDice.outputSlot = 0;
-				strncpy(rollOp.data.rollDice.label, "Poison Damage", 31);
-				rollOp.data.rollDice.label[31] = '\0';
-				queueEffect(rollOp);
-				EffectOp ap = {};
-				ap.type = EffectOpType::APPLY_POISON;
-				queueEffect(ap);
-			}
+		// If poison buff was applied to targets, queue poison roll and APPLY_POISON
+		if (poisonFlag && !currentCardOutcome.poisonTargetPlayerIDs.empty()) {
+			EffectOp rollOp = {};
+			rollOp.type = EffectOpType::ROLL_DICE;
+			rollOp.data.rollDice.numDice = 1;
+			rollOp.data.rollDice.sides = 6;
+			rollOp.data.rollDice.purpose = PURPOSE_DAMAGE;
+			rollOp.data.rollDice.ownerIndex = currentPlayerIndex;
+			rollOp.data.rollDice.outputSlot = 0;
+			strncpy(rollOp.data.rollDice.label, "Poison Damage", 31);
+			rollOp.data.rollDice.label[31] = '\0';
+			queueEffect(rollOp);
+
+			EffectOp ap = {};
+			ap.type = EffectOpType::APPLY_POISON;
+			queueEffect(ap);
 		}
 
+		currentCardOutcome.attackTargetPlayerIDs.clear();
 		if (cardPlayState != CARD_STATE_IDLE) {
 			advanceCardState(CARD_STATE_EFFECT_SEQUENCE);
 		}
@@ -17746,24 +17718,27 @@ void ofApp::processEffectOp(EffectOp & op) {
 	}
 
 	case EffectOpType::APPLY_CHAIN_LIGHTNING_DAMAGE: {
-		// Read damage from blackboard slot 1
+		// Read damage from blackboard slot 1 and queue per-target mitigation
 		int damage = currentEffectSequence.blackboard[1];
 		Player & caster = players[currentPlayerIndex];
 
-		// 8-neighbor AOE around caster (exclude center)
+		// Build 8-neighbor AOE (exclude center)
 		std::vector<std::pair<int, int>> aoeTiles;
 		for (int dx = -1; dx <= 1; ++dx)
 			for (int dy = -1; dy <= 1; ++dy)
 				if (!(dx == 0 && dy == 0)) aoeTiles.push_back({ caster.x + dx, caster.y + dy });
 
-		int unitCount = 0;
-		for (auto & target : players) {
-			if (&target == &caster || target.health <= 0) continue;
+		// Collect targets and queue queued-mitigation writes to blackboard starting at slot 8
+		std::vector<int> chainTargets;
+		int baseOut = 8;
+		int outIdx = 0;
+		for (size_t pi = 0; pi < players.size(); ++pi) {
+			Player & target = players[pi];
+			if (pi == (size_t)currentPlayerIndex || target.health <= 0) continue;
 			bool isInAOE = false;
 			for (auto & tile : aoeTiles) {
 				if (target.x == tile.first && target.y == tile.second) {
 					isInAOE = true;
-					// Diagonal pinch-block check
 					int dx = tile.first - caster.x;
 					int dy = tile.second - caster.y;
 					if (dx != 0 && dy != 0) {
@@ -17775,18 +17750,49 @@ void ofApp::processEffectOp(EffectOp & op) {
 				}
 			}
 			if (!isInAOE) continue;
-			unitCount++;
-			if (target.inGhostForm) {
-				queueFloatingTextVisual(gridToWorld(target.x, target.y), "Phased!", ofColor::cyan);
-				continue;
-			}
 
-			int finalDmg = damage;
-			int applied = applyDamageWithMitigations(target, finalDmg, DAMAGE_ELECTRIC, currentPlayerIndex);
-			if (applied > 0) {
-				queueFloatingTextVisual(gridToWorld(target.x, target.y), "-" + ofToString(applied) + " ZAP!", ofColor::yellow);
-			} else {
-				queueFloatingTextVisual(gridToWorld(target.x, target.y), "Absorbed", ofColor::gray);
+			// Queue mitigation even for phased targets (helper will write 0 if damage suppressed)
+			int outSlot = baseOut + outIdx;
+			applyDamageWithMitigationsQueued(target, damage, DAMAGE_ELECTRIC, currentPlayerIndex, outSlot);
+			chainTargets.push_back((int)pi);
+			outIdx++;
+		}
+
+		// Store target list for resolve step and enqueue resolve
+		currentCardOutcome.targetedPlayers = chainTargets;
+		EffectOp res = {};
+		res.type = EffectOpType::APPLY_CHAIN_LIGHTNING_DAMAGE_RESOLVE;
+		res.data.damage.damageFromSlot = baseOut;
+		res.data.damage.targetIndex = (int)chainTargets.size();
+		res.data.damage.damageType = DAMAGE_ELECTRIC;
+		queueEffect(res);
+
+		opComplete = true;
+		break;
+	}
+
+	case EffectOpType::APPLY_CHAIN_LIGHTNING_DAMAGE_RESOLVE: {
+		int baseOut = op.data.damage.damageFromSlot;
+		int count = op.data.damage.targetIndex;
+		int unitCount = 0;
+		Player & caster = players[currentPlayerIndex];
+
+		for (int i = 0; i < count; ++i) {
+			int slot = baseOut + i;
+			int applied = 0;
+			if (slot >= 0 && slot < 16) applied = currentEffectSequence.blackboard[slot];
+			if (i < (int)currentCardOutcome.targetedPlayers.size()) {
+				int pidx = currentCardOutcome.targetedPlayers[i];
+				int pResolved = findPlayerIndexByID(players[pidx].playerID);
+				Player * target = getPlayer(pResolved >= 0 ? pResolved : pidx);
+				if (!target) continue;
+				unitCount++;
+				glm::vec3 tpos = gridToWorld(target->x, target->y);
+				if (applied > 0) {
+					queueFloatingTextVisual(tpos, "-" + ofToString(applied) + " ZAP!", ofColor::yellow);
+				} else {
+					queueFloatingTextVisual(tpos, "Absorbed", ofColor::gray);
+				}
 			}
 		}
 
@@ -17801,6 +17807,7 @@ void ofApp::processEffectOp(EffectOp & op) {
 			queueFloatingTextVisual(gridToWorld(caster.x, caster.y), "+3 AP Next Turn", ofColor::cyan);
 		}
 
+		currentCardOutcome.targetedPlayers.clear();
 		opComplete = true;
 		break;
 	}

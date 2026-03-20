@@ -329,6 +329,7 @@ enum class EffectOpType : uint8_t {
 	APPLY_SPARK_OF_GENIUS,
 	APPLY_BARRIER,
 	APPLY_ATTACK,
+	APPLY_ATTACK_RESOLVE,
 	APPLY_PSIONIC_WAVE,
 	APPLY_ETHEREAL_JOLT,
 	APPLY_TELEPORT,
@@ -336,6 +337,7 @@ enum class EffectOpType : uint8_t {
 	APPLY_SHOOT_ARROW_DAMAGE,
 	APPLY_CHAIN_LIGHTNING,
 	APPLY_CHAIN_LIGHTNING_DAMAGE,
+	APPLY_CHAIN_LIGHTNING_DAMAGE_RESOLVE,
 	APPLY_MAGIC_HAND_DAMAGE,
 	APPLY_EARTHQUAKE,
 	APPLY_EARTHQUAKE_DAMAGE,
@@ -568,6 +570,7 @@ struct CardOutcome {
 	// Attack-specific outcome data
 	DamageType attackDamageType = DAMAGE_PHYSICAL;
 	std::vector<int> attackTargetIndices; // indices into `players`
+	std::vector<int> attackTargetPlayerIDs; // stable playerIDs for queued resolve
 
 	// Poison targets stored as stable playerIDs for later resolution
 	std::vector<int> poisonTargetPlayerIDs;
