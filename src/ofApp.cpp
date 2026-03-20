@@ -364,6 +364,76 @@ int ofApp::applyDamageWithMitigations(Player & target, int baseDamage, DamageTyp
 	return remaining;
 }
 
+// Queue-only variant: queues MODIFY_STAT ops and writes applied amount into the current effect sequence blackboard
+void ofApp::applyDamageWithMitigationsQueued(Player & target, int baseDamage, DamageType type, int attackerIndex, int outputSlot) {
+	int dmg = baseDamage;
+	int targetIndex = -1;
+	for (size_t i = 0; i < players.size(); ++i)
+		if (&players[i] == &target) {
+			targetIndex = (int)i;
+			break;
+		}
+
+	auto absorbFrom = [&](int & sourceRef, int & remaining, int statType, const char * name, const ofColor & c) {
+		int a = std::min(sourceRef, remaining);
+		if (a <= 0) return;
+		if (targetIndex >= 0) {
+			EffectOp op = {};
+			op.type = EffectOpType::MODIFY_STAT;
+			op.data.modifyStat.targetIndex = targetIndex;
+			op.data.modifyStat.statType = statType;
+			op.data.modifyStat.delta = -a;
+			op.data.modifyStat.deltaFromSlot = -1;
+			queueEffect(op);
+		} else {
+			sourceRef -= a;
+		}
+		remaining -= a;
+		queueFloatingTextVisual(gridToWorld(target.x, target.y), "-" + ofToString(a) + name, c);
+		ofLogNotice("Game") << name << " absorbed " << a;
+	};
+
+	int remaining = dmg;
+	switch (type) {
+	case DAMAGE_HOLY:
+		absorbFrom(target.holyBlock, remaining, 7, " Holy", ofColor(255, 215, 0));
+		absorbFrom(target.barrier, remaining, 6, " Barrier", ofColor(70, 170, 255));
+		absorbFrom(target.ward, remaining, 8, " Ward", ofColor::black);
+		break;
+	case DAMAGE_PHYSICAL:
+		absorbFrom(target.block, remaining, 5, " Block", ofColor::gray);
+		absorbFrom(target.fortification, remaining, 13, " Fortification", ofColor::lightGray);
+		absorbFrom(target.ward, remaining, 8, " Ward", ofColor::black);
+		break;
+	case DAMAGE_PIERCING:
+		absorbFrom(target.fortification, remaining, 13, " Fortification", ofColor::lightGray);
+		absorbFrom(target.ward, remaining, 8, " Ward", ofColor::black);
+		break;
+	default:
+		absorbFrom(target.barrier, remaining, 6, " Barrier", ofColor(70, 170, 255));
+		absorbFrom(target.ward, remaining, 8, " Ward", ofColor::black);
+		break;
+	}
+
+	if (remaining > 0) {
+		if (targetIndex >= 0) {
+			EffectOp hp = {};
+			hp.type = EffectOpType::MODIFY_STAT;
+			hp.data.modifyStat.targetIndex = targetIndex;
+			hp.data.modifyStat.statType = 0; // HP
+			hp.data.modifyStat.delta = -remaining;
+			hp.data.modifyStat.deltaFromSlot = -1;
+			queueEffect(hp);
+		} else {
+			target.health -= remaining;
+		}
+	}
+
+	if (outputSlot >= 0) {
+		currentEffectSequence.blackboard[outputSlot] = remaining;
+	}
+}
+
 Player ofApp::createSummonedMinion(CardType type, int targetX, int targetY, const Player & caster, int turnCounter, int & nextSummonID) {
 	Player minion;
 	minion.playerID = nextSummonID++;
@@ -15935,7 +16005,6 @@ void ofApp::processEffectOp(EffectOp & op) {
 
 	case EffectOpType::APPLY_MAGIC_HAND_DAMAGE: {
 		// Magic Hand: uses blackboard[0] for the 2d4 damage result
-		Player & caster = players[currentPlayerIndex];
 		glm::ivec2 wallOldPos = magicHandTargetTile;
 		glm::ivec2 wallNewPos = magicHandTargetTile + magicHandPushDir;
 
@@ -15945,12 +16014,15 @@ void ofApp::processEffectOp(EffectOp & op) {
 		board[wallNewPos.x][wallNewPos.y].hasWall = true;
 		board[wallNewPos.x][wallNewPos.y].isMagicWall = wasMagic;
 
-		// Move Caster
-		board[caster.x][caster.y].hasPlayer = false;
-		caster.x = wallOldPos.x;
-		caster.y = wallOldPos.y;
-		board[caster.x][caster.y].hasPlayer = true;
-		playerVisualPos = gridToWorld(caster.x, caster.y);
+		// Move Caster (deterministic via MOVE_UNIT processed immediately)
+		{
+			EffectOp mvCaster = {};
+			mvCaster.type = EffectOpType::MOVE_UNIT;
+			mvCaster.data.moveUnit.unitIndex = currentPlayerIndex;
+			mvCaster.data.moveUnit.toX = wallOldPos.x;
+			mvCaster.data.moveUnit.toY = wallOldPos.y;
+			processEffectOp(mvCaster);
+		}
 
 		buildLevelMesh();
 
@@ -16018,11 +16090,14 @@ void ofApp::processEffectOp(EffectOp & op) {
 				finalDest = side2;
 
 			if (finalDest.x != -1) {
-				board[victim->x][victim->y].hasPlayer = false;
-				victim->x = finalDest.x;
-				victim->y = finalDest.y;
-				board[victim->x][victim->y].hasPlayer = true;
-				queueFloatingTextVisual(gridToWorld(victim->x, victim->y), "Pushed!", ofColor::yellow);
+				// Move victim via MOVE_UNIT (processed immediately so subsequent death checks see new pos)
+				EffectOp mv = {};
+				mv.type = EffectOpType::MOVE_UNIT;
+				mv.data.moveUnit.unitIndex = magicHandPushedUnitIndex;
+				mv.data.moveUnit.toX = finalDest.x;
+				mv.data.moveUnit.toY = finalDest.y;
+				processEffectOp(mv);
+				queueFloatingTextVisual(gridToWorld(finalDest.x, finalDest.y), "Pushed!", ofColor::yellow);
 			} else {
 				queueFloatingTextVisual(gridToWorld(victim->x, victim->y), "CRUSHED!", ofColor::darkRed);
 				{
@@ -16874,15 +16949,40 @@ void ofApp::processEffectOp(EffectOp & op) {
 		int flip = currentEffectSequence.blackboard[0];
 
 		if (flip >= 2) {
-			// Heads: raise own max HP
-			players[currentPlayerIndex].maxHealth++;
+			// Heads: raise own max HP deterministically
+			EffectOp incMax = {};
+			incMax.type = EffectOpType::MODIFY_STAT;
+			incMax.data.modifyStat.targetIndex = currentPlayerIndex;
+			incMax.data.modifyStat.statType = 1; // MaxHP
+			incMax.data.modifyStat.delta = 1;
+			incMax.data.modifyStat.deltaFromSlot = -1;
+			queueEffect(incMax);
 			queueFloatingTextVisual(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y), "+1 Max HP", ofColor::green);
 		} else {
-			// Tails: lower target max HP
+			// Tails: lower target max HP deterministically
 			Player * t = getPlayer(blockingBoonTargetIndex);
 			if (t) {
-				t->maxHealth = std::max(1, t->maxHealth - 1);
-				if (t->health > t->maxHealth) t->health = t->maxHealth;
+				int tgtIdx = blockingBoonTargetIndex;
+				EffectOp decMax = {};
+				decMax.type = EffectOpType::MODIFY_STAT;
+				decMax.data.modifyStat.targetIndex = tgtIdx;
+				decMax.data.modifyStat.statType = 1; // MaxHP
+				decMax.data.modifyStat.delta = -1;
+				decMax.data.modifyStat.deltaFromSlot = -1;
+				queueEffect(decMax);
+				// If current HP exceeds new MaxHP, queue HP clamp (set to new max). Read authoritative new max will be applied when MODIFY_STAT for MaxHP is processed; here we conservatively queue a HP reduction by 0 which the processor will handle in order.
+				// We'll queue a HP adjust after the MaxHP change to ensure determinism: compute desired HP delta now
+				int newMax = std::max(1, t->maxHealth - 1);
+				int hpDelta = std::min(0, newMax - t->health);
+				if (hpDelta != 0) {
+					EffectOp hpClamp = {};
+					hpClamp.type = EffectOpType::MODIFY_STAT;
+					hpClamp.data.modifyStat.targetIndex = tgtIdx;
+					hpClamp.data.modifyStat.statType = 0; // HP
+					hpClamp.data.modifyStat.delta = hpDelta;
+					hpClamp.data.modifyStat.deltaFromSlot = -1;
+					queueEffect(hpClamp);
+				}
 				queueFloatingTextVisual(gridToWorld(t->x, t->y), "-1 Max HP", ofColor::darkRed);
 			}
 		}
@@ -16952,80 +17052,95 @@ void ofApp::processEffectOp(EffectOp & op) {
 		// Read authoritative fire damage roll from blackboard slot 0
 		int rollResult = currentEffectSequence.blackboard[0];
 		currentCardOutcome.namedDiceResults["status_onfire"] = rollResult;
-		Player & burningPlayer = players[currentPlayerIndex];
 
-		// Queue damage application
-		{
-			EffectOp dmg = {};
-			dmg.type = EffectOpType::MODIFY_STAT;
-			dmg.data.modifyStat.targetIndex = currentPlayerIndex;
-			dmg.data.modifyStat.statType = 0; // HP
-			dmg.data.modifyStat.delta = -rollResult;
-			dmg.data.modifyStat.deltaFromSlot = -1;
-			queueEffect(dmg);
-		}
-		queueFloatingTextVisual(gridToWorld(burningPlayer.x, burningPlayer.y), "-" + ofToString(rollResult) + " Fire", ofColor::red);
+		// Queue damage via queued mitigation helper and record applied amount to slot 2
+		int outSlot = 2;
+		applyDamageWithMitigationsQueued(players[currentPlayerIndex], rollResult, DAMAGE_FIRE, -1, outSlot);
 
-		// Form tracking
-		if (burningPlayer.inTortoiseForm) {
-			burningPlayer.tortoiseDamageTaken += rollResult;
-			if (burningPlayer.tortoiseDamageTaken >= 5) {
-				EffectOp rm = {};
-				rm.type = EffectOpType::REMOVE_STATUS;
-				rm.data.status.targetIndex = currentPlayerIndex;
-				rm.data.status.statusType = STATUS_TORTOISE_FORM;
-				rm.data.status.duration = 0;
-				queueEffect(rm);
-				burningPlayer.tortoiseDamageTaken = 0;
-				burningPlayer.discardPile.push_back(burningPlayer.tortoiseFormCard);
-				queueFloatingTextVisual(gridToWorld(burningPlayer.x, burningPlayer.y) + glm::vec3(0, 0.5f, 0), "Form Ended!", ofColor::darkGreen);
+		// Queue a resolve op that will read the applied amount from blackboard and perform form-tracking / death logic
+		EffectOp resolve = {};
+		resolve.type = EffectOpType::APPLY_ON_FIRE_RESOLVE;
+		resolve.data.damage.targetIndex = currentPlayerIndex;
+		resolve.data.damage.damageFromSlot = outSlot; // read applied amount from this slot
+		resolve.data.damage.fixedDamage = rollResult; // preserve original roll for extinguish check
+		queueEffect(resolve);
+
+		opComplete = true;
+		break;
+	}
+
+	case EffectOpType::APPLY_ON_FIRE_RESOLVE: {
+		int outSlot = op.data.damage.damageFromSlot;
+		int applied = 0;
+		if (outSlot >= 0) applied = currentEffectSequence.blackboard[outSlot];
+		int rollResult = op.data.damage.fixedDamage;
+		int targetIndex = op.data.damage.targetIndex;
+		if (targetIndex >= 0 && targetIndex < (int)players.size()) {
+			Player & burningPlayer = players[targetIndex];
+			if (applied > 0) {
+				queueFloatingTextVisual(gridToWorld(burningPlayer.x, burningPlayer.y), "-" + ofToString(applied) + " Fire", ofColor::red);
+			} else {
+				queueFloatingTextVisual(gridToWorld(burningPlayer.x, burningPlayer.y), "-0 Fire", ofColor::gray);
 			}
-		}
-		if (burningPlayer.inGhostForm) {
-			burningPlayer.ghostDamageTaken += rollResult;
-			if (burningPlayer.ghostDamageTaken >= 4) {
-				EffectOp rm = {};
-				rm.type = EffectOpType::REMOVE_STATUS;
-				rm.data.status.targetIndex = currentPlayerIndex;
-				rm.data.status.statusType = STATUS_GHOST_FORM;
-				rm.data.status.duration = 0;
-				queueEffect(rm);
-				burningPlayer.ghostDamageTaken = 0;
-				burningPlayer.discardPile.push_back(burningPlayer.ghostFormCard);
-				queueFloatingTextVisual(gridToWorld(burningPlayer.x, burningPlayer.y) + glm::vec3(0, 0.5f, 0), "Ghost Form Broken!", ofColor::white);
 
-				if (board[burningPlayer.x][burningPlayer.y].hasWall) {
-					EffectOp killOp = {};
-					killOp.type = EffectOpType::MODIFY_STAT;
-					killOp.data.modifyStat.targetIndex = currentPlayerIndex;
-					killOp.data.modifyStat.statType = 0; // HP
-					killOp.data.modifyStat.delta = -players[currentPlayerIndex].health;
-					killOp.data.modifyStat.deltaFromSlot = -1;
-					queueEffect(killOp);
-					queueFloatingTextVisual(gridToWorld(burningPlayer.x, burningPlayer.y) + glm::vec3(0, 1.0f, 0), "Materialized in Wall!", ofColor::red);
+			if (burningPlayer.inTortoiseForm) {
+				burningPlayer.tortoiseDamageTaken += applied;
+				if (burningPlayer.tortoiseDamageTaken >= 5) {
+					EffectOp rm = {};
+					rm.type = EffectOpType::REMOVE_STATUS;
+					rm.data.status.targetIndex = targetIndex;
+					rm.data.status.statusType = STATUS_TORTOISE_FORM;
+					rm.data.status.duration = 0;
+					queueEffect(rm);
+					burningPlayer.tortoiseDamageTaken = 0;
+					burningPlayer.discardPile.push_back(burningPlayer.tortoiseFormCard);
+					queueFloatingTextVisual(gridToWorld(burningPlayer.x, burningPlayer.y) + glm::vec3(0, 0.5f, 0), "Form Ended!", ofColor::darkGreen);
 				}
 			}
-		}
+			if (burningPlayer.inGhostForm) {
+				burningPlayer.ghostDamageTaken += applied;
+				if (burningPlayer.ghostDamageTaken >= 4) {
+					EffectOp rm = {};
+					rm.type = EffectOpType::REMOVE_STATUS;
+					rm.data.status.targetIndex = targetIndex;
+					rm.data.status.statusType = STATUS_GHOST_FORM;
+					rm.data.status.duration = 0;
+					queueEffect(rm);
+					burningPlayer.ghostDamageTaken = 0;
+					burningPlayer.discardPile.push_back(burningPlayer.ghostFormCard);
+					queueFloatingTextVisual(gridToWorld(burningPlayer.x, burningPlayer.y) + glm::vec3(0, 0.5f, 0), "Ghost Form Broken!", ofColor::white);
 
-		// Check if fire is extinguished
-		if (rollResult == 1 || rollResult == 2) {
-			EffectOp rm = {};
-			rm.type = EffectOpType::REMOVE_STATUS;
-			rm.data.status.targetIndex = currentPlayerIndex;
-			rm.data.status.statusType = STATUS_ON_FIRE;
-			rm.data.status.duration = 0;
-			queueEffect(rm);
-			queueFloatingTextVisual(gridToWorld(burningPlayer.x, burningPlayer.y) + glm::vec3(0, 0.8f, 0), "Extinguished", ofColor::white);
-		}
+					if (board[burningPlayer.x][burningPlayer.y].hasWall) {
+						EffectOp killOp = {};
+						killOp.type = EffectOpType::MODIFY_STAT;
+						killOp.data.modifyStat.targetIndex = targetIndex;
+						killOp.data.modifyStat.statType = 0; // HP
+						killOp.data.modifyStat.delta = -players[targetIndex].health;
+						killOp.data.modifyStat.deltaFromSlot = -1;
+						queueEffect(killOp);
+						queueFloatingTextVisual(gridToWorld(burningPlayer.x, burningPlayer.y) + glm::vec3(0, 1.0f, 0), "Materialized in Wall!", ofColor::red);
+					}
+				}
+			}
 
-		// Check sleep after fire
-		if (burningPlayer.sleepTurnsRemaining > 0) {
-			startNewTurn();
-			opComplete = true;
-			break;
-		}
+			// Extinguish check uses original roll
+			if (rollResult == 1 || rollResult == 2) {
+				EffectOp rm = {};
+				rm.type = EffectOpType::REMOVE_STATUS;
+				rm.data.status.targetIndex = targetIndex;
+				rm.data.status.statusType = STATUS_ON_FIRE;
+				rm.data.status.duration = 0;
+				queueEffect(rm);
+				queueFloatingTextVisual(gridToWorld(burningPlayer.x, burningPlayer.y) + glm::vec3(0, 0.8f, 0), "Extinguished", ofColor::white);
+			}
 
-		continueNewTurn();
+			// Sleep/turn progression: if the player is asleep, start new turn; else continue
+			if (burningPlayer.sleepTurnsRemaining > 0) {
+				startNewTurn();
+			} else {
+				continueNewTurn();
+			}
+		}
 		opComplete = true;
 		break;
 	}
@@ -26425,9 +26540,35 @@ bool ofApp::applyDamageTo(Player & target, int damage, DamageType type, int atta
 								queueEffect(rm);
 							}
 							// replicateQueued will be cleared when the REMOVE_STATUS op is processed
-							target.nextTurnAPBonus = 0;
-							target.shocksPlayedThisTurn = 0;
-							target.flurryOfFistsStacks = 0;
+							// Clear transient numeric flags deterministically via effect ops
+							{
+								int tgtIdx = findPlayerIndexByID(target.playerID);
+								EffectOp clearNextAP = {};
+								clearNextAP.type = EffectOpType::MODIFY_STAT;
+								clearNextAP.data.modifyStat.targetIndex = tgtIdx;
+								clearNextAP.data.modifyStat.statType = 11; // Next-turn AP bonus
+								clearNextAP.data.modifyStat.delta = -target.nextTurnAPBonus;
+								clearNextAP.data.modifyStat.deltaFromSlot = -1;
+								queueEffect(clearNextAP);
+
+								EffectOp clearShocks = {};
+								clearShocks.type = EffectOpType::MODIFY_STAT;
+								clearShocks.data.modifyStat.targetIndex = tgtIdx;
+								clearShocks.data.modifyStat.statType = 12; // Shocks played this turn
+								clearShocks.data.modifyStat.delta = -target.shocksPlayedThisTurn;
+								clearShocks.data.modifyStat.deltaFromSlot = -1;
+								queueEffect(clearShocks);
+
+								EffectOp clearFlurry = {};
+								clearFlurry.type = EffectOpType::MODIFY_STAT;
+								clearFlurry.data.modifyStat.targetIndex = tgtIdx;
+								clearFlurry.data.modifyStat.statType = 14; // Flurry stacks
+								clearFlurry.data.modifyStat.delta = -target.flurryOfFistsStacks;
+								clearFlurry.data.modifyStat.deltaFromSlot = -1;
+								queueEffect(clearFlurry);
+							}
+
+							// Remove next-turn and duration statuses deterministically
 							{
 								EffectOp rm = {};
 								rm.type = EffectOpType::REMOVE_STATUS;
@@ -26436,11 +26577,38 @@ bool ofApp::applyDamageTo(Player & target, int damage, DamageType type, int atta
 								rm.data.status.duration = 0;
 								queueEffect(rm);
 							}
-							// nextAttackAddPoison will be cleared when the REMOVE_STATUS op is processed
-							target.nextTurnD10AP = false;
-							target.nextTurnExtraDraw = false;
-							target.nextTurnBonusDiceFromMinions = false;
-							target.strengthenElementsTurnsRemaining = 0;
+							{
+								EffectOp rm = {};
+								rm.type = EffectOpType::REMOVE_STATUS;
+								rm.data.status.targetIndex = (int)pidx;
+								rm.data.status.statusType = STATUS_NEXT_TURN_D10AP;
+								rm.data.status.duration = 0;
+								queueEffect(rm);
+							}
+							{
+								EffectOp rm = {};
+								rm.type = EffectOpType::REMOVE_STATUS;
+								rm.data.status.targetIndex = (int)pidx;
+								rm.data.status.statusType = STATUS_NEXT_TURN_EXTRA_DRAW;
+								rm.data.status.duration = 0;
+								queueEffect(rm);
+							}
+							{
+								EffectOp rm = {};
+								rm.type = EffectOpType::REMOVE_STATUS;
+								rm.data.status.targetIndex = (int)pidx;
+								rm.data.status.statusType = STATUS_NEXT_TURN_BONUS_DICE;
+								rm.data.status.duration = 0;
+								queueEffect(rm);
+							}
+							{
+								EffectOp rm = {};
+								rm.type = EffectOpType::REMOVE_STATUS;
+								rm.data.status.targetIndex = (int)pidx;
+								rm.data.status.statusType = STATUS_STRENGTHEN_ELEMENTS;
+								rm.data.status.duration = 0;
+								queueEffect(rm);
+							}
 							{
 								EffectOp rm = {};
 								rm.type = EffectOpType::REMOVE_STATUS;

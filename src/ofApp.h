@@ -311,6 +311,7 @@ enum class EffectOpType : uint8_t {
 	APPLY_AMNESIA,
 	APPLY_DEATH,
 	APPLY_ON_FIRE,
+	APPLY_ON_FIRE_RESOLVE,
 	APPLY_PARALYSIS,
 	APPLY_WOLF_COIN,
 	APPLY_BLOCKING_BOON_COIN,
@@ -1007,6 +1008,8 @@ private:
 	void finishPlayCard(Player & caster, const Card & playedCard, int handIndex);
 	void completeCardPlayAnimation(const Card & playedCard, int playerIndex);
 	int applyDamageWithMitigations(Player & target, int baseDamage, DamageType type, int attackerIndex);
+	// Queue-only variant: queues MODIFY_STAT ops for absorptions/HP and writes applied amount into currentEffectSequence.blackboard[outputSlot]
+	void applyDamageWithMitigationsQueued(Player & target, int baseDamage, DamageType type, int attackerIndex, int outputSlot);
 	Player createSummonedMinion(CardType type, int targetX, int targetY, const Player & caster, int turnCounter, int & nextSummonID);
 
 	void updatePlayerAP(Player & player, int newAP);
