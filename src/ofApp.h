@@ -981,29 +981,14 @@ private:
 	void handleCardDiceResult(int result, DicePurpose purpose); // Dice roll completed
 	bool executeCardByType(const Card & playedCard, int cardIndex, int targetX, int targetY, bool & playedSuccessfully, CardPlayResult & immediateResult); // centralized execution entry (incremental migration)
 
-	// --- Async Resolution Helpers (Centralized Dice/State Resolution) ---
-
-	// resolveSummonHealth removed; summon handling inlined into dice processing loop
-	// Amnesia resolver removed; handled via EffectOpType::APPLY_AMNESIA
-	// Magic Blast handled via EffectOpType::APPLY_MAGIC_BLAST
-	// Death, Sleep and Jolt range resolution migrated into EffectOp handlers
-	// Earthquake damage migrated to effect/op pipeline (APPLY_EARTHQUAKE_DAMAGE)
+	// --- Async Resolution Helpers (centralized) ---
+	// Centralized handlers for dice/state resolution after card play. Most legacy
+	// per-frame resolver functions have been migrated into the EffectOp pipeline
+	// (see EffectOpType handlers in `src/ofApp.cpp`). The remaining helpers below
+	// implement small, centralized behaviors used by multiple card flows.
 	void resolveAPRoll();
-	// Blocking Boon resolution migrated to effect/op handlers (APPLY_BLOCKING_BOON_*)
-	// resolveSummonKobolds removed: summon handling inlined into dice processing loop
-
 	void updateEarthquakeSimulation();
-	// Bonus AP handled via EffectOpType::APPLY_BONUS_AP
 
-	// Earthquake simulation update (migrated from updateGame())
-
-	// Time Vortex resolution migrated to effect/op pipeline
-	// Chain Lightning handled by effect/op pipeline (APPLY_CHAIN_LIGHTNING)
-	// Chain Lightning handled by effect/op pipeline (APPLY_CHAIN_LIGHTNING)
-	// Flail, Spark of Genius, and Barrier handled by effect/op pipeline
-
-	// resolveOnFireDice/resolvePoisonStatusDice removed; handled by EffectOp pipeline
-	// Paralysis/Wolf coin resolvers removed; handled via effect ops.
 
 	// Simple inline dice resolver for legacy inline uses (sums N dS)
 	int resolveDiceRoll(int numDice, int sides);
