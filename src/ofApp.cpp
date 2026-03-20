@@ -57,7 +57,6 @@ void ofApp::drawPauseMenu() {
 		uiFont.drawString(text, textX, textY);
 	};
 
-	// Layout depends on multiplayer
 	if (!isMultiplayer) {
 		drawButton(pauseMenuResumeButton, "Resume", pauseMenuHoveredIndex == 0);
 		drawButton(pauseMenuSaveButton, "Save", pauseMenuHoveredIndex == 1);
@@ -18489,31 +18488,8 @@ void ofApp::processEffectOp(EffectOp & op) {
 	}
 
 	case EffectOpType::APPLY_SHOOT_ARROW_DAMAGE: {
-		int damage = currentEffectSequence.blackboard[1];
-		int targetIdx = interactionTargetIndex;
-		ofLogNotice("ShootArrow") << "APPLY_SHOOT_ARROW_DAMAGE: damageSlot[1]=" << currentEffectSequence.blackboard[1] << " targetIdx=" << targetIdx << " playersSize=" << players.size();
-		// If interactionTargetIndex is stale, resolve by tile coordinates
-		if (!(targetIdx >= 0 && targetIdx < (int)players.size())) {
-			for (size_t i = 0; i < players.size(); ++i) {
-				if (players[i].x == (int)interactionTargetTile.x && players[i].y == (int)interactionTargetTile.y) {
-					targetIdx = (int)i;
-					break;
-				}
-			}
-		}
-		if (targetIdx >= 0 && targetIdx < (int)players.size()) {
-			ofLogNotice("ShootArrow") << "Target state: health=" << players[targetIdx].health << " ghost=" << players[targetIdx].inGhostForm;
-			Player & target = players[targetIdx];
-			if (target.inGhostForm) {
-				queueFloatingTextVisual(gridToWorld(target.x, target.y), "Phased!", ofColor::cyan);
-			} else {
-				applyDamageWithMitigations(target, damage, DAMAGE_PIERCING, currentPlayerIndex);
-				queueFloatingTextVisual(gridToWorld(target.x, target.y), "-" + ofToString(damage) + "", ofColor::yellow);
-			}
-		} else {
-			ofLogNotice("ShootArrow") << "APPLY_SHOOT_ARROW_DAMAGE: no valid target found at interactionTargetIndex or tile.";
-		}
-
+		// Obsolete resolver: `APPLY_SHOOT_ARROW` now resolves damage immediately in a single-pass.
+		ofLogNotice("ShootArrow") << "APPLY_SHOOT_ARROW_DAMAGE: obsolete handler ignored.";
 		opComplete = true;
 		break;
 	}
