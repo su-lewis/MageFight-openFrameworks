@@ -17244,28 +17244,56 @@ void ofApp::processEffectOp(EffectOp & op) {
 	case EffectOpType::APPLY_MAGIC_BOLT_PRIMARY: {
 		// Read primary damage from blackboard slot 1
 		int primaryDamage = currentEffectSequence.blackboard[1];
-		// Apply to direct hit (if any)
-		Player * directHitTarget = nullptr;
-		for (auto & p : players) {
-			if (p.x == currentCardOutcome.primaryTarget.x && p.y == currentCardOutcome.primaryTarget.y) {
-				directHitTarget = &p;
+		// Find direct hit target index (or -1)
+		int directHitIdx = -1;
+		for (size_t i = 0; i < players.size(); ++i) {
+			if (players[i].x == currentCardOutcome.primaryTarget.x && players[i].y == currentCardOutcome.primaryTarget.y) {
+				directHitIdx = (int)i;
 				break;
 			}
 		}
-		if (directHitTarget) {
-			int dmg = primaryDamage;
-			// Use centralized mitigation helper
-			int applied = applyDamageWithMitigations(*directHitTarget, dmg, DAMAGE_MAGIC, currentPlayerIndex);
-			if (applied > 0) {
-				queueFloatingTextVisual(gridToWorld(directHitTarget->x, directHitTarget->y), "-" + ofToString(applied) + " Magic", ofColor::red);
-			} else {
-				queueFloatingTextVisual(gridToWorld(directHitTarget->x, directHitTarget->y), "Absorbed", ofColor::gray);
-			}
+
+		if (directHitIdx >= 0) {
+			// Queue damage via queued mitigation helper into blackboard slot 3
+			int outSlot = 3;
+			applyDamageWithMitigationsQueued(players[directHitIdx], primaryDamage, DAMAGE_MAGIC, currentPlayerIndex, outSlot);
+
+			// Queue resolve op to read applied amount and show visuals
+			EffectOp res = {};
+			res.type = EffectOpType::APPLY_MAGIC_BOLT_PRIMARY_RESOLVE;
+			res.data.damage.targetIndex = directHitIdx;
+			res.data.damage.damageFromSlot = outSlot;
+			res.data.damage.fixedDamage = primaryDamage;
+			queueEffect(res);
 		} else {
 			queueFloatingTextVisual(gridToWorld((int)currentCardOutcome.primaryTarget.x, (int)currentCardOutcome.primaryTarget.y), ofToString(primaryDamage) + "!", ofColor::purple);
+			// Still queue an empty resolve to proceed to AOE roll in a consistent place in the sequence
+			EffectOp res = {};
+			res.type = EffectOpType::APPLY_MAGIC_BOLT_PRIMARY_RESOLVE;
+			res.data.damage.targetIndex = -1;
+			res.data.damage.damageFromSlot = -1;
+			res.data.damage.fixedDamage = primaryDamage;
+			queueEffect(res);
 		}
 
-		// After primary, roll AOE radius into slot 2 and queue AOE handler
+		opComplete = true;
+		break;
+	}
+
+	case EffectOpType::APPLY_MAGIC_BOLT_PRIMARY_RESOLVE: {
+		int outSlot = op.data.damage.damageFromSlot;
+		int applied = 0;
+		if (outSlot >= 0) applied = currentEffectSequence.blackboard[outSlot];
+		int targetIndex = op.data.damage.targetIndex;
+		if (targetIndex >= 0 && targetIndex < (int)players.size()) {
+			Player & p = players[targetIndex];
+			if (applied > 0)
+				queueFloatingTextVisual(gridToWorld(p.x, p.y), "-" + ofToString(applied) + " Magic", ofColor::red);
+			else
+				queueFloatingTextVisual(gridToWorld(p.x, p.y), "Absorbed", ofColor::gray);
+		}
+
+		// After primary resolve, roll AOE radius into slot 2 and queue AOE handler
 		EffectOp aoeRoll = {};
 		aoeRoll.type = EffectOpType::ROLL_DICE;
 		aoeRoll.data.rollDice.numDice = 1;
@@ -17290,14 +17318,14 @@ void ofApp::processEffectOp(EffectOp & op) {
 		int aoeRadiusFeet = diceRoll;
 		ofLogNotice("Magic Bolt") << "AOE Roll: " << diceRoll << "ft Radius.";
 
-		for (auto & p : players) {
-			// Don't hit the direct target again
+		// Build list of AOE targets (exclude primary target)
+		std::vector<int> aoeTargets;
+		for (size_t i = 0; i < players.size(); ++i) {
+			Player & p = players[i];
 			if (p.x == currentCardOutcome.primaryTarget.x && p.y == currentCardOutcome.primaryTarget.y) continue;
-
 			float centerDistFeet = glm::distance(glm::vec2(currentCardOutcome.primaryTarget.x, currentCardOutcome.primaryTarget.y), glm::vec2(p.x, p.y)) * 5.0f;
 			float neededFeetRaw = std::max(0.0f, centerDistFeet - 2.5f);
 			int neededFeet = (int)floor(neededFeetRaw + 1e-4f);
-
 			if (neededFeet <= aoeRadiusFeet) {
 				auto losPath = getLineOfSightPath(glm::vec2(currentCardOutcome.primaryTarget.x, currentCardOutcome.primaryTarget.y) + glm::vec2(0.5f, 0.5f), glm::vec2(p.x, p.y) + glm::vec2(0.5f, 0.5f));
 				bool blockedByWall = false;
@@ -17310,23 +17338,53 @@ void ofApp::processEffectOp(EffectOp & op) {
 					}
 				}
 				if (blockedByWall) continue;
-
-				ofLogNotice("Magic Bolt") << "AOE Hit on Unit " << p.playerID << " (Needed: " << neededFeet << "ft)";
-
-				int dmg = 3;
-				int applied = applyDamageWithMitigations(p, dmg, DAMAGE_ELECTRIC, currentPlayerIndex);
-				if (applied > 0) {
-					queueFloatingTextVisual(gridToWorld(p.x, p.y), "-" + ofToString(applied) + " Electric", ofColor::yellow);
-				} else {
-					queueFloatingTextVisual(gridToWorld(p.x, p.y), "Absorbed", ofColor::gray);
-				}
+				aoeTargets.push_back((int)i);
 			}
 		}
 
-		if (cardPlayState != CARD_STATE_IDLE) {
-			advanceCardState(CARD_STATE_EFFECT_SEQUENCE);
+		// For each target, queue damage via queued mitigation helper writing results into blackboard slots starting at 4
+		int baseOut = 4;
+		for (size_t idx = 0; idx < aoeTargets.size(); ++idx) {
+			int pidx = aoeTargets[idx];
+			int outSlot = baseOut + (int)idx;
+			int dmg = 3;
+			applyDamageWithMitigationsQueued(players[pidx], dmg, DAMAGE_ELECTRIC, currentPlayerIndex, outSlot);
 		}
 
+		// Store target list for resolve step
+		currentCardOutcome.targetedPlayers = aoeTargets;
+
+		// Queue resolve op to read blackboard slots and show visuals
+		EffectOp aoeResolve = {};
+		aoeResolve.type = EffectOpType::APPLY_MAGIC_BOLT_AOE_RESOLVE;
+		aoeResolve.data.damage.damageFromSlot = baseOut; // first slot
+		aoeResolve.data.damage.targetIndex = (int)aoeTargets.size(); // count
+		queueEffect(aoeResolve);
+
+		opComplete = true;
+		break;
+	}
+
+	case EffectOpType::APPLY_MAGIC_BOLT_AOE_RESOLVE: {
+		int baseOut = op.data.damage.damageFromSlot;
+		int count = op.data.damage.targetIndex;
+		for (int i = 0; i < count; ++i) {
+			int slot = baseOut + i;
+			int applied = 0;
+			if (slot >= 0) applied = currentEffectSequence.blackboard[slot];
+			if (i < (int)currentCardOutcome.targetedPlayers.size()) {
+				int pidx = currentCardOutcome.targetedPlayers[i];
+				if (pidx >= 0 && pidx < (int)players.size()) {
+					Player & p = players[pidx];
+					if (applied > 0)
+						queueFloatingTextVisual(gridToWorld(p.x, p.y), "-" + ofToString(applied) + " Electric", ofColor::yellow);
+					else
+						queueFloatingTextVisual(gridToWorld(p.x, p.y), "Absorbed", ofColor::gray);
+				}
+			}
+		}
+		currentCardOutcome.targetedPlayers.clear();
+		if (cardPlayState != CARD_STATE_IDLE) advanceCardState(CARD_STATE_EFFECT_SEQUENCE);
 		opComplete = true;
 		break;
 	}
