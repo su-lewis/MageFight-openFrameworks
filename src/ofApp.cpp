@@ -14560,7 +14560,8 @@ void ofApp::continueNewTurn() {
 		else if (startingPlayer.isMinion)
 			apLabel = getPlayerDisplayName(currentPlayerIndex) + " AP Roll";
 
-		int apTotal = startDiceRoll(lastAPDiceNum, lastAPDiceSides, PURPOSE_AP, apLabel, currentPlayerIndex);
+		// Use the authoritative result resolved by the queued ROLL_DICE (outputSlot=0)
+		int apTotal = currentEffectSequence.blackboard[0];
 		apResolvedThisTurn = true;
 
 		int deltaAP = apTotal - currentAP;
