@@ -984,11 +984,10 @@ private:
 	// --- Async Resolution Helpers (centralized) ---
 	// Centralized handlers for dice/state resolution after card play. Most legacy
 	// per-frame resolver functions have been migrated into the EffectOp pipeline
-	// (see EffectOpType handlers in `src/ofApp.cpp`). The remaining helpers below
-	// implement small, centralized behaviors used by multiple card flows.
-	void resolveAPRoll();
+	// (see EffectOpType handlers in `src/ofApp.cpp`). The remaining helpers are
+	// implemented inline at call sites or as EffectOp handlers; legacy prototypes
+	// were removed during the "Big Cleanup" migration.
 	void updateEarthquakeSimulation();
-
 
 	// Simple inline dice resolver for legacy inline uses (sums N dS)
 	int resolveDiceRoll(int numDice, int sides);
@@ -1062,7 +1061,6 @@ private:
 	// Centralized targeting helpers
 	void enterTargetingMode(const TargetingContext & ctx);
 	void cancelTargetingMode();
-	void resolveTargetAt(int gx, int gy);
 
 	// --- DETERMINISTIC RNG ---
 	// The synced Random Number Generator
@@ -2127,7 +2125,6 @@ private:
 	// Spark of Genius handled via effect/op pipeline
 
 	// Helper functions
-	void resolveDoubleHanded(std::string cardName);
 	void drawCardSpawnerUI();
 	void drawCardEncyclopediaUI();
 
@@ -2160,8 +2157,6 @@ private:
 
 	// Cancel any active targeting modes/menus and reset related state
 	void cancelAllTargeting();
-	void resolveMagicHandPull();
-	void resolveMagicHandPush();
 	void cancelMagicHand();
 
 	// Status Effects

@@ -4397,7 +4397,118 @@ void ofApp::updateGame() {
 			// THEN execute all the game-related logic inside this block.
 			if (roll.purpose != PURPOSE_DEBUG && roll.purpose != PURPOSE_HP && roll.purpose != PURPOSE_HEALING) {
 				if (roll.purpose == PURPOSE_AP) {
-					resolveAPRoll();
+					// Inlined resolveAPRoll() -> migrate AP resolution into effect/op flow
+					int apSum = 0;
+					for (const auto & r : activeDiceRolls) {
+						if ((r.purpose == PURPOSE_AP || r.purpose == PURPOSE_BONUS_AP) && r.isFinishedVisual && r.associatedUnit == currentPlayerIndex) {
+							apSum += r.result;
+						}
+					}
+					ofLogNotice("APDebug") << "AP roll finished: apSum=" << apSum << " nextTurnAPBonus(before)=" << players[currentPlayerIndex].nextTurnAPBonus << " currentAP(before)=" << currentAP;
+					int deltaAP = apSum - currentAP;
+					if (deltaAP != 0) {
+						EffectOp apOp = {};
+						apOp.type = EffectOpType::MODIFY_STAT;
+						apOp.data.modifyStat.targetIndex = currentPlayerIndex;
+						apOp.data.modifyStat.statType = 3; // AP (current)
+						apOp.data.modifyStat.delta = deltaAP;
+						apOp.data.modifyStat.deltaFromSlot = -1;
+						processEffectOp(apOp);
+					}
+
+					if (players[currentPlayerIndex].nextTurnAPBonus > 0) {
+						int bonus = players[currentPlayerIndex].nextTurnAPBonus;
+						EffectOp bonusOp = {};
+						bonusOp.type = EffectOpType::MODIFY_STAT;
+						bonusOp.data.modifyStat.targetIndex = currentPlayerIndex;
+						bonusOp.data.modifyStat.statType = 11; // Next-turn AP bonus
+						bonusOp.data.modifyStat.delta = -bonus; // consume
+						bonusOp.data.modifyStat.deltaFromSlot = -1;
+						processEffectOp(bonusOp);
+					}
+
+					// Sync AP to player struct
+					updatePlayerAP(players[currentPlayerIndex], currentAP);
+					ofLogNotice("APDebug") << "AP roll applied: currentAP(after)=" << currentAP;
+
+					if (currentAP == 0) {
+						Player & actor = players[currentPlayerIndex];
+						for (auto & a : players) {
+							if (a.isAssistant && a.health > 0 && a.directSummonerID == actor.playerID && !a.assistantRerollUsedThisTurn) {
+								int dist = abs(a.x - actor.x) + abs(a.y - actor.y);
+								if (dist <= 1) {
+									a.assistantRerollUsedThisTurn = true;
+									int rerollNum = lastAPDiceNum > 0 ? lastAPDiceNum : 1;
+									int rerollSides = lastAPDiceSides > 0 ? lastAPDiceSides : 6;
+									for (auto & oldR : activeDiceRolls) {
+										if (oldR.purpose == PURPOSE_AP) oldR.purpose = PURPOSE_DEBUG;
+									}
+									EffectOp rollOp = {};
+									rollOp.type = EffectOpType::ROLL_DICE;
+									rollOp.data.rollDice.numDice = rerollNum;
+									rollOp.data.rollDice.sides = rerollSides;
+									rollOp.data.rollDice.purpose = PURPOSE_BONUS_AP;
+									rollOp.data.rollDice.ownerIndex = currentPlayerIndex;
+									rollOp.data.rollDice.outputSlot = 5;
+									strncpy(rollOp.data.rollDice.label, "Assistant Auto Reroll", 31);
+									rollOp.data.rollDice.label[31] = '\0';
+									queueEffect(rollOp);
+									EffectOp apply = {};
+									apply.type = EffectOpType::APPLY_BONUS_AP;
+									queueEffect(apply);
+									queueFloatingTextVisual(gridToWorld(a.x, a.y), "Assistant Reroll!", ofColor::gold);
+								}
+							}
+						}
+					}
+					ofLogNotice("Game") << "AP Roll Finished: " << currentAP << " AP awarded (sum of all dice).";
+
+					// HOST: Send TurnStart packet to client once AP dice are finished (for BOTH turns)
+					bool allDiceFinished = true;
+					for (const auto & d : activeDiceRolls) {
+						if (!d.isFinishedVisual && (d.purpose == PURPOSE_AP || d.purpose == PURPOSE_BONUS_AP)) {
+							allDiceFinished = false;
+							break;
+						}
+					}
+					static int lastTurnStartSentPlayer = -1;
+					static int lastTurnStartSentCounter = -1;
+					bool alreadySent = (lastTurnStartSentPlayer == currentPlayerIndex && lastTurnStartSentCounter == globalTurnCounter);
+					if (isHost() && isMultiplayer && allDiceFinished && !alreadySent && !isHandlingTurnStartEffects) {
+						TurnStartPacket tpk = {};
+						tpk.type = PKT_TURN_START;
+						tpk.playerID = myLocalPlayerID;
+						tpk.currentPlayerIndex = currentPlayerIndex;
+						tpk.diceNum = 0;
+						tpk.diceSides = (uint8_t)lastAPDiceSides;
+						tpk.purpose = PURPOSE_AP;
+						tpk.finalTotal = currentAP;
+						for (const auto & d : activeDiceRolls) {
+							if ((d.purpose == PURPOSE_AP || d.purpose == PURPOSE_BONUS_AP) && tpk.diceNum < 8) {
+								tpk.rawResults[tpk.diceNum] = (uint8_t)d.rawResult;
+								tpk.finalResults[tpk.diceNum] = (uint8_t)d.result;
+								tpk.diceNum++;
+							}
+						}
+						if (!isHandlingTurnStartEffects) {
+							steamManager.sendPacket(&tpk, sizeof(tpk));
+							if (isHost()) {
+								ChecksumPacket chk = {};
+								chk.type = PKT_CHECKSUM_CHECK;
+								chk.playerID = myLocalPlayerID;
+								chk.checksum = calculateChecksum();
+								chk.turnNumber = globalTurnCounter;
+								steamManager.sendPacket(&chk, sizeof(chk));
+								ofLogNotice("Checksum") << "Host sent Checksum (turn=" << chk.turnNumber << ") value=" << chk.checksum;
+								turnStartBackupSnapshot = buildSnapshotString();
+								ofLogNotice("Network") << "Host saved Turn-Start Master Backup.";
+							}
+						}
+						lastTurnStartSentPlayer = currentPlayerIndex;
+						lastTurnStartSentCounter = globalTurnCounter;
+						ofLogNotice("Network") << "Host sent TurnStart (continueNewTurn): player=" << tpk.currentPlayerIndex << " dice=" << (int)tpk.diceNum << " total=" << tpk.finalTotal;
+					}
+
 				} else if (roll.purpose == PURPOSE_EARTHQUAKE_DAMAGE) {
 					// Find associated unit and apply damage now (during animation)
 					int uidx = roll.associatedUnit;
@@ -15001,10 +15112,53 @@ void ofApp::handleCardMenuClick(const std::string & buttonId) {
 	}
 
 	case CARD_DOUBLE_HANDED: {
-		if (buttonId == "Punch") {
-			resolveDoubleHanded("Punch");
-		} else if (buttonId == "Block") {
-			resolveDoubleHanded("Hand Block");
+		if (buttonId == "Punch" || buttonId == "Block") {
+			std::string cardName = (buttonId == "Punch") ? "Punch" : "Hand Block";
+			Player * target = getPlayer(interactionTargetIndex);
+			Player & caster = players[currentPlayerIndex];
+
+			if (target) {
+				// 1. Find the Card Data
+				Card cardToAdd;
+				bool found = false;
+				for (const auto & c : allCards) {
+					if (c.name == cardName) {
+						cardToAdd = c;
+						found = true;
+						break;
+					}
+				}
+
+				if (found) {
+					// 2. Add copies to deck via deterministic EffectOps (authoritative)
+					int copiesToAdd = 2 * (1 << caster.flurryOfFistsStacks);
+					for (int i = 0; i < copiesToAdd; i++) {
+						EffectOp addOp = {};
+						addOp.type = EffectOpType::ADD_CARD_TO_DECK;
+						addOp.data.addCard.targetIndex = interactionTargetIndex;
+						addOp.data.addCard.cardType = (int)cardToAdd.type;
+						queueEffect(addOp);
+					}
+
+					// 3. Finalize Play (Cost AP, Remove Card)
+					if (interactingCardIndex != -1) {
+						Card & playedCard = caster.hand[interactingCardIndex];
+						int dhCost = playedCard.cost;
+						if (playedCard.type == CARD_KICK && caster.freeKickTurns > 0) dhCost = 0;
+						currentAP -= dhCost;
+						caster.playedCardsPile.push_back(playedCard);
+						applyReplicateCopyToHand(caster, playedCard);
+						updatePlayerAP(players[currentPlayerIndex], currentAP);
+						caster.hand.erase(caster.hand.begin() + interactingCardIndex);
+						calculateTargetHighlights();
+					}
+				}
+			}
+			updateCardInteractionState(CARD_INTERACTION_IDLE, -1, CARD_NONE);
+			interactionTargetIndex = -1;
+			interactionMenuChoice.clear();
+			sendMenuState(0, -1, -1, -1);
+			calculateTargetHighlights();
 		}
 		currentAP -= card.cost;
 		updatePlayerAP(caster, currentAP);
@@ -15124,11 +15278,154 @@ void ofApp::handleCardMenuClick(const std::string & buttonId) {
 	}
 
 	case CARD_GIANT_MAGIC_HAND: {
-		if (buttonId == "push" || buttonId == "PUSH")
-			resolveMagicHandPush();
-		else
-			resolveMagicHandPull();
-		currentAP -= card.cost;
+		if (buttonId == "push" || buttonId == "PUSH") {
+			// Inline resolveMagicHandPush
+			Player & ch = caster;
+			glm::ivec2 wallPos = magicHandTargetTile;
+			glm::ivec2 casterPos = { ch.x, ch.y };
+			glm::ivec2 dir = wallPos - casterPos;
+			glm::ivec2 targetPos = wallPos + dir; // Where the wall goes
+
+			if (targetPos.x < 0 || targetPos.x >= BOARD_WIDTH || targetPos.y < 0 || targetPos.y >= BOARD_HEIGHT) {
+				queueFloatingTextVisual(gridToWorld(wallPos.x, wallPos.y), "Edge of World!", ofColor::red);
+			} else if (board[targetPos.x][targetPos.y].hasWall) {
+				queueFloatingTextVisual(gridToWorld(wallPos.x, wallPos.y), "Blocked by Wall!", ofColor::red);
+			} else {
+				// Check for Unit at targetPos
+				int pushedUnitIdx = -1;
+				if (board[targetPos.x][targetPos.y].hasPlayer) {
+					for (size_t i = 0; i < players.size(); i++) {
+						if (players[i].x == targetPos.x && players[i].y == targetPos.y) {
+							pushedUnitIdx = (int)i;
+							break;
+						}
+					}
+				}
+
+				if (pushedUnitIdx != -1) {
+					// Unit present: queue damage roll and APPLY_MAGIC_HAND_DAMAGE
+					magicHandPushedUnitIndex = pushedUnitIdx;
+					magicHandPushDir = dir;
+
+					beginEffectSequence();
+					EffectOp rollOp = {};
+					rollOp.type = EffectOpType::ROLL_DICE;
+					rollOp.data.rollDice.numDice = 2;
+					rollOp.data.rollDice.sides = 4;
+					rollOp.data.rollDice.purpose = PURPOSE_MAGIC_HAND_DAMAGE;
+					rollOp.data.rollDice.ownerIndex = currentPlayerIndex;
+					rollOp.data.rollDice.outputSlot = 0;
+					strncpy(rollOp.data.rollDice.label, "Magic Hand Crush", 31);
+					rollOp.data.rollDice.label[31] = '\0';
+					queueEffect(rollOp);
+
+					EffectOp applyOp = {};
+					applyOp.type = EffectOpType::APPLY_MAGIC_HAND_DAMAGE;
+					queueEffect(applyOp);
+
+					// Pay cost now and notify opponent
+					currentAP -= ch.hand[interactingCardIndex].cost;
+					ch.playedCardsPile.push_back(ch.hand[interactingCardIndex]);
+					sendMagicHandResolutionPacket(1);
+
+					// Remove card from hand and update state
+					ch.hand.erase(ch.hand.begin() + interactingCardIndex);
+					interactingCardIndex = -1;
+					updateCardInteractionState(CARD_INTERACTION_IDLE, -1, CARD_NONE);
+					advanceCardState(CARD_STATE_EFFECT_SEQUENCE);
+					beginEffectSequence();
+				} else {
+					// Empty space: move caster to wallPos, remove original wall, create wall at targetPos
+					beginEffectSequence();
+					EffectOp mv = {};
+					mv.type = EffectOpType::MOVE_UNIT;
+					mv.data.moveUnit.unitIndex = currentPlayerIndex;
+					mv.data.moveUnit.toX = wallPos.x;
+					mv.data.moveUnit.toY = wallPos.y;
+					queueEffect(mv);
+
+					EffectOp rem = {};
+					rem.type = EffectOpType::MODIFY_TILE;
+					rem.data.modifyTile.toX = wallPos.x;
+					rem.data.modifyTile.toY = wallPos.y;
+					rem.data.modifyTile.setHasWall = 0;
+					queueEffect(rem);
+
+					EffectOp create = {};
+					create.type = EffectOpType::CREATE_WALL;
+					create.data.createWall.x = targetPos.x;
+					create.data.createWall.y = targetPos.y;
+					create.data.createWall.isMagic = board[wallPos.x][wallPos.y].isMagicWall;
+					queueEffect(create);
+
+					// Pay cost & finalize locally first
+					currentAP -= ch.hand[interactingCardIndex].cost;
+					ch.playedCardsPile.push_back(ch.hand[interactingCardIndex]);
+					sendMagicHandResolutionPacket(1);
+
+					// Remove card from hand and finish
+					ch.hand.erase(ch.hand.begin() + interactingCardIndex);
+					interactingCardIndex = -1;
+					updateCardInteractionState(CARD_INTERACTION_IDLE, -1, CARD_NONE);
+					invalidateTargetCache();
+					advanceCardState(CARD_STATE_EFFECT_SEQUENCE);
+					beginEffectSequence();
+				}
+			}
+		} else {
+			// Inline resolveMagicHandPull
+			Player & ch = caster;
+			glm::ivec2 wallPos = magicHandTargetTile;
+			glm::ivec2 casterPos = { ch.x, ch.y };
+			glm::ivec2 dir = wallPos - casterPos;
+			glm::ivec2 backPos = casterPos - dir;
+
+			bool isValid = true;
+			if (backPos.x < 0 || backPos.x >= BOARD_WIDTH || backPos.y < 0 || backPos.y >= BOARD_HEIGHT)
+				isValid = false;
+			else if (board[backPos.x][backPos.y].hasWall || board[backPos.x][backPos.y].hasPlayer)
+				isValid = false;
+
+			if (!isValid) {
+				queueFloatingTextVisual(gridToWorld(ch.x, ch.y), "Blocked Behind!", ofColor::red);
+			} else {
+				beginEffectSequence();
+				EffectOp mv = {};
+				mv.type = EffectOpType::MOVE_UNIT;
+				mv.data.moveUnit.unitIndex = currentPlayerIndex;
+				mv.data.moveUnit.toX = backPos.x;
+				mv.data.moveUnit.toY = backPos.y;
+				queueEffect(mv);
+
+				EffectOp remWall = {};
+				remWall.type = EffectOpType::MODIFY_TILE;
+				remWall.data.modifyTile.toX = wallPos.x;
+				remWall.data.modifyTile.toY = wallPos.y;
+				remWall.data.modifyTile.setHasWall = 0;
+				queueEffect(remWall);
+
+				EffectOp create = {};
+				create.type = EffectOpType::CREATE_WALL;
+				create.data.createWall.x = casterPos.x;
+				create.data.createWall.y = casterPos.y;
+				create.data.createWall.isMagic = board[wallPos.x][wallPos.y].isMagicWall;
+				queueEffect(create);
+
+				// Finalize: pay AP and remove card locally, then notify opponent
+				currentAP -= players[currentPlayerIndex].hand[interactingCardIndex].cost;
+				players[currentPlayerIndex].playedCardsPile.push_back(players[currentPlayerIndex].hand[interactingCardIndex]);
+				players[currentPlayerIndex].hand.erase(players[currentPlayerIndex].hand.begin() + interactingCardIndex);
+				sendMagicHandResolutionPacket(2);
+
+				// Cleanup local interaction state
+				interactingCardIndex = -1;
+				updateCardInteractionState(CARD_INTERACTION_IDLE, -1, CARD_NONE);
+				invalidateTargetCache();
+				advanceCardState(CARD_STATE_EFFECT_SEQUENCE);
+				beginEffectSequence();
+			}
+		}
+		// Common post-play bookkeeping
 		updatePlayerAP(caster, currentAP);
 		finishPlayCard(caster, card, interactingCardIndex);
 		resetCardInteraction();
@@ -22383,135 +22680,8 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 
 //--- ATTACK DAMAGE RESOLUTION ---
 
-// --- AP roll centralized resolver ---
-void ofApp::resolveAPRoll() {
-	// Sum all finished AP and BONUS_AP dice rolls belonging to the current unit
-	int apSum = 0;
-	for (const auto & r : activeDiceRolls) {
-		if ((r.purpose == PURPOSE_AP || r.purpose == PURPOSE_BONUS_AP) && r.isFinishedVisual && r.associatedUnit == currentPlayerIndex) {
-			apSum += r.result;
-		}
-	}
-	ofLogNotice("APDebug") << "AP roll finished: apSum=" << apSum << " nextTurnAPBonus(before)=" << players[currentPlayerIndex].nextTurnAPBonus << " currentAP(before)=" << currentAP;
-	// Apply AP changes via EffectOps so state changes remain centralized
-	int deltaAP = apSum - currentAP;
-	if (deltaAP != 0) {
-		EffectOp apOp = {};
-		apOp.type = EffectOpType::MODIFY_STAT;
-		apOp.data.modifyStat.targetIndex = currentPlayerIndex;
-		apOp.data.modifyStat.statType = 3; // AP (current)
-		apOp.data.modifyStat.delta = deltaAP;
-		apOp.data.modifyStat.deltaFromSlot = -1;
-		processEffectOp(apOp);
-	}
-
-	if (players[currentPlayerIndex].nextTurnAPBonus > 0) {
-		int bonus = players[currentPlayerIndex].nextTurnAPBonus;
-		EffectOp bonusOp = {};
-		bonusOp.type = EffectOpType::MODIFY_STAT;
-		bonusOp.data.modifyStat.targetIndex = currentPlayerIndex;
-		bonusOp.data.modifyStat.statType = 11; // Next-turn AP bonus
-		bonusOp.data.modifyStat.delta = -bonus; // consume
-		bonusOp.data.modifyStat.deltaFromSlot = -1;
-		processEffectOp(bonusOp);
-	}
-
-	// Sync AP to player struct
-	updatePlayerAP(players[currentPlayerIndex], currentAP);
-	ofLogNotice("APDebug") << "AP roll applied: currentAP(after)=" << currentAP;
-
-	// If AP is zero, check for adjacent assistants belonging to this unit
-	if (currentAP == 0) {
-		Player & actor = players[currentPlayerIndex];
-		for (auto & a : players) {
-			if (a.isAssistant && a.health > 0 && a.directSummonerID == actor.playerID && !a.assistantRerollUsedThisTurn) {
-				int dist = abs(a.x - actor.x) + abs(a.y - actor.y);
-				if (dist <= 1) {
-					// consume assistant's reroll and grant a bonus reroll matching the original AP dice
-					a.assistantRerollUsedThisTurn = true;
-					int rerollNum = lastAPDiceNum > 0 ? lastAPDiceNum : 1;
-					int rerollSides = lastAPDiceSides > 0 ? lastAPDiceSides : 6;
-					// Mark any previous AP dice as debug so they won't be included twice
-					for (auto & oldR : activeDiceRolls) {
-						if (oldR.purpose == PURPOSE_AP) oldR.purpose = PURPOSE_DEBUG;
-					}
-					// Queue a bonus AP roll via effect pipeline (visual + deterministic)
-					EffectOp rollOp = {};
-					rollOp.type = EffectOpType::ROLL_DICE;
-					rollOp.data.rollDice.numDice = rerollNum;
-					rollOp.data.rollDice.sides = rerollSides;
-					rollOp.data.rollDice.purpose = PURPOSE_BONUS_AP;
-					rollOp.data.rollDice.ownerIndex = currentPlayerIndex;
-					// use dedicated blackboard slot 5 for bonus AP
-					rollOp.data.rollDice.outputSlot = 5;
-					strncpy(rollOp.data.rollDice.label, "Assistant Auto Reroll", 31);
-					rollOp.data.rollDice.label[31] = '\0';
-					queueEffect(rollOp);
-					// Queue authoritative apply op
-					{
-						EffectOp apply = {};
-						apply.type = EffectOpType::APPLY_BONUS_AP;
-						queueEffect(apply);
-					}
-					queueFloatingTextVisual(gridToWorld(a.x, a.y), "Assistant Reroll!", ofColor::gold);
-				}
-			}
-		}
-	}
-	ofLogNotice("Game") << "AP Roll Finished: " << currentAP << " AP awarded (sum of all dice).";
-
-	// HOST: Send TurnStart packet to client once AP dice are finished (for BOTH turns)
-	bool allDiceFinished = true;
-	for (const auto & d : activeDiceRolls) {
-		if (!d.isFinishedVisual && (d.purpose == PURPOSE_AP || d.purpose == PURPOSE_BONUS_AP)) {
-			allDiceFinished = false;
-			break;
-		}
-	}
-	static int lastTurnStartSentPlayer = -1;
-	static int lastTurnStartSentCounter = -1;
-	bool alreadySent = (lastTurnStartSentPlayer == currentPlayerIndex && lastTurnStartSentCounter == globalTurnCounter);
-	if (isHost() && isMultiplayer && allDiceFinished && !alreadySent && !isHandlingTurnStartEffects) {
-		TurnStartPacket tpk = {};
-		tpk.type = PKT_TURN_START;
-		tpk.playerID = myLocalPlayerID;
-		tpk.currentPlayerIndex = currentPlayerIndex;
-		tpk.diceNum = 0;
-		tpk.diceSides = (uint8_t)lastAPDiceSides;
-		tpk.purpose = PURPOSE_AP;
-		tpk.finalTotal = currentAP;
-		// Count actual AP/BONUS_AP dice and populate packet
-		for (const auto & d : activeDiceRolls) {
-			if ((d.purpose == PURPOSE_AP || d.purpose == PURPOSE_BONUS_AP) && tpk.diceNum < 8) {
-				tpk.rawResults[tpk.diceNum] = (uint8_t)d.rawResult;
-				tpk.finalResults[tpk.diceNum] = (uint8_t)d.result;
-				tpk.diceNum++;
-			}
-		}
-		// Only send TurnStart if we're not in the middle of handling
-		// turn-start status effects (paralysis/poison/onFire), which
-		// may trigger coin flips or other waits.
-		if (!isHandlingTurnStartEffects) {
-			steamManager.sendPacket(&tpk, sizeof(tpk));
-			// Host: send authoritative checksum immediately after TurnStart so clients can validate
-			if (isHost()) {
-				ChecksumPacket chk = {};
-				chk.type = PKT_CHECKSUM_CHECK;
-				chk.playerID = myLocalPlayerID;
-				chk.checksum = calculateChecksum();
-				chk.turnNumber = globalTurnCounter;
-				steamManager.sendPacket(&chk, sizeof(chk));
-				ofLogNotice("Checksum") << "Host sent Checksum (turn=" << chk.turnNumber << ") value=" << chk.checksum;
-				// Save the authoritative turn-start state
-				turnStartBackupSnapshot = buildSnapshotString();
-				ofLogNotice("Network") << "Host saved Turn-Start Master Backup.";
-			}
-		}
-		lastTurnStartSentPlayer = currentPlayerIndex;
-		lastTurnStartSentCounter = globalTurnCounter;
-		ofLogNotice("Network") << "Host sent TurnStart (continueNewTurn): player=" << tpk.currentPlayerIndex << " dice=" << (int)tpk.diceNum << " total=" << tpk.finalTotal;
-	}
-}
+// resolveAPRoll migrated into the dice-completion flow and EffectOp pipeline.
+// Legacy implementation removed as part of the Big Cleanup migration.
 
 // Summon handling has been inlined into the active dice processing loop above.
 
@@ -23766,19 +23936,8 @@ void ofApp::cancelTargetingMode() {
 	clearHighlights();
 }
 
-void ofApp::resolveTargetAt(int gx, int gy) {
-	if (cardInteractionState != CARD_INTERACTION_TARGETING) return;
-	if (targetingContext.isValid) {
-		if (!targetingContext.isValid(gx, gy)) {
-			ofLogWarning("Targeting") << "Attempted to resolve invalid target: " << gx << "," << gy;
-			return;
-		}
-	}
-	if (targetingContext.onSelected) {
-		targetingContext.onSelected(gx, gy);
-	}
-	cancelTargetingMode();
-}
+// resolveTargetAt was removed; targeting is handled via TargetingContext callbacks
+// assigned to `targetingContext.onSelected` and `enterTargetingMode()`.
 
 //--------------------------------------------------------------
 std::vector<glm::vec2> ofApp::findShortestPath(glm::vec2 start, glm::vec2 end) {
@@ -25932,61 +26091,7 @@ void ofApp::drawCardEncyclopediaUI() {
 	uiFont.drawString("Accept", encyclopediaAcceptButton.getCenter().x - aBox.width / 2, encyclopediaAcceptButton.getCenter().y + aBox.height / 2 - 2);
 }
 
-// Resolve Logic (Adds cards and consumes AP)
-void ofApp::resolveDoubleHanded(std::string cardName) {
-	Player * target = getPlayer(interactionTargetIndex);
-	Player & caster = players[currentPlayerIndex];
-
-	if (target) {
-		// 1. Find the Card Data
-		Card cardToAdd;
-		bool found = false;
-		for (const auto & c : allCards) {
-			if (c.name == cardName) {
-				cardToAdd = c;
-				found = true;
-				break;
-			}
-		}
-
-		if (found) {
-			// 2. Add copies to deck via deterministic EffectOps (authoritative)
-			int copiesToAdd = 2 * (1 << caster.flurryOfFistsStacks);
-			for (int i = 0; i < copiesToAdd; i++) {
-				EffectOp addOp = {};
-				addOp.type = EffectOpType::ADD_CARD_TO_DECK;
-				addOp.data.addCard.targetIndex = interactionTargetIndex;
-				// Find matching CardType id
-				addOp.data.addCard.cardType = (int)cardToAdd.type;
-				queueEffect(addOp);
-			}
-
-			// 3. Visual Feedback (effect handlers will show per-card messages)
-			ofLogNotice("Double Handed") << "Queued " << copiesToAdd << "x " << cardName << " into Player " << target->playerID << "'s deck via EffectOps.";
-
-			// 5. Finalize Play (Cost AP, Remove Card)
-			if (interactingCardIndex != -1) {
-				Card & playedCard = caster.hand[interactingCardIndex];
-				int dhCost = playedCard.cost;
-				if (playedCard.type == CARD_KICK && caster.freeKickTurns > 0) dhCost = 0;
-				currentAP -= dhCost;
-				caster.playedCardsPile.push_back(playedCard);
-				// Handle Replicate if active
-				applyReplicateCopyToHand(caster, playedCard);
-				// Ensure authoritative AP field is updated before any network sends
-				updatePlayerAP(players[currentPlayerIndex], currentAP);
-				caster.hand.erase(caster.hand.begin() + interactingCardIndex);
-				calculateTargetHighlights();
-			}
-		}
-	}
-
-	updateCardInteractionState(CARD_INTERACTION_IDLE, -1, CARD_NONE);
-	interactionTargetIndex = -1;
-	interactionMenuChoice.clear();
-	sendMenuState(0, -1, -1, -1);
-	calculateTargetHighlights();
-}
+// resolveDoubleHanded inlined at call sites. Legacy helper removed.
 //--------------------------------------------------------------
 void ofApp::determineStatusOptions(Player * target) {
 	statusSelectLabels.clear();
@@ -28214,177 +28319,8 @@ void ofApp::cancelMagicHand() {
 	interactingCardIndex = -1;
 }
 
-void ofApp::resolveMagicHandPull() {
-	Player & caster = players[currentPlayerIndex];
-	glm::ivec2 wallPos = magicHandTargetTile;
-	glm::ivec2 casterPos = { caster.x, caster.y };
-
-	// Direction from Caster -> Wall
-	glm::ivec2 dir = wallPos - casterPos;
-
-	// Position BEHIND caster
-	glm::ivec2 backPos = casterPos - dir;
-
-	// Check bounds and occupancy for backPos
-	bool isValid = true;
-	if (backPos.x < 0 || backPos.x >= BOARD_WIDTH || backPos.y < 0 || backPos.y >= BOARD_HEIGHT)
-		isValid = false;
-	else if (board[backPos.x][backPos.y].hasWall || board[backPos.x][backPos.y].hasPlayer)
-		isValid = false;
-
-	if (!isValid) {
-		queueFloatingTextVisual(gridToWorld(caster.x, caster.y), "Blocked Behind!", ofColor::red);
-		return; // Don't close menu, allow retry or cancel
-	}
-
-	// Build deterministic effect sequence:
-	beginEffectSequence();
-	// 1) Move caster to backPos
-	EffectOp mv = {};
-	mv.type = EffectOpType::MOVE_UNIT;
-	mv.data.moveUnit.unitIndex = currentPlayerIndex;
-	mv.data.moveUnit.toX = backPos.x;
-	mv.data.moveUnit.toY = backPos.y;
-	queueEffect(mv);
-
-	// 2) Remove wall at original wallPos
-	EffectOp remWall = {};
-	remWall.type = EffectOpType::MODIFY_TILE;
-	remWall.data.modifyTile.toX = wallPos.x;
-	remWall.data.modifyTile.toY = wallPos.y;
-	remWall.data.modifyTile.setHasWall = 0;
-	queueEffect(remWall);
-
-	// 3) Create wall at caster's old position (preserve magic-flag)
-	EffectOp create = {};
-	create.type = EffectOpType::CREATE_WALL;
-	create.data.createWall.x = casterPos.x;
-	create.data.createWall.y = casterPos.y;
-	create.data.createWall.isMagic = board[wallPos.x][wallPos.y].isMagicWall;
-	queueEffect(create);
-
-	// Finalize: pay AP and remove card locally, then notify opponent
-	currentAP -= players[currentPlayerIndex].hand[interactingCardIndex].cost;
-	players[currentPlayerIndex].playedCardsPile.push_back(players[currentPlayerIndex].hand[interactingCardIndex]);
-	players[currentPlayerIndex].hand.erase(players[currentPlayerIndex].hand.begin() + interactingCardIndex);
-	sendMagicHandResolutionPacket(2);
-
-	// Cleanup local interaction state
-	interactingCardIndex = -1;
-	updateCardInteractionState(CARD_INTERACTION_IDLE, -1, CARD_NONE);
-	invalidateTargetCache();
-	advanceCardState(CARD_STATE_EFFECT_SEQUENCE);
-	beginEffectSequence();
-}
-
-void ofApp::resolveMagicHandPush() {
-	Player & caster = players[currentPlayerIndex];
-	glm::ivec2 wallPos = magicHandTargetTile;
-	glm::ivec2 casterPos = { caster.x, caster.y };
-	glm::ivec2 dir = wallPos - casterPos;
-	glm::ivec2 targetPos = wallPos + dir; // Where the wall goes
-
-	// Check bounds
-	if (targetPos.x < 0 || targetPos.x >= BOARD_WIDTH || targetPos.y < 0 || targetPos.y >= BOARD_HEIGHT) {
-		queueFloatingTextVisual(gridToWorld(wallPos.x, wallPos.y), "Edge of World!", ofColor::red);
-		return;
-	}
-
-	// Check if target has another wall
-	if (board[targetPos.x][targetPos.y].hasWall) {
-		queueFloatingTextVisual(gridToWorld(wallPos.x, wallPos.y), "Blocked by Wall!", ofColor::red);
-		return;
-	}
-
-	// Check for Unit
-	if (board[targetPos.x][targetPos.y].hasPlayer) {
-		// Find the unit
-		for (size_t i = 0; i < players.size(); i++) {
-			if (players[i].x == targetPos.x && players[i].y == targetPos.y) {
-				magicHandPushedUnitIndex = (int)i;
-				break;
-			}
-		}
-
-		// Queue deterministic damage roll (2d4 Physical) and apply op
-		magicHandPushDir = dir;
-
-		beginEffectSequence();
-		EffectOp rollOp = {};
-		rollOp.type = EffectOpType::ROLL_DICE;
-		rollOp.data.rollDice.numDice = 2;
-		rollOp.data.rollDice.sides = 4;
-		rollOp.data.rollDice.purpose = PURPOSE_MAGIC_HAND_DAMAGE;
-		rollOp.data.rollDice.ownerIndex = currentPlayerIndex;
-		rollOp.data.rollDice.outputSlot = 0;
-		strncpy(rollOp.data.rollDice.label, "Magic Hand Crush", 31);
-		rollOp.data.rollDice.label[31] = '\0';
-		queueEffect(rollOp);
-
-		EffectOp applyOp = {};
-		applyOp.type = EffectOpType::APPLY_MAGIC_HAND_DAMAGE;
-		queueEffect(applyOp);
-
-		// Pay cost now (apply locally first so packet reflects post-play AP)
-		currentAP -= caster.hand[interactingCardIndex].cost;
-		caster.playedCardsPile.push_back(caster.hand[interactingCardIndex]);
-
-		// Notify opponent after local update so pkt.updatedAP contains the post-play AP
-		sendMagicHandResolutionPacket(1);
-
-		// Finally remove from hand and finish
-		caster.hand.erase(caster.hand.begin() + interactingCardIndex);
-		interactingCardIndex = -1;
-		updateCardInteractionState(CARD_INTERACTION_IDLE, -1, CARD_NONE);
-
-		// Move Caster and Wall happens inside APPLY_MAGIC_HAND_DAMAGE to sync animations
-		advanceCardState(CARD_STATE_EFFECT_SEQUENCE);
-		beginEffectSequence();
-		return;
-	}
-
-	// Empty Space: queue deterministic effect ops for move + wall relocation
-	beginEffectSequence();
-	// 1) Move caster to wallPos
-	EffectOp mv = {};
-	mv.type = EffectOpType::MOVE_UNIT;
-	mv.data.moveUnit.unitIndex = currentPlayerIndex;
-	mv.data.moveUnit.toX = wallPos.x;
-	mv.data.moveUnit.toY = wallPos.y;
-	queueEffect(mv);
-
-	// 2) Remove original wall
-	EffectOp rem = {};
-	rem.type = EffectOpType::MODIFY_TILE;
-	rem.data.modifyTile.toX = wallPos.x;
-	rem.data.modifyTile.toY = wallPos.y;
-	rem.data.modifyTile.setHasWall = 0;
-	queueEffect(rem);
-
-	// 3) Create wall at targetPos (preserve magic flag)
-	EffectOp create = {};
-	create.type = EffectOpType::CREATE_WALL;
-	create.data.createWall.x = targetPos.x;
-	create.data.createWall.y = targetPos.y;
-	create.data.createWall.isMagic = board[wallPos.x][wallPos.y].isMagicWall;
-	queueEffect(create);
-
-	// Pay cost & finalize locally first
-	currentAP -= caster.hand[interactingCardIndex].cost;
-	caster.playedCardsPile.push_back(caster.hand[interactingCardIndex]);
-
-	// Notify opponent after local update so pkt.updatedAP contains the post-play AP
-	sendMagicHandResolutionPacket(1);
-
-	// Now remove card from hand and finish
-	caster.hand.erase(caster.hand.begin() + interactingCardIndex);
-	interactingCardIndex = -1;
-
-	updateCardInteractionState(CARD_INTERACTION_IDLE, -1, CARD_NONE);
-	invalidateTargetCache();
-	advanceCardState(CARD_STATE_EFFECT_SEQUENCE);
-	beginEffectSequence();
-}
+// resolveMagicHandPull and resolveMagicHandPush have been inlined at their call sites
+// in CARD_GIANT_MAGIC_HAND handling. Legacy helpers removed.
 //--------------------------------------------------------------
 void ofApp::generateDraftOptions(int classTier, const std::vector<int> * forcedIndices) {
 	draftAcceptLocked = false;
