@@ -940,6 +940,8 @@ private:
 	// Last AP roll parameters (used for assistant auto-reroll)
 	int lastAPDiceNum = 0;
 	int lastAPDiceSides = 0;
+	// True when AP for the current player has already been deterministically resolved
+	bool apResolvedThisTurn = false;
 	void setupGame();
 	// Start the initiative phase (sets state + spawns initiative dice)
 	void startInitiativePhase();
