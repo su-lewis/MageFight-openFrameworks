@@ -999,7 +999,7 @@ private:
 
 	// Time Vortex resolution migrated to effect/op pipeline
 	// Chain Lightning handled by effect/op pipeline (APPLY_CHAIN_LIGHTNING)
-	void resolveChainLightningRangeDice();
+	// Chain Lightning handled by effect/op pipeline (APPLY_CHAIN_LIGHTNING)
 	// Flail, Spark of Genius, and Barrier handled by effect/op pipeline
 
 	// resolveOnFireDice/resolvePoisonStatusDice removed; handled by EffectOp pipeline
