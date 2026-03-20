@@ -3623,7 +3623,8 @@ void ofApp::updateGame() {
 	// before the summoned minion's HP/UI shows up.
 	{
 		const float KEY_DRAFT_UI_DELAY = 0.03f; // seconds (≈ one frame)
-		if (networkPending.keyDraftAccept && (ofGetElapsedTimef() - networkPending.keyDraftTriggerTime) >= KEY_DRAFT_UI_DELAY && !isWaitingForSummonHealth) {
+		// Wait until any effect processing for summoned minion visuals completes
+		if (networkPending.keyDraftAccept && (ofGetElapsedTimef() - networkPending.keyDraftTriggerTime) >= KEY_DRAFT_UI_DELAY && !isProcessingEffect) {
 			// Diagnostic: remap stable playerID -> current actor index (handles players[] reordering)
 			int resolvedIdx = -1;
 			if (networkPending.keyDraftPlayerID >= 0) {
@@ -3883,8 +3884,7 @@ void ofApp::updateGame() {
 	// resolveShootArrowDice migrated to APPLY_SHOOT_ARROW in the effect/op pipeline
 	// Chain Lightning handled by effect-ops (APPLY_CHAIN_LIGHTNING -> ROLL_DICE -> APPLY_CHAIN_LIGHTNING_DAMAGE)
 	// Flail, Spark of Genius, and Barrier resolution migrated to effect/op pipeline (APPLY_* handlers)
-	resolveOnFireDice();
-	resolvePoisonStatusDice();
+	// Status resolution is handled by EffectOp handlers; no per-frame resolve calls here.
 	// Paralysis & Wolf coin flips are handled via effect-ops (APPLY_PARALYSIS / APPLY_WOLF_COIN)
 
 	// --- KOBOLD KING DYNAMIC HP LOGIC ---
@@ -4261,7 +4261,7 @@ void ofApp::updateGame() {
 					animatingPlayerIndex = -1;
 					earthquakeUnits.clear();
 					earthquakeDiceAssignCounter = 0;
-					isWaitingForEarthquakeBegin = false;
+					isEarthquakeWaiting = false;
 					invalidateTargetCache();
 				}
 			}
@@ -4424,9 +4424,44 @@ void ofApp::updateGame() {
 				} else if (roll.purpose == PURPOSE_BONUS_AP) {
 					// Bonus AP authoritative application handled by APPLY_BONUS_AP effect op
 				} else if (roll.purpose == PURPOSE_SUMMON_KOBOLDS) {
-					// Centralized summon handling
-					resolveSummonKobolds(roll);
-					return;
+					// Centralized summon handling (inlined from legacy resolver)
+					int count = roll.result;
+					if (count <= 0) {
+						queueFloatingTextVisual(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y), "No Kobolds!", ofColor::gray);
+						// End kobold placement mode
+						updateCardInteractionState(CARD_INTERACTION_IDLE, -1, CARD_NONE);
+					} else {
+						// Count available adjacent empty tiles
+						int avail = 0;
+						glm::vec2 adj[] = { { 1, 0 }, { -1, 0 }, { 0, 1 }, { 0, -1 } };
+						for (auto & d : adj) {
+							int nx = koboldPlacementSourceX + (int)d.x;
+							int ny = koboldPlacementSourceY + (int)d.y;
+							if (nx >= 0 && nx < BOARD_WIDTH && ny >= 0 && ny < BOARD_HEIGHT) {
+								if (!board[nx][ny].hasWall && !board[nx][ny].hasPlayer) avail++;
+							}
+						}
+						int allowed = std::min<int>(count, std::min(avail, 4));
+						if (allowed <= 0) {
+							queueFloatingTextVisual(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y), "No Space!", ofColor::red);
+							updateCardInteractionState(CARD_INTERACTION_IDLE, -1, CARD_NONE);
+						} else {
+							// MULTIPLAYER: Only enter placement mode if it is the LOCAL player's turn
+							if (isCurrentPlayerLocal()) {
+								koboldsRemainingToPlace = allowed;
+								koboldSummonCount = 0;
+								updateCardInteractionState(CARD_INTERACTION_PLACING, -1, CARD_CALL_FOR_KOBOLDS);
+								ofLogNotice("Summon") << "CallForKobolds: will place " << koboldsRemainingToPlace << " kobolds (source=" << koboldPlacementSourceX << "," << koboldPlacementSourceY << ")";
+								tooltipText = "Place Kobold: click an adjacent empty tile";
+								isShowingTooltip = true;
+								queueFloatingTextVisual(gridToWorld(koboldPlacementSourceX, koboldPlacementSourceY), ofToString(koboldsRemainingToPlace) + " Kobolds!", ofColor::gold);
+								invalidateTargetCache();
+							} else {
+								ofLogNotice("Summon") << "Opponent rolled " << count << " kobolds. Waiting for placement packet.";
+							}
+						}
+					}
+					// allow dice cleanup below (do not early return)
 				}
 			}
 		}
@@ -14552,7 +14587,7 @@ void ofApp::handleCardTargetClick(int gridX, int gridY) {
 	// Centralize minion placement logic in switch
 	switch (interactingCardType) {
 	case CARD_CALL_FOR_KOBOLDS: {
-		if (cardInteractionState == CARD_INTERACTION_PLACING && !isWaitingForKoboldDice) {
+		if (cardInteractionState == CARD_INTERACTION_PLACING && koboldsRemainingToPlace > 0) {
 			int gx = gridX, gy = gridY;
 			if (gx >= 0 && gx < BOARD_WIDTH && gy >= 0 && gy < BOARD_HEIGHT) {
 				if (!board[gx][gy].hasWall && !board[gx][gy].hasPlayer) {
@@ -16551,16 +16586,38 @@ void ofApp::processEffectOp(EffectOp & op) {
 
 	case EffectOpType::APPLY_POISON: {
 		// Determine poison damage from blackboard slot 0 (authoritative)
-		int poisonDamage = currentEffectSequence.blackboard[0];
+		int poisonRoll = currentEffectSequence.blackboard[0];
 
-		// Apply poison damage immediately and perform death cleanup deterministically
+		// Apply poison damage to each queued target with per-target reduction
 		for (int pID : currentCardOutcome.poisonTargetPlayerIDs) {
 			int pIndex = findPlayerIndexByID(pID);
 			Player * target = getPlayer(pIndex);
-			if (target) {
-				applyDamageTo(*target, poisonDamage, DAMAGE_POISON, -1);
+			if (!target) continue;
+
+			int actualDamage = std::max(0, poisonRoll - target->poisonReduction);
+
+			if (actualDamage > 0) {
+				applyDamageTo(*target, actualDamage, DAMAGE_POISON, -1);
+				queueFloatingTextVisual(gridToWorld(target->x, target->y), "-" + ofToString(actualDamage) + " Poison", ofColor::green);
+			} else {
+				queueFloatingTextVisual(gridToWorld(target->x, target->y), "Poison Fading", ofColor::gray);
+			}
+
+			// Increment poisonReduction counter and cure if threshold reached
+			target->poisonReduction += 1;
+			if (target->poisonReduction >= 6) {
+				// Queue deterministic removal of poison
+				EffectOp rm = {};
+				rm.type = EffectOpType::REMOVE_STATUS;
+				rm.data.status.targetIndex = pIndex;
+				rm.data.status.statusType = STATUS_POISONED;
+				rm.data.status.duration = 0;
+				queueEffect(rm);
+				target->poisonReduction = 0;
+				queueFloatingTextVisual(gridToWorld(target->x, target->y) + glm::vec3(0, 0.8f, 0), "Poison Cured!", ofColor::white);
 			}
 		}
+
 		currentCardOutcome.poisonTargetPlayerIDs.clear();
 
 		// Advance card flow if needed
@@ -21497,7 +21554,7 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 			currentPlayer.cardsPlayedThisTurn.push_back(playedCard.type);
 			currentPlayer.hand.erase(currentPlayer.hand.begin() + cardIndex);
 			players[currentPlayerIndex].ap = currentAP;
-			isWaitingForEarthquakeBegin = true;
+			isEarthquakeWaiting = true;
 			immediateResult = CARD_PLAYED_IMMEDIATELY;
 			return true;
 		}
@@ -22456,50 +22513,7 @@ void ofApp::resolveAPRoll() {
 	}
 }
 
-// --- Summon Kobolds centralized resolver ---
-void ofApp::resolveSummonKobolds(const DiceRoll & finishedRoll) {
-	if (!isWaitingForKoboldDice) return;
-	isWaitingForKoboldDice = false;
-	int count = finishedRoll.result;
-	if (count <= 0) {
-		queueFloatingTextVisual(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y), "No Kobolds!", ofColor::gray);
-		// End kobold placement mode
-		updateCardInteractionState(CARD_INTERACTION_IDLE, -1, CARD_NONE);
-		return;
-	}
-	// Count available adjacent empty tiles
-	int avail = 0;
-	glm::vec2 adj[] = { { 1, 0 }, { -1, 0 }, { 0, 1 }, { 0, -1 } };
-	for (auto & d : adj) {
-		int nx = koboldPlacementSourceX + (int)d.x;
-		int ny = koboldPlacementSourceY + (int)d.y;
-		if (nx >= 0 && nx < BOARD_WIDTH && ny >= 0 && ny < BOARD_HEIGHT) {
-			if (!board[nx][ny].hasWall && !board[nx][ny].hasPlayer) avail++;
-		}
-	}
-	int allowed = std::min<int>(count, std::min(avail, 4));
-	if (allowed <= 0) {
-		queueFloatingTextVisual(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y), "No Space!", ofColor::red);
-		updateCardInteractionState(CARD_INTERACTION_IDLE, -1, CARD_NONE);
-		return;
-	}
-	// --- MULTIPLAYER: Only enter placement mode if it is the LOCAL player's turn ---
-	if (isCurrentPlayerLocal()) {
-		koboldsRemainingToPlace = allowed;
-		koboldSummonCount = 0;
-		updateCardInteractionState(CARD_INTERACTION_PLACING, -1, CARD_CALL_FOR_KOBOLDS);
-		ofLogNotice("Summon") << "CallForKobolds: will place " << koboldsRemainingToPlace << " kobolds (source=" << koboldPlacementSourceX << "," << koboldPlacementSourceY << ")";
-		// Instruction UI
-		tooltipText = "Place Kobold: click an adjacent empty tile";
-		isShowingTooltip = true;
-		queueFloatingTextVisual(gridToWorld(koboldPlacementSourceX, koboldPlacementSourceY), ofToString(koboldsRemainingToPlace) + " Kobolds!", ofColor::gold);
-		invalidateTargetCache();
-	} else {
-		// It's the opponent. Do NOT enter placement mode locally.
-		// We wait for their PKT_PLACE_SUMMONED_MINION packet.
-		ofLogNotice("Summon") << "Opponent rolled " << count << " kobolds. Waiting for placement packet.";
-	}
-}
+// Summon handling has been inlined into the active dice processing loop above.
 
 // --------------------------------------------------------------
 // Blocking Boon centralized resolver
@@ -22790,7 +22804,7 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 	}
 
 	// --- KOBOLD PLACEMENT HIGHLIGHTING ---
-	if (cardInteractionState == CARD_INTERACTION_PLACING && interactingCardType == CARD_CALL_FOR_KOBOLDS && !isWaitingForKoboldDice) {
+	if (cardInteractionState == CARD_INTERACTION_PLACING && interactingCardType == CARD_CALL_FOR_KOBOLDS && koboldsRemainingToPlace > 0) {
 		std::vector<glm::vec2> dirs = { { 0, 1 }, { 0, -1 }, { 1, 0 }, { -1, 0 } };
 		for (auto & dir : dirs) {
 			int nx = koboldPlacementSourceX + (int)dir.x;
@@ -30373,7 +30387,7 @@ void ofApp::processNetworkPackets() {
 					isEarthquakeDiceRolling = true;
 					isEarthquakeAnimatingStep = false;
 					earthquakeDiceAssignCounter = 0;
-					isWaitingForEarthquakeBegin = false;
+					isEarthquakeWaiting = false;
 
 					// Advance gameplay RNG to mirror host's direction choices and upcoming
 					// earthquake distance rolls so client RNG sequence stays aligned.
@@ -32243,190 +32257,9 @@ void ofApp::logDeckStates(const std::string & reason) {
 
 // Teleport resolution migrated to effect/op pipeline: APPLY_TELEPORT handles range->targeting
 
-void ofApp::resolveOnFireDice() {
-	if (!isWaitingForOnFireDice || !diceVisualsFinishedAndLinger()) return;
+// resolveOnFireDice removed - logic now handled by EffectOp pipeline (APPLY_ON_FIRE / APPLY_ON_FIRE_RESOLVE)
 
-	isWaitingForOnFireDice = false;
-
-	int rollResult = currentCardOutcome.namedDiceResults["status_onfire"];
-	ofLogNotice("Status") << "resolveOnFireDice: roll=" << rollResult << " playerIndex=" << currentPlayerIndex << " playerID=" << players[currentPlayerIndex].playerID;
-	Player & burningPlayer = players[currentPlayerIndex];
-
-	// Apply Damage via EffectOp
-	{
-		EffectOp dmg = {};
-		dmg.type = EffectOpType::MODIFY_STAT;
-		dmg.data.modifyStat.targetIndex = currentPlayerIndex;
-		dmg.data.modifyStat.statType = 0; // HP
-		dmg.data.modifyStat.delta = -rollResult;
-		dmg.data.modifyStat.deltaFromSlot = -1;
-		processEffectOp(dmg);
-	}
-	queueFloatingTextVisual(gridToWorld(burningPlayer.x, burningPlayer.y), "-" + ofToString(rollResult) + " Fire", ofColor::red);
-
-	// Form tracking
-	if (burningPlayer.inTortoiseForm) {
-		burningPlayer.tortoiseDamageTaken += rollResult;
-		if (burningPlayer.tortoiseDamageTaken >= 5) {
-			// Queue removal of tortoise form deterministically
-			{
-				EffectOp rm = {};
-				rm.type = EffectOpType::REMOVE_STATUS;
-				rm.data.status.targetIndex = currentPlayerIndex;
-				rm.data.status.statusType = STATUS_TORTOISE_FORM;
-				rm.data.status.duration = 0;
-				queueEffect(rm);
-			}
-			// inTortoiseForm will be cleared when the REMOVE_STATUS op is processed
-			burningPlayer.tortoiseDamageTaken = 0;
-			burningPlayer.discardPile.push_back(burningPlayer.tortoiseFormCard);
-			queueFloatingTextVisual(gridToWorld(burningPlayer.x, burningPlayer.y) + glm::vec3(0, 0.5f, 0), "Form Ended!", ofColor::darkGreen);
-		}
-	}
-	if (burningPlayer.inGhostForm) {
-		burningPlayer.ghostDamageTaken += rollResult;
-		if (burningPlayer.ghostDamageTaken >= 4) {
-			// Queue removal of ghost form deterministically
-			{
-				EffectOp rm = {};
-				rm.type = EffectOpType::REMOVE_STATUS;
-				rm.data.status.targetIndex = currentPlayerIndex;
-				rm.data.status.statusType = STATUS_GHOST_FORM;
-				rm.data.status.duration = 0;
-				queueEffect(rm);
-			}
-			// inGhostForm will be cleared when the REMOVE_STATUS op is processed
-			burningPlayer.ghostDamageTaken = 0;
-			burningPlayer.discardPile.push_back(burningPlayer.ghostFormCard);
-			queueFloatingTextVisual(gridToWorld(burningPlayer.x, burningPlayer.y) + glm::vec3(0, 0.5f, 0), "Ghost Form Broken!", ofColor::white);
-
-			if (board[burningPlayer.x][burningPlayer.y].hasWall) {
-				EffectOp killOp = {};
-				killOp.type = EffectOpType::MODIFY_STAT;
-				killOp.data.modifyStat.targetIndex = currentPlayerIndex;
-				killOp.data.modifyStat.statType = 0; // HP
-				killOp.data.modifyStat.delta = -players[currentPlayerIndex].health;
-				killOp.data.modifyStat.deltaFromSlot = -1;
-				processEffectOp(killOp);
-				queueFloatingTextVisual(gridToWorld(burningPlayer.x, burningPlayer.y) + glm::vec3(0, 1.0f, 0), "Materialized in Wall!", ofColor::red);
-			}
-		}
-	}
-
-	// Check if fire is extinguished
-	if (rollResult == 1 || rollResult == 2) {
-		// Queue removal of on-fire status
-		{
-			EffectOp rm = {};
-			rm.type = EffectOpType::REMOVE_STATUS;
-			rm.data.status.targetIndex = currentPlayerIndex;
-			rm.data.status.statusType = STATUS_ON_FIRE;
-			rm.data.status.duration = 0;
-			queueEffect(rm);
-		}
-		// onFire will be cleared when the REMOVE_STATUS op is processed
-		queueFloatingTextVisual(gridToWorld(burningPlayer.x, burningPlayer.y) + glm::vec3(0, 0.8f, 0), "Extinguished", ofColor::white);
-	}
-
-	// Check sleep after fire
-	if (burningPlayer.sleepTurnsRemaining > 0) {
-		startNewTurn();
-		return;
-	}
-
-	continueNewTurn();
-}
-
-void ofApp::resolvePoisonStatusDice() {
-	if (!isWaitingForPoisonDice || !diceVisualsFinishedAndLinger()) return;
-
-	isWaitingForPoisonDice = false;
-
-	int rollResult = currentCardOutcome.namedDiceResults["status_poison"];
-	Player & poisonedPlayer = players[currentPlayerIndex];
-
-	int actualDamage = std::max(0, rollResult - poisonedPlayer.poisonReduction);
-
-	if (actualDamage > 0) {
-		EffectOp dmg = {};
-		dmg.type = EffectOpType::MODIFY_STAT;
-		dmg.data.modifyStat.targetIndex = currentPlayerIndex;
-		dmg.data.modifyStat.statType = 0; // HP
-		dmg.data.modifyStat.delta = -actualDamage;
-		dmg.data.modifyStat.deltaFromSlot = -1;
-		processEffectOp(dmg);
-		queueFloatingTextVisual(gridToWorld(poisonedPlayer.x, poisonedPlayer.y), "-" + ofToString(actualDamage) + " Poison", ofColor::green);
-
-		// Form tracking
-		if (poisonedPlayer.inTortoiseForm) {
-			poisonedPlayer.tortoiseDamageTaken += actualDamage;
-			if (poisonedPlayer.tortoiseDamageTaken >= 5) {
-				// Queue removal of tortoise form deterministically
-				{
-					EffectOp rm = {};
-					rm.type = EffectOpType::REMOVE_STATUS;
-					rm.data.status.targetIndex = currentPlayerIndex;
-					rm.data.status.statusType = STATUS_TORTOISE_FORM;
-					rm.data.status.duration = 0;
-					queueEffect(rm);
-				}
-				// inTortoiseForm will be cleared when the REMOVE_STATUS op is processed
-				poisonedPlayer.tortoiseDamageTaken = 0;
-				poisonedPlayer.discardPile.push_back(poisonedPlayer.tortoiseFormCard);
-				queueFloatingTextVisual(gridToWorld(poisonedPlayer.x, poisonedPlayer.y) + glm::vec3(0, 0.5f, 0), "Form Ended!", ofColor::darkGreen);
-			}
-		}
-		if (poisonedPlayer.inGhostForm) {
-			poisonedPlayer.ghostDamageTaken += actualDamage;
-			if (poisonedPlayer.ghostDamageTaken >= 4) {
-				// Queue removal of ghost form deterministically
-				{
-					EffectOp rm = {};
-					rm.type = EffectOpType::REMOVE_STATUS;
-					rm.data.status.targetIndex = currentPlayerIndex;
-					rm.data.status.statusType = STATUS_GHOST_FORM;
-					rm.data.status.duration = 0;
-					queueEffect(rm);
-				}
-				// inGhostForm will be cleared when the REMOVE_STATUS op is processed
-				poisonedPlayer.ghostDamageTaken = 0;
-				poisonedPlayer.discardPile.push_back(poisonedPlayer.ghostFormCard);
-				queueFloatingTextVisual(gridToWorld(poisonedPlayer.x, poisonedPlayer.y) + glm::vec3(0, 0.5f, 0), "Ghost Form Broken!", ofColor::white);
-
-				if (board[poisonedPlayer.x][poisonedPlayer.y].hasWall) {
-					EffectOp killOp = {};
-					killOp.type = EffectOpType::MODIFY_STAT;
-					killOp.data.modifyStat.targetIndex = currentPlayerIndex;
-					killOp.data.modifyStat.statType = 0; // HP
-					killOp.data.modifyStat.delta = -players[currentPlayerIndex].health;
-					killOp.data.modifyStat.deltaFromSlot = -1;
-					processEffectOp(killOp);
-					queueFloatingTextVisual(gridToWorld(poisonedPlayer.x, poisonedPlayer.y) + glm::vec3(0, 1.0f, 0), "Materialized in Wall!", ofColor::red);
-				}
-			}
-		}
-	} else {
-		queueFloatingTextVisual(gridToWorld(poisonedPlayer.x, poisonedPlayer.y), "Poison Fading", ofColor::gray);
-	}
-
-	poisonedPlayer.poisonReduction++;
-
-	if (poisonedPlayer.poisonReduction >= 6) {
-		// Queue deterministic removal of poison
-		{
-			EffectOp rm = {};
-			rm.type = EffectOpType::REMOVE_STATUS;
-			rm.data.status.targetIndex = currentPlayerIndex;
-			rm.data.status.statusType = STATUS_POISONED;
-			rm.data.status.duration = 0;
-			queueEffect(rm);
-		}
-		poisonedPlayer.poisonReduction = 0;
-		queueFloatingTextVisual(gridToWorld(poisonedPlayer.x, poisonedPlayer.y) + glm::vec3(0, 0.8f, 0), "Poison Cured!", ofColor::white);
-	}
-
-	continueNewTurn();
-}
+// resolvePoisonStatusDice removed - logic now handled by EffectOp pipeline (APPLY_POISON)
 
 // ======================================
 // FINAL 5 HELPERS (Scattered Status Effects & Summoning)

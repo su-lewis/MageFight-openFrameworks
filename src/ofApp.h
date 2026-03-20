@@ -983,14 +983,14 @@ private:
 
 	// --- Async Resolution Helpers (Centralized Dice/State Resolution) ---
 
-	void resolveSummonHealth();
+	// resolveSummonHealth removed; summon handling inlined into dice processing loop
 	// Amnesia resolver removed; handled via EffectOpType::APPLY_AMNESIA
 	// Magic Blast handled via EffectOpType::APPLY_MAGIC_BLAST
 	// Death, Sleep and Jolt range resolution migrated into EffectOp handlers
 	// Earthquake damage migrated to effect/op pipeline (APPLY_EARTHQUAKE_DAMAGE)
 	void resolveAPRoll();
 	// Blocking Boon resolution migrated to effect/op handlers (APPLY_BLOCKING_BOON_*)
-	void resolveSummonKobolds(const DiceRoll & finishedRoll);
+	// resolveSummonKobolds removed: summon handling inlined into dice processing loop
 
 	void updateEarthquakeSimulation();
 	// Bonus AP handled via EffectOpType::APPLY_BONUS_AP
@@ -1002,8 +1002,7 @@ private:
 	void resolveChainLightningRangeDice();
 	// Flail, Spark of Genius, and Barrier handled by effect/op pipeline
 
-	void resolveOnFireDice();
-	void resolvePoisonStatusDice();
+	// resolveOnFireDice/resolvePoisonStatusDice removed; handled by EffectOp pipeline
 	// Paralysis/Wolf coin resolvers removed; handled via effect ops.
 
 	// Simple inline dice resolver for legacy inline uses (sums N dS)
@@ -1910,16 +1909,10 @@ private:
 	}
 
 	// Attack
-	bool isWaitingForAttackDice = false;
 	// Attack dice/result now use centralized `interactionDiceRoll` and
 	// `interactingCardName` for logging/special cases. Targets & damage type
 	// are stored in `currentCardOutcome.attackTargetIndices` and
 	// `currentCardOutcome.attackDamageType`.
-
-	// Poison (from Add Poison card)
-	bool isWaitingForPoisonAttackDice = false;
-	// Poison damage rolls are stored in `currentCardOutcome.namedDiceResults["poison_attack"]`.
-	// Targets are in `currentCardOutcome.poisonTargetPlayerIDs`.
 
 	// Amnesia (migrated to effect/op handlers)
 	int amnesiaTargetPlayerIndex = -1;
@@ -1963,8 +1956,6 @@ private:
 	// (migrated to deterministic instant-resolve + visual queue)
 	glm::vec2 fireballImpactTile;
 	int fireballTargetPlayerIndex = -1;
-	bool isWaitingForFireballRangeDice = false;
-	bool isWaitingForFireballDamageDice = false;
 
 	// Ethereal Jolt handled via EffectOpType::APPLY_ETHEREAL_JOLT
 	// uses `interactionDiceRoll` and `interactionTargetTile`
@@ -2035,7 +2026,6 @@ private:
 	std::vector<EarthquakeDamageTarget> earthquakeDamageTargets;
 
 	// When a client plays earthquake, it waits for host to send EarthquakeBegin
-	bool isWaitingForEarthquakeBegin = false;
 
 	// Wisdom Boon (uses centralized interaction state)
 	ofRectangle wisdomMenuRect;
@@ -2065,7 +2055,7 @@ private:
 		PENDING_SUMMON_WALL = 10,
 		PENDING_SUMMON_MAGIC_WALL = 11
 	};
-	bool isWaitingForSummonHealth = false;
+
 	// Summon placement/HP use centralized interaction fields:
 	// - `interactionDiceRoll` stores the rolled HP/count
 	// - `interactionTargetTile` stores the target grid tile
@@ -2114,7 +2104,6 @@ private:
 	int wolfSummonStage = 0; // 0=None, 1=First Wolf, 2=Second Wolf
 
 	// --- Call For Kobolds State ---
-	bool isWaitingForKoboldDice = false;
 	int koboldsRemainingToPlace = 0;
 	int koboldPlacementSourceX = -1;
 	int koboldPlacementSourceY = -1;
@@ -2139,7 +2128,6 @@ private:
 	// --- Giant Magic Hand ---
 	// Magic hand menu UI migrated to centralized `cardInteractionState`
 	glm::ivec2 magicHandTargetTile;
-	bool isWaitingForMagicHandDamage = false;
 	int magicHandPushedUnitIndex = -1;
 	glm::ivec2 magicHandPushDir;
 
@@ -2192,8 +2180,6 @@ private:
 	void cancelMagicHand();
 
 	// Status Effects
-	bool isWaitingForOnFireDice = false;
-	bool isWaitingForPoisonDice = false;
 	// NOTE: status dice results (onFire/poison/etc) are stored in
 	// `currentCardOutcome.namedDiceResults["status_onfire"]` and
 	// `currentCardOutcome.namedDiceResults["status_poison"]` respectively.
