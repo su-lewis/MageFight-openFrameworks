@@ -31437,8 +31437,8 @@ void ofApp::processNetworkPackets() {
 					req.type = PKT_SNAPSHOT_REQUEST;
 					req.playerID = myLocalPlayerID;
 					req.requestedTurn = globalTurnCounter;
-						steamManager.sendPacket(&req, sizeof(req));
-						waitingForSnapshotStartTime = ofGetElapsedTimef();
+					steamManager.sendPacket(&req, sizeof(req));
+					waitingForSnapshotStartTime = ofGetElapsedTimef();
 				}
 				continue;
 			}
