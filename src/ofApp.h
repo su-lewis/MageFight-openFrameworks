@@ -2210,7 +2210,8 @@ private:
 	// --- DICE & SOUND ---
 	std::vector<DiceRoll> activeDiceRolls;
 	// Host waits for connected clients to confirm they've loaded the board before starting initiative
-	bool hostWaitingForClientsReady = false;
+	// If >0, host is waiting for clients to signal readiness; stores start time
+	float hostWaitingForClientsReadyStartTime = 0.0f;
 	std::set<uint32_t> clientsReady;
 	// Client-side flag: have we sent our ready signal to the host?
 	bool clientSentReady = false;

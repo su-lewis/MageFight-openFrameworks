@@ -3259,10 +3259,16 @@ void ofApp::setupGame() {
 	board[p1.x][p1.y].hasPlayer = true;
 	board[p2.x][p2.y].hasPlayer = true;
 
+	// Ensure a valid starting player index for singleplayer games
+	currentPlayerIndex = 0;
+	myLocalPlayerID = 0;
+	globalTurnCounter = 0;
+	turnStartTime = ofGetElapsedTimef();
+
 	// --- INITIATIVE PHASE START: defer to startInitiativePhase()
 	// If host in multiplayer, wait for client-ready signal before starting.
 	if (isMultiplayer && isHost()) {
-		hostWaitingForClientsReady = true;
+		hostWaitingForClientsReadyStartTime = ofGetElapsedTimef();
 		clientsReady.clear();
 		ofLogNotice("Game") << "Host: waiting for client ready signal before starting initiative.";
 	} else {
@@ -3394,7 +3400,7 @@ void ofApp::initialiseGameStateCommon() {
 
 	// --- INITIATIVE PHASE START: defer to startInitiativePhase()
 	if (isMultiplayer && isHost()) {
-		hostWaitingForClientsReady = true;
+		hostWaitingForClientsReadyStartTime = ofGetElapsedTimef();
 		clientsReady.clear();
 		ofLogNotice("Game") << "Host: waiting for client ready signal before starting initiative.";
 	} else {
@@ -3929,10 +3935,6 @@ void ofApp::updateGame() {
 	// --- MAGIC BLAST RESOLUTION ---
 	// NOTE: Magic Blast range/target resolution is now centralized
 	// in resolveMagicBlastDice() helper called above.
-
-	bool diceReadySummon = !activeDiceRolls.empty();
-	for (const auto & d : activeDiceRolls)
-		if (!d.isFinishedVisual) diceReadySummon = false;
 
 	// --- DEATH RESOLUTION ---
 	// NOTE: Death dice resolution is now centralized in resolveDeathDice() helper
@@ -5342,10 +5344,6 @@ void ofApp::updateGame() {
 					// Cards will be added to hand in the normal accept flow
 				} else if ((int)selectedDraftIndices.size() < requiredPicks) {
 					// No selections made: randomly pick remaining cards using gameplayRNG
-					const std::vector<Card> * pool = &class1Cards;
-					if (currentDraftClassTier == 2) pool = &class2Cards;
-					if (currentDraftClassTier == 3) pool = &class3Cards;
-
 					int numNeedToPick = requiredPicks - (int)selectedDraftIndices.size();
 					for (int i = 0; i < numNeedToPick; ++i) {
 						if (currentDraftOptionPoolIndices.empty()) break;
@@ -12839,18 +12837,6 @@ void ofApp::mouseReleased(int x, int y, int button) {
 		if (players.empty() || currentPlayerIndex < 0) return;
 
 		Player & currentPlayer = players[currentPlayerIndex];
-		auto hasAdjacentUnit = [&]() {
-			for (int dx = -1; dx <= 1; ++dx) {
-				for (int dy = -1; dy <= 1; ++dy) {
-					if (abs(dx) + abs(dy) != 1) continue;
-					int nx = currentPlayer.x + dx;
-					int ny = currentPlayer.y + dy;
-					if (nx < 0 || nx >= BOARD_WIDTH || ny < 0 || ny >= BOARD_HEIGHT) continue;
-					if (board[nx][ny].hasPlayer) return true;
-				}
-			}
-			return false;
-		};
 		const float dragThreshold = 5.0f;
 		float dist = mouseDownPos.distance(ofVec2f(x, y));
 
@@ -16465,10 +16451,29 @@ void ofApp::processEffectOp(EffectOp & op) {
 
 	switch (op.type) {
 	case EffectOpType::ROLL_DICE: {
-		// ROLL_DICE ops are resolved at queue time to avoid blocking the effect
-		// pipeline on 3D visuals. If one slips through, mark it complete.
-		ofLogNotice("EffectQueue") << "Skipping ROLL_DICE during processing (already resolved)";
-		opComplete = true;
+		// ROLL_DICE ops are normally resolved in queueEffect() so the effect
+		// pipeline never blocks on visuals. As a safety net, if a ROLL_DICE
+		// arrives here (wasn't resolved at enqueue-time), resolve it
+		// authoritatively now, write to the blackboard, and queue the
+		// cosmetic visual. Do not stall effect processing waiting for visuals.
+		{
+			const RollDiceData & r = op.data.rollDice;
+			std::vector<int> rawRoll;
+			int result = resolveDiceRollDetailed(r.numDice, r.sides, rawRoll);
+			if (r.outputSlot >= 0 && r.outputSlot < 16) {
+				currentEffectSequence.blackboard[r.outputSlot] = result;
+			}
+
+			// Determine a sensible visual spawn position: owner's tile if valid,
+			// otherwise a reasonable default (center of board)
+			glm::vec3 visPos = gridToWorld(3, 3);
+			if (r.ownerIndex >= 0 && r.ownerIndex < (int)players.size()) {
+				visPos = gridToWorld(players[r.ownerIndex].x, players[r.ownerIndex].y) + glm::vec3(0, 1.0f, 0);
+			}
+
+			queueVisualDiceRoll(visPos, r.numDice, r.sides, rawRoll, result, (int)r.purpose, r.ownerIndex, 1.2f);
+			opComplete = true;
+		}
 		break;
 	}
 
@@ -19072,63 +19077,71 @@ void ofApp::processVisualEvents() {
 	if (visualEvents.empty()) return;
 	float now = ofGetElapsedTimef();
 
-	// Update and handle visual events (spawn visuals on start, finalize on completion)
-	for (auto & ev : visualEvents) {
-		if (ev.completed) continue;
-
-		switch (ev.type) {
-		case VE_WAIT:
-			if (now - ev.startTime >= ev.duration) ev.completed = true;
-			break;
-
-		case VE_DICE:
-			// Spawn the 3D dice visuals once at event start (uses precomputed raw faces)
-			if (!ev.visualStarted) {
-				startVisualDiceRoll(ev);
-				ev.visualStarted = true;
-				ev.startTime = now; // measure duration after spawn
-			}
-			// When dice visual duration expires, simply complete the event.
-			if (now - ev.startTime >= ev.duration) {
-				ev.completed = true;
-			}
-			break;
-
-		case VE_TRACER: {
-			// Spawn tracer once then wait its duration
-			if (!ev.spawned) {
-				glm::ivec2 impact = transformWorldToGrid(ev.endPos);
-				spawnTracer(ev.startPos, ev.endPos, impact, ev.color, ev.duration);
-				ev.spawned = true;
-				ev.startTime = now;
-			}
-			if (now - ev.startTime >= ev.duration) ev.completed = true;
-		} break;
-
-		case VE_CUSTOM:
-			// Generic custom visuals (commonly used for floating text)
-			if (!ev.spawned) {
-				if (!ev.text.empty()) {
-					spawnFloatingText(ev.startPos, ev.text, ev.color);
-				}
-				ev.spawned = true;
-				ev.startTime = now;
-			}
-			if (ev.duration > 0.0f) {
-				if (now - ev.startTime >= ev.duration) ev.completed = true;
-			} else {
-				// default short lifetime when no duration specified
-				if (now - ev.startTime >= 1.2f) ev.completed = true;
-			}
-			break;
-
-		default:
-			ev.completed = true;
+	// Process visual events strictly in FIFO order. This ensures that when a
+	// dice visual (VE_DICE) is active no subsequent visuals will start until
+	// the dice event completes (per two-layer migration invariants).
+	int idx = -1;
+	for (size_t i = 0; i < visualEvents.size(); ++i) {
+		if (!visualEvents[i].completed) {
+			idx = (int)i;
 			break;
 		}
 	}
+	if (idx < 0) return;
 
-	// Erase completed events
+	VisualEvent & ev = visualEvents[idx];
+	switch (ev.type) {
+	case VE_WAIT:
+		if (now - ev.startTime >= ev.duration) ev.completed = true;
+		break;
+
+	case VE_DICE:
+		// Spawn the 3D dice visuals once at event start (uses precomputed raw faces)
+		if (!ev.visualStarted) {
+			startVisualDiceRoll(ev);
+			ev.visualStarted = true;
+			ev.startTime = now; // measure duration after spawn
+		}
+		// When dice visual duration expires, simply complete the event.
+		if (now - ev.startTime >= ev.duration) {
+			ev.completed = true;
+		}
+		break;
+
+	case VE_TRACER: {
+		// Spawn tracer once then wait its duration
+		if (!ev.spawned) {
+			glm::ivec2 impact = transformWorldToGrid(ev.endPos);
+			spawnTracer(ev.startPos, ev.endPos, impact, ev.color, ev.duration);
+			ev.spawned = true;
+			ev.startTime = now;
+		}
+		if (now - ev.startTime >= ev.duration) ev.completed = true;
+	} break;
+
+	case VE_CUSTOM:
+		// Generic custom visuals (commonly used for floating text)
+		if (!ev.spawned) {
+			if (!ev.text.empty()) {
+				spawnFloatingText(ev.startPos, ev.text, ev.color);
+			}
+			ev.spawned = true;
+			ev.startTime = now;
+		}
+		if (ev.duration > 0.0f) {
+			if (now - ev.startTime >= ev.duration) ev.completed = true;
+		} else {
+			// default short lifetime when no duration specified
+			if (now - ev.startTime >= 1.2f) ev.completed = true;
+		}
+		break;
+
+	default:
+		ev.completed = true;
+		break;
+	}
+
+	// Erase completed events (only necessary to keep queue tidy)
 	visualEvents.erase(std::remove_if(visualEvents.begin(), visualEvents.end(), [](const VisualEvent & v) { return v.completed; }), visualEvents.end());
 }
 
@@ -30381,12 +30394,12 @@ void ofApp::processNetworkPackets() {
 			if (header->type == PKT_CLIENT_READY && buffer.size() >= sizeof(ClientReadyPacket)) {
 				ClientReadyPacket * cr = (ClientReadyPacket *)header;
 				ofLogNotice("Network") << "ClientReady received from playerID=" << cr->playerID;
-				if (isHost() && hostWaitingForClientsReady) {
+				if (isHost() && hostWaitingForClientsReadyStartTime > 0.0f) {
 					clientsReady.insert(cr->playerID);
 					// For 2-player matches, start when we have any client ready
 					if (!clientsReady.empty()) {
 						ofLogNotice("Network") << "All clients ready - starting initiative phase.";
-						hostWaitingForClientsReady = false;
+						hostWaitingForClientsReadyStartTime = 0.0f;
 						startInitiativePhase();
 					}
 				}
