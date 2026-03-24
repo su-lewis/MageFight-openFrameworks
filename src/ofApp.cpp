@@ -148,8 +148,17 @@ void ofApp::startInitiativePhase() {
 	isInitiativeRolling = true;
 	initiativeTimer = 0.0f;
 
-	startDiceRoll(1, 6, PURPOSE_DEBUG, "", currentPlayerIndex);
-	startDiceRoll(1, 6, PURPOSE_DEBUG, "", currentPlayerIndex);
+	// Initiative visuals: authoritative resolver + visuals (no game-state mutation here)
+	{
+		std::vector<int> raw1;
+		int r1 = resolveDiceRollDetailed(1, 6, raw1);
+		queueVisualDiceRoll(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.0f, 0), 1, 6, raw1, r1, PURPOSE_DEBUG, currentPlayerIndex, 1.0f);
+	}
+	{
+		std::vector<int> raw2;
+		int r2 = resolveDiceRollDetailed(1, 6, raw2);
+		queueVisualDiceRoll(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.0f, 0), 1, 6, raw2, r2, PURPOSE_DEBUG, currentPlayerIndex, 1.0f);
+	}
 
 	ofLogNotice("Game") << "--- INITIATIVE ROLL STARTED ---";
 	cam.setAspectRatio((float)ofGetWidth() / (float)ofGetHeight());
@@ -1750,7 +1759,7 @@ void ofApp::update() {
 	}
 
 	// Resend watchdog for client-sent DraftActionPackets (retry until host forwards/acks)
-	if (isClient() && lastSentDraftActionValid && (waitingForDraftOptions || draftAcceptLocked)) {
+	if (isClient() && lastSentDraftActionValid && (waitingForDraftOptionsStartTime > 0.0f || draftAcceptLocked)) {
 		float now = ofGetElapsedTimef();
 		if (now - lastSentDraftActionTime > DRAFT_ACTION_RESEND_INTERVAL) {
 			if (lastSentDraftActionResendCount < DRAFT_ACTION_MAX_RESENDS) {
@@ -1782,7 +1791,7 @@ void ofApp::update() {
 	}
 
 	// If client is waiting for authoritative DraftOptions for too long, request a snapshot
-	if (isClient() && waitingForDraftOptions) {
+	if (isClient() && waitingForDraftOptionsStartTime > 0.0f) {
 		float now = ofGetElapsedTimef();
 		if (now - waitingForDraftOptionsStartTime > waitingForDraftOptionsTimeout) {
 			ofLogWarning("Draft") << "Client: waiting for DraftOptions timed out. Requesting authoritative snapshot.";
@@ -1844,7 +1853,7 @@ void ofApp::update() {
 			// Reset all multiplayer state
 			isMultiplayer = false;
 			hasReceivedHandshake = false;
-			waitingForTurnStartFromHost = false;
+			waitingForTurnStartTimer = 0.0f;
 			initialDraftComplete = false;
 			draftAcceptLocked = false;
 			draftAcceptApplied = false;
@@ -3289,8 +3298,8 @@ void ofApp::initialiseGameStateCommon() {
 	initialDraftComplete = false;
 	draftAcceptLocked = false;
 	draftAcceptApplied = false;
-	waitingForTurnStartFromHost = false;
-	waitingForDraftOptions = false;
+	waitingForTurnStartTimer = 0.0f;
+	waitingForDraftOptionsStartTime = 0.0f;
 	hasDrawnCardsThisTurn = false;
 	opponentHasDrawnCardsThisTurn = false;
 
@@ -3946,10 +3955,10 @@ void ofApp::updateGame() {
 		// PHASE 1: WAIT FOR DICE (now handled by effect sequence APPLY_EARTHQUAKE)
 
 		// PHASE 1.5: WAIT BEFORE ANIMATION
-		if (isEarthquakeWaiting) {
+		if (earthquakeWaitTimer > 0.0f) {
 			earthquakeWaitTimer -= ofGetLastFrameTime();
 			if (earthquakeWaitTimer <= 0.0f) {
-				isEarthquakeWaiting = false;
+				earthquakeWaitTimer = 0.0f;
 				isEarthquakeAnimatingStep = true;
 				earthquakeT = 0.0f;
 				// Trigger camera shake at earthquake start (visual only)
@@ -4260,7 +4269,7 @@ void ofApp::updateGame() {
 					animatingPlayerIndex = -1;
 					earthquakeUnits.clear();
 					earthquakeDiceAssignCounter = 0;
-					isEarthquakeWaiting = false;
+					earthquakeWaitTimer = 0.0f;
 					invalidateTargetCache();
 				}
 			}
@@ -10786,23 +10795,33 @@ void ofApp::mousePressed(int x, int y, int button) {
 			return;
 		}
 		if (debugFlipCoinButton.inside(x, y)) {
-			startDiceRoll(1, 2, PURPOSE_DEBUG, "Debug Coin", currentPlayerIndex);
+			std::vector<int> raw;
+			int v = resolveDiceRollDetailed(1, 2, raw);
+			queueVisualDiceRoll(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.0f, 0), 1, 2, raw, v, PURPOSE_DEBUG, currentPlayerIndex, 0.8f);
 			return;
 		}
 		if (debugRollD4Button.inside(x, y)) {
-			startDiceRoll(1, 4, PURPOSE_DEBUG, "Debug D4", currentPlayerIndex);
+			std::vector<int> raw;
+			int v = resolveDiceRollDetailed(1, 4, raw);
+			queueVisualDiceRoll(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.0f, 0), 1, 4, raw, v, PURPOSE_DEBUG, currentPlayerIndex, 1.0f);
 			return;
 		}
 		if (debugRollD6Button.inside(x, y)) {
-			startDiceRoll(1, 6, PURPOSE_DEBUG, "Debug D6", currentPlayerIndex);
+			std::vector<int> raw;
+			int v = resolveDiceRollDetailed(1, 6, raw);
+			queueVisualDiceRoll(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.0f, 0), 1, 6, raw, v, PURPOSE_DEBUG, currentPlayerIndex, 1.0f);
 			return;
 		}
 		if (debugRollD10Button.inside(x, y)) {
-			startDiceRoll(1, 10, PURPOSE_DEBUG, "Debug D10", currentPlayerIndex);
+			std::vector<int> raw;
+			int v = resolveDiceRollDetailed(1, 10, raw);
+			queueVisualDiceRoll(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.0f, 0), 1, 10, raw, v, PURPOSE_DEBUG, currentPlayerIndex, 1.0f);
 			return;
 		}
 		if (debugRollD20Button.inside(x, y)) {
-			startDiceRoll(1, 20, PURPOSE_DEBUG, "Debug D20", currentPlayerIndex);
+			std::vector<int> raw;
+			int v = resolveDiceRollDetailed(1, 20, raw);
+			queueVisualDiceRoll(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.0f, 0), 1, 20, raw, v, PURPOSE_DEBUG, currentPlayerIndex, 1.0f);
 			return;
 		}
 		if (debugUnlimitedAPButton.inside(x, y)) {
@@ -10934,7 +10953,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 									  << " draftPlayerID=" << diagDraftPlayerID
 									  << " selected=" << (int)selectedDraftIndices.size()
 									  << " required=" << requiredPicks
-									  << " waitingForDraftOptions=" << (waitingForDraftOptions ? 1 : 0)
+									  << " waitingForDraftOptions=" << (waitingForDraftOptionsStartTime > 0.0f ? 1 : 0)
 									  << " draftAcceptLocked=" << (draftAcceptLocked ? 1 : 0);
 
 			if (draftAcceptLocked) {
@@ -12384,7 +12403,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 				// Reset multiplayer/game state and return to menu
 				isMultiplayer = false;
 				hasReceivedHandshake = false;
-				waitingForTurnStartFromHost = false;
+				waitingForTurnStartTimer = 0.0f;
 				initialDraftComplete = false;
 				draftAcceptLocked = false;
 				draftAcceptApplied = false;
@@ -13862,8 +13881,11 @@ void ofApp::startNewTurn() {
 				currentCardOutcome.poisonTargetPlayerIDs.clear();
 				currentCardOutcome.poisonTargetPlayerIDs.push_back(players[currentPlayerIndex].playerID);
 
-				int poisonRoll = startDiceRoll(1, 6, PURPOSE_DEBUG, "Poison Status Damage", currentPlayerIndex);
+				// Authoritative poison roll
+				std::vector<int> rawPoison;
+				int poisonRoll = resolveDiceRollDetailed(1, 6, rawPoison);
 				currentEffectSequence.blackboard[0] = poisonRoll;
+				queueVisualDiceRoll(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.0f, 0), 1, 6, rawPoison, poisonRoll, PURPOSE_DEBUG, currentPlayerIndex, 1.0f);
 
 				EffectOp applyOp = {};
 				applyOp.type = EffectOpType::APPLY_POISON;
@@ -13876,8 +13898,11 @@ void ofApp::startNewTurn() {
 			}
 			if (startingPlayer.isParalyzed) {
 				// Resolve coin flip immediately (authoritative), then queue APPLY_PARALYSIS
-				int flip = startDiceRoll(1, 2, PURPOSE_COIN_FLIP, "Paralysis Check", currentPlayerIndex);
+				// Authoritative coin flip for paralysis
+				std::vector<int> rawFlip;
+				int flip = resolveDiceRollDetailed(1, 2, rawFlip);
 				currentEffectSequence.blackboard[0] = flip;
+				queueVisualDiceRoll(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.0f, 0), 1, 2, rawFlip, flip, PURPOSE_COIN_FLIP, currentPlayerIndex, 0.8f);
 
 				EffectOp applyOp = {};
 				applyOp.type = EffectOpType::APPLY_PARALYSIS;
@@ -13928,7 +13953,7 @@ void ofApp::startNewTurn() {
 
 	Player & startingPlayer = players[currentPlayerIndex];
 
-	ofLogNotice("TurnDebug") << "continueNewTurn: currentPlayerIndex=" << currentPlayerIndex << " playerID=" << startingPlayer.playerID << " waitingForTurnStartFromHost=" << waitingForTurnStartFromHost << " isHandlingTurnStartEffects=" << isHandlingTurnStartEffects;
+	ofLogNotice("TurnDebug") << "continueNewTurn: currentPlayerIndex=" << currentPlayerIndex << " playerID=" << startingPlayer.playerID << " waitingForTurnStartTimer=" << waitingForTurnStartTimer << " isHandlingTurnStartEffects=" << isHandlingTurnStartEffects;
 	ofLogNotice("Game") << "--- START TURN: " << (startingPlayer.isMinion ? "Minion " : "Player ") << startingPlayer.playerID;
 
 	// Add game log entry for turn start
@@ -14012,9 +14037,12 @@ void ofApp::startNewTurn() {
 	if (startingPlayer.onFire) {
 		// Resolve fire damage immediately (authoritative), apply damage now,
 		// then queue visuals/delay but do NOT wait for visuals to continue logic.
-		int rollResult = startDiceRoll(1, 6, PURPOSE_DEBUG, "Fire Status Damage", currentPlayerIndex);
+		// Authoritative fire status roll
+		std::vector<int> rawFire;
+		int rollResult = resolveDiceRollDetailed(1, 6, rawFire);
 		// Apply damage deterministically now
 		int applied = applyDamageWithMitigations(players[currentPlayerIndex], rollResult, DAMAGE_FIRE, -1);
+		queueVisualDiceRoll(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.0f, 0), 1, 6, rawFire, rollResult, PURPOSE_DEBUG, currentPlayerIndex, 1.0f);
 		if (applied > 0)
 			queueFloatingTextVisual(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y), "-" + ofToString(applied) + " Fire", ofColor::red);
 		else
@@ -14083,8 +14111,11 @@ void ofApp::startNewTurn() {
 		currentCardOutcome.poisonTargetPlayerIDs.clear();
 		currentCardOutcome.poisonTargetPlayerIDs.push_back(startingPlayer.playerID);
 
-		int poisonRoll = startDiceRoll(1, 6, PURPOSE_DEBUG, "Poison Status Damage", currentPlayerIndex);
+		// Authoritative poison roll
+		std::vector<int> rawPoison2;
+		int poisonRoll = resolveDiceRollDetailed(1, 6, rawPoison2);
 		currentEffectSequence.blackboard[0] = poisonRoll;
+		queueVisualDiceRoll(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.0f, 0), 1, 6, rawPoison2, poisonRoll, PURPOSE_DEBUG, currentPlayerIndex, 1.0f);
 
 		EffectOp applyOp = {};
 		applyOp.type = EffectOpType::APPLY_POISON;
@@ -14096,8 +14127,11 @@ void ofApp::startNewTurn() {
 	}
 	if (startingPlayer.isParalyzed) {
 		// Resolve coin flip immediately (authoritative), then queue APPLY_PARALYSIS
-		int flip = startDiceRoll(1, 2, PURPOSE_COIN_FLIP, "Paralysis Check", currentPlayerIndex);
+		// Authoritative coin flip for paralysis
+		std::vector<int> rawFlip2;
+		int flip = resolveDiceRollDetailed(1, 2, rawFlip2);
 		currentEffectSequence.blackboard[0] = flip;
+		queueVisualDiceRoll(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.0f, 0), 1, 2, rawFlip2, flip, PURPOSE_COIN_FLIP, currentPlayerIndex, 0.8f);
 
 		EffectOp applyOp = {};
 		applyOp.type = EffectOpType::APPLY_PARALYSIS;
@@ -14239,8 +14273,10 @@ void ofApp::continueNewTurn() {
 		if (startingPlayer.onFire) {
 			// Resolve sleeping fire damage immediately (authoritative), apply now,
 			// then queue visuals/delay and end the sleeping turn without blocking.
-			int rollResult = startDiceRoll(1, 6, PURPOSE_DEBUG, "Sleeping Fire Damage", currentPlayerIndex);
+			std::vector<int> rawSleeping;
+			int rollResult = resolveDiceRollDetailed(1, 6, rawSleeping);
 			int applied = applyDamageWithMitigations(players[currentPlayerIndex], rollResult, DAMAGE_FIRE, -1);
+			queueVisualDiceRoll(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.0f, 0), 1, 6, rawSleeping, rollResult, PURPOSE_DEBUG, currentPlayerIndex, 1.0f);
 			if (applied > 0)
 				queueFloatingTextVisual(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y), "-" + ofToString(applied) + " Fire", ofColor::red);
 			else
@@ -14306,7 +14342,7 @@ void ofApp::continueNewTurn() {
 	}
 
 	// --- CLIENT: Wait for host's TurnStart packet if transitioning from draft ---
-	if (isClient() && waitingForTurnStartFromHost) {
+	if (isClient() && waitingForTurnStartTimer > 0.0f) {
 		ofLogNotice("Network") << "Client: Skipping local AP roll, waiting for TurnStart from host";
 		return;
 	}
@@ -14603,12 +14639,15 @@ void ofApp::continueNewTurn() {
 						for (auto & oldR : activeDiceRolls) {
 							if (oldR.purpose == PURPOSE_AP) oldR.purpose = PURPOSE_DEBUG;
 						}
-						int bonus = startDiceRoll(rerollNum, rerollSides, PURPOSE_BONUS_AP, "Assistant Auto Reroll", currentPlayerIndex);
+						// Authoritative assistant reroll
+						std::vector<int> rawReroll;
+						int bonus = resolveDiceRollDetailed(rerollNum, rerollSides, rawReroll);
 						currentEffectSequence.blackboard[5] = bonus;
 						EffectOp apply = {};
 						apply.type = EffectOpType::APPLY_BONUS_AP;
 						queueEffect(apply);
 						queueFloatingTextVisual(gridToWorld(a.x, a.y), "Assistant Reroll!", ofColor::gold);
+						queueVisualDiceRoll(gridToWorld(a.x, a.y) + glm::vec3(0, 1.0f, 0), rerollNum, rerollSides, rawReroll, bonus, PURPOSE_BONUS_AP, currentPlayerIndex, 1.0f);
 					}
 				}
 			}
@@ -16324,9 +16363,15 @@ void ofApp::queueEffect(const EffectOp & op) {
 	if (op.type == EffectOpType::ROLL_DICE) {
 		const RollDiceData & r = op.data.rollDice;
 		ofLogNotice("EffectQueue") << "RESOLVING ROLL_DICE num=" << r.numDice << " sides=" << r.sides << " purpose=" << (int)r.purpose << " ownerIndex=" << r.ownerIndex << " outSlot=" << r.outputSlot;
-		int result = startDiceRoll(r.numDice, r.sides, r.purpose, std::string(r.label), r.ownerIndex);
+		std::vector<int> rawRoll;
+		int result = resolveDiceRollDetailed(r.numDice, r.sides, rawRoll);
 		// Write authoritative result into current sequence blackboard
 		if (r.outputSlot >= 0 && r.outputSlot < 16) currentEffectSequence.blackboard[r.outputSlot] = result;
+
+		// Queue a visual dice roll near the owner (or center if owner invalid)
+		glm::vec3 visPos = gridToWorld(3, 3);
+		if (r.ownerIndex >= 0 && r.ownerIndex < (int)players.size()) visPos = gridToWorld(players[r.ownerIndex].x, players[r.ownerIndex].y) + glm::vec3(0, 1.0f, 0);
+		queueVisualDiceRoll(visPos, r.numDice, r.sides, rawRoll, result, (int)r.purpose, r.ownerIndex, 1.2f);
 
 		// Psionic wave special-case: when resolving RANGE, identify targets and enqueue follow-up ops
 		if (r.purpose == PURPOSE_PSIONIC_WAVE_RANGE) {
@@ -16628,13 +16673,15 @@ void ofApp::processEffectOp(EffectOp & op) {
 
 			if (targetIdx != -1) {
 				// Immediate authoritative damage roll and application (single-pass)
-				int dmg = startDiceRoll(1, 6, PURPOSE_DAMAGE, "Fireball: Damage", currentPlayerIndex);
-				// Queue visuals: tracer was already queued above. Wait, show dice, wait, then apply damage and status.
-				glm::vec3 tpos = gridToWorld(players[targetIdx].x, players[targetIdx].y);
-				// Build raw results vector from the most recently pushed visual dice roll(s)
 				std::vector<int> rawResults;
-				int startIdx = (int)activeDiceRolls.size() - 1; // we rolled 1 die
-				if (startIdx >= 0) rawResults.push_back(activeDiceRolls[startIdx].rawResult);
+				resolveDiceRollDetailed(1, 6, rawResults);
+				int raw = (rawResults.size() > 0) ? rawResults[0] : 1;
+				int luckOwner = (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) ? currentPlayerIndex : -1;
+				int luckBonusLocal = 0;
+				if (luckOwner != -1) luckBonusLocal = players[luckOwner].luck + computePassiveLuck(luckOwner);
+				int dmg = (6 == 2) ? raw : (raw + luckBonusLocal);
+				// Queue visuals: tracer was already queued above. Show dice, then apply damage and status.
+				glm::vec3 tpos = gridToWorld(players[targetIdx].x, players[targetIdx].y);
 				queueVisualDelay(1.5f);
 				queueVisualDiceRoll(tpos + glm::vec3(0, 1.0f, 0), 1, 6, rawResults, dmg, PURPOSE_DAMAGE, currentPlayerIndex, 1.2f);
 				queueVisualDelay(1.5f);
@@ -16938,8 +16985,7 @@ void ofApp::processEffectOp(EffectOp & op) {
 
 		// Transition earthquake state to waiting/animation phase
 		isEarthquakeDiceRolling = false;
-		isEarthquakeWaiting = true;
-		earthquakeWaitTimer = 2.0f;
+		earthquakeWaitTimer = 2.0f; // countdown before starting animation
 		isEarthquakeAnimatingStep = false;
 		earthquakeT = 0.0f;
 
@@ -17697,11 +17743,8 @@ void ofApp::processEffectOp(EffectOp & op) {
 			// then roll and apply AOE. Visuals are queued with delays.
 
 			// Primary damage roll (authoritative)
-			int primaryDamage = startDiceRoll(1, 20, PURPOSE_DAMAGE, "Magic Bolt: Primary Damage", currentPlayerIndex);
-			// Build raw results vector for visuals
 			std::vector<int> rawPrimary;
-			int idx = (int)activeDiceRolls.size() - 1;
-			if (idx >= 0) rawPrimary.push_back(activeDiceRolls[idx].rawResult);
+			int primaryDamage = resolveDiceRollDetailed(1, 20, rawPrimary);
 			// Wait, show dice visually, then apply damage
 			queueVisualDelay(1.5f);
 			queueVisualDiceRoll(gridToWorld((int)currentCardOutcome.primaryTarget.x, (int)currentCardOutcome.primaryTarget.y) + glm::vec3(0, 1.0f, 0), 1, 20, rawPrimary, primaryDamage, PURPOSE_DAMAGE, currentPlayerIndex, 1.2f);
@@ -17725,10 +17768,8 @@ void ofApp::processEffectOp(EffectOp & op) {
 			queueVisualDelay(1.5f);
 
 			// AOE radius roll (authoritative) and application
-			int aoeRoll = startDiceRoll(1, 20, PURPOSE_RANGE, "Magic Bolt: AOE Radius", currentPlayerIndex);
 			std::vector<int> rawAoe;
-			idx = (int)activeDiceRolls.size() - 1;
-			if (idx >= 0) rawAoe.push_back(activeDiceRolls[idx].rawResult);
+			int aoeRoll = resolveDiceRollDetailed(1, 20, rawAoe);
 			queueVisualDiceRoll(gridToWorld((int)currentCardOutcome.primaryTarget.x, (int)currentCardOutcome.primaryTarget.y) + glm::vec3(0, 1.0f, 0), 1, 20, rawAoe, aoeRoll, PURPOSE_RANGE, currentPlayerIndex, 1.2f);
 			queueVisualDelay(1.5f);
 
@@ -18224,7 +18265,9 @@ void ofApp::processEffectOp(EffectOp & op) {
 				queueFloatingTextVisual(impactTile, "Chain!", ofColor::yellow);
 
 				// Authoritative immediate damage roll (1d10)
-				int damage = startDiceRoll(1, 10, PURPOSE_DAMAGE, std::string("Chain Lightning Damage"), currentPlayerIndex);
+				std::vector<int> rawChain;
+				int damage = resolveDiceRollDetailed(1, 10, rawChain);
+				queueVisualDiceRoll(impactTile, 1, 10, rawChain, damage, PURPOSE_DAMAGE, currentPlayerIndex, 1.0f);
 
 				// Build 8-neighbor AOE (exclude center)
 				std::vector<std::pair<int, int>> aoeTiles;
@@ -18440,11 +18483,14 @@ void ofApp::processEffectOp(EffectOp & op) {
 			}
 
 			// Immediate authoritative damage roll and apply (single-pass)
-			int dmg = startDiceRoll(1, 6, PURPOSE_DAMAGE, std::string("Shoot Arrow: Damage"), currentPlayerIndex);
-			// Visual dice: capture raw result and show visually
 			std::vector<int> rawResults;
-			int startIdx = (int)activeDiceRolls.size() - 1; // last roll is this one
-			if (startIdx >= 0) rawResults.push_back(activeDiceRolls[startIdx].rawResult);
+			resolveDiceRollDetailed(1, 6, rawResults);
+			int raw = (rawResults.size() > 0) ? rawResults[0] : 1;
+			int luckOwner = (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) ? currentPlayerIndex : -1;
+			int luckBonusLocal = 0;
+			if (luckOwner != -1) luckBonusLocal = players[luckOwner].luck + computePassiveLuck(luckOwner);
+			int dmg = (6 == 2) ? raw : (raw + luckBonusLocal);
+			// Visual dice
 			queueVisualDelay(0.6f);
 			queueVisualDiceRoll(gridToWorld((int)interactionTargetTile.x, (int)interactionTargetTile.y) + glm::vec3(0, 1.0f, 0), 1, 6, rawResults, dmg, PURPOSE_DAMAGE, currentPlayerIndex, 1.0f);
 			queueVisualDelay(0.6f);
@@ -20356,26 +20402,133 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 		interactionTargetTile = glm::vec2(targetX, targetY);
 		beginEffectSequence();
 		{
-			EffectOp rollOp = {};
-			rollOp.type = EffectOpType::ROLL_DICE;
-			rollOp.data.rollDice.numDice = playedCard.numDice;
-			rollOp.data.rollDice.sides = playedCard.diceSides;
-			rollOp.data.rollDice.purpose = PURPOSE_RANGE;
-			rollOp.data.rollDice.ownerIndex = currentPlayerIndex;
-			rollOp.data.rollDice.outputSlot = 0;
-			strncpy(rollOp.data.rollDice.label, "Magic Bolt: Range Check", 31);
-			rollOp.data.rollDice.label[31] = '\0';
-			queueEffect(rollOp);
-			interactionDiceRoll = 0;
+			// Authoritative range roll (gameplay RNG)
+			std::vector<int> rawRange;
+			resolveDiceRollDetailed(playedCard.numDice, playedCard.diceSides, rawRange);
+			int luckBonus = 0;
+			int luckOwner = (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) ? currentPlayerIndex : -1;
+			if (luckOwner != -1) luckBonus = players[luckOwner].luck + computePassiveLuck(luckOwner);
+			if (PURPOSE_EARTHQUAKE_DISTANCE == PURPOSE_EARTHQUAKE_DISTANCE) { /* no-op placeholder */
+			}
 
-			// Queue APPLY op to deterministically resolve range -> primary -> AOE
-			EffectOp applyMb = {};
-			applyMb.type = EffectOpType::APPLY_MAGIC_BOLT;
-			queueEffect(applyMb);
+			int rangeTotal = 0;
+			for (int i = 0; i < (int)rawRange.size(); ++i) {
+				int raw = rawRange[i];
+				int finalRoll = (playedCard.diceSides == 2) ? raw : (raw + luckBonus);
+				rangeTotal += finalRoll;
+			}
+
+			// Determine impact tile deterministically
+			glm::ivec2 impactTile = { -1, -1 };
+			if ((float)rangeTotal / 5.0f >= glm::distance(cPos, tPos) - 0.001f) {
+				impactTile = glm::ivec2((int)interactionTargetTile.x, (int)interactionTargetTile.y);
+			} else {
+				glm::vec2 dir = interactionTargetTile - cPos;
+				if (glm::length(dir) > 0) dir = glm::normalize(dir);
+				bool hitWall = false;
+				std::vector<glm::vec2> path = getLineOfSightPath(cPos + 0.5f, interactionTargetTile + 0.5f);
+				for (const auto & step : path) {
+					float distToStep = getFaceToFaceDistance(cPos, step);
+					if (distToStep > (float)rangeTotal / 5.0f) break;
+					if (isTileWall((int)step.x, (int)step.y)) {
+						impactTile = glm::ivec2((int)step.x, (int)step.y);
+						hitWall = true;
+						break;
+					}
+				}
+				if (!hitWall) {
+					glm::vec2 impactPos = cPos + (dir * ((float)rangeTotal / 5.0f));
+					impactTile = glm::ivec2((int)floor(impactPos.x), (int)floor(impactPos.y));
+				}
+			}
+
+			// Spawn tracer visual
+			{
+				glm::vec2 hitGrid = glm::vec2((float)impactTile.x + 0.5f, (float)impactTile.y + 0.5f);
+				glm::vec3 worldStart, worldEnd;
+				computeTracerEndpoints(cPos, hitGrid, worldStart, worldEnd);
+				queueVisualTracer(worldStart, worldEnd, ofColor(180, 100, 255), 5.0f);
+			}
+
+			currentCardOutcome.primaryTarget = impactTile;
+
+			if (isTileWall((int)currentCardOutcome.primaryTarget.x, (int)currentCardOutcome.primaryTarget.y)) {
+				queueFloatingTextVisual(gridToWorld((int)currentCardOutcome.primaryTarget.x, (int)currentCardOutcome.primaryTarget.y), "Fizzle!", ofColor::gray);
+			} else {
+				// Primary damage
+				std::vector<int> rawPrimary;
+				int rawPrim = resolveDiceRollDetailed(1, 20, rawPrimary);
+				int primaryDamage = (20 == 2) ? rawPrim : (rawPrim + luckBonus);
+
+				// Queue visual for primary damage
+				queueVisualDelay(1.5f);
+				queueVisualDiceRoll(gridToWorld((int)currentCardOutcome.primaryTarget.x, (int)currentCardOutcome.primaryTarget.y) + glm::vec3(0, 1.0f, 0), 1, 20, rawPrimary, primaryDamage, PURPOSE_DAMAGE, currentPlayerIndex, 1.2f);
+				queueVisualDelay(1.5f);
+
+				// Apply primary damage immediately (authoritative)
+				int directHitIdx = -1;
+				for (size_t i = 0; i < players.size(); ++i) {
+					if (players[i].x == currentCardOutcome.primaryTarget.x && players[i].y == currentCardOutcome.primaryTarget.y) {
+						directHitIdx = (int)i;
+						break;
+					}
+				}
+				if (directHitIdx >= 0) {
+					int applied = applyDamageWithMitigations(players[directHitIdx], primaryDamage, DAMAGE_MAGIC, currentPlayerIndex);
+					if (applied > 0)
+						queueFloatingTextVisual(gridToWorld(players[directHitIdx].x, players[directHitIdx].y), "-" + ofToString(applied) + " Magic", ofColor::red);
+					else
+						queueFloatingTextVisual(gridToWorld(players[directHitIdx].x, players[directHitIdx].y), "Absorbed", ofColor::gray);
+				}
+				queueVisualDelay(1.5f);
+
+				// AOE roll and visuals
+				std::vector<int> rawAoe;
+				int rawAoeSum = resolveDiceRollDetailed(1, 20, rawAoe);
+				int aoeRoll = (20 == 2) ? rawAoeSum : (rawAoeSum + luckBonus);
+				queueVisualDiceRoll(gridToWorld((int)currentCardOutcome.primaryTarget.x, (int)currentCardOutcome.primaryTarget.y) + glm::vec3(0, 1.0f, 0), 1, 20, rawAoe, aoeRoll, PURPOSE_RANGE, currentPlayerIndex, 1.2f);
+				queueVisualDelay(1.5f);
+
+				int aoeRadiusFeet = aoeRoll;
+
+				// Build AOE targets (exclude primary)
+				std::vector<int> aoeTargets;
+				for (size_t i = 0; i < players.size(); ++i) {
+					Player & p = players[i];
+					if (p.x == currentCardOutcome.primaryTarget.x && p.y == currentCardOutcome.primaryTarget.y) continue;
+					float centerDistFeet = glm::distance(glm::vec2(currentCardOutcome.primaryTarget.x, currentCardOutcome.primaryTarget.y), glm::vec2(p.x, p.y)) * 5.0f;
+					float neededFeetRaw = std::max(0.0f, centerDistFeet - 2.5f);
+					int neededFeet = (int)floor(neededFeetRaw + 1e-4f);
+					if (neededFeet <= aoeRadiusFeet) {
+						auto losPath = getLineOfSightPath(glm::vec2(currentCardOutcome.primaryTarget.x, currentCardOutcome.primaryTarget.y) + glm::vec2(0.5f, 0.5f), glm::vec2(p.x, p.y) + glm::vec2(0.5f, 0.5f));
+						bool blockedByWall = false;
+						for (const auto & step : losPath) {
+							if ((int)step.x == currentCardOutcome.primaryTarget.x && (int)step.y == currentCardOutcome.primaryTarget.y) continue;
+							if ((int)step.x == p.x && (int)step.y == p.y) break;
+							if (isTileWall((int)step.x, (int)step.y)) {
+								blockedByWall = true;
+								break;
+							}
+						}
+						if (!blockedByWall) aoeTargets.push_back((int)i);
+					}
+				}
+
+				// Apply AOE damage immediately (base 3)
+				for (size_t idx2 = 0; idx2 < aoeTargets.size(); ++idx2) {
+					int pidx = aoeTargets[idx2];
+					int dmg = 3;
+					int applied = applyDamageWithMitigations(players[pidx], dmg, DAMAGE_ELECTRIC, currentPlayerIndex);
+					if (applied > 0)
+						queueFloatingTextVisual(gridToWorld(players[pidx].x, players[pidx].y), "-" + ofToString(applied) + " Electric", ofColor::yellow);
+					else
+						queueFloatingTextVisual(gridToWorld(players[pidx].x, players[pidx].y), "Absorbed", ofColor::gray);
+				}
+			}
 		}
 
 		playedSuccessfully = true;
-		advanceCardState(CARD_STATE_DICE);
+		advanceCardState(CARD_STATE_EFFECT_SEQUENCE);
 		return true;
 	}
 
@@ -21043,26 +21196,135 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 		beginEffectSequence();
 
 		interactionTargetTile = targetTile;
-		{
-			EffectOp rollOp = {};
-			rollOp.type = EffectOpType::ROLL_DICE;
-			rollOp.data.rollDice.numDice = playedCard.numDice;
-			rollOp.data.rollDice.sides = playedCard.diceSides;
-			rollOp.data.rollDice.purpose = PURPOSE_RANGE;
-			rollOp.data.rollDice.ownerIndex = currentPlayerIndex;
-			rollOp.data.rollDice.outputSlot = 0;
-			strncpy(rollOp.data.rollDice.label, "Chain Lightning: Range", 31);
-			rollOp.data.rollDice.label[31] = '\0';
-			queueEffect(rollOp);
-			// After range roll, deterministically resolve chain lightning via effect-op
-			{
-				EffectOp cl = {};
-				cl.type = EffectOpType::APPLY_CHAIN_LIGHTNING;
-				queueEffect(cl);
+
+		// Authoritative range roll (gameplay RNG)
+		std::vector<int> rawRange;
+		resolveDiceRollDetailed(playedCard.numDice, playedCard.diceSides, rawRange);
+		int luckBonus = 0;
+		int luckOwner = (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) ? currentPlayerIndex : -1;
+		if (luckOwner != -1) luckBonus = players[luckOwner].luck + computePassiveLuck(luckOwner);
+
+		int rangeTotal = 0;
+		for (int i = 0; i < (int)rawRange.size(); ++i) {
+			int raw = rawRange[i];
+			int finalRoll = (playedCard.diceSides == 2) ? raw : (raw + luckBonus);
+			rangeTotal += finalRoll;
+		}
+
+		Player & caster = players[currentPlayerIndex];
+		glm::vec3 casterPos = gridToWorld(caster.x, caster.y);
+
+		bool inRange = false;
+		glm::vec3 impactTile = casterPos;
+		for (auto & target : players) {
+			if (&target == &caster || target.health <= 0) continue;
+			glm::vec3 targetPos = gridToWorld(target.x, target.y);
+			float distFeet = glm::distance(casterPos, targetPos) * 5.0f;
+			if (distFeet <= (float)rangeTotal * 5.0f && distFeet <= 15.0f * 5.0f) {
+				inRange = true;
+				impactTile = targetPos;
+				break;
 			}
 		}
+
+		if (inRange) {
+			// Check LOS
+			bool hasLOS = true;
+			int x1 = caster.x, y1 = caster.y;
+			int x2 = (int)round((impactTile.x / TILE_SIZE) + BOARD_WIDTH / 2.0f);
+			int y2 = (int)round((impactTile.y / TILE_SIZE) + BOARD_HEIGHT / 2.0f);
+			int dx = abs(x2 - x1), dy = abs(y2 - y1);
+			int steps = std::max(dx, dy);
+			if (steps > 0) {
+				for (int i = 1; i < steps; ++i) {
+					int checkX = x1 + (x2 - x1) * i / steps;
+					int checkY = y1 + (y2 - y1) * i / steps;
+					if (isTileWall(checkX, checkY)) {
+						hasLOS = false;
+						break;
+					}
+				}
+			}
+
+			if (hasLOS) {
+				queueFloatingTextVisual(impactTile, "Chain!", ofColor::yellow);
+
+				// Authoritative immediate damage roll (1d10)
+				std::vector<int> rawDamage;
+				resolveDiceRollDetailed(1, 10, rawDamage);
+				int damage = ((10 == 2) ? rawDamage[0] : (rawDamage[0] + luckBonus));
+
+				// Build 8-neighbor AOE (exclude center)
+				std::vector<std::pair<int, int>> aoeTiles;
+				for (int dx2 = -1; dx2 <= 1; ++dx2)
+					for (int dy2 = -1; dy2 <= 1; ++dy2)
+						if (!(dx2 == 0 && dy2 == 0)) aoeTiles.push_back({ caster.x + dx2, caster.y + dy2 });
+
+				int unitCount = 0;
+				for (size_t pi = 0; pi < players.size(); ++pi) {
+					Player & target = players[pi];
+					if ((int)pi == currentPlayerIndex || target.health <= 0) continue;
+					bool isInAOE = false;
+					for (auto & tile : aoeTiles) {
+						if (target.x == tile.first && target.y == tile.second) {
+							isInAOE = true;
+							int ddx = tile.first - caster.x;
+							int ddy = tile.second - caster.y;
+							if (ddx != 0 && ddy != 0) {
+								if (isTileWall(caster.x + ddx, caster.y) && isTileWall(caster.x, caster.y + ddy)) {
+									isInAOE = false;
+								}
+							}
+							break;
+						}
+					}
+					if (!isInAOE) continue;
+
+					// Phased check
+					if (target.inGhostForm) {
+						queueFloatingTextVisual(gridToWorld(target.x, target.y), "Phased!", ofColor::cyan);
+						continue;
+					}
+
+					// Small tracer visual for flair
+					{
+						glm::vec2 casterTileF((float)caster.x, (float)caster.y);
+						glm::vec2 targetTileF((float)target.x, (float)target.y);
+						glm::vec3 worldStart, worldEnd;
+						computeTracerEndpoints(casterTileF, targetTileF + glm::vec2(0.5f, 0.5f), worldStart, worldEnd);
+						spawnTracer(worldStart, worldEnd, glm::ivec2(target.x, target.y), ofColor::yellow, 4.0f);
+					}
+
+					int applied = applyDamageWithMitigations(target, damage, DAMAGE_ELECTRIC, currentPlayerIndex);
+					if (applied > 0) {
+						queueFloatingTextVisual(gridToWorld(target.x, target.y), "-" + ofToString(applied) + " ZAP!", ofColor::yellow);
+					} else {
+						queueFloatingTextVisual(gridToWorld(target.x, target.y), "Absorbed", ofColor::gray);
+					}
+					unitCount++;
+				}
+
+				if (unitCount > 1) {
+					EffectOp ap = {};
+					ap.type = EffectOpType::MODIFY_STAT;
+					ap.data.modifyStat.targetIndex = currentPlayerIndex;
+					ap.data.modifyStat.statType = 11; // Next-turn AP bonus
+					ap.data.modifyStat.delta = 3;
+					ap.data.modifyStat.deltaFromSlot = -1;
+					queueEffect(ap);
+					queueFloatingTextVisual(gridToWorld(caster.x, caster.y), "+3 AP Next Turn", ofColor::cyan);
+				}
+			} else {
+				queueFloatingTextVisual(impactTile, "No LOS", ofColor::gray);
+			}
+		} else {
+			int maxReachX = caster.x + 3;
+			int maxReachY = caster.y;
+			queueFloatingTextVisual(gridToWorld(maxReachX, maxReachY), "Out of Range", ofColor::red);
+		}
+
 		playedSuccessfully = true;
-		advanceCardState(CARD_STATE_DICE);
+		advanceCardState(CARD_STATE_EFFECT_SEQUENCE);
 		return true;
 	}
 
@@ -22075,7 +22337,7 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 			currentPlayer.cardsPlayedThisTurn.push_back(playedCard.type);
 			currentPlayer.hand.erase(currentPlayer.hand.begin() + cardIndex);
 			players[currentPlayerIndex].ap = currentAP;
-			isEarthquakeWaiting = true;
+			// Client defers to host for earthquake begin; do not set per-frame waiting flags.
 			immediateResult = CARD_PLAYED_IMMEDIATELY;
 			return true;
 		}
@@ -22143,7 +22405,11 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 		// 1) Distance rolls (authoritative)
 		std::vector<int> distances(n, 0);
 		for (int i = 0; i < n; ++i) {
-			distances[i] = startDiceRoll(1, 4, PURPOSE_EARTHQUAKE_DISTANCE, "Quake Dist", earthquakeUnits[i].playerIndex);
+			std::vector<int> rawDist;
+			distances[i] = resolveDiceRollDetailed(1, 4, rawDist);
+			// Queue visual for distance roll at unit start
+			glm::ivec2 sg = earthquakeUnits[i].startGrid;
+			queueVisualDiceRoll(gridToWorld(sg.x, sg.y) + glm::vec3(0, 1.0f, 0), 1, 4, rawDist, distances[i], PURPOSE_EARTHQUAKE_DISTANCE, earthquakeUnits[i].playerIndex, 1.0f);
 		}
 
 		// 2) Prepare simulation state
@@ -22226,7 +22492,10 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 			int crashDice = damageDiceCount[i];
 			int totalDamage = 0;
 			if (crashDice > 0) {
-				totalDamage = startDiceRoll(crashDice, 4, PURPOSE_EARTHQUAKE_DAMAGE, "Quake Crash", earthquakeUnits[i].playerIndex);
+				std::vector<int> rawCrash;
+				totalDamage = resolveDiceRollDetailed(crashDice, 4, rawCrash);
+				// Queue visual for crash damage at final pos
+				queueVisualDiceRoll(gridToWorld(curPos[i].x, curPos[i].y) + glm::vec3(0, 1.0f, 0), crashDice, 4, rawCrash, totalDamage, PURPOSE_EARTHQUAKE_DAMAGE, earthquakeUnits[i].playerIndex, 1.2f);
 			}
 			// Apply damage now (authoritative)
 			if (earthquakeUnits[i].playerIndex >= 0 && earthquakeUnits[i].playerIndex < (int)players.size()) {
@@ -24869,7 +25138,7 @@ void ofApp::applySnapshotString(const std::string & data) {
 	isPlayerAnimating = false;
 	animatingPlayerIndex = -1;
 	endTurnLocked = false;
-	waitingForTurnStartFromHost = false;
+	waitingForTurnStartTimer = 0.0f;
 	networkPending.keyDraftAccept = false;
 	networkPending.keyDraftPlayer = -1;
 	networkPending.keyDraftClass = 0;
@@ -24991,7 +25260,7 @@ void ofApp::applySnapshotString(const std::string & data) {
 	networkPending.lastAppliedShuffleNonce.clear();
 	skipClientShuffleFor = -1;
 	draftAcceptApplied = false;
-	waitingForDraftOptions = false;
+	waitingForDraftOptionsStartTime = 0.0f;
 	// Clear any per-player deck dirty flags
 	for (auto & p : players)
 		p.deckNeedsShuffle = false;
@@ -25649,178 +25918,6 @@ int ofApp::getGameRandom(int min, int max) {
 	return min + (int)(raw % range);
 }
 //--------------------------------------------------------------
-int ofApp::startDiceRoll(int numDice, int sides, DicePurpose purpose, std::string label, int ownerIndex) {
-	int totalRollResult = 0;
-	int luckBonus = 0;
-
-	// --- CHANGE START: REMOVE ZOMBIE CLIENT CHECK ---
-	// In Deterministic mode, Clients MUST roll their own dice to keep RNG in sync.
-	/* 
-    if (isMultiplayer && isClient() && !processingNetworkPacket) {
-        return 0; 
-    }
-    */
-	// --- CHANGE END ---
-
-	// 1. Calculate Luck Bonus (Deterministic Logic)
-	int luckOwner = (ownerIndex >= 0 && ownerIndex < (int)players.size()) ? ownerIndex : currentPlayerIndex;
-	if (luckOwner != -1) {
-		luckBonus = players[luckOwner].luck + computePassiveLuck(luckOwner);
-	}
-
-	// Earthquake rolls should not be affected by luck
-	if (purpose == PURPOSE_EARTHQUAKE_DAMAGE || purpose == PURPOSE_EARTHQUAKE_DISTANCE) {
-		luckBonus = 0;
-	}
-
-	// 2. Set UI Label
-	if (label != "") {
-		currentDiceLabel = label;
-	} else {
-		switch (purpose) {
-		case PURPOSE_AP:
-			currentDiceLabel = "Rolling for Action Points";
-			break;
-		case PURPOSE_DAMAGE:
-			currentDiceLabel = "Rolling Damage";
-			break;
-		case PURPOSE_RANGE:
-			currentDiceLabel = "Rolling Range";
-			break;
-		case PURPOSE_BARRIER_GAIN:
-			currentDiceLabel = "Rolling Barrier";
-			break;
-		case PURPOSE_COIN_FLIP:
-			currentDiceLabel = "Flipping Coin";
-			break;
-		case PURPOSE_HP:
-			currentDiceLabel = "Rolling Health";
-			break;
-		case PURPOSE_HEALING:
-			currentDiceLabel = "Rolling Heal Amount";
-			break;
-		case PURPOSE_BONUS_AP:
-			currentDiceLabel = "Rolling Bonus AP";
-			break;
-		case PURPOSE_TIME_VORTEX:
-			currentDiceLabel = "Rolling Extra Turns";
-			break;
-		default:
-			currentDiceLabel = "Rolling Dice...";
-			break;
-		}
-	}
-
-	// 3. Loop through dice
-	for (int i = 0; i < numDice; ++i) {
-		DiceRoll newRoll;
-		newRoll.purpose = purpose;
-		newRoll.sides = sides;
-		newRoll.startTime = ofGetElapsedTimef();
-		newRoll.associatedUnit = ownerIndex;
-
-		// --- CORE DETERMINISM (GAMEPLAY LOGIC) ---
-		// 1. Get the synced random number
-		int rawRoll = getGameRandom(1, sides);
-
-		// 2. Apply game logic (Luck)
-		int finalRoll;
-		if (sides == 2) {
-			finalRoll = rawRoll; // Luck doesn't change coin logic, just visual flair if needed
-		} else {
-			finalRoll = rawRoll + luckBonus;
-		}
-
-		totalRollResult += finalRoll;
-		newRoll.result = finalRoll;
-		newRoll.rawResult = rawRoll; // Visuals rely on raw result to show correct face
-
-		// Log dice rolls for debugging multiplayer sync
-		if (isMultiplayer && purpose == PURPOSE_AP) {
-			ofLogNotice("Dice") << "Rolled dice[" << i << "]: rawResult=" << rawRoll << " finalResult=" << finalRoll << " (owner=" << ownerIndex << ")";
-		}
-
-		// --- VISUALS (MUST BE DECOUPLED FROM GAMEPLAY RNG) ---
-
-		// Use visualRNG for visual axis generation (Unsynced)
-		std::uniform_real_distribution<float> axisDist(-1.0f, 1.0f);
-		glm::vec3 rndAxis(axisDist(visualRNG), axisDist(visualRNG), axisDist(visualRNG));
-		if (glm::length(rndAxis) < 0.01f) rndAxis = glm::vec3(0, 1, 0);
-		newRoll.rotationAxis = glm::normalize(rndAxis);
-
-		// Use visualRNG for visual wobble (Unsynced)
-		std::uniform_real_distribution<float> wobbleDist(-25.0f, 25.0f);
-		float wobbleAmount = wobbleDist(visualRNG);
-
-		// --- ROTATION: Delegate to helper to compute face quaternion ---
-		newRoll.finalQuat = getDiceFaceRotation(sides, newRoll.rawResult, wobbleAmount);
-
-		activeDiceRolls.push_back(newRoll);
-	}
-
-	// 4. Show Floating Text for Luck
-	if (luckBonus > 0) {
-		Player & caster = players[currentPlayerIndex];
-		queueFloatingTextVisual(
-			gridToWorld(caster.x, caster.y),
-			"+" + ofToString(luckBonus) + " Luck!",
-			ofColor::gold);
-	}
-
-	// 5. Send dice roll packet to opponent in multiplayer (for visual synchronization)
-	if (isMultiplayer && activeDiceRolls.size() >= static_cast<size_t>(numDice)) {
-		// Only send DiceRollPacket for debug/manual rolls. Gameplay rolls
-		// (damage, range, AP, etc.) are deterministic locally and should
-		// NOT be broadcast to avoid duplicate/duplicate-consumption of RNG.
-		if (purpose == PURPOSE_DEBUG) {
-			DiceRollPacket drp = {};
-			drp.type = PKT_DICE_ROLL;
-			drp.playerID = myLocalPlayerID;
-			drp.numDice = numDice;
-			drp.sides = sides;
-			drp.purpose = (uint8_t)purpose;
-			drp.ownerIndex = ownerIndex;
-
-			// Copy the results from the last numDice rolls
-			int startIdx = (int)activeDiceRolls.size() - numDice;
-			for (int i = 0; i < numDice && startIdx + i < (int)activeDiceRolls.size(); i++) {
-				drp.rawResults[i] = activeDiceRolls[startIdx + i].rawResult;
-				drp.finalResults[i] = activeDiceRolls[startIdx + i].result;
-			}
-
-			strncpy(drp.label, label.c_str(), 63);
-			drp.label[63] = '\0';
-
-			steamManager.sendPacket(&drp, sizeof(drp));
-			ofLogNotice("Network") << "Sent DiceRollPacket: " << numDice << "d" << sides << " purpose=" << (int)purpose << " label=" << label;
-		} else {
-			ofLogNotice("Network") << "Not sending DiceRollPacket for gameplay purpose=" << (int)purpose << " label=" << label;
-		}
-	}
-
-	// For coin flips, log Heads/Tails instead of raw numbers
-	if (sides == 2) {
-		int heads = 0;
-		int tails = 0;
-		int startIdx = (int)activeDiceRolls.size() - numDice;
-		for (int i = 0; i < numDice && startIdx + i < (int)activeDiceRolls.size(); ++i) {
-			int v = activeDiceRolls[startIdx + i].rawResult;
-			if (v == 2)
-				heads++;
-			else
-				tails++;
-		}
-		if (numDice == 1) {
-			std::string s = (heads == 1) ? "Heads" : "Tails";
-			ofLogNotice("Dice") << "Final coin flip result: " << s;
-		} else {
-			ofLogNotice("Dice") << "Final coin flips: Heads=" << heads << " Tails=" << tails;
-		}
-	} else {
-		ofLogNotice("Dice") << "Final total result for " << numDice << "d" << sides << ": " << totalRollResult;
-	}
-	return totalRollResult;
-}
 
 //--------------------------------------------------------------
 bool ofApp::diceVisualsFinishedAndLinger() const {
@@ -27891,7 +27988,7 @@ void ofApp::debugSkipDraftRandomCards() {
 	networkPending.keyDraftKeyY = -1;
 	selectedDraftIndices.clear();
 	draftAcceptLocked = false;
-	waitingForDraftOptions = false;
+	waitingForDraftOptionsStartTime = 0.0f;
 
 	// Initialize game - move directly to gameplay
 	ofLogNotice("Debug") << "Draft skipped, starting gameplay";
@@ -27948,7 +28045,7 @@ void ofApp::cleanupGame() {
 	animatingPlayerIndex = -1;
 	isLoadingGame = false;
 	hasReceivedHandshake = false;
-	waitingForTurnStartFromHost = false;
+	waitingForTurnStartTimer = 0.0f;
 
 	ofLogNotice("Game") << "--- GAME SESSION CLEANED UP ---";
 }
@@ -28708,7 +28805,7 @@ void ofApp::generateDraftOptions(int classTier, const std::vector<int> * forcedI
 
 	selectedDraftIndices.clear();
 	currentState = STATE_DRAFTING;
-	waitingForDraftOptions = false; // Client no longer waits
+	waitingForDraftOptionsStartTime = 0.0f; // Client no longer waits
 
 	// Initialize per-option visual animation state
 	draftOptionUI.clear();
@@ -28803,7 +28900,7 @@ void ofApp::applyDraftOptionsFromPool(int classTier, const std::vector<int> & in
 	draftPlayerIndex = draftingPlayerIdx;
 	selectedDraftIndices.clear();
 	currentState = STATE_DRAFTING; // Force state transition
-	waitingForDraftOptions = false; // We have the options now
+	waitingForDraftOptionsStartTime = 0.0f; // We have the options now
 	draftAcceptLocked = false;
 	draftAcceptApplied = false;
 	// -------------------------------------------------------------
@@ -29163,7 +29260,7 @@ void ofApp::drawDraftScreen() {
 	float nowDbg = ofGetElapsedTimef();
 	if (draftOptions.empty() && currentState == STATE_DRAFTING && (nowDbg - lastDraftDrawLogTime) > 1.0f) {
 		lastDraftDrawLogTime = nowDbg;
-		ofLogNotice("DraftDebug") << "drawDraftScreen: called but draftOptions.empty() currentState=" << currentState << " draftPlayerIndex=" << draftPlayerIndex << " localIdx=" << getLocalPlayerIndex() << " myLocalPlayerID=" << myLocalPlayerID << " waitingForDraftOptions=" << waitingForDraftOptions;
+		ofLogNotice("DraftDebug") << "drawDraftScreen: called but draftOptions.empty() currentState=" << currentState << " draftPlayerIndex=" << draftPlayerIndex << " localIdx=" << getLocalPlayerIndex() << " myLocalPlayerID=" << myLocalPlayerID << " waitingForDraftOptions=" << (waitingForDraftOptionsStartTime > 0.0f ? 1 : 0);
 	}
 
 	// Animate per-slot UI and draw scaled cards
@@ -29642,7 +29739,7 @@ void ofApp::processNetworkPackets() {
 						req.playerID = myLocalPlayerID;
 						req.requestedTurn = globalTurnCounter;
 						steamManager.sendPacket(&req, sizeof(req));
-						waitingForSnapshot = true;
+						waitingForSnapshotStartTime = ofGetElapsedTimef();
 					}
 					continue;
 				}
@@ -30016,7 +30113,7 @@ void ofApp::processNetworkPackets() {
 
 				if (tpk->currentPlayerIndex >= 0 && tpk->currentPlayerIndex < (int)players.size()) {
 					// Set up turn state
-					waitingForTurnStartFromHost = false;
+					waitingForTurnStartTimer = 0.0f;
 					endTurnLocked = false;
 					currentState = STATE_GAMEPLAY; // Transition to gameplay state
 					currentPlayerIndex = tpk->currentPlayerIndex;
@@ -30206,7 +30303,7 @@ void ofApp::processNetworkPackets() {
 					ofLogNotice("Network") << "Snapshot end (id=" << incomingSnapshotId << ")";
 					applySnapshotString(incomingSnapshotBuffer);
 					// Clear waiting flag if we had requested this snapshot
-					waitingForSnapshot = false;
+					waitingForSnapshotStartTime = 0.0f;
 					addGameLog("Recovered game state from host snapshot");
 					queueFloatingTextVisual(glm::vec3(0, 5, 0), "Snapshot Applied", ofColor::green);
 					incomingSnapshotBuffer.clear();
@@ -30648,7 +30745,7 @@ void ofApp::processNetworkPackets() {
 					isEarthquakeDiceRolling = true;
 					isEarthquakeAnimatingStep = false;
 					earthquakeDiceAssignCounter = 0;
-					isEarthquakeWaiting = false;
+					earthquakeWaitTimer = 0.0f;
 
 					// Advance gameplay RNG to mirror host's direction choices and upcoming
 					// earthquake distance rolls so client RNG sequence stays aligned.
@@ -30924,7 +31021,7 @@ void ofApp::processNetworkPackets() {
 							// If we're a client waiting for the host's TurnStart and our restored
 							// currentPlayerIndex now points to a minion (possible due to sorting),
 							// advance to the next non-minion so the client doesn't think it's a minion's turn.
-							if (isClient() && waitingForTurnStartFromHost && currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size() && players[currentPlayerIndex].isMinion) {
+							if (isClient() && waitingForTurnStartTimer > 0.0f && currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size() && players[currentPlayerIndex].isMinion) {
 								bool found = false;
 								for (int off = 1; off < (int)players.size(); ++off) {
 									int idx = (currentPlayerIndex + off) % (int)players.size();
@@ -31006,7 +31103,7 @@ void ofApp::processNetworkPackets() {
 			// Never roll dice locally for any turn - host controls all RNG
 			if (isClient()) {
 				ofLogNotice("Network") << "CLIENT FIX ACTIVE: Waiting for host TurnStart packet (will NOT roll dice locally).";
-				waitingForTurnStartFromHost = true;
+				waitingForTurnStartTimer = 10.0f; // wait up to 10s for host TurnStart (or until packet arrives)
 				// Apply opponent hand cleanup locally so their hand disappears on our screen
 				// NOTE: Do NOT clear defensive stats (block, ward, barrier, holyBlock, fortification) here
 				// All defensive stats persist until the opponent's next turn starts in startNewTurn()
@@ -31032,7 +31129,7 @@ void ofApp::processNetworkPackets() {
 			}
 		} else if (header->type == PKT_CHECKSUM_CHECK) {
 			ChecksumPacket * pkt = (ChecksumPacket *)header;
-			if (isClient() && waitingForTurnStartFromHost) continue;
+			if (isClient() && waitingForTurnStartTimer > 0.0f) continue;
 			if (skipChecksumValidation) continue;
 
 			long long mySum = calculateChecksum();
@@ -31060,7 +31157,7 @@ void ofApp::processNetworkPackets() {
 					req.requestedTurn = pkt->turnNumber;
 					steamManager.sendPacket(&req, sizeof(req));
 
-					waitingForSnapshot = true;
+					waitingForSnapshotStartTime = ofGetElapsedTimef();
 					queueFloatingTextVisual(glm::vec3(0, 5, 0), "Requesting Resync...", ofColor::yellow);
 				}
 			} else {
@@ -31260,7 +31357,7 @@ void ofApp::processNetworkPackets() {
 			// Debug trace: log decision state for draft packet handling
 			ofLogNotice("DraftTrace") << "PKT_DRAFT_STATE: optionsMatch=" << optionsMatch
 									  << " currentState=" << currentState << " initialDraftComplete=" << initialDraftComplete
-									  << " waitingForDraftOptions=" << waitingForDraftOptions << " draftAcceptApplied=" << draftAcceptApplied
+									  << " waitingForDraftOptions=" << (waitingForDraftOptionsStartTime > 0.0f ? 1 : 0) << " draftAcceptApplied=" << draftAcceptApplied
 									  << " draftOptions.size=" << draftOptions.size() << " draftPlayerIdx(pkt)=" << sp->draftPlayerIdx;
 
 			// Client applies host state directly
@@ -31292,7 +31389,7 @@ void ofApp::processNetworkPackets() {
 									  << " draftPlayerID(pkt)=" << sp->draftPlayerID
 									  << " draftStage=" << draftStage << " picksRemaining=" << draftPicksRemaining
 									  << " isInGameDraft=" << isInGameDraft << " optionsMatch=" << optionsMatch
-									  << " waitingForDraftOptions=" << waitingForDraftOptions << " draftAcceptApplied=" << draftAcceptApplied;
+									  << " waitingForDraftOptions=" << (waitingForDraftOptionsStartTime > 0.0f ? 1 : 0) << " draftAcceptApplied=" << draftAcceptApplied;
 
 			if (sp->classTier > 0) {
 				// Clear visual dice left over from initiative to prevent them lingering forever
@@ -31324,7 +31421,7 @@ void ofApp::processNetworkPackets() {
 				currentPlayerIndex = sp->currentPlayerIndex;
 				// In multiplayer clients: DO NOT call startNewTurn(); wait for host TurnStart packet
 				if (isClient()) {
-					waitingForTurnStartFromHost = true;
+					waitingForTurnStartTimer = 10.0f;
 					ofLogNotice("Network") << "Client: Drafting ended. Waiting for TurnStart packet from host (player=" << currentPlayerIndex << ")";
 				}
 				// Host handles transition in its own draft-accept logic and sends TurnStart
@@ -31340,8 +31437,8 @@ void ofApp::processNetworkPackets() {
 					req.type = PKT_SNAPSHOT_REQUEST;
 					req.playerID = myLocalPlayerID;
 					req.requestedTurn = globalTurnCounter;
-					steamManager.sendPacket(&req, sizeof(req));
-					waitingForSnapshot = true;
+						steamManager.sendPacket(&req, sizeof(req));
+						waitingForSnapshotStartTime = ofGetElapsedTimef();
 				}
 				continue;
 			}
@@ -31374,7 +31471,7 @@ void ofApp::processNetworkPackets() {
 			isInGameDraft = (dp->isInGameDraft != 0);
 			draftAcceptLocked = false;
 			draftAcceptApplied = false;
-			waitingForDraftOptions = false;
+			waitingForDraftOptionsStartTime = 0.0f;
 
 			ofLogNotice("DraftTrace") << "PKT_DRAFT_OPTIONS: received class=" << dp->classTier << " draftGenCounter=" << dp->draftGenCounter << " mapSeed=" << dp->mapSeed << " optIdxs=" << dp->optionIdx0 << "," << dp->optionIdx1 << "," << dp->optionIdx2;
 
@@ -31397,7 +31494,7 @@ void ofApp::processNetworkPackets() {
 						req.playerID = myLocalPlayerID;
 						req.requestedTurn = globalTurnCounter;
 						steamManager.sendPacket(&req, sizeof(req));
-						waitingForSnapshot = true;
+						waitingForSnapshotStartTime = ofGetElapsedTimef();
 					}
 				}
 			} else {
@@ -31411,7 +31508,7 @@ void ofApp::processNetworkPackets() {
 						req.playerID = myLocalPlayerID;
 						req.requestedTurn = globalTurnCounter;
 						steamManager.sendPacket(&req, sizeof(req));
-						waitingForSnapshot = true;
+						waitingForSnapshotStartTime = ofGetElapsedTimef();
 					}
 				}
 			}
@@ -31870,13 +31967,13 @@ void ofApp::processNetworkPackets() {
 			if (now - lastSentRenewedInspirationTime > backoff) {
 				if (lastSentRenewedInspirationAttempts >= MAX_ATTEMPTS) {
 					// Give up and request authoritative snapshot
-					if (!waitingForSnapshot) {
+					if (waitingForSnapshotStartTime <= 0.0f) {
 						SnapshotRequestPacket req = {};
 						req.type = PKT_SNAPSHOT_REQUEST;
 						req.playerID = myLocalPlayerID;
 						req.requestedTurn = globalTurnCounter;
 						steamManager.sendPacket(&req, sizeof(req));
-						waitingForSnapshot = true;
+						waitingForSnapshotStartTime = now;
 						lastSnapshotRequestTime = now;
 						ofLogNotice("Network") << "Client: RenewedInspiration retry limit reached — requested snapshot.";
 					}
@@ -31896,13 +31993,13 @@ void ofApp::processNetworkPackets() {
 			if (lastSentDrawCardsAttempts == 0) backoff = 0.5f;
 			if (now - lastSentDrawCardsTime > backoff) {
 				if (lastSentDrawCardsAttempts >= MAX_ATTEMPTS) {
-					if (!waitingForSnapshot) {
+					if (waitingForSnapshotStartTime <= 0.0f) {
 						SnapshotRequestPacket req = {};
 						req.type = PKT_SNAPSHOT_REQUEST;
 						req.playerID = myLocalPlayerID;
 						req.requestedTurn = globalTurnCounter;
 						steamManager.sendPacket(&req, sizeof(req));
-						waitingForSnapshot = true;
+						waitingForSnapshotStartTime = now;
 						lastSnapshotRequestTime = now;
 						ofLogNotice("Network") << "Client: DrawCards retry limit reached — requested snapshot.";
 					}
@@ -32537,4 +32634,16 @@ int ofApp::resolveDiceRoll(int numDice, int sides) {
 		total += getGameRandom(1, sides);
 	}
 	return total;
+}
+
+// Detailed resolver that returns per-die raw faces and the sum of raw faces.
+int ofApp::resolveDiceRollDetailed(int numDice, int sides, std::vector<int> & outRaw) {
+	outRaw.clear();
+	int totalRaw = 0;
+	for (int i = 0; i < numDice; ++i) {
+		int raw = getGameRandom(1, sides);
+		outRaw.push_back(raw);
+		totalRaw += raw;
+	}
+	return totalRaw;
 }

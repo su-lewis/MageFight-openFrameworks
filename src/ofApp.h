@@ -1006,7 +1006,6 @@ private:
 	void applyMovement(int playerIndex, int targetX, int targetY, int newAP, const std::vector<glm::vec2> * pathOverride = nullptr);
 	void createCardDisplay(const Card & card, int playerIndex); // Create card display animation
 	std::string currentDiceLabel = "";
-	int startDiceRoll(int numDice, int sides, DicePurpose purpose, std::string label = "", int ownerIndex = -1);
 	// Start a purely-visual dice spinner using precomputed raw faces (does not consume gameplay RNG)
 	void startVisualDiceRoll(const VisualEvent & ev);
 	// Resolve dice but also return raw per-die faces
@@ -1079,11 +1078,12 @@ private:
 
 	// Desync message shown when checksum fails
 	std::string desyncMessage;
-	// If true client should wait for host TurnStart packet before performing AP roll
-	bool waitingForTurnStartFromHost = false;
+	// If >0, client should wait for host TurnStart packet before performing AP roll (countdown)
+	float waitingForTurnStartTimer = 0.0f;
 
-	// If true client has requested a snapshot from host and is awaiting it
-	bool waitingForSnapshot = false;
+	// If >0, client has requested a snapshot from host and is awaiting it.
+	// Store the request start time so we can implement timeouts/retries.
+	float waitingForSnapshotStartTime = 0.0f;
 	// True while processing an incoming network packet; used to enforce "Zombie Client" rule
 	bool processingNetworkPacket = false;
 	// Timestamp of last snapshot request to avoid spamming (seconds)
@@ -1238,7 +1238,9 @@ private:
 	std::vector<Card> class3Cards;
 
 	// Networking/draft sync helpers
-	bool waitingForDraftOptions = false; // Client waits for host's authoritative DraftOptionsPacket
+	// `waitingForDraftOptionsStartTime` > 0.0f indicates the client is waiting
+	// for the host's authoritative DraftOptionsPacket; store the start time so
+	// we can implement timeouts/retries without a per-frame boolean poll.
 	float waitingForDraftOptionsStartTime = 0.0f; // When we began waiting (for timeout/retry)
 	float waitingForDraftOptionsTimeout = 0.75f; // seconds to wait for host before giving up/requesting
 	int skipClientShuffleFor = -1; // When >=0, client will skip the next deck shuffle for this player index (avoids RNG divergence from forwarded Accepts)
@@ -1992,8 +1994,7 @@ private:
 	float earthquakeT = 0.0f; // 0.0 to 1.0 for interpolation
 	std::vector<EarthquakeState> earthquakeUnits;
 	int earthquakeStep = 0; // Incremented each earthquake animation step
-	// Waiting state between dice resolution and movement
-	bool isEarthquakeWaiting = false; // Phase between dice and movement
+	// Waiting state between dice resolution and movement (use earthquakeWaitTimer > 0)
 	float earthquakeWaitTimer = 0.0f; // seconds remaining
 
 	// Network-assisted earthquake assignment counter (used when client receives dice)
