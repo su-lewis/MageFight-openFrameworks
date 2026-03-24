@@ -3262,9 +3262,18 @@ void ofApp::setupGame() {
 
 	// Ensure a valid starting player index for singleplayer games
 	currentPlayerIndex = 0;
-	myLocalPlayerID = 0;
+	// Only set `myLocalPlayerID` to 0 for singleplayer; multiplayer clients/hosts set this elsewhere.
+	if (!isMultiplayer)
+		myLocalPlayerID = 0;
 	globalTurnCounter = 0;
 	turnStartTime = ofGetElapsedTimef();
+
+	// Snap the on-screen player visual to the local player's starting square now that
+	// `myLocalPlayerID` has been assigned (hosts/clients may set this before calling).
+	if (myLocalPlayerID >= 0 && myLocalPlayerID < (int)players.size())
+		playerVisualPos = gridToWorld(players[myLocalPlayerID].x, players[myLocalPlayerID].y);
+	else
+		playerVisualPos = gridToWorld(players[0].x, players[0].y);
 
 	// --- INITIATIVE PHASE START: defer to startInitiativePhase()
 	// If host in multiplayer, wait for client-ready signal before starting.
@@ -19099,9 +19108,26 @@ void ofApp::processVisualEvents() {
 	case VE_DICE:
 		// Spawn the 3D dice visuals once at event start (uses precomputed raw faces)
 		if (!ev.visualStarted) {
+			// Start this dice event
 			startVisualDiceRoll(ev);
 			ev.visualStarted = true;
 			ev.startTime = now; // measure duration after spawn
+
+			// If multiple VE_DICE events were queued in the same frame (e.g.,
+			// simultaneous initiative rolls), start any subsequent dice events
+			// that were enqueued at effectively the same time so they animate
+			// together instead of being serialized by FIFO.
+			for (size_t j = idx + 1; j < visualEvents.size(); ++j) {
+				VisualEvent & ev2 = visualEvents[j];
+				if (ev2.completed) continue;
+				if (ev2.type != VE_DICE) break; // stop when non-dice encountered
+				// Consider them part of the same batch when start times are very close
+				if (std::fabs(ev2.startTime - ev.startTime) <= 0.01f && ev2.dicePurpose == ev.dicePurpose && ev2.targetIndex == ev.targetIndex) {
+					startVisualDiceRoll(ev2);
+					ev2.visualStarted = true;
+					ev2.startTime = now;
+				}
+			}
 		}
 		// When dice visual duration expires, simply complete the event.
 		if (now - ev.startTime >= ev.duration) {
