@@ -115,6 +115,10 @@ void SteamManager::shutdownAPI() {
 // ---------------------------------------------------------
 
 void SteamManager::createLobby() {
+	if (!m_bInitialized) {
+		ofLogWarning("Steam") << "createLobby() called but Steam API not initialized.";
+		return;
+	}
 	if (m_bIsHost) return; // Already hosting?
 
 	ofLogNotice("Steam") << "Requesting Lobby Creation...";
@@ -125,6 +129,14 @@ void SteamManager::createLobby() {
 }
 
 void SteamManager::leaveLobby() {
+	if (!m_bInitialized) {
+		// Nothing to do if Steam isn't initialized
+		m_bIsHost = false;
+		m_LobbyID = CSteamID();
+		closeConnection();
+		return;
+	}
+
 	closeConnection();
 
 	if (m_LobbyID.IsValid()) {
@@ -135,6 +147,14 @@ void SteamManager::leaveLobby() {
 }
 
 void SteamManager::closeConnection() {
+	if (!m_bInitialized) {
+		m_hConnection = k_HSteamNetConnection_Invalid;
+		m_hListenSocket = k_HSteamListenSocket_Invalid;
+		while (!packetQueue.empty())
+			packetQueue.pop();
+		return;
+	}
+
 	ISteamNetworkingSockets * net = SteamNetworkingSockets();
 
 	if (m_hConnection != k_HSteamNetConnection_Invalid) {
@@ -152,6 +172,8 @@ void SteamManager::closeConnection() {
 }
 
 bool SteamManager::sendPacket(const void * data, uint32_t size) {
+	if (!m_bInitialized) return false;
+
 	// If we don't have a connection handle yet, attempt to establish one
 	// (clients may click during lobby join before the P2P connection becomes fully active).
 	if (m_hConnection == k_HSteamNetConnection_Invalid) {

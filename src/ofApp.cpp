@@ -447,7 +447,8 @@ Player ofApp::createSummonedMinion(CardType type, int targetX, int targetY, cons
 	minion.playerID = nextSummonID++;
 	minion.x = targetX;
 	minion.y = targetY;
-	minion.isMinion = (currentCardOutcome.summonKind == PENDING_SUMMON_DEMON);
+	// Summoned creatures are minions (static walls are created elsewhere)
+	minion.isMinion = true;
 	minion.isWallUnit = false;
 	minion.ownerID = caster.isMinion ? caster.ownerID : caster.playerID;
 	minion.summonedOnTurnCycle = turnCounter;
@@ -22584,7 +22585,7 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 		spawnSkeletonOp.type = EffectOpType::SPAWN_UNIT;
 		spawnSkeletonOp.data.spawnUnit.toX = targetX;
 		spawnSkeletonOp.data.spawnUnit.toY = targetY;
-		spawnSkeletonOp.data.spawnUnit.summonKind = 11; // SKELETON
+		spawnSkeletonOp.data.spawnUnit.summonKind = 9; // SKELETON
 		spawnSkeletonOp.data.spawnUnit.ownerPlayerID = currentPlayer.isMinion ? currentPlayer.ownerID : currentPlayer.playerID;
 		spawnSkeletonOp.data.spawnUnit.summonerPlayerID = currentPlayer.playerID;
 		// Queue authoritative roll for skeleton HP and reference via blackboard slot 0
@@ -22760,7 +22761,7 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 		spawnKoboldKingOp.type = EffectOpType::SPAWN_UNIT;
 		spawnKoboldKingOp.data.spawnUnit.toX = targetX;
 		spawnKoboldKingOp.data.spawnUnit.toY = targetY;
-		spawnKoboldKingOp.data.spawnUnit.summonKind = 4; // KOBOLD_KING
+		spawnKoboldKingOp.data.spawnUnit.summonKind = 5; // KOBOLD_KING
 		spawnKoboldKingOp.data.spawnUnit.ownerPlayerID = currentPlayer.isMinion ? currentPlayer.ownerID : currentPlayer.playerID;
 		spawnKoboldKingOp.data.spawnUnit.maxHealth = kingHP;
 		spawnKoboldKingOp.data.spawnUnit.ap = 0;
@@ -23140,7 +23141,7 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 		spawnWolfOp.type = EffectOpType::SPAWN_UNIT;
 		spawnWolfOp.data.spawnUnit.toX = -1; // Placement will be handled in EffectSequence
 		spawnWolfOp.data.spawnUnit.toY = -1;
-		spawnWolfOp.data.spawnUnit.summonKind = 12; // WOLF
+		spawnWolfOp.data.spawnUnit.summonKind = 2; // WOLF
 		spawnWolfOp.data.spawnUnit.ownerPlayerID = currentPlayer.isMinion ? currentPlayer.ownerID : currentPlayer.playerID;
 		spawnWolfOp.data.spawnUnit.summonerPlayerID = currentPlayer.playerID;
 		spawnWolfOp.data.spawnUnit.maxHealth = 3;
@@ -23182,7 +23183,7 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 		spawnKoboldOp.type = EffectOpType::SPAWN_UNIT;
 		spawnKoboldOp.data.spawnUnit.toX = -1;
 		spawnKoboldOp.data.spawnUnit.toY = -1;
-		spawnKoboldOp.data.spawnUnit.summonKind = 13; // KOBOLD
+		spawnKoboldOp.data.spawnUnit.summonKind = 1; // KOBOLD
 		spawnKoboldOp.data.spawnUnit.ownerPlayerID = currentPlayer.isMinion ? currentPlayer.ownerID : currentPlayer.playerID;
 		spawnKoboldOp.data.spawnUnit.summonerPlayerID = currentPlayer.playerID;
 		spawnKoboldOp.data.spawnUnit.maxHealth = 2;
@@ -23211,7 +23212,7 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 		spawnHellhoundOp.type = EffectOpType::SPAWN_UNIT;
 		spawnHellhoundOp.data.spawnUnit.toX = targetX;
 		spawnHellhoundOp.data.spawnUnit.toY = targetY;
-		spawnHellhoundOp.data.spawnUnit.summonKind = 9; // HELLHOUND
+		spawnHellhoundOp.data.spawnUnit.summonKind = 3; // HELLHOUND
 		spawnHellhoundOp.data.spawnUnit.ownerPlayerID = currentPlayer.isMinion ? currentPlayer.ownerID : currentPlayer.playerID;
 		spawnHellhoundOp.data.spawnUnit.summonerPlayerID = currentPlayer.playerID;
 		// Queue authoritative roll for hellhound HP and reference via blackboard slot 2
@@ -23246,7 +23247,7 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 		spawnDemonOp.type = EffectOpType::SPAWN_UNIT;
 		spawnDemonOp.data.spawnUnit.toX = targetX;
 		spawnDemonOp.data.spawnUnit.toY = targetY;
-		spawnDemonOp.data.spawnUnit.summonKind = 10; // DEMON
+		spawnDemonOp.data.spawnUnit.summonKind = 4; // DEMON
 		spawnDemonOp.data.spawnUnit.ownerPlayerID = currentPlayer.isMinion ? currentPlayer.ownerID : currentPlayer.playerID;
 		spawnDemonOp.data.spawnUnit.summonerPlayerID = currentPlayer.playerID;
 		// Queue authoritative roll for demon HP and reference via blackboard slot 3
