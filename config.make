@@ -24,8 +24,7 @@ ifeq ($(OS),Windows_NT)
     # ==========================================
     # WINDOWS (GitHub Actions / MSYS2)
     # ==========================================
-    # MinGW GCC Superpower: Link DIRECTLY to the runtime DLLs inside your bin/ folder!
-    # This completely bypasses the incompatible Microsoft .lib formats.
+    # Link to the dynamically forged GCC libraries we are about to create!
     PROJECT_LDFLAGS += -Lbin -lsteam_api64 -lfmod
 
 else

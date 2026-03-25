@@ -13,7 +13,6 @@ jobs:
         shell: msys2 {0}
 
     steps:
-    # 1. Setup MSYS2
     - name: Setup MSYS2
       uses: msys2/setup-msys2@v2
       with:
@@ -26,17 +25,16 @@ jobs:
           mingw-w64-x86_64-gdb
           mingw-w64-x86_64-pkgconf
           mingw-w64-x86_64-wget
+          mingw-w64-x86_64-tools
           unzip
           curl
           rsync
 
-    # 2. Checkout Code
     - name: Checkout Code
       uses: actions/checkout@v4
       with:
         path: my_game_repo
 
-    # 3. Cache openFrameworks Framework
     - name: Cache openFrameworks Framework
       id: cache-of
       uses: actions/cache@v4
@@ -44,7 +42,6 @@ jobs:
         path: openFrameworks
         key: ${{ runner.os }}-of-0.12.0-core-v2
 
-    # 4. Build Core OF (Only if cache miss)
     - name: Download, Patch, and Build Core OF
       if: steps.cache-of.outputs.cache-hit != 'true'
       run: |
@@ -73,7 +70,6 @@ jobs:
         cd ../../libs/openFrameworksCompiled/project
         make Release -j4
 
-    # 5. Restore MSYS2 Environment (Always runs)
     - name: Restore MSYS2 Environment
       run: |
         cd openFrameworks/scripts/msys2
@@ -90,25 +86,33 @@ jobs:
         Cflags: -I${includedir}
         EOF
 
-    # 6. SYNC GAME CODE
     - name: Setup Project Directory
       run: |
         mkdir -p openFrameworks/apps/myApps/MageFight
         rsync -a my_game_repo/ openFrameworks/apps/myApps/MageFight/
 
-    # 7. FAST COMPILE (The Dummy Forge + Direct DLL Linking)
     - name: Build MageFight
       run: |
-        # Forge blank files to completely satisfy the stubborn linker
-        echo "void dummy_boost_function() {}" > dummy.cpp
-        g++ -c dummy.cpp
-        ar rcs /mingw64/lib/libboost_system-mt.a dummy.o
-        ar rcs /mingw64/lib/libboost_filesystem-mt.a dummy.o
+        # THE GHOST FLAG NUKE
+        find openFrameworks -type f -name "*.mk" -exec sed -i 's/-lboost_system-mt//g' {} +
+        find openFrameworks -type f -name "*.mk" -exec sed -i 's/-lboost_filesystem-mt//g' {} +
+        find openFrameworks -type f -name "*.mk" -exec sed -i 's/-lboost_system//g' {} +
+        find openFrameworks -type f -name "*.mk" -exec sed -i 's/-lboost_filesystem//g' {} +
 
-        cd openFrameworks/apps/myApps/MageFight
+        # MINGW ALCHEMY: Forge native GCC import libraries out of the MSVC DLLs
+        cd openFrameworks/apps/myApps/MageFight/bin
+
+        echo "Forging Steamworks Library..."
+        gendef steam_api64.dll
+        dlltool -d steam_api64.def -D steam_api64.dll -l libsteam_api64.a
+
+        echo "Forging FMOD Library..."
+        gendef fmod.dll
+        dlltool -d fmod.def -D fmod.dll -l libfmod.a
+
+        cd ..
         make Release -j4
 
-    # 8. UPLOAD
     - name: Upload Windows Build Artifact
       uses: actions/upload-artifact@v4
       with:
