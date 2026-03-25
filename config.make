@@ -24,10 +24,9 @@ ifeq ($(OS),Windows_NT)
     # ==========================================
     # WINDOWS (GitHub Actions / MSYS2)
     # ==========================================
-    # MinGW GCC Superpower: We link DIRECTLY to the runtime DLLs!
+    # MinGW GCC Superpower: Link DIRECTLY to the runtime DLLs inside your bin/ folder!
     # This completely bypasses the incompatible Microsoft .lib formats.
-    PROJECT_EXTERNAL_LIBS += bin/steam_api64.dll
-    PROJECT_EXTERNAL_LIBS += bin/fmod.dll
+    PROJECT_LDFLAGS += -Lbin -lsteam_api64 -lfmod
 
 else
     # ==========================================
@@ -36,8 +35,6 @@ else
     PROJECT_LDFLAGS += -Llibs/steam/lib -lsteam_api
     PROJECT_LDFLAGS += -Wl,-rpath=./libs/steam/lib
     PROJECT_LDFLAGS += -Wl,-rpath-link,/usr/lib
-
-    # Corrected FMOD path for Linux
     PROJECT_LDFLAGS += ../../../libs/fmod/linux64/libfmod.so
 
 endif

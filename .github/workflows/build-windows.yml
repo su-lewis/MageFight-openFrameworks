@@ -96,14 +96,14 @@ jobs:
         mkdir -p openFrameworks/apps/myApps/MageFight
         rsync -a my_game_repo/ openFrameworks/apps/myApps/MageFight/
 
-    # 7. FAST COMPILE (The Ultimate Clean Fix)
+    # 7. FAST COMPILE (The Dummy Forge + Direct DLL Linking)
     - name: Build MageFight
       run: |
-        # THE GHOST FLAG NUKE: Eradicate Boost flags from ALL Makefiles (including addons!)
-        find openFrameworks -type f -name "*.mk" -exec sed -i 's/-lboost_system-mt//g' {} +
-        find openFrameworks -type f -name "*.mk" -exec sed -i 's/-lboost_filesystem-mt//g' {} +
-        find openFrameworks -type f -name "*.mk" -exec sed -i 's/-lboost_system//g' {} +
-        find openFrameworks -type f -name "*.mk" -exec sed -i 's/-lboost_filesystem//g' {} +
+        # Forge blank files to completely satisfy the stubborn linker
+        echo "void dummy_boost_function() {}" > dummy.cpp
+        g++ -c dummy.cpp
+        ar rcs /mingw64/lib/libboost_system-mt.a dummy.o
+        ar rcs /mingw64/lib/libboost_filesystem-mt.a dummy.o
 
         cd openFrameworks/apps/myApps/MageFight
         make Release -j4
