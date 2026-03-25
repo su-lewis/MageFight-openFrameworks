@@ -13,13 +13,12 @@ jobs:
         shell: msys2 {0}
 
     steps:
-    # 1. Setup MSYS2 (Cached)
+    # 1. Setup MSYS2 Environment (Cached automatically)
     - name: Setup MSYS2
       uses: msys2/setup-msys2@v2
       with:
         msystem: MINGW64
         update: true
-        cache: true
         install: >-
           mingw-w64-x86_64-gcc
           mingw-w64-x86_64-make
@@ -36,27 +35,34 @@ jobs:
       with:
         path: my_game_repo
 
-    # 3. Cache openFrameworks Framework
-    - name: Cache openFrameworks Framework
+    # 3. Cache openFrameworks Build
+    - name: Cache openFrameworks Build
       id: cache-of
       uses: actions/cache@v4
       with:
         path: openFrameworks
-        key: openframeworks-core-v2
+        key: ${{ runner.os }}-of-0.12.0-core-v2
 
-    # 4. Download, Patch, and Build Core OF
+    # 4. Download, Patch, and Build Core OF (ONLY if cache misses)
     - name: Download, Patch, and Build Core OF
       if: steps.cache-of.outputs.cache-hit != 'true'
       run: |
+        echo "Cache miss. Building openFrameworks from scratch..."
+
         curl -L -o of.zip https://github.com/openframeworks/openFrameworks/releases/download/0.12.0/of_v0.12.0_msys2_mingw64_release.zip
         unzip -q of.zip
         mv of_v0.12.0_msys2_mingw64_release openFrameworks
 
         cd openFrameworks/scripts/msys2
+
+        # THE MODERN FREEIMAGE FIX: Avoid the 404 dead link by just replacing the capitalization
         sed -i 's/FreeImage/freeimage/g' install_dependencies.sh
+
+        # Install dependencies (This will now correctly grab lowercase freeimage + boost)
         pacman -Su --noconfirm
         ./install_dependencies.sh --noconfirm
 
+        # GLM FIX: Create the missing pkg-config file
         mkdir -p /mingw64/lib/pkgconfig
         cat << 'EOF' > /mingw64/lib/pkgconfig/glm.pc
         prefix=/mingw64
@@ -67,49 +73,25 @@ jobs:
         Cflags: -I${includedir}
         EOF
 
+        # Inject the modern GLM experimental flag
         echo "PLATFORM_CXXFLAGS += -DGLM_ENABLE_EXPERIMENTAL" >> ../../libs/openFrameworksCompiled/project/makefileCommon/config.shared.mk
 
+        # Build the core OF library
         cd ../../libs/openFrameworksCompiled/project
         make Release -j4
 
-    # 5. Restore MSYS2 Environment
-    - name: Restore MSYS2 Environment
-      run: |
-        cd openFrameworks/scripts/msys2
-        pacman -Su --noconfirm
-        ./install_dependencies.sh --noconfirm
-
-        mkdir -p /mingw64/lib/pkgconfig
-        cat << 'EOF' > /mingw64/lib/pkgconfig/glm.pc
-        prefix=/mingw64
-        includedir=${prefix}/include
-        Name: GLM
-        Description: OpenGL Mathematics
-        Version: 1.0.3
-        Cflags: -I${includedir}
-        EOF
-
-    # 6. SYNC GAME CODE
+    # 5. Sync Project Directory
     - name: Setup Project Directory
       run: |
-        mkdir -p openFrameworks/apps/myApps/MageFight
         rsync -a my_game_repo/ openFrameworks/apps/myApps/MageFight/
 
-    # 7. FAST COMPILE
+    # 6. Compile MageFight (Trusting config.make!)
     - name: Build MageFight
       run: |
-        # THE GHOST FLAG FIX: Erase Boost from the core framework
-        sed -i 's/-lboost_system-mt//g' openFrameworks/libs/openFrameworksCompiled/project/msys2/config.msys2.default.mk
-        sed -i 's/-lboost_system//g' openFrameworks/libs/openFrameworksCompiled/project/msys2/config.msys2.default.mk
-        sed -i 's/-lboost_filesystem-mt//g' openFrameworks/libs/openFrameworksCompiled/project/msys2/config.msys2.default.mk
-        sed -i 's/-lboost_filesystem//g' openFrameworks/libs/openFrameworksCompiled/project/msys2/config.msys2.default.mk
-
         cd openFrameworks/apps/myApps/MageFight
+        make Release -j4
 
-        # Force the GCC compiler to link your external libraries!
-        make Release -j4 PROJECT_LDFLAGS="libs/steam/lib/win64/steam_api64.lib libs/fmod/win64/fmod.dll"
-
-    # 8. UPLOAD
+    # 7. Upload Artifact
     - name: Upload Windows Build Artifact
       uses: actions/upload-artifact@v4
       with:
