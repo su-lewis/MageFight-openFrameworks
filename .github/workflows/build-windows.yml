@@ -42,7 +42,7 @@ jobs:
       uses: actions/cache@v4
       with:
         path: openFrameworks
-        key: ${{ runner.os }}-of-0.12.0-core-v3
+        key: ${{ runner.os }}-of-0.12.0-core-v2
 
     # 4. Build Core OF (Only if cache miss)
     - name: Download, Patch, and Build Core OF
@@ -53,17 +53,11 @@ jobs:
         mv of_v0.12.0_msys2_mingw64_release openFrameworks
 
         cd openFrameworks/scripts/msys2
-
-        # Lowercase FreeImage fix
         sed -i 's/FreeImage/freeimage/g' install_dependencies.sh
-
-        # Explicitly download Boost!
-        pacman -S --noconfirm mingw-w64-x86_64-boost
 
         pacman -Su --noconfirm
         ./install_dependencies.sh --noconfirm
 
-        # GLM fake receipt
         mkdir -p /mingw64/lib/pkgconfig
         cat << 'EOF' > /mingw64/lib/pkgconfig/glm.pc
         prefix=/mingw64
@@ -74,7 +68,6 @@ jobs:
         Cflags: -I${includedir}
         EOF
 
-        # GLM Experimental flag
         echo "PLATFORM_CXXFLAGS += -DGLM_ENABLE_EXPERIMENTAL" >> ../../libs/openFrameworksCompiled/project/makefileCommon/config.shared.mk
 
         cd ../../libs/openFrameworksCompiled/project
@@ -84,14 +77,9 @@ jobs:
     - name: Restore MSYS2 Environment
       run: |
         cd openFrameworks/scripts/msys2
-
-        # Ensure Boost is installed on the fresh runner
-        pacman -S --noconfirm mingw-w64-x86_64-boost
-
         pacman -Su --noconfirm
         ./install_dependencies.sh --noconfirm
 
-        # Ensure GLM receipt is on the fresh runner
         mkdir -p /mingw64/lib/pkgconfig
         cat << 'EOF' > /mingw64/lib/pkgconfig/glm.pc
         prefix=/mingw64
@@ -108,12 +96,14 @@ jobs:
         mkdir -p openFrameworks/apps/myApps/MageFight
         rsync -a my_game_repo/ openFrameworks/apps/myApps/MageFight/
 
-    # 7. The Final Linker Fix: Symbolic Links
+    # 7. FAST COMPILE (The Ultimate Clean Fix)
     - name: Build MageFight
       run: |
-        # Create aliases so the linker finds the modern boost files when it asks for the old "-mt" files
-        ln -sf /mingw64/lib/libboost_system.a /mingw64/lib/libboost_system-mt.a
-        ln -sf /mingw64/lib/libboost_filesystem.a /mingw64/lib/libboost_filesystem-mt.a
+        # THE GHOST FLAG NUKE: Eradicate Boost flags from ALL Makefiles (including addons!)
+        find openFrameworks -type f -name "*.mk" -exec sed -i 's/-lboost_system-mt//g' {} +
+        find openFrameworks -type f -name "*.mk" -exec sed -i 's/-lboost_filesystem-mt//g' {} +
+        find openFrameworks -type f -name "*.mk" -exec sed -i 's/-lboost_system//g' {} +
+        find openFrameworks -type f -name "*.mk" -exec sed -i 's/-lboost_filesystem//g' {} +
 
         cd openFrameworks/apps/myApps/MageFight
         make Release -j4
