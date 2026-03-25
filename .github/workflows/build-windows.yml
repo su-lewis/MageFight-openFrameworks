@@ -91,27 +91,15 @@ jobs:
         mkdir -p openFrameworks/apps/myApps/MageFight
         rsync -a my_game_repo/ openFrameworks/apps/myApps/MageFight/
 
+    # 7. FAST COMPILE (Alchemy + Local Dummy Forge)
     - name: Build MageFight
       run: |
-        # THE GHOST FLAG NUKE
-        find openFrameworks -type f -name "*.mk" -exec sed -i 's/-lboost_system-mt//g' {} +
-        find openFrameworks -type f -name "*.mk" -exec sed -i 's/-lboost_filesystem-mt//g' {} +
-        find openFrameworks -type f -name "*.mk" -exec sed -i 's/-lboost_system//g' {} +
-        find openFrameworks -type f -name "*.mk" -exec sed -i 's/-lboost_filesystem//g' {} +
-
-        # MINGW ALCHEMY: Forge native GCC import libraries out of the MSVC DLLs
         cd openFrameworks/apps/myApps/MageFight/bin
 
+        # MINGW ALCHEMY: Forge native GCC import libraries out of the MSVC DLLs
         echo "Forging Steamworks Library..."
         gendef steam_api64.dll
-        dlltool -d steam_api64.def -D steam_api64.dll -l libsteam_api64.a
-
-        echo "Forging FMOD Library..."
-        gendef fmod.dll
-        dlltool -d fmod.def -D fmod.dll -l libfmod.a
-
-        cd ..
-        make Release -j4
+        dlltool -
 
     - name: Upload Windows Build Artifact
       uses: actions/upload-artifact@v4
