@@ -24,8 +24,12 @@ ifeq ($(OS),Windows_NT)
     # ==========================================
     # WINDOWS (GitHub Actions / MSYS2)
     # ==========================================
+    # Link the Windows Steam .lib file
     PROJECT_EXTERNAL_LIBS += libs/steam/lib/win64/steam_api64.lib
-    PROJECT_EXTERNAL_LIBS += libs/fmod/lib/win64/fmod.dll
+
+    # NOTE: fmod.dll is a RUNTIME file, not a compile-time link file for GCC.
+    # It has been removed from here so the linker stops crashing.
+    # Just ensure fmod.dll is physically sitting inside your MageFight/bin/ folder!
 
 else
     # ==========================================
@@ -34,6 +38,8 @@ else
     PROJECT_LDFLAGS += -Llibs/steam/lib -lsteam_api
     PROJECT_LDFLAGS += -Wl,-rpath=./libs/steam/lib
     PROJECT_LDFLAGS += -Wl,-rpath-link,/usr/lib
-    PROJECT_LDFLAGS += ../../../libs/fmod/lib/linux64/libfmod.so
+
+    # Corrected FMOD path for Linux (removed the rogue /lib/ folder to match your actual structure)
+    PROJECT_LDFLAGS += ../../../libs/fmod/linux64/libfmod.so
 
 endif

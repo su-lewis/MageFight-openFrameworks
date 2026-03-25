@@ -13,12 +13,13 @@ jobs:
         shell: msys2 {0}
 
     steps:
-    # 1. Setup MSYS2 Environment (Cached automatically)
+    # 1. Setup MSYS2
     - name: Setup MSYS2
       uses: msys2/setup-msys2@v2
       with:
         msystem: MINGW64
         update: true
+        cache: true
         install: >-
           mingw-w64-x86_64-gcc
           mingw-w64-x86_64-make
@@ -29,40 +30,40 @@ jobs:
           curl
           rsync
 
-    # 2. Checkout Game Code
+    # 2. Checkout Code
     - name: Checkout Code
       uses: actions/checkout@v4
       with:
         path: my_game_repo
 
-    # 3. Cache openFrameworks Build
-    - name: Cache openFrameworks Build
+    # 3. Cache openFrameworks Framework
+    - name: Cache openFrameworks Framework
       id: cache-of
       uses: actions/cache@v4
       with:
         path: openFrameworks
-        key: ${{ runner.os }}-of-0.12.0-core-v2
+        key: ${{ runner.os }}-of-0.12.0-core-v3
 
-    # 4. Download, Patch, and Build Core OF (ONLY if cache misses)
+    # 4. Build Core OF (Only if cache miss)
     - name: Download, Patch, and Build Core OF
       if: steps.cache-of.outputs.cache-hit != 'true'
       run: |
-        echo "Cache miss. Building openFrameworks from scratch..."
-
         curl -L -o of.zip https://github.com/openframeworks/openFrameworks/releases/download/0.12.0/of_v0.12.0_msys2_mingw64_release.zip
         unzip -q of.zip
         mv of_v0.12.0_msys2_mingw64_release openFrameworks
 
         cd openFrameworks/scripts/msys2
 
-        # THE MODERN FREEIMAGE FIX: Avoid the 404 dead link by just replacing the capitalization
+        # Lowercase FreeImage fix
         sed -i 's/FreeImage/freeimage/g' install_dependencies.sh
 
-        # Install dependencies (This will now correctly grab lowercase freeimage + boost)
+        # Explicitly download Boost!
+        pacman -S --noconfirm mingw-w64-x86_64-boost
+
         pacman -Su --noconfirm
         ./install_dependencies.sh --noconfirm
 
-        # GLM FIX: Create the missing pkg-config file
+        # GLM fake receipt
         mkdir -p /mingw64/lib/pkgconfig
         cat << 'EOF' > /mingw64/lib/pkgconfig/glm.pc
         prefix=/mingw64
@@ -73,25 +74,51 @@ jobs:
         Cflags: -I${includedir}
         EOF
 
-        # Inject the modern GLM experimental flag
+        # GLM Experimental flag
         echo "PLATFORM_CXXFLAGS += -DGLM_ENABLE_EXPERIMENTAL" >> ../../libs/openFrameworksCompiled/project/makefileCommon/config.shared.mk
 
-        # Build the core OF library
         cd ../../libs/openFrameworksCompiled/project
         make Release -j4
 
-    # 5. Sync Project Directory
+    # 5. Restore MSYS2 Environment (Always runs)
+    - name: Restore MSYS2 Environment
+      run: |
+        cd openFrameworks/scripts/msys2
+
+        # Ensure Boost is installed on the fresh runner
+        pacman -S --noconfirm mingw-w64-x86_64-boost
+
+        pacman -Su --noconfirm
+        ./install_dependencies.sh --noconfirm
+
+        # Ensure GLM receipt is on the fresh runner
+        mkdir -p /mingw64/lib/pkgconfig
+        cat << 'EOF' > /mingw64/lib/pkgconfig/glm.pc
+        prefix=/mingw64
+        includedir=${prefix}/include
+        Name: GLM
+        Description: OpenGL Mathematics
+        Version: 1.0.3
+        Cflags: -I${includedir}
+        EOF
+
+    # 6. SYNC GAME CODE
     - name: Setup Project Directory
       run: |
+        mkdir -p openFrameworks/apps/myApps/MageFight
         rsync -a my_game_repo/ openFrameworks/apps/myApps/MageFight/
 
-    # 6. Compile MageFight (Trusting config.make!)
+    # 7. The Final Linker Fix: Symbolic Links
     - name: Build MageFight
       run: |
+        # Create aliases so the linker finds the modern boost files when it asks for the old "-mt" files
+        ln -sf /mingw64/lib/libboost_system.a /mingw64/lib/libboost_system-mt.a
+        ln -sf /mingw64/lib/libboost_filesystem.a /mingw64/lib/libboost_filesystem-mt.a
+
         cd openFrameworks/apps/myApps/MageFight
         make Release -j4
 
-    # 7. Upload Artifact
+    # 8. UPLOAD
     - name: Upload Windows Build Artifact
       uses: actions/upload-artifact@v4
       with:
