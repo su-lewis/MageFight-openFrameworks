@@ -44,7 +44,7 @@ jobs:
         path: openFrameworks
         key: openframeworks-core-v2
 
-    # 4. Download, Patch, and Build Core OF (Only runs if cache is empty)
+    # 4. Download, Patch, and Build Core OF
     - name: Download, Patch, and Build Core OF
       if: steps.cache-of.outputs.cache-hit != 'true'
       run: |
@@ -72,14 +72,13 @@ jobs:
         cd ../../libs/openFrameworksCompiled/project
         make Release -j4
 
-    # 5. Restore MSYS2 Environment (Always runs to prep the linker)
+    # 5. Restore MSYS2 Environment
     - name: Restore MSYS2 Environment
       run: |
         cd openFrameworks/scripts/msys2
         pacman -Su --noconfirm
         ./install_dependencies.sh --noconfirm
 
-        # GLM Receipt Fix
         mkdir -p /mingw64/lib/pkgconfig
         cat << 'EOF' > /mingw64/lib/pkgconfig/glm.pc
         prefix=/mingw64
@@ -96,16 +95,14 @@ jobs:
         mkdir -p openFrameworks/apps/myApps/MageFight
         rsync -a my_game_repo/ openFrameworks/apps/myApps/MageFight/
 
-    # 7. FAST COMPILE (The True Fix!)
+    # 7. FAST COMPILE (The Ultimate Dummy Linker Fix)
     - name: Build MageFight
       run: |
-        # THE GHOST FLAG FIX: OpenFrameworks doesn't even use Boost anymore!
-        # We are completely erasing the legacy flags from the linker command.
-        # (We check for both the '-mt' version and the regular version just to be safe against the cache)
-        sed -i 's/-lboost_system-mt//g' openFrameworks/libs/openFrameworksCompiled/project/msys2/config.msys2.default.mk
-        sed -i 's/-lboost_system//g' openFrameworks/libs/openFrameworksCompiled/project/msys2/config.msys2.default.mk
-        sed -i 's/-lboost_filesystem-mt//g' openFrameworks/libs/openFrameworksCompiled/project/msys2/config.msys2.default.mk
-        sed -i 's/-lboost_filesystem//g' openFrameworks/libs/openFrameworksCompiled/project/msys2/config.msys2.default.mk
+        # Forge blank files to completely satisfy the stubborn linker
+        echo "void dummy_boost_function() {}" > dummy.cpp
+        g++ -c dummy.cpp
+        ar rcs /mingw64/lib/libboost_system-mt.a dummy.o
+        ar rcs /mingw64/lib/libboost_filesystem-mt.a dummy.o
 
         cd openFrameworks/apps/myApps/MageFight
         make Release -j4
