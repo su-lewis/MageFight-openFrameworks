@@ -39,18 +39,17 @@ jobs:
         unzip -q of.zip
         mv of_v0.12.0_msys2_mingw64_release openFrameworks
 
-  # 4. Install dependencies, including the manual fix for the lowercase freeimage library
+# 4. Install dependencies, including the manual fix for the lowercase freeimage library
     - name: Install oF Dependencies & FreeImage Fix
       run: |
-        # 1. Install the modern, lowercase 'freeimage' directly via pacman
-        pacman -S --noconfirm mingw-w64-x86_64-freeimage
-
-        # 2. Patch the official oF installer script to remove its own attempt
-        # to find the old capital-F "FreeImage", which would fail and crash the script.
         cd openFrameworks/scripts/msys2
-        sed -i 's/mingw-w64-${MINGW_PACKAGE_PREFIX}-FreeImage//g' install_dependencies.sh
 
-        # 3. Finally, run the (now safe) oF dependency installer.
+        # OpenFrameworks 0.12.0 asks for "FreeImage" (capital F).
+        # MSYS2 renamed it to "freeimage" (lowercase).
+        # This sledgehammer command just finds and replaces the capitalization!
+        sed -i 's/FreeImage/freeimage/g' install_dependencies.sh
+
+        # Run the official installer (it will now correctly ask for the lowercase version)
         pacman -Su --noconfirm
         ./install_dependencies.sh --noconfirm
 
