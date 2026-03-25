@@ -43,10 +43,14 @@ jobs:
         unzip -q of.zip
         mv of_v0.12.0_msys2_mingw64_release openFrameworks
 
-    # 4. Install openFrameworks Windows dependencies
+  # 4. Install openFrameworks Windows dependencies
     - name: Install oF Dependencies
       run: |
         cd openFrameworks/scripts/msys2
+
+        # MSYS2 removed FreeImage, so we strip it out of the oF install script
+        sed -i 's/mingw-w64-x86_64-FreeImage//g' install_dependencies.sh
+
         # Auto-accept the dependency installations
         pacman -Su --noconfirm
         ./install_dependencies.sh --noconfirm
