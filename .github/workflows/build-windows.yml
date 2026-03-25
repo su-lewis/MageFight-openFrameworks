@@ -100,14 +100,9 @@ jobs:
         mkdir -p openFrameworks/apps/myApps/MageFight
         rsync -a my_game_repo/ openFrameworks/apps/myApps/MageFight/
 
-    # 7. FAST COMPILE (The True Linker Fix!)
+    # 7. FAST COMPILE
     - name: Build MageFight
       run: |
-        # OpenFrameworks doesn't put the "-l" in its config text.
-        # We wipe the "-mt" from the core config right before the final link!
-        sed -i 's/boost_system-mt/boost_system/g' openFrameworks/libs/openFrameworksCompiled/project/msys2/config.msys2.default.mk
-        sed -i 's/boost_filesystem-mt/boost_filesystem/g' openFrameworks/libs/openFrameworksCompiled/project/msys2/config.msys2.default.mk
-
         cd openFrameworks/apps/myApps/MageFight
         make Release -j4
 
