@@ -2,20 +2,17 @@ name: Build Windows EXE
 
 on:
   push:
-    branches: [ main ] # Triggers on push to main
-  workflow_dispatch:   # Allows you to click a "Run" button in GitHub manually
+    branches: [ main ]
+  workflow_dispatch:
 
 jobs:
   build-windows:
     runs-on: windows-latest
-
-    # We use MSYS2 which matches the Linux 'make' environment closely
     defaults:
       run:
         shell: msys2 {0}
 
     steps:
-    # 1. Setup MSYS2 Environment
     - name: Setup MSYS2
       uses: msys2/setup-msys2@v2
       with:
@@ -26,49 +23,46 @@ jobs:
           mingw-w64-x86_64-make
           mingw-w64-x86_64-gdb
           mingw-w64-x86_64-pkgconf
+          mingw-w64-x86_64-wget
           unzip
           curl
           rsync
 
-    # 2. Checkout your repository into a temporary folder
     - name: Checkout Code
       uses: actions/checkout@v4
       with:
         path: my_game_repo
 
-    # 3. Download and extract openFrameworks
     - name: Download openFrameworks
       run: |
         curl -L -o of.zip https://github.com/openframeworks/openFrameworks/releases/download/0.12.0/of_v0.12.0_msys2_mingw64_release.zip
         unzip -q of.zip
         mv of_v0.12.0_msys2_mingw64_release openFrameworks
 
- # 4. Install openFrameworks Windows dependencies
-    - name: Install oF Dependencies
+    - name: Install oF Dependencies & FreeImage Fix
       run: |
+        wget https://repo.msys2.org/mingw/mingw64/mingw-w64-x86_64-FreeImage-3.18.0-3-any.pkg.tar.zst
+        pacman -U --noconfirm mingw-w64-x86_64-FreeImage-3.18.0-3-any.pkg.tar.zst
         cd openFrameworks/scripts/msys2
-
-        # MSYS2 removed FreeImage, so we strip it out of the oF install script.
-        # We delete the entire line containing FreeImage to be safe.
-        sed -i '/FreeImage/d' install_dependencies.sh
-
-        # Auto-accept the dependency installations
+        sed -i 's/mingw-w64-${MINGW_PACKAGE_PREFIX}-FreeImage//g' install_dependencies.sh
         pacman -Su --noconfirm
         ./install_dependencies.sh --noconfirm
 
-    # 5. Move your game into the openFrameworks directory structure
     - name: Setup Project Directory
       run: |
         mkdir -p openFrameworks/apps/myApps
         mv my_game_repo openFrameworks/apps/myApps/MageFight
 
-    # 6. Compile the game using Make
-    - name: Build Game
+    - name: Build Core openFrameworks Library
+      run: |
+        cd openFrameworks/libs/openFrameworksCompiled/project
+        make Release -j4
+
+    - name: Build MageFight
       run: |
         cd openFrameworks/apps/myApps/MageFight
         make Release -j4
 
-    # 7. Upload the compiled game (bin folder) so you can download it!
     - name: Upload Windows Build Artifact
       uses: actions/upload-artifact@v4
       with:
