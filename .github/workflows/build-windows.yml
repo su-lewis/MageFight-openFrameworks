@@ -18,6 +18,7 @@ jobs:
       with:
         msystem: MINGW64
         update: true
+        cache: true
         install: >-
           mingw-w64-x86_64-gcc
           mingw-w64-x86_64-make
@@ -33,31 +34,56 @@ jobs:
       with:
         path: my_game_repo
 
-    - name: Download openFrameworks
+    # BUMPED TO V2: This forces GitHub to delete the old cache and run our new fixes!
+    - name: Cache openFrameworks Framework
+      id: cache-of
+      uses: actions/cache@v4
+      with:
+        path: openFrameworks
+        key: openframeworks-core-v2
+
+    - name: Download, Patch, and Build Core OF
+      if: steps.cache-of.outputs.cache-hit != 'true'
       run: |
         curl -L -o of.zip https://github.com/openframeworks/openFrameworks/releases/download/0.12.0/of_v0.12.0_msys2_mingw64_release.zip
         unzip -q of.zip
         mv of_v0.12.0_msys2_mingw64_release openFrameworks
 
-# 4. Install dependencies and apply MSYS2 fixes
-    - name: Install oF Dependencies & MSYS2 Fixes
-      run: |
+        # --- THE GLOBAL BOOST NUKE ---
+        # This scans every single .mk config file in the framework and rips out the -mt
+        find openFrameworks -type f -name "*.mk" -exec sed -i 's/-lboost_system-mt/-lboost_system/g' {} +
+        find openFrameworks -type f -name "*.mk" -exec sed -i 's/-lboost_filesystem-mt/-lboost_filesystem/g' {} +
+
         cd openFrameworks/scripts/msys2
-
-        # Fix 1: FreeImage capitalization change in MSYS2
         sed -i 's/FreeImage/freeimage/g' install_dependencies.sh
-
-        # Run the official installer
         pacman -Su --noconfirm
         ./install_dependencies.sh --noconfirm
 
-        # Fix 2: GLM recently removed their pkg-config file in MSYS2.
-        # We manually generate a replacement receipt so openFrameworks can find it!
         mkdir -p /mingw64/lib/pkgconfig
         cat << 'EOF' > /mingw64/lib/pkgconfig/glm.pc
         prefix=/mingw64
         includedir=${prefix}/include
+        Name: GLM
+        Description: OpenGL Mathematics
+        Version: 1.0.3
+        Cflags: -I${includedir}
+        EOF
 
+        echo "PLATFORM_CXXFLAGS += -DGLM_ENABLE_EXPERIMENTAL" >> ../../libs/openFrameworksCompiled/project/makefileCommon/config.shared.mk
+
+        cd ../../libs/openFrameworksCompiled/project
+        make Release -j4
+
+    - name: Restore MSYS2 Environment
+      run: |
+        cd openFrameworks/scripts/msys2
+        pacman -Su --noconfirm
+        ./install_dependencies.sh --noconfirm
+
+        mkdir -p /mingw64/lib/pkgconfig
+        cat << 'EOF' > /mingw64/lib/pkgconfig/glm.pc
+        prefix=/mingw64
+        includedir=${prefix}/include
         Name: GLM
         Description: OpenGL Mathematics
         Version: 1.0.3
@@ -66,22 +92,8 @@ jobs:
 
     - name: Setup Project Directory
       run: |
-        mkdir -p openFrameworks/apps/myApps
-        mv my_game_repo openFrameworks/apps/myApps/MageFight
-
-  # 6. Build the core openFrameworks library.
-    - name: Build Core openFrameworks Library
-      run: |
-        # Inject the GLM experimental flag
-        echo "PLATFORM_CXXFLAGS += -DGLM_ENABLE_EXPERIMENTAL" >> openFrameworks/libs/openFrameworksCompiled/project/makefileCommon/config.shared.mk
-
-        # Fix Boost Library Renaming: MSYS2 removed the "-mt" suffix from Boost files.
-        # This deletes the "-mt" so the linker searches for the correct modern filenames.
-        sed -i 's/-lboost_system-mt/-lboost_system/g' openFrameworks/libs/openFrameworksCompiled/project/msys2/config.msys2.default.mk
-        sed -i 's/-lboost_filesystem-mt/-lboost_filesystem/g' openFrameworks/libs/openFrameworksCompiled/project/msys2/config.msys2.default.mk
-
-        cd openFrameworks/libs/openFrameworksCompiled/project
-        make Release -j4
+        mkdir -p openFrameworks/apps/myApps/MageFight
+        rsync -a my_game_repo/ openFrameworks/apps/myApps/MageFight/
 
     - name: Build MageFight
       run: |
