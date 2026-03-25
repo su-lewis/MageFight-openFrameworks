@@ -39,19 +39,30 @@ jobs:
         unzip -q of.zip
         mv of_v0.12.0_msys2_mingw64_release openFrameworks
 
-# 4. Install dependencies, including the manual fix for the lowercase freeimage library
-    - name: Install oF Dependencies & FreeImage Fix
+# 4. Install dependencies and apply MSYS2 fixes
+    - name: Install oF Dependencies & MSYS2 Fixes
       run: |
         cd openFrameworks/scripts/msys2
 
-        # OpenFrameworks 0.12.0 asks for "FreeImage" (capital F).
-        # MSYS2 renamed it to "freeimage" (lowercase).
-        # This sledgehammer command just finds and replaces the capitalization!
+        # Fix 1: FreeImage capitalization change in MSYS2
         sed -i 's/FreeImage/freeimage/g' install_dependencies.sh
 
-        # Run the official installer (it will now correctly ask for the lowercase version)
+        # Run the official installer
         pacman -Su --noconfirm
         ./install_dependencies.sh --noconfirm
+
+        # Fix 2: GLM recently removed their pkg-config file in MSYS2.
+        # We manually generate a replacement receipt so openFrameworks can find it!
+        mkdir -p /mingw64/lib/pkgconfig
+        cat << 'EOF' > /mingw64/lib/pkgconfig/glm.pc
+        prefix=/mingw64
+        includedir=${prefix}/include
+
+        Name: GLM
+        Description: OpenGL Mathematics
+        Version: 1.0.3
+        Cflags: -I${includedir}
+        EOF
 
     - name: Setup Project Directory
       run: |
