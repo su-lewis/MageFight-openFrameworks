@@ -76,10 +76,6 @@ jobs:
     - name: Restore MSYS2 Environment
       run: |
         cd openFrameworks/scripts/msys2
-
-        # --- THE MISSING LINE! Explicitly downloading Boost! ---
-        pacman -S --noconfirm mingw-w64-x86_64-boost
-
         pacman -Su --noconfirm
         ./install_dependencies.sh --noconfirm
 
@@ -100,12 +96,16 @@ jobs:
         mkdir -p openFrameworks/apps/myApps/MageFight
         rsync -a my_game_repo/ openFrameworks/apps/myApps/MageFight/
 
-   # 7. FAST COMPILE (The True Linker Fix!)
+    # 7. FAST COMPILE (The True Fix!)
     - name: Build MageFight
       run: |
-        # Strip the "-mt" from the config so it correctly links the Boost files we just downloaded!
-        sed -i 's/boost_system-mt/boost_system/g' openFrameworks/libs/openFrameworksCompiled/project/msys2/config.msys2.default.mk
-        sed -i 's/boost_filesystem-mt/boost_filesystem/g' openFrameworks/libs/openFrameworksCompiled/project/msys2/config.msys2.default.mk
+        # THE GHOST FLAG FIX: OpenFrameworks doesn't even use Boost anymore!
+        # We are completely erasing the legacy flags from the linker command.
+        # (We check for both the '-mt' version and the regular version just to be safe against the cache)
+        sed -i 's/-lboost_system-mt//g' openFrameworks/libs/openFrameworksCompiled/project/msys2/config.msys2.default.mk
+        sed -i 's/-lboost_system//g' openFrameworks/libs/openFrameworksCompiled/project/msys2/config.msys2.default.mk
+        sed -i 's/-lboost_filesystem-mt//g' openFrameworks/libs/openFrameworksCompiled/project/msys2/config.msys2.default.mk
+        sed -i 's/-lboost_filesystem//g' openFrameworks/libs/openFrameworksCompiled/project/msys2/config.msys2.default.mk
 
         cd openFrameworks/apps/myApps/MageFight
         make Release -j4
