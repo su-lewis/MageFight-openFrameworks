@@ -76,6 +76,10 @@ jobs:
     - name: Restore MSYS2 Environment
       run: |
         cd openFrameworks/scripts/msys2
+
+        # Download Boost explicitly! (MSYS2 removed it from default packages)
+        pacman -S --noconfirm mingw-w64-x86_64-boost
+
         pacman -Su --noconfirm
         ./install_dependencies.sh --noconfirm
 
