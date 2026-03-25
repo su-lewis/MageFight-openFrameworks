@@ -443,6 +443,53 @@ void ofApp::applyDamageWithMitigationsQueued(Player & target, int baseDamage, Da
 }
 
 Player ofApp::createSummonedMinion(CardType type, int targetX, int targetY, const Player & caster, int turnCounter, int & nextSummonID) {
+	// Map CardType -> summonKind (canonical mapping used by SPAWN_UNIT)
+	int summonKind = 1; // default kobold
+	switch (type) {
+	case CARD_CALL_FOR_KOBOLDS:
+		summonKind = 1;
+		break;
+	case CARD_CALL_FOR_WOLVES:
+		summonKind = 2;
+		break;
+	case CARD_SUMMON_HELLHOUND:
+		summonKind = 3;
+		break;
+	case CARD_SUMMON_DEMON:
+		summonKind = 4;
+		break;
+	case CARD_SUMMON_KOBOLD_KING:
+		summonKind = 5;
+		break;
+	case CARD_SUMMON_ASSISTANT:
+		summonKind = 6;
+		break;
+	case CARD_SUMMON_FAERIE:
+		summonKind = 7;
+		break;
+	case CARD_SUMMON_GOLEM:
+		summonKind = 8;
+		break;
+	case CARD_RAISE_DEAD:
+		summonKind = 9;
+		break;
+	case CARD_SUMMON_WALL:
+		summonKind = 10;
+		break;
+	case CARD_SUMMON_MAGIC_WALL:
+		summonKind = 11;
+		break;
+	default:
+		summonKind = 1;
+		break;
+	}
+
+	int ownerID = caster.isMinion ? caster.ownerID : caster.playerID;
+	int summonerID = caster.playerID;
+	Player * p = spawnMinionDeterministically(summonKind, targetX, targetY, ownerID, 0, 0, summonerID);
+	if (p) return *p;
+
+	// Fallback: mirror previous lightweight constructor if spawn failed
 	Player minion;
 	minion.playerID = nextSummonID++;
 	minion.x = targetX;
@@ -450,10 +497,163 @@ Player ofApp::createSummonedMinion(CardType type, int targetX, int targetY, cons
 	// Summoned creatures are minions (static walls are created elsewhere)
 	minion.isMinion = true;
 	minion.isWallUnit = false;
-	minion.ownerID = caster.isMinion ? caster.ownerID : caster.playerID;
+	minion.ownerID = ownerID;
 	minion.summonedOnTurnCycle = turnCounter;
 	minion.summonOrder = ++nextSummonOrder;
 	return minion;
+}
+
+// Centralized deterministic minion spawn helper. Mirrors the previous SPAWN_UNIT
+// logic but is callable from multiple codepaths to ensure identical state.
+Player * ofApp::spawnMinionDeterministically(int summonKind, int targetX, int targetY, int ownerID, int maxHP, int ap, int summonerPlayerID) {
+	if (!(targetX >= 0 && targetX < BOARD_WIDTH && targetY >= 0 && targetY < BOARD_HEIGHT)) return nullptr;
+	if (board[targetX][targetY].hasPlayer) return nullptr; // caller may handle stat-update
+
+	Player minion;
+	minion.playerID = 300 + (int)players.size();
+	minion.x = targetX;
+	minion.y = targetY;
+	minion.maxHealth = (maxHP > 0) ? maxHP : 1;
+	minion.health = minion.maxHealth;
+	minion.ap = ap;
+	minion.isMinion = true;
+	// clear species flags to be safe
+	minion.isKobold = minion.isWolf = minion.isHellhound = minion.isDemon = false;
+	minion.isKoboldKing = minion.isAssistant = minion.isFaerie = minion.isGolem = false;
+	minion.isSkeleton = minion.isWallUnit = minion.isMagicWallUnit = false;
+
+	switch (summonKind) {
+	case 1:
+		minion.isKobold = true;
+		break;
+	case 2:
+		minion.isWolf = true;
+		break;
+	case 3:
+		minion.isHellhound = true;
+		break;
+	case 4:
+		minion.isDemon = true;
+		break;
+	case 5:
+		minion.isKoboldKing = true;
+		break;
+	case 6:
+		minion.isAssistant = true;
+		break;
+	case 7:
+		minion.isFaerie = true;
+		minion.minionTexture = nullptr;
+		minion.originalModelType = "Faerie";
+		minion.hasRegeneration = true;
+		break;
+	case 8:
+		minion.isGolem = true;
+		break;
+	case 9:
+		minion.isSkeleton = true;
+		minion.hasRegeneration = true;
+		break;
+	case 10:
+		minion.isWallUnit = true;
+		minion.isMagicWallUnit = false;
+		break;
+	case 11:
+		minion.isWallUnit = true;
+		minion.isMagicWallUnit = true;
+		break;
+	default:
+		break;
+	}
+
+	minion.ownerID = ownerID;
+	minion.summonedOnTurnCycle = globalTurnCounter;
+	minion.summonOrder = ++nextSummonOrder;
+	minion.directSummonerID = summonerPlayerID;
+
+	// Build deck
+	auto findCard = [&](const std::string & name, CardType type) -> Card {
+		for (const auto & c : allCards) {
+			if (c.type == type && c.name == name) return c;
+		}
+		for (const auto & c : allCards) {
+			if (c.type == type) return c;
+		}
+		for (const auto & c : allCards) {
+			if (c.name == name) return c;
+		}
+		return Card();
+	};
+
+	if (minion.isFaerie) {
+		Card dispel = findCard("Dispel", CARD_DISPEL);
+		Card lesserHeal = findCard("Lesser Heal", CARD_LESSER_HEAL);
+		Card magicBlast = findCard("Magic Blast", CARD_MAGIC_BLAST);
+		minion.deck = { dispel, dispel, lesserHeal, lesserHeal, magicBlast };
+	} else if (minion.isSkeleton) {
+		Card slash = findCard("Slash", CARD_SLASH);
+		Card drainPunch = findCard("Drain Punch", CARD_DRAIN_PUNCH);
+		Card darkShield = findCard("Dark Shield", CARD_DARK_SHIELD);
+		minion.deck = { slash, slash, drainPunch, drainPunch, darkShield, darkShield };
+	} else if (minion.isHellhound) {
+		Card slash = findCard("Slash", CARD_SLASH);
+		Card flameHit = findCard("Flame Hit", CARD_FLAME_HIT);
+		Card fireball = findCard("Fireball", CARD_FIREBALL);
+		Card darkShield = findCard("Dark Shield", CARD_DARK_SHIELD);
+		minion.deck = { slash, slash, flameHit, flameHit, fireball, fireball, darkShield, darkShield, darkShield };
+	} else if (minion.isDemon) {
+		Card death = findCard("Death", CARD_DEATH);
+		Card flail = findCard("Flail", CARD_FLAIL);
+		Card fireball = findCard("Fireball", CARD_FIREBALL);
+		Card summonHellhound = findCard("Summon Hellhound", CARD_SUMMON_HELLHOUND);
+		Card darkShield = findCard("Dark Shield", CARD_DARK_SHIELD);
+		minion.deck = { death, death, flail, flail, fireball, fireball, summonHellhound, darkShield, darkShield, darkShield };
+	} else {
+		Card hb, pu, callCard;
+		for (const auto & c : allCards) {
+			if (c.name == "Hand Block") hb = c;
+			if (c.name == "Punch") pu = c;
+			if (c.type == CARD_CALL_FOR_KOBOLDS) callCard = c;
+		}
+		minion.deck = { hb, hb, pu, callCard };
+	}
+
+	// Place on board and add
+	board[minion.x][minion.y].hasPlayer = true;
+	players.push_back(minion);
+	int newIdx = (int)players.size() - 1;
+	players[newIdx].visualPos = gridToWorld(players[newIdx].x, players[newIdx].y);
+	ofLogNotice("EffectQueue") << "spawnMinionDeterministically: placed minion idx=" << newIdx << " type=" << summonKind << " owner=" << ownerID;
+	shuffleGameVector(players[newIdx].deck, newIdx);
+
+	// Re-sort turn order to match host
+	int currentID = -1;
+	if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) currentID = players[currentPlayerIndex].playerID;
+	std::sort(players.begin(), players.end(), [](const Player & a, const Player & b) {
+		int ownerA = a.isMinion ? a.ownerID : a.playerID;
+		int ownerB = b.isMinion ? b.ownerID : b.playerID;
+		if (ownerA != ownerB) return ownerA < ownerB;
+		if (a.isMinion && !b.isMinion) return true;
+		if (!a.isMinion && b.isMinion) return false;
+		return a.summonOrder < b.summonOrder;
+	});
+	if (currentID >= 0) {
+		for (size_t i = 0; i < players.size(); i++) {
+			if (players[i].playerID == currentID) {
+				currentPlayerIndex = i;
+				break;
+			}
+		}
+	}
+
+	invalidateTargetCache();
+	checkKeyPickupAndDraftAfterSummon(minion.x, minion.y, minion.ownerID);
+
+	// Return pointer to newly-inserted minion
+	for (size_t i = 0; i < players.size(); ++i) {
+		if (players[i].playerID == minion.playerID) return &players[i];
+	}
+	return nullptr;
 }
 
 // resolveMenuCardChoice removed: menu choices are handled via CMD_MENU_CHOICE lockstep commands
@@ -14365,37 +14565,10 @@ void ofApp::continueNewTurn() {
 		}
 	}
 
-	// Assistant Adjacency Bonus: Give minions/players +1 luck per adjacent friendly Assistant
-	if (startingPlayer.health > 0) {
-		int rollerOwnerID = startingPlayer.isMinion ? startingPlayer.ownerID : startingPlayer.playerID;
-		int rx = startingPlayer.x;
-		int ry = startingPlayer.y;
-
-		// Check 4 orthogonally adjacent tiles for friendly Assistants
-		int adjacentAssistantCount = 0;
-		int adjacentOffsets[4][2] = { { 0, -1 }, { 0, 1 }, { -1, 0 }, { 1, 0 } }; // up, down, left, right
-		for (int i = 0; i < 4; i++) {
-			int nx = rx + adjacentOffsets[i][0];
-			int ny = ry + adjacentOffsets[i][1];
-			if (nx < 0 || nx >= BOARD_WIDTH || ny < 0 || ny >= BOARD_HEIGHT) continue;
-
-			// Find unit at this position
-			for (size_t j = 0; j < players.size(); j++) {
-				Player & other = players[j];
-				if (other.x == nx && other.y == ny && other.health > 0 && other.isAssistant) {
-					// Check if it's owned by the same player
-					int assistantOwnerID = other.ownerID;
-					if (assistantOwnerID == rollerOwnerID) {
-						adjacentAssistantCount++;
-						break; // Only count one Assistant per direction
-					}
-				}
-			}
-		}
-
-		// Update luck: baseLuck + Assistant adjacency bonus
-		startingPlayer.luck = startingPlayer.baseLuck + adjacentAssistantCount;
-	}
+	// Assistant adjacency bonus is computed on-demand via computePassiveLuck(),
+	// which checks for assistants whose `directSummonerID` matches the target
+	// and are adjacent. Do not set `startingPlayer.luck` here as adjacency may
+	// change at any time; computePassiveLuck() provides the dynamic value.
 
 	// Ensure an effect sequence is active so any queued ROLL_DICE ops will be processed
 	if (!isProcessingEffect) {
@@ -18627,146 +18800,10 @@ void ofApp::processEffectOp(EffectOp & op) {
 		int sk = op.data.spawnUnit.summonKind;
 		if (tx >= 0 && tx < BOARD_WIDTH && ty >= 0 && ty < BOARD_HEIGHT) {
 			if (!board[tx][ty].hasPlayer) {
-				Player minion;
-				minion.playerID = 300 + (int)players.size();
-				minion.x = tx;
-				minion.y = ty;
-				// If a maxHealthFromSlot is specified, read authoritative value from blackboard
-				if (op.data.spawnUnit.maxHealthFromSlot >= 0) {
-					int slotVal = currentEffectSequence.blackboard[op.data.spawnUnit.maxHealthFromSlot];
-					minion.maxHealth = (slotVal > 0) ? slotVal : 1;
-				} else {
-					minion.maxHealth = (op.data.spawnUnit.maxHealth > 0) ? op.data.spawnUnit.maxHealth : 1;
-				}
-				minion.health = minion.maxHealth;
-				minion.ap = op.data.spawnUnit.ap;
-				minion.isMinion = true;
-				// Decode summon kind into flags
-				switch (sk) {
-				case 1:
-					minion.isKobold = true;
-					break;
-				case 2:
-					minion.isWolf = true;
-					break;
-				case 3:
-					minion.isHellhound = true;
-					break;
-				case 4:
-					minion.isDemon = true;
-					break;
-				case 5:
-					minion.isKoboldKing = true;
-					break;
-				case 6:
-					minion.isAssistant = true;
-					break;
-				case 7: // Faerie
-					minion.isFaerie = true;
-					minion.minionTexture = nullptr;
-					minion.originalModelType = "Faerie";
-					minion.hasRegeneration = true;
-					break;
-				case 8:
-					minion.isGolem = true;
-					break;
-				case 9:
-					minion.isSkeleton = true;
-					minion.hasRegeneration = true;
-					break;
-				case 10:
-					minion.isWallUnit = true;
-					minion.isMagicWallUnit = false;
-					break;
-				case 11:
-					minion.isWallUnit = true;
-					minion.isMagicWallUnit = true;
-					break;
-				default:
-					break;
-				}
-				minion.ownerID = op.data.spawnUnit.ownerPlayerID;
-				minion.summonedOnTurnCycle = globalTurnCounter;
-				minion.summonOrder = ++nextSummonOrder;
-
-				// Build specialized deck for Faerie; default to a small kobold-like deck otherwise
-				auto findCard = [&](const std::string & name, CardType type) -> Card {
-					for (const auto & c : allCards) {
-						if (c.type == type && c.name == name) return c;
-					}
-					for (const auto & c : allCards) {
-						if (c.type == type) return c;
-					}
-					for (const auto & c : allCards) {
-						if (c.name == name) return c;
-					}
-					return Card();
-				};
-
-				if (minion.isFaerie) {
-					Card dispel = findCard("Dispel", CARD_DISPEL);
-					Card lesserHeal = findCard("Lesser Heal", CARD_LESSER_HEAL);
-					Card magicBlast = findCard("Magic Blast", CARD_MAGIC_BLAST);
-					minion.deck = { dispel, dispel, lesserHeal, lesserHeal, magicBlast };
-				} else if (minion.isSkeleton) {
-					Card slash = findCard("Slash", CARD_SLASH);
-					Card drainPunch = findCard("Drain Punch", CARD_DRAIN_PUNCH);
-					Card darkShield = findCard("Dark Shield", CARD_DARK_SHIELD);
-					minion.deck = { slash, slash, drainPunch, drainPunch, darkShield, darkShield };
-				} else if (minion.isHellhound) {
-					Card slash = findCard("Slash", CARD_SLASH);
-					Card flameHit = findCard("Flame Hit", CARD_FLAME_HIT);
-					Card fireball = findCard("Fireball", CARD_FIREBALL);
-					Card darkShield = findCard("Dark Shield", CARD_DARK_SHIELD);
-					minion.deck = { slash, slash, flameHit, flameHit, fireball, fireball, darkShield, darkShield, darkShield };
-				} else if (minion.isDemon) {
-					Card death = findCard("Death", CARD_DEATH);
-					Card flail = findCard("Flail", CARD_FLAIL);
-					Card fireball = findCard("Fireball", CARD_FIREBALL);
-					Card summonHellhound = findCard("Summon Hellhound", CARD_SUMMON_HELLHOUND);
-					Card darkShield = findCard("Dark Shield", CARD_DARK_SHIELD);
-					minion.deck = { death, death, flail, flail, fireball, fireball, summonHellhound, darkShield, darkShield, darkShield };
-				} else {
-					// Basic placeholder deck (kobold-like)
-					Card hb, pu, callCard;
-					for (const auto & c : allCards) {
-						if (c.name == "Hand Block") hb = c;
-						if (c.name == "Punch") pu = c;
-						if (c.type == CARD_CALL_FOR_KOBOLDS) callCard = c;
-					}
-					minion.deck = { hb, hb, pu, callCard };
-				}
-
-				// Place on board and add
-				board[minion.x][minion.y].hasPlayer = true;
-				players.push_back(minion);
-				int newIdx = (int)players.size() - 1;
-				players[newIdx].visualPos = gridToWorld(players[newIdx].x, players[newIdx].y);
-				ofLogNotice("EffectQueue") << "Processed SPAWN_UNIT: placed minion idx=" << newIdx << " type=" << sk << " owner=" << minion.ownerID;
-				shuffleGameVector(players[newIdx].deck, newIdx);
-
-				// Re-sort turn order to match host
-				int currentID = -1;
-				if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) currentID = players[currentPlayerIndex].playerID;
-				std::sort(players.begin(), players.end(), [](const Player & a, const Player & b) {
-					int ownerA = a.isMinion ? a.ownerID : a.playerID;
-					int ownerB = b.isMinion ? b.ownerID : b.playerID;
-					if (ownerA != ownerB) return ownerA < ownerB;
-					if (a.isMinion && !b.isMinion) return true;
-					if (!a.isMinion && b.isMinion) return false;
-					return a.summonOrder < b.summonOrder;
-				});
-				if (currentID >= 0) {
-					for (size_t i = 0; i < players.size(); i++) {
-						if (players[i].playerID == currentID) {
-							currentPlayerIndex = i;
-							break;
-						}
-					}
-				}
-
-				invalidateTargetCache();
-				checkKeyPickupAndDraftAfterSummon(minion.x, minion.y, minion.ownerID);
+				int maxHP = (op.data.spawnUnit.maxHealthFromSlot >= 0) ? currentEffectSequence.blackboard[op.data.spawnUnit.maxHealthFromSlot] : op.data.spawnUnit.maxHealth;
+				int ap = op.data.spawnUnit.ap;
+				int summonerID = op.data.spawnUnit.summonerPlayerID;
+				spawnMinionDeterministically(sk, tx, ty, op.data.spawnUnit.ownerPlayerID, maxHP, ap, summonerID);
 			} else {
 				// If a minion already exists at this tile, update authoritative stats
 				for (size_t pi = 0; pi < players.size(); ++pi) {

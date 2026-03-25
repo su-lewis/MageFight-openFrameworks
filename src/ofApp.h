@@ -1002,6 +1002,11 @@ private:
 	void applyDamageWithMitigationsQueued(Player & target, int baseDamage, DamageType type, int attackerIndex, int outputSlot);
 	Player createSummonedMinion(CardType type, int targetX, int targetY, const Player & caster, int turnCounter, int & nextSummonID);
 
+	// Deterministic centralized minion spawn helper. Creates and inserts a minion
+	// with flags, deck, and deterministic shuffle so host/client stay in lockstep.
+	// Returns a pointer to the inserted Player in `players` or nullptr on failure.
+	Player * spawnMinionDeterministically(int summonKind, int targetX, int targetY, int ownerID, int maxHP, int ap, int summonerPlayerID = -1);
+
 	void updatePlayerAP(Player & player, int newAP);
 	void applyMovement(int playerIndex, int targetX, int targetY, int newAP, const std::vector<glm::vec2> * pathOverride = nullptr);
 	void createCardDisplay(const Card & card, int playerIndex); // Create card display animation
