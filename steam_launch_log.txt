@@ -1,6 +1,0 @@
---- Launching RunSteam wrapper at Wed 25 Mar 02:37:39 GMT 2026 ---
-Original LD_PRELOAD=
-Adding 64-bit overlay to LD_PRELOAD
-Final LD_PRELOAD=/home/lewis/.local/share/Steam/ubuntu12_64/gameoverlayrenderer.so
-STEAM_COMPAT_CLIENT_INSTALL_PATH=/home/lewis/.local/share/Steam
-pid 467377 != 467376, skipping destruction (fork without exec?)

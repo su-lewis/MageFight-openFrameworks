@@ -1,37 +1,31 @@
-# OF Project/.gitignore
-#
-
 # General
 .DS_Store
 
-# openFrameworks build files
-# libs/  <-- I REMOVED THIS so your Steam files will upload!
-export/
-project/
+# Compiled Object Files (Prevents your PC and Laptop from fighting)
 obj/
+project/
+export/
 
-# Executable files
+# Compiled Executables
 MageFight
 MageFight_debug
-MageFight.exe
-MageFight_debug.exe
+*.exe
 
-# Ignore the heavy system files in bin, but KEEP the data folder
-/bin/*.dll
-/bin/*.so
-/bin/*.pdb
-/bin/*.exp
-/bin/*.lib
+# Logs and Local Steam Data
+*.log
+bin/steam_launch_log.txt
+*run_logs.txt
 
-# Code::Blocks
+# Local Game Settings (Keeps your PC and Laptop configs separate)
+bin/data/Config/settings.json
+
+# Local VS Code Paths
+.vscode/
+
+# Code::Blocks & Visual Studio Junk
 *.cbp
 *.depend
 *.layout
-
-# VS Code
-.vscode/
-
-# Visual Studio (Windows junk)
 *.sln.docstates
 *.suo
 *.user
@@ -46,4 +40,3 @@ Release/
 *.VC.db
 *.VC.opendb
 *.aps
-bin/data/Config/settings.json

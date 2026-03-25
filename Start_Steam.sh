@@ -17,4 +17,4 @@ fi
 
 # 4. Launch the Container
 #    We explicitly pass the variables into the bash command inside the container.
-/usr/bin/distrobox-enter -n of_arch -- bash -c "export SteamAppId=480; export SteamGameId=480; export STEAM_COMPAT_CLIENT_INSTALL_PATH='$STEAM_COMPAT_CLIENT_INSTALL_PATH'; /home/lewis/of_workspace/openFrameworks/apps/myApps/MageFight/bin/run.sh"
+/usr/bin/distrobox-enter -n of_workspace -- bash -c "export SteamAppId=480; export SteamGameId=480; export STEAM_COMPAT_CLIENT_INSTALL_PATH='$STEAM_COMPAT_CLIENT_INSTALL_PATH'; $HOME/of_workspace/openFrameworks/apps/myApps/MageFight/bin/run.sh"
