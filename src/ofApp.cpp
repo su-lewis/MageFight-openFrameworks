@@ -624,6 +624,14 @@ Player * ofApp::spawnMinionDeterministically(int summonKind, int targetX, int ta
 	int newIdx = (int)players.size() - 1;
 	players[newIdx].visualPos = gridToWorld(players[newIdx].x, players[newIdx].y);
 	ofLogNotice("EffectQueue") << "spawnMinionDeterministically: placed minion idx=" << newIdx << " type=" << summonKind << " owner=" << ownerID;
+
+	// Host should inform clients of the placed minion BEFORE broadcasting the
+	// authoritative shuffle, so clients can create the player entry first.
+	if (isHost() && isMultiplayer) {
+		sendPlaceSummonedMinion(summonKind, ownerID, minion.x, minion.y, minion.maxHealth, minion.ap, players[newIdx].playerID);
+	}
+
+	// Now shuffle the minion deck; on host this will broadcast PKT_SHUFFLE.
 	shuffleGameVector(players[newIdx].deck, newIdx);
 
 	// Re-sort turn order to match host
@@ -648,6 +656,12 @@ Player * ofApp::spawnMinionDeterministically(int summonKind, int targetX, int ta
 
 	invalidateTargetCache();
 	checkKeyPickupAndDraftAfterSummon(minion.x, minion.y, minion.ownerID);
+
+	// Host should inform clients of the placed minion so they can reconstruct deterministically.
+	if (isHost() && isMultiplayer) {
+		// Use authoritative HP/AP values
+		sendPlaceSummonedMinion(summonKind, ownerID, minion.x, minion.y, minion.maxHealth, minion.ap, players[newIdx].playerID);
+	}
 
 	// Return pointer to newly-inserted minion
 	for (size_t i = 0; i < players.size(); ++i) {
@@ -30991,124 +31005,42 @@ void ofApp::processNetworkPackets() {
 					int ty = psk->targetY;
 					if (tx >= 0 && tx < BOARD_WIDTH && ty >= 0 && ty < BOARD_HEIGHT) {
 						if (!board[tx][ty].hasPlayer) {
-							// Create the minion locally to mirror host (use authoritative HP/AP when provided)
-							Player minion;
-							minion.playerID = 300 + (int)players.size();
-							minion.x = tx;
-							minion.y = ty;
-							// Use authoritative values if present in packet, otherwise fall back to defaults
-							minion.maxHealth = (psk->minionHP > 0) ? psk->minionHP : 1;
-							minion.health = minion.maxHealth;
-							minion.ap = (psk->minionAP >= 0) ? psk->minionAP : 0;
-							minion.isMinion = true;
-							// Decode minion type into flags so clients reconstruct the correct model/behavior
-							switch (psk->minionType) {
-							case 1: // Kobold
-								minion.isKobold = true;
-								minion.isSkeleton = false;
-								break;
-							case 2: // Wolf
-								minion.isWolf = true;
-								break;
-							case 3: // Hellhound
-								minion.isHellhound = true;
-								break;
-							case 4: // Demon
-								minion.isDemon = true;
-								break;
-							case 5: // Kobold King
-								minion.isKoboldKing = true;
-								break;
-							case 6: // Assistant
-								minion.isAssistant = true;
-								break;
-							case 7: // Faerie
-								minion.isFaerie = true;
-								minion.minionTexture = nullptr; // Defensive: faerie uses model, not texture pointer
-								ofLogNotice("Network") << "Created Faerie minion (network sync) at (" << tx << "," << ty << ")";
-								break;
-							case 8: // Golem
-								minion.isGolem = true;
-								break;
-							case 9: // Skeleton / Raise Dead
-								minion.isSkeleton = true;
-								minion.hasRegeneration = true;
-								break;
-							case 10: // Wall Unit
-								minion.isWallUnit = true;
-								minion.isMagicWallUnit = false;
-								break;
-							case 11: // Magic Wall Unit
-								minion.isWallUnit = true;
-								minion.isMagicWallUnit = true;
-								break;
-							default:
-								break;
-							}
-							minion.ownerID = psk->ownerPlayerID;
-							minion.summonedOnTurnCycle = globalTurnCounter;
-							minion.summonOrder = ++nextSummonOrder;
-							// Build basic kobold deck
-							Card hb, pu, callCard;
-							for (const auto & c : allCards) {
-								if (c.name == "Hand Block") hb = c;
-								if (c.name == "Punch") pu = c;
-								if (c.type == CARD_CALL_FOR_KOBOLDS) callCard = c;
-							}
-							minion.deck = { hb, hb, pu, callCard };
-							// Place on board and add
-							board[tx][ty].hasPlayer = true;
-							players.push_back(minion);
-							int newIdx = (int)players.size() - 1;
-
-							// Initialize visual position for remote-synced minion
-							players[newIdx].visualPos = gridToWorld(players[newIdx].x, players[newIdx].y);
-							ofLogNotice("Network") << "Initialized visualPos for remote minion idx=" << newIdx << " pos=" << players[newIdx].visualPos.x << "," << players[newIdx].visualPos.y << "," << players[newIdx].visualPos.z;
-							ofLogNotice("Network") << "Placed summoned minion (client-side): idx=" << newIdx << " type=" << (int)psk->minionType << " owner=" << minion.ownerID << " HP=" << minion.maxHealth << " AP=" << minion.ap;
-							shuffleGameVector(players[newIdx].deck, newIdx);
-							checkKeyPickupAndDraftAfterSummon(minion.x, minion.y, minion.ownerID);
-							// Re-sort turn order to match host
-							int currentID = players[currentPlayerIndex].playerID;
-							std::sort(players.begin(), players.end(), [](const Player & a, const Player & b) {
-								int ownerA = a.isMinion ? a.ownerID : a.playerID;
-								int ownerB = b.isMinion ? b.ownerID : b.playerID;
-								if (ownerA != ownerB) return ownerA < ownerB;
-								if (a.isMinion && !b.isMinion) return true;
-								if (!a.isMinion && b.isMinion) return false;
-								return a.summonOrder < b.summonOrder;
-							});
-							for (size_t i = 0; i < players.size(); i++) {
-								if (players[i].playerID == currentID) {
-									currentPlayerIndex = i;
-									break;
+							// Use centralized deterministic spawn so client mirrors host exactly
+							Player * newMinion = spawnMinionDeterministically((int)psk->minionType, tx, ty, psk->ownerPlayerID, psk->minionHP, psk->minionAP, psk->ownerPlayerID);
+							if (newMinion) {
+								int newIdx = findPlayerIndexByID(newMinion->playerID);
+								if (newIdx >= 0) {
+									ofLogNotice("Network") << "Placed summoned minion (client-side): idx=" << newIdx << " type=" << (int)psk->minionType << " owner=" << players[newIdx].ownerID << " HP=" << players[newIdx].maxHealth << " AP=" << players[newIdx].ap;
+									checkKeyPickupAndDraftAfterSummon(players[newIdx].x, players[newIdx].y, players[newIdx].ownerID);
 								}
-							}
-							invalidateTargetCache();
-							ofLogNotice("Network") << "Placed remote kobold at (" << tx << "," << ty << ")";
-							// If this was part of a remote placement sequence, decrement remaining
-							if (remoteKoboldsRemaining > 0 && psk->minionType == 1) {
-								remoteKoboldsRemaining = std::max(0, remoteKoboldsRemaining - 1);
-								ofLogNotice("Network") << "Remote kobolds remaining=" << remoteKoboldsRemaining;
-								if (remoteKoboldsRemaining <= 0) {
-									remoteKoboldPlacementSourceX = -1;
-									remoteKoboldPlacementSourceY = -1;
-								}
-							}
 
-							// If we're a client waiting for the host's TurnStart and our restored
-							// currentPlayerIndex now points to a minion (possible due to sorting),
-							// advance to the next non-minion so the client doesn't think it's a minion's turn.
-							if (isClient() && waitingForTurnStartTimer > 0.0f && currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size() && players[currentPlayerIndex].isMinion) {
-								bool found = false;
-								for (int off = 1; off < (int)players.size(); ++off) {
-									int idx = (currentPlayerIndex + off) % (int)players.size();
-									if (!players[idx].isMinion) {
-										currentPlayerIndex = idx;
-										found = true;
-										break;
+								// If this was part of a remote placement sequence, decrement remaining
+								if (remoteKoboldsRemaining > 0 && psk->minionType == 1) {
+									remoteKoboldsRemaining = std::max(0, remoteKoboldsRemaining - 1);
+									ofLogNotice("Network") << "Remote kobolds remaining=" << remoteKoboldsRemaining;
+									if (remoteKoboldsRemaining <= 0) {
+										remoteKoboldPlacementSourceX = -1;
+										remoteKoboldPlacementSourceY = -1;
 									}
 								}
-								if (found) ofLogNotice("Network") << "Adjusted client currentPlayerIndex to non-minion after remote summon: " << players[currentPlayerIndex].playerID;
+
+								// If we're a client waiting for the host's TurnStart and our restored
+								// currentPlayerIndex now points to a minion (possible due to sorting),
+								// advance to the next non-minion so the client doesn't think it's a minion's turn.
+								if (isClient() && waitingForTurnStartTimer > 0.0f && currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size() && players[currentPlayerIndex].isMinion) {
+									bool found = false;
+									for (int off = 1; off < (int)players.size(); ++off) {
+										int idx = (currentPlayerIndex + off) % (int)players.size();
+										if (!players[idx].isMinion) {
+											currentPlayerIndex = idx;
+											found = true;
+											break;
+										}
+									}
+									if (found) ofLogNotice("Network") << "Adjusted client currentPlayerIndex to non-minion after remote summon: " << players[currentPlayerIndex].playerID;
+								}
+							} else {
+								ofLogNotice("Network") << "spawnMinionDeterministically failed for remote minion at (" << tx << "," << ty << ")";
 							}
 						}
 						// If a minion already exists at this tile (client predicted placement), update its authoritative stats
@@ -32107,6 +32039,28 @@ void ofApp::sendPlaceSummonedBegin(int minionType, int ownerPlayerID, int source
 	bp.numToPlace = numToPlace;
 	steamManager.sendPacket(&bp, sizeof(bp));
 	ofLogNotice("Network") << "Host sent PlaceSummonedBegin (helper): type=" << (int)bp.minionType << " owner=" << bp.ownerPlayerID << " source=(" << bp.sourceX << "," << bp.sourceY << ") num=" << bp.numToPlace;
+}
+
+void ofApp::sendPlaceSummonedMinion(int minionType, int ownerPlayerID, int targetX, int targetY, int minionHP, int minionAP, int minionPlayerID) {
+	PlaceSummonedMinionPacket pkt = {};
+	pkt.type = PKT_PLACE_SUMMONED_MINION;
+	pkt.playerID = myLocalPlayerID;
+	pkt.minionType = (uint8_t)minionType;
+	pkt.ownerPlayerID = ownerPlayerID;
+	pkt.targetX = targetX;
+	pkt.targetY = targetY;
+	pkt.minionHP = minionHP;
+	pkt.minionAP = minionAP;
+	steamManager.sendPacket(&pkt, sizeof(pkt));
+	ofLogNotice("Network") << "Host sent PlaceSummonedMinion: type=" << pkt.minionType << " owner=" << pkt.ownerPlayerID << " target=(" << pkt.targetX << "," << pkt.targetY << ") HP=" << pkt.minionHP << " AP=" << pkt.minionAP;
+	// Record the host-side player index for later verification by the shuffle sender.
+	if (isHost() && isMultiplayer) {
+		int idx = findPlayerIndexByID(minionPlayerID);
+		if (idx >= 0) {
+			recentPlaceSentIndices.insert(idx);
+			ofLogNotice("Network") << "Recorded recent place for playerIndex=" << idx << " playerID=" << minionPlayerID;
+		}
+	}
 }
 
 void ofApp::sendEarthquakeBegin() {

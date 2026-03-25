@@ -19,6 +19,7 @@
 #include <set>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 // --- GLM Extensions (Required for Quaternions & Intersections) ---
@@ -855,6 +856,7 @@ public:
 
 	// Networking helpers for Begin/Resolve patterns
 	void sendPlaceSummonedBegin(int minionType, int ownerPlayerID, int sourceX, int sourceY, int numToPlace);
+	void sendPlaceSummonedMinion(int minionType, int ownerPlayerID, int targetX, int targetY, int minionHP, int minionAP, int minionPlayerID);
 	void sendEarthquakeBegin();
 
 	// Generic card action begin helper
@@ -1135,6 +1137,12 @@ private:
 
 		// Host in multiplayer and owner specified: broadcast nonce-based shuffle
 		if (isHost() && ownerPlayerIndex >= 0) {
+			// Verify that a Place packet was recently sent for this index; warn if not.
+			if (recentPlaceSentIndices.find(ownerPlayerIndex) == recentPlaceSentIndices.end()) {
+				ofLogWarning("Network") << "Host: sending PKT_SHUFFLE for playerIndex=" << ownerPlayerIndex << " but no recent PKT_PLACE_SUMMONED_MINION recorded";
+			} else {
+				ofLogNotice("Network") << "Host: PKT_PLACE_SUMMONED_MINION was recorded for playerIndex=" << ownerPlayerIndex << ", proceeding to send PKT_SHUFFLE";
+			}
 			uint32_t nonce = gameplayRNG();
 			std::mt19937 shuffleRng(nonce);
 			deterministic_shuffle(vec, shuffleRng);
@@ -1157,6 +1165,8 @@ private:
 			if (ownerPlayerIndex >= 0 && ownerPlayerIndex < (int)players.size()) {
 				players[ownerPlayerIndex].deckNeedsShuffle = false;
 			}
+			// Remove the recent place marker now that shuffle has been sent
+			recentPlaceSentIndices.erase(ownerPlayerIndex);
 			return;
 		}
 
@@ -1608,6 +1618,11 @@ private:
 		int saveBrowserPendingIndex = -1;
 		bool saveBrowserConfirmVisible = false;
 	} networkPending;
+
+	// Recent place notifications sent by host: tracks player indices for which
+	// a PKT_PLACE_SUMMONED_MINION was emitted but whose authoritative shuffle
+	// may follow shortly. This helps detect/validate packet ordering.
+	std::unordered_set<int> recentPlaceSentIndices;
 	float cameraCurrentZoom = 35.0f;
 	glm::vec3 cameraTargetPan = glm::vec3(0, 0, 0);
 	glm::vec3 cameraCurrentPan = glm::vec3(0, 0, 0);
