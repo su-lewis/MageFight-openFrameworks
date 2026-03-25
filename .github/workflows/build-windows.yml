@@ -74,12 +74,14 @@ jobs:
         cd ../../libs/openFrameworksCompiled/project
         make Release -j4
 
+    # 4. ALWAYS RESTORE ENV: The GitHub runner is a fresh PC every time.
     - name: Restore MSYS2 Environment
       run: |
         cd openFrameworks/scripts/msys2
         pacman -Su --noconfirm
         ./install_dependencies.sh --noconfirm
 
+        # GLM Fix
         mkdir -p /mingw64/lib/pkgconfig
         cat << 'EOF' > /mingw64/lib/pkgconfig/glm.pc
         prefix=/mingw64
@@ -89,6 +91,13 @@ jobs:
         Version: 1.0.3
         Cflags: -I${includedir}
         EOF
+
+        # THE TROJAN HORSE: Instead of fighting the Makefiles, we just duplicate
+        # the modern Boost files and give the copies the "-mt" name oF is begging for!
+        cp /mingw64/lib/libboost_system.a /mingw64/lib/libboost_system-mt.a || true
+        cp /mingw64/lib/libboost_system.dll.a /mingw64/lib/libboost_system-mt.dll.a || true
+        cp /mingw64/lib/libboost_filesystem.a /mingw64/lib/libboost_filesystem-mt.a || true
+        cp /mingw64/lib/libboost_filesystem.dll.a /mingw64/lib/libboost_filesystem-mt.dll.a || true
 
     - name: Setup Project Directory
       run: |
