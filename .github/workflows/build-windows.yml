@@ -95,17 +95,19 @@ jobs:
         mkdir -p openFrameworks/apps/myApps/MageFight
         rsync -a my_game_repo/ openFrameworks/apps/myApps/MageFight/
 
-    # 7. FAST COMPILE (The Ultimate Dummy Linker Fix)
+    # 7. FAST COMPILE
     - name: Build MageFight
       run: |
-        # Forge blank files to completely satisfy the stubborn linker
-        echo "void dummy_boost_function() {}" > dummy.cpp
-        g++ -c dummy.cpp
-        ar rcs /mingw64/lib/libboost_system-mt.a dummy.o
-        ar rcs /mingw64/lib/libboost_filesystem-mt.a dummy.o
+        # THE GHOST FLAG FIX: Erase Boost from the core framework
+        sed -i 's/-lboost_system-mt//g' openFrameworks/libs/openFrameworksCompiled/project/msys2/config.msys2.default.mk
+        sed -i 's/-lboost_system//g' openFrameworks/libs/openFrameworksCompiled/project/msys2/config.msys2.default.mk
+        sed -i 's/-lboost_filesystem-mt//g' openFrameworks/libs/openFrameworksCompiled/project/msys2/config.msys2.default.mk
+        sed -i 's/-lboost_filesystem//g' openFrameworks/libs/openFrameworksCompiled/project/msys2/config.msys2.default.mk
 
         cd openFrameworks/apps/myApps/MageFight
-        make Release -j4
+
+        # Force the GCC compiler to link your external libraries!
+        make Release -j4 PROJECT_LDFLAGS="libs/steam/lib/win64/steam_api64.lib libs/fmod/win64/fmod.dll"
 
     # 8. UPLOAD
     - name: Upload Windows Build Artifact
