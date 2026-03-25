@@ -13,6 +13,7 @@ jobs:
         shell: msys2 {0}
 
     steps:
+    # 1. Setup MSYS2 (Cached)
     - name: Setup MSYS2
       uses: msys2/setup-msys2@v2
       with:
@@ -29,12 +30,13 @@ jobs:
           curl
           rsync
 
+    # 2. Checkout Game Code
     - name: Checkout Code
       uses: actions/checkout@v4
       with:
         path: my_game_repo
 
-    # BUMPED TO V2: This forces GitHub to delete the old cache and run our new fixes!
+    # 3. Cache openFrameworks Framework
     - name: Cache openFrameworks Framework
       id: cache-of
       uses: actions/cache@v4
@@ -42,17 +44,13 @@ jobs:
         path: openFrameworks
         key: openframeworks-core-v2
 
+    # 4. Download, Patch, and Build Core OF (Only runs if cache is empty)
     - name: Download, Patch, and Build Core OF
       if: steps.cache-of.outputs.cache-hit != 'true'
       run: |
         curl -L -o of.zip https://github.com/openframeworks/openFrameworks/releases/download/0.12.0/of_v0.12.0_msys2_mingw64_release.zip
         unzip -q of.zip
         mv of_v0.12.0_msys2_mingw64_release openFrameworks
-
-        # --- THE GLOBAL BOOST NUKE ---
-        # This scans every single .mk config file in the framework and rips out the -mt
-        find openFrameworks -type f -name "*.mk" -exec sed -i 's/-lboost_system-mt/-lboost_system/g' {} +
-        find openFrameworks -type f -name "*.mk" -exec sed -i 's/-lboost_filesystem-mt/-lboost_filesystem/g' {} +
 
         cd openFrameworks/scripts/msys2
         sed -i 's/FreeImage/freeimage/g' install_dependencies.sh
@@ -74,14 +72,14 @@ jobs:
         cd ../../libs/openFrameworksCompiled/project
         make Release -j4
 
-    # 4. ALWAYS RESTORE ENV: The GitHub runner is a fresh PC every time.
+    # 5. Restore MSYS2 Environment (Always runs to prep the linker)
     - name: Restore MSYS2 Environment
       run: |
         cd openFrameworks/scripts/msys2
         pacman -Su --noconfirm
         ./install_dependencies.sh --noconfirm
 
-        # GLM Fix
+        # GLM Receipt Fix
         mkdir -p /mingw64/lib/pkgconfig
         cat << 'EOF' > /mingw64/lib/pkgconfig/glm.pc
         prefix=/mingw64
@@ -92,23 +90,24 @@ jobs:
         Cflags: -I${includedir}
         EOF
 
-        # THE TROJAN HORSE: Instead of fighting the Makefiles, we just duplicate
-        # the modern Boost files and give the copies the "-mt" name oF is begging for!
-        cp /mingw64/lib/libboost_system.a /mingw64/lib/libboost_system-mt.a || true
-        cp /mingw64/lib/libboost_system.dll.a /mingw64/lib/libboost_system-mt.dll.a || true
-        cp /mingw64/lib/libboost_filesystem.a /mingw64/lib/libboost_filesystem-mt.a || true
-        cp /mingw64/lib/libboost_filesystem.dll.a /mingw64/lib/libboost_filesystem-mt.dll.a || true
-
+    # 6. SYNC GAME CODE
     - name: Setup Project Directory
       run: |
         mkdir -p openFrameworks/apps/myApps/MageFight
         rsync -a my_game_repo/ openFrameworks/apps/myApps/MageFight/
 
+    # 7. FAST COMPILE (The True Linker Fix!)
     - name: Build MageFight
       run: |
+        # OpenFrameworks doesn't put the "-l" in its config text.
+        # We wipe the "-mt" from the core config right before the final link!
+        sed -i 's/boost_system-mt/boost_system/g' openFrameworks/libs/openFrameworksCompiled/project/msys2/config.msys2.default.mk
+        sed -i 's/boost_filesystem-mt/boost_filesystem/g' openFrameworks/libs/openFrameworksCompiled/project/msys2/config.msys2.default.mk
+
         cd openFrameworks/apps/myApps/MageFight
         make Release -j4
 
+    # 8. UPLOAD
     - name: Upload Windows Build Artifact
       uses: actions/upload-artifact@v4
       with:
