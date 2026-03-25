@@ -69,8 +69,12 @@ jobs:
         mkdir -p openFrameworks/apps/myApps
         mv my_game_repo openFrameworks/apps/myApps/MageFight
 
+   # 6. Build the core openFrameworks library.
     - name: Build Core openFrameworks Library
       run: |
+        # Inject the GLM experimental flag into the core oF makefile
+        echo "PLATFORM_CXXFLAGS += -DGLM_ENABLE_EXPERIMENTAL" >> openFrameworks/libs/openFrameworksCompiled/project/makefileCommon/config.shared.mk
+
         cd openFrameworks/libs/openFrameworksCompiled/project
         make Release -j4
 
