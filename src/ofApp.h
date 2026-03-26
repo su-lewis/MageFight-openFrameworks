@@ -290,7 +290,6 @@ struct Card {
 
 enum class EffectOpType : uint8_t {
 	NONE = 0,
-	ROLL_DICE,
 	DAMAGE,
 	HEAL,
 	MOVE_UNIT,
@@ -346,14 +345,8 @@ enum class EffectOpType : uint8_t {
 	WAIT_VISUAL
 };
 
-struct RollDiceData {
-	int numDice;
-	int sides;
-	DicePurpose purpose;
-	int ownerIndex;
-	int outputSlot; // Where to store result in blackboard
-	char label[32];
-};
+// RollDiceData removed: dice are resolved at decision time and written
+// directly into EffectSequence.blackboard.
 
 struct DamageData {
 	int targetIndex;
@@ -456,7 +449,7 @@ struct StatusData {
 struct EffectOp {
 	EffectOpType type;
 	union {
-		RollDiceData rollDice;
+		// (rollDice removed)
 		DamageData damage;
 		HealData heal;
 		MoveUnitData moveUnit;
