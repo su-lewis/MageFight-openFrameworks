@@ -17590,28 +17590,19 @@ void ofApp::processEffectOp(EffectOp & op) {
 				steamManager.sendPacket(&sp, sizeof(sp));
 			}
 		} else {
-			// Tie again — queue another reroll sequence
-			EffectOp r1 = {};
-			r1.type = EffectOpType::ROLL_DICE;
-			r1.data.rollDice.numDice = 1;
-			r1.data.rollDice.sides = 6;
-			r1.data.rollDice.purpose = PURPOSE_DEBUG;
-			r1.data.rollDice.ownerIndex = currentPlayerIndex;
-			r1.data.rollDice.outputSlot = 0;
-			strncpy(r1.data.rollDice.label, "Initiative Reroll", 31);
-			r1.data.rollDice.label[31] = '\0';
-			queueEffect(r1);
-
-			EffectOp r2 = {};
-			r2.type = EffectOpType::ROLL_DICE;
-			r2.data.rollDice.numDice = 1;
-			r2.data.rollDice.sides = 6;
-			r2.data.rollDice.purpose = PURPOSE_DEBUG;
-			r2.data.rollDice.ownerIndex = currentPlayerIndex;
-			r2.data.rollDice.outputSlot = 1;
-			strncpy(r2.data.rollDice.label, "Initiative Reroll", 31);
-			r2.data.rollDice.label[31] = '\0';
-			queueEffect(r2);
+			// Tie again — resolve rerolls immediately and queue the apply op
+			{
+				std::vector<int> raw1;
+				int v1 = resolveDiceRollDetailed(1, 6, raw1);
+				currentEffectSequence.blackboard[0] = v1;
+				queueVisualDiceRoll(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.0f, 0), 1, 6, raw1, v1, PURPOSE_DEBUG, currentPlayerIndex, 1.0f);
+			}
+			{
+				std::vector<int> raw2;
+				int v2 = resolveDiceRollDetailed(1, 6, raw2);
+				currentEffectSequence.blackboard[1] = v2;
+				queueVisualDiceRoll(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.0f, 0), 1, 6, raw2, v2, PURPOSE_DEBUG, currentPlayerIndex, 1.0f);
+			}
 
 			EffectOp ap = {};
 			ap.type = EffectOpType::APPLY_INITIATIVE_REROLL;
@@ -17811,16 +17802,12 @@ void ofApp::processEffectOp(EffectOp & op) {
 				// FAIL: apply Sleep — queue authoritative sleep-duration roll and APPLY_SLEEP_DURATION
 				queueFloatingTextVisual(gridToWorld(target->x, target->y), "Sleep...", ofColor::cyan);
 
-				EffectOp sleepRoll = {};
-				sleepRoll.type = EffectOpType::ROLL_DICE;
-				sleepRoll.data.rollDice.numDice = 1;
-				sleepRoll.data.rollDice.sides = 6;
-				sleepRoll.data.rollDice.purpose = PURPOSE_SLEEP_DURATION;
-				sleepRoll.data.rollDice.ownerIndex = currentPlayerIndex;
-				sleepRoll.data.rollDice.outputSlot = 1;
-				strncpy(sleepRoll.data.rollDice.label, "Sleep Duration", 31);
-				sleepRoll.data.rollDice.label[31] = '\0';
-				queueEffect(sleepRoll);
+				{
+					std::vector<int> rawSleep;
+					int sleepVal = resolveDiceRollDetailed(1, 6, rawSleep);
+					currentEffectSequence.blackboard[1] = sleepVal;
+					queueVisualDiceRoll(gridToWorld(target->x, target->y) + glm::vec3(0, 1.0f, 0), 1, 6, rawSleep, sleepVal, PURPOSE_SLEEP_DURATION, currentPlayerIndex, 1.0f);
+				}
 
 				EffectOp applySleep = {};
 				applySleep.type = EffectOpType::APPLY_SLEEP_DURATION;
@@ -17885,17 +17872,13 @@ void ofApp::processEffectOp(EffectOp & op) {
 		if (currentCardOutcome.namedDiceResults["blocking_boon_coins_remaining"] == 0) {
 			// Mark coins stage finished
 			if (nonphys > 0) {
-				// Queue D20s for non-phys blocking
-				EffectOp rollOp = {};
-				rollOp.type = EffectOpType::ROLL_DICE;
-				rollOp.data.rollDice.numDice = nonphys;
-				rollOp.data.rollDice.sides = 20;
-				rollOp.data.rollDice.purpose = PURPOSE_BLOCKING_BOON_D20;
-				rollOp.data.rollDice.ownerIndex = currentPlayerIndex;
-				rollOp.data.rollDice.outputSlot = 0;
-				strncpy(rollOp.data.rollDice.label, "Boon: Magic Roll", 31);
-				rollOp.data.rollDice.label[31] = '\0';
-				queueEffect(rollOp);
+				// Queue D20s for non-phys blocking (resolve immediately)
+				{
+					std::vector<int> rawBoon;
+					int val = resolveDiceRollDetailed(nonphys, 20, rawBoon);
+					currentEffectSequence.blackboard[0] = val;
+					queueVisualDiceRoll(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.0f, 0), nonphys, 20, rawBoon, val, PURPOSE_BLOCKING_BOON_D20, currentPlayerIndex, 1.2f);
+				}
 
 				EffectOp applyD20 = {};
 				applyD20.type = EffectOpType::APPLY_BLOCKING_BOON_D20;
@@ -18218,17 +18201,13 @@ void ofApp::processEffectOp(EffectOp & op) {
 				queueFloatingTextVisual(gridToWorld(p.x, p.y), "Absorbed", ofColor::gray);
 		}
 
-		// After primary resolve, roll AOE radius into slot 2 and queue AOE handler
-		EffectOp aoeRoll = {};
-		aoeRoll.type = EffectOpType::ROLL_DICE;
-		aoeRoll.data.rollDice.numDice = 1;
-		aoeRoll.data.rollDice.sides = 20;
-		aoeRoll.data.rollDice.purpose = PURPOSE_RANGE;
-		aoeRoll.data.rollDice.ownerIndex = currentPlayerIndex;
-		aoeRoll.data.rollDice.outputSlot = 2;
-		strncpy(aoeRoll.data.rollDice.label, "Magic Bolt: AOE Radius", 31);
-		aoeRoll.data.rollDice.label[31] = '\0';
-		queueEffect(aoeRoll);
+		// After primary resolve, immediately roll AOE radius into slot 2 and queue AOE handler
+		{
+			std::vector<int> rawAoe;
+			int aoeRollVal = resolveDiceRollDetailed(1, 20, rawAoe);
+			currentEffectSequence.blackboard[2] = aoeRollVal;
+			queueVisualDiceRoll(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.0f, 0), 1, 20, rawAoe, aoeRollVal, PURPOSE_RANGE, currentPlayerIndex, 1.0f);
+		}
 
 		EffectOp aoeApply = {};
 		aoeApply.type = EffectOpType::APPLY_MAGIC_BOLT_AOE;
@@ -21138,16 +21117,10 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 
 			if (applyPoisonBuff && !currentCardOutcome.poisonTargetPlayerIDs.empty()) {
 				{
-					EffectOp rollOp = {};
-					rollOp.type = EffectOpType::ROLL_DICE;
-					rollOp.data.rollDice.numDice = 1;
-					rollOp.data.rollDice.sides = 6;
-					rollOp.data.rollDice.purpose = PURPOSE_DAMAGE;
-					rollOp.data.rollDice.ownerIndex = currentPlayerIndex;
-					rollOp.data.rollDice.outputSlot = 0;
-					strncpy(rollOp.data.rollDice.label, "Poison Damage", 31);
-					rollOp.data.rollDice.label[31] = '\0';
-					queueEffect(rollOp);
+					std::vector<int> rawPoison;
+					int poisonVal = resolveDiceRollDetailed(1, 6, rawPoison);
+					currentEffectSequence.blackboard[0] = poisonVal;
+					queueVisualDiceRoll(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.0f, 0), 1, 6, rawPoison, poisonVal, PURPOSE_DAMAGE, currentPlayerIndex, 1.0f);
 					{
 						EffectOp ap = {};
 						ap.type = EffectOpType::APPLY_POISON;
@@ -21511,16 +21484,10 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 			if (targetIndex != -1) {
 				beginEffectSequence();
 				{
-					EffectOp rollOp = {};
-					rollOp.type = EffectOpType::ROLL_DICE;
-					rollOp.data.rollDice.numDice = playedCard.numDice;
-					rollOp.data.rollDice.sides = playedCard.diceSides;
-					rollOp.data.rollDice.purpose = PURPOSE_DAMAGE;
-					rollOp.data.rollDice.ownerIndex = currentPlayerIndex;
-					rollOp.data.rollDice.outputSlot = 0;
-					strncpy(rollOp.data.rollDice.label, "Rock Crush: Damage", 31);
-					rollOp.data.rollDice.label[31] = '\0';
-					queueEffect(rollOp);
+					std::vector<int> rawDmg;
+					int dmgRoll = resolveDiceRollDetailed(playedCard.numDice, playedCard.diceSides, rawDmg);
+					currentEffectSequence.blackboard[0] = dmgRoll;
+					queueVisualDiceRoll(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.0f, 0), playedCard.numDice, playedCard.diceSides, rawDmg, dmgRoll, PURPOSE_DAMAGE, currentPlayerIndex, 1.0f);
 				}
 
 				// Set up attack resolution: queue dice roll then an APPLY_ATTACK op
@@ -21550,16 +21517,10 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 		beginEffectSequence();
 
 		{
-			EffectOp rollOp = {};
-			rollOp.type = EffectOpType::ROLL_DICE;
-			rollOp.data.rollDice.numDice = playedCard.numDice;
-			rollOp.data.rollDice.sides = playedCard.diceSides;
-			rollOp.data.rollDice.purpose = PURPOSE_RANGE;
-			rollOp.data.rollDice.ownerIndex = currentPlayerIndex;
-			rollOp.data.rollDice.outputSlot = 0;
-			strncpy(rollOp.data.rollDice.label, "Ethereal Jolt: Range Check", 31);
-			rollOp.data.rollDice.label[31] = '\0';
-			queueEffect(rollOp);
+			std::vector<int> rawRange;
+			int rangeRoll = resolveDiceRollDetailed(playedCard.numDice, playedCard.diceSides, rawRange);
+			currentEffectSequence.blackboard[0] = rangeRoll;
+			queueVisualDiceRoll(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.0f, 0), playedCard.numDice, playedCard.diceSides, rawRange, rangeRoll, PURPOSE_RANGE, currentPlayerIndex, 1.0f);
 			EffectOp applyJolt = {};
 			applyJolt.type = EffectOpType::APPLY_ETHEREAL_JOLT;
 			queueEffect(applyJolt);
@@ -21618,16 +21579,10 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 			if (isMultiplayer && isHost()) sendCardActionBegin(CARD_DEATH, currentPlayerIndex, targetX, targetY, 0, 0, 0, 0, "Death Check");
 			beginEffectSequence();
 			{
-				EffectOp rollOp = {};
-				rollOp.type = EffectOpType::ROLL_DICE;
-				rollOp.data.rollDice.numDice = 1;
-				rollOp.data.rollDice.sides = 20;
-				rollOp.data.rollDice.purpose = PURPOSE_DEATH_CHECK;
-				rollOp.data.rollDice.ownerIndex = currentPlayerIndex;
-				rollOp.data.rollDice.outputSlot = 0;
-				strncpy(rollOp.data.rollDice.label, "Death Check", 31);
-				rollOp.data.rollDice.label[31] = '\0';
-				queueEffect(rollOp);
+				std::vector<int> rawRoll;
+				int deathRoll = resolveDiceRollDetailed(1, 20, rawRoll);
+				currentEffectSequence.blackboard[0] = deathRoll;
+				queueVisualDiceRoll(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.0f, 0), 1, 20, rawRoll, deathRoll, PURPOSE_DEATH_CHECK, currentPlayerIndex, 1.0f);
 
 				EffectOp apply = {};
 				apply.type = EffectOpType::APPLY_DEATH;
@@ -21694,16 +21649,10 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 					currentCardOutcome.poisonTargetPlayerIDs.clear();
 					currentCardOutcome.poisonTargetPlayerIDs.push_back(players[targetIndex].playerID);
 					{
-						EffectOp rollOp = {};
-						rollOp.type = EffectOpType::ROLL_DICE;
-						rollOp.data.rollDice.numDice = 1;
-						rollOp.data.rollDice.sides = 6;
-						rollOp.data.rollDice.purpose = PURPOSE_DAMAGE;
-						rollOp.data.rollDice.ownerIndex = currentPlayerIndex;
-						rollOp.data.rollDice.outputSlot = 0;
-						strncpy(rollOp.data.rollDice.label, "Poison Damage", 31);
-						rollOp.data.rollDice.label[31] = '\0';
-						queueEffect(rollOp);
+						std::vector<int> rawPoison;
+						int poisonVal = resolveDiceRollDetailed(1, 6, rawPoison);
+						currentEffectSequence.blackboard[0] = poisonVal;
+						queueVisualDiceRoll(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.0f, 0), 1, 6, rawPoison, poisonVal, PURPOSE_DAMAGE, currentPlayerIndex, 1.0f);
 						EffectOp ap = {};
 						ap.type = EffectOpType::APPLY_POISON;
 						queueEffect(ap);
@@ -22134,16 +22083,10 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 				currentCardOutcome.poisonTargetPlayerIDs.clear();
 				currentCardOutcome.poisonTargetPlayerIDs.push_back(players[targetIndex].playerID);
 				{
-					EffectOp rollOp = {};
-					rollOp.type = EffectOpType::ROLL_DICE;
-					rollOp.data.rollDice.numDice = 1;
-					rollOp.data.rollDice.sides = 6;
-					rollOp.data.rollDice.purpose = PURPOSE_DAMAGE;
-					rollOp.data.rollDice.ownerIndex = currentPlayerIndex;
-					rollOp.data.rollDice.outputSlot = 0;
-					strncpy(rollOp.data.rollDice.label, "Poison Damage", 31);
-					rollOp.data.rollDice.label[31] = '\0';
-					queueEffect(rollOp);
+					std::vector<int> rawPoison;
+					int poisonVal = resolveDiceRollDetailed(1, 6, rawPoison);
+					currentEffectSequence.blackboard[0] = poisonVal;
+					queueVisualDiceRoll(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.0f, 0), 1, 6, rawPoison, poisonVal, PURPOSE_DAMAGE, currentPlayerIndex, 1.0f);
 					EffectOp ap = {};
 					ap.type = EffectOpType::APPLY_POISON;
 					queueEffect(ap);
@@ -22278,16 +22221,10 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 
 		// Queue authoritative roll for how many cards to remove, then apply Amnesia handling
 		{
-			EffectOp rollOp = {};
-			rollOp.type = EffectOpType::ROLL_DICE;
-			rollOp.data.rollDice.numDice = playedCard.numDice;
-			rollOp.data.rollDice.sides = playedCard.diceSides;
-			rollOp.data.rollDice.purpose = PURPOSE_DEBUG;
-			rollOp.data.rollDice.ownerIndex = currentPlayerIndex;
-			rollOp.data.rollDice.outputSlot = 0;
-			strncpy(rollOp.data.rollDice.label, "Amnesia: Cards to Remove", 31);
-			rollOp.data.rollDice.label[31] = '\0';
-			queueEffect(rollOp);
+			std::vector<int> rawAmt;
+			int amt = resolveDiceRollDetailed(playedCard.numDice, playedCard.diceSides, rawAmt);
+			currentEffectSequence.blackboard[0] = amt;
+			queueVisualDiceRoll(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.0f, 0), playedCard.numDice, playedCard.diceSides, rawAmt, amt, PURPOSE_DEBUG, currentPlayerIndex, 1.0f);
 
 			EffectOp applyOp = {};
 			applyOp.type = EffectOpType::APPLY_AMNESIA;
@@ -22644,16 +22581,10 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 		spawnSkeletonOp.data.spawnUnit.summonerPlayerID = currentPlayer.playerID;
 		// Queue authoritative roll for skeleton HP and reference via blackboard slot 0
 		{
-			EffectOp rollOp = {};
-			rollOp.type = EffectOpType::ROLL_DICE;
-			rollOp.data.rollDice.numDice = 1;
-			rollOp.data.rollDice.sides = 6;
-			rollOp.data.rollDice.purpose = PURPOSE_SUMMON;
-			rollOp.data.rollDice.ownerIndex = currentPlayerIndex;
-			rollOp.data.rollDice.outputSlot = 0;
-			strncpy(rollOp.data.rollDice.label, "Skeleton Summon HP", 31);
-			rollOp.data.rollDice.label[31] = '\0';
-			queueEffect(rollOp);
+			std::vector<int> rawHp;
+			int hpRoll = resolveDiceRollDetailed(1, 6, rawHp);
+			currentEffectSequence.blackboard[0] = hpRoll;
+			queueVisualDiceRoll(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.0f, 0), 1, 6, rawHp, hpRoll, PURPOSE_SUMMON, currentPlayerIndex, 1.0f);
 		}
 		spawnSkeletonOp.data.spawnUnit.maxHealth = 0;
 		spawnSkeletonOp.data.spawnUnit.maxHealthFromSlot = 0;
@@ -22960,16 +22891,11 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 		// Variant HP dice
 		// Queue authoritative roll for golem HP and reference via blackboard slot 1
 		{
-			EffectOp rollOp = {};
-			rollOp.type = EffectOpType::ROLL_DICE;
-			rollOp.data.rollDice.numDice = 1;
-			rollOp.data.rollDice.sides = isElectric ? 6 : (isFire ? 10 : (isRock ? 20 : 10));
-			rollOp.data.rollDice.purpose = PURPOSE_SUMMON;
-			rollOp.data.rollDice.ownerIndex = currentPlayerIndex;
-			rollOp.data.rollDice.outputSlot = 1;
-			strncpy(rollOp.data.rollDice.label, "Golem Summon HP", 31);
-			rollOp.data.rollDice.label[31] = '\0';
-			queueEffect(rollOp);
+			std::vector<int> rawHp;
+			int sides = isElectric ? 6 : (isFire ? 10 : (isRock ? 20 : 10));
+			int hpRoll = resolveDiceRollDetailed(1, sides, rawHp);
+			currentEffectSequence.blackboard[1] = hpRoll;
+			queueVisualDiceRoll(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.0f, 0), 1, sides, rawHp, hpRoll, PURPOSE_SUMMON, currentPlayerIndex, 1.0f);
 		}
 		spawnGolemOp.data.spawnUnit.maxHealth = 0;
 		spawnGolemOp.data.spawnUnit.maxHealthFromSlot = 1;
@@ -23218,16 +23144,10 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 		spawnHellhoundOp.data.spawnUnit.summonerPlayerID = currentPlayer.playerID;
 		// Queue authoritative roll for hellhound HP and reference via blackboard slot 2
 		{
-			EffectOp rollOp = {};
-			rollOp.type = EffectOpType::ROLL_DICE;
-			rollOp.data.rollDice.numDice = playedCard.numDice;
-			rollOp.data.rollDice.sides = playedCard.diceSides;
-			rollOp.data.rollDice.purpose = PURPOSE_SUMMON;
-			rollOp.data.rollDice.ownerIndex = currentPlayerIndex;
-			rollOp.data.rollDice.outputSlot = 2;
-			strncpy(rollOp.data.rollDice.label, "Hellhound Summon HP", 31);
-			rollOp.data.rollDice.label[31] = '\0';
-			queueEffect(rollOp);
+			std::vector<int> rawHp;
+			int hpRoll = resolveDiceRollDetailed(playedCard.numDice, playedCard.diceSides, rawHp);
+			currentEffectSequence.blackboard[2] = hpRoll;
+			queueVisualDiceRoll(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.0f, 0), playedCard.numDice, playedCard.diceSides, rawHp, hpRoll, PURPOSE_SUMMON, currentPlayerIndex, 1.0f);
 		}
 		spawnHellhoundOp.data.spawnUnit.maxHealth = 0;
 		spawnHellhoundOp.data.spawnUnit.maxHealthFromSlot = 2;
@@ -23253,16 +23173,10 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 		spawnDemonOp.data.spawnUnit.summonerPlayerID = currentPlayer.playerID;
 		// Queue authoritative roll for demon HP and reference via blackboard slot 3
 		{
-			EffectOp rollOp = {};
-			rollOp.type = EffectOpType::ROLL_DICE;
-			rollOp.data.rollDice.numDice = playedCard.numDice;
-			rollOp.data.rollDice.sides = playedCard.diceSides;
-			rollOp.data.rollDice.purpose = PURPOSE_SUMMON;
-			rollOp.data.rollDice.ownerIndex = currentPlayerIndex;
-			rollOp.data.rollDice.outputSlot = 3;
-			strncpy(rollOp.data.rollDice.label, "Demon Summon HP", 31);
-			rollOp.data.rollDice.label[31] = '\0';
-			queueEffect(rollOp);
+			std::vector<int> rawHp;
+			int hpRoll = resolveDiceRollDetailed(playedCard.numDice, playedCard.diceSides, rawHp);
+			currentEffectSequence.blackboard[3] = hpRoll;
+			queueVisualDiceRoll(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.0f, 0), playedCard.numDice, playedCard.diceSides, rawHp, hpRoll, PURPOSE_SUMMON, currentPlayerIndex, 1.0f);
 		}
 		spawnDemonOp.data.spawnUnit.maxHealth = 0;
 		spawnDemonOp.data.spawnUnit.maxHealthFromSlot = 3;
@@ -26620,16 +26534,10 @@ void ofApp::applyDrainPunch(int targetPlayerIndex, int baseDamage, int casterInd
 		currentCardOutcome.poisonTargetPlayerIDs.clear();
 		currentCardOutcome.poisonTargetPlayerIDs.push_back(target->playerID);
 		{
-			EffectOp rollOp = {};
-			rollOp.type = EffectOpType::ROLL_DICE;
-			rollOp.data.rollDice.numDice = 1;
-			rollOp.data.rollDice.sides = 6;
-			rollOp.data.rollDice.purpose = PURPOSE_DAMAGE;
-			rollOp.data.rollDice.ownerIndex = casterIndex;
-			rollOp.data.rollDice.outputSlot = 0;
-			strncpy(rollOp.data.rollDice.label, "Poison Damage", 31);
-			rollOp.data.rollDice.label[31] = '\0';
-			queueEffect(rollOp);
+			std::vector<int> rawPoison;
+			int poisonVal = resolveDiceRollDetailed(1, 6, rawPoison);
+			currentEffectSequence.blackboard[0] = poisonVal;
+			queueVisualDiceRoll(gridToWorld(caster->x, caster->y) + glm::vec3(0, 1.0f, 0), 1, 6, rawPoison, poisonVal, PURPOSE_DAMAGE, casterIndex, 1.0f);
 			EffectOp ap = {};
 			ap.type = EffectOpType::APPLY_POISON;
 			queueEffect(ap);
