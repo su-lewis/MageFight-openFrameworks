@@ -206,7 +206,7 @@ bool SteamManager::sendPacket(const void * data, uint32_t size) {
 		}
 
 		// Verbose send tracing for key packets
-		if (outHdr->type == PKT_ACTION || outHdr->type == PKT_DRAFT_ACTION || outHdr->type == PKT_DRAFT_ACK || outHdr->type == PKT_RENEWED_INSPIRATION || outHdr->type == PKT_DRAW_CARDS || outHdr->type == PKT_TURN_START || outHdr->type == PKT_DICE_ROLL || outHdr->type == PKT_CHECKSUM_CHECK || outHdr->type == PKT_SNAPSHOT_BEGIN || outHdr->type == PKT_SNAPSHOT_CHUNK || outHdr->type == PKT_SNAPSHOT_END || outHdr->type == PKT_MOVE_UNIT || outHdr->type == PKT_AMNESIA_CHOICE || outHdr->type == PKT_PLACE_SUMMONED_BEGIN) {
+		if (outHdr->type == PKT_ACTION || outHdr->type == PKT_DRAFT_ACTION || outHdr->type == PKT_DRAFT_ACK || outHdr->type == PKT_RENEWED_INSPIRATION || outHdr->type == PKT_DRAW_CARDS || outHdr->type == PKT_TURN_START || outHdr->type == PKT_CHECKSUM_CHECK || outHdr->type == PKT_SNAPSHOT_BEGIN || outHdr->type == PKT_SNAPSHOT_CHUNK || outHdr->type == PKT_SNAPSHOT_END || outHdr->type == PKT_MOVE_UNIT || outHdr->type == PKT_AMNESIA_CHOICE || outHdr->type == PKT_PLACE_SUMMONED_BEGIN) {
 			ofLogNotice("NetTrace") << "SEND pkt type=" << (int)outHdr->type << " player=" << outHdr->playerID << " seq=" << outHdr->seq << " size=" << size;
 			if (outHdr->type == PKT_DRAFT_ACTION && size >= sizeof(DraftActionPacket)) {
 				DraftActionPacket * dap = (DraftActionPacket *)buffer.data();
@@ -227,16 +227,6 @@ bool SteamManager::sendPacket(const void * data, uint32_t size) {
 			} else if (outHdr->type == PKT_RENEWED_INSPIRATION && size >= sizeof(RenewedInspirationPacket)) {
 				RenewedInspirationPacket * rip = (RenewedInspirationPacket *)buffer.data();
 				ofLogNotice("NetTrace") << "  RINSP playerIndex=" << rip->playerIndex << " count=" << (int)rip->count;
-			} else if (outHdr->type == PKT_DICE_ROLL && size >= sizeof(DiceRollPacket)) {
-				DiceRollPacket * drp = (DiceRollPacket *)buffer.data();
-				std::string rawList, finalList;
-				for (int ri = 0; ri < drp->numDice && ri < 8; ++ri) {
-					if (!rawList.empty()) rawList += ",";
-					rawList += std::to_string((int)drp->rawResults[ri]);
-					if (!finalList.empty()) finalList += ",";
-					finalList += std::to_string((int)drp->finalResults[ri]);
-				}
-				ofLogNotice("NetTrace") << "  DICE_ROLL owner=" << drp->ownerIndex << " numDice=" << (int)drp->numDice << " sides=" << (int)drp->sides << " label='" << drp->label << "' raw=[" << rawList << "] final=[" << finalList << "]";
 			} else if (outHdr->type == PKT_CHECKSUM_CHECK && size >= sizeof(ChecksumPacket)) {
 				ChecksumPacket * ckp = (ChecksumPacket *)buffer.data();
 				ofLogNotice("NetTrace") << "  CHECKSUM turn=" << ckp->turnNumber << " value=" << ckp->checksum;
