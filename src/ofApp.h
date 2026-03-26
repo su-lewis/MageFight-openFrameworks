@@ -1101,17 +1101,14 @@ private:
 	bool processingNetworkPacket = false;
 	// Timestamp of last snapshot request to avoid spamming (seconds)
 	float lastSnapshotRequestTime = 0.0f;
-	// Client: handle out-of-order shuffle packets during draft
-	// Client: handle out-of-order shuffle packets during draft
-	// (Shuffle nonce queue moved into `networkPending.shuffleNonces`)
+	// Client: draft handling updated for deterministic local shuffles.
 
 	// Helper to get synced numbers
 	int getGameRandom(int min, int max);
 
-	// Shuffle a vector deterministically. If `ownerPlayerIndex` is >= 0 and we are
-	// in multiplayer, the host will generate a nonce, shuffle with a local PRNG
-	// seeded by that nonce and broadcast a `PKT_SHUFFLE` so clients reproduce the same
-	// shuffle without consuming `gameplayRNG` on their side. Clients will skip shuffling
+	// Shuffle a vector deterministically using the synchronized `gameplayRNG`.
+	// In deterministic lockstep mode both peers perform the same local shuffle
+	// so there is no reliance on host-authoritative shuffle packets or nonces.
 	// here when `ownerPlayerIndex >= 0` and wait for the shuffle packet.
 	// Custom deterministic shuffle (Fisher-Yates) for cross-platform consistency.
 	template <class T, class URBG>
@@ -1561,9 +1558,12 @@ private:
 		bool draftShuffleNeeded = false;
 		std::vector<int> draftQueue; // class IDs queue
 
-		// Pending shuffle nonces per actor
-		std::unordered_map<int, std::deque<uint32_t>> shuffleNonces;
-		std::unordered_map<int, uint32_t> lastAppliedShuffleNonce;
+		// (Shuffle nonce queues removed; shuffles are now deterministic/local)
+		// Backwards-compat fields: some compilation sites still reference
+		// shuffle nonce bookkeeping. Keep them here temporarily until
+		// all callsites are updated to deterministic shuffles.
+		std::unordered_map<int, std::deque<int>> shuffleNonces;
+		std::unordered_map<int, int> lastAppliedShuffleNonce;
 
 		// Pending draft state packet (if host sends state while client is waiting)
 		bool draftStateAvailable = false;
