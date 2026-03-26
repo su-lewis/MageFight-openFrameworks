@@ -1,9 +1,7 @@
 name: Build Windows EXE
 
 on:
-  push:
-    branches: [ main ]
-  workflow_dispatch:
+  workflow_dispatch: # This is the magic word for "Manual Trigger Only"
 
 jobs:
   build-windows:

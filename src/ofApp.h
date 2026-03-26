@@ -313,6 +313,7 @@ enum class EffectOpType : uint8_t {
 	APPLY_DEATH,
 	APPLY_ON_FIRE,
 	APPLY_ON_FIRE_RESOLVE,
+	APPLY_FIRE_HIT_RESOLVE,
 	APPLY_PARALYSIS,
 	APPLY_WOLF_COIN,
 	APPLY_BLOCKING_BOON_COIN,
@@ -1009,6 +1010,11 @@ private:
 	// Returns a pointer to the inserted Player in `players` or nullptr on failure.
 	Player * spawnMinionDeterministically(int summonKind, int targetX, int targetY, int ownerID, int maxHP, int ap, int summonerPlayerID = -1);
 
+	// Build a Player template for a summoned minion of `summonKind`.
+	// Does not insert into `players` or place on board. Uses `maxHP` when >0,
+	// otherwise picks sensible defaults. Consumes gameplay RNG when needed.
+	Player initMinionFromKind(int summonKind, int ownerID, int maxHP, int ap, int summonerPlayerID = -1);
+
 	void updatePlayerAP(Player & player, int newAP);
 	void applyMovement(int playerIndex, int targetX, int targetY, int newAP, const std::vector<glm::vec2> * pathOverride = nullptr);
 	void createCardDisplay(const Card & card, int playerIndex); // Create card display animation
@@ -1122,59 +1128,13 @@ private:
 	}
 	template <class T>
 	void shuffleGameVector(std::vector<T> & vec, int ownerPlayerIndex = -1, float visualDelaySeconds = 0.0f) {
-		// If the client was instructed to skip the next local shuffle for this player (e.g., due to a forwarded Accept),
-		// consume the flag and do nothing. This prevents inadvertent consumption of `gameplayRNG`.
-		if (isClient() && ownerPlayerIndex >= 0 && skipClientShuffleFor == ownerPlayerIndex) {
-			skipClientShuffleFor = -1;
-			ofLogNotice("Network") << "Client: Skipping local shuffle for player " << ownerPlayerIndex << " due to forwarded Accept";
-			return;
-		}
-
-		// Client: defer to host's shuffle packet for player-owned decks
-		if (isClient() && ownerPlayerIndex >= 0) {
-			return;
-		}
-
-		// Host in multiplayer and owner specified: broadcast nonce-based shuffle
-		if (isHost() && ownerPlayerIndex >= 0) {
-			// Verify that a Place packet was recently sent for this index; warn if not.
-			if (recentPlaceSentIndices.find(ownerPlayerIndex) == recentPlaceSentIndices.end()) {
-				ofLogWarning("Network") << "Host: sending PKT_SHUFFLE for playerIndex=" << ownerPlayerIndex << " but no recent PKT_PLACE_SUMMONED_MINION recorded";
-			} else {
-				ofLogNotice("Network") << "Host: PKT_PLACE_SUMMONED_MINION was recorded for playerIndex=" << ownerPlayerIndex << ", proceeding to send PKT_SHUFFLE";
-			}
-			uint32_t nonce = gameplayRNG();
-			std::mt19937 shuffleRng(nonce);
-			deterministic_shuffle(vec, shuffleRng);
-
-			// Broadcast shuffle to clients
-			ShufflePacket sp = {};
-			sp.type = PKT_SHUFFLE;
-			sp.playerID = myLocalPlayerID;
-			sp.playerIndex = ownerPlayerIndex;
-			sp.nonce = nonce;
-			steamManager.sendPacket(&sp, sizeof(sp));
-			ofLogNotice("Network") << "Host sent Shuffle packet: player=" << sp.playerIndex << " nonce=" << sp.nonce;
-
-			// Start visual shuffle on host for main players only (minions handle their own visuals)
-			if (ownerPlayerIndex == 0 || ownerPlayerIndex == 1) {
-				startShuffleVisual(ownerPlayerIndex, visualDelaySeconds);
-			}
-
-			// Clear dirty flag for this player's deck since we've just shuffled it authoritatively
-			if (ownerPlayerIndex >= 0 && ownerPlayerIndex < (int)players.size()) {
-				players[ownerPlayerIndex].deckNeedsShuffle = false;
-			}
-			// Remove the recent place marker now that shuffle has been sent
-			recentPlaceSentIndices.erase(ownerPlayerIndex);
-			return;
-		}
-
-		// Singleplayer or generic shuffle: use gameplayRNG
+		// Unified deterministic shuffle: always use the synchronized `gameplayRNG`
+		// so host and client consume RNG in the same order. Prior hybrid
+		// behavior that broadcast nonces or skipped local shuffles has been
+		// removed to enforce pure lockstep.
 		deterministic_shuffle(vec, gameplayRNG);
 
 		// Start visual shuffle only for main players (players 0 and 1).
-		// Minions handle their own shuffle visuals in their draw code.
 		if (ownerPlayerIndex == 0 || ownerPlayerIndex == 1) {
 			startShuffleVisual(ownerPlayerIndex, visualDelaySeconds);
 		}
