@@ -2302,13 +2302,10 @@ void ofApp::update() {
 		// end-of-draft shuffles, do that now (host only). This will enqueue
 		// shuffle visuals and broadcast PKT_SHUFFLE to clients.
 		if (picksDone && networkPending.draftShuffleNeeded) {
-			if (isHost()) {
-				for (size_t pi = 0; pi < players.size(); ++pi) {
-					shuffleGameVector(players[pi].deck, (int)pi);
-				}
-			} else {
-				// Clients will receive PKT_SHUFFLE from host; ensure we don't
-				// reject any local shuffles accidentally.
+			// Perform deterministic shuffles locally on all peers so lockstep
+			// reproduces deck order without relying on host-authoritative packets.
+			for (size_t pi = 0; pi < players.size(); ++pi) {
+				shuffleGameVector(players[pi].deck, (int)pi);
 			}
 			networkPending.draftShuffleNeeded = false;
 			// Give shuffle visuals a short window to play (they are tracked
@@ -29834,14 +29831,11 @@ void ofApp::processNetworkPackets() {
 			}
 
 			// Verbose packet tracing for debugging desyncs
-			if (header->type == PKT_ACTION || header->type == PKT_DRAFT_ACTION || header->type == PKT_DRAFT_STATE || header->type == PKT_DRAFT_OPTIONS || header->type == PKT_DRAFT_ACK || header->type == PKT_RENEWED_INSPIRATION || header->type == PKT_DRAW_CARDS || header->type == PKT_SHUFFLE || header->type == PKT_TURN_START || header->type == PKT_PLACE_SUMMONED_MINION || header->type == PKT_DICE_ROLL || header->type == PKT_CHECKSUM_CHECK || header->type == PKT_SNAPSHOT_BEGIN || header->type == PKT_SNAPSHOT_CHUNK || header->type == PKT_SNAPSHOT_END || header->type == PKT_MOVE_UNIT || header->type == PKT_AMNESIA_CHOICE || header->type == PKT_PLACE_SUMMONED_BEGIN) {
+			if (header->type == PKT_ACTION || header->type == PKT_DRAFT_ACTION || header->type == PKT_DRAFT_STATE || header->type == PKT_DRAFT_OPTIONS || header->type == PKT_DRAFT_ACK || header->type == PKT_RENEWED_INSPIRATION || header->type == PKT_DRAW_CARDS || header->type == PKT_TURN_START || header->type == PKT_DICE_ROLL || header->type == PKT_CHECKSUM_CHECK || header->type == PKT_SNAPSHOT_BEGIN || header->type == PKT_SNAPSHOT_CHUNK || header->type == PKT_SNAPSHOT_END || header->type == PKT_MOVE_UNIT || header->type == PKT_AMNESIA_CHOICE || header->type == PKT_PLACE_SUMMONED_BEGIN) {
 				ofLogNotice("NetTrace") << "RECV pkt type=" << (int)header->type << " player=" << header->playerID << " seq=" << header->seq << " size=" << buffer.size();
 				if (header->type == PKT_ACTION && buffer.size() >= sizeof(ActionPacket)) {
 					ActionPacket * ap = (ActionPacket *)buffer.data();
 					ofLogNotice("NetTrace") << "  ACTION card='" << ap->cardName << "' actor=" << ap->actorIndex << " target=(" << ap->targetX << "," << ap->targetY << ") menu=" << ap->menuChoice << " updatedAP=" << ap->updatedAP;
-				} else if (header->type == PKT_SHUFFLE && buffer.size() >= sizeof(ShufflePacket)) {
-					ShufflePacket * spk = (ShufflePacket *)buffer.data();
-					ofLogNotice("NetTrace") << "  SHUFFLE playerIndex=" << spk->playerIndex << " nonce=" << spk->nonce;
 				} else if (header->type == PKT_TURN_START && buffer.size() >= sizeof(TurnStartPacket)) {
 					TurnStartPacket * tsp = (TurnStartPacket *)buffer.data();
 					ofLogNotice("NetTrace") << "  TURN_START currentPlayerIndex=" << tsp->currentPlayerIndex << " diceNum=" << (int)tsp->diceNum << " diceSides=" << (int)tsp->diceSides << " finalTotal=" << tsp->finalTotal;
@@ -29851,9 +29845,6 @@ void ofApp::processNetworkPackets() {
 				} else if (header->type == PKT_RENEWED_INSPIRATION && buffer.size() >= sizeof(RenewedInspirationPacket)) {
 					RenewedInspirationPacket * rip = (RenewedInspirationPacket *)buffer.data();
 					ofLogNotice("NetTrace") << "  RINSP playerIndex=" << rip->playerIndex << " count=" << (int)rip->count;
-				} else if (header->type == PKT_PLACE_SUMMONED_MINION && buffer.size() >= sizeof(PlaceSummonedMinionPacket)) {
-					PlaceSummonedMinionPacket * psp = (PlaceSummonedMinionPacket *)header;
-					ofLogNotice("NetTrace") << "  PLACE_SUMMONED minionType=" << (int)psp->minionType << " ownerID=" << psp->ownerPlayerID << " target=(" << psp->targetX << "," << psp->targetY << ") HP=" << psp->minionHP << " AP=" << psp->minionAP << " players=" << players.size();
 				} else if (header->type == PKT_DICE_ROLL && buffer.size() >= sizeof(DiceRollPacket)) {
 					DiceRollPacket * drp = (DiceRollPacket *)buffer.data();
 					std::string rawList, finalList;
@@ -29924,14 +29915,6 @@ void ofApp::processNetworkPackets() {
 					}
 				}
 			}
-			// Shuffle packets are ignored in pure lockstep mode. Shuffling is
-			// performed locally on both peers using `gameplayRNG` so external
-			// shuffle nonces are no longer needed.
-			if (header->type == PKT_SHUFFLE) {
-				ofLogNotice("Network") << "Ignored incoming PKT_SHUFFLE (lockstep mode).";
-				continue;
-			}
-
 			// Handle Renewed Inspiration selection
 			if (header->type == PKT_RENEWED_INSPIRATION) {
 				RenewedInspirationPacket * rpk = (RenewedInspirationPacket *)header;
@@ -30863,67 +30846,6 @@ void ofApp::processNetworkPackets() {
 					}
 
 					continue;
-				} else if (header->type == PKT_PLACE_SUMMONED_MINION) {
-					PlaceSummonedMinionPacket * psk = (PlaceSummonedMinionPacket *)header;
-					ofLogNotice("Network") << "Received PlaceSummonedMinion: type=" << (int)psk->minionType << " owner=" << psk->ownerPlayerID << " target=(" << psk->targetX << "," << psk->targetY << ")";
-					int tx = psk->targetX;
-					int ty = psk->targetY;
-					if (tx >= 0 && tx < BOARD_WIDTH && ty >= 0 && ty < BOARD_HEIGHT) {
-						if (!board[tx][ty].hasPlayer) {
-							// Use centralized deterministic spawn so client mirrors host exactly
-							Player * newMinion = spawnMinionDeterministically((int)psk->minionType, tx, ty, psk->ownerPlayerID, psk->minionHP, psk->minionAP, psk->ownerPlayerID);
-							if (newMinion) {
-								int newIdx = findPlayerIndexByID(newMinion->playerID);
-								if (newIdx >= 0) {
-									ofLogNotice("Network") << "Placed summoned minion (client-side): idx=" << newIdx << " type=" << (int)psk->minionType << " owner=" << players[newIdx].ownerID << " HP=" << players[newIdx].maxHealth << " AP=" << players[newIdx].ap;
-									checkKeyPickupAndDraftAfterSummon(players[newIdx].x, players[newIdx].y, players[newIdx].ownerID);
-								}
-
-								// If this was part of a remote placement sequence, decrement remaining
-								if (remoteKoboldsRemaining > 0 && psk->minionType == 1) {
-									remoteKoboldsRemaining = std::max(0, remoteKoboldsRemaining - 1);
-									ofLogNotice("Network") << "Remote kobolds remaining=" << remoteKoboldsRemaining;
-									if (remoteKoboldsRemaining <= 0) {
-										remoteKoboldPlacementSourceX = -1;
-										remoteKoboldPlacementSourceY = -1;
-									}
-								}
-
-								// If we're a client waiting for the host's TurnStart and our restored
-								// currentPlayerIndex now points to a minion (possible due to sorting),
-								// advance to the next non-minion so the client doesn't think it's a minion's turn.
-								if (isClient() && waitingForTurnStartTimer > 0.0f && currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size() && players[currentPlayerIndex].isMinion) {
-									bool found = false;
-									for (int off = 1; off < (int)players.size(); ++off) {
-										int idx = (currentPlayerIndex + off) % (int)players.size();
-										if (!players[idx].isMinion) {
-											currentPlayerIndex = idx;
-											found = true;
-											break;
-										}
-									}
-									if (found) ofLogNotice("Network") << "Adjusted client currentPlayerIndex to non-minion after remote summon: " << players[currentPlayerIndex].playerID;
-								}
-							} else {
-								ofLogNotice("Network") << "spawnMinionDeterministically failed for remote minion at (" << tx << "," << ty << ")";
-							}
-						}
-						// If a minion already exists at this tile (client predicted placement), update its authoritative stats
-					} else {
-						for (auto & p : players) {
-							if (p.x == tx && p.y == ty && p.isMinion) {
-								p.maxHealth = (psk->minionHP > 0) ? psk->minionHP : p.maxHealth;
-								p.health = p.maxHealth;
-								p.ap = (psk->minionAP >= 0) ? psk->minionAP : p.ap;
-								// Ensure Magic Wall status is synced
-								if (psk->minionType == 11)
-									p.isMagicWallUnit = true;
-								else if (psk->minionType == 10)
-									p.isMagicWallUnit = false;
-								break;
-							}
-						}
-					}
 				}
 			}
 			continue;
@@ -31916,16 +31838,10 @@ void ofApp::sendPlaceSummonedMinion(int minionType, int ownerPlayerID, int targe
 	pkt.targetY = targetY;
 	pkt.minionHP = minionHP;
 	pkt.minionAP = minionAP;
-	steamManager.sendPacket(&pkt, sizeof(pkt));
-	ofLogNotice("Network") << "Host sent PlaceSummonedMinion: type=" << pkt.minionType << " owner=" << pkt.ownerPlayerID << " target=(" << pkt.targetX << "," << pkt.targetY << ") HP=" << pkt.minionHP << " AP=" << pkt.minionAP;
-	// Record the host-side player index for later verification by the shuffle sender.
-	if (isHost() && isMultiplayer) {
-		int idx = findPlayerIndexByID(minionPlayerID);
-		if (idx >= 0) {
-			recentPlaceSentIndices.insert(idx);
-			ofLogNotice("Network") << "Recorded recent place for playerIndex=" << idx << " playerID=" << minionPlayerID;
-		}
-	}
+	// In deterministic lockstep mode we no longer broadcast individual minion
+	// placement packets. Both peers spawn minions locally via the command
+	// execution path. Suppress network send to avoid duplicate spawns.
+	ofLogNotice("Network") << "Suppressed PlaceSummonedMinion send in lockstep mode: type=" << pkt.minionType << " owner=" << pkt.ownerPlayerID << " target=(" << pkt.targetX << "," << pkt.targetY << ")";
 }
 
 void ofApp::sendEarthquakeBegin() {

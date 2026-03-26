@@ -206,7 +206,7 @@ bool SteamManager::sendPacket(const void * data, uint32_t size) {
 		}
 
 		// Verbose send tracing for key packets
-		if (outHdr->type == PKT_ACTION || outHdr->type == PKT_DRAFT_ACTION || outHdr->type == PKT_DRAFT_ACK || outHdr->type == PKT_RENEWED_INSPIRATION || outHdr->type == PKT_DRAW_CARDS || outHdr->type == PKT_SHUFFLE || outHdr->type == PKT_TURN_START || outHdr->type == PKT_PLACE_SUMMONED_MINION || outHdr->type == PKT_DICE_ROLL || outHdr->type == PKT_CHECKSUM_CHECK || outHdr->type == PKT_SNAPSHOT_BEGIN || outHdr->type == PKT_SNAPSHOT_CHUNK || outHdr->type == PKT_SNAPSHOT_END || outHdr->type == PKT_MOVE_UNIT || outHdr->type == PKT_AMNESIA_CHOICE || outHdr->type == PKT_PLACE_SUMMONED_BEGIN) {
+		if (outHdr->type == PKT_ACTION || outHdr->type == PKT_DRAFT_ACTION || outHdr->type == PKT_DRAFT_ACK || outHdr->type == PKT_RENEWED_INSPIRATION || outHdr->type == PKT_DRAW_CARDS || outHdr->type == PKT_TURN_START || outHdr->type == PKT_DICE_ROLL || outHdr->type == PKT_CHECKSUM_CHECK || outHdr->type == PKT_SNAPSHOT_BEGIN || outHdr->type == PKT_SNAPSHOT_CHUNK || outHdr->type == PKT_SNAPSHOT_END || outHdr->type == PKT_MOVE_UNIT || outHdr->type == PKT_AMNESIA_CHOICE || outHdr->type == PKT_PLACE_SUMMONED_BEGIN) {
 			ofLogNotice("NetTrace") << "SEND pkt type=" << (int)outHdr->type << " player=" << outHdr->playerID << " seq=" << outHdr->seq << " size=" << size;
 			if (outHdr->type == PKT_DRAFT_ACTION && size >= sizeof(DraftActionPacket)) {
 				DraftActionPacket * dap = (DraftActionPacket *)buffer.data();
@@ -218,9 +218,6 @@ bool SteamManager::sendPacket(const void * data, uint32_t size) {
 			if (outHdr->type == PKT_ACTION && size >= sizeof(ActionPacket)) {
 				ActionPacket * ap = (ActionPacket *)buffer.data();
 				ofLogNotice("NetTrace") << "  ACTION card='" << ap->cardName << "' actor=" << ap->actorIndex << " target=(" << ap->targetX << "," << ap->targetY << ") menu=" << ap->menuChoice << " updatedAP=" << ap->updatedAP;
-			} else if (outHdr->type == PKT_SHUFFLE && size >= sizeof(ShufflePacket)) {
-				ShufflePacket * spk = (ShufflePacket *)buffer.data();
-				ofLogNotice("NetTrace") << "  SHUFFLE playerIndex=" << spk->playerIndex << " nonce=" << spk->nonce;
 			} else if (outHdr->type == PKT_TURN_START && size >= sizeof(TurnStartPacket)) {
 				TurnStartPacket * tsp = (TurnStartPacket *)buffer.data();
 				ofLogNotice("NetTrace") << "  TURN_START currentPlayerIndex=" << tsp->currentPlayerIndex << " diceNum=" << (int)tsp->diceNum << " diceSides=" << (int)tsp->diceSides << " finalTotal=" << tsp->finalTotal;
@@ -230,9 +227,6 @@ bool SteamManager::sendPacket(const void * data, uint32_t size) {
 			} else if (outHdr->type == PKT_RENEWED_INSPIRATION && size >= sizeof(RenewedInspirationPacket)) {
 				RenewedInspirationPacket * rip = (RenewedInspirationPacket *)buffer.data();
 				ofLogNotice("NetTrace") << "  RINSP playerIndex=" << rip->playerIndex << " count=" << (int)rip->count;
-			} else if (outHdr->type == PKT_PLACE_SUMMONED_MINION && size >= sizeof(PlaceSummonedMinionPacket)) {
-				PlaceSummonedMinionPacket * psp = (PlaceSummonedMinionPacket *)buffer.data();
-				ofLogNotice("NetTrace") << "  PLACE_SUMMONED minionType=" << (int)psp->minionType << " ownerID=" << psp->ownerPlayerID << " target=(" << psp->targetX << "," << psp->targetY << ") HP=" << psp->minionHP << " AP=" << psp->minionAP;
 			} else if (outHdr->type == PKT_DICE_ROLL && size >= sizeof(DiceRollPacket)) {
 				DiceRollPacket * drp = (DiceRollPacket *)buffer.data();
 				std::string rawList, finalList;
