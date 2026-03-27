@@ -14815,11 +14815,8 @@ void ofApp::continueNewTurn() {
 		return;
 	}
 
-	// --- CLIENT: Wait for host's TurnStart packet if transitioning from draft ---
-	if (isClient() && waitingForTurnStartTimer > 0.0f) {
-		ofLogNotice("Network") << "Client: Skipping local AP roll, waiting for TurnStart from host";
-		return;
-	}
+	// CLIENT: legacy waiting for host TurnStart removed — clients now derive
+	// AP/turn-start from the deterministic command stream (CMD_END_TURN/CMD_*).
 
 	// --- AP ROLL LOGIC ---
 
@@ -29690,188 +29687,12 @@ void ofApp::processNetworkPackets() {
 				}
 			}
 
-			// Handle TurnStart packets (Host -> Client): authoritative AP dice for starting player
+			// PKT_TURN_START is legacy and suppressed under the lockstep migration.
+			// Host no longer sends authoritative TurnStart packets; clients derive
+			// AP/turn-start state from the deterministic command stream instead.
 			if (header->type == PKT_TURN_START) {
-				TurnStartPacket * tpk = (TurnStartPacket *)header;
-				ofLogNotice("Network") << "TurnStart packet received: player=" << tpk->currentPlayerIndex << " dice=" << (int)tpk->diceNum << " total=" << tpk->finalTotal;
-
-				// Prevent duplicate processing: only ignore truly identical TurnStart
-				// packets. Compare the player + authoritative finalTotal rather than
-				// the local `globalTurnCounter` which may have been changed
-				// optimistically on clients (causing legitimate authoritative
-				// updates to be ignored). Use `continue` to keep processing other
-				// queued packets instead of `return` which exits packet loop.
-				static int lastProcessedTurnPlayer = -1;
-				static uint32_t lastProcessedTurnSeq = 0;
-				if (tpk->currentPlayerIndex == lastProcessedTurnPlayer && header->seq == lastProcessedTurnSeq) {
-					ofLogNotice("Network") << "Ignoring duplicate TurnStart packet (player=" << tpk->currentPlayerIndex << " seq=" << header->seq << ")";
-					continue;
-				}
-				lastProcessedTurnPlayer = tpk->currentPlayerIndex;
-				lastProcessedTurnSeq = header->seq;
-
-				if (tpk->currentPlayerIndex >= 0 && tpk->currentPlayerIndex < (int)players.size()) {
-					// Set up turn state
-					waitingForTurnStartTimer = 0.0f;
-					endTurnLocked = false;
-					currentState = STATE_GAMEPLAY; // Transition to gameplay state
-					currentPlayerIndex = tpk->currentPlayerIndex;
-					// Clamp incoming dice count to the size of the arrays carried in the packet
-					const int MAX_DICE_RESULTS = 8; // defensive: packet arrays are 8 long
-					lastAPDiceNum = std::min((int)tpk->diceNum, MAX_DICE_RESULTS);
-					lastAPDiceSides = (int)tpk->diceSides;
-
-					// Complete turn setup (same as continueNewTurn does)
-					Player & startingPlayer = players[currentPlayerIndex];
-					ofLogNotice("Game") << "Player " << startingPlayer.playerID << "'s turn begins (from TurnStart).";
-					ofLogNotice("Game") << "Client state: currentState=" << currentState << " myLocalPlayerID=" << myLocalPlayerID << " currentPlayerID=" << startingPlayer.playerID;
-					hasDrawnCardsThisTurn = false;
-					selectedCardIndex = -1;
-					draggedCardIndex = -1;
-					playerAction = NONE;
-					clearHighlights();
-					calculateTargetHighlights();
-					playerVisualPos = gridToWorld(startingPlayer.x, startingPlayer.y);
-					animationPath.clear();
-					isPlayerAnimating = false;
-					animatingPlayerIndex = -1;
-					activeDiceRolls.clear();
-					currentAP = 0;
-
-					// CLIENT: Create visual dice rolls from host-provided results
-					// This ensures the client sees the AP roll animation even though the host rolled it
-					std::string diceLabel = "";
-					if (startingPlayer.isWolf) {
-						diceLabel = "Wolf AP Roll";
-					} else if (startingPlayer.isHellhound) {
-						diceLabel = "Hellhound AP Roll";
-					} else if (startingPlayer.isDemon) {
-						diceLabel = "Demon AP Roll";
-					} else if (startingPlayer.isKobold) {
-						diceLabel = "Kobold AP Roll";
-					} else if (startingPlayer.isWallUnit) {
-						diceLabel = startingPlayer.isMagicWallUnit ? "Magic Wall Unit AP" : "Wall Unit AP";
-					} else if (startingPlayer.isKoboldKing) {
-						diceLabel = "Kobold King AP";
-					} else if (startingPlayer.isAssistant) {
-						diceLabel = "Assistant AP (Coin)";
-					} else if (startingPlayer.isFaerie) {
-						diceLabel = "Faerie AP Roll";
-					} else if (startingPlayer.isMinion) {
-						diceLabel = getPlayerDisplayName(currentPlayerIndex) + " AP Roll";
-					} else {
-						diceLabel = "Player AP Roll";
-					}
-
-					currentDiceLabel = diceLabel;
-
-					// Create DiceRoll objects with host-provided results
-					int numDiceToCreate = std::min((int)tpk->diceNum, MAX_DICE_RESULTS);
-					for (int i = 0; i < numDiceToCreate; ++i) {
-						DiceRoll newRoll;
-						newRoll.purpose = PURPOSE_AP;
-						newRoll.sides = (int)tpk->diceSides;
-						newRoll.rawResult = (int)tpk->rawResults[i];
-						newRoll.result = (int)tpk->finalResults[i];
-						newRoll.startTime = ofGetElapsedTimef();
-						newRoll.isFinishedVisual = false;
-						newRoll.associatedUnit = currentPlayerIndex;
-
-						// Use shared helper to compute face rotation and add visual wobble/axis
-						std::uniform_real_distribution<float> axisDist(-1.0f, 1.0f);
-						glm::vec3 rndAxis(axisDist(visualRNG), axisDist(visualRNG), axisDist(visualRNG));
-						if (glm::length(rndAxis) < 0.01f) rndAxis = glm::vec3(0, 1, 0);
-						newRoll.rotationAxis = glm::normalize(rndAxis);
-
-						std::uniform_real_distribution<float> wobbleDist(-25.0f, 25.0f);
-						float wobbleAmount = wobbleDist(visualRNG);
-
-						newRoll.finalQuat = getDiceFaceRotation(newRoll.sides, newRoll.rawResult, wobbleAmount);
-
-						activeDiceRolls.push_back(newRoll);
-					}
-
-					// Advance gameplay RNG to mirror host's AP dice consumption so client
-					// RNG state stays aligned with host for future deterministic rolls.
-					if (isMultiplayer && isClient()) {
-						for (int i = 0; i < numDiceToCreate; ++i) {
-							(void)getGameRandom(1, lastAPDiceSides);
-						}
-					}
-
-					int hostTotal = 0;
-					for (int i = 0; i < numDiceToCreate; ++i) {
-						hostTotal += (int)tpk->finalResults[i];
-					}
-					ofLogNotice("Game") << "TurnStart applied locally: player=" << currentPlayerIndex << " AP total=" << hostTotal;
-					currentAP = hostTotal;
-					if (startingPlayer.nextTurnAPBonus > 0) {
-						currentAP += startingPlayer.nextTurnAPBonus;
-						startingPlayer.nextTurnAPBonus = 0;
-					}
-					// Sync AP to player struct for multiplayer
-					if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) {
-						updatePlayerAP(players[currentPlayerIndex], currentAP);
-					}
-
-					// Clear transient defensive stats on turn START (clients must mirror host)
-					// Tortoise form preserves defensive stats so only clear when not in tortoise form
-					if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) {
-						Player & sp = players[currentPlayerIndex];
-						if (!sp.inTortoiseForm) {
-							int tgt = currentPlayerIndex;
-							if (tgt >= 0) {
-								EffectOp clearBlock = {};
-								clearBlock.type = EffectOpType::MODIFY_STAT;
-								clearBlock.data.modifyStat.targetIndex = tgt;
-								clearBlock.data.modifyStat.statType = 5; // Block
-								clearBlock.data.modifyStat.delta = -sp.block;
-								clearBlock.data.modifyStat.deltaFromSlot = -1;
-								queueEffect(clearBlock);
-
-								EffectOp clearHoly = {};
-								clearHoly.type = EffectOpType::MODIFY_STAT;
-								clearHoly.data.modifyStat.targetIndex = tgt;
-								clearHoly.data.modifyStat.statType = 7; // HolyBlock
-								clearHoly.data.modifyStat.delta = -sp.holyBlock;
-								clearHoly.data.modifyStat.deltaFromSlot = -1;
-								queueEffect(clearHoly);
-
-								EffectOp clearWard = {};
-								clearWard.type = EffectOpType::MODIFY_STAT;
-								clearWard.data.modifyStat.targetIndex = tgt;
-								clearWard.data.modifyStat.statType = 8; // Ward
-								clearWard.data.modifyStat.delta = -sp.ward;
-								clearWard.data.modifyStat.deltaFromSlot = -1;
-								queueEffect(clearWard);
-
-								EffectOp clearFort = {};
-								clearFort.type = EffectOpType::MODIFY_STAT;
-								clearFort.data.modifyStat.targetIndex = tgt;
-								clearFort.data.modifyStat.statType = 13; // Fortification
-								clearFort.data.modifyStat.delta = -sp.fortification;
-								clearFort.data.modifyStat.deltaFromSlot = -1;
-								queueEffect(clearFort);
-
-								EffectOp clearBarrier = {};
-								clearBarrier.type = EffectOpType::MODIFY_STAT;
-								clearBarrier.data.modifyStat.targetIndex = tgt;
-								clearBarrier.data.modifyStat.statType = 6; // Barrier
-								clearBarrier.data.modifyStat.delta = -sp.barrier;
-								clearBarrier.data.modifyStat.deltaFromSlot = -1;
-								queueEffect(clearBarrier);
-							}
-						}
-					}
-
-					// Mark dice as DEBUG to prevent recalculation when animation finishes
-					for (auto & roll : activeDiceRolls) {
-						if (roll.purpose == PURPOSE_AP && roll.associatedUnit == currentPlayerIndex) {
-							roll.purpose = PURPOSE_DEBUG;
-						}
-					}
-				}
-				continue; // Done with this packet
+				ofLogNotice("Network") << "Ignored legacy PKT_TURN_START from network (lockstep active).";
+				continue;
 			}
 
 			if (header->type == PKT_SNAPSHOT_BEGIN) {
@@ -30442,7 +30263,6 @@ void ofApp::processNetworkPackets() {
 			}
 		} else if (header->type == PKT_CHECKSUM_CHECK) {
 			ChecksumPacket * pkt = (ChecksumPacket *)header;
-			if (isClient() && waitingForTurnStartTimer > 0.0f) continue;
 			if (skipChecksumValidation) continue;
 
 			long long mySum = calculateChecksum();
