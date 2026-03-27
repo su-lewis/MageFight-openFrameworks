@@ -955,6 +955,9 @@ private:
 	void startNewTurn();
 	void continueNewTurn();
 
+	// Apply end-of-turn processing for the current player and advance to next
+	void performEndTurnAdvance();
+
 	void drawMainMenu();
 	void drawSettingsMenu();
 	void drawPauseMenu();

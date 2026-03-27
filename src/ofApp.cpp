@@ -5044,31 +5044,22 @@ void ofApp::updateGame() {
 					static int lastTurnStartSentCounter = -1;
 					bool alreadySent = (lastTurnStartSentPlayer == currentPlayerIndex && lastTurnStartSentCounter == globalTurnCounter);
 					if (isHost() && isMultiplayer && (apResolvedThisTurn || allDiceFinished) && !alreadySent && !isHandlingTurnStartEffects) {
-						TurnStartPacket tpk = {};
-						tpk.type = PKT_TURN_START;
-						tpk.playerID = myLocalPlayerID;
-						tpk.currentPlayerIndex = currentPlayerIndex;
-						tpk.diceNum = 0; // Dice arrays removed: clients will deterministically roll AP locally
-						tpk.diceSides = (uint8_t)lastAPDiceSides;
-						tpk.purpose = PURPOSE_AP;
-						tpk.finalTotal = currentAP;
-						if (!isHandlingTurnStartEffects) {
-							steamManager.sendPacket(&tpk, sizeof(tpk));
-							if (isHost()) {
-								ChecksumPacket chk = {};
-								chk.type = PKT_CHECKSUM_CHECK;
-								chk.playerID = myLocalPlayerID;
-								chk.checksum = calculateChecksum();
-								chk.turnNumber = globalTurnCounter;
-								steamManager.sendPacket(&chk, sizeof(chk));
-								ofLogNotice("Checksum") << "Host sent Checksum (turn=" << chk.turnNumber << ") value=" << chk.checksum;
-								turnStartBackupSnapshot = buildSnapshotString();
-								ofLogNotice("Network") << "Host saved Turn-Start Master Backup.";
-							}
-						}
+						// Migration note: Stop sending legacy PKT_TURN_START from host.
+						// Clients deterministically resolve AP from the effect blackboard
+						// and no longer need a host TurnStart packet. Preserve checksum
+						// timing for desync detection by sending a ChecksumPacket here.
+						ChecksumPacket chk = {};
+						chk.type = PKT_CHECKSUM_CHECK;
+						chk.playerID = myLocalPlayerID;
+						chk.checksum = calculateChecksum();
+						chk.turnNumber = globalTurnCounter;
+						steamManager.sendPacket(&chk, sizeof(chk));
+						ofLogNotice("Checksum") << "Host sent Checksum (turn=" << chk.turnNumber << ") value=" << chk.checksum;
+						turnStartBackupSnapshot = buildSnapshotString();
+						ofLogNotice("Network") << "Host saved Turn-Start Master Backup (no TurnStart packet sent).";
+
 						lastTurnStartSentPlayer = currentPlayerIndex;
 						lastTurnStartSentCounter = globalTurnCounter;
-						ofLogNotice("Network") << "Host sent TurnStart (continueNewTurn): player=" << tpk.currentPlayerIndex << " dice=" << (int)tpk.diceNum << " total=" << tpk.finalTotal;
 					}
 
 				} else if (roll.purpose == PURPOSE_EARTHQUAKE_DAMAGE) {
@@ -14151,18 +14142,20 @@ void ofApp::startNewTurn() {
 
 	// If it was MY turn and I am ending it:
 	if (isMultiplayer && isCurrentPlayerLocal()) {
-		ofLogNotice("Turn") << "Ending my turn (player " << myLocalPlayerID << "). Sending END_TURN packet.";
+		ofLogNotice("Turn") << "Ending my turn (player " << myLocalPlayerID << "). Sending END_TURN command.";
 
-		// 1. Send End Turn
-		PacketHeader pkt;
-		pkt.type = PKT_END_TURN;
-		pkt.playerID = myLocalPlayerID;
-		steamManager.sendPacket(&pkt, sizeof(pkt));
+		// 1. Send End Turn as a deterministic input command (lockstep)
+		InputCommandPacket cmd = {};
+		cmd.type = PKT_INPUT_COMMAND;
+		cmd.playerID = myLocalPlayerID;
+		cmd.seq = 0;
+		cmd.commandId = nextCommandId++;
+		cmd.turnNumber = globalTurnCounter;
+		cmd.commandType = CMD_END_TURN;
+		// No params for CMD_END_TURN
 
-		// NOTE: Clients should NOT send checksums here. The host sends an authoritative
-		// checksum after it advances the turn (after sending PKT_TURN_START). This
-		// prevents clients from independently asserting state and centralizes the
-		// desync detection to the host.
+		// Send over the network to peers. Host will continue locally; clients return to wait.
+		steamManager.sendPacket(&cmd, sizeof(cmd));
 
 		// 2.5. CLEAN UP LOCAL PLAYER'S HAND & BUFFS BEFORE WAITING
 		// Both host and client must do this so deck states stay in sync
