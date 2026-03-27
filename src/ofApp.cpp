@@ -5044,9 +5044,9 @@ void ofApp::updateGame() {
 					static int lastTurnStartSentCounter = -1;
 					bool alreadySent = (lastTurnStartSentPlayer == currentPlayerIndex && lastTurnStartSentCounter == globalTurnCounter);
 					if (isHost() && isMultiplayer && (apResolvedThisTurn || allDiceFinished) && !alreadySent && !isHandlingTurnStartEffects) {
-						// Migration note: Stop sending legacy PKT_TURN_START from host.
+						// Migration note: Host no longer sends a separate turn-start packet.
 						// Clients deterministically resolve AP from the effect blackboard
-						// and no longer need a host TurnStart packet. Preserve checksum
+						// and no longer require a dedicated host turn-start packet. Preserve checksum
 						// timing for desync detection by sending a ChecksumPacket here.
 						ChecksumPacket chk = {};
 						chk.type = PKT_CHECKSUM_CHECK;
@@ -14124,7 +14124,7 @@ void ofApp::dragEvent(ofDragInfo dragInfo) { }
 //--------------------------------------------------------------
 void ofApp::startNewTurn() {
 	// Mark that turn-start status effects are being handled so updateGame()
-	// does not prematurely send PKT_TURN_START to clients.
+	// does not prematurely send a separate turn-start packet to clients.
 	isHandlingTurnStartEffects = true;
 	ofLogNotice("Turn") << "startNewTurn() called. isMultiplayer=" << isMultiplayer << " currentPlayerIndex=" << currentPlayerIndex << " myLocalPlayerID=" << myLocalPlayerID << " isCurrentPlayerLocal()=" << isCurrentPlayerLocal();
 
@@ -14979,7 +14979,7 @@ void ofApp::continueNewTurn() {
 
 	// --- IMMEDIATE AP RESOLUTION (Host/Singleplayer) ---
 	// If we're authoritative, resolve AP now so game logic is deterministic
-	// and we can send PKT_TURN_START immediately. Visual dice are still
+	// and the host can finalize turn-start logic. Visual dice are still
 	// queued by startDiceRoll() but do not block simulation.
 	if ((!isMultiplayer || isHost()) && lastAPDiceNum > 0 && !apResolvedThisTurn) {
 		std::string apLabel = "Player AP Roll";
@@ -17017,9 +17017,10 @@ void ofApp::processEffectOp(EffectOp & op) {
 
 			if (targetIdx != -1) {
 				// Immediate authoritative damage roll and application (single-pass)
-				std::vector<int> rawResults;
-				resolveDiceRollDetailed(1, 6, rawResults);
-				int raw = (rawResults.size() > 0) ? rawResults[0] : 1;
+				// TODO: move face-level resolution into the command execution path
+				// and populate `currentEffectSequence.blackboard` (slot 1) with raw faces.
+				std::vector<int> rawResults; // placeholder for visual faces
+				int raw = (int)currentEffectSequence.blackboard[1];
 				int luckOwner = (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) ? currentPlayerIndex : -1;
 				int luckBonusLocal = 0;
 				if (luckOwner != -1) luckBonusLocal = players[luckOwner].luck + computePassiveLuck(luckOwner);
@@ -30295,7 +30296,7 @@ void ofApp::processNetworkPackets() {
 
 			// Clients and host both queue the command; host may still perform immediate
 			// validation/processing inside the command handling path. This replaces the
-			// legacy client behaviour of waiting for PKT_TURN_START.
+			// legacy client behaviour of waiting for a host turn-start packet.
 			queueInputCommand(cmd);
 
 			// For UI consistency: if this is a client, perform minimal local hand cleanup

@@ -17,7 +17,7 @@ enum PacketType {
 	PKT_END_TURN,
 	PKT_CHECKSUM_CHECK,
 
-	// PKT_TURN_START removed: turn-starts are delivered via deterministic commands
+	// Turn-starts are delivered via deterministic commands
 	PKT_KEY_PICKUP, // Host -> Client: a player picked up a key (trigger in-game draft)
 	PKT_CHAT_MESSAGE, // Chat message between players
 	PKT_HOVER, // Hover state update for showing opponent's hover

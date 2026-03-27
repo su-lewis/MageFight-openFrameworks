@@ -1516,7 +1516,7 @@ private:
 	bool hasDrawnCardsThisTurn = false;
 	bool opponentHasDrawnCardsThisTurn = false;
 	// Network/UI staging: moved into `networkPending` struct (see below)
-	// When true, `updateGame()` should not send PKT_TURN_START until status effects
+	// When true, `updateGame()` should not send a separate turn-start packet until status effects
 	// (paralysis/poison/onFire/etc.) that occur at the start of a turn have finished.
 	bool isHandlingTurnStartEffects = false;
 	PlayerActionState playerAction = NONE;
