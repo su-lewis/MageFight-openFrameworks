@@ -14223,7 +14223,7 @@ void ofApp::startNewTurn() {
 		// If I am a Client, I must NOT advance the turn index or roll dice locally.
 		// I must wait for the Host to tell me it's the next turn and what the AP roll was.
 		if (isMultiplayer && isClient()) {
-			ofLogNotice("Turn") << "Client: Turn Ended. Waiting for Host PKT_TURN_START.";
+			ofLogNotice("Turn") << "Client: Turn Ended. Awaiting host turn-start via command stream.";
 			endTurnLocked = true; // Prevent clicking button again
 			return;
 		}
@@ -29531,14 +29531,11 @@ void ofApp::processNetworkPackets() {
 			}
 
 			// Verbose packet tracing for debugging desyncs
-			if (header->type == PKT_ACTION || header->type == PKT_DRAFT_ACTION || header->type == PKT_DRAFT_STATE || header->type == PKT_DRAFT_OPTIONS || header->type == PKT_DRAFT_ACK || header->type == PKT_RENEWED_INSPIRATION || header->type == PKT_DRAW_CARDS || header->type == PKT_TURN_START || header->type == PKT_CHECKSUM_CHECK || header->type == PKT_SNAPSHOT_BEGIN || header->type == PKT_SNAPSHOT_CHUNK || header->type == PKT_SNAPSHOT_END || header->type == PKT_MOVE_UNIT || header->type == PKT_AMNESIA_CHOICE || header->type == PKT_PLACE_SUMMONED_BEGIN) {
+			if (header->type == PKT_ACTION || header->type == PKT_DRAFT_ACTION || header->type == PKT_DRAFT_STATE || header->type == PKT_DRAFT_OPTIONS || header->type == PKT_DRAFT_ACK || header->type == PKT_RENEWED_INSPIRATION || header->type == PKT_DRAW_CARDS || header->type == PKT_CHECKSUM_CHECK || header->type == PKT_SNAPSHOT_BEGIN || header->type == PKT_SNAPSHOT_CHUNK || header->type == PKT_SNAPSHOT_END || header->type == PKT_MOVE_UNIT || header->type == PKT_AMNESIA_CHOICE || header->type == PKT_PLACE_SUMMONED_BEGIN) {
 				ofLogNotice("NetTrace") << "RECV pkt type=" << (int)header->type << " player=" << header->playerID << " seq=" << header->seq << " size=" << buffer.size();
 				if (header->type == PKT_ACTION && buffer.size() >= sizeof(ActionPacket)) {
 					ActionPacket * ap = (ActionPacket *)buffer.data();
 					ofLogNotice("NetTrace") << "  ACTION card='" << ap->cardName << "' actor=" << ap->actorIndex << " target=(" << ap->targetX << "," << ap->targetY << ") menu=" << ap->menuChoice << " updatedAP=" << ap->updatedAP;
-				} else if (header->type == PKT_TURN_START && buffer.size() >= sizeof(TurnStartPacket)) {
-					TurnStartPacket * tsp = (TurnStartPacket *)buffer.data();
-					ofLogNotice("NetTrace") << "  TURN_START currentPlayerIndex=" << tsp->currentPlayerIndex << " diceNum=" << (int)tsp->diceNum << " diceSides=" << (int)tsp->diceSides << " finalTotal=" << tsp->finalTotal;
 				} else if (header->type == PKT_DRAW_CARDS && buffer.size() >= sizeof(DrawCardsPacket)) {
 					DrawCardsPacket * dcp = (DrawCardsPacket *)buffer.data();
 					ofLogNotice("NetTrace") << "  DRAW_CARDS playerIndex=" << dcp->playerIndex << " numCards=" << (int)dcp->numCards;
@@ -29747,13 +29744,8 @@ void ofApp::processNetworkPackets() {
 				}
 			}
 
-			// PKT_TURN_START is legacy and suppressed under the lockstep migration.
-			// Host no longer sends authoritative TurnStart packets; clients derive
-			// AP/turn-start state from the deterministic command stream instead.
-			if (header->type == PKT_TURN_START) {
-				ofLogNotice("Network") << "Ignored legacy PKT_TURN_START from network (lockstep active).";
-				continue;
-			}
+			// Legacy TurnStart handling removed; clients now derive AP/turn-start
+			// from deterministic command processing (CMD_END_TURN/CMD_PSEUDO_ACTION).
 
 			if (header->type == PKT_SNAPSHOT_BEGIN) {
 				SnapshotBeginPacket * bp = (SnapshotBeginPacket *)header;

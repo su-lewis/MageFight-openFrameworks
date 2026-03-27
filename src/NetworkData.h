@@ -17,7 +17,7 @@ enum PacketType {
 	PKT_END_TURN,
 	PKT_CHECKSUM_CHECK,
 
-	PKT_TURN_START, // Host -> Client: authoritative turn start (current player, AP dice results)
+	// PKT_TURN_START removed: turn-starts are delivered via deterministic commands
 	PKT_KEY_PICKUP, // Host -> Client: a player picked up a key (trigger in-game draft)
 	PKT_CHAT_MESSAGE, // Chat message between players
 	PKT_HOVER, // Hover state update for showing opponent's hover
@@ -51,15 +51,9 @@ struct PacketHeader {
 };
 static_assert(sizeof(PacketHeader) == 9, "PacketHeader has unexpected size (cross-platform packing issue)");
 
-struct TurnStartPacket : PacketHeader {
-	int32_t currentPlayerIndex; // who is starting
-	uint8_t diceNum; // number of dice rolled (max 8)
-	uint8_t diceSides; // sides per die
-	uint8_t purpose; // DicePurpose (PURPOSE_AP or PURPOSE_BONUS_AP)
-	int32_t finalTotal; // sum of final results (for immediate assignment)
-	uint8_t rawResults[8]; // raw die faces (1..sides)
-	uint8_t finalResults[8]; // final per-die results (raw + luck)
-};
+// TurnStartPacket removed; deterministic lockstep uses `InputCommandPacket` to
+// publish authoritative turn-start and AP results. Do not reintroduce legacy
+// TurnStartPacket or rely on host TurnStart packets for gameplay logic.
 
 struct HandshakePacket : PacketHeader {
 	uint32_t seed; // The RNG seed (Host generates, Client receives)
