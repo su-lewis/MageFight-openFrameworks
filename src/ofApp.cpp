@@ -14388,7 +14388,10 @@ void ofApp::startNewTurn() {
 				// then queue visuals/delay but do NOT wait for visuals to continue logic.
 				// Authoritative fire status roll
 				std::vector<int> rawFire;
-				int rollResult = resolveDiceRollDetailed(1, 6, rawFire);
+				// Authoritative result must be populated by command execution into
+				// `currentEffectSequence.blackboard[0]`. This avoids resolving RNG
+				// inside effect handlers and keeps state deterministic.
+				int rollResult = currentEffectSequence.blackboard[0];
 				// Apply damage deterministically now
 				int applied = applyDamageWithMitigations(players[currentPlayerIndex], rollResult, DAMAGE_FIRE, -1);
 				queueVisualDiceRoll(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.0f, 0), 1, 6, rawFire, rollResult, PURPOSE_DEBUG, currentPlayerIndex, 1.0f);
@@ -14425,8 +14428,9 @@ void ofApp::startNewTurn() {
 
 				// Authoritative poison roll
 				std::vector<int> rawPoison;
-				int poisonRoll = resolveDiceRollDetailed(1, 6, rawPoison);
-				currentEffectSequence.blackboard[0] = poisonRoll;
+				// Poison roll must be resolved during command execution and placed
+				// into `currentEffectSequence.blackboard[0]` prior to effect processing.
+				int poisonRoll = currentEffectSequence.blackboard[0];
 				queueVisualDiceRoll(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.0f, 0), 1, 6, rawPoison, poisonRoll, PURPOSE_DEBUG, currentPlayerIndex, 1.0f);
 
 				EffectOp applyOp = {};
@@ -14442,8 +14446,9 @@ void ofApp::startNewTurn() {
 				// Resolve coin flip immediately (authoritative), then queue APPLY_PARALYSIS
 				// Authoritative coin flip for paralysis
 				std::vector<int> rawFlip;
-				int flip = resolveDiceRollDetailed(1, 2, rawFlip);
-				currentEffectSequence.blackboard[0] = flip;
+				// Coin flip result should be written into `currentEffectSequence.blackboard[0]`
+				// by the command execution path so effects consume authoritative RNG.
+				int flip = currentEffectSequence.blackboard[0];
 				queueVisualDiceRoll(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.0f, 0), 1, 2, rawFlip, flip, PURPOSE_COIN_FLIP, currentPlayerIndex, 0.8f);
 
 				EffectOp applyOp = {};
@@ -14461,7 +14466,8 @@ void ofApp::startNewTurn() {
 					// Resolve sleeping fire damage immediately (authoritative), apply now,
 					// then queue visuals/delay and end sleeping turn without blocking.
 					std::vector<int> rawSleeping;
-					int rollResult = resolveDiceRollDetailed(1, 6, rawSleeping);
+					// Sleeping fire damage roll: use authoritative result from blackboard[0]
+					int rollResult = currentEffectSequence.blackboard[0];
 					int applied = applyDamageWithMitigations(players[currentPlayerIndex], rollResult, DAMAGE_FIRE, -1);
 					queueVisualDiceRoll(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.0f, 0), 1, 6, rawSleeping, rollResult, PURPOSE_DEBUG, currentPlayerIndex, 1.0f);
 					if (applied > 0)
@@ -14589,7 +14595,9 @@ void ofApp::startNewTurn() {
 		// then queue visuals/delay but do NOT wait for visuals to continue logic.
 		// Authoritative fire status roll
 		std::vector<int> rawFire;
-		int rollResult = resolveDiceRollDetailed(1, 6, rawFire);
+		// Authoritative result must be populated into `currentEffectSequence.blackboard[0]`
+		// by the command execution path prior to effect processing.
+		int rollResult = currentEffectSequence.blackboard[0];
 		// Apply damage deterministically now
 		int applied = applyDamageWithMitigations(players[currentPlayerIndex], rollResult, DAMAGE_FIRE, -1);
 		queueVisualDiceRoll(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.0f, 0), 1, 6, rawFire, rollResult, PURPOSE_DEBUG, currentPlayerIndex, 1.0f);
@@ -14626,8 +14634,9 @@ void ofApp::startNewTurn() {
 
 		// Authoritative poison roll
 		std::vector<int> rawPoison2;
-		int poisonRoll = resolveDiceRollDetailed(1, 6, rawPoison2);
-		currentEffectSequence.blackboard[0] = poisonRoll;
+		// Poison roll must be resolved in the command stage and placed into
+		// `currentEffectSequence.blackboard[0]` before reaching this effect.
+		int poisonRoll = currentEffectSequence.blackboard[0];
 		queueVisualDiceRoll(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.0f, 0), 1, 6, rawPoison2, poisonRoll, PURPOSE_DEBUG, currentPlayerIndex, 1.0f);
 
 		EffectOp applyOp = {};
@@ -14642,8 +14651,9 @@ void ofApp::startNewTurn() {
 		// Resolve coin flip immediately (authoritative), then queue APPLY_PARALYSIS
 		// Authoritative coin flip for paralysis
 		std::vector<int> rawFlip2;
-		int flip = resolveDiceRollDetailed(1, 2, rawFlip2);
-		currentEffectSequence.blackboard[0] = flip;
+		// Coin flip result should be written to `currentEffectSequence.blackboard[0]`
+		// by the command execution path.
+		int flip = currentEffectSequence.blackboard[0];
 		queueVisualDiceRoll(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.0f, 0), 1, 2, rawFlip2, flip, PURPOSE_COIN_FLIP, currentPlayerIndex, 0.8f);
 
 		EffectOp applyOp = {};
@@ -14661,7 +14671,8 @@ void ofApp::startNewTurn() {
 			// Resolve sleeping fire damage immediately (authoritative), apply now,
 			// then queue visuals/delay and end the sleeping turn without blocking.
 			std::vector<int> rawSleeping;
-			int rollResult = resolveDiceRollDetailed(1, 6, rawSleeping);
+			// Sleeping fire damage roll: use authoritative result from blackboard[0]
+			int rollResult = currentEffectSequence.blackboard[0];
 			int applied = applyDamageWithMitigations(players[currentPlayerIndex], rollResult, DAMAGE_FIRE, -1);
 			queueVisualDiceRoll(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.0f, 0), 1, 6, rawSleeping, rollResult, PURPOSE_DEBUG, currentPlayerIndex, 1.0f);
 			if (applied > 0)
@@ -14785,7 +14796,8 @@ void ofApp::continueNewTurn() {
 			// Resolve sleeping fire damage immediately (authoritative), apply now,
 			// then queue visuals/delay and end the sleeping turn without blocking.
 			std::vector<int> rawSleeping;
-			int rollResult = resolveDiceRollDetailed(1, 6, rawSleeping);
+			// Sleeping fire damage: consume authoritative roll from blackboard[0]
+			int rollResult = currentEffectSequence.blackboard[0];
 			int applied = applyDamageWithMitigations(players[currentPlayerIndex], rollResult, DAMAGE_FIRE, -1);
 			queueVisualDiceRoll(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.0f, 0), 1, 6, rawSleeping, rollResult, PURPOSE_DEBUG, currentPlayerIndex, 1.0f);
 			if (applied > 0)
