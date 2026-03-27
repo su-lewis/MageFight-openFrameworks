@@ -12644,17 +12644,16 @@ void ofApp::mousePressed(int x, int y, int button) {
 						if (oldR.purpose == PURPOSE_AP) oldR.purpose = PURPOSE_DEBUG;
 					}
 					// Start a bonus AP roll (added on top of the original result)
-					{
-						{
-							std::vector<int> rawReroll;
-							int bonus = resolveDiceRollDetailed(rerollNum, rerollSides, rawReroll);
-							currentEffectSequence.blackboard[5] = bonus;
-							EffectOp applyBonus = {};
-							applyBonus.type = EffectOpType::APPLY_BONUS_AP;
-							queueEffect(applyBonus);
-							queueVisualDiceRoll(gridToWorld(players[assistantIndex].x, players[assistantIndex].y) + glm::vec3(0, 1.0f, 0), rerollNum, rerollSides, rawReroll, bonus, PURPOSE_BONUS_AP, currentPlayerIndex, 1.0f);
-						}
-					}
+							{
+								// Bonus reroll result must be produced by the command execution
+								// stage and placed into `currentEffectSequence.blackboard[5]`.
+								std::vector<int> rawReroll; // visual faces should be provided by command stage
+								int bonus = currentEffectSequence.blackboard[5];
+								EffectOp applyBonus = {};
+								applyBonus.type = EffectOpType::APPLY_BONUS_AP;
+								queueEffect(applyBonus);
+								queueVisualDiceRoll(gridToWorld(players[assistantIndex].x, players[assistantIndex].y) + glm::vec3(0, 1.0f, 0), rerollNum, rerollSides, rawReroll, bonus, PURPOSE_BONUS_AP, currentPlayerIndex, 1.0f);
+							}
 
 					queueFloatingTextVisual(gridToWorld(players[assistantIndex].x, players[assistantIndex].y), "Reroll!", ofColor::gold);
 				}
@@ -17495,20 +17494,18 @@ void ofApp::processEffectOp(EffectOp & op) {
 				ofLogNotice("Paralysis") << "Heads! Can play this turn (" << p.paralysisHeadsCount << "/2 heads).";
 			}
 			// Continue turn — if burning, queue on-fire resolution, else continue
-			if (p.onFire) {
-				// Resolve fire damage immediately (authoritative) and queue APPLY_ON_FIRE
-				{
-					std::vector<int> rawFire;
-					int rollResult = resolveDiceRollDetailed(1, 6, rawFire);
-					currentEffectSequence.blackboard[0] = rollResult;
+				if (p.onFire) {
+					// Fire damage roll must be supplied by the command execution
+					// stage into blackboard[1] for this sequence. Consume it here.
+					std::vector<int> rawFire; // visual faces provided by command stage
+					int rollResult = currentEffectSequence.blackboard[1];
 					queueVisualDiceRoll(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.0f, 0), 1, 6, rawFire, rollResult, PURPOSE_DEBUG, currentPlayerIndex, 1.0f);
 					EffectOp applyOp = {};
 					applyOp.type = EffectOpType::APPLY_ON_FIRE;
 					queueEffect(applyOp);
+				} else {
+					continueNewTurn();
 				}
-			} else {
-				continueNewTurn();
-			}
 		} else {
 			// Tails: reset heads and end turn
 			ofLogNotice("Paralysis") << "Tails! Player remains paralyzed and skips turn.";
