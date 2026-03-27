@@ -5015,9 +5015,12 @@ void ofApp::updateGame() {
 										for (auto & oldR : activeDiceRolls) {
 											if (oldR.purpose == PURPOSE_AP) oldR.purpose = PURPOSE_DEBUG;
 										}
-										std::vector<int> rawReroll;
-										int bonus = resolveDiceRollDetailed(rerollNum, rerollSides, rawReroll);
-										currentEffectSequence.blackboard[5] = bonus;
+										// Assistant reroll: authoritative result should be written
+										// into `currentEffectSequence.blackboard[5]` by the command
+										// execution stage. Effects consume that value instead of
+										// calling RNG here.
+										std::vector<int> rawReroll; // faces should be provided by command stage
+										int bonus = currentEffectSequence.blackboard[5];
 										EffectOp apply = {};
 										apply.type = EffectOpType::APPLY_BONUS_AP;
 										queueEffect(apply);
