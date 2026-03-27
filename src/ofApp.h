@@ -937,6 +937,8 @@ private:
 	// Last AP roll parameters (used for assistant auto-reroll)
 	int lastAPDiceNum = 0;
 	int lastAPDiceSides = 0;
+	// Raw faces from the most recent AP roll (host stores these to publish visuals)
+	std::vector<int> lastAPRawResults;
 	// True when AP for the current player has already been deterministically resolved
 	bool apResolvedThisTurn = false;
 	void setupGame();
@@ -1088,8 +1090,6 @@ private:
 
 	// Desync message shown when checksum fails
 	std::string desyncMessage;
-	// If >0, client should wait for host TurnStart packet before performing AP roll (countdown)
-	float waitingForTurnStartTimer = 0.0f;
 
 	// If >0, client has requested a snapshot from host and is awaiting it.
 	// Store the request start time so we can implement timeouts/retries.

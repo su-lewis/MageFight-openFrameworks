@@ -2420,7 +2420,7 @@ void ofApp::update() {
 			// Reset all multiplayer state
 			isMultiplayer = false;
 			hasReceivedHandshake = false;
-			waitingForTurnStartTimer = 0.0f;
+			// waitingForTurnStartTimer removed; clients derive turn-start from command stream
 			initialDraftComplete = false;
 			draftAcceptLocked = false;
 			draftAcceptApplied = false;
@@ -3873,7 +3873,7 @@ void ofApp::initialiseGameStateCommon() {
 	initialDraftComplete = false;
 	draftAcceptLocked = false;
 	draftAcceptApplied = false;
-	waitingForTurnStartTimer = 0.0f;
+	// waitingForTurnStartTimer removed; clients derive turn-start from command stream
 	waitingForDraftOptionsStartTime = 0.0f;
 	hasDrawnCardsThisTurn = false;
 	opponentHasDrawnCardsThisTurn = false;
@@ -12941,7 +12941,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 				// Reset multiplayer/game state and return to menu
 				isMultiplayer = false;
 				hasReceivedHandshake = false;
-				waitingForTurnStartTimer = 0.0f;
+				// waitingForTurnStartTimer removed; no-op
 				initialDraftComplete = false;
 				draftAcceptLocked = false;
 				draftAcceptApplied = false;
@@ -14503,7 +14503,7 @@ void ofApp::startNewTurn() {
 
 	Player & startingPlayer = players[currentPlayerIndex];
 
-	ofLogNotice("TurnDebug") << "continueNewTurn: currentPlayerIndex=" << currentPlayerIndex << " playerID=" << startingPlayer.playerID << " waitingForTurnStartTimer=" << waitingForTurnStartTimer << " isHandlingTurnStartEffects=" << isHandlingTurnStartEffects;
+	ofLogNotice("TurnDebug") << "continueNewTurn: currentPlayerIndex=" << currentPlayerIndex << " playerID=" << startingPlayer.playerID << " isHandlingTurnStartEffects=" << isHandlingTurnStartEffects;
 	ofLogNotice("Game") << "--- START TURN: " << (startingPlayer.isMinion ? "Minion " : "Player ") << startingPlayer.playerID;
 
 	// Add game log entry for turn start
@@ -14861,6 +14861,7 @@ void ofApp::continueNewTurn() {
 			int apRoll = resolveDiceRollDetailed(2, 6, rawAP);
 			currentEffectSequence.blackboard[0] = apRoll;
 			queueVisualDiceRoll(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.0f, 0), 2, 6, rawAP, apRoll, PURPOSE_AP, currentPlayerIndex, 1.0f);
+			lastAPRawResults = rawAP;
 		}
 	}
 	// Demon AP: 4d4
@@ -14872,6 +14873,7 @@ void ofApp::continueNewTurn() {
 			int apRoll = resolveDiceRollDetailed(4, 4, rawAP);
 			currentEffectSequence.blackboard[0] = apRoll;
 			queueVisualDiceRoll(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.0f, 0), 4, 4, rawAP, apRoll, PURPOSE_AP, currentPlayerIndex, 1.0f);
+			lastAPRawResults = rawAP;
 		}
 	}
 	// Kobold AP: 1d4
@@ -14883,6 +14885,7 @@ void ofApp::continueNewTurn() {
 			int apRoll = resolveDiceRollDetailed(1, 4, rawAP);
 			currentEffectSequence.blackboard[0] = apRoll;
 			queueVisualDiceRoll(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.0f, 0), 1, 4, rawAP, apRoll, PURPOSE_AP, currentPlayerIndex, 1.0f);
+			lastAPRawResults = rawAP;
 		}
 	}
 	// Wall Unit AP: 1d4 or 1d6
@@ -14916,6 +14919,7 @@ void ofApp::continueNewTurn() {
 			int apRoll = resolveDiceRollDetailed(1, 6, rawAP);
 			currentEffectSequence.blackboard[0] = apRoll;
 			queueVisualDiceRoll(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.0f, 0), 1, 6, rawAP, apRoll, PURPOSE_AP, currentPlayerIndex, 1.0f);
+			lastAPRawResults = rawAP;
 		}
 
 	}
@@ -14969,6 +14973,7 @@ void ofApp::continueNewTurn() {
 			int apRoll = resolveDiceRollDetailed(1, apDiceSides, rawAP);
 			currentEffectSequence.blackboard[0] = apRoll;
 			queueVisualDiceRoll(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.0f, 0), 1, apDiceSides, rawAP, apRoll, PURPOSE_AP, currentPlayerIndex, 1.0f);
+			lastAPRawResults = rawAP;
 		}
 	}
 
@@ -15012,6 +15017,32 @@ void ofApp::continueNewTurn() {
 		// Sync AP to player struct
 		updatePlayerAP(players[currentPlayerIndex], currentAP);
 		ofLogNotice("APDebug") << "AP pre-resolved: currentAP=" << currentAP;
+
+		// Host publishes deterministic visual-only command so clients spawn matching AP dice visuals
+		if (isHost()) {
+			InputCommandPacket visCmd = {};
+			visCmd.type = PKT_INPUT_COMMAND;
+			visCmd.playerID = myLocalPlayerID;
+			visCmd.seq = 0;
+			visCmd.commandId = nextCommandId++;
+			visCmd.turnNumber = globalTurnCounter;
+			visCmd.commandType = CMD_PSEUDO_ACTION;
+			visCmd.params[0] = currentPlayerIndex; // owner
+			visCmd.params[1] = lastAPDiceNum;
+			visCmd.params[2] = lastAPDiceSides;
+			visCmd.params[3] = apTotal;
+			// Pack raw faces as CSV after a prefix so clients can parse them
+			std::string rawStr;
+			for (size_t i = 0; i < lastAPRawResults.size(); ++i) {
+				if (i) rawStr += ",";
+				rawStr += std::to_string(lastAPRawResults[i]);
+			}
+			std::string payload = std::string("TurnStart:") + rawStr;
+			strncpy(visCmd.stringData, payload.c_str(), sizeof(visCmd.stringData) - 1);
+			// Enqueue locally and send to peers
+			queueInputCommand(visCmd);
+			steamManager.sendPacket(&visCmd, sizeof(visCmd));
+		}
 
 		// Assistant auto-reroll: if AP==0, nearby assistants may reroll
 		if (currentAP == 0) {
@@ -16645,6 +16676,35 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 		int targetX = cmd.params[0];
 		int targetY = cmd.params[1];
 		std::string actionName = cmd.stringData;
+
+		// Handle deterministic TurnStart visuals published by host
+		if (actionName.rfind("TurnStart", 0) == 0) {
+			// Clients only: host already queued visuals locally
+			if (isHost()) break;
+			int ownerIndex = cmd.params[0];
+			int numDice = cmd.params[1];
+			int sides = cmd.params[2];
+			int finalTotal = cmd.params[3];
+			// Parse CSV raw faces after prefix "TurnStart:"
+			std::string s = cmd.stringData;
+			auto pos = s.find(':');
+			std::vector<int> raw;
+			if (pos != std::string::npos) {
+				std::string csv = s.substr(pos + 1);
+				if (!csv.empty()) {
+					size_t start = 0;
+					while (start < csv.size()) {
+						auto comma = csv.find(',', start);
+						std::string tok = (comma == std::string::npos) ? csv.substr(start) : csv.substr(start, comma - start);
+						raw.push_back(std::stoi(tok));
+						if (comma == std::string::npos) break;
+						start = comma + 1;
+					}
+				}
+			}
+			queueVisualDiceRoll(gridToWorld(players[ownerIndex].x, players[ownerIndex].y) + glm::vec3(0, 1.0f, 0), numDice, sides, raw, finalTotal, PURPOSE_AP, ownerIndex, 1.0f);
+			break;
+		}
 
 		if (actionName == "Shell Spike") {
 			// Find player at target coordinates
@@ -24964,7 +25024,7 @@ void ofApp::applySnapshotString(const std::string & data) {
 	isPlayerAnimating = false;
 	animatingPlayerIndex = -1;
 	endTurnLocked = false;
-	waitingForTurnStartTimer = 0.0f;
+	// waitingForTurnStartTimer removed; no-op
 	networkPending.keyDraftAccept = false;
 	networkPending.keyDraftPlayer = -1;
 	networkPending.keyDraftClass = 0;
@@ -27734,7 +27794,7 @@ void ofApp::cleanupGame() {
 	animatingPlayerIndex = -1;
 	isLoadingGame = false;
 	hasReceivedHandshake = false;
-	waitingForTurnStartTimer = 0.0f;
+	// waitingForTurnStartTimer removed; no-op
 
 	ofLogNotice("Game") << "--- GAME SESSION CLEANED UP ---";
 }
@@ -30554,8 +30614,7 @@ void ofApp::processNetworkPackets() {
 				currentPlayerIndex = sp->currentPlayerIndex;
 				// In multiplayer clients: DO NOT call startNewTurn(); wait for host TurnStart packet
 				if (isClient()) {
-					waitingForTurnStartTimer = 10.0f;
-					ofLogNotice("Network") << "Client: Drafting ended. Waiting for TurnStart packet from host (player=" << currentPlayerIndex << ")";
+					ofLogNotice("Network") << "Client: Drafting ended. Awaiting host turn-start via command stream (player=" << currentPlayerIndex << ")";
 				}
 				// Host handles transition in its own draft-accept logic and sends TurnStart
 			}
