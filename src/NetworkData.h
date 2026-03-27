@@ -17,7 +17,6 @@ enum PacketType {
 	PKT_END_TURN,
 	PKT_CHECKSUM_CHECK,
 
-	PKT_SHUFFLE, // Host -> Client: authoritative deck shuffle (playerIndex, nonce)
 	PKT_TURN_START, // Host -> Client: authoritative turn start (current player, AP dice results)
 	PKT_KEY_PICKUP, // Host -> Client: a player picked up a key (trigger in-game draft)
 	PKT_CHAT_MESSAGE, // Chat message between players
@@ -35,8 +34,6 @@ enum PacketType {
 	PKT_MOVE_UNIT, // Host/Client: unit movement (fromX,fromY -> toX,toY)
 	PKT_PLACE_SUMMONED_BEGIN, // Host -> Client: begin remote placement preview (e.g., Kobolds/Wolves)
 	PKT_EARTHQUAKE_BEGIN, // Host -> Client: begin earthquake (directions for each unit)
-	PKT_CARD_ACTION_BEGIN, // Host -> Client: generic card begin (cardType, actor, target, params)
-	PKT_DICE_ROLL, // A dice roll for visual display (HP, damage, range, etc)
 
 	// Draft packets moved to the end to avoid enum collisions with legacy packet numbers.
 	PKT_DRAFT_ACTION, // Draft selection / accept messages (sent by clients to host)
@@ -68,17 +65,6 @@ struct HandshakePacket : PacketHeader {
 	uint32_t seed; // The RNG seed (Host generates, Client receives)
 };
 
-// Dice roll visualization packet (for showing opponent rolls)
-struct DiceRollPacket : PacketHeader {
-	uint8_t numDice; // number of dice rolled (max 8)
-	uint8_t sides; // sides per die
-	uint8_t purpose; // DicePurpose
-	int32_t ownerIndex; // which unit rolled (for flavor)
-	uint8_t rawResults[8]; // raw die faces (1..sides)
-	uint8_t finalResults[8]; // final per-die results (raw + luck)
-	char label[64]; // Label for the roll (e.g., "Skeleton HP", "Chain Lightning")
-};
-
 // Host -> Client: inform clients when a summoned minion is placed (manual placement like Kobolds/Wolves)
 struct PlaceSummonedMinionPacket : PacketHeader {
 	uint8_t minionType; // 1=KOBOLD, 2=WOLF, ...
@@ -106,18 +92,9 @@ struct EarthquakeBeginPacket : PacketHeader {
 	int8_t dirY[16];
 };
 
-// Generic Card Action Begin: small extensible payload for multi-step card effects
-struct CardActionBeginPacket : PacketHeader {
-	int32_t cardType; // CardType enum
-	int32_t actorIndex; // index of caster/unit in players vector
-	int32_t targetX; // -1 if none
-	int32_t targetY; // -1 if none
-	int32_t param0; // optional integer param (meaning depends on card)
-	int32_t param1; // optional integer param
-	int32_t param2; // optional integer param
-	int32_t param3; // optional integer param
-	char label[32]; // optional short label
-};
+// CardActionBegin and DiceRoll packets removed: deterministic lockstep uses
+// `InputCommandPacket` and the authoritative effect pipeline instead of
+// broadcasting these visual-only packets.
 
 struct AppliedDamagePacket : PacketHeader {
 	int32_t targetPlayerIndex; // who takes damage
@@ -199,7 +176,7 @@ enum InputCommandType : uint8_t {
 	CMD_PSEUDO_ACTION = 9,
 	CMD_STATUS_ACTION = 10,
 	CMD_ACCEPT_DRAFT = 11,
-	CMD_ROLL_DICE = 12
+	// CMD_ROLL_DICE removed: dice resolved deterministically at decision time
 };
 
 // Canonical deterministic input packet - replaces ActionPacket for lockstep
@@ -290,11 +267,7 @@ struct DraftAckPacket : PacketHeader {
 // DraftAckPacket layout: PacketHeader (9) + payload (27) == 36 bytes when packed
 static_assert(sizeof(DraftAckPacket) == 36, "DraftAckPacket size mismatch - packing/fields may be incorrect");
 
-// Host -> Client: Instruct client to apply a deterministic shuffle to a player's deck
-struct ShufflePacket : PacketHeader {
-	int32_t playerIndex; // which player's deck is being shuffled
-	uint32_t nonce; // nonce used to seed local shuffle RNG
-};
+// ShufflePacket removed: decks are shuffled deterministically locally.
 
 // Client -> Host: signal that the client has finished local setup and is ready
 struct ClientReadyPacket : PacketHeader {

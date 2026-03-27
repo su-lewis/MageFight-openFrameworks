@@ -16696,28 +16696,7 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 		ofLogNotice("Lockstep") << "Execute CMD_STATUS_ACTION: " << cardName << " purge status " << statusIndex;
 		break;
 	}
-	case CMD_ROLL_DICE: {
-		// params: [0]=numDice, [1]=sides, [2]=purpose, [3]=ownerIndex, [4]=outputSlot
-		int numDice = cmd.params[0];
-		int sides = cmd.params[1];
-		int purpose = cmd.params[2];
-		int ownerIndex = cmd.params[3];
-		int outputSlot = cmd.params[4];
-
-		EffectOp rollOp = {};
-		rollOp.type = EffectOpType::ROLL_DICE;
-		rollOp.data.rollDice.numDice = numDice;
-		rollOp.data.rollDice.sides = sides;
-		rollOp.data.rollDice.purpose = (DicePurpose)purpose;
-		rollOp.data.rollDice.ownerIndex = ownerIndex;
-		rollOp.data.rollDice.outputSlot = outputSlot;
-		strncpy(rollOp.data.rollDice.label, cmd.stringData, 31);
-		rollOp.data.rollDice.label[31] = '\0';
-		queueEffect(rollOp);
-
-		ofLogNotice("Lockstep") << "Execute CMD_ROLL_DICE: num=" << numDice << " sides=" << sides << " purpose=" << purpose << " owner=" << ownerIndex;
-		break;
-	}
+	// CMD_ROLL_DICE removed: dice are resolved deterministically at decision-time
 	default:
 		ofLogWarning("Lockstep") << "Unknown command type: " << (int)cmd.commandType;
 		break;
@@ -16730,63 +16709,7 @@ void ofApp::beginEffectSequence() {
 }
 
 void ofApp::queueEffect(const EffectOp & op) {
-	// Special-case: resolve dice immediately and queue visuals only.
-	if (op.type == EffectOpType::ROLL_DICE) {
-		const RollDiceData & r = op.data.rollDice;
-		ofLogNotice("EffectQueue") << "RESOLVING ROLL_DICE num=" << r.numDice << " sides=" << r.sides << " purpose=" << (int)r.purpose << " ownerIndex=" << r.ownerIndex << " outSlot=" << r.outputSlot;
-		std::vector<int> rawRoll;
-		int result = resolveDiceRollDetailed(r.numDice, r.sides, rawRoll);
-		// Write authoritative result into current sequence blackboard
-		if (r.outputSlot >= 0 && r.outputSlot < 16) currentEffectSequence.blackboard[r.outputSlot] = result;
-
-		// Queue a visual dice roll near the owner (or center if owner invalid)
-		glm::vec3 visPos = gridToWorld(3, 3);
-		if (r.ownerIndex >= 0 && r.ownerIndex < (int)players.size()) visPos = gridToWorld(players[r.ownerIndex].x, players[r.ownerIndex].y) + glm::vec3(0, 1.0f, 0);
-		queueVisualDiceRoll(visPos, r.numDice, r.sides, rawRoll, result, (int)r.purpose, r.ownerIndex, 1.2f);
-
-		// Psionic wave special-case: when resolving RANGE, identify targets and enqueue follow-up ops
-		if (r.purpose == PURPOSE_PSIONIC_WAVE_RANGE) {
-			int radiusFeet = currentEffectSequence.blackboard[r.outputSlot];
-			Player & caster = players[currentPlayerIndex];
-			glm::vec2 casterTile((float)caster.x, (float)caster.y);
-			psionicWaveTargetIndices.clear();
-			ofLogNotice("Psionic") << "Range Roll (queued): " << radiusFeet << "ft radius.";
-			for (size_t i = 0; i < players.size(); ++i) {
-				if ((int)i == currentPlayerIndex) continue;
-				float centerDistFeet = glm::distance(casterTile, glm::vec2(players[i].x, players[i].y)) * 5.0f;
-				float neededFeetRaw = std::max(0.0f, centerDistFeet - 2.5f);
-				int neededFeet = (int)floor(neededFeetRaw + 1e-4f);
-				if (neededFeet <= radiusFeet) {
-					psionicWaveTargetIndices.push_back((int)i);
-					glm::vec3 tPos = gridToWorld(players[i].x, players[i].y);
-					queueFloatingTextVisual(tPos, "Targeted!", ofColor::magenta);
-				}
-			}
-
-			if (psionicWaveTargetIndices.empty()) {
-				queueFloatingTextVisual(gridToWorld(caster.x, caster.y), "No Targets in Range", ofColor::gray);
-			} else {
-				// Queue follow-up authoritative roll (2d4 cards) into effect sequence
-				EffectOp rollOp = {};
-				rollOp.type = EffectOpType::ROLL_DICE;
-				rollOp.data.rollDice.numDice = 2;
-				rollOp.data.rollDice.sides = 4;
-				rollOp.data.rollDice.purpose = PURPOSE_PSIONIC_WAVE_AMOUNT;
-				rollOp.data.rollDice.ownerIndex = currentPlayerIndex;
-				rollOp.data.rollDice.outputSlot = 1; // Write amount to blackboard[1]
-				strncpy(rollOp.data.rollDice.label, "Psionic Wave: Cards to Remove", 31);
-				rollOp.data.rollDice.label[31] = '\0';
-				// Recurse into queueEffect which will resolve immediately
-				queueEffect(rollOp);
-
-				EffectOp applyOp = {};
-				applyOp.type = EffectOpType::APPLY_PSIONIC_WAVE;
-				queueEffect(applyOp);
-			}
-		}
-
-		return;
-	}
+	// (ROLL_DICE handling removed — dice are resolved deterministically at decision-time)
 
 	currentEffectSequence.ops.push_back(op);
 	// Lightweight tracing for lockstep verification
@@ -16835,32 +16758,7 @@ void ofApp::processEffectOp(EffectOp & op) {
 	bool opComplete = false;
 
 	switch (op.type) {
-	case EffectOpType::ROLL_DICE: {
-		// ROLL_DICE ops are normally resolved in queueEffect() so the effect
-		// pipeline never blocks on visuals. As a safety net, if a ROLL_DICE
-		// arrives here (wasn't resolved at enqueue-time), resolve it
-		// authoritatively now, write to the blackboard, and queue the
-		// cosmetic visual. Do not stall effect processing waiting for visuals.
-		{
-			const RollDiceData & r = op.data.rollDice;
-			std::vector<int> rawRoll;
-			int result = resolveDiceRollDetailed(r.numDice, r.sides, rawRoll);
-			if (r.outputSlot >= 0 && r.outputSlot < 16) {
-				currentEffectSequence.blackboard[r.outputSlot] = result;
-			}
-
-			// Determine a sensible visual spawn position: owner's tile if valid,
-			// otherwise a reasonable default (center of board)
-			glm::vec3 visPos = gridToWorld(3, 3);
-			if (r.ownerIndex >= 0 && r.ownerIndex < (int)players.size()) {
-				visPos = gridToWorld(players[r.ownerIndex].x, players[r.ownerIndex].y) + glm::vec3(0, 1.0f, 0);
-			}
-
-			queueVisualDiceRoll(visPos, r.numDice, r.sides, rawRoll, result, (int)r.purpose, r.ownerIndex, 1.2f);
-			opComplete = true;
-		}
-		break;
-	}
+		// ROLL_DICE op removed from pipeline; dice are resolved at-card-play time.
 
 	case EffectOpType::DAMAGE: {
 		int damage = op.data.damage.fixedDamage;
@@ -23117,13 +23015,12 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 		spawnKoboldOp.data.spawnUnit.ap = 0;
 		queueEffect(spawnKoboldOp);
 
-		// Queue dice roll for number of kobolds
-		EffectOp rollKoboldCount = {};
-		rollKoboldCount.type = EffectOpType::ROLL_DICE;
-		rollKoboldCount.data.rollDice.numDice = 1;
-		rollKoboldCount.data.rollDice.sides = 4;
-		rollKoboldCount.data.rollDice.purpose = PURPOSE_SUMMON_KOBOLDS;
-		queueEffect(rollKoboldCount);
+		// Resolve kobold count immediately (deterministic) and queue visual.
+		{
+			std::vector<int> raw;
+			int count = resolveDiceRollDetailed(1, 4, raw);
+			queueVisualDiceRoll(gridToWorld(currentPlayer.x, currentPlayer.y) + glm::vec3(0, 1.0f, 0), 1, 4, raw, count, PURPOSE_SUMMON_KOBOLDS, currentPlayerIndex, 1.0f);
+		}
 
 		playedSuccessfully = true;
 		advanceCardState(CARD_STATE_EFFECT_SEQUENCE);
@@ -31472,24 +31369,9 @@ void ofApp::sendEarthquakeBegin() {
 }
 
 void ofApp::sendCardActionBegin(int cardType, int actorIndex, int targetX, int targetY, int p0, int p1, int p2, int p3, const std::string & label) {
-	CardActionBeginPacket pkt = {};
-	pkt.type = PKT_CARD_ACTION_BEGIN;
-	pkt.playerID = myLocalPlayerID;
-	pkt.cardType = cardType;
-	pkt.actorIndex = actorIndex;
-	pkt.targetX = targetX;
-	pkt.targetY = targetY;
-	pkt.param0 = p0;
-	pkt.param1 = p1;
-	pkt.param2 = p2;
-	pkt.param3 = p3;
-	if (!label.empty()) {
-		strncpy(pkt.label, label.c_str(), sizeof(pkt.label) - 1);
-		pkt.label[sizeof(pkt.label) - 1] = '\0';
-	}
-	// Suppress CardActionBegin packets under deterministic lockstep migration.
-	// Card actions should be represented by lockstep input commands; avoid sending this packet.
-	ofLogNotice("Network") << "Suppressed CardActionBegin send in lockstep mode: card=" << cardType << " actor=" << actorIndex << " target=(" << targetX << "," << targetY << ") p0=" << p0 << " p1=" << p1;
+	// Suppressed under deterministic lockstep migration: keep call sites, but
+	// do not construct or send a CardActionBegin packet anymore.
+	ofLogNotice("Network") << "Suppressed sendCardActionBegin (no packet): card=" << cardType << " actor=" << actorIndex << " target=(" << targetX << "," << targetY << ") p0=" << p0 << " p1=" << p1 << " label=" << label;
 }
 
 // Send menu state for opponent visualization
