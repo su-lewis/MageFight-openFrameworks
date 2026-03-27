@@ -16634,6 +16634,14 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 	case CMD_END_TURN: {
 		// Execute turn end logic
 		ofLogNotice("Lockstep") << "Execute CMD_END_TURN";
+		// Host: trigger authoritative turn start sequence
+		if (isHost()) {
+			ofLogNotice("Lockstep") << "Host processing CMD_END_TURN -> startNewTurn()";
+			startNewTurn();
+		} else {
+			// Clients: no authoritative action here; visual/state changes already handled when packet was received
+			ofLogNotice("Lockstep") << "Client received CMD_END_TURN (no authoritative action)";
+		}
 		break;
 	}
 	case CMD_PSEUDO_ACTION: {
@@ -30400,14 +30408,27 @@ void ofApp::processNetworkPackets() {
 					}
 				}
 			}
-			// CLIENT: Always wait for host's TurnStart packet (contains authoritative dice)
-			// Never roll dice locally for any turn - host controls all RNG
+
+			// Transition to deterministic lockstep: enqueue an InputCommand CMD_END_TURN
+			// so both host and clients process end-turn via the command stream.
+			InputCommandPacket cmd = {};
+			cmd.type = PKT_INPUT_COMMAND;
+			cmd.playerID = header->playerID;
+			cmd.seq = header->seq;
+			cmd.commandId = nextCommandId++;
+			cmd.turnNumber = globalTurnCounter;
+			cmd.commandType = CMD_END_TURN;
+			// No extra params needed; leave params zeroed
+
+			// Clients and host both queue the command; host may still perform immediate
+			// validation/processing inside the command handling path. This replaces the
+			// legacy client behaviour of waiting for PKT_TURN_START.
+			queueInputCommand(cmd);
+
+			// For UI consistency: if this is a client, perform minimal local hand cleanup
+			// so opponent's hand disappears immediately (visual-only). Gameplay state
+			// transitions will be driven by CMD_END_TURN when processed.
 			if (isClient()) {
-				ofLogNotice("Network") << "CLIENT FIX ACTIVE: Waiting for host TurnStart packet (will NOT roll dice locally).";
-				waitingForTurnStartTimer = 10.0f; // wait up to 10s for host TurnStart (or until packet arrives)
-				// Apply opponent hand cleanup locally so their hand disappears on our screen
-				// NOTE: Do NOT clear defensive stats (block, ward, barrier, holyBlock, fortification) here
-				// All defensive stats persist until the opponent's next turn starts in startNewTurn()
 				for (size_t i = 0; i < players.size(); i++) {
 					Player & opp = players[i];
 					if (opp.playerID == static_cast<int>(header->playerID) && !opp.isMinion) {
@@ -30418,15 +30439,6 @@ void ofApp::processNetworkPackets() {
 						break;
 					}
 				}
-				// Don't call startNewTurn() - let PKT_TURN_START handle it
-			} else {
-				// Host: can proceed with local turn start
-				ofLogNotice("Network") << "Host: Processing END_TURN, calling startNewTurn()";
-				startNewTurn();
-
-				// Note: TurnStart packet is now sent from the update loop after dice finish
-				// (see line ~3914 where it checks allDiceFinished and sends TurnStartPacket)
-				// This ensures the packet contains actual rolled results from continueNewTurn()
 			}
 		} else if (header->type == PKT_CHECKSUM_CHECK) {
 			ChecksumPacket * pkt = (ChecksumPacket *)header;
