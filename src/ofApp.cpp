@@ -4455,20 +4455,19 @@ void ofApp::updateGame() {
 	updateEffectSequence();
 
 	// === CENTRALIZED ASYNC RESOLUTION HELPERS ===
-	// All dice/state resolution for cards is dispatched through the EffectOp pipeline
+	// All dice/state resolution for cards is dispatched through the EffectOp pipeline.
 	// Fireball resolution handled by EffectOpType::APPLY_FIREBALL
 	// Summon health handled by queued EffectOps (SPAWN_UNIT)
 	// Amnesia resolution now handled via EffectOpType::APPLY_AMNESIA
 	// resolveHealDice migrated to effect/op pipeline (HEAL processed from EffectOps)
 	// resolveTimeVortexDice migrated to effect/op pipeline (APPLY_TIME_VORTEX handled from EffectOps)
-	// Magic Bolt now handled by effect-ops (APPLY_MAGIC_BOLT /* range */
-	// -> ROLL_DICE(primary) -> APPLY_MAGIC_BOLT_PRIMARY -> ROLL_DICE(aoe)
-	// -> APPLY_MAGIC_BOLT_AOE). Legacy per-frame resolvers removed.
+	// Magic Bolt is handled by EffectOpType::APPLY_MAGIC_BOLT; primary and AOE rolls
+	// are resolved at decision-time and written into `currentEffectSequence.blackboard`.
 	// resolveShootArrowDice migrated to APPLY_SHOOT_ARROW in the effect/op pipeline
-	// Chain Lightning handled by effect-ops (APPLY_CHAIN_LIGHTNING -> ROLL_DICE -> APPLY_CHAIN_LIGHTNING_DAMAGE)
+	// Chain Lightning handled by effect-ops (APPLY_CHAIN_LIGHTNING); damage rolls are
+	// resolved at decision-time and stored in the effect sequence blackboard.
 	// Flail, Spark of Genius, and Barrier resolution migrated to effect/op pipeline (APPLY_* handlers)
 	// Status resolution is handled by EffectOp handlers; no per-frame resolve calls here.
-	// Paralysis & Wolf coin flips are handled via effect-ops (APPLY_PARALYSIS / APPLY_WOLF_COIN)
 
 	// --- KOBOLD KING DYNAMIC HP LOGIC ---
 	// 1. Count current Kobolds
@@ -14856,7 +14855,9 @@ void ofApp::continueNewTurn() {
 	// and are adjacent. Do not set `startingPlayer.luck` here as adjacency may
 	// change at any time; computePassiveLuck() provides the dynamic value.
 
-	// Ensure an effect sequence is active so any queued ROLL_DICE ops will be processed
+	// Ensure an effect sequence is active so visual/effect ops will be processed.
+	// Note: dice are resolved at decision-time and written into the effect sequence
+	// blackboard; there should be no deferred ROLL_DICE ops.
 	if (!isProcessingEffect) {
 		beginEffectSequence();
 		ofLogNotice("EffectQueue") << "Beginning effect sequence for turn-start of player " << startingPlayer.playerID;
@@ -14992,7 +14993,7 @@ void ofApp::continueNewTurn() {
 		else if (startingPlayer.isMinion)
 			apLabel = getPlayerDisplayName(currentPlayerIndex) + " AP Roll";
 
-		// Use the authoritative result resolved by the queued ROLL_DICE (outputSlot=0)
+		// Use the authoritative result resolved at decision time (blackboard slot 0)
 		int apTotal = currentEffectSequence.blackboard[0];
 		apResolvedThisTurn = true;
 
@@ -23139,7 +23140,8 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 // resolveMagicBlastDice removed: Magic Blast now handled by EffectOpType::APPLY_MAGIC_BLAST
 
 //--------------------------------------------------------------
-// Death resolution is handled by EffectOpType::APPLY_DEATH (queued with ROLL_DICE in play path)
+// Death resolution is handled by EffectOpType::APPLY_DEATH (damage resolved at
+// decision-time and written into the effect sequence blackboard during the play path)
 
 //--------------------------------------------------------------
 // Sleep duration resolved via EffectOpType::APPLY_SLEEP_DURATION
@@ -31915,7 +31917,8 @@ void ofApp::logDeckStates(const std::string & reason) {
 // by EffectOpType::APPLY_CHAIN_LIGHTNING which reads authoritative range from
 // currentEffectSequence.blackboard[0] and queues damage ops as needed.
 
-// Chain Lightning resolution migrated to effect/op pipeline (APPLY_CHAIN_LIGHTNING -> ROLL_DICE -> APPLY_CHAIN_LIGHTNING_DAMAGE)
+// Chain Lightning resolution migrated to effect/op pipeline (APPLY_CHAIN_LIGHTNING -> APPLY_CHAIN_LIGHTNING_DAMAGE)
+// Damage dice are resolved at decision-time and written into `currentEffectSequence.blackboard`.
 
 // Spark of Genius migrated to effect/op pipeline (APPLY_SPARK_OF_GENIUS)
 
@@ -31931,7 +31934,8 @@ void ofApp::logDeckStates(const std::string & reason) {
 // FINAL 5 HELPERS (Scattered Status Effects & Summoning)
 // ======================================
 
-// Paralysis and Wolf coin flip resolvers removed; handled via ROLL_DICE + APPLY_PARALYSIS / APPLY_WOLF_COIN effect ops.
+// Paralysis and Wolf coin flips are resolved at decision-time and handled via
+// the effect-op handlers (APPLY_PARALYSIS / APPLY_WOLF_COIN).
 
 //--------------------------------------------------------------
 

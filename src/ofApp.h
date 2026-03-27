@@ -346,8 +346,9 @@ enum class EffectOpType : uint8_t {
 };
 
 // NOTE: `RollDiceData` removed — dice are resolved at decision time and
-// written into `EffectSequence.blackboard` directly. The enum value
-// `ROLL_DICE` is retained for compatibility but should no longer be used.
+// written into `EffectSequence.blackboard` directly. The `ROLL_DICE` effect
+// op and related input command were removed as part of the deterministic
+// lockstep migration; do not reintroduce deferred roll ops.
 
 struct DamageData {
 	int targetIndex;
