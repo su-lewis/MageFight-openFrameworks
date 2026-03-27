@@ -19,6 +19,9 @@ bin/steam_launch_log.txt
 # Local Game Settings (Keeps your PC and Laptop configs separate)
 bin/data/Config/settings.json
 
+# Autosaves (user-specific, not checked in)
+bin/data/Saves/autosave*.json
+
 # Local VS Code Paths
 .vscode/
 
