@@ -14202,7 +14202,10 @@ void ofApp::startNewTurn() {
 		cmd.commandType = CMD_END_TURN;
 		// No params for CMD_END_TURN
 
-		// Send over the network to peers. Host will continue locally; clients return to wait.
+		// Queue locally and send over the network to peers so lockstep advances identically.
+		// Host will process the queued command via the command stream rather than
+		// relying on immediate local-only calls to `startNewTurn()`.
+		queueInputCommand(cmd);
 		steamManager.sendPacket(&cmd, sizeof(cmd));
 
 		// 2.5. CLEAN UP LOCAL PLAYER'S HAND & BUFFS BEFORE WAITING
@@ -30356,52 +30359,7 @@ void ofApp::processNetworkPackets() {
 			}
 			continue;
 		}
-		if (header->type == PKT_END_TURN) {
-			ofLogNotice("Net") << "Opponent ended turn.";
-
-			// Host-side validation: only the currently active player may end the turn.
-			if (isHost()) {
-				if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) {
-					int activePlayerID = players[currentPlayerIndex].playerID;
-					if (static_cast<int>(header->playerID) != activePlayerID) {
-						ofLogWarning("Network") << "Ignoring END_TURN from non-active player (player=" << header->playerID << ") active=" << activePlayerID;
-						continue;
-					}
-				}
-			}
-
-			// Transition to deterministic lockstep: enqueue an InputCommand CMD_END_TURN
-			// so both host and clients process end-turn via the command stream.
-			InputCommandPacket cmd = {};
-			cmd.type = PKT_INPUT_COMMAND;
-			cmd.playerID = header->playerID;
-			cmd.seq = header->seq;
-			cmd.commandId = nextCommandId++;
-			cmd.turnNumber = globalTurnCounter;
-			cmd.commandType = CMD_END_TURN;
-			// No extra params needed; leave params zeroed
-
-			// Clients and host both queue the command; host may still perform immediate
-			// validation/processing inside the command handling path. This replaces the
-			// legacy client behaviour of waiting for a host turn-start packet.
-			queueInputCommand(cmd);
-
-			// For UI consistency: if this is a client, perform minimal local hand cleanup
-			// so opponent's hand disappears immediately (visual-only). Gameplay state
-			// transitions will be driven by CMD_END_TURN when processed.
-			if (isClient()) {
-				for (size_t i = 0; i < players.size(); i++) {
-					Player & opp = players[i];
-					if (opp.playerID == static_cast<int>(header->playerID) && !opp.isMinion) {
-						opp.discardPile.insert(opp.discardPile.end(), opp.hand.begin(), opp.hand.end());
-						opp.hand.clear();
-						opp.discardPile.insert(opp.discardPile.end(), opp.playedCardsPile.begin(), opp.playedCardsPile.end());
-						opp.playedCardsPile.clear();
-						break;
-					}
-				}
-			}
-		} else if (header->type == PKT_CHECKSUM_CHECK) {
+		if (header->type == PKT_CHECKSUM_CHECK) {
 			ChecksumPacket * pkt = (ChecksumPacket *)header;
 			if (skipChecksumValidation) continue;
 

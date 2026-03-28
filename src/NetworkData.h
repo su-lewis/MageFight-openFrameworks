@@ -14,7 +14,6 @@ enum PacketType {
 	PKT_HANDSHAKE,
 	PKT_CLIENT_READY, // Client -> Host: client finished local setup and is ready to start
 	PKT_ACTION,
-	PKT_END_TURN,
 	PKT_CHECKSUM_CHECK,
 
 	// Turn-starts are delivered via deterministic commands
