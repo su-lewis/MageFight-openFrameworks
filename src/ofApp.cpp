@@ -4562,7 +4562,9 @@ void ofApp::updateGame() {
 	// resolution (Hellhound/Demon) are now centralized in their respective helpers
 
 	// --- EARTHQUAKE LOGIC ---
-	if (isEarthquakeActive) {
+	// Legacy frame-based earthquake simulation disabled — earthquake is now
+	// resolved deterministically inside `executeCardByType(CARD_EARTHQUAKE)`.
+	if (false && isEarthquakeActive) {
 
 		// PHASE 1: WAIT FOR DICE (now handled by effect sequence APPLY_EARTHQUAKE)
 
@@ -20747,15 +20749,16 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 			queueVisualDiceRoll(visPos, playedCard.numDice, playedCard.diceSides, rawFlail, flailTotal, PURPOSE_DAMAGE, currentPlayerIndex, 1.2f);
 		}
 
-		// Apply damage to all adjacent targets
+		// Apply damage to all adjacent targets immediately (authoritative)
 		for (int targetIdx : adjacentTargets) {
-			EffectOp damageOp;
-			damageOp.type = EffectOpType::DAMAGE;
-			damageOp.data.damage.targetIndex = targetIdx;
-			damageOp.data.damage.damageType = playedCard.damageType;
-			damageOp.data.damage.fixedDamage = 0;
-			damageOp.data.damage.damageFromSlot = 0; // Read from blackboard[0]
-			queueEffect(damageOp);
+			int dmg = currentEffectSequence.blackboard[0];
+			if (dmg <= 0) dmg = 0;
+			Player & tgt = players[targetIdx];
+			int applied = applyDamageWithMitigations(tgt, dmg, playedCard.damageType, currentPlayerIndex);
+			if (applied > 0)
+				queueFloatingTextVisual(gridToWorld(tgt.x, tgt.y), "-" + ofToString(applied) + " ", ofColor::red);
+			else
+				queueFloatingTextVisual(gridToWorld(tgt.x, tgt.y), "Absorbed", ofColor::gray);
 		}
 
 		playedSuccessfully = true;
