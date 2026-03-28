@@ -14450,15 +14450,10 @@ void ofApp::startNewTurn() {
 			if (startingPlayer.onFire) {
 				// Resolve fire damage immediately (authoritative), apply now,
 				// then queue visuals/delay but do NOT wait for visuals to continue logic.
-				// Authoritative fire status roll
+				// Resolve fire status roll locally (pure lockstep: both peers call RNG)
 				std::vector<int> rawFire;
-				int rollResult;
-				if (isHost() || !isMultiplayer) {
-					rollResult = resolveDiceRollDetailed(1, 6, rawFire);
-					currentEffectSequence.blackboard[0] = rollResult;
-				} else {
-					rollResult = currentEffectSequence.blackboard[0];
-				}
+				int rollResult = resolveDiceRollDetailed(1, 6, rawFire);
+				currentEffectSequence.blackboard[0] = rollResult;
 				// Apply damage deterministically now
 				int applied = applyDamageWithMitigations(players[currentPlayerIndex], rollResult, DAMAGE_FIRE, -1);
 				queueVisualDiceRoll(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.0f, 0), 1, 6, rawFire, rollResult, PURPOSE_DEBUG, currentPlayerIndex, 1.0f);
@@ -14493,11 +14488,10 @@ void ofApp::startNewTurn() {
 				currentCardOutcome.poisonTargetPlayerIDs.clear();
 				currentCardOutcome.poisonTargetPlayerIDs.push_back(players[currentPlayerIndex].playerID);
 
-				// Authoritative poison roll
+				// Resolve poison roll locally (pure lockstep: both peers call RNG)
 				std::vector<int> rawPoison;
-				// Poison roll must be resolved during command execution and placed
-				// into `currentEffectSequence.blackboard[0]` prior to effect processing.
-				int poisonRoll = currentEffectSequence.blackboard[0];
+				int poisonRoll = resolveDiceRollDetailed(1, 6, rawPoison);
+				currentEffectSequence.blackboard[0] = poisonRoll;
 				queueVisualDiceRoll(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.0f, 0), 1, 6, rawPoison, poisonRoll, PURPOSE_DEBUG, currentPlayerIndex, 1.0f);
 
 				EffectOp applyOp = {};
@@ -14511,11 +14505,10 @@ void ofApp::startNewTurn() {
 			}
 			if (startingPlayer.isParalyzed) {
 				// Resolve coin flip immediately (authoritative), then queue APPLY_PARALYSIS
-				// Authoritative coin flip for paralysis
+				// Resolve coin flip locally (pure lockstep: both peers call RNG)
 				std::vector<int> rawFlip;
-				// Coin flip result should be written into `currentEffectSequence.blackboard[0]`
-				// by the command execution path so effects consume authoritative RNG.
-				int flip = currentEffectSequence.blackboard[0];
+				int flip = resolveDiceRollDetailed(1, 2, rawFlip);
+				currentEffectSequence.blackboard[0] = flip;
 				queueVisualDiceRoll(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.0f, 0), 1, 2, rawFlip, flip, PURPOSE_COIN_FLIP, currentPlayerIndex, 0.8f);
 
 				EffectOp applyOp = {};
@@ -14532,9 +14525,10 @@ void ofApp::startNewTurn() {
 				if (startingPlayer.onFire) {
 					// Resolve sleeping fire damage immediately (authoritative), apply now,
 					// then queue visuals/delay and end sleeping turn without blocking.
+					// Sleeping fire damage roll: resolve locally (pure lockstep)
 					std::vector<int> rawSleeping;
-					// Sleeping fire damage roll: use authoritative result from blackboard[0]
-					int rollResult = currentEffectSequence.blackboard[0];
+					int rollResult = resolveDiceRollDetailed(1, 6, rawSleeping);
+					currentEffectSequence.blackboard[0] = rollResult;
 					int applied = applyDamageWithMitigations(players[currentPlayerIndex], rollResult, DAMAGE_FIRE, -1);
 					queueVisualDiceRoll(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.0f, 0), 1, 6, rawSleeping, rollResult, PURPOSE_DEBUG, currentPlayerIndex, 1.0f);
 					if (applied > 0)
@@ -15029,9 +15023,7 @@ void ofApp::continueNewTurn() {
 	}
 	// Assistant AP: Coinflip (Heads=2, Tails=1)
 	else if (startingPlayer.isAssistant) {
-		// We define a custom roll logic here or use startDiceRoll
-		// Since startDiceRoll handles the visual dice, let's use a Coin (1d2).
-		// We will interpret 1 as 1 AP, 2 as 2 AP.
+		// Use a coin (1d2): interpret 1 as 1 AP, 2 as 2 AP.
 		lastAPDiceNum = 1;
 		lastAPDiceSides = 2;
 		{
@@ -15039,6 +15031,7 @@ void ofApp::continueNewTurn() {
 			int apRoll = resolveDiceRollDetailed(1, 2, rawAP);
 			currentEffectSequence.blackboard[0] = apRoll;
 			queueVisualDiceRoll(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.0f, 0), 1, 2, rawAP, apRoll, PURPOSE_AP, currentPlayerIndex, 0.8f);
+			lastAPRawResults = rawAP;
 		}
 	}
 	// Faerie AP: 1d4
@@ -15050,6 +15043,7 @@ void ofApp::continueNewTurn() {
 			int apRoll = resolveDiceRollDetailed(1, 4, rawAP);
 			currentEffectSequence.blackboard[0] = apRoll;
 			queueVisualDiceRoll(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.0f, 0), 1, 4, rawAP, apRoll, PURPOSE_AP, currentPlayerIndex, 1.0f);
+			lastAPRawResults = rawAP;
 		}
 	}
 	// Skeleton / generic minion AP: 1d6
@@ -15122,31 +15116,7 @@ void ofApp::continueNewTurn() {
 		updatePlayerAP(players[currentPlayerIndex], currentAP);
 		ofLogNotice("APDebug") << "AP pre-resolved: currentAP=" << currentAP;
 
-		// Host publishes deterministic visual-only command so clients spawn matching AP dice visuals
-		if (isHost()) {
-			InputCommandPacket visCmd = {};
-			visCmd.type = PKT_INPUT_COMMAND;
-			visCmd.playerID = myLocalPlayerID;
-			visCmd.seq = 0;
-			visCmd.commandId = nextCommandId++;
-			visCmd.turnNumber = globalTurnCounter;
-			visCmd.commandType = CMD_PSEUDO_ACTION;
-			visCmd.params[0] = currentPlayerIndex; // owner
-			visCmd.params[1] = lastAPDiceNum;
-			visCmd.params[2] = lastAPDiceSides;
-			visCmd.params[3] = apTotal;
-			// Pack raw faces as CSV after a prefix so clients can parse them
-			std::string rawStr;
-			for (size_t i = 0; i < lastAPRawResults.size(); ++i) {
-				if (i) rawStr += ",";
-				rawStr += std::to_string(lastAPRawResults[i]);
-			}
-			std::string payload = std::string("TurnStart:") + rawStr;
-			strncpy(visCmd.stringData, payload.c_str(), sizeof(visCmd.stringData) - 1);
-			// Enqueue locally and send to peers
-			queueInputCommand(visCmd);
-			steamManager.sendPacket(&visCmd, sizeof(visCmd));
-		}
+		// Visuals are queued locally on each peer; no host-only dice payloads are sent.
 
 		// Assistant auto-reroll: if AP==0, nearby assistants may reroll
 		if (currentAP == 0) {
