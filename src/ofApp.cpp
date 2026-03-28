@@ -152,13 +152,33 @@ void ofApp::startInitiativePhase() {
 	// Initiative visuals: authoritative resolver + visuals (no game-state mutation here)
 	{
 		std::vector<int> raw1;
-		int r1 = resolveDiceRollDetailed(1, 6, raw1);
+		int r1;
+		if (isHost() || !isMultiplayer) {
+			r1 = resolveDiceRollDetailed(1, 6, raw1);
+			if (0 >= 0 && 0 < 16) currentEffectSequence.blackboard[0] = r1;
+		} else {
+			r1 = currentEffectSequence.blackboard[0];
+		}
 		queueVisualDiceRoll(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.0f, 0), 1, 6, raw1, r1, PURPOSE_DEBUG, currentPlayerIndex, 1.0f);
 	}
 	{
 		std::vector<int> raw2;
-		int r2 = resolveDiceRollDetailed(1, 6, raw2);
+		int r2;
+		if (isHost() || !isMultiplayer) {
+			r2 = resolveDiceRollDetailed(1, 6, raw2);
+			if (1 >= 0 && 1 < 16) currentEffectSequence.blackboard[1] = r2;
+		} else {
+			r2 = currentEffectSequence.blackboard[1];
+		}
 		queueVisualDiceRoll(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.0f, 0), 1, 6, raw2, r2, PURPOSE_DEBUG, currentPlayerIndex, 1.0f);
+	}
+
+	// Queue an authoritative apply op so the initiative outcome is deterministic across peers.
+	{
+		EffectOp ap = {};
+		ap.type = EffectOpType::APPLY_INITIATIVE_REROLL;
+		queueEffect(ap);
+		if (!isProcessingEffect) beginEffectSequence();
 	}
 
 	ofLogNotice("Game") << "--- INITIATIVE ROLL STARTED ---";
@@ -18200,18 +18220,11 @@ void ofApp::processEffectOp(EffectOp & op) {
 		if (isTileWall((int)currentCardOutcome.primaryTarget.x, (int)currentCardOutcome.primaryTarget.y)) {
 			queueFloatingTextVisual(gridToWorld((int)currentCardOutcome.primaryTarget.x, (int)currentCardOutcome.primaryTarget.y), "Fizzle!", ofColor::gray);
 		} else {
-			// Single-pass authoritative primary damage: roll and apply immediately,
-			// then roll and apply AOE. Visuals are queued with delays.
+			// Primary/AOE damage values are pre-resolved at play-time and stored in
+			// blackboard slots by the play handler: primary -> slot 1, aoe -> slot 2.
+			int primaryDamage = currentEffectSequence.blackboard[1];
 
-			// Primary damage roll (authoritative)
-			std::vector<int> rawPrimary;
-			int primaryDamage = resolveDiceRollDetailed(1, 20, rawPrimary);
-			// Wait, show dice visually, then apply damage
-			queueVisualDelay(1.5f);
-			queueVisualDiceRoll(gridToWorld((int)currentCardOutcome.primaryTarget.x, (int)currentCardOutcome.primaryTarget.y) + glm::vec3(0, 1.0f, 0), 1, 20, rawPrimary, primaryDamage, PURPOSE_DAMAGE, currentPlayerIndex, 1.2f);
-			queueVisualDelay(1.5f);
-
-			// Find direct hit target index and apply damage immediately (authoritative)
+			// Apply primary damage authoritatively (no additional RNG/visuals here)
 			int directHitIdx = -1;
 			for (size_t i = 0; i < players.size(); ++i) {
 				if (players[i].x == currentCardOutcome.primaryTarget.x && players[i].y == currentCardOutcome.primaryTarget.y) {
@@ -18226,16 +18239,10 @@ void ofApp::processEffectOp(EffectOp & op) {
 				else
 					queueFloatingTextVisual(gridToWorld(players[directHitIdx].x, players[directHitIdx].y), "Absorbed", ofColor::gray);
 			}
-			queueVisualDelay(1.5f);
 
-			// AOE radius roll (authoritative) and application
-			std::vector<int> rawAoe;
-			int aoeRoll = resolveDiceRollDetailed(1, 20, rawAoe);
-			queueVisualDiceRoll(gridToWorld((int)currentCardOutcome.primaryTarget.x, (int)currentCardOutcome.primaryTarget.y) + glm::vec3(0, 1.0f, 0), 1, 20, rawAoe, aoeRoll, PURPOSE_RANGE, currentPlayerIndex, 1.2f);
-			queueVisualDelay(1.5f);
-
-			int aoeRadiusFeet = aoeRoll;
-			ofLogNotice("Magic Bolt") << "AOE Roll: " << aoeRoll << "ft Radius.";
+			// AOE radius was resolved at play-time and stored in blackboard[2]
+			int aoeRadiusFeet = currentEffectSequence.blackboard[2];
+			ofLogNotice("Magic Bolt") << "AOE Roll: " << aoeRadiusFeet << "ft Radius.";
 
 			// Build list of AOE targets (exclude primary target)
 			std::vector<int> aoeTargets;
