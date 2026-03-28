@@ -11662,17 +11662,33 @@ void ofApp::mousePressed(int x, int y, int button) {
 				// Assign a client-local action id for ACK matching
 				pkt.clientActionID = ++draftClientActionCounter;
 
-				// Track for resend until host forwards/acks
+				// Track for resend until host forwards/acks (legacy tracking kept)
 				lastSentDraftActionPacket = pkt;
 				lastSentDraftActionValid = true;
 				lastSentDraftActionTime = ofGetElapsedTimef();
 				lastSentDraftActionResendCount = 0;
 
-				{
-					bool ok = steamManager.sendPacket(&pkt, sizeof(pkt));
-					ofLogNotice("Network") << "Client sent AcceptDraft to host (" << pkt.numSelected << " picks) clientActionID=" << pkt.clientActionID << " ok=" << ok;
-					if (!ok) ofLogWarning("Network") << "AcceptDraft send failed (no connection). Will retry via resend watchdog.";
+				// Build deterministic InputCommandPacket for lockstep processing (ACCEPT)
+				InputCommandPacket cmd = {};
+				cmd.type = PKT_INPUT_COMMAND;
+				cmd.playerID = myLocalPlayerID;
+				cmd.commandId = nextCommandId++;
+				cmd.turnNumber = globalTurnCounter;
+				cmd.commandType = CMD_ACCEPT_DRAFT;
+				cmd.params[0] = draftPlayerIndex;
+				cmd.params[1] = currentDraftClassTier;
+				// copiesPerCard was computed earlier; use params[2]
+				cmd.params[2] = (!isInGameDraft && draftStage == 0) ? 2 : 1;
+				for (int i = 0; i < std::min(3, (int)selectedDraftIndices.size()); ++i) {
+					cmd.params[3 + i] = selectedDraftIndices[i];
 				}
+				cmd.clientActionID = pkt.clientActionID;
+
+				// Queue locally and send to host/peers
+				queueInputCommand(cmd);
+				bool ok = steamManager.sendPacket(&cmd, sizeof(cmd));
+				ofLogNotice("Network") << "Client sent AcceptDraft via CMD_ACCEPT_DRAFT (" << pkt.numSelected << " picks) clientActionID=" << pkt.clientActionID << " ok=" << ok;
+				if (!ok) ofLogWarning("Network") << "AcceptDraft send failed (no connection). Will retry via resend watchdog.";
 				return;
 			}
 
@@ -11829,14 +11845,29 @@ void ofApp::mousePressed(int x, int y, int button) {
 							// Assign a client-local action id for ACK matching (toggle too)
 							pkt.clientActionID = ++draftClientActionCounter;
 
-							// Track for resend until host forwards/acks
+							// Track for resend until host forwards/acks (legacy tracking kept)
 							lastSentDraftActionPacket = pkt;
 							lastSentDraftActionValid = true;
 							lastSentDraftActionTime = ofGetElapsedTimef();
 							lastSentDraftActionResendCount = 0;
 
-							bool ok = steamManager.sendPacket(&pkt, sizeof(pkt));
-							ofLogNotice("Network") << "Client sent DraftToggle to host: option=" << pkt.optionIndex << " sel=" << (int)pkt.selectFlag << " draftPlayer=" << pkt.draftPlayerIdx << " ok=" << ok;
+							// Build deterministic InputCommandPacket for lockstep processing
+							InputCommandPacket cmd = {};
+							cmd.type = PKT_INPUT_COMMAND;
+							cmd.playerID = myLocalPlayerID;
+							cmd.commandId = nextCommandId++;
+							cmd.turnNumber = globalTurnCounter;
+							cmd.commandType = CMD_DRAFT_ACTION;
+							cmd.params[0] = 0; // Toggle
+							cmd.params[1] = poolIdx;
+							cmd.params[2] = draftPlayerIndex;
+							cmd.params[3] = currentDraftClassTier;
+							cmd.clientActionID = pkt.clientActionID;
+
+							// Queue locally and send to host/peers
+							queueInputCommand(cmd);
+							bool ok = steamManager.sendPacket(&cmd, sizeof(cmd));
+							ofLogNotice("Network") << "Client sent DraftToggle via CMD_DRAFT_ACTION: option=" << cmd.params[1] << " draftPlayer=" << cmd.params[2] << " ok=" << ok;
 							if (!ok) ofLogWarning("Network") << "DraftToggle send failed (no connection). Will retry via resend watchdog.";
 						}
 						// HOST: Its action is authoritative. It broadcasts the change to all clients.
@@ -16778,6 +16809,35 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 			}
 		}
 		ofLogNotice("Lockstep") << "Execute CMD_ACCEPT_DRAFT: draftPlayerIndex=" << draftPlayerIndex << " classTier=" << classTier << " picks=" << picks.size();
+		break;
+	}
+
+	case CMD_DRAFT_ACTION: {
+		int actionType = cmd.params[0];
+		if (actionType == 0) {
+			int poolIdx = cmd.params[1];
+			int draftPlayerIdx = cmd.params[2];
+			int classTier = cmd.params[3];
+			// Validate
+			if (draftPlayerIdx < 0 || draftPlayerIdx >= (int)players.size()) {
+				ofLogError("Lockstep") << "CMD_DRAFT_ACTION: invalid draftPlayerIdx=" << draftPlayerIdx;
+				break;
+			}
+			int requiredPicks = (!isInGameDraft && draftStage == 0) ? 2 : 1;
+			// Toggle selection in `selectedDraftIndices` deterministically
+			auto it = std::find(selectedDraftIndices.begin(), selectedDraftIndices.end(), poolIdx);
+			if (it != selectedDraftIndices.end()) {
+				selectedDraftIndices.erase(it);
+				ofLogNotice("Lockstep") << "CMD_DRAFT_ACTION: deselected poolIdx=" << poolIdx << " for draftPlayer=" << draftPlayerIdx;
+			} else {
+				if ((int)selectedDraftIndices.size() < requiredPicks) {
+					selectedDraftIndices.push_back(poolIdx);
+					ofLogNotice("Lockstep") << "CMD_DRAFT_ACTION: selected poolIdx=" << poolIdx << " for draftPlayer=" << draftPlayerIdx;
+				} else {
+					ofLogNotice("Lockstep") << "CMD_DRAFT_ACTION: selection ignored (already at required picks) poolIdx=" << poolIdx;
+				}
+			}
+		}
 		break;
 	}
 	case CMD_END_TURN: {
