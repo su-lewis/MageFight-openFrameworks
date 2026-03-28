@@ -11848,16 +11848,20 @@ void ofApp::mousePressed(int x, int y, int button) {
 						}
 						// HOST: Its action is authoritative. It broadcasts the change to all clients.
 						else if (isHost()) {
-							DraftActionPacket outPkt = {};
-							outPkt.type = PKT_DRAFT_ACTION;
-							outPkt.playerID = myLocalPlayerID; // The host is the source
-							outPkt.actionType = 0; // Select / Toggle
-							outPkt.selectFlag = nowSelected ? 1 : 0;
-							outPkt.optionIndex = poolIdx;
-							outPkt.draftPlayerIdx = draftPlayerIndex;
-							// Broadcast the host's authoritative selection to clients
-							steamManager.sendPacket(&outPkt, sizeof(outPkt));
-							ofLogNotice("Network") << "Host broadcast its own DraftToggle to clients.";
+							// Host: broadcast deterministic InputCommandPacket for its own toggle
+							InputCommandPacket cmd = {};
+							cmd.type = PKT_INPUT_COMMAND;
+							cmd.playerID = myLocalPlayerID;
+							cmd.commandId = nextCommandId++;
+							cmd.turnNumber = globalTurnCounter;
+							cmd.commandType = CMD_DRAFT_ACTION;
+							cmd.params[0] = 0; // toggle
+							cmd.params[1] = poolIdx;
+							cmd.params[2] = draftPlayerIndex;
+							cmd.params[3] = currentDraftClassTier;
+							queueInputCommand(cmd);
+							steamManager.sendPacket(&cmd, sizeof(cmd));
+							ofLogNotice("Network") << "Host broadcast CMD_DRAFT_ACTION for its own DraftToggle.";
 
 							// Also send an authoritative DraftState so clients immediately update picks/phase info
 							DraftStatePacket dsp = {};
@@ -16784,7 +16788,9 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 				}
 			}
 		}
-		ofLogNotice("Lockstep") << "Execute CMD_ACCEPT_DRAFT: draftPlayerIndex=" << draftPlayerIndex << " classTier=" << classTier << " picks=" << picks.size();
+		// After adding cards, perform deterministic shuffle of the target player's deck
+		shuffleGameVector(p.deck, draftPlayerIndex);
+		ofLogNotice("Lockstep") << "Execute CMD_ACCEPT_DRAFT: draftPlayerIndex=" << draftPlayerIndex << " classTier=" << classTier << " picks=" << picks.size() << " (shuffled)";
 		break;
 	}
 
@@ -30784,65 +30790,39 @@ void ofApp::processNetworkPackets() {
 
 			if (isHost()) {
 				// Host-side deduplication for draft actions
-				if (pkt->clientActionID != 0) {
-					uint32_t pid = pkt->playerID;
-					if (pid < (uint32_t)(sizeof(lastProcessedActionID) / sizeof(lastProcessedActionID[0])) && pkt->clientActionID <= lastProcessedActionID[pid]) {
-						// Re-send DraftAck to ensure client stops resending
-						DraftAckPacket ackDup = {};
-						ackDup.type = PKT_DRAFT_ACK;
-						ackDup.playerID = myLocalPlayerID;
-						ackDup.clientActionID = pkt->clientActionID;
-						ackDup.actionType = pkt->actionType;
-						ackDup.optionIndex = pkt->optionIndex;
-						ackDup.draftPlayerIdx = pkt->draftPlayerIdx;
-						ackDup.selectFlag = pkt->selectFlag;
-						steamManager.sendPacket(&ackDup, sizeof(ackDup));
-						ofLogNotice("Network") << "Host: Ignoring duplicate DraftAction clientActionID=" << pkt->clientActionID << " from playerID=" << pid;
-						continue;
+					if (pkt->clientActionID != 0) {
+						uint32_t pid = pkt->playerID;
+						if (pid < (uint32_t)(sizeof(lastProcessedActionID) / sizeof(lastProcessedActionID[0])) && pkt->clientActionID <= lastProcessedActionID[pid]) {
+							// Duplicate draft action; ignore (resend/ACK removed in favor of deterministic commands)
+							ofLogNotice("Network") << "Host: Ignoring duplicate DraftAction clientActionID=" << pkt->clientActionID << " from playerID=" << pid;
+							continue;
+						}
 					}
-				}
 				ofLogNotice("NetTrace") << "Host: processing DraftActionPacket from playerID=" << pkt->playerID << " actionType=" << (int)pkt->actionType << " clientActionID=" << pkt->clientActionID << " currentState=" << currentState << " draftStage=" << draftStage << " draftPlayerIndex=" << draftPlayerIndex;
 				// Ignore any draft inputs if we're not actively drafting
 				if (currentState != STATE_DRAFTING && !isInGameDraft) {
 					ofLogNotice("Network") << "Host: Ignoring draft input outside draft state (type=" << (int)pkt->actionType << ", playerID=" << pkt->playerID << ", draftPlayerIdx=" << pkt->draftPlayerIdx << ", currentState=" << currentState << ")";
 					continue;
 				}
-				// Host: apply the client's input, then forward to the client(s)
+				// Host: translate client draft input into deterministic InputCommandPacket
 				if (pkt->actionType == 0) {
-					// Toggle selection for the current drafting player (in-game drafts wait for Accept)
-					int requiredPicks = 1;
-					if (!isInGameDraft && draftStage == 0) requiredPicks = 2;
-					int opt = pkt->optionIndex;
-					if (pkt->selectFlag) {
-						auto it = std::find(selectedDraftIndices.begin(), selectedDraftIndices.end(), opt);
-						if (it == selectedDraftIndices.end() && (int)selectedDraftIndices.size() < requiredPicks) {
-							selectedDraftIndices.push_back(opt);
-						}
-					} else {
-						auto it = std::find(selectedDraftIndices.begin(), selectedDraftIndices.end(), opt);
-						if (it != selectedDraftIndices.end()) selectedDraftIndices.erase(it);
-					}
-					// Forward toggle to clients (including host's own selections)
-					DraftActionPacket outPkt = *pkt;
-					ofLogNotice("NetTrace") << "Host: forwarding DraftToggle to clients: opt=" << outPkt.optionIndex << " sel=" << (int)outPkt.selectFlag;
-					{
-						bool ok = steamManager.sendPacket(&outPkt, sizeof(outPkt));
-						ofLogNotice("NetTrace") << "Host forwarding DraftActionPacket to clients: opt=" << outPkt.optionIndex << " sel=" << (int)outPkt.selectFlag << " ok=" << ok;
-					}
-					// Send explicit ACK back to the originating client so they stop resending
-					DraftAckPacket ack = {};
-					ack.type = PKT_DRAFT_ACK;
-					ack.playerID = myLocalPlayerID;
-					ack.clientActionID = pkt->clientActionID;
-					ack.actionType = pkt->actionType;
-					ack.optionIndex = pkt->optionIndex;
-					ack.draftPlayerIdx = pkt->draftPlayerIdx;
-					ack.selectFlag = pkt->selectFlag;
-					{
-						ofLogNotice("NetTrace") << "Host: sending DraftAck to client: clientActionID=" << ack.clientActionID << " actionType=" << (int)ack.actionType << " opt=" << ack.optionIndex << " draftPlayer=" << ack.draftPlayerIdx;
-						bool ok = steamManager.sendPacket(&ack, sizeof(ack));
-						ofLogNotice("NetTrace") << "  DraftAck send ok=" << ok;
-					}
+					// Build CMD_DRAFT_ACTION to apply selection toggle deterministically
+					InputCommandPacket cmd = {};
+					cmd.type = PKT_INPUT_COMMAND;
+					cmd.playerID = pkt->playerID; // origin
+					cmd.commandType = CMD_DRAFT_ACTION;
+					cmd.turnNumber = globalTurnCounter;
+					cmd.params[0] = pkt->actionType; // 0 = toggle
+					cmd.params[1] = pkt->optionIndex;
+					cmd.params[2] = pkt->draftPlayerIdx;
+					cmd.params[3] = pkt->classTier;
+					cmd.clientActionID = pkt->clientActionID;
+					cmd.commandId = nextCommandId++;
+
+					// Queue & broadcast the deterministic command
+					queueInputCommand(cmd);
+					bool ok = steamManager.sendPacket(&cmd, sizeof(cmd));
+					ofLogNotice("NetTrace") << "Host: broadcast CMD_DRAFT_ACTION (option=" << pkt->optionIndex << " sel=" << (int)pkt->selectFlag << ") ok=" << ok;
 					// Record processed clientActionID for deduplication
 					if (pkt->clientActionID != 0) {
 						uint32_t pid = pkt->playerID;
@@ -30961,22 +30941,27 @@ void ofApp::processNetworkPackets() {
 					ofLogNotice("NetTrace") << "Host: forwarding AcceptDraft to clients: draftPlayer=" << outPkt.draftPlayerIdx << " numSelected=" << (int)outPkt.numSelected;
 					steamManager.sendPacket(&outPkt, sizeof(outPkt));
 
-					// Send explicit ACK for this Accept back to the origin client
-					DraftAckPacket ack = {};
-					ack.type = PKT_DRAFT_ACK;
-					ack.playerID = myLocalPlayerID;
-					ack.clientActionID = pkt->clientActionID;
-					ack.actionType = pkt->actionType;
-					ack.draftPlayerIdx = targetIdx;
-					ack.numSelected = (uint8_t)pkt->numSelected;
-					ack.selectedIdx0 = pkt->selectedIdx0;
-					ack.selectedIdx1 = pkt->selectedIdx1;
-					ack.selectedIdx2 = pkt->selectedIdx2;
-					{
-						ofLogNotice("NetTrace") << "Host sending DraftAck (Accept): clientActionID=" << ack.clientActionID << " actionType=" << (int)ack.actionType << " draftPlayer=" << ack.draftPlayerIdx << " numSelected=" << (int)ack.numSelected;
-						bool ok = steamManager.sendPacket(&ack, sizeof(ack));
-						ofLogNotice("NetTrace") << "  DraftAck (Accept) send ok=" << ok;
-					}
+					// Instead of applying here, create a deterministic CMD_ACCEPT_DRAFT
+					InputCommandPacket cmd = {};
+					cmd.type = PKT_INPUT_COMMAND;
+					cmd.playerID = pkt->playerID; // origin client
+					cmd.commandType = CMD_ACCEPT_DRAFT;
+					cmd.turnNumber = globalTurnCounter;
+					// params: [0]=draftPlayerIdx, [1]=classTier, [2]=copiesPerCard, [3]=pick0, [4]=pick1, [5]=pick2
+					cmd.params[0] = targetIdx;
+					cmd.params[1] = pkt->classTier;
+					cmd.params[2] = copiesPerCard;
+					cmd.params[3] = (pkt->numSelected > 0) ? pkt->selectedIdx0 : -1;
+					cmd.params[4] = (pkt->numSelected > 1) ? pkt->selectedIdx1 : -1;
+					cmd.params[5] = (pkt->numSelected > 2) ? pkt->selectedIdx2 : -1;
+					cmd.clientActionID = pkt->clientActionID;
+					cmd.commandId = nextCommandId++;
+
+					// Queue on host and broadcast to clients so everyone executes the accept deterministically
+					queueInputCommand(cmd);
+					bool ok = steamManager.sendPacket(&cmd, sizeof(cmd));
+					ofLogNotice("NetTrace") << "Host: broadcast CMD_ACCEPT_DRAFT (target=" << targetIdx << " picks=" << (int)pkt->numSelected << ") ok=" << ok;
+
 					// Record processed clientActionID for dedupe
 					if (pkt->clientActionID != 0) {
 						uint32_t pid = pkt->playerID;
@@ -30986,6 +30971,7 @@ void ofApp::processNetworkPackets() {
 						}
 					}
 
+					// Clear visual selection/options locally; the authoritative apply will run in the command handler
 					selectedDraftIndices.clear();
 					draftOptions.clear();
 					if (isInGameDraft) {
