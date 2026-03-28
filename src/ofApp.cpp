@@ -22604,12 +22604,31 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 					target = getPlayer(realIdx);
 				else if (pidx >= 0 && pidx < (int)players.size())
 					target = &players[pidx];
-				if (target && totalDamage > 0) {
-					applyDamageTo(*target, totalDamage, DAMAGE_PHYSICAL, -1);
-					// queue floating damage text at original pos
-					queueFloatingTextVisual(gridToWorld(earthquakeUnits[i].startGrid.x, earthquakeUnits[i].startGrid.y) + glm::vec3(0, 1.2f, 0), "-" + ofToString(totalDamage), ofColor::red);
-				} else if (totalDamage <= 0) {
-					queueFloatingTextVisual(gridToWorld(earthquakeUnits[i].startGrid.x, earthquakeUnits[i].startGrid.y) + glm::vec3(0, 1.2f, 0), "Phased (0 Dmg)", ofColor::cyan);
+				if (target) {
+					// Store damage in blackboard and queue a DAMAGE EffectOp so state changes
+					// happen via the effect pipeline (deterministic). Use slot calculation
+					// similar to other earthquake places to avoid clobbering common slots.
+					int quakeDamageBase = 8;
+					int outSlot;
+					if (i >= 16 - quakeDamageBase)
+						outSlot = quakeDamageBase + (i % (16 - quakeDamageBase));
+					else
+						outSlot = quakeDamageBase + i;
+					currentEffectSequence.blackboard[outSlot] = totalDamage;
+
+					if (totalDamage > 0) {
+						EffectOp dmgOp = {};
+						dmgOp.type = EffectOpType::DAMAGE;
+						dmgOp.data.damage.targetIndex = findPlayerIndexByID(players[earthquakeUnits[i].playerIndex].playerID);
+						dmgOp.data.damage.damageFromSlot = outSlot;
+						dmgOp.data.damage.damageType = DAMAGE_PHYSICAL;
+						queueEffect(dmgOp);
+
+						// queue floating damage text at original pos (visual only)
+						queueFloatingTextVisual(gridToWorld(earthquakeUnits[i].startGrid.x, earthquakeUnits[i].startGrid.y) + glm::vec3(0, 1.2f, 0), "-" + ofToString(totalDamage), ofColor::red);
+					} else {
+						queueFloatingTextVisual(gridToWorld(earthquakeUnits[i].startGrid.x, earthquakeUnits[i].startGrid.y) + glm::vec3(0, 1.2f, 0), "Phased (0 Dmg)", ofColor::cyan);
+					}
 				}
 			}
 			// Queue tracer from start to final position to visualize movement
