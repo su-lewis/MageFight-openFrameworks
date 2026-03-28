@@ -6,7 +6,7 @@
 - **Targeting:** Adjacent unit
 - **Class:** 1
 - **Picture:** 
-- **Effect Text:** Deal 2 damage
+- **Effect Text:** Deal 2 damage.
 ---
 
 -## 2. Kick
@@ -15,7 +15,7 @@
 - **Targeting:** Adjacent unit
 - **Class:** 1
 - **Picture:** 
-- **Effect Text:** Deal 4 damage
+- **Effect Text:** Deal 4 damage.
 ---
 
 -## 3. Hand Block
@@ -24,7 +24,7 @@
 - **Targeting:** Self
 - **Class:** 1
 - **Picture:** 
-- **Effect Text:** Gain 2 Block until the start of this unit's next turn
+- **Effect Text:** Gain 2 Block until the start of this unit's next turn.
 ---
 
 -## 4. Bash
@@ -33,7 +33,7 @@
 - **Targeting:** Adjacent unit
 - **Class:** 1
 - **Picture:** 
-- **Effect Text:** Deal 2d4 damage
+- **Effect Text:** Deal 2d4 damage.
 ---
 
 -## 5. Ward
@@ -42,25 +42,25 @@
 - **Targeting:** Self
 - **Class:** 1
 - **Picture:** 
-- **Effect Text:** Gain 5 Ward until the start of this unit's next turn
+- **Effect Text:** Gain 5 Ward until the start of this unit's next turn.
 ---
 
 -## 6. Stab
 - **Damage type:** Piercing
 - **AP Cost:** 2
-- **Targeting:** Adjacent units up to two-tile range
+- **Targeting:** Adjacent units in a two-tile line
 - **Class:** 1
 - **Picture:** 
-- **Effect Text:** Deal 1d6 damage, units behind take half damage
+- **Effect Text:** Deal 1d6 damage. The units behind take half damage.
 ---
 
 -## 7. Slash
 - **Damage type:** Physical
 - **AP Cost:** 2
-- **Targeting:** Cleave up three adjacent units
+- **Targeting:** Adjacent units in a three-tile swipe
 - **Class:** 1
 - **Picture:** 
-- **Effect Text:** Deal 1d6 damage to all
+- **Effect Text:** Deal 1d6 damage as a Cleave.
 ---
 
 -## 8. Mind Theft
@@ -69,209 +69,217 @@
 - **Targeting:** Adjacent unit
 - **Class:** 1
 - **Picture:** 
-- **Effect Text:** Steal the top card from the unit's deck and shuffle it into yours
+- **Effect Text:** Steal the top card from the unit's deck and shuffle it into yours.
 ---
 
 -## 9. Amnesia
-- **Damage type:** Special
+- **Damage type:**
 - **AP Cost:** 3
-- **Targeting:** Adjacent or Self Unit
+- **Targeting:** Adjacent unit / Self
 - **Class:** 2
 - **Picture:** 
-- **Effect Text:** Roll 1d4. Target adjacent unit or yourself must remove that many cards from their deck (you choose which).
+- **Effect Text:** Choose 1d4 cards in the unit's deck to Destroy.
 ---
 
 -## 10. Magic Blast
-- **Damage type:** Attack
+- **Damage type:** Magic 
 - **AP Cost:** 4
-- **Targeting:** Line of Sight Tile
+- **Targeting:** 1d20ft
 - **Class:** 2
 - **Picture:** 
-- **Effect Text:** Roll 1d20 for range (max 20ft). If successful, deal 4 arcane damage to the target tile and all units adjacent to it.
+- **Effect Text:** The unit hit chooses three times to take 5 damage or remove the top card of their deck from the game, and adjacent units choose once.
 ---
 
 -## 11. Fireball
-- **Damage type:** Attack
+- **Damage type:** Fire
 - **AP Cost:** 3
-- **Targeting:** Line of Sight Tile
+- **Targeting:** 2d6ft
 - **Class:** 2
 - **Picture:** 
-- **Effect Text:** Roll 2d6 for range (max 12ft). If successful, deal 6 fire damage to the target unit and set them on fire.
+- **Effect Text:** The unit hit takes 1d6 damage. If they took HP damage then apply Burning.
 ---
 
 -## 12. Shock
-- **Damage type:** Attack
+- **Damage type:** Electric
 - **AP Cost:** 2
 - **Targeting:** Adjacent Unit
 - **Class:** 1
 - **Picture:** 
-- **Effect Text:** Deal 2 electric damage to an adjacent unit. If you've played 2+ Shocks this turn, paralyze the target and gain +2 AP next turn.
+- **Effect Text:** Deal 2 damage. If you've played another this turn apply Paralysis and gain +2 AP next turn.
 ---
 
 -## 13. Rock Crush
-- **Damage type:** Attack
+- **Damage type:** Physical 
 - **AP Cost:** 4
-- **Targeting:** Adjacent Unit or Wall
+- **Targeting:** Adjacent unit / Wall 
 - **Class:** 2
 - **Picture:** 
-- **Effect Text:** Target an adjacent wall or unit. If wall: destroy it. If unit: roll 2d10 and deal that much physical damage.
+- **Effect Text:**  Deal 2d10 damage or Destroy a wall.
 ---
 
 -## 14. Dispel
-- **Damage type:** Special
+- **Damage type:**
 - **AP Cost:** 2
-- **Targeting:** Self
+- **Targeting:** Adjacent unit / Self
 - **Class:** 1
 - **Picture:** 
-- **Effect Text:** Choose: Remove all non-physical barriers (Barrier + Holy Block) OR purge one status effect from a target.
+- **Effect Text:** Cure a Status Effect or gain 1d20 Barrier on self.
 ---
 
 -## 15. Teleport
-- **Damage type:** Movement
+- **Damage type:**
 - **AP Cost:** 5
-- **Targeting:** Empty Tile
+- **Targeting:** 3d6ft
 - **Class:** 1
 - **Picture:** 
-- **Effect Text:** Roll 3d6 for movement range. Teleport to any empty tile within that distance.
+- **Effect Text:** Teleport to any empty tile within range. This can target through walls.
 ---
 
 -## 16. Hasten
-- **Damage type:** Buff
+- **Damage type:**
 - **AP Cost:** 1
 - **Targeting:** Self
 - **Class:** 2
 - **Picture:** 
-- **Effect Text:** Next turn: roll d10 for AP (instead of d6) and draw an extra card.
+- **Effect Text:** Roll 1d10 for AP next turn and draw an extra card.
 ---
 
 -## 17. Replicate
-- **Damage type:** Special
+- **Damage type:**
 - **AP Cost:** 4
 - **Targeting:** Self
 - **Class:** 2
 - **Picture:** 
-- **Effect Text:** The next card you play this turn is copied back into your hand.
+- **Effect Text:** Copy the next card you play and add to your hand.
 ---
 
 -## 18. Wisdom Boon
-- **Damage type:** Buff
+- **Damage type:** Magic
 - **AP Cost:** 5
-- **Targeting:** Adjacent or Self Unit
+- **Targeting:** Adjacent unit / Self
 - **Class:** 1
 - **Picture:** 
-- **Effect Text:** Choose a target (adjacent or self): Deal 2 arcane damage OR grant 2 non-physical barrier.
+- **Effect Text:** Deal damage equal to the number of cards in your deck or gain Block equal to the number of cards in your deck.
 ---
 
 -## 19. Ethereal Jolt
-- **Damage type:** Attack
+- **Damage type:** Magic
 - **AP Cost:** 6
-- **Targeting:** Line of Sight Tile
+- **Targeting:** 1d20ft
 - **Class:** 2
 - **Picture:** 
-- **Effect Text:** Roll 1d20 for range (max 20ft). If successful, deal 3 arcane damage to target (ignores walls).
+- **Effect Text:** Deal 7 damage to the unit hit, Destroy the top card of their deck, and apply Paralysis. This can target through walls. 
 ---
 
 -## 20. Flame Hit
-- **Damage type:** Attack
+- **Damage type:** Fire
 - **AP Cost:** 2
-- **Targeting:** Adjacent Unit
+- **Targeting:** Adjacent unit
 - **Class:** 1
 - **Picture:** 
-- **Effect Text:** Deal 1 fire damage to an adjacent unit and set them on fire.
+- **Effect Text:** Deal 1 damage, if the unit took HP damage then apply Burning.
 ---
 
 -## 21. Heal
-- **Damage type:** Healing
+- **Damage type:** 
+
 - **AP Cost:** 3
-- **Targeting:** Line of Sight Tile
+- **Targeting:** Line of Sight / Self
 - **Class:** 1
 - **Picture:** 
-- **Effect Text:** Roll 2d6 and heal a target in line of sight for that amount.
+- **Effect Text:** Roll 2d6 and heal that amount of HP.
 ---
 
 -## 22. Raise Dead
-- **Damage type:** Summon
+- **Damage type:**
 - **AP Cost:** 2
-- **Targeting:** Empty Adjacent
+- **Targeting:** Adjacent tile
 - **Class:** 2
 - **Picture:** 
-- **Effect Text:** Summon a Skeleton with 1d6 HP on an adjacent empty tile.
+- **Effect Text:** Summon a Skeleton minion with Regeneration. Its deck is X2 Punch, X2 Hand Block. If a unit died last turn in the summon tile then shuffle a random card from its deck into it.
+-**AP:** 1d6
+-**HP:** 1d6
 ---
 
 -## 23. Summon Golem
-- **Damage type:** Summon
+- **Damage type:**
 - **AP Cost:** 4
-- **Targeting:** Empty Adjacent
+- **Targeting:** Adjacent tile
 - **Class:** 3
 - **Picture:** 
-- **Effect Text:** Summon a Golem with 1d10 HP on an adjacent empty tile. Golem type depends on elements played this turn (Electric/Fire/Rock/Standard).
+- **Effect Text:** Summon a Golem minion. Its deck is X3 Bash, X2 Hand Block. Improve if Shock, Chain Lightning, Flame Hit, Fireball, or Rock Crush was played this turn.
+-**AP:** 1d6
+-**HP:** 1d10
 ---
 
 -## 24. Strengthen Elements
-- **Damage type:** Buff
+- **Damage type:**
 - **AP Cost:** 3
 - **Targeting:** Self
 - **Class:** 3
 - **Picture:** 
-- **Effect Text:** For the next 3 turns, whenever you play a Fire or Electric damage card, a copy is shuffled into your deck.
+- **Effect Text:** For the next 3 turns, whenever you play a card that deals Electric or Fire damage, shuffle a copy of it into your deck.
 ---
 
 -## 25. Summon Wall
-- **Damage type:** Summon
+- **Damage type:**
 - **AP Cost:** 2
-- **Targeting:** Empty Adjacent
+- **Targeting:** Adjacent tile
 - **Class:** 1
 - **Picture:** 
-- **Effect Text:** Create a normal wall on an adjacent empty tile.
+- **Effect Text:** Create a wall.
 ---
 
 -## 26. Dark Shield
-- **Damage type:** Defense
+- **Damage type:**
 - **AP Cost:** 2
 - **Targeting:** Self
 - **Class:** 2
 - **Picture:** 
-- **Effect Text:** Gain 7 Holy Block. Next turn, gain bonus dice from your minions.
+- **Effect Text:** Gain 7 Holy Block. Next turn roll Xd6 for AP where X is the number of Skeletons + Hellhounds in play.
 ---
 
 -## 27. Drain Punch
-- **Damage type:** Attack
+- **Damage type:** Physical
 - **AP Cost:** 2
-- **Targeting:** Adjacent Unit
+- **Targeting:** Adjacent unit
 - **Class:** 1
 - **Picture:** 
-- **Effect Text:** Deal 2 physical damage to an adjacent unit (plus +2 per previous hand attack this turn). Heal yourself for the actual HP damage dealt.
+- **Effect Text:** Deal 2 damage, add +2 damage for each hand-related attack card played this turn. Heal self equal to the damage amount.
 ---
 
 -## 28. Double Handed
-- **Damage type:** Buff
+- **Damage type:**
 - **AP Cost:** 2
-- **Targeting:** Adjacent or Self
+- **Targeting:** Adjacent unit / Self
 - **Class:** 1
 - **Picture:** 
-- **Effect Text:** Choose a target (adjacent or self): Add 2x Punch to their deck OR add 2x Hand Block to their deck.
+- **Effect Text:** Shuffle X2 Punch or X2 Hand Block into the unit's deck.
 ---
 
 -## 29. Blocking Boon
-- **Damage type:** Buff
+- **Damage type:**
 - **AP Cost:** 3
-- **Targeting:** Adjacent Unit
+- **Targeting:** Adjacent unit / Self
 - **Class:** 1
 - **Picture:** 
-- **Effect Text:** Convert all of target's block types into dice: Physical blocks → coin flips (heads = damage or heal), Non-physical → d20 rolls.
+- **Effect Text:** Roll Xd20 where X is the number of non-physical damage you're blocking, if 10-15 Draft Class 1, 16-19 Draft Class 2, 20+ Draft Class 3. For each physical damage you're blocking, flip a coin, heads raises your max HP by 1, tails lowers adjacent unit's max HP by 1.
 ---
 
 -## 30. Call for Wolves
-- **Damage type:** Summon
+- **Damage type:**
 - **AP Cost:** 7
-- **Targeting:** Self
+- **Targeting:** Adjacent tile
 - **Class:** 2
 - **Picture:** 
-- **Effect Text:** Summon 2 Wolves on adjacent empty tiles.
+- **Effect Text:** Summon a Wolf minion, then flip a coin, if heads summon another in a different tile. Its deck is X3 Slash, X1 Call for Wolves.
+If this card is in your deck/discard you take double piercing damage.
+-**AP:** 1d10
+-**HP:** 4
 ---
 
 -## 31. Necromancer's Blessing
-- **Damage type:** Buff
+- **Damage type:**
 - **AP Cost:** 3
 - **Targeting:** Self
 - **Class:** 3
@@ -280,241 +288,247 @@
 ---
 
 -## 32. Time Vortex
-- **Damage type:** Special
+- **Damage type:**
 - **AP Cost:** 7
 - **Targeting:** Self
 - **Class:** 3
 - **Picture:** 
-- **Effect Text:** Roll 1d4. Gain that many bonus turns immediately.
+- **Effect Text:** Roll 1d4, gain that many extra turns after this one.
 ---
 
 -## 33. Master Fist
-- **Damage type:** Attack
+- **Damage type:** Physical 
 - **AP Cost:** 2
-- **Targeting:** Adjacent Unit
+- **Targeting:** Adjacent unit
 - **Class:** 3
 - **Picture:** 
-- **Effect Text:** Deal 2 physical damage to an adjacent unit (damage doubled if Flurry is active).
+- **Effect Text:** Deal 2 physical damage for each hand-related attack card in your discard pile. Gain +1 Luck and +1 max HP, the unit Destroys the top card of their deck
 ---
 
 -## 34. Magic Bolt
-- **Damage type:** Attack
+- **Damage type:** Magic / Electric
 - **AP Cost:** 6
-- **Targeting:** Line of Sight Tile
+- **Targeting:** 2d20ft then 1d20ft
 - **Class:** 3
 - **Picture:** 
-- **Effect Text:** Roll 2d20 for range (max 40ft). If successful, deal 5 arcane damage to target (flies over walls).
+- **Effect Text:** Deal 1d20 damage to the unit hit, then an Area of Effect for 3 damage. This can target through walls but AOE does not.
 ---
 
 -## 35. Flail
-- **Damage type:** Attack
+- **Damage type:** Physical
 - **AP Cost:** 3
-- **Targeting:** Self
+- **Targeting:** Units in eight circular tiles
 - **Class:** 2
 - **Picture:** 
-- **Effect Text:** Roll 1d6 and add 2. Deal that much physical damage to all adjacent units.
+- **Effect Text:** Deal 1d6 + 2 damage
 ---
 
 -## 36. Summon Hellhound
-- **Damage type:** Summon
+- **Damage type:**
 - **AP Cost:** 5
-- **Targeting:** Empty Adjacent
+- **Targeting:** Adjacent tile
 - **Class:** 3
 - **Picture:** 
-- **Effect Text:** Roll 2d6 for HP and 2d6 for AP. Summon a Hellhound with those stats on an adjacent empty tile.
+- **Effect Text:** Summon a Hellhound minion. Its deck is X2 Slash, X2 Flame Hit, X2 Fireball, X3 Dark Shield. Takes double Holy damage.
+-**AP:** 2d6
+-**HP:** 2d6
 ---
 
 -## 37. Death
-- **Damage type:** Attack
+- **Damage type:**
 - **AP Cost:** 8
-- **Targeting:** Line of Sight Tile
+- **Targeting:** Line of Sight
 - **Class:** 3
 - **Picture:** 
-- **Effect Text:** If target is asleep: instant death. Otherwise, roll 1d20: 1-10 = sleep for 2 turns, 11-19 = no effect, 20 = instant death.
+- **Effect Text:** Instant kill a Sleeping unit, or roll 1d20, if higher than the target's HP they die, if lower or equal they apply Sleep for 1d6 turns.
 ---
 
 -## 38. Summon Demon
-- **Damage type:** Summon
+- **Damage type:**
 - **AP Cost:** 10
-- **Targeting:** Empty Adjacent
+- **Targeting:** Adjacent tile
 - **Class:** 3
 - **Picture:** 
-- **Effect Text:** Roll 3d10 for HP. Summon a Demon with that much HP on an adjacent empty tile.
+- **Effect Text:** Summon a Demon minion. Its deck is X2 Death, X2 Flail, X2 Fireball, X1 Summon Hellhound, X3 Dark Shield. Takes double Holy damage. The Slayer Drafts a Class 3.
+-**AP:** 4d4
+-**HP:** 3d10
 ---
 
 -## 39. Shield Bash
-- **Damage type:** Attack
+- **Damage type:** Physical
 - **AP Cost:** 3
-- **Targeting:** Adjacent Unit
+- **Targeting:** Adjacent unit
 - **Class:** 1
 - **Picture:** 
-- **Effect Text:** Convert all your block types (Physical Block + Barrier + Ward + Holy Block) into damage. Deal that much to an adjacent unit and remove all your block.
+- **Effect Text:** Deal damage equal to all block types combined and then remove them.
 ---
 
 -## 40. Train
-- **Damage type:** Special
+- **Damage type:**
 - **AP Cost:** 3
 - **Targeting:** Self
 - **Class:** 1
 - **Picture:** 
-- **Effect Text:** Choose: Gain +2 AP immediately OR draft a Class 2 card.
+- **Effect Text:** Draft a Class 1 or gain +3 AP next turn.
 ---
 
 -## 41. Chain Lightning
-- **Damage type:** Attack
+- **Damage type:** Electric
 - **AP Cost:** 3
-- **Targeting:** Line of Sight Tile
+- **Targeting:** 2d10ft
 - **Class:** 2
 - **Picture:** 
-- **Effect Text:** Roll 2d10 for range. Deal electric damage to target and chain to nearby units within range.
+- **Effect Text:** Deal 1d10 damage to the unit hit and to all 8 surrounding tiles, if more than one unit was hit then apply Paralysis to them. Gain +3 AP next turn.
 ---
 
 -## 42. Study
-- **Damage type:** Special
+- **Damage type:**
 - **AP Cost:** 6
 - **Targeting:** Self
 - **Class:** 1
 - **Picture:** 
-- **Effect Text:** Draw an extra card next turn and draft a Class 2 card immediately.
+- **Effect Text:** Draft a Class 2 card, you draw an extra card next turn.
 ---
 
 -## 43. Consume Health Potion
-- **Damage type:** Healing
+- **Damage type:**
 - **AP Cost:** 2
 - **Targeting:** Self
 - **Class:** 1
 - **Picture:** 
-- **Effect Text:** Gain +1 maximum HP.
+- **Effect Text:** Gain +1 max HP.
 ---
 
 -## 44. Add Poison
-- **Damage type:** Special
+- **Damage type:** Poison
 - **AP Cost:** 2
 - **Targeting:** Self
 - **Class:** 1
 - **Picture:** 
-- **Effect Text:** Your next physical or piercing attack this turn also deals 1d6 poison damage.
+- **Effect Text:** Deal 1d6 damage to units hit by the next physical/piercing attack this turn. Any units hit apply Poisoned.
 ---
 
 -## 45. Flurry of Fists
-- **Damage type:** Attack
+- **Damage type:** Physical
 - **AP Cost:** 3
-- **Targeting:** Adjacent Unit
+- **Targeting:** Adjacent unit
 - **Class:** 2
 - **Picture:** 
-- **Effect Text:** Deal 2 physical damage (4 if Flurry already active). Activate Flurry buff (doubles hand attack damage). Draw a card (free if hand-related).
+- **Effect Text:** Deal 2 damage, then draw a card, if it's hand-related it costs 0 AP this turn. All hand-related cards are doubled this turn. 
 ---
 
 -## 46. Form of Tortoise
-- **Damage type:** Transformation
+- **Damage type:** Physical
 - **AP Cost:** 5
 - **Targeting:** Self
 - **Class:** 3
 - **Picture:** 
-- **Effect Text:** Gain +5 maximum HP and heal 5 HP. Shuffle 2x Dispel into deck. Whenever you play block/heal/ward, deal 3 damage to an adjacent unit. Breaks if you take 10+ damage.
+- **Effect Text:** Transform into a Tortoise until you take 5 HP damage, your blocks do not expire, and deal 3 to an adjacent unit whenever you heal or block. Increase max HP by 5, Heal 5 HP, Shuffle X2 Dispel into your deck.
 ---
 
 -## 47. Fortify
-- **Damage type:** Buff
+- **Damage type:** Physical
 - **AP Cost:** 3
-- **Targeting:** Adjacent Unit or Wall
+- **Targeting:** Adjacent wall
 - **Class:** 2
 - **Picture:** 
-- **Effect Text:** Count connected walls (flood fill). Gain that much Fortification. Deal 3 physical damage to all units adjacent to connected walls.
+- **Effect Text:** Choose a wall, gain +X Fortification until the start of this unit's next turn, X is the number of walls in the link. Deal 3 damage to all other units adjacent to the linked walls.
 ---
 
 -## 48. Vampire Bite
-- **Damage type:** Attack
+- **Damage type:** Physical
 - **AP Cost:** 3
-- **Targeting:** Adjacent Unit
+- **Targeting:** Adjacent unit
 - **Class:** 1
 - **Picture:** 
-- **Effect Text:** Deal 3 physical damage to an adjacent unit. If HP damage dealt: heal 2 HP and shuffle 1x Vampire Bite into target's deck.
+- **Effect Text:** Deal 3 damage. If they took HP damage then Heal 2 HP and Shuffle X1 Vampire Bite into their deck. If this is in your deck/discard you take double Holy damage.
 ---
 
 -## 49. Call for Kobolds
-- **Damage type:** Summon
+- **Damage type:**
 - **AP Cost:** 4
-- **Targeting:** Self
+- **Targeting:** Adjacent tile
 - **Class:** 2
 - **Picture:** 
-- **Effect Text:** Roll 1d4. Summon that many Kobolds on adjacent empty tiles.
+- **Effect Text:** Roll 1d4 and summon that many Kobold minions. Its deck is X1 Punch, X2 Hand Block, X1 Call for Kobolds.
+-**AP:** 1d4
+-**HP:** 1
 ---
 
 -## 50. Demolition
 - **Damage type:** Attack
 - **AP Cost:** 6
-- **Targeting:** Adjacent Unit or Wall
+- **Targeting:** Adjacent wall
 - **Class:** 1
 - **Picture:** 
-- **Effect Text:** Destroy an adjacent wall. Gain +6 AP next turn.
+- **Effect Text:** Destroy a wall. Gain +6 AP next turn.
 ---
 
 -## 51. Renewed Inspiration
-- **Damage type:** Buff
+- **Damage type:**
 - **AP Cost:** 2
 - **Targeting:** Self
 - **Class:** 1
 - **Picture:** 
-- **Effect Text:** Discard any number of cards from your hand, then draw that many cards.
+- **Effect Text:** Choose to discard any number of unplayed cards in your hand, draw 2 for each discarded.
 ---
 
 -## 52. Spark of Genius
-- **Damage type:** Special
+- **Damage type:**
 - **AP Cost:** 3
 - **Targeting:** Self
 - **Class:** 2
 - **Picture:** 
-- **Effect Text:** Roll 1d4 and draw that many cards.
+- **Effect Text:** Draw 1d4 cards.
 ---
 
 -## 53. Psionic Wave
-- **Damage type:** Attack
+- **Damage type:**
 - **AP Cost:** 8
-- **Targeting:** Self
+- **Targeting:** 2d20ft circle
 - **Class:** 3
 - **Picture:** 
-- **Effect Text:** Roll 2d20 for range. Deal arcane damage to all units within that distance.
+- **Effect Text:** All other units in the range Destroy the top 2d4 cards from their deck. This can go through walls.
 ---
 
 -## 54. Summon Magic Wall
-- **Damage type:** Summon
+- **Damage type:**
 - **AP Cost:** 2
-- **Targeting:** Empty Adjacent
+- **Targeting:** Adjacent wall / tile
 - **Class:** 2
 - **Picture:** 
-- **Effect Text:** Create a magic wall on an adjacent empty tile (blocks non-physical damage).
+- **Effect Text:** Create a magic wall. Units surrounding take and deal double magic damage, but take and deal half physical damage.
 ---
 
 -## 55. Earthquake
-- **Damage type:** Special
+- **Damage type:** Physical
 - **AP Cost:** 5
-- **Targeting:** Self
+- **Targeting:** Whole board
 - **Class:** 2
 - **Picture:** 
-- **Effect Text:** Roll 1d4 for each unit on board. Move them that many tiles in random direction. Units take 3 damage on collision.
+- **Effect Text:** Every unit rolls 1d4 and are moved that amount in a random direction at the same time. They take 1d4 damage if they hit a wall or another unit.
 ---
 
 -## 56. Form of Ghost
-- **Damage type:** Transformation
+- **Damage type:**
 - **AP Cost:** 7
 - **Targeting:** Self
 - **Class:** 3
 - **Picture:** 
-- **Effect Text:** Gain Regeneration and immunity to damage until you take 5+ damage in one hit (then form breaks).
+- **Effect Text:** Transform into a Ghost until you take 4 HP damage. You are invulnerable to physical/piercing damage. You can move through walls and units but not end turn in one. You have Regeneration. You take double Holy damage.
 ---
 
 -## 57. Giant Magic Hand
-- **Damage type:** Attack
+- **Damage type:** Physical
 - **AP Cost:** 2
-- **Targeting:** Adjacent Wall
+- **Targeting:** Adjacent wall
 - **Class:** 2
 - **Picture:** 
-- **Effect Text:** Choose: Push or Pull an adjacent unit through a wall.
+- **Effect Text:** Choose a wall, push it one tile forward and you move with it, dealing 2d4 to any unit it hits, if they have no room to move on any side they die, or pull it one tile backwards.
 ---
 
 -## 58. Consume Large Health Potion
-- **Damage type:** Healing
+- **Damage type:**
 - **AP Cost:** 4
 - **Targeting:** Self
 - **Class:** 2
@@ -525,106 +539,114 @@
 -## 59. Lesser Heal
 - **Damage type:** Healing
 - **AP Cost:** 1
-- **Targeting:** Line of Sight Tile
+- **Targeting:** Line of Sight / Self
 - **Class:** 1
 - **Picture:** 
-- **Effect Text:** Roll 1d6 and heal a target in line of sight for that amount.
+- **Effect Text:** Roll 1d6, target heals that amount of HP.
 ---
 
 -## 60. Transform Wall
-- **Damage type:** Special
+- **Damage type:**
 - **AP Cost:** 5
-- **Targeting:** Adjacent Wall
+- **Targeting:** Adjacent wall
 - **Class:** 3
 - **Picture:** 
-- **Effect Text:** Transform an adjacent wall into a unit. Normal wall → 5 HP unit. Magic wall → 7 HP unit.
+- **Effect Text:** Transform a wall into a Wall minion. Its deck is X2 Fortify, X2 Ward, X1 Summon Wall. Improve if used on a Magic Wall.
+-**AP:** 1d4
+-**HP:** 5
 ---
 
 -## 61. Summon Kobold King
-- **Damage type:** Summon
+- **Damage type:**
 - **AP Cost:** 4
-- **Targeting:** Empty Adjacent
+- **Targeting:** Adjacent tile
 - **Class:** 3
 - **Picture:** 
-- **Effect Text:** Summon a Kobold King with HP equal to (number of your Kobolds + 1) on an adjacent empty tile.
+- **Effect Text:** Summon a Kobold King minion. Its deck is X2 Slash, X2 Stab, X2 Full Restore, X1 Call for Kobolds. Its max HP always matches the number of Kobolds on board + 1. 
+-**AP:** 1d6
+-**HP:** 1 + # of Kobolds
 ---
 
 -## 62. Summon Assistant
-- **Damage type:** Summon
+- **Damage type:**
 - **AP Cost:** 4
-- **Targeting:** Empty Adjacent
+- **Targeting:** Adjacent tile
 - **Class:** 1
 - **Picture:** 
-- **Effect Text:** Summon a 1 HP Assistant on an adjacent empty tile. Assistant grants you +1 Luck aura.
+- **Effect Text:** Summon an Assistant minion. Its deck is X1 Lesser Heal, X4 Hand Block. While adjacent, the unit who summoned it have +1 Luck, and can reroll their AP if at 0 once per turn. 
+-**AP:** Coin
+-**HP:** 1
 ---
 
 -## 63. Constitution Boon
-- **Damage type:** Buff
+- **Damage type:**
 - **AP Cost:** 4
 - **Targeting:** Self
 - **Class:** 3
 - **Picture:** 
-- **Effect Text:** Draft cards based on your max HP: 16-20 = Class 1, 21-25 = Class 2, 26-30 = Class 3, >30 = instant win.
+- **Effect Text:** If your max HP is 16-20 Draft Class 1, 21-25 Draft Class 2, 26-30 Draft Class 3, 30+ win the game.
 ---
 
 -## 64. Four-leaf clover
-- **Damage type:** Special
+- **Damage type:**
 - **AP Cost:** 10
 - **Targeting:** Self
 - **Class:** 2
 - **Picture:** 
-- **Effect Text:** Gain +1 permanent Luck.
+- **Effect Text:** You have +1 temporary Luck while this is in your deck (not discard or drawn). Gain +1 Luck when played.
 ---
 
 -## 65. Sprint
-- **Damage type:** Movement
+- **Damage type:**
 - **AP Cost:** 0
 - **Targeting:** Self
 - **Class:** 2
 - **Picture:** 
-- **Effect Text:** Gain +2 AP immediately and +2 AP next turn. Kick costs 0 AP for 2 turns.
+- **Effect Text:** Gain +2 AP this turn and +2 AP next turn. Kick costs 0 AP until the end of next turn.
 ---
 
 -## 66. Full Restore
-- **Damage type:** Healing
+- **Damage type:**
 - **AP Cost:** 4
 - **Targeting:** Self
 - **Class:** 2
 - **Picture:** 
-- **Effect Text:** Heal to maximum HP and remove all status effects (Fire, Poison, Paralysis, Sleep).
+- **Effect Text:** Heal to max HP and remove all negative status effects.
 ---
 
 -## 67. Smite
-- **Damage type:** Attack
+- **Damage type:** Holy
 - **AP Cost:** 3
-- **Targeting:** Adjacent Unit
+- **Targeting:** Adjacent unit
 - **Class:** 2
 - **Picture:** 
-- **Effect Text:** Deal 5 holy damage to an adjacent unit.
+- **Effect Text:** Deal 5 damage.
 ---
 
 -## 68. Burst of Light
-- **Damage type:** Attack
+- **Damage type:** Holy
 - **AP Cost:** 3
-- **Targeting:** Line of Sight Tile
+- **Targeting:** Line of Sight / Self
 - **Class:** 1
 - **Picture:** 
-- **Effect Text:** Choose a target in line of sight: Deal 3 holy damage OR heal 3 HP.
+- **Effect Text:** Deal 3 damage or heal 3 HP.
 ---
 
 -## 69. Shoot Arrow
-- **Damage type:** Attack
+- **Damage type:** Piercing
 - **AP Cost:** 3
-- **Targeting:** Line of Sight Tile
+- **Targeting:** 2d20ft
 - **Class:** 1
 - **Picture:** 
-- **Effect Text:** Roll 2d20 for range (max 40ft). If successful, roll 1d6 and deal that much piercing damage.
+- **Effect Text:** Deal 1d6 damage to the unit hit. Destroy the top card of your deck, if it was Shock deal +1d6 electric damage and apply Paralysis, if Flame Hit deal +1d6 fire damage and apply Burning, if Add Poison deal +1d6 poison damage and apply Poisoned.
 ---
 
 -## 70. Summon Faerie
-- **Damage type:** Summon
+- **Damage type:**
 - **AP Cost:** 4
-- **Targeting:** Empty Adjacent
+- **Targeting:** Adjacent tile
 - **Class:** 2
 - **Picture:** 
-- **Effect Text:** Summon a 5 HP Faerie with Regeneration on an adjacent empty tile. Faerie rolls 1d4 for AP each turn.
+- **Effect Text:** Summon a Faerie minion, with Regeneration. Its deck is X2 Dispel, X2 Lesser Heal, X1 Magic Blast. While adjacent, the unit who summoned it is resurrected if they die at 25% X 1d4 of their max HP, all status effects are removed.
+-**AP:** 1d4
+-**HP:** 5
