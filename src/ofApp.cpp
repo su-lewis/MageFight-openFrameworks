@@ -20633,7 +20633,7 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 		{
 			// Authoritative range roll (gameplay RNG)
 			std::vector<int> rawRange;
-			int rangeRoll = resolveDiceRollDetailed(playedCard.numDice, playedCard.diceSides, rawRange);
+			resolveDiceRollDetailed(playedCard.numDice, playedCard.diceSides, rawRange);
 			int luckBonus = 0;
 			int luckOwner = (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) ? currentPlayerIndex : -1;
 			if (luckOwner != -1) luckBonus = players[luckOwner].luck + computePassiveLuck(luckOwner);
@@ -21362,7 +21362,7 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 
 		// Authoritative range roll (gameplay RNG)
 		std::vector<int> rawRange;
-		int rangeRoll = resolveDiceRollDetailed(playedCard.numDice, playedCard.diceSides, rawRange);
+		resolveDiceRollDetailed(playedCard.numDice, playedCard.diceSides, rawRange);
 		int luckBonus = 0;
 		int luckOwner = (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) ? currentPlayerIndex : -1;
 		if (luckOwner != -1) luckBonus = players[luckOwner].luck + computePassiveLuck(luckOwner);
@@ -21419,7 +21419,7 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 
 				// Resolve damage at play-time and store for the effect pipeline
 				std::vector<int> rawDamage;
-				int damage = resolveDiceRollDetailed(1, 10, rawDamage);
+				resolveDiceRollDetailed(1, 10, rawDamage);
 				int finalDamage = ((10 == 2) ? rawDamage[0] : (rawDamage[0] + luckBonus));
 				currentEffectSequence.blackboard[1] = finalDamage;
 				queueVisualDiceRoll(impactTile, 1, 10, rawDamage, finalDamage, PURPOSE_DAMAGE, currentPlayerIndex, 1.0f);
