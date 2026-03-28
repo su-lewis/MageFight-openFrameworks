@@ -17134,6 +17134,35 @@ void ofApp::processEffectOp(EffectOp & op) {
 		break;
 	}
 
+	case EffectOpType::APPLY_FLAIL_DAMAGE_RESOLVE: {
+		int baseOut = op.data.damage.damageFromSlot;
+		int count = op.data.damage.targetIndex;
+		int unitCount = 0;
+
+		for (int i = 0; i < count; ++i) {
+			int slot = baseOut + i;
+			int applied = 0;
+			if (slot >= 0 && slot < 16) applied = currentEffectSequence.blackboard[slot];
+			if (i < (int)currentCardOutcome.targetedPlayers.size()) {
+				int pid = currentCardOutcome.targetedPlayers[i];
+				int pidx = findPlayerIndexByID(pid);
+				Player * target = getPlayer(pidx);
+				if (!target) continue;
+				unitCount++;
+				glm::vec3 tpos = gridToWorld(target->x, target->y);
+				if (applied > 0) {
+					queueFloatingTextVisual(tpos, "-" + ofToString(applied) + "", ofColor::red);
+				} else {
+					queueFloatingTextVisual(tpos, "Absorbed", ofColor::gray);
+				}
+			}
+		}
+
+		currentCardOutcome.targetedPlayers.clear();
+		opComplete = true;
+		break;
+	}
+
 	case EffectOpType::APPLY_FIREBALL: {
 		// Determine range roll from blackboard slot 0 (authoritative)
 		int rangeRoll = currentEffectSequence.blackboard[0];
@@ -18301,13 +18330,8 @@ void ofApp::processEffectOp(EffectOp & op) {
 				queueFloatingTextVisual(gridToWorld(p.x, p.y), "Absorbed", ofColor::gray);
 		}
 
-		// After primary resolve, immediately roll AOE radius into slot 2 and queue AOE handler
-		{
-			std::vector<int> rawAoe;
-			int aoeRollVal = resolveDiceRollDetailed(1, 20, rawAoe);
-			currentEffectSequence.blackboard[2] = aoeRollVal;
-			queueVisualDiceRoll(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.0f, 0), 1, 20, rawAoe, aoeRollVal, PURPOSE_RANGE, currentPlayerIndex, 1.0f);
-		}
+		// AOE radius is resolved at decision-time and stored in blackboard[2];
+		// visuals were also queued earlier during the play-phase.
 
 		EffectOp aoeApply = {};
 		aoeApply.type = EffectOpType::APPLY_MAGIC_BOLT_AOE;
@@ -18618,18 +18642,13 @@ void ofApp::processEffectOp(EffectOp & op) {
 				// Spawn visual indicator
 				queueFloatingTextVisual(impactTile, "Chain!", ofColor::yellow);
 
-				// Authoritative immediate damage roll (1d10)
-				std::vector<int> rawChain;
-				int damage = resolveDiceRollDetailed(1, 10, rawChain);
-				queueVisualDiceRoll(impactTile, 1, 10, rawChain, damage, PURPOSE_DAMAGE, currentPlayerIndex, 1.0f);
-
-				// Build 8-neighbor AOE (exclude center)
+				// Damage already resolved at play-time and stored in blackboard[1].
+				// Spawn small tracer visuals for flair (visual-only)
 				std::vector<std::pair<int, int>> aoeTiles;
 				for (int dx = -1; dx <= 1; ++dx)
 					for (int dy = -1; dy <= 1; ++dy)
 						if (!(dx == 0 && dy == 0)) aoeTiles.push_back({ caster.x + dx, caster.y + dy });
 
-				int unitCount = 0;
 				for (size_t pi = 0; pi < players.size(); ++pi) {
 					Player & target = players[pi];
 					if ((int)pi == currentPlayerIndex || target.health <= 0) continue;
@@ -18649,29 +18668,17 @@ void ofApp::processEffectOp(EffectOp & op) {
 					}
 					if (!isInAOE) continue;
 
-					// Small tracer visual for flair
-					{
-						glm::vec2 casterTileF((float)caster.x, (float)caster.y);
-						glm::vec2 targetTileF((float)target.x, (float)target.y);
-						glm::vec3 worldStart, worldEnd;
-						computeTracerEndpoints(casterTileF, targetTileF + glm::vec2(0.5f, 0.5f), worldStart, worldEnd);
-						spawnTracer(worldStart, worldEnd, glm::ivec2(target.x, target.y), ofColor::yellow, 4.0f);
-					}
-					// Centralized applicator handles phasing, mitigation, visuals and form accumulation
-					bool decreased = applyDamageTo(target, damage, DAMAGE_ELECTRIC, currentPlayerIndex);
-					if (decreased) unitCount++;
+					glm::vec2 casterTileF((float)caster.x, (float)caster.y);
+					glm::vec2 targetTileF((float)target.x, (float)target.y);
+					glm::vec3 worldStart, worldEnd;
+					computeTracerEndpoints(casterTileF, targetTileF + glm::vec2(0.5f, 0.5f), worldStart, worldEnd);
+					spawnTracer(worldStart, worldEnd, glm::ivec2(target.x, target.y), ofColor::yellow, 4.0f);
 				}
 
-				if (unitCount > 1) {
-					EffectOp ap = {};
-					ap.type = EffectOpType::MODIFY_STAT;
-					ap.data.modifyStat.targetIndex = currentPlayerIndex;
-					ap.data.modifyStat.statType = 11; // Next-turn AP bonus
-					ap.data.modifyStat.delta = 3;
-					ap.data.modifyStat.deltaFromSlot = -1;
-					queueEffect(ap);
-					queueFloatingTextVisual(gridToWorld(caster.x, caster.y), "+3 AP Next Turn", ofColor::cyan);
-				}
+				// Delegate authoritative damage application to the effect pipeline
+				EffectOp dmgOp = {};
+				dmgOp.type = EffectOpType::APPLY_CHAIN_LIGHTNING_DAMAGE;
+				queueEffect(dmgOp);
 			} else {
 				queueFloatingTextVisual(impactTile, "No LOS", ofColor::gray);
 			}
@@ -20675,74 +20682,31 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 			if (isTileWall((int)currentCardOutcome.primaryTarget.x, (int)currentCardOutcome.primaryTarget.y)) {
 				queueFloatingTextVisual(gridToWorld((int)currentCardOutcome.primaryTarget.x, (int)currentCardOutcome.primaryTarget.y), "Fizzle!", ofColor::gray);
 			} else {
-				// Primary damage
-				std::vector<int> rawPrimary;
-				int rawPrim = resolveDiceRollDetailed(1, 20, rawPrimary);
-				int primaryDamage = (20 == 2) ? rawPrim : (rawPrim + luckBonus);
+				// Primary damage: resolve locally, write to blackboard[1], queue visuals,
+				// and enqueue the APPLY_MAGIC_BOLT_PRIMARY effect so the effect pipeline
+				// deterministically applies mitigations and follows up with AOE handling.
+				{
+					std::vector<int> rawPrimary;
+					int rawPrim = resolveDiceRollDetailed(1, 20, rawPrimary);
+					int primaryDamage = (20 == 2) ? rawPrim : (rawPrim + luckBonus);
+					currentEffectSequence.blackboard[1] = primaryDamage;
+					// Queue visual for primary damage
+					queueVisualDelay(1.5f);
+					queueVisualDiceRoll(gridToWorld((int)currentCardOutcome.primaryTarget.x, (int)currentCardOutcome.primaryTarget.y) + glm::vec3(0, 1.0f, 0), 1, 20, rawPrimary, primaryDamage, PURPOSE_DAMAGE, currentPlayerIndex, 1.2f);
+					queueVisualDelay(1.5f);
 
-				// Queue visual for primary damage
-				queueVisualDelay(1.5f);
-				queueVisualDiceRoll(gridToWorld((int)currentCardOutcome.primaryTarget.x, (int)currentCardOutcome.primaryTarget.y) + glm::vec3(0, 1.0f, 0), 1, 20, rawPrimary, primaryDamage, PURPOSE_DAMAGE, currentPlayerIndex, 1.2f);
-				queueVisualDelay(1.5f);
-
-				// Apply primary damage immediately (authoritative)
-				int directHitIdx = -1;
-				for (size_t i = 0; i < players.size(); ++i) {
-					if (players[i].x == currentCardOutcome.primaryTarget.x && players[i].y == currentCardOutcome.primaryTarget.y) {
-						directHitIdx = (int)i;
-						break;
+					// Also resolve AOE radius now (decision-time) and store visual results
+					{
+						std::vector<int> rawAoe;
+						int rawAoeSum = resolveDiceRollDetailed(1, 20, rawAoe);
+						int aoeRoll = (20 == 2) ? rawAoeSum : (rawAoeSum + luckBonus);
+						currentEffectSequence.blackboard[2] = aoeRoll;
+						queueVisualDiceRoll(gridToWorld((int)currentCardOutcome.primaryTarget.x, (int)currentCardOutcome.primaryTarget.y) + glm::vec3(0, 1.0f, 0), 1, 20, rawAoe, aoeRoll, PURPOSE_RANGE, currentPlayerIndex, 1.2f);
 					}
-				}
-				if (directHitIdx >= 0) {
-					int applied = applyDamageWithMitigations(players[directHitIdx], primaryDamage, DAMAGE_MAGIC, currentPlayerIndex);
-					if (applied > 0)
-						queueFloatingTextVisual(gridToWorld(players[directHitIdx].x, players[directHitIdx].y), "-" + ofToString(applied) + " Magic", ofColor::red);
-					else
-						queueFloatingTextVisual(gridToWorld(players[directHitIdx].x, players[directHitIdx].y), "Absorbed", ofColor::gray);
-				}
-				queueVisualDelay(1.5f);
 
-				// AOE roll and visuals
-				std::vector<int> rawAoe;
-				int rawAoeSum = resolveDiceRollDetailed(1, 20, rawAoe);
-				int aoeRoll = (20 == 2) ? rawAoeSum : (rawAoeSum + luckBonus);
-				queueVisualDiceRoll(gridToWorld((int)currentCardOutcome.primaryTarget.x, (int)currentCardOutcome.primaryTarget.y) + glm::vec3(0, 1.0f, 0), 1, 20, rawAoe, aoeRoll, PURPOSE_RANGE, currentPlayerIndex, 1.2f);
-				queueVisualDelay(1.5f);
-
-				int aoeRadiusFeet = aoeRoll;
-
-				// Build AOE targets (exclude primary)
-				std::vector<int> aoeTargets;
-				for (size_t i = 0; i < players.size(); ++i) {
-					Player & p = players[i];
-					if (p.x == currentCardOutcome.primaryTarget.x && p.y == currentCardOutcome.primaryTarget.y) continue;
-					float centerDistFeet = glm::distance(glm::vec2(currentCardOutcome.primaryTarget.x, currentCardOutcome.primaryTarget.y), glm::vec2(p.x, p.y)) * 5.0f;
-					float neededFeetRaw = std::max(0.0f, centerDistFeet - 2.5f);
-					int neededFeet = (int)floor(neededFeetRaw + 1e-4f);
-					if (neededFeet <= aoeRadiusFeet) {
-						auto losPath = getLineOfSightPath(glm::vec2(currentCardOutcome.primaryTarget.x, currentCardOutcome.primaryTarget.y) + glm::vec2(0.5f, 0.5f), glm::vec2(p.x, p.y) + glm::vec2(0.5f, 0.5f));
-						bool blockedByWall = false;
-						for (const auto & step : losPath) {
-							if ((int)step.x == currentCardOutcome.primaryTarget.x && (int)step.y == currentCardOutcome.primaryTarget.y) continue;
-							if ((int)step.x == p.x && (int)step.y == p.y) break;
-							if (isTileWall((int)step.x, (int)step.y)) {
-								blockedByWall = true;
-								break;
-							}
-						}
-						if (!blockedByWall) aoeTargets.push_back((int)i);
-					}
-				}
-
-				// Apply AOE damage immediately (base 3)
-				for (size_t idx2 = 0; idx2 < aoeTargets.size(); ++idx2) {
-					int pidx = aoeTargets[idx2];
-					int dmg = 3;
-					int applied = applyDamageWithMitigations(players[pidx], dmg, DAMAGE_ELECTRIC, currentPlayerIndex);
-					if (applied > 0)
-						queueFloatingTextVisual(gridToWorld(players[pidx].x, players[pidx].y), "-" + ofToString(applied) + " Electric", ofColor::yellow);
-					else
-						queueFloatingTextVisual(gridToWorld(players[pidx].x, players[pidx].y), "Absorbed", ofColor::gray);
+					EffectOp applyPrimary = {};
+					applyPrimary.type = EffectOpType::APPLY_MAGIC_BOLT_PRIMARY;
+					queueEffect(applyPrimary);
 				}
 			}
 		}
@@ -20786,16 +20750,28 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 			queueVisualDiceRoll(visPos, playedCard.numDice, playedCard.diceSides, rawFlail, flailTotal, PURPOSE_DAMAGE, currentPlayerIndex, 1.2f);
 		}
 
-		// Apply damage to all adjacent targets immediately (authoritative)
-		for (int targetIdx : adjacentTargets) {
-			int dmg = currentEffectSequence.blackboard[0];
-			if (dmg <= 0) dmg = 0;
-			Player & tgt = players[targetIdx];
-			int applied = applyDamageWithMitigations(tgt, dmg, playedCard.damageType, currentPlayerIndex);
-			if (applied > 0)
-				queueFloatingTextVisual(gridToWorld(tgt.x, tgt.y), "-" + ofToString(applied) + " ", ofColor::red);
-			else
-				queueFloatingTextVisual(gridToWorld(tgt.x, tgt.y), "Absorbed", ofColor::gray);
+		// Queue per-target mitigation via applyDamageWithMitigationsQueued, write applied amounts into blackboard starting at slot 8
+		{
+			int baseOut = 8;
+			int outIdx = 0;
+			currentCardOutcome.targetedPlayers.clear();
+			for (int targetIdx : adjacentTargets) {
+				Player & tgt = players[targetIdx];
+				int outSlot = baseOut + outIdx;
+				int dmg = currentEffectSequence.blackboard[0];
+				if (dmg <= 0) dmg = 0;
+				applyDamageWithMitigationsQueued(tgt, dmg, playedCard.damageType, currentPlayerIndex, outSlot);
+				currentCardOutcome.targetedPlayers.push_back(players[targetIdx].playerID);
+				outIdx++;
+			}
+
+			// Enqueue resolve op to read applied amounts from blackboard and show visuals
+			EffectOp res = {};
+			res.type = EffectOpType::APPLY_FLAIL_DAMAGE_RESOLVE;
+			res.data.damage.damageFromSlot = 8;
+			res.data.damage.targetIndex = outIdx; // count
+			res.data.damage.damageType = playedCard.damageType;
+			queueEffect(res);
 		}
 
 		playedSuccessfully = true;
@@ -21434,18 +21410,19 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 			if (hasLOS) {
 				queueFloatingTextVisual(impactTile, "Chain!", ofColor::yellow);
 
-				// Authoritative immediate damage roll (1d10)
+				// Resolve damage at play-time and store for the effect pipeline
 				std::vector<int> rawDamage;
-				resolveDiceRollDetailed(1, 10, rawDamage);
-				int damage = ((10 == 2) ? rawDamage[0] : (rawDamage[0] + luckBonus));
+				int damage = resolveDiceRollDetailed(1, 10, rawDamage);
+				int finalDamage = ((10 == 2) ? rawDamage[0] : (rawDamage[0] + luckBonus));
+				currentEffectSequence.blackboard[1] = finalDamage;
+				queueVisualDiceRoll(impactTile, 1, 10, rawDamage, finalDamage, PURPOSE_DAMAGE, currentPlayerIndex, 1.0f);
 
-				// Build 8-neighbor AOE (exclude center)
+				// Spawn small tracer visuals for flair (visual-only)
 				std::vector<std::pair<int, int>> aoeTiles;
 				for (int dx2 = -1; dx2 <= 1; ++dx2)
 					for (int dy2 = -1; dy2 <= 1; ++dy2)
 						if (!(dx2 == 0 && dy2 == 0)) aoeTiles.push_back({ caster.x + dx2, caster.y + dy2 });
 
-				int unitCount = 0;
 				for (size_t pi = 0; pi < players.size(); ++pi) {
 					Player & target = players[pi];
 					if ((int)pi == currentPlayerIndex || target.health <= 0) continue;
@@ -21465,29 +21442,17 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 					}
 					if (!isInAOE) continue;
 
-					// Small tracer visual for flair
-					{
-						glm::vec2 casterTileF((float)caster.x, (float)caster.y);
-						glm::vec2 targetTileF((float)target.x, (float)target.y);
-						glm::vec3 worldStart, worldEnd;
-						computeTracerEndpoints(casterTileF, targetTileF + glm::vec2(0.5f, 0.5f), worldStart, worldEnd);
-						spawnTracer(worldStart, worldEnd, glm::ivec2(target.x, target.y), ofColor::yellow, 4.0f);
-					}
-					// Centralized applicator handles phasing, mitigation, visuals and form accumulation
-					bool decreased = applyDamageTo(target, damage, DAMAGE_ELECTRIC, currentPlayerIndex);
-					if (decreased) unitCount++;
+					glm::vec2 casterTileF((float)caster.x, (float)caster.y);
+					glm::vec2 targetTileF((float)target.x, (float)target.y);
+					glm::vec3 worldStart, worldEnd;
+					computeTracerEndpoints(casterTileF, targetTileF + glm::vec2(0.5f, 0.5f), worldStart, worldEnd);
+					spawnTracer(worldStart, worldEnd, glm::ivec2(target.x, target.y), ofColor::yellow, 4.0f);
 				}
 
-				if (unitCount > 1) {
-					EffectOp ap = {};
-					ap.type = EffectOpType::MODIFY_STAT;
-					ap.data.modifyStat.targetIndex = currentPlayerIndex;
-					ap.data.modifyStat.statType = 11; // Next-turn AP bonus
-					ap.data.modifyStat.delta = 3;
-					ap.data.modifyStat.deltaFromSlot = -1;
-					queueEffect(ap);
-					queueFloatingTextVisual(gridToWorld(caster.x, caster.y), "+3 AP Next Turn", ofColor::cyan);
-				}
+				// Delegate authoritative damage application to the effect pipeline
+				EffectOp dmgOp = {};
+				dmgOp.type = EffectOpType::APPLY_CHAIN_LIGHTNING_DAMAGE;
+				queueEffect(dmgOp);
 			} else {
 				queueFloatingTextVisual(impactTile, "No LOS", ofColor::gray);
 			}
