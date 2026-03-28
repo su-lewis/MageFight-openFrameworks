@@ -169,8 +169,9 @@ enum InputCommandType : uint8_t {
 	CMD_RENEWED_INSPIRATION = 8,
 	CMD_PSEUDO_ACTION = 9,
 	CMD_STATUS_ACTION = 10,
-	CMD_ACCEPT_DRAFT = 11,
-	// CMD_ROLL_DICE removed: dice resolved deterministically at decision time
+	CMD_RESOLVE_DICE = 11, // New: Host packs per-die faces into InputCommandPacket.stringData
+	CMD_ACCEPT_DRAFT = 12,
+	// CMD_ROLL_DICE fully removed: dice resolved deterministically at decision time
 };
 
 // Canonical deterministic input packet - replaces ActionPacket for lockstep

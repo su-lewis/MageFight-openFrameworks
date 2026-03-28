@@ -1,5 +1,6 @@
 #include "ofApp.h"
 #include "GLFW/glfw3.h"
+#include "LockstepUtils.h"
 #include "SteamManager.h"
 #include "ofAppGLFWWindow.h"
 #include <algorithm>
@@ -4258,6 +4259,13 @@ void ofApp::updateGame() {
 	// 1. UPDATE UI POSITIONS
 	updateDebugRects();
 
+	// If a turn start was deferred while visuals played, commit it now once visuals finished.
+	if (turnStartDeferred && diceVisualsFinishedAndLinger()) {
+		turnStartDeferred = false;
+		turnStartTime = ofGetElapsedTimef();
+		ofLogNotice("Timer") << "Deferred turn start committed. Starting timer now.";
+	}
+
 	// --- TURN TIMER CHECK (run early so it continues during modal menus/drafting) ---
 	if (turnTimerEnabled && currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size() && (!isMultiplayer || isMyTurn())) {
 		// Run timer checks even if modal UI is open; drafting/gameplay variations handled inside
@@ -4283,7 +4291,41 @@ void ofApp::updateGame() {
 				} else {
 					// Auto-end-turn during gameplay
 					ofLogNotice("Timer") << "Turn time limit exceeded (" << turnDurationSeconds << "s). Auto-ending turn.";
-					startNewTurn();
+					// If I'm the active local player, submit a deterministic CMD_END_TURN.
+					if (!isMultiplayer || isMyTurn()) {
+						if (!endTurnLocked) {
+							endTurnLocked = true;
+							InputCommandPacket cmd = {};
+							cmd.type = PKT_INPUT_COMMAND;
+							cmd.playerID = myLocalPlayerID;
+							cmd.seq = 0;
+							cmd.commandId = nextCommandId++;
+							cmd.turnNumber = globalTurnCounter;
+							cmd.commandType = CMD_END_TURN;
+							// Queue locally and send to peers so lockstep advances identically
+							queueInputCommand(cmd);
+							steamManager.sendPacket(&cmd, sizeof(cmd));
+						}
+					}
+					// If I'm the Host waiting for a remote player, allow a small grace period
+					else if (isHost()) {
+						float grace = 3.0f; // seconds of network grace
+						if (elapsedSeconds >= turnDurationSeconds + grace) {
+							if (!endTurnLocked) {
+								endTurnLocked = true;
+								InputCommandPacket cmd = {};
+								cmd.type = PKT_INPUT_COMMAND;
+								cmd.playerID = myLocalPlayerID;
+								cmd.seq = 0;
+								cmd.commandId = nextCommandId++;
+								cmd.turnNumber = globalTurnCounter;
+								cmd.commandType = CMD_END_TURN;
+								queueInputCommand(cmd);
+								steamManager.sendPacket(&cmd, sizeof(cmd));
+								ofLogNotice("Timer") << "Host: forcing end-turn due to client timeout.";
+							}
+						}
+					}
 				}
 			}
 		}
@@ -14784,7 +14826,11 @@ void ofApp::continueNewTurn() {
 	calculateTargetHighlights();
 
 	// --- TURN TIMER INITIALIZATION ---
-	turnStartTime = ofGetElapsedTimef();
+	// Defer starting the visible turn timer until any queued visuals finish so
+	// the active player's thinking time does not include opponent animations.
+	turnStartDeferred = true;
+	turnStartDeferredAt = ofGetElapsedTimef();
+	ofLogNotice("Timer") << "Turn start deferred until visuals complete for player " << startingPlayer.playerID;
 	if (startingPlayer.isMinion) {
 		turnDurationSeconds = 60.0f; // 60 seconds for minions
 	} else {
@@ -14889,7 +14935,7 @@ void ofApp::continueNewTurn() {
 
 	// Ensure an effect sequence is active so visual/effect ops will be processed.
 	// Note: dice are resolved at decision-time and written into the effect sequence
-	// blackboard; there should be no deferred ROLL_DICE ops.
+	// blackboard; deferred dice ops fully removed.
 	if (!isProcessingEffect) {
 		beginEffectSequence();
 		ofLogNotice("EffectQueue") << "Beginning effect sequence for turn-start of player " << startingPlayer.playerID;
@@ -16660,6 +16706,34 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 		ofLogNotice("Lockstep") << "Execute CMD_MENU_CHOICE: menuType=" << menuType << " choice=" << choice;
 		break;
 	}
+	case CMD_RESOLVE_DICE: {
+		// Host packs die faces into cmd.stringData using LockstepUtils::packDiceFaces.
+		// Layout (params): params[0]=numDice, params[1]=sides, params[2]=dicePurpose, params[3]=ownerIndex, params[4]=targetX, params[5]=targetY
+		std::vector<int> faces = unpackDiceFaces(cmd);
+		int total = 0;
+		for (int v : faces)
+			total += v;
+		int numDice = cmd.params[0];
+		int sides = cmd.params[1];
+		int purpose = cmd.params[2];
+		int ownerIdx = cmd.params[3];
+		int targetX = cmd.params[4];
+		int targetY = cmd.params[5];
+
+		glm::vec3 pos;
+		if (targetX >= 0 && targetY >= 0) {
+			pos = gridToWorld(targetX, targetY) + glm::vec3(0, 1.0f, 0);
+		} else if (ownerIdx >= 0 && ownerIdx < (int)players.size()) {
+			pos = gridToWorld(players[ownerIdx].x, players[ownerIdx].y) + glm::vec3(0, 1.0f, 0);
+		} else if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) {
+			pos = gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.0f, 0);
+		} else {
+			pos = glm::vec3(0, 1.0f, 0);
+		}
+
+		queueVisualDiceRoll(pos, numDice, sides, faces, total, purpose, ownerIdx, 1.2f);
+		break;
+	}
 	case CMD_ACCEPT_DRAFT: {
 		int draftPlayerIndex = cmd.params[0];
 		int classTier = cmd.params[1];
@@ -16797,7 +16871,7 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 		ofLogNotice("Lockstep") << "Execute CMD_STATUS_ACTION: " << cardName << " purge status " << statusIndex;
 		break;
 	}
-	// CMD_ROLL_DICE removed: dice are resolved deterministically at decision-time
+	// CMD_ROLL_DICE fully removed: dice are resolved deterministically at decision-time
 	default:
 		ofLogWarning("Lockstep") << "Unknown command type: " << (int)cmd.commandType;
 		break;
@@ -16810,7 +16884,7 @@ void ofApp::beginEffectSequence() {
 }
 
 void ofApp::queueEffect(const EffectOp & op) {
-	// (ROLL_DICE handling removed — dice are resolved deterministically at decision-time)
+	// (ROLL_DICE handling fully removed — dice are resolved deterministically at decision-time)
 
 	currentEffectSequence.ops.push_back(op);
 	// Lightweight tracing for lockstep verification
@@ -16859,7 +16933,7 @@ void ofApp::processEffectOp(EffectOp & op) {
 	bool opComplete = false;
 
 	switch (op.type) {
-		// ROLL_DICE op removed from pipeline; dice are resolved at-card-play time.
+		// ROLL_DICE op fully removed from pipeline; dice are resolved at-card-play time.
 
 	case EffectOpType::DAMAGE: {
 		int damage = op.data.damage.fixedDamage;

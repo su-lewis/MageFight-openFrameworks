@@ -346,7 +346,7 @@ enum class EffectOpType : uint8_t {
 };
 
 // NOTE: `RollDiceData` removed — dice are resolved at decision time and
-// written into `EffectSequence.blackboard` directly. The `ROLL_DICE` effect
+// written into `EffectSequence.blackboard` directly. The ROLL_DICE effect (legacy) is gone.
 // op and related input command were removed as part of the deterministic
 // lockstep migration; do not reintroduce deferred roll ops.
 
@@ -1448,6 +1448,10 @@ private:
 	float turnStartTime = 0.0f; // when the current turn began (ofGetElapsedTimef())
 	float turnDurationSeconds = 90.0f; // 90 seconds for regular units, 60 for minions
 	bool turnTimerEnabled = true; // whether to enforce auto-end-turn on timeout
+
+	// When true, the new turn's timer start is deferred until visuals finish.
+	bool turnStartDeferred = false;
+	float turnStartDeferredAt = 0.0f;
 
 	// Pause/resume support when modal choices are presented to other players
 	bool turnTimerPaused = false;
