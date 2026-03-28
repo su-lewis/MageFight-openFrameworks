@@ -16829,9 +16829,20 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 		if (isHost()) {
 			ofLogNotice("Lockstep") << "Host processing CMD_END_TURN -> startNewTurn()";
 			startNewTurn();
+			// Ensure the visible timer for the next player is deferred until
+			// any queued visuals (dice, animations) have finished. Some
+			// turn-start code paths may bypass the usual deferred flag, so
+			// enforce it here for safety.
+			turnStartDeferred = true;
+			turnStartDeferredAt = ofGetElapsedTimef();
+			ofLogNotice("Timer") << "Host: deferred next player's visible timer until visuals complete.";
 		} else {
-			// Clients: no authoritative action here; visual/state changes already handled when packet was received
-			ofLogNotice("Lockstep") << "Client received CMD_END_TURN (no authoritative action)";
+			// Clients: no authoritative action here, but defer the visible
+			// timer until any queued visuals (dice/animations) finish so the
+			// player's thinking time does not include opponent animations.
+			turnStartDeferred = true;
+			turnStartDeferredAt = ofGetElapsedTimef();
+			ofLogNotice("Lockstep") << "Client received CMD_END_TURN; deferring visible timer until visuals complete.";
 		}
 		break;
 	}
@@ -30790,14 +30801,14 @@ void ofApp::processNetworkPackets() {
 
 			if (isHost()) {
 				// Host-side deduplication for draft actions
-					if (pkt->clientActionID != 0) {
-						uint32_t pid = pkt->playerID;
-						if (pid < (uint32_t)(sizeof(lastProcessedActionID) / sizeof(lastProcessedActionID[0])) && pkt->clientActionID <= lastProcessedActionID[pid]) {
-							// Duplicate draft action; ignore (resend/ACK removed in favor of deterministic commands)
-							ofLogNotice("Network") << "Host: Ignoring duplicate DraftAction clientActionID=" << pkt->clientActionID << " from playerID=" << pid;
-							continue;
-						}
+				if (pkt->clientActionID != 0) {
+					uint32_t pid = pkt->playerID;
+					if (pid < (uint32_t)(sizeof(lastProcessedActionID) / sizeof(lastProcessedActionID[0])) && pkt->clientActionID <= lastProcessedActionID[pid]) {
+						// Duplicate draft action; ignore (resend/ACK removed in favor of deterministic commands)
+						ofLogNotice("Network") << "Host: Ignoring duplicate DraftAction clientActionID=" << pkt->clientActionID << " from playerID=" << pid;
+						continue;
 					}
+				}
 				ofLogNotice("NetTrace") << "Host: processing DraftActionPacket from playerID=" << pkt->playerID << " actionType=" << (int)pkt->actionType << " clientActionID=" << pkt->clientActionID << " currentState=" << currentState << " draftStage=" << draftStage << " draftPlayerIndex=" << draftPlayerIndex;
 				// Ignore any draft inputs if we're not actively drafting
 				if (currentState != STATE_DRAFTING && !isInGameDraft) {
