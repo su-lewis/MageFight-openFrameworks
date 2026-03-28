@@ -20712,7 +20712,7 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 
 	case CARD_FLAIL: {
 		// LOCKSTEP MIGRATION: Dice roll for AoE damage
-		if (isMultiplayer && isHost()) sendCardActionBegin(CARD_FLAIL, currentPlayerIndex, -1, -1, 0, 0, 0, 0, "Flail");
+		// sendCardActionBegin suppressed: lockstep migration (no-op)
 
 		// Find adjacent targets
 		std::vector<int> adjacentTargets;
@@ -21232,7 +21232,7 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 		}
 		if (targetIndex == -1) return true;
 
-		if (isMultiplayer && isHost()) sendCardActionBegin(CARD_SHOOT_ARROW, currentPlayerIndex, targetX, targetY, 0, 0, 0, 0, "Shoot Arrow");
+		// sendCardActionBegin suppressed: lockstep migration (no-op)
 		beginEffectSequence();
 		{
 			{
@@ -21329,7 +21329,7 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 		TargetInfo validationResult = isLosTargetValid(casterTile, targetTile, 9999.0f, playedCard.type);
 		if (validationResult.reason != VALID) return true;
 
-		if (isMultiplayer && isHost()) sendCardActionBegin(CARD_CHAIN_LIGHTNING, currentPlayerIndex, targetX, targetY, 0, 0, 0, 0, "Chain Lightning");
+		// sendCardActionBegin suppressed: lockstep migration (no-op)
 		beginEffectSequence();
 
 		interactionTargetTile = targetTile;
@@ -21648,7 +21648,7 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 			playedSuccessfully = true;
 			advanceCardState(CARD_STATE_EFFECT_SEQUENCE);
 		} else {
-			if (isMultiplayer && isHost()) sendCardActionBegin(CARD_DEATH, currentPlayerIndex, targetX, targetY, 0, 0, 0, 0, "Death Check");
+			// sendCardActionBegin suppressed: lockstep migration (no-op)
 			beginEffectSequence();
 			{
 				std::vector<int> rawRoll;
@@ -22289,7 +22289,7 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 		amnesiaTargetPlayerIndex = targetIndex;
 		beginEffectSequence();
 
-		if (isMultiplayer && isHost()) sendCardActionBegin(CARD_AMNESIA, currentPlayerIndex, targetX, targetY, 0, 0, 0, 0, "Amnesia");
+		// sendCardActionBegin suppressed: lockstep migration (no-op)
 
 		// Queue authoritative roll for how many cards to remove, then apply Amnesia handling
 		{
@@ -22417,23 +22417,15 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 	case CARD_EARTHQUAKE: {
 		ofLogNotice("Earthquake") << "CARD_EARTHQUAKE triggered by playerIndex=" << currentPlayerIndex << " playerID=" << currentPlayer.playerID;
 		beginEffectSequence();
-		// (lockstep) Clients and host now run the same deterministic earthquake path.
-
-		// Host: Initialize Earthquake System and broadcast directions before rolling
-		// 2. Pay Cost & Cleanup Hand
+		// (lockstep) All peers now run the same deterministic earthquake path.
 		currentAP -= playedCard.cost;
 		currentPlayer.playedCardsPile.push_back(playedCard);
-		// (Handle Replicate logic here if you want)
 		currentPlayer.cardsPlayedThisTurn.push_back(playedCard.type);
 		currentPlayer.hand.erase(currentPlayer.hand.begin() + cardIndex);
-
-		// 2. Initialize Earthquake System
 		isEarthquakeActive = true;
 		isEarthquakeDiceRolling = true;
 		isEarthquakeAnimatingStep = false;
 		earthquakeUnits.clear();
-
-		// 3. Setup Units (choose directions) - distances will be filled after dice arrive
 		for (int i = 0; i < (int)players.size(); ++i) {
 			EarthquakeState state;
 			state.playerIndex = i;
@@ -22443,8 +22435,6 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 			state.crashed = false;
 			state.tilesToMove = 0;
 			state.originalDistance = 0;
-
-			// Random Direction (N, E, S, W)
 			int r = getGameRandom(0, 3);
 			if (r == 0)
 				state.direction = { 0, 1 }; // South
@@ -22454,26 +22444,9 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 				state.direction = { 1, 0 }; // East
 			else
 				state.direction = { -1, 0 }; // West
-
 			state.diceIndex = -1;
 			earthquakeUnits.push_back(state);
 		}
-
-		// Broadcast EarthquakeBegin so clients can set up directions identically
-		if (isMultiplayer && isHost()) {
-			EarthquakeBeginPacket eb = {};
-			eb.type = PKT_EARTHQUAKE_BEGIN;
-			eb.playerID = myLocalPlayerID;
-			eb.numUnits = (int32_t)earthquakeUnits.size();
-			for (int i = 0; i < (int)earthquakeUnits.size() && i < 16; ++i) {
-				eb.playerIndex[i] = earthquakeUnits[i].playerIndex;
-				eb.dirX[i] = (int8_t)earthquakeUnits[i].direction.x;
-				eb.dirY[i] = (int8_t)earthquakeUnits[i].direction.y;
-			}
-			steamManager.sendPacket(&eb, sizeof(eb));
-			ofLogNotice("Network") << "Host sent EarthquakeBegin with " << eb.numUnits << " units";
-		}
-
 		// Immediate deterministic resolution: compute distances, simulate bounces/crashes,
 		// compute crash damage and final positions in one blocking pass. Then apply
 		// authoritative game-state updates and queue non-blocking visual events.
