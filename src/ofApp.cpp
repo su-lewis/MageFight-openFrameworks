@@ -18825,20 +18825,26 @@ void ofApp::processEffectOp(EffectOp & op) {
 				spawnTracer(worldStart, worldEnd, glm::ivec2((int)interactionTargetTile.x, (int)interactionTargetTile.y), ofColor(200, 180, 100), 5.0f);
 			}
 
-			// Immediate authoritative damage roll and apply (single-pass)
+			// Immediate authoritative damage roll: resolve locally, store in blackboard,
+			// queue visuals, and dispatch via the effect pipeline so all peers remain deterministic.
 			std::vector<int> rawResults;
-			resolveDiceRollDetailed(1, 6, rawResults);
+			int rollVal = resolveDiceRollDetailed(1, 6, rawResults);
 			int raw = (rawResults.size() > 0) ? rawResults[0] : 1;
 			int luckOwner = (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) ? currentPlayerIndex : -1;
 			int luckBonusLocal = 0;
 			if (luckOwner != -1) luckBonusLocal = players[luckOwner].luck + computePassiveLuck(luckOwner);
 			int dmg = (6 == 2) ? raw : (raw + luckBonusLocal);
+
+			// Store the resolved damage in the effect blackboard for deterministic consumption
+			currentEffectSequence.blackboard[0] = dmg;
+
 			// Visual dice
 			queueVisualDelay(0.6f);
 			queueVisualDiceRoll(gridToWorld((int)interactionTargetTile.x, (int)interactionTargetTile.y) + glm::vec3(0, 1.0f, 0), 1, 6, rawResults, dmg, PURPOSE_DAMAGE, currentPlayerIndex, 1.0f);
 			queueVisualDelay(0.6f);
 
-			// Find the target and apply damage immediately
+			// Instead of applying immediately, queue a DAMAGE EffectOp that reads from blackboard[0]
+			// Find the player at the impact tile and target them via index so the applicator can run.
 			int targetIdx = -1;
 			for (size_t i = 0; i < players.size(); ++i) {
 				if (players[i].x == (int)interactionTargetTile.x && players[i].y == (int)interactionTargetTile.y) {
@@ -18847,9 +18853,12 @@ void ofApp::processEffectOp(EffectOp & op) {
 				}
 			}
 			if (targetIdx >= 0) {
-				Player & target = players[targetIdx];
-				// Centralized applicator handles phasing, mitigation, visuals and form accumulation
-				applyDamageTo(target, dmg, DAMAGE_PIERCING, currentPlayerIndex);
+				EffectOp applyDmg = {};
+				applyDmg.type = EffectOpType::DAMAGE;
+				applyDmg.data.damage.targetIndex = targetIdx;
+				applyDmg.data.damage.damageFromSlot = 0; // read damage from blackboard[0]
+				applyDmg.data.damage.damageType = DAMAGE_PIERCING;
+				queueEffect(applyDmg);
 			} else {
 				ofLogNotice("ShootArrow") << "No target found at impact tile after roll.";
 			}
@@ -20610,7 +20619,7 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 		{
 			// Authoritative range roll (gameplay RNG)
 			std::vector<int> rawRange;
-			resolveDiceRollDetailed(playedCard.numDice, playedCard.diceSides, rawRange);
+			int rangeRoll = resolveDiceRollDetailed(playedCard.numDice, playedCard.diceSides, rawRange);
 			int luckBonus = 0;
 			int luckOwner = (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) ? currentPlayerIndex : -1;
 			if (luckOwner != -1) luckBonus = players[luckOwner].luck + computePassiveLuck(luckOwner);
@@ -20623,6 +20632,11 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 				int finalRoll = (playedCard.diceSides == 2) ? raw : (raw + luckBonus);
 				rangeTotal += finalRoll;
 			}
+
+			// Store the resolved range in the effect blackboard and show visuals
+			currentEffectSequence.blackboard[0] = rangeTotal;
+			glm::vec3 visPos = gridToWorld(currentPlayer.x, currentPlayer.y) + glm::vec3(0, 1.0f, 0);
+			queueVisualDiceRoll(visPos, playedCard.numDice, playedCard.diceSides, rawRange, rangeTotal, PURPOSE_DEBUG, currentPlayerIndex, 1.0f);
 
 			// Determine impact tile deterministically
 			glm::ivec2 impactTile = { -1, -1 };
@@ -21365,7 +21379,7 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 
 		// Authoritative range roll (gameplay RNG)
 		std::vector<int> rawRange;
-		resolveDiceRollDetailed(playedCard.numDice, playedCard.diceSides, rawRange);
+		int rangeRoll = resolveDiceRollDetailed(playedCard.numDice, playedCard.diceSides, rawRange);
 		int luckBonus = 0;
 		int luckOwner = (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) ? currentPlayerIndex : -1;
 		if (luckOwner != -1) luckBonus = players[luckOwner].luck + computePassiveLuck(luckOwner);
@@ -21376,6 +21390,11 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 			int finalRoll = (playedCard.diceSides == 2) ? raw : (raw + luckBonus);
 			rangeTotal += finalRoll;
 		}
+
+		// Store the resolved range and show local visuals
+		currentEffectSequence.blackboard[0] = rangeTotal;
+		glm::vec3 visPos = gridToWorld(currentPlayer.x, currentPlayer.y) + glm::vec3(0, 1.0f, 0);
+		queueVisualDiceRoll(visPos, playedCard.numDice, playedCard.diceSides, rawRange, rangeTotal, PURPOSE_DEBUG, currentPlayerIndex, 1.0f);
 
 		Player & caster = players[currentPlayerIndex];
 		glm::vec3 casterPos = gridToWorld(caster.x, caster.y);
