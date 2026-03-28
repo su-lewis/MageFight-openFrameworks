@@ -11395,31 +11395,61 @@ void ofApp::mousePressed(int x, int y, int button) {
 		}
 		if (debugFlipCoinButton.inside(x, y)) {
 			std::vector<int> raw;
-			int v = resolveDiceRollDetailed(1, 2, raw);
+			int v;
+			if (isHost() || !isMultiplayer) {
+				v = resolveDiceRollDetailed(1, 2, raw);
+				currentEffectSequence.blackboard[14] = v;
+			} else {
+				v = currentEffectSequence.blackboard[14];
+			}
 			queueVisualDiceRoll(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.0f, 0), 1, 2, raw, v, PURPOSE_DEBUG, currentPlayerIndex, 0.8f);
 			return;
 		}
 		if (debugRollD4Button.inside(x, y)) {
 			std::vector<int> raw;
-			int v = resolveDiceRollDetailed(1, 4, raw);
+			int v;
+			if (isHost() || !isMultiplayer) {
+				v = resolveDiceRollDetailed(1, 4, raw);
+				currentEffectSequence.blackboard[14] = v;
+			} else {
+				v = currentEffectSequence.blackboard[14];
+			}
 			queueVisualDiceRoll(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.0f, 0), 1, 4, raw, v, PURPOSE_DEBUG, currentPlayerIndex, 1.0f);
 			return;
 		}
 		if (debugRollD6Button.inside(x, y)) {
 			std::vector<int> raw;
-			int v = resolveDiceRollDetailed(1, 6, raw);
+			int v;
+			if (isHost() || !isMultiplayer) {
+				v = resolveDiceRollDetailed(1, 6, raw);
+				currentEffectSequence.blackboard[14] = v;
+			} else {
+				v = currentEffectSequence.blackboard[14];
+			}
 			queueVisualDiceRoll(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.0f, 0), 1, 6, raw, v, PURPOSE_DEBUG, currentPlayerIndex, 1.0f);
 			return;
 		}
 		if (debugRollD10Button.inside(x, y)) {
 			std::vector<int> raw;
-			int v = resolveDiceRollDetailed(1, 10, raw);
+			int v;
+			if (isHost() || !isMultiplayer) {
+				v = resolveDiceRollDetailed(1, 10, raw);
+				currentEffectSequence.blackboard[14] = v;
+			} else {
+				v = currentEffectSequence.blackboard[14];
+			}
 			queueVisualDiceRoll(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.0f, 0), 1, 10, raw, v, PURPOSE_DEBUG, currentPlayerIndex, 1.0f);
 			return;
 		}
 		if (debugRollD20Button.inside(x, y)) {
 			std::vector<int> raw;
-			int v = resolveDiceRollDetailed(1, 20, raw);
+			int v;
+			if (isHost() || !isMultiplayer) {
+				v = resolveDiceRollDetailed(1, 20, raw);
+				currentEffectSequence.blackboard[14] = v;
+			} else {
+				v = currentEffectSequence.blackboard[14];
+			}
 			queueVisualDiceRoll(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.0f, 0), 1, 20, raw, v, PURPOSE_DEBUG, currentPlayerIndex, 1.0f);
 			return;
 		}
@@ -16780,7 +16810,7 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 		}
 		// After adding cards, perform deterministic shuffle of the target player's deck
 		shuffleGameVector(p.deck, draftPlayerIndex);
-		ofLogNotice("Lockstep") << "Execute CMD_ACCEPT_DRAFT: draftPlayerIndex=" << draftPlayerIndex << " classTier=" << classTier << " picks=" << picks.size() << " (shuffled)";
+		ofLogNotice("Lockstep") << "Execute CMD_ACCEPT_DRAFT: draftPlayerIndex=" << draftPlayerIndex << " picks=" << picks.size() << " (shuffled)";
 		break;
 	}
 
@@ -16789,7 +16819,6 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 		if (actionType == 0) {
 			int poolIdx = cmd.params[1];
 			int draftPlayerIdx = cmd.params[2];
-			int classTier = cmd.params[3];
 			// Validate
 			if (draftPlayerIdx < 0 || draftPlayerIdx >= (int)players.size()) {
 				ofLogError("Lockstep") << "CMD_DRAFT_ACTION: invalid draftPlayerIdx=" << draftPlayerIdx;
@@ -18842,7 +18871,7 @@ void ofApp::processEffectOp(EffectOp & op) {
 			// Immediate authoritative damage roll: resolve locally, store in blackboard,
 			// queue visuals, and dispatch via the effect pipeline so all peers remain deterministic.
 			std::vector<int> rawResults;
-			int rollVal = resolveDiceRollDetailed(1, 6, rawResults);
+			resolveDiceRollDetailed(1, 6, rawResults);
 			int raw = (rawResults.size() > 0) ? rawResults[0] : 1;
 			int luckOwner = (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) ? currentPlayerIndex : -1;
 			int luckBonusLocal = 0;
