@@ -2326,21 +2326,9 @@ void ofApp::update() {
 		}
 	}
 
-	// Resend watchdog for client-sent DraftActionPackets (retry until host forwards/acks)
-	if (isClient() && lastSentDraftActionValid && (waitingForDraftOptionsStartTime > 0.0f || draftAcceptLocked)) {
-		float now = ofGetElapsedTimef();
-		if (now - lastSentDraftActionTime > DRAFT_ACTION_RESEND_INTERVAL) {
-			if (lastSentDraftActionResendCount < DRAFT_ACTION_MAX_RESENDS) {
-				steamManager.sendPacket(&lastSentDraftActionPacket, sizeof(lastSentDraftActionPacket));
-				lastSentDraftActionResendCount++;
-				lastSentDraftActionTime = now;
-				ofLogNotice("Network") << "Resent DraftActionPacket to host (attempt=" << lastSentDraftActionResendCount << ")";
-			} else {
-				lastSentDraftActionValid = false; // give up after max attempts
-				ofLogWarning("Network") << "Giving up on DraftActionPacket resend after " << lastSentDraftActionResendCount << " attempts";
-			}
-		}
-	}
+	// Draft resend watchdog removed: draft actions are now sent as deterministic
+	// `InputCommandPacket`s and processed via the command stream. Legacy
+	// `DraftActionPacket` resend/ACK tracking has been retired.
 
 	// Resend watchdog for client-sent ActionPackets (retry until host ACK)
 	if (isClient() && lastSentActionValid) {
@@ -4236,10 +4224,8 @@ void ofApp::updateGame() {
 				generateDraftOptions(networkPending.keyDraftClass);
 			}
 			draftPicksRemaining = 1;
-			// Preserve any locally-pending draft toggles that haven't been ACKed/forwarded yet
-			if (!(isClient() && lastSentDraftActionValid)) {
-				selectedDraftIndices.clear();
-			}
+			// Preserve any locally-pending draft toggles: none (resend/ACK logic removed)
+			selectedDraftIndices.clear();
 
 			// Pause active player's timer if this draft belongs to another player
 			pauseTurnTimerForOpponentDecision(resolvedIdx);
@@ -5204,10 +5190,8 @@ void ofApp::updateGame() {
 		draftPlayerIndex = currentPlayerIndex;
 		generateDraftOptions(nextClass);
 		draftPicksRemaining = 1;
-		// Preserve locally-pending draft toggles until host ACK/forward to avoid UI flicker
-		if (!(isClient() && lastSentDraftActionValid)) {
-			selectedDraftIndices.clear();
-		}
+		// No pending draft toggles tracking — clear selections on start
+		selectedDraftIndices.clear();
 		draftStage = 0;
 		currentState = STATE_DRAFTING;
 
@@ -11662,11 +11646,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 				// Assign a client-local action id for ACK matching
 				pkt.clientActionID = ++draftClientActionCounter;
 
-				// Track for resend until host forwards/acks (legacy tracking kept)
-				lastSentDraftActionPacket = pkt;
-				lastSentDraftActionValid = true;
-				lastSentDraftActionTime = ofGetElapsedTimef();
-				lastSentDraftActionResendCount = 0;
+				// Legacy resend tracking removed — actions are now deterministic commands.
 
 				// Build deterministic InputCommandPacket for lockstep processing (ACCEPT)
 				InputCommandPacket cmd = {};
@@ -11845,11 +11825,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 							// Assign a client-local action id for ACK matching (toggle too)
 							pkt.clientActionID = ++draftClientActionCounter;
 
-							// Track for resend until host forwards/acks (legacy tracking kept)
-							lastSentDraftActionPacket = pkt;
-							lastSentDraftActionValid = true;
-							lastSentDraftActionTime = ofGetElapsedTimef();
-							lastSentDraftActionResendCount = 0;
+							// Legacy resend tracking removed — actions are now deterministic commands.
 
 							// Build deterministic InputCommandPacket for lockstep processing
 							InputCommandPacket cmd = {};
@@ -30618,11 +30594,7 @@ void ofApp::processNetworkPackets() {
 			DraftAckPacket * dap = (DraftAckPacket *)header;
 			ofLogNotice("Network") << "Draft ACK received: clientActionID=" << dap->clientActionID << " type=" << (int)dap->actionType << " opt=" << dap->optionIndex << " playerSlot=" << dap->draftPlayerIdx;
 
-			// CLIENT: clear resend state if this ACK matches our last sent draft action
-			if (isClient() && lastSentDraftActionValid && lastSentDraftActionPacket.clientActionID == dap->clientActionID) {
-				lastSentDraftActionValid = false;
-				ofLogNotice("Network") << "Client: DraftAction (clientActionID=" << dap->clientActionID << ") acknowledged by host";
-			}
+			// Legacy ACK: resend bookkeeping removed — just log and ignore.
 
 			continue;
 		} else if (header->type == PKT_DRAFT_STATE) {
@@ -31072,10 +31044,9 @@ void ofApp::processNetworkPackets() {
 				// Client: apply actions forwarded by host
 				if (pkt->actionType == 0) {
 
-					// If this forwarded toggle matches a packet we sent, clear resend state early
-					if (lastSentDraftActionValid && pkt->playerID == static_cast<uint32_t>(myLocalPlayerID) && pkt->actionType == 0) {
-						lastSentDraftActionValid = false;
-						ofLogNotice("Network") << "Client: Received host-forwarded DraftToggle ack for our packet (early)";
+					// If this forwarded toggle matches a packet we sent, ignore legacy resend bookkeeping
+					if (pkt->playerID == static_cast<uint32_t>(myLocalPlayerID) && pkt->actionType == 0) {
+						ofLogNotice("Network") << "Client: Received host-forwarded DraftToggle for our packet (early)";
 					}
 					// if (draftAcceptLocked) { continue; }
 					// ------------------------
@@ -31114,10 +31085,9 @@ void ofApp::processNetworkPackets() {
 						continue;
 					}
 					draftAcceptApplied = true;
-					// If this forwarded accept matches our last sent Accept, clear the resend state
-					if (lastSentDraftActionValid && pkt->playerID == static_cast<uint32_t>(myLocalPlayerID) && pkt->actionType == 1) {
-						lastSentDraftActionValid = false;
-						ofLogNotice("Network") << "Client: Received host-forwarded AcceptDraft ack for our packet";
+					// If this forwarded accept matches a packet we sent, ignore legacy resend bookkeeping
+					if (pkt->playerID == static_cast<uint32_t>(myLocalPlayerID) && pkt->actionType == 1) {
+						ofLogNotice("Network") << "Client: Received host-forwarded AcceptDraft for our packet";
 					}
 					int picks = pkt->numSelected;
 					std::vector<int> sel;

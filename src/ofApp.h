@@ -1219,14 +1219,7 @@ private:
 	// (Moved into `networkPending.draftStateAvailable` / `networkPending.draftState`)
 	bool initialDraftComplete = false; // True once the initial (pre-game) draft finishes
 
-	// Reliability helpers for client-sent DraftAction packets (resend until host ACK/forward)
-	DraftActionPacket lastSentDraftActionPacket; // Last DraftActionPacket the client sent (for resend)
-	bool lastSentDraftActionValid = false; // True if the lastSentDraftActionPacket still needs ack/resend
-	float lastSentDraftActionTime = 0.0f; // Timestamp of last send
-	int lastSentDraftActionResendCount = 0; // How many times we've resent
-	const float DRAFT_ACTION_RESEND_INTERVAL = 0.75f; // Retry interval (seconds)
-	const int DRAFT_ACTION_MAX_RESENDS = 3; // Max resend attempts
-	uint32_t draftClientActionCounter = 0; // client-local monotonic id for draft actions
+	// Draft ACK/resend legacy helpers removed — draft actions now use deterministic commands.
 
 	// Reliability helpers for client-sent Action packets (resend until host ACK)
 	ActionPacket lastSentActionPacket; // Last ActionPacket the client sent (for resend)
@@ -1239,6 +1232,9 @@ private:
 
 	// Generic client-local monotonic counter used by lightweight watchdog packets
 	uint32_t watchdogClientActionCounter = 0;
+
+	// Monotonic counter for client-originated draft actions (clientActionID)
+	uint32_t draftClientActionCounter = 0;
 
 	// Host-side: last processed clientActionID per remote player (used to dedupe watchdog packets)
 	uint32_t lastProcessedActionID[2] = { 0, 0 };
