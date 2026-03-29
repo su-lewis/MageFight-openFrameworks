@@ -11712,70 +11712,11 @@ void ofApp::mousePressed(int x, int y, int button) {
 			// Host no longer forwards draft packets — draft picks are deterministic
 			// and are published via `CMD_ACCEPT_DRAFT`/`CMD_DRAFT_ACTION`.
 
-			// Card animation: draftAnimHoldDuration (hold) + 0.35f (fly duration)
-			float cardAnimDuration = draftAnimHoldDuration + 0.35f;
-			// Shuffle deck (delay visual until card animation completes)
-			shuffleGameVector(players[draftPlayerIndex].deck, draftPlayerIndex, cardAnimDuration);
-			// If drafting actor is a minion, create minion-specific shuffle visual
-			bool targetIsMinion = (draftPlayerIndex >= 0 && draftPlayerIndex < (int)players.size() && players[draftPlayerIndex].isMinion);
-			if (targetIsMinion) {
-				ShuffleAnimation s;
-				s.playerIndex = draftPlayerIndex;
-				bool assignedRect = false;
-				for (const auto & mui : activeMinionUIs) {
-					if (mui.playerIndex == draftPlayerIndex) {
-						s.deckRect = mui.deckRect;
-						assignedRect = true;
-						break;
-					}
-				}
-				if (!assignedRect) {
-					int ownerSlot = findPlayerIndexByID(players[draftPlayerIndex].ownerID);
-					if (ownerSlot >= 0)
-						s.deckRect = (players[ownerSlot].playerID == 0) ? p0_deckRect : p1_deckRect;
-					else
-						s.deckRect = (players[draftPlayerIndex].ownerID == 0) ? p0_deckRect : p1_deckRect;
-				}
-				s.startTime = ofGetElapsedTimef() + cardAnimDuration;
-				s.duration = 0.9f;
-				s.currentAlpha = 255.0f;
-				s.currentScale = 1.0f;
-				s.rotation = 0.0f;
-				activeShuffleAnimations.push_back(s);
-			}
-
-			selectedDraftIndices.clear();
-			draftOptions.clear();
-
-			if (isInGameDraft) {
-				isInGameDraft = false;
-				// Resume any paused turn timer caused by an opponent-driven draft
-				resumeTurnTimerIfPausedForOpponent(draftPlayerIndex);
-				currentState = STATE_GAMEPLAY;
-				return;
-			}
-
-			draftStage++;
-			float delay = draftAnimHoldDuration + 0.35f + 0.9f + 0.1f;
-			if (draftStage == 1) {
-				scheduleGenerateDraftOptions(2, delay);
-			} else {
-				int nextPlayerIdx = (draftPlayerIndex + 1) % 2;
-				if (players[nextPlayerIdx].deck.empty()) {
-					draftPlayerIndex = nextPlayerIdx;
-					draftStage = 0;
-					scheduleGenerateDraftOptions(1, delay);
-				} else {
-					// Instead of immediately returning to gameplay, schedule the transition
-					// to occur after the draft-picked animations finish so the visuals complete.
-					float delay = draftAnimHoldDuration + 0.35f + 0.9f + 0.1f; // same delay used above
-					draftEndScheduled = true;
-					draftEndAt = ofGetElapsedTimef() + delay;
-					draftEndNextPlayerIndex = nextPlayerIdx;
-					ofLogNotice("Draft") << "Draft end scheduled: nextPlayer=" << draftEndNextPlayerIndex << " at=" << draftEndAt;
-				}
-			}
-			return; // We handled the Accept, so we're done with this click.
+			// State transitions and authoritative application of the accept are
+			// handled during deterministic command execution (CMD_ACCEPT_DRAFT).
+			// Visuals are scheduled when the command runs so both peers remain
+			// synchronized. Nothing else to do here for the host click path.
+			return; // We handled the Accept click by queuing the command.
 		}
 
 		// 2. CHECK CARD CLICKING SECOND
@@ -16713,6 +16654,73 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 		// After adding cards, perform deterministic shuffle of the target player's deck
 		shuffleGameVector(p.deck, draftPlayerIndex);
 		ofLogNotice("Lockstep") << "Execute CMD_ACCEPT_DRAFT: draftPlayerIndex=" << draftPlayerIndex << " picks=" << picks.size() << " (shuffled)";
+
+		// --- Draft state progression (previously executed in host click handler) ---
+		// Move state transitions into the deterministic command execution so both
+		// host and client advance draft phases identically when the command runs.
+
+		// Schedule visual shuffle and animations consistent with click-path timing
+		float cardAnimDuration = draftAnimHoldDuration + 0.35f;
+		shuffleGameVector(players[draftPlayerIndex].deck, draftPlayerIndex, cardAnimDuration);
+		// Minion-specific shuffle visual (as done in click handler)
+		bool targetIsMinion = (draftPlayerIndex >= 0 && draftPlayerIndex < (int)players.size() && players[draftPlayerIndex].isMinion);
+		if (targetIsMinion) {
+			ShuffleAnimation s;
+			s.playerIndex = draftPlayerIndex;
+			bool assignedRect = false;
+			for (const auto & mui : activeMinionUIs) {
+				if (mui.playerIndex == draftPlayerIndex) {
+					s.deckRect = mui.deckRect;
+					assignedRect = true;
+					break;
+				}
+			}
+			if (!assignedRect) {
+				int ownerSlot = findPlayerIndexByID(players[draftPlayerIndex].ownerID);
+				if (ownerSlot >= 0)
+					s.deckRect = (players[ownerSlot].playerID == 0) ? p0_deckRect : p1_deckRect;
+				else
+					s.deckRect = (players[draftPlayerIndex].ownerID == 0) ? p0_deckRect : p1_deckRect;
+			}
+			s.startTime = ofGetElapsedTimef() + cardAnimDuration;
+			s.duration = 0.9f;
+			s.currentAlpha = 255.0f;
+			s.currentScale = 1.0f;
+			s.rotation = 0.0f;
+			activeShuffleAnimations.push_back(s);
+		}
+
+		// Clear local transient UI selections and option list
+		selectedDraftIndices.clear();
+		draftOptions.clear();
+
+		if (isInGameDraft) {
+			isInGameDraft = false;
+			// Resume any paused turn timer caused by an opponent-driven draft
+			resumeTurnTimerIfPausedForOpponent(draftPlayerIndex);
+			currentState = STATE_GAMEPLAY;
+			break;
+		}
+
+		// Advance the draft stage and schedule the next options or end the draft
+		draftStage++;
+		float delay = draftAnimHoldDuration + 0.35f + 0.9f + 0.1f;
+		if (draftStage == 1) {
+			scheduleGenerateDraftOptions(2, delay);
+		} else {
+			int nextPlayerIdx = (draftPlayerIndex + 1) % 2;
+			if (players[nextPlayerIdx].deck.empty()) {
+				draftPlayerIndex = nextPlayerIdx;
+				draftStage = 0;
+				scheduleGenerateDraftOptions(1, delay);
+			} else {
+				// Schedule the finalization after visuals finish so animations complete
+				draftEndScheduled = true;
+				draftEndAt = ofGetElapsedTimef() + delay;
+				draftEndNextPlayerIndex = nextPlayerIdx;
+				ofLogNotice("Draft") << "Draft end scheduled: nextPlayer=" << draftEndNextPlayerIndex << " at=" << draftEndAt;
+			}
+		}
 		break;
 	}
 
@@ -28960,54 +28968,71 @@ void ofApp::drawDraftScreen() {
 		}
 	}
 
-	// 2. Draw Header (Top Center, Shadowed)
-	ofRectangle headerBox = titleFont.getStringBoundingBox(header, 0, 0);
-	float tx = (ofGetWidth() / 2.0f) - (headerBox.width / 2.0f);
-	// Move header/instruction to the top area so cards (centered) never overlap it
-	float ty = ofGetHeight() * 0.12f;
-	ofSetColor(0, 0, 0, 255);
-	titleFont.drawString(header, tx + 2, ty + 2);
-	ofSetColor(ofColor::white);
-	titleFont.drawString(header, tx, ty);
+	// 2. Header & instruction: fade in with card appear animation
+	// Compute animation progress across draftOptionUI slots so the header
+	// only becomes visible as cards begin to appear.
+	float nowAnim = ofGetElapsedTimef();
+	float appearT = 0.0f;
+	if (!draftOptionUI.empty()) {
+		for (size_t ai = 0; ai < draftOptionUI.size(); ++ai) {
+			float t = (nowAnim - draftOptionUI[ai].startTime) / draftAnimAppearDuration;
+			if (t > appearT) appearT = t;
+		}
+		if (appearT < 0.0f) appearT = 0.0f;
+		if (appearT > 1.0f) appearT = 1.0f;
+	} else {
+		appearT = 0.0f;
+	}
+
+	float appearAlpha = appearT; // linear fade with card appear progress
 
 	// Use a stable line height for vertical layout so small bounding-box
 	// variations (different glyphs) don't shift the card area up/down.
 	float lineH = titleFont.getLineHeight();
 
-	// 2b. Draw Instruction line below header
-	ofRectangle instrBox = titleFont.getStringBoundingBox(instr, 0, 0);
-	float instrTx = (ofGetWidth() / 2.0f) - (instrBox.width / 2.0f);
-	float instrTy = ty + lineH + 8; // use fixed line height instead of headerBox.height
-	ofSetColor(0, 0, 0, 255);
-	titleFont.drawString(instr, instrTx + 2, instrTy + 2);
-	ofSetColor(ofColor::white);
-	titleFont.drawString(instr, instrTx, instrTy);
+	if (appearAlpha > 0.001f) {
+		ofRectangle headerBox = titleFont.getStringBoundingBox(header, 0, 0);
+		float tx = (ofGetWidth() / 2.0f) - (headerBox.width / 2.0f);
+		// Move header/instruction to the top area so cards (centered) never overlap it
+		float ty = ofGetHeight() * 0.12f;
 
-	// 2b. Draw Class Tier Text Below Prompt
-	std::string classTierText = "";
-	ofColor classTierColor = ofColor::white;
-	// Predeclare so we can use values for layout later
-	ofRectangle classBox;
-	float classTx = 0, classTy = 0;
-	if (!isInGameDraft) {
-		if (draftStage == 0) {
-			classTierText = "Class 1";
-			classTierColor = ofColor(205, 127, 50); // Bronze
-		} else if (draftStage == 1) {
-			classTierText = "Class 2";
-			classTierColor = ofColor(192, 192, 192); // Silver
+		int shadowA = (int)(255.0f * appearAlpha);
+		int fgA = (int)(255.0f * appearAlpha);
+		ofSetColor(0, 0, 0, shadowA);
+		titleFont.drawString(header, tx + 2, ty + 2);
+		ofSetColor(ofColor(255, 255, 255, fgA));
+		titleFont.drawString(header, tx, ty);
+
+		// Instruction line below header
+		ofRectangle instrBox = titleFont.getStringBoundingBox(instr, 0, 0);
+		float instrTx = (ofGetWidth() / 2.0f) - (instrBox.width / 2.0f);
+		float instrTy = ty + lineH + 8; // use fixed line height instead of headerBox.height
+		ofSetColor(0, 0, 0, shadowA);
+		titleFont.drawString(instr, instrTx + 2, instrTy + 2);
+		ofSetColor(ofColor(255, 255, 255, fgA));
+		titleFont.drawString(instr, instrTx, instrTy);
+
+		// Class tier text below prompt
+		std::string classTierText = "";
+		ofColor classTierColor = ofColor::white;
+		if (!isInGameDraft) {
+			if (draftStage == 0) {
+				classTierText = "Class 1";
+				classTierColor = ofColor(205, 127, 50); // Bronze
+			} else if (draftStage == 1) {
+				classTierText = "Class 2";
+				classTierColor = ofColor(192, 192, 192); // Silver
+			}
 		}
-	}
-
-	if (!classTierText.empty()) {
-		classBox = titleFont.getStringBoundingBox(classTierText, 0, 0);
-		classTx = (ofGetWidth() / 2.0f) - (classBox.width / 2.0f);
-		// Position class tier text below the instruction line using stable line height
-		classTy = instrTy + lineH + 12;
-		ofSetColor(0, 0, 0, 255);
-		titleFont.drawString(classTierText, classTx + 2, classTy + 2);
-		ofSetColor(classTierColor);
-		titleFont.drawString(classTierText, classTx, classTy);
+		if (!classTierText.empty()) {
+			ofRectangle classBox = titleFont.getStringBoundingBox(classTierText, 0, 0);
+			float classTx = (ofGetWidth() / 2.0f) - (classBox.width / 2.0f);
+			float classTy = instrTy + lineH + 12;
+			ofSetColor(0, 0, 0, shadowA);
+			titleFont.drawString(classTierText, classTx + 2, classTy + 2);
+			ofSetColor(ofColor(classTierColor.r, classTierColor.g, classTierColor.b, fgA));
+			titleFont.drawString(classTierText, classTx, classTy);
+		}
 	}
 
 	// 3. Draw Cards
@@ -29032,7 +29057,7 @@ void ofApp::drawDraftScreen() {
 	}
 
 	// Animate per-slot UI and draw scaled cards
-	float nowAnim = ofGetElapsedTimef();
+	nowAnim = ofGetElapsedTimef();
 	for (size_t i = 0; i < draftOptions.size(); ++i) {
 		float x = startX + i * (cardW + spacing);
 		ofRectangle cardRect(x, startY, cardW, cardH);

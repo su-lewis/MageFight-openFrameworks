@@ -106,7 +106,7 @@
 - **AP Cost:** 2
 - **Class:** 1
 - **Picture:** 
- - **Effect Text:** Remove a negative status effect from yourself / adjacent unit or roll 1d20 and gain that much Barrier until the start of this unit's next turn.
+ - **Effect Text:** Remove a negative status effect from an adjacent unit / self or roll 1d20 and gain that much Barrier until the start of this unit's next turn.
 ---
 
 -## 15. Teleport
@@ -161,7 +161,7 @@
 - **Targeting:** Line of Sight
 - **Class:** 1
 - **Picture:** 
-- **Effect Text:** Choose a target / yourself. Roll 2d6 and heal that amount of HP.
+- **Effect Text:** Choose a target / self. Roll 2d6 and heal that amount of HP.
 ---
 
 -## 22. Raise Dead
@@ -208,7 +208,7 @@
 - **AP Cost:** 2
 - **Class:** 1
 - **Picture:** 
-- **Effect Text:** Deal 2 damage to an adjacent unit, add +2 damage for each hand-related attack card played this turn. Heal yourself equal to the damage dealt.
+- **Effect Text:** Deal 2 damage to an adjacent unit, add +2 damage for each hand-related attack card played this turn. Heal self equal to the damage dealt.
 ---
 
 -## 28. Double Handed
@@ -325,7 +325,6 @@
 
 -## 42. Study
 - **AP Cost:** 6
-- **Targeting:** Self
 - **Class:** 1
 - **Picture:** 
 - **Effect Text:** Draft a Class 2 card. Draw an extra card next turn.
@@ -458,7 +457,7 @@
 - **Targeting:** Line of Sight
 - **Class:** 1
 - **Picture:** 
-- **Effect Text:** Choose a target / yourself. Roll 1d6, and heal that amount of HP.
+- **Effect Text:** Choose a target / self. Roll 1d6, and heal that amount of HP.
 ---
 
 -## 60. Transform Wall
