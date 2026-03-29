@@ -860,8 +860,6 @@ public:
 	void sendActionPacket(int cardIndex, int tx, int ty, int cost, int menuChoice = 0, const std::string & cardNameOverride = "");
 	void sendMagicHandResolutionPacket(int choice);
 	void sendMenuState(int menuType, int targetIndex, int hoveredChoice, int cardIndex);
-	void executeAction(const ActionPacket & pkt);
-	void executeOpponentCardPlay(const ActionPacket & pkt);
 
 	// Host-side validation for client-submitted ActionPackets. Returns true
 	// if the action is valid against the host's authoritative board; if
@@ -1222,8 +1220,8 @@ private:
 
 	// Draft ACK/resend legacy helpers removed — draft actions now use deterministic commands.
 
-	// Reliability helpers for client-sent Action packets (resend until host ACK)
-	ActionPacket lastSentActionPacket; // Last ActionPacket the client sent (for resend)
+	// Reliability helpers for client-sent input commands (resend until host ACK)
+	InputCommandPacket lastSentActionPacket; // Last input command the client sent (for resend)
 	bool lastSentActionValid = false;
 	float lastSentActionTime = 0.0f;
 	int lastSentActionResendCount = 0;

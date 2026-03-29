@@ -206,8 +206,12 @@ bool SteamManager::sendPacket(const void * data, uint32_t size) {
 		}
 
 		// Verbose send tracing for key packets
-		if (outHdr->type == PKT_ACTION || outHdr->type == PKT_DRAFT_ACTION || outHdr->type == PKT_DRAFT_ACK || outHdr->type == PKT_RENEWED_INSPIRATION || outHdr->type == PKT_DRAW_CARDS || outHdr->type == PKT_CHECKSUM_CHECK || outHdr->type == PKT_SNAPSHOT_BEGIN || outHdr->type == PKT_SNAPSHOT_CHUNK || outHdr->type == PKT_SNAPSHOT_END || outHdr->type == PKT_MOVE_UNIT || outHdr->type == PKT_AMNESIA_CHOICE || outHdr->type == PKT_PLACE_SUMMONED_BEGIN) {
+		if (outHdr->type == PKT_INPUT_COMMAND || outHdr->type == PKT_ACTION || outHdr->type == PKT_DRAFT_ACTION || outHdr->type == PKT_DRAFT_ACK || outHdr->type == PKT_RENEWED_INSPIRATION || outHdr->type == PKT_DRAW_CARDS || outHdr->type == PKT_CHECKSUM_CHECK || outHdr->type == PKT_SNAPSHOT_BEGIN || outHdr->type == PKT_SNAPSHOT_CHUNK || outHdr->type == PKT_SNAPSHOT_END || outHdr->type == PKT_MOVE_UNIT || outHdr->type == PKT_AMNESIA_CHOICE || outHdr->type == PKT_PLACE_SUMMONED_BEGIN) {
 			ofLogNotice("NetTrace") << "SEND pkt type=" << (int)outHdr->type << " player=" << outHdr->playerID << " seq=" << outHdr->seq << " size=" << size;
+			if (outHdr->type == PKT_INPUT_COMMAND && size >= sizeof(InputCommandPacket)) {
+				InputCommandPacket * ic = (InputCommandPacket *)buffer.data();
+				ofLogNotice("NetTrace") << "  INPUT_CMD type=" << (int)ic->commandType << " clientActionID=" << ic->clientActionID << " cmdId=" << ic->commandId;
+			}
 			if (outHdr->type == PKT_DRAFT_ACTION && size >= sizeof(DraftActionPacket)) {
 				DraftActionPacket * dap = (DraftActionPacket *)buffer.data();
 				ofLogNotice("NetTrace") << "  DRAFT_ACTION actionType=" << (int)dap->actionType << " clientActionID=" << dap->clientActionID << " draftPlayerIdx=" << dap->draftPlayerIdx << " classTier=" << (int)dap->classTier << " numSelected=" << (int)dap->numSelected << " opt=" << dap->optionIndex << " sel=" << (int)dap->selectFlag;

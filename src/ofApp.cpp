@@ -16186,7 +16186,7 @@ void ofApp::drawActiveCardInteractionUI() {
 			for (size_t i = 0; i < ghostRelocateButtons.size(); ++i) {
 				if (!ghostRelocateButtons[i].inside(mouseX, mouseY)) continue;
 				InputCommandPacket cmd = {};
-				cmd.type = PKT_ACTION;
+				cmd.type = PKT_INPUT_COMMAND;
 				cmd.playerID = myLocalPlayerID;
 				cmd.seq = 0;
 				cmd.commandId = nextCommandId++;
@@ -19699,7 +19699,7 @@ void ofApp::processCardStateInput(int mouseX, int mouseY, int button) {
 		case CARD_BURST_OF_LIGHT:
 			if (burstBtnDamage.inside(mouseX, mouseY)) {
 				InputCommandPacket cmd = {};
-				cmd.type = PKT_ACTION;
+				cmd.type = PKT_INPUT_COMMAND;
 				cmd.playerID = myLocalPlayerID;
 				cmd.seq = 0;
 				cmd.commandId = nextCommandId++;
@@ -19718,7 +19718,7 @@ void ofApp::processCardStateInput(int mouseX, int mouseY, int button) {
 				}
 			} else if (burstBtnHeal.inside(mouseX, mouseY)) {
 				InputCommandPacket cmd = {};
-				cmd.type = PKT_ACTION;
+				cmd.type = PKT_INPUT_COMMAND;
 				cmd.playerID = myLocalPlayerID;
 				cmd.seq = 0;
 				cmd.commandId = nextCommandId++;
@@ -19741,7 +19741,7 @@ void ofApp::processCardStateInput(int mouseX, int mouseY, int button) {
 		case CARD_WISDOM_BOON:
 			if (wisdomBtnDamage.inside(mouseX, mouseY)) {
 				InputCommandPacket cmd = {};
-				cmd.type = PKT_ACTION;
+				cmd.type = PKT_INPUT_COMMAND;
 				cmd.playerID = myLocalPlayerID;
 				cmd.seq = 0;
 				cmd.commandId = nextCommandId++;
@@ -19764,7 +19764,7 @@ void ofApp::processCardStateInput(int mouseX, int mouseY, int button) {
 		case CARD_DOUBLE_HANDED:
 			if (btnAddPunches.inside(mouseX, mouseY)) {
 				InputCommandPacket cmd = {};
-				cmd.type = PKT_ACTION;
+				cmd.type = PKT_INPUT_COMMAND;
 				cmd.playerID = myLocalPlayerID;
 				cmd.seq = 0;
 				cmd.commandId = nextCommandId++;
@@ -19783,7 +19783,7 @@ void ofApp::processCardStateInput(int mouseX, int mouseY, int button) {
 				}
 			} else if (btnAddBlocks.inside(mouseX, mouseY)) {
 				InputCommandPacket cmd = {};
-				cmd.type = PKT_ACTION;
+				cmd.type = PKT_INPUT_COMMAND;
 				cmd.playerID = myLocalPlayerID;
 				cmd.seq = 0;
 				cmd.commandId = nextCommandId++;
@@ -19806,7 +19806,7 @@ void ofApp::processCardStateInput(int mouseX, int mouseY, int button) {
 		case CARD_AMNESIA:
 			if (amnesiaBtnSelf.inside(mouseX, mouseY)) {
 				InputCommandPacket cmd = {};
-				cmd.type = PKT_ACTION;
+				cmd.type = PKT_INPUT_COMMAND;
 				cmd.playerID = myLocalPlayerID;
 				cmd.seq = 0;
 				cmd.commandId = nextCommandId++;
@@ -19829,7 +19829,7 @@ void ofApp::processCardStateInput(int mouseX, int mouseY, int button) {
 		case CARD_DISPEL:
 			if (dispelBtnBarrier.inside(mouseX, mouseY)) {
 				InputCommandPacket cmd = {};
-				cmd.type = PKT_ACTION;
+				cmd.type = PKT_INPUT_COMMAND;
 				cmd.playerID = myLocalPlayerID;
 				cmd.seq = 0;
 				cmd.commandId = nextCommandId++;
@@ -19848,7 +19848,7 @@ void ofApp::processCardStateInput(int mouseX, int mouseY, int button) {
 				}
 			} else if (dispelBtnPurge.inside(mouseX, mouseY)) {
 				InputCommandPacket cmd = {};
-				cmd.type = PKT_ACTION;
+				cmd.type = PKT_INPUT_COMMAND;
 				cmd.playerID = myLocalPlayerID;
 				cmd.seq = 0;
 				cmd.commandId = nextCommandId++;
@@ -19871,7 +19871,7 @@ void ofApp::processCardStateInput(int mouseX, int mouseY, int button) {
 		case CARD_TRAIN:
 			if (trainBtnAP.inside(mouseX, mouseY)) {
 				InputCommandPacket cmd = {};
-				cmd.type = PKT_ACTION;
+				cmd.type = PKT_INPUT_COMMAND;
 				cmd.playerID = myLocalPlayerID;
 				cmd.seq = 0;
 				cmd.commandId = nextCommandId++;
@@ -19890,7 +19890,7 @@ void ofApp::processCardStateInput(int mouseX, int mouseY, int button) {
 				}
 			} else if (trainBtnDraft.inside(mouseX, mouseY)) {
 				InputCommandPacket cmd = {};
-				cmd.type = PKT_ACTION;
+				cmd.type = PKT_INPUT_COMMAND;
 				cmd.playerID = myLocalPlayerID;
 				cmd.seq = 0;
 				cmd.commandId = nextCommandId++;
@@ -19922,7 +19922,7 @@ void ofApp::processCardStateInput(int mouseX, int mouseY, int button) {
 
 			if (btnPush.inside(mouseX, mouseY)) {
 				InputCommandPacket cmd = {};
-				cmd.type = PKT_ACTION;
+				cmd.type = PKT_INPUT_COMMAND;
 				cmd.playerID = myLocalPlayerID;
 				cmd.seq = 0;
 				cmd.commandId = nextCommandId++;
@@ -19941,7 +19941,7 @@ void ofApp::processCardStateInput(int mouseX, int mouseY, int button) {
 				}
 			} else if (btnPull.inside(mouseX, mouseY)) {
 				InputCommandPacket cmd = {};
-				cmd.type = PKT_ACTION;
+				cmd.type = PKT_INPUT_COMMAND;
 				cmd.playerID = myLocalPlayerID;
 				cmd.seq = 0;
 				cmd.commandId = nextCommandId++;
@@ -29619,9 +29619,12 @@ void ofApp::processNetworkPackets() {
 			}
 
 			// Verbose packet tracing for debugging desyncs
-			if (header->type == PKT_ACTION || header->type == PKT_DRAFT_ACTION || header->type == PKT_DRAFT_STATE || header->type == PKT_DRAFT_OPTIONS || header->type == PKT_DRAFT_ACK || header->type == PKT_RENEWED_INSPIRATION || header->type == PKT_DRAW_CARDS || header->type == PKT_CHECKSUM_CHECK || header->type == PKT_SNAPSHOT_BEGIN || header->type == PKT_SNAPSHOT_CHUNK || header->type == PKT_SNAPSHOT_END || header->type == PKT_MOVE_UNIT || header->type == PKT_AMNESIA_CHOICE || header->type == PKT_PLACE_SUMMONED_BEGIN) {
+			if (header->type == PKT_INPUT_COMMAND || header->type == PKT_ACTION || header->type == PKT_DRAFT_ACTION || header->type == PKT_DRAFT_STATE || header->type == PKT_DRAFT_OPTIONS || header->type == PKT_DRAFT_ACK || header->type == PKT_RENEWED_INSPIRATION || header->type == PKT_DRAW_CARDS || header->type == PKT_CHECKSUM_CHECK || header->type == PKT_SNAPSHOT_BEGIN || header->type == PKT_SNAPSHOT_CHUNK || header->type == PKT_SNAPSHOT_END || header->type == PKT_MOVE_UNIT || header->type == PKT_AMNESIA_CHOICE || header->type == PKT_PLACE_SUMMONED_BEGIN) {
 				ofLogNotice("NetTrace") << "RECV pkt type=" << (int)header->type << " player=" << header->playerID << " seq=" << header->seq << " size=" << buffer.size();
-				if (header->type == PKT_ACTION && buffer.size() >= sizeof(ActionPacket)) {
+				if (header->type == PKT_INPUT_COMMAND && buffer.size() >= sizeof(InputCommandPacket)) {
+					InputCommandPacket * ic = (InputCommandPacket *)buffer.data();
+					ofLogNotice("NetTrace") << "  INPUT_CMD type=" << (int)ic->commandType << " clientActionID=" << ic->clientActionID << " cmdId=" << ic->commandId;
+				} else if (header->type == PKT_ACTION && buffer.size() >= sizeof(ActionPacket)) {
 					ActionPacket * ap = (ActionPacket *)buffer.data();
 					ofLogNotice("NetTrace") << "  ACTION card='" << ap->cardName << "' actor=" << ap->actorIndex << " target=(" << ap->targetX << "," << ap->targetY << ") menu=" << ap->menuChoice << " updatedAP=" << ap->updatedAP;
 				} else if (header->type == PKT_DRAW_CARDS && buffer.size() >= sizeof(DrawCardsPacket)) {
@@ -29661,32 +29664,39 @@ void ofApp::processNetworkPackets() {
 			}
 			// ACK handling removed; rely on SteamNetworkingSockets reliability.
 
-			// Only check duplicates for PKT_ACTION (card plays) to prevent duplicate card plays.
+			// Only check duplicates for input command style packets (card plays / input commands)
 			// STRICT: rely solely on clientActionID for deduplication on the host.
 			// Network seq numbers are not used for dedupe because they can be
 			// unrelated and much larger than client-local monotonic IDs.
-			if (header->type == PKT_ACTION && buffer.size() >= sizeof(ActionPacket)) {
-				ActionPacket * ap = (ActionPacket *)buffer.data();
+			if ((header->type == PKT_ACTION && buffer.size() >= sizeof(ActionPacket)) || (header->type == PKT_INPUT_COMMAND && buffer.size() >= sizeof(InputCommandPacket))) {
+				uint32_t clientActionID = 0;
+				if (header->type == PKT_ACTION) {
+					ActionPacket * ap = (ActionPacket *)buffer.data();
+					clientActionID = ap->clientActionID;
+				} else {
+					InputCommandPacket * ip = (InputCommandPacket *)buffer.data();
+					clientActionID = ip->clientActionID;
+				}
 				int sender = (header->playerID == 0 || header->playerID == 1) ? (int)header->playerID : -1;
 				if (sender >= 0 && isHost()) {
-					if (ap->clientActionID != 0) {
-						if (ap->clientActionID <= lastReceivedSeqByPlayer[sender]) {
-							ofLogNotice("Network") << "DROPPED DUPLICATE ACTION PACKET (clientActionID): clientActionID=" << ap->clientActionID << " lastReceived[" << sender << "]=" << lastReceivedSeqByPlayer[sender];
+					if (clientActionID != 0) {
+						if (clientActionID <= lastReceivedSeqByPlayer[sender]) {
+							ofLogNotice("Network") << "DROPPED DUPLICATE INPUT COMMAND (clientActionID): clientActionID=" << clientActionID << " lastReceived[" << sender << "]=" << lastReceivedSeqByPlayer[sender];
 							// Re-ACK the clientActionID so the originating client stops resending
 							AckPacket ack = {};
 							ack.type = PKT_ACK;
 							ack.playerID = myLocalPlayerID;
-							ack.ackSeq = ap->clientActionID; // echo the client ID
-							ack.ackType = PKT_ACTION;
+							ack.ackSeq = clientActionID; // echo the client ID
+							ack.ackType = PKT_INPUT_COMMAND;
 							steamManager.sendPacket(&ack, sizeof(ack));
-							ofLogNotice("NetTrace") << "Host: re-sent ACK for ActionPacket clientActionID=" << ack.ackSeq;
+							ofLogNotice("NetTrace") << "Host: re-sent ACK for clientActionID=" << ack.ackSeq;
 							continue;
 						}
-						lastReceivedSeqByPlayer[sender] = ap->clientActionID;
+						lastReceivedSeqByPlayer[sender] = clientActionID;
 					} else {
 						// No clientActionID present: cannot safely dedupe. Accept packet but
 						// do not update lastReceivedSeqByPlayer to avoid corrupting the ID timeline.
-						ofLogNotice("NetTrace") << "Host: Received ActionPacket without clientActionID; skipping dedupe.";
+						ofLogNotice("NetTrace") << "Host: Received input command without clientActionID; skipping dedupe.";
 					}
 				}
 			}
@@ -29965,10 +29975,9 @@ void ofApp::processNetworkPackets() {
 			if (header->type == PKT_ACTION) {
 				ActionPacket * pkt = (ActionPacket *)header;
 
-				// Check if this is a movement action (cardIndex < 0) or card play (cardIndex >= 0)
+				// Convert legacy ActionPacket into deterministic InputCommandPacket
 				if (pkt->cardIndex < 0) {
-					// MOVEMENT ACTION: Receive opponent's movement and apply it locally
-					ofLogNotice("Network") << "Received movement from opponent to (" << pkt->targetX << "," << pkt->targetY << ") with AP=" << pkt->cost;
+					// Movement -> CMD_MOVE_UNIT
 					int actorIndex = (pkt->actorIndex >= 0 && pkt->actorIndex < (int)players.size()) ? pkt->actorIndex : -1;
 					if (actorIndex < 0) {
 						for (size_t i = 0; i < players.size(); i++) {
@@ -29978,22 +29987,40 @@ void ofApp::processNetworkPackets() {
 							}
 						}
 					}
+
+					InputCommandPacket cmd = {};
+					cmd.type = PKT_INPUT_COMMAND;
+					cmd.playerID = pkt->playerID;
+					cmd.seq = pkt->seq;
+					cmd.commandId = nextCommandId++;
+					cmd.turnNumber = globalTurnCounter;
+					cmd.commandType = CMD_MOVE_UNIT;
 					if (actorIndex >= 0) {
-						applyMovement(actorIndex, pkt->targetX, pkt->targetY, pkt->cost, nullptr);
-						ofLogNotice("Network") << "Applied movement for player " << pkt->playerID << " to (" << pkt->targetX << "," << pkt->targetY << ")";
-						// Host: send ACK for movement so client stops resending
-						if (isHost()) {
-							AckPacket ack = {};
-							ack.type = PKT_ACK;
-							ack.playerID = myLocalPlayerID;
-							ack.ackSeq = pkt->clientActionID; // echo clientActionID
-							ack.ackType = PKT_ACTION;
-							steamManager.sendPacket(&ack, sizeof(ack));
-							ofLogNotice("NetTrace") << "Host: sent ACK for Movement clientActionID=" << ack.ackSeq;
-						}
+						cmd.params[0] = players[actorIndex].x;
+						cmd.params[1] = players[actorIndex].y;
+					} else {
+						cmd.params[0] = -1;
+						cmd.params[1] = -1;
+					}
+					cmd.params[2] = pkt->targetX;
+					cmd.params[3] = pkt->targetY;
+					cmd.clientActionID = pkt->clientActionID;
+					queueInputCommand(cmd);
+
+					ofLogNotice("Network") << "Converted PKT_ACTION movement => CMD_MOVE_UNIT and queued (to=(" << pkt->targetX << "," << pkt->targetY << "))";
+
+					// Host: send ACK for movement so client stops resending
+					if (isHost()) {
+						AckPacket ack = {};
+						ack.type = PKT_ACK;
+						ack.playerID = myLocalPlayerID;
+						ack.ackSeq = pkt->clientActionID; // echo clientActionID
+						ack.ackType = PKT_INPUT_COMMAND;
+						steamManager.sendPacket(&ack, sizeof(ack));
+						ofLogNotice("NetTrace") << "Host: sent ACK for Movement clientActionID=" << ack.ackSeq;
 					}
 				} else {
-					// CARD PLAY ACTION: Host-side validation first (if host)
+					// CARD PLAY ACTION: convert to CMD_PLAY_CARD (or special pseudo actions)
 					ofLogNotice("Sync") << "Opponent played card index: " << pkt->cardIndex;
 					// Special-case: Shell Spike pseudo-action (cardIndex == -2)
 					if (pkt->cardIndex == -2 && std::string(pkt->cardName) == "Shell Spike") {
@@ -30063,7 +30090,7 @@ void ofApp::processNetworkPackets() {
 							ack.type = PKT_ACK;
 							ack.playerID = myLocalPlayerID;
 							ack.ackSeq = pkt->clientActionID;
-							ack.ackType = PKT_ACTION;
+							ack.ackType = PKT_INPUT_COMMAND;
 							steamManager.sendPacket(&ack, sizeof(ack));
 							ofLogNotice("NetTrace") << "Host: sent ACK for ActionPacket clientActionID=" << ack.ackSeq;
 						}
@@ -30088,14 +30115,27 @@ void ofApp::processNetworkPackets() {
 							ack.type = PKT_ACK;
 							ack.playerID = myLocalPlayerID;
 							ack.ackSeq = pkt->clientActionID;
-							ack.ackType = PKT_ACTION;
+							ack.ackType = PKT_INPUT_COMMAND;
 							steamManager.sendPacket(&ack, sizeof(ack));
 							continue; // Do not execute the rejected action
 						}
 					}
 
-					// Execute the action (host accepted it)
-					executeAction(*pkt);
+					// Convert accepted ActionPacket into deterministic CMD_PLAY_CARD and queue
+					InputCommandPacket cmd = {};
+					cmd.type = PKT_INPUT_COMMAND;
+					cmd.playerID = pkt->playerID;
+					cmd.seq = pkt->seq;
+					cmd.commandId = nextCommandId++;
+					cmd.turnNumber = globalTurnCounter;
+					cmd.commandType = CMD_PLAY_CARD;
+					cmd.params[0] = pkt->cardIndex;
+					cmd.params[1] = pkt->targetX;
+					cmd.params[2] = pkt->targetY;
+					strncpy(cmd.stringData, pkt->cardName, sizeof(cmd.stringData) - 1);
+					cmd.stringData[sizeof(cmd.stringData) - 1] = '\0';
+					cmd.clientActionID = pkt->clientActionID;
+					queueInputCommand(cmd);
 
 					// Host: send ACK back to originating client so they stop resending
 					if (isHost()) {
@@ -30103,7 +30143,7 @@ void ofApp::processNetworkPackets() {
 						ack.type = PKT_ACK;
 						ack.playerID = myLocalPlayerID;
 						ack.ackSeq = pkt->clientActionID;
-						ack.ackType = PKT_ACTION;
+						ack.ackType = PKT_INPUT_COMMAND;
 						steamManager.sendPacket(&ack, sizeof(ack));
 						ofLogNotice("NetTrace") << "Host: sent ACK for ActionPacket clientActionID=" << ack.ackSeq;
 					}
@@ -31125,11 +31165,11 @@ void ofApp::processNetworkPackets() {
 					networkPending.keyDraftPlayer = pkt->draftPlayerIdx;
 					networkPending.keyDraftClass = pkt->classTier;
 					AckPacket * ack = (AckPacket *)header;
-					// If this ACK corresponds to an Action we sent, clear resend state
-					if (isClient() && ack->ackType == PKT_ACTION) {
+					// If this ACK corresponds to an input command we sent, clear resend state
+					if (isClient() && ack->ackType == PKT_INPUT_COMMAND) {
 						if (lastSentActionValid && ack->ackSeq == lastSentActionPacket.clientActionID) {
 							lastSentActionValid = false;
-							ofLogNotice("Network") << "Client: ActionPacket (clientActionID=" << ack->ackSeq << ") acknowledged by host.";
+							ofLogNotice("Network") << "Client: InputCommand (clientActionID=" << ack->ackSeq << ") acknowledged by host.";
 						}
 					}
 
@@ -31298,41 +31338,40 @@ void ofApp::sendActionPacket(int cardIndex, int tx, int ty, int cost, int menuCh
 		return;
 	}
 
-	// 2. Create Packet
-	ActionPacket pkt = {};
-	pkt.type = PKT_ACTION;
+	// 2. Create deterministic InputCommandPacket representing this play
+	InputCommandPacket pkt = {};
+	pkt.type = PKT_INPUT_COMMAND;
 	pkt.playerID = myLocalPlayerID;
-	pkt.actorIndex = currentPlayerIndex;
-	pkt.cardIndex = cardIndex;
-	pkt.targetX = tx;
-	pkt.targetY = ty;
-	pkt.cost = cost;
-	pkt.menuChoice = menuChoice;
-	pkt.updatedAP = currentAP; // Send current AP after card play
-
-	// Include card name so opponent knows which card was played and validate
+	pkt.commandId = nextCommandId++;
+	pkt.turnNumber = globalTurnCounter;
+	pkt.commandType = CMD_PLAY_CARD;
+	pkt.params[0] = cardIndex;
+	pkt.params[1] = tx;
+	pkt.params[2] = ty;
+	pkt.params[3] = menuChoice;
+	// store card name (for validation on host)
 	if (!cardNameOverride.empty()) {
-		strncpy(pkt.cardName, cardNameOverride.c_str(), 63);
-		pkt.cardName[63] = '\0';
+		strncpy(pkt.stringData, cardNameOverride.c_str(), sizeof(pkt.stringData) - 1);
+		pkt.stringData[sizeof(pkt.stringData) - 1] = '\0';
 	}
 
 	bool validSend = false;
 	// If no name yet, try to resolve from cardIndex
-	if (pkt.cardName[0] == '\0') {
+	if (pkt.stringData[0] == '\0') {
 		if (cardIndex >= 0 && cardIndex < (int)currentPlayer.hand.size()) {
-			strncpy(pkt.cardName, currentPlayer.hand[cardIndex].name.c_str(), 63);
-			pkt.cardName[63] = '\0';
+			strncpy(pkt.stringData, currentPlayer.hand[cardIndex].name.c_str(), sizeof(pkt.stringData) - 1);
+			pkt.stringData[sizeof(pkt.stringData) - 1] = '\0';
 			validSend = true;
 		}
 	} else {
 		// If we have a name, try to find it in our hand and sync index if found
 		bool foundInHand = false;
 		for (int i = 0; i < (int)currentPlayer.hand.size(); ++i) {
-			if (currentPlayer.hand[i].name == pkt.cardName) {
+			if (currentPlayer.hand[i].name == pkt.stringData) {
 				// Found the named card in hand
 				validSend = true;
 				foundInHand = true;
-				if (cardIndex != i) pkt.cardIndex = i;
+				if (cardIndex != i) pkt.params[0] = i;
 				break;
 			}
 		}
@@ -31344,11 +31383,11 @@ void ofApp::sendActionPacket(int cardIndex, int tx, int ty, int cost, int menuCh
 	}
 
 	if (!validSend) {
-		ofLogWarning("Network") << "sendActionPacket: Aborting send - card not found in hand: cardIndex=" << cardIndex << " name='" << pkt.cardName << "' menuChoice=" << menuChoice;
+		ofLogWarning("Network") << "sendActionPacket: Aborting send - card not found in hand: cardIndex=" << cardIndex << " name='" << pkt.stringData << "' menuChoice=" << menuChoice;
 		return;
 	}
 
-	ofLogNotice("Network") << "sendActionPacket: Sending card '" << pkt.cardName << "' (cardIndex=" << pkt.cardIndex << ") to target=(" << tx << "," << ty << ") cost=" << cost;
+	ofLogNotice("Network") << "sendActionPacket: Sending card '" << pkt.stringData << "' (cardIndex=" << pkt.params[0] << ") to target=(" << tx << "," << ty << ") cost=" << cost;
 
 	// 3. Send to Network
 	// If we're a client, attach a clientActionID for ACK matching and record for resend
@@ -31372,91 +31411,26 @@ void ofApp::sendMagicHandResolutionPacket(int choice) {
 	if (controlledPlayerID != myLocalPlayerID) return;
 	if (interactingCardIndex < 0 || interactingCardIndex >= (int)currentPlayer.hand.size()) return;
 
-	ActionPacket pkt = {};
-	pkt.type = PKT_ACTION;
+	InputCommandPacket pkt = {};
+	pkt.type = PKT_INPUT_COMMAND;
 	pkt.playerID = myLocalPlayerID;
-	pkt.actorIndex = currentPlayerIndex;
-	pkt.cardIndex = interactingCardIndex;
-	pkt.targetX = magicHandTargetTile.x;
-	pkt.targetY = magicHandTargetTile.y;
-	pkt.cost = currentPlayer.hand[interactingCardIndex].cost;
-	pkt.menuChoice = choice;
-	pkt.updatedAP = currentAP; // Send current AP after card play
-	strncpy(pkt.cardName, currentPlayer.hand[interactingCardIndex].name.c_str(), 63);
-	pkt.cardName[63] = '\0';
+	pkt.commandId = nextCommandId++;
+	pkt.turnNumber = globalTurnCounter;
+	pkt.commandType = CMD_MENU_CHOICE;
+	pkt.params[0] = interactingCardIndex;
+	pkt.params[1] = magicHandTargetTile.x;
+	pkt.params[2] = magicHandTargetTile.y;
+	pkt.params[3] = choice;
+	strncpy(pkt.stringData, currentPlayer.hand[interactingCardIndex].name.c_str(), sizeof(pkt.stringData) - 1);
+	pkt.stringData[sizeof(pkt.stringData) - 1] = '\0';
 
-	ofLogNotice("Network") << "sendMagicHandResolutionPacket: Sending '" << pkt.cardName << "' choice=" << choice
-						   << " target=(" << pkt.targetX << "," << pkt.targetY << ") cost=" << pkt.cost;
+	ofLogNotice("Network") << "sendMagicHandResolutionPacket: Sending '" << pkt.stringData << "' choice=" << choice
+						   << " target=(" << pkt.params[1] << "," << pkt.params[2] << ")";
 	steamManager.sendPacket(&pkt, sizeof(pkt));
 }
 
-void ofApp::executeAction(const ActionPacket & pkt) {
-	// This function runs on BOTH computers.
-	// On the sender's PC, it runs immediately via sendActionPacket.
-	// On the receiver's PC, it runs via processNetworkPackets.
-
-	// IMPORTANT: Ensure currentPlayerIndex is correct on both machines
-	// before calling playCard.
-
-	// If the action came from an opponent (different playerID than current player),
-	// we don't have access to their hand, so we need special handling
-	if (isMultiplayer && pkt.playerID != static_cast<uint32_t>(myLocalPlayerID) && strlen(pkt.cardName) > 0) {
-		// Opponent's card play - apply effect based on card name
-		executeOpponentCardPlay(pkt);
-	} else {
-		// Local player's card play: queue as deterministic input command so
-		// simulationTick/processCommandQueue handles the authoritative state changes.
-		InputCommandPacket cmd = {};
-		cmd.type = PKT_INPUT_COMMAND;
-		cmd.playerID = pkt.playerID;
-		cmd.seq = pkt.clientActionID;
-		cmd.commandId = nextCommandId++;
-		cmd.turnNumber = globalTurnCounter;
-		cmd.commandType = CMD_PLAY_CARD;
-		cmd.params[0] = pkt.cardIndex;
-		cmd.params[1] = pkt.targetX;
-		cmd.params[2] = pkt.targetY;
-		strncpy(cmd.stringData, pkt.cardName, sizeof(cmd.stringData) - 1);
-		cmd.stringData[sizeof(cmd.stringData) - 1] = '\0';
-		queueInputCommand(cmd);
-	}
-}
-
-void ofApp::executeOpponentCardPlay(const ActionPacket & pkt) {
-	ofLogNotice("Network") << "Queueing opponent card play: " << pkt.cardName;
-
-	InputCommandPacket cmd = {};
-	cmd.type = PKT_INPUT_COMMAND;
-	cmd.playerID = pkt.playerID;
-	cmd.seq = pkt.clientActionID;
-	cmd.commandId = nextCommandId++;
-	cmd.turnNumber = globalTurnCounter;
-
-	if (pkt.menuChoice > 0) {
-		cmd.commandType = CMD_MENU_CHOICE;
-		Card cardDef;
-		for (const auto & c : allCards) {
-			if (c.name == pkt.cardName) {
-				cardDef = c;
-				break;
-			}
-		}
-		cmd.params[0] = (int)cardDef.type;
-		cmd.params[1] = pkt.targetX;
-		cmd.params[2] = pkt.menuChoice;
-		cmd.params[3] = pkt.cardIndex;
-	} else {
-		cmd.commandType = CMD_PLAY_CARD;
-		cmd.params[0] = pkt.cardIndex;
-		cmd.params[1] = pkt.targetX;
-		cmd.params[2] = pkt.targetY;
-		cmd.params[3] = 0;
-	}
-
-	strncpy(cmd.stringData, pkt.cardName, sizeof(cmd.stringData) - 1);
-	cmd.stringData[sizeof(cmd.stringData) - 1] = '\0';
-	queueInputCommand(cmd);
-}
+// executeAction/executeOpponentCardPlay removed: incoming ActionPacket are now converted
+// into `InputCommandPacket` inside `processNetworkPackets()` and queued for lockstep processing.
 
 // Host-side validation for incoming ActionPackets (card plays).
 // Ensures the chosen target(s) are still valid under the host's authoritative
