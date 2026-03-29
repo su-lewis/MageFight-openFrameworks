@@ -10072,7 +10072,8 @@ void ofApp::drawGame() {
 		float tx = (ofGetWidth() / 2.0f) - (bbox.width / 2.0f);
 
 		// MOVED LOWER: 25% down the screen
-		float ty = ofGetHeight() * 0.25f;
+		// Move header area up so cards centered vertically won't overlap it
+		float ty = ofGetHeight() * 0.12f;
 
 		// Draw Text Shadow/Outline for visibility
 		ofSetColor(0, 0, 0, 255);
@@ -11513,14 +11514,8 @@ void ofApp::mousePressed(int x, int y, int button) {
 		float instrTy = ty + lineH + 8;
 		float classTy = instrTy + lineH + 12;
 
-		float topTextBottom = ty + lineH;
-		if (!instr.empty()) topTextBottom = instrTy + lineH;
-		// Keep draft card/button layout stable across stage transitions by reserving
-		// the class-tier line space for setup drafts, even when class text is empty
-		// (e.g. transient stage after final accept before leaving draft screen).
-		if (!isInGameDraft) topTextBottom = classTy + lineH;
-
-		float startY = topTextBottom + 24.0f; // This is the TRUE visual Y position of the cards
+		// Compute centered card Y so hit testing/animations match the draw routine
+		float startY = ofGetHeight() / 2.0f - (cardH / 2.0f);
 		// ------------------------------
 
 		// Determine logic for this draft phase
@@ -29029,7 +29024,8 @@ void ofApp::drawDraftScreen() {
 	// 2. Draw Header (Top Center, Shadowed)
 	ofRectangle headerBox = titleFont.getStringBoundingBox(header, 0, 0);
 	float tx = (ofGetWidth() / 2.0f) - (headerBox.width / 2.0f);
-	float ty = ofGetHeight() * 0.25f;
+	// Move header/instruction to the top area so cards (centered) never overlap it
+	float ty = ofGetHeight() * 0.12f;
 	ofSetColor(0, 0, 0, 255);
 	titleFont.drawString(header, tx + 2, ty + 2);
 	ofSetColor(ofColor::white);
