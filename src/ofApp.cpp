@@ -2589,37 +2589,14 @@ void ofApp::update() {
 					draftingCameraLockedToClient = (isMultiplayer && myLocalPlayerID == 1);
 					beginInitiativeDrafting(0);
 					ofLogNotice("Initiative") << "Player 1 goes first";
-					if (isHost()) {
-						DraftStatePacket sp = {};
-						sp.type = PKT_DRAFT_STATE;
-						sp.playerID = myLocalPlayerID;
-						sp.classTier = 1;
-						sp.draftPlayerIdx = draftPlayerIndex;
-						sp.draftPlayerID = (draftPlayerIndex >= 0 && draftPlayerIndex < (int)players.size()) ? players[draftPlayerIndex].playerID : -1;
-						sp.draftPlayerID = (draftPlayerIndex >= 0 && draftPlayerIndex < (int)players.size()) ? players[draftPlayerIndex].playerID : -1;
-						sp.picksRemaining = draftPicksRemaining;
-						sp.draftStage = draftStage;
-						sp.isInGameDraft = isInGameDraft ? 1 : 0;
-						sp.currentPlayerIndex = currentPlayerIndex;
-						steamManager.sendPacket(&sp, sizeof(sp));
-					}
+					// No PKT_DRAFT_STATE send needed here; both peers will generate drafts deterministically.
+					ofLogNotice("Initiative") << "Initiative: queued deterministic draft start for player " << draftPlayerIndex << " (no PKT_DRAFT_STATE sent).";
 				} else if (p2Roll > p1Roll) {
 					draftPlayerIndex = 1; // P2 Wins
 					beginInitiativeDrafting(1);
 					ofLogNotice("Initiative") << "Player 2 goes first";
-					if (isHost()) {
-						DraftStatePacket sp = {};
-						sp.type = PKT_DRAFT_STATE;
-						sp.playerID = myLocalPlayerID;
-						sp.classTier = 1;
-						sp.draftPlayerIdx = draftPlayerIndex;
-						sp.draftPlayerID = (draftPlayerIndex >= 0 && draftPlayerIndex < (int)players.size()) ? players[draftPlayerIndex].playerID : -1;
-						sp.picksRemaining = draftPicksRemaining;
-						sp.draftStage = draftStage;
-						sp.isInGameDraft = isInGameDraft ? 1 : 0;
-						sp.currentPlayerIndex = currentPlayerIndex;
-						steamManager.sendPacket(&sp, sizeof(sp));
-					}
+					// No PKT_DRAFT_STATE send needed here; both peers will generate drafts deterministically.
+					ofLogNotice("Initiative") << "Initiative: queued deterministic draft start for player " << draftPlayerIndex << " (no PKT_DRAFT_STATE sent).";
 				} else {
 					// TIE - Reroll via effect system so RNG is authoritative and visualizable
 					{
@@ -2722,23 +2699,11 @@ void ofApp::beginInitiativeDrafting(int winnerIndex) {
 	draftPlayerIndex = winnerIndex;
 	draftStage = 0;
 	currentState = STATE_DRAFTING;
-	// Host generates authoritative options; clients wait for packets.
-	if (!isClient()) {
-		generateDraftOptions(1);
-	}
-	if (isHost()) {
-		DraftStatePacket sp = {};
-		sp.type = PKT_DRAFT_STATE;
-		sp.playerID = myLocalPlayerID;
-		sp.classTier = 1;
-		sp.draftPlayerIdx = draftPlayerIndex;
-		sp.draftPlayerID = (draftPlayerIndex >= 0 && draftPlayerIndex < (int)players.size()) ? players[draftPlayerIndex].playerID : -1;
-		sp.picksRemaining = draftPicksRemaining;
-		sp.draftStage = draftStage;
-		sp.isInGameDraft = isInGameDraft ? 1 : 0;
-		sp.currentPlayerIndex = currentPlayerIndex;
-		steamManager.sendPacket(&sp, sizeof(sp));
-	}
+	// Both host and clients generate deterministic draft options locally.
+	generateDraftOptions(1);
+	// Host no longer needs to send PKT_DRAFT_STATE here; the command stream
+	// (CMD_DRAFT_ACTION / CMD_ACCEPT_DRAFT) is authoritative and keeps peers
+	// in sync. If a legacy packet arrives, it's ignored by the client-side handler.
 }
 //--------------------------------------------------------------
 // Start a visual shuffle animation for the given player's deck
@@ -11804,18 +11769,8 @@ void ofApp::mousePressed(int x, int y, int button) {
 							steamManager.sendPacket(&cmd, sizeof(cmd));
 							ofLogNotice("Network") << "Host broadcast CMD_DRAFT_ACTION for its own DraftToggle.";
 
-							// Also send an authoritative DraftState so clients immediately update picks/phase info
-							DraftStatePacket dsp = {};
-							dsp.type = PKT_DRAFT_STATE;
-							dsp.playerID = myLocalPlayerID;
-							dsp.classTier = currentDraftClassTier;
-							dsp.draftPlayerIdx = draftPlayerIndex;
-							dsp.picksRemaining = draftPicksRemaining;
-							dsp.draftStage = draftStage;
-							dsp.isInGameDraft = isInGameDraft ? 1 : 0;
-							dsp.currentPlayerIndex = currentPlayerIndex;
-							steamManager.sendPacket(&dsp, sizeof(dsp));
-							ofLogNotice("Network") << "Host sent DraftState (after own toggle) to clients.";
+							// Do not send PKT_DRAFT_STATE here; drafts are deterministic.
+							ofLogNotice("Network") << "Host: toggled own draft option and queued CMD_DRAFT_ACTION (no PKT_DRAFT_STATE sent).";
 						}
 					}
 
@@ -17740,36 +17695,14 @@ void ofApp::processEffectOp(EffectOp & op) {
 			draftingCameraLockedToClient = (isMultiplayer && myLocalPlayerID == 1);
 			beginInitiativeDrafting(0);
 			ofLogNotice("Initiative") << "Player 1 goes first";
-			if (isHost()) {
-				DraftStatePacket sp = {};
-				sp.type = PKT_DRAFT_STATE;
-				sp.playerID = myLocalPlayerID;
-				sp.classTier = 1;
-				sp.draftPlayerIdx = draftPlayerIndex;
-				sp.draftPlayerID = (draftPlayerIndex >= 0 && draftPlayerIndex < (int)players.size()) ? players[draftPlayerIndex].playerID : -1;
-				sp.picksRemaining = draftPicksRemaining;
-				sp.draftStage = draftStage;
-				sp.isInGameDraft = isInGameDraft ? 1 : 0;
-				sp.currentPlayerIndex = currentPlayerIndex;
-				steamManager.sendPacket(&sp, sizeof(sp));
-			}
+			// No PKT_DRAFT_STATE send needed here; both peers will generate drafts deterministically.
+			ofLogNotice("Initiative") << "Initiative: queued deterministic draft start for player " << draftPlayerIndex << " (no PKT_DRAFT_STATE sent).";
 		} else if (p2Roll > p1Roll) {
 			draftPlayerIndex = 1; // P2 Wins
 			beginInitiativeDrafting(1);
 			ofLogNotice("Initiative") << "Player 2 goes first";
-			if (isHost()) {
-				DraftStatePacket sp = {};
-				sp.type = PKT_DRAFT_STATE;
-				sp.playerID = myLocalPlayerID;
-				sp.classTier = 1;
-				sp.draftPlayerIdx = draftPlayerIndex;
-				sp.draftPlayerID = (draftPlayerIndex >= 0 && draftPlayerIndex < (int)players.size()) ? players[draftPlayerIndex].playerID : -1;
-				sp.picksRemaining = draftPicksRemaining;
-				sp.draftStage = draftStage;
-				sp.isInGameDraft = isInGameDraft ? 1 : 0;
-				sp.currentPlayerIndex = currentPlayerIndex;
-				steamManager.sendPacket(&sp, sizeof(sp));
-			}
+			// No PKT_DRAFT_STATE send needed here; both peers will generate drafts deterministically.
+			ofLogNotice("Initiative") << "Initiative: queued deterministic draft start for player " << draftPlayerIndex << " (no PKT_DRAFT_STATE sent).";
 		} else {
 			// Tie again — resolve rerolls immediately and queue the apply op
 			{
@@ -30892,60 +30825,12 @@ void ofApp::processNetworkPackets() {
 						}
 					}
 
-					// Clear visual selection/options locally; the authoritative apply will run in the command handler
-					selectedDraftIndices.clear();
-					draftOptions.clear();
-					if (isInGameDraft) {
-						isInGameDraft = false;
-						// Resume any paused turn timer caused by an opponent-driven draft
-						resumeTurnTimerIfPausedForOpponent(draftPlayerIndex);
-						currentState = STATE_GAMEPLAY;
-						continue;
-					}
-
-					draftStage++;
-					// allow time for pick-move + shuffle visuals to finish before showing next draft
-					float delay = draftAnimHoldDuration + 0.35f + 0.9f + 0.1f;
-					if (draftStage == 1) {
-						// Move to Class 2
-						scheduleGenerateDraftOptions(2, delay);
-
-					} else {
-						// Check if other player needs to draft
-						int nextPlayerIdx = (draftPlayerIndex + 1) % 2;
-						if (players[nextPlayerIdx].deck.empty()) {
-							draftPlayerIndex = nextPlayerIdx;
-							draftStage = 0;
-							scheduleGenerateDraftOptions(1, delay);
-
-						} else {
-							currentPlayerIndex = nextPlayerIdx;
-							currentState = STATE_GAMEPLAY;
-							continueNewTurn();
-						}
-					}
-					// Also send an additional state sync with currentPlayerIndex to ensure clients transition
-					// (Use the shared temporary `tempDraftStatePkt` below - avoid duplicate sends)
-					tempDraftStatePkt.type = PKT_DRAFT_STATE;
-					tempDraftStatePkt.playerID = myLocalPlayerID;
-					// classTier: 0 == none, 1/2 == class tiers
-					if (currentState == STATE_GAMEPLAY)
-						tempDraftStatePkt.classTier = 0;
-					else if (draftStage == 0)
-						tempDraftStatePkt.classTier = 1;
-					else
-						tempDraftStatePkt.classTier = 2;
-					tempDraftStatePkt.draftPlayerIdx = (currentState == STATE_GAMEPLAY) ? -1 : draftPlayerIndex;
-					tempDraftStatePkt.draftPlayerID = (tempDraftStatePkt.draftPlayerIdx >= 0 && tempDraftStatePkt.draftPlayerIdx < (int)players.size()) ? players[tempDraftStatePkt.draftPlayerIdx].playerID : -1;
-					tempDraftStatePkt.picksRemaining = draftPicksRemaining;
-					tempDraftStatePkt.draftStage = draftStage;
-					tempDraftStatePkt.isInGameDraft = isInGameDraft ? 1 : 0;
-					tempDraftStatePkt.currentPlayerIndex = currentPlayerIndex;
-					steamManager.sendPacket(&tempDraftStatePkt, sizeof(tempDraftStatePkt));
-					// NOTE: TurnStart packet and checksum send are now handled in updateGame()
-					// once AP dice finish naturally. Removing the manual TurnStart/Checksum
-					// send here prevents duplicate TurnStart packets when dice are still
-					// animating after draft completion.
+					// Do not apply/clear draft visuals or advance draftStage here; the
+					// deterministic `CMD_ACCEPT_DRAFT` queued above will perform the
+					// authoritative deck updates, shuffle and visual scheduling when
+					// the command executes. This prevents divergence between host
+					// and clients.
+					ofLogNotice("Draft") << "Host: queued CMD_ACCEPT_DRAFT; authoritative apply will run in command processing.";
 				}
 			} else {
 				// Client: apply actions forwarded by host
