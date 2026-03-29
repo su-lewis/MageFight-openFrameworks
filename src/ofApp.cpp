@@ -2342,7 +2342,7 @@ void ofApp::update() {
 	// `InputCommandPacket`s and processed via the command stream. Legacy
 	// `DraftActionPacket` resend/ACK tracking has been retired.
 
-	// Resend watchdog for client-sent ActionPackets (retry until host ACK)
+	// Resend watchdog for client-sent input commands (retry until host ACK)
 	if (isClient() && lastSentActionValid) {
 		float now = ofGetElapsedTimef();
 		if (now - lastSentActionTime > ACTION_RESEND_INTERVAL) {
@@ -2350,10 +2350,10 @@ void ofApp::update() {
 				steamManager.sendPacket(&lastSentActionPacket, sizeof(lastSentActionPacket));
 				lastSentActionResendCount++;
 				lastSentActionTime = now;
-				ofLogNotice("Network") << "Resent ActionPacket to host (attempt=" << lastSentActionResendCount << ")";
+				ofLogNotice("Network") << "Resent InputCommand to host (attempt=" << lastSentActionResendCount << ")";
 			} else {
 				lastSentActionValid = false; // give up after max attempts
-				ofLogWarning("Network") << "Giving up on ActionPacket resend after " << lastSentActionResendCount << " attempts";
+				ofLogWarning("Network") << "Giving up on InputCommand resend after " << lastSentActionResendCount << " attempts";
 			}
 		}
 	}
@@ -30007,7 +30007,7 @@ void ofApp::processNetworkPackets() {
 					cmd.clientActionID = pkt->clientActionID;
 					queueInputCommand(cmd);
 
-					ofLogNotice("Network") << "Converted PKT_ACTION movement => CMD_MOVE_UNIT and queued (to=(" << pkt->targetX << "," << pkt->targetY << "))";
+					ofLogNotice("Network") << "Converted legacy ACTION movement -> CMD_MOVE_UNIT and queued (to=(" << pkt->targetX << "," << pkt->targetY << "))";
 
 					// Host: send ACK for movement so client stops resending
 					if (isHost()) {
@@ -30083,7 +30083,7 @@ void ofApp::processNetworkPackets() {
 						strncpy(cmd.stringData, pkt->cardName, sizeof(cmd.stringData) - 1);
 						cmd.stringData[sizeof(cmd.stringData) - 1] = '\0';
 						queueInputCommand(cmd);
-						ofLogNotice("Lockstep") << "Centralized PKT_ACTION menuChoice: cardType=" << (int)menuType << " actorIndex=" << pkt->actorIndex << " menuChoice=" << pkt->menuChoice << " cardIndex=" << pkt->cardIndex;
+						ofLogNotice("Lockstep") << "Centralized legacy ACTION menuChoice: cardType=" << (int)menuType << " actorIndex=" << pkt->actorIndex << " menuChoice=" << pkt->menuChoice << " cardIndex=" << pkt->cardIndex;
 						// Host: send ACK back to originating client so they stop resending
 						if (isHost()) {
 							AckPacket ack = {};
@@ -30092,7 +30092,7 @@ void ofApp::processNetworkPackets() {
 							ack.ackSeq = pkt->clientActionID;
 							ack.ackType = PKT_INPUT_COMMAND;
 							steamManager.sendPacket(&ack, sizeof(ack));
-							ofLogNotice("NetTrace") << "Host: sent ACK for ActionPacket clientActionID=" << ack.ackSeq;
+							ofLogNotice("NetTrace") << "Host: sent ACK for InputCommand clientActionID=" << ack.ackSeq;
 						}
 						continue;
 					}
@@ -30110,13 +30110,14 @@ void ofApp::processNetworkPackets() {
 							msg.message[sizeof(msg.message) - 1] = '\0';
 							steamManager.sendPacket(&msg, sizeof(msg));
 
-							// Send ACK back so the client stops resending this ActionPacket
+							// Send ACK back so the client stops resending this submission
 							AckPacket ack = {};
 							ack.type = PKT_ACK;
 							ack.playerID = myLocalPlayerID;
 							ack.ackSeq = pkt->clientActionID;
 							ack.ackType = PKT_INPUT_COMMAND;
 							steamManager.sendPacket(&ack, sizeof(ack));
+							ofLogWarning("Network") << "Host: Rejected submitted action from player=" << pkt->playerID << " reason='" << rejectReason << "'";
 							continue; // Do not execute the rejected action
 						}
 					}

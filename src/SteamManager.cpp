@@ -218,10 +218,8 @@ bool SteamManager::sendPacket(const void * data, uint32_t size) {
 			} else if (outHdr->type == PKT_DRAFT_ACK && size >= sizeof(DraftAckPacket)) {
 				DraftAckPacket * dak = (DraftAckPacket *)buffer.data();
 				ofLogNotice("NetTrace") << "  DRAFT_ACK clientActionID=" << dak->clientActionID << " actionType=" << (int)dak->actionType << " draftPlayer=" << dak->draftPlayerIdx << " opt=" << dak->optionIndex << " sel=" << (int)dak->selectFlag;
-			}
-			if (outHdr->type == PKT_ACTION && size >= sizeof(ActionPacket)) {
-				ActionPacket * ap = (ActionPacket *)buffer.data();
-				ofLogNotice("NetTrace") << "  ACTION card='" << ap->cardName << "' actor=" << ap->actorIndex << " target=(" << ap->targetX << "," << ap->targetY << ") menu=" << ap->menuChoice << " updatedAP=" << ap->updatedAP;
+			} else if (outHdr->type == PKT_ACTION && size >= sizeof(ActionPacket)) {
+				ofLogNotice("NetTrace") << "  LEGACY_ACTION packet (suppressed details)";
 			} else if (outHdr->type == PKT_DRAW_CARDS && size >= sizeof(DrawCardsPacket)) {
 				DrawCardsPacket * dcp = (DrawCardsPacket *)buffer.data();
 				ofLogNotice("NetTrace") << "  DRAW_CARDS playerIndex=" << dcp->playerIndex << " numCards=" << (int)dcp->numCards;
