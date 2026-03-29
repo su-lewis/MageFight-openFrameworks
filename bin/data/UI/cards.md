@@ -145,7 +145,7 @@
 - **Targeting:** 1d20 ft
 - **Class:** 2
 - **Picture:** 
-- **Effect Text:** Choose a target. Deal 7 damage to the unit hit. Destroy the top card of their deck. Apply Paralysis to them. This can target through walls. 
+- **Effect Text:** Choose a target. Deal 7 damage to the unit hit. Destroy the top card of their deck. Apply Paralysis to them. You can target through walls. 
 ---
 
 -## 20. Flame Hit
@@ -177,7 +177,7 @@
 - **AP Cost:** 4
 - **Class:** 3
 - **Picture:** 
-- **Effect Text:** Summon a Golem minion in an adjacent empty tile. Improve if Shock, Chain Lightning, Flame Hit, Fireball, or Rock Crush was played this turn. Its deck is x3 Bash, x2 Hand Block. 
+- **Effect Text:** Summon a Golem minion in an adjacent empty tile. Improve if Shock, Chain Lightning, Flame Hit, Fireball, or Rock Crush was played this turn. Its deck is x3 Bash, x2 Hand Block.
 - **AP:** 1d6
 - **HP:** 1d10
 ---
@@ -244,7 +244,7 @@
 -## 32. Time Vortex
 - **AP Cost:** 7
 - **Class:** 3
-- **Picture:** 
+- **Picture:** ,
 - **Effect Text:** Roll 1d4. Get that many extra turns after this one.
 ---
 
@@ -259,10 +259,10 @@
 -## 34. Magic Bolt
 - **Damage type:** Magic / Electric AOE
 - **AP Cost:** 6
-- **Targeting:** 2d20 ft then 1d20 ft
+- **Targeting:** 2d20 ft, 1d20 ft AOE
 - **Class:** 3
 - **Picture:** 
-- **Effect Text:** Choose a target. Deal 1d20 damage to the unit hit, then deal 3 damage in an AOE from the tile hit. This can target through walls but AOE does not.
+- **Effect Text:** Choose a target. Deal 1d20 damage to the unit hit, then deal 3 damage in an AOE from the tile hit. You can target through walls but AOE is blocked.
 ---
 
 -## 35. Flail

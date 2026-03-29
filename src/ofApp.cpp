@@ -11709,33 +11709,8 @@ void ofApp::mousePressed(int x, int y, int button) {
 			}
 			// Visuals and logs remain, but state changes are handled in simulationTick
 
-			if (isHost()) {
-				// Send authoritative DraftState first so clients can map draft index -> player
-				DraftStatePacket dsp = {};
-				dsp.type = PKT_DRAFT_STATE;
-				dsp.playerID = myLocalPlayerID;
-				dsp.classTier = currentDraftClassTier;
-				dsp.draftPlayerIdx = draftPlayerIndex;
-				dsp.draftPlayerID = (dsp.draftPlayerIdx >= 0 && dsp.draftPlayerIdx < (int)players.size()) ? players[dsp.draftPlayerIdx].playerID : -1;
-				dsp.picksRemaining = draftPicksRemaining;
-				dsp.draftStage = draftStage;
-				dsp.isInGameDraft = isInGameDraft ? 1 : 0;
-				dsp.currentPlayerIndex = currentPlayerIndex;
-				steamManager.sendPacket(&dsp, sizeof(dsp));
-
-				DraftActionPacket acceptPkt = {};
-				acceptPkt.type = PKT_DRAFT_ACTION;
-				acceptPkt.playerID = myLocalPlayerID;
-				acceptPkt.actionType = 1; // Accept
-				acceptPkt.draftPlayerIdx = draftPlayerIndex;
-				acceptPkt.classTier = currentDraftClassTier;
-				// selectedDraftIndices now stores pool indices directly
-				acceptPkt.numSelected = (uint8_t)selectedDraftIndices.size();
-				acceptPkt.selectedIdx0 = (selectedDraftIndices.size() > 0) ? selectedDraftIndices[0] : -1;
-				acceptPkt.selectedIdx1 = (selectedDraftIndices.size() > 1) ? selectedDraftIndices[1] : -1;
-				acceptPkt.selectedIdx2 = (selectedDraftIndices.size() > 2) ? selectedDraftIndices[2] : -1;
-				steamManager.sendPacket(&acceptPkt, sizeof(acceptPkt));
-			}
+			// Host no longer forwards draft packets — draft picks are deterministic
+			// and are published via `CMD_ACCEPT_DRAFT`/`CMD_DRAFT_ACTION`.
 
 			// Card animation: draftAnimHoldDuration (hold) + 0.35f (fly duration)
 			float cardAnimDuration = draftAnimHoldDuration + 0.35f;
@@ -28653,45 +28628,9 @@ void ofApp::generateDraftOptions(int classTier, const std::vector<int> * forcedI
 		draftOptionUI[ai].hidden = false;
 	}
 
-	// The host still sends a packet, but it's for redundancy and state sync,
-	// not to provide the options themselves.
-	if (isHost()) {
-		DraftOptionsPacket dp = {};
-		dp.type = PKT_DRAFT_OPTIONS;
-		dp.playerID = myLocalPlayerID;
-		dp.classTier = classTier;
-		dp.mapSeed = currentMapSeed; // Send deterministic params
-		dp.draftPlayerIdx = draftPlayerIndex;
-		dp.draftPlayerID = (draftPlayerIndex >= 0 && draftPlayerIndex < (int)players.size()) ? players[draftPlayerIndex].playerID : -1;
-		dp.picksRemaining = draftPicksRemaining;
-		dp.draftStage = draftStage;
-		dp.isInGameDraft = isInGameDraft ? 1 : 0;
-		dp.draftGenCounter = draftGenerationCounter;
-		// Include explicit option pool indices so clients can display options even
-		// if deterministic generation would diverge. -1 means "no explicit index".
-		dp.optionIdx0 = (currentDraftOptionPoolIndices.size() > 0) ? currentDraftOptionPoolIndices[0] : -1;
-		dp.optionIdx1 = (currentDraftOptionPoolIndices.size() > 1) ? currentDraftOptionPoolIndices[1] : -1;
-		dp.optionIdx2 = (currentDraftOptionPoolIndices.size() > 2) ? currentDraftOptionPoolIndices[2] : -1;
-		{
-			bool ok = steamManager.sendPacket(&dp, sizeof(dp));
-			ofLogNotice("NetTrace") << "Host: sent PKT_DRAFT_OPTIONS seq=? optIdxs=" << dp.optionIdx0 << "," << dp.optionIdx1 << "," << dp.optionIdx2 << " ok=" << ok;
-		}
-
-		DraftStatePacket dsp;
-		dsp.type = PKT_DRAFT_STATE;
-		dsp.playerID = myLocalPlayerID;
-		dsp.classTier = classTier;
-		dsp.draftPlayerIdx = draftPlayerIndex;
-		dsp.draftPlayerID = (draftPlayerIndex >= 0 && draftPlayerIndex < (int)players.size()) ? players[draftPlayerIndex].playerID : -1;
-		dsp.picksRemaining = draftPicksRemaining;
-		dsp.draftStage = draftStage;
-		dsp.isInGameDraft = isInGameDraft ? 1 : 0;
-		dsp.currentPlayerIndex = currentPlayerIndex;
-		{
-			bool ok2 = steamManager.sendPacket(&dsp, sizeof(dsp));
-			ofLogNotice("NetTrace") << "Host: sent PKT_DRAFT_STATE seq=? class=" << dsp.classTier << " picks=" << dsp.picksRemaining << " ok=" << ok2;
-		}
-	}
+	// Host no longer needs to send PKT_DRAFT_OPTIONS / PKT_DRAFT_STATE
+	// because both peers deterministically generate the same options
+	// using `generateDraftOptions()` and the shared `currentMapSeed`.
 }
 
 // Apply authoritative option indices sent by host (clients call this when receiving DraftOptionsPacket)
@@ -30585,100 +30524,11 @@ void ofApp::processNetworkPackets() {
 
 			continue;
 		} else if (header->type == PKT_DRAFT_STATE) {
-			DraftStatePacket * sp = (DraftStatePacket *)header;
-			ofLogNotice("Network") << "Draft state received: class=" << sp->classTier << " player=" << sp->draftPlayerIdx << " picks=" << sp->picksRemaining << " stage=" << sp->draftStage << " ingame=" << (int)sp->isInGameDraft << " curPlayer=" << sp->currentPlayerIndex;
-
-			// Debug: log player mapping and local index to diagnose mapping/race issues
-			{
-				std::stringstream ss;
-				ss << "Players mapping (slot:playerID): ";
-				for (int i = 0; i < (int)players.size(); ++i) {
-					ss << i << ":" << players[i].playerID << " ";
-				}
-				ss << " | myLocalPlayerID=" << myLocalPlayerID << " localSlot=" << getLocalPlayerIndex() << " draftSlot=" << sp->draftPlayerIdx;
-				ofLogNotice("DraftDebug") << ss.str();
-			}
-
-			// Ignore late normal-draft packets after the initial draft is complete
-			if (initialDraftComplete && currentState == STATE_GAMEPLAY && sp->classTier > 0 && sp->isInGameDraft == 0) {
-				ofLogNotice("Draft") << "Ignoring late normal DraftState (initial draft already complete).";
-				continue;
-			}
-
-			bool optionsMatch = (!draftOptions.empty() && currentDraftClassTier == sp->classTier && draftPlayerIndex == sp->draftPlayerIdx && draftStage == sp->draftStage && isInGameDraft == (sp->isInGameDraft != 0));
-
-			// Debug trace: log decision state for draft packet handling
-			ofLogNotice("DraftTrace") << "PKT_DRAFT_STATE: optionsMatch=" << optionsMatch
-									  << " currentState=" << currentState << " initialDraftComplete=" << initialDraftComplete
-									  << " waitingForDraftOptions=" << (waitingForDraftOptionsStartTime > 0.0f ? 1 : 0) << " draftAcceptApplied=" << draftAcceptApplied
-									  << " draftOptions.size=" << draftOptions.size() << " draftPlayerIdx(pkt)=" << sp->draftPlayerIdx;
-
-			// Client applies host state directly
-			// Prefer mapping via the host-provided `draftPlayerID` (if present).
-			if (isClient()) {
-				int mappedIdx = -1;
-				// draftPlayerID may be -1 when unset; treat >=0 as valid
-				if (sp->draftPlayerID >= 0) {
-					for (int i = 0; i < (int)players.size(); ++i) {
-						if (players[i].playerID == sp->draftPlayerID) {
-							mappedIdx = i;
-							break;
-						}
-					}
-				}
-				if (mappedIdx >= 0) {
-					draftPlayerIndex = mappedIdx;
-				} else {
-					draftPlayerIndex = sp->draftPlayerIdx;
-				}
-			} else {
-				draftPlayerIndex = sp->draftPlayerIdx;
-			}
-			draftStage = sp->draftStage;
-			draftPicksRemaining = sp->picksRemaining;
-			isInGameDraft = (sp->isInGameDraft != 0);
-
-			ofLogNotice("DraftDebug") << "Applied DraftState -> draftPlayerIndex=" << draftPlayerIndex
-									  << " draftPlayerID(pkt)=" << sp->draftPlayerID
-									  << " draftStage=" << draftStage << " picksRemaining=" << draftPicksRemaining
-									  << " isInGameDraft=" << isInGameDraft << " optionsMatch=" << optionsMatch
-									  << " waitingForDraftOptions=" << (waitingForDraftOptionsStartTime > 0.0f ? 1 : 0) << " draftAcceptApplied=" << draftAcceptApplied;
-
-			if (sp->classTier > 0) {
-				// Clear visual dice left over from initiative to prevent them lingering forever
-				if (currentState == STATE_INITIATIVE_ROLL) {
-					activeDiceRolls.clear();
-				}
-
-				// Enter drafting with host-provided class tier
-				currentState = STATE_DRAFTING;
-
-				if (!optionsMatch) {
-					selectedDraftIndices.clear();
-					// Update current draft tier
-					currentDraftClassTier = sp->classTier;
-					ofLogNotice("Draft") << "Generating deterministic DraftOptions locally for class=" << sp->classTier;
-					generateDraftOptions(sp->classTier);
-				} else {
-					// Update current draft tier
-					currentDraftClassTier = sp->classTier;
-					ofLogNotice("Draft") << "Client already has matching DraftOptions; using cached options (class=" << sp->classTier << ")";
-				}
-			} else {
-				// classTier==0 => exit drafting and host tells us who is the active player
-				draftOptions.clear();
-				selectedDraftIndices.clear();
-				currentState = STATE_GAMEPLAY;
-				initialDraftComplete = true;
-				// Host should include who starts; set it
-				currentPlayerIndex = sp->currentPlayerIndex;
-				// In multiplayer clients: DO NOT call startNewTurn(); wait for host TurnStart packet
-				if (isClient()) {
-					ofLogNotice("Network") << "Client: Drafting ended. Awaiting host turn-start via command stream (player=" << currentPlayerIndex << ")";
-				}
-				// Host handles transition in its own draft-accept logic and sends TurnStart
-			}
+			ofLogNotice("Network") << "Ignoring PKT_DRAFT_STATE (drafts are deterministic via command stream).";
+			continue;
 		} else if (header->type == PKT_DRAFT_OPTIONS) {
+			ofLogNotice("Network") << "Ignoring PKT_DRAFT_OPTIONS (drafts are deterministic via command stream).";
+			continue;
 			// Defensive: ensure packet buffer is large enough before casting
 			if (buffer.size() < sizeof(DraftOptionsPacket)) {
 				ofLogError("Network") << "PKT_DRAFT_OPTIONS truncated: size=" << buffer.size() << " expected=" << sizeof(DraftOptionsPacket) << " seq=" << header->seq;
@@ -30812,17 +30662,7 @@ void ofApp::processNetworkPackets() {
 							ofLogNotice("Network") << "Host: recorded lastProcessedActionID[" << pid << "]=" << lastProcessedActionID[pid];
 						}
 					}
-					// Also send updated draft state after every selection
-					DraftStatePacket dsp;
-					dsp.type = PKT_DRAFT_STATE;
-					dsp.playerID = myLocalPlayerID;
-					dsp.classTier = currentDraftClassTier; // FIX: Was incorrectly hardcoded based on draftStage
-					dsp.draftPlayerIdx = draftPlayerIndex;
-					dsp.picksRemaining = draftPicksRemaining;
-					dsp.draftStage = draftStage;
-					dsp.isInGameDraft = isInGameDraft ? 1 : 0;
-					dsp.currentPlayerIndex = currentPlayerIndex;
-					steamManager.sendPacket(&dsp, sizeof(dsp));
+					// Do not send PKT_DRAFT_STATE here; clients generate drafts deterministically
 				} else if (pkt->actionType == 1) {
 					// Client accepted draft with choices -> apply on host
 					ofLogNotice("Draft") << "HOST: Received client AcceptDraft from player=" << pkt->playerID << " draftPlayerIdx=" << pkt->draftPlayerIdx << " picks=" << (int)pkt->numSelected << " indices=" << (int)pkt->selectedIdx0 << "," << (int)pkt->selectedIdx1 << "," << (int)pkt->selectedIdx2;
@@ -30903,24 +30743,9 @@ void ofApp::processNetworkPackets() {
 					// Immediately shuffle the host's authoritative deck for the target player/minion
 					shuffleGameVector(p.deck, targetIdx);
 
-					// Send an authoritative DraftState first so clients can map player indices
-					DraftStatePacket dsp = {};
-					dsp.type = PKT_DRAFT_STATE;
-					dsp.playerID = myLocalPlayerID;
-					dsp.classTier = pkt->classTier;
-					dsp.draftPlayerIdx = targetIdx;
-					dsp.draftPlayerID = (dsp.draftPlayerIdx >= 0 && dsp.draftPlayerIdx < (int)players.size()) ? players[dsp.draftPlayerIdx].playerID : -1;
-					dsp.picksRemaining = draftPicksRemaining;
-					dsp.draftStage = draftStage;
-					dsp.isInGameDraft = isInGameDraft ? 1 : 0;
-					dsp.currentPlayerIndex = currentPlayerIndex;
-					steamManager.sendPacket(&dsp, sizeof(dsp));
-
-					// Now forward the AcceptDraft with the host-authoritative index
-					DraftActionPacket outPkt = *pkt;
-					outPkt.draftPlayerIdx = targetIdx;
-					ofLogNotice("NetTrace") << "Host: forwarding AcceptDraft to clients: draftPlayer=" << outPkt.draftPlayerIdx << " numSelected=" << (int)outPkt.numSelected;
-					steamManager.sendPacket(&outPkt, sizeof(outPkt));
+					// Do not send PKT_DRAFT_STATE or forward legacy DraftActionPacket;
+					// clients will apply `CMD_ACCEPT_DRAFT` deterministically when
+					// the command executes in the shared command stream.
 
 					// Instead of applying here, create a deterministic CMD_ACCEPT_DRAFT
 					InputCommandPacket cmd = {};
