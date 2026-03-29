@@ -13,7 +13,6 @@
 enum PacketType {
 	PKT_HANDSHAKE,
 	PKT_CLIENT_READY, // Client -> Host: client finished local setup and is ready to start
-	PKT_ACTION,
 	PKT_CHECKSUM_CHECK,
 
 	// Turn-starts are delivered via deterministic commands
@@ -21,18 +20,18 @@ enum PacketType {
 	PKT_CHAT_MESSAGE, // Chat message between players
 	PKT_HOVER, // Hover state update for showing opponent's hover
 	PKT_INPUT_COMMAND, // Client/Host: deterministic input command (replaces async ActionPacket)
-	PKT_DRAW_CARDS, // Client -> Host: player drew cards from deck
+	// PKT_DRAW_CARDS removed: drawing is now triggered by lockstep commands
 	PKT_SNAPSHOT_REQUEST, // Client -> Host: request authoritative snapshot from host
 	PKT_SNAPSHOT_BEGIN, // Host -> Client: begin state snapshot
 	PKT_SNAPSHOT_CHUNK, // Host -> Client: snapshot data chunk
 	PKT_SNAPSHOT_END, // Host -> Client: end state snapshot
 	PKT_MENU_STATE, // Menu open/close/hover state for choice-based cards
-	PKT_AMNESIA_CHOICE, // Player's selection for Amnesia (which cards to remove)
-	PKT_RENEWED_INSPIRATION, // Renewed Inspiration selection
+	// PKT_AMNESIA_CHOICE removed: handled by `CMD_MENU_CHOICE`/lockstep
+	// PKT_RENEWED_INSPIRATION removed: handled by `CMD_RENEWED_INSPIRATION`
 	PKT_PLACE_SUMMONED_MINION, // Host -> Client: inform clients a summoned minion was placed
 	PKT_MOVE_UNIT, // Host/Client: unit movement (fromX,fromY -> toX,toY)
 	PKT_PLACE_SUMMONED_BEGIN, // Host -> Client: begin remote placement preview (e.g., Kobolds/Wolves)
-	PKT_EARTHQUAKE_BEGIN, // Host -> Client: begin earthquake (directions for each unit)
+	// PKT_EARTHQUAKE_BEGIN removed: earthquake is deterministic in executeCardByType
 
 	// Draft packets moved to the end to avoid enum collisions with legacy packet numbers.
 	PKT_DRAFT_ACTION, // Draft selection / accept messages (sent by clients to host)
@@ -77,14 +76,6 @@ struct PlaceSummonedBeginPacket : PacketHeader {
 	int32_t numToPlace;
 };
 
-// Host -> Client: earthquake begin - directions for each player index
-struct EarthquakeBeginPacket : PacketHeader {
-	int32_t numUnits; // number of players included
-	int32_t playerIndex[16]; // support up to 16 units
-	int8_t dirX[16];
-	int8_t dirY[16];
-};
-
 // CardActionBegin and DiceRoll packets removed: deterministic lockstep uses
 // `InputCommandPacket` and the authoritative effect pipeline instead of
 // broadcasting these visual-only packets.
@@ -96,17 +87,6 @@ struct AppliedDamagePacket : PacketHeader {
 	int32_t attackerIndex; // who dealt it
 };
 
-struct ActionPacket : PacketHeader {
-	int32_t actorIndex; // Index of the acting unit (player or minion)
-	int32_t cardIndex;
-	int32_t targetX;
-	int32_t targetY;
-	int32_t cost;
-	int32_t menuChoice; // For choice-based cards (e.g., Giant Magic Hand: 1=push, 2=pull)
-	int32_t updatedAP; // AP after playing this card (for Sprint and other AP-modifying cards)
-	char cardName[64]; // Card name for opponent to identify which card was played
-	uint32_t clientActionID; // client-local monotonic id for reliable ACK matching (optional)
-};
 
 struct ChecksumPacket : PacketHeader {
 	int64_t checksum; // Compare game state
@@ -121,13 +101,6 @@ struct MoveUnitPacket : PacketHeader {
 	int32_t toY;
 };
 
-// When a player draws cards by clicking their deck
-struct DrawCardsPacket : PacketHeader {
-	int32_t playerIndex; // The index of the player/minion who drew
-	int32_t numCards; // Number of cards drawn
-	char cardNames[3][64]; // Names of up to 3 cards drawn (null-terminated strings)
-	uint32_t clientActionID; // client-local monotonic id for reliable deduplication (optional)
-};
 
 // When a player uses an Assistant to reroll AP
 struct AssistantRerollPacket : PacketHeader {
@@ -144,13 +117,6 @@ struct MenuStatePacket : PacketHeader {
 	int32_t cardIndex; // Index of the card that opened the menu
 };
 
-// Renewed Inspiration selection (indices of cards to discard)
-struct RenewedInspirationPacket : PacketHeader {
-	int32_t playerIndex; // Player who played the card
-	int32_t count; // number of cards specified
-	char cardNames[16][64]; // Names of the selected cards to discard (max 16)
-	uint32_t clientActionID; // client-local monotonic id for reliable deduplication (optional)
-};
 
 // ============================================================================
 // LOCKSTEP DETERMINISTIC INPUT SYSTEM
@@ -270,14 +236,8 @@ struct ClientReadyPacket : PacketHeader {
 
 static_assert(sizeof(ClientReadyPacket) == 10, "ClientReadyPacket size mismatch - packing/fields may be incorrect");
 
-// For Amnesia card: when the player selects which cards to remove from deck
-struct AmnesiaChoicePacket : PacketHeader {
-	int32_t targetPlayerIndex;
-	uint8_t numCardsToRemove;
-	// For fixed-size packets, you'd typically send a fixed-size array or serialize/deserialize
-	// a small vector. For simplicity here, assuming a max, or you can send multiple packets.
-	int32_t selectedIndices[8]; // Assuming max 8 cards for a choice, adjust as needed
-};
+// Legacy async packet structs removed: lockstep `InputCommandPacket` and
+// deterministic effect pipeline provide canonical handling for these effects.
 
 // For Magic Blast: player chooses Damage or Discard
 struct MagicBlastChoicePacket : PacketHeader {

@@ -1053,19 +1053,17 @@ void ofApp::drawMinionCard(int minionIndex, int ownerIndex) {
 	}
 
 	if (isMultiplayer && ownerIndex == myLocalPlayerID && !processingNetworkPacket) {
-		DrawCardsPacket req = {};
-		req.type = PKT_DRAW_CARDS;
-		req.playerID = myLocalPlayerID;
-		req.playerIndex = minionIndex;
-		req.numCards = drawCount;
-		req.clientActionID = ++watchdogClientActionCounter;
-		steamManager.sendPacket(&req, sizeof(req));
-
-		if (isClient()) {
-			lastSentDrawCardsPacket = req;
-			lastSentDrawCardsValid = true;
-			lastSentDrawCardsTime = ofGetElapsedTimef();
-		}
+		InputCommandPacket cmd = {};
+		cmd.type = PKT_INPUT_COMMAND;
+		cmd.playerID = myLocalPlayerID;
+		cmd.commandId = nextCommandId++;
+		cmd.turnNumber = globalTurnCounter;
+		cmd.commandType = CMD_DRAW_CARDS;
+		cmd.params[0] = minionIndex;
+		cmd.params[1] = drawCount;
+		// Client-side watchdog id (if client) for dedupe/resend isn't tracked here anymore
+		if (isClient()) cmd.clientActionID = ++watchdogClientActionCounter;
+		steamManager.sendPacket(&cmd, sizeof(cmd));
 	}
 
 	int pushedAnims = 0;
@@ -12264,23 +12262,30 @@ void ofApp::mousePressed(int x, int y, int button) {
 					}
 				}
 
-				// Renewed Inspiration: package selection and send
-				RenewedInspirationPacket rpk = {};
-				// Build packet using explicit indexing (avoid local alias to prevent scope issues)
-				rpk.clientActionID = ++watchdogClientActionCounter;
-				rpk.playerIndex = currentPlayerIndex;
-				// Send card NAMES instead of indices to avoid hand-order mismatches
-				rpk.count = std::min((int)renewedSelectedHandIndices.size(), 16);
-				for (int i = 0; i < rpk.count; ++i) {
-					int idx = renewedSelectedHandIndices[i];
-					if (idx >= 0 && idx < (int)players[currentPlayerIndex].hand.size()) {
-						strncpy(rpk.cardNames[i], players[currentPlayerIndex].hand[idx].name.c_str(), 63);
-						rpk.cardNames[i][63] = '\0';
-					} else {
-						rpk.cardNames[i][0] = '\0';
+				// Renewed Inspiration: send as deterministic input command so lockstep handles it
+				InputCommandPacket rcmd = {};
+				rcmd.type = PKT_INPUT_COMMAND;
+				rcmd.playerID = myLocalPlayerID;
+				rcmd.commandId = nextCommandId++;
+				rcmd.turnNumber = globalTurnCounter;
+				rcmd.commandType = CMD_RENEWED_INSPIRATION;
+				rcmd.params[0] = currentPlayerIndex;
+				rcmd.params[1] = std::min((int)renewedSelectedHandIndices.size(), 16);
+				// Concatenate selected card names into stringData (delimiter ';')
+				{
+					std::string concat;
+					for (int i = 0; i < rcmd.params[1]; ++i) {
+						int idx = renewedSelectedHandIndices[i];
+						if (idx >= 0 && idx < (int)players[currentPlayerIndex].hand.size()) {
+							if (!concat.empty()) concat.push_back(';');
+							concat += players[currentPlayerIndex].hand[idx].name;
+						}
 					}
+					strncpy(rcmd.stringData, concat.c_str(), sizeof(rcmd.stringData) - 1);
+					rcmd.stringData[sizeof(rcmd.stringData) - 1] = '\0';
 				}
-				steamManager.sendPacket(&rpk, sizeof(rpk));
+				if (isClient()) rcmd.clientActionID = ++watchdogClientActionCounter;
+				steamManager.sendPacket(&rcmd, sizeof(rcmd));
 
 				// --- DETERMINISTIC MODE FIX ---
 				// We removed the "if (isClient) return" here.
@@ -12307,30 +12312,19 @@ void ofApp::mousePressed(int x, int y, int button) {
 				for (int i = 0; i < cardsToDraw; i++)
 					drawCard(false);
 
-				// Send DrawCards packet to opponent so they know HOW MANY were drawn
-				// (Even in deterministic mode, explicit draw packets help UI sync)
+				// Inform opponent how many cards were drawn via lockstep command for UI sync
 				if (isMultiplayer && cardsToDraw > 0) {
-					DrawCardsPacket dcpkt = {};
-					dcpkt.type = PKT_DRAW_CARDS;
-					dcpkt.playerID = myLocalPlayerID;
-					dcpkt.playerIndex = currentPlayerIndex;
-					dcpkt.numCards = cardsToDraw;
-					// clientActionID for watchdog deduplication
-					dcpkt.clientActionID = ++watchdogClientActionCounter;
-
-					// Include the card names (optional for opponent, but good for anti-cheat logs)
-					for (int i = 0; i < cardsToDraw && i < 3; i++) {
-						size_t cardIndex = handSizeBefore + i;
-						if (cardIndex < players[currentPlayerIndex].hand.size()) {
-							strncpy(dcpkt.cardNames[i], players[currentPlayerIndex].hand[cardIndex].name.c_str(), 63);
-							dcpkt.cardNames[i][63] = '\0';
-						} else {
-							dcpkt.cardNames[i][0] = '\0';
-						}
-					}
-
-					steamManager.sendPacket(&dcpkt, sizeof(dcpkt));
-					ofLogNotice("Network") << "Sent DrawCards packet for Renewed Inspiration: " << cardsToDraw << " cards";
+					InputCommandPacket dc = {};
+					dc.type = PKT_INPUT_COMMAND;
+					dc.playerID = myLocalPlayerID;
+					dc.commandId = nextCommandId++;
+					dc.turnNumber = globalTurnCounter;
+					dc.commandType = CMD_DRAW_CARDS;
+					dc.params[0] = currentPlayerIndex;
+					dc.params[1] = cardsToDraw;
+					if (isClient()) dc.clientActionID = ++watchdogClientActionCounter;
+					steamManager.sendPacket(&dc, sizeof(dc));
+					ofLogNotice("Network") << "Sent CMD_DRAW_CARDS for Renewed Inspiration: " << cardsToDraw << " cards";
 				}
 
 				// Show played card animation now that the effect is confirmed
@@ -12533,22 +12527,16 @@ void ofApp::mousePressed(int x, int y, int button) {
 					}
 
 					if (isMultiplayer) {
-						DrawCardsPacket out = {};
-						out.type = PKT_DRAW_CARDS;
+						InputCommandPacket out = {};
+						out.type = PKT_INPUT_COMMAND;
 						out.playerID = myLocalPlayerID;
-						out.playerIndex = localPlayerIndex;
-						out.numCards = cardsToDraw;
-						// clientActionID for watchdog deduplication
-						out.clientActionID = ++watchdogClientActionCounter;
-						// No need to send card names in deterministic mode
-						memset(out.cardNames, 0, sizeof(out.cardNames));
+						out.commandId = nextCommandId++;
+						out.turnNumber = globalTurnCounter;
+						out.commandType = CMD_DRAW_CARDS;
+						out.params[0] = localPlayerIndex;
+						out.params[1] = cardsToDraw;
+						if (isClient()) out.clientActionID = ++watchdogClientActionCounter;
 						steamManager.sendPacket(&out, sizeof(out));
-						if (isClient()) {
-							lastSentDrawCardsPacket = out;
-							lastSentDrawCardsValid = true;
-							lastSentDrawCardsTime = ofGetElapsedTimef();
-							lastSentDrawCardsAttempts = 0;
-						}
 					}
 
 					localPlayer->nextTurnExtraDraw = false;
@@ -13665,20 +13653,16 @@ void ofApp::keyPressed(int key) {
 			drawCard(false);
 
 		if (isMultiplayer) {
-			DrawCardsPacket out = {};
-			out.type = PKT_DRAW_CARDS;
+			InputCommandPacket out = {};
+			out.type = PKT_INPUT_COMMAND;
 			out.playerID = myLocalPlayerID;
-			out.playerIndex = currentPlayerIndex;
-			out.numCards = cardsToDraw;
-			out.clientActionID = ++watchdogClientActionCounter;
-			memset(out.cardNames, 0, sizeof(out.cardNames));
+			out.commandId = nextCommandId++;
+			out.turnNumber = globalTurnCounter;
+			out.commandType = CMD_DRAW_CARDS;
+			out.params[0] = currentPlayerIndex;
+			out.params[1] = cardsToDraw;
+			if (isClient()) out.clientActionID = ++watchdogClientActionCounter;
 			steamManager.sendPacket(&out, sizeof(out));
-			if (isClient()) {
-				lastSentDrawCardsPacket = out;
-				lastSentDrawCardsValid = true;
-				lastSentDrawCardsTime = ofGetElapsedTimef();
-				lastSentDrawCardsAttempts = 0;
-			}
 		}
 
 		localPlayer->nextTurnExtraDraw = false;
@@ -29599,48 +29583,15 @@ void ofApp::processNetworkPackets() {
 				continue; // handled
 			}
 
-			// Verbose packet tracing for debugging desyncs
-			if (header->type == PKT_INPUT_COMMAND || header->type == PKT_ACTION || header->type == PKT_DRAFT_ACTION || header->type == PKT_DRAFT_STATE || header->type == PKT_DRAFT_OPTIONS || header->type == PKT_DRAFT_ACK || header->type == PKT_RENEWED_INSPIRATION || header->type == PKT_DRAW_CARDS || header->type == PKT_CHECKSUM_CHECK || header->type == PKT_SNAPSHOT_BEGIN || header->type == PKT_SNAPSHOT_CHUNK || header->type == PKT_SNAPSHOT_END || header->type == PKT_MOVE_UNIT || header->type == PKT_AMNESIA_CHOICE || header->type == PKT_PLACE_SUMMONED_BEGIN) {
+			// Verbose packet tracing for debugging desyncs: only log canonical lockstep and draft packets
+			if (header->type == PKT_INPUT_COMMAND || header->type == PKT_DRAFT_ACTION || header->type == PKT_DRAFT_STATE || header->type == PKT_DRAFT_OPTIONS || header->type == PKT_DRAFT_ACK || header->type == PKT_CHECKSUM_CHECK || header->type == PKT_SNAPSHOT_BEGIN || header->type == PKT_SNAPSHOT_CHUNK || header->type == PKT_SNAPSHOT_END || header->type == PKT_MOVE_UNIT || header->type == PKT_PLACE_SUMMONED_BEGIN) {
 				ofLogNotice("NetTrace") << "RECV pkt type=" << (int)header->type << " player=" << header->playerID << " seq=" << header->seq << " size=" << buffer.size();
 				if (header->type == PKT_INPUT_COMMAND && buffer.size() >= sizeof(InputCommandPacket)) {
 					InputCommandPacket * ic = (InputCommandPacket *)buffer.data();
 					ofLogNotice("NetTrace") << "  INPUT_CMD type=" << (int)ic->commandType << " clientActionID=" << ic->clientActionID << " cmdId=" << ic->commandId;
-				} else if (header->type == PKT_ACTION && buffer.size() >= sizeof(ActionPacket)) {
-					ActionPacket * ap = (ActionPacket *)buffer.data();
-					ofLogNotice("NetTrace") << "  ACTION card='" << ap->cardName << "' actor=" << ap->actorIndex << " target=(" << ap->targetX << "," << ap->targetY << ") menu=" << ap->menuChoice << " updatedAP=" << ap->updatedAP;
-				} else if (header->type == PKT_DRAW_CARDS && buffer.size() >= sizeof(DrawCardsPacket)) {
-					DrawCardsPacket * dcp = (DrawCardsPacket *)buffer.data();
-					ofLogNotice("NetTrace") << "  DRAW_CARDS playerIndex=" << dcp->playerIndex << " numCards=" << (int)dcp->numCards;
-				} else if (header->type == PKT_RENEWED_INSPIRATION && buffer.size() >= sizeof(RenewedInspirationPacket)) {
-					RenewedInspirationPacket * rip = (RenewedInspirationPacket *)buffer.data();
-					ofLogNotice("NetTrace") << "  RINSP playerIndex=" << rip->playerIndex << " count=" << (int)rip->count;
-				} else if (header->type == PKT_CHECKSUM_CHECK && buffer.size() >= sizeof(ChecksumPacket)) {
-					ChecksumPacket * ckp = (ChecksumPacket *)buffer.data();
-					ofLogNotice("NetTrace") << "  CHECKSUM turn=" << ckp->turnNumber << " value=" << ckp->checksum;
-				} else if (header->type == PKT_SNAPSHOT_BEGIN && buffer.size() >= sizeof(SnapshotBeginPacket)) {
-					SnapshotBeginPacket * sb = (SnapshotBeginPacket *)buffer.data();
-					ofLogNotice("NetTrace") << "  SNAPSHOT_BEGIN id=" << sb->snapshotId << " totalSize=" << sb->totalSize;
-				} else if (header->type == PKT_SNAPSHOT_CHUNK && buffer.size() >= sizeof(SnapshotChunkPacket)) {
-					SnapshotChunkPacket * sc = (SnapshotChunkPacket *)buffer.data();
-					ofLogNotice("NetTrace") << "  SNAPSHOT_CHUNK id=" << sc->snapshotId << " offset=" << sc->offset << " chunkSize=" << sc->chunkSize;
-				} else if (header->type == PKT_SNAPSHOT_END && buffer.size() >= sizeof(SnapshotEndPacket)) {
-					SnapshotEndPacket * se = (SnapshotEndPacket *)buffer.data();
-					ofLogNotice("NetTrace") << "  SNAPSHOT_END id=" << se->snapshotId;
-				} else if (header->type == PKT_MOVE_UNIT && buffer.size() >= sizeof(MoveUnitPacket)) {
-					MoveUnitPacket * mup = (MoveUnitPacket *)buffer.data();
-					ofLogNotice("NetTrace") << "  MOVE from=(" << mup->fromX << "," << mup->fromY << ") to=(" << mup->toX << "," << mup->toY << ")";
-				} else if (header->type == PKT_AMNESIA_CHOICE && buffer.size() >= sizeof(AmnesiaChoicePacket)) {
-					AmnesiaChoicePacket * apc = (AmnesiaChoicePacket *)buffer.data();
-					ofLogNotice("NetTrace") << "  AMNESIA targetPlayer=" << apc->targetPlayerIndex << " numRemove=" << (int)apc->numCardsToRemove;
-				} else if (header->type == PKT_PLACE_SUMMONED_BEGIN && buffer.size() >= sizeof(PlaceSummonedBeginPacket)) {
-					PlaceSummonedBeginPacket * psb = (PlaceSummonedBeginPacket *)buffer.data();
-					ofLogNotice("NetTrace") << "  PLACE_SUMMON_BEGIN minionType=" << (int)psb->minionType << " ownerID=" << psb->ownerPlayerID << " numToPlace=" << psb->numToPlace;
-				} else if (header->type == PKT_DRAFT_STATE && buffer.size() >= sizeof(DraftStatePacket)) {
-					DraftStatePacket * sp = (DraftStatePacket *)buffer.data();
-					ofLogNotice("NetTrace") << "  DRAFT_STATE class=" << sp->classTier << " player=" << sp->draftPlayerIdx << " picks=" << sp->picksRemaining << " stage=" << sp->draftStage << " ingame=" << (int)sp->isInGameDraft << " curPlayer=" << sp->currentPlayerIndex;
-				} else if (header->type == PKT_DRAFT_OPTIONS && buffer.size() >= sizeof(DraftOptionsPacket)) {
-					DraftOptionsPacket * dp = (DraftOptionsPacket *)buffer.data();
-					ofLogNotice("NetTrace") << "  DRAFT_OPTIONS class=" << dp->classTier << " player=" << dp->draftPlayerIdx << " picks=" << dp->picksRemaining << " stage=" << dp->draftStage << " ingame=" << (int)dp->isInGameDraft << " genC=" << dp->draftGenCounter << " mapSeed=" << dp->mapSeed;
+				} else if (header->type == PKT_DRAFT_ACTION && buffer.size() >= sizeof(DraftActionPacket)) {
+					DraftActionPacket * dap = (DraftActionPacket *)buffer.data();
+					ofLogNotice("NetTrace") << "  DRAFT_ACTION recv: actionType=" << (int)dap->actionType << " clientActionID=" << dap->clientActionID << " draftPlayerIdx=" << dap->draftPlayerIdx;
 				}
 			}
 			// ACK handling removed; rely on SteamNetworkingSockets reliability.
@@ -29649,15 +29600,9 @@ void ofApp::processNetworkPackets() {
 			// STRICT: rely solely on clientActionID for deduplication on the host.
 			// Network seq numbers are not used for dedupe because they can be
 			// unrelated and much larger than client-local monotonic IDs.
-			if ((header->type == PKT_ACTION && buffer.size() >= sizeof(ActionPacket)) || (header->type == PKT_INPUT_COMMAND && buffer.size() >= sizeof(InputCommandPacket))) {
-				uint32_t clientActionID = 0;
-				if (header->type == PKT_ACTION) {
-					ActionPacket * ap = (ActionPacket *)buffer.data();
-					clientActionID = ap->clientActionID;
-				} else {
-					InputCommandPacket * ip = (InputCommandPacket *)buffer.data();
-					clientActionID = ip->clientActionID;
-				}
+			if (header->type == PKT_INPUT_COMMAND && buffer.size() >= sizeof(InputCommandPacket)) {
+				InputCommandPacket * ip = (InputCommandPacket *)buffer.data();
+				uint32_t clientActionID = ip->clientActionID;
 				int sender = (header->playerID == 0 || header->playerID == 1) ? (int)header->playerID : -1;
 				if (sender >= 0 && isHost()) {
 					if (clientActionID != 0) {
@@ -30992,23 +30937,7 @@ void ofApp::processNetworkPackets() {
 						}
 					}
 
-					// Clear RenewedInspiration resend state if host acknowledged
-					if (isClient() && ack->ackType == PKT_RENEWED_INSPIRATION) {
-						if (lastSentRenewedInspirationValid && ack->ackSeq == lastSentRenewedInspirationPacket.clientActionID) {
-							lastSentRenewedInspirationValid = false;
-							lastSentRenewedInspirationAttempts = 0;
-							ofLogNotice("Network") << "Client: RenewedInspiration acknowledged by host (clientActionID=" << ack->ackSeq << ").";
-						}
-					}
-
-					// Clear DrawCards resend state if host acknowledged
-					if (isClient() && ack->ackType == PKT_DRAW_CARDS) {
-						if (lastSentDrawCardsValid && ack->ackSeq == lastSentDrawCardsPacket.clientActionID) {
-							lastSentDrawCardsValid = false;
-							lastSentDrawCardsAttempts = 0;
-							ofLogNotice("Network") << "Client: DrawCards acknowledged by host (clientActionID=" << ack->ackSeq << ").";
-						}
-					}
+					// Legacy ACK handling for RenewedInspiration/DrawCards removed.
 					// Draft ACKs handled earlier via PKT_DRAFT_ACK branch
 					continue;
 				}
@@ -31016,64 +30945,7 @@ void ofApp::processNetworkPackets() {
 		}
 	}
 
-	// After draining incoming packets, run client-side resend watchdogs for
-	// certain reliable but lightweight packets (Renewed Inspiration, DrawCards).
-	if (isClient()) {
-		float now = ofGetElapsedTimef();
-		const int MAX_ATTEMPTS = 5;
-		if (lastSentRenewedInspirationValid) {
-			float backoff = powf(2.0f, std::max(0, lastSentRenewedInspirationAttempts - 1));
-			if (lastSentRenewedInspirationAttempts == 0) backoff = 0.5f; // first retry sooner
-			if (now - lastSentRenewedInspirationTime > backoff) {
-				if (lastSentRenewedInspirationAttempts >= MAX_ATTEMPTS) {
-					// Give up and request authoritative snapshot
-					if (waitingForSnapshotStartTime <= 0.0f) {
-						SnapshotRequestPacket req = {};
-						req.type = PKT_SNAPSHOT_REQUEST;
-						req.playerID = myLocalPlayerID;
-						req.requestedTurn = globalTurnCounter;
-						steamManager.sendPacket(&req, sizeof(req));
-						waitingForSnapshotStartTime = now;
-						lastSnapshotRequestTime = now;
-						ofLogNotice("Network") << "Client: RenewedInspiration retry limit reached — requested snapshot.";
-					}
-					lastSentRenewedInspirationValid = false;
-					lastSentRenewedInspirationAttempts = 0;
-				} else {
-					steamManager.sendPacket(&lastSentRenewedInspirationPacket, sizeof(lastSentRenewedInspirationPacket));
-					lastSentRenewedInspirationTime = now;
-					lastSentRenewedInspirationAttempts++;
-					ofLogNotice("Network") << "Client: Resent RenewedInspiration (attempt=" << lastSentRenewedInspirationAttempts << ").";
-				}
-			}
-		}
-
-		if (lastSentDrawCardsValid) {
-			float backoff = powf(2.0f, std::max(0, lastSentDrawCardsAttempts - 1));
-			if (lastSentDrawCardsAttempts == 0) backoff = 0.5f;
-			if (now - lastSentDrawCardsTime > backoff) {
-				if (lastSentDrawCardsAttempts >= MAX_ATTEMPTS) {
-					if (waitingForSnapshotStartTime <= 0.0f) {
-						SnapshotRequestPacket req = {};
-						req.type = PKT_SNAPSHOT_REQUEST;
-						req.playerID = myLocalPlayerID;
-						req.requestedTurn = globalTurnCounter;
-						steamManager.sendPacket(&req, sizeof(req));
-						waitingForSnapshotStartTime = now;
-						lastSnapshotRequestTime = now;
-						ofLogNotice("Network") << "Client: DrawCards retry limit reached — requested snapshot.";
-					}
-					lastSentDrawCardsValid = false;
-					lastSentDrawCardsAttempts = 0;
-				} else {
-					steamManager.sendPacket(&lastSentDrawCardsPacket, sizeof(lastSentDrawCardsPacket));
-					lastSentDrawCardsTime = now;
-					lastSentDrawCardsAttempts++;
-					ofLogNotice("Network") << "Client: Resent DrawCards (attempt=" << lastSentDrawCardsAttempts << ").";
-				}
-			}
-		}
-	}
+	// Legacy resend watchdogs removed: lockstep input commands are reliable.
 
 	// Close processNetworkPackets() scope
 }

@@ -853,7 +853,7 @@ public:
 	// Networking helpers for Begin/Resolve patterns
 	void sendPlaceSummonedBegin(int minionType, int ownerPlayerID, int sourceX, int sourceY, int numToPlace);
 	void sendPlaceSummonedMinion(int minionType, int ownerPlayerID, int targetX, int targetY, int minionHP, int minionAP, int minionPlayerID);
-	void sendEarthquakeBegin();
+
 
 	// Generic card action begin helper
 	void sendCardActionBegin(int cardType, int actorIndex, int targetX, int targetY, int p0 = 0, int p1 = 0, int p2 = 0, int p3 = 0, const std::string & label = "");
@@ -861,22 +861,10 @@ public:
 	void sendMagicHandResolutionPacket(int choice);
 	void sendMenuState(int menuType, int targetIndex, int hoveredChoice, int cardIndex);
 
-	// Host-side validation for client-submitted ActionPackets. Returns true
-	// if the action is valid against the host's authoritative board; if
-	// false, `reason` is filled with a short explanation for logging/feedback.
-	bool validateActionPacketOnHost(const ActionPacket & pkt, std::string & reason);
+
 	long long calculateChecksum();
 
-	// Reliable send tracking for certain client-originated packets
-	bool lastSentRenewedInspirationValid = false;
-	RenewedInspirationPacket lastSentRenewedInspirationPacket;
-	float lastSentRenewedInspirationTime = 0.0f;
-	int lastSentRenewedInspirationAttempts = 0;
-
-	bool lastSentDrawCardsValid = false;
-	DrawCardsPacket lastSentDrawCardsPacket;
-	float lastSentDrawCardsTime = 0.0f;
-	int lastSentDrawCardsAttempts = 0;
+	// Reliable send tracking for legacy packets removed: lockstep commands used instead
 	void sendSnapshotToClient();
 	std::string buildSnapshotString();
 	void applySnapshotString(const std::string & data);
