@@ -205,27 +205,18 @@ bool SteamManager::sendPacket(const void * data, uint32_t size) {
 			outHdr->seq = m_nextSeq++;
 		}
 
-		// Verbose send tracing for key packets
-		if (outHdr->type == PKT_INPUT_COMMAND || outHdr->type == PKT_ACTION || outHdr->type == PKT_DRAFT_ACTION || outHdr->type == PKT_DRAFT_ACK || outHdr->type == PKT_RENEWED_INSPIRATION || outHdr->type == PKT_DRAW_CARDS || outHdr->type == PKT_CHECKSUM_CHECK || outHdr->type == PKT_SNAPSHOT_BEGIN || outHdr->type == PKT_SNAPSHOT_CHUNK || outHdr->type == PKT_SNAPSHOT_END || outHdr->type == PKT_MOVE_UNIT || outHdr->type == PKT_AMNESIA_CHOICE || outHdr->type == PKT_PLACE_SUMMONED_BEGIN) {
+		// Verbose send tracing for canonical packets only (legacy async packets removed)
+		if (outHdr->type == PKT_INPUT_COMMAND || outHdr->type == PKT_DRAFT_ACTION || outHdr->type == PKT_DRAFT_ACK || outHdr->type == PKT_CHECKSUM_CHECK || outHdr->type == PKT_SNAPSHOT_BEGIN || outHdr->type == PKT_SNAPSHOT_CHUNK || outHdr->type == PKT_SNAPSHOT_END || outHdr->type == PKT_MOVE_UNIT || outHdr->type == PKT_PLACE_SUMMONED_BEGIN) {
 			ofLogNotice("NetTrace") << "SEND pkt type=" << (int)outHdr->type << " player=" << outHdr->playerID << " seq=" << outHdr->seq << " size=" << size;
 			if (outHdr->type == PKT_INPUT_COMMAND && size >= sizeof(InputCommandPacket)) {
 				InputCommandPacket * ic = (InputCommandPacket *)buffer.data();
 				ofLogNotice("NetTrace") << "  INPUT_CMD type=" << (int)ic->commandType << " clientActionID=" << ic->clientActionID << " cmdId=" << ic->commandId;
-			}
-			if (outHdr->type == PKT_DRAFT_ACTION && size >= sizeof(DraftActionPacket)) {
+			} else if (outHdr->type == PKT_DRAFT_ACTION && size >= sizeof(DraftActionPacket)) {
 				DraftActionPacket * dap = (DraftActionPacket *)buffer.data();
-				ofLogNotice("NetTrace") << "  DRAFT_ACTION actionType=" << (int)dap->actionType << " clientActionID=" << dap->clientActionID << " draftPlayerIdx=" << dap->draftPlayerIdx << " classTier=" << (int)dap->classTier << " numSelected=" << (int)dap->numSelected << " opt=" << dap->optionIndex << " sel=" << (int)dap->selectFlag;
+				ofLogNotice("NetTrace") << "  DRAFT_ACTION actionType=" << (int)dap->actionType << " clientActionID=" << dap->clientActionID << " draftPlayerIdx=" << dap->draftPlayerIdx;
 			} else if (outHdr->type == PKT_DRAFT_ACK && size >= sizeof(DraftAckPacket)) {
 				DraftAckPacket * dak = (DraftAckPacket *)buffer.data();
-				ofLogNotice("NetTrace") << "  DRAFT_ACK clientActionID=" << dak->clientActionID << " actionType=" << (int)dak->actionType << " draftPlayer=" << dak->draftPlayerIdx << " opt=" << dak->optionIndex << " sel=" << (int)dak->selectFlag;
-			} else if (outHdr->type == PKT_ACTION && size >= sizeof(ActionPacket)) {
-				ofLogNotice("NetTrace") << "  LEGACY_ACTION packet (suppressed details)";
-			} else if (outHdr->type == PKT_DRAW_CARDS && size >= sizeof(DrawCardsPacket)) {
-				DrawCardsPacket * dcp = (DrawCardsPacket *)buffer.data();
-				ofLogNotice("NetTrace") << "  DRAW_CARDS playerIndex=" << dcp->playerIndex << " numCards=" << (int)dcp->numCards;
-			} else if (outHdr->type == PKT_RENEWED_INSPIRATION && size >= sizeof(RenewedInspirationPacket)) {
-				RenewedInspirationPacket * rip = (RenewedInspirationPacket *)buffer.data();
-				ofLogNotice("NetTrace") << "  RINSP playerIndex=" << rip->playerIndex << " count=" << (int)rip->count;
+				ofLogNotice("NetTrace") << "  DRAFT_ACK clientActionID=" << dak->clientActionID << " actionType=" << (int)dak->actionType << " draftPlayer=" << dak->draftPlayerIdx;
 			} else if (outHdr->type == PKT_CHECKSUM_CHECK && size >= sizeof(ChecksumPacket)) {
 				ChecksumPacket * ckp = (ChecksumPacket *)buffer.data();
 				ofLogNotice("NetTrace") << "  CHECKSUM turn=" << ckp->turnNumber << " value=" << ckp->checksum;
@@ -241,9 +232,6 @@ bool SteamManager::sendPacket(const void * data, uint32_t size) {
 			} else if (outHdr->type == PKT_MOVE_UNIT && size >= sizeof(MoveUnitPacket)) {
 				MoveUnitPacket * mup = (MoveUnitPacket *)buffer.data();
 				ofLogNotice("NetTrace") << "  MOVE from=(" << mup->fromX << "," << mup->fromY << ") to=(" << mup->toX << "," << mup->toY << ")";
-			} else if (outHdr->type == PKT_AMNESIA_CHOICE && size >= sizeof(AmnesiaChoicePacket)) {
-				AmnesiaChoicePacket * apc = (AmnesiaChoicePacket *)buffer.data();
-				ofLogNotice("NetTrace") << "  AMNESIA targetPlayer=" << apc->targetPlayerIndex << " numRemove=" << (int)apc->numCardsToRemove;
 			} else if (outHdr->type == PKT_PLACE_SUMMONED_BEGIN && size >= sizeof(PlaceSummonedBeginPacket)) {
 				PlaceSummonedBeginPacket * psb = (PlaceSummonedBeginPacket *)buffer.data();
 				ofLogNotice("NetTrace") << "  PLACE_SUMMON_BEGIN minionType=" << (int)psb->minionType << " ownerID=" << psb->ownerPlayerID << " numToPlace=" << psb->numToPlace;

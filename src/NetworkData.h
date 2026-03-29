@@ -87,7 +87,6 @@ struct AppliedDamagePacket : PacketHeader {
 	int32_t attackerIndex; // who dealt it
 };
 
-
 struct ChecksumPacket : PacketHeader {
 	int64_t checksum; // Compare game state
 	int32_t turnNumber;
@@ -100,7 +99,6 @@ struct MoveUnitPacket : PacketHeader {
 	int32_t toX;
 	int32_t toY;
 };
-
 
 // When a player uses an Assistant to reroll AP
 struct AssistantRerollPacket : PacketHeader {
@@ -116,7 +114,6 @@ struct MenuStatePacket : PacketHeader {
 	int32_t hoveredChoice; // -1=none, 0=first option, 1=second option
 	int32_t cardIndex; // Index of the card that opened the menu
 };
-
 
 // ============================================================================
 // LOCKSTEP DETERMINISTIC INPUT SYSTEM
