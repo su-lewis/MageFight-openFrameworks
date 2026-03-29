@@ -153,23 +153,15 @@ void ofApp::startInitiativePhase() {
 	{
 		std::vector<int> raw1;
 		int r1;
-		if (isHost() || !isMultiplayer) {
-			r1 = resolveDiceRollDetailed(1, 6, raw1);
-			if (0 >= 0 && 0 < 16) currentEffectSequence.blackboard[0] = r1;
-		} else {
-			r1 = currentEffectSequence.blackboard[0];
-		}
+		r1 = resolveDiceRollDetailed(1, 6, raw1);
+		if (0 >= 0 && 0 < 16) currentEffectSequence.blackboard[0] = r1;
 		queueVisualDiceRoll(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.0f, 0), 1, 6, raw1, r1, PURPOSE_DEBUG, currentPlayerIndex, 1.0f);
 	}
 	{
 		std::vector<int> raw2;
 		int r2;
-		if (isHost() || !isMultiplayer) {
-			r2 = resolveDiceRollDetailed(1, 6, raw2);
-			if (1 >= 0 && 1 < 16) currentEffectSequence.blackboard[1] = r2;
-		} else {
-			r2 = currentEffectSequence.blackboard[1];
-		}
+		r2 = resolveDiceRollDetailed(1, 6, raw2);
+		if (1 >= 0 && 1 < 16) currentEffectSequence.blackboard[1] = r2;
 		queueVisualDiceRoll(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.0f, 0), 1, 6, raw2, r2, PURPOSE_DEBUG, currentPlayerIndex, 1.0f);
 	}
 
@@ -5069,12 +5061,8 @@ void ofApp::updateGame() {
 										// blackboard[5], then queues APPLY_BONUS_AP and visuals.
 										std::vector<int> rawReroll;
 										int bonus;
-										if (isHost() || !isMultiplayer) {
-											bonus = resolveDiceRollDetailed(rerollNum, rerollSides, rawReroll);
-											currentEffectSequence.blackboard[5] = bonus;
-										} else {
-											bonus = currentEffectSequence.blackboard[5];
-										}
+										bonus = resolveDiceRollDetailed(rerollNum, rerollSides, rawReroll);
+										currentEffectSequence.blackboard[5] = bonus;
 										EffectOp apply = {};
 										apply.type = EffectOpType::APPLY_BONUS_AP;
 										queueEffect(apply);
@@ -11396,60 +11384,40 @@ void ofApp::mousePressed(int x, int y, int button) {
 		if (debugFlipCoinButton.inside(x, y)) {
 			std::vector<int> raw;
 			int v;
-			if (isHost() || !isMultiplayer) {
-				v = resolveDiceRollDetailed(1, 2, raw);
-				currentEffectSequence.blackboard[14] = v;
-			} else {
-				v = currentEffectSequence.blackboard[14];
-			}
+			v = resolveDiceRollDetailed(1, 2, raw);
+			currentEffectSequence.blackboard[14] = v;
 			queueVisualDiceRoll(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.0f, 0), 1, 2, raw, v, PURPOSE_DEBUG, currentPlayerIndex, 0.8f);
 			return;
 		}
 		if (debugRollD4Button.inside(x, y)) {
 			std::vector<int> raw;
 			int v;
-			if (isHost() || !isMultiplayer) {
-				v = resolveDiceRollDetailed(1, 4, raw);
-				currentEffectSequence.blackboard[14] = v;
-			} else {
-				v = currentEffectSequence.blackboard[14];
-			}
+			v = resolveDiceRollDetailed(1, 4, raw);
+			currentEffectSequence.blackboard[14] = v;
 			queueVisualDiceRoll(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.0f, 0), 1, 4, raw, v, PURPOSE_DEBUG, currentPlayerIndex, 1.0f);
 			return;
 		}
 		if (debugRollD6Button.inside(x, y)) {
 			std::vector<int> raw;
 			int v;
-			if (isHost() || !isMultiplayer) {
-				v = resolveDiceRollDetailed(1, 6, raw);
-				currentEffectSequence.blackboard[14] = v;
-			} else {
-				v = currentEffectSequence.blackboard[14];
-			}
+			v = resolveDiceRollDetailed(1, 6, raw);
+			currentEffectSequence.blackboard[14] = v;
 			queueVisualDiceRoll(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.0f, 0), 1, 6, raw, v, PURPOSE_DEBUG, currentPlayerIndex, 1.0f);
 			return;
 		}
 		if (debugRollD10Button.inside(x, y)) {
 			std::vector<int> raw;
 			int v;
-			if (isHost() || !isMultiplayer) {
-				v = resolveDiceRollDetailed(1, 10, raw);
-				currentEffectSequence.blackboard[14] = v;
-			} else {
-				v = currentEffectSequence.blackboard[14];
-			}
+			v = resolveDiceRollDetailed(1, 10, raw);
+			currentEffectSequence.blackboard[14] = v;
 			queueVisualDiceRoll(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.0f, 0), 1, 10, raw, v, PURPOSE_DEBUG, currentPlayerIndex, 1.0f);
 			return;
 		}
 		if (debugRollD20Button.inside(x, y)) {
 			std::vector<int> raw;
 			int v;
-			if (isHost() || !isMultiplayer) {
-				v = resolveDiceRollDetailed(1, 20, raw);
-				currentEffectSequence.blackboard[14] = v;
-			} else {
-				v = currentEffectSequence.blackboard[14];
-			}
+			v = resolveDiceRollDetailed(1, 20, raw);
+			currentEffectSequence.blackboard[14] = v;
 			queueVisualDiceRoll(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.0f, 0), 1, 20, raw, v, PURPOSE_DEBUG, currentPlayerIndex, 1.0f);
 			return;
 		}
@@ -14745,13 +14713,8 @@ void ofApp::startNewTurn() {
 
 		// Authoritative poison roll
 		std::vector<int> rawPoison;
-		int poisonRoll;
-		if (isHost() || !isMultiplayer) {
-			poisonRoll = resolveDiceRollDetailed(1, 6, rawPoison);
-			currentEffectSequence.blackboard[0] = poisonRoll;
-		} else {
-			poisonRoll = currentEffectSequence.blackboard[0];
-		}
+		int poisonRoll = resolveDiceRollDetailed(1, 6, rawPoison);
+		currentEffectSequence.blackboard[0] = poisonRoll;
 		queueVisualDiceRoll(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.0f, 0), 1, 6, rawPoison, poisonRoll, PURPOSE_DEBUG, currentPlayerIndex, 1.0f);
 
 		EffectOp applyOp = {};
@@ -14766,21 +14729,14 @@ void ofApp::startNewTurn() {
 		// Resolve coin flip immediately (authoritative), then queue APPLY_PARALYSIS
 		// Authoritative coin flip for paralysis
 		std::vector<int> rawFlip;
-		int flip;
-		if (isHost() || !isMultiplayer) {
-			flip = resolveDiceRollDetailed(1, 2, rawFlip);
-			currentEffectSequence.blackboard[0] = flip;
-		} else {
-			flip = currentEffectSequence.blackboard[0];
-		}
+		int flip = resolveDiceRollDetailed(1, 2, rawFlip);
+		currentEffectSequence.blackboard[0] = flip;
 		queueVisualDiceRoll(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.0f, 0), 1, 2, rawFlip, flip, PURPOSE_COIN_FLIP, currentPlayerIndex, 0.8f);
 		// If player is on fire, pre-resolve fire damage into blackboard[1]
 		if (startingPlayer.onFire) {
-			if (isHost() || !isMultiplayer) {
-				std::vector<int> rawFire2;
-				int fireRoll = resolveDiceRollDetailed(1, 6, rawFire2);
-				currentEffectSequence.blackboard[1] = fireRoll;
-			}
+			std::vector<int> rawFire2;
+			int fireRoll = resolveDiceRollDetailed(1, 6, rawFire2);
+			currentEffectSequence.blackboard[1] = fireRoll;
 		}
 
 		EffectOp applyOp = {};
@@ -14927,13 +14883,8 @@ void ofApp::continueNewTurn() {
 			// Resolve sleeping fire damage immediately (authoritative), apply now,
 			// then queue visuals/delay and end the sleeping turn without blocking.
 			std::vector<int> rawSleeping;
-			int rollResult;
-			if (isHost() || !isMultiplayer) {
-				rollResult = resolveDiceRollDetailed(1, 6, rawSleeping);
-				currentEffectSequence.blackboard[0] = rollResult;
-			} else {
-				rollResult = currentEffectSequence.blackboard[0];
-			}
+			int rollResult = resolveDiceRollDetailed(1, 6, rawSleeping);
+			currentEffectSequence.blackboard[0] = rollResult;
 			int applied = applyDamageWithMitigations(players[currentPlayerIndex], rollResult, DAMAGE_FIRE, -1);
 			queueVisualDiceRoll(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.0f, 0), 1, 6, rawSleeping, rollResult, PURPOSE_DEBUG, currentPlayerIndex, 1.0f);
 			if (applied > 0)
