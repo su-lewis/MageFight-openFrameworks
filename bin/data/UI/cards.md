@@ -65,7 +65,7 @@
 - **AP Cost:** 3
 - **Class:** 2
 - **Picture:** 
-- **Effect Text:** Choose 1d4 cards in your / adjacent unit's deck to Destroy.
+- **Effect Text:** Destroy 1d4 cards of your / adjacent unit's deck of your choice.
 ---
 
 -## 10. Magic Blast
@@ -74,7 +74,7 @@
 - **Targeting:** 1d20 ft
 - **Class:** 2
 - **Picture:** 
-- **Effect Text:** Choose a target. The unit hit chooses 3x to take 5 damage or Destroy the top card of their deck. Adjacent units to tile hit choose x1. 
+- **Effect Text:** Choose a target. The unit hit chooses 3x to take 5 damage or destroy the top card of their deck. Adjacent units to tile hit choose x1. 
 ---
 
 -## 11. Fireball
@@ -99,7 +99,7 @@
 - **AP Cost:** 4
 - **Class:** 2
 - **Picture:** 
-- **Effect Text:**  Deal 2d10 damage to an adjacent unit or Destroy an adjacent wall.
+- **Effect Text:**  Deal 2d10 damage to an adjacent unit or destroy an adjacent wall.
 ---
 
 -## 14. Dispel
@@ -111,7 +111,7 @@
 
 -## 15. Teleport
 - **AP Cost:** 5
-- **Targeting:** 3d6ft
+- **Targeting:** 3d6 ft
 - **Class:** 1
 - **Picture:** 
 - **Effect Text:** Choose an empty tile to teleport to. You can target through walls.
@@ -428,7 +428,7 @@
 - **AP Cost:** 5
 - **Class:** 2
 - **Picture:** 
-- **Effect Text:** Every unit rolls 1d4 and are moved that amount in a random direction at the same time. They take 1d4 damage if they collide with a wall or another unit.
+- **Effect Text:** Every unit rolls 1d4 and are moved that amount in a random direction at the same time. They take 1d4 damage if they collide with a unit / wall / edge.
 ---
 
 -## 56. Form of Ghost
