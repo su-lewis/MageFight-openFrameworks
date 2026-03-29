@@ -16788,12 +16788,14 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 			turnStartDeferredAt = ofGetElapsedTimef();
 			ofLogNotice("Timer") << "Host: deferred next player's visible timer until visuals complete.";
 		} else {
-			// Clients: no authoritative action here, but defer the visible
-			// timer until any queued visuals (dice/animations) finish so the
-			// player's thinking time does not include opponent animations.
+			// Clients: advance local turn state as well so the client rolls AP
+			// and advances its own state. Also defer the visible timer until
+			// visuals complete so the player's thinking time does not include
+			// opponent animations.
+			ofLogNotice("Lockstep") << "Client processing CMD_END_TURN -> startNewTurn()";
 			turnStartDeferred = true;
 			turnStartDeferredAt = ofGetElapsedTimef();
-			ofLogNotice("Lockstep") << "Client received CMD_END_TURN; deferring visible timer until visuals complete.";
+			startNewTurn();
 		}
 		break;
 	}
@@ -29081,17 +29083,11 @@ void ofApp::drawDraftScreen() {
 	float spacing = std::clamp(60.0f * uiScale, 20.0f, 96.0f);
 	float startX = (ofGetWidth() - (3 * cardW + 2 * spacing)) / 2;
 
-	// Ensure cards are always positioned consistently below the header/instruction
-	// Calculate the bottom of the top text area and use it as the starting Y so
-	// both players' drafts render at the same vertical level.
-	// Compute bottom of top text area using the stable line height to avoid
-	// frame-to-frame shifts caused by glyph bounding-box variation.
-	float topTextBottom = ty + lineH;
-	if (!instr.empty()) topTextBottom = instrTy + lineH;
-	// Keep draft card/button layout stable across stage transitions by reserving
-	// class-tier line space for setup drafts, even when class text is empty.
-	if (!isInGameDraft) topTextBottom = classTy + lineH;
-	float startY = topTextBottom + 24.0f; // fixed padding below text
+	// Place cards centered vertically on screen. Keep header/instruction at
+	// the usual place (top area) so the prompt remains in its expected spot.
+	// Centering the card row makes the draft visually prominent for both
+	// in-game and setup drafts.
+	float startY = ofGetHeight() / 2.0f - (cardH / 2.0f);
 
 	// Throttled debug: if we're in draft state but have no options, log mapping once per second
 	float nowDbg = ofGetElapsedTimef();
@@ -29227,16 +29223,12 @@ void ofApp::drawDraftScreen() {
 		float btnW = std::clamp(220.0f * uiScale, 140.0f, 320.0f);
 		float btnH = std::clamp(60.0f * uiScale, 40.0f, 96.0f);
 		float btnX = (ofGetWidth() - btnW) / 2.0f;
-		// Use a fixed calculation based on screen height to prevent jumping
-		float btnY = ofGetHeight() * 0.75f;
-
-		// Ensure button isn't placed off-screen on short displays
+		// Place Accept button directly beneath the centered cards with a
+		// comfortable padding. Clamp to screen so it never overlaps edges.
+		float btnY = startY + cardH + std::clamp(24.0f * uiScale, 12.0f, 48.0f);
 		float minBottomMargin = 20.0f * uiScale;
 		float maxBtnY = ofGetHeight() - btnH - minBottomMargin;
 		if (btnY > maxBtnY) btnY = maxBtnY;
-		// Also ensure it's below the cards
-		float minBtnY = startY + cardH + std::clamp(24.0f * uiScale, 12.0f, 48.0f);
-		if (btnY < minBtnY) btnY = minBtnY;
 
 		draftAcceptButtonRect.set(btnX, btnY, btnW, btnH);
 
