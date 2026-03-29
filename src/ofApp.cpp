@@ -7230,6 +7230,10 @@ void ofApp::drawGame() {
 		// --- DICE RENDERING ---
 		diceMaterial.begin();
 
+		// Unified dice display parameters: keep size and height consistent
+		float diceUniformScale = 1.6f; // All dice will be scaled by this factor
+		float diceDisplayY = 7.0f; // World-space Y used for non-unit dice placement
+
 		// Helper to position dice
 		auto setDiceTransform = [&](int i, DiceRoll & roll) {
 			ofPushMatrix();
@@ -7275,32 +7279,39 @@ void ofApp::drawGame() {
 				int row = i / rowLength;
 				int col = i % rowLength;
 
-				// Special-case: Initiative roll shows exactly two dice; place them
-				// so the local player's die is always on the left.
-				if (currentState == STATE_INITIATIVE_ROLL && (int)activeDiceRolls.size() >= 2) {
-					glm::vec3 leftPos(-6.0f, 7.0f, 0.0f);
-					glm::vec3 rightPos(6.0f, 7.0f, 0.0f);
+				// Special-case: Initiative roll shows dice; if in initiative
+				// roll mode, position dice for the initiative display. Treat
+				// a single die similarly to ensure consistent height/scale.
+				if (currentState == STATE_INITIATIVE_ROLL && (int)activeDiceRolls.size() >= 1) {
+					// If exactly one die, center it; if two or more, place
+					// player0 on left and player1 on right as before.
+					glm::vec3 leftPos(-6.0f, diceDisplayY, 0.0f);
+					glm::vec3 rightPos(6.0f, diceDisplayY, 0.0f);
 
-					// i==0 corresponds to player 0, i==1 corresponds to player 1
-					// Keep P0 on the left in world space so each player sees their die on the left
 					bool player0OnLeft = true;
-					if (i == 0) {
-						glm::vec3 pos = player0OnLeft ? leftPos : rightPos;
-						ofTranslate(pos.x, pos.y, pos.z);
-					} else if (i == 1) {
-						glm::vec3 pos = player0OnLeft ? rightPos : leftPos;
-						ofTranslate(pos.x, pos.y, pos.z);
+					if ((int)activeDiceRolls.size() == 1) {
+						// Center single die
+						ofTranslate(0.0f, leftPos.y, leftPos.z);
 					} else {
-						// Fallback for extra dice: continue with normal grid
-						int totalDice = (int)activeDiceRolls.size();
-						int itemsInThisRow = std::min(rowLength, std::max(0, totalDice - row * rowLength));
-						float totalW = itemsInThisRow * spacing;
-						float startX = -(totalW / 2.0f) + (spacing / 2.0f);
-						float offsetX = startX + (col * spacing);
-						float offsetZ = (row * spacing);
-						float offsetY = 4.5f;
-						ofTranslate(offsetX, offsetY, offsetZ);
+						if (i == 0) {
+							glm::vec3 pos = player0OnLeft ? leftPos : rightPos;
+							ofTranslate(pos.x, pos.y, pos.z);
+						} else if (i == 1) {
+							glm::vec3 pos = player0OnLeft ? rightPos : leftPos;
+							ofTranslate(pos.x, pos.y, pos.z);
+						} else {
+							// Fallback for extra dice: continue with normal grid
+							int totalDice = (int)activeDiceRolls.size();
+							int itemsInThisRow = std::min(rowLength, std::max(0, totalDice - row * rowLength));
+							float totalW = itemsInThisRow * spacing;
+							float startX = -(totalW / 2.0f) + (spacing / 2.0f);
+							float offsetX = startX + (col * spacing);
+							float offsetZ = (row * spacing);
+							float offsetY = diceDisplayY;
+							ofTranslate(offsetX, offsetY, offsetZ);
+						}
 					}
+
 				} else {
 					// Calculate how many items are in this particular row so
 					// we can center the row based on the actual dice count
@@ -7314,7 +7325,7 @@ void ofApp::drawGame() {
 
 					float offsetX = startX + (col * spacing);
 					float offsetZ = (row * spacing); // Stack rows in depth
-					float offsetY = 4.5f;
+					float offsetY = diceDisplayY;
 
 					ofTranslate(offsetX, offsetY, offsetZ);
 				}
@@ -7340,7 +7351,7 @@ void ofApp::drawGame() {
 		for (size_t i = 0; i < activeDiceRolls.size(); i++) {
 			if (activeDiceRolls[i].sides == 4) {
 				setDiceTransform(i, activeDiceRolls[i]);
-				ofScale(2.2f, 2.2f, 2.2f);
+				ofScale(diceUniformScale, diceUniformScale, diceUniformScale);
 				d4Mesh.draw();
 				ofPopMatrix();
 			}
@@ -7354,6 +7365,7 @@ void ofApp::drawGame() {
 		for (size_t i = 0; i < activeDiceRolls.size(); i++) {
 			if (activeDiceRolls[i].sides == 2) {
 				setDiceTransform(i, activeDiceRolls[i]);
+				ofScale(diceUniformScale, diceUniformScale, diceUniformScale);
 				ofSetColor(255);
 				coinMesh.draw();
 				ofPopMatrix();
@@ -7367,7 +7379,7 @@ void ofApp::drawGame() {
 		for (size_t i = 0; i < activeDiceRolls.size(); i++) {
 			if (activeDiceRolls[i].sides == 6) {
 				setDiceTransform(i, activeDiceRolls[i]);
-				ofScale(1.2f, 1.2f, 1.2f);
+				ofScale(diceUniformScale, diceUniformScale, diceUniformScale);
 				d6Mesh.draw();
 				ofPopMatrix();
 			}
@@ -7379,7 +7391,7 @@ void ofApp::drawGame() {
 		for (size_t i = 0; i < activeDiceRolls.size(); i++) {
 			if (activeDiceRolls[i].sides == 10) {
 				setDiceTransform(i, activeDiceRolls[i]);
-				ofScale(2.1f, 2.1f, 2.1f);
+				ofScale(diceUniformScale, diceUniformScale, diceUniformScale);
 				d10Mesh.draw();
 				ofPopMatrix();
 			}
@@ -7391,7 +7403,7 @@ void ofApp::drawGame() {
 		for (size_t i = 0; i < activeDiceRolls.size(); i++) {
 			if (activeDiceRolls[i].sides == 20) {
 				setDiceTransform(i, activeDiceRolls[i]);
-				ofScale(2.4f, 2.4f, 2.4f);
+				ofScale(diceUniformScale, diceUniformScale, diceUniformScale);
 				d20Mesh.draw();
 				ofPopMatrix();
 			}
@@ -16690,9 +16702,88 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 			activeShuffleAnimations.push_back(s);
 		}
 
-		// Clear local transient UI selections and option list
+		// Spawn visual animations for picked cards and vanish the rest (visual-only)
+		{
+			float uiScale = std::min(ofGetWidth() / 1920.0f, ofGetHeight() / 1080.0f);
+			float cardW = std::clamp(340.0f * uiScale, 160.0f, 420.0f);
+			float cardH = cardW * 1.4f;
+			float spacing = std::clamp(60.0f * uiScale, 20.0f, 96.0f);
+			float startX = (ofGetWidth() - (3 * cardW + 2 * spacing)) / 2;
+			float startY = ofGetHeight() / 2.0f - (cardH / 2.0f);
+			float now = ofGetElapsedTimef();
+
+			// Create picked-card fly animations
+			const std::vector<Card> * pool = &class1Cards;
+			if (currentDraftClassTier == 2) pool = &class2Cards;
+			if (currentDraftClassTier == 3) pool = &class3Cards;
+			for (int poolIdx : selectedDraftIndices) {
+				int slot = -1;
+				for (size_t si = 0; si < currentDraftOptionPoolIndices.size(); ++si) {
+					if (currentDraftOptionPoolIndices[si] == poolIdx) {
+						slot = (int)si;
+						break;
+					}
+				}
+				if (slot < 0) continue;
+				float cx = startX + static_cast<float>(slot) * (cardW + spacing);
+				glm::vec2 center(cx + cardW / 2.0f, startY + cardH / 2.0f);
+				DraftPickedMove mv;
+				mv.card = (*pool)[poolIdx];
+				mv.startTime = now;
+				mv.delay = draftAnimHoldDuration;
+				mv.duration = 0.35f;
+				mv.startPos = center;
+				mv.endScale = 1.0f;
+				if (draftPlayerIndex >= 0 && draftPlayerIndex < (int)players.size() && players[draftPlayerIndex].isMinion) {
+					bool found = false;
+					for (const auto & mui : activeMinionUIs) {
+						if (mui.playerIndex == draftPlayerIndex) {
+							mv.endPos = glm::vec2(mui.deckRect.x + mui.deckRect.width / 2.0f, mui.deckRect.y + mui.deckRect.height / 2.0f);
+							mv.endScale = std::min(mui.deckRect.width, mui.deckRect.height) / std::max(cardW, cardH);
+							found = true;
+							break;
+						}
+					}
+					if (!found) mv.endPos = glm::vec2(-100, -100);
+				} else if (draftPlayerIndex >= 0 && draftPlayerIndex < (int)players.size()) {
+					int ownerID = players[draftPlayerIndex].playerID;
+					ofRectangle deckRect = (ownerID == myLocalPlayerID) ? p0_deckRect : p1_deckRect;
+					if (!isMultiplayer) deckRect = (ownerID == 0) ? p0_deckRect : p1_deckRect;
+					mv.endPos = glm::vec2(deckRect.x + deckRect.width / 2.0f, deckRect.y + deckRect.height / 2.0f);
+					mv.endScale = std::min(deckRect.width, deckRect.height) / std::max(cardW, cardH);
+				} else {
+					mv.endPos = glm::vec2(-100, -100);
+				}
+				mv.finished = false;
+				mv.ownerIndex = draftPlayerIndex;
+				activeDraftPickedMoves.push_back(mv);
+			}
+
+			// Vanish non-picked options immediately, hold picked ones
+			for (size_t si = 0; si < draftOptionUI.size(); ++si) {
+				int poolIdx = (si < currentDraftOptionPoolIndices.size()) ? currentDraftOptionPoolIndices[si] : -1;
+				bool picked = false;
+				for (int sel : selectedDraftIndices)
+					if (sel == poolIdx) {
+						picked = true;
+						break;
+					}
+				if (!picked) {
+					auto & ui = draftOptionUI[si];
+					ui.state = DRAFT_ANIM_VANISHING;
+					ui.startTime = now;
+					ui.startScale = ui.currentScale;
+					ui.targetScale = 0.0f;
+				} else {
+					auto & ui = draftOptionUI[si];
+					ui.state = DRAFT_ANIM_HOLDING;
+					ui.startTime = now;
+				}
+			}
+		}
+
+		// Clear local transient UI selections and option list (state changes handled below)
 		selectedDraftIndices.clear();
-		draftOptions.clear();
 
 		if (isInGameDraft) {
 			isInGameDraft = false;
@@ -30456,8 +30547,7 @@ void ofApp::processNetworkPackets() {
 						networkPending.keyDraftAccept = false;
 						networkPending.keyDraftPlayer = -1;
 						networkPending.keyDraftClass = 0;
-						selectedDraftIndices.clear();
-						draftOptions.clear();
+						// Keep `draftOptions` until vanish animations complete so visuals play.
 						isInGameDraft = false;
 						networkPending.draftFinalize = true; // will transition to gameplay once animations complete
 						networkPending.keyDraftKeyX = -1;
