@@ -1141,64 +1141,69 @@ void ofApp::drawMinionCard(int minionIndex, int ownerIndex) {
 }
 
 void ofApp::checkKeyPickupAndDraftAfterSummon(int x, int y, int minionOwnerID) {
-	if (!isMultiplayer || isHost()) {
-		for (int k = 0; k < (int)floatingKeyInstances.size(); ++k) {
-			if (floatingKeyInstances[k].pos.x == x && floatingKeyInstances[k].pos.y == y) {
-				int keySet = floatingKeyInstances[k].set;
-				floatingKeyInstances.erase(floatingKeyInstances.begin() + k);
-				int classToDraft = (keySet == 3) ? 1 : (keySet == 2) ? 2
-																	 : 3;
+	// Run on both host and client: both peers should generate draft options
+	// deterministically when a key is picked up. The host may still send a
+	// KeyPickupPacket for legacy / analytic purposes, but it is not required
+	// for draft generation.
+	for (int k = 0; k < (int)floatingKeyInstances.size(); ++k) {
+		if (floatingKeyInstances[k].pos.x == x && floatingKeyInstances[k].pos.y == y) {
+			int keySet = floatingKeyInstances[k].set;
+			floatingKeyInstances.erase(floatingKeyInstances.begin() + k);
+			int classToDraft = (keySet == 3) ? 1 : (keySet == 2) ? 2
+																 : 3;
 
-				int targetIndex = -1;
+			int targetIndex = -1;
+			for (int p = 0; p < (int)players.size(); ++p) {
+				if (players[p].isMinion && players[p].x == x && players[p].y == y) {
+					targetIndex = p;
+					break;
+				}
+			}
+			if (targetIndex == -1) {
 				for (int p = 0; p < (int)players.size(); ++p) {
-					if (players[p].isMinion && players[p].x == x && players[p].y == y) {
+					if (!players[p].isMinion && players[p].playerID == minionOwnerID) {
 						targetIndex = p;
 						break;
 					}
 				}
-				if (targetIndex == -1) {
-					for (int p = 0; p < (int)players.size(); ++p) {
-						if (!players[p].isMinion && players[p].playerID == minionOwnerID) {
-							targetIndex = p;
-							break;
-						}
-					}
-				}
-
-				if (targetIndex != -1) {
-					if (isHost()) {
-						KeyPickupPacket kpkt = {};
-						kpkt.type = PKT_KEY_PICKUP;
-						kpkt.playerID = myLocalPlayerID;
-						kpkt.playerIndex = targetIndex;
-						kpkt.playerID = (targetIndex >= 0 && targetIndex < (int)players.size()) ? players[targetIndex].playerID : -1;
-						kpkt.classTier = classToDraft;
-						kpkt.keyX = x;
-						kpkt.keyY = y;
-						steamManager.sendPacket(&kpkt, sizeof(kpkt));
-					}
-
-					isInGameDraft = true;
-					inGameDraftTargetIdx = targetIndex;
-					draftPlayerIndex = targetIndex;
-					generateDraftOptions(classToDraft);
-					draftPicksRemaining = 1;
-					selectedDraftIndices.clear();
-					currentState = STATE_DRAFTING;
-
-					// If this draft belongs to another player while it's currently someone's turn,
-					// pause the active player's turn timer and start an opponent decision timer.
-					pauseTurnTimerForOpponentDecision(targetIndex);
-
-					ofColor keyCol = ofColor::gold;
-					if (keySet == 2)
-						keyCol = ofColor(192, 192, 192);
-					else if (keySet == 3)
-						keyCol = ofColor(205, 127, 50);
-					queueFloatingTextVisual(gridToWorld(x, y), "Key Found!", keyCol);
-				}
-				break;
 			}
+
+			if (targetIndex != -1) {
+				if (isHost()) {
+					KeyPickupPacket kpkt = {};
+					kpkt.type = PKT_KEY_PICKUP;
+					kpkt.playerID = myLocalPlayerID;
+					kpkt.playerIndex = targetIndex;
+					kpkt.playerID = (targetIndex >= 0 && targetIndex < (int)players.size()) ? players[targetIndex].playerID : -1;
+					kpkt.classTier = classToDraft;
+					kpkt.keyX = x;
+					kpkt.keyY = y;
+					steamManager.sendPacket(&kpkt, sizeof(kpkt));
+				}
+
+				// Deterministic draft trigger: both host and client call this
+				// so that generateDraftOptions() is executed on the same tick
+				// with the same seed/context.
+				isInGameDraft = true;
+				inGameDraftTargetIdx = targetIndex;
+				draftPlayerIndex = targetIndex;
+				generateDraftOptions(classToDraft);
+				draftPicksRemaining = 1;
+				selectedDraftIndices.clear();
+				currentState = STATE_DRAFTING;
+
+				// If this draft belongs to another player while it's currently someone's turn,
+				// pause the active player's turn timer and start an opponent decision timer.
+				pauseTurnTimerForOpponent(targetIndex);
+
+				ofColor keyCol = ofColor::gold;
+				if (keySet == 2)
+					keyCol = ofColor(192, 192, 192);
+				else if (keySet == 3)
+					keyCol = ofColor(205, 127, 50);
+				queueFloatingTextVisual(gridToWorld(x, y), "Key Found!", keyCol);
+			}
+			break;
 		}
 	}
 }
