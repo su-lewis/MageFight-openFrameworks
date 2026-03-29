@@ -12821,7 +12821,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 
 							// Always queue as a deterministic input command; singleplayer will be processed locally.
 							InputCommandPacket cmd = {};
-							cmd.type = PKT_ACTION; // Local queue bookkeeping type
+							cmd.type = PKT_INPUT_COMMAND; // deterministic input command
 							cmd.playerID = myLocalPlayerID;
 							cmd.seq = 0;
 							cmd.commandId = nextCommandId++;
@@ -12955,41 +12955,27 @@ void ofApp::mousePressed(int x, int y, int button) {
 									}
 								}
 
-								currentAP = remainingAP;
+								// Enqueue deterministic move command instead of executing locally
+								InputCommandPacket mcmd = {};
+								mcmd.type = PKT_INPUT_COMMAND;
+								mcmd.playerID = myLocalPlayerID;
+								mcmd.commandId = nextCommandId++;
+								mcmd.turnNumber = globalTurnCounter;
+								mcmd.commandType = CMD_MOVE_UNIT;
+								// params: fromX, fromY, toX, toY
+								mcmd.params[0] = controlledPlayer->x;
+								mcmd.params[1] = controlledPlayer->y;
+								mcmd.params[2] = gridX;
+								mcmd.params[3] = gridY;
 
-								// Execute movement locally (client-side prediction)
-								applyMovement(controlledPlayerIndex, gridX, gridY, currentAP, &hoverPath);
-
-								// If we clicked to enter a wall while in ghost form, mark the player so
-								// they cannot end their turn. External effects (earthquake, pushes)
-								// should NOT set this flag.
-								if (isWall && controlledPlayer->inGhostForm) {
-									players[controlledPlayerIndex].enteredWallByClick = true;
-								}
-
-								// Send packet to opponent so they see the movement too
+								// Queue locally (singleplayer/host will process it) and send over network when appropriate
 								if (isMultiplayer) {
-									ActionPacket movePkt = {};
-									movePkt.type = PKT_ACTION;
-									movePkt.playerID = myLocalPlayerID;
-									movePkt.actorIndex = currentPlayerIndex;
-									movePkt.cardIndex = -1; // -1 indicates movement, not card play
-									movePkt.targetX = gridX;
-									movePkt.targetY = gridY;
-									movePkt.cost = currentAP; // Send current AP so opponent sees the cost
-									movePkt.updatedAP = currentAP; // Ensure opponent updates AP to post-move value
-									// FIX: Assign clientActionID for deduplication so movement
-									// packets share the same monotonic timeline as card plays.
-									if (isClient()) {
-										movePkt.clientActionID = ++actionClientActionCounter;
-										// Record for resend watchdog (same mechanism as card plays)
-										lastSentActionPacket = movePkt;
-										lastSentActionValid = true;
-										lastSentActionTime = ofGetElapsedTimef();
-										lastSentActionResendCount = 0;
-									}
-									steamManager.sendPacket(&movePkt, sizeof(movePkt));
-									ofLogNotice("Network") << (isClient() ? "Client" : "Host") << " sent movement to (" << gridX << "," << gridY << ") with AP=" << currentAP << " actionID=" << movePkt.clientActionID;
+									bool ok = steamManager.sendPacket(&mcmd, sizeof(mcmd));
+									if (!ok) ofLogWarning("Network") << "Movement send failed (no connection).";
+									// Also queue locally so the sender processes its own command via the lockstep queue
+									queueInputCommand(mcmd);
+								} else {
+									queueInputCommand(mcmd);
 								}
 							}
 						}
@@ -15292,7 +15278,7 @@ void ofApp::handleCardDragToPlay(int cardIndex) {
 	} else {
 		// Self-targeting or immediate cards: queue as deterministic input command
 		InputCommandPacket cmd = {};
-		cmd.type = PKT_ACTION;
+		cmd.type = PKT_INPUT_COMMAND;
 		cmd.playerID = myLocalPlayerID;
 		cmd.seq = 0;
 		cmd.commandId = nextCommandId++;
@@ -15361,43 +15347,34 @@ void ofApp::handleCardTargetClick(int gridX, int gridY) {
 	// Centralize minion placement logic in switch
 	switch (interactingCardType) {
 	case CARD_CALL_FOR_KOBOLDS: {
-		if (cardInteractionState == CARD_INTERACTION_PLACING && koboldsRemainingToPlace > 0) {
+		if (cardInteractionState == CARD_INTERACTION_PLACING) {
 			int gx = gridX, gy = gridY;
 			if (gx >= 0 && gx < BOARD_WIDTH && gy >= 0 && gy < BOARD_HEIGHT) {
 				if (!board[gx][gy].hasWall && !board[gx][gy].hasPlayer) {
 					int dist = abs(gx - koboldPlacementSourceX) + abs(gy - koboldPlacementSourceY);
 					if (dist == 1) {
-						koboldSummonCount++;
-						// Queue deterministic spawn via EffectOp
-						EffectOp spawnOp = {};
-						spawnOp.type = EffectOpType::SPAWN_UNIT;
-						spawnOp.data.spawnUnit.toX = gx;
-						spawnOp.data.spawnUnit.toY = gy;
-						spawnOp.data.spawnUnit.summonKind = 1; // KOBOLD
-						spawnOp.data.spawnUnit.ownerPlayerID = currentCardOutcome.summonOwnerPlayerID;
-						spawnOp.data.spawnUnit.maxHealth = 1;
-						spawnOp.data.spawnUnit.maxHealthFromSlot = -1;
-						spawnOp.data.spawnUnit.ap = 0;
-						spawnOp.data.spawnUnit.summonerPlayerID = players[currentPlayerIndex].playerID;
-						queueEffect(spawnOp);
+						// Enqueue a deterministic play-card command for the placement
+						InputCommandPacket cmd = {};
+						cmd.type = PKT_INPUT_COMMAND;
+						cmd.playerID = myLocalPlayerID;
+						cmd.commandId = nextCommandId++;
+						cmd.turnNumber = globalTurnCounter;
+						cmd.commandType = CMD_PLAY_CARD;
+						cmd.params[0] = interactingCardIndex;
+						cmd.params[1] = gx;
+						cmd.params[2] = gy;
+						strncpy(cmd.stringData, card.name.c_str(), sizeof(cmd.stringData) - 1);
+						cmd.stringData[sizeof(cmd.stringData) - 1] = '\0';
 
-						// Host still informs clients for placement visuals
-						// No network packet sent: clients compute summoned minion locally.
-
-						// If this is the first kobold placed, release the played card from hand
-						if (koboldSummonCount == 1) {
-							currentAP -= card.cost;
-							updatePlayerAP(caster, currentAP);
-							finishPlayCard(caster, card, interactingCardIndex);
+						if (isMultiplayer) {
+							bool ok = steamManager.sendPacket(&cmd, sizeof(cmd));
+							if (!ok) ofLogWarning("Network") << "Kobold placement send failed (no connection).";
+							queueInputCommand(cmd);
+						} else {
+							queueInputCommand(cmd);
 						}
 
-						koboldsRemainingToPlace--;
-						if (koboldsRemainingToPlace <= 0) {
-							updateCardInteractionState(CARD_INTERACTION_IDLE, -1, CARD_NONE);
-							koboldSummonStage = 0;
-							// Recompute currentPlayerIndex after spawn sequence completes in effect processing
-							// The SPAWN_UNIT handler will call checkKeyPickupAndDraftAfterSummon when appropriate.
-						}
+						resetCardInteraction();
 						return;
 					}
 				}
@@ -15412,46 +15389,28 @@ void ofApp::handleCardTargetClick(int gridX, int gridY) {
 				if (!board[gx][gy].hasWall && !board[gx][gy].hasPlayer) {
 					int dist = abs(gx - wolfPlacementSourceX) + abs(gy - wolfPlacementSourceY);
 					if (dist == 1) {
-						wolfSummonCount++;
-						// Queue deterministic spawn via EffectOp
-						EffectOp spawnOp = {};
-						spawnOp.type = EffectOpType::SPAWN_UNIT;
-						spawnOp.data.spawnUnit.toX = gx;
-						spawnOp.data.spawnUnit.toY = gy;
-						spawnOp.data.spawnUnit.summonKind = 2; // WOLF
-						spawnOp.data.spawnUnit.ownerPlayerID = currentCardOutcome.summonOwnerPlayerID;
-						spawnOp.data.spawnUnit.maxHealth = 4;
-						spawnOp.data.spawnUnit.maxHealthFromSlot = -1;
-						spawnOp.data.spawnUnit.ap = 0;
-						spawnOp.data.spawnUnit.summonerPlayerID = players[currentPlayerIndex].playerID;
-						queueEffect(spawnOp);
+						// Enqueue a deterministic play-card command for the placement
+						InputCommandPacket cmd = {};
+						cmd.type = PKT_INPUT_COMMAND;
+						cmd.playerID = myLocalPlayerID;
+						cmd.commandId = nextCommandId++;
+						cmd.turnNumber = globalTurnCounter;
+						cmd.commandType = CMD_PLAY_CARD;
+						cmd.params[0] = interactingCardIndex;
+						cmd.params[1] = gx;
+						cmd.params[2] = gy;
+						strncpy(cmd.stringData, card.name.c_str(), sizeof(cmd.stringData) - 1);
+						cmd.stringData[sizeof(cmd.stringData) - 1] = '\0';
 
-						// No network packet sent: clients compute summoned minion locally.
-
-						if (wolfSummonStage == 1) {
-							checkKeyPickupAndDraftAfterSummon(gx, gy, currentCardOutcome.summonOwnerPlayerID);
-							// Remove the played card from the caster's hand now that placement began
-							// and charge AP so the card is released from the player's hand.
-							currentAP -= card.cost;
-							updatePlayerAP(caster, currentAP);
-							finishPlayCard(caster, card, interactingCardIndex);
-							// Resolve coin flip immediately (authoritative), then queue APPLY_WOLF_COIN
-							std::vector<int> rawFlip;
-							int flip = resolveDiceRollDetailed(1, 2, rawFlip);
-							currentEffectSequence.blackboard[0] = flip;
-							queueVisualDiceRoll(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.0f, 0), 1, 2, rawFlip, flip, PURPOSE_COIN_FLIP, currentPlayerIndex, 0.8f);
-
-							EffectOp applyOp = {};
-							applyOp.type = EffectOpType::APPLY_WOLF_COIN;
-							queueEffect(applyOp);
-
-							advanceCardState(CARD_STATE_EFFECT_SEQUENCE);
-							beginEffectSequence();
-						} else if (wolfSummonStage == 2) {
-							updateCardInteractionState(CARD_INTERACTION_IDLE, -1, CARD_NONE);
-							wolfSummonStage = 0;
-							checkKeyPickupAndDraftAfterSummon(gx, gy, currentCardOutcome.summonOwnerPlayerID);
+						if (isMultiplayer) {
+							bool ok = steamManager.sendPacket(&cmd, sizeof(cmd));
+							if (!ok) ofLogWarning("Network") << "Wolf placement send failed (no connection).";
+							queueInputCommand(cmd);
+						} else {
+							queueInputCommand(cmd);
 						}
+
+						resetCardInteraction();
 						return;
 					}
 				}
@@ -15467,7 +15426,7 @@ void ofApp::handleCardTargetClick(int gridX, int gridY) {
 	case CARD_TELEPORT: {
 		if (isMultiplayer && !isExecutingLockstepCommand) {
 			InputCommandPacket cmd = {};
-			cmd.type = PKT_ACTION;
+			cmd.type = PKT_INPUT_COMMAND;
 			cmd.playerID = myLocalPlayerID;
 			cmd.seq = 0;
 			cmd.commandId = nextCommandId++;
@@ -15484,20 +15443,25 @@ void ofApp::handleCardTargetClick(int gridX, int gridY) {
 			break;
 		}
 
-		// Queue deterministic MOVE_UNIT effect instead of moving immediately
-		beginEffectSequence();
+		// Enqueue a deterministic play-card command for teleport instead of executing immediately
+		InputCommandPacket cmd = {};
+		cmd.type = PKT_INPUT_COMMAND;
+		cmd.playerID = myLocalPlayerID;
+		cmd.commandId = nextCommandId++;
+		cmd.turnNumber = globalTurnCounter;
+		cmd.commandType = CMD_PLAY_CARD;
+		cmd.params[0] = cardIndex;
+		cmd.params[1] = gridX;
+		cmd.params[2] = gridY;
+		strncpy(cmd.stringData, card.name.c_str(), sizeof(cmd.stringData) - 1);
+		cmd.stringData[sizeof(cmd.stringData) - 1] = '\0';
 
-		EffectOp mv = {};
-		mv.type = EffectOpType::MOVE_UNIT;
-		mv.data.moveUnit.unitIndex = currentPlayerIndex;
-		mv.data.moveUnit.toX = gridX;
-		mv.data.moveUnit.toY = gridY;
-		queueEffect(mv);
-
-		// Visual feedback will be queued by the MOVE_UNIT processor
-		// Card AP and discard logic was handled upfront for teleport
-		if (cardIndex >= 0 && cardIndex < (int)caster.hand.size()) {
-			caster.hand.erase(caster.hand.begin() + cardIndex);
+		if (isMultiplayer) {
+			bool ok = steamManager.sendPacket(&cmd, sizeof(cmd));
+			if (!ok) ofLogWarning("Network") << "Teleport send failed (no connection).";
+			queueInputCommand(cmd);
+		} else {
+			queueInputCommand(cmd);
 		}
 
 		resetCardInteraction();
@@ -15545,7 +15509,7 @@ void ofApp::handleCardTargetClick(int gridX, int gridY) {
 		// Funnel the generic targeted cards into lockstep queue in multiplayer.
 		if (isMultiplayer) {
 			InputCommandPacket cmd = {};
-			cmd.type = PKT_ACTION;
+			cmd.type = PKT_INPUT_COMMAND;
 			cmd.playerID = myLocalPlayerID;
 			cmd.seq = 0;
 			cmd.commandId = nextCommandId++;
@@ -15611,7 +15575,7 @@ void ofApp::handleCardMenuClick(const std::string & buttonId) {
 		case CARD_MAGIC_BLAST:
 			if (magicBlastDamageButton.inside(mouseX, mouseY)) {
 				InputCommandPacket cmd = {};
-				cmd.type = PKT_ACTION;
+				cmd.type = PKT_INPUT_COMMAND;
 				cmd.playerID = myLocalPlayerID;
 				cmd.seq = 0;
 				cmd.commandId = nextCommandId++;
@@ -15630,7 +15594,7 @@ void ofApp::handleCardMenuClick(const std::string & buttonId) {
 				}
 			} else if (magicBlastDiscardButton.inside(mouseX, mouseY)) {
 				InputCommandPacket cmd = {};
-				cmd.type = PKT_ACTION;
+				cmd.type = PKT_INPUT_COMMAND;
 				cmd.playerID = myLocalPlayerID;
 				cmd.seq = 0;
 				cmd.commandId = nextCommandId++;
@@ -15659,7 +15623,7 @@ void ofApp::handleCardMenuClick(const std::string & buttonId) {
 
 		if (choice > 0) {
 			InputCommandPacket cmd = {};
-			cmd.type = PKT_ACTION;
+			cmd.type = PKT_INPUT_COMMAND;
 			cmd.playerID = myLocalPlayerID;
 			cmd.seq = 0;
 			cmd.commandId = nextCommandId++;
@@ -16598,8 +16562,25 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 		int fromY = cmd.params[1];
 		int toX = cmd.params[2];
 		int toY = cmd.params[3];
-		// Execute deterministic move
+		// Execute deterministic move: find the unit at fromX,fromY and apply movement
 		ofLogNotice("Lockstep") << "Execute CMD_MOVE_UNIT: from=(" << fromX << "," << fromY << ") to=(" << toX << "," << toY << ")";
+		int unitIndex = -1;
+		for (size_t i = 0; i < players.size(); ++i) {
+			if (players[i].x == fromX && players[i].y == fromY) {
+				unitIndex = (int)i;
+				break;
+			}
+		}
+		if (unitIndex < 0) {
+			ofLogWarning("Lockstep") << "CMD_MOVE_UNIT: no unit found at origin (" << fromX << "," << fromY << ") - skipping";
+			break;
+		}
+		// Compute authoritative path and AP cost
+		std::vector<glm::vec2> path = findShortestPathForPlayer(unitIndex, { (float)fromX, (float)fromY }, { (float)toX, (float)toY });
+		int moveCost = (path.size() > 1) ? (int)path.size() - 1 : 0;
+		int newAP = currentAP - moveCost;
+		if (newAP < 0) newAP = 0;
+		applyMovement(unitIndex, toX, toY, newAP, &path);
 		break;
 	}
 	case CMD_MENU_CHOICE: {
@@ -31426,7 +31407,7 @@ void ofApp::executeAction(const ActionPacket & pkt) {
 		// Local player's card play: queue as deterministic input command so
 		// simulationTick/processCommandQueue handles the authoritative state changes.
 		InputCommandPacket cmd = {};
-		cmd.type = PKT_ACTION;
+		cmd.type = PKT_INPUT_COMMAND;
 		cmd.playerID = pkt.playerID;
 		cmd.seq = pkt.clientActionID;
 		cmd.commandId = nextCommandId++;
@@ -31445,6 +31426,7 @@ void ofApp::executeOpponentCardPlay(const ActionPacket & pkt) {
 	ofLogNotice("Network") << "Queueing opponent card play: " << pkt.cardName;
 
 	InputCommandPacket cmd = {};
+	cmd.type = PKT_INPUT_COMMAND;
 	cmd.playerID = pkt.playerID;
 	cmd.seq = pkt.clientActionID;
 	cmd.commandId = nextCommandId++;
