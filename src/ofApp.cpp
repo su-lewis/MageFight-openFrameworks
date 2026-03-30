@@ -287,11 +287,41 @@ void ofApp::applyReplicateCopyToHand(Player & caster, const Card & playedCard) {
 }
 
 void ofApp::finishPlayCard(Player & caster, const Card & playedCard, int handIndex) {
-	caster.playedCardsPile.push_back(playedCard);
+	// Set the per-card `playedThisTurn` flag on the specific instance and move it to discard.
+	bool movedToDiscard = false;
+
+	// Case A: card still in hand at handIndex — mark it, push to discard, then erase from hand
 	if (handIndex >= 0 && handIndex < (int)caster.hand.size() && currentCardOutcome.summonKind != PENDING_SUMMON_SKELETON) {
-		caster.hand.erase(caster.hand.begin() + handIndex); // Remove the played card from hand
-		applyReplicateCopyToHand(caster, playedCard); // Handle replication
+		if (caster.hand[handIndex].type == playedCard.type && caster.hand[handIndex].value == playedCard.value) {
+			caster.hand[handIndex].playedThisTurn = true;
+			// Move the actual Card instance (with flag) to discard
+			caster.discardPile.push_back(caster.hand[handIndex]);
+			caster.hand.erase(caster.hand.begin() + handIndex); // Remove the played card from hand
+			applyReplicateCopyToHand(caster, playedCard); // Handle replication
+			movedToDiscard = true;
+		}
 	}
+
+	// Case B: card was previously placed into the temporary "played" pile — move that instance
+	if (!movedToDiscard) {
+		for (auto it = caster.playedCardsPile.begin(); it != caster.playedCardsPile.end(); ++it) {
+			if (it->type == playedCard.type && it->value == playedCard.value) {
+				it->playedThisTurn = true;
+				caster.discardPile.push_back(*it);
+				caster.playedCardsPile.erase(it);
+				movedToDiscard = true;
+				break;
+			}
+		}
+	}
+
+	// Case C: fallback — create a copy of the played card, mark it, and push to discard
+	if (!movedToDiscard) {
+		Card copy = playedCard;
+		copy.playedThisTurn = true;
+		caster.discardPile.push_back(copy);
+	}
+
 	interactingCardIndex = handIndex; // Update the interacting card index
 }
 
@@ -308,7 +338,10 @@ void ofApp::completeCardPlayAnimation(const Card & playedCard, int playerIndex) 
 	createCardDisplay(playedCard, playerIndex);
 	invalidateTargetCache();
 	if (playerIndex >= 0 && playerIndex < (int)players.size()) { // Ensure player index is valid
-		players[playerIndex].cardsPlayedThisTurn.push_back(playedCard.type);
+		// Avoid duplicate entries if already flagged at play-time
+		if (players[playerIndex].cardsPlayedThisTurn.empty() || players[playerIndex].cardsPlayedThisTurn.back() != playedCard.type) {
+			players[playerIndex].cardsPlayedThisTurn.push_back(playedCard.type);
+		}
 		players[playerIndex].ap = currentAP;
 	}
 }
@@ -12326,6 +12359,9 @@ void ofApp::mousePressed(int x, int y, int button) {
 				// Show played card animation now that the effect is confirmed
 				if (!players[currentPlayerIndex].playedCardsPile.empty()) {
 					createCardDisplay(players[currentPlayerIndex].playedCardsPile.back(), currentPlayerIndex);
+				} else if (!players[currentPlayerIndex].discardPile.empty()) {
+					// New behavior: cards are moved to discard immediately; fall back to showing discard top
+					createCardDisplay(players[currentPlayerIndex].discardPile.back(), currentPlayerIndex);
 				}
 
 				// Visual feedback
@@ -12345,10 +12381,17 @@ void ofApp::mousePressed(int x, int y, int button) {
 				// Refund AP
 				currentAP += 2;
 
-				// Return card to hand (pop from played pile, push back to hand)
+				// Return card to hand (pop from played pile or discard if played pile already moved)
 				if (!p.playedCardsPile.empty()) {
 					Card c = p.playedCardsPile.back();
 					p.playedCardsPile.pop_back();
+					c.playedThisTurn = false;
+					p.hand.push_back(c);
+				} else if (!p.discardPile.empty()) {
+					// If the card was already moved to discard (new immediate-discard behavior), restore from there
+					Card c = p.discardPile.back();
+					p.discardPile.pop_back();
+					c.playedThisTurn = false;
 					p.hand.push_back(c);
 				}
 

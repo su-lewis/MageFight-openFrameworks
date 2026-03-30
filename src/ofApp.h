@@ -276,6 +276,7 @@ struct Card {
 	int cost = 1;
 	TargetingType targeting = TARGET_ANY_TILE;
 	bool drawnThisTurn = false; // Add this
+	bool playedThisTurn = false; // True if this specific card instance was played this turn
 	bool isAnimating = false; // True while a visual-only animation is running for this card
 	bool isCopied = false;
 	int cardClass = 1;
