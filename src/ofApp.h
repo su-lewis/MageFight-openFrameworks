@@ -1163,6 +1163,10 @@ private:
 	// Targeting Algorithms
 	std::vector<Player *> findCleaveTargets(glm::vec2 direction);
 	TargetInfo isLosTargetValid(glm::vec2 casterTile, glm::vec2 targetTile, float maxRangeFeet, CardType cardType);
+
+	// Integer-scaled squared face-to-face distance to avoid floating-point edge cases.
+	// Coordinates are scaled by 2 (half-tile units) so face midpoints become integers.
+	long long getFaceToFaceDistanceSquaredScaled(glm::vec2 casterTile, glm::vec2 targetTile);
 	bool checkRayPhysics(glm::vec2 rayStart, glm::vec2 rayEnd);
 	int isGapTile(glm::vec2 tile);
 	bool isTileBlocked(int x, int y);
@@ -1825,6 +1829,12 @@ private:
 	uint32_t nextCommandId = 1;
 	uint32_t lastProcessedCommandId = 0;
 
+	// Provisional/optimistic command support (client-side prediction)
+	// Stores the snapshot taken immediately before applying a provisional command
+	std::unordered_map<uint32_t, std::string> provisionalSnapshots;
+	// Stores the provisional InputCommandPacket keyed by commandId
+	std::unordered_map<uint32_t, InputCommandPacket> provisionalCommands;
+
 	// Fixed-step simulation
 	const float SIMULATION_TIMESTEP = 1.0f / 60.0f; // 60Hz fixed tick
 	float simulationAccumulator = 0.0f;
@@ -1839,6 +1849,8 @@ private:
 	void queueInputCommand(const InputCommandPacket & cmd);
 	void processCommandQueue();
 	void simulationTick();
+	// Send an input command: optionally apply locally (optimistic) and send over network
+	bool sendInputCommand(InputCommandPacket & cmd, bool applyLocally = true);
 	void executeInputCommand(const InputCommandPacket & cmd);
 	void processEffectOp(EffectOp & op);
 
