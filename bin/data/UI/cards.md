@@ -20,7 +20,7 @@
 - **AP Cost:** 1
 - **Class:** 1
 - **Picture:** 
-- **Effect Text:** Gain 2 Block until the start of this unit's next turn.
+- **Effect Text:** Gain +2 Block until the start of this unit's next turn.
 ---
 
 -## 4. Bash
@@ -35,7 +35,7 @@
 - **AP Cost:** 2
 - **Class:** 1
 - **Picture:** 
-- **Effect Text:** Gain 5 Ward until the start of this unit's next turn.
+- **Effect Text:** Gain +5 Ward until the start of this unit's next turn.
 ---
 
 -## 6. Stab
@@ -43,7 +43,7 @@
 - **AP Cost:** 2
 - **Class:** 1
 - **Picture:** 
-- **Effect Text:** Deal 1d6 damage to units in a 2-tile line, the second unit takes half damage.
+- **Effect Text:** Deal 1d6 damage to units in a 2-tile line. The second unit hit takes half damage.
 ---
 
 -## 7. Slash
@@ -65,7 +65,7 @@
 - **AP Cost:** 3
 - **Class:** 2
 - **Picture:** 
-- **Effect Text:** Destroy 1d4 cards of your / adjacent unit's deck of your choice.
+- **Effect Text:** Roll 1d4. Choose that # of cards in your / adjacent unit's deck to destroy.
 ---
 
 -## 10. Magic Blast
@@ -74,7 +74,7 @@
 - **Targeting:** 1d20 ft
 - **Class:** 2
 - **Picture:** 
-- **Effect Text:** Choose a target. The unit hit chooses 3x to take 5 damage or destroy the top card of their deck. Adjacent units to tile hit choose x1. 
+- **Effect Text:** Choose a target. The unit hit chooses 3x to take 5 damage; or destroy the top card of their deck. Adjacent units to tile hit choose x1. 
 ---
 
 -## 11. Fireball
@@ -83,7 +83,7 @@
 - **Targeting:** 2d6 ft
 - **Class:** 2
 - **Picture:** 
-- **Effect Text:** Choose a target. The unit hit takes 1d6 damage. If they took HP damage then apply Burning.
+- **Effect Text:** Choose a target. The unit hit takes 1d6 damage. If they took damage to their health then apply Burning.
 ---
 
 -## 12. Shock
@@ -99,14 +99,14 @@
 - **AP Cost:** 4
 - **Class:** 2
 - **Picture:** 
-- **Effect Text:**  Deal 2d10 damage to an adjacent unit or destroy an adjacent wall.
+- **Effect Text:**  Deal 2d10 damage to an adjacent unit; or destroy an adjacent wall.
 ---
 
 -## 14. Dispel
 - **AP Cost:** 2
 - **Class:** 1
 - **Picture:** 
- - **Effect Text:** Remove a negative status effect from an adjacent unit / self or roll 1d20 and gain that much Barrier until the start of this unit's next turn.
+ - **Effect Text:** Choose one - Remove a negative status effect from an adjacent unit / self; or Roll 1d20. Gain that much Barrier until the start of this unit's next turn.
 ---
 
 -## 15. Teleport
@@ -136,7 +136,7 @@
 - **AP Cost:** 5
 - **Class:** 1
 - **Picture:** 
-- **Effect Text:** Deal damage equal to the # of cards in your deck or gain Block until the start of this unit's next turn equal to the # of cards in your deck.
+- **Effect Text:** Deal damage equal to the # of cards in your deck; or gain Block until the start of this unit's next turn equal to the # of cards in your deck.
 ---
 
 -## 19. Ethereal Jolt
@@ -153,7 +153,7 @@
 - **AP Cost:** 2
 - **Class:** 1
 - **Picture:** 
-- **Effect Text:** Deal 1 damage to an adjacent unit. If the unit took HP damage then apply Burning to them.
+- **Effect Text:** Deal 1 damage to an adjacent unit. If it damaged their health then apply Burning to them.
 ---
 
 -## 21. Heal
@@ -161,7 +161,7 @@
 - **Targeting:** Line of Sight
 - **Class:** 1
 - **Picture:** 
-- **Effect Text:** Choose a target / self. Roll 2d6 and heal that amount of HP.
+- **Effect Text:** Choose a target / self. Roll 2d6 and heal that amount of health.
 ---
 
 -## 22. Raise Dead
@@ -177,7 +177,7 @@
 - **AP Cost:** 4
 - **Class:** 3
 - **Picture:** 
-- **Effect Text:** Summon a Golem minion in an adjacent empty tile. Improve if Shock, Chain Lightning, Flame Hit, Fireball, or Rock Crush was played this turn. Its deck is x3 Bash, x2 Hand Block.
+- **Effect Text:** Summon a Golem minion in an adjacent empty tile. Improve if Shock / Chain Lightning / Flame Hit / Fireball / Rock Crush was played this turn. Its deck is x3 Bash, x2 Hand Block.
 - **AP:** 1d6
 - **HP:** 1d10
 ---
@@ -186,7 +186,7 @@
 - **AP Cost:** 3
 - **Class:** 3
 - **Picture:** 
-- **Effect Text:** For the next 3 turns, whenever you play a card that deals Electric or Fire damage, shuffle a copy of it into your deck.
+- **Effect Text:** For the next 3 turns, whenever you play a card that deals Electric / Fire damage, shuffle a copy of it into your deck.
 ---
 
 -## 25. Summon Wall
@@ -222,7 +222,7 @@
 - **AP Cost:** 3
 - **Class:** 1
 - **Picture:** 
-- **Effect Text:** Roll Xd20 where X is the # of non-physical damage you're blocking, if 10-15 Draft a Class 1 card, 16-19 Draft a Class 2 card, 20+ Draft a Class 3 card. For each physical damage you're blocking, flip a coin, heads raises your max HP by 1, tails lowers an adjacent unit's max HP by 1.
+- **Effect Text:** Roll Xd20 where X is the # of non-physical damage you're blocking, if 10-15 Draft a Class 1 card, 16-19 Draft a Class 2 card, 20+ Draft a Class 3 card. For each physical damage you're blocking, flip a coin, heads raises your max health by 1, tails lowers an adjacent unit's max health by 1.
 ---
 
 -## 30. Call for Wolves
@@ -253,7 +253,7 @@
 - **AP Cost:** 2
 - **Class:** 3
 - **Picture:** 
-- **Effect Text:** Deal 2 physical damage to an adjacent unit for each hand-related attack card in your discard pile. Gain +1 Luck. Gain +1 max HP. Destroy the top card of their deck.
+- **Effect Text:** Deal 2 physical damage to an adjacent unit for each hand-related attack card in your discard pile. Gain +1 Luck. Gain +1 max health. Destroy the top card of their deck.
 ---
 
 -## 34. Magic Bolt
@@ -287,7 +287,7 @@
 - **Targeting:** Line of Sight
 - **Class:** 3
 - **Picture:** 
-- **Effect Text:** Choose a target. Choose to kill if Sleeping, or roll 1d20 if higher than the unit's HP it dies, if lower apply Sleep for 1d6 turns on them.
+- **Effect Text:** Choose a target. Choose to kill if Sleeping, or roll 1d20 if higher than the unit's health it dies, if lower apply Sleep for 1d6 turns on them.
 ---
 
 -## 38. Summon Demon
@@ -334,7 +334,7 @@
 - **AP Cost:** 2
 - **Class:** 1
 - **Picture:** 
-- **Effect Text:** Gain +1 max HP.
+- **Effect Text:** Gain +1 max health.
 ---
 
 -## 44. Add Poison
@@ -342,7 +342,7 @@
 - **AP Cost:** 2
 - **Class:** 1
 - **Picture:** 
-- **Effect Text:** Deal 1d6 damage to units hit by the next physical / piercing damage this turn. Apply Poisoned to any units hit that take HP damage.
+- **Effect Text:** Deal 1d6 damage to units hit by the next physical / piercing damage this turn. Apply Poisoned if it damaged their health.
 ---
 
 -## 45. Flurry of Fists
@@ -358,7 +358,7 @@
 - **AP Cost:** 5
 - **Class:** 3
 - **Picture:** 
-- **Effect Text:** Transform into a Tortoise until you take 5 HP damage. Your blocks do not expire. Deal 3 to an adjacent unit whenever you heal or block. Increase max HP by 5. Heal 5 HP. Shuffle x2 Dispel into your deck.
+- **Effect Text:** Transform into a Tortoise until you take 5 health damage. Your blocks do not expire. Deal 3 to an adjacent unit whenever you heal or block. Increase max health by 5. Restore 5 health. Shuffle x2 Dispel into your deck.
 ---
 
 -## 47. Fortify
@@ -374,7 +374,7 @@
 - **AP Cost:** 3
 - **Class:** 1
 - **Picture:** 
-- **Effect Text:** Deal 3 damage to an adjacent unit. If they took HP damage then Heal 2 HP and Shuffle x1 Vampire Bite into their deck. If this is in your deck / discard you take double Holy damage.
+- **Effect Text:** Deal 3 damage to an adjacent unit. If it damaged their health then restore 2 health and Shuffle x1 Vampire Bite into their deck. If this is in your deck / discard you take double Holy damage.
 ---
 
 -## 49. Call for Kobolds
@@ -397,7 +397,7 @@
 - **AP Cost:** 2
 - **Class:** 1
 - **Picture:** 
-- **Effect Text:** Choose any number of cards in your hand to discard, draw 2 for each discarded.
+- **Effect Text:** Choose any number of unplayed cards in your hand to discard, draw 2 for each discarded.
 ---
 
 -## 52. Spark of Genius
@@ -434,7 +434,7 @@
 - **AP Cost:** 7
 - **Class:** 3
 - **Picture:** 
-- **Effect Text:** Transform into a Ghost until you take 4 HP damage. You are invulnerable to physical / piercing damage. You have Regeneration. You can move through walls and units but not end your turn in one. You take double Holy damage.
+- **Effect Text:** Transform into a Ghost until you take 4 health damage. You are invulnerable to physical / piercing damage. You have Regeneration. You can move through walls and units but not end your turn in one. You take double Holy damage.
 ---
 
 -## 57. Giant Magic Hand
@@ -449,7 +449,7 @@
 - **AP Cost:** 4
 - **Class:** 2
 - **Picture:** 
-- **Effect Text:** Gain +3 max HP. Heal 1 HP.
+- **Effect Text:** Gain +3 max health. Heal 1 health.
 ---
 
 -## 59. Lesser Heal
@@ -457,7 +457,7 @@
 - **Targeting:** Line of Sight
 - **Class:** 1
 - **Picture:** 
-- **Effect Text:** Choose a target / self. Roll 1d6, and heal that amount of HP.
+- **Effect Text:** Choose a target / self. Roll 1d6, and heal that amount of health.
 ---
 
 -## 60. Transform Wall
@@ -473,7 +473,7 @@
 - **AP Cost:** 4
 - **Class:** 3
 - **Picture:** 
-- **Effect Text:** Summon a Kobold King minion in an adjacent empty tile. Its max HP is always the # of Kobolds on board + 1. Its deck is x2 Slash, x2 Stab, x2 Full Restore, x1 Call for Kobolds.
+- **Effect Text:** Summon a Kobold King minion in an adjacent empty tile. Its max health is always the # of Kobolds on board + 1. Its deck is x2 Slash, x2 Stab, x2 Full Restore, x1 Call for Kobolds.
 - **AP:** 1d6
 - **HP:** 1 + # of Kobolds
 ---
@@ -491,7 +491,7 @@
 - **AP Cost:** 4
 - **Class:** 3
 - **Picture:** 
-- **Effect Text:** If your max HP is 16-20 Draft a Class 1 card, 21-25 Draft a Class 2 card, 26-30 Draft a Class 3 card, 30+ win the game.
+- **Effect Text:** If your max health is 16-20 Draft a Class 1 card, 21-25 Draft a Class 2 card, 26-30 Draft a Class 3 card, 30+ win the game.
 ---
 
 -## 64. Four-leaf clover
@@ -512,7 +512,7 @@
 - **AP Cost:** 4
 - **Class:** 2
 - **Picture:** 
-- **Effect Text:** Heal up to max HP. Remove all negative status effects.
+- **Effect Text:** Heal up to max health. Remove all negative status effects.
 ---
 
 -## 67. Smite
@@ -529,7 +529,7 @@
 - **Targeting:** Line of Sight
 - **Class:** 1
 - **Picture:** 
-- **Effect Text:** Choose a target / self. Deal 3 damage or heal 3 HP.
+- **Effect Text:** Choose a target / self. Deal 3 damage or heal 3 health.
 ---
 
 -## 69. Shoot Arrow
@@ -545,6 +545,6 @@
 - **AP Cost:** 4
 - **Class:** 2
 - **Picture:** 
-- **Effect Text:** Summon a Faerie minion in an adjacent empty tile. It has Regeneration. While adjacent, the unit who summoned it is resurrected if they die at 25% X 1d4 of their max HP, all status effects are removed. Its deck is x2 Dispel, x2 Lesser Heal, x1 Magic Blast. 
+- **Effect Text:** Summon a Faerie minion in an adjacent empty tile. It has Regeneration. While adjacent, the unit who summoned it is resurrected if they die at 25% X 1d4 of their max health, all status effects are removed. Its deck is x2 Dispel, x2 Lesser Heal, x1 Magic Blast. 
 - **AP:** 1d4
 - **HP:** 5

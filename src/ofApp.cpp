@@ -20690,6 +20690,27 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 			glm::vec3 visPos = gridToWorld(currentPlayer.x, currentPlayer.y) + glm::vec3(0, 1.0f, 0);
 			queueVisualDiceRoll(visPos, playedCard.numDice, playedCard.diceSides, rawRange, rangeTotal, PURPOSE_DEBUG, currentPlayerIndex, 1.0f);
 
+			// Resolve primary damage (1d20 + luck) and store in blackboard[1]
+			{
+				std::vector<int> rawPrimary;
+				int rawPrim = resolveDiceRollDetailed(1, 20, rawPrimary);
+				int primaryDamage = (20 == 2) ? rawPrim : (rawPrim + luckBonus);
+				currentEffectSequence.blackboard[1] = primaryDamage;
+				// Visual for primary damage will be shown by APPLY_* sequence; queue a short delay and dice now
+				queueVisualDelay(1.2f);
+				queueVisualDiceRoll(gridToWorld((int)currentCardOutcome.primaryTarget.x, (int)currentCardOutcome.primaryTarget.y) + glm::vec3(0, 1.0f, 0), 1, 20, rawPrimary, primaryDamage, PURPOSE_DAMAGE, currentPlayerIndex, 1.2f);
+				queueVisualDelay(1.2f);
+			}
+
+			// Resolve AOE radius (1d20 + luck) and store in blackboard[2]
+			{
+				std::vector<int> rawAoe;
+				int rawAoeSum = resolveDiceRollDetailed(1, 20, rawAoe);
+				int aoeRoll = (20 == 2) ? rawAoeSum : (rawAoeSum + luckBonus);
+				currentEffectSequence.blackboard[2] = aoeRoll;
+				queueVisualDiceRoll(visPos, 1, 20, rawAoe, aoeRoll, PURPOSE_RANGE, currentPlayerIndex, 1.2f);
+			}
+
 			// Determine impact tile deterministically
 			glm::ivec2 impactTile = { -1, -1 };
 			if ((float)rangeTotal / 5.0f >= glm::distance(cPos, tPos) - 0.001f) {
@@ -21374,6 +21395,14 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 				int rangeRoll = resolveDiceRollDetailed(playedCard.numDice, playedCard.diceSides, rawRange);
 				currentEffectSequence.blackboard[0] = rangeRoll;
 				queueVisualDiceRoll(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.0f, 0), playedCard.numDice, playedCard.diceSides, rawRange, rangeRoll, PURPOSE_RANGE, currentPlayerIndex, 1.0f);
+			}
+			// Resolve fireball damage now (decision-time) and store in blackboard[1]
+			{
+				std::vector<int> rawDmg;
+				int dmgRoll = resolveDiceRollDetailed(1, 6, rawDmg);
+				currentEffectSequence.blackboard[1] = dmgRoll;
+				// Queue a small visual at caster position so players see the roll
+				queueVisualDiceRoll(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.2f, 0), 1, 6, rawDmg, dmgRoll, PURPOSE_DAMAGE, currentPlayerIndex, 1.0f);
 			}
 			// Next, queue an APPLY_FIREBALL op to resolve range result deterministically
 			EffectOp applyFb = {};
