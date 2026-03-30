@@ -397,7 +397,7 @@
 - **AP Cost:** 2
 - **Class:** 1
 - **Picture:** 
-- **Effect Text:** Choose any unplayed cards in your hand to discard, draw 2 for each discarded.
+- **Effect Text:** Choose any number of cards in your hand to discard, draw 2 for each discarded.
 ---
 
 -## 52. Spark of Genius
