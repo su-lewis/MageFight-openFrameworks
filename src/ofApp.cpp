@@ -312,6 +312,7 @@ void ofApp::finishPlayCard(Player & caster, const Card & playedCard, int handInd
 				movedToDiscard = true;
 				break;
 			}
+                		
 		}
 	}
 
@@ -12278,56 +12279,10 @@ void ofApp::mousePressed(int x, int y, int button) {
 				// The Client applies changes locally immediately for responsiveness.
 				// The Host receives the packet and updates their view of the Client.
 
-				// Sort indices descending so we can delete safely from back to front
-				std::sort(renewedSelectedHandIndices.begin(), renewedSelectedHandIndices.end(), std::greater<int>());
-
-				int cardsToDraw = 0;
-				for (int idx : renewedSelectedHandIndices) {
-					if (idx < (int)players[currentPlayerIndex].hand.size()) {
-						// Discard
-						players[currentPlayerIndex].discardPile.push_back(players[currentPlayerIndex].hand[idx]);
-						players[currentPlayerIndex].hand.erase(players[currentPlayerIndex].hand.begin() + idx);
-						cardsToDraw += 2;
-					}
-				}
-
-				// Remember hand size before drawing to get the new cards
-				size_t handSizeBefore = players[currentPlayerIndex].hand.size();
-
-				// Draw new cards (Local Deterministic Draw)
-				for (int i = 0; i < cardsToDraw; i++)
-					drawCard(false);
-
-				// Inform opponent how many cards were drawn via lockstep command for UI sync
-				if (isMultiplayer && cardsToDraw > 0) {
-					InputCommandPacket dc = {};
-					dc.type = PKT_INPUT_COMMAND;
-					dc.playerID = myLocalPlayerID;
-					dc.commandId = nextCommandId++;
-					dc.turnNumber = globalTurnCounter;
-					dc.commandType = CMD_DRAW_CARDS;
-					dc.params[0] = currentPlayerIndex;
-					dc.params[1] = cardsToDraw;
-					if (isClient()) dc.clientActionID = ++watchdogClientActionCounter;
-					steamManager.sendPacket(&dc, sizeof(dc));
-					ofLogNotice("Network") << "Sent CMD_DRAW_CARDS for Renewed Inspiration: " << cardsToDraw << " cards";
-				}
-
-				// Show played card animation now that the effect is confirmed
-				if (!players[currentPlayerIndex].playedCardsPile.empty()) {
-					createCardDisplay(players[currentPlayerIndex].playedCardsPile.back(), currentPlayerIndex);
-				} else if (!players[currentPlayerIndex].discardPile.empty()) {
-					// New behavior: cards are moved to discard immediately; fall back to showing discard top
-					createCardDisplay(players[currentPlayerIndex].discardPile.back(), currentPlayerIndex);
-				}
-
-				// Visual feedback
-				queueFloatingTextVisual(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y), "+" + ofToString(cardsToDraw) + " Cards", ofColor::cyan);
-				// Ensure authoritative AP field reflects local UI immediately
-				if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) {
-					updatePlayerAP(players[currentPlayerIndex], currentAP);
-				}
-
+				// Deterministic: the Renewed Inspiration effect is applied via the
+				// `CMD_RENEWED_INSPIRATION` lockstep command on all peers. Do not
+				// mutate local hand/discard here; let the command processor apply
+				// the discard + draw so both sides remain consistent.
 				updateCardInteractionState(CARD_INTERACTION_IDLE, -1, CARD_NONE);
 				return;
 			}
@@ -16390,22 +16345,16 @@ bool ofApp::sendInputCommand(InputCommandPacket & cmd, bool applyLocally) {
 }
 
 void ofApp::processCommandQueue() {
-	// Process all commands that are ready (sequential commandId order)
+	// Simply execute commands in the exact order they arrive in the queue (FIFO).
 	while (!commandQueue.empty()) {
 		const auto & cmd = commandQueue.front();
 
-		// Only process next sequential command
-		if (cmd.commandId != lastProcessedCommandId + 1) {
-			break; // Wait for missing command
-		}
-
-		// Mark that we're executing a lockstep command so called functions
-		// (like startNewTurn) can behave differently for authoritative processing.
 		bool prevExecuting = isExecutingLockstepCommand;
 		isExecutingLockstepCommand = true;
-		executeInputCommand(cmd);
+
+		executeInputCommand(cmd); // Execute the command
+
 		isExecutingLockstepCommand = prevExecuting;
-		lastProcessedCommandId = cmd.commandId;
 		commandQueue.erase(commandQueue.begin());
 	}
 }
@@ -16967,6 +16916,70 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 		}
 
 		ofLogNotice("Lockstep") << "Execute CMD_STATUS_ACTION: " << cardName << " purge status " << statusIndex;
+		break;
+	}
+	case CMD_RENEWED_INSPIRATION: {
+		int playerIdx = cmd.params[0];
+		int nameCount = cmd.params[1];
+		if (playerIdx < 0 || playerIdx >= (int)players.size()) {
+			ofLogError("Lockstep") << "CMD_RENEWED_INSPIRATION: invalid playerIdx=" << playerIdx;
+			break;
+		}
+
+		std::string s = cmd.stringData;
+		std::vector<std::string> names;
+		if (!s.empty()) {
+			size_t start = 0;
+			while (start < s.size()) {
+				auto pos = s.find(';', start);
+				if (pos == std::string::npos) {
+					names.push_back(s.substr(start));
+					break;
+				} else {
+					names.push_back(s.substr(start, pos - start));
+					start = pos + 1;
+				}
+			}
+		}
+
+		Player & p = players[playerIdx];
+		int discarded = 0;
+		// For each requested name, discard first matching card from hand (best-effort)
+		for (int i = 0; i < (int)names.size(); ++i) {
+			const std::string & want = names[i];
+			auto it = std::find_if(p.hand.begin(), p.hand.end(), [&](const Card & c) { return c.name == want; });
+			if (it != p.hand.end()) {
+				p.discardPile.push_back(*it);
+				p.hand.erase(it);
+				discarded++;
+			} else {
+				ofLogWarning("Lockstep") << "CMD_RENEWED_INSPIRATION: could not find card '" << want << "' in player " << playerIdx << " hand";
+			}
+		}
+
+		// Draw 2 cards per discarded card deterministically
+		int savedCurrent = currentPlayerIndex;
+		currentPlayerIndex = playerIdx;
+		for (int d = 0; d < discarded * 2; ++d) {
+			drawCard(false);
+		}
+		// Normalize hand visuals and flags similar to CMD_DRAW_CARDS
+		Player & lp = players[playerIdx];
+		for (size_t idx = 0; idx < lp.hand.size(); ++idx) {
+			lp.hand[idx].currentScale = lp.hand[idx].currentScale; // keep consistent
+		}
+		lp.nextTurnExtraDraw = false;
+		lp.nextTurnExtraDrawSetOnCycle = -1;
+		if (lp.playerID == myLocalPlayerID) {
+			hasDrawnCardsThisTurn = true;
+			lp.hasDrawnThisTurn = true;
+		} else {
+			opponentHasDrawnCardsThisTurn = true;
+			lp.hasDrawnThisTurn = true;
+		}
+		currentPlayerIndex = savedCurrent;
+
+		ofLogNotice("Lockstep") << "Execute CMD_RENEWED_INSPIRATION: player=" << playerIdx << " discarded=" << discarded;
 		break;
 	}
 	// CMD_ROLL_DICE fully removed: dice are resolved deterministically at decision-time
