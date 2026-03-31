@@ -1200,17 +1200,6 @@ void ofApp::checkKeyPickupAndDraftAfterSummon(int x, int y, int minionOwnerID) {
 			}
 
 			if (targetIndex != -1) {
-				if (isHost()) {
-					KeyPickupPacket kpkt = {};
-					kpkt.type = PKT_KEY_PICKUP;
-					kpkt.playerID = myLocalPlayerID;
-					kpkt.playerIndex = targetIndex;
-					kpkt.playerID = (targetIndex >= 0 && targetIndex < (int)players.size()) ? players[targetIndex].playerID : -1;
-					kpkt.classTier = classToDraft;
-					kpkt.keyX = x;
-					kpkt.keyY = y;
-					steamManager.sendPacket(&kpkt, sizeof(kpkt));
-				}
 
 				// Deterministic draft trigger: both host and client call this
 				// so that generateDraftOptions() is executed on the same tick
@@ -30048,95 +30037,11 @@ void ofApp::processNetworkPackets() {
 						turnStartBackupSnapshot = buildSnapshotString();
 					}
 				}
-			} else if (header->type == PKT_KEY_PICKUP) {
-				KeyPickupPacket * kpkt = (KeyPickupPacket *)header;
-				ofLogNotice("Network") << "KeyPickup packet received: player=" << kpkt->playerIndex << " class=" << kpkt->classTier << " pos=(" << kpkt->keyX << "," << kpkt->keyY << ")";
-
-				// CLIENT: Apply key pickup from host
-				if (isClient()) {
-					// Remove the key from client's floatingKeyInstances
-					for (size_t k = 0; k < floatingKeyInstances.size(); ++k) {
-						FloatingKey & fk = floatingKeyInstances[k];
-						if (fk.pos.x == kpkt->keyX && fk.pos.y == kpkt->keyY) {
-							floatingKeyInstances.erase(floatingKeyInstances.begin() + k);
-							break;
-						}
-					}
-
-					// Schedule in-game draft (don't open UI immediately) so the summoned minion's
-					// HP roll / minion UI can appear first.
-					networkPending.keyDraftAccept = true;
-					// Prefer a mapping that preserves minion-targeting: if the host provided
-					// an actor index that refers to a minion currently sitting on the key
-					// tile, prefer that mapping. Otherwise prefer the stable playerID mapping
-					// and finally fallback to the raw actor index.
-					networkPending.keyDraftPlayer = -1;
-					networkPending.keyDraftPlayerID = -1;
-
-					// 1) Prefer the local minion sitting on the key tile, if any
-					for (int i = 0; i < (int)players.size(); ++i) {
-						if (players[i].isMinion && players[i].x == kpkt->keyX && players[i].y == kpkt->keyY) {
-							networkPending.keyDraftPlayer = i;
-							networkPending.keyDraftPlayerID = players[i].playerID;
-							break;
-						}
-					}
-
-					// 2) If not resolved yet, prefer stable playerID mapping (authoritative)
-					if (networkPending.keyDraftPlayer == -1 && kpkt->playerID >= 0) {
-						for (int i = 0; i < (int)players.size(); ++i) {
-							if (players[i].playerID == kpkt->playerID) {
-								networkPending.keyDraftPlayer = i;
-								networkPending.keyDraftPlayerID = kpkt->playerID;
-								break;
-							}
-						}
-					}
-
-					// 3) Fallback: use the provided actor index (may be out-of-range)
-					if (networkPending.keyDraftPlayer == -1) {
-						networkPending.keyDraftPlayer = kpkt->playerIndex;
-						if (kpkt->playerIndex >= 0 && kpkt->playerIndex < (int)players.size())
-							networkPending.keyDraftPlayerID = players[kpkt->playerIndex].playerID;
-						else
-							networkPending.keyDraftPlayerID = -1;
-					}
-					networkPending.keyDraftClass = kpkt->classTier;
-					networkPending.keyDraftTriggerTime = ofGetElapsedTimef();
-					networkPending.keyDraftKeyX = kpkt->keyX;
-					networkPending.keyDraftKeyY = kpkt->keyY;
-
-					// If an Accept arrived before this KeyPickup, close immediately.
-					// Match by host index OR by playerID OR by key coordinates to be robust
-					if (networkPending.keyDraftAccept && networkPending.keyDraftClass == kpkt->classTier) {
-						bool match = false;
-						if (networkPending.keyDraftPlayer == kpkt->playerIndex) match = true;
-						if (!match && networkPending.keyDraftPlayerID >= 0 && networkPending.keyDraftPlayerID == kpkt->playerID) match = true;
-						if (!match && networkPending.keyDraftKeyX == kpkt->keyX && networkPending.keyDraftKeyY == kpkt->keyY) match = true;
-						if (match) {
-							networkPending.keyDraftAccept = false;
-							networkPending.keyDraftPlayer = -1;
-							networkPending.keyDraftClass = 0;
-							// Keep `draftOptions` until vanish animations complete so visuals play.
-							isInGameDraft = false;
-							networkPending.draftFinalize = true; // will transition to gameplay once animations complete
-							networkPending.keyDraftKeyX = -1;
-							networkPending.keyDraftKeyY = -1;
-						}
-					}
-
-					// Color by tier: 1=gold,2=silver,3=bronze
-					{
-						ofColor pickupCol = ofColor::gold;
-						if (kpkt->classTier == 2)
-							pickupCol = ofColor(192, 192, 192);
-						else if (kpkt->classTier == 3)
-							pickupCol = ofColor(205, 127, 50);
-						queueFloatingTextVisual(gridToWorld(kpkt->keyX, kpkt->keyY), "Key Found!", pickupCol);
-					}
-					ofLogNotice("Key") << "Client: Player " << kpkt->playerIndex << " picked up key (Class " << kpkt->classTier << ")";
-				}
-			} else if (header->type == PKT_CHAT_MESSAGE) {
+			}
+			// PKT_KEY_PICKUP handling removed: drafts are deterministic and both peers
+			// will detect key pickups locally. Legacy packet handling deleted to avoid
+			// UI races and double-processing.
+			else if (header->type == PKT_CHAT_MESSAGE) {
 				ChatMessagePacket * pkt = (ChatMessagePacket *)header;
 				ofLogNotice("Net") << "Received chat message from player " << pkt->playerID << ": " << pkt->message;
 
@@ -30208,99 +30113,11 @@ void ofApp::processNetworkPackets() {
 				// Legacy ACK: resend bookkeeping removed — just log and ignore.
 
 				continue;
-			} else if (header->type == PKT_DRAFT_STATE) {
-				ofLogNotice("Network") << "Ignoring PKT_DRAFT_STATE (drafts are deterministic via command stream).";
-				continue;
-			} else if (header->type == PKT_DRAFT_OPTIONS) {
-				ofLogNotice("Network") << "Ignoring PKT_DRAFT_OPTIONS (drafts are deterministic via command stream).";
-				continue;
-				// Defensive: ensure packet buffer is large enough before casting
-				if (buffer.size() < sizeof(DraftOptionsPacket)) {
-					ofLogError("Network") << "PKT_DRAFT_OPTIONS truncated: size=" << buffer.size() << " expected=" << sizeof(DraftOptionsPacket) << " seq=" << header->seq;
-					// If we're a client, request authoritative snapshot to recover
-					if (isClient()) {
-						ofLogNotice("Network") << "Client: requesting snapshot due to truncated DraftOptions packet.";
-						SnapshotRequestPacket req = {};
-						req.type = PKT_SNAPSHOT_REQUEST;
-						req.playerID = myLocalPlayerID;
-						req.requestedTurn = globalTurnCounter;
-						steamManager.sendPacket(&req, sizeof(req));
-						waitingForSnapshotStartTime = ofGetElapsedTimef();
-					}
-					continue;
-				}
-
-				DraftOptionsPacket * dp = (DraftOptionsPacket *)header;
-				ofLogNotice("Network") << "DraftOptions received (deterministic): class=" << dp->classTier << " draftGenCounter=" << dp->draftGenCounter << " mapSeed=" << dp->mapSeed;
-
-				// Sync the draft generation counter and map seed from host
-				draftGenerationCounter = dp->draftGenCounter - 1; // Sub 1 because generateDraftOptions increments it
-				currentMapSeed = dp->mapSeed;
-				draftStage = dp->draftStage;
-				// Map draft player index to local index when running as client
-				if (isClient()) {
-					int incomingPlayerID = dp->draftPlayerID;
-					int mappedIdx = -1;
-					for (int i = 0; i < (int)players.size(); ++i) {
-						if (!players[i].isMinion && players[i].playerID == incomingPlayerID) {
-							mappedIdx = i;
-							break;
-						}
-					}
-					if (mappedIdx >= 0)
-						draftPlayerIndex = mappedIdx;
-					else
-						draftPlayerIndex = dp->draftPlayerIdx;
-				} else {
-					draftPlayerIndex = dp->draftPlayerIdx;
-				}
-				draftPicksRemaining = dp->picksRemaining;
-				isInGameDraft = (dp->isInGameDraft != 0);
-				draftAcceptLocked = false;
-				draftAcceptApplied = false;
-				waitingForDraftOptionsStartTime = 0.0f;
-
-				ofLogNotice("DraftTrace") << "PKT_DRAFT_OPTIONS: received class=" << dp->classTier << " draftGenCounter=" << dp->draftGenCounter << " mapSeed=" << dp->mapSeed << " optIdxs=" << dp->optionIdx0 << "," << dp->optionIdx1 << "," << dp->optionIdx2;
-
-				// If the host included explicit option indices, apply them directly.
-				// Otherwise fall back to deterministic local generation.
-				if (dp->optionIdx0 != -1 || dp->optionIdx1 != -1 || dp->optionIdx2 != -1) {
-					std::vector<int> indices;
-					if (dp->optionIdx0 != -1) indices.push_back(dp->optionIdx0);
-					if (dp->optionIdx1 != -1) indices.push_back(dp->optionIdx1);
-					if (dp->optionIdx2 != -1) indices.push_back(dp->optionIdx2);
-					ofLogNotice("DraftTrace") << "PKT_DRAFT_OPTIONS: applying explicit indices: " << dp->optionIdx0 << "," << dp->optionIdx1 << "," << dp->optionIdx2;
-					applyDraftOptionsFromPool(dp->classTier, indices, dp->picksRemaining, draftPlayerIndex);
-
-					// If the client still ended up with no options (e.g., indices invalid), request a snapshot
-					if (draftOptions.empty()) {
-						ofLogError("Draft") << "Client: applied explicit indices but draftOptions is empty (class=" << dp->classTier << "). Requesting snapshot.";
-						if (isClient()) {
-							SnapshotRequestPacket req = {};
-							req.type = PKT_SNAPSHOT_REQUEST;
-							req.playerID = myLocalPlayerID;
-							req.requestedTurn = globalTurnCounter;
-							steamManager.sendPacket(&req, sizeof(req));
-							waitingForSnapshotStartTime = ofGetElapsedTimef();
-						}
-					}
-				} else {
-					ofLogNotice("DraftTrace") << "PKT_DRAFT_OPTIONS: no explicit indices, generating deterministically.";
-					generateDraftOptions(dp->classTier);
-					if (draftOptions.empty()) {
-						ofLogError("Draft") << "Client: deterministic generation produced zero options (class=" << dp->classTier << "). Requesting snapshot.";
-						if (isClient()) {
-							SnapshotRequestPacket req = {};
-							req.type = PKT_SNAPSHOT_REQUEST;
-							req.playerID = myLocalPlayerID;
-							req.requestedTurn = globalTurnCounter;
-							steamManager.sendPacket(&req, sizeof(req));
-							waitingForSnapshotStartTime = ofGetElapsedTimef();
-						}
-					}
-				}
-				ofLogNotice("DraftDebug") << "PKT_DRAFT_OPTIONS: applied -> size=" << draftOptions.size() << " currentState=" << currentState << " draftPlayerIndex=" << draftPlayerIndex << " localIdx=" << getLocalPlayerIndex() << " myLocalPlayerID=" << myLocalPlayerID;
-			} else if (header->type == PKT_DRAFT_ACTION) {
+			}
+			// PKT_DRAFT_STATE / PKT_DRAFT_OPTIONS handling removed: drafts and options
+			// are now driven deterministically by the command stream. Removing
+			// legacy packet handlers prevents dead code and UI races.
+			else if (header->type == PKT_DRAFT_ACTION) {
 				DraftActionPacket * pkt = (DraftActionPacket *)header;
 				ofLogNotice("Network") << "Draft action received: hdr.seq=" << header->seq << " bufSize=" << buffer.size() << " type=" << (int)pkt->actionType << " opt=" << pkt->optionIndex << " player=" << pkt->draftPlayerIdx << " sel=" << (int)pkt->selectFlag << " clientActionID=" << pkt->clientActionID << " pkt.playerID=" << pkt->playerID;
 
