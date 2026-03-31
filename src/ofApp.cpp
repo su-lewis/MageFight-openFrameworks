@@ -312,7 +312,6 @@ void ofApp::finishPlayCard(Player & caster, const Card & playedCard, int handInd
 				movedToDiscard = true;
 				break;
 			}
-                		
 		}
 	}
 
@@ -15722,10 +15721,9 @@ void ofApp::handleCardMenuClick(const std::string & buttonId) {
 					applyOp.type = EffectOpType::APPLY_MAGIC_HAND_DAMAGE;
 					queueEffect(applyOp);
 
-					// Pay cost now and notify opponent
+					// Pay cost now (notification removed from lockstep execution)
 					currentAP -= ch.hand[interactingCardIndex].cost;
 					ch.playedCardsPile.push_back(ch.hand[interactingCardIndex]);
-					sendMagicHandResolutionPacket(1);
 
 					// Remove card from hand and update state
 					ch.hand.erase(ch.hand.begin() + interactingCardIndex);
@@ -15757,10 +15755,9 @@ void ofApp::handleCardMenuClick(const std::string & buttonId) {
 					create.data.createWall.isMagic = board[wallPos.x][wallPos.y].isMagicWall;
 					queueEffect(create);
 
-					// Pay cost & finalize locally first
+					// Pay cost & finalize locally first (network send suppressed here)
 					currentAP -= ch.hand[interactingCardIndex].cost;
 					ch.playedCardsPile.push_back(ch.hand[interactingCardIndex]);
-					sendMagicHandResolutionPacket(1);
 
 					// Remove card from hand and finish
 					ch.hand.erase(ch.hand.begin() + interactingCardIndex);
@@ -15810,11 +15807,10 @@ void ofApp::handleCardMenuClick(const std::string & buttonId) {
 				create.data.createWall.isMagic = board[wallPos.x][wallPos.y].isMagicWall;
 				queueEffect(create);
 
-				// Finalize: pay AP and remove card locally, then notify opponent
+				// Finalize: pay AP and remove card locally (network send suppressed here)
 				currentAP -= players[currentPlayerIndex].hand[interactingCardIndex].cost;
 				players[currentPlayerIndex].playedCardsPile.push_back(players[currentPlayerIndex].hand[interactingCardIndex]);
 				players[currentPlayerIndex].hand.erase(players[currentPlayerIndex].hand.begin() + interactingCardIndex);
-				sendMagicHandResolutionPacket(2);
 
 				// Cleanup local interaction state
 				interactingCardIndex = -1;
