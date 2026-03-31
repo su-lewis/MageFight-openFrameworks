@@ -5557,80 +5557,17 @@ void ofApp::updateGame() {
 				// Snap to exact tile
 				playerVisualPos = targetPos;
 
-				// --- KEY PICKUP LOGIC START ---
-				if (!isMultiplayer || isHost()) {
+				// Key pickup: use the centralized helper so both host and client
+				// generate deterministic draft options in the same way.
+				{
 					int cx = (int)std::round((playerVisualPos.x - TILE_SIZE / 2.0f) / TILE_SIZE + BOARD_WIDTH / 2.0f);
 					int cy = (int)std::round((playerVisualPos.z - TILE_SIZE / 2.0f) / TILE_SIZE + BOARD_HEIGHT / 2.0f);
 					cx = std::clamp(cx, 0, BOARD_WIDTH - 1);
 					cy = std::clamp(cy, 0, BOARD_HEIGHT - 1);
-
-					for (int k = 0; k < (int)floatingKeyInstances.size(); ++k) {
-						if (floatingKeyInstances[k].pos.x == cx && floatingKeyInstances[k].pos.y == cy) {
-							int keySet = floatingKeyInstances[k].set;
-							floatingKeyInstances.erase(floatingKeyInstances.begin() + k);
-							int classToDraft = 1;
-							if (keySet == 3)
-								classToDraft = 1;
-							else if (keySet == 2)
-								classToDraft = 2;
-							else if (keySet == 1)
-								classToDraft = 3;
-
-							Player & mover = players[animatingPlayerIndex];
-							int targetIndex = -1;
-							for (int p = 0; p < (int)players.size(); ++p) {
-								if (players[p].isMinion && players[p].x == cx && players[p].y == cy) {
-									targetIndex = p;
-									break;
-								}
-							}
-
-							int ownerID = mover.isMinion ? mover.ownerID : mover.playerID;
-							if (targetIndex == -1) {
-								for (int p = 0; p < (int)players.size(); ++p) {
-									if (players[p].playerID == ownerID && !players[p].isMinion) {
-										targetIndex = p;
-										break;
-									}
-								}
-							}
-
-							if (targetIndex != -1) {
-								if (isHost()) {
-									KeyPickupPacket kpkt = {};
-									kpkt.type = PKT_KEY_PICKUP;
-									kpkt.playerID = myLocalPlayerID;
-									kpkt.playerIndex = targetIndex;
-									kpkt.playerID = (targetIndex >= 0 && targetIndex < (int)players.size()) ? players[targetIndex].playerID : -1;
-									kpkt.classTier = classToDraft;
-									kpkt.keyX = cx;
-									kpkt.keyY = cy;
-									steamManager.sendPacket(&kpkt, sizeof(kpkt));
-									ofLogNotice("Network") << "Host sent KeyPickup: playerIndex=" << targetIndex << " class=" << classToDraft;
-								}
-
-								isInGameDraft = true;
-								draftPlayerIndex = targetIndex;
-								generateDraftOptions(classToDraft);
-								draftPicksRemaining = 1;
-								selectedDraftIndices.clear();
-								currentState = STATE_DRAFTING;
-
-								ofColor keyCol = ofColor::gold;
-								if (keySet == 2)
-									keyCol = ofColor(192, 192, 192);
-								else if (keySet == 3)
-									keyCol = ofColor(205, 127, 50);
-								queueFloatingTextVisual(gridToWorld(cx, cy), "Key Found!", keyCol);
-								int loggedPlayerID = (targetIndex >= 0 && targetIndex < (int)players.size()) ? players[targetIndex].playerID : mover.playerID;
-								ofLogNotice("Key") << "Player " << loggedPlayerID << " picked up key (Class " << classToDraft << ")";
-								return; // freeze update until draft resolved
-							}
-							break;
-						}
-					}
+					int ownerID = players[animatingPlayerIndex].isMinion ? players[animatingPlayerIndex].ownerID : players[animatingPlayerIndex].playerID;
+					checkKeyPickupAndDraftAfterSummon(cx, cy, ownerID);
+					if (isInGameDraft) return; // if draft started, pause update here
 				}
-				// --- KEY PICKUP LOGIC END ---
 
 				// Advance to next segment
 				currentPathIndex++;
@@ -5691,10 +5628,14 @@ void ofApp::updateGame() {
 						for (size_t pidx = 0; pidx < players.size() && !resurrected; ++pidx) {
 							Player & p = players[pidx];
 							if (p.isFaerie && p.x == nx && p.y == ny && p.health > 0) {
-								// Deterministic resurrection roll
-								int raw = getGameRandom(1, 4);
+								// Deterministic resurrection roll (decision-time via detailed resolver)
+								std::vector<int> rawRes;
+								int raw = resolveDiceRollDetailed(1, 4, rawRes);
 								int luckBonus = p.luck + computePassiveLuck((int)pidx);
 								int roll = raw + luckBonus; // may exceed 4; that's intentional
+								if (0 >= 0 && 0 < 16) currentEffectSequence.blackboard[0] = roll;
+								// Show dice visual for the faerie roll
+								queueVisualDiceRoll(gridToWorld(p.x, p.y) + glm::vec3(0, 1.0f, 0), 1, 4, rawRes, roll, PURPOSE_DEBUG, (int)pidx, 1.0f);
 								int hp = (int)std::floor(dying.maxHealth * 0.25f * roll);
 								if (hp < 1) hp = 1;
 								{
@@ -5935,7 +5876,10 @@ void ofApp::updateGame() {
 					int numNeedToPick = requiredPicks - (int)selectedDraftIndices.size();
 					for (int i = 0; i < numNeedToPick; ++i) {
 						if (currentDraftOptionPoolIndices.empty()) break;
-						int randomIdx = getGameRandom(0, (int)currentDraftOptionPoolIndices.size() - 1);
+						std::vector<int> rawPick;
+						int pickRoll = resolveDiceRollDetailed(1, (int)currentDraftOptionPoolIndices.size(), rawPick);
+						if (12 >= 0 && 12 < 16) currentEffectSequence.blackboard[12] = pickRoll;
+						int randomIdx = std::max(0, pickRoll - 1);
 						int poolIdx = currentDraftOptionPoolIndices[randomIdx];
 
 						// Add to selections (avoid duplicates)
@@ -5956,7 +5900,20 @@ void ofApp::updateGame() {
 			} else {
 				// Timer expired during gameplay: end turn normally
 				ofLogNotice("Timer") << "Turn time limit exceeded (" << turnDurationSeconds << "s). Auto-ending turn.";
-				startNewTurn();
+				// In multiplayer, send a deterministic CMD_END_TURN so lockstep
+				// advances identically; in singleplayer, advance immediately.
+				if (isMultiplayer && isCurrentPlayerLocal()) {
+					InputCommandPacket cmd = {};
+					cmd.type = PKT_INPUT_COMMAND;
+					cmd.playerID = myLocalPlayerID;
+					cmd.seq = 0;
+					cmd.commandId = nextCommandId++;
+					cmd.turnNumber = globalTurnCounter;
+					cmd.commandType = CMD_END_TURN;
+					bool ok = sendInputCommand(cmd, true);
+				} else {
+					startNewTurn();
+				}
 			}
 		}
 	}
@@ -11256,7 +11213,10 @@ void ofApp::mousePressed(int x, int y, int button) {
 			case 2: // CardDeck
 				if (sign > 0) {
 					if (!allCards.empty()) {
-						int r = getGameRandom(0, (int)allCards.size() - 1);
+						std::vector<int> rawPick;
+						int pick = resolveDiceRollDetailed(1, (int)allCards.size(), rawPick);
+						if (13 >= 0 && 13 < 16) currentEffectSequence.blackboard[13] = pick;
+						int r = std::max(0, pick - 1);
 						p.deck.push_back(allCards[r]);
 						return true;
 					}
@@ -11268,7 +11228,10 @@ void ofApp::mousePressed(int x, int y, int button) {
 			case 3: // CardDiscard
 				if (sign > 0) {
 					if (!allCards.empty()) {
-						int r = getGameRandom(0, (int)allCards.size() - 1);
+						std::vector<int> rawPick;
+						int pick = resolveDiceRollDetailed(1, (int)allCards.size(), rawPick);
+						if (13 >= 0 && 13 < 16) currentEffectSequence.blackboard[13] = pick;
+						int r = std::max(0, pick - 1);
 						p.discardPile.push_back(allCards[r]);
 						return true;
 					}
@@ -11456,7 +11419,18 @@ void ofApp::mousePressed(int x, int y, int button) {
 		if (debugForceEndTurnButton.inside(x, y)) {
 			if (currentState == STATE_GAMEPLAY) {
 				endTurnLocked = false;
-				startNewTurn();
+				if (isMultiplayer && isCurrentPlayerLocal()) {
+					InputCommandPacket cmd = {};
+					cmd.type = PKT_INPUT_COMMAND;
+					cmd.playerID = myLocalPlayerID;
+					cmd.seq = 0;
+					cmd.commandId = nextCommandId++;
+					cmd.turnNumber = globalTurnCounter;
+					cmd.commandType = CMD_END_TURN;
+					bool ok = sendInputCommand(cmd, true);
+				} else {
+					startNewTurn();
+				}
 				if (isMultiplayer && isHost()) sendSnapshotToClient();
 			}
 			return;
@@ -12551,43 +12525,18 @@ void ofApp::mousePressed(int x, int y, int button) {
 					int baseDraw = localPlayer->isDemon ? 3 : 2;
 					int cardsToDraw = localPlayer->nextTurnExtraDraw ? (baseDraw + 1) : baseDraw;
 
-					size_t handSizeBefore = localPlayer->hand.size();
-
-					// Both Host and Client draw locally. drawCard() generates the animation.
-					for (int i = 0; i < cardsToDraw; ++i) {
-						drawCard(false);
-					}
-
-					// Ensure any newly-added cards are normalized to full scale so
-					// click-and-hold draw doesn't leave them small.
-					for (size_t idx = handSizeBefore; idx < localPlayer->hand.size(); ++idx) {
-						localPlayer->hand[idx].currentScale = 1.0f;
-						localPlayer->hand[idx].targetScale = 1.0f;
-					}
-
-					if (isMultiplayer) {
-						InputCommandPacket out = {};
-						out.type = PKT_INPUT_COMMAND;
-						out.playerID = myLocalPlayerID;
-						out.commandId = nextCommandId++;
-						out.turnNumber = globalTurnCounter;
-						out.commandType = CMD_DRAW_CARDS;
-						out.params[0] = localPlayerIndex;
-						out.params[1] = cardsToDraw;
-						if (isClient()) out.clientActionID = ++watchdogClientActionCounter;
-						steamManager.sendPacket(&out, sizeof(out));
-					}
-
-					localPlayer->nextTurnExtraDraw = false;
-					localPlayer->nextTurnExtraDrawSetOnCycle = -1;
-					// Mark drawn flag depending on whether the active player is local or opponent
-					if (activePlayer.playerID == myLocalPlayerID) {
-						hasDrawnCardsThisTurn = true;
-						players[localPlayerIndex].hasDrawnThisTurn = true;
-					} else {
-						opponentHasDrawnCardsThisTurn = true;
-						players[localPlayerIndex].hasDrawnThisTurn = true;
-					}
+					// Queue deterministic draw command instead of performing immediate local draw.
+					InputCommandPacket out = {};
+					out.type = PKT_INPUT_COMMAND;
+					out.playerID = myLocalPlayerID;
+					out.commandId = nextCommandId++;
+					out.turnNumber = globalTurnCounter;
+					out.commandType = CMD_DRAW_CARDS;
+					out.params[0] = localPlayerIndex;
+					out.params[1] = cardsToDraw;
+					if (isClient()) out.clientActionID = ++watchdogClientActionCounter;
+					bool applyLocally = !isMultiplayer;
+					sendInputCommand(out, applyLocally);
 				}
 			}
 
@@ -12687,7 +12636,18 @@ void ofApp::mousePressed(int x, int y, int button) {
 				// -----------------------------------------------
 
 				endTurnLocked = true;
-				startNewTurn();
+				if (isMultiplayer && isCurrentPlayerLocal()) {
+					InputCommandPacket cmd = {};
+					cmd.type = PKT_INPUT_COMMAND;
+					cmd.playerID = myLocalPlayerID;
+					cmd.seq = 0;
+					cmd.commandId = nextCommandId++;
+					cmd.turnNumber = globalTurnCounter;
+					cmd.commandType = CMD_END_TURN;
+					bool ok = sendInputCommand(cmd, true);
+				} else {
+					startNewTurn();
+				}
 				return;
 			}
 
@@ -13695,31 +13655,19 @@ void ofApp::keyPressed(int key) {
 
 		int baseDraw = localPlayer->isDemon ? 3 : 2;
 		int cardsToDraw = localPlayer->nextTurnExtraDraw ? (baseDraw + 1) : baseDraw;
-		for (int i = 0; i < cardsToDraw; ++i)
-			drawCard(false);
-
-		if (isMultiplayer) {
-			InputCommandPacket out = {};
-			out.type = PKT_INPUT_COMMAND;
-			out.playerID = myLocalPlayerID;
-			out.commandId = nextCommandId++;
-			out.turnNumber = globalTurnCounter;
-			out.commandType = CMD_DRAW_CARDS;
-			out.params[0] = currentPlayerIndex;
-			out.params[1] = cardsToDraw;
-			if (isClient()) out.clientActionID = ++watchdogClientActionCounter;
-			steamManager.sendPacket(&out, sizeof(out));
-		}
-
-		localPlayer->nextTurnExtraDraw = false;
-		localPlayer->nextTurnExtraDrawSetOnCycle = -1;
-		if (activeActorBelongsToLocal) {
-			hasDrawnCardsThisTurn = true;
-			players[currentPlayerIndex].hasDrawnThisTurn = true;
-		} else {
-			opponentHasDrawnCardsThisTurn = true;
-			players[localPlayerIndex].hasDrawnThisTurn = true;
-		}
+		// Queue a deterministic draw command instead of drawing locally here.
+		InputCommandPacket out = {};
+		out.type = PKT_INPUT_COMMAND;
+		out.playerID = myLocalPlayerID;
+		out.commandId = nextCommandId++;
+		out.turnNumber = globalTurnCounter;
+		out.commandType = CMD_DRAW_CARDS;
+		out.params[0] = currentPlayerIndex;
+		out.params[1] = cardsToDraw;
+		if (isClient()) out.clientActionID = ++watchdogClientActionCounter;
+		// In multiplayer, do not apply locally here — let the lockstep processor execute the command.
+		bool applyLocally = !isMultiplayer;
+		sendInputCommand(out, applyLocally);
 
 		return;
 	}
@@ -13829,7 +13777,18 @@ void ofApp::keyPressed(int key) {
 			return;
 		}
 		endTurnLocked = true;
-		startNewTurn();
+		if (isMultiplayer && isCurrentPlayerLocal()) {
+			InputCommandPacket cmd = {};
+			cmd.type = PKT_INPUT_COMMAND;
+			cmd.playerID = myLocalPlayerID;
+			cmd.seq = 0;
+			cmd.commandId = nextCommandId++;
+			cmd.turnNumber = globalTurnCounter;
+			cmd.commandType = CMD_END_TURN;
+			bool ok = sendInputCommand(cmd, true);
+		} else {
+			startNewTurn();
+		}
 		return;
 	}
 
@@ -14200,14 +14159,17 @@ void ofApp::startNewTurn() {
 		}
 
 		// --- MULTIPLAYER FIX ---
-		// If I am a Client, I must NOT advance the turn index or roll dice locally.
-		// I must wait for the Host to tell me it's the next turn and what the AP roll was.
-		if (isMultiplayer && isClient()) {
+		// Clients should not locally advance the turn index except when executing
+		// a lockstep command (e.g., processing CMD_END_TURN from the host) or
+		// while processing an effect sequence that originated from the command
+		// stream. Allow advancement when `isExecutingLockstepCommand` OR
+		// `isProcessingEffect` is true.
+		if (isMultiplayer && isClient() && !isExecutingLockstepCommand && !isProcessingEffect) {
 			ofLogNotice("Turn") << "Client: Turn Ended. Awaiting host turn-start via command stream.";
 			endTurnLocked = true; // Prevent clicking button again
 			return;
 		}
-		ofLogNotice("Turn") << "Host: Continuing with turn advancement...";
+		ofLogNotice("Turn") << "Continuing with turn advancement...";
 	}
 
 	if (players.empty()) return;
@@ -16456,7 +16418,12 @@ void ofApp::processCommandQueue() {
 			break; // Wait for missing command
 		}
 
+		// Mark that we're executing a lockstep command so called functions
+		// (like startNewTurn) can behave differently for authoritative processing.
+		bool prevExecuting = isExecutingLockstepCommand;
+		isExecutingLockstepCommand = true;
 		executeInputCommand(cmd);
+		isExecutingLockstepCommand = prevExecuting;
 		lastProcessedCommandId = cmd.commandId;
 		commandQueue.erase(commandQueue.begin());
 	}
@@ -16491,6 +16458,38 @@ void ofApp::simulationTick() {
 
 void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 	switch ((InputCommandType)cmd.commandType) {
+	case CMD_DRAW_CARDS: {
+		int targetIdx = cmd.params[0];
+		int num = cmd.params[1];
+		if (targetIdx < 0 || targetIdx >= (int)players.size()) {
+			ofLogWarning("Lockstep") << "CMD_DRAW_CARDS rejected: invalid player index=" << targetIdx;
+			break;
+		}
+		// Temporarily set currentPlayerIndex so drawCard() operates on the intended player
+		int savedCurrent = currentPlayerIndex;
+		currentPlayerIndex = targetIdx;
+		for (int i = 0; i < num; ++i) {
+			drawCard(false);
+		}
+		// Normalize new cards' scale (if any)
+		Player & lp = players[targetIdx];
+		for (size_t idx = 0; idx < lp.hand.size(); ++idx) {
+			lp.hand[idx].currentScale = lp.hand[idx].currentScale; // no-op placeholder to keep consistent
+		}
+		// Clear next-turn extra flags deterministically and mark drawn flags
+		lp.nextTurnExtraDraw = false;
+		lp.nextTurnExtraDrawSetOnCycle = -1;
+		if (lp.playerID == myLocalPlayerID) {
+			hasDrawnCardsThisTurn = true;
+			lp.hasDrawnThisTurn = true;
+		} else {
+			opponentHasDrawnCardsThisTurn = true;
+			lp.hasDrawnThisTurn = true;
+		}
+		currentPlayerIndex = savedCurrent;
+		ofLogNotice("Lockstep") << "Execute CMD_DRAW_CARDS: playerIndex=" << targetIdx << " num=" << num;
+		break;
+	}
 	case CMD_PLAY_CARD: {
 		int cardIndex = cmd.params[0];
 		int targetX = cmd.params[1];
@@ -19551,9 +19550,10 @@ void ofApp::updateCardStateMachine() {
 		}
 	}
 
-	// Check if we're ready to send outcome
+	// Check if we're ready to process outcome
 	if (cardPlayState == CARD_STATE_OUTCOME) {
-		sendCardOutcomePacket();
+		// Apply outcome effects locally on both peers (deterministic lockstep)
+		applyCardOutcomeEffects();
 		advanceCardState(CARD_STATE_FINISHED);
 	}
 
@@ -19664,19 +19664,10 @@ void ofApp::handleCardDiceResult(int result, DicePurpose purpose) {
 	}
 }
 
-void ofApp::sendCardOutcomePacket() {
-	if (!isHost()) return; // Only host sends authoritative outcomes
-
-	// Apply the outcome on host (authoritative), then push authoritative
-	// state to clients using existing snapshot transport so clients stay
-	// fully authoritative and deterministic.
-	applyCardOutcomeEffects();
-
-	// Send authoritative snapshot to clients to reflect the outcome.
-	if (isMultiplayer) {
-		sendSnapshotToClient();
-	}
-}
+// NOTE: sendCardOutcomePacket was removed to enforce deterministic
+// processing of CARD_STATE_OUTCOME on all peers. Outcomes are applied
+// via applyCardOutcomeEffects() directly from the state machine so both
+// host and client execute identical state changes and avoid desyncs.
 
 void ofApp::applyCardOutcomeEffects() {
 	// This is where the actual game state changes happen
@@ -22587,7 +22578,11 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 			state.crashed = false;
 			state.tilesToMove = 0;
 			state.originalDistance = 0;
-			int r = getGameRandom(0, 3);
+			// Deterministic direction pick: resolve 1..4 and map to 0..3
+			std::vector<int> rawDir;
+			int pickDir = resolveDiceRollDetailed(1, 4, rawDir);
+			int r = std::max(0, pickDir - 1);
+			if (2 + i >= 0 && 2 + i < 16) currentEffectSequence.blackboard[2 + i] = r;
 			if (r == 0)
 				state.direction = { 0, 1 }; // South
 			else if (r == 1)
@@ -27072,9 +27067,12 @@ bool ofApp::applyDamageTo(Player & target, int damage, DamageType type, int atta
 						Player & p = players[pidx];
 						if (p.playerID == target.playerID) continue;
 						if (p.isFaerie && p.x == nx && p.y == ny && p.health > 0) {
-							int raw = getGameRandom(1, 4);
+							std::vector<int> rawRes;
+							int raw = resolveDiceRollDetailed(1, 4, rawRes);
 							int luckBonus = p.luck + computePassiveLuck((int)pidx);
 							int roll = raw + luckBonus;
+							if (0 >= 0 && 0 < 16) currentEffectSequence.blackboard[0] = roll;
+							queueVisualDiceRoll(gridToWorld(p.x, p.y) + glm::vec3(0, 1.0f, 0), 1, 4, rawRes, roll, PURPOSE_DEBUG, (int)pidx, 1.0f);
 							int hp = (int)std::floor(target.maxHealth * 0.25f * roll);
 							if (hp < 1) hp = 1;
 
@@ -27295,24 +27293,19 @@ bool ofApp::applyDamageTo(Player & target, int damage, DamageType type, int atta
 
 		// --- NEW: DEMON KILL REWARD ---
 		if (target.isDemon && attackerIndex != -1) {
+			// Deterministic: both peers must enter drafting state for the attacker
+			isInGameDraft = true;
+			draftPlayerIndex = attackerIndex;
+			generateDraftOptions(3); // Class 3
+			draftPicksRemaining = 1;
+			selectedDraftIndices.clear();
+			draftStage = 0;
 
-			// --- CHANGE START ---
-			// Only trigger drafting state if the LOCAL player is the attacker
-			if (attackerIndex == myLocalPlayerID || (isHost() && attackerIndex == 0)) { // Simplified check
-				// Attacker drafts a Class 3 Card
-				isInGameDraft = true;
-				draftPlayerIndex = attackerIndex;
-				generateDraftOptions(3); // Class 3
-				draftPicksRemaining = 1;
-				selectedDraftIndices.clear();
-				draftStage = 0;
+			// Switch state immediately on both peers
+			currentState = STATE_DRAFTING;
 
-				// Switch state immediately
-				currentState = STATE_DRAFTING;
-			} else {
-				queueFloatingTextVisual(gridToWorld(target.x, target.y), "Opponent Drafting Class 3...", ofColor::gold);
-			}
-			// --- CHANGE END ---
+			// Pause the active player's turn timer if this draft belongs to another player
+			pauseTurnTimerForOpponentDecision(attackerIndex);
 		}
 		// -----------------------------
 

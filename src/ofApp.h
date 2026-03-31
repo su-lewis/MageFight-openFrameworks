@@ -965,7 +965,6 @@ private:
 	void processCardStateInput(int mouseX, int mouseY, int button); // Handle clicks during card states
 	void updateCardStateMachine(); // Called in update() to process state transitions
 	void advanceCardState(CardPlayState newState); // Transition to new state
-	void sendCardOutcomePacket(); // Send unified outcome packet to clients
 	void applyCardOutcomeEffects(); // Apply the completed outcome to game state
 	void handleCardTargetInput(int gridX, int gridY); // Target selected
 	void handleCardDiceResult(int result, DicePurpose purpose); // Dice roll completed
