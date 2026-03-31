@@ -11264,7 +11264,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 					return;
 				}
 				changedState = applyPlayerRow(0, (int)i, +1) || changedState;
-				if (changedState && isMultiplayer && isHost()) sendSnapshotToClient();
+				// Snapshot suppressed: only sent on reconnect or desync recovery.
 				return;
 			}
 			// Player 1 -
@@ -11280,7 +11280,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 					return;
 				}
 				changedState = applyPlayerRow(0, (int)i, -1) || changedState;
-				if (changedState && isMultiplayer && isHost()) sendSnapshotToClient();
+				// Snapshot suppressed: only sent on reconnect or desync recovery.
 				return;
 			}
 			// Player 2 +
@@ -11295,7 +11295,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 					return;
 				}
 				changedState = applyPlayerRow(1, (int)i, +1) || changedState;
-				if (changedState && isMultiplayer && isHost()) sendSnapshotToClient();
+				// Snapshot suppressed: only sent on reconnect or desync recovery.
 				return;
 			}
 			// Player 2 -
@@ -11310,7 +11310,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 					return;
 				}
 				changedState = applyPlayerRow(1, (int)i, -1) || changedState;
-				if (changedState && isMultiplayer && isHost()) sendSnapshotToClient();
+				// Snapshot suppressed: only sent on reconnect or desync recovery.
 				return;
 			}
 		}
@@ -11318,7 +11318,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 		// General buttons
 		if (debugDrawCardButton.inside(x, y)) {
 			drawCard();
-			if (isMultiplayer && isHost()) sendSnapshotToClient();
+			// Snapshot suppressed: only sent on reconnect or desync recovery.
 			return;
 		}
 		if (debugSpawnCardButton.inside(x, y)) {
@@ -11341,7 +11341,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 				int addedCount = p.hand.size() - beforeCount;
 				queueFloatingTextVisual(gridToWorld(p.x, p.y), "+" + ofToString(addedCount) + " cards", ofColor::cyan);
 				addGameLog("Debug: Added all " + ofToString(addedCount) + " cards to hand");
-				if (isMultiplayer && isHost()) sendSnapshotToClient();
+				// Snapshot suppressed: only sent on reconnect or desync recovery.
 			}
 			return;
 		}
@@ -11387,7 +11387,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 		}
 		if (debugUnlimitedAPButton.inside(x, y)) {
 			hasUnlimitedAP = !hasUnlimitedAP;
-			if (isMultiplayer && isHost()) sendSnapshotToClient();
+			// Snapshot suppressed: only sent on reconnect or desync recovery.
 			return;
 		}
 		if (debugUnlimitedTimeButton.inside(x, y)) {
@@ -11398,7 +11398,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 			} else {
 				addGameLog("Unlimited time enabled (turn timer disabled).");
 			}
-			if (isMultiplayer && isHost()) sendSnapshotToClient();
+			// Snapshot suppressed: only sent on reconnect or desync recovery.
 			return;
 		}
 		if (debugSkipDraftButton.inside(x, y)) {
@@ -11420,7 +11420,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 				} else {
 					startNewTurn();
 				}
-				if (isMultiplayer && isHost()) sendSnapshotToClient();
+				// Snapshot suppressed: only sent on reconnect or desync recovery.
 			}
 			return;
 		}
@@ -11827,7 +11827,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 					saveGameStateToFile(stamped);
 					pruneOldSaves(10); // keep a few manual-stamped saves
 					addGameLog("Game saved to manual_save.json");
-					if (isMultiplayer && isHost()) sendSnapshotToClient();
+					// Snapshot suppressed: only sent on reconnect or desync recovery.
 				} else {
 					addGameLog("Failed to save game state.");
 				}
@@ -11881,7 +11881,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 						bool ok = loadGameStateFromFile(path);
 						if (ok) {
 							addGameLog("Loaded " + path);
-							if (isMultiplayer && isHost()) sendSnapshotToClient();
+							// Snapshot suppressed: only sent on reconnect or desync recovery.
 							currentState = STATE_GAMEPLAY;
 						} else {
 							addGameLog("Failed to load " + path);
@@ -12057,10 +12057,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 							}
 						}
 						queueFloatingTextVisual(gridToWorld(tgt.x, tgt.y), "+" + ofToString((int)encyclopediaSelectedIndices.size() * cardSpawnerQuantity) + " card(s)", ofColor::cyan);
-						if (isMultiplayer && isHost()) {
-							sendSnapshotToClient();
-							ofLogNotice("Debug") << "Card Spawner Encyclopedia: Host sent snapshot to clients.";
-						}
+						// Snapshot suppressed: only sent on reconnect or desync recovery.
 					}
 				} else if (encyclopediaMode == ENC_ADD_FROM_ALL) {
 					if (encyclopediaTargetPlayerIndex >= 0 && encyclopediaTargetPlayerIndex < (int)players.size()) {
@@ -12073,7 +12070,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 							else
 								tgt.deck.push_back(allCards[selIdx]);
 						}
-						if (isMultiplayer && isHost()) sendSnapshotToClient();
+						// Snapshot suppressed: only sent on reconnect or desync recovery.
 					}
 				} else if (encyclopediaMode == ENC_REMOVE_FROM_PILE) {
 					if (encyclopediaTargetPlayerIndex >= 0 && encyclopediaTargetPlayerIndex < (int)players.size()) {
@@ -12085,7 +12082,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 							if (selIdx < 0 || selIdx >= (int)pile.size()) continue;
 							pile.erase(pile.begin() + selIdx);
 						}
-						if (isMultiplayer && isHost()) sendSnapshotToClient();
+						// Snapshot suppressed: only sent on reconnect or desync recovery.
 					}
 				}
 			}
@@ -12164,10 +12161,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 					// Sync spawned cards with opponent. Host will send an authoritative
 					// snapshot so clients receive the full game state; avoid ad-hoc DrawCards
 					// packets here which can cause hand-order mismatches.
-					if (isMultiplayer && isHost()) {
-						sendSnapshotToClient();
-						ofLogNotice("Debug") << "Card Spawner: Host sent snapshot to clients.";
-					}
+					// Snapshot suppressed: only sent on reconnect or desync recovery.
 
 					isCardSpawnerOpen = false;
 					return;
@@ -13539,10 +13533,7 @@ void ofApp::keyPressed(int key) {
 				// Sync spawned cards with opponent. Host will send an authoritative
 				// snapshot so clients receive the full game state; avoid ad-hoc DrawCards
 				// packets here which can cause hand/order mismatches.
-				if (isMultiplayer && isHost()) {
-					sendSnapshotToClient();
-					ofLogNotice("Debug") << "Card Spawner: Host sent snapshot to clients.";
-				}
+				// Snapshot suppressed: only sent on reconnect or desync recovery.
 				isCardSpawnerOpen = false;
 			}
 		} else if (key == OF_KEY_BACKSPACE) {
