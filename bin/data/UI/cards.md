@@ -529,7 +529,7 @@
 - **Targeting:** Line of Sight
 - **Class:** 1
 - **Picture:** 
-- **Effect Text:** Choose one - Choose a target / self. Deal 3 damage; or heal 3 health.
+- **Effect Text:** Choose one - Choose a target / self. Deal 3 damage; or restore 3 health.
 ---
 
 -## 69. Shoot Arrow
