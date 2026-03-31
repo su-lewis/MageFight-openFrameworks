@@ -12518,7 +12518,8 @@ void ofApp::mousePressed(int x, int y, int button) {
 					out.params[0] = localPlayerIndex;
 					out.params[1] = cardsToDraw;
 					if (isClient()) out.clientActionID = ++watchdogClientActionCounter;
-					bool applyLocally = !isMultiplayer;
+					// Optimistic UI: apply locally immediately in multiplayer (turn-based, no simultaneous inputs expected)
+					bool applyLocally = true;
 					sendInputCommand(out, applyLocally);
 				}
 			}
@@ -13645,8 +13646,8 @@ void ofApp::keyPressed(int key) {
 		out.params[0] = currentPlayerIndex;
 		out.params[1] = cardsToDraw;
 		if (isClient()) out.clientActionID = ++watchdogClientActionCounter;
-		// In multiplayer, do not apply locally here — let the lockstep processor execute the command.
-		bool applyLocally = !isMultiplayer;
+		// Optimistic UI: apply locally immediately in multiplayer (turn-based, no simultaneous inputs expected)
+		bool applyLocally = true;
 		sendInputCommand(out, applyLocally);
 
 		return;
