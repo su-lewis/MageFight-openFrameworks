@@ -58,7 +58,7 @@
 - **AP Cost:** 3
 - **Class:** 1
 - **Picture:** 
-- **Effect Text:** Steal the top card from the adjacent unit's deck and shuffle it into yours.
+- **Effect Text:** Steal the top card from the adjacent unit's deck and shuffle it into your own.
 ---
 
 -## 9. Amnesia
@@ -91,7 +91,7 @@
 - **AP Cost:** 2
 - **Class:** 1
 - **Picture:** 
-- **Effect Text:** Deal 2 damage to an adjacent unit. Gain +2 AP next turn. If you've played another Shock this turn apply Paralysis to them.
+- **Effect Text:** Deal 2 damage to an adjacent unit. Gain +2 AP next turn. If you've played another Shock this turn apply Paralysis too.
 ---
 
 -## 13. Rock Crush
@@ -114,7 +114,7 @@
 - **Targeting:** 3d6 ft
 - **Class:** 1
 - **Picture:** 
-- **Effect Text:** Choose an empty tile to teleport to. You can target through walls.
+- **Effect Text:** Roll then choose an empty tile to teleport to. You can target through walls.
 ---
 
 -## 16. Hasten
@@ -136,7 +136,7 @@
 - **AP Cost:** 5
 - **Class:** 1
 - **Picture:** 
-- **Effect Text:** Deal damage equal to the # of cards in your deck; or gain Block until the start of this unit's next turn equal to the # of cards in your deck.
+- **Effect Text:** Choose one - Deal damage equal to the # of cards in your deck; or gain Block until the start of this unit's next turn equal to the # of cards in your deck.
 ---
 
 -## 19. Ethereal Jolt
@@ -145,7 +145,7 @@
 - **Targeting:** 1d20 ft
 - **Class:** 2
 - **Picture:** 
-- **Effect Text:** Choose a target. Deal 7 damage to the unit hit. Destroy the top card of their deck. Apply Paralysis to them. You can target through walls. 
+- **Effect Text:** Choose a target. Deal 7 damage to the unit hit. Destroy the top card of their deck. Apply Paralysis. You can target through walls. 
 ---
 
 -## 20. Flame Hit
@@ -153,7 +153,7 @@
 - **AP Cost:** 2
 - **Class:** 1
 - **Picture:** 
-- **Effect Text:** Deal 1 damage to an adjacent unit. If it damaged their health then apply Burning to them.
+- **Effect Text:** Deal 1 damage to an adjacent unit. If it damaged their health then apply Burning.
 ---
 
 -## 21. Heal
@@ -161,7 +161,7 @@
 - **Targeting:** Line of Sight
 - **Class:** 1
 - **Picture:** 
-- **Effect Text:** Choose a target / self. Roll 2d6 and heal that amount of health.
+- **Effect Text:** Choose a target / self. Roll 2d6 and restore that amount of health.
 ---
 
 -## 22. Raise Dead
@@ -200,7 +200,7 @@
 - **AP Cost:** 2
 - **Class:** 2
 - **Picture:** 
-- **Effect Text:** Gain 7 Holy Block. Next turn roll Xd6 for AP where X is the number of Skeletons + Hellhounds in play.
+- **Effect Text:** Gain +7 Holy Block. Next turn roll Xd6 for AP where X is the number of Skeletons and Hellhounds in play.
 ---
 
 -## 27. Drain Punch
@@ -208,14 +208,14 @@
 - **AP Cost:** 2
 - **Class:** 1
 - **Picture:** 
-- **Effect Text:** Deal 2 damage to an adjacent unit, add +2 damage for each hand-related attack card played this turn. Heal self equal to the damage dealt.
+- **Effect Text:** Deal 2 damage to an adjacent unit, add +2 damage for each hand-related attack card played this turn. Restore health equal to the damage dealt.
 ---
 
 -## 28. Double Handed
 - **AP Cost:** 2
 - **Class:** 1
 - **Picture:** 
-- **Effect Text:** Shuffle x2 Punch or x2 Hand Block into the your / adjacent unit's deck.
+- **Effect Text:** Choose one - Shuffle x2 Punch; or x2 Hand Block into the your / adjacent unit's deck.
 ---
 
 -## 29. Blocking Boon
@@ -287,7 +287,7 @@
 - **Targeting:** Line of Sight
 - **Class:** 3
 - **Picture:** 
-- **Effect Text:** Choose a target. Choose to kill if Sleeping, or roll 1d20 if higher than the unit's health it dies, if lower apply Sleep for 1d6 turns on them.
+- **Effect Text:** Choose one - Choose a target. Choose to kill if Sleeping; or roll 1d20 if higher than the unit's health it dies, if lower apply Sleep for 1d6 turns.
 ---
 
 -## 38. Summon Demon
@@ -320,7 +320,7 @@
 - **Targeting:** 2d10ft
 - **Class:** 2
 - **Picture:** 
-- **Effect Text:** Choose a target. Deal 1d10 damage to the tile hit and the 8 surrounding tiles, if more than one unit was hit then apply Paralysis to them. Gain +3 AP next turn.
+- **Effect Text:** Choose a target. Deal 1d10 damage to the tile hit and the 8 surrounding tiles, if more than one unit was hit then apply Paralysis. Gain +3 AP next turn.
 ---
 
 -## 42. Study
@@ -358,7 +358,7 @@
 - **AP Cost:** 5
 - **Class:** 3
 - **Picture:** 
-- **Effect Text:** Transform into a Tortoise until you take 5 health damage. Your blocks do not expire. Deal 3 to an adjacent unit whenever you heal or block. Increase max health by 5. Restore 5 health. Shuffle x2 Dispel into your deck.
+- **Effect Text:** Transform into a Tortoise until you take 5 health damage. Your blocks do not expire. Deal 3 to an adjacent unit whenever you restore health or block. Gain max health +5. Restore 5 health. Shuffle x2 Dispel into your deck.
 ---
 
 -## 47. Fortify
@@ -442,14 +442,14 @@
 - **AP Cost:** 2
 - **Class:** 2
 - **Picture:** 
-- **Effect Text:** Choose an adjacent wall. Choose to push it 1 tile forward and you move with it, dealing 2d4 to any unit it hits, if they have no room to move in any direction they die, or pull it 1 tile backwards.
+- **Effect Text:** Choose one - Choose an adjacent wall. Choose to push it 1 tile forward and you move with it, dealing 2d4 to any unit it hits, if they have no room to move in any direction they die; or pull it 1 tile backwards.
 ---
 
 -## 58. Consume Large Health Potion
 - **AP Cost:** 4
 - **Class:** 2
 - **Picture:** 
-- **Effect Text:** Gain +3 max health. Heal 1 health.
+- **Effect Text:** Gain +3 max health. Restore 1 health.
 ---
 
 -## 59. Lesser Heal
@@ -457,7 +457,7 @@
 - **Targeting:** Line of Sight
 - **Class:** 1
 - **Picture:** 
-- **Effect Text:** Choose a target / self. Roll 1d6, and heal that amount of health.
+- **Effect Text:** Choose a target / self. Roll 1d6, and restore that amount of health.
 ---
 
 -## 60. Transform Wall
@@ -482,7 +482,7 @@
 - **AP Cost:** 4
 - **Class:** 1
 - **Picture:** 
-- **Effect Text:** Summon an Assistant minion in an adjacent empty tile. While adjacent, the unit who summoned it has +1 Luck, and can reroll their AP if at 0 once per turn. Its deck is x1 Lesser Heal, x4 Hand Block. 
+- **Effect Text:** Summon an Assistant minion in an adjacent empty tile. While adjacent, the unit who summoned it has +1 Luck, and can reroll their AP if at 0 once per Assistant. Its deck is x1 Lesser Heal, x4 Hand Block. 
 -**AP:** Coinflip
 -**HP:** 1
 ---
@@ -512,7 +512,7 @@
 - **AP Cost:** 4
 - **Class:** 2
 - **Picture:** 
-- **Effect Text:** Heal up to max health. Remove all negative status effects.
+- **Effect Text:** Restore to max health. Remove all negative status effects.
 ---
 
 -## 67. Smite
@@ -529,7 +529,7 @@
 - **Targeting:** Line of Sight
 - **Class:** 1
 - **Picture:** 
-- **Effect Text:** Choose a target / self. Deal 3 damage or heal 3 health.
+- **Effect Text:** Choose one - Choose a target / self. Deal 3 damage; or heal 3 health.
 ---
 
 -## 69. Shoot Arrow
@@ -538,7 +538,7 @@
 - **Targeting:** 2d20 ft
 - **Class:** 1
 - **Picture:** 
-- **Effect Text:** Choose a target. Deal 1d6 damage to the unit hit. Destroy the top card of your deck, if it was Shock deal +1d6 electric damage and apply Paralysis to them, if Flame Hit deal +1d6 fire damage and apply Burning to them, if Add Poison deal +1d6 poison damage and apply Poisoned to them.
+- **Effect Text:** Choose a target. Deal 1d6 damage to the unit hit. Destroy the top card of your deck, if it was Shock deal +1d6 electric damage and apply Paralysis, if Flame Hit deal +1d6 fire damage and apply Burning, if Add Poison deal +1d6 poison damage and apply Poisoned.
 ---
 
 -## 70. Summon Faerie
