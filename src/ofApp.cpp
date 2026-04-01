@@ -8781,8 +8781,10 @@ void ofApp::drawGame() {
 
 	// Check if it's my turn
 	bool myTurn = isMyTurn();
+	// Only show the End Turn button during normal gameplay (hide during initiative roll and drafting)
+	bool showEndTurn = myTurn && (currentState == STATE_GAMEPLAY);
 
-	if (myTurn) {
+	if (showEndTurn) {
 		// 1. Draw End Turn Button Background
 		ofSetColor(isHoveringEndTurn ? ofColor::darkSlateGray : ofColor::slateGray);
 		ofDrawRectRounded(endTurnButtonRect, 10 * scale);
@@ -8923,7 +8925,7 @@ void ofApp::drawGame() {
 		activeActorHasDrawn = hasDrawnCardsThisTurn; // fallback
 	}
 
-	if (!disableAllGlow && displayedAPForCurrent <= 0 && activeActorHasDrawn && !rerollAvailable && myTurn) {
+	if (!disableAllGlow && displayedAPForCurrent <= 0 && activeActorHasDrawn && !rerollAvailable && showEndTurn) {
 		// Draw a small green glow behind the button so the outline is always
 		// fully visible (avoid relying on stroke rendering which can clip).
 		ofPushStyle();
@@ -8941,8 +8943,8 @@ void ofApp::drawGame() {
 		ofPopStyle();
 	}
 
-	// 3. Draw End Turn Button Text (only if it's my turn)
-	if (myTurn) {
+	// 3. Draw End Turn Button Text (only if it's my turn and in gameplay)
+	if (showEndTurn) {
 		ofSetColor(ofColor::white);
 		string endTurnButtonText = "End Turn";
 		ofRectangle buttonTextBox = titleFont.getStringBoundingBox(endTurnButtonText, 0, 0);
@@ -10227,7 +10229,9 @@ void ofApp::mouseMoved(int x, int y) {
 		}
 		if (saveBrowserBackButton.inside(x, y)) saveBrowserHoveredIndex = -2;
 	}
-	if (endTurnButtonRect.inside(x, y) || overMainMenuButton || overSettingsButton || overPauseMenuButton ||
+	// Only consider end-turn hover if the End Turn button is visible during gameplay
+	bool hoverEndTurnVisible = (currentState == STATE_GAMEPLAY) && endTurnButtonRect.inside(x, y);
+	if (hoverEndTurnVisible || overMainMenuButton || overSettingsButton || overPauseMenuButton ||
 		[&]() {
 			for (const auto & ui : activeMinionUIs) {
 				if (ui.deckRect.inside(x, y) || ui.discardRect.inside(x, y)) return true;
@@ -12545,8 +12549,8 @@ void ofApp::mousePressed(int x, int y, int button) {
 			}
 			// --- PASTE HERE END ---
 
-			// 3g. End Turn Button
-			if (endTurnButtonRect.inside(x, y) && button == OF_MOUSE_BUTTON_LEFT) {
+			// 3g. End Turn Button (only active during gameplay)
+			if (currentState == STATE_GAMEPLAY && endTurnButtonRect.inside(x, y) && button == OF_MOUSE_BUTTON_LEFT) {
 				// Prevent ending turn while AP roll animation is still running for this unit
 				bool apRollActiveLocal = false;
 				for (const auto & r : activeDiceRolls) {
@@ -15091,7 +15095,6 @@ void ofApp::handleCardDragToPlay(int cardIndex) {
 		updateCardInteractionState(CARD_INTERACTION_TARGETING, cardIndex, card.type);
 		cardPlayState = CARD_STATE_TARGETING;
 		calculateTargetHighlights(cardIndex);
-		queueFloatingTextVisual(gridToWorld(caster.x, caster.y), "Choose target", ofColor::white);
 	} else {
 		// Self-targeting or immediate cards: queue as deterministic input command
 		InputCommandPacket cmd = {};
@@ -16603,6 +16606,8 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 		if (pick0 >= 0) picks.push_back(pick0);
 		if (pick1 >= 0) picks.push_back(pick1);
 		if (pick2 >= 0) picks.push_back(pick2);
+		int beforeSize = (int)p.deck.size();
+		std::vector<std::string> addedNames;
 		for (int poolIdx : picks) {
 			if (poolIdx < 0 || poolIdx >= (int)pool->size()) {
 				ofLogWarning("Lockstep") << "CMD_ACCEPT_DRAFT: ignoring invalid poolIdx=" << poolIdx << " for class " << classTier;
@@ -16611,11 +16616,22 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 			for (int k = 0; k < copiesPerCard; ++k) {
 				try {
 					p.deck.push_back((*pool)[poolIdx]);
+					addedNames.push_back((*pool)[poolIdx].name);
 				} catch (const std::bad_alloc & e) {
 					ofLogError("Lockstep") << "CMD_ACCEPT_DRAFT: memory allocation failed while adding card to deck: " << e.what();
 					break;
 				}
 			}
+		}
+		int afterSize = (int)p.deck.size();
+		ofLogNotice("Lockstep") << "CMD_ACCEPT_DRAFT applied: player=" << cmdDraftPlayerIdx << " beforeSize=" << beforeSize << " afterSize=" << afterSize << " added=" << (afterSize - beforeSize);
+		if (!addedNames.empty()) {
+			std::string list = "";
+			for (size_t ai = 0; ai < addedNames.size(); ++ai) {
+				if (ai) list += ", ";
+				list += addedNames[ai];
+			}
+			ofLogNotice("Lockstep") << "Added cards: " << list;
 		}
 		// After adding cards, perform deterministic shuffle of the target player's deck
 		shuffleGameVector(p.deck, cmdDraftPlayerIdx);
