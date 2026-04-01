@@ -581,6 +581,8 @@ struct CardOutcome {
 
 	// State tracking
 	bool isComplete = false; // Ready to send outcome packet
+	// Whether AP cost for this card has already been deducted (pre-paid)
+	bool apPaid = false;
 	CardPlayState currentState = CARD_STATE_IDLE;
 };
 

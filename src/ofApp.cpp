@@ -291,7 +291,7 @@ void ofApp::finishPlayCard(Player & caster, const Card & playedCard, int handInd
 	bool movedToDiscard = false;
 
 	// Case A: card still in hand at handIndex — mark it, push to discard, then erase from hand
-	if (handIndex >= 0 && handIndex < (int)caster.hand.size() && currentCardOutcome.summonKind != PENDING_SUMMON_SKELETON) {
+	if (handIndex >= 0 && handIndex < (int)caster.hand.size()) {
 		if (caster.hand[handIndex].type == playedCard.type && caster.hand[handIndex].value == playedCard.value) {
 			caster.hand[handIndex].playedThisTurn = true;
 			// Move the actual Card instance (with flag) to discard
@@ -4243,10 +4243,19 @@ void ofApp::updateGame() {
 	updateDebugRects();
 
 	// If a turn start was deferred while visuals played, commit it now once visuals finished.
-	if (turnStartDeferred && diceVisualsFinishedAndLinger()) {
-		turnStartDeferred = false;
-		turnStartTime = ofGetElapsedTimef();
-		ofLogNotice("Timer") << "Deferred turn start committed. Starting timer now.";
+	// Also include a safety fallback so a stuck visual state doesn't prevent the
+	// visible timer from ever starting (which caused the timer to "carry on").
+	if (turnStartDeferred) {
+		const float kTurnStartDeferredMax = 3.0f; // seconds grace before forcing timer
+		bool commitNow = false;
+		if (diceVisualsFinishedAndLinger()) commitNow = true;
+		else if ((ofGetElapsedTimef() - turnStartDeferredAt) > kTurnStartDeferredMax) commitNow = true;
+
+		if (commitNow) {
+			turnStartDeferred = false;
+			turnStartTime = ofGetElapsedTimef();
+			ofLogNotice("Timer") << "Deferred turn start committed. Starting timer now.";
+		}
 	}
 
 	// --- TURN TIMER CHECK (run early so it continues during modal menus/drafting) ---
@@ -11585,25 +11594,16 @@ void ofApp::mousePressed(int x, int y, int button) {
 					activeDraftPickedMoves.push_back(mv);
 				}
 
-				// Vanish non-picked options immediately
+				// Vanish all option slots immediately; picked cards are represented
+				// by `activeDraftPickedMoves` so we hide the originals to avoid
+				// duplicated visuals.
 				for (size_t si = 0; si < draftOptionUI.size(); ++si) {
-					int poolIdx = (si < currentDraftOptionPoolIndices.size()) ? currentDraftOptionPoolIndices[si] : -1;
-					bool picked = false;
-					for (int sel : selectedDraftIndices)
-						if (sel == poolIdx) {
-							picked = true;
-							break;
-						}
-					if (!picked) {
-						auto & ui = draftOptionUI[si];
+					auto & ui = draftOptionUI[si];
+					if (!ui.hidden) {
 						ui.state = DRAFT_ANIM_VANISHING;
 						ui.startTime = now;
 						ui.startScale = ui.currentScale;
 						ui.targetScale = 0.0f;
-					} else {
-						auto & ui = draftOptionUI[si];
-						ui.state = DRAFT_ANIM_HOLDING;
-						ui.startTime = now;
 					}
 				}
 			}
@@ -16769,25 +16769,16 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 				activeDraftPickedMoves.push_back(mv);
 			}
 
-			// Vanish non-picked options immediately, hold picked ones
+			// Hide all option slots immediately; picked cards are shown via
+			// `activeDraftPickedMoves` so remove the originals to avoid
+			// duplicated visuals.
 			for (size_t si = 0; si < draftOptionUI.size(); ++si) {
-				int poolIdx = (si < currentDraftOptionPoolIndices.size()) ? currentDraftOptionPoolIndices[si] : -1;
-				bool picked = false;
-				for (int sel : selectedDraftIndices)
-					if (sel == poolIdx) {
-						picked = true;
-						break;
-					}
-				if (!picked) {
-					auto & ui = draftOptionUI[si];
+				auto & ui = draftOptionUI[si];
+				if (!ui.hidden) {
 					ui.state = DRAFT_ANIM_VANISHING;
 					ui.startTime = now;
 					ui.startScale = ui.currentScale;
 					ui.targetScale = 0.0f;
-				} else {
-					auto & ui = draftOptionUI[si];
-					ui.state = DRAFT_ANIM_HOLDING;
-					ui.startTime = now;
 				}
 			}
 		}
@@ -16873,6 +16864,9 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 			// enforce it here for safety.
 			turnStartDeferred = true;
 			turnStartDeferredAt = ofGetElapsedTimef();
+            // Also reset the visible timer baseline so the UI shows a fresh
+            // timer for the next player immediately (safety for stuck visuals).
+            turnStartTime = ofGetElapsedTimef();
 			ofLogNotice("Timer") << "Host: deferred next player's visible timer until visuals complete.";
 		} else {
 			// Clients: advance local turn state as well so the client rolls AP
@@ -16882,6 +16876,9 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 			ofLogNotice("Lockstep") << "Client processing CMD_END_TURN -> startNewTurn()";
 			turnStartDeferred = true;
 			turnStartDeferredAt = ofGetElapsedTimef();
+			// Reset baseline timer immediately so clients see the timer reset even
+			// if visuals are still playing; continue authoritative start logic.
+			turnStartTime = ofGetElapsedTimef();
 			startNewTurn();
 		}
 		break;
@@ -19737,8 +19734,17 @@ void ofApp::applyCardOutcomeEffects() {
 
 	// Finish card play (moves to discard, handles replicate, etc)
 	finishPlayCard(caster, playedCard, currentCardOutcome.cardIndex);
-	updatePlayerAP(caster, currentAP - costToPay);
-	currentAP -= costToPay;
+
+	// Deduct AP exactly once. `playCard()` may have already deducted AP
+	// in optimistic/local paths and marked `currentCardOutcome.apPaid`.
+	if (!currentCardOutcome.apPaid) {
+		updatePlayerAP(caster, currentAP - costToPay);
+		currentAP -= costToPay;
+		currentCardOutcome.apPaid = true;
+	} else {
+		// Ensure player struct is synchronized with authoritative currentAP
+		updatePlayerAP(caster, currentAP);
+	}
 
 	// Trigger card-specific post-effects
 	// (Strengthen Elements, Tortoise Form, etc - handled by existing logic)
@@ -23513,6 +23519,8 @@ CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 	// --- 3. COMMON CLEANUP ---
 	if (playedSuccessfully) {
 		currentAP -= costToPay;
+		// Mark AP as paid for this card outcome so applyCardOutcomeEffects doesn't double-deduct
+		currentCardOutcome.apPaid = true;
 
 		// Ensure authoritative AP struct matches the displayed/current AP
 		if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) {
