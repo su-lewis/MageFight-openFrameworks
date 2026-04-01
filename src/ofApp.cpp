@@ -16376,599 +16376,601 @@ void ofApp::simulationTick() {
 
 void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 	switch ((InputCommandType)cmd.commandType) {
-	case CMD_DRAW_CARDS: {
-		int targetIdx = cmd.params[0];
-		int num = cmd.params[1];
-		if (targetIdx < 0 || targetIdx >= (int)players.size()) {
-			ofLogWarning("Lockstep") << "CMD_DRAW_CARDS rejected: invalid player index=" << targetIdx;
+	case CMD_DRAFT_ACTION: {
+		int action = cmd.params[0];
+		int poolIdx = cmd.params[1];
+		int cmdDraftPlayerIdx = cmd.params[2];
+		int optionSlot = cmd.params[3];
+		if (cmdDraftPlayerIdx < 0 || cmdDraftPlayerIdx >= (int)players.size()) {
+			ofLogError("Lockstep") << "CMD_DRAFT_ACTION: invalid draftPlayerIdx=" << cmdDraftPlayerIdx;
 			break;
 		}
-		// Temporarily set currentPlayerIndex so drawCard() operates on the intended player
-		int savedCurrent = currentPlayerIndex;
-		currentPlayerIndex = targetIdx;
-		for (int i = 0; i < num; ++i) {
-			drawCard(false);
+		// Validate poolIdx and optionSlot against current option list
+		if (poolIdx < 0 || poolIdx >= (int)currentDraftOptionPoolIndices.size()) {
+			ofLogWarning("Lockstep") << "CMD_DRAFT_ACTION: poolIdx out of range: " << poolIdx;
+			break;
 		}
-		// Normalize new cards' scale (if any)
-		Player & lp = players[targetIdx];
-		for (size_t idx = 0; idx < lp.hand.size(); ++idx) {
-			lp.hand[idx].currentScale = lp.hand[idx].currentScale; // no-op placeholder to keep consistent
+		if (optionSlot < 0 || optionSlot >= (int)draftOptionUI.size()) {
+			ofLogWarning("Lockstep") << "CMD_DRAFT_ACTION: optionSlot out of range: " << optionSlot;
+			break;
 		}
-		// Clear next-turn extra flags deterministically and mark drawn flags
-		lp.nextTurnExtraDraw = false;
-		lp.nextTurnExtraDrawSetOnCycle = -1;
-		if (lp.playerID == myLocalPlayerID) {
-			hasDrawnCardsThisTurn = true;
-			lp.hasDrawnThisTurn = true;
-		} else {
-			opponentHasDrawnCardsThisTurn = true;
-			lp.hasDrawnThisTurn = true;
-		}
-		currentPlayerIndex = savedCurrent;
-		ofLogNotice("Lockstep") << "Execute CMD_DRAW_CARDS: playerIndex=" << targetIdx << " num=" << num;
+		// apply pick locally (visuals handled in accept)
+		selectedDraftIndices.push_back(poolIdx);
+		ofLogNotice("Draft") << "CMD_DRAFT_ACTION: player=" << cmdDraftPlayerIdx << " picked poolIdx=" << poolIdx << " slot=" << optionSlot;
 		break;
 	}
-	case CMD_PLAY_CARD: {
-		int cardIndex = cmd.params[0];
-		int targetX = cmd.params[1];
-		int targetY = cmd.params[2];
+		lp.hasDrawnThisTurn = true;
+	}
+	else {
+		opponentHasDrawnCardsThisTurn = true;
+		lp.hasDrawnThisTurn = true;
+	}
+	currentPlayerIndex = savedCurrent;
+	ofLogNotice("Lockstep") << "Execute CMD_DRAW_CARDS: playerIndex=" << targetIdx << " num=" << num;
+	break;
+}
+case CMD_PLAY_CARD: {
+	int cardIndex = cmd.params[0];
+	int targetX = cmd.params[1];
+	int targetY = cmd.params[2];
 
-		if (currentPlayerIndex < 0 || currentPlayerIndex >= (int)players.size()) {
-			ofLogWarning("Lockstep") << "CMD_PLAY_CARD rejected: invalid currentPlayerIndex=" << currentPlayerIndex;
-			break;
-		}
-
-		Player & actor = players[currentPlayerIndex];
-		if (cardIndex < 0 || cardIndex >= (int)actor.hand.size()) {
-			ofLogWarning("Lockstep") << "CMD_PLAY_CARD rejected: invalid cardIndex=" << cardIndex;
-			break;
-		}
-
-		const Card cardSnapshot = actor.hand[cardIndex];
-
-		const std::string cardName = cardSnapshot.name;
-
-		// Deterministic lockstep: every peer executes the same play logic
-		CardPlayResult result = CARD_NOT_PLAYABLE;
-		result = playCard(cardIndex, targetX, targetY);
-
-		ofLogNotice("Lockstep") << "Execute CMD_PLAY_CARD: card=" << cardName << " target=(" << targetX << "," << targetY << ") result=" << (int)result;
+	if (currentPlayerIndex < 0 || currentPlayerIndex >= (int)players.size()) {
+		ofLogWarning("Lockstep") << "CMD_PLAY_CARD rejected: invalid currentPlayerIndex=" << currentPlayerIndex;
 		break;
 	}
-	case CMD_MOVE_UNIT: {
-		int fromX = cmd.params[0];
-		int fromY = cmd.params[1];
-		int toX = cmd.params[2];
-		int toY = cmd.params[3];
-		// Execute deterministic move: find the unit at fromX,fromY and apply movement
-		ofLogNotice("Lockstep") << "Execute CMD_MOVE_UNIT: from=(" << fromX << "," << fromY << ") to=(" << toX << "," << toY << ")";
-		int unitIndex = -1;
-		for (size_t i = 0; i < players.size(); ++i) {
-			if (players[i].x == fromX && players[i].y == fromY) {
-				unitIndex = (int)i;
+
+	Player & actor = players[currentPlayerIndex];
+	if (cardIndex < 0 || cardIndex >= (int)actor.hand.size()) {
+		ofLogWarning("Lockstep") << "CMD_PLAY_CARD rejected: invalid cardIndex=" << cardIndex;
+		break;
+	}
+
+	const Card cardSnapshot = actor.hand[cardIndex];
+
+	const std::string cardName = cardSnapshot.name;
+
+	// Deterministic lockstep: every peer executes the same play logic
+	CardPlayResult result = CARD_NOT_PLAYABLE;
+	result = playCard(cardIndex, targetX, targetY);
+
+	ofLogNotice("Lockstep") << "Execute CMD_PLAY_CARD: card=" << cardName << " target=(" << targetX << "," << targetY << ") result=" << (int)result;
+	break;
+}
+case CMD_MOVE_UNIT: {
+	int fromX = cmd.params[0];
+	int fromY = cmd.params[1];
+	int toX = cmd.params[2];
+	int toY = cmd.params[3];
+	// Execute deterministic move: find the unit at fromX,fromY and apply movement
+	ofLogNotice("Lockstep") << "Execute CMD_MOVE_UNIT: from=(" << fromX << "," << fromY << ") to=(" << toX << "," << toY << ")";
+	int unitIndex = -1;
+	for (size_t i = 0; i < players.size(); ++i) {
+		if (players[i].x == fromX && players[i].y == fromY) {
+			unitIndex = (int)i;
+			break;
+		}
+	}
+	if (unitIndex < 0) {
+		ofLogWarning("Lockstep") << "CMD_MOVE_UNIT: no unit found at origin (" << fromX << "," << fromY << ") - skipping";
+		break;
+	}
+	// Compute authoritative path and AP cost
+	std::vector<glm::vec2> path = findShortestPathForPlayer(unitIndex, { (float)fromX, (float)fromY }, { (float)toX, (float)toY });
+	int moveCost = (path.size() > 1) ? (int)path.size() - 1 : 0;
+	int newAP = currentAP - moveCost;
+	if (newAP < 0) newAP = 0;
+	applyMovement(unitIndex, toX, toY, newAP, &path);
+	break;
+}
+case CMD_MENU_CHOICE: {
+	int menuType = cmd.params[0];
+	int targetIndex = cmd.params[1];
+	int choice = cmd.params[2];
+	int cardIndex = cmd.params[3];
+
+	if (currentPlayerIndex < 0 || currentPlayerIndex >= (int)players.size()) break;
+	// Allow menu types that are not tied to a specific card index (e.g., ghost relocate)
+	if (menuType != MENU_GHOST_RELOCATE) {
+		if (cardIndex < 0 || cardIndex >= (int)players[currentPlayerIndex].hand.size()) break;
+	}
+
+	// Special-case: ghost relocation menu (deterministic teleport choice)
+	if (menuType == MENU_GHOST_RELOCATE) {
+		int tgt = targetIndex;
+		int ch = choice;
+		if (tgt < 0 || tgt >= (int)players.size()) break;
+		if (ch < 0 || ch >= (int)ghostRelocateChoices.size()) break;
+		// Execute deterministic move + remove ghost status
+		glm::ivec2 dest = ghostRelocateChoices[ch];
+		beginEffectSequence();
+		EffectOp mv = {};
+		mv.type = EffectOpType::MOVE_UNIT;
+		mv.data.moveUnit.unitIndex = tgt;
+		mv.data.moveUnit.toX = dest.x;
+		mv.data.moveUnit.toY = dest.y;
+		queueEffect(mv);
+		EffectOp rm = {};
+		rm.type = EffectOpType::REMOVE_STATUS;
+		rm.data.status.targetIndex = tgt;
+		rm.data.status.statusType = STATUS_GHOST_FORM;
+		rm.data.status.duration = 0;
+		queueEffect(rm);
+		// Visual / cleanup
+		queueFloatingTextVisual(gridToWorld(dest.x, dest.y), "Materialized: Teleported", ofColor::cyan);
+		// Close any open opponent visualization and local menu
+		if (isMultiplayer) sendMenuState(0, -1, -1, -1);
+		resetCardInteraction();
+		ghostRelocateChoices.clear();
+		ghostRelocateTargetIndex = -1;
+		opponentInteraction.open = false;
+		break;
+	}
+
+	std::string buttonId;
+	switch ((CardType)menuType) {
+	case CARD_BURST_OF_LIGHT:
+		buttonId = (choice == 1) ? "damage" : "heal";
+		break;
+	case CARD_WISDOM_BOON:
+		buttonId = (choice == 1) ? "damage" : "block";
+		break;
+	case CARD_DOUBLE_HANDED:
+		buttonId = (choice == 1) ? "Punch" : "Block";
+		break;
+	case CARD_TRAIN:
+		buttonId = (choice == 1) ? "draft" : "ap";
+		break;
+	case CARD_AMNESIA:
+		buttonId = "Self";
+		break;
+	case CARD_DISPEL:
+		buttonId = (choice == 1) ? "Barrier" : "Purge";
+		break;
+	case CARD_GIANT_MAGIC_HAND:
+		buttonId = (choice == 1) ? "push" : "pull";
+		break;
+	case CARD_MAGIC_BLAST:
+		buttonId = (choice == 1) ? "damage" : "discard";
+		break;
+	default:
+		break;
+	}
+
+	if (buttonId.empty()) {
+		ofLogWarning("Lockstep") << "CMD_MENU_CHOICE rejected: unsupported menuType=" << menuType;
+		break;
+	}
+
+	interactingCardType = (CardType)menuType;
+	interactingCardIndex = cardIndex;
+	interactionTargetIndex = targetIndex;
+	cardInteractionState = CARD_INTERACTION_MENU;
+
+	isExecutingLockstepCommand = true;
+	handleCardMenuClick(buttonId);
+	isExecutingLockstepCommand = false;
+
+	ofLogNotice("Lockstep") << "Execute CMD_MENU_CHOICE: menuType=" << menuType << " choice=" << choice;
+	break;
+}
+case CMD_RESOLVE_DICE: {
+	// Host packs die faces into cmd.stringData using LockstepUtils::packDiceFaces.
+	// Layout (params): params[0]=numDice, params[1]=sides, params[2]=dicePurpose, params[3]=ownerIndex, params[4]=targetX, params[5]=targetY
+	std::vector<int> faces = unpackDiceFaces(cmd);
+	int total = 0;
+	for (int v : faces)
+		total += v;
+	int numDice = cmd.params[0];
+	int sides = cmd.params[1];
+	int purpose = cmd.params[2];
+	int ownerIdx = cmd.params[3];
+	int targetX = cmd.params[4];
+	int targetY = cmd.params[5];
+
+	glm::vec3 pos;
+	if (targetX >= 0 && targetY >= 0) {
+		pos = gridToWorld(targetX, targetY) + glm::vec3(0, 1.0f, 0);
+	} else if (ownerIdx >= 0 && ownerIdx < (int)players.size()) {
+		pos = gridToWorld(players[ownerIdx].x, players[ownerIdx].y) + glm::vec3(0, 1.0f, 0);
+	} else if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) {
+		pos = gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.0f, 0);
+	} else {
+		pos = glm::vec3(0, 1.0f, 0);
+	}
+
+	queueVisualDiceRoll(pos, numDice, sides, faces, total, purpose, ownerIdx, 1.2f);
+	break;
+}
+case CMD_ACCEPT_DRAFT: {
+	int cmdDraftPlayerIdx = cmd.params[0]; // RENAME TO PREVENT SHADOWING
+	int classTier = cmd.params[1];
+	int copiesPerCard = cmd.params[2];
+	int pick0 = cmd.params[3];
+	int pick1 = cmd.params[4];
+	int pick2 = cmd.params[5];
+
+	if (cmdDraftPlayerIdx < 0 || cmdDraftPlayerIdx >= (int)players.size()) {
+		ofLogError("Lockstep") << "CMD_ACCEPT_DRAFT: invalid draftPlayerIndex=" << cmdDraftPlayerIdx;
+		break;
+	}
+	Player & p = players[cmdDraftPlayerIdx];
+	const std::vector<Card> * pool = &class1Cards;
+	if (classTier == 2) pool = &class2Cards;
+	if (classTier == 3) pool = &class3Cards;
+	if (pool->empty()) {
+		ofLogError("Lockstep") << "CMD_ACCEPT_DRAFT: card pool for class " << classTier << " is empty.";
+		break;
+	}
+	std::vector<int> picks;
+	if (pick0 >= 0) picks.push_back(pick0);
+	if (pick1 >= 0) picks.push_back(pick1);
+	if (pick2 >= 0) picks.push_back(pick2);
+	for (int poolIdx : picks) {
+		if (poolIdx < 0 || poolIdx >= (int)pool->size()) {
+			ofLogWarning("Lockstep") << "CMD_ACCEPT_DRAFT: ignoring invalid poolIdx=" << poolIdx << " for class " << classTier;
+			continue;
+		}
+		for (int k = 0; k < copiesPerCard; ++k) {
+			try {
+				p.deck.push_back((*pool)[poolIdx]);
+			} catch (const std::bad_alloc & e) {
+				ofLogError("Lockstep") << "CMD_ACCEPT_DRAFT: memory allocation failed while adding card to deck: " << e.what();
 				break;
 			}
 		}
-		if (unitIndex < 0) {
-			ofLogWarning("Lockstep") << "CMD_MOVE_UNIT: no unit found at origin (" << fromX << "," << fromY << ") - skipping";
-			break;
-		}
-		// Compute authoritative path and AP cost
-		std::vector<glm::vec2> path = findShortestPathForPlayer(unitIndex, { (float)fromX, (float)fromY }, { (float)toX, (float)toY });
-		int moveCost = (path.size() > 1) ? (int)path.size() - 1 : 0;
-		int newAP = currentAP - moveCost;
-		if (newAP < 0) newAP = 0;
-		applyMovement(unitIndex, toX, toY, newAP, &path);
-		break;
 	}
-	case CMD_MENU_CHOICE: {
-		int menuType = cmd.params[0];
-		int targetIndex = cmd.params[1];
-		int choice = cmd.params[2];
-		int cardIndex = cmd.params[3];
+	// After adding cards, perform deterministic shuffle of the target player's deck
+	shuffleGameVector(p.deck, cmdDraftPlayerIdx);
+	ofLogNotice("Lockstep") << "Execute CMD_ACCEPT_DRAFT: draftPlayerIndex=" << cmdDraftPlayerIdx << " picks=" << picks.size() << " (shuffled)";
 
-		if (currentPlayerIndex < 0 || currentPlayerIndex >= (int)players.size()) break;
-		// Allow menu types that are not tied to a specific card index (e.g., ghost relocate)
-		if (menuType != MENU_GHOST_RELOCATE) {
-			if (cardIndex < 0 || cardIndex >= (int)players[currentPlayerIndex].hand.size()) break;
+	// Schedule visual shuffle and animations consistent with click-path timing
+	float cardAnimDuration = draftAnimHoldDuration + 0.35f;
+	shuffleGameVector(players[cmdDraftPlayerIdx].deck, cmdDraftPlayerIdx, cardAnimDuration);
+
+	// Minion-specific shuffle visual (as done in click handler)
+	bool targetIsMinion = (cmdDraftPlayerIdx >= 0 && cmdDraftPlayerIdx < (int)players.size() && players[cmdDraftPlayerIdx].isMinion);
+	if (targetIsMinion) {
+		ShuffleAnimation s;
+		s.playerIndex = cmdDraftPlayerIdx;
+		bool assignedRect = false;
+		for (const auto & mui : activeMinionUIs) {
+			if (mui.playerIndex == cmdDraftPlayerIdx) {
+				s.deckRect = mui.deckRect;
+				assignedRect = true;
+				break;
+			}
 		}
-
-		// Special-case: ghost relocation menu (deterministic teleport choice)
-		if (menuType == MENU_GHOST_RELOCATE) {
-			int tgt = targetIndex;
-			int ch = choice;
-			if (tgt < 0 || tgt >= (int)players.size()) break;
-			if (ch < 0 || ch >= (int)ghostRelocateChoices.size()) break;
-			// Execute deterministic move + remove ghost status
-			glm::ivec2 dest = ghostRelocateChoices[ch];
-			beginEffectSequence();
-			EffectOp mv = {};
-			mv.type = EffectOpType::MOVE_UNIT;
-			mv.data.moveUnit.unitIndex = tgt;
-			mv.data.moveUnit.toX = dest.x;
-			mv.data.moveUnit.toY = dest.y;
-			queueEffect(mv);
-			EffectOp rm = {};
-			rm.type = EffectOpType::REMOVE_STATUS;
-			rm.data.status.targetIndex = tgt;
-			rm.data.status.statusType = STATUS_GHOST_FORM;
-			rm.data.status.duration = 0;
-			queueEffect(rm);
-			// Visual / cleanup
-			queueFloatingTextVisual(gridToWorld(dest.x, dest.y), "Materialized: Teleported", ofColor::cyan);
-			// Close any open opponent visualization and local menu
-			if (isMultiplayer) sendMenuState(0, -1, -1, -1);
-			resetCardInteraction();
-			ghostRelocateChoices.clear();
-			ghostRelocateTargetIndex = -1;
-			opponentInteraction.open = false;
-			break;
+		if (!assignedRect) {
+			int ownerSlot = findPlayerIndexByID(players[cmdDraftPlayerIdx].ownerID);
+			if (ownerSlot >= 0)
+				s.deckRect = (players[ownerSlot].playerID == 0) ? p0_deckRect : p1_deckRect;
+			else
+				s.deckRect = (players[cmdDraftPlayerIdx].ownerID == 0) ? p0_deckRect : p1_deckRect;
 		}
-
-		std::string buttonId;
-		switch ((CardType)menuType) {
-		case CARD_BURST_OF_LIGHT:
-			buttonId = (choice == 1) ? "damage" : "heal";
-			break;
-		case CARD_WISDOM_BOON:
-			buttonId = (choice == 1) ? "damage" : "block";
-			break;
-		case CARD_DOUBLE_HANDED:
-			buttonId = (choice == 1) ? "Punch" : "Block";
-			break;
-		case CARD_TRAIN:
-			buttonId = (choice == 1) ? "draft" : "ap";
-			break;
-		case CARD_AMNESIA:
-			buttonId = "Self";
-			break;
-		case CARD_DISPEL:
-			buttonId = (choice == 1) ? "Barrier" : "Purge";
-			break;
-		case CARD_GIANT_MAGIC_HAND:
-			buttonId = (choice == 1) ? "push" : "pull";
-			break;
-		case CARD_MAGIC_BLAST:
-			buttonId = (choice == 1) ? "damage" : "discard";
-			break;
-		default:
-			break;
-		}
-
-		if (buttonId.empty()) {
-			ofLogWarning("Lockstep") << "CMD_MENU_CHOICE rejected: unsupported menuType=" << menuType;
-			break;
-		}
-
-		interactingCardType = (CardType)menuType;
-		interactingCardIndex = cardIndex;
-		interactionTargetIndex = targetIndex;
-		cardInteractionState = CARD_INTERACTION_MENU;
-
-		isExecutingLockstepCommand = true;
-		handleCardMenuClick(buttonId);
-		isExecutingLockstepCommand = false;
-
-		ofLogNotice("Lockstep") << "Execute CMD_MENU_CHOICE: menuType=" << menuType << " choice=" << choice;
-		break;
+		s.startTime = ofGetElapsedTimef() + cardAnimDuration;
+		s.duration = 0.9f;
+		s.currentAlpha = 255.0f;
+		s.currentScale = 1.0f;
+		s.rotation = 0.0f;
+		activeShuffleAnimations.push_back(s);
 	}
-	case CMD_RESOLVE_DICE: {
-		// Host packs die faces into cmd.stringData using LockstepUtils::packDiceFaces.
-		// Layout (params): params[0]=numDice, params[1]=sides, params[2]=dicePurpose, params[3]=ownerIndex, params[4]=targetX, params[5]=targetY
-		std::vector<int> faces = unpackDiceFaces(cmd);
-		int total = 0;
-		for (int v : faces)
-			total += v;
-		int numDice = cmd.params[0];
-		int sides = cmd.params[1];
-		int purpose = cmd.params[2];
-		int ownerIdx = cmd.params[3];
-		int targetX = cmd.params[4];
-		int targetY = cmd.params[5];
 
-		glm::vec3 pos;
-		if (targetX >= 0 && targetY >= 0) {
-			pos = gridToWorld(targetX, targetY) + glm::vec3(0, 1.0f, 0);
-		} else if (ownerIdx >= 0 && ownerIdx < (int)players.size()) {
-			pos = gridToWorld(players[ownerIdx].x, players[ownerIdx].y) + glm::vec3(0, 1.0f, 0);
-		} else if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) {
-			pos = gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.0f, 0);
-		} else {
-			pos = glm::vec3(0, 1.0f, 0);
-		}
+	// Spawn visual animations for picked cards and vanish the rest (visual-only)
+	{
+		float uiScale = std::min(ofGetWidth() / 1920.0f, ofGetHeight() / 1080.0f);
+		float cardW = std::clamp(340.0f * uiScale, 160.0f, 420.0f);
+		float cardH = cardW * 1.4f;
+		float spacing = std::clamp(60.0f * uiScale, 20.0f, 96.0f);
+		float startX = (ofGetWidth() - (3 * cardW + 2 * spacing)) / 2;
+		float startY = ofGetHeight() / 2.0f - (cardH / 2.0f);
+		float now = ofGetElapsedTimef();
 
-		queueVisualDiceRoll(pos, numDice, sides, faces, total, purpose, ownerIdx, 1.2f);
-		break;
-	}
-	case CMD_ACCEPT_DRAFT: {
-		int draftPlayerIndex = cmd.params[0];
-		int classTier = cmd.params[1];
-		int copiesPerCard = cmd.params[2];
-		int pick0 = cmd.params[3];
-		int pick1 = cmd.params[4];
-		int pick2 = cmd.params[5];
-
-		if (draftPlayerIndex < 0 || draftPlayerIndex >= (int)players.size()) {
-			ofLogError("Lockstep") << "CMD_ACCEPT_DRAFT: invalid draftPlayerIndex=" << draftPlayerIndex;
-			break;
-		}
-		Player & p = players[draftPlayerIndex];
+		// Create picked-card fly animations
 		const std::vector<Card> * pool = &class1Cards;
-		if (classTier == 2) pool = &class2Cards;
-		if (classTier == 3) pool = &class3Cards;
-		if (pool->empty()) {
-			ofLogError("Lockstep") << "CMD_ACCEPT_DRAFT: card pool for class " << classTier << " is empty.";
-			break;
-		}
-		std::vector<int> picks;
-		if (pick0 >= 0) picks.push_back(pick0);
-		if (pick1 >= 0) picks.push_back(pick1);
-		if (pick2 >= 0) picks.push_back(pick2);
-		for (int poolIdx : picks) {
-			if (poolIdx < 0 || poolIdx >= (int)pool->size()) {
-				ofLogWarning("Lockstep") << "CMD_ACCEPT_DRAFT: ignoring invalid poolIdx=" << poolIdx << " for class " << classTier;
-				continue;
-			}
-			for (int k = 0; k < copiesPerCard; ++k) {
-				try {
-					p.deck.push_back((*pool)[poolIdx]);
-				} catch (const std::bad_alloc & e) {
-					ofLogError("Lockstep") << "CMD_ACCEPT_DRAFT: memory allocation failed while adding card to deck: " << e.what();
+		if (currentDraftClassTier == 2) pool = &class2Cards;
+		if (currentDraftClassTier == 3) pool = &class3Cards;
+		for (int poolIdx : selectedDraftIndices) {
+			int slot = -1;
+			for (size_t si = 0; si < currentDraftOptionPoolIndices.size(); ++si) {
+				if (currentDraftOptionPoolIndices[si] == poolIdx) {
+					slot = (int)si;
 					break;
 				}
 			}
-		}
-		// After adding cards, perform deterministic shuffle of the target player's deck
-		shuffleGameVector(p.deck, draftPlayerIndex);
-		ofLogNotice("Lockstep") << "Execute CMD_ACCEPT_DRAFT: draftPlayerIndex=" << draftPlayerIndex << " picks=" << picks.size() << " (shuffled)";
-
-		// --- Draft state progression (previously executed in host click handler) ---
-		// Move state transitions into the deterministic command execution so both
-		// host and client advance draft phases identically when the command runs.
-
-		// Schedule visual shuffle and animations consistent with click-path timing
-		float cardAnimDuration = draftAnimHoldDuration + 0.35f;
-		shuffleGameVector(players[draftPlayerIndex].deck, draftPlayerIndex, cardAnimDuration);
-		// Minion-specific shuffle visual (as done in click handler)
-		bool targetIsMinion = (draftPlayerIndex >= 0 && draftPlayerIndex < (int)players.size() && players[draftPlayerIndex].isMinion);
-		if (targetIsMinion) {
-			ShuffleAnimation s;
-			s.playerIndex = draftPlayerIndex;
-			bool assignedRect = false;
-			for (const auto & mui : activeMinionUIs) {
-				if (mui.playerIndex == draftPlayerIndex) {
-					s.deckRect = mui.deckRect;
-					assignedRect = true;
-					break;
-				}
-			}
-			if (!assignedRect) {
-				int ownerSlot = findPlayerIndexByID(players[draftPlayerIndex].ownerID);
-				if (ownerSlot >= 0)
-					s.deckRect = (players[ownerSlot].playerID == 0) ? p0_deckRect : p1_deckRect;
-				else
-					s.deckRect = (players[draftPlayerIndex].ownerID == 0) ? p0_deckRect : p1_deckRect;
-			}
-			s.startTime = ofGetElapsedTimef() + cardAnimDuration;
-			s.duration = 0.9f;
-			s.currentAlpha = 255.0f;
-			s.currentScale = 1.0f;
-			s.rotation = 0.0f;
-			activeShuffleAnimations.push_back(s);
-		}
-
-		// Spawn visual animations for picked cards and vanish the rest (visual-only)
-		{
-			float uiScale = std::min(ofGetWidth() / 1920.0f, ofGetHeight() / 1080.0f);
-			float cardW = std::clamp(340.0f * uiScale, 160.0f, 420.0f);
-			float cardH = cardW * 1.4f;
-			float spacing = std::clamp(60.0f * uiScale, 20.0f, 96.0f);
-			float startX = (ofGetWidth() - (3 * cardW + 2 * spacing)) / 2;
-			float startY = ofGetHeight() / 2.0f - (cardH / 2.0f);
-			float now = ofGetElapsedTimef();
-
-			// Create picked-card fly animations
-			const std::vector<Card> * pool = &class1Cards;
-			if (currentDraftClassTier == 2) pool = &class2Cards;
-			if (currentDraftClassTier == 3) pool = &class3Cards;
-			for (int poolIdx : selectedDraftIndices) {
-				int slot = -1;
-				for (size_t si = 0; si < currentDraftOptionPoolIndices.size(); ++si) {
-					if (currentDraftOptionPoolIndices[si] == poolIdx) {
-						slot = (int)si;
+			if (slot < 0) continue;
+			float cx = startX + static_cast<float>(slot) * (cardW + spacing);
+			glm::vec2 center(cx + cardW / 2.0f, startY + cardH / 2.0f);
+			DraftPickedMove mv;
+			mv.card = (*pool)[poolIdx];
+			mv.startTime = now;
+			mv.delay = draftAnimHoldDuration;
+			mv.duration = 0.35f;
+			mv.startPos = center;
+			mv.endScale = 1.0f;
+			if (cmdDraftPlayerIdx >= 0 && cmdDraftPlayerIdx < (int)players.size() && players[cmdDraftPlayerIdx].isMinion) {
+				bool found = false;
+				for (const auto & mui : activeMinionUIs) {
+					if (mui.playerIndex == cmdDraftPlayerIdx) {
+						mv.endPos = glm::vec2(mui.deckRect.x + mui.deckRect.width / 2.0f, mui.deckRect.y + mui.deckRect.height / 2.0f);
+						mv.endScale = std::min(mui.deckRect.width, mui.deckRect.height) / std::max(cardW, cardH);
+						found = true;
 						break;
 					}
 				}
-				if (slot < 0) continue;
-				float cx = startX + static_cast<float>(slot) * (cardW + spacing);
-				glm::vec2 center(cx + cardW / 2.0f, startY + cardH / 2.0f);
-				DraftPickedMove mv;
-				mv.card = (*pool)[poolIdx];
-				mv.startTime = now;
-				mv.delay = draftAnimHoldDuration;
-				mv.duration = 0.35f;
-				mv.startPos = center;
-				mv.endScale = 1.0f;
-				if (draftPlayerIndex >= 0 && draftPlayerIndex < (int)players.size() && players[draftPlayerIndex].isMinion) {
-					bool found = false;
-					for (const auto & mui : activeMinionUIs) {
-						if (mui.playerIndex == draftPlayerIndex) {
-							mv.endPos = glm::vec2(mui.deckRect.x + mui.deckRect.width / 2.0f, mui.deckRect.y + mui.deckRect.height / 2.0f);
-							mv.endScale = std::min(mui.deckRect.width, mui.deckRect.height) / std::max(cardW, cardH);
-							found = true;
-							break;
-						}
-					}
-					if (!found) mv.endPos = glm::vec2(-100, -100);
-				} else if (draftPlayerIndex >= 0 && draftPlayerIndex < (int)players.size()) {
-					int ownerID = players[draftPlayerIndex].playerID;
-					ofRectangle deckRect = (ownerID == myLocalPlayerID) ? p0_deckRect : p1_deckRect;
-					if (!isMultiplayer) deckRect = (ownerID == 0) ? p0_deckRect : p1_deckRect;
-					mv.endPos = glm::vec2(deckRect.x + deckRect.width / 2.0f, deckRect.y + deckRect.height / 2.0f);
-					mv.endScale = std::min(deckRect.width, deckRect.height) / std::max(cardW, cardH);
-				} else {
-					mv.endPos = glm::vec2(-100, -100);
-				}
-				mv.finished = false;
-				mv.ownerIndex = draftPlayerIndex;
-				activeDraftPickedMoves.push_back(mv);
+				if (!found) mv.endPos = glm::vec2(-100, -100);
+			} else if (cmdDraftPlayerIdx >= 0 && cmdDraftPlayerIdx < (int)players.size()) {
+				int ownerID = players[cmdDraftPlayerIdx].playerID;
+				ofRectangle deckRect = (ownerID == myLocalPlayerID) ? p0_deckRect : p1_deckRect;
+				if (!isMultiplayer) deckRect = (ownerID == 0) ? p0_deckRect : p1_deckRect;
+				mv.endPos = glm::vec2(deckRect.x + deckRect.width / 2.0f, deckRect.y + deckRect.height / 2.0f);
+				mv.endScale = std::min(deckRect.width, deckRect.height) / std::max(cardW, cardH);
+			} else {
+				mv.endPos = glm::vec2(-100, -100);
 			}
+			mv.finished = false;
+			mv.ownerIndex = cmdDraftPlayerIdx;
+			activeDraftPickedMoves.push_back(mv);
+		}
 
-			// Robust fix: force-vanish all option UI slots when the accept command runs.
-			// This avoids visual desync if pool indices or slot mappings differ
-			// (e.g., after client/server card list changes). Picked-card fly
-			// animations are still created above and will play on top.
-			for (size_t si = 0; si < draftOptionUI.size(); ++si) {
+		// Vanish non-picked options immediately, hold picked ones
+		for (size_t si = 0; si < draftOptionUI.size(); ++si) {
+			int poolIdx = (si < currentDraftOptionPoolIndices.size()) ? currentDraftOptionPoolIndices[si] : -1;
+			bool picked = false;
+			for (int sel : selectedDraftIndices)
+				if (sel == poolIdx) {
+					picked = true;
+					break;
+				}
+			if (!picked) {
 				auto & ui = draftOptionUI[si];
-				if (!ui.hidden) {
-					ui.state = DRAFT_ANIM_VANISHING;
-					ui.startTime = now;
-					ui.startScale = ui.currentScale;
-					ui.targetScale = 0.0f;
-				}
-			}
-			// Mark accept as applied so clients/host don't re-apply visuals
-			draftAcceptApplied = true;
-		}
-
-		// Clear local transient UI selections and option list (state changes handled below)
-		selectedDraftIndices.clear();
-
-		if (isInGameDraft) {
-			isInGameDraft = false;
-			// Resume any paused turn timer caused by an opponent-driven draft
-			resumeTurnTimerIfPausedForOpponent(draftPlayerIndex);
-			currentState = STATE_GAMEPLAY;
-			break;
-		}
-
-		// Advance the draft stage and schedule the next options or end the draft
-		draftStage++;
-		float delay = draftAnimHoldDuration + 0.35f + 0.9f + 0.1f;
-		if (draftStage == 1) {
-			scheduleGenerateDraftOptions(2, delay);
-		} else {
-			int nextPlayerIdx = (draftPlayerIndex + 1) % 2;
-			if (players[nextPlayerIdx].deck.empty()) {
-				draftPlayerIndex = nextPlayerIdx;
-				draftStage = 0;
-				scheduleGenerateDraftOptions(1, delay);
+				ui.state = DRAFT_ANIM_VANISHING;
+				ui.startTime = now;
+				ui.startScale = ui.currentScale;
+				ui.targetScale = 0.0f;
 			} else {
-				// Schedule the finalization after visuals finish so animations complete
-				draftEndScheduled = true;
-				draftEndAt = ofGetElapsedTimef() + delay;
-				draftEndNextPlayerIndex = nextPlayerIdx;
-				ofLogNotice("Draft") << "Draft end scheduled: nextPlayer=" << draftEndNextPlayerIndex << " at=" << draftEndAt;
+				auto & ui = draftOptionUI[si];
+				ui.state = DRAFT_ANIM_HOLDING;
+				ui.startTime = now;
 			}
 		}
+	}
+
+	selectedDraftIndices.clear();
+
+	if (isInGameDraft) {
+		isInGameDraft = false;
+		resumeTurnTimerIfPausedForOpponent(this->draftPlayerIndex); // Use member safely
+		currentState = STATE_GAMEPLAY;
 		break;
 	}
 
-	case CMD_DRAFT_ACTION: {
-		int actionType = cmd.params[0];
-		if (actionType == 0) {
-			int poolIdx = cmd.params[1];
-			int draftPlayerIdx = cmd.params[2];
-			// Validate
-			if (draftPlayerIdx < 0 || draftPlayerIdx >= (int)players.size()) {
-				ofLogError("Lockstep") << "CMD_DRAFT_ACTION: invalid draftPlayerIdx=" << draftPlayerIdx;
-				break;
-			}
-			int requiredPicks = (!isInGameDraft && draftStage == 0) ? 2 : 1;
-			// Toggle selection in `selectedDraftIndices` deterministically
-			auto it = std::find(selectedDraftIndices.begin(), selectedDraftIndices.end(), poolIdx);
-			if (it != selectedDraftIndices.end()) {
-				selectedDraftIndices.erase(it);
-				ofLogNotice("Lockstep") << "CMD_DRAFT_ACTION: deselected poolIdx=" << poolIdx << " for draftPlayer=" << draftPlayerIdx;
-			} else {
-				if ((int)selectedDraftIndices.size() < requiredPicks) {
-					selectedDraftIndices.push_back(poolIdx);
-					ofLogNotice("Lockstep") << "CMD_DRAFT_ACTION: selected poolIdx=" << poolIdx << " for draftPlayer=" << draftPlayerIdx;
-				} else {
-					ofLogNotice("Lockstep") << "CMD_DRAFT_ACTION: selection ignored (already at required picks) poolIdx=" << poolIdx;
-				}
-			}
-		}
-		break;
-	}
-	case CMD_END_TURN: {
-		// Execute turn end logic
-		ofLogNotice("Lockstep") << "Execute CMD_END_TURN";
-		// Host: trigger authoritative turn start sequence
-		if (isHost()) {
-			ofLogNotice("Lockstep") << "Host processing CMD_END_TURN -> startNewTurn()";
-			startNewTurn();
-			// Ensure the visible timer for the next player is deferred until
-			// any queued visuals (dice, animations) have finished. Some
-			// turn-start code paths may bypass the usual deferred flag, so
-			// enforce it here for safety.
-			turnStartDeferred = true;
-			turnStartDeferredAt = ofGetElapsedTimef();
-			ofLogNotice("Timer") << "Host: deferred next player's visible timer until visuals complete.";
+	// Advance the draft stage and schedule the next options or end the draft
+	draftStage++;
+	float delay = draftAnimHoldDuration + 0.35f + 0.9f + 0.1f;
+	if (draftStage == 1) {
+		scheduleGenerateDraftOptions(2, delay);
+	} else {
+		// USE THE MEMBER VARIABLE DIRECTLY HERE!
+		int nextPlayerIdx = (this->draftPlayerIndex + 1) % 2;
+		if (players[nextPlayerIdx].deck.empty()) {
+			this->draftPlayerIndex = nextPlayerIdx; // Properly updates class state!
+			draftStage = 0;
+			scheduleGenerateDraftOptions(1, delay);
 		} else {
-			// Clients: advance local turn state as well so the client rolls AP
-			// and advances its own state. Also defer the visible timer until
-			// visuals complete so the player's thinking time does not include
-			// opponent animations.
-			ofLogNotice("Lockstep") << "Client processing CMD_END_TURN -> startNewTurn()";
-			turnStartDeferred = true;
-			turnStartDeferredAt = ofGetElapsedTimef();
-			startNewTurn();
+			draftEndScheduled = true;
+			draftEndAt = ofGetElapsedTimef() + delay;
+			draftEndNextPlayerIndex = nextPlayerIdx;
+			ofLogNotice("Draft") << "Draft end scheduled: nextPlayer=" << draftEndNextPlayerIndex << " at=" << draftEndAt;
 		}
-		break;
 	}
-	case CMD_PSEUDO_ACTION: {
-		int targetX = cmd.params[0];
-		int targetY = cmd.params[1];
-		std::string actionName = cmd.stringData;
+	break;
+}
 
-		// Handle deterministic TurnStart visuals published by host
-		if (actionName.rfind("TurnStart", 0) == 0) {
-			// Clients only: host already queued visuals locally
-			if (isHost()) break;
-			int ownerIndex = cmd.params[0];
-			int numDice = cmd.params[1];
-			int sides = cmd.params[2];
-			int finalTotal = cmd.params[3];
-			// Parse CSV raw faces after prefix "TurnStart:"
-			std::string s = cmd.stringData;
-			auto pos = s.find(':');
-			std::vector<int> raw;
-			if (pos != std::string::npos) {
-				std::string csv = s.substr(pos + 1);
-				if (!csv.empty()) {
-					size_t start = 0;
-					while (start < csv.size()) {
-						auto comma = csv.find(',', start);
-						std::string tok = (comma == std::string::npos) ? csv.substr(start) : csv.substr(start, comma - start);
-						raw.push_back(std::stoi(tok));
-						if (comma == std::string::npos) break;
-						start = comma + 1;
-					}
-				}
-			}
-			queueVisualDiceRoll(gridToWorld(players[ownerIndex].x, players[ownerIndex].y) + glm::vec3(0, 1.0f, 0), numDice, sides, raw, finalTotal, PURPOSE_AP, ownerIndex, 1.0f);
+case CMD_DRAFT_ACTION: {
+	int actionType = cmd.params[0];
+	if (actionType == 0) {
+		int poolIdx = cmd.params[1];
+		int draftPlayerIdx = cmd.params[2];
+		// Validate
+		if (draftPlayerIdx < 0 || draftPlayerIdx >= (int)players.size()) {
+			ofLogError("Lockstep") << "CMD_DRAFT_ACTION: invalid draftPlayerIdx=" << draftPlayerIdx;
 			break;
 		}
-
-		if (actionName == "Shell Spike") {
-			// Find player at target coordinates
-			Player * target = nullptr;
-			for (auto & p : players) {
-				if (p.x == targetX && p.y == targetY) {
-					target = &p;
-					break;
-				}
-			}
-
-			if (target) {
-				int tortoiseFormDamage = 2;
-				int damageDealt = applyDamageWithMitigations(*target, tortoiseFormDamage, DAMAGE_PHYSICAL, currentPlayerIndex);
-				if (damageDealt > 0) {
-					queueFloatingTextVisual(gridToWorld(target->x, target->y), "-" + ofToString(damageDealt) + " Shell", ofColor(255, 140, 0));
-				}
+		int requiredPicks = (!isInGameDraft && draftStage == 0) ? 2 : 1;
+		// Toggle selection in `selectedDraftIndices` deterministically
+		auto it = std::find(selectedDraftIndices.begin(), selectedDraftIndices.end(), poolIdx);
+		if (it != selectedDraftIndices.end()) {
+			selectedDraftIndices.erase(it);
+			ofLogNotice("Lockstep") << "CMD_DRAFT_ACTION: deselected poolIdx=" << poolIdx << " for draftPlayer=" << draftPlayerIdx;
+		} else {
+			if ((int)selectedDraftIndices.size() < requiredPicks) {
+				selectedDraftIndices.push_back(poolIdx);
+				ofLogNotice("Lockstep") << "CMD_DRAFT_ACTION: selected poolIdx=" << poolIdx << " for draftPlayer=" << draftPlayerIdx;
+			} else {
+				ofLogNotice("Lockstep") << "CMD_DRAFT_ACTION: selection ignored (already at required picks) poolIdx=" << poolIdx;
 			}
 		}
-
-		ofLogNotice("Lockstep") << "Execute CMD_PSEUDO_ACTION: " << actionName << " at (" << targetX << "," << targetY << ")";
-		break;
 	}
-	case CMD_STATUS_ACTION: {
-		int cardIndex = cmd.params[0];
-		int targetX = cmd.params[1];
-		int targetY = cmd.params[2];
-		int statusIndex = cmd.params[3];
-		std::string cardName = cmd.stringData;
-
-		// Find player at target coordinates
-		int targetIndex = -1;
-		for (int i = 0; i < (int)players.size(); ++i) {
-			if (players[i].x == targetX && players[i].y == targetY) {
-				targetIndex = i;
-				break;
-			}
-		}
-		if (targetIndex >= 0 && currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) {
-			Player & p = players[currentPlayerIndex];
-			if (cardIndex >= 0 && cardIndex < (int)p.hand.size()) {
-				interactionTargetIndex = targetIndex;
-				interactingCardIndex = cardIndex;
-				applyDispelEffect(statusIndex);
-			}
-		}
-
-		ofLogNotice("Lockstep") << "Execute CMD_STATUS_ACTION: " << cardName << " purge status " << statusIndex;
-		break;
+	break;
+}
+case CMD_END_TURN: {
+	// Execute turn end logic
+	ofLogNotice("Lockstep") << "Execute CMD_END_TURN";
+	// Host: trigger authoritative turn start sequence
+	if (isHost()) {
+		ofLogNotice("Lockstep") << "Host processing CMD_END_TURN -> startNewTurn()";
+		startNewTurn();
+		// Ensure the visible timer for the next player is deferred until
+		// any queued visuals (dice, animations) have finished. Some
+		// turn-start code paths may bypass the usual deferred flag, so
+		// enforce it here for safety.
+		turnStartDeferred = true;
+		turnStartDeferredAt = ofGetElapsedTimef();
+		ofLogNotice("Timer") << "Host: deferred next player's visible timer until visuals complete.";
+	} else {
+		// Clients: advance local turn state as well so the client rolls AP
+		// and advances its own state. Also defer the visible timer until
+		// visuals complete so the player's thinking time does not include
+		// opponent animations.
+		ofLogNotice("Lockstep") << "Client processing CMD_END_TURN -> startNewTurn()";
+		turnStartDeferred = true;
+		turnStartDeferredAt = ofGetElapsedTimef();
+		startNewTurn();
 	}
-	case CMD_RENEWED_INSPIRATION: {
-		int playerIdx = cmd.params[0];
-		int nameCount = cmd.params[1];
-		if (playerIdx < 0 || playerIdx >= (int)players.size()) {
-			ofLogError("Lockstep") << "CMD_RENEWED_INSPIRATION: invalid playerIdx=" << playerIdx;
-			break;
-		}
+	break;
+}
+case CMD_PSEUDO_ACTION: {
+	int targetX = cmd.params[0];
+	int targetY = cmd.params[1];
+	std::string actionName = cmd.stringData;
 
+	// Handle deterministic TurnStart visuals published by host
+	if (actionName.rfind("TurnStart", 0) == 0) {
+		// Clients only: host already queued visuals locally
+		if (isHost()) break;
+		int ownerIndex = cmd.params[0];
+		int numDice = cmd.params[1];
+		int sides = cmd.params[2];
+		int finalTotal = cmd.params[3];
+		// Parse CSV raw faces after prefix "TurnStart:"
 		std::string s = cmd.stringData;
-		std::vector<std::string> names;
-		if (!s.empty()) {
-			size_t start = 0;
-			while (start < s.size()) {
-				auto pos = s.find(';', start);
-				if (pos == std::string::npos) {
-					names.push_back(s.substr(start));
-					break;
-				} else {
-					names.push_back(s.substr(start, pos - start));
-					start = pos + 1;
+		auto pos = s.find(':');
+		std::vector<int> raw;
+		if (pos != std::string::npos) {
+			std::string csv = s.substr(pos + 1);
+			if (!csv.empty()) {
+				size_t start = 0;
+				while (start < csv.size()) {
+					auto comma = csv.find(',', start);
+					std::string tok = (comma == std::string::npos) ? csv.substr(start) : csv.substr(start, comma - start);
+					raw.push_back(std::stoi(tok));
+					if (comma == std::string::npos) break;
+					start = comma + 1;
 				}
 			}
 		}
+		queueVisualDiceRoll(gridToWorld(players[ownerIndex].x, players[ownerIndex].y) + glm::vec3(0, 1.0f, 0), numDice, sides, raw, finalTotal, PURPOSE_AP, ownerIndex, 1.0f);
+		break;
+	}
 
-		Player & p = players[playerIdx];
-		int discarded = 0;
-		// For each requested name, discard first matching card from hand (best-effort)
-		for (int i = 0; i < (int)names.size(); ++i) {
-			const std::string & want = names[i];
-			auto it = std::find_if(p.hand.begin(), p.hand.end(), [&](const Card & c) { return c.name == want; });
-			if (it != p.hand.end()) {
-				p.discardPile.push_back(*it);
-				p.hand.erase(it);
-				discarded++;
-			} else {
-				ofLogWarning("Lockstep") << "CMD_RENEWED_INSPIRATION: could not find card '" << want << "' in player " << playerIdx << " hand";
+	if (actionName == "Shell Spike") {
+		// Find player at target coordinates
+		Player * target = nullptr;
+		for (auto & p : players) {
+			if (p.x == targetX && p.y == targetY) {
+				target = &p;
+				break;
 			}
 		}
 
-		// Draw 2 cards per discarded card deterministically
-		int savedCurrent = currentPlayerIndex;
-		currentPlayerIndex = playerIdx;
-		for (int d = 0; d < discarded * 2; ++d) {
-			drawCard(false);
+		if (target) {
+			int tortoiseFormDamage = 2;
+			int damageDealt = applyDamageWithMitigations(*target, tortoiseFormDamage, DAMAGE_PHYSICAL, currentPlayerIndex);
+			if (damageDealt > 0) {
+				queueFloatingTextVisual(gridToWorld(target->x, target->y), "-" + ofToString(damageDealt) + " Shell", ofColor(255, 140, 0));
+			}
 		}
-		// Normalize hand visuals and flags similar to CMD_DRAW_CARDS
-		Player & lp = players[playerIdx];
-		for (size_t idx = 0; idx < lp.hand.size(); ++idx) {
-			lp.hand[idx].currentScale = lp.hand[idx].currentScale; // keep consistent
-		}
-		lp.nextTurnExtraDraw = false;
-		lp.nextTurnExtraDrawSetOnCycle = -1;
-		if (lp.playerID == myLocalPlayerID) {
-			hasDrawnCardsThisTurn = true;
-			lp.hasDrawnThisTurn = true;
-		} else {
-			opponentHasDrawnCardsThisTurn = true;
-			lp.hasDrawnThisTurn = true;
-		}
-		currentPlayerIndex = savedCurrent;
+	}
 
-		ofLogNotice("Lockstep") << "Execute CMD_RENEWED_INSPIRATION: player=" << playerIdx << " discarded=" << discarded;
+	ofLogNotice("Lockstep") << "Execute CMD_PSEUDO_ACTION: " << actionName << " at (" << targetX << "," << targetY << ")";
+	break;
+}
+case CMD_STATUS_ACTION: {
+	int cardIndex = cmd.params[0];
+	int targetX = cmd.params[1];
+	int targetY = cmd.params[2];
+	int statusIndex = cmd.params[3];
+	std::string cardName = cmd.stringData;
+
+	// Find player at target coordinates
+	int targetIndex = -1;
+	for (int i = 0; i < (int)players.size(); ++i) {
+		if (players[i].x == targetX && players[i].y == targetY) {
+			targetIndex = i;
+			break;
+		}
+	}
+	if (targetIndex >= 0 && currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) {
+		Player & p = players[currentPlayerIndex];
+		if (cardIndex >= 0 && cardIndex < (int)p.hand.size()) {
+			interactionTargetIndex = targetIndex;
+			interactingCardIndex = cardIndex;
+			applyDispelEffect(statusIndex);
+		}
+	}
+
+	ofLogNotice("Lockstep") << "Execute CMD_STATUS_ACTION: " << cardName << " purge status " << statusIndex;
+	break;
+}
+case CMD_RENEWED_INSPIRATION: {
+	int playerIdx = cmd.params[0];
+	int nameCount = cmd.params[1];
+	if (playerIdx < 0 || playerIdx >= (int)players.size()) {
+		ofLogError("Lockstep") << "CMD_RENEWED_INSPIRATION: invalid playerIdx=" << playerIdx;
 		break;
 	}
-	// CMD_ROLL_DICE fully removed: dice are resolved deterministically at decision-time
-	default:
-		ofLogWarning("Lockstep") << "Unknown command type: " << (int)cmd.commandType;
-		break;
+
+	std::string s = cmd.stringData;
+	std::vector<std::string> names;
+	if (!s.empty()) {
+		size_t start = 0;
+		while (start < s.size()) {
+			auto pos = s.find(';', start);
+			if (pos == std::string::npos) {
+				names.push_back(s.substr(start));
+				break;
+			} else {
+				names.push_back(s.substr(start, pos - start));
+				start = pos + 1;
+			}
+		}
 	}
+
+	Player & p = players[playerIdx];
+	int discarded = 0;
+	// For each requested name, discard first matching card from hand (best-effort)
+	for (int i = 0; i < (int)names.size(); ++i) {
+		const std::string & want = names[i];
+		auto it = std::find_if(p.hand.begin(), p.hand.end(), [&](const Card & c) { return c.name == want; });
+		if (it != p.hand.end()) {
+			p.discardPile.push_back(*it);
+			p.hand.erase(it);
+			discarded++;
+		} else {
+			ofLogWarning("Lockstep") << "CMD_RENEWED_INSPIRATION: could not find card '" << want << "' in player " << playerIdx << " hand";
+		}
+	}
+
+	// Draw 2 cards per discarded card deterministically
+	int savedCurrent = currentPlayerIndex;
+	currentPlayerIndex = playerIdx;
+	for (int d = 0; d < discarded * 2; ++d) {
+		drawCard(false);
+	}
+	// Normalize hand visuals and flags similar to CMD_DRAW_CARDS
+	Player & lp = players[playerIdx];
+	for (size_t idx = 0; idx < lp.hand.size(); ++idx) {
+		lp.hand[idx].currentScale = lp.hand[idx].currentScale; // keep consistent
+	}
+	lp.nextTurnExtraDraw = false;
+	lp.nextTurnExtraDrawSetOnCycle = -1;
+	if (lp.playerID == myLocalPlayerID) {
+		hasDrawnCardsThisTurn = true;
+		lp.hasDrawnThisTurn = true;
+	} else {
+		opponentHasDrawnCardsThisTurn = true;
+		lp.hasDrawnThisTurn = true;
+	}
+	currentPlayerIndex = savedCurrent;
+
+	ofLogNotice("Lockstep") << "Execute CMD_RENEWED_INSPIRATION: player=" << playerIdx << " discarded=" << discarded;
+	break;
+}
+// CMD_ROLL_DICE fully removed: dice are resolved deterministically at decision-time
+default:
+ofLogWarning("Lockstep") << "Unknown command type: " << (int)cmd.commandType;
+break;
+}
 }
 
 void ofApp::beginEffectSequence() {
@@ -28767,7 +28769,7 @@ void ofApp::generateDraftOptions(int classTier, const std::vector<int> * forcedI
 	draftOptionUI.clear();
 	draftOptionUI.resize(draftOptions.size());
 	for (size_t ai = 0; ai < draftOptionUI.size(); ++ai) {
-		draftOptionUI[ai].startScale = 0.25f;
+		draftOptionUI[ai].startScale = 0.0f; // start fully shrunk
 		draftOptionUI[ai].currentScale = draftOptionUI[ai].startScale;
 		draftOptionUI[ai].targetScale = 1.0f;
 		draftOptionUI[ai].startTime = ofGetElapsedTimef();
@@ -29107,9 +29109,7 @@ void ofApp::drawDraftScreen() {
 		}
 	}
 
-	// 2. Header & instruction: fade in with card appear animation
-	// Compute animation progress across draftOptionUI slots so the header
-	// only becomes visible as cards begin to appear.
+	// 2. Header & instruction: snappy pop-in that scales and fades as cards appear
 	float nowAnim = ofGetElapsedTimef();
 	float appearT = 0.0f;
 	if (!draftOptionUI.empty()) {
@@ -29117,39 +29117,46 @@ void ofApp::drawDraftScreen() {
 			float t = (nowAnim - draftOptionUI[ai].startTime) / draftAnimAppearDuration;
 			if (t > appearT) appearT = t;
 		}
-		if (appearT < 0.0f) appearT = 0.0f;
-		if (appearT > 1.0f) appearT = 1.0f;
-	} else {
-		appearT = 0.0f;
+		appearT = std::clamp(appearT, 0.0f, 1.0f);
 	}
 
-	float appearAlpha = appearT; // linear fade with card appear progress
+	// Ease-out cubic for a snappy feel, add a small overshoot for pop
+	float t = appearT;
+	float easeOutCubic = 1.0f - powf(1.0f - t, 3);
+	float scale = 0.8f + 0.28f * easeOutCubic; // starts smaller, overshoots to ~1.08
+	float alpha = appearT;
 
-	// Use a stable line height for vertical layout so small bounding-box
-	// variations (different glyphs) don't shift the card area up/down.
-	float lineH = titleFont.getLineHeight();
-
-	if (appearAlpha > 0.001f) {
+	if (alpha > 0.001f) {
 		ofRectangle headerBox = titleFont.getStringBoundingBox(header, 0, 0);
-		float tx = (ofGetWidth() / 2.0f) - (headerBox.width / 2.0f);
-		// Move header/instruction to the top area so cards (centered) never overlap it
+		float scaledW = headerBox.width * scale;
+		float tx = (ofGetWidth() / 2.0f) - (scaledW / 2.0f);
 		float ty = ofGetHeight() * 0.12f;
 
-		int shadowA = (int)(255.0f * appearAlpha);
-		int fgA = (int)(255.0f * appearAlpha);
-		ofSetColor(0, 0, 0, shadowA);
-		titleFont.drawString(header, tx + 2, ty + 2);
-		ofSetColor(ofColor(255, 255, 255, fgA));
-		titleFont.drawString(header, tx, ty);
+		int shadowA = (int)(255.0f * alpha);
+		int fgA = (int)(255.0f * alpha);
 
-		// Instruction line below header
-		ofRectangle instrBox = titleFont.getStringBoundingBox(instr, 0, 0);
-		float instrTx = (ofGetWidth() / 2.0f) - (instrBox.width / 2.0f);
-		float instrTy = ty + lineH + 8; // use fixed line height instead of headerBox.height
+		ofPushMatrix();
+		ofTranslate(tx, ty);
+		ofScale(scale, scale);
 		ofSetColor(0, 0, 0, shadowA);
-		titleFont.drawString(instr, instrTx + 2, instrTy + 2);
+		// Shadow offset must be scaled back to pixel units
+		titleFont.drawString(header, 2.0f / scale, 2.0f / scale);
 		ofSetColor(ofColor(255, 255, 255, fgA));
-		titleFont.drawString(instr, instrTx, instrTy);
+		titleFont.drawString(header, 0, 0);
+		ofPopMatrix();
+
+		// Instruction line below header: scale and fade with same pop-in
+		ofRectangle instrBox = titleFont.getStringBoundingBox(instr, 0, 0);
+		float instrTx = (ofGetWidth() / 2.0f) - (instrBox.width * scale / 2.0f);
+		float instrTy = ty + titleFont.getLineHeight() * scale + 8;
+		ofPushMatrix();
+		ofTranslate(instrTx, instrTy);
+		ofScale(scale, scale);
+		ofSetColor(0, 0, 0, shadowA);
+		titleFont.drawString(instr, 2.0f / scale, 2.0f / scale);
+		ofSetColor(ofColor(255, 255, 255, fgA));
+		titleFont.drawString(instr, 0, 0);
+		ofPopMatrix();
 
 		// Class tier text below prompt
 		std::string classTierText = "";
@@ -29166,7 +29173,7 @@ void ofApp::drawDraftScreen() {
 		if (!classTierText.empty()) {
 			ofRectangle classBox = titleFont.getStringBoundingBox(classTierText, 0, 0);
 			float classTx = (ofGetWidth() / 2.0f) - (classBox.width / 2.0f);
-			float classTy = instrTy + lineH + 12;
+			float classTy = instrTy + titleFont.getLineHeight() + 12;
 			ofSetColor(0, 0, 0, shadowA);
 			titleFont.drawString(classTierText, classTx + 2, classTy + 2);
 			ofSetColor(ofColor(classTierColor.r, classTierColor.g, classTierColor.b, fgA));
