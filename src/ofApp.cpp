@@ -16892,8 +16892,9 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 		if (draftStage == 1) {
 			scheduleGenerateDraftOptions(2, delay);
 		} else {
-			// USE THE MEMBER VARIABLE DIRECTLY HERE!
-			int nextPlayerIdx = (this->draftPlayerIndex + 1) % 2;
+			// Compute next player from the player who just accepted picks
+			// (use the command's player index to avoid stale member state).
+			int nextPlayerIdx = (cmdDraftPlayerIdx + 1) % 2;
 			if (players[nextPlayerIdx].deck.empty()) {
 				this->draftPlayerIndex = nextPlayerIdx; // Properly updates class state!
 				draftStage = 0;

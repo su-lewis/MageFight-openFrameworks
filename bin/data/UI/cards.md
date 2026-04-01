@@ -99,14 +99,14 @@
 - **AP Cost:** 4
 - **Class:** 2
 - **Picture:** 
-- **Effect Text:**  Deal 2d10 damage to an adjacent unit; or destroy an adjacent wall.
+- **Effect Text:**  Choose One - Deal 2d10 damage to an adjacent unit; or destroy an adjacent wall.
 ---
 
 -## 14. Dispel
 - **AP Cost:** 2
 - **Class:** 1
 - **Picture:** 
- - **Effect Text:** Choose one - Remove a negative status effect from an adjacent unit / self; or Roll 1d20. Gain that much Barrier until the start of this unit's next turn.
+ - **Effect Text:** Choose One - Remove a negative status effect from an adjacent unit / self; or Roll 1d20. Gain that much Barrier until the start of this unit's next turn.
 ---
 
 -## 15. Teleport
@@ -136,7 +136,7 @@
 - **AP Cost:** 5
 - **Class:** 1
 - **Picture:** 
-- **Effect Text:** Choose one - Deal damage equal to the # of cards in your deck; or gain Block until the start of this unit's next turn equal to the # of cards in your deck.
+- **Effect Text:** Choose One - Deal damage equal to the # of cards in your deck; or gain Block until the start of this unit's next turn equal to the # of cards in your deck.
 ---
 
 -## 19. Ethereal Jolt
@@ -215,7 +215,7 @@
 - **AP Cost:** 2
 - **Class:** 1
 - **Picture:** 
-- **Effect Text:** Choose one - Shuffle x2 Punch; or x2 Hand Block into the your / adjacent unit's deck.
+- **Effect Text:** Choose One - Shuffle x2 Punch; or x2 Hand Block into the your / adjacent unit's deck.
 ---
 
 -## 29. Blocking Boon
@@ -287,7 +287,7 @@
 - **Targeting:** Line of Sight
 - **Class:** 3
 - **Picture:** 
-- **Effect Text:** Choose one - Choose a target. Choose to kill if Sleeping; or roll 1d20 if higher than the unit's health it dies, if lower apply Sleep for 1d6 turns.
+- **Effect Text:** Choose a target. Choose One - Kill if Sleeping; or roll 1d20 if higher than the unit's health it dies, if lower apply Sleep for 1d6 turns.
 ---
 
 -## 38. Summon Demon
@@ -311,7 +311,7 @@
 - **AP Cost:** 3
 - **Class:** 1
 - **Picture:** 
-- **Effect Text:** Draft a Class 1 card or gain +3 AP next turn.
+- **Effect Text:** Choose One - Draft a Class 1 card; or gain +3 AP next turn.
 ---
 
 -## 41. Chain Lightning
@@ -358,7 +358,7 @@
 - **AP Cost:** 5
 - **Class:** 3
 - **Picture:** 
-- **Effect Text:** Transform into a Tortoise until you take 5 health damage. Your blocks do not expire. Deal 3 to an adjacent unit whenever you restore health or block. Gain max health +5. Restore 5 health. Shuffle x2 Dispel into your deck.
+- **Effect Text:** Transform into a Tortoise until you take 5 health damage. Your blocks do not expire. Deal 3 to an adjacent unit whenever you restore health / gain block. Gain max health +5. Restore 5 health. Shuffle x2 Dispel into your deck.
 ---
 
 -## 47. Fortify
@@ -442,7 +442,7 @@
 - **AP Cost:** 2
 - **Class:** 2
 - **Picture:** 
-- **Effect Text:** Choose one - Choose an adjacent wall. Choose to push it 1 tile forward and you move with it, dealing 2d4 to any unit it hits, if they have no room to move in any direction they die; or pull it 1 tile backwards.
+- **Effect Text:** Choose an adjacent wall. Choose One - Choose to push it 1 tile forward and you move with it, dealing 2d4 to any unit it hits, if they have no room to move in any direction they die; or pull it 1 tile backwards.
 ---
 
 -## 58. Consume Large Health Potion
@@ -529,7 +529,7 @@
 - **Targeting:** Line of Sight
 - **Class:** 1
 - **Picture:** 
-- **Effect Text:** Choose one - Choose a target / self. Deal 3 damage; or restore 3 health.
+- **Effect Text:** Choose a target / self. Choose one - Deal 3 damage; or restore 3 health.
 ---
 
 -## 69. Shoot Arrow
