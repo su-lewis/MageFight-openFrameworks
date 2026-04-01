@@ -11631,6 +11631,11 @@ void ofApp::mousePressed(int x, int y, int button) {
 				}
 				selectedDraftIndices.clear();
 				draftAcceptApplied = true;
+				// Also start vanishing accept button animation
+				draftAcceptUI.state = DRAFT_ANIM_VANISHING;
+				draftAcceptUI.startTime = now;
+				draftAcceptUI.startScale = draftAcceptUI.currentScale;
+				draftAcceptUI.targetScale = 0.0f;
 			}
 
 			// If client in multiplayer, send selection to host and return
@@ -28762,7 +28767,7 @@ void ofApp::generateDraftOptions(int classTier, const std::vector<int> * forcedI
 	// Guard: if we're already actively drafting the same class tier for the
 	// same player and options are present, avoid regenerating (prevents
 	// accidental re-entry/oscillation between players when visuals overlap).
-	if (currentState == STATE_DRAFTING && !draftOptions.empty() && currentDraftClassTier == classTier) {
+	if (currentState == STATE_DRAFTING && !draftOptions.empty() && currentDraftClassTier == classTier && lastDraftOptionsPlayer == draftPlayerIndex) {
 		ofLogNotice("Draft") << "generateDraftOptions: already drafting class " << classTier << " for player " << draftPlayerIndex << " - skipping regen.";
 		return;
 	}
@@ -28838,6 +28843,9 @@ void ofApp::generateDraftOptions(int classTier, const std::vector<int> * forcedI
 		draftOptionUI[ai].hidden = false;
 	}
 
+	// Remember which player these options belong to
+	lastDraftOptionsPlayer = draftPlayerIndex;
+
 	// Initialize Accept button animation to match cards
 	draftAcceptUI.startScale = 0.0f;
 	draftAcceptUI.currentScale = draftAcceptUI.startScale;
@@ -28889,6 +28897,7 @@ void ofApp::applyDraftOptionsFromPool(int classTier, const std::vector<int> & in
 	// --- FIX: Authoritatively apply ALL state from the packet ---
 	draftPicksRemaining = picksRemaining;
 	draftPlayerIndex = draftingPlayerIdx;
+	lastDraftOptionsPlayer = draftingPlayerIdx;
 	selectedDraftIndices.clear();
 	currentState = STATE_DRAFTING; // Force state transition
 	waitingForDraftOptionsStartTime = 0.0f; // We have the options now
@@ -29330,7 +29339,8 @@ void ofApp::drawDraftScreen() {
 			ofPopStyle();
 		}
 		// Hover Highlight (White/Subtle) using unscaled hit area
-		else if (cardRect.inside(ofGetMouseX(), ofGetMouseY())) {
+		// Only draw hover when the slot isn't hidden and the accept hasn't been applied
+		else if (!draftAcceptApplied && (i >= draftOptionUI.size() || !draftOptionUI[i].hidden) && cardRect.inside(ofGetMouseX(), ofGetMouseY())) {
 			ofPushStyle();
 			ofNoFill();
 			ofSetColor(ofColor::white);
@@ -29393,6 +29403,8 @@ void ofApp::drawDraftScreen() {
 	if (isMultiplayer) {
 		if (!players.empty() && players[draftPlayerIndex].playerID != myLocalPlayerID) showAccept = false;
 	}
+	// Hide accept if we've already applied it locally (it should vanish)
+	if (draftAcceptApplied) showAccept = false;
 
 	if (showAccept && !draftOptions.empty()) {
 		float btnW = std::clamp(220.0f * uiScale, 140.0f, 320.0f);

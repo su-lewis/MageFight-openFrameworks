@@ -1292,6 +1292,8 @@ private:
 	// Schedule end-of-draft transition (wait for visuals before returning to gameplay)
 	bool draftEndScheduled = false;
 	int draftEndNextPlayerIndex = -1;
+	// Last player index for which `draftOptions` were generated/applied
+	int lastDraftOptionsPlayer = -1;
 	float draftEndAt = 0.0f;
 
 	// Helpers
