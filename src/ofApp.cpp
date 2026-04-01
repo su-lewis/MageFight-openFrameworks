@@ -11663,12 +11663,18 @@ void ofApp::mousePressed(int x, int y, int button) {
 				cmd.params[1] = currentDraftClassTier;
 				// copiesPerCard was computed earlier; use params[2]
 				cmd.params[2] = (!isInGameDraft && draftStage == 0) ? 2 : 1;
+				// Initialize pick params to -1 (meaning "no pick") to avoid accidental pool index 0
+				cmd.params[3] = cmd.params[4] = cmd.params[5] = -1;
 				for (int i = 0; i < std::min(3, (int)selectedDraftIndices.size()); ++i) {
 					cmd.params[3 + i] = selectedDraftIndices[i];
 				}
 				cmd.clientActionID = pkt.clientActionID;
 
 				// Queue locally and send to host/peers
+				// Diagnostic: log full command params before sending
+				ofLogNotice("Network") << "Client sending CMD_ACCEPT_DRAFT cmd.params=("
+									   << cmd.params[0] << "," << cmd.params[1] << "," << cmd.params[2] << ","
+									   << cmd.params[3] << "," << cmd.params[4] << "," << cmd.params[5] << ") clientActionID=" << pkt.clientActionID;
 				bool ok = sendInputCommand(cmd, true);
 				ofLogNotice("Network") << "Client sent AcceptDraft via CMD_ACCEPT_DRAFT (" << pkt.numSelected << " picks) clientActionID=" << pkt.clientActionID << " ok=" << ok;
 				if (!ok) ofLogWarning("Network") << "AcceptDraft send failed (no connection). Will retry via resend watchdog.";
@@ -11688,7 +11694,8 @@ void ofApp::mousePressed(int x, int y, int button) {
 			cmd.params[0] = draftPlayerIndex;
 			cmd.params[1] = currentDraftClassTier;
 			cmd.params[2] = (!isInGameDraft && draftStage == 0) ? 2 : 1; // copiesPerCard
-			// Store selectedDraftIndices in params (up to 3 picks)
+			// Initialize pick params to -1 then store selectedDraftIndices in params (up to 3 picks)
+			cmd.params[3] = cmd.params[4] = cmd.params[5] = -1;
 			for (int i = 0; i < std::min(3, (int)selectedDraftIndices.size()); ++i) {
 				cmd.params[3 + i] = selectedDraftIndices[i];
 			}
@@ -16606,6 +16613,21 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 		if (pick0 >= 0) picks.push_back(pick0);
 		if (pick1 >= 0) picks.push_back(pick1);
 		if (pick2 >= 0) picks.push_back(pick2);
+
+		// Diagnostic: log incoming picks and current selectedDraftIndices snapshot
+		{
+			std::string pickStr = "";
+			for (size_t ii = 0; ii < picks.size(); ++ii) {
+				if (ii) pickStr += ", ";
+				pickStr += std::to_string(picks[ii]);
+			}
+			std::string selStr = "";
+			for (size_t ii = 0; ii < selectedDraftIndices.size(); ++ii) {
+				if (ii) selStr += ", ";
+				selStr += std::to_string(selectedDraftIndices[ii]);
+			}
+			ofLogNotice("Lockstep") << "CMD_ACCEPT_DRAFT received: player=" << cmdDraftPlayerIdx << " classTier=" << classTier << " copiesPerCard=" << copiesPerCard << " picks(size=" << picks.size() << ")=[" << pickStr << "] selectedDraftIndices(size=" << selectedDraftIndices.size() << ")=[" << selStr << "]";
+		}
 		int beforeSize = (int)p.deck.size();
 		std::vector<std::string> addedNames;
 		for (int poolIdx : picks) {
@@ -16679,11 +16701,11 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 			float startY = ofGetHeight() / 2.0f - (cardH / 2.0f);
 			float now = ofGetElapsedTimef();
 
-			// Create picked-card fly animations
+			// Create picked-card fly animations (use authoritative picks from the command)
 			const std::vector<Card> * pool = &class1Cards;
 			if (currentDraftClassTier == 2) pool = &class2Cards;
 			if (currentDraftClassTier == 3) pool = &class3Cards;
-			for (int poolIdx : selectedDraftIndices) {
+			for (int poolIdx : picks) {
 				int slot = -1;
 				for (size_t si = 0; si < currentDraftOptionPoolIndices.size(); ++si) {
 					if (currentDraftOptionPoolIndices[si] == poolIdx) {
@@ -16803,6 +16825,16 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 				} else {
 					ofLogNotice("Lockstep") << "CMD_DRAFT_ACTION: selection ignored (already at required picks) poolIdx=" << poolIdx;
 				}
+			}
+
+			// Diagnostic: log current selectedDraftIndices for debugging
+			{
+				std::string s = "";
+				for (size_t ii = 0; ii < selectedDraftIndices.size(); ++ii) {
+					if (ii) s += ", ";
+					s += std::to_string(selectedDraftIndices[ii]);
+				}
+				ofLogNotice("Lockstep") << "CMD_DRAFT_ACTION: selectedDraftIndices now(size=" << selectedDraftIndices.size() << ")=[" << s << "] for draftPlayer=" << draftPlayerIdx;
 			}
 		}
 		break;
@@ -28770,6 +28802,21 @@ void ofApp::generateDraftOptions(int classTier, const std::vector<int> * forcedI
 		}
 	}
 
+	// Diagnostic log: report which pool indices and card names were generated
+	{
+		std::string idxs = "";
+		std::string names = "";
+		for (size_t i = 0; i < currentDraftOptionPoolIndices.size(); ++i) {
+			if (i) idxs += ", ";
+			idxs += std::to_string(currentDraftOptionPoolIndices[i]);
+		}
+		for (size_t i = 0; i < draftOptions.size(); ++i) {
+			if (i) names += ", ";
+			names += draftOptions[i].name;
+		}
+		ofLogNotice("Draft") << "generateDraftOptions: class=" << classTier << " chosenPoolIdx=[" << idxs << "] names=[" << names << "]";
+	}
+
 	if (classTier == 1)
 		draftPicksRemaining = 2;
 	else
@@ -28790,6 +28837,14 @@ void ofApp::generateDraftOptions(int classTier, const std::vector<int> * forcedI
 		draftOptionUI[ai].state = DRAFT_ANIM_APPEARING;
 		draftOptionUI[ai].hidden = false;
 	}
+
+	// Initialize Accept button animation to match cards
+	draftAcceptUI.startScale = 0.0f;
+	draftAcceptUI.currentScale = draftAcceptUI.startScale;
+	draftAcceptUI.targetScale = 1.0f;
+	draftAcceptUI.startTime = ofGetElapsedTimef();
+	draftAcceptUI.state = DRAFT_ANIM_APPEARING;
+	draftAcceptUI.hidden = false;
 
 	// Host no longer needs to send PKT_DRAFT_OPTIONS / PKT_DRAFT_STATE
 	// because both peers deterministically generate the same options
@@ -29140,7 +29195,7 @@ void ofApp::drawDraftScreen() {
 	float scale = 0.8f + 0.28f * easeOutCubic; // starts smaller, overshoots to ~1.08
 	float alpha = appearT;
 
-	if (alpha > 0.001f) {
+	if (alpha > 0.001f && !draftAcceptApplied) {
 		ofRectangle headerBox = titleFont.getStringBoundingBox(header, 0, 0);
 		float scaledW = headerBox.width * scale;
 		float tx = (ofGetWidth() / 2.0f) - (scaledW / 2.0f);
@@ -29350,14 +29405,45 @@ void ofApp::drawDraftScreen() {
 		float maxBtnY = ofGetHeight() - btnH - minBottomMargin;
 		if (btnY > maxBtnY) btnY = maxBtnY;
 
+		// Animate Accept button with its UI state
+		float acceptScale = 1.0f;
+		float acceptAlpha = 1.0f;
+		if (draftAcceptUI.state == DRAFT_ANIM_APPEARING) {
+			float at = (ofGetElapsedTimef() - draftAcceptUI.startTime) / draftAnimAppearDuration;
+			if (at >= 1.0f) {
+				draftAcceptUI.currentScale = draftAcceptUI.targetScale;
+				draftAcceptUI.state = DRAFT_ANIM_IDLE;
+			} else {
+				draftAcceptUI.currentScale = draftAcceptUI.startScale + at * (draftAcceptUI.targetScale - draftAcceptUI.startScale);
+			}
+		}
+		if (draftAcceptUI.state == DRAFT_ANIM_VANISHING) {
+			float vt = (ofGetElapsedTimef() - draftAcceptUI.startTime) / draftAnimVanishDuration;
+			if (vt >= 1.0f) {
+				draftAcceptUI.currentScale = draftAcceptUI.targetScale;
+				draftAcceptUI.hidden = true;
+				draftAcceptUI.state = DRAFT_ANIM_IDLE;
+			} else {
+				draftAcceptUI.currentScale = draftAcceptUI.startScale + vt * (draftAcceptUI.targetScale - draftAcceptUI.startScale);
+			}
+		}
+		acceptScale = draftAcceptUI.currentScale;
+		acceptAlpha = acceptScale; // simple alpha linked to scale for pop-in
+
 		draftAcceptButtonRect.set(btnX, btnY, btnW, btnH);
 
-		ofSetColor(canAccept ? ofColor(70, 160, 255) : ofColor(100, 100, 100));
+		ofPushMatrix();
+		ofTranslate(btnX + btnW / 2.0f, btnY + btnH / 2.0f);
+		ofScale(acceptScale, acceptScale);
+		ofTranslate(-(btnX + btnW / 2.0f), -(btnY + btnH / 2.0f));
+
+		ofSetColor(canAccept ? ofColor(70, 160, 255, (int)(255.0f * acceptAlpha)) : ofColor(100, 100, 100, (int)(255.0f * acceptAlpha)));
 		ofDrawRectRounded(draftAcceptButtonRect, 12);
 
-		ofSetColor(ofColor::white);
+		ofSetColor(ofColor(255, 255, 255, (int)(255.0f * acceptAlpha)));
 		ofRectangle acceptTextBox = uiFont.getStringBoundingBox("Accept", 0, 0);
 		uiFont.drawString("Accept", btnX + (btnW - acceptTextBox.width) / 2, btnY + (btnH + acceptTextBox.height) / 2 - 6);
+		ofPopMatrix();
 	} else {
 		// Hide accept: clear the rect so hits are ignored
 		draftAcceptButtonRect.set(0, 0, 0, 0);

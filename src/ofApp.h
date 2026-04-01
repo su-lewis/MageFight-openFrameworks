@@ -1258,6 +1258,9 @@ private:
 	std::vector<DraftOptionUI> draftOptionUI; // per-slot purely-visual animation state
 	float draftAnimAppearDuration = 0.2f; // seconds (cards and header pop-in)
 	float draftAnimHoldDuration = 0.55f; // seconds to hold selected card before it shrinks
+
+	// Accept button UI animation (uses same DraftOptionUI for simplicity)
+	DraftOptionUI draftAcceptUI;
 	float draftAnimVanishDuration = 0.05f; // vanish duration for unselected (near-instant)
 
 	// Visual scheduling for picked-card movement into deck
