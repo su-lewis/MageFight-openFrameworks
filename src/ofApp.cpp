@@ -2222,6 +2222,17 @@ void ofApp::update() {
 	// Process any visual-only events (animations, waits)
 	processVisualEvents();
 
+	// Advance floating key animation (per-frame timer)
+	if (!keyAnimSequence.empty() && !floatingKeyInstances.empty()) {
+		// Scale by speed preset (allows future speed controls)
+		keyAnimTimer += ofGetLastFrameTime() * keyAnimSpeedPresets[keyAnimSpeedIndex];
+		if (keyAnimTimer >= keyAnimInterval) {
+			int steps = (int)(keyAnimTimer / keyAnimInterval);
+			keyAnimTimer -= steps * keyAnimInterval;
+			keyAnimSeqPos = (keyAnimSeqPos + steps) % (int)keyAnimSequence.size();
+		}
+	}
+
 	// Execute any scheduled draft generation (to allow animations to finish)
 	if (draftNextScheduled) {
 		float now = ofGetElapsedTimef();
@@ -29247,6 +29258,10 @@ void ofApp::onCardPicked(int optionIndex) {
 				// We'll perform shuffles when `networkPending.draftFinalize` resolves in `update()`.
 				networkPending.draftFinalize = true;
 				networkPending.draftShuffleNeeded = true;
+				// Remember which player should start next when finalizing the draft
+				// (keeps behavior consistent with the command-path which sets
+				// `draftEndNextPlayerIndex` before scheduling a draft end).
+				draftEndNextPlayerIndex = otherPlayer;
 			}
 		}
 	}
