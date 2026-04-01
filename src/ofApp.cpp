@@ -11629,13 +11629,10 @@ void ofApp::mousePressed(int x, int y, int button) {
 						ui.targetScale = 0.0f;
 					}
 				}
-				selectedDraftIndices.clear();
-				draftAcceptApplied = true;
-				// Also start vanishing accept button animation
-				draftAcceptUI.state = DRAFT_ANIM_VANISHING;
-				draftAcceptUI.startTime = now;
-				draftAcceptUI.startScale = draftAcceptUI.currentScale;
-				draftAcceptUI.targetScale = 0.0f;
+				// NOTE: do not clear `selectedDraftIndices` here - preserve them until
+				// after the authoritative CMD_ACCEPT_DRAFT is sent so the command
+				// carries the intended picks. Accept button vanish is started after
+				// sending (below) to keep the command payload intact.
 			}
 
 			// If client in multiplayer, send selection to host and return
@@ -11683,6 +11680,15 @@ void ofApp::mousePressed(int x, int y, int button) {
 				bool ok = sendInputCommand(cmd, true);
 				ofLogNotice("Network") << "Client sent AcceptDraft via CMD_ACCEPT_DRAFT (" << pkt.numSelected << " picks) clientActionID=" << pkt.clientActionID << " ok=" << ok;
 				if (!ok) ofLogWarning("Network") << "AcceptDraft send failed (no connection). Will retry via resend watchdog.";
+
+				// After sending, clear local selection and mark accept applied so hover
+				// and further clicks are ignored. Also animate Accept button vanishing.
+				selectedDraftIndices.clear();
+				draftAcceptApplied = true;
+				draftAcceptUI.state = DRAFT_ANIM_VANISHING;
+				draftAcceptUI.startTime = ofGetElapsedTimef();
+				draftAcceptUI.startScale = draftAcceptUI.currentScale;
+				draftAcceptUI.targetScale = 0.0f;
 				return;
 			}
 
@@ -11706,7 +11712,17 @@ void ofApp::mousePressed(int x, int y, int button) {
 			}
 			// Use sendInputCommand universally so the commandId is assigned
 			// and the command goes through the normal lockstep processing.
-			sendInputCommand(cmd, true);
+			bool ok = sendInputCommand(cmd, true);
+			ofLogNotice("Network") << "Host queued CMD_ACCEPT_DRAFT cmd.params=(" << cmd.params[0] << "," << cmd.params[1] << "," << cmd.params[2] << "," << cmd.params[3] << "," << cmd.params[4] << "," << cmd.params[5] << ") ok=" << ok;
+
+			// After queuing authoritative command, clear local selections and start
+			// the accept vanish animation to match clients.
+			selectedDraftIndices.clear();
+			draftAcceptApplied = true;
+			draftAcceptUI.state = DRAFT_ANIM_VANISHING;
+			draftAcceptUI.startTime = ofGetElapsedTimef();
+			draftAcceptUI.startScale = draftAcceptUI.currentScale;
+			draftAcceptUI.targetScale = 0.0f;
 			// Visuals and logs remain, but state changes are handled in simulationTick
 
 			// Host no longer forwards draft packets — draft picks are deterministic
