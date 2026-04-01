@@ -30124,6 +30124,20 @@ void ofApp::processNetworkPackets() {
 
 				ofLogNotice("NetTrace") << "RECV PKT_INPUT_COMMAND: cmd=" << (int)cmd->commandType << " cmdId=" << cmd->commandId << " turn=" << cmd->turnNumber;
 
+				// If this is an echo of a command we sent and we're a client
+				// which already applied it optimistically, skip re-applying it
+				// when the authoritative packet arrives. Also clear provisional
+				// snapshots/commands for this id so we don't leak memory.
+				if (!isHost() && cmd->playerID == myLocalPlayerID) {
+					uint32_t cid = cmd->commandId;
+					if (provisionalSnapshots.find(cid) != provisionalSnapshots.end() || provisionalCommands.find(cid) != provisionalCommands.end()) {
+						ofLogNotice("NetTrace") << "Dropping echoed own input command cmdId=" << cid;
+						provisionalSnapshots.erase(cid);
+						provisionalCommands.erase(cid);
+						continue;
+					}
+				}
+
 				queueInputCommand(*cmd);
 				continue;
 			}

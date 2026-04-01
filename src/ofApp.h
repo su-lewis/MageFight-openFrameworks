@@ -1498,8 +1498,8 @@ private:
 	// Speed presets: multiplier applied to base interval. >1.0 = slower, <1.0 = faster
 	// Default to 1.5x (50% slower)
 	// Multiplier applied to base interval; larger = slower animation
-	// Increased to slow animation further because current speed was too fast
-	std::vector<float> keyAnimSpeedPresets = { 4.0f };
+	// Default preset (1.0 = normal speed)
+	std::vector<float> keyAnimSpeedPresets = { 1.0f };
 	int keyAnimSpeedIndex = 0; // index into presets (only one preset)
 	int keyAnimTileX = BOARD_WIDTH / 2;
 	int keyAnimTileY = BOARD_HEIGHT / 2;
