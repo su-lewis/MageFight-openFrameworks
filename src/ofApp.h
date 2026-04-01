@@ -1859,7 +1859,7 @@ private:
 	// Send an input command: optionally apply locally (optimistic) and send over network
 	bool sendInputCommand(InputCommandPacket & cmd, bool applyLocally = true);
 	void executeInputCommand(const InputCommandPacket & cmd);
-	void processEffectOp(EffectOp & op);
+	bool processEffectOp(EffectOp & op);
 
 	// --- CARD SPECIFIC VARIABLES ---
 

@@ -4248,8 +4248,10 @@ void ofApp::updateGame() {
 	if (turnStartDeferred) {
 		const float kTurnStartDeferredMax = 3.0f; // seconds grace before forcing timer
 		bool commitNow = false;
-		if (diceVisualsFinishedAndLinger()) commitNow = true;
-		else if ((ofGetElapsedTimef() - turnStartDeferredAt) > kTurnStartDeferredMax) commitNow = true;
+		if (diceVisualsFinishedAndLinger())
+			commitNow = true;
+		else if ((ofGetElapsedTimef() - turnStartDeferredAt) > kTurnStartDeferredMax)
+			commitNow = true;
 
 		if (commitNow) {
 			turnStartDeferred = false;
@@ -16864,9 +16866,9 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 			// enforce it here for safety.
 			turnStartDeferred = true;
 			turnStartDeferredAt = ofGetElapsedTimef();
-            // Also reset the visible timer baseline so the UI shows a fresh
-            // timer for the next player immediately (safety for stuck visuals).
-            turnStartTime = ofGetElapsedTimef();
+			// Also reset the visible timer baseline so the UI shows a fresh
+			// timer for the next player immediately (safety for stuck visuals).
+			turnStartTime = ofGetElapsedTimef();
 			ofLogNotice("Timer") << "Host: deferred next player's visible timer until visuals complete.";
 		} else {
 			// Clients: advance local turn state as well so the client rolls AP
@@ -17084,10 +17086,18 @@ void ofApp::updateEffectSequence() {
 	}
 
 	EffectOp & op = currentEffectSequence.ops[currentEffectSequence.currentOp];
-	processEffectOp(op);
+	// processEffectOp now returns whether the op completed immediately.
+	bool opComplete = processEffectOp(op);
+	if (opComplete) {
+		currentEffectSequence.currentOp++;
+		if (currentEffectSequence.currentOp >= currentEffectSequence.ops.size()) {
+			currentEffectSequence.isComplete = true;
+			isProcessingEffect = false;
+		}
+	}
 }
 
-void ofApp::processEffectOp(EffectOp & op) {
+bool ofApp::processEffectOp(EffectOp & op) {
 	ofLogNotice("EffectQueue") << "PROCESSING opType=" << (int)op.type << " curOpIndex=" << currentEffectSequence.currentOp;
 	bool opComplete = false;
 
@@ -19381,9 +19391,7 @@ void ofApp::processEffectOp(EffectOp & op) {
 		break;
 	}
 
-	if (opComplete) {
-		currentEffectSequence.currentOp++;
-	}
+	return opComplete;
 }
 
 // Visual event queue: enqueue a visual-only event
