@@ -2672,16 +2672,11 @@ void ofApp::update() {
 			}
 		}
 
-		// Auto-accept draft if timer locked it (timer expired and auto-picked cards)
-		if (draftAcceptLocked && (int)selectedDraftIndices.size() > 0) {
-			int requiredPicks = (!isInGameDraft && draftStage == 0) ? 2 : 1;
-			if ((int)selectedDraftIndices.size() >= requiredPicks) {
-				// Trigger the accept logic by simulating a button click at the center of the accept button
-				ofLogNotice("Timer") << "Auto-accepting draft picks due to timer expiration.";
-				mousePressed(draftAcceptButtonRect.getCenter().x, draftAcceptButtonRect.getCenter().y, OF_MOUSE_BUTTON_LEFT);
-				draftAcceptLocked = false; // Reset for next draft phase if needed
-			}
-		}
+		// NOTE: Removed a legacy timer-path that simulated a mouse click to
+		// auto-accept draft picks. That path bypassed the proper lockstep
+		// send/queue flow and could leave the client stuck if command IDs
+		// weren't assigned. The timer now only sets `draftAcceptLocked = true`
+		// elsewhere and relies on `sendInputCommand` to queue the accept.
 		break;
 
 	case STATE_GAMEPLAY:
@@ -11616,6 +11611,24 @@ void ofApp::mousePressed(int x, int y, int button) {
 
 			draftAcceptLocked = true;
 
+			// Immediately force-vanish the draft option UI locally so the player
+			// sees the options disappear even if the authoritative command
+			// hasn't been processed yet (helps singleplayer and client UX).
+			{
+				float now = ofGetElapsedTimef();
+				for (size_t si = 0; si < draftOptionUI.size(); ++si) {
+					auto & ui = draftOptionUI[si];
+					if (!ui.hidden) {
+						ui.state = DRAFT_ANIM_VANISHING;
+						ui.startTime = now;
+						ui.startScale = ui.currentScale;
+						ui.targetScale = 0.0f;
+					}
+				}
+				selectedDraftIndices.clear();
+				draftAcceptApplied = true;
+			}
+
 			// If client in multiplayer, send selection to host and return
 			if (isClient()) {
 				DraftActionPacket pkt = {};
@@ -11675,12 +11688,9 @@ void ofApp::mousePressed(int x, int y, int button) {
 			for (int i = 0; i < std::min(3, (int)selectedDraftIndices.size()); ++i) {
 				cmd.params[3 + i] = selectedDraftIndices[i];
 			}
-			if (isMultiplayer) {
-				bool ok = sendInputCommand(cmd, true);
-				(void)ok;
-			} else {
-				queueInputCommand(cmd);
-			}
+			// Use sendInputCommand universally so the commandId is assigned
+			// and the command goes through the normal lockstep processing.
+			sendInputCommand(cmd, true);
 			// Visuals and logs remain, but state changes are handled in simulationTick
 
 			// Host no longer forwards draft packets — draft picks are deterministic
@@ -15398,14 +15408,8 @@ void ofApp::handleCardMenuClick(const std::string & buttonId) {
 				cmd.params[1] = magicBlastTargetPlayerIndex; // target resolved by APPLY_MAGIC_BLAST
 				cmd.params[2] = 1; // damage choice
 				cmd.params[3] = interactingCardIndex;
-				if (isMultiplayer) {
-					bool ok = sendInputCommand(cmd, true);
-					(void)ok;
-				} else {
-					isExecutingLockstepCommand = true;
-					executeInputCommand(cmd);
-					isExecutingLockstepCommand = false;
-				}
+				// Route via lockstep in all modes so singleplayer gets a proper Command ID
+				sendInputCommand(cmd, true);
 			} else if (magicBlastDiscardButton.inside(mouseX, mouseY)) {
 				InputCommandPacket cmd = {};
 				cmd.type = PKT_INPUT_COMMAND;
@@ -15418,14 +15422,8 @@ void ofApp::handleCardMenuClick(const std::string & buttonId) {
 				cmd.params[1] = magicBlastTargetPlayerIndex; // target resolved by APPLY_MAGIC_BLAST
 				cmd.params[2] = 2; // discard choice
 				cmd.params[3] = interactingCardIndex;
-				if (isMultiplayer) {
-					bool ok = sendInputCommand(cmd, true);
-					(void)ok;
-				} else {
-					isExecutingLockstepCommand = true;
-					executeInputCommand(cmd);
-					isExecutingLockstepCommand = false;
-				}
+				// Route via lockstep in all modes so singleplayer gets a proper Command ID
+				sendInputCommand(cmd, true);
 			}
 			break;
 		case CARD_GIANT_MAGIC_HAND:
@@ -16008,14 +16006,8 @@ void ofApp::drawActiveCardInteractionUI() {
 				cmd.params[1] = ghostRelocateTargetIndex;
 				cmd.params[2] = (int)i; // choice index
 				cmd.params[3] = -1;
-				if (isMultiplayer) {
-					bool ok = sendInputCommand(cmd, true);
-					(void)ok;
-				} else {
-					isExecutingLockstepCommand = true;
-					executeInputCommand(cmd);
-					isExecutingLockstepCommand = false;
-				}
+				// Route via lockstep in all modes so singleplayer gets a proper Command ID
+				sendInputCommand(cmd, true);
 			}
 			break;
 		}
@@ -16722,27 +16714,21 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 				activeDraftPickedMoves.push_back(mv);
 			}
 
-			// Vanish non-picked options immediately, hold picked ones
+			// Robust fix: force-vanish all option UI slots when the accept command runs.
+			// This avoids visual desync if pool indices or slot mappings differ
+			// (e.g., after client/server card list changes). Picked-card fly
+			// animations are still created above and will play on top.
 			for (size_t si = 0; si < draftOptionUI.size(); ++si) {
-				int poolIdx = (si < currentDraftOptionPoolIndices.size()) ? currentDraftOptionPoolIndices[si] : -1;
-				bool picked = false;
-				for (int sel : selectedDraftIndices)
-					if (sel == poolIdx) {
-						picked = true;
-						break;
-					}
-				if (!picked) {
-					auto & ui = draftOptionUI[si];
+				auto & ui = draftOptionUI[si];
+				if (!ui.hidden) {
 					ui.state = DRAFT_ANIM_VANISHING;
 					ui.startTime = now;
 					ui.startScale = ui.currentScale;
 					ui.targetScale = 0.0f;
-				} else {
-					auto & ui = draftOptionUI[si];
-					ui.state = DRAFT_ANIM_HOLDING;
-					ui.startTime = now;
 				}
 			}
+			// Mark accept as applied so clients/host don't re-apply visuals
+			draftAcceptApplied = true;
 		}
 
 		// Clear local transient UI selections and option list (state changes handled below)
@@ -19792,14 +19778,8 @@ void ofApp::processCardStateInput(int mouseX, int mouseY, int button) {
 				cmd.params[1] = interactionTargetIndex;
 				cmd.params[2] = 1; // damage
 				cmd.params[3] = interactingCardIndex;
-				if (isMultiplayer) {
-					bool ok = sendInputCommand(cmd, true);
-					(void)ok;
-				} else {
-					isExecutingLockstepCommand = true;
-					executeInputCommand(cmd);
-					isExecutingLockstepCommand = false;
-				}
+				// Route via lockstep in all modes so singleplayer gets a proper Command ID
+				sendInputCommand(cmd, true);
 			} else if (burstBtnHeal.inside(mouseX, mouseY)) {
 				InputCommandPacket cmd = {};
 				cmd.type = PKT_INPUT_COMMAND;
@@ -19812,14 +19792,8 @@ void ofApp::processCardStateInput(int mouseX, int mouseY, int button) {
 				cmd.params[1] = interactionTargetIndex;
 				cmd.params[2] = 2; // heal
 				cmd.params[3] = interactingCardIndex;
-				if (isMultiplayer) {
-					bool ok = sendInputCommand(cmd, true);
-					(void)ok;
-				} else {
-					isExecutingLockstepCommand = true;
-					executeInputCommand(cmd);
-					isExecutingLockstepCommand = false;
-				}
+				// Route via lockstep in all modes so singleplayer gets a proper Command ID
+				sendInputCommand(cmd, true);
 			}
 			break;
 
@@ -19836,14 +19810,8 @@ void ofApp::processCardStateInput(int mouseX, int mouseY, int button) {
 				cmd.params[1] = interactionTargetIndex;
 				cmd.params[2] = 1; // damage
 				cmd.params[3] = interactingCardIndex;
-				if (isMultiplayer) {
-					bool ok = sendInputCommand(cmd, true);
-					(void)ok;
-				} else {
-					isExecutingLockstepCommand = true;
-					executeInputCommand(cmd);
-					isExecutingLockstepCommand = false;
-				}
+				// Route via lockstep in all modes so singleplayer gets a proper Command ID
+				sendInputCommand(cmd, true);
 			}
 			break;
 
@@ -19860,14 +19828,8 @@ void ofApp::processCardStateInput(int mouseX, int mouseY, int button) {
 				cmd.params[1] = interactionTargetIndex;
 				cmd.params[2] = 1; // Punch
 				cmd.params[3] = interactingCardIndex;
-				if (isMultiplayer) {
-					bool ok = sendInputCommand(cmd, true);
-					(void)ok;
-				} else {
-					isExecutingLockstepCommand = true;
-					executeInputCommand(cmd);
-					isExecutingLockstepCommand = false;
-				}
+				// Route via lockstep in all modes so singleplayer gets a proper Command ID
+				sendInputCommand(cmd, true);
 			} else if (btnAddBlocks.inside(mouseX, mouseY)) {
 				InputCommandPacket cmd = {};
 				cmd.type = PKT_INPUT_COMMAND;
@@ -19880,14 +19842,8 @@ void ofApp::processCardStateInput(int mouseX, int mouseY, int button) {
 				cmd.params[1] = interactionTargetIndex;
 				cmd.params[2] = 2; // Block
 				cmd.params[3] = interactingCardIndex;
-				if (isMultiplayer) {
-					bool ok = sendInputCommand(cmd, true);
-					(void)ok;
-				} else {
-					isExecutingLockstepCommand = true;
-					executeInputCommand(cmd);
-					isExecutingLockstepCommand = false;
-				}
+				// Route via lockstep in all modes so singleplayer gets a proper Command ID
+				sendInputCommand(cmd, true);
 			}
 			break;
 
@@ -19904,14 +19860,8 @@ void ofApp::processCardStateInput(int mouseX, int mouseY, int button) {
 				cmd.params[1] = interactionTargetIndex;
 				cmd.params[2] = 1; // Self
 				cmd.params[3] = interactingCardIndex;
-				if (isMultiplayer) {
-					bool ok = sendInputCommand(cmd, true);
-					(void)ok;
-				} else {
-					isExecutingLockstepCommand = true;
-					executeInputCommand(cmd);
-					isExecutingLockstepCommand = false;
-				}
+				// Route via lockstep in all modes so singleplayer gets a proper Command ID
+				sendInputCommand(cmd, true);
 			}
 			break;
 
@@ -19928,14 +19878,8 @@ void ofApp::processCardStateInput(int mouseX, int mouseY, int button) {
 				cmd.params[1] = interactionTargetIndex;
 				cmd.params[2] = 1; // Barrier
 				cmd.params[3] = interactingCardIndex;
-				if (isMultiplayer) {
-					bool ok = sendInputCommand(cmd, true);
-					(void)ok;
-				} else {
-					isExecutingLockstepCommand = true;
-					executeInputCommand(cmd);
-					isExecutingLockstepCommand = false;
-				}
+				// Route via lockstep in all modes so singleplayer gets a proper Command ID
+				sendInputCommand(cmd, true);
 			} else if (dispelBtnPurge.inside(mouseX, mouseY)) {
 				InputCommandPacket cmd = {};
 				cmd.type = PKT_INPUT_COMMAND;
@@ -19948,14 +19892,8 @@ void ofApp::processCardStateInput(int mouseX, int mouseY, int button) {
 				cmd.params[1] = interactionTargetIndex;
 				cmd.params[2] = 2; // Purge
 				cmd.params[3] = interactingCardIndex;
-				if (isMultiplayer) {
-					bool ok = sendInputCommand(cmd, true);
-					(void)ok;
-				} else {
-					isExecutingLockstepCommand = true;
-					executeInputCommand(cmd);
-					isExecutingLockstepCommand = false;
-				}
+				// Route via lockstep in all modes so singleplayer gets a proper Command ID
+				sendInputCommand(cmd, true);
 			}
 			break;
 
@@ -19972,14 +19910,8 @@ void ofApp::processCardStateInput(int mouseX, int mouseY, int button) {
 				cmd.params[1] = interactionTargetIndex;
 				cmd.params[2] = 2; // ap
 				cmd.params[3] = interactingCardIndex;
-				if (isMultiplayer) {
-					bool ok = sendInputCommand(cmd, true);
-					(void)ok;
-				} else {
-					isExecutingLockstepCommand = true;
-					executeInputCommand(cmd);
-					isExecutingLockstepCommand = false;
-				}
+				// Route via lockstep in all modes so singleplayer gets a proper Command ID
+				sendInputCommand(cmd, true);
 			} else if (trainBtnDraft.inside(mouseX, mouseY)) {
 				InputCommandPacket cmd = {};
 				cmd.type = PKT_INPUT_COMMAND;
@@ -19992,14 +19924,8 @@ void ofApp::processCardStateInput(int mouseX, int mouseY, int button) {
 				cmd.params[1] = interactionTargetIndex;
 				cmd.params[2] = 1; // draft
 				cmd.params[3] = interactingCardIndex;
-				if (isMultiplayer) {
-					bool ok = sendInputCommand(cmd, true);
-					(void)ok;
-				} else {
-					isExecutingLockstepCommand = true;
-					executeInputCommand(cmd);
-					isExecutingLockstepCommand = false;
-				}
+				// Route via lockstep in all modes so singleplayer gets a proper Command ID
+				sendInputCommand(cmd, true);
 			}
 			break;
 
@@ -20025,14 +19951,8 @@ void ofApp::processCardStateInput(int mouseX, int mouseY, int button) {
 				cmd.params[1] = interactionTargetIndex;
 				cmd.params[2] = 1; // push
 				cmd.params[3] = interactingCardIndex;
-				if (isMultiplayer) {
-					bool ok = sendInputCommand(cmd, true);
-					(void)ok;
-				} else {
-					isExecutingLockstepCommand = true;
-					executeInputCommand(cmd);
-					isExecutingLockstepCommand = false;
-				}
+				// Route via lockstep in all modes so singleplayer gets a proper Command ID
+				sendInputCommand(cmd, true);
 			} else if (btnPull.inside(mouseX, mouseY)) {
 				InputCommandPacket cmd = {};
 				cmd.type = PKT_INPUT_COMMAND;
@@ -20045,14 +19965,8 @@ void ofApp::processCardStateInput(int mouseX, int mouseY, int button) {
 				cmd.params[1] = interactionTargetIndex;
 				cmd.params[2] = 2; // pull
 				cmd.params[3] = interactingCardIndex;
-				if (isMultiplayer) {
-					bool ok = sendInputCommand(cmd, true);
-					(void)ok;
-				} else {
-					isExecutingLockstepCommand = true;
-					executeInputCommand(cmd);
-					isExecutingLockstepCommand = false;
-				}
+				// Route via lockstep in all modes so singleplayer gets a proper Command ID
+				sendInputCommand(cmd, true);
 			}
 			break;
 		}
