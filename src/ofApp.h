@@ -341,6 +341,7 @@ enum class EffectOpType : uint8_t {
 	APPLY_CHAIN_LIGHTNING_DAMAGE,
 	APPLY_CHAIN_LIGHTNING_DAMAGE_RESOLVE,
 	APPLY_MAGIC_HAND_DAMAGE,
+	APPLY_VAMPIRE_BITE_RESOLVE,
 	APPLY_FLAIL_DAMAGE_RESOLVE,
 	APPLY_EARTHQUAKE,
 	APPLY_EARTHQUAKE_DAMAGE,
@@ -466,6 +467,13 @@ struct EffectOp {
 		SpawnUnitData spawnUnit;
 		CreateWallData createWall;
 		SpawnPlayerData spawnPlayer;
+		// Vampire bite resolver: compare pre-damage HP and queue follow-up ops
+		struct {
+			int targetIndex;
+			int preHP;
+			int healAmount;
+			int addCardType; // CardType enum or -1
+		} vampireResolve;
 	} data;
 
 	// Visual wait state (not serialized to network, computed locally)

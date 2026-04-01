@@ -169,8 +169,8 @@ void ofApp::startInitiativePhase() {
 	{
 		EffectOp ap = {};
 		ap.type = EffectOpType::APPLY_INITIATIVE_REROLL;
-		queueEffect(ap);
 		if (!isProcessingEffect) beginEffectSequence();
+		queueEffect(ap);
 	}
 
 	ofLogNotice("Game") << "--- INITIATIVE ROLL STARTED ---";
@@ -462,6 +462,7 @@ int ofApp::applyDamageWithMitigations(Player & target, int baseDamage, DamageTyp
 			op.data.modifyStat.statType = statType;
 			op.data.modifyStat.delta = -a;
 			op.data.modifyStat.deltaFromSlot = -1;
+			// Queue stat modification so all state changes go through the effect sequence
 			processEffectOp(op);
 		} else {
 			// Fallback: modify directly
@@ -504,6 +505,7 @@ int ofApp::applyDamageWithMitigations(Player & target, int baseDamage, DamageTyp
 			hp.data.modifyStat.statType = 0; // HP
 			hp.data.modifyStat.delta = -remaining;
 			hp.data.modifyStat.deltaFromSlot = -1;
+			// Queue HP change to ensure deterministic ordering through the effect pipeline
 			processEffectOp(hp);
 		} else {
 			target.health -= remaining;
@@ -523,7 +525,7 @@ int ofApp::applyDamageWithMitigations(Player & target, int baseDamage, DamageTyp
 				rm.data.status.targetIndex = targetIndex;
 				rm.data.status.statusType = STATUS_TORTOISE_FORM;
 				rm.data.status.duration = 0;
-				queueEffect(rm);
+				processEffectOp(rm);
 				target.tortoiseDamageTaken = 0;
 				target.discardPile.push_back(target.tortoiseFormCard);
 				queueFloatingTextVisual(gridToWorld(target.x, target.y) + glm::vec3(0, 0.5f, 0), "Form Ended!", ofColor::darkGreen);
@@ -537,7 +539,7 @@ int ofApp::applyDamageWithMitigations(Player & target, int baseDamage, DamageTyp
 				rm.data.status.targetIndex = targetIndex;
 				rm.data.status.statusType = STATUS_GHOST_FORM;
 				rm.data.status.duration = 0;
-				queueEffect(rm);
+				processEffectOp(rm);
 				target.ghostDamageTaken = 0;
 				target.discardPile.push_back(target.ghostFormCard);
 				queueFloatingTextVisual(gridToWorld(target.x, target.y) + glm::vec3(0, 0.5f, 0), "Ghost Form Broken!", ofColor::white);
@@ -548,7 +550,7 @@ int ofApp::applyDamageWithMitigations(Player & target, int baseDamage, DamageTyp
 					killOp.data.modifyStat.statType = 0; // HP
 					killOp.data.modifyStat.delta = -players[targetIndex].health;
 					killOp.data.modifyStat.deltaFromSlot = -1;
-					queueEffect(killOp);
+					processEffectOp(killOp);
 					queueFloatingTextVisual(gridToWorld(target.x, target.y) + glm::vec3(0, 1.0f, 0), "Materialized in Wall!", ofColor::red);
 				}
 			}
@@ -670,7 +672,7 @@ void ofApp::applyDamageWithMitigationsQueued(Player & target, int baseDamage, Da
 			op.data.modifyStat.statType = statType;
 			op.data.modifyStat.delta = -a;
 			op.data.modifyStat.deltaFromSlot = -1;
-			queueEffect(op);
+			processEffectOp(op);
 		} else {
 			sourceRef -= a;
 		}
@@ -709,7 +711,7 @@ void ofApp::applyDamageWithMitigationsQueued(Player & target, int baseDamage, Da
 			hp.data.modifyStat.statType = 0; // HP
 			hp.data.modifyStat.delta = -remaining;
 			hp.data.modifyStat.deltaFromSlot = -1;
-			queueEffect(hp);
+			processEffectOp(hp);
 		} else {
 			target.health -= remaining;
 		}
@@ -727,7 +729,7 @@ void ofApp::applyDamageWithMitigationsQueued(Player & target, int baseDamage, Da
 				rm.data.status.targetIndex = targetIndex;
 				rm.data.status.statusType = STATUS_TORTOISE_FORM;
 				rm.data.status.duration = 0;
-				queueEffect(rm);
+				processEffectOp(rm);
 				target.tortoiseDamageTaken = 0;
 				target.discardPile.push_back(target.tortoiseFormCard);
 				queueFloatingTextVisual(gridToWorld(target.x, target.y) + glm::vec3(0, 0.5f, 0), "Form Ended!", ofColor::darkGreen);
@@ -741,7 +743,7 @@ void ofApp::applyDamageWithMitigationsQueued(Player & target, int baseDamage, Da
 				rm.data.status.targetIndex = targetIndex;
 				rm.data.status.statusType = STATUS_GHOST_FORM;
 				rm.data.status.duration = 0;
-				queueEffect(rm);
+				processEffectOp(rm);
 				target.ghostDamageTaken = 0;
 				target.discardPile.push_back(target.ghostFormCard);
 				queueFloatingTextVisual(gridToWorld(target.x, target.y) + glm::vec3(0, 0.5f, 0), "Ghost Form Broken!", ofColor::white);
@@ -752,7 +754,7 @@ void ofApp::applyDamageWithMitigationsQueued(Player & target, int baseDamage, Da
 					killOp.data.modifyStat.statType = 0; // HP
 					killOp.data.modifyStat.delta = -players[targetIndex].health;
 					killOp.data.modifyStat.deltaFromSlot = -1;
-					queueEffect(killOp);
+					processEffectOp(killOp);
 					queueFloatingTextVisual(gridToWorld(target.x, target.y) + glm::vec3(0, 1.0f, 0), "Materialized in Wall!", ofColor::red);
 				}
 			}
@@ -1917,7 +1919,6 @@ void ofApp::setup() {
 				v *= scaleFactor;
 		}
 	}
-
 	// Coin Mesh Gen
 	coinMesh.clear();
 	coinMesh.setMode(OF_PRIMITIVE_TRIANGLES);
@@ -3965,224 +3966,158 @@ void ofApp::initialiseGameStateCommon() {
 //--------------------------------------------------------------
 void ofApp::updateGame() {
 
-	// === UPDATE CARD STATE MACHINE ===
-	updateCardStateMachine();
+	// Card state machine now runs in the fixed-step simulation tick for determinism
+
+	// Local helpers/state for Minion UI rebuild
+	std::vector<int> p0_minionIndices;
+	std::vector<int> p1_minionIndices;
+	float standardEntryHeight = 64.0f;
+	float gap = 8.0f;
+	float panelWidth = 240.0f;
+	int p0_skeleton = 0, p0_golem = 0, p0_wolf = 0, p0_hound = 0, p0_demon = 0, p0_kobold = 0, p0_wall = 0;
+	int p1_skeleton = 0, p1_golem = 0, p1_wolf = 0, p1_hound = 0, p1_demon = 0, p1_kobold = 0, p1_wall = 0;
+	float p0_topLimitY = 120.0f;
+	float p0_bottomLimitY = ofGetHeight() - 220.0f;
+	float p1_topLimitY = p0_topLimitY;
+	float p1_bottomLimitY = p0_bottomLimitY;
 
 	// --- REBUILD MINION UI EVERY FRAME ---
 	activeMinionUIs.clear();
-	// --- LUCK AURA RECALCULATION ---
-	// Keep temp luck accurate every frame
-	recalcTempLuck();
+	p0_minionIndices.clear();
+	p1_minionIndices.clear();
+	// (IMMEDIATE DEATH / NO-CARDS CHECK moved to simulationTick for determinism)
+	// Each player sees their own minions on the LEFT (p0) and opponent minions on the RIGHT (p1)
+	// This works for both host (player 0) and client (player 1)
+	for (int i = 0; i < (int)players.size(); ++i) {
+		if (!players[i].isMinion) continue;
+		int ownerID = players[i].ownerID;
+		bool isLocalPlayerMinion = (ownerID == myLocalPlayerID);
 
-	// Centralized processing of any waiting flags whose visuals have finished
-	processWaitingFlags();
-
-	// Cache latest main player deck/discard states for debug respawn tools
-	for (const auto & p : players) {
-		if (p.isMinion) continue;
-		if (p.playerID == 0) {
-			debugSavedP1Deck = p.deck;
-			debugSavedP1Discard = p.discardPile;
-			hasDebugSavedP1State = true;
-		} else if (p.playerID == 1) {
-			debugSavedP2Deck = p.deck;
-			debugSavedP2Discard = p.discardPile;
-			hasDebugSavedP2State = true;
+		if (isLocalPlayerMinion) {
+			p0_minionIndices.push_back(i); // My minions on LEFT
+		} else {
+			p1_minionIndices.push_back(i); // Opponent minions on RIGHT
 		}
 	}
 
-	// --- Update floating key animation (advance by real time, tied to game update loop) ---
-	if (!keyAnimSequence.empty() && !keyTextures.empty()) {
-		// Use base interval scaled by the selected preset multiplier
-		float effectiveInterval = keyAnimInterval * keyAnimSpeedPresets[std::clamp(keyAnimSpeedIndex, 0, (int)keyAnimSpeedPresets.size() - 1)];
-		keyAnimTimer += ofGetLastFrameTime();
-		if (keyAnimTimer >= effectiveInterval) {
-			keyAnimTimer -= effectiveInterval;
-			keyAnimSeqPos = (keyAnimSeqPos + 1) % (int)keyAnimSequence.size();
+	// 3. HELPER LAMBDA TO BUILD UI LIST (now handles scroll state)
+	auto buildMinionList = [&](const std::vector<int> & indices, float startX, float topLimit, float bottomLimit, int listSide, int & skelCount, int & golemCount, int & wolfCount, int & houndCount, int & demonCount, int & koboldCount, int & assistantCount, int & wallCount, int & faerieCount) {
+		float localAvailableHeight = bottomLimit - topLimit;
+		float actualEntryHeight = standardEntryHeight;
+		float actualGap = gap;
+		float totalRequiredHeight = indices.size() * (actualEntryHeight + actualGap);
+
+		float & scrollRef = (listSide == 0) ? p0_minionScroll : p1_minionScroll;
+		float maxScroll = std::max(0.0f, totalRequiredHeight - localAvailableHeight);
+		scrollRef = std::clamp(scrollRef, 0.0f, maxScroll);
+
+		if (listSide == 0) {
+			p0_minionTotalH = totalRequiredHeight;
+			p0_minionViewH = localAvailableHeight;
+			p0_minionTop = topLimit;
+			p0_minionLeft = startX;
+		} else {
+			p1_minionTotalH = totalRequiredHeight;
+			p1_minionViewH = localAvailableHeight;
+			p1_minionTop = topLimit;
+			p1_minionLeft = startX;
 		}
-	}
+		minionPanelW = panelWidth;
 
-	if (!players.empty()) {
-		float scale = ofGetHeight() / 1080.0f;
-		float panelWidth = 260 * scale;
-
-		// Standard (Max) size for a minion entry
-		float standardEntryHeight = 95 * scale;
-		float gap = 10 * scale;
-
-		// 1. DEFINE VERTICAL BOUNDARIES FOR EACH PLAYER
-		// Player 0 (left side): Below P1's HP bar (top left), above P0's AP counter (middle left)
-		// P0 AP center is at: ofGetHeight() - cardHeight - 20 - cardHeight - 20 - 60 = ofGetHeight() - ~546 * scale
-		// Luck text is above that, so bottom limit should be around ofGetHeight() - 600 * scale
-		// Minion UI region: occupy the vertical space from near top down to just above the local discard/AP area
-		// Compute a safe top margin so UI outlines/glow aren't clipped at the very top
-		float topSafe = std::max(20.0f * scale, (6.0f + 2.0f + 3.0f) * scale);
-		float p0_topLimitY = topSafe; // near top of screen
-		// Allow minion UI to extend slightly closer to the AP/discard area (smaller gap)
-		float p0_bottomLimitY = std::max(p0_topLimitY + 50.0f * scale, p0_discardRect.y - (30.0f * scale)); // stop above local discard/AP
-		// Avoid overlapping the AP counter: estimate AP top and clamp bottom limit
-		{
-			float estimatedAPHeight = (titleFont.getLineHeight() * scale) + (20.0f * scale);
-			float estimatedAPTop = p0_discardRect.y - (10.0f * scale) - estimatedAPHeight;
-			// Reduce buffer so minion UI can extend a little further downward
-			p0_bottomLimitY = std::min(p0_bottomLimitY, estimatedAPTop - (3.0f * scale));
-		}
-
-		// Player 1 (right side): Below P1's AP counter (and luck text), above P0's HP bar
-		// P1 AP center is at: 20 + cardHeight + 20 + cardHeight + 60 = ~546 * scale
-		// Plus half AP box height (~40) + luck text = ~620 * scale minimum
-		// Opponent minion region mirrored on right side: top area down to just above opponent discard/AP
-		float p1_topLimitY = topSafe;
-		float p1_bottomLimitY = std::max(p1_topLimitY + 50.0f * scale, p1_discardRect.y - (30.0f * scale));
-		// Mirror for opponent AP box
-		{
-			float estimatedAPHeight = (titleFont.getLineHeight() * scale) + (20.0f * scale);
-			float estimatedAPTop = p1_discardRect.y - (10.0f * scale) - estimatedAPHeight;
-			// Mirror the reduced buffer for the opponent side as well
-			p1_bottomLimitY = std::min(p1_bottomLimitY, estimatedAPTop - (3.0f * scale));
-		}
-
-		// 2. SEPARATE MINIONS BY OWNER (Accounting for perspective in multiplayer)
-		std::vector<int> p0_minionIndices;
-		std::vector<int> p1_minionIndices;
-		// Counters for minion types
-		int p0_skeleton = 0, p0_golem = 0, p0_wolf = 0, p0_hound = 0, p0_demon = 0, p0_kobold = 0, p0_wall = 0;
-		int p1_skeleton = 0, p1_golem = 0, p1_wolf = 0, p1_hound = 0, p1_demon = 0, p1_kobold = 0, p1_wall = 0;
-
-		for (int i = 0; i < (int)players.size(); i++) {
-			if (players[i].isMinion) {
-				// Each player sees their own minions on the LEFT (p0) and opponent minions on the RIGHT (p1)
-				// This works for both host (player 0) and client (player 1)
-				int ownerID = players[i].ownerID;
-				bool isLocalPlayerMinion = (ownerID == myLocalPlayerID);
-
-				if (isLocalPlayerMinion) {
-					p0_minionIndices.push_back(i); // My minions on LEFT
-				} else {
-					p1_minionIndices.push_back(i); // Opponent minions on RIGHT
-				}
-			}
-		}
-
-		// 3. HELPER LAMBDA TO BUILD UI LIST (now handles scroll state)
-		auto buildMinionList = [&](const std::vector<int> & indices, float startX, float topLimit, float bottomLimit, int listSide, int & skelCount, int & golemCount, int & wolfCount, int & houndCount, int & demonCount, int & koboldCount, int & assistantCount, int & wallCount, int & faerieCount) {
-			float localAvailableHeight = bottomLimit - topLimit;
-			float actualEntryHeight = standardEntryHeight;
-			float actualGap = gap;
-			float totalRequiredHeight = indices.size() * (actualEntryHeight + actualGap);
-
-			float & scrollRef = (listSide == 0) ? p0_minionScroll : p1_minionScroll;
-			float maxScroll = std::max(0.0f, totalRequiredHeight - localAvailableHeight);
-			scrollRef = std::clamp(scrollRef, 0.0f, maxScroll);
-
-			if (listSide == 0) {
-				p0_minionTotalH = totalRequiredHeight;
-				p0_minionViewH = localAvailableHeight;
-				p0_minionTop = topLimit;
-				p0_minionLeft = startX;
-			} else {
-				p1_minionTotalH = totalRequiredHeight;
-				p1_minionViewH = localAvailableHeight;
-				p1_minionTop = topLimit;
-				p1_minionLeft = startX;
-			}
-			minionPanelW = panelWidth;
-
-			// Auto-scroll check for active unit
-			if (currentPlayerIndex != lastAutoScrollTurnUnit && currentPlayerIndex >= 0) {
-				for (size_t i = 0; i < indices.size(); ++i) {
-					if (indices[i] == currentPlayerIndex) {
-						float targetY = i * (actualEntryHeight + actualGap);
-						if (targetY < scrollRef) {
-							scrollRef = targetY;
-						} else if (targetY + actualEntryHeight > scrollRef + localAvailableHeight) {
-							scrollRef = targetY + actualEntryHeight - localAvailableHeight;
-						}
-						break;
-					}
-				}
-			}
-
-			// Auto-scroll check for hovered unit
-			if (this->hoveredUnitIndex != lastHoveredUnit && this->hoveredUnitIndex >= 0) {
-				for (size_t i = 0; i < indices.size(); ++i) {
-					if (indices[i] == this->hoveredUnitIndex) {
-						float targetY = i * (actualEntryHeight + actualGap);
-						if (targetY < scrollRef) {
-							scrollRef = targetY;
-						} else if (targetY + actualEntryHeight > scrollRef + localAvailableHeight) {
-							scrollRef = targetY + actualEntryHeight - localAvailableHeight;
-						}
-						break;
-					}
-				}
-			}
-
-			// B. Create UIs
+		// Auto-scroll check for active unit
+		if (currentPlayerIndex != lastAutoScrollTurnUnit && currentPlayerIndex >= 0) {
 			for (size_t i = 0; i < indices.size(); ++i) {
-				int pIndex = indices[i];
-				MinionUI ui;
-				ui.playerIndex = pIndex;
-				ui.displayNumber = 0;
-
-				if (players[pIndex].isSkeleton)
-					ui.displayNumber = ++skelCount;
-				else if (players[pIndex].isGolem)
-					ui.displayNumber = ++golemCount;
-				else if (players[pIndex].isWolf)
-					ui.displayNumber = ++wolfCount;
-				else if (players[pIndex].isHellhound)
-					ui.displayNumber = ++houndCount;
-				else if (players[pIndex].isDemon)
-					ui.displayNumber = ++demonCount;
-				else if (players[pIndex].isAssistant)
-					ui.displayNumber = ++assistantCount;
-				else if (players[pIndex].isKoboldKing)
-					ui.displayNumber = ++koboldCount;
-				else if (players[pIndex].isKobold)
-					ui.displayNumber = ++koboldCount;
-				else if (players[pIndex].isWallUnit)
-					ui.displayNumber = ++wallCount;
-				else if (players[pIndex].isFaerie)
-					ui.displayNumber = ++faerieCount;
-
-				float currentY = topLimit - scrollRef + (i * (actualEntryHeight + actualGap));
-
-				ui.bounds.set(startX, currentY, panelWidth, actualEntryHeight);
-
-				// Pre-calculate deck and discard rects for hover detection
-				// These will be refined during the draw phase, but we need them now for mouseMoved checks
-				float cardAspectRatio = 585.0f / 409.0f; // cardBackImage aspect ratio
-				float iconMargin = 8.0f;
-				float iconHeight = ui.bounds.height - (iconMargin * 2);
-				float iconWidth = iconHeight * cardAspectRatio;
-				float iconsY = ui.bounds.y + iconMargin;
-				ui.discardRect.set(ui.bounds.getRight() - (iconWidth + iconMargin), iconsY, iconWidth, iconHeight);
-				ui.deckRect.set(ui.bounds.getRight() - (iconWidth * 2 + iconMargin + 5), iconsY, iconWidth, iconHeight);
-
-				activeMinionUIs.push_back(ui);
+				if (indices[i] == currentPlayerIndex) {
+					float targetY = i * (actualEntryHeight + actualGap);
+					if (targetY < scrollRef) {
+						scrollRef = targetY;
+					} else if (targetY + actualEntryHeight > scrollRef + localAvailableHeight) {
+						scrollRef = targetY + actualEntryHeight - localAvailableHeight;
+					}
+					break;
+				}
 			}
-		};
-
-		// 4. BUILD LISTS WITH PLAYER-SPECIFIC BOUNDARIES
-		// Align local minion panel to the local discard's left edge.
-		float p0_startX = p0_discardRect.x;
-		int p0_assistant = 0;
-		int p0_faerie = 0;
-		buildMinionList(p0_minionIndices, p0_startX, p0_topLimitY, p0_bottomLimitY, 0, p0_skeleton, p0_golem, p0_wolf, p0_hound, p0_demon, p0_kobold, p0_assistant, p0_wall, p0_faerie);
-
-		// Mirror on enemy side: align panel right edge to enemy discard right edge.
-		float p1_startX = p1_discardRect.getRight() - panelWidth;
-		int p1_assistant = 0;
-		int p1_faerie = 0;
-		buildMinionList(p1_minionIndices, p1_startX, p1_topLimitY, p1_bottomLimitY, 1, p1_skeleton, p1_golem, p1_wolf, p1_hound, p1_demon, p1_kobold, p1_assistant, p1_wall, p1_faerie);
-
-		if (currentPlayerIndex != lastAutoScrollTurnUnit) {
-			lastAutoScrollTurnUnit = currentPlayerIndex;
 		}
-		if (this->hoveredUnitIndex != lastHoveredUnit) {
-			lastHoveredUnit = this->hoveredUnitIndex;
+
+		// Auto-scroll check for hovered unit
+		if (this->hoveredUnitIndex != lastHoveredUnit && this->hoveredUnitIndex >= 0) {
+			for (size_t i = 0; i < indices.size(); ++i) {
+				if (indices[i] == this->hoveredUnitIndex) {
+					float targetY = i * (actualEntryHeight + actualGap);
+					if (targetY < scrollRef) {
+						scrollRef = targetY;
+					} else if (targetY + actualEntryHeight > scrollRef + localAvailableHeight) {
+						scrollRef = targetY + actualEntryHeight - localAvailableHeight;
+					}
+					break;
+				}
+			}
 		}
+
+		// B. Create UIs
+		for (size_t i = 0; i < indices.size(); ++i) {
+			int pIndex = indices[i];
+			MinionUI ui;
+			ui.playerIndex = pIndex;
+			ui.displayNumber = 0;
+
+			if (players[pIndex].isSkeleton)
+				ui.displayNumber = ++skelCount;
+			else if (players[pIndex].isGolem)
+				ui.displayNumber = ++golemCount;
+			else if (players[pIndex].isWolf)
+				ui.displayNumber = ++wolfCount;
+			else if (players[pIndex].isHellhound)
+				ui.displayNumber = ++houndCount;
+			else if (players[pIndex].isDemon)
+				ui.displayNumber = ++demonCount;
+			else if (players[pIndex].isAssistant)
+				ui.displayNumber = ++assistantCount;
+			else if (players[pIndex].isKoboldKing)
+				ui.displayNumber = ++koboldCount;
+			else if (players[pIndex].isKobold)
+				ui.displayNumber = ++koboldCount;
+			else if (players[pIndex].isWallUnit)
+				ui.displayNumber = ++wallCount;
+			else if (players[pIndex].isFaerie)
+				ui.displayNumber = ++faerieCount;
+
+			float currentY = topLimit - scrollRef + (i * (actualEntryHeight + actualGap));
+
+			ui.bounds.set(startX, currentY, panelWidth, actualEntryHeight);
+
+			// Pre-calculate deck and discard rects for hover detection
+			// These will be refined during the draw phase, but we need them now for mouseMoved checks
+			float cardAspectRatio = 585.0f / 409.0f; // cardBackImage aspect ratio
+			float iconMargin = 8.0f;
+			float iconHeight = ui.bounds.height - (iconMargin * 2);
+			float iconWidth = iconHeight * cardAspectRatio;
+			float iconsY = ui.bounds.y + iconMargin;
+			ui.discardRect.set(ui.bounds.getRight() - (iconWidth + iconMargin), iconsY, iconWidth, iconHeight);
+			ui.deckRect.set(ui.bounds.getRight() - (iconWidth * 2 + iconMargin + 5), iconsY, iconWidth, iconHeight);
+
+			activeMinionUIs.push_back(ui);
+		}
+	};
+
+	// 4. BUILD LISTS WITH PLAYER-SPECIFIC BOUNDARIES
+	// Align local minion panel to the local discard's left edge.
+	float p0_startX = p0_discardRect.x;
+	int p0_assistant = 0;
+	int p0_faerie = 0;
+	buildMinionList(p0_minionIndices, p0_startX, p0_topLimitY, p0_bottomLimitY, 0, p0_skeleton, p0_golem, p0_wolf, p0_hound, p0_demon, p0_kobold, p0_assistant, p0_wall, p0_faerie);
+
+	// Mirror on enemy side: align panel right edge to enemy discard right edge.
+	float p1_startX = p1_discardRect.getRight() - panelWidth;
+	int p1_assistant = 0;
+	int p1_faerie = 0;
+	buildMinionList(p1_minionIndices, p1_startX, p1_topLimitY, p1_bottomLimitY, 1, p1_skeleton, p1_golem, p1_wolf, p1_hound, p1_demon, p1_kobold, p1_assistant, p1_wall, p1_faerie);
+
+	if (currentPlayerIndex != lastAutoScrollTurnUnit) {
+		lastAutoScrollTurnUnit = currentPlayerIndex;
+	}
+	if (this->hoveredUnitIndex != lastHoveredUnit) {
+		lastHoveredUnit = this->hoveredUnitIndex;
 	}
 	// --- END MINION UI REBUILD ---
 
@@ -4272,15 +4207,42 @@ void ofApp::updateGame() {
 						ofLogNotice("Timer") << "Draft timer expired with " << selectedDraftIndices.size() << " cards selected. Auto-accepting.";
 						draftAcceptLocked = true;
 					} else if ((int)selectedDraftIndices.size() < requiredPicks) {
-						const std::vector<Card> * pool = &class1Cards;
-						if (currentDraftClassTier == 2) pool = &class2Cards;
-						// Randomly pick
-						int picks = requiredPicks;
-						for (int i = 0; i < picks; ++i) {
-							int pickIdx = (int)(gameplayRNG() % pool->size());
-							selectedDraftIndices.push_back(pickIdx);
+						// Deterministic auto-pick on timeout: pick the first available
+						// options from `currentDraftOptionPoolIndices` to avoid consuming RNG.
+						int numNeedToPick = requiredPicks - (int)selectedDraftIndices.size();
+						for (int i = 0; i < numNeedToPick; ++i) {
+							if (currentDraftOptionPoolIndices.empty()) break;
+							int poolIdx = currentDraftOptionPoolIndices[i % currentDraftOptionPoolIndices.size()];
+
+							bool alreadySelected = false;
+							for (int sel : selectedDraftIndices) {
+								if (sel == poolIdx) {
+									alreadySelected = true;
+									break;
+								}
+							}
+							if (!alreadySelected) selectedDraftIndices.push_back(poolIdx);
 						}
+						ofLogNotice("Timer") << "Draft timer expired. Auto-picked " << (int)selectedDraftIndices.size() << " options.";
 						draftAcceptLocked = true;
+
+						// Publish authoritative accept via deterministic lockstep command
+						InputCommandPacket cmd = {};
+						cmd.type = PKT_INPUT_COMMAND;
+						cmd.playerID = myLocalPlayerID;
+						cmd.commandId = nextCommandId++;
+						cmd.turnNumber = globalTurnCounter;
+						cmd.commandType = CMD_ACCEPT_DRAFT;
+						cmd.params[0] = draftPlayerIndex;
+						cmd.params[1] = currentDraftClassTier;
+						cmd.params[2] = (!isInGameDraft && draftStage == 0) ? 2 : 1;
+						cmd.params[3] = cmd.params[4] = cmd.params[5] = -1;
+						for (int i = 0; i < std::min(3, (int)selectedDraftIndices.size()); ++i) {
+							cmd.params[3 + i] = selectedDraftIndices[i];
+						}
+						// Queue and send so lockstep advances identically
+						bool ok = sendInputCommand(cmd, true);
+						if (!ok) ofLogWarning("Network") << "Auto-accept draft send failed (no connection).";
 					}
 				} else {
 					// Auto-end-turn during gameplay
@@ -4502,37 +4464,6 @@ void ofApp::updateGame() {
 	// resolved at decision-time and stored in the effect sequence blackboard.
 	// Flail, Spark of Genius, and Barrier resolution migrated to effect/op pipeline (APPLY_* handlers)
 	// Status resolution is handled by EffectOp handlers; no per-frame resolve calls here.
-
-	// --- KOBOLD KING DYNAMIC HP LOGIC ---
-	// 1. Count current Kobolds
-	int globalKoboldCount = 0;
-	for (const auto & p : players) {
-		if (p.isKobold && p.health > 0) globalKoboldCount++;
-	}
-
-	// 2. Update Kings
-	for (auto & p : players) {
-		if (p.isKoboldKing) {
-			int newMax = globalKoboldCount + 1;
-
-			// Only update if changed
-			if (p.maxHealth != newMax) {
-				p.maxHealth = newMax;
-				// If health is now higher than max, clamp it down.
-				// Do NOT heal up if max increases.
-				if (p.health > p.maxHealth) {
-					int idx = (int)(&p - &players[0]);
-					EffectOp op = {};
-					op.type = EffectOpType::MODIFY_STAT;
-					op.data.modifyStat.targetIndex = idx;
-					op.data.modifyStat.statType = 0; // HP
-					op.data.modifyStat.delta = p.maxHealth - p.health;
-					op.data.modifyStat.deltaFromSlot = -1;
-					processEffectOp(op);
-				}
-			}
-		}
-	}
 
 	// --- MAGIC BLAST RESOLUTION ---
 	// NOTE: Magic Blast range/target resolution is now centralized
@@ -5021,7 +4952,8 @@ void ofApp::updateGame() {
 							apOp.data.modifyStat.statType = 3; // AP (current)
 							apOp.data.modifyStat.delta = deltaAP;
 							apOp.data.modifyStat.deltaFromSlot = -1;
-							processEffectOp(apOp);
+							queueEffect(apOp);
+							if (!isProcessingEffect) beginEffectSequence();
 						}
 
 						if (players[currentPlayerIndex].nextTurnAPBonus > 0) {
@@ -5032,7 +4964,8 @@ void ofApp::updateGame() {
 							bonusOp.data.modifyStat.statType = 11; // Next-turn AP bonus
 							bonusOp.data.modifyStat.delta = -bonus; // consume
 							bonusOp.data.modifyStat.deltaFromSlot = -1;
-							processEffectOp(bonusOp);
+							queueEffect(bonusOp);
+							if (!isProcessingEffect) beginEffectSequence();
 						}
 
 						// Sync AP to player struct
@@ -5727,7 +5660,8 @@ void ofApp::updateGame() {
 										op.data.modifyStat.statType = 7; // HolyBlock
 										op.data.modifyStat.delta = -prev;
 										op.data.modifyStat.deltaFromSlot = -1;
-										processEffectOp(op);
+										queueEffect(op);
+										if (!isProcessingEffect) beginEffectSequence();
 									}
 								}
 								dying.luck = 0;
@@ -5737,7 +5671,8 @@ void ofApp::updateGame() {
 									op.data.status.targetIndex = (int)i;
 									op.data.status.statusType = STATUS_REPLICATE_QUEUED;
 									op.data.status.duration = 0;
-									processEffectOp(op);
+									queueEffect(op);
+									if (!isProcessingEffect) beginEffectSequence();
 								}
 								dying.nextTurnAPBonus = 0;
 								dying.shocksPlayedThisTurn = 0;
@@ -5748,7 +5683,8 @@ void ofApp::updateGame() {
 									op.data.status.targetIndex = (int)i;
 									op.data.status.statusType = STATUS_ADD_POISON;
 									op.data.status.duration = 0;
-									processEffectOp(op);
+									queueEffect(op);
+									if (!isProcessingEffect) beginEffectSequence();
 								}
 								dying.nextTurnD10AP = false;
 								dying.nextTurnExtraDraw = false;
@@ -5760,7 +5696,8 @@ void ofApp::updateGame() {
 									op.data.status.targetIndex = (int)i;
 									op.data.status.statusType = STATUS_TORTOISE_FORM;
 									op.data.status.duration = 0;
-									processEffectOp(op);
+									queueEffect(op);
+									if (!isProcessingEffect) beginEffectSequence();
 								}
 								dying.tortoiseDamageTaken = 0;
 								dying.tortoiseAccumulatedDamage = 0;
@@ -5770,7 +5707,8 @@ void ofApp::updateGame() {
 									op.data.status.targetIndex = (int)i;
 									op.data.status.statusType = STATUS_GHOST_FORM;
 									op.data.status.duration = 0;
-									processEffectOp(op);
+									queueEffect(op);
+									if (!isProcessingEffect) beginEffectSequence();
 								}
 								dying.ghostDamageTaken = 0;
 								dying.cardsPlayedThisTurn.clear();
@@ -14100,7 +14038,7 @@ void ofApp::startNewTurn() {
 					rmPoisonBuff.data.status.targetIndex = (int)i;
 					rmPoisonBuff.data.status.statusType = STATUS_ADD_POISON;
 					rmPoisonBuff.data.status.duration = 0;
-					queueEffect(rmPoisonBuff);
+					processEffectOp(rmPoisonBuff);
 				}
 				// nextAttackAddPoison will be cleared when the REMOVE_STATUS op is processed
 				localPlayer.flurryOfFistsStacks = 0;
@@ -14114,7 +14052,8 @@ void ofApp::startNewTurn() {
 					EffectOp rs = {};
 					rs.type = EffectOpType::RESHUFFLE_DISCARD_TO_DECK;
 					rs.data.reshuffle.targetIndex = (int)i;
-					processEffectOp(rs);
+					queueEffect(rs);
+					if (!isProcessingEffect) beginEffectSequence();
 				}
 
 				// Decrement buff timers
@@ -14193,7 +14132,8 @@ void ofApp::startNewTurn() {
 			rm.data.status.targetIndex = currentPlayerIndex;
 			rm.data.status.statusType = STATUS_ADD_POISON;
 			rm.data.status.duration = 0;
-			processEffectOp(rm);
+			queueEffect(rm);
+			if (!isProcessingEffect) beginEffectSequence();
 		}
 		endingPlayer.flurryOfFistsStacks = 0; // Clear flurry buff at end of turn
 
@@ -14204,7 +14144,8 @@ void ofApp::startNewTurn() {
 			EffectOp rs = {};
 			rs.type = EffectOpType::RESHUFFLE_DISCARD_TO_DECK;
 			rs.data.reshuffle.targetIndex = currentPlayerIndex;
-			processEffectOp(rs);
+			queueEffect(rs);
+			if (!isProcessingEffect) beginEffectSequence();
 		}
 
 		// Decrement buff timers
@@ -14452,7 +14393,8 @@ void ofApp::startNewTurn() {
 			op.data.modifyStat.statType = 5; // Block
 			op.data.modifyStat.delta = -startingPlayer.block;
 			op.data.modifyStat.deltaFromSlot = -1;
-			processEffectOp(op);
+			queueEffect(op);
+			if (!isProcessingEffect) beginEffectSequence();
 		}
 		if (startingPlayer.holyBlock > 0) {
 			EffectOp op = {};
@@ -14461,7 +14403,8 @@ void ofApp::startNewTurn() {
 			op.data.modifyStat.statType = 7; // HolyBlock
 			op.data.modifyStat.delta = -startingPlayer.holyBlock;
 			op.data.modifyStat.deltaFromSlot = -1;
-			processEffectOp(op);
+			queueEffect(op);
+			if (!isProcessingEffect) beginEffectSequence();
 		}
 		if (startingPlayer.ward > 0) {
 			EffectOp op = {};
@@ -14470,7 +14413,8 @@ void ofApp::startNewTurn() {
 			op.data.modifyStat.statType = 8; // Ward
 			op.data.modifyStat.delta = -startingPlayer.ward;
 			op.data.modifyStat.deltaFromSlot = -1;
-			processEffectOp(op);
+			queueEffect(op);
+			if (!isProcessingEffect) beginEffectSequence();
 		}
 		if (startingPlayer.fortification > 0) {
 			EffectOp op = {};
@@ -14479,7 +14423,8 @@ void ofApp::startNewTurn() {
 			op.data.modifyStat.statType = 13; // Fortification
 			op.data.modifyStat.delta = -startingPlayer.fortification;
 			op.data.modifyStat.deltaFromSlot = -1;
-			processEffectOp(op);
+			queueEffect(op);
+			if (!isProcessingEffect) beginEffectSequence();
 		}
 		if (startingPlayer.barrier > 0) {
 			EffectOp op = {};
@@ -14488,7 +14433,8 @@ void ofApp::startNewTurn() {
 			op.data.modifyStat.statType = 6; // Barrier
 			op.data.modifyStat.delta = -startingPlayer.barrier;
 			op.data.modifyStat.deltaFromSlot = -1;
-			processEffectOp(op);
+			queueEffect(op);
+			if (!isProcessingEffect) beginEffectSequence();
 		}
 	}
 
@@ -15554,6 +15500,34 @@ void ofApp::handleCardMenuClick(const std::string & buttonId) {
 		break;
 	}
 
+	case CARD_MAGIC_BLAST: {
+		// Menu choice execution must not rely on local mouse coords when running
+		// as a lockstep command; use the provided `buttonId` and `interactionTargetIndex`.
+		if (buttonId == "damage") {
+			beginEffectSequence();
+			EffectOp dmg = {};
+			dmg.type = EffectOpType::DAMAGE;
+			dmg.data.damage.targetIndex = interactionTargetIndex;
+			dmg.data.damage.damageType = DAMAGE_MAGIC;
+			dmg.data.damage.fixedDamage = 5;
+			dmg.data.damage.damageFromSlot = -1;
+			queueEffect(dmg);
+			advanceCardState(CARD_STATE_EFFECT_SEQUENCE);
+		} else if (buttonId == "discard") {
+			beginEffectSequence();
+			EffectOp rem = {};
+			rem.type = EffectOpType::REMOVE_TOP_CARD_FROM_DECK;
+			rem.data.removeTopCard.targetIndex = interactionTargetIndex;
+			queueEffect(rem);
+			advanceCardState(CARD_STATE_EFFECT_SEQUENCE);
+		}
+		currentAP -= card.cost;
+		updatePlayerAP(caster, currentAP);
+		finishPlayCard(caster, card, interactingCardIndex);
+		resetCardInteraction();
+		break;
+	}
+
 	case CARD_DOUBLE_HANDED: {
 		if (buttonId == "Punch" || buttonId == "Block") {
 			std::string cardName = (buttonId == "Punch") ? "Punch" : "Hand Block";
@@ -16150,7 +16124,8 @@ void ofApp::drawCard(bool sendPacket) {
 		EffectOp rs = {};
 		rs.type = EffectOpType::RESHUFFLE_DISCARD_TO_DECK;
 		rs.data.reshuffle.targetIndex = currentPlayerIndex;
-		processEffectOp(rs);
+		// Queue reshuffle so it is handled deterministically by the effect pipeline
+		queueEffect(rs);
 	}
 
 	// If some effect earlier marked the deck as "dirty" (cards were added without
@@ -16387,6 +16362,123 @@ void ofApp::simulationTick() {
 	// Update active effect sequence
 	if (isProcessingEffect && !currentEffectSequence.isComplete) {
 		updateEffectSequence();
+	}
+
+	// Deterministic card state machine and immediate death/no-cards checks
+	updateCardStateMachine();
+
+	// --- KOBOLD KING DYNAMIC HP LOGIC ---
+	// 1. Count current Kobolds
+	{
+		int globalKoboldCount = 0;
+		for (const auto & p : players) {
+			if (p.isKobold && p.health > 0) globalKoboldCount++;
+		}
+
+		// 2. Update Kings
+		for (auto & p : players) {
+			if (p.isKoboldKing) {
+				int newMax = globalKoboldCount + 1;
+
+				// Only update if changed
+				if (p.maxHealth != newMax) {
+					p.maxHealth = newMax;
+					// If health is now higher than max, clamp it down. Do NOT heal up if max increases.
+					if (p.health > p.maxHealth) {
+						int idx = (int)(&p - &players[0]);
+						EffectOp op = {};
+						op.type = EffectOpType::MODIFY_STAT;
+						op.data.modifyStat.targetIndex = idx;
+						op.data.modifyStat.statType = 0; // HP
+						op.data.modifyStat.delta = p.maxHealth - p.health;
+						op.data.modifyStat.deltaFromSlot = -1;
+						processEffectOp(op);
+					}
+				}
+			}
+		}
+	}
+
+	// --- IMMEDIATE DEATH / NO-CARDS CHECK ---
+	// Remove units instantly if they have 0 HP or no cards anywhere (deck+discard+hand)
+	std::vector<int> removeIndices;
+	for (size_t i = 0; i < players.size(); ++i) {
+		// Consider played cards as well when deciding "no cards" for main players.
+		bool noCards = players[i].deck.empty() && players[i].discardPile.empty() && players[i].hand.empty() && players[i].playedCardsPile.empty();
+		bool shouldDie = (players[i].health <= 0);
+
+		// If a unit (player or minion) truly has no cards anywhere (deck,
+		// discard, hand, or played pile), they should be removed.
+		if (noCards) {
+			shouldDie = true;
+		}
+
+		if (!shouldDie) continue;
+
+		// Attempt Faerie resurrection if applicable
+		Player & dying = players[i];
+		bool resurrected = false;
+		if (!dying.isFaerie && dying.x >= 0 && dying.y >= 0) {
+			// Check orthogonally-adjacent tiles for an alive Faerie.
+			for (int dx = -1; dx <= 1 && !resurrected; ++dx) {
+				for (int dy = -1; dy <= 1 && !resurrected; ++dy) {
+					if ((dx != 0 || dy != 0) && abs(dx) + abs(dy) == 1) {
+						int nx = dying.x + dx, ny = dying.y + dy;
+						if (nx < 0 || nx >= BOARD_WIDTH || ny < 0 || ny >= BOARD_HEIGHT) continue;
+						for (size_t pidx = 0; pidx < players.size() && !resurrected; ++pidx) {
+							Player & p = players[pidx];
+							if (p.isFaerie && p.x == nx && p.y == ny && p.health > 0) {
+								// Deterministic resurrection roll (decision-time via detailed resolver)
+								std::vector<int> rawRes;
+								int raw = resolveDiceRollDetailed(1, 4, rawRes);
+								int luckBonus = p.luck + computePassiveLuck((int)pidx);
+								int roll = raw + luckBonus; // may exceed 4; that's intentional
+								if (0 >= 0 && 0 < 16) currentEffectSequence.blackboard[0] = roll;
+								// Show dice visual for the faerie roll
+								queueVisualDiceRoll(gridToWorld(p.x, p.y) + glm::vec3(0, 1.0f, 0), 1, 4, rawRes, roll, PURPOSE_DEBUG, (int)pidx, 1.0f);
+								int hp = (int)std::floor(dying.maxHealth * 0.25f * roll);
+								if (hp < 1) hp = 1;
+								{
+									EffectOp setHp = {};
+									setHp.type = EffectOpType::MODIFY_STAT;
+									setHp.data.modifyStat.targetIndex = (int)i;
+									setHp.data.modifyStat.statType = 0; // HP
+									setHp.data.modifyStat.delta = hp - dying.health;
+									setHp.data.modifyStat.deltaFromSlot = -1;
+									queueEffect(setHp);
+									if (!isProcessingEffect) beginEffectSequence();
+								}
+								resurrected = true;
+							}
+						}
+					}
+				}
+			}
+		}
+
+		if (!resurrected) {
+			removeIndices.push_back((int)i);
+		}
+	}
+
+	// Remove recorded units (in reverse order)
+	for (int ri = (int)removeIndices.size() - 1; ri >= 0; --ri) {
+		int idx = removeIndices[ri];
+		if (idx < 0 || idx >= (int)players.size()) continue;
+		Player dying = players[idx];
+		// Record death marker for replay/analytics
+		DeathMarker death;
+		death.x = dying.x;
+		death.y = dying.y;
+		death.turnDied = globalTurnCounter;
+		death.deck = dying.deck;
+		graveyard.push_back(death);
+
+		board[dying.x][dying.y].hasPlayer = false;
+		players.erase(players.begin() + idx);
+		if (currentPlayerIndex >= idx) {
+			currentPlayerIndex = std::max(0, currentPlayerIndex - 1);
+		}
 	}
 
 	// Periodic checksum validation (every 10 simulation frames = ~166ms at 60Hz)
@@ -17160,7 +17252,8 @@ bool ofApp::processEffectOp(EffectOp & op) {
 			mvCaster.data.moveUnit.unitIndex = currentPlayerIndex;
 			mvCaster.data.moveUnit.toX = wallOldPos.x;
 			mvCaster.data.moveUnit.toY = wallOldPos.y;
-			processEffectOp(mvCaster);
+			// Queue caster move so it is handled by the effect sequence rather than recursively
+			queueEffect(mvCaster);
 		}
 
 		buildLevelMesh();
@@ -19165,9 +19258,26 @@ bool ofApp::processEffectOp(EffectOp & op) {
 		int playerIndex = op.data.drawCards.playerIndex;
 		int numCards = op.data.drawCards.numCards;
 		if (playerIndex >= 0 && playerIndex < (int)players.size()) {
+			int savedCurrent = currentPlayerIndex;
+			currentPlayerIndex = playerIndex;
 			for (int i = 0; i < numCards; i++) {
-				drawCard(playerIndex);
+				drawCard(false);
 			}
+			// Normalize hand visuals and flags similar to network command handling
+			Player & lp = players[playerIndex];
+			for (size_t idx = 0; idx < lp.hand.size(); ++idx) {
+				lp.hand[idx].currentScale = lp.hand[idx].currentScale; // keep consistent
+			}
+			lp.nextTurnExtraDraw = false;
+			lp.nextTurnExtraDrawSetOnCycle = -1;
+			if (lp.playerID == myLocalPlayerID) {
+				hasDrawnCardsThisTurn = true;
+				lp.hasDrawnThisTurn = true;
+			} else {
+				opponentHasDrawnCardsThisTurn = true;
+				lp.hasDrawnThisTurn = true;
+			}
+			currentPlayerIndex = savedCurrent;
 		}
 		opComplete = true;
 		break;
@@ -19389,6 +19499,42 @@ bool ofApp::processEffectOp(EffectOp & op) {
 		ofLogWarning("EffectOp") << "Unhandled effect type: " << (int)op.type;
 		opComplete = true;
 		break;
+	}
+
+	// Vampire bite resolver: check pre/post HP and queue follow-ups
+	if (op.type == EffectOpType::APPLY_VAMPIRE_BITE_RESOLVE) {
+		int tIdx = op.data.vampireResolve.targetIndex;
+		int preHP = op.data.vampireResolve.preHP;
+		int healAmt = op.data.vampireResolve.healAmount;
+		int addCardType = op.data.vampireResolve.addCardType;
+		if (tIdx >= 0 && tIdx < (int)players.size()) {
+			Player & tgt = players[tIdx];
+			int postHP = tgt.health;
+			int damageDealt = std::max(0, preHP - postHP);
+			if (damageDealt > 0) {
+				// Queue heal for caster (assumes currentPlayerIndex is the caster)
+				EffectOp healOp = {};
+				healOp.type = EffectOpType::HEAL;
+				healOp.data.heal.targetIndex = currentPlayerIndex;
+				healOp.data.heal.amount = healAmt;
+				healOp.data.heal.amountFromSlot = -1;
+				queueEffect(healOp);
+				// Queue add-card if requested
+				if (addCardType >= 0) {
+					EffectOp addOp = {};
+					addOp.type = EffectOpType::ADD_CARD_TO_DECK;
+					addOp.data.addCard.targetIndex = tIdx;
+					addOp.data.addCard.cardType = addCardType;
+					queueEffect(addOp);
+				}
+				// Record outcome for UI/inspection
+				currentCardOutcome.targetPlayerIndex = tIdx;
+				currentCardOutcome.damageDealt = damageDealt;
+				currentCardOutcome.healingDealt = healAmt;
+			}
+		}
+		opComplete = true;
+		return opComplete;
 	}
 
 	return opComplete;
@@ -21992,43 +22138,26 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 			damageOp.data.damage.damageType = DAMAGE_PHYSICAL;
 			damageOp.data.damage.fixedDamage = playedCard.value;
 			damageOp.data.damage.damageFromSlot = -1;
-			// Apply damage immediately here to compute outcome synchronously
-			processEffectOp(damageOp);
-			int hpAfter = target ? target->health : hpBefore;
-			bool healthHit = (hpAfter < hpBefore);
-			currentCardOutcome.targetPlayerIndex = targetIndex;
-			currentCardOutcome.damageDealt = std::max(0, hpBefore - hpAfter);
+			// Queue damage so it runs in the effect sequence (no recursion)
+			queueEffect(damageOp);
 
-			if (healthHit) {
-				// Queue a heal for caster
-				{
-					EffectOp healOp = {};
-					healOp.type = EffectOpType::HEAL;
-					healOp.data.heal.targetIndex = currentPlayerIndex;
-					healOp.data.heal.amount = 2;
-					healOp.data.heal.amountFromSlot = -1;
-					queueEffect(healOp);
-				}
-				currentCardOutcome.healingDealt = 2;
-
-				Card cardToAdd;
-				bool found = false;
-				for (const auto & c : allCards) {
-					if (c.type == CARD_VAMPIRE_BITE) {
-						cardToAdd = c;
-						found = true;
-						break;
-					}
-				}
-
-				if (found) {
-					EffectOp addOp = {};
-					addOp.type = EffectOpType::ADD_CARD_TO_DECK;
-					addOp.data.addCard.targetIndex = targetIndex;
-					addOp.data.addCard.cardType = (int)CARD_VAMPIRE_BITE;
-					queueEffect(addOp);
+			// Determine if a Vampire Bite card copy is available to add later
+			int addCardType = -1;
+			for (const auto & c : allCards) {
+				if (c.type == CARD_VAMPIRE_BITE) {
+					addCardType = (int)c.type;
+					break;
 				}
 			}
+
+			// Queue a resolver op that will check whether damage actually occurred
+			EffectOp vr = {};
+			vr.type = EffectOpType::APPLY_VAMPIRE_BITE_RESOLVE;
+			vr.data.vampireResolve.targetIndex = targetIndex;
+			vr.data.vampireResolve.preHP = hpBefore;
+			vr.data.vampireResolve.healAmount = 2;
+			vr.data.vampireResolve.addCardType = addCardType;
+			queueEffect(vr);
 
 			playedSuccessfully = true;
 			advanceCardState(CARD_STATE_EFFECT_SEQUENCE);
@@ -22192,7 +22321,7 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 		EffectOp drawOp = {};
 		drawOp.type = EffectOpType::DRAW_CARDS;
 		drawOp.data.drawCards.playerIndex = currentPlayerIndex;
-		drawOp.data.drawCards.numCards = 0;
+		drawOp.data.drawCards.numCards = 1;
 		// Draw count will be computed in the EffectSequence handler
 		queueEffect(drawOp);
 
@@ -27065,7 +27194,7 @@ bool ofApp::applyDamageTo(Player & target, int damage, DamageType type, int atta
 							int hp = (int)std::floor(target.maxHealth * 0.25f * roll);
 							if (hp < 1) hp = 1;
 
-							// Queue deterministic HP set and status removals
+							// Queue deterministic HP set and status removals (apply synchronously)
 							{
 								int tgtIdx = findPlayerIndexByID(target.playerID);
 								EffectOp setHp = {};
@@ -27074,7 +27203,7 @@ bool ofApp::applyDamageTo(Player & target, int damage, DamageType type, int atta
 								setHp.data.modifyStat.statType = 0; // HP
 								setHp.data.modifyStat.delta = hp - target.health;
 								setHp.data.modifyStat.deltaFromSlot = -1;
-								queueEffect(setHp);
+								processEffectOp(setHp);
 							}
 							// Remove transient statuses deterministically via effect ops
 							{
@@ -27083,7 +27212,7 @@ bool ofApp::applyDamageTo(Player & target, int damage, DamageType type, int atta
 								rm.data.status.targetIndex = (int)pidx; // index in players
 								rm.data.status.statusType = STATUS_ON_FIRE;
 								rm.data.status.duration = 0;
-								queueEffect(rm);
+								processEffectOp(rm);
 							}
 							// onFire will be cleared when the REMOVE_STATUS op is processed
 							{
@@ -27092,7 +27221,7 @@ bool ofApp::applyDamageTo(Player & target, int damage, DamageType type, int atta
 								rm.data.status.targetIndex = (int)pidx;
 								rm.data.status.statusType = STATUS_POISONED;
 								rm.data.status.duration = 0;
-								queueEffect(rm);
+								processEffectOp(rm);
 							}
 							// isPoisoned and poisonReduction will be cleared when the REMOVE_STATUS op is processed
 							{
@@ -27101,7 +27230,7 @@ bool ofApp::applyDamageTo(Player & target, int damage, DamageType type, int atta
 								rm.data.status.targetIndex = (int)pidx;
 								rm.data.status.statusType = STATUS_PARALYZED;
 								rm.data.status.duration = 0;
-								queueEffect(rm);
+								processEffectOp(rm);
 							}
 							// isParalyzed and paralysisHeadsCount will be cleared when the REMOVE_STATUS op is processed
 							// Clear some transient numeric stats via MODIFY_STAT ops so changes are deterministic
@@ -27113,35 +27242,35 @@ bool ofApp::applyDamageTo(Player & target, int damage, DamageType type, int atta
 								clearWard.data.modifyStat.statType = 8; // Ward
 								clearWard.data.modifyStat.delta = -target.ward;
 								clearWard.data.modifyStat.deltaFromSlot = -1;
-								queueEffect(clearWard);
+								processEffectOp(clearWard);
 								EffectOp clearBlock = {};
 								clearBlock.type = EffectOpType::MODIFY_STAT;
 								clearBlock.data.modifyStat.targetIndex = tgtIdx;
 								clearBlock.data.modifyStat.statType = 5; // Block
 								clearBlock.data.modifyStat.delta = -target.block;
 								clearBlock.data.modifyStat.deltaFromSlot = -1;
-								queueEffect(clearBlock);
+								processEffectOp(clearBlock);
 								EffectOp clearFort = {};
 								clearFort.type = EffectOpType::MODIFY_STAT;
 								clearFort.data.modifyStat.targetIndex = tgtIdx;
 								clearFort.data.modifyStat.statType = 13; // Fortification
 								clearFort.data.modifyStat.delta = -target.fortification;
 								clearFort.data.modifyStat.deltaFromSlot = -1;
-								queueEffect(clearFort);
+								processEffectOp(clearFort);
 								EffectOp clearBarrier = {};
 								clearBarrier.type = EffectOpType::MODIFY_STAT;
 								clearBarrier.data.modifyStat.targetIndex = tgtIdx;
 								clearBarrier.data.modifyStat.statType = 6; // Barrier
 								clearBarrier.data.modifyStat.delta = -target.barrier;
 								clearBarrier.data.modifyStat.deltaFromSlot = -1;
-								queueEffect(clearBarrier);
+								processEffectOp(clearBarrier);
 								EffectOp clearHoly = {};
 								clearHoly.type = EffectOpType::MODIFY_STAT;
 								clearHoly.data.modifyStat.targetIndex = tgtIdx;
 								clearHoly.data.modifyStat.statType = 7; // HolyBlock
 								clearHoly.data.modifyStat.delta = -target.holyBlock;
 								clearHoly.data.modifyStat.deltaFromSlot = -1;
-								queueEffect(clearHoly);
+								processEffectOp(clearHoly);
 							}
 							{
 								EffectOp rm = {};
@@ -27149,7 +27278,7 @@ bool ofApp::applyDamageTo(Player & target, int damage, DamageType type, int atta
 								rm.data.status.targetIndex = (int)pidx;
 								rm.data.status.statusType = STATUS_REPLICATE_QUEUED;
 								rm.data.status.duration = 0;
-								queueEffect(rm);
+								processEffectOp(rm);
 							}
 							// replicateQueued will be cleared when the REMOVE_STATUS op is processed
 							// Clear transient numeric flags deterministically via effect ops
@@ -27161,7 +27290,7 @@ bool ofApp::applyDamageTo(Player & target, int damage, DamageType type, int atta
 								clearNextAP.data.modifyStat.statType = 11; // Next-turn AP bonus
 								clearNextAP.data.modifyStat.delta = -target.nextTurnAPBonus;
 								clearNextAP.data.modifyStat.deltaFromSlot = -1;
-								queueEffect(clearNextAP);
+								processEffectOp(clearNextAP);
 
 								EffectOp clearShocks = {};
 								clearShocks.type = EffectOpType::MODIFY_STAT;
@@ -27169,7 +27298,7 @@ bool ofApp::applyDamageTo(Player & target, int damage, DamageType type, int atta
 								clearShocks.data.modifyStat.statType = 12; // Shocks played this turn
 								clearShocks.data.modifyStat.delta = -target.shocksPlayedThisTurn;
 								clearShocks.data.modifyStat.deltaFromSlot = -1;
-								queueEffect(clearShocks);
+								processEffectOp(clearShocks);
 
 								EffectOp clearFlurry = {};
 								clearFlurry.type = EffectOpType::MODIFY_STAT;
@@ -27177,7 +27306,7 @@ bool ofApp::applyDamageTo(Player & target, int damage, DamageType type, int atta
 								clearFlurry.data.modifyStat.statType = 14; // Flurry stacks
 								clearFlurry.data.modifyStat.delta = -target.flurryOfFistsStacks;
 								clearFlurry.data.modifyStat.deltaFromSlot = -1;
-								queueEffect(clearFlurry);
+								processEffectOp(clearFlurry);
 							}
 
 							// Remove next-turn and duration statuses deterministically
@@ -27187,7 +27316,7 @@ bool ofApp::applyDamageTo(Player & target, int damage, DamageType type, int atta
 								rm.data.status.targetIndex = (int)pidx;
 								rm.data.status.statusType = STATUS_ADD_POISON;
 								rm.data.status.duration = 0;
-								queueEffect(rm);
+								processEffectOp(rm);
 							}
 							{
 								EffectOp rm = {};
@@ -27195,7 +27324,7 @@ bool ofApp::applyDamageTo(Player & target, int damage, DamageType type, int atta
 								rm.data.status.targetIndex = (int)pidx;
 								rm.data.status.statusType = STATUS_NEXT_TURN_D10AP;
 								rm.data.status.duration = 0;
-								queueEffect(rm);
+								processEffectOp(rm);
 							}
 							{
 								EffectOp rm = {};
@@ -27203,7 +27332,7 @@ bool ofApp::applyDamageTo(Player & target, int damage, DamageType type, int atta
 								rm.data.status.targetIndex = (int)pidx;
 								rm.data.status.statusType = STATUS_NEXT_TURN_EXTRA_DRAW;
 								rm.data.status.duration = 0;
-								queueEffect(rm);
+								processEffectOp(rm);
 							}
 							{
 								EffectOp rm = {};
@@ -27211,7 +27340,7 @@ bool ofApp::applyDamageTo(Player & target, int damage, DamageType type, int atta
 								rm.data.status.targetIndex = (int)pidx;
 								rm.data.status.statusType = STATUS_NEXT_TURN_BONUS_DICE;
 								rm.data.status.duration = 0;
-								queueEffect(rm);
+								processEffectOp(rm);
 							}
 							{
 								EffectOp rm = {};
@@ -27219,7 +27348,7 @@ bool ofApp::applyDamageTo(Player & target, int damage, DamageType type, int atta
 								rm.data.status.targetIndex = (int)pidx;
 								rm.data.status.statusType = STATUS_STRENGTHEN_ELEMENTS;
 								rm.data.status.duration = 0;
-								queueEffect(rm);
+								processEffectOp(rm);
 							}
 							{
 								EffectOp rm = {};
