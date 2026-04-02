@@ -173,25 +173,13 @@ void ofApp::startInitiativePhase() {
 	// Initiative visuals: authoritative resolver + visuals (no game-state mutation here)
 	{
 		std::vector<int> raw1;
-		int r1;
-		r1 = resolveDiceRollDetailed(1, 6, raw1);
-		if (0 >= 0 && 0 < 16) currentEffectSequence.blackboard[0] = r1;
+		int r1 = resolveDiceRollDetailed(1, 6, raw1);
 		queueVisualDiceRoll(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.0f, 0), 1, 6, raw1, r1, PURPOSE_DEBUG, currentPlayerIndex, 1.0f);
 	}
 	{
 		std::vector<int> raw2;
-		int r2;
-		r2 = resolveDiceRollDetailed(1, 6, raw2);
-		if (1 >= 0 && 1 < 16) currentEffectSequence.blackboard[1] = r2;
+		int r2 = resolveDiceRollDetailed(1, 6, raw2);
 		queueVisualDiceRoll(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.0f, 0), 1, 6, raw2, r2, PURPOSE_DEBUG, currentPlayerIndex, 1.0f);
-	}
-
-	// Queue an authoritative apply op so the initiative outcome is deterministic across peers.
-	{
-		EffectOp ap = {};
-		ap.type = EffectOpType::APPLY_INITIATIVE_REROLL;
-		if (!isProcessingEffect) beginEffectSequence();
-		queueEffect(ap);
 	}
 
 	ofLogNotice("Game") << "--- INITIATIVE ROLL STARTED ---";
@@ -1048,50 +1036,67 @@ Player ofApp::initMinionFromKind(int summonKind, int ownerID, int maxHP, int ap,
 		Card summonHellhound = findCard("Summon Hellhound", CARD_SUMMON_HELLHOUND);
 		Card darkShield = findCard("Dark Shield", CARD_DARK_SHIELD);
 		minion.deck = { death, death, flail, flail, fireball, fireball, summonHellhound, darkShield, darkShield, darkShield };
-	} else {
+	} else if (minion.isWallUnit) {
+		auto findCardByType = [&](CardType t) -> Card {
+			for (const auto & cc : allCards)
+				if (cc.type == t) return cc;
+			return Card();
+		};
+		if (minion.isMagicWallUnit) {
+			Card fort = findCardByType(CARD_FORTIFY);
+			Card mblast = findCardByType(CARD_MAGIC_BLAST);
+			Card createWall = findCardByType(CARD_SUMMON_MAGIC_WALL);
+			if (fort.type != CARD_NONE) {
+				minion.deck.push_back(fort);
+				minion.deck.push_back(fort);
+			}
+			if (mblast.type != CARD_NONE) {
+				minion.deck.push_back(mblast);
+				minion.deck.push_back(mblast);
+			}
+			if (createWall.type != CARD_NONE) minion.deck.push_back(createWall);
+		} else {
+			Card fort = findCardByType(CARD_FORTIFY);
+			Card ward = findCardByType(CARD_WARD);
+			Card createWall = findCardByType(CARD_SUMMON_WALL);
+			if (fort.type != CARD_NONE) {
+				minion.deck.push_back(fort);
+				minion.deck.push_back(fort);
+			}
+			if (ward.type != CARD_NONE) {
+				minion.deck.push_back(ward);
+				minion.deck.push_back(ward);
+			}
+			if (createWall.type != CARD_NONE) minion.deck.push_back(createWall);
+		}
+	} else if (minion.isKobold) {
 		Card hb, pu, callCard;
 		for (const auto & c : allCards) {
 			if (c.name == "Hand Block") hb = c;
 			if (c.name == "Punch") pu = c;
 			if (c.type == CARD_CALL_FOR_KOBOLDS) callCard = c;
 		}
-		// Wall units (including Magic Wall) have specialized decks and HP
-		if (minion.isWallUnit) {
-			auto findCardByType = [&](CardType t) -> Card {
-				for (const auto & cc : allCards)
-					if (cc.type == t) return cc;
-				return Card();
-			};
-			if (minion.isMagicWallUnit) {
-				Card fort = findCardByType(CARD_FORTIFY);
-				Card mblast = findCardByType(CARD_MAGIC_BLAST);
-				Card createWall = findCardByType(CARD_SUMMON_MAGIC_WALL);
-				if (fort.type != CARD_NONE) {
-					minion.deck.push_back(fort);
-					minion.deck.push_back(fort);
-				}
-				if (mblast.type != CARD_NONE) {
-					minion.deck.push_back(mblast);
-					minion.deck.push_back(mblast);
-				}
-				if (createWall.type != CARD_NONE) minion.deck.push_back(createWall);
-			} else {
-				Card fort = findCardByType(CARD_FORTIFY);
-				Card ward = findCardByType(CARD_WARD);
-				Card createWall = findCardByType(CARD_SUMMON_WALL);
-				if (fort.type != CARD_NONE) {
-					minion.deck.push_back(fort);
-					minion.deck.push_back(fort);
-				}
-				if (ward.type != CARD_NONE) {
-					minion.deck.push_back(ward);
-					minion.deck.push_back(ward);
-				}
-				if (createWall.type != CARD_NONE) minion.deck.push_back(createWall);
-			}
-		} else {
-			minion.deck = { hb, hb, pu, callCard };
+		minion.deck = { hb, hb, pu, callCard };
+	} else if (minion.isWolf) {
+		Card hb, pu;
+		for (const auto & c : allCards) {
+			if (c.name == "Hand Block") hb = c;
+			if (c.name == "Punch") pu = c;
 		}
+		minion.deck = { pu, pu, pu, hb };
+	} else if (minion.isKoboldKing) {
+		Card slash = findCard("Slash", CARD_SLASH);
+		Card stab = findCard("Stab", CARD_STAB);
+		Card fullRestore = findCard("Full Restore", CARD_FULL_RESTORE);
+		Card callKobolds = findCard("Call for Kobolds", CARD_CALL_FOR_KOBOLDS);
+		minion.deck = { slash, slash, stab, stab, fullRestore, fullRestore, callKobolds };
+	} else if (minion.isAssistant) {
+		Card lesserHeal = findCard("Lesser Heal", CARD_LESSER_HEAL);
+		Card handBlock = findCard("Hand Block", CARD_HAND_BLOCK);
+		minion.deck = { lesserHeal, handBlock, handBlock, handBlock, handBlock };
+	} else {
+		// Golem handled via EffectOps depending on variant
+		minion.deck.clear();
 	}
 
 	return minion;
@@ -2673,30 +2678,22 @@ void ofApp::update() {
 					// No PKT_DRAFT_STATE send needed here; both peers will generate drafts deterministically.
 					ofLogNotice("Initiative") << "Initiative: queued deterministic draft start for player " << draftPlayerIndex << " (no PKT_DRAFT_STATE sent).";
 				} else {
-					// TIE - Reroll via effect system so RNG is authoritative and visualizable
+					// TIE - Reroll visually; let the deterministic visual timer handle the transition
 					{
-						// Resolve initiative rerolls immediately (authoritative)
 						std::vector<int> raw1;
 						int r1 = resolveDiceRollDetailed(1, 6, raw1);
-						if (0 >= 0 && 0 < 16) currentEffectSequence.blackboard[0] = r1;
 						glm::vec3 vis1 = gridToWorld(3, 3);
 						if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) vis1 = gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.0f, 0);
 						queueVisualDiceRoll(vis1, 1, 6, raw1, r1, PURPOSE_DEBUG, currentPlayerIndex, 1.2f);
 
 						std::vector<int> raw2;
 						int r2 = resolveDiceRollDetailed(1, 6, raw2);
-						if (1 >= 0 && 1 < 16) currentEffectSequence.blackboard[1] = r2;
 						glm::vec3 vis2 = gridToWorld(3, 3);
 						if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) vis2 = gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.0f, 0);
 						queueVisualDiceRoll(vis2, 1, 6, raw2, r2, PURPOSE_DEBUG, currentPlayerIndex, 1.2f);
 
-						EffectOp ap = {};
-						ap.type = EffectOpType::APPLY_INITIATIVE_REROLL;
-						queueEffect(ap);
-
 						initiativeTimer = 0.0f;
 						ofLogNotice("Initiative") << "Tie! Rerolling...";
-						if (!isProcessingEffect) beginEffectSequence();
 					}
 				}
 			}
@@ -19395,6 +19392,12 @@ bool ofApp::processEffectOp(EffectOp & op) {
 				Player * spawned = spawnMinionDeterministically(sk, tx, ty, op.data.spawnUnit.ownerPlayerID, maxHP, ap, summonerID);
 				if (spawned) {
 					int newIdx = findPlayerIndexByID(spawned->playerID);
+					// Resolve targetIndex = -1 for subsequent ADD_CARD_TO_DECK ops to apply to this specific minion
+					for (size_t i = currentEffectSequence.currentOp + 1; i < currentEffectSequence.ops.size(); ++i) {
+						if (currentEffectSequence.ops[i].type == EffectOpType::ADD_CARD_TO_DECK && currentEffectSequence.ops[i].data.addCard.targetIndex == -1) {
+							currentEffectSequence.ops[i].data.addCard.targetIndex = newIdx;
+						}
+					}
 					if (newIdx >= 0 && sk == 8) { // GOLEM
 						int variant = op.data.spawnUnit.variant;
 						if (variant == 3)
@@ -20096,40 +20099,35 @@ void ofApp::applyCardOutcomeEffects() {
 
 	Player & caster = players[currentCardOutcome.casterIndex];
 
-	// Validate card index
-	if (currentCardOutcome.cardIndex < 0 || currentCardOutcome.cardIndex >= (int)caster.hand.size()) {
-		ofLogWarning("CardOutcome") << "Invalid card index: " << currentCardOutcome.cardIndex;
-		return;
-	}
-
-	Card playedCard = caster.hand[currentCardOutcome.cardIndex];
-
-	// Remove card from hand and update AP (common to all cards)
-	int costToPay = playedCard.cost;
-	if (playedCard.type == CARD_KICK && caster.freeKickTurns > 0) {
-		costToPay = 0;
-		caster.freeKickTurns--;
-	}
-
-	// Finish card play (moves to discard, handles replicate, etc)
-	finishPlayCard(caster, playedCard, currentCardOutcome.cardIndex);
-
-	// Deduct AP exactly once. `playCard()` may have already deducted AP
-	// in optimistic/local paths and marked `currentCardOutcome.apPaid`.
 	if (!currentCardOutcome.apPaid) {
+		// Validate card index
+		if (currentCardOutcome.cardIndex < 0 || currentCardOutcome.cardIndex >= (int)caster.hand.size()) {
+			ofLogWarning("CardOutcome") << "Invalid card index: " << currentCardOutcome.cardIndex;
+			return;
+		}
+
+		Card playedCard = caster.hand[currentCardOutcome.cardIndex];
+
+		// Remove card from hand and update AP (common to all cards)
+		int costToPay = playedCard.cost;
+		if (playedCard.type == CARD_KICK && caster.freeKickTurns > 0) {
+			costToPay = 0;
+			caster.freeKickTurns--;
+		}
+
+		// Finish card play (moves to discard, handles replicate, etc)
+		finishPlayCard(caster, playedCard, currentCardOutcome.cardIndex);
+
 		updatePlayerAP(caster, currentAP - costToPay);
 		currentAP -= costToPay;
 		currentCardOutcome.apPaid = true;
+
+		// Show played card animation
+		completeCardPlayAnimation(playedCard, currentCardOutcome.casterIndex);
 	} else {
 		// Ensure player struct is synchronized with authoritative currentAP
 		updatePlayerAP(caster, currentAP);
 	}
-
-	// Trigger card-specific post-effects
-	// (Strengthen Elements, Tortoise Form, etc - handled by existing logic)
-
-	// Show played card animation
-	completeCardPlayAnimation(playedCard, currentCardOutcome.casterIndex);
 
 	// Recalculate highlights for next action
 	calculateTargetHighlights();
@@ -23334,33 +23332,7 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 		spawnKoboldKingOp.data.spawnUnit.summonerPlayerID = currentPlayer.isMinion ? currentPlayer.ownerID : currentPlayer.playerID;
 		queueEffect(spawnKoboldKingOp);
 
-		// Deck setup via EffectOps
-		EffectOp addSlash1 = {};
-		addSlash1.type = EffectOpType::ADD_CARD_TO_DECK;
-		addSlash1.data.addCard.targetIndex = -1; // Will be resolved in EffectSequence
-		addSlash1.data.addCard.cardType = (int)CARD_SLASH;
-		queueEffect(addSlash1);
-		EffectOp addSlash2 = addSlash1;
-		queueEffect(addSlash2);
-		EffectOp addStab1 = {};
-		addStab1.type = EffectOpType::ADD_CARD_TO_DECK;
-		addStab1.data.addCard.targetIndex = -1;
-		addStab1.data.addCard.cardType = (int)CARD_STAB;
-		queueEffect(addStab1);
-		EffectOp addStab2 = addStab1;
-		queueEffect(addStab2);
-		EffectOp addFullRestore1 = {};
-		addFullRestore1.type = EffectOpType::ADD_CARD_TO_DECK;
-		addFullRestore1.data.addCard.targetIndex = -1;
-		addFullRestore1.data.addCard.cardType = (int)CARD_FULL_RESTORE;
-		queueEffect(addFullRestore1);
-		EffectOp addFullRestore2 = addFullRestore1;
-		queueEffect(addFullRestore2);
-		EffectOp addCallKobolds = {};
-		addCallKobolds.type = EffectOpType::ADD_CARD_TO_DECK;
-		addCallKobolds.data.addCard.targetIndex = -1;
-		addCallKobolds.data.addCard.cardType = (int)CARD_CALL_FOR_KOBOLDS;
-		queueEffect(addCallKobolds);
+		// Deck setup is handled intrinsically by initMinionFromKind for Kobold King.
 
 		playedSuccessfully = true;
 		advanceCardState(CARD_STATE_EFFECT_SEQUENCE);
@@ -23386,20 +23358,7 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 		spawnAssistantOp.data.spawnUnit.summonerPlayerID = currentPlayer.playerID;
 		queueEffect(spawnAssistantOp);
 
-		// Deck setup via EffectOps
-		EffectOp addLesserHeal = {};
-		addLesserHeal.type = EffectOpType::ADD_CARD_TO_DECK;
-		addLesserHeal.data.addCard.targetIndex = -1; // Will be resolved in EffectSequence
-		addLesserHeal.data.addCard.cardType = (int)CARD_LESSER_HEAL;
-		queueEffect(addLesserHeal);
-		EffectOp addHandBlock = {};
-		addHandBlock.type = EffectOpType::ADD_CARD_TO_DECK;
-		addHandBlock.data.addCard.targetIndex = -1;
-		addHandBlock.data.addCard.cardType = (int)CARD_HAND_BLOCK;
-		queueEffect(addHandBlock);
-		queueEffect(addHandBlock);
-		queueEffect(addHandBlock);
-		queueEffect(addHandBlock);
+		// Deck setup is handled intrinsically by initMinionFromKind for Assistant.
 
 		playedSuccessfully = true;
 		advanceCardState(CARD_STATE_EFFECT_SEQUENCE);
@@ -23422,24 +23381,7 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 		spawnFaerieOp.data.spawnUnit.summonerPlayerID = currentPlayer.playerID;
 		queueEffect(spawnFaerieOp);
 
-		// Deck setup via EffectOps
-		EffectOp addDispel = {};
-		addDispel.type = EffectOpType::ADD_CARD_TO_DECK;
-		addDispel.data.addCard.targetIndex = -1;
-		addDispel.data.addCard.cardType = (int)CARD_DISPEL;
-		queueEffect(addDispel);
-		queueEffect(addDispel);
-		EffectOp addLesserHeal = {};
-		addLesserHeal.type = EffectOpType::ADD_CARD_TO_DECK;
-		addLesserHeal.data.addCard.targetIndex = -1;
-		addLesserHeal.data.addCard.cardType = (int)CARD_LESSER_HEAL;
-		queueEffect(addLesserHeal);
-		queueEffect(addLesserHeal);
-		EffectOp addMagicBlast = {};
-		addMagicBlast.type = EffectOpType::ADD_CARD_TO_DECK;
-		addMagicBlast.data.addCard.targetIndex = -1;
-		addMagicBlast.data.addCard.cardType = (int)CARD_MAGIC_BLAST;
-		queueEffect(addMagicBlast);
+		// Deck setup is handled intrinsically by initMinionFromKind for Faerie.
 
 		playedSuccessfully = true;
 		advanceCardState(CARD_STATE_EFFECT_SEQUENCE);
@@ -28741,7 +28683,7 @@ void ofApp::drawMinionStatusBars(Player & minion, const std::string & name, floa
 
 	// Prefer the requested HP width (e.g. match deck+discard icon widths),
 	// but clamp so bars never overflow the available totalWidth.
-	float hpW = std::min(preferredHpWidth, totalWidth - usedWidth);
+	float hpW = std::max(0.0f, totalWidth - usedWidth);
 	float currentX = x;
 
 	// --- HEALTH ---
@@ -28829,15 +28771,6 @@ void ofApp::drawMinionManagerUI() {
 	float scale = ofGetHeight() / 1080.0f;
 	float sfX = (float)ofGetViewportWidth() / ofGetWidth();
 	float sfY = (float)ofGetViewportHeight() / ofGetHeight();
-
-	// Fallback panel metrics (authoritative scrolling/layout is computed in updateGame).
-	float minionPanelW = 260.0f * scale;
-	float p0_minionTop = 0.0f;
-	float p1_minionTop = 0.0f;
-	float p0_minionViewH = (float)ofGetHeight();
-	float p1_minionViewH = (float)ofGetHeight();
-	float p0_minionLeft = 20.0f * scale;
-	float p1_minionLeft = ofGetWidth() - minionPanelW - 20.0f * scale;
 
 	for (size_t i = 0; i < activeMinionUIs.size(); i++) {
 		auto & ui = activeMinionUIs[i];
