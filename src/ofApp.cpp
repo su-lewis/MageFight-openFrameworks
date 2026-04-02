@@ -42,6 +42,27 @@ void ofApp::drawPauseMenu() {
 	ofPushStyle();
 	ofSetColor(0, 0, 0, 180);
 	ofDrawRectangle(0, 0, ofGetWidth(), ofGetHeight());
+	// Use uniform button size and center them vertically
+	float btnW = 420.0f;
+	float btnH = 72.0f;
+	float centerX = ofGetWidth() * 0.5f;
+	// Choose number of rows based on multiplayer vs singleplayer
+	int rows = (!isMultiplayer) ? 5 : 3;
+	float totalH = rows * btnH + (rows - 1) * 18.0f;
+	float startY = ofGetHeight() / 2.0f - totalH / 2.0f;
+
+	// Position the pause menu button rects consistently
+	int idx = 0;
+	pauseMenuResumeButton.set(centerX - btnW / 2.0f, startY + (btnH + 18.0f) * (idx++), btnW, btnH);
+	if (!isMultiplayer) {
+		pauseMenuSaveButton.set(centerX - btnW / 2.0f, startY + (btnH + 18.0f) * (idx++), btnW, btnH);
+		pauseMenuLoadButton.set(centerX - btnW / 2.0f, startY + (btnH + 18.0f) * (idx++), btnW, btnH);
+		pauseMenuSettingsButton.set(centerX - btnW / 2.0f, startY + (btnH + 18.0f) * (idx++), btnW, btnH);
+		pauseMenuQuitButton.set(centerX - btnW / 2.0f, startY + (btnH + 18.0f) * (idx++), btnW, btnH);
+	} else {
+		pauseMenuSettingsButton.set(centerX - btnW / 2.0f, startY + (btnH + 18.0f) * (idx++), btnW, btnH);
+		pauseMenuQuitButton.set(centerX - btnW / 2.0f, startY + (btnH + 18.0f) * (idx++), btnW, btnH);
+	}
 
 	auto drawButton = [&](const ofRectangle & rect, const std::string & text, bool isHovered) {
 		ofSetColor(isHovered ? ofColor::lightGray : ofColor::white);
@@ -1304,7 +1325,9 @@ void drawStatText(ofTrueTypeFont & font, std::string text, float x, float y, flo
 	ofRectangle bounds = font.getStringBoundingBox(text, 0, 0);
 	ofPushMatrix();
 	// Center the text in the rect
-	ofTranslate(x + (w - bounds.width * scale) / 2, y + (h + bounds.height * scale) / 2 - 2);
+	// Compute baseline Y so bounding-box center aligns with rect center
+	float baselineY = y + (h / 2.0f) - ((bounds.y + bounds.height * 0.5f) * scale);
+	ofTranslate(x + (w - bounds.width * scale) / 2, baselineY);
 	ofScale(scale, scale);
 	// Draw a thicker black outline by rendering the text at a grid of offsets, then the main color
 	ofSetColor(ofColor::black);
@@ -2910,8 +2933,9 @@ void ofApp::drawMainMenu() {
 	titleFont.drawString(title, titleX, titleY);
 
 	// --- RECALCULATE BUTTON POSITIONS (Do this here or in windowResized) ---
-	float btnWidth = 400;
-	float btnHeight = 80;
+	// Use a common menu button size so menus look consistent
+	float btnWidth = 420;
+	float btnHeight = 72;
 	float centerX = ofGetWidth() / 2.0f;
 	float startY = ofGetHeight() / 2.0f - btnHeight;
 
@@ -3227,7 +3251,10 @@ void ofApp::drawSettingsMenu() {
 	}
 
 	// --- Draw Back Button (common) ---
-	settingsBackButton.set(centerX - 150, ofGetHeight() * 0.8, 300, 70);
+	// Use the same standard menu button size as other menus
+	float menuBtnW = 420.0f;
+	float menuBtnH = 72.0f;
+	settingsBackButton.set(centerX - menuBtnW / 2.0f, ofGetHeight() * 0.8, menuBtnW, menuBtnH);
 	// Dark background with white text
 	ofSetColor(settingsHoveredIndex == 0 ? ofColor(80) : ofColor(40));
 	ofFill();
@@ -4140,7 +4167,8 @@ void ofApp::updateGame() {
 			float iconWidth = iconHeight * cardAspectRatio;
 			float iconsY = ui.bounds.y + (ui.bounds.height - iconHeight) * 0.5f;
 			ui.discardRect.set(ui.bounds.getRight() - (iconWidth + iconMargin), iconsY, iconWidth, iconHeight);
-			ui.deckRect.set(ui.bounds.getRight() - (iconWidth * 2 + iconMargin * 2 + 5.0f * scale), iconsY, iconWidth, iconHeight);
+			// Place deck icon immediately to the left of discard with standard iconMargin (no extra gap)
+			ui.deckRect.set(ui.bounds.getRight() - (iconWidth * 2 + iconMargin * 2), iconsY, iconWidth, iconHeight);
 
 			activeMinionUIs.push_back(ui);
 		}
@@ -13890,7 +13918,26 @@ void ofApp::keyReleased(int key) {
 		return;
 	}
 
-	// 1. Toggle Chat Debug tab with backtick
+	// 1. Toggle Chat Debug tab with backtick. Pressing tilde (~) will always turn off debug mode.
+	if (key == '~') {
+		// If user pressed tilde, force exit debug mode (hide debug UI)
+		if (isDebugMode) {
+			isDebugMode = false;
+			if (chatHistory.empty()) {
+				isChatOpen = false;
+				isChatMinimized = true;
+				chatInput.clear();
+				lastChatInteractionTime = -999.0f;
+			} else {
+				lastChatInteractionTime = ofGetElapsedTimef();
+				isChatOpen = false;
+				isChatMinimized = true;
+			}
+		}
+		return;
+	}
+
+	// 1b. Toggle Chat Debug tab with backtick
 	if (key == '`') {
 		if (isMultiplayer && !isHost()) {
 			addGameLog("Debug mode is host-only in multiplayer.");
