@@ -12287,104 +12287,9 @@ void ofApp::mousePressed(int x, int y, int button) {
 						}
 					}
 				}
-
-				// Renewed Inspiration: send as deterministic input command so lockstep handles it
-				InputCommandPacket rcmd = {};
-				rcmd.type = PKT_INPUT_COMMAND;
-				rcmd.playerID = myLocalPlayerID;
-				rcmd.commandId = nextCommandId++;
-				rcmd.turnNumber = globalTurnCounter;
-				rcmd.commandType = CMD_RENEWED_INSPIRATION;
-				rcmd.params[0] = currentPlayerIndex;
-				rcmd.params[1] = std::min((int)renewedSelectedHandIndices.size(), 16);
-				// Concatenate selected card names into stringData (delimiter ';')
-				{
-					std::string concat;
-					for (int i = 0; i < rcmd.params[1]; ++i) {
-						int idx = renewedSelectedHandIndices[i];
-						if (idx >= 0 && idx < (int)players[currentPlayerIndex].hand.size()) {
-							if (!concat.empty()) concat.push_back(';');
-							concat += players[currentPlayerIndex].hand[idx].name;
-						}
-					}
-					strncpy(rcmd.stringData, concat.c_str(), sizeof(rcmd.stringData) - 1);
-					rcmd.stringData[sizeof(rcmd.stringData) - 1] = '\0';
-				}
-				if (isClient()) rcmd.clientActionID = ++watchdogClientActionCounter;
-				steamManager.sendPacket(&rcmd, sizeof(rcmd));
-
-				// --- DETERMINISTIC MODE FIX ---
-				// We removed the "if (isClient) return" here.
-				// The Client applies changes locally immediately for responsiveness.
-				// The Host receives the packet and updates their view of the Client.
-
-				// Deterministic: the Renewed Inspiration effect is applied via the
-				// `CMD_RENEWED_INSPIRATION` lockstep command on all peers. Do not
-				// mutate local hand/discard here; let the command processor apply
-				// the discard + draw so both sides remain consistent.
-				updateCardInteractionState(CARD_INTERACTION_IDLE, -1, CARD_NONE);
-				return;
 			}
 
-			// 2. Check Cancel Button (Undo)
-			if (riCancelBtn.inside(x, y)) {
-				Player & p = players[currentPlayerIndex];
-				// Refund AP
-				currentAP += 2;
-
-				// Return card to hand (pop from played pile or discard if played pile already moved)
-				if (!p.playedCardsPile.empty()) {
-					Card c = p.playedCardsPile.back();
-					p.playedCardsPile.pop_back();
-					c.playedThisTurn = false;
-					p.hand.push_back(c);
-				} else if (!p.discardPile.empty()) {
-					// If the card was already moved to discard (new immediate-discard behavior), restore from there
-					Card c = p.discardPile.back();
-					p.discardPile.pop_back();
-					c.playedThisTurn = false;
-					p.hand.push_back(c);
-				}
-
-				// Sync authoritative AP so UI and network reflect refund
-				updatePlayerAP(players[currentPlayerIndex], currentAP);
-				updateCardInteractionState(CARD_INTERACTION_IDLE, -1, CARD_NONE);
-				return;
-			}
-
-			// 3. Check Clicking Cards in Hand (Toggle Selection)
-			Player & p = players[currentPlayerIndex];
-			float handBaseCardWidth = 120;
-			float aspectRatio = 585.0f / 409.0f;
-			float baseCardHeight = handBaseCardWidth * aspectRatio;
-
-			// Reverse loop to check top-most cards first (standard UI practice)
-			for (int i = (int)p.hand.size() - 1; i >= 0; --i) {
-				Card & card = p.hand[i];
-
-				// Use the CURRENT position (includes hover animation) for accurate clicking
-				float w = handBaseCardWidth * card.currentScale;
-				float h = baseCardHeight * card.currentScale;
-				ofRectangle cardRect(card.currentPos.x - w / 2, card.currentPos.y - h / 2, w, h);
-
-				if (cardRect.inside(x, y)) {
-					// Check eligibility (Drawn this turn OR Copied)
-					if (!card.drawnThisTurn && !card.isCopied) {
-						queueFloatingTextVisual(gridToWorld(p.x, p.y), "Must be drawn this turn", ofColor::red);
-						return;
-					}
-
-					// Toggle selection
-					auto it = std::find(renewedSelectedHandIndices.begin(), renewedSelectedHandIndices.end(), i);
-					if (it != renewedSelectedHandIndices.end()) {
-						renewedSelectedHandIndices.erase(it); // Deselect
-					} else {
-						renewedSelectedHandIndices.push_back(i); // Select
-					}
-					return; // Stop checking other cards
-				}
-			}
-			return; // Consume click so we don't move/attack while selecting
+			// Renewed Inspiration menu input is handled exclusively in processCardStateInput.
 		}
 
 		// 3c. STATE CHECK: Only allow gameplay interactions in STATE_GAMEPLAY
@@ -16801,24 +16706,15 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 
 		// Special handling: if this is an Amnesia accept payload, apply selections
 		if (menuType == CARD_AMNESIA && choice == 3) {
-			// Parse selections (prefer params packing, fall back to stringData)
 			std::vector<int> sel;
-			int n = cmd.params[4];
-			if (n <= 0) {
-				std::string s(cmd.stringData);
-				size_t pos = 0;
-				while (pos < s.size()) {
-					size_t comma = s.find(',', pos);
-					std::string tok = (comma == std::string::npos) ? s.substr(pos) : s.substr(pos, comma - pos);
-					if (!tok.empty()) sel.push_back(std::stoi(tok));
-					if (comma == std::string::npos) break;
-					pos = comma + 1;
-				}
-			} else {
-				for (int i = 0; i < n; ++i) {
-					int idx = cmd.params[5 + i];
-					sel.push_back(idx);
-				}
+			std::string s(cmd.stringData);
+			size_t pos = 0;
+			while (pos < s.size()) {
+				size_t comma = s.find(',', pos);
+				std::string tok = (comma == std::string::npos) ? s.substr(pos) : s.substr(pos, comma - pos);
+				if (!tok.empty()) sel.push_back(std::stoi(tok));
+				if (comma == std::string::npos) break;
+				pos = comma + 1;
 			}
 
 			// Validate target index
@@ -16845,15 +16741,9 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 				currentCardOutcome.cardIndex = cardIndex;
 				currentCardOutcome.casterIndex = currentPlayerIndex;
 				beginEffectSequence();
-				// No extra ops required; advance to outcome so applyCardOutcomeEffects handles finalization
 				advanceCardState(CARD_STATE_EFFECT_SEQUENCE);
-				if (isMultiplayer) sendMenuState(0, -1, -1, -1);
 				resetCardInteraction();
-			} else {
-				ofLogWarning("Lockstep") << "CMD_MENU_CHOICE(AMNESIA) rejected: invalid targetIndex=" << targetIndex;
 			}
-
-			// We've handled Amnesia fully here; don't run the generic handler below.
 			break;
 		}
 
@@ -17329,65 +17219,52 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 	}
 	case CMD_RENEWED_INSPIRATION: {
 		int playerIdx = cmd.params[0];
-		int nameCount = cmd.params[1];
-		if (playerIdx < 0 || playerIdx >= (int)players.size()) {
-			ofLogError("Lockstep") << "CMD_RENEWED_INSPIRATION: invalid playerIdx=" << playerIdx;
-			break;
-		}
+		int riCardIndex = cmd.params[2];
 
-		std::string s = cmd.stringData;
-		std::vector<std::string> names;
-		if (nameCount > 0) names.reserve(nameCount);
-		if (!s.empty()) {
-			size_t start = 0;
-			while (start < s.size()) {
-				auto pos = s.find(';', start);
-				if (pos == std::string::npos) {
-					names.push_back(s.substr(start));
-					break;
-				} else {
-					names.push_back(s.substr(start, pos - start));
-					start = pos + 1;
-				}
-			}
+		if (playerIdx < 0 || playerIdx >= (int)players.size()) break;
+
+		std::vector<int> sel;
+		std::string s(cmd.stringData);
+		size_t pos = 0;
+		while (pos < s.size()) {
+			size_t comma = s.find(',', pos);
+			std::string tok = (comma == std::string::npos) ? s.substr(pos) : s.substr(pos, comma - pos);
+			if (!tok.empty()) sel.push_back(std::stoi(tok));
+			if (comma == std::string::npos) break;
+			pos = comma + 1;
 		}
 
 		Player & p = players[playerIdx];
 		int discarded = 0;
-		// For each requested name, discard first matching card from hand (best-effort)
-		for (int i = 0; i < (int)names.size(); ++i) {
-			const std::string & want = names[i];
-			auto it = std::find_if(p.hand.begin(), p.hand.end(), [&](const Card & c) { return c.name == want; });
-			if (it != p.hand.end()) {
-				p.discardPile.push_back(*it);
-				p.hand.erase(it);
+		int shiftedRiIndex = riCardIndex;
+
+		// Sort descending so erasure doesn't shift indices improperly
+		std::sort(sel.begin(), sel.end(), std::greater<int>());
+		for (int idx : sel) {
+			if (idx == riCardIndex) continue; // Can't discard the spell itself
+			if (idx >= 0 && idx < (int)p.hand.size()) {
+				p.discardPile.push_back(p.hand[idx]);
+				p.hand.erase(p.hand.begin() + idx);
 				discarded++;
-			} else {
-				ofLogWarning("Lockstep") << "CMD_RENEWED_INSPIRATION: could not find card '" << want << "' in player " << playerIdx << " hand";
+				if (idx < shiftedRiIndex) shiftedRiIndex--;
 			}
 		}
 
-		// Draw 2 cards per discarded card deterministically
-		int savedCurrent = currentPlayerIndex;
-		currentPlayerIndex = playerIdx;
-		for (int d = 0; d < discarded * 2; ++d) {
-			drawCard(false);
-		}
-		// Normalize hand visuals and flags similar to CMD_DRAW_CARDS
-		Player & lp = players[playerIdx];
-		for (size_t idx = 0; idx < lp.hand.size(); ++idx) {
-			lp.hand[idx].currentScale = lp.hand[idx].currentScale; // keep consistent
-		}
-		lp.nextTurnExtraDraw = false;
-		lp.nextTurnExtraDrawSetOnCycle = -1;
-		if (lp.playerID == myLocalPlayerID) {
-			hasDrawnCardsThisTurn = true;
-			lp.hasDrawnThisTurn = true;
-		} else {
-			opponentHasDrawnCardsThisTurn = true;
-			lp.hasDrawnThisTurn = true;
-		}
-		currentPlayerIndex = savedCurrent;
+		// Now queue the finalization in the EffectOp sequence
+		resetCardState();
+		currentCardOutcome.cardType = CARD_RENEWED_INSPIRATION;
+		currentCardOutcome.cardIndex = shiftedRiIndex;
+		currentCardOutcome.casterIndex = playerIdx;
+
+		beginEffectSequence();
+		EffectOp drawOp = {};
+		drawOp.type = EffectOpType::DRAW_CARDS;
+		drawOp.data.drawCards.playerIndex = playerIdx;
+		drawOp.data.drawCards.numCards = discarded * 2;
+		queueEffect(drawOp);
+
+		advanceCardState(CARD_STATE_EFFECT_SEQUENCE);
+		resetCardInteraction();
 
 		ofLogNotice("Lockstep") << "Execute CMD_RENEWED_INSPIRATION: player=" << playerIdx << " discarded=" << discarded;
 		break;
@@ -18278,23 +18155,28 @@ bool ofApp::processEffectOp(EffectOp & op) {
 	}
 
 	case EffectOpType::APPLY_AMNESIA: {
-		// Read authoritative amnesia result from blackboard slot 0
-		{
-			int result = currentEffectSequence.blackboard[0];
-			currentCardOutcome.namedDiceResults["amnesia_remove"] = result;
-			Player * amnesiaTarget = getPlayer(amnesiaTargetPlayerIndex);
-			if (amnesiaTarget) {
-				int numCardsToRemoveLocal = std::min(result, (int)amnesiaTarget->deck.size());
-				if (numCardsToRemoveLocal > 0) {
+		int result = currentEffectSequence.blackboard[0];
+		currentCardOutcome.namedDiceResults["amnesia_remove"] = result;
+		Player * amnesiaTarget = getPlayer(amnesiaTargetPlayerIndex);
+
+		if (amnesiaTarget) {
+			int numCardsToRemoveLocal = std::min(result, (int)amnesiaTarget->deck.size());
+			if (numCardsToRemoveLocal > 0) {
+				// Only open the menu if THIS client is the chooser
+				if (myLocalPlayerID == amnesiaChooserPlayerID) {
 					updateCardInteractionState(CARD_INTERACTION_MENU, interactingCardIndex, CARD_AMNESIA);
 					amnesiaDeckCopy = amnesiaTarget->deck;
 					amnesiaSelectedIndices.clear();
 				} else {
-					amnesiaTargetPlayerIndex = -1;
+					// Fall back to a waiting state for the other peer
+					opponentInteraction.open = true;
+					opponentInteraction.type = 99; // Represents "Waiting for Opponent"
 				}
 			} else {
 				amnesiaTargetPlayerIndex = -1;
 			}
+		} else {
+			amnesiaTargetPlayerIndex = -1;
 		}
 		opComplete = true;
 		break;
@@ -20359,6 +20241,69 @@ void ofApp::processCardStateInput(int mouseX, int mouseY, int button) {
 			}
 			break;
 
+		case CARD_RENEWED_INSPIRATION: {
+			if (riCancelBtn.inside(mouseX, mouseY)) {
+				updateCardInteractionState(CARD_INTERACTION_IDLE, -1, CARD_NONE);
+				return;
+			}
+			if (riConfirmBtn.inside(mouseX, mouseY)) {
+				if (!renewedSelectedHandIndices.empty()) {
+					InputCommandPacket cmd = {};
+					cmd.type = PKT_INPUT_COMMAND;
+					cmd.playerID = myLocalPlayerID;
+					cmd.seq = 0;
+					cmd.commandId = nextCommandId++;
+					cmd.turnNumber = globalTurnCounter;
+					cmd.commandType = CMD_RENEWED_INSPIRATION;
+					cmd.params[0] = currentPlayerIndex;
+					cmd.params[1] = (int)renewedSelectedHandIndices.size();
+					cmd.params[2] = interactingCardIndex;
+
+					std::string s;
+					for (size_t i = 0; i < renewedSelectedHandIndices.size(); ++i) {
+						if (i) s.push_back(',');
+						s += ofToString(renewedSelectedHandIndices[i]);
+					}
+					strncpy(cmd.stringData, s.c_str(), sizeof(cmd.stringData) - 1);
+					cmd.stringData[sizeof(cmd.stringData) - 1] = '\0';
+
+					// Send via lockstep, NO LOCAL STATE MUTATION here!
+					sendInputCommand(cmd, true);
+					updateCardInteractionState(CARD_INTERACTION_IDLE, -1, CARD_NONE);
+				}
+				return;
+			}
+
+			// Toggle card selection natively inside the UI handler
+			Player & p = players[currentPlayerIndex];
+			float handBaseCardWidth = 120;
+			float aspectRatio = 585.0f / 409.0f;
+			float baseCardHeight = handBaseCardWidth * aspectRatio;
+
+			for (int i = (int)p.hand.size() - 1; i >= 0; --i) {
+				if (i == interactingCardIndex) continue; // Can't discard the card itself!
+				Card & card = p.hand[i];
+				float w = handBaseCardWidth * card.currentScale;
+				float h = baseCardHeight * card.currentScale;
+				ofRectangle cardRect(card.currentPos.x - w / 2, card.currentPos.y - h / 2, w, h);
+
+				if (cardRect.inside(mouseX, mouseY)) {
+					if (!card.drawnThisTurn && !card.isCopied) {
+						queueFloatingTextVisual(gridToWorld(p.x, p.y), "Must be drawn this turn", ofColor::red);
+						return;
+					}
+					auto it = std::find(renewedSelectedHandIndices.begin(), renewedSelectedHandIndices.end(), i);
+					if (it != renewedSelectedHandIndices.end()) {
+						renewedSelectedHandIndices.erase(it);
+					} else {
+						renewedSelectedHandIndices.push_back(i);
+					}
+					return;
+				}
+			}
+			break;
+		}
+
 		case CARD_AMNESIA:
 			// If we're showing the amnesia selection grid, handle card toggles and accept button
 			if (!amnesiaDeckCopy.empty()) {
@@ -20448,22 +20393,12 @@ void ofApp::processCardStateInput(int mouseX, int mouseY, int button) {
 				cmd.params[1] = interactionTargetIndex;
 				cmd.params[2] = 1; // Barrier
 				cmd.params[3] = interactingCardIndex;
-				// Route via lockstep in all modes so singleplayer gets a proper Command ID
 				sendInputCommand(cmd, true);
 			} else if (dispelBtnPurge.inside(mouseX, mouseY)) {
-				InputCommandPacket cmd = {};
-				cmd.type = PKT_INPUT_COMMAND;
-				cmd.playerID = myLocalPlayerID;
-				cmd.seq = 0;
-				cmd.commandId = nextCommandId++;
-				cmd.turnNumber = globalTurnCounter;
-				cmd.commandType = CMD_MENU_CHOICE;
-				cmd.params[0] = interactingCardType;
-				cmd.params[1] = interactionTargetIndex;
-				cmd.params[2] = 2; // Purge
-				cmd.params[3] = interactingCardIndex;
-				// Route via lockstep in all modes so singleplayer gets a proper Command ID
-				sendInputCommand(cmd, true);
+				// Do NOT send a command yet. Transition local UI to the status select menu.
+				updateCardInteractionState(CARD_INTERACTION_STATUS, interactingCardIndex, interactingCardType);
+				Player * t = getPlayer(interactionTargetIndex);
+				determineStatusOptions(t);
 			}
 			break;
 
@@ -22921,121 +22856,32 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 
 	case CARD_RENEWED_INSPIRATION: {
 		// 0. Prevent playing if there are no other cards to discard
-		{
-			int availableDiscardable = (int)currentPlayer.hand.size() - 1; // exclude the Renewed Inspiration being played
-			if (currentPlayer.replicateQueued) availableDiscardable += 1; // replicate will add a copy
-			if (availableDiscardable <= 0) {
-				queueFloatingTextVisual(gridToWorld(currentPlayer.x, currentPlayer.y), "Not enough cards to discard", ofColor::gray);
-				immediateResult = CARD_NOT_PLAYABLE;
-				return true;
-			}
-		}
-
-		// 1. Pay Cost
-		currentAP -= playedCard.cost;
-
-		// 2. Handle Replicate (BEFORE removing original from hand)
-		// If Replicate is active, we create a copy and animate it from board center to hand
-		if (currentPlayer.replicateQueued) {
-			Card copy = playedCard; // Copy data
-			copy.isCopied = true; // Mark as copied (Essential for eligibility)
-
-			// Create animation from board center to hand
-			DrawCardAnimation anim;
-			anim.card = copy;
-			anim.startTime = ofGetElapsedTimef();
-			anim.duration = 0.36f;
-			anim.ownerIndex = currentPlayerIndex;
-			anim.toMinionHand = false;
-
-			// Start from board center
-			glm::vec3 boardCenter = gridToWorld(3, 3); // Center of the board
-			anim.startPos = boardCenter;
-			anim.startIsScreenSpace = false;
-			anim.currentPos = glm::vec2(boardCenter.x, boardCenter.y);
-
-			// Calculate target hand position (using new hand size after adding this card)
-			size_t numCards = currentPlayer.hand.size() + 1;
-			float handCenterY = ofGetHeight() - 130;
-			float handBaseCardWidth = 120;
-			int cardsToFit = std::max(5, (int)numCards);
-			float handAreaWidth = ofGetWidth() * 0.6f;
-			float totalCardWidths = cardsToFit * handBaseCardWidth;
-			float padding = (cardsToFit > 1) ? (handAreaWidth - totalCardWidths) / (cardsToFit - 1) : 0;
-			padding = std::min(padding, 20.0f);
-			float totalHandWidth = (cardsToFit * handBaseCardWidth) + ((cardsToFit - 1) * padding);
-			float startX = (ofGetWidth() - totalHandWidth) / 2.0f;
-			float cardCenterX = startX + (numCards - 1) * (handBaseCardWidth + padding) + (handBaseCardWidth / 2.0f);
-			anim.targetPos = glm::vec2(cardCenterX, handCenterY);
-			anim.endPos = anim.startPos;
-
-			anim.currentScale = 1.0f;
-			anim.commitOnFinish = true; // This will add the card to hand when animation completes
-			activeDrawCardAnimations.push_back(anim);
-
-			// Queue replicate removal deterministically
-			{
-				EffectOp rmRep = {};
-				rmRep.type = EffectOpType::REMOVE_STATUS;
-				rmRep.data.status.targetIndex = currentPlayerIndex;
-				rmRep.data.status.statusType = STATUS_REPLICATE_QUEUED;
-				rmRep.data.status.duration = 0;
-				queueEffect(rmRep);
-			}
-			// replicateQueued will be cleared when the REMOVE_STATUS op is processed
-			queueFloatingTextVisual(gridToWorld(currentPlayer.x, currentPlayer.y), "Replicated!", ofColor::cyan);
-		}
-
-		// 3. Move Original to Played Pile
-		currentPlayer.playedCardsPile.push_back(playedCard);
-		currentPlayer.cardsPlayedThisTurn.push_back(playedCard.type);
-
-		// 4. Remove Original from Hand (Using iterator to be safe)
-		if (cardIndex >= 0 && cardIndex < (int)currentPlayer.hand.size()) {
-			currentPlayer.hand.erase(currentPlayer.hand.begin() + cardIndex);
-		}
-
-		// 5. Multiplayer: notify host of the card play so AP and played-pile stay authoritative
-		if (isMultiplayer) {
-			// Build deterministic renewed-inspiration command for lockstep
-			InputCommandPacket cmd = {};
-			cmd.commandType = CMD_RENEWED_INSPIRATION;
-			cmd.params[0] = currentPlayerIndex;
-			cmd.params[1] = (int)renewedSelectedHandIndices.size();
-			// Concatenate selected card names into stringData (delimiter ';')
-			{
-				std::string concat;
-				for (int i = 0; i < cmd.params[1]; ++i) {
-					int idx = renewedSelectedHandIndices[i];
-					if (idx >= 0 && idx < (int)players[currentPlayerIndex].hand.size()) {
-						if (!concat.empty()) concat.push_back(';');
-						concat += players[currentPlayerIndex].hand[idx].name;
-					}
-				}
-				strncpy(cmd.stringData, concat.c_str(), sizeof(cmd.stringData) - 1);
-				cmd.stringData[sizeof(cmd.stringData) - 1] = '\0';
-			}
-			if (isClient()) cmd.clientActionID = ++watchdogClientActionCounter;
-			sendInputCommand(cmd, true);
-		} else {
-
-			// 6. Enter Selection Mode (centralized)
-			updateCardInteractionState(CARD_INTERACTION_MENU, cardIndex, CARD_RENEWED_INSPIRATION);
-			renewedSelectedHandIndices.clear();
-
-			// 6. Setup UI Buttons
-			float cx = ofGetWidth() / 2.0f;
-			float cy = ofGetHeight() - 450.0f;
-			if (currentPlayer.playerID == 1) cy = 350.0f;
-
-			riConfirmBtn.set(cx - 110, cy, 100, 50);
-			riCancelBtn.set(cx + 10, cy, 100, 50);
-
-			// 7. Visuals & prevent auto-cleanup
-			invalidateTargetCache();
-			immediateResult = CARD_AWAITING_MENU_CHOICE;
+		int availableDiscardable = (int)currentPlayer.hand.size() - 1; // exclude the Renewed Inspiration being played
+		if (currentPlayer.replicateQueued) availableDiscardable += 1; // replicate will add a copy
+		if (availableDiscardable <= 0) {
+			queueFloatingTextVisual(gridToWorld(currentPlayer.x, currentPlayer.y), "Not enough cards to discard", ofColor::gray);
+			immediateResult = CARD_NOT_PLAYABLE;
 			return true;
 		}
+
+		// DO NOT deduct AP or manipulate the hand here.
+		// This must wait until the user has selected their cards via the UI menu.
+		updateCardInteractionState(CARD_INTERACTION_MENU, cardIndex, CARD_RENEWED_INSPIRATION);
+		renewedSelectedHandIndices.clear();
+
+		// Setup UI Buttons
+		float cx = ofGetWidth() / 2.0f;
+		float cy = ofGetHeight() - 450.0f;
+		if (currentPlayer.playerID == 1) cy = 350.0f;
+
+		riConfirmBtn.set(cx - 110, cy, 100, 50);
+		riCancelBtn.set(cx + 10, cy, 100, 50);
+
+		// Prevent auto-cleanup from happening until the user makes a choice
+		invalidateTargetCache();
+		immediateResult = CARD_AWAITING_MENU_CHOICE;
+		return true;
+	}
 
 	case CARD_EARTHQUAKE: {
 		ofLogNotice("Earthquake") << "CARD_EARTHQUAKE triggered by playerIndex=" << currentPlayerIndex << " playerID=" << currentPlayer.playerID;
@@ -23860,37 +23706,33 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 		return false;
 	}
 
-		// If we broke out of the switch (validation failed), return false to let legacy handle it
-		return false;
-	}
-
-	// ============================================================
-	// ASYNC RESOLUTION HELPER FUNCTIONS
-	// Centralized handlers for dice/state resolution after card play
-	// ============================================================
-
-	//--- ATTACK DAMAGE RESOLUTION ---
-
-	// resolveAPRoll migrated into the dice-completion flow and EffectOp pipeline.
-	// Legacy implementation removed as part of the Big Cleanup migration.
-
-	// Summon handling has been inlined into the active dice processing loop above.
-
-	// --------------------------------------------------------------
-	// Blocking Boon centralized resolver
-	// Handles both coin flips (PURPOSE_BLOCKING_BOON_COIN) and D20 class rewards (PURPOSE_BLOCKING_BOON_D20)
-	// Blocking Boon resolution migrated into EffectOp handlers: APPLY_BLOCKING_BOON_COIN & APPLY_BLOCKING_BOON_D20
-
-	// --------------------------------------------------------------
-	// Small resolver: BONUS AP
-	// Bonus AP is now applied by EffectOpType::APPLY_BONUS_AP
-
-	// Earthquake distance resolution migrated to EffectOpType::APPLY_EARTHQUAKE
-
-	// Close `executeCardByType` fallback: ensure a default return and close the function
+	// If we broke out of the switch (validation failed), return false to let legacy handle it
 	immediateResult = CARD_NOT_PLAYABLE;
 	return false;
 }
+
+// ============================================================
+// ASYNC RESOLUTION HELPER FUNCTIONS
+// Centralized handlers for dice/state resolution after card play
+// ============================================================
+
+//--- ATTACK DAMAGE RESOLUTION ---
+
+// resolveAPRoll migrated into the dice-completion flow and EffectOp pipeline.
+// Legacy implementation removed as part of the Big Cleanup migration.
+
+// Summon handling has been inlined into the active dice processing loop above.
+
+// --------------------------------------------------------------
+// Blocking Boon centralized resolver
+// Handles both coin flips (PURPOSE_BLOCKING_BOON_COIN) and D20 class rewards (PURPOSE_BLOCKING_BOON_D20)
+// Blocking Boon resolution migrated into EffectOp handlers: APPLY_BLOCKING_BOON_COIN & APPLY_BLOCKING_BOON_D20
+
+// --------------------------------------------------------------
+// Small resolver: BONUS AP
+// Bonus AP is now applied by EffectOpType::APPLY_BONUS_AP
+
+// Earthquake distance resolution migrated to EffectOpType::APPLY_EARTHQUAKE
 
 // Earthquake damage is now applied by EffectOpType::APPLY_EARTHQUAKE_DAMAGE
 
