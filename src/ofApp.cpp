@@ -9194,7 +9194,6 @@ void ofApp::drawGame() {
 
 			// B. Draw Overlays (Outlines/Dims) at the same depth as the card
 			if (cardInteractionState == CARD_INTERACTION_MENU && interactingCardType == CARD_RENEWED_INSPIRATION) {
-				bool isEligible = (card.drawnThisTurn || card.isCopied);
 				bool isSelected = false;
 				for (int sel : renewedSelectedHandIndices)
 					if (sel == index) isSelected = true;
@@ -9207,10 +9206,6 @@ void ofApp::drawGame() {
 					ofSetLineWidth(4);
 					ofDrawRectangle(drawX, drawY, w, h);
 					ofPopStyle();
-				} else if (!isEligible) {
-					// Dim non-eligible cards
-					ofSetColor(0, 0, 0, 180);
-					ofDrawRectangle(drawX, drawY, w, h);
 				}
 			} else {
 				// Normal Gameplay Selection (Yellow)
@@ -20302,10 +20297,7 @@ void ofApp::processCardStateInput(int mouseX, int mouseY, int button) {
 				ofRectangle cardRect(card.currentPos.x - w / 2, card.currentPos.y - h / 2, w, h);
 
 				if (cardRect.inside(mouseX, mouseY)) {
-					if (!card.drawnThisTurn && !card.isCopied) {
-						queueFloatingTextVisual(gridToWorld(p.x, p.y), "Must be drawn this turn", ofColor::red);
-						return;
-					}
+					if (i == interactingCardIndex) return;
 					auto it = std::find(renewedSelectedHandIndices.begin(), renewedSelectedHandIndices.end(), i);
 					if (it != renewedSelectedHandIndices.end()) {
 						renewedSelectedHandIndices.erase(it);
@@ -20581,6 +20573,12 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 				targetIndex = (int)i;
 				break;
 			}
+		}
+		if (targetIndex == currentPlayerIndex) targetIndex = -1;
+		if (targetIndex != -1) {
+			int dx = abs(players[targetIndex].x - currentPlayer.x);
+			int dy = abs(players[targetIndex].y - currentPlayer.y);
+			if (std::max(dx, dy) != 1) targetIndex = -1;
 		}
 		blockingBoonTargetIndex = targetIndex;
 
