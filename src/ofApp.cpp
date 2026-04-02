@@ -9435,102 +9435,7 @@ void ofApp::drawGame() {
 
 	// Menu-capable card UIs are now drawn centrally by drawActiveCardInteractionUI().
 
-	// --- Draw Amnesia Selection UI ---
-	if (cardInteractionState == CARD_INTERACTION_MENU && interactingCardType == CARD_AMNESIA) {
-		// This uses the same dynamic layout logic
-		string title = "Choose " + ofToString(numCardsToRemove) + " card(s) to remove permanently.";
-
-		float panelPadding = 20.0f;
-		float titleHeight = 60.0f;
-		float acceptBtnHeight = 44.0f;
-		float acceptBtnPadding = 20.0f;
-		float viewCardScale = 1.6f;
-		float availableHeight = ofGetHeight() - (2 * panelPadding) - titleHeight - acceptBtnHeight - acceptBtnPadding;
-		float availableWidth = ofGetWidth() * 0.8f;
-
-		while (viewCardScale > 0.5f) {
-			float cardW = handBaseCardWidth * viewCardScale;
-			float cardH = baseCardHeight * viewCardScale;
-			float padding = 15.0f * (viewCardScale / 1.6f);
-			int cols = std::max(2, (int)floor((availableWidth - padding) / (cardW + padding)));
-			int rows = ceil((float)amnesiaDeckCopy.size() / cols);
-			if (rows * (cardH + padding) - padding <= availableHeight) {
-				break;
-			}
-			viewCardScale -= 0.1f;
-		}
-
-		float viewCardWidth = handBaseCardWidth * viewCardScale;
-		float viewCardHeight = baseCardHeight * viewCardScale;
-		float padding = 15.0f * (viewCardScale / 1.6f);
-
-		int gridWidthInCards = std::max(1, (int)floor((availableWidth - padding) / (viewCardWidth + padding)));
-		// Don't create more columns than cards we actually have
-		gridWidthInCards = std::min(gridWidthInCards, (int)amnesiaDeckCopy.size());
-		if (gridWidthInCards <= 0) gridWidthInCards = 1;
-
-		int gridHeightInCards = (int)ceil((float)amnesiaDeckCopy.size() / (float)gridWidthInCards);
-
-		float totalContentWidth = (gridWidthInCards * viewCardWidth) + ((gridWidthInCards - 1) * padding);
-		float totalContentHeight = (gridHeightInCards * viewCardHeight) + ((gridHeightInCards - 1) * padding);
-
-		float panelWidth = totalContentWidth + 2 * panelPadding;
-		float panelHeight = totalContentHeight + titleHeight + 2 * panelPadding;
-		float panelX = ofGetWidth() / 2.0f - panelWidth / 2.0f;
-		float panelY = ofGetHeight() / 2.0f - panelHeight / 2.0f;
-
-		ofSetColor(0, 0, 0, 180);
-		ofDrawRectangle(0, 0, ofGetWidth(), ofGetHeight());
-
-		ofSetColor(20, 20, 20, 240);
-		ofDrawRectRounded(panelX, panelY, panelWidth, panelHeight, 15);
-
-		ofSetColor(ofColor::white);
-		uiFont.drawString(title, panelX + panelPadding, panelY + panelPadding + uiFont.getLineHeight() * 0.8f);
-
-		for (size_t i = 0; i < amnesiaDeckCopy.size(); ++i) {
-			int row = i / gridWidthInCards;
-			int col = i % gridWidthInCards;
-			float drawX = panelX + panelPadding + col * (viewCardWidth + padding);
-			float drawY = panelY + panelPadding + titleHeight + row * (viewCardHeight + padding);
-			const Card & card = amnesiaDeckCopy[i];
-			cardSpriteSheet.drawSubsection(drawX, drawY, viewCardWidth, viewCardHeight, card.textureRect.x, card.textureRect.y, card.textureRect.width, card.textureRect.height);
-
-			bool isSelected = false;
-			for (int selectedIdx : amnesiaSelectedIndices) {
-				if (selectedIdx == static_cast<int>(i)) { // Cast i to int for safe comparison
-					isSelected = true;
-					break;
-				}
-			}
-			if (isSelected) {
-				ofPushStyle();
-				ofNoFill();
-				ofSetColor(ofColor::green);
-				ofSetLineWidth(5);
-				ofDrawRectangle(drawX, drawY, viewCardWidth, viewCardHeight);
-				ofPopStyle();
-			}
-		}
-
-		// Draw Accept button at bottom
-		float acceptW = 160.0f;
-		float acceptH = 44.0f;
-		float acceptY = panelY + panelHeight - acceptH - 15.0f;
-		amnesiaAcceptButton.set(panelX + (panelWidth - acceptW) / 2.0f, acceptY, acceptW, acceptH);
-
-		bool canAccept = (amnesiaSelectedIndices.size() == static_cast<size_t>(numCardsToRemove));
-		if (canAccept) {
-			ofSetColor(0, 160, 0);
-			if (amnesiaAcceptButton.inside(ofGetMouseX(), ofGetMouseY())) ofSetColor(0, 200, 0);
-		} else {
-			ofSetColor(80, 80, 80);
-		}
-		ofDrawRectRounded(amnesiaAcceptButton, 8);
-		ofSetColor(canAccept ? ofColor::white : ofColor(150, 150, 150));
-		ofRectangle aBox = uiFont.getStringBoundingBox("Accept", 0, 0);
-		uiFont.drawString("Accept", amnesiaAcceptButton.getCenter().x - aBox.width / 2, amnesiaAcceptButton.getCenter().y + aBox.height / 2 - 2);
-	}
+	// Amnesia selection UI now rendered inside drawActiveCardInteractionUI() for consistency
 
 	// Debug panel now integrated into chat window UI (rendered within chat when DEBUG tab is active)
 
@@ -15659,7 +15564,7 @@ void ofApp::handleCardMenuClick(const std::string & buttonId) {
 		if (buttonId == "damage") {
 			// Route via unified card outcome -> effect sequence
 			resetCardState();
-			currentCardOutcome.cardType = interactingCardType;
+			currentCardOutcome.cardType = static_cast<CardType>(interactingCardType);
 			currentCardOutcome.cardIndex = interactingCardIndex;
 			currentCardOutcome.casterIndex = currentPlayerIndex;
 			beginEffectSequence();
@@ -15674,7 +15579,7 @@ void ofApp::handleCardMenuClick(const std::string & buttonId) {
 			resetCardInteraction();
 		} else if (buttonId == "heal") {
 			resetCardState();
-			currentCardOutcome.cardType = interactingCardType;
+			currentCardOutcome.cardType = static_cast<CardType>(interactingCardType);
 			currentCardOutcome.cardIndex = interactingCardIndex;
 			currentCardOutcome.casterIndex = currentPlayerIndex;
 			beginEffectSequence();
@@ -15698,7 +15603,7 @@ void ofApp::handleCardMenuClick(const std::string & buttonId) {
 		// Queue the chosen effect via the centralized effect sequence and
 		// let the CARD_STATE_OUTCOME / applyCardOutcomeEffects handle AP/card removal
 		resetCardState();
-		currentCardOutcome.cardType = interactingCardType;
+		currentCardOutcome.cardType = static_cast<CardType>(interactingCardType);
 		currentCardOutcome.cardIndex = interactingCardIndex;
 		currentCardOutcome.casterIndex = currentPlayerIndex;
 		beginEffectSequence();
@@ -15731,7 +15636,7 @@ void ofApp::handleCardMenuClick(const std::string & buttonId) {
 		// as a lockstep command; use the provided `buttonId` and `interactionTargetIndex`.
 		// Route through the centralized outcome/effect sequence
 		resetCardState();
-		currentCardOutcome.cardType = interactingCardType;
+		currentCardOutcome.cardType = static_cast<CardType>(interactingCardType);
 		currentCardOutcome.cardIndex = interactingCardIndex;
 		currentCardOutcome.casterIndex = currentPlayerIndex;
 		beginEffectSequence();
@@ -15786,7 +15691,7 @@ void ofApp::handleCardMenuClick(const std::string & buttonId) {
 
 					// Defer AP/card finalization to centralized outcome processing
 					resetCardState();
-					currentCardOutcome.cardType = interactingCardType;
+					currentCardOutcome.cardType = static_cast<CardType>(interactingCardType);
 					currentCardOutcome.cardIndex = interactingCardIndex;
 					currentCardOutcome.casterIndex = currentPlayerIndex;
 					advanceCardState(CARD_STATE_EFFECT_SEQUENCE);
@@ -15853,7 +15758,7 @@ void ofApp::handleCardMenuClick(const std::string & buttonId) {
 
 			// Initialize centralized card outcome and start effect processing
 			resetCardState();
-			currentCardOutcome.cardType = interactingCardType;
+			currentCardOutcome.cardType = static_cast<CardType>(interactingCardType);
 			currentCardOutcome.cardIndex = interactingCardIndex;
 			currentCardOutcome.casterIndex = currentPlayerIndex;
 			beginEffectSequence();
@@ -15891,7 +15796,7 @@ void ofApp::handleCardMenuClick(const std::string & buttonId) {
 
 			// Defer AP/card finalization to centralized outcome processing
 			resetCardState();
-			currentCardOutcome.cardType = interactingCardType;
+			currentCardOutcome.cardType = static_cast<CardType>(interactingCardType);
 			currentCardOutcome.cardIndex = interactingCardIndex;
 			currentCardOutcome.casterIndex = currentPlayerIndex;
 			advanceCardState(CARD_STATE_EFFECT_SEQUENCE);
@@ -15949,7 +15854,7 @@ void ofApp::handleCardMenuClick(const std::string & buttonId) {
 
 					// Defer AP/card finalization to centralized outcome processing
 					resetCardState();
-					currentCardOutcome.cardType = interactingCardType;
+					currentCardOutcome.cardType = static_cast<CardType>(interactingCardType);
 					currentCardOutcome.cardIndex = interactingCardIndex;
 					currentCardOutcome.casterIndex = currentPlayerIndex;
 					advanceCardState(CARD_STATE_EFFECT_SEQUENCE);
@@ -15980,7 +15885,7 @@ void ofApp::handleCardMenuClick(const std::string & buttonId) {
 
 					// Defer AP/card finalization to centralized outcome processing
 					resetCardState();
-					currentCardOutcome.cardType = interactingCardType;
+					currentCardOutcome.cardType = static_cast<CardType>(interactingCardType);
 					currentCardOutcome.cardIndex = interactingCardIndex;
 					currentCardOutcome.casterIndex = currentPlayerIndex;
 					advanceCardState(CARD_STATE_EFFECT_SEQUENCE);
@@ -16028,7 +15933,7 @@ void ofApp::handleCardMenuClick(const std::string & buttonId) {
 
 				// Defer AP/card finalization to centralized outcome processing
 				resetCardState();
-				currentCardOutcome.cardType = interactingCardType;
+				currentCardOutcome.cardType = static_cast<CardType>(interactingCardType);
 				currentCardOutcome.cardIndex = interactingCardIndex;
 				currentCardOutcome.casterIndex = currentPlayerIndex;
 				advanceCardState(CARD_STATE_EFFECT_SEQUENCE);
@@ -16144,17 +16049,112 @@ void ofApp::drawActiveCardInteractionUI() {
 		}
 
 		case CARD_AMNESIA: {
-			drawMenuOverlay();
-			float w = 520, h = 260;
-			float mx = ofGetWidth() / 2 - w / 2, my = ofGetHeight() / 2 - h / 2;
-			amnesiaMenuRect.set(mx, my, w, h);
+			// If the effect pipeline has placed us into an Amnesia selection phase,
+			// render the drafting-style grid selection. Otherwise render the small
+			// single-choice menu (target) as a fallback.
+			if (!amnesiaDeckCopy.empty()) {
+				string title = "Choose " + ofToString(numCardsToRemove) + " card(s) to remove permanently.";
 
-			ofColor amnesiaAccent(200, 200, 255);
-			ofRectangle dummyRect;
+				float panelPadding = 20.0f;
+				float titleHeight = 60.0f;
+				float acceptBtnHeight = 44.0f;
+				float acceptBtnPadding = 20.0f;
+				float handBaseCardWidth = 120.0f;
+				float baseCardHeight = handBaseCardWidth * (585.0f / 409.0f);
+				float viewCardScale = 1.6f;
+				float availableHeight = ofGetHeight() - (2 * panelPadding) - titleHeight - acceptBtnHeight - acceptBtnPadding;
+				float availableWidth = ofGetWidth() * 0.8f;
 
-			drawCardChoicePanel(amnesiaMenuRect, "Amnesia", "Force target to forget one card:",
-				amnesiaBtnSelf, dummyRect, "Target", "",
-				amnesiaAccent, amnesiaAccent, true, false);
+				while (viewCardScale > 0.5f) {
+					float cardW = handBaseCardWidth * viewCardScale;
+					float cardH = baseCardHeight * viewCardScale;
+					float padding = 15.0f * (viewCardScale / 1.6f);
+					int cols = std::max(2, (int)floor((availableWidth - padding) / (cardW + padding)));
+					int rows = ceil((float)amnesiaDeckCopy.size() / cols);
+					if (rows * (cardH + padding) - padding <= availableHeight) {
+						break;
+					}
+					viewCardScale -= 0.1f;
+				}
+				float viewCardWidth = handBaseCardWidth * viewCardScale;
+				float viewCardHeight = baseCardHeight * viewCardScale;
+				float padding = 15.0f * (viewCardScale / 1.6f);
+
+				int gridWidthInCards = std::max(1, (int)floor((availableWidth - padding) / (viewCardWidth + padding)));
+				gridWidthInCards = std::min(gridWidthInCards, (int)amnesiaDeckCopy.size());
+				if (gridWidthInCards <= 0) gridWidthInCards = 1;
+
+				int gridHeightInCards = (int)ceil((float)amnesiaDeckCopy.size() / (float)gridWidthInCards);
+
+				float totalContentWidth = (gridWidthInCards * viewCardWidth) + ((gridWidthInCards - 1) * padding);
+				float totalContentHeight = (gridHeightInCards * viewCardHeight) + ((gridHeightInCards - 1) * padding);
+
+				float panelWidth = totalContentWidth + 2 * panelPadding;
+				float panelHeight = totalContentHeight + titleHeight + 2 * panelPadding;
+				float panelX = ofGetWidth() / 2.0f - panelWidth / 2.0f;
+				float panelY = ofGetHeight() / 2.0f - panelHeight / 2.0f;
+
+				drawMenuOverlay();
+				ofSetColor(20, 20, 20, 240);
+				ofDrawRectRounded(panelX, panelY, panelWidth, panelHeight, 15);
+
+				ofSetColor(ofColor::white);
+				uiFont.drawString(title, panelX + panelPadding, panelY + panelPadding + uiFont.getLineHeight() * 0.8f);
+
+				for (size_t i = 0; i < amnesiaDeckCopy.size(); ++i) {
+					int row = i / gridWidthInCards;
+					int col = i % gridWidthInCards;
+					float drawX = panelX + panelPadding + col * (viewCardWidth + padding);
+					float drawY = panelY + panelPadding + titleHeight + row * (viewCardHeight + padding);
+					const Card & card = amnesiaDeckCopy[i];
+					cardSpriteSheet.drawSubsection(drawX, drawY, viewCardWidth, viewCardHeight, card.textureRect.x, card.textureRect.y, card.textureRect.width, card.textureRect.height);
+
+					bool isSelected = false;
+					for (int selectedIdx : amnesiaSelectedIndices) {
+						if (selectedIdx == static_cast<int>(i)) {
+							isSelected = true;
+							break;
+						}
+					}
+					if (isSelected) {
+						ofPushStyle();
+						ofNoFill();
+						ofSetColor(ofColor::green);
+						ofSetLineWidth(5);
+						ofDrawRectangle(drawX, drawY, viewCardWidth, viewCardHeight);
+						ofPopStyle();
+					}
+				}
+
+				// Draw Accept button at bottom
+				float acceptW = 160.0f;
+				float acceptH = 44.0f;
+				float acceptY = panelY + panelHeight - acceptH - 15.0f;
+				amnesiaAcceptButton.set(panelX + (panelWidth - acceptW) / 2.0f, acceptY, acceptW, acceptH);
+
+				bool canAccept = (amnesiaSelectedIndices.size() == static_cast<size_t>(numCardsToRemove));
+				if (canAccept) {
+					ofSetColor(0, 160, 0);
+					if (amnesiaAcceptButton.inside(ofGetMouseX(), ofGetMouseY())) ofSetColor(0, 200, 0);
+				} else {
+					ofSetColor(80, 80, 80);
+				}
+				ofDrawRectRounded(amnesiaAcceptButton, 8);
+				ofSetColor(canAccept ? ofColor::white : ofColor(150, 150, 150));
+				ofRectangle aBox = uiFont.getStringBoundingBox("Accept", 0, 0);
+				uiFont.drawString("Accept", amnesiaAcceptButton.getCenter().x - aBox.width / 2, amnesiaAcceptButton.getCenter().y + aBox.height / 2 - 2);
+			} else {
+				// fallback to small single-button menu if deck copy is empty
+				drawMenuOverlay();
+				float w = 520, h = 260;
+				float mx = ofGetWidth() / 2 - w / 2, my = ofGetHeight() / 2 - h / 2;
+				amnesiaMenuRect.set(mx, my, w, h);
+				ofColor amnesiaAccent(200, 200, 255);
+				ofRectangle dummyRect;
+				drawCardChoicePanel(amnesiaMenuRect, "Amnesia", "Force target to forget one card:",
+					amnesiaBtnSelf, dummyRect, "Target", "",
+					amnesiaAccent, amnesiaAccent, true, false);
+			}
 			break;
 		}
 
@@ -17279,6 +17279,7 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 
 		std::string s = cmd.stringData;
 		std::vector<std::string> names;
+		if (nameCount > 0) names.reserve(nameCount);
 		if (!s.empty()) {
 			size_t start = 0;
 			while (start < s.size()) {
@@ -30132,8 +30133,7 @@ void ofApp::processNetworkPackets() {
 	if (!steamManager.packetQueue.empty()) {
 		ofLogNotice("NetTrace") << "processNetworkPackets: queueSize=" << steamManager.packetQueue.size();
 	}
-	// Temporary reusable packet used for state syncs (declare once so it's in scope for the whole function)
-	DraftStatePacket tempDraftStatePkt = {};
+	// Temporary reusable packet used for state syncs (declare when needed)
 	while (!steamManager.packetQueue.empty()) {
 		std::vector<char> buffer = steamManager.packetQueue.front();
 		steamManager.packetQueue.pop();
@@ -30344,7 +30344,7 @@ void ofApp::processNetworkPackets() {
 				// which already applied it optimistically, skip re-applying it
 				// when the authoritative packet arrives. Also clear provisional
 				// snapshots/commands for this id so we don't leak memory.
-				if (!isHost() && cmd->playerID == myLocalPlayerID) {
+				if (!isHost() && cmd->playerID == (uint32_t)myLocalPlayerID) {
 					uint32_t cid = cmd->commandId;
 					if (provisionalSnapshots.find(cid) != provisionalSnapshots.end() || provisionalCommands.find(cid) != provisionalCommands.end()) {
 						ofLogNotice("NetTrace") << "Dropping echoed own input command cmdId=" << cid;
