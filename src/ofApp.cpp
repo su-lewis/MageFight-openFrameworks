@@ -8279,7 +8279,7 @@ void ofApp::drawGame() {
 		ofSetColor(healthColor);
 		ofDrawRectangle(currentX, y, hpW * hpPct, healthBarHeight);
 		string hpText = ofToString(player.health) + "/" + ofToString(player.maxHealth);
-		drawStatText(titleFont, hpText, currentX, y, hpW, healthBarHeight, ofColor::white, 1.0f);
+		drawStatText(titleFont, hpText, currentX, y, hpW, healthBarHeight, ofColor::white, 1.2f);
 
 		currentX += hpW;
 
@@ -28715,7 +28715,7 @@ DamageType ofApp::stringToDamageType(const std::string & str) {
 //--------------------------------------------------------------
 void ofApp::drawMinionStatusBars(Player & minion, const std::string & name, float x, float y, float totalWidth, float preferredHpWidth) {
 	float scale = ofGetHeight() / 1080.0f;
-	float fontScale = 0.9f;
+	float fontScale = 1.0f;
 
 	// 1. Main Stats Bar
 	float barHeight = 20 * scale;
