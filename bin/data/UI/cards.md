@@ -287,7 +287,7 @@
 - **Targeting:** Line of Sight
 - **Class:** 3
 - **Picture:** 
-- **Effect Text:** Choose a target. Choose One - Kill if Sleeping; or roll 1d20 if higher than the unit's health it dies, if lower apply Sleep for 1d6 turns.
+- **Effect Text:** Choose a target. Roll 1d20, if higher than the unit's health it dies, if lower apply Sleep for 1d6 turns. If the unit was Sleeping then it dies.
 ---
 
 -## 38. Summon Demon

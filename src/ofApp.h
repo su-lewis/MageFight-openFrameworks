@@ -693,6 +693,7 @@ struct Player {
 	int nextTurnAPBonus = 0;
 	int shocksPlayedThisTurn = 0;
 	int flurryOfFistsStacks = 0; // Number of Flurry stacks: each stack doubles hand-related effects and drawn-card counts
+	int freeHandCardTurns = 0; // Number of turns remaining where hand-related cards cost 0 AP
 	bool isParalyzed = false;
 	int paralysisHeadsCount = 0;
 	bool isPoisoned = false;

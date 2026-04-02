@@ -5666,7 +5666,7 @@ void ofApp::updateGame() {
 								int raw = resolveDiceRollDetailed(1, 4, rawRes);
 								int luckBonus = p.luck + computePassiveLuck((int)pidx);
 								int roll = raw + luckBonus; // may exceed 4; that's intentional
-								if (0 >= 0 && 0 < 16) currentEffectSequence.blackboard[0] = roll;
+								if (15 >= 0 && 15 < 16) currentEffectSequence.blackboard[15] = roll;
 								// Show dice visual for the faerie roll
 								queueVisualDiceRoll(gridToWorld(p.x, p.y) + glm::vec3(0, 1.0f, 0), 1, 4, rawRes, roll, PURPOSE_DEBUG, (int)pidx, 1.0f);
 								int hp = (int)std::floor(dying.maxHealth * 0.25f * roll);
@@ -14135,6 +14135,7 @@ void ofApp::startNewTurn() {
 			if (!isProcessingEffect) beginEffectSequence();
 		}
 		endingPlayer.flurryOfFistsStacks = 0; // Clear flurry buff at end of turn
+		endingPlayer.freeHandCardTurns = 0;
 
 		// Reshuffle discard into deck if needed
 		if (endingPlayer.deck.empty() && !endingPlayer.discardPile.empty()) {
@@ -14830,6 +14831,18 @@ void ofApp::continueNewTurn() {
 			lastAPRawResults = rawAP;
 		}
 	}
+	// Wolf AP: 1d10
+	else if (startingPlayer.isWolf) {
+		lastAPDiceNum = 1;
+		lastAPDiceSides = 10;
+		{
+			std::vector<int> rawAP;
+			int apRoll = resolveDiceRollDetailed(1, 10, rawAP);
+			currentEffectSequence.blackboard[0] = apRoll;
+			queueVisualDiceRoll(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.0f, 0), 1, 10, rawAP, apRoll, PURPOSE_AP, currentPlayerIndex, 1.0f);
+			lastAPRawResults = rawAP;
+		}
+	}
 	// Skeleton / generic minion AP: 1d6
 	else if (startingPlayer.isMinion) {
 		// Use the minion's display name (eg. "Golem 1") in the roll description
@@ -15000,26 +15013,6 @@ void ofApp::updateCardInteractionState(CardInteractionState newState, int cardId
 		}
 	}
 
-	// When entering targeting for Teleport, queue deterministic range roll via effect/op pipeline
-	if (newState == CARD_INTERACTION_TARGETING && cardType == CARD_TELEPORT && cardIdx >= 0 && currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) {
-		Player & caster = players[currentPlayerIndex];
-		if (cardIdx < (int)caster.hand.size()) {
-			Card & card = caster.hand[cardIdx];
-			beginEffectSequence();
-			// Resolve teleport range deterministically and queue visual dice
-			std::vector<int> rawRange;
-			int rangeRoll = resolveDiceRollDetailed(card.numDice, card.diceSides, rawRange);
-			currentEffectSequence.blackboard[0] = rangeRoll;
-			queueVisualDiceRoll(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.0f, 0), card.numDice, card.diceSides, rawRange, rangeRoll, PURPOSE_TELEPORT_RANGE, currentPlayerIndex, 1.0f);
-
-			EffectOp applyOp = {};
-			applyOp.type = EffectOpType::APPLY_TELEPORT;
-			queueEffect(applyOp);
-
-			// reflect that we're awaiting dice for this interaction
-			cardPlayState = CARD_STATE_DICE;
-		}
-	}
 	ofLogNotice("CardInteraction") << "State: " << (int)newState << " | Card: " << cardIdx << " Type: " << cardType;
 }
 
@@ -15227,11 +15220,11 @@ void ofApp::handleCardTargetClick(int gridX, int gridY) {
 			cmd.seq = 0;
 			cmd.commandId = nextCommandId++;
 			cmd.turnNumber = globalTurnCounter;
-			cmd.commandType = CMD_PLAY_CARD;
-			cmd.params[0] = cardIndex;
+			cmd.commandType = CMD_MENU_CHOICE;
+			cmd.params[0] = (int)CARD_TELEPORT;
 			cmd.params[1] = gridX;
 			cmd.params[2] = gridY;
-			cmd.params[3] = 0;
+			cmd.params[3] = cardIndex;
 			strncpy(cmd.stringData, card.name.c_str(), sizeof(cmd.stringData) - 1);
 			cmd.stringData[sizeof(cmd.stringData) - 1] = '\0';
 			{
@@ -15247,10 +15240,11 @@ void ofApp::handleCardTargetClick(int gridX, int gridY) {
 		cmd.playerID = myLocalPlayerID;
 		cmd.commandId = nextCommandId++;
 		cmd.turnNumber = globalTurnCounter;
-		cmd.commandType = CMD_PLAY_CARD;
-		cmd.params[0] = cardIndex;
+		cmd.commandType = CMD_MENU_CHOICE;
+		cmd.params[0] = (int)CARD_TELEPORT;
 		cmd.params[1] = gridX;
 		cmd.params[2] = gridY;
+		cmd.params[3] = cardIndex;
 		strncpy(cmd.stringData, card.name.c_str(), sizeof(cmd.stringData) - 1);
 		cmd.stringData[sizeof(cmd.stringData) - 1] = '\0';
 
@@ -15486,7 +15480,7 @@ void ofApp::handleCardMenuClick(const std::string & buttonId) {
 		}
 		advanceCardState(CARD_STATE_EFFECT_SEQUENCE);
 		// Trigger tortoise shell spike targeting immediately if applicable (keeps previous UX)
-		if (isSelfTarget) tryTriggerShellSpike();
+		if (isSelfTarget && isCurrentPlayerLocal()) tryTriggerShellSpike();
 		resetCardInteraction();
 		break;
 	}
@@ -16232,12 +16226,11 @@ void ofApp::drawCard(bool sendPacket) {
 
 		ofLogNotice("Game") << "Deck is empty. Reshuffling Discard Pile into Deck...";
 
-		// Deterministic reshuffle via effect op
-		EffectOp rs = {};
-		rs.type = EffectOpType::RESHUFFLE_DISCARD_TO_DECK;
-		rs.data.reshuffle.targetIndex = currentPlayerIndex;
-		// Queue reshuffle so it is handled deterministically by the effect pipeline
-		queueEffect(rs);
+		// Reshuffle immediately so additional draws in this same resolution
+		// can consume the refilled deck.
+		currentPlayer.deck = currentPlayer.discardPile;
+		currentPlayer.discardPile.clear();
+		shuffleGameVector(currentPlayer.deck, currentPlayerIndex);
 	}
 
 	// If some effect earlier marked the deck as "dirty" (cards were added without
@@ -16546,7 +16539,7 @@ void ofApp::simulationTick() {
 								int raw = resolveDiceRollDetailed(1, 4, rawRes);
 								int luckBonus = p.luck + computePassiveLuck((int)pidx);
 								int roll = raw + luckBonus; // may exceed 4; that's intentional
-								if (0 >= 0 && 0 < 16) currentEffectSequence.blackboard[0] = roll;
+								if (15 >= 0 && 15 < 16) currentEffectSequence.blackboard[15] = roll;
 								// Show dice visual for the faerie roll
 								queueVisualDiceRoll(gridToWorld(p.x, p.y) + glm::vec3(0, 1.0f, 0), 1, 4, rawRes, roll, PURPOSE_DEBUG, (int)pidx, 1.0f);
 								int hp = (int)std::floor(dying.maxHealth * 0.25f * roll);
@@ -16782,6 +16775,27 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 			ghostRelocateChoices.clear();
 			ghostRelocateTargetIndex = -1;
 			opponentInteraction.open = false;
+			break;
+		}
+
+		if (menuType == CARD_TELEPORT) {
+			int destX = targetIndex;
+			int destY = choice;
+			int cardIdx = cardIndex;
+			if (currentPlayerIndex < 0 || currentPlayerIndex >= (int)players.size()) break;
+			if (cardIdx < 0 || cardIdx >= (int)players[currentPlayerIndex].hand.size()) break;
+			if (destX < 0 || destX >= BOARD_WIDTH || destY < 0 || destY >= BOARD_HEIGHT) break;
+			if (!board[destX][destY].isTargetable) break;
+
+			beginEffectSequence();
+			EffectOp mv = {};
+			mv.type = EffectOpType::MOVE_UNIT;
+			mv.data.moveUnit.unitIndex = currentPlayerIndex;
+			mv.data.moveUnit.toX = destX;
+			mv.data.moveUnit.toY = destY;
+			queueEffect(mv);
+			advanceCardState(CARD_STATE_EFFECT_SEQUENCE);
+			resetCardInteraction();
 			break;
 		}
 
@@ -21266,14 +21280,40 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 			int baseOut = 8;
 			int outIdx = 0;
 			currentCardOutcome.targetedPlayers.clear();
-			for (int targetIdx : adjacentTargets) {
-				Player & tgt = players[targetIdx];
-				int outSlot = baseOut + outIdx;
-				int dmg = currentEffectSequence.blackboard[0];
-				if (dmg <= 0) dmg = 0;
-				applyDamageWithMitigationsQueued(tgt, dmg, playedCard.damageType, currentPlayerIndex, outSlot);
-				currentCardOutcome.targetedPlayers.push_back(players[targetIdx].playerID);
-				outIdx++;
+			for (int dx = -1; dx <= 1; ++dx) {
+				for (int dy = -1; dy <= 1; ++dy) {
+					if (dx == 0 && dy == 0) continue;
+					int tx = currentPlayer.x + dx;
+					int ty = currentPlayer.y + dy;
+					if (tx < 0 || tx >= BOARD_WIDTH || ty < 0 || ty >= BOARD_HEIGHT) continue;
+					if (std::max(abs(dx), abs(dy)) != 1) continue;
+
+					bool blocked = false;
+					if (board[tx][ty].hasWall) blocked = true;
+					if (!blocked && abs(dx) == 1 && abs(dy) == 1) {
+						if (isTileWall(currentPlayer.x + dx, currentPlayer.y) && isTileWall(currentPlayer.x, currentPlayer.y + dy)) {
+							blocked = true;
+						}
+					}
+					if (blocked || !board[tx][ty].hasPlayer) continue;
+
+					int targetIdx = -1;
+					for (size_t i = 0; i < players.size(); ++i) {
+						if (players[i].x == tx && players[i].y == ty) {
+							targetIdx = (int)i;
+							break;
+						}
+					}
+					if (targetIdx == -1) continue;
+
+					Player & tgt = players[targetIdx];
+					int outSlot = baseOut + outIdx;
+					int dmg = currentEffectSequence.blackboard[0];
+					if (dmg <= 0) dmg = 0;
+					applyDamageWithMitigationsQueued(tgt, dmg, playedCard.damageType, currentPlayerIndex, outSlot);
+					currentCardOutcome.targetedPlayers.push_back(players[targetIdx].playerID);
+					outIdx++;
+				}
 			}
 
 			// Enqueue resolve op to read applied amounts from blackboard and show visuals
@@ -21737,26 +21777,20 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 	}
 
 	case CARD_TELEPORT: {
-		// Finalize teleport when a target tile is provided via command execution.
-		// Validate target is within bounds and marked targetable by the earlier APPLY_TELEPORT op.
-		if (targetX < 0 || targetX >= BOARD_WIDTH || targetY < 0 || targetY >= BOARD_HEIGHT) return true;
-		if (!board[targetX][targetY].isTargetable) {
-			// Not a valid teleport destination
-			return true;
-		}
+		beginEffectSequence();
 
-		// Start a fresh effect sequence for the teleport resolution if none active
-		if (!isProcessingEffect || currentEffectSequence.isComplete) beginEffectSequence();
-
-		// Queue deterministic MOVE_UNIT op to teleport the caster
+		// Resolve teleport range deterministically at play time so both peers
+		// observe the same roll before the targeting UI opens.
 		{
-			EffectOp mv = {};
-			mv.type = EffectOpType::MOVE_UNIT;
-			mv.data.moveUnit.unitIndex = currentPlayerIndex;
-			mv.data.moveUnit.toX = targetX;
-			mv.data.moveUnit.toY = targetY;
-			queueEffect(mv);
+			std::vector<int> rawRange;
+			int rangeRoll = resolveDiceRollDetailed(playedCard.numDice, playedCard.diceSides, rawRange);
+			currentEffectSequence.blackboard[0] = rangeRoll;
+			queueVisualDiceRoll(gridToWorld(currentPlayer.x, currentPlayer.y) + glm::vec3(0, 1.0f, 0), playedCard.numDice, playedCard.diceSides, rawRange, rangeRoll, PURPOSE_TELEPORT_RANGE, currentPlayerIndex, 1.0f);
 		}
+
+		EffectOp applyOp = {};
+		applyOp.type = EffectOpType::APPLY_TELEPORT;
+		queueEffect(applyOp);
 
 		playedSuccessfully = true;
 		advanceCardState(CARD_STATE_EFFECT_SEQUENCE);
@@ -22624,6 +22658,7 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 		drawOp.data.drawCards.numCards = 1;
 		// Draw count will be computed in the EffectSequence handler
 		queueEffect(drawOp);
+		currentPlayer.freeHandCardTurns = std::max(currentPlayer.freeHandCardTurns, 1);
 
 		playedSuccessfully = true;
 		advanceCardState(CARD_STATE_EFFECT_SEQUENCE);
@@ -22891,6 +22926,8 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 		currentPlayer.playedCardsPile.push_back(playedCard);
 		currentPlayer.cardsPlayedThisTurn.push_back(playedCard.type);
 		currentPlayer.hand.erase(currentPlayer.hand.begin() + cardIndex);
+		currentCardOutcome.apPaid = true;
+		currentCardOutcome.cardIndex = -1;
 		isEarthquakeActive = true;
 		isEarthquakeDiceRolling = true;
 		isEarthquakeAnimatingStep = false;
@@ -23148,6 +23185,7 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 			return true;
 		}
 		beginEffectSequence();
+		currentPlayer.tortoiseFormCard = playedCard;
 
 		// 1. Store original model type for later restoration
 		if (currentPlayer.isMagicWallUnit)
@@ -23223,6 +23261,7 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 			return true;
 		}
 		beginEffectSequence();
+		currentPlayer.ghostFormCard = playedCard;
 
 		// 1. Store original model type for later restoration
 		if (currentPlayer.isMagicWallUnit)
@@ -23802,6 +23841,10 @@ CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 	// Determine effective cost (Kick may be free due to Sprint)
 	int costToPay = playedCard.cost;
 	if (playedCard.type == CARD_KICK && currentPlayer.freeKickTurns > 0) costToPay = 0;
+	auto isHandRelatedCard = [](CardType type) {
+		return type == CARD_PUNCH || type == CARD_BASH || type == CARD_DRAIN_PUNCH || type == CARD_MASTER_FIST || type == CARD_FLURRY_OF_FISTS || type == CARD_GIANT_MAGIC_HAND;
+	};
+	if (currentPlayer.freeHandCardTurns > 0 && isHandRelatedCard(playedCard.type)) costToPay = 0;
 
 	// DEBUG: Unlimited AP mode
 	if (hasUnlimitedAP) {
@@ -25231,7 +25274,7 @@ std::string ofApp::buildSnapshotString() {
 		   << p.baseLuck << "\t" << p.bonusTurns << "\t" << p.facingAngle << "\t"
 		   << (p.onFire ? 1 : 0) << "\t" << (p.hasRegeneration ? 1 : 0) << "\t"
 		   << p.nextTurnAPBonus << "\t" << p.shocksPlayedThisTurn << "\t"
-		   << p.flurryOfFistsStacks << "\t" << (p.isParalyzed ? 1 : 0) << "\t"
+		   << p.flurryOfFistsStacks << "\t" << p.freeHandCardTurns << "\t" << (p.isParalyzed ? 1 : 0) << "\t"
 		   << p.paralysisHeadsCount << "\t" << (p.isPoisoned ? 1 : 0) << "\t" << p.poisonReduction << "\t"
 		   << (p.nextAttackAddPoison ? 1 : 0) << "\t" << (p.nextTurnD10AP ? 1 : 0) << "\t"
 		   << (p.nextTurnExtraDraw ? 1 : 0) << "\t" << (p.replicateQueued ? 1 : 0) << "\t"
@@ -25423,6 +25466,7 @@ void ofApp::applySnapshotString(const std::string & data) {
 				p.nextTurnAPBonus = std::stoi(parts[idx++]);
 				p.shocksPlayedThisTurn = std::stoi(parts[idx++]);
 				p.flurryOfFistsStacks = std::stoi(parts[idx++]);
+				p.freeHandCardTurns = std::stoi(parts[idx++]);
 				p.isParalyzed = (std::stoi(parts[idx++]) != 0);
 				p.paralysisHeadsCount = std::stoi(parts[idx++]);
 				p.isPoisoned = (std::stoi(parts[idx++]) != 0);
@@ -26452,7 +26496,7 @@ void ofApp::tryTriggerShellSpike() {
 	if (currentPlayerIndex < 0 || currentPlayerIndex >= (int)players.size()) return;
 	Player & currentPlayer = players[currentPlayerIndex];
 
-	if (!currentPlayer.inTortoiseForm) return;
+	if (!currentPlayer.inTortoiseForm || !isCurrentPlayerLocal()) return;
 
 	// Check if there are any adjacent units (ANY unit, including allies)
 	bool hasAdjacentUnit = false;
@@ -27121,8 +27165,9 @@ void ofApp::applyDispelEffect(int statusIndex) {
 		calculateTargetHighlights();
 	}
 
-	// Trigger Shell Spike if in Tortoise Form
-	tryTriggerShellSpike();
+	// Trigger Shell Spike only on the local active player; the actual hit is
+	// resolved through the deterministic CMD_PSEUDO_ACTION path.
+	if (isCurrentPlayerLocal()) tryTriggerShellSpike();
 
 	cancelDispel(); // Close menus
 }
@@ -30743,6 +30788,7 @@ long long ofApp::calculateChecksum() {
 		mix((uint64_t)p.nextTurnBonusDiceFromMinions);
 		mix((uint64_t)p.strengthenElementsTurnsRemaining);
 		mix((uint64_t)p.sleepTurnsRemaining);
+		mix((uint64_t)p.freeHandCardTurns);
 		mix((uint64_t)p.summonedOnTurnCycle);
 		mix((uint64_t)p.inTortoiseForm);
 		mix((uint64_t)p.tortoiseDamageTaken);
