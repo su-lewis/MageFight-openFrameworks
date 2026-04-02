@@ -1329,9 +1329,9 @@ void drawStatText(ofTrueTypeFont & font, std::string text, float x, float y, flo
 	float baselineY = y + (h / 2.0f) - ((bounds.y + bounds.height * 0.5f) * scale);
 	ofTranslate(x + (w - bounds.width * scale) / 2, baselineY);
 	ofScale(scale, scale);
-	// Draw a thicker black outline by rendering the text at a grid of offsets, then the main color
+	// Draw a thicker black outline by rendering the text at a larger grid of offsets, then the main color
 	ofSetColor(ofColor::black);
-	const int offsRange[] = { -2, -1, 0, 1, 2 };
+	const int offsRange[] = { -3, -2, -1, 0, 1, 2, 3 };
 	for (int oy : offsRange) {
 		for (int ox : offsRange) {
 			if (ox == 0 && oy == 0) continue;
