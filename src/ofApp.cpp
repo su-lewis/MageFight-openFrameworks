@@ -936,23 +936,28 @@ Player ofApp::initMinionFromKind(int summonKind, int ownerID, int maxHP, int ap,
 	int defaultHP = 1;
 	switch (summonKind) {
 	case 1:
-		defaultHP = 2;
+		// Kobold: fixed 1 HP
+		defaultHP = 1;
 		minion.isKobold = true;
 		break;
 	case 2:
-		defaultHP = 3;
+		// Wolf: fixed 4 HP
+		defaultHP = 4;
 		minion.isWolf = true;
 		break;
 	case 3:
-		defaultHP = 4;
+		// Hellhound: HP is 2d6 (rolled at summon)
+		defaultHP = 0;
 		minion.isHellhound = true;
 		break;
 	case 4:
-		defaultHP = 5;
+		// Demon: HP is 3d10 (rolled at summon)
+		defaultHP = 0;
 		minion.isDemon = true;
 		break;
 	case 5:
-		defaultHP = 6;
+		// Kobold King: dynamic maxHP = #kobolds on board + 1 (set at summon)
+		defaultHP = 0;
 		minion.isKoboldKing = true;
 		break;
 	case 6:
@@ -971,11 +976,13 @@ Player ofApp::initMinionFromKind(int summonKind, int ownerID, int maxHP, int ap,
 		minion.isGolem = true;
 		break; // might be set via roll
 	case 9:
-		defaultHP = 4;
+		// Skeleton: HP is 1d6 (rolled at summon)
+		defaultHP = 0;
 		minion.isSkeleton = true;
 		minion.hasRegeneration = true;
 		break;
 	case 10:
+		// Wall: fixed 5 HP
 		defaultHP = 5;
 		minion.isWallUnit = true;
 		minion.isMagicWallUnit = false;
@@ -15650,7 +15657,11 @@ void ofApp::handleCardMenuClick(const std::string & buttonId) {
 	case CARD_BURST_OF_LIGHT: {
 		// Menu choice: "damage" or "heal"
 		if (buttonId == "damage") {
-			// Use effect-op pipeline so the change is authoritative and deterministic
+			// Route via unified card outcome -> effect sequence
+			resetCardState();
+			currentCardOutcome.cardType = interactingCardType;
+			currentCardOutcome.cardIndex = interactingCardIndex;
+			currentCardOutcome.casterIndex = currentPlayerIndex;
 			beginEffectSequence();
 			EffectOp burstDamageOp = {};
 			burstDamageOp.type = EffectOpType::DAMAGE;
@@ -15660,7 +15671,12 @@ void ofApp::handleCardMenuClick(const std::string & buttonId) {
 			burstDamageOp.data.damage.damageFromSlot = -1;
 			queueEffect(burstDamageOp);
 			advanceCardState(CARD_STATE_EFFECT_SEQUENCE);
+			resetCardInteraction();
 		} else if (buttonId == "heal") {
+			resetCardState();
+			currentCardOutcome.cardType = interactingCardType;
+			currentCardOutcome.cardIndex = interactingCardIndex;
+			currentCardOutcome.casterIndex = currentPlayerIndex;
 			beginEffectSequence();
 			EffectOp burstHealOp = {};
 			burstHealOp.type = EffectOpType::HEAL;
@@ -15669,11 +15685,8 @@ void ofApp::handleCardMenuClick(const std::string & buttonId) {
 			burstHealOp.data.heal.amountFromSlot = -1;
 			queueEffect(burstHealOp);
 			advanceCardState(CARD_STATE_EFFECT_SEQUENCE);
+			resetCardInteraction();
 		}
-		currentAP -= card.cost;
-		updatePlayerAP(caster, currentAP);
-		finishPlayCard(caster, card, interactingCardIndex);
-		resetCardInteraction();
 		break;
 	}
 
@@ -15682,6 +15695,13 @@ void ofApp::handleCardMenuClick(const std::string & buttonId) {
 		int effectValue = (int)caster.deck.size();
 		bool isSelfTarget = (interactionTargetIndex == currentPlayerIndex);
 
+		// Queue the chosen effect via the centralized effect sequence and
+		// let the CARD_STATE_OUTCOME / applyCardOutcomeEffects handle AP/card removal
+		resetCardState();
+		currentCardOutcome.cardType = interactingCardType;
+		currentCardOutcome.cardIndex = interactingCardIndex;
+		currentCardOutcome.casterIndex = currentPlayerIndex;
+		beginEffectSequence();
 		if (buttonId == "damage") {
 			EffectOp damageOp = {};
 			damageOp.type = EffectOpType::DAMAGE;
@@ -15689,7 +15709,7 @@ void ofApp::handleCardMenuClick(const std::string & buttonId) {
 			damageOp.data.damage.damageType = DAMAGE_MAGIC;
 			damageOp.data.damage.fixedDamage = effectValue;
 			damageOp.data.damage.damageFromSlot = -1;
-			processEffectOp(damageOp);
+			queueEffect(damageOp);
 		} else if (buttonId == "block") {
 			EffectOp blockOp = {};
 			blockOp.type = EffectOpType::MODIFY_STAT;
@@ -15697,14 +15717,11 @@ void ofApp::handleCardMenuClick(const std::string & buttonId) {
 			blockOp.data.modifyStat.statType = 5; // Block
 			blockOp.data.modifyStat.delta = effectValue;
 			blockOp.data.modifyStat.deltaFromSlot = -1;
-			processEffectOp(blockOp);
+			queueEffect(blockOp);
 		}
-		currentAP -= card.cost;
-		updatePlayerAP(caster, currentAP);
-		finishPlayCard(caster, card, interactingCardIndex);
-		if (isSelfTarget) {
-			tryTriggerShellSpike();
-		}
+		advanceCardState(CARD_STATE_EFFECT_SEQUENCE);
+		// Trigger tortoise shell spike targeting immediately if applicable (keeps previous UX)
+		if (isSelfTarget) tryTriggerShellSpike();
 		resetCardInteraction();
 		break;
 	}
@@ -15712,8 +15729,13 @@ void ofApp::handleCardMenuClick(const std::string & buttonId) {
 	case CARD_MAGIC_BLAST: {
 		// Menu choice execution must not rely on local mouse coords when running
 		// as a lockstep command; use the provided `buttonId` and `interactionTargetIndex`.
+		// Route through the centralized outcome/effect sequence
+		resetCardState();
+		currentCardOutcome.cardType = interactingCardType;
+		currentCardOutcome.cardIndex = interactingCardIndex;
+		currentCardOutcome.casterIndex = currentPlayerIndex;
+		beginEffectSequence();
 		if (buttonId == "damage") {
-			beginEffectSequence();
 			EffectOp dmg = {};
 			dmg.type = EffectOpType::DAMAGE;
 			dmg.data.damage.targetIndex = interactionTargetIndex;
@@ -15721,18 +15743,13 @@ void ofApp::handleCardMenuClick(const std::string & buttonId) {
 			dmg.data.damage.fixedDamage = 5;
 			dmg.data.damage.damageFromSlot = -1;
 			queueEffect(dmg);
-			advanceCardState(CARD_STATE_EFFECT_SEQUENCE);
 		} else if (buttonId == "discard") {
-			beginEffectSequence();
 			EffectOp rem = {};
 			rem.type = EffectOpType::REMOVE_TOP_CARD_FROM_DECK;
 			rem.data.removeTopCard.targetIndex = interactionTargetIndex;
 			queueEffect(rem);
-			advanceCardState(CARD_STATE_EFFECT_SEQUENCE);
 		}
-		currentAP -= card.cost;
-		updatePlayerAP(caster, currentAP);
-		finishPlayCard(caster, card, interactingCardIndex);
+		advanceCardState(CARD_STATE_EFFECT_SEQUENCE);
 		resetCardInteraction();
 		break;
 	}
@@ -15757,6 +15774,7 @@ void ofApp::handleCardMenuClick(const std::string & buttonId) {
 
 				if (found) {
 					// 2. Add copies to deck via deterministic EffectOps (authoritative)
+					beginEffectSequence();
 					int copiesToAdd = 2 * (1 << caster.flurryOfFistsStacks);
 					for (int i = 0; i < copiesToAdd; i++) {
 						EffectOp addOp = {};
@@ -15766,18 +15784,12 @@ void ofApp::handleCardMenuClick(const std::string & buttonId) {
 						queueEffect(addOp);
 					}
 
-					// 3. Finalize Play (Cost AP, Remove Card)
-					if (interactingCardIndex != -1) {
-						Card & playedCard = caster.hand[interactingCardIndex];
-						int dhCost = playedCard.cost;
-						if (playedCard.type == CARD_KICK && caster.freeKickTurns > 0) dhCost = 0;
-						currentAP -= dhCost;
-						caster.playedCardsPile.push_back(playedCard);
-						applyReplicateCopyToHand(caster, playedCard);
-						updatePlayerAP(players[currentPlayerIndex], currentAP);
-						caster.hand.erase(caster.hand.begin() + interactingCardIndex);
-						calculateTargetHighlights();
-					}
+					// Defer AP/card finalization to centralized outcome processing
+					resetCardState();
+					currentCardOutcome.cardType = interactingCardType;
+					currentCardOutcome.cardIndex = interactingCardIndex;
+					currentCardOutcome.casterIndex = currentPlayerIndex;
+					advanceCardState(CARD_STATE_EFFECT_SEQUENCE);
 				}
 			}
 			updateCardInteractionState(CARD_INTERACTION_IDLE, -1, CARD_NONE);
@@ -15786,10 +15798,6 @@ void ofApp::handleCardMenuClick(const std::string & buttonId) {
 			sendMenuState(0, -1, -1, -1);
 			calculateTargetHighlights();
 		}
-		currentAP -= card.cost;
-		updatePlayerAP(caster, currentAP);
-		finishPlayCard(caster, card, interactingCardIndex);
-		resetCardInteraction();
 		break;
 	}
 
@@ -15842,19 +15850,21 @@ void ofApp::handleCardMenuClick(const std::string & buttonId) {
 				currentEffectSequence.blackboard[0] = amn;
 				queueVisualDiceRoll(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.0f, 0), card.numDice, card.diceSides, rawAmnesia, amn, PURPOSE_DEBUG, currentPlayerIndex, 1.0f);
 			}
-			// Queue authoritative apply op to handle amnesia result deterministically
+
+			// Initialize centralized card outcome and start effect processing
+			resetCardState();
+			currentCardOutcome.cardType = interactingCardType;
+			currentCardOutcome.cardIndex = interactingCardIndex;
+			currentCardOutcome.casterIndex = currentPlayerIndex;
+			beginEffectSequence();
 			{
 				EffectOp applyOp = {};
 				applyOp.type = EffectOpType::APPLY_AMNESIA;
 				queueEffect(applyOp);
 			}
 			advanceCardState(CARD_STATE_EFFECT_SEQUENCE);
-			beginEffectSequence();
 			amnesiaTargetPlayerIndex = currentPlayerIndex;
 			amnesiaChooserPlayerID = caster.isMinion ? caster.ownerID : caster.playerID;
-			currentAP -= card.cost;
-			finishPlayCard(caster, card, interactingCardIndex);
-			updatePlayerAP(caster, currentAP);
 			resetCardInteraction();
 		}
 		break;
@@ -15879,10 +15889,12 @@ void ofApp::handleCardMenuClick(const std::string & buttonId) {
 			applyBarrier.data.modifyStat.deltaFromSlot = 0; // use roll result
 			queueEffect(applyBarrier);
 
-			currentAP -= card.cost;
-			caster.discardPile.push_back(card);
-			caster.hand.erase(caster.hand.begin() + interactingCardIndex);
-			updatePlayerAP(caster, currentAP);
+			// Defer AP/card finalization to centralized outcome processing
+			resetCardState();
+			currentCardOutcome.cardType = interactingCardType;
+			currentCardOutcome.cardIndex = interactingCardIndex;
+			currentCardOutcome.casterIndex = currentPlayerIndex;
+			advanceCardState(CARD_STATE_EFFECT_SEQUENCE);
 			resetCardInteraction();
 		} else if (buttonId == "Purge") {
 			// Enter status selection
@@ -15935,15 +15947,13 @@ void ofApp::handleCardMenuClick(const std::string & buttonId) {
 					applyOp.type = EffectOpType::APPLY_MAGIC_HAND_DAMAGE;
 					queueEffect(applyOp);
 
-					// Pay cost now (notification removed from lockstep execution)
-					currentAP -= ch.hand[interactingCardIndex].cost;
-					ch.playedCardsPile.push_back(ch.hand[interactingCardIndex]);
-
-					// Remove card from hand and update state
-					ch.hand.erase(ch.hand.begin() + interactingCardIndex);
-					interactingCardIndex = -1;
-					updateCardInteractionState(CARD_INTERACTION_IDLE, -1, CARD_NONE);
+					// Defer AP/card finalization to centralized outcome processing
+					resetCardState();
+					currentCardOutcome.cardType = interactingCardType;
+					currentCardOutcome.cardIndex = interactingCardIndex;
+					currentCardOutcome.casterIndex = currentPlayerIndex;
 					advanceCardState(CARD_STATE_EFFECT_SEQUENCE);
+					resetCardInteraction();
 				} else {
 					// Empty space: move caster to wallPos, remove original wall, create wall at targetPos
 					beginEffectSequence();
@@ -15968,16 +15978,13 @@ void ofApp::handleCardMenuClick(const std::string & buttonId) {
 					create.data.createWall.isMagic = board[wallPos.x][wallPos.y].isMagicWall;
 					queueEffect(create);
 
-					// Pay cost & finalize locally first (network send suppressed here)
-					currentAP -= ch.hand[interactingCardIndex].cost;
-					ch.playedCardsPile.push_back(ch.hand[interactingCardIndex]);
-
-					// Remove card from hand and finish
-					ch.hand.erase(ch.hand.begin() + interactingCardIndex);
-					interactingCardIndex = -1;
-					updateCardInteractionState(CARD_INTERACTION_IDLE, -1, CARD_NONE);
-					invalidateTargetCache();
+					// Defer AP/card finalization to centralized outcome processing
+					resetCardState();
+					currentCardOutcome.cardType = interactingCardType;
+					currentCardOutcome.cardIndex = interactingCardIndex;
+					currentCardOutcome.casterIndex = currentPlayerIndex;
 					advanceCardState(CARD_STATE_EFFECT_SEQUENCE);
+					resetCardInteraction();
 				}
 			}
 		} else {
@@ -16019,22 +16026,16 @@ void ofApp::handleCardMenuClick(const std::string & buttonId) {
 				create.data.createWall.isMagic = board[wallPos.x][wallPos.y].isMagicWall;
 				queueEffect(create);
 
-				// Finalize: pay AP and remove card locally (network send suppressed here)
-				currentAP -= players[currentPlayerIndex].hand[interactingCardIndex].cost;
-				players[currentPlayerIndex].playedCardsPile.push_back(players[currentPlayerIndex].hand[interactingCardIndex]);
-				players[currentPlayerIndex].hand.erase(players[currentPlayerIndex].hand.begin() + interactingCardIndex);
-
-				// Cleanup local interaction state
-				interactingCardIndex = -1;
-				updateCardInteractionState(CARD_INTERACTION_IDLE, -1, CARD_NONE);
-				invalidateTargetCache();
+				// Defer AP/card finalization to centralized outcome processing
+				resetCardState();
+				currentCardOutcome.cardType = interactingCardType;
+				currentCardOutcome.cardIndex = interactingCardIndex;
+				currentCardOutcome.casterIndex = currentPlayerIndex;
 				advanceCardState(CARD_STATE_EFFECT_SEQUENCE);
+				resetCardInteraction();
 			}
 		}
-		// Common post-play bookkeeping
-		updatePlayerAP(caster, currentAP);
-		finishPlayCard(caster, card, interactingCardIndex);
-		resetCardInteraction();
+
 		break;
 	}
 
@@ -23161,8 +23162,10 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 		{
 			std::vector<int> rawHp;
 			int hpRoll = resolveDiceRollDetailed(1, 6, rawHp);
-			currentEffectSequence.blackboard[0] = hpRoll;
-			queueVisualDiceRoll(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.0f, 0), 1, 6, rawHp, hpRoll, PURPOSE_SUMMON, currentPlayerIndex, 1.0f);
+			int luckBonus = players[currentPlayerIndex].luck + computePassiveLuck(currentPlayerIndex);
+			int finalHp = hpRoll + luckBonus; // 1d6 + luck per die
+			currentEffectSequence.blackboard[0] = finalHp;
+			queueVisualDiceRoll(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.0f, 0), 1, 6, rawHp, finalHp, PURPOSE_SUMMON, currentPlayerIndex, 1.0f);
 		}
 		spawnSkeletonOp.data.spawnUnit.maxHealth = 0;
 		spawnSkeletonOp.data.spawnUnit.maxHealthFromSlot = 0;
@@ -23427,8 +23430,10 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 			std::vector<int> rawHp;
 			int sides = isElectric ? 6 : (isFire ? 10 : (isRock ? 20 : 10));
 			int hpRoll = resolveDiceRollDetailed(1, sides, rawHp);
-			currentEffectSequence.blackboard[1] = hpRoll;
-			queueVisualDiceRoll(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.0f, 0), 1, sides, rawHp, hpRoll, PURPOSE_SUMMON, currentPlayerIndex, 1.0f);
+			int luckBonus = players[currentPlayerIndex].luck + computePassiveLuck(currentPlayerIndex);
+			int finalHp = hpRoll + luckBonus; // 1 die
+			currentEffectSequence.blackboard[1] = finalHp;
+			queueVisualDiceRoll(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.0f, 0), 1, sides, rawHp, finalHp, PURPOSE_SUMMON, currentPlayerIndex, 1.0f);
 		}
 		spawnGolemOp.data.spawnUnit.maxHealth = 0;
 		spawnGolemOp.data.spawnUnit.maxHealthFromSlot = 1;
@@ -23547,6 +23552,11 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 		applyReplicateCopyToHand(currentPlayer, playedCard);
 		currentPlayer.hand.erase(currentPlayer.hand.begin() + cardIndex);
 		completeCardPlayAnimation(playedCard, currentPlayerIndex);
+		// Mark this outcome as already paid so the centralized outcome
+		// application does not double-deduct or attempt to remove the card again.
+		currentCardOutcome.apPaid = true;
+		// Clear cardIndex to avoid accidental reuse (we already removed it)
+		currentCardOutcome.cardIndex = -1;
 		// --- CRASH FIX END ---
 
 		// Queue deterministic spawn of wall-unit (authoritative placement handled by EffectOp)
@@ -23604,7 +23614,8 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 		spawnWolfOp.data.spawnUnit.summonKind = 2; // WOLF
 		spawnWolfOp.data.spawnUnit.ownerPlayerID = currentPlayer.isMinion ? currentPlayer.ownerID : currentPlayer.playerID;
 		spawnWolfOp.data.spawnUnit.summonerPlayerID = currentPlayer.playerID;
-		spawnWolfOp.data.spawnUnit.maxHealth = 3;
+		// Wolf: fixed 4 HP
+		spawnWolfOp.data.spawnUnit.maxHealth = 4;
 		spawnWolfOp.data.spawnUnit.ap = 0;
 		queueEffect(spawnWolfOp);
 
@@ -23646,7 +23657,8 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 		spawnKoboldOp.data.spawnUnit.summonKind = 1; // KOBOLD
 		spawnKoboldOp.data.spawnUnit.ownerPlayerID = currentPlayer.isMinion ? currentPlayer.ownerID : currentPlayer.playerID;
 		spawnKoboldOp.data.spawnUnit.summonerPlayerID = currentPlayer.playerID;
-		spawnKoboldOp.data.spawnUnit.maxHealth = 2;
+		// Kobold: fixed 1 HP
+		spawnKoboldOp.data.spawnUnit.maxHealth = 1;
 		spawnKoboldOp.data.spawnUnit.ap = 0;
 		queueEffect(spawnKoboldOp);
 
@@ -23678,8 +23690,10 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 		{
 			std::vector<int> rawHp;
 			int hpRoll = resolveDiceRollDetailed(playedCard.numDice, playedCard.diceSides, rawHp);
-			currentEffectSequence.blackboard[2] = hpRoll;
-			queueVisualDiceRoll(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.0f, 0), playedCard.numDice, playedCard.diceSides, rawHp, hpRoll, PURPOSE_SUMMON, currentPlayerIndex, 1.0f);
+			int luckBonus = players[currentPlayerIndex].luck + computePassiveLuck(currentPlayerIndex);
+			int finalHp = hpRoll + (playedCard.numDice * luckBonus);
+			currentEffectSequence.blackboard[2] = finalHp;
+			queueVisualDiceRoll(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.0f, 0), playedCard.numDice, playedCard.diceSides, rawHp, finalHp, PURPOSE_SUMMON, currentPlayerIndex, 1.0f);
 		}
 		spawnHellhoundOp.data.spawnUnit.maxHealth = 0;
 		spawnHellhoundOp.data.spawnUnit.maxHealthFromSlot = 2;
@@ -23707,8 +23721,10 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 		{
 			std::vector<int> rawHp;
 			int hpRoll = resolveDiceRollDetailed(playedCard.numDice, playedCard.diceSides, rawHp);
-			currentEffectSequence.blackboard[3] = hpRoll;
-			queueVisualDiceRoll(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.0f, 0), playedCard.numDice, playedCard.diceSides, rawHp, hpRoll, PURPOSE_SUMMON, currentPlayerIndex, 1.0f);
+			int luckBonus = players[currentPlayerIndex].luck + computePassiveLuck(currentPlayerIndex);
+			int finalHp = hpRoll + (playedCard.numDice * luckBonus);
+			currentEffectSequence.blackboard[3] = finalHp;
+			queueVisualDiceRoll(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.0f, 0), playedCard.numDice, playedCard.diceSides, rawHp, finalHp, PURPOSE_SUMMON, currentPlayerIndex, 1.0f);
 		}
 		spawnDemonOp.data.spawnUnit.maxHealth = 0;
 		spawnDemonOp.data.spawnUnit.maxHealthFromSlot = 3;
