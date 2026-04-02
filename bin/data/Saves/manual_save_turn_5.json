@@ -1,0 +1,30 @@
+V	1
+STATE	3	1	5	0	2	3	1	2	0	0	99	1	6	1	1775087155
+QUEUE	0
+BOARD	000000000000000111000111000010000010100000000100000001110101011100000001000000001000000010000111000111000000000000000	000000000000000000000000000000000010000000000000000000000000000000000000000000000000000000000000000000000000000000000
+DRAFTOPTS	Flurry of Fists,Ethereal Jolt,Chain Lightning	SEL	
+PLAYERS	10
+P	303	7	1	1	1	0	0	0	0	0	0	0	0	180	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	3	2	1	0	0	0	0	0	0	0	0	0	0	1	0	0	0	0	0	0	0	0	0		DECK	Call for Kobolds,Demolition,Hand Block,Punch,Hand Block	HAND		DISCARD		PLAYED		PLAYEDTYPES	
+P	304	11	2	1	1	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	3	3	1	0	1	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0		DECK	Hand Block,Hand Block	HAND		DISCARD	Call for Kobolds,Punch	PLAYED		PLAYEDTYPES	
+P	0	11	1	20	20	0	0	0	0	0	0	0	0	180	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	-1	0	0	0	0	0	0	0	0	0	0	0	0	0	-1	0	0	1	0	0	-1	0	0	player	DECK	Teleport,Mind Theft,Dispel,Flame Hit,Consume Health Potion,Mind Theft,Dispel,Flail,Mind Theft	HAND		DISCARD	Kick,Mind Theft,Punch,Punch,Kick,Replicate,Wisdom Boon,Teleport,Punch,Kick,Hand Block,Bash,Ward,Stab,Slash,Mind Theft,Amnesia,Magic Blast,Fireball,Shock,Rock Crush,Dispel,Teleport,Hasten,Ethereal Jolt,Flame Hit,Heal,Raise Dead,Summon Golem,Strengthen Elements,Summon Wall,Dark Shield,Drain Punch,Double Handed,Blocking Boon,Call for Wolves,Necromancer's Blessing,Time Vortex,Master Fist,Magic Bolt,Flail,Summon Hellhound,Death,Summon Demon,Shield Bash,Train,Chain Lightning,Study,Consume Health Potion,Add Poison,Flurry of Fists,Form of Tortoise,Fortify,Vampire Bite,Call for Kobolds,Demolition,Renewed Inspiration,Spark of Genius,Psionic Wave,Summon Magic Wall,Earthquake,Form of Ghost,Giant Magic Hand,Consume Large Health Potion,Lesser Heal,Transform Wall,Summon Kobold King,Summon Assistant,Constitution Boon,Four-leaf clover,Sprint,Full Restore,Smite,Burst of Light,Shoot Arrow,Summon Faerie,Wisdom Boon,Summon Assistant,Summon Golem,Form of Tortoise,Flurry of Fists	PLAYED		PLAYEDTYPES	70,71,21,22,58,27,46,45
+P	302	9	3	1	1	0	0	0	0	0	0	0	0	270	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	2	1	1	0	0	0	0	0	0	0	0	0	0	1	1	0	0	0	0	0	1	0	0		DECK	Call for Kobolds,Ethereal Jolt,Hand Block	HAND		DISCARD	Raise Dead,Summon Hellhound,Summon Faerie,Summon Demon,Call for Kobolds,Call for Wolves,Summon Magic Wall,Call for Wolves,Punch,Hand Block	PLAYED		PLAYEDTYPES	26,38,59,40,47,32,78,32
+P	305	9	0	6	1	0	0	0	0	0	0	0	0	90	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	3	4	1	0	0	0	0	0	0	0	0	1	0	0	1	0	0	0	0	0	1	0	0		DECK	Hand Block,Hand Block,Punch,Call for Kobolds	HAND		DISCARD		PLAYED		PLAYEDTYPES	
+P	306	12	5	2	2	0	0	0	0	0	0	0	0	0	0	1	0	0	0	0	0	0	0	0	0	0	0	0	0	0	4	5	1	1	0	0	0	0	0	0	0	0	0	0	302	0	0	0	0	0	1	0	0		DECK	Slash,Dark Shield,Slash,Dark Shield,Drain Punch,Drain Punch	HAND		DISCARD		PLAYED		PLAYEDTYPES	
+P	307	12	2	10	10	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	4	6	1	0	0	1	0	0	0	0	0	0	0	0	302	0	0	0	0	0	1	0	0		DECK	Slash,Dark Shield,Fireball,Flame Hit,Dark Shield,Slash,Fireball,Flame Hit,Dark Shield	HAND		DISCARD		PLAYED		PLAYEDTYPES	
+P	308	12	3	5	5	0	0	0	0	0	0	0	0	0	0	1	0	0	0	0	0	0	0	0	0	0	0	0	0	0	4	7	1	0	0	0	0	0	0	0	0	0	1	0	302	0	0	0	0	0	1	0	0	Faerie	DECK	Lesser Heal,Dispel,Magic Blast,Dispel,Lesser Heal	HAND		DISCARD		PLAYED		PLAYEDTYPES	
+P	309	11	3	12	12	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	4	8	1	0	0	0	0	0	1	0	0	0	0	0	302	0	0	0	0	0	1	0	0		DECK	Flail,Summon Hellhound,Death,Dark Shield,Dark Shield,Fireball,Fireball,Death,Dark Shield,Flail	HAND		DISCARD		PLAYED		PLAYEDTYPES	
+P	1	10	0	9	15	0	0	0	0	0	0	0	0	90	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	-1	0	0	0	0	0	0	0	0	0	0	0	0	0	-1	0	0	0	0	0	-1	0	0		DECK	Spark of Genius,Summon Assistant,Stab,Summon Assistant,Stab	HAND		DISCARD	Summon Kobold King	PLAYED		PLAYEDTYPES	49,58,57
+GRAVEYARD	0
+KEYS	12
+KEY	4	4	1
+KEY	6	4	1
+KEY	0	0	2
+KEY	6	1	2
+KEY	12	8	2
+KEY	6	7	2
+KEY	0	4	2
+KEY	4	0	3
+KEY	11	5	3
+KEY	8	8	3
+KEY	1	3	3
+KEY	1	5	3

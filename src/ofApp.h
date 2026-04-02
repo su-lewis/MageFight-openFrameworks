@@ -399,6 +399,7 @@ struct SpawnUnitData {
 	int maxHealthFromSlot; // if >=0, read authoritative HP from EffectSequence.blackboard[slot]
 	int ap;
 	int summonerPlayerID; // optional: specific unit/player that summoned this minion
+	int variant; // optional variant flag (e.g., golem type: 0=base,1=rock,2=fire,3=electric)
 };
 
 struct ModifyTileData {

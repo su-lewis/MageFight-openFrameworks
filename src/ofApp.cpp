@@ -1484,7 +1484,8 @@ void ofApp::setup() {
 	// --- Load Player Model ---
 	if (playerModel.load("Units/Player/model.glb")) {
 		playerModel.disableMaterials();
-		playerModel.setScale(0.0025f, 0.0025f, 0.0025f);
+		// Moderate player model scale (reduced from previous change)
+		playerModel.setScale(0.00425f, 0.00425f, 0.00425f);
 		playerModel.setRotation(0, 180, 0, 0, 1);
 	}
 
@@ -1493,7 +1494,7 @@ void ofApp::setup() {
 	ofLoadImage(skeletonTexture, "Units/Skeleton/base.png");
 	skeletonModel.setRotation(0, 180, 1, 0, 0);
 	skeletonModel.setRotation(1, 180, 0, 1, 0);
-	skeletonModel.setScale(0.0021f, 0.0021f, 0.0021f);
+	skeletonModel.setScale(0.0026f, 0.0026f, 0.0026f);
 	skeletonModel.disableMaterials();
 
 	// Diagnostic: verify skeleton assets loaded
@@ -1572,8 +1573,8 @@ void ofApp::setup() {
 		// FIX: Rotate -90 around X to lift face off the ground
 		hellhoundModel.setRotation(0, 90, 1, 0, 0);
 
-		// Scale: increase model scale by 15% for more presence
-		hellhoundModel.setScale(0.005175f, 0.005175f, 0.005175f);
+		// Scale: slightly reduced to better fit and sit on ground
+		hellhoundModel.setScale(0.0042f, 0.0042f, 0.0042f);
 
 		ofLogNotice("Setup") << "Hellhound model loaded.";
 	}
@@ -1594,7 +1595,7 @@ void ofApp::setup() {
 	if (tortoiseModel.load("Units/Tortoise/Turtle_Kaiju_01.fbx")) {
 		tortoiseModel.disableMaterials();
 		tortoiseModel.disableTextures();
-		// Scale - reduced by 15% more (0.003 * 0.85 = 0.00255)
+		// Keep tortoise scale but we'll lower its placement in-view
 		tortoiseModel.setScale(0.00255f, 0.00255f, 0.00255f);
 		// Load texture
 		ofLoadImage(tortoiseTexture, "Units/Tortoise/Turtle_01_albedo.jpg");
@@ -1660,7 +1661,8 @@ void ofApp::setup() {
 	// --- Load Faerie ---
 	if (faerieModel.load("Units/Faerie/Highly_detailed_3D_mo_1031064951_texture.glb")) {
 		faerieModel.disableMaterials();
-		faerieModel.setScale(0.0032f, 0.0032f, 0.0032f); // Adjust as needed for tile fit
+		// Faerie: moderate scale (reduced from previous change)
+		faerieModel.setScale(0.0048f, 0.0048f, 0.0048f);
 		faerieModel.setRotation(0, 180, 0, 0, 1);
 		if (ofLoadImage(faerieTexture, "Units/Faerie/gltf_embedded_0.jpeg")) {
 			faerieTexture.setTextureMinMagFilter(GL_LINEAR, GL_LINEAR);
@@ -2128,8 +2130,9 @@ void ofApp::setup() {
 
 	// --- ALLOCATE FBO FOR MINION UI ---
 	ofFbo::Settings fboSettings;
-	fboSettings.width = 128; // Small texture size for UI
-	fboSettings.height = 128;
+	// Increase FBO resolution so model previews are larger and crisper
+	fboSettings.width = 256;
+	fboSettings.height = 256;
 	fboSettings.internalformat = GL_RGBA;
 	fboSettings.useDepth = true; // We need a depth buffer to render a 3D model
 	modelFbo.allocate(fboSettings);
@@ -2731,6 +2734,7 @@ void ofApp::beginInitiativeDrafting(int winnerIndex) {
 	draftPlayerIndex = winnerIndex;
 	draftStage = 0;
 	currentState = STATE_DRAFTING;
+	ofLogNotice("Draft") << "beginInitiativeDrafting called: winnerIndex=" << winnerIndex << " draftPlayerIndex=" << draftPlayerIndex << " draftStage=" << draftStage;
 	// Both host and clients generate deterministic draft options locally.
 	generateDraftOptions(1);
 	// Host no longer needs to send PKT_DRAFT_STATE here; the command stream
@@ -3982,9 +3986,10 @@ void ofApp::updateGame() {
 	// Local helpers/state for Minion UI rebuild
 	std::vector<int> p0_minionIndices;
 	std::vector<int> p1_minionIndices;
-	float standardEntryHeight = 64.0f;
-	float gap = 8.0f;
-	float panelWidth = 240.0f;
+	// Larger defaults for minion UI so entries and previews are more readable
+	float standardEntryHeight = 96.0f;
+	float gap = 12.0f;
+	float panelWidth = 320.0f;
 	int p0_skeleton = 0, p0_golem = 0, p0_wolf = 0, p0_hound = 0, p0_demon = 0, p0_kobold = 0, p0_wall = 0;
 	int p1_skeleton = 0, p1_golem = 0, p1_wolf = 0, p1_hound = 0, p1_demon = 0, p1_kobold = 0, p1_wall = 0;
 	float p0_topLimitY = 120.0f;
@@ -6215,7 +6220,8 @@ void ofApp::drawGame() {
 				} else if (player.isGolem) {
 					modelMat = glm::translate(modelMat, glm::vec3(p.x, 0.1f, p.z));
 					modelMat = modelMat * glm::rotate(glm::mat4(1.0f), glm::radians(unitFacingAngle), glm::vec3(0, 1, 0));
-					modelMat = glm::translate(modelMat, glm::vec3(0, 3.0f, 0));
+					// Lower golem slightly so it sits better on the ground
+					modelMat = glm::translate(modelMat, glm::vec3(0, 2.4f, 0));
 					modelMat = modelMat * glm::rotate(glm::mat4(1.0f), glm::radians(180.0f), glm::vec3(1, 0, 0));
 					modelMat = modelMat * glm::rotate(glm::mat4(1.0f), glm::radians(90.0f), glm::vec3(0, 1, 0));
 				} else if (player.isWolf) {
@@ -6226,7 +6232,8 @@ void ofApp::drawGame() {
 				} else if (player.isHellhound) {
 					modelMat = glm::translate(modelMat, glm::vec3(p.x, 0.1f, p.z));
 					modelMat = modelMat * glm::rotate(glm::mat4(1.0f), glm::radians(unitFacingAngle + 180.0f), glm::vec3(0, 1, 0));
-					modelMat = glm::translate(modelMat, glm::vec3(0, 0.6f, 0));
+					// Lower hellhound a bit
+					modelMat = glm::translate(modelMat, glm::vec3(0, 0.4f, 0));
 				} else if (player.isDemon) {
 					modelMat = glm::translate(modelMat, glm::vec3(p.x, 0.1f, p.z));
 					modelMat = modelMat * glm::rotate(glm::mat4(1.0f), glm::radians(unitFacingAngle), glm::vec3(0, 1, 0));
@@ -6235,7 +6242,8 @@ void ofApp::drawGame() {
 				} else if (player.inTortoiseForm) {
 					modelMat = glm::translate(modelMat, glm::vec3(p.x, 0.1f, p.z));
 					modelMat = modelMat * glm::rotate(glm::mat4(1.0f), glm::radians(unitFacingAngle), glm::vec3(0, 1, 0));
-					modelMat = glm::translate(modelMat, glm::vec3(0, 0.5f, 0));
+					// Lower tortoise on-board so it sits into the ground less
+					modelMat = glm::translate(modelMat, glm::vec3(0, 0.3f, 0));
 					modelMat = modelMat * glm::rotate(glm::mat4(1.0f), glm::radians(180.0f), glm::vec3(1, 0, 0));
 				} else if (player.isKobold) {
 					modelMat = glm::translate(modelMat, glm::vec3(p.x, 0.1f, p.z));
@@ -6245,11 +6253,13 @@ void ofApp::drawGame() {
 					modelMat = glm::translate(modelMat, glm::vec3(p.x, 0.1f, p.z));
 					modelMat = modelMat * glm::rotate(glm::mat4(1.0f), glm::radians(unitFacingAngle), glm::vec3(0, 1, 0));
 					modelMat = modelMat * glm::rotate(glm::mat4(1.0f), glm::radians(-90.0f), glm::vec3(0, 1, 0));
-					modelMat = glm::translate(modelMat, glm::vec3(0, TILE_SIZE * 0.6f, 0));
+					// Lower Kobold King slightly on-board
+					modelMat = glm::translate(modelMat, glm::vec3(0, TILE_SIZE * 0.4f, 0));
 				} else if (player.isFaerie) {
 					modelMat = glm::translate(modelMat, glm::vec3(p.x, 0.1f, p.z));
 					modelMat = modelMat * glm::rotate(glm::mat4(1.0f), glm::radians(unitFacingAngle), glm::vec3(0, 1, 0));
-					modelMat = glm::translate(modelMat, glm::vec3(0, 1.0f, 0));
+					// Raise faerie on-board so it appears above ground
+					modelMat = glm::translate(modelMat, glm::vec3(0, 1.4f, 0));
 				} else if (player.isWallUnit) {
 					modelMat = glm::translate(modelMat, glm::vec3(p.x, 0.1f, p.z));
 					modelMat = modelMat * glm::rotate(glm::mat4(1.0f), glm::radians(unitFacingAngle), glm::vec3(0, 1, 0));
@@ -6257,7 +6267,8 @@ void ofApp::drawGame() {
 				} else if (player.isAssistant) {
 					modelMat = glm::translate(modelMat, glm::vec3(p.x, 0.1f, p.z));
 					modelMat = modelMat * glm::rotate(glm::mat4(1.0f), glm::radians(unitFacingAngle), glm::vec3(0, 1, 0));
-					modelMat = glm::translate(modelMat, glm::vec3(0, 1.7f, 0));
+					// Raise assistant a tiny bit so it doesn't clip into the floor
+					modelMat = glm::translate(modelMat, glm::vec3(0, 1.9f, 0));
 				} else {
 					// Default player model
 					modelMat = glm::translate(modelMat, glm::vec3(p.x, 0.1f, p.z));
@@ -12343,6 +12354,10 @@ void ofApp::mousePressed(int x, int y, int button) {
 		// 3c. STATE CHECK: Only allow gameplay interactions in STATE_GAMEPLAY
 		if (currentState != STATE_GAMEPLAY) return;
 
+		// Update hover/tooltip state while dragging so tooltips disappear when
+		// moving the cursor away while holding the mouse button.
+		mouseMoved(x, y);
+
 		// 3c. Safety Checks (Input Lock)
 		if (players.empty() || currentPlayerIndex < 0) return;
 		Player & currentPlayer = players[currentPlayerIndex];
@@ -16334,6 +16349,7 @@ bool ofApp::sendInputCommand(InputCommandPacket & cmd, bool applyLocally) {
 		std::string snap = buildSnapshotString();
 		provisionalSnapshots[cmd.commandId] = snap;
 		provisionalCommands[cmd.commandId] = cmd;
+		ofLogNotice("NetTrace") << "Stored provisional snapshot for cmdId=" << cmd.commandId << " (provisionalSnapshots.size=" << provisionalSnapshots.size() << ")";
 
 		// Queue and attempt to process immediately (acting player usually has next id)
 		queueInputCommand(cmd);
@@ -19193,7 +19209,21 @@ bool ofApp::processEffectOp(EffectOp & op) {
 				int maxHP = (op.data.spawnUnit.maxHealthFromSlot >= 0) ? currentEffectSequence.blackboard[op.data.spawnUnit.maxHealthFromSlot] : op.data.spawnUnit.maxHealth;
 				int ap = op.data.spawnUnit.ap;
 				int summonerID = op.data.spawnUnit.summonerPlayerID;
-				spawnMinionDeterministically(sk, tx, ty, op.data.spawnUnit.ownerPlayerID, maxHP, ap, summonerID);
+				Player * spawned = spawnMinionDeterministically(sk, tx, ty, op.data.spawnUnit.ownerPlayerID, maxHP, ap, summonerID);
+				if (spawned) {
+					int newIdx = findPlayerIndexByID(spawned->playerID);
+					if (newIdx >= 0 && sk == 8) { // GOLEM
+						int variant = op.data.spawnUnit.variant;
+						if (variant == 3)
+							players[newIdx].minionTexture = &golemTexElectric;
+						else if (variant == 2)
+							players[newIdx].minionTexture = &golemTexFire;
+						else if (variant == 1)
+							players[newIdx].minionTexture = &golemTexRock;
+						else
+							players[newIdx].minionTexture = &golemTexBase;
+					}
+				}
 			} else {
 				// If a minion already exists at this tile, update authoritative stats
 				for (size_t pi = 0; pi < players.size(); ++pi) {
@@ -23232,6 +23262,16 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 		spawnGolemOp.data.spawnUnit.summonKind = 8; // GOLEM
 		spawnGolemOp.data.spawnUnit.ownerPlayerID = currentPlayer.isMinion ? currentPlayer.ownerID : currentPlayer.playerID;
 		spawnGolemOp.data.spawnUnit.summonerPlayerID = currentPlayer.playerID;
+
+		// Encode variant: 0=base, 1=rock, 2=fire, 3=electric
+		if (isElectric)
+			spawnGolemOp.data.spawnUnit.variant = 3;
+		else if (isFire)
+			spawnGolemOp.data.spawnUnit.variant = 2;
+		else if (isRock)
+			spawnGolemOp.data.spawnUnit.variant = 1;
+		else
+			spawnGolemOp.data.spawnUnit.variant = 0;
 
 		// Variant HP dice
 		// Queue authoritative roll for golem HP and reference via blackboard slot 1
@@ -28613,7 +28653,8 @@ void ofApp::drawMinionManagerUI() {
 
 		// --- TORTOISE FORM PREVIEW (overrides normal model) ---
 		if (minion.inTortoiseForm) {
-			ofTranslate(modelFbo.getWidth() / 2, modelFbo.getHeight() / 2 + 10);
+			// Lower the tortoise preview slightly
+			ofTranslate(modelFbo.getWidth() / 2, modelFbo.getHeight() / 2 + 30);
 			ofScale(21, -21, 21);
 			ofRotateXDeg(-15);
 			ofRotateYDeg(180 + ofGetElapsedTimef() * 30);
@@ -28621,8 +28662,8 @@ void ofApp::drawMinionManagerUI() {
 			tortoiseModel.drawFaces();
 			if (tortoiseTexture.isAllocated()) tortoiseTexture.unbind();
 		} else if (minion.isGolem) {
-			// GOLEM: Raised position (100 -> 80)
-			ofTranslate(modelFbo.getWidth() / 2, 80);
+			// GOLEM: Lower slightly in preview
+			ofTranslate(modelFbo.getWidth() / 2, 100);
 			ofScale(27, 27, 27);
 			ofRotateXDeg(-15);
 			ofRotateYDeg(ofGetElapsedTimef() * 30);
@@ -28660,7 +28701,8 @@ void ofApp::drawMinionManagerUI() {
 		}
 		// --- KOBOLD KING PREVIEW ---
 		else if (minion.isKoboldKing) {
-			ofTranslate(modelFbo.getWidth() / 2, modelFbo.getHeight() / 2 + 30);
+			// Lower Kobold King preview further so feet sit on ground
+			ofTranslate(modelFbo.getWidth() / 2, modelFbo.getHeight() / 2 + 50);
 
 			// Reduced from 30.0f to 2.5f (since model is now 0.0042f)
 			ofScale(2.5f, -2.5f, 2.5f);
@@ -28687,10 +28729,9 @@ void ofApp::drawMinionManagerUI() {
 		}
 		// --- HELLHOUND PREVIEW ---
 		else if (minion.isHellhound) {
-			ofTranslate(modelFbo.getWidth() / 2, modelFbo.getHeight() / 2 + 10);
-
-			// HELLHOUND: Increased scale (18 -> 22)
-			ofScale(22, -22, 22);
+			// Slightly lower and scale down the hellhound preview
+			ofTranslate(modelFbo.getWidth() / 2, modelFbo.getHeight() / 2 + 20);
+			ofScale(18, -18, 18);
 
 			ofRotateXDeg(-15);
 			ofRotateYDeg(180 + ofGetElapsedTimef() * 30);
@@ -28734,7 +28775,8 @@ void ofApp::drawMinionManagerUI() {
 		}
 		// --- ASSISTANT PREVIEW ---
 		else if (minion.isAssistant) {
-			ofTranslate(modelFbo.getWidth() / 2, modelFbo.getHeight() / 2 + 20);
+			// Raise assistant slightly so it's not clipped into the floor
+			ofTranslate(modelFbo.getWidth() / 2, modelFbo.getHeight() / 2 + 10);
 			ofScale(35.0f, -35.0f, 35.0f);
 			ofRotateXDeg(-15);
 			ofRotateYDeg(180 + ofGetElapsedTimef() * 30);
@@ -28742,9 +28784,9 @@ void ofApp::drawMinionManagerUI() {
 		}
 		// --- FAERIE PREVIEW ---
 		else if (minion.isFaerie) {
-			ofTranslate(modelFbo.getWidth() / 2, modelFbo.getHeight() / 2 + 20);
-			// Faerie is likely small, so scale up slightly more than standard units
-			ofScale(30.0f, -30.0f, 30.0f);
+			// Raise the faerie preview and reduce scale for proper fit
+			ofTranslate(modelFbo.getWidth() / 2, modelFbo.getHeight() / 2 + 40);
+			ofScale(36.0f, -36.0f, 36.0f);
 			ofRotateXDeg(-15);
 			ofRotateYDeg(180 + ofGetElapsedTimef() * 30);
 			if (faerieTexture.isAllocated()) faerieTexture.bind();
@@ -28755,8 +28797,8 @@ void ofApp::drawMinionManagerUI() {
 		else {
 			ofSetColor(255);
 			ofTranslate(modelFbo.getWidth() / 2, 90);
-			// SKELETON: Increased scale by 20% (18 -> 22)
-			ofScale(22, -22, 22);
+			// SKELETON: Slightly larger for readability
+			ofScale(26, -26, 26);
 			ofRotateXDeg(-15);
 			ofRotateYDeg(ofGetElapsedTimef() * 30);
 			skeletonTexture.bind();
@@ -28927,6 +28969,7 @@ void ofApp::cancelMagicHand() {
 // in CARD_GIANT_MAGIC_HAND handling. Legacy helpers removed.
 //--------------------------------------------------------------
 void ofApp::generateDraftOptions(int classTier, const std::vector<int> * forcedIndices) {
+	ofLogNotice("Draft") << "generateDraftOptions called: classTier=" << classTier << " draftPlayerIndex=" << draftPlayerIndex << " draftStage=" << draftStage << " draftGenerationCounter=" << draftGenerationCounter;
 	draftAcceptLocked = false;
 	draftAcceptApplied = false;
 
