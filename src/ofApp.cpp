@@ -1306,11 +1306,11 @@ void drawStatText(ofTrueTypeFont & font, std::string text, float x, float y, flo
 	// Center the text in the rect
 	ofTranslate(x + (w - bounds.width * scale) / 2, y + (h + bounds.height * scale) / 2 - 2);
 	ofScale(scale, scale);
-	// Draw a simple black outline by rendering the text at small offsets, then the main color
+	// Draw a thicker black outline by rendering the text at a grid of offsets, then the main color
 	ofSetColor(ofColor::black);
-	const int offs[] = { -1, 0, 1 };
-	for (int oy : offs) {
-		for (int ox : offs) {
+	const int offsRange[] = { -2, -1, 0, 1, 2 };
+	for (int oy : offsRange) {
+		for (int ox : offsRange) {
 			if (ox == 0 && oy == 0) continue;
 			font.drawString(text, ox, oy);
 		}
@@ -4013,10 +4013,10 @@ void ofApp::updateGame() {
 	// Local helpers/state for Minion UI rebuild
 	std::vector<int> p0_minionIndices;
 	std::vector<int> p1_minionIndices;
-	// Larger defaults for minion UI so entries and previews are more readable
-	float standardEntryHeight = 140.0f; // unscaled baseline
-	float gap = 14.0f; // unscaled baseline
-	float panelWidth = 420.0f; // unscaled baseline
+	// Defaults for minion UI (reduced size to avoid clipping)
+	float standardEntryHeight = 110.0f; // unscaled baseline (reduced)
+	float gap = 12.0f; // unscaled baseline (reduced)
+	float panelWidth = 360.0f; // unscaled baseline (reduced)
 	float scale = ofGetHeight() / 1080.0f;
 	float panelWidthScaled = panelWidth * scale;
 	int p0_skeleton = 0, p0_golem = 0, p0_wolf = 0, p0_hound = 0, p0_demon = 0, p0_kobold = 0, p0_wall = 0, p0_assistant = 0, p0_faerie = 0;
@@ -4148,7 +4148,7 @@ void ofApp::updateGame() {
 
 	// 4. BUILD LISTS WITH PLAYER-SPECIFIC BOUNDARIES
 	// Align local minion panel to the left side (top-left start) and go down.
-	float p0_startX = 20.0f;
+	float p0_startX = 20.0f * scale;
 	buildMinionList(p0_minionIndices, p0_startX, p0_topLimitY, p0_bottomLimitY, 0, p0_skeleton, p0_golem, p0_wolf, p0_hound, p0_demon, p0_kobold, p0_assistant, p0_wall, p0_faerie);
 
 	// Mirror on enemy side: compute a safe start X so the minion panel
@@ -4156,9 +4156,9 @@ void ofApp::updateGame() {
 	// on opponent deck/discard widths plus a minimum margin.
 	float localScale = ofGetHeight() / 1080.0f;
 	float reservedFromRight = std::max(p1_deckRect.getWidth() + p1_discardRect.getWidth() + 80.0f * localScale, 320.0f * localScale);
-	float p1_startX = ofGetWidth() - reservedFromRight - panelWidth;
+	float p1_startX = ofGetWidth() - reservedFromRight - panelWidthScaled;
 	// Clamp so panel remains on-screen
-	p1_startX = std::clamp(p1_startX, 40.0f * localScale, ofGetWidth() - panelWidth - 20.0f * localScale);
+	p1_startX = std::clamp(p1_startX, 40.0f * localScale, ofGetWidth() - panelWidthScaled - 20.0f * localScale);
 	int p1_assistant = 0;
 	int p1_faerie = 0;
 	buildMinionList(p1_minionIndices, p1_startX, p1_topLimitY, p1_bottomLimitY, 1, p1_skeleton, p1_golem, p1_wolf, p1_hound, p1_demon, p1_kobold, p1_assistant, p1_wall, p1_faerie);
@@ -8906,13 +8906,8 @@ void ofApp::drawGame() {
 			turnFontScale *= (availableWidth / textWidth) * 0.95f; // Leave 5% margin
 		}
 
-		float textX = textStartX + (availableWidth - turnTextBox.width * turnFontScale) / 2;
-		float textY = endTurnButtonRect.getCenter().y + (turnTextBox.height * turnFontScale / 2);
-		ofPushMatrix();
-		ofTranslate(textX, textY);
-		ofScale(turnFontScale, turnFontScale);
-		uiFont.drawString(turnText, 0, 0);
-		ofPopMatrix();
+		// Use drawStatText to ensure outlined, centered text to the right of avatar
+		drawStatText(uiFont, turnText, textStartX, endTurnButtonRect.y, availableWidth, endTurnButtonRect.height, ofColor::gold, turnFontScale);
 	}
 
 	// 2. Draw Yellow Highlight (New Logic)
@@ -8987,16 +8982,8 @@ void ofApp::drawGame() {
 	if (showEndTurn) {
 		ofSetColor(ofColor::white);
 		string endTurnButtonText = "End Turn";
-		ofRectangle buttonTextBox = titleFont.getStringBoundingBox(endTurnButtonText, 0, 0);
-
-		float etX = endTurnButtonRect.getCenter().x - (buttonTextBox.width * fontScale / 2);
-		float etY = endTurnButtonRect.getCenter().y + (buttonTextBox.height * fontScale / 2);
-
-		ofPushMatrix();
-		ofTranslate(etX, etY);
-		ofScale(fontScale, fontScale);
-		titleFont.drawString(endTurnButtonText, 0, 0);
-		ofPopMatrix();
+		// Use drawStatText to render the outlined, centered button text
+		drawStatText(titleFont, endTurnButtonText, endTurnButtonRect.x, endTurnButtonRect.y, endTurnButtonRect.width, endTurnButtonRect.height, ofColor::white, fontScale);
 	}
 
 	// Disable small HUD Save/Load buttons next to End Turn (moved to pause menu)
