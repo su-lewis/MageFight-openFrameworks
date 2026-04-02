@@ -1,11 +1,11 @@
 V	1
-STATE	2	0	0	0	0	0	1	2	0	0	0	1	6	0	1775147084
+STATE	2	0	0	0	0	0	1	2	0	0	0	1	6	0	1775149156
 QUEUE	0
 BOARD	000000000000000111000111000010000000100000000100000001110101011100000001000000001000000010000111000111000000000000000	000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
 DRAFTOPTS		SEL	
 PLAYERS	2
-P	0	0	8	15	15	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	-1	0	0	0	0	0	0	0	0	0	0	0	0	0	-1	0	0	0	0	0	-1	0	0		DECK	Shield Bash,Consume Health Potion,Shield Bash,Shield Bash,Double Handed,Heal,Four-leaf clover,Earthquake,Double Handed,Teleport,Shield Bash,Consume Health Potion,Heal,Teleport	HAND		DISCARD		PLAYED		PLAYEDTYPES	
-P	1	12	0	15	15	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	-1	0	0	0	0	0	0	0	0	0	0	0	0	0	-1	0	0	0	0	0	-1	0	0		DECK	Hand Block,Teleport,Wisdom Boon,Shield Bash,Dark Shield,Wisdom Boon,Teleport,Shield Bash,Rock Crush,Hand Block	HAND		DISCARD		PLAYED		PLAYEDTYPES	
+P	0	0	8	15	15	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	-1	0	0	0	0	0	0	0	0	0	0	0	0	0	-1	0	0	0	0	0	-1	0	0		DECK	Ward,Blocking Boon,Magic Blast,Summon Assistant,Shoot Arrow,Train,Amnesia,Shoot Arrow,Ward,Flame Hit,Study,Blocking Boon,Train,Hand Block,Study,Flame Hit,Summon Assistant,Hand Block,Hasten	HAND		DISCARD		PLAYED		PLAYEDTYPES	
+P	1	12	0	15	15	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	-1	0	0	0	0	0	0	0	0	0	0	0	0	0	-1	0	0	0	0	0	-1	0	0		DECK	Shoot Arrow,Mind Theft,Shoot Arrow,Shoot Arrow,Train,Ethereal Jolt,Replicate,Mind Theft,Shoot Arrow,Replicate,Kick,Train,Summon Wall,Kick,Summon Wall	HAND		DISCARD		PLAYED		PLAYEDTYPES	
 GRAVEYARD	0
 KEYS	17
 KEY	4	4	1

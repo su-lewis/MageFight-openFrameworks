@@ -1329,15 +1329,7 @@ void drawStatText(ofTrueTypeFont & font, std::string text, float x, float y, flo
 	float baselineY = y + (h / 2.0f) - ((bounds.y + bounds.height * 0.5f) * scale);
 	ofTranslate(x + (w - bounds.width * scale) / 2, baselineY);
 	ofScale(scale, scale);
-	// Draw a thicker black outline by rendering the text at a larger grid of offsets, then the main color
-	ofSetColor(ofColor::black);
-	const int offsRange[] = { -3, -2, -1, 0, 1, 2, 3 };
-	for (int oy : offsRange) {
-		for (int ox : offsRange) {
-			if (ox == 0 && oy == 0) continue;
-			font.drawString(text, ox, oy);
-		}
-	}
+	// Draw the text without outline
 	ofSetColor(color);
 	font.drawString(text, 0, 0);
 	ofPopMatrix();
@@ -13918,27 +13910,8 @@ void ofApp::keyReleased(int key) {
 		return;
 	}
 
-	// 1. Toggle Chat Debug tab with backtick. Pressing tilde (~) will always turn off debug mode.
-	if (key == '~') {
-		// If user pressed tilde, force exit debug mode (hide debug UI)
-		if (isDebugMode) {
-			isDebugMode = false;
-			if (chatHistory.empty()) {
-				isChatOpen = false;
-				isChatMinimized = true;
-				chatInput.clear();
-				lastChatInteractionTime = -999.0f;
-			} else {
-				lastChatInteractionTime = ofGetElapsedTimef();
-				isChatOpen = false;
-				isChatMinimized = true;
-			}
-		}
-		return;
-	}
-
-	// 1b. Toggle Chat Debug tab with backtick
-	if (key == '`') {
+	// 1. Toggle Chat Debug tab with tilde/backtick: open or close debug UI
+	if (key == '`' || key == '~') {
 		if (isMultiplayer && !isHost()) {
 			addGameLog("Debug mode is host-only in multiplayer.");
 			return;
