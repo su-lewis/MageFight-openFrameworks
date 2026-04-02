@@ -4105,12 +4105,13 @@ void ofApp::updateGame() {
 			// Pre-calculate deck and discard rects for hover detection
 			// These will be refined during the draw phase, but we need them now for mouseMoved checks
 			float cardAspectRatio = 585.0f / 409.0f; // cardBackImage aspect ratio
-			float iconMargin = 8.0f;
-			float iconHeight = ui.bounds.height - (iconMargin * 2);
+			float iconMargin = 6.0f;
+			// Make icons proportionally large relative to entry height
+			float iconHeight = ui.bounds.height * 0.78f;
 			float iconWidth = iconHeight * cardAspectRatio;
-			float iconsY = ui.bounds.y + iconMargin;
+			float iconsY = ui.bounds.y + (ui.bounds.height - iconHeight) * 0.5f;
 			ui.discardRect.set(ui.bounds.getRight() - (iconWidth + iconMargin), iconsY, iconWidth, iconHeight);
-			ui.deckRect.set(ui.bounds.getRight() - (iconWidth * 2 + iconMargin + 5), iconsY, iconWidth, iconHeight);
+			ui.deckRect.set(ui.bounds.getRight() - (iconWidth * 2 + iconMargin * 2 + 5), iconsY, iconWidth, iconHeight);
 
 			activeMinionUIs.push_back(ui);
 		}
@@ -6216,7 +6217,8 @@ void ofApp::drawGame() {
 				} else if (player.isSkeleton) {
 					modelMat = glm::translate(modelMat, glm::vec3(p.x, 0.1f, p.z));
 					modelMat = modelMat * glm::rotate(glm::mat4(1.0f), glm::radians(unitFacingAngle), glm::vec3(0, 1, 0));
-					modelMat = glm::translate(modelMat, glm::vec3(0, 2.0f, 0));
+					// Raise player model slightly so it sits better above the ground
+					modelMat = glm::translate(modelMat, glm::vec3(0, 2.4f, 0));
 				} else if (player.isGolem) {
 					modelMat = glm::translate(modelMat, glm::vec3(p.x, 0.1f, p.z));
 					modelMat = modelMat * glm::rotate(glm::mat4(1.0f), glm::radians(unitFacingAngle), glm::vec3(0, 1, 0));
@@ -6268,12 +6270,14 @@ void ofApp::drawGame() {
 					modelMat = glm::translate(modelMat, glm::vec3(p.x, 0.1f, p.z));
 					modelMat = modelMat * glm::rotate(glm::mat4(1.0f), glm::radians(unitFacingAngle), glm::vec3(0, 1, 0));
 					// Raise assistant a tiny bit so it doesn't clip into the floor
-					modelMat = glm::translate(modelMat, glm::vec3(0, 1.9f, 0));
+					// Raise assistant a bit so it doesn't clip into the floor
+					modelMat = glm::translate(modelMat, glm::vec3(0, 2.2f, 0));
 				} else {
 					// Default player model
 					modelMat = glm::translate(modelMat, glm::vec3(p.x, 0.1f, p.z));
 					modelMat = modelMat * glm::rotate(glm::mat4(1.0f), glm::radians(unitFacingAngle), glm::vec3(0, 1, 0));
-					modelMat = glm::translate(modelMat, glm::vec3(0, 2.0f, 0));
+					// Raise player model slightly so it sits better above the ground
+					modelMat = glm::translate(modelMat, glm::vec3(0, 2.4f, 0));
 				}
 
 				// Apply model's internal transform (scale / rotation) so shadow depth
@@ -12353,6 +12357,15 @@ void ofApp::mousePressed(int x, int y, int button) {
 
 		// 3c. STATE CHECK: Only allow gameplay interactions in STATE_GAMEPLAY
 		if (currentState != STATE_GAMEPLAY) return;
+
+		// If left-button dragging, ensure tooltips are closed immediately
+		if (button == OF_MOUSE_BUTTON_LEFT) {
+			if (isShowingTooltip) isShowingTooltip = false;
+			if (isTooltipExpanded) {
+				isTooltipExpanded = false;
+				tooltipExpandedText.clear();
+			}
+		}
 
 		// Update hover/tooltip state while dragging so tooltips disappear when
 		// moving the cursor away while holding the mouse button.
@@ -28816,6 +28829,11 @@ void ofApp::drawMinionManagerUI() {
 		int scW = (int)((minionPanelW + 60) * sfX);
 		int scY = (int)((ofGetHeight() - (topY + viewH)) * sfY);
 		int scH = (int)(viewH * sfY);
+		// Expand scissor slightly to avoid clipping the top outline due to
+		// integer rounding when the UI panel is flush with the top of the view.
+		int screenH = ofGetViewportHeight();
+		scY = std::max(0, scY - 2);
+		scH = std::min(screenH - scY, scH + 4);
 		glScissor(scX, scY, scW, scH);
 
 		// --- Draw UI Panel ---
@@ -28915,14 +28933,15 @@ void ofApp::drawMinionManagerUI() {
 		modelFbo.draw(ui.modelViewport);
 
 		// --- Draw Icons ---
-		float iconMargin = 8 * scale;
-		float iconHeight = ui.bounds.height - (iconMargin * 2);
+		float iconMargin = 6.0f * scale;
+		// Make icons proportionally large relative to entry height
+		float iconHeight = ui.bounds.height * 0.78f;
 		float cardAspectRatio = cardBackImage.getWidth() / cardBackImage.getHeight();
 		float iconWidth = iconHeight * cardAspectRatio;
-		float iconsY = ui.bounds.y + iconMargin;
+		float iconsY = ui.bounds.y + (ui.bounds.height - iconHeight) * 0.5f;
 
 		ui.discardRect.set(ui.bounds.getRight() - (iconWidth + iconMargin), iconsY, iconWidth, iconHeight);
-		ui.deckRect.set(ui.bounds.getRight() - (iconWidth * 2 + iconMargin + 5 * scale), iconsY, iconWidth, iconHeight);
+		ui.deckRect.set(ui.bounds.getRight() - (iconWidth * 2 + iconMargin * 2 + 5 * scale), iconsY, iconWidth, iconHeight);
 
 		// --- Status Bars ---
 		float availableWidth = ui.deckRect.x - textBlockX - (15 * scale);
