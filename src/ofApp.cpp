@@ -2131,8 +2131,8 @@ void ofApp::setup() {
 	// --- ALLOCATE FBO FOR MINION UI ---
 	ofFbo::Settings fboSettings;
 	// Increase FBO resolution so model previews are larger and crisper
-	fboSettings.width = 256;
-	fboSettings.height = 256;
+	fboSettings.width = 512;
+	fboSettings.height = 512;
 	fboSettings.internalformat = GL_RGBA;
 	fboSettings.useDepth = true; // We need a depth buffer to render a 3D model
 	modelFbo.allocate(fboSettings);
@@ -2729,6 +2729,13 @@ void ofApp::update() {
 // Class 2; then the other player drafts the same sequence; finally gameplay
 // resumes with the appropriate starting player and AP roll.
 void ofApp::beginInitiativeDrafting(int winnerIndex) {
+	// Guard against accidental re-entry: if we're already drafting
+	// for the same winner, skip to avoid duplicate draft generation.
+	if (currentState == STATE_DRAFTING && draftPlayerIndex == winnerIndex) {
+		ofLogNotice("Draft") << "beginInitiativeDrafting: already drafting for winnerIndex=" << winnerIndex << " - skipping re-entry.";
+		return;
+	}
+
 	initialDraftComplete = false;
 	draftingCameraLockedToClient = (isMultiplayer && myLocalPlayerID == 1);
 	draftPlayerIndex = winnerIndex;
@@ -3987,9 +3994,9 @@ void ofApp::updateGame() {
 	std::vector<int> p0_minionIndices;
 	std::vector<int> p1_minionIndices;
 	// Larger defaults for minion UI so entries and previews are more readable
-	float standardEntryHeight = 96.0f;
-	float gap = 12.0f;
-	float panelWidth = 320.0f;
+	float standardEntryHeight = 140.0f;
+	float gap = 14.0f;
+	float panelWidth = 420.0f;
 	int p0_skeleton = 0, p0_golem = 0, p0_wolf = 0, p0_hound = 0, p0_demon = 0, p0_kobold = 0, p0_wall = 0;
 	int p1_skeleton = 0, p1_golem = 0, p1_wolf = 0, p1_hound = 0, p1_demon = 0, p1_kobold = 0, p1_wall = 0;
 	float p0_topLimitY = 120.0f;
@@ -15365,14 +15372,24 @@ void ofApp::handleCardTargetClick(int gridX, int gridY) {
 			if (!ok) ofLogWarning("Network") << "PlayCard send failed (no connection).";
 			resetCardInteraction();
 		} else {
-			CardPlayResult result = playCard(cardIndex, gridX, gridY);
+			// Singleplayer should also route through the deterministic input queue
+			InputCommandPacket cmd = {};
+			cmd.type = PKT_INPUT_COMMAND;
+			cmd.playerID = myLocalPlayerID;
+			cmd.seq = 0;
+			cmd.commandId = nextCommandId++;
+			cmd.turnNumber = globalTurnCounter;
+			cmd.commandType = CMD_PLAY_CARD;
+			cmd.params[0] = cardIndex;
+			cmd.params[1] = gridX;
+			cmd.params[2] = gridY;
+			cmd.params[3] = 0;
+			strncpy(cmd.stringData, card.name.c_str(), sizeof(cmd.stringData) - 1);
+			cmd.stringData[sizeof(cmd.stringData) - 1] = '\0';
 
-			if (result == CARD_PLAYED_IMMEDIATELY || result == CARD_NOT_PLAYABLE) {
-				resetCardInteraction();
-			} else if (result == CARD_AWAITING_MENU_CHOICE) {
-				// If playCard decides it needs a menu (like Dispel/Wisdom Boon), transition to it
-				updateCardInteractionState(CARD_INTERACTION_MENU, cardIndex, interactingCardType);
-			}
+			// Route via local queue so singleplayer follows lockstep execution
+			queueInputCommand(cmd);
+			resetCardInteraction();
 		}
 		break;
 	}
@@ -15774,7 +15791,6 @@ void ofApp::handleCardMenuClick(const std::string & buttonId) {
 					interactingCardIndex = -1;
 					updateCardInteractionState(CARD_INTERACTION_IDLE, -1, CARD_NONE);
 					advanceCardState(CARD_STATE_EFFECT_SEQUENCE);
-					beginEffectSequence();
 				} else {
 					// Empty space: move caster to wallPos, remove original wall, create wall at targetPos
 					beginEffectSequence();
@@ -15809,7 +15825,6 @@ void ofApp::handleCardMenuClick(const std::string & buttonId) {
 					updateCardInteractionState(CARD_INTERACTION_IDLE, -1, CARD_NONE);
 					invalidateTargetCache();
 					advanceCardState(CARD_STATE_EFFECT_SEQUENCE);
-					beginEffectSequence();
 				}
 			}
 		} else {
@@ -15861,7 +15876,6 @@ void ofApp::handleCardMenuClick(const std::string & buttonId) {
 				updateCardInteractionState(CARD_INTERACTION_IDLE, -1, CARD_NONE);
 				invalidateTargetCache();
 				advanceCardState(CARD_STATE_EFFECT_SEQUENCE);
-				beginEffectSequence();
 			}
 		}
 		// Common post-play bookkeeping
@@ -21514,7 +21528,29 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 	}
 
 	case CARD_TELEPORT: {
-		// Teleport is initiated by drag-release flow; no direct playCard execution here.
+		// Finalize teleport when a target tile is provided via command execution.
+		// Validate target is within bounds and marked targetable by the earlier APPLY_TELEPORT op.
+		if (targetX < 0 || targetX >= BOARD_WIDTH || targetY < 0 || targetY >= BOARD_HEIGHT) return true;
+		if (!board[targetX][targetY].isTargetable) {
+			// Not a valid teleport destination
+			return true;
+		}
+
+		// Start a fresh effect sequence for the teleport resolution if none active
+		if (!isProcessingEffect || currentEffectSequence.isComplete) beginEffectSequence();
+
+		// Queue deterministic MOVE_UNIT op to teleport the caster
+		{
+			EffectOp mv = {};
+			mv.type = EffectOpType::MOVE_UNIT;
+			mv.data.moveUnit.unitIndex = currentPlayerIndex;
+			mv.data.moveUnit.toX = targetX;
+			mv.data.moveUnit.toY = targetY;
+			queueEffect(mv);
+		}
+
+		playedSuccessfully = true;
+		advanceCardState(CARD_STATE_EFFECT_SEQUENCE);
 		return true;
 	}
 
@@ -23122,12 +23158,13 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 		// In multiplayer, the Host is authoritative for placement; clients still
 		// run the local visual/cleanup path and wait for the Host packet to finalize.
 
-		// 1. Calculate Stats based on existing Kobolds
+		// 1. Calculate Stats based on existing (living) Kobolds
 		int koboldCount = 0;
 		for (const auto & p : players) {
-			if (p.isKobold) koboldCount++;
+			if (p.isKobold && p.health > 0) koboldCount++;
 		}
 		int kingHP = koboldCount + 1;
+		if (kingHP < 1) kingHP = 1;
 
 		// 2. Create Unit via EffectOp
 		EffectOp spawnKoboldKingOp = {};
@@ -28829,11 +28866,11 @@ void ofApp::drawMinionManagerUI() {
 		int scW = (int)((minionPanelW + 60) * sfX);
 		int scY = (int)((ofGetHeight() - (topY + viewH)) * sfY);
 		int scH = (int)(viewH * sfY);
-		// Expand scissor slightly to avoid clipping the top outline due to
+		// Expand scissor more to avoid clipping the top outline due to
 		// integer rounding when the UI panel is flush with the top of the view.
 		int screenH = ofGetViewportHeight();
-		scY = std::max(0, scY - 2);
-		scH = std::min(screenH - scY, scH + 4);
+		scY = std::max(0, scY - 8);
+		scH = std::min(screenH - scY, scH + 16);
 		glScissor(scX, scY, scW, scH);
 
 		// --- Draw UI Panel ---
@@ -28921,11 +28958,15 @@ void ofApp::drawMinionManagerUI() {
 		// (Minion luck/status moved to hover tooltip; no inline luck shown here)
 		//
 		// --- Draw Model FBO ---
-		float textBlockBottom = textBlockY + (nameBounds.height * fontScale) + (25 * scale);
-		float modelAreaHeight = ui.bounds.getBottom() - textBlockBottom - (5 * scale);
+		float textBlockBottom = textBlockY + (nameBounds.height * fontScale) + (20.0f * scale);
+		// Prefer using a large fraction of the entry height for the model area
+		float approxModelH = ui.bounds.height * 0.78f;
+		float modelAreaHeight = std::max(approxModelH, ui.bounds.getBottom() - textBlockBottom - (5 * scale));
+		// Slightly upscale the model area to emphasize the preview
+		modelAreaHeight *= 1.05f;
 
 		ui.modelViewport.set(
-			textBlockX + 15 * scale,
+			textBlockX + 12 * scale,
 			textBlockBottom,
 			modelAreaHeight,
 			modelAreaHeight);
