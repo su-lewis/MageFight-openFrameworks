@@ -4005,10 +4005,12 @@ void ofApp::updateGame() {
 	std::vector<int> p0_minionIndices;
 	std::vector<int> p1_minionIndices;
 	// Larger defaults for minion UI so entries and previews are more readable
-	float standardEntryHeight = 140.0f;
-	float gap = 14.0f;
-	float panelWidth = 420.0f;
-	int p0_skeleton = 0, p0_golem = 0, p0_wolf = 0, p0_hound = 0, p0_demon = 0, p0_kobold = 0, p0_wall = 0;
+	float standardEntryHeight = 140.0f; // unscaled baseline
+	float gap = 14.0f; // unscaled baseline
+	float panelWidth = 420.0f; // unscaled baseline
+	float scale = ofGetHeight() / 1080.0f;
+	float panelWidthScaled = panelWidth * scale;
+	int p0_skeleton = 0, p0_golem = 0, p0_wolf = 0, p0_hound = 0, p0_demon = 0, p0_kobold = 0, p0_wall = 0, p0_assistant = 0, p0_faerie = 0;
 	int p1_skeleton = 0, p1_golem = 0, p1_wolf = 0, p1_hound = 0, p1_demon = 0, p1_kobold = 0, p1_wall = 0;
 	float p0_topLimitY = 120.0f;
 	float p0_bottomLimitY = ofGetHeight() - 220.0f;
@@ -4037,8 +4039,8 @@ void ofApp::updateGame() {
 	// 3. HELPER LAMBDA TO BUILD UI LIST (now handles scroll state)
 	auto buildMinionList = [&](const std::vector<int> & indices, float startX, float topLimit, float bottomLimit, int listSide, int & skelCount, int & golemCount, int & wolfCount, int & houndCount, int & demonCount, int & koboldCount, int & assistantCount, int & wallCount, int & faerieCount) {
 		float localAvailableHeight = bottomLimit - topLimit;
-		float actualEntryHeight = standardEntryHeight;
-		float actualGap = gap;
+		float actualEntryHeight = standardEntryHeight * scale;
+		float actualGap = gap * scale;
 		float totalRequiredHeight = indices.size() * (actualEntryHeight + actualGap);
 
 		float & scrollRef = (listSide == 0) ? p0_minionScroll : p1_minionScroll;
@@ -4056,7 +4058,7 @@ void ofApp::updateGame() {
 			p1_minionTop = topLimit;
 			p1_minionLeft = startX;
 		}
-		minionPanelW = panelWidth;
+		minionPanelW = panelWidthScaled;
 
 		// Auto-scroll check for active unit
 		if (currentPlayerIndex != lastAutoScrollTurnUnit && currentPlayerIndex >= 0) {
@@ -4118,18 +4120,18 @@ void ofApp::updateGame() {
 
 			float currentY = topLimit - scrollRef + (i * (actualEntryHeight + actualGap));
 
-			ui.bounds.set(startX, currentY, panelWidth, actualEntryHeight);
+			ui.bounds.set(startX, currentY, panelWidthScaled, actualEntryHeight);
 
 			// Pre-calculate deck and discard rects for hover detection
 			// These will be refined during the draw phase, but we need them now for mouseMoved checks
 			float cardAspectRatio = 585.0f / 409.0f; // cardBackImage aspect ratio
-			float iconMargin = 6.0f;
+			float iconMargin = 6.0f * scale;
 			// Make icons proportionally large relative to entry height
 			float iconHeight = ui.bounds.height * 0.78f;
 			float iconWidth = iconHeight * cardAspectRatio;
 			float iconsY = ui.bounds.y + (ui.bounds.height - iconHeight) * 0.5f;
 			ui.discardRect.set(ui.bounds.getRight() - (iconWidth + iconMargin), iconsY, iconWidth, iconHeight);
-			ui.deckRect.set(ui.bounds.getRight() - (iconWidth * 2 + iconMargin * 2 + 5), iconsY, iconWidth, iconHeight);
+			ui.deckRect.set(ui.bounds.getRight() - (iconWidth * 2 + iconMargin * 2 + 5.0f * scale), iconsY, iconWidth, iconHeight);
 
 			activeMinionUIs.push_back(ui);
 		}
@@ -4138,8 +4140,6 @@ void ofApp::updateGame() {
 	// 4. BUILD LISTS WITH PLAYER-SPECIFIC BOUNDARIES
 	// Align local minion panel to the left side (top-left start) and go down.
 	float p0_startX = 20.0f;
-	int p0_assistant = 0;
-	int p0_faerie = 0;
 	buildMinionList(p0_minionIndices, p0_startX, p0_topLimitY, p0_bottomLimitY, 0, p0_skeleton, p0_golem, p0_wolf, p0_hound, p0_demon, p0_kobold, p0_assistant, p0_wall, p0_faerie);
 
 	// Mirror on enemy side: compute a safe start X so the minion panel
@@ -4153,6 +4153,37 @@ void ofApp::updateGame() {
 	int p1_assistant = 0;
 	int p1_faerie = 0;
 	buildMinionList(p1_minionIndices, p1_startX, p1_topLimitY, p1_bottomLimitY, 1, p1_skeleton, p1_golem, p1_wolf, p1_hound, p1_demon, p1_kobold, p1_assistant, p1_wall, p1_faerie);
+
+	// Renumber displayNumber so that for each owner and species the numbering
+	// is contiguous (e.g., Kobold 1..N). This guarantees that if Kobold 3 dies,
+	// Kobold 4 becomes Kobold 3 on the next frame.
+	{
+		std::map<std::pair<int, int>, int> speciesCounters; // (ownerID, speciesId) -> count
+		auto speciesIdFor = [&](const Player & m) -> int {
+			if (m.isSkeleton) return 1;
+			if (m.isGolem) return 2;
+			if (m.isWolf) return 3;
+			if (m.isHellhound) return 4;
+			if (m.isDemon) return 5;
+			if (m.isKobold || m.isKoboldKing) return 6; // group kobolds together
+			if (m.isAssistant) return 7;
+			if (m.isWallUnit) return 8;
+			if (m.isFaerie) return 9;
+			return 0;
+		};
+
+		// activeMinionUIs is already ordered top->bottom for each side as built above
+		for (auto & ui : activeMinionUIs) {
+			int pidx = ui.playerIndex;
+			if (pidx < 0 || pidx >= (int)players.size()) continue;
+			const Player & m = players[pidx];
+			int sid = speciesIdFor(m);
+			std::pair<int, int> key = { m.ownerID, sid };
+			int & cnt = speciesCounters[key];
+			cnt++;
+			ui.displayNumber = cnt;
+		}
+	}
 
 	if (currentPlayerIndex != lastAutoScrollTurnUnit) {
 		lastAutoScrollTurnUnit = currentPlayerIndex;
@@ -9611,7 +9642,56 @@ void ofApp::drawGame() {
 	// --- Chat System ---
 	{
 		float currentTime = ofGetElapsedTimef();
-		bool shouldShowChat = isChatOpen || (currentTime - lastChatInteractionTime < chatVisibilityDuration);
+		// Determine visible chat: open state shows full UI; otherwise we compute
+		// per-message visibility (3 seconds per wrapped line) and only show
+		// the vertical space required for currently-active lines.
+		bool shouldShowChat = false;
+
+		// We'll compute `visibleWrappedBlocks` when chat is not open.
+		std::vector<std::vector<std::string>> visibleWrappedBlocks;
+
+		if (isChatOpen) {
+			shouldShowChat = true;
+		} else {
+			// Not open: compute which messages are still within their linger window
+			// (3s per wrapped line). Iterate from newest to oldest and collect
+			// blocks; later we'll reverse to draw oldest->newest.
+			float maxWidth = 450 * scale - 20; // initial guess; may be clamped below
+			for (int i = (int)chatHistory.size() - 1; i >= 0; --i) {
+				const ChatMessage & msg = chatHistory[i];
+				string fullMsg = msg.playerName + ": " + msg.message;
+				// Use the same wrapText lambda defined later — temporarily duplicate
+				// wrapping logic here (maxWidth will be adjusted later to actual chatMaxWidth).
+				std::vector<std::string> lines;
+				std::string currentLine;
+				for (char c : fullMsg) {
+					if (c == '\n') {
+						if (!currentLine.empty()) lines.push_back(currentLine);
+						currentLine.clear();
+						continue;
+					}
+					if (currentLine.empty() && c == ' ') continue;
+					std::string testLine = currentLine + c;
+					if (uiFont.stringWidth(testLine) <= maxWidth || currentLine.empty()) {
+						currentLine = testLine;
+					} else {
+						lines.push_back(currentLine);
+						currentLine = std::string(1, c);
+					}
+				}
+				if (!currentLine.empty()) lines.push_back(currentLine);
+				if (lines.empty()) lines.push_back(" ");
+
+				float linger = (float)lines.size() * 3.0f;
+				if (currentTime - msg.timestamp < linger) {
+					visibleWrappedBlocks.push_back(lines);
+				}
+			}
+			if (!visibleWrappedBlocks.empty()) {
+				shouldShowChat = true;
+				std::reverse(visibleWrappedBlocks.begin(), visibleWrappedBlocks.end());
+			}
+		}
 
 		if (shouldShowChat) {
 			// Reset scroll offset to show latest messages (top of chat displays oldest, bottom displays newest)
@@ -9661,6 +9741,20 @@ void ofApp::drawGame() {
 					// Fallback to top-left if not enough room
 					chatX = margin;
 				}
+			}
+
+			// If chat is not open but we have visible wrapped blocks, shrink the
+			// chat box to only the vertical space required for those lines.
+			float contentPadding = 8.0f * scale;
+			if (!isChatOpen && !visibleWrappedBlocks.empty()) {
+				// Flatten to count total lines
+				int totalLines = 0;
+				for (const auto & blk : visibleWrappedBlocks)
+					totalLines += (int)blk.size();
+				// Compute minimal height (lines + padding)
+				chatBoxHeight = std::max(chatBoxHeight, (float)totalLines * (18.0f * scale) + 2.0f * contentPadding);
+				// No tabs when chat is not open
+				tabHeight = 0.0f;
 			}
 
 			// Store rect for click detection (chatWindowRect stores top-left via y - height - tab)
@@ -9774,40 +9868,43 @@ void ofApp::drawGame() {
 					contentBottom -= (inputLineCount * messageHeight + 2.0f * scale);
 				}
 
-				// Collect messages to display (latest first)
-				std::vector<ChatMessage> messagesToDraw;
-				int maxVisible = isChatMinimized ? 8 : 12;
-				for (int i = (int)chatHistory.size() - 1; i >= 0 && (int)messagesToDraw.size() < maxVisible; i--) {
-					messagesToDraw.push_back(chatHistory[i]);
-				}
-
-				// Reverse to draw from top to bottom (latest at bottom)
-				std::reverse(messagesToDraw.begin(), messagesToDraw.end());
-
-				// Draw messages from top down
+				// Draw messages:
 				float messageY = contentTop + messageHeight;
-				for (const auto & msg : messagesToDraw) {
-					// Stop if we've reached the content bottom
-					if (messageY + messageHeight > contentBottom) {
-						break;
-					}
-
-					// Draw message text with format "Steam name: message" with word wrapping
-					ofPushStyle();
-					ofSetColor(255, 255, 255, 255);
-					string fullMsg = msg.playerName + ": " + msg.message;
-
-					// Word wrap the message to fit in chat box
-					float maxWidth = chatMaxWidth - 20;
-					std::vector<string> wrappedLines = wrapText(fullMsg, maxWidth);
-
-					// Draw each line
-					for (const auto & line : wrappedLines) {
+				if (!isChatOpen && !visibleWrappedBlocks.empty()) {
+					// Draw only the visible wrapped blocks we computed earlier
+					for (const auto & blk : visibleWrappedBlocks) {
+						for (const auto & line : blk) {
+							if (messageY + messageHeight > contentBottom) break;
+							ofPushStyle();
+							ofSetColor(255, 255, 255, 255);
+							uiFont.drawString(line, chatX + 10, messageY);
+							ofPopStyle();
+							messageY += messageHeight;
+						}
 						if (messageY + messageHeight > contentBottom) break;
-						uiFont.drawString(line, chatX + 10, messageY);
-						messageY += messageHeight;
 					}
-					ofPopStyle();
+				} else {
+					// Default behavior when chat is open: show recent messages (capped)
+					std::vector<ChatMessage> messagesToDraw;
+					int maxVisible = isChatMinimized ? 8 : 12;
+					for (int i = (int)chatHistory.size() - 1; i >= 0 && (int)messagesToDraw.size() < maxVisible; i--) {
+						messagesToDraw.push_back(chatHistory[i]);
+					}
+					std::reverse(messagesToDraw.begin(), messagesToDraw.end());
+					for (const auto & msg : messagesToDraw) {
+						if (messageY + messageHeight > contentBottom) break;
+						ofPushStyle();
+						ofSetColor(255, 255, 255, 255);
+						string fullMsg = msg.playerName + ": " + msg.message;
+						float maxWidth = chatMaxWidth - 20;
+						std::vector<string> wrappedLines = wrapText(fullMsg, maxWidth);
+						for (const auto & line : wrappedLines) {
+							if (messageY + messageHeight > contentBottom) break;
+							uiFont.drawString(line, chatX + 10, messageY);
+							messageY += messageHeight;
+						}
+						ofPopStyle();
+					}
 				}
 
 				// Draw chat input box when chat is open (only in full mode)
@@ -13797,18 +13894,41 @@ void ofApp::keyReleased(int key) {
 		return;
 	}
 
-	// 1. Open Chat Debug tab with backtick
+	// 1. Toggle Chat Debug tab with backtick
 	if (key == '`') {
 		if (isMultiplayer && !isHost()) {
 			addGameLog("Debug mode is host-only in multiplayer.");
 			return;
 		}
-		isDebugMode = true;
-		if (currentState == STATE_GAMEPLAY || currentState == STATE_DRAFTING) {
-			isChatOpen = true;
-			isChatMinimized = false;
-			currentChatTab = ChatTab::DEBUG;
-			lastChatInteractionTime = ofGetElapsedTimef();
+
+		// Toggle debug mode state
+		if (!isDebugMode) {
+			// Enter debug mode: open debug chat tab
+			isDebugMode = true;
+			if (currentState == STATE_GAMEPLAY || currentState == STATE_DRAFTING) {
+				isChatOpen = true;
+				isChatMinimized = false;
+				currentChatTab = ChatTab::DEBUG;
+				lastChatInteractionTime = ofGetElapsedTimef();
+			}
+		} else {
+			// Exit debug mode: close debug UI. If there are chat messages,
+			// let the chat linger for `chatVisibilityDuration`; otherwise
+			// hide it completely immediately.
+			isDebugMode = false;
+			if (chatHistory.empty()) {
+				isChatOpen = false;
+				isChatMinimized = true;
+				chatInput.clear();
+				// Set last interaction far in the past so visibility checks hide it
+				lastChatInteractionTime = -999.0f;
+			} else {
+				// Keep chat visible for the normal duration after last interaction
+				lastChatInteractionTime = ofGetElapsedTimef();
+				// Ensure we're not stuck in the expanded debug tab view
+				isChatOpen = false;
+				isChatMinimized = true;
+			}
 		}
 		return;
 	}
