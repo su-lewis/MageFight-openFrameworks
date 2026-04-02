@@ -2428,16 +2428,24 @@ void ofApp::update() {
 				ofLogError("Audio") << "Main menu music not loaded when entering main menu/settings.";
 			}
 		} else {
-			if (mainMenuMusic.isPlaying()) mainMenuMusic.stop();
+			// Don't stop menu music for in-game drafts (they are a transient modal
+			// that should not globally mute or pause gameplay audio).
+			if (!(currentState == STATE_DRAFTING && isInGameDraft)) {
+				if (mainMenuMusic.isPlaying()) mainMenuMusic.stop();
+			}
 		}
 		// Reset transient UI hover/pile state when changing major states
-		isHoveringPile = false;
-		isShowingPileView = false;
-		hoveredPilePlayerIndex = -1;
-		currentPileViewPlayerIndex = -1;
-		hoveredPileType = VIEW_NONE;
-		currentPileView = VIEW_NONE;
-		pileHoverStartTime = 0.0f;
+		// Skip clearing hover/pile state for in-game drafts so pile hover and
+		// pile-view remain available while the draft modal is shown.
+		if (!(currentState == STATE_DRAFTING && isInGameDraft)) {
+			isHoveringPile = false;
+			isShowingPileView = false;
+			hoveredPilePlayerIndex = -1;
+			currentPileViewPlayerIndex = -1;
+			hoveredPileType = VIEW_NONE;
+			currentPileView = VIEW_NONE;
+			pileHoverStartTime = 0.0f;
+		}
 
 		prevState = currentState;
 	}
@@ -3695,10 +3703,10 @@ void ofApp::recalculateUI(int w, int h) {
 	mainMenuSettingsButton.set(centerX - btnWidth / 2, startY + (btnHeight + 20) * 2, btnWidth, btnHeight);
 	mainMenuQuitButton.set(centerX - btnWidth / 2, startY + (btnHeight + 20) * 3, btnWidth, btnHeight);
 
-	// 3. Pause Menu Buttons (centered stack)
-	float pBtnWidth = 320;
-	float pBtnHeight = 64;
-	float pGap = 18;
+	// 3. Pause Menu Buttons (centered stack) - match main menu sizing
+	float pBtnWidth = btnWidth;
+	float pBtnHeight = btnHeight;
+	float pGap = 20; // same vertical gap as main menu
 	float pStartY = h / 2.0f - (pBtnHeight * 2 + pGap * 2) / 2.0f; // center the stack vertically
 	// When not multiplayer we show Resume, Save, Load, Settings, Quit (5 buttons)
 	// When multiplayer we show Resume, Settings, Quit (3 buttons)
@@ -4125,14 +4133,20 @@ void ofApp::updateGame() {
 	};
 
 	// 4. BUILD LISTS WITH PLAYER-SPECIFIC BOUNDARIES
-	// Align local minion panel to the local discard's left edge.
-	float p0_startX = p0_discardRect.x;
+	// Align local minion panel to the left side (top-left start) and go down.
+	float p0_startX = 20.0f;
 	int p0_assistant = 0;
 	int p0_faerie = 0;
 	buildMinionList(p0_minionIndices, p0_startX, p0_topLimitY, p0_bottomLimitY, 0, p0_skeleton, p0_golem, p0_wolf, p0_hound, p0_demon, p0_kobold, p0_assistant, p0_wall, p0_faerie);
 
-	// Mirror on enemy side: align panel right edge to enemy discard right edge.
-	float p1_startX = p1_discardRect.getRight() - panelWidth;
+	// Mirror on enemy side: compute a safe start X so the minion panel
+	// doesn't overlap the top-right AP/status area. Reserve space based
+	// on opponent deck/discard widths plus a minimum margin.
+	float localScale = ofGetHeight() / 1080.0f;
+	float reservedFromRight = std::max(p1_deckRect.getWidth() + p1_discardRect.getWidth() + 80.0f * localScale, 320.0f * localScale);
+	float p1_startX = ofGetWidth() - reservedFromRight - panelWidth;
+	// Clamp so panel remains on-screen
+	p1_startX = std::clamp(p1_startX, 40.0f * localScale, ofGetWidth() - panelWidth - 20.0f * localScale);
 	int p1_assistant = 0;
 	int p1_faerie = 0;
 	buildMinionList(p1_minionIndices, p1_startX, p1_topLimitY, p1_bottomLimitY, 1, p1_skeleton, p1_golem, p1_wolf, p1_hound, p1_demon, p1_kobold, p1_assistant, p1_wall, p1_faerie);
@@ -28564,7 +28578,7 @@ DamageType ofApp::stringToDamageType(const std::string & str) {
 }
 
 //--------------------------------------------------------------
-void ofApp::drawMinionStatusBars(Player & minion, const std::string & name, float x, float y, float totalWidth) {
+void ofApp::drawMinionStatusBars(Player & minion, const std::string & name, float x, float y, float totalWidth, float preferredHpWidth) {
 	float scale = ofGetHeight() / 1080.0f;
 	float fontScale = 0.9f;
 
@@ -28583,7 +28597,9 @@ void ofApp::drawMinionStatusBars(Player & minion, const std::string & name, floa
 	if (minion.holyBlock > 0) usedWidth += statW; // <--- ADDED
 	if (minion.ward > 0) usedWidth += statW;
 
-	float hpW = totalWidth - usedWidth;
+	// Prefer the requested HP width (e.g. match deck+discard icon widths),
+	// but clamp so bars never overflow the available totalWidth.
+	float hpW = std::min(preferredHpWidth, totalWidth - usedWidth);
 	float currentX = x;
 
 	// --- HEALTH ---
@@ -28965,11 +28981,14 @@ void ofApp::drawMinionManagerUI() {
 		// Slightly upscale the model area to emphasize the preview
 		modelAreaHeight *= 1.05f;
 
+		// Ensure the model preview doesn't overflow the panel width (avoid scissor clipping)
+		float maxModelW = std::max(48.0f, ui.bounds.width - (80.0f * scale));
+		float modelW = std::min(modelAreaHeight, maxModelW);
 		ui.modelViewport.set(
 			textBlockX + 12 * scale,
 			textBlockBottom,
-			modelAreaHeight,
-			modelAreaHeight);
+			modelW,
+			modelW);
 		ofSetColor(255);
 		modelFbo.draw(ui.modelViewport);
 
@@ -28986,7 +29005,9 @@ void ofApp::drawMinionManagerUI() {
 
 		// --- Status Bars ---
 		float availableWidth = ui.deckRect.x - textBlockX - (15 * scale);
-		drawMinionStatusBars(minion, name, textBlockX, textBlockY, availableWidth);
+		float iconGap = ui.discardRect.x - (ui.deckRect.x + ui.deckRect.width);
+		float preferredHpWidth = ui.deckRect.width + ui.discardRect.width + iconGap;
+		drawMinionStatusBars(minion, name, textBlockX, textBlockY, availableWidth, preferredHpWidth);
 
 		// Deck
 		ofSetColor(255);
