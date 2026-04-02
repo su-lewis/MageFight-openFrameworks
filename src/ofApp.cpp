@@ -840,43 +840,12 @@ Player * ofApp::spawnMinionDeterministically(int summonKind, int targetX, int ta
 
 	// Place on board and add
 	board[tmpl.x][tmpl.y].hasPlayer = true;
+	// Record the playerID we will assign so we can find the correct index
+	int addedPlayerID = tmpl.playerID;
 	players.push_back(tmpl);
 	int newIdx = (int)players.size() - 1;
 	players[newIdx].visualPos = gridToWorld(players[newIdx].x, players[newIdx].y);
 	ofLogNotice("EffectQueue") << "spawnMinionDeterministically: placed minion idx=" << newIdx << " type=" << summonKind << " owner=" << ownerID;
-
-	// In lockstep mode, do not broadcast a place packet; both peers create
-	// the minion locally and then shuffle with the synchronized RNG.
-
-	// Enqueue a minion-specific shuffle visual so summoned minions show
-	// their deck being shuffled locally, then perform the deterministic shuffle.
-	if (players[newIdx].isMinion) {
-		ShuffleAnimation s;
-		s.playerIndex = newIdx;
-		bool assignedRect = false;
-		for (const auto & mui : activeMinionUIs) {
-			if (mui.playerIndex == newIdx) {
-				s.deckRect = mui.deckRect;
-				assignedRect = true;
-				break;
-			}
-		}
-		if (!assignedRect) {
-			int ownerSlot = findPlayerIndexByID(players[newIdx].ownerID);
-			if (ownerSlot >= 0)
-				s.deckRect = (players[ownerSlot].playerID == 0) ? p0_deckRect : p1_deckRect;
-			else
-				s.deckRect = (players[newIdx].ownerID == 0) ? p0_deckRect : p1_deckRect;
-		}
-		s.startTime = ofGetElapsedTimef();
-		s.duration = 0.9f;
-		s.currentAlpha = 255.0f;
-		s.currentScale = 1.0f;
-		s.rotation = 0.0f;
-		activeShuffleAnimations.push_back(s);
-	}
-	// Now shuffle the minion deck deterministically.
-	shuffleGameVector(players[newIdx].deck, newIdx);
 
 	// Re-sort turn order to match host
 	int currentID = -1;
@@ -896,6 +865,40 @@ Player * ofApp::spawnMinionDeterministically(int summonKind, int targetX, int ta
 				break;
 			}
 		}
+	}
+
+	// After re-sorting, find the newly-added minion index and perform its
+	// deck shuffle and visual using the correct, updated player index. This
+	// ensures we don't clear or target the wrong player when indices shift
+	// due to sorting.
+	int addedIdx = findPlayerIndexByID(addedPlayerID);
+	if (addedIdx >= 0 && players[addedIdx].isMinion) {
+		ShuffleAnimation s;
+		s.playerIndex = addedIdx;
+		bool assignedRect = false;
+		for (const auto & mui : activeMinionUIs) {
+			if (mui.playerIndex == addedIdx) {
+				s.deckRect = mui.deckRect;
+				assignedRect = true;
+				break;
+			}
+		}
+		if (!assignedRect) {
+			int ownerSlot = findPlayerIndexByID(players[addedIdx].ownerID);
+			if (ownerSlot >= 0)
+				s.deckRect = (players[ownerSlot].playerID == 0) ? p0_deckRect : p1_deckRect;
+			else
+				s.deckRect = (players[addedIdx].ownerID == 0) ? p0_deckRect : p1_deckRect;
+		}
+		s.startTime = ofGetElapsedTimef();
+		s.duration = 0.9f;
+		s.currentAlpha = 255.0f;
+		s.currentScale = 1.0f;
+		s.rotation = 0.0f;
+		activeShuffleAnimations.push_back(s);
+
+		// Now shuffle the minion deck deterministically using the updated index
+		shuffleGameVector(players[addedIdx].deck, addedIdx);
 	}
 
 	invalidateTargetCache();
@@ -5031,6 +5034,7 @@ void ofApp::updateGame() {
 										EffectOp apply = {};
 										apply.type = EffectOpType::APPLY_BONUS_AP;
 										queueEffect(apply);
+										if (!isProcessingEffect) beginEffectSequence();
 										queueFloatingTextVisual(gridToWorld(a.x, a.y), "Assistant Reroll!", ofColor::gold);
 										queueVisualDiceRoll(gridToWorld(a.x, a.y) + glm::vec3(0, 1.0f, 0), rerollNum, rerollSides, rawReroll, bonus, PURPOSE_BONUS_AP, currentPlayerIndex, 1.0f);
 									}
@@ -12568,6 +12572,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 						EffectOp applyBonus = {};
 						applyBonus.type = EffectOpType::APPLY_BONUS_AP;
 						queueEffect(applyBonus);
+						if (!isProcessingEffect) beginEffectSequence();
 						queueVisualDiceRoll(gridToWorld(players[assistantIndex].x, players[assistantIndex].y) + glm::vec3(0, 1.0f, 0), rerollNum, rerollSides, rawReroll, bonus, PURPOSE_BONUS_AP, currentPlayerIndex, 1.0f);
 					}
 
@@ -14982,6 +14987,7 @@ void ofApp::continueNewTurn() {
 						EffectOp apply = {};
 						apply.type = EffectOpType::APPLY_BONUS_AP;
 						queueEffect(apply);
+						if (!isProcessingEffect) beginEffectSequence();
 						queueFloatingTextVisual(gridToWorld(a.x, a.y), "Assistant Reroll!", ofColor::gold);
 						queueVisualDiceRoll(gridToWorld(a.x, a.y) + glm::vec3(0, 1.0f, 0), rerollNum, rerollSides, rawReroll, bonus, PURPOSE_BONUS_AP, currentPlayerIndex, 1.0f);
 					}
