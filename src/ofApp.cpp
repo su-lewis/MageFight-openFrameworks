@@ -1134,7 +1134,7 @@ void ofApp::drawMinionCard(int minionIndex, int ownerIndex) {
 		cmd.params[1] = drawCount;
 		// Client-side watchdog id (if client) for dedupe/resend isn't tracked here anymore
 		if (isClient()) cmd.clientActionID = ++watchdogClientActionCounter;
-		bool ok = sendInputCommand(cmd, true);
+		sendInputCommand(cmd, true);
 	}
 
 	int pushedAnims = 0;
@@ -4346,8 +4346,7 @@ void ofApp::updateGame() {
 							cmd.params[3 + i] = selectedDraftIndices[i];
 						}
 						// Queue and send so lockstep advances identically
-						bool ok = sendInputCommand(cmd, true);
-						if (!ok) ofLogWarning("Network") << "Auto-accept draft send failed (no connection).";
+						if (!sendInputCommand(cmd, true)) ofLogWarning("Network") << "Auto-accept draft send failed (no connection).";
 					}
 				} else {
 					// Auto-end-turn during gameplay
@@ -4364,7 +4363,7 @@ void ofApp::updateGame() {
 							cmd.turnNumber = globalTurnCounter;
 							cmd.commandType = CMD_END_TURN;
 							// Queue locally and send to peers so lockstep advances identically
-							bool ok = sendInputCommand(cmd, true);
+							sendInputCommand(cmd, true);
 						}
 					}
 					// If I'm the Host waiting for a remote player, allow a small grace period
@@ -4380,7 +4379,7 @@ void ofApp::updateGame() {
 								cmd.commandId = nextCommandId++;
 								cmd.turnNumber = globalTurnCounter;
 								cmd.commandType = CMD_END_TURN;
-								bool ok = sendInputCommand(cmd, true);
+								sendInputCommand(cmd, true);
 								ofLogNotice("Timer") << "Host: forcing end-turn due to client timeout.";
 							}
 						}
@@ -5949,7 +5948,7 @@ void ofApp::updateGame() {
 					cmd.commandId = nextCommandId++;
 					cmd.turnNumber = globalTurnCounter;
 					cmd.commandType = CMD_END_TURN;
-					bool ok = sendInputCommand(cmd, true);
+					sendInputCommand(cmd, true);
 				} else {
 					startNewTurn();
 				}
@@ -10115,7 +10114,7 @@ void ofApp::drawGame() {
 	if (!diceRollResultText.empty() && (ofGetElapsedTimef() - diceRollResultStartTime) < diceRollResultDuration) {
 		ofRectangle bbox = titleFont.getStringBoundingBox(diceRollResultText, 0, 0);
 		float tx = (ofGetWidth() / 2.0f) - (bbox.width / 2.0f);
-		float ty = ofGetHeight() * 0.25f;
+		float ty = ofGetHeight() * 0.25f; // baseline Y for dice result text
 
 		// Shadow
 		ofSetColor(0, 0, 0, 255);
@@ -10184,32 +10183,21 @@ void ofApp::drawGame() {
 		// 1. Draw Top Instruction Text
 		drawInstructionText("Select cards to discard (Draw 2 each)");
 
-		// 2. Draw Control Panel (Background for Buttons)
-		float panelW = 240;
-		float panelH = 70;
-		float panelX = riConfirmBtn.x - 20;
-		float panelY = riConfirmBtn.y - 10;
-
-		ofSetColor(50, 50, 50, 240); // Grey background
-		ofDrawRectRounded(panelX, panelY, panelW, panelH, 10);
-
-		// 3. Draw Confirm Button
-		ofSetColor(0, 180, 0); // Green
-		if (riConfirmBtn.inside(ofGetMouseX(), ofGetMouseY())) ofSetColor(0, 220, 0);
-		ofDrawRectRounded(riConfirmBtn, 8);
-
-		ofSetColor(255);
-		ofRectangle cBox = uiFont.getStringBoundingBox("Accept", 0, 0);
-		uiFont.drawString("Accept", riConfirmBtn.getCenter().x - cBox.width / 2, riConfirmBtn.getCenter().y + cBox.height / 2);
-
-		// 4. Draw Cancel Button
-		ofSetColor(180, 0, 0); // Red
-		if (riCancelBtn.inside(ofGetMouseX(), ofGetMouseY())) ofSetColor(220, 0, 0);
-		ofDrawRectRounded(riCancelBtn, 8);
-
-		ofSetColor(255);
-		ofRectangle xBox = uiFont.getStringBoundingBox("Cancel", 0, 0);
-		uiFont.drawString("Cancel", riCancelBtn.getCenter().x - xBox.width / 2, riCancelBtn.getCenter().y + xBox.height / 2);
+		// 2. Render Accept / Cancel as drafting-style option cards and populate riConfirmBtn/riCancelBtn
+		float panelW = 520;
+		float panelH = 220;
+		float panelX = ofGetWidth() / 2.0f - panelW / 2.0f;
+		float panelY = ofGetHeight() - panelH - 40;
+		ofRectangle controlPanel(panelX, panelY, panelW, panelH);
+		std::vector<std::string> labels = { "Accept", "Cancel" };
+		std::vector<ofColor> accents = { ofColor(0, 180, 0), ofColor(180, 0, 0) };
+		std::vector<bool> enabled = { (renewedSelectedHandIndices.size() >= 0), true };
+		std::vector<ofRectangle> outRects;
+		drawOptionCards(controlPanel, "", "", labels, accents, enabled, outRects);
+		if (outRects.size() >= 2) {
+			riConfirmBtn = outRects[0];
+			riCancelBtn = outRects[1];
+		}
 	}
 }
 //--------------------------------------------------------------
@@ -11437,7 +11425,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 					cmd.commandId = nextCommandId++;
 					cmd.turnNumber = globalTurnCounter;
 					cmd.commandType = CMD_END_TURN;
-					bool ok = sendInputCommand(cmd, true);
+					sendInputCommand(cmd, true);
 				} else {
 					startNewTurn();
 				}
@@ -11503,11 +11491,6 @@ void ofApp::mousePressed(int x, int y, int button) {
 			else if (draftStage == 1)
 				classTierText = "Class 2";
 		}
-
-		float ty = ofGetHeight() * 0.25f;
-		float lineH = titleFont.getLineHeight();
-		float instrTy = ty + lineH + 8;
-		float classTy = instrTy + lineH + 12;
 
 		// Compute centered card Y so hit testing/animations match the draw routine
 		float startY = ofGetHeight() / 2.0f - (cardH / 2.0f);
@@ -11690,9 +11673,11 @@ void ofApp::mousePressed(int x, int y, int button) {
 				ofLogNotice("Network") << "Client sending CMD_ACCEPT_DRAFT cmd.params=("
 									   << cmd.params[0] << "," << cmd.params[1] << "," << cmd.params[2] << ","
 									   << cmd.params[3] << "," << cmd.params[4] << "," << cmd.params[5] << ") clientActionID=" << pkt.clientActionID;
-				bool ok = sendInputCommand(cmd, true);
-				ofLogNotice("Network") << "Client sent AcceptDraft via CMD_ACCEPT_DRAFT (" << pkt.numSelected << " picks) clientActionID=" << pkt.clientActionID << " ok=" << ok;
-				if (!ok) ofLogWarning("Network") << "AcceptDraft send failed (no connection). Will retry via resend watchdog.";
+				{
+					bool sendOk = sendInputCommand(cmd, true);
+					ofLogNotice("Network") << "Client sent AcceptDraft via CMD_ACCEPT_DRAFT (" << pkt.numSelected << " picks) clientActionID=" << pkt.clientActionID << (sendOk ? "" : " [send failed]");
+					if (!sendOk) ofLogWarning("Network") << "AcceptDraft send failed (no connection). Will retry via resend watchdog.";
+				}
 
 				// After sending, clear local selection and mark accept applied so hover
 				// and further clicks are ignored. Also animate Accept button vanishing.
@@ -11725,8 +11710,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 			}
 			// Use sendInputCommand universally so the commandId is assigned
 			// and the command goes through the normal lockstep processing.
-			bool ok = sendInputCommand(cmd, true);
-			ofLogNotice("Network") << "Host queued CMD_ACCEPT_DRAFT cmd.params=(" << cmd.params[0] << "," << cmd.params[1] << "," << cmd.params[2] << "," << cmd.params[3] << "," << cmd.params[4] << "," << cmd.params[5] << ") ok=" << ok;
+			if (!sendInputCommand(cmd, true)) ofLogWarning("Network") << "Host queued CMD_ACCEPT_DRAFT send failed (no connection).";
 
 			// After queuing authoritative command, clear local selections and start
 			// the accept vanish animation to match clients.
@@ -11799,9 +11783,11 @@ void ofApp::mousePressed(int x, int y, int button) {
 							cmd.clientActionID = pkt.clientActionID;
 
 							// Queue locally and send to host/peers
-							bool ok = sendInputCommand(cmd, true);
-							ofLogNotice("Network") << "Client sent DraftToggle via CMD_DRAFT_ACTION: option=" << cmd.params[1] << " draftPlayer=" << cmd.params[2] << " ok=" << ok;
-							if (!ok) ofLogWarning("Network") << "DraftToggle send failed (no connection). Will retry via resend watchdog.";
+							{
+								bool sendOk = sendInputCommand(cmd, true);
+								ofLogNotice("Network") << "Client sent DraftToggle via CMD_DRAFT_ACTION: option=" << cmd.params[1] << " draftPlayer=" << cmd.params[2] << (sendOk ? "" : " [send failed]");
+								if (!sendOk) ofLogWarning("Network") << "DraftToggle send failed (no connection). Will retry via resend watchdog.";
+							}
 						}
 						// HOST: Its action is authoritative. It broadcasts the change to all clients.
 						else if (isHost()) {
@@ -11816,8 +11802,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 							cmd.params[1] = poolIdx;
 							cmd.params[2] = draftPlayerIndex;
 							cmd.params[3] = currentDraftClassTier;
-							bool ok = sendInputCommand(cmd, true);
-							ofLogNotice("Network") << "Host broadcast CMD_DRAFT_ACTION for its own DraftToggle. ok=" << ok;
+							if (!sendInputCommand(cmd, true)) ofLogWarning("Network") << "Host broadcast CMD_DRAFT_ACTION send failed (no connection).";
 
 							// Do not send PKT_DRAFT_STATE here; drafts are deterministic.
 							ofLogNotice("Network") << "Host: toggled own draft option and queued CMD_DRAFT_ACTION (no PKT_DRAFT_STATE sent).";
@@ -12651,7 +12636,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 					cmd.commandId = nextCommandId++;
 					cmd.turnNumber = globalTurnCounter;
 					cmd.commandType = CMD_END_TURN;
-					bool ok = sendInputCommand(cmd, true);
+					sendInputCommand(cmd, true);
 				} else {
 					startNewTurn();
 				}
@@ -12711,8 +12696,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 							strncpy(cmd.stringData, cardName.c_str(), sizeof(cmd.stringData) - 1);
 							cmd.stringData[sizeof(cmd.stringData) - 1] = '\0';
 							if (isMultiplayer) {
-								bool ok = sendInputCommand(cmd, true);
-								if (!ok) ofLogWarning("Network") << "Play selected card send failed (no connection).";
+								if (!sendInputCommand(cmd, true)) ofLogWarning("Network") << "Play selected card send failed (no connection).";
 							} else {
 								queueInputCommand(cmd);
 							}
@@ -13789,7 +13773,7 @@ void ofApp::keyPressed(int key) {
 			cmd.commandId = nextCommandId++;
 			cmd.turnNumber = globalTurnCounter;
 			cmd.commandType = CMD_END_TURN;
-			bool ok = sendInputCommand(cmd, true);
+			sendInputCommand(cmd, true);
 		} else {
 			startNewTurn();
 		}
@@ -14121,7 +14105,7 @@ void ofApp::startNewTurn() {
 		// Queue locally and send over the network to peers so lockstep advances identically.
 		// Host will process the queued command via the command stream rather than
 		// relying on immediate local-only calls to `startNewTurn()`.
-		bool ok = sendInputCommand(cmd, true);
+		sendInputCommand(cmd, true);
 
 		// 2.5. CLEAN UP LOCAL PLAYER'S HAND & BUFFS BEFORE WAITING
 		// Both host and client must do this so deck states stay in sync
@@ -15197,8 +15181,7 @@ void ofApp::handleCardDragToPlay(int cardIndex) {
 		strncpy(cmd.stringData, card.name.c_str(), sizeof(cmd.stringData) - 1);
 		cmd.stringData[sizeof(cmd.stringData) - 1] = '\0';
 		if (isMultiplayer) {
-			bool ok = sendInputCommand(cmd, true);
-			(void)ok;
+			sendInputCommand(cmd, true);
 		} else {
 			queueInputCommand(cmd);
 		}
@@ -15279,8 +15262,7 @@ void ofApp::handleCardTargetClick(int gridX, int gridY) {
 						cmd.stringData[sizeof(cmd.stringData) - 1] = '\0';
 
 						if (isMultiplayer) {
-							bool ok = sendInputCommand(cmd, true);
-							if (!ok) ofLogWarning("Network") << "Kobold placement send failed (no connection).";
+							if (!sendInputCommand(cmd, true)) ofLogWarning("Network") << "Kobold placement send failed (no connection).";
 						} else {
 							queueInputCommand(cmd);
 						}
@@ -15314,8 +15296,7 @@ void ofApp::handleCardTargetClick(int gridX, int gridY) {
 						cmd.stringData[sizeof(cmd.stringData) - 1] = '\0';
 
 						if (isMultiplayer) {
-							bool ok = sendInputCommand(cmd, true);
-							if (!ok) ofLogWarning("Network") << "Wolf placement send failed (no connection).";
+							if (!sendInputCommand(cmd, true)) ofLogWarning("Network") << "Wolf placement send failed (no connection).";
 						} else {
 							queueInputCommand(cmd);
 						}
@@ -15349,8 +15330,7 @@ void ofApp::handleCardTargetClick(int gridX, int gridY) {
 			strncpy(cmd.stringData, card.name.c_str(), sizeof(cmd.stringData) - 1);
 			cmd.stringData[sizeof(cmd.stringData) - 1] = '\0';
 			{
-				bool ok = sendInputCommand(cmd, true);
-				if (!ok) ofLogWarning("Network") << "Teleport send failed (no connection).";
+				if (!sendInputCommand(cmd, true)) ofLogWarning("Network") << "Teleport send failed (no connection).";
 			}
 			resetCardInteraction();
 			break;
@@ -15370,8 +15350,7 @@ void ofApp::handleCardTargetClick(int gridX, int gridY) {
 		cmd.stringData[sizeof(cmd.stringData) - 1] = '\0';
 
 		if (isMultiplayer) {
-			bool ok = sendInputCommand(cmd, true);
-			if (!ok) ofLogWarning("Network") << "Teleport send failed (no connection).";
+			if (!sendInputCommand(cmd, true)) ofLogWarning("Network") << "Teleport send failed (no connection).";
 		} else {
 			queueInputCommand(cmd);
 		}
@@ -15433,8 +15412,7 @@ void ofApp::handleCardTargetClick(int gridX, int gridY) {
 			cmd.params[3] = 0;
 			strncpy(cmd.stringData, card.name.c_str(), sizeof(cmd.stringData) - 1);
 			cmd.stringData[sizeof(cmd.stringData) - 1] = '\0';
-			bool ok = sendInputCommand(cmd, true);
-			if (!ok) ofLogWarning("Network") << "PlayCard send failed (no connection).";
+			if (!sendInputCommand(cmd, true)) ofLogWarning("Network") << "PlayCard send failed (no connection).";
 			resetCardInteraction();
 		} else {
 			// Singleplayer should also route through the deterministic input queue
@@ -15496,34 +15474,11 @@ void ofApp::handleCardMenuClick(const std::string & buttonId) {
 			break;
 
 		case CARD_MAGIC_BLAST:
-			if (magicBlastDamageButton.inside(mouseX, mouseY)) {
-				InputCommandPacket cmd = {};
-				cmd.type = PKT_INPUT_COMMAND;
-				cmd.playerID = myLocalPlayerID;
-				cmd.seq = 0;
-				cmd.commandId = nextCommandId++;
-				cmd.turnNumber = globalTurnCounter;
-				cmd.commandType = CMD_MENU_CHOICE;
-				cmd.params[0] = interactingCardType;
-				cmd.params[1] = magicBlastTargetPlayerIndex; // target resolved by APPLY_MAGIC_BLAST
-				cmd.params[2] = 1; // damage choice
-				cmd.params[3] = interactingCardIndex;
-				// Route via lockstep in all modes so singleplayer gets a proper Command ID
-				sendInputCommand(cmd, true);
-			} else if (magicBlastDiscardButton.inside(mouseX, mouseY)) {
-				InputCommandPacket cmd = {};
-				cmd.type = PKT_INPUT_COMMAND;
-				cmd.playerID = myLocalPlayerID;
-				cmd.seq = 0;
-				cmd.commandId = nextCommandId++;
-				cmd.turnNumber = globalTurnCounter;
-				cmd.commandType = CMD_MENU_CHOICE;
-				cmd.params[0] = interactingCardType;
-				cmd.params[1] = magicBlastTargetPlayerIndex; // target resolved by APPLY_MAGIC_BLAST
-				cmd.params[2] = 2; // discard choice
-				cmd.params[3] = interactingCardIndex;
-				// Route via lockstep in all modes so singleplayer gets a proper Command ID
-				sendInputCommand(cmd, true);
+			// Use the provided buttonId (lockstep callers don't have mouse coords)
+			if (buttonId == "damage") {
+				choice = 1;
+			} else if (buttonId == "discard") {
+				choice = 2;
 			}
 			break;
 		case CARD_GIANT_MAGIC_HAND:
@@ -15746,6 +15701,18 @@ void ofApp::handleCardMenuClick(const std::string & buttonId) {
 	}
 
 	case CARD_AMNESIA: {
+		// NOTE: Amnesia 'Accept' should be sent as CMD_MENU_CHOICE and handled
+		// deterministically inside executeInputCommand. Do NOT mutate game state
+		// here in the mouse/UI handler.
+		if (buttonId == "accept") {
+			// Defensive: close any lingering UI state if invoked directly
+			amnesiaDeckCopy.clear();
+			amnesiaSelectedIndices.clear();
+			amnesiaCardRects.clear();
+			resetCardInteraction();
+			break;
+		}
+
 		// Menu choice: "Self" or adjacent targeting
 		if (buttonId == "Self") {
 			// Use on self
@@ -16101,6 +16068,8 @@ void ofApp::drawActiveCardInteractionUI() {
 				ofSetColor(ofColor::white);
 				uiFont.drawString(title, panelX + panelPadding, panelY + panelPadding + uiFont.getLineHeight() * 0.8f);
 
+				amnesiaCardRects.clear();
+				amnesiaCardRects.reserve(amnesiaDeckCopy.size());
 				for (size_t i = 0; i < amnesiaDeckCopy.size(); ++i) {
 					int row = i / gridWidthInCards;
 					int col = i % gridWidthInCards;
@@ -16124,6 +16093,8 @@ void ofApp::drawActiveCardInteractionUI() {
 						ofDrawRectangle(drawX, drawY, viewCardWidth, viewCardHeight);
 						ofPopStyle();
 					}
+					// record hit rect for input handling
+					amnesiaCardRects.emplace_back(drawX, drawY, viewCardWidth, viewCardHeight);
 				}
 
 				// Draw Accept button at bottom
@@ -16257,6 +16228,35 @@ void ofApp::cancelAllTargeting() {
 	currentCardOutcome.attackTargetIndices.clear();
 	currentCardOutcome.poisonTargetPlayerIDs.clear();
 	magicBlastSplashTargetIndices.clear();
+}
+
+void ofApp::applyAmnesiaSelectionLocal(int targetPlayerIndex, const std::vector<int> & selections) {
+	if (targetPlayerIndex < 0 || targetPlayerIndex >= (int)players.size()) return;
+	if (selections.empty()) return;
+
+	// In deterministic lockstep both peers must apply the same removals.
+	// Apply removals on all peers (Host and Client) so checksums remain identical.
+
+	Player & target = players[targetPlayerIndex];
+	// Convert selections (indices into amnesiaDeckCopy) into removals on the actual deck
+	// Remove in descending order to keep indices valid
+	std::vector<int> toRemove = selections;
+	std::sort(toRemove.begin(), toRemove.end(), std::greater<int>());
+	int removed = 0;
+	for (int idx : toRemove) {
+		if (idx >= 0 && idx < (int)target.deck.size()) {
+			target.deck.erase(target.deck.begin() + idx);
+			removed++;
+		}
+	}
+	if (removed > 0) {
+		queueFloatingTextVisual(gridToWorld(target.x, target.y), "Amnesia: " + ofToString(removed) + " removed", ofColor::magenta);
+		ofLogNotice("Amnesia") << "Removed " << removed << " cards from player " << target.playerID;
+	}
+	// Clear UI copies
+	amnesiaDeckCopy.clear();
+	amnesiaSelectedIndices.clear();
+	amnesiaCardRects.clear();
 }
 
 void ofApp::recalcTempLuck() {
@@ -16798,6 +16798,64 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 		int targetIndex = cmd.params[1];
 		int choice = cmd.params[2];
 		int cardIndex = cmd.params[3];
+
+		// Special handling: if this is an Amnesia accept payload, apply selections
+		if (menuType == CARD_AMNESIA && choice == 3) {
+			// Parse selections (prefer params packing, fall back to stringData)
+			std::vector<int> sel;
+			int n = cmd.params[4];
+			if (n <= 0) {
+				std::string s(cmd.stringData);
+				size_t pos = 0;
+				while (pos < s.size()) {
+					size_t comma = s.find(',', pos);
+					std::string tok = (comma == std::string::npos) ? s.substr(pos) : s.substr(pos, comma - pos);
+					if (!tok.empty()) sel.push_back(std::stoi(tok));
+					if (comma == std::string::npos) break;
+					pos = comma + 1;
+				}
+			} else {
+				for (int i = 0; i < n; ++i) {
+					int idx = cmd.params[5 + i];
+					sel.push_back(idx);
+				}
+			}
+
+			// Validate target index
+			if (targetIndex >= 0 && targetIndex < (int)players.size()) {
+				Player & target = players[targetIndex];
+
+				// Remove selected indices from the target's deck in descending order
+				std::sort(sel.begin(), sel.end(), std::greater<int>());
+				int removed = 0;
+				for (int idx : sel) {
+					if (idx >= 0 && idx < (int)target.deck.size()) {
+						target.deck.erase(target.deck.begin() + idx);
+						removed++;
+					}
+				}
+				if (removed > 0) {
+					queueFloatingTextVisual(gridToWorld(target.x, target.y), "Amnesia: " + ofToString(removed) + " removed", ofColor::magenta);
+					ofLogNotice("Amnesia") << "Removed " << removed << " cards from player " << target.playerID;
+				}
+
+				// Finalize the card play via central outcome flow (AP deductions / effects handled there)
+				resetCardState();
+				currentCardOutcome.cardType = static_cast<CardType>(menuType);
+				currentCardOutcome.cardIndex = cardIndex;
+				currentCardOutcome.casterIndex = currentPlayerIndex;
+				beginEffectSequence();
+				// No extra ops required; advance to outcome so applyCardOutcomeEffects handles finalization
+				advanceCardState(CARD_STATE_EFFECT_SEQUENCE);
+				if (isMultiplayer) sendMenuState(0, -1, -1, -1);
+				resetCardInteraction();
+			} else {
+				ofLogWarning("Lockstep") << "CMD_MENU_CHOICE(AMNESIA) rejected: invalid targetIndex=" << targetIndex;
+			}
+
+			// We've handled Amnesia fully here; don't run the generic handler below.
+			break;
+		}
 
 		if (currentPlayerIndex < 0 || currentPlayerIndex >= (int)players.size()) break;
 		// Allow menu types that are not tied to a specific card index (e.g., ghost relocate)
@@ -20302,6 +20360,64 @@ void ofApp::processCardStateInput(int mouseX, int mouseY, int button) {
 			break;
 
 		case CARD_AMNESIA:
+			// If we're showing the amnesia selection grid, handle card toggles and accept button
+			if (!amnesiaDeckCopy.empty()) {
+				// Toggle selection on card rects
+				for (size_t i = 0; i < amnesiaCardRects.size(); ++i) {
+					if (!amnesiaCardRects[i].inside(mouseX, mouseY)) continue;
+					// toggle
+					auto it = std::find(amnesiaSelectedIndices.begin(), amnesiaSelectedIndices.end(), (int)i);
+					if (it != amnesiaSelectedIndices.end())
+						amnesiaSelectedIndices.erase(it);
+					else if (amnesiaSelectedIndices.size() < (size_t)numCardsToRemove)
+						amnesiaSelectedIndices.push_back((int)i);
+					return;
+				}
+				// Accept button
+				if (amnesiaAcceptButton.inside(mouseX, mouseY)) {
+					if (amnesiaSelectedIndices.size() == (size_t)numCardsToRemove) {
+						// Build command carrying selections
+						InputCommandPacket cmd = {};
+						cmd.type = PKT_INPUT_COMMAND;
+						cmd.playerID = myLocalPlayerID;
+						cmd.seq = 0;
+						cmd.commandId = nextCommandId++;
+						cmd.turnNumber = globalTurnCounter;
+						cmd.commandType = CMD_MENU_CHOICE;
+						cmd.params[0] = (int)interactingCardType;
+						cmd.params[1] = amnesiaTargetPlayerIndex;
+						cmd.params[2] = 3; // special: amnesia-accept
+
+						// pack selections into params[4..]
+						int n = std::min((int)amnesiaSelectedIndices.size(), 8);
+						cmd.params[4] = n;
+						for (int i = 0; i < n && i < 3; ++i) {
+							cmd.params[5 + i] = amnesiaSelectedIndices[i];
+						}
+						// For robustness, also pack into stringData as comma-separated
+						std::string s;
+						for (size_t i = 0; i < amnesiaSelectedIndices.size(); ++i) {
+							if (i) s.push_back(',');
+							s += ofToString(amnesiaSelectedIndices[i]);
+						}
+						strncpy(cmd.stringData, s.c_str(), sizeof(cmd.stringData) - 1);
+						cmd.stringData[sizeof(cmd.stringData) - 1] = '\0';
+
+						// Send deterministic menu choice to all peers. Do NOT apply deck mutations here.
+						// Both Host and Client will execute the authoritative change inside
+						// `executeInputCommand(CMD_MENU_CHOICE)`.
+						sendInputCommand(cmd, true);
+						// Close local UI and clear transient selection state
+						amnesiaDeckCopy.clear();
+						amnesiaSelectedIndices.clear();
+						amnesiaCardRects.clear();
+						resetCardInteraction();
+					}
+					return;
+				}
+				return;
+			}
+			// Fallback small menu handling
 			if (amnesiaBtnSelf.inside(mouseX, mouseY)) {
 				InputCommandPacket cmd = {};
 				cmd.type = PKT_INPUT_COMMAND;
@@ -20442,7 +20558,9 @@ void ofApp::processCardStateInput(int mouseX, int mouseY, int button) {
 					int cost = p.hand[interactingCardIndex].cost;
 					std::string cardName = p.hand[interactingCardIndex].name;
 
-					if (isMultiplayer && !isExecutingLockstepCommand) {
+					// Route all Dispel status selections through lockstep to ensure
+					// deterministic behavior (singleplayer and multiplayer).
+					{
 						InputCommandPacket cmd = {};
 						cmd.type = PKT_INPUT_COMMAND;
 						cmd.playerID = myLocalPlayerID;
@@ -20450,6 +20568,7 @@ void ofApp::processCardStateInput(int mouseX, int mouseY, int button) {
 						cmd.commandId = nextCommandId++;
 						cmd.turnNumber = globalTurnCounter;
 						cmd.commandType = CMD_STATUS_ACTION;
+						// CMD_STATUS_ACTION params: cardIndex, targetX, targetY, statusIndex, cost
 						cmd.params[0] = interactingCardIndex;
 						cmd.params[1] = target->x;
 						cmd.params[2] = target->y;
@@ -20457,12 +20576,11 @@ void ofApp::processCardStateInput(int mouseX, int mouseY, int button) {
 						cmd.params[4] = cost;
 						strncpy(cmd.stringData, cardName.c_str(), sizeof(cmd.stringData) - 1);
 						cmd.stringData[sizeof(cmd.stringData) - 1] = '\0';
-						queueInputCommand(cmd);
+						// Use sendInputCommand so singleplayer also receives a proper command id
+						// and the host will execute the authoritative effect in lockstep.
+						sendInputCommand(cmd, true);
 						interactingCardIndex = -1;
 						interactionTargetIndex = -1;
-						resetCardInteraction();
-					} else {
-						applyDispelEffect((int)i);
 						resetCardInteraction();
 					}
 				}
@@ -22898,8 +23016,7 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 				cmd.stringData[sizeof(cmd.stringData) - 1] = '\0';
 			}
 			if (isClient()) cmd.clientActionID = ++watchdogClientActionCounter;
-			bool ok = sendInputCommand(cmd, true);
-			(void)ok;
+			sendInputCommand(cmd, true);
 		} else {
 
 			// 6. Enter Selection Mode (centralized)
@@ -26551,16 +26668,19 @@ void ofApp::drawDispelUI() {
 	ofRectangle titleBox = uiFont.getStringBoundingBox(title, 0, 0);
 	uiFont.drawString(title, statusSelectMenuRect.getCenter().x - titleBox.width / 2, statusSelectMenuRect.y + 45);
 
-	// Buttons
-	for (size_t i = 0; i < statusSelectButtons.size(); i++) {
-		ofSetColor(ofColor::orange);
-		ofDrawRectRounded(statusSelectButtons[i], 10);
-
-		ofSetColor(ofColor::black);
-		string label = statusSelectLabels[i];
-		ofRectangle labelBox = uiFont.getStringBoundingBox(label, 0, 0);
-		uiFont.drawString(label, statusSelectButtons[i].getCenter().x - labelBox.width / 2, statusSelectButtons[i].getCenter().y + labelBox.height / 2);
+	// Render status options as drafting-style cards and populate hit-rects
+	std::vector<std::string> labels;
+	std::vector<ofColor> accents;
+	std::vector<bool> enabled;
+	labels.reserve(statusSelectLabels.size());
+	accents.reserve(statusSelectLabels.size());
+	enabled.reserve(statusSelectLabels.size());
+	for (size_t i = 0; i < statusSelectLabels.size(); ++i) {
+		labels.push_back(statusSelectLabels[i]);
+		accents.push_back(ofColor::orange);
+		enabled.push_back(true);
 	}
+	drawOptionCards(statusSelectMenuRect, "Select Status to Remove", "", labels, accents, enabled, statusSelectButtons);
 }
 //--------------------------------------------------------------
 void ofApp::drawInstructionText(const string & message, ofColor color) {
@@ -27751,30 +27871,21 @@ void ofApp::drawGhostRelocateUI() {
 	ofRectangle dbox = uiFont.getStringBoundingBox(desc, 0, 0);
 	uiFont.drawString(desc, panel.getCenter().x - dbox.getWidth() / 2.0f, panel.y + 88);
 
-	// Layout up to 4 choice buttons
+	// Build label, accent and enabled arrays and render as drafting-style cards
 	int maxChoices = std::min((int)ghostRelocateChoices.size(), 4);
-	ghostRelocateButtons.clear();
-	float btnW = 300, btnH = 70;
-	float spacing = 20;
-	float startX = panel.x + (panel.getWidth() - (btnW * 2 + spacing)) / 2.0f;
-	float startY = panel.y + panel.getHeight() - 24 - btnH - 40;
-
+	std::vector<std::string> labels;
+	std::vector<ofColor> accents;
+	std::vector<bool> enabled;
+	labels.reserve(maxChoices);
+	accents.reserve(maxChoices);
+	enabled.reserve(maxChoices);
 	for (int i = 0; i < maxChoices; ++i) {
-		float bx = startX + (i % 2) * (btnW + spacing);
-		float by = startY - (i / 2) * (btnH + spacing);
-		ofRectangle br(bx, by, btnW, btnH);
-		ghostRelocateButtons.push_back(br);
-		if (isLocalTarget)
-			ofSetColor(100, 180, 220);
-		else
-			ofSetColor(70, 70, 70);
-		ofDrawRectRounded(br, 10);
 		glm::ivec2 g = ghostRelocateChoices[i];
-		string label = "Teleport to (" + ofToString(g.x) + "," + ofToString(g.y) + ")";
-		ofSetColor(ofColor::white);
-		ofRectangle lb = uiFont.getStringBoundingBox(label, 0, 0);
-		uiFont.drawString(label, br.getCenter().x - lb.getWidth() / 2.0f, br.getCenter().y + lb.getHeight() / 2.0f);
+		labels.push_back(std::string("Teleport to (") + ofToString(g.x) + "," + ofToString(g.y) + ")");
+		accents.push_back(ofColor(100, 180, 220));
+		enabled.push_back(isLocalTarget);
 	}
+	drawOptionCards(panel, title, desc, labels, accents, enabled, ghostRelocateButtons);
 
 	// Decision timer if applicable
 	if (opponentDecisionTimerActive && opponentDecisionPlayerIndex == ghostRelocateTargetIndex) {
@@ -27813,20 +27924,10 @@ void ofApp::drawCardChoicePanel(const ofRectangle & panelRect,
 	bool primaryEnabled,
 	bool secondaryEnabled) {
 	float pad = 24;
-	float titleY = panelRect.y + 48;
-	float descY = panelRect.y + 88;
-	float btnH = 80;
-	float spacing = 24;
-	// Compute button layout: if no secondary label, center primary
-	if (secondaryLabel.empty()) {
-		float btnW = std::min(420.0f, panelRect.width - pad * 2);
-		primaryRect.set(panelRect.getCenter().x - btnW / 2, panelRect.y + panelRect.getHeight() - pad - btnH, btnW, btnH);
-	} else {
-		float availableW = panelRect.width - pad * 2 - spacing;
-		float btnW = std::min(420.0f, availableW / 2.0f);
-		primaryRect.set(panelRect.x + pad, panelRect.y + panelRect.getHeight() - pad - btnH, btnW, btnH);
-		secondaryRect.set(panelRect.x + pad + btnW + spacing, panelRect.y + panelRect.getHeight() - pad - btnH, btnW, btnH);
-	}
+	float titleY = panelRect.y + 40;
+	float descY = panelRect.y + 76;
+	float cardH = 160.0f;
+	float spacing = 28.0f;
 
 	// Panel background (caller is expected to draw overlay if desired)
 	ofSetColor(30, 30, 40, 240);
@@ -27844,26 +27945,112 @@ void ofApp::drawCardChoicePanel(const ofRectangle & panelRect,
 		uiFont.drawString(desc, panelRect.getCenter().x - descBox.getWidth() / 2, descY);
 	}
 
-	// Primary Button
+	// Compute card widths for one-or-two option layout (draft-like)
+	if (secondaryLabel.empty()) {
+		float cardW = std::min(520.0f, panelRect.getWidth() - pad * 2);
+		primaryRect.set(panelRect.getCenter().x - cardW / 2, panelRect.y + panelRect.getHeight() - pad - cardH, cardW, cardH);
+	} else {
+		float availableW = panelRect.getWidth() - pad * 2 - spacing;
+		float cardW = std::min(520.0f, availableW / 2.0f);
+		primaryRect.set(panelRect.x + pad, panelRect.y + panelRect.getHeight() - pad - cardH, cardW, cardH);
+		secondaryRect.set(panelRect.x + pad + cardW + spacing, panelRect.y + panelRect.getHeight() - pad - cardH, cardW, cardH);
+	}
+
+	// Draw primary card panel
 	if (primaryEnabled)
 		ofSetColor(primaryAccent);
 	else
 		ofSetColor(90, 90, 90);
 	ofDrawRectRounded(primaryRect, 10);
+	// small inner white inset for card-like look
+	ofSetColor(255, 255, 255, 12);
+	ofDrawRectRounded(primaryRect.x + 8, primaryRect.y + 8, primaryRect.width - 16, primaryRect.height - 16, 8);
+	// Label
 	ofSetColor((primaryEnabled && primaryAccent.getBrightness() > 200) ? ofColor::black : ofColor::white);
 	ofRectangle pBox = uiFont.getStringBoundingBox(primaryLabel, 0, 0);
 	uiFont.drawString(primaryLabel, primaryRect.getCenter().x - pBox.getWidth() / 2, primaryRect.getCenter().y + pBox.getHeight() / 2);
 
-	// Secondary Button (if any)
+	// Draw secondary card panel if present
 	if (!secondaryLabel.empty()) {
 		if (secondaryEnabled)
 			ofSetColor(secondaryAccent);
 		else
 			ofSetColor(90, 90, 90);
 		ofDrawRectRounded(secondaryRect, 10);
+		ofSetColor(255, 255, 255, 12);
+		ofDrawRectRounded(secondaryRect.x + 8, secondaryRect.y + 8, secondaryRect.width - 16, secondaryRect.height - 16, 8);
 		ofSetColor((secondaryEnabled && secondaryAccent.getBrightness() > 200) ? ofColor::black : ofColor::white);
 		ofRectangle sBox = uiFont.getStringBoundingBox(secondaryLabel, 0, 0);
 		uiFont.drawString(secondaryLabel, secondaryRect.getCenter().x - sBox.getWidth() / 2, secondaryRect.getCenter().y + sBox.getHeight() / 2);
+	}
+}
+
+// Draw up to 4 drafting-style option cards inside panelRect. Populates outRects
+// with the rectangles used for hit-testing (ordered to correspond to labels).
+void ofApp::drawOptionCards(const ofRectangle & panelRect,
+	const std::string & title,
+	const std::string & desc,
+	const std::vector<std::string> & labels,
+	const std::vector<ofColor> & accents,
+	const std::vector<bool> & enabled,
+	std::vector<ofRectangle> & outRects) {
+
+	float pad = 20.0f;
+	float titleY = panelRect.y + 40;
+	float descY = panelRect.y + 76;
+	float spacing = 28.0f;
+	float cardH = 160.0f;
+
+	// Panel background
+	ofSetColor(30, 30, 40, 240);
+	ofDrawRectRounded(panelRect, 12);
+
+	// Title
+	ofSetColor(ofColor::white);
+	ofRectangle titleBox = uiFont.getStringBoundingBox(title, 0, 0);
+	uiFont.drawString(title, panelRect.getCenter().x - titleBox.getWidth() / 2, titleY);
+
+	// Description
+	if (!desc.empty()) {
+		ofSetColor(ofColor::white);
+		ofRectangle descBox = uiFont.getStringBoundingBox(desc, 0, 0);
+		uiFont.drawString(desc, panelRect.getCenter().x - descBox.getWidth() / 2, descY);
+	}
+
+	int n = (int)labels.size();
+	outRects.clear();
+	if (n <= 0) return;
+
+	int cols = (n == 1) ? 1 : 2;
+
+	float totalW = panelRect.getWidth() - pad * 2 - spacing * (cols - 1);
+	float cardW = std::min(520.0f, totalW / cols);
+
+	float startX = panelRect.x + pad + (panelRect.getWidth() - (cardW * cols + spacing * (cols - 1))) / 2.0f;
+	float startY = panelRect.y + panelRect.getHeight() - pad - cardH;
+
+	for (int i = 0; i < n; ++i) {
+		int r = i / cols;
+		int c = i % cols;
+		float bx = startX + c * (cardW + spacing);
+		float by = startY - r * (cardH + spacing);
+		ofRectangle br(bx, by, cardW, cardH);
+		outRects.push_back(br);
+
+		bool en = (i < (int)enabled.size()) ? enabled[i] : true;
+		ofColor accent = (i < (int)accents.size()) ? accents[i] : ofColor(120, 120, 120);
+		if (en)
+			ofSetColor(accent);
+		else
+			ofSetColor(70, 70, 70);
+		ofDrawRectRounded(br, 10);
+
+		ofSetColor(255, 255, 255, 12);
+		ofDrawRectRounded(br.x + 8, br.y + 8, br.width - 16, br.height - 16, 8);
+
+		ofSetColor((en && accent.getBrightness() > 200) ? ofColor::black : ofColor::white);
+		ofRectangle tbox = uiFont.getStringBoundingBox(labels[i], 0, 0);
+		uiFont.drawString(labels[i], br.getCenter().x - tbox.getWidth() / 2, br.getCenter().y + tbox.getHeight() / 2);
 	}
 }
 //--------------------------------------------------------------

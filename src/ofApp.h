@@ -974,6 +974,7 @@ private:
 	// === CARD STATE MACHINE HANDLERS ===
 	void updateMenuButtonRectangles(); // Update button rectangles for current menu
 	void processCardStateInput(int mouseX, int mouseY, int button); // Handle clicks during card states
+	void applyAmnesiaSelectionLocal(int targetPlayerIndex, const std::vector<int> & selections);
 	void updateCardStateMachine(); // Called in update() to process state transitions
 	void advanceCardState(CardPlayState newState); // Transition to new state
 	void applyCardOutcomeEffects(); // Apply the completed outcome to game state
@@ -1342,6 +1343,15 @@ private:
 		ofColor secondaryAccent,
 		bool primaryEnabled = true,
 		bool secondaryEnabled = true);
+
+	// Draw multiple option cards (draft-style). Fills outRects for hit-testing.
+	void drawOptionCards(const ofRectangle & panelRect,
+		const std::string & title,
+		const std::string & desc,
+		const std::vector<std::string> & labels,
+		const std::vector<ofColor> & accents,
+		const std::vector<bool> & enabled,
+		std::vector<ofRectangle> & outRects);
 
 	// General damage application helper (used by multiple flows)
 	bool applyDamageTo(Player & target, int damage, DamageType type, int attackerIndex = -1);
@@ -1897,6 +1907,9 @@ private:
 	std::vector<Card> amnesiaDeckCopy;
 	std::vector<int> amnesiaSelectedIndices;
 	std::vector<ofRectangle> amnesiaCardRects;
+	// Temporary storage for amnesia selections received via lockstep command
+	std::vector<int> amnesiaSelectionFromCmd;
+	bool amnesiaSelectionFromCmdPresent = false;
 	ofRectangle amnesiaAcceptButton;
 
 	// Which local player ID is allowed to choose Amnesia removals (playerID, e.g., 0 or 1). -1 = none
