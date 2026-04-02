@@ -1306,6 +1306,15 @@ void drawStatText(ofTrueTypeFont & font, std::string text, float x, float y, flo
 	// Center the text in the rect
 	ofTranslate(x + (w - bounds.width * scale) / 2, y + (h + bounds.height * scale) / 2 - 2);
 	ofScale(scale, scale);
+	// Draw a simple black outline by rendering the text at small offsets, then the main color
+	ofSetColor(ofColor::black);
+	const int offs[] = { -1, 0, 1 };
+	for (int oy : offs) {
+		for (int ox : offs) {
+			if (ox == 0 && oy == 0) continue;
+			font.drawString(text, ox, oy);
+		}
+	}
 	ofSetColor(color);
 	font.drawString(text, 0, 0);
 	ofPopMatrix();
@@ -4482,14 +4491,14 @@ void ofApp::updateGame() {
 	headlight.setAttenuation(1.0f, 0.001f, 0.0f);
 
 	// --- UI Button Interpolation ---
-	float scale = ofGetHeight() / 1080.0f;
-	float btnWidth = 250 * scale;
-	float visibleY = 20 * scale;
-	// Ensure visibleY leaves room for the end-turn glow (glow = 6.0f * scale)
-	float glowMargin = 6.0f * scale + 2.0f * scale;
+	float uiScale = ofGetHeight() / 1080.0f;
+	float btnWidth = 250 * uiScale;
+	float visibleY = 20 * uiScale;
+	// Ensure visibleY leaves room for the end-turn glow (glow = 6.0f * uiScale)
+	float glowMargin = 6.0f * uiScale + 2.0f * uiScale;
 	// Add stroke width margin so outlines / borders don't get clipped at the top
-	visibleY = std::max(visibleY, glowMargin + (3.0f * scale));
-	float hiddenY = -100 * scale;
+	visibleY = std::max(visibleY, glowMargin + (3.0f * uiScale));
+	float hiddenY = -100 * uiScale;
 
 	// Show end turn button / turn indicator
 	// In multiplayer: always show (either button or indicator)
@@ -28735,7 +28744,8 @@ void ofApp::drawMinionStatusBars(Player & minion, const std::string & name, floa
 	ofSetColor(ofColor::green);
 	ofDrawRectangle(currentX, barY, hpW * hpPct, barHeight);
 	string hpText = ofToString(minion.health) + "/" + ofToString(minion.maxHealth);
-	drawStatText(uiFont, hpText, currentX, barY, hpW, barHeight, ofColor::white);
+	// Make HP text larger for readability by using the local fontScale
+	drawStatText(uiFont, hpText, currentX, barY, hpW, barHeight, ofColor::white, fontScale);
 	currentX += hpW;
 
 	// --- SHIELDS (With Tooltips) ---

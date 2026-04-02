@@ -161,7 +161,7 @@
 - **Targeting:** Line of Sight
 - **Class:** 1
 - **Picture:** 
-- **Effect Text:** Choose a target / self. Roll 2d6 and restore that amount of health.
+- **Effect Text:** Choose a target / self. Roll 2d6. Restore that amount of health.
 ---
 
 -## 22. Raise Dead
@@ -457,7 +457,7 @@
 - **Targeting:** Line of Sight
 - **Class:** 1
 - **Picture:** 
-- **Effect Text:** Choose a target / self. Roll 1d6, and restore that amount of health.
+- **Effect Text:** Choose a target / self. Roll 1d6. Restore that amount of health.
 ---
 
 -## 60. Transform Wall
