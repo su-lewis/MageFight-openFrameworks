@@ -143,7 +143,7 @@ struct CardTemplateRecord {
 };
 
 struct CardTemplateLayout {
-	ofRectangle nameRect = ofRectangle(208, 768, 656, 117); // +5px height
+	ofRectangle nameRect = ofRectangle(208, 756, 656, 117); // nudged upward slightly
 	ofRectangle costRect = ofRectangle(48, 48, 96, 96);
 	ofRectangle damageTypeRect = ofRectangle(26, 84, 176, 24);
 	ofRectangle targetingRect = ofRectangle(206, 84, 180, 24);
@@ -154,9 +154,10 @@ struct CardTemplateLayout {
 	float nameMiddleClampXMin = 416.0f;
 	float nameMiddleClampXMax = 656.0f;
 	float nameMiddleBottomMaxY = 846.0f;
-	float costScale = 2.5f;
+	float costScale = 3.0f;
 	float labelScale = 1.0f;
-	float effectScale = 2.5f;
+	float effectScale = 4.0f; // max preferred scale; auto-fit may reduce per card
+	float effectMinScale = 1.25f; // floor for very long text
 	float effectLineSpacing = 0.75f;
 };
 
@@ -260,8 +261,42 @@ static std::vector<std::string> wrapTextScaled(const ofTrueTypeFont & font, cons
 static void drawCenteredTextScaled(const ofTrueTypeFont & font, const std::string & text, const ofRectangle & rect, float scale) {
 	if (text.empty()) return;
 	ofRectangle b = font.getStringBoundingBox(text, 0, 0);
-	float tx = rect.x + (rect.width - b.width * scale) * 0.5f;
-	float ty = rect.y + (rect.height + b.height * scale) * 0.5f;
+	float tx = rect.x + (rect.width - b.width * scale) * 0.5f - b.x * scale;
+	float ty = rect.y + (rect.height - b.height * scale) * 0.5f - b.y * scale;
+	ofPushMatrix();
+	ofTranslate(tx, ty);
+	ofScale(scale, scale);
+	font.drawString(text, 0, 0);
+	ofPopMatrix();
+}
+
+static void drawCenteredTextScaledOutlined(const ofTrueTypeFont & font,
+	const std::string & text,
+	const ofRectangle & rect,
+	float scale,
+	const ofColor & fillColor,
+	const ofColor & outlineColor,
+	int outlinePx) {
+	if (text.empty()) return;
+	ofRectangle b = font.getStringBoundingBox(text, 0, 0);
+	float tx = rect.x + (rect.width - b.width * scale) * 0.5f - b.x * scale;
+	float ty = rect.y + (rect.height - b.height * scale) * 0.5f - b.y * scale;
+
+	const int r = std::max(1, outlinePx);
+	for (int dy = -r; dy <= r; ++dy) {
+		for (int dx = -r; dx <= r; ++dx) {
+			if (dx == 0 && dy == 0) continue;
+			if (dx * dx + dy * dy > r * r) continue;
+			ofSetColor(outlineColor);
+			ofPushMatrix();
+			ofTranslate(tx + (float)dx, ty + (float)dy);
+			ofScale(scale, scale);
+			font.drawString(text, 0, 0);
+			ofPopMatrix();
+		}
+	}
+
+	ofSetColor(fillColor);
 	ofPushMatrix();
 	ofTranslate(tx, ty);
 	ofScale(scale, scale);
@@ -337,13 +372,89 @@ static void drawWrappedTextScaled(const ofTrueTypeFont & font, const std::string
 	float y = rect.y + std::max(0.0f, (rect.height - totalH) * 0.5f) + lineH;
 	for (size_t i = 0; i < lines.size(); ++i) {
 		if (y > rect.getBottom()) break;
+		ofRectangle lineBox = font.getStringBoundingBox(lines[i], 0, 0);
+		float x = rect.x + (rect.width - lineBox.width * scale) * 0.5f;
 		ofPushMatrix();
-		ofTranslate(rect.x, y);
+		ofTranslate(x, y);
 		ofScale(scale, scale);
 		font.drawString(lines[i], 0, 0);
 		ofPopMatrix();
 		y += lineH;
 	}
+}
+
+static float bestFitWrappedTextScale(const ofTrueTypeFont & font,
+	const std::string & text,
+	const ofRectangle & rect,
+	float minScale,
+	float maxScale,
+	float lineSpacing) {
+	if (text.empty()) return maxScale;
+	if (maxScale < minScale) std::swap(maxScale, minScale);
+
+	auto fitsAtScale = [&](float s) {
+		auto lines = wrapTextScaled(font, text, rect.width, s);
+		if (lines.empty()) return true;
+		float lineH = font.getLineHeight() * s * std::max(0.6f, lineSpacing);
+		float totalH = lineH * (float)lines.size();
+		return totalH <= rect.height;
+	};
+
+	// If even minimum scale doesn't fit, clamp to minimum and let draw clip.
+	if (!fitsAtScale(minScale)) return minScale;
+	if (fitsAtScale(maxScale)) return maxScale;
+
+	float lo = minScale;
+	float hi = maxScale;
+	for (int i = 0; i < 18; ++i) {
+		float mid = (lo + hi) * 0.5f;
+		if (fitsAtScale(mid))
+			lo = mid;
+		else
+			hi = mid;
+	}
+
+	return lo;
+}
+
+static float bestUniformWrappedTextScale(const ofTrueTypeFont & font,
+	const std::vector<std::string> & texts,
+	const ofRectangle & rect,
+	float minScale,
+	float maxScale,
+	float lineSpacing) {
+	if (maxScale < minScale) std::swap(maxScale, minScale);
+
+	auto fitsTextAtScale = [&](const std::string & text, float s) {
+		if (text.empty()) return true;
+		auto lines = wrapTextScaled(font, text, rect.width, s);
+		if (lines.empty()) return true;
+		float lineH = font.getLineHeight() * s * std::max(0.6f, lineSpacing);
+		float totalH = lineH * (float)lines.size();
+		return totalH <= rect.height;
+	};
+
+	auto fitsAllAtScale = [&](float s) {
+		for (const auto & text : texts) {
+			if (!fitsTextAtScale(text, s)) return false;
+		}
+		return true;
+	};
+
+	if (!fitsAllAtScale(minScale)) return minScale;
+	if (fitsAllAtScale(maxScale)) return maxScale;
+
+	float lo = minScale;
+	float hi = maxScale;
+	for (int i = 0; i < 18; ++i) {
+		float mid = (lo + hi) * 0.5f;
+		if (fitsAllAtScale(mid))
+			lo = mid;
+		else
+			hi = mid;
+	}
+
+	return lo;
 }
 
 static bool parseCardTemplateMarkdown(const std::string & markdownPath, std::unordered_map<std::string, CardTemplateRecord> & out) {
@@ -451,6 +562,26 @@ static bool rebuildCardSpriteSheetFromTemplate(const std::string & templatePath,
 
 	const ofTrueTypeFont & renderUIFont = uiFont;
 	const ofTrueTypeFont & renderTitleFont = titleFont;
+	ofRectangle effectTextRect = layout.effectRect;
+
+	std::vector<std::string> allEffectTexts;
+	allEffectTexts.reserve(allCards.size());
+	for (const auto & card : allCards) {
+		auto it = records.find(normalizeCardKey(card.name));
+		if (it != records.end()) {
+			allEffectTexts.push_back(it->second.effectText);
+		} else {
+			allEffectTexts.push_back("");
+		}
+	}
+
+	const float uniformEffectScale = bestUniformWrappedTextScale(renderUIFont,
+		allEffectTexts,
+		effectTextRect,
+		layout.effectMinScale,
+		layout.effectScale,
+		layout.effectLineSpacing);
+	ofLogNotice("Cards") << "Uniform effect text scale: " << uniformEffectScale;
 
 	ofFbo fbo;
 	ofFboSettings fboSettings;
@@ -484,13 +615,10 @@ static bool rebuildCardSpriteSheetFromTemplate(const std::string & templatePath,
 		ofPushMatrix();
 		ofTranslate(x, y);
 		ofPushStyle();
+		drawCenteredTextScaledOutlined(renderTitleFont, rec.name, layout.nameRect, layout.nameScale, ofColor::white, ofColor::black, 3);
+		drawCenteredTextScaledOutlined(renderTitleFont, rec.apCost, layout.costRect, layout.costScale, ofColor::white, ofColor::black, 3);
 		ofSetColor(12, 12, 12, 255);
-		drawCenteredTextScaled(renderTitleFont, rec.name, layout.nameRect, layout.nameScale);
-		drawCenteredTextScaled(renderTitleFont, rec.apCost, layout.costRect, layout.costScale);
-		ofRectangle effectTextRect = layout.effectRect;
-		effectTextRect.x += 3.0f;
-		effectTextRect.width = std::max(0.0f, effectTextRect.width - 6.0f);
-		drawWrappedTextScaled(renderUIFont, rec.effectText, effectTextRect, layout.effectScale, layout.effectLineSpacing);
+		drawWrappedTextScaled(renderUIFont, rec.effectText, effectTextRect, uniformEffectScale, layout.effectLineSpacing);
 		ofPopStyle();
 		ofPopMatrix();
 	}
