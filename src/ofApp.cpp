@@ -150,6 +150,7 @@ struct CardTemplateLayout {
 	ofRectangle classRect = ofRectangle(26, 112, 150, 24);
 	ofRectangle effectRect = ofRectangle(96, 928, 864, 384);
 	float nameScale = 1.75f;
+	float nameMinScale = 1.0f;
 	float nameCurveDropPx = 0.0f;
 	float nameMiddleClampXMin = 416.0f;
 	float nameMiddleClampXMax = 656.0f;
@@ -296,9 +297,9 @@ static void drawCenteredTextScaledOutlined(const ofTrueTypeFont & font,
 		}
 	}
 
-	// Slightly shrink the fill pass so the black stroke reads a bit thicker
-	// toward the inside (Hearthstone-like), without expanding too much outward.
-	float fillScale = scale * 0.97f;
+	// Shrink the fill pass more aggressively so the black stroke reads much
+	// thicker toward the inside.
+	float fillScale = scale * 0.93f;
 	float txFill = rect.x + (rect.width - b.width * fillScale) * 0.5f - b.x * fillScale;
 	float tyFill = rect.y + (rect.height - b.height * fillScale) * 0.5f - b.y * fillScale;
 
@@ -463,6 +464,42 @@ static float bestUniformWrappedTextScale(const ofTrueTypeFont & font,
 	return lo;
 }
 
+static float bestUniformCenteredTextScale(const ofTrueTypeFont & font,
+	const std::vector<std::string> & texts,
+	const ofRectangle & rect,
+	float minScale,
+	float maxScale) {
+	if (maxScale < minScale) std::swap(maxScale, minScale);
+
+	auto fitsTextAtScale = [&](const std::string & text, float s) {
+		if (text.empty()) return true;
+		ofRectangle b = font.getStringBoundingBox(text, 0, 0);
+		return (b.width * s) <= rect.width && (b.height * s) <= rect.height;
+	};
+
+	auto fitsAllAtScale = [&](float s) {
+		for (const auto & text : texts) {
+			if (!fitsTextAtScale(text, s)) return false;
+		}
+		return true;
+	};
+
+	if (!fitsAllAtScale(minScale)) return minScale;
+	if (fitsAllAtScale(maxScale)) return maxScale;
+
+	float lo = minScale;
+	float hi = maxScale;
+	for (int i = 0; i < 18; ++i) {
+		float mid = (lo + hi) * 0.5f;
+		if (fitsAllAtScale(mid))
+			lo = mid;
+		else
+			hi = mid;
+	}
+
+	return lo;
+}
+
 static bool parseCardTemplateMarkdown(const std::string & markdownPath, std::unordered_map<std::string, CardTemplateRecord> & out) {
 	out.clear();
 	if (!ofFile(markdownPath).exists()) return false;
@@ -572,14 +609,25 @@ static bool rebuildCardSpriteSheetFromTemplate(const std::string & templatePath,
 
 	std::vector<std::string> allEffectTexts;
 	allEffectTexts.reserve(allCards.size());
+	std::vector<std::string> allNames;
+	allNames.reserve(allCards.size());
 	for (const auto & card : allCards) {
 		auto it = records.find(normalizeCardKey(card.name));
 		if (it != records.end()) {
 			allEffectTexts.push_back(it->second.effectText);
+			allNames.push_back(it->second.name.empty() ? card.name : it->second.name);
 		} else {
 			allEffectTexts.push_back("");
+			allNames.push_back(card.name);
 		}
 	}
+
+	const float uniformNameScale = bestUniformCenteredTextScale(renderTitleFont,
+		allNames,
+		layout.nameRect,
+		layout.nameMinScale,
+		layout.nameScale);
+	ofLogNotice("Cards") << "Uniform name text scale: " << uniformNameScale;
 
 	const float uniformEffectScale = bestUniformWrappedTextScale(renderUIFont,
 		allEffectTexts,
@@ -621,9 +669,9 @@ static bool rebuildCardSpriteSheetFromTemplate(const std::string & templatePath,
 		ofPushMatrix();
 		ofTranslate(x, y);
 		ofPushStyle();
-		drawCenteredTextScaledOutlined(renderTitleFont, rec.name, layout.nameRect, layout.nameScale, ofColor::white, ofColor::black, 4);
-		drawCenteredTextScaledOutlined(renderTitleFont, rec.apCost, layout.costRect, layout.costScale, ofColor::white, ofColor::black, 4);
-		drawCenteredTextScaledOutlined(renderUIFont, rec.targeting, layout.targetingRect, layout.labelScale, ofColor::white, ofColor::black, 2);
+		drawCenteredTextScaledOutlined(renderTitleFont, rec.name, layout.nameRect, uniformNameScale, ofColor::white, ofColor::black, 8);
+		drawCenteredTextScaledOutlined(renderTitleFont, rec.apCost, layout.costRect, layout.costScale, ofColor::white, ofColor::black, 8);
+		drawCenteredTextScaledOutlined(renderUIFont, rec.targeting, layout.targetingRect, layout.labelScale, ofColor::white, ofColor::black, 6);
 		ofSetColor(12, 12, 12, 255);
 		drawWrappedTextScaled(renderUIFont, rec.effectText, effectTextRect, uniformEffectScale, layout.effectLineSpacing);
 		ofPopStyle();

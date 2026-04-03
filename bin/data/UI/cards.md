@@ -448,7 +448,7 @@
 - **AP Cost:** 2
 - **Class:** 2
 - **Picture:** 
-- **Effect Text:** Choose an adjacent wall. Choose One - Choose to push it 1 tile forward and you move with it, dealing 2d4 to any unit it hits, if they have no room to move in any direction they die; or pull it 1 tile backwards.
+- **Effect Text:** Choose an adjacent wall. Choose One - Push it 1 tile forward moving with it, dealing 2d4 to any unit hit, if they have no room to move in any direction they die; or pull it 1 tile backwards.
 ---
 
 -## 58. Consume Large Health Potion
