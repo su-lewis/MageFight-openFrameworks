@@ -1,0 +1,44 @@
+{
+    "nameRect": {
+        "x": 208,
+        "y": 768,
+        "w": 656,
+        "h": 112
+    },
+    "costRect": {
+        "x": 48,
+        "y": 48,
+        "w": 96,
+        "h": 96
+    },
+    "damageTypeRect": {
+        "x": 26,
+        "y": 84,
+        "w": 176,
+        "h": 24
+    },
+    "targetingRect": {
+        "x": 206,
+        "y": 84,
+        "w": 180,
+        "h": 24
+    },
+    "classRect": {
+        "x": 26,
+        "y": 112,
+        "w": 150,
+        "h": 24
+    },
+    "effectRect": {
+        "x": 96,
+        "y": 928,
+        "w": 864,
+        "h": 384
+    },
+    "nameScale": 1.35,
+    "nameCurveDropPx": 8.0,
+    "costScale": 1.65,
+    "labelScale": 0.58,
+    "effectScale": 1.15,
+    "effectLineSpacing": 1.08
+}

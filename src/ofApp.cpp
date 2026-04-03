@@ -131,6 +131,386 @@ static UILayoutSpacing buildUILayoutSpacing(float scale, bool turnTimerEnabled) 
 static float effectiveBottomGap(const UILayoutSpacing & ui) {
 	return std::max(0.0f, ui.edgeInset - ui.stackYOffset);
 }
+
+struct CardTemplateRecord {
+	std::string name;
+	std::string apCost;
+	std::string damageType;
+	std::string targeting;
+	std::string classLabel;
+	std::string effectText;
+	std::string picture;
+};
+
+struct CardTemplateLayout {
+	ofRectangle nameRect = ofRectangle(26, 34, 296, 44);
+	ofRectangle costRect = ofRectangle(332, 26, 54, 54);
+	ofRectangle damageTypeRect = ofRectangle(26, 84, 176, 24);
+	ofRectangle targetingRect = ofRectangle(206, 84, 180, 24);
+	ofRectangle classRect = ofRectangle(26, 112, 150, 24);
+	ofRectangle effectRect = ofRectangle(26, 352, 357, 206);
+	float nameScale = 0.85f;
+	float nameCurveDropPx = 8.0f;
+	float costScale = 1.0f;
+	float labelScale = 0.58f;
+	float effectScale = 0.56f;
+	float effectLineSpacing = 1.0f;
+};
+
+static std::string trimCopy(const std::string & in) {
+	size_t start = 0;
+	while (start < in.size() && std::isspace(static_cast<unsigned char>(in[start])))
+		++start;
+	size_t end = in.size();
+	while (end > start && std::isspace(static_cast<unsigned char>(in[end - 1])))
+		--end;
+	return in.substr(start, end - start);
+}
+
+static std::string toLowerCopy(std::string s) {
+	std::transform(s.begin(), s.end(), s.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+	return s;
+}
+
+static std::string normalizeCardKey(const std::string & s) {
+	return toLowerCopy(trimCopy(s));
+}
+
+static bool startsWith(const std::string & s, const std::string & prefix) {
+	return s.rfind(prefix, 0) == 0;
+}
+
+static std::string damageTypeLabel(DamageType dt) {
+	switch (dt) {
+	case DAMAGE_PHYSICAL:
+		return "Physical";
+	case DAMAGE_PIERCING:
+		return "Piercing";
+	case DAMAGE_FIRE:
+		return "Fire";
+	case DAMAGE_ELECTRIC:
+		return "Electric";
+	case DAMAGE_MAGIC:
+		return "Magic";
+	case DAMAGE_HOLY:
+		return "Holy";
+	default:
+		return "";
+	}
+}
+
+static std::string targetingLabel(TargetingType t) {
+	switch (t) {
+	case TARGET_SELF:
+		return "Self";
+	case TARGET_ADJACENT_UNIT:
+		return "Adjacent";
+	case TARGET_ADJACENT_OR_SELF_UNIT:
+		return "Adj/Self";
+	case TARGET_LINE_OF_SIGHT_TILE:
+		return "Line of Sight";
+	case TARGET_EMPTY_TILE:
+		return "Empty Tile";
+	case TARGET_LINEAR_PIERCE:
+		return "Line";
+	case TARGET_CLEAVE_ADJACENT:
+		return "Cleave";
+	case TARGET_ADJACENT_UNIT_OR_WALL:
+		return "Adj Unit/Wall";
+	default:
+		return "";
+	}
+}
+
+static std::vector<std::string> wrapTextScaled(const ofTrueTypeFont & font, const std::string & text, float maxWidthPx, float scale) {
+	std::vector<std::string> out;
+	if (text.empty()) return out;
+
+	float maxWidthUnscaled = (scale > 0.0f) ? (maxWidthPx / scale) : maxWidthPx;
+	std::stringstream lineStream(text);
+	std::string rawLine;
+	while (std::getline(lineStream, rawLine, '\n')) {
+		rawLine = trimCopy(rawLine);
+		if (rawLine.empty()) {
+			out.push_back("");
+			continue;
+		}
+
+		std::stringstream wordStream(rawLine);
+		std::string word;
+		std::string current;
+		while (wordStream >> word) {
+			std::string candidate = current.empty() ? word : (current + " " + word);
+			if (font.getStringBoundingBox(candidate, 0, 0).getWidth() <= maxWidthUnscaled || current.empty()) {
+				current = candidate;
+			} else {
+				out.push_back(current);
+				current = word;
+			}
+		}
+		if (!current.empty()) out.push_back(current);
+	}
+
+	return out;
+}
+
+static void drawCenteredTextScaled(const ofTrueTypeFont & font, const std::string & text, const ofRectangle & rect, float scale) {
+	if (text.empty()) return;
+	ofRectangle b = font.getStringBoundingBox(text, 0, 0);
+	float tx = rect.x + (rect.width - b.width * scale) * 0.5f;
+	float ty = rect.y + (rect.height + b.height * scale) * 0.5f;
+	ofPushMatrix();
+	ofTranslate(tx, ty);
+	ofScale(scale, scale);
+	font.drawString(text, 0, 0);
+	ofPopMatrix();
+}
+
+static void drawArcCenteredTextScaled(const ofTrueTypeFont & font, const std::string & text, const ofRectangle & rect, float scale, float endDropPx) {
+	if (text.empty()) return;
+	if (std::abs(endDropPx) < 0.001f) {
+		drawCenteredTextScaled(font, text, rect, scale);
+		return;
+	}
+
+	std::vector<float> advances;
+	advances.reserve(text.size());
+	float totalWidthUnscaled = 0.0f;
+	float fallbackAdvance = std::max(2.0f, font.getLineHeight() * 0.28f);
+	for (char ch : text) {
+		std::string glyph(1, ch);
+		float adv = font.getStringBoundingBox(glyph, 0, 0).width;
+		if (adv <= 0.0f) adv = fallbackAdvance;
+		advances.push_back(adv);
+		totalWidthUnscaled += adv;
+	}
+	if (totalWidthUnscaled <= 0.0f) return;
+
+	ofRectangle b = font.getStringBoundingBox(text, 0, 0);
+	float totalWidthScaled = totalWidthUnscaled * scale;
+	float startX = rect.x + (rect.width - totalWidthScaled) * 0.5f;
+	float baselineY = rect.y + (rect.height + b.height * scale) * 0.5f;
+
+	float cursorX = startX;
+	for (size_t i = 0; i < text.size(); ++i) {
+		float advScaled = advances[i] * scale;
+		float centerRatio = ((cursorX + advScaled * 0.5f) - startX) / std::max(1.0f, totalWidthScaled);
+		float norm = (centerRatio - 0.5f) * 2.0f; // -1 at left, +1 at right
+		float yOffset = endDropPx * norm * norm; // ends drop, center stays highest
+
+		ofPushMatrix();
+		ofTranslate(cursorX, baselineY + yOffset);
+		ofScale(scale, scale);
+		font.drawString(std::string(1, text[i]), 0, 0);
+		ofPopMatrix();
+
+		cursorX += advScaled;
+	}
+}
+
+static void drawWrappedTextScaled(const ofTrueTypeFont & font, const std::string & text, const ofRectangle & rect, float scale, float lineSpacing) {
+	if (text.empty()) return;
+	auto lines = wrapTextScaled(font, text, rect.width, scale);
+	if (lines.empty()) return;
+
+	float lineH = font.getLineHeight() * scale * std::max(0.6f, lineSpacing);
+	float y = rect.y + lineH;
+	for (size_t i = 0; i < lines.size(); ++i) {
+		if (y > rect.getBottom()) break;
+		ofPushMatrix();
+		ofTranslate(rect.x, y);
+		ofScale(scale, scale);
+		font.drawString(lines[i], 0, 0);
+		ofPopMatrix();
+		y += lineH;
+	}
+}
+
+static bool parseCardTemplateMarkdown(const std::string & markdownPath, std::unordered_map<std::string, CardTemplateRecord> & out) {
+	out.clear();
+	if (!ofFile(markdownPath).exists()) return false;
+
+	ofBuffer buffer = ofBufferFromFile(markdownPath);
+	if (buffer.size() == 0) return false;
+
+	CardTemplateRecord current;
+	auto commitCurrent = [&]() {
+		if (!trimCopy(current.name).empty()) {
+			out[normalizeCardKey(current.name)] = current;
+		}
+		current = CardTemplateRecord {};
+	};
+
+	for (const auto & raw : buffer.getLines()) {
+		std::string line = trimCopy(raw);
+		if (line.empty()) continue;
+
+		if (startsWith(line, "---")) {
+			commitCurrent();
+			continue;
+		}
+
+		std::string heading = line;
+		if (startsWith(heading, "-")) heading = trimCopy(heading.substr(1));
+		if (startsWith(heading, "##")) {
+			commitCurrent();
+			heading = trimCopy(heading.substr(2));
+			size_t dotPos = heading.find('.');
+			if (dotPos != std::string::npos) {
+				heading = trimCopy(heading.substr(dotPos + 1));
+			}
+			current.name = heading;
+			continue;
+		}
+
+		std::string field = line;
+		if (startsWith(field, "-")) field = trimCopy(field.substr(1));
+		if (!startsWith(field, "**")) continue;
+
+		size_t keyEnd = field.find("**", 2);
+		if (keyEnd == std::string::npos) continue;
+		std::string key = trimCopy(field.substr(2, keyEnd - 2));
+		if (!key.empty() && key.back() == ':') key.pop_back();
+		std::string value = trimCopy(field.substr(keyEnd + 2));
+
+		std::string normKey = toLowerCopy(key);
+		if (normKey == "ap cost")
+			current.apCost = value;
+		else if (normKey == "damage type")
+			current.damageType = value;
+		else if (normKey == "targeting")
+			current.targeting = value;
+		else if (normKey == "class")
+			current.classLabel = value;
+		else if (normKey == "effect text")
+			current.effectText = value;
+		else if (normKey == "picture")
+			current.picture = value;
+	}
+
+	commitCurrent();
+	return !out.empty();
+}
+
+static void parseLayoutRect(const ofJson & json, const char * key, ofRectangle & rect) {
+	if (!json.contains(key) || !json[key].is_object()) return;
+	const auto & obj = json[key];
+	rect.x = obj.value("x", rect.x);
+	rect.y = obj.value("y", rect.y);
+	rect.width = obj.value("w", rect.width);
+	rect.height = obj.value("h", rect.height);
+}
+
+static void loadCardTemplateLayout(const std::string & layoutPath, CardTemplateLayout & layout) {
+	if (!ofFile(layoutPath).exists()) return;
+	try {
+		ofJson j = ofLoadJson(layoutPath);
+		parseLayoutRect(j, "nameRect", layout.nameRect);
+		parseLayoutRect(j, "costRect", layout.costRect);
+		parseLayoutRect(j, "damageTypeRect", layout.damageTypeRect);
+		parseLayoutRect(j, "targetingRect", layout.targetingRect);
+		parseLayoutRect(j, "classRect", layout.classRect);
+		parseLayoutRect(j, "effectRect", layout.effectRect);
+
+		layout.nameScale = j.value("nameScale", layout.nameScale);
+		layout.nameCurveDropPx = j.value("nameCurveDropPx", layout.nameCurveDropPx);
+		layout.costScale = j.value("costScale", layout.costScale);
+		layout.labelScale = j.value("labelScale", layout.labelScale);
+		layout.effectScale = j.value("effectScale", layout.effectScale);
+		layout.effectLineSpacing = j.value("effectLineSpacing", layout.effectLineSpacing);
+	} catch (...) {
+		ofLogWarning("Cards") << "Failed to parse card template layout JSON: " << layoutPath;
+	}
+}
+
+static bool rebuildCardSpriteSheetFromTemplate(const std::string & templatePath,
+	const std::string & markdownPath,
+	const std::string & layoutPath,
+	const std::vector<Card> & allCards,
+	const ofTrueTypeFont & titleFont,
+	const ofTrueTypeFont & uiFont,
+	ofImage & outSpriteSheet) {
+	if (allCards.empty()) return false;
+
+	std::unordered_map<std::string, CardTemplateRecord> records;
+	if (!parseCardTemplateMarkdown(markdownPath, records)) {
+		ofLogWarning("Cards") << "Template markdown not parsed, keeping existing sheet: " << markdownPath;
+		return false;
+	}
+
+	ofImage templateImage;
+	if (!templateImage.load(templatePath)) {
+		ofLogWarning("Cards") << "Template image missing, keeping existing sheet: " << templatePath;
+		return false;
+	}
+
+	const int cardW = (int)templateImage.getWidth();
+	const int cardH = (int)templateImage.getHeight();
+	if (cardW <= 0 || cardH <= 0) return false;
+
+	int sheetW = 0;
+	int sheetH = 0;
+	for (const auto & c : allCards) {
+		sheetW = std::max(sheetW, (int)(c.textureRect.x + c.textureRect.width));
+		sheetH = std::max(sheetH, (int)(c.textureRect.y + c.textureRect.height));
+	}
+	if (sheetW <= 0 || sheetH <= 0) {
+		sheetW = cardW * 10;
+		sheetH = cardH * (int)std::ceil(allCards.size() / 10.0f);
+	}
+
+	CardTemplateLayout layout;
+	loadCardTemplateLayout(layoutPath, layout);
+
+	ofFbo fbo;
+	ofFboSettings fboSettings;
+	fboSettings.width = sheetW;
+	fboSettings.height = sheetH;
+	fboSettings.internalformat = GL_RGBA;
+	fboSettings.useDepth = false;
+	fboSettings.useStencil = false;
+	fboSettings.textureTarget = GL_TEXTURE_2D;
+	fbo.allocate(fboSettings);
+
+	fbo.begin();
+	ofClear(0, 0, 0, 0);
+	ofSetColor(255);
+
+	for (const auto & card : allCards) {
+		float x = card.textureRect.x;
+		float y = card.textureRect.y;
+		ofSetColor(255, 255, 255, 255);
+		templateImage.draw(x, y, cardW, cardH);
+
+		CardTemplateRecord rec;
+		auto it = records.find(normalizeCardKey(card.name));
+		if (it != records.end()) rec = it->second;
+
+		if (rec.name.empty()) rec.name = card.name;
+		if (rec.apCost.empty()) rec.apCost = ofToString(card.cost);
+		// Intentionally do NOT auto-fill extra fields like damage type/targeting/class.
+		// Only explicitly requested fields are rendered from cards.md + configured rects.
+
+		ofPushMatrix();
+		ofTranslate(x, y);
+		ofPushStyle();
+		ofSetColor(12, 12, 12, 255);
+		drawArcCenteredTextScaled(titleFont, rec.name, layout.nameRect, layout.nameScale, layout.nameCurveDropPx);
+		drawCenteredTextScaled(titleFont, rec.apCost, layout.costRect, layout.costScale);
+		drawWrappedTextScaled(uiFont, rec.effectText, layout.effectRect, layout.effectScale, layout.effectLineSpacing);
+		ofPopStyle();
+		ofPopMatrix();
+	}
+
+	fbo.end();
+
+	ofPixels pixels;
+	fbo.readToPixels(pixels);
+	if (pixels.size() == 0) return false;
+
+	outSpriteSheet.setFromPixels(pixels);
+	return outSpriteSheet.isAllocated();
+}
 } // namespace
 
 // Unused currently but may be used for save file cleanup
@@ -1526,7 +1906,7 @@ void ofApp::setup() {
 	titleFont.load(titleSettings);
 
 	cardBackImage.load("UI/card_back.png");
-	cardSpriteSheet.load("UI/TTS_Sheet.png");
+	cardSpriteSheet.load("UI/card_template_withrange.png");
 	// Pixel-art UI assets: use nearest filtering to keep them crisp when scaled
 	if (cardBackImage.isAllocated()) cardBackImage.getTexture().setTextureMinMagFilter(GL_NEAREST, GL_NEAREST);
 	if (cardSpriteSheet.isAllocated()) cardSpriteSheet.getTexture().setTextureMinMagFilter(GL_NEAREST, GL_NEAREST);
@@ -28996,7 +29376,20 @@ void ofApp::loadCardData(const std::string & filePath) {
 	class2Cards.clear();
 	class3Cards.clear();
 
-	const int cardPixelWidth = 409, cardPixelHeight = 585;
+	int cardPixelWidth = 409;
+	int cardPixelHeight = 585;
+	// If using a custom template, match texture rect dimensions to the
+	// template image size so cards are not clipped/overlapped.
+	{
+		ofImage templateProbe;
+		if (templateProbe.load("UI/card_template_withrange.png")) {
+			if (templateProbe.getWidth() > 0 && templateProbe.getHeight() > 0) {
+				cardPixelWidth = (int)templateProbe.getWidth();
+				cardPixelHeight = (int)templateProbe.getHeight();
+				ofLogNotice("Cards") << "Card slot size set from template: " << cardPixelWidth << "x" << cardPixelHeight;
+			}
+		}
+	}
 	const int numCols = 10;
 
 	for (const auto & cardJson : json) {
@@ -29034,6 +29427,18 @@ void ofApp::loadCardData(const std::string & filePath) {
 	}
 	ofLogNotice("ofApp::loadCardData") << "Loaded " << allCards.size() << " cards from JSON.";
 	ofLogNotice("ofApp::loadCardData") << "Class Distribution - C1: " << class1Cards.size() << ", C2: " << class2Cards.size() << ", C3: " << class3Cards.size();
+
+	// Optional runtime card rendering path:
+	// - template image: UI/card_template_withrange.png
+	// - content source: UI/cards.md
+	// - editable field areas: Config/card_template_layout.json
+	// Keeps template base image if markdown/layout build fails.
+	if (rebuildCardSpriteSheetFromTemplate("UI/card_template_withrange.png", "UI/cards.md", "Config/card_template_layout.json", allCards, titleFont, uiFont, cardSpriteSheet)) {
+		cardSpriteSheet.getTexture().setTextureMinMagFilter(GL_NEAREST, GL_NEAREST);
+		ofLogNotice("Cards") << "Using runtime template-generated card sheet from UI/card_template_withrange.png + UI/cards.md";
+	} else {
+		ofLogWarning("Cards") << "Template text generation failed; keeping base template image UI/card_template_withrange.png";
+	}
 }
 
 // --------------------------------------------------------------
