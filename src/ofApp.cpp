@@ -100,6 +100,39 @@ static std::string makeSavePath(const std::string & p) {
 	if (p.find('/') != std::string::npos || p.find('\\') != std::string::npos) return p;
 	return kSavesDir + "/" + p;
 }
+
+namespace {
+struct UILayoutSpacing {
+	float edgeInset = 0.0f; // outer edge inset for gameplay HUD anchoring
+	float stackYOffset = 0.0f; // downward visual nudge for deck/discard stack
+	float stackVerticalGap = 0.0f; // vertical spacing between discard/deck cards
+	float minionEntryGapUnscaled = 12.0f; // logical row gap before per-resolution scale
+	float minionIconGap = 0.0f; // spacing between minion deck/discard icons
+	float timerBarHeight = 0.0f; // reserved top band for turn timer
+	float chatInset = 0.0f; // default chat inset from top/left edge
+	float healthBarSideGap = 0.0f; // gap between deck and health bar
+	float healthBarInwardNudge = 0.0f; // extra nudge to avoid overlap
+};
+
+static UILayoutSpacing buildUILayoutSpacing(float scale, bool turnTimerEnabled) {
+	UILayoutSpacing ui;
+	ui.edgeInset = 20.0f * scale;
+	ui.stackYOffset = 12.0f * scale;
+	ui.stackVerticalGap = 20.0f * scale;
+	ui.minionEntryGapUnscaled = 20.0f;
+	ui.minionIconGap = 6.0f * scale;
+	ui.timerBarHeight = turnTimerEnabled ? (8.0f * scale) : 0.0f;
+	ui.chatInset = 8.0f * scale;
+	ui.healthBarSideGap = 8.0f * scale;
+	ui.healthBarInwardNudge = 12.0f * scale;
+	return ui;
+}
+
+static float effectiveBottomGap(const UILayoutSpacing & ui) {
+	return std::max(0.0f, ui.edgeInset - ui.stackYOffset);
+}
+} // namespace
+
 // Unused currently but may be used for save file cleanup
 [[maybe_unused]] static void pruneOldStampedSaves(int keep = 5) {
 	try {
@@ -2316,7 +2349,7 @@ void ofApp::update() {
 				gameSuspendedDueToInactivity = true;
 				// Throttle render cadence while inactive (logic still advances).
 				ofSetVerticalSync(false);
-				ofSetFrameRate(5);
+				ofSetFrameRate(15);
 				// Save master volume and mute audio (per-player where supported)
 				savedMasterVolume = settingsMasterVolume;
 				// Save and mute main menu music
@@ -2867,7 +2900,6 @@ void ofApp::draw() {
 	// Battery saver: when inactive in singleplayer, skip heavy rendering.
 	// Logic still runs in `update()`.
 	if (!isMultiplayer && gameSuspendedDueToInactivity) {
-		ofBackground(0);
 		return;
 	}
 
@@ -4057,15 +4089,31 @@ void ofApp::updateGame() {
 	std::vector<int> p0_minionIndices;
 	std::vector<int> p1_minionIndices;
 	// Defaults for minion UI (reduced size to avoid clipping)
-	float standardEntryHeight = 110.0f; // unscaled baseline (reduced)
-	float gap = 12.0f; // unscaled baseline (reduced)
+	float standardEntryHeight = 85.0f; // unscaled baseline (more compact)
 	float panelWidth = 360.0f; // unscaled baseline (reduced)
 	float scale = ofGetHeight() / 1080.0f;
+	const UILayoutSpacing layoutSpacing = buildUILayoutSpacing(scale, turnTimerEnabled);
+	float gap = layoutSpacing.minionEntryGapUnscaled; // unscaled baseline (centralized)
 	float panelWidthScaled = panelWidth * scale;
+	const float handBaseCardWidth = 120.0f;
+	const float handCardAspectRatio = 585.0f / 409.0f;
+	const float staticUICardHeight = (handBaseCardWidth * handCardAspectRatio * 1.3f) * scale;
+	// Deck bottom gap on screen after stack offset is applied in drawGame().
+	const float deckBottomGap = effectiveBottomGap(layoutSpacing);
+	// Mirror drawGame() deck/discard anchoring math so minion panels can align to it.
+	const float deckY = ofGetHeight() - staticUICardHeight - layoutSpacing.edgeInset + layoutSpacing.stackYOffset;
+	const float discardY = deckY - staticUICardHeight - layoutSpacing.stackVerticalGap;
+	// Reserve space above AP counters so minion panels don't overlap AP UI.
+	float fontScale = scale * 1.0f;
+	ofRectangle apTextBox = titleFont.getStringBoundingBox("0 AP", 0, 0);
+	const float apRectHeight = (apTextBox.height * fontScale) + (20.0f * scale);
+	const float apTopY = discardY - (10.0f * scale) - apRectHeight;
 	int p0_skeleton = 0, p0_golem = 0, p0_wolf = 0, p0_hound = 0, p0_demon = 0, p0_kobold = 0, p0_wall = 0, p0_assistant = 0, p0_faerie = 0;
 	int p1_skeleton = 0, p1_golem = 0, p1_wolf = 0, p1_hound = 0, p1_demon = 0, p1_kobold = 0, p1_wall = 0;
-	float p0_topLimitY = 120.0f;
-	float p0_bottomLimitY = ofGetHeight() - 220.0f;
+	// Top starts below timer with the same gap as deck-bottom gap.
+	float p0_topLimitY = layoutSpacing.timerBarHeight + deckBottomGap;
+	// Bottom stops above discard stack with the same shared gap.
+	float p0_bottomLimitY = std::min(discardY - deckBottomGap, apTopY - deckBottomGap);
 	float p1_topLimitY = p0_topLimitY;
 	float p1_bottomLimitY = p0_bottomLimitY;
 
@@ -4177,9 +4225,9 @@ void ofApp::updateGame() {
 			// Pre-calculate deck and discard rects for hover detection
 			// These will be refined during the draw phase, but we need them now for mouseMoved checks
 			float cardAspectRatio = 585.0f / 409.0f; // cardBackImage aspect ratio
-			float iconMargin = 6.0f * scale;
+			float iconMargin = layoutSpacing.minionIconGap;
 			// Make icons proportionally large relative to entry height
-			float iconHeight = ui.bounds.height * 0.78f;
+			float iconHeight = ui.bounds.height * 0.64f;
 			float iconWidth = iconHeight * cardAspectRatio;
 			float iconsY = ui.bounds.y + (ui.bounds.height - iconHeight) * 0.5f;
 			ui.discardRect.set(ui.bounds.getRight() - (iconWidth + iconMargin), iconsY, iconWidth, iconHeight);
@@ -4192,7 +4240,7 @@ void ofApp::updateGame() {
 
 	// 4. BUILD LISTS WITH PLAYER-SPECIFIC BOUNDARIES
 	// Align local minion panel to the left side (top-left start) and go down.
-	float p0_startX = 20.0f * scale;
+	float p0_startX = layoutSpacing.edgeInset;
 	buildMinionList(p0_minionIndices, p0_startX, p0_topLimitY, p0_bottomLimitY, 0, p0_skeleton, p0_golem, p0_wolf, p0_hound, p0_demon, p0_kobold, p0_assistant, p0_wall, p0_faerie);
 
 	// Mirror on enemy side: compute a safe start X so the minion panel
@@ -4202,7 +4250,7 @@ void ofApp::updateGame() {
 	float reservedFromRight = std::max(p1_deckRect.getWidth() + p1_discardRect.getWidth() + 80.0f * localScale, 320.0f * localScale);
 	float p1_startX = ofGetWidth() - reservedFromRight - panelWidthScaled;
 	// Clamp so panel remains on-screen
-	p1_startX = std::clamp(p1_startX, 40.0f * localScale, ofGetWidth() - panelWidthScaled - 20.0f * localScale);
+	p1_startX = std::clamp(p1_startX, 2.0f * layoutSpacing.edgeInset, ofGetWidth() - panelWidthScaled - layoutSpacing.edgeInset);
 	int p1_assistant = 0;
 	int p1_faerie = 0;
 	buildMinionList(p1_minionIndices, p1_startX, p1_topLimitY, p1_bottomLimitY, 1, p1_skeleton, p1_golem, p1_wolf, p1_hound, p1_demon, p1_kobold, p1_assistant, p1_wall, p1_faerie);
@@ -7254,11 +7302,11 @@ void ofApp::drawGame() {
 		diceMaterial.begin();
 
 		// Unified dice display parameters with per-die overrides
-		float d4Scale = 1.75f;
+		float d4Scale = 2.0f;
 		float coinScale = 1.25f;
 		float d6Scale = 1.35f;
-		float d10Scale = 1.75f;
-		float d20Scale = 1.75f;
+		float d10Scale = 2.0f;
+		float d20Scale = 2.0f;
 		float diceDisplayY = 7.0f; // World-space Y used for non-unit dice placement
 
 		// Helper to position dice
@@ -8215,6 +8263,7 @@ void ofApp::drawGame() {
 	float baseCardHeight = handBaseCardWidth * handCardAspectRatio;
 	float staticUICardWidth = (handBaseCardWidth * 1.3f) * scale;
 	float staticUICardHeight = (baseCardHeight * 1.3f) * scale;
+	const UILayoutSpacing ui = buildUILayoutSpacing(scale, turnTimerEnabled);
 
 	// Health bar dimensions (used both by drawHealthBar lambda and by anchored status text)
 	float healthBarHeight = 65 * scale;
@@ -8402,12 +8451,13 @@ void ofApp::drawGame() {
 		}
 
 		// 1. Calculate positions - bottom = local player (left side), mirrored opponent on right side
-		float margin = 20.0f * scale;
-		float verticalGap = 20.0f * scale;
-		float uiStackYOffset = 12.0f * scale; // move deck/discard/AP stack slightly down
+		float margin = ui.edgeInset;
+		float verticalGap = ui.stackVerticalGap;
+		float uiStackYOffset = ui.stackYOffset; // move deck/discard/AP stack slightly down
+		float deckBottomGap = effectiveBottomGap(ui);
 
 		// Local player (P0) - deck should be at the bottom-left, discard above it
-		float p0_deckX = 20.0f * scale;
+		float p0_deckX = ui.edgeInset;
 		float p0_deckY = ofGetHeight() - staticUICardHeight - margin + uiStackYOffset;
 		p0_deckRect.set(p0_deckX, p0_deckY, staticUICardWidth, staticUICardHeight);
 
@@ -8416,7 +8466,7 @@ void ofApp::drawGame() {
 		p0_discardRect.set(p0_discardX, p0_discardY, staticUICardWidth, staticUICardHeight);
 
 		// Opponent (P1) mirrored on the right side - deck at bottom-right, discard above it
-		float p1_deckX = ofGetWidth() - staticUICardWidth - (20.0f * scale);
+		float p1_deckX = ofGetWidth() - staticUICardWidth - ui.edgeInset;
 		float p1_deckY = ofGetHeight() - staticUICardHeight - margin + uiStackYOffset;
 		p1_deckRect.set(p1_deckX, p1_deckY, staticUICardWidth, staticUICardHeight);
 
@@ -8427,11 +8477,11 @@ void ofApp::drawGame() {
 		// 2. Draw Player 0 (Bottom) UI - this is the LOCAL player
 		// Place health bar near the deck's right side with a small gap (mirrored for opponent)
 		float healthBarWidth = 220.0f * scale;
-		float gap = 8.0f * scale;
-		float healthBarInwardNudge = 12.0f * scale; // move health bar further right for local, further left for opponent
+		float gap = ui.healthBarSideGap;
+		float healthBarInwardNudge = ui.healthBarInwardNudge; // move health bar further right for local, further left for opponent
 		// Local player: place health bar immediately to the right of the deck
 		float p0_healthX = p0_deckRect.getRight() + gap + healthBarInwardNudge;
-		float p0_healthY = ofGetHeight() - healthBarHeight - (20.0f * scale); // bottom-aligned
+		float p0_healthY = ofGetHeight() - healthBarHeight - deckBottomGap; // match deck bottom gap
 		drawHealthBar(*localPlayer, p0_healthX, p0_healthY, ofColor::green);
 
 		// P0 Deck (LOCAL player's deck)
@@ -8504,7 +8554,7 @@ void ofApp::drawGame() {
 		// 3. Draw Player 1 (Right) UI - opponent mirrored on right side
 		// Opponent: mirror the layout and place health bar immediately to the left of their deck
 		float p1_healthX = p1_deckRect.getLeft() - gap - healthBarWidth - healthBarInwardNudge;
-		float p1_healthY = ofGetHeight() - healthBarHeight - (20.0f * scale);
+		float p1_healthY = ofGetHeight() - healthBarHeight - deckBottomGap;
 		drawHealthBar(*opponentPlayer, p1_healthX, p1_healthY, ofColor::red);
 
 		// P1 Discard -- show opponent's top card face
@@ -9641,8 +9691,9 @@ void ofApp::drawGame() {
 			chatScrollOffset = 0;
 
 			// Default: top-left corner with a small margin (offset below turn timer bar)
-			float timerBarHeight = 8.0f * scale; // Match the timer bar height
-			float margin = 8.0f * scale + timerBarHeight; // Add timer bar height to margin
+			const UILayoutSpacing ui = buildUILayoutSpacing(scale, turnTimerEnabled);
+			float timerBarHeight = ui.timerBarHeight;
+			float margin = ui.chatInset + timerBarHeight;
 			float chatMaxWidth = 450 * scale;
 			float chatBoxHeight = isChatMinimized ? 138 * scale : 268 * scale;
 			if (!isChatMinimized && currentChatTab == ChatTab::DEBUG) {
@@ -11454,14 +11505,26 @@ void ofApp::mousePressed(int x, int y, int button) {
 		}
 		if (debugSpawnPlayer1Button.inside(x, y)) {
 			debugSpawnMode = (debugSpawnMode == DEBUG_SPAWN_PLAYER1) ? DEBUG_SPAWN_NONE : DEBUG_SPAWN_PLAYER1;
+			if (debugSpawnMode != DEBUG_SPAWN_NONE) {
+				isChatOpen = false;
+				isChatMinimized = true;
+			}
 			return;
 		}
 		if (debugSpawnPlayer2Button.inside(x, y)) {
 			debugSpawnMode = (debugSpawnMode == DEBUG_SPAWN_PLAYER2) ? DEBUG_SPAWN_NONE : DEBUG_SPAWN_PLAYER2;
+			if (debugSpawnMode != DEBUG_SPAWN_NONE) {
+				isChatOpen = false;
+				isChatMinimized = true;
+			}
 			return;
 		}
 		if (debugSpawnUnitButton.inside(x, y)) {
 			debugSpawnMode = (debugSpawnMode == DEBUG_SPAWN_FULL_DECK) ? DEBUG_SPAWN_NONE : DEBUG_SPAWN_FULL_DECK;
+			if (debugSpawnMode != DEBUG_SPAWN_NONE) {
+				isChatOpen = false;
+				isChatMinimized = true;
+			}
 			return;
 		}
 		// Click consumed
@@ -12420,13 +12483,20 @@ void ofApp::mousePressed(int x, int y, int button) {
 				for (const auto & ui : activeMinionUIs) {
 					// Check if it's this minion's turn and their deck UI was clicked
 					if (ui.playerIndex == currentPlayerIndex && ui.deckRect.inside(x, y)) {
+						if (ui.playerIndex < 0 || ui.playerIndex >= (int)players.size()) continue;
+						Player & uiMinion = players[ui.playerIndex];
+
+						// Hard gate: each acting minion can only draw once per turn.
+						if (uiMinion.hasDrawnThisTurn) {
+							return; // Click handled; no additional draws this turn.
+						}
 
 						// Determine owner/player identity for this minion
-						int ownerIndex = players[ui.playerIndex].isMinion ? players[ui.playerIndex].ownerID : players[ui.playerIndex].playerID;
+						int ownerIndex = uiMinion.isMinion ? uiMinion.ownerID : uiMinion.playerID;
 
 						// Decide which "has drawn" flag applies: if the minion belongs to the local player
 						// then use `hasDrawnCardsThisTurn`, otherwise use `opponentHasDrawnCardsThisTurn`.
-						bool belongsToLocalPlayer = (players[ui.playerIndex].playerID == myLocalPlayerID);
+						bool belongsToLocalPlayer = (uiMinion.ownerID == myLocalPlayerID);
 						bool canDraw = belongsToLocalPlayer ? !hasDrawnCardsThisTurn : !opponentHasDrawnCardsThisTurn;
 						if (!canDraw) continue;
 
@@ -12436,10 +12506,10 @@ void ofApp::mousePressed(int x, int y, int button) {
 						// Mark appropriate drawn flag depending on whether the minion belongs to the local player.
 						if (belongsToLocalPlayer) {
 							hasDrawnCardsThisTurn = true;
-							players[ui.playerIndex].hasDrawnThisTurn = true;
+							uiMinion.hasDrawnThisTurn = true;
 						} else {
 							opponentHasDrawnCardsThisTurn = true;
-							players[ui.playerIndex].hasDrawnThisTurn = true;
+							uiMinion.hasDrawnThisTurn = true;
 						}
 						return; // Click handled
 					}
@@ -17452,12 +17522,21 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 }
 
 void ofApp::beginEffectSequence() {
-	currentEffectSequence = EffectSequence();
+	if (isProcessingEffect) return;
+	if (currentEffectSequence.ops.empty()) {
+		currentEffectSequence = EffectSequence();
+	} else {
+		currentEffectSequence.currentOp = 0;
+		currentEffectSequence.isComplete = false;
+	}
 	isProcessingEffect = true;
 }
 
 void ofApp::queueEffect(const EffectOp & op) {
 	// (ROLL_DICE handling fully removed — dice are resolved deterministically at decision-time)
+	if (!isProcessingEffect && (currentEffectSequence.isComplete || currentEffectSequence.currentOp >= currentEffectSequence.ops.size())) {
+		currentEffectSequence = EffectSequence();
+	}
 
 	currentEffectSequence.ops.push_back(op);
 	// Lightweight tracing for lockstep verification
@@ -29386,18 +29465,15 @@ void ofApp::drawMinionManagerUI() {
 		// (Minion luck/status moved to hover tooltip; no inline luck shown here)
 		//
 		// --- Draw Model FBO ---
-		float textBlockBottom = textBlockY + (nameBounds.height * fontScale) + (20.0f * scale);
-		// Prefer using a large fraction of the entry height for the model area
-		float approxModelH = ui.bounds.height * 0.78f;
-		float modelAreaHeight = std::max(approxModelH, ui.bounds.getBottom() - textBlockBottom - (5 * scale));
-		// Slightly upscale the model area to emphasize the preview
-		modelAreaHeight *= 1.05f;
+		float textBlockBottom = textBlockY + (nameBounds.height * fontScale) + (10.0f * scale);
+		// Use only the real remaining area to avoid padded/unused model space.
+		float modelAreaHeight = std::max(28.0f * scale, ui.bounds.getBottom() - textBlockBottom - (4 * scale));
 
 		// Ensure the model preview doesn't overflow the panel width (avoid scissor clipping)
 		float maxModelW = std::max(48.0f, ui.bounds.width - (80.0f * scale));
 		float modelW = std::min(modelAreaHeight, maxModelW);
 		ui.modelViewport.set(
-			textBlockX + 12 * scale,
+			textBlockX + 10 * scale,
 			textBlockBottom,
 			modelW,
 			modelW);
@@ -29405,9 +29481,10 @@ void ofApp::drawMinionManagerUI() {
 		modelFbo.draw(ui.modelViewport);
 
 		// --- Draw Icons ---
-		float iconMargin = 6.0f * scale;
+		const UILayoutSpacing layoutSpacing = buildUILayoutSpacing(scale, turnTimerEnabled);
+		float iconMargin = layoutSpacing.minionIconGap;
 		// Make icons proportionally large relative to entry height
-		float iconHeight = ui.bounds.height * 0.78f;
+		float iconHeight = ui.bounds.height * 0.64f;
 		float cardAspectRatio = cardBackImage.getWidth() / cardBackImage.getHeight();
 		float iconWidth = iconHeight * cardAspectRatio;
 		float iconsY = ui.bounds.y + (ui.bounds.height - iconHeight) * 0.5f;
@@ -29450,7 +29527,43 @@ void ofApp::drawMinionManagerUI() {
 		glDisable(GL_SCISSOR_TEST);
 	} // End of loop
 
-	// Scrollbar drawing temporarily disabled; panel metrics are managed in updateGame().
+	// Draw list scrollbars when minion content exceeds visible height.
+	{
+		float barW = 8.0f * scale;
+		float inset = 3.0f * scale;
+
+		if (p0_minionTotalH > p0_minionViewH && p0_minionViewH > 1.0f) {
+			float maxScroll = std::max(0.0f, p0_minionTotalH - p0_minionViewH);
+			float thumbH = p0_minionViewH * (p0_minionViewH / p0_minionTotalH);
+			thumbH = std::max(28.0f * scale, thumbH);
+			float thumbY = p0_minionTop;
+			if (maxScroll > 0.0f) {
+				thumbY += (p0_minionScroll / maxScroll) * (p0_minionViewH - thumbH);
+			}
+			float barX = p0_minionLeft + minionPanelW - barW - inset; // board-facing edge for left panel
+
+			ofSetColor(255, 255, 255, 35);
+			ofDrawRectRounded(barX, p0_minionTop + inset, barW, p0_minionViewH - 2.0f * inset, 4.0f * scale);
+			ofSetColor(255, 255, 255, 170);
+			ofDrawRectRounded(barX, thumbY, barW, thumbH, 4.0f * scale);
+		}
+
+		if (p1_minionTotalH > p1_minionViewH && p1_minionViewH > 1.0f) {
+			float maxScroll = std::max(0.0f, p1_minionTotalH - p1_minionViewH);
+			float thumbH = p1_minionViewH * (p1_minionViewH / p1_minionTotalH);
+			thumbH = std::max(28.0f * scale, thumbH);
+			float thumbY = p1_minionTop;
+			if (maxScroll > 0.0f) {
+				thumbY += (p1_minionScroll / maxScroll) * (p1_minionViewH - thumbH);
+			}
+			float barX = p1_minionLeft + inset; // board-facing edge for right panel
+
+			ofSetColor(255, 255, 255, 35);
+			ofDrawRectRounded(barX, p1_minionTop + inset, barW, p1_minionViewH - 2.0f * inset, 4.0f * scale);
+			ofSetColor(255, 255, 255, 170);
+			ofDrawRectRounded(barX, thumbY, barW, thumbH, 4.0f * scale);
+		}
+	}
 }
 //--------------------------------------------------------------
 void ofApp::cancelMagicHand() {
