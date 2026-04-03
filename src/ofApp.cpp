@@ -4436,46 +4436,52 @@ void ofApp::updateGame() {
 			float elapsedSeconds = ofGetElapsedTimef() - turnStartTime;
 			if (elapsedSeconds >= turnDurationSeconds) {
 				if (currentState == STATE_DRAFTING) {
-					int requiredPicks = (!isInGameDraft && draftStage == 0) ? 2 : 1;
-					if ((int)selectedDraftIndices.size() > 0) {
-						ofLogNotice("Timer") << "Draft timer expired with " << selectedDraftIndices.size() << " cards selected. Auto-accepting.";
-						draftAcceptLocked = true;
-					} else if ((int)selectedDraftIndices.size() < requiredPicks) {
-						// Deterministic auto-pick on timeout: pick the first available
-						// options from `currentDraftOptionPoolIndices` to avoid consuming RNG.
-						int numNeedToPick = requiredPicks - (int)selectedDraftIndices.size();
-						for (int i = 0; i < numNeedToPick; ++i) {
-							if (currentDraftOptionPoolIndices.empty()) break;
-							int poolIdx = currentDraftOptionPoolIndices[i % currentDraftOptionPoolIndices.size()];
+					if (!draftAcceptLocked) {
+						int requiredPicks = (!isInGameDraft && draftStage == 0) ? 2 : 1;
 
-							bool alreadySelected = false;
-							for (int sel : selectedDraftIndices) {
-								if (sel == poolIdx) {
-									alreadySelected = true;
+						// Deterministic timeout fill: pick first unselected options from
+						// currentDraftOptionPoolIndices (do not consume RNG).
+						while ((int)selectedDraftIndices.size() < requiredPicks) {
+							int poolIdxToAdd = -1;
+							for (int poolIdx : currentDraftOptionPoolIndices) {
+								bool alreadySelected = false;
+								for (int sel : selectedDraftIndices) {
+									if (sel == poolIdx) {
+										alreadySelected = true;
+										break;
+									}
+								}
+								if (!alreadySelected) {
+									poolIdxToAdd = poolIdx;
 									break;
 								}
 							}
-							if (!alreadySelected) selectedDraftIndices.push_back(poolIdx);
+							if (poolIdxToAdd < 0) break;
+							selectedDraftIndices.push_back(poolIdxToAdd);
 						}
-						ofLogNotice("Timer") << "Draft timer expired. Auto-picked " << (int)selectedDraftIndices.size() << " options.";
-						draftAcceptLocked = true;
 
-						// Publish authoritative accept via deterministic lockstep command
-						InputCommandPacket cmd = {};
-						cmd.type = PKT_INPUT_COMMAND;
-						cmd.playerID = myLocalPlayerID;
-						cmd.commandId = nextCommandId++;
-						cmd.turnNumber = globalTurnCounter;
-						cmd.commandType = CMD_ACCEPT_DRAFT;
-						cmd.params[0] = draftPlayerIndex;
-						cmd.params[1] = currentDraftClassTier;
-						cmd.params[2] = (!isInGameDraft && draftStage == 0) ? 2 : 1;
-						cmd.params[3] = cmd.params[4] = cmd.params[5] = -1;
-						for (int i = 0; i < std::min(3, (int)selectedDraftIndices.size()); ++i) {
-							cmd.params[3 + i] = selectedDraftIndices[i];
+						if ((int)selectedDraftIndices.size() > 0) {
+							ofLogNotice("Timer") << "Draft timer expired. Auto-accepting " << selectedDraftIndices.size() << " picks.";
+							draftAcceptLocked = true;
+
+							InputCommandPacket cmd = {};
+							cmd.type = PKT_INPUT_COMMAND;
+							cmd.playerID = myLocalPlayerID;
+							cmd.commandId = nextCommandId++;
+							cmd.turnNumber = globalTurnCounter;
+							cmd.commandType = CMD_ACCEPT_DRAFT;
+							cmd.params[0] = draftPlayerIndex;
+							cmd.params[1] = currentDraftClassTier;
+							cmd.params[2] = (!isInGameDraft && draftStage == 0) ? 2 : 1;
+							cmd.params[3] = cmd.params[4] = cmd.params[5] = -1;
+							for (int i = 0; i < std::min(3, (int)selectedDraftIndices.size()); ++i) {
+								cmd.params[3 + i] = selectedDraftIndices[i];
+							}
+							if (!sendInputCommand(cmd, true)) ofLogWarning("Network") << "Auto-accept draft send failed (no connection).";
+						} else {
+							// Avoid timeout log spam while waiting for draft options to populate.
+							turnStartTime = ofGetElapsedTimef();
 						}
-						// Queue and send so lockstep advances identically
-						if (!sendInputCommand(cmd, true)) ofLogWarning("Network") << "Auto-accept draft send failed (no connection).";
 					}
 				} else {
 					// Auto-end-turn during gameplay
@@ -11091,26 +11097,26 @@ cursor_check_done:;
 					break;
 				}
 			}
-
-			if (newHoveredPileIndex != -1) {
-				if (!isHoveringPile || newHoveredPileIndex != hoveredPilePlayerIndex || newHoveredPileType != hoveredPileType) {
-					isHoveringPile = true;
-					isShowingPileView = false;
-					hoveredPileType = newHoveredPileType;
-					hoveredPilePlayerIndex = newHoveredPileIndex;
-					pileHoverStartTime = ofGetElapsedTimef();
-				}
-				currentCursor = CURSOR_CLICK;
-			} else {
-				isHoveringPile = false;
-				if (isShowingPileView && !pileViewRect.inside(x, y)) {
-					isShowingPileView = false;
-					currentPileView = VIEW_NONE;
-					currentPileViewPlayerIndex = -1;
-				}
-			}
-			break;
 		}
+
+		if (newHoveredPileIndex != -1) {
+			if (!isHoveringPile || newHoveredPileIndex != hoveredPilePlayerIndex || newHoveredPileType != hoveredPileType) {
+				isHoveringPile = true;
+				isShowingPileView = false;
+				hoveredPileType = newHoveredPileType;
+				hoveredPilePlayerIndex = newHoveredPileIndex;
+				pileHoverStartTime = ofGetElapsedTimef();
+			}
+			currentCursor = CURSOR_CLICK;
+		} else {
+			isHoveringPile = false;
+			if (isShowingPileView && !pileViewRect.inside(x, y)) {
+				isShowingPileView = false;
+				currentPileView = VIEW_NONE;
+				currentPileViewPlayerIndex = -1;
+			}
+		}
+		break;
 	}
 		// Close switch(currentState) block
 	}
@@ -13218,6 +13224,10 @@ void ofApp::mousePressed(int x, int y, int button) {
 }
 //--------------------------------------------------------------
 void ofApp::mouseDragged(int x, int y, int button) {
+	// Keep hover/cursor state up-to-date while a mouse button is held.
+	// Without this, drag events can leave stale hover state from the last mouseMoved event.
+	mouseMoved(x, y);
+
 	// If we are actively dragging a card, change to the closed fist
 	if (draggedCardIndex != -1) {
 		currentCursor = CURSOR_HOLD;
