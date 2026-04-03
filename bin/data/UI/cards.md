@@ -358,7 +358,7 @@
 - **AP Cost:** 5
 - **Class:** 3
 - **Picture:** 
-- **Effect Text:** Transform into a Tortoise until you take 5 health damage. Your blocks do not expire. Deal 3 to an adjacent unit whenever you restore health / gain block. Gain max health +5. Restore 5 health. Shuffle x2 Dispel into your deck.
+- **Effect Text:** Transform into a Tortoise until you take 5 health damage. Your blocks do not expire. Deal 3 to an adjacent unit whenever you restore health / gain block. Gain +5 max health. Restore 5 health. Shuffle x2 Dispel into your deck.
 ---
 
 -## 47. Fortify
