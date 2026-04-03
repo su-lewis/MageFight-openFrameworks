@@ -4230,9 +4230,15 @@ void ofApp::updateGame() {
 			float iconHeight = ui.bounds.height * 0.64f;
 			float iconWidth = iconHeight * cardAspectRatio;
 			float iconsY = ui.bounds.y + (ui.bounds.height - iconHeight) * 0.5f;
-			ui.discardRect.set(ui.bounds.getRight() - (iconWidth + iconMargin), iconsY, iconWidth, iconHeight);
-			// Place deck icon immediately to the left of discard with standard iconMargin (no extra gap)
-			ui.deckRect.set(ui.bounds.getRight() - (iconWidth * 2 + iconMargin * 2), iconsY, iconWidth, iconHeight);
+			if (listSide == 0) {
+				ui.discardRect.set(ui.bounds.getRight() - (iconWidth + iconMargin), iconsY, iconWidth, iconHeight);
+				// Place deck icon immediately to the left of discard with standard iconMargin (no extra gap)
+				ui.deckRect.set(ui.bounds.getRight() - (iconWidth * 2 + iconMargin * 2), iconsY, iconWidth, iconHeight);
+			} else {
+				// Opponent side is mirrored: icons sit on the board-facing edge.
+				ui.discardRect.set(ui.bounds.x + iconMargin, iconsY, iconWidth, iconHeight);
+				ui.deckRect.set(ui.discardRect.getRight() + iconMargin, iconsY, iconWidth, iconHeight);
+			}
 
 			activeMinionUIs.push_back(ui);
 		}
@@ -4243,14 +4249,9 @@ void ofApp::updateGame() {
 	float p0_startX = layoutSpacing.edgeInset;
 	buildMinionList(p0_minionIndices, p0_startX, p0_topLimitY, p0_bottomLimitY, 0, p0_skeleton, p0_golem, p0_wolf, p0_hound, p0_demon, p0_kobold, p0_assistant, p0_wall, p0_faerie);
 
-	// Mirror on enemy side: compute a safe start X so the minion panel
-	// doesn't overlap the top-right AP/status area. Reserve space based
-	// on opponent deck/discard widths plus a minimum margin.
-	float localScale = ofGetHeight() / 1080.0f;
-	float reservedFromRight = std::max(p1_deckRect.getWidth() + p1_discardRect.getWidth() + 80.0f * localScale, 320.0f * localScale);
-	float p1_startX = ofGetWidth() - reservedFromRight - panelWidthScaled;
-	// Clamp so panel remains on-screen
-	p1_startX = std::clamp(p1_startX, 2.0f * layoutSpacing.edgeInset, ofGetWidth() - panelWidthScaled - layoutSpacing.edgeInset);
+	// Mirror on enemy side: flush to the right edge inset.
+	float p1_startX = ofGetWidth() - layoutSpacing.edgeInset - panelWidthScaled;
+	p1_startX = std::max(layoutSpacing.edgeInset, p1_startX);
 	int p1_assistant = 0;
 	int p1_faerie = 0;
 	buildMinionList(p1_minionIndices, p1_startX, p1_topLimitY, p1_bottomLimitY, 1, p1_skeleton, p1_golem, p1_wolf, p1_hound, p1_demon, p1_kobold, p1_assistant, p1_wall, p1_faerie);
@@ -5161,9 +5162,12 @@ void ofApp::updateGame() {
 										std::vector<int> rawReroll;
 										int bonus;
 										bonus = resolveDiceRollDetailed(rerollNum, rerollSides, rawReroll);
-										currentEffectSequence.blackboard[5] = bonus;
 										EffectOp apply = {};
 										apply.type = EffectOpType::APPLY_BONUS_AP;
+										apply.data.modifyStat.targetIndex = currentPlayerIndex;
+										apply.data.modifyStat.statType = 3; // AP (current)
+										apply.data.modifyStat.delta = bonus;
+										apply.data.modifyStat.deltaFromSlot = -1;
 										queueEffect(apply);
 										if (!isProcessingEffect) beginEffectSequence();
 										queueFloatingTextVisual(gridToWorld(a.x, a.y), "Assistant Reroll!", ofColor::gold);
@@ -9112,29 +9116,39 @@ void ofApp::drawGame() {
 				float uiScale = ofGetHeight() / 1080.0f;
 				float btnW = 130 * uiScale; // shorter button
 				float btnH = 44 * uiScale;
-				// Position reroll button anchored to the active player's UI side
-				float staticUICardWidth = (handBaseCardWidth * 1.3f) * scale;
-				float staticUICardHeight = (baseCardHeight * 1.3f) * scale;
+				// Position reroll button anchored to AP box side for the active owner
 				float margin = 10 * scale;
 				float btnX = 0.0f;
 				float btnY = 0.0f;
-				// If the active player is player 0, anchor to left/bottom UI (Player 0 area)
-				if (curr.playerID == 0) {
-					float p0_apCenterX = 20 * scale + staticUICardWidth / 2;
-					float p0_apCenterY = ofGetHeight() - staticUICardHeight - (20 * scale) - staticUICardHeight - (20 * scale) - 60 * scale;
+				int activeOwnerID = curr.isMinion ? curr.ownerID : curr.playerID;
+				// If active owner is player 0, place reroll button to the RIGHT of AP.
+				if (activeOwnerID == 0) {
+					float p0_apCenterX = p0_discardRect.getCenter().x;
+					float p0_apCenterY = p0_discardRect.y - (10.0f * scale);
 					string p0_apText = "0 AP";
 					if (currentPlayerIndex >= 0 && !players.empty()) {
 						p0_apText = ofToString(displayedAPForCurrent) + " AP";
 					}
 					ofRectangle p0_apTextBox = titleFont.getStringBoundingBox(p0_apText, 0, 0);
 					float p0_apRectWidth = (p0_apTextBox.width * fontScale) + (40 * scale);
+					float p0_apRectHeight = (p0_apTextBox.height * fontScale) + (20 * scale);
+					p0_apCenterY -= (p0_apRectHeight / 2.0f);
 					btnX = p0_apCenterX + p0_apRectWidth / 2 + margin;
 					btnY = p0_apCenterY - (btnH / 2);
 				} else {
-					// Active player is opponent (player 1) -> anchor to top/right UI area
-					// Place the button near the opponent deck area for clarity
-					btnX = p1_deckRect.getLeft() - margin - btnW;
-					btnY = p1_deckRect.getCenter().y - (btnH / 2);
+					// Opponent side is mirrored: place reroll button to the LEFT of AP.
+					float p1_apCenterX = p1_discardRect.getCenter().x;
+					float p1_apCenterY = p1_discardRect.y - (10.0f * scale);
+					string p1_apText = "0 AP";
+					if (currentPlayerIndex >= 0 && !players.empty()) {
+						p1_apText = ofToString(displayedAPForCurrent) + " AP";
+					}
+					ofRectangle p1_apTextBox = titleFont.getStringBoundingBox(p1_apText, 0, 0);
+					float p1_apRectWidth = (p1_apTextBox.width * fontScale) + (40 * scale);
+					float p1_apRectHeight = (p1_apTextBox.height * fontScale) + (20 * scale);
+					p1_apCenterY -= (p1_apRectHeight / 2.0f);
+					btnX = p1_apCenterX - p1_apRectWidth / 2 - margin - btnW;
+					btnY = p1_apCenterY - (btnH / 2);
 				}
 
 				rerollButtonRect.set(btnX, btnY, btnW, btnH);
@@ -9673,7 +9687,7 @@ void ofApp::drawGame() {
 					}
 				}
 				if (!currentLine.empty()) lines.push_back(currentLine);
-				if (lines.empty()) lines.push_back(" ");
+				if (lines.empty()) lines.push_back("");
 
 				float linger = (float)lines.size() * 3.0f;
 				if (currentTime - msg.timestamp < linger) {
@@ -9699,7 +9713,7 @@ void ofApp::drawGame() {
 			if (!isChatMinimized && currentChatTab == ChatTab::DEBUG) {
 				chatBoxHeight = 430 * scale;
 			}
-			bool showTabs = (isChatOpen && !isChatMinimized);
+			bool showTabs = isChatOpen;
 			float tabHeight = showTabs ? (25 * scale) : 0.0f;
 			float messageHeight = 18 * scale;
 
@@ -9810,8 +9824,8 @@ void ofApp::drawGame() {
 				ofPopStyle();
 			}
 
-			// When minimized, always show normal chat messages instead of current tab content
-			ChatTab visibleTab = showTabs ? currentChatTab : ChatTab::CHAT;
+			// Keep selected tab when chat is open, even in minimized mode.
+			ChatTab visibleTab = isChatOpen ? currentChatTab : ChatTab::CHAT;
 
 			// Draw content based on active tab
 			if (visibleTab == ChatTab::CHAT) {
@@ -9835,7 +9849,7 @@ void ofApp::drawGame() {
 						}
 					}
 					if (!currentLine.empty()) lines.push_back(currentLine);
-					if (lines.empty()) lines.push_back(" ");
+					if (lines.empty()) lines.push_back("");
 					return lines;
 				};
 
@@ -9868,6 +9882,7 @@ void ofApp::drawGame() {
 					// Draw only the visible wrapped blocks we computed earlier
 					for (const auto & blk : visibleWrappedBlocks) {
 						for (const auto & line : blk) {
+							if (isChatMinimized && std::all_of(line.begin(), line.end(), [](unsigned char ch) { return std::isspace(ch); })) continue;
 							if (messageY + messageHeight > contentBottom) break;
 							ofPushStyle();
 							ofSetColor(255, 255, 255, 255);
@@ -9893,6 +9908,7 @@ void ofApp::drawGame() {
 						float maxWidth = chatMaxWidth - 20;
 						std::vector<string> wrappedLines = wrapText(fullMsg, maxWidth);
 						for (const auto & line : wrappedLines) {
+							if (isChatMinimized && std::all_of(line.begin(), line.end(), [](unsigned char ch) { return std::isspace(ch); })) continue;
 							if (messageY + messageHeight > contentBottom) break;
 							uiFont.drawString(line, chatX + 10, messageY);
 							messageY += messageHeight;
@@ -9952,7 +9968,7 @@ void ofApp::drawGame() {
 						}
 					}
 					if (!currentLine.empty()) lines.push_back(currentLine);
-					if (lines.empty()) lines.push_back(" ");
+					if (lines.empty()) lines.push_back("");
 					return lines;
 				};
 
@@ -9971,6 +9987,7 @@ void ofApp::drawGame() {
 					std::vector<std::string> wrappedLines = wrapLogText(entry.text, maxWidth);
 
 					for (const auto & line : wrappedLines) {
+						if (isChatMinimized && std::all_of(line.begin(), line.end(), [](unsigned char ch) { return std::isspace(ch); })) continue;
 						if (logY + messageHeight > contentBottom || lineCount >= maxVisibleLogLines) {
 							i = (int)gameLog.size(); // stop outer loop
 							break;
@@ -11152,7 +11169,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 				if (!isChatMinimized && currentChatTab == ChatTab::DEBUG) {
 					chatBoxHeight = 430 * scale;
 				}
-				bool showTabs = (isChatOpen && !isChatMinimized);
+				bool showTabs = isChatOpen;
 				float tabHeight = showTabs ? (25 * scale) : 0.0f;
 				float tabWidth = 80 * scale;
 				float chatX = chatWindowRect.x;
@@ -12631,9 +12648,12 @@ void ofApp::mousePressed(int x, int y, int button) {
 						// Resolve assistant reroll locally (pure lockstep: both peers call RNG)
 						std::vector<int> rawReroll;
 						int bonus = resolveDiceRollDetailed(rerollNum, rerollSides, rawReroll);
-						currentEffectSequence.blackboard[5] = bonus;
 						EffectOp applyBonus = {};
 						applyBonus.type = EffectOpType::APPLY_BONUS_AP;
+						applyBonus.data.modifyStat.targetIndex = currentPlayerIndex;
+						applyBonus.data.modifyStat.statType = 3; // AP (current)
+						applyBonus.data.modifyStat.delta = bonus;
+						applyBonus.data.modifyStat.deltaFromSlot = -1;
 						queueEffect(applyBonus);
 						if (!isProcessingEffect) beginEffectSequence();
 						queueVisualDiceRoll(gridToWorld(players[assistantIndex].x, players[assistantIndex].y) + glm::vec3(0, 1.0f, 0), rerollNum, rerollSides, rawReroll, bonus, PURPOSE_BONUS_AP, currentPlayerIndex, 1.0f);
@@ -15078,9 +15098,12 @@ void ofApp::continueNewTurn() {
 						// Authoritative assistant reroll
 						std::vector<int> rawReroll;
 						int bonus = resolveDiceRollDetailed(rerollNum, rerollSides, rawReroll);
-						currentEffectSequence.blackboard[5] = bonus;
 						EffectOp apply = {};
 						apply.type = EffectOpType::APPLY_BONUS_AP;
+						apply.data.modifyStat.targetIndex = currentPlayerIndex;
+						apply.data.modifyStat.statType = 3; // AP (current)
+						apply.data.modifyStat.delta = bonus;
+						apply.data.modifyStat.deltaFromSlot = -1;
 						queueEffect(apply);
 						if (!isProcessingEffect) beginEffectSequence();
 						queueFloatingTextVisual(gridToWorld(a.x, a.y), "Assistant Reroll!", ofColor::gold);
@@ -18183,9 +18206,13 @@ bool ofApp::processEffectOp(EffectOp & op) {
 	}
 
 	case EffectOpType::APPLY_BONUS_AP: {
-		// Read bonus AP from agreed blackboard slot (5)
-		int val = currentEffectSequence.blackboard[5];
+		// Prefer explicit payload value; fallback to legacy blackboard slot (5).
+		int val = op.data.modifyStat.delta;
+		if (val == 0) val = currentEffectSequence.blackboard[5];
 		currentAP += val;
+		if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) {
+			updatePlayerAP(players[currentPlayerIndex], currentAP);
+		}
 		queueFloatingTextVisual(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y), "+" + ofToString(val) + " Bonus AP", ofColor::yellow);
 		ofLogNotice("Game") << "Bonus Dice Finished: " << val << " AP awarded.";
 		opComplete = true;
@@ -29451,8 +29478,25 @@ void ofApp::drawMinionManagerUI() {
 
 		// --- Draw Name Text ---
 		float fontScale = 0.9f;
-		float textBlockX = ui.bounds.x + 10 * scale;
 		float textBlockY = ui.bounds.y + 5 * scale;
+
+		// --- Draw Icons (mirror per side) ---
+		const UILayoutSpacing layoutSpacing = buildUILayoutSpacing(scale, turnTimerEnabled);
+		float iconMargin = layoutSpacing.minionIconGap;
+		float iconHeight = ui.bounds.height * 0.64f;
+		float cardAspectRatio = cardBackImage.getWidth() / cardBackImage.getHeight();
+		float iconWidth = iconHeight * cardAspectRatio;
+		float iconsY = ui.bounds.y + (ui.bounds.height - iconHeight) * 0.5f;
+
+		if (isLeft) {
+			ui.discardRect.set(ui.bounds.getRight() - (iconWidth + iconMargin), iconsY, iconWidth, iconHeight);
+			ui.deckRect.set(ui.bounds.getRight() - (iconWidth * 2 + iconMargin * 2 + 5 * scale), iconsY, iconWidth, iconHeight);
+		} else {
+			ui.discardRect.set(ui.bounds.x + iconMargin, iconsY, iconWidth, iconHeight);
+			ui.deckRect.set(ui.discardRect.getRight() + iconMargin + 5 * scale, iconsY, iconWidth, iconHeight);
+		}
+
+		float textBlockX = isLeft ? (ui.bounds.x + 10 * scale) : (ui.deckRect.getRight() + 16 * scale);
 		ofRectangle nameBounds = uiFont.getStringBoundingBox(name, 0, 0);
 
 		ofPushMatrix();
@@ -29480,22 +29524,11 @@ void ofApp::drawMinionManagerUI() {
 		ofSetColor(255);
 		modelFbo.draw(ui.modelViewport);
 
-		// --- Draw Icons ---
-		const UILayoutSpacing layoutSpacing = buildUILayoutSpacing(scale, turnTimerEnabled);
-		float iconMargin = layoutSpacing.minionIconGap;
-		// Make icons proportionally large relative to entry height
-		float iconHeight = ui.bounds.height * 0.64f;
-		float cardAspectRatio = cardBackImage.getWidth() / cardBackImage.getHeight();
-		float iconWidth = iconHeight * cardAspectRatio;
-		float iconsY = ui.bounds.y + (ui.bounds.height - iconHeight) * 0.5f;
-
-		ui.discardRect.set(ui.bounds.getRight() - (iconWidth + iconMargin), iconsY, iconWidth, iconHeight);
-		ui.deckRect.set(ui.bounds.getRight() - (iconWidth * 2 + iconMargin * 2 + 5 * scale), iconsY, iconWidth, iconHeight);
-
 		// --- Status Bars ---
-		float availableWidth = ui.deckRect.x - textBlockX - (15 * scale);
+		float availableWidth = isLeft ? (ui.deckRect.x - textBlockX - (15 * scale)) : (ui.bounds.getRight() - textBlockX - (15 * scale));
 		float iconGap = ui.discardRect.x - (ui.deckRect.x + ui.deckRect.width);
-		float preferredHpWidth = ui.deckRect.width + ui.discardRect.width + iconGap;
+		if (iconGap < 0.0f) iconGap = (ui.deckRect.x - (ui.discardRect.x + ui.discardRect.width));
+		float preferredHpWidth = ui.deckRect.width + ui.discardRect.width + std::abs(iconGap);
 		drawMinionStatusBars(minion, name, textBlockX, textBlockY, availableWidth, preferredHpWidth);
 
 		// Deck
