@@ -168,7 +168,8 @@
 - **AP Cost:** 2
 - **Class:** 2
 - **Picture:** 
-- **Effect Text:** Summon a Skeleton minion in an adjacent empty tile. It has Regeneration. If summoned in a tile a unit died last turn then shuffle a random card from its deck into the Skeleton's. Its deck is x2 Punch, x2 Hand Block.
+- **Effect Text:** Summon a Skeleton minion in an adjacent empty tile. It has Regeneration. If summoned in a tile a unit died last turn then shuffle a random card from its deck into the Skeleton's.
+- **Deck:** x2 Punch, x2 Hand Block.
 - **AP:** 1d6
 - **HP:** 1d6
 ---
@@ -177,7 +178,8 @@
 - **AP Cost:** 4
 - **Class:** 3
 - **Picture:** 
-- **Effect Text:** Summon a Golem minion in an adjacent empty tile. Improve if Shock / Chain Lightning / Flame Hit / Fireball / Rock Crush was played this turn. Its deck is x3 Bash, x2 Hand Block.
+- **Effect Text:** Summon a Golem minion in an adjacent empty tile. Improve if Shock / Chain Lightning / Flame Hit / Fireball / Rock Crush was played this turn. 
+- **Deck:** x3 Bash, x2 Hand Block.
 - **AP:** 1d6
 - **HP:** 1d10
 ---
@@ -229,7 +231,8 @@
 - **AP Cost:** 7
 - **Class:** 2
 - **Picture:** 
-- **Effect Text:** Summon a Wolf minion in an adjacent empty tile. Then flip a coin, if heads summon another Wolf in an adjacent empty tile. If this card is in your deck / discard you take double piercing damage. Its deck is x3 Slash, x1 Call for Wolves.
+- **Effect Text:** Summon a Wolf minion in an adjacent empty tile. Then flip a coin, if heads summon another Wolf in an adjacent empty tile. If this card is in your deck / discard you take double piercing damage.
+ **Deck:** x3 Slash, x1 Call for Wolves.
 - **AP:** 1d10
 - **HP:** 4
 ---
@@ -277,7 +280,8 @@
 - **AP Cost:** 5
 - **Class:** 3
 - **Picture:** 
-- **Effect Text:** Summon a Hellhound minion in an adjacent empty tile. It takes double Holy damage. Its deck is x2 Slash, x2 Flame Hit, x2 Fireball, x3 Dark Shield.
+- **Effect Text:** Summon a Hellhound minion in an adjacent empty tile. It takes double Holy damage.
+- **Deck:** x2 Slash, x2 Flame Hit, x2 Fireball, x3 Dark Shield.
 - **AP:** 2d6
 - **HP:** 2d6
 ---
@@ -294,7 +298,8 @@
 - **AP Cost:** 10
 - **Class:** 3
 - **Picture:** 
-- **Effect Text:** Summon a Demon minion in an adjacent empty tile. It takes double Holy damage. The unit that kills it Drafts a Class 3. Its deck is x2 Death, x2 Flail, x2 Fireball, x1 Summon Hellhound, x3 Dark Shield.
+- **Effect Text:** Summon a Demon minion in an adjacent empty tile. It takes double Holy damage. The unit that kills it Drafts a Class 3. 
+- **Deck:** x2 Death, x2 Flail, x2 Fireball, x1 Summon Hellhound, x3 Dark Shield.
 - **AP:** 4d4
 - **HP:** 3d10
 ---
@@ -381,7 +386,8 @@
 - **AP Cost:** 4
 - **Class:** 2
 - **Picture:** 
-- **Effect Text:** Roll 1d4, summon that many Kobold minions in adjacent empty tiles. Its deck is x1 Punch, x2 Hand Block, x1 Call for Kobolds.
+- **Effect Text:** Roll 1d4, summon that many Kobold minions in adjacent empty tiles. 
+- **Deck:** x1 Punch, x2 Hand Block, x1 Call for Kobolds.
 - **AP:** 1d4
 - **HP:** 1
 ---
@@ -464,7 +470,8 @@
 - **AP Cost:** 5
 - **Class:** 3
 - **Picture:** 
-- **Effect Text:** Transform an adjacent wall into a Wall minion. Improve if used on a Magic Wall. Its deck is x2 Fortify, x2 Ward, x1 Summon Wall. 
+- **Effect Text:** Transform an adjacent wall into a Wall minion. Improve if used on a Magic Wall. 
+- **Deck:** x2 Fortify, x2 Ward, x1 Summon Wall.
 - **AP:** 1d4
 - **HP:** 5
 ---
@@ -473,7 +480,8 @@
 - **AP Cost:** 4
 - **Class:** 3
 - **Picture:** 
-- **Effect Text:** Summon a Kobold King minion in an adjacent empty tile. Its max health is always the # of Kobolds on board + 1. Its deck is x2 Slash, x2 Stab, x2 Full Restore, x1 Call for Kobolds.
+- **Effect Text:** Summon a Kobold King minion in an adjacent empty tile. Its max health is always the # of Kobolds on board + 1. 
+- **Deck:** x2 Slash, x2 Stab, x2 Full Restore, x1 Call for Kobolds.
 - **AP:** 1d6
 - **HP:** 1 + # of Kobolds
 ---
@@ -482,7 +490,8 @@
 - **AP Cost:** 4
 - **Class:** 1
 - **Picture:** 
-- **Effect Text:** Summon an Assistant minion in an adjacent empty tile. While adjacent, the unit who summoned it has +1 Luck, and can reroll their AP if at 0 once per Assistant. Its deck is x1 Lesser Heal, x4 Hand Block. 
+- **Effect Text:** Summon an Assistant minion in an adjacent empty tile. While adjacent, the unit who summoned it has +1 Luck, and can reroll their AP if at 0 once per Assistant. 
+- **Deck:** x1 Lesser Heal, x4 Hand Block. 
 -**AP:** Coinflip
 -**HP:** 1
 ---
@@ -545,6 +554,7 @@
 - **AP Cost:** 4
 - **Class:** 2
 - **Picture:** 
-- **Effect Text:** Summon a Faerie minion in an adjacent empty tile. It has Regeneration. While adjacent, the unit who summoned it is resurrected if they die at 25% X 1d4 of their max health, all status effects are removed. Its deck is x2 Dispel, x2 Lesser Heal, x1 Magic Blast. 
+- **Effect Text:** Summon a Faerie minion in an adjacent empty tile. It has Regeneration. While adjacent, the unit who summoned it is resurrected if they die at 25% X 1d4 of their max health, all status effects are removed.
+- **Deck:** x2 Dispel, x2 Lesser Heal, x1 Magic Blast. 
 - **AP:** 1d4
 - **HP:** 5

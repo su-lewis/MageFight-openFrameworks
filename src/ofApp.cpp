@@ -150,7 +150,7 @@ struct CardTemplateLayout {
 	ofRectangle classRect = ofRectangle(26, 112, 150, 24);
 	ofRectangle effectRect = ofRectangle(96, 928, 864, 384);
 	float nameScale = 1.75f;
-	float nameCurveDropPx = 8.0f;
+	float nameCurveDropPx = 0.0f;
 	float nameMiddleClampXMin = 416.0f;
 	float nameMiddleClampXMax = 656.0f;
 	float nameMiddleBottomMaxY = 846.0f;
@@ -286,10 +286,13 @@ static void drawArcCenteredTextScaled(const ofTrueTypeFont & font,
 	std::vector<float> advances;
 	advances.reserve(text.size());
 	float totalWidthUnscaled = 0.0f;
-	float fallbackAdvance = std::max(2.0f, font.getLineHeight() * 0.28f);
-	for (char ch : text) {
-		std::string glyph(1, ch);
-		float adv = font.getStringBoundingBox(glyph, 0, 0).width;
+	float fallbackAdvance = std::max(2.0f, font.getLineHeight() * 0.24f);
+	for (size_t i = 0; i < text.size(); ++i) {
+		// Use prefix-width deltas so spacing/kerning between characters and words
+		// stays natural (drawing glyphs one-by-one otherwise exaggerates spaces).
+		float prevW = (i == 0) ? 0.0f : font.getStringBoundingBox(text.substr(0, i), 0, 0).width;
+		float currW = font.getStringBoundingBox(text.substr(0, i + 1), 0, 0).width;
+		float adv = currW - prevW;
 		if (adv <= 0.0f) adv = fallbackAdvance;
 		advances.push_back(adv);
 		totalWidthUnscaled += adv;
@@ -330,7 +333,8 @@ static void drawWrappedTextScaled(const ofTrueTypeFont & font, const std::string
 	if (lines.empty()) return;
 
 	float lineH = font.getLineHeight() * scale * std::max(0.6f, lineSpacing);
-	float y = rect.y + lineH;
+	float totalH = lineH * (float)lines.size();
+	float y = rect.y + std::max(0.0f, (rect.height - totalH) * 0.5f) + lineH;
 	for (size_t i = 0; i < lines.size(); ++i) {
 		if (y > rect.getBottom()) break;
 		ofPushMatrix();
@@ -445,6 +449,9 @@ static bool rebuildCardSpriteSheetFromTemplate(const std::string & templatePath,
 
 	CardTemplateLayout layout;
 
+	const ofTrueTypeFont & renderUIFont = uiFont;
+	const ofTrueTypeFont & renderTitleFont = titleFont;
+
 	ofFbo fbo;
 	ofFboSettings fboSettings;
 	fboSettings.width = sheetW;
@@ -478,19 +485,12 @@ static bool rebuildCardSpriteSheetFromTemplate(const std::string & templatePath,
 		ofTranslate(x, y);
 		ofPushStyle();
 		ofSetColor(12, 12, 12, 255);
-		drawArcCenteredTextScaled(titleFont,
-			rec.name,
-			layout.nameRect,
-			layout.nameScale,
-			layout.nameCurveDropPx,
-			layout.nameMiddleClampXMin,
-			layout.nameMiddleClampXMax,
-			layout.nameMiddleBottomMaxY);
-		drawCenteredTextScaled(titleFont, rec.apCost, layout.costRect, layout.costScale);
+		drawCenteredTextScaled(renderTitleFont, rec.name, layout.nameRect, layout.nameScale);
+		drawCenteredTextScaled(renderTitleFont, rec.apCost, layout.costRect, layout.costScale);
 		ofRectangle effectTextRect = layout.effectRect;
 		effectTextRect.x += 3.0f;
 		effectTextRect.width = std::max(0.0f, effectTextRect.width - 6.0f);
-		drawWrappedTextScaled(uiFont, rec.effectText, effectTextRect, layout.effectScale, layout.effectLineSpacing);
+		drawWrappedTextScaled(renderUIFont, rec.effectText, effectTextRect, layout.effectScale, layout.effectLineSpacing);
 		ofPopStyle();
 		ofPopMatrix();
 	}
