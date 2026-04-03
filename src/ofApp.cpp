@@ -296,10 +296,16 @@ static void drawCenteredTextScaledOutlined(const ofTrueTypeFont & font,
 		}
 	}
 
+	// Slightly shrink the fill pass so the black stroke reads a bit thicker
+	// toward the inside (Hearthstone-like), without expanding too much outward.
+	float fillScale = scale * 0.97f;
+	float txFill = rect.x + (rect.width - b.width * fillScale) * 0.5f - b.x * fillScale;
+	float tyFill = rect.y + (rect.height - b.height * fillScale) * 0.5f - b.y * fillScale;
+
 	ofSetColor(fillColor);
 	ofPushMatrix();
-	ofTranslate(tx, ty);
-	ofScale(scale, scale);
+	ofTranslate(txFill, tyFill);
+	ofScale(fillScale, fillScale);
 	font.drawString(text, 0, 0);
 	ofPopMatrix();
 }
@@ -615,8 +621,9 @@ static bool rebuildCardSpriteSheetFromTemplate(const std::string & templatePath,
 		ofPushMatrix();
 		ofTranslate(x, y);
 		ofPushStyle();
-		drawCenteredTextScaledOutlined(renderTitleFont, rec.name, layout.nameRect, layout.nameScale, ofColor::white, ofColor::black, 3);
-		drawCenteredTextScaledOutlined(renderTitleFont, rec.apCost, layout.costRect, layout.costScale, ofColor::white, ofColor::black, 3);
+		drawCenteredTextScaledOutlined(renderTitleFont, rec.name, layout.nameRect, layout.nameScale, ofColor::white, ofColor::black, 4);
+		drawCenteredTextScaledOutlined(renderTitleFont, rec.apCost, layout.costRect, layout.costScale, ofColor::white, ofColor::black, 4);
+		drawCenteredTextScaledOutlined(renderUIFont, rec.targeting, layout.targetingRect, layout.labelScale, ofColor::white, ofColor::black, 2);
 		ofSetColor(12, 12, 12, 255);
 		drawWrappedTextScaled(renderUIFont, rec.effectText, effectTextRect, uniformEffectScale, layout.effectLineSpacing);
 		ofPopStyle();
@@ -8811,8 +8818,9 @@ void ofApp::drawGame() {
 	// During drafting, timer ownership belongs to the drafting player, not the current turn owner.
 	bool showGameplayTimer = (!isMultiplayer || isMyTurn());
 	bool showDraftTimer = (!isMultiplayer || isLocalDraftingPlayer(draftPlayerIndex));
+	bool timerStateVisible = (currentState == STATE_GAMEPLAY) || (currentState == STATE_DRAFTING && !draftOptions.empty());
 	bool shouldShowTopTimer = (currentState == STATE_DRAFTING) ? showDraftTimer : showGameplayTimer;
-	if (turnTimerEnabled && currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size() && shouldShowTopTimer) {
+	if (turnTimerEnabled && timerStateVisible && currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size() && shouldShowTopTimer) {
 		float elapsedSeconds = 0.0f;
 		if (turnTimerPaused) {
 			elapsedSeconds = std::max(0.0f, turnDurationSeconds - turnTimerPausedRemaining);
@@ -30349,7 +30357,8 @@ void ofApp::generateDraftOptions(int classTier, const std::vector<int> * forcedI
 	// Remember which player these options belong to
 	lastDraftOptionsPlayer = draftPlayerIndex;
 	// Separate draft timers per drafting player.
-	if (turnTimerEnabled && previousDraftPlayer != draftPlayerIndex) {
+	const bool isFirstInitialDraftReveal = (!initialDraftComplete && classTier == 1 && draftStage == 0);
+	if (turnTimerEnabled && (previousDraftPlayer != draftPlayerIndex || isFirstInitialDraftReveal)) {
 		turnStartTime = ofGetElapsedTimef();
 	}
 
@@ -30406,7 +30415,8 @@ void ofApp::applyDraftOptionsFromPool(int classTier, const std::vector<int> & in
 	draftPicksRemaining = picksRemaining;
 	draftPlayerIndex = draftingPlayerIdx;
 	lastDraftOptionsPlayer = draftingPlayerIdx;
-	if (turnTimerEnabled && previousDraftPlayer != draftingPlayerIdx) {
+	const bool isFirstInitialDraftReveal = (!initialDraftComplete && classTier == 1 && draftStage == 0);
+	if (turnTimerEnabled && (previousDraftPlayer != draftingPlayerIdx || isFirstInitialDraftReveal)) {
 		turnStartTime = ofGetElapsedTimef();
 	}
 	selectedDraftIndices.clear();

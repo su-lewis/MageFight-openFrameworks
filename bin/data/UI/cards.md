@@ -224,7 +224,7 @@
 - **AP Cost:** 3
 - **Class:** 1
 - **Picture:** 
-- **Effect Text:** Roll Xd20 where X is the # of non-physical damage you're blocking, if 10-15 Draft a Class 1 card, 16-19 Draft a Class 2 card, 20+ Draft a Class 3 card. For each physical damage you're blocking, flip a coin, heads raises your max health by 1, tails lowers an adjacent unit's max health by 1.
+- **Effect Text:** Roll Xd20. X is the # of non-physical damage you're blocking. For rolls 10-15 Draft a Class 1, 16-19 Draft a Class 2, 20+ Draft a Class 3. For each physical damage, flip a coin, heads gains +1 max health, tails lowers an adjacent unit's max health by 1.
 ---
 
 -## 30. Call for Wolves
@@ -316,7 +316,7 @@
 - **AP Cost:** 3
 - **Class:** 1
 - **Picture:** 
-- **Effect Text:** Choose One - Draft a Class 1 card; or gain +3 AP next turn.
+- **Effect Text:** Choose One - Draft a Class 1; or gain +3 AP next turn.
 ---
 
 -## 41. Chain Lightning
@@ -332,7 +332,7 @@
 - **AP Cost:** 6
 - **Class:** 1
 - **Picture:** 
-- **Effect Text:** Draft a Class 2 card. Draw an extra card next turn.
+- **Effect Text:** Draft a Class 2. Draw an extra card next turn.
 ---
 
 -## 43. Consume Health Potion
@@ -500,7 +500,7 @@
 - **AP Cost:** 4
 - **Class:** 3
 - **Picture:** 
-- **Effect Text:** If your max health is 16-20 Draft a Class 1 card, 21-25 Draft a Class 2 card, 26-30 Draft a Class 3 card, 30+ win the game.
+- **Effect Text:** If your max health is 16-20 Draft a Class 1, 21-25 Draft a Class 2, 26-30 Draft a Class 3, 30+ win the game.
 ---
 
 -## 64. Four-leaf clover
