@@ -663,6 +663,7 @@ static bool rebuildCardSpriteSheetFromTemplate(const std::string & templatePath,
 
 		if (rec.name.empty()) rec.name = card.name;
 		if (rec.apCost.empty()) rec.apCost = ofToString(card.cost);
+		if (rec.targeting.empty()) rec.targeting = targetingLabel(card.targeting);
 		// Intentionally do NOT auto-fill extra fields like damage type/targeting/class.
 		// Only explicitly requested fields are rendered from cards.md + configured rects.
 
