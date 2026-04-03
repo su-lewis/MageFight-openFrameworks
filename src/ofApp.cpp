@@ -1309,6 +1309,7 @@ void ofApp::pauseTurnTimerForOpponentDecision(int decidingPlayerIndex) {
 			turnTimerPausedRemaining = std::max(0.0f, (turnStartTime + turnDurationSeconds) - now);
 			opponentDecisionTimerActive = true;
 			opponentDecisionStartTime = now;
+			opponentDecisionDuration = 30.0f;
 			opponentDecisionPlayerIndex = decidingPlayerIndex;
 		}
 	}
@@ -4369,8 +4370,67 @@ void ofApp::updateGame() {
 		}
 	}
 
-	// --- TURN TIMER CHECK (run early so it continues during modal menus/drafting) ---
-	if (turnTimerEnabled && !turnStartDeferred && currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size() && (!isMultiplayer || isMyTurn())) {
+	// --- OPPONENT DECISION TIMER CHECK (30s mini timer for modal menu choices) ---
+	if (turnTimerEnabled && opponentDecisionTimerActive && cardInteractionState == CARD_INTERACTION_MENU && (interactingCardType == CARD_MAGIC_BLAST || interactingCardType == CARD_GHOST_RELOCATE)) {
+		float now = ofGetElapsedTimef();
+		float elapsedDecision = now - opponentDecisionStartTime;
+		if (elapsedDecision >= opponentDecisionDuration) {
+			bool localOwnsDecision = true;
+			if (isMultiplayer && opponentDecisionPlayerIndex >= 0 && opponentDecisionPlayerIndex < (int)players.size()) {
+				const Player & decider = players[opponentDecisionPlayerIndex];
+				int deciderOwner = decider.isMinion ? decider.ownerID : decider.playerID;
+				localOwnsDecision = (deciderOwner == myLocalPlayerID);
+			}
+
+			if (localOwnsDecision) {
+				InputCommandPacket cmd = {};
+				cmd.type = PKT_INPUT_COMMAND;
+				cmd.playerID = myLocalPlayerID;
+				cmd.seq = 0;
+				cmd.commandId = nextCommandId++;
+				cmd.turnNumber = globalTurnCounter;
+				cmd.commandType = CMD_MENU_CHOICE;
+
+				bool issuedChoice = false;
+				if (interactingCardType == CARD_MAGIC_BLAST) {
+					// Randomly choose damage(1) or discard(2)
+					std::vector<int> raw;
+					int roll = resolveDiceRollDetailed(1, 2, raw);
+					cmd.params[0] = CARD_MAGIC_BLAST;
+					cmd.params[1] = interactionTargetIndex;
+					cmd.params[2] = (roll <= 1) ? 1 : 2;
+					cmd.params[3] = interactingCardIndex;
+					issuedChoice = true;
+				} else if (interactingCardType == CARD_GHOST_RELOCATE) {
+					int maxChoices = std::max(0, std::min((int)ghostRelocateChoices.size(), 4));
+					if (maxChoices > 0) {
+						std::vector<int> raw;
+						int roll = resolveDiceRollDetailed(1, maxChoices, raw);
+						int choiceIdx = std::clamp(roll - 1, 0, maxChoices - 1);
+						cmd.params[0] = MENU_GHOST_RELOCATE;
+						cmd.params[1] = ghostRelocateTargetIndex;
+						cmd.params[2] = choiceIdx;
+						cmd.params[3] = -1;
+						issuedChoice = true;
+					}
+				}
+
+				if (issuedChoice) {
+					ofLogNotice("Timer") << "Opponent decision timer expired. Auto-selecting menu choice.";
+					sendInputCommand(cmd, true);
+					// Prevent duplicate timeout sends while waiting for command execution.
+					opponentDecisionStartTime = now;
+					opponentDecisionDuration = 9999.0f;
+				}
+			}
+		}
+	}
+
+	// --- TURN TIMER CHECK (run early so it continues during gameplay/drafting) ---
+	bool handlesGameplayTimerHere = (!isMultiplayer || isMyTurn());
+	bool handlesDraftTimerHere = (!isMultiplayer || isLocalDraftingPlayer(draftPlayerIndex));
+	bool localShouldRunTimerHere = (currentState == STATE_DRAFTING) ? handlesDraftTimerHere : handlesGameplayTimerHere;
+	if (turnTimerEnabled && !turnStartDeferred && !turnTimerPaused && currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size() && localShouldRunTimerHere) {
 		// Run timer checks even if modal UI is open; drafting/gameplay variations handled inside
 		if (currentState == STATE_GAMEPLAY || currentState == STATE_DRAFTING) {
 			float elapsedSeconds = ofGetElapsedTimef() - turnStartTime;
@@ -4419,6 +4479,12 @@ void ofApp::updateGame() {
 					}
 				} else {
 					// Auto-end-turn during gameplay
+					bool draftRewardVisualsActive = (!activeDraftPickedMoves.empty() || !activeShuffleAnimations.empty() || deckFlashStartTime > 0.0f);
+					if (draftRewardVisualsActive) {
+						// If draft just resolved from a timeout, let reward visuals finish before ending turn.
+						ofLogNotice("Timer") << "Turn timer expired but waiting for draft reward visuals before auto-end-turn.";
+						return;
+					}
 					ofLogNotice("Timer") << "Turn time limit exceeded (" << turnDurationSeconds << "s). Auto-ending turn.";
 					// If I'm the active local player, submit a deterministic CMD_END_TURN.
 					if (!isMultiplayer || isMyTurn()) {
@@ -5969,7 +6035,10 @@ void ofApp::updateGame() {
 	}
 
 	// --- TURN TIMER CHECK ---
-	if (turnTimerEnabled && !turnStartDeferred && (currentState == STATE_GAMEPLAY || currentState == STATE_DRAFTING) && currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size() && (!isMultiplayer || isMyTurn())) {
+	bool handlesGameplayTimerHere2 = (!isMultiplayer || isMyTurn());
+	bool handlesDraftTimerHere2 = (!isMultiplayer || isLocalDraftingPlayer(draftPlayerIndex));
+	bool localShouldRunTimerHere2 = (currentState == STATE_DRAFTING) ? handlesDraftTimerHere2 : handlesGameplayTimerHere2;
+	if (turnTimerEnabled && !turnStartDeferred && !turnTimerPaused && (currentState == STATE_GAMEPLAY || currentState == STATE_DRAFTING) && currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size() && localShouldRunTimerHere2) {
 		float elapsedSeconds = ofGetElapsedTimef() - turnStartTime;
 		if (elapsedSeconds >= turnDurationSeconds) {
 			if (currentState == STATE_DRAFTING) {
@@ -6009,6 +6078,12 @@ void ofApp::updateGame() {
 				}
 			} else {
 				// Timer expired during gameplay: end turn normally
+				bool draftRewardVisualsActive = (!activeDraftPickedMoves.empty() || !activeShuffleAnimations.empty() || deckFlashStartTime > 0.0f);
+				if (draftRewardVisualsActive) {
+					// If draft just resolved from a timeout, let reward visuals finish before ending turn.
+					ofLogNotice("Timer") << "Turn timer expired but waiting for draft reward visuals before auto-end-turn.";
+					return;
+				}
 				ofLogNotice("Timer") << "Turn time limit exceeded (" << turnDurationSeconds << "s). Auto-ending turn.";
 				// In multiplayer, send a deterministic CMD_END_TURN so lockstep
 				// advances identically; in singleplayer, advance immediately.
@@ -8226,9 +8301,17 @@ void ofApp::drawGame() {
 	(void)fontScale;
 
 	// --- DRAW TURN TIMER BAR AT TOP OF SCREEN ---
-	// Always show the turn timer for the active player (including during forced in-game menus/drafting)
-	if (turnTimerEnabled && currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size() && (!isMultiplayer || isMyTurn())) {
-		float elapsedSeconds = turnStartDeferred ? 0.0f : (ofGetElapsedTimef() - turnStartTime);
+	// During drafting, timer ownership belongs to the drafting player, not the current turn owner.
+	bool showGameplayTimer = (!isMultiplayer || isMyTurn());
+	bool showDraftTimer = (!isMultiplayer || isLocalDraftingPlayer(draftPlayerIndex));
+	bool shouldShowTopTimer = (currentState == STATE_DRAFTING) ? showDraftTimer : showGameplayTimer;
+	if (turnTimerEnabled && currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size() && shouldShowTopTimer) {
+		float elapsedSeconds = 0.0f;
+		if (turnTimerPaused) {
+			elapsedSeconds = std::max(0.0f, turnDurationSeconds - turnTimerPausedRemaining);
+		} else {
+			elapsedSeconds = turnStartDeferred ? 0.0f : (ofGetElapsedTimef() - turnStartTime);
+		}
 		float progress = std::min(1.0f, elapsedSeconds / turnDurationSeconds); // 0 to 1
 
 		// Bar dimensions: stretch from left to right, thin at top
@@ -15940,7 +16023,7 @@ void ofApp::handleCardMenuClick(const std::string & buttonId) {
 					rem.type = EffectOpType::MODIFY_TILE;
 					rem.data.modifyTile.toX = wallPos.x;
 					rem.data.modifyTile.toY = wallPos.y;
-					rem.data.modifyTile.setHasWall = 0;
+					rem.data.modifyTile.setHasWall = -1;
 					queueEffect(rem);
 
 					EffectOp create = {};
@@ -15988,7 +16071,7 @@ void ofApp::handleCardMenuClick(const std::string & buttonId) {
 				remWall.type = EffectOpType::MODIFY_TILE;
 				remWall.data.modifyTile.toX = wallPos.x;
 				remWall.data.modifyTile.toY = wallPos.y;
-				remWall.data.modifyTile.setHasWall = 0;
+				remWall.data.modifyTile.setHasWall = -1;
 				queueEffect(remWall);
 
 				EffectOp create = {};
@@ -16969,7 +17052,6 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 			rm.data.status.duration = 0;
 			queueEffect(rm);
 			// Visual / cleanup
-			queueFloatingTextVisual(gridToWorld(dest.x, dest.y), "Materialized: Teleported", ofColor::cyan);
 			// Close any open opponent visualization and local menu
 			if (isMultiplayer) sendMenuState(0, -1, -1, -1);
 			resetCardInteraction();
@@ -20168,6 +20250,37 @@ void ofApp::processVisualEvents() {
 
 // Queue a floating text via the visual event system (non-authoritative visual only)
 void ofApp::queueFloatingTextVisual(glm::vec3 pos, std::string text, ofColor color, float duration) {
+	// Temporary global filter: only keep damage-number + damage-type texts
+	// like "-5 Fire", "-2 Magic", "-0 Piercing", "-3 ZAP!".
+	auto isDamageNumberWithType = [&](const std::string & s) {
+		if (s.size() < 3) return false;
+		if (s[0] != '-') return false;
+
+		size_t i = 1;
+		bool hasDigits = false;
+		while (i < s.size() && s[i] >= '0' && s[i] <= '9') {
+			hasDigits = true;
+			++i;
+		}
+		if (!hasDigits) return false;
+
+		while (i < s.size() && s[i] == ' ')
+			++i;
+		if (i >= s.size()) return false; // no type text
+
+		bool hasAlpha = false;
+		for (; i < s.size(); ++i) {
+			char c = s[i];
+			if ((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z')) {
+				hasAlpha = true;
+				break;
+			}
+		}
+		return hasAlpha;
+	};
+
+	if (!isDamageNumberWithType(text)) return;
+
 	VisualEvent ev = {};
 	ev.type = VE_CUSTOM;
 	ev.startPos = pos;
@@ -28050,35 +28163,6 @@ void ofApp::drawMagicBlastChoiceUI() {
 	// Use standardized panel helper (Damage = red, Discard = slate blue)
 	drawCardChoicePanel(panelRect, prompt, choicesLeft, magicBlastDamageButton, magicBlastDiscardButton,
 		"Take 5 Damage", "Remove Top Card of Deck", ofColor::indianRed, ofColor::darkSlateBlue, isLocalTarget, isLocalTarget);
-
-	// Opponent decision timer display (progress bar + seconds) when active for this target
-	if (opponentDecisionTimerActive && opponentDecisionPlayerIndex == magicBlastTargetPlayerIndex) {
-		float elapsed = ofGetElapsedTimef() - opponentDecisionStartTime;
-		float remaining = std::max(0.0f, opponentDecisionDuration - elapsed);
-		float pct = (opponentDecisionDuration > 0.0f) ? (remaining / opponentDecisionDuration) : 0.0f;
-
-		// Draw a small progress bar at the top-right of the panel
-		float barW = 160.0f;
-		float barH = 16.0f;
-		float barX = panelRect.x + panelRect.getWidth() - barW - 20.0f;
-		float barY = panelRect.y + 18.0f;
-
-		ofSetColor(20, 20, 30, 220);
-		ofDrawRectRounded(barX - 4.0f, barY - 4.0f, barW + 8.0f, barH + 8.0f, 6.0f);
-		// Background
-		ofSetColor(60, 60, 70);
-		ofDrawRectRounded(barX, barY, barW, barH, 4.0f);
-		// Foreground (progress)
-		ofSetColor(ofColor::fromHsb(120 * pct, 200, 220));
-		ofDrawRectRounded(barX, barY, barW * pct, barH, 4.0f);
-
-		// Remaining seconds text
-		int secs = (int)std::ceil(remaining);
-		ofSetColor(ofColor::white);
-		std::string secsText = ofToString(secs) + "s";
-		ofRectangle tb = uiFont.getStringBoundingBox(secsText, 0, 0);
-		uiFont.drawString(secsText, barX + barW / 2.0f - tb.getWidth() / 2.0f, barY + barH / 2.0f + tb.getHeight() / 4.0f);
-	}
 }
 
 void ofApp::drawGhostRelocateUI() {
@@ -28124,27 +28208,6 @@ void ofApp::drawGhostRelocateUI() {
 		enabled.push_back(isLocalTarget);
 	}
 	drawOptionCards(panel, title, desc, labels, accents, enabled, ghostRelocateButtons);
-
-	// Decision timer if applicable
-	if (opponentDecisionTimerActive && opponentDecisionPlayerIndex == ghostRelocateTargetIndex) {
-		float elapsed = ofGetElapsedTimef() - opponentDecisionStartTime;
-		float remaining = std::max(0.0f, opponentDecisionDuration - elapsed);
-		float pct = (opponentDecisionDuration > 0.0f) ? (remaining / opponentDecisionDuration) : 0.0f;
-		float barW = 160.0f, barH = 16.0f;
-		float barX = panel.x + panel.getWidth() - barW - 20.0f;
-		float barY = panel.y + 18.0f;
-		ofSetColor(20, 20, 30, 220);
-		ofDrawRectRounded(barX - 4.0f, barY - 4.0f, barW + 8.0f, barH + 8.0f, 6.0f);
-		ofSetColor(60, 60, 70);
-		ofDrawRectRounded(barX, barY, barW, barH, 4.0f);
-		ofSetColor(ofColor::fromHsb(120 * pct, 200, 220));
-		ofDrawRectRounded(barX, barY, barW * pct, barH, 4.0f);
-		int secs = (int)std::ceil(remaining);
-		ofSetColor(ofColor::white);
-		string secsText = ofToString(secs) + "s";
-		ofRectangle tb = uiFont.getStringBoundingBox(secsText, 0, 0);
-		uiFont.drawString(secsText, barX + barW / 2.0f - tb.getWidth() / 2.0f, barY + barH / 2.0f + tb.getHeight() / 4.0f);
-	}
 }
 
 //------------------------------------------------------------------------
@@ -28170,6 +28233,30 @@ void ofApp::drawCardChoicePanel(const ofRectangle & panelRect,
 	// Panel background (caller is expected to draw overlay if desired)
 	ofSetColor(30, 30, 40, 240);
 	ofDrawRectRounded(panelRect, 12);
+
+	// Mini decision timer (used when another player's menu decision pauses the turn timer)
+	if (opponentDecisionTimerActive) {
+		float elapsed = ofGetElapsedTimef() - opponentDecisionStartTime;
+		float remaining = std::max(0.0f, opponentDecisionDuration - elapsed);
+		float pct = (opponentDecisionDuration > 0.0f) ? (remaining / opponentDecisionDuration) : 0.0f;
+		float barW = std::min(240.0f, panelRect.getWidth() * 0.5f);
+		float barH = 14.0f;
+		float barX = panelRect.getCenter().x - barW * 0.5f;
+		float barY = panelRect.y - 26.0f;
+
+		ofSetColor(20, 20, 30, 220);
+		ofDrawRectRounded(barX - 4.0f, barY - 4.0f, barW + 8.0f, barH + 8.0f, 6.0f);
+		ofSetColor(60, 60, 70);
+		ofDrawRectRounded(barX, barY, barW, barH, 4.0f);
+		ofSetColor(ofColor::fromHsb(120 * pct, 200, 220));
+		ofDrawRectRounded(barX, barY, barW * pct, barH, 4.0f);
+
+		int secs = (int)std::ceil(remaining);
+		std::string secsText = "Decision " + ofToString(secs) + "s";
+		ofSetColor(ofColor::white);
+		ofRectangle tb = uiFont.getStringBoundingBox(secsText, 0, 0);
+		uiFont.drawString(secsText, barX + barW / 2.0f - tb.getWidth() / 2.0f, barY - 6.0f);
+	}
 
 	// Title
 	ofSetColor(ofColor::white);
@@ -28242,6 +28329,30 @@ void ofApp::drawOptionCards(const ofRectangle & panelRect,
 	// Panel background
 	ofSetColor(30, 30, 40, 240);
 	ofDrawRectRounded(panelRect, 12);
+
+	// Mini decision timer above panel
+	if (opponentDecisionTimerActive) {
+		float elapsed = ofGetElapsedTimef() - opponentDecisionStartTime;
+		float remaining = std::max(0.0f, opponentDecisionDuration - elapsed);
+		float pct = (opponentDecisionDuration > 0.0f) ? (remaining / opponentDecisionDuration) : 0.0f;
+		float barW = std::min(240.0f, panelRect.getWidth() * 0.5f);
+		float barH = 14.0f;
+		float barX = panelRect.getCenter().x - barW * 0.5f;
+		float barY = panelRect.y - 26.0f;
+
+		ofSetColor(20, 20, 30, 220);
+		ofDrawRectRounded(barX - 4.0f, barY - 4.0f, barW + 8.0f, barH + 8.0f, 6.0f);
+		ofSetColor(60, 60, 70);
+		ofDrawRectRounded(barX, barY, barW, barH, 4.0f);
+		ofSetColor(ofColor::fromHsb(120 * pct, 200, 220));
+		ofDrawRectRounded(barX, barY, barW * pct, barH, 4.0f);
+
+		int secs = (int)std::ceil(remaining);
+		std::string secsText = "Decision " + ofToString(secs) + "s";
+		ofSetColor(ofColor::white);
+		ofRectangle tb = uiFont.getStringBoundingBox(secsText, 0, 0);
+		uiFont.drawString(secsText, barX + barW / 2.0f - tb.getWidth() / 2.0f, barY - 6.0f);
+	}
 
 	// Title
 	ofSetColor(ofColor::white);
@@ -29609,6 +29720,7 @@ void ofApp::cancelMagicHand() {
 //--------------------------------------------------------------
 void ofApp::generateDraftOptions(int classTier, const std::vector<int> * forcedIndices) {
 	ofLogNotice("Draft") << "generateDraftOptions called: classTier=" << classTier << " draftPlayerIndex=" << draftPlayerIndex << " draftStage=" << draftStage << " draftGenerationCounter=" << draftGenerationCounter;
+	int previousDraftPlayer = lastDraftOptionsPlayer;
 	draftAcceptLocked = false;
 	draftAcceptApplied = false;
 
@@ -29700,6 +29812,10 @@ void ofApp::generateDraftOptions(int classTier, const std::vector<int> * forcedI
 
 	// Remember which player these options belong to
 	lastDraftOptionsPlayer = draftPlayerIndex;
+	// Separate draft timers per drafting player.
+	if (turnTimerEnabled && previousDraftPlayer != draftPlayerIndex) {
+		turnStartTime = ofGetElapsedTimef();
+	}
 
 	// Initialize Accept button animation to match cards
 	draftAcceptUI.startScale = 0.0f;
@@ -29716,6 +29832,7 @@ void ofApp::generateDraftOptions(int classTier, const std::vector<int> * forcedI
 
 // Apply authoritative option indices sent by host (clients call this when receiving DraftOptionsPacket)
 void ofApp::applyDraftOptionsFromPool(int classTier, const std::vector<int> & indices, int picksRemaining, int draftingPlayerIdx) {
+	int previousDraftPlayer = draftPlayerIndex;
 	draftOptions.clear();
 	currentDraftClassTier = classTier;
 	// --- FIX: Correct vector initialization syntax ---
@@ -29753,6 +29870,9 @@ void ofApp::applyDraftOptionsFromPool(int classTier, const std::vector<int> & in
 	draftPicksRemaining = picksRemaining;
 	draftPlayerIndex = draftingPlayerIdx;
 	lastDraftOptionsPlayer = draftingPlayerIdx;
+	if (turnTimerEnabled && previousDraftPlayer != draftingPlayerIdx) {
+		turnStartTime = ofGetElapsedTimef();
+	}
 	selectedDraftIndices.clear();
 	currentState = STATE_DRAFTING; // Force state transition
 	waitingForDraftOptionsStartTime = 0.0f; // We have the options now
