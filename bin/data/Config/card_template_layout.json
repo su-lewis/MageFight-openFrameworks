@@ -35,10 +35,10 @@
         "w": 864,
         "h": 384
     },
-    "nameScale": 1.35,
+    "nameScale": 1.5,
     "nameCurveDropPx": 8.0,
-    "costScale": 1.65,
+    "costScale": 1.9,
     "labelScale": 0.58,
-    "effectScale": 1.15,
-    "effectLineSpacing": 1.08
+    "effectScale": 2.2,
+    "effectLineSpacing": 1.12
 }

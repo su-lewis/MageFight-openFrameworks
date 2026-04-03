@@ -143,18 +143,21 @@ struct CardTemplateRecord {
 };
 
 struct CardTemplateLayout {
-	ofRectangle nameRect = ofRectangle(26, 34, 296, 44);
-	ofRectangle costRect = ofRectangle(332, 26, 54, 54);
+	ofRectangle nameRect = ofRectangle(208, 768, 656, 117); // +5px height
+	ofRectangle costRect = ofRectangle(48, 48, 96, 96);
 	ofRectangle damageTypeRect = ofRectangle(26, 84, 176, 24);
 	ofRectangle targetingRect = ofRectangle(206, 84, 180, 24);
 	ofRectangle classRect = ofRectangle(26, 112, 150, 24);
-	ofRectangle effectRect = ofRectangle(26, 352, 357, 206);
-	float nameScale = 0.85f;
+	ofRectangle effectRect = ofRectangle(96, 928, 864, 384);
+	float nameScale = 1.75f;
 	float nameCurveDropPx = 8.0f;
-	float costScale = 1.0f;
-	float labelScale = 0.58f;
-	float effectScale = 0.56f;
-	float effectLineSpacing = 1.0f;
+	float nameMiddleClampXMin = 416.0f;
+	float nameMiddleClampXMax = 656.0f;
+	float nameMiddleBottomMaxY = 846.0f;
+	float costScale = 2.5f;
+	float labelScale = 1.0f;
+	float effectScale = 2.5f;
+	float effectLineSpacing = 0.75f;
 };
 
 static std::string trimCopy(const std::string & in) {
@@ -266,7 +269,14 @@ static void drawCenteredTextScaled(const ofTrueTypeFont & font, const std::strin
 	ofPopMatrix();
 }
 
-static void drawArcCenteredTextScaled(const ofTrueTypeFont & font, const std::string & text, const ofRectangle & rect, float scale, float endDropPx) {
+static void drawArcCenteredTextScaled(const ofTrueTypeFont & font,
+	const std::string & text,
+	const ofRectangle & rect,
+	float scale,
+	float endDropPx,
+	float clampXMin,
+	float clampXMax,
+	float clampBottomY) {
 	if (text.empty()) return;
 	if (std::abs(endDropPx) < 0.001f) {
 		drawCenteredTextScaled(font, text, rect, scale);
@@ -294,12 +304,18 @@ static void drawArcCenteredTextScaled(const ofTrueTypeFont & font, const std::st
 	float cursorX = startX;
 	for (size_t i = 0; i < text.size(); ++i) {
 		float advScaled = advances[i] * scale;
-		float centerRatio = ((cursorX + advScaled * 0.5f) - startX) / std::max(1.0f, totalWidthScaled);
+		float charCenterX = cursorX + advScaled * 0.5f;
+		float centerRatio = (charCenterX - startX) / std::max(1.0f, totalWidthScaled);
 		float norm = (centerRatio - 0.5f) * 2.0f; // -1 at left, +1 at right
 		float yOffset = endDropPx * norm * norm; // ends drop, center stays highest
+		float drawY = baselineY + yOffset;
+
+		if (clampXMax > clampXMin && charCenterX >= clampXMin && charCenterX <= clampXMax) {
+			drawY = std::min(drawY, clampBottomY);
+		}
 
 		ofPushMatrix();
-		ofTranslate(cursorX, baselineY + yOffset);
+		ofTranslate(cursorX, drawY);
 		ofScale(scale, scale);
 		font.drawString(std::string(1, text[i]), 0, 0);
 		ofPopMatrix();
@@ -392,40 +408,8 @@ static bool parseCardTemplateMarkdown(const std::string & markdownPath, std::uno
 	return !out.empty();
 }
 
-static void parseLayoutRect(const ofJson & json, const char * key, ofRectangle & rect) {
-	if (!json.contains(key) || !json[key].is_object()) return;
-	const auto & obj = json[key];
-	rect.x = obj.value("x", rect.x);
-	rect.y = obj.value("y", rect.y);
-	rect.width = obj.value("w", rect.width);
-	rect.height = obj.value("h", rect.height);
-}
-
-static void loadCardTemplateLayout(const std::string & layoutPath, CardTemplateLayout & layout) {
-	if (!ofFile(layoutPath).exists()) return;
-	try {
-		ofJson j = ofLoadJson(layoutPath);
-		parseLayoutRect(j, "nameRect", layout.nameRect);
-		parseLayoutRect(j, "costRect", layout.costRect);
-		parseLayoutRect(j, "damageTypeRect", layout.damageTypeRect);
-		parseLayoutRect(j, "targetingRect", layout.targetingRect);
-		parseLayoutRect(j, "classRect", layout.classRect);
-		parseLayoutRect(j, "effectRect", layout.effectRect);
-
-		layout.nameScale = j.value("nameScale", layout.nameScale);
-		layout.nameCurveDropPx = j.value("nameCurveDropPx", layout.nameCurveDropPx);
-		layout.costScale = j.value("costScale", layout.costScale);
-		layout.labelScale = j.value("labelScale", layout.labelScale);
-		layout.effectScale = j.value("effectScale", layout.effectScale);
-		layout.effectLineSpacing = j.value("effectLineSpacing", layout.effectLineSpacing);
-	} catch (...) {
-		ofLogWarning("Cards") << "Failed to parse card template layout JSON: " << layoutPath;
-	}
-}
-
 static bool rebuildCardSpriteSheetFromTemplate(const std::string & templatePath,
 	const std::string & markdownPath,
-	const std::string & layoutPath,
 	const std::vector<Card> & allCards,
 	const ofTrueTypeFont & titleFont,
 	const ofTrueTypeFont & uiFont,
@@ -460,7 +444,6 @@ static bool rebuildCardSpriteSheetFromTemplate(const std::string & templatePath,
 	}
 
 	CardTemplateLayout layout;
-	loadCardTemplateLayout(layoutPath, layout);
 
 	ofFbo fbo;
 	ofFboSettings fboSettings;
@@ -495,9 +478,19 @@ static bool rebuildCardSpriteSheetFromTemplate(const std::string & templatePath,
 		ofTranslate(x, y);
 		ofPushStyle();
 		ofSetColor(12, 12, 12, 255);
-		drawArcCenteredTextScaled(titleFont, rec.name, layout.nameRect, layout.nameScale, layout.nameCurveDropPx);
+		drawArcCenteredTextScaled(titleFont,
+			rec.name,
+			layout.nameRect,
+			layout.nameScale,
+			layout.nameCurveDropPx,
+			layout.nameMiddleClampXMin,
+			layout.nameMiddleClampXMax,
+			layout.nameMiddleBottomMaxY);
 		drawCenteredTextScaled(titleFont, rec.apCost, layout.costRect, layout.costScale);
-		drawWrappedTextScaled(uiFont, rec.effectText, layout.effectRect, layout.effectScale, layout.effectLineSpacing);
+		ofRectangle effectTextRect = layout.effectRect;
+		effectTextRect.x += 3.0f;
+		effectTextRect.width = std::max(0.0f, effectTextRect.width - 6.0f);
+		drawWrappedTextScaled(uiFont, rec.effectText, effectTextRect, layout.effectScale, layout.effectLineSpacing);
 		ofPopStyle();
 		ofPopMatrix();
 	}
@@ -29431,9 +29424,9 @@ void ofApp::loadCardData(const std::string & filePath) {
 	// Optional runtime card rendering path:
 	// - template image: UI/card_template_withrange.png
 	// - content source: UI/cards.md
-	// - editable field areas: Config/card_template_layout.json
-	// Keeps template base image if markdown/layout build fails.
-	if (rebuildCardSpriteSheetFromTemplate("UI/card_template_withrange.png", "UI/cards.md", "Config/card_template_layout.json", allCards, titleFont, uiFont, cardSpriteSheet)) {
+	// - field layout/scales are configured directly in CardTemplateLayout (this .cpp)
+	// Keeps template base image if markdown build fails.
+	if (rebuildCardSpriteSheetFromTemplate("UI/card_template_withrange.png", "UI/cards.md", allCards, titleFont, uiFont, cardSpriteSheet)) {
 		cardSpriteSheet.getTexture().setTextureMinMagFilter(GL_NEAREST, GL_NEAREST);
 		ofLogNotice("Cards") << "Using runtime template-generated card sheet from UI/card_template_withrange.png + UI/cards.md";
 	} else {
