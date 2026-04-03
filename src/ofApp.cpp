@@ -2299,8 +2299,9 @@ void ofApp::update() {
 		}
 	}
 
-	// --- INACTIVITY SUSPEND (Singleplayer only) ---
-	// If the window is not focused or minimized, suspend game logic and mute audio
+	// --- INACTIVITY BATTERY-SAVER (Singleplayer only) ---
+	// If the window is not focused or minimized, keep deterministic game logic running,
+	// but pause heavy visuals and mute audio to reduce battery usage.
 	if (!isMultiplayer) {
 		GLFWwindow * window = (GLFWwindow *)ofGetWindowPtr()->getWindowContext();
 		bool windowActive = true;
@@ -2313,6 +2314,9 @@ void ofApp::update() {
 		if (!windowActive) {
 			if (!gameSuspendedDueToInactivity) {
 				gameSuspendedDueToInactivity = true;
+				// Throttle render cadence while inactive (logic still advances).
+				ofSetVerticalSync(false);
+				ofSetFrameRate(5);
 				// Save master volume and mute audio (per-player where supported)
 				savedMasterVolume = settingsMasterVolume;
 				// Save and mute main menu music
@@ -2331,12 +2335,21 @@ void ofApp::update() {
 					savedFootstepVolumes.push_back(footstepSounds[i].getVolume());
 					footstepSounds[i].setVolume(0.0f);
 				}
-				ofLogNotice("Power") << "Singleplayer suspended: window inactive. Audio muted and game logic paused.";
+				ofLogNotice("Power") << "Singleplayer inactive: visuals paused, FPS throttled, audio muted. Logic continues.";
 			}
-			return; // Skip rest of update to save CPU/GPU
 		} else {
 			if (gameSuspendedDueToInactivity) {
 				gameSuspendedDueToInactivity = false;
+				// Restore configured runtime frame cap.
+				if (settingsFramerateSliderValue >= 0.999f) {
+					ofSetVerticalSync(false);
+					ofSetFrameRate(0);
+				} else {
+					int targetFPS = 15 + (int)std::round(settingsFramerateSliderValue * (300 - 15));
+					targetFPS = std::min(targetFPS, 300);
+					ofSetVerticalSync(false);
+					ofSetFrameRate(targetFPS);
+				}
 				// Restore audio to previous levels (per-player)
 				// Restore main menu music volume (it's still playing, just muted)
 				if (mainMenuMusic.isLoaded()) {
@@ -2347,7 +2360,7 @@ void ofApp::update() {
 				for (size_t i = 0; i < footstepSounds.size() && i < savedFootstepVolumes.size(); ++i) {
 					footstepSounds[i].setVolume(savedFootstepVolumes[i]);
 				}
-				ofLogNotice("Power") << "Singleplayer resumed: window active. Audio restored and game logic will continue.";
+				ofLogNotice("Power") << "Singleplayer active: visuals resumed and audio restored.";
 			}
 		}
 	}
@@ -2851,6 +2864,13 @@ void ofApp::drawTileGlow(int gridX, int gridY, ofColor color, float thickness) {
 }
 //--------------------------------------------------------------
 void ofApp::draw() {
+	// Battery saver: when inactive in singleplayer, skip heavy rendering.
+	// Logic still runs in `update()`.
+	if (!isMultiplayer && gameSuspendedDueToInactivity) {
+		ofBackground(0);
+		return;
+	}
+
 	// --- LOADING SCREEN ---
 	if (isLoadingGame) {
 		ofBackground(0);
@@ -4301,7 +4321,7 @@ void ofApp::updateGame() {
 	}
 
 	// --- TURN TIMER CHECK (run early so it continues during modal menus/drafting) ---
-	if (turnTimerEnabled && currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size() && (!isMultiplayer || isMyTurn())) {
+	if (turnTimerEnabled && !turnStartDeferred && currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size() && (!isMultiplayer || isMyTurn())) {
 		// Run timer checks even if modal UI is open; drafting/gameplay variations handled inside
 		if (currentState == STATE_GAMEPLAY || currentState == STATE_DRAFTING) {
 			float elapsedSeconds = ofGetElapsedTimef() - turnStartTime;
@@ -5897,7 +5917,7 @@ void ofApp::updateGame() {
 	}
 
 	// --- TURN TIMER CHECK ---
-	if (turnTimerEnabled && (currentState == STATE_GAMEPLAY || currentState == STATE_DRAFTING) && currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size() && (!isMultiplayer || isMyTurn())) {
+	if (turnTimerEnabled && !turnStartDeferred && (currentState == STATE_GAMEPLAY || currentState == STATE_DRAFTING) && currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size() && (!isMultiplayer || isMyTurn())) {
 		float elapsedSeconds = ofGetElapsedTimef() - turnStartTime;
 		if (elapsedSeconds >= turnDurationSeconds) {
 			if (currentState == STATE_DRAFTING) {
@@ -7233,8 +7253,12 @@ void ofApp::drawGame() {
 		// --- DICE RENDERING ---
 		diceMaterial.begin();
 
-		// Unified dice display parameters: keep size and height consistent
-		float diceUniformScale = 1.6f; // All dice will be scaled by this factor
+		// Unified dice display parameters with per-die overrides
+		float d4Scale = 1.75f;
+		float coinScale = 1.25f;
+		float d6Scale = 1.35f;
+		float d10Scale = 1.75f;
+		float d20Scale = 1.75f;
 		float diceDisplayY = 7.0f; // World-space Y used for non-unit dice placement
 
 		// Helper to position dice
@@ -7354,7 +7378,7 @@ void ofApp::drawGame() {
 		for (size_t i = 0; i < activeDiceRolls.size(); i++) {
 			if (activeDiceRolls[i].sides == 4) {
 				setDiceTransform(i, activeDiceRolls[i]);
-				ofScale(diceUniformScale, diceUniformScale, diceUniformScale);
+				ofScale(d4Scale, d4Scale, d4Scale);
 				d4Mesh.draw();
 				ofPopMatrix();
 			}
@@ -7368,7 +7392,7 @@ void ofApp::drawGame() {
 		for (size_t i = 0; i < activeDiceRolls.size(); i++) {
 			if (activeDiceRolls[i].sides == 2) {
 				setDiceTransform(i, activeDiceRolls[i]);
-				ofScale(diceUniformScale, diceUniformScale, diceUniformScale);
+				ofScale(coinScale, coinScale, coinScale);
 				ofSetColor(255);
 				coinMesh.draw();
 				ofPopMatrix();
@@ -7382,7 +7406,7 @@ void ofApp::drawGame() {
 		for (size_t i = 0; i < activeDiceRolls.size(); i++) {
 			if (activeDiceRolls[i].sides == 6) {
 				setDiceTransform(i, activeDiceRolls[i]);
-				ofScale(diceUniformScale, diceUniformScale, diceUniformScale);
+				ofScale(d6Scale, d6Scale, d6Scale);
 				d6Mesh.draw();
 				ofPopMatrix();
 			}
@@ -7394,7 +7418,7 @@ void ofApp::drawGame() {
 		for (size_t i = 0; i < activeDiceRolls.size(); i++) {
 			if (activeDiceRolls[i].sides == 10) {
 				setDiceTransform(i, activeDiceRolls[i]);
-				ofScale(diceUniformScale, diceUniformScale, diceUniformScale);
+				ofScale(d10Scale, d10Scale, d10Scale);
 				d10Mesh.draw();
 				ofPopMatrix();
 			}
@@ -7406,7 +7430,7 @@ void ofApp::drawGame() {
 		for (size_t i = 0; i < activeDiceRolls.size(); i++) {
 			if (activeDiceRolls[i].sides == 20) {
 				setDiceTransform(i, activeDiceRolls[i]);
-				ofScale(diceUniformScale, diceUniformScale, diceUniformScale);
+				ofScale(d20Scale, d20Scale, d20Scale);
 				d20Mesh.draw();
 				ofPopMatrix();
 			}
@@ -8152,7 +8176,7 @@ void ofApp::drawGame() {
 	// --- DRAW TURN TIMER BAR AT TOP OF SCREEN ---
 	// Always show the turn timer for the active player (including during forced in-game menus/drafting)
 	if (turnTimerEnabled && currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size() && (!isMultiplayer || isMyTurn())) {
-		float elapsedSeconds = ofGetElapsedTimef() - turnStartTime;
+		float elapsedSeconds = turnStartDeferred ? 0.0f : (ofGetElapsedTimef() - turnStartTime);
 		float progress = std::min(1.0f, elapsedSeconds / turnDurationSeconds); // 0 to 1
 
 		// Bar dimensions: stretch from left to right, thin at top
@@ -12307,6 +12331,68 @@ void ofApp::mousePressed(int x, int y, int button) {
 		if (players.empty() || currentPlayerIndex < 0) return;
 		Player & currentPlayer = players[currentPlayerIndex];
 
+		// Debug spawn mode: click a board tile to place/move a player deterministically.
+		if (button == OF_MOUSE_BUTTON_LEFT && debugSpawnMode != DEBUG_SPAWN_NONE) {
+			if (isMultiplayer && !isHost()) {
+				addGameLog("Debug spawner is host-only in multiplayer.");
+				debugSpawnMode = DEBUG_SPAWN_NONE;
+				return;
+			}
+
+			ofVec2f boardPos = mouseToBoard(x, y);
+			int gx = floor(boardPos.x), gy = floor(boardPos.y);
+			if (gx < 0 || gx >= BOARD_WIDTH || gy < 0 || gy >= BOARD_HEIGHT) {
+				return;
+			}
+			if (board[gx][gy].hasWall) {
+				addGameLog("Cannot spawn on a wall tile.");
+				return;
+			}
+
+			int spawnPlayerID = myLocalPlayerID;
+			int deckChoice = 0;
+			switch (debugSpawnMode) {
+			case DEBUG_SPAWN_PLAYER1:
+				spawnPlayerID = 0;
+				deckChoice = hasDebugSavedP1State ? 2 : 0;
+				break;
+			case DEBUG_SPAWN_PLAYER2:
+				spawnPlayerID = 1;
+				deckChoice = hasDebugSavedP2State ? 2 : 0;
+				break;
+			case DEBUG_SPAWN_FULL_DECK:
+				if (spawnPlayerID < 0) spawnPlayerID = 0;
+				deckChoice = 1;
+				break;
+			default:
+				break;
+			}
+
+			bool occupiedByOther = false;
+			auto occupants = getTileOccupants(gx, gy);
+			for (int oi : occupants) {
+				if (oi >= 0 && oi < (int)players.size() && players[oi].playerID != spawnPlayerID) {
+					occupiedByOther = true;
+					break;
+				}
+			}
+			if (occupiedByOther) {
+				addGameLog("Target tile is occupied.");
+				return;
+			}
+
+			EffectOp spawnOp = {};
+			spawnOp.type = EffectOpType::SPAWN_PLAYER;
+			spawnOp.data.spawnPlayer.x = gx;
+			spawnOp.data.spawnPlayer.y = gy;
+			spawnOp.data.spawnPlayer.playerID = spawnPlayerID;
+			spawnOp.data.spawnPlayer.deckChoice = deckChoice;
+			queueEffect(spawnOp);
+
+			debugSpawnMode = DEBUG_SPAWN_NONE;
+			return;
+		}
+
 		bool isDiceSpinning = false;
 		{
 			for (const auto & roll : activeDiceRolls) {
@@ -14619,6 +14705,9 @@ void ofApp::continueNewTurn() {
 	// the active player's thinking time does not include opponent animations.
 	turnStartDeferred = true;
 	turnStartDeferredAt = ofGetElapsedTimef();
+	// Reset visible timer baseline immediately so UI shows a fresh full bar
+	// as soon as the new turn begins.
+	turnStartTime = ofGetElapsedTimef();
 	ofLogNotice("Timer") << "Turn start deferred until visuals complete for player " << startingPlayer.playerID;
 	if (startingPlayer.isMinion) {
 		turnDurationSeconds = 60.0f; // 60 seconds for minions
@@ -19403,6 +19492,82 @@ bool ofApp::processEffectOp(EffectOp & op) {
 					target.discardPile.clear();
 					ofLogNotice("EffectQueue") << "Reshuffled discard into deck for player " << target.playerID;
 				}
+			}
+		}
+		opComplete = true;
+		break;
+	}
+
+	case EffectOpType::SPAWN_PLAYER: {
+		int tx = op.data.spawnPlayer.x;
+		int ty = op.data.spawnPlayer.y;
+		int targetPlayerID = op.data.spawnPlayer.playerID;
+		if (tx >= 0 && tx < BOARD_WIDTH && ty >= 0 && ty < BOARD_HEIGHT && !board[tx][ty].hasWall) {
+			bool occupiedByOther = false;
+			auto occupants = getTileOccupants(tx, ty);
+			for (int oi : occupants) {
+				if (oi >= 0 && oi < (int)players.size() && players[oi].playerID != targetPlayerID) {
+					occupiedByOther = true;
+					break;
+				}
+			}
+
+			if (!occupiedByOther) {
+				int pidx = findPlayerIndexByID(targetPlayerID);
+				if (pidx < 0) {
+					Player created;
+					created.playerID = targetPlayerID;
+					created.x = tx;
+					created.y = ty;
+					created.visualPos = gridToWorld(tx, ty);
+					players.push_back(created);
+					pidx = (int)players.size() - 1;
+				}
+
+				Player & target = players[pidx];
+				int oldX = target.x;
+				int oldY = target.y;
+				if (oldX >= 0 && oldX < BOARD_WIDTH && oldY >= 0 && oldY < BOARD_HEIGHT) {
+					auto oldOcc = getTileOccupants(oldX, oldY);
+					bool hasOtherOccupant = false;
+					for (int oi : oldOcc) {
+						if (oi != pidx) {
+							hasOtherOccupant = true;
+							break;
+						}
+					}
+					if (!hasOtherOccupant) {
+						board[oldX][oldY].hasPlayer = false;
+					}
+				}
+
+				target.x = tx;
+				target.y = ty;
+				target.visualPos = gridToWorld(tx, ty);
+				board[tx][ty].hasPlayer = true;
+				if (target.health <= 0) {
+					target.health = std::max(1, target.maxHealth);
+				}
+
+				if (op.data.spawnPlayer.deckChoice == 1) {
+					target.hand.clear();
+					target.discardPile.clear();
+					target.deck = allCards;
+					if (!target.deck.empty()) shuffleGameVector(target.deck, pidx);
+				} else if (op.data.spawnPlayer.deckChoice == 2) {
+					target.hand.clear();
+					if (targetPlayerID == 0 && hasDebugSavedP1State) {
+						target.deck = debugSavedP1Deck;
+						target.discardPile = debugSavedP1Discard;
+						if (!target.deck.empty()) shuffleGameVector(target.deck, pidx);
+					} else if (targetPlayerID == 1 && hasDebugSavedP2State) {
+						target.deck = debugSavedP2Deck;
+						target.discardPile = debugSavedP2Discard;
+						if (!target.deck.empty()) shuffleGameVector(target.deck, pidx);
+					}
+				}
+
+				ofLogNotice("EffectQueue") << "SPAWN_PLAYER id=" << target.playerID << " to=(" << tx << "," << ty << ") deckChoice=" << op.data.spawnPlayer.deckChoice;
 			}
 		}
 		opComplete = true;
