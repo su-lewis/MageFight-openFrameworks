@@ -14040,15 +14040,9 @@ void ofApp::startNewTurn() {
 				// NOTE: Defensive stats (block, ward, etc.) are NOT cleared here!
 				// They persist until the START of the player's NEXT turn (see continueNewTurn)
 
-				// Reshuffle discard into deck if needed
-				if (localPlayer.deck.empty() && !localPlayer.discardPile.empty()) {
-					// Use effect op to reshuffle discard into deck deterministically
-					EffectOp rs = {};
-					rs.type = EffectOpType::RESHUFFLE_DISCARD_TO_DECK;
-					rs.data.reshuffle.targetIndex = (int)i;
-					queueEffect(rs);
-					if (!isProcessingEffect) beginEffectSequence();
-				}
+				// Do not reshuffle here.
+				// Canonical reshuffle is handled once in the ending-player path below
+				// (deck empty at end turn), and during draw attempts when deck is empty.
 
 				// Decrement buff timers
 				if (localPlayer.strengthenElementsTurnsRemaining > 0) {
@@ -15116,6 +15110,37 @@ void ofApp::handleCardTargetClick(int gridX, int gridY) {
 		}
 	}
 	if (players.empty() || currentPlayerIndex < 0) return;
+
+	// Kobold placement is a post-play interaction and may not have a live hand card index.
+	if (cardInteractionState == CARD_INTERACTION_PLACING && interactingCardType == CARD_CALL_FOR_KOBOLDS) {
+		int gx = gridX, gy = gridY;
+		if (gx >= 0 && gx < BOARD_WIDTH && gy >= 0 && gy < BOARD_HEIGHT) {
+			if (!board[gx][gy].hasWall && !board[gx][gy].hasPlayer) {
+				int dist = abs(gx - koboldPlacementSourceX) + abs(gy - koboldPlacementSourceY);
+				if (dist == 1) {
+					InputCommandPacket cmd = {};
+					cmd.type = PKT_INPUT_COMMAND;
+					cmd.playerID = myLocalPlayerID;
+					cmd.commandId = nextCommandId++;
+					cmd.turnNumber = globalTurnCounter;
+					cmd.commandType = CMD_PSEUDO_ACTION;
+					cmd.params[0] = gx;
+					cmd.params[1] = gy;
+					strncpy(cmd.stringData, "PlaceKobold", sizeof(cmd.stringData) - 1);
+					cmd.stringData[sizeof(cmd.stringData) - 1] = '\0';
+
+					if (isMultiplayer) {
+						if (!sendInputCommand(cmd, true)) ofLogWarning("Network") << "Kobold placement send failed (no connection).";
+					} else {
+						queueInputCommand(cmd);
+					}
+					return;
+				}
+			}
+		}
+		return;
+	}
+
 	if (interactingCardIndex < 0 || interactingCardIndex >= (int)players[currentPlayerIndex].hand.size()) return;
 
 	// Find target player index (if any)
@@ -15141,17 +15166,16 @@ void ofApp::handleCardTargetClick(int gridX, int gridY) {
 				if (!board[gx][gy].hasWall && !board[gx][gy].hasPlayer) {
 					int dist = abs(gx - koboldPlacementSourceX) + abs(gy - koboldPlacementSourceY);
 					if (dist == 1) {
-						// Enqueue a deterministic play-card command for the placement
+						// Enqueue deterministic pseudo-action for kobold placement
 						InputCommandPacket cmd = {};
 						cmd.type = PKT_INPUT_COMMAND;
 						cmd.playerID = myLocalPlayerID;
 						cmd.commandId = nextCommandId++;
 						cmd.turnNumber = globalTurnCounter;
-						cmd.commandType = CMD_PLAY_CARD;
-						cmd.params[0] = interactingCardIndex;
-						cmd.params[1] = gx;
-						cmd.params[2] = gy;
-						strncpy(cmd.stringData, card.name.c_str(), sizeof(cmd.stringData) - 1);
+						cmd.commandType = CMD_PSEUDO_ACTION;
+						cmd.params[0] = gx;
+						cmd.params[1] = gy;
+						strncpy(cmd.stringData, "PlaceKobold", sizeof(cmd.stringData) - 1);
 						cmd.stringData[sizeof(cmd.stringData) - 1] = '\0';
 
 						if (isMultiplayer) {
@@ -16936,12 +16960,17 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 			ofLogNotice("Lockstep") << "Added cards: " << list;
 		}
 		// After adding cards, perform deterministic shuffle of the target player's deck
-		shuffleGameVector(p.deck, cmdDraftPlayerIdx);
+		deterministic_shuffle(p.deck, gameplayRNG);
+		if (cmdDraftPlayerIdx >= 0 && cmdDraftPlayerIdx < (int)players.size()) {
+			players[cmdDraftPlayerIdx].deckNeedsShuffle = false;
+		}
 		ofLogNotice("Lockstep") << "Execute CMD_ACCEPT_DRAFT: draftPlayerIndex=" << cmdDraftPlayerIdx << " picks=" << picks.size() << " (shuffled)";
 
 		// Schedule visual shuffle and animations consistent with click-path timing
 		float cardAnimDuration = draftAnimHoldDuration + 0.35f;
-		shuffleGameVector(players[cmdDraftPlayerIdx].deck, cmdDraftPlayerIdx, cardAnimDuration);
+		if (cmdDraftPlayerIdx == 0 || cmdDraftPlayerIdx == 1) {
+			startShuffleVisual(cmdDraftPlayerIdx, cardAnimDuration);
+		}
 
 		// Minion-specific shuffle visual (as done in click handler)
 		bool targetIsMinion = (cmdDraftPlayerIdx >= 0 && cmdDraftPlayerIdx < (int)players.size() && players[cmdDraftPlayerIdx].isMinion);
@@ -17147,6 +17176,54 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 		int targetX = cmd.params[0];
 		int targetY = cmd.params[1];
 		std::string actionName = cmd.stringData;
+
+		if (actionName == "PlaceKobold") {
+			if (targetX < 0 || targetX >= BOARD_WIDTH || targetY < 0 || targetY >= BOARD_HEIGHT) break;
+			if (koboldsRemainingToPlace <= 0) break;
+			int dist = abs(targetX - koboldPlacementSourceX) + abs(targetY - koboldPlacementSourceY);
+			if (dist != 1) break;
+			if (board[targetX][targetY].hasWall || board[targetX][targetY].hasPlayer) break;
+
+			if (!isProcessingEffect) beginEffectSequence();
+			EffectOp spawnOp = {};
+			spawnOp.type = EffectOpType::SPAWN_UNIT;
+			spawnOp.data.spawnUnit.toX = targetX;
+			spawnOp.data.spawnUnit.toY = targetY;
+			spawnOp.data.spawnUnit.summonKind = 1; // KOBOLD
+			spawnOp.data.spawnUnit.ownerPlayerID = players[currentPlayerIndex].isMinion ? players[currentPlayerIndex].ownerID : players[currentPlayerIndex].playerID;
+			spawnOp.data.spawnUnit.maxHealth = 1;
+			spawnOp.data.spawnUnit.maxHealthFromSlot = -1;
+			spawnOp.data.spawnUnit.ap = 0;
+			spawnOp.data.spawnUnit.summonerPlayerID = players[currentPlayerIndex].playerID;
+			queueEffect(spawnOp);
+
+			koboldsRemainingToPlace--;
+			koboldSummonCount++;
+
+			// If board state changed such that no adjacent slots remain, stop placement now.
+			int avail = 0;
+			glm::vec2 adj[] = { { 1, 0 }, { -1, 0 }, { 0, 1 }, { 0, -1 } };
+			for (auto & d : adj) {
+				int nx = koboldPlacementSourceX + (int)d.x;
+				int ny = koboldPlacementSourceY + (int)d.y;
+				if (nx >= 0 && nx < BOARD_WIDTH && ny >= 0 && ny < BOARD_HEIGHT) {
+					if (!board[nx][ny].hasWall && !board[nx][ny].hasPlayer) avail++;
+				}
+			}
+			if (avail <= 0 && koboldsRemainingToPlace > 0) {
+				koboldsRemainingToPlace = 0;
+				queueFloatingTextVisual(gridToWorld(koboldPlacementSourceX, koboldPlacementSourceY), "No Space!", ofColor::red);
+			}
+
+			if (koboldsRemainingToPlace <= 0) {
+				updateCardInteractionState(CARD_INTERACTION_IDLE, -1, CARD_NONE);
+				isShowingTooltip = false;
+			} else if (isCurrentPlayerLocal()) {
+				updateCardInteractionState(CARD_INTERACTION_PLACING, -1, CARD_CALL_FOR_KOBOLDS);
+				calculateTargetHighlights();
+			}
+			break;
+		}
 
 		// Handle deterministic TurnStart visuals published by host
 		if (actionName.rfind("TurnStart", 0) == 0) {
@@ -19309,7 +19386,8 @@ bool ofApp::processEffectOp(EffectOp & op) {
 			int tidx = op.data.reshuffle.targetIndex;
 			if (tidx >= 0 && tidx < (int)players.size()) {
 				Player & target = players[tidx];
-				if (!target.discardPile.empty()) {
+				// Rule: reshuffle only when deck is empty and discard has cards.
+				if (target.deck.empty() && !target.discardPile.empty()) {
 					// Move discard -> deck
 					target.deck = target.discardPile;
 					// Client-local shuffle animation
@@ -23647,6 +23725,10 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 			queueFloatingTextVisual(gridToWorld(cx, cy), "No Space!", ofColor::red);
 			break; // Cancel card play
 		}
+
+		// Save summoner tile as placement source for deterministic placement validation/highlights.
+		koboldPlacementSourceX = cx;
+		koboldPlacementSourceY = cy;
 
 		beginEffectSequence();
 
