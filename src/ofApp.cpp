@@ -28054,6 +28054,15 @@ void ofApp::determineStatusOptions(Player * target) {
 		} else {
 			queueFloatingTextVisual(glm::vec3(ofGetWidth() / 2, ofGetHeight() / 2, 0), "Target has no status effects!", ofColor::yellow);
 		}
+		// Still consume the played Dispel card/AP so behavior matches other cards.
+		if (interactingCardIndex != -1 && currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) {
+			resetCardState();
+			currentCardOutcome.cardType = CARD_DISPEL;
+			currentCardOutcome.cardIndex = interactingCardIndex;
+			currentCardOutcome.casterIndex = currentPlayerIndex;
+			beginEffectSequence();
+			advanceCardState(CARD_STATE_EFFECT_SEQUENCE);
+		}
 		cancelDispel();
 		resetCardInteraction();
 		return;
@@ -28162,8 +28171,10 @@ void ofApp::applyDrainPunch(int targetPlayerIndex, int baseDamage, int casterInd
 void ofApp::applyDispelEffect(int statusIndex) {
 	Player * target = getPlayer(interactionTargetIndex);
 	if (!target) return;
+	if (statusIndex < 0 || statusIndex >= (int)statusSelectLabels.size()) return;
 
 	string statusToRemove = statusSelectLabels[statusIndex];
+	beginEffectSequence();
 	if (statusToRemove == "Fire") {
 		EffectOp rm = {};
 		rm.type = EffectOpType::REMOVE_STATUS;
@@ -28185,16 +28196,14 @@ void ofApp::applyDispelEffect(int statusIndex) {
 
 	ofLogNotice("Dispel") << "Removed " << statusToRemove;
 
-	// FINALIZATION: Deduct AP and Card
-	if (interactingCardIndex != -1) {
-		Player & p = players[currentPlayerIndex];
-		int cost = p.hand[interactingCardIndex].cost;
-		std::string cardName = p.hand[interactingCardIndex].name;
-		// Always execute (multiplayer queues before calling this)
-		currentAP -= cost;
-		p.discardPile.push_back(p.hand[interactingCardIndex]);
-		p.hand.erase(p.hand.begin() + interactingCardIndex);
-		calculateTargetHighlights();
+	// FINALIZATION: route through centralized outcome path so AP/card handling
+	// is consistent with other cards and lockstep-safe.
+	if (interactingCardIndex != -1 && currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) {
+		resetCardState();
+		currentCardOutcome.cardType = CARD_DISPEL;
+		currentCardOutcome.cardIndex = interactingCardIndex;
+		currentCardOutcome.casterIndex = currentPlayerIndex;
+		advanceCardState(CARD_STATE_EFFECT_SEQUENCE);
 	}
 
 	// Trigger Shell Spike only on the local active player; the actual hit is
