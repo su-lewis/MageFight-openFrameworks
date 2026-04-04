@@ -780,7 +780,7 @@ static bool rebuildCardSpriteSheetFromTemplate(const std::string & templatePath,
 	ofLogNotice("Cards") << "Uniform targeting text scale (max-fit all cards): " << uniformTargetingScale;
 	if (!longestTargetingText.empty()) {
 		ofLogNotice("Cards") << "Longest targeting text: '" << longestTargetingText
-			<< "' (" << longestTargetingText.size() << " chars) on card '" << longestTargetingCardName << "'";
+							 << "' (" << longestTargetingText.size() << " chars) on card '" << longestTargetingCardName << "'";
 	}
 
 	ofFbo fbo;
@@ -11342,8 +11342,8 @@ cursor_check_done:;
 		for (size_t i = 0; i < currentPlayer.hand.size(); i++) {
 			// Only enlarge cards when WE are hovering them, not when opponent hovers
 			bool isLocallyHovered = (static_cast<int>(i) == hoveredCardIndex);
-			// Make hover scale more pronounced for better discoverability
-			currentPlayer.hand[i].targetScale = isLocallyHovered ? 2.4f : 1.5f;
+			// Keep hand cards at the configured baseline size with only a subtle hover bump.
+			currentPlayer.hand[i].targetScale = isLocallyHovered ? (kHandCardVisualScale * 1.08f) : kHandCardVisualScale;
 		}
 
 		int activeCardForHighlight = -1;
