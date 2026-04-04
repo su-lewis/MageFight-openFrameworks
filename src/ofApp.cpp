@@ -297,9 +297,9 @@ static void drawCenteredTextScaledOutlined(const ofTrueTypeFont & font,
 		}
 	}
 
-	// Shrink the fill pass more aggressively so the black stroke reads much
-	// thicker toward the inside.
-	float fillScale = scale * 0.93f;
+	// Keep a slight inward shrink so the outline reads cleanly,
+	// without crushing letterforms.
+	float fillScale = scale * 0.985f;
 	float txFill = rect.x + (rect.width - b.width * fillScale) * 0.5f - b.x * fillScale;
 	float tyFill = rect.y + (rect.height - b.height * fillScale) * 0.5f - b.y * fillScale;
 
@@ -670,9 +670,9 @@ static bool rebuildCardSpriteSheetFromTemplate(const std::string & templatePath,
 		ofPushMatrix();
 		ofTranslate(x, y);
 		ofPushStyle();
-		drawCenteredTextScaledOutlined(renderTitleFont, rec.name, layout.nameRect, uniformNameScale, ofColor::white, ofColor::black, 8);
-		drawCenteredTextScaledOutlined(renderTitleFont, rec.apCost, layout.costRect, layout.costScale, ofColor::white, ofColor::black, 8);
-		drawCenteredTextScaledOutlined(renderUIFont, rec.targeting, layout.targetingRect, layout.labelScale, ofColor::white, ofColor::black, 6);
+		drawCenteredTextScaledOutlined(renderTitleFont, rec.name, layout.nameRect, uniformNameScale, ofColor::white, ofColor::black, 4);
+		drawCenteredTextScaledOutlined(renderTitleFont, rec.apCost, layout.costRect, layout.costScale, ofColor::white, ofColor::black, 4);
+		drawCenteredTextScaledOutlined(renderUIFont, rec.targeting, layout.targetingRect, layout.labelScale, ofColor::white, ofColor::black, 3);
 		ofSetColor(12, 12, 12, 255);
 		drawWrappedTextScaled(renderUIFont, rec.effectText, effectTextRect, uniformEffectScale, layout.effectLineSpacing);
 		ofPopStyle();
