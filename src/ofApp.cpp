@@ -1897,7 +1897,6 @@ void ofApp::drawMinionCard(int minionIndex, int ownerIndex) {
 		sendInputCommand(cmd, true);
 	}
 
-	int pushedAnims = 0;
 	for (int i = 0; i < drawCount; ++i) {
 		if (minion.deck.empty()) {
 			if (minion.discardPile.empty()) break;
@@ -1929,11 +1928,7 @@ void ofApp::drawMinionCard(int minionIndex, int ownerIndex) {
 			anim.toMinionHand = true;
 			anim.startPos = gridToWorld(minion.x, minion.y) + glm::vec3(0, 1.5f, 0);
 
-			int animatingToThis = 0;
-			for (const auto & a : activeDrawCardAnimations) {
-				if (a.ownerIndex == minionIndex && a.toMinionHand) animatingToThis++;
-			}
-			size_t numCards = minion.hand.size() + 1 + animatingToThis;
+			size_t numCards = minion.hand.size();
 			float handCenterY = ofGetHeight() - 160;
 			float handBaseCardWidth = kCardPixelWidth;
 			float cardsToFit = std::max(5, (int)numCards);
@@ -1947,17 +1942,12 @@ void ofApp::drawMinionCard(int minionIndex, int ownerIndex) {
 			anim.targetPos = glm::vec2(cardCenterX, handCenterY);
 			anim.endPos = anim.startPos;
 			ofVec3f sp = getActiveCamera().worldToScreen(anim.startPos);
-			int offsetIndex = animatingToThis + pushedAnims;
-			float uiScaleLocal = ofGetHeight() / 1080.0f;
-			float perCardOffset = std::clamp(84.0f * uiScaleLocal, 36.0f, 160.0f);
-			float offsetPixels = offsetIndex * perCardOffset;
 			anim.startIsScreenSpace = true;
-			anim.currentPos = glm::vec2((float)sp.x + offsetPixels, (float)sp.y);
+			anim.currentPos = glm::vec2((float)sp.x, (float)sp.y);
 			anim.startPos = glm::vec3(anim.currentPos.x, anim.currentPos.y, 0);
 			anim.currentScale = kHandCardVisualScale;
 			anim.commitOnFinish = false;
 			activeDrawCardAnimations.push_back(anim);
-			pushedAnims++;
 		}
 	}
 
@@ -11295,15 +11285,15 @@ cursor_check_done:;
 			float totalHandWidth = (numCards * handBaseCardWidth) + ((numCards - 1) * padding);
 			float startX = (ofGetWidth() - totalHandWidth) / 2.0f;
 
-			// Check all cards and select the rightmost one that contains the mouse position
-			// Use extended detection area (1.6x height) to match drag detection
-			float detectionHeight = baseCardHeight * 1.6f;
+			// Check all cards and select the rightmost one that contains the mouse position.
+			// Use the actual rendered card bounds so hit boxes match visible size.
 			for (int i = 0; i < numCards; i++) {
 				Card & card = currentPlayer.hand[i];
-				float detectionX = startX + i * (handBaseCardWidth + padding);
-				// Use currentPos.y for detection so animated cards are properly selectable
-				float detectionY = card.currentPos.y - detectionHeight / 2;
-				ofRectangle detectionRect(detectionX, detectionY, handBaseCardWidth, detectionHeight);
+				float detectionW = handBaseCardWidth * card.currentScale;
+				float detectionH = baseCardHeight * card.currentScale;
+				float detectionX = card.currentPos.x - detectionW / 2.0f;
+				float detectionY = card.currentPos.y - detectionH / 2.0f;
+				ofRectangle detectionRect(detectionX + 6.0f, detectionY + 6.0f, std::max(0.0f, detectionW - 12.0f), std::max(0.0f, detectionH - 12.0f));
 				if (detectionRect.inside(x, y)) {
 					// Keep track of the rightmost card that contains the cursor
 					if (foundHoverIndex == -1 || currentPlayer.hand[i].currentPos.x > currentPlayer.hand[foundHoverIndex].currentPos.x) {
@@ -17375,22 +17365,14 @@ void ofApp::drawCard(bool sendPacket) {
 				// Fallback to player 0 deck center
 				start2D = glm::vec2(p0_deckRect.getCenter().x, p0_deckRect.getCenter().y);
 			}
-			// Compute offset based on other ongoing draws for this owner
-			int animatingToThis = 0;
-			for (const auto & a : activeDrawCardAnimations) {
-				if (a.ownerIndex == owner && !a.toMinionHand) animatingToThis++;
-			}
-			float uiScaleLocal = ofGetHeight() / 1080.0f;
-			float perCardOffset = std::clamp(84.0f * uiScaleLocal, 36.0f, 160.0f);
-			float offsetPixels = animatingToThis * perCardOffset;
-			anim.startPos = glm::vec3(start2D.x + offsetPixels, start2D.y, 0);
+			anim.startPos = glm::vec3(start2D.x, start2D.y, 0);
 			anim.startIsScreenSpace = true;
-			anim.currentPos = glm::vec2(start2D.x + offsetPixels, start2D.y); // initialize in screen-space so first frame is correct
+			anim.currentPos = glm::vec2(start2D.x, start2D.y); // initialize in screen-space so first frame is correct
 		}
 
 		// Set anim.targetPos to the standard hand area (centered, top or bottom)
-		// Use hand.size() + 1 so final position reserves space for the incoming card
-		size_t numCards = currentPlayer.hand.size() + 1;
+		// Card already exists in hand, so use current hand size directly.
+		size_t numCards = currentPlayer.hand.size();
 		bool handAtTop = false;
 		if (isMultiplayer) {
 			handAtTop = (players[currentPlayerIndex].playerID != myLocalPlayerID);
