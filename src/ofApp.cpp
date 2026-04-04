@@ -280,6 +280,10 @@ static ofRectangle getTightCardBounds(float x, float y, float w, float h, float 
 	return ofRectangle(bounds.x + shrinkX, bounds.y + shrinkY, newWidth, newHeight);
 }
 
+static ofRectangle getHoverCardBounds(float x, float y, float w, float h) {
+	return getOpaqueCardBounds(x, y, w, h);
+}
+
 static bool startsWith(const std::string & s, const std::string & prefix) {
 	return s.rfind(prefix, 0) == 0;
 }
@@ -10177,7 +10181,7 @@ void ofApp::drawGame() {
 				ofNoFill();
 				ofSetColor(255, 255, 255, 200); // White glow
 				ofSetLineWidth(4);
-				ofRectangle hoverRect = getTightCardBounds(drawX, drawY, w, h);
+				ofRectangle hoverRect = getHoverCardBounds(drawX, drawY, w, h);
 				ofDrawRectangle(hoverRect.x - 2, hoverRect.y - 2, hoverRect.width + 4, hoverRect.height + 4);
 				ofPopStyle();
 			}
@@ -10186,7 +10190,7 @@ void ofApp::drawGame() {
 				ofNoFill();
 				ofSetColor(255, 0, 0, 200); // Red glow
 				ofSetLineWidth(4);
-				ofRectangle hoverRect = getTightCardBounds(drawX, drawY, w, h);
+				ofRectangle hoverRect = getHoverCardBounds(drawX, drawY, w, h);
 				ofDrawRectangle(hoverRect.x - 2, hoverRect.y - 2, hoverRect.width + 4, hoverRect.height + 4);
 				ofPopStyle();
 			}
@@ -11278,7 +11282,7 @@ void ofApp::mouseMoved(int x, int y) {
 			Card & c = p.hand[i];
 			float w = handBaseCardWidth * c.currentScale;
 			float h = baseCardHeight * c.currentScale;
-			ofRectangle cardRect = getTightCardBounds(c.currentPos.x - w / 2, c.currentPos.y - h / 2, w, h);
+			ofRectangle cardRect = getHoverCardBounds(c.currentPos.x - w / 2, c.currentPos.y - h / 2, w, h);
 
 			if (cardRect.inside(x, y)) {
 				currentCursor = CURSOR_GRAB;
