@@ -1080,7 +1080,7 @@ void ofApp::applyReplicateCopyToHand(Player & caster, const Card & playedCard) {
 
 	float totalHandWidth = (numCards > 0) ? (numCards * handBaseCardWidth + (numCards - 1) * spacing) : 0;
 	float startX = (ofGetWidth() - totalHandWidth) / 2.0f;
-	float handRestY = ofGetHeight() - 20.0f; // Near bottom
+	float handRestY = ofGetHeight() - 80.0f; // Near bottom (but higher)
 
 	float cardCenterX = startX + (numCards - 1) * (handBaseCardWidth + spacing) + (handBaseCardWidth / 2.0f);
 	anim.targetPos = glm::vec2(cardCenterX, handRestY);
@@ -6468,7 +6468,7 @@ void ofApp::updateGame() {
 
 			float totalHandWidth = (numCards > 0) ? (numCards * handBaseCardWidth + (numCards - 1) * spacing) : 0;
 			float startX = (ofGetWidth() - totalHandWidth) / 2.0f;
-			float handRestY = ofGetHeight() - 20.0f;
+			float handRestY = ofGetHeight() - 80.0f;
 
 			// Position the cards for the active local unit (player or minion)
 			for (size_t i = 0; i < numCards; i++) {
@@ -10124,7 +10124,7 @@ void ofApp::drawGame() {
 		}
 
 		// How much a hovered card is lifted upward (pixels) and scaled
-		float hoverDirection = -320.0f; // Lift upward to be fully visible
+		float hoverDirection = -450.0f; // Lift upward to be fully visible
 		// Note: hoverScale is already defined at function scope
 
 		// 1. Determine which card should be drawn LAST (On Top)
@@ -11275,13 +11275,15 @@ void ofApp::mouseMoved(int x, int y) {
 	// 3. Check for "Draggable" things (Cards in hand)
 	if (!players.empty() && currentPlayerIndex >= 0) {
 		Player & p = players[currentPlayerIndex];
+		// Unscaled card dimensions (normalized bounds are relative to these)
 		float handBaseCardWidth = kCardPixelWidth;
 		float baseCardHeight = kCardPixelHeight;
 
 		for (size_t i = 0; i < p.hand.size(); i++) {
 			Card & c = p.hand[i];
-			float w = handBaseCardWidth * c.currentScale;
-			float h = baseCardHeight * c.currentScale;
+			// Use unscaled dimensions for hover bounds (opaque bounds are normalized to unscaled sprite)
+			float w = handBaseCardWidth * 1.0f;
+			float h = baseCardHeight * 1.0f;
 			ofRectangle cardRect = getHoverCardBounds(c.currentPos.x - w / 2, c.currentPos.y - h / 2, w, h);
 
 			if (cardRect.inside(x, y)) {
@@ -12006,8 +12008,9 @@ void ofApp::mousePressed(int x, int y, int button) {
 			for (int i = 0; i < numCards; i++) {
 				Card & card = currentPlayer.hand[i];
 				float cardCenterX = startX + i * (handBaseCardWidth + spacing) + (handBaseCardWidth / 2.0f);
-				float cardDrawW = handBaseCardWidth * card.currentScale;
-				float cardDrawH = baseCardHeight * card.currentScale;
+				// Use unscaled dimensions for drag detection bounds (opaque bounds normalized to unscaled sprite)
+				float cardDrawW = kCardPixelWidth * 1.0f;
+				float cardDrawH = kCardPixelHeight * 1.0f;
 				ofRectangle detectionRect = getTightCardBounds(cardCenterX - cardDrawW / 2.0f, card.currentPos.y - cardDrawH / 2.0f, cardDrawW, cardDrawH);
 				if (detectionRect.inside(x, y)) {
 					// Keep track of the rightmost card that contains the cursor
