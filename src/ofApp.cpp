@@ -105,7 +105,8 @@ namespace {
 constexpr float kCardPixelWidth = 409.0f;
 constexpr float kCardPixelHeight = 585.0f;
 constexpr float kCardAspectRatio = kCardPixelHeight / kCardPixelWidth;
-constexpr float kHandCardVisualScale = 0.50f;
+constexpr float kHandCardVisualScale = 0.40f;
+const float pileCardScale = 0.45f;
 
 static ofRectangle gCardOpaqueBoundsNormalized(0.0f, 0.0f, 1.0f, 1.0f);
 
@@ -346,7 +347,7 @@ static void drawCenteredTextScaledOutlined(const ofTrueTypeFont & font,
 			ofPushMatrix();
 			ofTranslate(tx + (float)dx, ty + (float)dy);
 			ofScale(scale, scale);
-			font.drawStringAsShapes(text, 0, 0);
+			font.drawString(text, 0, 0);
 			ofPopMatrix();
 		}
 	}
@@ -359,7 +360,7 @@ static void drawCenteredTextScaledOutlined(const ofTrueTypeFont & font,
 	ofPushMatrix();
 	ofTranslate(txFill, tyFill);
 	ofScale(fillScale, fillScale);
-	font.drawStringAsShapes(text, 0, 0);
+	font.drawString(text, 0, 0);
 	ofPopMatrix();
 }
 
@@ -9043,8 +9044,8 @@ void ofApp::drawGame() {
 
 	float handBaseCardWidth = kCardPixelWidth;
 	float baseCardHeight = kCardPixelHeight;
-	float staticUICardWidth = (handBaseCardWidth * 0.35f) * scale;
-	float staticUICardHeight = (baseCardHeight * 0.35f) * scale;
+	float staticUICardWidth = (handBaseCardWidth * 0.45f) * scale;
+	float staticUICardHeight = (baseCardHeight * 0.45f) * scale;
 	const UILayoutSpacing ui = buildUILayoutSpacing(scale, turnTimerEnabled);
 
 	// Health bar dimensions (used both by drawHealthBar lambda and by anchored status text)
