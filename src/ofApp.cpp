@@ -105,7 +105,7 @@ namespace {
 constexpr float kCardPixelWidth = 409.0f;
 constexpr float kCardPixelHeight = 585.0f;
 constexpr float kCardAspectRatio = kCardPixelHeight / kCardPixelWidth;
-constexpr float kHandCardVisualScale = 0.40f;
+constexpr float kHandCardVisualScale = 0.30f;
 const float pileCardScale = 0.45f;
 
 static ofRectangle gCardOpaqueBoundsNormalized(0.0f, 0.0f, 1.0f, 1.0f);
@@ -478,7 +478,7 @@ static void drawWrappedTextScaledWithEmphasis(const ofTrueTypeFont & font,
 	if (lines.empty()) return;
 
 	const std::string emphasisLower = toLowerCopy(emphasisText);
-	float lineH = font.getLineHeight() * scale * std::max(0.6f, lineSpacing);
+	float lineH = font.getLineHeight() * scale * std::max(0.6f, lineSpacing) + 1.0f;
 	float totalH = lineH * (float)lines.size();
 	float y = rect.y + std::max(0.0f, (rect.height - totalH) * 0.5f) + lineH;
 	for (const auto & line : lines) {
@@ -743,12 +743,16 @@ static bool rebuildCardSpriteSheetFromTemplate(const std::string & templatePath,
 
 	std::vector<std::string> allEffectTexts;
 	allEffectTexts.reserve(allCards.size());
+	std::vector<std::string> allTargetingTexts;
+	allTargetingTexts.reserve(allCards.size());
 	for (const auto & card : allCards) {
 		auto it = records.find(normalizeCardKey(card.name));
 		if (it != records.end()) {
 			allEffectTexts.push_back(it->second.effectText);
+			allTargetingTexts.push_back(it->second.targeting);
 		} else {
 			allEffectTexts.push_back("");
+			allTargetingTexts.push_back("");
 		}
 	}
 
@@ -761,6 +765,9 @@ static bool rebuildCardSpriteSheetFromTemplate(const std::string & templatePath,
 		layout.effectScale,
 		layout.effectLineSpacing);
 	ofLogNotice("Cards") << "Uniform effect text scale: " << uniformEffectScale;
+
+	const float fixedTargetingScale = layout.nameScale;
+	ofLogNotice("Cards") << "Fixed targeting text scale: " << fixedTargetingScale;
 
 	ofFbo fbo;
 	ofFboSettings fboSettings;
@@ -791,22 +798,12 @@ static bool rebuildCardSpriteSheetFromTemplate(const std::string & templatePath,
 		// Intentionally do NOT auto-fill extra fields like damage type/targeting/class.
 		// Only explicitly requested fields are rendered from cards.md + configured rects.
 
-		bool useNameArc = false;
-		if (!rec.name.empty()) {
-			ofRectangle nameBounds = renderTitleFont.getStringBoundingBox(rec.name, 0, 0);
-			useNameArc = (nameBounds.width * fixedNameScale) >= (layout.nameRect.width * 0.92f);
-		}
-
 		ofPushMatrix();
 		ofTranslate(x, y);
 		ofPushStyle();
-		if (useNameArc) {
-			drawArcCenteredTextScaledOutlined(renderTitleFont, rec.name, layout.nameRect, fixedNameScale, layout.nameCurveDropPx, layout.nameMiddleClampXMin, layout.nameMiddleClampXMax, layout.nameMiddleBottomMaxY, ofColor::white, ofColor::black, 4);
-		} else {
-			drawCenteredTextScaledOutlined(renderTitleFont, rec.name, layout.nameRect, fixedNameScale, ofColor::white, ofColor::black, 4);
-		}
+		drawCenteredTextScaledOutlined(renderTitleFont, rec.name, layout.nameRect, fixedNameScale, ofColor::white, ofColor::black, 4);
 		drawCenteredTextScaledOutlined(renderTitleFont, rec.apCost, layout.costRect, layout.costScale, ofColor::white, ofColor::black, 4);
-		drawCenteredTextScaledOutlined(renderUIFont, rec.targeting, layout.targetingRect, layout.labelScale, ofColor::white, ofColor::black, 3);
+		drawCenteredTextScaledOutlined(renderTitleFont, rec.targeting, layout.targetingRect, fixedTargetingScale, ofColor::white, ofColor::black, 3);
 		ofSetColor(12, 12, 12, 255);
 		drawWrappedTextScaledWithEmphasis(renderUIFont, rec.effectText, effectTextRect, uniformEffectScale, layout.effectLineSpacing, "Choose One -");
 		ofPopStyle();
@@ -4781,7 +4778,7 @@ void ofApp::updateGame() {
 	std::vector<int> p0_minionIndices;
 	std::vector<int> p1_minionIndices;
 	// Defaults for minion UI (reduced size to avoid clipping)
-	float standardEntryHeight = 85.0f; // unscaled baseline (more compact)
+	float standardEntryHeight = 80.0f; // unscaled baseline (more compact)
 	float panelWidth = 360.0f; // unscaled baseline (reduced)
 	float scale = ofGetHeight() / 1080.0f;
 	const UILayoutSpacing layoutSpacing = buildUILayoutSpacing(scale, turnTimerEnabled);
@@ -4920,7 +4917,7 @@ void ofApp::updateGame() {
 			float cardAspectRatio = 585.0f / 409.0f; // cardBackImage aspect ratio
 			float iconMargin = layoutSpacing.edgeInset;
 			// Make icons proportionally large relative to entry height
-			float iconHeight = ui.bounds.height * 0.64f;
+			float iconHeight = ui.bounds.height * 0.72f;
 			float iconWidth = iconHeight * cardAspectRatio;
 			float iconsY = ui.bounds.y + (ui.bounds.height - iconHeight) * 0.5f;
 			if (listSide == 0) {
@@ -6220,8 +6217,8 @@ void ofApp::updateGame() {
 		float u = 1.0f - t;
 		anim.currentPos = (u * u) * start2D + (2.0f * u * t) * control + (t * t) * anim.targetPos;
 
-		// Keep steady full scale during draw animation to avoid small-start flicker
-		anim.currentScale = 1.0f;
+		// Keep steady hand scale during draw animation so cards don't pop in larger
+		anim.currentScale = kHandCardVisualScale;
 
 		// Keep fully opaque for clarity
 		anim.currentAlpha = 255.0f;
@@ -9282,7 +9279,8 @@ void ofApp::drawGame() {
 			ofNoFill();
 			ofSetColor(232, 232, 232, 200); // #e8e8e8 glow
 			ofSetLineWidth(4 * scale);
-			ofDrawRectangle(p0_deckRect);
+			ofRectangle hoverRect = getOpaqueCardBounds(p0_deckRect.x, p0_deckRect.y, p0_deckRect.width, p0_deckRect.height);
+			ofDrawRectangle(hoverRect);
 			ofPopStyle();
 		}
 
@@ -9309,7 +9307,8 @@ void ofApp::drawGame() {
 			ofNoFill();
 			ofSetColor(ofColor::green);
 			ofSetLineWidth(4 * scale);
-			ofDrawRectangle(p0_deckRect);
+			ofRectangle hoverRect = getOpaqueCardBounds(p0_deckRect.x, p0_deckRect.y, p0_deckRect.width, p0_deckRect.height);
+			ofDrawRectangle(hoverRect);
 			ofPopStyle();
 		}
 
@@ -9397,7 +9396,8 @@ void ofApp::drawGame() {
 			ofNoFill();
 			ofSetColor(ofColor::green);
 			ofSetLineWidth(4 * scale);
-			ofDrawRectangle(p1_deckRect);
+			ofRectangle hoverRect = getOpaqueCardBounds(p1_deckRect.x, p1_deckRect.y, p1_deckRect.width, p1_deckRect.height);
+			ofDrawRectangle(hoverRect);
 			ofPopStyle();
 		}
 
@@ -10059,7 +10059,8 @@ void ofApp::drawGame() {
 				ofNoFill();
 				ofSetColor(255, 0, 0, 200); // Red glow
 				ofSetLineWidth(4);
-				ofDrawRectangle(drawX - 2, drawY - 2, w + 4, h + 4);
+				ofRectangle hoverRect = getOpaqueCardBounds(drawX, drawY, w, h);
+				ofDrawRectangle(hoverRect.x - 2, hoverRect.y - 2, hoverRect.width + 4, hoverRect.height + 4);
 				ofPopStyle();
 			}
 
@@ -10085,7 +10086,8 @@ void ofApp::drawGame() {
 					ofNoFill();
 					ofSetColor(ofColor::green);
 					ofSetLineWidth(4);
-					ofDrawRectangle(drawX, drawY, w, h);
+					ofRectangle hoverRect = getOpaqueCardBounds(drawX, drawY, w, h);
+					ofDrawRectangle(hoverRect);
 					ofPopStyle();
 				}
 
@@ -10101,7 +10103,8 @@ void ofApp::drawGame() {
 						ofNoFill();
 						ofSetColor(255, 140, 0); // Orange glow
 						ofSetLineWidth(4);
-						ofDrawRectangle(drawX - 2, drawY - 2, w + 4, h + 4);
+						ofRectangle hoverRect = getOpaqueCardBounds(drawX, drawY, w, h);
+						ofDrawRectangle(hoverRect.x - 2, hoverRect.y - 2, hoverRect.width + 4, hoverRect.height + 4);
 						ofPopStyle();
 					}
 				}
@@ -10141,7 +10144,8 @@ void ofApp::drawGame() {
 					ofNoFill();
 					ofSetColor(255, 0, 0, 200); // Red glow for opponent
 					ofSetLineWidth(4);
-					ofDrawRectangle(drawX - 2, drawY - 2, w + 4, h + 4);
+					ofRectangle hoverRect = getOpaqueCardBounds(drawX, drawY, w, h);
+					ofDrawRectangle(hoverRect.x - 2, hoverRect.y - 2, hoverRect.width + 4, hoverRect.height + 4);
 					ofPopStyle();
 				}
 			}
@@ -16648,7 +16652,13 @@ void ofApp::handleCardMenuClick(const std::string & buttonId) {
 			currentCardOutcome.cardIndex = interactingCardIndex;
 			currentCardOutcome.casterIndex = currentPlayerIndex;
 			advanceCardState(CARD_STATE_EFFECT_SEQUENCE);
-			resetCardInteraction();
+			// Close menu UI without resetting `cardPlayState`; outcome processing
+			// needs CARD_STATE_EFFECT_SEQUENCE to remain active.
+			cardInteractionState = CARD_INTERACTION_IDLE;
+			interactingCardType = CARD_NONE;
+			interactingCardIndex = -1;
+			interactionTargetIndex = -1;
+			interactionMenuChoice.clear();
 		} else if (buttonId == "Purge") {
 			// Enter status selection
 			updateCardInteractionState(CARD_INTERACTION_STATUS, interactingCardIndex, interactingCardType);
@@ -21679,9 +21689,16 @@ void ofApp::processCardStateInput(int mouseX, int mouseY, int button) {
 						// Use sendInputCommand so singleplayer also receives a proper command id
 						// and the host will execute the authoritative effect in lockstep.
 						sendInputCommand(cmd, true);
+						// Close UI-only interaction state; keep card state machine active
+						// so CARD_STATE_OUTCOME can consume AP/remove the card.
+						cardInteractionState = CARD_INTERACTION_IDLE;
+						interactingCardType = CARD_NONE;
 						interactingCardIndex = -1;
 						interactionTargetIndex = -1;
-						resetCardInteraction();
+						interactionMenuChoice.clear();
+						statusSelectLabels.clear();
+						statusSelectButtons.clear();
+						statusSelectMenuRect.set(0, 0, 0, 0);
 					}
 				}
 			}
@@ -28193,8 +28210,16 @@ void ofApp::determineStatusOptions(Player * target) {
 			beginEffectSequence();
 			advanceCardState(CARD_STATE_EFFECT_SEQUENCE);
 		}
-		cancelDispel();
-		resetCardInteraction();
+		// Close status/menu UI only. Do not touch `cardPlayState` here.
+		cardInteractionState = CARD_INTERACTION_IDLE;
+		interactingCardType = CARD_NONE;
+		interactingCardIndex = -1;
+		interactionTargetIndex = -1;
+		interactionMenuChoice.clear();
+		statusSelectLabels.clear();
+		statusSelectButtons.clear();
+		statusSelectMenuRect.set(0, 0, 0, 0);
+		dispelMode = 0;
 		return;
 	}
 
@@ -28340,7 +28365,17 @@ void ofApp::applyDispelEffect(int statusIndex) {
 	// resolved through the deterministic CMD_PSEUDO_ACTION path.
 	if (isCurrentPlayerLocal()) tryTriggerShellSpike();
 
-	cancelDispel(); // Close menus
+	// Close status/menu UI only. Do not reset the card play state here,
+	// otherwise AP/card finalization in CARD_STATE_OUTCOME is skipped.
+	cardInteractionState = CARD_INTERACTION_IDLE;
+	interactingCardType = CARD_NONE;
+	interactingCardIndex = -1;
+	interactionTargetIndex = -1;
+	interactionMenuChoice.clear();
+	statusSelectLabels.clear();
+	statusSelectButtons.clear();
+	statusSelectMenuRect.set(0, 0, 0, 0);
+	dispelMode = 0;
 }
 
 //--------------------------------------------------------------
@@ -30326,7 +30361,7 @@ void ofApp::drawMinionManagerUI() {
 		// --- Draw Icons (mirror per side) ---
 		const UILayoutSpacing layoutSpacing = buildUILayoutSpacing(scale, turnTimerEnabled);
 		float iconMargin = layoutSpacing.edgeInset;
-		float iconHeight = ui.bounds.height * 0.64f;
+		float iconHeight = ui.bounds.height * 0.72f;
 		float cardAspectRatio = cardBackImage.getWidth() / cardBackImage.getHeight();
 		float iconWidth = iconHeight * cardAspectRatio;
 		float iconsY = ui.bounds.y + (ui.bounds.height - iconHeight) * 0.5f;
