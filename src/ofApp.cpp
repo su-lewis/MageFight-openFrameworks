@@ -140,7 +140,7 @@ static int64_t readSaveTimestampFromFile(const std::filesystem::path & path) {
 constexpr float kCardPixelWidth = 409.0f;
 constexpr float kCardPixelHeight = 585.0f;
 constexpr float kCardAspectRatio = kCardPixelHeight / kCardPixelWidth;
-constexpr float kHandCardVisualScale = 0.30f;
+constexpr float kHandCardVisualScale = 0.50f;
 const float pileCardScale = 0.45f;
 
 static ofRectangle gCardOpaqueBoundsNormalized(0.0f, 0.0f, 1.0f, 1.0f);
@@ -269,6 +269,15 @@ static ofRectangle getOpaqueCardBounds(float x, float y, float w, float h) {
 		y + gCardOpaqueBoundsNormalized.y * h,
 		gCardOpaqueBoundsNormalized.width * w,
 		gCardOpaqueBoundsNormalized.height * h);
+}
+
+static ofRectangle getTightCardBounds(float x, float y, float w, float h, float insetX = 8.0f, float insetY = 10.0f) {
+	ofRectangle bounds = getOpaqueCardBounds(x, y, w, h);
+	float shrinkX = std::min(insetX, bounds.width * 0.18f);
+	float shrinkY = std::min(insetY, bounds.height * 0.18f);
+	float newWidth = std::max(1.0f, bounds.width - (shrinkX * 2.0f));
+	float newHeight = std::max(1.0f, bounds.height - (shrinkY * 2.0f));
+	return ofRectangle(bounds.x + shrinkX, bounds.y + shrinkY, newWidth, newHeight);
 }
 
 static bool startsWith(const std::string & s, const std::string & prefix) {
@@ -1067,12 +1076,12 @@ void ofApp::applyReplicateCopyToHand(Player & caster, const Card & playedCard) {
 
 	float totalHandWidth = (numCards > 0) ? (numCards * handBaseCardWidth + (numCards - 1) * spacing) : 0;
 	float startX = (ofGetWidth() - totalHandWidth) / 2.0f;
-	float handRestY = ofGetHeight() - 40.0f; // Near bottom
+	float handRestY = ofGetHeight() - 20.0f; // Near bottom
 
 	float cardCenterX = startX + (numCards - 1) * (handBaseCardWidth + spacing) + (handBaseCardWidth / 2.0f);
 	anim.targetPos = glm::vec2(cardCenterX, handRestY);
 	anim.endPos = anim.startPos;
-	anim.currentScale = kHandCardVisualScale;
+	anim.currentScale = 1.0f;
 	anim.commitOnFinish = true;
 
 	activeDrawCardAnimations.push_back(anim);
@@ -1959,8 +1968,8 @@ void ofApp::drawMinionCard(int minionIndex, int ownerIndex) {
 			drawn.drawnThisTurn = true;
 			minion.hand.push_back(drawn);
 			minion.hasDrawnThisTurn = true;
-			minion.hand.back().currentScale = kHandCardVisualScale;
-			minion.hand.back().targetScale = kHandCardVisualScale;
+			minion.hand.back().currentScale = 1.0f;
+			minion.hand.back().targetScale = 1.0f;
 			minion.hand.back().drawnThisTurn = true;
 			minion.hand.back().isAnimating = true;
 
@@ -1989,7 +1998,7 @@ void ofApp::drawMinionCard(int minionIndex, int ownerIndex) {
 			anim.startIsScreenSpace = true;
 			anim.currentPos = glm::vec2((float)sp.x, (float)sp.y);
 			anim.startPos = glm::vec3(anim.currentPos.x, anim.currentPos.y, 0);
-			anim.currentScale = kHandCardVisualScale;
+			anim.currentScale = 1.0f;
 			anim.commitOnFinish = false;
 			activeDrawCardAnimations.push_back(anim);
 		}
@@ -6307,7 +6316,7 @@ void ofApp::updateGame() {
 		anim.currentPos = (u * u) * start2D + (2.0f * u * t) * control + (t * t) * anim.targetPos;
 
 		// Keep steady hand scale during draw animation so cards don't pop in larger
-		anim.currentScale = kHandCardVisualScale;
+		anim.currentScale = 1.0f;
 
 		// Keep fully opaque for clarity
 		anim.currentAlpha = 255.0f;
@@ -6339,8 +6348,8 @@ void ofApp::updateGame() {
 						c.currentPos = anim.targetPos;
 						c.targetPos = anim.targetPos;
 						// Set to hand display scale immediately for all draws
-						c.currentScale = kHandCardVisualScale;
-						c.targetScale = kHandCardVisualScale;
+						c.currentScale = 1.0f;
+						c.targetScale = 1.0f;
 						// Only mark as drawn if it's not a copied card
 						if (!c.isCopied) {
 							c.drawnThisTurn = true;
@@ -6354,8 +6363,8 @@ void ofApp::updateGame() {
 							if (hc.drawnThisTurn && hc.isAnimating && hc.name == anim.card.name) {
 								hc.currentPos = anim.targetPos;
 								hc.targetPos = anim.targetPos;
-								hc.currentScale = kHandCardVisualScale;
-								hc.targetScale = kHandCardVisualScale;
+								hc.currentScale = 1.0f;
+								hc.targetScale = 1.0f;
 								hc.isAnimating = false;
 								break;
 							}
@@ -6455,7 +6464,7 @@ void ofApp::updateGame() {
 
 			float totalHandWidth = (numCards > 0) ? (numCards * handBaseCardWidth + (numCards - 1) * spacing) : 0;
 			float startX = (ofGetWidth() - totalHandWidth) / 2.0f;
-			float handRestY = ofGetHeight() - 40.0f;
+			float handRestY = ofGetHeight() - 20.0f;
 
 			// Position the cards for the active local unit (player or minion)
 			for (size_t i = 0; i < numCards; i++) {
@@ -10056,7 +10065,7 @@ void ofApp::drawGame() {
 	// Draw the hand area only when we have a valid player/context (match rest of UI)
 	if (!players.empty() && currentPlayerIndex >= 0) {
 		// Hearthstone-style hover scale for cards
-		const float hoverScale = 1.4f;
+		const float hoverScale = 1.65f;
 
 		// In multiplayer, show BOTH players' hands at bottom in a shared space
 		// Get both local and opponent player
@@ -10111,7 +10120,7 @@ void ofApp::drawGame() {
 		}
 
 		// How much a hovered card is lifted upward (pixels) and scaled
-		float hoverDirection = -220.0f; // Lift upward to be fully visible
+		float hoverDirection = -320.0f; // Lift upward to be fully visible
 		// Note: hoverScale is already defined at function scope
 
 		// 1. Determine which card should be drawn LAST (On Top)
@@ -10168,7 +10177,7 @@ void ofApp::drawGame() {
 				ofNoFill();
 				ofSetColor(255, 255, 255, 200); // White glow
 				ofSetLineWidth(4);
-				ofRectangle hoverRect = getOpaqueCardBounds(drawX, drawY, w, h);
+				ofRectangle hoverRect = getTightCardBounds(drawX, drawY, w, h);
 				ofDrawRectangle(hoverRect.x - 2, hoverRect.y - 2, hoverRect.width + 4, hoverRect.height + 4);
 				ofPopStyle();
 			}
@@ -10177,7 +10186,7 @@ void ofApp::drawGame() {
 				ofNoFill();
 				ofSetColor(255, 0, 0, 200); // Red glow
 				ofSetLineWidth(4);
-				ofRectangle hoverRect = getOpaqueCardBounds(drawX, drawY, w, h);
+				ofRectangle hoverRect = getTightCardBounds(drawX, drawY, w, h);
 				ofDrawRectangle(hoverRect.x - 2, hoverRect.y - 2, hoverRect.width + 4, hoverRect.height + 4);
 				ofPopStyle();
 			}
@@ -11201,7 +11210,7 @@ void ofApp::mouseMoved(int x, int y) {
 	int newHoverCardIndex = -1;
 
 	// Hearthstone-style hover scale for card animations
-	const float hoverScale = 1.4f;
+	const float hoverScale = 1.65f;
 
 	// 1. Reset to default at the start of the check
 	currentCursor = CURSOR_DEFAULT;
@@ -11269,7 +11278,7 @@ void ofApp::mouseMoved(int x, int y) {
 			Card & c = p.hand[i];
 			float w = handBaseCardWidth * c.currentScale;
 			float h = baseCardHeight * c.currentScale;
-			ofRectangle cardRect(c.currentPos.x - w / 2, c.currentPos.y - h / 2, w, h);
+			ofRectangle cardRect = getTightCardBounds(c.currentPos.x - w / 2, c.currentPos.y - h / 2, w, h);
 
 			if (cardRect.inside(x, y)) {
 				currentCursor = CURSOR_GRAB;
@@ -11440,7 +11449,7 @@ cursor_check_done:;
 			// Only enlarge cards when WE are hovering them, not when opponent hovers
 			bool isLocallyHovered = (static_cast<int>(i) == hoveredCardIndex);
 			// Hearthstone-style: smooth scaling on hover with hoverScale variable
-			float targetScaleVal = isLocallyHovered ? (kHandCardVisualScale * hoverScale) : kHandCardVisualScale;
+			float targetScaleVal = isLocallyHovered ? hoverScale : 1.0f;
 			currentPlayer.hand[i].targetScale = targetScaleVal;
 		}
 
@@ -11990,12 +11999,13 @@ void ofApp::mousePressed(int x, int y, int button) {
 			float totalHandWidth = (numCards > 0) ? (numCards * handBaseCardWidth + (numCards - 1) * spacing) : 0;
 			float startX = (ofGetWidth() - totalHandWidth) / 2.0f;
 
-			float detectionHeight = baseCardHeight * 1.2f;
 			for (int i = 0; i < numCards; i++) {
 				Card & card = currentPlayer.hand[i];
-				float detectionX = startX + i * (handBaseCardWidth + spacing) + (handBaseCardWidth / 2.0f);
-				float detectionY = card.currentPos.y - detectionHeight / 2;
-				if (ofRectangle(detectionX - handBaseCardWidth / 2, detectionY, handBaseCardWidth, detectionHeight).inside(x, y)) {
+				float cardCenterX = startX + i * (handBaseCardWidth + spacing) + (handBaseCardWidth / 2.0f);
+				float cardDrawW = handBaseCardWidth * card.currentScale;
+				float cardDrawH = baseCardHeight * card.currentScale;
+				ofRectangle detectionRect = getTightCardBounds(cardCenterX - cardDrawW / 2.0f, card.currentPos.y - cardDrawH / 2.0f, cardDrawW, cardDrawH);
+				if (detectionRect.inside(x, y)) {
 					// Keep track of the rightmost card that contains the cursor
 					if (pressedCardIndex == -1 || currentPlayer.hand[i].currentPos.x > currentPlayer.hand[pressedCardIndex].currentPos.x) {
 						pressedCardIndex = i;
@@ -13105,8 +13115,8 @@ void ofApp::mousePressed(int x, int y, int button) {
 							for (int q = 0; q < cardSpawnerQuantity; q++) {
 								tgt.hand.push_back(allCards[selIdx]);
 								tgt.hand.back().currentPos = ofVec2f(ofGetWidth() / 2, 0);
-								tgt.hand.back().currentScale = kHandCardVisualScale;
-								tgt.hand.back().targetScale = kHandCardVisualScale;
+								tgt.hand.back().currentScale = 1.0f;
+								tgt.hand.back().targetScale = 1.0f;
 								tgt.hand.back().drawnThisTurn = true;
 							}
 						}
@@ -13205,8 +13215,8 @@ void ofApp::mousePressed(int x, int y, int button) {
 					for (int q = 0; q < cardSpawnerQuantity; q++) {
 						players[currentPlayerIndex].hand.push_back(filteredCards[i]);
 						players[currentPlayerIndex].hand.back().currentPos = ofVec2f(ofGetWidth() / 2, 0);
-						players[currentPlayerIndex].hand.back().currentScale = kHandCardVisualScale;
-						players[currentPlayerIndex].hand.back().targetScale = kHandCardVisualScale;
+						players[currentPlayerIndex].hand.back().currentScale = 1.0f;
+						players[currentPlayerIndex].hand.back().targetScale = 1.0f;
 						players[currentPlayerIndex].hand.back().drawnThisTurn = true;
 					}
 					queueFloatingTextVisual(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y),
@@ -14525,8 +14535,8 @@ void ofApp::keyPressed(int key) {
 				for (int q = 0; q < cardSpawnerQuantity; q++) {
 					players[currentPlayerIndex].hand.push_back(filteredCards[0]);
 					players[currentPlayerIndex].hand.back().currentPos = ofVec2f(ofGetWidth() / 2, 0);
-					players[currentPlayerIndex].hand.back().currentScale = kHandCardVisualScale;
-					players[currentPlayerIndex].hand.back().targetScale = kHandCardVisualScale;
+					players[currentPlayerIndex].hand.back().currentScale = 1.0f;
+					players[currentPlayerIndex].hand.back().targetScale = 1.0f;
 				}
 				queueFloatingTextVisual(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y),
 					"+" + ofToString(cardSpawnerQuantity) + "x " + filteredCards[0].name, ofColor::cyan);
@@ -15027,7 +15037,7 @@ void ofApp::windowResized(int w, int h) {
 		if (numCards > 0) {
 			float handBaseCardWidth = kCardPixelWidth * kHandCardVisualScale; // Scaled card width
 			float handAreaWidth = w * 0.85f; // Use most of screen width
-			float handRestY = h - 40.0f; // Near bottom, partially visible
+			float handRestY = h - 20.0f; // Near bottom, partially visible
 
 			// Dynamic spacing: fewer cards = more space, more cards = closer
 			float spacing = 0.0f;
@@ -17390,8 +17400,8 @@ void ofApp::drawCard(bool sendPacket) {
 		// Initialize the in-hand card visual state to final position/scale but hidden until animation completes
 		currentPlayer.hand.back().targetPos = ofVec2f(cardCenterX_now, handCenterY_now);
 		currentPlayer.hand.back().currentPos = currentPlayer.hand.back().targetPos;
-		currentPlayer.hand.back().currentScale = kHandCardVisualScale;
-		currentPlayer.hand.back().targetScale = kHandCardVisualScale;
+		currentPlayer.hand.back().currentScale = 1.0f;
+		currentPlayer.hand.back().targetScale = 1.0f;
 		currentPlayer.hand.back().isAnimating = true;
 
 		// --- Animation Setup (visual only) ---
@@ -17462,7 +17472,7 @@ void ofApp::drawCard(bool sendPacket) {
 		anim.targetPos = glm::vec2(cardCenterX, handCenterY);
 		anim.endPos = anim.startPos;
 
-		anim.currentScale = kHandCardVisualScale; // start at hand display scale
+		anim.currentScale = 1.0f; // start at hand display scale
 		anim.duration = 0.50f;
 		activeDrawCardAnimations.push_back(anim);
 		ofLogNotice("DrawDebug") << "drawCard(): pushed DrawCardAnimation ownerIndex=" << anim.ownerIndex << " card='" << newCard.name << "' startTime=" << anim.startTime;
