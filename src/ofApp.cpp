@@ -105,7 +105,9 @@ namespace {
 constexpr float kCardPixelWidth = 409.0f;
 constexpr float kCardPixelHeight = 585.0f;
 constexpr float kCardAspectRatio = kCardPixelHeight / kCardPixelWidth;
-constexpr float kHandCardVisualScale = 0.90f;
+constexpr float kHandCardVisualScale = 0.50f;
+
+static ofRectangle gCardOpaqueBoundsNormalized(0.0f, 0.0f, 1.0f, 1.0f);
 
 struct UILayoutSpacing {
 	float edgeInset = 0.0f; // outer edge inset for gameplay HUD anchoring
@@ -151,7 +153,7 @@ struct CardTemplateLayout {
 	ofRectangle nameRect = ofRectangle(208, 756, 656, 117); // nudged upward slightly
 	ofRectangle costRect = ofRectangle(48, 48, 96, 96);
 	ofRectangle damageTypeRect = ofRectangle(26, 84, 176, 24);
-	ofRectangle targetingRect = ofRectangle(206, 84, 180, 24);
+	ofRectangle targetingRect = ofRectangle(384, 1344, 320, 80);
 	ofRectangle classRect = ofRectangle(26, 112, 150, 24);
 	ofRectangle effectRect = ofRectangle(96, 928, 864, 384);
 	float nameScale = 1.75f;
@@ -184,6 +186,53 @@ static std::string toLowerCopy(std::string s) {
 
 static std::string normalizeCardKey(const std::string & s) {
 	return toLowerCopy(trimCopy(s));
+}
+
+static ofRectangle computeOpaqueBoundsNormalized(const ofImage & image, unsigned char alphaThreshold = 0, int paddingPx = 2) {
+	if (!image.isAllocated() || image.getWidth() <= 0 || image.getHeight() <= 0) {
+		return ofRectangle(0.0f, 0.0f, 1.0f, 1.0f);
+	}
+
+	const ofPixels & pixels = image.getPixels();
+	int width = (int)image.getWidth();
+	int height = (int)image.getHeight();
+	int minX = width;
+	int minY = height;
+	int maxX = -1;
+	int maxY = -1;
+
+	for (int y = 0; y < height; ++y) {
+		for (int x = 0; x < width; ++x) {
+			if (pixels.getColor(x, y).a <= alphaThreshold) continue;
+			minX = std::min(minX, x);
+			minY = std::min(minY, y);
+			maxX = std::max(maxX, x);
+			maxY = std::max(maxY, y);
+		}
+	}
+
+	if (maxX < minX || maxY < minY) {
+		return ofRectangle(0.0f, 0.0f, 1.0f, 1.0f);
+	}
+
+	minX = std::max(0, minX - paddingPx);
+	minY = std::max(0, minY - paddingPx);
+	maxX = std::min(width - 1, maxX + paddingPx);
+	maxY = std::min(height - 1, maxY + paddingPx);
+
+	return ofRectangle(
+		(float)minX / (float)width,
+		(float)minY / (float)height,
+		(float)(maxX - minX + 1) / (float)width,
+		(float)(maxY - minY + 1) / (float)height);
+}
+
+static ofRectangle getOpaqueCardBounds(float x, float y, float w, float h) {
+	return ofRectangle(
+		x + gCardOpaqueBoundsNormalized.x * w,
+		y + gCardOpaqueBoundsNormalized.y * h,
+		gCardOpaqueBoundsNormalized.width * w,
+		gCardOpaqueBoundsNormalized.height * h);
 }
 
 static bool startsWith(const std::string & s, const std::string & prefix) {
@@ -297,14 +346,12 @@ static void drawCenteredTextScaledOutlined(const ofTrueTypeFont & font,
 			ofPushMatrix();
 			ofTranslate(tx + (float)dx, ty + (float)dy);
 			ofScale(scale, scale);
-			font.drawString(text, 0, 0);
+			font.drawStringAsShapes(text, 0, 0);
 			ofPopMatrix();
 		}
 	}
 
-	// Keep a slight inward shrink so the outline reads cleanly,
-	// without crushing letterforms.
-	float fillScale = scale * 0.985f;
+	float fillScale = scale;
 	float txFill = rect.x + (rect.width - b.width * fillScale) * 0.5f - b.x * fillScale;
 	float tyFill = rect.y + (rect.height - b.height * fillScale) * 0.5f - b.y * fillScale;
 
@@ -312,7 +359,7 @@ static void drawCenteredTextScaledOutlined(const ofTrueTypeFont & font,
 	ofPushMatrix();
 	ofTranslate(txFill, tyFill);
 	ofScale(fillScale, fillScale);
-	font.drawString(text, 0, 0);
+	font.drawStringAsShapes(text, 0, 0);
 	ofPopMatrix();
 }
 
@@ -674,6 +721,7 @@ static bool rebuildCardSpriteSheetFromTemplate(const std::string & templatePath,
 	const int cardW = (int)templateImage.getWidth();
 	const int cardH = (int)templateImage.getHeight();
 	if (cardW <= 0 || cardH <= 0) return false;
+	gCardOpaqueBoundsNormalized = computeOpaqueBoundsNormalized(templateImage, 0, 2);
 
 	int sheetW = 0;
 	int sheetH = 0;
@@ -739,7 +787,6 @@ static bool rebuildCardSpriteSheetFromTemplate(const std::string & templatePath,
 
 		if (rec.name.empty()) rec.name = card.name;
 		if (rec.apCost.empty()) rec.apCost = ofToString(card.cost);
-		if (rec.targeting.empty()) rec.targeting = targetingLabel(card.targeting);
 		// Intentionally do NOT auto-fill extra fields like damage type/targeting/class.
 		// Only explicitly requested fields are rendered from cards.md + configured rects.
 
@@ -4741,7 +4788,7 @@ void ofApp::updateGame() {
 	float panelWidthScaled = panelWidth * scale;
 	const float handBaseCardWidth = kCardPixelWidth;
 	const float handCardAspectRatio = kCardAspectRatio;
-	const float pileCardScale = 0.52f;
+	const float pileCardScale = 0.35f;
 	const float staticUICardHeight = (handBaseCardWidth * handCardAspectRatio * pileCardScale) * scale;
 	// Deck bottom gap on screen after stack offset is applied in drawGame().
 	const float deckBottomGap = effectiveBottomGap(layoutSpacing);
@@ -4870,7 +4917,7 @@ void ofApp::updateGame() {
 			// Pre-calculate deck and discard rects for hover detection
 			// These will be refined during the draw phase, but we need them now for mouseMoved checks
 			float cardAspectRatio = 585.0f / 409.0f; // cardBackImage aspect ratio
-			float iconMargin = layoutSpacing.minionIconGap;
+			float iconMargin = layoutSpacing.edgeInset;
 			// Make icons proportionally large relative to entry height
 			float iconHeight = ui.bounds.height * 0.64f;
 			float iconWidth = iconHeight * cardAspectRatio;
@@ -8996,8 +9043,8 @@ void ofApp::drawGame() {
 
 	float handBaseCardWidth = kCardPixelWidth;
 	float baseCardHeight = kCardPixelHeight;
-	float staticUICardWidth = (handBaseCardWidth * 0.52f) * scale;
-	float staticUICardHeight = (baseCardHeight * 0.52f) * scale;
+	float staticUICardWidth = (handBaseCardWidth * 0.35f) * scale;
+	float staticUICardHeight = (baseCardHeight * 0.35f) * scale;
 	const UILayoutSpacing ui = buildUILayoutSpacing(scale, turnTimerEnabled);
 
 	// Health bar dimensions (used both by drawHealthBar lambda and by anchored status text)
@@ -9282,7 +9329,8 @@ void ofApp::drawGame() {
 			ofNoFill();
 			ofSetColor(255, 255, 255, 200); // White glow
 			ofSetLineWidth(4 * scale);
-			ofDrawRectangle(p0_discardRect);
+			ofRectangle hoverRect = getOpaqueCardBounds(p0_discardRect.x, p0_discardRect.y, p0_discardRect.width, p0_discardRect.height);
+			ofDrawRectangle(hoverRect);
 			ofPopStyle();
 		}
 
@@ -9318,7 +9366,8 @@ void ofApp::drawGame() {
 			ofNoFill();
 			ofSetColor(255, 0, 0, 200); // Red glow
 			ofSetLineWidth(4 * scale);
-			ofDrawRectangle(p1_deckRect);
+			ofRectangle hoverRect = getOpaqueCardBounds(p1_deckRect.x, p1_deckRect.y, p1_deckRect.width, p1_deckRect.height);
+			ofDrawRectangle(hoverRect);
 			ofPopStyle();
 		}
 		if (isMultiplayer && !disableAllGlow && opponentHoverType == HOVER_DISCARD) {
@@ -9326,7 +9375,8 @@ void ofApp::drawGame() {
 			ofNoFill();
 			ofSetColor(255, 0, 0, 200); // Red glow
 			ofSetLineWidth(4 * scale);
-			ofDrawRectangle(p1_discardRect);
+			ofRectangle hoverRect = getOpaqueCardBounds(p1_discardRect.x, p1_discardRect.y, p1_discardRect.width, p1_discardRect.height);
+			ofDrawRectangle(hoverRect);
 			ofPopStyle();
 		}
 
@@ -9999,7 +10049,8 @@ void ofApp::drawGame() {
 				ofNoFill();
 				ofSetColor(255, 255, 255, 200); // White glow
 				ofSetLineWidth(4);
-				ofDrawRectangle(drawX - 2, drawY - 2, w + 4, h + 4);
+				ofRectangle hoverRect = getOpaqueCardBounds(drawX, drawY, w, h);
+				ofDrawRectangle(hoverRect.x - 2, hoverRect.y - 2, hoverRect.width + 4, hoverRect.height + 4);
 				ofPopStyle();
 			}
 			if (isMultiplayer && opponentHoverType == HOVER_HAND_CARD && opponentHoverCardIndex == index) {
@@ -28052,7 +28103,8 @@ void ofApp::drawCardEncyclopediaUI() {
 				bool isHovered = (int)i == encyclopediaHoveredIndex && !encyclopediaHoverScaled;
 				if (isHovered) {
 					ofSetColor(100, 150, 255, 100);
-					ofDrawRectRounded(drawX - 3, drawY - 3, thisCardW + 6, thisCardH + 6, 8);
+					ofRectangle hoverRect = getOpaqueCardBounds(drawX, drawY, thisCardW, thisCardH);
+					ofDrawRectRounded(hoverRect.x - 3, hoverRect.y - 3, hoverRect.width + 6, hoverRect.height + 6, 8);
 				}
 
 				// Draw card art
@@ -29913,9 +29965,9 @@ void ofApp::drawMinionStatusBars(Player & minion, const std::string & name, floa
 	if (minion.holyBlock > 0) usedWidth += statW; // <--- ADDED
 	if (minion.ward > 0) usedWidth += statW;
 
-	// Prefer the requested HP width (e.g. match deck+discard icon widths),
+	// Prefer the requested HP width (e.g. match the player HP bar length),
 	// but clamp so bars never overflow the available totalWidth.
-	float hpW = std::max(0.0f, totalWidth - usedWidth);
+	float hpW = std::min(std::max(0.0f, totalWidth - usedWidth), preferredHpWidth);
 	float currentX = x;
 
 	// --- HEALTH ---
@@ -30272,7 +30324,7 @@ void ofApp::drawMinionManagerUI() {
 
 		// --- Draw Icons (mirror per side) ---
 		const UILayoutSpacing layoutSpacing = buildUILayoutSpacing(scale, turnTimerEnabled);
-		float iconMargin = layoutSpacing.minionIconGap;
+		float iconMargin = layoutSpacing.edgeInset;
 		float iconHeight = ui.bounds.height * 0.64f;
 		float cardAspectRatio = cardBackImage.getWidth() / cardBackImage.getHeight();
 		float iconWidth = iconHeight * cardAspectRatio;
@@ -31005,7 +31057,8 @@ void ofApp::drawDraftScreen() {
 			ofNoFill();
 			ofSetColor(ofColor::white);
 			ofSetLineWidth(3);
-			ofDrawRectRounded(x - 5, startY - 5, cardW + 10, cardH + 10, 10);
+			ofRectangle hoverRect = getOpaqueCardBounds(drawX, drawY, w, h);
+			ofDrawRectRounded(hoverRect.x - 5, hoverRect.y - 5, hoverRect.width + 10, hoverRect.height + 10, 10);
 			ofPopStyle();
 		}
 
