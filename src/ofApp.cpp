@@ -27606,8 +27606,6 @@ int ofApp::getGameRandom(int min, int max) {
 	return min + (int)(raw % range);
 }
 //--------------------------------------------------------------
-
-//--------------------------------------------------------------
 bool ofApp::diceVisualsFinishedAndLinger() const {
 	// All dice visuals finished?
 	bool allFinished = std::none_of(activeDiceRolls.begin(), activeDiceRolls.end(), [](const DiceRoll & r) { return !r.isFinishedVisual; });
