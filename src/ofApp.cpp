@@ -768,7 +768,7 @@ static bool rebuildCardSpriteSheetFromTemplate(const std::string & templatePath,
 	const int cardW = (int)templateImage.getWidth();
 	const int cardH = (int)templateImage.getHeight();
 	if (cardW <= 0 || cardH <= 0) return false;
-	gCardOpaqueBoundsNormalized = computeOpaqueBoundsNormalized(templateImage, 0, 2);
+	gCardOpaqueBoundsNormalized = computeOpaqueBoundsNormalized(templateImage, 0, 0);
 
 	int sheetW = 0;
 	int sheetH = 0;
@@ -1050,25 +1050,27 @@ void ofApp::applyReplicateCopyToHand(Player & caster, const Card & playedCard) {
 	anim.currentPos = glm::vec2(boardCenter.x, boardCenter.y);
 
 	size_t numCards = caster.hand.size() + 1;
-	float handCenterY = ofGetHeight() - 130;
-	float handBaseCardWidth = kCardPixelWidth;
-	int cardsToFit = std::max(5, (int)numCards);
-	float handAreaWidth = ofGetWidth() * 0.6f;
-	float totalCardWidths = cardsToFit * handBaseCardWidth;
-	float padding = (cardsToFit > 1) ? (handAreaWidth - totalCardWidths) / (cardsToFit - 1) : 0;
-	padding = std::min(padding, 20.0f);
-	float totalHandWidth = (cardsToFit * handBaseCardWidth) + ((cardsToFit - 1) * padding);
+	// Hearthstone-style positioning
+	float handBaseCardWidth = kCardPixelWidth * kHandCardVisualScale;
+	float handAreaWidth = ofGetWidth() * 0.85f;
+
+	float spacing = 0.0f;
+	if (numCards > 1) {
+		float totalWidth = numCards * handBaseCardWidth;
+		if (totalWidth < handAreaWidth) {
+			spacing = (handAreaWidth - totalWidth) / (numCards - 1);
+			spacing = std::min(spacing, 120.0f);
+		} else {
+			spacing = 10.0f;
+		}
+	}
+
+	float totalHandWidth = (numCards > 0) ? (numCards * handBaseCardWidth + (numCards - 1) * spacing) : 0;
 	float startX = (ofGetWidth() - totalHandWidth) / 2.0f;
-	(void)startX;
+	float handRestY = ofGetHeight() - 40.0f; // Near bottom
 
-	float totalActualCardWidths = (numCards > 0) ? (numCards * handBaseCardWidth) : 0;
-	float paddingActual = (numCards > 1) ? (handAreaWidth - totalActualCardWidths) / (numCards - 1) : 0;
-	paddingActual = std::min(paddingActual, 20.0f);
-	float totalActualHandWidth = (numCards > 0) ? ((numCards * handBaseCardWidth) + ((numCards - 1) * paddingActual)) : 0;
-	float startXActual = (ofGetWidth() - totalActualHandWidth) / 2.0f;
-
-	float cardCenterX = startXActual + (numCards - 1) * (handBaseCardWidth + paddingActual) + (handBaseCardWidth / 2.0f);
-	anim.targetPos = glm::vec2(cardCenterX, handCenterY);
+	float cardCenterX = startX + (numCards - 1) * (handBaseCardWidth + spacing) + (handBaseCardWidth / 2.0f);
+	anim.targetPos = glm::vec2(cardCenterX, handRestY);
 	anim.endPos = anim.startPos;
 	anim.currentScale = kHandCardVisualScale;
 	anim.commitOnFinish = true;
@@ -6436,26 +6438,29 @@ void ofApp::updateGame() {
 
 		if (handPlayer) {
 			size_t numCards = handPlayer->hand.size();
-			float handCenterY = ofGetHeight() - 130;
-			float handBaseCardWidth = kCardPixelWidth;
-			float cardsToFit = std::max(5, (int)numCards);
-			float handAreaWidth = ofGetWidth() * 0.6f;
+			// Hearthstone-style positioning
+			float handBaseCardWidth = kCardPixelWidth * kHandCardVisualScale;
+			float handAreaWidth = ofGetWidth() * 0.85f;
 
-			float totalCardWidths = cardsToFit * handBaseCardWidth;
-			float padding = (cardsToFit > 1) ? (handAreaWidth - totalCardWidths) / (cardsToFit - 1) : 0;
-			padding = std::min(padding, 20.0f);
-			float totalHandWidth = (cardsToFit * handBaseCardWidth) + ((cardsToFit - 1) * padding);
+			float spacing = 0.0f;
+			if (numCards > 1) {
+				float totalWidth = numCards * handBaseCardWidth;
+				if (totalWidth < handAreaWidth) {
+					spacing = (handAreaWidth - totalWidth) / (numCards - 1);
+					spacing = std::min(spacing, 120.0f);
+				} else {
+					spacing = 10.0f;
+				}
+			}
+
+			float totalHandWidth = (numCards > 0) ? (numCards * handBaseCardWidth + (numCards - 1) * spacing) : 0;
 			float startX = (ofGetWidth() - totalHandWidth) / 2.0f;
-			(void)startX; // unused
+			float handRestY = ofGetHeight() - 40.0f;
 
 			// Position the cards for the active local unit (player or minion)
 			for (size_t i = 0; i < numCards; i++) {
-				float paddingActualInline = (numCards > 1) ? (handAreaWidth - (numCards * handBaseCardWidth)) / (numCards - 1) : 0;
-				paddingActualInline = std::min(paddingActualInline, 20.0f);
-				float totalActualHandWidthInline = (numCards > 0) ? ((numCards * handBaseCardWidth) + ((numCards - 1) * paddingActualInline)) : 0;
-				float startXActualInline = (ofGetWidth() - totalActualHandWidthInline) / 2.0f;
-				float cardCenterX = startXActualInline + i * (handBaseCardWidth + paddingActualInline) + (handBaseCardWidth / 2.0f);
-				handPlayer->hand[i].targetPos = ofVec2f(cardCenterX, handCenterY);
+				float cardCenterX = startX + i * (handBaseCardWidth + spacing) + (handBaseCardWidth / 2.0f);
+				handPlayer->hand[i].targetPos = ofVec2f(cardCenterX, handRestY);
 
 				if (static_cast<int>(i) != draggedCardIndex) {
 					handPlayer->hand[i].currentScale = ofLerp(handPlayer->hand[i].currentScale, handPlayer->hand[i].targetScale, 0.25f);
@@ -10050,6 +10055,9 @@ void ofApp::drawGame() {
 	// --- OPTIMIsED HAND DRAWING ---
 	// Draw the hand area only when we have a valid player/context (match rest of UI)
 	if (!players.empty() && currentPlayerIndex >= 0) {
+		// Hearthstone-style hover scale for cards
+		const float hoverScale = 1.4f;
+
 		// In multiplayer, show BOTH players' hands at bottom in a shared space
 		// Get both local and opponent player
 		Player * handPlayer = nullptr;
@@ -10081,17 +10089,30 @@ void ofApp::drawGame() {
 			lastLoggedHandSize = numCards;
 		}
 
-		// Calculate hand area dimensions for positioning cards within the pre-drawn box
-		float handBaseCardWidth = kCardPixelWidth;
-		int cardsToFit = std::max(5, (int)numCards);
-		float handAreaWidth = ofGetWidth() * 0.6f;
-		float totalCardWidths = cardsToFit * handBaseCardWidth;
-		float padding = (cardsToFit > 1) ? (handAreaWidth - totalCardWidths) / (cardsToFit - 1) : 0;
-		padding = std::min(padding, 20.0f);
-		// totalHandWidth and hand layout calculations removed as they were unused
+		// Hearthstone-style hand layout with dynamic spacing
+		float baseCardHeight = kCardPixelHeight * kHandCardVisualScale;
+		float handBaseCardWidth = kCardPixelWidth * kHandCardVisualScale;
+		float handAreaWidth = ofGetWidth() * 0.85f;
 
-		// How much a hovered card is lifted (pixels). Always lift upward.
-		float hoverDirection = -180.0f;
+		// Dynamic spacing based on card count
+		float spacing = 0.0f;
+		if (numCards == 1) {
+			spacing = 0.0f;
+		} else if (numCards <= 10) {
+			float totalWidth = numCards * handBaseCardWidth;
+			if (totalWidth < handAreaWidth) {
+				spacing = (handAreaWidth - totalWidth) / (numCards - 1);
+				spacing = std::min(spacing, 120.0f);
+			} else {
+				spacing = 10.0f;
+			}
+		} else {
+			spacing = 10.0f;
+		}
+
+		// How much a hovered card is lifted upward (pixels) and scaled
+		float hoverDirection = -220.0f; // Lift upward to be fully visible
+		// Note: hoverScale is already defined at function scope
 
 		// 1. Determine which card should be drawn LAST (On Top)
 		int indexToDrawLast = -1;
@@ -10106,18 +10127,27 @@ void ofApp::drawGame() {
 			// If this card is currently represented by a flying animation,
 			// skip drawing the in-hand instance until the animation finishes.
 			if (card.isAnimating) return;
-			float w = handBaseCardWidth * card.currentScale;
-			float h = baseCardHeight * card.currentScale;
+
+			// Hearthstone hover: scale up and move upward
+			float drawScale = card.currentScale;
+			if (isTopCard && index == hoveredCardIndex) {
+				drawScale = card.currentScale * hoverScale; // Scale up on hover
+			}
+
+			float w = handBaseCardWidth * drawScale;
+			float h = baseCardHeight * drawScale;
 
 			float drawX = card.currentPos.x - w / 2;
 			float drawY = card.currentPos.y - h / 2;
 
-			// Apply hover offsets
+			// Apply hover offsets - move upward and increase scale
 			if (isTopCard) {
 				if (index == draggedCardIndex) {
+					// Dragged card stays at mouse position
 					drawX = card.currentPos.x - w / 2;
 					drawY = card.currentPos.y - h / 2;
 				} else if (index == hoveredCardIndex) {
+					// Move upward and ensure visible on screen
 					drawY += hoverDirection;
 				}
 			}
@@ -11170,6 +11200,9 @@ void ofApp::mouseMoved(int x, int y) {
 	int newHoverGridY = -1;
 	int newHoverCardIndex = -1;
 
+	// Hearthstone-style hover scale for card animations
+	const float hoverScale = 1.4f;
+
 	// 1. Reset to default at the start of the check
 	currentCursor = CURSOR_DEFAULT;
 	isShowingTooltip = false; // Reset tooltip state every frame
@@ -11406,8 +11439,9 @@ cursor_check_done:;
 		for (size_t i = 0; i < currentPlayer.hand.size(); i++) {
 			// Only enlarge cards when WE are hovering them, not when opponent hovers
 			bool isLocallyHovered = (static_cast<int>(i) == hoveredCardIndex);
-			// Keep hand cards at the configured baseline size with only a subtle hover bump.
-			currentPlayer.hand[i].targetScale = isLocallyHovered ? (kHandCardVisualScale * 1.08f) : kHandCardVisualScale;
+			// Hearthstone-style: smooth scaling on hover with hoverScale variable
+			float targetScaleVal = isLocallyHovered ? (kHandCardVisualScale * hoverScale) : kHandCardVisualScale;
+			currentPlayer.hand[i].targetScale = targetScaleVal;
 		}
 
 		int activeCardForHighlight = -1;
@@ -11937,21 +11971,31 @@ void ofApp::mousePressed(int x, int y, int button) {
 		int numCards = static_cast<int>(currentPlayer.hand.size());
 		ofLogNotice("CardDrag") << "mousePressed: Checking " << numCards << " cards in hand at currentState=" << (int)currentState;
 		if (numCards > 0) {
-			float handBaseCardWidth = kCardPixelWidth;
-			float baseCardHeight = kCardPixelHeight;
-			float handAreaWidth = ofGetWidth() * 0.4f;
-			float totalCardWidths = numCards * handBaseCardWidth;
-			float padding = (numCards > 1) ? (handAreaWidth - totalCardWidths) / (numCards - 1) : 0;
-			padding = std::min(padding, 20.0f);
-			float totalHandWidth = (numCards * handBaseCardWidth) + ((numCards - 1) * padding);
+			// Use Hearthstone-style positioning
+			float handBaseCardWidth = kCardPixelWidth * kHandCardVisualScale;
+			float baseCardHeight = kCardPixelHeight * kHandCardVisualScale;
+			float handAreaWidth = ofGetWidth() * 0.85f;
+
+			float spacing = 0.0f;
+			if (numCards > 1) {
+				float totalWidth = numCards * handBaseCardWidth;
+				if (totalWidth < handAreaWidth) {
+					spacing = (handAreaWidth - totalWidth) / (numCards - 1);
+					spacing = std::min(spacing, 120.0f);
+				} else {
+					spacing = 10.0f;
+				}
+			}
+
+			float totalHandWidth = (numCards > 0) ? (numCards * handBaseCardWidth + (numCards - 1) * spacing) : 0;
 			float startX = (ofGetWidth() - totalHandWidth) / 2.0f;
 
-			float detectionHeight = baseCardHeight * 1.6f;
+			float detectionHeight = baseCardHeight * 1.2f;
 			for (int i = 0; i < numCards; i++) {
 				Card & card = currentPlayer.hand[i];
-				float detectionX = startX + i * (handBaseCardWidth + padding);
+				float detectionX = startX + i * (handBaseCardWidth + spacing) + (handBaseCardWidth / 2.0f);
 				float detectionY = card.currentPos.y - detectionHeight / 2;
-				if (ofRectangle(detectionX, detectionY, handBaseCardWidth, detectionHeight).inside(x, y)) {
+				if (ofRectangle(detectionX - handBaseCardWidth / 2, detectionY, handBaseCardWidth, detectionHeight).inside(x, y)) {
 					// Keep track of the rightmost card that contains the cursor
 					if (pressedCardIndex == -1 || currentPlayer.hand[i].currentPos.x > currentPlayer.hand[pressedCardIndex].currentPos.x) {
 						pressedCardIndex = i;
@@ -14974,44 +15018,44 @@ void ofApp::windowResized(int w, int h) {
 	// Force current to target
 	endTurnButtonCurrentPos = endTurnButtonTargetPos;
 
-	// 2. Snap Cards in Hand
+	// 2. Snap Cards in Hand - Hearthstone Style
 	if (!players.empty() && currentPlayerIndex >= 0) {
 		Player & currentPlayer = players[currentPlayerIndex];
 
-		// Always show current player's hand at bottom (turn-based)
-		// In multiplayer, only show local player's hand
-		// In single player, show whichever player's turn it is
-		float handCenterY = h - 130;
-		float handBaseCardWidth = kCardPixelWidth;
-		float handAreaWidth = w * 0.4f;
-
+		// Hearthstone layout: bottom of screen, slightly cut off
 		size_t numCards = currentPlayer.hand.size();
-		int cardsToFit = std::max(5, (int)numCards);
-		float totalCardWidths = cardsToFit * handBaseCardWidth;
-		float padding = (cardsToFit > 1) ? (handAreaWidth - totalCardWidths) / (cardsToFit - 1) : 0;
-		padding = std::min(padding, 20.0f);
-		float totalHandWidth = (cardsToFit * handBaseCardWidth) + ((cardsToFit - 1) * padding);
-		float startX = (w - totalHandWidth) / 2.0f;
-		(void)startX; // unused
+		if (numCards > 0) {
+			float handBaseCardWidth = kCardPixelWidth * kHandCardVisualScale; // Scaled card width
+			float handAreaWidth = w * 0.85f; // Use most of screen width
+			float handRestY = h - 40.0f; // Near bottom, partially visible
 
-		// Compute actual spacing so the current cards are centered within the hand area
-		float totalActualCardWidths = (numCards > 0) ? (numCards * handBaseCardWidth) : 0;
-		float paddingActual = (numCards > 1) ? (handAreaWidth - totalActualCardWidths) / (numCards - 1) : 0;
-		paddingActual = std::min(paddingActual, 20.0f);
-		float totalActualHandWidth = (numCards > 0) ? ((numCards * handBaseCardWidth) + ((numCards - 1) * paddingActual)) : 0;
-		float startXActual = (w - totalActualHandWidth) / 2.0f;
-		(void)startXActual; // unused
+			// Dynamic spacing: fewer cards = more space, more cards = closer
+			float spacing = 0.0f;
+			if (numCards == 1) {
+				spacing = 0.0f; // One card centered
+			} else if (numCards <= 10) {
+				// Scale spacing inversely with card count
+				float totalWidth = numCards * handBaseCardWidth;
+				if (totalWidth < handAreaWidth) {
+					spacing = (handAreaWidth - totalWidth) / (numCards - 1);
+					spacing = std::min(spacing, 120.0f); // Max spacing
+				} else {
+					spacing = 10.0f; // Min spacing when cramped
+				}
+			} else {
+				spacing = 10.0f; // Very cramped
+			}
 
-		for (size_t i = 0; i < numCards; i++) {
-			float paddingActualInline = (numCards > 1) ? (handAreaWidth - (numCards * handBaseCardWidth)) / (numCards - 1) : 0;
-			paddingActualInline = std::min(paddingActualInline, 20.0f);
-			float totalActualHandWidthInline = (numCards > 0) ? ((numCards * handBaseCardWidth) + ((numCards - 1) * paddingActualInline)) : 0;
-			float startXActualInline = (w - totalActualHandWidthInline) / 2.0f;
-			float cardCenterX = startXActualInline + i * (handBaseCardWidth + paddingActualInline) + (handBaseCardWidth / 2.0f);
-			currentPlayer.hand[i].targetPos = ofVec2f(cardCenterX, handCenterY);
+			// Calculate total width and center
+			float totalHandWidth = numCards * handBaseCardWidth + (numCards - 1) * spacing;
+			float startX = (w - totalHandWidth) / 2.0f;
 
-			// FORCE SNAP
-			currentPlayer.hand[i].currentPos = currentPlayer.hand[i].targetPos;
+			// Position each card
+			for (size_t i = 0; i < numCards; i++) {
+				float cardCenterX = startX + i * (handBaseCardWidth + spacing) + (handBaseCardWidth / 2.0f);
+				currentPlayer.hand[i].targetPos = ofVec2f(cardCenterX, handRestY);
+				currentPlayer.hand[i].currentPos = currentPlayer.hand[i].targetPos;
+			}
 		}
 	}
 }
