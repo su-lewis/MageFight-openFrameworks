@@ -13,6 +13,7 @@
 #include <deque>
 #include <functional>
 #include <limits>
+#include <map>
 #include <memory>
 #include <queue>
 #include <random>
@@ -1453,7 +1454,7 @@ private:
 	TargetInfo targetCache[BOARD_WIDTH][BOARD_HEIGHT];
 	std::deque<Player> players;
 	// Track which minion playerIDs we've logged during render to avoid flooding logs
-	std::unordered_set<int> renderLoggedMinions;
+	std::set<int> renderLoggedMinions;
 	int currentPlayerIndex = -1;
 
 	// --- TURN TIMER ---
@@ -1572,19 +1573,12 @@ private:
 		bool draftShuffleNeeded = false;
 		std::vector<int> draftQueue; // class IDs queue
 
-		// (Shuffle nonce queues removed; shuffles are now deterministic/local)
-		// Backwards-compat fields: some compilation sites still reference
-		// shuffle nonce bookkeeping. Keep them here temporarily until
-		// all callsites are updated to deterministic shuffles.
-		std::unordered_map<int, std::deque<int>> shuffleNonces;
-		std::unordered_map<int, int> lastAppliedShuffleNonce;
-
 		// Pending draft state packet (if host sends state while client is waiting)
 		bool draftStateAvailable = false;
 		DraftStatePacket draftState;
 
 		// Network action staging
-		std::unordered_map<int, int> actionByActor;
+		std::map<int, int> actionByActor;
 		int networkActionActor = -1;
 		int networkActionPrevPlayer = -1;
 
@@ -1596,7 +1590,7 @@ private:
 	// Recent place notifications sent by host: tracks player indices for which
 	// a PKT_PLACE_SUMMONED_MINION was emitted but whose authoritative shuffle
 	// may follow shortly. This helps detect/validate packet ordering.
-	std::unordered_set<int> recentPlaceSentIndices;
+	std::set<int> recentPlaceSentIndices;
 	float cameraCurrentZoom = 35.0f;
 	glm::vec3 cameraTargetPan = glm::vec3(0, 0, 0);
 	glm::vec3 cameraCurrentPan = glm::vec3(0, 0, 0);
@@ -1856,12 +1850,14 @@ private:
 	std::vector<InputCommandPacket> commandQueue;
 	uint32_t nextCommandId = 1;
 	uint32_t lastProcessedCommandId = 0;
+	int lastTurnStartSentPlayer = -1;
+	int lastTurnStartSentCounter = -1;
 
 	// Provisional/optimistic command support (client-side prediction)
 	// Stores the snapshot taken immediately before applying a provisional command
-	std::unordered_map<uint32_t, std::string> provisionalSnapshots;
+	std::map<uint32_t, std::string> provisionalSnapshots;
 	// Stores the provisional InputCommandPacket keyed by commandId
-	std::unordered_map<uint32_t, InputCommandPacket> provisionalCommands;
+	std::map<uint32_t, InputCommandPacket> provisionalCommands;
 
 	// Fixed-step simulation
 	const float SIMULATION_TIMESTEP = 1.0f / 60.0f; // 60Hz fixed tick

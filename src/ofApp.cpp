@@ -121,6 +121,22 @@ static void seedVisualRng(std::mt19937 & rng, uint32_t mapSeed) {
 	rng.seed(mapSeed ^ 0xDEADBEEFu);
 }
 
+static int64_t readSaveTimestampFromFile(const std::filesystem::path & path) {
+	try {
+		std::ifstream ifs(path, std::ios::binary);
+		if (!ifs) return -1;
+
+		std::string line;
+		while (std::getline(ifs, line)) {
+			if (line.rfind("SAVE_TIME\t", 0) == 0) {
+				return (int64_t)std::stoll(line.substr(10));
+			}
+		}
+	} catch (...) {
+	}
+	return -1;
+}
+
 constexpr float kCardPixelWidth = 409.0f;
 constexpr float kCardPixelHeight = 585.0f;
 constexpr float kCardAspectRatio = kCardPixelHeight / kCardPixelWidth;
@@ -887,7 +903,14 @@ static bool rebuildCardSpriteSheetFromTemplate(const std::string & templatePath,
 		if (!fs::exists(dir)) return;
 
 		std::vector<std::pair<std::filesystem::file_time_type, fs::path>> files;
-		for (auto & entry : fs::directory_iterator(dir)) {
+		std::vector<fs::directory_entry> entries;
+		for (const auto & entry : fs::directory_iterator(dir)) {
+			entries.push_back(entry);
+		}
+		std::sort(entries.begin(), entries.end(), [](const fs::directory_entry & a, const fs::directory_entry & b) {
+			return a.path().string() < b.path().string();
+		});
+		for (const auto & entry : entries) {
 			if (!entry.is_regular_file()) continue;
 			std::string name = entry.path().filename().string();
 			if (name.rfind("autosave_turn_", 0) == 0 && name.size() > 12 && name.substr(name.size() - 5) == ".json") {
@@ -3360,6 +3383,8 @@ void ofApp::update() {
 				ofLogNotice("Network") << "Host: Opponent found. Starting game & sending seed.";
 				isMultiplayer = true;
 				myLocalPlayerID = 0; // Host is always Player 0
+				lastTurnStartSentPlayer = -1;
+				lastTurnStartSentCounter = -1;
 
 				// Reset sequence tracking for this new game
 				lastReceivedSeqByPlayer[0] = 0;
@@ -4092,10 +4117,9 @@ void ofApp::drawSingleplayerMenu() {
 		namespace fs = std::filesystem;
 		fs::path p = fs::current_path() / fs::path(kSavesDir) / fs::path("autosave.json");
 		if (fs::exists(p)) {
-			auto ftime = fs::last_write_time(p);
-			auto sctp = std::chrono::time_point_cast<std::chrono::system_clock::duration>(
-				ftime - fs::file_time_type::clock::now() + std::chrono::system_clock::now());
-			std::time_t tt = std::chrono::system_clock::to_time_t(sctp);
+			int64_t savedAt = readSaveTimestampFromFile(p);
+			if (savedAt < 0) savedAt = (int64_t)std::time(nullptr);
+			std::time_t tt = (std::time_t)savedAt;
 			char buf[64];
 			// Format: YYYY-MM-DD HH:MM (no seconds)
 			std::strftime(buf, sizeof(buf), "%Y-%m-%d %H:%M", std::localtime(&tt));
@@ -4130,27 +4154,34 @@ void ofApp::drawSaveBrowser() {
 	try {
 		namespace fs = std::filesystem;
 		fs::path dir = fs::current_path() / fs::path(kSavesDir);
+		std::vector<std::pair<int64_t, fs::path>> files;
 		if (fs::exists(dir)) {
-			for (auto & entry : fs::directory_iterator(dir)) {
+			std::vector<fs::directory_entry> entries;
+			for (const auto & entry : fs::directory_iterator(dir)) {
+				entries.push_back(entry);
+			}
+			std::sort(entries.begin(), entries.end(), [](const fs::directory_entry & a, const fs::directory_entry & b) {
+				return a.path().string() < b.path().string();
+			});
+			std::vector<std::pair<int64_t, fs::path>> files;
+			for (const auto & entry : entries) {
 				if (!entry.is_regular_file()) continue;
 				std::string name = entry.path().filename().string();
 				if (name.size() > 5 && name.substr(name.size() - 5) == ".json") {
 					if (name.rfind("autosave", 0) == 0 || name.rfind("save", 0) == 0) {
-						saveFilePaths.push_back(entry.path().string()); // store full path
+						files.emplace_back(readSaveTimestampFromFile(entry.path()), entry.path());
 					}
 				}
 			}
 		}
-		// Sort by last_write_time descending
-		std::sort(saveFilePaths.begin(), saveFilePaths.end(), [&](const std::string & a, const std::string & b) {
-			try {
-				auto ta = fs::last_write_time(fs::path(a));
-				auto tb = fs::last_write_time(fs::path(b));
-				return ta > tb;
-			} catch (...) {
-				return a > b;
-			}
+		std::sort(files.begin(), files.end(), [](const auto & a, const auto & b) {
+			if (a.first != b.first) return a.first > b.first;
+			return a.second.string() < b.second.string();
 		});
+		saveFilePaths.reserve(files.size());
+		for (const auto & file : files) {
+			saveFilePaths.push_back(file.second.string());
+		}
 	} catch (...) {
 		// ignore
 	}
@@ -4556,6 +4587,8 @@ void ofApp::setupGame() {
 	if (isHost()) {
 		std::random_device rd;
 		currentMapSeed = rd();
+		lastTurnStartSentPlayer = -1;
+		lastTurnStartSentCounter = -1;
 
 		// FIX: Seed the gameplay RNG specifically
 		gameplayRNG.seed(currentMapSeed);
@@ -4584,6 +4617,8 @@ void ofApp::setupGame() {
 	else if (!isMultiplayer) {
 		std::random_device rd;
 		currentMapSeed = rd();
+		lastTurnStartSentPlayer = -1;
+		lastTurnStartSentCounter = -1;
 		gameplayRNG.seed(currentMapSeed);
 		seedVisualRng(visualRNG, currentMapSeed);
 		gameplaySeededByHost = false;
@@ -4698,6 +4733,8 @@ void ofApp::initGameFromSeed(uint32_t seed) {
 	seedVisualRng(visualRNG, seed);
 	gameplaySeededByHost = true;
 	currentMapSeed = seed;
+	lastTurnStartSentPlayer = -1;
+	lastTurnStartSentCounter = -1;
 	isMultiplayer = true;
 	myLocalPlayerID = 1;
 
@@ -6000,8 +6037,6 @@ void ofApp::updateGame() {
 							break;
 						}
 					}
-					static int lastTurnStartSentPlayer = -1;
-					static int lastTurnStartSentCounter = -1;
 					bool alreadySent = (lastTurnStartSentPlayer == currentPlayerIndex && lastTurnStartSentCounter == globalTurnCounter);
 					if (isHost() && isMultiplayer && (apResolvedThisTurn || allDiceFinished) && !alreadySent && !isHandlingTurnStartEffects) {
 						// Migration note: Host no longer sends a separate turn-start packet.
@@ -6552,7 +6587,7 @@ void ofApp::updateGame() {
 								if (15 >= 0 && 15 < 16) currentEffectSequence.blackboard[15] = roll;
 								// Show dice visual for the faerie roll
 								queueVisualDiceRoll(gridToWorld(p.x, p.y) + glm::vec3(0, 1.0f, 0), 1, 4, rawRes, roll, PURPOSE_DEBUG, (int)pidx, 1.0f);
-								int hp = (int)std::floor(dying.maxHealth * 0.25f * roll);
+								int hp = (dying.maxHealth * roll) / 4;
 								if (hp < 1) hp = 1;
 								{
 									EffectOp setHp = {};
@@ -17288,39 +17323,6 @@ void ofApp::drawCard(bool sendPacket) {
 	}
 
 	// --- PHASE 2: DRAW THE CARD ---
-	// We check empty() again because we might have just refilled it in Phase 1.
-	if (isClient() && currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) {
-		auto & dq = networkPending.shuffleNonces[currentPlayerIndex];
-		if (!dq.empty()) {
-			uint32_t nonceToApply = dq.front();
-			dq.pop_front();
-			ofLogNotice("Network") << "Client: Applying pending shuffle nonce for player " << currentPlayerIndex << " before draw (nonce=" << nonceToApply << ")";
-			// Deck summary before applying nonce
-			{
-				std::string before;
-				for (size_t i = 0; i < players[currentPlayerIndex].deck.size() && i < 8; ++i) {
-					if (!before.empty()) before += ",";
-					before += players[currentPlayerIndex].deck[i].name;
-				}
-				if (players[currentPlayerIndex].deck.size() > 8) before += ",...";
-				ofLogNotice("Network") << "  Deck before shuffle (sample): " << before << " (size=" << players[currentPlayerIndex].deck.size() << ")";
-			}
-			std::mt19937 shuffleRng(nonceToApply);
-			deterministic_shuffle(currentPlayer.deck, shuffleRng);
-			networkPending.lastAppliedShuffleNonce[currentPlayerIndex] = nonceToApply;
-			// Deck summary after applying nonce
-			{
-				std::string after;
-				for (size_t i = 0; i < players[currentPlayerIndex].deck.size() && i < 8; ++i) {
-					if (!after.empty()) after += ",";
-					after += players[currentPlayerIndex].deck[i].name;
-				}
-				if (players[currentPlayerIndex].deck.size() > 8) after += ",...";
-				ofLogNotice("Network") << "  Deck after shuffle (sample): " << after << " (size=" << players[currentPlayerIndex].deck.size() << ")";
-			}
-			ofLogNotice("Network") << "Client: Applied pending shuffle nonce for player " << currentPlayerIndex << " before draw (nonce=" << nonceToApply << ")";
-		}
-	}
 	if (!currentPlayer.deck.empty()) {
 		Card newCard = currentPlayer.deck.back();
 		currentPlayer.deck.pop_back();
@@ -17431,7 +17433,8 @@ void ofApp::queueInputCommand(const InputCommandPacket & cmd) {
 	// Insert command in deterministic order by commandId
 	auto it = std::lower_bound(commandQueue.begin(), commandQueue.end(), cmd,
 		[](const InputCommandPacket & a, const InputCommandPacket & b) {
-			return a.commandId < b.commandId;
+			if (a.commandId != b.commandId) return a.commandId < b.commandId;
+			return a.playerID < b.playerID;
 		});
 	commandQueue.insert(it, cmd);
 	ofLogNotice("Lockstep") << "Queued InputCommand: id=" << cmd.commandId << " type=" << cmd.commandType << " params=(" << cmd.params[0] << "," << cmd.params[1] << "," << cmd.params[2] << "," << cmd.params[3] << ")";
@@ -17486,7 +17489,8 @@ bool ofApp::sendInputCommand(InputCommandPacket & cmd, bool applyLocally) {
 void ofApp::processCommandQueue() {
 	// Simply execute commands in the exact order they arrive in the queue (FIFO).
 	while (!commandQueue.empty()) {
-		const auto & cmd = commandQueue.front();
+		InputCommandPacket cmd = commandQueue.front();
+		commandQueue.erase(commandQueue.begin());
 
 		bool prevExecuting = isExecutingLockstepCommand;
 		isExecutingLockstepCommand = true;
@@ -17494,7 +17498,6 @@ void ofApp::processCommandQueue() {
 		executeInputCommand(cmd); // Execute the command
 
 		isExecutingLockstepCommand = prevExecuting;
-		commandQueue.erase(commandQueue.begin());
 	}
 }
 
@@ -17579,7 +17582,7 @@ void ofApp::simulationTick() {
 								if (15 >= 0 && 15 < 16) currentEffectSequence.blackboard[15] = roll;
 								// Show dice visual for the faerie roll
 								queueVisualDiceRoll(gridToWorld(p.x, p.y) + glm::vec3(0, 1.0f, 0), 1, 4, rawRes, roll, PURPOSE_DEBUG, (int)pidx, 1.0f);
-								int hp = (int)std::floor(dying.maxHealth * 0.25f * roll);
+								int hp = (dying.maxHealth * roll) / 4;
 								if (hp < 1) hp = 1;
 								{
 									EffectOp setHp = {};
@@ -26441,7 +26444,9 @@ void ofApp::addGameLog(const std::string & logText) {
 std::string ofApp::buildSnapshotString() {
 	std::ostringstream ss;
 	ss << "V\t1\n";
+	ss << "SAVE_TIME\t" << (int64_t)std::time(nullptr) << "\n";
 	ss << "SEED\t" << currentMapSeed << "\n";
+	ss << "RNG\t" << gameplayRNG << "\n";
 	// Added currentMapSeed at the end
 	ss << "STATE\t" << (int)currentState
 	   << "\t" << currentPlayerIndex
@@ -26596,6 +26601,8 @@ void ofApp::applySnapshotString(const std::string & data) {
 	bool tmpHasUnlimitedAP = hasUnlimitedAP;
 	uint32_t tmpMapSeed = currentMapSeed;
 	bool tmpHasMapSeed = false;
+	std::string tmpRngState;
+	bool tmpHasRngState = false;
 
 	std::vector<int> tmpPendingDraftQueue;
 	Tile tmpBoard[BOARD_WIDTH][BOARD_HEIGHT];
@@ -26618,6 +26625,9 @@ void ofApp::applySnapshotString(const std::string & data) {
 			if (parts[0] == "SEED" && parts.size() >= 2) {
 				tmpMapSeed = (uint32_t)std::stoul(parts[1]);
 				tmpHasMapSeed = true;
+			} else if (parts[0] == "RNG" && parts.size() >= 2) {
+				tmpRngState = parts[1];
+				tmpHasRngState = true;
 			}
 			if (parts[0] == "STATE" && parts.size() >= 13) {
 				currentState = (GameState)std::stoi(parts[1]);
@@ -26836,10 +26846,15 @@ void ofApp::applySnapshotString(const std::string & data) {
 	isMultiplayer = true;
 	hasReceivedHandshake = true;
 	gameplaySeededByHost = true;
-	if (tmpHasMapSeed) {
-		currentMapSeed = tmpMapSeed;
+	if (tmpHasMapSeed) currentMapSeed = tmpMapSeed;
+	if (tmpHasRngState) {
+		std::stringstream rngStream(tmpRngState);
+		rngStream >> gameplayRNG;
+		if (tmpHasMapSeed) {
+			ofLogNotice("Snapshot") << "Restored Map Seed and RNG state: " << currentMapSeed;
+		}
+	} else if (tmpHasMapSeed) {
 		gameplayRNG.seed(currentMapSeed);
-		seedVisualRng(visualRNG, currentMapSeed);
 		ofLogNotice("Snapshot") << "Restored Map Seed: " << currentMapSeed;
 	}
 
@@ -26977,9 +26992,6 @@ void ofApp::applySnapshotString(const std::string & data) {
 	calculateTargetHighlights();
 
 	// Clear transient networking/draft/shuffle state that should not survive a snapshot
-	// Clear any pending per-actor shuffle nonces and applied records
-	networkPending.shuffleNonces.clear();
-	networkPending.lastAppliedShuffleNonce.clear();
 	skipClientShuffleFor = -1;
 	draftAcceptApplied = false;
 	waitingForDraftOptionsStartTime = 0.0f;
@@ -28674,7 +28686,7 @@ bool ofApp::applyDamageTo(Player & target, int damage, DamageType type, int atta
 							int roll = raw + luckBonus;
 							if (0 >= 0 && 0 < 16) currentEffectSequence.blackboard[0] = roll;
 							queueVisualDiceRoll(gridToWorld(p.x, p.y) + glm::vec3(0, 1.0f, 0), 1, 4, rawRes, roll, PURPOSE_DEBUG, (int)pidx, 1.0f);
-							int hp = (int)std::floor(target.maxHealth * 0.25f * roll);
+							int hp = (target.maxHealth * roll) / 4;
 							if (hp < 1) hp = 1;
 
 							// Queue deterministic HP set and status removals (apply synchronously)
@@ -32092,6 +32104,14 @@ long long ofApp::calculateChecksum() {
 	// Global counters
 	mix((uint64_t)globalTurnCounter);
 	mix((uint64_t)currentPlayerIndex);
+	mix((uint64_t)currentAP);
+
+	for (int y = 0; y < BOARD_HEIGHT; ++y) {
+		for (int x = 0; x < BOARD_WIDTH; ++x) {
+			mix((uint64_t)(board[x][y].hasWall ? 1 : 0));
+			mix((uint64_t)(board[x][y].isMagicWall ? 1 : 0));
+		}
+	}
 
 	// Player state (only shared state - decks differ per player)
 	for (const auto & p : players) {
