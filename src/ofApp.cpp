@@ -339,15 +339,20 @@ static void drawCenteredTextScaledOutlined(const ofTrueTypeFont & font,
 	float ty = rect.y + (rect.height - b.height * scale) * 0.5f - b.y * scale;
 
 	const int r = std::max(1, outlinePx);
+	float localOutlineStep = 1.0f;
+	if (scale > 0.0001f) {
+		// Keep outline thickness proportional to text scale (1:1 behavior).
+		localOutlineStep = 1.0f / scale;
+	}
 	for (int dy = -r; dy <= r; ++dy) {
 		for (int dx = -r; dx <= r; ++dx) {
 			if (dx == 0 && dy == 0) continue;
 			if (dx * dx + dy * dy > r * r) continue;
 			ofSetColor(outlineColor);
 			ofPushMatrix();
-			ofTranslate(tx + (float)dx, ty + (float)dy);
+			ofTranslate(tx, ty);
 			ofScale(scale, scale);
-			font.drawString(text, 0, 0);
+			font.drawString(text, (float)dx * localOutlineStep, (float)dy * localOutlineStep);
 			ofPopMatrix();
 		}
 	}
@@ -382,12 +387,18 @@ static void drawArcCenteredTextScaledOutlined(const ofTrueTypeFont & font,
 	float totalWidthUnscaled = 0.0f;
 	float fallbackAdvance = std::max(2.0f, font.getLineHeight() * 0.24f);
 	for (size_t i = 0; i < text.size(); ++i) {
-		// Use prefix-width deltas so spacing/kerning between characters and words
-		// stays natural (drawing glyphs one-by-one otherwise exaggerates spaces).
-		float prevW = (i == 0) ? 0.0f : font.getStringBoundingBox(text.substr(0, i), 0, 0).width;
-		float currW = font.getStringBoundingBox(text.substr(0, i + 1), 0, 0).width;
-		float adv = currW - prevW;
+		// Use standalone glyph widths for arc rendering. Pair-kerning deltas can
+		// become negative, which causes overlap when drawing per-glyph.
+		std::string glyph(1, text[i]);
+		float adv = font.getStringBoundingBox(glyph, 0, 0).width;
+		if (text[i] == ' ') {
+			// Keep spaces intentionally tighter for curved card names.
+			adv = std::max(1.0f, fallbackAdvance * 0.45f);
+		}
 		if (adv <= 0.0f) adv = fallbackAdvance;
+		if (text[i] != ' ') {
+			adv *= 1.02f; // tiny tracking to keep letters from visually touching
+		}
 		advances.push_back(adv);
 		totalWidthUnscaled += adv;
 	}
@@ -478,7 +489,7 @@ static void drawWrappedTextScaledWithEmphasis(const ofTrueTypeFont & font,
 	if (lines.empty()) return;
 
 	const std::string emphasisLower = toLowerCopy(emphasisText);
-	float lineH = font.getLineHeight() * scale * std::max(0.6f, lineSpacing) + 1.0f;
+	float lineH = font.getLineHeight() * scale * std::max(0.6f, lineSpacing) + 2.0f;
 	float totalH = lineH * (float)lines.size();
 	float y = rect.y + std::max(0.0f, (rect.height - totalH) * 0.5f) + lineH;
 	for (const auto & line : lines) {
@@ -772,12 +783,7 @@ static bool rebuildCardSpriteSheetFromTemplate(const std::string & templatePath,
 		layout.effectLineSpacing);
 	ofLogNotice("Cards") << "Uniform effect text scale: " << uniformEffectScale;
 
-	const float uniformTargetingScale = bestUniformCenteredTextScale(renderTitleFont,
-		allTargetingTexts,
-		layout.targetingRect,
-		0.1f,
-		8.0f);
-	ofLogNotice("Cards") << "Uniform targeting text scale (max-fit all cards): " << uniformTargetingScale;
+	ofLogNotice("Cards") << "Targeting text base scale (name-matched): " << fixedNameScale;
 	if (!longestTargetingText.empty()) {
 		ofLogNotice("Cards") << "Longest targeting text: '" << longestTargetingText
 							 << "' (" << longestTargetingText.size() << " chars) on card '" << longestTargetingCardName << "'";
@@ -815,6 +821,15 @@ static bool rebuildCardSpriteSheetFromTemplate(const std::string & templatePath,
 		ofPushMatrix();
 		ofTranslate(x, y);
 		ofPushStyle();
+		float targetingScale = fixedNameScale;
+		if (!rec.targeting.empty()) {
+			ofRectangle tb = renderTitleFont.getStringBoundingBox(rec.targeting, 0, 0);
+			if (tb.width > 0.0f && tb.height > 0.0f) {
+				float sx = layout.targetingRect.width / tb.width;
+				float sy = layout.targetingRect.height / tb.height;
+				targetingScale = std::min(targetingScale, std::max(0.1f, std::min(sx, sy)));
+			}
+		}
 		drawArcCenteredTextScaledOutlined(renderTitleFont,
 			rec.name,
 			layout.nameRect,
@@ -827,7 +842,7 @@ static bool rebuildCardSpriteSheetFromTemplate(const std::string & templatePath,
 			ofColor::black,
 			4);
 		drawCenteredTextScaledOutlined(renderTitleFont, rec.apCost, layout.costRect, layout.costScale, ofColor::white, ofColor::black, 4);
-		drawCenteredTextScaledOutlined(renderTitleFont, rec.targeting, layout.targetingRect, uniformTargetingScale, ofColor::white, ofColor::black, 3);
+		drawCenteredTextScaledOutlined(renderTitleFont, rec.targeting, layout.targetingRect, targetingScale, ofColor::white, ofColor::black, 3);
 		ofSetColor(12, 12, 12, 255);
 		drawWrappedTextScaledWithEmphasis(renderUIFont, rec.effectText, effectTextRect, uniformEffectScale, layout.effectLineSpacing, "Choose One -");
 		ofPopStyle();
