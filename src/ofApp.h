@@ -1457,17 +1457,18 @@ private:
 	int currentPlayerIndex = -1;
 
 	// --- TURN TIMER ---
-	float turnStartTime = 0.0f; // when the current turn began (ofGetElapsedTimef())
-	float turnDurationSeconds = 90.0f; // 90 seconds for regular units, 60 for minions
+	int turnTimerFramesPerSecond = 60; // lockstep timer resolution
+	int turnStartFrame = 0; // when the current turn began (frame counter)
+	int turnDurationFrames = 90 * 60; // 90 seconds for regular units, 60 for minions
 	bool turnTimerEnabled = true; // whether to enforce auto-end-turn on timeout
 
 	// When true, the new turn's timer start is deferred until visuals finish.
 	bool turnStartDeferred = false;
-	float turnStartDeferredAt = 0.0f;
+	int turnStartDeferredAtFrame = 0;
 
 	// Pause/resume support when modal choices are presented to other players
 	bool turnTimerPaused = false;
-	float turnTimerPausedRemaining = 0.0f; // seconds remaining when paused
+	int turnTimerPausedRemainingFrames = 0; // frames remaining when paused
 
 	// Opponent decision timer (when a modal requires the opponent to choose)
 	bool opponentDecisionTimerActive = false;

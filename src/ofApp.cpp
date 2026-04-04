@@ -102,6 +102,25 @@ static std::string makeSavePath(const std::string & p) {
 }
 
 namespace {
+static uint32_t deterministicBoundedRand(std::mt19937 & rng, uint32_t exclusiveBound) {
+	if (exclusiveBound == 0) return 0;
+
+	// Rejection sampling to avoid modulo bias while keeping deterministic RNG usage.
+	const uint64_t range = static_cast<uint64_t>(std::numeric_limits<uint32_t>::max()) + 1ull;
+	const uint32_t threshold = static_cast<uint32_t>(range % exclusiveBound);
+
+	for (;;) {
+		uint32_t raw = rng();
+		if (raw >= threshold) {
+			return raw % exclusiveBound;
+		}
+	}
+}
+
+static void seedVisualRng(std::mt19937 & rng, uint32_t mapSeed) {
+	rng.seed(mapSeed ^ 0xDEADBEEFu);
+}
+
 constexpr float kCardPixelWidth = 409.0f;
 constexpr float kCardPixelHeight = 585.0f;
 constexpr float kCardAspectRatio = kCardPixelHeight / kCardPixelWidth;
@@ -2021,11 +2040,11 @@ void ofApp::pauseTurnTimerForOpponentDecision(int decidingPlayerIndex) {
 	// Only pause if it's currently someone's turn and the deciding player is not the active player
 	if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size() && currentPlayerIndex != decidingPlayerIndex) {
 		if (!turnTimerPaused) {
-			float now = ofGetElapsedTimef();
+			int nowFrame = ofGetFrameNum();
 			turnTimerPaused = true;
-			turnTimerPausedRemaining = std::max(0.0f, (turnStartTime + turnDurationSeconds) - now);
+			turnTimerPausedRemainingFrames = std::max(0, turnDurationFrames - (nowFrame - turnStartFrame));
 			opponentDecisionTimerActive = true;
-			opponentDecisionStartTime = now;
+			opponentDecisionStartTime = ofGetElapsedTimef();
 			opponentDecisionDuration = 30.0f;
 			opponentDecisionPlayerIndex = decidingPlayerIndex;
 		}
@@ -2035,11 +2054,11 @@ void ofApp::pauseTurnTimerForOpponentDecision(int decidingPlayerIndex) {
 void ofApp::resumeTurnTimerIfPausedForOpponent(int decidingPlayerIndex) {
 	if (!turnTimerEnabled) return;
 	if (turnTimerPaused && opponentDecisionTimerActive && opponentDecisionPlayerIndex == decidingPlayerIndex) {
-		float now = ofGetElapsedTimef();
+		int nowFrame = ofGetFrameNum();
 		turnTimerPaused = false;
-		// Restore turnStartTime such that remaining time equals turnTimerPausedRemaining
-		turnStartTime = now - (turnDurationSeconds - turnTimerPausedRemaining);
-		turnTimerPausedRemaining = 0.0f;
+		// Restore turnStartFrame such that remaining frames equals turnTimerPausedRemainingFrames
+		turnStartFrame = nowFrame - (turnDurationFrames - turnTimerPausedRemainingFrames);
+		turnTimerPausedRemainingFrames = 0;
 		opponentDecisionTimerActive = false;
 		opponentDecisionPlayerIndex = -1;
 	}
@@ -2219,9 +2238,8 @@ void ofApp::setup() {
 							<< " DraftStatePacket=" << sizeof(DraftStatePacket)
 							<< " HandshakePacket=" << sizeof(HandshakePacket);
 
-	// Seed visual RNG (local-only randomness for UI/particles)
-	std::random_device rd_visual;
-	visualRNG.seed(rd_visual());
+	// Seed visual RNG deterministically; it will be reseeded once the map seed is known.
+	seedVisualRng(visualRNG, currentMapSeed);
 	ofLogNotice("Setup") << "Visual RNG seeded.";
 
 	ofSetEscapeQuitsApp(false);
@@ -4536,10 +4554,12 @@ void ofApp::recalculateUI(int w, int h) {
 void ofApp::setupGame() {
 	// --- MULTIPLAYER SYNC ---
 	if (isHost()) {
-		currentMapSeed = (uint32_t)time(nullptr);
+		std::random_device rd;
+		currentMapSeed = rd();
 
 		// FIX: Seed the gameplay RNG specifically
 		gameplayRNG.seed(currentMapSeed);
+		seedVisualRng(visualRNG, currentMapSeed);
 		gameplaySeededByHost = true;
 
 		// Get Steam names (host is player 0)
@@ -4562,8 +4582,10 @@ void ofApp::setupGame() {
 	}
 	// Singleplayer start: ensure gameplay RNG is seeded so runs differ each time
 	else if (!isMultiplayer) {
-		currentMapSeed = (uint32_t)time(nullptr);
+		std::random_device rd;
+		currentMapSeed = rd();
 		gameplayRNG.seed(currentMapSeed);
+		seedVisualRng(visualRNG, currentMapSeed);
 		gameplaySeededByHost = false;
 		ofLogNotice("Setup") << "Singleplayer generated seed: " << currentMapSeed;
 	}
@@ -4647,7 +4669,7 @@ void ofApp::setupGame() {
 	if (!isMultiplayer)
 		myLocalPlayerID = 0;
 	globalTurnCounter = 0;
-	turnStartTime = ofGetElapsedTimef();
+	turnStartFrame = ofGetFrameNum();
 
 	// Snap the on-screen player visual to the local player's starting square now that
 	// `myLocalPlayerID` has been assigned (hosts/clients may set this before calling).
@@ -4673,6 +4695,7 @@ void ofApp::initGameFromSeed(uint32_t seed) {
 
 	ofLogNotice("Network") << "Initializing multiplayer client game from seed: " << seed;
 	gameplayRNG.seed(seed);
+	seedVisualRng(visualRNG, seed);
 	gameplaySeededByHost = true;
 	currentMapSeed = seed;
 	isMultiplayer = true;
@@ -5074,16 +5097,16 @@ void ofApp::updateGame() {
 	// Also include a safety fallback so a stuck visual state doesn't prevent the
 	// visible timer from ever starting (which caused the timer to "carry on").
 	if (turnStartDeferred) {
-		const float kTurnStartDeferredMax = 3.0f; // seconds grace before forcing timer
+		const int kTurnStartDeferredMaxFrames = 3 * turnTimerFramesPerSecond; // grace before forcing timer
 		bool commitNow = false;
 		if (diceVisualsFinishedAndLinger())
 			commitNow = true;
-		else if ((ofGetElapsedTimef() - turnStartDeferredAt) > kTurnStartDeferredMax)
+		else if (((int64_t)ofGetFrameNum() - (int64_t)turnStartDeferredAtFrame) > (int64_t)kTurnStartDeferredMaxFrames)
 			commitNow = true;
 
 		if (commitNow) {
 			turnStartDeferred = false;
-			turnStartTime = ofGetElapsedTimef();
+			turnStartFrame = ofGetFrameNum();
 			ofLogNotice("Timer") << "Deferred turn start committed. Starting timer now.";
 		}
 	}
@@ -5151,8 +5174,8 @@ void ofApp::updateGame() {
 	if (turnTimerEnabled && !turnStartDeferred && !turnTimerPaused && currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size() && localShouldRunTimerHere) {
 		// Run timer checks even if modal UI is open; drafting/gameplay variations handled inside
 		if (currentState == STATE_GAMEPLAY || currentState == STATE_DRAFTING) {
-			float elapsedSeconds = ofGetElapsedTimef() - turnStartTime;
-			if (elapsedSeconds >= turnDurationSeconds) {
+			int elapsedFrames = ofGetFrameNum() - turnStartFrame;
+			if (elapsedFrames >= turnDurationFrames) {
 				if (currentState == STATE_DRAFTING) {
 					if (!draftAcceptLocked) {
 						int requiredPicks = (!isInGameDraft && draftStage == 0) ? 2 : 1;
@@ -5198,7 +5221,7 @@ void ofApp::updateGame() {
 							if (!sendInputCommand(cmd, true)) ofLogWarning("Network") << "Auto-accept draft send failed (no connection).";
 						} else {
 							// Avoid timeout log spam while waiting for draft options to populate.
-							turnStartTime = ofGetElapsedTimef();
+							turnStartFrame = ofGetFrameNum();
 						}
 					}
 				} else {
@@ -5209,7 +5232,7 @@ void ofApp::updateGame() {
 						ofLogNotice("Timer") << "Turn timer expired but waiting for draft reward visuals before auto-end-turn.";
 						return;
 					}
-					ofLogNotice("Timer") << "Turn time limit exceeded (" << turnDurationSeconds << "s). Auto-ending turn.";
+					ofLogNotice("Timer") << "Turn time limit exceeded. Auto-ending turn.";
 					// If I'm the active local player, submit a deterministic CMD_END_TURN.
 					if (!isMultiplayer || isMyTurn()) {
 						if (!endTurnLocked) {
@@ -5227,8 +5250,8 @@ void ofApp::updateGame() {
 					}
 					// If I'm the Host waiting for a remote player, allow a small grace period
 					else if (isHost()) {
-						float grace = 3.0f; // seconds of network grace
-						if (elapsedSeconds >= turnDurationSeconds + grace) {
+						int graceFrames = 3 * turnTimerFramesPerSecond;
+						if (elapsedFrames >= turnDurationFrames + graceFrames) {
 							if (!endTurnLocked) {
 								endTurnLocked = true;
 								InputCommandPacket cmd = {};
@@ -6761,8 +6784,8 @@ void ofApp::updateGame() {
 	bool handlesDraftTimerHere2 = (!isMultiplayer || isLocalDraftingPlayer(draftPlayerIndex));
 	bool localShouldRunTimerHere2 = (currentState == STATE_DRAFTING) ? handlesDraftTimerHere2 : handlesGameplayTimerHere2;
 	if (turnTimerEnabled && !turnStartDeferred && !turnTimerPaused && (currentState == STATE_GAMEPLAY || currentState == STATE_DRAFTING) && currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size() && localShouldRunTimerHere2) {
-		float elapsedSeconds = ofGetElapsedTimef() - turnStartTime;
-		if (elapsedSeconds >= turnDurationSeconds) {
+		int elapsedFrames = ofGetFrameNum() - turnStartFrame;
+		if (elapsedFrames >= turnDurationFrames) {
 			if (currentState == STATE_DRAFTING) {
 				// Timer expired during drafting: auto-pick remaining cards or accept selected ones
 				int requiredPicks = (!isInGameDraft && draftStage == 0) ? 2 : 1;
@@ -6806,7 +6829,7 @@ void ofApp::updateGame() {
 					ofLogNotice("Timer") << "Turn timer expired but waiting for draft reward visuals before auto-end-turn.";
 					return;
 				}
-				ofLogNotice("Timer") << "Turn time limit exceeded (" << turnDurationSeconds << "s). Auto-ending turn.";
+				ofLogNotice("Timer") << "Turn time limit exceeded. Auto-ending turn.";
 				// In multiplayer, send a deterministic CMD_END_TURN so lockstep
 				// advances identically; in singleplayer, advance immediately.
 				if (isMultiplayer && isCurrentPlayerLocal()) {
@@ -9031,11 +9054,12 @@ void ofApp::drawGame() {
 	if (turnTimerEnabled && timerStateVisible && currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size() && shouldShowTopTimer) {
 		float elapsedSeconds = 0.0f;
 		if (turnTimerPaused) {
-			elapsedSeconds = std::max(0.0f, turnDurationSeconds - turnTimerPausedRemaining);
+			elapsedSeconds = std::max(0.0f, (float)(turnDurationFrames - turnTimerPausedRemainingFrames) / (float)turnTimerFramesPerSecond);
 		} else {
-			elapsedSeconds = turnStartDeferred ? 0.0f : (ofGetElapsedTimef() - turnStartTime);
+			elapsedSeconds = turnStartDeferred ? 0.0f : (float)(ofGetFrameNum() - turnStartFrame) / (float)turnTimerFramesPerSecond;
 		}
-		float progress = std::min(1.0f, elapsedSeconds / turnDurationSeconds); // 0 to 1
+		float durationSeconds = std::max(0.001f, (float)turnDurationFrames / (float)turnTimerFramesPerSecond);
+		float progress = std::min(1.0f, elapsedSeconds / durationSeconds); // 0 to 1
 
 		// Bar dimensions: stretch from left to right, thin at top
 		float barHeight = 8 * scale;
@@ -12301,7 +12325,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 		if (debugUnlimitedTimeButton.inside(x, y)) {
 			turnTimerEnabled = !turnTimerEnabled;
 			if (turnTimerEnabled) {
-				turnStartTime = ofGetElapsedTimef();
+				turnStartFrame = ofGetFrameNum();
 				addGameLog("Turn timer enabled.");
 			} else {
 				addGameLog("Unlimited time enabled (turn timer disabled).");
@@ -15608,15 +15632,15 @@ void ofApp::continueNewTurn() {
 	// Defer starting the visible turn timer until any queued visuals finish so
 	// the active player's thinking time does not include opponent animations.
 	turnStartDeferred = true;
-	turnStartDeferredAt = ofGetElapsedTimef();
+	turnStartDeferredAtFrame = ofGetFrameNum();
 	// Reset visible timer baseline immediately so UI shows a fresh full bar
 	// as soon as the new turn begins.
-	turnStartTime = ofGetElapsedTimef();
+	turnStartFrame = ofGetFrameNum();
 	ofLogNotice("Timer") << "Turn start deferred until visuals complete for player " << startingPlayer.playerID;
 	if (startingPlayer.isMinion) {
-		turnDurationSeconds = 60.0f; // 60 seconds for minions
+		turnDurationFrames = 60 * turnTimerFramesPerSecond; // 60 seconds for minions
 	} else {
-		turnDurationSeconds = 90.0f; // 90 seconds for regular units
+		turnDurationFrames = 90 * turnTimerFramesPerSecond; // 90 seconds for regular units
 	}
 
 	// FIX: Snap visual position instantly to the new unit so it doesn't "fly" across the board
@@ -15966,8 +15990,8 @@ void ofApp::updateCardInteractionState(CardInteractionState newState, int cardId
 		if (turnTimerPaused) {
 			turnTimerPaused = false;
 			// restore remaining time
-			turnStartTime = ofGetElapsedTimef() - (turnDurationSeconds - turnTimerPausedRemaining);
-			turnTimerPausedRemaining = 0.0f;
+			turnStartFrame = ofGetFrameNum() - (turnDurationFrames - turnTimerPausedRemainingFrames);
+			turnTimerPausedRemainingFrames = 0;
 		}
 
 		// Stop any opponent decision timer
@@ -18145,10 +18169,10 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 			// turn-start code paths may bypass the usual deferred flag, so
 			// enforce it here for safety.
 			turnStartDeferred = true;
-			turnStartDeferredAt = ofGetElapsedTimef();
+			turnStartDeferredAtFrame = ofGetFrameNum();
 			// Also reset the visible timer baseline so the UI shows a fresh
 			// timer for the next player immediately (safety for stuck visuals).
-			turnStartTime = ofGetElapsedTimef();
+			turnStartFrame = ofGetFrameNum();
 			ofLogNotice("Timer") << "Host: deferred next player's visible timer until visuals complete.";
 		} else {
 			// Clients: advance local turn state as well so the client rolls AP
@@ -18157,10 +18181,10 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 			// opponent animations.
 			ofLogNotice("Lockstep") << "Client processing CMD_END_TURN -> startNewTurn()";
 			turnStartDeferred = true;
-			turnStartDeferredAt = ofGetElapsedTimef();
+			turnStartDeferredAtFrame = ofGetFrameNum();
 			// Reset baseline timer immediately so clients see the timer reset even
 			// if visuals are still playing; continue authoritative start logic.
-			turnStartTime = ofGetElapsedTimef();
+			turnStartFrame = ofGetFrameNum();
 			startNewTurn();
 		}
 		break;
@@ -26417,6 +26441,7 @@ void ofApp::addGameLog(const std::string & logText) {
 std::string ofApp::buildSnapshotString() {
 	std::ostringstream ss;
 	ss << "V\t1\n";
+	ss << "SEED\t" << currentMapSeed << "\n";
 	// Added currentMapSeed at the end
 	ss << "STATE\t" << (int)currentState
 	   << "\t" << currentPlayerIndex
@@ -26569,6 +26594,8 @@ void ofApp::applySnapshotString(const std::string & data) {
 	int tmpLastAPDiceNum = lastAPDiceNum;
 	int tmpLastAPDiceSides = lastAPDiceSides;
 	bool tmpHasUnlimitedAP = hasUnlimitedAP;
+	uint32_t tmpMapSeed = currentMapSeed;
+	bool tmpHasMapSeed = false;
 
 	std::vector<int> tmpPendingDraftQueue;
 	Tile tmpBoard[BOARD_WIDTH][BOARD_HEIGHT];
@@ -26588,6 +26615,10 @@ void ofApp::applySnapshotString(const std::string & data) {
 			if (line.empty()) continue;
 			auto parts = splitTabs(line);
 			if (parts.empty()) continue;
+			if (parts[0] == "SEED" && parts.size() >= 2) {
+				tmpMapSeed = (uint32_t)std::stoul(parts[1]);
+				tmpHasMapSeed = true;
+			}
 			if (parts[0] == "STATE" && parts.size() >= 13) {
 				currentState = (GameState)std::stoi(parts[1]);
 				currentPlayerIndex = std::stoi(parts[2]);
@@ -26605,13 +26636,10 @@ void ofApp::applySnapshotString(const std::string & data) {
 				if (parts.size() > 14) {
 					hasUnlimitedAP = (std::stoi(parts[14]) != 0);
 				}
-				// --- ADDED THIS BLOCK ---
 				if (parts.size() > 15) {
-					currentMapSeed = (uint32_t)std::stoul(parts[15]);
-					gameplayRNG.seed(currentMapSeed);
-					ofLogNotice("Snapshot") << "Restored Map Seed: " << currentMapSeed;
+					tmpMapSeed = (uint32_t)std::stoul(parts[15]);
+					tmpHasMapSeed = true;
 				}
-				// ------------------------
 			} else if (parts[0] == "QUEUE" && parts.size() >= 2) {
 				tmpPendingDraftQueue.clear();
 				for (size_t i = 2; i < parts.size(); ++i)
@@ -26808,6 +26836,12 @@ void ofApp::applySnapshotString(const std::string & data) {
 	isMultiplayer = true;
 	hasReceivedHandshake = true;
 	gameplaySeededByHost = true;
+	if (tmpHasMapSeed) {
+		currentMapSeed = tmpMapSeed;
+		gameplayRNG.seed(currentMapSeed);
+		seedVisualRng(visualRNG, currentMapSeed);
+		ofLogNotice("Snapshot") << "Restored Map Seed: " << currentMapSeed;
+	}
 
 	// Reset transient visuals and interaction state
 	// Clear all transient dice visuals when applying a full snapshot
@@ -27602,8 +27636,8 @@ glm::quat ofApp::getDiceFaceRotation(int sides, int rawResult, float wobbleAmoun
 int ofApp::getGameRandom(int min, int max) {
 	if (max < min) return min;
 	uint32_t range = (uint32_t)(max - min + 1);
-	uint32_t raw = gameplayRNG();
-	return min + (int)(raw % range);
+	uint32_t roll = deterministicBoundedRand(gameplayRNG, range);
+	return min + (int)roll;
 }
 //--------------------------------------------------------------
 bool ofApp::diceVisualsFinishedAndLinger() const {
@@ -29647,7 +29681,7 @@ void ofApp::debugSkipDraftRandomCards() {
 		// Class 1: Add 2 random cards, 2 copies each
 		for (int pick = 0; pick < 2; ++pick) {
 			if (!class1Cards.empty()) {
-				int randomIdx = rand() % class1Cards.size();
+				int randomIdx = getGameRandom(0, (int)class1Cards.size() - 1);
 				Card card = class1Cards[randomIdx];
 				targetPlayer.deck.push_back(card);
 				targetPlayer.deck.push_back(card);
@@ -29656,7 +29690,7 @@ void ofApp::debugSkipDraftRandomCards() {
 
 		// Class 2: Add 1 random card, 1 copy
 		if (!class2Cards.empty()) {
-			int randomIdx = rand() % class2Cards.size();
+			int randomIdx = getGameRandom(0, (int)class2Cards.size() - 1);
 			Card card = class2Cards[randomIdx];
 			targetPlayer.deck.push_back(card);
 		}
@@ -30601,7 +30635,7 @@ void ofApp::generateDraftOptions(int classTier, const std::vector<int> * forcedI
 	// Separate draft timers per drafting player.
 	const bool isFirstInitialDraftReveal = (!initialDraftComplete && classTier == 1 && draftStage == 0);
 	if (turnTimerEnabled && (previousDraftPlayer != draftPlayerIndex || isFirstInitialDraftReveal)) {
-		turnStartTime = ofGetElapsedTimef();
+		turnStartFrame = ofGetFrameNum();
 	}
 
 	// Initialize Accept button animation to match cards
@@ -30659,7 +30693,7 @@ void ofApp::applyDraftOptionsFromPool(int classTier, const std::vector<int> & in
 	lastDraftOptionsPlayer = draftingPlayerIdx;
 	const bool isFirstInitialDraftReveal = (!initialDraftComplete && classTier == 1 && draftStage == 0);
 	if (turnTimerEnabled && (previousDraftPlayer != draftingPlayerIdx || isFirstInitialDraftReveal)) {
-		turnStartTime = ofGetElapsedTimef();
+		turnStartFrame = ofGetFrameNum();
 	}
 	selectedDraftIndices.clear();
 	currentState = STATE_DRAFTING; // Force state transition
