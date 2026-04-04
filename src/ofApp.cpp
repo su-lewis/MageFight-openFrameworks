@@ -102,6 +102,11 @@ static std::string makeSavePath(const std::string & p) {
 }
 
 namespace {
+constexpr float kCardPixelWidth = 409.0f;
+constexpr float kCardPixelHeight = 585.0f;
+constexpr float kCardAspectRatio = kCardPixelHeight / kCardPixelWidth;
+constexpr float kHandCardVisualScale = 0.90f;
+
 struct UILayoutSpacing {
 	float edgeInset = 0.0f; // outer edge inset for gameplay HUD anchoring
 	float stackYOffset = 0.0f; // downward visual nudge for deck/discard stack
@@ -151,7 +156,7 @@ struct CardTemplateLayout {
 	ofRectangle effectRect = ofRectangle(96, 928, 864, 384);
 	float nameScale = 1.75f;
 	float nameMinScale = 1.0f;
-	float nameCurveDropPx = 0.0f;
+	float nameCurveDropPx = 8.0f;
 	float nameMiddleClampXMin = 416.0f;
 	float nameMiddleClampXMax = 656.0f;
 	float nameMiddleBottomMaxY = 846.0f;
@@ -311,19 +316,18 @@ static void drawCenteredTextScaledOutlined(const ofTrueTypeFont & font,
 	ofPopMatrix();
 }
 
-static void drawArcCenteredTextScaled(const ofTrueTypeFont & font,
+static void drawArcCenteredTextScaledOutlined(const ofTrueTypeFont & font,
 	const std::string & text,
 	const ofRectangle & rect,
 	float scale,
 	float endDropPx,
 	float clampXMin,
 	float clampXMax,
-	float clampBottomY) {
+	float clampBottomY,
+	const ofColor & fillColor,
+	const ofColor & outlineColor,
+	int outlinePx) {
 	if (text.empty()) return;
-	if (std::abs(endDropPx) < 0.001f) {
-		drawCenteredTextScaled(font, text, rect, scale);
-		return;
-	}
 
 	std::vector<float> advances;
 	advances.reserve(text.size());
@@ -345,6 +349,7 @@ static void drawArcCenteredTextScaled(const ofTrueTypeFont & font,
 	float totalWidthScaled = totalWidthUnscaled * scale;
 	float startX = rect.x + (rect.width - totalWidthScaled) * 0.5f;
 	float baselineY = rect.y + (rect.height + b.height * scale) * 0.5f;
+	const int r = std::max(1, outlinePx);
 
 	float cursorX = startX;
 	for (size_t i = 0; i < text.size(); ++i) {
@@ -359,9 +364,22 @@ static void drawArcCenteredTextScaled(const ofTrueTypeFont & font,
 			drawY = std::min(drawY, clampBottomY);
 		}
 
+		ofSetColor(outlineColor);
 		ofPushMatrix();
 		ofTranslate(cursorX, drawY);
 		ofScale(scale, scale);
+		for (int dy = -r; dy <= r; ++dy) {
+			for (int dx = -r; dx <= r; ++dx) {
+				if (dx == 0 && dy == 0) continue;
+				if (dx * dx + dy * dy > r * r) continue;
+				ofPushMatrix();
+				ofTranslate((float)dx, (float)dy);
+				font.drawString(std::string(1, text[i]), 0, 0);
+				ofPopMatrix();
+			}
+		}
+
+		ofSetColor(fillColor);
 		font.drawString(std::string(1, text[i]), 0, 0);
 		ofPopMatrix();
 
@@ -386,6 +404,73 @@ static void drawWrappedTextScaled(const ofTrueTypeFont & font, const std::string
 		ofScale(scale, scale);
 		font.drawString(lines[i], 0, 0);
 		ofPopMatrix();
+		y += lineH;
+	}
+}
+
+static void drawBoldSegmentScaled(const ofTrueTypeFont & font, const std::string & text, float x, float y, float scale) {
+	if (text.empty()) return;
+	ofPushMatrix();
+	ofTranslate(x, y);
+	ofScale(scale, scale);
+	font.drawString(text, 0, 0);
+	font.drawString(text, 0.7f, 0.0f);
+	font.drawString(text, 0.0f, 0.7f);
+	ofPopMatrix();
+}
+
+static void drawWrappedTextScaledWithEmphasis(const ofTrueTypeFont & font,
+	const std::string & text,
+	const ofRectangle & rect,
+	float scale,
+	float lineSpacing,
+	const std::string & emphasisText) {
+	if (text.empty()) return;
+	auto lines = wrapTextScaled(font, text, rect.width, scale);
+	if (lines.empty()) return;
+
+	const std::string emphasisLower = toLowerCopy(emphasisText);
+	float lineH = font.getLineHeight() * scale * std::max(0.6f, lineSpacing);
+	float totalH = lineH * (float)lines.size();
+	float y = rect.y + std::max(0.0f, (rect.height - totalH) * 0.5f) + lineH;
+	for (const auto & line : lines) {
+		if (y > rect.getBottom()) break;
+		std::string lineLower = toLowerCopy(line);
+		size_t cursor = 0;
+		ofRectangle lineBox = font.getStringBoundingBox(line, 0, 0);
+		float x = rect.x + (rect.width - lineBox.width * scale) * 0.5f;
+		while (cursor < line.size()) {
+			size_t emphasisPos = emphasisLower.empty() ? std::string::npos : lineLower.find(emphasisLower, cursor);
+			if (emphasisPos == std::string::npos) {
+				std::string tail = line.substr(cursor);
+				if (!tail.empty()) {
+					ofPushMatrix();
+					ofTranslate(x, y);
+					ofScale(scale, scale);
+					font.drawString(tail, 0, 0);
+					ofPopMatrix();
+				}
+				break;
+			}
+
+			std::string before = line.substr(cursor, emphasisPos - cursor);
+			if (!before.empty()) {
+				ofPushMatrix();
+				ofTranslate(x, y);
+				ofScale(scale, scale);
+				font.drawString(before, 0, 0);
+				ofPopMatrix();
+				x += font.getStringBoundingBox(before, 0, 0).width * scale;
+			}
+
+			std::string boldPart = line.substr(emphasisPos, emphasisText.size());
+			if (!boldPart.empty()) {
+				drawBoldSegmentScaled(font, boldPart, x, y, scale);
+				x += font.getStringBoundingBox(boldPart, 0, 0).width * scale;
+			}
+
+			cursor = emphasisPos + boldPart.size();
+		}
 		y += lineH;
 	}
 }
@@ -609,25 +694,16 @@ static bool rebuildCardSpriteSheetFromTemplate(const std::string & templatePath,
 
 	std::vector<std::string> allEffectTexts;
 	allEffectTexts.reserve(allCards.size());
-	std::vector<std::string> allNames;
-	allNames.reserve(allCards.size());
 	for (const auto & card : allCards) {
 		auto it = records.find(normalizeCardKey(card.name));
 		if (it != records.end()) {
 			allEffectTexts.push_back(it->second.effectText);
-			allNames.push_back(it->second.name.empty() ? card.name : it->second.name);
 		} else {
 			allEffectTexts.push_back("");
-			allNames.push_back(card.name);
 		}
 	}
 
-	const float uniformNameScale = bestUniformCenteredTextScale(renderTitleFont,
-		allNames,
-		layout.nameRect,
-		layout.nameMinScale,
-		layout.nameScale);
-	ofLogNotice("Cards") << "Uniform name text scale: " << uniformNameScale;
+	const float fixedNameScale = layout.nameScale;
 
 	const float uniformEffectScale = bestUniformWrappedTextScale(renderUIFont,
 		allEffectTexts,
@@ -667,14 +743,24 @@ static bool rebuildCardSpriteSheetFromTemplate(const std::string & templatePath,
 		// Intentionally do NOT auto-fill extra fields like damage type/targeting/class.
 		// Only explicitly requested fields are rendered from cards.md + configured rects.
 
+		bool useNameArc = false;
+		if (!rec.name.empty()) {
+			ofRectangle nameBounds = renderTitleFont.getStringBoundingBox(rec.name, 0, 0);
+			useNameArc = (nameBounds.width * fixedNameScale) >= (layout.nameRect.width * 0.92f);
+		}
+
 		ofPushMatrix();
 		ofTranslate(x, y);
 		ofPushStyle();
-		drawCenteredTextScaledOutlined(renderTitleFont, rec.name, layout.nameRect, uniformNameScale, ofColor::white, ofColor::black, 4);
+		if (useNameArc) {
+			drawArcCenteredTextScaledOutlined(renderTitleFont, rec.name, layout.nameRect, fixedNameScale, layout.nameCurveDropPx, layout.nameMiddleClampXMin, layout.nameMiddleClampXMax, layout.nameMiddleBottomMaxY, ofColor::white, ofColor::black, 4);
+		} else {
+			drawCenteredTextScaledOutlined(renderTitleFont, rec.name, layout.nameRect, fixedNameScale, ofColor::white, ofColor::black, 4);
+		}
 		drawCenteredTextScaledOutlined(renderTitleFont, rec.apCost, layout.costRect, layout.costScale, ofColor::white, ofColor::black, 4);
 		drawCenteredTextScaledOutlined(renderUIFont, rec.targeting, layout.targetingRect, layout.labelScale, ofColor::white, ofColor::black, 3);
 		ofSetColor(12, 12, 12, 255);
-		drawWrappedTextScaled(renderUIFont, rec.effectText, effectTextRect, uniformEffectScale, layout.effectLineSpacing);
+		drawWrappedTextScaledWithEmphasis(renderUIFont, rec.effectText, effectTextRect, uniformEffectScale, layout.effectLineSpacing, "Choose One -");
 		ofPopStyle();
 		ofPopMatrix();
 	}
@@ -839,7 +925,7 @@ void ofApp::applyReplicateCopyToHand(Player & caster, const Card & playedCard) {
 
 	size_t numCards = caster.hand.size() + 1;
 	float handCenterY = ofGetHeight() - 130;
-	float handBaseCardWidth = 120;
+	float handBaseCardWidth = kCardPixelWidth;
 	int cardsToFit = std::max(5, (int)numCards);
 	float handAreaWidth = ofGetWidth() * 0.6f;
 	float totalCardWidths = cardsToFit * handBaseCardWidth;
@@ -858,7 +944,7 @@ void ofApp::applyReplicateCopyToHand(Player & caster, const Card & playedCard) {
 	float cardCenterX = startXActual + (numCards - 1) * (handBaseCardWidth + paddingActual) + (handBaseCardWidth / 2.0f);
 	anim.targetPos = glm::vec2(cardCenterX, handCenterY);
 	anim.endPos = anim.startPos;
-	anim.currentScale = 1.0f;
+	anim.currentScale = kHandCardVisualScale;
 	anim.commitOnFinish = true;
 
 	activeDrawCardAnimations.push_back(anim);
@@ -1746,8 +1832,8 @@ void ofApp::drawMinionCard(int minionIndex, int ownerIndex) {
 			drawn.drawnThisTurn = true;
 			minion.hand.push_back(drawn);
 			minion.hasDrawnThisTurn = true;
-			minion.hand.back().currentScale = 1.5f;
-			minion.hand.back().targetScale = 1.5f;
+			minion.hand.back().currentScale = kHandCardVisualScale;
+			minion.hand.back().targetScale = kHandCardVisualScale;
 			minion.hand.back().drawnThisTurn = true;
 			minion.hand.back().isAnimating = true;
 
@@ -1765,7 +1851,7 @@ void ofApp::drawMinionCard(int minionIndex, int ownerIndex) {
 			}
 			size_t numCards = minion.hand.size() + 1 + animatingToThis;
 			float handCenterY = ofGetHeight() - 160;
-			float handBaseCardWidth = 120;
+			float handBaseCardWidth = kCardPixelWidth;
 			float cardsToFit = std::max(5, (int)numCards);
 			float handAreaWidth = ofGetWidth() * 0.6f;
 			float totalCardWidths = cardsToFit * handBaseCardWidth;
@@ -1784,7 +1870,7 @@ void ofApp::drawMinionCard(int minionIndex, int ownerIndex) {
 			anim.startIsScreenSpace = true;
 			anim.currentPos = glm::vec2((float)sp.x + offsetPixels, (float)sp.y);
 			anim.startPos = glm::vec3(anim.currentPos.x, anim.currentPos.y, 0);
-			anim.currentScale = 1.0f;
+			anim.currentScale = kHandCardVisualScale;
 			anim.commitOnFinish = false;
 			activeDrawCardAnimations.push_back(anim);
 			pushedAnims++;
@@ -4653,9 +4739,10 @@ void ofApp::updateGame() {
 	const UILayoutSpacing layoutSpacing = buildUILayoutSpacing(scale, turnTimerEnabled);
 	float gap = layoutSpacing.minionEntryGapUnscaled; // unscaled baseline (centralized)
 	float panelWidthScaled = panelWidth * scale;
-	const float handBaseCardWidth = 120.0f;
-	const float handCardAspectRatio = 585.0f / 409.0f;
-	const float staticUICardHeight = (handBaseCardWidth * handCardAspectRatio * 1.3f) * scale;
+	const float handBaseCardWidth = kCardPixelWidth;
+	const float handCardAspectRatio = kCardAspectRatio;
+	const float pileCardScale = 0.52f;
+	const float staticUICardHeight = (handBaseCardWidth * handCardAspectRatio * pileCardScale) * scale;
 	// Deck bottom gap on screen after stack offset is applied in drawGame().
 	const float deckBottomGap = effectiveBottomGap(layoutSpacing);
 	// Mirror drawGame() deck/discard anchoring math so minion panels can align to it.
@@ -5217,10 +5304,8 @@ void ofApp::updateGame() {
 	float visibleY = 20 * uiScale;
 	// Ensure visibleY leaves room for the end-turn glow (glow = 6.0f * uiScale)
 	float glowMargin = 6.0f * uiScale + 2.0f * uiScale;
-	// Add stroke width margin so outlines / borders don't get clipped at the top
 	visibleY = std::max(visibleY, glowMargin + (3.0f * uiScale));
 	float hiddenY = -100 * uiScale;
-
 	// Show end turn button / turn indicator
 	// In multiplayer: always show (either button or indicator)
 	// In singleplayer: always show button
@@ -6003,7 +6088,7 @@ void ofApp::updateGame() {
 		float elapsedTime = ofGetElapsedTimef() - anim.startTime;
 		// Keep it large and on the right-hand side
 		anim.currentScale = 2.6f;
-		float handBaseCardWidth = 120.0f;
+		float handBaseCardWidth = kCardPixelWidth;
 		float w = handBaseCardWidth * anim.currentScale;
 		anim.pos = glm::vec2(ofGetWidth() - (w / 2.0f) - 40.0f, ofGetHeight() / 2.0f);
 
@@ -6120,8 +6205,8 @@ void ofApp::updateGame() {
 						c.currentPos = anim.targetPos;
 						c.targetPos = anim.targetPos;
 						// Set to hand display scale immediately for all draws
-						c.currentScale = 1.5f;
-						c.targetScale = 1.5f;
+						c.currentScale = kHandCardVisualScale;
+						c.targetScale = kHandCardVisualScale;
 						// Only mark as drawn if it's not a copied card
 						if (!c.isCopied) {
 							c.drawnThisTurn = true;
@@ -6135,8 +6220,8 @@ void ofApp::updateGame() {
 							if (hc.drawnThisTurn && hc.isAnimating && hc.name == anim.card.name) {
 								hc.currentPos = anim.targetPos;
 								hc.targetPos = anim.targetPos;
-								hc.currentScale = 1.5f;
-								hc.targetScale = 1.5f;
+								hc.currentScale = kHandCardVisualScale;
+								hc.targetScale = kHandCardVisualScale;
 								hc.isAnimating = false;
 								break;
 							}
@@ -6220,7 +6305,7 @@ void ofApp::updateGame() {
 		if (handPlayer) {
 			size_t numCards = handPlayer->hand.size();
 			float handCenterY = ofGetHeight() - 130;
-			float handBaseCardWidth = 120;
+			float handBaseCardWidth = kCardPixelWidth;
 			float cardsToFit = std::max(5, (int)numCards);
 			float handAreaWidth = ofGetWidth() * 0.6f;
 
@@ -8909,11 +8994,10 @@ void ofApp::drawGame() {
 		ofFill();
 	}
 
-	float handBaseCardWidth = 120;
-	float handCardAspectRatio = 585.0f / 409.0f;
-	float baseCardHeight = handBaseCardWidth * handCardAspectRatio;
-	float staticUICardWidth = (handBaseCardWidth * 1.3f) * scale;
-	float staticUICardHeight = (baseCardHeight * 1.3f) * scale;
+	float handBaseCardWidth = kCardPixelWidth;
+	float baseCardHeight = kCardPixelHeight;
+	float staticUICardWidth = (handBaseCardWidth * 0.52f) * scale;
+	float staticUICardHeight = (baseCardHeight * 0.52f) * scale;
 	const UILayoutSpacing ui = buildUILayoutSpacing(scale, turnTimerEnabled);
 
 	// Health bar dimensions (used both by drawHealthBar lambda and by anchored status text)
@@ -9859,7 +9943,7 @@ void ofApp::drawGame() {
 		}
 
 		// Calculate hand area dimensions for positioning cards within the pre-drawn box
-		float handBaseCardWidth = 120;
+		float handBaseCardWidth = kCardPixelWidth;
 		int cardsToFit = std::max(5, (int)numCards);
 		float handAreaWidth = ofGetWidth() * 0.6f;
 		float totalCardWidths = cardsToFit * handBaseCardWidth;
@@ -10091,7 +10175,7 @@ void ofApp::drawGame() {
 			float titleHeight = 40.0f;
 
 			// 2. Dynamically calculate layout to fit cards on screen
-			float viewCardScale = 1.6f;
+			float viewCardScale = 1.0f;
 			float availableHeight = ofGetHeight() - (2 * panelPadding) - titleHeight;
 			float availableWidth = ofGetWidth() * 0.7f; // Use up to 70% of screen width
 
@@ -10099,7 +10183,7 @@ void ofApp::drawGame() {
 			while (viewCardScale > 0.5f) {
 				float cardW = handBaseCardWidth * viewCardScale;
 				float cardH = baseCardHeight * viewCardScale;
-				float padding = 15.0f * (viewCardScale / 1.6f);
+				float padding = 15.0f * viewCardScale;
 				int cols = std::max(1, (int)floor((availableWidth - padding) / (cardW + padding)));
 				int rows = ceil((float)cardsToShowInView.size() / cols);
 				if (rows * (cardH + padding) - padding <= availableHeight) {
@@ -10110,7 +10194,7 @@ void ofApp::drawGame() {
 
 			float viewCardWidth = handBaseCardWidth * viewCardScale;
 			float viewCardHeight = baseCardHeight * viewCardScale;
-			float padding = 15.0f * (viewCardScale / 1.6f);
+			float padding = 15.0f * viewCardScale;
 			int gridWidthInCards = std::max(1, (int)floor((availableWidth - padding) / (viewCardWidth + padding)));
 			// Don't make more columns than there are cards — shrink panel to fit cards exactly
 			gridWidthInCards = std::min(gridWidthInCards, (int)cardsToShowInView.size());
@@ -11001,9 +11085,8 @@ void ofApp::mouseMoved(int x, int y) {
 	// 3. Check for "Draggable" things (Cards in hand)
 	if (!players.empty() && currentPlayerIndex >= 0) {
 		Player & p = players[currentPlayerIndex];
-		float handBaseCardWidth = 120;
-		float aspectRatio = 585.0f / 409.0f;
-		float baseCardHeight = handBaseCardWidth * aspectRatio;
+		float handBaseCardWidth = kCardPixelWidth;
+		float baseCardHeight = kCardPixelHeight;
 
 		for (size_t i = 0; i < p.hand.size(); i++) {
 			Card & c = p.hand[i];
@@ -11104,9 +11187,8 @@ cursor_check_done:;
 		if (players.empty() || currentPlayerIndex < 0) return;
 		Player & currentPlayer = players[currentPlayerIndex];
 		int foundHoverIndex = -1;
-		float handBaseCardWidth = 120;
-		float aspectRatio = 585.0f / 409.0f;
-		float baseCardHeight = handBaseCardWidth * aspectRatio;
+		float handBaseCardWidth = kCardPixelWidth;
+		float baseCardHeight = kCardPixelHeight;
 
 		if (draggedCardIndex == -1) {
 			// Calculate hand layout to use same detection area as drag detection
@@ -11711,9 +11793,8 @@ void ofApp::mousePressed(int x, int y, int button) {
 		int numCards = static_cast<int>(currentPlayer.hand.size());
 		ofLogNotice("CardDrag") << "mousePressed: Checking " << numCards << " cards in hand at currentState=" << (int)currentState;
 		if (numCards > 0) {
-			float handBaseCardWidth = 120;
-			float handCardAspectRatio = 585.0f / 409.0f;
-			float baseCardHeight = handBaseCardWidth * handCardAspectRatio;
+			float handBaseCardWidth = kCardPixelWidth;
+			float baseCardHeight = kCardPixelHeight;
 			float handAreaWidth = ofGetWidth() * 0.4f;
 			float totalCardWidths = numCards * handBaseCardWidth;
 			float padding = (numCards > 1) ? (handAreaWidth - totalCardWidths) / (numCards - 1) : 0;
@@ -11885,7 +11966,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 	if (button == OF_MOUSE_BUTTON_LEFT) {
 		// First, check card displays (opponent popups) so clicks on them dismiss immediately
 		if (!activeCardDisplays.empty()) {
-			float handBaseCardWidth = 120.0f;
+			float handBaseCardWidth = kCardPixelWidth;
 			float aspectRatio = 585.0f / 409.0f;
 			float baseCardHeight = handBaseCardWidth * aspectRatio;
 			for (auto it = activeCardDisplays.begin(); it != activeCardDisplays.end(); ++it) {
@@ -11901,9 +11982,8 @@ void ofApp::mousePressed(int x, int y, int button) {
 
 		// Then check center/right-side played card animations
 		if (!activePlayedCardAnimations.empty()) {
-			float handBaseCardWidth = 120.0f;
-			float aspectRatio = 585.0f / 409.0f;
-			float baseCardHeight = handBaseCardWidth * aspectRatio;
+			float handBaseCardWidth = kCardPixelWidth;
+			float baseCardHeight = kCardPixelHeight;
 			for (auto it = activePlayedCardAnimations.begin(); it != activePlayedCardAnimations.end(); ++it) {
 				float w = handBaseCardWidth * it->currentScale;
 				float h = baseCardHeight * it->currentScale;
@@ -12211,8 +12291,8 @@ void ofApp::mousePressed(int x, int y, int button) {
 		}
 		// Card Dimensions (Must match drawDraftScreen)
 		float uiScale = std::min(ofGetWidth() / 1920.0f, ofGetHeight() / 1080.0f);
-		float cardW = std::clamp(340.0f * uiScale, 160.0f, 420.0f);
-		float cardH = cardW * 1.4f;
+		float cardW = kCardPixelWidth * uiScale;
+		float cardH = kCardPixelHeight * uiScale;
 		float spacing = std::clamp(60.0f * uiScale, 20.0f, 96.0f);
 		float startX = (ofGetWidth() - (3 * cardW + 2 * spacing)) / 2;
 
@@ -12837,8 +12917,8 @@ void ofApp::mousePressed(int x, int y, int button) {
 							for (int q = 0; q < cardSpawnerQuantity; q++) {
 								tgt.hand.push_back(allCards[selIdx]);
 								tgt.hand.back().currentPos = ofVec2f(ofGetWidth() / 2, 0);
-								tgt.hand.back().currentScale = 1.5f;
-								tgt.hand.back().targetScale = 1.5f;
+								tgt.hand.back().currentScale = kHandCardVisualScale;
+								tgt.hand.back().targetScale = kHandCardVisualScale;
 								tgt.hand.back().drawnThisTurn = true;
 							}
 						}
@@ -12937,8 +13017,8 @@ void ofApp::mousePressed(int x, int y, int button) {
 					for (int q = 0; q < cardSpawnerQuantity; q++) {
 						players[currentPlayerIndex].hand.push_back(filteredCards[i]);
 						players[currentPlayerIndex].hand.back().currentPos = ofVec2f(ofGetWidth() / 2, 0);
-						players[currentPlayerIndex].hand.back().currentScale = 1.5f;
-						players[currentPlayerIndex].hand.back().targetScale = 1.5f;
+						players[currentPlayerIndex].hand.back().currentScale = kHandCardVisualScale;
+						players[currentPlayerIndex].hand.back().targetScale = kHandCardVisualScale;
 						players[currentPlayerIndex].hand.back().drawnThisTurn = true;
 					}
 					queueFloatingTextVisual(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y),
@@ -13891,10 +13971,8 @@ void ofApp::mouseDragged(int x, int y, int button) {
 			if (players.empty() || currentPlayerIndex < 0) return;
 			Player & currentPlayer = players[currentPlayerIndex];
 			int numCards = static_cast<int>(currentPlayer.hand.size());
-			float handBaseCardWidth = 120;
-
-			float handCardAspectRatio = 585.0f / 409.0f;
-			float baseCardHeight = handBaseCardWidth * handCardAspectRatio;
+			float handBaseCardWidth = kCardPixelWidth;
+			float baseCardHeight = kCardPixelHeight;
 
 			float handAreaWidth = ofGetWidth() * 0.4f;
 			float totalCardWidths = numCards * handBaseCardWidth;
@@ -14259,8 +14337,8 @@ void ofApp::keyPressed(int key) {
 				for (int q = 0; q < cardSpawnerQuantity; q++) {
 					players[currentPlayerIndex].hand.push_back(filteredCards[0]);
 					players[currentPlayerIndex].hand.back().currentPos = ofVec2f(ofGetWidth() / 2, 0);
-					players[currentPlayerIndex].hand.back().currentScale = 1.5f;
-					players[currentPlayerIndex].hand.back().targetScale = 1.5f;
+					players[currentPlayerIndex].hand.back().currentScale = kHandCardVisualScale;
+					players[currentPlayerIndex].hand.back().targetScale = kHandCardVisualScale;
 				}
 				queueFloatingTextVisual(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y),
 					"+" + ofToString(cardSpawnerQuantity) + "x " + filteredCards[0].name, ofColor::cyan);
@@ -14760,7 +14838,7 @@ void ofApp::windowResized(int w, int h) {
 		// In multiplayer, only show local player's hand
 		// In single player, show whichever player's turn it is
 		float handCenterY = h - 130;
-		float handBaseCardWidth = 120;
+		float handBaseCardWidth = kCardPixelWidth;
 		float handAreaWidth = w * 0.4f;
 
 		size_t numCards = currentPlayer.hand.size();
@@ -16777,16 +16855,16 @@ void ofApp::drawActiveCardInteractionUI() {
 				float titleHeight = 60.0f;
 				float acceptBtnHeight = 44.0f;
 				float acceptBtnPadding = 20.0f;
-				float handBaseCardWidth = 120.0f;
-				float baseCardHeight = handBaseCardWidth * (585.0f / 409.0f);
-				float viewCardScale = 1.6f;
+				float handBaseCardWidth = kCardPixelWidth;
+				float baseCardHeight = kCardPixelHeight;
+				float viewCardScale = 1.0f;
 				float availableHeight = ofGetHeight() - (2 * panelPadding) - titleHeight - acceptBtnHeight - acceptBtnPadding;
 				float availableWidth = ofGetWidth() * 0.8f;
 
 				while (viewCardScale > 0.5f) {
 					float cardW = handBaseCardWidth * viewCardScale;
 					float cardH = baseCardHeight * viewCardScale;
-					float padding = 15.0f * (viewCardScale / 1.6f);
+					float padding = 15.0f * viewCardScale;
 					int cols = std::max(2, (int)floor((availableWidth - padding) / (cardW + padding)));
 					int rows = ceil((float)amnesiaDeckCopy.size() / cols);
 					if (rows * (cardH + padding) - padding <= availableHeight) {
@@ -16796,7 +16874,7 @@ void ofApp::drawActiveCardInteractionUI() {
 				}
 				float viewCardWidth = handBaseCardWidth * viewCardScale;
 				float viewCardHeight = baseCardHeight * viewCardScale;
-				float padding = 15.0f * (viewCardScale / 1.6f);
+				float padding = 15.0f * viewCardScale;
 
 				int gridWidthInCards = std::max(1, (int)floor((availableWidth - padding) / (viewCardWidth + padding)));
 				gridWidthInCards = std::min(gridWidthInCards, (int)amnesiaDeckCopy.size());
@@ -17151,8 +17229,8 @@ void ofApp::drawCard(bool sendPacket) {
 		// Initialize the in-hand card visual state to final position/scale but hidden until animation completes
 		currentPlayer.hand.back().targetPos = ofVec2f(cardCenterX_now, handCenterY_now);
 		currentPlayer.hand.back().currentPos = currentPlayer.hand.back().targetPos;
-		currentPlayer.hand.back().currentScale = 1.5f;
-		currentPlayer.hand.back().targetScale = 1.5f;
+		currentPlayer.hand.back().currentScale = kHandCardVisualScale;
+		currentPlayer.hand.back().targetScale = kHandCardVisualScale;
 		currentPlayer.hand.back().isAnimating = true;
 
 		// --- Animation Setup (visual only) ---
@@ -17178,9 +17256,9 @@ void ofApp::drawCard(bool sendPacket) {
 		} else {
 			// Owner is a player; use the appropriate deck rect (p0/p1)
 			float scale = ofGetHeight() / 1080.0f;
-			float staticUICardWidth = (120 * 1.3f) * scale;
+			float staticUICardWidth = (kCardPixelWidth * 0.58f) * scale;
 			(void)staticUICardWidth; // unused
-			float staticUICardHeight = ((120 * (585.0f / 409.0f)) * 1.3f) * scale;
+			float staticUICardHeight = (kCardPixelHeight * 0.58f) * scale;
 			(void)staticUICardHeight; // unused
 			// Determine deck UI start position based on the owning player's playerID
 			int owner = anim.ownerIndex;
@@ -17220,7 +17298,7 @@ void ofApp::drawCard(bool sendPacket) {
 			handAtTop = false;
 		}
 		float handCenterY = handAtTop ? 130.0f : (ofGetHeight() - 130.0f);
-		float handBaseCardWidth = 120;
+		float handBaseCardWidth = kCardPixelWidth;
 		float handAreaWidth = ofGetWidth() * 0.6f;
 		float totalCardWidths = numCards * handBaseCardWidth;
 		float padding = (numCards > 1) ? (handAreaWidth - totalCardWidths) / (numCards - 1) : 0;
@@ -17231,7 +17309,7 @@ void ofApp::drawCard(bool sendPacket) {
 		anim.targetPos = glm::vec2(cardCenterX, handCenterY);
 		anim.endPos = anim.startPos;
 
-		anim.currentScale = 1.0f; // start at full scale
+		anim.currentScale = kHandCardVisualScale; // start at hand display scale
 		anim.duration = 0.50f;
 		activeDrawCardAnimations.push_back(anim);
 		ofLogNotice("DrawDebug") << "drawCard(): pushed DrawCardAnimation ownerIndex=" << anim.ownerIndex << " card='" << newCard.name << "' startTime=" << anim.startTime;
@@ -17835,8 +17913,8 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 		// Spawn visual animations for picked cards and vanish the rest (visual-only)
 		{
 			float uiScale = std::min(ofGetWidth() / 1920.0f, ofGetHeight() / 1080.0f);
-			float cardW = std::clamp(340.0f * uiScale, 160.0f, 420.0f);
-			float cardH = cardW * 1.4f;
+			float cardW = kCardPixelWidth * uiScale;
+			float cardH = kCardPixelHeight * uiScale;
 			float spacing = std::clamp(60.0f * uiScale, 20.0f, 96.0f);
 			float startX = (ofGetWidth() - (3 * cardW + 2 * spacing)) / 2;
 			float startY = ofGetHeight() / 2.0f - (cardH / 2.0f);
@@ -21315,9 +21393,8 @@ void ofApp::processCardStateInput(int mouseX, int mouseY, int button) {
 
 			// Toggle card selection natively inside the UI handler
 			Player & p = players[currentPlayerIndex];
-			float handBaseCardWidth = 120;
-			float aspectRatio = 585.0f / 409.0f;
-			float baseCardHeight = handBaseCardWidth * aspectRatio;
+			float handBaseCardWidth = kCardPixelWidth;
+			float baseCardHeight = kCardPixelHeight;
 
 			for (int i = (int)p.hand.size() - 1; i >= 0; --i) {
 				if (i == interactingCardIndex) continue; // Can't discard the card itself!
@@ -30527,8 +30604,8 @@ void ofApp::onCardPicked(int optionIndex) {
 
 		// Create visual move using same layout math as drawDraftScreen so startPos matches slot
 		float uiScale = std::min(ofGetWidth() / 1920.0f, ofGetHeight() / 1080.0f);
-		float cardW = std::clamp(340.0f * uiScale, 160.0f, 420.0f);
-		float cardH = cardW * 1.4f;
+		float cardW = kCardPixelWidth * uiScale;
+		float cardH = kCardPixelHeight * uiScale;
 		float spacing = std::clamp(60.0f * uiScale, 20.0f, 96.0f);
 		float startX = (ofGetWidth() - (3 * cardW + 2 * spacing)) / 2;
 		// Recompute vertical layout used by drawDraftScreen
@@ -30567,8 +30644,8 @@ void ofApp::onCardPicked(int optionIndex) {
 					mv.endPos = glm::vec2(mui.deckRect.x + mui.deckRect.width / 2.0f, mui.deckRect.y + mui.deckRect.height / 2.0f);
 					// Scale down to fit minion UI deck
 					float uiScale = std::min(ofGetWidth() / 1920.0f, ofGetHeight() / 1080.0f);
-					float cardW = std::clamp(340.0f * uiScale, 160.0f, 420.0f);
-					float cardH = cardW * 1.4f;
+					float cardW = kCardPixelWidth * uiScale;
+					float cardH = kCardPixelHeight * uiScale;
 					mv.endScale = std::min(mui.deckRect.width, mui.deckRect.height) / std::max(cardW, cardH);
 					found = true;
 					break;
@@ -30590,8 +30667,8 @@ void ofApp::onCardPicked(int optionIndex) {
 			mv.endPos = glm::vec2(deckRect.x + deckRect.width / 2.0f, deckRect.y + deckRect.height / 2.0f);
 			// Scale down to fit player deck
 			float uiScale = std::min(ofGetWidth() / 1920.0f, ofGetHeight() / 1080.0f);
-			float cardW = std::clamp(340.0f * uiScale, 160.0f, 420.0f);
-			float cardH = cardW * 1.4f;
+			float cardW = kCardPixelWidth * uiScale;
+			float cardH = kCardPixelHeight * uiScale;
 			mv.endScale = std::min(deckRect.width, deckRect.height) / std::max(cardW, cardH);
 			mv.finished = false;
 			mv.ownerIndex = draftPlayerIndex;
@@ -30845,8 +30922,8 @@ void ofApp::drawDraftScreen() {
 	// 3. Draw Cards
 	// Standardize card sizing relative to screen so UI scales across resolutions
 	float uiScale = std::min(ofGetWidth() / 1920.0f, ofGetHeight() / 1080.0f);
-	float cardW = std::clamp(340.0f * uiScale, 160.0f, 420.0f);
-	float cardH = cardW * 1.4f;
+	float cardW = kCardPixelWidth * uiScale;
+	float cardH = kCardPixelHeight * uiScale;
 	float spacing = std::clamp(60.0f * uiScale, 20.0f, 96.0f);
 	float startX = (ofGetWidth() - (3 * cardW + 2 * spacing)) / 2;
 
@@ -31053,8 +31130,8 @@ void ofApp::drawDraftScreen() {
 void ofApp::drawActiveDraftPickedMoves() {
 	// Use layout math consistent with drawDraftScreen (cardW/cardH computed there)
 	float uiScale = std::min(ofGetWidth() / 1920.0f, ofGetHeight() / 1080.0f);
-	float cardW = std::clamp(340.0f * uiScale, 160.0f, 420.0f);
-	float cardH = cardW * 1.4f;
+	float cardW = kCardPixelWidth * uiScale;
+	float cardH = kCardPixelHeight * uiScale;
 
 	for (auto & mv : activeDraftPickedMoves) {
 		if (mv.finished) continue;
@@ -31104,9 +31181,8 @@ void ofApp::drawPileViewFor(int viewPlayerIndex, PileViewMode viewMode) {
 	string viewTitle;
 	std::vector<Card> cardsToShow;
 
-	float handBaseCardWidth = 120;
-	float aspectRatio = 585.0f / 409.0f;
-	float baseCardHeight = handBaseCardWidth * aspectRatio;
+	float handBaseCardWidth = kCardPixelWidth;
+	float baseCardHeight = kCardPixelHeight;
 
 	if (viewMode == VIEW_DECK) {
 		viewTitle = "Deck";
@@ -31175,14 +31251,14 @@ void ofApp::drawPileViewFor(int viewPlayerIndex, PileViewMode viewMode) {
 
 	float panelPadding = 20.0f;
 	float titleHeight = 40.0f;
-	float viewCardScale = 1.6f;
+	float viewCardScale = 1.0f;
 	float availableHeight = ofGetHeight() - (2 * panelPadding) - titleHeight;
 	float availableWidth = ofGetWidth() * 0.7f;
 
 	while (viewCardScale > 0.5f) {
 		float cardW = handBaseCardWidth * viewCardScale;
 		float cardH = baseCardHeight * viewCardScale;
-		float padding = 15.0f * (viewCardScale / 1.6f);
+		float padding = 15.0f * viewCardScale;
 		int cols = std::max(1, (int)floor((availableWidth - padding) / (cardW + padding)));
 		int rows = ceil((float)cardsToShow.size() / cols);
 		if (rows * (cardH + padding) - padding <= availableHeight) break;
@@ -31191,7 +31267,7 @@ void ofApp::drawPileViewFor(int viewPlayerIndex, PileViewMode viewMode) {
 
 	float viewCardWidth = handBaseCardWidth * viewCardScale;
 	float viewCardHeight = baseCardHeight * viewCardScale;
-	float padding = 15.0f * (viewCardScale / 1.6f);
+	float padding = 15.0f * viewCardScale;
 	int gridWidthInCards = std::max(1, (int)floor((availableWidth - padding) / (viewCardWidth + padding)));
 	gridWidthInCards = std::min(gridWidthInCards, (int)cardsToShow.size());
 	if (gridWidthInCards <= 0) gridWidthInCards = 1;
