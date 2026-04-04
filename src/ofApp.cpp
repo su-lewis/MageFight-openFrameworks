@@ -144,6 +144,10 @@ constexpr float kHandCardVisualScale = 0.50f;
 const float pileCardScale = 0.45f;
 
 static ofRectangle gCardOpaqueBoundsNormalized(0.0f, 0.0f, 1.0f, 1.0f);
+static std::vector<unsigned char> gCardAlphaMask;
+static int gCardAlphaMaskWidth = 0;
+static int gCardAlphaMaskHeight = 0;
+static std::vector<ofVec2f> gCardEdgeOutlineNormalized;
 
 struct UILayoutSpacing {
 	float edgeInset = 0.0f; // outer edge inset for gameplay HUD anchoring
@@ -282,6 +286,92 @@ static ofRectangle getTightCardBounds(float x, float y, float w, float h, float 
 
 static ofRectangle getHoverCardBounds(float x, float y, float w, float h) {
 	return getOpaqueCardBounds(x, y, w, h);
+}
+
+static void rebuildCardAlphaMaskAndOutline(const ofImage & image, unsigned char alphaThreshold = 8) {
+	gCardAlphaMask.clear();
+	gCardEdgeOutlineNormalized.clear();
+	gCardAlphaMaskWidth = (int)image.getWidth();
+	gCardAlphaMaskHeight = (int)image.getHeight();
+
+	if (!image.isAllocated() || gCardAlphaMaskWidth <= 0 || gCardAlphaMaskHeight <= 0) return;
+
+	const ofPixels & pixels = image.getPixels();
+	gCardAlphaMask.resize((size_t)gCardAlphaMaskWidth * (size_t)gCardAlphaMaskHeight, 0);
+
+	std::vector<ofVec2f> leftEdge;
+	std::vector<ofVec2f> rightEdge;
+	leftEdge.reserve(gCardAlphaMaskHeight);
+	rightEdge.reserve(gCardAlphaMaskHeight);
+
+	for (int y = 0; y < gCardAlphaMaskHeight; ++y) {
+		int leftX = -1;
+		int rightX = -1;
+		for (int x = 0; x < gCardAlphaMaskWidth; ++x) {
+			unsigned char a = pixels.getColor(x, y).a;
+			gCardAlphaMask[(size_t)y * (size_t)gCardAlphaMaskWidth + (size_t)x] = a;
+			if (a <= alphaThreshold) continue;
+			if (leftX < 0) leftX = x;
+			rightX = x;
+		}
+
+		if (leftX >= 0 && rightX >= 0) {
+			float ny = ((float)y + 0.5f) / (float)gCardAlphaMaskHeight;
+			leftEdge.emplace_back(((float)leftX + 0.5f) / (float)gCardAlphaMaskWidth, ny);
+			rightEdge.emplace_back(((float)rightX + 0.5f) / (float)gCardAlphaMaskWidth, ny);
+		}
+	}
+
+	if (!leftEdge.empty() && !rightEdge.empty()) {
+		gCardEdgeOutlineNormalized.reserve(leftEdge.size() + rightEdge.size());
+		for (const auto & p : leftEdge)
+			gCardEdgeOutlineNormalized.push_back(p);
+		for (auto it = rightEdge.rbegin(); it != rightEdge.rend(); ++it)
+			gCardEdgeOutlineNormalized.push_back(*it);
+	}
+}
+
+static bool isPointOverCardOpaque(float px, float py, float cardX, float cardY, float cardW, float cardH, unsigned char alphaThreshold = 8) {
+	if (cardW <= 0.0f || cardH <= 0.0f) return false;
+
+	ofRectangle coarse = getHoverCardBounds(cardX, cardY, cardW, cardH);
+	if (!coarse.inside(px, py)) return false;
+
+	if (gCardAlphaMask.empty() || gCardAlphaMaskWidth <= 0 || gCardAlphaMaskHeight <= 0) {
+		return true;
+	}
+
+	float u = (px - cardX) / cardW;
+	float v = (py - cardY) / cardH;
+	if (u < 0.0f || u >= 1.0f || v < 0.0f || v >= 1.0f) return false;
+
+	int ix = ofClamp((int)std::floor(u * (float)gCardAlphaMaskWidth), 0, gCardAlphaMaskWidth - 1);
+	int iy = ofClamp((int)std::floor(v * (float)gCardAlphaMaskHeight), 0, gCardAlphaMaskHeight - 1);
+	unsigned char a = gCardAlphaMask[(size_t)iy * (size_t)gCardAlphaMaskWidth + (size_t)ix];
+	return a > alphaThreshold;
+}
+
+static void drawCardEdgeOutline(float x, float y, float w, float h, float expandPx = 0.0f) {
+	if (w <= 0.0f || h <= 0.0f || gCardEdgeOutlineNormalized.size() < 3) {
+		ofRectangle fallback = getOpaqueCardBounds(x, y, w, h);
+		ofDrawRectangle(fallback.x - expandPx, fallback.y - expandPx, fallback.width + expandPx * 2.0f, fallback.height + expandPx * 2.0f);
+		return;
+	}
+
+	float cx = x + w * 0.5f;
+	float cy = y + h * 0.5f;
+	float sx = (w > 0.0f) ? ((w + expandPx * 2.0f) / w) : 1.0f;
+	float sy = (h > 0.0f) ? ((h + expandPx * 2.0f) / h) : 1.0f;
+
+	ofBeginShape();
+	for (const auto & p : gCardEdgeOutlineNormalized) {
+		float vx = x + p.x * w;
+		float vy = y + p.y * h;
+		vx = cx + (vx - cx) * sx;
+		vy = cy + (vy - cy) * sy;
+		ofVertex(vx, vy);
+	}
+	ofEndShape(true);
 }
 
 static bool startsWith(const std::string & s, const std::string & prefix) {
@@ -782,6 +872,7 @@ static bool rebuildCardSpriteSheetFromTemplate(const std::string & templatePath,
 	const int cardH = (int)templateImage.getHeight();
 	if (cardW <= 0 || cardH <= 0) return false;
 	gCardOpaqueBoundsNormalized = computeOpaqueBoundsNormalized(templateImage, 0, 0);
+	rebuildCardAlphaMaskAndOutline(templateImage, 8);
 
 	int sheetW = 0;
 	int sheetH = 0;
@@ -10181,8 +10272,7 @@ void ofApp::drawGame() {
 				ofNoFill();
 				ofSetColor(255, 255, 255, 200); // White glow
 				ofSetLineWidth(4);
-				ofRectangle hoverRect = getHoverCardBounds(drawX, drawY, w, h);
-				ofDrawRectangle(hoverRect.x - 2, hoverRect.y - 2, hoverRect.width + 4, hoverRect.height + 4);
+				drawCardEdgeOutline(drawX, drawY, w, h, 2.0f);
 				ofPopStyle();
 			}
 			if (isMultiplayer && opponentHoverType == HOVER_HAND_CARD && opponentHoverCardIndex == index) {
@@ -10190,8 +10280,7 @@ void ofApp::drawGame() {
 				ofNoFill();
 				ofSetColor(255, 0, 0, 200); // Red glow
 				ofSetLineWidth(4);
-				ofRectangle hoverRect = getHoverCardBounds(drawX, drawY, w, h);
-				ofDrawRectangle(hoverRect.x - 2, hoverRect.y - 2, hoverRect.width + 4, hoverRect.height + 4);
+				drawCardEdgeOutline(drawX, drawY, w, h, 2.0f);
 				ofPopStyle();
 			}
 
@@ -10217,8 +10306,7 @@ void ofApp::drawGame() {
 					ofNoFill();
 					ofSetColor(ofColor::green);
 					ofSetLineWidth(4);
-					ofRectangle hoverRect = getOpaqueCardBounds(drawX, drawY, w, h);
-					ofDrawRectangle(hoverRect);
+					drawCardEdgeOutline(drawX, drawY, w, h, 0.0f);
 					ofPopStyle();
 				}
 
@@ -10234,8 +10322,7 @@ void ofApp::drawGame() {
 						ofNoFill();
 						ofSetColor(255, 140, 0); // Orange glow
 						ofSetLineWidth(4);
-						ofRectangle hoverRect = getOpaqueCardBounds(drawX, drawY, w, h);
-						ofDrawRectangle(hoverRect.x - 2, hoverRect.y - 2, hoverRect.width + 4, hoverRect.height + 4);
+						drawCardEdgeOutline(drawX, drawY, w, h, 2.0f);
 						ofPopStyle();
 					}
 				}
@@ -11275,18 +11362,17 @@ void ofApp::mouseMoved(int x, int y) {
 	// 3. Check for "Draggable" things (Cards in hand)
 	if (!players.empty() && currentPlayerIndex >= 0) {
 		Player & p = players[currentPlayerIndex];
-		// Unscaled card dimensions (normalized bounds are relative to these)
-		float handBaseCardWidth = kCardPixelWidth;
-		float baseCardHeight = kCardPixelHeight;
+		float handBaseCardWidth = kCardPixelWidth * kHandCardVisualScale;
+		float baseCardHeight = kCardPixelHeight * kHandCardVisualScale;
 
 		for (size_t i = 0; i < p.hand.size(); i++) {
 			Card & c = p.hand[i];
-			// Use unscaled dimensions for hover bounds (opaque bounds are normalized to unscaled sprite)
-			float w = handBaseCardWidth * 1.0f;
-			float h = baseCardHeight * 1.0f;
-			ofRectangle cardRect = getHoverCardBounds(c.currentPos.x - w / 2, c.currentPos.y - h / 2, w, h);
+			float w = handBaseCardWidth;
+			float h = baseCardHeight;
+			float cardX = c.currentPos.x - w / 2;
+			float cardY = c.currentPos.y - h / 2;
 
-			if (cardRect.inside(x, y)) {
+			if (isPointOverCardOpaque((float)x, (float)y, cardX, cardY, w, h, 10)) {
 				currentCursor = CURSOR_GRAB;
 				// Allow hovering of hand cards in singleplayer for the active player
 				if ((isMultiplayer && p.playerID == myLocalPlayerID && newHoverType == HOVER_NONE) || (!isMultiplayer && newHoverType == HOVER_NONE)) {
@@ -12008,11 +12094,11 @@ void ofApp::mousePressed(int x, int y, int button) {
 			for (int i = 0; i < numCards; i++) {
 				Card & card = currentPlayer.hand[i];
 				float cardCenterX = startX + i * (handBaseCardWidth + spacing) + (handBaseCardWidth / 2.0f);
-				// Use unscaled dimensions for drag detection bounds (opaque bounds normalized to unscaled sprite)
-				float cardDrawW = kCardPixelWidth * 1.0f;
-				float cardDrawH = kCardPixelHeight * 1.0f;
-				ofRectangle detectionRect = getTightCardBounds(cardCenterX - cardDrawW / 2.0f, card.currentPos.y - cardDrawH / 2.0f, cardDrawW, cardDrawH);
-				if (detectionRect.inside(x, y)) {
+				float cardDrawW = handBaseCardWidth;
+				float cardDrawH = baseCardHeight;
+				float cardX = cardCenterX - cardDrawW / 2.0f;
+				float cardY = card.currentPos.y - cardDrawH / 2.0f;
+				if (isPointOverCardOpaque((float)x, (float)y, cardX, cardY, cardDrawW, cardDrawH, 10)) {
 					// Keep track of the rightmost card that contains the cursor
 					if (pressedCardIndex == -1 || currentPlayer.hand[i].currentPos.x > currentPlayer.hand[pressedCardIndex].currentPos.x) {
 						pressedCardIndex = i;
