@@ -151,7 +151,7 @@ struct CardTemplateRecord {
 };
 
 struct CardTemplateLayout {
-	ofRectangle nameRect = ofRectangle(208, 756, 656, 117); // nudged upward slightly
+	ofRectangle nameRect = ofRectangle(208, 756, 656, 117); // original vertical position
 	ofRectangle costRect = ofRectangle(48, 48, 96, 96);
 	ofRectangle damageTypeRect = ofRectangle(26, 84, 176, 24);
 	ofRectangle targetingRect = ofRectangle(384, 1344, 320, 80);
@@ -745,11 +745,17 @@ static bool rebuildCardSpriteSheetFromTemplate(const std::string & templatePath,
 	allEffectTexts.reserve(allCards.size());
 	std::vector<std::string> allTargetingTexts;
 	allTargetingTexts.reserve(allCards.size());
+	std::string longestTargetingText;
+	std::string longestTargetingCardName;
 	for (const auto & card : allCards) {
 		auto it = records.find(normalizeCardKey(card.name));
 		if (it != records.end()) {
 			allEffectTexts.push_back(it->second.effectText);
 			allTargetingTexts.push_back(it->second.targeting);
+			if (it->second.targeting.size() > longestTargetingText.size()) {
+				longestTargetingText = it->second.targeting;
+				longestTargetingCardName = card.name;
+			}
 		} else {
 			allEffectTexts.push_back("");
 			allTargetingTexts.push_back("");
@@ -766,8 +772,16 @@ static bool rebuildCardSpriteSheetFromTemplate(const std::string & templatePath,
 		layout.effectLineSpacing);
 	ofLogNotice("Cards") << "Uniform effect text scale: " << uniformEffectScale;
 
-	const float fixedTargetingScale = layout.nameScale;
-	ofLogNotice("Cards") << "Fixed targeting text scale: " << fixedTargetingScale;
+	const float uniformTargetingScale = bestUniformCenteredTextScale(renderTitleFont,
+		allTargetingTexts,
+		layout.targetingRect,
+		0.1f,
+		8.0f);
+	ofLogNotice("Cards") << "Uniform targeting text scale (max-fit all cards): " << uniformTargetingScale;
+	if (!longestTargetingText.empty()) {
+		ofLogNotice("Cards") << "Longest targeting text: '" << longestTargetingText
+			<< "' (" << longestTargetingText.size() << " chars) on card '" << longestTargetingCardName << "'";
+	}
 
 	ofFbo fbo;
 	ofFboSettings fboSettings;
@@ -801,9 +815,19 @@ static bool rebuildCardSpriteSheetFromTemplate(const std::string & templatePath,
 		ofPushMatrix();
 		ofTranslate(x, y);
 		ofPushStyle();
-		drawCenteredTextScaledOutlined(renderTitleFont, rec.name, layout.nameRect, fixedNameScale, ofColor::white, ofColor::black, 4);
+		drawArcCenteredTextScaledOutlined(renderTitleFont,
+			rec.name,
+			layout.nameRect,
+			fixedNameScale,
+			layout.nameCurveDropPx,
+			layout.nameMiddleClampXMin,
+			layout.nameMiddleClampXMax,
+			layout.nameMiddleBottomMaxY,
+			ofColor::white,
+			ofColor::black,
+			4);
 		drawCenteredTextScaledOutlined(renderTitleFont, rec.apCost, layout.costRect, layout.costScale, ofColor::white, ofColor::black, 4);
-		drawCenteredTextScaledOutlined(renderTitleFont, rec.targeting, layout.targetingRect, fixedTargetingScale, ofColor::white, ofColor::black, 3);
+		drawCenteredTextScaledOutlined(renderTitleFont, rec.targeting, layout.targetingRect, uniformTargetingScale, ofColor::white, ofColor::black, 3);
 		ofSetColor(12, 12, 12, 255);
 		drawWrappedTextScaledWithEmphasis(renderUIFont, rec.effectText, effectTextRect, uniformEffectScale, layout.effectLineSpacing, "Choose One -");
 		ofPopStyle();
