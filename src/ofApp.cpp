@@ -1900,13 +1900,10 @@ void ofApp::drawMinionCard(int minionIndex, int ownerIndex) {
 	for (int i = 0; i < drawCount; ++i) {
 		if (minion.deck.empty()) {
 			if (minion.discardPile.empty()) break;
-			// Deterministic reshuffle: use effect op to centralize behavior
-			{
-				EffectOp rs = {};
-				rs.type = EffectOpType::RESHUFFLE_DISCARD_TO_DECK;
-				rs.data.reshuffle.targetIndex = minionIndex;
-				processEffectOp(rs);
-			}
+			// Synchronous reshuffle for multi-draw correctness.
+			minion.deck = minion.discardPile;
+			minion.discardPile.clear();
+			shuffleGameVector(minion.deck, minionIndex);
 		}
 
 		if (!minion.deck.empty()) {
@@ -16172,11 +16169,35 @@ void ofApp::handleCardDragToPlay(int cardIndex) {
 
 	// If the card requires a target (non-self), enter the centralized targeting interaction
 	if (card.targeting != TARGET_SELF) {
-		interactingCardIndex = cardIndex;
-		interactingCardType = card.type;
-		updateCardInteractionState(CARD_INTERACTION_TARGETING, cardIndex, card.type);
-		cardPlayState = CARD_STATE_TARGETING;
-		calculateTargetHighlights(cardIndex);
+		// Teleport must be a two-step deterministic command flow:
+		// 1) Drag/release sends CMD_PLAY_CARD (both peers roll range + enter targeting)
+		// 2) Destination click sends CMD_MENU_CHOICE (CARD_TELEPORT)
+		if (card.type == CARD_TELEPORT) {
+			InputCommandPacket cmd = {};
+			cmd.type = PKT_INPUT_COMMAND;
+			cmd.playerID = myLocalPlayerID;
+			cmd.seq = 0;
+			cmd.commandId = nextCommandId++;
+			cmd.turnNumber = globalTurnCounter;
+			cmd.commandType = CMD_PLAY_CARD;
+			cmd.params[0] = cardIndex;
+			cmd.params[1] = caster.x;
+			cmd.params[2] = caster.y;
+			strncpy(cmd.stringData, card.name.c_str(), sizeof(cmd.stringData) - 1);
+			cmd.stringData[sizeof(cmd.stringData) - 1] = '\0';
+
+			if (isMultiplayer) {
+				sendInputCommand(cmd, true);
+			} else {
+				queueInputCommand(cmd);
+			}
+		} else {
+			interactingCardIndex = cardIndex;
+			interactingCardType = card.type;
+			updateCardInteractionState(CARD_INTERACTION_TARGETING, cardIndex, card.type);
+			cardPlayState = CARD_STATE_TARGETING;
+			calculateTargetHighlights(cardIndex);
+		}
 	} else {
 		// Self-targeting or immediate cards: queue as deterministic input command
 		InputCommandPacket cmd = {};
@@ -16234,6 +16255,33 @@ void ofApp::handleCardTargetClick(int gridX, int gridY) {
 		}
 	}
 	if (players.empty() || currentPlayerIndex < 0) return;
+
+	// Teleport destination commit is step 2 of the lockstep flow.
+	// Do not require a live hand index here (card may already be consumed by step 1).
+	if (cardInteractionState == CARD_INTERACTION_TARGETING && interactingCardType == CARD_TELEPORT) {
+		InputCommandPacket cmd = {};
+		cmd.type = PKT_INPUT_COMMAND;
+		cmd.playerID = myLocalPlayerID;
+		cmd.seq = 0;
+		cmd.commandId = nextCommandId++;
+		cmd.turnNumber = globalTurnCounter;
+		cmd.commandType = CMD_MENU_CHOICE;
+		cmd.params[0] = (int)CARD_TELEPORT;
+		cmd.params[1] = gridX;
+		cmd.params[2] = gridY;
+		cmd.params[3] = -1;
+		strncpy(cmd.stringData, "Teleport", sizeof(cmd.stringData) - 1);
+		cmd.stringData[sizeof(cmd.stringData) - 1] = '\0';
+
+		if (isMultiplayer) {
+			if (!sendInputCommand(cmd, true)) ofLogWarning("Network") << "Teleport destination send failed (no connection).";
+		} else {
+			queueInputCommand(cmd);
+		}
+
+		resetCardInteraction();
+		return;
+	}
 
 	// Kobold placement is a post-play interaction and may not have a live hand card index.
 	if (cardInteractionState == CARD_INTERACTION_PLACING && interactingCardType == CARD_CALL_FOR_KOBOLDS) {
@@ -16355,52 +16403,6 @@ void ofApp::handleCardTargetClick(int gridX, int gridY) {
 	}
 
 	switch (interactingCardType) {
-	case CARD_TELEPORT: {
-		if (isMultiplayer && !isExecutingLockstepCommand) {
-			InputCommandPacket cmd = {};
-			cmd.type = PKT_INPUT_COMMAND;
-			cmd.playerID = myLocalPlayerID;
-			cmd.seq = 0;
-			cmd.commandId = nextCommandId++;
-			cmd.turnNumber = globalTurnCounter;
-			cmd.commandType = CMD_MENU_CHOICE;
-			cmd.params[0] = (int)CARD_TELEPORT;
-			cmd.params[1] = gridX;
-			cmd.params[2] = gridY;
-			cmd.params[3] = cardIndex;
-			strncpy(cmd.stringData, card.name.c_str(), sizeof(cmd.stringData) - 1);
-			cmd.stringData[sizeof(cmd.stringData) - 1] = '\0';
-			{
-				if (!sendInputCommand(cmd, true)) ofLogWarning("Network") << "Teleport send failed (no connection).";
-			}
-			resetCardInteraction();
-			break;
-		}
-
-		// Enqueue a deterministic play-card command for teleport instead of executing immediately
-		InputCommandPacket cmd = {};
-		cmd.type = PKT_INPUT_COMMAND;
-		cmd.playerID = myLocalPlayerID;
-		cmd.commandId = nextCommandId++;
-		cmd.turnNumber = globalTurnCounter;
-		cmd.commandType = CMD_MENU_CHOICE;
-		cmd.params[0] = (int)CARD_TELEPORT;
-		cmd.params[1] = gridX;
-		cmd.params[2] = gridY;
-		cmd.params[3] = cardIndex;
-		strncpy(cmd.stringData, card.name.c_str(), sizeof(cmd.stringData) - 1);
-		cmd.stringData[sizeof(cmd.stringData) - 1] = '\0';
-
-		if (isMultiplayer) {
-			if (!sendInputCommand(cmd, true)) ofLogWarning("Network") << "Teleport send failed (no connection).";
-		} else {
-			queueInputCommand(cmd);
-		}
-
-		resetCardInteraction();
-		break;
-	}
-
 	case CARD_BURST_OF_LIGHT:
 	case CARD_WISDOM_BOON:
 	case CARD_DOUBLE_HANDED:
@@ -17850,8 +17852,9 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 		}
 
 		if (currentPlayerIndex < 0 || currentPlayerIndex >= (int)players.size()) break;
-		// Allow menu types that are not tied to a specific card index (e.g., ghost relocate)
-		if (menuType != MENU_GHOST_RELOCATE) {
+		// Allow menu types that are not tied to a specific card index
+		// (e.g., ghost relocate, teleport destination commit).
+		if (menuType != MENU_GHOST_RELOCATE && menuType != CARD_TELEPORT) {
 			if (cardIndex < 0 || cardIndex >= (int)players[currentPlayerIndex].hand.size()) break;
 		}
 
@@ -17889,11 +17892,24 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 		if (menuType == CARD_TELEPORT) {
 			int destX = targetIndex;
 			int destY = choice;
-			int cardIdx = cardIndex;
 			if (currentPlayerIndex < 0 || currentPlayerIndex >= (int)players.size()) break;
-			if (cardIdx < 0 || cardIdx >= (int)players[currentPlayerIndex].hand.size()) break;
 			if (destX < 0 || destX >= BOARD_WIDTH || destY < 0 || destY >= BOARD_HEIGHT) break;
-			if (!board[destX][destY].isTargetable) break;
+
+			Player & tpCaster = players[currentPlayerIndex];
+			glm::vec2 casterTile = { (float)tpCaster.x, (float)tpCaster.y };
+			glm::vec2 targetTile = { (float)destX, (float)destY };
+			float maxDistUnits = std::max(0.0f, (float)interactionDiceRoll / 5.0f);
+			float neededDistUnits = getFaceToFaceDistance(casterTile, targetTile);
+			bool inRange = (maxDistUnits >= neededDistUnits - 0.001f);
+
+			bool isWall = board[destX][destY].hasWall;
+			bool isOccupied = board[destX][destY].hasPlayer && !(destX == tpCaster.x && destY == tpCaster.y);
+			bool canOccupy = !isOccupied && (!isWall || (tpCaster.inGhostForm && currentAP >= 1));
+
+			if (!(inRange && canOccupy)) {
+				ofLogWarning("Teleport") << "CMD_MENU_CHOICE teleport rejected: invalid destination (range/occupancy).";
+				break;
+			}
 
 			beginEffectSequence();
 			EffectOp mv = {};
@@ -23069,6 +23085,8 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 
 	case CARD_TELEPORT: {
 		beginEffectSequence();
+		interactingCardIndex = cardIndex;
+		interactingCardType = CARD_TELEPORT;
 
 		// Resolve teleport range deterministically at play time so both peers
 		// observe the same roll before the targeting UI opens.
