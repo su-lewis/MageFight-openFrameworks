@@ -284,10 +284,6 @@ static ofRectangle getTightCardBounds(float x, float y, float w, float h, float 
 	return ofRectangle(bounds.x + shrinkX, bounds.y + shrinkY, newWidth, newHeight);
 }
 
-static ofRectangle getHoverCardBounds(float x, float y, float w, float h) {
-	return getOpaqueCardBounds(x, y, w, h);
-}
-
 static void rebuildCardAlphaMaskAndOutline(const ofImage & image, unsigned char alphaThreshold = 8) {
 	gCardAlphaMask.clear();
 	gCardEdgeOutlineNormalized.clear();
@@ -334,7 +330,8 @@ static void rebuildCardAlphaMaskAndOutline(const ofImage & image, unsigned char 
 static bool isPointOverCardOpaque(float px, float py, float cardX, float cardY, float cardW, float cardH, unsigned char alphaThreshold = 8) {
 	if (cardW <= 0.0f || cardH <= 0.0f) return false;
 
-	ofRectangle coarse = getHoverCardBounds(cardX, cardY, cardW, cardH);
+	// Stricter coarse gate first so "near" misses do not count as hover.
+	ofRectangle coarse = getTightCardBounds(cardX, cardY, cardW, cardH, 16.0f, 20.0f);
 	if (!coarse.inside(px, py)) return false;
 
 	if (gCardAlphaMask.empty() || gCardAlphaMaskWidth <= 0 || gCardAlphaMaskHeight <= 0) {
@@ -378,48 +375,6 @@ static bool startsWith(const std::string & s, const std::string & prefix) {
 	return s.rfind(prefix, 0) == 0;
 }
 
-static std::string damageTypeLabel(DamageType dt) {
-	switch (dt) {
-	case DAMAGE_PHYSICAL:
-		return "Physical";
-	case DAMAGE_PIERCING:
-		return "Piercing";
-	case DAMAGE_FIRE:
-		return "Fire";
-	case DAMAGE_ELECTRIC:
-		return "Electric";
-	case DAMAGE_MAGIC:
-		return "Magic";
-	case DAMAGE_HOLY:
-		return "Holy";
-	default:
-		return "";
-	}
-}
-
-static std::string targetingLabel(TargetingType t) {
-	switch (t) {
-	case TARGET_SELF:
-		return "Self";
-	case TARGET_ADJACENT_UNIT:
-		return "Adjacent";
-	case TARGET_ADJACENT_OR_SELF_UNIT:
-		return "Adj/Self";
-	case TARGET_LINE_OF_SIGHT_TILE:
-		return "Line of Sight";
-	case TARGET_EMPTY_TILE:
-		return "Empty Tile";
-	case TARGET_LINEAR_PIERCE:
-		return "Line";
-	case TARGET_CLEAVE_ADJACENT:
-		return "Cleave";
-	case TARGET_ADJACENT_UNIT_OR_WALL:
-		return "Adj Unit/Wall";
-	default:
-		return "";
-	}
-}
-
 static std::vector<std::string> wrapTextScaled(const ofTrueTypeFont & font, const std::string & text, float maxWidthPx, float scale) {
 	std::vector<std::string> out;
 	if (text.empty()) return out;
@@ -450,18 +405,6 @@ static std::vector<std::string> wrapTextScaled(const ofTrueTypeFont & font, cons
 	}
 
 	return out;
-}
-
-static void drawCenteredTextScaled(const ofTrueTypeFont & font, const std::string & text, const ofRectangle & rect, float scale) {
-	if (text.empty()) return;
-	ofRectangle b = font.getStringBoundingBox(text, 0, 0);
-	float tx = rect.x + (rect.width - b.width * scale) * 0.5f - b.x * scale;
-	float ty = rect.y + (rect.height - b.height * scale) * 0.5f - b.y * scale;
-	ofPushMatrix();
-	ofTranslate(tx, ty);
-	ofScale(scale, scale);
-	font.drawString(text, 0, 0);
-	ofPopMatrix();
 }
 
 static void drawCenteredTextScaledOutlined(const ofTrueTypeFont & font,
@@ -584,27 +527,6 @@ static void drawArcCenteredTextScaledOutlined(const ofTrueTypeFont & font,
 	}
 }
 
-static void drawWrappedTextScaled(const ofTrueTypeFont & font, const std::string & text, const ofRectangle & rect, float scale, float lineSpacing) {
-	if (text.empty()) return;
-	auto lines = wrapTextScaled(font, text, rect.width, scale);
-	if (lines.empty()) return;
-
-	float lineH = font.getLineHeight() * scale * std::max(0.6f, lineSpacing);
-	float totalH = lineH * (float)lines.size();
-	float y = rect.y + std::max(0.0f, (rect.height - totalH) * 0.5f) + lineH;
-	for (size_t i = 0; i < lines.size(); ++i) {
-		if (y > rect.getBottom()) break;
-		ofRectangle lineBox = font.getStringBoundingBox(lines[i], 0, 0);
-		float x = rect.x + (rect.width - lineBox.width * scale) * 0.5f;
-		ofPushMatrix();
-		ofTranslate(x, y);
-		ofScale(scale, scale);
-		font.drawString(lines[i], 0, 0);
-		ofPopMatrix();
-		y += lineH;
-	}
-}
-
 static void drawBoldSegmentScaled(const ofTrueTypeFont & font, const std::string & text, float x, float y, float scale) {
 	if (text.empty()) return;
 	ofPushMatrix();
@@ -672,40 +594,6 @@ static void drawWrappedTextScaledWithEmphasis(const ofTrueTypeFont & font,
 	}
 }
 
-static float bestFitWrappedTextScale(const ofTrueTypeFont & font,
-	const std::string & text,
-	const ofRectangle & rect,
-	float minScale,
-	float maxScale,
-	float lineSpacing) {
-	if (text.empty()) return maxScale;
-	if (maxScale < minScale) std::swap(maxScale, minScale);
-
-	auto fitsAtScale = [&](float s) {
-		auto lines = wrapTextScaled(font, text, rect.width, s);
-		if (lines.empty()) return true;
-		float lineH = font.getLineHeight() * s * std::max(0.6f, lineSpacing);
-		float totalH = lineH * (float)lines.size();
-		return totalH <= rect.height;
-	};
-
-	// If even minimum scale doesn't fit, clamp to minimum and let draw clip.
-	if (!fitsAtScale(minScale)) return minScale;
-	if (fitsAtScale(maxScale)) return maxScale;
-
-	float lo = minScale;
-	float hi = maxScale;
-	for (int i = 0; i < 18; ++i) {
-		float mid = (lo + hi) * 0.5f;
-		if (fitsAtScale(mid))
-			lo = mid;
-		else
-			hi = mid;
-	}
-
-	return lo;
-}
-
 static float bestUniformWrappedTextScale(const ofTrueTypeFont & font,
 	const std::vector<std::string> & texts,
 	const ofRectangle & rect,
@@ -721,42 +609,6 @@ static float bestUniformWrappedTextScale(const ofTrueTypeFont & font,
 		float lineH = font.getLineHeight() * s * std::max(0.6f, lineSpacing);
 		float totalH = lineH * (float)lines.size();
 		return totalH <= rect.height;
-	};
-
-	auto fitsAllAtScale = [&](float s) {
-		for (const auto & text : texts) {
-			if (!fitsTextAtScale(text, s)) return false;
-		}
-		return true;
-	};
-
-	if (!fitsAllAtScale(minScale)) return minScale;
-	if (fitsAllAtScale(maxScale)) return maxScale;
-
-	float lo = minScale;
-	float hi = maxScale;
-	for (int i = 0; i < 18; ++i) {
-		float mid = (lo + hi) * 0.5f;
-		if (fitsAllAtScale(mid))
-			lo = mid;
-		else
-			hi = mid;
-	}
-
-	return lo;
-}
-
-static float bestUniformCenteredTextScale(const ofTrueTypeFont & font,
-	const std::vector<std::string> & texts,
-	const ofRectangle & rect,
-	float minScale,
-	float maxScale) {
-	if (maxScale < minScale) std::swap(maxScale, minScale);
-
-	auto fitsTextAtScale = [&](const std::string & text, float s) {
-		if (text.empty()) return true;
-		ofRectangle b = font.getStringBoundingBox(text, 0, 0);
-		return (b.width * s) <= rect.width && (b.height * s) <= rect.height;
 	};
 
 	auto fitsAllAtScale = [&](float s) {
@@ -11372,7 +11224,7 @@ void ofApp::mouseMoved(int x, int y) {
 			float cardX = c.currentPos.x - w / 2;
 			float cardY = c.currentPos.y - h / 2;
 
-			if (isPointOverCardOpaque((float)x, (float)y, cardX, cardY, w, h, 10)) {
+			if (isPointOverCardOpaque((float)x, (float)y, cardX, cardY, w, h, 36)) {
 				currentCursor = CURSOR_GRAB;
 				// Allow hovering of hand cards in singleplayer for the active player
 				if ((isMultiplayer && p.playerID == myLocalPlayerID && newHoverType == HOVER_NONE) || (!isMultiplayer && newHoverType == HOVER_NONE)) {
@@ -11465,29 +11317,19 @@ cursor_check_done:;
 		if (players.empty() || currentPlayerIndex < 0) return;
 		Player & currentPlayer = players[currentPlayerIndex];
 		int foundHoverIndex = -1;
-		float handBaseCardWidth = kCardPixelWidth;
-		float baseCardHeight = kCardPixelHeight;
+		float handBaseCardWidth = kCardPixelWidth * kHandCardVisualScale;
+		float baseCardHeight = kCardPixelHeight * kHandCardVisualScale;
 
 		if (draggedCardIndex == -1) {
-			// Calculate hand layout to use same detection area as drag detection
+			// Use strict per-pixel hover detection that matches mouseMoved/mousePressed behavior.
 			int numCards = static_cast<int>(currentPlayer.hand.size());
-			float handAreaWidth = ofGetWidth() * 0.4f;
-			float totalCardWidths = numCards * handBaseCardWidth;
-			float padding = (numCards > 1) ? (handAreaWidth - totalCardWidths) / (numCards - 1) : 0;
-			padding = std::min(padding, 20.0f);
-			float totalHandWidth = (numCards * handBaseCardWidth) + ((numCards - 1) * padding);
-			float startX = (ofGetWidth() - totalHandWidth) / 2.0f;
-
-			// Check all cards and select the rightmost one that contains the mouse position.
-			// Use the actual rendered card bounds so hit boxes match visible size.
 			for (int i = 0; i < numCards; i++) {
 				Card & card = currentPlayer.hand[i];
-				float detectionW = handBaseCardWidth * card.currentScale;
-				float detectionH = baseCardHeight * card.currentScale;
+				float detectionW = handBaseCardWidth;
+				float detectionH = baseCardHeight;
 				float detectionX = card.currentPos.x - detectionW / 2.0f;
 				float detectionY = card.currentPos.y - detectionH / 2.0f;
-				ofRectangle detectionRect(detectionX + 6.0f, detectionY + 6.0f, std::max(0.0f, detectionW - 12.0f), std::max(0.0f, detectionH - 12.0f));
-				if (detectionRect.inside(x, y)) {
+				if (isPointOverCardOpaque((float)x, (float)y, detectionX, detectionY, detectionW, detectionH, 36)) {
 					// Keep track of the rightmost card that contains the cursor
 					if (foundHoverIndex == -1 || currentPlayer.hand[i].currentPos.x > currentPlayer.hand[foundHoverIndex].currentPos.x) {
 						foundHoverIndex = i;
@@ -12098,7 +11940,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 				float cardDrawH = baseCardHeight;
 				float cardX = cardCenterX - cardDrawW / 2.0f;
 				float cardY = card.currentPos.y - cardDrawH / 2.0f;
-				if (isPointOverCardOpaque((float)x, (float)y, cardX, cardY, cardDrawW, cardDrawH, 10)) {
+				if (isPointOverCardOpaque((float)x, (float)y, cardX, cardY, cardDrawW, cardDrawH, 36)) {
 					// Keep track of the rightmost card that contains the cursor
 					if (pressedCardIndex == -1 || currentPlayer.hand[i].currentPos.x > currentPlayer.hand[pressedCardIndex].currentPos.x) {
 						pressedCardIndex = i;
