@@ -3254,39 +3254,53 @@ void ofApp::update() {
 
 	// Check for disconnection/reconnection
 	if (isMultiplayer) {
-		// Check if opponent left the lobby (host quit to main menu)
+		// Check if opponent left/disconnected.
 		if (!steamManager.hasOpponent()) {
-			ofLogNotice("Network") << "Opponent left the lobby. Resetting game and returning to main menu.";
+			bool inMatchState = (currentState == STATE_GAMEPLAY || currentState == STATE_DRAFTING || currentState == STATE_INITIATIVE_ROLL || currentState == STATE_PAUSED || currentState == STATE_WAITING_FOR_RECONNECT);
+			if (inMatchState) {
+				if (!waitingForReconnect) {
+					ofLogNotice("Network") << "Connection lost. Entering reconnect wait state.";
+					waitingForReconnect = true;
+					currentState = STATE_WAITING_FOR_RECONNECT;
 
-			// Add message to chat
-			ChatMessage msg;
-			msg.playerName = "[SERVER]";
-			msg.message = "Opponent left the game";
-			msg.timestamp = ofGetElapsedTimef();
-			chatHistory.push_back(msg);
-			if (chatHistory.size() > static_cast<size_t>(maxChatMessages)) {
-				chatHistory.erase(chatHistory.begin());
+					// Pause turn timer (single pause source dedicated to reconnect wait).
+					if (turnTimerEnabled && !turnTimerPaused) {
+						int nowFrame = ofGetFrameNum();
+						reconnectTurnTimerPausedRemainingFrames = std::max(0, turnDurationFrames - (nowFrame - turnStartFrame));
+						turnTimerPaused = true;
+						turnTimerPausedRemainingFrames = reconnectTurnTimerPausedRemainingFrames;
+						reconnectTurnTimerPausedByDisconnect = true;
+					}
+
+					bool saved = saveGameStateToFile("autosave_disconnect.json");
+					ofLogNotice("Save") << (saved ? "Saved autosave_disconnect.json" : "Failed to save autosave_disconnect.json");
+
+					ChatMessage msg;
+					msg.playerName = "[SERVER]";
+					msg.message = "Connection lost. Waiting for opponent to reconnect...";
+					msg.timestamp = ofGetElapsedTimef();
+					chatHistory.push_back(msg);
+					if (chatHistory.size() > static_cast<size_t>(maxChatMessages)) {
+						chatHistory.erase(chatHistory.begin());
+					}
+					lastChatInteractionTime = ofGetElapsedTimef();
+				}
+				return; // Keep waiting state stable while disconnected.
 			}
 
-			// Reset all multiplayer state
+			// Pre-game disconnect: cleanly return to menu.
+			ofLogNotice("Network") << "Opponent left before/during lobby setup. Returning to main menu.";
 			isMultiplayer = false;
 			hasReceivedHandshake = false;
-			// waitingForTurnStartTimer removed; clients derive turn-start from command stream
 			initialDraftComplete = false;
 			draftAcceptLocked = false;
 			draftAcceptApplied = false;
 			gameplaySeededByHost = false;
 			handshakeRequestInterval = 1.0f;
-
-			// Clean up game state
 			cleanupGame();
-
-			// Return to main menu
 			currentState = STATE_MAIN_MENU;
-
-			// Show notification
 			lastChatInteractionTime = ofGetElapsedTimef();
-			return; // Skip rest of update this frame
+			return;
 		}
 
 		if (steamManager.checkAndClearDisconnectFlag()) {
@@ -3319,6 +3333,23 @@ void ofApp::update() {
 			// Show chat window for this message
 			lastChatInteractionTime = ofGetElapsedTimef();
 			ofLogNotice("Network") << opponentName << " reconnected - message added to chat";
+			if (waitingForReconnect) {
+				if (steamManager.isHost()) {
+					// Host can resume immediately and provide authoritative state to client.
+					if (reconnectTurnTimerPausedByDisconnect) {
+						int nowFrame = ofGetFrameNum();
+						turnTimerPaused = false;
+						turnStartFrame = nowFrame - (turnDurationFrames - reconnectTurnTimerPausedRemainingFrames);
+						turnTimerPausedRemainingFrames = 0;
+						reconnectTurnTimerPausedByDisconnect = false;
+						reconnectTurnTimerPausedRemainingFrames = 0;
+					}
+					waitingForReconnect = false;
+					currentState = STATE_GAMEPLAY;
+				} else {
+					addGameLog("Reconnected. Waiting for host snapshot...");
+				}
+			}
 			// Host sends a full state snapshot to resync the reconnecting client
 			if (steamManager.isHost()) {
 				sendSnapshotToClient();
@@ -3417,6 +3448,9 @@ void ofApp::update() {
 		break;
 	case STATE_SAVE_BROWSER:
 	case STATE_SINGLEPLAYER_MENU:
+		break;
+	case STATE_WAITING_FOR_RECONNECT:
+		// Intentionally do not advance simulation while waiting for network recovery.
 		break;
 
 	// --- INITIATIVE ROLL STATE ---
@@ -3644,6 +3678,27 @@ void ofApp::draw() {
 		break;
 	case STATE_GAMEPLAY:
 		drawGame();
+		break;
+	case STATE_WAITING_FOR_RECONNECT:
+		drawGame();
+		ofPushStyle();
+		ofSetColor(0, 0, 0, 170);
+		ofDrawRectangle(0, 0, ofGetWidth(), ofGetHeight());
+		ofSetColor(255);
+		{
+			std::string line1 = "Connection Lost";
+			std::string line2 = "Waiting for Opponent to Reconnect...";
+			std::string line3 = "Press ESC to Save & Quit";
+			ofRectangle b1 = titleFont.getStringBoundingBox(line1, 0, 0);
+			ofRectangle b2 = uiFont.getStringBoundingBox(line2, 0, 0);
+			ofRectangle b3 = uiFont.getStringBoundingBox(line3, 0, 0);
+			float cx = ofGetWidth() * 0.5f;
+			float cy = ofGetHeight() * 0.5f;
+			titleFont.drawString(line1, cx - b1.getWidth() * 0.5f, cy - 20.0f);
+			uiFont.drawString(line2, cx - b2.getWidth() * 0.5f, cy + 24.0f);
+			uiFont.drawString(line3, cx - b3.getWidth() * 0.5f, cy + 58.0f);
+		}
+		ofPopStyle();
 		break;
 	case STATE_SAVE_BROWSER:
 		drawSaveBrowser();
@@ -11282,6 +11337,8 @@ cursor_check_done:;
 		break;
 	case STATE_SAVE_BROWSER:
 		break;
+	case STATE_WAITING_FOR_RECONNECT:
+		break;
 	case STATE_GAMEPLAY: {
 		bool isDiceSpinning = false;
 		for (const auto & roll : activeDiceRolls) {
@@ -14389,6 +14446,29 @@ void ofApp::mouseScrolled(int x, int y, float scrollX, float scrollY) {
 }
 //--------------------------------------------------------------
 void ofApp::keyPressed(int key) {
+	if (currentState == STATE_WAITING_FOR_RECONNECT && key == OF_KEY_ESC) {
+		bool saved = saveGameStateToFile("autosave_disconnect.json");
+		ofLogNotice("Save") << (saved ? "Saved autosave_disconnect.json before quit." : "Failed to save autosave_disconnect.json before quit.");
+
+		// Reset multiplayer state and return to menu.
+		isMultiplayer = false;
+		hasReceivedHandshake = false;
+		initialDraftComplete = false;
+		draftAcceptLocked = false;
+		draftAcceptApplied = false;
+		gameplaySeededByHost = false;
+		handshakeRequestInterval = 1.0f;
+		waitingForReconnect = false;
+		reconnectTurnTimerPausedByDisconnect = false;
+		reconnectTurnTimerPausedRemainingFrames = 0;
+		turnTimerPaused = false;
+		turnTimerPausedRemainingFrames = 0;
+
+		cleanupGame();
+		currentState = STATE_MAIN_MENU;
+		return;
+	}
+
 	// Handle Chat Input first (highest priority)
 	// Consume keys when chat is open (regardless of minimized state) to avoid
 	// triggering global hotkeys while typing.
@@ -31652,6 +31732,19 @@ void ofApp::processNetworkPackets() {
 				if (ep->snapshotId == incomingSnapshotId && incomingSnapshotExpectedSize > 0) {
 					ofLogNotice("Network") << "Snapshot end (id=" << incomingSnapshotId << ")";
 					applySnapshotString(incomingSnapshotBuffer);
+					if (waitingForReconnect) {
+						if (reconnectTurnTimerPausedByDisconnect) {
+							int nowFrame = ofGetFrameNum();
+							turnTimerPaused = false;
+							turnStartFrame = nowFrame - (turnDurationFrames - reconnectTurnTimerPausedRemainingFrames);
+							turnTimerPausedRemainingFrames = 0;
+							reconnectTurnTimerPausedByDisconnect = false;
+							reconnectTurnTimerPausedRemainingFrames = 0;
+						}
+						waitingForReconnect = false;
+						currentState = STATE_GAMEPLAY;
+						addGameLog("Reconnect complete. Resuming match.");
+					}
 					// Clear waiting flag if we had requested this snapshot
 					waitingForSnapshotStartTime = 0.0f;
 					addGameLog("Recovered game state from host snapshot");

@@ -41,6 +41,7 @@ enum GameState {
 	STATE_MAIN_MENU,
 	STATE_SETTINGS,
 	STATE_GAMEPLAY,
+	STATE_WAITING_FOR_RECONNECT,
 	STATE_PAUSED,
 	STATE_INITIATIVE_ROLL, // <--- New
 	STATE_DRAFTING, // <--- New
@@ -1470,6 +1471,9 @@ private:
 	// Pause/resume support when modal choices are presented to other players
 	bool turnTimerPaused = false;
 	int turnTimerPausedRemainingFrames = 0; // frames remaining when paused
+	bool reconnectTurnTimerPausedByDisconnect = false;
+	int reconnectTurnTimerPausedRemainingFrames = 0;
+	bool waitingForReconnect = false;
 
 	// Opponent decision timer (when a modal requires the opponent to choose)
 	bool opponentDecisionTimerActive = false;
