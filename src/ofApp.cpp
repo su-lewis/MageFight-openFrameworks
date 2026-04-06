@@ -9868,10 +9868,10 @@ void ofApp::drawGame() {
 			apPreviewAlpha = std::max(apPreviewTargetAlpha, apPreviewAlpha - apPreviewFadeRate * apDt);
 		}
 
-		string p0_apCostPreviewText = "-" + ofToString(previewCardCost);
+		string apCostPreviewText = "-" + ofToString(previewCardCost);
 		ofRectangle p0_apTextBox = titleFont.getStringBoundingBox(p0_apText, 0, 0);
 		float p0_previewScale = fontScale * 0.62f;
-		ofRectangle p0_previewTextBox = titleFont.getStringBoundingBox(p0_apCostPreviewText, 0, 0);
+		ofRectangle p0_previewTextBox = titleFont.getStringBoundingBox(apCostPreviewText, 0, 0);
 		float p0_apRectWidth = (p0_apTextBox.width * fontScale) + (40 * scale);
 		float p0_apRectHeight = (p0_apTextBox.height * fontScale) + (20 * scale);
 		// Place AP box slightly above the discard pile
@@ -9898,7 +9898,7 @@ void ofApp::drawGame() {
 			ofSetColor(0, 0, 0, 150);
 			ofDrawRectRounded(p0_apCenterX - p0_apRectWidth / 2, p0_apCenterY - p0_apRectHeight / 2, p0_apRectWidth, p0_apRectHeight, 10 * scale);
 
-			ofSetColor(ofColor::cyan);
+			ofSetColor(ofColor::green);
 			ofPushMatrix();
 			ofTranslate(p0_apCenterX, p0_apCenterY);
 			ofScale(fontScale, fontScale);
@@ -9906,13 +9906,14 @@ void ofApp::drawGame() {
 			ofPopMatrix();
 
 			if (apPreviewAlpha > 1.0f) {
-				ofColor previewColor(255, 180, 90, (int)ofClamp(apPreviewAlpha, 0.0f, 255.0f));
+				ofColor previewColor(255, 70, 70, (int)ofClamp(apPreviewAlpha, 0.0f, 255.0f));
 				ofSetColor(previewColor);
 				ofPushMatrix();
-				float p0_previewCenterY = p0_apCenterY + (p0_apTextBox.height * fontScale * 0.55f);
-				ofTranslate(p0_apCenterX, p0_previewCenterY);
+				float p0_previewAnchorX = p0_apCenterX + (p0_apRectWidth * 0.5f) - (10.0f * scale);
+				float p0_previewCenterY = p0_apCenterY;
+				ofTranslate(p0_previewAnchorX, p0_previewCenterY);
 				ofScale(p0_previewScale, p0_previewScale);
-				titleFont.drawString(p0_apCostPreviewText, -p0_previewTextBox.getCenter().x, -p0_previewTextBox.getCenter().y);
+				titleFont.drawString(apCostPreviewText, -p0_previewTextBox.width, -p0_previewTextBox.getCenter().y);
 				ofPopMatrix();
 			}
 		}
@@ -10019,12 +10020,24 @@ void ofApp::drawGame() {
 		if (!skipDrawP1AP) {
 			ofSetColor(0, 0, 0, 150);
 			ofDrawRectRounded(p1_apCenterX - p1_apRectWidth / 2, p1_apCenterY - p1_apRectHeight / 2, p1_apRectWidth, p1_apRectHeight, 10 * scale);
-			ofSetColor(ofColor::cyan);
+			ofSetColor(ofColor::green);
 			ofPushMatrix();
 			ofTranslate(p1_apCenterX, p1_apCenterY);
 			ofScale(fontScale, fontScale);
 			titleFont.drawString(p1_apText, -p1_apTextBox.getCenter().x, -p1_apTextBox.getCenter().y);
 			ofPopMatrix();
+
+			if (apPreviewAlpha > 1.0f) {
+				ofColor previewColor(255, 70, 70, (int)ofClamp(apPreviewAlpha, 0.0f, 255.0f));
+				ofSetColor(previewColor);
+				ofPushMatrix();
+				float p1_previewAnchorX = p1_apCenterX + (p1_apRectWidth * 0.5f) - (10.0f * scale);
+				float p1_previewCenterY = p1_apCenterY;
+				ofTranslate(p1_previewAnchorX, p1_previewCenterY);
+				ofScale(p0_previewScale, p0_previewScale);
+				titleFont.drawString(apCostPreviewText, -p0_previewTextBox.width, -p0_previewTextBox.getCenter().y);
+				ofPopMatrix();
+			}
 		}
 
 		// --- DRAW P1 STATUSES (TOP - Opponent in Multiplayer) ---
@@ -14465,8 +14478,29 @@ void ofApp::mouseDragged(int x, int y, int button) {
 			if (sourceIndex < 0 || sourceIndex >= numCards) return;
 			Card & card = currentPlayer.hand[sourceIndex];
 			ofRectangle hitRect = getHandCardRestRect(card, handBaseCardWidth, baseCardHeight);
-			bool canPlayCard = isCurrentPlayerLocal() && (currentAP >= getEffectiveCardCostForPlayer(currentPlayer, card));
-			if (!canPlayCard && !hitRect.inside((float)x, (float)y)) {
+			bool hasEnoughAP = isCurrentPlayerLocal() && (currentAP >= getEffectiveCardCostForPlayer(currentPlayer, card));
+
+			auto hasAnyValidTargetForCard = [&]() {
+				if (card.targeting == TARGET_SELF) return true;
+				if (card.type == CARD_TELEPORT) return true; // Teleport destination validity is range-roll dependent.
+
+				calculateTargetHighlights(sourceIndex);
+				for (int tx = 0; tx < BOARD_WIDTH; ++tx) {
+					for (int ty = 0; ty < BOARD_HEIGHT; ++ty) {
+						if (board[tx][ty].isTargetable) return true;
+					}
+				}
+				return false;
+			};
+
+			bool hasPossibleTargets = hasAnyValidTargetForCard();
+			bool canStartDrag = hasEnoughAP && hasPossibleTargets;
+			if (!canStartDrag) {
+				if (!hasEnoughAP)
+					queueFloatingTextVisual(gridToWorld(currentPlayer.x, currentPlayer.y), "Not enough AP", ofColor::red);
+				else if (!hasPossibleTargets)
+					queueFloatingTextVisual(gridToWorld(currentPlayer.x, currentPlayer.y), "No valid target", ofColor::orange);
+
 				draggedCardIndex = -1;
 				pressedCardIndex = -1;
 				selectedCardIndex = -1;
