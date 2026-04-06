@@ -6574,8 +6574,8 @@ void ofApp::updateGame() {
 		float u = 1.0f - t;
 		anim.currentPos = (u * u) * start2D + (2.0f * u * t) * control + (t * t) * anim.targetPos;
 
-		// Keep steady hand scale during draw animation so cards don't pop in larger
-		anim.currentScale = 1.0f;
+		// Animate scale from deck size up to hand size
+		anim.currentScale = (1.0f - t) * pileCardScale + (t) * 1.0f;
 
 		// Keep fully opaque for clarity
 		anim.currentAlpha = 255.0f;
@@ -17689,7 +17689,7 @@ void ofApp::drawCard(bool sendPacket) {
 		anim.targetPos = glm::vec2(cardCenterX, handCenterY);
 		anim.endPos = anim.startPos;
 
-		anim.currentScale = 1.0f; // start at hand display scale
+		anim.currentScale = pileCardScale; // start at deck display scale
 		anim.duration = 0.50f;
 		activeDrawCardAnimations.push_back(anim);
 		ofLogNotice("DrawDebug") << "drawCard(): pushed DrawCardAnimation ownerIndex=" << anim.ownerIndex << " card='" << newCard.name << "' startTime=" << anim.startTime;
