@@ -145,7 +145,7 @@ const float pileCardScale = 0.45f;
 constexpr float kHandMinSpacing = 6.0f;
 constexpr float kHandMaxSpacing = 34.0f;
 constexpr float kHandAreaWidthRatio = 0.68f;
-constexpr float kHandHoverLiftPx = -230.0f;
+constexpr float kHandHoverLiftPx = -350.0f;
 
 static ofRectangle gCardOpaqueBoundsNormalized(0.0f, 0.0f, 1.0f, 1.0f);
 static std::vector<unsigned char> gCardAlphaMask;
