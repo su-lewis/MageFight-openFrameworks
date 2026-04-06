@@ -142,6 +142,10 @@ constexpr float kCardPixelHeight = 585.0f;
 constexpr float kCardAspectRatio = kCardPixelHeight / kCardPixelWidth;
 constexpr float kHandCardVisualScale = 0.50f;
 const float pileCardScale = 0.45f;
+constexpr float kHandMinSpacing = 6.0f;
+constexpr float kHandMaxSpacing = 34.0f;
+constexpr float kHandAreaWidthRatio = 0.68f;
+constexpr float kHandHoverLiftPx = -230.0f;
 
 static ofRectangle gCardOpaqueBoundsNormalized(0.0f, 0.0f, 1.0f, 1.0f);
 static std::vector<unsigned char> gCardAlphaMask;
@@ -177,6 +181,43 @@ static UILayoutSpacing buildUILayoutSpacing(float scale, bool turnTimerEnabled) 
 
 static float effectiveBottomGap(const UILayoutSpacing & ui) {
 	return std::max(0.0f, ui.edgeInset - ui.stackYOffset);
+}
+
+struct HandLayout {
+	float cardW = kCardPixelWidth * kHandCardVisualScale;
+	float cardH = kCardPixelHeight * kHandCardVisualScale;
+	float spacing = 0.0f;
+	float totalWidth = 0.0f;
+	float startX = 0.0f;
+	float restY = 0.0f;
+};
+
+static HandLayout computeHandLayout(size_t numCards, float screenW, float screenH) {
+	HandLayout l;
+	l.restY = screenH - 80.0f;
+	if (numCards <= 1) {
+		l.spacing = 0.0f;
+		l.totalWidth = l.cardW;
+		l.startX = (screenW - l.totalWidth) * 0.5f;
+		return l;
+	}
+
+	float handAreaWidth = screenW * kHandAreaWidthRatio;
+	float totalCardWidth = (float)numCards * l.cardW;
+	if (totalCardWidth < handAreaWidth) {
+		l.spacing = (handAreaWidth - totalCardWidth) / (float)(numCards - 1);
+		l.spacing = ofClamp(l.spacing, kHandMinSpacing, kHandMaxSpacing);
+	} else {
+		l.spacing = kHandMinSpacing;
+	}
+
+	l.totalWidth = (float)numCards * l.cardW + (float)(numCards - 1) * l.spacing;
+	l.startX = (screenW - l.totalWidth) * 0.5f;
+	return l;
+}
+
+static ofRectangle getHandCardRestRect(const Card & card, float baseCardW, float baseCardH) {
+	return ofRectangle(card.targetPos.x - baseCardW * 0.5f, card.targetPos.y - baseCardH * 0.5f, baseCardW, baseCardH);
 }
 
 struct CardTemplateRecord {
@@ -6665,29 +6706,12 @@ void ofApp::updateGame() {
 
 		if (handPlayer) {
 			size_t numCards = handPlayer->hand.size();
-			// Hearthstone-style positioning
-			float handBaseCardWidth = kCardPixelWidth * kHandCardVisualScale;
-			float handAreaWidth = ofGetWidth() * 0.85f;
-
-			float spacing = 0.0f;
-			if (numCards > 1) {
-				float totalWidth = numCards * handBaseCardWidth;
-				if (totalWidth < handAreaWidth) {
-					spacing = (handAreaWidth - totalWidth) / (numCards - 1);
-					spacing = std::min(spacing, 120.0f);
-				} else {
-					spacing = 10.0f;
-				}
-			}
-
-			float totalHandWidth = (numCards > 0) ? (numCards * handBaseCardWidth + (numCards - 1) * spacing) : 0;
-			float startX = (ofGetWidth() - totalHandWidth) / 2.0f;
-			float handRestY = ofGetHeight() - 80.0f;
+			HandLayout handLayout = computeHandLayout(numCards, (float)ofGetWidth(), (float)ofGetHeight());
 
 			// Position the cards for the active local unit (player or minion)
 			for (size_t i = 0; i < numCards; i++) {
-				float cardCenterX = startX + i * (handBaseCardWidth + spacing) + (handBaseCardWidth / 2.0f);
-				handPlayer->hand[i].targetPos = ofVec2f(cardCenterX, handRestY);
+				float cardCenterX = handLayout.startX + (float)i * (handLayout.cardW + handLayout.spacing) + (handLayout.cardW * 0.5f);
+				handPlayer->hand[i].targetPos = ofVec2f(cardCenterX, handLayout.restY);
 
 				if (static_cast<int>(i) != draggedCardIndex) {
 					handPlayer->hand[i].currentScale = ofLerp(handPlayer->hand[i].currentScale, handPlayer->hand[i].targetScale, 0.25f);
@@ -10317,28 +10341,12 @@ void ofApp::drawGame() {
 		}
 
 		// Hearthstone-style hand layout with dynamic spacing
-		float baseCardHeight = kCardPixelHeight * kHandCardVisualScale;
-		float handBaseCardWidth = kCardPixelWidth * kHandCardVisualScale;
-		float handAreaWidth = ofGetWidth() * 0.85f;
-
-		// Dynamic spacing based on card count
-		float spacing = 0.0f;
-		if (numCards == 1) {
-			spacing = 0.0f;
-		} else if (numCards <= 10) {
-			float totalWidth = numCards * handBaseCardWidth;
-			if (totalWidth < handAreaWidth) {
-				spacing = (handAreaWidth - totalWidth) / (numCards - 1);
-				spacing = std::min(spacing, 120.0f);
-			} else {
-				spacing = 10.0f;
-			}
-		} else {
-			spacing = 10.0f;
-		}
+		HandLayout handLayout = computeHandLayout(numCards, (float)ofGetWidth(), (float)ofGetHeight());
+		float baseCardHeight = handLayout.cardH;
+		float handBaseCardWidth = handLayout.cardW;
 
 		// How much a hovered card is lifted upward (pixels) and scaled
-		float hoverDirection = -450.0f; // Lift upward to be fully visible
+		float hoverDirection = kHandHoverLiftPx;
 		// Note: hoverScale is already defined at function scope
 
 		// 1. Determine which card should be drawn LAST (On Top)
@@ -11487,21 +11495,21 @@ void ofApp::mouseMoved(int x, int y) {
 		Player & p = players[currentPlayerIndex];
 		float handBaseCardWidth = kCardPixelWidth * kHandCardVisualScale;
 		float baseCardHeight = kCardPixelHeight * kHandCardVisualScale;
+		int foundHandHover = -1;
 
 		for (size_t i = 0; i < p.hand.size(); i++) {
 			Card & c = p.hand[i];
-			float w = handBaseCardWidth;
-			float h = baseCardHeight;
-			float cardX = c.currentPos.x - w / 2;
-			float cardY = c.currentPos.y - h / 2;
+			ofRectangle hitRect = getHandCardRestRect(c, handBaseCardWidth, baseCardHeight);
 
-			if (isPointOverCardOpaque((float)x, (float)y, cardX, cardY, w, h, 36)) {
-				currentCursor = CURSOR_GRAB;
-				// Allow hovering of hand cards in singleplayer for the active player
-				if ((isMultiplayer && p.playerID == myLocalPlayerID && newHoverType == HOVER_NONE) || (!isMultiplayer && newHoverType == HOVER_NONE)) {
-					newHoverType = HOVER_HAND_CARD;
-					newHoverCardIndex = i;
-				}
+			if (isPointOverCardOpaque((float)x, (float)y, hitRect.x, hitRect.y, hitRect.width, hitRect.height, 36)) {
+				foundHandHover = (int)i; // last match wins (top-most in our draw order)
+			}
+		}
+		if (foundHandHover != -1) {
+			currentCursor = CURSOR_GRAB;
+			if ((isMultiplayer && p.playerID == myLocalPlayerID && newHoverType == HOVER_NONE) || (!isMultiplayer && newHoverType == HOVER_NONE)) {
+				newHoverType = HOVER_HAND_CARD;
+				newHoverCardIndex = foundHandHover;
 			}
 		}
 	}
@@ -11596,16 +11604,22 @@ cursor_check_done:;
 		if (draggedCardIndex == -1) {
 			// Use strict per-pixel hover detection that matches mouseMoved/mousePressed behavior.
 			int numCards = static_cast<int>(currentPlayer.hand.size());
-			for (int i = 0; i < numCards; i++) {
-				Card & card = currentPlayer.hand[i];
-				float detectionW = handBaseCardWidth;
-				float detectionH = baseCardHeight;
-				float detectionX = card.currentPos.x - detectionW / 2.0f;
-				float detectionY = card.currentPos.y - detectionH / 2.0f;
-				if (isPointOverCardOpaque((float)x, (float)y, detectionX, detectionY, detectionW, detectionH, 36)) {
-					// Keep track of the rightmost card that contains the cursor
-					if (foundHoverIndex == -1 || currentPlayer.hand[i].currentPos.x > currentPlayer.hand[foundHoverIndex].currentPos.x) {
-						foundHoverIndex = i;
+
+			// Anti-flicker hysteresis: keep current hovered card if cursor is still inside its resting slot rect.
+			if (hoveredCardIndex >= 0 && hoveredCardIndex < numCards) {
+				Card & hoveredCard = currentPlayer.hand[hoveredCardIndex];
+				ofRectangle stickyRect = getHandCardRestRect(hoveredCard, handBaseCardWidth, baseCardHeight);
+				if (isPointOverCardOpaque((float)x, (float)y, stickyRect.x, stickyRect.y, stickyRect.width, stickyRect.height, 36)) {
+					foundHoverIndex = hoveredCardIndex;
+				}
+			}
+
+			if (foundHoverIndex == -1) {
+				for (int i = 0; i < numCards; i++) {
+					Card & card = currentPlayer.hand[i];
+					ofRectangle hitRect = getHandCardRestRect(card, handBaseCardWidth, baseCardHeight);
+					if (isPointOverCardOpaque((float)x, (float)y, hitRect.x, hitRect.y, hitRect.width, hitRect.height, 36)) {
+						foundHoverIndex = i; // last match wins (matches visual layering)
 					}
 				}
 			}
@@ -12187,38 +12201,16 @@ void ofApp::mousePressed(int x, int y, int button) {
 		int numCards = static_cast<int>(currentPlayer.hand.size());
 		ofLogNotice("CardDrag") << "mousePressed: Checking " << numCards << " cards in hand at currentState=" << (int)currentState;
 		if (numCards > 0) {
-			// Use Hearthstone-style positioning
 			float handBaseCardWidth = kCardPixelWidth * kHandCardVisualScale;
 			float baseCardHeight = kCardPixelHeight * kHandCardVisualScale;
-			float handAreaWidth = ofGetWidth() * 0.85f;
-
-			float spacing = 0.0f;
-			if (numCards > 1) {
-				float totalWidth = numCards * handBaseCardWidth;
-				if (totalWidth < handAreaWidth) {
-					spacing = (handAreaWidth - totalWidth) / (numCards - 1);
-					spacing = std::min(spacing, 120.0f);
-				} else {
-					spacing = 10.0f;
-				}
-			}
-
-			float totalHandWidth = (numCards > 0) ? (numCards * handBaseCardWidth + (numCards - 1) * spacing) : 0;
-			float startX = (ofGetWidth() - totalHandWidth) / 2.0f;
 
 			for (int i = 0; i < numCards; i++) {
 				Card & card = currentPlayer.hand[i];
-				float cardCenterX = startX + i * (handBaseCardWidth + spacing) + (handBaseCardWidth / 2.0f);
-				float cardDrawW = handBaseCardWidth;
-				float cardDrawH = baseCardHeight;
-				float cardX = cardCenterX - cardDrawW / 2.0f;
-				float cardY = card.currentPos.y - cardDrawH / 2.0f;
-				if (isPointOverCardOpaque((float)x, (float)y, cardX, cardY, cardDrawW, cardDrawH, 36)) {
+				ofRectangle hitRect = getHandCardRestRect(card, handBaseCardWidth, baseCardHeight);
+				if (isPointOverCardOpaque((float)x, (float)y, hitRect.x, hitRect.y, hitRect.width, hitRect.height, 36)) {
 					// Keep track of the rightmost card that contains the cursor
-					if (pressedCardIndex == -1 || currentPlayer.hand[i].currentPos.x > currentPlayer.hand[pressedCardIndex].currentPos.x) {
-						pressedCardIndex = i;
-						ofLogNotice("CardDrag") << "Card pressed: index=" << i << " name=" << card.name;
-					}
+					pressedCardIndex = i; // last hit wins (matches visual stack order)
+					ofLogNotice("CardDrag") << "Card pressed: index=" << i << " name=" << card.name;
 				}
 			}
 		}
@@ -14377,25 +14369,15 @@ void ofApp::mouseDragged(int x, int y, int button) {
 			if (players.empty() || currentPlayerIndex < 0) return;
 			Player & currentPlayer = players[currentPlayerIndex];
 			int numCards = static_cast<int>(currentPlayer.hand.size());
-			float handBaseCardWidth = kCardPixelWidth;
-			float baseCardHeight = kCardPixelHeight;
-
-			float handAreaWidth = ofGetWidth() * 0.4f;
-			float totalCardWidths = numCards * handBaseCardWidth;
-			float padding = (numCards > 1) ? (handAreaWidth - totalCardWidths) / (numCards - 1) : 0;
-			padding = std::min(padding, 20.0f);
-			float totalHandWidth = (numCards * handBaseCardWidth) + ((numCards - 1) * padding);
-			float startX = (ofGetWidth() - totalHandWidth) / 2.0f;
+			float handBaseCardWidth = kCardPixelWidth * kHandCardVisualScale;
+			float baseCardHeight = kCardPixelHeight * kHandCardVisualScale;
 
 			// Priority: pressedCardIndex > selectedCardIndex > hoveredCardIndex
 			int sourceIndex = (pressedCardIndex != -1) ? pressedCardIndex : (selectedCardIndex != -1) ? selectedCardIndex
 																									  : hoveredCardIndex;
 			if (sourceIndex < 0 || sourceIndex >= numCards) return;
 			Card & card = currentPlayer.hand[sourceIndex];
-			float detectionWidth = handBaseCardWidth;
-			float detectionHeight = baseCardHeight * 1.6f;
-			float detectionX = startX + sourceIndex * (handBaseCardWidth + padding);
-			float detectionY = card.targetPos.y - detectionHeight / 2;
+			ofRectangle hitRect = getHandCardRestRect(card, handBaseCardWidth, baseCardHeight);
 
 			// Set draggedCardIndex based on pressedCardIndex, OR check current position if no pressed index
 			if (pressedCardIndex != -1) {
@@ -14403,7 +14385,7 @@ void ofApp::mouseDragged(int x, int y, int button) {
 				draggedCardIndex = sourceIndex;
 				dragOffset = ofVec2f(x, y) - card.targetPos;
 				ofLogNotice("CardDrag") << "Drag initiated from pressedCardIndex=" << sourceIndex << " name=" << card.name;
-			} else if (ofRectangle(detectionX, detectionY, detectionWidth, detectionHeight).inside(ofGetPreviousMouseX(), ofGetPreviousMouseY())) {
+			} else if (isPointOverCardOpaque((float)ofGetPreviousMouseX(), (float)ofGetPreviousMouseY(), hitRect.x, hitRect.y, hitRect.width, hitRect.height, 36)) {
 				// Fallback: check if previous position was in detection rect (for backwards compat)
 				draggedCardIndex = sourceIndex;
 				// Use targetPos to maintain consistent drag offset (card may be animating to this position)
@@ -15603,8 +15585,6 @@ void ofApp::startNewTurn() {
 				else
 					continueNewTurn();
 				return;
-			}
-			if (startingPlayer.isPoisoned) {
 				// Resolve poison roll immediately (authoritative), then queue APPLY_POISON
 				currentCardOutcome.poisonTargetPlayerIDs.clear();
 				currentCardOutcome.poisonTargetPlayerIDs.push_back(players[currentPlayerIndex].playerID);
