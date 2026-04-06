@@ -15104,14 +15104,18 @@ void ofApp::keyReleased(int key) {
 		// 'u' keybind removed to avoid accidental toggles; use the
 		// Debug panel's "Unlimited AP" button to toggle instead.
 
-		// 'c' - Open Card Spawner
+		// 'c' - Open Card Spawner (always available in debug mode)
 		if (key == 'c' || key == 'C') {
 			if (!isDebugMode) return;
-			isCardSpawnerOpen = true;
-			cardSpawnerInput = "";
-			cardSpawnerQuantity = 1;
-			filteredCards.clear();
-			ofLogNotice("Debug") << "Card Spawner opened (press ESC to close)";
+			isCardSpawnerOpen = !isCardSpawnerOpen;
+			if (isCardSpawnerOpen) {
+				cardSpawnerInput = "";
+				cardSpawnerQuantity = 1;
+				filteredCards.clear();
+				ofLogNotice("Debug") << "Card Spawner opened (press ESC to close)";
+			} else {
+				ofLogNotice("Debug") << "Card Spawner closed";
+			}
 			return;
 		}
 
@@ -16806,13 +16810,16 @@ void ofApp::handleCardMenuClick(const std::string & buttonId) {
 		currentCardOutcome.casterIndex = currentPlayerIndex;
 		beginEffectSequence();
 		if (buttonId == "damage") {
-			EffectOp damageOp = {};
-			damageOp.type = EffectOpType::DAMAGE;
-			damageOp.data.damage.targetIndex = interactionTargetIndex;
-			damageOp.data.damage.damageType = DAMAGE_MAGIC;
-			damageOp.data.damage.fixedDamage = effectValue;
-			damageOp.data.damage.damageFromSlot = -1;
-			queueEffect(damageOp);
+			// Only allow damage if not targeting self
+			if (!isSelfTarget) {
+				EffectOp damageOp = {};
+				damageOp.type = EffectOpType::DAMAGE;
+				damageOp.data.damage.targetIndex = interactionTargetIndex;
+				damageOp.data.damage.damageType = DAMAGE_MAGIC;
+				damageOp.data.damage.fixedDamage = effectValue;
+				damageOp.data.damage.damageFromSlot = -1;
+				queueEffect(damageOp);
+			}
 		} else if (buttonId == "block") {
 			EffectOp blockOp = {};
 			blockOp.type = EffectOpType::MODIFY_STAT;
@@ -17242,7 +17249,7 @@ void ofApp::drawActiveCardInteractionUI() {
 			wisdomBtnBlock.set(x + (w - btnW) / 2, y + 110 + btnH + 20, btnW, btnH);
 
 			if (isSelfTarget) {
-				drawCardChoicePanel(wisdomMenuRect, title, desc, wisdomBtnDamage, wisdomBtnBlock, "Gain Block", "", blockAccent, blockAccent, true, false);
+				drawCardChoicePanel(wisdomMenuRect, title, desc, wisdomBtnDamage, wisdomBtnBlock, "Gain Block", "", blockAccent, blockAccent, false, true);
 			} else {
 				drawCardChoicePanel(wisdomMenuRect, title, desc, wisdomBtnDamage, wisdomBtnBlock, "Deal Magic Dmg", "", magicAccent, magicAccent, true, false);
 			}

@@ -136,7 +136,7 @@
 - **AP Cost:** 5
 - **Class:** 1
 - **Picture:** 
-- **Effect Text:** Choose One - Deal damage equal to the # of cards in your deck; or gain Block until the start of this unit's next turn equal to the # of cards in your deck.
+- **Effect Text:** Choose One - Deal damage equal to the # of cards in your deck to an adjacent unit; or gain Block until the start of this unit's next turn equal to the # of cards in your deck.
 ---
 
 -## 19. Ethereal Jolt
