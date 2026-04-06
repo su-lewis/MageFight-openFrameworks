@@ -190,30 +190,60 @@ struct HandLayout {
 	float totalWidth = 0.0f;
 	float startX = 0.0f;
 	float restY = 0.0f;
+	ofRectangle handAreaRect;
 };
+
+static ofRectangle computeHandAreaRect(float screenW, float screenH) {
+	float scale = screenH / 1080.0f;
+	UILayoutSpacing ui = buildUILayoutSpacing(scale, true);
+	float handCardH = kCardPixelHeight * kHandCardVisualScale;
+	float deckCardW = kCardPixelWidth * pileCardScale * scale;
+	float healthBarW = 220.0f * scale;
+	float horizontalPadding = 16.0f * scale;
+
+	float left = ui.edgeInset + deckCardW + ui.healthBarSideGap + ui.healthBarInwardNudge + healthBarW + horizontalPadding;
+	float right = screenW - ui.edgeInset - deckCardW - ui.healthBarSideGap - ui.healthBarInwardNudge - healthBarW - horizontalPadding;
+	if (right < left) {
+		float center = screenW * 0.5f;
+		left = center - 200.0f * scale;
+		right = center + 200.0f * scale;
+	}
+
+	float restY = screenH - 80.0f;
+	float top = restY - (handCardH * 0.5f) - (56.0f * scale);
+	float bottom = screenH - (8.0f * scale);
+	return ofRectangle(left, top, std::max(0.0f, right - left), std::max(0.0f, bottom - top));
+}
 
 static HandLayout computeHandLayout(size_t numCards, float screenW, float screenH) {
 	HandLayout l;
+	l.handAreaRect = computeHandAreaRect(screenW, screenH);
 	l.restY = screenH - 80.0f;
 	if (numCards <= 1) {
 		l.spacing = 0.0f;
 		l.totalWidth = l.cardW;
-		l.startX = (screenW - l.totalWidth) * 0.5f;
+		l.startX = l.handAreaRect.getCenter().x - (l.totalWidth * 0.5f);
 		return l;
 	}
 
-	float handAreaWidth = screenW * kHandAreaWidthRatio;
+	float handAreaWidth = std::max(0.0f, l.handAreaRect.getWidth());
 	float totalCardWidth = (float)numCards * l.cardW;
-	if (totalCardWidth < handAreaWidth) {
-		l.spacing = (handAreaWidth - totalCardWidth) / (float)(numCards - 1);
-		l.spacing = ofClamp(l.spacing, kHandMinSpacing, kHandMaxSpacing);
-	} else {
-		l.spacing = kHandMinSpacing;
-	}
+	l.spacing = (handAreaWidth - totalCardWidth) / (float)(numCards - 1);
+	l.spacing = std::min(l.spacing, kHandMaxSpacing);
 
 	l.totalWidth = (float)numCards * l.cardW + (float)(numCards - 1) * l.spacing;
-	l.startX = (screenW - l.totalWidth) * 0.5f;
+	l.startX = l.handAreaRect.getCenter().x - (l.totalWidth * 0.5f);
 	return l;
+}
+
+static int getEffectiveCardCostForPlayer(const Player & player, const Card & card) {
+	int costToPay = card.cost;
+	if (card.type == CARD_KICK && player.freeKickTurns > 0) costToPay = 0;
+	auto isHandRelatedCard = [](CardType type) {
+		return type == CARD_PUNCH || type == CARD_BASH || type == CARD_DRAIN_PUNCH || type == CARD_MASTER_FIST || type == CARD_FLURRY_OF_FISTS || type == CARD_GIANT_MAGIC_HAND;
+	};
+	if (player.freeHandCardTurns > 0 && isHandRelatedCard(card.type)) costToPay = 0;
+	return costToPay;
 }
 
 static ofRectangle getHandCardRestRect(const Card & card, float baseCardW, float baseCardH) {
@@ -10342,8 +10372,18 @@ void ofApp::drawGame() {
 
 		// Hearthstone-style hand layout with dynamic spacing
 		HandLayout handLayout = computeHandLayout(numCards, (float)ofGetWidth(), (float)ofGetHeight());
+		ofRectangle handAreaRect = handLayout.handAreaRect;
 		float baseCardHeight = handLayout.cardH;
 		float handBaseCardWidth = handLayout.cardW;
+
+		ofPushStyle();
+		ofSetColor(18, 18, 24, 105);
+		ofDrawRectRounded(handAreaRect, 24.0f);
+		ofNoFill();
+		ofSetColor(120, 120, 140, 135);
+		ofSetLineWidth(2.0f);
+		ofDrawRectRounded(handAreaRect, 24.0f);
+		ofPopStyle();
 
 		// How much a hovered card is lifted upward (pixels) and scaled
 		float hoverDirection = kHandHoverLiftPx;
@@ -14378,6 +14418,16 @@ void ofApp::mouseDragged(int x, int y, int button) {
 			if (sourceIndex < 0 || sourceIndex >= numCards) return;
 			Card & card = currentPlayer.hand[sourceIndex];
 			ofRectangle hitRect = getHandCardRestRect(card, handBaseCardWidth, baseCardHeight);
+			bool canPlayCard = isCurrentPlayerLocal() && (currentAP >= getEffectiveCardCostForPlayer(currentPlayer, card));
+			if (!canPlayCard && !hitRect.inside((float)x, (float)y)) {
+				draggedCardIndex = -1;
+				pressedCardIndex = -1;
+				selectedCardIndex = -1;
+				card.currentPos = card.targetPos;
+				card.currentScale = card.targetScale;
+				calculateTargetHighlights();
+				return;
+			}
 
 			// Set draggedCardIndex based on pressedCardIndex, OR check current position if no pressed index
 			if (pressedCardIndex != -1) {
@@ -14395,6 +14445,20 @@ void ofApp::mouseDragged(int x, int y, int button) {
 		}
 
 		if (draggedCardIndex != -1) {
+			Player & currentPlayer = players[currentPlayerIndex];
+			Card & draggedCard = currentPlayer.hand[draggedCardIndex];
+			bool canPlayCard = isCurrentPlayerLocal() && (currentAP >= getEffectiveCardCostForPlayer(currentPlayer, draggedCard));
+			ofRectangle handAreaRect = computeHandAreaRect((float)ofGetWidth(), (float)ofGetHeight());
+			if (!canPlayCard && !handAreaRect.inside((float)x, (float)y)) {
+				draggedCard.currentPos = draggedCard.targetPos;
+				draggedCard.currentScale = draggedCard.targetScale;
+				draggedCardIndex = -1;
+				pressedCardIndex = -1;
+				selectedCardIndex = -1;
+				calculateTargetHighlights();
+				return;
+			}
+
 			if (selectedCardIndex != -1) {
 				selectedCardIndex = -1;
 				// Don't clear highlights here - will update with draggedCardIndex below
@@ -14513,9 +14577,11 @@ void ofApp::mouseReleased(int x, int y, int button) {
 		}
 
 		if (draggedCardIndex != -1) {
+			Card & draggedCard = currentPlayer.hand[draggedCardIndex];
+			bool canPlayCard = isCurrentPlayerLocal() && (currentAP >= getEffectiveCardCostForPlayer(currentPlayer, draggedCard));
 			bool startedCardInteraction = false;
 			if (dist > dragThreshold) {
-				Card & playedCard = currentPlayer.hand[draggedCardIndex];
+				Card & playedCard = draggedCard;
 				float playZoneY = ofGetHeight() * 0.5f; // Changed from 0.7f to 0.5f for easier targeting card play
 				float upwardDrag = mouseDownPos.y - y;
 				bool releasedInPlayZone = (y < playZoneY);
@@ -14525,13 +14591,16 @@ void ofApp::mouseReleased(int x, int y, int button) {
 										<< " releasedInPlayZone=" << releasedInPlayZone
 										<< " draggedUpEnough=" << draggedUpEnough;
 
-				if (releasedInPlayZone || draggedUpEnough) {
+				if (canPlayCard && (releasedInPlayZone || draggedUpEnough)) {
 					// === NEW UNIFIED HANDLER ===
 					// Call the centralized card play handler instead of per-card logic
 					ofLogNotice("CardDrag") << "Calling handleCardDragToPlay for card=" << playedCard.name;
 					handleCardDragToPlay(draggedCardIndex);
 					startedCardInteraction = (cardInteractionState == CARD_INTERACTION_TARGETING || cardInteractionState == CARD_INTERACTION_MENU);
 				} else {
+					// Snap back if it wasn't a valid play.
+					draggedCard.currentPos = draggedCard.targetPos;
+					draggedCard.currentScale = draggedCard.targetScale;
 					ofLogNotice("CardDrag") << "Release did not meet play condition, not playing card";
 				}
 			} else {
@@ -25754,7 +25823,7 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 		|| (cardInteractionState == CARD_INTERACTION_TARGETING && interactingCardType == CARD_AMNESIA)
 		|| (selectedCardIndex != -1);
 
-	bool hasEnoughAP = inTargetingMode || (currentAP >= card.cost);
+	bool hasEnoughAP = inTargetingMode || (currentAP >= getEffectiveCardCostForPlayer(currentPlayer, card));
 
 	// --- MOUSE HOVER CALCULATION ---
 	glm::vec2 mouseTile = mouseToBoard(ofGetMouseX(), ofGetMouseY());
