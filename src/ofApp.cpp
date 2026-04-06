@@ -228,6 +228,36 @@ static std::string normalizeCardKey(const std::string & s) {
 	return toLowerCopy(trimCopy(s));
 }
 
+static std::vector<std::string> extractAlphaTokens(const std::string & s) {
+	std::vector<std::string> toks;
+	std::string cur;
+	for (char ch : s) {
+		if (std::isalpha((unsigned char)ch)) {
+			cur.push_back(ch);
+		} else if (!cur.empty()) {
+			toks.push_back(cur);
+			cur.clear();
+		}
+	}
+	if (!cur.empty()) toks.push_back(cur);
+	return toks;
+}
+
+static std::string findCardTemplatePath() {
+	const std::vector<std::string> candidates = {
+		"UI/Card Template.PNG",
+		"UI/Card Template.png",
+		"UI/card_template.png",
+		"UI/card_template_withrange.png",
+		"UI/card_template_withrange.PNG",
+		"UI/card_template.jpg"
+	};
+	for (const auto & path : candidates) {
+		if (ofFile(path).exists()) return path;
+	}
+	return "UI/card_template_withrange.png";
+}
+
 static ofRectangle computeOpaqueBoundsNormalized(const ofImage & image, unsigned char alphaThreshold = 0, int paddingPx = 2) {
 	if (!image.isAllocated() || image.getWidth() <= 0 || image.getHeight() <= 0) {
 		return ofRectangle(0.0f, 0.0f, 1.0f, 1.0f);
@@ -715,10 +745,23 @@ static bool rebuildCardSpriteSheetFromTemplate(const std::string & templatePath,
 	}
 
 	ofImage templateImage;
-	if (!templateImage.load(templatePath)) {
-		ofLogWarning("Cards") << "Template image missing, keeping existing sheet: " << templatePath;
+	std::string actualTemplatePath = templatePath;
+	if (!ofFile(actualTemplatePath).exists()) {
+		// Try a few common fallback names the artist might have used in UI/
+		std::vector<std::string> fallbacks = { "UI/Card Template.PNG", "UI/Card Template.png", "UI/card_template.png", "UI/card_template_withrange.png", "UI/card_template.png" };
+		for (const auto & fp : fallbacks) {
+			if (ofFile(fp).exists()) {
+				actualTemplatePath = fp;
+				break;
+			}
+		}
+	}
+
+	if (!templateImage.load(actualTemplatePath)) {
+		ofLogWarning("Cards") << "Template image missing, keeping existing sheet: " << actualTemplatePath;
 		return false;
 	}
+	ofLogNotice("Cards") << "Loaded card template: " << actualTemplatePath << " (" << templateImage.getWidth() << "x" << templateImage.getHeight() << ")";
 
 	const int cardW = (int)templateImage.getWidth();
 	const int cardH = (int)templateImage.getHeight();
@@ -732,6 +775,7 @@ static bool rebuildCardSpriteSheetFromTemplate(const std::string & templatePath,
 		sheetW = std::max(sheetW, (int)(c.textureRect.x + c.textureRect.width));
 		sheetH = std::max(sheetH, (int)(c.textureRect.y + c.textureRect.height));
 	}
+	ofLogNotice("Cards") << "Computed sprite sheet size: " << sheetW << "x" << sheetH << " for " << allCards.size() << " cards (card slot: " << cardW << "x" << cardH << ")";
 	if (sheetW <= 0 || sheetH <= 0) {
 		sheetW = cardW * 10;
 		sheetH = cardH * (int)std::ceil(allCards.size() / 10.0f);
@@ -780,6 +824,66 @@ static bool rebuildCardSpriteSheetFromTemplate(const std::string & templatePath,
 							 << "' (" << longestTargetingText.size() << " chars) on card '" << longestTargetingCardName << "'";
 	}
 
+	// Preload optional overlay images (artist-provided)
+	std::unordered_map<std::string, ofImage> overlayCache;
+	auto storeIfLoaded = [&](const std::string & filename) {
+		// Try several candidate locations because runtime working dir/data path may vary
+		std::vector<std::string> candidates = { std::string("UI/") + filename, std::string("bin/data/UI/") + filename, std::string("data/UI/") + filename, filename };
+		for (const auto & path : candidates) {
+			if (!ofFile(path).exists()) continue;
+			ofImage img;
+			if (!img.load(path)) continue;
+			size_t s = path.find_last_of("/\\");
+			std::string base = (s == std::string::npos) ? path : path.substr(s + 1);
+			size_t d = base.find_last_of('.');
+			std::string name = (d == std::string::npos) ? base : base.substr(0, d);
+			std::string key;
+			for (char c : name)
+				if (!std::isspace((unsigned char)c)) key.push_back((char)std::tolower((unsigned char)c));
+			overlayCache[key] = std::move(img);
+			ofLogNotice("Cards") << "Loaded overlay '" << name << "' from " << path << " as key='" << key << "'";
+			return;
+		}
+	};
+
+	// Common overlay filenames to try (pass base filenames; loader will probe UI/ and data/ locations)
+	storeIfLoaded("DamageTypeBanner.PNG");
+	storeIfLoaded("DamageTypeBanner.png");
+	storeIfLoaded("TargetingTypeArea.PNG");
+	storeIfLoaded("TargetingTypeArea.png");
+	// Try class badges
+	storeIfLoaded("badge_class1.png");
+	storeIfLoaded("badge_class2.png");
+	storeIfLoaded("badge_class3.png");
+
+	// Dynamically preload per-damage-type overlays referenced in the markdown records.
+	// Extract simple alphabetic tokens from the `damageType` strings so compound
+	// entries like "Magic / Electric AOE" will attempt to load both `Magic` and `Electric` icons.
+	std::set<std::string> damageTokens;
+	for (const auto & kv : records) {
+		const std::string & dt = kv.second.damageType;
+		if (dt.empty()) continue;
+		auto toks = extractAlphaTokens(dt);
+		for (auto & t : toks) {
+			if (t.empty()) continue;
+			// Normalize token to first-letter-caps like the filenames likely are (storeIfLoaded probes case-insensitive keys)
+			// but keep original capitalization when forming filenames since the loader checks both .PNG and .png.
+			damageTokens.insert(t);
+		}
+	}
+
+	for (const auto & t : damageTokens) {
+		storeIfLoaded(t + ".PNG");
+		storeIfLoaded(t + ".png");
+	}
+
+	// Also try a few common fallback names in case the markdown uses different wording.
+	std::vector<std::string> commonTypes = { "Physical", "Fire", "Electric", "Magic", "Holy", "Piercing", "Poison", "Poision" };
+	for (const auto & t : commonTypes) {
+		storeIfLoaded(t + ".PNG");
+		storeIfLoaded(t + ".png");
+	}
+
 	ofFbo fbo;
 	ofFboSettings fboSettings;
 	fboSettings.width = sheetW;
@@ -794,9 +898,13 @@ static bool rebuildCardSpriteSheetFromTemplate(const std::string & templatePath,
 	ofClear(0, 0, 0, 0);
 	ofSetColor(255);
 
+	int cardIndex = 0;
 	for (const auto & card : allCards) {
 		float x = card.textureRect.x;
 		float y = card.textureRect.y;
+		if (cardIndex == 0) {
+			ofLogNotice("Cards") << "First card ('" << card.name << "') textureRect=" << card.textureRect.x << "," << card.textureRect.y << "," << card.textureRect.width << "," << card.textureRect.height;
+		}
 		ofSetColor(255, 255, 255, 255);
 		templateImage.draw(x, y, cardW, cardH);
 
@@ -812,6 +920,119 @@ static bool rebuildCardSpriteSheetFromTemplate(const std::string & templatePath,
 		ofPushMatrix();
 		ofTranslate(x, y);
 		ofPushStyle();
+		// Draw optional overlays: damage banner, damage symbol, targeting area, class badge
+		auto isFullCardOverlay = [&](const ofImage & img) {
+			return img.getWidth() >= cardW * 0.9f && img.getHeight() >= cardH * 0.9f;
+		};
+		auto makeKey = [&](const std::string & s) {
+			std::string k;
+			for (char c : s)
+				if (!std::isspace((unsigned char)c)) k.push_back((char)std::tolower((unsigned char)c));
+			return k;
+		};
+
+		if (!rec.damageType.empty()) {
+			std::vector<std::string> dmgKeys;
+			for (const auto & token : extractAlphaTokens(rec.damageType)) {
+				std::string tokenKey = makeKey(token);
+				if (!tokenKey.empty() && std::find(dmgKeys.begin(), dmgKeys.end(), tokenKey) == dmgKeys.end()) {
+					dmgKeys.push_back(tokenKey);
+				}
+			}
+			// draw generic damage banner if provided
+			auto itBanner = overlayCache.find(std::string("damagetypebanner"));
+			if (itBanner != overlayCache.end()) {
+				ofSetColor(255, 255, 255, 255);
+				if (isFullCardOverlay(itBanner->second)) {
+					itBanner->second.draw(0, 0, cardW, cardH);
+				} else {
+					itBanner->second.draw(layout.damageTypeRect.x, layout.damageTypeRect.y, layout.damageTypeRect.width, layout.damageTypeRect.height);
+				}
+			}
+
+			// draw specific damage symbol(s) centered inside damageTypeRect
+			std::vector<const ofImage *> damageImages;
+			for (const auto & dmgKey : dmgKeys) {
+				auto itSym = overlayCache.find(dmgKey);
+				if (itSym != overlayCache.end()) damageImages.push_back(&itSym->second);
+			}
+			if (!damageImages.empty()) {
+				std::vector<const ofImage *> fullCardDamageImages;
+				std::vector<const ofImage *> iconDamageImages;
+				for (const auto * img : damageImages) {
+					if (isFullCardOverlay(*img))
+						fullCardDamageImages.push_back(img);
+					else
+						iconDamageImages.push_back(img);
+				}
+
+				for (const auto * img : fullCardDamageImages) {
+					ofSetColor(255, 255, 255, 255);
+					img->draw(0, 0, cardW, cardH);
+				}
+
+				if (!iconDamageImages.empty()) {
+				float maxH = layout.damageTypeRect.height * 0.8f;
+				float maxW = layout.damageTypeRect.width * 0.9f;
+				float gap = std::max(2.0f, layout.damageTypeRect.width * 0.04f);
+				float totalW = -gap;
+				for (const auto * img : iconDamageImages) {
+					float imgW = (float)img->getWidth();
+					float imgH = (float)img->getHeight();
+					if (imgW <= 0.0f || imgH <= 0.0f) continue;
+					float scale = maxH / imgH;
+					float dw = imgW * scale;
+					if (dw > maxW) {
+						scale = maxW / imgW;
+						dw = imgW * scale;
+					}
+					totalW += dw + gap;
+				}
+				float cursorX = layout.damageTypeRect.x + std::max(0.0f, (layout.damageTypeRect.width - totalW) * 0.5f);
+				for (const auto * img : iconDamageImages) {
+					float imgW = (float)img->getWidth();
+					float imgH = (float)img->getHeight();
+					if (imgW <= 0.0f || imgH <= 0.0f) continue;
+					float scale = maxH / imgH;
+					float dw = imgW * scale;
+					float dh = imgH * scale;
+					if (dw > maxW) {
+						scale = maxW / imgW;
+						dw = imgW * scale;
+						dh = imgH * scale;
+					}
+					float dy = layout.damageTypeRect.y + (layout.damageTypeRect.height - dh) * 0.5f;
+					ofSetColor(255, 255, 255, 255);
+					img->draw(cursorX, dy, dw, dh);
+					cursorX += dw + gap;
+				}
+				}
+			}
+		}
+
+		if (!rec.targeting.empty()) {
+			auto itTarget = overlayCache.find(std::string("targetingtypearea"));
+			if (itTarget != overlayCache.end()) {
+				ofSetColor(255, 255, 255, 255);
+				if (isFullCardOverlay(itTarget->second)) {
+					itTarget->second.draw(0, 0, cardW, cardH);
+				} else {
+					itTarget->second.draw(layout.targetingRect.x, layout.targetingRect.y, layout.targetingRect.width, layout.targetingRect.height);
+				}
+			}
+		}
+
+		// class badge
+		{
+			std::string badgeKey = std::string("badge_class") + ofToString(card.cardClass);
+			for (auto & c : badgeKey)
+				c = (char)std::tolower((unsigned char)c);
+			auto itBadge = overlayCache.find(badgeKey);
+			if (itBadge != overlayCache.end()) {
+				ofSetColor(255, 255, 255, 255);
+				itBadge->second.draw(layout.classRect.x, layout.classRect.y, layout.classRect.width, layout.classRect.height);
+			}
+		}
 		float targetingScale = fixedNameScale;
 		if (!rec.targeting.empty()) {
 			ofRectangle tb = renderTitleFont.getStringBoundingBox(rec.targeting, 0, 0);
@@ -847,6 +1068,16 @@ static bool rebuildCardSpriteSheetFromTemplate(const std::string & templatePath,
 	if (pixels.size() == 0) return false;
 
 	outSpriteSheet.setFromPixels(pixels);
+	// Save a generated sprite sheet for inspection so artists can verify overlays
+	try {
+		std::string outPath = "UI/card_sprite_generated.png";
+		if (outSpriteSheet.isAllocated()) {
+			outSpriteSheet.save(outPath);
+			ofLogNotice("Cards") << "Saved generated sprite sheet to " << outPath;
+		}
+	} catch (...) {
+		ofLogWarning("Cards") << "Failed to save generated sprite sheet (ignored).";
+	}
 	return outSpriteSheet.isAllocated();
 }
 } // namespace
@@ -2239,7 +2470,6 @@ void ofApp::setup() {
 	titleFont.load(titleSettings);
 
 	cardBackImage.load("UI/card_back.png");
-	cardSpriteSheet.load("UI/card_template_withrange.png");
 	// Pixel-art UI assets: use nearest filtering to keep them crisp when scaled
 	if (cardBackImage.isAllocated()) cardBackImage.getTexture().setTextureMinMagFilter(GL_NEAREST, GL_NEAREST);
 	if (cardSpriteSheet.isAllocated()) cardSpriteSheet.getTexture().setTextureMinMagFilter(GL_NEAREST, GL_NEAREST);
@@ -17347,7 +17577,8 @@ void ofApp::drawCard(bool sendPacket) {
     if (isMultiplayer && isClient() && !processingNetworkPacket) {
         // Send packet code...
         return;
-    }
+		cardIndex++;
+	}
     */
 
 	// HOWEVER: We still need to tell the opponent "I drew a card" so they can
@@ -29886,12 +30117,15 @@ void ofApp::loadCardData(const std::string & filePath) {
 	// template image size so cards are not clipped/overlapped.
 	{
 		ofImage templateProbe;
-		if (templateProbe.load("UI/card_template_withrange.png")) {
+		std::string chosenProbePath = findCardTemplatePath();
+		if (!chosenProbePath.empty() && templateProbe.load(chosenProbePath)) {
 			if (templateProbe.getWidth() > 0 && templateProbe.getHeight() > 0) {
 				cardPixelWidth = (int)templateProbe.getWidth();
 				cardPixelHeight = (int)templateProbe.getHeight();
-				ofLogNotice("Cards") << "Card slot size set from template: " << cardPixelWidth << "x" << cardPixelHeight;
+				ofLogNotice("Cards") << "Card slot size set from template: " << cardPixelWidth << "x" << cardPixelHeight << " (" << chosenProbePath << ")";
 			}
+		} else {
+			ofLogNotice("Cards") << "No template probe found in UI/; using default card slot size: " << cardPixelWidth << "x" << cardPixelHeight;
 		}
 	}
 	const int numCols = 10;
@@ -29933,15 +30167,16 @@ void ofApp::loadCardData(const std::string & filePath) {
 	ofLogNotice("ofApp::loadCardData") << "Class Distribution - C1: " << class1Cards.size() << ", C2: " << class2Cards.size() << ", C3: " << class3Cards.size();
 
 	// Optional runtime card rendering path:
-	// - template image: UI/card_template_withrange.png
+	// - template image: whichever file is present in UI/ (see `findCardTemplatePath()`)
 	// - content source: UI/cards.md
 	// - field layout/scales are configured directly in CardTemplateLayout (this .cpp)
 	// Keeps template base image if markdown build fails.
-	if (rebuildCardSpriteSheetFromTemplate("UI/card_template_withrange.png", "UI/cards.md", allCards, titleFont, uiFont, cardSpriteSheet)) {
+	const std::string cardTemplatePath = findCardTemplatePath();
+	if (rebuildCardSpriteSheetFromTemplate(cardTemplatePath, "UI/cards.md", allCards, titleFont, uiFont, cardSpriteSheet)) {
 		cardSpriteSheet.getTexture().setTextureMinMagFilter(GL_NEAREST, GL_NEAREST);
-		ofLogNotice("Cards") << "Using runtime template-generated card sheet from UI/card_template_withrange.png + UI/cards.md";
+		ofLogNotice("Cards") << "Using runtime template-generated card sheet from " << cardTemplatePath << " + UI/cards.md";
 	} else {
-		ofLogWarning("Cards") << "Template text generation failed; keeping base template image UI/card_template_withrange.png";
+		ofLogWarning("Cards") << "Template text generation failed; keeping base template image " << cardTemplatePath;
 	}
 }
 

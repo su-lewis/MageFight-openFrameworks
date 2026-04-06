@@ -1,0 +1,282 @@
+{
+    "1": {
+        "damageBanner": true,
+        "targetingArea": false
+    },
+    "2": {
+        "damageBanner": true,
+        "targetingArea": false
+    },
+    "3": {
+        "damageBanner": false,
+        "targetingArea": false
+    },
+    "4": {
+        "damageBanner": true,
+        "targetingArea": false
+    },
+    "5": {
+        "damageBanner": false,
+        "targetingArea": false
+    },
+    "6": {
+        "damageBanner": true,
+        "targetingArea": false
+    },
+    "7": {
+        "damageBanner": true,
+        "targetingArea": false
+    },
+    "8": {
+        "damageBanner": false,
+        "targetingArea": false
+    },
+    "9": {
+        "damageBanner": false,
+        "targetingArea": false
+    },
+    "10": {
+        "damageBanner": true,
+        "targetingArea": true
+    },
+    "11": {
+        "damageBanner": true,
+        "targetingArea": true
+    },
+    "12": {
+        "damageBanner": true,
+        "targetingArea": false
+    },
+    "13": {
+        "damageBanner": true,
+        "targetingArea": false
+    },
+    "14": {
+        "damageBanner": false,
+        "targetingArea": false
+    },
+    "15": {
+        "damageBanner": false,
+        "targetingArea": true
+    },
+    "16": {
+        "damageBanner": false,
+        "targetingArea": false
+    },
+    "17": {
+        "damageBanner": false,
+        "targetingArea": false
+    },
+    "18": {
+        "damageBanner": true,
+        "targetingArea": false
+    },
+    "19": {
+        "damageBanner": true,
+        "targetingArea": true
+    },
+    "20": {
+        "damageBanner": true,
+        "targetingArea": false
+    },
+    "21": {
+        "damageBanner": false,
+        "targetingArea": true
+    },
+    "22": {
+        "damageBanner": false,
+        "targetingArea": false
+    },
+    "23": {
+        "damageBanner": false,
+        "targetingArea": false
+    },
+    "24": {
+        "damageBanner": false,
+        "targetingArea": false
+    },
+    "25": {
+        "damageBanner": false,
+        "targetingArea": false
+    },
+    "26": {
+        "damageBanner": false,
+        "targetingArea": false
+    },
+    "27": {
+        "damageBanner": true,
+        "targetingArea": false
+    },
+    "28": {
+        "damageBanner": false,
+        "targetingArea": false
+    },
+    "29": {
+        "damageBanner": false,
+        "targetingArea": false
+    },
+    "30": {
+        "damageBanner": false,
+        "targetingArea": false
+    },
+    "31": {
+        "damageBanner": false,
+        "targetingArea": false
+    },
+    "32": {
+        "damageBanner": false,
+        "targetingArea": false
+    },
+    "33": {
+        "damageBanner": true,
+        "targetingArea": false
+    },
+    "34": {
+        "damageBanner": true,
+        "targetingArea": true
+    },
+    "35": {
+        "damageBanner": true,
+        "targetingArea": false
+    },
+    "36": {
+        "damageBanner": false,
+        "targetingArea": false
+    },
+    "37": {
+        "damageBanner": false,
+        "targetingArea": true
+    },
+    "38": {
+        "damageBanner": false,
+        "targetingArea": false
+    },
+    "39": {
+        "damageBanner": true,
+        "targetingArea": false
+    },
+    "40": {
+        "damageBanner": false,
+        "targetingArea": false
+    },
+    "41": {
+        "damageBanner": true,
+        "targetingArea": true
+    },
+    "42": {
+        "damageBanner": false,
+        "targetingArea": false
+    },
+    "43": {
+        "damageBanner": false,
+        "targetingArea": false
+    },
+    "44": {
+        "damageBanner": true,
+        "targetingArea": false
+    },
+    "45": {
+        "damageBanner": true,
+        "targetingArea": false
+    },
+    "46": {
+        "damageBanner": true,
+        "targetingArea": false
+    },
+    "47": {
+        "damageBanner": true,
+        "targetingArea": false
+    },
+    "48": {
+        "damageBanner": true,
+        "targetingArea": false
+    },
+    "49": {
+        "damageBanner": false,
+        "targetingArea": false
+    },
+    "50": {
+        "damageBanner": false,
+        "targetingArea": false
+    },
+    "51": {
+        "damageBanner": false,
+        "targetingArea": false
+    },
+    "52": {
+        "damageBanner": false,
+        "targetingArea": false
+    },
+    "53": {
+        "damageBanner": false,
+        "targetingArea": true
+    },
+    "54": {
+        "damageBanner": false,
+        "targetingArea": false
+    },
+    "55": {
+        "damageBanner": true,
+        "targetingArea": false
+    },
+    "56": {
+        "damageBanner": false,
+        "targetingArea": false
+    },
+    "57": {
+        "damageBanner": true,
+        "targetingArea": false
+    },
+    "58": {
+        "damageBanner": false,
+        "targetingArea": false
+    },
+    "59": {
+        "damageBanner": false,
+        "targetingArea": true
+    },
+    "60": {
+        "damageBanner": false,
+        "targetingArea": false
+    },
+    "61": {
+        "damageBanner": false,
+        "targetingArea": false
+    },
+    "62": {
+        "damageBanner": false,
+        "targetingArea": false
+    },
+    "63": {
+        "damageBanner": false,
+        "targetingArea": false
+    },
+    "64": {
+        "damageBanner": false,
+        "targetingArea": false
+    },
+    "65": {
+        "damageBanner": false,
+        "targetingArea": false
+    },
+    "66": {
+        "damageBanner": false,
+        "targetingArea": false
+    },
+    "67": {
+        "damageBanner": true,
+        "targetingArea": false
+    },
+    "68": {
+        "damageBanner": true,
+        "targetingArea": true
+    },
+    "69": {
+        "damageBanner": true,
+        "targetingArea": true
+    },
+    "70": {
+        "damageBanner": false,
+        "targetingArea": false
+    }
+}
