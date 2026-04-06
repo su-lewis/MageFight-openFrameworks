@@ -11501,7 +11501,7 @@ void ofApp::mouseMoved(int x, int y) {
 			Card & c = p.hand[i];
 			ofRectangle hitRect = getHandCardRestRect(c, handBaseCardWidth, baseCardHeight);
 
-			if (isPointOverCardOpaque((float)x, (float)y, hitRect.x, hitRect.y, hitRect.width, hitRect.height, 36)) {
+			if (hitRect.inside((float)x, (float)y)) {
 				foundHandHover = (int)i; // last match wins (top-most in our draw order)
 			}
 		}
@@ -11609,7 +11609,7 @@ cursor_check_done:;
 			if (hoveredCardIndex >= 0 && hoveredCardIndex < numCards) {
 				Card & hoveredCard = currentPlayer.hand[hoveredCardIndex];
 				ofRectangle stickyRect = getHandCardRestRect(hoveredCard, handBaseCardWidth, baseCardHeight);
-				if (isPointOverCardOpaque((float)x, (float)y, stickyRect.x, stickyRect.y, stickyRect.width, stickyRect.height, 36)) {
+				if (stickyRect.inside((float)x, (float)y)) {
 					foundHoverIndex = hoveredCardIndex;
 				}
 			}
@@ -11618,7 +11618,7 @@ cursor_check_done:;
 				for (int i = 0; i < numCards; i++) {
 					Card & card = currentPlayer.hand[i];
 					ofRectangle hitRect = getHandCardRestRect(card, handBaseCardWidth, baseCardHeight);
-					if (isPointOverCardOpaque((float)x, (float)y, hitRect.x, hitRect.y, hitRect.width, hitRect.height, 36)) {
+					if (hitRect.inside((float)x, (float)y)) {
 						foundHoverIndex = i; // last match wins (matches visual layering)
 					}
 				}
@@ -12207,7 +12207,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 			for (int i = 0; i < numCards; i++) {
 				Card & card = currentPlayer.hand[i];
 				ofRectangle hitRect = getHandCardRestRect(card, handBaseCardWidth, baseCardHeight);
-				if (isPointOverCardOpaque((float)x, (float)y, hitRect.x, hitRect.y, hitRect.width, hitRect.height, 36)) {
+				if (hitRect.inside((float)x, (float)y)) {
 					// Keep track of the rightmost card that contains the cursor
 					pressedCardIndex = i; // last hit wins (matches visual stack order)
 					ofLogNotice("CardDrag") << "Card pressed: index=" << i << " name=" << card.name;
@@ -14385,7 +14385,7 @@ void ofApp::mouseDragged(int x, int y, int button) {
 				draggedCardIndex = sourceIndex;
 				dragOffset = ofVec2f(x, y) - card.targetPos;
 				ofLogNotice("CardDrag") << "Drag initiated from pressedCardIndex=" << sourceIndex << " name=" << card.name;
-			} else if (isPointOverCardOpaque((float)ofGetPreviousMouseX(), (float)ofGetPreviousMouseY(), hitRect.x, hitRect.y, hitRect.width, hitRect.height, 36)) {
+			} else if (hitRect.inside((float)ofGetPreviousMouseX(), (float)ofGetPreviousMouseY())) {
 				// Fallback: check if previous position was in detection rect (for backwards compat)
 				draggedCardIndex = sourceIndex;
 				// Use targetPos to maintain consistent drag offset (card may be animating to this position)
