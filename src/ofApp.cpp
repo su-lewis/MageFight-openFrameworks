@@ -9637,6 +9637,14 @@ void ofApp::drawGame() {
 		float p0_healthY = ofGetHeight() - healthBarHeight - deckBottomGap; // match deck bottom gap
 		drawHealthBar(*localPlayer, p0_healthX, p0_healthY, ofColor::green);
 
+		const int hoverMouseX = ofGetMouseX();
+		const int hoverMouseY = ofGetMouseY();
+		const bool canDrawPileHover = !disableAllGlow && (currentState == STATE_GAMEPLAY || currentState == STATE_DRAFTING);
+		const bool hoverP0Deck = canDrawPileHover && p0_deckRect.inside(hoverMouseX, hoverMouseY);
+		const bool hoverP0Discard = canDrawPileHover && p0_discardRect.inside(hoverMouseX, hoverMouseY);
+		const bool hoverP1Deck = canDrawPileHover && p1_deckRect.inside(hoverMouseX, hoverMouseY);
+		const bool hoverP1Discard = canDrawPileHover && p1_discardRect.inside(hoverMouseX, hoverMouseY);
+
 		// P0 Deck (LOCAL player's deck)
 		if (!localPlayer->deck.empty()) {
 			ofSetColor(ofColor::white);
@@ -9647,10 +9655,10 @@ void ofApp::drawGame() {
 		}
 
 		// Draw hover glow for deck
-		if (!disableAllGlow && localHoverType == HOVER_DECK) {
+		if (hoverP0Deck) {
 			ofPushStyle();
 			ofNoFill();
-			ofSetColor(232, 232, 232, 200); // #e8e8e8 glow
+			ofSetColor(255, 255, 255, 200);
 			ofSetLineWidth(4 * scale);
 			ofRectangle hoverRect = getOpaqueCardBounds(p0_deckRect.x, p0_deckRect.y, p0_deckRect.width, p0_deckRect.height);
 			ofDrawRectangle(hoverRect);
@@ -9697,7 +9705,7 @@ void ofApp::drawGame() {
 		}
 
 		// Draw hover glow for discard
-		if (!disableAllGlow && localHoverType == HOVER_DISCARD) {
+		if (hoverP0Discard) {
 			ofPushStyle();
 			ofNoFill();
 			ofSetColor(255, 255, 255, 200); // White glow
@@ -9734,19 +9742,19 @@ void ofApp::drawGame() {
 		}
 
 		// Draw hover glow for opponent deck/discard (only in multiplayer)
-		if (isMultiplayer && !disableAllGlow && opponentHoverType == HOVER_DECK) {
+		if (hoverP1Deck) {
 			ofPushStyle();
 			ofNoFill();
-			ofSetColor(255, 0, 0, 200); // Red glow
+			ofSetColor(255, 255, 255, 200);
 			ofSetLineWidth(4 * scale);
 			ofRectangle hoverRect = getOpaqueCardBounds(p1_deckRect.x, p1_deckRect.y, p1_deckRect.width, p1_deckRect.height);
 			ofDrawRectangle(hoverRect);
 			ofPopStyle();
 		}
-		if (isMultiplayer && !disableAllGlow && opponentHoverType == HOVER_DISCARD) {
+		if (hoverP1Discard) {
 			ofPushStyle();
 			ofNoFill();
-			ofSetColor(255, 0, 0, 200); // Red glow
+			ofSetColor(255, 255, 255, 200);
 			ofSetLineWidth(4 * scale);
 			ofRectangle hoverRect = getOpaqueCardBounds(p1_discardRect.x, p1_discardRect.y, p1_discardRect.width, p1_discardRect.height);
 			ofDrawRectangle(hoverRect);
