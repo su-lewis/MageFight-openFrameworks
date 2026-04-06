@@ -972,40 +972,40 @@ static bool rebuildCardSpriteSheetFromTemplate(const std::string & templatePath,
 				}
 
 				if (!iconDamageImages.empty()) {
-				float maxH = layout.damageTypeRect.height * 0.8f;
-				float maxW = layout.damageTypeRect.width * 0.9f;
-				float gap = std::max(2.0f, layout.damageTypeRect.width * 0.04f);
-				float totalW = -gap;
-				for (const auto * img : iconDamageImages) {
-					float imgW = (float)img->getWidth();
-					float imgH = (float)img->getHeight();
-					if (imgW <= 0.0f || imgH <= 0.0f) continue;
-					float scale = maxH / imgH;
-					float dw = imgW * scale;
-					if (dw > maxW) {
-						scale = maxW / imgW;
-						dw = imgW * scale;
+					float maxH = layout.damageTypeRect.height * 0.8f;
+					float maxW = layout.damageTypeRect.width * 0.9f;
+					float gap = std::max(2.0f, layout.damageTypeRect.width * 0.04f);
+					float totalW = -gap;
+					for (const auto * img : iconDamageImages) {
+						float imgW = (float)img->getWidth();
+						float imgH = (float)img->getHeight();
+						if (imgW <= 0.0f || imgH <= 0.0f) continue;
+						float scale = maxH / imgH;
+						float dw = imgW * scale;
+						if (dw > maxW) {
+							scale = maxW / imgW;
+							dw = imgW * scale;
+						}
+						totalW += dw + gap;
 					}
-					totalW += dw + gap;
-				}
-				float cursorX = layout.damageTypeRect.x + std::max(0.0f, (layout.damageTypeRect.width - totalW) * 0.5f);
-				for (const auto * img : iconDamageImages) {
-					float imgW = (float)img->getWidth();
-					float imgH = (float)img->getHeight();
-					if (imgW <= 0.0f || imgH <= 0.0f) continue;
-					float scale = maxH / imgH;
-					float dw = imgW * scale;
-					float dh = imgH * scale;
-					if (dw > maxW) {
-						scale = maxW / imgW;
-						dw = imgW * scale;
-						dh = imgH * scale;
+					float cursorX = layout.damageTypeRect.x + std::max(0.0f, (layout.damageTypeRect.width - totalW) * 0.5f);
+					for (const auto * img : iconDamageImages) {
+						float imgW = (float)img->getWidth();
+						float imgH = (float)img->getHeight();
+						if (imgW <= 0.0f || imgH <= 0.0f) continue;
+						float scale = maxH / imgH;
+						float dw = imgW * scale;
+						float dh = imgH * scale;
+						if (dw > maxW) {
+							scale = maxW / imgW;
+							dw = imgW * scale;
+							dh = imgH * scale;
+						}
+						float dy = layout.damageTypeRect.y + (layout.damageTypeRect.height - dh) * 0.5f;
+						ofSetColor(255, 255, 255, 255);
+						img->draw(cursorX, dy, dw, dh);
+						cursorX += dw + gap;
 					}
-					float dy = layout.damageTypeRect.y + (layout.damageTypeRect.height - dh) * 0.5f;
-					ofSetColor(255, 255, 255, 255);
-					img->draw(cursorX, dy, dw, dh);
-					cursorX += dw + gap;
-				}
 				}
 			}
 		}
