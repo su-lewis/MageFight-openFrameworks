@@ -16417,8 +16417,62 @@ void ofApp::handleCardDragToPlay(int cardIndex) {
 	// Clear any previous interaction state
 	resetCardInteraction();
 
+	auto hasAnyTargetableTile = [this]() {
+		for (int x = 0; x < BOARD_WIDTH; ++x) {
+			for (int y = 0; y < BOARD_HEIGHT; ++y) {
+				if (board[x][y].isTargetable) return true;
+			}
+		}
+		return false;
+	};
+
+	bool rockHasAdjacentWall = false;
+	bool rockHasAdjacentUnit = false;
+	if (card.type == CARD_ROCK_CRUSH) {
+		static const int dirs[4][2] = { { 1, 0 }, { -1, 0 }, { 0, 1 }, { 0, -1 } };
+		for (const auto & d : dirs) {
+			int nx = caster.x + d[0];
+			int ny = caster.y + d[1];
+			if (nx < 0 || nx >= BOARD_WIDTH || ny < 0 || ny >= BOARD_HEIGHT) continue;
+			if (board[nx][ny].hasWall) {
+				rockHasAdjacentWall = true;
+			}
+			if (board[nx][ny].hasPlayer && !board[nx][ny].hasWall && tileHasOtherThan(nx, ny, currentPlayerIndex)) {
+				rockHasAdjacentUnit = true;
+			}
+		}
+	}
+
+	// Choose-one cards should open their menu immediately on play.
+	bool menuFirstChoiceCard = (card.type == CARD_MAGIC_BLAST || card.type == CARD_DISPEL || card.type == CARD_WISDOM_BOON || card.type == CARD_DOUBLE_HANDED || card.type == CARD_TRAIN || card.type == CARD_GIANT_MAGIC_HAND || card.type == CARD_BURST_OF_LIGHT || (card.type == CARD_ROCK_CRUSH && rockHasAdjacentWall && rockHasAdjacentUnit));
+
+	if (menuFirstChoiceCard) {
+		interactingCardIndex = cardIndex;
+		interactingCardType = card.type;
+		interactionTargetIndex = -1;
+		interactionMenuChoice.clear();
+		if (card.type == CARD_GIANT_MAGIC_HAND) {
+			magicHandTargetTile = { -1, -1 };
+		}
+		updateCardInteractionState(CARD_INTERACTION_MENU, cardIndex, card.type);
+
+		// Keep remote menu visuals in sync for cards that already use menu-state replication.
+		if (isMultiplayer) {
+			int menuType = 0;
+			if (card.type == CARD_WISDOM_BOON)
+				menuType = 1;
+			else if (card.type == CARD_BURST_OF_LIGHT)
+				menuType = 2;
+			else if (card.type == CARD_DOUBLE_HANDED)
+				menuType = 3;
+			if (menuType != 0) {
+				sendMenuState(menuType, -1, -1, cardIndex);
+			}
+		}
+	}
+
 	// If the card requires a target (non-self), enter the centralized targeting interaction
-	if (card.targeting != TARGET_SELF) {
+	else if (card.targeting != TARGET_SELF) {
 		// Teleport must be a two-step deterministic command flow:
 		// 1) Drag/release sends CMD_PLAY_CARD (both peers roll range + enter targeting)
 		// 2) Destination click sends CMD_MENU_CHOICE (CARD_TELEPORT)
@@ -16447,6 +16501,13 @@ void ofApp::handleCardDragToPlay(int cardIndex) {
 			updateCardInteractionState(CARD_INTERACTION_TARGETING, cardIndex, card.type);
 			cardPlayState = CARD_STATE_TARGETING;
 			calculateTargetHighlights(cardIndex);
+			if (!hasAnyTargetableTile()) {
+				queueFloatingTextVisual(gridToWorld(caster.x, caster.y), "No valid target", ofColor::orange);
+				resetCardInteraction();
+				draggedCardIndex = -1;
+				selectedCardIndex = -1;
+				return;
+			}
 		}
 	} else {
 		// Self-targeting or immediate cards: queue as deterministic input command
@@ -16579,6 +16640,16 @@ void ofApp::handleCardTargetClick(int gridX, int gridY) {
 	interactionTargetIndex = targetIndex;
 	int cardIndex = interactingCardIndex;
 
+	if (interactingCardType == CARD_ROCK_CRUSH && !interactionMenuChoice.empty()) {
+		bool validByChoice = false;
+		if (interactionMenuChoice == "damage") {
+			validByChoice = board[gridX][gridY].hasPlayer && !board[gridX][gridY].hasWall && tileHasOtherThan(gridX, gridY, currentPlayerIndex);
+		} else if (interactionMenuChoice == "wall") {
+			validByChoice = board[gridX][gridY].hasWall;
+		}
+		if (!validByChoice) return;
+	}
+
 	// Centralize minion placement logic in switch
 	switch (interactingCardType) {
 	case CARD_CALL_FOR_KOBOLDS: {
@@ -16657,12 +16728,31 @@ void ofApp::handleCardTargetClick(int gridX, int gridY) {
 	case CARD_WISDOM_BOON:
 	case CARD_DOUBLE_HANDED:
 	case CARD_DISPEL:
+	case CARD_MAGIC_BLAST:
 	case CARD_GIANT_MAGIC_HAND: {
-		// Secondary menu response required
+		// Menu-first flow: if a choice is already selected, resolve immediately with this target.
+		if (!interactionMenuChoice.empty()) {
+			if (interactingCardType == CARD_WISDOM_BOON || interactingCardType == CARD_BURST_OF_LIGHT
+				|| interactingCardType == CARD_DOUBLE_HANDED || interactingCardType == CARD_DISPEL
+				|| interactingCardType == CARD_MAGIC_BLAST) {
+				interactionTargetIndex = targetIndex;
+				interactingCardIndex = cardIndex;
+			} else if (interactingCardType == CARD_GIANT_MAGIC_HAND) {
+				magicHandTargetTile = { gridX, gridY };
+				interactingCardIndex = cardIndex;
+			}
+
+			updateCardInteractionState(CARD_INTERACTION_MENU, cardIndex, interactingCardType);
+			handleCardMenuClick(interactionMenuChoice);
+			return;
+		}
+
+		// Legacy target-first flow (still supported)
 		updateCardInteractionState(CARD_INTERACTION_MENU, cardIndex, interactingCardType);
 
 		if (interactingCardType == CARD_WISDOM_BOON || interactingCardType == CARD_BURST_OF_LIGHT
-			|| interactingCardType == CARD_DOUBLE_HANDED || interactingCardType == CARD_DISPEL) {
+			|| interactingCardType == CARD_DOUBLE_HANDED || interactingCardType == CARD_DISPEL
+			|| interactingCardType == CARD_MAGIC_BLAST) {
 			interactionTargetIndex = targetIndex;
 			interactingCardIndex = cardIndex;
 			interactionMenuChoice.clear();
@@ -16740,22 +16830,76 @@ void ofApp::handleCardMenuClick(const std::string & buttonId) {
 	if (interactingCardIndex < 0 || interactingCardIndex >= (int)players[currentPlayerIndex].hand.size()) return;
 
 	Player & caster = players[currentPlayerIndex];
-	Player & target = players[interactionTargetIndex];
 	Card & card = caster.hand[interactingCardIndex];
+
+	auto hasAnyTargetableTile = [this]() {
+		for (int x = 0; x < BOARD_WIDTH; ++x) {
+			for (int y = 0; y < BOARD_HEIGHT; ++y) {
+				if (board[x][y].isTargetable) return true;
+			}
+		}
+		return false;
+	};
+
+	auto enterTargetingIfPossible = [&]() {
+		updateCardInteractionState(CARD_INTERACTION_TARGETING, interactingCardIndex, interactingCardType);
+		calculateTargetHighlights(interactingCardIndex);
+		if (!hasAnyTargetableTile()) {
+			queueFloatingTextVisual(gridToWorld(caster.x, caster.y), "No valid target", ofColor::orange);
+			updateCardInteractionState(CARD_INTERACTION_MENU, interactingCardIndex, interactingCardType);
+			return false;
+		}
+		return true;
+	};
 
 	interactionMenuChoice = buttonId;
 
+	if (interactingCardType == CARD_ROCK_CRUSH) {
+		if (buttonId != "damage" && buttonId != "wall") return;
+
+		updateCardInteractionState(CARD_INTERACTION_TARGETING, interactingCardIndex, interactingCardType);
+		calculateTargetHighlights(interactingCardIndex);
+
+		for (int x = 0; x < BOARD_WIDTH; ++x) {
+			for (int y = 0; y < BOARD_HEIGHT; ++y) {
+				if (!board[x][y].isTargetable) continue;
+				bool adjacent = (abs(x - caster.x) + abs(y - caster.y)) == 1;
+				if (!adjacent) {
+					board[x][y].isTargetable = false;
+					continue;
+				}
+
+				if (buttonId == "damage") {
+					bool validDamageTarget = board[x][y].hasPlayer && !board[x][y].hasWall && tileHasOtherThan(x, y, currentPlayerIndex);
+					if (!validDamageTarget) board[x][y].isTargetable = false;
+				} else { // wall
+					if (!board[x][y].hasWall) board[x][y].isTargetable = false;
+				}
+			}
+		}
+
+		if (!hasAnyTargetableTile()) {
+			queueFloatingTextVisual(gridToWorld(caster.x, caster.y), "No valid target", ofColor::orange);
+			updateCardInteractionState(CARD_INTERACTION_MENU, interactingCardIndex, interactingCardType);
+		}
+		return;
+	}
+
 	if (isMultiplayer && !isExecutingLockstepCommand) {
 		int choice = 0;
+		bool choiceNeedsTarget = false;
 		switch (interactingCardType) {
 		case CARD_BURST_OF_LIGHT:
 			choice = (buttonId == "damage") ? 1 : 2;
+			choiceNeedsTarget = true;
 			break;
 		case CARD_WISDOM_BOON:
 			choice = (buttonId == "damage") ? 1 : 2;
+			choiceNeedsTarget = true;
 			break;
 		case CARD_DOUBLE_HANDED:
 			choice = (buttonId == "Punch") ? 1 : 2;
+			choiceNeedsTarget = true;
 			break;
 		case CARD_TRAIN:
 			choice = (buttonId == "draft") ? 1 : 2;
@@ -16765,6 +16909,7 @@ void ofApp::handleCardMenuClick(const std::string & buttonId) {
 			break;
 		case CARD_DISPEL:
 			choice = (buttonId == "Barrier") ? 1 : 2;
+			choiceNeedsTarget = (buttonId == "Purge");
 			break;
 
 		case CARD_MAGIC_BLAST:
@@ -16774,13 +16919,20 @@ void ofApp::handleCardMenuClick(const std::string & buttonId) {
 			} else if (buttonId == "discard") {
 				choice = 2;
 			}
+			choiceNeedsTarget = true;
 			break;
 		case CARD_GIANT_MAGIC_HAND:
 			choice = (buttonId == "push" || buttonId == "PUSH") ? 1 : 2;
+			choiceNeedsTarget = true;
 			break;
 		default:
 			choice = 0;
 			break;
+		}
+
+		if (choice > 0 && choiceNeedsTarget && interactionTargetIndex < 0) {
+			enterTargetingIfPossible();
+			return;
 		}
 
 		if (choice > 0) {
@@ -16809,6 +16961,10 @@ void ofApp::handleCardMenuClick(const std::string & buttonId) {
 	switch (interactingCardType) {
 
 	case CARD_BURST_OF_LIGHT: {
+		if (interactionTargetIndex < 0) {
+			enterTargetingIfPossible();
+			break;
+		}
 		// Menu choice: "damage" or "heal"
 		if (buttonId == "damage") {
 			// Route via unified card outcome -> effect sequence
@@ -16845,6 +17001,10 @@ void ofApp::handleCardMenuClick(const std::string & buttonId) {
 	}
 
 	case CARD_WISDOM_BOON: {
+		if (interactionTargetIndex < 0) {
+			enterTargetingIfPossible();
+			break;
+		}
 		// Menu choice: "damage" or "block"
 		int effectValue = (int)caster.deck.size();
 		bool isSelfTarget = (interactionTargetIndex == currentPlayerIndex);
@@ -16884,6 +17044,10 @@ void ofApp::handleCardMenuClick(const std::string & buttonId) {
 	}
 
 	case CARD_MAGIC_BLAST: {
+		if (interactionTargetIndex < 0) {
+			enterTargetingIfPossible();
+			break;
+		}
 		// Menu choice execution must not rely on local mouse coords when running
 		// as a lockstep command; use the provided `buttonId` and `interactionTargetIndex`.
 		// Route through the centralized outcome/effect sequence
@@ -16912,6 +17076,10 @@ void ofApp::handleCardMenuClick(const std::string & buttonId) {
 	}
 
 	case CARD_DOUBLE_HANDED: {
+		if (interactionTargetIndex < 0) {
+			enterTargetingIfPossible();
+			break;
+		}
 		if (buttonId == "Punch" || buttonId == "Block") {
 			std::string cardName = (buttonId == "Punch") ? "Punch" : "Hand Block";
 			Player * target = getPlayer(interactionTargetIndex);
@@ -17072,15 +17240,24 @@ void ofApp::handleCardMenuClick(const std::string & buttonId) {
 			interactionTargetIndex = -1;
 			interactionMenuChoice.clear();
 		} else if (buttonId == "Purge") {
+			if (interactionTargetIndex < 0) {
+				enterTargetingIfPossible();
+				break;
+			}
 			// Enter status selection
 			updateCardInteractionState(CARD_INTERACTION_STATUS, interactingCardIndex, interactingCardType);
-			determineStatusOptions(&target);
+			Player * dispelTarget = getPlayer(interactionTargetIndex);
+			determineStatusOptions(dispelTarget);
 			// Will show status selection UI next frame
 		}
 		break;
 	}
 
 	case CARD_GIANT_MAGIC_HAND: {
+		if (magicHandTargetTile.x < 0 || magicHandTargetTile.y < 0) {
+			enterTargetingIfPossible();
+			break;
+		}
 		if (buttonId == "push" || buttonId == "PUSH") {
 			// Inline resolveMagicHandPush
 			Player & ch = caster;
@@ -17459,6 +17636,23 @@ void ofApp::drawActiveCardInteractionUI() {
 			drawCardChoicePanel(trainMenuRect, "Train", "Choose improvement:",
 				trainBtnAP, trainBtnDraft, "AP Boost", "Draft Card",
 				apAccent, draftAccent, true, true);
+			break;
+		}
+
+		case CARD_ROCK_CRUSH: {
+			drawMenuOverlay();
+			float w = 600, h = 300;
+			float mx = ofGetWidth() / 2 - w / 2, my = ofGetHeight() / 2 - h / 2;
+			ofRectangle menuRect(mx, my, w, h);
+
+			ofColor damageAccent(210, 120, 120);
+			ofColor wallAccent(140, 120, 90);
+
+			ofRectangle btnDamage;
+			ofRectangle btnWall;
+			drawCardChoicePanel(menuRect, "Rock Crush", "Choose effect:",
+				btnDamage, btnWall, "Deal 2d10", "Destroy Wall",
+				damageAccent, wallAccent, true, true);
 			break;
 		}
 
@@ -21995,6 +22189,23 @@ void ofApp::processCardStateInput(int mouseX, int mouseY, int button) {
 				sendInputCommand(cmd, true);
 			}
 			break;
+
+		case CARD_ROCK_CRUSH: {
+			float w = 600, h = 300;
+			float mx = ofGetWidth() / 2 - w / 2, my = ofGetHeight() / 2 - h / 2;
+			float btnW = 260, btnH = 80, spacing = 30;
+			float startX = mx + (w - (btnW * 2 + spacing)) / 2;
+			float btnY = my + 130;
+			ofRectangle btnDamage(startX, btnY, btnW, btnH);
+			ofRectangle btnWall(startX + btnW + spacing, btnY, btnW, btnH);
+
+			if (btnDamage.inside(mouseX, mouseY)) {
+				handleCardMenuClick("damage");
+			} else if (btnWall.inside(mouseX, mouseY)) {
+				handleCardMenuClick("wall");
+			}
+			break;
+		}
 
 		case CARD_GIANT_MAGIC_HAND: {
 			float w = 500, h = 250;
