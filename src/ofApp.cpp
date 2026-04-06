@@ -9834,7 +9834,44 @@ void ofApp::drawGame() {
 		// --- Draw P0 AP Box (BOTTOM - Local Player) ---
 		// Position AP above the discard pile for the local player
 		float p0_apCenterX = p0_discardRect.getCenter().x;
+
+		// AP preview text: show hovered/dragged hand card cost as a fading line under AP.
+		bool hasPreviewCardForAP = false;
+		int previewCardCost = 0;
+		if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size() && (!isMultiplayer || isMyTurn())) {
+			Player & apPreviewPlayer = players[currentPlayerIndex];
+			int apPreviewCardIndex = -1;
+			if (draggedCardIndex >= 0 && draggedCardIndex < (int)apPreviewPlayer.hand.size()) {
+				apPreviewCardIndex = draggedCardIndex;
+			} else if (hoveredCardIndex >= 0 && hoveredCardIndex < (int)apPreviewPlayer.hand.size()) {
+				apPreviewCardIndex = hoveredCardIndex;
+			}
+
+			if (apPreviewCardIndex >= 0 && apPreviewCardIndex < (int)apPreviewPlayer.hand.size()) {
+				hasPreviewCardForAP = true;
+				previewCardCost = getEffectiveCardCostForPlayer(apPreviewPlayer, apPreviewPlayer.hand[apPreviewCardIndex]);
+			}
+		}
+
+		static float apPreviewAlpha = 0.0f;
+		float apPreviewTargetAlpha = hasPreviewCardForAP ? 230.0f : 0.0f;
+		static float apPreviewLastTime = ofGetElapsedTimef();
+		float apNow = ofGetElapsedTimef();
+		float apDt = std::max(0.0f, apNow - apPreviewLastTime);
+		apPreviewLastTime = apNow;
+		// Fade duration target: 0.1s in/out.
+		const float apPreviewFadeDuration = 0.10f;
+		const float apPreviewFadeRate = 230.0f / apPreviewFadeDuration;
+		if (apPreviewAlpha < apPreviewTargetAlpha) {
+			apPreviewAlpha = std::min(apPreviewTargetAlpha, apPreviewAlpha + apPreviewFadeRate * apDt);
+		} else if (apPreviewAlpha > apPreviewTargetAlpha) {
+			apPreviewAlpha = std::max(apPreviewTargetAlpha, apPreviewAlpha - apPreviewFadeRate * apDt);
+		}
+
+		string p0_apCostPreviewText = "-" + ofToString(previewCardCost);
 		ofRectangle p0_apTextBox = titleFont.getStringBoundingBox(p0_apText, 0, 0);
+		float p0_previewScale = fontScale * 0.62f;
+		ofRectangle p0_previewTextBox = titleFont.getStringBoundingBox(p0_apCostPreviewText, 0, 0);
 		float p0_apRectWidth = (p0_apTextBox.width * fontScale) + (40 * scale);
 		float p0_apRectHeight = (p0_apTextBox.height * fontScale) + (20 * scale);
 		// Place AP box slightly above the discard pile
@@ -9860,12 +9897,24 @@ void ofApp::drawGame() {
 		if (!skipDrawP0AP) {
 			ofSetColor(0, 0, 0, 150);
 			ofDrawRectRounded(p0_apCenterX - p0_apRectWidth / 2, p0_apCenterY - p0_apRectHeight / 2, p0_apRectWidth, p0_apRectHeight, 10 * scale);
+
 			ofSetColor(ofColor::cyan);
 			ofPushMatrix();
 			ofTranslate(p0_apCenterX, p0_apCenterY);
 			ofScale(fontScale, fontScale);
 			titleFont.drawString(p0_apText, -p0_apTextBox.getCenter().x, -p0_apTextBox.getCenter().y);
 			ofPopMatrix();
+
+			if (apPreviewAlpha > 1.0f) {
+				ofColor previewColor(255, 180, 90, (int)ofClamp(apPreviewAlpha, 0.0f, 255.0f));
+				ofSetColor(previewColor);
+				ofPushMatrix();
+				float p0_previewCenterY = p0_apCenterY + (p0_apTextBox.height * fontScale * 0.55f);
+				ofTranslate(p0_apCenterX, p0_previewCenterY);
+				ofScale(p0_previewScale, p0_previewScale);
+				titleFont.drawString(p0_apCostPreviewText, -p0_previewTextBox.getCenter().x, -p0_previewTextBox.getCenter().y);
+				ofPopMatrix();
+			}
 		}
 
 		// --- DRAW P0 STATUSES (BOTTOM - Local Player) ---
