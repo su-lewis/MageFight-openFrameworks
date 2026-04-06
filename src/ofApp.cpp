@@ -748,7 +748,7 @@ static bool rebuildCardSpriteSheetFromTemplate(const std::string & templatePath,
 	std::string actualTemplatePath = templatePath;
 	if (!ofFile(actualTemplatePath).exists()) {
 		// Try a few common fallback names the artist might have used in UI/
-		std::vector<std::string> fallbacks = { "UI/Card Template.PNG", "UI/Card Template.png", "UI/card_template.png", "UI/card_template_withrange.png", "UI/card_template.png" };
+		std::vector<std::string> fallbacks = { "UI/Card Template.PNG", "UI/Card Template.png", "UI/card_template.png", "UI/card_template_withrange.png" };
 		for (const auto & fp : fallbacks) {
 			if (ofFile(fp).exists()) {
 				actualTemplatePath = fp;
@@ -789,22 +789,18 @@ static bool rebuildCardSpriteSheetFromTemplate(const std::string & templatePath,
 
 	std::vector<std::string> allEffectTexts;
 	allEffectTexts.reserve(allCards.size());
-	std::vector<std::string> allTargetingTexts;
-	allTargetingTexts.reserve(allCards.size());
 	std::string longestTargetingText;
 	std::string longestTargetingCardName;
 	for (const auto & card : allCards) {
 		auto it = records.find(normalizeCardKey(card.name));
 		if (it != records.end()) {
 			allEffectTexts.push_back(it->second.effectText);
-			allTargetingTexts.push_back(it->second.targeting);
 			if (it->second.targeting.size() > longestTargetingText.size()) {
 				longestTargetingText = it->second.targeting;
 				longestTargetingCardName = card.name;
 			}
 		} else {
 			allEffectTexts.push_back("");
-			allTargetingTexts.push_back("");
 		}
 	}
 
@@ -875,13 +871,10 @@ static bool rebuildCardSpriteSheetFromTemplate(const std::string & templatePath,
 	for (const auto & t : damageTokens) {
 		storeIfLoaded(t + ".PNG");
 		storeIfLoaded(t + ".png");
-	}
-
-	// Also try a few common fallback names in case the markdown uses different wording.
-	std::vector<std::string> commonTypes = { "Physical", "Fire", "Electric", "Magic", "Holy", "Piercing", "Poison", "Poision" };
-	for (const auto & t : commonTypes) {
-		storeIfLoaded(t + ".PNG");
-		storeIfLoaded(t + ".png");
+		if (toLowerCopy(t) == "poison") {
+			storeIfLoaded("Poision.PNG");
+			storeIfLoaded("Poision.png");
+		}
 	}
 
 	ofFbo fbo;
@@ -898,13 +891,9 @@ static bool rebuildCardSpriteSheetFromTemplate(const std::string & templatePath,
 	ofClear(0, 0, 0, 0);
 	ofSetColor(255);
 
-	int cardIndex = 0;
 	for (const auto & card : allCards) {
 		float x = card.textureRect.x;
 		float y = card.textureRect.y;
-		if (cardIndex == 0) {
-			ofLogNotice("Cards") << "First card ('" << card.name << "') textureRect=" << card.textureRect.x << "," << card.textureRect.y << "," << card.textureRect.width << "," << card.textureRect.height;
-		}
 		ofSetColor(255, 255, 255, 255);
 		templateImage.draw(x, y, cardW, cardH);
 
