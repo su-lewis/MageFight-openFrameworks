@@ -6505,11 +6505,11 @@ void ofApp::updateGame() {
 		if (elapsedTime < 0.8f) {
 			float t = ofMap(elapsedTime, 0, 0.8f, 0.0, 1.0, true);
 			anim.currentPos = glm::mix(glm::vec2(getActiveCamera().worldToScreen(anim.startPos)), anim.targetPos, t);
-			anim.currentScale = ofLerp(0.1f, 3.0f, t);
+			anim.currentScale = ofLerp(0.7f, 1.15f, t);
 			anim.currentAlpha = ofLerp(0, 255, t);
 		} else {
 			anim.currentPos = anim.targetPos;
-			anim.currentScale = 3.0f;
+			anim.currentScale = 1.15f;
 			anim.currentAlpha = 255;
 		}
 	}
@@ -6518,9 +6518,9 @@ void ofApp::updateGame() {
 	// Played Card Animation (appears at center, holds, then fades out)
 	for (auto & anim : activePlayedCardAnimations) {
 		float elapsedTime = ofGetElapsedTimef() - anim.startTime;
-		// Keep it large and on the right-hand side
-		anim.currentScale = 2.6f;
-		float handBaseCardWidth = kCardPixelWidth;
+		// Keep it readable without blowing past the normal card size
+		anim.currentScale = 1.2f;
+		float handBaseCardWidth = kCardPixelWidth * kHandCardVisualScale;
 		float w = handBaseCardWidth * anim.currentScale;
 		anim.pos = glm::vec2(ofGetWidth() - (w / 2.0f) - 40.0f, ofGetHeight() / 2.0f);
 
@@ -6541,9 +6541,7 @@ void ofApp::updateGame() {
 		// Only update if start time has passed
 		if (elapsedTime >= 0.0f && elapsedTime < 0.5f) {
 			float t = elapsedTime / 0.5f;
-			anim.currentScale = ofLerp(1.6f, 0.1f, t); // Shrink
-			// If it came from Shoot Arrow (Scale 3.0), we might want to scale down from that
-			if (anim.currentScale > 1.6f) anim.currentScale = ofLerp(3.0f, 0.1f, t);
+			anim.currentScale = ofLerp(1.1f, 0.15f, t); // Shrink
 
 			anim.currentAlpha = ofLerp(255, 0, t);
 		}
@@ -6605,7 +6603,7 @@ void ofApp::updateGame() {
 		anim.currentPos = (u * u) * start2D + (2.0f * u * t) * control + (t * t) * anim.targetPos;
 
 		// Animate scale from deck size up to hand size
-		anim.currentScale = (1.0f - t) * pileCardScale + (t) * 1.0f;
+		anim.currentScale = (1.0f - t) * pileCardScale + (t)*kHandCardVisualScale;
 
 		// Keep fully opaque for clarity
 		anim.currentAlpha = 255.0f;
@@ -6637,8 +6635,8 @@ void ofApp::updateGame() {
 						c.currentPos = anim.targetPos;
 						c.targetPos = anim.targetPos;
 						// Set to hand display scale immediately for all draws
-						c.currentScale = 1.0f;
-						c.targetScale = 1.0f;
+						c.currentScale = kHandCardVisualScale;
+						c.targetScale = kHandCardVisualScale;
 						// Only mark as drawn if it's not a copied card
 						if (!c.isCopied) {
 							c.drawnThisTurn = true;
@@ -6653,7 +6651,8 @@ void ofApp::updateGame() {
 								hc.currentPos = anim.targetPos;
 								hc.targetPos = anim.targetPos;
 								hc.currentScale = 1.0f;
-								hc.targetScale = 1.0f;
+								hc.currentScale = kHandCardVisualScale;
+								hc.targetScale = kHandCardVisualScale;
 								hc.isAnimating = false;
 								break;
 							}
@@ -10712,11 +10711,13 @@ void ofApp::drawGame() {
 	}
 
 	// --- Draw Discard Animations (hand -> discard, visual only) ---
+	float animCardBaseWidth = kCardPixelWidth * kHandCardVisualScale;
+	float animCardBaseHeight = kCardPixelHeight * kHandCardVisualScale;
 	for (const auto & anim : activeDiscardCardAnimations) {
 		ofPushStyle();
 		ofSetColor(255, anim.currentAlpha);
-		float w = handBaseCardWidth * anim.currentScale;
-		float h = baseCardHeight * anim.currentScale;
+		float w = animCardBaseWidth * anim.currentScale;
+		float h = animCardBaseHeight * anim.currentScale;
 		float drawX = anim.currentPos.x - w / 2;
 		float drawY = anim.currentPos.y - h / 2;
 		cardSpriteSheet.drawSubsection(drawX, drawY, w, h,
@@ -10727,8 +10728,8 @@ void ofApp::drawGame() {
 	// --- Draw Stolen Card Animation (On top of most UI) ---
 	for (const auto & anim : activeStolenCardAnimations) {
 		ofSetColor(255, anim.currentAlpha);
-		float w = handBaseCardWidth * anim.currentScale;
-		float h = baseCardHeight * anim.currentScale;
+		float w = animCardBaseWidth * anim.currentScale;
+		float h = animCardBaseHeight * anim.currentScale;
 		cardSpriteSheet.drawSubsection(anim.currentPos.x - w / 2, anim.currentPos.y - h / 2, w, h,
 			anim.card.textureRect.x, anim.card.textureRect.y,
 			anim.card.textureRect.width, anim.card.textureRect.height);
@@ -10737,8 +10738,8 @@ void ofApp::drawGame() {
 	// --- Draw Played Card Animation (Center of screen) ---
 	for (const auto & anim : activePlayedCardAnimations) {
 		ofSetColor(255, anim.currentAlpha);
-		float w = handBaseCardWidth * anim.currentScale;
-		float h = baseCardHeight * anim.currentScale;
+		float w = animCardBaseWidth * anim.currentScale;
+		float h = animCardBaseHeight * anim.currentScale;
 		cardSpriteSheet.drawSubsection(anim.pos.x - w / 2, anim.pos.y - h / 2, w, h,
 			anim.card.textureRect.x, anim.card.textureRect.y,
 			anim.card.textureRect.width, anim.card.textureRect.height);
@@ -10747,8 +10748,8 @@ void ofApp::drawGame() {
 	// --- Draw Amnesia Removal Animation ---
 	for (const auto & anim : activeRemovedCardAnimations) {
 		ofSetColor(255, anim.currentAlpha);
-		float w = handBaseCardWidth * anim.currentScale;
-		float h = baseCardHeight * anim.currentScale;
+		float w = animCardBaseWidth * anim.currentScale;
+		float h = animCardBaseHeight * anim.currentScale;
 		cardSpriteSheet.drawSubsection(anim.startPos.x - w / 2, anim.startPos.y - h / 2, w, h,
 			anim.card.textureRect.x, anim.card.textureRect.y,
 			anim.card.textureRect.width, anim.card.textureRect.height);
@@ -10757,8 +10758,8 @@ void ofApp::drawGame() {
 	// --- Draw Card Played Display (UI-based popup after card is played) ---
 	for (const auto & disp : activeCardDisplays) {
 		ofSetColor(255, disp.currentAlpha);
-		float w = handBaseCardWidth * disp.currentScale;
-		float h = baseCardHeight * disp.currentScale;
+		float w = animCardBaseWidth * disp.currentScale;
+		float h = animCardBaseHeight * disp.currentScale;
 		cardSpriteSheet.drawSubsection(disp.currentPos.x - w / 2, disp.currentPos.y - h / 2, w, h,
 			disp.card.textureRect.x, disp.card.textureRect.y,
 			disp.card.textureRect.width, disp.card.textureRect.height);
@@ -13594,45 +13595,42 @@ void ofApp::mousePressed(int x, int y, int button) {
 				return;
 			}
 
-			int spawnPlayerID = myLocalPlayerID;
-			int deckChoice = 0;
+			int ownerID = myLocalPlayerID;
 			switch (debugSpawnMode) {
 			case DEBUG_SPAWN_PLAYER1:
-				spawnPlayerID = 0;
-				deckChoice = hasDebugSavedP1State ? 2 : 0;
+				ownerID = 0;
 				break;
 			case DEBUG_SPAWN_PLAYER2:
-				spawnPlayerID = 1;
-				deckChoice = hasDebugSavedP2State ? 2 : 0;
+				ownerID = 1;
 				break;
 			case DEBUG_SPAWN_FULL_DECK:
-				if (spawnPlayerID < 0) spawnPlayerID = 0;
-				deckChoice = 1;
-				break;
 			default:
 				break;
 			}
 
-			bool occupiedByOther = false;
-			auto occupants = getTileOccupants(gx, gy);
-			for (int oi : occupants) {
-				if (oi >= 0 && oi < (int)players.size() && players[oi].playerID != spawnPlayerID) {
-					occupiedByOther = true;
-					break;
-				}
+			bool occupied = board[gx][gy].hasPlayer;
+			if (!occupied) {
+				auto occupants = getTileOccupants(gx, gy);
+				occupied = !occupants.empty();
 			}
-			if (occupiedByOther) {
+			if (occupied) {
 				addGameLog("Target tile is occupied.");
 				return;
 			}
 
-			EffectOp spawnOp = {};
-			spawnOp.type = EffectOpType::SPAWN_PLAYER;
-			spawnOp.data.spawnPlayer.x = gx;
-			spawnOp.data.spawnPlayer.y = gy;
-			spawnOp.data.spawnPlayer.playerID = spawnPlayerID;
-			spawnOp.data.spawnPlayer.deckChoice = deckChoice;
-			queueEffect(spawnOp);
+			Player testUnit = initMinionFromKind(10, ownerID, 5, 0, ownerID);
+			testUnit.playerID = 300 + (int)players.size();
+			testUnit.x = gx;
+			testUnit.y = gy;
+			testUnit.visualPos = gridToWorld(gx, gy);
+			testUnit.summonedOnTurnCycle = globalTurnCounter;
+			testUnit.summonOrder = ++nextSummonOrder;
+			if (testUnit.health <= 0) {
+				testUnit.health = std::max(1, testUnit.maxHealth);
+			}
+			board[gx][gy].hasPlayer = true;
+			players.push_back(testUnit);
+			ofLogNotice("Debug") << "Spawned test unit at (" << gx << "," << gy << ") ownerID=" << ownerID << " playerID=" << testUnit.playerID;
 
 			debugSpawnMode = DEBUG_SPAWN_NONE;
 			return;
@@ -25570,7 +25568,7 @@ void ofApp::createCardDisplay(const Card & card, int playerIndex) {
 	disp.startPos = getCardDisplayUIPosition(playerIndex);
 	disp.currentPos = disp.startPos;
 	// Start large for a hearthstone-like popup; use startScale to drive animation
-	disp.startScale = 2.6f;
+	disp.startScale = 1.2f;
 	disp.currentScale = disp.startScale;
 	disp.currentAlpha = 255.0f;
 	activeCardDisplays.push_back(disp);
