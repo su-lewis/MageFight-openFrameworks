@@ -2243,7 +2243,7 @@ private:
 	float diceRollResultDuration = 3.5f; // How long to show the result
 
 	// --- DEBUG ---
-	bool isDebugMode = false;
+	bool isDebugMode = true;
 	bool isSpawningUnit = false;
 	bool hasUnlimitedAP = false;
 	bool skipChecksumValidation = false; // When true, host/client don't validate checksums (for testing)

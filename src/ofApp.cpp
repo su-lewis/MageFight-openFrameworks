@@ -15008,6 +15008,41 @@ void ofApp::keyPressed(int key) {
 }
 //--------------------------------------------------------------
 void ofApp::keyReleased(int key) {
+	// 1. Toggle Chat Debug tab with tilde/backtick: open or close the visible debug menu.
+	if (key == '`' || key == '~') {
+		if (isMultiplayer && !isHost()) {
+			addGameLog("Debug mode is host-only in multiplayer.");
+			return;
+		}
+
+		if (isChatOpen && !isChatMinimized && currentChatTab == ChatTab::DEBUG) {
+			isChatOpen = false;
+			isChatMinimized = true;
+			chatInput.clear();
+			lastChatInteractionTime = -999.0f;
+		} else {
+			isChatOpen = true;
+			isChatMinimized = false;
+			currentChatTab = ChatTab::DEBUG;
+			lastChatInteractionTime = ofGetElapsedTimef();
+		}
+		return;
+	}
+
+	// 'c' - Open Card Spawner (debug tool; independent of menu visibility)
+	if ((key == 'c' || key == 'C') && currentState == STATE_GAMEPLAY) {
+		isCardSpawnerOpen = !isCardSpawnerOpen;
+		if (isCardSpawnerOpen) {
+			cardSpawnerInput = "";
+			cardSpawnerQuantity = 1;
+			filteredCards.clear();
+			ofLogNotice("Debug") << "Card Spawner opened (press ESC to close)";
+		} else {
+			ofLogNotice("Debug") << "Card Spawner closed";
+		}
+		return;
+	}
+
 	// Block all hotkeys when chat is open
 	if (isChatOpen) {
 		return;
@@ -15016,45 +15051,6 @@ void ofApp::keyReleased(int key) {
 	// If the Card Spawner input is open, consume key releases so typing
 	// (e.g. pressing 't') doesn't trigger global hotkeys like top-down view.
 	if (isCardSpawnerOpen && !isCardEncyclopediaOpen) {
-		return;
-	}
-
-	// 1. Toggle Chat Debug tab with tilde/backtick: open or close debug UI
-	if (key == '`' || key == '~') {
-		if (isMultiplayer && !isHost()) {
-			addGameLog("Debug mode is host-only in multiplayer.");
-			return;
-		}
-
-		// Toggle debug mode state
-		if (!isDebugMode) {
-			// Enter debug mode: open debug chat tab
-			isDebugMode = true;
-			if (currentState == STATE_GAMEPLAY || currentState == STATE_DRAFTING) {
-				isChatOpen = true;
-				isChatMinimized = false;
-				currentChatTab = ChatTab::DEBUG;
-				lastChatInteractionTime = ofGetElapsedTimef();
-			}
-		} else {
-			// Exit debug mode: close debug UI. If there are chat messages,
-			// let the chat linger for `chatVisibilityDuration`; otherwise
-			// hide it completely immediately.
-			isDebugMode = false;
-			if (chatHistory.empty()) {
-				isChatOpen = false;
-				isChatMinimized = true;
-				chatInput.clear();
-				// Set last interaction far in the past so visibility checks hide it
-				lastChatInteractionTime = -999.0f;
-			} else {
-				// Keep chat visible for the normal duration after last interaction
-				lastChatInteractionTime = ofGetElapsedTimef();
-				// Ensure we're not stuck in the expanded debug tab view
-				isChatOpen = false;
-				isChatMinimized = true;
-			}
-		}
 		return;
 	}
 
@@ -15099,29 +15095,13 @@ void ofApp::keyReleased(int key) {
 		return;
 	}
 
-	// 2c. Debug Hotkeys (when debug mode is enabled)
-	if (isDebugMode && currentState == STATE_GAMEPLAY) {
+	// 2c. Debug Hotkeys
+	if (currentState == STATE_GAMEPLAY) {
 		// 'u' keybind removed to avoid accidental toggles; use the
 		// Debug panel's "Unlimited AP" button to toggle instead.
 
-		// 'c' - Open Card Spawner (always available in debug mode)
-		if (key == 'c' || key == 'C') {
-			if (!isDebugMode) return;
-			isCardSpawnerOpen = !isCardSpawnerOpen;
-			if (isCardSpawnerOpen) {
-				cardSpawnerInput = "";
-				cardSpawnerQuantity = 1;
-				filteredCards.clear();
-				ofLogNotice("Debug") << "Card Spawner opened (press ESC to close)";
-			} else {
-				ofLogNotice("Debug") << "Card Spawner closed";
-			}
-			return;
-		}
-
 		// 's' - Skip Checksum Validation (for testing without unlimited AP)
 		if (key == 's' || key == 'S') {
-			if (!isDebugMode) return;
 			skipChecksumValidation = !skipChecksumValidation;
 			ofLogNotice("Debug") << "Skip Checksum: " << (skipChecksumValidation ? "ON" : "OFF");
 			addGameLog("Checksum Validation: " + std::string(skipChecksumValidation ? "DISABLED" : "ENABLED"));
