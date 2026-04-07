@@ -424,7 +424,7 @@ static void rebuildCardAlphaMaskAndOutline(const ofImage & image, unsigned char 
 
 		if (leftX >= 0 && rightX >= 0) {
 			float ny = ((float)y + 0.5f) / (float)gCardAlphaMaskHeight;
-			leftEdge.emplace_back(((float)leftX + 0.5f) / (float)gCardAlphaMaskWidth, ny);
+			leftEdge.emplace_back(((float)leftX - 0.5f) / (float)gCardAlphaMaskWidth, ny);
 			rightEdge.emplace_back(((float)rightX + 0.5f) / (float)gCardAlphaMaskWidth, ny);
 		}
 	}
@@ -6593,23 +6593,23 @@ void ofApp::updateGame() {
 	// Card Display Animation (Appears, holds, then fades out)
 	for (auto & disp : activeCardDisplays) {
 		float elapsedTime = ofGetElapsedTimef() - disp.startTime;
-		if (elapsedTime < 1.0f) {
-			// Smoothly scale from the declared startScale down to 1.0
-			disp.currentScale = ofLerp(disp.startScale, 1.0f, elapsedTime / 1.0f);
+		if (elapsedTime < 0.25f) {
+			// Quick pop-in
+			disp.currentScale = ofLerp(disp.startScale, 1.0f, elapsedTime / 0.25f);
 			disp.currentAlpha = 255.0f;
-		} else if (elapsedTime < 2.5f) {
-			// Hold at normal size
+		} else if (elapsedTime < 0.90f) {
+			// Brief hold
 			disp.currentScale = 1.0f;
 			disp.currentAlpha = 255.0f;
-		} else if (elapsedTime < 3.0f) {
-			// Fade out over 0.5 seconds
-			float t = ofMap(elapsedTime, 2.5f, 3.0f, 0.0f, 1.0f, true);
+		} else if (elapsedTime < 1.25f) {
+			// Quick fade out
+			float t = ofMap(elapsedTime, 0.90f, 1.25f, 0.0f, 1.0f, true);
 			disp.currentAlpha = ofLerp(255.0f, 0.0f, t);
 			disp.currentScale = 1.0f;
 		}
 	}
-	// Remove when animation is done (3 seconds total)
-	activeCardDisplays.erase(std::remove_if(activeCardDisplays.begin(), activeCardDisplays.end(), [](const PlayedCardDisplay & disp) { return (ofGetElapsedTimef() - disp.startTime) >= 3.0f; }), activeCardDisplays.end());
+	// Remove when animation is done
+	activeCardDisplays.erase(std::remove_if(activeCardDisplays.begin(), activeCardDisplays.end(), [](const PlayedCardDisplay & disp) { return (ofGetElapsedTimef() - disp.startTime) >= 1.25f; }), activeCardDisplays.end());
 
 	// --- Draw Card Animation Update ---
 	for (auto & anim : activeDrawCardAnimations) {
@@ -6867,7 +6867,7 @@ void ofApp::updateGame() {
 		}
 	}
 
-	const float cardDisplayDuration = 2.5f;
+	const float cardDisplayDuration = 1.25f;
 	while (!activeCardDisplays.empty() && (ofGetElapsedTimef() - activeCardDisplays.front().startTime > cardDisplayDuration)) {
 		activeCardDisplays.erase(activeCardDisplays.begin());
 	}
@@ -10615,7 +10615,7 @@ void ofApp::drawGame() {
 					ofNoFill();
 					ofSetColor(ofColor::green);
 					ofSetLineWidth(4);
-					ofDrawRectangle(drawX, drawY, w, h);
+					drawCardEdgeOutline(drawX, drawY, w, h, 0.0f);
 					ofPopStyle();
 				}
 			} else {
@@ -11596,21 +11596,39 @@ void ofApp::drawGame() {
 		// 1. Draw Top Instruction Text
 		drawInstructionText("Select cards to discard (Draw 2 each)");
 
-		// 2. Render Accept / Cancel as drafting-style option cards and populate riConfirmBtn/riCancelBtn
-		float panelW = 520;
-		float panelH = 220;
-		float panelX = ofGetWidth() / 2.0f - panelW / 2.0f;
-		float panelY = ofGetHeight() - panelH - 40;
-		ofRectangle controlPanel(panelX, panelY, panelW, panelH);
-		std::vector<std::string> labels = { "Accept", "Cancel" };
-		std::vector<ofColor> accents = { ofColor(0, 180, 0), ofColor(180, 0, 0) };
-		std::vector<bool> enabled = { (renewedSelectedHandIndices.size() >= 0), true };
-		std::vector<ofRectangle> outRects;
-		drawOptionCards(controlPanel, "", "", labels, accents, enabled, outRects);
-		if (outRects.size() >= 2) {
-			riConfirmBtn = outRects[0];
-			riCancelBtn = outRects[1];
+		// 2. Render a single drafting-style Accept button above the hand area.
+		float uiScale = std::min(ofGetWidth() / 1920.0f, ofGetHeight() / 1080.0f);
+		ofRectangle handAreaRect = computeHandAreaRect((float)ofGetWidth(), (float)ofGetHeight());
+		float btnW = std::clamp(220.0f * uiScale, 140.0f, 320.0f);
+		float btnH = std::clamp(60.0f * uiScale, 40.0f, 96.0f);
+		float btnX = (ofGetWidth() - btnW) / 2.0f;
+		float btnY = handAreaRect.y - btnH - std::clamp(20.0f * uiScale, 12.0f, 48.0f);
+		float minTopMargin = 20.0f * uiScale;
+		if (btnY < minTopMargin) btnY = minTopMargin;
+
+		riConfirmBtn.set(btnX, btnY, btnW, btnH);
+		riCancelBtn.set(0, 0, 0, 0);
+
+		bool canAccept = false;
+		for (int sel : renewedSelectedHandIndices) {
+			if (sel < 0 || sel >= (int)players[currentPlayerIndex].hand.size()) continue;
+			const Card & selectedCard = players[currentPlayerIndex].hand[sel];
+			if (sel != interactingCardIndex && !selectedCard.playedThisTurn) {
+				canAccept = true;
+				break;
+			}
 		}
+
+		ofPushMatrix();
+		ofTranslate(btnX + btnW / 2.0f, btnY + btnH / 2.0f);
+		ofScale(1.0f, 1.0f);
+		ofTranslate(-(btnX + btnW / 2.0f), -(btnY + btnH / 2.0f));
+		ofSetColor(canAccept ? ofColor(70, 160, 255) : ofColor(100, 100, 100));
+		ofDrawRectRounded(riConfirmBtn, 12);
+		ofSetColor(ofColor::white);
+		ofRectangle acceptTextBox = uiFont.getStringBoundingBox("Accept", 0, 0);
+		uiFont.drawString("Accept", btnX + (btnW - acceptTextBox.width) / 2.0f, btnY + (btnH + acceptTextBox.height) / 2.0f - 6.0f);
+		ofPopMatrix();
 	}
 }
 //--------------------------------------------------------------
@@ -12397,6 +12415,9 @@ void ofApp::mousePressed(int x, int y, int button) {
 	// Detect which hand card was clicked (for drag initiation)
 	pressedCardIndex = -1;
 	if (button == OF_MOUSE_BUTTON_LEFT && currentState == STATE_GAMEPLAY && !players.empty() && currentPlayerIndex >= 0) {
+		if (cardInteractionState == CARD_INTERACTION_MENU && interactingCardType == CARD_RENEWED_INSPIRATION) {
+			return;
+		}
 		Player & currentPlayer = players[currentPlayerIndex];
 		int numCards = static_cast<int>(currentPlayer.hand.size());
 		ofLogNotice("CardDrag") << "mousePressed: Checking " << numCards << " cards in hand at currentState=" << (int)currentState;
@@ -12560,39 +12581,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 		}
 	}
 
-	// Click-to-dismiss played card animation or card displays
-	if (button == OF_MOUSE_BUTTON_LEFT) {
-		// First, check card displays (opponent popups) so clicks on them dismiss immediately
-		if (!activeCardDisplays.empty()) {
-			float handBaseCardWidth = kCardPixelWidth;
-			float aspectRatio = 585.0f / 409.0f;
-			float baseCardHeight = handBaseCardWidth * aspectRatio;
-			for (auto it = activeCardDisplays.begin(); it != activeCardDisplays.end(); ++it) {
-				float w = handBaseCardWidth * it->currentScale;
-				float h = baseCardHeight * it->currentScale;
-				ofRectangle animRect(it->currentPos.x - w / 2.0f, it->currentPos.y - h / 2.0f, w, h);
-				if (animRect.inside(x, y)) {
-					activeCardDisplays.erase(it);
-					return;
-				}
-			}
-		}
-
-		// Then check center/right-side played card animations
-		if (!activePlayedCardAnimations.empty()) {
-			float handBaseCardWidth = kCardPixelWidth;
-			float baseCardHeight = kCardPixelHeight;
-			for (auto it = activePlayedCardAnimations.begin(); it != activePlayedCardAnimations.end(); ++it) {
-				float w = handBaseCardWidth * it->currentScale;
-				float h = baseCardHeight * it->currentScale;
-				ofRectangle animRect(it->pos.x - w / 2.0f, it->pos.y - h / 2.0f, w, h);
-				if (animRect.inside(x, y)) {
-					activePlayedCardAnimations.erase(it);
-					return;
-				}
-			}
-		}
-	}
+	// Played-card face animations are non-dismissible so they always complete.
 
 	// Debug button handling moved inside Chat DEBUG tab (only when chat is fully open)
 	if (button == OF_MOUSE_BUTTON_LEFT && isChatOpen && !isChatMinimized && currentChatTab == ChatTab::DEBUG && chatWindowRect.inside(x, y)) {
@@ -14467,6 +14456,10 @@ void ofApp::mouseDragged(int x, int y, int button) {
 	// Without this, drag events can leave stale hover state from the last mouseMoved event.
 	mouseMoved(x, y);
 
+	if (cardInteractionState == CARD_INTERACTION_MENU && interactingCardType == CARD_RENEWED_INSPIRATION) {
+		return;
+	}
+
 	// If we are actively dragging a card, change to the closed fist
 	if (draggedCardIndex != -1) {
 		currentCursor = CURSOR_HOLD;
@@ -14691,6 +14684,11 @@ void ofApp::mouseReleased(int x, int y, int button) {
 
 	if (button == OF_MOUSE_BUTTON_RIGHT) {
 		if (mouseDownPos.distance(ofVec2f(x, y)) < 5.0f) {
+			if (cardInteractionState == CARD_INTERACTION_MENU && interactingCardType == CARD_RENEWED_INSPIRATION) {
+				renewedSelectedHandIndices.clear();
+				resetCardInteraction();
+				return;
+			}
 			// If we are in an in-game key draft, ignore right-click cancels
 			if (currentState == STATE_DRAFTING && isInGameDraft) {
 				ofLogNotice("Draft") << "Right-click ignored during in-game key draft (must pick a card).";
@@ -14761,6 +14759,9 @@ void ofApp::mouseReleased(int x, int y, int button) {
 			bool startedCardInteraction = false;
 			if (dist > dragThreshold) {
 				Card & playedCard = draggedCard;
+				Card playedCardSnapshot = playedCard;
+				glm::vec2 playedCardReleasePos = playedCard.currentPos;
+				float playedCardReleaseScale = playedCard.currentScale;
 				ofRectangle handAreaRect = computeHandAreaRect((float)ofGetWidth(), (float)ofGetHeight());
 				float playZoneY = ofGetHeight() * 0.5f; // Changed from 0.7f to 0.5f for easier targeting card play
 				float upwardDrag = mouseDownPos.y - y;
@@ -14779,6 +14780,22 @@ void ofApp::mouseReleased(int x, int y, int button) {
 					ofLogNotice("CardDrag") << "Calling handleCardDragToPlay for card=" << playedCard.name;
 					handleCardDragToPlay(draggedCardIndex);
 					startedCardInteraction = (cardInteractionState == CARD_INTERACTION_TARGETING || cardInteractionState == CARD_INTERACTION_MENU);
+					if (startedCardInteraction) {
+						// Always play a hand-release fade animation when entering interaction states.
+						RemovedCardAnimation rem;
+						rem.card = playedCardSnapshot;
+						rem.startPos = playedCardReleasePos;
+						rem.startTime = ofGetElapsedTimef();
+						rem.currentScale = playedCardReleaseScale > 0.0f ? playedCardReleaseScale : 1.0f;
+						rem.currentAlpha = 255.0f;
+						activeRemovedCardAnimations.push_back(rem);
+
+						// Prevent the in-hand card from appearing frozen at release position.
+						if (draggedCardIndex >= 0 && draggedCardIndex < (int)currentPlayer.hand.size()) {
+							currentPlayer.hand[draggedCardIndex].currentPos = currentPlayer.hand[draggedCardIndex].targetPos;
+							currentPlayer.hand[draggedCardIndex].currentScale = currentPlayer.hand[draggedCardIndex].targetScale;
+						}
+					}
 				} else {
 					// Snap back if it wasn't a valid play.
 					draggedCard.currentPos = draggedCard.targetPos;
@@ -19060,6 +19077,11 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 		Player & p = players[playerIdx];
 		int discarded = 0;
 		int shiftedRiIndex = riCardIndex;
+		Card playedCard;
+		bool havePlayedCard = (riCardIndex >= 0 && riCardIndex < (int)p.hand.size());
+		if (havePlayedCard) {
+			playedCard = p.hand[riCardIndex];
+		}
 
 		// Sort descending so erasure doesn't shift indices improperly
 		std::sort(sel.begin(), sel.end(), std::greater<int>());
@@ -19070,6 +19092,16 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 				p.hand.erase(p.hand.begin() + idx);
 				discarded++;
 				if (idx < shiftedRiIndex) shiftedRiIndex--;
+			}
+		}
+
+		// Remove the Renewed Inspiration card itself so it behaves like a normal played card.
+		if (havePlayedCard) {
+			if (shiftedRiIndex >= 0 && shiftedRiIndex < (int)p.hand.size()) {
+				Card riCard = p.hand[shiftedRiIndex];
+				riCard.playedThisTurn = true;
+				p.playedCardsPile.push_back(riCard);
+				p.hand.erase(p.hand.begin() + shiftedRiIndex);
 			}
 		}
 
@@ -22186,12 +22218,18 @@ void ofApp::processCardStateInput(int mouseX, int mouseY, int button) {
 			break;
 
 		case CARD_RENEWED_INSPIRATION: {
-			if (riCancelBtn.inside(mouseX, mouseY)) {
-				updateCardInteractionState(CARD_INTERACTION_IDLE, -1, CARD_NONE);
-				return;
-			}
 			if (riConfirmBtn.inside(mouseX, mouseY)) {
-				if (!renewedSelectedHandIndices.empty()) {
+				Player & p = players[currentPlayerIndex];
+				std::vector<int> validSelections;
+				for (int idx : renewedSelectedHandIndices) {
+					if (idx == interactingCardIndex) continue;
+					if (idx < 0 || idx >= (int)p.hand.size()) continue;
+					if (p.hand[idx].playedThisTurn) continue;
+					if (std::find(validSelections.begin(), validSelections.end(), idx) == validSelections.end()) {
+						validSelections.push_back(idx);
+					}
+				}
+				if (!validSelections.empty()) {
 					InputCommandPacket cmd = {};
 					cmd.type = PKT_INPUT_COMMAND;
 					cmd.playerID = myLocalPlayerID;
@@ -22200,20 +22238,22 @@ void ofApp::processCardStateInput(int mouseX, int mouseY, int button) {
 					cmd.turnNumber = globalTurnCounter;
 					cmd.commandType = CMD_RENEWED_INSPIRATION;
 					cmd.params[0] = currentPlayerIndex;
-					cmd.params[1] = (int)renewedSelectedHandIndices.size();
+					cmd.params[1] = (int)validSelections.size();
 					cmd.params[2] = interactingCardIndex;
 
 					std::string s;
-					for (size_t i = 0; i < renewedSelectedHandIndices.size(); ++i) {
+					for (size_t i = 0; i < validSelections.size(); ++i) {
 						if (i) s.push_back(',');
-						s += ofToString(renewedSelectedHandIndices[i]);
+						s += ofToString(validSelections[i]);
 					}
 					strncpy(cmd.stringData, s.c_str(), sizeof(cmd.stringData) - 1);
 					cmd.stringData[sizeof(cmd.stringData) - 1] = '\0';
 
 					// Send via lockstep, NO LOCAL STATE MUTATION here!
 					sendInputCommand(cmd, true);
-					updateCardInteractionState(CARD_INTERACTION_IDLE, -1, CARD_NONE);
+
+					renewedSelectedHandIndices.clear();
+					resetCardInteraction();
 				}
 				return;
 			}
@@ -22226,6 +22266,7 @@ void ofApp::processCardStateInput(int mouseX, int mouseY, int button) {
 			for (int i = (int)p.hand.size() - 1; i >= 0; --i) {
 				if (i == interactingCardIndex) continue; // Can't discard the card itself!
 				Card & card = p.hand[i];
+				if (card.playedThisTurn) continue; // Only unplayed cards may be selected
 				float w = handBaseCardWidth * card.currentScale;
 				float h = baseCardHeight * card.currentScale;
 				ofRectangle cardRect(card.currentPos.x - w / 2, card.currentPos.y - h / 2, w, h);
