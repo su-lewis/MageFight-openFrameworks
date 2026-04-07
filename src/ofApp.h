@@ -1352,6 +1352,7 @@ private:
 		ofColor secondaryAccent,
 		bool primaryEnabled = true,
 		bool secondaryEnabled = true);
+	void drawAcceptButtonShared(const ofRectangle & buttonRect, bool canAccept, float scale = 1.0f, float alpha = 1.0f);
 
 	// Draw multiple option cards (draft-style). Fills outRects for hit-testing.
 	void drawOptionCards(const ofRectangle & panelRect,
@@ -1740,6 +1741,8 @@ private:
 
 	// Trigger a camera shake: intensity in world units, duration in seconds
 	void triggerCameraShake(float intensity, float duration);
+	int getActiveTurnDurationFrames() const;
+	void resetDraftPhaseTimerWindow();
 
 	// Pause / resume helpers for opponent-driven decisions (keys, magic blast)
 	void pauseTurnTimerForOpponentDecision(int decidingPlayerIndex);
@@ -1918,7 +1921,6 @@ private:
 	// Temporary storage for amnesia selections received via lockstep command
 	std::vector<int> amnesiaSelectionFromCmd;
 	bool amnesiaSelectionFromCmdPresent = false;
-	ofRectangle amnesiaAcceptButton;
 
 	// Which local player ID is allowed to choose Amnesia removals (playerID, e.g., 0 or 1). -1 = none
 	int amnesiaChooserPlayerID = -1;

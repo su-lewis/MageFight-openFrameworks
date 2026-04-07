@@ -2325,6 +2325,7 @@ void ofApp::checkKeyPickupAndDraftAfterSummon(int x, int y, int minionOwnerID) {
 				draftPicksRemaining = 1;
 				selectedDraftIndices.clear();
 				currentState = STATE_DRAFTING;
+				resetDraftPhaseTimerWindow();
 
 				// If this draft belongs to another player while it's currently someone's turn,
 				// pause the active player's turn timer and start an opponent decision timer.
@@ -2356,6 +2357,23 @@ void ofApp::pauseTurnTimerForOpponentDecision(int decidingPlayerIndex) {
 			opponentDecisionPlayerIndex = decidingPlayerIndex;
 		}
 	}
+}
+
+int ofApp::getActiveTurnDurationFrames() const {
+	if (currentState == STATE_DRAFTING) {
+		return 90 * turnTimerFramesPerSecond;
+	}
+	if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size() && players[currentPlayerIndex].isMinion) {
+		return 60 * turnTimerFramesPerSecond;
+	}
+	return 90 * turnTimerFramesPerSecond;
+}
+
+void ofApp::resetDraftPhaseTimerWindow() {
+	turnDurationFrames = 90 * turnTimerFramesPerSecond;
+	turnStartDeferred = false;
+	turnStartDeferredAtFrame = 0;
+	turnStartFrame = ofGetFrameNum();
 }
 
 void ofApp::resumeTurnTimerIfPausedForOpponent(int decidingPlayerIndex) {
@@ -3904,6 +3922,7 @@ void ofApp::beginInitiativeDrafting(int winnerIndex) {
 	draftPlayerIndex = winnerIndex;
 	draftStage = 0;
 	currentState = STATE_DRAFTING;
+	resetDraftPhaseTimerWindow();
 	ofLogNotice("Draft") << "beginInitiativeDrafting called: winnerIndex=" << winnerIndex << " draftPlayerIndex=" << draftPlayerIndex << " draftStage=" << draftStage;
 	// Both host and clients generate deterministic draft options locally.
 	generateDraftOptions(1);
@@ -5457,6 +5476,7 @@ void ofApp::updateGame() {
 			// Pause active player's timer if this draft belongs to another player
 			pauseTurnTimerForOpponentDecision(resolvedIdx);
 			currentState = STATE_DRAFTING;
+			resetDraftPhaseTimerWindow();
 			// clear pending (but keep keyX/keyY for Accept remapping)
 			networkPending.keyDraftAccept = false;
 			networkPending.keyDraftPlayer = -1;
@@ -6494,6 +6514,7 @@ void ofApp::updateGame() {
 		selectedDraftIndices.clear();
 		draftStage = 0;
 		currentState = STATE_DRAFTING;
+		resetDraftPhaseTimerWindow();
 
 		// Reset draft display state for new draft screen
 		draftDisplayStartTime = 0.0f;
@@ -9168,9 +9189,20 @@ void ofApp::drawGame() {
 				// Draw a flat tracer slightly above the board using XZ from stored start/end
 				const float tracerHeight = 0.12f; // small elevation above tile surface
 				ofDrawLine(tr.start.x, tracerHeight, tr.start.z, tr.end.x, tracerHeight, tr.end.z);
+				// Yellow tile outline while the tracer is alive
+				ofPushMatrix();
+				glm::vec3 tileCenter = gridToWorld(tr.impactTile.x, tr.impactTile.y);
+				ofTranslate(tileCenter.x, 0.08f + 0.02f, tileCenter.z);
+				ofRotateXDeg(90);
+				ofNoFill();
+				ofSetColor(255, 220, 0, col.a);
+				ofSetLineWidth(5.0f);
+				ofDrawRectangle(-TILE_SIZE * 0.5f, -TILE_SIZE * 0.5f, TILE_SIZE, TILE_SIZE);
+				ofSetLineWidth(1.0f);
+				ofFill();
+				ofPopMatrix();
 				// Impact glow on tile (slightly jittered/pulsed)
 				float pulse = 1.0f + 0.25f * sin((now - tr.startTime) * 16.0f);
-				glm::vec3 tileCenter = gridToWorld(tr.impactTile.x, tr.impactTile.y);
 				ofPushMatrix();
 				ofTranslate(tileCenter.x, 0.08f + 0.02f, tileCenter.z);
 				ofRotateXDeg(90);
@@ -16224,11 +16256,7 @@ void ofApp::continueNewTurn() {
 	// as soon as the new turn begins.
 	turnStartFrame = ofGetFrameNum();
 	ofLogNotice("Timer") << "Turn start deferred until visuals complete for player " << startingPlayer.playerID;
-	if (startingPlayer.isMinion) {
-		turnDurationFrames = 60 * turnTimerFramesPerSecond; // 60 seconds for minions
-	} else {
-		turnDurationFrames = 90 * turnTimerFramesPerSecond; // 90 seconds for regular units
-	}
+	turnDurationFrames = getActiveTurnDurationFrames();
 
 	// FIX: Snap visual position instantly to the new unit so it doesn't "fly" across the board
 	playerVisualPos = gridToWorld(startingPlayer.x, startingPlayer.y);
@@ -17284,18 +17312,15 @@ void ofApp::handleCardMenuClick(const std::string & buttonId) {
 			enterTargetingIfPossible();
 			break;
 		}
-		// Menu choice execution must not rely on local mouse coords when running
-		// as a lockstep command; use the provided `buttonId` and `interactionTargetIndex`.
-		// Route through the centralized outcome/effect sequence
-		resetCardState();
-		currentCardOutcome.cardType = static_cast<CardType>(interactingCardType);
-		currentCardOutcome.cardIndex = interactingCardIndex;
-		currentCardOutcome.casterIndex = currentPlayerIndex;
-		beginEffectSequence();
+		int targetIndex = magicBlastTargetPlayerIndex;
+		if (targetIndex < 0 || targetIndex >= (int)players.size()) {
+			targetIndex = interactionTargetIndex;
+		}
+		if (targetIndex < 0 || targetIndex >= (int)players.size()) return;
 		if (buttonId == "damage") {
 			EffectOp dmg = {};
 			dmg.type = EffectOpType::DAMAGE;
-			dmg.data.damage.targetIndex = interactionTargetIndex;
+			dmg.data.damage.targetIndex = targetIndex;
 			dmg.data.damage.damageType = DAMAGE_MAGIC;
 			dmg.data.damage.fixedDamage = 5;
 			dmg.data.damage.damageFromSlot = -1;
@@ -17303,9 +17328,25 @@ void ofApp::handleCardMenuClick(const std::string & buttonId) {
 		} else if (buttonId == "discard") {
 			EffectOp rem = {};
 			rem.type = EffectOpType::REMOVE_TOP_CARD_FROM_DECK;
-			rem.data.removeTopCard.targetIndex = interactionTargetIndex;
+			rem.data.removeTopCard.targetIndex = targetIndex;
 			queueEffect(rem);
 		}
+
+		if (magicBlastChoicesRemaining > 0) {
+			magicBlastChoicesRemaining--;
+		}
+
+		if (!magicBlastSplashTargetIndices.empty()) {
+			magicBlastTargetPlayerIndex = magicBlastSplashTargetIndices.front();
+			magicBlastSplashTargetIndices.erase(magicBlastSplashTargetIndices.begin());
+			if (isMultiplayer) sendMenuState(4, magicBlastTargetPlayerIndex, -1, interactingCardIndex);
+			updateCardInteractionState(CARD_INTERACTION_MENU, interactingCardIndex, CARD_MAGIC_BLAST);
+			break;
+		}
+
+		currentCardOutcome.cardType = static_cast<CardType>(interactingCardType);
+		currentCardOutcome.cardIndex = interactingCardIndex;
+		currentCardOutcome.casterIndex = currentPlayerIndex;
 		advanceCardState(CARD_STATE_EFFECT_SEQUENCE);
 		resetCardInteraction();
 		break;
@@ -17371,6 +17412,7 @@ void ofApp::handleCardMenuClick(const std::string & buttonId) {
 			selectedDraftIndices.clear();
 			draftStage = 0;
 			currentState = STATE_DRAFTING;
+			resetDraftPhaseTimerWindow();
 		} else {
 			caster.nextTurnAPBonus += 3;
 			queueFloatingTextVisual(gridToWorld(caster.x, caster.y), "+3 AP next turn", ofColor::yellow);
@@ -17813,23 +17855,16 @@ void ofApp::drawActiveCardInteractionUI() {
 					amnesiaCardRects.emplace_back(drawX, drawY, viewCardWidth, viewCardHeight);
 				}
 
-				// Draw Accept button at bottom
-				float acceptW = 160.0f;
-				float acceptH = 44.0f;
-				float acceptY = panelY + panelHeight - acceptH - 15.0f;
-				amnesiaAcceptButton.set(panelX + (panelWidth - acceptW) / 2.0f, acceptY, acceptW, acceptH);
+				// Draw Accept button using the same centralized styling as draft.
+				float uiScale = std::min(ofGetWidth() / 1920.0f, ofGetHeight() / 1080.0f);
+				float acceptW = std::clamp(220.0f * uiScale, 140.0f, 320.0f);
+				float acceptH = std::clamp(60.0f * uiScale, 40.0f, 96.0f);
+				float acceptX = panelX + (panelWidth - acceptW) / 2.0f;
+				float acceptY = panelY + panelHeight - acceptH - std::clamp(15.0f * uiScale, 10.0f, 30.0f);
+				draftAcceptButtonRect.set(acceptX, acceptY, acceptW, acceptH);
 
 				bool canAccept = (amnesiaSelectedIndices.size() == static_cast<size_t>(numCardsToRemove));
-				if (canAccept) {
-					ofSetColor(0, 160, 0);
-					if (amnesiaAcceptButton.inside(ofGetMouseX(), ofGetMouseY())) ofSetColor(0, 200, 0);
-				} else {
-					ofSetColor(80, 80, 80);
-				}
-				ofDrawRectRounded(amnesiaAcceptButton, 8);
-				ofSetColor(canAccept ? ofColor::white : ofColor(150, 150, 150));
-				ofRectangle aBox = uiFont.getStringBoundingBox("Accept", 0, 0);
-				uiFont.drawString("Accept", amnesiaAcceptButton.getCenter().x - aBox.width / 2, amnesiaAcceptButton.getCenter().y + aBox.height / 2 - 2);
+				drawAcceptButtonShared(draftAcceptButtonRect, canAccept, 1.0f, 1.0f);
 			} else {
 				// fallback to small single-button menu if deck copy is empty
 				drawMenuOverlay();
@@ -19201,6 +19236,9 @@ void ofApp::queueEffect(const EffectOp & op) {
 }
 
 bool ofApp::isEffectSequenceComplete() const {
+	if (cardInteractionState == CARD_INTERACTION_MENU && interactingCardType == CARD_MAGIC_BLAST && magicBlastChoicesRemaining > 0) {
+		return false;
+	}
 	return currentEffectSequence.isComplete;
 }
 
@@ -19564,37 +19602,41 @@ bool ofApp::processEffectOp(EffectOp & op) {
 			impactTile = { round(impactPos.x), round(impactPos.y) };
 		}
 
-		// Identify targets
-		magicBlastTargetPlayerIndex = -1;
-		magicBlastSplashTargetIndices.clear();
-
-		for (size_t i = 0; i < players.size(); i++) {
-			if (players[i].x == (int)impactTile.x && players[i].y == (int)impactTile.y) {
-				magicBlastTargetPlayerIndex = (int)i;
-				break;
-			}
-		}
-
-		glm::vec2 neighbors[4] = { { impactTile.x + 1, impactTile.y }, { impactTile.x - 1, impactTile.y }, { impactTile.x, impactTile.y + 1 }, { impactTile.x, impactTile.y - 1 } };
-		for (const auto & n : neighbors) {
-			for (size_t i = 0; i < players.size(); i++) {
-				if ((int)i != magicBlastTargetPlayerIndex && players[i].x == (int)n.x && players[i].y == (int)n.y) {
-					magicBlastSplashTargetIndices.push_back(players[i].playerID);
+		// Build deterministic target queue: impact tile first, then N/E/S/W.
+		std::vector<int> resolvedTargets;
+		auto addTileTargets = [&](int tx, int ty) {
+			if (tx < 0 || tx >= BOARD_WIDTH || ty < 0 || ty >= BOARD_HEIGHT) return;
+			std::vector<int> occupants = getTileOccupants(tx, ty);
+			std::sort(occupants.begin(), occupants.end(), [&](int a, int b) {
+				int pidA = players[a].playerID;
+				int pidB = players[b].playerID;
+				if (pidA != pidB) return pidA < pidB;
+				return a < b;
+			});
+			for (int idx : occupants) {
+				if (idx == currentPlayerIndex) continue; // never negative-self
+				if (std::find(resolvedTargets.begin(), resolvedTargets.end(), idx) == resolvedTargets.end()) {
+					resolvedTargets.push_back(idx);
 				}
 			}
-		}
+		};
 
-		if (magicBlastTargetPlayerIndex != -1) {
+		addTileTargets((int)impactTile.x, (int)impactTile.y);
+		addTileTargets((int)impactTile.x, (int)impactTile.y - 1); // North
+		addTileTargets((int)impactTile.x + 1, (int)impactTile.y); // East
+		addTileTargets((int)impactTile.x, (int)impactTile.y + 1); // South
+		addTileTargets((int)impactTile.x - 1, (int)impactTile.y); // West
+
+		magicBlastTargetPlayerIndex = -1;
+		magicBlastSplashTargetIndices.clear();
+		magicBlastChoicesRemaining = (int)resolvedTargets.size();
+		currentCardOutcome.primaryTarget = { (int)impactTile.x, (int)impactTile.y };
+		currentCardOutcome.targetedPlayers = resolvedTargets;
+
+		if (!resolvedTargets.empty()) {
+			magicBlastTargetPlayerIndex = resolvedTargets.front();
+			magicBlastSplashTargetIndices.assign(resolvedTargets.begin() + 1, resolvedTargets.end());
 			updateCardInteractionState(CARD_INTERACTION_MENU, -1, CARD_MAGIC_BLAST);
-			if (isMultiplayer) sendMenuState(4, magicBlastTargetPlayerIndex, -1, interactingCardIndex);
-			magicBlastChoicesRemaining = 3;
-		} else if (!magicBlastSplashTargetIndices.empty()) {
-			updateCardInteractionState(CARD_INTERACTION_MENU, -1, CARD_MAGIC_BLAST);
-			int targetPID = magicBlastSplashTargetIndices.front();
-			magicBlastSplashTargetIndices.erase(magicBlastSplashTargetIndices.begin());
-			int resolvedIndex = findPlayerIndexByID(targetPID);
-			magicBlastTargetPlayerIndex = resolvedIndex;
-			magicBlastChoicesRemaining = 1;
 			if (isMultiplayer) sendMenuState(4, magicBlastTargetPlayerIndex, -1, interactingCardIndex);
 		} else {
 			ofLogNotice("MagicBlast") << "No targets hit.";
@@ -21966,18 +22008,9 @@ void ofApp::handleCardTargetInput(int gridX, int gridY) {
 	case CARD_SLASH:
 	case CARD_ATTACK_SINGLE_TILE:
 	case CARD_MAGIC_BLAST:
-	case CARD_FIREBALL:
-	case CARD_SHOOT_ARROW:
-	case CARD_CHAIN_LIGHTNING:
-	case CARD_DEATH:
-	case CARD_SHIELD_BASH:
-	case CARD_FLAIL:
-	case CARD_DRAIN_PUNCH:
-	case CARD_VAMPIRE_BITE:
 	case CARD_MASTER_FIST:
 	case CARD_SHOCK:
 	case CARD_FLAME_HIT:
-	case CARD_ADD_POISON:
 	case CARD_ETHEREAL_JOLT:
 	case CARD_SMITE:
 	case CARD_ROCK_CRUSH:
@@ -21985,7 +22018,6 @@ void ofApp::handleCardTargetInput(int gridX, int gridY) {
 	case CARD_FLURRY_OF_FISTS:
 	case CARD_HEAL:
 	case CARD_LESSER_HEAL:
-	case CARD_TELEPORT:
 		needsDice = true;
 		break;
 	default:
@@ -22335,7 +22367,7 @@ void ofApp::processCardStateInput(int mouseX, int mouseY, int button) {
 					return;
 				}
 				// Accept button
-				if (amnesiaAcceptButton.inside(mouseX, mouseY)) {
+				if (draftAcceptButtonRect.inside(mouseX, mouseY)) {
 					if (amnesiaSelectedIndices.size() == (size_t)numCardsToRemove) {
 						// Build command carrying selections
 						InputCommandPacket cmd = {};
@@ -22803,6 +22835,7 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 		selectedDraftIndices.clear();
 		draftStage = 0;
 		currentState = STATE_DRAFTING;
+		resetDraftPhaseTimerWindow();
 
 		playedSuccessfully = true;
 		advanceCardState(CARD_STATE_EFFECT_SEQUENCE);
@@ -23881,13 +23914,22 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 		TargetInfo validationResult = isLosTargetValid(casterTile, targetTile, maxRange, playedCard.type);
 		if (validationResult.reason != VALID) return true;
 
+		auto hasNonSelfUnitOnTile = [&](int tx, int ty) {
+			auto occupants = getTileOccupants(tx, ty);
+			for (int idx : occupants) {
+				if (idx == currentPlayerIndex) continue;
+				return true;
+			}
+			return false;
+		};
+
 		bool validTarget = false;
-		if (board[targetX][targetY].hasPlayer) {
+		if (hasNonSelfUnitOnTile(targetX, targetY)) {
 			validTarget = true;
 		} else {
 			glm::vec2 neighbors[4] = { { targetX + 1, targetY }, { targetX - 1, targetY }, { targetX, targetY + 1 }, { targetX, targetY - 1 } };
 			for (const auto & n : neighbors) {
-				if (n.x >= 0 && n.x < BOARD_WIDTH && n.y >= 0 && n.y < BOARD_HEIGHT && board[(int)n.x][(int)n.y].hasPlayer) {
+				if (n.x >= 0 && n.x < BOARD_WIDTH && n.y >= 0 && n.y < BOARD_HEIGHT && hasNonSelfUnitOnTile((int)n.x, (int)n.y)) {
 					validTarget = true;
 					break;
 				}
@@ -26775,7 +26817,7 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 				if (card.type == CARD_CHAIN_LIGHTNING) {
 					if (isPreview) {
 						if (isOccupied) {
-							canBeClicked = true;
+							canBeClicked = tileHasOtherThan(x, y, currentPlayerIndex);
 						} else {
 							// Check 8 neighbors
 							for (int dx = -1; dx <= 1; dx++) {
@@ -26783,7 +26825,7 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 									if (dx == 0 && dy == 0) continue;
 									int nx = x + dx;
 									int ny = y + dy;
-									if (nx >= 0 && nx < BOARD_WIDTH && ny >= 0 && ny < BOARD_HEIGHT && board[nx][ny].hasPlayer) {
+									if (nx >= 0 && nx < BOARD_WIDTH && ny >= 0 && ny < BOARD_HEIGHT && tileHasOtherThan(nx, ny, currentPlayerIndex)) {
 										bool blocked = false;
 										if (abs(dx) == 1 && abs(dy) == 1) { // Diagonal check
 											if (isTileWall(x + dx, y) && isTileWall(x, y + dy)) blocked = true;
@@ -26831,7 +26873,7 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 				else if (card.type == CARD_MAGIC_BOLT) {
 					// Require that the tile is a preview (LOS & not wall) before allowing click
 					if (isPreview) {
-						if (isOccupied)
+						if (isOccupied && tileHasOtherThan(x, y, currentPlayerIndex))
 							canBeClicked = true;
 						else if (info.isTargetable)
 							canBeClicked = true;
@@ -29748,6 +29790,7 @@ bool ofApp::applyDamageTo(Player & target, int damage, DamageType type, int atta
 
 			// Switch state immediately on both peers
 			currentState = STATE_DRAFTING;
+			resetDraftPhaseTimerWindow();
 
 			// Pause the active player's turn timer if this draft belongs to another player
 			pauseTurnTimerForOpponentDecision(attackerIndex);
@@ -29949,6 +29992,21 @@ void ofApp::drawCardChoicePanel(const ofRectangle & panelRect,
 	}
 }
 
+void ofApp::drawAcceptButtonShared(const ofRectangle & buttonRect, bool canAccept, float scale, float alpha) {
+	ofPushMatrix();
+	ofTranslate(buttonRect.getCenter().x, buttonRect.getCenter().y);
+	ofScale(scale, scale);
+	ofTranslate(-buttonRect.getCenter().x, -buttonRect.getCenter().y);
+
+	ofSetColor(canAccept ? ofColor(70, 160, 255, (int)(255.0f * alpha)) : ofColor(100, 100, 100, (int)(255.0f * alpha)));
+	ofDrawRectRounded(buttonRect, 12);
+
+	ofSetColor(ofColor(255, 255, 255, (int)(255.0f * alpha)));
+	ofRectangle acceptTextBox = uiFont.getStringBoundingBox("Accept", 0, 0);
+	uiFont.drawString("Accept", buttonRect.getCenter().x - acceptTextBox.getWidth() / 2, buttonRect.getCenter().y + acceptTextBox.getHeight() / 2 - 6);
+	ofPopMatrix();
+}
+
 // Draw up to 4 drafting-style option cards inside panelRect. Populates outRects
 // with the rectangles used for hit-testing (ordered to correspond to labels).
 void ofApp::drawOptionCards(const ofRectangle & panelRect,
@@ -30108,6 +30166,14 @@ TargetInfo ofApp::isLosTargetValid(glm::vec2 casterTile, glm::vec2 targetTile, f
 	TargetInfo result;
 	result.reason = VALID;
 
+	int casterIndexForSelfChecks = -1;
+	if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) {
+		const Player & cp = players[currentPlayerIndex];
+		if (cp.x == (int)casterTile.x && cp.y == (int)casterTile.y) {
+			casterIndexForSelfChecks = currentPlayerIndex;
+		}
+	}
+
 	// --- 0. BASIC SANITY CHECKS ---
 	if (casterTile == targetTile) {
 		// Special-case: if the caster is in Ghost form and shares the tile with
@@ -30247,17 +30313,25 @@ TargetInfo ofApp::isLosTargetValid(glm::vec2 casterTile, glm::vec2 targetTile, f
 
 	// --- 4. TARGET VALIDATION ---
 	bool isOccupied = board[(int)targetTile.x][(int)targetTile.y].hasPlayer;
+	auto hasNonSelfUnitOnTile = [&](int tx, int ty) {
+		auto occupants = getTileOccupants(tx, ty);
+		for (int idx : occupants) {
+			if (casterIndexForSelfChecks >= 0 && idx == casterIndexForSelfChecks) continue;
+			return true;
+		}
+		return false;
+	};
 
-	if (cardType == CARD_MAGIC_BOLT) {
+	if (cardType == CARD_MAGIC_BOLT || cardType == CARD_MAGIC_BLAST) {
 		// Magic Bolt: Can hit unit OR ground if it can splash a nearby unit
-		if (isOccupied) {
+		if (isOccupied && hasNonSelfUnitOnTile((int)targetTile.x, (int)targetTile.y)) {
 			result.isTargetable = true;
 		} else {
 			bool hasNeighbor = false;
 			for (auto n : neighbors) {
 				int nx = (int)targetTile.x + (int)n.x;
 				int ny = (int)targetTile.y + (int)n.y;
-				if (nx >= 0 && nx < BOARD_WIDTH && ny >= 0 && ny < BOARD_HEIGHT && board[nx][ny].hasPlayer) {
+				if (nx >= 0 && nx < BOARD_WIDTH && ny >= 0 && ny < BOARD_HEIGHT && hasNonSelfUnitOnTile(nx, ny)) {
 					hasNeighbor = true;
 					break;
 				}
@@ -31464,6 +31538,7 @@ void ofApp::generateDraftOptions(int classTier, const std::vector<int> * forcedI
 
 	selectedDraftIndices.clear();
 	currentState = STATE_DRAFTING;
+	resetDraftPhaseTimerWindow();
 	waitingForDraftOptionsStartTime = 0.0f; // Client no longer waits
 
 	// Initialize per-option visual animation state
@@ -31545,6 +31620,7 @@ void ofApp::applyDraftOptionsFromPool(int classTier, const std::vector<int> & in
 	}
 	selectedDraftIndices.clear();
 	currentState = STATE_DRAFTING; // Force state transition
+	resetDraftPhaseTimerWindow();
 	waitingForDraftOptionsStartTime = 0.0f; // We have the options now
 	draftAcceptLocked = false;
 	draftAcceptApplied = false;
@@ -32092,19 +32168,7 @@ void ofApp::drawDraftScreen() {
 		acceptAlpha = acceptScale; // simple alpha linked to scale for pop-in
 
 		draftAcceptButtonRect.set(btnX, btnY, btnW, btnH);
-
-		ofPushMatrix();
-		ofTranslate(btnX + btnW / 2.0f, btnY + btnH / 2.0f);
-		ofScale(acceptScale, acceptScale);
-		ofTranslate(-(btnX + btnW / 2.0f), -(btnY + btnH / 2.0f));
-
-		ofSetColor(canAccept ? ofColor(70, 160, 255, (int)(255.0f * acceptAlpha)) : ofColor(100, 100, 100, (int)(255.0f * acceptAlpha)));
-		ofDrawRectRounded(draftAcceptButtonRect, 12);
-
-		ofSetColor(ofColor(255, 255, 255, (int)(255.0f * acceptAlpha)));
-		ofRectangle acceptTextBox = uiFont.getStringBoundingBox("Accept", 0, 0);
-		uiFont.drawString("Accept", btnX + (btnW - acceptTextBox.width) / 2, btnY + (btnH + acceptTextBox.height) / 2 - 6);
-		ofPopMatrix();
+		drawAcceptButtonShared(draftAcceptButtonRect, canAccept, acceptScale, acceptAlpha);
 	} else {
 		// Hide accept: clear the rect so hits are ignored
 		draftAcceptButtonRect.set(0, 0, 0, 0);
