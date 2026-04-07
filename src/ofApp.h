@@ -1484,8 +1484,8 @@ private:
 
 	// Opponent decision timer (when a modal requires the opponent to choose)
 	bool opponentDecisionTimerActive = false;
-	float opponentDecisionStartTime = 0.0f;
-	float opponentDecisionDuration = 30.0f; // default opponent decision window (30s for menus)
+	uint32_t opponentDecisionStartFrame = 0;
+	int opponentDecisionDurationFrames = 30 * 60; // default opponent decision window (30s for menus)
 	int opponentDecisionPlayerIndex = -1; // which player must decide
 
 	std::vector<DeathMarker> graveyard;

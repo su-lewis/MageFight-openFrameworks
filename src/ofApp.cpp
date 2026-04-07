@@ -2348,12 +2348,11 @@ void ofApp::pauseTurnTimerForOpponentDecision(int decidingPlayerIndex) {
 	// Only pause if it's currently someone's turn and the deciding player is not the active player
 	if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size() && currentPlayerIndex != decidingPlayerIndex) {
 		if (!turnTimerPaused) {
-			int nowFrame = ofGetFrameNum();
 			turnTimerPaused = true;
-			turnTimerPausedRemainingFrames = std::max(0, turnDurationFrames - (nowFrame - turnStartFrame));
+			turnTimerPausedRemainingFrames = std::max(0, turnDurationFrames - (int)(simulationFrame - (uint32_t)turnStartFrame));
 			opponentDecisionTimerActive = true;
-			opponentDecisionStartTime = ofGetElapsedTimef();
-			opponentDecisionDuration = 30.0f;
+			opponentDecisionStartFrame = simulationFrame;
+			opponentDecisionDurationFrames = 30 * turnTimerFramesPerSecond;
 			opponentDecisionPlayerIndex = decidingPlayerIndex;
 		}
 	}
@@ -2373,18 +2372,18 @@ void ofApp::resetDraftPhaseTimerWindow() {
 	turnDurationFrames = 90 * turnTimerFramesPerSecond;
 	turnStartDeferred = false;
 	turnStartDeferredAtFrame = 0;
-	turnStartFrame = ofGetFrameNum();
+	turnStartFrame = (int)simulationFrame;
 }
 
 void ofApp::resumeTurnTimerIfPausedForOpponent(int decidingPlayerIndex) {
 	if (!turnTimerEnabled) return;
 	if (turnTimerPaused && opponentDecisionTimerActive && opponentDecisionPlayerIndex == decidingPlayerIndex) {
-		int nowFrame = ofGetFrameNum();
 		turnTimerPaused = false;
 		// Restore turnStartFrame such that remaining frames equals turnTimerPausedRemainingFrames
-		turnStartFrame = nowFrame - (turnDurationFrames - turnTimerPausedRemainingFrames);
+		turnStartFrame = (int)simulationFrame - (turnDurationFrames - turnTimerPausedRemainingFrames);
 		turnTimerPausedRemainingFrames = 0;
 		opponentDecisionTimerActive = false;
+		opponentDecisionStartFrame = 0;
 		opponentDecisionPlayerIndex = -1;
 	}
 }
@@ -3608,8 +3607,7 @@ void ofApp::update() {
 
 					// Pause turn timer (single pause source dedicated to reconnect wait).
 					if (turnTimerEnabled && !turnTimerPaused) {
-						int nowFrame = ofGetFrameNum();
-						reconnectTurnTimerPausedRemainingFrames = std::max(0, turnDurationFrames - (nowFrame - turnStartFrame));
+						reconnectTurnTimerPausedRemainingFrames = std::max(0, turnDurationFrames - (int)(simulationFrame - (uint32_t)turnStartFrame));
 						turnTimerPaused = true;
 						turnTimerPausedRemainingFrames = reconnectTurnTimerPausedRemainingFrames;
 						reconnectTurnTimerPausedByDisconnect = true;
@@ -3680,9 +3678,8 @@ void ofApp::update() {
 				if (steamManager.isHost()) {
 					// Host can resume immediately and provide authoritative state to client.
 					if (reconnectTurnTimerPausedByDisconnect) {
-						int nowFrame = ofGetFrameNum();
 						turnTimerPaused = false;
-						turnStartFrame = nowFrame - (turnDurationFrames - reconnectTurnTimerPausedRemainingFrames);
+						turnStartFrame = (int)simulationFrame - (turnDurationFrames - reconnectTurnTimerPausedRemainingFrames);
 						turnTimerPausedRemainingFrames = 0;
 						reconnectTurnTimerPausedByDisconnect = false;
 						reconnectTurnTimerPausedRemainingFrames = 0;
@@ -5061,7 +5058,7 @@ void ofApp::setupGame() {
 	if (!isMultiplayer)
 		myLocalPlayerID = 0;
 	globalTurnCounter = 0;
-	turnStartFrame = ofGetFrameNum();
+	turnStartFrame = (int)simulationFrame;
 
 	// Snap the on-screen player visual to the local player's starting square now that
 	// `myLocalPlayerID` has been assigned (hosts/clients may set this before calling).
@@ -5500,21 +5497,20 @@ void ofApp::updateGame() {
 		bool commitNow = false;
 		if (diceVisualsFinishedAndLinger())
 			commitNow = true;
-		else if (((int64_t)ofGetFrameNum() - (int64_t)turnStartDeferredAtFrame) > (int64_t)kTurnStartDeferredMaxFrames)
+		else if (((int64_t)simulationFrame - (int64_t)turnStartDeferredAtFrame) > (int64_t)kTurnStartDeferredMaxFrames)
 			commitNow = true;
 
 		if (commitNow) {
 			turnStartDeferred = false;
-			turnStartFrame = ofGetFrameNum();
+			turnStartFrame = (int)simulationFrame;
 			ofLogNotice("Timer") << "Deferred turn start committed. Starting timer now.";
 		}
 	}
 
 	// --- OPPONENT DECISION TIMER CHECK (30s mini timer for modal menu choices) ---
 	if (turnTimerEnabled && opponentDecisionTimerActive && cardInteractionState == CARD_INTERACTION_MENU && (interactingCardType == CARD_MAGIC_BLAST || interactingCardType == CARD_GHOST_RELOCATE)) {
-		float now = ofGetElapsedTimef();
-		float elapsedDecision = now - opponentDecisionStartTime;
-		if (elapsedDecision >= opponentDecisionDuration) {
+		int elapsedDecisionFrames = (int)(simulationFrame - opponentDecisionStartFrame);
+		if (elapsedDecisionFrames >= opponentDecisionDurationFrames) {
 			bool localOwnsDecision = true;
 			if (isMultiplayer && opponentDecisionPlayerIndex >= 0 && opponentDecisionPlayerIndex < (int)players.size()) {
 				const Player & decider = players[opponentDecisionPlayerIndex];
@@ -5559,8 +5555,8 @@ void ofApp::updateGame() {
 					ofLogNotice("Timer") << "Opponent decision timer expired. Auto-selecting menu choice.";
 					sendInputCommand(cmd, true);
 					// Prevent duplicate timeout sends while waiting for command execution.
-					opponentDecisionStartTime = now;
-					opponentDecisionDuration = 9999.0f;
+					opponentDecisionStartFrame = simulationFrame;
+					opponentDecisionDurationFrames = 9999 * turnTimerFramesPerSecond;
 				}
 			}
 		}
@@ -5573,7 +5569,7 @@ void ofApp::updateGame() {
 	if (turnTimerEnabled && !turnStartDeferred && !turnTimerPaused && currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size() && localShouldRunTimerHere) {
 		// Run timer checks even if modal UI is open; drafting/gameplay variations handled inside
 		if (currentState == STATE_GAMEPLAY || currentState == STATE_DRAFTING) {
-			int elapsedFrames = ofGetFrameNum() - turnStartFrame;
+			int elapsedFrames = (int)(simulationFrame - (uint32_t)turnStartFrame);
 			if (elapsedFrames >= turnDurationFrames) {
 				if (currentState == STATE_DRAFTING) {
 					if (!draftAcceptLocked) {
@@ -5620,7 +5616,7 @@ void ofApp::updateGame() {
 							if (!sendInputCommand(cmd, true)) ofLogWarning("Network") << "Auto-accept draft send failed (no connection).";
 						} else {
 							// Avoid timeout log spam while waiting for draft options to populate.
-							turnStartFrame = ofGetFrameNum();
+							turnStartFrame = (int)simulationFrame;
 						}
 					}
 				} else {
@@ -7185,13 +7181,13 @@ void ofApp::updateGame() {
 		if (isPlayerAnimating) {
 			if (!turnTimerPaused) {
 				turnTimerPaused = true;
-				turnTimerPausedRemainingFrames = std::max(0, (int)(turnDurationFrames - (ofGetFrameNum() - turnStartFrame)));
+				turnTimerPausedRemainingFrames = std::max(0, turnDurationFrames - (int)(simulationFrame - (uint32_t)turnStartFrame));
 				ofLogNotice("Timer") << "Movement animation active. Pausing turn timer with " << turnTimerPausedRemainingFrames << " frames remaining.";
 			}
 			return; // Don't advance timer check until animation completes
 		}
 
-		int elapsedFrames = ofGetFrameNum() - turnStartFrame;
+		int elapsedFrames = (int)(simulationFrame - (uint32_t)turnStartFrame);
 		if (elapsedFrames >= turnDurationFrames) {
 			if (currentState == STATE_DRAFTING) {
 				// Wait for draft display timeout to show auto-selected card
@@ -9491,7 +9487,7 @@ void ofApp::drawGame() {
 		if (turnTimerPaused) {
 			elapsedSeconds = std::max(0.0f, (float)(turnDurationFrames - turnTimerPausedRemainingFrames) / (float)turnTimerFramesPerSecond);
 		} else {
-			elapsedSeconds = turnStartDeferred ? 0.0f : (float)(ofGetFrameNum() - turnStartFrame) / (float)turnTimerFramesPerSecond;
+			elapsedSeconds = turnStartDeferred ? 0.0f : (float)((int)(simulationFrame - (uint32_t)turnStartFrame)) / (float)turnTimerFramesPerSecond;
 		}
 		float durationSeconds = std::max(0.001f, (float)turnDurationFrames / (float)turnTimerFramesPerSecond);
 		float progress = std::min(1.0f, elapsedSeconds / durationSeconds); // 0 to 1
@@ -12870,7 +12866,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 		if (debugUnlimitedTimeButton.inside(x, y)) {
 			turnTimerEnabled = !turnTimerEnabled;
 			if (turnTimerEnabled) {
-				turnStartFrame = ofGetFrameNum();
+				turnStartFrame = (int)simulationFrame;
 				addGameLog("Turn timer enabled.");
 			} else {
 				addGameLog("Unlimited time enabled (turn timer disabled).");
@@ -16251,10 +16247,10 @@ void ofApp::continueNewTurn() {
 	// Defer starting the visible turn timer until any queued visuals finish so
 	// the active player's thinking time does not include opponent animations.
 	turnStartDeferred = true;
-	turnStartDeferredAtFrame = ofGetFrameNum();
+	turnStartDeferredAtFrame = (int)simulationFrame;
 	// Reset visible timer baseline immediately so UI shows a fresh full bar
 	// as soon as the new turn begins.
-	turnStartFrame = ofGetFrameNum();
+	turnStartFrame = (int)simulationFrame;
 	ofLogNotice("Timer") << "Turn start deferred until visuals complete for player " << startingPlayer.playerID;
 	turnDurationFrames = getActiveTurnDurationFrames();
 
@@ -16605,12 +16601,13 @@ void ofApp::updateCardInteractionState(CardInteractionState newState, int cardId
 		if (turnTimerPaused) {
 			turnTimerPaused = false;
 			// restore remaining time
-			turnStartFrame = ofGetFrameNum() - (turnDurationFrames - turnTimerPausedRemainingFrames);
+			turnStartFrame = (int)simulationFrame - (turnDurationFrames - turnTimerPausedRemainingFrames);
 			turnTimerPausedRemainingFrames = 0;
 		}
 
 		// Stop any opponent decision timer
 		opponentDecisionTimerActive = false;
+		opponentDecisionStartFrame = 0;
 		opponentDecisionPlayerIndex = -1;
 	}
 	// When entering a menu, start the menu-open scale animation
@@ -16632,7 +16629,7 @@ void ofApp::updateCardInteractionState(CardInteractionState newState, int cardId
 				// Use centralized helper to pause active player's timer and start opponent timer
 				pauseTurnTimerForOpponentDecision(optPlayer);
 				// Set decision window to 30 seconds (menus/ghost relocation)
-				opponentDecisionDuration = 30.0f;
+				opponentDecisionDurationFrames = 30 * turnTimerFramesPerSecond;
 			}
 		}
 	}
@@ -18976,10 +18973,10 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 			// turn-start code paths may bypass the usual deferred flag, so
 			// enforce it here for safety.
 			turnStartDeferred = true;
-			turnStartDeferredAtFrame = ofGetFrameNum();
+			turnStartDeferredAtFrame = (int)simulationFrame;
 			// Also reset the visible timer baseline so the UI shows a fresh
 			// timer for the next player immediately (safety for stuck visuals).
-			turnStartFrame = ofGetFrameNum();
+			turnStartFrame = (int)simulationFrame;
 			ofLogNotice("Timer") << "Host: deferred next player's visible timer until visuals complete.";
 		} else {
 			// Clients: advance local turn state as well so the client rolls AP
@@ -18988,10 +18985,10 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 			// opponent animations.
 			ofLogNotice("Lockstep") << "Client processing CMD_END_TURN -> startNewTurn()";
 			turnStartDeferred = true;
-			turnStartDeferredAtFrame = ofGetFrameNum();
+			turnStartDeferredAtFrame = (int)simulationFrame;
 			// Reset baseline timer immediately so clients see the timer reset even
 			// if visuals are still playing; continue authoritative start logic.
-			turnStartFrame = ofGetFrameNum();
+			turnStartFrame = (int)simulationFrame;
 			startNewTurn();
 		}
 		break;
@@ -29918,9 +29915,9 @@ void ofApp::drawCardChoicePanel(const ofRectangle & panelRect,
 
 	// Mini decision timer (used when another player's menu decision pauses the turn timer)
 	if (opponentDecisionTimerActive) {
-		float elapsed = ofGetElapsedTimef() - opponentDecisionStartTime;
-		float remaining = std::max(0.0f, opponentDecisionDuration - elapsed);
-		float pct = (opponentDecisionDuration > 0.0f) ? (remaining / opponentDecisionDuration) : 0.0f;
+		float elapsed = (float)((int)(simulationFrame - opponentDecisionStartFrame));
+		float remaining = std::max(0.0f, (float)opponentDecisionDurationFrames - elapsed);
+		float pct = (opponentDecisionDurationFrames > 0) ? (remaining / (float)opponentDecisionDurationFrames) : 0.0f;
 		float barW = std::min(240.0f, panelRect.getWidth() * 0.5f);
 		float barH = 14.0f;
 		float barX = panelRect.getCenter().x - barW * 0.5f;
@@ -30029,9 +30026,9 @@ void ofApp::drawOptionCards(const ofRectangle & panelRect,
 
 	// Mini decision timer above panel
 	if (opponentDecisionTimerActive) {
-		float elapsed = ofGetElapsedTimef() - opponentDecisionStartTime;
-		float remaining = std::max(0.0f, opponentDecisionDuration - elapsed);
-		float pct = (opponentDecisionDuration > 0.0f) ? (remaining / opponentDecisionDuration) : 0.0f;
+		float elapsed = (float)((int)(simulationFrame - opponentDecisionStartFrame));
+		float remaining = std::max(0.0f, (float)opponentDecisionDurationFrames - elapsed);
+		float pct = (opponentDecisionDurationFrames > 0) ? (remaining / (float)opponentDecisionDurationFrames) : 0.0f;
 		float barW = std::min(240.0f, panelRect.getWidth() * 0.5f);
 		float barH = 14.0f;
 		float barX = panelRect.getCenter().x - barW * 0.5f;
@@ -31558,7 +31555,7 @@ void ofApp::generateDraftOptions(int classTier, const std::vector<int> * forcedI
 	// Separate draft timers per drafting player.
 	const bool isFirstInitialDraftReveal = (!initialDraftComplete && classTier == 1 && draftStage == 0);
 	if (turnTimerEnabled && (previousDraftPlayer != draftPlayerIndex || isFirstInitialDraftReveal)) {
-		turnStartFrame = ofGetFrameNum();
+		turnStartFrame = (int)simulationFrame;
 	}
 
 	// Initialize Accept button animation to match cards
@@ -31616,7 +31613,7 @@ void ofApp::applyDraftOptionsFromPool(int classTier, const std::vector<int> & in
 	lastDraftOptionsPlayer = draftingPlayerIdx;
 	const bool isFirstInitialDraftReveal = (!initialDraftComplete && classTier == 1 && draftStage == 0);
 	if (turnTimerEnabled && (previousDraftPlayer != draftingPlayerIdx || isFirstInitialDraftReveal)) {
-		turnStartFrame = ofGetFrameNum();
+		turnStartFrame = (int)simulationFrame;
 	}
 	selectedDraftIndices.clear();
 	currentState = STATE_DRAFTING; // Force state transition
@@ -32564,9 +32561,8 @@ void ofApp::processNetworkPackets() {
 					applySnapshotString(incomingSnapshotBuffer);
 					if (waitingForReconnect) {
 						if (reconnectTurnTimerPausedByDisconnect) {
-							int nowFrame = ofGetFrameNum();
 							turnTimerPaused = false;
-							turnStartFrame = nowFrame - (turnDurationFrames - reconnectTurnTimerPausedRemainingFrames);
+							turnStartFrame = (int)simulationFrame - (turnDurationFrames - reconnectTurnTimerPausedRemainingFrames);
 							turnTimerPausedRemainingFrames = 0;
 							reconnectTurnTimerPausedByDisconnect = false;
 							reconnectTurnTimerPausedRemainingFrames = 0;
