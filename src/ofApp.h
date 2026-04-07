@@ -1311,6 +1311,12 @@ private:
 	int lastDraftOptionsPlayer = -1;
 	float draftEndAt = 0.0f;
 
+	// Draft display timing: show draft non-interactively with auto-select
+	float draftDisplayStartTime = 0.0f; // When draft options appeared
+	float draftDisplayDuration = 1.0f; // Show for ~1 second before auto-accepting
+	bool draftDisplayInteractiveEnabled = true; // Can click draft options?
+	int draftAutoSelectedIndex = -1; // Which option was RNG-selected (for visual feedback)
+
 	// Helpers
 	void startShuffleVisual(int playerIndex, float delaySeconds = 0.0f);
 	void scheduleGenerateDraftOptions(int classTier, float delaySeconds);

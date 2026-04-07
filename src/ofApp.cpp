@@ -385,7 +385,7 @@ static ofRectangle getTightCardBounds(float x, float y, float w, float h, float 
 	return ofRectangle(bounds.x + shrinkX, bounds.y + shrinkY, newWidth, newHeight);
 }
 
-static void rebuildCardAlphaMaskAndOutline(const ofImage & image, unsigned char alphaThreshold = 8) {
+static void rebuildCardAlphaMaskAndOutline(const ofImage & image, unsigned char alphaThreshold = 8, const std::vector<ofRectangle> & extraOpaqueRectsNormalized = {}) {
 	gCardAlphaMask.clear();
 	gCardEdgeOutlineNormalized.clear();
 	gCardAlphaMaskWidth = (int)image.getWidth();
@@ -406,6 +406,16 @@ static void rebuildCardAlphaMaskAndOutline(const ofImage & image, unsigned char 
 		int rightX = -1;
 		for (int x = 0; x < gCardAlphaMaskWidth; ++x) {
 			unsigned char a = pixels.getColor(x, y).a;
+			if (a <= alphaThreshold && !extraOpaqueRectsNormalized.empty()) {
+				float nx = ((float)x + 0.5f) / (float)gCardAlphaMaskWidth;
+				float ny = ((float)y + 0.5f) / (float)gCardAlphaMaskHeight;
+				for (const auto & r : extraOpaqueRectsNormalized) {
+					if (r.inside(nx, ny)) {
+						a = 255;
+						break;
+					}
+				}
+			}
 			gCardAlphaMask[(size_t)y * (size_t)gCardAlphaMaskWidth + (size_t)x] = a;
 			if (a <= alphaThreshold) continue;
 			if (leftX < 0) leftX = x;
@@ -837,8 +847,26 @@ static bool rebuildCardSpriteSheetFromTemplate(const std::string & templatePath,
 	const int cardW = (int)templateImage.getWidth();
 	const int cardH = (int)templateImage.getHeight();
 	if (cardW <= 0 || cardH <= 0) return false;
+	CardTemplateLayout outlineLayout;
+	ofRectangle damageTypeNorm(
+		outlineLayout.damageTypeRect.x / (float)cardW,
+		outlineLayout.damageTypeRect.y / (float)cardH,
+		outlineLayout.damageTypeRect.width / (float)cardW,
+		outlineLayout.damageTypeRect.height / (float)cardH);
+	damageTypeNorm.x = ofClamp(damageTypeNorm.x, 0.0f, 1.0f);
+	damageTypeNorm.y = ofClamp(damageTypeNorm.y, 0.0f, 1.0f);
+	damageTypeNorm.width = ofClamp(damageTypeNorm.width, 0.0f, 1.0f - damageTypeNorm.x);
+	damageTypeNorm.height = ofClamp(damageTypeNorm.height, 0.0f, 1.0f - damageTypeNorm.y);
+
 	gCardOpaqueBoundsNormalized = computeOpaqueBoundsNormalized(templateImage, 0, 0);
-	rebuildCardAlphaMaskAndOutline(templateImage, 8);
+	if (damageTypeNorm.width > 0.0f && damageTypeNorm.height > 0.0f) {
+		float minX = std::min(gCardOpaqueBoundsNormalized.getLeft(), damageTypeNorm.getLeft());
+		float minY = std::min(gCardOpaqueBoundsNormalized.getTop(), damageTypeNorm.getTop());
+		float maxX = std::max(gCardOpaqueBoundsNormalized.getRight(), damageTypeNorm.getRight());
+		float maxY = std::max(gCardOpaqueBoundsNormalized.getBottom(), damageTypeNorm.getBottom());
+		gCardOpaqueBoundsNormalized.set(minX, minY, std::max(0.0f, maxX - minX), std::max(0.0f, maxY - minY));
+	}
+	rebuildCardAlphaMaskAndOutline(templateImage, 8, { damageTypeNorm });
 
 	int sheetW = 0;
 	int sheetH = 0;
@@ -5055,6 +5083,9 @@ void ofApp::initialiseGameStateCommon() {
 	initialDraftComplete = false;
 	draftAcceptLocked = false;
 	draftAcceptApplied = false;
+	draftDisplayStartTime = 0.0f;
+	draftDisplayInteractiveEnabled = true;
+	draftAutoSelectedIndex = -1;
 	// waitingForTurnStartTimer removed; clients derive turn-start from command stream
 	waitingForDraftOptionsStartTime = 0.0f;
 	hasDrawnCardsThisTurn = false;
@@ -5179,6 +5210,7 @@ void ofApp::updateGame() {
 	const float staticUICardHeight = (handBaseCardWidth * handCardAspectRatio * pileCardScale) * scale;
 	// Deck bottom gap on screen after stack offset is applied in drawGame().
 	const float deckBottomGap = effectiveBottomGap(layoutSpacing);
+	const float sideInset = deckBottomGap;
 	// Mirror drawGame() deck/discard anchoring math so minion panels can align to it.
 	const float deckY = ofGetHeight() - staticUICardHeight - layoutSpacing.edgeInset + layoutSpacing.stackYOffset;
 	const float discardY = deckY - staticUICardHeight - layoutSpacing.stackVerticalGap;
@@ -5304,7 +5336,7 @@ void ofApp::updateGame() {
 			// Pre-calculate deck and discard rects for hover detection
 			// These will be refined during the draw phase, but we need them now for mouseMoved checks
 			float cardAspectRatio = 585.0f / 409.0f; // cardBackImage aspect ratio
-			float iconMargin = layoutSpacing.edgeInset;
+			float iconMargin = layoutSpacing.minionIconGap;
 			// Make icons proportionally large relative to entry height
 			float iconHeight = ui.bounds.height * 0.72f;
 			float iconWidth = iconHeight * cardAspectRatio;
@@ -5325,12 +5357,12 @@ void ofApp::updateGame() {
 
 	// 4. BUILD LISTS WITH PLAYER-SPECIFIC BOUNDARIES
 	// Align local minion panel to the left side (top-left start) and go down.
-	float p0_startX = layoutSpacing.edgeInset;
+	float p0_startX = sideInset;
 	buildMinionList(p0_minionIndices, p0_startX, p0_topLimitY, p0_bottomLimitY, 0, p0_skeleton, p0_golem, p0_wolf, p0_hound, p0_demon, p0_kobold, p0_assistant, p0_wall, p0_faerie);
 
 	// Mirror on enemy side: flush to the right edge inset.
-	float p1_startX = ofGetWidth() - layoutSpacing.edgeInset - panelWidthScaled;
-	p1_startX = std::max(layoutSpacing.edgeInset, p1_startX);
+	float p1_startX = ofGetWidth() - sideInset - panelWidthScaled;
+	p1_startX = std::max(sideInset, p1_startX);
 	int p1_assistant = 0;
 	int p1_faerie = 0;
 	buildMinionList(p1_minionIndices, p1_startX, p1_topLimitY, p1_bottomLimitY, 1, p1_skeleton, p1_golem, p1_wolf, p1_hound, p1_demon, p1_kobold, p1_assistant, p1_wall, p1_faerie);
@@ -6453,6 +6485,11 @@ void ofApp::updateGame() {
 		draftStage = 0;
 		currentState = STATE_DRAFTING;
 
+		// Reset draft display state for new draft screen
+		draftDisplayStartTime = 0.0f;
+		draftDisplayInteractiveEnabled = true;
+		draftAutoSelectedIndex = -1;
+
 		ofLogNotice("Blocking Boon") << "Starting chained draft for Class " << nextClass << ". Remaining in queue: " << networkPending.draftQueue.size();
 	}
 	// ==============================================================
@@ -6793,18 +6830,6 @@ void ofApp::updateGame() {
 				// Snap to exact tile
 				playerVisualPos = targetPos;
 
-				// Key pickup: use the centralized helper so both host and client
-				// generate deterministic draft options in the same way.
-				{
-					int cx = (int)std::round((playerVisualPos.x - TILE_SIZE / 2.0f) / TILE_SIZE + BOARD_WIDTH / 2.0f);
-					int cy = (int)std::round((playerVisualPos.z - TILE_SIZE / 2.0f) / TILE_SIZE + BOARD_HEIGHT / 2.0f);
-					cx = std::clamp(cx, 0, BOARD_WIDTH - 1);
-					cy = std::clamp(cy, 0, BOARD_HEIGHT - 1);
-					int ownerID = players[animatingPlayerIndex].isMinion ? players[animatingPlayerIndex].ownerID : players[animatingPlayerIndex].playerID;
-					checkKeyPickupAndDraftAfterSummon(cx, cy, ownerID);
-					if (isInGameDraft) return; // if draft started, pause update here
-				}
-
 				// Advance to next segment
 				currentPathIndex++;
 				animationSegmentStartTime = ofGetElapsedTimef();
@@ -6824,6 +6849,19 @@ void ofApp::updateGame() {
 					animatingPlayerIndex = -1;
 					if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) {
 						playerVisualPos = gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y);
+					}
+
+					// Key pickup: trigger draft after movement animation completes visually
+					if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) {
+						int ownerID = players[currentPlayerIndex].isMinion ? players[currentPlayerIndex].ownerID : players[currentPlayerIndex].playerID;
+						checkKeyPickupAndDraftAfterSummon(players[currentPlayerIndex].x, players[currentPlayerIndex].y, ownerID);
+
+						// If draft was triggered, initialize display mode (non-interactive for 1 second)
+						if (isInGameDraft) {
+							draftDisplayStartTime = ofGetElapsedTimef();
+							draftDisplayInteractiveEnabled = false;
+							draftAutoSelectedIndex = -1;
+						}
 					}
 				}
 			}
@@ -7104,9 +7142,36 @@ void ofApp::updateGame() {
 	bool handlesDraftTimerHere2 = (!isMultiplayer || isLocalDraftingPlayer(draftPlayerIndex));
 	bool localShouldRunTimerHere2 = (currentState == STATE_DRAFTING) ? handlesDraftTimerHere2 : handlesGameplayTimerHere2;
 	if (turnTimerEnabled && !turnStartDeferred && !turnTimerPaused && (currentState == STATE_GAMEPLAY || currentState == STATE_DRAFTING) && currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size() && localShouldRunTimerHere2) {
+		// If movement animation is still playing, pause the timer until it completes
+		if (isPlayerAnimating) {
+			if (!turnTimerPaused) {
+				turnTimerPaused = true;
+				turnTimerPausedRemainingFrames = std::max(0, (int)(turnDurationFrames - (ofGetFrameNum() - turnStartFrame)));
+				ofLogNotice("Timer") << "Movement animation active. Pausing turn timer with " << turnTimerPausedRemainingFrames << " frames remaining.";
+			}
+			return; // Don't advance timer check until animation completes
+		}
+
 		int elapsedFrames = ofGetFrameNum() - turnStartFrame;
 		if (elapsedFrames >= turnDurationFrames) {
 			if (currentState == STATE_DRAFTING) {
+				// Wait for draft display timeout to show auto-selected card
+				if (!draftDisplayInteractiveEnabled) {
+					float elapsedDisplay = ofGetElapsedTimef() - draftDisplayStartTime;
+					if (elapsedDisplay < draftDisplayDuration) {
+						// Still in non-interactive display period; auto-select one card for visual feedback
+						if (draftAutoSelectedIndex < 0 && !currentDraftOptionPoolIndices.empty()) {
+							std::vector<int> rawPick;
+							int pickRoll = resolveDiceRollDetailed(1, (int)currentDraftOptionPoolIndices.size(), rawPick);
+							int randomIdx = std::max(0, pickRoll - 1);
+							draftAutoSelectedIndex = currentDraftOptionPoolIndices[randomIdx];
+						}
+						return; // Wait for display timeout
+					}
+					// Display timeout complete; proceed to auto-accept
+					draftDisplayInteractiveEnabled = false; // Remain non-interactive after display
+				}
+
 				// Timer expired during drafting: auto-pick remaining cards or accept selected ones
 				int requiredPicks = (!isInGameDraft && draftStage == 0) ? 2 : 1;
 
@@ -9608,9 +9673,10 @@ void ofApp::drawGame() {
 		float verticalGap = ui.stackVerticalGap;
 		float uiStackYOffset = ui.stackYOffset; // move deck/discard/AP stack slightly down
 		float deckBottomGap = effectiveBottomGap(ui);
+		float sideInset = deckBottomGap;
 
 		// Local player (P0) - deck should be at the bottom-left, discard above it
-		float p0_deckX = ui.edgeInset;
+		float p0_deckX = sideInset;
 		float p0_deckY = ofGetHeight() - staticUICardHeight - margin + uiStackYOffset;
 		p0_deckRect.set(p0_deckX, p0_deckY, staticUICardWidth, staticUICardHeight);
 
@@ -9619,7 +9685,7 @@ void ofApp::drawGame() {
 		p0_discardRect.set(p0_discardX, p0_discardY, staticUICardWidth, staticUICardHeight);
 
 		// Opponent (P1) mirrored on the right side - deck at bottom-right, discard above it
-		float p1_deckX = ofGetWidth() - staticUICardWidth - ui.edgeInset;
+		float p1_deckX = ofGetWidth() - staticUICardWidth - sideInset;
 		float p1_deckY = ofGetHeight() - staticUICardHeight - margin + uiStackYOffset;
 		p1_deckRect.set(p1_deckX, p1_deckY, staticUICardWidth, staticUICardHeight);
 
@@ -9686,7 +9752,7 @@ void ofApp::drawGame() {
 		if (isLocalPlayersTurnForMainDeck && !activeMainDeckAlreadyDrawn) {
 			ofPushStyle();
 			ofNoFill();
-			ofSetColor(ofColor::green);
+			ofSetColor(ofColor::yellow);
 			ofSetLineWidth(4 * scale);
 			ofRectangle hoverRect = getOpaqueCardBounds(p0_deckRect.x, p0_deckRect.y, p0_deckRect.width, p0_deckRect.height);
 			ofDrawRectangle(hoverRect);
@@ -9775,7 +9841,7 @@ void ofApp::drawGame() {
 		if (isOpponentPlayersTurnForMainDeck && !opponentHasDrawnCardsThisTurn) {
 			ofPushStyle();
 			ofNoFill();
-			ofSetColor(ofColor::green);
+			ofSetColor(ofColor::yellow);
 			ofSetLineWidth(4 * scale);
 			ofRectangle hoverRect = getOpaqueCardBounds(p1_deckRect.x, p1_deckRect.y, p1_deckRect.width, p1_deckRect.height);
 			ofDrawRectangle(hoverRect);
@@ -9846,6 +9912,7 @@ void ofApp::drawGame() {
 		// AP preview text: show hovered/dragged hand card cost as a fading line under AP.
 		bool hasPreviewCardForAP = false;
 		int previewCardCost = 0;
+		bool previewIsSprint = false;
 		if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size() && (!isMultiplayer || isMyTurn())) {
 			Player & apPreviewPlayer = players[currentPlayerIndex];
 			int apPreviewCardIndex = -1;
@@ -9858,6 +9925,7 @@ void ofApp::drawGame() {
 			if (apPreviewCardIndex >= 0 && apPreviewCardIndex < (int)apPreviewPlayer.hand.size()) {
 				hasPreviewCardForAP = true;
 				previewCardCost = getEffectiveCardCostForPlayer(apPreviewPlayer, apPreviewPlayer.hand[apPreviewCardIndex]);
+				previewIsSprint = (apPreviewPlayer.hand[apPreviewCardIndex].type == CARD_SPRINT);
 			}
 		}
 
@@ -9876,10 +9944,14 @@ void ofApp::drawGame() {
 			apPreviewAlpha = std::max(apPreviewTargetAlpha, apPreviewAlpha - apPreviewFadeRate * apDt);
 		}
 
-		string apCostPreviewText = "-" + ofToString(previewCardCost);
+		string apCostPreviewText = previewIsSprint ? "+2" : ("-" + ofToString(previewCardCost));
+		static string apPreviewDisplayText = "";
+		if (hasPreviewCardForAP) {
+			apPreviewDisplayText = apCostPreviewText;
+		}
 		ofRectangle p0_apTextBox = titleFont.getStringBoundingBox(p0_apText, 0, 0);
 		float p0_previewScale = fontScale * 0.62f;
-		ofRectangle p0_previewTextBox = titleFont.getStringBoundingBox(apCostPreviewText, 0, 0);
+		ofRectangle p0_previewTextBox = titleFont.getStringBoundingBox(apPreviewDisplayText, 0, 0);
 		float p0_apRectWidth = (p0_apTextBox.width * fontScale) + (40 * scale);
 		float p0_apRectHeight = (p0_apTextBox.height * fontScale) + (20 * scale);
 		// Place AP box slightly above the discard pile
@@ -9913,15 +9985,15 @@ void ofApp::drawGame() {
 			titleFont.drawString(p0_apText, -p0_apTextBox.getCenter().x, -p0_apTextBox.getCenter().y);
 			ofPopMatrix();
 
-			if (apPreviewAlpha > 1.0f) {
+			if (apPreviewAlpha > 1.0f && !apPreviewDisplayText.empty()) {
 				ofColor previewColor(255, 70, 70, (int)ofClamp(apPreviewAlpha, 0.0f, 255.0f));
 				ofSetColor(previewColor);
 				ofPushMatrix();
-				float p0_previewAnchorX = p0_apCenterX + (p0_apRectWidth * 0.5f) - (10.0f * scale);
+				float p0_previewAnchorX = p0_apCenterX + (p0_apRectWidth * 0.5f) + (12.0f * scale);
 				float p0_previewCenterY = p0_apCenterY;
 				ofTranslate(p0_previewAnchorX, p0_previewCenterY);
 				ofScale(p0_previewScale, p0_previewScale);
-				titleFont.drawString(apCostPreviewText, -p0_previewTextBox.width, -p0_previewTextBox.getCenter().y);
+				titleFont.drawString(apPreviewDisplayText, -p0_previewTextBox.width, -p0_previewTextBox.getCenter().y);
 				ofPopMatrix();
 			}
 		}
@@ -10035,15 +10107,15 @@ void ofApp::drawGame() {
 			titleFont.drawString(p1_apText, -p1_apTextBox.getCenter().x, -p1_apTextBox.getCenter().y);
 			ofPopMatrix();
 
-			if (apPreviewAlpha > 1.0f) {
+			if (apPreviewAlpha > 1.0f && !apPreviewDisplayText.empty()) {
 				ofColor previewColor(255, 70, 70, (int)ofClamp(apPreviewAlpha, 0.0f, 255.0f));
 				ofSetColor(previewColor);
 				ofPushMatrix();
-				float p1_previewAnchorX = p1_apCenterX + (p1_apRectWidth * 0.5f) - (10.0f * scale);
+				float p1_previewAnchorX = p1_apCenterX + (p1_apRectWidth * 0.5f) + (12.0f * scale);
 				float p1_previewCenterY = p1_apCenterY;
 				ofTranslate(p1_previewAnchorX, p1_previewCenterY);
 				ofScale(p0_previewScale, p0_previewScale);
-				titleFont.drawString(apCostPreviewText, -p0_previewTextBox.width, -p0_previewTextBox.getCenter().y);
+				titleFont.drawString(apPreviewDisplayText, -p0_previewTextBox.width, -p0_previewTextBox.getCenter().y);
 				ofPopMatrix();
 			}
 		}
@@ -11734,6 +11806,12 @@ cursor_check_done:;
 					}
 				}
 			}
+
+			// Keep highlights stable while holding LMB on a card even if tiny
+			// mouse jitter temporarily leaves the hover rect.
+			if (foundHoverIndex == -1 && ofGetMousePressed(OF_MOUSE_BUTTON_LEFT) && pressedCardIndex >= 0 && pressedCardIndex < numCards) {
+				foundHoverIndex = pressedCardIndex;
+			}
 			hoveredCardIndex = foundHoverIndex;
 			// Update target highlights on hover change (when not dragging)
 			if (hoveredCardIndex != lastHoveredCardIndex) {
@@ -11792,6 +11870,8 @@ cursor_check_done:;
 			activeCardForHighlight = draggedCardIndex; // Dragging card - use dragged card for highlights
 		else if (selectedCardIndex != -1)
 			activeCardForHighlight = selectedCardIndex;
+		else if (ofGetMousePressed(OF_MOUSE_BUTTON_LEFT) && pressedCardIndex != -1)
+			activeCardForHighlight = pressedCardIndex;
 		else
 			activeCardForHighlight = hoveredCardIndex;
 
@@ -12796,6 +12876,12 @@ void ofApp::mousePressed(int x, int y, int button) {
 	if (currentState == STATE_DRAFTING && button == OF_MOUSE_BUTTON_LEFT) {
 		if (draftAcceptLocked) {
 			ofLogNotice("Draft") << "DRAFT CLICK IGNORED: accept already sent.";
+			return;
+		}
+
+		// Block all draft clicks if display is in non-interactive mode
+		if (!draftDisplayInteractiveEnabled) {
+			ofLogNotice("Draft") << "DRAFT CLICK IGNORED: non-interactive display mode. Showing auto-selected card.";
 			return;
 		}
 		// Card Dimensions (Must match drawDraftScreen)
@@ -14486,37 +14572,6 @@ void ofApp::mouseDragged(int x, int y, int button) {
 			if (sourceIndex < 0 || sourceIndex >= numCards) return;
 			Card & card = currentPlayer.hand[sourceIndex];
 			ofRectangle hitRect = getHandCardRestRect(card, handBaseCardWidth, baseCardHeight);
-			bool hasEnoughAP = isCurrentPlayerLocal() && (currentAP >= getEffectiveCardCostForPlayer(currentPlayer, card));
-
-			auto hasAnyValidTargetForCard = [&]() {
-				if (card.targeting == TARGET_SELF) return true;
-				if (card.type == CARD_TELEPORT) return true; // Teleport destination validity is range-roll dependent.
-
-				calculateTargetHighlights(sourceIndex);
-				for (int tx = 0; tx < BOARD_WIDTH; ++tx) {
-					for (int ty = 0; ty < BOARD_HEIGHT; ++ty) {
-						if (board[tx][ty].isTargetable) return true;
-					}
-				}
-				return false;
-			};
-
-			bool hasPossibleTargets = hasAnyValidTargetForCard();
-			bool canStartDrag = hasEnoughAP && hasPossibleTargets;
-			if (!canStartDrag) {
-				if (!hasEnoughAP)
-					queueFloatingTextVisual(gridToWorld(currentPlayer.x, currentPlayer.y), "Not enough AP", ofColor::red);
-				else if (!hasPossibleTargets)
-					queueFloatingTextVisual(gridToWorld(currentPlayer.x, currentPlayer.y), "No valid target", ofColor::orange);
-
-				draggedCardIndex = -1;
-				pressedCardIndex = -1;
-				selectedCardIndex = -1;
-				card.currentPos = card.targetPos;
-				card.currentScale = card.targetScale;
-				calculateTargetHighlights();
-				return;
-			}
 
 			// Set draggedCardIndex based on pressedCardIndex, OR check current position if no pressed index
 			if (pressedCardIndex != -1) {
@@ -14536,23 +14591,36 @@ void ofApp::mouseDragged(int x, int y, int button) {
 		if (draggedCardIndex != -1) {
 			Player & currentPlayer = players[currentPlayerIndex];
 			Card & draggedCard = currentPlayer.hand[draggedCardIndex];
-			bool canPlayCard = isCurrentPlayerLocal() && (currentAP >= getEffectiveCardCostForPlayer(currentPlayer, draggedCard));
+			auto hasAnyValidTargetForCard = [&](int cardIndex) {
+				if (cardIndex < 0 || cardIndex >= (int)currentPlayer.hand.size()) return false;
+				const Card & candidate = currentPlayer.hand[cardIndex];
+				if (candidate.targeting == TARGET_SELF) return true;
+				if (candidate.type == CARD_TELEPORT) return true; // destination validity is roll-dependent
+
+				calculateTargetHighlights(cardIndex);
+				for (int tx = 0; tx < BOARD_WIDTH; ++tx) {
+					for (int ty = 0; ty < BOARD_HEIGHT; ++ty) {
+						if (board[tx][ty].isTargetable) return true;
+					}
+				}
+				return false;
+			};
+
+			bool hasEnoughAP = isCurrentPlayerLocal() && (currentAP >= getEffectiveCardCostForPlayer(currentPlayer, draggedCard));
+			bool hasPossibleTargets = hasAnyValidTargetForCard(draggedCardIndex);
+			bool canDragOutOfHand = hasEnoughAP && hasPossibleTargets;
 			ofRectangle handAreaRect = computeHandAreaRect((float)ofGetWidth(), (float)ofGetHeight());
-			if (!canPlayCard && !handAreaRect.inside((float)x, (float)y)) {
-				draggedCard.currentPos = draggedCard.targetPos;
-				draggedCard.currentScale = draggedCard.targetScale;
-				draggedCardIndex = -1;
-				pressedCardIndex = -1;
-				selectedCardIndex = -1;
-				calculateTargetHighlights();
-				return;
-			}
 
 			if (selectedCardIndex != -1) {
 				selectedCardIndex = -1;
 				// Don't clear highlights here - will update with draggedCardIndex below
 			}
-			players[currentPlayerIndex].hand[draggedCardIndex].currentPos = ofVec2f(x, y) - dragOffset;
+			ofVec2f desiredPos = ofVec2f(x, y) - dragOffset;
+			if (!canDragOutOfHand) {
+				desiredPos.x = ofClamp(desiredPos.x, handAreaRect.getLeft(), handAreaRect.getRight());
+				desiredPos.y = ofClamp(desiredPos.y, handAreaRect.getTop(), handAreaRect.getBottom());
+			}
+			players[currentPlayerIndex].hand[draggedCardIndex].currentPos = desiredPos;
 			// While dragging, keep target highlights up-to-date so swipe shows previews without hovering
 			calculateTargetHighlights(draggedCardIndex);
 		} else if (playerAction == PIECE_SELECTED) {
@@ -14667,20 +14735,36 @@ void ofApp::mouseReleased(int x, int y, int button) {
 
 		if (draggedCardIndex != -1) {
 			Card & draggedCard = currentPlayer.hand[draggedCardIndex];
-			bool canPlayCard = isCurrentPlayerLocal() && (currentAP >= getEffectiveCardCostForPlayer(currentPlayer, draggedCard));
+			auto hasAnyValidTargetForCard = [&](int cardIndex) {
+				if (cardIndex < 0 || cardIndex >= (int)currentPlayer.hand.size()) return false;
+				const Card & candidate = currentPlayer.hand[cardIndex];
+				if (candidate.targeting == TARGET_SELF) return true;
+				if (candidate.type == CARD_TELEPORT) return true;
+				calculateTargetHighlights(cardIndex);
+				for (int tx = 0; tx < BOARD_WIDTH; ++tx) {
+					for (int ty = 0; ty < BOARD_HEIGHT; ++ty) {
+						if (board[tx][ty].isTargetable) return true;
+					}
+				}
+				return false;
+			};
+			bool canPlayCard = isCurrentPlayerLocal() && (currentAP >= getEffectiveCardCostForPlayer(currentPlayer, draggedCard)) && hasAnyValidTargetForCard(draggedCardIndex);
 			bool startedCardInteraction = false;
 			if (dist > dragThreshold) {
 				Card & playedCard = draggedCard;
+				ofRectangle handAreaRect = computeHandAreaRect((float)ofGetWidth(), (float)ofGetHeight());
 				float playZoneY = ofGetHeight() * 0.5f; // Changed from 0.7f to 0.5f for easier targeting card play
 				float upwardDrag = mouseDownPos.y - y;
 				bool releasedInPlayZone = (y < playZoneY);
 				bool draggedUpEnough = (upwardDrag > 30.0f);
+				bool releasedOutsideHandArea = !handAreaRect.inside((float)x, (float)y);
 				ofLogNotice("CardDrag") << "Release detected: dist=" << dist << " y=" << y << " playZoneY=" << playZoneY
 										<< " upwardDrag=" << upwardDrag
 										<< " releasedInPlayZone=" << releasedInPlayZone
-										<< " draggedUpEnough=" << draggedUpEnough;
+										<< " draggedUpEnough=" << draggedUpEnough
+										<< " releasedOutsideHandArea=" << releasedOutsideHandArea;
 
-				if (canPlayCard && (releasedInPlayZone || draggedUpEnough)) {
+				if (canPlayCard && releasedOutsideHandArea && (releasedInPlayZone || draggedUpEnough)) {
 					// === NEW UNIFIED HANDLER ===
 					// Call the centralized card play handler instead of per-card logic
 					ofLogNotice("CardDrag") << "Calling handleCardDragToPlay for card=" << playedCard.name;
@@ -28818,8 +28902,12 @@ void ofApp::drawCardEncyclopediaUI() {
 					drawY = baseDrawY - (thisCardH - cardH) / 2.0f;
 
 					// Add glow for scaled card
-					ofSetColor(255, 255, 100, 150);
-					ofDrawRectRounded(drawX - 5, drawY - 5, thisCardW + 10, thisCardH + 10, 12);
+					ofPushStyle();
+					ofNoFill();
+					ofSetLineWidth(5);
+					ofSetColor(255, 255, 100, 190);
+					drawCardEdgeOutline(drawX, drawY, thisCardW, thisCardH, 6.0f);
+					ofPopStyle();
 				}
 
 				// Card rect for interaction
@@ -28828,9 +28916,12 @@ void ofApp::drawCardEncyclopediaUI() {
 				// Hover glow for non-scaled hover
 				bool isHovered = (int)i == encyclopediaHoveredIndex && !encyclopediaHoverScaled;
 				if (isHovered) {
-					ofSetColor(100, 150, 255, 100);
-					ofRectangle hoverRect = getOpaqueCardBounds(drawX, drawY, thisCardW, thisCardH);
-					ofDrawRectRounded(hoverRect.x - 3, hoverRect.y - 3, hoverRect.width + 6, hoverRect.height + 6, 8);
+					ofPushStyle();
+					ofNoFill();
+					ofSetLineWidth(3);
+					ofSetColor(100, 150, 255, 170);
+					drawCardEdgeOutline(drawX, drawY, thisCardW, thisCardH, 3.0f);
+					ofPopStyle();
 				}
 
 				// Draw card art
@@ -28844,7 +28935,7 @@ void ofApp::drawCardEncyclopediaUI() {
 					ofNoFill();
 					ofSetLineWidth(6);
 					ofSetColor(ofColor::yellow);
-					ofDrawRectRounded(drawX - 4, drawY - 4, thisCardW + 8, thisCardH + 8, 10);
+					drawCardEdgeOutline(drawX, drawY, thisCardW, thisCardH, 4.0f);
 					ofFill();
 				}
 
@@ -31072,7 +31163,7 @@ void ofApp::drawMinionManagerUI() {
 
 		// --- Draw Icons (mirror per side) ---
 		const UILayoutSpacing layoutSpacing = buildUILayoutSpacing(scale, turnTimerEnabled);
-		float iconMargin = layoutSpacing.edgeInset;
+		float iconMargin = layoutSpacing.minionIconGap;
 		float iconHeight = ui.bounds.height * 0.72f;
 		float cardAspectRatio = cardBackImage.getWidth() / cardBackImage.getHeight();
 		float iconWidth = iconHeight * cardAspectRatio;
@@ -31080,10 +31171,10 @@ void ofApp::drawMinionManagerUI() {
 
 		if (isLeft) {
 			ui.discardRect.set(ui.bounds.getRight() - (iconWidth + iconMargin), iconsY, iconWidth, iconHeight);
-			ui.deckRect.set(ui.bounds.getRight() - (iconWidth * 2 + iconMargin * 2 + 5 * scale), iconsY, iconWidth, iconHeight);
+			ui.deckRect.set(ui.bounds.getRight() - (iconWidth * 2 + iconMargin * 2), iconsY, iconWidth, iconHeight);
 		} else {
 			ui.discardRect.set(ui.bounds.x + iconMargin, iconsY, iconWidth, iconHeight);
-			ui.deckRect.set(ui.discardRect.getRight() + iconMargin + 5 * scale, iconsY, iconWidth, iconHeight);
+			ui.deckRect.set(ui.discardRect.getRight() + iconMargin, iconsY, iconWidth, iconHeight);
 		}
 
 		float textBlockX = isLeft ? (ui.bounds.x + 10 * scale) : (ui.deckRect.getRight() + 16 * scale);
@@ -31132,7 +31223,7 @@ void ofApp::drawMinionManagerUI() {
 		if (ui.playerIndex == currentPlayerIndex && !players[ui.playerIndex].hasDrawnThisTurn) {
 			ofPushStyle();
 			ofNoFill();
-			ofSetColor(ofColor::green);
+			ofSetColor(ofColor::yellow);
 			ofSetLineWidth(3 * scale);
 			ofDrawRectRounded(ui.deckRect, 5);
 			ofPopStyle();
@@ -31795,7 +31886,7 @@ void ofApp::drawDraftScreen() {
 			ofNoFill();
 			ofSetColor(ofColor::yellow);
 			ofSetLineWidth(6);
-			ofDrawRectRounded(drawX - 8, drawY - 8, w + 16, h + 16, 12);
+			drawCardEdgeOutline(drawX, drawY, w, h, 8.0f);
 			ofPopStyle();
 		}
 		// Hover Highlight (White/Subtle) using unscaled hit area
@@ -31805,8 +31896,7 @@ void ofApp::drawDraftScreen() {
 			ofNoFill();
 			ofSetColor(ofColor::white);
 			ofSetLineWidth(3);
-			ofRectangle hoverRect = getOpaqueCardBounds(drawX, drawY, w, h);
-			ofDrawRectRounded(hoverRect.x - 5, hoverRect.y - 5, hoverRect.width + 10, hoverRect.height + 10, 10);
+			drawCardEdgeOutline(drawX, drawY, w, h, 5.0f);
 			ofPopStyle();
 		}
 
