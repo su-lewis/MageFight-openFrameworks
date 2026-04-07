@@ -1016,7 +1016,7 @@ private:
 
 	void updatePlayerAP(Player & player, int newAP);
 	void applyMovement(int playerIndex, int targetX, int targetY, int newAP, const std::vector<glm::vec2> * pathOverride = nullptr);
-	void createCardDisplay(const Card & card, int playerIndex); // Create card display animation
+	void createCardDisplay(const Card & card, int playerIndex, bool forceVisibleForAllPlayers = false); // Create card display animation
 	std::string currentDiceLabel = "";
 	// Start a purely-visual dice spinner using precomputed raw faces (does not consume gameplay RNG)
 	void startVisualDiceRoll(const VisualEvent & ev);

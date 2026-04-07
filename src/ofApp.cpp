@@ -24134,12 +24134,24 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 				queueEffect(addOp);
 			}
 
-			// Visual: push stolen-card animation (uses captured card)
+			// Show the stolen card reveal first, then animate the card into the caster's deck.
+			createCardDisplay(stolenCard, targetIndex, true);
+
+			auto getDeckCenterForPlayerIndex = [&](int playerIndex) -> glm::vec2 {
+				if (playerIndex < 0 || playerIndex >= (int)players.size()) {
+					return glm::vec2(ofGetWidth() / 2.0f, ofGetHeight() / 2.0f);
+				}
+				const Player & owner = players[playerIndex];
+				int ownerSlot = owner.isMinion ? owner.ownerID : owner.playerID;
+				ofRectangle deckRect = (ownerSlot == 0) ? p0_deckRect : p1_deckRect;
+				return deckRect.getCenter();
+			};
+
 			StolenCardAnimation newAnim;
 			newAnim.card = stolenCard;
-			newAnim.startTime = ofGetElapsedTimef();
+			newAnim.startTime = ofGetElapsedTimef() + 1.25f;
 			newAnim.startPos = gridToWorld(targetPlayer->x, targetPlayer->y);
-			newAnim.targetPos = { ofGetWidth() / 2.0f, ofGetHeight() / 2.0f };
+			newAnim.targetPos = getDeckCenterForPlayerIndex(currentPlayerIndex);
 			newAnim.currentPos = getActiveCamera().worldToScreen(newAnim.startPos);
 			activeStolenCardAnimations.push_back(newAnim);
 			currentCardOutcome.targetPlayerIndex = targetIndex;
@@ -26019,14 +26031,15 @@ glm::vec2 ofApp::getCardDisplayUIPosition(int playerIndex) {
 	}
 }
 //--------------------------------------------------------------
-void ofApp::createCardDisplay(const Card & card, int playerIndex) {
-	// In singleplayer, don't show card animations at all
-	if (!isMultiplayer) {
+void ofApp::createCardDisplay(const Card & card, int playerIndex, bool forceVisibleForAllPlayers) {
+	// In singleplayer, don't show card animations at all unless explicitly forced.
+	if (!isMultiplayer && !forceVisibleForAllPlayers) {
 		return;
 	}
 
-	// In multiplayer: Don't show card animation for the local player who played it
-	if (playerIndex >= 0 && playerIndex < (int)players.size()) {
+	// In multiplayer: Don't show card animation for the local player who played it,
+	// unless the caller explicitly wants everyone to see it (e.g. Mind Theft).
+	if (!forceVisibleForAllPlayers && playerIndex >= 0 && playerIndex < (int)players.size()) {
 		int playingPlayerID = players[playerIndex].playerID;
 		if (playingPlayerID == myLocalPlayerID) {
 			return; // Don't show animation for local player in multiplayer
