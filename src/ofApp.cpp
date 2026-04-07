@@ -11687,12 +11687,14 @@ void ofApp::mouseMoved(int x, int y) {
 		float baseCardHeight = kCardPixelHeight * kHandCardVisualScale;
 		int foundHandHover = -1;
 
-		for (size_t i = 0; i < p.hand.size(); i++) {
+		// Check cards in REVERSE order so we find the topmost (rightmost/last drawn) card first
+		for (int i = (int)p.hand.size() - 1; i >= 0; i--) {
 			Card & c = p.hand[i];
 			ofRectangle hitRect = getHandCardRestRect(c, handBaseCardWidth, baseCardHeight);
 
 			if (hitRect.inside((float)x, (float)y)) {
-				foundHandHover = (int)i; // last match wins (top-most in our draw order)
+				foundHandHover = i; // first match wins (top-most card visually)
+				break; // Stop at first hit since we're going in reverse
 			}
 		}
 		if (foundHandHover != -1) {
