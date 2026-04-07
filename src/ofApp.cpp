@@ -6687,7 +6687,6 @@ void ofApp::updateGame() {
 							if (hc.drawnThisTurn && hc.isAnimating && hc.name == anim.card.name) {
 								hc.currentPos = anim.targetPos;
 								hc.targetPos = anim.targetPos;
-								hc.currentScale = 1.0f;
 								hc.currentScale = kHandCardVisualScale;
 								hc.targetScale = kHandCardVisualScale;
 								hc.isAnimating = false;
