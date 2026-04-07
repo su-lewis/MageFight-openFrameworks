@@ -227,9 +227,19 @@ static HandLayout computeHandLayout(size_t numCards, float screenW, float screen
 	}
 
 	float handAreaWidth = std::max(0.0f, l.handAreaRect.getWidth());
-	float totalCardWidth = (float)numCards * l.cardW;
-	l.spacing = (handAreaWidth - totalCardWidth) / (float)(numCards - 1);
-	l.spacing = std::min(l.spacing, kHandMaxSpacing);
+	float smallGap = std::clamp(screenH * 0.008f, 6.0f, 12.0f);
+
+	if (numCards <= 3) {
+		// 1-3 cards: keep cards next to each other with a very small positive gap.
+		l.spacing = smallGap;
+	} else {
+		// 4+ cards: overlap to fit available space (Hearthstone-like fan stack).
+		float centerStepToFit = (handAreaWidth - l.cardW) / (float)(numCards - 1);
+		float minCenterStep = l.cardW * 0.22f; // strongest overlap allowed
+		float maxCenterStep = l.cardW + smallGap; // no overlap + tiny gap
+		float centerStep = ofClamp(centerStepToFit, minCenterStep, maxCenterStep);
+		l.spacing = centerStep - l.cardW;
+	}
 
 	l.totalWidth = (float)numCards * l.cardW + (float)(numCards - 1) * l.spacing;
 	l.startX = l.handAreaRect.getCenter().x - (l.totalWidth * 0.5f);
@@ -6776,7 +6786,16 @@ void ofApp::updateGame() {
 			// Position the cards for the active local unit (player or minion)
 			for (size_t i = 0; i < numCards; i++) {
 				float cardCenterX = handLayout.startX + (float)i * (handLayout.cardW + handLayout.spacing) + (handLayout.cardW * 0.5f);
-				handPlayer->hand[i].targetPos = ofVec2f(cardCenterX, handLayout.restY);
+				float fanT = 0.0f;
+				if (numCards >= 4) {
+					fanT = ((float)i / (float)(numCards - 1) - 0.5f) * 2.0f; // [-1..1]
+				}
+				float arcDrop = 0.0f;
+				if (numCards >= 4) {
+					arcDrop = std::clamp(10.0f + std::max(0.0f, (float)numCards - 3.0f) * 1.8f, 10.0f, 36.0f);
+				}
+				float cardCenterY = handLayout.restY + arcDrop * (fanT * fanT);
+				handPlayer->hand[i].targetPos = ofVec2f(cardCenterX, cardCenterY);
 
 				if (static_cast<int>(i) != draggedCardIndex) {
 					handPlayer->hand[i].currentScale = ofLerp(handPlayer->hand[i].currentScale, handPlayer->hand[i].targetScale, 0.25f);
@@ -10562,6 +10581,15 @@ void ofApp::drawGame() {
 
 			float drawX = card.currentPos.x - w / 2;
 			float drawY = card.currentPos.y - h / 2;
+			float fanT = 0.0f;
+			if (numCards >= 4) {
+				fanT = ((float)index / (float)(numCards - 1) - 0.5f) * 2.0f; // [-1..1]
+			}
+			float maxTiltDeg = 0.0f;
+			if (numCards >= 4) {
+				maxTiltDeg = std::clamp(7.0f + std::max(0.0f, (float)numCards - 3.0f) * 1.2f, 7.0f, 20.0f);
+			}
+			float tiltDeg = (index == draggedCardIndex || index == hoveredCardIndex) ? 0.0f : (fanT * maxTiltDeg);
 
 			// Apply hover offsets - move upward and increase scale
 			if (isTopCard) {
@@ -10574,6 +10602,11 @@ void ofApp::drawGame() {
 					drawY += hoverDirection;
 				}
 			}
+
+			ofPushMatrix();
+			ofTranslate(drawX + w * 0.5f, drawY + h * 0.5f);
+			ofRotateDeg(tiltDeg);
+			ofTranslate(-(drawX + w * 0.5f), -(drawY + h * 0.5f));
 
 			// A. Draw Sprite
 			// Ghostly tint for copied cards in Renewed Inspiration mode
@@ -10646,6 +10679,8 @@ void ofApp::drawGame() {
 					}
 				}
 			}
+
+			ofPopMatrix();
 		};
 
 		// 2. PASS 1: Draw standard cards
