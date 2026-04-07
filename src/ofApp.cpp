@@ -9776,8 +9776,12 @@ void ofApp::drawGame() {
 			ofNoFill();
 			ofSetColor(255, 255, 255, 200); // White glow
 			ofSetLineWidth(4 * scale);
-			ofRectangle hoverRect = getOpaqueCardBounds(p0_discardRect.x, p0_discardRect.y, p0_discardRect.width, p0_discardRect.height);
-			ofDrawRectangle(hoverRect);
+			// If discard has cards, use card edge outline; otherwise use box
+			if (!localPlayer->discardPile.empty()) {
+				drawCardEdgeOutline(p0_discardRect.x, p0_discardRect.y, p0_discardRect.width, p0_discardRect.height, 0.0f);
+			} else {
+				ofDrawRectangle(p0_discardRect);
+			}
 			ofPopStyle();
 		}
 
@@ -9822,8 +9826,12 @@ void ofApp::drawGame() {
 			ofNoFill();
 			ofSetColor(255, 255, 255, 200);
 			ofSetLineWidth(4 * scale);
-			ofRectangle hoverRect = getOpaqueCardBounds(p1_discardRect.x, p1_discardRect.y, p1_discardRect.width, p1_discardRect.height);
-			ofDrawRectangle(hoverRect);
+			// If discard has cards, use card edge outline; otherwise use box
+			if (!opponentPlayer->discardPile.empty()) {
+				drawCardEdgeOutline(p1_discardRect.x, p1_discardRect.y, p1_discardRect.width, p1_discardRect.height, 0.0f);
+			} else {
+				ofDrawRectangle(p1_discardRect);
+			}
 			ofPopStyle();
 		}
 
@@ -10584,7 +10592,7 @@ void ofApp::drawGame() {
 				ofNoFill();
 				ofSetColor(255, 255, 255, 200); // White glow
 				ofSetLineWidth(4);
-				drawCardEdgeOutline(drawX, drawY, w, h, 2.0f);
+				drawCardEdgeOutline(drawX, drawY, w, h, 1.0f);
 				ofPopStyle();
 			}
 			if (isMultiplayer && opponentHoverType == HOVER_HAND_CARD && opponentHoverCardIndex == index) {
@@ -10592,7 +10600,7 @@ void ofApp::drawGame() {
 				ofNoFill();
 				ofSetColor(255, 0, 0, 200); // Red glow
 				ofSetLineWidth(4);
-				drawCardEdgeOutline(drawX, drawY, w, h, 2.0f);
+				drawCardEdgeOutline(drawX, drawY, w, h, 1.0f);
 				ofPopStyle();
 			}
 
@@ -10634,7 +10642,7 @@ void ofApp::drawGame() {
 						ofNoFill();
 						ofSetColor(255, 140, 0); // Orange glow
 						ofSetLineWidth(4);
-						drawCardEdgeOutline(drawX, drawY, w, h, 2.0f);
+						drawCardEdgeOutline(drawX, drawY, w, h, 1.0f);
 						ofPopStyle();
 					}
 				}
