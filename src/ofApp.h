@@ -1488,6 +1488,14 @@ private:
 	int opponentDecisionDurationFrames = 30 * 60; // default opponent decision window (30s for menus)
 	int opponentDecisionPlayerIndex = -1; // which player must decide
 
+	// Competitive anti-stall / reconnect-forfeit state
+	std::array<int, 2> afkStrikeCounts = { 0, 0 }; // indexed by owner/player ID (0/1)
+	int currentTurnOwnerID = -1; // owner ID of the active unit for this turn
+	bool currentTurnHadMeaningfulAction = false; // true once a valid action is made this turn
+	bool currentTurnTimeoutProcessed = false; // avoid double-strike from multiple timer checks
+	float reconnectForfeitStartTime = -1.0f; // real-time countdown anchor while waiting
+	float reconnectForfeitDuration = 60.0f; // seconds before disconnect forfeit
+
 	std::vector<DeathMarker> graveyard;
 	std::vector<FloatingText> activeFloatingTexts;
 	std::vector<Particle> particles;
@@ -1741,6 +1749,11 @@ private:
 
 	// Trigger a camera shake: intensity in world units, duration in seconds
 	void triggerCameraShake(float intensity, float duration);
+	int getOwnerIdForActorIndex(int actorIndex) const;
+	int getNormalTurnDurationFramesForActorIndex(int actorIndex) const;
+	void markMeaningfulActionOnCurrentTurn();
+	void registerAfkTimeoutForCurrentOwner();
+	void handleOwnerForfeit(int loserOwnerId, const std::string & reason);
 	int getActiveTurnDurationFrames() const;
 	void resetDraftPhaseTimerWindow();
 

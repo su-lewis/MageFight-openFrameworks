@@ -2358,14 +2358,108 @@ void ofApp::pauseTurnTimerForOpponentDecision(int decidingPlayerIndex) {
 	}
 }
 
+int ofApp::getOwnerIdForActorIndex(int actorIndex) const {
+	if (actorIndex < 0 || actorIndex >= (int)players.size()) return -1;
+	const Player & p = players[actorIndex];
+	return p.isMinion ? p.ownerID : p.playerID;
+}
+
+int ofApp::getNormalTurnDurationFramesForActorIndex(int actorIndex) const {
+	if (actorIndex < 0 || actorIndex >= (int)players.size()) return 90 * turnTimerFramesPerSecond;
+	return players[actorIndex].isMinion ? (60 * turnTimerFramesPerSecond) : (90 * turnTimerFramesPerSecond);
+}
+
+void ofApp::markMeaningfulActionOnCurrentTurn() {
+	if (currentState != STATE_GAMEPLAY) return;
+	if (currentTurnOwnerID < 0 || currentTurnOwnerID > 1) return;
+	if (currentTurnHadMeaningfulAction) return;
+
+	currentTurnHadMeaningfulAction = true;
+
+	// Clear AFK penalty immediately on first valid action during a penalized turn.
+	if (afkStrikeCounts[currentTurnOwnerID] > 0) {
+		afkStrikeCounts[currentTurnOwnerID] = 0;
+
+		if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) {
+			int normalDuration = getNormalTurnDurationFramesForActorIndex(currentPlayerIndex);
+			int elapsedFrames = 0;
+			if (turnTimerPaused) {
+				elapsedFrames = std::max(0, turnDurationFrames - turnTimerPausedRemainingFrames);
+			} else {
+				elapsedFrames = turnStartDeferred ? 0 : std::max(0, (int)(simulationFrame - (uint32_t)turnStartFrame));
+			}
+
+			turnDurationFrames = normalDuration;
+			if (turnTimerPaused) {
+				turnTimerPausedRemainingFrames = std::max(0, normalDuration - elapsedFrames);
+			}
+		}
+
+		if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) {
+			queueFloatingTextVisual(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y), "AFK penalty cleared", ofColor::green);
+		}
+		ofLogNotice("AFK") << "Owner " << currentTurnOwnerID << " acted; AFK strikes reset and timer restored.";
+	}
+}
+
+void ofApp::handleOwnerForfeit(int loserOwnerId, const std::string & reason) {
+	if (loserOwnerId < 0 || loserOwnerId > 1) return;
+	int winnerOwnerId = (loserOwnerId == 0) ? 1 : 0;
+
+	std::string winnerText = (winnerOwnerId == myLocalPlayerID) ? "You" : "Opponent";
+	std::string loserText = (loserOwnerId == myLocalPlayerID) ? "You" : "Opponent";
+	std::string msg = winnerText + " win by forfeit (" + reason + "). " + loserText + " lose.";
+
+	addGameLog(msg);
+	ofLogNotice("Forfeit") << msg;
+
+	bool saved = saveGameStateToFile("autosave_forfeit.json");
+	ofLogNotice("Save") << (saved ? "Saved autosave_forfeit.json" : "Failed to save autosave_forfeit.json");
+
+	// Reset multiplayer/session state and return to menu.
+	isMultiplayer = false;
+	hasReceivedHandshake = false;
+	initialDraftComplete = false;
+	draftAcceptLocked = false;
+	draftAcceptApplied = false;
+	gameplaySeededByHost = false;
+	handshakeRequestInterval = 1.0f;
+	waitingForReconnect = false;
+	reconnectTurnTimerPausedByDisconnect = false;
+	reconnectTurnTimerPausedRemainingFrames = 0;
+	turnTimerPaused = false;
+	turnTimerPausedRemainingFrames = 0;
+	reconnectForfeitStartTime = -1.0f;
+
+	cleanupGame();
+	currentState = STATE_MAIN_MENU;
+}
+
+void ofApp::registerAfkTimeoutForCurrentOwner() {
+	if (currentState != STATE_GAMEPLAY) return;
+	if (currentTurnTimeoutProcessed) return;
+	currentTurnTimeoutProcessed = true;
+
+	if (currentTurnOwnerID < 0 || currentTurnOwnerID > 1) return;
+	if (currentTurnHadMeaningfulAction) return;
+
+	afkStrikeCounts[currentTurnOwnerID]++;
+	ofLogNotice("AFK") << "Owner " << currentTurnOwnerID << " timeout with no action. Strikes=" << afkStrikeCounts[currentTurnOwnerID];
+
+	if (afkStrikeCounts[currentTurnOwnerID] >= 3) {
+		handleOwnerForfeit(currentTurnOwnerID, "AFK strikes reached 3");
+	}
+}
+
 int ofApp::getActiveTurnDurationFrames() const {
 	if (currentState == STATE_DRAFTING) {
 		return 90 * turnTimerFramesPerSecond;
 	}
-	if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size() && players[currentPlayerIndex].isMinion) {
-		return 60 * turnTimerFramesPerSecond;
+	int ownerId = getOwnerIdForActorIndex(currentPlayerIndex);
+	if (ownerId >= 0 && ownerId <= 1 && afkStrikeCounts[ownerId] > 0) {
+		return 30 * turnTimerFramesPerSecond;
 	}
-	return 90 * turnTimerFramesPerSecond;
+	return getNormalTurnDurationFramesForActorIndex(currentPlayerIndex);
 }
 
 void ofApp::resetDraftPhaseTimerWindow() {
@@ -3603,6 +3697,7 @@ void ofApp::update() {
 				if (!waitingForReconnect) {
 					ofLogNotice("Network") << "Connection lost. Entering reconnect wait state.";
 					waitingForReconnect = true;
+					reconnectForfeitStartTime = ofGetElapsedTimef();
 					currentState = STATE_WAITING_FOR_RECONNECT;
 
 					// Pause turn timer (single pause source dedicated to reconnect wait).
@@ -3625,6 +3720,15 @@ void ofApp::update() {
 						chatHistory.erase(chatHistory.begin());
 					}
 					lastChatInteractionTime = ofGetElapsedTimef();
+				}
+
+				if (waitingForReconnect && reconnectForfeitStartTime > 0.0f) {
+					float elapsed = ofGetElapsedTimef() - reconnectForfeitStartTime;
+					if (elapsed >= reconnectForfeitDuration) {
+						int loserOwner = (myLocalPlayerID == 0) ? 1 : 0;
+						handleOwnerForfeit(loserOwner, "disconnect timeout");
+						return;
+					}
 				}
 				return; // Keep waiting state stable while disconnected.
 			}
@@ -3685,6 +3789,7 @@ void ofApp::update() {
 						reconnectTurnTimerPausedRemainingFrames = 0;
 					}
 					waitingForReconnect = false;
+					reconnectForfeitStartTime = -1.0f;
 					currentState = STATE_GAMEPLAY;
 				} else {
 					addGameLog("Reconnected. Waiting for host snapshot...");
@@ -3791,6 +3896,14 @@ void ofApp::update() {
 		break;
 	case STATE_WAITING_FOR_RECONNECT:
 		// Intentionally do not advance simulation while waiting for network recovery.
+		if (waitingForReconnect && reconnectForfeitStartTime > 0.0f) {
+			float elapsed = ofGetElapsedTimef() - reconnectForfeitStartTime;
+			if (elapsed >= reconnectForfeitDuration) {
+				int loserOwner = (myLocalPlayerID == 0) ? 1 : 0;
+				handleOwnerForfeit(loserOwner, "disconnect timeout");
+				return;
+			}
+		}
 		break;
 
 	// --- INITIATIVE ROLL STATE ---
@@ -4029,15 +4142,22 @@ void ofApp::draw() {
 		{
 			std::string line1 = "Connection Lost";
 			std::string line2 = "Waiting for Opponent to Reconnect...";
-			std::string line3 = "Press ESC to Save & Quit";
+			int secsLeft = 0;
+			if (reconnectForfeitStartTime > 0.0f) {
+				secsLeft = std::max(0, (int)std::ceil(reconnectForfeitDuration - (ofGetElapsedTimef() - reconnectForfeitStartTime)));
+			}
+			std::string line3 = "Forfeit in " + ofToString(secsLeft) + "s";
+			std::string line4 = "Press ESC to Save & Quit";
 			ofRectangle b1 = titleFont.getStringBoundingBox(line1, 0, 0);
 			ofRectangle b2 = uiFont.getStringBoundingBox(line2, 0, 0);
 			ofRectangle b3 = uiFont.getStringBoundingBox(line3, 0, 0);
+			ofRectangle b4 = uiFont.getStringBoundingBox(line4, 0, 0);
 			float cx = ofGetWidth() * 0.5f;
 			float cy = ofGetHeight() * 0.5f;
 			titleFont.drawString(line1, cx - b1.getWidth() * 0.5f, cy - 20.0f);
 			uiFont.drawString(line2, cx - b2.getWidth() * 0.5f, cy + 24.0f);
 			uiFont.drawString(line3, cx - b3.getWidth() * 0.5f, cy + 58.0f);
+			uiFont.drawString(line4, cx - b4.getWidth() * 0.5f, cy + 92.0f);
 		}
 		ofPopStyle();
 		break;
@@ -5571,6 +5691,12 @@ void ofApp::updateGame() {
 		if (currentState == STATE_GAMEPLAY || currentState == STATE_DRAFTING) {
 			int elapsedFrames = (int)(simulationFrame - (uint32_t)turnStartFrame);
 			if (elapsedFrames >= turnDurationFrames) {
+				if (currentState == STATE_GAMEPLAY) {
+					registerAfkTimeoutForCurrentOwner();
+					if (currentState == STATE_MAIN_MENU) {
+						return;
+					}
+				}
 				if (currentState == STATE_DRAFTING) {
 					if (!draftAcceptLocked) {
 						int requiredPicks = (!isInGameDraft && draftStage == 0) ? 2 : 1;
@@ -7189,6 +7315,12 @@ void ofApp::updateGame() {
 
 		int elapsedFrames = (int)(simulationFrame - (uint32_t)turnStartFrame);
 		if (elapsedFrames >= turnDurationFrames) {
+			if (currentState == STATE_GAMEPLAY) {
+				registerAfkTimeoutForCurrentOwner();
+				if (currentState == STATE_MAIN_MENU) {
+					return;
+				}
+			}
 			if (currentState == STATE_DRAFTING) {
 				// Wait for draft display timeout to show auto-selected card
 				if (!draftDisplayInteractiveEnabled) {
@@ -14992,6 +15124,7 @@ void ofApp::keyPressed(int key) {
 		reconnectTurnTimerPausedRemainingFrames = 0;
 		turnTimerPaused = false;
 		turnTimerPausedRemainingFrames = 0;
+		reconnectForfeitStartTime = -1.0f;
 
 		cleanupGame();
 		currentState = STATE_MAIN_MENU;
@@ -16235,6 +16368,9 @@ void ofApp::continueNewTurn() {
 	}
 
 	ofLogNotice("Game") << "Player " << startingPlayer.playerID << "'s turn begins.";
+	currentTurnOwnerID = getOwnerIdForActorIndex(currentPlayerIndex);
+	currentTurnHadMeaningfulAction = false;
+	currentTurnTimeoutProcessed = false;
 	hasDrawnCardsThisTurn = false;
 	opponentHasDrawnCardsThisTurn = false;
 	selectedCardIndex = -1;
@@ -18488,6 +18624,11 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 		// Deterministic lockstep: every peer executes the same play logic
 		CardPlayResult result = CARD_NOT_PLAYABLE;
 		result = playCard(cardIndex, targetX, targetY);
+		if (result != CARD_NOT_PLAYABLE && result != CARD_CANCELLED) {
+			if (!isMultiplayer || cmd.playerID == currentTurnOwnerID) {
+				markMeaningfulActionOnCurrentTurn();
+			}
+		}
 
 		ofLogNotice("Lockstep") << "Execute CMD_PLAY_CARD: card=" << cardName << " target=(" << targetX << "," << targetY << ") result=" << (int)result;
 		break;
@@ -18516,6 +18657,9 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 		int newAP = currentAP - moveCost;
 		if (newAP < 0) newAP = 0;
 		applyMovement(unitIndex, toX, toY, newAP, &path);
+		if (!isMultiplayer || cmd.playerID == currentTurnOwnerID) {
+			markMeaningfulActionOnCurrentTurn();
+		}
 		break;
 	}
 	case CMD_MENU_CHOICE: {
@@ -18602,6 +18746,9 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 			ghostRelocateChoices.clear();
 			ghostRelocateTargetIndex = -1;
 			opponentInteraction.open = false;
+			if (!isMultiplayer || cmd.playerID == currentTurnOwnerID) {
+				markMeaningfulActionOnCurrentTurn();
+			}
 			break;
 		}
 
@@ -18636,6 +18783,9 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 			queueEffect(mv);
 			advanceCardState(CARD_STATE_EFFECT_SEQUENCE);
 			resetCardInteraction();
+			if (!isMultiplayer || cmd.playerID == currentTurnOwnerID) {
+				markMeaningfulActionOnCurrentTurn();
+			}
 			break;
 		}
 
@@ -18682,6 +18832,9 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 		isExecutingLockstepCommand = true;
 		handleCardMenuClick(buttonId);
 		isExecutingLockstepCommand = false;
+		if (!isMultiplayer || cmd.playerID == currentTurnOwnerID) {
+			markMeaningfulActionOnCurrentTurn();
+		}
 
 		ofLogNotice("Lockstep") << "Execute CMD_MENU_CHOICE: menuType=" << menuType << " choice=" << choice;
 		break;
@@ -27334,6 +27487,12 @@ std::string ofApp::buildSnapshotString() {
 		ss << "\t" << v;
 	ss << "\n";
 
+	ss << "AFK\t" << afkStrikeCounts[0] << "\t" << afkStrikeCounts[1]
+	   << "\t" << currentTurnOwnerID
+	   << "\t" << (currentTurnHadMeaningfulAction ? 1 : 0)
+	   << "\t" << (currentTurnTimeoutProcessed ? 1 : 0)
+	   << "\n";
+
 	std::string walls;
 	std::string magicWalls;
 	walls.reserve(BOARD_WIDTH * BOARD_HEIGHT);
@@ -27467,6 +27626,10 @@ void ofApp::applySnapshotString(const std::string & data) {
 	bool tmpHasMapSeed = false;
 	std::string tmpRngState;
 	bool tmpHasRngState = false;
+	std::array<int, 2> tmpAfkStrikeCounts = afkStrikeCounts;
+	int tmpCurrentTurnOwnerID = currentTurnOwnerID;
+	bool tmpCurrentTurnHadMeaningfulAction = currentTurnHadMeaningfulAction;
+	bool tmpCurrentTurnTimeoutProcessed = currentTurnTimeoutProcessed;
 
 	std::vector<int> tmpPendingDraftQueue;
 	Tile tmpBoard[BOARD_WIDTH][BOARD_HEIGHT];
@@ -27492,6 +27655,12 @@ void ofApp::applySnapshotString(const std::string & data) {
 			} else if (parts[0] == "RNG" && parts.size() >= 2) {
 				tmpRngState = parts[1];
 				tmpHasRngState = true;
+			} else if (parts[0] == "AFK" && parts.size() >= 6) {
+				tmpAfkStrikeCounts[0] = std::stoi(parts[1]);
+				tmpAfkStrikeCounts[1] = std::stoi(parts[2]);
+				tmpCurrentTurnOwnerID = std::stoi(parts[3]);
+				tmpCurrentTurnHadMeaningfulAction = (std::stoi(parts[4]) != 0);
+				tmpCurrentTurnTimeoutProcessed = (std::stoi(parts[5]) != 0);
 			}
 			if (parts[0] == "STATE" && parts.size() >= 13) {
 				currentState = (GameState)std::stoi(parts[1]);
@@ -27805,6 +27974,10 @@ void ofApp::applySnapshotString(const std::string & data) {
 	lastAPDiceNum = tmpLastAPDiceNum;
 	lastAPDiceSides = tmpLastAPDiceSides;
 	hasUnlimitedAP = tmpHasUnlimitedAP;
+	afkStrikeCounts = tmpAfkStrikeCounts;
+	currentTurnOwnerID = tmpCurrentTurnOwnerID;
+	currentTurnHadMeaningfulAction = tmpCurrentTurnHadMeaningfulAction;
+	currentTurnTimeoutProcessed = tmpCurrentTurnTimeoutProcessed;
 
 	networkPending.draftQueue = tmpPendingDraftQueue;
 
@@ -30671,6 +30844,11 @@ void ofApp::cleanupGame() {
 	}
 
 	currentPlayerIndex = -1;
+	currentTurnOwnerID = -1;
+	currentTurnHadMeaningfulAction = false;
+	currentTurnTimeoutProcessed = false;
+	afkStrikeCounts = { 0, 0 };
+	reconnectForfeitStartTime = -1.0f;
 	playerAction = NONE;
 	selectedCardIndex = -1;
 	draggedCardIndex = -1;
@@ -32568,6 +32746,7 @@ void ofApp::processNetworkPackets() {
 							reconnectTurnTimerPausedRemainingFrames = 0;
 						}
 						waitingForReconnect = false;
+						reconnectForfeitStartTime = -1.0f;
 						currentState = STATE_GAMEPLAY;
 						addGameLog("Reconnect complete. Resuming match.");
 					}
