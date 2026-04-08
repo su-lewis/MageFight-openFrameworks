@@ -21950,6 +21950,25 @@ bool ofApp::processEffectOp(EffectOp & op) {
 			ap.data.modifyStat.deltaFromSlot = -1;
 			queueEffect(ap);
 			queueFloatingTextVisual(gridToWorld(caster.x, caster.y), "+3 AP Next Turn", ofColor::cyan);
+
+			// Paralyze all units that were hit.
+			for (int i = 0; i < count; ++i) {
+				if (i >= (int)currentCardOutcome.targetedPlayers.size()) continue;
+				int pidx = currentCardOutcome.targetedPlayers[i];
+				if (pidx < 0 || pidx >= (int)players.size()) continue;
+
+				int pResolved = findPlayerIndexByID(players[pidx].playerID);
+				if (pResolved < 0 || pResolved >= (int)players.size()) continue;
+
+				EffectOp paralyzeOp = {};
+				paralyzeOp.type = EffectOpType::APPLY_STATUS;
+				paralyzeOp.data.status.targetIndex = pResolved;
+				paralyzeOp.data.status.statusType = STATUS_PARALYZED;
+				paralyzeOp.data.status.duration = 0;
+				queueEffect(paralyzeOp);
+
+				queueFloatingTextVisual(gridToWorld(players[pResolved].x, players[pResolved].y) + glm::vec3(0, 0.6f, 0), "PARALYZED!", ofColor::yellow);
+			}
 		}
 
 		currentCardOutcome.targetedPlayers.clear();
@@ -22035,6 +22054,50 @@ bool ofApp::processEffectOp(EffectOp & op) {
 				applyDmg.data.damage.damageFromSlot = 0; // read damage from blackboard[0]
 				applyDmg.data.damage.damageType = DAMAGE_PIERCING;
 				queueEffect(applyDmg);
+
+				// Elemental synergy from the destroyed card.
+				CardType poppedType = currentCardOutcome.destroyedCardType;
+				if (poppedType == CARD_SHOCK || poppedType == CARD_FLAME_HIT || poppedType == CARD_ADD_POISON) {
+					std::vector<int> rawBonus;
+					int bonusDmg = resolveDiceRollDetailed(1, 6, rawBonus);
+					currentEffectSequence.blackboard[1] = bonusDmg;
+
+					DamageType bonusType = DAMAGE_PHYSICAL;
+					int statusType = 0;
+					ofColor visualColor = ofColor::white;
+
+					if (poppedType == CARD_SHOCK) {
+						bonusType = DAMAGE_ELECTRIC;
+						statusType = STATUS_PARALYZED;
+						visualColor = ofColor::yellow;
+					} else if (poppedType == CARD_FLAME_HIT) {
+						bonusType = DAMAGE_FIRE;
+						statusType = STATUS_ON_FIRE;
+						visualColor = ofColor::orange;
+					} else if (poppedType == CARD_ADD_POISON) {
+						bonusType = DAMAGE_POISON;
+						statusType = STATUS_POISONED;
+						visualColor = ofColor::green;
+					}
+
+					EffectOp applyBonusDmg = {};
+					applyBonusDmg.type = EffectOpType::DAMAGE;
+					applyBonusDmg.data.damage.targetIndex = targetIdx;
+					applyBonusDmg.data.damage.damageFromSlot = 1;
+					applyBonusDmg.data.damage.damageType = bonusType;
+					queueEffect(applyBonusDmg);
+
+					EffectOp applyBonusStatus = {};
+					applyBonusStatus.type = EffectOpType::APPLY_STATUS;
+					applyBonusStatus.data.status.targetIndex = targetIdx;
+					applyBonusStatus.data.status.statusType = statusType;
+					applyBonusStatus.data.status.duration = 0;
+					queueEffect(applyBonusStatus);
+
+					queueVisualDelay(0.6f);
+					queueVisualDiceRoll(gridToWorld((int)interactionTargetTile.x, (int)interactionTargetTile.y) + glm::vec3(0, 1.0f, 0), 1, 6, rawBonus, bonusDmg, PURPOSE_DAMAGE, currentPlayerIndex, 1.0f);
+					queueFloatingTextVisual(gridToWorld((int)interactionTargetTile.x, (int)interactionTargetTile.y) + glm::vec3(0, 0.8f, 0), "Synergy!", visualColor);
+				}
 			} else {
 				ofLogNotice("ShootArrow") << "No target found at impact tile after roll.";
 			}
@@ -23570,6 +23633,18 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 		apNowOp.data.modifyStat.deltaFromSlot = -1;
 		queueEffect(apNowOp);
 
+		// +2 AP next turn
+		EffectOp apNextOp;
+		apNextOp.type = EffectOpType::MODIFY_STAT;
+		apNextOp.data.modifyStat.targetIndex = currentPlayerIndex;
+		apNextOp.data.modifyStat.statType = 11; // Next-turn AP bonus
+		apNextOp.data.modifyStat.delta = 2;
+		apNextOp.data.modifyStat.deltaFromSlot = -1;
+		queueEffect(apNextOp);
+
+		// Free kick for this turn and next turn.
+		players[currentPlayerIndex].freeKickTurns = 2;
+
 		playedSuccessfully = true;
 		advanceCardState(CARD_STATE_EFFECT_SEQUENCE);
 		currentCardOutcome.apGained = 2;
@@ -24195,6 +24270,7 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 		{
 			std::vector<int> rawFlail;
 			int flailTotal = resolveDiceRollDetailed(playedCard.numDice, playedCard.diceSides, rawFlail);
+			flailTotal += playedCard.value; // include flat card bonus (+2)
 			currentEffectSequence.blackboard[0] = flailTotal;
 			glm::vec3 visPos = gridToWorld(currentPlayer.x, currentPlayer.y) + glm::vec3(0, 1.0f, 0);
 			queueVisualDiceRoll(visPos, playedCard.numDice, playedCard.diceSides, rawFlail, flailTotal, PURPOSE_DAMAGE, currentPlayerIndex, 1.2f);
@@ -26117,6 +26193,29 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 		spawnSkeletonOp.data.spawnUnit.maxHealthFromSlot = 0;
 		spawnSkeletonOp.data.spawnUnit.ap = 0;
 		queueEffect(spawnSkeletonOp);
+
+		// If something died here recently, steal one random card from that grave deck.
+		for (auto & grave : graveyard) {
+			if (grave.x == targetX && grave.y == targetY && grave.turnDied >= globalTurnCounter - 1) {
+				if (!grave.deck.empty()) {
+					std::vector<int> rawSteal;
+					int stealIdx = resolveDiceRollDetailed(1, (int)grave.deck.size(), rawSteal) - 1;
+					stealIdx = std::max(0, std::min((int)grave.deck.size() - 1, stealIdx));
+
+					Card stolenCard = grave.deck[stealIdx];
+					grave.deck.erase(grave.deck.begin() + stealIdx);
+
+					EffectOp stealOp = {};
+					stealOp.type = EffectOpType::ADD_CARD_TO_DECK;
+					stealOp.data.addCard.targetIndex = -1; // resolved by SPAWN_UNIT to that new skeleton
+					stealOp.data.addCard.cardType = (int)stolenCard.type;
+					queueEffect(stealOp);
+
+					ofLogNotice("Raise Dead") << "Skeleton stole " << stolenCard.name << " from graveyard!";
+					break;
+				}
+			}
+		}
 
 		playedSuccessfully = true;
 		advanceCardState(CARD_STATE_EFFECT_SEQUENCE);
