@@ -258,20 +258,20 @@ struct CardTemplateRecord {
 };
 
 struct CardTemplateLayout {
-	ofRectangle nameRect = ofRectangle(208, 756, 656, 117); // original vertical position
-	ofRectangle costRect = ofRectangle(48, 48, 96, 96);
+	ofRectangle nameRect = ofRectangle(192, 768, 672, 128);
+	ofRectangle costRect = ofRectangle(32, 32, 128, 128);
 	ofRectangle damageTypeRect = ofRectangle(26, 84, 176, 24);
 	ofRectangle targetingRect = ofRectangle(384, 1344, 320, 80);
 	ofRectangle summonAPRect = ofRectangle(384, 1328, 136, 80);
 	ofRectangle summonHPRect = ofRectangle(552, 1328, 136, 80);
 	ofRectangle classRect = ofRectangle(26, 112, 150, 24);
 	ofRectangle effectRect = ofRectangle(96, 928, 864, 384);
-	float nameScale = 1.75f;
+	float nameScale = 2.60f;
 	float nameMinScale = 1.0f;
-	float nameCurveDropPx = 8.0f;
+	float nameCurveDropPx = 32.0f;
 	float nameMiddleClampXMin = 416.0f;
 	float nameMiddleClampXMax = 656.0f;
-	float nameMiddleBottomMaxY = 846.0f;
+	float nameMiddleBottomMaxY = 864.0f;
 	float costScale = 3.0f;
 	float labelScale = 1.0f;
 	float effectScale = 4.0f; // max preferred scale; auto-fit may reduce per card
@@ -606,6 +606,29 @@ static std::vector<std::string> wrapTextScaled(const ofTrueTypeFont & font, cons
 		std::string word;
 		std::string current;
 		while (wordStream >> word) {
+			// If a single token is wider than the allowed width, split it into
+			// the largest character chunks that fit to guarantee in-rect rendering.
+			if (font.getStringBoundingBox(word, 0, 0).getWidth() > maxWidthUnscaled) {
+				if (!current.empty()) {
+					out.push_back(current);
+					current.clear();
+				}
+				std::string chunk;
+				for (char ch : word) {
+					std::string candidate = chunk + ch;
+					if (!chunk.empty() && font.getStringBoundingBox(candidate, 0, 0).getWidth() > maxWidthUnscaled) {
+						out.push_back(chunk);
+						chunk = std::string(1, ch);
+					} else {
+						chunk = candidate;
+					}
+				}
+				if (!chunk.empty()) {
+					current = chunk;
+				}
+				continue;
+			}
+
 			std::string candidate = current.empty() ? word : (current + " " + word);
 			if (font.getStringBoundingBox(candidate, 0, 0).getWidth() <= maxWidthUnscaled || current.empty()) {
 				current = candidate;
@@ -638,17 +661,19 @@ static void drawCenteredTextScaledOutlined(const ofTrueTypeFont & font,
 	float txSnap = std::round(tx);
 	float tySnap = std::round(ty);
 
-	const int r = std::max(1, outlinePx);
-	for (int dy = -r; dy <= r; ++dy) {
-		for (int dx = -r; dx <= r; ++dx) {
-			if (dx == 0 && dy == 0) continue;
-			if (dx * dx + dy * dy > r * r) continue;
-			ofSetColor(outlineColor);
-			ofPushMatrix();
-			ofTranslate(txSnap + (float)dx, tySnap + (float)dy);
-			ofScale(drawScale, drawScale);
-			font.drawString(text, 0, 0);
-			ofPopMatrix();
+	const int r = std::max(0, outlinePx);
+	if (r > 0) {
+		for (int dy = -r; dy <= r; ++dy) {
+			for (int dx = -r; dx <= r; ++dx) {
+				if (dx == 0 && dy == 0) continue;
+				if (dx * dx + dy * dy > r * r) continue;
+				ofSetColor(outlineColor);
+				ofPushMatrix();
+				ofTranslate(txSnap + (float)dx, tySnap + (float)dy);
+				ofScale(drawScale, drawScale);
+				font.drawString(text, 0, 0);
+				ofPopMatrix();
+			}
 		}
 	}
 
@@ -700,18 +725,34 @@ static void drawArcCenteredTextScaledOutlined(const ofTrueTypeFont & font,
 	float startX = rect.x + (rect.width - totalWidthScaled) * 0.5f;
 	float baselineY = rect.y + (rect.height + b.height * scale) * 0.5f;
 	const int r = std::max(1, outlinePx);
+	const float outerArcSpan = 144.0f;
+	const float firstDropAmt = std::max(4.0f, endDropPx * 0.45f);
+	const float secondDropAmt = endDropPx;
+	auto smoothstep01 = [](float t) {
+		t = std::clamp(t, 0.0f, 1.0f);
+		return t * t * (3.0f - 2.0f * t);
+	};
 
 	float cursorX = startX;
 	for (size_t i = 0; i < text.size(); ++i) {
 		float advScaled = advances[i] * scale;
 		float charCenterX = cursorX + advScaled * 0.5f;
-		float centerRatio = (charCenterX - startX) / std::max(1.0f, totalWidthScaled);
-		float norm = (centerRatio - 0.5f) * 2.0f; // -1 at left, +1 at right
-		float yOffset = endDropPx * norm * norm; // ends drop, center stays highest
-		float drawY = baselineY + yOffset;
+		float drawY = baselineY;
 
 		if (clampXMax > clampXMin && charCenterX >= clampXMin && charCenterX <= clampXMax) {
 			drawY = std::min(drawY, clampBottomY);
+		} else if (clampXMax > clampXMin) {
+			float edgeDistance = 0.0f;
+			if (charCenterX < clampXMin) {
+				edgeDistance = clampXMin - charCenterX;
+			} else if (charCenterX > clampXMax) {
+				edgeDistance = charCenterX - clampXMax;
+			}
+			float t = std::clamp(edgeDistance / outerArcSpan, 0.0f, 1.0f);
+			float midBandT = smoothstep01(t / 0.45f);
+			float outerBandT = smoothstep01((t - 0.45f) / 0.55f);
+			float targetY = clampBottomY + firstDropAmt * midBandT + (secondDropAmt - firstDropAmt) * outerBandT;
+			drawY = std::max(drawY, targetY);
 		}
 
 		ofSetColor(outlineColor);
@@ -978,23 +1019,90 @@ static bool rebuildCardSpriteSheetFromTemplate(const std::string & templatePath,
 	ofRectangle effectTextRect = layout.effectRect;
 
 	std::vector<std::string> allEffectTexts;
+	std::vector<std::string> allCardNames;
+	std::vector<std::string> allAPCosts;
+	std::vector<std::string> allTargetingTexts;
 	allEffectTexts.reserve(allCards.size());
+	allCardNames.reserve(allCards.size());
+	allAPCosts.reserve(allCards.size());
+	allTargetingTexts.reserve(allCards.size());
 	std::string longestTargetingText;
 	std::string longestTargetingCardName;
 	for (const auto & card : allCards) {
+		allCardNames.push_back(card.name);
 		auto it = records.find(normalizeCardKey(card.name));
 		if (it != records.end()) {
 			allEffectTexts.push_back(it->second.effectText);
+			allAPCosts.push_back(it->second.apCost);
+			allTargetingTexts.push_back(it->second.targeting);
 			if (it->second.targeting.size() > longestTargetingText.size()) {
 				longestTargetingText = it->second.targeting;
 				longestTargetingCardName = card.name;
 			}
 		} else {
 			allEffectTexts.push_back("");
+			allAPCosts.push_back("");
+			allTargetingTexts.push_back("");
 		}
 	}
 
-	const float fixedNameScale = layout.nameScale;
+	// AP/HP chips are compact and should read large.
+	const float costTargetChipMaxScale = 4.0f;
+	const float summonChipMaxScale = 4.0f;
+
+	auto bestUniformCenteredTextScale = [&](const ofTrueTypeFont & font,
+											const std::vector<std::string> & texts,
+											const ofRectangle & rect,
+											float minScale,
+											float maxScale) {
+		if (maxScale < minScale) std::swap(maxScale, minScale);
+
+		auto fitsAt = [&](float s) {
+			float drawScale = std::max(0.01f, std::round(s * 4.0f) / 4.0f);
+			for (const auto & t : texts) {
+				if (t.empty()) continue;
+				ofRectangle b = font.getStringBoundingBox(t, 0, 0);
+				if (b.width <= 0.0f || b.height <= 0.0f) continue;
+				if (b.width * drawScale > rect.width || b.height * drawScale > rect.height) return false;
+			}
+			return true;
+		};
+
+		if (!fitsAt(minScale)) return minScale;
+		if (fitsAt(maxScale)) return maxScale;
+
+		float lo = minScale;
+		float hi = maxScale;
+		for (int i = 0; i < 18; ++i) {
+			float mid = (lo + hi) * 0.5f;
+			if (fitsAt(mid))
+				lo = mid;
+			else
+				hi = mid;
+		}
+		return lo;
+	};
+
+	const float uniformNameScale = bestUniformCenteredTextScale(
+		renderTitleFont,
+		allCardNames,
+		layout.nameRect,
+		layout.nameMinScale,
+		layout.nameScale);
+
+	const float uniformAPCostScale = bestUniformCenteredTextScale(
+		renderTitleFont,
+		allAPCosts,
+		layout.costRect,
+		0.75f,
+		costTargetChipMaxScale);
+
+	const float uniformTargetingScale = bestUniformCenteredTextScale(
+		renderTitleFont,
+		allTargetingTexts,
+		layout.targetingRect,
+		0.75f,
+		costTargetChipMaxScale);
 
 	const float uniformEffectScale = bestUniformWrappedTextScale(renderUIFont,
 		allEffectTexts,
@@ -1074,7 +1182,7 @@ static bool rebuildCardSpriteSheetFromTemplate(const std::string & templatePath,
 		float totalH = lineH * (float)lines.size();
 		float blockTop = rect.y + std::max(0.0f, (rect.height - totalH) * 0.5f);
 
-		const int r = std::max(1, outlinePx);
+		const int r = std::max(0, outlinePx);
 		for (size_t li = 0; li < lines.size(); ++li) {
 			const auto & line = lines[li];
 			if (line.empty()) {
@@ -1091,16 +1199,18 @@ static bool rebuildCardSpriteSheetFromTemplate(const std::string & templatePath,
 			float txSnap = std::round(tx);
 			float tySnap = std::round(ty);
 
-			for (int dy = -r; dy <= r; ++dy) {
-				for (int dx = -r; dx <= r; ++dx) {
-					if (dx == 0 && dy == 0) continue;
-					if (dx * dx + dy * dy > r * r) continue;
-					ofSetColor(outlineColor);
-					ofPushMatrix();
-					ofTranslate(txSnap + (float)dx, tySnap + (float)dy);
-					ofScale(drawScale, drawScale);
-					font.drawString(line, 0, 0);
-					ofPopMatrix();
+			if (r > 0) {
+				for (int dy = -r; dy <= r; ++dy) {
+					for (int dx = -r; dx <= r; ++dx) {
+						if (dx == 0 && dy == 0) continue;
+						if (dx * dx + dy * dy > r * r) continue;
+						ofSetColor(outlineColor);
+						ofPushMatrix();
+						ofTranslate(txSnap + (float)dx, tySnap + (float)dy);
+						ofScale(drawScale, drawScale);
+						font.drawString(line, 0, 0);
+						ofPopMatrix();
+					}
 				}
 			}
 
@@ -1113,12 +1223,10 @@ static bool rebuildCardSpriteSheetFromTemplate(const std::string & templatePath,
 		}
 	};
 
-	// AP/HP chips are compact and should read large.
-	const float costTargetChipMaxScale = 4.0f;
-	const float summonChipMaxScale = 4.0f;
 	ofLogNotice("Cards") << "Uniform effect text scale: " << uniformEffectScale;
-
-	ofLogNotice("Cards") << "Targeting text base scale (name-matched): " << fixedNameScale;
+	ofLogNotice("Cards") << "Uniform card name scale: " << uniformNameScale;
+	ofLogNotice("Cards") << "Uniform AP cost scale: " << uniformAPCostScale;
+	ofLogNotice("Cards") << "Uniform targeting scale: " << uniformTargetingScale;
 	if (!longestTargetingText.empty()) {
 		ofLogNotice("Cards") << "Longest targeting text: '" << longestTargetingText
 							 << "' (" << longestTargetingText.size() << " chars) on card '" << longestTargetingCardName << "'";
@@ -1354,14 +1462,14 @@ static bool rebuildCardSpriteSheetFromTemplate(const std::string & templatePath,
 				itBadge->second.draw(layout.classRect.x, layout.classRect.y, layout.classRect.width, layout.classRect.height);
 			}
 		}
-		float apCostScale = bestCenteredTextScaleForSingle(renderTitleFont, rec.apCost, layout.costRect, 0.75f, costTargetChipMaxScale);
-		float targetingScale = bestCenteredTextScaleForSingle(renderTitleFont, rec.targeting, layout.targetingRect, 0.75f, costTargetChipMaxScale);
+		float apCostScale = uniformAPCostScale;
+		float targetingScale = uniformTargetingScale;
 		float summonAPScale = bestWrappedTextScaleForSingle(renderTitleFont, rec.summonAP, layout.summonAPRect, 0.5f, summonChipMaxScale, 0.9f);
 		float summonHPScale = bestWrappedTextScaleForSingle(renderTitleFont, rec.summonHP, layout.summonHPRect, 0.5f, summonChipMaxScale, 0.9f);
 		drawArcCenteredTextScaledOutlined(renderTitleFont,
 			rec.name,
 			layout.nameRect,
-			fixedNameScale,
+			uniformNameScale,
 			layout.nameCurveDropPx,
 			layout.nameMiddleClampXMin,
 			layout.nameMiddleClampXMax,
