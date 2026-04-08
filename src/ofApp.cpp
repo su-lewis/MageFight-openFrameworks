@@ -17539,9 +17539,10 @@ void ofApp::handleCardMenuClick(const std::string & buttonId) {
 			queueFloatingTextVisual(gridToWorld(caster.x, caster.y), "+3 AP next turn", ofColor::yellow);
 		}
 
-		currentAP -= card.cost;
+		currentAP -= getEffectiveCardCostForPlayer(caster, card);
 		updatePlayerAP(caster, currentAP);
 		finishPlayCard(caster, card, interactingCardIndex);
+		completeCardPlayAnimation(card, currentPlayerIndex);
 		resetCardInteraction();
 		break;
 	}
@@ -22232,11 +22233,7 @@ void ofApp::applyCardOutcomeEffects() {
 		Card playedCard = caster.hand[currentCardOutcome.cardIndex];
 
 		// Remove card from hand and update AP (common to all cards)
-		int costToPay = playedCard.cost;
-		if (playedCard.type == CARD_KICK && caster.freeKickTurns > 0) {
-			costToPay = 0;
-			caster.freeKickTurns--;
-		}
+		int costToPay = getEffectiveCardCostForPlayer(caster, playedCard);
 
 		// Finish card play (moves to discard, handles replicate, etc)
 		finishPlayCard(caster, playedCard, currentCardOutcome.cardIndex);
@@ -25148,10 +25145,10 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 		ofLogNotice("Earthquake") << "CARD_EARTHQUAKE triggered by playerIndex=" << currentPlayerIndex << " playerID=" << currentPlayer.playerID;
 		beginEffectSequence();
 		// (lockstep) All peers now run the same deterministic earthquake path.
-		currentAP -= playedCard.cost;
-		currentPlayer.playedCardsPile.push_back(playedCard);
-		currentPlayer.cardsPlayedThisTurn.push_back(playedCard.type);
-		currentPlayer.hand.erase(currentPlayer.hand.begin() + cardIndex);
+		currentAP -= getEffectiveCardCostForPlayer(currentPlayer, playedCard);
+		finishPlayCard(currentPlayer, playedCard, cardIndex);
+		completeCardPlayAnimation(playedCard, currentPlayerIndex);
+		updatePlayerAP(currentPlayer, currentAP);
 		currentCardOutcome.apPaid = true;
 		currentCardOutcome.cardIndex = -1;
 		isEarthquakeActive = true;
@@ -25776,10 +25773,8 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 
 		// --- CRASH FIX START ---
 		// We MUST erase the card and handle AP *before* we push_back to the players vector!
-		currentAP -= playedCard.cost;
-		currentPlayer.playedCardsPile.push_back(playedCard);
-		applyReplicateCopyToHand(currentPlayer, playedCard);
-		currentPlayer.hand.erase(currentPlayer.hand.begin() + cardIndex);
+		currentAP -= getEffectiveCardCostForPlayer(currentPlayer, playedCard);
+		finishPlayCard(currentPlayer, playedCard, cardIndex);
 		completeCardPlayAnimation(playedCard, currentPlayerIndex);
 		// Mark this outcome as already paid so the centralized outcome
 		// application does not double-deduct or attempt to remove the card again.
