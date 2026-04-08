@@ -262,8 +262,8 @@ struct CardTemplateLayout {
 	ofRectangle costRect = ofRectangle(48, 48, 96, 96);
 	ofRectangle damageTypeRect = ofRectangle(26, 84, 176, 24);
 	ofRectangle targetingRect = ofRectangle(384, 1344, 320, 80);
-	ofRectangle summonAPRect = ofRectangle(400, 1344, 112, 64);
-	ofRectangle summonHPRect = ofRectangle(560, 1344, 112, 64);
+	ofRectangle summonAPRect = ofRectangle(384, 1328, 136, 80);
+	ofRectangle summonHPRect = ofRectangle(552, 1328, 136, 80);
 	ofRectangle classRect = ofRectangle(26, 112, 150, 24);
 	ofRectangle effectRect = ofRectangle(96, 928, 864, 384);
 	float nameScale = 1.75f;
@@ -17029,6 +17029,7 @@ void ofApp::handleCardDragToPlay(int cardIndex) {
 
 	bool rockHasAdjacentWall = false;
 	bool rockHasAdjacentUnit = false;
+	bool wisdomHasAdjacentUnit = false;
 	if (card.type == CARD_ROCK_CRUSH) {
 		static const int dirs[4][2] = { { 1, 0 }, { -1, 0 }, { 0, 1 }, { 0, -1 } };
 		for (const auto & d : dirs) {
@@ -17043,6 +17044,18 @@ void ofApp::handleCardDragToPlay(int cardIndex) {
 			}
 		}
 	}
+	if (card.type == CARD_WISDOM_BOON) {
+		static const int dirs[4][2] = { { 1, 0 }, { -1, 0 }, { 0, 1 }, { 0, -1 } };
+		for (const auto & d : dirs) {
+			int nx = caster.x + d[0];
+			int ny = caster.y + d[1];
+			if (nx < 0 || nx >= BOARD_WIDTH || ny < 0 || ny >= BOARD_HEIGHT) continue;
+			if (board[nx][ny].hasPlayer && !board[nx][ny].hasWall && tileHasOtherThan(nx, ny, currentPlayerIndex)) {
+				wisdomHasAdjacentUnit = true;
+				break;
+			}
+		}
+	}
 	if (card.type == CARD_ROCK_CRUSH) {
 		// If both target types exist, force explicit menu choice.
 		// If only one exists, auto-select that mode so targeting highlights are constrained.
@@ -17054,7 +17067,7 @@ void ofApp::handleCardDragToPlay(int cardIndex) {
 	}
 
 	// Choose-one cards should open their menu immediately on play.
-	bool menuFirstChoiceCard = (card.type == CARD_DISPEL || card.type == CARD_WISDOM_BOON || card.type == CARD_DOUBLE_HANDED || card.type == CARD_TRAIN || card.type == CARD_GIANT_MAGIC_HAND || card.type == CARD_BURST_OF_LIGHT || (card.type == CARD_ROCK_CRUSH && rockHasAdjacentWall && rockHasAdjacentUnit));
+	bool menuFirstChoiceCard = (card.type == CARD_DISPEL || (card.type == CARD_WISDOM_BOON && wisdomHasAdjacentUnit) || card.type == CARD_DOUBLE_HANDED || card.type == CARD_TRAIN || card.type == CARD_GIANT_MAGIC_HAND || card.type == CARD_BURST_OF_LIGHT || (card.type == CARD_ROCK_CRUSH && rockHasAdjacentWall && rockHasAdjacentUnit));
 
 	if (menuFirstChoiceCard) {
 		interactingCardIndex = cardIndex;
@@ -17488,6 +17501,24 @@ void ofApp::handleCardMenuClick(const std::string & buttonId) {
 		return true;
 	};
 
+	auto constrainWisdomDamageTargets = [&]() {
+		for (int x = 0; x < BOARD_WIDTH; ++x) {
+			for (int y = 0; y < BOARD_HEIGHT; ++y) {
+				if (!board[x][y].isTargetable) continue;
+				int dist = abs(x - caster.x) + abs(y - caster.y);
+				bool validDamageTarget = (dist == 1) && board[x][y].hasPlayer && !board[x][y].hasWall && tileHasOtherThan(x, y, currentPlayerIndex);
+				if (!validDamageTarget) board[x][y].isTargetable = false;
+			}
+		}
+
+		if (!hasAnyTargetableTile()) {
+			queueFloatingTextVisual(gridToWorld(caster.x, caster.y), "No adjacent unit", ofColor::orange);
+			updateCardInteractionState(CARD_INTERACTION_MENU, interactingCardIndex, interactingCardType);
+			return false;
+		}
+		return true;
+	};
+
 	interactionMenuChoice = buttonId;
 
 	if (interactingCardType == CARD_ROCK_CRUSH) {
@@ -17531,7 +17562,7 @@ void ofApp::handleCardMenuClick(const std::string & buttonId) {
 			break;
 		case CARD_WISDOM_BOON:
 			choice = (buttonId == "damage") ? 1 : 2;
-			choiceNeedsTarget = true;
+			choiceNeedsTarget = (buttonId == "damage");
 			break;
 		case CARD_DOUBLE_HANDED:
 			choice = (buttonId == "Punch") ? 1 : 2;
@@ -17567,7 +17598,10 @@ void ofApp::handleCardMenuClick(const std::string & buttonId) {
 		}
 
 		if (choice > 0 && choiceNeedsTarget && interactionTargetIndex < 0) {
-			enterTargetingIfPossible();
+			if (!enterTargetingIfPossible()) return;
+			if (interactingCardType == CARD_WISDOM_BOON && buttonId == "damage") {
+				constrainWisdomDamageTargets();
+			}
 			return;
 		}
 
@@ -17637,13 +17671,18 @@ void ofApp::handleCardMenuClick(const std::string & buttonId) {
 	}
 
 	case CARD_WISDOM_BOON: {
-		if (interactionTargetIndex < 0) {
-			enterTargetingIfPossible();
-			break;
-		}
 		// Menu choice: "damage" or "block"
 		int effectValue = (int)caster.deck.size();
-		bool isSelfTarget = (interactionTargetIndex == currentPlayerIndex);
+		bool isSelfTarget = true;
+		if (buttonId == "damage") {
+			if (interactionTargetIndex < 0) {
+				if (!enterTargetingIfPossible()) break;
+				constrainWisdomDamageTargets();
+				break;
+			}
+			isSelfTarget = (interactionTargetIndex == currentPlayerIndex);
+			if (isSelfTarget || interactionTargetIndex < 0 || interactionTargetIndex >= (int)players.size()) break;
+		}
 
 		// Queue the chosen effect via the centralized effect sequence and
 		// let the CARD_STATE_OUTCOME / applyCardOutcomeEffects handle AP/card removal
@@ -17666,7 +17705,7 @@ void ofApp::handleCardMenuClick(const std::string & buttonId) {
 		} else if (buttonId == "block") {
 			EffectOp blockOp = {};
 			blockOp.type = EffectOpType::MODIFY_STAT;
-			blockOp.data.modifyStat.targetIndex = interactionTargetIndex;
+			blockOp.data.modifyStat.targetIndex = currentPlayerIndex;
 			blockOp.data.modifyStat.statType = 5; // Block
 			blockOp.data.modifyStat.delta = effectValue;
 			blockOp.data.modifyStat.deltaFromSlot = -1;
@@ -18128,7 +18167,6 @@ void ofApp::drawActiveCardInteractionUI() {
 		case CARD_WISDOM_BOON: {
 			drawMenuOverlay();
 			string title = "Wisdom Boon";
-			bool isSelfTarget = (interactionTargetIndex == currentPlayerIndex);
 			int deckSize = 0;
 			if (currentPlayerIndex >= 0) deckSize = players[currentPlayerIndex].deck.size();
 			string desc = "Effect Strength: " + ofToString(deckSize) + " (Your Deck Size)";
@@ -18142,12 +18180,9 @@ void ofApp::drawActiveCardInteractionUI() {
 			float btnW = 300, btnH = 80;
 			wisdomBtnDamage.set(x + (w - btnW) / 2, y + 110, btnW, btnH);
 			wisdomBtnBlock.set(x + (w - btnW) / 2, y + 110 + btnH + 20, btnW, btnH);
-
-			if (isSelfTarget) {
-				drawCardChoicePanel(wisdomMenuRect, title, desc, wisdomBtnDamage, wisdomBtnBlock, "Gain Block", "", blockAccent, blockAccent, false, true);
-			} else {
-				drawCardChoicePanel(wisdomMenuRect, title, desc, wisdomBtnDamage, wisdomBtnBlock, "Deal Magic Dmg", "", magicAccent, magicAccent, true, false);
-			}
+			drawCardChoicePanel(wisdomMenuRect, title, desc,
+				wisdomBtnDamage, wisdomBtnBlock, "Deal Magic Dmg", "Gain Block",
+				magicAccent, blockAccent, true, true);
 			break;
 		}
 
@@ -22713,6 +22748,20 @@ void ofApp::processCardStateInput(int mouseX, int mouseY, int button) {
 				cmd.params[0] = interactingCardType;
 				cmd.params[1] = interactionTargetIndex;
 				cmd.params[2] = 1; // damage
+				cmd.params[3] = interactingCardIndex;
+				// Route via lockstep in all modes so singleplayer gets a proper Command ID
+				sendInputCommand(cmd, true);
+			} else if (wisdomBtnBlock.inside(mouseX, mouseY)) {
+				InputCommandPacket cmd = {};
+				cmd.type = PKT_INPUT_COMMAND;
+				cmd.playerID = myLocalPlayerID;
+				cmd.seq = 0;
+				cmd.commandId = nextCommandId++;
+				cmd.turnNumber = globalTurnCounter;
+				cmd.commandType = CMD_MENU_CHOICE;
+				cmd.params[0] = interactingCardType;
+				cmd.params[1] = interactionTargetIndex;
+				cmd.params[2] = 2; // block
 				cmd.params[3] = interactingCardIndex;
 				// Route via lockstep in all modes so singleplayer gets a proper Command ID
 				sendInputCommand(cmd, true);
