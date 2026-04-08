@@ -1961,6 +1961,9 @@ private:
 	// Blocking Boon
 	// Draft queue moved into `networkPending.draftQueue`.
 	int blockingBoonTargetIndex = -1; // Stores target for the "Tails" effect
+	int blockingBoonPendingCasterIndex = -1;
+	std::vector<int> blockingBoonPendingCoinRawResults;
+	bool blockingBoonPendingPhysicalAfterDraft = false;
 
 	// Blocking Boon staged resolution (migrated to effect/op system)
 	// Counters moved into `currentCardOutcome.namedDiceResults`:

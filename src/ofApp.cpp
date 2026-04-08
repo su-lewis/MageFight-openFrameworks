@@ -7111,8 +7111,8 @@ void ofApp::updateGame() {
 	// ================== PASTE YOUR NEW CODE HERE ==================
 	// Check if we need to start a chained draft
 	if (currentState == STATE_GAMEPLAY && activeDiceRolls.empty() && !networkPending.draftQueue.empty()) {
-		// Sort queue for better UX? (High class first?)
-		std::sort(networkPending.draftQueue.begin(), networkPending.draftQueue.end(), std::greater<int>());
+		// Start drafts from lower class to higher class.
+		std::sort(networkPending.draftQueue.begin(), networkPending.draftQueue.end());
 
 		int nextClass = networkPending.draftQueue.front();
 		networkPending.draftQueue.erase(networkPending.draftQueue.begin());
@@ -7133,6 +7133,63 @@ void ofApp::updateGame() {
 		draftAutoSelectedIndex = -1;
 
 		ofLogNotice("Blocking Boon") << "Starting chained draft for Class " << nextClass << ". Remaining in queue: " << networkPending.draftQueue.size();
+	}
+
+	// Blocking Boon Phase 2: after all queued drafts finish, resolve physical coin flips.
+	if (currentState == STATE_GAMEPLAY && activeDiceRolls.empty() && networkPending.draftQueue.empty() && blockingBoonPendingPhysicalAfterDraft) {
+		blockingBoonPendingPhysicalAfterDraft = false;
+
+		const int casterIdx = blockingBoonPendingCasterIndex;
+		if (casterIdx >= 0 && casterIdx < (int)players.size() && !blockingBoonPendingCoinRawResults.empty()) {
+			int coinTotal = 0;
+			for (int raw : blockingBoonPendingCoinRawResults)
+				coinTotal += raw;
+			queueVisualDiceRoll(gridToWorld(players[casterIdx].x, players[casterIdx].y) + glm::vec3(0, 1.0f, 0), (int)blockingBoonPendingCoinRawResults.size(), 2, blockingBoonPendingCoinRawResults, coinTotal, PURPOSE_BLOCKING_BOON_COIN, casterIdx, 1.0f);
+
+			if (!isProcessingEffect) beginEffectSequence();
+
+			for (int raw : blockingBoonPendingCoinRawResults) {
+				if (raw >= 2) {
+					EffectOp incMax = {};
+					incMax.type = EffectOpType::MODIFY_STAT;
+					incMax.data.modifyStat.targetIndex = casterIdx;
+					incMax.data.modifyStat.statType = 1; // MaxHP
+					incMax.data.modifyStat.delta = 1;
+					incMax.data.modifyStat.deltaFromSlot = -1;
+					queueEffect(incMax);
+					queueFloatingTextVisual(gridToWorld(players[casterIdx].x, players[casterIdx].y), "+1 Max HP", ofColor::green);
+				} else {
+					Player * t = getPlayer(blockingBoonTargetIndex);
+					if (t) {
+						int tgtIdx = blockingBoonTargetIndex;
+						EffectOp decMax = {};
+						decMax.type = EffectOpType::MODIFY_STAT;
+						decMax.data.modifyStat.targetIndex = tgtIdx;
+						decMax.data.modifyStat.statType = 1; // MaxHP
+						decMax.data.modifyStat.delta = -1;
+						decMax.data.modifyStat.deltaFromSlot = -1;
+						queueEffect(decMax);
+
+						int newMax = std::max(1, t->maxHealth - 1);
+						int hpDelta = std::min(0, newMax - t->health);
+						if (hpDelta != 0) {
+							EffectOp hpClamp = {};
+							hpClamp.type = EffectOpType::MODIFY_STAT;
+							hpClamp.data.modifyStat.targetIndex = tgtIdx;
+							hpClamp.data.modifyStat.statType = 0; // HP
+							hpClamp.data.modifyStat.delta = hpDelta;
+							hpClamp.data.modifyStat.deltaFromSlot = -1;
+							queueEffect(hpClamp);
+						}
+						queueFloatingTextVisual(gridToWorld(t->x, t->y), "-1 Max HP", ofColor::darkRed);
+					}
+				}
+			}
+		}
+
+		blockingBoonPendingCoinRawResults.clear();
+		blockingBoonPendingCasterIndex = -1;
+		blockingBoonActive = false;
 	}
 	// ==============================================================
 
@@ -23435,57 +23492,67 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 			if (std::max(dx, dy) != 1) targetIndex = -1;
 		}
 		blockingBoonTargetIndex = targetIndex;
+		blockingBoonPendingCasterIndex = currentPlayerIndex;
+		blockingBoonPendingCoinRawResults.clear();
+		blockingBoonPendingPhysicalAfterDraft = false;
 
 		int physBlock = currentPlayer.block + currentPlayer.fortification + currentPlayer.ward;
 		int nonPhys = currentPlayer.holyBlock + currentPlayer.barrier + currentPlayer.ward + currentPlayer.fortification;
+		int luckBonus = currentPlayer.luck + computePassiveLuck(currentPlayerIndex);
 
-		if (physBlock > 0) {
-			ofLogNotice("Blocking Boon") << "Rolling " << physBlock << " coins for Physical Block (resolve first).";
-			{
-				{
-					std::vector<int> rawCoins;
-					int coinRoll = resolveDiceRollDetailed(physBlock, 2, rawCoins);
-					currentEffectSequence.blackboard[0] = coinRoll;
-					queueVisualDiceRoll(gridToWorld(currentPlayer.x, currentPlayer.y) + glm::vec3(0, 1.0f, 0), physBlock, 2, rawCoins, coinRoll, PURPOSE_BLOCKING_BOON_COIN, currentPlayerIndex, 1.0f);
-					// Queue apply op (coin) to resolve each coin deterministically
-					{
-						EffectOp applyOp = {};
-						applyOp.type = EffectOpType::APPLY_BLOCKING_BOON_COIN;
-						queueEffect(applyOp);
-					}
-					advanceCardState(CARD_STATE_EFFECT_SEQUENCE);
-					beginEffectSequence();
+		if (nonPhys > 0) {
+			ofLogNotice("Blocking Boon") << "Rolling " << nonPhys << " D20s for non-physical block (resolve first). Luck=" << luckBonus;
+			std::vector<int> rawRolls;
+			resolveDiceRollDetailed(nonPhys, 20, rawRolls);
+
+			int displayTotal = 0;
+			int queuedC1 = 0;
+			int queuedC2 = 0;
+			int queuedC3 = 0;
+			for (int raw : rawRolls) {
+				int finalRoll = raw + luckBonus;
+				displayTotal += finalRoll;
+				if (finalRoll >= 20) {
+					networkPending.draftQueue.push_back(3);
+					queuedC3++;
+				} else if (finalRoll >= 16) {
+					networkPending.draftQueue.push_back(2);
+					queuedC2++;
+				} else if (finalRoll >= 10) {
+					networkPending.draftQueue.push_back(1);
+					queuedC1++;
 				}
 			}
-			currentCardOutcome.namedDiceResults["blocking_boon_coins_remaining"] = physBlock;
-			currentCardOutcome.namedDiceResults["blocking_boon_nonphys"] = nonPhys;
-			currentCardOutcome.namedDiceResults["blocking_boon_total"] = physBlock + nonPhys;
-			blockingBoonActive = true;
-			playedSuccessfully = true;
-		} else {
-			if (nonPhys > 0) {
-				ofLogNotice("Blocking Boon") << "No physical block; Rolling " << nonPhys << " D20s for Non-Phys Block.";
-				{
-					std::vector<int> rawRoll;
-					int roll = resolveDiceRollDetailed(nonPhys, 20, rawRoll);
-					currentEffectSequence.blackboard[0] = roll;
-					queueVisualDiceRoll(gridToWorld(currentPlayer.x, currentPlayer.y) + glm::vec3(0, 1.0f, 0), nonPhys, 20, rawRoll, roll, PURPOSE_BLOCKING_BOON_D20, currentPlayerIndex, 1.0f);
-					{
-						EffectOp applyOp = {};
-						applyOp.type = EffectOpType::APPLY_BLOCKING_BOON_D20;
-						queueEffect(applyOp);
-					}
-					advanceCardState(CARD_STATE_EFFECT_SEQUENCE);
-					beginEffectSequence();
-				}
-				currentCardOutcome.namedDiceResults["blocking_boon_nonphys"] = 0;
-				currentCardOutcome.namedDiceResults["blocking_boon_total"] = nonPhys;
-				blockingBoonActive = true;
-				playedSuccessfully = true;
+
+			queueVisualDiceRoll(gridToWorld(currentPlayer.x, currentPlayer.y) + glm::vec3(0, 1.0f, 0), nonPhys, 20, rawRolls, displayTotal, PURPOSE_BLOCKING_BOON_D20, currentPlayerIndex, 1.0f);
+			if (queuedC1 > 0 || queuedC2 > 0 || queuedC3 > 0) {
+				std::string summary = "Queued";
+				if (queuedC1 > 0) summary += " C1x" + ofToString(queuedC1);
+				if (queuedC2 > 0) summary += " C2x" + ofToString(queuedC2);
+				if (queuedC3 > 0) summary += " C3x" + ofToString(queuedC3);
+				queueFloatingTextVisual(gridToWorld(currentPlayer.x, currentPlayer.y), summary, ofColor::cyan);
 			} else {
-				queueFloatingTextVisual(gridToWorld(currentPlayer.x, currentPlayer.y), "No Block!", ofColor::gray);
+				queueFloatingTextVisual(gridToWorld(currentPlayer.x, currentPlayer.y), "Fizzle", ofColor::gray);
 			}
 		}
+
+		if (physBlock > 0) {
+			ofLogNotice("Blocking Boon") << "Queued " << physBlock << " physical coin flips for after drafts.";
+			resolveDiceRollDetailed(physBlock, 2, blockingBoonPendingCoinRawResults);
+			blockingBoonPendingPhysicalAfterDraft = true;
+		}
+
+		if (physBlock <= 0 && nonPhys <= 0) {
+			queueFloatingTextVisual(gridToWorld(currentPlayer.x, currentPlayer.y), "No Block!", ofColor::gray);
+			blockingBoonActive = false;
+			playedSuccessfully = true;
+			advanceCardState(CARD_STATE_EFFECT_SEQUENCE);
+			return true;
+		}
+
+		blockingBoonActive = blockingBoonPendingPhysicalAfterDraft;
+		playedSuccessfully = true;
+		advanceCardState(CARD_STATE_EFFECT_SEQUENCE);
 
 		return true;
 	}
