@@ -14243,9 +14243,8 @@ void ofApp::mousePressed(int x, int y, int button) {
 					cmd.commandId = nextCommandId++;
 					cmd.turnNumber = globalTurnCounter;
 					cmd.commandType = CMD_PSEUDO_ACTION;
-					cmd.params[0] = assistantIndex; // Pass the assistant index
-					cmd.params[1] = lastAPDiceNum > 0 ? lastAPDiceNum : 1;
-					cmd.params[2] = lastAPDiceSides > 0 ? lastAPDiceSides : 6;
+					cmd.params[0] = assistantIndex; // pass the assistant we are using
+					cmd.params[1] = 0;
 					strncpy(cmd.stringData, "AssistantReroll", sizeof(cmd.stringData) - 1);
 					cmd.stringData[sizeof(cmd.stringData) - 1] = '\0';
 
@@ -19155,33 +19154,32 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 		}
 
 		if (actionName == "AssistantReroll") {
-			int assistantIndex = cmd.params[0];
-			int rerollNum = cmd.params[1];
-			int rerollSides = cmd.params[2];
+			int assistantIndex = targetX; // We passed it in params[0]
+			if (assistantIndex < 0 || assistantIndex >= (int)players.size()) break;
 
-			if (assistantIndex >= 0 && assistantIndex < (int)players.size()) {
-				Player & assistant = players[assistantIndex];
-				assistant.assistantRerollUsedThisTurn = true;
+			players[assistantIndex].assistantRerollUsedThisTurn = true;
 
-				// Mark any previous AP dice as debug so they won't be included twice
-				for (auto & oldR : activeDiceRolls) {
-					if (oldR.purpose == PURPOSE_AP) oldR.purpose = PURPOSE_DEBUG;
-				}
-
-				// Resolve assistant reroll using strict lockstep RNG (both peers call same sequence)
-				std::vector<int> rawReroll;
-				int bonus = resolveDiceRollDetailed(rerollNum, rerollSides, rawReroll);
-
-				// Queue the bonus AP effect
-				if (!isProcessingEffect) beginEffectSequence();
-				EffectOp applyBonus = {};
-				applyBonus.type = EffectOpType::APPLY_BONUS_AP;
-				applyBonus.data.modifyStat.targetIndex = currentPlayerIndex;
-				applyBonus.data.modifyStat.statType = 3; // AP (current)
-				applyBonus.data.modifyStat.delta = bonus;
-				applyBonus.data.modifyStat.deltaFromSlot = -1;
-				queueEffect(applyBonus);
+			int rerollNum = lastAPDiceNum > 0 ? lastAPDiceNum : 1;
+			int rerollSides = lastAPDiceSides > 0 ? lastAPDiceSides : 6;
+			for (auto & oldR : activeDiceRolls) {
+				if (oldR.purpose == PURPOSE_AP) oldR.purpose = PURPOSE_DEBUG;
 			}
+
+			std::vector<int> rawReroll;
+			int bonus = resolveDiceRollDetailed(rerollNum, rerollSides, rawReroll);
+
+			beginEffectSequence();
+			EffectOp applyBonus = {};
+			applyBonus.type = EffectOpType::APPLY_BONUS_AP;
+			applyBonus.data.modifyStat.targetIndex = currentPlayerIndex;
+			applyBonus.data.modifyStat.statType = 3;
+			applyBonus.data.modifyStat.delta = bonus;
+			applyBonus.data.modifyStat.deltaFromSlot = -1;
+			queueEffect(applyBonus);
+
+			queueVisualDiceRoll(gridToWorld(players[assistantIndex].x, players[assistantIndex].y) + glm::vec3(0, 1.0f, 0), rerollNum, rerollSides, rawReroll, bonus, PURPOSE_BONUS_AP, currentPlayerIndex, 1.0f);
+			queueFloatingTextVisual(gridToWorld(players[assistantIndex].x, players[assistantIndex].y), "Reroll!", ofColor::gold);
+			break;
 		}
 
 		ofLogNotice("Lockstep") << "Execute CMD_PSEUDO_ACTION: " << actionName << " at (" << targetX << "," << targetY << ")";
@@ -28797,6 +28795,8 @@ void ofApp::tryTriggerShellSpike() {
 		calculateTargetHighlights(); // Show green highlights on valid targets
 		queueFloatingTextVisual(gridToWorld(currentPlayer.x, currentPlayer.y) + glm::vec3(0, 1.0f, 0),
 			"Shell Spike!", ofColor::darkGreen);
+		// Halt card state machine so target click can complete before outcome finalization
+		advanceCardState(CARD_STATE_TARGETING);
 		ofLogNotice("Tortoise Form") << "Triggered Shell Spike damage - choose adjacent target.";
 	}
 }
