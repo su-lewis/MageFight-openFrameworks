@@ -979,31 +979,18 @@ static bool rebuildCardSpriteSheetFromTemplate(const std::string & templatePath,
 
 	std::vector<std::string> allEffectTexts;
 	allEffectTexts.reserve(allCards.size());
-	std::vector<std::string> allAPCostTexts;
-	std::vector<std::string> allTargetingTexts;
-	allAPCostTexts.reserve(allCards.size());
-	allTargetingTexts.reserve(allCards.size());
-	std::vector<std::string> allSummonAPTexts;
-	std::vector<std::string> allSummonHPTexts;
-	allSummonAPTexts.reserve(allCards.size());
-	allSummonHPTexts.reserve(allCards.size());
 	std::string longestTargetingText;
 	std::string longestTargetingCardName;
 	for (const auto & card : allCards) {
 		auto it = records.find(normalizeCardKey(card.name));
 		if (it != records.end()) {
 			allEffectTexts.push_back(it->second.effectText);
-			allAPCostTexts.push_back(it->second.apCost.empty() ? ofToString(card.cost) : it->second.apCost);
-			if (!it->second.targeting.empty()) allTargetingTexts.push_back(it->second.targeting);
-			if (!it->second.summonAP.empty()) allSummonAPTexts.push_back(it->second.summonAP);
-			if (!it->second.summonHP.empty()) allSummonHPTexts.push_back(it->second.summonHP);
 			if (it->second.targeting.size() > longestTargetingText.size()) {
 				longestTargetingText = it->second.targeting;
 				longestTargetingCardName = card.name;
 			}
 		} else {
 			allEffectTexts.push_back("");
-			allAPCostTexts.push_back(ofToString(card.cost));
 		}
 	}
 
@@ -1045,14 +1032,116 @@ static bool rebuildCardSpriteSheetFromTemplate(const std::string & templatePath,
 		return lo;
 	};
 
-	// AP/HP chips are compact and should read large; allow higher max scale
-	// than name/targeting while still enforcing a uniform all-cards fit.
+	auto bestCenteredTextScaleForSingle = [&](const ofTrueTypeFont & font,
+											  const std::string & text,
+											  const ofRectangle & rect,
+											  float minScale,
+											  float maxScale) {
+		if (text.empty()) return maxScale;
+		auto fitsAt = [&](float s) {
+			ofRectangle b = font.getStringBoundingBox(text, 0, 0);
+			if (b.width <= 0.0f || b.height <= 0.0f) return true;
+			return (b.width * s <= rect.width) && (b.height * s <= rect.height);
+		};
+		if (!fitsAt(minScale)) return minScale;
+		if (fitsAt(maxScale)) return maxScale;
+		float lo = minScale;
+		float hi = maxScale;
+		for (int i = 0; i < 18; ++i) {
+			float mid = (lo + hi) * 0.5f;
+			if (fitsAt(mid))
+				lo = mid;
+			else
+				hi = mid;
+		}
+		return lo;
+	};
+
+	auto bestWrappedTextScaleForSingle = [&](const ofTrueTypeFont & font,
+											 const std::string & text,
+											 const ofRectangle & rect,
+											 float minScale,
+											 float maxScale,
+											 float lineSpacing) {
+		if (text.empty()) return maxScale;
+		auto fitsAt = [&](float s) {
+			auto lines = wrapTextScaled(font, text, rect.width, s);
+			if (lines.empty()) return true;
+			float lineH = font.getLineHeight() * s * std::max(0.6f, lineSpacing);
+			float totalH = lineH * (float)lines.size();
+			return totalH <= rect.height;
+		};
+		if (!fitsAt(minScale)) return minScale;
+		if (fitsAt(maxScale)) return maxScale;
+		float lo = minScale;
+		float hi = maxScale;
+		for (int i = 0; i < 18; ++i) {
+			float mid = (lo + hi) * 0.5f;
+			if (fitsAt(mid))
+				lo = mid;
+			else
+				hi = mid;
+		}
+		return lo;
+	};
+
+	auto drawWrappedCenteredTextScaledOutlined = [&](const ofTrueTypeFont & font,
+													 const std::string & text,
+													 const ofRectangle & rect,
+													 float scale,
+													 float lineSpacing,
+													 const ofColor & fillColor,
+													 const ofColor & outlineColor,
+													 int outlinePx) {
+		if (text.empty()) return;
+		float drawScale = std::max(0.01f, std::round(scale * 4.0f) / 4.0f);
+		auto lines = wrapTextScaled(font, text, rect.width, drawScale);
+		if (lines.empty()) return;
+
+		float lineH = std::round(font.getLineHeight() * drawScale * std::max(0.6f, lineSpacing) + 2.0f);
+		float totalH = lineH * (float)lines.size();
+		float y = std::round(rect.y + std::max(0.0f, (rect.height - totalH) * 0.5f) + lineH);
+
+		const int r = std::max(1, outlinePx);
+		for (const auto & line : lines) {
+			if (line.empty()) {
+				y += lineH;
+				continue;
+			}
+			ofRectangle b = font.getStringBoundingBox(line, 0, 0);
+			float tx = rect.x + (rect.width - b.width * drawScale) * 0.5f - b.x * drawScale;
+			float ty = y - b.y * drawScale;
+			float txSnap = std::round(tx);
+			float tySnap = std::round(ty);
+
+			for (int dy = -r; dy <= r; ++dy) {
+				for (int dx = -r; dx <= r; ++dx) {
+					if (dx == 0 && dy == 0) continue;
+					if (dx * dx + dy * dy > r * r) continue;
+					ofSetColor(outlineColor);
+					ofPushMatrix();
+					ofTranslate(txSnap + (float)dx, tySnap + (float)dy);
+					ofScale(drawScale, drawScale);
+					font.drawString(line, 0, 0);
+					ofPopMatrix();
+				}
+			}
+
+			ofSetColor(fillColor);
+			ofPushMatrix();
+			ofTranslate(txSnap, tySnap);
+			ofScale(drawScale, drawScale);
+			font.drawString(line, 0, 0);
+			ofPopMatrix();
+
+			y += lineH;
+			if (y > rect.getBottom() + lineH) break;
+		}
+	};
+
+	// AP/HP chips are compact and should read large.
 	const float costTargetChipMaxScale = 4.0f;
-	const float uniformAPCostScale = bestUniformCenteredTextScale(renderTitleFont, allAPCostTexts, layout.costRect, 0.75f, costTargetChipMaxScale);
-	const float uniformTargetingScale = bestUniformCenteredTextScale(renderTitleFont, allTargetingTexts, layout.targetingRect, 0.75f, costTargetChipMaxScale);
 	const float summonChipMaxScale = 4.0f;
-	const float uniformSummonAPScale = bestUniformCenteredTextScale(renderTitleFont, allSummonAPTexts, layout.summonAPRect, 0.75f, summonChipMaxScale);
-	const float uniformSummonHPScale = bestUniformCenteredTextScale(renderTitleFont, allSummonHPTexts, layout.summonHPRect, 0.75f, summonChipMaxScale);
 	ofLogNotice("Cards") << "Uniform effect text scale: " << uniformEffectScale;
 
 	ofLogNotice("Cards") << "Targeting text base scale (name-matched): " << fixedNameScale;
@@ -1291,7 +1380,10 @@ static bool rebuildCardSpriteSheetFromTemplate(const std::string & templatePath,
 				itBadge->second.draw(layout.classRect.x, layout.classRect.y, layout.classRect.width, layout.classRect.height);
 			}
 		}
-		float targetingScale = uniformTargetingScale;
+		float apCostScale = bestCenteredTextScaleForSingle(renderTitleFont, rec.apCost, layout.costRect, 0.75f, costTargetChipMaxScale);
+		float targetingScale = bestCenteredTextScaleForSingle(renderTitleFont, rec.targeting, layout.targetingRect, 0.75f, costTargetChipMaxScale);
+		float summonAPScale = bestWrappedTextScaleForSingle(renderTitleFont, rec.summonAP, layout.summonAPRect, 0.5f, summonChipMaxScale, 0.9f);
+		float summonHPScale = bestWrappedTextScaleForSingle(renderTitleFont, rec.summonHP, layout.summonHPRect, 0.5f, summonChipMaxScale, 0.9f);
 		drawArcCenteredTextScaledOutlined(renderTitleFont,
 			rec.name,
 			layout.nameRect,
@@ -1303,16 +1395,22 @@ static bool rebuildCardSpriteSheetFromTemplate(const std::string & templatePath,
 			ofColor::white,
 			ofColor::black,
 			4);
-		drawCenteredTextScaledOutlined(renderTitleFont, rec.apCost, layout.costRect, uniformAPCostScale, ofColor::white, ofColor::black, 4);
+		drawCenteredTextScaledOutlined(renderTitleFont, rec.apCost, layout.costRect, apCostScale, ofColor::white, ofColor::black, 4);
 		drawCenteredTextScaledOutlined(renderTitleFont, rec.targeting, layout.targetingRect, targetingScale, ofColor::white, ofColor::black, 3);
 		if (!rec.summonAP.empty()) {
-			drawCenteredTextScaledOutlined(renderTitleFont, rec.summonAP, layout.summonAPRect, uniformSummonAPScale, ofColor::white, ofColor::black, 3);
+			drawWrappedCenteredTextScaledOutlined(renderTitleFont, rec.summonAP, layout.summonAPRect, summonAPScale, 0.9f, ofColor::white, ofColor::black, 3);
 		}
 		if (!rec.summonHP.empty()) {
-			drawCenteredTextScaledOutlined(renderTitleFont, rec.summonHP, layout.summonHPRect, uniformSummonHPScale, ofColor::white, ofColor::black, 3);
+			drawWrappedCenteredTextScaledOutlined(renderTitleFont, rec.summonHP, layout.summonHPRect, summonHPScale, 0.9f, ofColor::white, ofColor::black, 3);
 		}
-		ofSetColor(12, 12, 12, 255);
-		drawWrappedTextScaledWithEmphasis(renderUIFont, rec.effectText, effectTextRect, uniformEffectScale, layout.effectLineSpacing, "Choose One -");
+		drawWrappedCenteredTextScaledOutlined(renderUIFont,
+			rec.effectText,
+			effectTextRect,
+			uniformEffectScale,
+			layout.effectLineSpacing,
+			ofColor(12, 12, 12, 255),
+			ofColor::black,
+			0);
 		ofPopStyle();
 		ofPopMatrix();
 	}
