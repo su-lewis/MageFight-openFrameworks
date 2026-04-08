@@ -12492,7 +12492,7 @@ cursor_check_done:;
 					// Status effects
 					if (up->sleepTurnsRemaining > 0) unitStatusLines.push_back(std::string("Sleep (") + ofToString(up->sleepTurnsRemaining) + ")");
 					if (up->isParalyzed) unitStatusLines.push_back(std::string("Paralyzed"));
-					if (up->onFire) unitStatusLines.push_back(std::string("On Fire"));
+					if (up->onFire) unitStatusLines.push_back(std::string("Burning"));
 					if (up->isPoisoned) unitStatusLines.push_back(std::string("Poisoned"));
 					if (up->summonedOnTurnCycle == globalTurnCounter) unitStatusLines.push_back(std::string("Summoning Sickness"));
 
@@ -17072,8 +17072,9 @@ void ofApp::handleCardDragToPlay(int cardIndex) {
 		}
 	}
 
-	// If the card requires a target (non-self), enter the centralized targeting interaction
-	else if (card.targeting != TARGET_SELF) {
+	// If the card requires a target (or is one of the explicit target-first range cards),
+	// enter the centralized targeting interaction.
+	if (!menuFirstChoiceCard && (card.targeting != TARGET_SELF || card.type == CARD_MAGIC_BLAST || card.type == CARD_FIREBALL || card.type == CARD_CHAIN_LIGHTNING || card.type == CARD_MAGIC_BOLT || card.type == CARD_ETHEREAL_JOLT || card.type == CARD_SHOOT_ARROW || card.type == CARD_PSIONIC_WAVE)) {
 		if (card.type == CARD_MAGIC_BLAST) {
 			// Ensure stale modal data from a prior blast cannot pause/freeze a fresh cast.
 			magicBlastTargetPlayerIndex = -1;
@@ -19748,7 +19749,7 @@ bool ofApp::processEffectOp(EffectOp & op) {
 				ap.data.status.statusType = STATUS_ON_FIRE;
 				ap.data.status.duration = 0;
 				queueEffect(ap);
-				queueFloatingTextVisual(gridToWorld(target.x, target.y) + glm::vec3(0, 0.6f, 0), "ON FIRE!", ofColor::orange);
+				queueFloatingTextVisual(gridToWorld(target.x, target.y) + glm::vec3(0, 0.6f, 0), "BURNING!", ofColor::orange);
 			}
 		}
 		opComplete = true;
@@ -19974,7 +19975,7 @@ bool ofApp::processEffectOp(EffectOp & op) {
 					ap.data.status.duration = 0;
 					processEffectOp(ap);
 					queueVisualDelay(1.5f);
-					queueFloatingTextVisual(tpos + glm::vec3(0, 0.6f, 0), "ON FIRE!", ofColor::orange);
+					queueFloatingTextVisual(tpos + glm::vec3(0, 0.6f, 0), "BURNING!", ofColor::orange);
 				}
 			}
 		} else {
@@ -24404,7 +24405,10 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 	case CARD_FIREBALL: {
 		glm::vec2 casterTile = { (float)currentPlayer.x, (float)currentPlayer.y };
 		glm::vec2 targetTile = { (float)targetX, (float)targetY };
-		float maxRange = (float)(playedCard.numDice * playedCard.diceSides);
+		// Fireball: choose target first, then resolve a 2d6 range roll for impact.
+		const int fireballRangeDiceNum = 2;
+		const int fireballRangeDiceSides = 6;
+		float maxRange = (float)(fireballRangeDiceNum * fireballRangeDiceSides);
 
 		TargetInfo validationResult = isLosTargetValid(casterTile, targetTile, maxRange, playedCard.type);
 		if (validationResult.reason != VALID || !board[targetX][targetY].hasPlayer) return true;
@@ -24413,9 +24417,9 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 		{
 			{
 				std::vector<int> rawRange;
-				int rangeRoll = resolveDiceRollDetailed(playedCard.numDice, playedCard.diceSides, rawRange);
+				int rangeRoll = resolveDiceRollDetailed(fireballRangeDiceNum, fireballRangeDiceSides, rawRange);
 				currentEffectSequence.blackboard[0] = rangeRoll;
-				queueVisualDiceRoll(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.0f, 0), playedCard.numDice, playedCard.diceSides, rawRange, rangeRoll, PURPOSE_RANGE, currentPlayerIndex, 1.0f);
+				queueVisualDiceRoll(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.0f, 0), fireballRangeDiceNum, fireballRangeDiceSides, rawRange, rangeRoll, PURPOSE_RANGE, currentPlayerIndex, 1.0f);
 			}
 			// Resolve fireball damage now (decision-time) and store in blackboard[1]
 			{
@@ -29746,7 +29750,7 @@ void ofApp::determineStatusOptions(Player * target) {
 	statusSelectLabels.clear();
 	statusSelectButtons.clear();
 
-	if (target->onFire) statusSelectLabels.push_back("Fire");
+	if (target->onFire) statusSelectLabels.push_back("Burning");
 	if (target->isParalyzed) statusSelectLabels.push_back("Paralysis");
 	// Add future statuses here
 
