@@ -15237,7 +15237,7 @@ void ofApp::mouseDragged(int x, int y, int button) {
 			auto hasAnyValidTargetForCard = [&](int cardIndex) {
 				if (cardIndex < 0 || cardIndex >= (int)currentPlayer.hand.size()) return false;
 				const Card & candidate = currentPlayer.hand[cardIndex];
-				if (candidate.targeting == TARGET_SELF) return true;
+				if (candidate.targeting == TARGET_SELF && candidate.type != CARD_HEAL && candidate.type != CARD_LESSER_HEAL) return true;
 				if (candidate.type == CARD_TELEPORT) return true; // destination validity is roll-dependent
 
 				calculateTargetHighlights(cardIndex);
@@ -15386,7 +15386,7 @@ void ofApp::mouseReleased(int x, int y, int button) {
 			auto hasAnyValidTargetForCard = [&](int cardIndex) {
 				if (cardIndex < 0 || cardIndex >= (int)currentPlayer.hand.size()) return false;
 				const Card & candidate = currentPlayer.hand[cardIndex];
-				if (candidate.targeting == TARGET_SELF) return true;
+				if (candidate.targeting == TARGET_SELF && candidate.type != CARD_HEAL && candidate.type != CARD_LESSER_HEAL) return true;
 				if (candidate.type == CARD_TELEPORT) return true;
 				calculateTargetHighlights(cardIndex);
 				for (int tx = 0; tx < BOARD_WIDTH; ++tx) {
@@ -17366,7 +17366,7 @@ void ofApp::handleCardDragToPlay(int cardIndex) {
 
 	// If the card requires a target (or is one of the explicit target-first range cards),
 	// enter the centralized targeting interaction.
-	if (!menuFirstChoiceCard && (card.targeting != TARGET_SELF || card.type == CARD_MAGIC_BLAST || card.type == CARD_FIREBALL || card.type == CARD_CHAIN_LIGHTNING || card.type == CARD_MAGIC_BOLT || card.type == CARD_ETHEREAL_JOLT || card.type == CARD_SHOOT_ARROW || card.type == CARD_PSIONIC_WAVE)) {
+	if (!menuFirstChoiceCard && (card.targeting != TARGET_SELF || card.type == CARD_HEAL || card.type == CARD_MAGIC_BLAST || card.type == CARD_FIREBALL || card.type == CARD_CHAIN_LIGHTNING || card.type == CARD_MAGIC_BOLT || card.type == CARD_ETHEREAL_JOLT || card.type == CARD_SHOOT_ARROW || card.type == CARD_PSIONIC_WAVE)) {
 		if (card.type == CARD_MAGIC_BLAST) {
 			// Ensure stale modal data from a prior blast cannot pause/freeze a fresh cast.
 			magicBlastTargetPlayerIndex = -1;
@@ -17835,7 +17835,7 @@ void ofApp::handleCardMenuClick(const std::string & buttonId) {
 			choiceNeedsTarget = (buttonId == "damage");
 			break;
 		case CARD_DOUBLE_HANDED:
-			choice = (buttonId == "Punch") ? 1 : 2;
+			choice = (buttonId == "Punch" || buttonId == "x2 Punch") ? 1 : 2;
 			choiceNeedsTarget = true;
 			break;
 		case CARD_TRAIN:
@@ -18041,12 +18041,19 @@ void ofApp::handleCardMenuClick(const std::string & buttonId) {
 			enterTargetingIfPossible();
 			break;
 		}
-		if (buttonId == "Punch" || buttonId == "Block") {
-			std::string cardName = (buttonId == "Punch") ? "Punch" : "Hand Block";
+		if (buttonId == "Punch" || buttonId == "Block" || buttonId == "x2 Punch" || buttonId == "x2 Hand Block" || buttonId == "Hand Block") {
+			bool choosePunch = (buttonId == "Punch" || buttonId == "x2 Punch");
+			std::string cardName = choosePunch ? "Punch" : "Hand Block";
 			Player * target = getPlayer(interactionTargetIndex);
 			Player & caster = players[currentPlayerIndex];
 
 			if (target) {
+				int dist = abs(target->x - caster.x) + abs(target->y - caster.y);
+				if (!(dist == 0 || dist == 1) || board[target->x][target->y].hasWall) {
+					queueFloatingTextVisual(gridToWorld(caster.x, caster.y), "Choose self or adjacent unit", ofColor::orange);
+					break;
+				}
+
 				// 1. Find the Card Data
 				Card cardToAdd;
 				bool found = false;
@@ -18061,7 +18068,7 @@ void ofApp::handleCardMenuClick(const std::string & buttonId) {
 				if (found) {
 					// 2. Add copies to deck via deterministic EffectOps (authoritative)
 					beginEffectSequence();
-					int copiesToAdd = 2 * (1 << caster.flurryOfFistsStacks);
+					int copiesToAdd = 2;
 					for (int i = 0; i < copiesToAdd; i++) {
 						EffectOp addOp = {};
 						addOp.type = EffectOpType::ADD_CARD_TO_DECK;
@@ -18466,7 +18473,7 @@ void ofApp::drawActiveCardInteractionUI() {
 			ofColor blockAccent(100, 150, 200);
 
 			drawCardChoicePanel(doubleHandedMenuRect, "Double-Handed", "Choose ability:",
-				btnAddPunches, btnAddBlocks, "Punch", "Block",
+				btnAddPunches, btnAddBlocks, "x2 Punch", "x2 Hand Block",
 				punchAccent, blockAccent, true, true);
 			break;
 		}
@@ -19368,7 +19375,7 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 			buttonId = (choice == 1) ? "damage" : "block";
 			break;
 		case CARD_DOUBLE_HANDED:
-			buttonId = (choice == 1) ? "Punch" : "Block";
+			buttonId = (choice == 1) ? "x2 Punch" : "x2 Hand Block";
 			break;
 		case CARD_TRAIN:
 			buttonId = (choice == 1) ? "draft" : "ap";
@@ -22934,7 +22941,7 @@ void ofApp::updateMenuButtonRectangles() {
 		float mx = ofGetWidth() / 2 - w / 2, my = ofGetHeight() / 2 - h / 2;
 		ofRectangle temp1, temp2;
 		drawCardChoicePanel(ofRectangle(mx, my, w, h), "Double-Handed", "Choose ability:",
-			btnAddPunches, btnAddBlocks, "Punch", "Block",
+			btnAddPunches, btnAddBlocks, "x2 Punch", "x2 Hand Block",
 			ofColor(200, 100, 100), ofColor(100, 150, 200), true, true);
 		break;
 	}
@@ -23060,33 +23067,11 @@ void ofApp::processCardStateInput(int mouseX, int mouseY, int button) {
 
 		case CARD_DOUBLE_HANDED:
 			if (btnAddPunches.inside(mouseX, mouseY)) {
-				InputCommandPacket cmd = {};
-				cmd.type = PKT_INPUT_COMMAND;
-				cmd.playerID = myLocalPlayerID;
-				cmd.seq = 0;
-				cmd.commandId = nextCommandId++;
-				cmd.turnNumber = globalTurnCounter;
-				cmd.commandType = CMD_MENU_CHOICE;
-				cmd.params[0] = interactingCardType;
-				cmd.params[1] = interactionTargetIndex;
-				cmd.params[2] = 1; // Punch
-				cmd.params[3] = interactingCardIndex;
-				// Route via lockstep in all modes so singleplayer gets a proper Command ID
-				sendInputCommand(cmd, true);
+				// Two-step flow: choose option first, then choose target.
+				handleCardMenuClick("x2 Punch");
 			} else if (btnAddBlocks.inside(mouseX, mouseY)) {
-				InputCommandPacket cmd = {};
-				cmd.type = PKT_INPUT_COMMAND;
-				cmd.playerID = myLocalPlayerID;
-				cmd.seq = 0;
-				cmd.commandId = nextCommandId++;
-				cmd.turnNumber = globalTurnCounter;
-				cmd.commandType = CMD_MENU_CHOICE;
-				cmd.params[0] = interactingCardType;
-				cmd.params[1] = interactionTargetIndex;
-				cmd.params[2] = 2; // Block
-				cmd.params[3] = interactingCardIndex;
-				// Route via lockstep in all modes so singleplayer gets a proper Command ID
-				sendInputCommand(cmd, true);
+				// Two-step flow: choose option first, then choose target.
+				handleCardMenuClick("x2 Hand Block");
 			}
 			break;
 
@@ -24310,12 +24295,12 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 
 		beginEffectSequence();
 
-		// Roll dice for heal amount
+		// Roll dice for heal amount (Heal is always exactly 2d6)
 		{
 			std::vector<int> rawHeal;
-			int healRoll = resolveDiceRollDetailed(playedCard.numDice, playedCard.diceSides, rawHeal);
+			int healRoll = resolveDiceRollDetailed(2, 6, rawHeal);
 			currentEffectSequence.blackboard[0] = healRoll;
-			queueVisualDiceRoll(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.0f, 0), playedCard.numDice, playedCard.diceSides, rawHeal, healRoll, PURPOSE_HEALING, currentPlayerIndex, 1.0f);
+			queueVisualDiceRoll(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.0f, 0), 2, 6, rawHeal, healRoll, PURPOSE_HEALING, currentPlayerIndex, 1.0f);
 		}
 
 		// Apply heal from dice result
