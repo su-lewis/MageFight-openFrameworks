@@ -17895,7 +17895,24 @@ void ofApp::handleCardMenuClick(const std::string & buttonId) {
 			interactionMenuChoice.clear();
 		} else if (buttonId == "Purge") {
 			if (interactionTargetIndex < 0) {
-				enterTargetingIfPossible();
+				if (!enterTargetingIfPossible()) {
+					break;
+				}
+
+				// Purge should target self or adjacent units only.
+				for (int x = 0; x < BOARD_WIDTH; ++x) {
+					for (int y = 0; y < BOARD_HEIGHT; ++y) {
+						if (!board[x][y].isTargetable) continue;
+						int dist = abs(x - caster.x) + abs(y - caster.y);
+						bool validUnitTarget = (dist <= 1) && board[x][y].hasPlayer && !board[x][y].hasWall;
+						if (!validUnitTarget) board[x][y].isTargetable = false;
+					}
+				}
+
+				if (!hasAnyTargetableTile()) {
+					queueFloatingTextVisual(gridToWorld(caster.x, caster.y), "No valid target", ofColor::orange);
+					updateCardInteractionState(CARD_INTERACTION_MENU, interactingCardIndex, interactingCardType);
+				}
 				break;
 			}
 			// Enter status selection
@@ -22891,10 +22908,8 @@ void ofApp::processCardStateInput(int mouseX, int mouseY, int button) {
 				cmd.params[3] = interactingCardIndex;
 				sendInputCommand(cmd, true);
 			} else if (dispelBtnPurge.inside(mouseX, mouseY)) {
-				// Do NOT send a command yet. Transition local UI to the status select menu.
-				updateCardInteractionState(CARD_INTERACTION_STATUS, interactingCardIndex, interactingCardType);
-				Player * t = getPlayer(interactionTargetIndex);
-				determineStatusOptions(t);
+				// Do NOT send a command yet. Enter purge targeting first.
+				handleCardMenuClick("Purge");
 			}
 			break;
 
