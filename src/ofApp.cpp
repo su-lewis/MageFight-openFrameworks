@@ -699,9 +699,37 @@ static void drawArcCenteredTextScaledOutlined(const ofTrueTypeFont & font,
 	int outlinePx) {
 	if (text.empty()) return;
 
-	// Simple fixed-scale fan curve: center stays at base, edges drop by endDropPx
+	int nonSpaceCount = 0;
+	int spaceCount = 0;
+	for (char ch : text) {
+		if (ch == ' ')
+			++spaceCount;
+		else
+			++nonSpaceCount;
+	}
+	float longNameT = std::clamp(((float)nonSpaceCount - 11.0f) / 12.0f, 0.0f, 1.0f);
+	float spaceTighten = (spaceCount > 0) ? (1.0f - 0.28f * longNameT) : 1.0f;
+	float arcBoost = 1.0f + 0.55f * longNameT;
+	float localEndDrop = endDropPx * arcBoost;
+
+	std::vector<float> advances;
+	advances.reserve(text.size());
+	float fallbackAdvance = std::max(2.0f, font.getLineHeight() * 0.24f);
+	float totalWidthUnscaled = 0.0f;
+	for (char ch : text) {
+		std::string glyph(1, ch);
+		float adv = font.getStringBoundingBox(glyph, 0, 0).width;
+		if (ch == ' ') {
+			adv = std::max(1.0f, fallbackAdvance * 0.45f * spaceTighten);
+		}
+		if (adv <= 0.0f) adv = fallbackAdvance;
+		advances.push_back(adv);
+		totalWidthUnscaled += adv;
+	}
+	if (totalWidthUnscaled <= 0.0f) return;
+
 	ofRectangle b = font.getStringBoundingBox(text, 0, 0);
-	float totalWidth = b.width * scale;
+	float totalWidth = totalWidthUnscaled * scale;
 	float startX = rect.x + (rect.width - totalWidth) * 0.5f;
 	float centerY = (rect.y + rect.getBottom()) * 0.5f;
 	float baselineY = centerY - (b.y + b.height * 0.5f) * scale;
@@ -716,16 +744,15 @@ static void drawArcCenteredTextScaledOutlined(const ofTrueTypeFont & font,
 
 	float cursorX = startX;
 	for (size_t i = 0; i < text.size(); ++i) {
-		std::string glyph(1, text[i]);
-		float glyphWidth = font.getStringBoundingBox(glyph, 0, 0).width * scale;
+		float glyphWidth = advances[i] * scale;
 		float charCenterX = cursorX + glyphWidth * 0.5f;
 		float drawY = baselineY;
 
-		// Fan curve: center = 0 drop, edges = full drop
+		// Fan curve: longer names arc more strongly (Hearthstone-like banner fan)
 		float normalizedPos = (charCenterX - startX) / std::max(0.1f, totalWidth);
-		float edgeDistance = std::abs(normalizedPos - 0.5f) * 2.0f;
+		float edgeDistance = std::abs(normalizedPos - 0.5f) * 1.2f;
 		float curveFactor = smoothstep01(edgeDistance);
-		drawY += endDropPx * curveFactor;
+		drawY += localEndDrop * curveFactor;
 
 		ofSetColor(outlineColor);
 		ofPushMatrix();
@@ -1065,8 +1092,94 @@ static bool rebuildCardSpriteSheetFromTemplate(const std::string & templatePath,
 									   float clampXMax,
 									   float clampBottomY,
 									   int outlinePx = 0) {
-		// Simplified: use minimum safe scale to avoid overflow
-		return minScale;
+		// Binary search to find max scale that fits in bounds
+		const int r = std::max(0, outlinePx);
+		const float inset = (float)r + 0.5f; // Minimal inset for outline
+
+		auto fitsAt = [&](float s) {
+			float drawScale = std::max(0.01f, std::round(s * 4.0f) / 4.0f);
+			for (const auto & text : texts) {
+				if (text.empty()) continue;
+
+				int nonSpaceCount = 0;
+				int spaceCount = 0;
+				for (char ch : text) {
+					if (ch == ' ')
+						++spaceCount;
+					else
+						++nonSpaceCount;
+				}
+				float longNameT = std::clamp(((float)nonSpaceCount - 11.0f) / 12.0f, 0.0f, 1.0f);
+				float spaceTighten = (spaceCount > 0) ? (1.0f - 0.28f * longNameT) : 1.0f;
+				float arcBoost = 1.0f + 0.55f * longNameT;
+				float localEndDrop = endDropPx * arcBoost;
+
+				std::vector<float> advances;
+				advances.reserve(text.size());
+				float fallbackAdvance = std::max(2.0f, font.getLineHeight() * 0.24f);
+				float totalWidthUnscaled = 0.0f;
+				for (char ch : text) {
+					std::string glyph(1, ch);
+					float adv = font.getStringBoundingBox(glyph, 0, 0).width;
+					if (ch == ' ') adv = std::max(1.0f, fallbackAdvance * 0.45f * spaceTighten);
+					if (adv <= 0.0f) adv = fallbackAdvance;
+					advances.push_back(adv);
+					totalWidthUnscaled += adv;
+				}
+				if (totalWidthUnscaled <= 0.0f) continue;
+
+				ofRectangle b = font.getStringBoundingBox(text, 0, 0);
+				float totalWidth = totalWidthUnscaled * drawScale;
+				float startX = rect.x + (rect.width - totalWidth) * 0.5f;
+				float endX = startX + totalWidth;
+
+				// Check horizontal bounds
+				if (startX < rect.x + inset || endX > rect.getRight() - inset)
+					return false;
+
+				// Check vertical bounds including the curve drop
+				float centerY = (rect.y + rect.getBottom()) * 0.5f;
+				float baselineY = centerY - (b.y + b.height * 0.5f) * drawScale;
+
+				auto smoothstep01 = [](float t) {
+					t = std::clamp(t, 0.0f, 1.0f);
+					return t * t * (3.0f - 2.0f * t);
+				};
+
+				float maxBottomY = baselineY;
+				float cursorX = startX;
+				for (size_t i = 0; i < text.size(); ++i) {
+					float glyphWidth = advances[i] * drawScale;
+					float charCenterX = cursorX + glyphWidth * 0.5f;
+
+					float normalizedPos = (charCenterX - startX) / std::max(0.1f, totalWidth);
+					float edgeDistance = std::abs(normalizedPos - 0.5f) * 1.2f;
+					float curveFactor = smoothstep01(edgeDistance);
+					float drawY = baselineY + localEndDrop * curveFactor;
+
+					float bottom = drawY + (b.y + b.height) * drawScale + (float)r;
+					maxBottomY = std::max(maxBottomY, bottom);
+					cursorX += glyphWidth;
+				}
+
+				if (maxBottomY > rect.getBottom() - inset) return false;
+			}
+			return true;
+		};
+
+		if (!fitsAt(minScale)) return minScale;
+		if (fitsAt(maxScale)) return maxScale;
+
+		float lo = minScale;
+		float hi = maxScale;
+		for (int i = 0; i < 18; ++i) {
+			float mid = (lo + hi) * 0.5f;
+			if (fitsAt(mid))
+				lo = mid;
+			else
+				hi = mid;
+		}
+		return lo;
 	};
 
 	const float uniformNameScale = bestUniformArcTextScale(
@@ -1136,12 +1249,16 @@ static bool rebuildCardSpriteSheetFromTemplate(const std::string & templatePath,
 		float fitW = std::max(1.0f, rect.width - 2.0f * (float)std::max(0, outlinePx) - 2.0f);
 		float fitH = std::max(1.0f, rect.height - 2.0f * (float)std::max(0, outlinePx) - 2.0f);
 		auto fitsAt = [&](float s) {
-			auto lines = wrapTextScaled(font, text, fitW, s);
-			if (lines.empty()) return true;
 			float drawScale = std::max(0.01f, std::round(s * 4.0f) / 4.0f);
+			auto lines = wrapTextScaled(font, text, fitW, drawScale);
+			if (lines.empty()) return true;
+			for (const auto & line : lines) {
+				ofRectangle b = font.getStringBoundingBox(line, 0, 0);
+				if (b.width * drawScale > fitW - 1.0f) return false;
+			}
 			float lineH = font.getLineHeight() * drawScale * std::max(0.6f, lineSpacing);
 			float totalH = lineH * (float)lines.size();
-			return totalH <= fitH;
+			return totalH <= fitH - 1.0f;
 		};
 		if (!fitsAt(minScale)) return minScale;
 		if (fitsAt(maxScale)) return maxScale;
@@ -1155,6 +1272,53 @@ static bool rebuildCardSpriteSheetFromTemplate(const std::string & templatePath,
 				hi = mid;
 		}
 		return lo;
+	};
+
+	auto chooseSummonChipTextAndScale = [&](const std::string & rawText,
+											const ofRectangle & rect) {
+		if (rawText.empty()) {
+			return std::make_pair(std::string(), summonChipMaxScale);
+		}
+
+		auto fitScaleFor = [&](const std::string & candidateText) {
+			// Allow shrinking well below prior minimum so text always fits the chip.
+			return bestWrappedTextScaleForSingle(renderTitleFont, candidateText, rect, 0.10f, summonChipMaxScale, 0.9f, 3);
+		};
+
+		std::string bestText = rawText;
+		float bestScale = fitScaleFor(bestText);
+
+		std::string trimmed = trimCopy(rawText);
+		if (trimmed.find('\n') == std::string::npos) {
+			std::vector<std::string> words;
+			std::stringstream ss(trimmed);
+			std::string w;
+			while (ss >> w)
+				words.push_back(w);
+
+			// If more than two words, try a manual 2-line split and keep whichever
+			// permits the larger fitting scale.
+			if (words.size() > 2) {
+				auto joinWords = [&](size_t a, size_t b) {
+					std::string out;
+					for (size_t i = a; i < b; ++i) {
+						if (!out.empty()) out += " ";
+						out += words[i];
+					}
+					return out;
+				};
+
+				size_t split = words.size() / 2;
+				std::string candidate = joinWords(0, split) + "\n" + joinWords(split, words.size());
+				float candidateScale = fitScaleFor(candidate);
+				if (candidateScale > bestScale + 0.001f) {
+					bestText = candidate;
+					bestScale = candidateScale;
+				}
+			}
+		}
+
+		return std::make_pair(bestText, bestScale);
 	};
 
 	auto drawWrappedCenteredTextScaledOutlined = [&](const ofTrueTypeFont & font,
@@ -1188,7 +1352,7 @@ static bool rebuildCardSpriteSheetFromTemplate(const std::string & templatePath,
 			float tx = rect.x + inset + (fitW - b.width * drawScale) * 0.5f - b.x * drawScale;
 			float lineTop = blockTop + (float)li * lineH;
 			float lineBottom = lineTop + lineH;
-			if (lineTop < rect.y + inset - 0.01f || lineBottom > rect.getBottom() - inset + 0.01f) {
+			if (lineTop < rect.y + inset - 1.0f || lineBottom > rect.getBottom() - inset + 1.0f) {
 				continue;
 			}
 			float ty = lineTop + (lineH - b.height * drawScale) * 0.5f - b.y * drawScale;
@@ -1459,8 +1623,8 @@ static bool rebuildCardSpriteSheetFromTemplate(const std::string & templatePath,
 		}
 		float apCostScale = uniformAPCostScale;
 		float targetingScale = bestCenteredTextScaleForSingle(renderTitleFont, rec.targeting, layout.targetingRect, 0.75f, targetingChipMaxScale, 3);
-		float summonAPScale = bestWrappedTextScaleForSingle(renderTitleFont, rec.summonAP, layout.summonAPRect, 0.5f, summonChipMaxScale, 0.9f, 3);
-		float summonHPScale = bestWrappedTextScaleForSingle(renderTitleFont, rec.summonHP, layout.summonHPRect, 0.5f, summonChipMaxScale, 0.9f, 3);
+		auto summonAPLayout = chooseSummonChipTextAndScale(rec.summonAP, layout.summonAPRect);
+		auto summonHPLayout = chooseSummonChipTextAndScale(rec.summonHP, layout.summonHPRect);
 		drawArcCenteredTextScaledOutlined(renderTitleFont,
 			rec.name,
 			layout.nameRect,
@@ -1474,11 +1638,11 @@ static bool rebuildCardSpriteSheetFromTemplate(const std::string & templatePath,
 			4);
 		drawCenteredTextScaledOutlined(renderTitleFont, rec.apCost, layout.costRect, apCostScale, ofColor::white, ofColor::black, 4);
 		drawCenteredTextScaledOutlined(renderTitleFont, rec.targeting, layout.targetingRect, targetingScale, ofColor::white, ofColor::black, 3);
-		if (!rec.summonAP.empty()) {
-			drawWrappedCenteredTextScaledOutlined(renderTitleFont, rec.summonAP, layout.summonAPRect, summonAPScale, 0.9f, ofColor::white, ofColor::black, 3);
+		if (!summonAPLayout.first.empty()) {
+			drawWrappedCenteredTextScaledOutlined(renderTitleFont, summonAPLayout.first, layout.summonAPRect, summonAPLayout.second, 0.9f, ofColor::white, ofColor::black, 3);
 		}
-		if (!rec.summonHP.empty()) {
-			drawWrappedCenteredTextScaledOutlined(renderTitleFont, rec.summonHP, layout.summonHPRect, summonHPScale, 0.9f, ofColor::white, ofColor::black, 3);
+		if (!summonHPLayout.first.empty()) {
+			drawWrappedCenteredTextScaledOutlined(renderTitleFont, summonHPLayout.first, layout.summonHPRect, summonHPLayout.second, 0.9f, ofColor::white, ofColor::black, 3);
 		}
 		drawWrappedCenteredTextScaledOutlined(renderUIFont,
 			rec.effectText,

@@ -480,7 +480,7 @@
 - **AP Cost:** 4
 - **Class:** 3
 - **Picture:** 
-- **Effect Text:** Summon a Kobold King minion in an adjacent empty tile. Its max health is always the # of Kobolds on board + 1. 
+- **Effect Text:** Summon a Kobold King minion in an adjacent empty tile. Its max health is always 1 + the # of Kobolds on board.
 - **Deck:** x2 Slash, x2 Stab, x2 Full Restore, x1 Call for Kobolds.
 - **AP:** 1d6
 - **HP:** 1 + # of Kobolds
