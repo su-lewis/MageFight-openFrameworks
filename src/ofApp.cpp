@@ -2226,81 +2226,20 @@ void ofApp::drawMinionCard(int minionIndex, int ownerIndex) {
 	int drawCount = minion.isDemon ? 3 : 2;
 	if (minion.nextTurnExtraDraw) {
 		drawCount++;
-		minion.nextTurnExtraDraw = false;
-		minion.nextTurnExtraDrawSetOnCycle = -1;
+		// DO NOT modify state here; draw execution is lockstep-driven.
 	}
 
-	if (isMultiplayer && ownerIndex == myLocalPlayerID && !processingNetworkPacket) {
-		InputCommandPacket cmd = {};
-		cmd.type = PKT_INPUT_COMMAND;
-		cmd.playerID = myLocalPlayerID;
-		cmd.commandId = nextCommandId++;
-		cmd.turnNumber = globalTurnCounter;
-		cmd.commandType = CMD_DRAW_CARDS;
-		cmd.params[0] = minionIndex;
-		cmd.params[1] = drawCount;
-		// Client-side watchdog id (if client) for dedupe/resend isn't tracked here anymore
-		if (isClient()) cmd.clientActionID = ++watchdogClientActionCounter;
-		sendInputCommand(cmd, true);
-	}
-
-	for (int i = 0; i < drawCount; ++i) {
-		if (minion.deck.empty()) {
-			if (minion.discardPile.empty()) break;
-			// Synchronous reshuffle for multi-draw correctness.
-			minion.deck = minion.discardPile;
-			minion.discardPile.clear();
-			shuffleGameVector(minion.deck, minionIndex);
-		}
-
-		if (!minion.deck.empty()) {
-			Card drawn = minion.deck.back();
-			minion.deck.pop_back();
-			drawn.drawnThisTurn = true;
-			minion.hand.push_back(drawn);
-			minion.hasDrawnThisTurn = true;
-			minion.hand.back().currentScale = 1.0f;
-			minion.hand.back().targetScale = 1.0f;
-			minion.hand.back().drawnThisTurn = true;
-			minion.hand.back().isAnimating = true;
-
-			DrawCardAnimation anim;
-			anim.card = drawn;
-			anim.startTime = ofGetElapsedTimef();
-			anim.duration = 0.36f;
-			anim.ownerIndex = minionIndex;
-			anim.toMinionHand = true;
-			anim.startPos = gridToWorld(minion.x, minion.y) + glm::vec3(0, 1.5f, 0);
-
-			size_t numCards = minion.hand.size();
-			float handCenterY = ofGetHeight() - 160;
-			float handBaseCardWidth = kCardPixelWidth;
-			float cardsToFit = std::max(5, (int)numCards);
-			float handAreaWidth = ofGetWidth() * 0.6f;
-			float totalCardWidths = cardsToFit * handBaseCardWidth;
-			float padding = (cardsToFit > 1) ? (handAreaWidth - totalCardWidths) / (cardsToFit - 1) : 0;
-			padding = std::min(padding, 16.0f);
-			float totalHandWidth = (cardsToFit * handBaseCardWidth) + ((cardsToFit - 1) * padding);
-			float startX = (ofGetWidth() - totalHandWidth) / 2.0f;
-			float cardCenterX = startX + (numCards - 1) * (handBaseCardWidth + padding) + (handBaseCardWidth / 2.0f);
-			anim.targetPos = glm::vec2(cardCenterX, handCenterY);
-			anim.endPos = anim.startPos;
-			ofVec3f sp = getActiveCamera().worldToScreen(anim.startPos);
-			anim.startIsScreenSpace = true;
-			anim.currentPos = glm::vec2((float)sp.x, (float)sp.y);
-			anim.startPos = glm::vec3(anim.currentPos.x, anim.currentPos.y, 0);
-			anim.currentScale = 1.0f;
-			anim.commitOnFinish = false;
-			activeDrawCardAnimations.push_back(anim);
-		}
-	}
-
-	if (ownerIndex >= 0) {
-		if (ownerIndex == myLocalPlayerID)
-			hasDrawnCardsThisTurn = true;
-		else
-			opponentHasDrawnCardsThisTurn = true;
-	}
+	// Queue the lockstep command only. Execution phase will perform actual draws.
+	InputCommandPacket cmd = {};
+	cmd.type = PKT_INPUT_COMMAND;
+	cmd.playerID = myLocalPlayerID;
+	cmd.commandId = nextCommandId++;
+	cmd.turnNumber = globalTurnCounter;
+	cmd.commandType = CMD_DRAW_CARDS;
+	cmd.params[0] = minionIndex;
+	cmd.params[1] = drawCount;
+	if (isClient()) cmd.clientActionID = ++watchdogClientActionCounter;
+	sendInputCommand(cmd, true);
 }
 
 void ofApp::checkKeyPickupAndDraftAfterSummon(int x, int y, int minionOwnerID) {
@@ -7099,7 +7038,10 @@ void ofApp::updateGame() {
 
 		// If a unit (player or minion) truly has no cards anywhere (deck,
 		// discard, hand, or played pile), they should be removed.
-		if (noCards) {
+		// EXCEPTION 1: Do not kill players during the initial draft.
+		// EXCEPTION 2: Do not kill units on the exact turn they are summoned
+		// (gives Golems/minions time to generate decks via EffectOps).
+		if (noCards && initialDraftComplete && players[i].summonedOnTurnCycle != globalTurnCounter) {
 			shouldDie = true;
 		}
 
@@ -9584,15 +9526,16 @@ void ofApp::drawGame() {
 	(void)fontScale;
 
 	// --- DRAW TURN TIMER BAR AT TOP OF SCREEN ---
-	// During drafting, timer ownership belongs to the drafting player, not the current turn owner.
+	// During drafting, keep timer visible for both peers so the draft phase always
+	// has an explicit countdown, even when it's not the local player's pick.
 	bool showGameplayTimer = (!isMultiplayer || isMyTurn());
-	bool showDraftTimer = (!isMultiplayer || isLocalDraftingPlayer(draftPlayerIndex));
+	bool showDraftTimer = true;
 
 	// FIX: Keep the timer rendering during in-game drafts
 	bool timerStateVisible = (currentState == STATE_GAMEPLAY) || (currentState == STATE_DRAFTING && (!draftOptions.empty() || isInGameDraft));
-	bool shouldShowTopTimer = (currentState == STATE_DRAFTING && !isInGameDraft) ? showDraftTimer : showGameplayTimer;
+	bool shouldShowTopTimer = (currentState == STATE_DRAFTING) ? showDraftTimer : showGameplayTimer;
 
-	if (turnTimerEnabled && timerStateVisible && currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size() && shouldShowTopTimer) {
+	if (turnTimerEnabled && timerStateVisible && shouldShowTopTimer) {
 		float elapsedSeconds = 0.0f;
 		if (turnTimerPaused) {
 			elapsedSeconds = std::max(0.0f, (float)(turnDurationFrames - turnTimerPausedRemainingFrames) / (float)turnTimerFramesPerSecond);
@@ -9807,22 +9750,36 @@ void ofApp::drawGame() {
 		ofPopMatrix();
 	}
 	// --- MAIN UI DRAWING ---
-	// --- FIX: Find the main players to prevent UI bugs with minions ---
-	Player * player0 = nullptr;
-	Player * player1 = nullptr;
+	// Resolve side actors robustly. Prefer non-minions by owner side (0/1), but
+	// tolerate ID/flag drift during reconnect/load so HUD stays visible in draft.
+	Player * side0 = nullptr;
+	Player * side1 = nullptr;
 	for (auto & p : players) {
-		if (p.playerID == 0) player0 = &p;
-		if (p.playerID == 1) player1 = &p;
+		int side = -1;
+		if ((p.playerID == 0 || p.playerID == 1) && !p.isMinion) {
+			side = p.playerID;
+		} else if (p.ownerID == 0 || p.ownerID == 1) {
+			side = p.ownerID;
+		} else if (p.playerID == 0 || p.playerID == 1) {
+			side = p.playerID;
+		}
+
+		if (side == 0) {
+			if (!side0 || (side0->isMinion && !p.isMinion)) side0 = &p;
+		} else if (side == 1) {
+			if (!side1 || (side1->isMinion && !p.isMinion)) side1 = &p;
+		}
 	}
 
-	if (player0 && player1) {
-		// In multiplayer, swap perspective so local player is always at bottom
-		Player * localPlayer = player0;
-		Player * opponentPlayer = player1;
-		if (isMultiplayer && myLocalPlayerID == 1) {
-			localPlayer = player1;
-			opponentPlayer = player0;
-		}
+	// In multiplayer, local side is myLocalPlayerID. In singleplayer local side is 0.
+	Player * localPlayer = (isMultiplayer && myLocalPlayerID == 1) ? side1 : side0;
+	Player * opponentPlayer = (isMultiplayer && myLocalPlayerID == 1) ? side0 : side1;
+
+	// Safety fallbacks: keep HUD alive if one side is temporarily unresolved.
+	if (!localPlayer) localPlayer = opponentPlayer;
+	if (!opponentPlayer) opponentPlayer = localPlayer;
+
+	if (localPlayer && opponentPlayer) {
 
 		// 1. Calculate positions - bottom = local player (left side), mirrored opponent on right side
 		float margin = ui.edgeInset;
@@ -13447,14 +13404,20 @@ void ofApp::mousePressed(int x, int y, int button) {
 					int poolIdx = (i < currentDraftOptionPoolIndices.size()) ? currentDraftOptionPoolIndices[i] : -1;
 					if (poolIdx < 0) return; // invalid slot
 					auto it = std::find(selectedDraftIndices.begin(), selectedDraftIndices.end(), poolIdx);
-					bool nowSelected = false;
+					bool nowSelected = (it == selectedDraftIndices.end());
 
-					if (it != selectedDraftIndices.end()) {
-						selectedDraftIndices.erase(it); // Deselect (pool index)
-					} else {
-						if (selectedDraftIndices.size() < static_cast<size_t>(requiredPicks)) {
-							selectedDraftIndices.push_back(poolIdx); // store pool index
-							nowSelected = true;
+					// IMPORTANT (lockstep): In multiplayer, do not mutate
+					// `selectedDraftIndices` here. The authoritative toggle happens when
+					// CMD_DRAFT_ACTION executes (sendInputCommand(..., true) applies it locally too).
+					// Mutating here and then executing the command causes a double-toggle loop.
+					if (!isMultiplayer) {
+						if (it != selectedDraftIndices.end()) {
+							selectedDraftIndices.erase(it); // Deselect (pool index)
+						} else {
+							if (selectedDraftIndices.size() < static_cast<size_t>(requiredPicks)) {
+								selectedDraftIndices.push_back(poolIdx); // store pool index
+								nowSelected = true;
+							}
 						}
 					}
 
@@ -13530,32 +13493,9 @@ void ofApp::mousePressed(int x, int y, int button) {
 	// Only handle this flow while actually in draft state. If `isInGameDraft`
 	// lingers true after a transition, gameplay clicks must not be swallowed.
 	if (currentState == STATE_DRAFTING && isInGameDraft) {
-		// Reference drafting player
-		Player & p = players[draftPlayerIndex];
-
-		// Shuffle deck (delay visual to match card animation duration)
-		float cardAnimDuration = draftAnimHoldDuration + 0.35f;
-		shuffleGameVector(p.deck, draftPlayerIndex, cardAnimDuration);
-		if (!networkPending.draftQueue.empty()) {
-			// Pop next and stay in drafting
-			int nextClass = networkPending.draftQueue.front();
-			networkPending.draftQueue.erase(networkPending.draftQueue.begin());
-
-			generateDraftOptions(nextClass);
-			draftPicksRemaining = 1;
-			selectedDraftIndices.clear();
-			// draftPlayerIndex stays same
-			// currentState stays STATE_DRAFTING
-
-			ofLogNotice("Draft") << "Continuing chain. Next Class: " << nextClass;
-			return;
-		}
-
-		// No more drafts, return to game
-		isInGameDraft = false;
-		// Resume any paused turn timer caused by an opponent-driven draft
-		resumeTurnTimerIfPausedForOpponent(draftPlayerIndex);
-		currentState = STATE_GAMEPLAY;
+		// Lockstep authority: do not mutate game state from click-path.
+		// In-game draft progression/exit is handled exclusively by
+		// executeInputCommand(CMD_ACCEPT_DRAFT).
 		return;
 	}
 
@@ -16923,7 +16863,7 @@ void ofApp::handleCardTargetClick(int gridX, int gridY) {
 		return;
 	}
 
-	if (interactingCardIndex < 0 || interactingCardIndex >= (int)players[currentPlayerIndex].hand.size()) return;
+	if (interactingCardType != CARD_FORM_OF_TORTOISE && (interactingCardIndex < 0 || interactingCardIndex >= (int)players[currentPlayerIndex].hand.size())) return;
 
 	// Find target player index (if any)
 	int targetIndex = -1;
@@ -16935,7 +16875,10 @@ void ofApp::handleCardTargetClick(int gridX, int gridY) {
 	}
 
 	Player & caster = players[currentPlayerIndex];
-	Card & card = caster.hand[interactingCardIndex];
+	Card * cardPtr = nullptr;
+	if (interactingCardIndex >= 0 && interactingCardIndex < (int)caster.hand.size()) {
+		cardPtr = &caster.hand[interactingCardIndex];
+	}
 	interactionTargetIndex = targetIndex;
 	int cardIndex = interactingCardIndex;
 
@@ -17001,7 +16944,7 @@ void ofApp::handleCardTargetClick(int gridX, int gridY) {
 						cmd.params[0] = interactingCardIndex;
 						cmd.params[1] = gx;
 						cmd.params[2] = gy;
-						strncpy(cmd.stringData, card.name.c_str(), sizeof(cmd.stringData) - 1);
+						strncpy(cmd.stringData, (cardPtr ? cardPtr->name.c_str() : ""), sizeof(cmd.stringData) - 1);
 						cmd.stringData[sizeof(cmd.stringData) - 1] = '\0';
 
 						if (isMultiplayer) {
@@ -17023,6 +16966,23 @@ void ofApp::handleCardTargetClick(int gridX, int gridY) {
 	}
 
 	switch (interactingCardType) {
+	case CARD_FORM_OF_TORTOISE: {
+		InputCommandPacket cmd = {};
+		cmd.type = PKT_INPUT_COMMAND;
+		cmd.playerID = myLocalPlayerID;
+		cmd.seq = 0;
+		cmd.commandId = nextCommandId++;
+		cmd.turnNumber = globalTurnCounter;
+		cmd.commandType = CMD_PSEUDO_ACTION;
+		cmd.params[0] = gridX;
+		cmd.params[1] = gridY;
+		strncpy(cmd.stringData, "Shell Spike", sizeof(cmd.stringData) - 1);
+		cmd.stringData[sizeof(cmd.stringData) - 1] = '\0';
+		sendInputCommand(cmd, true);
+		resetCardInteraction();
+		return;
+	}
+
 	case CARD_BURST_OF_LIGHT:
 	case CARD_WISDOM_BOON:
 	case CARD_DOUBLE_HANDED:
@@ -17093,7 +17053,7 @@ void ofApp::handleCardTargetClick(int gridX, int gridY) {
 			cmd.params[1] = gridX;
 			cmd.params[2] = gridY;
 			cmd.params[3] = 0;
-			strncpy(cmd.stringData, card.name.c_str(), sizeof(cmd.stringData) - 1);
+			strncpy(cmd.stringData, (cardPtr ? cardPtr->name.c_str() : ""), sizeof(cmd.stringData) - 1);
 			cmd.stringData[sizeof(cmd.stringData) - 1] = '\0';
 			if (!sendInputCommand(cmd, true)) ofLogWarning("Network") << "PlayCard send failed (no connection).";
 			resetCardInteraction();
@@ -17110,7 +17070,7 @@ void ofApp::handleCardTargetClick(int gridX, int gridY) {
 			cmd.params[1] = gridX;
 			cmd.params[2] = gridY;
 			cmd.params[3] = 0;
-			strncpy(cmd.stringData, card.name.c_str(), sizeof(cmd.stringData) - 1);
+			strncpy(cmd.stringData, (cardPtr ? cardPtr->name.c_str() : ""), sizeof(cmd.stringData) - 1);
 			cmd.stringData[sizeof(cmd.stringData) - 1] = '\0';
 
 			// Route via local queue so singleplayer follows lockstep execution
@@ -17121,7 +17081,7 @@ void ofApp::handleCardTargetClick(int gridX, int gridY) {
 	}
 	}
 
-	ofLogNotice("CardInteraction") << "Target click at (" << gridX << "," << gridY << ") for " << card.name;
+	ofLogNotice("CardInteraction") << "Target click at (" << gridX << "," << gridY << ") for " << (cardPtr ? cardPtr->name : "Shell Spike");
 }
 
 void ofApp::handleCardMenuClick(const std::string & buttonId) {
@@ -18384,7 +18344,10 @@ void ofApp::simulationTick() {
 
 		// If a unit (player or minion) truly has no cards anywhere (deck,
 		// discard, hand, or played pile), they should be removed.
-		if (noCards) {
+		// EXCEPTION 1: Do not kill players during the initial draft.
+		// EXCEPTION 2: Do not kill units on the exact turn they are summoned
+		// (gives Golems/minions time to generate decks via EffectOps).
+		if (noCards && initialDraftComplete && players[i].summonedOnTurnCycle != globalTurnCounter) {
 			shouldDie = true;
 		}
 
@@ -18960,17 +18923,19 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 			break;
 		}
 
-		// Advance the draft stage and schedule the next options or end the draft
-		draftStage++;
+		// Advance draft flow from authoritative classTier in the command.
+		// Do not rely on local draftStage here; drift can cause class-1 loops.
 		float delay = draftAnimHoldDuration + 0.35f + 0.9f + 0.1f;
-		if (draftStage == 1) {
+		if (classTier <= 1) {
+			// Completed Class 1 for this player -> next is Class 2 for same player.
+			this->draftPlayerIndex = cmdDraftPlayerIdx;
+			draftStage = 1;
 			scheduleGenerateDraftOptions(2, delay);
 		} else {
-			// Compute next player from the player who just accepted picks
-			// (use the command's player index to avoid stale member state).
+			// Completed Class 2 (or higher) for this player -> next player or end draft.
 			int nextPlayerIdx = (cmdDraftPlayerIdx + 1) % 2;
 			if (players[nextPlayerIdx].deck.empty()) {
-				this->draftPlayerIndex = nextPlayerIdx; // Properly updates class state!
+				this->draftPlayerIndex = nextPlayerIdx;
 				draftStage = 0;
 				scheduleGenerateDraftOptions(1, delay);
 			} else {
@@ -22577,6 +22542,7 @@ void ofApp::processCardStateInput(int mouseX, int mouseY, int button) {
 		}
 	} else if (cardInteractionState == CARD_INTERACTION_STATUS) {
 		if (button != OF_MOUSE_BUTTON_LEFT) return;
+		if (isMultiplayer && !isCurrentPlayerLocal()) return;
 
 		bool clickedOption = false;
 		for (size_t i = 0; i < statusSelectButtons.size(); ++i) {
