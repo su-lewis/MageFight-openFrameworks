@@ -14236,37 +14236,24 @@ void ofApp::mousePressed(int x, int y, int button) {
 				}
 
 				if (assistantIndex != -1) {
-					// Mark used
-					players[assistantIndex].assistantRerollUsedThisTurn = true;
+					// Route through lockstep command queue to keep both peers in sync
+					InputCommandPacket cmd = {};
+					cmd.type = PKT_INPUT_COMMAND;
+					cmd.playerID = myLocalPlayerID;
+					cmd.commandId = nextCommandId++;
+					cmd.turnNumber = globalTurnCounter;
+					cmd.commandType = CMD_PSEUDO_ACTION;
+					cmd.params[0] = assistantIndex; // Pass the assistant index
+					cmd.params[1] = lastAPDiceNum > 0 ? lastAPDiceNum : 1;
+					cmd.params[2] = lastAPDiceSides > 0 ? lastAPDiceSides : 6;
+					strncpy(cmd.stringData, "AssistantReroll", sizeof(cmd.stringData) - 1);
+					cmd.stringData[sizeof(cmd.stringData) - 1] = '\0';
 
-					// Assistant reroll: use same dice configuration as the original AP roll
-					int rerollNum = lastAPDiceNum > 0 ? lastAPDiceNum : 1;
-					int rerollSides = lastAPDiceSides > 0 ? lastAPDiceSides : 6;
-					// Mark any previous AP dice as debug so they won't be included twice
-					for (auto & oldR : activeDiceRolls) {
-						if (oldR.purpose == PURPOSE_AP) oldR.purpose = PURPOSE_DEBUG;
-					}
-					// Start a bonus AP roll (added on top of the original result)
-					{
-						// Resolve assistant reroll locally (pure lockstep: both peers call RNG)
-						std::vector<int> rawReroll;
-						int bonus = resolveDiceRollDetailed(rerollNum, rerollSides, rawReroll);
-						EffectOp applyBonus = {};
-						applyBonus.type = EffectOpType::APPLY_BONUS_AP;
-						applyBonus.data.modifyStat.targetIndex = currentPlayerIndex;
-						applyBonus.data.modifyStat.statType = 3; // AP (current)
-						applyBonus.data.modifyStat.delta = bonus;
-						applyBonus.data.modifyStat.deltaFromSlot = -1;
-						queueEffect(applyBonus);
-						if (!isProcessingEffect) beginEffectSequence();
-						queueVisualDiceRoll(gridToWorld(players[assistantIndex].x, players[assistantIndex].y) + glm::vec3(0, 1.0f, 0), rerollNum, rerollSides, rawReroll, bonus, PURPOSE_BONUS_AP, currentPlayerIndex, 1.0f);
-					}
-
-					queueFloatingTextVisual(gridToWorld(players[assistantIndex].x, players[assistantIndex].y), "Reroll!", ofColor::gold);
+					// Send to network so both peers execute the RNG together
+					sendInputCommand(cmd, true);
 				}
 				return;
 			}
-			// --- PASTE HERE END ---
 
 			// 3g. End Turn Button (only active during gameplay)
 			if (currentState == STATE_GAMEPLAY && endTurnButtonRect.inside(x, y) && button == OF_MOUSE_BUTTON_LEFT) {
@@ -17366,6 +17353,9 @@ void ofApp::handleCardMenuClick(const std::string & buttonId) {
 			targetIndex = interactionTargetIndex;
 		}
 		if (targetIndex < 0 || targetIndex >= (int)players.size()) return;
+
+		beginEffectSequence(); // Initialize effect queue before queuing effects
+
 		if (buttonId == "damage") {
 			EffectOp dmg = {};
 			dmg.type = EffectOpType::DAMAGE;
@@ -19164,6 +19154,36 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 			}
 		}
 
+		if (actionName == "AssistantReroll") {
+			int assistantIndex = cmd.params[0];
+			int rerollNum = cmd.params[1];
+			int rerollSides = cmd.params[2];
+
+			if (assistantIndex >= 0 && assistantIndex < (int)players.size()) {
+				Player & assistant = players[assistantIndex];
+				assistant.assistantRerollUsedThisTurn = true;
+
+				// Mark any previous AP dice as debug so they won't be included twice
+				for (auto & oldR : activeDiceRolls) {
+					if (oldR.purpose == PURPOSE_AP) oldR.purpose = PURPOSE_DEBUG;
+				}
+
+				// Resolve assistant reroll using strict lockstep RNG (both peers call same sequence)
+				std::vector<int> rawReroll;
+				int bonus = resolveDiceRollDetailed(rerollNum, rerollSides, rawReroll);
+
+				// Queue the bonus AP effect
+				if (!isProcessingEffect) beginEffectSequence();
+				EffectOp applyBonus = {};
+				applyBonus.type = EffectOpType::APPLY_BONUS_AP;
+				applyBonus.data.modifyStat.targetIndex = currentPlayerIndex;
+				applyBonus.data.modifyStat.statType = 3; // AP (current)
+				applyBonus.data.modifyStat.delta = bonus;
+				applyBonus.data.modifyStat.deltaFromSlot = -1;
+				queueEffect(applyBonus);
+			}
+		}
+
 		ofLogNotice("Lockstep") << "Execute CMD_PSEUDO_ACTION: " << actionName << " at (" << targetX << "," << targetY << ")";
 		break;
 	}
@@ -19974,42 +19994,9 @@ bool ofApp::processEffectOp(EffectOp & op) {
 			advanceCardState(CARD_STATE_EFFECT_SEQUENCE);
 		}
 
-		// --- DEATH CLEANUP (mirror previous resolver behaviour) ---
-		std::vector<int> removePoisoned;
-		for (size_t i = 0; i < players.size(); ++i) {
-			if (players[i].health <= 0) removePoisoned.push_back((int)i);
-		}
-		if (!removePoisoned.empty()) {
-			sort(removePoisoned.begin(), removePoisoned.end(), std::greater<int>());
-			for (int idx : removePoisoned) {
-				if (idx < 0 || idx >= (int)players.size()) continue;
-				for (auto & r : activeDiceRolls) {
-					if (r.associatedUnit == idx)
-						r.associatedUnit = -1;
-					else if (r.associatedUnit > idx)
-						r.associatedUnit -= 1;
-				}
-				for (auto it = earthquakeUnits.begin(); it != earthquakeUnits.end();) {
-					if (it->playerIndex == idx)
-						it = earthquakeUnits.erase(it);
-					else {
-						if (it->playerIndex > idx) it->playerIndex -= 1;
-						++it;
-					}
-				}
-				players.erase(players.begin() + idx);
-				if (players.empty()) {
-					currentPlayerIndex = -1;
-				} else {
-					if (currentPlayerIndex == idx) {
-						currentPlayerIndex = std::min<int>(idx, (int)players.size() - 1);
-					} else if (currentPlayerIndex > idx) {
-						currentPlayerIndex -= 1;
-					}
-				}
-			}
-			invalidateTargetCache();
-		}
+		// NOTE: Death cleanup is handled globally in simulationTick() at the end of every frame.
+		// Do not manually call players.erase() here; it would corrupt indices for other queued
+		// EffectOps that are waiting to run and still reference players by index.
 
 		opComplete = true;
 		break;
@@ -23199,6 +23186,11 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 			int amountTotal = resolveDiceRollDetailed(2, 4, rawAmount);
 			currentEffectSequence.blackboard[1] = amountTotal;
 			queueVisualDiceRoll(visPos, 2, 4, rawAmount, amountTotal, PURPOSE_PSIONIC_WAVE_AMOUNT, currentPlayerIndex, 1.2f);
+
+			// Queue the APPLY_PSIONIC_WAVE effect to actually resolve the card's impact
+			EffectOp applyOp = {};
+			applyOp.type = EffectOpType::APPLY_PSIONIC_WAVE;
+			queueEffect(applyOp);
 		}
 		playedSuccessfully = true;
 		advanceCardState(CARD_STATE_EFFECT_SEQUENCE);
