@@ -258,7 +258,7 @@ struct CardTemplateRecord {
 };
 
 struct CardTemplateLayout {
-	ofRectangle nameRect = ofRectangle(192, 768, 672, 128);
+	ofRectangle nameRect = ofRectangle(192, 752, 672, 144);
 	ofRectangle costRect = ofRectangle(32, 32, 128, 128);
 	ofRectangle damageTypeRect = ofRectangle(26, 84, 176, 24);
 	ofRectangle targetingRect = ofRectangle(384, 1344, 320, 80);
@@ -266,9 +266,9 @@ struct CardTemplateLayout {
 	ofRectangle summonHPRect = ofRectangle(552, 1328, 136, 80);
 	ofRectangle classRect = ofRectangle(26, 112, 150, 24);
 	ofRectangle effectRect = ofRectangle(96, 928, 864, 384);
-	float nameScale = 3.35f;
+	float nameScale = 5.5f;
 	float nameMinScale = 1.0f;
-	float nameCurveDropPx = 24.0f;
+	float nameCurveDropPx = 12.0f;
 	float nameMiddleClampXMin = 416.0f;
 	float nameMiddleClampXMax = 656.0f;
 	float nameMiddleBottomMaxY = 864.0f;
@@ -685,6 +685,7 @@ static void drawCenteredTextScaledOutlined(const ofTrueTypeFont & font,
 	ofPopMatrix();
 }
 
+// Simplified arc text drawing with fixed scale and basic fan curve
 static void drawArcCenteredTextScaledOutlined(const ofTrueTypeFont & font,
 	const std::string & text,
 	const ofRectangle & rect,
@@ -698,39 +699,16 @@ static void drawArcCenteredTextScaledOutlined(const ofTrueTypeFont & font,
 	int outlinePx) {
 	if (text.empty()) return;
 
-	std::vector<float> advances;
-	advances.reserve(text.size());
-	float totalWidthUnscaled = 0.0f;
-	float fallbackAdvance = std::max(2.0f, font.getLineHeight() * 0.24f);
-	for (size_t i = 0; i < text.size(); ++i) {
-		// Use standalone glyph widths for arc rendering. Pair-kerning deltas can
-		// become negative, which causes overlap when drawing per-glyph.
-		std::string glyph(1, text[i]);
-		float adv = font.getStringBoundingBox(glyph, 0, 0).width;
-		if (text[i] == ' ') {
-			// Keep spaces intentionally tighter for curved card names.
-			adv = std::max(1.0f, fallbackAdvance * 0.45f);
-		}
-		if (adv <= 0.0f) adv = fallbackAdvance;
-		if (text[i] != ' ') {
-			adv *= 1.02f; // tiny tracking to keep letters from visually touching
-		}
-		advances.push_back(adv);
-		totalWidthUnscaled += adv;
-	}
-	if (totalWidthUnscaled <= 0.0f) return;
-
+	// Simple fixed-scale fan curve: center stays at base, edges drop by endDropPx
 	ofRectangle b = font.getStringBoundingBox(text, 0, 0);
-	float totalWidthScaled = totalWidthUnscaled * scale;
-	float startX = rect.x + (rect.width - totalWidthScaled) * 0.5f;
-	float highestBottomY = (clampXMax > clampXMin) ? clampBottomY : rect.getBottom();
-	float centerY = (rect.y + highestBottomY) * 0.5f;
-	// Place baseline so the text's visual center is centered between top and highest bottom bound.
-	float baselineY = centerY - (b.y + b.height * 0.5f) * scale - 6.0f;
+	float totalWidth = b.width * scale;
+	float startX = rect.x + (rect.width - totalWidth) * 0.5f;
+	float centerY = (rect.y + rect.getBottom()) * 0.5f;
+	float baselineY = centerY - (b.y + b.height * 0.5f) * scale;
+
 	const int r = std::max(1, outlinePx);
-	const float outerArcSpan = 192.0f;
-	const float firstDropAmt = std::max(3.0f, endDropPx * 0.35f);
-	const float secondDropAmt = endDropPx;
+
+	// Simple smoothstep for smooth curve
 	auto smoothstep01 = [](float t) {
 		t = std::clamp(t, 0.0f, 1.0f);
 		return t * t * (3.0f - 2.0f * t);
@@ -738,25 +716,16 @@ static void drawArcCenteredTextScaledOutlined(const ofTrueTypeFont & font,
 
 	float cursorX = startX;
 	for (size_t i = 0; i < text.size(); ++i) {
-		float advScaled = advances[i] * scale;
-		float charCenterX = cursorX + advScaled * 0.5f;
+		std::string glyph(1, text[i]);
+		float glyphWidth = font.getStringBoundingBox(glyph, 0, 0).width * scale;
+		float charCenterX = cursorX + glyphWidth * 0.5f;
 		float drawY = baselineY;
 
-		if (clampXMax > clampXMin && charCenterX >= clampXMin && charCenterX <= clampXMax) {
-			drawY = std::min(drawY, clampBottomY);
-		} else if (clampXMax > clampXMin) {
-			float edgeDistance = 0.0f;
-			if (charCenterX < clampXMin) {
-				edgeDistance = clampXMin - charCenterX;
-			} else if (charCenterX > clampXMax) {
-				edgeDistance = charCenterX - clampXMax;
-			}
-			float t = std::clamp(edgeDistance / outerArcSpan, 0.0f, 1.0f);
-			float midBandT = smoothstep01(t / 0.60f);
-			float outerBandT = smoothstep01((t - 0.60f) / 0.40f);
-			float targetY = clampBottomY + firstDropAmt * midBandT + (secondDropAmt - firstDropAmt) * outerBandT;
-			drawY = std::max(drawY, targetY);
-		}
+		// Fan curve: center = 0 drop, edges = full drop
+		float normalizedPos = (charCenterX - startX) / std::max(0.1f, totalWidth);
+		float edgeDistance = std::abs(normalizedPos - 0.5f) * 2.0f;
+		float curveFactor = smoothstep01(edgeDistance);
+		drawY += endDropPx * curveFactor;
 
 		ofSetColor(outlineColor);
 		ofPushMatrix();
@@ -777,7 +746,7 @@ static void drawArcCenteredTextScaledOutlined(const ofTrueTypeFont & font,
 		font.drawString(std::string(1, text[i]), 0, 0);
 		ofPopMatrix();
 
-		cursorX += advScaled;
+		cursorX += glyphWidth;
 	}
 }
 
@@ -1046,15 +1015,16 @@ static bool rebuildCardSpriteSheetFromTemplate(const std::string & templatePath,
 	}
 
 	// AP/HP chips are compact and should read large.
-	const float costTargetChipMaxScale = 4.0f;
-	const float summonChipMaxScale = 4.0f;
+	const float costTargetChipMaxScale = 12.0f;
+	const float targetingChipMaxScale = 2.5f;
+	const float summonChipMaxScale = 6.0f;
 
 	auto bestUniformCenteredTextScale = [&](const ofTrueTypeFont & font,
 											const std::vector<std::string> & texts,
 											const ofRectangle & rect,
 											float minScale,
-		float maxScale,
-		int outlinePx = 0) {
+											float maxScale,
+											int outlinePx = 0) {
 		if (maxScale < minScale) std::swap(maxScale, minScale);
 		float fitW = std::max(1.0f, rect.width - 2.0f * (float)std::max(0, outlinePx) - 2.0f);
 		float fitH = std::max(1.0f, rect.height - 2.0f * (float)std::max(0, outlinePx) - 2.0f);
@@ -1085,12 +1055,30 @@ static bool rebuildCardSpriteSheetFromTemplate(const std::string & templatePath,
 		return lo;
 	};
 
-	const float uniformNameScale = bestUniformCenteredTextScale(
+	auto bestUniformArcTextScale = [&](const ofTrueTypeFont & font,
+									   const std::vector<std::string> & texts,
+									   const ofRectangle & rect,
+									   float minScale,
+									   float maxScale,
+									   float endDropPx,
+									   float clampXMin,
+									   float clampXMax,
+									   float clampBottomY,
+									   int outlinePx = 0) {
+		// Simplified: use minimum safe scale to avoid overflow
+		return minScale;
+	};
+
+	const float uniformNameScale = bestUniformArcTextScale(
 		renderTitleFont,
 		allCardNames,
 		layout.nameRect,
 		layout.nameMinScale,
-		layout.nameScale,
+		12.0f,
+		layout.nameCurveDropPx,
+		layout.nameMiddleClampXMin,
+		layout.nameMiddleClampXMax,
+		layout.nameMiddleBottomMaxY,
 		4);
 
 	const float uniformAPCostScale = bestUniformCenteredTextScale(
@@ -1112,8 +1100,8 @@ static bool rebuildCardSpriteSheetFromTemplate(const std::string & templatePath,
 											  const std::string & text,
 											  const ofRectangle & rect,
 											  float minScale,
-									  float maxScale,
-									  int outlinePx = 0) {
+											  float maxScale,
+											  int outlinePx = 0) {
 		if (text.empty()) return maxScale;
 		float fitW = std::max(1.0f, rect.width - 2.0f * (float)std::max(0, outlinePx) - 2.0f);
 		float fitH = std::max(1.0f, rect.height - 2.0f * (float)std::max(0, outlinePx) - 2.0f);
@@ -1142,8 +1130,8 @@ static bool rebuildCardSpriteSheetFromTemplate(const std::string & templatePath,
 											 const ofRectangle & rect,
 											 float minScale,
 											 float maxScale,
-									 float lineSpacing,
-									 int outlinePx = 0) {
+											 float lineSpacing,
+											 int outlinePx = 0) {
 		if (text.empty()) return maxScale;
 		float fitW = std::max(1.0f, rect.width - 2.0f * (float)std::max(0, outlinePx) - 2.0f);
 		float fitH = std::max(1.0f, rect.height - 2.0f * (float)std::max(0, outlinePx) - 2.0f);
@@ -1178,26 +1166,29 @@ static bool rebuildCardSpriteSheetFromTemplate(const std::string & templatePath,
 													 const ofColor & outlineColor,
 													 int outlinePx) {
 		if (text.empty()) return;
+		const int r = std::max(0, outlinePx);
+		const float inset = (float)r + 1.0f;
+		const float fitW = std::max(1.0f, rect.width - inset * 2.0f);
+		const float fitH = std::max(1.0f, rect.height - inset * 2.0f);
 		float drawScale = std::max(0.01f, std::round(scale * 4.0f) / 4.0f);
-		auto lines = wrapTextScaled(font, text, rect.width, drawScale);
+		auto lines = wrapTextScaled(font, text, fitW, drawScale);
 		if (lines.empty()) return;
 
 		float lineH = font.getLineHeight() * drawScale * std::max(0.6f, lineSpacing);
 		lineH = std::max(1.0f, lineH);
 		float totalH = lineH * (float)lines.size();
-		float blockTop = rect.y + std::max(0.0f, (rect.height - totalH) * 0.5f);
+		float blockTop = rect.y + inset + std::max(0.0f, (fitH - totalH) * 0.5f);
 
-		const int r = std::max(0, outlinePx);
 		for (size_t li = 0; li < lines.size(); ++li) {
 			const auto & line = lines[li];
 			if (line.empty()) {
 				continue;
 			}
 			ofRectangle b = font.getStringBoundingBox(line, 0, 0);
-			float tx = rect.x + (rect.width - b.width * drawScale) * 0.5f - b.x * drawScale;
+			float tx = rect.x + inset + (fitW - b.width * drawScale) * 0.5f - b.x * drawScale;
 			float lineTop = blockTop + (float)li * lineH;
 			float lineBottom = lineTop + lineH;
-			if (lineTop < rect.y - 0.01f || lineBottom > rect.getBottom() + 0.01f) {
+			if (lineTop < rect.y + inset - 0.01f || lineBottom > rect.getBottom() - inset + 0.01f) {
 				continue;
 			}
 			float ty = lineTop + (lineH - b.height * drawScale) * 0.5f - b.y * drawScale;
@@ -1467,7 +1458,7 @@ static bool rebuildCardSpriteSheetFromTemplate(const std::string & templatePath,
 			}
 		}
 		float apCostScale = uniformAPCostScale;
-		float targetingScale = bestCenteredTextScaleForSingle(renderTitleFont, rec.targeting, layout.targetingRect, 0.75f, costTargetChipMaxScale, 3);
+		float targetingScale = bestCenteredTextScaleForSingle(renderTitleFont, rec.targeting, layout.targetingRect, 0.75f, targetingChipMaxScale, 3);
 		float summonAPScale = bestWrappedTextScaleForSingle(renderTitleFont, rec.summonAP, layout.summonAPRect, 0.5f, summonChipMaxScale, 0.9f, 3);
 		float summonHPScale = bestWrappedTextScaleForSingle(renderTitleFont, rec.summonHP, layout.summonHPRect, 0.5f, summonChipMaxScale, 0.9f, 3);
 		drawArcCenteredTextScaledOutlined(renderTitleFont,
@@ -19891,10 +19882,31 @@ bool ofApp::processEffectOp(EffectOp & op) {
 	ofLogNotice("EffectQueue") << "PROCESSING opType=" << (int)op.type << " curOpIndex=" << currentEffectSequence.currentOp;
 	bool opComplete = false;
 
+	auto hasPendingDamageDiceVisualForCurrentOwner = [&]() -> bool {
+		int owner = currentPlayerIndex;
+		for (const auto & ev : visualEvents) {
+			if (ev.completed) continue;
+			if (ev.type != VE_DICE) continue;
+			if (ev.dicePurpose != PURPOSE_DAMAGE) continue;
+			if (owner >= 0 && ev.targetIndex != owner) continue;
+			return true;
+		}
+		for (const auto & roll : activeDiceRolls) {
+			if (roll.purpose != PURPOSE_DAMAGE) continue;
+			if (owner >= 0 && roll.associatedUnit != owner) continue;
+			if (!roll.isFinishedVisual) return true;
+		}
+		return false;
+	};
+
 	switch (op.type) {
 		// ROLL_DICE op fully removed from pipeline; dice are resolved at-card-play time.
 
 	case EffectOpType::DAMAGE: {
+		if (hasPendingDamageDiceVisualForCurrentOwner()) {
+			break;
+		}
+
 		int damage = op.data.damage.fixedDamage;
 		if (op.data.damage.damageFromSlot >= 0) {
 			damage = currentEffectSequence.blackboard[op.data.damage.damageFromSlot];
@@ -20110,12 +20122,10 @@ bool ofApp::processEffectOp(EffectOp & op) {
 			queueVisualTracer(worldStart, worldEnd, ofColor(255, 120, 40), 5.0f);
 
 			if (targetIdx != -1) {
-				// Immediate authoritative damage roll and application (single-pass)
-				// TODO: move face-level resolution into the command execution path
-				// and populate `currentEffectSequence.blackboard` (slot 1) with raw faces.
-				std::vector<int> rawResults; // visual faces
+				// Resolve fireball damage once, queue its visual once, then let the effect queue
+				// apply damage/status after visuals (deterministic lockstep).
+				std::vector<int> rawResults;
 				int raw = 0;
-				// Ensure damage roll is resolved locally (pure lockstep) if not already provided
 				if (currentEffectSequence.blackboard[1] != 0) {
 					raw = (int)currentEffectSequence.blackboard[1];
 					rawResults.push_back(raw);
@@ -20127,32 +20137,27 @@ bool ofApp::processEffectOp(EffectOp & op) {
 				int luckBonusLocal = 0;
 				if (luckOwner != -1) luckBonusLocal = players[luckOwner].luck + computePassiveLuck(luckOwner);
 				int dmg = (6 == 2) ? raw : (raw + luckBonusLocal);
-				// Queue visuals: tracer was already queued above. Show dice, then apply damage and status.
+
 				glm::vec3 tpos = gridToWorld(players[targetIdx].x, players[targetIdx].y);
-				queueVisualDelay(1.5f);
 				queueVisualDiceRoll(tpos + glm::vec3(0, 1.0f, 0), 1, 6, rawResults, dmg, PURPOSE_DAMAGE, currentPlayerIndex, 1.2f);
-				queueVisualDelay(1.5f);
-				// Apply damage authoritatively now
+
+				// Store pre-hit HP and resolve ON_FIRE after the queued DAMAGE op applies.
+				currentEffectSequence.blackboard[15] = players[targetIdx].health;
+
 				EffectOp applyDmg = {};
 				applyDmg.type = EffectOpType::DAMAGE;
 				applyDmg.data.damage.targetIndex = targetIdx;
 				applyDmg.data.damage.damageType = DAMAGE_FIRE;
 				applyDmg.data.damage.fixedDamage = dmg;
 				applyDmg.data.damage.damageFromSlot = -1;
-				int hpBefore = players[targetIdx].health;
-				processEffectOp(applyDmg);
-				int hpAfter = (targetIdx >= 0 && targetIdx < (int)players.size()) ? players[targetIdx].health : hpBefore;
-				if (hpAfter < hpBefore) {
-					// Apply ON_FIRE status only if HP was actually reduced
-					EffectOp ap = {};
-					ap.type = EffectOpType::APPLY_STATUS;
-					ap.data.status.targetIndex = targetIdx;
-					ap.data.status.statusType = STATUS_ON_FIRE;
-					ap.data.status.duration = 0;
-					processEffectOp(ap);
-					queueVisualDelay(1.5f);
-					queueFloatingTextVisual(tpos + glm::vec3(0, 0.6f, 0), "BURNING!", ofColor::orange);
-				}
+				queueEffect(applyDmg);
+
+				EffectOp resolveFire = {};
+				resolveFire.type = EffectOpType::APPLY_FIRE_HIT_RESOLVE;
+				resolveFire.data.damage.targetIndex = targetIdx;
+				resolveFire.data.damage.damageFromSlot = 15;
+				resolveFire.data.damage.fixedDamage = players[targetIdx].playerID;
+				queueEffect(resolveFire);
 			}
 		} else {
 			// Fell short: compute impact tile and spawn tracer to that tile
@@ -21100,6 +21105,9 @@ bool ofApp::processEffectOp(EffectOp & op) {
 	}
 
 	case EffectOpType::APPLY_MAGIC_BOLT: {
+		if (hasPendingDamageDiceVisualForCurrentOwner()) {
+			break;
+		}
 		// Read authoritative range roll from blackboard slot 0
 		int rangeRoll = currentEffectSequence.blackboard[0];
 		Player & caster = players[currentPlayerIndex];
@@ -21624,6 +21632,9 @@ bool ofApp::processEffectOp(EffectOp & op) {
 	}
 
 	case EffectOpType::APPLY_CHAIN_LIGHTNING_DAMAGE: {
+		if (hasPendingDamageDiceVisualForCurrentOwner()) {
+			break;
+		}
 		// Read damage from blackboard slot 1 and queue per-target mitigation
 		int damage = currentEffectSequence.blackboard[1];
 		Player & caster = players[currentPlayerIndex];
@@ -24609,14 +24620,8 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 				currentEffectSequence.blackboard[0] = rangeRoll;
 				queueVisualDiceRoll(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.0f, 0), fireballRangeDiceNum, fireballRangeDiceSides, rawRange, rangeRoll, PURPOSE_RANGE, currentPlayerIndex, 1.0f);
 			}
-			// Resolve fireball damage now (decision-time) and store in blackboard[1]
-			{
-				std::vector<int> rawDmg;
-				int dmgRoll = resolveDiceRollDetailed(1, 6, rawDmg);
-				currentEffectSequence.blackboard[1] = dmgRoll;
-				// Queue a small visual at caster position so players see the roll
-				queueVisualDiceRoll(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.2f, 0), 1, 6, rawDmg, dmgRoll, PURPOSE_DAMAGE, currentPlayerIndex, 1.0f);
-			}
+			// Damage roll and visual are resolved by APPLY_FIREBALL at impact time.
+			currentEffectSequence.blackboard[1] = 0;
 			// Next, queue an APPLY_FIREBALL op to resolve range result deterministically
 			EffectOp applyFb = {};
 			applyFb.type = EffectOpType::APPLY_FIREBALL;
