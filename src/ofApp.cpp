@@ -253,6 +253,8 @@ struct CardTemplateRecord {
 	std::string classLabel;
 	std::string effectText;
 	std::string picture;
+	std::string summonAP;
+	std::string summonHP;
 };
 
 struct CardTemplateLayout {
@@ -260,6 +262,8 @@ struct CardTemplateLayout {
 	ofRectangle costRect = ofRectangle(48, 48, 96, 96);
 	ofRectangle damageTypeRect = ofRectangle(26, 84, 176, 24);
 	ofRectangle targetingRect = ofRectangle(384, 1344, 320, 80);
+	ofRectangle summonAPRect = ofRectangle(400, 1344, 112, 64);
+	ofRectangle summonHPRect = ofRectangle(560, 1344, 112, 64);
 	ofRectangle classRect = ofRectangle(26, 112, 150, 24);
 	ofRectangle effectRect = ofRectangle(96, 928, 864, 384);
 	float nameScale = 1.75f;
@@ -876,6 +880,10 @@ static bool parseCardTemplateMarkdown(const std::string & markdownPath, std::uno
 			current.effectText = value;
 		else if (normKey == "picture")
 			current.picture = value;
+		else if (normKey == "ap")
+			current.summonAP = value;
+		else if (normKey == "hp")
+			current.summonHP = value;
 	}
 
 	commitCurrent();
@@ -971,18 +979,31 @@ static bool rebuildCardSpriteSheetFromTemplate(const std::string & templatePath,
 
 	std::vector<std::string> allEffectTexts;
 	allEffectTexts.reserve(allCards.size());
+	std::vector<std::string> allAPCostTexts;
+	std::vector<std::string> allTargetingTexts;
+	allAPCostTexts.reserve(allCards.size());
+	allTargetingTexts.reserve(allCards.size());
+	std::vector<std::string> allSummonAPTexts;
+	std::vector<std::string> allSummonHPTexts;
+	allSummonAPTexts.reserve(allCards.size());
+	allSummonHPTexts.reserve(allCards.size());
 	std::string longestTargetingText;
 	std::string longestTargetingCardName;
 	for (const auto & card : allCards) {
 		auto it = records.find(normalizeCardKey(card.name));
 		if (it != records.end()) {
 			allEffectTexts.push_back(it->second.effectText);
+			allAPCostTexts.push_back(it->second.apCost.empty() ? ofToString(card.cost) : it->second.apCost);
+			if (!it->second.targeting.empty()) allTargetingTexts.push_back(it->second.targeting);
+			if (!it->second.summonAP.empty()) allSummonAPTexts.push_back(it->second.summonAP);
+			if (!it->second.summonHP.empty()) allSummonHPTexts.push_back(it->second.summonHP);
 			if (it->second.targeting.size() > longestTargetingText.size()) {
 				longestTargetingText = it->second.targeting;
 				longestTargetingCardName = card.name;
 			}
 		} else {
 			allEffectTexts.push_back("");
+			allAPCostTexts.push_back(ofToString(card.cost));
 		}
 	}
 
@@ -994,6 +1015,44 @@ static bool rebuildCardSpriteSheetFromTemplate(const std::string & templatePath,
 		layout.effectMinScale,
 		layout.effectScale,
 		layout.effectLineSpacing);
+
+	auto bestUniformCenteredTextScale = [&](const ofTrueTypeFont & font,
+											const std::vector<std::string> & texts,
+											const ofRectangle & rect,
+											float minScale,
+											float maxScale) {
+		if (texts.empty()) return maxScale;
+		auto fitsAt = [&](float s) {
+			for (const auto & t : texts) {
+				if (t.empty()) continue;
+				ofRectangle b = font.getStringBoundingBox(t, 0, 0);
+				if (b.width <= 0.0f || b.height <= 0.0f) continue;
+				if (b.width * s > rect.width || b.height * s > rect.height) return false;
+			}
+			return true;
+		};
+		if (!fitsAt(minScale)) return minScale;
+		if (fitsAt(maxScale)) return maxScale;
+		float lo = minScale;
+		float hi = maxScale;
+		for (int i = 0; i < 18; ++i) {
+			float mid = (lo + hi) * 0.5f;
+			if (fitsAt(mid))
+				lo = mid;
+			else
+				hi = mid;
+		}
+		return lo;
+	};
+
+	// AP/HP chips are compact and should read large; allow higher max scale
+	// than name/targeting while still enforcing a uniform all-cards fit.
+	const float costTargetChipMaxScale = 4.0f;
+	const float uniformAPCostScale = bestUniformCenteredTextScale(renderTitleFont, allAPCostTexts, layout.costRect, 0.75f, costTargetChipMaxScale);
+	const float uniformTargetingScale = bestUniformCenteredTextScale(renderTitleFont, allTargetingTexts, layout.targetingRect, 0.75f, costTargetChipMaxScale);
+	const float summonChipMaxScale = 4.0f;
+	const float uniformSummonAPScale = bestUniformCenteredTextScale(renderTitleFont, allSummonAPTexts, layout.summonAPRect, 0.75f, summonChipMaxScale);
+	const float uniformSummonHPScale = bestUniformCenteredTextScale(renderTitleFont, allSummonHPTexts, layout.summonHPRect, 0.75f, summonChipMaxScale);
 	ofLogNotice("Cards") << "Uniform effect text scale: " << uniformEffectScale;
 
 	ofLogNotice("Cards") << "Targeting text base scale (name-matched): " << fixedNameScale;
@@ -1029,6 +1088,8 @@ static bool rebuildCardSpriteSheetFromTemplate(const std::string & templatePath,
 	storeIfLoaded("DamageTypeBanner.png");
 	storeIfLoaded("TargetingTypeArea.PNG");
 	storeIfLoaded("TargetingTypeArea.png");
+	storeIfLoaded("APHP.PNG");
+	storeIfLoaded("APHP.png");
 	// Try class badges
 	storeIfLoaded("badge_class1.png");
 	storeIfLoaded("badge_class2.png");
@@ -1203,6 +1264,22 @@ static bool rebuildCardSpriteSheetFromTemplate(const std::string & templatePath,
 			}
 		}
 
+		if (!rec.summonAP.empty() || !rec.summonHP.empty()) {
+			auto itAPHP = overlayCache.find(std::string("aphp"));
+			if (itAPHP != overlayCache.end()) {
+				ofSetColor(255, 255, 255, 255);
+				if (isFullCardOverlay(itAPHP->second)) {
+					itAPHP->second.draw(0, 0, cardW, cardH);
+				} else {
+					float x0 = std::min(layout.summonAPRect.x, layout.summonHPRect.x);
+					float y0 = std::min(layout.summonAPRect.y, layout.summonHPRect.y);
+					float x1 = std::max(layout.summonAPRect.x + layout.summonAPRect.width, layout.summonHPRect.x + layout.summonHPRect.width);
+					float y1 = std::max(layout.summonAPRect.y + layout.summonAPRect.height, layout.summonHPRect.y + layout.summonHPRect.height);
+					itAPHP->second.draw(x0, y0, x1 - x0, y1 - y0);
+				}
+			}
+		}
+
 		// class badge
 		{
 			std::string badgeKey = std::string("badge_class") + ofToString(card.cardClass);
@@ -1214,15 +1291,7 @@ static bool rebuildCardSpriteSheetFromTemplate(const std::string & templatePath,
 				itBadge->second.draw(layout.classRect.x, layout.classRect.y, layout.classRect.width, layout.classRect.height);
 			}
 		}
-		float targetingScale = fixedNameScale;
-		if (!rec.targeting.empty()) {
-			ofRectangle tb = renderTitleFont.getStringBoundingBox(rec.targeting, 0, 0);
-			if (tb.width > 0.0f && tb.height > 0.0f) {
-				float sx = layout.targetingRect.width / tb.width;
-				float sy = layout.targetingRect.height / tb.height;
-				targetingScale = std::min(targetingScale, std::max(0.1f, std::min(sx, sy)));
-			}
-		}
+		float targetingScale = uniformTargetingScale;
 		drawArcCenteredTextScaledOutlined(renderTitleFont,
 			rec.name,
 			layout.nameRect,
@@ -1234,8 +1303,14 @@ static bool rebuildCardSpriteSheetFromTemplate(const std::string & templatePath,
 			ofColor::white,
 			ofColor::black,
 			4);
-		drawCenteredTextScaledOutlined(renderTitleFont, rec.apCost, layout.costRect, layout.costScale, ofColor::white, ofColor::black, 4);
+		drawCenteredTextScaledOutlined(renderTitleFont, rec.apCost, layout.costRect, uniformAPCostScale, ofColor::white, ofColor::black, 4);
 		drawCenteredTextScaledOutlined(renderTitleFont, rec.targeting, layout.targetingRect, targetingScale, ofColor::white, ofColor::black, 3);
+		if (!rec.summonAP.empty()) {
+			drawCenteredTextScaledOutlined(renderTitleFont, rec.summonAP, layout.summonAPRect, uniformSummonAPScale, ofColor::white, ofColor::black, 3);
+		}
+		if (!rec.summonHP.empty()) {
+			drawCenteredTextScaledOutlined(renderTitleFont, rec.summonHP, layout.summonHPRect, uniformSummonHPScale, ofColor::white, ofColor::black, 3);
+		}
 		ofSetColor(12, 12, 12, 255);
 		drawWrappedTextScaledWithEmphasis(renderUIFont, rec.effectText, effectTextRect, uniformEffectScale, layout.effectLineSpacing, "Choose One -");
 		ofPopStyle();
@@ -6559,8 +6634,12 @@ void ofApp::updateGame() {
 										// Assistant reroll: host resolves RNG and writes to
 										// blackboard[5], then queues APPLY_BONUS_AP and visuals.
 										std::vector<int> rawReroll;
-										int bonus;
-										bonus = resolveDiceRollDetailed(rerollNum, rerollSides, rawReroll);
+										int rawBonus = resolveDiceRollDetailed(rerollNum, rerollSides, rawReroll);
+										int luckBonus = 0;
+										if (rerollSides != 2 && currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) {
+											luckBonus = players[currentPlayerIndex].luck + computePassiveLuck(currentPlayerIndex);
+										}
+										int bonus = rawBonus + luckBonus;
 										EffectOp apply = {};
 										apply.type = EffectOpType::APPLY_BONUS_AP;
 										apply.data.modifyStat.targetIndex = currentPlayerIndex;
@@ -16696,7 +16775,12 @@ void ofApp::continueNewTurn() {
 						}
 						// Authoritative assistant reroll
 						std::vector<int> rawReroll;
-						int bonus = resolveDiceRollDetailed(rerollNum, rerollSides, rawReroll);
+						int rawBonus = resolveDiceRollDetailed(rerollNum, rerollSides, rawReroll);
+						int luckBonus = 0;
+						if (rerollSides != 2 && currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) {
+							luckBonus = players[currentPlayerIndex].luck + computePassiveLuck(currentPlayerIndex);
+						}
+						int bonus = rawBonus + luckBonus;
 						EffectOp apply = {};
 						apply.type = EffectOpType::APPLY_BONUS_AP;
 						apply.data.modifyStat.targetIndex = currentPlayerIndex;
@@ -16775,11 +16859,34 @@ void ofApp::updateCardInteractionState(CardInteractionState newState, int cardId
 				optPlayer = magicBlastTargetPlayerIndex;
 			else if (interactingCardType == CARD_GHOST_RELOCATE)
 				optPlayer = ghostRelocateTargetIndex;
-			if (optPlayer >= 0 && optPlayer != currentPlayerIndex) {
-				// Use centralized helper to pause active player's timer and start opponent timer
-				pauseTurnTimerForOpponentDecision(optPlayer);
-				// Set decision window to 30 seconds (menus/ghost relocation)
-				opponentDecisionDurationFrames = 30 * turnTimerFramesPerSecond;
+			if (optPlayer >= 0 && optPlayer < (int)players.size() && currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) {
+				int activeOwner = players[currentPlayerIndex].isMinion ? players[currentPlayerIndex].ownerID : players[currentPlayerIndex].playerID;
+				int deciderOwner = players[optPlayer].isMinion ? players[optPlayer].ownerID : players[optPlayer].playerID;
+
+				if (deciderOwner != activeOwner) {
+					// Pause active player's timer while opponent decides.
+					if (!turnTimerPaused) {
+						pauseTurnTimerForOpponentDecision(optPlayer);
+					}
+					// New 30-second mini timer per deciding unit. If same unit stays active,
+					// keep the current countdown (no reset).
+					if (!opponentDecisionTimerActive || opponentDecisionPlayerIndex != optPlayer) {
+						opponentDecisionTimerActive = true;
+						opponentDecisionStartFrame = simulationFrame;
+						opponentDecisionDurationFrames = 30 * turnTimerFramesPerSecond;
+						opponentDecisionPlayerIndex = optPlayer;
+					}
+				} else {
+					// Same owner is deciding (caster or allied minion): do not pause turn timer.
+					if (turnTimerPaused && opponentDecisionTimerActive) {
+						turnTimerPaused = false;
+						turnStartFrame = (int)simulationFrame - (turnDurationFrames - turnTimerPausedRemainingFrames);
+						turnTimerPausedRemainingFrames = 0;
+					}
+					opponentDecisionTimerActive = false;
+					opponentDecisionStartFrame = 0;
+					opponentDecisionPlayerIndex = -1;
+				}
 			}
 		}
 	}
@@ -17176,7 +17283,6 @@ void ofApp::handleCardTargetClick(int gridX, int gridY) {
 				interactingCardIndex = cardIndex;
 			} else if (interactingCardType == CARD_GIANT_MAGIC_HAND) {
 				magicHandTargetTile = { gridX, gridY };
-				interactingCardIndex = cardIndex;
 			}
 
 			updateCardInteractionState(CARD_INTERACTION_MENU, cardIndex, interactingCardType);
@@ -19311,9 +19417,14 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 			}
 
 			std::vector<int> rawReroll;
-			int bonus = resolveDiceRollDetailed(rerollNum, rerollSides, rawReroll);
+			int rawBonus = resolveDiceRollDetailed(rerollNum, rerollSides, rawReroll);
+			int luckBonus = 0;
+			if (rerollSides != 2 && currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) {
+				luckBonus = players[currentPlayerIndex].luck + computePassiveLuck(currentPlayerIndex);
+			}
+			int bonus = rawBonus + luckBonus;
 
-			beginEffectSequence();
+			if (!isProcessingEffect) beginEffectSequence();
 			EffectOp applyBonus = {};
 			applyBonus.type = EffectOpType::APPLY_BONUS_AP;
 			applyBonus.data.modifyStat.targetIndex = currentPlayerIndex;
@@ -19815,10 +19926,13 @@ bool ofApp::processEffectOp(EffectOp & op) {
 			impactTile = { round(impactPos.x), round(impactPos.y) };
 		}
 
-		// Build deterministic target queue: impact tile first, then N/E/S/W.
-		std::vector<int> resolvedTargets;
-		auto addTileTargets = [&](int tx, int ty) {
-			if (tx < 0 || tx >= BOARD_WIDTH || ty < 0 || ty >= BOARD_HEIGHT) return;
+		// Build deterministic target queue:
+		// - Impact tile units: 3 choices each
+		// - Adjacent (N/E/S/W) units: 1 choice each
+		std::vector<int> directTargets;
+		std::vector<int> adjacentTargets;
+		auto addTileTargets = [&](int tx, int ty) -> std::vector<int> {
+			if (tx < 0 || tx >= BOARD_WIDTH || ty < 0 || ty >= BOARD_HEIGHT) return {};
 			std::vector<int> occupants = getTileOccupants(tx, ty);
 			std::sort(occupants.begin(), occupants.end(), [&](int a, int b) {
 				int pidA = players[a].playerID;
@@ -19826,19 +19940,44 @@ bool ofApp::processEffectOp(EffectOp & op) {
 				if (pidA != pidB) return pidA < pidB;
 				return a < b;
 			});
-			for (int idx : occupants) {
-				if (idx == currentPlayerIndex) continue; // never negative-self
-				if (std::find(resolvedTargets.begin(), resolvedTargets.end(), idx) == resolvedTargets.end()) {
-					resolvedTargets.push_back(idx);
-				}
-			}
+			return occupants;
 		};
 
-		addTileTargets((int)impactTile.x, (int)impactTile.y);
-		addTileTargets((int)impactTile.x, (int)impactTile.y - 1); // North
-		addTileTargets((int)impactTile.x + 1, (int)impactTile.y); // East
-		addTileTargets((int)impactTile.x, (int)impactTile.y + 1); // South
-		addTileTargets((int)impactTile.x - 1, (int)impactTile.y); // West
+		auto filterNonSelf = [&](const std::vector<int> & occ) {
+			std::vector<int> out;
+			for (int idx : occ) {
+				if (idx == currentPlayerIndex) continue; // never self
+				if (std::find(out.begin(), out.end(), idx) == out.end()) out.push_back(idx);
+			}
+			return out;
+		};
+
+		auto impactOcc = filterNonSelf(addTileTargets((int)impactTile.x, (int)impactTile.y));
+		for (int idx : impactOcc)
+			directTargets.push_back(idx);
+
+		std::vector<glm::ivec2> adjacentTiles = {
+			{ (int)impactTile.x, (int)impactTile.y - 1 },
+			{ (int)impactTile.x + 1, (int)impactTile.y },
+			{ (int)impactTile.x, (int)impactTile.y + 1 },
+			{ (int)impactTile.x - 1, (int)impactTile.y }
+		};
+		for (const auto & t : adjacentTiles) {
+			auto occ = filterNonSelf(addTileTargets(t.x, t.y));
+			for (int idx : occ) {
+				if (std::find(directTargets.begin(), directTargets.end(), idx) != directTargets.end()) continue;
+				if (std::find(adjacentTargets.begin(), adjacentTargets.end(), idx) == adjacentTargets.end()) adjacentTargets.push_back(idx);
+			}
+		}
+
+		std::vector<int> resolvedTargets;
+		for (int idx : directTargets) {
+			resolvedTargets.push_back(idx);
+			resolvedTargets.push_back(idx);
+			resolvedTargets.push_back(idx);
+		}
+		for (int idx : adjacentTargets)
+			resolvedTargets.push_back(idx);
 
 		magicBlastTargetPlayerIndex = -1;
 		magicBlastSplashTargetIndices.clear();
