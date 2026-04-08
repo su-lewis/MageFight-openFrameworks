@@ -9047,6 +9047,66 @@ void ofApp::drawGame() {
 			drawJoinedOutlines(targetableTiles, greenColor, avgSurfaceY);
 		}
 
+		// Draw purple outlines for magic wall effect areas (adjacent and diagonal tiles)
+		{
+			bool magicWallEffectTiles[BOARD_WIDTH][BOARD_HEIGHT];
+			memset(magicWallEffectTiles, 0, sizeof(magicWallEffectTiles));
+
+			for (int x = 0; x < BOARD_WIDTH; x++) {
+				for (int y = 0; y < BOARD_HEIGHT; y++) {
+					if (board[x][y].hasWall && board[x][y].isMagicWall) {
+						// Mark all adjacent and diagonal tiles
+						for (int dx = -1; dx <= 1; dx++) {
+							for (int dy = -1; dy <= 1; dy++) {
+								if (dx == 0 && dy == 0) continue; // Don't mark the wall itself
+								int nx = x + dx;
+								int ny = y + dy;
+								if (nx >= 0 && nx < BOARD_WIDTH && ny >= 0 && ny < BOARD_HEIGHT) {
+									magicWallEffectTiles[nx][ny] = true;
+								}
+							}
+						}
+					}
+				}
+			}
+
+			if (memchr(magicWallEffectTiles, 1, sizeof(magicWallEffectTiles)) != nullptr) {
+				ofColor purpleColor(180, 100, 220, 180); // Purple for magic wall effect areas
+				float avgSurfaceY = 0.045f;
+				drawJoinedOutlines(magicWallEffectTiles, purpleColor, avgSurfaceY);
+			}
+		}
+
+		// Draw green outlines for assistant effect areas (tiles adjacent to assistants)
+		{
+			bool assistantEffectTiles[BOARD_WIDTH][BOARD_HEIGHT];
+			memset(assistantEffectTiles, 0, sizeof(assistantEffectTiles));
+
+			// Find all assistants and mark adjacent tiles
+			for (const auto & unit : players) {
+				if (!unit.isAssistant) continue; // Only process assistants
+
+				// Mark all adjacent tiles (4-directional: N/E/S/W only, not diagonal)
+				std::vector<glm::ivec2> adjacentDirs = { { 0, -1 }, { 1, 0 }, { 0, 1 }, { -1, 0 } };
+				for (const auto & dir : adjacentDirs) {
+					int nx = unit.x + (int)dir.x;
+					int ny = unit.y + (int)dir.y;
+					if (nx >= 0 && nx < BOARD_WIDTH && ny >= 0 && ny < BOARD_HEIGHT) {
+						assistantEffectTiles[nx][ny] = true;
+					}
+				}
+			}
+
+			if (memchr(assistantEffectTiles, 1, sizeof(assistantEffectTiles)) != nullptr) {
+				ofColor assistantGreenColor(100, 220, 150, 170); // Lighter green for assistant effect areas
+				float avgSurfaceY = 0.0425f;
+				drawJoinedOutlines(assistantEffectTiles, assistantGreenColor, avgSurfaceY);
+			}
+		}
+
+		// Draw expanding AOE rings for Magic Bolt / Psionic Wave previews
+		drawExpandingAOERings(0.05f);
+
 		// --- DRAW TILE HIGHLIGHTS ---
 		for (int x = 0; x < BOARD_WIDTH; x++) {
 			for (int y = 0; y < BOARD_HEIGHT; y++) {
@@ -9234,7 +9294,8 @@ void ofApp::drawGame() {
 				// Draw a flat tracer slightly above the board using XZ from stored start/end
 				const float tracerHeight = 0.12f; // small elevation above tile surface
 				ofDrawLine(tr.start.x, tracerHeight, tr.start.z, tr.end.x, tracerHeight, tr.end.z);
-				// Yellow tile outline while the tracer is alive
+
+				// Draw impact tile outline
 				ofPushMatrix();
 				glm::vec3 tileCenter = gridToWorld(tr.impactTile.x, tr.impactTile.y);
 				ofTranslate(tileCenter.x, 0.08f + 0.02f, tileCenter.z);
@@ -9246,6 +9307,7 @@ void ofApp::drawGame() {
 				ofSetLineWidth(1.0f);
 				ofFill();
 				ofPopMatrix();
+
 				// Impact glow on tile (slightly jittered/pulsed)
 				float pulse = 1.0f + 0.25f * sin((now - tr.startTime) * 16.0f);
 				ofPushMatrix();
@@ -9254,6 +9316,22 @@ void ofApp::drawGame() {
 				ofSetColor(col);
 				ofDrawCircle(0, 0, (TILE_SIZE * 0.18f) * pulse);
 				ofPopMatrix();
+
+				// Draw adjacent tile outlines (for AOE effects)
+				for (const auto & adjTile : tr.adjacentTiles) {
+					ofPushMatrix();
+					glm::vec3 adjTileCenter = gridToWorld(adjTile.x, adjTile.y);
+					ofTranslate(adjTileCenter.x, 0.08f + 0.02f, adjTileCenter.z);
+					ofRotateXDeg(90);
+					ofNoFill();
+					ofSetColor(255, 220, 0, (unsigned char)(col.a * 0.6f)); // Slightly dimmer for adjacent tiles
+					ofSetLineWidth(3.0f);
+					ofDrawRectangle(-TILE_SIZE * 0.5f, -TILE_SIZE * 0.5f, TILE_SIZE, TILE_SIZE);
+					ofSetLineWidth(1.0f);
+					ofFill();
+					ofPopMatrix();
+				}
+
 				ofSetLineWidth(1.0f);
 			}
 			ofEnableLighting();
@@ -19675,12 +19753,29 @@ bool ofApp::processEffectOp(EffectOp & op) {
 			ofLogNotice("MagicBlast") << "No targets hit.";
 		}
 
-		// Queue visual tracer to show where it landed
+		// Queue visual tracer to show where it landed (with adjacent tiles outlined)
 		{
 			glm::vec3 worldStart, worldEnd;
 			glm::vec2 hitGrid = glm::vec2(impactTile.x + 0.5f, impactTile.y + 0.5f);
 			computeTracerEndpoints(casterTile, hitGrid, worldStart, worldEnd);
-			queueVisualTracer(worldStart, worldEnd, ofColor(150, 180, 255), 5.0f);
+
+			// Collect adjacent tiles for visualization
+			std::vector<glm::ivec2> adjacentTiles;
+			std::vector<glm::ivec2> dirs = {
+				{ 0, -1 }, // North
+				{ 1, 0 }, // East
+				{ 0, 1 }, // South
+				{ -1, 0 } // West
+			};
+			for (const auto & dir : dirs) {
+				glm::ivec2 adjTile = { (int)impactTile.x + (int)dir.x, (int)impactTile.y + (int)dir.y };
+				if (adjTile.x >= 0 && adjTile.x < BOARD_WIDTH && adjTile.y >= 0 && adjTile.y < BOARD_HEIGHT) {
+					adjacentTiles.push_back(adjTile);
+				}
+			}
+
+			spawnTracerWithAdjacent(worldStart, worldEnd, glm::ivec2((int)impactTile.x, (int)impactTile.y),
+				adjacentTiles, ofColor(150, 180, 255), 5.0f);
 		}
 
 		opComplete = true;
@@ -26329,6 +26424,31 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 				}
 			}
 		}
+
+		// Start expanding AOE ring animation for Magic Bolt
+		if (card.type == CARD_MAGIC_BOLT) {
+			// Find first valid target to use as center for AOE preview
+			glm::ivec2 aoeCenterTile(-1, -1);
+			for (int tx = 0; tx < BOARD_WIDTH; ++tx) {
+				for (int ty = 0; ty < BOARD_HEIGHT; ++ty) {
+					if (board[tx][ty].isTargetable) {
+						aoeCenterTile = { tx, ty };
+						break;
+					}
+				}
+				if (aoeCenterTile.x >= 0) break;
+			}
+
+			// If we have a valid target, start the AOE ring animation
+			if (aoeCenterTile.x >= 0) {
+				activeAOERing.centerTile = aoeCenterTile;
+				activeAOERing.maxRadiusFeet = 20 + 3; // Max AOE radius (1d20 + 3)
+				activeAOERing.startTime = ofGetElapsedTimef();
+				activeAOERing.duration = 1.5f;
+				activeAOERing.cardType = CARD_MAGIC_BOLT;
+			}
+		}
+
 		return; // we've set previews for these cards; skip generic logic
 	}
 
@@ -26908,6 +27028,18 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 			}
 			if (isPreview) board[x][y].isTargetPreview = true; // Red
 			if (isValidTarget && hasEnoughAP) board[x][y].isTargetable = true; // Green
+		}
+	}
+
+	// Start expanding AOE ring animation for Psionic Wave
+	if (activeCardIndex >= 0 && activeCardIndex < (int)currentPlayer.hand.size()) {
+		Card & card = currentPlayer.hand[activeCardIndex];
+		if (card.type == CARD_PSIONIC_WAVE) {
+			activeAOERing.centerTile = { (int)currentPlayer.x, (int)currentPlayer.y };
+			activeAOERing.maxRadiusFeet = 40; // Max AOE radius (2d20)
+			activeAOERing.startTime = ofGetElapsedTimef();
+			activeAOERing.duration = 1.5f;
+			activeAOERing.cardType = CARD_PSIONIC_WAVE;
 		}
 	}
 }
@@ -28165,6 +28297,38 @@ void ofApp::spawnTracer(glm::vec3 start, glm::vec3 end, glm::ivec2 impactTile, o
 	int ty = impactTile.y;
 	if (tx >= 0 && tx < BOARD_WIDTH && ty >= 0 && ty < BOARD_HEIGHT) {
 		board[tx][ty].isHighlighted = true;
+	}
+
+	activeTracers.push_back(t);
+}
+
+void ofApp::spawnTracerWithAdjacent(glm::vec3 start, glm::vec3 end, glm::ivec2 impactTile, const std::vector<glm::ivec2> & adjacentTiles, ofColor color, float duration) {
+	ofApp::Tracer t;
+	t.start = start;
+	t.end = end;
+	// normalize stored Y so renderer controls the visible elevation
+	t.start.y = 0.0f;
+	t.end.y = 0.0f;
+	t.impactTile = impactTile;
+	t.adjacentTiles = adjacentTiles;
+	t.startTime = ofGetElapsedTimef();
+	t.duration = duration;
+	t.color = color;
+
+	// Mark impact tile highlighted immediately
+	int tx = impactTile.x;
+	int ty = impactTile.y;
+	if (tx >= 0 && tx < BOARD_WIDTH && ty >= 0 && ty < BOARD_HEIGHT) {
+		board[tx][ty].isHighlighted = true;
+	}
+
+	// Mark adjacent tiles highlighted
+	for (const auto & adj : adjacentTiles) {
+		int ax = adj.x;
+		int ay = adj.y;
+		if (ax >= 0 && ax < BOARD_WIDTH && ay >= 0 && ay < BOARD_HEIGHT) {
+			board[ax][ay].isHighlighted = true;
+		}
 	}
 
 	activeTracers.push_back(t);
@@ -29512,6 +29676,61 @@ void ofApp::drawJoinedOutlines(bool highlightedTiles[BOARD_WIDTH][BOARD_HEIGHT],
 
 	ofFill();
 	ofSetLineWidth(1);
+}
+
+//--------------------------------------------------------------
+void ofApp::drawExpandingAOERings(float surfaceY) {
+	// Draw expanding ring visualization for Magic Bolt / Psionic Wave previews
+	// Rings expand from the center tile outward based on elapsed time
+
+	if (activeAOERing.centerTile.x < 0 || activeAOERing.centerTile.y < 0) {
+		return; // No active AOE ring
+	}
+
+	if (disableAllGlow) return;
+
+	// Calculate elapsed time since animation start
+	float elapsed = ofGetElapsedTimef() - activeAOERing.startTime;
+	if (elapsed > activeAOERing.duration) {
+		// Animation finished
+		activeAOERing.centerTile = { -1, -1 };
+		return;
+	}
+
+	// Progress: 0.0 to 1.0
+	float progress = elapsed / activeAOERing.duration;
+
+	// Current radius expanding from 1 to maxRadiusFeet
+	float currentRadiusFeet = 1.0f + (progress * (activeAOERing.maxRadiusFeet - 1.0f));
+
+	// Collect all tiles within current radius
+	std::vector<glm::ivec2> affectedTiles;
+	for (int x = 0; x < BOARD_WIDTH; x++) {
+		for (int y = 0; y < BOARD_HEIGHT; y++) {
+			// Center-to-center distance
+			float centerDistFeet = glm::distance(glm::vec2(activeAOERing.centerTile.x, activeAOERing.centerTile.y), glm::vec2(x, y)) * 5.0f;
+			float neededFeetRaw = std::max(0.0f, centerDistFeet - 2.5f);
+			int neededFeet = (int)floor(neededFeetRaw + 1e-4f);
+
+			if (neededFeet <= (int)currentRadiusFeet) {
+				affectedTiles.push_back({ x, y });
+			}
+		}
+	}
+
+	// Draw outline for affected tiles using joined outlines
+	if (!affectedTiles.empty()) {
+		bool highlightedTiles[BOARD_WIDTH][BOARD_HEIGHT];
+		memset(highlightedTiles, 0, sizeof(highlightedTiles));
+		for (const auto & tile : affectedTiles) {
+			highlightedTiles[tile.x][tile.y] = true;
+		}
+
+		// Draw with cyan/blue color, semi-transparent
+		float alpha = 200.0f * (1.0f - progress); // Fade out as it expands
+		ofColor ringColor(100, 200, 255, (int)alpha);
+		drawJoinedOutlines(highlightedTiles, ringColor, surfaceY);
+	}
 }
 
 //--------------------------------------------------------------

@@ -1354,6 +1354,7 @@ private:
 
 	// Board highlight helpers
 	void drawJoinedOutlines(bool highlightedTiles[BOARD_WIDTH][BOARD_HEIGHT], ofColor color, float surfaceY);
+	void drawExpandingAOERings(float surfaceY);
 
 	// Standardized card-choice panel helper
 	void drawCardChoicePanel(const ofRectangle & panelRect,
@@ -1521,6 +1522,7 @@ private:
 		glm::vec3 start;
 		glm::vec3 end;
 		glm::ivec2 impactTile; // tile being highlighted
+		std::vector<glm::ivec2> adjacentTiles; // optional adjacent tiles to also highlight (for AOE effects)
 		float startTime = 0.0f;
 		float duration = 5.0f;
 		ofColor color = ofColor::white;
@@ -1530,6 +1532,9 @@ private:
 
 	// Spawn a tracer line from world-space start -> end and highlight impact tile
 	void spawnTracer(glm::vec3 start, glm::vec3 end, glm::ivec2 impactTile, ofColor color, float duration = 5.0f);
+
+	// Spawn a tracer with adjacent tiles highlighted (for AOE effects like Magic Blast)
+	void spawnTracerWithAdjacent(glm::vec3 start, glm::vec3 end, glm::ivec2 impactTile, const std::vector<glm::ivec2> & adjacentTiles, ofColor color, float duration = 5.0f);
 
 	// Compute tracer world-space endpoints such that tracer starts at the caster's
 	// closest face midpoint and ends at the center of the hit grid fraction.
@@ -2387,6 +2392,18 @@ private:
 	};
 
 	std::vector<ShuffleAnimation> activeShuffleAnimations;
+
+	// Expanding AOE ring visualization for Magic Bolt / Psionic Wave preview
+	struct ExpandingAOERing {
+		glm::ivec2 centerTile = { -1, -1 };
+		int maxRadiusFeet = 0; // Maximum AOE radius in feet
+		float startTime = 0.0f;
+		float duration = 1.5f; // Duration of expand animation in seconds
+		int cardType = -1; // CARD_MAGIC_BOLT or CARD_PSIONIC_WAVE
+	};
+
+	ExpandingAOERing activeAOERing; // Current expanding AOE (if any)
+
 	struct ChatMessage {
 		std::string playerName;
 		std::string message;
