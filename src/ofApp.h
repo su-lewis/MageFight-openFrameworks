@@ -1078,6 +1078,12 @@ private:
 	// --- DETERMINISTIC RNG ---
 	// The synced Random Number Generator
 	std::mt19937 gameplayRNG;
+	uint64_t gameplayRngAdvanceCount = 0;
+
+	uint32_t consumeGameplayRngRaw() {
+		++gameplayRngAdvanceCount;
+		return gameplayRNG();
+	}
 
 	// Visual RNG (local only, not part of deterministic gameplay)
 	std::mt19937 visualRNG;
@@ -1121,12 +1127,21 @@ private:
 		}
 	}
 	template <class T>
+	void deterministic_shuffle_gameplay(std::vector<T> & vec) {
+		if (vec.size() <= 1) return;
+		for (size_t i = vec.size() - 1; i > 0; --i) {
+			auto r = consumeGameplayRngRaw();
+			size_t j = static_cast<size_t>(r % (i + 1));
+			std::swap(vec[i], vec[j]);
+		}
+	}
+	template <class T>
 	void shuffleGameVector(std::vector<T> & vec, int ownerPlayerIndex = -1, float visualDelaySeconds = 0.0f) {
 		// Unified deterministic shuffle: always use the synchronized `gameplayRNG`
 		// so host and client consume RNG in the same order. Prior hybrid
 		// behavior that broadcast nonces or skipped local shuffles has been
 		// removed to enforce pure lockstep.
-		deterministic_shuffle(vec, gameplayRNG);
+		deterministic_shuffle_gameplay(vec);
 
 		// Start visual shuffle only for main players (players 0 and 1).
 		if (ownerPlayerIndex == 0 || ownerPlayerIndex == 1) {

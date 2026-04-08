@@ -102,21 +102,6 @@ static std::string makeSavePath(const std::string & p) {
 }
 
 namespace {
-static uint32_t deterministicBoundedRand(std::mt19937 & rng, uint32_t exclusiveBound) {
-	if (exclusiveBound == 0) return 0;
-
-	// Rejection sampling to avoid modulo bias while keeping deterministic RNG usage.
-	const uint64_t range = static_cast<uint64_t>(std::numeric_limits<uint32_t>::max()) + 1ull;
-	const uint32_t threshold = static_cast<uint32_t>(range % exclusiveBound);
-
-	for (;;) {
-		uint32_t raw = rng();
-		if (raw >= threshold) {
-			return raw % exclusiveBound;
-		}
-	}
-}
-
 static void seedVisualRng(std::mt19937 & rng, uint32_t mapSeed) {
 	rng.seed(mapSeed ^ 0xDEADBEEFu);
 }
@@ -5066,6 +5051,7 @@ void ofApp::setupGame() {
 
 		// FIX: Seed the gameplay RNG specifically
 		gameplayRNG.seed(currentMapSeed);
+		gameplayRngAdvanceCount = 0;
 		seedVisualRng(visualRNG, currentMapSeed);
 		gameplaySeededByHost = true;
 
@@ -5094,6 +5080,7 @@ void ofApp::setupGame() {
 		lastTurnStartSentPlayer = -1;
 		lastTurnStartSentCounter = -1;
 		gameplayRNG.seed(currentMapSeed);
+		gameplayRngAdvanceCount = 0;
 		seedVisualRng(visualRNG, currentMapSeed);
 		gameplaySeededByHost = false;
 		ofLogNotice("Setup") << "Singleplayer generated seed: " << currentMapSeed;
@@ -5204,6 +5191,7 @@ void ofApp::initGameFromSeed(uint32_t seed) {
 
 	ofLogNotice("Network") << "Initializing multiplayer client game from seed: " << seed;
 	gameplayRNG.seed(seed);
+	gameplayRngAdvanceCount = 0;
 	seedVisualRng(visualRNG, seed);
 	gameplaySeededByHost = true;
 	currentMapSeed = seed;
@@ -18934,7 +18922,7 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 			ofLogNotice("Lockstep") << "Added cards: " << list;
 		}
 		// After adding cards, perform deterministic shuffle of the target player's deck
-		deterministic_shuffle(p.deck, gameplayRNG);
+		deterministic_shuffle_gameplay(p.deck);
 		if (cmdDraftPlayerIdx >= 0 && cmdDraftPlayerIdx < (int)players.size()) {
 			players[cmdDraftPlayerIdx].deckNeedsShuffle = false;
 		}
@@ -27464,6 +27452,7 @@ std::string ofApp::buildSnapshotString() {
 	ss << "SAVE_TIME\t" << (int64_t)std::time(nullptr) << "\n";
 	ss << "SEED\t" << currentMapSeed << "\n";
 	ss << "RNG\t" << gameplayRNG << "\n";
+	ss << "RNGPOS\t" << gameplayRngAdvanceCount << "\n";
 	// Added currentMapSeed at the end
 	ss << "STATE\t" << (int)currentState
 	   << "\t" << currentPlayerIndex
@@ -27659,6 +27648,8 @@ void ofApp::applySnapshotString(const std::string & data) {
 	bool tmpHasMapSeed = false;
 	std::string tmpRngState;
 	bool tmpHasRngState = false;
+	uint64_t tmpGameplayRngAdvanceCount = gameplayRngAdvanceCount;
+	bool tmpHasGameplayRngAdvanceCount = false;
 	std::array<int, 2> tmpAfkStrikeCounts = afkStrikeCounts;
 	int tmpCurrentTurnOwnerID = currentTurnOwnerID;
 	bool tmpCurrentTurnHadMeaningfulAction = currentTurnHadMeaningfulAction;
@@ -27702,6 +27693,9 @@ void ofApp::applySnapshotString(const std::string & data) {
 			} else if (parts[0] == "RNG" && parts.size() >= 2) {
 				tmpRngState = parts[1];
 				tmpHasRngState = true;
+			} else if (parts[0] == "RNGPOS" && parts.size() >= 2) {
+				tmpGameplayRngAdvanceCount = (uint64_t)std::stoull(parts[1]);
+				tmpHasGameplayRngAdvanceCount = true;
 			} else if (parts[0] == "AFK" && parts.size() >= 6) {
 				tmpAfkStrikeCounts[0] = std::stoi(parts[1]);
 				tmpAfkStrikeCounts[1] = std::stoi(parts[2]);
@@ -27948,11 +27942,13 @@ void ofApp::applySnapshotString(const std::string & data) {
 	if (tmpHasRngState) {
 		std::stringstream rngStream(tmpRngState);
 		rngStream >> gameplayRNG;
+		gameplayRngAdvanceCount = tmpHasGameplayRngAdvanceCount ? tmpGameplayRngAdvanceCount : 0;
 		if (tmpHasMapSeed) {
 			ofLogNotice("Snapshot") << "Restored Map Seed and RNG state: " << currentMapSeed;
 		}
 	} else if (tmpHasMapSeed) {
 		gameplayRNG.seed(currentMapSeed);
+		gameplayRngAdvanceCount = 0;
 		ofLogNotice("Snapshot") << "Restored Map Seed: " << currentMapSeed;
 	}
 
@@ -28787,7 +28783,17 @@ glm::quat ofApp::getDiceFaceRotation(int sides, int rawResult, float wobbleAmoun
 int ofApp::getGameRandom(int min, int max) {
 	if (max < min) return min;
 	uint32_t range = (uint32_t)(max - min + 1);
-	uint32_t roll = deterministicBoundedRand(gameplayRNG, range);
+	if (range == 0) return min;
+	const uint64_t fullRange = static_cast<uint64_t>(std::numeric_limits<uint32_t>::max()) + 1ull;
+	const uint32_t threshold = static_cast<uint32_t>(fullRange % range);
+	uint32_t roll = 0;
+	for (;;) {
+		uint32_t raw = consumeGameplayRngRaw();
+		if (raw >= threshold) {
+			roll = raw % range;
+			break;
+		}
+	}
 	return min + (int)roll;
 }
 //--------------------------------------------------------------
@@ -32890,6 +32896,7 @@ void ofApp::processNetworkPackets() {
 
 				// FIX: Seed the gameplay RNG and store map seed so derived draft RNG matches the host
 				gameplayRNG.seed(pkt->seed);
+				gameplayRngAdvanceCount = 0;
 				currentMapSeed = pkt->seed;
 				hasReceivedHandshake = true;
 				gameplaySeededByHost = true;
