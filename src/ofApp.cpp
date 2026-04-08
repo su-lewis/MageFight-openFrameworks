@@ -309,14 +309,57 @@ static std::vector<std::string> extractAlphaTokens(const std::string & s) {
 	return toks;
 }
 
+static int classTierFromLabel(const std::string & classLabel) {
+	std::string lower = toLowerCopy(trimCopy(classLabel));
+	if (lower.empty()) return -1;
+
+	if (lower.find("bronze") != std::string::npos) return 1;
+	if (lower.find("silver") != std::string::npos) return 2;
+	if (lower.find("gold") != std::string::npos) return 3;
+
+	for (char c : lower) {
+		if (c >= '1' && c <= '3') return (int)(c - '0');
+	}
+
+	if (lower.find("class 1") != std::string::npos || lower.find("class1") != std::string::npos) return 1;
+	if (lower.find("class 2") != std::string::npos || lower.find("class2") != std::string::npos) return 2;
+	if (lower.find("class 3") != std::string::npos || lower.find("class3") != std::string::npos) return 3;
+
+	return -1;
+}
+
+static std::string findCardTemplatePathForClass(int classTier) {
+	std::vector<std::string> classCandidates;
+	if (classTier == 1) {
+		classCandidates = {
+			"UI/CardTemplateBronze.PNG",
+		};
+	} else if (classTier == 2) {
+		classCandidates = {
+			"UI/CardTemplateSilver.PNG",
+		};
+	} else if (classTier == 3) {
+		classCandidates = {
+			"UI/CardTemplateGold.PNG",
+		};
+	}
+
+	for (const auto & path : classCandidates) {
+		if (ofFile(path).exists()) return path;
+	}
+
+	return "";
+}
+
 static std::string findCardTemplatePath() {
+	// Prefer class-1 (bronze) template as the default probe/fallback.
+	std::string class1Path = findCardTemplatePathForClass(1);
+	if (!class1Path.empty()) return class1Path;
+
 	const std::vector<std::string> candidates = {
-		"UI/Card Template.PNG",
-		"UI/Card Template.png",
-		"UI/card_template.png",
-		"UI/card_template_withrange.png",
-		"UI/card_template_withrange.PNG",
-		"UI/card_template.jpg"
+		"UI/CardTemplateBronze.PNG",
+		"UI/CardTemplateSilver.PNG",
+		"UI/CardTemplateGold.PNG",
 	};
 	for (const auto & path : candidates) {
 		if (ofFile(path).exists()) return path;
@@ -910,6 +953,18 @@ static bool rebuildCardSpriteSheetFromTemplate(const std::string & templatePath,
 
 	CardTemplateLayout layout;
 
+	// Load per-class templates when present.
+	std::unordered_map<int, ofImage> classTemplateImages;
+	for (int c = 1; c <= 3; ++c) {
+		std::string classPath = findCardTemplatePathForClass(c);
+		if (classPath.empty()) continue;
+		ofImage img;
+		if (img.load(classPath)) {
+			classTemplateImages[c] = img;
+			ofLogNotice("Cards") << "Loaded class template C" << c << ": " << classPath;
+		}
+	}
+
 	const ofTrueTypeFont & renderUIFont = uiFont;
 	const ofTrueTypeFont & renderTitleFont = titleFont;
 	ofRectangle effectTextRect = layout.effectRect;
@@ -1022,11 +1077,21 @@ static bool rebuildCardSpriteSheetFromTemplate(const std::string & templatePath,
 		float x = card.textureRect.x;
 		float y = card.textureRect.y;
 		ofSetColor(255, 255, 255, 255);
-		templateImage.draw(x, y, cardW, cardH);
 
 		CardTemplateRecord rec;
 		auto it = records.find(normalizeCardKey(card.name));
 		if (it != records.end()) rec = it->second;
+
+		int effectiveClass = card.cardClass;
+		int markdownClass = classTierFromLabel(rec.classLabel);
+		if (markdownClass >= 1 && markdownClass <= 3) effectiveClass = markdownClass;
+
+		auto classTplIt = classTemplateImages.find(effectiveClass);
+		if (classTplIt != classTemplateImages.end()) {
+			classTplIt->second.draw(x, y, cardW, cardH);
+		} else {
+			templateImage.draw(x, y, cardW, cardH);
+		}
 
 		if (rec.name.empty()) rec.name = card.name;
 		if (rec.apCost.empty()) rec.apCost = ofToString(card.cost);
@@ -5684,6 +5749,7 @@ void ofApp::updateGame() {
 						int requiredPicks = (!isInGameDraft && draftStage == 0) ? 2 : 1;
 
 						// Timeout fill: use gameplay RNG to pick remaining draft cards.
+						// For initial draft stage 0, we auto-accept Class 1 and continue to Class 2 with remaining time.
 						while ((int)selectedDraftIndices.size() < requiredPicks) {
 							std::vector<int> candidates;
 							for (int poolIdx : currentDraftOptionPoolIndices) {
@@ -5706,7 +5772,10 @@ void ofApp::updateGame() {
 						}
 
 						if ((int)selectedDraftIndices.size() > 0) {
-							ofLogNotice("Timer") << "Draft timer expired. Auto-accepting " << selectedDraftIndices.size() << " picks.";
+							// For initial draft stage 0, we'll auto-fill stage 0 picks and continue the timer to stage 1
+							bool isInitialDraftStage0 = (!isInGameDraft && draftStage == 0);
+
+							ofLogNotice("Timer") << "Draft timer expired. Auto-accepting " << selectedDraftIndices.size() << " picks." << (isInitialDraftStage0 ? " (Initial draft stage 0, continuing to stage 1)" : "");
 							draftAcceptLocked = true;
 
 							InputCommandPacket cmd = {};
@@ -5725,6 +5794,7 @@ void ofApp::updateGame() {
 							if (!sendInputCommand(cmd, true)) ofLogWarning("Network") << "Auto-accept draft send failed (no connection).";
 
 							// For in-game/key drafts, timeout auto-pick should also end the turn.
+							// For initial draft stage 0, do NOT unlock draft yet; continue timer for stage 1.
 							if (isInGameDraft) {
 								InputCommandPacket endCmd = {};
 								endCmd.type = PKT_INPUT_COMMAND;
@@ -5734,6 +5804,9 @@ void ofApp::updateGame() {
 								endCmd.commandType = CMD_END_TURN;
 								if (!sendInputCommand(endCmd, true)) ofLogWarning("Network") << "Auto-end-turn after draft timeout send failed (no connection).";
 							}
+							// Note: For initial draft stage 0, draftAcceptLocked remains true until stage 1 options
+							// are generated, preventing re-triggering during the animation delay.
+							ofLogNotice("Timer") << "Draft timeout processed. draftStage=" << draftStage << " isInitialDraftStage0=" << (isInitialDraftStage0 ? 1 : 0);
 						} else {
 							// Avoid timeout log spam while waiting for draft options to populate.
 							turnStartFrame = (int)simulationFrame;
@@ -6786,8 +6859,10 @@ void ofApp::updateGame() {
 		float u = 1.0f - t;
 		anim.currentPos = (u * u) * start2D + (2.0f * u * t) * control + (t * t) * anim.targetPos;
 
-		// Animate scale from deck size up to hand size
-		anim.currentScale = (1.0f - t) * pileCardScale + (t)*kHandCardVisualScale;
+		// Animate scale from deck size up to normal in-hand multiplier.
+		// NOTE: Draw code already bakes `kHandCardVisualScale` into base width/height,
+		// so in-hand cards should use multiplier 1.0f (not `kHandCardVisualScale` again).
+		anim.currentScale = (1.0f - t) * pileCardScale + (t) * 1.0f;
 
 		// Keep fully opaque for clarity
 		anim.currentAlpha = 255.0f;
@@ -6819,8 +6894,8 @@ void ofApp::updateGame() {
 						c.currentPos = anim.targetPos;
 						c.targetPos = anim.targetPos;
 						// Set to hand display scale immediately for all draws
-						c.currentScale = kHandCardVisualScale;
-						c.targetScale = kHandCardVisualScale;
+						c.currentScale = 1.0f;
+						c.targetScale = 1.0f;
 						// Only mark as drawn if it's not a copied card
 						if (!c.isCopied) {
 							c.drawnThisTurn = true;
@@ -6834,8 +6909,8 @@ void ofApp::updateGame() {
 							if (hc.drawnThisTurn && hc.isAnimating && hc.name == anim.card.name) {
 								hc.currentPos = anim.targetPos;
 								hc.targetPos = anim.targetPos;
-								hc.currentScale = kHandCardVisualScale;
-								hc.targetScale = kHandCardVisualScale;
+								hc.currentScale = 1.0f;
+								hc.targetScale = 1.0f;
 								hc.isAnimating = false;
 								break;
 							}
@@ -6984,6 +7059,25 @@ void ofApp::updateGame() {
 			if (t >= 0.999f) {
 				// Snap to exact tile
 				playerVisualPos = targetPos;
+
+				// Key pickup: trigger when the unit visually reaches this tile,
+				// not immediately when movement command is applied.
+				{
+					glm::vec2 arrivedGridF = worldToGrid(targetPos);
+					int arrivedX = (int)std::round(arrivedGridF.x);
+					int arrivedY = (int)std::round(arrivedGridF.y);
+					if (arrivedX >= 0 && arrivedX < BOARD_WIDTH && arrivedY >= 0 && arrivedY < BOARD_HEIGHT
+						&& animatingPlayerIndex >= 0 && animatingPlayerIndex < (int)players.size()) {
+						int ownerID = players[animatingPlayerIndex].isMinion ? players[animatingPlayerIndex].ownerID : players[animatingPlayerIndex].playerID;
+						checkKeyPickupAndDraftAfterSummon(arrivedX, arrivedY, ownerID);
+
+						if (isInGameDraft) {
+							draftDisplayStartTime = ofGetElapsedTimef();
+							draftDisplayInteractiveEnabled = false;
+							draftAutoSelectedIndex = -1;
+						}
+					}
+				}
 
 				// Advance to next segment
 				currentPathIndex++;
@@ -16761,7 +16855,7 @@ void ofApp::handleCardDragToPlay(int cardIndex) {
 	}
 
 	// Choose-one cards should open their menu immediately on play.
-	bool menuFirstChoiceCard = (card.type == CARD_MAGIC_BLAST || card.type == CARD_DISPEL || card.type == CARD_WISDOM_BOON || card.type == CARD_DOUBLE_HANDED || card.type == CARD_TRAIN || card.type == CARD_GIANT_MAGIC_HAND || card.type == CARD_BURST_OF_LIGHT || (card.type == CARD_ROCK_CRUSH && rockHasAdjacentWall && rockHasAdjacentUnit));
+	bool menuFirstChoiceCard = (card.type == CARD_DISPEL || card.type == CARD_WISDOM_BOON || card.type == CARD_DOUBLE_HANDED || card.type == CARD_TRAIN || card.type == CARD_GIANT_MAGIC_HAND || card.type == CARD_BURST_OF_LIGHT || (card.type == CARD_ROCK_CRUSH && rockHasAdjacentWall && rockHasAdjacentUnit));
 
 	if (menuFirstChoiceCard) {
 		interactingCardIndex = cardIndex;
@@ -16790,6 +16884,12 @@ void ofApp::handleCardDragToPlay(int cardIndex) {
 
 	// If the card requires a target (non-self), enter the centralized targeting interaction
 	else if (card.targeting != TARGET_SELF) {
+		if (card.type == CARD_MAGIC_BLAST) {
+			// Ensure stale modal data from a prior blast cannot pause/freeze a fresh cast.
+			magicBlastTargetPlayerIndex = -1;
+			magicBlastChoicesRemaining = 0;
+			magicBlastSplashTargetIndices.clear();
+		}
 		// Teleport must be a two-step deterministic command flow:
 		// 1) Drag/release sends CMD_PLAY_CARD (both peers roll range + enter targeting)
 		// 2) Destination click sends CMD_MENU_CHOICE (CARD_TELEPORT)
@@ -18072,6 +18172,8 @@ void ofApp::cancelAllTargeting() {
 	// Clear target lists used by multi-target effects
 	currentCardOutcome.attackTargetIndices.clear();
 	currentCardOutcome.poisonTargetPlayerIDs.clear();
+	magicBlastTargetPlayerIndex = -1;
+	magicBlastChoicesRemaining = 0;
 	magicBlastSplashTargetIndices.clear();
 }
 
@@ -19747,8 +19849,12 @@ bool ofApp::processEffectOp(EffectOp & op) {
 		if (!resolvedTargets.empty()) {
 			magicBlastTargetPlayerIndex = resolvedTargets.front();
 			magicBlastSplashTargetIndices.assign(resolvedTargets.begin() + 1, resolvedTargets.end());
-			updateCardInteractionState(CARD_INTERACTION_MENU, -1, CARD_MAGIC_BLAST);
-			if (isMultiplayer) sendMenuState(4, magicBlastTargetPlayerIndex, -1, interactingCardIndex);
+			int blastCardIndex = interactingCardIndex;
+			if (blastCardIndex < 0 || blastCardIndex >= (int)players[currentPlayerIndex].hand.size()) {
+				blastCardIndex = currentCardOutcome.cardIndex;
+			}
+			updateCardInteractionState(CARD_INTERACTION_MENU, blastCardIndex, CARD_MAGIC_BLAST);
+			if (isMultiplayer) sendMenuState(4, magicBlastTargetPlayerIndex, -1, blastCardIndex);
 		} else {
 			ofLogNotice("MagicBlast") << "No targets hit.";
 		}
@@ -31872,7 +31978,12 @@ void ofApp::generateDraftOptions(int classTier, const std::vector<int> * forcedI
 	selectedDraftIndices.clear();
 	currentState = STATE_DRAFTING;
 	if (!isInGameDraft) { // Only reset timer for regular drafts, not in-game drafts
-		resetDraftPhaseTimerWindow();
+		// For initial draft, only reset timer when starting Class 1 (stage 0)
+		// When advancing from stage 0 to stage 1, preserve the shared timer
+		bool isTransitioningStage0To1 = (previousDraftPlayer == draftPlayerIndex && draftStage == 1 && classTier == 2);
+		if (!isTransitioningStage0To1) {
+			resetDraftPhaseTimerWindow();
+		}
 	}
 	waitingForDraftOptionsStartTime = 0.0f; // Client no longer waits
 
@@ -31891,10 +32002,6 @@ void ofApp::generateDraftOptions(int classTier, const std::vector<int> * forcedI
 	// Remember which player these options belong to
 	lastDraftOptionsPlayer = draftPlayerIndex;
 	// Separate draft timers per drafting player.
-	const bool isFirstInitialDraftReveal = (!initialDraftComplete && classTier == 1 && draftStage == 0);
-	if (turnTimerEnabled && (previousDraftPlayer != draftPlayerIndex || isFirstInitialDraftReveal)) {
-		turnStartFrame = (int)simulationFrame;
-	}
 
 	// Initialize Accept button animation to match cards
 	draftAcceptUI.startScale = 0.0f;
