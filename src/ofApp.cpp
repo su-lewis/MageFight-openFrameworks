@@ -27493,6 +27493,39 @@ std::string ofApp::buildSnapshotString() {
 	   << "\t" << (currentTurnTimeoutProcessed ? 1 : 0)
 	   << "\n";
 
+	int turnRemainingFrames = turnDurationFrames;
+	if (turnTimerPaused) {
+		turnRemainingFrames = std::max(0, turnTimerPausedRemainingFrames);
+	} else if (!turnStartDeferred) {
+		turnRemainingFrames = std::max(0, turnDurationFrames - (int)(simulationFrame - (uint32_t)turnStartFrame));
+	}
+	int turnDeferredElapsedFrames = 0;
+	if (turnStartDeferred) {
+		turnDeferredElapsedFrames = std::max(0, (int)(simulationFrame - (uint32_t)turnStartDeferredAtFrame));
+	}
+	int decisionRemainingFrames = 0;
+	if (opponentDecisionTimerActive) {
+		const int decisionDurationFrames = 30 * turnTimerFramesPerSecond;
+		decisionRemainingFrames = std::max(0, decisionDurationFrames - (int)(simulationFrame - opponentDecisionStartFrame));
+	}
+	ss << "TURN\t" << turnDurationFrames
+	   << "\t" << (turnTimerPaused ? 1 : 0)
+	   << "\t" << turnRemainingFrames
+	   << "\t" << (turnStartDeferred ? 1 : 0)
+	   << "\t" << turnDeferredElapsedFrames
+	   << "\t" << (opponentDecisionTimerActive ? 1 : 0)
+	   << "\t" << decisionRemainingFrames
+	   << "\t" << opponentDecisionPlayerIndex
+	   << "\n";
+
+	float reconnectRemainingSeconds = -1.0f;
+	if (currentState == STATE_WAITING_FOR_RECONNECT && reconnectForfeitStartTime > 0.0f) {
+		reconnectRemainingSeconds = std::max(0.0f, reconnectForfeitDuration - (ofGetElapsedTimef() - reconnectForfeitStartTime));
+	}
+	ss << "RECONNECT\t" << (currentState == STATE_WAITING_FOR_RECONNECT ? 1 : 0)
+	   << "\t" << reconnectRemainingSeconds
+	   << "\n";
+
 	std::string walls;
 	std::string magicWalls;
 	walls.reserve(BOARD_WIDTH * BOARD_HEIGHT);
@@ -27630,6 +27663,20 @@ void ofApp::applySnapshotString(const std::string & data) {
 	int tmpCurrentTurnOwnerID = currentTurnOwnerID;
 	bool tmpCurrentTurnHadMeaningfulAction = currentTurnHadMeaningfulAction;
 	bool tmpCurrentTurnTimeoutProcessed = currentTurnTimeoutProcessed;
+	int tmpTurnDurationFrames = turnDurationFrames;
+	bool tmpTurnTimerPaused = turnTimerPaused;
+	int tmpTurnRemainingFrames = turnTimerPaused ? std::max(0, turnTimerPausedRemainingFrames) : std::max(0, turnDurationFrames - (int)(simulationFrame - (uint32_t)turnStartFrame));
+	bool tmpTurnStartDeferred = turnStartDeferred;
+	int tmpTurnDeferredElapsedFrames = 0;
+	bool tmpOpponentDecisionTimerActive = opponentDecisionTimerActive;
+	int tmpOpponentDecisionRemainingFrames = 0;
+	int tmpOpponentDecisionPlayerIndex = opponentDecisionPlayerIndex;
+	if (opponentDecisionTimerActive) {
+		const int decisionDurationFrames = 30 * turnTimerFramesPerSecond;
+		tmpOpponentDecisionRemainingFrames = std::max(0, decisionDurationFrames - (int)(simulationFrame - opponentDecisionStartFrame));
+	}
+	bool tmpReconnectStateActive = false;
+	float tmpReconnectRemainingSeconds = -1.0f;
 
 	std::vector<int> tmpPendingDraftQueue;
 	Tile tmpBoard[BOARD_WIDTH][BOARD_HEIGHT];
@@ -27663,26 +27710,44 @@ void ofApp::applySnapshotString(const std::string & data) {
 				tmpCurrentTurnTimeoutProcessed = (std::stoi(parts[5]) != 0);
 			}
 			if (parts[0] == "STATE" && parts.size() >= 13) {
-				currentState = (GameState)std::stoi(parts[1]);
-				currentPlayerIndex = std::stoi(parts[2]);
-				globalTurnCounter = std::stoi(parts[3]);
-				isInGameDraft = (std::stoi(parts[4]) != 0);
-				draftStage = std::stoi(parts[5]);
-				draftPlayerIndex = std::stoi(parts[6]);
-				draftPicksRemaining = std::stoi(parts[7]);
-				currentDraftClassTier = std::stoi(parts[8]);
-				hasDrawnCardsThisTurn = (std::stoi(parts[9]) != 0);
-				opponentHasDrawnCardsThisTurn = (std::stoi(parts[10]) != 0);
-				currentAP = std::stoi(parts[11]);
-				lastAPDiceNum = std::stoi(parts[12]);
-				lastAPDiceSides = (parts.size() > 13) ? std::stoi(parts[13]) : lastAPDiceSides;
+				tmpCurrentState = (GameState)std::stoi(parts[1]);
+				tmpCurrentPlayerIndex = std::stoi(parts[2]);
+				tmpGlobalTurnCounter = std::stoi(parts[3]);
+				tmpIsInGameDraft = (std::stoi(parts[4]) != 0);
+				tmpDraftStage = std::stoi(parts[5]);
+				tmpDraftPlayerIndex = std::stoi(parts[6]);
+				tmpDraftPicksRemaining = std::stoi(parts[7]);
+				tmpCurrentDraftClassTier = std::stoi(parts[8]);
+				tmpHasDrawnCardsThisTurn = (std::stoi(parts[9]) != 0);
+				tmpOpponentHasDrawnCardsThisTurn = (std::stoi(parts[10]) != 0);
+				tmpCurrentAP = std::stoi(parts[11]);
+				tmpLastAPDiceNum = std::stoi(parts[12]);
+				tmpLastAPDiceSides = (parts.size() > 13) ? std::stoi(parts[13]) : tmpLastAPDiceSides;
 				if (parts.size() > 14) {
-					hasUnlimitedAP = (std::stoi(parts[14]) != 0);
+					tmpHasUnlimitedAP = (std::stoi(parts[14]) != 0);
 				}
 				if (parts.size() > 15) {
 					tmpMapSeed = (uint32_t)std::stoul(parts[15]);
 					tmpHasMapSeed = true;
 				}
+			} else if (parts[0] == "TURN" && parts.size() >= 8) {
+				tmpTurnDurationFrames = std::stoi(parts[1]);
+				tmpTurnTimerPaused = (std::stoi(parts[2]) != 0);
+				tmpTurnRemainingFrames = std::stoi(parts[3]);
+				tmpTurnStartDeferred = (std::stoi(parts[4]) != 0);
+				if (parts.size() >= 9) {
+					tmpTurnDeferredElapsedFrames = std::stoi(parts[5]);
+					tmpOpponentDecisionTimerActive = (std::stoi(parts[6]) != 0);
+					tmpOpponentDecisionRemainingFrames = std::stoi(parts[7]);
+					tmpOpponentDecisionPlayerIndex = std::stoi(parts[8]);
+				} else {
+					tmpOpponentDecisionTimerActive = (std::stoi(parts[5]) != 0);
+					tmpOpponentDecisionRemainingFrames = std::stoi(parts[6]);
+					tmpOpponentDecisionPlayerIndex = std::stoi(parts[7]);
+				}
+			} else if (parts[0] == "RECONNECT" && parts.size() >= 3) {
+				tmpReconnectStateActive = (std::stoi(parts[1]) != 0);
+				tmpReconnectRemainingSeconds = std::stof(parts[2]);
 			} else if (parts[0] == "QUEUE" && parts.size() >= 2) {
 				tmpPendingDraftQueue.clear();
 				for (size_t i = 2; i < parts.size(); ++i)
@@ -27978,6 +28043,43 @@ void ofApp::applySnapshotString(const std::string & data) {
 	currentTurnOwnerID = tmpCurrentTurnOwnerID;
 	currentTurnHadMeaningfulAction = tmpCurrentTurnHadMeaningfulAction;
 	currentTurnTimeoutProcessed = tmpCurrentTurnTimeoutProcessed;
+
+	turnDurationFrames = std::max(turnTimerFramesPerSecond, tmpTurnDurationFrames);
+	turnStartDeferred = tmpTurnStartDeferred;
+	turnStartDeferredAtFrame = tmpTurnStartDeferred ? (int)simulationFrame - std::max(0, tmpTurnDeferredElapsedFrames) : 0;
+	int clampedTurnRemaining = std::max(0, std::min(turnDurationFrames, tmpTurnRemainingFrames));
+	if (tmpTurnTimerPaused) {
+		turnTimerPaused = true;
+		turnTimerPausedRemainingFrames = clampedTurnRemaining;
+		turnStartFrame = (int)simulationFrame - (turnDurationFrames - turnTimerPausedRemainingFrames);
+	} else {
+		turnTimerPaused = false;
+		turnTimerPausedRemainingFrames = 0;
+		turnStartFrame = (int)simulationFrame - (turnDurationFrames - clampedTurnRemaining);
+	}
+
+	opponentDecisionTimerActive = tmpOpponentDecisionTimerActive;
+	opponentDecisionPlayerIndex = tmpOpponentDecisionPlayerIndex;
+	if (opponentDecisionTimerActive) {
+		const int decisionDurationFrames = 30 * turnTimerFramesPerSecond;
+		int clampedDecisionRemaining = std::max(0, std::min(decisionDurationFrames, tmpOpponentDecisionRemainingFrames));
+		opponentDecisionStartFrame = simulationFrame - (uint32_t)(decisionDurationFrames - clampedDecisionRemaining);
+	} else {
+		opponentDecisionStartFrame = 0;
+		opponentDecisionPlayerIndex = -1;
+	}
+
+	if (tmpReconnectStateActive && tmpReconnectRemainingSeconds >= 0.0f) {
+		reconnectForfeitStartTime = ofGetElapsedTimef() - std::max(0.0f, reconnectForfeitDuration - tmpReconnectRemainingSeconds);
+	} else if (currentState == STATE_WAITING_FOR_RECONNECT) {
+		reconnectForfeitStartTime = ofGetElapsedTimef();
+	} else {
+		reconnectForfeitStartTime = -1.0f;
+	}
+
+	if (currentTurnOwnerID < 0 || currentTurnOwnerID > 1) {
+		currentTurnOwnerID = getOwnerIdForActorIndex(currentPlayerIndex);
+	}
 
 	networkPending.draftQueue = tmpPendingDraftQueue;
 
