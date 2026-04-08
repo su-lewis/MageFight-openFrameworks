@@ -2479,6 +2479,8 @@ int ofApp::getActiveTurnDurationFrames() const {
 }
 
 void ofApp::resetDraftPhaseTimerWindow() {
+	if (isInGameDraft) return; // Do not interrupt the active gameplay turn timer
+
 	turnDurationFrames = 90 * turnTimerFramesPerSecond;
 	turnStartDeferred = false;
 	turnStartDeferredAtFrame = 0;
@@ -4006,6 +4008,8 @@ void ofApp::update() {
 		// send/queue flow and could leave the client stuck if command IDs
 		// weren't assigned. The timer now only sets `draftAcceptLocked = true`
 		// elsewhere and relies on `sendInputCommand` to queue the accept.
+
+		updateGame(); // Allow timer to tick and lockstep commands to process
 		break;
 
 	case STATE_GAMEPLAY:
@@ -5721,7 +5725,10 @@ void ofApp::updateGame() {
 	// --- TURN TIMER CHECK (run early so it continues during gameplay/drafting) ---
 	bool handlesGameplayTimerHere = (!isMultiplayer || isMyTurn());
 	bool handlesDraftTimerHere = (!isMultiplayer || isLocalDraftingPlayer(draftPlayerIndex));
-	bool localShouldRunTimerHere = (currentState == STATE_DRAFTING) ? handlesDraftTimerHere : handlesGameplayTimerHere;
+
+	// FIX: If it's an in-game draft, timer ownership belongs to the gameplay turn owner
+	bool localShouldRunTimerHere = (currentState == STATE_DRAFTING && !isInGameDraft) ? handlesDraftTimerHere : handlesGameplayTimerHere;
+
 	if (turnTimerEnabled && !turnStartDeferred && !turnTimerPaused && currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size() && localShouldRunTimerHere) {
 		// Run timer checks even if modal UI is open; drafting/gameplay variations handled inside
 		if (currentState == STATE_GAMEPLAY || currentState == STATE_DRAFTING) {
@@ -9580,8 +9587,11 @@ void ofApp::drawGame() {
 	// During drafting, timer ownership belongs to the drafting player, not the current turn owner.
 	bool showGameplayTimer = (!isMultiplayer || isMyTurn());
 	bool showDraftTimer = (!isMultiplayer || isLocalDraftingPlayer(draftPlayerIndex));
-	bool timerStateVisible = (currentState == STATE_GAMEPLAY) || (currentState == STATE_DRAFTING && !draftOptions.empty());
-	bool shouldShowTopTimer = (currentState == STATE_DRAFTING) ? showDraftTimer : showGameplayTimer;
+
+	// FIX: Keep the timer rendering during in-game drafts
+	bool timerStateVisible = (currentState == STATE_GAMEPLAY) || (currentState == STATE_DRAFTING && (!draftOptions.empty() || isInGameDraft));
+	bool shouldShowTopTimer = (currentState == STATE_DRAFTING && !isInGameDraft) ? showDraftTimer : showGameplayTimer;
+
 	if (turnTimerEnabled && timerStateVisible && currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size() && shouldShowTopTimer) {
 		float elapsedSeconds = 0.0f;
 		if (turnTimerPaused) {
@@ -31695,7 +31705,9 @@ void ofApp::generateDraftOptions(int classTier, const std::vector<int> * forcedI
 
 	selectedDraftIndices.clear();
 	currentState = STATE_DRAFTING;
-	resetDraftPhaseTimerWindow();
+	if (!isInGameDraft) { // Only reset timer for regular drafts, not in-game drafts
+		resetDraftPhaseTimerWindow();
+	}
 	waitingForDraftOptionsStartTime = 0.0f; // Client no longer waits
 
 	// Initialize per-option visual animation state
@@ -31773,11 +31785,15 @@ void ofApp::applyDraftOptionsFromPool(int classTier, const std::vector<int> & in
 	lastDraftOptionsPlayer = draftingPlayerIdx;
 	const bool isFirstInitialDraftReveal = (!initialDraftComplete && classTier == 1 && draftStage == 0);
 	if (turnTimerEnabled && (previousDraftPlayer != draftingPlayerIdx || isFirstInitialDraftReveal)) {
-		turnStartFrame = (int)simulationFrame;
+		if (!isInGameDraft) { // Only reset timer for regular drafts, not in-game drafts
+			turnStartFrame = (int)simulationFrame;
+		}
 	}
 	selectedDraftIndices.clear();
 	currentState = STATE_DRAFTING; // Force state transition
-	resetDraftPhaseTimerWindow();
+	if (!isInGameDraft) { // Only reset timer for regular drafts, not in-game drafts
+		resetDraftPhaseTimerWindow();
+	}
 	waitingForDraftOptionsStartTime = 0.0f; // We have the options now
 	draftAcceptLocked = false;
 	draftAcceptApplied = false;
