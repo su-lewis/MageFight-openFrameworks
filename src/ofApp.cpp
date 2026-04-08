@@ -17043,6 +17043,15 @@ void ofApp::handleCardDragToPlay(int cardIndex) {
 			}
 		}
 	}
+	if (card.type == CARD_ROCK_CRUSH) {
+		// If both target types exist, force explicit menu choice.
+		// If only one exists, auto-select that mode so targeting highlights are constrained.
+		if (rockHasAdjacentWall && !rockHasAdjacentUnit) {
+			interactionMenuChoice = "wall";
+		} else if (!rockHasAdjacentWall && rockHasAdjacentUnit) {
+			interactionMenuChoice = "damage";
+		}
+	}
 
 	// Choose-one cards should open their menu immediately on play.
 	bool menuFirstChoiceCard = (card.type == CARD_DISPEL || card.type == CARD_WISDOM_BOON || card.type == CARD_DOUBLE_HANDED || card.type == CARD_TRAIN || card.type == CARD_GIANT_MAGIC_HAND || card.type == CARD_BURST_OF_LIGHT || (card.type == CARD_ROCK_CRUSH && rockHasAdjacentWall && rockHasAdjacentUnit));
@@ -27069,7 +27078,14 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 					}
 					// 2. Wall / mixed adjacent cards
 					else if (card.type == CARD_ROCK_CRUSH) {
-						if (board[x][y].hasWall || board[x][y].hasPlayer) isValidTarget = true;
+						bool rockChoiceActive = (cardInteractionState == CARD_INTERACTION_TARGETING && interactingCardType == CARD_ROCK_CRUSH && !interactionMenuChoice.empty());
+						if (rockChoiceActive && interactionMenuChoice == "damage") {
+							isValidTarget = (board[x][y].hasPlayer && !board[x][y].hasWall && tileHasOtherThan(x, y, currentPlayerIndex));
+						} else if (rockChoiceActive && interactionMenuChoice == "wall") {
+							isValidTarget = board[x][y].hasWall;
+						} else {
+							if (board[x][y].hasWall || board[x][y].hasPlayer) isValidTarget = true;
+						}
 					} else if (card.type == CARD_FORTIFY || card.type == CARD_DEMOLITION) {
 						if (board[x][y].hasWall) isValidTarget = true;
 					}
