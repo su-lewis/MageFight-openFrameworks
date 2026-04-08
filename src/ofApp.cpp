@@ -1069,19 +1069,25 @@ static bool rebuildCardSpriteSheetFromTemplate(const std::string & templatePath,
 		auto lines = wrapTextScaled(font, text, rect.width, drawScale);
 		if (lines.empty()) return;
 
-		float lineH = std::round(font.getLineHeight() * drawScale * std::max(0.6f, lineSpacing) + 2.0f);
+		float lineH = font.getLineHeight() * drawScale * std::max(0.6f, lineSpacing);
+		lineH = std::max(1.0f, lineH);
 		float totalH = lineH * (float)lines.size();
-		float y = std::round(rect.y + std::max(0.0f, (rect.height - totalH) * 0.5f) + lineH);
+		float blockTop = rect.y + std::max(0.0f, (rect.height - totalH) * 0.5f);
 
 		const int r = std::max(1, outlinePx);
-		for (const auto & line : lines) {
+		for (size_t li = 0; li < lines.size(); ++li) {
+			const auto & line = lines[li];
 			if (line.empty()) {
-				y += lineH;
 				continue;
 			}
 			ofRectangle b = font.getStringBoundingBox(line, 0, 0);
 			float tx = rect.x + (rect.width - b.width * drawScale) * 0.5f - b.x * drawScale;
-			float ty = y - b.y * drawScale;
+			float lineTop = blockTop + (float)li * lineH;
+			float lineBottom = lineTop + lineH;
+			if (lineTop < rect.y - 0.01f || lineBottom > rect.getBottom() + 0.01f) {
+				continue;
+			}
+			float ty = lineTop + (lineH - b.height * drawScale) * 0.5f - b.y * drawScale;
 			float txSnap = std::round(tx);
 			float tySnap = std::round(ty);
 
@@ -1104,9 +1110,6 @@ static bool rebuildCardSpriteSheetFromTemplate(const std::string & templatePath,
 			ofScale(drawScale, drawScale);
 			font.drawString(line, 0, 0);
 			ofPopMatrix();
-
-			y += lineH;
-			if (y > rect.getBottom() + lineH) break;
 		}
 	};
 
