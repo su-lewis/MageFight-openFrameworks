@@ -13029,40 +13029,55 @@ void ofApp::mousePressed(int x, int y, int button) {
 		}
 		if (debugFlipCoinButton.inside(x, y)) {
 			std::vector<int> raw;
-			int v;
-			v = resolveDiceRollDetailed(1, 2, raw);
+			int v = 0;
+			// Use visualRNG to avoid breaking lockstep determinism
+			std::uniform_int_distribution<int> dist(1, 2);
+			raw.push_back(dist(visualRNG));
+			v = raw[0];
 			currentEffectSequence.blackboard[14] = v;
 			queueVisualDiceRoll(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.0f, 0), 1, 2, raw, v, PURPOSE_DEBUG, currentPlayerIndex, 0.8f);
 			return;
 		}
 		if (debugRollD4Button.inside(x, y)) {
 			std::vector<int> raw;
-			int v;
-			v = resolveDiceRollDetailed(1, 4, raw);
+			int v = 0;
+			// Use visualRNG to avoid breaking lockstep determinism
+			std::uniform_int_distribution<int> dist(1, 4);
+			raw.push_back(dist(visualRNG));
+			v = raw[0];
 			currentEffectSequence.blackboard[14] = v;
 			queueVisualDiceRoll(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.0f, 0), 1, 4, raw, v, PURPOSE_DEBUG, currentPlayerIndex, 1.0f);
 			return;
 		}
 		if (debugRollD6Button.inside(x, y)) {
 			std::vector<int> raw;
-			int v;
-			v = resolveDiceRollDetailed(1, 6, raw);
+			int v = 0;
+			// Use visualRNG to avoid breaking lockstep determinism
+			std::uniform_int_distribution<int> dist(1, 6);
+			raw.push_back(dist(visualRNG));
+			v = raw[0];
 			currentEffectSequence.blackboard[14] = v;
 			queueVisualDiceRoll(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.0f, 0), 1, 6, raw, v, PURPOSE_DEBUG, currentPlayerIndex, 1.0f);
 			return;
 		}
 		if (debugRollD10Button.inside(x, y)) {
 			std::vector<int> raw;
-			int v;
-			v = resolveDiceRollDetailed(1, 10, raw);
+			int v = 0;
+			// Use visualRNG to avoid breaking lockstep determinism
+			std::uniform_int_distribution<int> dist(1, 10);
+			raw.push_back(dist(visualRNG));
+			v = raw[0];
 			currentEffectSequence.blackboard[14] = v;
 			queueVisualDiceRoll(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.0f, 0), 1, 10, raw, v, PURPOSE_DEBUG, currentPlayerIndex, 1.0f);
 			return;
 		}
 		if (debugRollD20Button.inside(x, y)) {
 			std::vector<int> raw;
-			int v;
-			v = resolveDiceRollDetailed(1, 20, raw);
+			int v = 0;
+			// Use visualRNG to avoid breaking lockstep determinism
+			std::uniform_int_distribution<int> dist(1, 20);
+			raw.push_back(dist(visualRNG));
+			v = raw[0];
 			currentEffectSequence.blackboard[14] = v;
 			queueVisualDiceRoll(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.0f, 0), 1, 20, raw, v, PURPOSE_DEBUG, currentPlayerIndex, 1.0f);
 			return;
@@ -19217,15 +19232,9 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 			}
 		}
 
-		// Remove the Renewed Inspiration card itself so it behaves like a normal played card.
-		if (havePlayedCard) {
-			if (shiftedRiIndex >= 0 && shiftedRiIndex < (int)p.hand.size()) {
-				Card riCard = p.hand[shiftedRiIndex];
-				riCard.playedThisTurn = true;
-				p.playedCardsPile.push_back(riCard);
-				p.hand.erase(p.hand.begin() + shiftedRiIndex);
-			}
-		}
+		// NOTE: Card removal is handled by the outcome processor; do not manually erase here
+		// to avoid double-deduction and index corruption. The card will be moved to playedCardsPile
+		// by applyCardOutcomeEffects() after the EffectOp sequence completes.
 
 		// Now queue the finalization in the EffectOp sequence
 		resetCardState();
@@ -19392,81 +19401,70 @@ bool ofApp::processEffectOp(EffectOp & op) {
 
 		buildLevelMesh();
 
-		// Handle Pushed Unit
-		Player * victim = getPlayer(magicHandPushedUnitIndex);
-		if (victim) {
-			int dmg = currentEffectSequence.blackboard[0];
+		{ // Scope block for victim variable to avoid crossing into next case label
+			// Handle Pushed Unit
+			Player * victim = getPlayer(magicHandPushedUnitIndex);
+			if (victim) {
+				int dmg = currentEffectSequence.blackboard[0];
 
-			// Use central damage applicator so target-based modifiers (phasing, form
-			// accumulation, visuals) are handled in one place.
-			applyDamageTo(*victim, dmg, DAMAGE_PHYSICAL, currentPlayerIndex);
+				// Use central damage applicator so target-based modifiers (phasing, form
+				// accumulation, visuals) are handled in one place.
+				applyDamageTo(*victim, dmg, DAMAGE_PHYSICAL, currentPlayerIndex);
 
-			// --- DISPLACEMENT LOGIC ---
-			glm::ivec2 pushDest1 = wallNewPos + magicHandPushDir;
-			glm::ivec2 side1, side2;
+				// --- DISPLACEMENT LOGIC ---
+				glm::ivec2 pushDest1 = wallNewPos + magicHandPushDir;
+				glm::ivec2 side1, side2;
 
-			if (magicHandPushDir.x != 0) {
-				side1 = wallNewPos + glm::ivec2(0, 1);
-				side2 = wallNewPos + glm::ivec2(0, -1);
-			} else {
-				side1 = wallNewPos + glm::ivec2(1, 0);
-				side2 = wallNewPos + glm::ivec2(-1, 0);
-			}
+				if (magicHandPushDir.x != 0) {
+					side1 = wallNewPos + glm::ivec2(0, 1);
+					side2 = wallNewPos + glm::ivec2(0, -1);
+				} else {
+					side1 = wallNewPos + glm::ivec2(1, 0);
+					side2 = wallNewPos + glm::ivec2(-1, 0);
+				}
 
-			auto isValid = [&](glm::ivec2 p) {
-				if (p.x < 0 || p.x >= BOARD_WIDTH || p.y < 0 || p.y >= BOARD_HEIGHT) return false;
-				if (board[p.x][p.y].hasWall || board[p.x][p.y].hasPlayer) return false;
-				return true;
-			};
+				auto isValid = [&](glm::ivec2 p) {
+					if (p.x < 0 || p.x >= BOARD_WIDTH || p.y < 0 || p.y >= BOARD_HEIGHT) return false;
+					if (board[p.x][p.y].hasWall || board[p.x][p.y].hasPlayer) return false;
+					return true;
+				};
 
-			glm::ivec2 finalDest = { -1, -1 };
+				glm::ivec2 finalDest = { -1, -1 };
 
-			if (isValid(pushDest1))
-				finalDest = pushDest1;
-			else if (isValid(side1))
-				finalDest = side1;
-			else if (isValid(side2))
-				finalDest = side2;
+				if (isValid(pushDest1))
+					finalDest = pushDest1;
+				else if (isValid(side1))
+					finalDest = side1;
+				else if (isValid(side2))
+					finalDest = side2;
 
-			if (finalDest.x != -1) {
-				// Move victim via MOVE_UNIT (processed immediately so subsequent death checks see new pos)
-				EffectOp mv = {};
-				mv.type = EffectOpType::MOVE_UNIT;
-				mv.data.moveUnit.unitIndex = magicHandPushedUnitIndex;
-				mv.data.moveUnit.toX = finalDest.x;
-				mv.data.moveUnit.toY = finalDest.y;
-				processEffectOp(mv);
-				queueFloatingTextVisual(gridToWorld(finalDest.x, finalDest.y), "Pushed!", ofColor::yellow);
-			} else {
-				queueFloatingTextVisual(gridToWorld(victim->x, victim->y), "CRUSHED!", ofColor::darkRed);
-				{
-					EffectOp kill = {};
-					kill.type = EffectOpType::MODIFY_STAT;
-					kill.data.modifyStat.targetIndex = magicHandPushedUnitIndex;
-					kill.data.modifyStat.statType = 0; // HP
-					kill.data.modifyStat.delta = -players[magicHandPushedUnitIndex].health;
-					kill.data.modifyStat.deltaFromSlot = -1;
-					processEffectOp(kill);
+				if (finalDest.x != -1) {
+					// Move victim via MOVE_UNIT (processed immediately so subsequent death checks see new pos)
+					EffectOp mv = {};
+					mv.type = EffectOpType::MOVE_UNIT;
+					mv.data.moveUnit.unitIndex = magicHandPushedUnitIndex;
+					mv.data.moveUnit.toX = finalDest.x;
+					mv.data.moveUnit.toY = finalDest.y;
+					processEffectOp(mv);
+					queueFloatingTextVisual(gridToWorld(finalDest.x, finalDest.y), "Pushed!", ofColor::yellow);
+				} else {
+					queueFloatingTextVisual(gridToWorld(victim->x, victim->y), "CRUSHED!", ofColor::darkRed);
+					{
+						EffectOp kill = {};
+						kill.type = EffectOpType::MODIFY_STAT;
+						kill.data.modifyStat.targetIndex = magicHandPushedUnitIndex;
+						kill.data.modifyStat.statType = 0; // HP
+						kill.data.modifyStat.delta = -players[magicHandPushedUnitIndex].health;
+						kill.data.modifyStat.deltaFromSlot = -1;
+						processEffectOp(kill);
+					}
 				}
 			}
+		} // End victim scope block
 
-			// Death Check
-			if (victim->health <= 0) {
-				DeathMarker death;
-				death.x = victim->x;
-				death.y = victim->y;
-				death.turnDied = globalTurnCounter;
-				death.deck = victim->deck;
-				graveyard.push_back(death);
-				board[victim->x][victim->y].hasPlayer = false;
-
-				players.erase(players.begin() + magicHandPushedUnitIndex);
-				if (currentPlayerIndex == magicHandPushedUnitIndex)
-					currentPlayerIndex = std::min<int>(magicHandPushedUnitIndex, (int)players.size() - 1);
-				else if (currentPlayerIndex > magicHandPushedUnitIndex)
-					currentPlayerIndex--;
-			}
-		}
+		// NOTE: Death cleanup is handled globally in simulationTick() at the end of every frame.
+		// Do not manually call players.erase() here; it would corrupt indices for other queued
+		// EffectOps that are waiting to run and still reference players by index.
 
 		invalidateTargetCache();
 
@@ -25681,20 +25679,11 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 		board[targetX][targetY].hasWall = false; // Remove static wall
 		board[targetX][targetY].isMagicWall = false; // Clear flag (unit carries property now)
 
-		// Update Mesh (remove static wall visually). SPAWN_UNIT will place the minion.
+		// Build mesh after wall removal
 		buildLevelMesh();
 
-		// --- CRASH FIX START ---
-		// We MUST erase the card and handle AP *before* we push_back to the players vector!
-		currentAP -= getEffectiveCardCostForPlayer(currentPlayer, playedCard);
-		finishPlayCard(currentPlayer, playedCard, cardIndex);
-		completeCardPlayAnimation(playedCard, currentPlayerIndex);
-		// Mark this outcome as already paid so the centralized outcome
-		// application does not double-deduct or attempt to remove the card again.
-		currentCardOutcome.apPaid = true;
-		// Clear cardIndex to avoid accidental reuse (we already removed it)
-		currentCardOutcome.cardIndex = -1;
-		// --- CRASH FIX END ---
+		// NOTE: AP deduction and card cleanup is handled by the centralized outcome processor.
+		// Do not manually call finishPlayCard() or deduct AP here; let the normal flow handle it.
 
 		// Queue deterministic spawn of wall-unit (authoritative placement handled by EffectOp)
 		EffectOp spawnOp = {};
