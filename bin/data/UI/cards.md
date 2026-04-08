@@ -224,7 +224,7 @@
 - **AP Cost:** 3
 - **Class:** 1
 - **Picture:** 
-- **Effect Text:** Roll Xd20. X is the # of non-physical damage you're blocking. For rolls 10-15 Draft a Class 1, 16-19 Draft a Class 2, 20+ Draft a Class 3. For each physical damage, flip a coin, heads gains +1 max health, tails lowers an adjacent unit's max health by 1.
+- **Effect Text:** Roll Xd20. X is the # of non-physical damage you're blocking. For 10-15 Draft a Class 1, 16-19 Draft a Class 2, 20+ Draft a Class 3. For each physical damage blocking, flip a coin. Heads gain +1 max health. Tails -1 max health to an adjacent unit.
 ---
 
 -## 30. Call for Wolves

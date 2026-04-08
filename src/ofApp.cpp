@@ -215,13 +215,13 @@ static HandLayout computeHandLayout(size_t numCards, float screenW, float screen
 	float smallGap = std::clamp(screenH * 0.008f, 6.0f, 12.0f);
 
 	if (numCards <= 3) {
-		// 1-3 cards: keep cards next to each other with a very small positive gap.
+		// 1-3 cards: keep cards adjacent (no overlap), with a small positive gap.
 		l.spacing = smallGap;
 	} else {
-		// 4+ cards: overlap to fit available space (Hearthstone-like fan stack).
+		// 4+ cards: always overlap (Hearthstone-like fan), while still fitting.
 		float centerStepToFit = (handAreaWidth - l.cardW) / (float)(numCards - 1);
-		float minCenterStep = l.cardW * 0.22f; // strongest overlap allowed
-		float maxCenterStep = l.cardW + smallGap; // no overlap + tiny gap
+		float minCenterStep = 1.0f;
+		float maxCenterStep = std::max(1.0f, l.cardW - std::max(8.0f, screenH * 0.006f)); // force overlap
 		float centerStep = ofClamp(centerStepToFit, minCenterStep, maxCenterStep);
 		l.spacing = centerStep - l.cardW;
 	}
@@ -477,8 +477,68 @@ static void drawCardEdgeOutline(float x, float y, float w, float h, float expand
 	ofEndShape(true);
 }
 
+static void drawCardOutlineOutside(float x, float y, float w, float h, float lineWidthPx, float gapPx = 1.0f) {
+	float sx = std::round(x);
+	float sy = std::round(y);
+	float sw = std::max(1.0f, std::round(w));
+	float sh = std::max(1.0f, std::round(h));
+	float expand = std::max(0.0f, gapPx + std::max(0.0f, lineWidthPx) * 0.5f);
+	drawCardEdgeOutline(sx, sy, sw, sh, expand);
+}
+
 static bool startsWith(const std::string & s, const std::string & prefix) {
 	return s.rfind(prefix, 0) == 0;
+}
+
+static float quantizePixelTextScale(float scale) {
+	return std::max(0.01f, std::round(scale * 4.0f) / 4.0f);
+}
+
+static void drawPixelTextBaseline(const ofTrueTypeFont & font,
+	const std::string & text,
+	float baselineX,
+	float baselineY,
+	float scale,
+	const ofColor & fillColor,
+	int outlinePx = 0,
+	const ofColor & outlineColor = ofColor::black) {
+	if (text.empty()) return;
+	float s = quantizePixelTextScale(scale);
+	float bx = std::round(baselineX);
+	float by = std::round(baselineY);
+
+	ofPushMatrix();
+	ofTranslate(bx, by);
+	ofScale(s, s);
+	if (outlinePx > 0) {
+		ofSetColor(outlineColor);
+		for (int dy = -outlinePx; dy <= outlinePx; ++dy) {
+			for (int dx = -outlinePx; dx <= outlinePx; ++dx) {
+				if (dx == 0 && dy == 0) continue;
+				if (dx * dx + dy * dy > outlinePx * outlinePx) continue;
+				font.drawString(text, (float)dx / s, (float)dy / s);
+			}
+		}
+	}
+	ofSetColor(fillColor);
+	font.drawString(text, 0, 0);
+	ofPopMatrix();
+}
+
+static void drawPixelTextCentered(const ofTrueTypeFont & font,
+	const std::string & text,
+	float centerX,
+	float centerY,
+	float scale,
+	const ofColor & fillColor,
+	int outlinePx = 0,
+	const ofColor & outlineColor = ofColor::black) {
+	if (text.empty()) return;
+	float s = quantizePixelTextScale(scale);
+	ofRectangle b = font.getStringBoundingBox(text, 0, 0);
+	float bx = centerX - (b.x + b.width * 0.5f) * s;
+	float by = centerY - (b.y + b.height * 0.5f) * s;
+	drawPixelTextBaseline(font, text, bx, by, s, fillColor, outlinePx, outlineColor);
 }
 
 static std::vector<std::string> wrapTextScaled(const ofTrueTypeFont & font, const std::string & text, float maxWidthPx, float scale) {
@@ -521,37 +581,34 @@ static void drawCenteredTextScaledOutlined(const ofTrueTypeFont & font,
 	const ofColor & outlineColor,
 	int outlinePx) {
 	if (text.empty()) return;
+
+	// Pixel-font stability: quantize scale and snap draw origins to integer pixels.
+	// Fractional scale/translation causes shimmering and per-glyph shape variation.
+	float drawScale = std::max(0.01f, std::round(scale * 4.0f) / 4.0f);
 	ofRectangle b = font.getStringBoundingBox(text, 0, 0);
-	float tx = rect.x + (rect.width - b.width * scale) * 0.5f - b.x * scale;
-	float ty = rect.y + (rect.height - b.height * scale) * 0.5f - b.y * scale;
+	float tx = rect.x + (rect.width - b.width * drawScale) * 0.5f - b.x * drawScale;
+	float ty = rect.y + (rect.height - b.height * drawScale) * 0.5f - b.y * drawScale;
+	float txSnap = std::round(tx);
+	float tySnap = std::round(ty);
 
 	const int r = std::max(1, outlinePx);
-	float localOutlineStep = 1.0f;
-	if (scale > 0.0001f) {
-		// Keep outline thickness proportional to text scale (1:1 behavior).
-		localOutlineStep = 1.0f / scale;
-	}
 	for (int dy = -r; dy <= r; ++dy) {
 		for (int dx = -r; dx <= r; ++dx) {
 			if (dx == 0 && dy == 0) continue;
 			if (dx * dx + dy * dy > r * r) continue;
 			ofSetColor(outlineColor);
 			ofPushMatrix();
-			ofTranslate(tx, ty);
-			ofScale(scale, scale);
-			font.drawString(text, (float)dx * localOutlineStep, (float)dy * localOutlineStep);
+			ofTranslate(txSnap + (float)dx, tySnap + (float)dy);
+			ofScale(drawScale, drawScale);
+			font.drawString(text, 0, 0);
 			ofPopMatrix();
 		}
 	}
 
-	float fillScale = scale;
-	float txFill = rect.x + (rect.width - b.width * fillScale) * 0.5f - b.x * fillScale;
-	float tyFill = rect.y + (rect.height - b.height * fillScale) * 0.5f - b.y * fillScale;
-
 	ofSetColor(fillColor);
 	ofPushMatrix();
-	ofTranslate(txFill, tyFill);
-	ofScale(fillScale, fillScale);
+	ofTranslate(txSnap, tySnap);
+	ofScale(drawScale, drawScale);
 	font.drawString(text, 0, 0);
 	ofPopMatrix();
 }
@@ -635,12 +692,16 @@ static void drawArcCenteredTextScaledOutlined(const ofTrueTypeFont & font,
 
 static void drawBoldSegmentScaled(const ofTrueTypeFont & font, const std::string & text, float x, float y, float scale) {
 	if (text.empty()) return;
+	float drawScale = std::max(0.01f, std::round(scale * 4.0f) / 4.0f);
+	float sx = std::round(x);
+	float sy = std::round(y);
 	ofPushMatrix();
-	ofTranslate(x, y);
-	ofScale(scale, scale);
+	ofTranslate(sx, sy);
+	ofScale(drawScale, drawScale);
 	font.drawString(text, 0, 0);
-	font.drawString(text, 0.7f, 0.0f);
-	font.drawString(text, 0.0f, 0.7f);
+	// Pixel-font "bold": integer pixel offsets in screen-space only.
+	font.drawString(text, 1.0f / drawScale, 0.0f);
+	font.drawString(text, 0.0f, 1.0f / drawScale);
 	ofPopMatrix();
 }
 
@@ -651,51 +712,23 @@ static void drawWrappedTextScaledWithEmphasis(const ofTrueTypeFont & font,
 	float lineSpacing,
 	const std::string & emphasisText) {
 	if (text.empty()) return;
-	auto lines = wrapTextScaled(font, text, rect.width, scale);
+	float drawScale = std::max(0.01f, std::round(scale * 4.0f) / 4.0f);
+	auto lines = wrapTextScaled(font, text, rect.width, drawScale);
 	if (lines.empty()) return;
 
-	const std::string emphasisLower = toLowerCopy(emphasisText);
-	float lineH = font.getLineHeight() * scale * std::max(0.6f, lineSpacing) + 2.0f;
+	(void)emphasisText; // keep API stable; emphasis intentionally disabled for uniform pixel text
+	float lineH = std::round(font.getLineHeight() * drawScale * std::max(0.6f, lineSpacing) + 2.0f);
 	float totalH = lineH * (float)lines.size();
-	float y = rect.y + std::max(0.0f, (rect.height - totalH) * 0.5f) + lineH;
+	float y = std::round(rect.y + std::max(0.0f, (rect.height - totalH) * 0.5f) + lineH);
 	for (const auto & line : lines) {
 		if (y > rect.getBottom()) break;
-		std::string lineLower = toLowerCopy(line);
-		size_t cursor = 0;
 		ofRectangle lineBox = font.getStringBoundingBox(line, 0, 0);
-		float x = rect.x + (rect.width - lineBox.width * scale) * 0.5f;
-		while (cursor < line.size()) {
-			size_t emphasisPos = emphasisLower.empty() ? std::string::npos : lineLower.find(emphasisLower, cursor);
-			if (emphasisPos == std::string::npos) {
-				std::string tail = line.substr(cursor);
-				if (!tail.empty()) {
-					ofPushMatrix();
-					ofTranslate(x, y);
-					ofScale(scale, scale);
-					font.drawString(tail, 0, 0);
-					ofPopMatrix();
-				}
-				break;
-			}
-
-			std::string before = line.substr(cursor, emphasisPos - cursor);
-			if (!before.empty()) {
-				ofPushMatrix();
-				ofTranslate(x, y);
-				ofScale(scale, scale);
-				font.drawString(before, 0, 0);
-				ofPopMatrix();
-				x += font.getStringBoundingBox(before, 0, 0).width * scale;
-			}
-
-			std::string boldPart = line.substr(emphasisPos, emphasisText.size());
-			if (!boldPart.empty()) {
-				drawBoldSegmentScaled(font, boldPart, x, y, scale);
-				x += font.getStringBoundingBox(boldPart, 0, 0).width * scale;
-			}
-
-			cursor = emphasisPos + boldPart.size();
-		}
+		float x = std::round(rect.x + (rect.width - lineBox.width * drawScale) * 0.5f);
+		ofPushMatrix();
+		ofTranslate(x, std::round(y));
+		ofScale(drawScale, drawScale);
+		font.drawString(line, 0, 0);
+		ofPopMatrix();
 		y += lineH;
 	}
 }
@@ -2312,9 +2345,7 @@ void ofApp::checkKeyPickupAndDraftAfterSummon(int x, int y, int minionOwnerID) {
 				currentState = STATE_DRAFTING;
 				resetDraftPhaseTimerWindow();
 
-				// If this draft belongs to another player while it's currently someone's turn,
-				// pause the active player's turn timer and start an opponent decision timer.
-				pauseTurnTimerForOpponentDecision(targetIndex);
+				// In-game key drafts should not pause the active player's turn timer.
 
 				ofColor keyCol = ofColor::gold;
 				if (keySet == 2)
@@ -2451,6 +2482,13 @@ void ofApp::resetDraftPhaseTimerWindow() {
 	turnDurationFrames = 90 * turnTimerFramesPerSecond;
 	turnStartDeferred = false;
 	turnStartDeferredAtFrame = 0;
+	// Draft timer must run immediately; clear any carried pause state
+	// (e.g., movement pause or previous modal decision pause).
+	turnTimerPaused = false;
+	turnTimerPausedRemainingFrames = 0;
+	opponentDecisionTimerActive = false;
+	opponentDecisionStartFrame = 0;
+	opponentDecisionPlayerIndex = -1;
 	turnStartFrame = (int)simulationFrame;
 }
 
@@ -5578,10 +5616,12 @@ void ofApp::updateGame() {
 			// Preserve any locally-pending draft toggles: none (resend/ACK logic removed)
 			selectedDraftIndices.clear();
 
-			// Pause active player's timer if this draft belongs to another player
-			pauseTurnTimerForOpponentDecision(resolvedIdx);
+			// In-game key drafts should not pause the active player's turn timer.
 			currentState = STATE_DRAFTING;
 			resetDraftPhaseTimerWindow();
+			draftDisplayStartTime = ofGetElapsedTimef();
+			draftDisplayInteractiveEnabled = false;
+			draftAutoSelectedIndex = -1;
 			// clear pending (but keep keyX/keyY for Accept remapping)
 			networkPending.keyDraftAccept = false;
 			networkPending.keyDraftPlayer = -1;
@@ -5591,6 +5631,14 @@ void ofApp::updateGame() {
 			networkPending.keyDraftClass = 0;
 			networkPending.keyDraftTriggerTime = 0.0f;
 			ofLogNotice("Key") << "Triggering delayed draft for player=" << draftPlayerIndex << " class=" << networkPending.keyDraftClass;
+		}
+	}
+
+	// In-game draft intro: temporarily non-interactive, then enable selection.
+	if (currentState == STATE_DRAFTING && isInGameDraft && !draftDisplayInteractiveEnabled) {
+		if (draftDisplayStartTime <= 0.0f || (ofGetElapsedTimef() - draftDisplayStartTime) >= draftDisplayDuration) {
+			draftDisplayInteractiveEnabled = true;
+			draftAutoSelectedIndex = -1;
 		}
 	}
 
@@ -5689,11 +5737,11 @@ void ofApp::updateGame() {
 					if (!draftAcceptLocked) {
 						int requiredPicks = (!isInGameDraft && draftStage == 0) ? 2 : 1;
 
-						// Deterministic timeout fill: pick first unselected options from
-						// currentDraftOptionPoolIndices (do not consume RNG).
+						// Timeout fill: use gameplay RNG to pick remaining draft cards.
 						while ((int)selectedDraftIndices.size() < requiredPicks) {
-							int poolIdxToAdd = -1;
+							std::vector<int> candidates;
 							for (int poolIdx : currentDraftOptionPoolIndices) {
+								if (poolIdx < 0) continue;
 								bool alreadySelected = false;
 								for (int sel : selectedDraftIndices) {
 									if (sel == poolIdx) {
@@ -5701,13 +5749,14 @@ void ofApp::updateGame() {
 										break;
 									}
 								}
-								if (!alreadySelected) {
-									poolIdxToAdd = poolIdx;
-									break;
-								}
+								if (!alreadySelected) candidates.push_back(poolIdx);
 							}
-							if (poolIdxToAdd < 0) break;
-							selectedDraftIndices.push_back(poolIdxToAdd);
+							if (candidates.empty()) break;
+
+							std::vector<int> rawRoll;
+							int roll = resolveDiceRollDetailed(1, (int)candidates.size(), rawRoll);
+							int pickIdx = std::clamp(roll - 1, 0, (int)candidates.size() - 1);
+							selectedDraftIndices.push_back(candidates[pickIdx]);
 						}
 
 						if ((int)selectedDraftIndices.size() > 0) {
@@ -5728,6 +5777,17 @@ void ofApp::updateGame() {
 								cmd.params[3 + i] = selectedDraftIndices[i];
 							}
 							if (!sendInputCommand(cmd, true)) ofLogWarning("Network") << "Auto-accept draft send failed (no connection).";
+
+							// For in-game/key drafts, timeout auto-pick should also end the turn.
+							if (isInGameDraft) {
+								InputCommandPacket endCmd = {};
+								endCmd.type = PKT_INPUT_COMMAND;
+								endCmd.playerID = myLocalPlayerID;
+								endCmd.commandId = nextCommandId++;
+								endCmd.turnNumber = globalTurnCounter;
+								endCmd.commandType = CMD_END_TURN;
+								if (!sendInputCommand(endCmd, true)) ofLogWarning("Network") << "Auto-end-turn after draft timeout send failed (no connection).";
+							}
 						} else {
 							// Avoid timeout log spam while waiting for draft options to populate.
 							turnStartFrame = (int)simulationFrame;
@@ -6627,8 +6687,8 @@ void ofApp::updateGame() {
 		resetDraftPhaseTimerWindow();
 
 		// Reset draft display state for new draft screen
-		draftDisplayStartTime = 0.0f;
-		draftDisplayInteractiveEnabled = true;
+		draftDisplayStartTime = ofGetElapsedTimef();
+		draftDisplayInteractiveEnabled = false;
 		draftAutoSelectedIndex = -1;
 
 		ofLogNotice("Blocking Boon") << "Starting chained draft for Class " << nextClass << ". Remaining in queue: " << networkPending.draftQueue.size();
@@ -7286,105 +7346,25 @@ void ofApp::updateGame() {
 		invalidateTargetCache();
 	}
 
-	// --- TURN TIMER CHECK ---
+	// Secondary timer handling: gameplay-only movement pause/resume.
+	// Draft timer logic is handled earlier in this frame and must not be duplicated,
+	// otherwise draft clicks can lock and timer state can desync/freeze.
 	bool handlesGameplayTimerHere2 = (!isMultiplayer || isMyTurn());
-	bool handlesDraftTimerHere2 = (!isMultiplayer || isLocalDraftingPlayer(draftPlayerIndex));
-	bool localShouldRunTimerHere2 = (currentState == STATE_DRAFTING) ? handlesDraftTimerHere2 : handlesGameplayTimerHere2;
-	if (turnTimerEnabled && !turnStartDeferred && !turnTimerPaused && (currentState == STATE_GAMEPLAY || currentState == STATE_DRAFTING) && currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size() && localShouldRunTimerHere2) {
-		// If movement animation is still playing, pause the timer until it completes
+	if (turnTimerEnabled && !turnStartDeferred && currentState == STATE_GAMEPLAY && currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size() && handlesGameplayTimerHere2) {
 		if (isPlayerAnimating) {
 			if (!turnTimerPaused) {
 				turnTimerPaused = true;
 				turnTimerPausedRemainingFrames = std::max(0, turnDurationFrames - (int)(simulationFrame - (uint32_t)turnStartFrame));
 				ofLogNotice("Timer") << "Movement animation active. Pausing turn timer with " << turnTimerPausedRemainingFrames << " frames remaining.";
 			}
-			return; // Don't advance timer check until animation completes
+			return;
 		}
 
-		int elapsedFrames = (int)(simulationFrame - (uint32_t)turnStartFrame);
-		if (elapsedFrames >= turnDurationFrames) {
-			if (currentState == STATE_GAMEPLAY) {
-				registerAfkTimeoutForCurrentOwner();
-				if (currentState == STATE_MAIN_MENU) {
-					return;
-				}
-			}
-			if (currentState == STATE_DRAFTING) {
-				// Wait for draft display timeout to show auto-selected card
-				if (!draftDisplayInteractiveEnabled) {
-					float elapsedDisplay = ofGetElapsedTimef() - draftDisplayStartTime;
-					if (elapsedDisplay < draftDisplayDuration) {
-						// Still in non-interactive display period; auto-select one card for visual feedback
-						if (draftAutoSelectedIndex < 0 && !currentDraftOptionPoolIndices.empty()) {
-							std::vector<int> rawPick;
-							int pickRoll = resolveDiceRollDetailed(1, (int)currentDraftOptionPoolIndices.size(), rawPick);
-							int randomIdx = std::max(0, pickRoll - 1);
-							draftAutoSelectedIndex = currentDraftOptionPoolIndices[randomIdx];
-						}
-						return; // Wait for display timeout
-					}
-					// Display timeout complete; proceed to auto-accept
-					draftDisplayInteractiveEnabled = false; // Remain non-interactive after display
-				}
-
-				// Timer expired during drafting: auto-pick remaining cards or accept selected ones
-				int requiredPicks = (!isInGameDraft && draftStage == 0) ? 2 : 1;
-
-				// If player has made some selections, auto-accept them
-				if ((int)selectedDraftIndices.size() > 0) {
-					ofLogNotice("Timer") << "Draft timer expired with " << selectedDraftIndices.size() << " cards selected. Auto-accepting.";
-					draftAcceptLocked = true; // Prevent double-accept
-					// Cards will be added to hand in the normal accept flow
-				} else if ((int)selectedDraftIndices.size() < requiredPicks) {
-					// No selections made: randomly pick remaining cards using gameplayRNG
-					int numNeedToPick = requiredPicks - (int)selectedDraftIndices.size();
-					for (int i = 0; i < numNeedToPick; ++i) {
-						if (currentDraftOptionPoolIndices.empty()) break;
-						std::vector<int> rawPick;
-						int pickRoll = resolveDiceRollDetailed(1, (int)currentDraftOptionPoolIndices.size(), rawPick);
-						if (12 >= 0 && 12 < 16) currentEffectSequence.blackboard[12] = pickRoll;
-						int randomIdx = std::max(0, pickRoll - 1);
-						int poolIdx = currentDraftOptionPoolIndices[randomIdx];
-
-						// Add to selections (avoid duplicates)
-						bool alreadySelected = false;
-						for (int sel : selectedDraftIndices) {
-							if (sel == poolIdx) {
-								alreadySelected = true;
-								break;
-							}
-						}
-						if (!alreadySelected) {
-							selectedDraftIndices.push_back(poolIdx);
-						}
-					}
-					ofLogNotice("Timer") << "Draft timer expired with no selections. Randomly picked " << numNeedToPick << " cards.";
-					draftAcceptLocked = true;
-				}
-			} else {
-				// Timer expired during gameplay: end turn normally
-				bool draftRewardVisualsActive = (!activeDraftPickedMoves.empty() || !activeShuffleAnimations.empty() || deckFlashStartTime > 0.0f);
-				if (draftRewardVisualsActive) {
-					// If draft just resolved from a timeout, let reward visuals finish before ending turn.
-					ofLogNotice("Timer") << "Turn timer expired but waiting for draft reward visuals before auto-end-turn.";
-					return;
-				}
-				ofLogNotice("Timer") << "Turn time limit exceeded. Auto-ending turn.";
-				// In multiplayer, send a deterministic CMD_END_TURN so lockstep
-				// advances identically; in singleplayer, advance immediately.
-				if (isMultiplayer && isCurrentPlayerLocal()) {
-					InputCommandPacket cmd = {};
-					cmd.type = PKT_INPUT_COMMAND;
-					cmd.playerID = myLocalPlayerID;
-					cmd.seq = 0;
-					cmd.commandId = nextCommandId++;
-					cmd.turnNumber = globalTurnCounter;
-					cmd.commandType = CMD_END_TURN;
-					sendInputCommand(cmd, true);
-				} else {
-					startNewTurn();
-				}
-			}
+		// Resume only the movement-pause case (not opponent-decision/reconnect pauses).
+		if (turnTimerPaused && !opponentDecisionTimerActive && !reconnectTurnTimerPausedByDisconnect) {
+			turnTimerPaused = false;
+			turnStartFrame = (int)simulationFrame - (turnDurationFrames - turnTimerPausedRemainingFrames);
+			turnTimerPausedRemainingFrames = 0;
 		}
 	}
 
@@ -10124,8 +10104,9 @@ void ofApp::drawGame() {
 			apPreviewDisplayText = apCostPreviewText;
 		}
 		ofRectangle p0_apTextBox = titleFont.getStringBoundingBox(p0_apText, 0, 0);
-		float p0_previewScale = fontScale * 0.62f;
+		float p0_previewScale = quantizePixelTextScale(fontScale * 0.62f);
 		ofRectangle p0_previewTextBox = titleFont.getStringBoundingBox(apPreviewDisplayText, 0, 0);
+		float apFontScale = quantizePixelTextScale(fontScale);
 		float p0_apRectWidth = (p0_apTextBox.width * fontScale) + (40 * scale);
 		float p0_apRectHeight = (p0_apTextBox.height * fontScale) + (20 * scale);
 		// Place AP box slightly above the discard pile
@@ -10151,24 +10132,14 @@ void ofApp::drawGame() {
 		if (!skipDrawP0AP) {
 			ofSetColor(0, 0, 0, 150);
 			ofDrawRectRounded(p0_apCenterX - p0_apRectWidth / 2, p0_apCenterY - p0_apRectHeight / 2, p0_apRectWidth, p0_apRectHeight, 10 * scale);
-
-			ofSetColor(ofColor::green);
-			ofPushMatrix();
-			ofTranslate(p0_apCenterX, p0_apCenterY);
-			ofScale(fontScale, fontScale);
-			titleFont.drawString(p0_apText, -p0_apTextBox.getCenter().x, -p0_apTextBox.getCenter().y);
-			ofPopMatrix();
+			drawPixelTextCentered(titleFont, p0_apText, p0_apCenterX, p0_apCenterY, apFontScale, ofColor::green);
 
 			if (apPreviewAlpha > 1.0f && !apPreviewDisplayText.empty()) {
 				ofColor previewColor(255, 70, 70, (int)ofClamp(apPreviewAlpha, 0.0f, 255.0f));
-				ofSetColor(previewColor);
-				ofPushMatrix();
 				float p0_previewAnchorX = p0_apCenterX + (p0_apRectWidth * 0.5f) + (12.0f * scale);
 				float p0_previewCenterY = p0_apCenterY;
-				ofTranslate(p0_previewAnchorX, p0_previewCenterY);
-				ofScale(p0_previewScale, p0_previewScale);
-				titleFont.drawString(apPreviewDisplayText, -p0_previewTextBox.width, -p0_previewTextBox.getCenter().y);
-				ofPopMatrix();
+				float p0_previewCenterX = p0_previewAnchorX - (p0_previewTextBox.width * p0_previewScale * 0.5f);
+				drawPixelTextCentered(titleFont, apPreviewDisplayText, p0_previewCenterX, p0_previewCenterY, p0_previewScale, previewColor);
 			}
 		}
 
@@ -10179,7 +10150,7 @@ void ofApp::drawGame() {
 		int p0_formsAbove = (localPlayer->inTortoiseForm ? 1 : 0) + (localPlayer->inGhostForm ? 1 : 0);
 		float p0_totalFormsHeight = p0_formsAbove * (formBarHeight + formSpacing);
 		float p0_statusY = p0_healthY - 10 * scale - p0_totalFormsHeight; // start above the topmost form
-		float smallFontScale = fontScale * 0.8f;
+		float smallFontScale = quantizePixelTextScale(fontScale * 0.8f);
 
 		// --- NEW STATUSES ---
 
@@ -10196,48 +10167,28 @@ void ofApp::drawGame() {
 		if (p0TotalLuck > 0) {
 			string luckText = "+" + ofToString(p0TotalLuck) + " Luck";
 			ofRectangle luckBox = titleFont.getStringBoundingBox(luckText, 0, 0);
-			ofSetColor(ofColor::darkGreen);
-			ofPushMatrix();
-			ofTranslate(p0_statusXStart, p0_statusY);
-			ofScale(smallFontScale, smallFontScale);
-			titleFont.drawString(luckText, 0, 0);
-			ofPopMatrix();
+			drawPixelTextBaseline(titleFont, luckText, p0_statusXStart, p0_statusY, smallFontScale, ofColor::darkGreen);
 			p0_statusY -= (luckBox.height * smallFontScale) + (5 * scale);
 		}
 
 		if (localPlayer->nextTurnAPBonus > 0) {
 			string bonusText = "+" + ofToString(localPlayer->nextTurnAPBonus) + " AP Next Turn";
 			ofRectangle bonusBox = titleFont.getStringBoundingBox(bonusText, 0, 0);
-			ofSetColor(ofColor::green);
-			ofPushMatrix();
-			ofTranslate(p0_statusXStart, p0_statusY);
-			ofScale(smallFontScale, smallFontScale);
-			titleFont.drawString(bonusText, 0, 0);
-			ofPopMatrix();
+			drawPixelTextBaseline(titleFont, bonusText, p0_statusXStart, p0_statusY, smallFontScale, ofColor::green);
 			p0_statusY -= (bonusBox.height * smallFontScale) + (5 * scale);
 		}
 
 		if (localPlayer->strengthenElementsTurnsRemaining > 0) {
 			string elemText = "Elem Buff (" + ofToString(localPlayer->strengthenElementsTurnsRemaining) + ")";
 			ofRectangle elemBox = titleFont.getStringBoundingBox(elemText, 0, 0);
-			ofSetColor(ofColor::orange);
-			ofPushMatrix();
-			ofTranslate(p0_statusXStart, p0_statusY);
-			ofScale(smallFontScale, smallFontScale);
-			titleFont.drawString(elemText, 0, 0);
-			ofPopMatrix();
+			drawPixelTextBaseline(titleFont, elemText, p0_statusXStart, p0_statusY, smallFontScale, ofColor::orange);
 			p0_statusY -= (elemBox.height * smallFontScale) + (5 * scale);
 		}
 
 		if (localPlayer->nextTurnD10AP) {
 			string d10Text = "D10 AP";
 			ofRectangle d10Box = titleFont.getStringBoundingBox(d10Text, 0, 0);
-			ofSetColor(ofColor::white);
-			ofPushMatrix();
-			ofTranslate(p0_statusXStart, p0_statusY);
-			ofScale(smallFontScale, smallFontScale);
-			titleFont.drawString(d10Text, 0, 0);
-			ofPopMatrix();
+			drawPixelTextBaseline(titleFont, d10Text, p0_statusXStart, p0_statusY, smallFontScale, ofColor::white);
 			p0_statusY -= (d10Box.height * smallFontScale) + (5 * scale);
 		}
 
@@ -10274,23 +10225,14 @@ void ofApp::drawGame() {
 		if (!skipDrawP1AP) {
 			ofSetColor(0, 0, 0, 150);
 			ofDrawRectRounded(p1_apCenterX - p1_apRectWidth / 2, p1_apCenterY - p1_apRectHeight / 2, p1_apRectWidth, p1_apRectHeight, 10 * scale);
-			ofSetColor(ofColor::green);
-			ofPushMatrix();
-			ofTranslate(p1_apCenterX, p1_apCenterY);
-			ofScale(fontScale, fontScale);
-			titleFont.drawString(p1_apText, -p1_apTextBox.getCenter().x, -p1_apTextBox.getCenter().y);
-			ofPopMatrix();
+			drawPixelTextCentered(titleFont, p1_apText, p1_apCenterX, p1_apCenterY, apFontScale, ofColor::green);
 
 			if (apPreviewAlpha > 1.0f && !apPreviewDisplayText.empty()) {
 				ofColor previewColor(255, 70, 70, (int)ofClamp(apPreviewAlpha, 0.0f, 255.0f));
-				ofSetColor(previewColor);
-				ofPushMatrix();
 				float p1_previewAnchorX = p1_apCenterX + (p1_apRectWidth * 0.5f) + (12.0f * scale);
 				float p1_previewCenterY = p1_apCenterY;
-				ofTranslate(p1_previewAnchorX, p1_previewCenterY);
-				ofScale(p0_previewScale, p0_previewScale);
-				titleFont.drawString(apPreviewDisplayText, -p0_previewTextBox.width, -p0_previewTextBox.getCenter().y);
-				ofPopMatrix();
+				float p1_previewCenterX = p1_previewAnchorX - (p0_previewTextBox.width * p0_previewScale * 0.5f);
+				drawPixelTextCentered(titleFont, apPreviewDisplayText, p1_previewCenterX, p1_previewCenterY, p0_previewScale, previewColor);
 			}
 		}
 
@@ -10319,12 +10261,7 @@ void ofApp::drawGame() {
 		if (p1TotalLuck > 0) {
 			string luckText = "+" + ofToString(p1TotalLuck) + " Luck";
 			ofRectangle luckBox = titleFont.getStringBoundingBox(luckText, 0, 0);
-			ofSetColor(ofColor::darkGreen);
-			ofPushMatrix();
-			ofTranslate(p1_statusXStart, p1_statusY);
-			ofScale(smallFontScale, smallFontScale);
-			titleFont.drawString(luckText, 0, 0);
-			ofPopMatrix();
+			drawPixelTextBaseline(titleFont, luckText, p1_statusXStart, p1_statusY, smallFontScale, ofColor::darkGreen);
 			p1_statusY -= (luckBox.height * smallFontScale) + (5 * scale);
 		}
 
@@ -10333,36 +10270,21 @@ void ofApp::drawGame() {
 		if (opponentPlayer->nextTurnD10AP) {
 			string d10Text = "D10 AP";
 			ofRectangle d10Box = titleFont.getStringBoundingBox(d10Text, 0, 0);
-			ofSetColor(ofColor::white);
-			ofPushMatrix();
-			ofTranslate(p1_statusXStart, p1_statusY);
-			ofScale(smallFontScale, smallFontScale);
-			titleFont.drawString(d10Text, 0, 0);
-			ofPopMatrix();
+			drawPixelTextBaseline(titleFont, d10Text, p1_statusXStart, p1_statusY, smallFontScale, ofColor::white);
 			p1_statusY -= (d10Box.height * smallFontScale) + (5 * scale);
 		}
 
 		if (opponentPlayer->strengthenElementsTurnsRemaining > 0) {
 			string elemText = "Elem Buff (" + ofToString(opponentPlayer->strengthenElementsTurnsRemaining) + ")";
 			ofRectangle elemBox = titleFont.getStringBoundingBox(elemText, 0, 0);
-			ofSetColor(ofColor::orange);
-			ofPushMatrix();
-			ofTranslate(p1_statusXStart, p1_statusY);
-			ofScale(smallFontScale, smallFontScale);
-			titleFont.drawString(elemText, 0, 0);
-			ofPopMatrix();
+			drawPixelTextBaseline(titleFont, elemText, p1_statusXStart, p1_statusY, smallFontScale, ofColor::orange);
 			p1_statusY -= (elemBox.height * smallFontScale) + (5 * scale);
 		}
 
 		if (opponentPlayer->nextTurnAPBonus > 0) {
 			string bonusText = "+" + ofToString(opponentPlayer->nextTurnAPBonus) + " AP Next Turn";
 			ofRectangle bonusBox = titleFont.getStringBoundingBox(bonusText, 0, 0);
-			ofSetColor(ofColor::green);
-			ofPushMatrix();
-			ofTranslate(p1_statusXStart, p1_statusY);
-			ofScale(smallFontScale, smallFontScale);
-			titleFont.drawString(bonusText, 0, 0);
-			ofPopMatrix();
+			drawPixelTextBaseline(titleFont, bonusText, p1_statusXStart, p1_statusY, smallFontScale, ofColor::green);
 			p1_statusY -= (bonusBox.height * smallFontScale) + (5 * scale);
 		}
 
@@ -10770,17 +10692,19 @@ void ofApp::drawGame() {
 			if (localHoverType == HOVER_HAND_CARD && localHoverCardIndex == index) {
 				ofPushStyle();
 				ofNoFill();
+				const float lineW = 4.0f;
 				ofSetColor(255, 255, 255, 200); // White glow
-				ofSetLineWidth(4);
-				drawCardEdgeOutline(drawX, drawY, w, h, 1.0f);
+				ofSetLineWidth(lineW);
+				drawCardOutlineOutside(drawX, drawY, w, h, lineW, 1.0f);
 				ofPopStyle();
 			}
 			if (isMultiplayer && opponentHoverType == HOVER_HAND_CARD && opponentHoverCardIndex == index) {
 				ofPushStyle();
 				ofNoFill();
+				const float lineW = 4.0f;
 				ofSetColor(255, 0, 0, 200); // Red glow
-				ofSetLineWidth(4);
-				drawCardEdgeOutline(drawX, drawY, w, h, 1.0f);
+				ofSetLineWidth(lineW);
+				drawCardOutlineOutside(drawX, drawY, w, h, lineW, 1.0f);
 				ofPopStyle();
 			}
 
@@ -10794,9 +10718,10 @@ void ofApp::drawGame() {
 					// MATCH NORMAL GAMEPLAY: Yellow Selection
 					ofPushStyle();
 					ofNoFill();
+					const float lineW = 4.0f;
 					ofSetColor(ofColor::green);
-					ofSetLineWidth(4);
-					drawCardEdgeOutline(drawX, drawY, w, h, 0.0f);
+					ofSetLineWidth(lineW);
+					drawCardOutlineOutside(drawX, drawY, w, h, lineW, 1.0f);
 					ofPopStyle();
 				}
 			} else {
@@ -10804,9 +10729,10 @@ void ofApp::drawGame() {
 				if (index == selectedCardIndex || (isTopCard && index == draggedCardIndex)) {
 					ofPushStyle();
 					ofNoFill();
+					const float lineW = 4.0f;
 					ofSetColor(ofColor::green);
-					ofSetLineWidth(4);
-					drawCardEdgeOutline(drawX, drawY, w, h, 0.0f);
+					ofSetLineWidth(lineW);
+					drawCardOutlineOutside(drawX, drawY, w, h, lineW, 1.0f);
 					ofPopStyle();
 				}
 
@@ -10820,9 +10746,10 @@ void ofApp::drawGame() {
 					if (isDirectDamageCard && !isExcluded) {
 						ofPushStyle();
 						ofNoFill();
+						const float lineW = 4.0f;
 						ofSetColor(255, 140, 0); // Orange glow
-						ofSetLineWidth(4);
-						drawCardEdgeOutline(drawX, drawY, w, h, 1.0f);
+						ofSetLineWidth(lineW);
+						drawCardOutlineOutside(drawX, drawY, w, h, lineW, 1.0f);
 						ofPopStyle();
 					}
 				}
@@ -11135,8 +11062,7 @@ void ofApp::drawGame() {
 		}
 		ofSetColor(10, 10, 10, 200);
 		ofDrawRectRounded(tooltipX, tooltipY, textWidth + 2 * padding, textHeight + 2 * padding, 5);
-		ofSetColor(ofColor::white);
-		uiFont.drawString(displayTooltip, tooltipX + padding, tooltipY + textHeight + padding / 2.0f);
+		drawPixelTextBaseline(uiFont, displayTooltip, tooltipX + padding, tooltipY + textHeight + padding / 2.0f, 1.0f, ofColor::white, 0);
 	}
 
 	// --- DRAW OVERLAY UIs ---
@@ -12595,6 +12521,159 @@ void ofApp::mousePressed(int x, int y, int button) {
 		mouseDownPos.set(x, y);
 	}
 
+	if (currentState == STATE_MAIN_MENU && button == OF_MOUSE_BUTTON_LEFT) {
+		if (mainMenuPlayAIButton.inside(x, y)) {
+			currentState = STATE_SINGLEPLAYER_MENU;
+			return;
+		}
+		if (mainMenuHostButton.inside(x, y) || mainMenuMultiplayerButton.inside(x, y)) {
+			if (!steamManager.isConnected()) {
+				steamManager.createLobby();
+			} else {
+				steamManager.leaveLobby();
+				isMultiplayer = false;
+				hasReceivedHandshake = false;
+				initialDraftComplete = false;
+				draftAcceptLocked = false;
+				draftAcceptApplied = false;
+				gameplaySeededByHost = false;
+				handshakeRequestInterval = 1.0f;
+				cleanupGame();
+				currentState = STATE_MAIN_MENU;
+			}
+			return;
+		}
+		if (mainMenuInviteButton.inside(x, y)) {
+			if (steamManager.isConnected()) steamManager.openFriendOverlay();
+			return;
+		}
+		if (mainMenuSettingsButton.inside(x, y)) {
+			stateBeforeSettings = STATE_MAIN_MENU;
+			currentState = STATE_SETTINGS;
+			return;
+		}
+		if (mainMenuQuitButton.inside(x, y)) {
+			ofExit();
+			return;
+		}
+	}
+
+	if (currentState == STATE_SETTINGS && button == OF_MOUSE_BUTTON_LEFT) {
+		if (settingsTabVideoRect.inside(x, y)) {
+			currentSettingsTab = SETTINGS_TAB_VIDEO;
+			return;
+		}
+		if (settingsTabAudioRect.inside(x, y)) {
+			currentSettingsTab = SETTINGS_TAB_AUDIO;
+			return;
+		}
+		if (settingsTabGameRect.inside(x, y)) {
+			currentSettingsTab = SETTINGS_TAB_GAME;
+			return;
+		}
+		if (settingsTabControlsRect.inside(x, y)) {
+			currentSettingsTab = SETTINGS_TAB_CONTROLS;
+			return;
+		}
+		if (settingsBackButton.inside(x, y)) {
+			currentState = stateBeforeSettings;
+			return;
+		}
+		if (currentSettingsTab == SETTINGS_TAB_VIDEO) {
+			if (settingsResLeftButton.inside(x, y)) {
+				currentResolutionIndex = std::max(0, currentResolutionIndex - 1);
+				applySettings();
+				saveSettings();
+				return;
+			}
+			if (settingsResRightButton.inside(x, y)) {
+				currentResolutionIndex = std::min(static_cast<int>(availableResolutions.size()) - 1, currentResolutionIndex + 1);
+				applySettings();
+				saveSettings();
+				return;
+			}
+			if (settingsFramerateSlider.inside(x, y)) {
+				draggingFramerateSlider = true;
+				float rel = (float)(x - settingsFramerateSlider.x) / (float)settingsFramerateSlider.width;
+				settingsFramerateSliderValue = std::min(1.0f, std::max(0.0f, rel));
+				applySettings();
+				saveSettings();
+				return;
+			}
+			if (settingsFullscreenButton.inside(x, y)) {
+				isFullscreen = !isFullscreen;
+				applySettings();
+				saveSettings();
+				return;
+			}
+		}
+		if (currentSettingsTab == SETTINGS_TAB_AUDIO) {
+			if (settingsAudioMasterSlider.inside(x, y)) {
+				draggingAudioMaster = true;
+				float rel = (float)(x - settingsAudioMasterSlider.x) / (float)settingsAudioMasterSlider.width;
+				settingsMasterVolume = std::min(1.0f, std::max(0.0f, rel));
+				mainMenuMusic.setVolume(settingsMasterVolume * settingsMenuVolume);
+				saveSettings();
+				return;
+			}
+			if (settingsAudioVolumeSlider.inside(x, y)) {
+				draggingAudioMenu = true;
+				float rel = (float)(x - settingsAudioVolumeSlider.x) / (float)settingsAudioVolumeSlider.width;
+				settingsMenuVolume = std::min(1.0f, std::max(0.0f, rel));
+				mainMenuMusic.setVolume(settingsMasterVolume * settingsMenuVolume);
+				saveSettings();
+				return;
+			}
+			if (settingsAudioSfxSlider.inside(x, y)) {
+				draggingAudioSfx = true;
+				float rel = (float)(x - settingsAudioSfxSlider.x) / (float)settingsAudioSfxSlider.width;
+				settingsSfxVolume = std::min(1.0f, std::max(0.0f, rel));
+				saveSettings();
+				return;
+			}
+		}
+		if (currentSettingsTab == SETTINGS_TAB_GAME) {
+			if (settingsGameShowFPSBox.inside(x, y)) {
+				settingsShowFPS = !settingsShowFPS;
+				saveSettings();
+				return;
+			}
+			if (settingsCameraSensitivitySlider.inside(x, y)) {
+				float rel = (float)(x - settingsCameraSensitivitySlider.x) / (float)settingsCameraSensitivitySlider.width;
+				settingsCameraSensitivity = ofMap(rel, 0.0f, 1.0f, 0.5f, 2.0f, true);
+				saveSettings();
+				return;
+			}
+			if (settingsInvertYBox.inside(x, y)) {
+				settingsInvertCameraY = !settingsInvertCameraY;
+				saveSettings();
+				return;
+			}
+			if (settingsUIScaleSlider.inside(x, y)) {
+				float rel = (float)(x - settingsUIScaleSlider.x) / (float)settingsUIScaleSlider.width;
+				settingsUIScale = ofMap(rel, 0.0f, 1.0f, 0.75f, 1.25f, true);
+				saveSettings();
+				recalculateUI(ofGetWidth(), ofGetHeight());
+				return;
+			}
+			if (settingsVSyncBox.inside(x, y)) {
+				settingsUseVSync = !settingsUseVSync;
+				saveSettings();
+				if (settingsUseVSync)
+					ofSetVerticalSync(true);
+				else
+					ofSetVerticalSync(false);
+				return;
+			}
+			if (settingsShowHintsBox.inside(x, y)) {
+				settingsShowHints = !settingsShowHints;
+				saveSettings();
+				return;
+			}
+		}
+		return;
+	}
+
 	// Detect which hand card was clicked (for drag initiation)
 	pressedCardIndex = -1;
 	if (button == OF_MOUSE_BUTTON_LEFT && currentState == STATE_GAMEPLAY && !players.empty() && currentPlayerIndex >= 0) {
@@ -13062,8 +13141,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 
 		// Block all draft clicks if display is in non-interactive mode
 		if (!draftDisplayInteractiveEnabled) {
-			ofLogNotice("Draft") << "DRAFT CLICK IGNORED: non-interactive display mode. Showing auto-selected card.";
-			return;
+			ofLogNotice("Draft") << "DRAFT CLICK: intro still active, allowing selection so the draft remains responsive.";
 		}
 		// Card Dimensions (Must match drawDraftScreen)
 		float uiScale = std::min(ofGetWidth() / 1920.0f, ofGetHeight() / 1080.0f);
@@ -13424,7 +13502,9 @@ void ofApp::mousePressed(int x, int y, int button) {
 	}
 
 	// --- BRANCH: IN-GAME KEY DRAFT / CHAINED DRAFT ---
-	if (isInGameDraft) {
+	// Only handle this flow while actually in draft state. If `isInGameDraft`
+	// lingers true after a transition, gameplay clicks must not be swallowed.
+	if (currentState == STATE_DRAFTING && isInGameDraft) {
 		// Reference drafting player
 		Player & p = players[draftPlayerIndex];
 
@@ -13454,45 +13534,43 @@ void ofApp::mousePressed(int x, int y, int button) {
 		return;
 	}
 
-	// If paused, handle pause-menu clicks immediately and ignore gameplay handlers.
 	if (currentState == STATE_PAUSED) {
-		if (button == OF_MOUSE_BUTTON_LEFT) {
-			if (pauseMenuResumeButton.inside(x, y)) {
-				currentState = pausedFromState;
-				return;
+		if (pauseMenuResumeButton.inside(x, y)) {
+			currentState = pausedFromState;
+			return;
+		}
+		if (!isMultiplayer && pauseMenuSaveButton.inside(x, y)) {
+			// Manual save (user-initiated) — keep separate name from autosaves
+			bool ok = saveGameStateToFile("manual_save.json");
+			if (ok) {
+				std::string stamped = "manual_save_turn_" + std::to_string(globalTurnCounter) + ".json";
+				saveGameStateToFile(stamped);
+				pruneOldSaves(10); // keep a few manual-stamped saves
+				addGameLog("Game saved to manual_save.json");
+				// Snapshot suppressed: only sent on reconnect or desync recovery.
+			} else {
+				addGameLog("Failed to save game state.");
 			}
-			if (!isMultiplayer && pauseMenuSaveButton.inside(x, y)) {
-				// Manual save (user-initiated) — keep separate name from autosaves
-				bool ok = saveGameStateToFile("manual_save.json");
-				if (ok) {
-					std::string stamped = "manual_save_turn_" + std::to_string(globalTurnCounter) + ".json";
-					saveGameStateToFile(stamped);
-					pruneOldSaves(10); // keep a few manual-stamped saves
-					addGameLog("Game saved to manual_save.json");
-					// Snapshot suppressed: only sent on reconnect or desync recovery.
-				} else {
-					addGameLog("Failed to save game state.");
-				}
-				return;
-			}
-			if (!isMultiplayer && pauseMenuLoadButton.inside(x, y)) {
-				// Open Save Browser menu; return here when closing
-				saveBrowserReturnState = STATE_PAUSED;
-				currentState = STATE_SAVE_BROWSER;
-				return;
-			}
-			if (pauseMenuSettingsButton.inside(x, y)) {
-				stateBeforeSettings = STATE_PAUSED;
-				currentState = STATE_SETTINGS;
-				return;
-			}
-			if (pauseMenuQuitButton.inside(x, y)) {
-				// 1. Disconnect from Steam (Stops the auto-join loop)
-				steamManager.leaveLobby();
-				isMultiplayer = false;
-				cleanupGame();
-				currentState = STATE_MAIN_MENU;
-			}
+			return;
+		}
+		if (!isMultiplayer && pauseMenuLoadButton.inside(x, y)) {
+			// Open Save Browser menu; return here when closing
+			saveBrowserReturnState = STATE_PAUSED;
+			currentState = STATE_SAVE_BROWSER;
+			return;
+		}
+		if (pauseMenuSettingsButton.inside(x, y)) {
+			stateBeforeSettings = STATE_PAUSED;
+			currentState = STATE_SETTINGS;
+			return;
+		}
+		if (pauseMenuQuitButton.inside(x, y)) {
+			// 1. Disconnect from Steam (Stops the auto-join loop)
+			steamManager.leaveLobby();
+			isMultiplayer = false;
+			cleanupGame();
+			currentState = STATE_MAIN_MENU;
+			return;
 		}
 		// For other buttons or mouse buttons, swallow the click so gameplay handlers don't run
 		return;
@@ -14435,185 +14513,10 @@ void ofApp::mousePressed(int x, int y, int button) {
 		}
 		break;
 	}
-	case STATE_MAIN_MENU: {
-		if (mainMenuPlayAIButton.inside(x, y)) {
-			// Open the Singleplayer submenu rather than immediately starting
-			currentState = STATE_SINGLEPLAYER_MENU;
-		}
-		// ADD STEAM HOST LOGIC
-		else if (mainMenuHostButton.inside(x, y)) {
-			if (!steamManager.isConnected()) {
-				steamManager.createLobby();
-			} else {
-				// If we're already hosting/connected, clicking again will stop hosting
-				steamManager.leaveLobby();
-				// Reset multiplayer/game state and return to menu
-				isMultiplayer = false;
-				hasReceivedHandshake = false;
-				// waitingForTurnStartTimer removed; no-op
-				initialDraftComplete = false;
-				draftAcceptLocked = false;
-				draftAcceptApplied = false;
-				gameplaySeededByHost = false;
-				handshakeRequestInterval = 1.0f;
-				cleanupGame();
-				currentState = STATE_MAIN_MENU;
-			}
-		}
-		// ADD STEAM INVITE LOGIC
-		else if (mainMenuInviteButton.inside(x, y)) {
-			if (steamManager.isConnected()) steamManager.openFriendOverlay();
-		} else if (mainMenuSettingsButton.inside(x, y)) {
-			stateBeforeSettings = STATE_MAIN_MENU;
-			currentState = STATE_SETTINGS;
-		} else if (mainMenuQuitButton.inside(x, y)) {
-			ofExit();
-		}
+	case STATE_MAIN_MENU:
+	case STATE_SETTINGS:
+		// Menu/settings input is handled at the top of `mousePressed()`.
 		break;
-	}
-
-	case STATE_SETTINGS: {
-		// Tab clicks
-		if (settingsTabVideoRect.inside(x, y)) {
-			currentSettingsTab = SETTINGS_TAB_VIDEO;
-			return;
-		}
-		if (settingsTabAudioRect.inside(x, y)) {
-			currentSettingsTab = SETTINGS_TAB_AUDIO;
-			return;
-		}
-		if (settingsTabGameRect.inside(x, y)) {
-			currentSettingsTab = SETTINGS_TAB_GAME;
-			return;
-		}
-		if (settingsTabControlsRect.inside(x, y)) {
-			currentSettingsTab = SETTINGS_TAB_CONTROLS;
-			return;
-		}
-
-		// Back button
-		if (settingsBackButton.inside(x, y)) {
-			currentState = stateBeforeSettings;
-			return;
-		}
-
-		// Video tab controls
-		if (currentSettingsTab == SETTINGS_TAB_VIDEO) {
-			if (settingsResLeftButton.inside(x, y)) {
-				currentResolutionIndex = std::max(0, currentResolutionIndex - 1);
-				applySettings();
-				saveSettings();
-				return;
-			}
-			if (settingsResRightButton.inside(x, y)) {
-				currentResolutionIndex = std::min(static_cast<int>(availableResolutions.size()) - 1, currentResolutionIndex + 1);
-				applySettings();
-				saveSettings();
-				return;
-			}
-			// Framerate slider drag logic
-			if (settingsFramerateSlider.inside(x, y)) {
-				draggingFramerateSlider = true;
-				float rel = (float)(x - settingsFramerateSlider.x) / (float)settingsFramerateSlider.width;
-				settingsFramerateSliderValue = std::min(1.0f, std::max(0.0f, rel));
-				applySettings();
-				saveSettings();
-				return;
-			}
-			if (settingsFullscreenButton.inside(x, y)) {
-				isFullscreen = !isFullscreen;
-				applySettings();
-				saveSettings();
-				return;
-			}
-		}
-
-		// Audio tab controls
-		if (currentSettingsTab == SETTINGS_TAB_AUDIO) {
-			// Master slider
-			if (settingsAudioMasterSlider.inside(x, y)) {
-				draggingAudioMaster = true;
-				float rel = (float)(x - settingsAudioMasterSlider.x) / (float)settingsAudioMasterSlider.width;
-				settingsMasterVolume = std::min(1.0f, std::max(0.0f, rel));
-				mainMenuMusic.setVolume(settingsMasterVolume * settingsMenuVolume);
-				saveSettings();
-				return;
-			}
-			// Menu music slider
-			if (settingsAudioVolumeSlider.inside(x, y)) {
-				draggingAudioMenu = true;
-				float rel = (float)(x - settingsAudioVolumeSlider.x) / (float)settingsAudioVolumeSlider.width;
-				settingsMenuVolume = std::min(1.0f, std::max(0.0f, rel));
-				mainMenuMusic.setVolume(settingsMasterVolume * settingsMenuVolume);
-				saveSettings();
-				return;
-			}
-			// SFX slider
-			if (settingsAudioSfxSlider.inside(x, y)) {
-				draggingAudioSfx = true;
-				float rel = (float)(x - settingsAudioSfxSlider.x) / (float)settingsAudioSfxSlider.width;
-				settingsSfxVolume = std::min(1.0f, std::max(0.0f, rel));
-				saveSettings();
-				return;
-			}
-			// Mute and loop toggles removed
-		}
-
-		// Controls tab interaction: simplified/read-only — clicking does nothing
-		if (currentSettingsTab == SETTINGS_TAB_CONTROLS) {
-			// intentionally no-op: controls are read-only (Chat = Enter)
-		}
-
-		// Game tab interactions
-		if (currentSettingsTab == SETTINGS_TAB_GAME) {
-			// FPS toggle
-			if (settingsGameShowFPSBox.inside(x, y)) {
-				settingsShowFPS = !settingsShowFPS;
-				saveSettings();
-				return;
-			}
-			// Camera sensitivity slider
-			if (settingsCameraSensitivitySlider.inside(x, y)) {
-				float rel = (float)(x - settingsCameraSensitivitySlider.x) / (float)settingsCameraSensitivitySlider.width;
-				settingsCameraSensitivity = ofMap(rel, 0.0f, 1.0f, 0.5f, 2.0f, true);
-				saveSettings();
-				return;
-			}
-			// Invert Y
-			if (settingsInvertYBox.inside(x, y)) {
-				settingsInvertCameraY = !settingsInvertCameraY;
-				saveSettings();
-				return;
-			}
-			// UI scale slider
-			if (settingsUIScaleSlider.inside(x, y)) {
-				float rel = (float)(x - settingsUIScaleSlider.x) / (float)settingsUIScaleSlider.width;
-				settingsUIScale = ofMap(rel, 0.0f, 1.0f, 0.75f, 1.25f, true);
-				saveSettings();
-				// We won't fully re-layout everything now but recalc UI sizes
-				recalculateUI(ofGetWidth(), ofGetHeight());
-				return;
-			}
-			// VSync
-			if (settingsVSyncBox.inside(x, y)) {
-				settingsUseVSync = !settingsUseVSync;
-				saveSettings();
-				if (settingsUseVSync)
-					ofSetVerticalSync(true);
-				else
-					ofSetVerticalSync(false);
-				return;
-			}
-			// Hints
-			if (settingsShowHintsBox.inside(x, y)) {
-				settingsShowHints = !settingsShowHints;
-				saveSettings();
-				return;
-			}
-		}
-
-		break;
-	}
 
 	case STATE_PAUSED: {
 		if (pauseMenuResumeButton.inside(x, y)) {
@@ -28953,45 +28856,15 @@ void ofApp::drawDispelUI() {
 }
 //--------------------------------------------------------------
 void ofApp::drawInstructionText(const string & message, ofColor color) {
-	ofPushMatrix();
-	ofRectangle bbox = titleFont.getStringBoundingBox(message, 0, 0);
 	float tx = (ofGetWidth() / 2.0f);
 	float ty = ofGetHeight() * 0.25f;
-
-	float textScale = 1.2f;
-	ofTranslate(tx, ty);
-	ofScale(textScale, textScale);
-
-	// Draw shadow
-	ofSetColor(0, 0, 0, 255);
-	titleFont.drawString(message, -bbox.width / 2 + 2, 2);
-
-	// Draw main text
-	ofSetColor(color);
-	titleFont.drawString(message, -bbox.width / 2, 0);
-
-	ofPopMatrix();
+	drawPixelTextCentered(titleFont, message, tx, ty, 1.2f, color, 2, ofColor::black);
 }
 //--------------------------------------------------------------
 void ofApp::drawDiceLabel(const string & message, ofColor color, float yPos) {
-	ofPushMatrix();
-	ofRectangle bbox = titleFont.getStringBoundingBox(message, 0, 0);
 	float tx = (ofGetWidth() / 2.0f);
 	float ty = (yPos > 0) ? yPos : (ofGetHeight() * 0.5f);
-
-	float textScale = 1.2f;
-	ofTranslate(tx, ty);
-	ofScale(textScale, textScale);
-
-	// Draw shadow
-	ofSetColor(0, 0, 0, 255);
-	titleFont.drawString(message, -bbox.width / 2 + 2, 2);
-
-	// Draw main text
-	ofSetColor(color);
-	titleFont.drawString(message, -bbox.width / 2, 0);
-
-	ofPopMatrix();
+	drawPixelTextCentered(titleFont, message, tx, ty, 1.2f, color, 2, ofColor::black);
 }
 //--------------------------------------------------------------
 void ofApp::drawMenuOverlay() {
@@ -29317,9 +29190,10 @@ void ofApp::drawCardEncyclopediaUI() {
 					// Add glow for scaled card
 					ofPushStyle();
 					ofNoFill();
-					ofSetLineWidth(5);
+					const float lineW = 5.0f;
+					ofSetLineWidth(lineW);
 					ofSetColor(255, 255, 100, 190);
-					drawCardEdgeOutline(drawX, drawY, thisCardW, thisCardH, 6.0f);
+					drawCardOutlineOutside(drawX, drawY, thisCardW, thisCardH, lineW, 1.0f);
 					ofPopStyle();
 				}
 
@@ -29331,9 +29205,10 @@ void ofApp::drawCardEncyclopediaUI() {
 				if (isHovered) {
 					ofPushStyle();
 					ofNoFill();
-					ofSetLineWidth(3);
+					const float lineW = 3.0f;
+					ofSetLineWidth(lineW);
 					ofSetColor(100, 150, 255, 170);
-					drawCardEdgeOutline(drawX, drawY, thisCardW, thisCardH, 3.0f);
+					drawCardOutlineOutside(drawX, drawY, thisCardW, thisCardH, lineW, 1.0f);
 					ofPopStyle();
 				}
 
@@ -29346,9 +29221,10 @@ void ofApp::drawCardEncyclopediaUI() {
 				// If selected, draw a yellow outline
 				if (std::find(encyclopediaSelectedIndices.begin(), encyclopediaSelectedIndices.end(), (int)i) != encyclopediaSelectedIndices.end()) {
 					ofNoFill();
-					ofSetLineWidth(6);
+					const float lineW = 6.0f;
+					ofSetLineWidth(lineW);
 					ofSetColor(ofColor::yellow);
-					drawCardEdgeOutline(drawX, drawY, thisCardW, thisCardH, 4.0f);
+					drawCardOutlineOutside(drawX, drawY, thisCardW, thisCardH, lineW, 1.0f);
 					ofFill();
 				}
 
@@ -30064,6 +29940,9 @@ bool ofApp::applyDamageTo(Player & target, int damage, DamageType type, int atta
 			// Switch state immediately on both peers
 			currentState = STATE_DRAFTING;
 			resetDraftPhaseTimerWindow();
+			draftDisplayStartTime = ofGetElapsedTimef();
+			draftDisplayInteractiveEnabled = false;
+			draftAutoSelectedIndex = -1;
 
 			// Pause the active player's turn timer if this draft belongs to another player
 			pauseTurnTimerForOpponentDecision(attackerIndex);
@@ -32336,9 +32215,10 @@ void ofApp::drawDraftScreen() {
 		if (isSelected) {
 			ofPushStyle();
 			ofNoFill();
+			const float lineW = 6.0f;
 			ofSetColor(ofColor::yellow);
-			ofSetLineWidth(6);
-			drawCardEdgeOutline(drawX, drawY, w, h, 8.0f);
+			ofSetLineWidth(lineW);
+			drawCardOutlineOutside(drawX, drawY, w, h, lineW, 1.0f);
 			ofPopStyle();
 		}
 		// Hover Highlight (White/Subtle) using unscaled hit area
@@ -32346,9 +32226,10 @@ void ofApp::drawDraftScreen() {
 		else if (!draftAcceptApplied && (i >= draftOptionUI.size() || !draftOptionUI[i].hidden) && cardRect.inside(ofGetMouseX(), ofGetMouseY())) {
 			ofPushStyle();
 			ofNoFill();
+			const float lineW = 3.0f;
 			ofSetColor(ofColor::white);
-			ofSetLineWidth(3);
-			drawCardEdgeOutline(drawX, drawY, w, h, 5.0f);
+			ofSetLineWidth(lineW);
+			drawCardOutlineOutside(drawX, drawY, w, h, lineW, 1.0f);
 			ofPopStyle();
 		}
 
@@ -32720,7 +32601,12 @@ bool ofApp::isLocalDraftingPlayer(int draftIndex) const {
 	int localIdx = getLocalPlayerIndex();
 	// Accept if either the slot index matches or the playerID at the slot matches local ID.
 	if (localIdx >= 0 && localIdx == draftIndex) return true;
-	if (draftIndex >= 0 && draftIndex < (int)players.size() && players[draftIndex].playerID == myLocalPlayerID) return true;
+	if (draftIndex >= 0 && draftIndex < (int)players.size()) {
+		const Player & draftActor = players[draftIndex];
+		if (draftActor.playerID == myLocalPlayerID) return true;
+		// In-game key drafts can target minions: ownership should gate local control.
+		if (draftActor.isMinion && draftActor.ownerID == myLocalPlayerID) return true;
+	}
 	return false;
 }
 // --------------------------------------------------------------
