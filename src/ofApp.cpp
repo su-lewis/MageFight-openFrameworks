@@ -1003,35 +1003,6 @@ static bool rebuildCardSpriteSheetFromTemplate(const std::string & templatePath,
 		layout.effectScale,
 		layout.effectLineSpacing);
 
-	auto bestUniformCenteredTextScale = [&](const ofTrueTypeFont & font,
-											const std::vector<std::string> & texts,
-											const ofRectangle & rect,
-											float minScale,
-											float maxScale) {
-		if (texts.empty()) return maxScale;
-		auto fitsAt = [&](float s) {
-			for (const auto & t : texts) {
-				if (t.empty()) continue;
-				ofRectangle b = font.getStringBoundingBox(t, 0, 0);
-				if (b.width <= 0.0f || b.height <= 0.0f) continue;
-				if (b.width * s > rect.width || b.height * s > rect.height) return false;
-			}
-			return true;
-		};
-		if (!fitsAt(minScale)) return minScale;
-		if (fitsAt(maxScale)) return maxScale;
-		float lo = minScale;
-		float hi = maxScale;
-		for (int i = 0; i < 18; ++i) {
-			float mid = (lo + hi) * 0.5f;
-			if (fitsAt(mid))
-				lo = mid;
-			else
-				hi = mid;
-		}
-		return lo;
-	};
-
 	auto bestCenteredTextScaleForSingle = [&](const ofTrueTypeFont & font,
 											  const std::string & text,
 											  const ofRectangle & rect,
@@ -6034,7 +6005,11 @@ void ofApp::updateGame() {
 
 	// 2. Modal freeze check (unified card interaction + special legacy Magic Blast)
 	bool hasUnifiedCardModal = (cardInteractionState == CARD_INTERACTION_MENU || cardInteractionState == CARD_INTERACTION_STATUS);
-	if ((cardInteractionState == CARD_INTERACTION_MENU && interactingCardType == CARD_MAGIC_BLAST) || hasUnifiedCardModal) {
+	bool freezeForModal = ((cardInteractionState == CARD_INTERACTION_MENU && interactingCardType == CARD_MAGIC_BLAST) || hasUnifiedCardModal);
+	if (cardInteractionState == CARD_INTERACTION_MENU && interactingCardType == CARD_RENEWED_INSPIRATION) {
+		freezeForModal = false;
+	}
+	if (freezeForModal) {
 		return;
 	}
 
@@ -10941,6 +10916,7 @@ void ofApp::drawGame() {
 		// How much a hovered card is lifted upward (pixels) and scaled
 		float hoverDirection = kHandHoverLiftPx;
 		// Note: hoverScale is already defined at function scope
+		bool disableHoverScaleForRenewed = (cardInteractionState == CARD_INTERACTION_MENU && interactingCardType == CARD_RENEWED_INSPIRATION);
 
 		// 1. Determine which card should be drawn LAST (On Top)
 		int indexToDrawLast = -1;
@@ -10958,7 +10934,7 @@ void ofApp::drawGame() {
 
 			// Hearthstone hover: scale up and move upward
 			float drawScale = card.currentScale;
-			if (isTopCard && index == hoveredCardIndex) {
+			if (!disableHoverScaleForRenewed && isTopCard && index == hoveredCardIndex) {
 				drawScale = card.currentScale * hoverScale; // Scale up on hover
 			}
 
@@ -10983,7 +10959,7 @@ void ofApp::drawGame() {
 					// Dragged card stays at mouse position
 					drawX = card.currentPos.x - w / 2;
 					drawY = card.currentPos.y - h / 2;
-				} else if (index == hoveredCardIndex) {
+				} else if (!disableHoverScaleForRenewed && index == hoveredCardIndex) {
 					// Move upward and ensure visible on screen
 					drawY += hoverDirection;
 				}
@@ -12311,7 +12287,7 @@ cursor_check_done:;
 			// Only enlarge cards when WE are hovering them, not when opponent hovers
 			bool isLocallyHovered = (static_cast<int>(i) == hoveredCardIndex);
 			// Hearthstone-style: smooth scaling on hover with hoverScale variable
-			float targetScaleVal = isLocallyHovered ? hoverScale : 1.0f;
+			float targetScaleVal = ((cardInteractionState == CARD_INTERACTION_MENU && interactingCardType == CARD_RENEWED_INSPIRATION) ? 1.0f : (isLocallyHovered ? hoverScale : 1.0f));
 			currentPlayer.hand[i].targetScale = targetScaleVal;
 		}
 
@@ -19604,6 +19580,27 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 			}
 		}
 
+		// Resolve played-card index robustly after removals.
+		if (shiftedRiIndex < 0 || shiftedRiIndex >= (int)p.hand.size()
+			|| p.hand[shiftedRiIndex].type != CARD_RENEWED_INSPIRATION) {
+			int fallback = -1;
+			for (int i = 0; i < (int)p.hand.size(); ++i) {
+				if (p.hand[i].type == CARD_RENEWED_INSPIRATION) {
+					if (havePlayedCard && p.hand[i].value == playedCard.value) {
+						fallback = i;
+						break;
+					}
+					if (fallback == -1) fallback = i;
+				}
+			}
+			shiftedRiIndex = fallback;
+		}
+
+		if (shiftedRiIndex < 0 || shiftedRiIndex >= (int)p.hand.size()) {
+			ofLogWarning("Lockstep") << "CMD_RENEWED_INSPIRATION: unable to resolve played-card index after selections.";
+			break;
+		}
+
 		// NOTE: Card removal is handled by the outcome processor; do not manually erase here
 		// to avoid double-deduction and index corruption. The card will be moved to playedCardsPile
 		// by applyCardOutcomeEffects() after the EffectOp sequence completes.
@@ -19614,7 +19611,7 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 		currentCardOutcome.cardIndex = shiftedRiIndex;
 		currentCardOutcome.casterIndex = playerIdx;
 
-		beginEffectSequence();
+		if (!isProcessingEffect) beginEffectSequence();
 		EffectOp drawOp = {};
 		drawOp.type = EffectOpType::DRAW_CARDS;
 		drawOp.data.drawCards.playerIndex = playerIdx;
@@ -22730,32 +22727,30 @@ void ofApp::processCardStateInput(int mouseX, int mouseY, int button) {
 						validSelections.push_back(idx);
 					}
 				}
-				if (!validSelections.empty()) {
-					InputCommandPacket cmd = {};
-					cmd.type = PKT_INPUT_COMMAND;
-					cmd.playerID = myLocalPlayerID;
-					cmd.seq = 0;
-					cmd.commandId = nextCommandId++;
-					cmd.turnNumber = globalTurnCounter;
-					cmd.commandType = CMD_RENEWED_INSPIRATION;
-					cmd.params[0] = currentPlayerIndex;
-					cmd.params[1] = (int)validSelections.size();
-					cmd.params[2] = interactingCardIndex;
+				InputCommandPacket cmd = {};
+				cmd.type = PKT_INPUT_COMMAND;
+				cmd.playerID = myLocalPlayerID;
+				cmd.seq = 0;
+				cmd.commandId = nextCommandId++;
+				cmd.turnNumber = globalTurnCounter;
+				cmd.commandType = CMD_RENEWED_INSPIRATION;
+				cmd.params[0] = currentPlayerIndex;
+				cmd.params[1] = (int)validSelections.size();
+				cmd.params[2] = interactingCardIndex;
 
-					std::string s;
-					for (size_t i = 0; i < validSelections.size(); ++i) {
-						if (i) s.push_back(',');
-						s += ofToString(validSelections[i]);
-					}
-					strncpy(cmd.stringData, s.c_str(), sizeof(cmd.stringData) - 1);
-					cmd.stringData[sizeof(cmd.stringData) - 1] = '\0';
-
-					// Send via lockstep, NO LOCAL STATE MUTATION here!
-					sendInputCommand(cmd, true);
-
-					renewedSelectedHandIndices.clear();
-					resetCardInteraction();
+				std::string s;
+				for (size_t i = 0; i < validSelections.size(); ++i) {
+					if (i) s.push_back(',');
+					s += ofToString(validSelections[i]);
 				}
+				strncpy(cmd.stringData, s.c_str(), sizeof(cmd.stringData) - 1);
+				cmd.stringData[sizeof(cmd.stringData) - 1] = '\0';
+
+				// Send via lockstep, NO LOCAL STATE MUTATION here!
+				sendInputCommand(cmd, true);
+
+				renewedSelectedHandIndices.clear();
+				resetCardInteraction();
 				return;
 			}
 
