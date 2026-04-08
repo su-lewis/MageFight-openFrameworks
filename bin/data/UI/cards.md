@@ -224,7 +224,7 @@
 - **AP Cost:** 3
 - **Class:** 1
 - **Picture:** 
-- **Effect Text:** Roll Xd20. X is the # of non-physical damage you're blocking. For 10-15 Draft a Class 1, 16-19 Draft a Class 2, 20+ Draft a Class 3. For each physical damage blocking, flip a coin. Heads gain +1 max health. Tails -1 max health to an adjacent unit.
+- **Effect Text:** Roll Xd20. X is the # of non-physical damage you're blocking. On 10-15 Draft a Class 1, 16-19 Draft a Class 2, 20+ Draft a Class 3. For each physical damage, flip a coin: Heads gain +1 max health. Tails -1 max health to an adjacent unit.
 ---
 
 -## 30. Call for Wolves
@@ -547,7 +547,7 @@
 - **Targeting:** 2d20 ft
 - **Class:** 1
 - **Picture:** 
-- **Effect Text:** Choose a target. Deal 1d6 damage to the unit hit. Destroy the top card of your deck, if it was Shock deal +1d6 electric damage and apply Paralysis; Flame Hit deal +1d6 fire damage and apply Burning; Add Poison deal +1d6 poison damage and apply Poisoned.
+- **Effect Text:** Choose a target. Deal 1d6 damage to the unit hit. Destroy the top card of your deck. If it was Shock (Electric), Flame Hit (Fire), or Add Poison (Poison), deal +1d6 of that damage type and apply Paralysis, Burning, or Poisoned respectively
 ---
 
 -## 70. Summon Faerie
