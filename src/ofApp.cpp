@@ -12010,13 +12010,14 @@ void ofApp::drawGame() {
 		riConfirmBtn.set(btnX, btnY, btnW, btnH);
 		riCancelBtn.set(0, 0, 0, 0);
 
+		int validSelectedCount = 0;
 		bool canAccept = false;
 		for (int sel : renewedSelectedHandIndices) {
 			if (sel < 0 || sel >= (int)players[currentPlayerIndex].hand.size()) continue;
 			const Card & selectedCard = players[currentPlayerIndex].hand[sel];
 			if (sel != interactingCardIndex && !selectedCard.playedThisTurn) {
+				validSelectedCount++;
 				canAccept = true;
-				break;
 			}
 		}
 
@@ -12029,6 +12030,14 @@ void ofApp::drawGame() {
 		ofSetColor(ofColor::white);
 		ofRectangle acceptTextBox = uiFont.getStringBoundingBox("Accept", 0, 0);
 		uiFont.drawString("Accept", btnX + (btnW - acceptTextBox.width) / 2.0f, btnY + (btnH + acceptTextBox.height) / 2.0f - 6.0f);
+
+		// Indicator: show selection count to the right of the accept button.
+		std::string selectedCountText = ofToString(validSelectedCount) + " selected";
+		ofRectangle selectedCountBox = uiFont.getStringBoundingBox(selectedCountText, 0, 0);
+		float selectedCountX = btnX + btnW + std::max(12.0f, 16.0f * uiScale);
+		float selectedCountY = btnY + (btnH + selectedCountBox.height) / 2.0f - 6.0f;
+		ofSetColor(ofColor::white);
+		uiFont.drawString(selectedCountText, selectedCountX, selectedCountY);
 		ofPopMatrix();
 	}
 }
