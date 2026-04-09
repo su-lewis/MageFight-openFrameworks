@@ -247,6 +247,7 @@ static ofRectangle getHandCardRestRect(const Card & card, float baseCardW, float
 
 struct CardTemplateRecord {
 	std::string name;
+	int index = -1; // numeric index parsed from markdown heading (e.g., '## 4. Bash')
 	std::string apCost;
 	std::string damageType;
 	std::string targeting;
@@ -258,6 +259,7 @@ struct CardTemplateRecord {
 };
 
 struct CardTemplateLayout {
+	ofRectangle pictureRect = ofRectangle(80, 96, 896, 704);
 	ofRectangle nameRect = ofRectangle(192, 752, 672, 144);
 	ofRectangle costRect = ofRectangle(32, 32, 128, 128);
 	ofRectangle damageTypeRect = ofRectangle(26, 84, 176, 24);
@@ -881,6 +883,14 @@ static bool parseCardTemplateMarkdown(const std::string & markdownPath, std::uno
 			heading = trimCopy(heading.substr(2));
 			size_t dotPos = heading.find('.');
 			if (dotPos != std::string::npos) {
+				std::string idxText = trimCopy(heading.substr(0, dotPos));
+				if (!idxText.empty()) {
+					try {
+						current.index = std::stoi(idxText);
+					} catch (...) {
+						current.index = -1;
+					}
+				}
 				heading = trimCopy(heading.substr(dotPos + 1));
 			}
 			current.name = heading;
@@ -1373,6 +1383,7 @@ static bool rebuildCardSpriteSheetFromTemplate(const std::string & templatePath,
 
 	// Preload optional overlay images (artist-provided)
 	std::unordered_map<std::string, ofImage> overlayCache;
+	std::unordered_map<std::string, ofImage> artCache;
 	auto storeIfLoaded = [&](const std::string & filename) {
 		// Try several candidate locations because runtime working dir/data path may vary
 		std::vector<std::string> candidates = { std::string("UI/") + filename, std::string("bin/data/UI/") + filename, std::string("data/UI/") + filename, filename };
@@ -1391,6 +1402,55 @@ static bool rebuildCardSpriteSheetFromTemplate(const std::string & templatePath,
 			ofLogNotice("Cards") << "Loaded overlay '" << name << "' from " << path << " as key='" << key << "'";
 			return;
 		}
+	};
+
+	auto loadCardArtIfNeeded = [&](const std::string & pictureTokenRaw) -> const ofImage * {
+		std::string token = trimCopy(pictureTokenRaw);
+		if (token.empty()) return nullptr;
+
+		// Normalize key for cache lookup (strip spaces + lowercase).
+		std::string key;
+		for (char c : token) {
+			if (!std::isspace((unsigned char)c)) {
+				key.push_back((char)std::tolower((unsigned char)c));
+			}
+		}
+		if (key.empty()) return nullptr;
+
+		auto itCached = artCache.find(key);
+		if (itCached != artCache.end()) {
+			return &itCached->second;
+		}
+
+		// Build filename candidates.
+		std::vector<std::string> fileNames;
+		fileNames.push_back(token);
+		std::string lowerToken = toLowerCopy(token);
+		if (!(lowerToken.size() >= 4 && (lowerToken.substr(lowerToken.size() - 4) == ".png"))) {
+			fileNames.push_back(token + ".PNG");
+			fileNames.push_back(token + ".png");
+		}
+
+		for (const auto & fn : fileNames) {
+			std::vector<std::string> candidates = {
+				std::string("UI/Cards/Art/") + fn,
+				std::string("bin/data/UI/Cards/Art/") + fn,
+				std::string("data/UI/Cards/Art/") + fn,
+				std::string("Cards/Art/") + fn,
+				fn
+			};
+			for (const auto & path : candidates) {
+				if (!ofFile(path).exists()) continue;
+				ofImage img;
+				if (!img.load(path)) continue;
+				artCache[key] = std::move(img);
+				ofLogNotice("Cards") << "Loaded card art token='" << token << "' from " << path;
+				return &artCache[key];
+			}
+		}
+
+		ofLogWarning("Cards") << "Card art not found for token='" << token << "' (expected in UI/Cards/Art).";
+		return nullptr;
 	};
 
 	// Common overlay filenames to try (pass base filenames; loader will probe UI/ and data/ locations)
@@ -1457,6 +1517,81 @@ static bool rebuildCardSpriteSheetFromTemplate(const std::string & templatePath,
 		int markdownClass = classTierFromLabel(rec.classLabel);
 		if (markdownClass >= 1 && markdownClass <= 3) effectiveClass = markdownClass;
 
+		// Draw optional card art from cards.md `Picture` value.
+		// If Picture is empty, fall back to heading index from markdown (e.g. 4 -> 4.png).
+		// Area provided by user:
+		// TL(80,96), TR(976,96), BL(80,800), BR(976,800)
+		// => rect(x=80, y=96, w=896, h=704)
+		std::string pictureToken = trimCopy(rec.picture);
+		if (pictureToken.empty() && rec.index > 0) {
+			pictureToken = ofToString(rec.index);
+		}
+		if (!pictureToken.empty()) {
+			const ofImage * art = loadCardArtIfNeeded(pictureToken);
+			if (art && art->isAllocated()) {
+				float srcW = (float)art->getWidth();
+				float srcH = (float)art->getHeight();
+				if (srcW > 0.0f && srcH > 0.0f) {
+					float dstW = layout.pictureRect.width;
+					float dstH = layout.pictureRect.height;
+					float dstAspect = dstW / std::max(1.0f, dstH);
+					float srcAspect = srcW / std::max(1.0f, srcH);
+
+					// Cover + center crop.
+					float cropW = srcW;
+					float cropH = srcH;
+					if (srcAspect > dstAspect) {
+						cropW = srcH * dstAspect; // trim sides
+					} else if (srcAspect < dstAspect) {
+						cropH = srcW / dstAspect; // trim top/bottom
+					}
+					float cropX = (srcW - cropW) * 0.5f;
+					float cropY = (srcH - cropH) * 0.5f;
+
+					ofSetColor(255, 255, 255, 255);
+					art->getTexture().drawSubsection(
+						x + layout.pictureRect.x,
+						y + layout.pictureRect.y,
+						dstW,
+						dstH,
+						cropX,
+						cropY,
+						cropW,
+						cropH);
+
+					// Soft black vignette around the picture edges.
+					float rx = x + layout.pictureRect.x;
+					float ry = y + layout.pictureRect.y;
+					float rw = dstW;
+					float rh = dstH;
+					float maxInset = std::max(14.0f, std::min(rw, rh) * 0.12f);
+					const int bands = 36;
+					for (int i = 0; i < bands; ++i) {
+						float t0 = (float)i / (float)bands;
+						float t1 = (float)(i + 1) / (float)bands;
+						float in0 = t0 * maxInset;
+						float in1 = t1 * maxInset;
+						float thickness = std::max(1.0f, in1 - in0);
+						float a = 1.0f - t0;
+						a = a * a * a; // softer falloff towards the center
+						unsigned char alpha = (unsigned char)std::clamp((int)std::round(44.0f * a), 0, 255);
+
+						ofSetColor(0, 0, 0, alpha);
+						// top
+						if ((rw - 2.0f * in0) > 0.0f) ofDrawRectangle(rx + in0, ry + in0, rw - 2.0f * in0, thickness);
+						// bottom
+						if ((rw - 2.0f * in0) > 0.0f) ofDrawRectangle(rx + in0, ry + rh - in1, rw - 2.0f * in0, thickness);
+						// left
+						if ((rh - 2.0f * in0) > 0.0f) ofDrawRectangle(rx + in0, ry + in0, thickness, rh - 2.0f * in0);
+						// right
+						if ((rh - 2.0f * in0) > 0.0f) ofDrawRectangle(rx + rw - in1, ry + in0, thickness, rh - 2.0f * in0);
+					}
+				}
+			}
+		}
+
+		// Template is drawn ABOVE art so frame/elements stay on top.
+		ofSetColor(255, 255, 255, 255);
 		auto classTplIt = classTemplateImages.find(effectiveClass);
 		if (classTplIt != classTemplateImages.end()) {
 			classTplIt->second.draw(x, y, cardW, cardH);
@@ -2878,7 +3013,17 @@ int ofApp::getActiveTurnDurationFrames() const {
 }
 
 void ofApp::resetDraftPhaseTimerWindow() {
-	if (isInGameDraft) return; // Do not interrupt the active gameplay turn timer
+	if (isInGameDraft) {
+		// In-game drafts should keep the active gameplay timer running.
+		// If movement pause was active when draft opened, resume timer progression.
+		if (turnTimerPaused && !opponentDecisionTimerActive && !reconnectTurnTimerPausedByDisconnect) {
+			int remaining = std::clamp(turnTimerPausedRemainingFrames, 0, turnDurationFrames);
+			turnTimerPaused = false;
+			turnStartFrame = (int)simulationFrame - (turnDurationFrames - remaining);
+			turnTimerPausedRemainingFrames = 0;
+		}
+		return;
+	}
 
 	turnDurationFrames = 90 * turnTimerFramesPerSecond;
 	turnStartDeferred = false;
