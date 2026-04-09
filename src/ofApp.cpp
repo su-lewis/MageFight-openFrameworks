@@ -1167,7 +1167,7 @@ static bool rebuildCardSpriteSheetFromTemplate(const std::string & templatePath,
 		allCardNames,
 		layout.nameRect,
 		layout.nameMinScale,
-		12.0f,
+		18.0f,
 		layout.nameCurveDropPx,
 		layout.nameMiddleClampXMin,
 		layout.nameMiddleClampXMax,
@@ -6191,6 +6191,16 @@ void ofApp::updateGame() {
 							// For in-game/key drafts, timeout auto-pick should also end the turn.
 							// For initial draft stage 0, do NOT unlock draft yet; continue timer for stage 1.
 							if (isInGameDraft) {
+								// If movement was paused at a key tile while drafting, complete the
+								// visual move immediately so turn handoff is clean on timeout.
+								if (isPlayerAnimating && animatingPlayerIndex >= 0 && animatingPlayerIndex < (int)players.size()) {
+									playerVisualPos = gridToWorld(players[animatingPlayerIndex].x, players[animatingPlayerIndex].y);
+									isPlayerAnimating = false;
+									animatingPlayerIndex = -1;
+									animationPath.clear();
+									currentPathIndex = 0;
+								}
+
 								InputCommandPacket endCmd = {};
 								endCmd.type = PKT_INPUT_COMMAND;
 								endCmd.playerID = myLocalPlayerID;
@@ -7527,97 +7537,108 @@ void ofApp::updateGame() {
 	}
 
 	if (isPlayerAnimating && animatingPlayerIndex >= 0 && animatingPlayerIndex < (int)players.size()) {
-		// Per-segment eased movement with hop for nicer motion
-		auto easeInOutCubic = [](float t) {
-			if (t < 0.5f) return 4.0f * t * t * t;
-			float f = ((2.0f * t) - 2.0f);
-			return 0.5f * f * f * f + 1.0f;
-		};
-
-		// Ensure we have at least two points (start + next) for a valid segment
-		if (currentPathIndex < 0) currentPathIndex = 0;
-		if (currentPathIndex + 1 >= (int)animationPath.size()) {
-			// Nothing to move to: finish animation
-			isPlayerAnimating = false;
-			animatingPlayerIndex = -1;
+		// In-game key drafts pause movement visuals at the current tile. Movement
+		// resumes automatically once the draft closes (state returns to gameplay).
+		if (currentState == STATE_DRAFTING && isInGameDraft) {
+			animationSegmentStartTime = ofGetElapsedTimef();
 		} else {
-			glm::vec3 startPos = animationPath[currentPathIndex];
-			glm::vec3 targetPos = animationPath[currentPathIndex + 1];
+			// Per-segment eased movement with hop for nicer motion
+			auto easeInOutCubic = [](float t) {
+				if (t < 0.5f) return 4.0f * t * t * t;
+				float f = ((2.0f * t) - 2.0f);
+				return 0.5f * f * f * f + 1.0f;
+			};
 
-			float segmentDuration = 0.20f; // seconds per tile (slower movement)
-			float elapsed = ofGetElapsedTimef() - animationSegmentStartTime;
-			float t = std::clamp(elapsed / segmentDuration, 0.0f, 1.0f);
-			float easeT = easeInOutCubic(t);
+			// Ensure we have at least two points (start + next) for a valid segment
+			if (currentPathIndex < 0) currentPathIndex = 0;
+			if (currentPathIndex + 1 >= (int)animationPath.size()) {
+				// Nothing to move to: finish animation
+				isPlayerAnimating = false;
+				animatingPlayerIndex = -1;
+			} else {
+				glm::vec3 startPos = animationPath[currentPathIndex];
+				glm::vec3 targetPos = animationPath[currentPathIndex + 1];
 
-			// Facing based on movement direction (horizontal X/Z plane)
-			glm::vec3 dir = targetPos - startPos;
-			if (glm::length(glm::vec2(dir.x, dir.z)) > 0.001f) {
-				playerFacingAngle = glm::degrees(atan2(dir.x, dir.z)) + 180.0f;
-				players[animatingPlayerIndex].facingAngle = playerFacingAngle;
-			}
+				float segmentDuration = 0.20f; // seconds per tile (slower movement)
+				float elapsed = ofGetElapsedTimef() - animationSegmentStartTime;
+				float t = std::clamp(elapsed / segmentDuration, 0.0f, 1.0f);
+				float easeT = easeInOutCubic(t);
 
-			// Interpolate with easing
-			playerVisualPos = glm::mix(startPos, targetPos, easeT);
+				// Facing based on movement direction (horizontal X/Z plane)
+				glm::vec3 dir = targetPos - startPos;
+				if (glm::length(glm::vec2(dir.x, dir.z)) > 0.001f) {
+					playerFacingAngle = glm::degrees(atan2(dir.x, dir.z)) + 180.0f;
+					players[animatingPlayerIndex].facingAngle = playerFacingAngle;
+				}
 
-			// Add a small vertical hop for visual weight
-			float hop = sinf(easeT * glm::pi<float>()) * movementHopHeight;
-			playerVisualPos.y += hop;
+				// Interpolate with easing
+				playerVisualPos = glm::mix(startPos, targetPos, easeT);
 
-			// Arrival
-			if (t >= 0.999f) {
-				// Snap to exact tile
-				playerVisualPos = targetPos;
+				// Add a small vertical hop for visual weight
+				float hop = sinf(easeT * glm::pi<float>()) * movementHopHeight;
+				playerVisualPos.y += hop;
 
-				// Key pickup: trigger when the unit visually reaches this tile,
-				// not immediately when movement command is applied.
-				{
-					glm::vec2 arrivedGridF = worldToGrid(targetPos);
-					int arrivedX = (int)std::round(arrivedGridF.x);
-					int arrivedY = (int)std::round(arrivedGridF.y);
-					if (arrivedX >= 0 && arrivedX < BOARD_WIDTH && arrivedY >= 0 && arrivedY < BOARD_HEIGHT
-						&& animatingPlayerIndex >= 0 && animatingPlayerIndex < (int)players.size()) {
-						int ownerID = players[animatingPlayerIndex].isMinion ? players[animatingPlayerIndex].ownerID : players[animatingPlayerIndex].playerID;
-						checkKeyPickupAndDraftAfterSummon(arrivedX, arrivedY, ownerID);
+				// Arrival
+				if (t >= 0.999f) {
+					// Snap to exact tile
+					playerVisualPos = targetPos;
 
-						if (isInGameDraft) {
-							draftDisplayStartTime = ofGetElapsedTimef();
-							draftDisplayInteractiveEnabled = false;
-							draftAutoSelectedIndex = -1;
+					// Key pickup: trigger when the unit visually reaches this tile,
+					// not immediately when movement command is applied.
+					{
+						glm::vec2 arrivedGridF = worldToGrid(targetPos);
+						int arrivedX = (int)std::round(arrivedGridF.x);
+						int arrivedY = (int)std::round(arrivedGridF.y);
+						if (arrivedX >= 0 && arrivedX < BOARD_WIDTH && arrivedY >= 0 && arrivedY < BOARD_HEIGHT
+							&& animatingPlayerIndex >= 0 && animatingPlayerIndex < (int)players.size()) {
+							int ownerID = players[animatingPlayerIndex].isMinion ? players[animatingPlayerIndex].ownerID : players[animatingPlayerIndex].playerID;
+							checkKeyPickupAndDraftAfterSummon(arrivedX, arrivedY, ownerID);
+
+							if (isInGameDraft) {
+								draftDisplayStartTime = ofGetElapsedTimef();
+								draftDisplayInteractiveEnabled = false;
+								draftAutoSelectedIndex = -1;
+							}
 						}
 					}
-				}
 
-				// Advance to next segment
-				currentPathIndex++;
-				animationSegmentStartTime = ofGetElapsedTimef();
+					// Advance to next segment
+					currentPathIndex++;
+					animationSegmentStartTime = ofGetElapsedTimef();
 
-				// Play Footstep Sound when starting next segment
-				if (currentPathIndex < static_cast<int>(animationPath.size()) && !footstepSounds.empty()) {
-					std::uniform_int_distribution<int> footIdx(0, (int)footstepSounds.size() - 1);
-					int idx = footIdx(visualRNG);
-					std::uniform_real_distribution<float> footSpeed(0.9f, 1.1f);
-					footstepSounds[idx].setSpeed(footSpeed(visualRNG));
-					footstepSounds[idx].play();
-				}
+					// If reaching this tile triggered an in-game draft, pause movement here
+					// until the draft is resolved. Do not continue to next segment yet.
+					bool pausedForKeyDraft = (currentState == STATE_DRAFTING && isInGameDraft);
+					if (!pausedForKeyDraft) {
+						// Play Footstep Sound when starting next segment
+						if (currentPathIndex < static_cast<int>(animationPath.size()) && !footstepSounds.empty()) {
+							std::uniform_int_distribution<int> footIdx(0, (int)footstepSounds.size() - 1);
+							int idx = footIdx(visualRNG);
+							std::uniform_real_distribution<float> footSpeed(0.9f, 1.1f);
+							footstepSounds[idx].setSpeed(footSpeed(visualRNG));
+							footstepSounds[idx].play();
+						}
 
-				if (currentPathIndex >= static_cast<int>(animationPath.size()) - 1) {
-					// Finished all segments
-					isPlayerAnimating = false;
-					animatingPlayerIndex = -1;
-					if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) {
-						playerVisualPos = gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y);
-					}
+						if (currentPathIndex >= static_cast<int>(animationPath.size()) - 1) {
+							// Finished all segments
+							isPlayerAnimating = false;
+							animatingPlayerIndex = -1;
+							if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) {
+								playerVisualPos = gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y);
+							}
 
-					// Key pickup: trigger draft after movement animation completes visually
-					if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) {
-						int ownerID = players[currentPlayerIndex].isMinion ? players[currentPlayerIndex].ownerID : players[currentPlayerIndex].playerID;
-						checkKeyPickupAndDraftAfterSummon(players[currentPlayerIndex].x, players[currentPlayerIndex].y, ownerID);
+							// Key pickup: trigger draft after movement animation completes visually
+							if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) {
+								int ownerID = players[currentPlayerIndex].isMinion ? players[currentPlayerIndex].ownerID : players[currentPlayerIndex].playerID;
+								checkKeyPickupAndDraftAfterSummon(players[currentPlayerIndex].x, players[currentPlayerIndex].y, ownerID);
 
-						// If draft was triggered, initialize display mode (non-interactive for 1 second)
-						if (isInGameDraft) {
-							draftDisplayStartTime = ofGetElapsedTimef();
-							draftDisplayInteractiveEnabled = false;
-							draftAutoSelectedIndex = -1;
+								// If draft was triggered, initialize display mode (non-interactive for 1 second)
+								if (isInGameDraft) {
+									draftDisplayStartTime = ofGetElapsedTimef();
+									draftDisplayInteractiveEnabled = false;
+									draftAutoSelectedIndex = -1;
+								}
+							}
 						}
 					}
 				}
