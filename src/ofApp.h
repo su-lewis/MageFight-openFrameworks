@@ -343,6 +343,7 @@ enum class EffectOpType : uint8_t {
 	APPLY_CHAIN_LIGHTNING_DAMAGE,
 	APPLY_CHAIN_LIGHTNING_DAMAGE_RESOLVE,
 	APPLY_MAGIC_HAND_DAMAGE,
+	APPLY_DRAIN_PUNCH_RESOLVE,
 	APPLY_VAMPIRE_BITE_RESOLVE,
 	APPLY_FLAIL_DAMAGE_RESOLVE,
 	APPLY_EARTHQUAKE,
@@ -1384,7 +1385,7 @@ private:
 	void drawDispelUI();
 	void cancelDispel();
 	void determineStatusOptions(Player * target);
-	void applyDispelEffect(int statusIndex);
+	void applyDispelEffect(int statusID);
 	void drawMinionManagerUI();
 	void drawMinionStatusBars(Player & minion, const std::string & name, float x, float y, float totalWidth, float preferredHpWidth);
 

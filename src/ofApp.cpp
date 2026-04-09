@@ -2612,10 +2612,9 @@ Player ofApp::initMinionFromKind(int summonKind, int ownerID, int maxHP, int ap,
 		Card magicBlast = findCard("Magic Blast", CARD_MAGIC_BLAST);
 		minion.deck = { dispel, dispel, lesserHeal, lesserHeal, magicBlast };
 	} else if (minion.isSkeleton) {
-		Card slash = findCard("Slash", CARD_SLASH);
-		Card drainPunch = findCard("Drain Punch", CARD_DRAIN_PUNCH);
-		Card darkShield = findCard("Dark Shield", CARD_DARK_SHIELD);
-		minion.deck = { slash, slash, drainPunch, drainPunch, darkShield, darkShield };
+		Card punch = findCard("Punch", CARD_PUNCH);
+		Card handBlock = findCard("Hand Block", CARD_HAND_BLOCK);
+		minion.deck = { punch, punch, handBlock, handBlock };
 	} else if (minion.isHellhound) {
 		Card slash = findCard("Slash", CARD_SLASH);
 		Card flameHit = findCard("Flame Hit", CARD_FLAME_HIT);
@@ -6228,6 +6227,50 @@ void ofApp::updateGame() {
 					}
 				} else {
 					// Auto-end-turn during gameplay
+					auto autoPlaceRemainingKoboldsOnTimeout = [&]() {
+						if (cardInteractionState != CARD_INTERACTION_PLACING || interactingCardType != CARD_CALL_FOR_KOBOLDS) return;
+						if (koboldsRemainingToPlace <= 0) return;
+						if (koboldPlacementSourceX < 0 || koboldPlacementSourceX >= BOARD_WIDTH || koboldPlacementSourceY < 0 || koboldPlacementSourceY >= BOARD_HEIGHT) return;
+
+						struct Tile {
+							int x;
+							int y;
+						};
+						std::vector<Tile> candidates;
+						const Tile dirs[4] = { { 0, -1 }, { 1, 0 }, { 0, 1 }, { -1, 0 } }; // N, E, S, W
+						for (const auto & d : dirs) {
+							int nx = koboldPlacementSourceX + d.x;
+							int ny = koboldPlacementSourceY + d.y;
+							if (nx < 0 || nx >= BOARD_WIDTH || ny < 0 || ny >= BOARD_HEIGHT) continue;
+							if (board[nx][ny].hasWall || board[nx][ny].hasPlayer) continue;
+							candidates.push_back({ nx, ny });
+						}
+
+						int toPlace = std::min<int>(koboldsRemainingToPlace, (int)candidates.size());
+						if (toPlace <= 0) {
+							updateCardInteractionState(CARD_INTERACTION_IDLE, -1, CARD_NONE);
+							isShowingTooltip = false;
+							return;
+						}
+
+						for (int i = 0; i < toPlace; ++i) {
+							InputCommandPacket place = {};
+							place.type = PKT_INPUT_COMMAND;
+							place.playerID = myLocalPlayerID;
+							place.seq = 0;
+							place.commandId = nextCommandId++;
+							place.turnNumber = globalTurnCounter;
+							place.commandType = CMD_PSEUDO_ACTION;
+							place.params[0] = candidates[i].x;
+							place.params[1] = candidates[i].y;
+							strncpy(place.stringData, "PlaceKobold", sizeof(place.stringData) - 1);
+							place.stringData[sizeof(place.stringData) - 1] = '\0';
+							sendInputCommand(place, true);
+						}
+
+						ofLogNotice("Timer") << "Auto-placed " << toPlace << " Kobold(s) on timeout.";
+					};
+
 					bool draftRewardVisualsActive = (!activeDraftPickedMoves.empty() || !activeShuffleAnimations.empty() || deckFlashStartTime > 0.0f);
 					if (draftRewardVisualsActive) {
 						// If draft just resolved from a timeout, let reward visuals finish before ending turn.
@@ -6238,6 +6281,7 @@ void ofApp::updateGame() {
 					// If I'm the active local player, submit a deterministic CMD_END_TURN.
 					if (!isMultiplayer || isMyTurn()) {
 						if (!endTurnLocked) {
+							autoPlaceRemainingKoboldsOnTimeout();
 							endTurnLocked = true;
 							InputCommandPacket cmd = {};
 							cmd.type = PKT_INPUT_COMMAND;
@@ -6255,6 +6299,7 @@ void ofApp::updateGame() {
 						int graceFrames = 3 * turnTimerFramesPerSecond;
 						if (elapsedFrames >= turnDurationFrames + graceFrames) {
 							if (!endTurnLocked) {
+								autoPlaceRemainingKoboldsOnTimeout();
 								endTurnLocked = true;
 								InputCommandPacket cmd = {};
 								cmd.type = PKT_INPUT_COMMAND;
@@ -7065,7 +7110,7 @@ void ofApp::updateGame() {
 					} else {
 						// Count available adjacent empty tiles
 						int avail = 0;
-						glm::vec2 adj[] = { { 1, 0 }, { -1, 0 }, { 0, 1 }, { 0, -1 } };
+						glm::vec2 adj[] = { { 0, -1 }, { 1, 0 }, { 0, 1 }, { -1, 0 } };
 						for (auto & d : adj) {
 							int nx = koboldPlacementSourceX + (int)d.x;
 							int ny = koboldPlacementSourceY + (int)d.y;
@@ -16287,6 +16332,7 @@ void ofApp::startNewTurn() {
 				localPlayer.hand.clear();
 				localPlayer.discardPile.insert(localPlayer.discardPile.end(), localPlayer.playedCardsPile.begin(), localPlayer.playedCardsPile.end());
 				localPlayer.playedCardsPile.clear();
+				localPlayer.cardsPlayedThisTurn.clear();
 
 				ofLogNotice("Turn") << "After cleanup: Hand size=" << localPlayer.hand.size() << ", Discard size=" << localPlayer.discardPile.size();
 
@@ -16378,6 +16424,7 @@ void ofApp::startNewTurn() {
 		endingPlayer.hand.clear();
 		endingPlayer.discardPile.insert(endingPlayer.discardPile.end(), endingPlayer.playedCardsPile.begin(), endingPlayer.playedCardsPile.end());
 		endingPlayer.playedCardsPile.clear();
+		endingPlayer.cardsPlayedThisTurn.clear();
 
 		endingPlayer.shocksPlayedThisTurn = 0;
 		// Clear poison buff at end of turn via deterministic effect
@@ -16392,6 +16439,11 @@ void ofApp::startNewTurn() {
 		}
 		endingPlayer.flurryOfFistsStacks = 0; // Clear flurry buff at end of turn
 		endingPlayer.freeHandCardTurns = 0;
+		koboldsRemainingToPlace = 0;
+		koboldSummonCount = 0;
+		wolfSummonStage = 0;
+		koboldPlacementSourceX = -1;
+		koboldPlacementSourceY = -1;
 
 		// Reshuffle discard into deck if needed
 		if (endingPlayer.deck.empty() && !endingPlayer.discardPile.empty()) {
@@ -18041,7 +18093,9 @@ void ofApp::handleCardMenuClick(const std::string & buttonId) {
 		advanceCardState(CARD_STATE_EFFECT_SEQUENCE);
 		// Trigger tortoise shell spike targeting immediately if applicable (keeps previous UX)
 		if (isSelfTarget && isCurrentPlayerLocal()) tryTriggerShellSpike();
-		resetCardInteraction();
+		if (cardInteractionState != CARD_INTERACTION_TARGETING) {
+			resetCardInteraction();
+		}
 		break;
 	}
 
@@ -18740,6 +18794,11 @@ void ofApp::drawActiveCardInteractionUI() {
 void ofApp::cancelAllTargeting() {
 	// Reset centralized card interaction state
 	resetCardInteraction();
+	koboldsRemainingToPlace = 0;
+	koboldSummonCount = 0;
+	wolfSummonStage = 0;
+	koboldPlacementSourceX = -1;
+	koboldPlacementSourceY = -1;
 
 	// Clear additional state not covered by resetCardInteraction()
 	// Waiting/rolling flags (migrated to effect/op pipeline)
@@ -19203,6 +19262,14 @@ void ofApp::simulationTick() {
 }
 
 void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
+	// Reject stale player-initiated commands that arrive after the turn advanced.
+	if (cmd.turnNumber != globalTurnCounter) {
+		if (cmd.commandType == CMD_PLAY_CARD || cmd.commandType == CMD_DRAW_CARDS || cmd.commandType == CMD_MOVE_UNIT || cmd.commandType == CMD_PSEUDO_ACTION) {
+			ofLogWarning("Lockstep") << "Dropped stale command " << cmd.commandType << " from turn " << cmd.turnNumber << " (Current: " << globalTurnCounter << ")";
+			return;
+		}
+	}
+
 	switch ((InputCommandType)cmd.commandType) {
 
 	case CMD_DRAW_CARDS: {
@@ -19812,7 +19879,7 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 
 			// If board state changed such that no adjacent slots remain, stop placement now.
 			int avail = 0;
-			glm::vec2 adj[] = { { 1, 0 }, { -1, 0 }, { 0, 1 }, { 0, -1 } };
+			glm::vec2 adj[] = { { 0, -1 }, { 1, 0 }, { 0, 1 }, { -1, 0 } };
 			for (auto & d : adj) {
 				int nx = koboldPlacementSourceX + (int)d.x;
 				int ny = koboldPlacementSourceY + (int)d.y;
@@ -19924,7 +19991,7 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 		int cardIndex = cmd.params[0];
 		int targetX = cmd.params[1];
 		int targetY = cmd.params[2];
-		int statusIndex = cmd.params[3];
+		int statusID = cmd.params[3];
 		std::string cardName = cmd.stringData;
 
 		// Find player at target coordinates
@@ -19940,11 +20007,11 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 			if (cardIndex >= 0 && cardIndex < (int)p.hand.size()) {
 				interactionTargetIndex = targetIndex;
 				interactingCardIndex = cardIndex;
-				applyDispelEffect(statusIndex);
+				applyDispelEffect(statusID);
 			}
 		}
 
-		ofLogNotice("Lockstep") << "Execute CMD_STATUS_ACTION: " << cardName << " purge status " << statusIndex;
+		ofLogNotice("Lockstep") << "Execute CMD_STATUS_ACTION: " << cardName << " purge status " << statusID;
 		break;
 	}
 	case CMD_RENEWED_INSPIRATION: {
@@ -20324,6 +20391,12 @@ bool ofApp::processEffectOp(EffectOp & op) {
 		break;
 	}
 
+	case EffectOpType::APPLY_DRAIN_PUNCH_RESOLVE: {
+		applyDrainPunch(op.data.damage.targetIndex, op.data.damage.fixedDamage, currentPlayerIndex);
+		opComplete = true;
+		break;
+	}
+
 	case EffectOpType::APPLY_FIREBALL: {
 		// Determine range roll from blackboard slot 0 (authoritative)
 		int rangeRoll = currentEffectSequence.blackboard[0];
@@ -20440,13 +20513,13 @@ bool ofApp::processEffectOp(EffectOp & op) {
 			impactTile = { round(impactPos.x), round(impactPos.y) };
 		}
 
-		// Build deterministic target queue:
-		// - Impact tile units: 3 choices each
-		// - Adjacent (N/E/S/W) units: 1 choice each
-		std::vector<int> directTargets;
-		std::vector<int> adjacentTargets;
-		auto addTileTargets = [&](int tx, int ty) -> std::vector<int> {
-			if (tx < 0 || tx >= BOARD_WIDTH || ty < 0 || ty >= BOARD_HEIGHT) return {};
+		// Build deterministic target queue: impact tile first (3 choices each),
+		// then N/E/S/W adjacent tiles (1 choice each).
+		std::vector<int> resolvedTargets;
+		std::unordered_set<int> primarySet;
+		std::unordered_set<int> adjacentSet;
+		auto addTileTargets = [&](int tx, int ty, int timesToInsert, bool isPrimaryTile) {
+			if (tx < 0 || tx >= BOARD_WIDTH || ty < 0 || ty >= BOARD_HEIGHT) return;
 			std::vector<int> occupants = getTileOccupants(tx, ty);
 			std::sort(occupants.begin(), occupants.end(), [&](int a, int b) {
 				int pidA = players[a].playerID;
@@ -20454,44 +20527,30 @@ bool ofApp::processEffectOp(EffectOp & op) {
 				if (pidA != pidB) return pidA < pidB;
 				return a < b;
 			});
-			return occupants;
-		};
-
-		auto filterNonSelf = [&](const std::vector<int> & occ) {
-			std::vector<int> out;
-			for (int idx : occ) {
+			for (int idx : occupants) {
 				if (idx == currentPlayerIndex) continue; // never self
-				if (std::find(out.begin(), out.end(), idx) == out.end()) out.push_back(idx);
+				if (isPrimaryTile) {
+					if (primarySet.find(idx) != primarySet.end()) continue;
+					primarySet.insert(idx);
+					for (int k = 0; k < timesToInsert; ++k) {
+						resolvedTargets.push_back(idx);
+					}
+				} else {
+					if (primarySet.find(idx) != primarySet.end()) continue;
+					if (adjacentSet.find(idx) != adjacentSet.end()) continue;
+					adjacentSet.insert(idx);
+					for (int k = 0; k < timesToInsert; ++k) {
+						resolvedTargets.push_back(idx);
+					}
+				}
 			}
-			return out;
 		};
 
-		auto impactOcc = filterNonSelf(addTileTargets((int)impactTile.x, (int)impactTile.y));
-		for (int idx : impactOcc)
-			directTargets.push_back(idx);
-
-		std::vector<glm::ivec2> adjacentTiles = {
-			{ (int)impactTile.x, (int)impactTile.y - 1 },
-			{ (int)impactTile.x + 1, (int)impactTile.y },
-			{ (int)impactTile.x, (int)impactTile.y + 1 },
-			{ (int)impactTile.x - 1, (int)impactTile.y }
-		};
-		for (const auto & t : adjacentTiles) {
-			auto occ = filterNonSelf(addTileTargets(t.x, t.y));
-			for (int idx : occ) {
-				if (std::find(directTargets.begin(), directTargets.end(), idx) != directTargets.end()) continue;
-				if (std::find(adjacentTargets.begin(), adjacentTargets.end(), idx) == adjacentTargets.end()) adjacentTargets.push_back(idx);
-			}
-		}
-
-		std::vector<int> resolvedTargets;
-		for (int idx : directTargets) {
-			resolvedTargets.push_back(idx);
-			resolvedTargets.push_back(idx);
-			resolvedTargets.push_back(idx);
-		}
-		for (int idx : adjacentTargets)
-			resolvedTargets.push_back(idx);
+		addTileTargets((int)impactTile.x, (int)impactTile.y, 3, true);
+		addTileTargets((int)impactTile.x, (int)impactTile.y - 1, 1, false);
+		addTileTargets((int)impactTile.x + 1, (int)impactTile.y, 1, false);
+		addTileTargets((int)impactTile.x, (int)impactTile.y + 1, 1, false);
+		addTileTargets((int)impactTile.x - 1, (int)impactTile.y, 1, false);
 
 		magicBlastTargetPlayerIndex = -1;
 		magicBlastSplashTargetIndices.clear();
@@ -20779,6 +20838,14 @@ bool ofApp::processEffectOp(EffectOp & op) {
 			int pIndex = findPlayerIndexByID(pID);
 			Player * target = getPlayer(pIndex);
 			if (!target) continue;
+			if (!target->isPoisoned) {
+				EffectOp apStatus = {};
+				apStatus.type = EffectOpType::APPLY_STATUS;
+				apStatus.data.status.targetIndex = pIndex;
+				apStatus.data.status.statusType = STATUS_POISONED;
+				apStatus.data.status.duration = 0;
+				queueEffect(apStatus);
+			}
 
 			int actualDamage = std::max(0, poisonRoll - target->poisonReduction);
 
@@ -21866,12 +21933,18 @@ bool ofApp::processEffectOp(EffectOp & op) {
 		// Read damage from blackboard slot 1 and queue per-target mitigation
 		int damage = currentEffectSequence.blackboard[1];
 		Player & caster = players[currentPlayerIndex];
+		glm::ivec2 impactTile = { caster.x, caster.y };
+		if (!currentCardOutcome.targetedPlayers.empty()) {
+			int firstTargetIdx = currentCardOutcome.targetedPlayers[0];
+			Player * primaryTarget = getPlayer(firstTargetIdx);
+			if (primaryTarget) impactTile = { primaryTarget->x, primaryTarget->y };
+		}
 
 		// Build 8-neighbor AOE (exclude center)
 		std::vector<std::pair<int, int>> aoeTiles;
 		for (int dx = -1; dx <= 1; ++dx)
 			for (int dy = -1; dy <= 1; ++dy)
-				if (!(dx == 0 && dy == 0)) aoeTiles.push_back({ caster.x + dx, caster.y + dy });
+				if (!(dx == 0 && dy == 0)) aoeTiles.push_back({ impactTile.x + dx, impactTile.y + dy });
 
 		// Collect targets and queue queued-mitigation writes to blackboard starting at slot 8
 		std::vector<int> chainTargets;
@@ -23459,6 +23532,22 @@ void ofApp::processCardStateInput(int mouseX, int mouseY, int button) {
 		for (size_t i = 0; i < statusSelectButtons.size(); ++i) {
 			if (!statusSelectButtons[i].inside(mouseX, mouseY)) continue;
 
+			int realStatusID = -1;
+			if (i < statusSelectLabels.size()) {
+				const std::string & label = statusSelectLabels[i];
+				if (label == "Fire" || label == "Burning")
+					realStatusID = STATUS_ON_FIRE;
+				else if (label == "Paralysis" || label == "Paralyzed")
+					realStatusID = STATUS_PARALYZED;
+				else if (label == "Poison" || label == "Poisoned")
+					realStatusID = STATUS_POISONED;
+			}
+			if (realStatusID < 0) {
+				ofLogWarning("Dispel") << "Unknown status label selection index=" << i;
+				clickedOption = true;
+				break;
+			}
+
 			Player * target = getPlayer(interactionTargetIndex);
 			if (target && interactingCardIndex != -1 && currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) {
 				Player & p = players[currentPlayerIndex];
@@ -23476,11 +23565,11 @@ void ofApp::processCardStateInput(int mouseX, int mouseY, int button) {
 						cmd.commandId = nextCommandId++;
 						cmd.turnNumber = globalTurnCounter;
 						cmd.commandType = CMD_STATUS_ACTION;
-						// CMD_STATUS_ACTION params: cardIndex, targetX, targetY, statusIndex, cost
+						// CMD_STATUS_ACTION params: cardIndex, targetX, targetY, statusID, cost
 						cmd.params[0] = interactingCardIndex;
 						cmd.params[1] = target->x;
 						cmd.params[2] = target->y;
-						cmd.params[3] = (int)i;
+						cmd.params[3] = realStatusID;
 						cmd.params[4] = cost;
 						strncpy(cmd.stringData, cardName.c_str(), sizeof(cmd.stringData) - 1);
 						cmd.stringData[sizeof(cmd.stringData) - 1] = '\0';
@@ -24531,12 +24620,16 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 			}
 
 			beginEffectSequence();
+			int damage = 2;
+			if (players[currentPlayerIndex].flurryOfFistsStacks > 0) {
+				damage *= (1 << players[currentPlayerIndex].flurryOfFistsStacks);
+			}
 
 			EffectOp damageOp;
 			damageOp.type = EffectOpType::DAMAGE;
 			damageOp.data.damage.targetIndex = targetIndex;
 			damageOp.data.damage.damageType = DAMAGE_PHYSICAL;
-			damageOp.data.damage.fixedDamage = 2;
+			damageOp.data.damage.fixedDamage = damage;
 			damageOp.data.damage.damageFromSlot = -1;
 			queueEffect(damageOp);
 
@@ -24647,12 +24740,13 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 				damageOp.type = EffectOpType::DAMAGE;
 				damageOp.data.damage.targetIndex = pIndex;
 				damageOp.data.damage.damageType = playedCard.damageType;
-				damageOp.data.damage.fixedDamage = 0; // will be read from blackboard
-				damageOp.data.damage.damageFromSlot = 0;
 				// Apply piercing half-damage for secondary targets if needed
 				if (playedCard.damageType == DAMAGE_PIERCING && i > 0) {
-					// We'll simulate halving by adding a MODIFY_STAT after reading slot
-					// Simpler: enqueue full DAMAGE and let server-side balancing handle multi-target piercing.
+					damageOp.data.damage.fixedDamage = currentEffectSequence.blackboard[0] / 2;
+					damageOp.data.damage.damageFromSlot = -1;
+				} else {
+					damageOp.data.damage.fixedDamage = 0; // will be read from blackboard
+					damageOp.data.damage.damageFromSlot = 0;
 				}
 				queueEffect(damageOp);
 
@@ -25439,7 +25533,7 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 	}
 
 	case CARD_DRAIN_PUNCH: {
-		// LOCKSTEP MIGRATION: Damage + Heal sequence
+		// LOCKSTEP MIGRATION: Resolve via dedicated effect-op so scaling logic is deterministic
 		int targetIndex = -1;
 		for (size_t i = 0; i < players.size(); i++) {
 			if (players[i].x == targetX && players[i].y == targetY) {
@@ -25451,22 +25545,12 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 		if (targetIndex != -1) {
 			beginEffectSequence();
 
-			// Damage opponent
-			EffectOp damageOp;
-			damageOp.type = EffectOpType::DAMAGE;
-			damageOp.data.damage.targetIndex = targetIndex;
-			damageOp.data.damage.damageType = DAMAGE_PHYSICAL;
-			damageOp.data.damage.fixedDamage = playedCard.value;
-			damageOp.data.damage.damageFromSlot = -1;
-			queueEffect(damageOp);
-
-			// Heal self
-			EffectOp healOp;
-			healOp.type = EffectOpType::HEAL;
-			healOp.data.heal.targetIndex = currentPlayerIndex;
-			healOp.data.heal.amount = playedCard.value;
-			healOp.data.heal.amountFromSlot = -1;
-			queueEffect(healOp);
+			EffectOp drainOp = {};
+			drainOp.type = EffectOpType::APPLY_DRAIN_PUNCH_RESOLVE;
+			drainOp.data.damage.targetIndex = targetIndex;
+			drainOp.data.damage.fixedDamage = playedCard.value;
+			drainOp.data.damage.damageFromSlot = -1;
+			queueEffect(drainOp);
 
 			playedSuccessfully = true;
 			advanceCardState(CARD_STATE_EFFECT_SEQUENCE);
@@ -25655,14 +25739,19 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 		if (targetIndex == -1) return true;
 		beginEffectSequence();
 
+		int baseDamage = 2;
+		if (currentPlayer.flurryOfFistsStacks > 0) {
+			int mult = (1 << currentPlayer.flurryOfFistsStacks);
+			baseDamage *= mult;
+		}
+
 		// Use EffectOps for all effects
 		EffectOp damageOp;
 		damageOp.type = EffectOpType::DAMAGE;
 		damageOp.data.damage.targetIndex = targetIndex;
 		damageOp.data.damage.damageType = DAMAGE_PHYSICAL;
-		damageOp.data.damage.fixedDamage = 0;
+		damageOp.data.damage.fixedDamage = baseDamage;
 		damageOp.data.damage.damageFromSlot = -1;
-		// Flurry damage will be computed in the EffectSequence handler
 		queueEffect(damageOp);
 
 		EffectOp flurryStackOp = {};
@@ -26881,7 +26970,10 @@ CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 	auto isHandRelatedCard = [](CardType type) {
 		return type == CARD_PUNCH || type == CARD_BASH || type == CARD_DRAIN_PUNCH || type == CARD_MASTER_FIST || type == CARD_FLURRY_OF_FISTS || type == CARD_GIANT_MAGIC_HAND;
 	};
-	if (currentPlayer.freeHandCardTurns > 0 && isHandRelatedCard(playedCard.type)) costToPay = 0;
+	if (currentPlayer.freeHandCardTurns > 0 && isHandRelatedCard(playedCard.type)) {
+		costToPay = 0;
+		currentPlayer.freeHandCardTurns--;
+	}
 
 	// DEBUG: Unlimited AP mode
 	if (hasUnlimitedAP) {
@@ -26927,15 +27019,13 @@ CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 
 				// Don't trigger on the Strengthen card itself (safety check, though types differ)
 				if (playedCard.type != CARD_STRENGTHEN_ELEMENTS) {
+					if (!isProcessingEffect) beginEffectSequence();
 
-					// Create a copy
-					Card copy = playedCard;
-
-					// Add to Deck
-					currentPlayer.deck.push_back(copy);
-
-					// Shuffle the deck to integrate the new card (authoritative)
-					shuffleGameVector(currentPlayer.deck, currentPlayerIndex);
+					EffectOp copyOp = {};
+					copyOp.type = EffectOpType::ADD_CARD_TO_DECK;
+					copyOp.data.addCard.targetIndex = currentPlayerIndex;
+					copyOp.data.addCard.cardType = (int)playedCard.type;
+					queueEffect(copyOp);
 
 					queueFloatingTextVisual(gridToWorld(currentPlayer.x, currentPlayer.y) + glm::vec3(0, 0.5, 0), "Element Copied!", ofColor::cyan);
 					ofLogNotice("Game") << "Strengthen Elements triggered: Copied " << playedCard.name << " to deck.";
@@ -27097,7 +27187,7 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 
 	// --- KOBOLD PLACEMENT HIGHLIGHTING ---
 	if (cardInteractionState == CARD_INTERACTION_PLACING && interactingCardType == CARD_CALL_FOR_KOBOLDS && koboldsRemainingToPlace > 0) {
-		std::vector<glm::vec2> dirs = { { 0, 1 }, { 0, -1 }, { 1, 0 }, { -1, 0 } };
+		std::vector<glm::vec2> dirs = { { 0, -1 }, { 1, 0 }, { 0, 1 }, { -1, 0 } };
 		for (auto & dir : dirs) {
 			int nx = koboldPlacementSourceX + (int)dir.x;
 			int ny = koboldPlacementSourceY + (int)dir.y;
@@ -30300,8 +30390,17 @@ void ofApp::determineStatusOptions(Player * target) {
 
 	// If only one, apply immediately
 	if (statusSelectLabels.size() == 1) {
-		applyDispelEffect(0);
-		resetCardInteraction();
+		int statusID = -1;
+		const std::string & label = statusSelectLabels.front();
+		if (label == "Fire" || label == "Burning")
+			statusID = STATUS_ON_FIRE;
+		else if (label == "Paralysis" || label == "Paralyzed")
+			statusID = STATUS_PARALYZED;
+		else if (label == "Poison" || label == "Poisoned")
+			statusID = STATUS_POISONED;
+		if (statusID >= 0) {
+			applyDispelEffect(statusID);
+		}
 		return;
 	}
 
@@ -30398,33 +30497,20 @@ void ofApp::applyDrainPunch(int targetPlayerIndex, int baseDamage, int casterInd
 }
 
 //--------------------------------------------------------------
-void ofApp::applyDispelEffect(int statusIndex) {
+void ofApp::applyDispelEffect(int statusID) {
 	Player * target = getPlayer(interactionTargetIndex);
 	if (!target) return;
-	if (statusIndex < 0 || statusIndex >= (int)statusSelectLabels.size()) return;
+	if (statusID <= STATUS_NONE) return;
 
-	string statusToRemove = statusSelectLabels[statusIndex];
 	beginEffectSequence();
-	if (statusToRemove == "Fire") {
-		EffectOp rm = {};
-		rm.type = EffectOpType::REMOVE_STATUS;
-		rm.data.status.targetIndex = interactionTargetIndex;
-		rm.data.status.statusType = STATUS_ON_FIRE;
-		rm.data.status.duration = 0;
-		queueEffect(rm);
-		// onFire will be cleared when REMOVE_STATUS is processed
-	}
-	if (statusToRemove == "Paralysis") {
-		EffectOp rm = {};
-		rm.type = EffectOpType::REMOVE_STATUS;
-		rm.data.status.targetIndex = interactionTargetIndex;
-		rm.data.status.statusType = STATUS_PARALYZED;
-		rm.data.status.duration = 0;
-		queueEffect(rm);
-		// isParalyzed and paralysisHeadsCount will be cleared when REMOVE_STATUS is processed
-	}
+	EffectOp rm = {};
+	rm.type = EffectOpType::REMOVE_STATUS;
+	rm.data.status.targetIndex = interactionTargetIndex;
+	rm.data.status.statusType = statusID;
+	rm.data.status.duration = 0;
+	queueEffect(rm);
 
-	ofLogNotice("Dispel") << "Removed " << statusToRemove;
+	ofLogNotice("Dispel") << "Removed status id " << statusID;
 
 	// FINALIZATION: route through centralized outcome path so AP/card handling
 	// is consistent with other cards and lockstep-safe.
@@ -30440,17 +30526,16 @@ void ofApp::applyDispelEffect(int statusIndex) {
 	// resolved through the deterministic CMD_PSEUDO_ACTION path.
 	if (isCurrentPlayerLocal()) tryTriggerShellSpike();
 
-	// Close status/menu UI only. Do not reset the card play state here,
-	// otherwise AP/card finalization in CARD_STATE_OUTCOME is skipped.
-	cardInteractionState = CARD_INTERACTION_IDLE;
-	interactingCardType = CARD_NONE;
-	interactingCardIndex = -1;
-	interactionTargetIndex = -1;
-	interactionMenuChoice.clear();
+	// Always clear dispel UI transient state.
 	statusSelectLabels.clear();
 	statusSelectButtons.clear();
 	statusSelectMenuRect.set(0, 0, 0, 0);
 	dispelMode = 0;
+
+	// Keep Shell Spike targeting prompt alive if it was opened.
+	if (cardInteractionState != CARD_INTERACTION_TARGETING) {
+		resetCardInteraction();
+	}
 }
 
 //--------------------------------------------------------------
