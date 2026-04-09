@@ -1177,7 +1177,7 @@ static bool rebuildCardSpriteSheetFromTemplate(const std::string & templatePath,
 		allCardNames,
 		layout.nameRect,
 		layout.nameMinScale,
-		18.0f,
+		25.0f,
 		layout.nameCurveDropPx,
 		layout.nameMiddleClampXMin,
 		layout.nameMiddleClampXMax,
@@ -1564,8 +1564,8 @@ static bool rebuildCardSpriteSheetFromTemplate(const std::string & templatePath,
 					float ry = y + layout.pictureRect.y;
 					float rw = dstW;
 					float rh = dstH;
-					float maxInset = std::max(14.0f, std::min(rw, rh) * 0.12f);
-					const int bands = 36;
+					float maxInset = std::max(12.0f, std::min(rw, rh) * 0.10f);
+					const int bands = 28;
 					for (int i = 0; i < bands; ++i) {
 						float t0 = (float)i / (float)bands;
 						float t1 = (float)(i + 1) / (float)bands;
@@ -1573,8 +1573,8 @@ static bool rebuildCardSpriteSheetFromTemplate(const std::string & templatePath,
 						float in1 = t1 * maxInset;
 						float thickness = std::max(1.0f, in1 - in0);
 						float a = 1.0f - t0;
-						a = a * a * a; // softer falloff towards the center
-						unsigned char alpha = (unsigned char)std::clamp((int)std::round(44.0f * a), 0, 255);
+						a = a * a;
+						unsigned char alpha = (unsigned char)std::clamp((int)std::round(54.0f * a), 0, 255);
 
 						ofSetColor(0, 0, 0, alpha);
 						// top
