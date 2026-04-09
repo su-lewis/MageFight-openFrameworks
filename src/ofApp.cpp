@@ -278,7 +278,7 @@ struct CardTemplateLayout {
 	float labelScale = 1.0f;
 	float effectScale = 4.0f; // max preferred scale; auto-fit may reduce per card
 	float effectMinScale = 1.25f; // floor for very long text
-	float effectLineSpacing = 0.75f;
+	float effectLineSpacing = 0.82f;
 };
 
 static std::string trimCopy(const std::string & in) {
@@ -1042,7 +1042,7 @@ static bool rebuildCardSpriteSheetFromTemplate(const std::string & templatePath,
 	}
 
 	// AP/HP chips are compact and should read large.
-	const float costTargetChipMaxScale = 12.0f;
+	const float costTargetChipMaxScale = 40.0f;
 	const float targetingChipMaxScale = 2.5f;
 	const float summonChipMaxScale = 6.0f;
 
@@ -1177,12 +1177,12 @@ static bool rebuildCardSpriteSheetFromTemplate(const std::string & templatePath,
 		allCardNames,
 		layout.nameRect,
 		layout.nameMinScale,
-		25.0f,
+		28.0f,
 		layout.nameCurveDropPx,
 		layout.nameMiddleClampXMin,
 		layout.nameMiddleClampXMax,
 		layout.nameMiddleBottomMaxY,
-		4);
+		2);
 
 	const float uniformAPCostScale = bestUniformCenteredTextScale(
 		renderTitleFont,
@@ -1736,7 +1736,8 @@ static bool rebuildCardSpriteSheetFromTemplate(const std::string & templatePath,
 				itBadge->second.draw(layout.classRect.x, layout.classRect.y, layout.classRect.width, layout.classRect.height);
 			}
 		}
-		float apCostScale = uniformAPCostScale;
+		const std::string apCostText = trimCopy(rec.apCost);
+		float apCostScale = bestCenteredTextScaleForSingle(renderTitleFont, apCostText, layout.costRect, 0.75f, costTargetChipMaxScale, 4);
 		float targetingScale = bestCenteredTextScaleForSingle(renderTitleFont, rec.targeting, layout.targetingRect, 0.75f, targetingChipMaxScale, 3);
 		auto summonAPLayout = chooseSummonChipTextAndScale(rec.summonAP, layout.summonAPRect);
 		auto summonHPLayout = chooseSummonChipTextAndScale(rec.summonHP, layout.summonHPRect);
@@ -1751,7 +1752,7 @@ static bool rebuildCardSpriteSheetFromTemplate(const std::string & templatePath,
 			ofColor::white,
 			ofColor::black,
 			4);
-		drawCenteredTextScaledOutlined(renderTitleFont, rec.apCost, layout.costRect, apCostScale, ofColor::white, ofColor::black, 4);
+		drawCenteredTextScaledOutlined(renderTitleFont, apCostText, layout.costRect, apCostScale, ofColor::white, ofColor::black, 4);
 		drawCenteredTextScaledOutlined(renderTitleFont, rec.targeting, layout.targetingRect, targetingScale, ofColor::white, ofColor::black, 3);
 		if (!summonAPLayout.first.empty()) {
 			drawWrappedCenteredTextScaledOutlined(renderTitleFont, summonAPLayout.first, layout.summonAPRect, summonAPLayout.second, 0.9f, ofColor::white, ofColor::black, 3);
