@@ -646,6 +646,8 @@ struct DrawCardAnimation {
 	float duration;
 	float currentAlpha = 255.0f;
 	float currentScale = 1.0f; // visual scale multiplier used during animation
+	float startScale = 1.0f; // scale at animation start (deck-size visual)
+	float endScale = 1.0f; // scale at animation end (hand-size visual)
 	int ownerIndex; // Player or minion index
 	int ownerPlayerID = -1; // Stable playerID used to resolve owner after reordering
 	bool toMinionHand; // True if animating to minion hand

@@ -699,18 +699,8 @@ static void drawArcCenteredTextScaledOutlined(const ofTrueTypeFont & font,
 	int outlinePx) {
 	if (text.empty()) return;
 
-	int nonSpaceCount = 0;
-	int spaceCount = 0;
-	for (char ch : text) {
-		if (ch == ' ')
-			++spaceCount;
-		else
-			++nonSpaceCount;
-	}
-	float longNameT = std::clamp(((float)nonSpaceCount - 11.0f) / 12.0f, 0.0f, 1.0f);
-	float spaceTighten = (spaceCount > 0) ? (1.0f - 0.28f * longNameT) : 1.0f;
-	float arcBoost = 1.0f + 0.55f * longNameT;
-	float localEndDrop = endDropPx * arcBoost;
+	const float spaceTighten = 1.0f;
+	const float localEndDrop = endDropPx;
 
 	std::vector<float> advances;
 	advances.reserve(text.size());
@@ -1101,18 +1091,8 @@ static bool rebuildCardSpriteSheetFromTemplate(const std::string & templatePath,
 			for (const auto & text : texts) {
 				if (text.empty()) continue;
 
-				int nonSpaceCount = 0;
-				int spaceCount = 0;
-				for (char ch : text) {
-					if (ch == ' ')
-						++spaceCount;
-					else
-						++nonSpaceCount;
-				}
-				float longNameT = std::clamp(((float)nonSpaceCount - 11.0f) / 12.0f, 0.0f, 1.0f);
-				float spaceTighten = (spaceCount > 0) ? (1.0f - 0.28f * longNameT) : 1.0f;
-				float arcBoost = 1.0f + 0.55f * longNameT;
-				float localEndDrop = endDropPx * arcBoost;
+				const float spaceTighten = 1.0f;
+				const float localEndDrop = endDropPx;
 
 				std::vector<float> advances;
 				advances.reserve(text.size());
@@ -1854,7 +1834,9 @@ void ofApp::applyReplicateCopyToHand(Player & caster, const Card & playedCard) {
 	float cardCenterX = startX + (numCards - 1) * (handBaseCardWidth + spacing) + (handBaseCardWidth / 2.0f);
 	anim.targetPos = glm::vec2(cardCenterX, handRestY);
 	anim.endPos = anim.startPos;
-	anim.currentScale = 1.0f;
+	anim.startScale = pileCardScale;
+	anim.endScale = 1.0f;
+	anim.currentScale = anim.startScale;
 	anim.commitOnFinish = true;
 
 	activeDrawCardAnimations.push_back(anim);
@@ -7359,6 +7341,8 @@ void ofApp::updateGame() {
 	for (auto & anim : activeDrawCardAnimations) {
 		float elapsed = ofGetElapsedTimef() - anim.startTime;
 		float t = ofClamp(elapsed / anim.duration, 0.0f, 1.0f);
+		// Smooth the approach so the card doesn't appear to "snap" at the end.
+		float tSmooth = t * t * (3.0f - 2.0f * t); // smoothstep
 		// Project 3D start into 2D (or use screen-space start) and clamp so it doesn't start off-screen
 		glm::vec2 start2D;
 		if (anim.startIsScreenSpace) {
@@ -7380,13 +7364,13 @@ void ofApp::updateGame() {
 		glm::vec2 control = mid - glm::vec2(0.0f, lift); // negative y = up on screen
 
 		// Quadratic Bezier interpolation (gives a smooth arc)
-		float u = 1.0f - t;
-		anim.currentPos = (u * u) * start2D + (2.0f * u * t) * control + (t * t) * anim.targetPos;
+		float u = 1.0f - tSmooth;
+		anim.currentPos = (u * u) * start2D + (2.0f * u * tSmooth) * control + (tSmooth * tSmooth) * anim.targetPos;
 
 		// Animate scale from deck size up to normal in-hand multiplier.
 		// NOTE: Draw code already bakes `kHandCardVisualScale` into base width/height,
 		// so in-hand cards should use multiplier 1.0f (not `kHandCardVisualScale` again).
-		anim.currentScale = (1.0f - t) * pileCardScale + (t) * 1.0f;
+		anim.currentScale = ofLerp(anim.startScale, anim.endScale, tSmooth);
 
 		// Keep fully opaque for clarity
 		anim.currentAlpha = 255.0f;
@@ -17447,6 +17431,7 @@ void ofApp::handleCardDragToPlay(int cardIndex) {
 
 	// Choose-one cards should open their menu immediately on play.
 	bool menuFirstChoiceCard = (card.type == CARD_DISPEL || (card.type == CARD_WISDOM_BOON && wisdomHasAdjacentUnit) || card.type == CARD_DOUBLE_HANDED || card.type == CARD_TRAIN || card.type == CARD_GIANT_MAGIC_HAND || card.type == CARD_BURST_OF_LIGHT || (card.type == CARD_ROCK_CRUSH && rockHasAdjacentWall && rockHasAdjacentUnit));
+	bool wisdomAutoBlockNoAdjacent = (card.type == CARD_WISDOM_BOON && !wisdomHasAdjacentUnit);
 
 	if (menuFirstChoiceCard) {
 		interactingCardIndex = cardIndex;
@@ -17475,7 +17460,7 @@ void ofApp::handleCardDragToPlay(int cardIndex) {
 
 	// If the card requires a target (or is one of the explicit target-first range cards),
 	// enter the centralized targeting interaction.
-	if (!menuFirstChoiceCard && (card.targeting != TARGET_SELF || card.type == CARD_HEAL || card.type == CARD_MAGIC_BLAST || card.type == CARD_FIREBALL || card.type == CARD_CHAIN_LIGHTNING || card.type == CARD_MAGIC_BOLT || card.type == CARD_ETHEREAL_JOLT || card.type == CARD_SHOOT_ARROW || card.type == CARD_PSIONIC_WAVE)) {
+	if (!menuFirstChoiceCard && !wisdomAutoBlockNoAdjacent && (card.targeting != TARGET_SELF || card.type == CARD_HEAL || card.type == CARD_MAGIC_BLAST || card.type == CARD_FIREBALL || card.type == CARD_CHAIN_LIGHTNING || card.type == CARD_MAGIC_BOLT || card.type == CARD_ETHEREAL_JOLT || card.type == CARD_SHOOT_ARROW || card.type == CARD_PSIONIC_WAVE)) {
 		if (card.type == CARD_MAGIC_BLAST) {
 			// Ensure stale modal data from a prior blast cannot pause/freeze a fresh cast.
 			magicBlastTargetPlayerIndex = -1;
@@ -19031,7 +19016,9 @@ void ofApp::drawCard(bool sendPacket) {
 		anim.targetPos = glm::vec2(cardCenterX, handCenterY);
 		anim.endPos = anim.startPos;
 
-		anim.currentScale = pileCardScale; // start at deck display scale
+		anim.startScale = pileCardScale;
+		anim.endScale = 1.0f;
+		anim.currentScale = anim.startScale; // start at deck display scale
 		anim.duration = 0.50f;
 		activeDrawCardAnimations.push_back(anim);
 		ofLogNotice("DrawDebug") << "drawCard(): pushed DrawCardAnimation ownerIndex=" << anim.ownerIndex << " card='" << newCard.name << "' startTime=" << anim.startTime;
@@ -23181,6 +23168,7 @@ void ofApp::processCardStateInput(int mouseX, int mouseY, int button) {
 
 	// Dispatch based on current interaction state
 	if (cardInteractionState == CARD_INTERACTION_TARGETING) {
+		if (button != OF_MOUSE_BUTTON_LEFT) return;
 		// Handle target selection
 		handleCardTargetClick(gridX, gridY);
 	} else if (cardInteractionState == CARD_INTERACTION_MENU) {
