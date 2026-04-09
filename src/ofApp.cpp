@@ -10366,7 +10366,8 @@ void ofApp::drawGame() {
 		float currentX = x;
 
 		// 2. Health Segment
-		ofSetColor(healthColor.getLerped(ofColor::black, 0.5));
+		// Use a consistent red background for all health bars by default.
+		ofSetColor(40, 0, 0);
 		ofDrawRectangle(currentX, y, hpW, healthBarHeight);
 		float hpPct = (float)player.health / player.maxHealth;
 		ofSetColor(healthColor);
