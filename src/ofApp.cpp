@@ -10661,7 +10661,7 @@ void ofApp::drawGame() {
 		// Local player: place health bar immediately to the right of the deck
 		float p0_healthX = p0_deckRect.getRight() + gap + healthBarInwardNudge;
 		float p0_healthY = ofGetHeight() - healthBarHeight - deckBottomGap; // match deck bottom gap
-		drawHealthBar(*localPlayer, p0_healthX, p0_healthY, ofColor::green);
+		drawHealthBar(*localPlayer, p0_healthX, p0_healthY, ofColor::red);
 
 		const int hoverMouseX = ofGetMouseX();
 		const int hoverMouseY = ofGetMouseY();
@@ -32424,7 +32424,7 @@ void ofApp::drawMinionStatusBars(Player & minion, const std::string & name, floa
 	ofSetColor(40, 0, 0);
 	ofDrawRectangle(currentX, barY, hpW, barHeight);
 	float hpPct = (float)minion.health / minion.maxHealth;
-	ofSetColor(ofColor::green);
+	ofSetColor(ofColor::red);
 	ofDrawRectangle(currentX, barY, hpW * hpPct, barHeight);
 	string hpText = ofToString(minion.health) + "/" + ofToString(minion.maxHealth);
 	// Make HP text larger for readability by using the local fontScale
