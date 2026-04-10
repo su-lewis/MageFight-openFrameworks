@@ -15184,6 +15184,11 @@ void ofApp::mousePressed(int x, int y, int button) {
 
 			// 3g. End Turn Button (only active during gameplay)
 			if (currentState == STATE_GAMEPLAY && endTurnButtonRect.inside(x, y) && button == OF_MOUSE_BUTTON_LEFT) {
+				if (isPlayerAnimating) {
+					queueFloatingTextVisual(glm::vec3(endTurnButtonRect.getCenter().x, endTurnButtonRect.getCenter().y, 0.0f), "Movement in progress", ofColor::yellow);
+					ofLogNotice("Turn") << "End Turn click ignored: movement animation still active.";
+					return;
+				}
 				// Prevent ending turn while AP roll animation is still running for this unit
 				bool apRollActiveLocal = false;
 				for (const auto & r : activeDiceRolls) {
@@ -16259,6 +16264,11 @@ void ofApp::keyPressed(int key) {
 		if (isChatOpen || isCardSpawnerOpen) return;
 		// In multiplayer, only allow if it's our turn. In singleplayer, allow.
 		if (isMultiplayer && !isMyTurn()) return;
+		if (isPlayerAnimating) {
+			queueFloatingTextVisual(glm::vec3(endTurnButtonRect.getCenter().x, endTurnButtonRect.getCenter().y, 0.0f), "Movement in progress", ofColor::yellow);
+			ofLogNotice("Turn") << "End Turn (key) ignored: movement animation still active.";
+			return;
+		}
 		// Prevent ending turn while AP roll animation is still running for this unit
 		bool apRollActiveLocal = false;
 		for (const auto & r : activeDiceRolls) {
@@ -18799,6 +18809,10 @@ void ofApp::drawActiveCardInteractionUI() {
 		return;
 	}
 
+	if (cardInteractionState == CARD_INTERACTION_MENU) {
+		drawMenuOverlay();
+	}
+
 	// Compute menu scale (tween from small -> 1.0)
 	float scale = 1.0f;
 	if (cardInteractionState == CARD_INTERACTION_MENU) {
@@ -18820,7 +18834,6 @@ void ofApp::drawActiveCardInteractionUI() {
 	if (cardInteractionState == CARD_INTERACTION_MENU) {
 		switch (interactingCardType) {
 		case CARD_BURST_OF_LIGHT: {
-			drawMenuOverlay();
 			string title = "Burst of Light";
 			string desc = "Choose effect for selected target:";
 			ofColor holyAccent(255, 213, 79);
@@ -18846,7 +18859,6 @@ void ofApp::drawActiveCardInteractionUI() {
 		}
 
 		case CARD_WISDOM_BOON: {
-			drawMenuOverlay();
 			string title = "Wisdom Boon";
 			int deckSize = 0;
 			if (currentPlayerIndex >= 0) deckSize = players[currentPlayerIndex].deck.size();
@@ -18868,7 +18880,6 @@ void ofApp::drawActiveCardInteractionUI() {
 		}
 
 		case CARD_DOUBLE_HANDED: {
-			drawMenuOverlay();
 			float w = 600, h = 300;
 			float mx = ofGetWidth() / 2 - w / 2, my = ofGetHeight() / 2 - h / 2;
 			doubleHandedMenuRect.set(mx, my, w, h);
@@ -18928,7 +18939,6 @@ void ofApp::drawActiveCardInteractionUI() {
 				float panelX = ofGetWidth() / 2.0f - panelWidth / 2.0f;
 				float panelY = ofGetHeight() / 2.0f - panelHeight / 2.0f;
 
-				drawMenuOverlay();
 				ofSetColor(20, 20, 20, 240);
 				ofDrawRectRounded(panelX, panelY, panelWidth, panelHeight, 15);
 
@@ -18976,7 +18986,6 @@ void ofApp::drawActiveCardInteractionUI() {
 				drawAcceptButtonShared(draftAcceptButtonRect, canAccept, 1.0f, 1.0f);
 			} else {
 				// fallback to small single-button menu if deck copy is empty
-				drawMenuOverlay();
 				float w = 520, h = 260;
 				float mx = ofGetWidth() / 2 - w / 2, my = ofGetHeight() / 2 - h / 2;
 				amnesiaMenuRect.set(mx, my, w, h);
@@ -18990,7 +18999,6 @@ void ofApp::drawActiveCardInteractionUI() {
 		}
 
 		case CARD_DISPEL: {
-			drawMenuOverlay();
 			float w = 600, h = 300;
 			float mx = ofGetWidth() / 2 - w / 2, my = ofGetHeight() / 2 - h / 2;
 			dispelMenuRect.set(mx, my, w, h);
@@ -19005,7 +19013,6 @@ void ofApp::drawActiveCardInteractionUI() {
 		}
 
 		case CARD_TRAIN: {
-			drawMenuOverlay();
 			float w = 600, h = 300;
 			float mx = ofGetWidth() / 2 - w / 2, my = ofGetHeight() / 2 - h / 2;
 			trainMenuRect.set(mx, my, w, h);
@@ -19020,7 +19027,6 @@ void ofApp::drawActiveCardInteractionUI() {
 		}
 
 		case CARD_ROCK_CRUSH: {
-			drawMenuOverlay();
 			float w = 600, h = 300;
 			float mx = ofGetWidth() / 2 - w / 2, my = ofGetHeight() / 2 - h / 2;
 			ofRectangle menuRect(mx, my, w, h);
@@ -19037,7 +19043,6 @@ void ofApp::drawActiveCardInteractionUI() {
 		}
 
 		case CARD_GIANT_MAGIC_HAND: {
-			drawMenuOverlay();
 			float w = 500, h = 250;
 			float mx = ofGetWidth() / 2 - w / 2, my = ofGetHeight() / 2 - h / 2;
 			ofRectangle menuRect(mx, my, w, h);
@@ -19960,7 +19965,6 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 			mv.data.moveUnit.toX = destX;
 			mv.data.moveUnit.toY = destY;
 			queueEffect(mv);
-			advanceCardState(CARD_STATE_EFFECT_SEQUENCE);
 			resetCardInteraction();
 			if (!isMultiplayer || cmd.playerID == currentTurnOwnerID) {
 				markMeaningfulActionOnCurrentTurn();
@@ -21517,6 +21521,7 @@ bool ofApp::processEffectOp(EffectOp & op) {
 		if (amnesiaTarget) {
 			int numCardsToRemoveLocal = std::min(result, (int)amnesiaTarget->deck.size());
 			if (numCardsToRemoveLocal > 0) {
+				numCardsToRemove = numCardsToRemoveLocal;
 				// Only open the menu if THIS client is the chooser
 				if (myLocalPlayerID == amnesiaChooserPlayerID) {
 					updateCardInteractionState(CARD_INTERACTION_MENU, interactingCardIndex, CARD_AMNESIA);
@@ -21527,6 +21532,9 @@ bool ofApp::processEffectOp(EffectOp & op) {
 					opponentInteraction.open = true;
 					opponentInteraction.type = 99; // Represents "Waiting for Opponent"
 				}
+				advanceCardState(CARD_STATE_MENU);
+				opComplete = true;
+				break;
 			} else {
 				amnesiaTargetPlayerIndex = -1;
 			}
@@ -26492,7 +26500,7 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 		advanceCardState(CARD_STATE_DICE);
 		// Ensure AP is synced to player struct for UI
 		updatePlayerAP(players[currentPlayerIndex], currentAP);
-		immediateResult = CARD_PLAYED_IMMEDIATELY;
+		immediateResult = CARD_AWAITING_MENU_CHOICE;
 		return true;
 	}
 
@@ -27866,6 +27874,28 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 					if (info.reason == VALID) {
 						if (tileHasOtherThan(tx, ty, currentPlayerIndex)) {
 							valid = true;
+						} else {
+							for (int dx = -1; dx <= 1 && !valid; ++dx) {
+								for (int dy = -1; dy <= 1; ++dy) {
+									if (dx == 0 && dy == 0) continue;
+									int nx = tx + dx;
+									int ny = ty + dy;
+									if (nx < 0 || nx >= BOARD_WIDTH || ny < 0 || ny >= BOARD_HEIGHT) continue;
+
+									if (!tileHasOtherThan(nx, ny, currentPlayerIndex)) continue;
+
+									bool blocked = false;
+									if (abs(dx) == 1 && abs(dy) == 1) {
+										if (isTileWall(tx + dx, ty) && isTileWall(tx, ty + dy)) {
+											blocked = true;
+										}
+									}
+									if (!blocked) {
+										valid = true;
+										break;
+									}
+								}
+							}
 						}
 					}
 				}
