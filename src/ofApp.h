@@ -642,6 +642,7 @@ struct DrawCardAnimation {
 	glm::vec3 endPos;
 	glm::vec2 currentPos;
 	glm::vec2 targetPos; // 2D hand position for animation end
+	int pendingHandIndex = -1; // index of the already-added hand card when commitOnFinish == false
 	float startTime;
 	float duration;
 	float currentAlpha = 255.0f;

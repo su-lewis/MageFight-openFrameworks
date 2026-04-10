@@ -7499,6 +7499,19 @@ void ofApp::updateGame() {
 		float t = ofClamp(elapsed / anim.duration, 0.0f, 1.0f);
 		// Smooth the approach so the card doesn't appear to "snap" at the end.
 		float tSmooth = t * t * (3.0f - 2.0f * t); // smoothstep
+
+		// Visual-only draws are already in-hand; keep their animation target synced
+		// to the real slot so each card flies directly to its own destination.
+		if (!anim.commitOnFinish && anim.pendingHandIndex >= 0) {
+			int owner = (anim.ownerPlayerID != -1) ? findPlayerIndexByID(anim.ownerPlayerID) : anim.ownerIndex;
+			if (owner >= 0 && owner < (int)players.size()) {
+				Player & p = players[owner];
+				if (anim.pendingHandIndex < (int)p.hand.size()) {
+					anim.targetPos = p.hand[anim.pendingHandIndex].targetPos;
+				}
+			}
+		}
+
 		// Project 3D start into 2D (or use screen-space start) and clamp so it doesn't start off-screen
 		glm::vec2 start2D;
 		if (anim.startIsScreenSpace) {
@@ -7592,6 +7605,38 @@ void ofApp::updateGame() {
 
 		// --- Discard Animation Update (hand -> discard visual-only) ---
 		for (auto & anim : activeDiscardCardAnimations) {
+			// Keep discard target synced to the unit's actual discard UI location.
+			int owner = (anim.ownerPlayerID != -1) ? findPlayerIndexByID(anim.ownerPlayerID) : anim.ownerIndex;
+			if (owner >= 0 && owner < (int)players.size()) {
+				Player & p = players[owner];
+				ofRectangle targetRect;
+				bool foundTarget = false;
+
+				if (p.isMinion) {
+					for (const auto & ui : activeMinionUIs) {
+						if (ui.playerIndex == owner) {
+							targetRect = ui.discardRect;
+							foundTarget = true;
+							break;
+						}
+					}
+				}
+
+				if (!foundTarget) {
+					int ownerSide = p.isMinion ? p.ownerID : p.playerID;
+					bool localSide = isMultiplayer ? (ownerSide == myLocalPlayerID) : (ownerSide == 0);
+					targetRect = localSide ? p0_discardRect : p1_discardRect;
+				}
+
+				float ox = (float)(anim.pendingHandIndex % 3 - 1) * 8.0f;
+				float oy = (float)((anim.pendingHandIndex / 3) % 2 == 0 ? -5 : 5);
+				anim.targetPos = glm::vec2(targetRect.getCenter().x + ox, targetRect.getCenter().y + oy);
+
+				float animBaseW = kCardPixelWidth * kHandCardVisualScale;
+				float animBaseH = kCardPixelHeight * kHandCardVisualScale;
+				anim.endScale = std::max(0.05f, std::min(targetRect.getWidth() / std::max(1.0f, animBaseW), targetRect.getHeight() / std::max(1.0f, animBaseH)));
+			}
+
 			float elapsed = ofGetElapsedTimef() - anim.startTime;
 			float t = ofClamp(elapsed / anim.duration, 0.0f, 1.0f);
 			glm::vec2 start2D;
@@ -7612,8 +7657,8 @@ void ofApp::updateGame() {
 			float u = 1.0f - t;
 			anim.currentPos = (u * u) * start2D + (2.0f * u * t) * control + (t * t) * anim.targetPos;
 
-			// Shrink slightly while moving to discard
-			anim.currentScale = ofLerp(1.5f, 0.6f, t);
+			// Scale from in-hand size to actual discard UI size.
+			anim.currentScale = ofLerp(anim.startScale, anim.endScale, t);
 			anim.currentAlpha = ofLerp(255.0f, 180.0f, t);
 		}
 
@@ -16561,13 +16606,17 @@ void ofApp::startNewTurn() {
 				Card c = endingPlayer.hand[i];
 				DrawCardAnimation anim;
 				anim.card = c;
+				anim.ownerIndex = currentPlayerIndex;
+				anim.ownerPlayerID = endingPlayer.playerID;
+				anim.pendingHandIndex = (int)i;
 				anim.startIsScreenSpace = true;
 				anim.startPos = glm::vec3(c.currentPos.x, c.currentPos.y, 0.0f);
-				ofRectangle targetRect = (endingPlayer.playerID == 0) ? p0_discardRect : p1_discardRect;
-				anim.targetPos = glm::vec2(targetRect.getCenter().x + (float)i * 10.0f, targetRect.getCenter().y + ((int)i % 2 == 0 ? -6.0f : 6.0f));
+				anim.targetPos = glm::vec2(c.currentPos.x, c.currentPos.y); // refined each frame in update loop
 				anim.duration = 0.6f;
 				anim.startTime = now + (float)i * 0.04f; // slight stagger
-				anim.currentScale = c.currentScale > 0 ? c.currentScale : 1.5f;
+				anim.startScale = (c.currentScale > 0.0f ? c.currentScale : 1.0f);
+				anim.endScale = anim.startScale;
+				anim.currentScale = anim.startScale;
 				anim.currentAlpha = 255.0f;
 				activeDiscardCardAnimations.push_back(anim);
 			}
@@ -19124,18 +19173,36 @@ void ofApp::drawCard(bool sendPacket) {
 		anim.ownerIndex = currentPlayerIndex;
 		anim.toMinionHand = false;
 		anim.commitOnFinish = false; // already added to hand
+		anim.pendingHandIndex = (int)numCardsNow - 1;
+		ofRectangle drawSourceRect;
+		bool hasDrawSourceRect = false;
 
 		// Calculate Spawn Position: pick deck UI center for player owners, but
 		// use world position for minion owners so animations originate from
 		// the correct deck/minion model when minions draw.
 		if (anim.ownerIndex >= 0 && anim.ownerIndex < (int)players.size() && players[anim.ownerIndex].isMinion) {
-			// Start at the minion's world deck position
-			Player & minion = players[anim.ownerIndex];
-			anim.startIsScreenSpace = false;
-			anim.startPos = gridToWorld(minion.x, minion.y) + glm::vec3(0, 1.5f, 0);
-			// Initialize currentPos from world->screen so first frame is correct
-			ofVec3f sp = getActiveCamera().worldToScreen(anim.startPos);
-			anim.currentPos = glm::vec2((float)sp.x, (float)sp.y);
+			// Prefer minion UI deck icon as source when available.
+			bool foundMinionDeckUI = false;
+			for (const auto & mui : activeMinionUIs) {
+				if (mui.playerIndex == anim.ownerIndex) {
+					drawSourceRect = mui.deckRect;
+					hasDrawSourceRect = true;
+					anim.startIsScreenSpace = true;
+					anim.startPos = glm::vec3(mui.deckRect.getCenter().x, mui.deckRect.getCenter().y, 0.0f);
+					anim.currentPos = glm::vec2((float)mui.deckRect.getCenter().x, (float)mui.deckRect.getCenter().y);
+					foundMinionDeckUI = true;
+					break;
+				}
+			}
+
+			if (!foundMinionDeckUI) {
+				// Fallback: world position above minion.
+				Player & minion = players[anim.ownerIndex];
+				anim.startIsScreenSpace = false;
+				anim.startPos = gridToWorld(minion.x, minion.y) + glm::vec3(0, 1.5f, 0);
+				ofVec3f sp = getActiveCamera().worldToScreen(anim.startPos);
+				anim.currentPos = glm::vec2((float)sp.x, (float)sp.y);
+			}
 		} else {
 			// Owner is a player; use the appropriate deck rect (p0/p1)
 			float scale = ofGetHeight() / 1080.0f;
@@ -19150,12 +19217,18 @@ void ofApp::drawCard(bool sendPacket) {
 				int ownerPlayerID = players[owner].playerID;
 				if (ownerPlayerID == 0) {
 					start2D = glm::vec2(p0_deckRect.getCenter().x, p0_deckRect.getCenter().y);
+					drawSourceRect = p0_deckRect;
+					hasDrawSourceRect = true;
 				} else {
 					start2D = glm::vec2(p1_deckRect.getCenter().x, p1_deckRect.getCenter().y);
+					drawSourceRect = p1_deckRect;
+					hasDrawSourceRect = true;
 				}
 			} else {
 				// Fallback to player 0 deck center
 				start2D = glm::vec2(p0_deckRect.getCenter().x, p0_deckRect.getCenter().y);
+				drawSourceRect = p0_deckRect;
+				hasDrawSourceRect = true;
 			}
 			anim.startPos = glm::vec3(start2D.x, start2D.y, 0);
 			anim.startIsScreenSpace = true;
@@ -19184,7 +19257,13 @@ void ofApp::drawCard(bool sendPacket) {
 		anim.targetPos = glm::vec2(cardCenterX, handCenterY);
 		anim.endPos = anim.startPos;
 
-		anim.startScale = pileCardScale;
+		if (hasDrawSourceRect) {
+			float animBaseW = kCardPixelWidth * kHandCardVisualScale;
+			float animBaseH = kCardPixelHeight * kHandCardVisualScale;
+			anim.startScale = std::max(0.05f, std::min(drawSourceRect.getWidth() / std::max(1.0f, animBaseW), drawSourceRect.getHeight() / std::max(1.0f, animBaseH)));
+		} else {
+			anim.startScale = pileCardScale;
+		}
 		anim.endScale = 1.0f;
 		anim.currentScale = anim.startScale; // start at deck display scale
 		anim.duration = 0.50f;

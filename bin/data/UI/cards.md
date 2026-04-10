@@ -309,7 +309,7 @@
 - **AP Cost:** 3
 - **Class:** 1
 - **Picture:** 
-- **Effect Text:** Deal damage to an adjacent unit equal to the sum of all block types, then remove them.
+- **Effect Text:** Deal damage to an adjacent unit equal to the sum of all block types, then remove all block.
 ---
 
 -## 40. Train
@@ -325,7 +325,7 @@
 - **Targeting:** 2d10ft
 - **Class:** 2
 - **Picture:** 
-- **Effect Text:** Choose a target. Deal 1d10 damage to the tile hit and the 8 surrounding tiles, if more than one unit was hit then apply Paralysis. Gain +3 AP next turn.
+- **Effect Text:** Choose a target. Deal 1d10 damage to the tile hit and the 8 surrounding tiles. Gain +3 AP next turn. If more than one unit was hit then apply Paralysis to them.
 ---
 
 -## 42. Study
@@ -363,7 +363,7 @@
 - **AP Cost:** 5
 - **Class:** 3
 - **Picture:** 
-- **Effect Text:** Transform into a Tortoise until you take 5 health damage. Your blocks do not expire. Deal 3 to an adjacent unit whenever you restore health / gain block. Gain +5 max health. Restore 5 health. Shuffle x2 Dispel into your deck.
+- **Effect Text:** Transform into a Tortoise until you take 5 health damage. Gain +5 max health. Restore 5 health. Shuffle x2 Dispel into your deck. Your blocks do not expire. Deal 3 to an adjacent unit whenever you restore health / gain block. 
 ---
 
 -## 47. Fortify
