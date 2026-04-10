@@ -1934,6 +1934,8 @@ void ofApp::applyReplicateCopyToHand(Player & caster, const Card & playedCard) {
 
 	Card duplicateCard = playedCard;
 	duplicateCard.isCopied = true;
+	duplicateCard.playedThisTurn = false;
+	duplicateCard.drawnThisTurn = false;
 
 	int ownerIndex = findPlayerIndexByID(caster.playerID);
 	if (ownerIndex < 0) {
@@ -4073,7 +4075,9 @@ void ofApp::update() {
 	processVisualEvents();
 
 	// Advance floating key animation (per-frame timer)
-	if (!keyAnimSequence.empty() && !floatingKeyInstances.empty()) {
+	// Keep animation running for keys that were consumed in lockstep but are
+	// still visible until the mover visually reaches their tiles.
+	if (!keyAnimSequence.empty() && (!floatingKeyInstances.empty() || !pendingVisualKeyDraftQueue.empty())) {
 		// Scale by speed preset (allows future speed controls)
 		keyAnimTimer += ofGetLastFrameTime() * keyAnimSpeedPresets[keyAnimSpeedIndex];
 		if (keyAnimTimer >= keyAnimInterval) {
@@ -8698,12 +8702,40 @@ void ofApp::drawGame() {
 		// --- DRAW FLOATING KEYS AS 3D VERTICAL BILLBOARDS ---
 		// Draw after walls so depth buffer contains wall depths and keys are
 		// correctly occluded when behind walls.
-		if (!keyAnimSequence.empty() && !floatingKeyInstances.empty()) {
+		if (!keyAnimSequence.empty() && (!floatingKeyInstances.empty() || !pendingVisualKeyDraftQueue.empty())) {
 			int seqIdx = keyAnimSequence[keyAnimSeqPos];
+			std::vector<FloatingKey> visibleKeyInstances = floatingKeyInstances;
+
+			// Add visual-only keys that were already consumed by lockstep command
+			// execution but should remain visible until movement animation arrives.
+			for (const auto & pending : pendingVisualKeyDraftQueue) {
+				if (pending.tileX < 0 || pending.tileX >= BOARD_WIDTH
+					|| pending.tileY < 0 || pending.tileY >= BOARD_HEIGHT) {
+					continue;
+				}
+
+				bool alreadyVisible = false;
+				for (const auto & inst : visibleKeyInstances) {
+					if (inst.pos.x == pending.tileX && inst.pos.y == pending.tileY) {
+						alreadyVisible = true;
+						break;
+					}
+				}
+				if (alreadyVisible) continue;
+
+				int visualKeySet = 1;
+				if (pending.classTier == 2)
+					visualKeySet = 2;
+				else if (pending.classTier == 1)
+					visualKeySet = 3;
+
+				visibleKeyInstances.push_back({ glm::ivec2(pending.tileX, pending.tileY), visualKeySet });
+			}
+
 			// Always use the local player's camera and flip logic so keys face the local view
 			ofCamera & localCamera = getActiveCamera();
 			bool flipForLocal = shouldFlipCamera();
-			for (const auto & inst : floatingKeyInstances) {
+			for (const auto & inst : visibleKeyInstances) {
 				const std::vector<ofTexture> * setTex = nullptr;
 				if (inst.set == 1)
 					setTex = &keyTextures;
@@ -9868,15 +9900,14 @@ void ofApp::drawGame() {
 		// Diable Lighting for Highlights
 		ofDisableLighting();
 
-		// Build and draw white joined outlines BEFORE per-tile drawing
+		// Build and draw white joined outlines for movement/highlight tiles BEFORE per-tile drawing
 		{
 			bool highlightedTiles[BOARD_WIDTH][BOARD_HEIGHT];
 			for (int x = 0; x < BOARD_WIDTH; x++) {
 				for (int y = 0; y < BOARD_HEIGHT; y++) {
-					// Include movement highlights and preview tiles, but do NOT
-					// draw the white joined outlines for tiles that are green
-					// targetable (we want pure green for targetable squares).
-					highlightedTiles[x][y] = (board[x][y].isHighlighted || board[x][y].isTargetPreview) && !board[x][y].isTargetable;
+					// Keep movement highlights separate from card hover previews so
+					// the preview pass can use the blue AOE color.
+					highlightedTiles[x][y] = board[x][y].isHighlighted && !board[x][y].isTargetable && !board[x][y].isTargetPreview;
 				}
 			}
 
@@ -9885,6 +9916,20 @@ void ofApp::drawGame() {
 			ofColor whiteColor(232, 232, 232, 240); // #e8e8e8 for board highlights (restored brightness)
 			float avgSurfaceY = 0.03f; // Average surface height for flat tiles (slightly lower)
 			drawJoinedOutlines(highlightedTiles, whiteColor, avgSurfaceY);
+		}
+
+		// Build and draw blue joined outlines for card hover previews
+		{
+			bool previewTiles[BOARD_WIDTH][BOARD_HEIGHT];
+			for (int x = 0; x < BOARD_WIDTH; x++) {
+				for (int y = 0; y < BOARD_HEIGHT; y++) {
+					previewTiles[x][y] = board[x][y].isTargetPreview && !board[x][y].isTargetable;
+				}
+			}
+
+			ofColor previewBlue(80, 170, 255, 220); // AOE-style blue for hover previews
+			float avgSurfaceY = 0.035f;
+			drawJoinedOutlines(previewTiles, previewBlue, avgSurfaceY);
 		}
 
 		// Build and draw green joined outlines for targetable tiles
@@ -19190,6 +19235,7 @@ void ofApp::drawCard(bool sendPacket) {
 		ofLogNotice("DrawDebug") << "drawCard(): popped '" << newCard.name << "' from deck for playerIndex=" << currentPlayerIndex << " deckSizeNow=" << currentPlayer.deck.size();
 		// Commit the card immediately to the player's hand (animation is visual-only)
 		newCard.drawnThisTurn = true;
+		newCard.playedThisTurn = false;
 		// Add to hand now so gameplay sees the card immediately
 		currentPlayer.hand.push_back(newCard);
 		// Compute the final hand slot for the newly added card (it's the last one)
@@ -20505,15 +20551,23 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 			break;
 		}
 
-		// NOTE: Card removal is handled by the outcome processor; do not manually erase here
-		// to avoid double-deduction and index corruption. The card will be moved to playedCardsPile
-		// by applyCardOutcomeEffects() after the EffectOp sequence completes.
+		// Pay AP and discard Renewed Inspiration immediately so the subsequent draw
+		// cannot invalidate the saved hand index or prevent the card from being removed.
+		Card riCard = p.hand[shiftedRiIndex];
+		int riCost = getEffectiveCardCostForPlayer(p, riCard);
+		currentAP -= riCost;
+		updatePlayerAP(p, currentAP);
+		riCard.playedThisTurn = true;
+		p.discardPile.push_back(riCard);
+		p.hand.erase(p.hand.begin() + shiftedRiIndex);
+		completeCardPlayAnimation(riCard, playerIdx);
 
 		// Now queue the finalization in the EffectOp sequence
 		resetCardState();
 		currentCardOutcome.cardType = CARD_RENEWED_INSPIRATION;
-		currentCardOutcome.cardIndex = shiftedRiIndex;
+		currentCardOutcome.cardIndex = -1;
 		currentCardOutcome.casterIndex = playerIdx;
+		currentCardOutcome.apPaid = true;
 
 		if (!isProcessingEffect) beginEffectSequence();
 		EffectOp drawOp = {};
@@ -22678,6 +22732,10 @@ bool ofApp::processEffectOp(EffectOp & op) {
 				Player & target = players[tidx];
 				// Rule: reshuffle only when deck is empty and discard has cards.
 				if (target.deck.empty() && !target.discardPile.empty()) {
+					for (auto & c : target.discardPile) {
+						c.playedThisTurn = false;
+						c.drawnThisTurn = false;
+					}
 					// Move discard -> deck
 					target.deck = target.discardPile;
 					// Client-local shuffle animation
@@ -27690,7 +27748,7 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 	glm::vec2 casterPos(px, py);
 
 	// Special preview/targeting for Magic Bolt and Chain Lightning:
-	// show white preview for tiles that are in-range/previewable but not valid
+	// show blue preview for tiles that are in-range/previewable but not valid
 	// green only when the tile would be a valid non-self unit target.
 	if (card.type == CARD_MAGIC_BOLT || card.type == CARD_CHAIN_LIGHTNING) {
 		float maxRangeFeet = 9999.0f;
@@ -27793,6 +27851,15 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 						}
 					}
 				} else {
+					float maxRangeFeet = 9999.0f;
+					if (card.numDice > 0 && card.diceSides > 0) {
+						maxRangeFeet = (float)(card.numDice * card.diceSides);
+					}
+					float distFeet = glm::distance(casterPos, glm::vec2((float)tx, (float)ty)) * 5.0f;
+					if (distFeet <= maxRangeFeet + 0.1f) {
+						preview = true;
+					}
+
 					// Chain Lightning: respect LOS rules used elsewhere
 					TargetInfo info = isLosTargetValid(casterPos, glm::vec2((float)tx, (float)ty), 9999.0f, CARD_CHAIN_LIGHTNING);
 					if (info.reason == VALID || info.reason == INVALID_SELF) preview = true;
@@ -27804,7 +27871,7 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 				}
 
 				if (preview) {
-					board[tx][ty].isTargetPreview = true; // white outline
+					board[tx][ty].isTargetPreview = true; // blue outline
 					board[tx][ty].hasTooltipInfo = true;
 				}
 				if (valid) {
