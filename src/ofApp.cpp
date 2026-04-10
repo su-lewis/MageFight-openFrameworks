@@ -5629,6 +5629,19 @@ void ofApp::recalculateUI(int w, int h) {
 }
 //--------------------------------------------------------------
 void ofApp::setupGame() {
+	// Reset lockstep runtime state for a fresh match.
+	commandQueue.clear();
+	queuedCommandKeys.clear();
+	executedCommandKeys.clear();
+	provisionalSnapshots.clear();
+	provisionalCommands.clear();
+	nextCommandId = 1;
+	lastProcessedCommandId = 0;
+	currentEffectSequence = EffectSequence();
+	isProcessingEffect = false;
+	isExecutingLockstepCommand = false;
+	resetCardState();
+
 	// --- MULTIPLAYER SYNC ---
 	if (isHost()) {
 		std::random_device rd;
@@ -5775,6 +5788,19 @@ void ofApp::setupGame() {
 
 void ofApp::initGameFromSeed(uint32_t seed) {
 	if (isMultiplayer) return; // Already started
+
+	// Reset lockstep runtime state for a fresh match.
+	commandQueue.clear();
+	queuedCommandKeys.clear();
+	executedCommandKeys.clear();
+	provisionalSnapshots.clear();
+	provisionalCommands.clear();
+	nextCommandId = 1;
+	lastProcessedCommandId = 0;
+	currentEffectSequence = EffectSequence();
+	isProcessingEffect = false;
+	isExecutingLockstepCommand = false;
+	resetCardState();
 
 	ofLogNotice("Network") << "Initializing multiplayer client game from seed: " << seed;
 	gameplayRNG.seed(seed);
