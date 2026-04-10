@@ -1340,7 +1340,8 @@ static bool rebuildCardSpriteSheetFromTemplate(const std::string & templatePath,
 													 float lineSpacing,
 													 const ofColor & fillColor,
 													 const ofColor & outlineColor,
-													 int outlinePx) {
+													 int outlinePx,
+													 bool alignTop = false) {
 		if (text.empty()) return;
 		const int r = std::max(0, outlinePx);
 		const float inset = (float)r + 1.0f;
@@ -1353,7 +1354,10 @@ static bool rebuildCardSpriteSheetFromTemplate(const std::string & templatePath,
 		float lineH = font.getLineHeight() * drawScale * std::max(0.6f, lineSpacing);
 		lineH = std::max(1.0f, lineH);
 		float totalH = lineH * (float)lines.size();
-		float blockTop = rect.y + inset + std::max(0.0f, (fitH - totalH) * 0.5f);
+		float blockTop = rect.y + inset;
+		if (!alignTop) {
+			blockTop += std::max(0.0f, (fitH - totalH) * 0.5f);
+		}
 
 		for (size_t li = 0; li < lines.size(); ++li) {
 			const auto & line = lines[li];
@@ -1789,7 +1793,8 @@ static bool rebuildCardSpriteSheetFromTemplate(const std::string & templatePath,
 			layout.effectLineSpacing,
 			ofColor(12, 12, 12, 255),
 			ofColor::black,
-			0);
+			0,
+			true);
 		ofPopStyle();
 		ofPopMatrix();
 	}
