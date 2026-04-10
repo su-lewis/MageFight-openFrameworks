@@ -5690,6 +5690,7 @@ void ofApp::setupGame() {
 	pendingVisualKeyDraftTileY = -1;
 	pendingVisualKeyDraftTargetIndex = -1;
 	pendingVisualKeyDraftClassTier = -1;
+	pendingVisualKeyDraftPoolIndices = { -1, -1, -1 };
 	resetCardState();
 
 	// --- MULTIPLAYER SYNC ---
@@ -5855,6 +5856,7 @@ void ofApp::initGameFromSeed(uint32_t seed) {
 	pendingVisualKeyDraftTileY = -1;
 	pendingVisualKeyDraftTargetIndex = -1;
 	pendingVisualKeyDraftClassTier = -1;
+	pendingVisualKeyDraftPoolIndices = { -1, -1, -1 };
 	resetCardState();
 
 	ofLogNotice("Network") << "Initializing multiplayer client game from seed: " << seed;
@@ -7818,7 +7820,11 @@ void ofApp::updateGame() {
 								isInGameDraft = true;
 								inGameDraftTargetIdx = pendingVisualKeyDraftTargetIndex;
 								draftPlayerIndex = pendingVisualKeyDraftTargetIndex;
-								generateDraftOptions(pendingVisualKeyDraftClassTier);
+								std::vector<int> forcedIndices;
+								for (int idx : pendingVisualKeyDraftPoolIndices) {
+									if (idx >= 0) forcedIndices.push_back(idx);
+								}
+								generateDraftOptions(pendingVisualKeyDraftClassTier, forcedIndices.empty() ? nullptr : &forcedIndices);
 								draftPicksRemaining = 1;
 								selectedDraftIndices.clear();
 								currentState = STATE_DRAFTING;
@@ -7839,6 +7845,7 @@ void ofApp::updateGame() {
 								pendingVisualKeyDraftTileY = -1;
 								pendingVisualKeyDraftTargetIndex = -1;
 								pendingVisualKeyDraftClassTier = -1;
+								pendingVisualKeyDraftPoolIndices = { -1, -1, -1 };
 							}
 						}
 					}
@@ -19693,6 +19700,34 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 			return targetIndex;
 		};
 
+		auto computeDeterministicDraftIndices = [&](int classTier, int targetIndex) -> std::array<int, 3> {
+			std::array<int, 3> out = { -1, -1, -1 };
+			const std::vector<Card> * pool = &class1Cards;
+			if (classTier == 2) pool = &class2Cards;
+			if (classTier == 3) pool = &class3Cards;
+			if (!pool || pool->empty()) return out;
+
+			std::vector<int> indices(pool->size());
+			std::iota(indices.begin(), indices.end(), 0);
+
+			// Mirror generateDraftOptions() deterministic seeding, but do it at
+			// lockstep command time and persist chosen indices for visual-time reveal.
+			draftGenerationCounter++;
+			uint32_t derivedSeed = currentMapSeed;
+			derivedSeed ^= (uint32_t)classTier * 2654435761u;
+			derivedSeed ^= ((uint32_t)targetIndex << 16);
+			derivedSeed ^= ((uint32_t)draftStage << 24);
+			derivedSeed ^= draftGenerationCounter * 1103515245u;
+
+			std::mt19937 draftRng(derivedSeed);
+			deterministic_shuffle(indices, draftRng);
+
+			for (int i = 0; i < 3 && i < (int)indices.size(); ++i) {
+				out[i] = indices[i];
+			}
+			return out;
+		};
+
 		// Consume key deterministically while traversing the authoritative path,
 		// but defer draft UI presentation until visual movement reaches that tile.
 		{
@@ -19722,6 +19757,7 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 								pendingVisualKeyDraftTileY = stepY;
 								pendingVisualKeyDraftTargetIndex = targetIndex;
 								pendingVisualKeyDraftClassTier = classToDraft;
+								pendingVisualKeyDraftPoolIndices = computeDeterministicDraftIndices(classToDraft, targetIndex);
 							}
 							consumedKey = true;
 							break;
@@ -19746,6 +19782,7 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 							pendingVisualKeyDraftTileY = toY;
 							pendingVisualKeyDraftTargetIndex = targetIndex;
 							pendingVisualKeyDraftClassTier = classToDraft;
+							pendingVisualKeyDraftPoolIndices = computeDeterministicDraftIndices(classToDraft, targetIndex);
 						}
 						break;
 					}

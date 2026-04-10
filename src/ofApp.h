@@ -1344,6 +1344,7 @@ private:
 	int pendingVisualKeyDraftTileY = -1;
 	int pendingVisualKeyDraftTargetIndex = -1;
 	int pendingVisualKeyDraftClassTier = -1;
+	std::array<int, 3> pendingVisualKeyDraftPoolIndices = { -1, -1, -1 };
 
 	// Helpers
 	void startShuffleVisual(int playerIndex, float delaySeconds = 0.0f);
