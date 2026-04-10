@@ -5685,6 +5685,11 @@ void ofApp::setupGame() {
 	currentEffectSequence = EffectSequence();
 	isProcessingEffect = false;
 	isExecutingLockstepCommand = false;
+	pendingVisualKeyDraft = false;
+	pendingVisualKeyDraftTileX = -1;
+	pendingVisualKeyDraftTileY = -1;
+	pendingVisualKeyDraftTargetIndex = -1;
+	pendingVisualKeyDraftClassTier = -1;
 	resetCardState();
 
 	// --- MULTIPLAYER SYNC ---
@@ -5845,6 +5850,11 @@ void ofApp::initGameFromSeed(uint32_t seed) {
 	currentEffectSequence = EffectSequence();
 	isProcessingEffect = false;
 	isExecutingLockstepCommand = false;
+	pendingVisualKeyDraft = false;
+	pendingVisualKeyDraftTileX = -1;
+	pendingVisualKeyDraftTileY = -1;
+	pendingVisualKeyDraftTargetIndex = -1;
+	pendingVisualKeyDraftClassTier = -1;
 	resetCardState();
 
 	ofLogNotice("Network") << "Initializing multiplayer client game from seed: " << seed;
@@ -7514,6 +7524,9 @@ void ofApp::updateGame() {
 		float t = ofClamp(elapsed / anim.duration, 0.0f, 1.0f);
 		// Smooth the approach so the card doesn't appear to "snap" at the end.
 		float tSmooth = t * t * (3.0f - 2.0f * t); // smoothstep
+		// Use a separate scale curve that changes earlier during the flight so
+		// size transition is visible while moving (instead of mostly at landing).
+		float tScale = 1.0f - (1.0f - t) * (1.0f - t); // ease-out quad
 
 		// Visual-only draws are already in-hand; keep their animation target synced
 		// to the real slot so each card flies directly to its own destination.
@@ -7554,7 +7567,7 @@ void ofApp::updateGame() {
 		// Animate scale from deck size up to normal in-hand multiplier.
 		// NOTE: Draw code already bakes `kHandCardVisualScale` into base width/height,
 		// so in-hand cards should use multiplier 1.0f (not `kHandCardVisualScale` again).
-		anim.currentScale = ofLerp(anim.startScale, anim.endScale, tSmooth);
+		anim.currentScale = ofLerp(anim.startScale, anim.endScale, tScale);
 
 		// Keep fully opaque for clarity
 		anim.currentAlpha = 255.0f;
@@ -7797,8 +7810,36 @@ void ofApp::updateGame() {
 						int arrivedY = (int)std::round(arrivedGridF.y);
 						if (arrivedX >= 0 && arrivedX < BOARD_WIDTH && arrivedY >= 0 && arrivedY < BOARD_HEIGHT
 							&& animatingPlayerIndex >= 0 && animatingPlayerIndex < (int)players.size()) {
-							// Key pickup/draft trigger is resolved in lockstep command processing
-							// (CMD_MOVE_UNIT / effect ops). Do not trigger from visual animation.
+							if (pendingVisualKeyDraft
+								&& pendingVisualKeyDraftTileX == arrivedX
+								&& pendingVisualKeyDraftTileY == arrivedY
+								&& pendingVisualKeyDraftTargetIndex >= 0
+								&& pendingVisualKeyDraftTargetIndex < (int)players.size()) {
+								isInGameDraft = true;
+								inGameDraftTargetIdx = pendingVisualKeyDraftTargetIndex;
+								draftPlayerIndex = pendingVisualKeyDraftTargetIndex;
+								generateDraftOptions(pendingVisualKeyDraftClassTier);
+								draftPicksRemaining = 1;
+								selectedDraftIndices.clear();
+								currentState = STATE_DRAFTING;
+								resetDraftPhaseTimerWindow();
+								draftDisplayStartTime = ofGetElapsedTimef();
+								draftDisplayInteractiveEnabled = false;
+								draftAutoSelectedIndex = -1;
+
+								ofColor keyCol = ofColor::gold;
+								if (pendingVisualKeyDraftClassTier == 2)
+									keyCol = ofColor(192, 192, 192);
+								else if (pendingVisualKeyDraftClassTier == 1)
+									keyCol = ofColor(205, 127, 50);
+								queueFloatingTextVisual(gridToWorld(arrivedX, arrivedY), "Key Found!", keyCol);
+
+								pendingVisualKeyDraft = false;
+								pendingVisualKeyDraftTileX = -1;
+								pendingVisualKeyDraftTileY = -1;
+								pendingVisualKeyDraftTargetIndex = -1;
+								pendingVisualKeyDraftClassTier = -1;
+							}
 						}
 					}
 
@@ -15515,19 +15556,25 @@ void ofApp::mouseDragged(int x, int y, int button) {
 																									  : hoveredCardIndex;
 			if (sourceIndex < 0 || sourceIndex >= numCards) return;
 			Card & card = currentPlayer.hand[sourceIndex];
+			ofVec2f visualAnchor = card.currentPos;
+			// If the grabbed card is visually hovered (lifted), anchor drag from that
+			// displayed position so there is no initial cursor/card jump.
+			if (sourceIndex == hoveredCardIndex) {
+				visualAnchor.y += kHandHoverLiftPx;
+			}
 			ofRectangle hitRect = getHandCardRestRect(card, handBaseCardWidth, baseCardHeight);
 
 			// Set draggedCardIndex based on pressedCardIndex, OR check current position if no pressed index
 			if (pressedCardIndex != -1) {
 				// User pressed on a card, so initiate drag from that card
 				draggedCardIndex = sourceIndex;
-				dragOffset = ofVec2f(x, y) - card.currentPos;
+				dragOffset = ofVec2f(x, y) - visualAnchor;
 				ofLogNotice("CardDrag") << "Drag initiated from pressedCardIndex=" << sourceIndex << " name=" << card.name;
 			} else if (hitRect.inside((float)ofGetPreviousMouseX(), (float)ofGetPreviousMouseY())) {
 				// Fallback: check if previous position was in detection rect (for backwards compat)
 				draggedCardIndex = sourceIndex;
-				// Use currentPos to drag from the card's actual visual position (may be animating or scaled)
-				dragOffset = ofVec2f(x, y) - card.currentPos;
+				// Use visual anchor (includes hover lift) to avoid center snap.
+				dragOffset = ofVec2f(x, y) - visualAnchor;
 				ofLogNotice("CardDrag") << "Drag initiated from previous position, index=" << sourceIndex;
 			}
 		}
@@ -19617,11 +19664,98 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 		int moveCost = (path.size() > 1) ? (int)path.size() - 1 : 0;
 		int newAP = currentAP - moveCost;
 		if (newAP < 0) newAP = 0;
-		applyMovement(unitIndex, toX, toY, newAP, &path);
+
+		auto resolveKeyDraftTargetIndex = [&](int x, int y, int minionOwnerID, int preferredPlayerIndex) -> int {
+			int targetIndex = -1;
+			if (preferredPlayerIndex >= 0 && preferredPlayerIndex < (int)players.size()) {
+				targetIndex = preferredPlayerIndex;
+			}
+			if (targetIndex != -1 && (players[targetIndex].x != x || players[targetIndex].y != y)) {
+				targetIndex = -1;
+			}
+			if (targetIndex != -1 && !players[targetIndex].isMinion) {
+				targetIndex = -1;
+			}
+			for (int p = 0; p < (int)players.size(); ++p) {
+				if (targetIndex == -1 && players[p].isMinion && players[p].x == x && players[p].y == y) {
+					targetIndex = p;
+					break;
+				}
+			}
+			if (targetIndex == -1) {
+				for (int p = 0; p < (int)players.size(); ++p) {
+					if (!players[p].isMinion && players[p].playerID == minionOwnerID) {
+						targetIndex = p;
+						break;
+					}
+				}
+			}
+			return targetIndex;
+		};
+
+		// Consume key deterministically while traversing the authoritative path,
+		// but defer draft UI presentation until visual movement reaches that tile.
 		{
+			const int originalX = players[unitIndex].x;
+			const int originalY = players[unitIndex].y;
 			int ownerID = players[unitIndex].isMinion ? players[unitIndex].ownerID : players[unitIndex].playerID;
-			checkKeyPickupAndDraftAfterSummon(toX, toY, ownerID, unitIndex);
+			bool consumedKey = false;
+
+			if (path.size() > 1) {
+				for (size_t pi = 1; pi < path.size(); ++pi) {
+					int stepX = (int)path[pi].x;
+					int stepY = (int)path[pi].y;
+					players[unitIndex].x = stepX;
+					players[unitIndex].y = stepY;
+
+					for (int k = 0; k < (int)floatingKeyInstances.size(); ++k) {
+						if (floatingKeyInstances[k].pos.x == stepX && floatingKeyInstances[k].pos.y == stepY) {
+							int keySet = floatingKeyInstances[k].set;
+							int classToDraft = (keySet == 3) ? 1 : (keySet == 2) ? 2
+																				 : 3;
+							floatingKeyInstances.erase(floatingKeyInstances.begin() + k);
+
+							int targetIndex = resolveKeyDraftTargetIndex(stepX, stepY, ownerID, unitIndex);
+							if (targetIndex != -1) {
+								pendingVisualKeyDraft = true;
+								pendingVisualKeyDraftTileX = stepX;
+								pendingVisualKeyDraftTileY = stepY;
+								pendingVisualKeyDraftTargetIndex = targetIndex;
+								pendingVisualKeyDraftClassTier = classToDraft;
+							}
+							consumedKey = true;
+							break;
+						}
+					}
+
+					if (consumedKey) {
+						break; // one pickup is enough to trigger in-game key draft flow
+					}
+				}
+			} else {
+				for (int k = 0; k < (int)floatingKeyInstances.size(); ++k) {
+					if (floatingKeyInstances[k].pos.x == toX && floatingKeyInstances[k].pos.y == toY) {
+						int keySet = floatingKeyInstances[k].set;
+						int classToDraft = (keySet == 3) ? 1 : (keySet == 2) ? 2
+																			 : 3;
+						floatingKeyInstances.erase(floatingKeyInstances.begin() + k);
+						int targetIndex = resolveKeyDraftTargetIndex(toX, toY, ownerID, unitIndex);
+						if (targetIndex != -1) {
+							pendingVisualKeyDraft = true;
+							pendingVisualKeyDraftTileX = toX;
+							pendingVisualKeyDraftTileY = toY;
+							pendingVisualKeyDraftTargetIndex = targetIndex;
+							pendingVisualKeyDraftClassTier = classToDraft;
+						}
+						break;
+					}
+				}
+			}
+
+			players[unitIndex].x = originalX;
+			players[unitIndex].y = originalY;
 		}
+		applyMovement(unitIndex, toX, toY, newAP, &path);
 		if (!isMultiplayer || cmd.playerID == currentTurnOwnerID) {
 			markMeaningfulActionOnCurrentTurn();
 		}
@@ -28033,7 +28167,6 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 				// Red Highlight (Preview) for any adjacent tile to show range
 				if (dist == 1) {
 					isPreview = true;
-
 					// Green Highlight (Valid Target) ONLY if it is a wall
 					if (board[x][y].hasWall || meshHasWallAt(x, y)) {
 						isValidTarget = true;
@@ -28042,8 +28175,7 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 				break;
 			}
 
-				// --- FIXED SPELL RANGES (Magic Blast, Fireball, Jolt, Death, Heal) ---
-			case TARGET_LINE_OF_SIGHT_TILE: {
+			case TARGET_ANY_TILE: {
 				float maxRangeFeet;
 
 				// --- Determine Max Range based on current card/state ---
@@ -28053,14 +28185,13 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 				// Infinite Range Cards
 				else if (card.type == CARD_HEAL || card.type == CARD_DEATH || card.type == CARD_LESSER_HEAL || card.type == CARD_BURST_OF_LIGHT) {
 					maxRangeFeet = 9999.0f;
+				}
+				// Special-case Shoot Arrow: fixed max range = 2 * 20 = 40 ft
+				else if (card.type == CARD_SHOOT_ARROW) {
+					maxRangeFeet = 2.0f * 20.0f;
 				} else {
 					// Special-case Shoot Arrow: fixed max range = 2 * 20 = 40 ft
-					if (card.type == CARD_SHOOT_ARROW) {
-						maxRangeFeet = 2.0f * 20.0f;
-					} else {
-						// Default: Max potential roll (e.g. 1d20 -> 20ft)
-						maxRangeFeet = (float)(card.numDice * card.diceSides);
-					}
+					maxRangeFeet = (float)(card.numDice * card.diceSides);
 				}
 
 				TargetInfo info = isLosTargetValid(casterPos, targetPos, maxRangeFeet, card.type);
