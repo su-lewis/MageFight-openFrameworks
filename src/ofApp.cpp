@@ -1199,7 +1199,7 @@ static bool rebuildCardSpriteSheetFromTemplate(const std::string & templatePath,
 		allCardNames,
 		layout.nameRect,
 		layout.nameMinScale,
-		34.0f,
+		256.0f,
 		layout.nameCurveDropPx,
 		layout.nameMiddleClampXMin,
 		layout.nameMiddleClampXMax,
@@ -1793,8 +1793,7 @@ static bool rebuildCardSpriteSheetFromTemplate(const std::string & templatePath,
 			layout.effectLineSpacing,
 			ofColor(12, 12, 12, 255),
 			ofColor::black,
-			0,
-			true);
+			0);
 		ofPopStyle();
 		ofPopMatrix();
 	}
