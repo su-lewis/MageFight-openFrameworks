@@ -1199,7 +1199,7 @@ static bool rebuildCardSpriteSheetFromTemplate(const std::string & templatePath,
 		allCardNames,
 		layout.nameRect,
 		layout.nameMinScale,
-		28.0f,
+		34.0f,
 		layout.nameCurveDropPx,
 		layout.nameMiddleClampXMin,
 		layout.nameMiddleClampXMax,
@@ -5685,12 +5685,7 @@ void ofApp::setupGame() {
 	currentEffectSequence = EffectSequence();
 	isProcessingEffect = false;
 	isExecutingLockstepCommand = false;
-	pendingVisualKeyDraft = false;
-	pendingVisualKeyDraftTileX = -1;
-	pendingVisualKeyDraftTileY = -1;
-	pendingVisualKeyDraftTargetIndex = -1;
-	pendingVisualKeyDraftClassTier = -1;
-	pendingVisualKeyDraftPoolIndices = { -1, -1, -1 };
+	pendingVisualKeyDraftQueue.clear();
 	resetCardState();
 
 	// --- MULTIPLAYER SYNC ---
@@ -5851,12 +5846,7 @@ void ofApp::initGameFromSeed(uint32_t seed) {
 	currentEffectSequence = EffectSequence();
 	isProcessingEffect = false;
 	isExecutingLockstepCommand = false;
-	pendingVisualKeyDraft = false;
-	pendingVisualKeyDraftTileX = -1;
-	pendingVisualKeyDraftTileY = -1;
-	pendingVisualKeyDraftTargetIndex = -1;
-	pendingVisualKeyDraftClassTier = -1;
-	pendingVisualKeyDraftPoolIndices = { -1, -1, -1 };
+	pendingVisualKeyDraftQueue.clear();
 	resetCardState();
 
 	ofLogNotice("Network") << "Initializing multiplayer client game from seed: " << seed;
@@ -7812,19 +7802,22 @@ void ofApp::updateGame() {
 						int arrivedY = (int)std::round(arrivedGridF.y);
 						if (arrivedX >= 0 && arrivedX < BOARD_WIDTH && arrivedY >= 0 && arrivedY < BOARD_HEIGHT
 							&& animatingPlayerIndex >= 0 && animatingPlayerIndex < (int)players.size()) {
-							if (pendingVisualKeyDraft
-								&& pendingVisualKeyDraftTileX == arrivedX
-								&& pendingVisualKeyDraftTileY == arrivedY
-								&& pendingVisualKeyDraftTargetIndex >= 0
-								&& pendingVisualKeyDraftTargetIndex < (int)players.size()) {
+							if (!pendingVisualKeyDraftQueue.empty()
+								&& pendingVisualKeyDraftQueue.front().tileX == arrivedX
+								&& pendingVisualKeyDraftQueue.front().tileY == arrivedY
+								&& pendingVisualKeyDraftQueue.front().targetIndex >= 0
+								&& pendingVisualKeyDraftQueue.front().targetIndex < (int)players.size()) {
+								const PendingVisualKeyDraft draft = pendingVisualKeyDraftQueue.front();
+								pendingVisualKeyDraftQueue.erase(pendingVisualKeyDraftQueue.begin());
+
 								isInGameDraft = true;
-								inGameDraftTargetIdx = pendingVisualKeyDraftTargetIndex;
-								draftPlayerIndex = pendingVisualKeyDraftTargetIndex;
+								inGameDraftTargetIdx = draft.targetIndex;
+								draftPlayerIndex = draft.targetIndex;
 								std::vector<int> forcedIndices;
-								for (int idx : pendingVisualKeyDraftPoolIndices) {
+								for (int idx : draft.poolIndices) {
 									if (idx >= 0) forcedIndices.push_back(idx);
 								}
-								generateDraftOptions(pendingVisualKeyDraftClassTier, forcedIndices.empty() ? nullptr : &forcedIndices);
+								generateDraftOptions(draft.classTier, forcedIndices.empty() ? nullptr : &forcedIndices);
 								draftPicksRemaining = 1;
 								selectedDraftIndices.clear();
 								currentState = STATE_DRAFTING;
@@ -7834,18 +7827,11 @@ void ofApp::updateGame() {
 								draftAutoSelectedIndex = -1;
 
 								ofColor keyCol = ofColor::gold;
-								if (pendingVisualKeyDraftClassTier == 2)
+								if (draft.classTier == 2)
 									keyCol = ofColor(192, 192, 192);
-								else if (pendingVisualKeyDraftClassTier == 1)
+								else if (draft.classTier == 1)
 									keyCol = ofColor(205, 127, 50);
 								queueFloatingTextVisual(gridToWorld(arrivedX, arrivedY), "Key Found!", keyCol);
-
-								pendingVisualKeyDraft = false;
-								pendingVisualKeyDraftTileX = -1;
-								pendingVisualKeyDraftTileY = -1;
-								pendingVisualKeyDraftTargetIndex = -1;
-								pendingVisualKeyDraftClassTier = -1;
-								pendingVisualKeyDraftPoolIndices = { -1, -1, -1 };
 							}
 						}
 					}
@@ -19728,6 +19714,17 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 			return out;
 		};
 
+		auto enqueueVisualKeyDraft = [&](int tileX, int tileY, int keySet, int targetIndex) {
+			PendingVisualKeyDraft pending;
+			pending.tileX = tileX;
+			pending.tileY = tileY;
+			pending.targetIndex = targetIndex;
+			pending.classTier = (keySet == 3) ? 1 : (keySet == 2) ? 2
+																  : 3;
+			pending.poolIndices = computeDeterministicDraftIndices(pending.classTier, targetIndex);
+			pendingVisualKeyDraftQueue.push_back(pending);
+		};
+
 		// Consume key deterministically while traversing the authoritative path,
 		// but defer draft UI presentation until visual movement reaches that tile.
 		{
@@ -19743,46 +19740,31 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 					players[unitIndex].x = stepX;
 					players[unitIndex].y = stepY;
 
+					bool stepPickedKey = false;
 					for (int k = 0; k < (int)floatingKeyInstances.size(); ++k) {
 						if (floatingKeyInstances[k].pos.x == stepX && floatingKeyInstances[k].pos.y == stepY) {
 							int keySet = floatingKeyInstances[k].set;
-							int classToDraft = (keySet == 3) ? 1 : (keySet == 2) ? 2
-																				 : 3;
 							floatingKeyInstances.erase(floatingKeyInstances.begin() + k);
 
 							int targetIndex = resolveKeyDraftTargetIndex(stepX, stepY, ownerID, unitIndex);
 							if (targetIndex != -1) {
-								pendingVisualKeyDraft = true;
-								pendingVisualKeyDraftTileX = stepX;
-								pendingVisualKeyDraftTileY = stepY;
-								pendingVisualKeyDraftTargetIndex = targetIndex;
-								pendingVisualKeyDraftClassTier = classToDraft;
-								pendingVisualKeyDraftPoolIndices = computeDeterministicDraftIndices(classToDraft, targetIndex);
+								enqueueVisualKeyDraft(stepX, stepY, keySet, targetIndex);
 							}
-							consumedKey = true;
+							stepPickedKey = true;
 							break;
 						}
 					}
 
-					if (consumedKey) {
-						break; // one pickup is enough to trigger in-game key draft flow
-					}
+					(void)stepPickedKey;
 				}
 			} else {
 				for (int k = 0; k < (int)floatingKeyInstances.size(); ++k) {
 					if (floatingKeyInstances[k].pos.x == toX && floatingKeyInstances[k].pos.y == toY) {
 						int keySet = floatingKeyInstances[k].set;
-						int classToDraft = (keySet == 3) ? 1 : (keySet == 2) ? 2
-																			 : 3;
 						floatingKeyInstances.erase(floatingKeyInstances.begin() + k);
 						int targetIndex = resolveKeyDraftTargetIndex(toX, toY, ownerID, unitIndex);
 						if (targetIndex != -1) {
-							pendingVisualKeyDraft = true;
-							pendingVisualKeyDraftTileX = toX;
-							pendingVisualKeyDraftTileY = toY;
-							pendingVisualKeyDraftTargetIndex = targetIndex;
-							pendingVisualKeyDraftClassTier = classToDraft;
-							pendingVisualKeyDraftPoolIndices = computeDeterministicDraftIndices(classToDraft, targetIndex);
+							enqueueVisualKeyDraft(toX, toY, keySet, targetIndex);
 						}
 						break;
 					}

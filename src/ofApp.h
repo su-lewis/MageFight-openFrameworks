@@ -1336,15 +1336,17 @@ private:
 	bool draftDisplayInteractiveEnabled = true; // Can click draft options?
 	int draftAutoSelectedIndex = -1; // Which option was RNG-selected (for visual feedback)
 
-	// Visual-deferred key draft trigger: deterministic pickup is resolved during
-	// command execution, but the draft UI opens when the moving unit visually
-	// reaches the key tile.
-	bool pendingVisualKeyDraft = false;
-	int pendingVisualKeyDraftTileX = -1;
-	int pendingVisualKeyDraftTileY = -1;
-	int pendingVisualKeyDraftTargetIndex = -1;
-	int pendingVisualKeyDraftClassTier = -1;
-	std::array<int, 3> pendingVisualKeyDraftPoolIndices = { -1, -1, -1 };
+	// Visual-deferred key draft queue: key pickups are consumed during command
+	// execution, but each draft UI opens when the moving unit visually reaches
+	// the corresponding key tile.
+	struct PendingVisualKeyDraft {
+		int tileX = -1;
+		int tileY = -1;
+		int targetIndex = -1;
+		int classTier = -1;
+		std::array<int, 3> poolIndices = { -1, -1, -1 };
+	};
+	std::vector<PendingVisualKeyDraft> pendingVisualKeyDraftQueue;
 
 	// Helpers
 	void startShuffleVisual(int playerIndex, float delaySeconds = 0.0f);
