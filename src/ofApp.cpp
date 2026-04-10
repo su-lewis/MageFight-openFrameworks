@@ -15519,13 +15519,13 @@ void ofApp::mouseDragged(int x, int y, int button) {
 			if (pressedCardIndex != -1) {
 				// User pressed on a card, so initiate drag from that card
 				draggedCardIndex = sourceIndex;
-				dragOffset = ofVec2f(x, y) - card.targetPos;
+				dragOffset = ofVec2f(x, y) - card.currentPos;
 				ofLogNotice("CardDrag") << "Drag initiated from pressedCardIndex=" << sourceIndex << " name=" << card.name;
 			} else if (hitRect.inside((float)ofGetPreviousMouseX(), (float)ofGetPreviousMouseY())) {
 				// Fallback: check if previous position was in detection rect (for backwards compat)
 				draggedCardIndex = sourceIndex;
-				// Use targetPos to maintain consistent drag offset (card may be animating to this position)
-				dragOffset = ofVec2f(x, y) - card.targetPos;
+				// Use currentPos to drag from the card's actual visual position (may be animating or scaled)
+				dragOffset = ofVec2f(x, y) - card.currentPos;
 				ofLogNotice("CardDrag") << "Drag initiated from previous position, index=" << sourceIndex;
 			}
 		}
@@ -19277,6 +19277,20 @@ void ofApp::drawCard(bool sendPacket) {
 //==============================================================================================
 
 void ofApp::queueInputCommand(const InputCommandPacket & cmd) {
+	auto makeCommandKey = [](const InputCommandPacket & c) -> uint64_t {
+		return (uint64_t(c.playerID) << 32) | uint64_t(c.commandId);
+	};
+	const uint64_t key = makeCommandKey(cmd);
+
+	if (executedCommandKeys.find(key) != executedCommandKeys.end()) {
+		ofLogNotice("Lockstep") << "Dropped already-executed InputCommand: id=" << cmd.commandId << " player=" << cmd.playerID;
+		return;
+	}
+	if (queuedCommandKeys.find(key) != queuedCommandKeys.end()) {
+		ofLogNotice("Lockstep") << "Dropped duplicate queued InputCommand: id=" << cmd.commandId << " player=" << cmd.playerID;
+		return;
+	}
+
 	// Insert command in deterministic order by commandId
 	auto it = std::lower_bound(commandQueue.begin(), commandQueue.end(), cmd,
 		[](const InputCommandPacket & a, const InputCommandPacket & b) {
@@ -19284,6 +19298,7 @@ void ofApp::queueInputCommand(const InputCommandPacket & cmd) {
 			return a.playerID < b.playerID;
 		});
 	commandQueue.insert(it, cmd);
+	queuedCommandKeys.insert(key);
 	ofLogNotice("Lockstep") << "Queued InputCommand: id=" << cmd.commandId << " type=" << cmd.commandType << " params=(" << cmd.params[0] << "," << cmd.params[1] << "," << cmd.params[2] << "," << cmd.params[3] << ")";
 }
 
@@ -19339,10 +19354,19 @@ void ofApp::processCommandQueue() {
 		InputCommandPacket cmd = commandQueue.front();
 		commandQueue.erase(commandQueue.begin());
 
+		const uint64_t key = (uint64_t(cmd.playerID) << 32) | uint64_t(cmd.commandId);
+		queuedCommandKeys.erase(key);
+		if (executedCommandKeys.find(key) != executedCommandKeys.end()) {
+			ofLogNotice("Lockstep") << "Skipping duplicate execution of InputCommand: id=" << cmd.commandId << " player=" << cmd.playerID;
+			continue;
+		}
+
 		bool prevExecuting = isExecutingLockstepCommand;
 		isExecutingLockstepCommand = true;
 
 		executeInputCommand(cmd); // Execute the command
+		executedCommandKeys.insert(key);
+		lastProcessedCommandId = cmd.commandId;
 
 		isExecutingLockstepCommand = prevExecuting;
 	}
@@ -19690,8 +19714,17 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 		if (menuType == CARD_TELEPORT) {
 			int destX = targetIndex;
 			int destY = choice;
-			if (currentPlayerIndex < 0 || currentPlayerIndex >= (int)players.size()) break;
-			if (destX < 0 || destX >= BOARD_WIDTH || destY < 0 || destY >= BOARD_HEIGHT) break;
+			if (currentPlayerIndex < 0 || currentPlayerIndex >= (int)players.size()) {
+				resetCardInteraction();
+				advanceCardState(CARD_STATE_FINISHED);
+				break;
+			}
+			if (destX < 0 || destX >= BOARD_WIDTH || destY < 0 || destY >= BOARD_HEIGHT) {
+				ofLogWarning("Teleport") << "CMD_MENU_CHOICE teleport rejected: destination out of bounds.";
+				resetCardInteraction();
+				advanceCardState(CARD_STATE_FINISHED);
+				break;
+			}
 
 			Player & tpCaster = players[currentPlayerIndex];
 			glm::vec2 casterTile = { (float)tpCaster.x, (float)tpCaster.y };
@@ -19706,6 +19739,8 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 
 			if (!(inRange && canOccupy)) {
 				ofLogWarning("Teleport") << "CMD_MENU_CHOICE teleport rejected: invalid destination (range/occupancy).";
+				resetCardInteraction();
+				advanceCardState(CARD_STATE_FINISHED);
 				break;
 			}
 
@@ -20339,12 +20374,15 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 
 void ofApp::beginEffectSequence() {
 	if (isProcessingEffect) return;
-	if (currentEffectSequence.ops.empty()) {
+
+	// If the previous sequence is completed/exhausted, wipe it so stale ops
+	// cannot replay when starting a new card or turn-start effect sequence.
+	if (currentEffectSequence.isComplete || currentEffectSequence.currentOp >= currentEffectSequence.ops.size()) {
 		currentEffectSequence = EffectSequence();
-	} else {
-		currentEffectSequence.currentOp = 0;
-		currentEffectSequence.isComplete = false;
 	}
+
+	currentEffectSequence.currentOp = 0;
+	currentEffectSequence.isComplete = false;
 	isProcessingEffect = true;
 }
 

@@ -1898,6 +1898,8 @@ private:
 
 	// Command queue for deterministic input processing
 	std::vector<InputCommandPacket> commandQueue;
+	std::unordered_set<uint64_t> queuedCommandKeys;
+	std::unordered_set<uint64_t> executedCommandKeys;
 	uint32_t nextCommandId = 1;
 	uint32_t lastProcessedCommandId = 0;
 	int lastTurnStartSentPlayer = -1;
