@@ -245,6 +245,28 @@ static ofRectangle getHandCardRestRect(const Card & card, float baseCardW, float
 	return ofRectangle(card.targetPos.x - baseCardW * 0.5f, card.targetPos.y - baseCardH * 0.5f, baseCardW, baseCardH);
 }
 
+static void drawCardSpriteSubsectionSafe(ofImage & spriteSheet,
+	float dstX,
+	float dstY,
+	float dstW,
+	float dstH,
+	float srcX,
+	float srcY,
+	float srcW,
+	float srcH) {
+	// Atlas bleed guard: use a small inset on all sides, with an extra right-edge
+	// inset because the reported artifact appears on the right boundary.
+	const float insetLeft = std::min(0.75f, std::max(0.0f, srcW * 0.01f));
+	const float insetTop = std::min(0.75f, std::max(0.0f, srcH * 0.01f));
+	const float insetRight = std::min(1.75f, std::max(0.0f, srcW * 0.02f));
+	const float insetBottom = std::min(0.75f, std::max(0.0f, srcH * 0.01f));
+	const float safeSrcX = srcX + insetLeft;
+	const float safeSrcY = srcY + insetTop;
+	const float safeSrcW = std::max(1.0f, srcW - insetLeft - insetRight);
+	const float safeSrcH = std::max(1.0f, srcH - insetTop - insetBottom);
+	spriteSheet.drawSubsection(dstX, dstY, dstW, dstH, safeSrcX, safeSrcY, safeSrcW, safeSrcH);
+}
+
 struct CardTemplateRecord {
 	std::string name;
 	int index = -1; // numeric index parsed from markdown heading (e.g., '## 4. Bash')
@@ -2838,7 +2860,7 @@ void ofApp::drawMinionCard(int minionIndex, int ownerIndex) {
 	sendInputCommand(cmd, true);
 }
 
-void ofApp::checkKeyPickupAndDraftAfterSummon(int x, int y, int minionOwnerID) {
+void ofApp::checkKeyPickupAndDraftAfterSummon(int x, int y, int minionOwnerID, int preferredPlayerIndex) {
 	// Run on both host and client: both peers should generate draft options
 	// deterministically when a key is picked up. The host may still send a
 	// KeyPickupPacket for legacy / analytic purposes, but it is not required
@@ -2851,8 +2873,27 @@ void ofApp::checkKeyPickupAndDraftAfterSummon(int x, int y, int minionOwnerID) {
 																 : 3;
 
 			int targetIndex = -1;
+
+			// Prefer the authoritative actor index when the caller has it
+			// (e.g. movement animation/effect processing). This avoids selecting
+			// the owner/main player when tile occupancy is transient.
+			if (preferredPlayerIndex >= 0 && preferredPlayerIndex < (int)players.size()) {
+				targetIndex = preferredPlayerIndex;
+			}
+
+			if (targetIndex != -1 && (players[targetIndex].x != x || players[targetIndex].y != y)) {
+				// If caller-provided index doesn't match pickup tile, ignore it.
+				targetIndex = -1;
+			}
+
+			if (targetIndex != -1 && !players[targetIndex].isMinion) {
+				// For this flow, drafted cards should go to the unit that picked up
+				// the key. If caller points to a non-minion, fall back to tile scan.
+				targetIndex = -1;
+			}
+
 			for (int p = 0; p < (int)players.size(); ++p) {
-				if (players[p].isMinion && players[p].x == x && players[p].y == y) {
+				if (targetIndex == -1 && players[p].isMinion && players[p].x == x && players[p].y == y) {
 					targetIndex = p;
 					break;
 				}
@@ -2879,6 +2920,9 @@ void ofApp::checkKeyPickupAndDraftAfterSummon(int x, int y, int minionOwnerID) {
 				selectedDraftIndices.clear();
 				currentState = STATE_DRAFTING;
 				resetDraftPhaseTimerWindow();
+				draftDisplayStartTime = ofGetElapsedTimef();
+				draftDisplayInteractiveEnabled = false;
+				draftAutoSelectedIndex = -1;
 
 				// In-game key drafts should not pause the active player's turn timer.
 
@@ -3251,7 +3295,11 @@ void ofApp::setup() {
 	cardBackImage.load("UI/card_back.png");
 	// Pixel-art UI assets: use nearest filtering to keep them crisp when scaled
 	if (cardBackImage.isAllocated()) cardBackImage.getTexture().setTextureMinMagFilter(GL_NEAREST, GL_NEAREST);
-	if (cardSpriteSheet.isAllocated()) cardSpriteSheet.getTexture().setTextureMinMagFilter(GL_NEAREST, GL_NEAREST);
+	if (cardBackImage.isAllocated()) cardBackImage.getTexture().setTextureWrap(GL_CLAMP_TO_EDGE, GL_CLAMP_TO_EDGE);
+	if (cardSpriteSheet.isAllocated()) {
+		cardSpriteSheet.getTexture().setTextureMinMagFilter(GL_NEAREST, GL_NEAREST);
+		cardSpriteSheet.getTexture().setTextureWrap(GL_CLAMP_TO_EDGE, GL_CLAMP_TO_EDGE);
+	}
 
 	// Load main menu music (data path: bin/data/Sounds/Music/...)
 	mainMenuMusic.load("Sounds/Music/591981__fromlorenzo__the-last-standing-warrior.wav");
@@ -4615,18 +4663,15 @@ void ofApp::beginInitiativeDrafting(int winnerIndex) {
 //--------------------------------------------------------------
 // Start a visual shuffle animation for the given player's deck
 void ofApp::startShuffleVisual(int playerIndex, float delaySeconds) {
+	if (playerIndex < 0 || playerIndex >= (int)players.size()) return;
+
 	ShuffleAnimation anim;
 	anim.playerIndex = playerIndex;
-	// Only show the visual shuffle for the two main player decks here.
-	// Minions create their own ShuffleAnimation with a correct `deckRect`.
-	if (playerIndex == 0) {
-		anim.deckRect = p0_deckRect;
-	} else if (playerIndex == 1) {
-		anim.deckRect = p1_deckRect;
+	int ownerID = players[playerIndex].playerID;
+	if (isMultiplayer) {
+		anim.deckRect = (ownerID == myLocalPlayerID) ? p0_deckRect : p1_deckRect;
 	} else {
-		// Don't enqueue a generic shuffle visual for non-player actors
-		// (minions already spawn their own visual when appropriate).
-		return;
+		anim.deckRect = (ownerID == 0) ? p0_deckRect : p1_deckRect;
 	}
 	anim.startTime = ofGetElapsedTimef() + delaySeconds;
 	anim.duration = 0.9f;
@@ -6153,62 +6198,6 @@ void ofApp::updateGame() {
 	}
 	// --- END MINION UI REBUILD ---
 
-	// If a key-pickup-by-summon was detected earlier, trigger the draft only after
-	// (a) any summon HP/UI dice have finished and (b) a tiny delay so the minion UI
-	// is actually visible on-screen. This prevents the draft menu from appearing
-	// before the summoned minion's HP/UI shows up.
-	{
-		const float KEY_DRAFT_UI_DELAY = 0.03f; // seconds (≈ one frame)
-		// Wait until any effect processing for summoned minion visuals completes
-		if (networkPending.keyDraftAccept && (ofGetElapsedTimef() - networkPending.keyDraftTriggerTime) >= KEY_DRAFT_UI_DELAY && !isProcessingEffect) {
-			// Diagnostic: remap stable playerID -> current actor index (handles players[] reordering)
-			int resolvedIdx = -1;
-			if (networkPending.keyDraftPlayerID >= 0) {
-				for (int i = 0; i < (int)players.size(); ++i) {
-					if (players[i].playerID == networkPending.keyDraftPlayerID) {
-						resolvedIdx = i;
-						break;
-					}
-				}
-			}
-			if (resolvedIdx == -1) resolvedIdx = networkPending.keyDraftPlayer; // fallback to previous index
-			if (resolvedIdx >= 0 && resolvedIdx < (int)players.size()) {
-				ofLogNotice("Key") << "Triggering delayed draft: resolvedIdx=" << resolvedIdx
-								   << " isMinion=" << players[resolvedIdx].isMinion
-								   << " ownerID=" << players[resolvedIdx].ownerID
-								   << " playerID=" << players[resolvedIdx].playerID
-								   << " pendingPlayerID=" << networkPending.keyDraftPlayerID;
-			} else {
-				ofLogNotice("Key") << "Triggering delayed draft: resolvedIdx=" << resolvedIdx << " (out of range) pendingPlayerID=" << networkPending.keyDraftPlayerID;
-			}
-			isInGameDraft = true;
-			draftPlayerIndex = resolvedIdx;
-			// Only generate options here if we haven't already received them from the Host
-			if (!(isMultiplayer && isClient() && !draftOptions.empty())) {
-				generateDraftOptions(networkPending.keyDraftClass);
-			}
-			draftPicksRemaining = 1;
-			// Preserve any locally-pending draft toggles: none (resend/ACK logic removed)
-			selectedDraftIndices.clear();
-
-			// In-game key drafts should not pause the active player's turn timer.
-			currentState = STATE_DRAFTING;
-			resetDraftPhaseTimerWindow();
-			draftDisplayStartTime = ofGetElapsedTimef();
-			draftDisplayInteractiveEnabled = false;
-			draftAutoSelectedIndex = -1;
-			// clear pending (but keep keyX/keyY for Accept remapping)
-			networkPending.keyDraftAccept = false;
-			networkPending.keyDraftPlayer = -1;
-			networkPending.keyDraftPlayerID = -1;
-			// DON'T clear networkPending.keyDraftKeyX/Y yet - client needs them to remap forwarded Accept
-			// They'll be cleared when Accept is processed or draft ends
-			networkPending.keyDraftClass = 0;
-			networkPending.keyDraftTriggerTime = 0.0f;
-			ofLogNotice("Key") << "Triggering delayed draft for player=" << draftPlayerIndex << " class=" << networkPending.keyDraftClass;
-		}
-	}
-
 	// In-game draft intro: temporarily non-interactive, then enable selection.
 	if (currentState == STATE_DRAFTING && isInGameDraft && !draftDisplayInteractiveEnabled) {
 		if (draftDisplayStartTime <= 0.0f || (ofGetElapsedTimef() - draftDisplayStartTime) >= draftDisplayDuration) {
@@ -6904,7 +6893,7 @@ void ofApp::updateGame() {
 								if (earthquakeUnits[i].playerIndex >= 0 && earthquakeUnits[i].playerIndex < (int)players.size()) {
 									// FIX: Pass the non-minion owner ID so the draft successfully opens for the player
 									int pid = players[earthquakeUnits[i].playerIndex].isMinion ? players[earthquakeUnits[i].playerIndex].ownerID : players[earthquakeUnits[i].playerIndex].playerID;
-									checkKeyPickupAndDraftAfterSummon(tx, ty, pid);
+									checkKeyPickupAndDraftAfterSummon(tx, ty, pid, earthquakeUnits[i].playerIndex);
 								}
 								break; // key handled (helper erases instance)
 							}
@@ -6967,7 +6956,7 @@ void ofApp::updateGame() {
 						if (unit.playerIndex >= 0 && unit.playerIndex < (int)players.size()) {
 							// FIX: Pass the non-minion owner ID so the draft successfully opens for the player
 							int pid = players[unit.playerIndex].isMinion ? players[unit.playerIndex].ownerID : players[unit.playerIndex].playerID;
-							checkKeyPickupAndDraftAfterSummon(unit.startGrid.x, unit.startGrid.y, pid);
+							checkKeyPickupAndDraftAfterSummon(unit.startGrid.x, unit.startGrid.y, pid, unit.playerIndex);
 						}
 
 						if (unit.tilesToMove > 0)
@@ -7808,14 +7797,8 @@ void ofApp::updateGame() {
 						int arrivedY = (int)std::round(arrivedGridF.y);
 						if (arrivedX >= 0 && arrivedX < BOARD_WIDTH && arrivedY >= 0 && arrivedY < BOARD_HEIGHT
 							&& animatingPlayerIndex >= 0 && animatingPlayerIndex < (int)players.size()) {
-							int ownerID = players[animatingPlayerIndex].isMinion ? players[animatingPlayerIndex].ownerID : players[animatingPlayerIndex].playerID;
-							checkKeyPickupAndDraftAfterSummon(arrivedX, arrivedY, ownerID);
-
-							if (isInGameDraft) {
-								draftDisplayStartTime = ofGetElapsedTimef();
-								draftDisplayInteractiveEnabled = false;
-								draftAutoSelectedIndex = -1;
-							}
+							// Key pickup/draft trigger is resolved in lockstep command processing
+							// (CMD_MOVE_UNIT / effect ops). Do not trigger from visual animation.
 						}
 					}
 
@@ -7846,15 +7829,8 @@ void ofApp::updateGame() {
 
 							// Key pickup: trigger draft after movement animation completes visually
 							if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) {
-								int ownerID = players[currentPlayerIndex].isMinion ? players[currentPlayerIndex].ownerID : players[currentPlayerIndex].playerID;
-								checkKeyPickupAndDraftAfterSummon(players[currentPlayerIndex].x, players[currentPlayerIndex].y, ownerID);
-
-								// If draft was triggered, initialize display mode (non-interactive for 1 second)
-								if (isInGameDraft) {
-									draftDisplayStartTime = ofGetElapsedTimef();
-									draftDisplayInteractiveEnabled = false;
-									draftAutoSelectedIndex = -1;
-								}
+								// Key pickup/draft trigger is resolved in lockstep command processing
+								// (CMD_MOVE_UNIT / effect ops). Do not trigger from visual animation.
 							}
 						}
 					}
@@ -10795,7 +10771,7 @@ void ofApp::drawGame() {
 		if (!localPlayer->discardPile.empty()) {
 			ofSetColor(ofColor::white);
 			const auto & discardRect = localPlayer->discardPile.back().textureRect;
-			cardSpriteSheet.drawSubsection(p0_discardRect.x, p0_discardRect.y, p0_discardRect.width, p0_discardRect.height,
+			drawCardSpriteSubsectionSafe(cardSpriteSheet, p0_discardRect.x, p0_discardRect.y, p0_discardRect.width, p0_discardRect.height,
 				discardRect.x, discardRect.y, discardRect.width, discardRect.height);
 		} else {
 			ofSetColor(0, 0, 0, 150);
@@ -10827,7 +10803,7 @@ void ofApp::drawGame() {
 		if (!opponentPlayer->discardPile.empty()) {
 			ofSetColor(ofColor::white);
 			const auto & discardRect = opponentPlayer->discardPile.back().textureRect;
-			cardSpriteSheet.drawSubsection(p1_discardRect.x, p1_discardRect.y, p1_discardRect.width, p1_discardRect.height,
+			drawCardSpriteSubsectionSafe(cardSpriteSheet, p1_discardRect.x, p1_discardRect.y, p1_discardRect.width, p1_discardRect.height,
 				discardRect.x, discardRect.y, discardRect.width, discardRect.height);
 		} else {
 			ofSetColor(0, 0, 0, 150);
@@ -11573,7 +11549,7 @@ void ofApp::drawGame() {
 				ofSetColor(255); // Normal
 			}
 
-			cardSpriteSheet.drawSubsection(drawX, drawY, w, h, card.textureRect.x, card.textureRect.y, card.textureRect.width, card.textureRect.height);
+			drawCardSpriteSubsectionSafe(cardSpriteSheet, drawX, drawY, w, h, card.textureRect.x, card.textureRect.y, card.textureRect.width, card.textureRect.height);
 
 			// Draw hover glow (white for local, red for opponent)
 			if (localHoverType == HOVER_HAND_CARD && localHoverCardIndex == index) {
@@ -11669,7 +11645,7 @@ void ofApp::drawGame() {
 
 				// Draw the card face
 				ofSetColor(255);
-				cardSpriteSheet.drawSubsection(drawX, drawY, w, h,
+				drawCardSpriteSubsectionSafe(cardSpriteSheet, drawX, drawY, w, h,
 					card.textureRect.x, card.textureRect.y, card.textureRect.width, card.textureRect.height);
 
 				// Draw hover glow if opponent is hovering this card
@@ -11825,7 +11801,7 @@ void ofApp::drawGame() {
 				float drawX = startX + panelPadding + col * (viewCardWidth + padding);
 				float drawY = startY + row * (viewCardHeight + padding);
 				const Card & card = cardsToShowInView[i];
-				cardSpriteSheet.drawSubsection(drawX, drawY, viewCardWidth, viewCardHeight, card.textureRect.x, card.textureRect.y, card.textureRect.width, card.textureRect.height);
+				drawCardSpriteSubsectionSafe(cardSpriteSheet, drawX, drawY, viewCardWidth, viewCardHeight, card.textureRect.x, card.textureRect.y, card.textureRect.width, card.textureRect.height);
 			}
 		} else {
 			// If the pile is empty, ensure the view is hidden
@@ -11850,7 +11826,7 @@ void ofApp::drawGame() {
 		float h = baseCardHeight * anim.currentScale;
 		float drawX = anim.currentPos.x - w / 2;
 		float drawY = anim.currentPos.y - h / 2;
-		cardSpriteSheet.drawSubsection(drawX, drawY, w, h,
+		drawCardSpriteSubsectionSafe(cardSpriteSheet, drawX, drawY, w, h,
 			anim.card.textureRect.x, anim.card.textureRect.y,
 			anim.card.textureRect.width, anim.card.textureRect.height);
 		ofPopStyle();
@@ -11866,7 +11842,7 @@ void ofApp::drawGame() {
 		float h = animCardBaseHeight * anim.currentScale;
 		float drawX = anim.currentPos.x - w / 2;
 		float drawY = anim.currentPos.y - h / 2;
-		cardSpriteSheet.drawSubsection(drawX, drawY, w, h,
+		drawCardSpriteSubsectionSafe(cardSpriteSheet, drawX, drawY, w, h,
 			anim.card.textureRect.x, anim.card.textureRect.y,
 			anim.card.textureRect.width, anim.card.textureRect.height);
 		ofPopStyle();
@@ -11876,7 +11852,7 @@ void ofApp::drawGame() {
 		ofSetColor(255, anim.currentAlpha);
 		float w = animCardBaseWidth * anim.currentScale;
 		float h = animCardBaseHeight * anim.currentScale;
-		cardSpriteSheet.drawSubsection(anim.currentPos.x - w / 2, anim.currentPos.y - h / 2, w, h,
+		drawCardSpriteSubsectionSafe(cardSpriteSheet, anim.currentPos.x - w / 2, anim.currentPos.y - h / 2, w, h,
 			anim.card.textureRect.x, anim.card.textureRect.y,
 			anim.card.textureRect.width, anim.card.textureRect.height);
 	}
@@ -11886,7 +11862,7 @@ void ofApp::drawGame() {
 		ofSetColor(255, anim.currentAlpha);
 		float w = animCardBaseWidth * anim.currentScale;
 		float h = animCardBaseHeight * anim.currentScale;
-		cardSpriteSheet.drawSubsection(anim.pos.x - w / 2, anim.pos.y - h / 2, w, h,
+		drawCardSpriteSubsectionSafe(cardSpriteSheet, anim.pos.x - w / 2, anim.pos.y - h / 2, w, h,
 			anim.card.textureRect.x, anim.card.textureRect.y,
 			anim.card.textureRect.width, anim.card.textureRect.height);
 	}
@@ -11896,7 +11872,7 @@ void ofApp::drawGame() {
 		ofSetColor(255, anim.currentAlpha);
 		float w = animCardBaseWidth * anim.currentScale;
 		float h = animCardBaseHeight * anim.currentScale;
-		cardSpriteSheet.drawSubsection(anim.startPos.x - w / 2, anim.startPos.y - h / 2, w, h,
+		drawCardSpriteSubsectionSafe(cardSpriteSheet, anim.startPos.x - w / 2, anim.startPos.y - h / 2, w, h,
 			anim.card.textureRect.x, anim.card.textureRect.y,
 			anim.card.textureRect.width, anim.card.textureRect.height);
 	}
@@ -11906,7 +11882,7 @@ void ofApp::drawGame() {
 		ofSetColor(255, disp.currentAlpha);
 		float w = animCardBaseWidth * disp.currentScale;
 		float h = animCardBaseHeight * disp.currentScale;
-		cardSpriteSheet.drawSubsection(disp.currentPos.x - w / 2, disp.currentPos.y - h / 2, w, h,
+		drawCardSpriteSubsectionSafe(cardSpriteSheet, disp.currentPos.x - w / 2, disp.currentPos.y - h / 2, w, h,
 			disp.card.textureRect.x, disp.card.textureRect.y,
 			disp.card.textureRect.width, disp.card.textureRect.height);
 	}
@@ -18878,7 +18854,7 @@ void ofApp::drawActiveCardInteractionUI() {
 					float drawX = panelX + panelPadding + col * (viewCardWidth + padding);
 					float drawY = panelY + panelPadding + titleHeight + row * (viewCardHeight + padding);
 					const Card & card = amnesiaDeckCopy[i];
-					cardSpriteSheet.drawSubsection(drawX, drawY, viewCardWidth, viewCardHeight, card.textureRect.x, card.textureRect.y, card.textureRect.width, card.textureRect.height);
+					drawCardSpriteSubsectionSafe(cardSpriteSheet, drawX, drawY, viewCardWidth, viewCardHeight, card.textureRect.x, card.textureRect.y, card.textureRect.width, card.textureRect.height);
 
 					bool isSelected = false;
 					for (int selectedIdx : amnesiaSelectedIndices) {
@@ -19642,6 +19618,10 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 		int newAP = currentAP - moveCost;
 		if (newAP < 0) newAP = 0;
 		applyMovement(unitIndex, toX, toY, newAP, &path);
+		{
+			int ownerID = players[unitIndex].isMinion ? players[unitIndex].ownerID : players[unitIndex].playerID;
+			checkKeyPickupAndDraftAfterSummon(toX, toY, ownerID, unitIndex);
+		}
 		if (!isMultiplayer || cmd.playerID == currentTurnOwnerID) {
 			markMeaningfulActionOnCurrentTurn();
 		}
@@ -19938,12 +19918,12 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 
 		// Schedule visual shuffle and animations consistent with click-path timing
 		float cardAnimDuration = draftAnimHoldDuration + 0.35f;
-		if (cmdDraftPlayerIdx == 0 || cmdDraftPlayerIdx == 1) {
+		bool targetIsMinion = (cmdDraftPlayerIdx >= 0 && cmdDraftPlayerIdx < (int)players.size() && players[cmdDraftPlayerIdx].isMinion);
+		if (!targetIsMinion) {
 			startShuffleVisual(cmdDraftPlayerIdx, cardAnimDuration);
 		}
 
 		// Minion-specific shuffle visual (as done in click handler)
-		bool targetIsMinion = (cmdDraftPlayerIdx >= 0 && cmdDraftPlayerIdx < (int)players.size() && players[cmdDraftPlayerIdx].isMinion);
 		if (targetIsMinion) {
 			ShuffleAnimation s;
 			s.playerIndex = cmdDraftPlayerIdx;
@@ -20654,7 +20634,7 @@ bool ofApp::processEffectOp(EffectOp & op) {
 			if (uidx == currentPlayerIndex) playerVisualPos = gridToWorld(p.x, p.y);
 			queueFloatingTextVisual(gridToWorld(p.x, p.y), "Teleport!", ofColor::cyan);
 			// Host (or singleplayer) should check for key pickup/draft aftermath
-			checkKeyPickupAndDraftAfterSummon(p.x, p.y, p.ownerID);
+			checkKeyPickupAndDraftAfterSummon(p.x, p.y, p.ownerID, uidx);
 		}
 		opComplete = true;
 		break;
@@ -22650,6 +22630,9 @@ bool ofApp::processEffectOp(EffectOp & op) {
 				Player * spawned = spawnMinionDeterministically(sk, tx, ty, op.data.spawnUnit.ownerPlayerID, maxHP, ap, summonerID);
 				if (spawned) {
 					int newIdx = findPlayerIndexByID(spawned->playerID);
+					// Deterministic key pickup check for spawn-on-key scenarios
+					// (e.g., Raise Dead / Call for Wolves spawning directly on a key tile).
+					checkKeyPickupAndDraftAfterSummon(tx, ty, spawned->ownerID, newIdx);
 					// Resolve targetIndex = -1 for subsequent ADD_CARD_TO_DECK ops to apply to this specific minion
 					for (size_t i = currentEffectSequence.currentOp + 1; i < currentEffectSequence.ops.size(); ++i) {
 						if (currentEffectSequence.ops[i].type == EffectOpType::ADD_CARD_TO_DECK && currentEffectSequence.ops[i].data.addCard.targetIndex == -1) {
@@ -30590,7 +30573,7 @@ void ofApp::drawCardEncyclopediaUI() {
 
 				// Draw card art
 				ofSetColor(255);
-				cardSpriteSheet.drawSubsection(drawX, drawY, thisCardW, thisCardH,
+				drawCardSpriteSubsectionSafe(cardSpriteSheet, drawX, drawY, thisCardW, thisCardH,
 					card.textureRect.x, card.textureRect.y,
 					card.textureRect.width, card.textureRect.height);
 
@@ -32345,6 +32328,7 @@ void ofApp::loadCardData(const std::string & filePath) {
 	const std::string cardTemplatePath = findCardTemplatePath();
 	if (rebuildCardSpriteSheetFromTemplate(cardTemplatePath, "UI/cards.md", allCards, titleFont, uiFont, cardSpriteSheet)) {
 		cardSpriteSheet.getTexture().setTextureMinMagFilter(GL_NEAREST, GL_NEAREST);
+		cardSpriteSheet.getTexture().setTextureWrap(GL_CLAMP_TO_EDGE, GL_CLAMP_TO_EDGE);
 		ofLogNotice("Cards") << "Using runtime template-generated card sheet from " << cardTemplatePath << " + UI/cards.md";
 	} else {
 		ofLogWarning("Cards") << "Template text generation failed; keeping base template image " << cardTemplatePath;
@@ -33671,7 +33655,7 @@ void ofApp::drawDraftScreen() {
 
 		// Draw Card Sprite scaled
 		ofSetColor(255);
-		cardSpriteSheet.drawSubsection(drawX, drawY, w, h,
+		drawCardSpriteSubsectionSafe(cardSpriteSheet, drawX, drawY, w, h,
 			draftOptions[i].textureRect.x, draftOptions[i].textureRect.y,
 			draftOptions[i].textureRect.width, draftOptions[i].textureRect.height);
 	}
@@ -33680,10 +33664,12 @@ void ofApp::drawDraftScreen() {
 	this->drawActiveDraftPickedMoves();
 
 	// Deck flash visual
-	if (deckFlashStartTime > 0.0f) {
+	if (deckFlashStartTime > 0.0f && deckFlashOwnerIndex >= 0 && deckFlashOwnerIndex < (int)players.size()) {
 		float t = (ofGetElapsedTimef() - deckFlashStartTime) / deckFlashDuration;
 		if (t < 1.0f) {
-			ofRectangle deckRect = (deckFlashOwnerIndex == 0) ? p0_deckRect : p1_deckRect;
+			int ownerID = players[deckFlashOwnerIndex].playerID;
+			ofRectangle deckRect = (ownerID == myLocalPlayerID) ? p0_deckRect : p1_deckRect;
+			if (!isMultiplayer) deckRect = (ownerID == 0) ? p0_deckRect : p1_deckRect;
 			float a = (1.0f - t) * 200.0f;
 			ofPushStyle();
 			ofNoFill();
@@ -33787,7 +33773,7 @@ void ofApp::drawActiveDraftPickedMoves() {
 			float dx = mv.startPos.x - drawW / 2.0f;
 			float dy = mv.startPos.y - drawH / 2.0f;
 			ofSetColor(255);
-			cardSpriteSheet.drawSubsection(dx, dy, drawW, drawH,
+			drawCardSpriteSubsectionSafe(cardSpriteSheet, dx, dy, drawW, drawH,
 				mv.card.textureRect.x, mv.card.textureRect.y,
 				mv.card.textureRect.width, mv.card.textureRect.height);
 		} else {
@@ -33800,7 +33786,7 @@ void ofApp::drawActiveDraftPickedMoves() {
 			float dx = pos.x - drawW / 2.0f;
 			float dy = pos.y - drawH / 2.0f;
 			ofSetColor(255);
-			cardSpriteSheet.drawSubsection(dx, dy, drawW, drawH,
+			drawCardSpriteSubsectionSafe(cardSpriteSheet, dx, dy, drawW, drawH,
 				mv.card.textureRect.x, mv.card.textureRect.y,
 				mv.card.textureRect.width, mv.card.textureRect.height);
 			if (t >= 1.0f) {
@@ -33958,7 +33944,7 @@ void ofApp::drawPileViewFor(int viewPlayerIndex, PileViewMode viewMode) {
 		float drawX = startX + panelPadding + col * (viewCardWidth + padding);
 		float drawY = startY + row * (viewCardHeight + padding);
 		const Card & card = cardsToShow[i];
-		cardSpriteSheet.drawSubsection(drawX, drawY, viewCardWidth, viewCardHeight, card.textureRect.x, card.textureRect.y, card.textureRect.width, card.textureRect.height);
+		drawCardSpriteSubsectionSafe(cardSpriteSheet, drawX, drawY, viewCardWidth, viewCardHeight, card.textureRect.x, card.textureRect.y, card.textureRect.width, card.textureRect.height);
 	}
 }
 //--------------------------------------------------------------

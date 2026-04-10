@@ -1038,7 +1038,7 @@ private:
 	// Return true when all active dice visuals are finished and the result linger time passed
 	bool diceVisualsFinishedAndLinger() const;
 	void recalcTempLuck();
-	void checkKeyPickupAndDraftAfterSummon(int x, int y, int minionOwnerID);
+	void checkKeyPickupAndDraftAfterSummon(int x, int y, int minionOwnerID, int preferredPlayerIndex = -1);
 
 	// Returns passive luck (from assistant auras and cards in deck) for the given player index.
 	int computePassiveLuck(int playerIndex);
