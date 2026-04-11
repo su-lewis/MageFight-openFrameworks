@@ -11665,16 +11665,13 @@ void ofApp::drawGame() {
 
 			if (isTopCard) {
 				ofPushStyle();
-				// Soft shadow without a hard edge (stacked translucent rounds)
-				ofFill();
-				const float sx = drawX + 6.0f;
-				const float sy = drawY + 10.0f;
-				for (int layer = 0; layer < 6; ++layer) {
-					float expand = (float)layer * 2.0f;
-					int a = (int)std::round(30.0f * (1.0f - (float)layer / 6.0f));
-					ofSetColor(0, 0, 0, a);
-					ofDrawRectRounded(sx - expand, sy - expand, w + expand * 2.0f, h + expand * 2.0f, 14.0f + expand);
-				}
+				// Match the card-picture shadow exactly by using the card sprite silhouette.
+				ofSetColor(0, 0, 0, 78);
+				drawCardSpriteSubsectionSafe(cardSpriteSheet, drawX + 6.0f, drawY + 9.0f, w, h,
+					card.textureRect.x, card.textureRect.y, card.textureRect.width, card.textureRect.height);
+				ofSetColor(0, 0, 0, 34);
+				drawCardSpriteSubsectionSafe(cardSpriteSheet, drawX + 11.0f, drawY + 15.0f, w, h,
+					card.textureRect.x, card.textureRect.y, card.textureRect.width, card.textureRect.height);
 				ofPopStyle();
 			}
 
@@ -33318,11 +33315,15 @@ void ofApp::drawMinionManagerUI() {
 			ui.deckRect.set(ui.discardRect.getRight() + iconMargin, iconsY, iconWidth, iconHeight);
 		}
 
-		float textBlockX = isLeft ? (ui.bounds.x + 10 * scale) : (ui.deckRect.getRight() + 16 * scale);
+		float contentLeftX = isLeft ? (ui.bounds.x + 10 * scale) : (ui.deckRect.getRight() + 16 * scale);
+		float contentRightX = isLeft ? (ui.deckRect.x - 15 * scale) : (ui.bounds.getRight() - 15 * scale);
 		ofRectangle nameBounds = uiFont.getStringBoundingBox(name, 0, 0);
 
 		ofPushMatrix();
-		ofTranslate(textBlockX, textBlockY + nameBounds.height * fontScale);
+		if (isLeft)
+			ofTranslate(contentLeftX, textBlockY + nameBounds.height * fontScale);
+		else
+			ofTranslate(contentRightX - nameBounds.width * fontScale, textBlockY + nameBounds.height * fontScale);
 		ofScale(fontScale, fontScale);
 		ofSetColor(ofColor::white);
 		uiFont.drawString(name, 0, 0);
@@ -33338,8 +33339,9 @@ void ofApp::drawMinionManagerUI() {
 		// Ensure the model preview doesn't overflow the panel width (avoid scissor clipping)
 		float maxModelW = std::max(48.0f, ui.bounds.width - (80.0f * scale));
 		float modelW = std::min(modelAreaHeight, maxModelW);
+		float modelX = isLeft ? (contentLeftX + 10 * scale) : (contentRightX - modelW - 10 * scale);
 		ui.modelViewport.set(
-			textBlockX + 10 * scale,
+			modelX,
 			textBlockBottom,
 			modelW,
 			modelW);
@@ -33347,11 +33349,11 @@ void ofApp::drawMinionManagerUI() {
 		modelFbo.draw(ui.modelViewport);
 
 		// --- Status Bars ---
-		float availableWidth = isLeft ? (ui.deckRect.x - textBlockX - (15 * scale)) : (ui.bounds.getRight() - textBlockX - (15 * scale));
+		float availableWidth = std::max(24.0f * scale, contentRightX - contentLeftX);
 		float iconGap = ui.discardRect.x - (ui.deckRect.x + ui.deckRect.width);
 		if (iconGap < 0.0f) iconGap = (ui.deckRect.x - (ui.discardRect.x + ui.discardRect.width));
 		float preferredHpWidth = ui.deckRect.width + ui.discardRect.width + std::abs(iconGap);
-		drawMinionStatusBars(minion, name, textBlockX, textBlockY, availableWidth, preferredHpWidth);
+		drawMinionStatusBars(minion, name, contentLeftX, textBlockY, availableWidth, preferredHpWidth);
 
 		// Deck
 		ofSetColor(255);
