@@ -17294,7 +17294,12 @@ void ofApp::startNewTurn() {
 		// This REPLACES the normal AP roll, not adds to it
 		if (minionCount > 0) {
 			std::vector<int> rawAP;
-			int apRoll = resolveDiceRollDetailed(minionCount, 6, rawAP);
+			int apRollRaw = resolveDiceRollDetailed(minionCount, 6, rawAP);
+			int luckBonus = 0;
+			if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) {
+				luckBonus = players[currentPlayerIndex].luck + computePassiveLuck(currentPlayerIndex);
+			}
+			int apRoll = apRollRaw + (minionCount * luckBonus);
 			currentEffectSequence.blackboard[0] = apRoll;
 			queueVisualDiceRoll(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.0f, 0), minionCount, 6, rawAP, apRoll, PURPOSE_AP, currentPlayerIndex, 1.0f);
 		}
@@ -17456,13 +17461,23 @@ void ofApp::continueNewTurn() {
 		beginEffectSequence();
 		ofLogNotice("EffectQueue") << "Beginning effect sequence for turn-start of player " << startingPlayer.playerID;
 	}
+
+	auto resolveApRollWithLuck = [&](int numDice, int sides, std::vector<int> & rawOut) {
+		int rawTotal = resolveDiceRollDetailed(numDice, sides, rawOut);
+		if (sides == 2) return rawTotal; // coin rolls do not receive luck
+		int luckBonus = 0;
+		if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) {
+			luckBonus = players[currentPlayerIndex].luck + computePassiveLuck(currentPlayerIndex);
+		}
+		return rawTotal + (numDice * luckBonus);
+	};
 	// Hellhound AP: 2d6
 	if (startingPlayer.isHellhound) {
 		lastAPDiceNum = 2;
 		lastAPDiceSides = 6;
 		{
 			std::vector<int> rawAP;
-			int apRoll = resolveDiceRollDetailed(2, 6, rawAP);
+			int apRoll = resolveApRollWithLuck(2, 6, rawAP);
 			currentEffectSequence.blackboard[0] = apRoll;
 			queueVisualDiceRoll(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.0f, 0), 2, 6, rawAP, apRoll, PURPOSE_AP, currentPlayerIndex, 1.0f);
 			lastAPRawResults = rawAP;
@@ -17474,7 +17489,7 @@ void ofApp::continueNewTurn() {
 		lastAPDiceSides = 4;
 		{
 			std::vector<int> rawAP;
-			int apRoll = resolveDiceRollDetailed(4, 4, rawAP);
+			int apRoll = resolveApRollWithLuck(4, 4, rawAP);
 			currentEffectSequence.blackboard[0] = apRoll;
 			queueVisualDiceRoll(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.0f, 0), 4, 4, rawAP, apRoll, PURPOSE_AP, currentPlayerIndex, 1.0f);
 			lastAPRawResults = rawAP;
@@ -17486,7 +17501,7 @@ void ofApp::continueNewTurn() {
 		lastAPDiceSides = 4;
 		{
 			std::vector<int> rawAP;
-			int apRoll = resolveDiceRollDetailed(1, 4, rawAP);
+			int apRoll = resolveApRollWithLuck(1, 4, rawAP);
 			currentEffectSequence.blackboard[0] = apRoll;
 			queueVisualDiceRoll(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.0f, 0), 1, 4, rawAP, apRoll, PURPOSE_AP, currentPlayerIndex, 1.0f);
 			lastAPRawResults = rawAP;
@@ -17499,7 +17514,7 @@ void ofApp::continueNewTurn() {
 			lastAPDiceSides = 6;
 			{
 				std::vector<int> rawAP;
-				int apRoll = resolveDiceRollDetailed(1, 6, rawAP);
+				int apRoll = resolveApRollWithLuck(1, 6, rawAP);
 				currentEffectSequence.blackboard[0] = apRoll;
 				queueVisualDiceRoll(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.0f, 0), 1, 6, rawAP, apRoll, PURPOSE_AP, currentPlayerIndex, 1.0f);
 			}
@@ -17508,7 +17523,7 @@ void ofApp::continueNewTurn() {
 			lastAPDiceSides = 4;
 			{
 				std::vector<int> rawAP;
-				int apRoll = resolveDiceRollDetailed(1, 4, rawAP);
+				int apRoll = resolveApRollWithLuck(1, 4, rawAP);
 				currentEffectSequence.blackboard[0] = apRoll;
 				queueVisualDiceRoll(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.0f, 0), 1, 4, rawAP, apRoll, PURPOSE_AP, currentPlayerIndex, 1.0f);
 			}
@@ -17520,7 +17535,7 @@ void ofApp::continueNewTurn() {
 		lastAPDiceSides = 6;
 		{
 			std::vector<int> rawAP;
-			int apRoll = resolveDiceRollDetailed(1, 6, rawAP);
+			int apRoll = resolveApRollWithLuck(1, 6, rawAP);
 			currentEffectSequence.blackboard[0] = apRoll;
 			queueVisualDiceRoll(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.0f, 0), 1, 6, rawAP, apRoll, PURPOSE_AP, currentPlayerIndex, 1.0f);
 			lastAPRawResults = rawAP;
@@ -17534,7 +17549,7 @@ void ofApp::continueNewTurn() {
 		lastAPDiceSides = 2;
 		{
 			std::vector<int> rawAP;
-			int apRoll = resolveDiceRollDetailed(1, 2, rawAP);
+			int apRoll = resolveApRollWithLuck(1, 2, rawAP);
 			currentEffectSequence.blackboard[0] = apRoll;
 			queueVisualDiceRoll(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.0f, 0), 1, 2, rawAP, apRoll, PURPOSE_AP, currentPlayerIndex, 0.8f);
 			lastAPRawResults = rawAP;
@@ -17546,7 +17561,7 @@ void ofApp::continueNewTurn() {
 		lastAPDiceSides = 4;
 		{
 			std::vector<int> rawAP;
-			int apRoll = resolveDiceRollDetailed(1, 4, rawAP);
+			int apRoll = resolveApRollWithLuck(1, 4, rawAP);
 			currentEffectSequence.blackboard[0] = apRoll;
 			queueVisualDiceRoll(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.0f, 0), 1, 4, rawAP, apRoll, PURPOSE_AP, currentPlayerIndex, 1.0f);
 			lastAPRawResults = rawAP;
@@ -17558,7 +17573,7 @@ void ofApp::continueNewTurn() {
 		lastAPDiceSides = 10;
 		{
 			std::vector<int> rawAP;
-			int apRoll = resolveDiceRollDetailed(1, 10, rawAP);
+			int apRoll = resolveApRollWithLuck(1, 10, rawAP);
 			currentEffectSequence.blackboard[0] = apRoll;
 			queueVisualDiceRoll(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.0f, 0), 1, 10, rawAP, apRoll, PURPOSE_AP, currentPlayerIndex, 1.0f);
 			lastAPRawResults = rawAP;
@@ -17571,7 +17586,7 @@ void ofApp::continueNewTurn() {
 		lastAPDiceSides = 6;
 		{
 			std::vector<int> rawAP;
-			int apRoll = resolveDiceRollDetailed(1, 6, rawAP);
+			int apRoll = resolveApRollWithLuck(1, 6, rawAP);
 			currentEffectSequence.blackboard[0] = apRoll;
 			queueVisualDiceRoll(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.0f, 0), 1, 6, rawAP, apRoll, PURPOSE_AP, currentPlayerIndex, 1.0f);
 		}
@@ -17586,7 +17601,7 @@ void ofApp::continueNewTurn() {
 		lastAPDiceSides = apDiceSides;
 		{
 			std::vector<int> rawAP;
-			int apRoll = resolveDiceRollDetailed(1, apDiceSides, rawAP);
+			int apRoll = resolveApRollWithLuck(1, apDiceSides, rawAP);
 			currentEffectSequence.blackboard[0] = apRoll;
 			queueVisualDiceRoll(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.0f, 0), 1, apDiceSides, rawAP, apRoll, PURPOSE_AP, currentPlayerIndex, 1.0f);
 			lastAPRawResults = rawAP;
@@ -17655,7 +17670,7 @@ void ofApp::continueNewTurn() {
 						if (rerollSides != 2 && currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) {
 							luckBonus = players[currentPlayerIndex].luck + computePassiveLuck(currentPlayerIndex);
 						}
-						int bonus = rawBonus + luckBonus;
+						int bonus = rawBonus + (rerollSides == 2 ? 0 : (rerollNum * luckBonus));
 						EffectOp apply = {};
 						apply.type = EffectOpType::APPLY_BONUS_AP;
 						apply.data.modifyStat.targetIndex = currentPlayerIndex;
@@ -18713,6 +18728,8 @@ void ofApp::handleCardMenuClick(const std::string & buttonId) {
 			{
 				std::vector<int> rawBarrier;
 				int barrierRoll = resolveDiceRollDetailed(1, 20, rawBarrier);
+				int luckBonus = players[currentPlayerIndex].luck + computePassiveLuck(currentPlayerIndex);
+				barrierRoll += luckBonus;
 				currentEffectSequence.blackboard[0] = barrierRoll;
 				queueVisualDiceRoll(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.0f, 0), 1, 20, rawBarrier, barrierRoll, PURPOSE_BARRIER_GAIN, currentPlayerIndex, 1.0f);
 			}
@@ -20605,7 +20622,7 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 			if (rerollSides != 2 && currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) {
 				luckBonus = players[currentPlayerIndex].luck + computePassiveLuck(currentPlayerIndex);
 			}
-			int bonus = rawBonus + luckBonus;
+			int bonus = rawBonus + (rerollSides == 2 ? 0 : (rerollNum * luckBonus));
 
 			if (!isProcessingEffect) beginEffectSequence();
 			EffectOp applyBonus = {};
@@ -25032,6 +25049,10 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 		{
 			std::vector<int> rawFlail;
 			int flailTotal = resolveDiceRollDetailed(playedCard.numDice, playedCard.diceSides, rawFlail);
+			if (playedCard.diceSides != 2) {
+				int luckBonus = players[currentPlayerIndex].luck + computePassiveLuck(currentPlayerIndex);
+				flailTotal += playedCard.numDice * luckBonus;
+			}
 			flailTotal += playedCard.value; // include flat card bonus (+2)
 			currentEffectSequence.blackboard[0] = flailTotal;
 			glm::vec3 visPos = gridToWorld(currentPlayer.x, currentPlayer.y) + glm::vec3(0, 1.0f, 0);
@@ -25204,6 +25225,8 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 		{
 			std::vector<int> rawHeal;
 			int healRoll = resolveDiceRollDetailed(2, 6, rawHeal);
+			int luckBonus = players[currentPlayerIndex].luck + computePassiveLuck(currentPlayerIndex);
+			healRoll += 2 * luckBonus;
 			currentEffectSequence.blackboard[0] = healRoll;
 			queueVisualDiceRoll(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.0f, 0), 2, 6, rawHeal, healRoll, PURPOSE_HEALING, currentPlayerIndex, 1.0f);
 		}
@@ -25248,6 +25271,10 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 		{
 			std::vector<int> rawHeal;
 			int healRoll = resolveDiceRollDetailed(playedCard.numDice, playedCard.diceSides, rawHeal);
+			if (playedCard.diceSides != 2) {
+				int luckBonus = players[currentPlayerIndex].luck + computePassiveLuck(currentPlayerIndex);
+				healRoll += playedCard.numDice * luckBonus;
+			}
 			currentEffectSequence.blackboard[0] = healRoll;
 			queueVisualDiceRoll(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.0f, 0), playedCard.numDice, playedCard.diceSides, rawHeal, healRoll, PURPOSE_HEALING, currentPlayerIndex, 1.0f);
 		}
@@ -25554,6 +25581,10 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 		{
 			std::vector<int> rawRange;
 			int rangeRoll = resolveDiceRollDetailed(playedCard.numDice, playedCard.diceSides, rawRange);
+			if (playedCard.diceSides != 2) {
+				int luckBonus = players[currentPlayerIndex].luck + computePassiveLuck(currentPlayerIndex);
+				rangeRoll += playedCard.numDice * luckBonus;
+			}
 			currentEffectSequence.blackboard[0] = rangeRoll;
 			queueVisualDiceRoll(gridToWorld(currentPlayer.x, currentPlayer.y) + glm::vec3(0, 1.0f, 0), playedCard.numDice, playedCard.diceSides, rawRange, rangeRoll, PURPOSE_TELEPORT_RANGE, currentPlayerIndex, 1.0f);
 		}
@@ -25645,6 +25676,10 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 			{
 				std::vector<int> rawRange;
 				int rangeRoll = resolveDiceRollDetailed(playedCard.numDice, playedCard.diceSides, rawRange);
+				if (playedCard.diceSides != 2) {
+					int luckBonus = players[currentPlayerIndex].luck + computePassiveLuck(currentPlayerIndex);
+					rangeRoll += playedCard.numDice * luckBonus;
+				}
 				currentEffectSequence.blackboard[0] = rangeRoll;
 				queueVisualDiceRoll(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.0f, 0), playedCard.numDice, playedCard.diceSides, rawRange, rangeRoll, PURPOSE_RANGE, currentPlayerIndex, 1.0f);
 			}
@@ -25676,6 +25711,10 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 			{
 				std::vector<int> rawRange;
 				int rangeRoll = resolveDiceRollDetailed(fireballRangeDiceNum, fireballRangeDiceSides, rawRange);
+				if (fireballRangeDiceSides != 2) {
+					int luckBonus = players[currentPlayerIndex].luck + computePassiveLuck(currentPlayerIndex);
+					rangeRoll += fireballRangeDiceNum * luckBonus;
+				}
 				currentEffectSequence.blackboard[0] = rangeRoll;
 				queueVisualDiceRoll(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.0f, 0), fireballRangeDiceNum, fireballRangeDiceSides, rawRange, rangeRoll, PURPOSE_RANGE, currentPlayerIndex, 1.0f);
 			}
@@ -25967,6 +26006,10 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 		{
 			std::vector<int> rawRange;
 			int rangeRoll = resolveDiceRollDetailed(playedCard.numDice, playedCard.diceSides, rawRange);
+			if (playedCard.diceSides != 2) {
+				int luckBonus = players[currentPlayerIndex].luck + computePassiveLuck(currentPlayerIndex);
+				rangeRoll += playedCard.numDice * luckBonus;
+			}
 			currentEffectSequence.blackboard[0] = rangeRoll;
 			queueVisualDiceRoll(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.0f, 0), playedCard.numDice, playedCard.diceSides, rawRange, rangeRoll, PURPOSE_RANGE, currentPlayerIndex, 1.0f);
 			EffectOp applyJolt = {};
@@ -26029,6 +26072,8 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 			{
 				std::vector<int> rawRoll;
 				int deathRoll = resolveDiceRollDetailed(1, 20, rawRoll);
+				int luckBonus = players[currentPlayerIndex].luck + computePassiveLuck(currentPlayerIndex);
+				deathRoll += luckBonus;
 				currentEffectSequence.blackboard[0] = deathRoll;
 				queueVisualDiceRoll(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.0f, 0), 1, 20, rawRoll, deathRoll, PURPOSE_DEATH_CHECK, currentPlayerIndex, 1.0f);
 
