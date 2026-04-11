@@ -2239,9 +2239,10 @@ int ofApp::applyDamageWithMitigations(Player & target, int baseDamage, DamageTyp
 		} else {
 			// Fallback: modify directly
 			sourceRef -= a;
+			// Direct path needs its own floating text.
+			queueFloatingTextVisual(gridToWorld(target.x, target.y), "-" + ofToString(a) + name, c);
 		}
 		remaining -= a;
-		queueFloatingTextVisual(gridToWorld(target.x, target.y), "-" + ofToString(a) + name, c);
 		ofLogNotice("Game") << name << " absorbed " << a;
 	};
 
@@ -2447,9 +2448,10 @@ void ofApp::applyDamageWithMitigationsQueued(Player & target, int baseDamage, Da
 			processEffectOp(op);
 		} else {
 			sourceRef -= a;
+			// Direct path needs its own floating text.
+			queueFloatingTextVisual(gridToWorld(target.x, target.y), "-" + ofToString(a) + name, c);
 		}
 		remaining -= a;
-		queueFloatingTextVisual(gridToWorld(target.x, target.y), "-" + ofToString(a) + name, c);
 		ofLogNotice("Game") << name << " absorbed " << a;
 	};
 
@@ -28066,6 +28068,9 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 
 		// Start expanding AOE ring animation for Magic Bolt
 		if (card.type == CARD_MAGIC_BOLT) {
+			float aoeElapsed = ofGetElapsedTimef() - activeAOERing.startTime;
+			bool aoeRingRunning = (activeAOERing.centerTile.x >= 0 && activeAOERing.centerTile.y >= 0 && aoeElapsed < activeAOERing.duration);
+
 			// Find first valid target to use as center for AOE preview
 			glm::ivec2 aoeCenterTile(-1, -1);
 			for (int tx = 0; tx < BOARD_WIDTH; ++tx) {
@@ -28079,7 +28084,7 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 			}
 
 			// If we have a valid target, start the AOE ring animation
-			if (aoeCenterTile.x >= 0) {
+			if (aoeCenterTile.x >= 0 && !aoeRingRunning) {
 				activeAOERing.centerTile = aoeCenterTile;
 				activeAOERing.maxRadiusFeet = 20 + 3; // Max AOE radius (1d20 + 3)
 				activeAOERing.startTime = ofGetElapsedTimef();
