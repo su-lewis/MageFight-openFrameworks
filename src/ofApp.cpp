@@ -6086,6 +6086,7 @@ void ofApp::updateGame() {
 	auto buildMinionList = [&](const std::vector<int> & indices, float startX, float topLimit, float bottomLimit, int listSide, int & skelCount, int & golemCount, int & wolfCount, int & houndCount, int & demonCount, int & koboldCount, int & assistantCount, int & wallCount, int & faerieCount) {
 		float localAvailableHeight = bottomLimit - topLimit;
 		float actualEntryHeight = standardEntryHeight * scale;
+		if (listSide == 1) actualEntryHeight *= 1.15f;
 		float actualGap = gap * scale;
 		float totalRequiredHeight = indices.size() * (actualEntryHeight + actualGap);
 
@@ -6181,9 +6182,9 @@ void ofApp::updateGame() {
 				// Place deck icon immediately to the left of discard with standard iconMargin (no extra gap)
 				ui.deckRect.set(ui.bounds.getRight() - (iconWidth * 2 + iconMargin * 2), iconsY, iconWidth, iconHeight);
 			} else {
-				// Opponent side is mirrored: icons sit on the board-facing edge.
-				ui.discardRect.set(ui.bounds.x + iconMargin, iconsY, iconWidth, iconHeight);
-				ui.deckRect.set(ui.discardRect.getRight() + iconMargin, iconsY, iconWidth, iconHeight);
+				// Opponent side: deck on the left, discard on the right.
+				ui.deckRect.set(ui.bounds.x + iconMargin, iconsY, iconWidth, iconHeight);
+				ui.discardRect.set(ui.deckRect.getRight() + iconMargin, iconsY, iconWidth, iconHeight);
 			}
 
 			activeMinionUIs.push_back(ui);
@@ -33360,7 +33361,7 @@ void ofApp::drawMinionManagerUI() {
 		name += ofToString(ui.displayNumber);
 
 		// --- Draw Name Text ---
-		float fontScale = 0.9f;
+		float fontScale = 1.02f;
 		float textBlockY = ui.bounds.y + 5 * scale;
 
 		// --- Draw Icons (mirror per side) ---
@@ -33397,8 +33398,19 @@ void ofApp::drawMinionManagerUI() {
 		//
 		// --- Draw Model FBO ---
 		float textBlockBottom = textBlockY + (nameBounds.height * fontScale) + (10.0f * scale);
+		// Opponent minion UI reads better with the model preview above the health bar.
+		// Keep the left-side layout unchanged.
+		float modelTopY = textBlockBottom;
+		float statsTopY = textBlockY;
+		if (!isLeft) {
+			modelTopY = textBlockY;
+			statsTopY = textBlockY + std::max(70.0f * scale, ui.bounds.getHeight() * 0.28f);
+		}
 		// Use only the real remaining area to avoid padded/unused model space.
-		float modelAreaHeight = std::max(28.0f * scale, ui.bounds.getBottom() - textBlockBottom - (4 * scale));
+		float modelAreaHeight = std::max(28.0f * scale, ui.bounds.getBottom() - modelTopY - (4 * scale));
+		if (!isLeft) {
+			modelAreaHeight = std::max(28.0f * scale, statsTopY - modelTopY - (8.0f * scale));
+		}
 
 		// Ensure the model preview doesn't overflow the panel width (avoid scissor clipping)
 		float maxModelW = std::max(48.0f, ui.bounds.width - (80.0f * scale));
@@ -33406,7 +33418,7 @@ void ofApp::drawMinionManagerUI() {
 		float modelX = isLeft ? (contentLeftX + 10 * scale) : (contentRightX - modelW - 10 * scale);
 		ui.modelViewport.set(
 			modelX,
-			textBlockBottom,
+			modelTopY,
 			modelW,
 			modelW);
 		ofSetColor(255);
@@ -33417,7 +33429,11 @@ void ofApp::drawMinionManagerUI() {
 		float iconGap = ui.discardRect.x - (ui.deckRect.x + ui.deckRect.width);
 		if (iconGap < 0.0f) iconGap = (ui.deckRect.x - (ui.discardRect.x + ui.discardRect.width));
 		float preferredHpWidth = ui.deckRect.width + ui.discardRect.width + std::abs(iconGap);
-		drawMinionStatusBars(minion, name, contentLeftX, textBlockY, availableWidth, preferredHpWidth);
+		float statusTextY = statsTopY;
+		if (!isLeft) {
+			statusTextY = statsTopY - (nameBounds.height * fontScale) - (4.0f * scale);
+		}
+		drawMinionStatusBars(minion, name, contentLeftX, statusTextY, availableWidth, preferredHpWidth);
 
 		// Deck
 		ofSetColor(255);
