@@ -21,6 +21,7 @@ bin/data/Config/settings.json
 
 # Autosaves (user-specific, not checked in)
 bin/data/Saves/autosave*.json
+bin/data/Saves/manual_save*.json
 
 # Local VS Code Paths
 .vscode/
