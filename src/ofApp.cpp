@@ -310,7 +310,7 @@ struct CardTemplateRecord {
 
 struct CardTemplateLayout {
 	ofRectangle pictureRect = ofRectangle(80, 96, 896, 704);
-	ofRectangle nameRect = ofRectangle(192, 752, 672, 144);
+	ofRectangle nameRect = ofRectangle(192, 740, 672, 144);
 	ofRectangle costRect = ofRectangle(32, 32, 128, 128);
 	ofRectangle damageTypeRect = ofRectangle(26, 84, 176, 24);
 	ofRectangle targetingRect = ofRectangle(384, 1344, 320, 80);
@@ -1222,7 +1222,7 @@ static bool rebuildCardSpriteSheetFromTemplate(const std::string & templatePath,
 		return lo;
 	};
 
-	const float uniformNameScale = bestUniformArcTextScale(
+	const float uniformNameScaleBase = bestUniformArcTextScale(
 		renderTitleFont,
 		allCardNames,
 		layout.nameRect,
@@ -1233,6 +1233,7 @@ static bool rebuildCardSpriteSheetFromTemplate(const std::string & templatePath,
 		layout.nameMiddleClampXMax,
 		layout.nameMiddleBottomMaxY,
 		2);
+	const float uniformNameScale = uniformNameScaleBase * 1.26f;
 
 	const float uniformAPCostScale = bestUniformCenteredTextScale(
 		renderTitleFont,
@@ -6058,7 +6059,8 @@ void ofApp::updateGame() {
 	int p1_skeleton = 0, p1_golem = 0, p1_wolf = 0, p1_hound = 0, p1_demon = 0, p1_kobold = 0, p1_wall = 0;
 	// Fit minion UI cleanly between the top HUD band and the AP counter top.
 	float p0_topLimitY = std::max(0.0f, layoutSpacing.timerBarHeight);
-	float p0_bottomLimitY = std::max(p0_topLimitY + (40.0f * scale), apTopY);
+	const float minionBottomSafetyPad = 24.0f * scale;
+	float p0_bottomLimitY = std::max(p0_topLimitY + (40.0f * scale), apTopY - minionBottomSafetyPad);
 	float p1_topLimitY = p0_topLimitY;
 	float p1_bottomLimitY = p0_bottomLimitY;
 
@@ -6090,6 +6092,10 @@ void ofApp::updateGame() {
 		float actualEntryHeight = standardEntryHeight * scale;
 		actualEntryHeight *= (1.15f * 0.80f); // reduce current row length by 20%
 		float actualGap = gap * scale;
+		const int maxVisibleEntriesBeforeScroll = 5;
+		const float maxVisibleHeight = (maxVisibleEntriesBeforeScroll * actualEntryHeight) + ((maxVisibleEntriesBeforeScroll - 1) * actualGap);
+		localAvailableHeight = std::min(localAvailableHeight, maxVisibleHeight);
+		localAvailableHeight = std::max(actualEntryHeight, localAvailableHeight);
 		float totalRequiredHeight = 0.0f;
 		if (!indices.empty()) {
 			totalRequiredHeight = indices.size() * actualEntryHeight + (indices.size() - 1) * actualGap;
@@ -15694,7 +15700,7 @@ void ofApp::mouseDragged(int x, int y, int button) {
 				card.currentScale = 1.0f;
 				card.currentPos = dragStartPos;
 				hoveredCardIndex = -1;
-				ofVec2f dragAnchor = dragStartPos + ofVec2f(0.0f, baseCardHeight * 0.20f);
+				ofVec2f dragAnchor = dragStartPos + ofVec2f(0.0f, baseCardHeight * 0.35f);
 				dragOffset = ofVec2f(x, y) - dragAnchor;
 				playHandFeedbackSfx(1.02f, 0.12f);
 				ofLogNotice("CardDrag") << "Drag initiated from pressedCardIndex=" << sourceIndex << " name=" << card.name;
@@ -15706,7 +15712,7 @@ void ofApp::mouseDragged(int x, int y, int button) {
 				card.currentScale = 1.0f;
 				card.currentPos = dragStartPos;
 				hoveredCardIndex = -1;
-				ofVec2f dragAnchor = dragStartPos + ofVec2f(0.0f, baseCardHeight * 0.20f);
+				ofVec2f dragAnchor = dragStartPos + ofVec2f(0.0f, baseCardHeight * 0.35f);
 				dragOffset = ofVec2f(x, y) - dragAnchor;
 				playHandFeedbackSfx(1.02f, 0.12f);
 				ofLogNotice("CardDrag") << "Drag initiated from previous position, index=" << sourceIndex;
@@ -15847,10 +15853,25 @@ void ofApp::mouseReleased(int x, int y, int button) {
 				ofLogNotice("Input") << "Right-click ignored while menu open (must choose).";
 				return;
 			}
-			// If we are targeting teleport and have rolled (can't cancel after dice roll)
-			if (cardInteractionState == CARD_INTERACTION_TARGETING && interactingCardType == CARD_TELEPORT && interactionDiceRoll > 0) {
-				ofLogNotice("Teleport") << "Right-click ignored after teleport dice roll (must choose destination).";
-				return;
+			// If a committed card is currently in targeting mode, refund AP and restore the card on cancel.
+			if (cardInteractionState == CARD_INTERACTION_TARGETING && currentCardOutcome.apPaid && currentCardOutcome.casterIndex >= 0 && currentCardOutcome.casterIndex < (int)players.size()) {
+				Player & caster = players[currentCardOutcome.casterIndex];
+				auto restoreIt = std::find_if(caster.discardPile.rbegin(), caster.discardPile.rend(), [&](const Card & c) {
+					return c.type == currentCardOutcome.cardType;
+				});
+				if (restoreIt != caster.discardPile.rend()) {
+					Card restoredCard = *restoreIt;
+					int refund = getEffectiveCardCostForPlayer(caster, restoredCard);
+					caster.hand.push_back(restoredCard);
+					caster.discardPile.erase(std::next(restoreIt).base());
+					currentAP += refund;
+					updatePlayerAP(caster, currentAP);
+					if (!caster.cardsPlayedThisTurn.empty() && caster.cardsPlayedThisTurn.back() == restoredCard.type) {
+						caster.cardsPlayedThisTurn.pop_back();
+					}
+					currentCardOutcome.apPaid = false;
+					queueFloatingTextVisual(gridToWorld(caster.x, caster.y), "Cancelled", ofColor::gray);
+				}
 			}
 			selectedCardIndex = -1;
 			draggedCardIndex = -1;
@@ -18064,6 +18085,36 @@ void ofApp::handleCardTargetClick(int gridX, int gridY) {
 
 					if (isMultiplayer) {
 						if (!sendInputCommand(cmd, true)) ofLogWarning("Network") << "Kobold placement send failed (no connection).";
+					} else {
+						queueInputCommand(cmd);
+					}
+					return;
+				}
+			}
+		}
+		return;
+	}
+
+	// Wolf placement is also a post-play interaction and may not have a live hand card index.
+	if (cardInteractionState == CARD_INTERACTION_PLACING && interactingCardType == CARD_CALL_FOR_WOLVES) {
+		int gx = gridX, gy = gridY;
+		if (gx >= 0 && gx < BOARD_WIDTH && gy >= 0 && gy < BOARD_HEIGHT) {
+			if (!board[gx][gy].hasWall && !board[gx][gy].hasPlayer) {
+				int dist = abs(gx - wolfPlacementSourceX) + abs(gy - wolfPlacementSourceY);
+				if (dist == 1) {
+					InputCommandPacket cmd = {};
+					cmd.type = PKT_INPUT_COMMAND;
+					cmd.playerID = myLocalPlayerID;
+					cmd.commandId = nextCommandId++;
+					cmd.turnNumber = globalTurnCounter;
+					cmd.commandType = CMD_PSEUDO_ACTION;
+					cmd.params[0] = gx;
+					cmd.params[1] = gy;
+					strncpy(cmd.stringData, "PlaceWolf", sizeof(cmd.stringData) - 1);
+					cmd.stringData[sizeof(cmd.stringData) - 1] = '\0';
+
+					if (isMultiplayer) {
+						if (!sendInputCommand(cmd, true)) ofLogWarning("Network") << "Wolf placement send failed (no connection).";
 					} else {
 						queueInputCommand(cmd);
 					}
