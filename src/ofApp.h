@@ -1351,6 +1351,7 @@ private:
 	// Helpers
 	void startShuffleVisual(int playerIndex, float delaySeconds = 0.0f);
 	void scheduleGenerateDraftOptions(int classTier, float delaySeconds);
+	void playHandFeedbackSfx(float speed = 1.0f, float volumeMul = 0.16f);
 
 	// Draw helper for active picked-card animations
 	void drawActiveDraftPickedMoves();
@@ -1822,6 +1823,10 @@ private:
 	int lastHoveredCardIndex = -1;
 	ofVec2f dragOffset;
 	ofVec2f mouseDownPos;
+	float mouseDownTimeSec = 0.0f;
+	ofVec2f handDragVelocity = ofVec2f(0.0f, 0.0f);
+	bool handDragInValidPlayZone = false;
+	float nextHandSfxAt = 0.0f;
 
 	ofRectangle endTurnButtonRect;
 	ofRectangle rerollButtonRect;

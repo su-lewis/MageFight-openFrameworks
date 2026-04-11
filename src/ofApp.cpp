@@ -101,6 +101,20 @@ static std::string makeSavePath(const std::string & p) {
 	return kSavesDir + "/" + p;
 }
 
+void ofApp::playHandFeedbackSfx(float speed, float volumeMul) {
+	if (footstepSounds.empty()) return;
+	float now = ofGetElapsedTimef();
+	if (now < nextHandSfxAt) return;
+
+	std::uniform_int_distribution<int> soundIdx(0, (int)footstepSounds.size() - 1);
+	int idx = soundIdx(visualRNG);
+	float vol = std::clamp(settingsMasterVolume * settingsSfxVolume * volumeMul, 0.0f, 1.0f);
+	footstepSounds[idx].setSpeed(std::clamp(speed, 0.70f, 1.50f));
+	footstepSounds[idx].setVolume(vol);
+	footstepSounds[idx].play();
+	nextHandSfxAt = now + 0.045f;
+}
+
 namespace {
 static void seedVisualRng(std::mt19937 & rng, uint32_t mapSeed) {
 	rng.seed(mapSeed ^ 0xDEADBEEFu);
@@ -131,6 +145,20 @@ constexpr float kHandMinSpacing = -80.0f;
 constexpr float kHandMaxSpacing = 34.0f;
 constexpr float kHandAreaWidthRatio = 0.68f;
 constexpr float kHandHoverLiftPx = -350.0f;
+constexpr float kHandHoverScale = 1.65f;
+constexpr float kHandHoverLerpIn = 0.38f;
+constexpr float kHandHoverLerpOut = 0.18f;
+constexpr float kHandPosLerp = 0.30f;
+constexpr float kHandBreathAmpPx = 2.2f;
+constexpr float kHandBreathSpeed = 1.2f;
+constexpr float kHandDragFollowInside = 0.18f;
+constexpr float kHandDragFollowOutside = 0.42f;
+constexpr float kHandPlayZoneYRatio = 0.52f;
+constexpr float kHandPlayZoneSnapBlend = 0.28f;
+constexpr float kHandPlayZoneSnapScale = 1.08f;
+constexpr float kHandDragStartThresholdPx = 7.0f;
+constexpr float kHandIntentMinHoldSec = 0.045f;
+constexpr float kHandIntentMinUpwardDragPx = 42.0f;
 
 static ofRectangle gCardOpaqueBoundsNormalized(0.0f, 0.0f, 1.0f, 1.0f);
 static std::vector<unsigned char> gCardAlphaMask;
@@ -7744,14 +7772,19 @@ void ofApp::updateGame() {
 				}
 				float arcDrop = 0.0f;
 				if (numCards >= 4) {
-					arcDrop = std::clamp(10.0f + std::max(0.0f, (float)numCards - 3.0f) * 1.8f, 10.0f, 36.0f);
+					arcDrop = std::clamp(18.0f + std::max(0.0f, (float)numCards - 4.0f) * 2.2f, 18.0f, 56.0f);
 				}
-				float cardCenterY = handLayout.restY + arcDrop * (fanT * fanT);
+				float breathing = 0.0f;
+				if (draggedCardIndex == -1) {
+					breathing = sinf(ofGetElapsedTimef() * kHandBreathSpeed + (float)i * 0.35f) * kHandBreathAmpPx;
+				}
+				float cardCenterY = handLayout.restY + arcDrop * (fanT * fanT) + breathing;
 				handPlayer->hand[i].targetPos = ofVec2f(cardCenterX, cardCenterY);
 
 				if (static_cast<int>(i) != draggedCardIndex) {
-					handPlayer->hand[i].currentScale = ofLerp(handPlayer->hand[i].currentScale, handPlayer->hand[i].targetScale, 0.25f);
-					handPlayer->hand[i].currentPos = handPlayer->hand[i].currentPos.getInterpolated(handPlayer->hand[i].targetPos, 0.25f);
+					float scaleLerp = (handPlayer->hand[i].targetScale > handPlayer->hand[i].currentScale) ? kHandHoverLerpIn : kHandHoverLerpOut;
+					handPlayer->hand[i].currentScale = ofLerp(handPlayer->hand[i].currentScale, handPlayer->hand[i].targetScale, scaleLerp);
+					handPlayer->hand[i].currentPos = handPlayer->hand[i].currentPos.getInterpolated(handPlayer->hand[i].targetPos, kHandPosLerp);
 				}
 			}
 		}
@@ -11522,7 +11555,7 @@ void ofApp::drawGame() {
 	// Draw the hand area only when we have a valid player/context (match rest of UI)
 	if (!players.empty() && currentPlayerIndex >= 0) {
 		// Hearthstone-style hover scale for cards
-		const float hoverScale = 1.65f;
+		const float hoverScale = kHandHoverScale;
 
 		// In multiplayer, show BOTH players' hands at bottom in a shared space
 		// Get both local and opponent player
@@ -11606,9 +11639,12 @@ void ofApp::drawGame() {
 			}
 			float maxTiltDeg = 0.0f;
 			if (numCards >= 4) {
-				maxTiltDeg = std::clamp(7.0f + std::max(0.0f, (float)numCards - 3.0f) * 1.2f, 7.0f, 20.0f);
+				maxTiltDeg = std::clamp(10.0f + std::max(0.0f, (float)numCards - 3.0f) * 1.4f, 10.0f, 24.0f);
 			}
-			float tiltDeg = (index == draggedCardIndex || index == hoveredCardIndex) ? 0.0f : (fanT * maxTiltDeg);
+			float tiltDeg = (index == hoveredCardIndex) ? 0.0f : (fanT * std::abs(fanT) * maxTiltDeg);
+			if (index == draggedCardIndex) {
+				tiltDeg = std::clamp(handDragVelocity.x * 0.35f, -8.0f, 8.0f);
+			}
 
 			// Apply hover offsets - move upward and increase scale
 			if (isTopCard) {
@@ -11626,6 +11662,21 @@ void ofApp::drawGame() {
 			ofTranslate(drawX + w * 0.5f, drawY + h * 0.5f);
 			ofRotateDeg(tiltDeg);
 			ofTranslate(-(drawX + w * 0.5f), -(drawY + h * 0.5f));
+
+			if (isTopCard) {
+				ofPushStyle();
+				// Soft shadow without a hard edge (stacked translucent rounds)
+				ofFill();
+				const float sx = drawX + 6.0f;
+				const float sy = drawY + 10.0f;
+				for (int layer = 0; layer < 6; ++layer) {
+					float expand = (float)layer * 2.0f;
+					int a = (int)std::round(30.0f * (1.0f - (float)layer / 6.0f));
+					ofSetColor(0, 0, 0, a);
+					ofDrawRectRounded(sx - expand, sy - expand, w + expand * 2.0f, h + expand * 2.0f, 14.0f + expand);
+				}
+				ofPopStyle();
+			}
 
 			// A. Draw Sprite
 			// Ghostly tint for copied cards in Renewed Inspiration mode
@@ -11680,6 +11731,16 @@ void ofApp::drawGame() {
 					ofNoFill();
 					const float lineW = 4.0f;
 					ofSetColor(ofColor::green);
+					ofSetLineWidth(lineW);
+					drawCardOutlineOutside(drawX, drawY, w, h, lineW, 1.0f);
+					ofPopStyle();
+				}
+
+				if (index == draggedCardIndex && handDragInValidPlayZone) {
+					ofPushStyle();
+					ofNoFill();
+					const float lineW = 5.0f;
+					ofSetColor(90, 220, 255, 230);
 					ofSetLineWidth(lineW);
 					drawCardOutlineOutside(drawX, drawY, w, h, lineW, 1.0f);
 					ofPopStyle();
@@ -12707,7 +12768,7 @@ void ofApp::mouseMoved(int x, int y) {
 	int newHoverCardIndex = -1;
 
 	// Hearthstone-style hover scale for card animations
-	const float hoverScale = 1.65f;
+	const float hoverScale = kHandHoverScale;
 
 	// 1. Reset to default at the start of the check
 	currentCursor = CURSOR_DEFAULT;
@@ -12879,25 +12940,18 @@ cursor_check_done:;
 		float baseCardHeight = kCardPixelHeight * kHandCardVisualScale;
 
 		if (draggedCardIndex == -1) {
-			// Use strict per-pixel hover detection that matches mouseMoved/mousePressed behavior.
+			// Always pick the visually top-most card under the cursor.
 			int numCards = static_cast<int>(currentPlayer.hand.size());
 
-			// Anti-flicker hysteresis: keep current hovered card if cursor is still inside its resting slot rect.
-			if (hoveredCardIndex >= 0 && hoveredCardIndex < numCards) {
-				Card & hoveredCard = currentPlayer.hand[hoveredCardIndex];
-				ofRectangle stickyRect = getHandCardRestRect(hoveredCard, handBaseCardWidth, baseCardHeight);
-				if (stickyRect.inside((float)x, (float)y)) {
-					foundHoverIndex = hoveredCardIndex;
-				}
-			}
-
-			if (foundHoverIndex == -1) {
-				for (int i = 0; i < numCards; i++) {
-					Card & card = currentPlayer.hand[i];
-					ofRectangle hitRect = getHandCardRestRect(card, handBaseCardWidth, baseCardHeight);
-					if (hitRect.inside((float)x, (float)y)) {
-						foundHoverIndex = i; // last match wins (matches visual layering)
-					}
+			// Check cards in reverse draw order so first hit is the top-most card.
+			for (int i = numCards - 1; i >= 0; --i) {
+				Card & card = currentPlayer.hand[i];
+				float w = handBaseCardWidth * std::max(0.9f, card.currentScale);
+				float h = baseCardHeight * std::max(0.9f, card.currentScale);
+				ofRectangle hitRect(card.currentPos.x - w * 0.5f, card.currentPos.y - h * 0.5f, w, h);
+				if (hitRect.inside((float)x, (float)y)) {
+					foundHoverIndex = i;
+					break;
 				}
 			}
 
@@ -12909,9 +12963,13 @@ cursor_check_done:;
 			hoveredCardIndex = foundHoverIndex;
 			// Update target highlights on hover change (when not dragging)
 			if (hoveredCardIndex != lastHoveredCardIndex) {
+				int prevHovered = lastHoveredCardIndex;
 				lastHoveredCardIndex = hoveredCardIndex;
 				if (hoveredCardIndex != -1) {
 					calculateTargetHighlights(hoveredCardIndex);
+					if (prevHovered != hoveredCardIndex && !ofGetMousePressed(OF_MOUSE_BUTTON_LEFT)) {
+						playHandFeedbackSfx(0.95f, 0.08f);
+					}
 					// Send hover packet to show opponent the card targeting
 					updateAndSendHover(HOVER_HAND_CARD, -1, -1, hoveredCardIndex);
 				} else {
@@ -12954,6 +13012,7 @@ cursor_check_done:;
 			bool isLocallyHovered = (static_cast<int>(i) == hoveredCardIndex);
 			// Hearthstone-style: smooth scaling on hover with hoverScale variable
 			float targetScaleVal = ((cardInteractionState == CARD_INTERACTION_MENU && interactingCardType == CARD_RENEWED_INSPIRATION) ? 1.0f : (isLocallyHovered ? hoverScale : 1.0f));
+			if ((int)i == draggedCardIndex) targetScaleVal = 1.0f;
 			currentPlayer.hand[i].targetScale = targetScaleVal;
 		}
 
@@ -13477,6 +13536,11 @@ void ofApp::mousePressed(int x, int y, int button) {
 	// Always track mouse down position at the start for drag detection
 	if (button == OF_MOUSE_BUTTON_LEFT || button == OF_MOUSE_BUTTON_RIGHT) {
 		mouseDownPos.set(x, y);
+		if (button == OF_MOUSE_BUTTON_LEFT) {
+			mouseDownTimeSec = ofGetElapsedTimef();
+			handDragInValidPlayZone = false;
+			handDragVelocity.set(0.0f, 0.0f);
+		}
 	}
 
 	if (currentState == STATE_MAIN_MENU && button == OF_MOUSE_BUTTON_LEFT) {
@@ -15596,7 +15660,7 @@ void ofApp::mouseDragged(int x, int y, int button) {
 		return;
 	}
 
-	const float dragThreshold = 5.0f;
+	const float dragThreshold = kHandDragStartThresholdPx;
 	if (mouseDownPos.distance(ofVec2f(x, y)) > dragThreshold) {
 		ofLogNotice("CardDrag") << "mouseDragged: Distance threshold passed, pressedCardIndex=" << pressedCardIndex << " hoveredCardIndex=" << hoveredCardIndex;
 
@@ -15624,7 +15688,9 @@ void ofApp::mouseDragged(int x, int y, int button) {
 				card.currentScale = 1.0f;
 				card.currentPos = dragStartPos;
 				hoveredCardIndex = -1;
-				dragOffset = ofVec2f(x, y) - dragStartPos;
+				ofVec2f dragAnchor = dragStartPos + ofVec2f(0.0f, baseCardHeight * 0.20f);
+				dragOffset = ofVec2f(x, y) - dragAnchor;
+				playHandFeedbackSfx(1.02f, 0.12f);
 				ofLogNotice("CardDrag") << "Drag initiated from pressedCardIndex=" << sourceIndex << " name=" << card.name;
 			} else if (hitRect.inside((float)ofGetPreviousMouseX(), (float)ofGetPreviousMouseY())) {
 				// Fallback: check if previous position was in detection rect (for backwards compat)
@@ -15634,7 +15700,9 @@ void ofApp::mouseDragged(int x, int y, int button) {
 				card.currentScale = 1.0f;
 				card.currentPos = dragStartPos;
 				hoveredCardIndex = -1;
-				dragOffset = ofVec2f(x, y) - dragStartPos;
+				ofVec2f dragAnchor = dragStartPos + ofVec2f(0.0f, baseCardHeight * 0.20f);
+				dragOffset = ofVec2f(x, y) - dragAnchor;
+				playHandFeedbackSfx(1.02f, 0.12f);
 				ofLogNotice("CardDrag") << "Drag initiated from previous position, index=" << sourceIndex;
 			}
 		}
@@ -15666,12 +15734,37 @@ void ofApp::mouseDragged(int x, int y, int button) {
 				selectedCardIndex = -1;
 				// Don't clear highlights here - will update with draggedCardIndex below
 			}
+			ofVec2f prevPos = draggedCard.currentPos;
 			ofVec2f desiredPos = ofVec2f(x, y) - dragOffset;
 			if (!canDragOutOfHand) {
 				desiredPos.x = ofClamp(desiredPos.x, handAreaRect.getLeft(), handAreaRect.getRight());
 				desiredPos.y = ofClamp(desiredPos.y, handAreaRect.getTop(), handAreaRect.getBottom());
 			}
-			players[currentPlayerIndex].hand[draggedCardIndex].currentPos = desiredPos;
+
+			float playZoneY = ofGetHeight() * kHandPlayZoneYRatio;
+			float upwardDrag = mouseDownPos.y - y;
+			bool isInValidPlayZone = canDragOutOfHand && (y < playZoneY || upwardDrag > kHandIntentMinUpwardDragPx);
+			bool wasInValidPlayZone = handDragInValidPlayZone;
+			handDragInValidPlayZone = isInValidPlayZone;
+
+			if (isInValidPlayZone) {
+				ofVec2f snapTarget(desiredPos.x, std::min(desiredPos.y, playZoneY - 80.0f));
+				desiredPos = desiredPos.getInterpolated(snapTarget, kHandPlayZoneSnapBlend);
+				draggedCard.targetScale = kHandPlayZoneSnapScale;
+			} else {
+				draggedCard.targetScale = 1.0f;
+			}
+
+			if (isInValidPlayZone && !wasInValidPlayZone) {
+				playHandFeedbackSfx(1.18f, 0.12f);
+			} else if (!isInValidPlayZone && wasInValidPlayZone) {
+				playHandFeedbackSfx(0.86f, 0.10f);
+			}
+
+			float follow = handAreaRect.inside(x, y) ? kHandDragFollowInside : kHandDragFollowOutside;
+			draggedCard.currentPos = draggedCard.currentPos.getInterpolated(desiredPos, follow);
+			draggedCard.currentScale = ofLerp(draggedCard.currentScale, draggedCard.targetScale, 0.32f);
+			handDragVelocity = draggedCard.currentPos - prevPos;
 			// While dragging, keep target highlights up-to-date so swipe shows previews without hovering
 			calculateTargetHighlights(draggedCardIndex);
 		} else if (playerAction == PIECE_SELECTED) {
@@ -15756,6 +15849,8 @@ void ofApp::mouseReleased(int x, int y, int button) {
 			selectedCardIndex = -1;
 			draggedCardIndex = -1;
 			pressedCardIndex = -1;
+			handDragInValidPlayZone = false;
+			handDragVelocity.set(0.0f, 0.0f);
 			playerAction = NONE;
 
 			// Unified cancel for all targeting modes/menus
@@ -15780,7 +15875,7 @@ void ofApp::mouseReleased(int x, int y, int button) {
 		if (players.empty() || currentPlayerIndex < 0) return;
 
 		Player & currentPlayer = players[currentPlayerIndex];
-		const float dragThreshold = 5.0f;
+		const float dragThreshold = kHandDragStartThresholdPx;
 		float dist = mouseDownPos.distance(ofVec2f(x, y));
 
 		// Handle menu button clicks
@@ -15812,22 +15907,27 @@ void ofApp::mouseReleased(int x, int y, int button) {
 				glm::vec2 playedCardReleasePos = playedCard.currentPos;
 				float playedCardReleaseScale = playedCard.currentScale;
 				ofRectangle handAreaRect = computeHandAreaRect((float)ofGetWidth(), (float)ofGetHeight());
-				float playZoneY = ofGetHeight() * 0.5f; // Changed from 0.7f to 0.5f for easier targeting card play
+				float playZoneY = ofGetHeight() * kHandPlayZoneYRatio;
 				float upwardDrag = mouseDownPos.y - y;
 				bool releasedInPlayZone = (y < playZoneY);
-				bool draggedUpEnough = (upwardDrag > 30.0f);
+				bool draggedUpEnough = (upwardDrag > kHandIntentMinUpwardDragPx);
 				bool releasedOutsideHandArea = !handAreaRect.inside((float)x, (float)y);
+				float heldDuration = ofGetElapsedTimef() - mouseDownTimeSec;
+				bool hasPlayIntent = (heldDuration >= kHandIntentMinHoldSec) && (releasedInPlayZone || draggedUpEnough || handDragInValidPlayZone);
 				ofLogNotice("CardDrag") << "Release detected: dist=" << dist << " y=" << y << " playZoneY=" << playZoneY
 										<< " upwardDrag=" << upwardDrag
 										<< " releasedInPlayZone=" << releasedInPlayZone
 										<< " draggedUpEnough=" << draggedUpEnough
-										<< " releasedOutsideHandArea=" << releasedOutsideHandArea;
+										<< " releasedOutsideHandArea=" << releasedOutsideHandArea
+										<< " heldDuration=" << heldDuration
+										<< " hasPlayIntent=" << hasPlayIntent;
 
-				if (canPlayCard && releasedOutsideHandArea && (releasedInPlayZone || draggedUpEnough)) {
+				if (canPlayCard && releasedOutsideHandArea && hasPlayIntent) {
 					// === NEW UNIFIED HANDLER ===
 					// Call the centralized card play handler instead of per-card logic
 					ofLogNotice("CardDrag") << "Calling handleCardDragToPlay for card=" << playedCard.name;
 					handleCardDragToPlay(draggedCardIndex);
+					playHandFeedbackSfx(1.28f, 0.14f);
 					startedCardInteraction = (cardInteractionState == CARD_INTERACTION_TARGETING || cardInteractionState == CARD_INTERACTION_MENU);
 					if (startedCardInteraction) {
 						// Always play a hand-release fade animation when entering interaction states.
@@ -15849,6 +15949,7 @@ void ofApp::mouseReleased(int x, int y, int button) {
 					// Snap back if it wasn't a valid play.
 					draggedCard.currentPos = draggedCard.targetPos;
 					draggedCard.currentScale = draggedCard.targetScale;
+					playHandFeedbackSfx(0.78f, 0.10f);
 					ofLogNotice("CardDrag") << "Release did not meet play condition, not playing card";
 				}
 			} else {
@@ -15857,6 +15958,8 @@ void ofApp::mouseReleased(int x, int y, int button) {
 
 			draggedCardIndex = -1;
 			pressedCardIndex = -1;
+			handDragInValidPlayZone = false;
+			handDragVelocity.set(0.0f, 0.0f);
 			if (!startedCardInteraction) {
 				selectedCardIndex = -1;
 				calculateTargetHighlights();
