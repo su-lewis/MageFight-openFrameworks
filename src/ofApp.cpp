@@ -13707,6 +13707,11 @@ void ofApp::mousePressed(int x, int y, int button) {
 		if (cardInteractionState == CARD_INTERACTION_MENU && interactingCardType == CARD_RENEWED_INSPIRATION) {
 			return;
 		}
+		// Check if state machine is busy before allowing card selection
+		if (cardPlayState != CARD_STATE_IDLE || cardInteractionState != CARD_INTERACTION_IDLE) {
+			ofLogNotice("CardPress") << "mousePressed: Card click blocked - State machine is busy! cardPlayState=" << (int)cardPlayState << " cardInteractionState=" << (int)cardInteractionState;
+			return;
+		}
 		Player & currentPlayer = players[currentPlayerIndex];
 		int numCards = static_cast<int>(currentPlayer.hand.size());
 		ofLogNotice("CardDrag") << "mousePressed: Checking " << numCards << " cards in hand at currentState=" << (int)currentState;
@@ -15654,8 +15659,9 @@ void ofApp::mouseDragged(int x, int y, int button) {
 			break;
 		}
 	}
-	if (isPlayerAnimating || isDiceSpinning) {
-		ofLogNotice("CardDrag") << "mouseDragged: Early return - isPlayerAnimating=" << isPlayerAnimating << " isDiceSpinning=" << isDiceSpinning;
+
+	if (isPlayerAnimating || isDiceSpinning || cardPlayState != CARD_STATE_IDLE || cardInteractionState != CARD_INTERACTION_IDLE) {
+		ofLogNotice("CardDrag") << "mouseDragged: Early return - State machine is busy!";
 		return;
 	}
 
@@ -23417,6 +23423,10 @@ void ofApp::processVisualEvents() {
 	VisualEvent & ev = visualEvents[idx];
 	switch (ev.type) {
 	case VE_WAIT:
+		if (!ev.spawned) {
+			ev.spawned = true;
+			ev.startTime = now; // Start counting from RIGHT NOW
+		}
 		if (now - ev.startTime >= ev.duration) ev.completed = true;
 		break;
 
@@ -28007,7 +28017,10 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 										}
 									}
 									if (!blocked) {
-										valid = true;
+										// Only valid if it's not the caster's own tile!
+										if (tx != px || ty != py) {
+											valid = true;
+										}
 										break;
 									}
 								}
