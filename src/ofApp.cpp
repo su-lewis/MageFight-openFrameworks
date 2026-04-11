@@ -15612,25 +15612,29 @@ void ofApp::mouseDragged(int x, int y, int button) {
 																									  : hoveredCardIndex;
 			if (sourceIndex < 0 || sourceIndex >= numCards) return;
 			Card & card = currentPlayer.hand[sourceIndex];
-			ofVec2f visualAnchor = card.currentPos;
-			// If the grabbed card is visually hovered (lifted), anchor drag from that
-			// displayed position so there is no initial cursor/card jump.
-			if (sourceIndex == hoveredCardIndex) {
-				visualAnchor.y += kHandHoverLiftPx;
-			}
+			ofVec2f dragStartPos = card.targetPos; // default in-hand position (no hover lift)
 			ofRectangle hitRect = getHandCardRestRect(card, handBaseCardWidth, baseCardHeight);
 
 			// Set draggedCardIndex based on pressedCardIndex, OR check current position if no pressed index
 			if (pressedCardIndex != -1) {
 				// User pressed on a card, so initiate drag from that card
 				draggedCardIndex = sourceIndex;
-				dragOffset = ofVec2f(x, y) - visualAnchor;
+				// Instantly remove hover scale/lift and drag from default card pose.
+				card.targetScale = 1.0f;
+				card.currentScale = 1.0f;
+				card.currentPos = dragStartPos;
+				hoveredCardIndex = -1;
+				dragOffset = ofVec2f(x, y) - dragStartPos;
 				ofLogNotice("CardDrag") << "Drag initiated from pressedCardIndex=" << sourceIndex << " name=" << card.name;
 			} else if (hitRect.inside((float)ofGetPreviousMouseX(), (float)ofGetPreviousMouseY())) {
 				// Fallback: check if previous position was in detection rect (for backwards compat)
 				draggedCardIndex = sourceIndex;
-				// Use visual anchor (includes hover lift) to avoid center snap.
-				dragOffset = ofVec2f(x, y) - visualAnchor;
+				// Instantly remove hover scale/lift and drag from default card pose.
+				card.targetScale = 1.0f;
+				card.currentScale = 1.0f;
+				card.currentPos = dragStartPos;
+				hoveredCardIndex = -1;
+				dragOffset = ofVec2f(x, y) - dragStartPos;
 				ofLogNotice("CardDrag") << "Drag initiated from previous position, index=" << sourceIndex;
 			}
 		}
@@ -16800,7 +16804,7 @@ void ofApp::startNewTurn() {
 			}
 			// Tortoise form: ALL defensive stats don't expire
 			if (!startingPlayer.inTortoiseForm) {
-				int sidx = (int)(&startingPlayer - &players[0]);
+				int sidx = currentPlayerIndex;
 				if (startingPlayer.block > 0) {
 					EffectOp op = {};
 					op.type = EffectOpType::MODIFY_STAT;
@@ -16851,7 +16855,7 @@ void ofApp::startNewTurn() {
 			// Regeneration first
 			if (startingPlayer.hasRegeneration) {
 				if (startingPlayer.health < startingPlayer.maxHealth) {
-					int sidx = (int)(&startingPlayer - &players[0]);
+					int sidx = currentPlayerIndex;
 					EffectOp op = {};
 					op.type = EffectOpType::MODIFY_STAT;
 					op.data.modifyStat.targetIndex = sidx;
@@ -17002,7 +17006,7 @@ void ofApp::startNewTurn() {
 
 	// Tortoise form: ALL defensive stats don't expire
 	if (!startingPlayer.inTortoiseForm) {
-		int sidx = (int)(&startingPlayer - &players[0]);
+		int sidx = currentPlayerIndex;
 		if (startingPlayer.block > 0) {
 			EffectOp op = {};
 			op.type = EffectOpType::MODIFY_STAT;
@@ -17053,7 +17057,7 @@ void ofApp::startNewTurn() {
 	// Regeneration first
 	if (startingPlayer.hasRegeneration) {
 		if (startingPlayer.health < startingPlayer.maxHealth) {
-			int sidx = (int)(&startingPlayer - &players[0]);
+			int sidx = currentPlayerIndex;
 			EffectOp op = {};
 			op.type = EffectOpType::MODIFY_STAT;
 			op.data.modifyStat.targetIndex = sidx;
@@ -18811,7 +18815,9 @@ void ofApp::drawActiveCardInteractionUI() {
 	}
 
 	if (cardInteractionState == CARD_INTERACTION_MENU) {
-		drawMenuOverlay();
+		if (interactingCardType != CARD_RENEWED_INSPIRATION) {
+			drawMenuOverlay();
+		}
 	}
 
 	// Compute menu scale (tween from small -> 1.0)
