@@ -1403,7 +1403,7 @@ private:
 	void determineStatusOptions(Player * target);
 	void applyDispelEffect(int statusID);
 	void drawMinionManagerUI();
-	void drawMinionStatusBars(Player & minion, const std::string & name, float x, float y, float totalWidth, float preferredHpWidth);
+	void drawMinionStatusBars(Player & minion, const std::string & name, float x, float y, float totalWidth, float preferredHpWidth, bool alignRight = false);
 
 	// =========================================================================
 	//                            MEMBER VARIABLES

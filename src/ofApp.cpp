@@ -6056,12 +6056,14 @@ void ofApp::updateGame() {
 	const float apTopY = discardY - (10.0f * scale) - apRectHeight;
 	int p0_skeleton = 0, p0_golem = 0, p0_wolf = 0, p0_hound = 0, p0_demon = 0, p0_kobold = 0, p0_wall = 0, p0_assistant = 0, p0_faerie = 0;
 	int p1_skeleton = 0, p1_golem = 0, p1_wolf = 0, p1_hound = 0, p1_demon = 0, p1_kobold = 0, p1_wall = 0;
-	// Top starts below timer with the same gap as deck-bottom gap.
-	float p0_topLimitY = layoutSpacing.timerBarHeight + deckBottomGap;
-	// Bottom stops above discard stack with the same shared gap.
-	float p0_bottomLimitY = std::min(discardY - deckBottomGap, apTopY - deckBottomGap);
+	// Fit minion UI cleanly between the top HUD band and the AP counter top.
+	float p0_topLimitY = std::max(0.0f, layoutSpacing.timerBarHeight);
+	float p0_bottomLimitY = std::max(p0_topLimitY + (40.0f * scale), apTopY);
 	float p1_topLimitY = p0_topLimitY;
 	float p1_bottomLimitY = p0_bottomLimitY;
+
+	// Use the same visual spacing as the deck-to-screen bottom gap.
+	gap = (scale > 0.0f) ? (deckBottomGap / scale) : gap;
 
 	// --- REBUILD MINION UI EVERY FRAME ---
 	activeMinionUIs.clear();
@@ -6086,9 +6088,12 @@ void ofApp::updateGame() {
 	auto buildMinionList = [&](const std::vector<int> & indices, float startX, float topLimit, float bottomLimit, int listSide, int & skelCount, int & golemCount, int & wolfCount, int & houndCount, int & demonCount, int & koboldCount, int & assistantCount, int & wallCount, int & faerieCount) {
 		float localAvailableHeight = bottomLimit - topLimit;
 		float actualEntryHeight = standardEntryHeight * scale;
-		if (listSide == 1) actualEntryHeight *= 1.15f;
+		actualEntryHeight *= (1.15f * 0.80f); // reduce current row length by 20%
 		float actualGap = gap * scale;
-		float totalRequiredHeight = indices.size() * (actualEntryHeight + actualGap);
+		float totalRequiredHeight = 0.0f;
+		if (!indices.empty()) {
+			totalRequiredHeight = indices.size() * actualEntryHeight + (indices.size() - 1) * actualGap;
+		}
 
 		float & scrollRef = (listSide == 0) ? p0_minionScroll : p1_minionScroll;
 		float maxScroll = std::max(0.0f, totalRequiredHeight - localAvailableHeight);
@@ -6174,7 +6179,7 @@ void ofApp::updateGame() {
 			float cardAspectRatio = 585.0f / 409.0f; // cardBackImage aspect ratio
 			float iconMargin = layoutSpacing.minionIconGap;
 			// Make icons proportionally large relative to entry height
-			float iconHeight = ui.bounds.height * 0.72f;
+			float iconHeight = ui.bounds.height * 0.80f;
 			float iconWidth = iconHeight * cardAspectRatio;
 			float iconsY = ui.bounds.y + (ui.bounds.height - iconHeight) * 0.5f;
 			if (listSide == 0) {
@@ -32988,7 +32993,7 @@ DamageType ofApp::stringToDamageType(const std::string & str) {
 }
 
 //--------------------------------------------------------------
-void ofApp::drawMinionStatusBars(Player & minion, const std::string & name, float x, float y, float totalWidth, float preferredHpWidth) {
+void ofApp::drawMinionStatusBars(Player & minion, const std::string & name, float x, float y, float totalWidth, float preferredHpWidth, bool alignRight) {
 	float scale = ofGetHeight() / 1080.0f;
 	float fontScale = 1.0f;
 
@@ -33010,7 +33015,9 @@ void ofApp::drawMinionStatusBars(Player & minion, const std::string & name, floa
 	// Prefer the requested HP width (e.g. match the player HP bar length),
 	// but clamp so bars never overflow the available totalWidth.
 	float hpW = std::min(std::max(0.0f, totalWidth - usedWidth), preferredHpWidth);
-	float currentX = x;
+	float totalBarW = hpW + usedWidth;
+	float barStartX = alignRight ? (x + std::max(0.0f, totalWidth - totalBarW)) : x;
+	float currentX = barStartX;
 
 	// --- HEALTH ---
 	ofSetColor(40, 0, 0);
@@ -33053,17 +33060,18 @@ void ofApp::drawMinionStatusBars(Player & minion, const std::string & name, floa
 	if (minion.inTortoiseForm || minion.inGhostForm) {
 		float formY = barY + barHeight + (2 * scale);
 		float formHeight = 15 * scale;
+		float formStartX = alignRight ? (x + std::max(0.0f, totalWidth - totalBarW)) : x;
 
 		if (minion.inTortoiseForm) {
 			int rem = 5 - minion.tortoiseDamageTaken;
 			ofSetColor(20, 40, 20);
-			ofDrawRectangle(x, formY, totalWidth, formHeight);
+			ofDrawRectangle(formStartX, formY, totalBarW, formHeight);
 			ofSetColor(ofColor::darkGreen);
-			ofDrawRectangle(x, formY, totalWidth * (rem / 5.0f), formHeight);
-			drawStatText(uiFont, "Tortoise: " + ofToString(rem) + "/5", x, formY, totalWidth, formHeight, ofColor::white);
+			ofDrawRectangle(formStartX, formY, totalBarW * (rem / 5.0f), formHeight);
+			drawStatText(uiFont, "Tortoise: " + ofToString(rem) + "/5", formStartX, formY, totalBarW, formHeight, ofColor::white);
 
 			// Tooltip
-			if (ofRectangle(x, formY, totalWidth, formHeight).inside(ofGetMouseX(), ofGetMouseY())) {
+			if (ofRectangle(formStartX, formY, totalBarW, formHeight).inside(ofGetMouseX(), ofGetMouseY())) {
 				isShowingTooltip = true;
 				tooltipPos = { (float)ofGetMouseX(), (float)ofGetMouseY() };
 				tooltipText = "Tortoise Form: Buffer HP";
@@ -33076,13 +33084,13 @@ void ofApp::drawMinionStatusBars(Player & minion, const std::string & name, floa
 		if (minion.inGhostForm) {
 			int rem = 4 - minion.ghostDamageTaken;
 			ofSetColor(30, 30, 50);
-			ofDrawRectangle(x, formY, totalWidth, formHeight);
+			ofDrawRectangle(formStartX, formY, totalBarW, formHeight);
 			ofSetColor(150, 150, 255);
-			ofDrawRectangle(x, formY, totalWidth * (rem / 4.0f), formHeight);
-			drawStatText(uiFont, "Ghost: " + ofToString(rem) + "/4", x, formY, totalWidth, formHeight, ofColor::black);
+			ofDrawRectangle(formStartX, formY, totalBarW * (rem / 4.0f), formHeight);
+			drawStatText(uiFont, "Ghost: " + ofToString(rem) + "/4", formStartX, formY, totalBarW, formHeight, ofColor::black);
 
 			// Tooltip
-			if (ofRectangle(x, formY, totalWidth, formHeight).inside(ofGetMouseX(), ofGetMouseY())) {
+			if (ofRectangle(formStartX, formY, totalBarW, formHeight).inside(ofGetMouseX(), ofGetMouseY())) {
 				isShowingTooltip = true;
 				tooltipPos = { (float)ofGetMouseX(), (float)ofGetMouseY() };
 				tooltipText = "Ghost Form: Immune to Physical/Piercing";
@@ -33101,6 +33109,7 @@ void ofApp::drawMinionManagerUI() {
 	for (size_t i = 0; i < activeMinionUIs.size(); i++) {
 		auto & ui = activeMinionUIs[i];
 		Player & minion = players[ui.playerIndex];
+		constexpr float kMinionPreviewScaleBoost = 1.4f;
 
 		bool isLeft = ui.bounds.x < ofGetWidth() / 2.0f;
 		float topY = isLeft ? p0_minionTop : p1_minionTop;
@@ -33123,7 +33132,7 @@ void ofApp::drawMinionManagerUI() {
 		if (minion.inTortoiseForm) {
 			// Lower the tortoise preview slightly
 			ofTranslate(modelFbo.getWidth() / 2, modelFbo.getHeight() / 2 + 30);
-			ofScale(21, -21, 21);
+			ofScale(21 * kMinionPreviewScaleBoost, -21 * kMinionPreviewScaleBoost, 21 * kMinionPreviewScaleBoost);
 			ofRotateXDeg(-15);
 			ofRotateYDeg(180 + ofGetElapsedTimef() * 30);
 			if (tortoiseTexture.isAllocated()) tortoiseTexture.bind();
@@ -33132,7 +33141,7 @@ void ofApp::drawMinionManagerUI() {
 		} else if (minion.isGolem) {
 			// GOLEM: Lower slightly in preview
 			ofTranslate(modelFbo.getWidth() / 2, 100);
-			ofScale(27, 27, 27);
+			ofScale(27 * kMinionPreviewScaleBoost, 27 * kMinionPreviewScaleBoost, 27 * kMinionPreviewScaleBoost);
 			ofRotateXDeg(-15);
 			ofRotateYDeg(ofGetElapsedTimef() * 30);
 			if (minion.minionTexture) minion.minionTexture->bind();
@@ -33142,7 +33151,7 @@ void ofApp::drawMinionManagerUI() {
 		} else if (minion.isWolf) {
 			// WOLF: Decreased scale by 50% (2.2 -> 1.1), Lowered position (+10 -> +30)
 			ofTranslate(modelFbo.getWidth() / 2, modelFbo.getHeight() / 2 + 30);
-			ofScale(1.1f, -1.1f, 1.1f);
+			ofScale(1.1f * kMinionPreviewScaleBoost, -1.1f * kMinionPreviewScaleBoost, 1.1f * kMinionPreviewScaleBoost);
 
 			ofRotateXDeg(-15);
 			ofRotateYDeg(180 + ofGetElapsedTimef() * 30);
@@ -33173,7 +33182,7 @@ void ofApp::drawMinionManagerUI() {
 			ofTranslate(modelFbo.getWidth() / 2, modelFbo.getHeight() / 2 + 50);
 
 			// Reduced from 30.0f to 2.5f (since model is now 0.0042f)
-			ofScale(2.5f, -2.5f, 2.5f);
+			ofScale(2.5f * kMinionPreviewScaleBoost, -2.5f * kMinionPreviewScaleBoost, 2.5f * kMinionPreviewScaleBoost);
 
 			ofRotateXDeg(-15);
 			ofRotateYDeg(180 + ofGetElapsedTimef() * 30);
@@ -33190,7 +33199,7 @@ void ofApp::drawMinionManagerUI() {
 		else if (minion.isKobold) {
 			ofTranslate(modelFbo.getWidth() / 2, modelFbo.getHeight() / 2 + 30);
 			// Preview scale reduced by ~30%
-			ofScale(4.55f, -4.55f, 4.55f);
+			ofScale(4.55f * kMinionPreviewScaleBoost, -4.55f * kMinionPreviewScaleBoost, 4.55f * kMinionPreviewScaleBoost);
 			ofRotateXDeg(-15);
 			ofRotateYDeg(180 + ofGetElapsedTimef() * 30);
 			koboldModel.drawFaces();
@@ -33199,7 +33208,7 @@ void ofApp::drawMinionManagerUI() {
 		else if (minion.isHellhound) {
 			// Slightly lower and scale down the hellhound preview
 			ofTranslate(modelFbo.getWidth() / 2, modelFbo.getHeight() / 2 + 20);
-			ofScale(18, -18, 18);
+			ofScale(18 * kMinionPreviewScaleBoost, -18 * kMinionPreviewScaleBoost, 18 * kMinionPreviewScaleBoost);
 
 			ofRotateXDeg(-15);
 			ofRotateYDeg(180 + ofGetElapsedTimef() * 30);
@@ -33209,7 +33218,7 @@ void ofApp::drawMinionManagerUI() {
 		else if (minion.isDemon) {
 			ofTranslate(modelFbo.getWidth() / 2, modelFbo.getHeight() / 2 + 10);
 			// DEMON: Increased scale (12 -> 16)
-			ofScale(16, -16, 16);
+			ofScale(16 * kMinionPreviewScaleBoost, -16 * kMinionPreviewScaleBoost, 16 * kMinionPreviewScaleBoost);
 			ofRotateXDeg(-15);
 			ofRotateYDeg(180 + ofGetElapsedTimef() * 30);
 			demonModel.drawFaces();
@@ -33218,7 +33227,7 @@ void ofApp::drawMinionManagerUI() {
 		else if (minion.isWallUnit) {
 			ofTranslate(modelFbo.getWidth() / 2, modelFbo.getHeight() / 2 + 10);
 			// Reasonable preview scale for wall unit (tweakable)
-			ofScale(6.0f, -6.0f, 6.0f);
+			ofScale(6.0f * kMinionPreviewScaleBoost, -6.0f * kMinionPreviewScaleBoost, 6.0f * kMinionPreviewScaleBoost);
 			ofRotateXDeg(-15);
 			ofRotateYDeg(180 + ofGetElapsedTimef() * 30);
 			if (minion.minionTexture && minion.minionTexture->isAllocated()) minion.minionTexture->bind();
@@ -33245,7 +33254,7 @@ void ofApp::drawMinionManagerUI() {
 		else if (minion.isAssistant) {
 			// Raise assistant slightly so it's not clipped into the floor
 			ofTranslate(modelFbo.getWidth() / 2, modelFbo.getHeight() / 2 + 10);
-			ofScale(35.0f, -35.0f, 35.0f);
+			ofScale(35.0f * kMinionPreviewScaleBoost, -35.0f * kMinionPreviewScaleBoost, 35.0f * kMinionPreviewScaleBoost);
 			ofRotateXDeg(-15);
 			ofRotateYDeg(180 + ofGetElapsedTimef() * 30);
 			assistantModel.drawFaces();
@@ -33254,7 +33263,7 @@ void ofApp::drawMinionManagerUI() {
 		else if (minion.isFaerie) {
 			// Raise the faerie preview and reduce scale for proper fit
 			ofTranslate(modelFbo.getWidth() / 2, modelFbo.getHeight() / 2 + 40);
-			ofScale(36.0f, -36.0f, 36.0f);
+			ofScale(36.0f * kMinionPreviewScaleBoost, -36.0f * kMinionPreviewScaleBoost, 36.0f * kMinionPreviewScaleBoost);
 			ofRotateXDeg(-15);
 			ofRotateYDeg(180 + ofGetElapsedTimef() * 30);
 			if (faerieTexture.isAllocated()) faerieTexture.bind();
@@ -33266,7 +33275,7 @@ void ofApp::drawMinionManagerUI() {
 			ofSetColor(255);
 			ofTranslate(modelFbo.getWidth() / 2, 90);
 			// SKELETON: Slightly larger for readability
-			ofScale(26, -26, 26);
+			ofScale(26 * kMinionPreviewScaleBoost, -26 * kMinionPreviewScaleBoost, 26 * kMinionPreviewScaleBoost);
 			ofRotateXDeg(-15);
 			ofRotateYDeg(ofGetElapsedTimef() * 30);
 			skeletonTexture.bind();
@@ -33361,13 +33370,15 @@ void ofApp::drawMinionManagerUI() {
 		name += ofToString(ui.displayNumber);
 
 		// --- Draw Name Text ---
-		float fontScale = 1.02f;
+		constexpr float kMinionUINameScale = 1.12f;
+		float fontScale = kMinionUINameScale;
 		float textBlockY = ui.bounds.y + 5 * scale;
 
 		// --- Draw Icons (mirror per side) ---
 		const UILayoutSpacing layoutSpacing = buildUILayoutSpacing(scale, turnTimerEnabled);
 		float iconMargin = layoutSpacing.minionIconGap;
-		float iconHeight = ui.bounds.height * 0.72f;
+		constexpr float kMinionUIIconHeightPct = 0.80f;
+		float iconHeight = ui.bounds.height * kMinionUIIconHeightPct;
 		float cardAspectRatio = cardBackImage.getWidth() / cardBackImage.getHeight();
 		float iconWidth = iconHeight * cardAspectRatio;
 		float iconsY = ui.bounds.y + (ui.bounds.height - iconHeight) * 0.5f;
@@ -33397,28 +33408,24 @@ void ofApp::drawMinionManagerUI() {
 		// (Minion luck/status moved to hover tooltip; no inline luck shown here)
 		//
 		// --- Draw Model FBO ---
-		float textBlockBottom = textBlockY + (nameBounds.height * fontScale) + (10.0f * scale);
-		// Opponent minion UI reads better with the model preview above the health bar.
-		// Keep the left-side layout unchanged.
-		float modelTopY = textBlockBottom;
+		float modelSafetyPad = 10.0f * scale;
+		float statusBlockHeight = (nameBounds.height * fontScale) + (24.0f * scale);
+		if (minion.inTortoiseForm) statusBlockHeight += (17.0f * scale) + (2.0f * scale);
+		if (minion.inGhostForm) statusBlockHeight += (17.0f * scale) + (2.0f * scale);
+		float modelTopY = textBlockY + statusBlockHeight + (6.0f * scale);
 		float statsTopY = textBlockY;
-		if (!isLeft) {
-			modelTopY = textBlockY;
-			statsTopY = textBlockY + std::max(70.0f * scale, ui.bounds.getHeight() * 0.28f);
-		}
 		// Use only the real remaining area to avoid padded/unused model space.
-		float modelAreaHeight = std::max(28.0f * scale, ui.bounds.getBottom() - modelTopY - (4 * scale));
-		if (!isLeft) {
-			modelAreaHeight = std::max(28.0f * scale, statsTopY - modelTopY - (8.0f * scale));
-		}
+		float modelAreaHeight = std::max(28.0f * scale, ui.bounds.getBottom() - modelTopY - modelSafetyPad);
 
 		// Ensure the model preview doesn't overflow the panel width (avoid scissor clipping)
-		float maxModelW = std::max(48.0f, ui.bounds.width - (80.0f * scale));
-		float modelW = std::min(modelAreaHeight, maxModelW);
-		float modelX = isLeft ? (contentLeftX + 10 * scale) : (contentRightX - modelW - 10 * scale);
+		float availableModelWidth = std::max(48.0f, contentRightX - contentLeftX - (2.0f * modelSafetyPad));
+		float modelW = std::min(modelAreaHeight, availableModelWidth);
+		float modelX = contentLeftX + ((contentRightX - contentLeftX) - modelW) * 0.5f;
+		float maxModelTop = ui.bounds.getBottom() - modelSafetyPad - modelW;
+		float modelY = std::clamp(modelTopY, ui.bounds.y + modelSafetyPad, maxModelTop);
 		ui.modelViewport.set(
 			modelX,
-			modelTopY,
+			modelY,
 			modelW,
 			modelW);
 		ofSetColor(255);
@@ -33430,10 +33437,7 @@ void ofApp::drawMinionManagerUI() {
 		if (iconGap < 0.0f) iconGap = (ui.deckRect.x - (ui.discardRect.x + ui.discardRect.width));
 		float preferredHpWidth = ui.deckRect.width + ui.discardRect.width + std::abs(iconGap);
 		float statusTextY = statsTopY;
-		if (!isLeft) {
-			statusTextY = statsTopY - (nameBounds.height * fontScale) - (4.0f * scale);
-		}
-		drawMinionStatusBars(minion, name, contentLeftX, statusTextY, availableWidth, preferredHpWidth);
+		drawMinionStatusBars(minion, name, contentLeftX, statusTextY, availableWidth, preferredHpWidth, !isLeft);
 
 		// Deck
 		ofSetColor(255);
