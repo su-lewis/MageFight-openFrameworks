@@ -31076,7 +31076,7 @@ void ofApp::drawCardEncyclopediaUI() {
 				float drawY = baseDrawY;
 
 				if (isThisCardHovered) {
-					float scaleUp = 1.6f;
+					float scaleUp = 1.8f;
 					thisCardW = cardW * scaleUp;
 					thisCardH = cardH * scaleUp;
 					// Center the scaled card on its original position

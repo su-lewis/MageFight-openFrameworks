@@ -265,7 +265,7 @@
 - **Targeting:** 2d20 ft, 1d20 ft AOE
 - **Class:** 3
 - **Picture:** 
-- **Effect Text:** Choose a target. Deal 1d20 damage to the unit hit, then deal 3 damage in an AOE from the tile hit. You can target through walls but AOE is blocked.
+- **Effect Text:** Choose a target. Deal 1d20 damage to the unit hit, then deal 3 damage in an AOE from the tile hit. You can target through walls but AOE is blocked by them.
 ---
 
 -## 35. Flail
