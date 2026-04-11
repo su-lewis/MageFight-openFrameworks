@@ -13632,6 +13632,12 @@ void ofApp::mousePressed(int x, int y, int button) {
 		return;
 	}
 
+	// Right-click cannot interact with cards during gameplay; it's only for cancellation/UI
+	if (button == OF_MOUSE_BUTTON_RIGHT && currentState == STATE_GAMEPLAY) {
+		// Right-click is handled in mouseReleased for cancellation; early return here prevents any card interactions
+		return;
+	}
+
 	// Detect which hand card was clicked (for drag initiation)
 	pressedCardIndex = -1;
 	if (button == OF_MOUSE_BUTTON_LEFT && currentState == STATE_GAMEPLAY && !players.empty() && currentPlayerIndex >= 0) {
