@@ -884,7 +884,7 @@ public:
 	// Reliable send tracking for legacy packets removed: lockstep commands used instead
 	void sendSnapshotToClient();
 	std::string buildSnapshotString();
-	void applySnapshotString(const std::string & data);
+	void applySnapshotString(const std::string & data, bool fromNetworkSnapshot = true);
 
 	// Anti-cheat: Log deck states for verification
 	void logDeckStates(const std::string & reason);
@@ -1749,7 +1749,7 @@ private:
 	ofFbo pixelLowFbo;
 	ofShader pixelArtShader;
 	bool pixelArtShaderLoaded = false;
-	bool enablePixelArt = false; // toggle the effect (default OFF)
+	bool enablePixelArt = true; // toggle the effect (default ON)
 	bool pixelArtWarned = false; // set when we warn once about shader missing
 	bool pixelArtActiveNotified = false; // set once when pixel-art branch runs
 	bool pixelArtDumpedPixels = false; // set once when we read back low-res FBO for debugging

@@ -290,7 +290,7 @@ struct CardTemplateLayout {
 	ofRectangle summonHPRect = ofRectangle(552, 1328, 136, 80);
 	ofRectangle classRect = ofRectangle(26, 112, 150, 24);
 	ofRectangle effectRect = ofRectangle(96, 928, 864, 384);
-	float nameScale = 5.5f;
+	float nameScale = 13.75f;
 	float nameMinScale = 1.0f;
 	float nameCurveDropPx = 12.0f;
 	float nameMiddleClampXMin = 416.0f;
@@ -1880,7 +1880,10 @@ bool ofApp::loadGameStateFromFile(const std::string & path) {
 		std::stringstream buffer;
 		buffer << ifs.rdbuf();
 		ifs.close();
-		applySnapshotString(buffer.str());
+		// Preserve current game mode when loading from disk.
+		// Network snapshots should force multiplayer; local save loads should not.
+		bool fromNetworkSnapshot = isMultiplayer;
+		applySnapshotString(buffer.str(), fromNetworkSnapshot);
 		return true;
 	} catch (...) {
 		return false;
@@ -17001,8 +17004,7 @@ void ofApp::startNewTurn() {
 			op.data.modifyStat.statType = 5; // Block
 			op.data.modifyStat.delta = -startingPlayer.block;
 			op.data.modifyStat.deltaFromSlot = -1;
-			queueEffect(op);
-			if (!isProcessingEffect) beginEffectSequence();
+			processEffectOp(op);
 		}
 		if (startingPlayer.holyBlock > 0) {
 			EffectOp op = {};
@@ -17011,8 +17013,7 @@ void ofApp::startNewTurn() {
 			op.data.modifyStat.statType = 7; // HolyBlock
 			op.data.modifyStat.delta = -startingPlayer.holyBlock;
 			op.data.modifyStat.deltaFromSlot = -1;
-			queueEffect(op);
-			if (!isProcessingEffect) beginEffectSequence();
+			processEffectOp(op);
 		}
 		if (startingPlayer.ward > 0) {
 			EffectOp op = {};
@@ -17021,8 +17022,7 @@ void ofApp::startNewTurn() {
 			op.data.modifyStat.statType = 8; // Ward
 			op.data.modifyStat.delta = -startingPlayer.ward;
 			op.data.modifyStat.deltaFromSlot = -1;
-			queueEffect(op);
-			if (!isProcessingEffect) beginEffectSequence();
+			processEffectOp(op);
 		}
 		if (startingPlayer.fortification > 0) {
 			EffectOp op = {};
@@ -17031,8 +17031,7 @@ void ofApp::startNewTurn() {
 			op.data.modifyStat.statType = 13; // Fortification
 			op.data.modifyStat.delta = -startingPlayer.fortification;
 			op.data.modifyStat.deltaFromSlot = -1;
-			queueEffect(op);
-			if (!isProcessingEffect) beginEffectSequence();
+			processEffectOp(op);
 		}
 		if (startingPlayer.barrier > 0) {
 			EffectOp op = {};
@@ -17041,8 +17040,7 @@ void ofApp::startNewTurn() {
 			op.data.modifyStat.statType = 6; // Barrier
 			op.data.modifyStat.delta = -startingPlayer.barrier;
 			op.data.modifyStat.deltaFromSlot = -1;
-			queueEffect(op);
-			if (!isProcessingEffect) beginEffectSequence();
+			processEffectOp(op);
 		}
 	}
 
@@ -18007,17 +18005,15 @@ void ofApp::handleCardTargetClick(int gridX, int gridY) {
 				if (!board[gx][gy].hasWall && !board[gx][gy].hasPlayer) {
 					int dist = abs(gx - wolfPlacementSourceX) + abs(gy - wolfPlacementSourceY);
 					if (dist == 1) {
-						// Enqueue a deterministic play-card command for the placement
 						InputCommandPacket cmd = {};
 						cmd.type = PKT_INPUT_COMMAND;
 						cmd.playerID = myLocalPlayerID;
 						cmd.commandId = nextCommandId++;
 						cmd.turnNumber = globalTurnCounter;
-						cmd.commandType = CMD_PLAY_CARD;
-						cmd.params[0] = interactingCardIndex;
-						cmd.params[1] = gx;
-						cmd.params[2] = gy;
-						strncpy(cmd.stringData, (cardPtr ? cardPtr->name.c_str() : ""), sizeof(cmd.stringData) - 1);
+						cmd.commandType = CMD_PSEUDO_ACTION;
+						cmd.params[0] = gx;
+						cmd.params[1] = gy;
+						strncpy(cmd.stringData, "PlaceWolf", sizeof(cmd.stringData) - 1);
 						cmd.stringData[sizeof(cmd.stringData) - 1] = '\0';
 
 						if (isMultiplayer) {
@@ -18026,7 +18022,6 @@ void ofApp::handleCardTargetClick(int gridX, int gridY) {
 							queueInputCommand(cmd);
 						}
 
-						resetCardInteraction();
 						return;
 					}
 				}
@@ -20384,6 +20379,45 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 			break;
 		}
 
+		if (actionName == "PlaceWolf") {
+			if (targetX < 0 || targetX >= BOARD_WIDTH || targetY < 0 || targetY >= BOARD_HEIGHT) break;
+			int dist = abs(targetX - wolfPlacementSourceX) + abs(targetY - wolfPlacementSourceY);
+			if (dist != 1) break;
+			if (board[targetX][targetY].hasWall || board[targetX][targetY].hasPlayer) break;
+
+			if (!isProcessingEffect) beginEffectSequence();
+			EffectOp spawnOp = {};
+			spawnOp.type = EffectOpType::SPAWN_UNIT;
+			spawnOp.data.spawnUnit.toX = targetX;
+			spawnOp.data.spawnUnit.toY = targetY;
+			spawnOp.data.spawnUnit.summonKind = 2; // WOLF
+			spawnOp.data.spawnUnit.ownerPlayerID = players[currentPlayerIndex].isMinion ? players[currentPlayerIndex].ownerID : players[currentPlayerIndex].playerID;
+			spawnOp.data.spawnUnit.maxHealth = 4;
+			spawnOp.data.spawnUnit.maxHealthFromSlot = -1;
+			spawnOp.data.spawnUnit.ap = 0;
+			spawnOp.data.spawnUnit.summonerPlayerID = players[currentPlayerIndex].playerID;
+			queueEffect(spawnOp);
+
+			wolfSummonCount++;
+
+			if (wolfSummonStage <= 1) {
+				std::vector<int> rawFlip;
+				int flip = resolveDiceRollDetailed(1, 2, rawFlip);
+				currentEffectSequence.blackboard[0] = flip;
+				queueVisualDiceRoll(gridToWorld(wolfPlacementSourceX, wolfPlacementSourceY) + glm::vec3(0, 1.0f, 0), 1, 2, rawFlip, flip, PURPOSE_COIN_FLIP, currentPlayerIndex, 0.8f);
+
+				EffectOp applyOp = {};
+				applyOp.type = EffectOpType::APPLY_WOLF_COIN;
+				queueEffect(applyOp);
+			} else {
+				// Second wolf placed; finish interaction.
+				updateCardInteractionState(CARD_INTERACTION_IDLE, -1, CARD_NONE);
+				wolfSummonStage = 0;
+				isShowingTooltip = false;
+			}
+			break;
+		}
+
 		// Handle deterministic TurnStart visuals published by host
 		if (actionName.rfind("TurnStart", 0) == 0) {
 			// Clients only: host already queued visuals locally
@@ -20632,6 +20666,12 @@ void ofApp::queueEffect(const EffectOp & op) {
 
 bool ofApp::isEffectSequenceComplete() const {
 	if (cardInteractionState == CARD_INTERACTION_MENU && interactingCardType == CARD_MAGIC_BLAST && magicBlastChoicesRemaining > 0) {
+		return false;
+	}
+	// Teleport is a two-step flow: roll range first, then wait for destination click.
+	// Keep the card in effect-sequence state while centralized teleport targeting is active
+	// so the card/AP finalization does not happen before destination selection.
+	if (cardInteractionState == CARD_INTERACTION_TARGETING && interactingCardType == CARD_TELEPORT) {
 		return false;
 	}
 	return currentEffectSequence.isComplete;
@@ -22705,8 +22745,11 @@ bool ofApp::processEffectOp(EffectOp & op) {
 				for (const auto & c : allCards) {
 					if (c.type == (CardType)ctype) {
 						target.deck.push_back(c);
-						shuffleGameVector(target.deck, tidx);
-						queueFloatingTextVisual(gridToWorld(target.x, target.y), "Shuffled 1x " + c.name, ofColor::magenta);
+						// Only shuffle and show visual for main players (0, 1), not minions
+						if (!target.isMinion) {
+							shuffleGameVector(target.deck, tidx);
+							queueFloatingTextVisual(gridToWorld(target.x, target.y), "Shuffled 1x " + c.name, ofColor::magenta);
+						}
 						ofLogNotice("EffectQueue") << "Added card " << c.name << " to deck of player " << target.playerID;
 						break;
 					}
@@ -27234,23 +27277,22 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 			break; // Cancel card play
 		}
 
-		beginEffectSequence();
+		// Enter deterministic placement mode; card/AP are finalized by common cleanup.
+		wolfPlacementSourceX = cx;
+		wolfPlacementSourceY = cy;
+		wolfSummonCount = 0;
+		wolfSummonStage = 1; // first wolf placement
 
-		// Queue SPAWN_UNIT EffectOp for Wolf
-		EffectOp spawnWolfOp = {};
-		spawnWolfOp.type = EffectOpType::SPAWN_UNIT;
-		spawnWolfOp.data.spawnUnit.toX = -1; // Placement will be handled in EffectSequence
-		spawnWolfOp.data.spawnUnit.toY = -1;
-		spawnWolfOp.data.spawnUnit.summonKind = 2; // WOLF
-		spawnWolfOp.data.spawnUnit.ownerPlayerID = currentPlayer.isMinion ? currentPlayer.ownerID : currentPlayer.playerID;
-		spawnWolfOp.data.spawnUnit.summonerPlayerID = currentPlayer.playerID;
-		// Wolf: fixed 4 HP
-		spawnWolfOp.data.spawnUnit.maxHealth = 4;
-		spawnWolfOp.data.spawnUnit.ap = 0;
-		queueEffect(spawnWolfOp);
+		if (isCurrentPlayerLocal()) {
+			updateCardInteractionState(CARD_INTERACTION_PLACING, -1, CARD_CALL_FOR_WOLVES);
+			calculateTargetHighlights();
+			queueFloatingTextVisual(gridToWorld(cx, cy), "Place Wolf", ofColor::gold);
+		} else {
+			updateCardInteractionState(CARD_INTERACTION_IDLE, -1, CARD_NONE);
+			queueFloatingTextVisual(gridToWorld(cx, cy), "Opponent placing wolf...", ofColor::gray);
+		}
 
 		playedSuccessfully = true;
-		advanceCardState(CARD_STATE_EFFECT_SEQUENCE);
 		return true;
 	}
 
@@ -28887,7 +28929,8 @@ bool ofApp::isCurrentPlayerLocal() const {
 	if (currentPlayerIndex < 0 || players.empty()) return false;
 	// In singleplayer allow local control of whichever player is active.
 	if (!isMultiplayer) return true;
-	return players[currentPlayerIndex].playerID == myLocalPlayerID;
+	const Player & p = players[currentPlayerIndex];
+	return p.isMinion ? (p.ownerID == myLocalPlayerID) : (p.playerID == myLocalPlayerID);
 }
 
 //--------------------------------------------------------------
@@ -29081,7 +29124,7 @@ std::string ofApp::buildSnapshotString() {
 }
 
 //--------------------------------------------------------------
-void ofApp::applySnapshotString(const std::string & data) {
+void ofApp::applySnapshotString(const std::string & data, bool fromNetworkSnapshot) {
 	std::istringstream ss(data);
 	std::string line;
 
@@ -29393,7 +29436,7 @@ void ofApp::applySnapshotString(const std::string & data) {
 		// Attempt fallback to backup snapshot if available and different
 		if (!turnStartBackupSnapshot.empty() && turnStartBackupSnapshot != data) {
 			ofLogNotice("Snapshot") << "Attempting to restore from Turn-Start Master Backup due to parse failure.";
-			applySnapshotString(turnStartBackupSnapshot);
+			applySnapshotString(turnStartBackupSnapshot, fromNetworkSnapshot);
 		}
 		return;
 	}
@@ -29403,15 +29446,25 @@ void ofApp::applySnapshotString(const std::string & data) {
 		ofLogError("Snapshot") << "Invalid currentPlayerIndex in snapshot: " << tmpCurrentPlayerIndex << " players=" << tmpPlayers.size();
 		if (!turnStartBackupSnapshot.empty() && turnStartBackupSnapshot != data) {
 			ofLogNotice("Snapshot") << "Attempting to restore from Turn-Start Master Backup due to invalid indices.";
-			applySnapshotString(turnStartBackupSnapshot);
+			applySnapshotString(turnStartBackupSnapshot, fromNetworkSnapshot);
 		}
 		return;
 	}
 
 	// At this point parsing succeeded - perform the swap into live state
-	isMultiplayer = true;
-	hasReceivedHandshake = true;
-	gameplaySeededByHost = true;
+	if (fromNetworkSnapshot) {
+		isMultiplayer = true;
+		hasReceivedHandshake = true;
+		gameplaySeededByHost = true;
+	} else {
+		isMultiplayer = false;
+		hasReceivedHandshake = false;
+		gameplaySeededByHost = false;
+		waitingForReconnect = false;
+		reconnectForfeitStartTime = 0.0f;
+		reconnectTurnTimerPausedByDisconnect = false;
+		reconnectTurnTimerPausedRemainingFrames = 0;
+	}
 	if (tmpHasMapSeed) currentMapSeed = tmpMapSeed;
 	if (tmpHasRngState) {
 		std::stringstream rngStream(tmpRngState);
