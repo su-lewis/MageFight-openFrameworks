@@ -24710,7 +24710,7 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 		float maxRangeFeet = (float)(playedCard.numDice * playedCard.diceSides);
 		glm::vec2 cPos((float)currentPlayer.x, (float)currentPlayer.y);
 		glm::vec2 tPos((float)targetX, (float)targetY);
-		float distFeet = glm::distance(cPos, tPos) * 5.0f;
+		float distFeet = getFaceToFaceDistance(cPos, tPos) * 5.0f;
 		if (distFeet > maxRangeFeet + 3.0f) return true;
 
 		if (targetX >= 0 && targetX < BOARD_WIDTH && targetY >= 0 && targetY < BOARD_HEIGHT) {
@@ -24766,7 +24766,7 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 
 			// Determine impact tile deterministically
 			glm::ivec2 impactTile = { -1, -1 };
-			if ((float)rangeTotal / 5.0f >= glm::distance(cPos, tPos) - 0.001f) {
+			if ((float)rangeTotal >= distFeet - 0.001f) {
 				impactTile = glm::ivec2((int)interactionTargetTile.x, (int)interactionTargetTile.y);
 			} else {
 				glm::vec2 dir = interactionTargetTile - cPos;
@@ -27773,8 +27773,8 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 					// invalid.
 					if (board[tx][ty].hasWall && !board[tx][ty].hasPlayer) continue;
 
-					// Magic Bolt ignores LOS; use Euclidean distance (feet)
-					float distFeet = glm::distance(casterPos, glm::vec2((float)tx, (float)ty)) * 5.0f;
+					// Magic Bolt ignores LOS; use edge-to-edge face distance (feet)
+					float distFeet = getFaceToFaceDistance(casterPos, glm::vec2((float)tx, (float)ty)) * 5.0f;
 					if (distFeet <= maxRangeFeet + 3.0f) {
 						preview = true;
 
@@ -27838,7 +27838,7 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 							int maxAoeFeet = 20 + 3;
 							for (size_t i = 0; i < players.size(); ++i) {
 								if ((int)i == currentPlayerIndex) continue;
-								float distToPlayerFeet = glm::distance(glm::vec2(tx, ty), glm::vec2(players[i].x, players[i].y)) * 5.0f;
+								float distToPlayerFeet = getFaceToFaceDistance(glm::vec2((float)tx, (float)ty), glm::vec2((float)players[i].x, (float)players[i].y)) * 5.0f;
 								if (distToPlayerFeet <= maxAoeFeet + 0.01f) {
 									auto losPath = getLineOfSightPath(glm::vec2((float)tx, (float)ty) + glm::vec2(0.5f, 0.5f), glm::vec2(players[i].x, players[i].y) + glm::vec2(0.5f, 0.5f));
 									bool blocked = false;
@@ -27863,7 +27863,7 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 					if (card.numDice > 0 && card.diceSides > 0) {
 						maxRangeFeet = (float)(card.numDice * card.diceSides);
 					}
-					float distFeet = glm::distance(casterPos, glm::vec2((float)tx, (float)ty)) * 5.0f;
+					float distFeet = getFaceToFaceDistance(casterPos, glm::vec2((float)tx, (float)ty)) * 5.0f;
 					if (distFeet <= maxRangeFeet + 0.1f) {
 						preview = true;
 					}
@@ -32101,18 +32101,7 @@ TargetInfo ofApp::isLosTargetValid(glm::vec2 casterTile, glm::vec2 targetTile, f
 	// --- 3. CHECK RANGE ---
 	// Use integer-scaled squared distances to avoid floating-point edge cases.
 	long long distScaledSq = 0;
-	if (cardType == CARD_MAGIC_BOLT) {
-		// center-to-center distance in scaled coords (scale by 2)
-		int cx = (int)casterTile.x * 2 + 1;
-		int cy = (int)casterTile.y * 2 + 1;
-		int tx = (int)targetTile.x * 2 + 1;
-		int ty = (int)targetTile.y * 2 + 1;
-		long long dx = (long long)cx - (long long)tx;
-		long long dy = (long long)cy - (long long)ty;
-		distScaledSq = dx * dx + dy * dy;
-	} else {
-		distScaledSq = getFaceToFaceDistanceSquaredScaled(casterTile, targetTile);
-	}
+	distScaledSq = getFaceToFaceDistanceSquaredScaled(casterTile, targetTile);
 
 	// Convert maxRangeFeet to tiles and then to scaled units (half-tile units)
 	double maxRangeTiles = maxRangeFeet / 5.0; // tiles
@@ -32172,45 +32161,39 @@ std::vector<glm::vec2> ofApp::getLineOfSightPath(glm::vec2 startPoint, glm::vec2
 		return path;
 	}
 
-	glm::vec2 dir = endPoint - startPoint;
-	if (dir.x == 0 && dir.y == 0) return path;
+	// Integer, center-to-center grid traversal.
+	// The current codebase always calls this with tile centers, so we can
+	// preserve the existing tile sequence without floating-point comparisons.
+	int currentX = (int)startTile.x;
+	int currentY = (int)startTile.y;
+	int targetX = (int)endTile.x;
+	int targetY = (int)endTile.y;
+	int stepX = (targetX >= currentX) ? 1 : -1;
+	int stepY = (targetY >= currentY) ? 1 : -1;
 
-	glm::vec2 step = { (dir.x >= 0) ? 1.0f : -1.0f, (dir.y >= 0) ? 1.0f : -1.0f };
+	int deltaX = targetX - currentX;
+	int deltaY = targetY - currentY;
+	int absDeltaXScaled = std::abs(deltaX) * 2;
+	int absDeltaYScaled = std::abs(deltaY) * 2;
 
-	float tMaxX, tMaxY, tDeltaX, tDeltaY;
-
-	if (dir.x == 0) {
-		tMaxX = std::numeric_limits<float>::infinity();
-		tDeltaX = std::numeric_limits<float>::infinity();
-	} else {
-		float nextBoundaryX = (step.x > 0) ? (startTile.x + 1.0f) : startTile.x;
-		tMaxX = (nextBoundaryX - startPoint.x) / dir.x;
-		tDeltaX = abs(1.0f / dir.x);
-	}
-
-	if (dir.y == 0) {
-		tMaxY = std::numeric_limits<float>::infinity();
-		tDeltaY = std::numeric_limits<float>::infinity();
-	} else {
-		float nextBoundaryY = (step.y > 0) ? (startTile.y + 1.0f) : startTile.y;
-		tMaxY = (nextBoundaryY - startPoint.y) / dir.y;
-		tDeltaY = abs(1.0f / dir.y);
-	}
-
-	glm::vec2 currentTile = startTile;
+	bool hasXStep = (deltaX != 0);
+	bool hasYStep = (deltaY != 0);
+	long long tMaxXNum = hasXStep ? 1LL : std::numeric_limits<long long>::max();
+	long long tMaxYNum = hasYStep ? 1LL : std::numeric_limits<long long>::max();
+	const long long tDeltaNum = 2LL;
 
 	while (true) {
-		if (tMaxX < tMaxY) {
-			currentTile.x += step.x;
-			tMaxX += tDeltaX;
+		if (hasXStep && (!hasYStep || tMaxXNum * (long long)absDeltaYScaled < tMaxYNum * (long long)absDeltaXScaled)) {
+			currentX += stepX;
+			tMaxXNum += tDeltaNum;
 		} else {
-			currentTile.y += step.y;
-			tMaxY += tDeltaY;
+			currentY += stepY;
+			tMaxYNum += tDeltaNum;
 		}
 
-		path.push_back(currentTile);
+		path.push_back(glm::vec2((float)currentX, (float)currentY));
 
-		if (currentTile.x == endTile.x && currentTile.y == endTile.y) {
+		if (currentX == targetX && currentY == targetY) {
 			break;
 		}
 
