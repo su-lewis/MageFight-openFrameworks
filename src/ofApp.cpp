@@ -13707,11 +13707,6 @@ void ofApp::mousePressed(int x, int y, int button) {
 		if (cardInteractionState == CARD_INTERACTION_MENU && interactingCardType == CARD_RENEWED_INSPIRATION) {
 			return;
 		}
-		// Check if state machine is busy before allowing card selection
-		if (cardPlayState != CARD_STATE_IDLE || cardInteractionState != CARD_INTERACTION_IDLE) {
-			ofLogNotice("CardPress") << "mousePressed: Card click blocked - State machine is busy! cardPlayState=" << (int)cardPlayState << " cardInteractionState=" << (int)cardInteractionState;
-			return;
-		}
 		Player & currentPlayer = players[currentPlayerIndex];
 		int numCards = static_cast<int>(currentPlayer.hand.size());
 		ofLogNotice("CardDrag") << "mousePressed: Checking " << numCards << " cards in hand at currentState=" << (int)currentState;
@@ -15660,8 +15655,8 @@ void ofApp::mouseDragged(int x, int y, int button) {
 		}
 	}
 
-	if (isPlayerAnimating || isDiceSpinning || cardPlayState != CARD_STATE_IDLE || cardInteractionState != CARD_INTERACTION_IDLE) {
-		ofLogNotice("CardDrag") << "mouseDragged: Early return - State machine is busy!";
+	if (isPlayerAnimating || isDiceSpinning) {
+		ofLogNotice("CardDrag") << "mouseDragged: Early return - isPlayerAnimating=" << isPlayerAnimating << " isDiceSpinning=" << isDiceSpinning;
 		return;
 	}
 
@@ -17791,6 +17786,12 @@ void ofApp::resetCardInteraction() {
 
 void ofApp::handleCardDragToPlay(int cardIndex) {
 	if (cardIndex < 0 || currentPlayerIndex < 0 || currentPlayerIndex >= (int)players.size()) {
+		draggedCardIndex = -1;
+		return;
+	}
+
+	if (cardPlayState != CARD_STATE_IDLE) {
+		ofLogNotice("CardDrag") << "Cannot play card: State machine is busy resolving a previous card.";
 		draggedCardIndex = -1;
 		return;
 	}
