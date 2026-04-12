@@ -6527,14 +6527,8 @@ void ofApp::updateGame() {
 	}
 
 	// 2. Modal freeze check (unified card interaction + special legacy Magic Blast)
-	bool hasUnifiedCardModal = (cardInteractionState == CARD_INTERACTION_MENU || cardInteractionState == CARD_INTERACTION_STATUS);
-	bool freezeForModal = ((cardInteractionState == CARD_INTERACTION_MENU && interactingCardType == CARD_MAGIC_BLAST) || hasUnifiedCardModal);
-	if (cardInteractionState == CARD_INTERACTION_MENU && interactingCardType == CARD_RENEWED_INSPIRATION) {
-		freezeForModal = false;
-	}
-	if (freezeForModal) {
-		return;
-	}
+	// NOTE: removed automatic early-return here so visual dice and simulation
+	// continue updating while menus are open (prevents modal deadlocks).
 
 	// --- Pile View Hover Logic ---
 	if (isHoveringPile && !isShowingPileView) {
@@ -12615,13 +12609,10 @@ void ofApp::drawGame() {
 			msg = "Double Handed: Choose self or adjacent unit";
 		} else if (interactingCardType == CARD_BURST_OF_LIGHT) {
 			msg = "Burst of Light: Choose a target unit";
+		} else if (interactingCardType == CARD_AMNESIA) {
+			msg = "Amnesia: Choose self or adjacent unit";
 		}
 		drawInstructionText(msg);
-	}
-
-	// --- AMNESIA TARGETING INSTRUCTION TEXT ---
-	if (cardInteractionState == CARD_INTERACTION_TARGETING && interactingCardType == CARD_AMNESIA) {
-		drawInstructionText("Amnesia: Choose self or adjacent unit");
 	}
 
 	// --- SPECIFIC CARD TARGETING INSTRUCTIONS ---
@@ -12670,7 +12661,7 @@ void ofApp::drawGame() {
 	// Legacy per-card targeting instruction blocks removed. Centralized
 	// `cardInteractionState` + `interactingCardType` handles targeting UI.
 
-	// --- GENERIC CARD TARGETING INSTRUCTION ---
+	// --- GENERIC CARD TARGETING INSTRUCTION ---\
 	// For all other cards using the generic targeting system (selectedCardIndex)
 	// Only exclude cards that need custom formatting (Teleport shows range, Amnesia has menu)
 	if (cardInteractionState != CARD_INTERACTION_TARGETING && selectedCardIndex != -1 && currentPlayerIndex >= 0 && !(cardInteractionState == CARD_INTERACTION_TARGETING && interactingCardType == CARD_TELEPORT) && !(cardInteractionState == CARD_INTERACTION_TARGETING && interactingCardType == CARD_AMNESIA)) {
@@ -18984,6 +18975,18 @@ void ofApp::drawActiveCardInteractionUI() {
 		return;
 	}
 
+	// If Amnesia dice are spinning, do NOT draw the menu or overlay yet!
+	if (cardInteractionState == CARD_INTERACTION_MENU && interactingCardType == CARD_AMNESIA) {
+		bool diceSpinning = false;
+		for (const auto & r : activeDiceRolls) {
+			if (!r.isFinishedVisual) {
+				diceSpinning = true;
+				break;
+			}
+		}
+		if (diceSpinning) return;
+	}
+
 	if (cardInteractionState == CARD_INTERACTION_MENU) {
 		if (interactingCardType != CARD_RENEWED_INSPIRATION) {
 			drawMenuOverlay();
@@ -19071,20 +19074,28 @@ void ofApp::drawActiveCardInteractionUI() {
 		}
 
 		case CARD_AMNESIA: {
-			// Only show the menu if the effect pipeline has set up amnesiaDeckCopy (after dice roll is resolved)
 			if (!amnesiaDeckCopy.empty()) {
-				// ...existing code for menu rendering...
 				string title = "Choose " + ofToString(numCardsToRemove) + " card(s) to remove permanently.";
+
+				// Layout Math
 				float panelPadding = 20.0f;
-				float titleHeight = 60.0f;
+				float titleHeight = 50.0f; // Matches Encyclopedia
 				float acceptBtnHeight = 44.0f;
 				float acceptBtnPadding = 20.0f;
+				float bottomBarHeight = acceptBtnHeight + (acceptBtnPadding * 2);
+
 				float handBaseCardWidth = kCardPixelWidth;
 				float baseCardHeight = kCardPixelHeight;
 				float viewCardScale = 1.0f;
-				float availableHeight = ofGetHeight() - (2 * panelPadding) - titleHeight - acceptBtnHeight - acceptBtnPadding;
-				float availableWidth = ofGetWidth() * 0.8f;
-				while (viewCardScale > 0.5f) {
+
+				// Available space for the entire menu
+				float maxPanelWidth = ofGetWidth() * 0.85f;
+				float maxPanelHeight = ofGetHeight() * 0.85f;
+				float availableWidth = maxPanelWidth - (2 * panelPadding);
+				float availableHeight = maxPanelHeight - titleHeight - bottomBarHeight - (2 * panelPadding);
+
+				// Scale cards to fit the available space
+				while (viewCardScale > 0.3f) {
 					float cardW = handBaseCardWidth * viewCardScale;
 					float cardH = baseCardHeight * viewCardScale;
 					float padding = 15.0f * viewCardScale;
@@ -19093,34 +19104,54 @@ void ofApp::drawActiveCardInteractionUI() {
 					if (rows * (cardH + padding) - padding <= availableHeight) {
 						break;
 					}
-					viewCardScale -= 0.1f;
+					viewCardScale -= 0.05f;
 				}
+
 				float viewCardWidth = handBaseCardWidth * viewCardScale;
 				float viewCardHeight = baseCardHeight * viewCardScale;
 				float padding = 15.0f * viewCardScale;
+
 				int gridWidthInCards = std::max(1, (int)floor((availableWidth - padding) / (viewCardWidth + padding)));
 				gridWidthInCards = std::min(gridWidthInCards, (int)amnesiaDeckCopy.size());
 				if (gridWidthInCards <= 0) gridWidthInCards = 1;
+
 				int gridHeightInCards = (int)ceil((float)amnesiaDeckCopy.size() / (float)gridWidthInCards);
+
 				float totalContentWidth = (gridWidthInCards * viewCardWidth) + ((gridWidthInCards - 1) * padding);
 				float totalContentHeight = (gridHeightInCards * viewCardHeight) + ((gridHeightInCards - 1) * padding);
+
+				// Final Panel Size
 				float panelWidth = totalContentWidth + 2 * panelPadding;
-				float panelHeight = totalContentHeight + titleHeight + 2 * panelPadding;
+				float panelHeight = titleHeight + totalContentHeight + bottomBarHeight + (2 * panelPadding);
 				float panelX = ofGetWidth() / 2.0f - panelWidth / 2.0f;
 				float panelY = ofGetHeight() / 2.0f - panelHeight / 2.0f;
-				ofSetColor(20, 20, 20, 240);
+
+				// Draw Panel Background
+				ofSetColor(25, 25, 30, 250); // Encyclopedia dark theme
 				ofDrawRectRounded(panelX, panelY, panelWidth, panelHeight, 15);
+
+				// Draw Encyclopedia-style Title Bar
+				ofSetColor(40, 40, 50);
+				ofDrawRectRounded(panelX, panelY, panelWidth, titleHeight, 15);
+				ofDrawRectangle(panelX, panelY + titleHeight - 15, panelWidth, 15); // Square off bottom corners
+
 				ofSetColor(ofColor::white);
-				uiFont.drawString(title, panelX + panelPadding, panelY + panelPadding + uiFont.getLineHeight() * 0.8f);
+				ofRectangle titleBox = uiFont.getStringBoundingBox(title, 0, 0);
+				uiFont.drawString(title, panelX + (panelWidth - titleBox.width) / 2.0f, panelY + 32);
+
 				amnesiaCardRects.clear();
 				amnesiaCardRects.reserve(amnesiaDeckCopy.size());
+
+				// Draw Cards
 				for (size_t i = 0; i < amnesiaDeckCopy.size(); ++i) {
 					int row = i / gridWidthInCards;
 					int col = i % gridWidthInCards;
 					float drawX = panelX + panelPadding + col * (viewCardWidth + padding);
-					float drawY = panelY + panelPadding + titleHeight + row * (viewCardHeight + padding);
+					float drawY = panelY + titleHeight + panelPadding + row * (viewCardHeight + padding);
+
 					const Card & card = amnesiaDeckCopy[i];
-					drawCardSpriteSubsectionSafe(cardSpriteSheet, drawX, drawY, viewCardWidth, viewCardHeight, card.textureRect.x, card.textureRect.y, card.textureRect.width, card.textureRect.height);
+					cardSpriteSheet.drawSubsection(drawX, drawY, viewCardWidth, viewCardHeight, card.textureRect.x, card.textureRect.y, card.textureRect.width, card.textureRect.height);
+
 					bool isSelected = false;
 					for (int selectedIdx : amnesiaSelectedIndices) {
 						if (selectedIdx == static_cast<int>(i)) {
@@ -19138,16 +19169,18 @@ void ofApp::drawActiveCardInteractionUI() {
 					}
 					amnesiaCardRects.emplace_back(drawX, drawY, viewCardWidth, viewCardHeight);
 				}
-				float uiScale = std::min(ofGetWidth() / 1920.0f, ofGetHeight() / 1080.0f);
-				float acceptW = std::clamp(220.0f * uiScale, 140.0f, 320.0f);
-				float acceptH = std::clamp(60.0f * uiScale, 40.0f, 96.0f);
+
+				// Draw Accept Button
+				float acceptW = 160.0f;
+				float acceptH = 44.0f;
 				float acceptX = panelX + (panelWidth - acceptW) / 2.0f;
-				float acceptY = panelY + panelHeight - acceptH - std::clamp(15.0f * uiScale, 10.0f, 30.0f);
+				float acceptY = panelY + panelHeight - acceptBtnPadding - acceptH;
 				draftAcceptButtonRect.set(acceptX, acceptY, acceptW, acceptH);
+
 				bool canAccept = (amnesiaSelectedIndices.size() == static_cast<size_t>(numCardsToRemove));
 				drawAcceptButtonShared(draftAcceptButtonRect, canAccept, 1.0f, 1.0f);
 			} else {
-				// Only show the targeting menu if the effect pipeline hasn't set up the deck yet
+				// fallback to small single-button menu if deck copy is empty
 				float w = 520, h = 260;
 				float mx = ofGetWidth() / 2 - w / 2, my = ofGetHeight() / 2 - h / 2;
 				amnesiaMenuRect.set(mx, my, w, h);
@@ -26742,7 +26775,6 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 		advanceCardState(CARD_STATE_DICE);
 		// Ensure AP is synced to player struct for UI
 		updatePlayerAP(players[currentPlayerIndex], currentAP);
-		immediateResult = CARD_AWAITING_MENU_CHOICE;
 		return true;
 	}
 
