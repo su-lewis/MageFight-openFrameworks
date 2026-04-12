@@ -13545,6 +13545,12 @@ void ofApp::mousePressed(int x, int y, int button) {
 		}
 	}
 
+	// If a card modal/menu/status is open, consume the press so the board
+	// isn't interacted with. Menu clicks are handled on mouseReleased.
+	if ((currentState == STATE_GAMEPLAY || currentState == STATE_DRAFTING) && (cardInteractionState == CARD_INTERACTION_MENU || cardInteractionState == CARD_INTERACTION_TARGETING || cardInteractionState == CARD_INTERACTION_STATUS)) {
+		return;
+	}
+
 	if (currentState == STATE_MAIN_MENU && button == OF_MOUSE_BUTTON_LEFT) {
 		if (mainMenuPlayAIButton.inside(x, y)) {
 			currentState = STATE_SINGLEPLAYER_MENU;
@@ -16569,10 +16575,9 @@ void ofApp::keyReleased(int key) {
 				isShowingPileView = false;
 				currentPileViewPlayerIndex = -1;
 				currentPileView = VIEW_NONE;
-			} else if (cardInteractionState == CARD_INTERACTION_MENU && interactingCardType == CARD_AMNESIA) {
-				updateCardInteractionState(CARD_INTERACTION_IDLE, -1, CARD_NONE);
 			} else {
-				// Pause Game
+				// Pause Game (keep existing behavior). Do NOT allow ESC to close
+				// active card interaction menus — menus must be dismissed via UI.
 				pausedFromState = STATE_GAMEPLAY; // Remember where we came from
 				currentState = STATE_PAUSED;
 			}
@@ -21762,8 +21767,19 @@ bool ofApp::processEffectOp(EffectOp & op) {
 			int numCardsToRemoveLocal = std::min(result, (int)amnesiaTarget->deck.size());
 			if (numCardsToRemoveLocal > 0) {
 				numCardsToRemove = numCardsToRemoveLocal;
-				// Only open the menu if THIS client is the chooser
-				if (myLocalPlayerID == amnesiaChooserPlayerID) {
+				// Only open the menu if THIS client controls the chooser player.
+				bool chooserIsLocal = (myLocalPlayerID == amnesiaChooserPlayerID);
+				if (!chooserIsLocal) {
+					// Also allow if the chooser is represented by a minion owned by us
+					for (const auto & p : players) {
+						if (p.isMinion && p.playerID == amnesiaChooserPlayerID && p.ownerID == myLocalPlayerID) {
+							chooserIsLocal = true;
+							break;
+						}
+					}
+				}
+
+				if (chooserIsLocal) {
 					updateCardInteractionState(CARD_INTERACTION_MENU, interactingCardIndex, CARD_AMNESIA);
 					amnesiaDeckCopy = amnesiaTarget->deck;
 					amnesiaSelectedIndices.clear();
