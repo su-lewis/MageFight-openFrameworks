@@ -65,7 +65,7 @@
 - **AP Cost:** 3
 - **Class:** 2
 - **Picture:** 
-- **Effect Text:** Roll 1d4. Choose that # of cards in your / adjacent unit's deck to destroy.
+- **Effect Text:** Choose an adjacent unit / self. Roll 1d4. Choose that # of cards in their deck to Destroy.
 ---
 
 -## 10. Magic Blast
