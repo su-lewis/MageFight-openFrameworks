@@ -5730,6 +5730,46 @@ void ofApp::setupGame() {
 	pendingVisualKeyDraftQueue.clear();
 	resetCardState();
 
+	// Clear transient and persistent gameplay state to ensure a true reset
+	players.clear();
+	graveyard.clear();
+	floatingKeyInstances.clear();
+
+	// Clear visuals/animations
+	activeDiceRolls.clear();
+	activeFloatingTexts.clear();
+	particles.clear();
+	activeCardDisplays.clear();
+	activePlayedCardAnimations.clear();
+	activeRemovedCardAnimations.clear();
+	activeStolenCardAnimations.clear();
+	animationPath.clear();
+	isPlayerAnimating = false;
+	animatingPlayerIndex = -1;
+
+	// Reset network pending and draft state
+	networkPending = NetworkPending();
+	recentPlaceSentIndices.clear();
+
+	// Reset per-turn/game counters and flags
+	currentAP = 0;
+	hasDrawnCardsThisTurn = false;
+	opponentHasDrawnCardsThisTurn = false;
+	globalTurnCounter = 0;
+	turnStartFrame = 0;
+	endTurnLocked = false;
+
+	// Magic blast / interaction helpers
+	magicBlastTargetPlayerIndex = -1;
+	magicBlastSplashTargetIndices.clear();
+	magicBlastChoicesRemaining = 0;
+
+	// Centralized interaction reset
+	updateCardInteractionState(CARD_INTERACTION_IDLE, -1, CARD_NONE);
+	interactingCardIndex = -1;
+	interactionTargetIndex = -1;
+	interactionTargetTile = glm::vec2(-1, -1);
+
 	// --- MULTIPLAYER SYNC ---
 	if (isHost()) {
 		std::random_device rd;
@@ -6722,9 +6762,10 @@ void ofApp::updateGame() {
 	// resolution (Hellhound/Demon) are now centralized in their respective helpers
 
 	// --- EARTHQUAKE LOGIC ---
-	// Legacy frame-based earthquake simulation disabled — earthquake is now
-	// resolved deterministically inside `executeCardByType(CARD_EARTHQUAKE)`.
-	if (false && isEarthquakeActive) {
+	// Frame-based earthquake animation: resolved deterministically in
+	// `CARD_EARTHQUAKE` + `APPLY_EARTHQUAKE`. Re-enable runtime animation
+	// so units move slowly and pass through tiles visually.
+	if (isEarthquakeActive) {
 
 		// PHASE 1: WAIT FOR DICE (now handled by effect sequence APPLY_EARTHQUAKE)
 
@@ -6867,7 +6908,7 @@ void ofApp::updateGame() {
 						std::vector<int> rawCrash;
 						int crashRoll = resolveDiceRollDetailed(damageDiceCount[i], 4, rawCrash);
 						currentEffectSequence.blackboard[outSlot] = crashRoll;
-						queueVisualDiceRoll(gridToWorld(earthquakeUnits[i].startGrid.x, earthquakeUnits[i].startGrid.y) + glm::vec3(0, 1.0f, 0), damageDiceCount[i], 4, rawCrash, crashRoll, PURPOSE_EARTHQUAKE_DAMAGE, earthquakeUnits[i].playerIndex, 1.0f);
+						queueVisualDiceRoll(gridToWorld(currentPos[i].x, currentPos[i].y) + glm::vec3(0, 1.0f, 0), damageDiceCount[i], 4, rawCrash, crashRoll, PURPOSE_EARTHQUAKE_DAMAGE, earthquakeUnits[i].playerIndex, 1.0f);
 						// Attach visual metadata to last added activeDiceRoll
 						if (!activeDiceRolls.empty()) {
 							int newIdx = (int)activeDiceRolls.size() - 1;
@@ -6879,7 +6920,7 @@ void ofApp::updateGame() {
 
 						FloatingText cft;
 						cft.text = "CRASH x" + ofToString(damageDiceCount[i]);
-						cft.worldPos = gridToWorld(earthquakeUnits[i].startGrid.x, earthquakeUnits[i].startGrid.y) + glm::vec3(0, 1.5f, 0);
+						cft.worldPos = gridToWorld(currentPos[i].x, currentPos[i].y) + glm::vec3(0, 1.5f, 0);
 						cft.velocity = glm::vec3(0, 0.8f, 0);
 						cft.startTime = ofGetElapsedTimef();
 						cft.duration = 0.8f;
@@ -6896,9 +6937,9 @@ void ofApp::updateGame() {
 						if (damageDiceCount[i] > 0) {
 							EarthquakeDamageTarget t;
 							t.playerIndex = earthquakeUnits[i].playerIndex;
-							t.visualPos = gridToWorld(earthquakeUnits[i].startGrid.x, earthquakeUnits[i].startGrid.y) + glm::vec3(0, 1.5f, 0);
-							t.gridX = earthquakeUnits[i].startGrid.x;
-							t.gridY = earthquakeUnits[i].startGrid.y;
+							t.visualPos = gridToWorld(currentPos[i].x, currentPos[i].y) + glm::vec3(0, 1.5f, 0);
+							t.gridX = currentPos[i].x;
+							t.gridY = currentPos[i].y;
 							if (i >= 16 - quakeDamageBase)
 								t.blackboardSlot = quakeDamageBase + (i % (16 - quakeDamageBase));
 							else
@@ -13547,7 +13588,9 @@ void ofApp::mousePressed(int x, int y, int button) {
 
 	// If a card modal/menu/status is open, consume the press so the board
 	// isn't interacted with. Menu clicks are handled on mouseReleased.
-	if ((currentState == STATE_GAMEPLAY || currentState == STATE_DRAFTING) && (cardInteractionState == CARD_INTERACTION_MENU || cardInteractionState == CARD_INTERACTION_TARGETING || cardInteractionState == CARD_INTERACTION_STATUS)) {
+	// NOTE: Do NOT block `CARD_INTERACTION_TARGETING` here — targeting
+	// should still allow starting drags and hover interactions.
+	if ((currentState == STATE_GAMEPLAY || currentState == STATE_DRAFTING) && (cardInteractionState == CARD_INTERACTION_MENU || cardInteractionState == CARD_INTERACTION_STATUS)) {
 		return;
 	}
 
@@ -21523,6 +21566,20 @@ bool ofApp::processEffectOp(EffectOp & op) {
 		isEarthquakeAnimatingStep = false;
 		earthquakeT = 0.0f;
 
+		// Spawn small directional arrow visuals above each unit to indicate
+		// the chosen gameplayRNG direction. These are short yellow tracers
+		// that persist while the wait timer elapses.
+		for (int i = 0; i < (int)earthquakeUnits.size(); ++i) {
+			const auto & eu = earthquakeUnits[i];
+			if (eu.playerIndex < 0) continue;
+			glm::ivec2 sg = eu.startGrid;
+			glm::vec3 start = gridToWorld(sg.x, sg.y);
+			glm::vec3 dirEndWorld = gridToWorld(sg.x + eu.direction.x, sg.y + eu.direction.y);
+			glm::vec3 arrowEnd = glm::mix(start, dirEndWorld, 0.45f) + glm::vec3(0, 0.6f, 0);
+			glm::vec3 arrowStart = start + glm::vec3(0, 0.6f, 0);
+			queueVisualTracer(arrowStart, arrowEnd, ofColor::yellow, std::max(0.6f, earthquakeWaitTimer * 0.9f));
+		}
+
 		opComplete = true;
 		break;
 	}
@@ -25721,10 +25778,11 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 	case CARD_MAGIC_BLAST: {
 		glm::vec2 casterTile = { (float)currentPlayer.x, (float)currentPlayer.y };
 		glm::vec2 targetTile = { (float)targetX, (float)targetY };
-		float maxRange = (float)(playedCard.numDice * playedCard.diceSides);
+		// Magic Blast uses a d20 range (20 feet)
+		float maxRangeFeet = 20.0f;
+		float maxRangeUnits = maxRangeFeet / 5.0f;
 
-		TargetInfo validationResult = isLosTargetValid(casterTile, targetTile, maxRange, playedCard.type);
-		if (validationResult.reason != VALID) return true;
+		TargetInfo validationResult = isLosTargetValid(casterTile, targetTile, maxRangeFeet, playedCard.type);
 
 		auto hasNonSelfUnitOnTile = [&](int tx, int ty) {
 			auto occupants = getTileOccupants(tx, ty);
@@ -25735,37 +25793,46 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 			return false;
 		};
 
+		// Require that the play would affect at least one non-self unit either on the
+		// chosen impact tile or on an adjacent tile that is reachable by LOS within range.
 		bool validTarget = false;
+
+		// Direct hit must have a non-self unit on the tile to be valid
 		if (hasNonSelfUnitOnTile(targetX, targetY)) {
 			validTarget = true;
 		} else {
-			glm::vec2 neighbors[4] = { { targetX + 1, targetY }, { targetX - 1, targetY }, { targetX, targetY + 1 }, { targetX, targetY - 1 } };
+			// Otherwise, check adjacent tiles for a non-self unit that the caster can LOS to
+			glm::ivec2 neighbors[4] = { { targetX + 1, targetY }, { targetX - 1, targetY }, { targetX, targetY + 1 }, { targetX, targetY - 1 } };
 			for (const auto & n : neighbors) {
-				if (n.x >= 0 && n.x < BOARD_WIDTH && n.y >= 0 && n.y < BOARD_HEIGHT && hasNonSelfUnitOnTile((int)n.x, (int)n.y)) {
+				if (n.x < 0 || n.x >= BOARD_WIDTH || n.y < 0 || n.y >= BOARD_HEIGHT) continue;
+				if (!hasNonSelfUnitOnTile(n.x, n.y)) continue;
+				TargetInfo adjInfo = isLosTargetValid(casterTile, glm::vec2((float)n.x, (float)n.y), maxRangeFeet, playedCard.type);
+				if (adjInfo.reason == VALID) {
 					validTarget = true;
 					break;
 				}
 			}
 		}
-		if (!validTarget) return true;
-		beginEffectSequence();
 
+		if (!validTarget) {
+			queueFloatingTextVisual(gridToWorld(currentPlayer.x, currentPlayer.y), "No target other than self", ofColor::orange);
+			return true;
+		}
+
+		beginEffectSequence();
 		{
-			{
-				std::vector<int> rawRange;
-				int rangeRoll = resolveDiceRollDetailed(playedCard.numDice, playedCard.diceSides, rawRange);
-				if (playedCard.diceSides != 2) {
-					int luckBonus = players[currentPlayerIndex].luck + computePassiveLuck(currentPlayerIndex);
-					rangeRoll += playedCard.numDice * luckBonus;
-				}
-				currentEffectSequence.blackboard[0] = rangeRoll;
-				queueVisualDiceRoll(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.0f, 0), playedCard.numDice, playedCard.diceSides, rawRange, rangeRoll, PURPOSE_RANGE, currentPlayerIndex, 1.0f);
-			}
-			{
-				EffectOp apply = {};
-				apply.type = EffectOpType::APPLY_MAGIC_BLAST;
-				queueEffect(apply);
-			}
+			// Force a 1d20 range roll for Magic Blast (authoritative)
+			std::vector<int> rawRange;
+			int rangeRoll = resolveDiceRollDetailed(1, 20, rawRange);
+			// Apply luck bonus consistent with other range rolls
+			int luckBonus = players[currentPlayerIndex].luck + computePassiveLuck(currentPlayerIndex);
+			rangeRoll += 1 * luckBonus;
+			currentEffectSequence.blackboard[0] = rangeRoll;
+			queueVisualDiceRoll(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.0f, 0), 1, 20, rawRange, rangeRoll, PURPOSE_RANGE, currentPlayerIndex, 1.0f);
+
+			EffectOp apply = {};
+			apply.type = EffectOpType::APPLY_MAGIC_BLAST;
+			queueEffect(apply);
 		}
 		interactionTargetTile = targetTile;
 		playedSuccessfully = true;
@@ -26862,9 +26929,10 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 			state.diceIndex = -1;
 			earthquakeUnits.push_back(state);
 		}
-		// Immediate deterministic resolution: compute distances, simulate bounces/crashes,
-		// compute crash damage and final positions in one blocking pass. Then apply
-		// authoritative game-state updates and queue non-blocking visual events.
+		// Deterministic distance rolls and directions already stored in local earthquakeUnits.
+		// Resolve authoritative per-unit movement distances now (gameplay RNG) and
+		// queue APPLY_EARTHQUAKE so clients/processors can animate & apply crash
+		// damage deterministically inside the EffectOp handlers.
 
 		int n = (int)earthquakeUnits.size();
 		// 1) Distance rolls (authoritative)
@@ -26883,155 +26951,16 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 			currentEffectSequence.blackboard[i] = distances[i];
 		}
 
-		// 2) Prepare simulation state
-		std::vector<glm::ivec2> curPos(n);
-		std::vector<glm::ivec2> dir(n);
-		std::vector<int> tilesToMove(n, 0);
-		for (int i = 0; i < n; ++i) {
-			curPos[i] = earthquakeUnits[i].startGrid;
-			dir[i] = earthquakeUnits[i].direction;
-			tilesToMove[i] = distances[i];
+		// Queue the APPLY_EARTHQUAKE EffectOp to let the effect pipeline perform
+		// simultaneous movement, collision detection, and crash damage application.
+		{
+			EffectOp apply = {};
+			apply.type = EffectOpType::APPLY_EARTHQUAKE;
+			queueEffect(apply);
 		}
 
-		// 3) Iteratively simulate steps until all units stop (same collision rules as before)
-		std::vector<int> damageDiceCount(n, 0);
-		int safety = 0;
-		while (true) {
-			if (safety++ > 50) break;
-			bool anyMoving = false;
-			// compute intended positions
-			std::vector<glm::ivec2> intended(n);
-			std::vector<bool> willStop(n, false);
-			for (int i = 0; i < n; ++i) {
-				if (tilesToMove[i] > 0) {
-					intended[i] = curPos[i] + dir[i];
-					anyMoving = true;
-				} else {
-					intended[i] = curPos[i];
-					willStop[i] = true;
-				}
-			}
-			if (!anyMoving) break;
-
-			// detect crashes/wall hits
-			for (int i = 0; i < n; ++i) {
-				if (willStop[i] || tilesToMove[i] <= 0) continue;
-				glm::ivec2 tgt = intended[i];
-				bool outOfBounds = (tgt.x < 0 || tgt.x >= BOARD_WIDTH || tgt.y < 0 || tgt.y >= BOARD_HEIGHT);
-				bool hitWall = false;
-				bool isGhost = false;
-				if (!outOfBounds) hitWall = board[tgt.x][tgt.y].hasWall;
-				if (earthquakeUnits[i].playerIndex >= 0 && earthquakeUnits[i].playerIndex < (int)players.size()) isGhost = players[earthquakeUnits[i].playerIndex].inGhostForm;
-				if (outOfBounds || (hitWall && !isGhost)) {
-					damageDiceCount[i]++;
-					willStop[i] = true;
-					continue;
-				}
-				// unit-unit collisions
-				for (int j = 0; j < n; ++j) {
-					if (i == j) continue;
-					if (curPos[j] == tgt && tilesToMove[j] <= 0) {
-						damageDiceCount[i]++;
-						damageDiceCount[j]++;
-						willStop[i] = true;
-						break;
-					}
-					if (intended[i] == curPos[j] && intended[j] == curPos[i]) {
-						damageDiceCount[i]++;
-						willStop[i] = true;
-						break;
-					}
-					if (intended[i] == intended[j]) {
-						damageDiceCount[i]++;
-						willStop[i] = true;
-						break;
-					}
-				}
-			}
-
-			// apply movement for this step
-			for (int i = 0; i < n; ++i) {
-				if (!willStop[i] && tilesToMove[i] > 0) {
-					curPos[i] = intended[i];
-					tilesToMove[i]--;
-				}
-			}
-		}
-
-		// 4) Compute authoritative crash damage per-unit and apply; also record movement visuals
-		for (int i = 0; i < n; ++i) {
-			int crashDice = damageDiceCount[i];
-			int totalDamage = 0;
-			if (crashDice > 0) {
-				std::vector<int> rawCrash;
-				totalDamage = resolveDiceRollDetailed(crashDice, 4, rawCrash);
-				// Queue visual for crash damage at final pos
-				queueVisualDiceRoll(gridToWorld(curPos[i].x, curPos[i].y) + glm::vec3(0, 1.0f, 0), crashDice, 4, rawCrash, totalDamage, PURPOSE_EARTHQUAKE_DAMAGE, earthquakeUnits[i].playerIndex, 1.2f);
-			}
-			// Apply damage now (authoritative)
-			if (earthquakeUnits[i].playerIndex >= 0 && earthquakeUnits[i].playerIndex < (int)players.size()) {
-				int pidx = earthquakeUnits[i].playerIndex;
-				int realIdx = findPlayerIndexByID(players[pidx].playerID);
-				Player * target = nullptr;
-				if (realIdx >= 0)
-					target = getPlayer(realIdx);
-				else if (pidx >= 0 && pidx < (int)players.size())
-					target = &players[pidx];
-				if (target) {
-					// Store damage in blackboard and queue a DAMAGE EffectOp so state changes
-					// happen via the effect pipeline (deterministic). Use slot calculation
-					// similar to other earthquake places to avoid clobbering common slots.
-					int quakeDamageBase = 8;
-					int outSlot;
-					if (i >= 16 - quakeDamageBase)
-						outSlot = quakeDamageBase + (i % (16 - quakeDamageBase));
-					else
-						outSlot = quakeDamageBase + i;
-					currentEffectSequence.blackboard[outSlot] = totalDamage;
-
-					if (totalDamage > 0) {
-						EffectOp dmgOp = {};
-						dmgOp.type = EffectOpType::DAMAGE;
-						dmgOp.data.damage.targetIndex = findPlayerIndexByID(players[earthquakeUnits[i].playerIndex].playerID);
-						dmgOp.data.damage.damageFromSlot = outSlot;
-						dmgOp.data.damage.damageType = DAMAGE_PHYSICAL;
-						queueEffect(dmgOp);
-
-						// queue floating damage text at original pos (visual only)
-						queueFloatingTextVisual(gridToWorld(earthquakeUnits[i].startGrid.x, earthquakeUnits[i].startGrid.y) + glm::vec3(0, 1.2f, 0), "-" + ofToString(totalDamage), ofColor::red);
-					} else {
-						queueFloatingTextVisual(gridToWorld(earthquakeUnits[i].startGrid.x, earthquakeUnits[i].startGrid.y) + glm::vec3(0, 1.2f, 0), "Phased (0 Dmg)", ofColor::cyan);
-					}
-				}
-			}
-			// Queue tracer from start to final position to visualize movement
-			glm::vec3 start = gridToWorld(earthquakeUnits[i].startGrid.x, earthquakeUnits[i].startGrid.y);
-			glm::vec3 end = gridToWorld(curPos[i].x, curPos[i].y);
-			if (start != end) queueVisualTracer(start, end, ofColor::fromHex(0xFFAA00), 0.9f);
-			// Commit final position to authoritative player state
-			if (earthquakeUnits[i].playerIndex >= 0 && earthquakeUnits[i].playerIndex < (int)players.size()) {
-				Player & p = players[earthquakeUnits[i].playerIndex];
-				p.x = std::max(0, std::min(BOARD_WIDTH - 1, curPos[i].x));
-				p.y = std::max(0, std::min(BOARD_HEIGHT - 1, curPos[i].y));
-			}
-		}
-
-		// Cleanup any board occupancy and ensure hasPlayer flags are correct
-		for (int bx = 0; bx < BOARD_WIDTH; ++bx)
-			for (int by = 0; by < BOARD_HEIGHT; ++by)
-				board[bx][by].hasPlayer = false;
-		for (size_t pi = 0; pi < players.size(); ++pi) {
-			players[pi].x = std::max(0, std::min(BOARD_WIDTH - 1, players[pi].x));
-			players[pi].y = std::max(0, std::min(BOARD_HEIGHT - 1, players[pi].y));
-			board[players[pi].x][players[pi].y].hasPlayer = true;
-		}
-
-		// Earthquake visuals and effects are queued; no multi-frame processing
-		earthquakeUnits.clear();
-		earthquakeDamageTargets.clear();
-		isEarthquakeActive = false;
-
-		immediateResult = CARD_PLAYED_IMMEDIATELY;
+		playedSuccessfully = true;
+		advanceCardState(CARD_STATE_EFFECT_SEQUENCE);
 		return true;
 	}
 
@@ -28590,12 +28519,18 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 				break;
 			}
 
+			case TARGET_LINE_OF_SIGHT_TILE:
+
 			case TARGET_ANY_TILE: {
 				float maxRangeFeet;
 
 				// --- Determine Max Range based on current card/state ---
 				if (card.type == CARD_MAGIC_BOLT && cardInteractionState == CARD_INTERACTION_TARGETING && interactingCardType == CARD_MAGIC_BOLT && interactionDiceRoll > 0) {
 					maxRangeFeet = (float)interactionDiceRoll;
+				}
+				// Magic Blast: fixed max range = 20 ft (d20)
+				else if (card.type == CARD_MAGIC_BLAST) {
+					maxRangeFeet = 20.0f;
 				}
 				// Infinite Range Cards
 				else if (card.type == CARD_HEAL || card.type == CARD_DEATH || card.type == CARD_LESSER_HEAL || card.type == CARD_BURST_OF_LIGHT) {
@@ -28605,7 +28540,7 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 				else if (card.type == CARD_SHOOT_ARROW) {
 					maxRangeFeet = 2.0f * 20.0f;
 				} else {
-					// Special-case Shoot Arrow: fixed max range = 2 * 20 = 40 ft
+					// Default: dice-based range
 					maxRangeFeet = (float)(card.numDice * card.diceSides);
 				}
 
@@ -28764,14 +28699,33 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 						}
 					}
 				}
-				// --- MAGIC BOLT LOGIC ---
-				else if (card.type == CARD_MAGIC_BOLT) {
+				// --- MAGIC BOLT / MAGIC BLAST LOGIC ---
+				else if (card.type == CARD_MAGIC_BOLT || card.type == CARD_MAGIC_BLAST) {
 					// Require that the tile is a preview (LOS & not wall) before allowing click
 					if (isPreview) {
 						if (isOccupied && tileHasOtherThan(x, y, currentPlayerIndex))
 							canBeClicked = true;
 						else if (info.isTargetable)
 							canBeClicked = true;
+
+						// Magic Blast special: allow targeting empty tiles that are adjacent to any unit
+						if (!canBeClicked && card.type == CARD_MAGIC_BLAST) {
+							bool adjacentToUnit = false;
+							for (int dx = -1; dx <= 1 && !adjacentToUnit; dx++) {
+								for (int dy = -1; dy <= 1; dy++) {
+									if (dx == 0 && dy == 0) continue;
+									int nx = x + dx;
+									int ny = y + dy;
+									if (nx >= 0 && nx < BOARD_WIDTH && ny >= 0 && ny < BOARD_HEIGHT) {
+										if (board[nx][ny].hasPlayer) {
+											adjacentToUnit = true;
+											break;
+										}
+									}
+								}
+							}
+							if (adjacentToUnit) canBeClicked = true;
+						}
 					}
 				}
 				// --- DEFAULT LOGIC ---

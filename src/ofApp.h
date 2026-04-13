@@ -1158,6 +1158,29 @@ private:
 		}
 	}
 
+	// Card-specialized stable shuffle: sort by type/name before deterministic shuffle
+	inline void shuffleGameVector(std::vector<Card> & vec, int ownerPlayerIndex = -1, float visualDelaySeconds = 0.0f) {
+		if (vec.size() <= 1) return;
+		// Stable sort to normalize deck ordering across clients before consuming RNG
+		std::stable_sort(vec.begin(), vec.end(), [](const Card & a, const Card & b) {
+			if (a.type != b.type) return a.type < b.type;
+			return a.name < b.name;
+		});
+
+		// Now perform deterministic shuffle using gameplay RNG
+		deterministic_shuffle_gameplay(vec);
+
+		// Start visual shuffle only for main players (players 0 and 1).
+		if (ownerPlayerIndex == 0 || ownerPlayerIndex == 1) {
+			startShuffleVisual(ownerPlayerIndex, visualDelaySeconds);
+		}
+
+		// Clear dirty flag for specific player's deck
+		if (ownerPlayerIndex >= 0 && ownerPlayerIndex < (int)players.size()) {
+			players[ownerPlayerIndex].deckNeedsShuffle = false;
+		}
+	}
+
 	// -------------------------------------------------------------------------
 	//                          DATA & HELPERS
 	// -------------------------------------------------------------------------
