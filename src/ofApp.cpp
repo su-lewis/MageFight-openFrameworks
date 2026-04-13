@@ -2181,18 +2181,22 @@ int ofApp::applyDamageWithMitigations(Player & target, int baseDamage, DamageTyp
 		queueFloatingTextVisual(gridToWorld(target.x, target.y), "Vulnerable: Holy (x2)", ofColor::orange);
 	}
 	if (type == DAMAGE_HOLY) {
+		// Passive: Vampire Bite present in deck OR discard doubles Holy damage.
 		bool hasVampireBite = false;
-		for (const auto & c : target.deck)
+		for (const auto & c : target.deck) {
 			if (c.type == CARD_VAMPIRE_BITE) {
 				hasVampireBite = true;
 				break;
 			}
-		if (!hasVampireBite)
-			for (const auto & c : target.discardPile)
+		}
+		if (!hasVampireBite) {
+			for (const auto & c : target.discardPile) {
 				if (c.type == CARD_VAMPIRE_BITE) {
 					hasVampireBite = true;
 					break;
 				}
+			}
+		}
 		if (hasVampireBite) {
 			dmg *= 2;
 			queueFloatingTextVisual(gridToWorld(target.x, target.y), "Vampire Curse: x2 Holy", ofColor::orange);
