@@ -492,6 +492,9 @@ struct EffectSequence {
 	bool isComplete = false;
 };
 
+// Visual-only active previews (do not affect gameplay state)
+extern std::vector<glm::ivec2> activeYellowPreviewTiles;
+
 // Visual-only event queue (decouples visuals from deterministic simulation)
 enum VisualEventType {
 	VE_NONE = 0,
@@ -517,6 +520,10 @@ struct VisualEvent {
 	std::vector<int> diceRawResults; // per-die raw faces (for visual spinner)
 	bool visualStarted = false; // whether the visual spinner has been started
 	bool textSpawned = false; // whether the result text has been spawned
+
+	// Tile preview payloads (visual-only; do NOT modify gameplay state)
+	std::vector<glm::ivec2> tilePreviewAdds; // tiles to add to visual-only preview
+	bool clearTilePreviewsOnComplete = false; // clear previews when this event completes
 
 	// Tracer / positional visuals
 	glm::vec3 startPos = { 0.0f, 0.0f, 0.0f };
@@ -666,6 +673,7 @@ struct Tile {
 	bool isHighlighted = false;
 	bool isTargetable = false;
 	bool isTargetPreview = false;
+	// Deprecated: visual-only previews are now stored in `activeYellowPreviewTiles`.
 	bool visited = false;
 	glm::vec2 parent = { -1, -1 };
 

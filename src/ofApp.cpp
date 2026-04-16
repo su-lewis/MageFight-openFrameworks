@@ -21,6 +21,9 @@
 #include <sstream>
 #include <unordered_map>
 
+// Visual-only active previews (do not affect gameplay state)
+std::vector<glm::ivec2> activeYellowPreviewTiles;
+
 // Menu type for ghost relocation (when ghost materializes inside a wall)
 static const int MENU_GHOST_RELOCATE = 5;
 
@@ -2450,7 +2453,11 @@ void ofApp::applyDamageWithMitigationsQueued(Player & target, int baseDamage, Da
 			op.data.modifyStat.statType = statType;
 			op.data.modifyStat.delta = -a;
 			op.data.modifyStat.deltaFromSlot = -1;
-			processEffectOp(op);
+			if (outputSlot >= 0) {
+				queueEffect(op);
+			} else {
+				processEffectOp(op);
+			}
 		} else {
 			sourceRef -= a;
 			// Direct path needs its own floating text.
@@ -2490,7 +2497,11 @@ void ofApp::applyDamageWithMitigationsQueued(Player & target, int baseDamage, Da
 			hp.data.modifyStat.statType = 0; // HP
 			hp.data.modifyStat.delta = -remaining;
 			hp.data.modifyStat.deltaFromSlot = -1;
-			processEffectOp(hp);
+			if (outputSlot >= 0) {
+				queueEffect(hp);
+			} else {
+				processEffectOp(hp);
+			}
 		} else {
 			target.health -= remaining;
 		}
@@ -10019,6 +10030,27 @@ void ofApp::drawGame() {
 			ofColor previewBlue(80, 170, 255, 220); // AOE-style blue for hover previews
 			float avgSurfaceY = 0.035f;
 			drawJoinedOutlines(previewTiles, previewBlue, avgSurfaceY);
+		}
+
+		// Build and draw yellow joined outlines for special effect previews (Chain Lightning AOE)
+		{
+			bool yellowPreviewTiles[BOARD_WIDTH][BOARD_HEIGHT];
+			for (int x = 0; x < BOARD_WIDTH; x++) {
+				for (int y = 0; y < BOARD_HEIGHT; y++) {
+					yellowPreviewTiles[x][y] = false;
+				}
+			}
+
+			// Populate from visual-only active preview list
+			for (const auto & t : activeYellowPreviewTiles) {
+				if (t.x >= 0 && t.x < BOARD_WIDTH && t.y >= 0 && t.y < BOARD_HEIGHT) {
+					yellowPreviewTiles[t.x][t.y] = true;
+				}
+			}
+
+			ofColor yellowColor(255, 215, 0, 220); // Yellow for Chain Lightning AOE
+			float avgSurfaceY = 0.035f;
+			drawJoinedOutlines(yellowPreviewTiles, yellowColor, avgSurfaceY);
 		}
 
 		// Build and draw green joined outlines for targetable tiles
@@ -22819,7 +22851,34 @@ bool ofApp::processEffectOp(EffectOp & op) {
 
 				glm::vec3 tpos = gridToWorld(target->x, target->y);
 				if (applied > 0) {
-					queueFloatingTextVisual(tpos, "-" + ofToString(applied) + " ZAP!", ofColor::yellow);
+					std::string typeLabel = "";
+					switch (op.data.damage.damageType) {
+					case DAMAGE_PHYSICAL:
+						typeLabel = " Physical";
+						break;
+					case DAMAGE_PIERCING:
+						typeLabel = " Piercing";
+						break;
+					case DAMAGE_MAGIC:
+						typeLabel = " Magic";
+						break;
+					case DAMAGE_ELECTRIC:
+						typeLabel = " Electric";
+						break;
+					case DAMAGE_FIRE:
+						typeLabel = " Fire";
+						break;
+					case DAMAGE_HOLY:
+						typeLabel = " Holy";
+						break;
+					case DAMAGE_POISON:
+						typeLabel = " Poison";
+						break;
+					default:
+						typeLabel = "";
+						break;
+					}
+					queueFloatingTextVisual(tpos, "-" + ofToString(applied) + typeLabel, ofColor::yellow);
 				} else {
 					queueFloatingTextVisual(tpos, "Absorbed", ofColor::gray);
 				}
@@ -23624,22 +23683,50 @@ void ofApp::processVisualEvents() {
 		if (now - ev.startTime >= ev.duration) ev.completed = true;
 	} break;
 
-	case VE_CUSTOM:
-		// Generic custom visuals (commonly used for floating text)
+	case VE_CUSTOM: {
+		// Spawn custom visuals and handle visual-only tile preview payloads
 		if (!ev.spawned) {
+			// Floating text payload
 			if (!ev.text.empty()) {
 				spawnFloatingText(ev.startPos, ev.text, ev.color);
 			}
+
+			// Tile-preview adds (visual-only list)
+			if (!ev.tilePreviewAdds.empty()) {
+				for (const auto & t : ev.tilePreviewAdds) {
+					if (t.x >= 0 && t.x < BOARD_WIDTH && t.y >= 0 && t.y < BOARD_HEIGHT) {
+						// avoid duplicates
+						bool found = false;
+						for (const auto & a : activeYellowPreviewTiles) {
+							if (a.x == t.x && a.y == t.y) {
+								found = true;
+								break;
+							}
+						}
+						if (!found) activeYellowPreviewTiles.push_back(t);
+					}
+				}
+			}
+
 			ev.spawned = true;
 			ev.startTime = now;
 		}
+
 		if (ev.duration > 0.0f) {
-			if (now - ev.startTime >= ev.duration) ev.completed = true;
+			if (now - ev.startTime >= ev.duration) {
+				// On completion optionally clear previews
+				if (ev.clearTilePreviewsOnComplete) activeYellowPreviewTiles.clear();
+				ev.completed = true;
+			}
 		} else {
 			// default short lifetime when no duration specified
-			if (now - ev.startTime >= 1.2f) ev.completed = true;
+			if (now - ev.startTime >= 1.2f) {
+				if (ev.clearTilePreviewsOnComplete) activeYellowPreviewTiles.clear();
+				ev.completed = true;
+			}
 		}
 		break;
+	}
 
 	default:
 		ev.completed = true;
@@ -23848,6 +23935,22 @@ void ofApp::handleCardTargetInput(int gridX, int gridY) {
 	if (needsDice) {
 		advanceCardState(CARD_STATE_DICE);
 	} else {
+		// Visual-only: mark surrounding 8 tiles for yellow outline preview
+		VisualEvent ev = {};
+		ev.type = VE_CUSTOM;
+		ev.duration = 0.9f; // match tracer duration
+		ev.clearTilePreviewsOnComplete = true;
+		for (int dx = -1; dx <= 1; ++dx) {
+			for (int dy = -1; dy <= 1; ++dy) {
+				if (dx == 0 && dy == 0) continue;
+				int nx = impactTile.x + dx;
+				int ny = impactTile.y + dy;
+				if (nx >= 0 && nx < BOARD_WIDTH && ny >= 0 && ny < BOARD_HEIGHT) {
+					ev.tilePreviewAdds.push_back({ nx, ny });
+				}
+			}
+		}
+		queueVisualEvent(ev);
 		// No dice needed, apply effect immediately
 		beginEffectSequence();
 		advanceCardState(CARD_STATE_EFFECT_SEQUENCE);
