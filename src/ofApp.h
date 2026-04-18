@@ -494,6 +494,8 @@ struct EffectSequence {
 
 // Visual-only active previews (do not affect gameplay state)
 extern std::vector<glm::ivec2> activeYellowPreviewTiles;
+// Active combined target areas for linear pierce (Stab) highlighting.
+extern std::vector<std::pair<glm::ivec2, glm::ivec2>> activeCombinedPierceTargets;
 
 // Visual-only event queue (decouples visuals from deterministic simulation)
 enum VisualEventType {

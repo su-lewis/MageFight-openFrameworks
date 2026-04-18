@@ -23,6 +23,8 @@
 
 // Visual-only active previews (do not affect gameplay state)
 std::vector<glm::ivec2> activeYellowPreviewTiles;
+// Combined 2x1 target areas for stab (visual-only)
+std::vector<std::pair<glm::ivec2, glm::ivec2>> activeCombinedPierceTargets;
 
 // Menu type for ghost relocation (when ghost materializes inside a wall)
 static const int MENU_GHOST_RELOCATE = 5;
@@ -10065,6 +10067,24 @@ void ofApp::drawGame() {
 			ofColor greenColor(0, 255, 0, 220); // Green for targetable tiles
 			float avgSurfaceY = 0.04f; // Slightly above white outlines
 			drawJoinedOutlines(targetableTiles, greenColor, avgSurfaceY);
+		}
+
+		// Draw combined pierce outlines using the joined-outline mesh so
+		// adjacent tiles render as a single continuous outline (respecting
+		// the same join logic as other outline passes).
+		if (!activeCombinedPierceTargets.empty()) {
+			bool combinedTiles[BOARD_WIDTH][BOARD_HEIGHT];
+			memset(combinedTiles, 0, sizeof(combinedTiles));
+			for (const auto & pr : activeCombinedPierceTargets) {
+				if (pr.first.x >= 0 && pr.first.x < BOARD_WIDTH && pr.first.y >= 0 && pr.first.y < BOARD_HEIGHT)
+					combinedTiles[pr.first.x][pr.first.y] = true;
+				if (pr.second.x >= 0 && pr.second.x < BOARD_WIDTH && pr.second.y >= 0 && pr.second.y < BOARD_HEIGHT)
+					combinedTiles[pr.second.x][pr.second.y] = true;
+			}
+
+			ofColor greenColor(0, 255, 0, 220);
+			float avgSurfaceY = 0.04f;
+			drawJoinedOutlines(combinedTiles, greenColor, avgSurfaceY);
 		}
 
 		// Draw purple outlines for magic wall effect areas (adjacent and diagonal tiles)
@@ -23917,6 +23937,74 @@ void ofApp::handleCardTargetInput(int gridX, int gridY) {
 		}
 	}
 
+	// For Slash: allow clicking any of the 3 cleave tiles to choose the cleave
+	// direction. Map the clicked tile to the adjacent center tile (t1).
+	if (currentCardOutcome.cardType == CARD_SLASH && currentCardOutcome.casterIndex >= 0 && currentCardOutcome.casterIndex < (int)players.size()) {
+		Player & caster = players[currentCardOutcome.casterIndex];
+		int cx = caster.x;
+		int cy = caster.y;
+		int dx = gridX - cx;
+		int dy = gridY - cy;
+		if (dx != 0 || dy != 0) {
+			// Normalize to orthogonal unit
+			if (std::abs(dx) > std::abs(dy)) {
+				dx = (dx > 0) ? 1 : -1;
+				dy = 0;
+			} else {
+				dy = (dy > 0) ? 1 : -1;
+				dx = 0;
+			}
+			int t1x = cx + dx;
+			int t1y = cy + dy;
+			if (t1x >= 0 && t1x < BOARD_WIDTH && t1y >= 0 && t1y < BOARD_HEIGHT) {
+				currentCardOutcome.primaryTarget = { t1x, t1y };
+				// update the resolved player index to the front unit if present
+				for (size_t i = 0; i < players.size(); i++) {
+					if (players[i].x == t1x && players[i].y == t1y) {
+						currentCardOutcome.targetPlayerIndex = (int)i;
+						break;
+					}
+				}
+			}
+		}
+
+		// For Stab: if both front and behind tiles contain units, canonicalize the
+		// primary target to the front tile so clicking either tile behaves the same.
+		if (currentCardOutcome.cardType == CARD_STAB && currentCardOutcome.casterIndex >= 0 && currentCardOutcome.casterIndex < (int)players.size()) {
+			Player & caster = players[currentCardOutcome.casterIndex];
+			int cx = caster.x;
+			int cy = caster.y;
+			int dx = gridX - cx;
+			int dy = gridY - cy;
+			if (dx != 0 || dy != 0) {
+				// Normalize to orthogonal unit
+				if (std::abs(dx) > std::abs(dy)) {
+					dx = (dx > 0) ? 1 : -1;
+					dy = 0;
+				} else {
+					dy = (dy > 0) ? 1 : -1;
+					dx = 0;
+				}
+				int t1x = cx + dx;
+				int t1y = cy + dy;
+				int t2x = cx + dx * 2;
+				int t2y = cy + dy * 2;
+				if (t1x >= 0 && t1x < BOARD_WIDTH && t1y >= 0 && t1y < BOARD_HEIGHT && t2x >= 0 && t2x < BOARD_WIDTH && t2y >= 0 && t2y < BOARD_HEIGHT) {
+					if (board[t1x][t1y].hasPlayer && board[t2x][t2y].hasPlayer) {
+						currentCardOutcome.primaryTarget = { t1x, t1y };
+						// update the resolved player index to the front unit
+						for (size_t i = 0; i < players.size(); i++) {
+							if (players[i].x == t1x && players[i].y == t1y) {
+								currentCardOutcome.targetPlayerIndex = (int)i;
+								break;
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+
 	// After targeting, check if card needs dice
 	bool needsDice = false;
 	switch (currentCardOutcome.cardType) {
@@ -28016,6 +28104,31 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 	int py = currentPlayer.y;
 	glm::vec2 casterPos(px, py);
 
+	// Clear any combined pierce targets from previous frames
+	activeCombinedPierceTargets.clear();
+
+	// Precompute combined 2x1 pierce areas for Stab-like cards so the
+	// UI can render a single combined outline and treat clicks on either
+	// tile as the same logical target when both tiles contain units.
+	if (card.targeting == TARGET_LINEAR_PIERCE) {
+		glm::vec2 dirs[] = { { 1, 0 }, { -1, 0 }, { 0, 1 }, { 0, -1 } };
+		for (auto & d : dirs) {
+			int t1x = px + (int)d.x;
+			int t1y = py + (int)d.y;
+			int t2x = px + (int)(d.x * 2.0f);
+			int t2y = py + (int)(d.y * 2.0f);
+			if (t1x < 0 || t1x >= BOARD_WIDTH || t1y < 0 || t1y >= BOARD_HEIGHT) continue;
+			if (t2x < 0 || t2x >= BOARD_WIDTH || t2y < 0 || t2y >= BOARD_HEIGHT) continue;
+			// Both tiles must contain a player and not be walls; also ensure t2 isn't blocked by a wall at t1
+			if (board[t1x][t1y].hasPlayer && board[t2x][t2y].hasPlayer && !board[t1x][t1y].hasWall && !board[t2x][t2y].hasWall && !isTileWall(t1x, t1y)) {
+				activeCombinedPierceTargets.push_back({ { t1x, t1y }, { t2x, t2y } });
+				// mark as targetable so the joined-outline pass will include them
+				board[t1x][t1y].isTargetable = true;
+				board[t2x][t2y].isTargetable = true;
+			}
+		}
+	}
+
 	// Special preview/targeting for dice-based ranged cards:
 	// show blue preview for tiles that are in-range/previewable but not valid
 	// green only when the tile would be a valid non-self unit target.
@@ -28443,6 +28556,26 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 						} else if (board[x][y].hasPlayer) {
 							// Player/unit on adjacent tile is also a valid target (will be included in cleave)
 							isValidTarget = true;
+						}
+
+						// Mark each tile in the cleave area as a visual targetable tile so the
+						// joined-outline renderer will draw the full 3-tile outline. Respect
+						// diagonal pinch/blocking: skip diagonal tiles that are pinched by walls.
+						for (const auto & cleavePos : cleaveTiles) {
+							int cx = (int)cleavePos.x;
+							int cy = (int)cleavePos.y;
+							if (cx < 0 || cx >= BOARD_WIDTH || cy < 0 || cy >= BOARD_HEIGHT) continue;
+							int ddx = cx - px;
+							int ddy = cy - py;
+							bool blockedTile = false;
+							if (std::abs(ddx) == 1 && std::abs(ddy) == 1) {
+								// diagonal relative to caster: check pinch walls
+								if (isTileWall(px + ddx, py) && isTileWall(px, py + ddy)) blockedTile = true;
+							}
+							if (!blockedTile) {
+								board[cx][cy].isTargetable = true;
+								board[cx][cy].isTargetPreview = true;
+							}
 						}
 					}
 					// Otherwise just white preview (isPreview is already true, but not a valid target)
