@@ -17809,7 +17809,11 @@ void ofApp::updateCardInteractionState(CardInteractionState newState, int cardId
 	// Keep legacy play-state synchronized while transition is in progress.
 	switch (newState) {
 	case CARD_INTERACTION_IDLE:
-		cardPlayState = CARD_STATE_IDLE;
+		// NOTE: do NOT override `cardPlayState` here — UI closing should not
+		// forcibly reset the logical play-state. Removing this line prevents the
+		// UI from interrupting in-progress effect sequences that need to finish
+		// (e.g., menu-driven cards that queue effects and rely on the effect
+		// sequence to advance to CARD_STATE_OUTCOME for AP deduction).
 		break;
 	case CARD_INTERACTION_TARGETING:
 		cardPlayState = CARD_STATE_TARGETING;
@@ -19374,6 +19378,10 @@ void ofApp::drawActiveCardInteractionUI() {
 void ofApp::cancelAllTargeting() {
 	// Reset centralized card interaction state
 	resetCardInteraction();
+	// Ensure logical state machine resets when the user explicitly cancels
+	// (right-click). Without this, closing the UI would leave the play
+	// state in EFFECT_SEQUENCE and could hang pending cards.
+	resetCardState();
 	koboldsRemainingToPlace = 0;
 	koboldSummonCount = 0;
 	wolfSummonStage = 0;
