@@ -23932,6 +23932,7 @@ void ofApp::handleCardTargetInput(int gridX, int gridY) {
 		break;
 	}
 
+	auto impactTile = currentCardOutcome.primaryTarget;
 	if (needsDice) {
 		advanceCardState(CARD_STATE_DICE);
 	} else {
