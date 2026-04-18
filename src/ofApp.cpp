@@ -24052,9 +24052,7 @@ void ofApp::applyCardOutcomeEffects() {
 	// when cards that resolve instantly (drag-to-play) remove themselves
 	// from the hand during command processing.
 	resetCardInteraction();
-
 }
-
 
 void ofApp::updateMenuButtonRectangles() {
 	// Update all menu button rectangles based on card type
