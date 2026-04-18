@@ -1750,7 +1750,7 @@ private:
 	// --- COMMODORE64 POST PROCESS ---
 	ofShader c64Shader;
 	bool c64ShaderLoaded = false;
-	bool enableC64Shader = false; // toggled with 'm'
+	bool enableC64Shader = false; // toggled via 'P' cycle (pixel -> C64 -> off)
 	float c64ScanlineIntensity = 0.25f;
 
 	// --- BLOOM ---

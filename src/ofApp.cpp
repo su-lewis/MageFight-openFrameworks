@@ -5152,10 +5152,10 @@ void ofApp::drawSettingsMenu() {
 			{ "Right Click", "Cancel" },
 			{ "Tab", "Switch Chat Tab" },
 			{ "T", "Toggle Top-down View" },
-			{ "P", "Pixel Shader Toggle" },
+			{ "P", "Cycle Pixel / C64 / Off" },
 			{ "L", "Toggle World Post-Process" },
 			{ "Y", "Toggle FBO Preview" },
-			{ "M", "C64 Shader Toggle" },
+			// M key removed: C64 is toggled via P now
 			{ "` (tilde)", "Toggle Debug Mode" },
 			{ "C", "Debug: Open Card Spawner" },
 			{ "U", "Debug: Toggle Unlimited AP" },
@@ -16461,19 +16461,30 @@ void ofApp::keyPressed(int key) {
 		return;
 	}
 
-	// Toggle pixel-art mode (P)
+	// Cycle pixel-art / C64 / off with (P)
 	if (key == 'p' || key == 'P') {
-		enablePixelArt = !enablePixelArt;
-		if (enablePixelArt) {
-			// pixel mode should be exclusive: turn off other shader modes
+		if (!enablePixelArt && !enableC64Shader) {
+			// Off -> Pixel
+			enablePixelArt = true;
 			enableC64Shader = false;
 			enableShaders = false;
-		}
-		applyPixelArtSettings();
-		ofLogNotice("PixelArt") << "enablePixelArt=" << (enablePixelArt ? 1 : 0);
-
-		if (currentState == STATE_GAMEPLAY) {
-			queueFloatingTextVisual(gridToWorld(6, 4), std::string("Pixel Art: ") + (enablePixelArt ? "ON" : "OFF"), ofColor::white);
+			applyPixelArtSettings();
+			ofLogNotice("PixelArt") << "Switched to PIXEL mode";
+			if (currentState == STATE_GAMEPLAY) queueFloatingTextVisual(gridToWorld(6, 4), "Pixel Mode: ON", ofColor::white);
+		} else if (enablePixelArt) {
+			// Pixel -> C64
+			enablePixelArt = false;
+			enableC64Shader = true;
+			enableShaders = false;
+			ofLogNotice("PixelArt") << "Switched to C64 mode";
+			if (currentState == STATE_GAMEPLAY) queueFloatingTextVisual(gridToWorld(6, 4), "C64 Mode: ON", ofColor::white);
+		} else if (enableC64Shader) {
+			// C64 -> Off
+			enablePixelArt = false;
+			enableC64Shader = false;
+			enableShaders = false;
+			ofLogNotice("PixelArt") << "Switched pixel/C64: OFF";
+			if (currentState == STATE_GAMEPLAY) queueFloatingTextVisual(gridToWorld(6, 4), "Pixel/C64: OFF", ofColor::white);
 		}
 		return;
 	}
@@ -16609,20 +16620,7 @@ void ofApp::keyReleased(int key) {
 		}
 	}
 
-	// Toggle Commodore64 shader with 'm'. When enabling, turn other shader modes off.
-	if (key == 'm' || key == 'M') {
-		enableC64Shader = !enableC64Shader;
-		if (enableC64Shader) {
-			enablePixelArt = false;
-			enableShaders = false;
-		}
-		ofLogNotice("C64") << "enableC64Shader=" << (enableC64Shader ? "true" : "false");
-
-		if (currentState == STATE_GAMEPLAY) {
-			queueFloatingTextVisual(gridToWorld(6, 4), std::string("C64 Shader: ") + (enableC64Shader ? "ON" : "OFF"), ofColor::white);
-		}
-		return;
-	}
+	// 'M' key removed; C64 toggles via 'P' cycle now.
 
 	// 2c. Debug Hotkeys
 	if (currentState == STATE_GAMEPLAY) {
@@ -17123,6 +17121,11 @@ void ofApp::startNewTurn() {
 				queueEffect(applyOp);
 
 				advanceCardState(CARD_STATE_EFFECT_SEQUENCE);
+
+				// Ensure state machine advances to outcome for AP/card removal
+				if (isEffectSequenceComplete()) {
+					advanceCardState(CARD_STATE_OUTCOME);
+				}
 				beginEffectSequence();
 				// Don't block here; effects will process and visuals will be queued by APPLY_POISON
 				return;
