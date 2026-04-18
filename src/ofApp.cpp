@@ -24047,7 +24047,14 @@ void ofApp::applyCardOutcomeEffects() {
 
 	// Recalculate highlights for next action
 	calculateTargetHighlights();
+	// Forcefully wipe transient UI targeting/menu state now that the card
+	// outcome has been applied. This prevents a "ghost" interact state
+	// when cards that resolve instantly (drag-to-play) remove themselves
+	// from the hand during command processing.
+	resetCardInteraction();
+
 }
+
 
 void ofApp::updateMenuButtonRectangles() {
 	// Update all menu button rectangles based on card type
