@@ -3714,6 +3714,15 @@ void ofApp::setup() {
 		}
 	}
 
+	// --- Dragging loop sound (Hand) ---
+	if (draggingHandLoop.load("Sounds/Hand/dragging.wav")) {
+		draggingHandLoop.setMultiPlay(false);
+		draggingHandLoop.setLoop(true);
+		draggingHandLoop.setVolume(0.0f);
+	} else {
+		ofLogError("Sound") << "Could not load Sounds/Hand/dragging.wav";
+	}
+
 	// --- 6. MESH GENERATION (Walls & Floor) ---
 	// (This code remains unchanged as it generates geometry programmatically)
 	float wallSize = TILE_SIZE * 0.8f;
@@ -4235,6 +4244,34 @@ void ofApp::update() {
 		}
 		if (!opponentAvatarReady && steamManager.getOpponentSteamID().IsValid()) {
 			opponentAvatarReady = steamManager.getAvatarImage(steamManager.getOpponentSteamID(), opponentAvatarImage, 64);
+		}
+	}
+	// --- Dragging hand loop fade handling ---
+	if (draggingHandLoop.isLoaded()) {
+		// Detect drag end transition and trigger a very fast fade if needed
+		bool currentlyDragging = (draggedCardIndex != -1);
+		if (draggingWasActive && !currentlyDragging) {
+			draggingHandTargetVolume = 0.0f;
+			draggingHandFadeSpeed = 48.0f; // very fast fade
+		}
+		draggingWasActive = currentlyDragging;
+
+		float dt = ofGetLastFrameTime();
+		float curVol = draggingHandLoop.getVolume();
+		float target = draggingHandTargetVolume;
+		if (fabs(curVol - target) > 0.0005f) {
+			float step = draggingHandFadeSpeed * dt;
+			float nextVol = curVol;
+			if (curVol < target)
+				nextVol = std::min(curVol + step, target);
+			else
+				nextVol = std::max(curVol - step, target);
+			draggingHandLoop.setVolume(nextVol);
+		} else {
+			// Vol at target: if target is zero and still playing, stop to free resources
+			if (target <= 0.0005f && draggingHandLoop.isPlaying()) {
+				draggingHandLoop.stop();
+			}
 		}
 	}
 	processNetworkPackets();
@@ -15799,6 +15836,13 @@ void ofApp::mouseDragged(int x, int y, int button) {
 				ofVec2f dragAnchor = dragStartPos + ofVec2f(0.0f, baseCardHeight * 0.35f);
 				dragOffset = ofVec2f(x, y) - dragAnchor;
 				playHandFeedbackSfx(1.02f, 0.12f);
+				if (draggingHandLoop.isLoaded() && !draggingHandLoop.isPlaying()) {
+					float tv = std::clamp(settingsMasterVolume * settingsSfxVolume * 0.6f, 0.0f, 1.0f);
+					draggingHandLoop.setVolume(tv);
+					draggingHandTargetVolume = tv;
+					draggingHandFadeSpeed = 8.0f;
+					draggingHandLoop.play();
+				}
 				ofLogNotice("CardDrag") << "Drag initiated from pressedCardIndex=" << sourceIndex << " name=" << card.name;
 			} else if (hitRect.inside((float)ofGetPreviousMouseX(), (float)ofGetPreviousMouseY())) {
 				// Fallback: check if previous position was in detection rect (for backwards compat)
@@ -15811,6 +15855,13 @@ void ofApp::mouseDragged(int x, int y, int button) {
 				ofVec2f dragAnchor = dragStartPos + ofVec2f(0.0f, baseCardHeight * 0.35f);
 				dragOffset = ofVec2f(x, y) - dragAnchor;
 				playHandFeedbackSfx(1.02f, 0.12f);
+				if (draggingHandLoop.isLoaded() && !draggingHandLoop.isPlaying()) {
+					float tv = std::clamp(settingsMasterVolume * settingsSfxVolume * 0.6f, 0.0f, 1.0f);
+					draggingHandLoop.setVolume(tv);
+					draggingHandTargetVolume = tv;
+					draggingHandFadeSpeed = 8.0f;
+					draggingHandLoop.play();
+				}
 				ofLogNotice("CardDrag") << "Drag initiated from previous position, index=" << sourceIndex;
 			}
 		}
@@ -15971,6 +16022,10 @@ void ofApp::mouseReleased(int x, int y, int button) {
 			}
 			selectedCardIndex = -1;
 			draggedCardIndex = -1;
+			if (draggingHandLoop.isLoaded() && draggingHandLoop.isPlaying()) {
+				draggingHandTargetVolume = 0.0f;
+				draggingHandFadeSpeed = 48.0f; // very fast fade
+			}
 			pressedCardIndex = -1;
 			handDragInValidPlayZone = false;
 			handDragVelocity.set(0.0f, 0.0f);

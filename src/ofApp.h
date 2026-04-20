@@ -2338,6 +2338,14 @@ private:
 	std::vector<ofSoundPlayer> footstepSounds;
 
 	// Dice roll result display
+	// Looping sound while dragging a card in hand
+	ofSoundPlayer draggingHandLoop;
+	bool draggingHandLoopPlaying = false;
+	// Fade controls for dragging loop (volume units per second)
+	float draggingHandTargetVolume = 0.0f;
+	float draggingHandFadeSpeed = 8.0f; // default: fades to zero in ~0.125s
+	// Track whether we were dragging in the previous frame to detect drag end
+	bool draggingWasActive = false;
 	std::string diceRollResultText = "";
 	float diceRollResultStartTime = 0.0f;
 	float diceRollResultDuration = 3.5f; // How long to show the result
