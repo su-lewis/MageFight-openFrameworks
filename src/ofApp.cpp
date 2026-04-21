@@ -5789,6 +5789,33 @@ void ofApp::setupGame() {
 	graveyard.clear();
 	floatingKeyInstances.clear();
 
+	// Repopulate default floating key positions so keys are present
+	// when a new game is started (previously keys were only added in setup()).
+	floatingKeyInstances.push_back({ glm::ivec2(4, 4), 1 });
+	floatingKeyInstances.push_back({ glm::ivec2(6, 4), 1 });
+	floatingKeyInstances.push_back({ glm::ivec2(8, 4), 1 });
+
+	floatingKeyInstances.push_back({ glm::ivec2(0, 0), 2 });
+	floatingKeyInstances.push_back({ glm::ivec2(6, 1), 2 });
+	floatingKeyInstances.push_back({ glm::ivec2(12, 4), 2 });
+	floatingKeyInstances.push_back({ glm::ivec2(12, 8), 2 });
+	floatingKeyInstances.push_back({ glm::ivec2(6, 7), 2 });
+	floatingKeyInstances.push_back({ glm::ivec2(0, 4), 2 });
+
+	floatingKeyInstances.push_back({ glm::ivec2(4, 0), 3 });
+	floatingKeyInstances.push_back({ glm::ivec2(8, 0), 3 });
+	floatingKeyInstances.push_back({ glm::ivec2(11, 3), 3 });
+	floatingKeyInstances.push_back({ glm::ivec2(11, 5), 3 });
+	floatingKeyInstances.push_back({ glm::ivec2(8, 8), 3 });
+	floatingKeyInstances.push_back({ glm::ivec2(4, 8), 3 });
+	floatingKeyInstances.push_back({ glm::ivec2(1, 3), 3 });
+	floatingKeyInstances.push_back({ glm::ivec2(1, 5), 3 });
+
+	if (!floatingKeyInstances.empty()) {
+		keyAnimTileX = floatingKeyInstances[0].pos.x;
+		keyAnimTileY = floatingKeyInstances[0].pos.y;
+	}
+
 	// Clear visuals/animations
 	activeDiceRolls.clear();
 	activeFloatingTexts.clear();
