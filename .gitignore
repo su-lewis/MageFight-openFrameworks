@@ -1,4 +1,11 @@
-# General
+# Ignore autosave and manual save JSON files
+data/Saves/autosave*.json
+data/Saves/manual_save*.json
+
+# Local bin and editor files
+bin/run.sh
+.vscode/*.code-workspace
+.vscode/.history/# General
 .DS_Store
 
 # Compiled Object Files (Prevents your PC and Laptop from fighting)
