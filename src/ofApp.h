@@ -577,7 +577,7 @@ struct CardOutcome {
 	int healingDealt = 0;
 	int apGained = 0;
 	int blockGained = 0;
-	int barierGained = 0;
+	int barrierGained = 0;
 	std::vector<std::string> statusesApplied; // "onFire", "isParalyzed", etc
 	std::vector<int> unitsMovedBy; // Distance each unit moved for earthquake, etc
 	std::vector<glm::ivec2> wallsCreated; // Positions where walls were built
@@ -604,7 +604,6 @@ struct CardOutcome {
 	bool isComplete = false; // Ready to send outcome packet
 	// Whether AP cost for this card has already been deducted (pre-paid)
 	bool apPaid = false;
-	CardPlayState currentState = CARD_STATE_IDLE;
 };
 
 struct PlayedCardDisplay {
@@ -1993,6 +1992,7 @@ private:
 		currentCardOutcome = CardOutcome();
 		cardPlayState = CARD_STATE_IDLE;
 		activeCardIndex = -1;
+		resetCardInteraction();
 	}
 
 	// Attack

@@ -99,11 +99,36 @@ void ofApp::drawPauseMenu() {
 	ofPopStyle();
 }
 // Prune old stamped autosave files, keeping at most `keep` newest ones
-static const std::string kSavesDir = "data/Saves";
+static const std::string kSavesDir = "Saves";
+
+static std::filesystem::path getGameRootPath() {
+	namespace fs = std::filesystem;
+	try {
+		fs::path exePath = fs::read_symlink("/proc/self/exe");
+		if (!exePath.empty()) {
+			fs::path exeDir = exePath.parent_path();
+			if (exeDir.filename() == "bin") {
+				return exeDir.parent_path();
+			}
+			return exeDir;
+		}
+	} catch (...) {
+	}
+
+	fs::path cwd = fs::current_path();
+	if (cwd.filename() == "bin") {
+		return cwd.parent_path();
+	}
+	return cwd;
+}
+
+static std::filesystem::path getSavesDirPath() {
+	return getGameRootPath() / std::filesystem::path(kSavesDir);
+}
 
 static std::string makeSavePath(const std::string & p) {
-	if (p.find('/') != std::string::npos || p.find('\\') != std::string::npos) return p;
-	return kSavesDir + "/" + p;
+	if (!p.empty() && p.front() == '/') return p;
+	return (getSavesDirPath() / std::filesystem::path(p)).string();
 }
 
 void ofApp::playHandFeedbackSfx(float speed, float volumeMul) {
@@ -1857,7 +1882,7 @@ static bool rebuildCardSpriteSheetFromTemplate(const std::string & templatePath,
 [[maybe_unused]] static void pruneOldStampedSaves(int keep = 5) {
 	try {
 		namespace fs = std::filesystem;
-		fs::path dir = fs::current_path() / fs::path(kSavesDir);
+		fs::path dir = getSavesDirPath();
 		if (!fs::exists(dir)) return;
 
 		std::vector<std::pair<std::filesystem::file_time_type, fs::path>> files;
@@ -3315,7 +3340,7 @@ void ofApp::setup() {
 	// Ensure saves directory exists
 	try {
 		namespace fs = std::filesystem;
-		fs::path dir = fs::current_path() / fs::path(kSavesDir);
+		fs::path dir = getSavesDirPath();
 		if (!fs::exists(dir)) fs::create_directories(dir);
 	} catch (...) { }
 
@@ -4841,6 +4866,43 @@ void ofApp::draw() {
 		drawMainMenu();
 		break;
 	case STATE_SETTINGS:
+		// Draw the underlying state behind the settings overlay so the menu feels
+		// like a top-layer dialog instead of a full navigation break.
+		switch (stateBeforeSettings) {
+		case STATE_MAIN_MENU:
+			drawMainMenu();
+			break;
+		case STATE_PAUSED:
+			drawGame();
+			if (pausedFromState == STATE_INITIATIVE_ROLL) drawInitiativeRoll();
+			if (pausedFromState == STATE_DRAFTING) drawDraftScreen();
+			drawPauseMenu();
+			break;
+		case STATE_GAMEPLAY:
+			drawGame();
+			break;
+		case STATE_INITIATIVE_ROLL:
+			drawGame();
+			drawInitiativeRoll();
+			break;
+		case STATE_DRAFTING:
+			drawGame();
+			drawDraftScreen();
+			break;
+		case STATE_SINGLEPLAYER_MENU:
+			drawSingleplayerMenu();
+			break;
+		case STATE_SAVE_BROWSER:
+			drawSaveBrowser();
+			break;
+		default:
+			drawMainMenu();
+			break;
+		}
+		ofPushStyle();
+		ofSetColor(0, 0, 0, 170);
+		ofDrawRectangle(0, 0, ofGetWidth(), ofGetHeight());
+		ofPopStyle();
 		drawSettingsMenu();
 		break;
 	case STATE_GAMEPLAY:
@@ -4994,13 +5056,16 @@ void ofApp::drawSettingsMenu() {
 	string title = "Settings";
 	ofRectangle titleBox = titleFont.getStringBoundingBox(title, 0, 0);
 	titleFont.drawString(title, ofGetWidth() / 2 - titleBox.getWidth() / 2, ofGetHeight() * 0.15);
+
+	float uiScale = std::clamp(settingsUIScale * std::min(ofGetWidth() / 1920.0f, ofGetHeight() / 1080.0f), 0.75f, 1.25f);
+
 	// --- Settings UI Positions & Tabs ---
 	float centerX = ofGetWidth() / 2.0f;
 	float tabsY = ofGetHeight() * 0.22f;
 	int totalTabs = 4; // Video, Audio, Game, Controls
-	float tabW = 180;
-	float tabH = 48;
-	float tabSpacing = 12;
+	float tabW = 180.0f * uiScale;
+	float tabH = 48.0f * uiScale;
+	float tabSpacing = 12.0f * uiScale;
 
 	// Calculate start X so tabs are centered
 	float tabsTotalWidth = totalTabs * tabW + (totalTabs - 1) * tabSpacing;
@@ -5028,16 +5093,16 @@ void ofApp::drawSettingsMenu() {
 	drawTab(settingsTabControlsRect, "Controls", currentSettingsTab == SETTINGS_TAB_CONTROLS);
 
 	// Content area start
-	float contentY = tabsY + tabH + 30;
+	float contentY = tabsY + tabH + 30.0f * uiScale;
 
 	// VIDEO tab: render existing resolution/framerate/fullscreen controls
 	if (currentSettingsTab == SETTINGS_TAB_VIDEO) {
 		// --- Settings UI Positions ---
 		float settingY = contentY;
-		float settingSpacing = 100;
-		float labelOffset = 350;
+		float settingSpacing = 100.0f * uiScale;
+		float labelOffset = 350.0f * uiScale;
 		(void)labelOffset; // unused
-		float controlWidth = 250;
+		float controlWidth = 250.0f * uiScale;
 
 		// --- Helper for drawing a setting row ---
 		auto drawSettingRow = [&](string label, string value, ofRectangle & leftBtn, ofRectangle & rightBtn, float yPos) {
@@ -5047,27 +5112,27 @@ void ofApp::drawSettingsMenu() {
 			uiFont.drawString(label, centerX - lb.getWidth() / 2, yPos + 25);
 
 			// Draw Left/Right buttons (dark bg)
-			leftBtn.set(centerX - (controlWidth / 2) - 45, yPos, 40, 40);
-			rightBtn.set(centerX + (controlWidth / 2) + 5, yPos, 40, 40);
+			leftBtn.set(centerX - (controlWidth / 2) - 45.0f * uiScale, yPos, 40.0f * uiScale, 40.0f * uiScale);
+			rightBtn.set(centerX + (controlWidth / 2) + 5.0f * uiScale, yPos, 40.0f * uiScale, 40.0f * uiScale);
 			ofSetColor(ofColor(50));
-			ofDrawRectRounded(leftBtn, 5);
-			ofDrawRectRounded(rightBtn, 5);
+			ofDrawRectRounded(leftBtn, 5.0f * uiScale);
+			ofDrawRectRounded(rightBtn, 5.0f * uiScale);
 			ofSetColor(ofColor(120));
 			ofNoFill();
-			ofSetLineWidth(1.5);
-			ofDrawRectRounded(leftBtn, 5);
-			ofDrawRectRounded(rightBtn, 5);
+			ofSetLineWidth(1.5 * uiScale);
+			ofDrawRectRounded(leftBtn, 5.0f * uiScale);
+			ofDrawRectRounded(rightBtn, 5.0f * uiScale);
 			ofFill();
 
 			// Draw Background for the value text (dark)
-			ofRectangle bgRect(centerX - (controlWidth / 2), yPos - 5, controlWidth, 50);
+			ofRectangle bgRect(centerX - (controlWidth / 2), yPos - 5.0f * uiScale, controlWidth, 50.0f * uiScale);
 			ofSetColor(ofColor(35));
 			ofDrawRectangle(bgRect);
 
 			// Draw TEXT AFTER the background and set its color to WHITE and centered
 			ofSetColor(ofColor::white);
 			ofRectangle vb = uiFont.getStringBoundingBox(value, 0, 0);
-			uiFont.drawString(value, bgRect.x + (bgRect.width - vb.width) / 2, bgRect.y + 30);
+			uiFont.drawString(value, bgRect.x + (bgRect.width - vb.width) / 2, bgRect.y + 30.0f * uiScale);
 			ofRectangle lt = uiFont.getStringBoundingBox("<", 0, 0);
 			ofRectangle rt = uiFont.getStringBoundingBox(">", 0, 0);
 			uiFont.drawString("<", leftBtn.getCenter().x - lt.getWidth() / 2, leftBtn.getCenter().y + lt.getHeight() / 2);
@@ -5080,8 +5145,8 @@ void ofApp::drawSettingsMenu() {
 
 		// --- Draw Framerate as slider ---
 		settingY += settingSpacing;
-		float sliderW = 320;
-		float sliderH = 32;
+		float sliderW = 320.0f * uiScale;
+		float sliderH = 32.0f * uiScale;
 		settingsFramerateSlider.set(centerX - sliderW / 2, settingY, sliderW, sliderH);
 		// Draw background
 		ofSetColor(ofColor(35));
@@ -5093,7 +5158,7 @@ void ofApp::drawSettingsMenu() {
 		// Draw handle
 		float handleX = settingsFramerateSlider.x + fillW;
 		ofSetColor(ofColor::white);
-		ofDrawCircle(handleX, settingsFramerateSlider.getCenter().y, 16);
+		ofDrawCircle(handleX, settingsFramerateSlider.getCenter().y, 16.0f * uiScale);
 		// Draw label
 		std::string frameText;
 		if (settingsFramerateSliderValue >= 0.999f) {
@@ -5109,15 +5174,15 @@ void ofApp::drawSettingsMenu() {
 		string maxLabel = "Unlimited";
 		ofRectangle minb = uiFont.getStringBoundingBox(minLabel, 0, 0);
 		ofRectangle maxb = uiFont.getStringBoundingBox(maxLabel, 0, 0);
-		float labelY = settingsFramerateSlider.y + settingsFramerateSlider.height + 20;
-		uiFont.drawString(minLabel, settingsFramerateSlider.x - minb.width - 8, labelY + minb.height / 2);
-		uiFont.drawString(maxLabel, settingsFramerateSlider.x + settingsFramerateSlider.width + 8, labelY + maxb.height / 2);
+		float labelY = settingsFramerateSlider.y + settingsFramerateSlider.height + 20.0f * uiScale;
+		uiFont.drawString(minLabel, settingsFramerateSlider.x - minb.width - 8.0f * uiScale, labelY + minb.height / 2.0f);
+		uiFont.drawString(maxLabel, settingsFramerateSlider.x + settingsFramerateSlider.width + 8.0f * uiScale, labelY + maxb.height / 2.0f);
 
 		// --- Draw Fullscreen ---
 		settingY += settingSpacing;
 		ofSetColor(ofColor(35));
 		string fsText = isFullscreen ? "Fullscreen" : "Windowed";
-		settingsFullscreenButton.set(centerX - (controlWidth / 2), settingY - 5, controlWidth, 50);
+		settingsFullscreenButton.set(centerX - (controlWidth / 2), settingY - 5.0f * uiScale, controlWidth, 50.0f * uiScale);
 		ofDrawRectangle(settingsFullscreenButton);
 		ofSetColor(ofColor::white);
 		ofRectangle fb = uiFont.getStringBoundingBox(fsText, 0, 0);
@@ -5127,9 +5192,9 @@ void ofApp::drawSettingsMenu() {
 	// AUDIO tab: simple slider + mute/loop toggles
 	if (currentSettingsTab == SETTINGS_TAB_AUDIO) {
 		ofSetColor(ofColor::white);
-		float sliderY = contentY + 60;
-		float sliderW = 520;
-		float sliderH = 28;
+		float sliderY = contentY + 60.0f * uiScale;
+		float sliderW = 520.0f * uiScale;
+		float sliderH = 28.0f * uiScale;
 
 		// Master slider (dark background)
 		settingsAudioMasterSlider.set(centerX - sliderW / 2, sliderY, sliderW, sliderH);
@@ -5141,7 +5206,7 @@ void ofApp::drawSettingsMenu() {
 		ofSetColor(ofColor::white);
 		string masterLabel = "Master Volume: " + ofToString((int)(settingsMasterVolume * 100)) + "%";
 		ofRectangle mlb = uiFont.getStringBoundingBox(masterLabel, 0, 0);
-		uiFont.drawString(masterLabel, centerX - mlb.width / 2, settingsAudioMasterSlider.y - 10);
+		uiFont.drawString(masterLabel, centerX - mlb.width / 2, settingsAudioMasterSlider.y - 10.0f * uiScale);
 
 		// Menu music slider
 		sliderY += 60;
@@ -5154,10 +5219,10 @@ void ofApp::drawSettingsMenu() {
 		ofSetColor(ofColor::white);
 		string menuLabel = "Menu Music Volume: " + ofToString((int)(settingsMenuVolume * 100)) + "%";
 		ofRectangle ml2 = uiFont.getStringBoundingBox(menuLabel, 0, 0);
-		uiFont.drawString(menuLabel, centerX - ml2.width / 2, settingsAudioVolumeSlider.y - 10);
+		uiFont.drawString(menuLabel, centerX - ml2.width / 2, settingsAudioVolumeSlider.y - 10.0f * uiScale);
 
 		// SFX slider
-		sliderY += 60;
+		sliderY += 60.0f * uiScale;
 		settingsAudioSfxSlider.set(centerX - sliderW / 2, sliderY, sliderW, sliderH);
 		ofSetColor(ofColor(35));
 		ofDrawRectangle(settingsAudioSfxSlider);
@@ -5167,15 +5232,15 @@ void ofApp::drawSettingsMenu() {
 		ofSetColor(ofColor::white);
 		string sfxLabel = "Game SFX Volume: " + ofToString((int)(settingsSfxVolume * 100)) + "%";
 		ofRectangle slb = uiFont.getStringBoundingBox(sfxLabel, 0, 0);
-		uiFont.drawString(sfxLabel, centerX - slb.width / 2, settingsAudioSfxSlider.y - 10);
+		uiFont.drawString(sfxLabel, centerX - slb.width / 2, settingsAudioSfxSlider.y - 10.0f * uiScale);
 	}
 
 	// CONTROLS tab: show all current game controls (read-only) with scrolling
 	if (currentSettingsTab == SETTINGS_TAB_CONTROLS) {
 		// compact title removed; show a scrollable list and ensure Back button doesn't overlap
-		float listY = contentY + 20;
-		float itemH = 36;
-		float itemW = 760;
+		float listY = contentY + 20.0f * uiScale;
+		float itemH = 36.0f * uiScale;
+		float itemW = 760.0f * uiScale;
 		float startX = centerX - itemW / 2;
 
 		// Prepare a static list of current controls sorted by importance (most important first)
@@ -5248,8 +5313,8 @@ void ofApp::drawSettingsMenu() {
 
 	// --- Draw Back Button (common) ---
 	// Use the same standard menu button size as other menus
-	float menuBtnW = 420.0f;
-	float menuBtnH = 72.0f;
+	float menuBtnW = 420.0f * uiScale;
+	float menuBtnH = 72.0f * uiScale;
 	settingsBackButton.set(centerX - menuBtnW / 2.0f, ofGetHeight() * 0.8, menuBtnW, menuBtnH);
 	// Dark background with white text
 	ofSetColor(settingsHoveredIndex == 0 ? ofColor(80) : ofColor(40));
@@ -5302,7 +5367,7 @@ void ofApp::drawSingleplayerMenu() {
 	std::string contText = "Continue";
 	try {
 		namespace fs = std::filesystem;
-		fs::path p = fs::current_path() / fs::path(kSavesDir) / fs::path("autosave.json");
+		fs::path p = getSavesDirPath() / fs::path("autosave.json");
 		if (fs::exists(p)) {
 			int64_t savedAt = readSaveTimestampFromFile(p);
 			if (savedAt < 0) savedAt = (int64_t)std::time(nullptr);
@@ -5336,11 +5401,11 @@ void ofApp::drawSaveBrowser() {
 	ofRectangle titleBox = titleFont.getStringBoundingBox(title, 0, 0);
 	titleFont.drawString(title, ofGetWidth() / 2 - titleBox.getWidth() / 2, ofGetHeight() * 0.12);
 
-	// Gather save files from the saves folder (data/Saves)
+	// Gather save files from the saves folder (game root relative Saves/ directory)
 	saveFilePaths.clear();
 	try {
 		namespace fs = std::filesystem;
-		fs::path dir = fs::current_path() / fs::path(kSavesDir);
+		fs::path dir = getSavesDirPath();
 		std::vector<std::pair<int64_t, fs::path>> files;
 		if (fs::exists(dir)) {
 			std::vector<fs::directory_entry> entries;
@@ -5733,21 +5798,24 @@ void ofApp::recalculateUI(int w, int h) {
 	lastWindowWidth = w;
 	lastWindowHeight = h;
 
+	float uiScale = std::clamp(settingsUIScale * std::min((float)w / 1920.0f, (float)h / 1080.0f), 0.75f, 1.25f);
+
 	// 2. Recalculate Main Menu Buttons
-	float btnWidth = 400;
-	float btnHeight = 80;
+	float btnWidth = 400.0f * uiScale;
+	float btnHeight = 80.0f * uiScale;
 	float centerX = w / 2.0f;
 	float startY = h / 2.0f - btnHeight;
+	float btnGap = 20.0f * uiScale;
 
 	mainMenuPlayAIButton.set(centerX - btnWidth / 2, startY, btnWidth, btnHeight);
-	mainMenuMultiplayerButton.set(centerX - btnWidth / 2, startY + btnHeight + 20, btnWidth, btnHeight);
-	mainMenuSettingsButton.set(centerX - btnWidth / 2, startY + (btnHeight + 20) * 2, btnWidth, btnHeight);
-	mainMenuQuitButton.set(centerX - btnWidth / 2, startY + (btnHeight + 20) * 3, btnWidth, btnHeight);
+	mainMenuMultiplayerButton.set(centerX - btnWidth / 2, startY + btnHeight + btnGap, btnWidth, btnHeight);
+	mainMenuSettingsButton.set(centerX - btnWidth / 2, startY + (btnHeight + btnGap) * 2, btnWidth, btnHeight);
+	mainMenuQuitButton.set(centerX - btnWidth / 2, startY + (btnHeight + btnGap) * 3, btnWidth, btnHeight);
 
 	// 3. Pause Menu Buttons (centered stack) - match main menu sizing
 	float pBtnWidth = btnWidth;
 	float pBtnHeight = btnHeight;
-	float pGap = 20; // same vertical gap as main menu
+	float pGap = btnGap; // same vertical gap as main menu
 	float pStartY = h / 2.0f - (pBtnHeight * 2 + pGap * 2) / 2.0f; // center the stack vertically
 	// When not multiplayer we show Resume, Save, Load, Settings, Quit (5 buttons)
 	// When multiplayer we show Resume, Settings, Quit (3 buttons)
@@ -17923,6 +17991,12 @@ void ofApp::updateCardInteractionState(CardInteractionState newState, int cardId
 	case CARD_INTERACTION_MENU:
 		cardPlayState = CARD_STATE_MENU;
 		break;
+	case CARD_INTERACTION_STATUS:
+		cardPlayState = CARD_STATE_MENU;
+		break;
+	case CARD_INTERACTION_PLACING:
+		cardPlayState = CARD_STATE_TARGETING;
+		break;
 	default:
 		break;
 	}
@@ -24003,7 +24077,6 @@ void ofApp::updateCardStateMachine() {
 
 void ofApp::advanceCardState(CardPlayState newState) {
 	cardPlayState = newState;
-	currentCardOutcome.currentState = newState;
 }
 
 void ofApp::handleCardTargetInput(int gridX, int gridY) {
@@ -34341,18 +34414,20 @@ void ofApp::drawDraftScreen() {
 	}
 
 	// 3. Draw Cards
-	// Standardize card sizing relative to screen so UI scales across resolutions
+	// Standardize card sizing relative to screen so UI scales across resolutions.
+	// Use the user-configured UI scale setting and clamp it so cards stay readable
+	// on very large or very small displays.
 	float uiScale = std::min(ofGetWidth() / 1920.0f, ofGetHeight() / 1080.0f);
+	uiScale = std::clamp(uiScale * settingsUIScale, 0.75f, 1.25f);
 	float cardW = kCardPixelWidth * uiScale;
 	float cardH = kCardPixelHeight * uiScale;
 	float spacing = std::clamp(60.0f * uiScale, 20.0f, 96.0f);
 	float startX = (ofGetWidth() - (3 * cardW + 2 * spacing)) / 2;
 
-	// Place cards centered vertically on screen. Keep header/instruction at
-	// the usual place (top area) so the prompt remains in its expected spot.
-	// Centering the card row makes the draft visually prominent for both
-	// in-game and setup drafts.
-	float startY = ofGetHeight() / 2.0f - (cardH / 2.0f);
+	// Place cards centered vertically on screen, but ensure they stay below the
+	// draft header/class text so the tier label never overlaps the cards.
+	float minCardTopY = ofGetHeight() * 0.12f + titleFont.getLineHeight() * 3.0f + 32.0f;
+	float startY = std::max(ofGetHeight() / 2.0f - (cardH / 2.0f), minCardTopY);
 
 	// Throttled debug: if we're in draft state but have no options, log mapping once per second
 	float nowDbg = ofGetElapsedTimef();
