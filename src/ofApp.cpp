@@ -4976,13 +4976,6 @@ void ofApp::drawMainMenu() {
 	ofDisableLighting();
 	ofSetColor(ofColor::white);
 
-	// Ensure main menu music is playing while main menu is visible (unless just muted from minimize)
-	if (mainMenuMusic.isLoaded() && !mainMenuMusic.isPlaying() && !musicMutedDueToMinimize) {
-		mainMenuMusic.play();
-	} else if (!mainMenuMusic.isLoaded()) {
-		ofLogWarning("Audio") << "Main menu music not loaded when drawing main menu.";
-	}
-
 	// Draw Title
 	string title = "Mage Fight";
 	ofRectangle titleBox = titleFont.getStringBoundingBox(title, 0, 0);
@@ -6216,6 +6209,11 @@ void ofApp::initialiseGameStateCommon() {
 }
 //--------------------------------------------------------------
 void ofApp::updateGame() {
+	prepareGameVisualState();
+	updateGameLogic();
+}
+
+void ofApp::prepareGameVisualState() {
 
 	// Card state machine now runs in the fixed-step simulation tick for determinism
 
@@ -6452,6 +6450,9 @@ void ofApp::updateGame() {
 
 	// 1. UPDATE UI POSITIONS
 	updateDebugRects();
+}
+
+void ofApp::updateGameLogic() {
 
 	// If a turn start was deferred while visuals played, commit it now once visuals finished.
 	// Also include a safety fallback so a stuck visual state doesn't prevent the

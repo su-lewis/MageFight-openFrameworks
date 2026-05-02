@@ -851,6 +851,9 @@ public:
 	void update();
 	void draw();
 
+	void updateGameLogic();
+	void prepareGameVisualState();
+
 	// Visual event queue (visual-only events processed locally)
 	std::vector<VisualEvent> visualEvents;
 	void queueVisualEvent(const VisualEvent & e);
