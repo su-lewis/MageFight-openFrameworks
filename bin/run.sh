@@ -69,9 +69,29 @@ echo "Final LD_PRELOAD=$LD_PRELOAD"
 echo "480" > steam_appid.txt
 
 # 7. Set Library Paths (Fixes Missing DLLs/Libs)
-export LD_LIBRARY_PATH=.:./libs/steam/lib:$LD_LIBRARY_PATH
+export HOST_NVIDIA_LIB_PATH=/run/host/usr/lib64:/run/host/usr/lib
+export HOST_GL_DRIVERS_PATH=/run/host/usr/lib64/dri:/run/host/usr/lib/dri
+export LD_LIBRARY_PATH="$HOST_NVIDIA_LIB_PATH:.:./libs/steam/lib:$LD_LIBRARY_PATH"
+export LIBGL_DRIVERS_PATH="$HOST_GL_DRIVERS_PATH:$LIBGL_DRIVERS_PATH"
 
-# 8. Ensure STEAM compat path is set
+# 8. Force X11 so GLFW uses GLX instead of Wayland.
+#    This is required because the application is using GLX and the window
+#    platform must be X11/XWayland, not native Wayland.
+unset WAYLAND_DISPLAY
+unset XDG_SESSION_TYPE
+export XDG_SESSION_TYPE=x11
+export DISPLAY=${DISPLAY:-:0}
+
+# 9. Prefer NVIDIA PRIME render offload on hybrid systems
+export __NV_PRIME_RENDER_OFFLOAD=1
+export __GLX_VENDOR_LIBRARY_NAME=nvidia
+export __VK_LAYER_NV_optimus=NVIDIA_only
+
+echo "Host NVIDIA lib path: $HOST_NVIDIA_LIB_PATH"
+echo "Host GL drivers path: $HOST_GL_DRIVERS_PATH"
+echo "NVIDIA offload env: __NV_PRIME_RENDER_OFFLOAD=${__NV_PRIME_RENDER_OFFLOAD}, __GLX_VENDOR_LIBRARY_NAME=${__GLX_VENDOR_LIBRARY_NAME}"
+
+# 9. Ensure STEAM compat path is set
 if [ -d "$HOME/.local/share/Steam" ]; then
   export STEAM_COMPAT_CLIENT_INSTALL_PATH="$HOME/.local/share/Steam"
 elif [ -d "$HOME/.steam/steam" ]; then

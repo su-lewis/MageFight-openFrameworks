@@ -14455,7 +14455,8 @@ void ofApp::mousePressed(int x, int y, int button) {
 		}
 
 		// Compute centered card Y so hit testing/animations match the draw routine
-		float startY = ofGetHeight() / 2.0f - (cardH / 2.0f);
+		float minCardTopY = ofGetHeight() * 0.12f + titleFont.getLineHeight() * 3.0f + 32.0f;
+		float startY = std::clamp(ofGetHeight() * 0.30f, minCardTopY, ofGetHeight() * 0.40f);
 		// ------------------------------
 
 		// Determine logic for this draft phase
@@ -34098,21 +34099,14 @@ void ofApp::onCardPicked(int optionIndex) {
 
 		// Create visual move using same layout math as drawDraftScreen so startPos matches slot
 		float uiScale = std::min(ofGetWidth() / 1920.0f, ofGetHeight() / 1080.0f);
+		uiScale = std::clamp(uiScale * settingsUIScale, 0.75f, 1.25f);
 		float cardW = kCardPixelWidth * uiScale;
 		float cardH = kCardPixelHeight * uiScale;
 		float spacing = std::clamp(60.0f * uiScale, 20.0f, 96.0f);
 		float startX = (ofGetWidth() - (3 * cardW + 2 * spacing)) / 2;
 		// Recompute vertical layout used by drawDraftScreen
-		float ty = ofGetHeight() * 0.25f;
-		float lineH = titleFont.getLineHeight();
-		float instrTy = ty + lineH + 8;
-		float classTy = instrTy + lineH + 12;
-		(void)classTy; // unused
-		float topTextBottom = ty + lineH;
-		(void)topTextBottom; // unused
-		// if any of the text lines are present adjust position
-		// (we can't exactly know inGame vs tier text here, but use instr as default)
-		float startY = instrTy + lineH + 24.0f;
+		float minCardTopY = ofGetHeight() * 0.12f + titleFont.getLineHeight() * 3.0f + 32.0f;
+		float startY = std::clamp(ofGetHeight() * 0.30f, minCardTopY, ofGetHeight() * 0.40f);
 		// Compute slot center for the picked optionIndex
 		int i = optionIndex;
 		if (i < 0) i = 0;
@@ -34424,10 +34418,10 @@ void ofApp::drawDraftScreen() {
 	float spacing = std::clamp(60.0f * uiScale, 20.0f, 96.0f);
 	float startX = (ofGetWidth() - (3 * cardW + 2 * spacing)) / 2;
 
-	// Place cards centered vertically on screen, but ensure they stay below the
-	// draft header/class text so the tier label never overlaps the cards.
+	// Place cards in the upper half of the screen, above the player hand area,
+	// while still staying below the header/class text region.
 	float minCardTopY = ofGetHeight() * 0.12f + titleFont.getLineHeight() * 3.0f + 32.0f;
-	float startY = std::max(ofGetHeight() / 2.0f - (cardH / 2.0f), minCardTopY);
+	float startY = std::clamp(ofGetHeight() * 0.30f, minCardTopY, ofGetHeight() * 0.40f);
 
 	// Throttled debug: if we're in draft state but have no options, log mapping once per second
 	float nowDbg = ofGetElapsedTimef();
@@ -34570,11 +34564,13 @@ void ofApp::drawDraftScreen() {
 		float btnW = std::clamp(220.0f * uiScale, 140.0f, 320.0f);
 		float btnH = std::clamp(60.0f * uiScale, 40.0f, 96.0f);
 		float btnX = (ofGetWidth() - btnW) / 2.0f;
-		// Place Accept button directly beneath the centered cards with a
-		// comfortable padding. Clamp to screen so it never overlaps edges.
-		float btnY = startY + cardH + std::clamp(24.0f * uiScale, 12.0f, 48.0f);
-		float minBottomMargin = 20.0f * uiScale;
-		float maxBtnY = ofGetHeight() - btnH - minBottomMargin;
+		// Place Accept button above the top of the hand area so it does not
+		// compete with the player's hand and remains in a consistent default position.
+		ofRectangle handAreaRect = computeHandAreaRect((float)ofGetWidth(), (float)ofGetHeight());
+		float btnY = handAreaRect.y - btnH - std::clamp(24.0f * uiScale, 12.0f, 48.0f);
+		float minBtnY = startY + cardH + std::clamp(12.0f * uiScale, 8.0f, 32.0f);
+		if (btnY < minBtnY) btnY = minBtnY;
+		float maxBtnY = handAreaRect.y - btnH - 8.0f * uiScale;
 		if (btnY > maxBtnY) btnY = maxBtnY;
 
 		// Animate Accept button with its UI state
