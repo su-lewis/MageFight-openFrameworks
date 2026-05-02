@@ -34,6 +34,7 @@ else
     PROJECT_LDFLAGS += -Llibs/steam/lib -lsteam_api
     PROJECT_LDFLAGS += -Wl,-rpath=./libs/steam/lib
     PROJECT_LDFLAGS += -Wl,-rpath-link,/usr/lib
+    PROJECT_LDFLAGS += -lraw
 
     # NOTE: FMOD is automatically linked by openFrameworks' native auto-scanner on Linux.
     # Do not add manual FMOD paths here!
