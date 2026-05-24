@@ -116,11 +116,11 @@ void ofApp::drawPauseMenu() {
 		ofSetLineWidth(2);
 		ofDrawRectRounded(rect, 15);
 		ofFill();
-			ofSetColor(ofColor::black);
-			ofRectangle tb = uiFont.getStringBoundingBox(text, 0, 0);
-			float tx = std::round(rect.getCenter().x - (tb.x + tb.width * 0.5f));
-			float ty = std::round(rect.getCenter().y - (tb.y + tb.height * 0.5f));
-			uiFont.drawString(text, tx, ty);
+		ofSetColor(ofColor::black);
+		ofRectangle tb = uiFont.getStringBoundingBox(text, 0, 0);
+		float tx = std::round(rect.getCenter().x - (tb.x + tb.width * 0.5f));
+		float ty = std::round(rect.getCenter().y - (tb.y + tb.height * 0.5f));
+		uiFont.drawString(text, tx, ty);
 	};
 
 	if (!isMultiplayer) {
@@ -7512,16 +7512,9 @@ void ofApp::updateGameLogic() {
 						ofLogNotice("APDebug") << "AP already resolved earlier: currentAP=" << currentAP;
 					}
 
-					// HOST: Send TurnStart packet to client once AP dice are finished (for BOTH turns)
-					bool allDiceFinished = true;
-					for (const auto & d : activeDiceRolls) {
-						if (!d.isFinishedVisual && (d.purpose == PURPOSE_AP || d.purpose == PURPOSE_BONUS_AP)) {
-							allDiceFinished = false;
-							break;
-						}
-					}
+					// HOST: Send TurnStart packet after AP has been resolved authoritatively.
 					bool alreadySent = (lastTurnStartSentPlayer == currentPlayerIndex && lastTurnStartSentCounter == globalTurnCounter);
-					if (isHost() && isMultiplayer && (apResolvedThisTurn || allDiceFinished) && !alreadySent && !isHandlingTurnStartEffects) {
+					if (isHost() && isMultiplayer && apResolvedThisTurn && !alreadySent && !isHandlingTurnStartEffects) {
 						// Migration note: Host no longer sends a separate turn-start packet.
 						// Clients deterministically resolve AP from the effect blackboard
 						// and no longer require a dedicated host turn-start packet. Preserve checksum
@@ -7620,7 +7613,7 @@ void ofApp::updateGameLogic() {
 
 	// ================== PASTE YOUR NEW CODE HERE ==================
 	// Check if we need to start a chained draft
-	if (currentState == STATE_GAMEPLAY && activeDiceRolls.empty() && !networkPending.draftQueue.empty()) {
+	if (currentState == STATE_GAMEPLAY && !isProcessingEffect && currentEffectSequence.isComplete && !networkPending.draftQueue.empty()) {
 		// Start drafts from lower class to higher class.
 		std::sort(networkPending.draftQueue.begin(), networkPending.draftQueue.end());
 
@@ -7646,7 +7639,7 @@ void ofApp::updateGameLogic() {
 	}
 
 	// Blocking Boon Phase 2: after all queued drafts finish, resolve physical coin flips.
-	if (currentState == STATE_GAMEPLAY && activeDiceRolls.empty() && networkPending.draftQueue.empty() && blockingBoonPendingPhysicalAfterDraft) {
+	if (currentState == STATE_GAMEPLAY && !isProcessingEffect && currentEffectSequence.isComplete && networkPending.draftQueue.empty() && blockingBoonPendingPhysicalAfterDraft) {
 		blockingBoonPendingPhysicalAfterDraft = false;
 
 		const int casterIdx = blockingBoonPendingCasterIndex;
