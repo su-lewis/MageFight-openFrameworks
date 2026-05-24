@@ -274,6 +274,14 @@ struct Card {
 	int value = 0;
 	int numDice = 0;
 	int diceSides = 0;
+	int baseDamage = 0;
+	int damageDiceNum = 0;
+	int damageDiceSides = 0;
+	int aoeRadiusDiceNum = 0;
+	int aoeRadiusDiceSides = 0;
+	int statusEffectToApply = 0;
+	int statusDuration = 0;
+	int healAmount = 0;
 	DamageType damageType = DAMAGE_PHYSICAL;
 	int cost = 1;
 	TargetingType targeting = TARGET_ANY_TILE;
@@ -1202,6 +1210,7 @@ private:
 	CardType stringToCardType(const std::string & str);
 	TargetingType stringToTargetingType(const std::string & str);
 	DamageType stringToDamageType(const std::string & str);
+	int stringToStatusType(const std::string & str);
 
 	// Math & Coordinates
 	ofVec2f mouseToBoard(int x, int y);
