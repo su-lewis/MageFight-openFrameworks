@@ -354,6 +354,19 @@ static std::pair<int, int> getCardDamageDice(const Card & card, int fallbackNum 
 	return { fallbackNum, fallbackSides };
 }
 
+// Centralized range dice resolver.
+// Range remains on legacy numDice/diceSides for now.
+static std::pair<int, int> getCardRangeDice(const Card & card, int fallbackNum = 0, int fallbackSides = 0) {
+	if (card.numDice > 0 && card.diceSides > 0) return { card.numDice, card.diceSides };
+	return { fallbackNum, fallbackSides };
+}
+
+// Centralized utility dice resolver for non-range, non-damage effects.
+static std::pair<int, int> getCardUtilityDice(const Card & card, int fallbackNum = 0, int fallbackSides = 0) {
+	if (card.numDice > 0 && card.diceSides > 0) return { card.numDice, card.diceSides };
+	return { fallbackNum, fallbackSides };
+}
+
 static ofRectangle getHandCardRestRect(const Card & card, float baseCardW, float baseCardH) {
 	return ofRectangle(card.targetPos.x - baseCardW * 0.5f, card.targetPos.y - baseCardH * 0.5f, baseCardW, baseCardH);
 }
@@ -25447,12 +25460,13 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 	case CARD_PSIONIC_WAVE: {
 		beginEffectSequence();
 		{
+			auto [rangeDiceNum, rangeDiceSides] = getCardRangeDice(playedCard, 2, 20);
 			// Resolve Psionic Wave range immediately and store in blackboard[0]
 			std::vector<int> rawRange;
-			int rangeTotal = resolveDiceRollDetailed(playedCard.numDice, playedCard.diceSides, rawRange);
+			int rangeTotal = resolveDiceRollDetailed(rangeDiceNum, rangeDiceSides, rawRange);
 			currentEffectSequence.blackboard[0] = rangeTotal;
 			glm::vec3 visPos = gridToWorld(currentPlayer.x, currentPlayer.y) + glm::vec3(0, 1.0f, 0);
-			queueVisualDiceRoll(visPos, playedCard.numDice, playedCard.diceSides, rawRange, rangeTotal, PURPOSE_PSIONIC_WAVE_RANGE, currentPlayerIndex, 1.2f);
+			queueVisualDiceRoll(visPos, rangeDiceNum, rangeDiceSides, rawRange, rangeTotal, PURPOSE_PSIONIC_WAVE_RANGE, currentPlayerIndex, 1.2f);
 
 			// Resolve Psionic Wave amount (2d4) at decision-time and store in blackboard[1]
 			std::vector<int> rawAmount;
@@ -25473,12 +25487,13 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 	case CARD_TIME_VORTEX: {
 		beginEffectSequence();
 		{
+			auto [utilityDiceNum, utilityDiceSides] = getCardUtilityDice(playedCard, 1, 4);
 			// Resolve Time Vortex rolls immediately and queue APPLY op
 			std::vector<int> rawVortex;
-			int vortex = resolveDiceRollDetailed(playedCard.numDice, playedCard.diceSides, rawVortex);
+			int vortex = resolveDiceRollDetailed(utilityDiceNum, utilityDiceSides, rawVortex);
 			currentEffectSequence.blackboard[0] = vortex;
 			glm::vec3 vpos = gridToWorld(currentPlayer.x, currentPlayer.y) + glm::vec3(0, 1.0f, 0);
-			queueVisualDiceRoll(vpos, playedCard.numDice, playedCard.diceSides, rawVortex, vortex, PURPOSE_TIME_VORTEX, currentPlayerIndex, 1.2f);
+			queueVisualDiceRoll(vpos, utilityDiceNum, utilityDiceSides, rawVortex, vortex, PURPOSE_TIME_VORTEX, currentPlayerIndex, 1.2f);
 			EffectOp applyOp = {};
 			applyOp.type = EffectOpType::APPLY_TIME_VORTEX;
 			queueEffect(applyOp);
@@ -25730,12 +25745,13 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 	case CARD_SPARK_OF_GENIUS: {
 		beginEffectSequence();
 		{
+			auto [utilityDiceNum, utilityDiceSides] = getCardUtilityDice(playedCard, 1, 4);
 			// Resolve Spark of Genius draw amount immediately and queue APPLY
 			std::vector<int> rawSpark;
-			int drawAmt = resolveDiceRollDetailed(playedCard.numDice, playedCard.diceSides, rawSpark);
+			int drawAmt = resolveDiceRollDetailed(utilityDiceNum, utilityDiceSides, rawSpark);
 			currentEffectSequence.blackboard[0] = drawAmt;
 			glm::vec3 vpos = gridToWorld(currentPlayer.x, currentPlayer.y) + glm::vec3(0, 1.0f, 0);
-			queueVisualDiceRoll(vpos, playedCard.numDice, playedCard.diceSides, rawSpark, drawAmt, PURPOSE_SPARK_OF_GENIUS_DRAW, currentPlayerIndex, 1.2f);
+			queueVisualDiceRoll(vpos, utilityDiceNum, utilityDiceSides, rawSpark, drawAmt, PURPOSE_SPARK_OF_GENIUS_DRAW, currentPlayerIndex, 1.2f);
 			EffectOp applyOp = {};
 			applyOp.type = EffectOpType::APPLY_SPARK_OF_GENIUS;
 			queueEffect(applyOp);
@@ -25815,6 +25831,7 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 		// LOCKSTEP MIGRATION: Dice roll for heal amount
 		glm::vec2 casterTile = { (float)currentPlayer.x, (float)currentPlayer.y };
 		glm::vec2 targetTile = { (float)targetX, (float)targetY };
+		auto [healDiceNum, healDiceSides] = getCardRangeDice(playedCard, 2, 6);
 		float maxRange = 9999.0f;
 		TargetInfo validationResult = isLosTargetValid(casterTile, targetTile, maxRange, playedCard.type);
 		if (validationResult.reason != VALID && validationResult.reason != INVALID_SELF) return true;
@@ -25837,11 +25854,11 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 		// Roll dice for heal amount (Heal is always exactly 2d6)
 		{
 			std::vector<int> rawHeal;
-			int healRoll = resolveDiceRollDetailed(2, 6, rawHeal);
+			int healRoll = resolveDiceRollDetailed(healDiceNum, healDiceSides, rawHeal);
 			int luckBonus = players[currentPlayerIndex].luck + computePassiveLuck(currentPlayerIndex);
-			healRoll += 2 * luckBonus;
+			healRoll += healDiceNum * luckBonus;
 			currentEffectSequence.blackboard[0] = healRoll;
-			queueVisualDiceRoll(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.0f, 0), 2, 6, rawHeal, healRoll, PURPOSE_HEALING, currentPlayerIndex, 1.0f);
+			queueVisualDiceRoll(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.0f, 0), healDiceNum, healDiceSides, rawHeal, healRoll, PURPOSE_HEALING, currentPlayerIndex, 1.0f);
 		}
 
 		// Apply heal from dice result
@@ -25861,6 +25878,7 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 		// LOCKSTEP MIGRATION: Dice roll for heal amount
 		glm::vec2 casterTile = { (float)currentPlayer.x, (float)currentPlayer.y };
 		glm::vec2 targetTile = { (float)targetX, (float)targetY };
+		auto [healDiceNum, healDiceSides] = getCardRangeDice(playedCard, 1, 6);
 		TargetInfo validationResult = isLosTargetValid(casterTile, targetTile, 9999.0f, playedCard.type);
 		bool isSelf = (currentPlayer.x == targetX && currentPlayer.y == targetY);
 		if (!isSelf && validationResult.reason != VALID) return true;
@@ -25883,13 +25901,13 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 		// Roll dice for heal amount
 		{
 			std::vector<int> rawHeal;
-			int healRoll = resolveDiceRollDetailed(playedCard.numDice, playedCard.diceSides, rawHeal);
-			if (playedCard.diceSides != 2) {
+			int healRoll = resolveDiceRollDetailed(healDiceNum, healDiceSides, rawHeal);
+			if (healDiceSides != 2) {
 				int luckBonus = players[currentPlayerIndex].luck + computePassiveLuck(currentPlayerIndex);
-				healRoll += playedCard.numDice * luckBonus;
+				healRoll += healDiceNum * luckBonus;
 			}
 			currentEffectSequence.blackboard[0] = healRoll;
-			queueVisualDiceRoll(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.0f, 0), playedCard.numDice, playedCard.diceSides, rawHeal, healRoll, PURPOSE_HEALING, currentPlayerIndex, 1.0f);
+			queueVisualDiceRoll(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.0f, 0), healDiceNum, healDiceSides, rawHeal, healRoll, PURPOSE_HEALING, currentPlayerIndex, 1.0f);
 		}
 
 		// Apply heal from dice result
@@ -26209,18 +26227,19 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 		beginEffectSequence();
 		interactingCardIndex = cardIndex;
 		interactingCardType = CARD_TELEPORT;
+		auto [rangeDiceNum, rangeDiceSides] = getCardRangeDice(playedCard, 3, 6);
 
 		// Resolve teleport range deterministically at play time so both peers
 		// observe the same roll before the targeting UI opens.
 		{
 			std::vector<int> rawRange;
-			int rangeRoll = resolveDiceRollDetailed(playedCard.numDice, playedCard.diceSides, rawRange);
-			if (playedCard.diceSides != 2) {
+			int rangeRoll = resolveDiceRollDetailed(rangeDiceNum, rangeDiceSides, rawRange);
+			if (rangeDiceSides != 2) {
 				int luckBonus = players[currentPlayerIndex].luck + computePassiveLuck(currentPlayerIndex);
-				rangeRoll += playedCard.numDice * luckBonus;
+				rangeRoll += rangeDiceNum * luckBonus;
 			}
 			currentEffectSequence.blackboard[0] = rangeRoll;
-			queueVisualDiceRoll(gridToWorld(currentPlayer.x, currentPlayer.y) + glm::vec3(0, 1.0f, 0), playedCard.numDice, playedCard.diceSides, rawRange, rangeRoll, PURPOSE_TELEPORT_RANGE, currentPlayerIndex, 1.0f);
+			queueVisualDiceRoll(gridToWorld(currentPlayer.x, currentPlayer.y) + glm::vec3(0, 1.0f, 0), rangeDiceNum, rangeDiceSides, rawRange, rangeRoll, PURPOSE_TELEPORT_RANGE, currentPlayerIndex, 1.0f);
 		}
 
 		EffectOp applyOp = {};
@@ -26277,8 +26296,9 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 	case CARD_MAGIC_BLAST: {
 		glm::vec2 casterTile = { (float)currentPlayer.x, (float)currentPlayer.y };
 		glm::vec2 targetTile = { (float)targetX, (float)targetY };
+		auto [rangeDiceNum, rangeDiceSides] = getCardRangeDice(playedCard, 1, 20);
 		// Magic Blast uses a d20 range (20 feet)
-		float maxRangeFeet = 20.0f;
+		float maxRangeFeet = (float)(rangeDiceNum * rangeDiceSides);
 		float maxRangeUnits = maxRangeFeet / 5.0f;
 
 		TargetInfo validationResult = isLosTargetValid(casterTile, targetTile, maxRangeFeet, playedCard.type);
@@ -26320,14 +26340,14 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 
 		beginEffectSequence();
 		{
-			// Force a 1d20 range roll for Magic Blast (authoritative)
+			// Resolve range roll for Magic Blast (authoritative)
 			std::vector<int> rawRange;
-			int rangeRoll = resolveDiceRollDetailed(1, 20, rawRange);
+			int rangeRoll = resolveDiceRollDetailed(rangeDiceNum, rangeDiceSides, rawRange);
 			// Apply luck bonus consistent with other range rolls
 			int luckBonus = players[currentPlayerIndex].luck + computePassiveLuck(currentPlayerIndex);
-			rangeRoll += 1 * luckBonus;
+			rangeRoll += rangeDiceNum * luckBonus;
 			currentEffectSequence.blackboard[0] = rangeRoll;
-			queueVisualDiceRoll(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.0f, 0), 1, 20, rawRange, rangeRoll, PURPOSE_RANGE, currentPlayerIndex, 1.0f);
+			queueVisualDiceRoll(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.0f, 0), rangeDiceNum, rangeDiceSides, rawRange, rangeRoll, PURPOSE_RANGE, currentPlayerIndex, 1.0f);
 
 			EffectOp apply = {};
 			apply.type = EffectOpType::APPLY_MAGIC_BLAST;
@@ -26378,8 +26398,9 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 	case CARD_CHAIN_LIGHTNING: {
 		glm::vec2 casterTile = { (float)currentPlayer.x, (float)currentPlayer.y };
 		glm::vec2 targetTile = { (float)targetX, (float)targetY };
+		auto [rangeDiceNum, rangeDiceSides] = getCardRangeDice(playedCard);
 
-		float maxRangeFeet = (float)(playedCard.numDice * playedCard.diceSides);
+		float maxRangeFeet = (float)(rangeDiceNum * rangeDiceSides);
 
 		TargetInfo validationResult = isLosTargetValid(casterTile, targetTile, maxRangeFeet, playedCard.type);
 		if (validationResult.reason != VALID) return true;
@@ -26389,7 +26410,7 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 
 		// Authoritative range roll (gameplay RNG)
 		std::vector<int> rawRange;
-		int rangeTotal = resolveDiceRollDetailed(playedCard.numDice, playedCard.diceSides, rawRange);
+		int rangeTotal = resolveDiceRollDetailed(rangeDiceNum, rangeDiceSides, rawRange);
 
 		int luckBonus = 0;
 		int luckOwner = (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) ? currentPlayerIndex : -1;
@@ -26402,7 +26423,7 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 		// Store the resolved range and show local visuals
 		currentEffectSequence.blackboard[0] = finalRangeTotal;
 		glm::vec3 visPos = gridToWorld(currentPlayer.x, currentPlayer.y) + glm::vec3(0, 1.0f, 0);
-		queueVisualDiceRoll(visPos, playedCard.numDice, playedCard.diceSides, rawRange, finalRangeTotal, PURPOSE_RANGE, currentPlayerIndex, 1.0f);
+		queueVisualDiceRoll(visPos, rangeDiceNum, rangeDiceSides, rawRange, finalRangeTotal, PURPOSE_RANGE, currentPlayerIndex, 1.0f);
 
 		// Resolve damage at play-time and store for the effect pipeline
 		std::vector<int> rawDamage;
@@ -26566,7 +26587,8 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 	case CARD_ETHEREAL_JOLT: {
 		glm::vec2 targetTile = { (float)targetX, (float)targetY };
 		glm::vec2 casterTile = { (float)currentPlayer.x, (float)currentPlayer.y };
-		float maxRange = (float)(playedCard.numDice * playedCard.diceSides);
+		auto [rangeDiceNum, rangeDiceSides] = getCardRangeDice(playedCard);
+		float maxRange = (float)(rangeDiceNum * rangeDiceSides);
 
 		TargetInfo validationResult = isLosTargetValid(casterTile, targetTile, maxRange, playedCard.type);
 		if (validationResult.reason != VALID) return true;
@@ -26574,13 +26596,13 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 
 		{
 			std::vector<int> rawRange;
-			int rangeRoll = resolveDiceRollDetailed(playedCard.numDice, playedCard.diceSides, rawRange);
-			if (playedCard.diceSides != 2) {
+			int rangeRoll = resolveDiceRollDetailed(rangeDiceNum, rangeDiceSides, rawRange);
+			if (rangeDiceSides != 2) {
 				int luckBonus = players[currentPlayerIndex].luck + computePassiveLuck(currentPlayerIndex);
-				rangeRoll += playedCard.numDice * luckBonus;
+				rangeRoll += rangeDiceNum * luckBonus;
 			}
 			currentEffectSequence.blackboard[0] = rangeRoll;
-			queueVisualDiceRoll(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.0f, 0), playedCard.numDice, playedCard.diceSides, rawRange, rangeRoll, PURPOSE_RANGE, currentPlayerIndex, 1.0f);
+			queueVisualDiceRoll(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.0f, 0), rangeDiceNum, rangeDiceSides, rawRange, rangeRoll, PURPOSE_RANGE, currentPlayerIndex, 1.0f);
 			EffectOp applyJolt = {};
 			applyJolt.type = EffectOpType::APPLY_ETHEREAL_JOLT;
 			queueEffect(applyJolt);
