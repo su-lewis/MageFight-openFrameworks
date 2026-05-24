@@ -46,6 +46,7 @@ void ofApp::triggerCameraShake(float intensity, float duration) {
 // ** UI Helpers **
 // Centralised small visual/layout helpers for draft UI to keep calculations
 // consistent across draw, hit-testing and animation scheduling.
+// (no forward declarations here)
 void ofApp::getDraftCardMetrics(bool clampTop,
 	float & outCardW, float & outCardH,
 	float & outSpacing, float & outStartX, float & outStartY) {
@@ -115,10 +116,11 @@ void ofApp::drawPauseMenu() {
 		ofSetLineWidth(2);
 		ofDrawRectRounded(rect, 15);
 		ofFill();
-		ofRectangle textBox = uiFont.getStringBoundingBox(text, 0, 0);
-		float textX = round(rect.getCenter().x - textBox.getWidth() / 2.0f);
-		float textY = round(rect.getCenter().y + textBox.getHeight() / 2.0f);
-		uiFont.drawString(text, textX, textY);
+			ofSetColor(ofColor::black);
+			ofRectangle tb = uiFont.getStringBoundingBox(text, 0, 0);
+			float tx = std::round(rect.getCenter().x - (tb.x + tb.width * 0.5f));
+			float ty = std::round(rect.getCenter().y - (tb.y + tb.height * 0.5f));
+			uiFont.drawString(text, tx, ty);
 	};
 
 	if (!isMultiplayer) {
@@ -5083,12 +5085,11 @@ void ofApp::drawMainMenu() {
 		ofSetLineWidth(2);
 		ofDrawRectRounded(rect, 15);
 		ofFill();
-
 		ofSetColor(ofColor::black); // Text color
-		ofRectangle textBox = uiFont.getStringBoundingBox(text, 0, 0);
-		float textX = round(rect.getCenter().x - textBox.getWidth() / 2.0f);
-		float textY = round(rect.getCenter().y + textBox.getHeight() / 2.0f);
-		uiFont.drawString(text, textX, textY);
+		ofRectangle tb = uiFont.getStringBoundingBox(text, 0, 0);
+		float tx = std::round(rect.getCenter().x - (tb.x + tb.width * 0.5f));
+		float ty = std::round(rect.getCenter().y - (tb.y + tb.height * 0.5f));
+		uiFont.drawString(text, tx, ty);
 	};
 
 	drawButton(mainMenuPlayAIButton, "Singleplayer", mainMenuHoveredIndex == 0);
@@ -15999,12 +16000,14 @@ void ofApp::mouseDragged(int x, int y, int button) {
 				ofVec2f dragAnchor = dragStartPos + ofVec2f(0.0f, baseCardHeight * 0.35f);
 				dragOffset = ofVec2f(x, y) - dragAnchor;
 				playHandFeedbackSfx(1.02f, 0.12f);
-				if (draggingHandLoop.isLoaded() && !draggingHandLoop.isPlaying()) {
+				if (draggingHandLoop.isLoaded()) {
 					float tv = std::clamp(settingsMasterVolume * settingsSfxVolume * 0.6f, 0.0f, 1.0f);
-					draggingHandLoop.setVolume(tv);
 					draggingHandTargetVolume = tv;
-					draggingHandFadeSpeed = 8.0f;
-					draggingHandLoop.play();
+					draggingHandFadeSpeed = 8.0f; // fade-in speed
+					if (!draggingHandLoop.isPlaying()) {
+						draggingHandLoop.setVolume(0.0f);
+						draggingHandLoop.play();
+					}
 				}
 				ofLogNotice("CardDrag") << "Drag initiated from pressedCardIndex=" << sourceIndex << " name=" << card.name;
 			} else if (hitRect.inside((float)ofGetPreviousMouseX(), (float)ofGetPreviousMouseY())) {
@@ -16018,12 +16021,14 @@ void ofApp::mouseDragged(int x, int y, int button) {
 				ofVec2f dragAnchor = dragStartPos + ofVec2f(0.0f, baseCardHeight * 0.35f);
 				dragOffset = ofVec2f(x, y) - dragAnchor;
 				playHandFeedbackSfx(1.02f, 0.12f);
-				if (draggingHandLoop.isLoaded() && !draggingHandLoop.isPlaying()) {
+				if (draggingHandLoop.isLoaded()) {
 					float tv = std::clamp(settingsMasterVolume * settingsSfxVolume * 0.6f, 0.0f, 1.0f);
-					draggingHandLoop.setVolume(tv);
 					draggingHandTargetVolume = tv;
-					draggingHandFadeSpeed = 8.0f;
-					draggingHandLoop.play();
+					draggingHandFadeSpeed = 8.0f; // fade-in speed
+					if (!draggingHandLoop.isPlaying()) {
+						draggingHandLoop.setVolume(0.0f);
+						draggingHandLoop.play();
+					}
 				}
 				ofLogNotice("CardDrag") << "Drag initiated from previous position, index=" << sourceIndex;
 			}
@@ -32480,8 +32485,10 @@ void ofApp::drawAcceptButtonShared(const ofRectangle & buttonRect, bool canAccep
 	ofDrawRectRounded(buttonRect, 12);
 
 	ofSetColor(ofColor(255, 255, 255, (int)(255.0f * alpha)));
-	ofRectangle acceptTextBox = uiFont.getStringBoundingBox("Accept", 0, 0);
-	uiFont.drawString("Accept", buttonRect.getCenter().x - acceptTextBox.getWidth() / 2, buttonRect.getCenter().y + acceptTextBox.getHeight() / 2 - 6);
+	ofRectangle tb = uiFont.getStringBoundingBox("Accept", 0, 0);
+	float tx = std::round(buttonRect.getCenter().x - (tb.x + tb.width * 0.5f));
+	float ty = std::round(buttonRect.getCenter().y - (tb.y + tb.height * 0.5f));
+	uiFont.drawString("Accept", tx, ty);
 	ofPopMatrix();
 }
 
@@ -32573,8 +32580,10 @@ void ofApp::drawOptionCards(const ofRectangle & panelRect,
 		ofDrawRectRounded(br.x + 8, br.y + 8, br.width - 16, br.height - 16, 8);
 
 		ofSetColor((en && accent.getBrightness() > 200) ? ofColor::black : ofColor::white);
-		ofRectangle tbox = uiFont.getStringBoundingBox(labels[i], 0, 0);
-		uiFont.drawString(labels[i], br.getCenter().x - tbox.getWidth() / 2, br.getCenter().y + tbox.getHeight() / 2);
+		ofRectangle tb = uiFont.getStringBoundingBox(labels[i], 0, 0);
+		float tx = std::round(br.getCenter().x - (tb.x + tb.width * 0.5f));
+		float ty = std::round(br.getCenter().y - (tb.y + tb.height * 0.5f));
+		uiFont.drawString(labels[i], tx, ty);
 	}
 }
 //--------------------------------------------------------------
