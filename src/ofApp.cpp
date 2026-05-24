@@ -595,13 +595,21 @@ static void drawCardEdgeOutline(float x, float y, float w, float h, float expand
 	float sx = (w > 0.0f) ? ((w + expandPx * 2.0f) / w) : 1.0f;
 	float sy = (h > 0.0f) ? ((h + expandPx * 2.0f) / h) : 1.0f;
 
+	// Snap vertices to integer pixel positions to avoid sub-pixel gaps
 	ofBeginShape();
+	float prevVx = NAN, prevVy = NAN;
 	for (const auto & p : gCardEdgeOutlineNormalized) {
 		float vx = x + p.x * w;
 		float vy = y + p.y * h;
 		vx = cx + (vx - cx) * sx;
 		vy = cy + (vy - cy) * sy;
+		vx = std::round(vx);
+		vy = std::round(vy);
+		// skip duplicate consecutive vertices introduced by rounding
+		if (!std::isnan(prevVx) && (vx == prevVx && vy == prevVy)) continue;
 		ofVertex(vx, vy);
+		prevVx = vx;
+		prevVy = vy;
 	}
 	ofEndShape(true);
 }
@@ -738,10 +746,13 @@ static void drawCenteredTextScaledOutlined(const ofTrueTypeFont & font,
 	// Fractional scale/translation causes shimmering and per-glyph shape variation.
 	float drawScale = std::max(0.01f, std::round(scale * 4.0f) / 4.0f);
 	ofRectangle b = font.getStringBoundingBox(text, 0, 0);
-	float tx = rect.x + (rect.width - b.width * drawScale) * 0.5f - b.x * drawScale;
-	float ty = rect.y + (rect.height - b.height * drawScale) * 0.5f - b.y * drawScale;
-	float txSnap = std::round(tx);
-	float tySnap = std::round(ty);
+	// Center by the text bounding-box center, then snap to integer pixels
+	float centerX = rect.x + rect.width * 0.5f;
+	float centerY = rect.y + rect.height * 0.5f;
+	float textCenterX = (b.x + b.width * 0.5f) * drawScale;
+	float textCenterY = (b.y + b.height * 0.5f) * drawScale;
+	float txSnap = std::round(centerX - textCenterX);
+	float tySnap = std::round(centerY - textCenterY);
 
 	const int r = std::max(0, outlinePx);
 	if (r > 0) {
@@ -828,7 +839,9 @@ static void drawArcCenteredTextScaledOutlined(const ofTrueTypeFont & font,
 
 		ofSetColor(outlineColor);
 		ofPushMatrix();
-		ofTranslate(cursorX, drawY);
+		float tx = std::round(cursorX);
+		float ty = std::round(drawY);
+		ofTranslate(tx, ty);
 		ofScale(scale, scale);
 		for (int dy = -r; dy <= r; ++dy) {
 			for (int dx = -r; dx <= r; ++dx) {
@@ -1424,14 +1437,16 @@ static bool rebuildCardSpriteSheetFromTemplate(const std::string & templatePath,
 				continue;
 			}
 			ofRectangle b = font.getStringBoundingBox(line, 0, 0);
-			float tx = rect.x + inset + (fitW - b.width * drawScale) * 0.5f - b.x * drawScale;
 			float lineTop = blockTop + (float)li * lineH;
 			float lineBottom = lineTop + lineH;
 			if (lineTop < rect.y + inset - 1.0f || lineBottom > rect.getBottom() - inset + 1.0f) {
 				continue;
 			}
+			// Center this line in the fit region and snap by center to integers
+			float centerX = rect.x + inset + fitW * 0.5f;
+			float textCenterX = (b.x + b.width * 0.5f) * drawScale;
+			float txSnap = std::round(centerX - textCenterX);
 			float ty = lineTop + (lineH - b.height * drawScale) * 0.5f - b.y * drawScale;
-			float txSnap = std::round(tx);
 			float tySnap = std::round(ty);
 
 			if (r > 0) {
@@ -14551,7 +14566,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 					mv.finished = false;
 					// Use the actual drafting player's index for proper animation targeting
 					mv.ownerIndex = draftPlayerIndex;
-					activeDraftPickedMoves.push_back(mv);
+					scheduleDraftPickedMove(mv);
 				}
 
 				// Vanish all option slots immediately; picked cards are represented
@@ -20679,7 +20694,7 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 				}
 				mv.finished = false;
 				mv.ownerIndex = cmdDraftPlayerIdx;
-				activeDraftPickedMoves.push_back(mv);
+				scheduleDraftPickedMove(mv);
 			}
 
 			// Hide all option slots immediately; picked cards are shown via
@@ -34166,7 +34181,7 @@ void ofApp::onCardPicked(int optionIndex) {
 			mv.finished = false;
 			mv.ownerIndex = draftPlayerIndex;
 		}
-		activeDraftPickedMoves.push_back(mv);
+		scheduleDraftPickedMove(mv);
 
 		// Create shuffle animation for minion, scheduled to start after card animation
 		if (targetIsMinion) {
@@ -34336,6 +34351,15 @@ void ofApp::drawDraftScreen() {
 		}
 	}
 
+	// Prepare UI scale and card sizing so header/instruction can be positioned
+	// relative to the card area (we want header above cards and accept below).
+	float uiScale = std::min(ofGetWidth() / 1920.0f, ofGetHeight() / 1080.0f);
+	uiScale = std::clamp(uiScale * settingsUIScale, 0.75f, 1.25f);
+	// Reduce card size by 15% for draft UI
+	const float draftSizeFactor = 0.85f;
+	float cardW = kCardPixelWidth * uiScale * draftSizeFactor;
+	float cardH = kCardPixelHeight * uiScale * draftSizeFactor;
+
 	// 2. Header & instruction: snappy pop-in that scales and fades as cards appear
 	float nowAnim = ofGetElapsedTimef();
 	float appearT = 0.0f;
@@ -34357,7 +34381,10 @@ void ofApp::drawDraftScreen() {
 		ofRectangle headerBox = titleFont.getStringBoundingBox(header, 0, 0);
 		float scaledW = headerBox.width * scale;
 		float tx = (ofGetWidth() / 2.0f) - (scaledW / 2.0f);
-		float ty = ofGetHeight() * 0.12f;
+		// Position header above the centered draft card area with a small gap
+		float cardTopY = (ofGetHeight() * 0.5f) - (cardH * 0.5f);
+		float gapAboveCards = std::clamp(12.0f * uiScale, 8.0f, 32.0f);
+		float ty = cardTopY - (titleFont.getLineHeight() * scale) - gapAboveCards;
 
 		int shadowA = (int)(255.0f * alpha);
 		int fgA = (int)(255.0f * alpha);
@@ -34372,10 +34399,10 @@ void ofApp::drawDraftScreen() {
 		titleFont.drawString(header, 0, 0);
 		ofPopMatrix();
 
-		// Instruction line below header: scale and fade with same pop-in
+		// Instruction line below header: place just above the cards with a small gap
 		ofRectangle instrBox = titleFont.getStringBoundingBox(instr, 0, 0);
 		float instrTx = (ofGetWidth() / 2.0f) - (instrBox.width * scale / 2.0f);
-		float instrTy = ty + titleFont.getLineHeight() * scale + 8;
+		float instrTy = ty + titleFont.getLineHeight() * scale + std::clamp(6.0f * uiScale, 4.0f, 16.0f);
 		ofPushMatrix();
 		ofTranslate(instrTx, instrTy);
 		ofScale(scale, scale);
@@ -34385,7 +34412,7 @@ void ofApp::drawDraftScreen() {
 		titleFont.drawString(instr, 0, 0);
 		ofPopMatrix();
 
-		// Class tier text below prompt
+		// Class tier text below prompt (above cards)
 		std::string classTierText = "";
 		ofColor classTierColor = ofColor::white;
 		if (!isInGameDraft) {
@@ -34400,7 +34427,7 @@ void ofApp::drawDraftScreen() {
 		if (!classTierText.empty()) {
 			ofRectangle classBox = titleFont.getStringBoundingBox(classTierText, 0, 0);
 			float classTx = (ofGetWidth() / 2.0f) - (classBox.width / 2.0f);
-			float classTy = instrTy + titleFont.getLineHeight() + 12;
+			float classTy = instrTy + titleFont.getLineHeight() + std::clamp(8.0f * uiScale, 6.0f, 20.0f);
 			ofSetColor(0, 0, 0, shadowA);
 			titleFont.drawString(classTierText, classTx + 2, classTy + 2);
 			ofSetColor(ofColor(classTierColor.r, classTierColor.g, classTierColor.b, fgA));
@@ -34409,20 +34436,12 @@ void ofApp::drawDraftScreen() {
 	}
 
 	// 3. Draw Cards
-	// Standardize card sizing relative to screen so UI scales across resolutions.
-	// Use the user-configured UI scale setting and clamp it so cards stay readable
-	// on very large or very small displays.
-	float uiScale = std::min(ofGetWidth() / 1920.0f, ofGetHeight() / 1080.0f);
-	uiScale = std::clamp(uiScale * settingsUIScale, 0.75f, 1.25f);
-	float cardW = kCardPixelWidth * uiScale;
-	float cardH = kCardPixelHeight * uiScale;
+	// Keep the same uiScale/cardW/cardH computed above (with draft size reduction)
 	float spacing = std::clamp(60.0f * uiScale, 20.0f, 96.0f);
 	float startX = (ofGetWidth() - (3 * cardW + 2 * spacing)) / 2;
 
-	// Place cards in the upper half of the screen, above the player hand area,
-	// while still staying below the header/class text region.
-	float minCardTopY = ofGetHeight() * 0.12f + titleFont.getLineHeight() * 3.0f + 32.0f;
-	float startY = std::clamp(ofGetHeight() * 0.30f, minCardTopY, ofGetHeight() * 0.40f);
+	// Center the cards vertically on the screen
+	float startY = (ofGetHeight() * 0.5f) - (cardH * 0.5f);
 
 	// Throttled debug: if we're in draft state but have no options, log mapping once per second
 	float nowDbg = ofGetElapsedTimef();
@@ -34565,14 +34584,13 @@ void ofApp::drawDraftScreen() {
 		float btnW = std::clamp(220.0f * uiScale, 140.0f, 320.0f);
 		float btnH = std::clamp(60.0f * uiScale, 40.0f, 96.0f);
 		float btnX = (ofGetWidth() - btnW) / 2.0f;
-		// Place Accept button above the top of the hand area so it does not
-		// compete with the player's hand and remains in a consistent default position.
+		// Place Accept button directly below the centered cards with a small gap
+		float gapBelowCards = std::clamp(12.0f * uiScale, 8.0f, 32.0f);
+		float btnY = startY + cardH + gapBelowCards;
+		// But clamp to avoid overlapping the player's hand area
 		ofRectangle handAreaRect = computeHandAreaRect((float)ofGetWidth(), (float)ofGetHeight());
-		float btnY = handAreaRect.y - btnH - std::clamp(24.0f * uiScale, 12.0f, 48.0f);
-		float minBtnY = startY + cardH + std::clamp(12.0f * uiScale, 8.0f, 32.0f);
-		if (btnY < minBtnY) btnY = minBtnY;
-		float maxBtnY = handAreaRect.y - btnH - 8.0f * uiScale;
-		if (btnY > maxBtnY) btnY = maxBtnY;
+		float minAllowedBtnY = handAreaRect.y - btnH - std::clamp(8.0f * uiScale, 6.0f, 16.0f);
+		if (btnY > minAllowedBtnY) btnY = minAllowedBtnY;
 
 		// Animate Accept button with its UI state
 		float acceptScale = 1.0f;
@@ -34658,6 +34676,25 @@ void ofApp::drawActiveDraftPickedMoves() {
 	for (size_t i = activeDraftPickedMoves.size(); i-- > 0;) {
 		if (activeDraftPickedMoves[i].finished) activeDraftPickedMoves.erase(activeDraftPickedMoves.begin() + i);
 	}
+}
+
+// Schedule a visual draft-picked move but avoid creating duplicate moves
+// for the same card/owner that are already pending.
+void ofApp::scheduleDraftPickedMove(const DraftPickedMove & mv) {
+	// Simple dedupe: match ownerIndex + card name + approximate endPos
+	const float posEps = 1.0f; // pixels
+	for (const auto & existing : activeDraftPickedMoves) {
+		if (existing.finished) continue;
+		if (existing.ownerIndex == mv.ownerIndex && existing.card.name == mv.card.name) {
+			float dx = existing.endPos.x - mv.endPos.x;
+			float dy = existing.endPos.y - mv.endPos.y;
+			if (std::abs(dx) <= posEps && std::abs(dy) <= posEps) {
+				ofLogNotice("Draft") << "scheduleDraftPickedMove: skipping duplicate animation for card='" << mv.card.name << "' owner=" << mv.ownerIndex;
+				return; // duplicate found
+			}
+		}
+	}
+	scheduleDraftPickedMove(mv);
 }
 // Draw the pile view panel for a given player and view mode (consolidated helper)
 void ofApp::drawPileViewFor(int viewPlayerIndex, PileViewMode viewMode) {

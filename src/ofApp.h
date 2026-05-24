@@ -1347,6 +1347,9 @@ private:
 
 	std::vector<DraftPickedMove> activeDraftPickedMoves;
 
+	// Schedule a visual draft-picked move with duplicate protection
+	void scheduleDraftPickedMove(const DraftPickedMove & mv);
+
 	// Deck flash when a picked card lands (visual only)
 	float deckFlashStartTime = 0.0f;
 	float deckFlashDuration = 0.45f;
@@ -1794,8 +1797,8 @@ private:
 	bool worldPostActiveNotified = false;
 	// Apply nearest filtering and other pixel-art settings to textures/FBOs
 	void applyPixelArtSettings();
-	int pixelArtDownscale = 3; // render at 1/downscale resolution (higher value => lower internal resolution)
-	int pixelArtLevels = 12; // posterize levels per channel (higher => less posterize / preserve brightness)
+	int pixelArtDownscale = 2; // render at 1/downscale resolution (higher value => lower internal resolution)
+	int pixelArtLevels = 20; // posterize levels per channel (higher => less posterize / preserve brightness)
 	bool pixelArtDither = true;
 
 	// Master switch to disable all glow/outline visual effects (for crisp visuals)

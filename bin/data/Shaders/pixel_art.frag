@@ -47,16 +47,16 @@ void main() {
     vec3 q = base;
     if (L > 1.0) {
         if (useDither == 1) {
-            // gentle Bayer dither depending on screen coords
-            float d = bayer4(gl_FragCoord.xy) * 0.30;
+            // gentle Bayer dither depending on screen coords (reduced strength)
+            float d = bayer4(gl_FragCoord.xy) * 0.15;
             q.r = floor(q.r * L + d) / L;
             q.g = floor(q.g * L + d) / L;
             q.b = floor(q.b * L + d) / L;
         } else {
             q = floor(q * L) / L;
         }
-        // mix posterized result with original so the effect isn't too harsh
-        q = mix(base, q, 0.4);
+        // mix posterized result with original so the effect is subtler
+        q = mix(base, q, 0.25);
     }
 
     // edge detection on the low-res grid (Sobel-ish)
@@ -71,12 +71,12 @@ void main() {
 
     // Smooth the edge response and allow edgeStrength to control it
     float threshold = 0.08;
-    float edgeFactor = smoothstep(threshold, threshold * max(edgeStrength, 1.0), edge) * 0.75;
+    float edgeFactor = smoothstep(threshold, threshold * max(edgeStrength, 1.0), edge) * 0.6;
 
     // Compose final color: apply subtle edge darkening towards edgeColor
     vec3 edgeTint = mix(q, edgeColor, 0.0); // keep tint optional; default 0
-    vec3 colorWithEdge = mix(q, edgeTint * 0.93, edgeFactor * 0.55);
-    colorWithEdge *= mix(1.0, 0.96, edgeFactor * 0.35); // reduced darkening
+    vec3 colorWithEdge = mix(q, edgeTint * 0.93, edgeFactor * 0.45);
+    colorWithEdge *= mix(1.0, 0.98, edgeFactor * 0.15); // further reduced darkening
 
     // Avoid additional gamma boosting — use the composed color directly
     // (removing the previous pow(...) which made the image too bright)

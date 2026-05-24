@@ -376,7 +376,7 @@
 
 -## 48. Vampire Bite
 - **Damage type:** Physical
-- **AP Cost:** 3k
+- **AP Cost:** 3
 - **Class:** 1
 - **Picture:** 
 - **Effect Text:** Deal 3 damage to an adjacent unit. If it damaged their health then restore 2 health and Shuffle x1 Vampire Bite into their deck. If this is in your deck / discard you take double Holy damage.
