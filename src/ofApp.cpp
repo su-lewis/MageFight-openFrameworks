@@ -14441,10 +14441,11 @@ void ofApp::mousePressed(int x, int y, int button) {
 		if (!draftDisplayInteractiveEnabled) {
 			ofLogNotice("Draft") << "DRAFT CLICK: intro still active, allowing selection so the draft remains responsive.";
 		}
-		// Card Dimensions (Must match drawDraftScreen)
+		// Card Dimensions (Must match drawDraftScreen). Use reduced draft size.
 		float uiScale = std::min(ofGetWidth() / 1920.0f, ofGetHeight() / 1080.0f);
-		float cardW = kCardPixelWidth * uiScale;
-		float cardH = kCardPixelHeight * uiScale;
+		const float draftSizeFactor = 0.85f;
+		float cardW = kCardPixelWidth * uiScale * draftSizeFactor;
+		float cardH = kCardPixelHeight * uiScale * draftSizeFactor;
 		float spacing = std::clamp(60.0f * uiScale, 20.0f, 96.0f);
 		float startX = (ofGetWidth() - (3 * cardW + 2 * spacing)) / 2;
 
@@ -20643,8 +20644,9 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 		// Spawn visual animations for picked cards and vanish the rest (visual-only)
 		{
 			float uiScale = std::min(ofGetWidth() / 1920.0f, ofGetHeight() / 1080.0f);
-			float cardW = kCardPixelWidth * uiScale;
-			float cardH = kCardPixelHeight * uiScale;
+			const float draftSizeFactor = 0.85f;
+			float cardW = kCardPixelWidth * uiScale * draftSizeFactor;
+			float cardH = kCardPixelHeight * uiScale * draftSizeFactor;
 			float spacing = std::clamp(60.0f * uiScale, 20.0f, 96.0f);
 			float startX = (ofGetWidth() - (3 * cardW + 2 * spacing)) / 2;
 			float startY = ofGetHeight() / 2.0f - (cardH / 2.0f);
@@ -34633,8 +34635,9 @@ void ofApp::drawDraftScreen() {
 void ofApp::drawActiveDraftPickedMoves() {
 	// Use layout math consistent with drawDraftScreen (cardW/cardH computed there)
 	float uiScale = std::min(ofGetWidth() / 1920.0f, ofGetHeight() / 1080.0f);
-	float cardW = kCardPixelWidth * uiScale;
-	float cardH = kCardPixelHeight * uiScale;
+	const float draftSizeFactor = 0.85f;
+	float cardW = kCardPixelWidth * uiScale * draftSizeFactor;
+	float cardH = kCardPixelHeight * uiScale * draftSizeFactor;
 
 	for (auto & mv : activeDraftPickedMoves) {
 		if (mv.finished) continue;
