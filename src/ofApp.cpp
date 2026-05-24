@@ -42,6 +42,43 @@ void ofApp::triggerCameraShake(float intensity, float duration) {
 	std::uniform_real_distribution<float> off(-1.0f, 1.0f);
 	cameraShakeOffset = glm::vec3(off(visualRNG), off(visualRNG) * 0.5f, off(visualRNG)) * cameraShakeIntensity;
 }
+
+// ** UI Helpers **
+// Centralised small visual/layout helpers for draft UI to keep calculations
+// consistent across draw, hit-testing and animation scheduling.
+void ofApp::getDraftCardMetrics(bool clampTop,
+	float & outCardW, float & outCardH,
+	float & outSpacing, float & outStartX, float & outStartY) {
+	float uiScale = std::min(ofGetWidth() / 1920.0f, ofGetHeight() / 1080.0f);
+	uiScale = std::clamp(uiScale * settingsUIScale, 0.75f, 1.25f);
+	const float draftSizeFactor = 0.85f;
+	outCardW = 409.0f * uiScale * draftSizeFactor;
+	outCardH = 585.0f * uiScale * draftSizeFactor;
+	outSpacing = std::clamp(60.0f * uiScale, 20.0f, 96.0f);
+	outStartX = (ofGetWidth() - (3 * outCardW + 2 * outSpacing)) / 2.0f;
+	if (clampTop) {
+		float minCardTopY = ofGetHeight() * 0.12f + titleFont.getLineHeight() * 3.0f + 32.0f;
+		outStartY = std::clamp(ofGetHeight() * 0.30f, minCardTopY, ofGetHeight() * 0.40f);
+	} else {
+		outStartY = ofGetHeight() * 0.5f - (outCardH * 0.5f);
+	}
+}
+
+// Move and centralise scheduling helper here so related UI helpers are colocated.
+void ofApp::scheduleDraftPickedMove(const DraftPickedMove & mv) {
+	// Deduplicate by owner + card name + approx endPos to avoid doubled visuals.
+	for (const auto & existing : activeDraftPickedMoves) {
+		if (existing.ownerIndex == mv.ownerIndex && existing.card.name == mv.card.name) {
+			float dx = existing.endPos.x - mv.endPos.x;
+			float dy = existing.endPos.y - mv.endPos.y;
+			if (dx * dx + dy * dy < 4.0f) {
+				ofLogNotice("Draft") << "scheduleDraftPickedMove: skipping duplicate animation for card='" << mv.card.name << "' owner=" << mv.ownerIndex;
+				return;
+			}
+		}
+	}
+	activeDraftPickedMoves.push_back(mv);
+}
 // Simple Pause Menu renderer (minimal, used when paused)
 void ofApp::drawPauseMenu() {
 	ofPushStyle();
@@ -133,8 +170,8 @@ static std::string makeSavePath(const std::string & p) {
 
 void ofApp::playHandFeedbackSfx(float speed, float volumeMul) {
 	if (footstepSounds.empty()) return;
-	float now = ofGetElapsedTimef();
-	if (now < nextHandSfxAt) return;
+	float nowSec = ofGetElapsedTimef();
+	if (nowSec < nextHandSfxAt) return;
 
 	std::uniform_int_distribution<int> soundIdx(0, (int)footstepSounds.size() - 1);
 	int idx = soundIdx(visualRNG);
@@ -142,7 +179,7 @@ void ofApp::playHandFeedbackSfx(float speed, float volumeMul) {
 	footstepSounds[idx].setSpeed(std::clamp(speed, 0.70f, 1.50f));
 	footstepSounds[idx].setVolume(vol);
 	footstepSounds[idx].play();
-	nextHandSfxAt = now + 0.045f;
+	nextHandSfxAt = nowSec + 0.045f;
 }
 
 namespace {
@@ -595,7 +632,9 @@ static void drawCardEdgeOutline(float x, float y, float w, float h, float expand
 	float sx = (w > 0.0f) ? ((w + expandPx * 2.0f) / w) : 1.0f;
 	float sy = (h > 0.0f) ? ((h + expandPx * 2.0f) / h) : 1.0f;
 
-	// Snap vertices to integer pixel positions to avoid sub-pixel gaps
+	// Prefer sub-pixel vertices for smooth movement. Only snap to integer
+	// pixels when the input rectangle is already integral to avoid gaps.
+	bool inputsIntegral = (std::fabs(x - std::round(x)) < 0.001f && std::fabs(y - std::round(y)) < 0.001f && std::fabs(w - std::round(w)) < 0.001f && std::fabs(h - std::round(h)) < 0.001f);
 	ofBeginShape();
 	float prevVx = NAN, prevVy = NAN;
 	for (const auto & p : gCardEdgeOutlineNormalized) {
@@ -603,10 +642,12 @@ static void drawCardEdgeOutline(float x, float y, float w, float h, float expand
 		float vy = y + p.y * h;
 		vx = cx + (vx - cx) * sx;
 		vy = cy + (vy - cy) * sy;
-		vx = std::round(vx);
-		vy = std::round(vy);
-		// skip duplicate consecutive vertices introduced by rounding
-		if (!std::isnan(prevVx) && (vx == prevVx && vy == prevVy)) continue;
+		if (inputsIntegral) {
+			vx = std::round(vx);
+			vy = std::round(vy);
+		}
+		// skip near-duplicate consecutive vertices introduced by rounding or precision
+		if (!std::isnan(prevVx) && (std::fabs(vx - prevVx) < 0.001f && std::fabs(vy - prevVy) < 0.001f)) continue;
 		ofVertex(vx, vy);
 		prevVx = vx;
 		prevVy = vy;
@@ -615,10 +656,18 @@ static void drawCardEdgeOutline(float x, float y, float w, float h, float expand
 }
 
 static void drawCardOutlineOutside(float x, float y, float w, float h, float lineWidthPx, float gapPx = 1.0f) {
-	float sx = std::round(x);
-	float sy = std::round(y);
-	float sw = std::max(1.0f, std::round(w));
-	float sh = std::max(1.0f, std::round(h));
+	// Only quantize the rectangle to integer pixels when already integral,
+	// otherwise keep fractional positions to allow smooth sub-pixel movement.
+	float sx = x;
+	float sy = y;
+	float sw = w;
+	float sh = h;
+	if (std::fabs(x - std::round(x)) < 0.001f && std::fabs(y - std::round(y)) < 0.001f && std::fabs(w - std::round(w)) < 0.001f && std::fabs(h - std::round(h)) < 0.001f) {
+		sx = std::round(x);
+		sy = std::round(y);
+		sw = std::max(1.0f, std::round(w));
+		sh = std::max(1.0f, std::round(h));
+	}
 	float expand = std::max(0.0f, gapPx + std::max(0.0f, lineWidthPx) * 0.5f);
 	drawCardEdgeOutline(sx, sy, sw, sh, expand);
 }
@@ -641,8 +690,8 @@ static void drawPixelTextBaseline(const ofTrueTypeFont & font,
 	const ofColor & outlineColor = ofColor::black) {
 	if (text.empty()) return;
 	float s = quantizePixelTextScale(scale);
-	float bx = std::round(baselineX);
-	float by = std::round(baselineY);
+	float bx = baselineX; // allow sub-pixel baseline for smooth movement
+	float by = baselineY;
 
 	ofPushMatrix();
 	ofTranslate(bx, by);
@@ -3371,6 +3420,13 @@ void ofApp::setup() {
 	seedVisualRng(visualRNG, currentMapSeed);
 	ofLogNotice("Setup") << "Visual RNG seeded.";
 
+	// Initialize frame-based UI animation durations (convert from seconds)
+	// These use `turnTimerFramesPerSecond` for lockstep resolution.
+	draftAnimAppearFrames = std::max(1, (int)(0.2f * (float)turnTimerFramesPerSecond + 0.5f));
+	draftAnimHoldFrames = std::max(1, (int)(0.55f * (float)turnTimerFramesPerSecond + 0.5f));
+	draftAnimVanishFrames = std::max(1, (int)(0.05f * (float)turnTimerFramesPerSecond + 0.5f));
+	deckFlashDurationFrames = std::max(1, (int)(0.45f * (float)turnTimerFramesPerSecond + 0.5f));
+
 	ofSetEscapeQuitsApp(false);
 	ofSetVerticalSync(true);
 	ofSetBackgroundColor(22);
@@ -4981,7 +5037,7 @@ void ofApp::draw() {
 	// draft-picked moves were scheduled while in gameplay. drawDraftScreen()
 	// already draws these when in STATE_DRAFTING, so only draw here for other
 	// states (e.g., STATE_GAMEPLAY) to avoid duplicate rendering.
-	if (currentState != STATE_DRAFTING && (!activeDraftPickedMoves.empty() || deckFlashStartTime > 0.0f)) {
+	if (currentState != STATE_DRAFTING && (!activeDraftPickedMoves.empty() || deckFlashStartFrame > 0)) {
 		this->drawActiveDraftPickedMoves();
 	}
 }
@@ -6684,7 +6740,7 @@ void ofApp::updateGameLogic() {
 						ofLogNotice("Timer") << "Auto-placed " << toPlace << " Kobold(s) on timeout.";
 					};
 
-					bool draftRewardVisualsActive = (!activeDraftPickedMoves.empty() || !activeShuffleAnimations.empty() || deckFlashStartTime > 0.0f);
+					bool draftRewardVisualsActive = (!activeDraftPickedMoves.empty() || !activeShuffleAnimations.empty() || deckFlashStartFrame > 0);
 					if (draftRewardVisualsActive) {
 						// If draft just resolved from a timeout, let reward visuals finish before ending turn.
 						ofLogNotice("Timer") << "Turn timer expired but waiting for draft reward visuals before auto-end-turn.";
@@ -14442,15 +14498,11 @@ void ofApp::mousePressed(int x, int y, int button) {
 			ofLogNotice("Draft") << "DRAFT CLICK: intro still active, allowing selection so the draft remains responsive.";
 		}
 		// Card Dimensions (Must match drawDraftScreen). Use reduced draft size.
-		float uiScale = std::min(ofGetWidth() / 1920.0f, ofGetHeight() / 1080.0f);
-		const float draftSizeFactor = 0.85f;
-		float cardW = kCardPixelWidth * uiScale * draftSizeFactor;
-		float cardH = kCardPixelHeight * uiScale * draftSizeFactor;
-		float spacing = std::clamp(60.0f * uiScale, 20.0f, 96.0f);
-		float startX = (ofGetWidth() - (3 * cardW + 2 * spacing)) / 2;
+		float cardW, cardH, spacing, startX, startY;
+		getDraftCardMetrics(true, cardW, cardH, spacing, startX, startY);
 
 		// --- HITBOX Y-ALIGNMENT FIX ---
-		// Replicate the exact vertical layout from drawDraftScreen
+		// Replicate the exact vertical layout from drawDraftScreen (startY comes from helper)
 		string pName = (draftPlayerIndex == 0) ? player0SteamName : player1SteamName;
 		string instr = "";
 		if (isInGameDraft) {
@@ -14471,9 +14523,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 				classTierText = "Class 2";
 		}
 
-		// Compute centered card Y so hit testing/animations match the draw routine
-		float minCardTopY = ofGetHeight() * 0.12f + titleFont.getLineHeight() * 3.0f + 32.0f;
-		float startY = std::clamp(ofGetHeight() * 0.30f, minCardTopY, ofGetHeight() * 0.40f);
+		// startY already provided by getDraftCardMetrics
 		// ------------------------------
 
 		// Determine logic for this draft phase
@@ -14533,9 +14583,9 @@ void ofApp::mousePressed(int x, int y, int button) {
 					glm::vec2 center(cx + cardW / 2.0f, startY + cardH / 2.0f);
 					DraftPickedMove mv;
 					mv.card = (*pool)[poolIdx];
-					mv.startTime = now;
-					mv.delay = draftAnimHoldDuration;
-					mv.duration = 0.35f;
+					mv.startFrame = (int)simulationFrame;
+					mv.delayFrames = draftAnimHoldFrames;
+					mv.durationFrames = (int)(0.35f * (float)turnTimerFramesPerSecond + 0.5f);
 					mv.startPos = center;
 					mv.endScale = 1.0f; // Default to full size
 					// If the drafting actor is a minion, target its MinionUI deck rect
@@ -14577,7 +14627,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 					auto & ui = draftOptionUI[si];
 					if (!ui.hidden) {
 						ui.state = DRAFT_ANIM_VANISHING;
-						ui.startTime = now;
+						ui.startFrame = (int)simulationFrame;
 						ui.startScale = ui.currentScale;
 						ui.targetScale = 0.0f;
 					}
@@ -14600,7 +14650,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 					auto & ui = draftOptionUI[si];
 					if (!ui.hidden) {
 						ui.state = DRAFT_ANIM_VANISHING;
-						ui.startTime = now;
+						ui.startFrame = (int)simulationFrame;
 						ui.startScale = ui.currentScale;
 						ui.targetScale = 0.0f;
 					}
@@ -14664,7 +14714,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 				selectedDraftIndices.clear();
 				draftAcceptApplied = true;
 				draftAcceptUI.state = DRAFT_ANIM_VANISHING;
-				draftAcceptUI.startTime = ofGetElapsedTimef();
+				draftAcceptUI.startFrame = (int)simulationFrame;
 				draftAcceptUI.startScale = draftAcceptUI.currentScale;
 				draftAcceptUI.targetScale = 0.0f;
 				return;
@@ -14697,7 +14747,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 			selectedDraftIndices.clear();
 			draftAcceptApplied = true;
 			draftAcceptUI.state = DRAFT_ANIM_VANISHING;
-			draftAcceptUI.startTime = ofGetElapsedTimef();
+			draftAcceptUI.startFrame = (int)simulationFrame;
 			draftAcceptUI.startScale = draftAcceptUI.currentScale;
 			draftAcceptUI.targetScale = 0.0f;
 			// Visuals and logs remain, but state changes are handled in simulationTick
@@ -20608,7 +20658,7 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 		ofLogNotice("Lockstep") << "Execute CMD_ACCEPT_DRAFT: draftPlayerIndex=" << cmdDraftPlayerIdx << " picks=" << picks.size() << " (shuffled)";
 
 		// Schedule visual shuffle and animations consistent with click-path timing
-		float cardAnimDuration = draftAnimHoldDuration + 0.35f;
+		float cardAnimDuration = ((float)draftAnimHoldFrames / (float)turnTimerFramesPerSecond) + 0.35f;
 		bool targetIsMinion = (cmdDraftPlayerIdx >= 0 && cmdDraftPlayerIdx < (int)players.size() && players[cmdDraftPlayerIdx].isMinion);
 		if (!targetIsMinion) {
 			startShuffleVisual(cmdDraftPlayerIdx, cardAnimDuration);
@@ -20643,14 +20693,9 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 
 		// Spawn visual animations for picked cards and vanish the rest (visual-only)
 		{
-			float uiScale = std::min(ofGetWidth() / 1920.0f, ofGetHeight() / 1080.0f);
-			const float draftSizeFactor = 0.85f;
-			float cardW = kCardPixelWidth * uiScale * draftSizeFactor;
-			float cardH = kCardPixelHeight * uiScale * draftSizeFactor;
-			float spacing = std::clamp(60.0f * uiScale, 20.0f, 96.0f);
-			float startX = (ofGetWidth() - (3 * cardW + 2 * spacing)) / 2;
-			float startY = ofGetHeight() / 2.0f - (cardH / 2.0f);
-			float now = ofGetElapsedTimef();
+			float cardW, cardH, spacing, startX, startY;
+			getDraftCardMetrics(false, cardW, cardH, spacing, startX, startY);
+			int nowFrameLocal = (int)simulationFrame;
 
 			// Create picked-card fly animations (use authoritative picks from the command)
 			const std::vector<Card> * pool = &class1Cards;
@@ -20669,9 +20714,9 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 				glm::vec2 center(cx + cardW / 2.0f, startY + cardH / 2.0f);
 				DraftPickedMove mv;
 				mv.card = (*pool)[poolIdx];
-				mv.startTime = now;
-				mv.delay = draftAnimHoldDuration;
-				mv.duration = 0.35f;
+				mv.startFrame = nowFrameLocal;
+				mv.delayFrames = draftAnimHoldFrames;
+				mv.durationFrames = (int)(0.35f * (float)turnTimerFramesPerSecond + 0.5f);
 				mv.startPos = center;
 				mv.endScale = 1.0f;
 				if (cmdDraftPlayerIdx >= 0 && cmdDraftPlayerIdx < (int)players.size() && players[cmdDraftPlayerIdx].isMinion) {
@@ -20706,7 +20751,7 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 				auto & ui = draftOptionUI[si];
 				if (!ui.hidden) {
 					ui.state = DRAFT_ANIM_VANISHING;
-					ui.startTime = now;
+					ui.startFrame = nowFrameLocal;
 					ui.startScale = ui.currentScale;
 					ui.targetScale = 0.0f;
 				}
@@ -20724,7 +20769,7 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 
 		// Advance draft flow from authoritative classTier in the command.
 		// Do not rely on local draftStage here; drift can cause class-1 loops.
-		float delay = draftAnimHoldDuration + 0.35f + 0.9f + 0.1f;
+		float delay = ((float)draftAnimHoldFrames / (float)turnTimerFramesPerSecond) + 0.35f + 0.9f + 0.1f;
 		if (classTier <= 1) {
 			// Completed Class 1 for this player -> next is Class 2 for same player.
 			this->draftPlayerIndex = cmdDraftPlayerIdx;
@@ -33996,7 +34041,7 @@ void ofApp::generateDraftOptions(int classTier, const std::vector<int> * forcedI
 		draftOptionUI[ai].startScale = 0.0f; // start fully shrunk
 		draftOptionUI[ai].currentScale = draftOptionUI[ai].startScale;
 		draftOptionUI[ai].targetScale = 1.0f;
-		draftOptionUI[ai].startTime = ofGetElapsedTimef();
+		draftOptionUI[ai].startFrame = (int)simulationFrame;
 		draftOptionUI[ai].state = DRAFT_ANIM_APPEARING;
 		draftOptionUI[ai].hidden = false;
 	}
@@ -34005,11 +34050,11 @@ void ofApp::generateDraftOptions(int classTier, const std::vector<int> * forcedI
 	lastDraftOptionsPlayer = draftPlayerIndex;
 	// Separate draft timers per drafting player.
 
-	// Initialize Accept button animation to match cards
+	// Initialize Accept button animation to match cards (frame-based)
 	draftAcceptUI.startScale = 0.0f;
 	draftAcceptUI.currentScale = draftAcceptUI.startScale;
 	draftAcceptUI.targetScale = 1.0f;
-	draftAcceptUI.startTime = ofGetElapsedTimef();
+	draftAcceptUI.startFrame = (int)simulationFrame;
 	draftAcceptUI.state = DRAFT_ANIM_APPEARING;
 	draftAcceptUI.hidden = false;
 
@@ -34133,9 +34178,9 @@ void ofApp::onCardPicked(int optionIndex) {
 
 		DraftPickedMove mv;
 		mv.card = picked;
-		mv.startTime = ofGetElapsedTimef();
-		mv.delay = draftAnimHoldDuration;
-		mv.duration = 0.35f;
+		mv.startFrame = (int)simulationFrame;
+		mv.delayFrames = draftAnimHoldFrames;
+		mv.durationFrames = (int)(0.35f * (float)turnTimerFramesPerSecond + 0.5f);
 		mv.startPos = center;
 		mv.endScale = 1.0f; // Default to full size
 
@@ -34164,8 +34209,8 @@ void ofApp::onCardPicked(int optionIndex) {
 			// mark ownerIndex as the minion actor so we can avoid flashing main decks
 			mv.ownerIndex = draftPlayerIndex;
 
-			// Schedule shuffle animation to start after card animation completes
-			shuffleAnimStartDelay = mv.delay + mv.duration;
+			// Schedule shuffle animation to start after card animation completes (seconds)
+			shuffleAnimStartDelay = ((float)mv.delayFrames / (float)turnTimerFramesPerSecond) + ((float)mv.durationFrames / (float)turnTimerFramesPerSecond);
 		} else if (draftPlayerIndex >= 0 && draftPlayerIndex < (int)players.size()) {
 			int ownerID = players[draftPlayerIndex].playerID;
 			ofRectangle deckRect = (ownerID == myLocalPlayerID) ? p0_deckRect : p1_deckRect;
@@ -34226,7 +34271,7 @@ void ofApp::onCardPicked(int optionIndex) {
 		// Stage Complete
 		draftStage++;
 		// allow visuals to complete before showing next draft
-		float delay = draftAnimHoldDuration + 0.35f + 0.9f + 0.1f;
+		float delay = ((float)draftAnimHoldFrames / (float)turnTimerFramesPerSecond) + 0.35f + 0.9f + 0.1f;
 		if (draftStage == 1) {
 			// Move to Class 2
 			scheduleGenerateDraftOptions(2, delay);
@@ -34355,19 +34400,23 @@ void ofApp::drawDraftScreen() {
 
 	// Prepare UI scale and card sizing so header/instruction can be positioned
 	// relative to the card area (we want header above cards and accept below).
-	float uiScale = std::min(ofGetWidth() / 1920.0f, ofGetHeight() / 1080.0f);
-	uiScale = std::clamp(uiScale * settingsUIScale, 0.75f, 1.25f);
-	// Reduce card size by 15% for draft UI
-	const float draftSizeFactor = 0.85f;
-	float cardW = kCardPixelWidth * uiScale * draftSizeFactor;
-	float cardH = kCardPixelHeight * uiScale * draftSizeFactor;
+	float cardW, cardH, spacing, startX, startY;
+	getDraftCardMetrics(false, cardW, cardH, spacing, startX, startY);
 
 	// 2. Header & instruction: snappy pop-in that scales and fades as cards appear
-	float nowAnim = ofGetElapsedTimef();
+	// Frame-based timing for draft UI (schedule uses `startFrame`, but animate with high-res time)
+	int nowFrame = (int)simulationFrame;
+	float nowSec = ofGetElapsedTimef();
+	// Compute uiScale (kept in sync with getDraftCardMetrics)
+	float uiScale = std::min(ofGetWidth() / 1920.0f, ofGetHeight() / 1080.0f);
+	uiScale = std::clamp(uiScale * settingsUIScale, 0.75f, 1.25f);
 	float appearT = 0.0f;
 	if (!draftOptionUI.empty()) {
 		for (size_t ai = 0; ai < draftOptionUI.size(); ++ai) {
-			float t = (nowAnim - draftOptionUI[ai].startTime) / draftAnimAppearDuration;
+			float startSec = draftOptionUI[ai].startFrame / (float)turnTimerFramesPerSecond;
+			float elapsedSec = nowSec - startSec;
+			float durationSec = (draftAnimAppearFrames > 0) ? (draftAnimAppearFrames / (float)turnTimerFramesPerSecond) : 0.0001f;
+			float t = (durationSec > 0.0f) ? (elapsedSec / durationSec) : 1.0f;
 			if (t > appearT) appearT = t;
 		}
 		appearT = std::clamp(appearT, 0.0f, 1.0f);
@@ -34384,7 +34433,7 @@ void ofApp::drawDraftScreen() {
 		float scaledW = headerBox.width * scale;
 		float tx = (ofGetWidth() / 2.0f) - (scaledW / 2.0f);
 		// Position header above the centered draft card area with a small gap
-		float cardTopY = (ofGetHeight() * 0.5f) - (cardH * 0.5f);
+		float cardTopY = startY;
 		float gapAboveCards = std::clamp(12.0f * uiScale, 8.0f, 32.0f);
 		float ty = cardTopY - (titleFont.getLineHeight() * scale) - gapAboveCards;
 
@@ -34439,11 +34488,7 @@ void ofApp::drawDraftScreen() {
 
 	// 3. Draw Cards
 	// Keep the same uiScale/cardW/cardH computed above (with draft size reduction)
-	float spacing = std::clamp(60.0f * uiScale, 20.0f, 96.0f);
-	float startX = (ofGetWidth() - (3 * cardW + 2 * spacing)) / 2;
-
-	// Center the cards vertically on the screen
-	float startY = (ofGetHeight() * 0.5f) - (cardH * 0.5f);
+	// Note: spacing/startX/startY are already provided by getDraftCardMetrics
 
 	// Throttled debug: if we're in draft state but have no options, log mapping once per second
 	float nowDbg = ofGetElapsedTimef();
@@ -34452,8 +34497,9 @@ void ofApp::drawDraftScreen() {
 		ofLogNotice("DraftDebug") << "drawDraftScreen: called but draftOptions.empty() currentState=" << currentState << " draftPlayerIndex=" << draftPlayerIndex << " localIdx=" << getLocalPlayerIndex() << " myLocalPlayerID=" << myLocalPlayerID << " waitingForDraftOptions=" << (waitingForDraftOptionsStartTime > 0.0f ? 1 : 0);
 	}
 
-	// Animate per-slot UI and draw scaled cards
-	nowAnim = ofGetElapsedTimef();
+	// Animate per-slot UI and draw scaled cards (frame-based)
+	nowFrame = (int)simulationFrame;
+	nowSec = ofGetElapsedTimef();
 	for (size_t i = 0; i < draftOptions.size(); ++i) {
 		float x = startX + i * (cardW + spacing);
 		ofRectangle cardRect(x, startY, cardW, cardH);
@@ -34462,7 +34508,10 @@ void ofApp::drawDraftScreen() {
 		if (i < draftOptionUI.size()) {
 			auto & ui = draftOptionUI[i];
 			if (ui.state == DRAFT_ANIM_APPEARING) {
-				float t = (nowAnim - ui.startTime) / draftAnimAppearDuration;
+				float startSec = ui.startFrame / (float)turnTimerFramesPerSecond;
+				float elapsedSec = nowSec - startSec;
+				float durationSec = (draftAnimAppearFrames > 0) ? (draftAnimAppearFrames / (float)turnTimerFramesPerSecond) : 0.0001f;
+				float t = (durationSec > 0.0f) ? (elapsedSec / durationSec) : 1.0f;
 				if (t >= 1.0f) {
 					ui.currentScale = ui.targetScale;
 					ui.state = DRAFT_ANIM_IDLE;
@@ -34470,7 +34519,10 @@ void ofApp::drawDraftScreen() {
 					ui.currentScale = ui.startScale + t * (ui.targetScale - ui.startScale);
 				}
 			} else if (ui.state == DRAFT_ANIM_VANISHING) {
-				float t = (nowAnim - ui.startTime) / draftAnimVanishDuration;
+				float startSec = ui.startFrame / (float)turnTimerFramesPerSecond;
+				float elapsedSec = nowSec - startSec;
+				float durationSec = (draftAnimVanishFrames > 0) ? (draftAnimVanishFrames / (float)turnTimerFramesPerSecond) : 0.0001f;
+				float t = (durationSec > 0.0f) ? (elapsedSec / durationSec) : 1.0f;
 				if (t >= 1.0f) {
 					ui.currentScale = ui.targetScale;
 					ui.hidden = true;
@@ -34537,8 +34589,12 @@ void ofApp::drawDraftScreen() {
 	this->drawActiveDraftPickedMoves();
 
 	// Deck flash visual
-	if (deckFlashStartTime > 0.0f && deckFlashOwnerIndex >= 0 && deckFlashOwnerIndex < (int)players.size()) {
-		float t = (ofGetElapsedTimef() - deckFlashStartTime) / deckFlashDuration;
+	if (deckFlashStartFrame > 0 && deckFlashOwnerIndex >= 0 && deckFlashOwnerIndex < (int)players.size()) {
+		float startSec = deckFlashStartFrame / (float)turnTimerFramesPerSecond;
+		float nowSecLocal = ofGetElapsedTimef();
+		float elapsedSec = nowSecLocal - startSec;
+		float durationSec = (deckFlashDurationFrames > 0) ? (deckFlashDurationFrames / (float)turnTimerFramesPerSecond) : 0.0001f;
+		float t = (durationSec > 0.0f) ? (elapsedSec / durationSec) : 1.0f;
 		if (t < 1.0f) {
 			int ownerID = players[deckFlashOwnerIndex].playerID;
 			ofRectangle deckRect = (ownerID == myLocalPlayerID) ? p0_deckRect : p1_deckRect;
@@ -34551,7 +34607,7 @@ void ofApp::drawDraftScreen() {
 			ofDrawRectRounded(deckRect.x - 4, deckRect.y - 4, deckRect.width + 8, deckRect.height + 8, 8);
 			ofPopStyle();
 		} else {
-			deckFlashStartTime = 0.0f;
+			deckFlashStartFrame = 0;
 			deckFlashOwnerIndex = -1;
 		}
 	}
@@ -34598,7 +34654,10 @@ void ofApp::drawDraftScreen() {
 		float acceptScale = 1.0f;
 		float acceptAlpha = 1.0f;
 		if (draftAcceptUI.state == DRAFT_ANIM_APPEARING) {
-			float at = (ofGetElapsedTimef() - draftAcceptUI.startTime) / draftAnimAppearDuration;
+			float startSec = draftAcceptUI.startFrame / (float)turnTimerFramesPerSecond;
+			float elapsedSec = nowSec - startSec;
+			float durationSec = (draftAnimAppearFrames > 0) ? (draftAnimAppearFrames / (float)turnTimerFramesPerSecond) : 0.0001f;
+			float at = (durationSec > 0.0f) ? (elapsedSec / durationSec) : 1.0f;
 			if (at >= 1.0f) {
 				draftAcceptUI.currentScale = draftAcceptUI.targetScale;
 				draftAcceptUI.state = DRAFT_ANIM_IDLE;
@@ -34607,7 +34666,10 @@ void ofApp::drawDraftScreen() {
 			}
 		}
 		if (draftAcceptUI.state == DRAFT_ANIM_VANISHING) {
-			float vt = (ofGetElapsedTimef() - draftAcceptUI.startTime) / draftAnimVanishDuration;
+			float startSec = draftAcceptUI.startFrame / (float)turnTimerFramesPerSecond;
+			float elapsedSec = nowSec - startSec;
+			float durationSec = (draftAnimVanishFrames > 0) ? (draftAnimVanishFrames / (float)turnTimerFramesPerSecond) : 0.0001f;
+			float vt = (durationSec > 0.0f) ? (elapsedSec / durationSec) : 1.0f;
 			if (vt >= 1.0f) {
 				draftAcceptUI.currentScale = draftAcceptUI.targetScale;
 				draftAcceptUI.hidden = true;
@@ -34634,15 +34696,16 @@ void ofApp::drawDraftScreen() {
 // Draw and advance active draft-picked move animations (visual only)
 void ofApp::drawActiveDraftPickedMoves() {
 	// Use layout math consistent with drawDraftScreen (cardW/cardH computed there)
-	float uiScale = std::min(ofGetWidth() / 1920.0f, ofGetHeight() / 1080.0f);
-	const float draftSizeFactor = 0.85f;
-	float cardW = kCardPixelWidth * uiScale * draftSizeFactor;
-	float cardH = kCardPixelHeight * uiScale * draftSizeFactor;
+	float cardW, cardH, spacing, startX, startY;
+	getDraftCardMetrics(false, cardW, cardH, spacing, startX, startY);
 
+	float nowSec = ofGetElapsedTimef();
 	for (auto & mv : activeDraftPickedMoves) {
 		if (mv.finished) continue;
-		float now = ofGetElapsedTimef();
-		if (now < mv.startTime + mv.delay) {
+		float startSec = mv.startFrame / (float)turnTimerFramesPerSecond;
+		float delaySec = mv.delayFrames / (float)turnTimerFramesPerSecond;
+		float durationSec = mv.durationFrames / (float)turnTimerFramesPerSecond;
+		if (nowSec < startSec + delaySec) {
 			float drawW = cardW;
 			float drawH = cardH;
 			float dx = mv.startPos.x - drawW / 2.0f;
@@ -34652,7 +34715,8 @@ void ofApp::drawActiveDraftPickedMoves() {
 				mv.card.textureRect.x, mv.card.textureRect.y,
 				mv.card.textureRect.width, mv.card.textureRect.height);
 		} else {
-			float t = (now - mv.startTime - mv.delay) / mv.duration;
+			float elapsedSec = nowSec - (startSec + delaySec);
+			float t = (durationSec > 0.0f) ? (elapsedSec / durationSec) : 1.0f;
 			if (t >= 1.0f) t = 1.0f;
 			glm::vec2 pos = mv.startPos * (1.0f - t) + mv.endPos * t;
 			float scale = 1.0f * (1.0f - t) + mv.endScale * t;
@@ -34668,7 +34732,7 @@ void ofApp::drawActiveDraftPickedMoves() {
 				mv.finished = true;
 				// Only flash main player decks; minion targets use their own shuffle visuals
 				if (mv.ownerIndex >= 0 && mv.ownerIndex < (int)players.size() && !players[mv.ownerIndex].isMinion) {
-					deckFlashStartTime = now;
+					deckFlashStartFrame = (int)simulationFrame;
 					deckFlashOwnerIndex = mv.ownerIndex;
 				}
 			}
@@ -34681,24 +34745,7 @@ void ofApp::drawActiveDraftPickedMoves() {
 	}
 }
 
-// Schedule a visual draft-picked move but avoid creating duplicate moves
-// for the same card/owner that are already pending.
-void ofApp::scheduleDraftPickedMove(const DraftPickedMove & mv) {
-	// Simple dedupe: match ownerIndex + card name + approximate endPos
-	const float posEps = 1.0f; // pixels
-	for (const auto & existing : activeDraftPickedMoves) {
-		if (existing.finished) continue;
-		if (existing.ownerIndex == mv.ownerIndex && existing.card.name == mv.card.name) {
-			float dx = existing.endPos.x - mv.endPos.x;
-			float dy = existing.endPos.y - mv.endPos.y;
-			if (std::abs(dx) <= posEps && std::abs(dy) <= posEps) {
-				ofLogNotice("Draft") << "scheduleDraftPickedMove: skipping duplicate animation for card='" << mv.card.name << "' owner=" << mv.ownerIndex;
-				return; // duplicate found
-			}
-		}
-	}
-	scheduleDraftPickedMove(mv);
-}
+// (moved to UI Helpers earlier)
 // Draw the pile view panel for a given player and view mode (consolidated helper)
 void ofApp::drawPileViewFor(int viewPlayerIndex, PileViewMode viewMode) {
 	if (viewPlayerIndex < 0 || viewPlayerIndex >= (int)players.size()) return;

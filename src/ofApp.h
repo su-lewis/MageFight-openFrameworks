@@ -1307,6 +1307,11 @@ private:
 	void drawInitiativeRoll();
 	void drawDraftScreen();
 
+	// UI helpers
+	void getDraftCardMetrics(bool clampTop,
+		float & outCardW, float & outCardH,
+		float & outSpacing, float & outStartX, float & outStartY);
+
 	// --- Draft UI animation state (purely visual) ---
 	enum DraftOptionAnimState {
 		DRAFT_ANIM_IDLE = 0,
@@ -1319,25 +1324,26 @@ private:
 		float currentScale = 1.0f;
 		float startScale = 1.0f;
 		float targetScale = 1.0f;
-		float startTime = 0.0f;
+		int startFrame = 0;
 		DraftOptionAnimState state = DRAFT_ANIM_IDLE;
 		bool hidden = false;
 	};
 
 	std::vector<DraftOptionUI> draftOptionUI; // per-slot purely-visual animation state
-	float draftAnimAppearDuration = 0.2f; // seconds (cards and header pop-in)
-	float draftAnimHoldDuration = 0.55f; // seconds to hold selected card before it shrinks
+	// Draft animation timings converted to frame counts for deterministic lockstep
+	int draftAnimAppearFrames = 0; // computed at setup() from seconds * framesPerSecond
+	int draftAnimHoldFrames = 0;
 
 	// Accept button UI animation (uses same DraftOptionUI for simplicity)
 	DraftOptionUI draftAcceptUI;
-	float draftAnimVanishDuration = 0.05f; // vanish duration for unselected (near-instant)
+	int draftAnimVanishFrames = 0; // small number of frames for vanish
 
-	// Visual scheduling for picked-card movement into deck
+	// Visual scheduling for picked-card movement into deck (frame-based)
 	struct DraftPickedMove {
 		Card card;
-		float startTime = 0.0f; // time when move was scheduled
-		float delay = 0.55f; // hold before starting move
-		float duration = 0.35f; // move duration
+		int startFrame = 0; // frame when move was scheduled
+		int delayFrames = 0; // hold before starting move
+		int durationFrames = 0; // move duration in frames
 		glm::vec2 startPos; // screen-space center
 		glm::vec2 endPos; // screen-space center (deck)
 		bool finished = false;
@@ -1350,9 +1356,9 @@ private:
 	// Schedule a visual draft-picked move with duplicate protection
 	void scheduleDraftPickedMove(const DraftPickedMove & mv);
 
-	// Deck flash when a picked card lands (visual only)
-	float deckFlashStartTime = 0.0f;
-	float deckFlashDuration = 0.45f;
+	// Deck flash when a picked card lands (visual only) - frame-based
+	int deckFlashStartFrame = 0;
+	int deckFlashDurationFrames = 0; // computed at setup()
 
 	int deckFlashOwnerIndex = -1;
 
