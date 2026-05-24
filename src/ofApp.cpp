@@ -338,6 +338,22 @@ static int getEffectiveCardCostForPlayer(const Player & player, const Card & car
 	return costToPay;
 }
 
+// Centralized flat damage resolver for migrated cards.
+// Uses new baseDamage when present and falls back to legacy value.
+static int getCardFlatDamage(const Card & card, int fallback = 0) {
+	if (card.baseDamage != 0) return card.baseDamage;
+	if (card.value != 0) return card.value;
+	return fallback;
+}
+
+// Centralized damage dice resolver for migrated cards.
+// Uses damageDice* first, then legacy numDice/diceSides.
+static std::pair<int, int> getCardDamageDice(const Card & card, int fallbackNum = 0, int fallbackSides = 0) {
+	if (card.damageDiceNum > 0 && card.damageDiceSides > 0) return { card.damageDiceNum, card.damageDiceSides };
+	if (card.numDice > 0 && card.diceSides > 0) return { card.numDice, card.diceSides };
+	return { fallbackNum, fallbackSides };
+}
+
 static ofRectangle getHandCardRestRect(const Card & card, float baseCardW, float baseCardH) {
 	return ofRectangle(card.targetPos.x - baseCardW * 0.5f, card.targetPos.y - baseCardH * 0.5f, baseCardW, baseCardH);
 }
@@ -25341,17 +25357,18 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 		}
 		if (targetIndex == -1) targetIndex = fallbackIndex;
 		if (targetIndex != -1) {
+			int shockDamage = getCardFlatDamage(playedCard, 2);
 			EffectOp damageOp;
 			damageOp.type = EffectOpType::DAMAGE;
 			damageOp.data.damage.targetIndex = targetIndex;
 			damageOp.data.damage.damageType = DAMAGE_ELECTRIC;
-			damageOp.data.damage.fixedDamage = playedCard.value;
+			damageOp.data.damage.fixedDamage = shockDamage;
 			damageOp.data.damage.damageFromSlot = -1;
 			queueEffect(damageOp);
 
 			Player * target = getPlayer(targetIndex);
 			currentCardOutcome.targetPlayerIndex = targetIndex;
-			currentCardOutcome.damageDealt = playedCard.value;
+			currentCardOutcome.damageDealt = shockDamage;
 			if (currentPlayer.shocksPlayedThisTurn > 0 && !target->isParalyzed) {
 				// Queue deterministic status application and preserve local state
 				{
@@ -25638,8 +25655,7 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 		// Resolve Flail damage immediately and write to blackboard[0]
 		{
 			// Prefer new damageDice fields, fall back to legacy numDice/diceSides
-			int flailDmgNum = (playedCard.damageDiceNum > 0) ? playedCard.damageDiceNum : playedCard.numDice;
-			int flailDmgSides = (playedCard.damageDiceSides > 0) ? playedCard.damageDiceSides : playedCard.diceSides;
+			auto [flailDmgNum, flailDmgSides] = getCardDamageDice(playedCard);
 			std::vector<int> rawFlail;
 			int flailTotal = 0;
 			if (flailDmgNum > 0 && flailDmgSides > 0) {
@@ -25917,8 +25933,7 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 			}
 
 			// Use data-driven fields when available: damageDiceNum/damageDiceSides or baseDamage
-			int punchDmgNum = (playedCard.damageDiceNum > 0) ? playedCard.damageDiceNum : playedCard.numDice;
-			int punchDmgSides = (playedCard.damageDiceSides > 0) ? playedCard.damageDiceSides : playedCard.diceSides;
+			auto [punchDmgNum, punchDmgSides] = getCardDamageDice(playedCard);
 
 			beginEffectSequence();
 			if (punchDmgNum > 0 && punchDmgSides > 0) {
@@ -26036,8 +26051,7 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 
 		// --- EXECUTE DAMAGE ---
 		// Prefer explicit damage dice fields if present, else fall back to legacy numDice/diceSides
-		int dmgNum = (playedCard.damageDiceNum > 0) ? playedCard.damageDiceNum : playedCard.numDice;
-		int dmgSides = (playedCard.damageDiceSides > 0) ? playedCard.damageDiceSides : playedCard.diceSides;
+		auto [dmgNum, dmgSides] = getCardDamageDice(playedCard);
 
 		if (dmgNum > 0 && dmgSides > 0) {
 			// Move deterministic dice + damage resolution into the effect sequence
@@ -26114,7 +26128,7 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 			advanceCardState(CARD_STATE_EFFECT_SEQUENCE);
 		} else {
 			beginEffectSequence();
-			int damage = playedCard.value;
+			int damage = getCardFlatDamage(playedCard, 0);
 
 			if (playedCard.type == CARD_PUNCH && currentPlayer.flurryOfFistsStacks > 0) {
 				int mult = (1 << currentPlayer.flurryOfFistsStacks);
@@ -26420,15 +26434,16 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 		}
 		if (targetIndex != -1) {
 			beginEffectSequence();
+			int smiteDamage = getCardFlatDamage(playedCard, 5);
 			EffectOp damageOp;
 			damageOp.type = EffectOpType::DAMAGE;
 			damageOp.data.damage.targetIndex = targetIndex;
 			damageOp.data.damage.damageType = DAMAGE_HOLY;
-			damageOp.data.damage.fixedDamage = 5;
+			damageOp.data.damage.fixedDamage = smiteDamage;
 			damageOp.data.damage.damageFromSlot = -1;
 			queueEffect(damageOp);
 
-			currentCardOutcome.damageDealt = 5;
+			currentCardOutcome.damageDealt = smiteDamage;
 			currentCardOutcome.targetPlayerIndex = targetIndex;
 			playedSuccessfully = true;
 			advanceCardState(CARD_STATE_EFFECT_SEQUENCE);
@@ -26525,9 +26540,10 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 				beginEffectSequence();
 				{
 					std::vector<int> rawDmg;
-					int dmgRoll = resolveDiceRollDetailed(playedCard.numDice, playedCard.diceSides, rawDmg);
+					auto [rockDmgNum, rockDmgSides] = getCardDamageDice(playedCard);
+					int dmgRoll = resolveDiceRollDetailed(rockDmgNum, rockDmgSides, rawDmg);
 					currentEffectSequence.blackboard[0] = dmgRoll;
-					queueVisualDiceRoll(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.0f, 0), playedCard.numDice, playedCard.diceSides, rawDmg, dmgRoll, PURPOSE_DAMAGE, currentPlayerIndex, 1.0f);
+					queueVisualDiceRoll(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.0f, 0), rockDmgNum, rockDmgSides, rawDmg, dmgRoll, PURPOSE_DAMAGE, currentPlayerIndex, 1.0f);
 				}
 
 				// Set up attack resolution: queue dice roll then an APPLY_ATTACK op
@@ -26784,7 +26800,7 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 		damageOp.type = EffectOpType::DAMAGE;
 		damageOp.data.damage.targetIndex = targetIndex;
 		damageOp.data.damage.damageType = DAMAGE_FIRE;
-		int flameDamage = (playedCard.baseDamage > 0) ? playedCard.baseDamage : playedCard.value;
+		int flameDamage = getCardFlatDamage(playedCard, 1);
 		damageOp.data.damage.fixedDamage = flameDamage;
 		damageOp.data.damage.damageFromSlot = -1;
 		queueEffect(damageOp);
@@ -26816,11 +26832,12 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 
 		if (targetIndex != -1) {
 			beginEffectSequence();
+			int drainDamage = getCardFlatDamage(playedCard, 2);
 
 			EffectOp drainOp = {};
 			drainOp.type = EffectOpType::APPLY_DRAIN_PUNCH_RESOLVE;
 			drainOp.data.damage.targetIndex = targetIndex;
-			drainOp.data.damage.fixedDamage = playedCard.value;
+			drainOp.data.damage.fixedDamage = drainDamage;
 			drainOp.data.damage.damageFromSlot = -1;
 			queueEffect(drainOp);
 
@@ -26842,12 +26859,13 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 		if (targetIndex != -1) {
 			beginEffectSequence();
 			Player * target = getPlayer(targetIndex);
+			int biteDamage = getCardFlatDamage(playedCard, 3);
 			int hpBefore = target ? target->health : 0;
 			EffectOp damageOp;
 			damageOp.type = EffectOpType::DAMAGE;
 			damageOp.data.damage.targetIndex = targetIndex;
 			damageOp.data.damage.damageType = DAMAGE_PHYSICAL;
-			damageOp.data.damage.fixedDamage = playedCard.value;
+			damageOp.data.damage.fixedDamage = biteDamage;
 			damageOp.data.damage.damageFromSlot = -1;
 			// Queue damage so it runs in the effect sequence (no recursion)
 			queueEffect(damageOp);

@@ -112,7 +112,7 @@
     "name": "Shock",
     "type": "CARD_SHOCK",
     "cost": 2,
-    "value": 2,
+    "baseDamage": 2,
     "targeting": "TARGET_ADJACENT_UNIT",
     "damageType": "DAMAGE_ELECTRIC",
     "class": 1
@@ -123,8 +123,8 @@
     "type": "CARD_ROCK_CRUSH",
     "cost": 4,
     "targeting": "TARGET_ADJACENT_UNIT_OR_WALL",
-    "numDice": 2,
-    "diceSides": 10,
+    "damageDiceNum": 2,
+    "damageDiceSides": 10,
     "class": 2
   },
   {
@@ -201,8 +201,6 @@
     "baseDamage": 1,
     "targeting": "TARGET_ADJACENT_UNIT",
     "damageType": "DAMAGE_FIRE",
-    "numDice": 0,
-    "diceSides": 0,
     "class": 1
   },
   {
@@ -452,7 +450,7 @@
     "name": "Vampire Bite",
     "type": "CARD_VAMPIRE_BITE",
     "cost": 3,
-    "value": 3,
+    "baseDamage": 3,
     "damageType": "DAMAGE_PHYSICAL",
     "targeting": "TARGET_ADJACENT_UNIT",
     "class": 1
@@ -614,7 +612,7 @@
     "name": "Smite",
     "type": "CARD_SMITE",
     "cost": 3,
-    "value": 5,
+    "baseDamage": 5,
     "targeting": "TARGET_ADJACENT_UNIT",
     "damageType": "DAMAGE_HOLY",
     "class": 2
