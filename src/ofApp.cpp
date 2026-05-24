@@ -363,8 +363,29 @@ static std::pair<int, int> getCardRangeDice(const Card & card, int fallbackNum =
 
 // Centralized utility dice resolver for non-range, non-damage effects.
 static std::pair<int, int> getCardUtilityDice(const Card & card, int fallbackNum = 0, int fallbackSides = 0) {
+	if (card.utilityDiceNum > 0 && card.utilityDiceSides > 0) return { card.utilityDiceNum, card.utilityDiceSides };
 	if (card.numDice > 0 && card.diceSides > 0) return { card.numDice, card.diceSides };
 	return { fallbackNum, fallbackSides };
+}
+
+// Centralized summon dice resolver for HP/count rolls.
+static std::pair<int, int> getCardSummonDice(const Card & card, int fallbackNum = 0, int fallbackSides = 0) {
+	if (card.summonDiceNum > 0 && card.summonDiceSides > 0) return { card.summonDiceNum, card.summonDiceSides };
+	if (card.numDice > 0 && card.diceSides > 0) return { card.numDice, card.diceSides };
+	return { fallbackNum, fallbackSides };
+}
+
+static glm::ivec2 getEarthquakeDirectionFromRoll(int roll) {
+	switch (roll) {
+	case 1:
+		return { 0, -1 }; // North
+	case 2:
+		return { 1, 0 }; // East
+	case 3:
+		return { 0, 1 }; // South
+	default:
+		return { -1, 0 }; // West
+	}
 }
 
 static ofRectangle getHandCardRestRect(const Card & card, float baseCardW, float baseCardH) {
@@ -25468,11 +25489,12 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 			glm::vec3 visPos = gridToWorld(currentPlayer.x, currentPlayer.y) + glm::vec3(0, 1.0f, 0);
 			queueVisualDiceRoll(visPos, rangeDiceNum, rangeDiceSides, rawRange, rangeTotal, PURPOSE_PSIONIC_WAVE_RANGE, currentPlayerIndex, 1.2f);
 
-			// Resolve Psionic Wave amount (2d4) at decision-time and store in blackboard[1]
+			// Resolve Psionic Wave amount from the utility dice fields and store in blackboard[1]
+			auto [utilityDiceNum, utilityDiceSides] = getCardUtilityDice(playedCard, 2, 4);
 			std::vector<int> rawAmount;
-			int amountTotal = resolveDiceRollDetailed(2, 4, rawAmount);
+			int amountTotal = resolveDiceRollDetailed(utilityDiceNum, utilityDiceSides, rawAmount);
 			currentEffectSequence.blackboard[1] = amountTotal;
-			queueVisualDiceRoll(visPos, 2, 4, rawAmount, amountTotal, PURPOSE_PSIONIC_WAVE_AMOUNT, currentPlayerIndex, 1.2f);
+			queueVisualDiceRoll(visPos, utilityDiceNum, utilityDiceSides, rawAmount, amountTotal, PURPOSE_PSIONIC_WAVE_AMOUNT, currentPlayerIndex, 1.2f);
 
 			// Queue the APPLY_PSIONIC_WAVE effect to actually resolve the card's impact
 			EffectOp applyOp = {};
@@ -25504,7 +25526,8 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 	}
 
 	case CARD_MAGIC_BOLT: {
-		float maxRangeFeet = (float)(playedCard.numDice * playedCard.diceSides);
+		auto [rangeDiceNum, rangeDiceSides] = getCardRangeDice(playedCard, 2, 20);
+		float maxRangeFeet = (float)(rangeDiceNum * rangeDiceSides);
 		glm::vec2 cPos((float)currentPlayer.x, (float)currentPlayer.y);
 		glm::vec2 tPos((float)targetX, (float)targetY);
 		float distFeet = getFaceToFaceDistance(cPos, tPos) * 5.0f;
@@ -25521,7 +25544,7 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 		{
 			// Authoritative range roll (gameplay RNG)
 			std::vector<int> rawRange;
-			resolveDiceRollDetailed(playedCard.numDice, playedCard.diceSides, rawRange);
+			resolveDiceRollDetailed(rangeDiceNum, rangeDiceSides, rawRange);
 			int luckBonus = 0;
 			int luckOwner = (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) ? currentPlayerIndex : -1;
 			if (luckOwner != -1) luckBonus = players[luckOwner].luck + computePassiveLuck(luckOwner);
@@ -25531,14 +25554,14 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 			int rangeTotal = 0;
 			for (int i = 0; i < (int)rawRange.size(); ++i) {
 				int raw = rawRange[i];
-				int finalRoll = (playedCard.diceSides == 2) ? raw : (raw + luckBonus);
+				int finalRoll = (rangeDiceSides == 2) ? raw : (raw + luckBonus);
 				rangeTotal += finalRoll;
 			}
 
 			// Store the resolved range in the effect blackboard and show visuals
 			currentEffectSequence.blackboard[0] = rangeTotal;
 			glm::vec3 visPos = gridToWorld(currentPlayer.x, currentPlayer.y) + glm::vec3(0, 1.0f, 0);
-			queueVisualDiceRoll(visPos, playedCard.numDice, playedCard.diceSides, rawRange, rangeTotal, PURPOSE_DEBUG, currentPlayerIndex, 1.0f);
+			queueVisualDiceRoll(visPos, rangeDiceNum, rangeDiceSides, rawRange, rangeTotal, PURPOSE_DEBUG, currentPlayerIndex, 1.0f);
 
 			// Resolve primary damage (1d20 + luck) and store in blackboard[1]
 			{
@@ -27287,10 +27310,11 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 
 		// Queue authoritative roll for how many cards to remove, then apply Amnesia handling
 		{
+			auto [utilityDiceNum, utilityDiceSides] = getCardUtilityDice(playedCard, 1, 4);
 			std::vector<int> rawAmt;
-			int amt = resolveDiceRollDetailed(playedCard.numDice, playedCard.diceSides, rawAmt);
+			int amt = resolveDiceRollDetailed(utilityDiceNum, utilityDiceSides, rawAmt);
 			currentEffectSequence.blackboard[0] = amt;
-			queueVisualDiceRoll(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.0f, 0), playedCard.numDice, playedCard.diceSides, rawAmt, amt, PURPOSE_DEBUG, currentPlayerIndex, 1.0f);
+			queueVisualDiceRoll(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.0f, 0), utilityDiceNum, utilityDiceSides, rawAmt, amt, PURPOSE_DEBUG, currentPlayerIndex, 1.0f);
 
 			EffectOp applyOp = {};
 			applyOp.type = EffectOpType::APPLY_AMNESIA;
@@ -27362,19 +27386,12 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 			state.crashed = false;
 			state.tilesToMove = 0;
 			state.originalDistance = 0;
-			// Deterministic direction pick: resolve 1..4 and map to 0..3
+			// Deterministic direction pick: resolve 1..4 and map to cardinal movement.
+			auto [utilityDiceNum, utilityDiceSides] = getCardUtilityDice(playedCard, 1, 4);
 			std::vector<int> rawDir;
-			int pickDir = resolveDiceRollDetailed(1, 4, rawDir);
-			int r = std::max(0, pickDir - 1);
-			if (2 + i >= 0 && 2 + i < 16) currentEffectSequence.blackboard[2 + i] = r;
-			if (r == 0)
-				state.direction = { 0, 1 }; // South
-			else if (r == 1)
-				state.direction = { 0, -1 }; // North
-			else if (r == 2)
-				state.direction = { 1, 0 }; // East
-			else
-				state.direction = { -1, 0 }; // West
+			int pickDir = resolveDiceRollDetailed(utilityDiceNum, utilityDiceSides, rawDir);
+			if (2 + i >= 0 && 2 + i < 16) currentEffectSequence.blackboard[2 + i] = pickDir;
+			state.direction = getEarthquakeDirectionFromRoll(pickDir);
 			state.diceIndex = -1;
 			earthquakeUnits.push_back(state);
 		}
@@ -27387,11 +27404,12 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 		// 1) Distance rolls (authoritative)
 		std::vector<int> distances(n, 0);
 		for (int i = 0; i < n; ++i) {
+			auto [utilityDiceNum, utilityDiceSides] = getCardUtilityDice(playedCard, 1, 4);
 			std::vector<int> rawDist;
-			distances[i] = resolveDiceRollDetailed(1, 4, rawDist);
+			distances[i] = resolveDiceRollDetailed(utilityDiceNum, utilityDiceSides, rawDist);
 			// Queue visual for distance roll at unit start
 			glm::ivec2 sg = earthquakeUnits[i].startGrid;
-			queueVisualDiceRoll(gridToWorld(sg.x, sg.y) + glm::vec3(0, 1.0f, 0), 1, 4, rawDist, distances[i], PURPOSE_EARTHQUAKE_DISTANCE, earthquakeUnits[i].playerIndex, 1.0f);
+			queueVisualDiceRoll(gridToWorld(sg.x, sg.y) + glm::vec3(0, 1.0f, 0), utilityDiceNum, utilityDiceSides, rawDist, distances[i], PURPOSE_EARTHQUAKE_DISTANCE, earthquakeUnits[i].playerIndex, 1.0f);
 		}
 
 		// Write resolved distances into effect blackboard so the APPLY_EARTHQUAKE
@@ -27965,9 +27983,10 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 
 		// Resolve kobold count immediately (deterministic) and queue visual.
 		{
+			auto [utilityDiceNum, utilityDiceSides] = getCardUtilityDice(playedCard, 1, 4);
 			std::vector<int> raw;
-			int count = resolveDiceRollDetailed(1, 4, raw);
-			queueVisualDiceRoll(gridToWorld(currentPlayer.x, currentPlayer.y) + glm::vec3(0, 1.0f, 0), 1, 4, raw, count, PURPOSE_SUMMON_KOBOLDS, currentPlayerIndex, 1.0f);
+			int count = resolveDiceRollDetailed(utilityDiceNum, utilityDiceSides, raw);
+			queueVisualDiceRoll(gridToWorld(currentPlayer.x, currentPlayer.y) + glm::vec3(0, 1.0f, 0), utilityDiceNum, utilityDiceSides, raw, count, PURPOSE_SUMMON_KOBOLDS, currentPlayerIndex, 1.0f);
 		}
 
 		playedSuccessfully = true;
@@ -27989,12 +28008,13 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 		spawnHellhoundOp.data.spawnUnit.summonerPlayerID = currentPlayer.playerID;
 		// Queue authoritative roll for hellhound HP and reference via blackboard slot 2
 		{
+			auto [summonDiceNum, summonDiceSides] = getCardSummonDice(playedCard, 2, 6);
 			std::vector<int> rawHp;
-			int hpRoll = resolveDiceRollDetailed(playedCard.numDice, playedCard.diceSides, rawHp);
+			int hpRoll = resolveDiceRollDetailed(summonDiceNum, summonDiceSides, rawHp);
 			int luckBonus = players[currentPlayerIndex].luck + computePassiveLuck(currentPlayerIndex);
-			int finalHp = hpRoll + (playedCard.numDice * luckBonus);
+			int finalHp = hpRoll + (summonDiceNum * luckBonus);
 			currentEffectSequence.blackboard[2] = finalHp;
-			queueVisualDiceRoll(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.0f, 0), playedCard.numDice, playedCard.diceSides, rawHp, finalHp, PURPOSE_SUMMON, currentPlayerIndex, 1.0f);
+			queueVisualDiceRoll(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.0f, 0), summonDiceNum, summonDiceSides, rawHp, finalHp, PURPOSE_SUMMON, currentPlayerIndex, 1.0f);
 		}
 		spawnHellhoundOp.data.spawnUnit.maxHealth = 0;
 		spawnHellhoundOp.data.spawnUnit.maxHealthFromSlot = 2;
@@ -28020,12 +28040,13 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 		spawnDemonOp.data.spawnUnit.summonerPlayerID = currentPlayer.playerID;
 		// Queue authoritative roll for demon HP and reference via blackboard slot 3
 		{
+			auto [summonDiceNum, summonDiceSides] = getCardSummonDice(playedCard, 3, 10);
 			std::vector<int> rawHp;
-			int hpRoll = resolveDiceRollDetailed(playedCard.numDice, playedCard.diceSides, rawHp);
+			int hpRoll = resolveDiceRollDetailed(summonDiceNum, summonDiceSides, rawHp);
 			int luckBonus = players[currentPlayerIndex].luck + computePassiveLuck(currentPlayerIndex);
-			int finalHp = hpRoll + (playedCard.numDice * luckBonus);
+			int finalHp = hpRoll + (summonDiceNum * luckBonus);
 			currentEffectSequence.blackboard[3] = finalHp;
-			queueVisualDiceRoll(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.0f, 0), playedCard.numDice, playedCard.diceSides, rawHp, finalHp, PURPOSE_SUMMON, currentPlayerIndex, 1.0f);
+			queueVisualDiceRoll(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.0f, 0), summonDiceNum, summonDiceSides, rawHp, finalHp, PURPOSE_SUMMON, currentPlayerIndex, 1.0f);
 		}
 		spawnDemonOp.data.spawnUnit.maxHealth = 0;
 		spawnDemonOp.data.spawnUnit.maxHealthFromSlot = 3;
@@ -33300,6 +33321,10 @@ void ofApp::loadCardData(const std::string & filePath) {
 		newCard.damageType = stringToDamageType(cardJson.value("damageType", "DAMAGE_PHYSICAL"));
 		newCard.numDice = cardJson.value("numDice", 0);
 		newCard.diceSides = cardJson.value("diceSides", 0);
+		newCard.utilityDiceNum = cardJson.value("utilityDiceNum", 0);
+		newCard.utilityDiceSides = cardJson.value("utilityDiceSides", 0);
+		newCard.summonDiceNum = cardJson.value("summonDiceNum", 0);
+		newCard.summonDiceSides = cardJson.value("summonDiceSides", 0);
 		newCard.baseDamage = cardJson.value("baseDamage", 0);
 		newCard.damageDiceNum = cardJson.value("damageDiceNum", 0);
 		newCard.damageDiceSides = cardJson.value("damageDiceSides", 0);

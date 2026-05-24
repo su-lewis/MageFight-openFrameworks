@@ -274,6 +274,10 @@ struct Card {
 	int value = 0;
 	int numDice = 0;
 	int diceSides = 0;
+	int utilityDiceNum = 0;
+	int utilityDiceSides = 0;
+	int summonDiceNum = 0;
+	int summonDiceSides = 0;
 	int baseDamage = 0;
 	int damageDiceNum = 0;
 	int damageDiceSides = 0;
