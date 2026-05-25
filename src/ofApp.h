@@ -289,7 +289,6 @@ struct Card {
 	int damageDiceSides = 0;
 	int aoeRadiusDiceNum = 0;
 	int aoeRadiusDiceSides = 0;
-	int statusEffectToApply = 0;
 	int statusDuration = 0;
 	int healAmount = 0;
 	DamageType damageType = DAMAGE_PHYSICAL;
@@ -300,7 +299,7 @@ struct Card {
 	int drawCount = 0;
 	int discardHandCount = 0; // number of random cards to discard from hand
 	int discardDeckCount = 0; // number of top cards to burn from deck
-	StatusType applyStatus = (StatusType)0;
+	int applyStatus = 0; // Will hold StatusType enum
 	bool isAoe = false;
 
 	TargetingType targeting = TARGET_ANY_TILE;
@@ -1027,6 +1026,8 @@ private:
 	void handleCardTargetInput(int gridX, int gridY); // Target selected
 	void handleCardDiceResult(int result, DicePurpose purpose); // Dice roll completed
 	bool executeCardByType(const Card & playedCard, int cardIndex, int targetX, int targetY, bool & playedSuccessfully, CardPlayResult & immediateResult); // centralized execution entry (incremental migration)
+	// Generic handler for data-driven cards. Returns true if handled.
+	bool executeCardGeneric(const Card & playedCard, int cardIndex, int targetX, int targetY, bool & playedSuccessfully, CardPlayResult & immediateResult);
 
 	// --- Async Resolution Helpers (centralized) ---
 	// Centralized handlers for dice/state resolution after card play. Most legacy
