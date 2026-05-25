@@ -21576,13 +21576,9 @@ bool ofApp::processEffectOp(EffectOp & op) {
 				// apply damage/status after visuals (deterministic lockstep).
 				std::vector<int> rawResults;
 				int raw = 0;
-				if (currentEffectSequence.blackboard[1] != 0) {
-					raw = (int)currentEffectSequence.blackboard[1];
-					rawResults.push_back(raw);
-				} else {
-					raw = resolveDiceRollDetailed(1, 6, rawResults);
-					currentEffectSequence.blackboard[1] = raw;
-				}
+				// Use authoritatively-resolved damage from decision-time (blackboard[1])
+				raw = (int)currentEffectSequence.blackboard[1];
+				rawResults.push_back(raw);
 				int luckOwner = (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) ? currentPlayerIndex : -1;
 				int luckBonusLocal = 0;
 				if (luckOwner != -1) luckBonusLocal = players[luckOwner].luck + computePassiveLuck(luckOwner);
@@ -25035,12 +25031,15 @@ bool ofApp::executeCardGeneric(const Card & playedCard, int cardIndex, int targe
 		queueVisualDiceRoll(visPos, rangeNum, rangeSides, rawRange, rangeTotal, PURPOSE_RANGE, currentPlayerIndex, 1.0f);
 	}
 
+	// Utility dice (purpose may vary per-card, e.g., kobold summon count)
 	if (utilNum > 0 && utilSides > 0) {
 		std::vector<int> rawUtil;
 		int utilTotal = resolveDiceRollDetailed(utilNum, utilSides, rawUtil);
 		if (utilSides != 2) utilTotal += utilNum * luckBonus;
 		currentEffectSequence.blackboard[4] = utilTotal;
-		queueVisualDiceRoll(visPos, utilNum, utilSides, rawUtil, utilTotal, PURPOSE_DEBUG, currentPlayerIndex, 1.0f);
+		DicePurpose utilPurpose = PURPOSE_DEBUG;
+		if (playedCard.type == CARD_CALL_FOR_KOBOLDS) utilPurpose = PURPOSE_SUMMON_KOBOLDS;
+		queueVisualDiceRoll(visPos, utilNum, utilSides, rawUtil, utilTotal, utilPurpose, currentPlayerIndex, 1.0f);
 	}
 
 	// Damage
@@ -25052,6 +25051,10 @@ bool ofApp::executeCardGeneric(const Card & playedCard, int cardIndex, int targe
 		currentEffectSequence.blackboard[1] = dmgTotal;
 		queueVisualDiceRoll(visPos, dmgNum, dmgSides, rawDmg, dmgTotal, PURPOSE_DAMAGE, currentPlayerIndex, 1.0f);
 		if (targetIndex != -1) {
+			// If this card applies a fire status on hit, store pre-hit HP and queue a resolve op
+			if (hasStatus && playedCard.applyStatus == STATUS_ON_FIRE && playedCard.damageType == DAMAGE_FIRE) {
+				currentEffectSequence.blackboard[15] = players[targetIndex].health;
+			}
 			EffectOp d = {};
 			d.type = EffectOpType::DAMAGE;
 			d.data.damage.targetIndex = targetIndex;
@@ -25059,6 +25062,14 @@ bool ofApp::executeCardGeneric(const Card & playedCard, int cardIndex, int targe
 			d.data.damage.fixedDamage = 0;
 			d.data.damage.damageFromSlot = 1;
 			queueEffect(d);
+			if (hasStatus && playedCard.applyStatus == STATUS_ON_FIRE && playedCard.damageType == DAMAGE_FIRE) {
+				EffectOp resolve = {};
+				resolve.type = EffectOpType::APPLY_FIRE_HIT_RESOLVE;
+				resolve.data.damage.targetIndex = targetIndex;
+				resolve.data.damage.damageFromSlot = 15;
+				resolve.data.damage.fixedDamage = players[targetIndex].playerID;
+				queueEffect(resolve);
+			}
 		}
 	} else if (hasFlatDamage) {
 		int flat = (playedCard.baseDamage > 0) ? playedCard.baseDamage : playedCard.value;
@@ -25139,6 +25150,46 @@ bool ofApp::executeCardGeneric(const Card & playedCard, int cardIndex, int targe
 		currentCardOutcome.apGained = playedCard.apGain;
 	}
 
+	// Special-case: Call For Kobolds uses utility dice for count and requires placement flow.
+	if (playedCard.type == CARD_CALL_FOR_KOBOLDS) {
+		// Validate adjacent space exists
+		bool hasSpace = false;
+		int cx = currentPlayer.x;
+		int cy = currentPlayer.y;
+		glm::vec2 adj[] = { { 1, 0 }, { -1, 0 }, { 0, 1 }, { 0, -1 } };
+		for (auto & d : adj) {
+			int nx = cx + (int)d.x;
+			int ny = cy + (int)d.y;
+			if (nx >= 0 && nx < BOARD_WIDTH && ny >= 0 && ny < BOARD_HEIGHT) {
+				if (!board[nx][ny].hasWall && !board[nx][ny].hasPlayer) {
+					hasSpace = true;
+					break;
+				}
+			}
+		}
+		if (!hasSpace) {
+			queueFloatingTextVisual(gridToWorld(cx, cy), "No Space!", ofColor::red);
+			return true;
+		}
+
+		// Save placement source for deterministic placement
+		koboldPlacementSourceX = currentPlayer.x;
+		koboldPlacementSourceY = currentPlayer.y;
+
+		// Begin effect sequence already called; queue a SPAWN_UNIT op with toX=-1 so placement is performed later
+		EffectOp spawnKoboldOp = {};
+		spawnKoboldOp.type = EffectOpType::SPAWN_UNIT;
+		spawnKoboldOp.data.spawnUnit.toX = -1;
+		spawnKoboldOp.data.spawnUnit.toY = -1;
+		spawnKoboldOp.data.spawnUnit.summonKind = 1; // KOBOLD
+		spawnKoboldOp.data.spawnUnit.ownerPlayerID = currentPlayer.isMinion ? currentPlayer.ownerID : currentPlayer.playerID;
+		spawnKoboldOp.data.spawnUnit.summonerPlayerID = currentPlayer.playerID;
+		spawnKoboldOp.data.spawnUnit.maxHealth = 1; // fixed
+		spawnKoboldOp.data.spawnUnit.maxHealthFromSlot = -1;
+		spawnKoboldOp.data.spawnUnit.ap = 0;
+		queueEffect(spawnKoboldOp);
+	}
+
 	// Summon
 	if (hasSummon) {
 		std::vector<int> rawHp;
@@ -25151,14 +25202,102 @@ bool ofApp::executeCardGeneric(const Card & playedCard, int cardIndex, int targe
 		spawnOp.type = EffectOpType::SPAWN_UNIT;
 		spawnOp.data.spawnUnit.toX = targetX;
 		spawnOp.data.spawnUnit.toY = targetY;
-		// Fallback: use generic summonKind 1 if mapping not specified in data-driven fields
-		spawnOp.data.spawnUnit.summonKind = 1;
+		// Determine summonKind: prefer a data-driven field if present, otherwise map from CardType
+		int mappedSummonKind = 1;
+		switch (playedCard.type) {
+		case CARD_CALL_FOR_KOBOLDS:
+			mappedSummonKind = 1;
+			break;
+		case CARD_CALL_FOR_WOLVES:
+			mappedSummonKind = 2;
+			break;
+		case CARD_SUMMON_HELLHOUND:
+			mappedSummonKind = 3;
+			break;
+		case CARD_SUMMON_DEMON:
+			mappedSummonKind = 4;
+			break;
+		case CARD_SUMMON_KOBOLD_KING:
+			mappedSummonKind = 5;
+			break;
+		case CARD_SUMMON_ASSISTANT:
+			mappedSummonKind = 6;
+			break;
+		case CARD_SUMMON_FAERIE:
+			mappedSummonKind = 7;
+			break;
+		case CARD_SUMMON_GOLEM:
+			mappedSummonKind = 8;
+			break;
+		case CARD_RAISE_DEAD:
+			mappedSummonKind = 9;
+			break;
+		case CARD_SUMMON_WALL:
+			mappedSummonKind = 10;
+			break;
+		case CARD_SUMMON_MAGIC_WALL:
+			mappedSummonKind = 11;
+			break;
+		default:
+			mappedSummonKind = 1;
+			break;
+		}
+		spawnOp.data.spawnUnit.summonKind = mappedSummonKind;
 		spawnOp.data.spawnUnit.ownerPlayerID = currentPlayer.isMinion ? currentPlayer.ownerID : currentPlayer.playerID;
 		spawnOp.data.spawnUnit.summonerPlayerID = currentPlayer.playerID;
 		spawnOp.data.spawnUnit.maxHealth = 0;
 		spawnOp.data.spawnUnit.maxHealthFromSlot = 2;
 		spawnOp.data.spawnUnit.ap = 0;
 		queueEffect(spawnOp);
+	}
+
+	// Special-case: Rock Crush can either destroy a wall or act as a single-target attack (uses APPLY_ATTACK)
+	if (playedCard.type == CARD_ROCK_CRUSH) {
+		// If target tile contains a wall, deterministically remove it
+		if (targetX >= 0 && targetX < BOARD_WIDTH && targetY >= 0 && targetY < BOARD_HEIGHT && board[targetX][targetY].hasWall) {
+			EffectOp tileOp = {};
+			tileOp.type = EffectOpType::MODIFY_TILE;
+			tileOp.data.modifyTile.toX = targetX;
+			tileOp.data.modifyTile.toY = targetY;
+			tileOp.data.modifyTile.setHasWall = -1; // clear wall
+			queueEffect(tileOp);
+			playedSuccessfully = true;
+			advanceCardState(CARD_STATE_EFFECT_SEQUENCE);
+			return true;
+		}
+
+		// Otherwise, if a player is present, resolve damage and queue APPLY_ATTACK (reads blackboard[0])
+		if (targetX >= 0 && targetX < BOARD_WIDTH && targetY >= 0 && targetY < BOARD_HEIGHT) {
+			int targetIndex = -1;
+			for (size_t i = 0; i < players.size(); i++) {
+				if (players[i].x == targetX && players[i].y == targetY) {
+					targetIndex = (int)i;
+					break;
+				}
+			}
+			if (targetIndex != -1) {
+				// resolve damage into blackboard[0] and queue APPLY_ATTACK
+				std::vector<int> rawDmg;
+				auto [rockDmgNum, rockDmgSides] = getCardDamageDice(playedCard);
+				int dmgRoll = resolveDiceRollDetailed(rockDmgNum, rockDmgSides, rawDmg);
+				if (rockDmgSides != 2) dmgRoll += rockDmgNum * luckBonus;
+				currentEffectSequence.blackboard[0] = dmgRoll;
+				queueVisualDiceRoll(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.0f, 0), rockDmgNum, rockDmgSides, rawDmg, dmgRoll, PURPOSE_DAMAGE, currentPlayerIndex, 1.0f);
+
+				interactingCardName = playedCard.name;
+				currentCardOutcome.attackDamageType = playedCard.damageType;
+				currentCardOutcome.attackTargetIndices.clear();
+				currentCardOutcome.attackTargetIndices.push_back(targetIndex);
+
+				EffectOp applyAttackOp = {};
+				applyAttackOp.type = EffectOpType::APPLY_ATTACK;
+				queueEffect(applyAttackOp);
+
+				playedSuccessfully = true;
+				advanceCardState(CARD_STATE_EFFECT_SEQUENCE);
+				return true;
+			}
+		}
 	}
 
 	playedSuccessfully = true;
@@ -25205,8 +25344,8 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 		}
 	}
 
-	// Delegate basic melee cards to generic handler to simplify switch body
-	if (playedCard.type == CARD_PUNCH || playedCard.type == CARD_KICK || playedCard.type == CARD_BASH) {
+	// Delegate simple data-driven cards to generic handler to simplify switch body
+	if (playedCard.type == CARD_PUNCH || playedCard.type == CARD_KICK || playedCard.type == CARD_BASH || playedCard.type == CARD_FLAME_HIT || playedCard.type == CARD_ROCK_CRUSH || playedCard.type == CARD_CALL_FOR_KOBOLDS) {
 		if (executeCardGeneric(playedCard, cardIndex, targetX, targetY, playedSuccessfully, immediateResult)) return true;
 	}
 
