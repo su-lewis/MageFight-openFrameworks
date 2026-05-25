@@ -357,6 +357,7 @@ static std::pair<int, int> getCardDamageDice(const Card & card, int fallbackNum 
 // Centralized range dice resolver.
 // Range remains on legacy numDice/diceSides for now.
 static std::pair<int, int> getCardRangeDice(const Card & card, int fallbackNum = 0, int fallbackSides = 0) {
+	if (card.rangeDiceNum > 0 && card.rangeDiceSides > 0) return { card.rangeDiceNum, card.rangeDiceSides };
 	if (card.numDice > 0 && card.diceSides > 0) return { card.numDice, card.diceSides };
 	return { fallbackNum, fallbackSides };
 }
@@ -19165,11 +19166,19 @@ void ofApp::handleCardMenuClick(const std::string & buttonId) {
 			beginEffectSequence();
 			{
 				std::vector<int> rawBarrier;
-				int barrierRoll = resolveDiceRollDetailed(1, 20, rawBarrier);
+				Card dispelCard;
+				for (const auto & c : allCards) {
+					if (c.type == CARD_DISPEL) {
+						dispelCard = c;
+						break;
+					}
+				}
+				auto [uNum, uSides] = getCardUtilityDice(dispelCard, 1, 20);
+				int barrierRoll = resolveDiceRollDetailed(uNum, uSides, rawBarrier);
 				int luckBonus = players[currentPlayerIndex].luck + computePassiveLuck(currentPlayerIndex);
 				barrierRoll += luckBonus;
 				currentEffectSequence.blackboard[0] = barrierRoll;
-				queueVisualDiceRoll(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.0f, 0), 1, 20, rawBarrier, barrierRoll, PURPOSE_BARRIER_GAIN, currentPlayerIndex, 1.0f);
+				queueVisualDiceRoll(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.0f, 0), uNum, uSides, rawBarrier, barrierRoll, PURPOSE_BARRIER_GAIN, currentPlayerIndex, 1.0f);
 			}
 
 			EffectOp applyBarrier = {};
@@ -25566,22 +25575,24 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 			// Resolve primary damage (1d20 + luck) and store in blackboard[1]
 			{
 				std::vector<int> rawPrimary;
-				int rawPrim = resolveDiceRollDetailed(1, 20, rawPrimary);
-				int primaryDamage = (20 == 2) ? rawPrim : (rawPrim + luckBonus);
+				auto [dNum, dSides] = getCardDamageDice(playedCard, 1, 20);
+				int rawPrim = resolveDiceRollDetailed(dNum, dSides, rawPrimary);
+				int primaryDamage = (dSides == 2) ? rawPrim : (rawPrim + luckBonus);
 				currentEffectSequence.blackboard[1] = primaryDamage;
 				// Visual for primary damage will be shown by APPLY_* sequence; queue a short delay and dice now
 				queueVisualDelay(1.2f);
-				queueVisualDiceRoll(gridToWorld((int)currentCardOutcome.primaryTarget.x, (int)currentCardOutcome.primaryTarget.y) + glm::vec3(0, 1.0f, 0), 1, 20, rawPrimary, primaryDamage, PURPOSE_DAMAGE, currentPlayerIndex, 1.2f);
+				queueVisualDiceRoll(gridToWorld((int)currentCardOutcome.primaryTarget.x, (int)currentCardOutcome.primaryTarget.y) + glm::vec3(0, 1.0f, 0), dNum, dSides, rawPrimary, primaryDamage, PURPOSE_DAMAGE, currentPlayerIndex, 1.2f);
 				queueVisualDelay(1.2f);
 			}
 
 			// Resolve AOE radius (1d20 + luck) and store in blackboard[2]
 			{
 				std::vector<int> rawAoe;
-				int rawAoeSum = resolveDiceRollDetailed(1, 20, rawAoe);
-				int aoeRoll = (20 == 2) ? rawAoeSum : (rawAoeSum + luckBonus);
+				auto [rNum, rSides] = getCardRangeDice(playedCard, 1, 20);
+				int rawAoeSum = resolveDiceRollDetailed(rNum, rSides, rawAoe);
+				int aoeRoll = (rSides == 2) ? rawAoeSum : (rawAoeSum + luckBonus);
 				currentEffectSequence.blackboard[2] = aoeRoll;
-				queueVisualDiceRoll(visPos, 1, 20, rawAoe, aoeRoll, PURPOSE_RANGE, currentPlayerIndex, 1.2f);
+				queueVisualDiceRoll(visPos, rNum, rSides, rawAoe, aoeRoll, PURPOSE_RANGE, currentPlayerIndex, 1.2f);
 			}
 
 			// Determine impact tile deterministically
@@ -25626,21 +25637,23 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 				// deterministically applies mitigations and follows up with AOE handling.
 				{
 					std::vector<int> rawPrimary;
-					int rawPrim = resolveDiceRollDetailed(1, 20, rawPrimary);
-					int primaryDamage = (20 == 2) ? rawPrim : (rawPrim + luckBonus);
+					auto [dNum2, dSides2] = getCardDamageDice(playedCard, 1, 20);
+					int rawPrim = resolveDiceRollDetailed(dNum2, dSides2, rawPrimary);
+					int primaryDamage = (dSides2 == 2) ? rawPrim : (rawPrim + luckBonus);
 					currentEffectSequence.blackboard[1] = primaryDamage;
 					// Queue visual for primary damage
 					queueVisualDelay(1.5f);
-					queueVisualDiceRoll(gridToWorld((int)currentCardOutcome.primaryTarget.x, (int)currentCardOutcome.primaryTarget.y) + glm::vec3(0, 1.0f, 0), 1, 20, rawPrimary, primaryDamage, PURPOSE_DAMAGE, currentPlayerIndex, 1.2f);
+					queueVisualDiceRoll(gridToWorld((int)currentCardOutcome.primaryTarget.x, (int)currentCardOutcome.primaryTarget.y) + glm::vec3(0, 1.0f, 0), dNum2, dSides2, rawPrimary, primaryDamage, PURPOSE_DAMAGE, currentPlayerIndex, 1.2f);
 					queueVisualDelay(1.5f);
 
 					// Also resolve AOE radius now (decision-time) and store visual results
 					{
 						std::vector<int> rawAoe;
-						int rawAoeSum = resolveDiceRollDetailed(1, 20, rawAoe);
-						int aoeRoll = (20 == 2) ? rawAoeSum : (rawAoeSum + luckBonus);
+						auto [rNum2, rSides2] = getCardRangeDice(playedCard, 1, 20);
+						int rawAoeSum = resolveDiceRollDetailed(rNum2, rSides2, rawAoe);
+						int aoeRoll = (rSides2 == 2) ? rawAoeSum : (rawAoeSum + luckBonus);
 						currentEffectSequence.blackboard[2] = aoeRoll;
-						queueVisualDiceRoll(gridToWorld((int)currentCardOutcome.primaryTarget.x, (int)currentCardOutcome.primaryTarget.y) + glm::vec3(0, 1.0f, 0), 1, 20, rawAoe, aoeRoll, PURPOSE_RANGE, currentPlayerIndex, 1.2f);
+						queueVisualDiceRoll(gridToWorld((int)currentCardOutcome.primaryTarget.x, (int)currentCardOutcome.primaryTarget.y) + glm::vec3(0, 1.0f, 0), rNum2, rSides2, rawAoe, aoeRoll, PURPOSE_RANGE, currentPlayerIndex, 1.2f);
 					}
 
 					EffectOp applyPrimary = {};
@@ -26685,11 +26698,12 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 			beginEffectSequence();
 			{
 				std::vector<int> rawRoll;
-				int deathRoll = resolveDiceRollDetailed(1, 20, rawRoll);
+				auto [uNum2, uSides2] = getCardUtilityDice(playedCard, 1, 20);
+				int deathRoll = resolveDiceRollDetailed(uNum2, uSides2, rawRoll);
 				int luckBonus = players[currentPlayerIndex].luck + computePassiveLuck(currentPlayerIndex);
 				deathRoll += luckBonus;
 				currentEffectSequence.blackboard[0] = deathRoll;
-				queueVisualDiceRoll(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.0f, 0), 1, 20, rawRoll, deathRoll, PURPOSE_DEATH_CHECK, currentPlayerIndex, 1.0f);
+				queueVisualDiceRoll(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.0f, 0), uNum2, uSides2, rawRoll, deathRoll, PURPOSE_DEATH_CHECK, currentPlayerIndex, 1.0f);
 
 				EffectOp apply = {};
 				apply.type = EffectOpType::APPLY_DEATH;
@@ -33321,6 +33335,8 @@ void ofApp::loadCardData(const std::string & filePath) {
 		newCard.damageType = stringToDamageType(cardJson.value("damageType", "DAMAGE_PHYSICAL"));
 		newCard.numDice = cardJson.value("numDice", 0);
 		newCard.diceSides = cardJson.value("diceSides", 0);
+		newCard.rangeDiceNum = cardJson.value("rangeDiceNum", 0);
+		newCard.rangeDiceSides = cardJson.value("rangeDiceSides", 0);
 		newCard.utilityDiceNum = cardJson.value("utilityDiceNum", 0);
 		newCard.utilityDiceSides = cardJson.value("utilityDiceSides", 0);
 		newCard.summonDiceNum = cardJson.value("summonDiceNum", 0);

@@ -92,8 +92,8 @@
     "cost": 4,
     "targeting": "TARGET_LINE_OF_SIGHT_TILE",
     "damageType": "DAMAGE_MAGIC",
-    "numDice": 1,
-    "diceSides": 20,
+    "rangeDiceNum": 1,
+    "rangeDiceSides": 20,
     "class": 2
   },
   {
@@ -103,8 +103,8 @@
     "cost": 3,
     "targeting": "TARGET_LINE_OF_SIGHT_TILE",
     "damageType": "DAMAGE_FIRE",
-    "numDice": 2,
-    "diceSides": 6,
+    "rangeDiceNum": 2,
+    "rangeDiceSides": 6,
     "class": 2
   },
   {
@@ -133,8 +133,8 @@
     "type": "CARD_DISPEL",
     "cost": 2,
     "targeting": "TARGET_SELF",
-    "numDice": 1,
-    "diceSides": 20,
+    "utilityDiceNum": 1,
+    "utilityDiceSides": 20,
     "class": 1
   },
   {
@@ -143,8 +143,8 @@
     "type": "CARD_TELEPORT",
     "cost": 5,
     "targeting": "TARGET_EMPTY_TILE",
-    "numDice": 3,
-    "diceSides": 6,
+    "rangeDiceNum": 3,
+    "rangeDiceSides": 6,
     "class": 1
   },
   {
@@ -189,8 +189,8 @@
     "value": 7,
     "targeting": "TARGET_LINE_OF_SIGHT_TILE",
     "damageType": "DAMAGE_MAGIC",
-    "numDice": 1,
-    "diceSides": 20,
+    "rangeDiceNum": 1,
+    "rangeDiceSides": 20,
     "class": 2
   },
   {
@@ -209,8 +209,8 @@
     "type": "CARD_HEAL",
     "cost": 3,
     "targeting": "TARGET_LINE_OF_SIGHT_TILE",
-    "numDice": 2,
-    "diceSides": 6,
+    "rangeDiceNum": 2,
+    "rangeDiceSides": 6,
     "class": 1
   },
   {
@@ -219,8 +219,8 @@
     "type": "CARD_RAISE_DEAD",
     "cost": 2,
     "targeting": "TARGET_EMPTY_ADJACENT",
-    "numDice": 1,
-    "diceSides": 6,
+    "summonDiceNum": 1,
+    "summonDiceSides": 6,
     "class": 2
   },
   {
@@ -229,8 +229,8 @@
     "type": "CARD_SUMMON_GOLEM",
     "cost": 4,
     "targeting": "TARGET_EMPTY_ADJACENT",
-    "numDice": 1,
-    "diceSides": 10,
+    "summonDiceNum": 1,
+    "summonDiceSides": 10,
     "class": 3
   },
   {
@@ -325,8 +325,8 @@
     "cost": 6,
     "targeting": "TARGET_LINE_OF_SIGHT_TILE",
     "damageType": "DAMAGE_MAGIC",
-    "numDice": 2,
-    "diceSides": 20,
+    "rangeDiceNum": 2,
+    "rangeDiceSides": 20,
     "class": 3
   },
   {
@@ -356,8 +356,8 @@
     "type": "CARD_DEATH",
     "cost": 8,
     "targeting": "TARGET_LINE_OF_SIGHT_TILE",
-    "numDice": 1,
-    "diceSides": 20,
+    "rangeDiceNum": 1,
+    "rangeDiceSides": 20,
     "class": 3
   },
   {
@@ -393,8 +393,8 @@
     "cost": 3,
     "targeting": "TARGET_LINE_OF_SIGHT_TILE",
     "damageType": "DAMAGE_ELECTRIC",
-    "numDice": 2,
-    "diceSides": 10,
+    "rangeDiceNum": 2,
+    "rangeDiceSides": 10,
     "class": 2
   },
   {
@@ -497,8 +497,8 @@
     "type": "CARD_PSIONIC_WAVE",
     "cost": 8,
     "targeting": "TARGET_SELF",
-    "numDice": 2,
-    "diceSides": 20,
+    "rangeDiceNum": 2,
+    "rangeDiceSides": 20,
     "utilityDiceNum": 2,
     "utilityDiceSides": 4,
     "class": 3
@@ -551,8 +551,8 @@
     "type": "CARD_LESSER_HEAL",
     "cost": 1,
     "targeting": "TARGET_LINE_OF_SIGHT_TILE",
-    "numDice": 1,
-    "diceSides": 6,
+    "rangeDiceNum": 1,
+    "rangeDiceSides": 6,
     "class": 1
   },
   {
@@ -635,8 +635,8 @@
     "type": "CARD_SHOOT_ARROW",
     "cost": 3,
     "targeting": "TARGET_LINE_OF_SIGHT_TILE",
-    "numDice": 2,
-    "diceSides": 20,
+    "rangeDiceNum": 2,
+    "rangeDiceSides": 20,
     "class": 1
   },
   {
