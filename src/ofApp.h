@@ -708,6 +708,10 @@ struct Tile {
 	int minRollRequired = 0; // Minimum dice roll needed to hit this square
 	float hitChance = 0.0f; // Percentage chance to hit (0.0 to 1.0)
 	bool hasTooltipInfo = false; // True if tooltip data is valid for this tile
+
+	// AOE preview helpers
+	bool isAoeCenter = false; // True if this tile is treated as an AOE center for preview
+	int aoeRadiusFeet = 0; // Radius in feet used for tooltip/preview calculations
 };
 
 struct Player {

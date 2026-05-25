@@ -5086,11 +5086,9 @@ void ofApp::draw() {
 		break;
 	}
 
-	// Ensure picked-card animations are visible during in-game drafts or when
-	// draft-picked moves were scheduled while in gameplay. drawDraftScreen()
-	// already draws these when in STATE_DRAFTING, so only draw here for other
-	// states (e.g., STATE_GAMEPLAY) to avoid duplicate rendering.
-	if (currentState != STATE_DRAFTING && (!activeDraftPickedMoves.empty() || deckFlashStartFrame > 0)) {
+	// Draw picked-card animations once at the top level so they stay visible
+	// on top of the draft screen and the normal HUD.
+	if (!activeDraftPickedMoves.empty() || deckFlashStartFrame > 0) {
 		this->drawActiveDraftPickedMoves();
 	}
 }
@@ -9019,6 +9017,97 @@ void ofApp::drawGame() {
 		ofCamera & activeCam = getActiveCamera();
 		activeCam.begin();
 
+		struct PreviewLabel {
+			glm::vec2 screenPos;
+			std::string text;
+			ofColor color;
+		};
+		std::vector<PreviewLabel> previewLabels;
+
+		auto calcChanceFromMinRoll = [](int minRoll, int diceNum, int sides) -> float {
+			int maxPossible = diceNum * sides;
+			if (minRoll <= diceNum) return 1.0f;
+			if (minRoll > maxPossible) return 0.0f;
+			if (diceNum == 1) {
+				int success = sides - minRoll + 1;
+				if (success < 0) success = 0;
+				return (float)success / (float)sides;
+			}
+			if (diceNum <= 6) {
+				std::vector<std::vector<int>> dp(diceNum + 1, std::vector<int>(maxPossible + 1, 0));
+				dp[0][0] = 1;
+				for (int d = 1; d <= diceNum; ++d) {
+					for (int s = d; s <= d * sides; ++s) {
+						int sum = 0;
+						int faceMax = std::min(s - (d - 1), sides);
+						for (int face = 1; face <= faceMax; ++face) {
+							sum += dp[d - 1][s - face];
+						}
+						dp[d][s] = sum;
+					}
+				}
+				long long successCount = 0;
+				for (int s = minRoll; s <= maxPossible; ++s)
+					successCount += dp[diceNum][s];
+				long long total = 1;
+				for (int i = 0; i < diceNum; ++i)
+					total *= sides;
+				if (total > 0) return (float)((double)successCount / (double)total);
+			}
+			float mean = diceNum * (sides + 1) / 2.0f;
+			float variance = diceNum * (sides * sides - 1) / 12.0f;
+			float stdDev = sqrt(variance);
+			float z = (minRoll - 0.5f - mean) / stdDev;
+			if (z <= -3.0f) return 1.0f;
+			if (z >= 3.0f) return 0.0f;
+			float hitChance = 0.5f - (z * 0.15f);
+			if (hitChance < 0.0f) hitChance = 0.0f;
+			if (hitChance > 1.0f) hitChance = 1.0f;
+			return hitChance;
+		};
+
+		auto computePreviewChanceForUnit = [&](const Card & card, const Player & unit) -> float {
+			if (card.type == CARD_NONE) return 0.0f;
+			if (unit.x < 0 || unit.x >= BOARD_WIDTH || unit.y < 0 || unit.y >= BOARD_HEIGHT) return 0.0f;
+
+			// Ranged / direct-target cards use the precomputed unit-tile hit chance.
+			if (!card.isAoe) {
+				if (board[unit.x][unit.y].hasTooltipInfo && board[unit.x][unit.y].isTargetPreview) {
+					return board[unit.x][unit.y].hitChance;
+				}
+				return 0.0f;
+			}
+
+			// AOE cards: reuse the highlighted valid centers and compute whether each
+			// center can reach this unit, then keep the best chance for the label.
+			int diceNum = (card.aoeRadiusDiceNum > 0) ? card.aoeRadiusDiceNum : 1;
+			int sides = (card.aoeRadiusDiceSides > 0) ? card.aoeRadiusDiceSides : 20;
+			int aoeFeet = diceNum * sides;
+			float bestChance = 0.0f;
+			for (int cx = 0; cx < BOARD_WIDTH; ++cx) {
+				for (int cy = 0; cy < BOARD_HEIGHT; ++cy) {
+					if (!board[cx][cy].isAoeCenter) continue;
+					float centerDistFeetToUnit = glm::distance(glm::vec2((float)cx, (float)cy), glm::vec2((float)unit.x, (float)unit.y)) * 5.0f;
+					float distToUnitFeet = std::max(0.0f, centerDistFeetToUnit - 2.5f);
+					if (distToUnitFeet > aoeFeet + 0.01f) continue;
+					auto losPath = getLineOfSightPath(glm::vec2((float)cx, (float)cy) + glm::vec2(0.5f, 0.5f), glm::vec2(unit.x, unit.y) + glm::vec2(0.5f, 0.5f));
+					bool blocked = false;
+					for (const auto & step : losPath) {
+						if ((int)step.x == cx && (int)step.y == cy) continue;
+						if ((int)step.x == unit.x && (int)step.y == unit.y) break;
+						if (isTileWall((int)step.x, (int)step.y)) {
+							blocked = true;
+							break;
+						}
+					}
+					if (blocked) continue;
+					float chance = calcChanceFromMinRoll((int)ceil(distToUnitFeet), diceNum, sides);
+					bestChance = std::max(bestChance, chance);
+				}
+			}
+			return bestChance;
+		};
+
 		// --- LIGHTING ---
 		uiLight.disable();
 		keyLight.enable();
@@ -10630,6 +10719,37 @@ void ofApp::drawGame() {
 		glDepthMask(GL_TRUE);
 		ofEnableLighting();
 		cam.end();
+
+		if (!players.empty() && currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) {
+			const Player & previewCaster = players[currentPlayerIndex];
+			int previewCardIndex = -1;
+			if (draggedCardIndex >= 0 && draggedCardIndex < (int)previewCaster.hand.size()) {
+				previewCardIndex = draggedCardIndex;
+			} else if (hoveredCardIndex >= 0 && hoveredCardIndex < (int)previewCaster.hand.size()) {
+				previewCardIndex = hoveredCardIndex;
+			}
+
+			if (previewCardIndex >= 0 && previewCardIndex < (int)previewCaster.hand.size()) {
+				const Card & previewCard = previewCaster.hand[previewCardIndex];
+				std::vector<PreviewLabel> previewLabelsToDraw;
+				for (size_t i = 0; i < players.size(); ++i) {
+					const Player & unit = players[i];
+					float chance = computePreviewChanceForUnit(previewCard, unit);
+					if (chance <= 0.0f) continue;
+					glm::vec3 headWorld = gridToWorld(unit.x, unit.y) + glm::vec3(0, 3.2f, 0);
+					glm::vec3 screen = activeCam.worldToScreen(headWorld);
+					previewLabelsToDraw.push_back({ glm::vec2(screen.x, screen.y - 14.0f), ofToString((int)round(chance * 100.0f)) + "%", ofColor::white });
+				}
+
+				ofEnableAlphaBlending();
+				for (const auto & label : previewLabelsToDraw) {
+					ofSetColor(0, 0, 0, 180);
+					drawPixelTextCentered(titleFont, label.text, label.screenPos.x + 1.0f, label.screenPos.y + 1.0f, 0.62f, ofColor::black);
+					drawPixelTextCentered(titleFont, label.text, label.screenPos.x, label.screenPos.y, 0.62f, label.color);
+				}
+			}
+		}
+
 		ofDisableLighting();
 		ofDisableDepthTest();
 	};
@@ -12408,24 +12528,6 @@ void ofApp::drawGame() {
 		if (best <= 0) return ell;
 		return s.substr(0, best) + ell;
 	};
-	if (isShowingTooltip) {
-		// Limit tooltip width to avoid extremely long single-line tooltips
-		float maxTooltipWidth = ofGetWidth() * 0.45f; // 45% of screen width
-		std::string displayTooltip = elideStringToWidth(tooltipText, uiFont, maxTooltipWidth);
-		ofRectangle textBox = uiFont.getStringBoundingBox(displayTooltip, 0, 0);
-		float textWidth = textBox.getWidth();
-		float textHeight = textBox.getHeight();
-		float padding = 8.0f;
-		float tooltipX = tooltipPos.x + 20;
-		float tooltipY = tooltipPos.y;
-		if (tooltipX + textWidth + 2 * padding > ofGetWidth()) {
-			tooltipX = tooltipPos.x - textWidth - 2 * padding - 20;
-		}
-		ofSetColor(10, 10, 10, 200);
-		ofDrawRectRounded(tooltipX, tooltipY, textWidth + 2 * padding, textHeight + 2 * padding, 5);
-		drawPixelTextBaseline(uiFont, displayTooltip, tooltipX + padding, tooltipY + textHeight + padding / 2.0f, 1.0f, ofColor::white, 0);
-	}
-
 	// --- DRAW OVERLAY UIs ---
 	if (cardInteractionState == CARD_INTERACTION_MENU && interactingCardType == CARD_MAGIC_BLAST) {
 		drawMagicBlastChoiceUI();
@@ -13474,6 +13576,83 @@ cursor_check_done:;
 				int percentage = (int)(hitChance * 100.0f);
 
 				tooltipText = "Min Roll: " + ofToString(minRoll) + " (" + ofToString(percentage) + "%)";
+				if (board[tooltipGX][tooltipGY].isAoeCenter) {
+					int feet = board[tooltipGX][tooltipGY].aoeRadiusFeet;
+					int tiles = (int)round((double)feet / 5.0);
+					tooltipText += " | Radius: " + ofToString(feet) + "ft (" + ofToString(tiles) + " tiles)";
+
+					// Per-target breakdown: compute min roll & hit chance for each candidate (same calc as ranged)
+					std::string breakdown = "\nHits:";
+					for (size_t i = 0; i < players.size(); ++i) {
+						if ((int)i == currentPlayerIndex) continue;
+						float centerDistFeetToPlayer = glm::distance(glm::vec2((float)tooltipGX, (float)tooltipGY), glm::vec2((float)players[i].x, (float)players[i].y)) * 5.0f;
+						float distToPlayerFeet = std::max(0.0f, centerDistFeetToPlayer - 2.5f);
+						if (distToPlayerFeet <= feet + 0.01f) {
+							// verify LOS from center to player
+							auto losPath = getLineOfSightPath(glm::vec2((float)tooltipGX, (float)tooltipGY) + glm::vec2(0.5f, 0.5f), glm::vec2(players[i].x, players[i].y) + glm::vec2(0.5f, 0.5f));
+							bool blocked = false;
+							for (const auto & step : losPath) {
+								if ((int)step.x == tooltipGX && (int)step.y == tooltipGY) continue;
+								if ((int)step.x == players[i].x && (int)step.y == players[i].y) break;
+								if (isTileWall((int)step.x, (int)step.y)) {
+									blocked = true;
+									break;
+								}
+							}
+							if (!blocked) {
+								int minRoll = (int)ceil(distToPlayerFeet);
+
+								// compute probability p for this minRoll using aoe dice config
+								int diceNum = 1;
+								int sides = 20;
+								// prefer stored aoe config if available
+								// (board stores only feet; derive dice from current card if possible)
+								if (activeCardForHighlight >= 0 && activeCardForHighlight < (int)currentPlayer.hand.size()) {
+									const Card & c = currentPlayer.hand[activeCardForHighlight];
+									if (c.aoeRadiusDiceNum > 0) diceNum = c.aoeRadiusDiceNum;
+									if (c.aoeRadiusDiceSides > 0) sides = c.aoeRadiusDiceSides;
+								}
+								int maxPossible = diceNum * sides;
+								double p = 0.0;
+								if (minRoll <= diceNum)
+									p = 1.0;
+								else if (minRoll > maxPossible)
+									p = 0.0;
+								else if (diceNum == 1) {
+									int success = sides - minRoll + 1;
+									if (success < 0) success = 0;
+									p = (double)success / (double)sides;
+								} else if (diceNum <= 6) {
+									int maxRoll = maxPossible;
+									std::vector<std::vector<int>> dp(diceNum + 1, std::vector<int>(maxRoll + 1, 0));
+									dp[0][0] = 1;
+									for (int d = 1; d <= diceNum; ++d) {
+										for (int s = d; s <= d * sides; ++s) {
+											int sum = 0;
+											int faceMax = std::min(s - (d - 1), sides);
+											for (int face = 1; face <= faceMax; ++face)
+												sum += dp[d - 1][s - face];
+											dp[d][s] = sum;
+										}
+									}
+									long long successCount = 0;
+									for (int s = minRoll; s <= maxRoll; ++s)
+										successCount += dp[diceNum][s];
+									long long total = 1;
+									for (int t = 0; t < diceNum; ++t)
+										total *= sides;
+									if (total > 0) p = (double)successCount / (double)total;
+								} else {
+									p = 0.5;
+								}
+
+								int pct = (int)round(p * 100.0);
+								breakdown += " \nP" + ofToString((int)i) + ": Min " + ofToString(minRoll) + " (" + ofToString(pct) + "%)";
+							}
+						}
+					}
+					tooltipText += breakdown;
+				}
 			}
 
 			// If the tile is a magic wall, show its explanation tooltip
@@ -13647,6 +13826,11 @@ cursor_check_done:;
 					int percentage = (int)(hitChance * 100.0f);
 
 					std::string rangeText = " | Min Roll: " + ofToString(minRoll) + " (" + ofToString(percentage) + "%)";
+					if (board[tooltipGX][tooltipGY].isAoeCenter) {
+						int feet = board[tooltipGX][tooltipGY].aoeRadiusFeet;
+						int tiles = (int)round((double)feet / 5.0);
+						rangeText += " | Radius: " + ofToString(feet) + "ft (" + ofToString(tiles) + " tiles)";
+					}
 					tooltipText += rangeText;
 				}
 			}
@@ -25345,7 +25529,7 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 	}
 
 	// Delegate simple data-driven cards to generic handler to simplify switch body
-	if (playedCard.type == CARD_PUNCH || playedCard.type == CARD_KICK || playedCard.type == CARD_BASH || playedCard.type == CARD_FLAME_HIT || playedCard.type == CARD_ROCK_CRUSH || playedCard.type == CARD_CALL_FOR_KOBOLDS) {
+	if (playedCard.type == CARD_PUNCH || playedCard.type == CARD_KICK || playedCard.type == CARD_BASH || playedCard.type == CARD_FLAME_HIT || playedCard.type == CARD_ROCK_CRUSH || playedCard.type == CARD_CALL_FOR_KOBOLDS || playedCard.type == CARD_SUMMON_ASSISTANT || playedCard.type == CARD_SUMMON_FAERIE || playedCard.type == CARD_SUMMON_GOLEM || playedCard.type == CARD_SUMMON_WALL || playedCard.type == CARD_SUMMON_MAGIC_WALL || playedCard.type == CARD_SUMMON_KOBOLD_KING) {
 		if (executeCardGeneric(playedCard, cardIndex, targetX, targetY, playedSuccessfully, immediateResult)) return true;
 	}
 
@@ -25898,6 +26082,53 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 
 			playedSuccessfully = true;
 			advanceCardState(CARD_STATE_EFFECT_SEQUENCE);
+		}
+
+		// Special-case: Call For Wolves uses placement flow but fixed wolf stats.
+		if (playedCard.type == CARD_CALL_FOR_WOLVES) {
+			// Validate adjacent space exists
+			bool hasSpace = false;
+			int cx = currentPlayer.x;
+			int cy = currentPlayer.y;
+			glm::vec2 adj[] = { { 1, 0 }, { -1, 0 }, { 0, 1 }, { 0, -1 } };
+			for (auto & d : adj) {
+				int nx = cx + (int)d.x;
+				int ny = cy + (int)d.y;
+				if (nx >= 0 && nx < BOARD_WIDTH && ny >= 0 && ny < BOARD_HEIGHT) {
+					if (!board[nx][ny].hasWall && !board[nx][ny].hasPlayer) {
+						hasSpace = true;
+						break;
+					}
+				}
+			}
+			if (!hasSpace) {
+				queueFloatingTextVisual(gridToWorld(cx, cy), "No Space!", ofColor::red);
+				return true;
+			}
+
+			// Save placement source and mark placement flow
+			wolfPlacementSourceX = currentPlayer.x;
+			wolfPlacementSourceY = currentPlayer.y;
+			currentCardOutcome.summonOwnerPlayerID = currentPlayer.isMinion ? currentPlayer.ownerID : currentPlayer.playerID;
+
+			beginEffectSequence();
+
+			// Queue a SPAWN_UNIT op with toX=-1 so the placement system will place wolves deterministically
+			EffectOp spawnWolfOp = {};
+			spawnWolfOp.type = EffectOpType::SPAWN_UNIT;
+			spawnWolfOp.data.spawnUnit.toX = -1;
+			spawnWolfOp.data.spawnUnit.toY = -1;
+			spawnWolfOp.data.spawnUnit.summonKind = 2; // WOLF
+			spawnWolfOp.data.spawnUnit.ownerPlayerID = currentPlayer.isMinion ? currentPlayer.ownerID : currentPlayer.playerID;
+			spawnWolfOp.data.spawnUnit.summonerPlayerID = currentPlayer.playerID;
+			spawnWolfOp.data.spawnUnit.maxHealth = 4; // fixed
+			spawnWolfOp.data.spawnUnit.maxHealthFromSlot = -1;
+			spawnWolfOp.data.spawnUnit.ap = 0;
+			queueEffect(spawnWolfOp);
+
+			playedSuccessfully = true;
+			advanceCardState(CARD_STATE_EFFECT_SEQUENCE);
+			return true;
 		}
 		return true;
 	}
@@ -27134,6 +27365,15 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 
 	case CARD_FLAME_HIT: {
 		// LOCKSTEP MIGRATION: Fixed fire damage + burning status
+		// Flame Hit is an adjacent-only attack: validate adjacency
+		int px = players[currentPlayerIndex].x;
+		int py = players[currentPlayerIndex].y;
+		int dist = abs(targetX - px) + abs(targetY - py);
+		if (dist != 1) {
+			ofLogNotice("Lockstep") << "Flame Hit target not adjacent: (" << targetX << "," << targetY << ")";
+			return true;
+		}
+
 		int targetIndex = -1;
 		for (size_t i = 0; i < players.size(); i++) {
 			if (players[i].x == targetX && players[i].y == targetY) {
@@ -27145,8 +27385,7 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 
 		beginEffectSequence();
 
-		// Apply fire damage via queued mitigation and only apply ON_FIRE if HP actually reduced
-		// store pre-hit HP into a blackboard slot (slot 15 chosen as temporary store)
+		// Store pre-hit HP into blackboard slot 15 so APPLY_FIRE_HIT_RESOLVE can detect HP loss
 		currentEffectSequence.blackboard[15] = players[targetIndex].health;
 
 		EffectOp damageOp;
@@ -27158,13 +27397,13 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 		damageOp.data.damage.damageFromSlot = -1;
 		queueEffect(damageOp);
 
-		// enqueue a resolve op that will check pre/post HP and only apply ON_FIRE if damage occurred
+		// Enqueue resolve op to apply ON_FIRE only if HP was reduced
 		{
 			EffectOp resolve = {};
 			resolve.type = EffectOpType::APPLY_FIRE_HIT_RESOLVE;
-			resolve.data.damage.targetIndex = targetIndex; // index at enqueue time
-			resolve.data.damage.damageFromSlot = 15; // blackboard slot containing pre-HP
-			resolve.data.damage.fixedDamage = players[targetIndex].playerID; // store playerID for robust lookup
+			resolve.data.damage.targetIndex = targetIndex;
+			resolve.data.damage.damageFromSlot = 15;
+			resolve.data.damage.fixedDamage = players[targetIndex].playerID;
 			queueEffect(resolve);
 		}
 
@@ -28303,67 +28542,17 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 	}
 
 	case CARD_SUMMON_HELLHOUND: {
-		if (board[targetX][targetY].hasWall || board[targetX][targetY].hasPlayer) break;
-		beginEffectSequence();
-
-		// Queue SPAWN_UNIT EffectOp for Hellhound
-		EffectOp spawnHellhoundOp = {};
-		spawnHellhoundOp.type = EffectOpType::SPAWN_UNIT;
-		spawnHellhoundOp.data.spawnUnit.toX = targetX;
-		spawnHellhoundOp.data.spawnUnit.toY = targetY;
-		spawnHellhoundOp.data.spawnUnit.summonKind = 3; // HELLHOUND
-		spawnHellhoundOp.data.spawnUnit.ownerPlayerID = currentPlayer.isMinion ? currentPlayer.ownerID : currentPlayer.playerID;
-		spawnHellhoundOp.data.spawnUnit.summonerPlayerID = currentPlayer.playerID;
-		// Queue authoritative roll for hellhound HP and reference via blackboard slot 2
-		{
-			auto [summonDiceNum, summonDiceSides] = getCardSummonDice(playedCard, 2, 6);
-			std::vector<int> rawHp;
-			int hpRoll = resolveDiceRollDetailed(summonDiceNum, summonDiceSides, rawHp);
-			int luckBonus = players[currentPlayerIndex].luck + computePassiveLuck(currentPlayerIndex);
-			int finalHp = hpRoll + (summonDiceNum * luckBonus);
-			currentEffectSequence.blackboard[2] = finalHp;
-			queueVisualDiceRoll(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.0f, 0), summonDiceNum, summonDiceSides, rawHp, finalHp, PURPOSE_SUMMON, currentPlayerIndex, 1.0f);
-		}
-		spawnHellhoundOp.data.spawnUnit.maxHealth = 0;
-		spawnHellhoundOp.data.spawnUnit.maxHealthFromSlot = 2;
-		spawnHellhoundOp.data.spawnUnit.ap = 0;
-		queueEffect(spawnHellhoundOp);
-
-		playedSuccessfully = true;
-		advanceCardState(CARD_STATE_EFFECT_SEQUENCE);
-		return true;
+		// Validate target tile is empty and not a wall, then delegate to generic handler
+		if (targetX < 0 || targetX >= BOARD_WIDTH || targetY < 0 || targetY >= BOARD_HEIGHT) return true;
+		if (board[targetX][targetY].hasWall || board[targetX][targetY].hasPlayer) return true;
+		return executeCardGeneric(playedCard, cardIndex, targetX, targetY, playedSuccessfully, immediateResult);
 	}
 
 	case CARD_SUMMON_DEMON: {
-		if (board[targetX][targetY].hasWall || board[targetX][targetY].hasPlayer) break;
-		beginEffectSequence();
-
-		// Queue SPAWN_UNIT EffectOp for Demon
-		EffectOp spawnDemonOp = {};
-		spawnDemonOp.type = EffectOpType::SPAWN_UNIT;
-		spawnDemonOp.data.spawnUnit.toX = targetX;
-		spawnDemonOp.data.spawnUnit.toY = targetY;
-		spawnDemonOp.data.spawnUnit.summonKind = 4; // DEMON
-		spawnDemonOp.data.spawnUnit.ownerPlayerID = currentPlayer.isMinion ? currentPlayer.ownerID : currentPlayer.playerID;
-		spawnDemonOp.data.spawnUnit.summonerPlayerID = currentPlayer.playerID;
-		// Queue authoritative roll for demon HP and reference via blackboard slot 3
-		{
-			auto [summonDiceNum, summonDiceSides] = getCardSummonDice(playedCard, 3, 10);
-			std::vector<int> rawHp;
-			int hpRoll = resolveDiceRollDetailed(summonDiceNum, summonDiceSides, rawHp);
-			int luckBonus = players[currentPlayerIndex].luck + computePassiveLuck(currentPlayerIndex);
-			int finalHp = hpRoll + (summonDiceNum * luckBonus);
-			currentEffectSequence.blackboard[3] = finalHp;
-			queueVisualDiceRoll(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.0f, 0), summonDiceNum, summonDiceSides, rawHp, finalHp, PURPOSE_SUMMON, currentPlayerIndex, 1.0f);
-		}
-		spawnDemonOp.data.spawnUnit.maxHealth = 0;
-		spawnDemonOp.data.spawnUnit.maxHealthFromSlot = 3;
-		spawnDemonOp.data.spawnUnit.ap = 0;
-		queueEffect(spawnDemonOp);
-
-		playedSuccessfully = true;
-		advanceCardState(CARD_STATE_EFFECT_SEQUENCE);
-		return true;
+		// Validate target tile is empty and not a wall, then delegate to generic handler
+		if (targetX < 0 || targetX >= BOARD_WIDTH || targetY < 0 || targetY >= BOARD_HEIGHT) return true;
+		if (board[targetX][targetY].hasWall || board[targetX][targetY].hasPlayer) return true;
+		return executeCardGeneric(playedCard, cardIndex, targetX, targetY, playedSuccessfully, immediateResult);
 	}
 
 	default: {
@@ -28875,6 +29064,8 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 			board[x][y].hasTooltipInfo = false; // Reset tooltip data
 			board[x][y].minRollRequired = 0;
 			board[x][y].hitChance = 0.0f;
+			board[x][y].isAoeCenter = false;
+			board[x][y].aoeRadiusFeet = 0;
 		}
 	}
 
@@ -28984,20 +29175,56 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 			}
 		}
 	}
+	// Adjacency-based targeting: consult card data instead of special-casing specific cards
+	if (card.targeting == TARGET_ADJACENT_UNIT || card.targeting == TARGET_ADJACENT_OR_SELF_UNIT || card.targeting == TARGET_ADJACENT_UNIT_OR_WALL || card.targeting == TARGET_EMPTY_ADJACENT || card.targeting == TARGET_ADJACENT_WALL) {
+		glm::ivec2 dirs[4] = { { 0, 1 }, { 1, 0 }, { 0, -1 }, { -1, 0 } };
+		for (auto & d : dirs) {
+			int nx = px + d.x;
+			int ny = py + d.y;
+			if (nx < 0 || nx >= BOARD_WIDTH || ny < 0 || ny >= BOARD_HEIGHT) continue;
 
-	// Special preview/targeting for dice-based ranged cards:
-	// show blue preview for tiles that are in-range/previewable but not valid
-	// green only when the tile would be a valid non-self unit target.
-	// Include other ranged cards here (magic blast, fireball, jolt, shoot arrow, psionic wave, teleport)
-	if (card.type == CARD_MAGIC_BOLT || card.type == CARD_CHAIN_LIGHTNING || card.type == CARD_MAGIC_BLAST || card.type == CARD_FIREBALL || card.type == CARD_ETHEREAL_JOLT || card.type == CARD_SHOOT_ARROW || card.type == CARD_PSIONIC_WAVE || card.type == CARD_TELEPORT || card.type == CARD_HEAL || card.type == CARD_LESSER_HEAL || card.type == CARD_BURST_OF_LIGHT || card.type == CARD_DEATH) {
+			bool ok = false;
+			if (card.targeting == TARGET_EMPTY_ADJACENT) {
+				if (!board[nx][ny].hasWall && !board[nx][ny].hasPlayer) ok = true;
+			} else if (card.targeting == TARGET_ADJACENT_WALL) {
+				if (board[nx][ny].hasWall && !board[nx][ny].hasPlayer) ok = true;
+			} else if (card.targeting == TARGET_ADJACENT_UNIT) {
+				if (board[nx][ny].hasPlayer && !board[nx][ny].hasWall && tileHasOtherThan(nx, ny, currentPlayerIndex)) ok = true;
+			} else if (card.targeting == TARGET_ADJACENT_OR_SELF_UNIT) {
+				if ((board[nx][ny].hasPlayer && !board[nx][ny].hasWall && tileHasOtherThan(nx, ny, currentPlayerIndex)) || (nx == px && ny == py)) ok = true;
+			} else if (card.targeting == TARGET_ADJACENT_UNIT_OR_WALL) {
+				if ((board[nx][ny].hasPlayer && !board[nx][ny].hasWall) || board[nx][ny].hasWall) ok = true;
+			}
+
+			if (ok) {
+				board[nx][ny].isTargetable = true;
+				board[nx][ny].isTargetPreview = true;
+			}
+		}
+		return;
+	}
+	// Data-driven preview/targeting for ranged/dice-based cards:
+	// Use card fields from cards.json (rangeDiceNum/rangeDiceSides, numDice/diceSides, targeting, healAmount)
+	bool shouldShowRangedPreview = false;
+	if (card.rangeDiceNum > 0 && card.rangeDiceSides > 0)
+		shouldShowRangedPreview = true;
+	else if (card.numDice > 0 && card.diceSides > 0)
+		shouldShowRangedPreview = true;
+	else if (card.targeting == TARGET_LINE_OF_SIGHT_TILE || card.targeting == TARGET_BURST_AREA)
+		shouldShowRangedPreview = true;
+	else if (card.healAmount > 0)
+		shouldShowRangedPreview = true; // healing cards often need previews
+
+	if (shouldShowRangedPreview) {
 		float maxRangeFeet = 0.0f;
-		// Infinite-range healing / death spells
-		if (card.type == CARD_HEAL || card.type == CARD_LESSER_HEAL || card.type == CARD_BURST_OF_LIGHT || card.type == CARD_DEATH) {
+		// Infinite-range healing / death-like spells
+		if (card.healAmount > 0) {
 			maxRangeFeet = 9999.0f;
+		} else if (card.rangeDiceNum > 0 && card.rangeDiceSides > 0) {
+			maxRangeFeet = (float)(card.rangeDiceNum * card.rangeDiceSides);
 		} else {
-			// Default: use dice-based range
+			// Default: use dice-based range from main dice
 			maxRangeFeet = (float)(card.numDice * card.diceSides);
-			// No flat +3 bonus here; Psionic Wave / Magic Bolt AOE use center-to-face distance below
 		}
 		for (int tx = 0; tx < BOARD_WIDTH; ++tx) {
 			for (int ty = 0; ty < BOARD_HEIGHT; ++ty) {
@@ -29070,11 +29297,17 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 						board[tx][ty].hitChance = hitChance;
 
 						// Valid (green) if another unit sits on the tile OR if an AOE
-						// from this tile (max possible 1d20 + 3 ft) could hit another unit.
+						// from this tile (max possible dice + 3 ft) could hit another unit.
 						if (tileHasOtherThan(tx, ty, currentPlayerIndex)) {
 							valid = true;
 						} else {
-							int maxAoeFeet = 20;
+							int maxAoeFeet = 0;
+							if (card.aoeRadiusDiceNum > 0 && card.aoeRadiusDiceSides > 0) {
+								maxAoeFeet = card.aoeRadiusDiceNum * card.aoeRadiusDiceSides;
+							} else {
+								// Fallback: assume a large AOE (1d20 + 3) for older data
+								maxAoeFeet = 20;
+							}
 							for (size_t i = 0; i < players.size(); ++i) {
 								if ((int)i == currentPlayerIndex) continue;
 								// For AOE checks use center-to-face: center distance minus half-tile (2.5ft)
@@ -29144,6 +29377,96 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 					}
 				}
 
+				// If this card is an AOE, compute whether this tile as AOE center
+				// would hit any valid unit using `card.aoeRadiusDice*` (decision-time data).
+				if (card.isAoe) {
+					int aoeFeet = 0;
+					if (card.aoeRadiusDiceNum > 0 && card.aoeRadiusDiceSides > 0)
+						aoeFeet = card.aoeRadiusDiceNum * card.aoeRadiusDiceSides;
+					else
+						aoeFeet = 20; // fallback
+
+					// Collect candidate enemies and compute tooltip stats (min roll, overall hit chance)
+					std::vector<int> requiredRolls;
+					for (size_t i = 0; i < players.size(); ++i) {
+						if ((int)i == currentPlayerIndex) continue;
+						float centerDistFeetToPlayer = glm::distance(glm::vec2((float)tx, (float)ty), glm::vec2((float)players[i].x, (float)players[i].y)) * 5.0f;
+						float distToPlayerFeet = std::max(0.0f, centerDistFeetToPlayer - 2.5f);
+						if (distToPlayerFeet <= aoeFeet + 0.01f) {
+							// verify LOS from center to player
+							auto losPath = getLineOfSightPath(glm::vec2((float)tx, (float)ty) + glm::vec2(0.5f, 0.5f), glm::vec2(players[i].x, players[i].y) + glm::vec2(0.5f, 0.5f));
+							bool blocked = false;
+							for (const auto & step : losPath) {
+								if ((int)step.x == tx && (int)step.y == ty) continue;
+								if ((int)step.x == players[i].x && (int)step.y == players[i].y) break;
+								if (isTileWall((int)step.x, (int)step.y)) {
+									blocked = true;
+									break;
+								}
+							}
+							if (!blocked) {
+								int minRoll = (int)ceil(distToPlayerFeet);
+								requiredRolls.push_back(minRoll);
+							}
+						}
+					}
+
+					if (!requiredRolls.empty()) {
+						// Tile is a valid AOE center
+						valid = true;
+						preview = true;
+
+						// Compute minRollRequired (smallest demand)
+						int minRollReq = *std::min_element(requiredRolls.begin(), requiredRolls.end());
+
+						// Compute hit chance based on the minimal required roll (same approach as ranged previews)
+						int diceNum = card.aoeRadiusDiceNum > 0 ? card.aoeRadiusDiceNum : 1;
+						int sides = card.aoeRadiusDiceSides > 0 ? card.aoeRadiusDiceSides : 20;
+						int maxPossible = diceNum * sides;
+
+						double p = 0.0;
+						if (minRollReq <= diceNum) {
+							p = 1.0;
+						} else if (minRollReq > maxPossible) {
+							p = 0.0;
+						} else if (diceNum == 1) {
+							int success = sides - minRollReq + 1;
+							if (success < 0) success = 0;
+							p = (double)success / (double)sides;
+						} else if (diceNum <= 6) {
+							int maxRoll = maxPossible;
+							std::vector<std::vector<int>> dp(diceNum + 1, std::vector<int>(maxRoll + 1, 0));
+							dp[0][0] = 1;
+							for (int d = 1; d <= diceNum; ++d) {
+								for (int s = d; s <= d * sides; ++s) {
+									int sum = 0;
+									int faceMax = std::min(s - (d - 1), sides);
+									for (int face = 1; face <= faceMax; ++face) {
+										sum += dp[d - 1][s - face];
+									}
+									dp[d][s] = sum;
+								}
+							}
+							long long successCount = 0;
+							for (int s = minRollReq; s <= maxRoll; ++s)
+								successCount += dp[diceNum][s];
+							long long total = 1;
+							for (int i = 0; i < diceNum; ++i)
+								total *= sides;
+							if (total > 0) p = (double)successCount / (double)total;
+						} else {
+							// Fallback normal approximation for large dice
+							p = 0.5;
+						}
+
+						board[tx][ty].minRollRequired = minRollReq;
+						board[tx][ty].hitChance = (float)p;
+						board[tx][ty].hasTooltipInfo = true;
+						board[tx][ty].isAoeCenter = true;
+						board[tx][ty].aoeRadiusFeet = aoeFeet;
+					}
+				}
+
 				if (preview) {
 					board[tx][ty].isTargetPreview = true; // blue outline
 					board[tx][ty].hasTooltipInfo = true;
@@ -29174,10 +29497,17 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 			// If we have a valid target, start the AOE ring animation
 			if (aoeCenterTile.x >= 0 && !aoeRingRunning) {
 				activeAOERing.centerTile = aoeCenterTile;
-				activeAOERing.maxRadiusFeet = 20 + 3; // Max AOE radius (1d20 + 3)
+				// Derive radius from the active card's AOE dice if available
+				int aoeFeetForRing = 0;
+				if (card.aoeRadiusDiceNum > 0 && card.aoeRadiusDiceSides > 0) {
+					aoeFeetForRing = card.aoeRadiusDiceNum * card.aoeRadiusDiceSides;
+				} else {
+					aoeFeetForRing = 20; // fallback (1d20)
+				}
+				activeAOERing.maxRadiusFeet = aoeFeetForRing;
 				activeAOERing.startTime = ofGetElapsedTimef();
 				activeAOERing.duration = 1.5f;
-				activeAOERing.cardType = CARD_MAGIC_BOLT;
+				activeAOERing.cardType = card.type;
 			}
 		}
 
@@ -35262,9 +35592,6 @@ void ofApp::drawDraftScreen() {
 			draftOptions[i].textureRect.x, draftOptions[i].textureRect.y,
 			draftOptions[i].textureRect.width, draftOptions[i].textureRect.height);
 	}
-
-	// Draw active picked-card move animations (on top)
-	this->drawActiveDraftPickedMoves();
 
 	// Deck flash visual
 	if (deckFlashStartFrame > 0 && deckFlashOwnerIndex >= 0 && deckFlashOwnerIndex < (int)players.size()) {
