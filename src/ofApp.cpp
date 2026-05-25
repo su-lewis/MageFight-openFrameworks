@@ -23681,6 +23681,46 @@ bool ofApp::processEffectOp(EffectOp & op) {
 		break;
 	}
 
+	case EffectOpType::DISCARD_CARDS: {
+		int playerIndex = op.data.drawCards.playerIndex;
+		int numCards = op.data.drawCards.numCards;
+		if (playerIndex >= 0 && playerIndex < (int)players.size()) {
+			Player & target = players[playerIndex];
+			if (numCards <= 0) {
+				opComplete = true;
+				break;
+			}
+			// If discarding equal-or-more than hand size, move all to discard
+			if (numCards >= (int)target.hand.size()) {
+				for (auto & c : target.hand) {
+					c.playedThisTurn = true;
+					target.discardPile.push_back(c);
+				}
+				target.hand.clear();
+				queueFloatingTextVisual(gridToWorld(target.x, target.y), "Discarded All", ofColor::purple);
+				opComplete = true;
+				break;
+			}
+
+			// Deterministically pick `numCards` unique indices from hand using gameplay RNG
+			for (int i = 0; i < numCards; ++i) {
+				int handSize = (int)target.hand.size();
+				if (handSize == 0) break;
+				std::vector<int> raw;
+				int roll = resolveDiceRollDetailed(1, handSize, raw); // 1..handSize
+				int pick = std::max(1, std::min(handSize, roll)) - 1;
+				// Move selected card to discard
+				Card pickedCard = target.hand[pick];
+				pickedCard.playedThisTurn = true;
+				target.discardPile.push_back(pickedCard);
+				target.hand.erase(target.hand.begin() + pick);
+				queueFloatingTextVisual(gridToWorld(target.x, target.y), "-1 Card", ofColor::purple);
+			}
+		}
+		opComplete = true;
+		break;
+	}
+
 	case EffectOpType::MODIFY_STAT: {
 		int targetIndex = op.data.modifyStat.targetIndex;
 		int delta = op.data.modifyStat.delta;
@@ -24936,6 +24976,35 @@ void ofApp::processCardStateInput(int mouseX, int mouseY, int button) {
 bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int targetX, int targetY, bool & playedSuccessfully, CardPlayResult & immediateResult) {
 	immediateResult = CARD_NOT_PLAYABLE;
 	Player & currentPlayer = players[currentPlayerIndex];
+
+	// --- Phase 2: Centralized pre-play validation ---
+	// Resolve targetIndex (which player occupies target tile), for use by handlers
+	int resolvedTargetIndex = -1;
+	if (targetX >= 0 && targetX < BOARD_WIDTH && targetY >= 0 && targetY < BOARD_HEIGHT) {
+		for (size_t i = 0; i < players.size(); i++) {
+			if (players[i].x == targetX && players[i].y == targetY) {
+				resolvedTargetIndex = (int)i;
+				break;
+			}
+		}
+	}
+	currentCardOutcome.targetPlayerIndex = resolvedTargetIndex;
+
+	// Generic LOS / range validation: if the card requires a target and has a range dice definition,
+	// perform a deterministic visibility/range check here and abort early if invalid.
+	if (playedCard.targeting != TARGET_NONE) {
+		auto [rangeDiceNum, rangeDiceSides] = getCardRangeDice(playedCard);
+		if (rangeDiceNum > 0 && rangeDiceSides > 0) {
+			float maxRangeFeet = (float)(rangeDiceNum * rangeDiceSides);
+			glm::vec2 casterTile = { (float)currentPlayer.x, (float)currentPlayer.y };
+			glm::vec2 targetTile = { (float)targetX, (float)targetY };
+			TargetInfo validationResult = isLosTargetValid(casterTile, targetTile, maxRangeFeet, playedCard.type);
+			if (validationResult.reason != VALID && validationResult.reason != INVALID_SELF) {
+				// Invalid target — consume the play and do nothing further
+				return true;
+			}
+		}
+	}
 
 	switch (playedCard.type) {
 	case CARD_FOUR_LEAF_CLOVER: {
@@ -28077,10 +28146,219 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 		return true;
 	}
 
-	default:
-		// Card not found in centralized handler - log and fall back to legacy switch
+	default: {
+		// Generic data-driven fallback: resolve dice now, write to blackboard,
+		// and queue EffectOps for DAMAGE, HEAL, APPLY_STATUS, DRAW_CARDS, DISCARD_CARDS, REMOVE_TOP_CARD_FROM_DECK, etc.
+		bool handled = false;
+		int luckBonus = players[currentPlayerIndex].luck + computePassiveLuck(currentPlayerIndex);
+
+		auto [rangeNum, rangeSides] = getCardRangeDice(playedCard);
+		auto [dmgNum, dmgSides] = getCardDamageDice(playedCard);
+		auto [summonNum, summonSides] = getCardSummonDice(playedCard);
+		auto [utilNum, utilSides] = getCardUtilityDice(playedCard);
+		bool hasSummon = (summonNum > 0 && summonSides > 0);
+		bool hasUtility = (utilNum > 0 && utilSides > 0);
+		bool hasRange = (rangeNum > 0 && rangeSides > 0);
+		bool hasDamageDice = (dmgNum > 0 && dmgSides > 0);
+		bool hasFlatDamage = (playedCard.baseDamage > 0 || playedCard.value > 0);
+		bool hasHeal = (playedCard.healAmount > 0);
+		bool hasStatus = (playedCard.applyStatus != STATUS_NONE);
+		bool hasDraw = (playedCard.drawCount > 0);
+		bool hasDiscardHand = (playedCard.discardHandCount > 0);
+		bool hasDiscardDeck = (playedCard.discardDeckCount > 0);
+		bool hasAPGain = (playedCard.apGain > 0);
+
+		if (hasRange || hasDamageDice || hasFlatDamage || hasHeal || hasStatus || hasDraw || hasDiscardHand || hasDiscardDeck || hasAPGain) {
+			beginEffectSequence();
+			handled = true;
+
+			glm::vec3 visPos = gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.0f, 0);
+
+			// Slot 0 = range, Slot 1 = primary amount (damage/heal)
+			if (hasRange) {
+				std::vector<int> rawRange;
+				int rangeTotal = resolveDiceRollDetailed(rangeNum, rangeSides, rawRange);
+				if (rangeSides != 2) rangeTotal += rangeNum * luckBonus;
+				currentEffectSequence.blackboard[0] = rangeTotal;
+				queueVisualDiceRoll(visPos, rangeNum, rangeSides, rawRange, rangeTotal, PURPOSE_RANGE, currentPlayerIndex, 1.0f);
+				// If this card teleports, enter centralized teleport targeting via effect
+				if (playedCard.targeting == TARGET_EMPTY_TILE) {
+					EffectOp tel = {};
+					tel.type = EffectOpType::APPLY_TELEPORT;
+					queueEffect(tel);
+				}
+			}
+
+			if (hasUtility) {
+				std::vector<int> rawUtil;
+				int utilTotal = resolveDiceRollDetailed(utilNum, utilSides, rawUtil);
+				if (utilSides != 2) utilTotal += utilNum * luckBonus;
+				currentEffectSequence.blackboard[4] = utilTotal;
+				queueVisualDiceRoll(visPos, utilNum, utilSides, rawUtil, utilTotal, PURPOSE_DEBUG, currentPlayerIndex, 1.0f);
+			}
+
+			if (hasDamageDice) {
+				std::vector<int> rawDmg;
+				int dmgTotal = resolveDiceRollDetailed(dmgNum, dmgSides, rawDmg);
+				if (dmgSides != 2) dmgTotal += dmgNum * luckBonus;
+				dmgTotal += (playedCard.baseDamage > 0) ? playedCard.baseDamage : playedCard.value;
+				currentEffectSequence.blackboard[1] = dmgTotal;
+				queueVisualDiceRoll(visPos, dmgNum, dmgSides, rawDmg, dmgTotal, PURPOSE_DAMAGE, currentPlayerIndex, 1.0f);
+				if (resolvedTargetIndex != -1) {
+					EffectOp d = {};
+					d.type = EffectOpType::DAMAGE;
+					d.data.damage.targetIndex = resolvedTargetIndex;
+					d.data.damage.damageType = playedCard.damageType;
+					d.data.damage.fixedDamage = 0;
+					d.data.damage.damageFromSlot = 1; // read from blackboard[1]
+					queueEffect(d);
+				}
+			} else if (hasFlatDamage) {
+				int flat = (playedCard.baseDamage > 0) ? playedCard.baseDamage : playedCard.value;
+				currentEffectSequence.blackboard[1] = flat;
+				if (resolvedTargetIndex != -1) {
+					EffectOp d = {};
+					d.type = EffectOpType::DAMAGE;
+					d.data.damage.targetIndex = resolvedTargetIndex;
+					d.data.damage.damageType = playedCard.damageType;
+					d.data.damage.fixedDamage = 0;
+					d.data.damage.damageFromSlot = 1;
+					queueEffect(d);
+				}
+			}
+
+			if (hasHeal) {
+				currentEffectSequence.blackboard[1] = playedCard.healAmount;
+				if (resolvedTargetIndex != -1) {
+					EffectOp h = {};
+					h.type = EffectOpType::HEAL;
+					h.data.heal.targetIndex = resolvedTargetIndex;
+					h.data.heal.amount = 0;
+					h.data.heal.amountFromSlot = 1;
+					queueEffect(h);
+				}
+			}
+
+			if (hasStatus) {
+				if (resolvedTargetIndex != -1) {
+					EffectOp s = {};
+					s.type = EffectOpType::APPLY_STATUS;
+					s.data.status.targetIndex = resolvedTargetIndex;
+					s.data.status.statusType = playedCard.applyStatus;
+					s.data.status.duration = playedCard.statusDuration;
+					queueEffect(s);
+				}
+			}
+
+			if (hasDraw) {
+				EffectOp dr = {};
+				dr.type = EffectOpType::DRAW_CARDS;
+				dr.data.drawCards.playerIndex = currentPlayerIndex;
+				dr.data.drawCards.numCards = playedCard.drawCount;
+				queueEffect(dr);
+			}
+
+			if (hasDiscardHand) {
+				int target = (resolvedTargetIndex != -1) ? resolvedTargetIndex : currentPlayerIndex;
+				EffectOp op = {};
+				op.type = EffectOpType::DISCARD_CARDS;
+				op.data.drawCards.playerIndex = target;
+				op.data.drawCards.numCards = playedCard.discardHandCount;
+				queueEffect(op);
+			}
+
+			if (hasDiscardDeck) {
+				int target = (resolvedTargetIndex != -1) ? resolvedTargetIndex : currentPlayerIndex;
+				for (int i = 0; i < playedCard.discardDeckCount; ++i) {
+					EffectOp rm = {};
+					rm.type = EffectOpType::REMOVE_TOP_CARD_FROM_DECK;
+					rm.data.removeTopCard.targetIndex = target;
+					queueEffect(rm);
+				}
+			}
+
+			if (hasAPGain) {
+				EffectOp ap = {};
+				ap.type = EffectOpType::MODIFY_STAT;
+				ap.data.modifyStat.targetIndex = currentPlayerIndex;
+				ap.data.modifyStat.statType = 3; // AP
+				ap.data.modifyStat.delta = playedCard.apGain;
+				ap.data.modifyStat.deltaFromSlot = -1;
+				queueEffect(ap);
+				currentCardOutcome.apGained = playedCard.apGain;
+			}
+
+			// Summon handling: resolve HP/count and queue SPAWN_UNIT
+			if (hasSummon) {
+				std::vector<int> rawHp;
+				int hpRoll = resolveDiceRollDetailed(summonNum, summonSides, rawHp);
+				int finalHp = hpRoll + (summonNum * luckBonus);
+				// Use blackboard slot 2 for summon HP
+				currentEffectSequence.blackboard[2] = finalHp;
+				queueVisualDiceRoll(visPos, summonNum, summonSides, rawHp, finalHp, PURPOSE_SUMMON, currentPlayerIndex, 1.0f);
+
+				EffectOp spawnOp = {};
+				spawnOp.type = EffectOpType::SPAWN_UNIT;
+				spawnOp.data.spawnUnit.toX = targetX;
+				spawnOp.data.spawnUnit.toY = targetY;
+				// Map CardType -> summonKind (reuse existing mapping from createSummonedMinion)
+				switch (playedCard.type) {
+				case CARD_CALL_FOR_KOBOLDS:
+					spawnOp.data.spawnUnit.summonKind = 1;
+					break;
+				case CARD_CALL_FOR_WOLVES:
+					spawnOp.data.spawnUnit.summonKind = 2;
+					break;
+				case CARD_SUMMON_HELLHOUND:
+					spawnOp.data.spawnUnit.summonKind = 3;
+					break;
+				case CARD_SUMMON_DEMON:
+					spawnOp.data.spawnUnit.summonKind = 4;
+					break;
+				case CARD_SUMMON_KOBOLD_KING:
+					spawnOp.data.spawnUnit.summonKind = 5;
+					break;
+				case CARD_SUMMON_ASSISTANT:
+					spawnOp.data.spawnUnit.summonKind = 6;
+					break;
+				case CARD_SUMMON_FAERIE:
+					spawnOp.data.spawnUnit.summonKind = 7;
+					break;
+				case CARD_SUMMON_GOLEM:
+					spawnOp.data.spawnUnit.summonKind = 8;
+					break;
+				case CARD_RAISE_DEAD:
+					spawnOp.data.spawnUnit.summonKind = 9;
+					break;
+				case CARD_SUMMON_WALL:
+					spawnOp.data.spawnUnit.summonKind = 10;
+					break;
+				case CARD_SUMMON_MAGIC_WALL:
+					spawnOp.data.spawnUnit.summonKind = 11;
+					break;
+				default:
+					spawnOp.data.spawnUnit.summonKind = 1;
+					break;
+				}
+				spawnOp.data.spawnUnit.ownerPlayerID = currentPlayer.isMinion ? currentPlayer.ownerID : currentPlayer.playerID;
+				spawnOp.data.spawnUnit.summonerPlayerID = currentPlayer.playerID;
+				spawnOp.data.spawnUnit.maxHealth = 0;
+				spawnOp.data.spawnUnit.maxHealthFromSlot = 2;
+				spawnOp.data.spawnUnit.ap = 0;
+				queueEffect(spawnOp);
+			}
+
+			if (handled) {
+				playedSuccessfully = true;
+				advanceCardState(CARD_STATE_EFFECT_SEQUENCE);
+				return true;
+			}
+		}
+
+		// Not data-driven; fall back to legacy
 		ofLogWarning("CardExec") << "Centralized handler missing cardType=" << (int)playedCard.type << ", delegating to legacy path.";
 		return false;
+	}
 	}
 
 	// If we broke out of the switch (validation failed), return false to let legacy handle it
@@ -33354,6 +33632,18 @@ void ofApp::loadCardData(const std::string & filePath) {
 		newCard.statusEffectToApply = stringToStatusType(cardJson.value("statusEffectToApply", "STATUS_NONE"));
 		newCard.statusDuration = cardJson.value("statusDuration", 0);
 		newCard.healAmount = cardJson.value("healAmount", 0);
+
+		// Phase 1: parse new data-driven properties (backwards-compatible)
+		newCard.apGain = cardJson.value("apGain", 0);
+		newCard.drawCount = cardJson.value("drawCount", 0);
+		newCard.discardHandCount = cardJson.value("discardHandCount", 0);
+		newCard.discardDeckCount = cardJson.value("discardDeckCount", 0);
+		// prefer new "applyStatus" key if present, otherwise fall back to legacy "statusEffectToApply"
+		if (cardJson.contains("applyStatus"))
+			newCard.applyStatus = (StatusType)stringToStatusType(cardJson.value("applyStatus", "STATUS_NONE"));
+		else
+			newCard.applyStatus = (StatusType)newCard.statusEffectToApply;
+		newCard.isAoe = cardJson.value("isAoe", false);
 
 		// Parse Class (Default to 1 if missing)
 		newCard.cardClass = cardJson.value("class", 1);

@@ -99,6 +99,10 @@ enum TargetingType {
 	TARGET_ADJACENT_WALL
 };
 
+// Forward-declare StatusType so `struct Card` can reference it before the
+// full enum definition appears later in this header.
+enum StatusType : int;
+
 enum CardType {
 	CARD_NONE,
 	CARD_MOVE,
@@ -290,6 +294,15 @@ struct Card {
 	int healAmount = 0;
 	DamageType damageType = DAMAGE_PHYSICAL;
 	int cost = 1;
+
+	// Data-driven effect fields (Phase 1 additions)
+	int apGain = 0;
+	int drawCount = 0;
+	int discardHandCount = 0; // number of random cards to discard from hand
+	int discardDeckCount = 0; // number of top cards to burn from deck
+	StatusType applyStatus = (StatusType)0;
+	bool isAoe = false;
+
 	TargetingType targeting = TARGET_ANY_TILE;
 	bool drawnThisTurn = false; // Add this
 	bool playedThisTurn = false; // True if this specific card instance was played this turn
