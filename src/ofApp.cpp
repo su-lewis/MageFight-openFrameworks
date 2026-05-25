@@ -14609,6 +14609,8 @@ void ofApp::mousePressed(int x, int y, int button) {
 			// Schedule visual animations for the picked cards (clients and host)
 			{
 				float now = ofGetElapsedTimef();
+				float animCardW, animCardH, animSpacing, animStartX, animStartY;
+				getDraftCardMetrics(false, animCardW, animCardH, animSpacing, animStartX, animStartY);
 				// Determine pools based on current draft class
 				const std::vector<Card> * pool = &class1Cards;
 				if (currentDraftClassTier == 2) pool = &class2Cards;
@@ -14624,8 +14626,8 @@ void ofApp::mousePressed(int x, int y, int button) {
 						}
 					}
 					if (slot < 0) continue;
-					float cx = startX + static_cast<float>(slot) * (cardW + spacing);
-					glm::vec2 center(cx + cardW / 2.0f, startY + cardH / 2.0f);
+					float cx = animStartX + static_cast<float>(slot) * (animCardW + animSpacing);
+					glm::vec2 center(cx + animCardW / 2.0f, animStartY + animCardH / 2.0f);
 					DraftPickedMove mv;
 					mv.card = (*pool)[poolIdx];
 					mv.startFrame = (int)simulationFrame;
