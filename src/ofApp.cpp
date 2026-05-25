@@ -19268,10 +19268,11 @@ void ofApp::handleCardMenuClick(const std::string & buttonId) {
 
 					beginEffectSequence();
 					{
+						auto [handNum, handSides] = getCardDamageDice(caster.hand[interactingCardIndex], 2, 4);
 						std::vector<int> rawHand;
-						int handRoll = resolveDiceRollDetailed(2, 4, rawHand);
+						int handRoll = resolveDiceRollDetailed(handNum, handSides, rawHand);
 						currentEffectSequence.blackboard[0] = handRoll;
-						queueVisualDiceRoll(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.0f, 0), 2, 4, rawHand, handRoll, PURPOSE_MAGIC_HAND_DAMAGE, currentPlayerIndex, 1.0f);
+						queueVisualDiceRoll(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.0f, 0), handNum, handSides, rawHand, handRoll, PURPOSE_MAGIC_HAND_DAMAGE, currentPlayerIndex, 1.0f);
 					}
 
 					EffectOp applyOp = {};
@@ -26290,7 +26291,8 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 	case CARD_SHOOT_ARROW: {
 		glm::vec2 casterTile = { (float)currentPlayer.x, (float)currentPlayer.y };
 		glm::vec2 targetTile = { (float)targetX, (float)targetY };
-		float maxRange = 2.0f * 20.0f;
+		auto [shootRangeNum, shootRangeSides] = getCardRangeDice(playedCard, 2, 20);
+		float maxRange = (float)(shootRangeNum * shootRangeSides);
 
 		TargetInfo validationResult = isLosTargetValid(casterTile, targetTile, maxRange, playedCard.type);
 		if (validationResult.reason != VALID) return true;
@@ -26313,9 +26315,9 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 		{
 			{
 				std::vector<int> rawRange;
-				int rangeRoll = resolveDiceRollDetailed(2, 20, rawRange);
+				int rangeRoll = resolveDiceRollDetailed(shootRangeNum, shootRangeSides, rawRange);
 				currentEffectSequence.blackboard[0] = rangeRoll;
-				queueVisualDiceRoll(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.0f, 0), 2, 20, rawRange, rangeRoll, PURPOSE_RANGE, currentPlayerIndex, 1.0f);
+				queueVisualDiceRoll(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.0f, 0), shootRangeNum, shootRangeSides, rawRange, rangeRoll, PURPOSE_RANGE, currentPlayerIndex, 1.0f);
 			}
 			// Queue effect handler to resolve range/damage deterministically
 			EffectOp applyShoot = {};
@@ -26399,8 +26401,7 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 		glm::vec2 casterTile = { (float)currentPlayer.x, (float)currentPlayer.y };
 		glm::vec2 targetTile = { (float)targetX, (float)targetY };
 		// Fireball: choose target first, then resolve a 2d6 range roll for impact.
-		const int fireballRangeDiceNum = 2;
-		const int fireballRangeDiceSides = 6;
+		auto [fireballRangeDiceNum, fireballRangeDiceSides] = getCardRangeDice(playedCard, 2, 6);
 		float maxRange = (float)(fireballRangeDiceNum * fireballRangeDiceSides);
 
 		TargetInfo validationResult = isLosTargetValid(casterTile, targetTile, maxRange, playedCard.type);
@@ -26462,13 +26463,15 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 		queueVisualDiceRoll(visPos, rangeDiceNum, rangeDiceSides, rawRange, finalRangeTotal, PURPOSE_RANGE, currentPlayerIndex, 1.0f);
 
 		// Resolve damage at play-time and store for the effect pipeline
+		auto [chainDmgNum, chainDmgSides] = getCardDamageDice(playedCard, 1, 10);
 		std::vector<int> rawDamage;
-		int rawDmgSum = resolveDiceRollDetailed(1, 10, rawDamage);
-		int finalDamage = rawDmgSum + luckBonus;
+		int rawDmgSum = resolveDiceRollDetailed(chainDmgNum, chainDmgSides, rawDamage);
+		int finalDamage = rawDmgSum;
+		if (chainDmgSides != 2) finalDamage += chainDmgNum * luckBonus;
 		currentEffectSequence.blackboard[1] = finalDamage;
 
 		queueVisualDelay(1.2f); // Let range finish before showing damage
-		queueVisualDiceRoll(visPos + glm::vec3(0, 1.2f, 0), 1, 10, rawDamage, finalDamage, PURPOSE_DAMAGE, currentPlayerIndex, 1.0f);
+		queueVisualDiceRoll(visPos + glm::vec3(0, 1.2f, 0), chainDmgNum, chainDmgSides, rawDamage, finalDamage, PURPOSE_DAMAGE, currentPlayerIndex, 1.0f);
 		queueVisualDelay(1.2f);
 
 		// Delegate authoritative application to the effect pipeline

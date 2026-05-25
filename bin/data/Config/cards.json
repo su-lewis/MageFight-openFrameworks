@@ -154,8 +154,6 @@
     "cost": 1,
     "value": 0,
     "targeting": "TARGET_SELF",
-    "numDice": 0,
-    "diceSides": 0,
     "class": 2
   },
   {
@@ -165,8 +163,6 @@
     "cost": 4,
     "value": 0,
     "targeting": "TARGET_SELF",
-    "numDice": 0,
-    "diceSides": 0,
     "class": 2
   },
   {
@@ -177,8 +173,6 @@
     "value": 0,
     "targeting": "TARGET_ADJACENT_OR_SELF_UNIT",
     "damageType": "DAMAGE_MAGIC",
-    "numDice": 0,
-    "diceSides": 0,
     "class": 1
   },
   {
