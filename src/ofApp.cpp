@@ -4751,22 +4751,29 @@ void ofApp::update() {
 					// No PKT_DRAFT_STATE send needed here; both peers will generate drafts deterministically.
 					ofLogNotice("Initiative") << "Initiative: queued deterministic draft start for player " << draftPlayerIndex << " (no PKT_DRAFT_STATE sent).";
 				} else {
-					// TIE - Reroll visually; let the deterministic visual timer handle the transition
+					// TIE - perform authoritative rerolls at decision-time, record results, and queue effect
 					{
 						std::vector<int> raw1;
 						int r1 = resolveDiceRollDetailed(1, 6, raw1);
-						glm::vec3 vis1 = gridToWorld(3, 3);
-						if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) vis1 = gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.0f, 0);
-						queueVisualDiceRoll(vis1, 1, 6, raw1, r1, PURPOSE_DEBUG, currentPlayerIndex, 1.2f);
-
 						std::vector<int> raw2;
 						int r2 = resolveDiceRollDetailed(1, 6, raw2);
-						glm::vec3 vis2 = gridToWorld(3, 3);
-						if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) vis2 = gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.0f, 0);
-						queueVisualDiceRoll(vis2, 1, 6, raw2, r2, PURPOSE_DEBUG, currentPlayerIndex, 1.2f);
+
+						// Queue visuals for both rolls
+						glm::vec3 visPos = gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.0f, 0);
+						queueVisualDiceRoll(visPos, 1, 6, raw1, r1, PURPOSE_DEBUG, currentPlayerIndex, 1.2f);
+						queueVisualDiceRoll(visPos, 1, 6, raw2, r2, PURPOSE_DEBUG, currentPlayerIndex, 1.2f);
+
+						// Write authoritative reroll results into the current effect sequence blackboard
+						currentEffectSequence.blackboard[0] = r1;
+						currentEffectSequence.blackboard[1] = r2;
+
+						// Queue an APPLY_INITIATIVE_REROLL op so the effect pipeline consumes the authoritative results
+						EffectOp ap = {};
+						ap.type = EffectOpType::APPLY_INITIATIVE_REROLL;
+						queueEffect(ap);
 
 						initiativeTimer = 0.0f;
-						ofLogNotice("Initiative") << "Tie! Rerolling...";
+						ofLogNotice("Initiative") << "Tie! Rerolling (decision-time authoritative rolls queued)...";
 					}
 				}
 			}
@@ -13206,20 +13213,7 @@ void ofApp::mouseMoved(int x, int y) {
 			}
 			return false;
 		}()) {
-		currentCursor = CURSOR_CLICK;
-	}
-	if (overSingleplayerButton) currentCursor = CURSOR_CLICK;
-
-	// Check deck/discard hover for glow (for current player - works in both gameplay and drafting)
-	if (!players.empty() && currentPlayerIndex >= 0 && (currentState == STATE_GAMEPLAY || currentState == STATE_DRAFTING)) {
-		// Determine which deck rect belongs to the active player (works in singleplayer and multiplayer)
-		ofRectangle activeDeck = (players[currentPlayerIndex].playerID == 0) ? p0_deckRect : p1_deckRect;
-		ofRectangle activeDiscard = (players[currentPlayerIndex].playerID == 0) ? p0_discardRect : p1_discardRect;
-		if (activeDeck.inside(x, y)) {
-			newHoverType = HOVER_DECK;
-		} else if (activeDiscard.inside(x, y)) {
-			newHoverType = HOVER_DISCARD;
-		}
+		// (no-op placeholder for UI hit tests)
 	}
 
 	// 3. Check for "Draggable" things (Cards in hand)
@@ -22263,24 +22257,8 @@ bool ofApp::processEffectOp(EffectOp & op) {
 			// No PKT_DRAFT_STATE send needed here; both peers will generate drafts deterministically.
 			ofLogNotice("Initiative") << "Initiative: queued deterministic draft start for player " << draftPlayerIndex << " (no PKT_DRAFT_STATE sent).";
 		} else {
-			// Tie again — resolve rerolls immediately and queue the apply op
-			{
-				std::vector<int> raw1;
-				int v1 = resolveDiceRollDetailed(1, 6, raw1);
-				currentEffectSequence.blackboard[0] = v1;
-				queueVisualDiceRoll(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.0f, 0), 1, 6, raw1, v1, PURPOSE_DEBUG, currentPlayerIndex, 1.0f);
-			}
-			{
-				std::vector<int> raw2;
-				int v2 = resolveDiceRollDetailed(1, 6, raw2);
-				currentEffectSequence.blackboard[1] = v2;
-				queueVisualDiceRoll(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.0f, 0), 1, 6, raw2, v2, PURPOSE_DEBUG, currentPlayerIndex, 1.0f);
-			}
-
-			EffectOp ap = {};
-			ap.type = EffectOpType::APPLY_INITIATIVE_REROLL;
-			queueEffect(ap);
-			ofLogNotice("Initiative") << "Tie again — queuing reroll...";
+			// Tie: decision-time must perform rerolls. Do not call RNG here.
+			ofLogNotice("Initiative") << "Tie detected in APPLY_INITIATIVE_REROLL — awaiting decision-time reroll.";
 		}
 
 		opComplete = true;
