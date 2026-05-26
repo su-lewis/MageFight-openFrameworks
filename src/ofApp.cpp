@@ -2700,62 +2700,10 @@ void ofApp::applyDamageWithMitigationsQueued(Player & target, int baseDamage, Da
 	}
 }
 
-Player ofApp::createSummonedMinion(CardType type, int targetX, int targetY, const Player & caster, int turnCounter, int & nextSummonID) {
-	// Map CardType -> summonKind (canonical mapping used by SPAWN_UNIT)
-	int summonKind = 1; // default kobold
-	switch (type) {
-	case CARD_CALL_FOR_KOBOLDS:
-		summonKind = 1;
-		break;
-	case CARD_CALL_FOR_WOLVES:
-		summonKind = 2;
-		break;
-	case CARD_SUMMON_HELLHOUND:
-		summonKind = 3;
-		break;
-	case CARD_SUMMON_DEMON:
-		summonKind = 4;
-		break;
-	case CARD_SUMMON_KOBOLD_KING:
-		summonKind = 5;
-		break;
-	case CARD_SUMMON_ASSISTANT:
-		summonKind = 6;
-		break;
-	case CARD_SUMMON_FAERIE:
-		summonKind = 7;
-		break;
-	case CARD_SUMMON_GOLEM:
-		summonKind = 8;
-		break;
-	case CARD_RAISE_DEAD:
-		summonKind = 9;
-		break;
-	case CARD_SUMMON_WALL:
-		summonKind = 10;
-		break;
-	case CARD_SUMMON_MAGIC_WALL:
-		summonKind = 11;
-		break;
-	default:
-		summonKind = 1;
-		break;
-	}
-
-	int ownerID = caster.isMinion ? caster.ownerID : caster.playerID;
-	int summonerID = caster.playerID;
-	Player * p = spawnMinionDeterministically(summonKind, targetX, targetY, ownerID, 0, 0, summonerID);
-	if (p) return *p;
-
-	// Fallback: mirror previous lightweight constructor if spawn failed
-	Player minion = initMinionFromKind(summonKind, ownerID, 0, 0, summonerID);
-	minion.playerID = nextSummonID++;
-	minion.x = targetX;
-	minion.y = targetY;
-	minion.summonedOnTurnCycle = turnCounter;
-	minion.summonOrder = ++nextSummonOrder;
-	return minion;
-}
+// Legacy helper `createSummonedMinion` removed — use data-driven SPAWN_UNIT
+// and `spawnMinionDeterministically` directly. Kept removal minimal to avoid
+// changing external behavior; spawnMinionDeterministically remains the
+// authoritative path for deterministic minion creation.
 
 // Centralized deterministic minion spawn helper. Mirrors the previous SPAWN_UNIT
 // logic but is callable from multiple codepaths to ensure identical state.
@@ -25387,52 +25335,124 @@ bool ofApp::executeCardGeneric(const Card & playedCard, int cardIndex, int targe
 		spawnOp.data.spawnUnit.toX = targetX;
 		spawnOp.data.spawnUnit.toY = targetY;
 		// Determine summonKind: prefer a data-driven field if present, otherwise map from CardType
-		int mappedSummonKind = 1;
-		switch (playedCard.type) {
-		case CARD_CALL_FOR_KOBOLDS:
-			mappedSummonKind = 1;
-			break;
-		case CARD_CALL_FOR_WOLVES:
-			mappedSummonKind = 2;
-			break;
-		case CARD_SUMMON_HELLHOUND:
-			mappedSummonKind = 3;
-			break;
-		case CARD_SUMMON_DEMON:
-			mappedSummonKind = 4;
-			break;
-		case CARD_SUMMON_KOBOLD_KING:
-			mappedSummonKind = 5;
-			break;
-		case CARD_SUMMON_ASSISTANT:
-			mappedSummonKind = 6;
-			break;
-		case CARD_SUMMON_FAERIE:
-			mappedSummonKind = 7;
-			break;
-		case CARD_SUMMON_GOLEM:
-			mappedSummonKind = 8;
-			break;
-		case CARD_RAISE_DEAD:
-			mappedSummonKind = 9;
-			break;
-		case CARD_SUMMON_WALL:
-			mappedSummonKind = 10;
-			break;
-		case CARD_SUMMON_MAGIC_WALL:
-			mappedSummonKind = 11;
-			break;
-		default:
-			mappedSummonKind = 1;
-			break;
-		}
+		int mappedSummonKind = playedCard.summonKind;
+		if (mappedSummonKind <= 0) switch (playedCard.type) {
+			case CARD_CALL_FOR_KOBOLDS:
+				mappedSummonKind = 1;
+				break;
+			case CARD_CALL_FOR_WOLVES:
+				mappedSummonKind = 2;
+				break;
+			case CARD_SUMMON_HELLHOUND:
+				mappedSummonKind = 3;
+				break;
+			case CARD_SUMMON_DEMON:
+				mappedSummonKind = 4;
+				break;
+			case CARD_SUMMON_KOBOLD_KING:
+				mappedSummonKind = 5;
+				break;
+			case CARD_SUMMON_GOLEM:
+				mappedSummonKind = 8;
+				break;
+			case CARD_RAISE_DEAD:
+				mappedSummonKind = 9;
+				break;
+			case CARD_SUMMON_WALL:
+				mappedSummonKind = 10;
+				break;
+			case CARD_SUMMON_MAGIC_WALL:
+				mappedSummonKind = 11;
+				break;
+			default:
+				mappedSummonKind = 1;
+				break;
+			}
 		spawnOp.data.spawnUnit.summonKind = mappedSummonKind;
 		spawnOp.data.spawnUnit.ownerPlayerID = currentPlayer.isMinion ? currentPlayer.ownerID : currentPlayer.playerID;
 		spawnOp.data.spawnUnit.summonerPlayerID = currentPlayer.playerID;
 		spawnOp.data.spawnUnit.maxHealth = 0;
+		spawnOp.data.spawnUnit.maxHealth = 0;
 		spawnOp.data.spawnUnit.maxHealthFromSlot = 2;
+
+		// Data-driven overrides: variants (e.g., Golem) or HP derivation (e.g., Kobold King)
+		if (!playedCard.variantDefs.is_null() && playedCard.variantDefs.is_array() && !playedCard.variantDefs.empty()) {
+			int selectedVariant = 0;
+			for (size_t vi = 0; vi < playedCard.variantDefs.size(); ++vi) {
+				auto v = playedCard.variantDefs[vi];
+				if (v.contains("triggerCards") && v["triggerCards"].is_array()) {
+					for (const auto & ts : v["triggerCards"]) {
+						CardType t = stringToCardType(ts.get<std::string>());
+						for (CardType played : currentPlayer.cardsPlayedThisTurn) {
+							if (played == t) {
+								selectedVariant = (int)vi;
+								goto VARIANT_SELECTED;
+							}
+						}
+					}
+				}
+			}
+		VARIANT_SELECTED:;
+			spawnOp.data.spawnUnit.variant = selectedVariant;
+			// If variant defines hp dice, roll them into blackboard[1] and use that slot
+			auto chosen = playedCard.variantDefs[selectedVariant];
+			if (chosen.contains("hpDiceNum") && chosen.contains("hpDiceSides")) {
+				int hpNum = chosen.value("hpDiceNum", 0);
+				int hpSides = chosen.value("hpDiceSides", 0);
+				std::vector<int> rawHp;
+				int hpRoll = resolveDiceRollDetailed(hpNum, hpSides, rawHp);
+				int luckBonus = players[currentPlayerIndex].luck + computePassiveLuck(currentPlayerIndex);
+				if (hpSides != 2) hpRoll += hpNum * luckBonus;
+				currentEffectSequence.blackboard[1] = hpRoll;
+				queueVisualDiceRoll(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.0f, 0), hpNum, hpSides, rawHp, hpRoll, PURPOSE_SUMMON, currentPlayerIndex, 1.0f);
+				spawnOp.data.spawnUnit.maxHealthFromSlot = 1;
+			}
+			// If variant specifies deck additions, queue them for the spawned unit
+			if (chosen.contains("deckAdds") && chosen["deckAdds"].is_array()) {
+				for (const auto & dc : chosen["deckAdds"]) {
+					EffectOp addOp = {};
+					addOp.type = EffectOpType::ADD_CARD_TO_DECK;
+					addOp.data.addCard.targetIndex = -1; // resolved to spawned unit
+					addOp.data.addCard.cardType = (int)stringToCardType(dc.get<std::string>());
+					queueEffect(addOp);
+				}
+			}
+		} else if (!playedCard.hpDerivedFromUnitType.empty()) {
+			// Example: Kobold King derives HP from number of living kobolds + add
+			int derived = 0;
+			if (playedCard.hpDerivedFromUnitType == "KOBOLD") {
+				for (const auto & p : players)
+					if (p.isKobold && p.health > 0) derived++;
+			}
+			derived += playedCard.hpDerivedAdd;
+			if (derived < 1) derived = 1;
+			currentEffectSequence.blackboard[2] = derived;
+			spawnOp.data.spawnUnit.maxHealthFromSlot = 2;
+		}
 		spawnOp.data.spawnUnit.ap = 0;
 		queueEffect(spawnOp);
+
+		// Special-case: If this is Raise Dead, steal one random card from the grave at the target tile (if recent)
+		if (playedCard.type == CARD_RAISE_DEAD) {
+			for (auto & grave : graveyard) {
+				if (grave.x == targetX && grave.y == targetY && grave.turnDied >= globalTurnCounter - 1) {
+					if (!grave.deck.empty()) {
+						std::vector<int> rawSteal;
+						int stealIdx = resolveDiceRollDetailed(1, (int)grave.deck.size(), rawSteal) - 1;
+						stealIdx = std::max(0, std::min((int)grave.deck.size() - 1, stealIdx));
+						Card stolenCard = grave.deck[stealIdx];
+						grave.deck.erase(grave.deck.begin() + stealIdx);
+						EffectOp stealOp = {};
+						stealOp.type = EffectOpType::ADD_CARD_TO_DECK;
+						stealOp.data.addCard.targetIndex = -1; // resolved to spawned unit by SPAWN_UNIT
+						stealOp.data.addCard.cardType = (int)stolenCard.type;
+						queueEffect(stealOp);
+						ofLogNotice("Raise Dead") << "Skeleton stole " << stolenCard.name << " from graveyard!";
+						break;
+					}
+				}
+			}
+		}
 	}
 
 	// Special-case: Rock Crush can either destroy a wall or act as a single-target attack (uses APPLY_ATTACK)
@@ -25529,7 +25549,7 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 	}
 
 	// Delegate simple data-driven cards to generic handler to simplify switch body
-	if (playedCard.type == CARD_PUNCH || playedCard.type == CARD_KICK || playedCard.type == CARD_BASH || playedCard.type == CARD_FLAME_HIT || playedCard.type == CARD_ROCK_CRUSH || playedCard.type == CARD_CALL_FOR_KOBOLDS || playedCard.type == CARD_SUMMON_ASSISTANT || playedCard.type == CARD_SUMMON_FAERIE || playedCard.type == CARD_SUMMON_GOLEM || playedCard.type == CARD_SUMMON_WALL || playedCard.type == CARD_SUMMON_MAGIC_WALL || playedCard.type == CARD_SUMMON_KOBOLD_KING) {
+	if (playedCard.type == CARD_PUNCH || playedCard.type == CARD_KICK || playedCard.type == CARD_BASH || playedCard.type == CARD_FLAME_HIT || playedCard.type == CARD_ROCK_CRUSH || playedCard.type == CARD_CALL_FOR_KOBOLDS || playedCard.type == CARD_SUMMON_ASSISTANT || playedCard.type == CARD_SUMMON_WALL || playedCard.type == CARD_SUMMON_MAGIC_WALL) {
 		if (executeCardGeneric(playedCard, cardIndex, targetX, targetY, playedSuccessfully, immediateResult)) return true;
 	}
 
@@ -26183,8 +26203,9 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 	case CARD_MAGIC_BOLT: {
 		auto [rangeDiceNum, rangeDiceSides] = getCardRangeDice(playedCard, 2, 20);
 		float maxRangeFeet = (float)(rangeDiceNum * rangeDiceSides);
-		glm::vec2 cPos((float)currentPlayer.x, (float)currentPlayer.y);
-		glm::vec2 tPos((float)targetX, (float)targetY);
+		// Use tile-center positions for Magic Bolt calculations
+		glm::vec2 cPos((float)currentPlayer.x + 0.5f, (float)currentPlayer.y + 0.5f);
+		glm::vec2 tPos((float)targetX + 0.5f, (float)targetY + 0.5f);
 		float distFeet = getFaceToFaceDistance(cPos, tPos) * 5.0f;
 		if (distFeet > maxRangeFeet + 3.0f) return true;
 
@@ -26249,7 +26270,7 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 				glm::vec2 dir = interactionTargetTile - cPos;
 				if (glm::length(dir) > 0) dir = glm::normalize(dir);
 				bool hitWall = false;
-				std::vector<glm::vec2> path = getLineOfSightPath(cPos + 0.5f, interactionTargetTile + 0.5f);
+				std::vector<glm::vec2> path = getLineOfSightPath(cPos, interactionTargetTile + 0.5f);
 				for (const auto & step : path) {
 					float distToStep = getFaceToFaceDistance(cPos, step);
 					if (distToStep > (float)rangeTotal / 5.0f) break;
@@ -27981,72 +28002,17 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 	case CARD_SUMMON_WALL:
 	case CARD_SUMMON_MAGIC_WALL:
 	case CARD_CREATE_WALL: {
-		beginEffectSequence();
-		// Queue EffectOp for wall creation
-		EffectOp createWallOp = {};
-		createWallOp.type = EffectOpType::CREATE_WALL;
-		createWallOp.data.createWall.x = targetX;
-		createWallOp.data.createWall.y = targetY;
-		createWallOp.data.createWall.isMagic = (playedCard.type == CARD_SUMMON_MAGIC_WALL);
-		queueEffect(createWallOp);
-
-		playedSuccessfully = true;
-		advanceCardState(CARD_STATE_EFFECT_SEQUENCE);
-		return true;
+		// Validate target tile is empty and not a wall, then delegate to generic handler
+		if (targetX < 0 || targetX >= BOARD_WIDTH || targetY < 0 || targetY >= BOARD_HEIGHT) return true;
+		if (board[targetX][targetY].hasWall || board[targetX][targetY].hasPlayer) return true;
+		return executeCardGeneric(playedCard, cardIndex, targetX, targetY, playedSuccessfully, immediateResult);
 	}
 
 	case CARD_RAISE_DEAD: {
+		// Validate and delegate to generic handler (special-case steal handled inside generic path)
+		if (targetX < 0 || targetX >= BOARD_WIDTH || targetY < 0 || targetY >= BOARD_HEIGHT) return true;
 		if (board[targetX][targetY].hasWall || board[targetX][targetY].hasPlayer) return true;
-		beginEffectSequence();
-
-		// Queue SPAWN_UNIT EffectOp for Skeleton
-		EffectOp spawnSkeletonOp = {};
-		spawnSkeletonOp.type = EffectOpType::SPAWN_UNIT;
-		spawnSkeletonOp.data.spawnUnit.toX = targetX;
-		spawnSkeletonOp.data.spawnUnit.toY = targetY;
-		spawnSkeletonOp.data.spawnUnit.summonKind = 9; // SKELETON
-		spawnSkeletonOp.data.spawnUnit.ownerPlayerID = currentPlayer.isMinion ? currentPlayer.ownerID : currentPlayer.playerID;
-		spawnSkeletonOp.data.spawnUnit.summonerPlayerID = currentPlayer.playerID;
-		// Queue authoritative roll for skeleton HP and reference via blackboard slot 0
-		{
-			std::vector<int> rawHp;
-			int hpRoll = resolveDiceRollDetailed(1, 6, rawHp);
-			int luckBonus = players[currentPlayerIndex].luck + computePassiveLuck(currentPlayerIndex);
-			int finalHp = hpRoll + luckBonus; // 1d6 + luck per die
-			currentEffectSequence.blackboard[0] = finalHp;
-			queueVisualDiceRoll(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.0f, 0), 1, 6, rawHp, finalHp, PURPOSE_SUMMON, currentPlayerIndex, 1.0f);
-		}
-		spawnSkeletonOp.data.spawnUnit.maxHealth = 0;
-		spawnSkeletonOp.data.spawnUnit.maxHealthFromSlot = 0;
-		spawnSkeletonOp.data.spawnUnit.ap = 0;
-		queueEffect(spawnSkeletonOp);
-
-		// If something died here recently, steal one random card from that grave deck.
-		for (auto & grave : graveyard) {
-			if (grave.x == targetX && grave.y == targetY && grave.turnDied >= globalTurnCounter - 1) {
-				if (!grave.deck.empty()) {
-					std::vector<int> rawSteal;
-					int stealIdx = resolveDiceRollDetailed(1, (int)grave.deck.size(), rawSteal) - 1;
-					stealIdx = std::max(0, std::min((int)grave.deck.size() - 1, stealIdx));
-
-					Card stolenCard = grave.deck[stealIdx];
-					grave.deck.erase(grave.deck.begin() + stealIdx);
-
-					EffectOp stealOp = {};
-					stealOp.type = EffectOpType::ADD_CARD_TO_DECK;
-					stealOp.data.addCard.targetIndex = -1; // resolved by SPAWN_UNIT to that new skeleton
-					stealOp.data.addCard.cardType = (int)stolenCard.type;
-					queueEffect(stealOp);
-
-					ofLogNotice("Raise Dead") << "Skeleton stole " << stolenCard.name << " from graveyard!";
-					break;
-				}
-			}
-		}
-
-		playedSuccessfully = true;
-		advanceCardState(CARD_STATE_EFFECT_SEQUENCE);
-		return true;
+		return executeCardGeneric(playedCard, cardIndex, targetX, targetY, playedSuccessfully, immediateResult);
 	}
 
 	case CARD_FORM_OF_TORTOISE: {
@@ -28202,63 +28168,17 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 		spawnKoboldKingOp.type = EffectOpType::SPAWN_UNIT;
 		spawnKoboldKingOp.data.spawnUnit.toX = targetX;
 		spawnKoboldKingOp.data.spawnUnit.toY = targetY;
-		spawnKoboldKingOp.data.spawnUnit.summonKind = 5; // KOBOLD_KING
+		spawnKoboldKingOp.data.spawnUnit.summonKind = playedCard.summonKind ? playedCard.summonKind : 5; // KOBOLD_KING
 		spawnKoboldKingOp.data.spawnUnit.ownerPlayerID = currentPlayer.isMinion ? currentPlayer.ownerID : currentPlayer.playerID;
-		spawnKoboldKingOp.data.spawnUnit.maxHealth = kingHP;
+		// Store authoritative king HP in blackboard slot 2 and reference from spawn op
+		currentEffectSequence.blackboard[2] = kingHP;
+		spawnKoboldKingOp.data.spawnUnit.maxHealth = 0;
+		spawnKoboldKingOp.data.spawnUnit.maxHealthFromSlot = 2;
 		spawnKoboldKingOp.data.spawnUnit.ap = 0;
 		spawnKoboldKingOp.data.spawnUnit.summonerPlayerID = currentPlayer.isMinion ? currentPlayer.ownerID : currentPlayer.playerID;
 		queueEffect(spawnKoboldKingOp);
 
 		// Deck setup is handled intrinsically by initMinionFromKind for Kobold King.
-
-		playedSuccessfully = true;
-		advanceCardState(CARD_STATE_EFFECT_SEQUENCE);
-		return true;
-	}
-
-	case CARD_SUMMON_ASSISTANT: {
-		if (board[targetX][targetY].hasWall || board[targetX][targetY].hasPlayer) break;
-		beginEffectSequence();
-
-		// In multiplayer, the Host is authoritative for placement; clients still
-		// run the local visual/cleanup path and wait for the Host packet to finalize.
-
-		// 1. Create Unit via EffectOp
-		EffectOp spawnAssistantOp = {};
-		spawnAssistantOp.type = EffectOpType::SPAWN_UNIT;
-		spawnAssistantOp.data.spawnUnit.toX = targetX;
-		spawnAssistantOp.data.spawnUnit.toY = targetY;
-		spawnAssistantOp.data.spawnUnit.summonKind = 6; // ASSISTANT
-		spawnAssistantOp.data.spawnUnit.ownerPlayerID = currentPlayer.isMinion ? currentPlayer.ownerID : currentPlayer.playerID;
-		spawnAssistantOp.data.spawnUnit.maxHealth = 1;
-		spawnAssistantOp.data.spawnUnit.ap = 0;
-		spawnAssistantOp.data.spawnUnit.summonerPlayerID = currentPlayer.playerID;
-		queueEffect(spawnAssistantOp);
-
-		// Deck setup is handled intrinsically by initMinionFromKind for Assistant.
-
-		playedSuccessfully = true;
-		advanceCardState(CARD_STATE_EFFECT_SEQUENCE);
-		return true;
-	}
-
-	case CARD_SUMMON_FAERIE: {
-		if (board[targetX][targetY].hasWall || board[targetX][targetY].hasPlayer) break;
-		beginEffectSequence();
-
-		// 1. Create Faerie Unit via EffectOp
-		EffectOp spawnFaerieOp = {};
-		spawnFaerieOp.type = EffectOpType::SPAWN_UNIT;
-		spawnFaerieOp.data.spawnUnit.toX = targetX;
-		spawnFaerieOp.data.spawnUnit.toY = targetY;
-		spawnFaerieOp.data.spawnUnit.summonKind = 7; // FAERIE
-		spawnFaerieOp.data.spawnUnit.ownerPlayerID = currentPlayer.isMinion ? currentPlayer.ownerID : currentPlayer.playerID;
-		spawnFaerieOp.data.spawnUnit.maxHealth = 5;
-		spawnFaerieOp.data.spawnUnit.ap = 0;
-		spawnFaerieOp.data.spawnUnit.summonerPlayerID = currentPlayer.playerID;
-		queueEffect(spawnFaerieOp);
-
-		// Deck setup is handled intrinsically by initMinionFromKind for Faerie.
 
 		playedSuccessfully = true;
 		advanceCardState(CARD_STATE_EFFECT_SEQUENCE);
@@ -28284,7 +28204,7 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 		spawnGolemOp.type = EffectOpType::SPAWN_UNIT;
 		spawnGolemOp.data.spawnUnit.toX = targetX;
 		spawnGolemOp.data.spawnUnit.toY = targetY;
-		spawnGolemOp.data.spawnUnit.summonKind = 8; // GOLEM
+		spawnGolemOp.data.spawnUnit.summonKind = playedCard.summonKind ? playedCard.summonKind : 8; // GOLEM
 		spawnGolemOp.data.spawnUnit.ownerPlayerID = currentPlayer.isMinion ? currentPlayer.ownerID : currentPlayer.playerID;
 		spawnGolemOp.data.spawnUnit.summonerPlayerID = currentPlayer.playerID;
 
@@ -28541,19 +28461,8 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 		return true;
 	}
 
-	case CARD_SUMMON_HELLHOUND: {
-		// Validate target tile is empty and not a wall, then delegate to generic handler
-		if (targetX < 0 || targetX >= BOARD_WIDTH || targetY < 0 || targetY >= BOARD_HEIGHT) return true;
-		if (board[targetX][targetY].hasWall || board[targetX][targetY].hasPlayer) return true;
-		return executeCardGeneric(playedCard, cardIndex, targetX, targetY, playedSuccessfully, immediateResult);
-	}
-
-	case CARD_SUMMON_DEMON: {
-		// Validate target tile is empty and not a wall, then delegate to generic handler
-		if (targetX < 0 || targetX >= BOARD_WIDTH || targetY < 0 || targetY >= BOARD_HEIGHT) return true;
-		if (board[targetX][targetY].hasWall || board[targetX][targetY].hasPlayer) return true;
-		return executeCardGeneric(playedCard, cardIndex, targetX, targetY, playedSuccessfully, immediateResult);
-	}
+		// Summon-specific cases that now route through the generic handler were removed
+		// to allow the centralized data-driven fallback to handle these types.
 
 	default: {
 		// Generic data-driven fallback: resolve dice now, write to blackboard,
@@ -28710,45 +28619,48 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 				spawnOp.type = EffectOpType::SPAWN_UNIT;
 				spawnOp.data.spawnUnit.toX = targetX;
 				spawnOp.data.spawnUnit.toY = targetY;
-				// Map CardType -> summonKind (reuse existing mapping from createSummonedMinion)
-				switch (playedCard.type) {
-				case CARD_CALL_FOR_KOBOLDS:
-					spawnOp.data.spawnUnit.summonKind = 1;
-					break;
-				case CARD_CALL_FOR_WOLVES:
-					spawnOp.data.spawnUnit.summonKind = 2;
-					break;
-				case CARD_SUMMON_HELLHOUND:
-					spawnOp.data.spawnUnit.summonKind = 3;
-					break;
-				case CARD_SUMMON_DEMON:
-					spawnOp.data.spawnUnit.summonKind = 4;
-					break;
-				case CARD_SUMMON_KOBOLD_KING:
-					spawnOp.data.spawnUnit.summonKind = 5;
-					break;
-				case CARD_SUMMON_ASSISTANT:
-					spawnOp.data.spawnUnit.summonKind = 6;
-					break;
-				case CARD_SUMMON_FAERIE:
-					spawnOp.data.spawnUnit.summonKind = 7;
-					break;
-				case CARD_SUMMON_GOLEM:
-					spawnOp.data.spawnUnit.summonKind = 8;
-					break;
-				case CARD_RAISE_DEAD:
-					spawnOp.data.spawnUnit.summonKind = 9;
-					break;
-				case CARD_SUMMON_WALL:
-					spawnOp.data.spawnUnit.summonKind = 10;
-					break;
-				case CARD_SUMMON_MAGIC_WALL:
-					spawnOp.data.spawnUnit.summonKind = 11;
-					break;
-				default:
-					spawnOp.data.spawnUnit.summonKind = 1;
-					break;
-				}
+				// Prefer data-driven summonKind, with legacy fallback for older cards.
+				if (playedCard.summonKind > 0) {
+					spawnOp.data.spawnUnit.summonKind = playedCard.summonKind;
+				} else
+					switch (playedCard.type) {
+					case CARD_CALL_FOR_KOBOLDS:
+						spawnOp.data.spawnUnit.summonKind = 1;
+						break;
+					case CARD_CALL_FOR_WOLVES:
+						spawnOp.data.spawnUnit.summonKind = 2;
+						break;
+					case CARD_SUMMON_HELLHOUND:
+						spawnOp.data.spawnUnit.summonKind = 3;
+						break;
+					case CARD_SUMMON_DEMON:
+						spawnOp.data.spawnUnit.summonKind = 4;
+						break;
+					case CARD_SUMMON_KOBOLD_KING:
+						spawnOp.data.spawnUnit.summonKind = 5;
+						break;
+					case CARD_SUMMON_ASSISTANT:
+						spawnOp.data.spawnUnit.summonKind = 6;
+						break;
+					case CARD_SUMMON_FAERIE:
+						spawnOp.data.spawnUnit.summonKind = 7;
+						break;
+					case CARD_SUMMON_GOLEM:
+						spawnOp.data.spawnUnit.summonKind = 8;
+						break;
+					case CARD_RAISE_DEAD:
+						spawnOp.data.spawnUnit.summonKind = 9;
+						break;
+					case CARD_SUMMON_WALL:
+						spawnOp.data.spawnUnit.summonKind = 10;
+						break;
+					case CARD_SUMMON_MAGIC_WALL:
+						spawnOp.data.spawnUnit.summonKind = 11;
+						break;
+					default:
+						spawnOp.data.spawnUnit.summonKind = 1;
+						break;
+					}
 				spawnOp.data.spawnUnit.ownerPlayerID = currentPlayer.isMinion ? currentPlayer.ownerID : currentPlayer.playerID;
 				spawnOp.data.spawnUnit.summonerPlayerID = currentPlayer.playerID;
 				spawnOp.data.spawnUnit.maxHealth = 0;
@@ -29479,9 +29391,6 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 
 		// Start expanding AOE ring animation for Magic Bolt
 		if (card.type == CARD_MAGIC_BOLT) {
-			float aoeElapsed = ofGetElapsedTimef() - activeAOERing.startTime;
-			bool aoeRingRunning = (activeAOERing.centerTile.x >= 0 && activeAOERing.centerTile.y >= 0 && aoeElapsed < activeAOERing.duration);
-
 			// Find first valid target to use as center for AOE preview
 			glm::ivec2 aoeCenterTile(-1, -1);
 			for (int tx = 0; tx < BOARD_WIDTH; ++tx) {
@@ -29494,20 +29403,24 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 				if (aoeCenterTile.x >= 0) break;
 			}
 
-			// If we have a valid target, start the AOE ring animation
-			if (aoeCenterTile.x >= 0 && !aoeRingRunning) {
-				activeAOERing.centerTile = aoeCenterTile;
-				// Derive radius from the active card's AOE dice if available
-				int aoeFeetForRing = 0;
-				if (card.aoeRadiusDiceNum > 0 && card.aoeRadiusDiceSides > 0) {
-					aoeFeetForRing = card.aoeRadiusDiceNum * card.aoeRadiusDiceSides;
-				} else {
-					aoeFeetForRing = 20; // fallback (1d20)
+			// If we have a valid target, spawn a new preview ring on the 2-second cadence.
+			if (aoeCenterTile.x >= 0) {
+				float now = ofGetElapsedTimef();
+				if (now - lastMagicBoltAOERingSpawnTime >= 2.0f) {
+					ExpandingAOERing ring;
+					ring.centerTile = aoeCenterTile;
+					// Derive radius from the active card's AOE dice if available
+					if (card.aoeRadiusDiceNum > 0 && card.aoeRadiusDiceSides > 0) {
+						ring.maxRadiusFeet = card.aoeRadiusDiceNum * card.aoeRadiusDiceSides;
+					} else {
+						ring.maxRadiusFeet = 20; // fallback (1d20)
+					}
+					ring.startTime = now;
+					ring.duration = 1.5f;
+					ring.cardType = card.type;
+					activeMagicBoltAOERings.push_back(ring);
+					lastMagicBoltAOERingSpawnTime = now;
 				}
-				activeAOERing.maxRadiusFeet = aoeFeetForRing;
-				activeAOERing.startTime = ofGetElapsedTimef();
-				activeAOERing.duration = 1.5f;
-				activeAOERing.cardType = card.type;
 			}
 		}
 
@@ -29623,7 +29536,10 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 					float maxRadiusFeet = 40.0f;
 
 					// 2. Center-origin rule: center-to-center minus half tile (2.5ft), rounded down.
-					float centerDistFeet = glm::distance(casterPos, targetPos) * 5.0f;
+					// Use caster/tile CENTER for Psionic Wave distance calculations
+					glm::vec2 casterCenter = glm::vec2((float)px + 0.5f, (float)py + 0.5f);
+					glm::vec2 targetCenter = glm::vec2((float)x + 0.5f, (float)y + 0.5f);
+					float centerDistFeet = glm::distance(casterCenter, targetCenter) * 5.0f;
 					float neededFeetRaw = std::max(0.0f, centerDistFeet - 2.5f);
 					int neededFeet = (int)floor(neededFeetRaw + 1e-4f);
 
@@ -29813,7 +29729,7 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 					}
 					// 3. Standard Summoning / Creation (Must be empty)
 					// ADD CARD_SUMMON_KOBOLD_KING TO THIS LIST:
-					else if (card.type == CARD_CALL_FOR_WOLVES || card.type == CARD_SUMMON_GOLEM || card.type == CARD_RAISE_DEAD || card.type == CARD_CREATE_WALL || card.type == CARD_SUMMON_WALL || card.type == CARD_SUMMON_MAGIC_WALL || card.type == CARD_SUMMON_HELLHOUND || card.type == CARD_SUMMON_DEMON || card.type == CARD_SUMMON_KOBOLD_KING || card.type == CARD_SUMMON_ASSISTANT || card.type == CARD_SUMMON_FAERIE) // <--- Add this
+					else if (card.type == CARD_CALL_FOR_WOLVES || card.type == CARD_SUMMON_GOLEM || card.type == CARD_RAISE_DEAD || card.type == CARD_CREATE_WALL || card.type == CARD_SUMMON_WALL || card.type == CARD_SUMMON_MAGIC_WALL || card.type == CARD_SUMMON_HELLHOUND || card.type == CARD_SUMMON_DEMON || card.type == CARD_SUMMON_KOBOLD_KING || card.type == CARD_SUMMON_ASSISTANT) // <--- Add this
 					{
 						if (!board[x][y].hasWall && !board[x][y].hasPlayer) isValidTarget = true;
 					}
@@ -30142,7 +30058,7 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 		}
 	}
 
-	// Start expanding AOE ring animation for Psionic Wave
+	// Start expanding AOE ring animation for Psionic Wave and Magic Bolt
 	if (activeCardIndex >= 0 && activeCardIndex < (int)currentPlayer.hand.size()) {
 		Card & card = currentPlayer.hand[activeCardIndex];
 		if (card.type == CARD_PSIONIC_WAVE) {
@@ -30151,6 +30067,22 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 			activeAOERing.startTime = ofGetElapsedTimef();
 			activeAOERing.duration = 1.5f;
 			activeAOERing.cardType = CARD_PSIONIC_WAVE;
+		} else if (card.type == CARD_MAGIC_BOLT && cardInteractionState == CARD_INTERACTION_TARGETING && interactingCardType == CARD_MAGIC_BOLT) {
+			glm::ivec2 hoverTile = { (int)mouseTile.x, (int)mouseTile.y };
+			if (hoverTile.x >= 0 && hoverTile.x < BOARD_WIDTH && hoverTile.y >= 0 && hoverTile.y < BOARD_HEIGHT && board[hoverTile.x][hoverTile.y].isTargetPreview) {
+				bool centerChanged = (activeAOERing.centerTile != hoverTile) || (activeAOERing.cardType != CARD_MAGIC_BOLT);
+				activeAOERing.centerTile = hoverTile;
+				if (card.aoeRadiusDiceNum > 0 && card.aoeRadiusDiceSides > 0) {
+					activeAOERing.maxRadiusFeet = card.aoeRadiusDiceNum * card.aoeRadiusDiceSides;
+				} else {
+					activeAOERing.maxRadiusFeet = 20;
+				}
+				if (centerChanged) {
+					activeAOERing.startTime = ofGetElapsedTimef();
+				}
+				activeAOERing.duration = 1.5f;
+				activeAOERing.cardType = CARD_MAGIC_BOLT;
+			}
 		}
 	}
 }
@@ -32799,54 +32731,53 @@ void ofApp::drawJoinedOutlines(bool highlightedTiles[BOARD_WIDTH][BOARD_HEIGHT],
 void ofApp::drawExpandingAOERings(float surfaceY) {
 	// Draw expanding ring visualization for Magic Bolt / Psionic Wave previews
 	// Rings expand from the center tile outward based on elapsed time
+	auto drawOneRing = [&](const ExpandingAOERing & ring) {
+		float elapsed = ofGetElapsedTimef() - ring.startTime;
+		if (elapsed > ring.duration) return;
 
-	if (activeAOERing.centerTile.x < 0 || activeAOERing.centerTile.y < 0) {
-		return; // No active AOE ring
-	}
+		float progress = elapsed / ring.duration;
+		float currentRadiusFeet = 1.0f + (progress * (ring.maxRadiusFeet - 1.0f));
+
+		std::vector<glm::ivec2> affectedTiles;
+		for (int x = 0; x < BOARD_WIDTH; x++) {
+			for (int y = 0; y < BOARD_HEIGHT; y++) {
+				float centerDistFeet = glm::distance(glm::vec2(ring.centerTile.x, ring.centerTile.y), glm::vec2(x, y)) * 5.0f;
+				float neededFeetRaw = std::max(0.0f, centerDistFeet - 2.5f);
+				int neededFeet = (int)floor(neededFeetRaw + 1e-4f);
+
+				if (neededFeet <= (int)currentRadiusFeet) {
+					affectedTiles.push_back({ x, y });
+				}
+			}
+		}
+
+		if (!affectedTiles.empty()) {
+			bool highlightedTiles[BOARD_WIDTH][BOARD_HEIGHT];
+			memset(highlightedTiles, 0, sizeof(highlightedTiles));
+			for (const auto & tile : affectedTiles) {
+				highlightedTiles[tile.x][tile.y] = true;
+			}
+
+			float alpha = 200.0f * (1.0f - progress);
+			ofColor ringColor(100, 200, 255, (int)alpha);
+			drawJoinedOutlines(highlightedTiles, ringColor, surfaceY);
+		}
+	};
 
 	if (disableAllGlow) return;
 
-	// Calculate elapsed time since animation start
-	float elapsed = ofGetElapsedTimef() - activeAOERing.startTime;
-	if (elapsed > activeAOERing.duration) {
-		// Animation finished
-		activeAOERing.centerTile = { -1, -1 };
-		return;
+	if (activeAOERing.centerTile.x >= 0 && activeAOERing.centerTile.y >= 0) {
+		drawOneRing(activeAOERing);
 	}
 
-	// Progress: 0.0 to 1.0
-	float progress = elapsed / activeAOERing.duration;
-
-	// Current radius expanding from 1 to maxRadiusFeet
-	float currentRadiusFeet = 1.0f + (progress * (activeAOERing.maxRadiusFeet - 1.0f));
-
-	// Collect all tiles within current radius
-	std::vector<glm::ivec2> affectedTiles;
-	for (int x = 0; x < BOARD_WIDTH; x++) {
-		for (int y = 0; y < BOARD_HEIGHT; y++) {
-			// Center-to-center distance
-			float centerDistFeet = glm::distance(glm::vec2(activeAOERing.centerTile.x, activeAOERing.centerTile.y), glm::vec2(x, y)) * 5.0f;
-			float neededFeetRaw = std::max(0.0f, centerDistFeet - 2.5f);
-			int neededFeet = (int)floor(neededFeetRaw + 1e-4f);
-
-			if (neededFeet <= (int)currentRadiusFeet) {
-				affectedTiles.push_back({ x, y });
-			}
+	for (auto it = activeMagicBoltAOERings.begin(); it != activeMagicBoltAOERings.end();) {
+		float elapsed = ofGetElapsedTimef() - it->startTime;
+		if (elapsed > it->duration) {
+			it = activeMagicBoltAOERings.erase(it);
+			continue;
 		}
-	}
-
-	// Draw outline for affected tiles using joined outlines
-	if (!affectedTiles.empty()) {
-		bool highlightedTiles[BOARD_WIDTH][BOARD_HEIGHT];
-		memset(highlightedTiles, 0, sizeof(highlightedTiles));
-		for (const auto & tile : affectedTiles) {
-			highlightedTiles[tile.x][tile.y] = true;
-		}
-
-		// Draw with cyan/blue color, semi-transparent
-		float alpha = 200.0f * (1.0f - progress); // Fade out as it expands
-		ofColor ringColor(100, 200, 255, (int)alpha);
-		drawJoinedOutlines(highlightedTiles, ringColor, surfaceY);
+		drawOneRing(*it);
+		++it;
 	}
 }
 
@@ -34174,6 +34105,12 @@ void ofApp::loadCardData(const std::string & filePath) {
 		newCard.utilityDiceSides = cardJson.value("utilityDiceSides", 0);
 		newCard.summonDiceNum = cardJson.value("summonDiceNum", 0);
 		newCard.summonDiceSides = cardJson.value("summonDiceSides", 0);
+		newCard.summonKind = cardJson.value("summonKind", 0);
+
+		// Optional variant definitions and HP derivation (used for Golem/KoboldKing)
+		if (cardJson.contains("variants")) newCard.variantDefs = cardJson["variants"];
+		newCard.hpDerivedFromUnitType = cardJson.value("hpDerivedFromUnitType", std::string(""));
+		newCard.hpDerivedAdd = cardJson.value("hpDerivedAdd", 0);
 		newCard.baseDamage = cardJson.value("baseDamage", 0);
 		newCard.damageDiceNum = cardJson.value("damageDiceNum", 0);
 		newCard.damageDiceSides = cardJson.value("damageDiceSides", 0);

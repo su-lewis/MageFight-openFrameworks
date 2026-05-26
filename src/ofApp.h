@@ -284,6 +284,7 @@ struct Card {
 	int utilityDiceSides = 0;
 	int summonDiceNum = 0;
 	int summonDiceSides = 0;
+	int summonKind = 0;
 	int baseDamage = 0;
 	int damageDiceNum = 0;
 	int damageDiceSides = 0;
@@ -301,6 +302,11 @@ struct Card {
 	int discardDeckCount = 0; // number of top cards to burn from deck
 	int applyStatus = 0; // Will hold StatusType enum
 	bool isAoe = false;
+
+	// Data-driven variant / HP derivation support (Phase 2+)
+	ofJson variantDefs; // optional: array of variant objects loaded from JSON
+	std::string hpDerivedFromUnitType = ""; // e.g. "KOBOLD"
+	int hpDerivedAdd = 0; // amount to add to derived HP
 
 	TargetingType targeting = TARGET_ANY_TILE;
 	bool drawnThisTurn = false; // Add this
@@ -1050,7 +1056,6 @@ private:
 	int applyDamageWithMitigations(Player & target, int baseDamage, DamageType type, int attackerIndex);
 	// Queue-only variant: queues MODIFY_STAT ops for absorptions/HP and writes applied amount into currentEffectSequence.blackboard[outputSlot]
 	void applyDamageWithMitigationsQueued(Player & target, int baseDamage, DamageType type, int attackerIndex, int outputSlot);
-	Player createSummonedMinion(CardType type, int targetX, int targetY, const Player & caster, int turnCounter, int & nextSummonID);
 
 	// Deterministic centralized minion spawn helper. Creates and inserts a minion
 	// with flags, deck, and deterministic shuffle so host/client stay in lockstep.
@@ -2515,6 +2520,8 @@ private:
 	};
 
 	ExpandingAOERing activeAOERing; // Current expanding AOE (if any)
+	std::vector<ExpandingAOERing> activeMagicBoltAOERings; // Overlapping Magic Bolt preview rings
+	float lastMagicBoltAOERingSpawnTime = -1000.0f;
 
 	struct ChatMessage {
 		std::string playerName;

@@ -213,6 +213,7 @@
     "type": "CARD_RAISE_DEAD",
     "cost": 2,
     "targeting": "TARGET_EMPTY_ADJACENT",
+    "summonKind": 9,
     "summonDiceNum": 1,
     "summonDiceSides": 6,
     "class": 2
@@ -222,9 +223,74 @@
     "name": "Summon Golem",
     "type": "CARD_SUMMON_GOLEM",
     "cost": 4,
+    "summonKind": 8,
     "targeting": "TARGET_EMPTY_ADJACENT",
     "summonDiceNum": 1,
     "summonDiceSides": 10,
+    "variants": [
+      {
+        "name": "electric",
+        "triggerCards": [
+          "CARD_SHOCK",
+          "CARD_CHAIN_LIGHTNING"
+        ],
+        "hpDiceNum": 1,
+        "hpDiceSides": 6,
+        "deckAdds": [
+          "CARD_SHOCK",
+          "CARD_SHOCK",
+          "CARD_SHOCK",
+          "CARD_HAND_BLOCK",
+          "CARD_HAND_BLOCK"
+        ]
+      },
+      {
+        "name": "fire",
+        "triggerCards": [
+          "CARD_FIREBALL",
+          "CARD_FLAME_HIT"
+        ],
+        "hpDiceNum": 1,
+        "hpDiceSides": 10,
+        "deckAdds": [
+          "CARD_FIREBALL",
+          "CARD_FIREBALL",
+          "CARD_FLAME_HIT",
+          "CARD_HAND_BLOCK",
+          "CARD_HAND_BLOCK"
+        ]
+      },
+      {
+        "name": "rock",
+        "triggerCards": [
+          "CARD_ROCK_CRUSH"
+        ],
+        "hpDiceNum": 1,
+        "hpDiceSides": 20,
+        "deckAdds": [
+          "CARD_ROCK_CRUSH",
+          "CARD_ROCK_CRUSH",
+          "CARD_BASH",
+          "CARD_BASH",
+          "CARD_BASH",
+          "CARD_HAND_BLOCK",
+          "CARD_HAND_BLOCK"
+        ]
+      },
+      {
+        "name": "base",
+        "triggerCards": [],
+        "hpDiceNum": 1,
+        "hpDiceSides": 10,
+        "deckAdds": [
+          "CARD_BASH",
+          "CARD_BASH",
+          "CARD_BASH",
+          "CARD_HAND_BLOCK",
+          "CARD_HAND_BLOCK"
+        ]
+      }
+    ],
     "class": 3
   },
   {
@@ -240,6 +306,7 @@
     "name": "Summon Wall",
     "type": "CARD_SUMMON_WALL",
     "cost": 2,
+    "summonKind": 10,
     "targeting": "TARGET_EMPTY_ADJACENT",
     "class": 1
   },
@@ -339,6 +406,7 @@
     "name": "Summon Hellhound",
     "type": "CARD_SUMMON_HELLHOUND",
     "cost": 5,
+    "summonKind": 3,
     "targeting": "TARGET_EMPTY_ADJACENT",
     "summonDiceNum": 2,
     "summonDiceSides": 6,
@@ -359,6 +427,7 @@
     "name": "Summon Demon",
     "type": "CARD_SUMMON_DEMON",
     "cost": 10,
+    "summonKind": 4,
     "targeting": "TARGET_EMPTY_ADJACENT",
     "summonDiceNum": 3,
     "summonDiceSides": 10,
@@ -562,7 +631,10 @@
     "name": "Summon Kobold King",
     "type": "CARD_SUMMON_KOBOLD_KING",
     "cost": 4,
+    "summonKind": 5,
     "targeting": "TARGET_EMPTY_ADJACENT",
+    "hpDerivedFromUnitType": "KOBOLD",
+    "hpDerivedAdd": 1,
     "class": 3
   },
   {
@@ -570,6 +642,7 @@
     "name": "Summon Assistant",
     "type": "CARD_SUMMON_ASSISTANT",
     "cost": 4,
+    "summonKind": 6,
     "targeting": "TARGET_EMPTY_ADJACENT",
     "class": 1
   },
@@ -638,6 +711,7 @@
     "name": "Summon Faerie",
     "type": "CARD_SUMMON_FAERIE",
     "cost": 4,
+    "summonKind": 7,
     "targeting": "TARGET_EMPTY_ADJACENT",
     "class": 2
   }
