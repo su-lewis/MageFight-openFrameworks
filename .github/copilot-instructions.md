@@ -173,3 +173,43 @@ When you give this to the AI, it knows exactly how to handle the difference betw
 
 The generic handler will see Bash, roll the 2d4, add the player's luck, save it to blackboard[1], and queue the generic damage op. It completely deletes the need to write custom logic for 80% of your cards!
 ```
+
+### Testing and Verification
+- **Build:** Run `make -j$(nproc)` then `cd bin && ./MageFight` to smoke-test the game.
+- **Unit tests:** Add focused tests for `executeCardGeneric`, `beginEffectSequence`, and `processEffectOp` where possible.
+- **Playtests:** After migrating a small batch, run a quick in-game scenario using a save in `Saves/` that reproduces the card behavior.
+
+### Example card JSON
+```json
+{
+   "id": "CARD_SHOCK",
+   "name": "Shock",
+   "baseDamage": 5,
+   "damageDiceNum": 0,
+   "damageDiceSides": 0,
+   "applyStatus": "STATUS_PARALYZED",
+   "statusDuration": 2,
+   "isAoe": false
+}
+```
+
+### Migration Checklist
+- Add new fields to the `Card` struct and update `loadCardData`.
+- Implement `executeCardGeneric(const Card&, int targetIndex)` and call it before the legacy `switch`.
+- Implement generic `EffectOp` handlers in `processEffectOp`.
+- Remove legacy switch cases for cards handled by the generic engine in small batches, recompiling and testing between batches.
+- Run a full regression build and playtest after each purge batch.
+
+### Determinism & Style Checklist
+- RNG occurs only at decision-time using `gameplayRNG`.
+- No floating-point math in game-logic; use integers for deterministic results.
+- Any sorting must include a strict tie-breaker (e.g., `playerID`).
+- Visual effects and UI-only randomness must use `visualRNG` exclusively.
+
+### Notes for Contributors
+- Make the smallest possible change to implement a card migration.
+- If a card requires bespoke logic, document why and leave a TODO in code linking to an issue.
+- Prefer adding JSON-driven flags before adding new C++ paths.
+
+### Contact
+When in doubt, open a PR and tag `@lead-dev`. Include a minimal save in `Saves/` that reproduces the behavior you changed.
