@@ -71,3 +71,105 @@ In `processEffectOp`, implement the generic handlers:
 Once the generic pipeline is built, delete the custom C++ code for simple cards (`CARD_PUNCH`, `CARD_FIREBALL`, `CARD_SHOCK`, `CARD_HEAL`) in batches. Verify the game compiles and works after every batch.
 
 *(Goal Example: Once Phase 4 is done, a card like Shock requires zero C++ code. Its JSON simply defines `"baseDamage": 5` and `"applyStatus": "STATUS_PARALYZED"`, and the generic engine handles targeting, damage deduction, and status application automatically.)*
+
+---
+
+## Card Variables You Need (Suggested)
+
+Add these to `struct Card` in `GameSharedTypes.h` (or `ofApp.h`):
+
+```cpp
+// --- DATA-DRIVEN CARD FIELDS ---
+// Damage & Healing
+int baseDamage = 0;
+int damageDiceNum = 0;
+int damageDiceSides = 0;
+int baseHeal = 0;
+int healDiceNum = 0;
+int healDiceSides = 0;
+
+// Stat Buffs
+int blockGain = 0;
+int wardGain = 0;
+int barrierGain = 0;
+int holyBlockGain = 0;
+int fortificationGain = 0;
+int maxHealthGain = 0;
+int luckGain = 0;
+int apGainThisTurn = 0;
+int apGainNextTurn = 0;
+
+// Deck Manipulation
+int drawCount = 0;
+int discardHandCount = 0;
+int destroyDeckTargetCount = 0; 
+
+// Status Effects & Summons
+int applyStatus = 0; // Holds StatusType enum
+int statusDuration = 0;
+int summonKind = 0; // PENDING_SUMMON_* enum
+```
+
+## Final Master AI Prompt
+
+Copy this entire block and paste it directly into your `.github/copilot-instructions.md` or `.clinerules` file. This tells the AI exactly how to build the Data-Driven engine safely.
+
+```markdown
+# MISSION: The Data-Driven Card Engine
+Your goal is to eliminate the massive `switch(playedCard.type)` statements in the codebase by migrating to a fully Data-Driven Card Engine. Most cards should be handled entirely by generic logic driven by data loaded from `cards.json`. 
+
+Only highly complex/unique mechanics (e.g., `CARD_SHOOT_ARROW` synergy, `CARD_EARTHQUAKE`, `CARD_WISDOM_BOON` choices) should retain custom C++ switch cases.
+
+## CRITICAL ARCHITECTURE RULES (Determinism & Lockstep)
+1. **RNG HAPPENS AT PLAY-TIME:** All dice (Damage, Range, Healing, Random Discards) MUST be resolved in `executeCardGeneric` (decision-time) using `resolveDiceRollDetailed` and `gameplayRNG`.
+2. **USE THE BLACKBOARD:** Store all raw integers from dice rolls into `currentEffectSequence.blackboard[x]`.
+   - Slot 0: Range Roll
+   - Slot 1: Damage Roll
+   - Slot 2: Heal Roll
+3. **EFFECTS DO NOT ROLL DICE:** The `EffectOp` handlers (`processEffectOp`) must NEVER call RNG. They simply read the pre-rolled numbers from the `blackboard` and apply them to the game state (`players`, `board`).
+
+---
+
+## EXECUTION PLAN (Do this one phase at a time when requested)
+
+### Phase 1: Expand the `Card` Struct & JSON Loader
+Update `struct Card` in `GameSharedTypes.h` (or `ofApp.h`) and `loadCardData` to parse generic effect properties:
+- `baseDamage`, `damageDiceNum`, `damageDiceSides`
+- `baseHeal`, `healDiceNum`, `healDiceSides`
+- `blockGain`, `wardGain`, `barrierGain`, `holyBlockGain`, `fortificationGain`, `maxHealthGain`, `luckGain`
+- `apGainThisTurn`, `apGainNextTurn`
+- `drawCount`, `discardHandCount`, `destroyDeckTargetCount`
+- `applyStatus` (mapped via `stringToStatusType`), `statusDuration`
+- `summonKind`
+
+### Phase 2: Create `executeCardGeneric`
+Create a function `bool executeCardGeneric(const Card& playedCard, int targetIndex)` that runs BEFORE the giant switch statement in `executeCardByType`.
+1. **Roll Dice:** If `damageDiceNum > 0`, roll it, add `baseDamage`, add `luck`, and store in `blackboard[1]`. (Do the same for Healing in `blackboard[2]`).
+2. **Queue Ops:** Check variables and queue existing/new generic `EffectOp`s:
+   - If Damage > 0: loop through `currentCardOutcome.attackTargetIndices` and queue `EffectOpType::APPLY_GENERIC_DAMAGE`.
+   - If Heal > 0: queue `EffectOpType::APPLY_GENERIC_HEAL`.
+   - If stat gains > 0: queue `EffectOpType::MODIFY_STAT` for each.
+   - If `applyStatus != STATUS_NONE`: queue `EffectOpType::APPLY_STATUS`.
+   - If `summonKind > 0`: queue `EffectOpType::SPAWN_UNIT`.
+3. If the card was fully handled by generic variables, call `advanceCardState(CARD_STATE_EFFECT_SEQUENCE); playedSuccessfully = true; return true;`. 
+4. If it's a complex card, return `false` so it falls through to the legacy `switch(playedCard.type)`.
+
+### Phase 3: Generic Effect Handlers
+In `processEffectOp`, implement the generic handlers:
+- **`APPLY_GENERIC_DAMAGE`**: Reads `blackboard[1]`, calls `applyDamageWithMitigationsQueued` on `targetIndex`.
+- **`APPLY_GENERIC_HEAL`**: Reads `blackboard[2]`, applies HP.
+- **`APPLY_GENERIC_DISCARD`**: Randomly (deterministically using `gameplayRNG`) selects indices from `targetIndex`'s hand and moves them to discard.
+
+### Phase 4: The Purge
+Once the generic pipeline is built, begin deleting the custom C++ code for simple cards in batches of 5. Verify the game compiles and works after every batch.
+- Batch 1: Melee Attacks (Punch, Kick, Bash, Stab, Slash).
+- Batch 2: Heals & Stat Buffs (Heal, Lesser Heal, Consume Health Potion, Ward, Hand Block).
+- Batch 3: Basic Spells (Fireball, Shock, Flame Hit, Smite).
+- Batch 4: Basic Summons (Summon Kobolds, Wolves, Golem, etc.).
+
+How this works:
+
+When you give this to the AI, it knows exactly how to handle the difference between Punch (which has baseDamage = 2) and Bash (which has damageDiceNum = 2, damageDiceSides = 4).
+
+The generic handler will see Bash, roll the 2d4, add the player's luck, save it to blackboard[1], and queue the generic damage op. It completely deletes the need to write custom logic for 80% of your cards!
+```

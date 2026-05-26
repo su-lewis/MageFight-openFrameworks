@@ -303,6 +303,33 @@ struct Card {
 	int applyStatus = 0; // Will hold StatusType enum
 	bool isAoe = false;
 
+	// --- Additional data-driven fields (aligned with Master AI spec)
+	// Damage & Healing
+	int baseHeal = 0;
+	int healDiceNum = 0;
+	int healDiceSides = 0;
+
+	// Stat Buffs
+	int blockGain = 0;
+	int wardGain = 0;
+	int barrierGain = 0;
+	int holyBlockGain = 0;
+	int fortificationGain = 0;
+	int maxHealthGain = 0;
+	int luckGain = 0;
+	int apGainThisTurn = 0;
+	int apGainNextTurn = 0;
+
+	// Deck Manipulation
+	int destroyDeckTargetCount = 0; // number of top cards to destroy from target's deck
+
+	// Generic defensive stat gains (data-driven)
+	int blockAmount = 0;
+	int wardAmount = 0;
+	int barrierAmount = 0;
+	int holyBlockAmount = 0;
+	int fortifyAmount = 0; // increases fortification stat
+
 	// Data-driven variant / HP derivation support (Phase 2+)
 	ofJson variantDefs; // optional: array of variant objects loaded from JSON
 	std::string hpDerivedFromUnitType = ""; // e.g. "KOBOLD"
@@ -609,7 +636,11 @@ struct CardOutcome {
 	int healingDealt = 0;
 	int apGained = 0;
 	int blockGained = 0;
+	int wardGained = 0;
 	int barrierGained = 0;
+	int holyBlockGained = 0;
+	int fortificationGained = 0;
+	int maxHpGained = 0;
 	std::vector<std::string> statusesApplied; // "onFire", "isParalyzed", etc
 	std::vector<int> unitsMovedBy; // Distance each unit moved for earthquake, etc
 	std::vector<glm::ivec2> wallsCreated; // Positions where walls were built

@@ -22,7 +22,7 @@
     "name": "Hand Block",
     "type": "CARD_HAND_BLOCK",
     "cost": 1,
-    "value": 2,
+    "blockAmount": 2,
     "targeting": "TARGET_SELF",
     "class": 1
   },
@@ -41,7 +41,7 @@
     "name": "Ward",
     "type": "CARD_WARD",
     "cost": 2,
-    "value": 5,
+    "wardAmount": 5,
     "targeting": "TARGET_SELF",
     "class": 1
   },
@@ -180,7 +180,7 @@
     "name": "Ethereal Jolt",
     "type": "CARD_ETHEREAL_JOLT",
     "cost": 6,
-    "value": 7,
+    "baseDamage": 7,
     "targeting": "TARGET_LINE_OF_SIGHT_TILE",
     "damageType": "DAMAGE_MAGIC",
     "rangeDiceNum": 1,
@@ -315,7 +315,7 @@
     "name": "Dark Shield",
     "type": "CARD_DARK_SHIELD",
     "cost": 2,
-    "value": 7,
+    "holyBlockAmount": 7,
     "targeting": "TARGET_SELF",
     "class": 2
   },
