@@ -2100,6 +2100,7 @@ private:
 	int blockingBoonTargetIndex = -1; // Stores target for the "Tails" effect
 	int blockingBoonPendingCasterIndex = -1;
 	std::vector<int> blockingBoonPendingCoinRawResults;
+	std::vector<int> blockingBoonPendingD20RawResults;
 	bool blockingBoonPendingPhysicalAfterDraft = false;
 
 	// Blocking Boon staged resolution (migrated to effect/op system)

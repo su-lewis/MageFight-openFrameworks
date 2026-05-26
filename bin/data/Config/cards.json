@@ -105,6 +105,8 @@
     "damageType": "DAMAGE_FIRE",
     "rangeDiceNum": 2,
     "rangeDiceSides": 6,
+    "damageDiceNum": 1,
+    "damageDiceSides": 6,
     "class": 2
   },
   {
@@ -205,6 +207,9 @@
     "targeting": "TARGET_LINE_OF_SIGHT_TILE",
     "rangeDiceNum": 2,
     "rangeDiceSides": 6,
+    "healAmount": 6,
+    "healDiceNum": 1,
+    "healDiceSides": 6,
     "class": 1
   },
   {
@@ -388,6 +393,10 @@
     "damageType": "DAMAGE_MAGIC",
     "rangeDiceNum": 2,
     "rangeDiceSides": 20,
+    "damageDiceNum": 1,
+    "damageDiceSides": 20,
+    "aoeRadiusDiceNum": 1,
+    "aoeRadiusDiceSides": 20,
     "class": 3
   },
   {
@@ -616,6 +625,9 @@
     "targeting": "TARGET_LINE_OF_SIGHT_TILE",
     "rangeDiceNum": 1,
     "rangeDiceSides": 6,
+    "healAmount": 3,
+    "healDiceNum": 1,
+    "healDiceSides": 6,
     "class": 1
   },
   {
