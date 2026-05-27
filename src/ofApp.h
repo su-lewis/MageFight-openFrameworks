@@ -506,6 +506,7 @@ enum StatusType : int {
 	STATUS_NEXT_TURN_D10AP = 11,
 	STATUS_NEXT_TURN_BONUS_DICE = 12,
 	STATUS_SLEEP = 13,
+	STATUS_ASSISTANT_REROLL_USED = 14,
 };
 
 struct StatusData {

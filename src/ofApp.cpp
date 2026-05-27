@@ -6189,12 +6189,18 @@ void ofApp::initialiseGameStateCommon() {
 	opponentHasDrawnCardsThisTurn = false;
 
 	// Clear expired Study buffs: if a player didn't draw on their turn after Study was used, remove it
-	for (auto & p : players) {
+	for (size_t pi = 0; pi < players.size(); ++pi) {
+		Player & p = players[pi];
 		if (p.nextTurnExtraDraw && p.nextTurnExtraDrawSetOnCycle >= 0) {
 			// If this is a new turn (globalTurnCounter) after the one where Study was used, and they haven't drawn, clear it
 			if (globalTurnCounter > p.nextTurnExtraDrawSetOnCycle + 1) {
-				p.nextTurnExtraDraw = false;
-				p.nextTurnExtraDrawSetOnCycle = -1;
+				EffectOp rm = {};
+				rm.type = EffectOpType::REMOVE_STATUS;
+				rm.data.status.targetIndex = (int)pi;
+				rm.data.status.statusType = STATUS_NEXT_TURN_EXTRA_DRAW;
+				rm.data.status.duration = 0;
+				queueEffect(rm);
+				if (!isProcessingEffect) beginEffectSequence();
 				ofLogNotice("Study") << "Expired unused Study buff for player " << p.playerID;
 			}
 		}
@@ -7485,7 +7491,16 @@ void ofApp::updateGameLogic() {
 								if (a.isAssistant && a.health > 0 && a.directSummonerID == actor.playerID && !a.assistantRerollUsedThisTurn) {
 									int dist = abs(a.x - actor.x) + abs(a.y - actor.y);
 									if (dist <= 1) {
-										a.assistantRerollUsedThisTurn = true;
+										int assistantIdx = findPlayerIndexByID(a.playerID);
+										if (assistantIdx >= 0) {
+											EffectOp op = {};
+											op.type = EffectOpType::APPLY_STATUS;
+											op.data.status.targetIndex = assistantIdx;
+											op.data.status.statusType = STATUS_ASSISTANT_REROLL_USED;
+											op.data.status.duration = 0;
+											queueEffect(op);
+											if (!isProcessingEffect) beginEffectSequence();
+										}
 										int rerollNum = lastAPDiceNum > 0 ? lastAPDiceNum : 1;
 										int rerollSides = lastAPDiceSides > 0 ? lastAPDiceSides : 6;
 										for (auto & oldR : activeDiceRolls) {
@@ -8344,8 +8359,27 @@ void ofApp::updateGameLogic() {
 									if (!isProcessingEffect) beginEffectSequence();
 								}
 								dying.nextTurnAPBonus = 0;
-								dying.shocksPlayedThisTurn = 0;
-								dying.flurryOfFistsStacks = 0;
+								// Clear shocks and flurry deterministically via queued ops
+								if (dying.shocksPlayedThisTurn != 0) {
+									EffectOp clearSh = {};
+									clearSh.type = EffectOpType::MODIFY_STAT;
+									clearSh.data.modifyStat.targetIndex = (int)i;
+									clearSh.data.modifyStat.statType = 12; // Shocks
+									clearSh.data.modifyStat.delta = -dying.shocksPlayedThisTurn;
+									clearSh.data.modifyStat.deltaFromSlot = -1;
+									queueEffect(clearSh);
+									if (!isProcessingEffect) beginEffectSequence();
+								}
+								if (dying.flurryOfFistsStacks != 0) {
+									EffectOp clearFl = {};
+									clearFl.type = EffectOpType::MODIFY_STAT;
+									clearFl.data.modifyStat.targetIndex = (int)i;
+									clearFl.data.modifyStat.statType = 14; // Flurry
+									clearFl.data.modifyStat.delta = -dying.flurryOfFistsStacks;
+									clearFl.data.modifyStat.deltaFromSlot = -1;
+									queueEffect(clearFl);
+									if (!isProcessingEffect) beginEffectSequence();
+								}
 								{
 									EffectOp op = {};
 									op.type = EffectOpType::REMOVE_STATUS;
@@ -8355,9 +8389,30 @@ void ofApp::updateGameLogic() {
 									queueEffect(op);
 									if (!isProcessingEffect) beginEffectSequence();
 								}
-								dying.nextTurnD10AP = false;
-								dying.nextTurnExtraDraw = false;
-								dying.nextTurnBonusDiceFromMinions = false;
+								{
+									EffectOp rm = {};
+									rm.type = EffectOpType::REMOVE_STATUS;
+									rm.data.status.targetIndex = (int)i;
+									rm.data.status.statusType = STATUS_NEXT_TURN_D10AP;
+									rm.data.status.duration = 0;
+									queueEffect(rm);
+								}
+								{
+									EffectOp rm = {};
+									rm.type = EffectOpType::REMOVE_STATUS;
+									rm.data.status.targetIndex = (int)i;
+									rm.data.status.statusType = STATUS_NEXT_TURN_EXTRA_DRAW;
+									rm.data.status.duration = 0;
+									queueEffect(rm);
+								}
+								{
+									EffectOp rm = {};
+									rm.type = EffectOpType::REMOVE_STATUS;
+									rm.data.status.targetIndex = (int)i;
+									rm.data.status.statusType = STATUS_NEXT_TURN_BONUS_DICE;
+									rm.data.status.duration = 0;
+									queueEffect(rm);
+								}
 								dying.strengthenElementsTurnsRemaining = 0;
 								{
 									EffectOp op = {};
@@ -17322,9 +17377,20 @@ void ofApp::startNewTurn() {
 
 				// Decrement Sprint's Kick-free counter
 				if (localPlayer.freeKickTurns > 0) {
-					localPlayer.freeKickTurns--;
-					if (localPlayer.freeKickTurns == 0) {
-						queueFloatingTextVisual(gridToWorld(localPlayer.x, localPlayer.y), "Kick Normal Cost", ofColor::white);
+					bool willBeZero = (localPlayer.freeKickTurns == 1);
+					EffectOp fk = {};
+					fk.type = EffectOpType::MODIFY_STAT;
+					fk.data.modifyStat.targetIndex = -1;
+					fk.data.modifyStat.statType = 15; // FreeKickTurns
+					fk.data.modifyStat.delta = -1;
+					fk.data.modifyStat.deltaFromSlot = -1;
+					// We are currently in a loop where localPlayer is a copy; find index
+					int lpIdx = findPlayerIndexByID(localPlayer.playerID);
+					if (lpIdx >= 0) {
+						fk.data.modifyStat.targetIndex = lpIdx;
+						queueEffect(fk);
+						if (!isProcessingEffect) beginEffectSequence();
+						if (willBeZero) queueFloatingTextVisual(gridToWorld(localPlayer.x, localPlayer.y), "Kick Normal Cost", ofColor::white);
 					}
 				}
 
@@ -17385,7 +17451,18 @@ void ofApp::startNewTurn() {
 		endingPlayer.playedCardsPile.clear();
 		endingPlayer.cardsPlayedThisTurn.clear();
 
-		endingPlayer.shocksPlayedThisTurn = 0;
+		// Clear shocks counter via deterministic effect
+		if (endingPlayer.shocksPlayedThisTurn != 0) {
+			EffectOp clearShocks = {};
+			clearShocks.type = EffectOpType::MODIFY_STAT;
+			clearShocks.data.modifyStat.targetIndex = currentPlayerIndex;
+			clearShocks.data.modifyStat.statType = 12; // Shocks counter
+			clearShocks.data.modifyStat.delta = -endingPlayer.shocksPlayedThisTurn;
+			clearShocks.data.modifyStat.deltaFromSlot = -1;
+			queueEffect(clearShocks);
+			if (!isProcessingEffect) beginEffectSequence();
+		}
+
 		// Clear poison buff at end of turn via deterministic effect
 		{
 			EffectOp rm = {};
@@ -17396,7 +17473,18 @@ void ofApp::startNewTurn() {
 			queueEffect(rm);
 			if (!isProcessingEffect) beginEffectSequence();
 		}
-		endingPlayer.flurryOfFistsStacks = 0; // Clear flurry buff at end of turn
+
+		// Clear flurry stacks via deterministic effect
+		if (endingPlayer.flurryOfFistsStacks != 0) {
+			EffectOp clearFlurry = {};
+			clearFlurry.type = EffectOpType::MODIFY_STAT;
+			clearFlurry.data.modifyStat.targetIndex = currentPlayerIndex;
+			clearFlurry.data.modifyStat.statType = 14; // Flurry stacks
+			clearFlurry.data.modifyStat.delta = -endingPlayer.flurryOfFistsStacks;
+			clearFlurry.data.modifyStat.deltaFromSlot = -1;
+			queueEffect(clearFlurry);
+			if (!isProcessingEffect) beginEffectSequence();
+		}
 		endingPlayer.freeHandCardTurns = 0;
 		koboldsRemainingToPlace = 0;
 		koboldSummonCount = 0;
@@ -17425,9 +17513,18 @@ void ofApp::startNewTurn() {
 
 		// Decrement Sprint's Kick-free counter
 		if (endingPlayer.freeKickTurns > 0) {
-			endingPlayer.freeKickTurns--;
-			if (endingPlayer.freeKickTurns == 0) {
-				queueFloatingTextVisual(gridToWorld(endingPlayer.x, endingPlayer.y), "Kick Normal Cost", ofColor::white);
+			bool willBeZero = (endingPlayer.freeKickTurns == 1);
+			EffectOp fk = {};
+			fk.type = EffectOpType::MODIFY_STAT;
+			int epIdx = findPlayerIndexByID(endingPlayer.playerID);
+			if (epIdx >= 0) {
+				fk.data.modifyStat.targetIndex = epIdx;
+				fk.data.modifyStat.statType = 15; // FreeKickTurns
+				fk.data.modifyStat.delta = -1;
+				fk.data.modifyStat.deltaFromSlot = -1;
+				queueEffect(fk);
+				if (!isProcessingEffect) beginEffectSequence();
+				if (willBeZero) queueFloatingTextVisual(gridToWorld(endingPlayer.x, endingPlayer.y), "Kick Normal Cost", ofColor::white);
 			}
 		}
 
@@ -17872,7 +17969,13 @@ void ofApp::continueNewTurn() {
 
 	// Reset assistant abilities if it's the assistant's turn
 	if (startingPlayer.isAssistant) {
-		startingPlayer.assistantRerollUsedThisTurn = false;
+		EffectOp rm = {};
+		rm.type = EffectOpType::REMOVE_STATUS;
+		rm.data.status.targetIndex = currentPlayerIndex;
+		rm.data.status.statusType = STATUS_ASSISTANT_REROLL_USED;
+		rm.data.status.duration = 0;
+		queueEffect(rm);
+		if (!isProcessingEffect) beginEffectSequence();
 		// AP for assistants will be handled in the AP roll logic below.
 	}
 
@@ -18203,7 +18306,16 @@ void ofApp::continueNewTurn() {
 				if (a.isAssistant && a.health > 0 && a.directSummonerID == actor.playerID && !a.assistantRerollUsedThisTurn) {
 					int dist = abs(a.x - actor.x) + abs(a.y - actor.y);
 					if (dist <= 1) {
-						a.assistantRerollUsedThisTurn = true;
+						int assistantIdx = findPlayerIndexByID(a.playerID);
+						if (assistantIdx >= 0) {
+							EffectOp op = {};
+							op.type = EffectOpType::APPLY_STATUS;
+							op.data.status.targetIndex = assistantIdx;
+							op.data.status.statusType = STATUS_ASSISTANT_REROLL_USED;
+							op.data.status.duration = 0;
+							queueEffect(op);
+							if (!isProcessingEffect) beginEffectSequence();
+						}
 						int rerollNum = lastAPDiceNum > 0 ? lastAPDiceNum : 1;
 						int rerollSides = lastAPDiceSides > 0 ? lastAPDiceSides : 6;
 						for (auto & oldR : activeDiceRolls) {
@@ -20395,8 +20507,15 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 		for (size_t idx = 0; idx < lp.hand.size(); ++idx) {
 			lp.hand[idx].currentScale = lp.hand[idx].currentScale; // keep consistent
 		}
-		lp.nextTurnExtraDraw = false;
-		lp.nextTurnExtraDrawSetOnCycle = -1;
+		{
+			EffectOp rm = {};
+			rm.type = EffectOpType::REMOVE_STATUS;
+			rm.data.status.targetIndex = targetIdx;
+			rm.data.status.statusType = STATUS_NEXT_TURN_EXTRA_DRAW;
+			rm.data.status.duration = 0;
+			queueEffect(rm);
+			if (!isProcessingEffect) beginEffectSequence();
+		}
 		if (lp.playerID == myLocalPlayerID) {
 			hasDrawnCardsThisTurn = true;
 			lp.hasDrawnThisTurn = true;
@@ -21221,8 +21340,13 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 		if (actionName == "AssistantReroll") {
 			int assistantIndex = targetX; // We passed it in params[0]
 			if (assistantIndex < 0 || assistantIndex >= (int)players.size()) break;
-
-			players[assistantIndex].assistantRerollUsedThisTurn = true;
+			EffectOp ar = {};
+			ar.type = EffectOpType::APPLY_STATUS;
+			ar.data.status.targetIndex = assistantIndex;
+			ar.data.status.statusType = STATUS_ASSISTANT_REROLL_USED;
+			ar.data.status.duration = 0;
+			queueEffect(ar);
+			if (!isProcessingEffect) beginEffectSequence();
 
 			int rerollNum = lastAPDiceNum > 0 ? lastAPDiceNum : 1;
 			int rerollSides = lastAPDiceSides > 0 ? lastAPDiceSides : 6;
@@ -23761,8 +23885,14 @@ bool ofApp::processEffectOp(EffectOp & op) {
 			for (size_t idx = 0; idx < lp.hand.size(); ++idx) {
 				lp.hand[idx].currentScale = lp.hand[idx].currentScale; // keep consistent
 			}
-			lp.nextTurnExtraDraw = false;
-			lp.nextTurnExtraDrawSetOnCycle = -1;
+			{
+				EffectOp rm = {};
+				rm.type = EffectOpType::REMOVE_STATUS;
+				rm.data.status.targetIndex = playerIndex;
+				rm.data.status.statusType = STATUS_NEXT_TURN_EXTRA_DRAW;
+				rm.data.status.duration = 0;
+				queueEffect(rm);
+			}
 			if (lp.playerID == myLocalPlayerID) {
 				hasDrawnCardsThisTurn = true;
 				lp.hasDrawnThisTurn = true;
@@ -23891,6 +24021,9 @@ bool ofApp::processEffectOp(EffectOp & op) {
 				target.flurryOfFistsStacks += delta;
 				if (delta > 0) queueFloatingTextVisual(tPos, "Flurry!", ofColor::orange);
 				break;
+			case 15: // FreeKickTurns
+				target.freeKickTurns += delta;
+				break;
 			case 11: // Next-turn AP bonus
 				target.nextTurnAPBonus += delta;
 				if (delta != 0) {
@@ -23923,6 +24056,9 @@ bool ofApp::processEffectOp(EffectOp & op) {
 					break;
 				case STATUS_REPLICATE_QUEUED:
 					target.replicateQueued = true;
+					break;
+				case STATUS_ASSISTANT_REROLL_USED:
+					target.assistantRerollUsedThisTurn = true;
 					break;
 				case STATUS_NEXT_TURN_EXTRA_DRAW:
 					target.nextTurnExtraDraw = true;
@@ -23991,6 +24127,9 @@ bool ofApp::processEffectOp(EffectOp & op) {
 					break;
 				case STATUS_REPLICATE_QUEUED:
 					target.replicateQueued = false;
+					break;
+				case STATUS_ASSISTANT_REROLL_USED:
+					target.assistantRerollUsedThisTurn = false;
 					break;
 				case STATUS_PARALYZED:
 					target.isParalyzed = false;
@@ -25139,7 +25278,15 @@ bool ofApp::executeCardGeneric(const Card & playedCard, int cardIndex, int targe
 			apNextOp.data.modifyStat.deltaFromSlot = -1;
 			queueEffect(apNextOp);
 
-			players[currentPlayerIndex].freeKickTurns = 2;
+			{
+				EffectOp fk = {};
+				fk.type = EffectOpType::MODIFY_STAT;
+				fk.data.modifyStat.targetIndex = currentPlayerIndex;
+				fk.data.modifyStat.statType = 15; // FreeKickTurns
+				fk.data.modifyStat.delta = 2;
+				fk.data.modifyStat.deltaFromSlot = -1;
+				queueEffect(fk);
+			}
 			currentCardOutcome.apGained = 2;
 			playedSuccessfully = true;
 			advanceCardState(CARD_STATE_EFFECT_SEQUENCE);
