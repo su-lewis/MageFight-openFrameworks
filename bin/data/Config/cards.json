@@ -127,7 +127,8 @@
     "targeting": "TARGET_ADJACENT_UNIT_OR_WALL",
     "damageDiceNum": 2,
     "damageDiceSides": 10,
-    "class": 2
+    "class": 2,
+    "destroysWall": true
   },
   {
     "id": 14,
@@ -321,6 +322,8 @@
     "type": "CARD_DARK_SHIELD",
     "cost": 2,
     "holyBlockAmount": 7,
+    "applyStatus": "STATUS_NEXT_TURN_BONUS_DICE",
+    "statusDuration": 0,
     "targeting": "TARGET_SELF",
     "class": 2
   },
@@ -363,7 +366,9 @@
     "type": "CARD_NECROMANCER_S_BLESSING",
     "cost": 3,
     "targeting": "TARGET_SELF",
-    "class": 3
+    "class": 3,
+    "countUnitType": "SKELETON",
+    "countGrantLuckPerUnit": 1
   },
   {
     "id": 32,
@@ -482,6 +487,7 @@
     "name": "Consume Health Potion",
     "type": "CARD_CONSUME_HEALTH_POTION",
     "cost": 2,
+    "maxHealthGain": 1,
     "targeting": "TARGET_SELF",
     "class": 1
   },
@@ -515,7 +521,9 @@
     "type": "CARD_FORTIFY",
     "cost": 3,
     "targeting": "TARGET_ADJACENT_UNIT_OR_WALL",
-    "class": 2
+    "class": 2,
+    "fortifyAmount": 1,
+    "baseDamage": 3
   },
   {
     "id": 48,
@@ -614,6 +622,8 @@
     "name": "Consume Large Health Potion",
     "type": "CARD_CONSUME_LARGE_HEALTH_POTION",
     "cost": 4,
+    "maxHealthGain": 3,
+    "healAmount": 1,
     "targeting": "TARGET_SELF",
     "class": 2
   },
@@ -687,6 +697,13 @@
     "name": "Full Restore",
     "type": "CARD_FULL_RESTORE",
     "cost": 4,
+    "healToFull": true,
+    "removeStatuses": [
+      "STATUS_ON_FIRE",
+      "STATUS_POISONED",
+      "STATUS_SLEEP",
+      "STATUS_PARALYZED"
+    ],
     "targeting": "TARGET_SELF",
     "class": 2
   },

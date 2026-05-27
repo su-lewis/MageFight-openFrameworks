@@ -25400,17 +25400,24 @@ bool ofApp::executeCardGeneric(const Card & playedCard, int cardIndex, int targe
 				}
 			}
 
-			// Queue deterministic fortification increase
+			// Queue deterministic fortification increase (data-driven)
 			if (linkedCount > 0) {
+				// Store values into blackboard slots so effect handlers remain RNG-free
+				// Slot 1: damage amount (use card.baseDamage)
+				// Slot 2: fortify delta (linkedCount * fortifyAmount)
+				currentEffectSequence.blackboard[1] = playedCard.baseDamage;
+				int fortAmount = (playedCard.fortifyAmount > 0) ? playedCard.fortifyAmount : 1;
+				currentEffectSequence.blackboard[2] = linkedCount * fortAmount;
+
 				EffectOp op = {};
 				op.type = EffectOpType::MODIFY_STAT;
 				op.data.modifyStat.targetIndex = currentPlayerIndex;
 				op.data.modifyStat.statType = 13; // Fortification
-				op.data.modifyStat.delta = linkedCount;
-				op.data.modifyStat.deltaFromSlot = -1;
+				op.data.modifyStat.delta = 0; // delta read from blackboard slot
+				op.data.modifyStat.deltaFromSlot = 2;
 				queueEffect(op);
-				queueFloatingTextVisual(gridToWorld(currentPlayer.x, currentPlayer.y), "+" + ofToString(linkedCount) + " Fortify", ofColor::lightGray);
-				ofLogNotice("Fortify") << "Player " << currentPlayer.playerID << " queued " << linkedCount << " fortification.";
+				queueFloatingTextVisual(gridToWorld(currentPlayer.x, currentPlayer.y), "+" + ofToString(currentEffectSequence.blackboard[2]) + " Fortify", ofColor::lightGray);
+				ofLogNotice("Fortify") << "Player " << currentPlayer.playerID << " queued " << currentEffectSequence.blackboard[2] << " fortification.";
 			}
 
 			std::set<int> damagedIndices;
@@ -25436,8 +25443,8 @@ bool ofApp::executeCardGeneric(const Card & playedCard, int cardIndex, int targe
 					damageOp.type = EffectOpType::DAMAGE;
 					damageOp.data.damage.targetIndex = idx;
 					damageOp.data.damage.damageType = DAMAGE_PHYSICAL;
-					damageOp.data.damage.fixedDamage = 3;
-					damageOp.data.damage.damageFromSlot = -1;
+					damageOp.data.damage.fixedDamage = 0; // actual value read from blackboard
+					damageOp.data.damage.damageFromSlot = 1; // read base damage stored above
 					queueEffect(damageOp);
 				}
 			}
