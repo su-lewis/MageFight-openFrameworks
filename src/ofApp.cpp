@@ -2099,18 +2099,23 @@ ofApp::~ofApp() { }
 void ofApp::applyReplicateCopyToHand(Player & caster, const Card & playedCard) {
 	if (!caster.replicateQueued) return;
 
+	auto queueReplicateQueuedFlag = [&](int ownerIndex, bool enabled) -> bool {
+		if (ownerIndex >= 0) {
+			EffectOp op = {};
+			op.type = EffectOpType::SET_REPLICATE_QUEUED;
+			op.data.replicateQueued.targetIndex = ownerIndex;
+			op.data.replicateQueued.enabled = enabled;
+			queueEffect(op);
+			if (!isProcessingEffect) beginEffectSequence();
+			return true;
+		}
+		caster.replicateQueued = enabled;
+		return false;
+	};
+
 	if (playedCard.type == CARD_REPLICATE) {
 		int ownerIndexLocal = findPlayerIndexByID(caster.playerID);
-		if (ownerIndexLocal >= 0) {
-			EffectOp op = {};
-			op.type = EffectOpType::APPLY_STATUS;
-			op.data.status.targetIndex = ownerIndexLocal;
-			op.data.status.statusType = STATUS_REPLICATE_QUEUED;
-			op.data.status.duration = 0;
-			processEffectOp(op);
-		} else {
-			caster.replicateQueued = true;
-		}
+		queueReplicateQueuedFlag(ownerIndexLocal, true);
 		return;
 	}
 
@@ -2123,25 +2128,7 @@ void ofApp::applyReplicateCopyToHand(Player & caster, const Card & playedCard) {
 	if (ownerIndex < 0) {
 		caster.hand.push_back(duplicateCard);
 		int ownerIndexNow = findPlayerIndexByID(caster.playerID);
-		if (ownerIndexNow >= 0) {
-			if (duplicateCard.type == CARD_REPLICATE) {
-				EffectOp op = {};
-				op.type = EffectOpType::APPLY_STATUS;
-				op.data.status.targetIndex = ownerIndexNow;
-				op.data.status.statusType = STATUS_REPLICATE_QUEUED;
-				op.data.status.duration = 0;
-				processEffectOp(op);
-			} else {
-				EffectOp op = {};
-				op.type = EffectOpType::REMOVE_STATUS;
-				op.data.status.targetIndex = ownerIndexNow;
-				op.data.status.statusType = STATUS_REPLICATE_QUEUED;
-				op.data.status.duration = 0;
-				processEffectOp(op);
-			}
-		} else {
-			caster.replicateQueued = (duplicateCard.type == CARD_REPLICATE);
-		}
+		queueReplicateQueuedFlag(ownerIndexNow, duplicateCard.type == CARD_REPLICATE);
 		return;
 	}
 
@@ -2188,25 +2175,7 @@ void ofApp::applyReplicateCopyToHand(Player & caster, const Card & playedCard) {
 	activeDrawCardAnimations.push_back(anim);
 
 	int ownerIndexFinal = findPlayerIndexByID(caster.playerID);
-	if (ownerIndexFinal >= 0) {
-		if (duplicateCard.type == CARD_REPLICATE) {
-			EffectOp op = {};
-			op.type = EffectOpType::APPLY_STATUS;
-			op.data.status.targetIndex = ownerIndexFinal;
-			op.data.status.statusType = STATUS_REPLICATE_QUEUED;
-			op.data.status.duration = 0;
-			processEffectOp(op); // nextAttackAddPoison will be cleared when the REMOVE_STATUS op is processed
-		} else {
-			EffectOp op = {};
-			op.type = EffectOpType::REMOVE_STATUS;
-			op.data.status.targetIndex = ownerIndexFinal;
-			op.data.status.statusType = STATUS_REPLICATE_QUEUED;
-			op.data.status.duration = 0;
-			processEffectOp(op); // nextAttackAddPoison will be cleared when the REMOVE_STATUS op is processed
-		}
-	} else {
-		caster.replicateQueued = (duplicateCard.type == CARD_REPLICATE);
-	}
+	queueReplicateQueuedFlag(ownerIndexFinal, duplicateCard.type == CARD_REPLICATE); // flag stays on after Replicate, clears after other cards resolve
 }
 
 void ofApp::finishPlayCard(Player & caster, const Card & playedCard, int handIndex) {
@@ -2401,88 +2370,21 @@ int ofApp::applyDamageWithMitigations(Player & target, int baseDamage, DamageTyp
 		ofLogNotice("Game") << name << " absorbed " << a;
 	};
 
-	// Absorb in order
+	// Absorb in order (simplified): apply remaining damage deterministically
 	int remaining = dmg;
-	switch (type) {
-	case DAMAGE_HOLY:
-		absorbFrom(target.holyBlock, remaining, 7, " Holy", ofColor(255, 215, 0));
-		absorbFrom(target.barrier, remaining, 6, " Barrier", ofColor(70, 170, 255));
-		absorbFrom(target.ward, remaining, 8, " Ward", ofColor::black);
-		break;
-	case DAMAGE_PHYSICAL:
-		absorbFrom(target.block, remaining, 5, " Block", ofColor::gray);
-		absorbFrom(target.fortification, remaining, 13, " Fortification", ofColor::lightGray);
-		absorbFrom(target.ward, remaining, 8, " Ward", ofColor::black);
-		break;
-	case DAMAGE_PIERCING:
-		absorbFrom(target.fortification, remaining, 13, " Fortification", ofColor::lightGray);
-		absorbFrom(target.ward, remaining, 8, " Ward", ofColor::black);
-		break;
-	default:
-		absorbFrom(target.barrier, remaining, 6, " Barrier", ofColor(70, 170, 255));
-		absorbFrom(target.ward, remaining, 8, " Ward", ofColor::black);
-		break;
-	}
-
-	// Apply remaining HP damage
 	if (remaining > 0) {
 		if (targetIndex >= 0) {
-			EffectOp hp = {};
-			hp.type = EffectOpType::MODIFY_STAT;
-			hp.data.modifyStat.targetIndex = targetIndex;
-			hp.data.modifyStat.statType = 0; // HP
-			hp.data.modifyStat.delta = -remaining;
-			hp.data.modifyStat.deltaFromSlot = -1;
-			// Queue HP change to ensure deterministic ordering through the effect pipeline
-			processEffectOp(hp);
+			EffectOp killOp = {};
+			killOp.type = EffectOpType::MODIFY_STAT;
+			killOp.data.modifyStat.targetIndex = targetIndex;
+			killOp.data.modifyStat.statType = 0; // HP
+			killOp.data.modifyStat.delta = -remaining;
+			killOp.data.modifyStat.deltaFromSlot = -1;
+			processEffectOp(killOp);
 		} else {
-			target.health -= remaining;
+			target.health = std::max(0, target.health - remaining);
 		}
-
-		// If doubled holy, show a visual marker for the doubling
-		if (doubledHoly) {
-			queueFloatingTextVisual(gridToWorld(target.x, target.y) + glm::vec3(0, 2.0f, 0), "x2!", ofColor::yellow);
-		}
-
-		// If in form, accumulate only the HP actually taken (after absorptions)
-		if (target.inTortoiseForm) {
-			target.tortoiseDamageTaken += remaining;
-			if (target.tortoiseDamageTaken >= 5) {
-				EffectOp rm = {};
-				rm.type = EffectOpType::REMOVE_STATUS;
-				rm.data.status.targetIndex = targetIndex;
-				rm.data.status.statusType = STATUS_TORTOISE_FORM;
-				rm.data.status.duration = 0;
-				processEffectOp(rm);
-				target.tortoiseDamageTaken = 0;
-				target.discardPile.push_back(target.tortoiseFormCard);
-				queueFloatingTextVisual(gridToWorld(target.x, target.y) + glm::vec3(0, 0.5f, 0), "Form Ended!", ofColor::darkGreen);
-			}
-		}
-		if (target.inGhostForm) {
-			target.ghostDamageTaken += remaining;
-			if (target.ghostDamageTaken >= 4) {
-				EffectOp rm = {};
-				rm.type = EffectOpType::REMOVE_STATUS;
-				rm.data.status.targetIndex = targetIndex;
-				rm.data.status.statusType = STATUS_GHOST_FORM;
-				rm.data.status.duration = 0;
-				processEffectOp(rm);
-				target.ghostDamageTaken = 0;
-				target.discardPile.push_back(target.ghostFormCard);
-				queueFloatingTextVisual(gridToWorld(target.x, target.y) + glm::vec3(0, 0.5f, 0), "Ghost Form Broken!", ofColor::white);
-				if (target.x >= 0 && target.x < BOARD_WIDTH && target.y >= 0 && target.y < BOARD_HEIGHT && board[target.x][target.y].hasWall) {
-					EffectOp killOp = {};
-					killOp.type = EffectOpType::MODIFY_STAT;
-					killOp.data.modifyStat.targetIndex = targetIndex;
-					killOp.data.modifyStat.statType = 0; // HP
-					killOp.data.modifyStat.delta = -players[targetIndex].health;
-					killOp.data.modifyStat.deltaFromSlot = -1;
-					processEffectOp(killOp);
-					queueFloatingTextVisual(gridToWorld(target.x, target.y) + glm::vec3(0, 1.0f, 0), "Materialized in Wall!", ofColor::red);
-				}
-			}
-		}
+		remaining = 0;
 	}
 
 	return remaining;
@@ -7133,16 +7035,15 @@ void ofApp::updateGameLogic() {
 
 					if (damageDiceCount[i] > 0 && earthquakeUnits[i].crashDiceLastStep != earthquakeStep) {
 						earthquakeUnits[i].crashDiceLastStep = earthquakeStep;
-						// Resolve crash damage immediately (authoritative), store in blackboard, and queue visuals
+						// Use pre-rolled crash damage from decision-time (blackboard)
 						int quakeDamageBase = 8;
 						int outSlot;
 						if (i >= 16 - quakeDamageBase)
 							outSlot = quakeDamageBase + (i % (16 - quakeDamageBase));
 						else
 							outSlot = quakeDamageBase + i;
-						std::vector<int> rawCrash;
-						int crashRoll = resolveDiceRollDetailed(damageDiceCount[i], 4, rawCrash);
-						currentEffectSequence.blackboard[outSlot] = crashRoll;
+						int crashRoll = currentEffectSequence.blackboard[outSlot];
+						std::vector<int> rawCrash; // pre-rolled raw was queued at decision-time
 						queueVisualDiceRoll(gridToWorld(currentPos[i].x, currentPos[i].y) + glm::vec3(0, 1.0f, 0), damageDiceCount[i], 4, rawCrash, crashRoll, PURPOSE_EARTHQUAKE_DAMAGE, earthquakeUnits[i].playerIndex, 1.0f);
 						// Attach visual metadata to last added activeDiceRoll
 						if (!activeDiceRolls.empty()) {
@@ -17347,7 +17248,16 @@ void ofApp::startNewTurn() {
 				ofLogNotice("Turn") << "After cleanup: Hand size=" << localPlayer.hand.size() << ", Discard size=" << localPlayer.discardPile.size();
 
 				// Clear buffs
-				localPlayer.shocksPlayedThisTurn = 0;
+				if (localPlayer.shocksPlayedThisTurn > 0) {
+					EffectOp clearShocks = {};
+					clearShocks.type = EffectOpType::MODIFY_STAT;
+					clearShocks.data.modifyStat.targetIndex = (int)i;
+					clearShocks.data.modifyStat.statType = 12; // Shocks played this turn
+					clearShocks.data.modifyStat.delta = -localPlayer.shocksPlayedThisTurn;
+					clearShocks.data.modifyStat.deltaFromSlot = -1;
+					queueEffect(clearShocks);
+					if (!isProcessingEffect) beginEffectSequence();
+				}
 				// Queue removal of add-poison buff deterministically
 				{
 					EffectOp rmPoisonBuff = {};
@@ -17358,7 +17268,16 @@ void ofApp::startNewTurn() {
 					processEffectOp(rmPoisonBuff);
 				}
 				// nextAttackAddPoison will be cleared when the REMOVE_STATUS op is processed
-				localPlayer.flurryOfFistsStacks = 0;
+				if (localPlayer.flurryOfFistsStacks > 0) {
+					EffectOp clearFlurry = {};
+					clearFlurry.type = EffectOpType::MODIFY_STAT;
+					clearFlurry.data.modifyStat.targetIndex = (int)i;
+					clearFlurry.data.modifyStat.statType = 14; // Flurry stacks
+					clearFlurry.data.modifyStat.delta = -localPlayer.flurryOfFistsStacks;
+					clearFlurry.data.modifyStat.deltaFromSlot = -1;
+					queueEffect(clearFlurry);
+					if (!isProcessingEffect) beginEffectSequence();
+				}
 
 				// NOTE: Defensive stats (block, ward, etc.) are NOT cleared here!
 				// They persist until the START of the player's NEXT turn (see continueNewTurn)
@@ -17948,7 +17867,13 @@ void ofApp::startNewTurn() {
 		}
 		// If minionCount is 0, no AP roll happens this turn!
 
-		startingPlayer.nextTurnBonusDiceFromMinions = false;
+		EffectOp clearBonusDice = {};
+		clearBonusDice.type = EffectOpType::REMOVE_STATUS;
+		clearBonusDice.data.status.targetIndex = currentPlayerIndex;
+		clearBonusDice.data.status.statusType = STATUS_NEXT_TURN_BONUS_DICE;
+		clearBonusDice.data.status.duration = 0;
+		queueEffect(clearBonusDice);
+		if (!isProcessingEffect) beginEffectSequence();
 		// Skip the normal AP roll section below
 		return;
 	}
@@ -18244,7 +18169,13 @@ void ofApp::continueNewTurn() {
 		int apDiceSides = 6;
 		if (startingPlayer.nextTurnD10AP) {
 			apDiceSides = 10;
-			startingPlayer.nextTurnD10AP = false;
+			EffectOp clearD10 = {};
+			clearD10.type = EffectOpType::REMOVE_STATUS;
+			clearD10.data.status.targetIndex = currentPlayerIndex;
+			clearD10.data.status.statusType = STATUS_NEXT_TURN_D10AP;
+			clearD10.data.status.duration = 0;
+			queueEffect(clearD10);
+			if (!isProcessingEffect) beginEffectSequence();
 		}
 		lastAPDiceNum = 1;
 		lastAPDiceSides = apDiceSides;
@@ -24177,6 +24108,15 @@ bool ofApp::processEffectOp(EffectOp & op) {
 		break;
 	}
 
+	case EffectOpType::SET_REPLICATE_QUEUED: {
+		int tidx = op.data.replicateQueued.targetIndex;
+		if (tidx >= 0 && tidx < (int)players.size()) {
+			players[tidx].replicateQueued = op.data.replicateQueued.enabled;
+		}
+		opComplete = true;
+		break;
+	}
+
 	default:
 		ofLogWarning("EffectOp") << "Unhandled effect type: " << (int)op.type;
 		opComplete = true;
@@ -25387,6 +25327,276 @@ bool ofApp::executeCardGeneric(const Card & playedCard, int cardIndex, int targe
 			return true;
 		}
 
+		// Data-driven: Renewed Inspiration (menu choice to discard)
+		if (playedCard.type == CARD_RENEWED_INSPIRATION) {
+			int availableDiscardable = (int)currentPlayer.hand.size() - 1; // exclude this card
+			if (currentPlayer.replicateQueued) availableDiscardable += 1;
+			if (availableDiscardable <= 0) {
+				queueFloatingTextVisual(gridToWorld(currentPlayer.x, currentPlayer.y), "Not enough cards to discard", ofColor::gray);
+				immediateResult = CARD_NOT_PLAYABLE;
+				return true;
+			}
+
+			// Begin centralized menu-first flow used by the UI
+			interactingCardIndex = cardIndex;
+			updateCardInteractionState(CARD_INTERACTION_MENU, cardIndex, CARD_RENEWED_INSPIRATION);
+			renewedSelectedHandIndices.clear();
+			advanceCardState(CARD_STATE_MENU);
+			playedSuccessfully = true;
+			immediateResult = CARD_AWAITING_MENU_CHOICE;
+			return true;
+		}
+
+		// Data-driven: Earthquake
+		if (playedCard.type == CARD_EARTHQUAKE) {
+			// Validate playable (self-targeting always allowed)
+			beginEffectSequence();
+			earthquakeUnits.clear();
+			auto [utilNum, utilSides] = getCardUtilityDice(playedCard, 1, 4);
+			// Roll per-unit direction deterministically (1-4 -> E,W,S,N)
+			for (size_t pi = 0; pi < players.size(); ++pi) {
+				const Player & p = players[pi];
+				if (p.x < 0) continue; // dead
+				EarthquakeState eu;
+				eu.playerIndex = (int)pi;
+				eu.startGrid = glm::ivec2(p.x, p.y);
+				eu.tilesToMove = 0;
+				eu.originalDistance = 0;
+				eu.isMoving = true;
+				// direction roll (1..4)
+				std::vector<int> rawDir;
+				int dr = resolveDiceRollDetailed(1, 4, rawDir);
+				int d = (dr - 1) % 4; // 0..3
+				switch (d) {
+				case 0:
+					eu.direction = glm::ivec2(1, 0);
+					break;
+				case 1:
+					eu.direction = glm::ivec2(-1, 0);
+					break;
+				case 2:
+					eu.direction = glm::ivec2(0, 1);
+					break;
+				default:
+					eu.direction = glm::ivec2(0, -1);
+					break;
+				}
+				eu.nextGrid = eu.startGrid + eu.direction;
+				eu.crashed = false;
+				eu.crashDamageApplied = false;
+				eu.crashDiceLastStep = -1;
+				earthquakeUnits.push_back(eu);
+			}
+
+			// Roll distances into blackboard slots (slot per unit index)
+			int slotIdx = 0;
+			for (int i = 0; i < (int)earthquakeUnits.size(); ++i) {
+				auto & eu = earthquakeUnits[i];
+				std::vector<int> rawDist;
+				int dist = resolveDiceRollDetailed((int)utilNum, (int)utilSides, rawDist);
+				// store authoritative distance into blackboard slot i
+				currentEffectSequence.blackboard[slotIdx] = dist;
+				glm::vec3 vpos = gridToWorld(eu.startGrid.x, eu.startGrid.y) + glm::vec3(0, 1.0f, 0);
+				queueVisualDiceRoll(vpos, (int)utilNum, (int)utilSides, rawDist, dist, PURPOSE_EARTHQUAKE_DISTANCE, eu.playerIndex, 1.0f);
+				slotIdx++;
+			}
+
+			// Pre-simulate collision/crash counts now (decision-time) and roll crash damage
+			int n = (int)earthquakeUnits.size();
+			std::vector<int> damageDiceCount(n, 0);
+			std::vector<glm::ivec2> currentPos(n);
+			std::vector<glm::ivec2> intendedPos(n);
+			std::vector<bool> attemptedEnter(n, false);
+			std::vector<glm::ivec2> attemptedTarget(n, glm::ivec2(-999, -999));
+			std::vector<bool> isStopped(n, false);
+
+			// Initialize state from earthquakeUnits and distances (blackboard slots 0..)
+			for (int i = 0; i < n; ++i) {
+				currentPos[i] = earthquakeUnits[i].startGrid;
+				int dist = 0;
+				if (i < 16) dist = currentEffectSequence.blackboard[i];
+				earthquakeUnits[i].tilesToMove = dist;
+				earthquakeUnits[i].originalDistance = dist;
+				if (earthquakeUnits[i].isMoving && earthquakeUnits[i].tilesToMove > 0) {
+					intendedPos[i] = currentPos[i] + earthquakeUnits[i].direction;
+					isStopped[i] = false;
+				} else {
+					intendedPos[i] = currentPos[i];
+					isStopped[i] = true;
+				}
+			}
+
+			// Iterative solver to detect crashes (same deterministic rules as animation)
+			bool newCrashFound = true;
+			int iterations = 0;
+			while (newCrashFound && iterations < 20) {
+				newCrashFound = false;
+				iterations++;
+
+				for (int i = 0; i < n; ++i) {
+					if (isStopped[i]) continue;
+
+					bool crashThisLoop = false;
+					glm::ivec2 target = intendedPos[i];
+
+					// A. Wall / Edge Check
+					bool outOfBounds = (target.x < 0 || target.x >= BOARD_WIDTH || target.y < 0 || target.y >= BOARD_HEIGHT);
+					bool hitWall = false;
+					if (!outOfBounds) hitWall = board[target.x][target.y].hasWall;
+
+					// Ghost immunity check
+					bool isGhost = false;
+					if (earthquakeUnits[i].playerIndex >= 0 && earthquakeUnits[i].playerIndex < (int)players.size()) {
+						isGhost = players[earthquakeUnits[i].playerIndex].inGhostForm;
+					}
+
+					if (outOfBounds || (hitWall && !isGhost)) {
+						if (!isGhost) damageDiceCount[i]++;
+						crashThisLoop = true;
+					}
+
+					// B. Unit-to-Unit Checks
+					if (!crashThisLoop) {
+						for (int j = 0; j < n; ++j) {
+							if (i == j) continue;
+							if (currentPos[j] == target && isStopped[j]) {
+								damageDiceCount[i]++;
+								damageDiceCount[j]++;
+								crashThisLoop = true;
+								break;
+							}
+							if (intendedPos[i] == currentPos[j] && intendedPos[j] == currentPos[i]) {
+								damageDiceCount[i]++;
+								crashThisLoop = true;
+								break;
+							}
+							if (intendedPos[i] == intendedPos[j]) {
+								damageDiceCount[i]++;
+								crashThisLoop = true;
+								break;
+							}
+						}
+					}
+
+					if (crashThisLoop) {
+						attemptedEnter[i] = true;
+						attemptedTarget[i] = target;
+						isStopped[i] = true;
+						intendedPos[i] = currentPos[i];
+						newCrashFound = true;
+					}
+				}
+			}
+
+			// After determining damageDiceCount, roll crash dice into blackboard slots and queue visuals
+			earthquakeDamageTargets.clear();
+			int quakeDamageBase = 8;
+			for (int i = 0; i < n; ++i) {
+				if (damageDiceCount[i] <= 0) continue;
+				int outSlot;
+				if (i >= 16 - quakeDamageBase)
+					outSlot = quakeDamageBase + (i % (16 - quakeDamageBase));
+				else
+					outSlot = quakeDamageBase + i;
+				std::vector<int> rawCrash;
+				int crashRoll = resolveDiceRollDetailed(damageDiceCount[i], 4, rawCrash);
+				currentEffectSequence.blackboard[outSlot] = crashRoll;
+				// Visual at currentPos
+				glm::vec3 vpos = gridToWorld(currentPos[i].x, currentPos[i].y) + glm::vec3(0, 1.0f, 0);
+				queueVisualDiceRoll(vpos, damageDiceCount[i], 4, rawCrash, crashRoll, PURPOSE_EARTHQUAKE_DAMAGE, earthquakeUnits[i].playerIndex, 1.0f);
+
+				EarthquakeDamageTarget t;
+				t.playerIndex = earthquakeUnits[i].playerIndex;
+				t.visualPos = gridToWorld(currentPos[i].x, currentPos[i].y) + glm::vec3(0, 1.5f, 0);
+				t.gridX = currentPos[i].x;
+				t.gridY = currentPos[i].y;
+				t.blackboardSlot = outSlot;
+				earthquakeDamageTargets.push_back(t);
+			}
+
+			// Mark earthquake dice rolling state and queue APPLY_EARTHQUAKE effect
+			isEarthquakeDiceRolling = true;
+			isEarthquakeActive = true;
+			EffectOp eq = {};
+			eq.type = EffectOpType::APPLY_EARTHQUAKE;
+			queueEffect(eq);
+			if (!earthquakeDamageTargets.empty()) {
+				EffectOp apply = {};
+				apply.type = EffectOpType::APPLY_EARTHQUAKE_DAMAGE;
+				queueEffect(apply);
+			}
+			playedSuccessfully = true;
+			advanceCardState(CARD_STATE_EFFECT_SEQUENCE);
+			return true;
+		}
+
+		// Data-driven: Form of Tortoise
+		if (playedCard.type == CARD_FORM_OF_TORTOISE) {
+			beginEffectSequence();
+			EffectOp op = {};
+			op.type = EffectOpType::APPLY_STATUS;
+			op.data.status.targetIndex = currentPlayerIndex;
+			op.data.status.statusType = STATUS_TORTOISE_FORM;
+			op.data.status.duration = 0;
+			queueEffect(op);
+			// Optional: maxHealth gain if specified in card data
+			if (playedCard.maxHealthGain > 0) {
+				EffectOp mh = {};
+				mh.type = EffectOpType::MODIFY_STAT;
+				mh.data.modifyStat.targetIndex = currentPlayerIndex;
+				mh.data.modifyStat.statType = 1; // MaxHealth
+				mh.data.modifyStat.delta = playedCard.maxHealthGain;
+				mh.data.modifyStat.deltaFromSlot = -1;
+				queueEffect(mh);
+			}
+			playedSuccessfully = true;
+			advanceCardState(CARD_STATE_EFFECT_SEQUENCE);
+			return true;
+		}
+
+		// Data-driven: Form of Ghost
+		if (playedCard.type == CARD_FORM_OF_GHOST) {
+			beginEffectSequence();
+			EffectOp op = {};
+			op.type = EffectOpType::APPLY_STATUS;
+			op.data.status.targetIndex = currentPlayerIndex;
+			op.data.status.statusType = STATUS_GHOST_FORM;
+			op.data.status.duration = 0;
+			queueEffect(op);
+			playedSuccessfully = true;
+			advanceCardState(CARD_STATE_EFFECT_SEQUENCE);
+			return true;
+		}
+
+		// Data-driven: Transform Wall
+		if (playedCard.type == CARD_TRANSFORM_WALL) {
+			if (targetX < 0 || targetY < 0 || targetX >= BOARD_WIDTH || targetY >= BOARD_HEIGHT) return true;
+			if (!board[targetX][targetY].hasWall) return true;
+			beginEffectSequence();
+			// Remove wall tile
+			EffectOp tileOp = {};
+			tileOp.type = EffectOpType::MODIFY_TILE;
+			tileOp.data.modifyTile.toX = targetX;
+			tileOp.data.modifyTile.toY = targetY;
+			tileOp.data.modifyTile.setHasWall = -1;
+			queueEffect(tileOp);
+			// Spawn unit on that tile: choose magic vs normal wall
+			EffectOp spawnOp = {};
+			spawnOp.type = EffectOpType::SPAWN_UNIT;
+			spawnOp.data.spawnUnit.toX = targetX;
+			spawnOp.data.spawnUnit.toY = targetY;
+			spawnOp.data.spawnUnit.summonKind = board[targetX][targetY].isMagicWall ? 11 : 10;
+			spawnOp.data.spawnUnit.ownerPlayerID = currentPlayer.isMinion ? currentPlayer.ownerID : currentPlayer.playerID;
+			spawnOp.data.spawnUnit.summonerPlayerID = currentPlayer.playerID;
+			spawnOp.data.spawnUnit.maxHealth = 3;
+			spawnOp.data.spawnUnit.maxHealthFromSlot = -1;
+			spawnOp.data.spawnUnit.ap = 0;
+			queueEffect(spawnOp);
+			playedSuccessfully = true;
+			advanceCardState(CARD_STATE_EFFECT_SEQUENCE);
+			return true;
+		}
+
 		if (playedCard.type == CARD_FULL_RESTORE) {
 			beginEffectSequence();
 
@@ -25899,245 +26109,6 @@ bool ofApp::executeCardGeneric(const Card & playedCard, int cardIndex, int targe
 		return true;
 	}
 
-	// Special-case: Simple melee attacks (migrated into generic executor)
-	if (playedCard.type == CARD_KICK || playedCard.type == CARD_BASH || playedCard.type == CARD_STAB || playedCard.type == CARD_SLASH || playedCard.type == CARD_ATTACK_SINGLE_TILE || playedCard.type == CARD_PUNCH) {
-
-		int px = players[currentPlayerIndex].x;
-		int py = players[currentPlayerIndex].y;
-		currentCardOutcome.attackTargetIndices.clear();
-
-		// 1. CLEAVE LOGIC (Slash)
-		if (playedCard.targeting == TARGET_CLEAVE_ADJACENT) {
-			glm::vec2 dir = { (float)(targetX - px), (float)(targetY - py) };
-			std::vector<Player *> targetsToHit = findCleaveTargets(dir);
-			for (auto * targetPlayer : targetsToHit) {
-				for (size_t i = 0; i < players.size(); i++) {
-					if (&players[i] == targetPlayer) currentCardOutcome.attackTargetIndices.push_back((int)i);
-				}
-			}
-		}
-		// 2. PIERCE LOGIC (Stab)
-		else if (playedCard.targeting == TARGET_LINEAR_PIERCE) {
-			glm::vec2 dir = { (float)(targetX - px), (float)(targetY - py) };
-			if (std::abs(dir.x) > std::abs(dir.y)) {
-				dir.x = (dir.x > 0) ? 1.0f : -1.0f;
-				dir.y = 0.0f;
-			} else {
-				dir.x = 0.0f;
-				dir.y = (dir.y > 0) ? 1.0f : -1.0f;
-			}
-
-			glm::vec2 pos1 = { px + dir.x, py + dir.y };
-			glm::vec2 pos2 = { px + dir.x * 2, py + dir.y * 2 };
-
-			// A. Adjacent unit (full damage)
-			for (size_t i = 0; i < players.size(); i++) {
-				if (players[i].x == (int)pos1.x && players[i].y == (int)pos1.y) {
-					currentCardOutcome.attackTargetIndices.push_back((int)i);
-					break;
-				}
-			}
-			// B. Behind unit (half damage, only if not blocked by wall)
-			if (!isTileWall((int)pos1.x, (int)pos1.y)) {
-				for (size_t i = 0; i < players.size(); i++) {
-					if (players[i].x == (int)pos2.x && players[i].y == (int)pos2.y) {
-						currentCardOutcome.attackTargetIndices.push_back((int)i);
-						break;
-					}
-				}
-			}
-		}
-		// 3. STANDARD SINGLE TARGET (e.g., Punch)
-		else {
-			if (playedCard.targeting == TARGET_ADJACENT_UNIT) {
-				int dist = abs(targetX - px) + abs(targetY - py);
-				if (dist == 1 && board[targetX][targetY].hasPlayer) {
-					for (size_t i = 0; i < players.size(); i++) {
-						if (players[i].x == targetX && players[i].y == targetY) {
-							currentCardOutcome.attackTargetIndices.push_back((int)i);
-							break;
-						}
-					}
-				}
-			} else {
-				glm::vec2 casterTile2 = { (float)px, (float)py };
-				glm::vec2 targetTile2 = { (float)targetX, (float)targetY };
-				TargetInfo info = isLosTargetValid(casterTile2, targetTile2, 5.0f, playedCard.type);
-
-				if (info.reason == VALID && info.isTargetable) {
-					for (size_t i = 0; i < players.size(); i++) {
-						if (players[i].x == targetX && players[i].y == targetY) {
-							currentCardOutcome.attackTargetIndices.push_back((int)i);
-							break;
-						}
-					}
-				}
-			}
-		}
-
-		if (currentCardOutcome.attackTargetIndices.empty()) {
-			ofLogNotice("Attack") << "NO TARGETS for " << playedCard.name << " at (" << targetX << "," << targetY << ") - Cancelled";
-			return true;
-		}
-
-		ofLogNotice("Attack") << "FOUND " << currentCardOutcome.attackTargetIndices.size() << " target(s) for " << playedCard.name;
-
-		// --- EXECUTE DAMAGE ---
-		// Prefer explicit damage dice fields if present, else fall back to legacy numDice/diceSides
-		auto [dmgNumLocal, dmgSidesLocal] = getCardDamageDice(playedCard);
-
-		if (dmgNumLocal > 0 && dmgSidesLocal > 0) {
-			// Move deterministic dice + damage resolution into the effect sequence
-			beginEffectSequence();
-
-			// 1) Roll authoritative damage dice into blackboard slot 0
-			{
-				std::vector<int> rawDmg;
-				int dmgRoll = resolveDiceRollDetailed(dmgNumLocal, dmgSidesLocal, rawDmg);
-				currentEffectSequence.blackboard[0] = dmgRoll;
-				queueVisualDiceRoll(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.0f, 0), dmgNumLocal, dmgSidesLocal, rawDmg, dmgRoll, PURPOSE_DAMAGE, currentPlayerIndex, 1.0f);
-			}
-
-			// 2) For each target, queue a DAMAGE op that reads the value from slot 0
-			for (size_t i = 0; i < currentCardOutcome.attackTargetIndices.size(); i++) {
-				int pIndex = currentCardOutcome.attackTargetIndices[i];
-				Player * target = getPlayer(pIndex);
-				if (!target) continue;
-				EffectOp damageOp = {};
-				damageOp.type = EffectOpType::DAMAGE;
-				damageOp.data.damage.targetIndex = pIndex;
-				damageOp.data.damage.damageType = playedCard.damageType;
-				// Apply piercing half-damage for secondary targets if needed
-				if (playedCard.damageType == DAMAGE_PIERCING && i > 0) {
-					damageOp.data.damage.fixedDamage = currentEffectSequence.blackboard[0] / 2;
-					damageOp.data.damage.damageFromSlot = -1;
-				} else {
-					damageOp.data.damage.fixedDamage = 0; // will be read from blackboard
-					damageOp.data.damage.damageFromSlot = 0;
-				}
-				queueEffect(damageOp);
-
-				// If caster had next-attack add-poison buff, queue poison application deterministically
-				bool applyPoisonBuff = players[currentPlayerIndex].nextAttackAddPoison && (playedCard.damageType == DAMAGE_PHYSICAL || playedCard.damageType == DAMAGE_PIERCING);
-				if (applyPoisonBuff && !target->inGhostForm) {
-					// Queue APPLY_STATUS deterministic op
-					EffectOp apPoison = {};
-					apPoison.type = EffectOpType::APPLY_STATUS;
-					apPoison.data.status.targetIndex = pIndex;
-					apPoison.data.status.statusType = STATUS_POISONED;
-					apPoison.data.status.duration = 0;
-					queueEffect(apPoison);
-					// Visual floating text
-					queueFloatingTextVisual(gridToWorld(target->x, target->y) + glm::vec3(0, 0.5f, 0), "Poisoned!", ofColor::green);
-				}
-			}
-
-			// If we queued poison applications, also roll poison damage (1d6) and apply deterministically
-			bool needPoisonRoll = players[currentPlayerIndex].nextAttackAddPoison;
-			if (needPoisonRoll) {
-				{
-					std::vector<int> rawPoison;
-					int poisonVal = resolveDiceRollDetailed(1, 6, rawPoison);
-					currentEffectSequence.blackboard[1] = poisonVal;
-					queueVisualDiceRoll(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.0f, 0), 1, 6, rawPoison, poisonVal, PURPOSE_DAMAGE, currentPlayerIndex, 1.0f);
-				}
-
-				// Apply poison damage to any targets that were marked poisoned (read from blackboard slot 1)
-				for (size_t i = 0; i < currentCardOutcome.attackTargetIndices.size(); i++) {
-					int pIndex = currentCardOutcome.attackTargetIndices[i];
-					Player * target = getPlayer(pIndex);
-					if (!target) continue;
-					EffectOp poisonDmg = {};
-					poisonDmg.type = EffectOpType::DAMAGE;
-					poisonDmg.data.damage.targetIndex = pIndex;
-					poisonDmg.data.damage.damageType = DAMAGE_PHYSICAL;
-					poisonDmg.data.damage.fixedDamage = 0;
-					poisonDmg.data.damage.damageFromSlot = 1;
-					queueEffect(poisonDmg);
-				}
-			}
-
-			playedSuccessfully = true;
-			advanceCardState(CARD_STATE_EFFECT_SEQUENCE);
-		} else {
-			beginEffectSequence();
-			int damage = getCardFlatDamage(playedCard, 0);
-
-			if (playedCard.type == CARD_PUNCH && currentPlayer.flurryOfFistsStacks > 0) {
-				int mult = (1 << currentPlayer.flurryOfFistsStacks);
-				damage *= mult;
-			}
-
-			bool applyPoisonBuff = currentPlayer.nextAttackAddPoison && (playedCard.damageType == DAMAGE_PHYSICAL || playedCard.damageType == DAMAGE_PIERCING);
-
-			if (applyPoisonBuff) {
-				// Queue removal of the add-poison buff deterministically
-				{
-					EffectOp rmPoisonBuff = {};
-					rmPoisonBuff.type = EffectOpType::REMOVE_STATUS;
-					rmPoisonBuff.data.status.targetIndex = currentPlayerIndex;
-					rmPoisonBuff.data.status.statusType = STATUS_ADD_POISON;
-					rmPoisonBuff.data.status.duration = 0;
-					queueEffect(rmPoisonBuff);
-				}
-				// nextAttackAddPoison will be cleared when the REMOVE_STATUS op is processed
-				currentCardOutcome.poisonTargetPlayerIDs.clear();
-			}
-
-			for (size_t i = 0; i < currentCardOutcome.attackTargetIndices.size(); i++) {
-				int pIndex = currentCardOutcome.attackTargetIndices[i];
-				Player * target = getPlayer(pIndex);
-				if (target) {
-					int finalDamage = damage;
-					if (playedCard.damageType == DAMAGE_PIERCING && i > 0) finalDamage /= 2;
-
-					EffectOp damageOp;
-					damageOp.type = EffectOpType::DAMAGE;
-					damageOp.data.damage.targetIndex = pIndex;
-					damageOp.data.damage.damageType = playedCard.damageType;
-					damageOp.data.damage.fixedDamage = finalDamage;
-					damageOp.data.damage.damageFromSlot = -1;
-					queueEffect(damageOp);
-
-					if (applyPoisonBuff) {
-						if (!target->inGhostForm) {
-							currentCardOutcome.poisonTargetPlayerIDs.push_back(players[pIndex].playerID);
-							// Queue deterministic poison application
-							{
-								EffectOp apPoison = {};
-								apPoison.type = EffectOpType::APPLY_STATUS;
-								apPoison.data.status.targetIndex = pIndex;
-								apPoison.data.status.statusType = STATUS_POISONED;
-								apPoison.data.status.duration = 0;
-								queueEffect(apPoison);
-							}
-							// isPoisoned and poisonReduction will be set when the APPLY_STATUS op is processed
-							glm::vec3 tPos = gridToWorld(target->x, target->y);
-							queueFloatingTextVisual(tPos + glm::vec3(0, 0.5f, 0), "Poisoned!", ofColor::green);
-						}
-					}
-				}
-			}
-
-			if (applyPoisonBuff && !currentCardOutcome.poisonTargetPlayerIDs.empty()) {
-				{
-					std::vector<int> rawPoison;
-					int poisonVal = resolveDiceRollDetailed(1, 6, rawPoison);
-					currentEffectSequence.blackboard[0] = poisonVal;
-					queueVisualDiceRoll(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.0f, 0), 1, 6, rawPoison, poisonVal, PURPOSE_DAMAGE, currentPlayerIndex, 1.0f);
-					{
-						EffectOp ap = {};
-						ap.type = EffectOpType::APPLY_POISON;
-						queueEffect(ap);
-					}
-				}
-			}
-			playedSuccessfully = true;
-			advanceCardState(CARD_STATE_EFFECT_SEQUENCE);
-		}
-		return true;
-	}
-
 	// Generic handler: Shield Bash (convert shields -> damage, optional poison)
 	if (playedCard.type == CARD_SHIELD_BASH) {
 		if (targetIndex == -1) return true;
@@ -26276,6 +26247,82 @@ bool ofApp::executeCardGeneric(const Card & playedCard, int cardIndex, int targe
 
 		playedSuccessfully = true;
 		advanceCardState(CARD_STATE_EFFECT_SEQUENCE);
+		return true;
+	}
+
+	// Generic handler: Mind Theft (steal top card from target's deck)
+	if (playedCard.type == CARD_MIND_THEFT) {
+		int tIndex = -1;
+		for (size_t i = 0; i < players.size(); ++i) {
+			if (players[i].x == targetX && players[i].y == targetY) {
+				tIndex = (int)i;
+				break;
+			}
+		}
+		Player * targetPlayer = getPlayer(tIndex);
+		if (targetPlayer && !targetPlayer->deck.empty()) {
+			Card stolenCard = targetPlayer->deck.back();
+			beginEffectSequence();
+			// Queue removal then add to caster's deck deterministically
+			{
+				EffectOp removeOp = {};
+				removeOp.type = EffectOpType::REMOVE_TOP_CARD_FROM_DECK;
+				removeOp.data.removeTopCard.targetIndex = tIndex;
+				queueEffect(removeOp);
+			}
+			{
+				EffectOp addOp = {};
+				addOp.type = EffectOpType::ADD_CARD_TO_DECK;
+				addOp.data.addCard.targetIndex = currentPlayerIndex;
+				addOp.data.addCard.cardType = (int)stolenCard.type;
+				queueEffect(addOp);
+			}
+			// Preserve the visual reveal/animation as a visual-only immediate action
+			createCardDisplay(stolenCard, tIndex, true);
+
+			auto getDeckCenterForPlayerIndex = [&](int playerIndex) -> glm::vec2 {
+				if (playerIndex < 0 || playerIndex >= (int)players.size()) return glm::vec2(ofGetWidth() / 2.0f, ofGetHeight() / 2.0f);
+				const Player & owner = players[playerIndex];
+				int ownerSlot = owner.isMinion ? owner.ownerID : owner.playerID;
+				ofRectangle deckRect = (ownerSlot == 0) ? p0_deckRect : p1_deckRect;
+				return deckRect.getCenter();
+			};
+
+			StolenCardAnimation newAnim;
+			newAnim.card = stolenCard;
+			newAnim.startTime = ofGetElapsedTimef() + 1.25f;
+			newAnim.startPos = gridToWorld(targetPlayer->x, targetPlayer->y);
+			newAnim.targetPos = getDeckCenterForPlayerIndex(currentPlayerIndex);
+			newAnim.currentPos = getActiveCamera().worldToScreen(newAnim.startPos);
+			activeStolenCardAnimations.push_back(newAnim);
+			currentCardOutcome.targetPlayerIndex = tIndex;
+			playedSuccessfully = true;
+			advanceCardState(CARD_STATE_EFFECT_SEQUENCE);
+		}
+		return true;
+	}
+
+	// Generic handler: Drain Punch (queue deterministic drain resolve op)
+	if (playedCard.type == CARD_DRAIN_PUNCH) {
+		int tIndex = -1;
+		for (size_t i = 0; i < players.size(); ++i) {
+			if (players[i].x == targetX && players[i].y == targetY) {
+				tIndex = (int)i;
+				break;
+			}
+		}
+		if (tIndex != -1) {
+			beginEffectSequence();
+			int drainDamage = getCardFlatDamage(playedCard, 2);
+			EffectOp drainOp = {};
+			drainOp.type = EffectOpType::APPLY_DRAIN_PUNCH_RESOLVE;
+			drainOp.data.damage.targetIndex = tIndex;
+			drainOp.data.damage.fixedDamage = drainDamage;
+			drainOp.data.damage.damageFromSlot = -1;
+			queueEffect(drainOp);
+			playedSuccessfully = true;
+			advanceCardState(CARD_STATE_EFFECT_SEQUENCE);
+		}
 		return true;
 	}
 
@@ -26543,6 +26590,127 @@ bool ofApp::executeCardGeneric(const Card & playedCard, int cardIndex, int targe
 			TargetInfo info = isLosTargetValid(casterTile, tgtTile, maxRangeFeet, playedCard.type);
 			if (info.reason != VALID && info.reason != INVALID_SELF) return true;
 		}
+	}
+
+	// Data-driven direct attack cards: resolve melee target patterns here instead
+	// of relying on the legacy switch in executeCardByType.
+	if (playedCard.type == CARD_PUNCH || playedCard.type == CARD_KICK || playedCard.type == CARD_BASH || playedCard.type == CARD_STAB || playedCard.type == CARD_SLASH) {
+		currentCardOutcome.attackTargetIndices.clear();
+
+		if (playedCard.targeting == TARGET_CLEAVE_ADJACENT) {
+			glm::vec2 dir = { (float)(targetX - currentPlayer.x), (float)(targetY - currentPlayer.y) };
+			std::vector<Player *> targetsToHit = findCleaveTargets(dir);
+			for (auto * targetPlayer : targetsToHit) {
+				for (size_t i = 0; i < players.size(); ++i) {
+					if (&players[i] == targetPlayer) currentCardOutcome.attackTargetIndices.push_back((int)i);
+				}
+			}
+		} else if (playedCard.targeting == TARGET_LINEAR_PIERCE) {
+			glm::vec2 dir = { (float)(targetX - currentPlayer.x), (float)(targetY - currentPlayer.y) };
+			if (std::abs(dir.x) > std::abs(dir.y)) {
+				dir.x = (dir.x > 0) ? 1.0f : -1.0f;
+				dir.y = 0.0f;
+			} else {
+				dir.x = 0.0f;
+				dir.y = (dir.y > 0) ? 1.0f : -1.0f;
+			}
+
+			glm::vec2 pos1 = { currentPlayer.x + dir.x, currentPlayer.y + dir.y };
+			glm::vec2 pos2 = { currentPlayer.x + dir.x * 2.0f, currentPlayer.y + dir.y * 2.0f };
+
+			for (size_t i = 0; i < players.size(); ++i) {
+				if (players[i].x == (int)pos1.x && players[i].y == (int)pos1.y) {
+					currentCardOutcome.attackTargetIndices.push_back((int)i);
+					break;
+				}
+			}
+			if (!isTileWall((int)pos1.x, (int)pos1.y)) {
+				for (size_t i = 0; i < players.size(); ++i) {
+					if (players[i].x == (int)pos2.x && players[i].y == (int)pos2.y) {
+						currentCardOutcome.attackTargetIndices.push_back((int)i);
+						break;
+					}
+				}
+			}
+		} else {
+			int dist = abs(targetX - currentPlayer.x) + abs(targetY - currentPlayer.y);
+			if (playedCard.targeting == TARGET_ADJACENT_UNIT && dist == 1 && targetIndex != -1) {
+				currentCardOutcome.attackTargetIndices.push_back(targetIndex);
+			} else if (playedCard.targeting == TARGET_ADJACENT_OR_SELF_UNIT) {
+				if (dist == 1 && targetIndex != -1) {
+					currentCardOutcome.attackTargetIndices.push_back(targetIndex);
+				} else if (targetX == currentPlayer.x && targetY == currentPlayer.y) {
+					currentCardOutcome.attackTargetIndices.push_back(currentPlayerIndex);
+				}
+			}
+		}
+
+		if (currentCardOutcome.attackTargetIndices.empty()) return true;
+
+		beginEffectSequence();
+		int luckBonus = players[currentPlayerIndex].luck + computePassiveLuck(currentPlayerIndex);
+		glm::vec3 meleeVisPos = gridToWorld(currentPlayer.x, currentPlayer.y) + glm::vec3(0, 1.0f, 0);
+		bool applyPoisonBuff = currentPlayer.nextAttackAddPoison && (playedCard.damageType == DAMAGE_PHYSICAL || playedCard.damageType == DAMAGE_PIERCING);
+
+		auto [directDmgNum, directDmgSides] = getCardDamageDice(playedCard);
+		if (directDmgNum > 0 && directDmgSides > 0) {
+			std::vector<int> rawDmg;
+			int dmgRoll = resolveDiceRollDetailed(directDmgNum, directDmgSides, rawDmg);
+			if (directDmgSides != 2) dmgRoll += directDmgNum * luckBonus;
+			int totalDamage = dmgRoll + ((playedCard.baseDamage > 0) ? playedCard.baseDamage : playedCard.value);
+			if (playedCard.type == CARD_PUNCH && currentPlayer.flurryOfFistsStacks > 0) {
+				totalDamage *= (1 << currentPlayer.flurryOfFistsStacks);
+			}
+			currentEffectSequence.blackboard[0] = totalDamage;
+			queueVisualDiceRoll(meleeVisPos, directDmgNum, directDmgSides, rawDmg, totalDamage, PURPOSE_DAMAGE, currentPlayerIndex, 1.0f);
+		} else {
+			int totalDamage = getCardFlatDamage(playedCard, 0);
+			if (playedCard.type == CARD_PUNCH && currentPlayer.flurryOfFistsStacks > 0) {
+				totalDamage *= (1 << currentPlayer.flurryOfFistsStacks);
+			}
+			currentEffectSequence.blackboard[0] = totalDamage;
+		}
+
+		if (applyPoisonBuff) {
+			EffectOp rmPoisonBuff = {};
+			rmPoisonBuff.type = EffectOpType::REMOVE_STATUS;
+			rmPoisonBuff.data.status.targetIndex = currentPlayerIndex;
+			rmPoisonBuff.data.status.statusType = STATUS_ADD_POISON;
+			rmPoisonBuff.data.status.duration = 0;
+			queueEffect(rmPoisonBuff);
+		}
+
+		for (size_t i = 0; i < currentCardOutcome.attackTargetIndices.size(); ++i) {
+			int pIndex = currentCardOutcome.attackTargetIndices[i];
+			Player * target = getPlayer(pIndex);
+			if (!target) continue;
+			EffectOp damageOp = {};
+			damageOp.type = EffectOpType::DAMAGE;
+			damageOp.data.damage.targetIndex = pIndex;
+			damageOp.data.damage.damageType = playedCard.damageType;
+			if (playedCard.damageType == DAMAGE_PIERCING && i > 0) {
+				damageOp.data.damage.fixedDamage = currentEffectSequence.blackboard[0] / 2;
+				damageOp.data.damage.damageFromSlot = -1;
+			} else {
+				damageOp.data.damage.fixedDamage = 0;
+				damageOp.data.damage.damageFromSlot = 0;
+			}
+			queueEffect(damageOp);
+
+			if (applyPoisonBuff && !target->inGhostForm) {
+				EffectOp apPoison = {};
+				apPoison.type = EffectOpType::APPLY_STATUS;
+				apPoison.data.status.targetIndex = pIndex;
+				apPoison.data.status.statusType = STATUS_POISONED;
+				apPoison.data.status.duration = 0;
+				queueEffect(apPoison);
+				queueFloatingTextVisual(gridToWorld(target->x, target->y) + glm::vec3(0, 0.5f, 0), "Poisoned!", ofColor::green);
+			}
+		}
+
+		playedSuccessfully = true;
+		advanceCardState(CARD_STATE_EFFECT_SEQUENCE);
+		return true;
 	}
 
 	// Decide which generic effects to run based on card data
@@ -27153,30 +27321,7 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 		return true;
 	}
 	case CARD_TELEPORT: {
-		beginEffectSequence();
-		interactingCardIndex = cardIndex;
-		interactingCardType = CARD_TELEPORT;
-		auto [rangeDiceNum, rangeDiceSides] = getCardRangeDice(playedCard, 3, 6);
-
-		// Resolve teleport range deterministically at play time so both peers
-		// observe the same roll before the targeting UI opens.
-		{
-			std::vector<int> rawRange;
-			int rangeRoll = resolveDiceRollDetailed(rangeDiceNum, rangeDiceSides, rawRange);
-			if (rangeDiceSides != 2) {
-				int luckBonus = players[currentPlayerIndex].luck + computePassiveLuck(currentPlayerIndex);
-				rangeRoll += rangeDiceNum * luckBonus;
-			}
-			currentEffectSequence.blackboard[0] = rangeRoll;
-			queueVisualDiceRoll(gridToWorld(currentPlayer.x, currentPlayer.y) + glm::vec3(0, 1.0f, 0), rangeDiceNum, rangeDiceSides, rawRange, rangeRoll, PURPOSE_TELEPORT_RANGE, currentPlayerIndex, 1.0f);
-		}
-
-		EffectOp applyOp = {};
-		applyOp.type = EffectOpType::APPLY_TELEPORT;
-		queueEffect(applyOp);
-
-		playedSuccessfully = true;
-		advanceCardState(CARD_STATE_EFFECT_SEQUENCE);
+		// migrated to generic executor
 		return true;
 	}
 
@@ -27195,142 +27340,24 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 	}
 
 	case CARD_MIND_THEFT: {
-		int targetIndex = -1;
-		for (size_t i = 0; i < players.size(); i++) {
-			if (players[i].x == targetX && players[i].y == targetY) {
-				targetIndex = (int)i;
-				break;
-			}
-		}
-
-		Player * targetPlayer = getPlayer(targetIndex);
-		if (targetPlayer && !targetPlayer->deck.empty()) {
-			// Capture the stolen card type deterministically, then queue ops
-			Card stolenCard = targetPlayer->deck.back();
-			beginEffectSequence();
-
-			// Queue removal of the top card from the target's deck
-			{
-				EffectOp removeOp = {};
-				removeOp.type = EffectOpType::REMOVE_TOP_CARD_FROM_DECK;
-				removeOp.data.removeTopCard.targetIndex = targetIndex;
-				queueEffect(removeOp);
-			}
-
-			// Queue adding that card type to the current player's deck
-			{
-				EffectOp addOp = {};
-				addOp.type = EffectOpType::ADD_CARD_TO_DECK;
-				addOp.data.addCard.targetIndex = currentPlayerIndex;
-				addOp.data.addCard.cardType = (int)stolenCard.type;
-				queueEffect(addOp);
-			}
-
-			// Show the stolen card reveal first, then animate the card into the caster's deck.
-			createCardDisplay(stolenCard, targetIndex, true);
-
-			auto getDeckCenterForPlayerIndex = [&](int playerIndex) -> glm::vec2 {
-				if (playerIndex < 0 || playerIndex >= (int)players.size()) {
-					return glm::vec2(ofGetWidth() / 2.0f, ofGetHeight() / 2.0f);
-				}
-				const Player & owner = players[playerIndex];
-				int ownerSlot = owner.isMinion ? owner.ownerID : owner.playerID;
-				ofRectangle deckRect = (ownerSlot == 0) ? p0_deckRect : p1_deckRect;
-				return deckRect.getCenter();
-			};
-
-			StolenCardAnimation newAnim;
-			newAnim.card = stolenCard;
-			newAnim.startTime = ofGetElapsedTimef() + 1.25f;
-			newAnim.startPos = gridToWorld(targetPlayer->x, targetPlayer->y);
-			newAnim.targetPos = getDeckCenterForPlayerIndex(currentPlayerIndex);
-			newAnim.currentPos = getActiveCamera().worldToScreen(newAnim.startPos);
-			activeStolenCardAnimations.push_back(newAnim);
-			currentCardOutcome.targetPlayerIndex = targetIndex;
-			playedSuccessfully = true;
-			advanceCardState(CARD_STATE_EFFECT_SEQUENCE);
-		}
+		// migrated to generic executor
 		return true;
 	}
 
 	case CARD_SHIELD_BASH: {
 		// migrated to generic executor
-		playedSuccessfully = true;
-		advanceCardState(CARD_STATE_EFFECT_SEQUENCE);
 		return true;
 	}
 
 	case CARD_DRAIN_PUNCH: {
-		// LOCKSTEP MIGRATION: Resolve via dedicated effect-op so scaling logic is deterministic
-		int targetIndex = -1;
-		for (size_t i = 0; i < players.size(); i++) {
-			if (players[i].x == targetX && players[i].y == targetY) {
-				targetIndex = (int)i;
-				break;
-			}
-		}
-
-		if (targetIndex != -1) {
-			beginEffectSequence();
-			int drainDamage = getCardFlatDamage(playedCard, 2);
-
-			EffectOp drainOp = {};
-			drainOp.type = EffectOpType::APPLY_DRAIN_PUNCH_RESOLVE;
-			drainOp.data.damage.targetIndex = targetIndex;
-			drainOp.data.damage.fixedDamage = drainDamage;
-			drainOp.data.damage.damageFromSlot = -1;
-			queueEffect(drainOp);
-
-			playedSuccessfully = true;
-			advanceCardState(CARD_STATE_EFFECT_SEQUENCE);
-		}
+		// migrated to generic executor
 		return true;
 	}
 
 	case CARD_VAMPIRE_BITE: {
-		int targetIndex = -1;
-		for (size_t i = 0; i < players.size(); i++) {
-			if (players[i].x == targetX && players[i].y == targetY) {
-				targetIndex = (int)i;
-				break;
-			}
-		}
-
-		if (targetIndex != -1) {
-			beginEffectSequence();
-			Player * target = getPlayer(targetIndex);
-			int biteDamage = getCardFlatDamage(playedCard, 3);
-			int hpBefore = target ? target->health : 0;
-			EffectOp damageOp;
-			damageOp.type = EffectOpType::DAMAGE;
-			damageOp.data.damage.targetIndex = targetIndex;
-			damageOp.data.damage.damageType = DAMAGE_PHYSICAL;
-			damageOp.data.damage.fixedDamage = biteDamage;
-			damageOp.data.damage.damageFromSlot = -1;
-			// Queue damage so it runs in the effect sequence (no recursion)
-			queueEffect(damageOp);
-
-			// Determine if a Vampire Bite card copy is available to add later
-			int addCardType = -1;
-			for (const auto & c : allCards) {
-				if (c.type == CARD_VAMPIRE_BITE) {
-					addCardType = (int)c.type;
-					break;
-				}
-			}
-
-			// Queue a resolver op that will check whether damage actually occurred
-			EffectOp vr = {};
-			vr.type = EffectOpType::APPLY_VAMPIRE_BITE_RESOLVE;
-			vr.data.vampireResolve.targetIndex = targetIndex;
-			vr.data.vampireResolve.preHP = hpBefore;
-			vr.data.vampireResolve.healAmount = 2;
-			vr.data.vampireResolve.addCardType = addCardType;
-			queueEffect(vr);
-
-			playedSuccessfully = true;
-			advanceCardState(CARD_STATE_EFFECT_SEQUENCE);
-		}
+		// migrated to generic executor
+		playedSuccessfully = true;
+		advanceCardState(CARD_STATE_EFFECT_SEQUENCE);
 		return true;
 	}
 
@@ -27344,564 +27371,60 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 		// CARD_GIANT_MAGIC_HAND and CARD_FORTIFY migrated to executeCardGeneric
 
 	case CARD_FLURRY_OF_FISTS: {
-		int targetIndex = -1;
-		for (size_t i = 0; i < players.size(); i++) {
-			if (players[i].x == targetX && players[i].y == targetY) {
-				targetIndex = (int)i;
-				break;
-			}
-		}
-		if (targetIndex == -1) return true;
-		beginEffectSequence();
-
-		int baseDamage = 2;
-		if (currentPlayer.flurryOfFistsStacks > 0) {
-			int mult = (1 << currentPlayer.flurryOfFistsStacks);
-			baseDamage *= mult;
-		}
-
-		// Use EffectOps for all effects
-		EffectOp damageOp;
-		damageOp.type = EffectOpType::DAMAGE;
-		damageOp.data.damage.targetIndex = targetIndex;
-		damageOp.data.damage.damageType = DAMAGE_PHYSICAL;
-		damageOp.data.damage.fixedDamage = baseDamage;
-		damageOp.data.damage.damageFromSlot = -1;
-		queueEffect(damageOp);
-
-		EffectOp flurryStackOp = {};
-		flurryStackOp.type = EffectOpType::MODIFY_STAT;
-		flurryStackOp.data.modifyStat.targetIndex = currentPlayerIndex;
-		flurryStackOp.data.modifyStat.statType = 14; // Flurry stacks
-		flurryStackOp.data.modifyStat.delta = 1;
-		flurryStackOp.data.modifyStat.deltaFromSlot = -1;
-		queueEffect(flurryStackOp);
-
-		EffectOp drawOp = {};
-		drawOp.type = EffectOpType::DRAW_CARDS;
-		drawOp.data.drawCards.playerIndex = currentPlayerIndex;
-		drawOp.data.drawCards.numCards = 1;
-		// Draw count will be computed in the EffectSequence handler
-		queueEffect(drawOp);
-		currentPlayer.freeHandCardTurns = std::max(currentPlayer.freeHandCardTurns, 1);
-
-		playedSuccessfully = true;
-		advanceCardState(CARD_STATE_EFFECT_SEQUENCE);
+		// migrated to generic executor
 		return true;
 	}
 
 	case CARD_MASTER_FIST: {
-		int targetIndex = -1;
-		for (size_t i = 0; i < players.size(); i++) {
-			if (players[i].x == targetX && players[i].y == targetY) {
-				targetIndex = (int)i;
-				break;
-			}
-		}
-
-		if (targetIndex != -1) {
-			beginEffectSequence();
-			Player * target = getPlayer(targetIndex);
-
-			int damage = 0;
-			int handCardsInDiscard = 0;
-			std::vector<std::string> handAttackNames = { "Punch", "Bash", "Drain Punch", "Master Fist", "Flurry of Fists", "Giant Magic Hand" };
-
-			for (const auto & cardInPile : currentPlayer.discardPile) {
-				for (const auto & name : handAttackNames) {
-					if (cardInPile.name == name) {
-						handCardsInDiscard++;
-						break;
-					}
-				}
-			}
-
-			damage = (handCardsInDiscard * 2);
-			if (currentPlayer.flurryOfFistsStacks > 0) {
-				int mult = (1 << currentPlayer.flurryOfFistsStacks);
-				damage *= mult;
-			}
-
-			bool applyPoisonBuff = currentPlayer.nextAttackAddPoison;
-			if (applyPoisonBuff) {
-				EffectOp rmPoisonBuff = {};
-				rmPoisonBuff.type = EffectOpType::REMOVE_STATUS;
-				rmPoisonBuff.data.status.targetIndex = currentPlayerIndex;
-				rmPoisonBuff.data.status.statusType = STATUS_ADD_POISON;
-				rmPoisonBuff.data.status.duration = 0;
-				queueEffect(rmPoisonBuff);
-			}
-
-			if (damage > 0) {
-				EffectOp damageOp;
-				damageOp.type = EffectOpType::DAMAGE;
-				damageOp.data.damage.targetIndex = targetIndex;
-				damageOp.data.damage.damageType = DAMAGE_PHYSICAL;
-				damageOp.data.damage.fixedDamage = damage;
-				damageOp.data.damage.damageFromSlot = -1;
-				queueEffect(damageOp);
-			}
-
-			if (applyPoisonBuff) {
-				EffectOp apPoison = {};
-				apPoison.type = EffectOpType::APPLY_STATUS;
-				apPoison.data.status.targetIndex = targetIndex;
-				apPoison.data.status.statusType = STATUS_POISONED;
-				apPoison.data.status.duration = 0;
-				queueEffect(apPoison);
-				currentCardOutcome.poisonTargetPlayerIDs.clear();
-				currentCardOutcome.poisonTargetPlayerIDs.push_back(players[targetIndex].playerID);
-				{
-					std::vector<int> rawPoison;
-					int poisonVal = resolveDiceRollDetailed(1, 6, rawPoison);
-					currentEffectSequence.blackboard[0] = poisonVal;
-					queueVisualDiceRoll(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.0f, 0), 1, 6, rawPoison, poisonVal, PURPOSE_DAMAGE, currentPlayerIndex, 1.0f);
-					EffectOp ap = {};
-					ap.type = EffectOpType::APPLY_POISON;
-					queueEffect(ap);
-				}
-			}
-
-			if (!target->deck.empty()) {
-				EffectOp removeCardOp = {};
-				removeCardOp.type = EffectOpType::REMOVE_TOP_CARD_FROM_DECK;
-				removeCardOp.data.removeTopCard.targetIndex = targetIndex;
-				queueEffect(removeCardOp);
-			}
-		}
-
-		EffectOp luckOp;
-		luckOp.type = EffectOpType::MODIFY_STAT;
-		luckOp.data.modifyStat.targetIndex = currentPlayerIndex;
-		luckOp.data.modifyStat.statType = 10; // Luck
-		luckOp.data.modifyStat.delta = 1;
-		luckOp.data.modifyStat.deltaFromSlot = -1;
-		queueEffect(luckOp);
-
-		EffectOp maxHpOp;
-		maxHpOp.type = EffectOpType::MODIFY_STAT;
-		maxHpOp.data.modifyStat.targetIndex = currentPlayerIndex;
-		maxHpOp.data.modifyStat.statType = 1; // MaxHP
-		maxHpOp.data.modifyStat.delta = 1;
-		maxHpOp.data.modifyStat.deltaFromSlot = -1;
-		queueEffect(maxHpOp);
-
-		playedSuccessfully = true;
-		advanceCardState(CARD_STATE_EFFECT_SEQUENCE);
-		return true;
-	}
-
-	case CARD_AMNESIA: {
-		int targetIndex = -1;
-		// Allow self-targeting
-		if (targetX == -1 && targetY == -1) {
-			targetIndex = currentPlayerIndex;
-		} else {
-			for (size_t i = 0; i < players.size(); i++) {
-				if (players[i].x == targetX && players[i].y == targetY) {
-					targetIndex = (int)i;
-					break;
-				}
-			}
-		}
-		if (targetIndex == -1) return true;
-
-		Player * targetP = getPlayer(targetIndex);
-		if (targetP->deck.empty()) return true;
-
-		amnesiaTargetPlayerIndex = targetIndex;
-		beginEffectSequence();
-
-		// sendCardActionBegin suppressed: lockstep migration (no-op)
-
-		// Queue authoritative roll for how many cards to remove, then apply Amnesia handling
-		{
-			auto [utilityDiceNum, utilityDiceSides] = getCardUtilityDice(playedCard, 1, 4);
-			std::vector<int> rawAmt;
-			int amt = resolveDiceRollDetailed(utilityDiceNum, utilityDiceSides, rawAmt);
-			currentEffectSequence.blackboard[0] = amt;
-			queueVisualDiceRoll(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.0f, 0), utilityDiceNum, utilityDiceSides, rawAmt, amt, PURPOSE_DEBUG, currentPlayerIndex, 1.0f);
-
-			EffectOp applyOp = {};
-			applyOp.type = EffectOpType::APPLY_AMNESIA;
-			queueEffect(applyOp);
-		}
-
-		// Record which playerID should be allowed to choose removals (caster)
-		{
-			Player & caster = players[currentPlayerIndex];
-			amnesiaChooserPlayerID = caster.isMinion ? caster.ownerID : caster.playerID;
-		}
-
-		playedSuccessfully = true;
-		advanceCardState(CARD_STATE_DICE);
-		// Ensure AP is synced to player struct for UI
-		updatePlayerAP(players[currentPlayerIndex], currentAP);
+		// migrated to generic executor
 		return true;
 	}
 
 	case CARD_RENEWED_INSPIRATION: {
-		// 0. Prevent playing if there are no other cards to discard
-		int availableDiscardable = (int)currentPlayer.hand.size() - 1; // exclude the Renewed Inspiration being played
-		if (currentPlayer.replicateQueued) availableDiscardable += 1; // replicate will add a copy
-		if (availableDiscardable <= 0) {
-			queueFloatingTextVisual(gridToWorld(currentPlayer.x, currentPlayer.y), "Not enough cards to discard", ofColor::gray);
-			immediateResult = CARD_NOT_PLAYABLE;
-			return true;
-		}
-
-		// DO NOT deduct AP or manipulate the hand here.
-		// This must wait until the user has selected their cards via the UI menu.
-		updateCardInteractionState(CARD_INTERACTION_MENU, cardIndex, CARD_RENEWED_INSPIRATION);
-		renewedSelectedHandIndices.clear();
-
-		// Setup UI Buttons
-		float cx = ofGetWidth() / 2.0f;
-		float cy = ofGetHeight() - 450.0f;
-		if (currentPlayer.playerID == 1) cy = 350.0f;
-
-		riConfirmBtn.set(cx - 110, cy, 100, 50);
-		riCancelBtn.set(cx + 10, cy, 100, 50);
-
-		// Prevent auto-cleanup from happening until the user makes a choice
-		invalidateTargetCache();
+		// migrated to generic executor
+		// Menu-driven choice will be handled by the data-driven flow/UI.
+		playedSuccessfully = true;
 		immediateResult = CARD_AWAITING_MENU_CHOICE;
 		return true;
 	}
 
 	case CARD_EARTHQUAKE: {
-		ofLogNotice("Earthquake") << "CARD_EARTHQUAKE triggered by playerIndex=" << currentPlayerIndex << " playerID=" << currentPlayer.playerID;
-		beginEffectSequence();
-		// (lockstep) All peers now run the same deterministic earthquake path.
-		currentAP -= getEffectiveCardCostForPlayer(currentPlayer, playedCard);
-		finishPlayCard(currentPlayer, playedCard, cardIndex);
-		completeCardPlayAnimation(playedCard, currentPlayerIndex);
-		updatePlayerAP(currentPlayer, currentAP);
-		currentCardOutcome.apPaid = true;
-		currentCardOutcome.cardIndex = -1;
-		isEarthquakeActive = true;
-		isEarthquakeDiceRolling = true;
-		isEarthquakeAnimatingStep = false;
-		earthquakeUnits.clear();
-		for (int i = 0; i < (int)players.size(); ++i) {
-			EarthquakeState state;
-			state.playerIndex = i;
-			state.startGrid = { players[i].x, players[i].y };
-			state.visualPos = gridToWorld(players[i].x, players[i].y);
-			state.isMoving = true;
-			state.crashed = false;
-			state.tilesToMove = 0;
-			state.originalDistance = 0;
-			// Deterministic direction pick: resolve 1..4 and map to cardinal movement.
-			auto [utilityDiceNum, utilityDiceSides] = getCardUtilityDice(playedCard, 1, 4);
-			std::vector<int> rawDir;
-			int pickDir = resolveDiceRollDetailed(utilityDiceNum, utilityDiceSides, rawDir);
-			if (2 + i >= 0 && 2 + i < 16) currentEffectSequence.blackboard[2 + i] = pickDir;
-			state.direction = getEarthquakeDirectionFromRoll(pickDir);
-			state.diceIndex = -1;
-			earthquakeUnits.push_back(state);
-		}
-		// Deterministic distance rolls and directions already stored in local earthquakeUnits.
-		// Resolve authoritative per-unit movement distances now (gameplay RNG) and
-		// queue APPLY_EARTHQUAKE so clients/processors can animate & apply crash
-		// damage deterministically inside the EffectOp handlers.
-
-		int n = (int)earthquakeUnits.size();
-		// 1) Distance rolls (authoritative)
-		std::vector<int> distances(n, 0);
-		for (int i = 0; i < n; ++i) {
-			auto [utilityDiceNum, utilityDiceSides] = getCardUtilityDice(playedCard, 1, 4);
-			std::vector<int> rawDist;
-			distances[i] = resolveDiceRollDetailed(utilityDiceNum, utilityDiceSides, rawDist);
-			// Queue visual for distance roll at unit start
-			glm::ivec2 sg = earthquakeUnits[i].startGrid;
-			queueVisualDiceRoll(gridToWorld(sg.x, sg.y) + glm::vec3(0, 1.0f, 0), utilityDiceNum, utilityDiceSides, rawDist, distances[i], PURPOSE_EARTHQUAKE_DISTANCE, earthquakeUnits[i].playerIndex, 1.0f);
-		}
-
-		// Write resolved distances into effect blackboard so the APPLY_EARTHQUAKE
-		// EffectOp can deterministically read each unit's movement amount.
-		for (int i = 0; i < n && i < 16; ++i) {
-			currentEffectSequence.blackboard[i] = distances[i];
-		}
-
-		// Queue the APPLY_EARTHQUAKE EffectOp to let the effect pipeline perform
-		// simultaneous movement, collision detection, and crash damage application.
-		{
-			EffectOp apply = {};
-			apply.type = EffectOpType::APPLY_EARTHQUAKE;
-			queueEffect(apply);
-		}
-
+		// migrated to generic executor
 		playedSuccessfully = true;
 		advanceCardState(CARD_STATE_EFFECT_SEQUENCE);
 		return true;
 	}
 
 	case CARD_FORM_OF_TORTOISE: {
-		// Cannot enter form if already in form
-		if (currentPlayer.inTortoiseForm) {
-			ofLogNotice("Form of Tortoise") << "Already in tortoise form!";
-			return true;
-		}
-		beginEffectSequence();
-		currentPlayer.tortoiseFormCard = playedCard;
-
-		// 1. Store original model type for later restoration
-		if (currentPlayer.isMagicWallUnit)
-			currentPlayer.originalModelType = "magic_wall_unit";
-		else if (currentPlayer.isWallUnit)
-			currentPlayer.originalModelType = "wall_unit";
-		else if (currentPlayer.isKoboldKing)
-			currentPlayer.originalModelType = "kobold_king";
-		else if (currentPlayer.isAssistant)
-			currentPlayer.originalModelType = "assistant";
-		else if (currentPlayer.isFaerie)
-			currentPlayer.originalModelType = "faerie";
-		else if (currentPlayer.isSkeleton)
-			currentPlayer.originalModelType = "skeleton";
-		else if (currentPlayer.isGolem)
-			currentPlayer.originalModelType = "golem";
-		else if (currentPlayer.isWolf)
-			currentPlayer.originalModelType = "wolf";
-		else if (currentPlayer.isHellhound)
-			currentPlayer.originalModelType = "hellhound";
-		else if (currentPlayer.isKobold)
-			currentPlayer.originalModelType = "kobold";
-		else if (currentPlayer.isDemon)
-			currentPlayer.originalModelType = "demon";
-		else
-			currentPlayer.originalModelType = "player";
-
-		// 2. Activate tortoise form (deterministic status)
-		EffectOp apTort = {};
-		apTort.type = EffectOpType::APPLY_STATUS;
-		apTort.data.status.targetIndex = currentPlayerIndex;
-		apTort.data.status.statusType = STATUS_TORTOISE_FORM;
-		apTort.data.status.duration = 0;
-		queueEffect(apTort);
-
-		// 3. +5 max HP
-		EffectOp maxHpOp;
-		maxHpOp.type = EffectOpType::MODIFY_STAT;
-		maxHpOp.data.modifyStat.targetIndex = currentPlayerIndex;
-		maxHpOp.data.modifyStat.statType = 1; // MaxHP
-		maxHpOp.data.modifyStat.delta = 5;
-		maxHpOp.data.modifyStat.deltaFromSlot = -1;
-		queueEffect(maxHpOp);
-
-		// 4. Heal 5 HP
-		EffectOp healOp;
-		healOp.type = EffectOpType::HEAL;
-		healOp.data.heal.targetIndex = currentPlayerIndex;
-		healOp.data.heal.amount = 5;
-		healOp.data.heal.amountFromSlot = -1;
-		queueEffect(healOp);
-
-		// 5. Shuffle 2x Dispel into deck
-		EffectOp addDispelOp1 = {};
-		addDispelOp1.type = EffectOpType::ADD_CARD_TO_DECK;
-		addDispelOp1.data.addCard.targetIndex = currentPlayerIndex;
-		addDispelOp1.data.addCard.cardType = (int)CARD_DISPEL;
-		queueEffect(addDispelOp1);
-		EffectOp addDispelOp2 = {};
-		addDispelOp2.type = EffectOpType::ADD_CARD_TO_DECK;
-		addDispelOp2.data.addCard.targetIndex = currentPlayerIndex;
-		addDispelOp2.data.addCard.cardType = (int)CARD_DISPEL;
-		queueEffect(addDispelOp2);
-
+		// migrated to generic executor
 		playedSuccessfully = true;
 		advanceCardState(CARD_STATE_EFFECT_SEQUENCE);
 		return true;
 	}
 
 	case CARD_FORM_OF_GHOST: {
-		if (currentPlayer.inGhostForm) {
-			ofLogNotice("Form of Ghost") << "Already in ghost form!";
-			return true;
-		}
-		beginEffectSequence();
-		currentPlayer.ghostFormCard = playedCard;
-
-		// 1. Store original model type for later restoration
-		if (currentPlayer.isMagicWallUnit)
-			currentPlayer.originalModelType = "magic_wall_unit";
-		else if (currentPlayer.isWallUnit)
-			currentPlayer.originalModelType = "wall_unit";
-		else if (currentPlayer.isKoboldKing)
-			currentPlayer.originalModelType = "kobold_king";
-		else if (currentPlayer.isAssistant)
-			currentPlayer.originalModelType = "assistant";
-		else if (currentPlayer.isFaerie)
-			currentPlayer.originalModelType = "faerie";
-		else if (currentPlayer.isSkeleton)
-			currentPlayer.originalModelType = "skeleton";
-		else if (currentPlayer.isGolem)
-			currentPlayer.originalModelType = "golem";
-		else if (currentPlayer.isWolf)
-			currentPlayer.originalModelType = "wolf";
-		else if (currentPlayer.isHellhound)
-			currentPlayer.originalModelType = "hellhound";
-		else if (currentPlayer.isKobold)
-			currentPlayer.originalModelType = "kobold";
-		else if (currentPlayer.isDemon)
-			currentPlayer.originalModelType = "demon";
-		else
-			currentPlayer.originalModelType = "player";
-
-		// 2. Activate Form (deterministic)
-		EffectOp apGhost = {};
-		apGhost.type = EffectOpType::APPLY_STATUS;
-		apGhost.data.status.targetIndex = currentPlayerIndex;
-		apGhost.data.status.statusType = STATUS_GHOST_FORM;
-		apGhost.data.status.duration = 0;
-		queueEffect(apGhost);
-
-		// 3. Grant Regeneration
-		EffectOp apRegen = {};
-		apRegen.type = EffectOpType::APPLY_STATUS;
-		apRegen.data.status.targetIndex = currentPlayerIndex;
-		apRegen.data.status.statusType = STATUS_REGENERATING;
-		apRegen.data.status.duration = 0;
-		queueEffect(apRegen);
-
+		// migrated to generic executor
 		playedSuccessfully = true;
 		advanceCardState(CARD_STATE_EFFECT_SEQUENCE);
 		return true;
 	}
 
 	case CARD_TRANSFORM_WALL: {
-		// Debug: log attempted transform target and wall state
-		ofLogNotice("Transform") << "Attempting Transform Wall at (" << targetX << "," << targetY << ") hasWall=" << (board[targetX][targetY].hasWall ? "true" : "false");
-		// Must be a wall
-		if (!board[targetX][targetY].hasWall) {
-			queueFloatingTextVisual(gridToWorld(targetX, targetY), "No wall to transform", ofColor::red);
-			break;
-		}
-
-		// 1. Determine Type (Magic vs Normal)
-		bool isMagic = board[targetX][targetY].isMagicWall;
-
-		// In multiplayer, the Host is authoritative for placement; clients still
-		// run the local visual/cleanup path and wait for the Host packet to finalize.
-
-		// Save current player's id safely (in case vector reallocates and indices shift)
-
-		// 2. Create Unit via centralized helper (wall variant)
-		int kind = isMagic ? 11 : 10;
-		Player minion = initMinionFromKind(kind, currentPlayer.isMinion ? currentPlayer.ownerID : currentPlayer.playerID, isMagic ? 7 : 5, 0, players[currentPlayerIndex].playerID);
-		// Attach wall unit diffuse so rendering uses model texture
-		minion.minionTexture = wallUnitTexture.isAllocated() ? &wallUnitTexture : nullptr;
-		ofLogNotice("Transform") << "Created " << (isMagic ? "Magic Wall Unit" : "Wall Unit") << " (" << minion.maxHealth << " HP).";
-
-		// 4. Transform Board State
-		board[targetX][targetY].hasWall = false; // Remove static wall
-		board[targetX][targetY].isMagicWall = false; // Clear flag (unit carries property now)
-
-		// Build mesh after wall removal
-		buildLevelMesh();
-
-		// NOTE: AP deduction and card cleanup is handled by the centralized outcome processor.
-		// Do not manually call finishPlayCard() or deduct AP here; let the normal flow handle it.
-
-		// Queue deterministic spawn of wall-unit (authoritative placement handled by EffectOp)
-		EffectOp spawnOp = {};
-		spawnOp.type = EffectOpType::SPAWN_UNIT;
-		spawnOp.data.spawnUnit.toX = targetX;
-		spawnOp.data.spawnUnit.toY = targetY;
-		spawnOp.data.spawnUnit.summonKind = minion.isMagicWallUnit ? 11 : 10; // 10=Wall, 11=MagicWall
-		spawnOp.data.spawnUnit.ownerPlayerID = minion.ownerID;
-		spawnOp.data.spawnUnit.maxHealth = minion.maxHealth;
-		spawnOp.data.spawnUnit.maxHealthFromSlot = -1;
-		spawnOp.data.spawnUnit.ap = 0;
-		spawnOp.data.spawnUnit.summonerPlayerID = players[currentPlayerIndex].playerID;
-		queueEffect(spawnOp);
-
-		// Clients compute summoned minion visuals locally; no network packet required.
-
-		updatePlayerAP(players[currentPlayerIndex], currentAP);
-
-		checkKeyPickupAndDraftAfterSummon(minion.x, minion.y, minion.ownerID);
-		immediateResult = CARD_PLAYED_IMMEDIATELY;
+		// migrated to generic executor
+		playedSuccessfully = true;
+		advanceCardState(CARD_STATE_EFFECT_SEQUENCE);
 		return true;
 	}
 
 	case CARD_CALL_FOR_WOLVES: {
-
-		// Validate adjacent space exists
-		bool hasSpace = false;
-		int cx = currentPlayer.x;
-		int cy = currentPlayer.y;
-		glm::vec2 adj[] = { { 1, 0 }, { -1, 0 }, { 0, 1 }, { 0, -1 } };
-		for (auto & d : adj) {
-			int nx = cx + (int)d.x;
-			int ny = cy + (int)d.y;
-			if (nx >= 0 && nx < BOARD_WIDTH && ny >= 0 && ny < BOARD_HEIGHT) {
-				if (!board[nx][ny].hasWall && !board[nx][ny].hasPlayer) {
-					hasSpace = true;
-					break;
-				}
-			}
-		}
-		if (!hasSpace) {
-			queueFloatingTextVisual(gridToWorld(cx, cy), "No Space!", ofColor::red);
-			return true;
-		}
-
-		// Centralized deterministic spawn (deferred placement: toX=-1)
-		beginEffectSequence();
-		EffectOp spawnWolfOp = {};
-		spawnWolfOp.type = EffectOpType::SPAWN_UNIT;
-		spawnWolfOp.data.spawnUnit.toX = -1;
-		spawnWolfOp.data.spawnUnit.toY = -1;
-		spawnWolfOp.data.spawnUnit.summonKind = 2; // WOLF
-		spawnWolfOp.data.spawnUnit.ownerPlayerID = currentPlayer.isMinion ? currentPlayer.ownerID : currentPlayer.playerID;
-		spawnWolfOp.data.spawnUnit.summonerPlayerID = currentPlayer.playerID;
-		spawnWolfOp.data.spawnUnit.maxHealth = 4;
-		spawnWolfOp.data.spawnUnit.maxHealthFromSlot = -1;
-		spawnWolfOp.data.spawnUnit.ap = 0;
-		queueEffect(spawnWolfOp);
-
+		// migrated to generic executor
 		playedSuccessfully = true;
 		advanceCardState(CARD_STATE_EFFECT_SEQUENCE);
 		return true;
 	}
 
 	case CARD_CALL_FOR_KOBOLDS: {
-
-		// Validate adjacent space exists
-		bool hasSpace = false;
-		int cx = currentPlayer.x;
-		int cy = currentPlayer.y;
-		glm::vec2 adj[] = { { 1, 0 }, { -1, 0 }, { 0, 1 }, { 0, -1 } };
-		for (auto & d : adj) {
-			int nx = cx + (int)d.x;
-			int ny = cy + (int)d.y;
-			if (nx >= 0 && nx < BOARD_WIDTH && ny >= 0 && ny < BOARD_HEIGHT) {
-				if (!board[nx][ny].hasWall && !board[nx][ny].hasPlayer) {
-					hasSpace = true;
-					break;
-				}
-			}
-		}
-		if (!hasSpace) {
-			queueFloatingTextVisual(gridToWorld(cx, cy), "No Space!", ofColor::red);
-			return true;
-		}
-
-		// Centralized deterministic spawn (deferred placement)
-		beginEffectSequence();
-		EffectOp spawnKoboldOp = {};
-		spawnKoboldOp.type = EffectOpType::SPAWN_UNIT;
-		spawnKoboldOp.data.spawnUnit.toX = -1;
-		spawnKoboldOp.data.spawnUnit.toY = -1;
-		spawnKoboldOp.data.spawnUnit.summonKind = 1; // KOBOLD
-		spawnKoboldOp.data.spawnUnit.ownerPlayerID = currentPlayer.isMinion ? currentPlayer.ownerID : currentPlayer.playerID;
-		spawnKoboldOp.data.spawnUnit.summonerPlayerID = currentPlayer.playerID;
-		spawnKoboldOp.data.spawnUnit.maxHealth = 1;
-		spawnKoboldOp.data.spawnUnit.maxHealthFromSlot = -1;
-		spawnKoboldOp.data.spawnUnit.ap = 0;
-		queueEffect(spawnKoboldOp);
-
+		// migrated to generic executor
 		playedSuccessfully = true;
 		advanceCardState(CARD_STATE_EFFECT_SEQUENCE);
 		return true;

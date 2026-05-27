@@ -367,6 +367,7 @@ enum class EffectOpType : uint8_t {
 	DISCARD_CARDS,
 	APPLY_STATUS,
 	REMOVE_STATUS, // Added REMOVE_STATUS for effect operations
+	SET_REPLICATE_QUEUED,
 	CONDITIONAL_BRANCH,
 	APPLY_FIREBALL,
 	APPLY_POISON,
@@ -515,6 +516,11 @@ struct StatusData {
 	int duration; // optional
 };
 
+struct ReplicateQueuedData {
+	int targetIndex;
+	bool enabled;
+};
+
 struct EffectOp {
 	EffectOpType type;
 	union {
@@ -528,6 +534,7 @@ struct EffectOp {
 		RemoveTopCardData removeTopCard;
 		ReshuffleDiscardData reshuffle;
 		StatusData status;
+		ReplicateQueuedData replicateQueued;
 		SpawnUnitData spawnUnit;
 		CreateWallData createWall;
 		SpawnPlayerData spawnPlayer;
