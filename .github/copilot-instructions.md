@@ -213,3 +213,96 @@ The generic handler will see Bash, roll the 2d4, add the player's luck, save it 
 
 ### Contact
 When in doubt, open a PR and tag `@lead-dev`. Include a minimal save in `Saves/` that reproduces the behavior you changed.
+
+## Phase Implementation Details (Concrete Steps)
+
+**Phase 1 — Expand `Card` struct & JSON loader**
+- File: `src/GameSharedTypes.h` (or `src/ofApp.h` if project uses that). Add the following fields to `struct Card`:
+
+```cpp
+int baseDamage = 0;
+int damageDiceNum = 0;
+int damageDiceSides = 0;
+int baseHeal = 0;
+int healDiceNum = 0;
+int healDiceSides = 0;
+int blockGain = 0;
+int wardGain = 0;
+int barrierGain = 0;
+int luckGain = 0;
+int apGainThisTurn = 0;
+int apGainNextTurn = 0;
+int drawCount = 0;
+int discardHandCount = 0;
+int destroyDeckTargetCount = 0;
+int applyStatus = STATUS_NONE; // use StatusType enum
+int statusDuration = 0;
+int summonKind = 0;
+bool isAoe = false;
+```
+
+- Update `loadCardData` (likely in `src/ofApp.cpp` or a dedicated loader) to parse the JSON keys above. Use existing helpers (e.g., `stringToStatusType`) to map strings to enums. On unknown keys, log a warning but continue.
+
+**Phase 2 — Centralize pre-play validation**
+- At the top of `executeCardByType` (file: `src/ofApp.cpp`), before the `switch`, call a helper to resolve `targetIndex` from card `targetX,targetY`:
+
+```cpp
+int resolveTargetIndex(int tx, int ty);
+int targetIndex = resolveTargetIndex(card.targetX, card.targetY);
+if (card.requiresTarget && targetIndex < 0) return false;
+if (card.hasRange) {
+   if (!isLosTargetValid(currentPlayer, targetIndex, card.range)) return false;
+}
+```
+
+- Keep checks deterministic and integer-only. Do not call any RNG here.
+
+**Phase 3 — Generic Decision-Time Logic: `executeCardGeneric`**
+- Add function signature in `src/ofApp.h`/`src/ofApp.cpp`:
+
+```cpp
+bool executeCardGeneric(const Card& card, int targetIndex);
+```
+
+- Implementation outline (decision-time, must use `gameplayRNG`):
+   - Call `beginEffectSequence()`.
+   - If card has range dice -> call `resolveDiceRollDetailed(gameplayRNG, card.rangeDiceNum, card.rangeDiceSides)` -> store raw value in `currentEffectSequence.blackboard[0]` and queue a visual `PURPOSE_RANGE` roll.
+   - If card has damage -> roll `damageDiceNum` d `damageDiceSides`, add `baseDamage` and attacker's `luck`, store in `blackboard[1]` and queue `PURPOSE_DAMAGE` visual roll.
+   - For heals, store heal result in `blackboard[2]` similarly.
+   - Queue effect ops in deterministic order (use `playerID` tie-breakers where lists are iterated):
+      - `if (card.baseDamage>0 || damageRoll>0) queueEffect(EffectOp::APPLY_GENERIC_DAMAGE, targetIndex);`
+      - `if (card.baseHeal>0 || healRoll>0) queueEffect(EffectOp::APPLY_GENERIC_HEAL, targetIndex);`
+      - `if (card.applyStatus != STATUS_NONE) queueEffect(EffectOp::APPLY_GENERIC_STATUS, targetIndex);`
+      - `if (card.discardHandCount>0) queueEffect(EffectOp::APPLY_GENERIC_DISCARD, targetIndex);`
+   - Call `advanceCardState(CARD_STATE_EFFECT_SEQUENCE);` and `return true;` if card handled by generic pipeline. Otherwise `return false;` to fall back to legacy switch.
+
+**Phase 4 — Generic Effect Handlers**
+- Edit `processEffectOp` (file: `src/ofApp.cpp`) and add handlers:
+   - `APPLY_GENERIC_DAMAGE`: read `int dmg = currentEffectSequence.blackboard[1];` then call `applyDamageWithMitigationsQueued(targetIndex, dmg);`
+   - `APPLY_GENERIC_HEAL`: read `int heal = currentEffectSequence.blackboard[2]` or `card.baseHeal` and apply to `players[targetIndex].hp` via queued healing API.
+   - `APPLY_GENERIC_STATUS`: apply `card.applyStatus` using existing status APIs for `card.statusDuration`.
+   - `APPLY_GENERIC_DISCARD`: deterministically select `card.discardHandCount` indices from `players[targetIndex].hand` using `gameplayRNG` and move to discard.
+
+- Important: effect handlers MUST NOT call RNG. They only read `currentEffectSequence.blackboard[]` and perform state changes.
+
+**Phase 5 — Purge legacy switch cases safely**
+- Work in small batches (5 cards). For each batch:
+   1. Add data for those cards to `data/Config/cards.json` so they are fully described.
+   2. Implement `executeCardGeneric` and generic ops.
+   3. Replace the `case CARD_XYZ:` body by a short forward to `executeCardGeneric` or delete the case once validated.
+   4. Build: `make -j$(nproc)` and run quick smoke test using a relevant save from `Saves/`.
+   5. Run playtests and regression scenarios.
+
+- Use commit messages like: `feat(card-engine): migrate CARD_PUNCH,CARD_KICK,CARD_BASH to data-driven engine` and include screenshots or a save demonstrating parity.
+
+### Per-phase testing
+- Phase 1: unit test JSON loader with a test card file; verify fields populated.
+- Phase 2: write a small test harness (or instrument logs) verifying `resolveTargetIndex` and LOS checks for corner cases.
+- Phase 3: add deterministic tests for dice resolution using a fixed `gameplayRNG` seed.
+- Phase 4: unit tests for each `EffectOp` reading blackboard values and applying expected state changes.
+- Phase 5: playtest + smoke build after each purge batch.
+
+---
+
+If you want, I can now scaffold `executeCardGeneric` and the `EffectOp` enums/handlers in `src/ofApp.cpp`. Which phase should I start implementing first?
+
