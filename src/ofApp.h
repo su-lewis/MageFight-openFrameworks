@@ -2197,6 +2197,7 @@ private:
 
 	// Earthquake damage targets stored until APPLY_EARTHQUAKE_DAMAGE runs
 	struct EarthquakeDamageTarget {
+		int playerID = -1;
 		int playerIndex = -1;
 		glm::vec3 visualPos = glm::vec3(0);
 		int gridX = -1;

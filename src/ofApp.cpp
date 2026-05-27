@@ -7080,6 +7080,7 @@ void ofApp::updateGameLogic() {
 								t.blackboardSlot = quakeDamageBase + (i % (16 - quakeDamageBase));
 							else
 								t.blackboardSlot = quakeDamageBase + i;
+							t.playerID = (earthquakeUnits[i].playerIndex >= 0 && earthquakeUnits[i].playerIndex < (int)players.size()) ? players[earthquakeUnits[i].playerIndex].playerID : -1;
 							earthquakeDamageTargets.push_back(t);
 							anyDamage = true;
 						}
@@ -22161,9 +22162,10 @@ bool ofApp::processEffectOp(EffectOp & op) {
 				queueFloatingTextVisual(t.visualPos + glm::vec3(0, 0.8f, 0), "Phased (0 Dmg)", ofColor::cyan);
 				continue;
 			}
-			int pidx = findPlayerIndexByID(players[t.playerIndex].playerID);
-			// players vector may have shifted; try to find by playerID else use index if valid
+			int pidx = -1;
+			// Prefer stable playerID, then fall back to the original index if needed.
 			Player * target = nullptr;
+			if (t.playerID >= 0) pidx = findPlayerIndexByID(t.playerID);
 			if (pidx >= 0) target = getPlayer(pidx);
 			if (!target && t.playerIndex >= 0 && t.playerIndex < (int)players.size()) target = &players[t.playerIndex];
 			if (target) {
@@ -23858,8 +23860,8 @@ bool ofApp::processEffectOp(EffectOp & op) {
 				break;
 			}
 
-			// Deterministically pick `numCards` unique indices from hand using gameplay RNG
-			// Read precomputed picks from blackboard (slot 5..)
+			// Deterministically pick `numCards` unique indices from hand using the
+			// precomputed picks already stored in blackboard slots 5..(5+numCards-1).
 			int baseSlot = 5;
 			for (int i = 0; i < numCards; ++i) {
 				int slotVal = 0;
@@ -25506,6 +25508,7 @@ bool ofApp::executeCardGeneric(const Card & playedCard, int cardIndex, int targe
 				queueVisualDiceRoll(vpos, damageDiceCount[i], 4, rawCrash, crashRoll, PURPOSE_EARTHQUAKE_DAMAGE, earthquakeUnits[i].playerIndex, 1.0f);
 
 				EarthquakeDamageTarget t;
+				t.playerID = (earthquakeUnits[i].playerIndex >= 0 && earthquakeUnits[i].playerIndex < (int)players.size()) ? players[earthquakeUnits[i].playerIndex].playerID : -1;
 				t.playerIndex = earthquakeUnits[i].playerIndex;
 				t.visualPos = gridToWorld(currentPos[i].x, currentPos[i].y) + glm::vec3(0, 1.5f, 0);
 				t.gridX = currentPos[i].x;
@@ -27278,32 +27281,10 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 
 	switch (playedCard.type) {
 
-	case CARD_BLOCKING_BOON: {
-		// migrated to generic executor
-		playedSuccessfully = true;
-		advanceCardState(CARD_STATE_EFFECT_SEQUENCE);
-		return true;
-	}
-
 	case CARD_BURST_OF_LIGHT: {
 		// Handled by generic menu flow; consume play here.
 		playedSuccessfully = true;
 		immediateResult = CARD_AWAITING_MENU_CHOICE;
-		return true;
-	}
-
-	case CARD_DEMOLITION: {
-		// migrated to generic executor
-		return true;
-	}
-
-	case CARD_PSIONIC_WAVE: {
-		// migrated to generic executor
-		return true;
-	}
-
-	case CARD_MAGIC_BOLT: {
-		// migrated to generic executor
 		return true;
 	}
 
@@ -27320,11 +27301,6 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 		immediateResult = CARD_AWAITING_MENU_CHOICE;
 		return true;
 	}
-	case CARD_TELEPORT: {
-		// migrated to generic executor
-		return true;
-	}
-
 	case CARD_MAGIC_BLAST: {
 		// Handled by generic menu flow; consume play here.
 		playedSuccessfully = true;
@@ -27334,51 +27310,7 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 
 		// (migrated to data-driven engine)
 
-	case CARD_CHAIN_LIGHTNING: {
-		// migrated to generic executor
-		return true;
-	}
-
-	case CARD_MIND_THEFT: {
-		// migrated to generic executor
-		return true;
-	}
-
-	case CARD_SHIELD_BASH: {
-		// migrated to generic executor
-		return true;
-	}
-
-	case CARD_DRAIN_PUNCH: {
-		// migrated to generic executor
-		return true;
-	}
-
-	case CARD_VAMPIRE_BITE: {
-		// migrated to generic executor
-		playedSuccessfully = true;
-		advanceCardState(CARD_STATE_EFFECT_SEQUENCE);
-		return true;
-	}
-
-	case CARD_DOUBLE_HANDED: {
-		// Handled by generic menu flow; consume play here.
-		playedSuccessfully = true;
-		immediateResult = CARD_AWAITING_MENU_CHOICE;
-		return true;
-	}
-
 		// CARD_GIANT_MAGIC_HAND and CARD_FORTIFY migrated to executeCardGeneric
-
-	case CARD_FLURRY_OF_FISTS: {
-		// migrated to generic executor
-		return true;
-	}
-
-	case CARD_MASTER_FIST: {
-		// migrated to generic executor
-		return true;
-	}
 
 	case CARD_RENEWED_INSPIRATION: {
 		// migrated to generic executor
