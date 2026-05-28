@@ -19966,14 +19966,7 @@ void ofApp::cancelAllTargeting() {
 	// Waiting/rolling flags (migrated to effect/op pipeline)
 
 	// Pending indices / choices
-	magicBoltCardIndex = -1;
 	// centralized interaction fields already cleared by resetCardInteraction()
-	burstChoice = -1;
-	deathCardIndex = -1;
-	healCardIndex = -1;
-	chainLightningCardIndex = -1;
-	// teleport index cleared by resetCardInteraction()
-	hellhoundCardIndex = -1;
 
 	// Clear target lists used by multi-target effects
 	currentCardOutcome.attackTargetIndices.clear();
@@ -26535,13 +26528,13 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 			}
 		}
 
-		// 2) For unit tiles, apply green targetable outlines based on burstChoice
+		// 2) For unit tiles, apply green targetable outlines based on Burst menu choice
 		for (const auto & p : players) {
 			TargetInfo info = isLosTargetValid(casterPos, glm::vec2(p.x, p.y), 9999.0f, CARD_BURST_OF_LIGHT);
 			// Allow valid unit targets to be outlined green. When DAMAGE is chosen
-			// (burstChoice == 0) do NOT mark the caster itself as a green target.
+			// do NOT mark the caster itself as a green target.
 			if (info.reason == VALID || info.reason == INVALID_SELF) {
-				if (burstChoice == 0 && p.x == (int)caster.x && p.y == (int)caster.y) {
+				if (interactionMenuChoice == "damage" && p.x == (int)caster.x && p.y == (int)caster.y) {
 					// Skip marking self as targetable when dealing damage
 					continue;
 				}
@@ -27213,7 +27206,6 @@ void ofApp::spawnFloatingText(glm::vec3 pos, std::string text, ofColor color, st
 void ofApp::invalidateTargetCache() {
 	lastCachedPlayerX = -1;
 	lastCachedPlayerY = -1;
-	lastCachedCardIndex = -1;
 }
 
 // Apply nearest filtering and pixel-art related settings to textures and FBOs
@@ -28064,13 +28056,7 @@ void ofApp::applySnapshotString(const std::string & data, bool fromNetworkSnapsh
 	hoverPath.clear();
 	lastHoverGridPos = { -1, -1 };
 
-	deathCardIndex = -1;
-	healCardIndex = -1;
-	magicBoltCardIndex = -1;
-
 	// teleport index cleared by centralized interaction state
-	hellhoundCardIndex = -1;
-	chainLightningCardIndex = -1;
 
 	interactingCardIndex = -1;
 	interactionTargetIndex = -1;

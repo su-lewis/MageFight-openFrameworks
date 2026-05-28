@@ -1724,7 +1724,6 @@ private:
 	int selectedPieceGridX = -1;
 	int selectedPieceGridY = -1;
 	int lastCachedPlayerX = -1, lastCachedPlayerY = -1;
-	int lastCachedCardIndex = -1;
 
 	// --- CAMERA ---
 	ofCamera cam; // Player 0's camera
@@ -1980,12 +1979,11 @@ private:
 	std::string interactingCardName; // Optional: store card name for resolution logging
 
 	// --- Legacy Targeting States (to be deprecated after consolidation) ---
-	int deathCardIndex = -1;
 
 	// Centralized targeting state members (struct defined in public area)
 	TargetingContext targetingContext;
 
-	int healCardIndex = -1;
+	// legacy healCardIndex removed; healing is handled by data-driven engine
 
 	// Punch targeting: migrated to centralized `interactingCardIndex` and `cardInteractionState`
 
@@ -2143,13 +2141,12 @@ private:
 	// Fireball
 	// (migrated to deterministic instant-resolve + visual queue)
 	glm::vec2 fireballImpactTile;
-	int fireballTargetPlayerIndex = -1;
 
 	// Ethereal Jolt handled via EffectOpType::APPLY_ETHEREAL_JOLT
 	// uses `interactionDiceRoll` and `interactionTargetTile`
 
 	// Chain Lightning
-	int chainLightningCardIndex = -1;
+	// (migrated to centralized interaction state)
 	// Chain Lightning uses `interactionDiceRoll` and `interactionTargetTile`
 
 	// Train Menu UI
@@ -2221,7 +2218,6 @@ private:
 	ofRectangle wisdomBtnBlock;
 
 	// Burst of Light (choice UI + targeting) — centralized via interaction state
-	int burstChoice = -1; // -1 = undecided, 0 = Damage, 1 = Heal
 	ofRectangle burstMenuRect;
 	ofRectangle burstBtnDamage;
 	ofRectangle burstBtnHeal;
@@ -2309,7 +2305,7 @@ private:
 	// Magic Bolt is now fully handled by the effect/op pipeline (APPLY_MAGIC_BOLT
 	// and follow-up APPLY_* ops). The impact tile and authoritative rolls are
 	// stored in `currentCardOutcome` and EffectSequence.blackboard slots.
-	int magicBoltCardIndex = -1;
+	// (migrated to centralized interaction state)
 
 	// Shoot Arrow handled via effect/op pipeline (APPLY_SHOOT_ARROW)
 
@@ -2322,7 +2318,7 @@ private:
 	// Flail handled via effect/op pipeline
 
 	// Hellhound targeting
-	int hellhoundCardIndex = -1;
+	// (migrated to centralized interaction state)
 
 	// Death Card Logic handled via EffectOpType::APPLY_DEATH and APPLY_SLEEP_DURATION
 
