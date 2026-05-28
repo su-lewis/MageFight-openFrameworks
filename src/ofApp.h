@@ -1480,6 +1480,8 @@ private:
 
 	// Draw helper for active picked-card animations
 	void drawActiveDraftPickedMoves();
+	// Keep draft option animations advancing even if the game is paused from drafting.
+	void updateDraftUiAnimations();
 
 	// -------------------------------------------------------------------------
 	//                          RENDERING & MESHES
