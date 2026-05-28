@@ -810,8 +810,8 @@ static void drawPixelTextBaseline(const ofTrueTypeFont & font,
 	const ofColor & outlineColor = ofColor::black) {
 	if (text.empty()) return;
 	float s = quantizePixelTextScale(scale);
-	float bx = baselineX; // allow sub-pixel baseline for smooth movement
-	float by = baselineY;
+	float bx = std::round(baselineX);
+	float by = std::round(baselineY);
 
 	ofPushMatrix();
 	ofTranslate(bx, by);
@@ -3405,13 +3405,13 @@ void ofApp::setup() {
 
 	// --- 1. UI & CONFIG ---
 
-	// Load the UI Font (m6x11 scaled up 2x)
-	ofTrueTypeFontSettings uiSettings("UI/m6x11plus.ttf", 22); // Was 11. Now 11 * 2 = 22
+	// Load the UI Font using a documented pixel-grid size for m6x11plus.
+	ofTrueTypeFontSettings uiSettings("UI/m6x11plus.ttf", 18);
 	uiSettings.antialiased = false;
 	uiFont.load(uiSettings);
 
-	// Load the Title Font (m6x11 scaled up 4x)
-	ofTrueTypeFontSettings titleSettings("UI/m6x11plus.ttf", 44); // Was 33. Now 11 * 4 = 44
+	// Load the Title Font using a documented pixel-grid size for m6x11plus.
+	ofTrueTypeFontSettings titleSettings("UI/m6x11plus.ttf", 36);
 	titleSettings.antialiased = false;
 	titleFont.load(titleSettings);
 
