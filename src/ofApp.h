@@ -2331,14 +2331,8 @@ private:
 
 	// === EXTRACTED CARD EFFECT FUNCTIONS (Phase 2 + 3: Consolidation) ===
 	// These are called from executeCardByType(), resolveCardMenu(), and resolveCardDice() to eliminate duplication
-	void applyBurstOfLight(int targetPlayerIndex, const std::string & choice);
-	void applyWisdomBoon(int targetPlayerIndex, const std::string & choice);
-	void applyDoubleHandedChoice(int targetPlayerIndex, const std::string & choice);
-	void applyTrainCard(const std::string & choice);
-	void applyDispelChoice(int targetPlayerIndex, const std::string & choice);
-	void applyShockEffect(int targetPlayerIndex, int damageAmount, int casterIndex);
-	void applyFireballHit(int targetPlayerIndex, int damageAmount);
-	void applyDrainPunch(int targetPlayerIndex, int baseDamage, int casterIndex);
+	// Legacy per-card effect helpers removed (now handled via EffectOp pipeline)
+	// Legacy per-card helpers removed (handled via EffectOp pipeline)
 	// Helper to draw centered instruction text with shadow
 	void drawInstructionText(const std::string & message, ofColor color = ofColor::white);
 	// Helper to draw centered dice label text with shadow

@@ -21766,36 +21766,91 @@ bool ofApp::processEffectOp(EffectOp & op) {
 	}
 
 	case EffectOpType::APPLY_FLAIL_DAMAGE_RESOLVE: {
-		int baseOut = op.data.damage.damageFromSlot;
-		int count = op.data.damage.targetIndex;
-		int unitCount = 0;
-
-		for (int i = 0; i < count; ++i) {
-			int slot = baseOut + i;
-			int applied = 0;
-			if (slot >= 0 && slot < 16) applied = currentEffectSequence.blackboard[slot];
-			if (i < (int)currentCardOutcome.targetedPlayers.size()) {
-				int pid = currentCardOutcome.targetedPlayers[i];
-				int pidx = findPlayerIndexByID(pid);
-				Player * target = getPlayer(pidx);
-				if (!target) continue;
-				unitCount++;
-				glm::vec3 tpos = gridToWorld(target->x, target->y);
-				if (applied > 0) {
-					queueFloatingTextVisual(tpos, "-" + ofToString(applied) + "", ofColor::red);
-				} else {
-					queueFloatingTextVisual(tpos, "Absorbed", ofColor::gray);
-				}
-			}
-		}
-
-		currentCardOutcome.targetedPlayers.clear();
+		// Removed: Flail per-target visual resolution is handled by queued DAMAGE ops and central visuals.
+		// No-op kept for compatibility so old queues don't stall.
 		opComplete = true;
 		break;
 	}
 
 	case EffectOpType::APPLY_DRAIN_PUNCH_RESOLVE: {
-		applyDrainPunch(op.data.damage.targetIndex, op.data.damage.fixedDamage, currentPlayerIndex);
+		// Inlined legacy applyDrainPunch
+		{
+			int targetPlayerIndex = op.data.damage.targetIndex;
+			int baseDamage = op.data.damage.fixedDamage;
+			int casterIndex = currentPlayerIndex;
+
+			Player * caster = getPlayer(casterIndex);
+			Player * target = getPlayer(targetPlayerIndex);
+			if (caster && target) {
+				int damage = baseDamage;
+
+				// Bonus damage from hand-related cards played
+				for (const auto & c : caster->playedCardsPile) {
+					if (c.name == "Punch" || c.name == "Bash" || c.name == "Drain Punch" || c.name == "Master Fist" || c.name == "Flurry of Fists" || c.name == "Giant Magic Hand") {
+						damage += 2;
+					}
+				}
+
+				// Flurry multiplier (multiply damage/heal by 2^stacks)
+				if (caster->flurryOfFistsStacks > 0) {
+					int mult = (1 << caster->flurryOfFistsStacks);
+					damage *= mult;
+				}
+
+				// Handle poison buff
+				bool applyPoisonBuff = caster->nextAttackAddPoison;
+				if (applyPoisonBuff) {
+					// Queue removal of add-poison buff deterministically
+					EffectOp rm = {};
+					rm.type = EffectOpType::REMOVE_STATUS;
+					rm.data.status.targetIndex = casterIndex;
+					rm.data.status.statusType = STATUS_ADD_POISON;
+					rm.data.status.duration = 0;
+					queueEffect(rm);
+				}
+
+				int hpBefore = target->health;
+				EffectOp drainPunchDamageOp = {};
+				drainPunchDamageOp.type = EffectOpType::DAMAGE;
+				drainPunchDamageOp.data.damage.targetIndex = targetPlayerIndex;
+				drainPunchDamageOp.data.damage.damageType = DAMAGE_PHYSICAL;
+				drainPunchDamageOp.data.damage.fixedDamage = damage;
+				drainPunchDamageOp.data.damage.damageFromSlot = -1;
+				processEffectOp(drainPunchDamageOp);
+
+				if (applyPoisonBuff) {
+					glm::vec3 tPos = gridToWorld(target->x, target->y);
+					queueFloatingTextVisual(tPos + glm::vec3(0, 0.5f, 0), "Poisoned!", ofColor::green);
+					currentCardOutcome.poisonTargetPlayerIDs.clear();
+					currentCardOutcome.poisonTargetPlayerIDs.push_back(target->playerID);
+					std::vector<int> rawPoison;
+					int poisonVal = resolveDiceRollDetailed(1, 6, rawPoison);
+					currentEffectSequence.blackboard[0] = poisonVal;
+					queueVisualDiceRoll(gridToWorld(caster->x, caster->y) + glm::vec3(0, 1.0f, 0), 1, 6, rawPoison, poisonVal, PURPOSE_DAMAGE, casterIndex, 1.0f);
+					EffectOp ap = {};
+					ap.type = EffectOpType::APPLY_POISON;
+					queueEffect(ap);
+				}
+
+				int hpAfter = target->health;
+				int actualDamageDealt = hpBefore - hpAfter;
+
+				// Life steal (apply via EffectOp to centralize state changes)
+				if (actualDamageDealt > 0) {
+					EffectOp healOp = {};
+					healOp.type = EffectOpType::HEAL;
+					healOp.data.heal.targetIndex = casterIndex;
+					healOp.data.heal.amount = actualDamageDealt;
+					healOp.data.heal.amountFromSlot = -1;
+					processEffectOp(healOp);
+					ofLogNotice("Drain Punch") << "Healed player for " << actualDamageDealt;
+				}
+
+				currentCardOutcome.targetPlayerIndex = targetPlayerIndex;
+				currentCardOutcome.damageDealt = actualDamageDealt;
+				currentCardOutcome.healingDealt = actualDamageDealt;
+			}
+		}
 		opComplete = true;
 		break;
 	}
@@ -22385,40 +22440,22 @@ bool ofApp::processEffectOp(EffectOp & op) {
 	}
 
 	case EffectOpType::APPLY_TIME_VORTEX: {
-		// Read authoritative extra-turns result from blackboard slot 0
-		int turns = currentEffectSequence.blackboard[0];
-		if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) {
-			Player & p = players[currentPlayerIndex];
-			p.bonusTurns += turns;
-			queueFloatingTextVisual(gridToWorld(p.x, p.y), "+" + ofToString(turns) + " Extra Turns!", ofColor::cyan);
-			ofLogNotice("Time Vortex") << "Unit " << p.playerID << " gained " << turns << " bonus turns.";
-		}
+		// Removed: Time Vortex is now applied by the data-driven EffectOps at queue-time.
+		// Keep a no-op handler for compatibility so unexpected ops don't stall the queue.
 		opComplete = true;
 		break;
 	}
 
 	case EffectOpType::APPLY_SPARK_OF_GENIUS: {
-		// Read authoritative draw count from blackboard[0]
-		int cards = currentEffectSequence.blackboard[0];
-		Player & p = players[currentPlayerIndex];
-		queueFloatingTextVisual(gridToWorld(p.x, p.y), "Spark! +" + ofToString(cards) + " Cards", ofColor::cyan);
-		for (int i = 0; i < cards; ++i) {
-			drawCard(false);
-		}
+		// Removed: Spark of Genius is handled by generic DRAW_CARDS operations when queued.
+		// No-op here to maintain deterministic processing if encountered.
 		opComplete = true;
 		break;
 	}
 
 	case EffectOpType::APPLY_BARRIER: {
-		// Read authoritative barrier amount from blackboard[0]
-		int amount = currentEffectSequence.blackboard[0];
-		if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) {
-			Player & p = players[currentPlayerIndex];
-			p.barrier += amount;
-			queueFloatingTextVisual(gridToWorld(p.x, p.y), "+" + ofToString(amount) + " Barrier", ofColor::fromHex(0x480082));
-			ofLogNotice("Dispel") << "Gained " << amount << " Barrier.";
-			tryTriggerShellSpike();
-		}
+		// Removed: Barrier application is now represented by MODIFY_STAT ops queued at play-time.
+		// Keep a no-op to avoid stalling if an old op is encountered.
 		opComplete = true;
 		break;
 	}
@@ -22725,39 +22762,8 @@ bool ofApp::processEffectOp(EffectOp & op) {
 	}
 
 	case EffectOpType::APPLY_ON_FIRE_RESOLVE: {
-		int outSlot = op.data.damage.damageFromSlot;
-		int applied = 0;
-		if (outSlot >= 0) applied = currentEffectSequence.blackboard[outSlot];
-		int rollResult = op.data.damage.fixedDamage;
-		int targetIndex = op.data.damage.targetIndex;
-		if (targetIndex >= 0 && targetIndex < (int)players.size()) {
-			Player & burningPlayer = players[targetIndex];
-			if (applied > 0) {
-				queueFloatingTextVisual(gridToWorld(burningPlayer.x, burningPlayer.y), "-" + ofToString(applied) + " Fire", ofColor::red);
-			} else {
-				queueFloatingTextVisual(gridToWorld(burningPlayer.x, burningPlayer.y), "-0 Fire", ofColor::gray);
-			}
-
-			// Form accumulation and removal handled centrally by applyDamageWithMitigationsQueued
-
-			// Extinguish check uses original roll
-			if (rollResult == 1 || rollResult == 2) {
-				EffectOp rm = {};
-				rm.type = EffectOpType::REMOVE_STATUS;
-				rm.data.status.targetIndex = targetIndex;
-				rm.data.status.statusType = STATUS_ON_FIRE;
-				rm.data.status.duration = 0;
-				queueEffect(rm);
-				queueFloatingTextVisual(gridToWorld(burningPlayer.x, burningPlayer.y) + glm::vec3(0, 0.8f, 0), "Extinguished", ofColor::white);
-			}
-
-			// Sleep/turn progression: if the player is asleep, start new turn; else continue
-			if (burningPlayer.sleepTurnsRemaining > 0) {
-				startNewTurn();
-			} else {
-				continueNewTurn();
-			}
-		}
+		// Removed: On-fire post-hit resolver handled by APPLY_POISON/APPLY_ON_FIRE ops queued at play-time.
+		// Keep no-op for compatibility.
 		opComplete = true;
 		break;
 	}
@@ -25431,48 +25437,6 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 	switch (playedCard.type) {
 
 		// Legacy per-card menu-first cases removed — handled by data-driven engine
-
-	case CARD_EARTHQUAKE: {
-		// migrated to generic executor
-		playedSuccessfully = true;
-		advanceCardState(CARD_PLAY_STATE_EFFECT_SEQUENCE);
-		return true;
-	}
-
-	case CARD_FORM_OF_TORTOISE: {
-		// migrated to generic executor
-		playedSuccessfully = true;
-		advanceCardState(CARD_PLAY_STATE_EFFECT_SEQUENCE);
-		return true;
-	}
-
-	case CARD_FORM_OF_GHOST: {
-		// migrated to generic executor
-		playedSuccessfully = true;
-		advanceCardState(CARD_PLAY_STATE_EFFECT_SEQUENCE);
-		return true;
-	}
-
-	case CARD_TRANSFORM_WALL: {
-		// migrated to generic executor
-		playedSuccessfully = true;
-		advanceCardState(CARD_PLAY_STATE_EFFECT_SEQUENCE);
-		return true;
-	}
-
-	case CARD_CALL_FOR_WOLVES: {
-		// migrated to generic executor
-		playedSuccessfully = true;
-		advanceCardState(CARD_PLAY_STATE_EFFECT_SEQUENCE);
-		return true;
-	}
-
-	case CARD_CALL_FOR_KOBOLDS: {
-		// migrated to generic executor
-		playedSuccessfully = true;
-		advanceCardState(CARD_PLAY_STATE_EFFECT_SEQUENCE);
-		return true;
-	}
 
 		// Summon-specific cases that now route through the generic handler were removed
 		// to allow the centralized data-driven fallback to handle these types.
@@ -29539,85 +29503,7 @@ void ofApp::determineStatusOptions(Player * target) {
 	}
 }
 
-void ofApp::applyDrainPunch(int targetPlayerIndex, int baseDamage, int casterIndex) {
-	Player * caster = getPlayer(casterIndex);
-	Player * target = getPlayer(targetPlayerIndex);
-	if (!caster || !target) return;
-
-	int damage = baseDamage;
-
-	// Bonus damage from hand-related cards played
-	for (const auto & c : caster->playedCardsPile) {
-		if (c.name == "Punch" || c.name == "Bash" || c.name == "Drain Punch" || c.name == "Master Fist" || c.name == "Flurry of Fists" || c.name == "Giant Magic Hand") {
-			damage += 2;
-		}
-	}
-
-	// Flurry multiplier (multiply damage/heal by 2^stacks)
-	if (caster->flurryOfFistsStacks > 0) {
-		int mult = (1 << caster->flurryOfFistsStacks);
-		damage *= mult;
-	}
-
-	// Handle poison buff
-	bool applyPoisonBuff = caster->nextAttackAddPoison;
-	if (applyPoisonBuff) {
-		// Queue removal of add-poison buff deterministically
-		{
-			EffectOp rm = {};
-			rm.type = EffectOpType::REMOVE_STATUS;
-			rm.data.status.targetIndex = casterIndex;
-			rm.data.status.statusType = STATUS_ADD_POISON;
-			rm.data.status.duration = 0;
-			queueEffect(rm);
-		}
-		// nextAttackAddPoison will be cleared when the REMOVE_STATUS op is processed
-	}
-
-	int hpBefore = target->health;
-	EffectOp drainPunchDamageOp;
-	drainPunchDamageOp.type = EffectOpType::DAMAGE;
-	drainPunchDamageOp.data.damage.targetIndex = targetPlayerIndex;
-	drainPunchDamageOp.data.damage.damageType = DAMAGE_PHYSICAL;
-	drainPunchDamageOp.data.damage.fixedDamage = damage;
-	drainPunchDamageOp.data.damage.damageFromSlot = -1;
-	processEffectOp(drainPunchDamageOp);
-
-	if (applyPoisonBuff) {
-		// isPoisoned and poisonReduction will be set when APPLY_STATUS is processed
-		glm::vec3 tPos = gridToWorld(target->x, target->y);
-		queueFloatingTextVisual(tPos + glm::vec3(0, 0.5f, 0), "Poisoned!", ofColor::green);
-		currentCardOutcome.poisonTargetPlayerIDs.clear();
-		currentCardOutcome.poisonTargetPlayerIDs.push_back(target->playerID);
-		{
-			std::vector<int> rawPoison;
-			int poisonVal = resolveDiceRollDetailed(1, 6, rawPoison);
-			currentEffectSequence.blackboard[0] = poisonVal;
-			queueVisualDiceRoll(gridToWorld(caster->x, caster->y) + glm::vec3(0, 1.0f, 0), 1, 6, rawPoison, poisonVal, PURPOSE_DAMAGE, casterIndex, 1.0f);
-			EffectOp ap = {};
-			ap.type = EffectOpType::APPLY_POISON;
-			queueEffect(ap);
-		}
-	}
-
-	int hpAfter = target->health;
-	int actualDamageDealt = hpBefore - hpAfter;
-
-	// Life steal (apply via EffectOp to centralize state changes)
-	if (actualDamageDealt > 0) {
-		EffectOp healOp = {};
-		healOp.type = EffectOpType::HEAL;
-		healOp.data.heal.targetIndex = casterIndex;
-		healOp.data.heal.amount = actualDamageDealt;
-		healOp.data.heal.amountFromSlot = -1;
-		processEffectOp(healOp);
-		ofLogNotice("Drain Punch") << "Healed player for " << actualDamageDealt;
-	}
-
-	currentCardOutcome.targetPlayerIndex = targetPlayerIndex;
-	currentCardOutcome.damageDealt = actualDamageDealt;
-	currentCardOutcome.healingDealt = actualDamageDealt;
-}
+// applyDrainPunch inlined into EffectOp handler and removed
 
 //--------------------------------------------------------------
 void ofApp::applyDispelEffect(int statusID) {
