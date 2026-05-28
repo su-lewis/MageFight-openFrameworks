@@ -64,12 +64,12 @@ enum GameplayState {
 };
 
 enum CardPlayResult {
-	CARD_PLAYED_IMMEDIATELY, // Send packet NOW in mouseReleased
-	CARD_AWAITING_MENU_CHOICE, // Menu will send packet after user chooses
-	CARD_AWAITING_TARGETING, // Targeting handler will send packet after player targets
-	CARD_CANCELLED, // User cancelled, don't send packet
-	CARD_NOT_PLAYABLE, // Cost/validation failed, don't send packet
-	CARD_AWAITING_DICE // Dice will trigger packet when resolved
+	CARD_PLAY_RESULT_IMMEDIATELY, // Send packet NOW in mouseReleased
+	CARD_PLAY_RESULT_AWAITING_MENU_CHOICE, // Menu will send packet after user chooses
+	CARD_PLAY_RESULT_AWAITING_TARGETING, // Targeting handler will send packet after player targets
+	CARD_PLAY_RESULT_CANCELLED, // User cancelled, don't send packet
+	CARD_PLAY_RESULT_NOT_PLAYABLE, // Cost/validation failed, don't send packet
+	CARD_PLAY_RESULT_AWAITING_DICE // Dice will trigger packet when resolved
 };
 
 enum DamageType {
@@ -183,7 +183,7 @@ enum CardType {
 	CARD_SLASH,
 	CARD_SUMMON_WALL,
 	CARD_SUMMON_MAGIC_WALL,
-	CARD_GHOST_RELOCATE // pseudo-card for ghost relocation UI
+	PSEUDO_CARD_GHOST_RELOCATE // pseudo-card for ghost relocation UI
 };
 
 enum DicePurpose {
@@ -215,11 +215,11 @@ enum DicePurpose {
 
 // Unified card interaction state machine (replaces per-card isTargeting*/is*MenuOpen flags)
 enum CardInteractionState {
-	CARD_INTERACTION_IDLE, // No card interaction in progress
-	CARD_INTERACTION_TARGETING, // Waiting for player to click target on board
-	CARD_INTERACTION_MENU, // Waiting for player to choose menu option
-	CARD_INTERACTION_STATUS, // Waiting for status selection (Dispel only)
-	CARD_INTERACTION_PLACING // Waiting for placement click (Wolves, Kobolds)
+	CARD_INTERACTION_STATE_IDLE, // No card interaction in progress
+	CARD_INTERACTION_STATE_TARGETING, // Waiting for player to click target on board
+	CARD_INTERACTION_STATE_MENU, // Waiting for player to choose menu option
+	CARD_INTERACTION_STATE_STATUS, // Waiting for status selection (Dispel only)
+	CARD_INTERACTION_STATE_PLACING // Waiting for placement click (Wolves, Kobolds)
 };
 
 enum TargetValidity {
@@ -614,14 +614,14 @@ struct VisualEvent {
 // ===================================================================================================
 // All cards flow through states: IDLE -> MENU -> TARGETING -> EFFECT -> OUTCOME -> PACKET -> IDLE
 enum CardPlayState {
-	CARD_STATE_IDLE = 0, // No card action in progress
-	CARD_STATE_MENU = 1, // Waiting for user menu choice (Wisdom Boon, Dispel, etc)
-	CARD_STATE_TARGETING = 2, // Waiting for user to select target
-	CARD_STATE_DICE = 3, // Waiting for dice roll result
-	CARD_STATE_EFFECT = 4, // Effect is being applied (animation/movement)
-	CARD_STATE_EFFECT_SEQUENCE = 5, // Processing lockstep effect sequence
-	CARD_STATE_OUTCOME = 6, // Effect complete, ready to send outcome packet
-	CARD_STATE_FINISHED = 7 // Card action finished, sent to network
+	CARD_PLAY_STATE_IDLE = 0, // No card action in progress
+	CARD_PLAY_STATE_MENU = 1, // Waiting for user menu choice (Wisdom Boon, Dispel, etc)
+	CARD_PLAY_STATE_TARGETING = 2, // Waiting for user to select target
+	CARD_PLAY_STATE_DICE = 3, // Waiting for dice roll result
+	CARD_PLAY_STATE_EFFECT = 4, // Effect is being applied (animation/movement)
+	CARD_PLAY_STATE_EFFECT_SEQUENCE = 5, // Processing lockstep effect sequence
+	CARD_PLAY_STATE_OUTCOME = 6, // Effect complete, ready to send outcome packet
+	CARD_PLAY_STATE_FINISHED = 7 // Card action finished, sent to network
 };
 
 // Unified structure for all card outcomes (instead of scattered pending* variables)
@@ -1969,7 +1969,7 @@ private:
 	std::vector<MinionUI> activeMinionUIs;
 
 	// ===== UNIFIED CARD INTERACTION STATE (Replaces 20+ per-card bool flags) =====
-	CardInteractionState cardInteractionState = CARD_INTERACTION_IDLE;
+	CardInteractionState cardInteractionState = CARD_INTERACTION_STATE_IDLE;
 	int interactingCardIndex = -1; // Index in currentPlayer.hand of card being interacted with
 	int interactingCardType = CARD_NONE; // Type of card being interacted with (cached)
 	int interactionTargetIndex = -1; // Index of chosen target (if applicable)
@@ -2079,13 +2079,13 @@ private:
 	// === UNIFIED CARD STATE SYSTEM ===
 	// All cards use this single outcome structure instead of scattered pending* variables
 	CardOutcome currentCardOutcome; // Currently active card's outcome data
-	CardPlayState cardPlayState = CARD_STATE_IDLE; // Current state of card action
+	CardPlayState cardPlayState = CARD_PLAY_STATE_IDLE; // Current state of card action
 	int activeCardIndex = -1; // Index of card currently being played (-1 if none)
 
 	// Helper function to reset card state between plays
 	void resetCardState() {
 		currentCardOutcome = CardOutcome();
-		cardPlayState = CARD_STATE_IDLE;
+		cardPlayState = CARD_PLAY_STATE_IDLE;
 		activeCardIndex = -1;
 		resetCardInteraction();
 	}
@@ -2277,7 +2277,7 @@ private:
 	ofRectangle amnesiaBtnAdjacent;
 
 	// --- Renewed Inspiration State (REAL-TIME) ---
-	// Uses centralized `cardInteractionState` (CARD_INTERACTION_MENU + CARD_RENEWED_INSPIRATION)
+	// Uses centralized `cardInteractionState` (CARD_INTERACTION_STATE_MENU + CARD_RENEWED_INSPIRATION)
 	std::vector<int> renewedSelectedHandIndices; // Indices of cards currently selected in hand
 	ofRectangle riConfirmBtn;
 	ofRectangle riCancelBtn;

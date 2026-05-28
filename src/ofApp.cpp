@@ -5957,7 +5957,7 @@ void ofApp::setupGame() {
 	magicBlastChoicesRemaining = 0;
 
 	// Centralized interaction reset
-	updateCardInteractionState(CARD_INTERACTION_IDLE, -1, CARD_NONE);
+	updateCardInteractionState(CARD_INTERACTION_STATE_IDLE, -1, CARD_NONE);
 	interactingCardIndex = -1;
 	interactionTargetIndex = -1;
 	interactionTargetTile = glm::vec2(-1, -1);
@@ -6529,7 +6529,7 @@ void ofApp::updateGameLogic() {
 	}
 
 	// --- OPPONENT DECISION TIMER CHECK (30s mini timer for modal menu choices) ---
-	if (turnTimerEnabled && opponentDecisionTimerActive && cardInteractionState == CARD_INTERACTION_MENU && (interactingCardType == CARD_MAGIC_BLAST || interactingCardType == CARD_GHOST_RELOCATE)) {
+	if (turnTimerEnabled && opponentDecisionTimerActive && cardInteractionState == CARD_INTERACTION_STATE_MENU && (interactingCardType == CARD_MAGIC_BLAST || interactingCardType == PSEUDO_CARD_GHOST_RELOCATE)) {
 		int elapsedDecisionFrames = (int)(simulationFrame - opponentDecisionStartFrame);
 		if (elapsedDecisionFrames >= opponentDecisionDurationFrames) {
 			bool localOwnsDecision = true;
@@ -6558,7 +6558,7 @@ void ofApp::updateGameLogic() {
 					cmd.params[2] = (roll <= 1) ? 1 : 2;
 					cmd.params[3] = interactingCardIndex;
 					issuedChoice = true;
-				} else if (interactingCardType == CARD_GHOST_RELOCATE) {
+				} else if (interactingCardType == PSEUDO_CARD_GHOST_RELOCATE) {
 					int maxChoices = std::max(0, std::min((int)ghostRelocateChoices.size(), 4));
 					if (maxChoices > 0) {
 						std::vector<int> raw;
@@ -6682,7 +6682,7 @@ void ofApp::updateGameLogic() {
 				} else {
 					// Auto-end-turn during gameplay
 					auto autoPlaceRemainingKoboldsOnTimeout = [&]() {
-						if (cardInteractionState != CARD_INTERACTION_PLACING || interactingCardType != CARD_CALL_FOR_KOBOLDS) return;
+						if (cardInteractionState != CARD_INTERACTION_STATE_PLACING || interactingCardType != CARD_CALL_FOR_KOBOLDS) return;
 						if (koboldsRemainingToPlace <= 0) return;
 						if (koboldPlacementSourceX < 0 || koboldPlacementSourceX >= BOARD_WIDTH || koboldPlacementSourceY < 0 || koboldPlacementSourceY >= BOARD_HEIGHT) return;
 
@@ -6702,7 +6702,7 @@ void ofApp::updateGameLogic() {
 
 						int toPlace = std::min<int>(koboldsRemainingToPlace, (int)candidates.size());
 						if (toPlace <= 0) {
-							updateCardInteractionState(CARD_INTERACTION_IDLE, -1, CARD_NONE);
+							updateCardInteractionState(CARD_INTERACTION_STATE_IDLE, -1, CARD_NONE);
 							isShowingTooltip = false;
 							return;
 						}
@@ -7557,7 +7557,7 @@ void ofApp::updateGameLogic() {
 					if (count <= 0) {
 						queueFloatingTextVisual(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y), "No Kobolds!", ofColor::gray);
 						// End kobold placement mode
-						updateCardInteractionState(CARD_INTERACTION_IDLE, -1, CARD_NONE);
+						updateCardInteractionState(CARD_INTERACTION_STATE_IDLE, -1, CARD_NONE);
 					} else {
 						// Count available adjacent empty tiles
 						int avail = 0;
@@ -7572,13 +7572,13 @@ void ofApp::updateGameLogic() {
 						int allowed = std::min<int>(count, std::min(avail, 4));
 						if (allowed <= 0) {
 							queueFloatingTextVisual(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y), "No Space!", ofColor::red);
-							updateCardInteractionState(CARD_INTERACTION_IDLE, -1, CARD_NONE);
+							updateCardInteractionState(CARD_INTERACTION_STATE_IDLE, -1, CARD_NONE);
 						} else {
 							// MULTIPLAYER: Only enter placement mode if it is the LOCAL player's turn
 							if (isCurrentPlayerLocal()) {
 								koboldsRemainingToPlace = allowed;
 								koboldSummonCount = 0;
-								updateCardInteractionState(CARD_INTERACTION_PLACING, -1, CARD_CALL_FOR_KOBOLDS);
+								updateCardInteractionState(CARD_INTERACTION_STATE_PLACING, -1, CARD_CALL_FOR_KOBOLDS);
 								ofLogNotice("Summon") << "CallForKobolds: will place " << koboldsRemainingToPlace << " kobolds (source=" << koboldPlacementSourceX << "," << koboldPlacementSourceY << ")";
 								tooltipText = "Place Kobold: click an adjacent empty tile";
 								isShowingTooltip = true;
@@ -7992,7 +7992,7 @@ void ofApp::updateGameLogic() {
 			// simple pulsing and rotation
 			s.currentScale = 1.0f + 0.08f * sinf(t * PI * 6.0f);
 			s.rotation = t * 720.0f; // degrees
-			advanceCardState(CARD_STATE_DICE);
+			advanceCardState(CARD_PLAY_STATE_DICE);
 			s.currentAlpha = ofLerp(255.0f, 0.0f, t);
 		}
 
@@ -10605,7 +10605,7 @@ void ofApp::drawGame() {
 		}
 
 		// 5b. Draw Dispel Targeting Highlights
-		if (cardInteractionState == CARD_INTERACTION_TARGETING && interactingCardType == CARD_DISPEL && dispelMode == 2) {
+		if (cardInteractionState == CARD_INTERACTION_STATE_TARGETING && interactingCardType == CARD_DISPEL && dispelMode == 2) {
 			// Purge mode: highlight valid targets (self or adjacent with removable statuses)
 			glDepthMask(GL_TRUE);
 			ofEnableDepthTest();
@@ -12064,7 +12064,7 @@ void ofApp::drawGame() {
 		// How much a hovered card is lifted upward (pixels) and scaled
 		float hoverDirection = kHandHoverLiftPx;
 		// Note: hoverScale is already defined at function scope
-		bool disableHoverScaleForRenewed = (cardInteractionState == CARD_INTERACTION_MENU && interactingCardType == CARD_RENEWED_INSPIRATION);
+		bool disableHoverScaleForRenewed = (cardInteractionState == CARD_INTERACTION_STATE_MENU && interactingCardType == CARD_RENEWED_INSPIRATION);
 
 		// 1. Determine which card should be drawn LAST (On Top)
 		int indexToDrawLast = -1;
@@ -12135,7 +12135,7 @@ void ofApp::drawGame() {
 
 			// A. Draw Sprite
 			// Ghostly tint for copied cards in Renewed Inspiration mode
-			if (cardInteractionState == CARD_INTERACTION_MENU && interactingCardType == CARD_RENEWED_INSPIRATION && card.isCopied) {
+			if (cardInteractionState == CARD_INTERACTION_STATE_MENU && interactingCardType == CARD_RENEWED_INSPIRATION && card.isCopied) {
 				ofSetColor(200, 200, 255); // Subtle Blue-White tint
 			} else {
 				ofSetColor(255); // Normal
@@ -12164,7 +12164,7 @@ void ofApp::drawGame() {
 			}
 
 			// B. Draw Overlays (Outlines/Dims) at the same depth as the card
-			if (cardInteractionState == CARD_INTERACTION_MENU && interactingCardType == CARD_RENEWED_INSPIRATION) {
+			if (cardInteractionState == CARD_INTERACTION_STATE_MENU && interactingCardType == CARD_RENEWED_INSPIRATION) {
 				bool isSelected = false;
 				for (int sel : renewedSelectedHandIndices)
 					if (sel == index) isSelected = true;
@@ -12513,10 +12513,10 @@ void ofApp::drawGame() {
 		return s.substr(0, best) + ell;
 	};
 	// --- DRAW OVERLAY UIs ---
-	if (cardInteractionState == CARD_INTERACTION_MENU && interactingCardType == CARD_MAGIC_BLAST) {
+	if (cardInteractionState == CARD_INTERACTION_STATE_MENU && interactingCardType == CARD_MAGIC_BLAST) {
 		drawMagicBlastChoiceUI();
 	}
-	if (cardInteractionState == CARD_INTERACTION_MENU && interactingCardType == CARD_GHOST_RELOCATE) {
+	if (cardInteractionState == CARD_INTERACTION_STATE_MENU && interactingCardType == PSEUDO_CARD_GHOST_RELOCATE) {
 		drawGhostRelocateUI();
 	}
 
@@ -13005,7 +13005,7 @@ void ofApp::drawGame() {
 	}
 
 	// --- TOP INSTRUCTION TEXT (Wolf Placement) ---
-	if (cardInteractionState == CARD_INTERACTION_PLACING && interactingCardType == CARD_CALL_FOR_WOLVES) {
+	if (cardInteractionState == CARD_INTERACTION_STATE_PLACING && interactingCardType == CARD_CALL_FOR_WOLVES) {
 		string msg = "Wolf: Choose spawn tile";
 
 		// Optional: Change text if it's the second wolf
@@ -13032,7 +13032,7 @@ void ofApp::drawGame() {
 	}
 
 	// --- CENTRALIZED TARGETING INSTRUCTION TEXT ---
-	if (cardInteractionState == CARD_INTERACTION_TARGETING && currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size() && interactingCardIndex >= 0 && interactingCardIndex < (int)players[currentPlayerIndex].hand.size()) {
+	if (cardInteractionState == CARD_INTERACTION_STATE_TARGETING && currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size() && interactingCardIndex >= 0 && interactingCardIndex < (int)players[currentPlayerIndex].hand.size()) {
 		Card & interactionCard = players[currentPlayerIndex].hand[interactingCardIndex];
 		string msg = interactionCard.name + ": Choose target";
 		if (interactingCardType == CARD_TELEPORT) {
@@ -13047,27 +13047,27 @@ void ofApp::drawGame() {
 		drawInstructionText(msg);
 	}
 
-	if (cardInteractionState == CARD_INTERACTION_TARGETING && interactingCardType == CARD_DEATH) {
+	if (cardInteractionState == CARD_INTERACTION_STATE_TARGETING && interactingCardType == CARD_DEATH) {
 		drawInstructionText("Death: Choose target");
 	}
 
-	if (cardInteractionState == CARD_INTERACTION_TARGETING && interactingCardType == CARD_CHAIN_LIGHTNING) {
+	if (cardInteractionState == CARD_INTERACTION_STATE_TARGETING && interactingCardType == CARD_CHAIN_LIGHTNING) {
 		drawInstructionText("Chain Lightning: Choose first target");
 	}
 
-	if (cardInteractionState == CARD_INTERACTION_TARGETING && interactingCardType == CARD_SUMMON_HELLHOUND) {
+	if (cardInteractionState == CARD_INTERACTION_STATE_TARGETING && interactingCardType == CARD_SUMMON_HELLHOUND) {
 		drawInstructionText("Summon Hellhound: Choose spawn tile");
 	}
 
-	if (cardInteractionState == CARD_INTERACTION_TARGETING && interactingCardType == CARD_MAGIC_BOLT) {
+	if (cardInteractionState == CARD_INTERACTION_STATE_TARGETING && interactingCardType == CARD_MAGIC_BOLT) {
 		drawInstructionText("Magic Bolt: Choose target");
 	}
 
-	if (cardInteractionState == CARD_INTERACTION_TARGETING && interactingCardType == CARD_PUNCH) {
+	if (cardInteractionState == CARD_INTERACTION_STATE_TARGETING && interactingCardType == CARD_PUNCH) {
 		drawInstructionText("Punch: Choose target");
 	}
 
-	if (cardInteractionState == CARD_INTERACTION_TARGETING && interactingCardType == CARD_FORM_OF_TORTOISE) {
+	if (cardInteractionState == CARD_INTERACTION_STATE_TARGETING && interactingCardType == CARD_FORM_OF_TORTOISE) {
 		drawInstructionText("Tortoise Shell Spike: Choose target");
 	}
 
@@ -13091,7 +13091,7 @@ void ofApp::drawGame() {
 	// --- GENERIC CARD TARGETING INSTRUCTION ---\
 	// For all other cards using the generic targeting system (selectedCardIndex)
 	// Only exclude cards that need custom formatting (Teleport shows range, Amnesia has menu)
-	if (cardInteractionState != CARD_INTERACTION_TARGETING && selectedCardIndex != -1 && currentPlayerIndex >= 0 && !(cardInteractionState == CARD_INTERACTION_TARGETING && interactingCardType == CARD_TELEPORT) && !(cardInteractionState == CARD_INTERACTION_TARGETING && interactingCardType == CARD_AMNESIA)) {
+	if (cardInteractionState != CARD_INTERACTION_STATE_TARGETING && selectedCardIndex != -1 && currentPlayerIndex >= 0 && !(cardInteractionState == CARD_INTERACTION_STATE_TARGETING && interactingCardType == CARD_TELEPORT) && !(cardInteractionState == CARD_INTERACTION_STATE_TARGETING && interactingCardType == CARD_AMNESIA)) {
 		Player & currentPlayer = players[currentPlayerIndex];
 		if (selectedCardIndex < (int)currentPlayer.hand.size()) {
 			Card & selectedCard = currentPlayer.hand[selectedCardIndex];
@@ -13140,7 +13140,7 @@ void ofApp::drawGame() {
 	}
 
 	// --- RENEWED INSPIRATION UI (Text & Buttons) ---
-	if (cardInteractionState == CARD_INTERACTION_MENU && interactingCardType == CARD_RENEWED_INSPIRATION) {
+	if (cardInteractionState == CARD_INTERACTION_STATE_MENU && interactingCardType == CARD_RENEWED_INSPIRATION) {
 		// 1. Draw Top Instruction Text
 		drawInstructionText("Select cards to discard (Draw 2 each)");
 
@@ -13277,7 +13277,7 @@ void ofApp::mouseMoved(int x, int y) {
 		if (gx >= 0 && gx < BOARD_WIDTH && gy >= 0 && gy < BOARD_HEIGHT) {
 			bool isTargetingMode = (draggedCardIndex != -1)
 				|| (selectedCardIndex != -1)
-				|| (cardInteractionState == CARD_INTERACTION_TARGETING);
+				|| (cardInteractionState == CARD_INTERACTION_STATE_TARGETING);
 			bool isMovingMode = (playerAction == PIECE_SELECTED);
 
 			if (!isTargetingMode && board[gx][gy].hasPlayer && newHoverType == HOVER_NONE) {
@@ -13427,13 +13427,13 @@ cursor_check_done:;
 			// Only enlarge cards when WE are hovering them, not when opponent hovers
 			bool isLocallyHovered = (static_cast<int>(i) == hoveredCardIndex);
 			// Hearthstone-style: smooth scaling on hover with hoverScale variable
-			float targetScaleVal = ((cardInteractionState == CARD_INTERACTION_MENU && interactingCardType == CARD_RENEWED_INSPIRATION) ? 1.0f : (isLocallyHovered ? hoverScale : 1.0f));
+			float targetScaleVal = ((cardInteractionState == CARD_INTERACTION_STATE_MENU && interactingCardType == CARD_RENEWED_INSPIRATION) ? 1.0f : (isLocallyHovered ? hoverScale : 1.0f));
 			if ((int)i == draggedCardIndex) targetScaleVal = 1.0f;
 			currentPlayer.hand[i].targetScale = targetScaleVal;
 		}
 
 		int activeCardForHighlight = -1;
-		if (cardInteractionState == CARD_INTERACTION_TARGETING)
+		if (cardInteractionState == CARD_INTERACTION_STATE_TARGETING)
 			activeCardForHighlight = interactingCardIndex;
 		else if (draggedCardIndex != -1)
 			activeCardForHighlight = draggedCardIndex; // Dragging card - use dragged card for highlights
@@ -14051,9 +14051,9 @@ void ofApp::mousePressed(int x, int y, int button) {
 
 	// If a card modal/menu/status is open, consume the press so the board
 	// isn't interacted with. Menu clicks are handled on mouseReleased.
-	// NOTE: Do NOT block `CARD_INTERACTION_TARGETING` here — targeting
+	// NOTE: Do NOT block `CARD_INTERACTION_STATE_TARGETING` here — targeting
 	// should still allow starting drags and hover interactions.
-	if ((currentState == STATE_GAMEPLAY || currentState == STATE_DRAFTING) && (cardInteractionState == CARD_INTERACTION_MENU || cardInteractionState == CARD_INTERACTION_STATUS)) {
+	if ((currentState == STATE_GAMEPLAY || currentState == STATE_DRAFTING) && (cardInteractionState == CARD_INTERACTION_STATE_MENU || cardInteractionState == CARD_INTERACTION_STATE_STATUS)) {
 		return;
 	}
 
@@ -14219,7 +14219,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 	// Detect which hand card was clicked (for drag initiation)
 	pressedCardIndex = -1;
 	if (button == OF_MOUSE_BUTTON_LEFT && currentState == STATE_GAMEPLAY && !players.empty() && currentPlayerIndex >= 0) {
-		if (cardInteractionState == CARD_INTERACTION_MENU && interactingCardType == CARD_RENEWED_INSPIRATION) {
+		if (cardInteractionState == CARD_INTERACTION_STATE_MENU && interactingCardType == CARD_RENEWED_INSPIRATION) {
 			return;
 		}
 		Player & currentPlayer = players[currentPlayerIndex];
@@ -14247,13 +14247,13 @@ void ofApp::mousePressed(int x, int y, int button) {
 	// === CARD STATE MACHINE INPUT HANDLER ===
 	// Centralized interaction state is authoritative for click routing.
 	if (currentState == STATE_GAMEPLAY) {
-		if (cardInteractionState == CARD_INTERACTION_MENU || cardInteractionState == CARD_INTERACTION_TARGETING || cardInteractionState == CARD_INTERACTION_STATUS) {
+		if (cardInteractionState == CARD_INTERACTION_STATE_MENU || cardInteractionState == CARD_INTERACTION_STATE_TARGETING || cardInteractionState == CARD_INTERACTION_STATE_STATUS) {
 			processCardStateInput(x, y, button);
-			if (cardInteractionState == CARD_INTERACTION_MENU || cardInteractionState == CARD_INTERACTION_TARGETING || cardInteractionState == CARD_INTERACTION_STATUS) return;
+			if (cardInteractionState == CARD_INTERACTION_STATE_MENU || cardInteractionState == CARD_INTERACTION_STATE_TARGETING || cardInteractionState == CARD_INTERACTION_STATE_STATUS) return;
 		}
 
 		// Keep dice lockout from the legacy play-state while visuals are still active.
-		if (cardPlayState == CARD_STATE_DICE) {
+		if (cardPlayState == CARD_PLAY_STATE_DICE) {
 			bool hasActiveDiceVisual = false;
 			for (const auto & roll : activeDiceRolls) {
 				if (!roll.isFinishedVisual) {
@@ -14308,7 +14308,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 
 	// Handle chat clicking (if chat is visible)
 	// Do not intercept clicks while modal card-selection overlays are active.
-	if ((currentState == STATE_GAMEPLAY || currentState == STATE_DRAFTING) && button == OF_MOUSE_BUTTON_LEFT && !(cardInteractionState == CARD_INTERACTION_MENU && interactingCardType == CARD_AMNESIA)) {
+	if ((currentState == STATE_GAMEPLAY || currentState == STATE_DRAFTING) && button == OF_MOUSE_BUTTON_LEFT && !(cardInteractionState == CARD_INTERACTION_STATE_MENU && interactingCardType == CARD_AMNESIA)) {
 		float currentTime = ofGetElapsedTimef();
 		bool shouldShowChat = isChatOpen || (currentTime - lastChatInteractionTime < chatVisibilityDuration);
 
@@ -15058,7 +15058,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 		return;
 	}
 	// Debug: Log all mouse presses when targeting teleport
-	if (cardInteractionState == CARD_INTERACTION_TARGETING && interactingCardType == CARD_TELEPORT) {
+	if (cardInteractionState == CARD_INTERACTION_STATE_TARGETING && interactingCardType == CARD_TELEPORT) {
 		ofLogNotice("Teleport") << "mousePressed called! x=" << x << " y=" << y << " button=" << button;
 	}
 
@@ -15169,7 +15169,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 	}
 
 	// Centralized placement handler: delegate placement clicks to `handleCardTargetClick()`
-	if (cardInteractionState == CARD_INTERACTION_PLACING) {
+	if (cardInteractionState == CARD_INTERACTION_STATE_PLACING) {
 		if (button == OF_MOUSE_BUTTON_LEFT) {
 			ofVec2f boardPos = mouseToBoard(x, y);
 			int gx = floor(boardPos.x), gy = floor(boardPos.y);
@@ -15454,7 +15454,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 	case STATE_GAMEPLAY: {
 
 		// Delegate placement clicks to centralized handler
-		if (cardInteractionState == CARD_INTERACTION_PLACING && button == OF_MOUSE_BUTTON_LEFT) {
+		if (cardInteractionState == CARD_INTERACTION_STATE_PLACING && button == OF_MOUSE_BUTTON_LEFT) {
 			ofVec2f boardPos = mouseToBoard(x, y);
 			int gx = floor(boardPos.x), gy = floor(boardPos.y);
 			handleCardTargetClick(gx, gy);
@@ -15462,7 +15462,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 			return;
 		}
 		// --- WOLF PLACEMENT LOGIC ---
-		if (cardInteractionState == CARD_INTERACTION_PLACING && interactingCardType == CARD_CALL_FOR_WOLVES && button == OF_MOUSE_BUTTON_LEFT) {
+		if (cardInteractionState == CARD_INTERACTION_STATE_PLACING && interactingCardType == CARD_CALL_FOR_WOLVES && button == OF_MOUSE_BUTTON_LEFT) {
 			ofVec2f boardPos = mouseToBoard(x, y);
 			int gx = floor(boardPos.x), gy = floor(boardPos.y);
 
@@ -15496,7 +15496,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 							// Wolf/kobold placement (delegated)
 							// The centralized handler will perform validation and actual placement for
 							// both `CARD_CALL_FOR_KOBOLDS` and `CARD_CALL_FOR_WOLVES`.
-							if (cardInteractionState == CARD_INTERACTION_PLACING && button == OF_MOUSE_BUTTON_LEFT) {
+							if (cardInteractionState == CARD_INTERACTION_STATE_PLACING && button == OF_MOUSE_BUTTON_LEFT) {
 								ofVec2f boardPos = mouseToBoard(x, y);
 								int gx = floor(boardPos.x), gy = floor(boardPos.y);
 								handleCardTargetClick(gx, gy);
@@ -16071,7 +16071,7 @@ void ofApp::mouseDragged(int x, int y, int button) {
 	// Without this, drag events can leave stale hover state from the last mouseMoved event.
 	mouseMoved(x, y);
 
-	if (cardInteractionState == CARD_INTERACTION_MENU && interactingCardType == CARD_RENEWED_INSPIRATION) {
+	if (cardInteractionState == CARD_INTERACTION_STATE_MENU && interactingCardType == CARD_RENEWED_INSPIRATION) {
 		return;
 	}
 
@@ -16367,7 +16367,7 @@ void ofApp::mouseReleased(int x, int y, int button) {
 
 	if (button == OF_MOUSE_BUTTON_RIGHT) {
 		if (mouseDownPos.distance(ofVec2f(x, y)) < 5.0f) {
-			if (cardInteractionState == CARD_INTERACTION_MENU && interactingCardType == CARD_RENEWED_INSPIRATION) {
+			if (cardInteractionState == CARD_INTERACTION_STATE_MENU && interactingCardType == CARD_RENEWED_INSPIRATION) {
 				renewedSelectedHandIndices.clear();
 				resetCardInteraction();
 				return;
@@ -16378,12 +16378,12 @@ void ofApp::mouseReleased(int x, int y, int button) {
 				return;
 			}
 			// If a card menu is open (must choose), ignore right-click cancels
-			if (cardInteractionState == CARD_INTERACTION_MENU || cardInteractionState == CARD_INTERACTION_STATUS) {
+			if (cardInteractionState == CARD_INTERACTION_STATE_MENU || cardInteractionState == CARD_INTERACTION_STATE_STATUS) {
 				ofLogNotice("Input") << "Right-click ignored while menu open (must choose).";
 				return;
 			}
 			// If a committed card is currently in targeting mode, refund AP and restore the card on cancel.
-			if (cardInteractionState == CARD_INTERACTION_TARGETING && currentCardOutcome.apPaid && currentCardOutcome.casterIndex >= 0 && currentCardOutcome.casterIndex < (int)players.size()) {
+			if (cardInteractionState == CARD_INTERACTION_STATE_TARGETING && currentCardOutcome.apPaid && currentCardOutcome.casterIndex >= 0 && currentCardOutcome.casterIndex < (int)players.size()) {
 				Player & caster = players[currentCardOutcome.casterIndex];
 				auto restoreIt = std::find_if(caster.discardPile.rbegin(), caster.discardPile.rend(), [&](const Card & c) {
 					return c.type == currentCardOutcome.cardType;
@@ -16439,7 +16439,7 @@ void ofApp::mouseReleased(int x, int y, int button) {
 		float dist = mouseDownPos.distance(ofVec2f(x, y));
 
 		// Handle menu button clicks
-		if (cardInteractionState == CARD_INTERACTION_MENU || cardInteractionState == CARD_INTERACTION_STATUS) {
+		if (cardInteractionState == CARD_INTERACTION_STATE_MENU || cardInteractionState == CARD_INTERACTION_STATE_STATUS) {
 			processCardStateInput(x, y, button);
 			return;
 		}
@@ -16498,7 +16498,7 @@ void ofApp::mouseReleased(int x, int y, int button) {
 					ofLogNotice("CardDrag") << "Calling handleCardDragToPlay for card=" << playedCard.name;
 					handleCardDragToPlay(draggedCardIndex);
 					playHandFeedbackSfx(1.28f, 0.14f);
-					startedCardInteraction = (cardInteractionState == CARD_INTERACTION_TARGETING || cardInteractionState == CARD_INTERACTION_MENU);
+					startedCardInteraction = (cardInteractionState == CARD_INTERACTION_STATE_TARGETING || cardInteractionState == CARD_INTERACTION_STATE_MENU);
 					if (startedCardInteraction) {
 						// Always play a hand-release fade animation when entering interaction states.
 						RemovedCardAnimation rem;
@@ -17647,11 +17647,11 @@ void ofApp::startNewTurn() {
 				applyOp.type = EffectOpType::APPLY_POISON;
 				queueEffect(applyOp);
 
-				advanceCardState(CARD_STATE_EFFECT_SEQUENCE);
+				advanceCardState(CARD_PLAY_STATE_EFFECT_SEQUENCE);
 
 				// Ensure state machine advances to outcome for AP/card removal
 				if (isEffectSequenceComplete()) {
-					advanceCardState(CARD_STATE_OUTCOME);
+					advanceCardState(CARD_PLAY_STATE_OUTCOME);
 				}
 				beginEffectSequence();
 				// Don't block here; effects will process and visuals will be queued by APPLY_POISON
@@ -17669,7 +17669,7 @@ void ofApp::startNewTurn() {
 				applyOp.type = EffectOpType::APPLY_PARALYSIS;
 				queueEffect(applyOp);
 
-				advanceCardState(CARD_STATE_EFFECT_SEQUENCE);
+				advanceCardState(CARD_PLAY_STATE_EFFECT_SEQUENCE);
 				beginEffectSequence();
 				return;
 			}
@@ -17856,7 +17856,7 @@ void ofApp::startNewTurn() {
 		applyOp.type = EffectOpType::APPLY_POISON;
 		queueEffect(applyOp);
 
-		advanceCardState(CARD_STATE_EFFECT_SEQUENCE);
+		advanceCardState(CARD_PLAY_STATE_EFFECT_SEQUENCE);
 		beginEffectSequence();
 		return;
 	}
@@ -17878,7 +17878,7 @@ void ofApp::startNewTurn() {
 		applyOp.type = EffectOpType::APPLY_PARALYSIS;
 		queueEffect(applyOp);
 
-		advanceCardState(CARD_STATE_EFFECT_SEQUENCE);
+		advanceCardState(CARD_PLAY_STATE_EFFECT_SEQUENCE);
 		beginEffectSequence();
 		return;
 	}
@@ -18362,30 +18362,30 @@ void ofApp::updateCardInteractionState(CardInteractionState newState, int cardId
 
 	// Keep legacy play-state synchronized while transition is in progress.
 	switch (newState) {
-	case CARD_INTERACTION_IDLE:
+	case CARD_INTERACTION_STATE_IDLE:
 		// NOTE: do NOT override `cardPlayState` here — UI closing should not
 		// forcibly reset the logical play-state. Removing this line prevents the
 		// UI from interrupting in-progress effect sequences that need to finish
 		// (e.g., menu-driven cards that queue effects and rely on the effect
-		// sequence to advance to CARD_STATE_OUTCOME for AP deduction).
+		// sequence to advance to CARD_PLAY_STATE_OUTCOME for AP deduction).
 		break;
-	case CARD_INTERACTION_TARGETING:
-		cardPlayState = CARD_STATE_TARGETING;
+	case CARD_INTERACTION_STATE_TARGETING:
+		cardPlayState = CARD_PLAY_STATE_TARGETING;
 		break;
-	case CARD_INTERACTION_MENU:
-		cardPlayState = CARD_STATE_MENU;
+	case CARD_INTERACTION_STATE_MENU:
+		cardPlayState = CARD_PLAY_STATE_MENU;
 		break;
-	case CARD_INTERACTION_STATUS:
-		cardPlayState = CARD_STATE_MENU;
+	case CARD_INTERACTION_STATE_STATUS:
+		cardPlayState = CARD_PLAY_STATE_MENU;
 		break;
-	case CARD_INTERACTION_PLACING:
-		cardPlayState = CARD_STATE_TARGETING;
+	case CARD_INTERACTION_STATE_PLACING:
+		cardPlayState = CARD_PLAY_STATE_TARGETING;
 		break;
 	default:
 		break;
 	}
 
-	if (newState == CARD_INTERACTION_IDLE) {
+	if (newState == CARD_INTERACTION_STATE_IDLE) {
 		interactionTargetIndex = -1;
 		interactionMenuChoice.clear();
 		interactionNeedsStatusSelect = false;
@@ -18404,19 +18404,19 @@ void ofApp::updateCardInteractionState(CardInteractionState newState, int cardId
 		opponentDecisionPlayerIndex = -1;
 	}
 	// When entering a menu, start the menu-open scale animation
-	if (newState == CARD_INTERACTION_MENU) {
+	if (newState == CARD_INTERACTION_STATE_MENU) {
 		menuOpenStartTime = ofGetElapsedTimef();
 		// start slightly small
 		menuOpenScale = 0.6f;
 
 		// If this menu is a modal that targets another player (e.g., Magic Blast choices),
 		// pause the current player's turn timer and start a decision timer for the target.
-		if (interactingCardType == CARD_MAGIC_BLAST || interactingCardType == CARD_GHOST_RELOCATE) {
+		if (interactingCardType == CARD_MAGIC_BLAST || interactingCardType == PSEUDO_CARD_GHOST_RELOCATE) {
 			// magicBlastTargetPlayerIndex is set by the resolver when applicable
 			int optPlayer = -1;
 			if (interactingCardType == CARD_MAGIC_BLAST)
 				optPlayer = magicBlastTargetPlayerIndex;
-			else if (interactingCardType == CARD_GHOST_RELOCATE)
+			else if (interactingCardType == PSEUDO_CARD_GHOST_RELOCATE)
 				optPlayer = ghostRelocateTargetIndex;
 			if (optPlayer >= 0 && optPlayer < (int)players.size() && currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) {
 				int activeOwner = players[currentPlayerIndex].isMinion ? players[currentPlayerIndex].ownerID : players[currentPlayerIndex].playerID;
@@ -18454,7 +18454,7 @@ void ofApp::updateCardInteractionState(CardInteractionState newState, int cardId
 }
 
 void ofApp::resetCardInteraction() {
-	updateCardInteractionState(CARD_INTERACTION_IDLE, -1, CARD_NONE);
+	updateCardInteractionState(CARD_INTERACTION_STATE_IDLE, -1, CARD_NONE);
 	// Clear centralized interaction helpers and transient UI lists only.
 	interactionMenuChoice.clear();
 	interactionTargetIndex = -1;
@@ -18474,7 +18474,7 @@ void ofApp::handleCardDragToPlay(int cardIndex) {
 		return;
 	}
 
-	if (cardPlayState != CARD_STATE_IDLE) {
+	if (cardPlayState != CARD_PLAY_STATE_IDLE) {
 		ofLogNotice("CardDrag") << "Cannot play card: State machine is busy resolving a previous card.";
 		draggedCardIndex = -1;
 		return;
@@ -18560,7 +18560,7 @@ void ofApp::handleCardDragToPlay(int cardIndex) {
 		if (card.type == CARD_GIANT_MAGIC_HAND) {
 			magicHandTargetTile = { -1, -1 };
 		}
-		updateCardInteractionState(CARD_INTERACTION_MENU, cardIndex, card.type);
+		updateCardInteractionState(CARD_INTERACTION_STATE_MENU, cardIndex, card.type);
 
 		// Keep remote menu visuals in sync for cards that already use menu-state replication.
 		if (isMultiplayer) {
@@ -18611,8 +18611,8 @@ void ofApp::handleCardDragToPlay(int cardIndex) {
 		} else {
 			interactingCardIndex = cardIndex;
 			interactingCardType = card.type;
-			updateCardInteractionState(CARD_INTERACTION_TARGETING, cardIndex, card.type);
-			cardPlayState = CARD_STATE_TARGETING;
+			updateCardInteractionState(CARD_INTERACTION_STATE_TARGETING, cardIndex, card.type);
+			cardPlayState = CARD_PLAY_STATE_TARGETING;
 			calculateTargetHighlights(cardIndex);
 			if (!hasAnyTargetableTile()) {
 				queueFloatingTextVisual(gridToWorld(caster.x, caster.y), "No valid target", ofColor::orange);
@@ -18650,7 +18650,7 @@ void ofApp::handleCardDragToPlay(int cardIndex) {
 
 void ofApp::handleCardTargetClick(int gridX, int gridY) {
 	// Allow both targeting and placing interactions to be handled here
-	if (cardInteractionState != CARD_INTERACTION_TARGETING && cardInteractionState != CARD_INTERACTION_PLACING) return;
+	if (cardInteractionState != CARD_INTERACTION_STATE_TARGETING && cardInteractionState != CARD_INTERACTION_STATE_PLACING) return;
 	if (gridX < 0 || gridX >= BOARD_WIDTH || gridY < 0 || gridY >= BOARD_HEIGHT) return;
 	// If this invocation came from an actual mouse click, require the click
 	// to be inside the visible targeting highlight (not just anywhere on the tile).
@@ -18682,7 +18682,7 @@ void ofApp::handleCardTargetClick(int gridX, int gridY) {
 
 	// Teleport destination commit is step 2 of the lockstep flow.
 	// Do not require a live hand index here (card may already be consumed by step 1).
-	if (cardInteractionState == CARD_INTERACTION_TARGETING && interactingCardType == CARD_TELEPORT) {
+	if (cardInteractionState == CARD_INTERACTION_STATE_TARGETING && interactingCardType == CARD_TELEPORT) {
 		InputCommandPacket cmd = {};
 		cmd.type = PKT_INPUT_COMMAND;
 		cmd.playerID = myLocalPlayerID;
@@ -18708,7 +18708,7 @@ void ofApp::handleCardTargetClick(int gridX, int gridY) {
 	}
 
 	// Kobold placement is a post-play interaction and may not have a live hand card index.
-	if (cardInteractionState == CARD_INTERACTION_PLACING && interactingCardType == CARD_CALL_FOR_KOBOLDS) {
+	if (cardInteractionState == CARD_INTERACTION_STATE_PLACING && interactingCardType == CARD_CALL_FOR_KOBOLDS) {
 		int gx = gridX, gy = gridY;
 		if (gx >= 0 && gx < BOARD_WIDTH && gy >= 0 && gy < BOARD_HEIGHT) {
 			if (!board[gx][gy].hasWall && !board[gx][gy].hasPlayer) {
@@ -18738,7 +18738,7 @@ void ofApp::handleCardTargetClick(int gridX, int gridY) {
 	}
 
 	// Wolf placement is also a post-play interaction and may not have a live hand card index.
-	if (cardInteractionState == CARD_INTERACTION_PLACING && interactingCardType == CARD_CALL_FOR_WOLVES) {
+	if (cardInteractionState == CARD_INTERACTION_STATE_PLACING && interactingCardType == CARD_CALL_FOR_WOLVES) {
 		int gx = gridX, gy = gridY;
 		if (gx >= 0 && gx < BOARD_WIDTH && gy >= 0 && gy < BOARD_HEIGHT) {
 			if (!board[gx][gy].hasWall && !board[gx][gy].hasPlayer) {
@@ -18799,7 +18799,7 @@ void ofApp::handleCardTargetClick(int gridX, int gridY) {
 	// Centralize minion placement logic in switch
 	switch (interactingCardType) {
 	case CARD_CALL_FOR_KOBOLDS: {
-		if (cardInteractionState == CARD_INTERACTION_PLACING) {
+		if (cardInteractionState == CARD_INTERACTION_STATE_PLACING) {
 			int gx = gridX, gy = gridY;
 			if (gx >= 0 && gx < BOARD_WIDTH && gy >= 0 && gy < BOARD_HEIGHT) {
 				if (!board[gx][gy].hasWall && !board[gx][gy].hasPlayer) {
@@ -18832,7 +18832,7 @@ void ofApp::handleCardTargetClick(int gridX, int gridY) {
 		break;
 	}
 	case CARD_CALL_FOR_WOLVES: {
-		if (cardInteractionState == CARD_INTERACTION_PLACING) {
+		if (cardInteractionState == CARD_INTERACTION_STATE_PLACING) {
 			int gx = gridX, gy = gridY;
 			if (gx >= 0 && gx < BOARD_WIDTH && gy >= 0 && gy < BOARD_HEIGHT) {
 				if (!board[gx][gy].hasWall && !board[gx][gy].hasPlayer) {
@@ -18901,13 +18901,13 @@ void ofApp::handleCardTargetClick(int gridX, int gridY) {
 				magicHandTargetTile = { gridX, gridY };
 			}
 
-			updateCardInteractionState(CARD_INTERACTION_MENU, cardIndex, interactingCardType);
+			updateCardInteractionState(CARD_INTERACTION_STATE_MENU, cardIndex, interactingCardType);
 			handleCardMenuClick(interactionMenuChoice);
 			return;
 		}
 
 		// Legacy target-first flow (still supported)
-		updateCardInteractionState(CARD_INTERACTION_MENU, cardIndex, interactingCardType);
+		updateCardInteractionState(CARD_INTERACTION_STATE_MENU, cardIndex, interactingCardType);
 
 		if (interactingCardType == CARD_WISDOM_BOON || interactingCardType == CARD_BURST_OF_LIGHT
 			|| interactingCardType == CARD_DOUBLE_HANDED || interactingCardType == CARD_DISPEL
@@ -18986,7 +18986,7 @@ void ofApp::handleCardTargetClick(int gridX, int gridY) {
 }
 
 void ofApp::handleCardMenuClick(const std::string & buttonId) {
-	if (cardInteractionState != CARD_INTERACTION_MENU) return;
+	if (cardInteractionState != CARD_INTERACTION_STATE_MENU) return;
 	if (interactingCardIndex < 0 || interactingCardIndex >= (int)players[currentPlayerIndex].hand.size()) return;
 
 	Player & caster = players[currentPlayerIndex];
@@ -19002,11 +19002,11 @@ void ofApp::handleCardMenuClick(const std::string & buttonId) {
 	};
 
 	auto enterTargetingIfPossible = [&]() {
-		updateCardInteractionState(CARD_INTERACTION_TARGETING, interactingCardIndex, interactingCardType);
+		updateCardInteractionState(CARD_INTERACTION_STATE_TARGETING, interactingCardIndex, interactingCardType);
 		calculateTargetHighlights(interactingCardIndex);
 		if (!hasAnyTargetableTile()) {
 			queueFloatingTextVisual(gridToWorld(caster.x, caster.y), "No valid target", ofColor::orange);
-			updateCardInteractionState(CARD_INTERACTION_MENU, interactingCardIndex, interactingCardType);
+			updateCardInteractionState(CARD_INTERACTION_STATE_MENU, interactingCardIndex, interactingCardType);
 			return false;
 		}
 		return true;
@@ -19024,7 +19024,7 @@ void ofApp::handleCardMenuClick(const std::string & buttonId) {
 
 		if (!hasAnyTargetableTile()) {
 			queueFloatingTextVisual(gridToWorld(caster.x, caster.y), "No adjacent unit", ofColor::orange);
-			updateCardInteractionState(CARD_INTERACTION_MENU, interactingCardIndex, interactingCardType);
+			updateCardInteractionState(CARD_INTERACTION_STATE_MENU, interactingCardIndex, interactingCardType);
 			return false;
 		}
 		return true;
@@ -19035,7 +19035,7 @@ void ofApp::handleCardMenuClick(const std::string & buttonId) {
 	if (interactingCardType == CARD_ROCK_CRUSH) {
 		if (buttonId != "damage" && buttonId != "wall") return;
 
-		updateCardInteractionState(CARD_INTERACTION_TARGETING, interactingCardIndex, interactingCardType);
+		updateCardInteractionState(CARD_INTERACTION_STATE_TARGETING, interactingCardIndex, interactingCardType);
 		calculateTargetHighlights(interactingCardIndex);
 
 		for (int x = 0; x < BOARD_WIDTH; ++x) {
@@ -19058,7 +19058,7 @@ void ofApp::handleCardMenuClick(const std::string & buttonId) {
 
 		if (!hasAnyTargetableTile()) {
 			queueFloatingTextVisual(gridToWorld(caster.x, caster.y), "No valid target", ofColor::orange);
-			updateCardInteractionState(CARD_INTERACTION_MENU, interactingCardIndex, interactingCardType);
+			updateCardInteractionState(CARD_INTERACTION_STATE_MENU, interactingCardIndex, interactingCardType);
 		}
 		return;
 	}
@@ -19161,7 +19161,7 @@ void ofApp::handleCardMenuClick(const std::string & buttonId) {
 			burstDamageOp.data.damage.fixedDamage = getCardFlatDamage(card, 3);
 			burstDamageOp.data.damage.damageFromSlot = -1;
 			queueEffect(burstDamageOp);
-			advanceCardState(CARD_STATE_EFFECT_SEQUENCE);
+			advanceCardState(CARD_PLAY_STATE_EFFECT_SEQUENCE);
 			resetCardInteraction();
 		} else if (buttonId == "heal") {
 			resetCardState();
@@ -19175,7 +19175,7 @@ void ofApp::handleCardMenuClick(const std::string & buttonId) {
 			burstHealOp.data.heal.amount = (card.healAmount > 0) ? card.healAmount : 3;
 			burstHealOp.data.heal.amountFromSlot = -1;
 			queueEffect(burstHealOp);
-			advanceCardState(CARD_STATE_EFFECT_SEQUENCE);
+			advanceCardState(CARD_PLAY_STATE_EFFECT_SEQUENCE);
 			resetCardInteraction();
 		}
 		break;
@@ -19200,7 +19200,7 @@ void ofApp::handleCardMenuClick(const std::string & buttonId) {
 		int blockVal = (card.blockAmount > 0) ? card.blockAmount : effectValue;
 
 		// Queue the chosen effect via the centralized effect sequence and
-		// let the CARD_STATE_OUTCOME / applyCardOutcomeEffects handle AP/card removal
+		// let the CARD_PLAY_STATE_OUTCOME / applyCardOutcomeEffects handle AP/card removal
 		resetCardState();
 		currentCardOutcome.cardType = static_cast<CardType>(interactingCardType);
 		currentCardOutcome.cardIndex = interactingCardIndex;
@@ -19226,10 +19226,10 @@ void ofApp::handleCardMenuClick(const std::string & buttonId) {
 			blockOp.data.modifyStat.deltaFromSlot = -1;
 			queueEffect(blockOp);
 		}
-		advanceCardState(CARD_STATE_EFFECT_SEQUENCE);
+		advanceCardState(CARD_PLAY_STATE_EFFECT_SEQUENCE);
 		// Trigger tortoise shell spike targeting immediately if applicable (keeps previous UX)
 		if (isSelfTarget && isCurrentPlayerLocal()) tryTriggerShellSpike();
-		if (cardInteractionState != CARD_INTERACTION_TARGETING) {
+		if (cardInteractionState != CARD_INTERACTION_STATE_TARGETING) {
 			resetCardInteraction();
 		}
 		break;
@@ -19271,14 +19271,14 @@ void ofApp::handleCardMenuClick(const std::string & buttonId) {
 			magicBlastTargetPlayerIndex = magicBlastSplashTargetIndices.front();
 			magicBlastSplashTargetIndices.erase(magicBlastSplashTargetIndices.begin());
 			if (isMultiplayer) sendMenuState(4, magicBlastTargetPlayerIndex, -1, interactingCardIndex);
-			updateCardInteractionState(CARD_INTERACTION_MENU, interactingCardIndex, CARD_MAGIC_BLAST);
+			updateCardInteractionState(CARD_INTERACTION_STATE_MENU, interactingCardIndex, CARD_MAGIC_BLAST);
 			break;
 		}
 
 		currentCardOutcome.cardType = static_cast<CardType>(interactingCardType);
 		currentCardOutcome.cardIndex = interactingCardIndex;
 		currentCardOutcome.casterIndex = currentPlayerIndex;
-		advanceCardState(CARD_STATE_EFFECT_SEQUENCE);
+		advanceCardState(CARD_PLAY_STATE_EFFECT_SEQUENCE);
 		resetCardInteraction();
 		break;
 	}
@@ -19329,10 +19329,10 @@ void ofApp::handleCardMenuClick(const std::string & buttonId) {
 					currentCardOutcome.cardType = static_cast<CardType>(interactingCardType);
 					currentCardOutcome.cardIndex = interactingCardIndex;
 					currentCardOutcome.casterIndex = currentPlayerIndex;
-					advanceCardState(CARD_STATE_EFFECT_SEQUENCE);
+					advanceCardState(CARD_PLAY_STATE_EFFECT_SEQUENCE);
 				}
 			}
-			updateCardInteractionState(CARD_INTERACTION_IDLE, -1, CARD_NONE);
+			updateCardInteractionState(CARD_INTERACTION_STATE_IDLE, -1, CARD_NONE);
 			interactionTargetIndex = -1;
 			interactionMenuChoice.clear();
 			sendMenuState(0, -1, -1, -1);
@@ -19363,7 +19363,7 @@ void ofApp::handleCardMenuClick(const std::string & buttonId) {
 		resetCardInteraction();
 		break;
 	}
-	case CARD_GHOST_RELOCATE: {
+	case PSEUDO_CARD_GHOST_RELOCATE: {
 		// Mirror layout used by drawGhostRelocateUI so rectangles exist during input handling
 		float panelW = 720, panelH = 360;
 		float px = ofGetWidth() / 2.0f - panelW / 2.0f;
@@ -19384,9 +19384,9 @@ void ofApp::handleCardMenuClick(const std::string & buttonId) {
 
 	case CARD_AMNESIA: {
 		// Always enter targeting mode first
-		if (cardInteractionState != CARD_INTERACTION_TARGETING) {
+		if (cardInteractionState != CARD_INTERACTION_STATE_TARGETING) {
 			// Enter targeting mode to select self or adjacent unit
-			updateCardInteractionState(CARD_INTERACTION_TARGETING, interactingCardIndex, interactingCardType);
+			updateCardInteractionState(CARD_INTERACTION_STATE_TARGETING, interactingCardIndex, interactingCardType);
 			// Set up valid targets: self and adjacent units
 			for (int x = 0; x < BOARD_WIDTH; ++x) {
 				for (int y = 0; y < BOARD_HEIGHT; ++y) {
@@ -19445,10 +19445,10 @@ void ofApp::handleCardMenuClick(const std::string & buttonId) {
 			currentCardOutcome.cardType = static_cast<CardType>(interactingCardType);
 			currentCardOutcome.cardIndex = interactingCardIndex;
 			currentCardOutcome.casterIndex = currentPlayerIndex;
-			advanceCardState(CARD_STATE_EFFECT_SEQUENCE);
+			advanceCardState(CARD_PLAY_STATE_EFFECT_SEQUENCE);
 			// Close menu UI without resetting `cardPlayState`; outcome processing
-			// needs CARD_STATE_EFFECT_SEQUENCE to remain active.
-			cardInteractionState = CARD_INTERACTION_IDLE;
+			// needs CARD_PLAY_STATE_EFFECT_SEQUENCE to remain active.
+			cardInteractionState = CARD_INTERACTION_STATE_IDLE;
 			interactingCardType = CARD_NONE;
 			interactingCardIndex = -1;
 			interactionTargetIndex = -1;
@@ -19471,12 +19471,12 @@ void ofApp::handleCardMenuClick(const std::string & buttonId) {
 
 				if (!hasAnyTargetableTile()) {
 					queueFloatingTextVisual(gridToWorld(caster.x, caster.y), "No valid target", ofColor::orange);
-					updateCardInteractionState(CARD_INTERACTION_MENU, interactingCardIndex, interactingCardType);
+					updateCardInteractionState(CARD_INTERACTION_STATE_MENU, interactingCardIndex, interactingCardType);
 				}
 				break;
 			}
 			// Enter status selection
-			updateCardInteractionState(CARD_INTERACTION_STATUS, interactingCardIndex, interactingCardType);
+			updateCardInteractionState(CARD_INTERACTION_STATE_STATUS, interactingCardIndex, interactingCardType);
 			Player * dispelTarget = getPlayer(interactionTargetIndex);
 			determineStatusOptions(dispelTarget);
 			// Will show status selection UI next frame
@@ -19536,7 +19536,7 @@ void ofApp::handleCardMenuClick(const std::string & buttonId) {
 					currentCardOutcome.cardType = static_cast<CardType>(interactingCardType);
 					currentCardOutcome.cardIndex = interactingCardIndex;
 					currentCardOutcome.casterIndex = currentPlayerIndex;
-					advanceCardState(CARD_STATE_EFFECT_SEQUENCE);
+					advanceCardState(CARD_PLAY_STATE_EFFECT_SEQUENCE);
 					resetCardInteraction();
 				} else {
 					// Empty space: move caster to wallPos, remove original wall, create wall at targetPos
@@ -19567,7 +19567,7 @@ void ofApp::handleCardMenuClick(const std::string & buttonId) {
 					currentCardOutcome.cardType = static_cast<CardType>(interactingCardType);
 					currentCardOutcome.cardIndex = interactingCardIndex;
 					currentCardOutcome.casterIndex = currentPlayerIndex;
-					advanceCardState(CARD_STATE_EFFECT_SEQUENCE);
+					advanceCardState(CARD_PLAY_STATE_EFFECT_SEQUENCE);
 					resetCardInteraction();
 				}
 			}
@@ -19615,7 +19615,7 @@ void ofApp::handleCardMenuClick(const std::string & buttonId) {
 				currentCardOutcome.cardType = static_cast<CardType>(interactingCardType);
 				currentCardOutcome.cardIndex = interactingCardIndex;
 				currentCardOutcome.casterIndex = currentPlayerIndex;
-				advanceCardState(CARD_STATE_EFFECT_SEQUENCE);
+				advanceCardState(CARD_PLAY_STATE_EFFECT_SEQUENCE);
 				resetCardInteraction();
 			}
 		}
@@ -19632,16 +19632,16 @@ void ofApp::handleCardMenuClick(const std::string & buttonId) {
 
 void ofApp::drawActiveCardInteractionUI() {
 	// Draw UI based on current card interaction state
-	if (cardInteractionState == CARD_INTERACTION_IDLE) return;
+	if (cardInteractionState == CARD_INTERACTION_STATE_IDLE) return;
 
-	if (cardInteractionState == CARD_INTERACTION_STATUS) {
+	if (cardInteractionState == CARD_INTERACTION_STATE_STATUS) {
 		// Currently used by Dispel -> Purge status selection.
 		drawDispelUI();
 		return;
 	}
 
 	// If Amnesia dice are spinning, do NOT draw the menu or overlay yet!
-	if (cardInteractionState == CARD_INTERACTION_MENU && interactingCardType == CARD_AMNESIA) {
+	if (cardInteractionState == CARD_INTERACTION_STATE_MENU && interactingCardType == CARD_AMNESIA) {
 		bool diceSpinning = false;
 		for (const auto & r : activeDiceRolls) {
 			if (!r.isFinishedVisual) {
@@ -19652,7 +19652,7 @@ void ofApp::drawActiveCardInteractionUI() {
 		if (diceSpinning) return;
 	}
 
-	if (cardInteractionState == CARD_INTERACTION_MENU) {
+	if (cardInteractionState == CARD_INTERACTION_STATE_MENU) {
 		if (interactingCardType != CARD_RENEWED_INSPIRATION) {
 			drawMenuOverlay();
 		}
@@ -19660,7 +19660,7 @@ void ofApp::drawActiveCardInteractionUI() {
 
 	// Compute menu scale (tween from small -> 1.0)
 	float scale = 1.0f;
-	if (cardInteractionState == CARD_INTERACTION_MENU) {
+	if (cardInteractionState == CARD_INTERACTION_STATE_MENU) {
 		float elapsed = ofGetElapsedTimef() - menuOpenStartTime;
 		float t = (menuOpenDuration > 0.0f) ? std::clamp(elapsed / menuOpenDuration, 0.0f, 1.0f) : 1.0f;
 		// Ease out cubic
@@ -19676,7 +19676,7 @@ void ofApp::drawActiveCardInteractionUI() {
 	}
 
 	// Draw menu UI if in MENU state
-	if (cardInteractionState == CARD_INTERACTION_MENU) {
+	if (cardInteractionState == CARD_INTERACTION_STATE_MENU) {
 		switch (interactingCardType) {
 		case CARD_BURST_OF_LIGHT: {
 			string title = "Burst of Light";
@@ -19918,7 +19918,7 @@ void ofApp::drawActiveCardInteractionUI() {
 			break;
 		}
 
-		case CARD_GHOST_RELOCATE: {
+		case PSEUDO_CARD_GHOST_RELOCATE: {
 			// Ghost relocation menu: up to 4 buttons stored in ghostRelocateButtons
 			for (size_t i = 0; i < ghostRelocateButtons.size(); ++i) {
 				if (!ghostRelocateButtons[i].inside(mouseX, mouseY)) continue;
@@ -19944,7 +19944,7 @@ void ofApp::drawActiveCardInteractionUI() {
 		}
 	}
 
-	if (cardInteractionState == CARD_INTERACTION_MENU) {
+	if (cardInteractionState == CARD_INTERACTION_STATE_MENU) {
 		ofPopMatrix();
 	}
 }
@@ -20549,9 +20549,9 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 		const std::string cardName = cardSnapshot.name;
 
 		// Deterministic lockstep: every peer executes the same play logic
-		CardPlayResult result = CARD_NOT_PLAYABLE;
+		CardPlayResult result = CARD_PLAY_RESULT_NOT_PLAYABLE;
 		result = playCard(cardIndex, targetX, targetY);
-		if (result != CARD_NOT_PLAYABLE && result != CARD_CANCELLED) {
+		if (result != CARD_PLAY_RESULT_NOT_PLAYABLE && result != CARD_PLAY_RESULT_CANCELLED) {
 			if (!isMultiplayer || cmd.playerID == currentTurnOwnerID) {
 				markMeaningfulActionOnCurrentTurn();
 			}
@@ -20749,7 +20749,7 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 				currentCardOutcome.cardIndex = cardIndex;
 				currentCardOutcome.casterIndex = currentPlayerIndex;
 				beginEffectSequence();
-				advanceCardState(CARD_STATE_EFFECT_SEQUENCE);
+				advanceCardState(CARD_PLAY_STATE_EFFECT_SEQUENCE);
 				resetCardInteraction();
 			}
 			break;
@@ -20801,13 +20801,13 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 			int destY = choice;
 			if (currentPlayerIndex < 0 || currentPlayerIndex >= (int)players.size()) {
 				resetCardInteraction();
-				advanceCardState(CARD_STATE_FINISHED);
+				advanceCardState(CARD_PLAY_STATE_FINISHED);
 				break;
 			}
 			if (destX < 0 || destX >= BOARD_WIDTH || destY < 0 || destY >= BOARD_HEIGHT) {
 				ofLogWarning("Teleport") << "CMD_MENU_CHOICE teleport rejected: destination out of bounds.";
 				resetCardInteraction();
-				advanceCardState(CARD_STATE_FINISHED);
+				advanceCardState(CARD_PLAY_STATE_FINISHED);
 				break;
 			}
 
@@ -20825,7 +20825,7 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 			if (!(inRange && canOccupy)) {
 				ofLogWarning("Teleport") << "CMD_MENU_CHOICE teleport rejected: invalid destination (range/occupancy).";
 				resetCardInteraction();
-				advanceCardState(CARD_STATE_FINISHED);
+				advanceCardState(CARD_PLAY_STATE_FINISHED);
 				break;
 			}
 
@@ -20881,7 +20881,7 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 		interactingCardType = (CardType)menuType;
 		interactingCardIndex = cardIndex;
 		interactionTargetIndex = targetIndex;
-		cardInteractionState = CARD_INTERACTION_MENU;
+		cardInteractionState = CARD_INTERACTION_STATE_MENU;
 
 		isExecutingLockstepCommand = true;
 		handleCardMenuClick(buttonId);
@@ -21242,10 +21242,10 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 			}
 
 			if (koboldsRemainingToPlace <= 0) {
-				updateCardInteractionState(CARD_INTERACTION_IDLE, -1, CARD_NONE);
+				updateCardInteractionState(CARD_INTERACTION_STATE_IDLE, -1, CARD_NONE);
 				isShowingTooltip = false;
 			} else if (isCurrentPlayerLocal()) {
-				updateCardInteractionState(CARD_INTERACTION_PLACING, -1, CARD_CALL_FOR_KOBOLDS);
+				updateCardInteractionState(CARD_INTERACTION_STATE_PLACING, -1, CARD_CALL_FOR_KOBOLDS);
 				calculateTargetHighlights();
 			}
 			break;
@@ -21283,7 +21283,7 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 				queueEffect(applyOp);
 			} else {
 				// Second wolf placed; finish interaction.
-				updateCardInteractionState(CARD_INTERACTION_IDLE, -1, CARD_NONE);
+				updateCardInteractionState(CARD_INTERACTION_STATE_IDLE, -1, CARD_NONE);
 				wolfSummonStage = 0;
 				isShowingTooltip = false;
 			}
@@ -21491,7 +21491,7 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 		drawOp.data.drawCards.numCards = discarded * 2;
 		queueEffect(drawOp);
 
-		advanceCardState(CARD_STATE_EFFECT_SEQUENCE);
+		advanceCardState(CARD_PLAY_STATE_EFFECT_SEQUENCE);
 		resetCardInteraction();
 
 		ofLogNotice("Lockstep") << "Execute CMD_RENEWED_INSPIRATION: player=" << playerIdx << " discarded=" << discarded;
@@ -21542,13 +21542,13 @@ void ofApp::queueEffect(const EffectOp & op) {
 }
 
 bool ofApp::isEffectSequenceComplete() const {
-	if (cardInteractionState == CARD_INTERACTION_MENU && interactingCardType == CARD_MAGIC_BLAST && magicBlastChoicesRemaining > 0) {
+	if (cardInteractionState == CARD_INTERACTION_STATE_MENU && interactingCardType == CARD_MAGIC_BLAST && magicBlastChoicesRemaining > 0) {
 		return false;
 	}
 	// Teleport is a two-step flow: roll range first, then wait for destination click.
 	// Keep the card in effect-sequence state while centralized teleport targeting is active
 	// so the card/AP finalization does not happen before destination selection.
-	if (cardInteractionState == CARD_INTERACTION_TARGETING && interactingCardType == CARD_TELEPORT) {
+	if (cardInteractionState == CARD_INTERACTION_STATE_TARGETING && interactingCardType == CARD_TELEPORT) {
 		return false;
 	}
 	return currentEffectSequence.isComplete;
@@ -21971,7 +21971,7 @@ bool ofApp::processEffectOp(EffectOp & op) {
 			if (blastCardIndex < 0 || blastCardIndex >= (int)players[currentPlayerIndex].hand.size()) {
 				blastCardIndex = currentCardOutcome.cardIndex;
 			}
-			updateCardInteractionState(CARD_INTERACTION_MENU, blastCardIndex, CARD_MAGIC_BLAST);
+			updateCardInteractionState(CARD_INTERACTION_STATE_MENU, blastCardIndex, CARD_MAGIC_BLAST);
 			if (isMultiplayer) sendMenuState(4, magicBlastTargetPlayerIndex, -1, blastCardIndex);
 		} else {
 			ofLogNotice("MagicBlast") << "No targets hit.";
@@ -22147,8 +22147,8 @@ bool ofApp::processEffectOp(EffectOp & op) {
 			}
 		}
 		psionicWaveTargetIndices.clear();
-		if (cardPlayState != CARD_STATE_IDLE) {
-			advanceCardState(CARD_STATE_EFFECT_SEQUENCE);
+		if (cardPlayState != CARD_PLAY_STATE_IDLE) {
+			advanceCardState(CARD_PLAY_STATE_EFFECT_SEQUENCE);
 		}
 
 		opComplete = true;
@@ -22159,7 +22159,7 @@ bool ofApp::processEffectOp(EffectOp & op) {
 		// Read authoritative teleport range from blackboard[0] and enter targeting mode
 		interactionDiceRoll = currentEffectSequence.blackboard[0];
 		// Ensure centralized targeting state
-		updateCardInteractionState(CARD_INTERACTION_TARGETING, interactingCardIndex, CARD_TELEPORT);
+		updateCardInteractionState(CARD_INTERACTION_STATE_TARGETING, interactingCardIndex, CARD_TELEPORT);
 		ofLogNotice("Teleport") << "Rolled: " << interactionDiceRoll << "ft. Choose destination. CardIdx=" << interactingCardIndex;
 		// Compute valid highlights for teleport destinations
 		calculateTargetHighlights(interactingCardIndex);
@@ -22305,8 +22305,8 @@ bool ofApp::processEffectOp(EffectOp & op) {
 		currentCardOutcome.poisonTargetPlayerIDs.clear();
 
 		// Advance card flow if needed
-		if (cardPlayState != CARD_STATE_IDLE) {
-			advanceCardState(CARD_STATE_EFFECT_SEQUENCE);
+		if (cardPlayState != CARD_PLAY_STATE_IDLE) {
+			advanceCardState(CARD_PLAY_STATE_EFFECT_SEQUENCE);
 		}
 
 		// NOTE: Death cleanup is handled globally in simulationTick() at the end of every frame.
@@ -22452,7 +22452,7 @@ bool ofApp::processEffectOp(EffectOp & op) {
 				}
 
 				if (chooserIsLocal) {
-					updateCardInteractionState(CARD_INTERACTION_MENU, interactingCardIndex, CARD_AMNESIA);
+					updateCardInteractionState(CARD_INTERACTION_STATE_MENU, interactingCardIndex, CARD_AMNESIA);
 					amnesiaDeckCopy = amnesiaTarget->deck;
 					amnesiaSelectedIndices.clear();
 				} else {
@@ -22460,7 +22460,7 @@ bool ofApp::processEffectOp(EffectOp & op) {
 					opponentInteraction.open = true;
 					opponentInteraction.type = 99; // Represents "Waiting for Opponent"
 				}
-				advanceCardState(CARD_STATE_MENU);
+				advanceCardState(CARD_PLAY_STATE_MENU);
 				opComplete = true;
 				break;
 			} else {
@@ -22492,7 +22492,7 @@ bool ofApp::processEffectOp(EffectOp & op) {
 			queueFloatingTextVisual(textPos, "Fizzles...", ofColor::gray);
 
 			// End the sequence
-			updateCardInteractionState(CARD_INTERACTION_IDLE, -1, CARD_NONE);
+			updateCardInteractionState(CARD_INTERACTION_STATE_IDLE, -1, CARD_NONE);
 			wolfSummonStage = 0;
 
 			// Cleanup Turn Order
@@ -22534,17 +22534,17 @@ bool ofApp::processEffectOp(EffectOp & op) {
 					ofLogNotice("Wolves") << "Heads! You can place another wolf.";
 					queueFloatingTextVisual(textPos, "Double Summon!", ofColor::gold);
 					wolfSummonStage = 2; // Advance stage to Wolf 2
-					// interaction remains CARD_INTERACTION_PLACING
+					// interaction remains CARD_INTERACTION_STATE_PLACING
 				} else {
 					queueFloatingTextVisual(textPos, "Opponent choosing 2nd Wolf...", ofColor::gold);
-					updateCardInteractionState(CARD_INTERACTION_IDLE, -1, CARD_NONE);
+					updateCardInteractionState(CARD_INTERACTION_STATE_IDLE, -1, CARD_NONE);
 					wolfSummonStage = 0;
 				}
 			} else {
 				// HEADS BUT BLOCKED
 				ofLogNotice("Wolves") << "Heads, but no space for 2nd wolf.";
 				queueFloatingTextVisual(textPos, "No Space!", ofColor::red);
-				updateCardInteractionState(CARD_INTERACTION_IDLE, -1, CARD_NONE);
+				updateCardInteractionState(CARD_INTERACTION_STATE_IDLE, -1, CARD_NONE);
 				wolfSummonStage = 0;
 
 				int myID = players[currentPlayerIndex].playerID;
@@ -23063,7 +23063,7 @@ bool ofApp::processEffectOp(EffectOp & op) {
 			}
 		}
 		currentCardOutcome.targetedPlayers.clear();
-		if (cardPlayState != CARD_STATE_IDLE) advanceCardState(CARD_STATE_EFFECT_SEQUENCE);
+		if (cardPlayState != CARD_PLAY_STATE_IDLE) advanceCardState(CARD_PLAY_STATE_EFFECT_SEQUENCE);
 		opComplete = true;
 		break;
 	}
@@ -23240,8 +23240,8 @@ bool ofApp::processEffectOp(EffectOp & op) {
 		}
 
 		currentCardOutcome.attackTargetPlayerIDs.clear();
-		if (cardPlayState != CARD_STATE_IDLE) {
-			advanceCardState(CARD_STATE_EFFECT_SEQUENCE);
+		if (cardPlayState != CARD_PLAY_STATE_IDLE) {
+			advanceCardState(CARD_PLAY_STATE_EFFECT_SEQUENCE);
 		}
 
 		opComplete = true;
@@ -23483,7 +23483,7 @@ bool ofApp::processEffectOp(EffectOp & op) {
 		queueFloatingTextVisual(gridToWorld(caster.x, caster.y), "+3 AP Next Turn", ofColor::cyan);
 
 		currentCardOutcome.targetedPlayers.clear();
-		if (cardPlayState != CARD_STATE_IDLE) advanceCardState(CARD_STATE_EFFECT_SEQUENCE);
+		if (cardPlayState != CARD_PLAY_STATE_IDLE) advanceCardState(CARD_PLAY_STATE_EFFECT_SEQUENCE);
 		opComplete = true;
 		break;
 	}
@@ -23604,8 +23604,8 @@ bool ofApp::processEffectOp(EffectOp & op) {
 			spawnTracer(worldStart, worldEnd, glm::ivec2((int)interactionTargetTile.x, (int)interactionTargetTile.y), ofColor(200, 180, 100), 5.0f);
 		}
 
-		if (cardPlayState != CARD_STATE_IDLE) {
-			advanceCardState(CARD_STATE_EFFECT_SEQUENCE);
+		if (cardPlayState != CARD_PLAY_STATE_IDLE) {
+			advanceCardState(CARD_PLAY_STATE_EFFECT_SEQUENCE);
 		}
 
 		opComplete = true;
@@ -23873,6 +23873,36 @@ bool ofApp::processEffectOp(EffectOp & op) {
 		break;
 	}
 
+	case EffectOpType::DISCARD_CARDS: {
+		int targetIndex = op.data.drawCards.playerIndex;
+		int numToDiscard = op.data.drawCards.numCards;
+
+		if (targetIndex >= 0 && targetIndex < (int)players.size()) {
+			Player & target = players[targetIndex];
+			int discarded = 0;
+
+			// Deterministically discard random cards from hand
+			for (int i = 0; i < numToDiscard; ++i) {
+				if (target.hand.empty()) break;
+
+				// Safely consume the synced RNG to pick a card
+				uint32_t rawRng = consumeGameplayRngRaw();
+				int pickIdx = rawRng % target.hand.size();
+
+				// Move to discard
+				target.discardPile.push_back(target.hand[pickIdx]);
+				target.hand.erase(target.hand.begin() + pickIdx);
+				discarded++;
+			}
+
+			if (discarded > 0) {
+				queueFloatingTextVisual(gridToWorld(target.x, target.y), "-" + ofToString(discarded) + " Card(s)", ofColor::purple);
+			}
+		}
+		opComplete = true;
+		break;
+	}
+
 	case EffectOpType::DRAW_CARDS: {
 		int playerIndex = op.data.drawCards.playerIndex;
 		int numCards = op.data.drawCards.numCards;
@@ -23903,56 +23933,6 @@ bool ofApp::processEffectOp(EffectOp & op) {
 				lp.hasDrawnThisTurn = true;
 			}
 			currentPlayerIndex = savedCurrent;
-		}
-		opComplete = true;
-		break;
-	}
-
-	case EffectOpType::DISCARD_CARDS: {
-		int playerIndex = op.data.drawCards.playerIndex;
-		int numCards = op.data.drawCards.numCards;
-		if (playerIndex >= 0 && playerIndex < (int)players.size()) {
-			Player & target = players[playerIndex];
-			if (numCards <= 0) {
-				opComplete = true;
-				break;
-			}
-			// If discarding equal-or-more than hand size, move all to discard
-			if (numCards >= (int)target.hand.size()) {
-				for (auto & c : target.hand) {
-					c.playedThisTurn = true;
-					target.discardPile.push_back(c);
-				}
-				target.hand.clear();
-				queueFloatingTextVisual(gridToWorld(target.x, target.y), "Discarded All", ofColor::purple);
-				opComplete = true;
-				break;
-			}
-
-			// Deterministically pick `numCards` unique indices from hand using the
-			// precomputed picks already stored in blackboard slots 5..(5+numCards-1).
-			int baseSlot = 5;
-			for (int i = 0; i < numCards; ++i) {
-				int slotVal = 0;
-				if (baseSlot + i >= 0 && baseSlot + i < 16) slotVal = currentEffectSequence.blackboard[baseSlot + i];
-				if (slotVal <= 0) continue; // nothing precomputed
-				int pick = slotVal - 1;
-				if (pick < 0 || pick >= (int)target.hand.size()) continue;
-				Card pickedCard = target.hand[pick];
-				pickedCard.playedThisTurn = true;
-				target.discardPile.push_back(pickedCard);
-				target.hand.erase(target.hand.begin() + pick);
-				queueFloatingTextVisual(gridToWorld(target.x, target.y), "-1 Card", ofColor::purple);
-				// After removing one element, subsequent stored indices referring to
-				// positions > pick are now off by -1. Adjust later slots accordingly.
-				for (int j = i + 1; j < numCards; ++j) {
-					int sv = 0;
-					if (baseSlot + j >= 0 && baseSlot + j < 16) sv = currentEffectSequence.blackboard[baseSlot + j];
-					if (sv <= 0) continue;
-					int idx = sv - 1;
-					if (idx > pick) currentEffectSequence.blackboard[baseSlot + j] = (idx - 1) + 1;
-				}
-			}
 		}
 		opComplete = true;
 		break;
@@ -24487,7 +24467,7 @@ void ofApp::processWaitingFlags() {
 //==============================================================================================
 
 void ofApp::updateCardStateMachine() {
-	if (cardPlayState == CARD_STATE_IDLE) return;
+	if (cardPlayState == CARD_PLAY_STATE_IDLE) return;
 
 	// State machine progression happens via explicit transitions from:
 	// - handleCardDiceResult() when dice complete
@@ -24496,20 +24476,20 @@ void ofApp::updateCardStateMachine() {
 	// - update() when animations/effects complete
 
 	// Check if effect sequence is complete
-	if (cardPlayState == CARD_STATE_EFFECT_SEQUENCE) {
+	if (cardPlayState == CARD_PLAY_STATE_EFFECT_SEQUENCE) {
 		if (isEffectSequenceComplete()) {
-			advanceCardState(CARD_STATE_OUTCOME);
+			advanceCardState(CARD_PLAY_STATE_OUTCOME);
 		}
 	}
 
 	// Check if we're ready to process outcome
-	if (cardPlayState == CARD_STATE_OUTCOME) {
+	if (cardPlayState == CARD_PLAY_STATE_OUTCOME) {
 		// Apply outcome effects locally on both peers (deterministic lockstep)
 		applyCardOutcomeEffects();
-		advanceCardState(CARD_STATE_FINISHED);
+		advanceCardState(CARD_PLAY_STATE_FINISHED);
 	}
 
-	if (cardPlayState == CARD_STATE_FINISHED) {
+	if (cardPlayState == CARD_PLAY_STATE_FINISHED) {
 		resetCardState();
 	}
 }
@@ -24519,7 +24499,7 @@ void ofApp::advanceCardState(CardPlayState newState) {
 }
 
 void ofApp::handleCardTargetInput(int gridX, int gridY) {
-	if (cardPlayState != CARD_STATE_TARGETING) return;
+	if (cardPlayState != CARD_PLAY_STATE_TARGETING) return;
 
 	currentCardOutcome.primaryTarget = { gridX, gridY };
 
@@ -24599,32 +24579,22 @@ void ofApp::handleCardTargetInput(int gridX, int gridY) {
 		}
 	}
 
-	// After targeting, check if card needs dice
+	// After targeting, check if card needs dice (data-driven)
 	bool needsDice = false;
-	switch (currentCardOutcome.cardType) {
-	case CARD_KICK:
-	case CARD_BASH:
-	case CARD_STAB:
-	case CARD_SLASH:
-	case CARD_ATTACK_SINGLE_TILE:
-	case CARD_MAGIC_BLAST:
-	case CARD_MASTER_FIST:
-	case CARD_ETHEREAL_JOLT:
-	case CARD_ROCK_CRUSH:
-	case CARD_PSIONIC_WAVE:
-	case CARD_FLURRY_OF_FISTS:
-	case CARD_HEAL:
-	case CARD_LESSER_HEAL:
-		needsDice = true;
-		break;
-	default:
-		needsDice = false;
-		break;
+	if (currentCardOutcome.casterIndex >= 0 && currentCardOutcome.casterIndex < (int)players.size()) {
+		Player & caster = players[currentCardOutcome.casterIndex];
+		if (currentCardOutcome.cardIndex >= 0 && currentCardOutcome.cardIndex < (int)caster.hand.size()) {
+			Card playedCard = caster.hand[currentCardOutcome.cardIndex];
+			auto [rangeNum, rangeSides] = getCardRangeDice(playedCard);
+			auto [dmgNum, dmgSides] = getCardDamageDice(playedCard);
+			auto [utilNum, utilSides] = getCardUtilityDice(playedCard);
+			needsDice = ((rangeNum > 0 && rangeSides > 0) || (dmgNum > 0 && dmgSides > 0) || (utilNum > 0 && utilSides > 0));
+		}
 	}
 
 	auto impactTile = currentCardOutcome.primaryTarget;
 	if (needsDice) {
-		advanceCardState(CARD_STATE_DICE);
+		advanceCardState(CARD_PLAY_STATE_DICE);
 	} else {
 		// Visual-only: mark surrounding 8 tiles for yellow outline preview
 		VisualEvent ev = {};
@@ -24644,12 +24614,12 @@ void ofApp::handleCardTargetInput(int gridX, int gridY) {
 		queueVisualEvent(ev);
 		// No dice needed, apply effect immediately
 		beginEffectSequence();
-		advanceCardState(CARD_STATE_EFFECT_SEQUENCE);
+		advanceCardState(CARD_PLAY_STATE_EFFECT_SEQUENCE);
 	}
 }
 
 void ofApp::handleCardDiceResult(int result, DicePurpose purpose) {
-	if (cardPlayState != CARD_STATE_DICE) return;
+	if (cardPlayState != CARD_PLAY_STATE_DICE) return;
 
 	// Store dice result
 	currentCardOutcome.diceResults.push_back(result);
@@ -24683,12 +24653,12 @@ void ofApp::handleCardDiceResult(int result, DicePurpose purpose) {
 
 	if (!needsMoreDice) {
 		// All dice complete, move to outcome
-		advanceCardState(CARD_STATE_EFFECT_SEQUENCE);
+		advanceCardState(CARD_PLAY_STATE_EFFECT_SEQUENCE);
 	}
 }
 
 // NOTE: sendCardOutcomePacket was removed to enforce deterministic
-// processing of CARD_STATE_OUTCOME on all peers. Outcomes are applied
+// processing of CARD_PLAY_STATE_OUTCOME on all peers. Outcomes are applied
 // via applyCardOutcomeEffects() directly from the state machine so both
 // host and client execute identical state changes and avoid desyncs.
 
@@ -24803,11 +24773,11 @@ void ofApp::processCardStateInput(int mouseX, int mouseY, int button) {
 	int gridY = (int)floor(boardPos.y);
 
 	// Dispatch based on current interaction state
-	if (cardInteractionState == CARD_INTERACTION_TARGETING) {
+	if (cardInteractionState == CARD_INTERACTION_STATE_TARGETING) {
 		if (button != OF_MOUSE_BUTTON_LEFT) return;
 		// Handle target selection
 		handleCardTargetClick(gridX, gridY);
-	} else if (cardInteractionState == CARD_INTERACTION_MENU) {
+	} else if (cardInteractionState == CARD_INTERACTION_STATE_MENU) {
 		// Handle menu button clicks by checking menu rectangles
 		if (button != OF_MOUSE_BUTTON_LEFT) return;
 
@@ -25148,7 +25118,7 @@ void ofApp::processCardStateInput(int mouseX, int mouseY, int button) {
 		default:
 			break;
 		}
-	} else if (cardInteractionState == CARD_INTERACTION_STATUS) {
+	} else if (cardInteractionState == CARD_INTERACTION_STATE_STATUS) {
 		if (button != OF_MOUSE_BUTTON_LEFT) return;
 		if (isMultiplayer && !isCurrentPlayerLocal()) return;
 
@@ -25201,8 +25171,8 @@ void ofApp::processCardStateInput(int mouseX, int mouseY, int button) {
 						// and the host will execute the authoritative effect in lockstep.
 						sendInputCommand(cmd, true);
 						// Close UI-only interaction state; keep card state machine active
-						// so CARD_STATE_OUTCOME can consume AP/remove the card.
-						cardInteractionState = CARD_INTERACTION_IDLE;
+						// so CARD_PLAY_STATE_OUTCOME can consume AP/remove the card.
+						cardInteractionState = CARD_INTERACTION_STATE_IDLE;
 						interactingCardType = CARD_NONE;
 						interactingCardIndex = -1;
 						interactionTargetIndex = -1;
@@ -25227,7 +25197,7 @@ void ofApp::processCardStateInput(int mouseX, int mouseY, int button) {
 
 // Generic executor for simple data-driven cards (Phase 5 helper)
 bool ofApp::executeCardGeneric(const Card & playedCard, int cardIndex, int targetX, int targetY, bool & playedSuccessfully, CardPlayResult & immediateResult) {
-	immediateResult = CARD_NOT_PLAYABLE;
+	immediateResult = CARD_PLAY_RESULT_NOT_PLAYABLE;
 	Player & currentPlayer = players[currentPlayerIndex];
 
 	// --- 1. Determine if this card has Data-Driven fields ---
@@ -25380,7 +25350,7 @@ bool ofApp::executeCardGeneric(const Card & playedCard, int cardIndex, int targe
 	queueStatGain(13, playedCard.fortifyAmount); // 13 = Fortification
 	queueStatGain(1, playedCard.hpDerivedAdd); // 1 = MaxHP
 
-	advanceCardState(CARD_STATE_EFFECT_SEQUENCE);
+	advanceCardState(CARD_PLAY_STATE_EFFECT_SEQUENCE);
 	playedSuccessfully = true;
 	return true;
 }
@@ -25416,7 +25386,7 @@ static int legacyCardTypeToSummonKind(CardType t) {
 }
 
 bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int targetX, int targetY, bool & playedSuccessfully, CardPlayResult & immediateResult) {
-	immediateResult = CARD_NOT_PLAYABLE;
+	immediateResult = CARD_PLAY_RESULT_NOT_PLAYABLE;
 	Player & currentPlayer = players[currentPlayerIndex];
 
 	// --- Phase 2: Centralized pre-play validation ---
@@ -25467,84 +25437,47 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 
 	switch (playedCard.type) {
 
-	case CARD_BURST_OF_LIGHT: {
-		// Handled by generic menu flow; consume play here.
-		playedSuccessfully = true;
-		immediateResult = CARD_AWAITING_MENU_CHOICE;
-		return true;
-	}
-
-	case CARD_DISPEL: {
-		// Handled by generic menu flow; consume play here.
-		playedSuccessfully = true;
-		immediateResult = CARD_AWAITING_MENU_CHOICE;
-		return true;
-	}
-
-	case CARD_WISDOM_BOON: {
-		// Handled by generic menu flow; consume play here.
-		playedSuccessfully = true;
-		immediateResult = CARD_AWAITING_MENU_CHOICE;
-		return true;
-	}
-	case CARD_MAGIC_BLAST: {
-		// Handled by generic menu flow; consume play here.
-		playedSuccessfully = true;
-		immediateResult = CARD_AWAITING_MENU_CHOICE;
-		return true;
-	}
-
-		// (migrated to data-driven engine)
-
-		// CARD_GIANT_MAGIC_HAND and CARD_FORTIFY migrated to executeCardGeneric
-
-	case CARD_RENEWED_INSPIRATION: {
-		// migrated to generic executor
-		// Menu-driven choice will be handled by the data-driven flow/UI.
-		playedSuccessfully = true;
-		immediateResult = CARD_AWAITING_MENU_CHOICE;
-		return true;
-	}
+		// Legacy per-card menu-first cases removed — handled by data-driven engine
 
 	case CARD_EARTHQUAKE: {
 		// migrated to generic executor
 		playedSuccessfully = true;
-		advanceCardState(CARD_STATE_EFFECT_SEQUENCE);
+		advanceCardState(CARD_PLAY_STATE_EFFECT_SEQUENCE);
 		return true;
 	}
 
 	case CARD_FORM_OF_TORTOISE: {
 		// migrated to generic executor
 		playedSuccessfully = true;
-		advanceCardState(CARD_STATE_EFFECT_SEQUENCE);
+		advanceCardState(CARD_PLAY_STATE_EFFECT_SEQUENCE);
 		return true;
 	}
 
 	case CARD_FORM_OF_GHOST: {
 		// migrated to generic executor
 		playedSuccessfully = true;
-		advanceCardState(CARD_STATE_EFFECT_SEQUENCE);
+		advanceCardState(CARD_PLAY_STATE_EFFECT_SEQUENCE);
 		return true;
 	}
 
 	case CARD_TRANSFORM_WALL: {
 		// migrated to generic executor
 		playedSuccessfully = true;
-		advanceCardState(CARD_STATE_EFFECT_SEQUENCE);
+		advanceCardState(CARD_PLAY_STATE_EFFECT_SEQUENCE);
 		return true;
 	}
 
 	case CARD_CALL_FOR_WOLVES: {
 		// migrated to generic executor
 		playedSuccessfully = true;
-		advanceCardState(CARD_STATE_EFFECT_SEQUENCE);
+		advanceCardState(CARD_PLAY_STATE_EFFECT_SEQUENCE);
 		return true;
 	}
 
 	case CARD_CALL_FOR_KOBOLDS: {
 		// migrated to generic executor
 		playedSuccessfully = true;
-		advanceCardState(CARD_STATE_EFFECT_SEQUENCE);
+		advanceCardState(CARD_PLAY_STATE_EFFECT_SEQUENCE);
 		return true;
 	}
 
@@ -25777,7 +25710,7 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 
 			if (handled) {
 				playedSuccessfully = true;
-				advanceCardState(CARD_STATE_EFFECT_SEQUENCE);
+				advanceCardState(CARD_PLAY_STATE_EFFECT_SEQUENCE);
 				return true;
 			}
 		}
@@ -25789,7 +25722,7 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 	}
 
 	// If we broke out of the switch (validation failed), return false to let legacy handle it
-	immediateResult = CARD_NOT_PLAYABLE;
+	immediateResult = CARD_PLAY_RESULT_NOT_PLAYABLE;
 	return false;
 }
 
@@ -25869,7 +25802,7 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 	Player & currentPlayer = players[currentPlayerIndex];
 
-	if (cardIndex < 0 || cardIndex >= static_cast<int>(currentPlayer.hand.size())) return CARD_NOT_PLAYABLE;
+	if (cardIndex < 0 || cardIndex >= static_cast<int>(currentPlayer.hand.size())) return CARD_PLAY_RESULT_NOT_PLAYABLE;
 
 	Card playedCard = currentPlayer.hand[cardIndex];
 
@@ -25897,7 +25830,7 @@ CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		currentAP = 999; // Set to max for debug testing
 	}
 
-	if (currentAP < costToPay) return CARD_NOT_PLAYABLE;
+	if (currentAP < costToPay) return CARD_PLAY_RESULT_NOT_PLAYABLE;
 
 	// Log card played
 	addGameLog(getPlayerSteamName(currentPlayerIndex) + " played " + playedCard.name);
@@ -25907,11 +25840,11 @@ CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 	// Damage handling moved to member helper `applyDamageTo` to allow reuse from other handlers.
 
 	bool playedSuccessfully = false;
-	CardPlayResult immediateResult = CARD_NOT_PLAYABLE;
+	CardPlayResult immediateResult = CARD_PLAY_RESULT_NOT_PLAYABLE;
 
 	// Incremental centralized execution path (first batch of stable cards)
 	if (executeCardByType(playedCard, cardIndex, targetX, targetY, playedSuccessfully, immediateResult)) {
-		if (immediateResult != CARD_NOT_PLAYABLE) {
+		if (immediateResult != CARD_PLAY_RESULT_NOT_PLAYABLE) {
 			return immediateResult;
 		}
 	}
@@ -25975,7 +25908,7 @@ CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 
 				if (hasAdjacentUnit) {
 					// Enter centralized tortoise damage targeting mode
-					updateCardInteractionState(CARD_INTERACTION_TARGETING, cardIndex, CARD_FORM_OF_TORTOISE);
+					updateCardInteractionState(CARD_INTERACTION_STATE_TARGETING, cardIndex, CARD_FORM_OF_TORTOISE);
 					calculateTargetHighlights(); // Show green highlights on valid targets
 					queueFloatingTextVisual(gridToWorld(currentPlayer.x, currentPlayer.y) + glm::vec3(0, 1.0f, 0),
 						"Shell Spike!", ofColor::darkGreen);
@@ -25988,10 +25921,10 @@ CardPlayResult ofApp::playCard(int cardIndex, int targetX, int targetY) {
 		finishPlayCard(currentPlayer, playedCard, cardIndex);
 		completeCardPlayAnimation(playedCard, currentPlayerIndex);
 		updatePlayerAP(currentPlayer, currentAP);
-		return CARD_PLAYED_IMMEDIATELY;
+		return CARD_PLAY_RESULT_IMMEDIATELY;
 	}
 
-	return CARD_NOT_PLAYABLE;
+	return CARD_PLAY_RESULT_NOT_PLAYABLE;
 }
 //--------------------------------------------------------------
 glm::vec2 ofApp::getCardDisplayUIPosition(int playerIndex) {
@@ -26088,7 +26021,7 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 	}
 
 	// --- WOLF PLACEMENT HIGHLIGHTING ---
-	if (cardInteractionState == CARD_INTERACTION_PLACING && interactingCardType == CARD_CALL_FOR_WOLVES) {
+	if (cardInteractionState == CARD_INTERACTION_STATE_PLACING && interactingCardType == CARD_CALL_FOR_WOLVES) {
 		std::vector<glm::vec2> dirs = { { 0, 1 }, { 0, -1 }, { 1, 0 }, { -1, 0 } };
 		for (auto & dir : dirs) {
 			int nx = wolfPlacementSourceX + (int)dir.x;
@@ -26105,7 +26038,7 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 	}
 
 	// --- KOBOLD PLACEMENT HIGHLIGHTING ---
-	if (cardInteractionState == CARD_INTERACTION_PLACING && interactingCardType == CARD_CALL_FOR_KOBOLDS && koboldsRemainingToPlace > 0) {
+	if (cardInteractionState == CARD_INTERACTION_STATE_PLACING && interactingCardType == CARD_CALL_FOR_KOBOLDS && koboldsRemainingToPlace > 0) {
 		std::vector<glm::vec2> dirs = { { 0, -1 }, { 1, 0 }, { 0, 1 }, { -1, 0 } };
 		for (auto & dir : dirs) {
 			int nx = koboldPlacementSourceX + (int)dir.x;
@@ -26121,7 +26054,7 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 	}
 
 	// --- TORTOISE DAMAGE TARGETING HIGHLIGHTING ---
-	if (cardInteractionState == CARD_INTERACTION_TARGETING && interactingCardType == CARD_FORM_OF_TORTOISE && currentPlayerIndex >= 0) {
+	if (cardInteractionState == CARD_INTERACTION_STATE_TARGETING && interactingCardType == CARD_FORM_OF_TORTOISE && currentPlayerIndex >= 0) {
 		Player & caster = players[currentPlayerIndex];
 		// Highlight all adjacent tiles with units
 		for (int dx = -1; dx <= 1; dx++) {
@@ -26150,11 +26083,11 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 	int activeCardIndex = (selectedCardIndex != -1) ? selectedCardIndex : ((draggedCardIndex != -1) ? draggedCardIndex : cardToCalculate);
 
 	// OVERRIDE index if we are in a specific targeting mode (centralized)
-	if (cardInteractionState == CARD_INTERACTION_TARGETING) activeCardIndex = interactingCardIndex;
+	if (cardInteractionState == CARD_INTERACTION_STATE_TARGETING) activeCardIndex = interactingCardIndex;
 
 	// === KEEP HIGHLIGHTS ACTIVE WHILE IN NEW TARGETING/MENU INTERACTION STATES ===
 	// This ensures target squares persist when card is released and we're waiting for user interaction
-	if (cardInteractionState == CARD_INTERACTION_TARGETING || cardInteractionState == CARD_INTERACTION_MENU) {
+	if (cardInteractionState == CARD_INTERACTION_STATE_TARGETING || cardInteractionState == CARD_INTERACTION_STATE_MENU) {
 		if (interactingCardIndex >= 0) {
 			activeCardIndex = interactingCardIndex;
 		}
@@ -26534,9 +26467,9 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 	}
 
 	// Check AP (Targeting modes imply AP check passed already)
-	bool inTargetingMode = (cardInteractionState == CARD_INTERACTION_TARGETING)
-		|| (cardInteractionState == CARD_INTERACTION_TARGETING && interactingCardType == CARD_TELEPORT)
-		|| (cardInteractionState == CARD_INTERACTION_TARGETING && interactingCardType == CARD_AMNESIA)
+	bool inTargetingMode = (cardInteractionState == CARD_INTERACTION_STATE_TARGETING)
+		|| (cardInteractionState == CARD_INTERACTION_STATE_TARGETING && interactingCardType == CARD_TELEPORT)
+		|| (cardInteractionState == CARD_INTERACTION_STATE_TARGETING && interactingCardType == CARD_AMNESIA)
 		|| (selectedCardIndex != -1);
 
 	bool hasEnoughAP = inTargetingMode || (currentAP >= getEffectiveCardCostForPlayer(currentPlayer, card));
@@ -26822,7 +26755,7 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 					}
 					// 2. Wall / mixed adjacent cards
 					else if (card.type == CARD_ROCK_CRUSH) {
-						bool rockChoiceActive = (cardInteractionState == CARD_INTERACTION_TARGETING && interactingCardType == CARD_ROCK_CRUSH && !interactionMenuChoice.empty());
+						bool rockChoiceActive = (cardInteractionState == CARD_INTERACTION_STATE_TARGETING && interactingCardType == CARD_ROCK_CRUSH && !interactionMenuChoice.empty());
 						if (rockChoiceActive && interactionMenuChoice == "damage") {
 							isValidTarget = (board[x][y].hasPlayer && !board[x][y].hasWall && tileHasOtherThan(x, y, currentPlayerIndex));
 						} else if (rockChoiceActive && interactionMenuChoice == "wall") {
@@ -26869,7 +26802,7 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 			// --- TELEPORT LOGIC ---
 			case TARGET_EMPTY_TILE: {
 				float maxRangeFeet;
-				if (cardInteractionState == CARD_INTERACTION_TARGETING && interactingCardType == CARD_TELEPORT)
+				if (cardInteractionState == CARD_INTERACTION_STATE_TARGETING && interactingCardType == CARD_TELEPORT)
 					maxRangeFeet = (float)interactionDiceRoll;
 				else
 					maxRangeFeet = (float)(card.numDice * card.diceSides);
@@ -26920,7 +26853,7 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 				float maxRangeFeet;
 
 				// --- Determine Max Range based on current card/state ---
-				if (card.type == CARD_MAGIC_BOLT && cardInteractionState == CARD_INTERACTION_TARGETING && interactingCardType == CARD_MAGIC_BOLT && interactionDiceRoll > 0) {
+				if (card.type == CARD_MAGIC_BOLT && cardInteractionState == CARD_INTERACTION_STATE_TARGETING && interactingCardType == CARD_MAGIC_BOLT && interactionDiceRoll > 0) {
 					maxRangeFeet = (float)interactionDiceRoll;
 				}
 				// Magic Blast: fixed max range = 20 ft (d20)
@@ -27173,7 +27106,7 @@ void ofApp::calculateTargetHighlights(int cardToCalculate) {
 			activeAOERing.startTime = ofGetElapsedTimef();
 			activeAOERing.duration = 1.5f;
 			activeAOERing.cardType = CARD_PSIONIC_WAVE;
-		} else if (card.type == CARD_MAGIC_BOLT && cardInteractionState == CARD_INTERACTION_TARGETING && interactingCardType == CARD_MAGIC_BOLT) {
+		} else if (card.type == CARD_MAGIC_BOLT && cardInteractionState == CARD_INTERACTION_STATE_TARGETING && interactingCardType == CARD_MAGIC_BOLT) {
 			glm::ivec2 hoverTile = { (int)mouseTile.x, (int)mouseTile.y };
 			if (hoverTile.x >= 0 && hoverTile.x < BOARD_WIDTH && hoverTile.y >= 0 && hoverTile.y < BOARD_HEIGHT && board[hoverTile.x][hoverTile.y].isTargetPreview) {
 				bool centerChanged = (activeAOERing.centerTile != hoverTile) || (activeAOERing.cardType != CARD_MAGIC_BOLT);
@@ -27370,17 +27303,17 @@ void ofApp::clearHighlights() {
 // --------------------------------------------------------------
 void ofApp::enterTargetingMode(const ofApp::TargetingContext & ctx) {
 	targetingContext = ctx;
-	updateCardInteractionState(CARD_INTERACTION_TARGETING, targetingContext.sourceCardIndex, CARD_NONE);
+	updateCardInteractionState(CARD_INTERACTION_STATE_TARGETING, targetingContext.sourceCardIndex, CARD_NONE);
 	clearHighlights();
 	// If the context has a source card index, use it to prime highlights
 	calculateTargetHighlights(targetingContext.sourceCardIndex);
 }
 
 void ofApp::cancelTargetingMode() {
-	if (cardInteractionState == CARD_INTERACTION_TARGETING && targetingContext.onCancel) {
+	if (cardInteractionState == CARD_INTERACTION_STATE_TARGETING && targetingContext.onCancel) {
 		targetingContext.onCancel();
 	}
-	updateCardInteractionState(CARD_INTERACTION_IDLE, -1, CARD_NONE);
+	updateCardInteractionState(CARD_INTERACTION_STATE_IDLE, -1, CARD_NONE);
 	targetingContext = ofApp::TargetingContext();
 	clearHighlights();
 }
@@ -27751,7 +27684,7 @@ void ofApp::applySnapshotString(const std::string & data, bool fromNetworkSnapsh
 	// NUCLEAR UI RESET — use centralized interaction state where possible
 	cancelAllTargeting();
 	// Centralize card interaction state reset
-	updateCardInteractionState(CARD_INTERACTION_IDLE, -1, CARD_NONE);
+	updateCardInteractionState(CARD_INTERACTION_STATE_IDLE, -1, CARD_NONE);
 	// Legacy UI windows that are not part of the card interaction state
 	isCardSpawnerOpen = false;
 	isCardEncyclopediaOpen = false;
@@ -29081,19 +29014,19 @@ void ofApp::tryTriggerShellSpike() {
 
 	if (hasAdjacentUnit) {
 		// Enter centralized tortoise damage targeting mode
-		updateCardInteractionState(CARD_INTERACTION_TARGETING, -1, CARD_FORM_OF_TORTOISE);
+		updateCardInteractionState(CARD_INTERACTION_STATE_TARGETING, -1, CARD_FORM_OF_TORTOISE);
 		calculateTargetHighlights(); // Show green highlights on valid targets
 		queueFloatingTextVisual(gridToWorld(currentPlayer.x, currentPlayer.y) + glm::vec3(0, 1.0f, 0),
 			"Shell Spike!", ofColor::darkGreen);
 		// Halt card state machine so target click can complete before outcome finalization
-		advanceCardState(CARD_STATE_TARGETING);
+		advanceCardState(CARD_PLAY_STATE_TARGETING);
 		ofLogNotice("Tortoise Form") << "Triggered Shell Spike damage - choose adjacent target.";
 	}
 }
 //--------------------------------------------------------------
 void ofApp::cancelDispel() {
 	// Centralized: reset card interaction state and clear dispel-specific transient data
-	updateCardInteractionState(CARD_INTERACTION_IDLE, -1, CARD_NONE);
+	updateCardInteractionState(CARD_INTERACTION_STATE_IDLE, -1, CARD_NONE);
 	interactingCardIndex = -1;
 	interactionTargetIndex = -1;
 	statusSelectLabels.clear();
@@ -29105,7 +29038,7 @@ void ofApp::cancelDispel() {
 
 //--------------------------------------------------------------
 void ofApp::drawDispelUI() {
-	if (cardInteractionState != CARD_INTERACTION_STATUS || interactingCardType != CARD_DISPEL) return;
+	if (cardInteractionState != CARD_INTERACTION_STATE_STATUS || interactingCardType != CARD_DISPEL) return;
 
 	// Overlay
 	ofSetColor(0, 0, 0, 180);
@@ -29577,10 +29510,10 @@ void ofApp::determineStatusOptions(Player * target) {
 			currentCardOutcome.cardIndex = interactingCardIndex;
 			currentCardOutcome.casterIndex = currentPlayerIndex;
 			beginEffectSequence();
-			advanceCardState(CARD_STATE_EFFECT_SEQUENCE);
+			advanceCardState(CARD_PLAY_STATE_EFFECT_SEQUENCE);
 		}
 		// Close status/menu UI only. Do not touch `cardPlayState` here.
-		cardInteractionState = CARD_INTERACTION_IDLE;
+		cardInteractionState = CARD_INTERACTION_STATE_IDLE;
 		interactingCardType = CARD_NONE;
 		interactingCardIndex = -1;
 		interactionTargetIndex = -1;
@@ -29723,7 +29656,7 @@ void ofApp::applyDispelEffect(int statusID) {
 		currentCardOutcome.cardType = CARD_DISPEL;
 		currentCardOutcome.cardIndex = interactingCardIndex;
 		currentCardOutcome.casterIndex = currentPlayerIndex;
-		advanceCardState(CARD_STATE_EFFECT_SEQUENCE);
+		advanceCardState(CARD_PLAY_STATE_EFFECT_SEQUENCE);
 	}
 
 	// Trigger Shell Spike only on the local active player; the actual hit is
@@ -29737,7 +29670,7 @@ void ofApp::applyDispelEffect(int statusID) {
 	dispelMode = 0;
 
 	// Keep Shell Spike targeting prompt alive if it was opened.
-	if (cardInteractionState != CARD_INTERACTION_TARGETING) {
+	if (cardInteractionState != CARD_INTERACTION_STATE_TARGETING) {
 		resetCardInteraction();
 	}
 }
@@ -32025,7 +31958,7 @@ void ofApp::drawMinionManagerUI() {
 }
 //--------------------------------------------------------------
 void ofApp::cancelMagicHand() {
-	updateCardInteractionState(CARD_INTERACTION_IDLE, -1, CARD_NONE);
+	updateCardInteractionState(CARD_INTERACTION_STATE_IDLE, -1, CARD_NONE);
 	interactingCardIndex = -1;
 }
 
@@ -32458,6 +32391,38 @@ void ofApp::drawInitiativeRoll() {
 }
 //--------------------------------------------------------------
 void ofApp::drawDraftScreen() {
+	ofDisableLighting();
+	ofDisableDepthTest();
+	ofEnableAlphaBlending();
+	ofSetColor(255, 255, 255, 255);
+
+	if (draftOptions.empty()) {
+		ofPushStyle();
+		ofSetColor(0, 0, 0, 140);
+		ofDrawRectangle(0, 0, ofGetWidth(), ofGetHeight());
+		ofSetColor(ofColor::white);
+		std::string msg = (waitingForDraftOptionsStartTime > 0.0f) ? "Waiting for draft options..." : "Preparing draft...";
+		ofRectangle msgBox = titleFont.getStringBoundingBox(msg, 0, 0);
+		float tx = std::round(ofGetWidth() * 0.5f - msgBox.width * 0.5f);
+		float ty = std::round(ofGetHeight() * 0.5f);
+		titleFont.drawString(msg, tx, ty);
+
+		// Immediate diagnostic dump to help trace empty-draft root cause
+		ofLogNotice("DraftDebug") << "drawDraftScreen: EMPTY overlay - state=" << currentState
+								  << " draftPlayerIndex=" << draftPlayerIndex
+								  << " draftStage=" << draftStage
+								  << " currentDraftClassTier=" << currentDraftClassTier
+								  << " lastDraftOptionsPlayer=" << lastDraftOptionsPlayer
+								  << " isInGameDraft=" << (isInGameDraft ? 1 : 0)
+								  << " waitingForDraftOptionsStartTime=" << waitingForDraftOptionsStartTime
+								  << " draftGenerationCounter=" << draftGenerationCounter
+								  << " class1Cards=" << class1Cards.size()
+								  << " class2Cards=" << class2Cards.size()
+								  << " class3Cards=" << class3Cards.size();
+		ofPopStyle();
+		return;
+	}
+
 	// 1. Construct Specific Instruction Text
 	string pName = "";
 	if (draftPlayerIndex >= 0 && draftPlayerIndex < (int)players.size()) {

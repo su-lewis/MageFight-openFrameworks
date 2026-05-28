@@ -1,42 +1,46 @@
-# AI Assistant Role & Boundaries (short)
+# AI Assistant Role & Boundaries
 You are an expert C++ game architect and surgical bug-fixing assistant working on an openFrameworks multiplayer game. Make minimal, targeted edits unless explicitly asked to refactor. Avoid emitting large unchanged code blocks.
 
-## Deterministic Lockstep (must-follow)
-- RNG only at decision-time using `gameplayRNG`.
-- Visual RNG (particles, dice orientation) must use `visualRNG` only.
-- Game logic must not depend on frame time or `ofGetElapsedTimef()`.
-- Sorting must include strict tie-breakers (e.g., `playerID`).
-- Prefer integer math for game-state decisions; avoid floats.
+## Deterministic Lockstep (CRITICAL)
+- **RNG:** Game logic uses `gameplayRNG` (synced). Visuals use `visualRNG` (local). Never mix them.
+- **NO TIMING IN LOGIC:** Game state (`players`, `board`, `HP`, `AP`) MUST NOT depend on framerate, `ofGetElapsedTimef()`, or visual animation timers.
+- **SORTING:** Must include strict tie-breakers (e.g., `playerID`) so platforms sort identically.
+- **MATH:** Prefer integer math for game-state decisions; avoid floats to prevent cross-platform desyncs.
 
-## Optimistic UI (quick rules)
-- Allow local prediction for immediate UX, but do not mutate authoritative state outside the lockstep command queue.
-- Package player actions into `InputCommandPacket` and route through the queue.
+## Optimistic UI
+- Allow local prediction for immediate UX (e.g., moving a card visually).
+- Do NOT mutate authoritative game state outside the lockstep command queue. Package player actions into `InputCommandPacket` and route through `sendInputCommand`.
 
-## Mission: Data-Driven Card Engine (summary)
-Replace per-card `switch(playedCard.type)` logic with a data-driven pipeline where most cards are defined in `data/Config/cards.json` and handled by a small set of generic `EffectOp` handlers.
+---
 
-Key rules:
-- Resolve all dice at decision-time (e.g., in `executeCardGeneric` / `executeCardByType`) with `resolveDiceRollDetailed` and store raw integers in `currentEffectSequence.blackboard[]`.
-- `processEffectOp` handlers must never call RNG — they read blackboard slots and apply deterministic state changes.
-- Visual dice and tracers are queued separately for UX and should use the pre-rolled values.
+# CURRENT MISSION: The Data-Driven Purge
+The Data-Driven Card Engine foundation is fully built (`executeCardGeneric` and generic `EffectOp` handlers are live). 
+Your task is to migrate the remaining legacy cards to `cards.json` and delete their custom C++ code in small batches.
 
-## Minimal Execution Plan (phases)
-1. Expand `struct Card` and the JSON loader to include the common data-driven fields (damage, heal, status, summons, deck ops, utility dice).
-2. Implement `executeCardGeneric(const Card&)` that: begins an effect sequence; resolves range/damage/heal/summon/utility dice into `blackboard[]`; queues visual dice; queues generic `EffectOp`s; advances to `CARD_STATE_EFFECT_SEQUENCE` when handled.
-3. Implement generic `EffectOp` handlers in `processEffectOp` (damage, heal, apply status, discard, draw, spawn unit, tile modify, earthquake, etc.). Handlers must only read `blackboard[]` and mutate game state deterministically.
-4. Migrate simple cards to data-driven JSON, then remove legacy switch cases in small batches (build & test between batches).
+### Migration Workflow (One batch at a time)
+1. Update `data/Config/cards.json` with the generic fields (`baseDamage`, `healAmount`, `applyStatus`, `discardHandCount`, etc.) for the target cards.
+2. Delete their `case` blocks from `ofApp::executeCardByType`.
+3. Delete their legacy effect handlers from `ofApp::processEffectOpLegacy` (if applicable).
+4. STOP. Compile and run a smoke test before moving to the next batch.
 
-## Remaining Work (current)
-- Verify `processEffectOp` handlers consume blackboard slots correctly and perform deterministic updates. (in-progress)
-- Run a smoke playtest using `bin/MageFight` and representative saves. (todo)
-- Run a full build & regression playtest after the above. (todo)
-- Continue migrating remaining cards and purge legacy `case` statements in batches. (todo)
+### Batch Priority List:
+- **Batch 1 (Done):** Melee Attacks (Punch, Kick, Bash).
+- **Batch 2 (Active):** Heals & Defensive (Heal, Lesser Heal, Consume Health Potion, Ward, Hand Block).
+- **Batch 3:** Basic Spells (Fireball, Shock, Flame Hit, Smite).
+- **Batch 4:** Simple Status & Utility (Add Poison, Strengthen Elements, Spark of Genius).
 
-## Testing & Verification Notes
-- Use a fixed `gameplayRNG` seed for unit tests of `executeCardGeneric` and effect handlers.
-- After every purge batch: `make -j$(nproc)` and run `bin/MageFight` with a saved scenario from `Saves/`.
+---
 
-## Contact / PR guidance
-- Open a PR for each migration batch and tag `@lead-dev`. Keep changes small and include a minimal save demonstrating parity when possible.
+# UPCOMING MISSION: Decoupling the "God Loop"
+The `ofApp::update()` function is currently a monolithic "God Loop" mixing network sync, audio fading, visuals, and game state. Worse, it contains fatal lockstep bugs (e.g., resolving `gameplayRNG` based on a real-time `initiativeTimer`).
+Once the Card Purge is complete, we will extract `update()` into clean, single-purpose helpers:
+1. `updateNetwork()`
+2. `updateAudio()`
+3. `updateVisuals()`
+4. `updateStateMachine()` (where we will fix animation-driven logic bugs by routing them through the deterministic lockstep queue).
+*Do not begin this mission until The Purge is complete.*
 
-If you want, I can now: verify `processEffectOp` handlers, run the build, or run a smoke playtest — which should I do next?
+## Testing & Verification
+- `make -j$(nproc)` after every batch.
+- Run `bin/MageFight` and test the migrated cards.
+- Ensure multiplayer sync remains perfectly intact (no checksum desyncs).

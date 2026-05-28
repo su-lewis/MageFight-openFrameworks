@@ -83,7 +83,17 @@
     "targeting": "TARGET_ADJACENT_OR_SELF_UNIT",
     "utilityDiceNum": 1,
     "utilityDiceSides": 4,
-    "class": 2
+    "class": 2,
+    "menuOptions": [
+      {
+        "id": 1,
+        "label": "Purge Random"
+      },
+      {
+        "id": 2,
+        "label": "Purge Target"
+      }
+    ]
   },
   {
     "id": 10,
@@ -94,7 +104,17 @@
     "damageType": "DAMAGE_MAGIC",
     "rangeDiceNum": 1,
     "rangeDiceSides": 20,
-    "class": 2
+    "class": 2,
+    "menuOptions": [
+      {
+        "id": 1,
+        "label": "Normal"
+      },
+      {
+        "id": 2,
+        "label": "Overcharge"
+      }
+    ]
   },
   {
     "id": 11,
@@ -128,7 +148,17 @@
     "damageDiceNum": 2,
     "damageDiceSides": 10,
     "class": 2,
-    "destroysWall": true
+    "destroysWall": true,
+    "menuOptions": [
+      {
+        "id": 1,
+        "label": "Crush (Damage)"
+      },
+      {
+        "id": 2,
+        "label": "Smash (Destroy Wall)"
+      }
+    ]
   },
   {
     "id": 14,
@@ -138,7 +168,17 @@
     "targeting": "TARGET_SELF",
     "utilityDiceNum": 1,
     "utilityDiceSides": 20,
-    "class": 1
+    "class": 1,
+    "menuOptions": [
+      {
+        "id": 1,
+        "label": "Barrier"
+      },
+      {
+        "id": 2,
+        "label": "Purge"
+      }
+    ]
   },
   {
     "id": 15,
@@ -176,7 +216,17 @@
     "value": 0,
     "targeting": "TARGET_ADJACENT_OR_SELF_UNIT",
     "damageType": "DAMAGE_MAGIC",
-    "class": 1
+    "class": 1,
+    "menuOptions": [
+      {
+        "id": 1,
+        "label": "Damage"
+      },
+      {
+        "id": 2,
+        "label": "Block"
+      }
+    ]
   },
   {
     "id": 19,
@@ -342,7 +392,17 @@
     "type": "CARD_DOUBLE_HANDED",
     "cost": 2,
     "targeting": "TARGET_ADJACENT_OR_SELF_UNIT",
-    "class": 1
+    "class": 1,
+    "menuOptions": [
+      {
+        "id": 1,
+        "label": "Double Attack"
+      },
+      {
+        "id": 2,
+        "label": "Double Block"
+      }
+    ]
   },
   {
     "id": 29,
@@ -461,7 +521,17 @@
     "type": "CARD_TRAIN",
     "cost": 3,
     "targeting": "TARGET_SELF",
-    "class": 1
+    "class": 1,
+    "menuOptions": [
+      {
+        "id": 1,
+        "label": "Gain AP"
+      },
+      {
+        "id": 2,
+        "label": "Gain Block"
+      }
+    ]
   },
   {
     "id": 41,
@@ -559,7 +629,17 @@
     "type": "CARD_RENEWED_INSPIRATION",
     "cost": 2,
     "targeting": "TARGET_SELF",
-    "class": 1
+    "class": 1,
+    "menuOptions": [
+      {
+        "id": 1,
+        "label": "Draw"
+      },
+      {
+        "id": 2,
+        "label": "Boost"
+      }
+    ]
   },
   {
     "id": 52,
@@ -589,7 +669,8 @@
     "type": "CARD_SUMMON_MAGIC_WALL",
     "cost": 2,
     "targeting": "TARGET_EMPTY_ADJACENT",
-    "class": 2
+    "class": 2,
+    "summonKind": 11
   },
   {
     "id": 55,
@@ -615,7 +696,17 @@
     "type": "CARD_GIANT_MAGIC_HAND",
     "cost": 2,
     "targeting": "TARGET_ADJACENT_WALL",
-    "class": 2
+    "class": 2,
+    "menuOptions": [
+      {
+        "id": 1,
+        "label": "Push"
+      },
+      {
+        "id": 2,
+        "label": "Pull"
+      }
+    ]
   },
   {
     "id": 58,
