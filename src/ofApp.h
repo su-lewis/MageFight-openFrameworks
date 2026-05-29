@@ -1049,6 +1049,12 @@ private:
 	void drawGame();
 	void cleanupGame();
 
+	// Decoupled update helpers (extracted from monolithic `update()`)
+	void updateNetwork();
+	void updateAudio();
+	void updateVisuals();
+	void updateStateMachine();
+
 	void startNewTurn();
 	void continueNewTurn();
 
@@ -1331,7 +1337,7 @@ private:
 
 	int initiativeRolls[2] = { 0, 0 };
 	bool isInitiativeRolling = false;
-	float initiativeTimer = 0.0f;
+	int initiativeTimerFrames = 0; // frame-based timer for deterministic initiative wait
 	int draftPlayerIndex = 0; // The player currently drafting
 	int inGameDraftTargetIdx = -1; // (HOST) During in-game key draft, which player index should receive cards
 	int draftStage = 0; // 0 = Class 1 (Pick 2), 1 = Class 2 (Pick 1)
@@ -1640,6 +1646,9 @@ private:
 	int turnTimerPausedRemainingFrames = 0; // frames remaining when paused
 	bool reconnectTurnTimerPausedByDisconnect = false;
 	int reconnectTurnTimerPausedRemainingFrames = 0;
+
+	// Visual-only: pending visuals to spawn at next visible update (set by deterministic logic)
+	int pendingTurnStartVisuals = -1;
 	bool waitingForReconnect = false;
 
 	// Opponent decision timer (when a modal requires the opponent to choose)

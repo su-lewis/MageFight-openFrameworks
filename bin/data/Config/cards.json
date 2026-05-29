@@ -105,14 +105,18 @@
     "rangeDiceNum": 1,
     "rangeDiceSides": 20,
     "class": 2,
+    "baseDamage": 5,
+    "discardDeckCount": 1,
     "menuOptions": [
       {
         "id": 1,
-        "label": "Normal"
+        "label": "Damage",
+        "key": "damage"
       },
       {
         "id": 2,
-        "label": "Overcharge"
+        "label": "Discard",
+        "key": "discard"
       }
     ]
   },
@@ -172,11 +176,13 @@
     "menuOptions": [
       {
         "id": 1,
-        "label": "Barrier"
+        "label": "Barrier",
+        "key": "Barrier"
       },
       {
         "id": 2,
-        "label": "Purge"
+        "label": "Purge",
+        "key": "Purge"
       }
     ]
   },
@@ -220,11 +226,13 @@
     "menuOptions": [
       {
         "id": 1,
-        "label": "Damage"
+        "label": "Damage",
+        "key": "damage"
       },
       {
         "id": 2,
-        "label": "Block"
+        "label": "Block",
+        "key": "block"
       }
     ]
   },
@@ -393,14 +401,19 @@
     "cost": 2,
     "targeting": "TARGET_ADJACENT_OR_SELF_UNIT",
     "class": 1,
+    "copiesToAdd": 2,
     "menuOptions": [
       {
         "id": 1,
-        "label": "Double Attack"
+        "label": "Double Attack",
+        "key": "x2 Punch",
+        "addsCardType": "CARD_PUNCH"
       },
       {
         "id": 2,
-        "label": "Double Block"
+        "label": "Double Block",
+        "key": "x2 Hand Block",
+        "addsCardType": "CARD_HAND_BLOCK"
       }
     ]
   },
@@ -697,14 +710,18 @@
     "cost": 2,
     "targeting": "TARGET_ADJACENT_WALL",
     "class": 2,
+    "damageDiceNum": 2,
+    "damageDiceSides": 4,
     "menuOptions": [
       {
         "id": 1,
-        "label": "Push"
+        "label": "Push",
+        "key": "push"
       },
       {
         "id": 2,
-        "label": "Pull"
+        "label": "Pull",
+        "key": "pull"
       }
     ]
   },
@@ -814,7 +831,21 @@
     "type": "CARD_BURST_OF_LIGHT",
     "cost": 3,
     "targeting": "TARGET_LINE_OF_SIGHT_TILE",
-    "class": 1
+    "class": 1,
+    "baseDamage": 3,
+    "healAmount": 3,
+    "menuOptions": [
+      {
+        "id": 1,
+        "label": "Damage",
+        "key": "damage"
+      },
+      {
+        "id": 2,
+        "label": "Heal",
+        "key": "heal"
+      }
+    ]
   },
   {
     "id": 69,
