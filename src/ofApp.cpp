@@ -236,11 +236,6 @@ static int getEffectiveCardCostForPlayer(const Player & player, const Card & car
 
 // Centralized flat damage resolver for migrated cards.
 // Uses new baseDamage when present and falls back to legacy value.
-static int getCardFlatDamage(const Card & card, int fallback = 0) {
-	if (card.baseDamage != 0) return card.baseDamage;
-	if (card.value != 0) return card.value;
-	return fallback;
-}
 
 // Centralized damage dice resolver for migrated cards.
 // Uses damageDice* first, then legacy numDice/diceSides.
@@ -272,18 +267,7 @@ static std::pair<int, int> getCardSummonDice(const Card & card, int fallbackNum 
 	return { fallbackNum, fallbackSides };
 }
 
-static glm::ivec2 getEarthquakeDirectionFromRoll(int roll) {
-	switch (roll) {
-	case 1:
-		return { 0, -1 }; // North
-	case 2:
-		return { 1, 0 }; // East
-	case 3:
-		return { 0, 1 }; // South
-	default:
-		return { -1, 0 }; // West
-	}
-}
+// Earthquake direction resolver removed; handled via EffectOp pipeline.
 
 static ofRectangle getHandCardRestRect(const Card & card, float baseCardW, float baseCardH) {
 	return ofRectangle(card.targetPos.x - baseCardW * 0.5f, card.targetPos.y - baseCardH * 0.5f, baseCardW, baseCardH);
@@ -548,26 +532,7 @@ static void rebuildCardAlphaMaskAndOutline(const ofImage & image, unsigned char 
 	}
 }
 
-static bool isPointOverCardOpaque(float px, float py, float cardX, float cardY, float cardW, float cardH, unsigned char alphaThreshold = 8) {
-	if (cardW <= 0.0f || cardH <= 0.0f) return false;
-
-	// Stricter coarse gate first so "near" misses do not count as hover.
-	ofRectangle coarse = getTightCardBounds(cardX, cardY, cardW, cardH, 16.0f, 20.0f);
-	if (!coarse.inside(px, py)) return false;
-
-	if (gCardAlphaMask.empty() || gCardAlphaMaskWidth <= 0 || gCardAlphaMaskHeight <= 0) {
-		return true;
-	}
-
-	float u = (px - cardX) / cardW;
-	float v = (py - cardY) / cardH;
-	if (u < 0.0f || u >= 1.0f || v < 0.0f || v >= 1.0f) return false;
-
-	int ix = ofClamp((int)std::floor(u * (float)gCardAlphaMaskWidth), 0, gCardAlphaMaskWidth - 1);
-	int iy = ofClamp((int)std::floor(v * (float)gCardAlphaMaskHeight), 0, gCardAlphaMaskHeight - 1);
-	unsigned char a = gCardAlphaMask[(size_t)iy * (size_t)gCardAlphaMaskWidth + (size_t)ix];
-	return a > alphaThreshold;
-}
+// Pixel-precise card hover test removed; simpler bounding checks are used instead.
 
 static void drawCardEdgeOutline(float x, float y, float w, float h, float expandPx = 0.0f) {
 	if (w <= 0.0f || h <= 0.0f || gCardEdgeOutlineNormalized.size() < 3) {
@@ -860,48 +825,7 @@ static void drawArcCenteredTextScaledOutlined(const ofTrueTypeFont & font,
 	}
 }
 
-static void drawBoldSegmentScaled(const ofTrueTypeFont & font, const std::string & text, float x, float y, float scale) {
-	if (text.empty()) return;
-	float drawScale = std::max(0.01f, std::round(scale * 4.0f) / 4.0f);
-	float sx = std::round(x);
-	float sy = std::round(y);
-	ofPushMatrix();
-	ofTranslate(sx, sy);
-	ofScale(drawScale, drawScale);
-	font.drawString(text, 0, 0);
-	// Pixel-font "bold": integer pixel offsets in screen-space only.
-	font.drawString(text, 1.0f / drawScale, 0.0f);
-	font.drawString(text, 0.0f, 1.0f / drawScale);
-	ofPopMatrix();
-}
-
-static void drawWrappedTextScaledWithEmphasis(const ofTrueTypeFont & font,
-	const std::string & text,
-	const ofRectangle & rect,
-	float scale,
-	float lineSpacing,
-	const std::string & emphasisText) {
-	if (text.empty()) return;
-	float drawScale = std::max(0.01f, std::round(scale * 4.0f) / 4.0f);
-	auto lines = wrapTextScaled(font, text, rect.width, drawScale);
-	if (lines.empty()) return;
-
-	(void)emphasisText; // keep API stable; emphasis intentionally disabled for uniform pixel text
-	float lineH = std::round(font.getLineHeight() * drawScale * std::max(0.6f, lineSpacing) + 2.0f);
-	float totalH = lineH * (float)lines.size();
-	float y = std::round(rect.y + std::max(0.0f, (rect.height - totalH) * 0.5f) + lineH);
-	for (const auto & line : lines) {
-		if (y > rect.getBottom()) break;
-		ofRectangle lineBox = font.getStringBoundingBox(line, 0, 0);
-		float x = std::round(rect.x + (rect.width - lineBox.width * drawScale) * 0.5f);
-		ofPushMatrix();
-		ofTranslate(x, std::round(y));
-		ofScale(drawScale, drawScale);
-		font.drawString(line, 0, 0);
-		ofPopMatrix();
-		y += lineH;
-	}
-}
+// Legacy text-drawing helpers removed; consolidated rendering utilities are used instead.
 
 static float bestUniformWrappedTextScale(const ofTrueTypeFont & font,
 	const std::vector<std::string> & texts,
@@ -3104,6 +3028,11 @@ void drawStatText(ofTrueTypeFont & font, std::string text, float x, float y, flo
 void ofApp::setup() {
 	steamManager.setup();
 
+	// Headless mode: when `MAGEFIGHT_HEADLESS` is set, skip rendering and texture operations.
+	if (std::getenv("MAGEFIGHT_HEADLESS") != nullptr) {
+		headless = true;
+		ofLogNotice("Setup") << "Headless mode enabled via MAGEFIGHT_HEADLESS.";
+	}
 	// Ensure saves directory exists
 	try {
 		namespace fs = std::filesystem;
@@ -4708,6 +4637,9 @@ void ofApp::draw() {
 	if (!isMultiplayer && gameSuspendedDueToInactivity) {
 		return;
 	}
+
+	// Headless smoke-test mode: skip all rendering to avoid GL/texture calls
+	if (headless) return;
 
 	// --- LOADING SCREEN ---
 	if (isLoadingGame) {
@@ -18449,74 +18381,40 @@ void ofApp::handleCardTargetClick(int gridX, int gridY) {
 		if (!validByChoice) return;
 	}
 
-	// Centralize minion placement logic in switch
-	switch (interactingCardType) {
-	case CARD_CALL_FOR_KOBOLDS: {
-		if (cardInteractionState == CARD_INTERACTION_STATE_PLACING) {
-			int gx = gridX, gy = gridY;
-			if (gx >= 0 && gx < BOARD_WIDTH && gy >= 0 && gy < BOARD_HEIGHT) {
-				if (!board[gx][gy].hasWall && !board[gx][gy].hasPlayer) {
-					int dist = abs(gx - koboldPlacementSourceX) + abs(gy - koboldPlacementSourceY);
-					if (dist == 1) {
-						// Enqueue deterministic pseudo-action for kobold placement
-						InputCommandPacket cmd = {};
-						cmd.type = PKT_INPUT_COMMAND;
-						cmd.playerID = myLocalPlayerID;
-						cmd.commandId = nextCommandId++;
-						cmd.turnNumber = globalTurnCounter;
-						cmd.commandType = CMD_PSEUDO_ACTION;
-						cmd.params[0] = gx;
-						cmd.params[1] = gy;
+	// Centralize minion placement logic in a unified handler for summon cards.
+	if (cardInteractionState == CARD_INTERACTION_STATE_PLACING && (interactingCardType == CARD_CALL_FOR_KOBOLDS || interactingCardType == CARD_CALL_FOR_WOLVES)) {
+		int gx = gridX, gy = gridY;
+		if (gx >= 0 && gx < BOARD_WIDTH && gy >= 0 && gy < BOARD_HEIGHT) {
+			if (!board[gx][gy].hasWall && !board[gx][gy].hasPlayer) {
+				int srcX = (interactingCardType == CARD_CALL_FOR_KOBOLDS) ? koboldPlacementSourceX : wolfPlacementSourceX;
+				int srcY = (interactingCardType == CARD_CALL_FOR_KOBOLDS) ? koboldPlacementSourceY : wolfPlacementSourceY;
+				int dist = abs(gx - srcX) + abs(gy - srcY);
+				if (dist == 1) {
+					InputCommandPacket cmd = {};
+					cmd.type = PKT_INPUT_COMMAND;
+					cmd.playerID = myLocalPlayerID;
+					cmd.commandId = nextCommandId++;
+					cmd.turnNumber = globalTurnCounter;
+					cmd.commandType = CMD_PSEUDO_ACTION;
+					cmd.params[0] = gx;
+					cmd.params[1] = gy;
+					if (interactingCardType == CARD_CALL_FOR_KOBOLDS)
 						strncpy(cmd.stringData, "PlaceKobold", sizeof(cmd.stringData) - 1);
-						cmd.stringData[sizeof(cmd.stringData) - 1] = '\0';
-
-						if (isMultiplayer) {
-							if (!sendInputCommand(cmd, true)) ofLogWarning("Network") << "Kobold placement send failed (no connection).";
-						} else {
-							queueInputCommand(cmd);
-						}
-
-						resetCardInteraction();
-						return;
-					}
-				}
-			}
-		}
-		break;
-	}
-	case CARD_CALL_FOR_WOLVES: {
-		if (cardInteractionState == CARD_INTERACTION_STATE_PLACING) {
-			int gx = gridX, gy = gridY;
-			if (gx >= 0 && gx < BOARD_WIDTH && gy >= 0 && gy < BOARD_HEIGHT) {
-				if (!board[gx][gy].hasWall && !board[gx][gy].hasPlayer) {
-					int dist = abs(gx - wolfPlacementSourceX) + abs(gy - wolfPlacementSourceY);
-					if (dist == 1) {
-						InputCommandPacket cmd = {};
-						cmd.type = PKT_INPUT_COMMAND;
-						cmd.playerID = myLocalPlayerID;
-						cmd.commandId = nextCommandId++;
-						cmd.turnNumber = globalTurnCounter;
-						cmd.commandType = CMD_PSEUDO_ACTION;
-						cmd.params[0] = gx;
-						cmd.params[1] = gy;
+					else
 						strncpy(cmd.stringData, "PlaceWolf", sizeof(cmd.stringData) - 1);
-						cmd.stringData[sizeof(cmd.stringData) - 1] = '\0';
+					cmd.stringData[sizeof(cmd.stringData) - 1] = '\0';
 
-						if (isMultiplayer) {
-							if (!sendInputCommand(cmd, true)) ofLogWarning("Network") << "Wolf placement send failed (no connection).";
-						} else {
-							queueInputCommand(cmd);
-						}
-
-						return;
+					if (isMultiplayer) {
+						if (!sendInputCommand(cmd, true)) ofLogWarning("Network") << "Summon placement send failed (no connection).";
+					} else {
+						queueInputCommand(cmd);
 					}
+
+					resetCardInteraction();
+					return;
 				}
 			}
 		}
-		break;
-	}
-	default:
-		break;
 	}
 
 	switch (interactingCardType) {
@@ -18532,7 +18430,11 @@ void ofApp::handleCardTargetClick(int gridX, int gridY) {
 		cmd.params[1] = gridY;
 		strncpy(cmd.stringData, "Shell Spike", sizeof(cmd.stringData) - 1);
 		cmd.stringData[sizeof(cmd.stringData) - 1] = '\0';
-		sendInputCommand(cmd, true);
+		if (isMultiplayer) {
+			if (!sendInputCommand(cmd, true)) ofLogWarning("Network") << "Shell Spike send failed (no connection).";
+		} else {
+			queueInputCommand(cmd);
+		}
 		resetCardInteraction();
 		return;
 	}
@@ -18820,6 +18722,82 @@ void ofApp::handleCardMenuClick(const std::string & buttonId) {
 		resetCardInteraction();
 		break;
 	}
+
+	case CARD_GIANT_MAGIC_HAND: {
+		// Resolve menu choice for Giant Magic Hand (data-driven)
+		Player & caster = players[currentPlayerIndex];
+		// Ensure we have a valid target tile (may have been set by target click)
+		glm::ivec2 tgt = magicHandTargetTile;
+		if (tgt.x < 0 || tgt.y < 0) {
+			if (interactionTargetIndex >= 0 && interactionTargetIndex < (int)players.size()) {
+				tgt = { players[interactionTargetIndex].x, players[interactionTargetIndex].y };
+			} else {
+				queueFloatingTextVisual(gridToWorld(caster.x, caster.y), "No valid wall target", ofColor::orange);
+				resetCardInteraction();
+				break;
+			}
+		}
+
+		// Cardinalize direction from caster -> target
+		int dx = tgt.x - caster.x;
+		int dy = tgt.y - caster.y;
+		glm::ivec2 dir = { 0, 0 };
+		if (abs(dx) > abs(dy))
+			dir = { (dx > 0) ? 1 : -1, 0 };
+		else if (abs(dy) > abs(dx))
+			dir = { 0, (dy > 0) ? 1 : -1 };
+		else { // equal or zero: prefer x, fallback to +x
+			if (dx != 0)
+				dir = { (dx > 0) ? 1 : -1, 0 };
+			else if (dy != 0)
+				dir = { 0, (dy > 0) ? 1 : -1 };
+			else
+				dir = { 1, 0 };
+		}
+
+		// ButtonId "push" means push away from caster; "pull" means pull toward caster
+		if (buttonId == "pull") dir = -dir;
+		magicHandPushDir = dir;
+		magicHandTargetTile = tgt;
+
+		// Determine which unit (if any) will be pushed/crushed at the destination
+		int wallNewX = tgt.x + dir.x;
+		int wallNewY = tgt.y + dir.y;
+		magicHandPushedUnitIndex = -1;
+		if (wallNewX >= 0 && wallNewX < BOARD_WIDTH && wallNewY >= 0 && wallNewY < BOARD_HEIGHT) {
+			if (board[wallNewX][wallNewY].hasPlayer) {
+				for (size_t i = 0; i < players.size(); ++i) {
+					if (players[i].x == wallNewX && players[i].y == wallNewY) {
+						magicHandPushedUnitIndex = (int)i;
+						break;
+					}
+				}
+			}
+		}
+
+		// Finalize card play and queue the damage resolver (2d4 into blackboard[0])
+		resetCardState();
+		currentCardOutcome.cardType = static_cast<CardType>(interactingCardType);
+		currentCardOutcome.cardIndex = interactingCardIndex;
+		currentCardOutcome.casterIndex = currentPlayerIndex;
+
+		beginEffectSequence();
+		// Roll 2d4 (authoritative)
+		std::vector<int> raw;
+		int dmg = resolveDiceRollDetailed(2, 4, raw);
+		currentEffectSequence.blackboard[0] = dmg;
+		ofLogNotice("MagicHand") << "Giant Magic Hand queued: target(" << tgt.x << "," << tgt.y << ") pushDir(" << magicHandPushDir.x << "," << magicHandPushDir.y << ") pushedUnit=" << magicHandPushedUnitIndex << " dmg=" << dmg;
+		queueVisualDiceRoll(gridToWorld(tgt.x, tgt.y) + glm::vec3(0, 1.0f, 0), 2, 4, raw, dmg, PURPOSE_MAGIC_HAND_DAMAGE, currentPlayerIndex, 1.0f);
+
+		EffectOp mh = {};
+		mh.type = EffectOpType::APPLY_MAGIC_HAND_DAMAGE;
+		queueEffect(mh);
+
+		// Close any menu visuals for multiplayer peers
+		if (isMultiplayer) sendMenuState(0, -1, -1, -1);
+		resetCardInteraction();
+		break;
+	}
 	case PSEUDO_CARD_GHOST_RELOCATE: {
 		// Mirror layout used by drawGhostRelocateUI so rectangles exist during input handling
 		float panelW = 720, panelH = 360;
@@ -18869,12 +18847,6 @@ void ofApp::handleCardMenuClick(const std::string & buttonId) {
 	}
 
 	case CARD_DISPEL: {
-		// Migrated to data-driven `executeCardGeneric` and handled via menu flow.
-		// Legacy implementation removed.
-		break;
-	}
-
-	case CARD_GIANT_MAGIC_HAND: {
 		// Migrated to data-driven `executeCardGeneric` and handled via menu flow.
 		// Legacy implementation removed.
 		break;
@@ -20191,6 +20163,10 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 		interactingCardIndex = cardIndex;
 		interactionTargetIndex = targetIndex;
 		cardInteractionState = CARD_INTERACTION_STATE_MENU;
+
+		if (menuType == CARD_GIANT_MAGIC_HAND) {
+			ofLogNotice("Lockstep") << "CMD_MENU_CHOICE GiantMagicHand: targetIndex=" << targetIndex << " choice=" << choice << " cardIndex=" << cardIndex;
+		}
 
 		isExecutingLockstepCommand = true;
 		handleCardMenuClick(buttonId);

@@ -991,6 +991,8 @@ public:
 	SteamManager steamManager;
 	bool isMultiplayer = false;
 	int myLocalPlayerID = 0; // 0 = Host, 1 = Client
+	// When true, skip all rendering/texture operations for headless smoke tests
+	bool headless = false;
 	bool hasReceivedHandshake = false;
 	std::string player0SteamName = "Player 1";
 	std::string player1SteamName = "Player 2";
