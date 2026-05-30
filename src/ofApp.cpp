@@ -4088,7 +4088,8 @@ void ofApp::updateStateMachine() {
 				currentPlayerIndex = draftEndNextPlayerIndex;
 			}
 			currentState = STATE_GAMEPLAY;
-			continueNewTurn();
+			// Defer authoritative turn start into the deterministic tick
+			requestStartNewTurn();
 		}
 	}
 
@@ -4109,7 +4110,8 @@ void ofApp::updateStateMachine() {
 			initialDraftComplete = true;
 			currentPlayerIndex = (draftPlayerIndex + 1) % 2;
 			currentState = STATE_GAMEPLAY;
-			continueNewTurn();
+			// Schedule the first turn start to run inside simulationTick()
+			requestStartNewTurn();
 		}
 	}
 
@@ -4208,6 +4210,8 @@ void ofApp::updateStateMachine() {
 					waitingForReconnect = false;
 					reconnectForfeitStartTime = -1.0f;
 					currentState = STATE_GAMEPLAY;
+					// Defer authoritative turn-start to the deterministic tick
+					requestStartNewTurn();
 				} else {
 					addGameLog("Reconnected. Waiting for host snapshot...");
 				}
@@ -8136,7 +8140,7 @@ void ofApp::updateGameLogic() {
 		if (activePlayerDied && !players.empty()) {
 			// Step back so startNewTurn() increments into the correct next unit
 			currentPlayerIndex = (currentPlayerIndex - 1 + (int)players.size()) % (int)players.size();
-			startNewTurn();
+			requestStartNewTurn();
 		}
 
 		invalidateTargetCache();
@@ -13938,6 +13942,8 @@ void ofApp::mousePressed(int x, int y, int button) {
 				clearHighlights();
 				calculateTargetHighlights();
 				addGameLog("Loaded autosave and resumed singleplayer.");
+				// Defer authoritative turn-start to the deterministic tick
+				requestStartNewTurn();
 			} else {
 				addGameLog("No autosave to continue.");
 			}
@@ -14303,7 +14309,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 					cmd.commandType = CMD_END_TURN;
 					sendInputCommand(cmd, true);
 				} else {
-					startNewTurn();
+					requestStartNewTurn();
 				}
 				// Snapshot suppressed: only sent on reconnect or desync recovery.
 			}
@@ -14797,6 +14803,8 @@ void ofApp::mousePressed(int x, int y, int button) {
 							addGameLog("Loaded " + path);
 							// Snapshot suppressed: only sent on reconnect or desync recovery.
 							currentState = STATE_GAMEPLAY;
+							// Defer authoritative turn-start to the deterministic tick
+							requestStartNewTurn();
 						} else {
 							addGameLog("Failed to load " + path);
 						}
@@ -15477,7 +15485,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 					cmd.commandType = CMD_END_TURN;
 					sendInputCommand(cmd, true);
 				} else {
-					startNewTurn();
+					requestStartNewTurn();
 				}
 				return;
 			}
@@ -16654,7 +16662,7 @@ void ofApp::keyPressed(int key) {
 			cmd.commandType = CMD_END_TURN;
 			sendInputCommand(cmd, true);
 		} else {
-			startNewTurn();
+			requestStartNewTurn();
 		}
 		return;
 	}
@@ -17266,7 +17274,7 @@ void ofApp::startNewTurn() {
 				queueVisualDelay(1.2f);
 				// Continue turn progression
 				if (burningPlayer.sleepTurnsRemaining > 0)
-					startNewTurn();
+					requestStartNewTurn();
 				else
 					continueNewTurn();
 				return;
@@ -17340,10 +17348,10 @@ void ofApp::startNewTurn() {
 					}
 					// Queue a short visual delay so the player sees dice/fire text, then end sleeping turn
 					queueVisualDelay(1.2f);
-					startNewTurn();
+					requestStartNewTurn();
 					return;
 				}
-				startNewTurn();
+				requestStartNewTurn();
 				return;
 			}
 
@@ -17473,7 +17481,7 @@ void ofApp::startNewTurn() {
 		queueVisualDelay(1.2f);
 		// Continue turn progression
 		if (burningPlayer.sleepTurnsRemaining > 0)
-			startNewTurn();
+			requestStartNewTurn();
 		else
 			continueNewTurn();
 		return;
@@ -17545,10 +17553,10 @@ void ofApp::startNewTurn() {
 				queueFloatingTextVisual(gridToWorld(burningPlayer.x, burningPlayer.y) + glm::vec3(0, 0.8f, 0), "Extinguished", ofColor::white);
 			}
 			queueVisualDelay(1.2f);
-			startNewTurn();
+			requestStartNewTurn();
 			return;
 		}
-		startNewTurn();
+		requestStartNewTurn();
 		return;
 	}
 
@@ -17587,6 +17595,14 @@ void ofApp::startNewTurn() {
 
 	continueNewTurn();
 }
+
+void ofApp::requestStartNewTurn() {
+	if (inSimulationTick) {
+		startNewTurn();
+	} else {
+		pendingStartNewTurnRequests += 1;
+	}
+}
 //--------------------------------------------------------------
 void ofApp::continueNewTurn() {
 	// We've finished handling turn-start effects; allow updateGame() to send TurnStart.
@@ -17617,7 +17633,7 @@ void ofApp::continueNewTurn() {
 		queueFloatingTextVisual(gridToWorld(startingPlayer.x, startingPlayer.y), "Waiting...", ofColor::gray);
 
 		// Immediately end this turn and go to the next unit
-		startNewTurn();
+		requestStartNewTurn();
 		return;
 	}
 
@@ -17696,12 +17712,12 @@ void ofApp::continueNewTurn() {
 			}
 			// Queue a short visual delay so the player sees dice/fire text, then end sleeping turn
 			queueVisualDelay(1.2f);
-			startNewTurn();
+			requestStartNewTurn();
 			return;
 		}
 
 		// If not on fire, skip turn immediately
-		startNewTurn();
+		requestStartNewTurn();
 		return;
 	}
 
@@ -19588,6 +19604,7 @@ void ofApp::processCommandQueue() {
 }
 
 void ofApp::simulationTick() {
+	inSimulationTick = true;
 	// Process all pending commands in this tick
 	processCommandQueue();
 
@@ -19781,6 +19798,15 @@ void ofApp::simulationTick() {
 
 	// Other deterministic game logic runs here
 	// (AI decisions, passive effects, turn timers, etc.)
+	inSimulationTick = false;
+	// Process any deferred startNewTurn requests scheduled from non-tick code
+	if (pendingStartNewTurnRequests > 0) {
+		// Execute all pending requests in-order
+		while (pendingStartNewTurnRequests > 0) {
+			pendingStartNewTurnRequests -= 1;
+			startNewTurn();
+		}
+	}
 }
 
 void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
@@ -30078,7 +30104,8 @@ void ofApp::debugSkipDraftRandomCards() {
 	if (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) {
 		playerVisualPos = gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y);
 		// Run the normal continue-of-turn initialization so AP, draws, and effects are correct
-		continueNewTurn();
+		// Defer authoritative turn-start to the deterministic tick
+		requestStartNewTurn();
 	}
 }
 //--------------------------------------------------------------
@@ -31301,6 +31328,8 @@ void ofApp::onCardPicked(int optionIndex) {
 		// Return to game (only for in-game drafts)
 		if (isInGameDraft) {
 			currentState = STATE_GAMEPLAY;
+			// Defer authoritative turn-start to the deterministic tick
+			requestStartNewTurn();
 			return;
 		}
 	}
@@ -32200,6 +32229,8 @@ void ofApp::processNetworkPackets() {
 						waitingForReconnect = false;
 						reconnectForfeitStartTime = -1.0f;
 						currentState = STATE_GAMEPLAY;
+						// Defer authoritative turn start until simulation tick
+						requestStartNewTurn();
 						addGameLog("Reconnect complete. Resuming match.");
 					}
 					// Clear waiting flag if we had requested this snapshot

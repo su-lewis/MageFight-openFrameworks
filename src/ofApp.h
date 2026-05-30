@@ -1338,6 +1338,11 @@ private:
 	int initiativeRolls[2] = { 0, 0 };
 	bool isInitiativeRolling = false;
 	int initiativeTimerFrames = 0; // frame-based timer for deterministic initiative wait
+	// Simulation/tick helpers for scheduling authoritative turn starts
+	bool inSimulationTick = false;
+	int pendingStartNewTurnRequests = 0;
+
+	void requestStartNewTurn();
 	int draftPlayerIndex = 0; // The player currently drafting
 	int inGameDraftTargetIdx = -1; // (HOST) During in-game key draft, which player index should receive cards
 	int draftStage = 0; // 0 = Class 1 (Pick 2), 1 = Class 2 (Pick 1)
