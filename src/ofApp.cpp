@@ -18794,29 +18794,9 @@ void ofApp::handleCardMenuClick(const std::string & buttonId) {
 	// Card-type dispatcher: execute based on card type + menu choice
 	switch (interactingCardType) {
 
-	case CARD_BURST_OF_LIGHT: {
-		// Migrated to data-driven `executeCardGeneric` and handled via menu flow.
-		// Legacy implementation removed.
-		break;
-	}
-
-	case CARD_WISDOM_BOON: {
-		// Migrated to data-driven `executeCardGeneric` and handled via menu flow.
-		// Legacy implementation removed.
-		break;
-	}
-
-	case CARD_MAGIC_BLAST: {
-		// Migrated to data-driven `executeCardGeneric` and handled via menu flow.
-		// Legacy implementation removed.
-		break;
-	}
-
-	case CARD_DOUBLE_HANDED: {
-		// Migrated to data-driven `executeCardGeneric` and handled via menu flow.
-		// Legacy implementation removed.
-		break;
-	}
+		// These menu-first cards are handled by the centralized data-driven engine
+		// (executeCardGeneric + CMD_MENU_CHOICE flow). Legacy per-card bodies
+		// were intentionally removed during migration.
 
 	case CARD_TRAIN: {
 		if (buttonId == "draft") {
