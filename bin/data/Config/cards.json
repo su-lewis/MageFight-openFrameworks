@@ -363,6 +363,8 @@
     "type": "CARD_STRENGTHEN_ELEMENTS",
     "cost": 3,
     "targeting": "TARGET_SELF",
+    "applyStatus": "STATUS_STRENGTHEN_ELEMENTS",
+    "statusDuration": 2,
     "class": 3
   },
   {
@@ -580,6 +582,8 @@
     "type": "CARD_ADD_POISON",
     "cost": 2,
     "targeting": "TARGET_SELF",
+    "applyStatus": "STATUS_ADD_POISON",
+    "statusDuration": 0,
     "class": 1
   },
   {

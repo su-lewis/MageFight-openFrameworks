@@ -470,14 +470,7 @@ static ofRectangle getOpaqueCardBounds(float x, float y, float w, float h) {
 		gCardOpaqueBoundsNormalized.height * h);
 }
 
-static ofRectangle getTightCardBounds(float x, float y, float w, float h, float insetX = 8.0f, float insetY = 10.0f) {
-	ofRectangle bounds = getOpaqueCardBounds(x, y, w, h);
-	float shrinkX = std::min(insetX, bounds.width * 0.18f);
-	float shrinkY = std::min(insetY, bounds.height * 0.18f);
-	float newWidth = std::max(1.0f, bounds.width - (shrinkX * 2.0f));
-	float newHeight = std::max(1.0f, bounds.height - (shrinkY * 2.0f));
-	return ofRectangle(bounds.x + shrinkX, bounds.y + shrinkY, newWidth, newHeight);
-}
+/* getTightCardBounds removed — unused helper. */
 
 static void rebuildCardAlphaMaskAndOutline(const ofImage & image, unsigned char alphaThreshold = 8, const std::vector<ofRectangle> & extraOpaqueRectsNormalized = {}) {
 	gCardAlphaMask.clear();
@@ -12083,27 +12076,7 @@ void ofApp::drawGame() {
 
 	// --- Draw Tooltip (drawn last to be on top of everything) ---
 
-	// Local helper: truncate a string to fit within maxWidth using font, adding ellipsis.
-	auto elideStringToWidth = [&](const std::string & s, const ofTrueTypeFont & font, float maxWidth) -> std::string {
-		if (s.empty()) return s;
-		ofRectangle r = font.getStringBoundingBox(s, 0, 0);
-		if (r.getWidth() <= maxWidth) return s;
-		const std::string ell = "...";
-		int lo = 0, hi = (int)s.size();
-		int best = 0;
-		while (lo <= hi) {
-			int mid = (lo + hi) / 2;
-			std::string cand = s.substr(0, mid) + ell;
-			if (font.getStringBoundingBox(cand, 0, 0).getWidth() <= maxWidth) {
-				best = mid;
-				lo = mid + 1;
-			} else {
-				hi = mid - 1;
-			}
-		}
-		if (best <= 0) return ell;
-		return s.substr(0, best) + ell;
-	};
+	// (elideStringToWidth removed — unused helper)
 	// --- DRAW OVERLAY UIs ---
 	if (cardInteractionState == CARD_INTERACTION_STATE_MENU && interactingCardType == CARD_MAGIC_BLAST) {
 		drawMagicBlastChoiceUI();
@@ -18493,7 +18466,6 @@ void ofApp::handleCardTargetClick(int gridX, int gridY) {
 		break;
 	}
 
-	GENERIC_HANDLER:
 	default: {
 		// --- THE FIX FOR SHOCK, FIREBALL, CLEAVE, ETC ---
 		// Funnel the generic targeted cards into lockstep queue in multiplayer.
@@ -18702,104 +18674,11 @@ void ofApp::handleCardMenuClick(const std::string & buttonId) {
 		// (executeCardGeneric + CMD_MENU_CHOICE flow). Legacy per-card bodies
 		// were intentionally removed during migration.
 
-	case CARD_TRAIN: {
-		if (buttonId == "draft") {
-			isInGameDraft = true;
-			draftPlayerIndex = currentPlayerIndex;
-			generateDraftOptions(1);
-			draftPicksRemaining = 1;
-			selectedDraftIndices.clear();
-			draftStage = 0;
-			currentState = STATE_DRAFTING;
-			resetDraftPhaseTimerWindow();
-		} else {
-			caster.nextTurnAPBonus += 3;
-			queueFloatingTextVisual(gridToWorld(caster.x, caster.y), "+3 AP next turn", ofColor::yellow);
-		}
-
-		currentAP -= getEffectiveCardCostForPlayer(caster, card);
-		updatePlayerAP(caster, currentAP);
-		finishPlayCard(caster, card, interactingCardIndex);
-		completeCardPlayAnimation(card, currentPlayerIndex);
-		resetCardInteraction();
+	case CARD_TRAIN:
 		break;
-	}
 
-	case CARD_GIANT_MAGIC_HAND: {
-		// Resolve menu choice for Giant Magic Hand (data-driven)
-		Player & caster = players[currentPlayerIndex];
-		// Ensure we have a valid target tile (may have been set by target click)
-		glm::ivec2 tgt = magicHandTargetTile;
-		if (tgt.x < 0 || tgt.y < 0) {
-			if (interactionTargetIndex >= 0 && interactionTargetIndex < (int)players.size()) {
-				tgt = { players[interactionTargetIndex].x, players[interactionTargetIndex].y };
-			} else {
-				queueFloatingTextVisual(gridToWorld(caster.x, caster.y), "No valid wall target", ofColor::orange);
-				resetCardInteraction();
-				break;
-			}
-		}
-
-		// Cardinalize direction from caster -> target
-		int dx = tgt.x - caster.x;
-		int dy = tgt.y - caster.y;
-		glm::ivec2 dir = { 0, 0 };
-		if (abs(dx) > abs(dy))
-			dir = { (dx > 0) ? 1 : -1, 0 };
-		else if (abs(dy) > abs(dx))
-			dir = { 0, (dy > 0) ? 1 : -1 };
-		else { // equal or zero: prefer x, fallback to +x
-			if (dx != 0)
-				dir = { (dx > 0) ? 1 : -1, 0 };
-			else if (dy != 0)
-				dir = { 0, (dy > 0) ? 1 : -1 };
-			else
-				dir = { 1, 0 };
-		}
-
-		// ButtonId "push" means push away from caster; "pull" means pull toward caster
-		if (buttonId == "pull") dir = -dir;
-		magicHandPushDir = dir;
-		magicHandTargetTile = tgt;
-
-		// Determine which unit (if any) will be pushed/crushed at the destination
-		int wallNewX = tgt.x + dir.x;
-		int wallNewY = tgt.y + dir.y;
-		magicHandPushedUnitIndex = -1;
-		if (wallNewX >= 0 && wallNewX < BOARD_WIDTH && wallNewY >= 0 && wallNewY < BOARD_HEIGHT) {
-			if (board[wallNewX][wallNewY].hasPlayer) {
-				for (size_t i = 0; i < players.size(); ++i) {
-					if (players[i].x == wallNewX && players[i].y == wallNewY) {
-						magicHandPushedUnitIndex = (int)i;
-						break;
-					}
-				}
-			}
-		}
-
-		// Finalize card play and queue the damage resolver (2d4 into blackboard[0])
-		resetCardState();
-		currentCardOutcome.cardType = static_cast<CardType>(interactingCardType);
-		currentCardOutcome.cardIndex = interactingCardIndex;
-		currentCardOutcome.casterIndex = currentPlayerIndex;
-
-		beginEffectSequence();
-		// Roll 2d4 (authoritative)
-		std::vector<int> raw;
-		int dmg = resolveDiceRollDetailed(2, 4, raw);
-		currentEffectSequence.blackboard[0] = dmg;
-		ofLogNotice("MagicHand") << "Giant Magic Hand queued: target(" << tgt.x << "," << tgt.y << ") pushDir(" << magicHandPushDir.x << "," << magicHandPushDir.y << ") pushedUnit=" << magicHandPushedUnitIndex << " dmg=" << dmg;
-		queueVisualDiceRoll(gridToWorld(tgt.x, tgt.y) + glm::vec3(0, 1.0f, 0), 2, 4, raw, dmg, PURPOSE_MAGIC_HAND_DAMAGE, currentPlayerIndex, 1.0f);
-
-		EffectOp mh = {};
-		mh.type = EffectOpType::APPLY_MAGIC_HAND_DAMAGE;
-		queueEffect(mh);
-
-		// Close any menu visuals for multiplayer peers
-		if (isMultiplayer) sendMenuState(0, -1, -1, -1);
-		resetCardInteraction();
+	case CARD_GIANT_MAGIC_HAND:
 		break;
-	}
 	case PSEUDO_CARD_GHOST_RELOCATE: {
 		// Mirror layout used by drawGhostRelocateUI so rectangles exist during input handling
 		float panelW = 720, panelH = 360;
@@ -18819,40 +18698,23 @@ void ofApp::handleCardMenuClick(const std::string & buttonId) {
 		break;
 	}
 
-	case CARD_AMNESIA: {
-		// Always enter targeting mode first
-		if (cardInteractionState != CARD_INTERACTION_STATE_TARGETING) {
-			// Enter targeting mode to select self or adjacent unit
-			updateCardInteractionState(CARD_INTERACTION_STATE_TARGETING, interactingCardIndex, interactingCardType);
-			// Set up valid targets: self and adjacent units
-			for (int x = 0; x < BOARD_WIDTH; ++x) {
-				for (int y = 0; y < BOARD_HEIGHT; ++y) {
-					board[x][y].isTargetable = false;
-				}
-			}
-			Player & caster = players[currentPlayerIndex];
-			board[caster.x][caster.y].isTargetable = true; // self
-			for (int dx = -1; dx <= 1; ++dx) {
-				for (int dy = -1; dy <= 1; ++dy) {
-					if (abs(dx) + abs(dy) != 1) continue; // only cardinal directions
-					int tx = caster.x + dx;
-					int ty = caster.y + dy;
-					if (tx >= 0 && tx < BOARD_WIDTH && ty >= 0 && ty < BOARD_HEIGHT && board[tx][ty].hasPlayer && !board[tx][ty].hasWall) {
-						board[tx][ty].isTargetable = true;
-					}
-				}
-			}
-			break;
-		}
-		// If in targeting mode and a target is selected, proceed to dice roll (handled in effect pipeline)
+	case CARD_AMNESIA:
 		break;
-	}
 
-	case CARD_DISPEL: {
-		// Migrated to data-driven `executeCardGeneric` and handled via menu flow.
-		// Legacy implementation removed.
+	case CARD_DISPEL:
 		break;
-	}
+
+	case CARD_BURST_OF_LIGHT:
+		break;
+
+	case CARD_WISDOM_BOON:
+		break;
+
+	case CARD_DOUBLE_HANDED:
+		break;
+
+	case CARD_MAGIC_BLAST:
+		break;
 
 	default:
 		break;
@@ -21114,7 +20976,7 @@ bool ofApp::processEffectOp(EffectOp & op) {
 	}
 
 		// Migrated to data-driven `executeCardGeneric` and `cards.json`.
-		// Legacy APPLY_DRAIN_PUNCH_RESOLVE implementation removed.
+		// (drain punch resolved via data-driven pipeline)
 		opComplete = true;
 		break;
 
@@ -21213,7 +21075,7 @@ bool ofApp::processEffectOp(EffectOp & op) {
 	}
 
 		// Migrated to data-driven `executeCardGeneric` and `cards.json`.
-		// Legacy APPLY_MAGIC_BLAST implementation removed.
+		// (magic blast resolved via EffectOp pipeline)
 		opComplete = true;
 		break;
 
@@ -21467,6 +21329,27 @@ bool ofApp::processEffectOp(EffectOp & op) {
 		}
 		queueFloatingTextVisual(gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y), "+" + ofToString(val) + " Bonus AP", ofColor::yellow);
 		ofLogNotice("Game") << "Bonus Dice Finished: " << val << " AP awarded.";
+		opComplete = true;
+		break;
+	}
+
+	case EffectOpType::APPLY_SPARK_OF_GENIUS: {
+		// Spark of Genius: draw cards equal to utility dice result (legacy: blackboard[4])
+		int playerIdx = currentPlayerIndex;
+		int numCards = 0;
+		// Prefer explicit payload if present (supports newer EffectOp usage)
+		if (op.data.drawCards.numCards > 0) numCards = op.data.drawCards.numCards;
+		// Fallback to legacy blackboard slot 4 (utility roll)
+		if (numCards == 0) numCards = currentEffectSequence.blackboard[4];
+
+		if (playerIdx >= 0 && playerIdx < (int)players.size() && numCards > 0) {
+			EffectOp dr = {};
+			dr.type = EffectOpType::DRAW_CARDS;
+			dr.data.drawCards.playerIndex = playerIdx;
+			dr.data.drawCards.numCards = numCards;
+			queueEffect(dr);
+		}
+
 		opComplete = true;
 		break;
 	}
@@ -24625,6 +24508,15 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 				if (utilSides != 2) utilTotal += utilNum * luckBonus;
 				currentEffectSequence.blackboard[4] = utilTotal;
 				queueVisualDiceRoll(visPos, utilNum, utilSides, rawUtil, utilTotal, PURPOSE_DEBUG, currentPlayerIndex, 1.0f);
+
+				// Special-case: Spark of Genius uses the utility roll to draw cards immediately.
+				if (playedCard.type == CARD_SPARK_OF_GENIUS) {
+					EffectOp dr = {};
+					dr.type = EffectOpType::DRAW_CARDS;
+					dr.data.drawCards.playerIndex = currentPlayerIndex;
+					dr.data.drawCards.numCards = utilTotal;
+					queueEffect(dr);
+				}
 			}
 
 			if (hasDamageDice) {
@@ -24635,13 +24527,22 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 				currentEffectSequence.blackboard[1] = dmgTotal;
 				queueVisualDiceRoll(visPos, dmgNum, dmgSides, rawDmg, dmgTotal, PURPOSE_DAMAGE, currentPlayerIndex, 1.0f);
 				if (resolvedTargetIndex != -1) {
-					EffectOp d = {};
-					d.type = EffectOpType::DAMAGE;
-					d.data.damage.targetIndex = resolvedTargetIndex;
-					d.data.damage.damageType = playedCard.damageType;
-					d.data.damage.fixedDamage = 0;
-					d.data.damage.damageFromSlot = 1; // read from blackboard[1]
-					queueEffect(d);
+					// Special-case Fireball: route through the dedicated APPLY_FIREBALL effect
+					if (playedCard.type == CARD_FIREBALL) {
+						EffectOp fb = {};
+						fb.type = EffectOpType::APPLY_FIREBALL;
+						fb.data.damage.targetIndex = resolvedTargetIndex; // for convenience
+						fb.data.damage.damageFromSlot = 1; // authoritative damage in blackboard[1]
+						queueEffect(fb);
+					} else {
+						EffectOp d = {};
+						d.type = EffectOpType::DAMAGE;
+						d.data.damage.targetIndex = resolvedTargetIndex;
+						d.data.damage.damageType = playedCard.damageType;
+						d.data.damage.fixedDamage = 0;
+						d.data.damage.damageFromSlot = 1; // read from blackboard[1]
+						queueEffect(d);
+					}
 				}
 			} else if (hasFlatDamage) {
 				int flat = (playedCard.baseDamage > 0) ? playedCard.baseDamage : playedCard.value;
@@ -24825,8 +24726,7 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 
 //--- ATTACK DAMAGE RESOLUTION ---
 
-// resolveAPRoll migrated into the dice-completion flow and EffectOp pipeline.
-// Legacy implementation removed as part of the Big Cleanup migration.
+// resolveAPRoll handled by dice-completion flow and EffectOp pipeline.
 
 // Summon handling has been inlined into the active dice processing loop above.
 
