@@ -4150,6 +4150,9 @@ void ofApp::updateStateMachine() {
 	// deterministic state updates happen inside the centralized state machine.
 	{
 		float deltaTime = ofGetLastFrameTime();
+		if (!isMultiplayer && currentState == STATE_PAUSED) {
+			deltaTime = 0.0f;
+		}
 		simulationAccumulator += deltaTime;
 		while (simulationAccumulator >= SIMULATION_TIMESTEP) {
 			simulationTick();
@@ -4343,19 +4346,17 @@ void ofApp::update() {
 
 	// Music: respond to state changes (play/stop main menu music)
 	if (currentState != prevState) {
-		// Play menu music if entering main menu or settings
-		if (currentState == STATE_MAIN_MENU || currentState == STATE_SETTINGS) {
+		bool isMenuContext = (currentState == STATE_MAIN_MENU || currentState == STATE_SINGLEPLAYER_MENU || currentState == STATE_SAVE_BROWSER || (currentState == STATE_SETTINGS && (stateBeforeSettings == STATE_MAIN_MENU || stateBeforeSettings == STATE_SINGLEPLAYER_MENU || stateBeforeSettings == STATE_SAVE_BROWSER)));
+
+		if (isMenuContext) {
 			if (mainMenuMusic.isLoaded()) {
-				// Only start playing if it's actually stopped (not just muted from minimize)
 				if (!mainMenuMusic.isPlaying()) {
 					mainMenuMusic.play();
 				}
 			} else {
-				ofLogError("Audio") << "Main menu music not loaded when entering main menu/settings.";
+				ofLogError("Audio") << "Main menu music not loaded.";
 			}
 		} else {
-			// Don't stop menu music for in-game drafts (they are a transient modal
-			// that should not globally mute or pause gameplay audio).
 			if (!(currentState == STATE_DRAFTING && isInGameDraft)) {
 				if (mainMenuMusic.isPlaying()) mainMenuMusic.stop();
 			}
@@ -4509,6 +4510,9 @@ void ofApp::update() {
 		prepareGameVisualState();
 		break;
 	case STATE_PAUSED:
+		if (pausedFromState == STATE_GAMEPLAY || pausedFromState == STATE_DRAFTING || pausedFromState == STATE_INITIATIVE_ROLL) {
+			prepareGameVisualState();
+		}
 		if (pausedFromState == STATE_DRAFTING) {
 			updateDraftUiAnimations();
 		}
@@ -4765,24 +4769,6 @@ void ofApp::drawMainMenu() {
 	float titleX = round(ofGetWidth() / 2.0f - titleBox.getWidth() / 2.0f);
 	float titleY = round(ofGetHeight() * 0.25f);
 	titleFont.drawString(title, titleX, titleY);
-
-	// --- RECALCULATE BUTTON POSITIONS (Do this here or in windowResized) ---
-	// Use a common menu button size so menus look consistent
-	float btnWidth = 420;
-	float btnHeight = 72;
-	float centerX = ofGetWidth() / 2.0f;
-	float startY = ofGetHeight() / 2.0f - btnHeight;
-
-	// Standard Buttons
-	mainMenuPlayAIButton.set(centerX - btnWidth / 2, startY, btnWidth, btnHeight);
-
-	// Split the Multiplayer slot into two buttons: Host and Invite
-	float halfWidth = (btnWidth / 2) - 10;
-	mainMenuHostButton.set(centerX - btnWidth / 2, startY + btnHeight + 20, halfWidth, btnHeight);
-	mainMenuInviteButton.set(centerX + 10, startY + btnHeight + 20, halfWidth, btnHeight);
-
-	mainMenuSettingsButton.set(centerX - btnWidth / 2, startY + (btnHeight + 20) * 2, btnWidth, btnHeight);
-	mainMenuQuitButton.set(centerX - btnWidth / 2, startY + (btnHeight + 20) * 3, btnWidth, btnHeight);
 
 	// --- DRAW BUTTONS ---
 	auto drawButton = [&](const ofRectangle & rect, const string & text, bool isHovered) {
@@ -5110,17 +5096,6 @@ void ofApp::drawSingleplayerMenu() {
 	ofRectangle titleBox = titleFont.getStringBoundingBox(title, 0, 0);
 	titleFont.drawString(title, ofGetWidth() / 2 - titleBox.getWidth() / 2, ofGetHeight() * 0.15);
 
-	float btnWidth = 420;
-	float btnHeight = 72;
-	float centerX = ofGetWidth() / 2.0f;
-	float startY = ofGetHeight() / 2.0f - btnHeight;
-
-	// Layout: New Game, Continue, Load, Back
-	singleplayerNewGameButton.set(centerX - btnWidth / 2, startY, btnWidth, btnHeight);
-	singleplayerContinueButton.set(centerX - btnWidth / 2, startY + btnHeight + 18, btnWidth, btnHeight);
-	singleplayerLoadButton.set(centerX - btnWidth / 2, startY + (btnHeight + 18) * 2, btnWidth, btnHeight);
-	singleplayerBackButton.set(centerX - btnWidth / 2, startY + (btnHeight + 18) * 3, btnWidth, btnHeight);
-
 	auto drawBtn = [&](const ofRectangle & r, const string & txt) {
 		// White by default; hover -> light gray
 		if (r.inside(ofGetMouseX(), ofGetMouseY()))
@@ -5167,7 +5142,7 @@ void ofApp::drawSingleplayerMenu() {
 	string hint = "Customisation coming soon";
 	ofRectangle hb = uiFont.getStringBoundingBox(hint, 0, 0);
 	ofSetColor(200);
-	uiFont.drawString(hint, centerX - hb.getWidth() / 2, singleplayerBackButton.getBottom() + 36);
+	uiFont.drawString(hint, ofGetWidth() / 2.0f - hb.getWidth() / 2.0f, singleplayerBackButton.getBottom() + 36);
 }
 
 void ofApp::drawSaveBrowser() {
@@ -5370,17 +5345,6 @@ void ofApp::applySettings() {
 
 	recalculateUI(ofGetWidth(), ofGetHeight());
 
-	// --- RECALCULATE MAIN MENU BUTTONS ---
-	float btnWidth = 400;
-	float btnHeight = 80;
-	float centerX = ofGetWidth() / 2.0f;
-	float startY = ofGetHeight() / 2.0f - btnHeight;
-
-	mainMenuPlayAIButton.set(centerX - btnWidth / 2, startY, btnWidth, btnHeight);
-	mainMenuMultiplayerButton.set(centerX - btnWidth / 2, startY + btnHeight + 20, btnWidth, btnHeight);
-	mainMenuSettingsButton.set(centerX - btnWidth / 2, startY + (btnHeight + 20) * 2, btnWidth, btnHeight);
-	mainMenuQuitButton.set(centerX - btnWidth / 2, startY + (btnHeight + 20) * 3, btnWidth, btnHeight);
-
 	// --- 11. POST PROCESSING (Optional, used for 3D world only) ---
 	{
 		// Decoupled update helpers
@@ -5422,10 +5386,19 @@ void ofApp::recalculateUI(int w, int h) {
 	float startY = h / 2.0f - btnHeight;
 	float btnGap = 20.0f * uiScale;
 
+	// Main Menu
 	mainMenuPlayAIButton.set(centerX - btnWidth / 2, startY, btnWidth, btnHeight);
-	mainMenuMultiplayerButton.set(centerX - btnWidth / 2, startY + btnHeight + btnGap, btnWidth, btnHeight);
+	float halfWidth = (btnWidth / 2.0f) - (10.0f * uiScale);
+	mainMenuHostButton.set(centerX - btnWidth / 2, startY + btnHeight + btnGap, halfWidth, btnHeight);
+	mainMenuInviteButton.set(centerX + (10.0f * uiScale), startY + btnHeight + btnGap, halfWidth, btnHeight);
 	mainMenuSettingsButton.set(centerX - btnWidth / 2, startY + (btnHeight + btnGap) * 2, btnWidth, btnHeight);
 	mainMenuQuitButton.set(centerX - btnWidth / 2, startY + (btnHeight + btnGap) * 3, btnWidth, btnHeight);
+
+	// Singleplayer Menu
+	singleplayerNewGameButton.set(centerX - btnWidth / 2, startY, btnWidth, btnHeight);
+	singleplayerContinueButton.set(centerX - btnWidth / 2, startY + btnHeight + btnGap, btnWidth, btnHeight);
+	singleplayerLoadButton.set(centerX - btnWidth / 2, startY + (btnHeight + btnGap) * 2, btnWidth, btnHeight);
+	singleplayerBackButton.set(centerX - btnWidth / 2, startY + (btnHeight + btnGap) * 3, btnWidth, btnHeight);
 
 	// 3. Pause Menu Buttons (centered stack) - match main menu sizing
 	float pBtnWidth = btnWidth;
@@ -5921,7 +5894,7 @@ void ofApp::prepareGameVisualState() {
 	} else {
 		endTurnButtonTargetPos.set(ofGetWidth() / 2.0f - btnWidth / 2.0f, hiddenY);
 	}
-	endTurnButtonCurrentPos = endTurnButtonCurrentPos.getInterpolated(endTurnButtonTargetPos, 0.2f);
+	endTurnButtonCurrentPos = endTurnButtonCurrentPos.getInterpolated(endTurnButtonTargetPos, 1.0f - pow(0.001f, deltaTime));
 
 	for (auto & roll : activeDiceRolls) {
 		roll.currentRotation += diceSpinSpeed * deltaTime;
@@ -5929,7 +5902,7 @@ void ofApp::prepareGameVisualState() {
 
 	for (auto it = activeFloatingTexts.begin(); it != activeFloatingTexts.end();) {
 		it->worldPos += it->velocity * deltaTime;
-		it->velocity.y *= 0.95f;
+		it->velocity.y *= pow(0.95f, deltaTime * 60.0f);
 		if (time - it->startTime > it->duration) {
 			it = activeFloatingTexts.erase(it);
 		} else {
@@ -6124,28 +6097,45 @@ void ofApp::prepareGameVisualState() {
 		activeShuffleAnimations.erase(std::remove_if(activeShuffleAnimations.begin(), activeShuffleAnimations.end(), [](const ShuffleAnimation & s) { return (ofGetElapsedTimef() - s.startTime) >= s.duration; }), activeShuffleAnimations.end());
 	}
 
+	// Hand Interpolation (144Hz Smooth + No Bouncing)
 	if (!players.empty() && currentPlayerIndex >= 0) {
-		Player * handPlayer = nullptr;
-		if (!isMultiplayer || isMyTurn()) {
-			handPlayer = &players[currentPlayerIndex];
-		}
+		Player * handPlayer = (isMultiplayer && !isMyTurn()) ? nullptr : &players[currentPlayerIndex];
 		if (handPlayer) {
 			size_t numCards = handPlayer->hand.size();
+
+			// 1. Calculate the target layout for the fan of cards
 			HandLayout handLayout = computeHandLayout(numCards, (float)ofGetWidth(), (float)ofGetHeight());
+
 			for (size_t i = 0; i < numCards; i++) {
+				// Calculate horizontal position
 				float cardCenterX = handLayout.startX + (float)i * (handLayout.cardW + handLayout.spacing) + (handLayout.cardW * 0.5f);
+
+				// Calculate vertical arc drop
 				float fanT = 0.0f;
-				if (numCards >= 4) fanT = ((float)i / (float)(numCards - 1) - 0.5f) * 2.0f;
+				if (numCards >= 4) {
+					fanT = ((float)i / (float)(numCards - 1) - 0.5f) * 2.0f; // [-1..1]
+				}
+
 				float arcDrop = 0.0f;
-				if (numCards >= 4) arcDrop = std::clamp(18.0f + std::max(0.0f, (float)numCards - 4.0f) * 2.2f, 18.0f, 56.0f);
-				float breathing = 0.0f;
-				if (draggedCardIndex == -1) breathing = sinf(ofGetElapsedTimef() * kHandBreathSpeed + (float)i * 0.35f) * kHandBreathAmpPx;
-				float cardCenterY = handLayout.restY + arcDrop * (fanT * fanT) + breathing;
+				if (numCards >= 4) {
+					arcDrop = std::clamp(18.0f + std::max(0.0f, (float)numCards - 4.0f) * 2.2f, 18.0f, 56.0f);
+				}
+
+				// Breathing/Bouncing is disabled here for a clean, static hand!
+				float cardCenterY = handLayout.restY + arcDrop * (fanT * fanT);
+
+				// Assign the destination target
 				handPlayer->hand[i].targetPos = ofVec2f(cardCenterX, cardCenterY);
+
+				// 2. Interpolate smoothly toward the target
 				if (static_cast<int>(i) != draggedCardIndex) {
-					float scaleLerp = (handPlayer->hand[i].targetScale > handPlayer->hand[i].currentScale) ? kHandHoverLerpIn : kHandHoverLerpOut;
+					// Scale interpolation
+					float scaleLerp = (handPlayer->hand[i].targetScale > handPlayer->hand[i].currentScale) ? 0.38f : 0.18f;
 					handPlayer->hand[i].currentScale = ofLerp(handPlayer->hand[i].currentScale, handPlayer->hand[i].targetScale, scaleLerp);
-					handPlayer->hand[i].currentPos = handPlayer->hand[i].currentPos.getInterpolated(handPlayer->hand[i].targetPos, kHandPosLerp);
+
+					// Position interpolation (Frame-independent smooth movement)
+					float posLerp = 1.0f - pow(0.005f, deltaTime);
+					handPlayer->hand[i].currentPos = handPlayer->hand[i].currentPos.getInterpolated(handPlayer->hand[i].targetPos, posLerp);
 				}
 			}
 		}
@@ -6578,24 +6568,28 @@ void ofApp::updateGameLogic() {
 	}
 
 	// --- TURN TIMER CHECK (run early so it continues during gameplay/drafting) ---
+	GameState timerState = currentState;
+	if (isMultiplayer && currentState == STATE_PAUSED) {
+		timerState = pausedFromState;
+	}
 	bool handlesGameplayTimerHere = (!isMultiplayer || isMyTurn());
 	bool handlesDraftTimerHere = (!isMultiplayer || isLocalDraftingPlayer(draftPlayerIndex));
 
 	// FIX: If it's an in-game draft, timer ownership belongs to the gameplay turn owner
-	bool localShouldRunTimerHere = (currentState == STATE_DRAFTING && !isInGameDraft) ? handlesDraftTimerHere : handlesGameplayTimerHere;
+	bool localShouldRunTimerHere = (timerState == STATE_DRAFTING && !isInGameDraft) ? handlesDraftTimerHere : handlesGameplayTimerHere;
 
 	if (turnTimerEnabled && !turnStartDeferred && !turnTimerPaused && currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size() && localShouldRunTimerHere) {
 		// Run timer checks even if modal UI is open; drafting/gameplay variations handled inside
-		if (currentState == STATE_GAMEPLAY || currentState == STATE_DRAFTING) {
+		if (timerState == STATE_GAMEPLAY || timerState == STATE_DRAFTING) {
 			int elapsedFrames = (int)(simulationFrame - (uint32_t)turnStartFrame);
 			if (elapsedFrames >= turnDurationFrames) {
-				if (currentState == STATE_GAMEPLAY) {
+				if (timerState == STATE_GAMEPLAY) {
 					registerAfkTimeoutForCurrentOwner();
 					if (currentState == STATE_MAIN_MENU) {
 						return;
 					}
 				}
-				if (currentState == STATE_DRAFTING) {
+				if (timerState == STATE_DRAFTING) {
 					if (!draftAcceptLocked) {
 						int requiredPicks = (!isInGameDraft && draftStage == 0) ? 2 : 1;
 
@@ -6976,7 +6970,8 @@ void ofApp::updateGameLogic() {
 		if (isEarthquakeAnimatingStep) {
 			// Scale earthquake animation speed (0.2 = one-fifth of previous speed)
 			float earthquakeSpeedScale = 0.2f;
-			float speed = 2.0f * ofGetLastFrameTime() * earthquakeSpeedScale;
+			// Strictly use the simulation step time, NOT the monitor frame time!
+			float speed = 2.0f * SIMULATION_TIMESTEP * earthquakeSpeedScale;
 			earthquakeT += speed;
 
 			bool anyStillMoving = false; // Kept to silence warning, or remove it
@@ -8476,24 +8471,6 @@ void ofApp::updateGameLogic() {
 	// Secondary timer handling: gameplay-only movement pause/resume.
 	// Draft timer logic is handled earlier in this frame and must not be duplicated,
 	// otherwise draft clicks can lock and timer state can desync/freeze.
-	bool handlesGameplayTimerHere2 = (!isMultiplayer || isMyTurn());
-	if (turnTimerEnabled && !turnStartDeferred && currentState == STATE_GAMEPLAY && currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size() && handlesGameplayTimerHere2) {
-		if (isPlayerAnimating) {
-			if (!turnTimerPaused) {
-				turnTimerPaused = true;
-				turnTimerPausedRemainingFrames = std::max(0, turnDurationFrames - (int)(simulationFrame - (uint32_t)turnStartFrame));
-				ofLogNotice("Timer") << "Movement animation active. Pausing turn timer with " << turnTimerPausedRemainingFrames << " frames remaining.";
-			}
-			return;
-		}
-
-		// Resume only the movement-pause case (not opponent-decision/reconnect pauses).
-		if (turnTimerPaused && !opponentDecisionTimerActive && !reconnectTurnTimerPausedByDisconnect) {
-			turnTimerPaused = false;
-			turnStartFrame = (int)simulationFrame - (turnDurationFrames - turnTimerPausedRemainingFrames);
-			turnTimerPausedRemainingFrames = 0;
-		}
-	}
 
 	if (hasUnlimitedAP) currentAP = 99;
 }
@@ -13181,7 +13158,7 @@ void ofApp::mouseMoved(int x, int y) {
 		overPauseMenuButton = pauseMenuResumeButton.inside(x, y) || pauseMenuSaveButton.inside(x, y) || pauseMenuLoadButton.inside(x, y) || pauseMenuSettingsButton.inside(x, y) || pauseMenuQuitButton.inside(x, y);
 	}
 	if (currentState == STATE_MAIN_MENU) {
-		overMainMenuButton = mainMenuPlayAIButton.inside(x, y) || mainMenuMultiplayerButton.inside(x, y) || mainMenuSettingsButton.inside(x, y) || mainMenuQuitButton.inside(x, y);
+		overMainMenuButton = mainMenuPlayAIButton.inside(x, y) || mainMenuHostButton.inside(x, y) || mainMenuInviteButton.inside(x, y) || mainMenuSettingsButton.inside(x, y) || mainMenuQuitButton.inside(x, y);
 	}
 	if (currentState == STATE_SINGLEPLAYER_MENU) {
 		overSingleplayerButton = singleplayerContinueButton.inside(x, y) || singleplayerLoadButton.inside(x, y) || singleplayerNewGameButton.inside(x, y) || singleplayerBackButton.inside(x, y);
@@ -13892,9 +13869,6 @@ cursor_check_done:;
 			mainMenuHoveredIndex = 4;
 		else
 			mainMenuHoveredIndex = -1;
-		if (mainMenuMultiplayerButton.inside(x, y)) mainMenuHoveredIndex = 1;
-		if (mainMenuSettingsButton.inside(x, y)) mainMenuHoveredIndex = 2;
-		if (mainMenuQuitButton.inside(x, y)) mainMenuHoveredIndex = 3;
 		break;
 	}
 	case STATE_SETTINGS: {
@@ -14031,7 +14005,7 @@ void ofApp::mousePressed(int x, int y, int button) {
 			currentState = STATE_SINGLEPLAYER_MENU;
 			return;
 		}
-		if (mainMenuHostButton.inside(x, y) || mainMenuMultiplayerButton.inside(x, y)) {
+		if (mainMenuHostButton.inside(x, y)) {
 			if (!steamManager.isConnected()) {
 				steamManager.createLobby();
 			} else {
@@ -17254,125 +17228,18 @@ void ofApp::startNewTurn() {
 		ofLogWarning("Save") << "Failed to autosave game state at turn start.";
 	}
 
-	// If it was MY turn and I am ending it:
-	if (isMultiplayer && isCurrentPlayerLocal()) {
-		ofLogNotice("Turn") << "Ending my turn (player " << myLocalPlayerID << "). Sending END_TURN command.";
-
-		// 1. Send End Turn as a deterministic input command (lockstep)
-		InputCommandPacket cmd = {};
-		cmd.type = PKT_INPUT_COMMAND;
-		cmd.playerID = myLocalPlayerID;
-		cmd.seq = 0;
-		cmd.commandId = nextCommandId++;
-		cmd.turnNumber = globalTurnCounter;
-		cmd.commandType = CMD_END_TURN;
-		// No params for CMD_END_TURN
-
-		// Queue locally and send over the network to peers so lockstep advances identically.
-		// Host will process the queued command via the command stream rather than
-		// relying on immediate local-only calls to `startNewTurn()`.
-		sendInputCommand(cmd, true);
-
-		// 2.5. CLEAN UP LOCAL PLAYER'S HAND & BUFFS BEFORE WAITING
-		// Both host and client must do this so deck states stay in sync
-		ofLogNotice("Turn") << "Cleaning up local player's (" << myLocalPlayerID << ") hand and buffs...";
-		for (size_t i = 0; i < players.size(); i++) {
-			if (players[i].playerID == myLocalPlayerID && !players[i].isMinion) {
-				Player & localPlayer = players[i];
-				ofLogNotice("Turn") << "Found local player at index " << i << ". Hand size: " << localPlayer.hand.size() << ", Played: " << localPlayer.playedCardsPile.size();
-
-				// Move hand and played cards to discard
-				localPlayer.discardPile.insert(localPlayer.discardPile.end(), localPlayer.hand.begin(), localPlayer.hand.end());
-				localPlayer.hand.clear();
-				localPlayer.discardPile.insert(localPlayer.discardPile.end(), localPlayer.playedCardsPile.begin(), localPlayer.playedCardsPile.end());
-				localPlayer.playedCardsPile.clear();
-				localPlayer.cardsPlayedThisTurn.clear();
-
-				ofLogNotice("Turn") << "After cleanup: Hand size=" << localPlayer.hand.size() << ", Discard size=" << localPlayer.discardPile.size();
-
-				// Clear buffs
-				if (localPlayer.shocksPlayedThisTurn > 0) {
-					EffectOp clearShocks = {};
-					clearShocks.type = EffectOpType::MODIFY_STAT;
-					clearShocks.data.modifyStat.targetIndex = (int)i;
-					clearShocks.data.modifyStat.statType = 12; // Shocks played this turn
-					clearShocks.data.modifyStat.delta = -localPlayer.shocksPlayedThisTurn;
-					clearShocks.data.modifyStat.deltaFromSlot = -1;
-					queueEffect(clearShocks);
-					if (!isProcessingEffect) beginEffectSequence();
-				}
-				// Queue removal of add-poison buff deterministically
-				{
-					EffectOp rmPoisonBuff = {};
-					rmPoisonBuff.type = EffectOpType::REMOVE_STATUS;
-					rmPoisonBuff.data.status.targetIndex = (int)i;
-					rmPoisonBuff.data.status.statusType = STATUS_ADD_POISON;
-					rmPoisonBuff.data.status.duration = 0;
-					processEffectOp(rmPoisonBuff);
-				}
-				// nextAttackAddPoison will be cleared when the REMOVE_STATUS op is processed
-				if (localPlayer.flurryOfFistsStacks > 0) {
-					EffectOp clearFlurry = {};
-					clearFlurry.type = EffectOpType::MODIFY_STAT;
-					clearFlurry.data.modifyStat.targetIndex = (int)i;
-					clearFlurry.data.modifyStat.statType = 14; // Flurry stacks
-					clearFlurry.data.modifyStat.delta = -localPlayer.flurryOfFistsStacks;
-					clearFlurry.data.modifyStat.deltaFromSlot = -1;
-					queueEffect(clearFlurry);
-					if (!isProcessingEffect) beginEffectSequence();
-				}
-
-				// NOTE: Defensive stats (block, ward, etc.) are NOT cleared here!
-				// They persist until the START of the player's NEXT turn (see continueNewTurn)
-
-				// Do not reshuffle here.
-				// Canonical reshuffle is handled once in the ending-player path below
-				// (deck empty at end turn), and during draw attempts when deck is empty.
-
-				// Decrement buff timers
-				if (localPlayer.strengthenElementsTurnsRemaining > 0) {
-					localPlayer.strengthenElementsTurnsRemaining--;
-					if (localPlayer.strengthenElementsTurnsRemaining == 0) {
-						queueFloatingTextVisual(gridToWorld(localPlayer.x, localPlayer.y), "Elements Faded", ofColor::gray);
-					}
-				}
-
-				// Decrement Sprint's Kick-free counter
-				if (localPlayer.freeKickTurns > 0) {
-					bool willBeZero = (localPlayer.freeKickTurns == 1);
-					EffectOp fk = {};
-					fk.type = EffectOpType::MODIFY_STAT;
-					fk.data.modifyStat.targetIndex = -1;
-					fk.data.modifyStat.statType = 15; // FreeKickTurns
-					fk.data.modifyStat.delta = -1;
-					fk.data.modifyStat.deltaFromSlot = -1;
-					// We are currently in a loop where localPlayer is a copy; find index
-					int lpIdx = findPlayerIndexByID(localPlayer.playerID);
-					if (lpIdx >= 0) {
-						fk.data.modifyStat.targetIndex = lpIdx;
-						queueEffect(fk);
-						if (!isProcessingEffect) beginEffectSequence();
-						if (willBeZero) queueFloatingTextVisual(gridToWorld(localPlayer.x, localPlayer.y), "Kick Normal Cost", ofColor::white);
-					}
-				}
-
-				break;
-			}
-		}
-
-		// --- MULTIPLAYER FIX ---
-		// Clients should not locally advance the turn index except when executing
-		// a lockstep command (e.g., processing CMD_END_TURN from the host) or
-		// while processing an effect sequence that originated from the command
-		// stream. Allow advancement when `isExecutingLockstepCommand` OR
-		// `isProcessingEffect` is true.
-		if (isMultiplayer && isClient() && !isExecutingLockstepCommand && !isProcessingEffect) {
-			ofLogNotice("Turn") << "Client: Turn Ended. Awaiting host turn-start via command stream.";
-			endTurnLocked = true; // Prevent clicking button again
-			return;
-		}
-		ofLogNotice("Turn") << "Continuing with turn advancement...";
+	// --- MULTIPLAYER FIX ---
+	// Clients should not locally advance the turn index except when executing
+	// a lockstep command (e.g., processing CMD_END_TURN from the host) or
+	// while processing an effect sequence that originated from the command
+	// stream. Allow advancement when `isExecutingLockstepCommand` OR
+	// `isProcessingEffect` is true.
+	if (isMultiplayer && isClient() && !isExecutingLockstepCommand && !isProcessingEffect) {
+		ofLogNotice("Turn") << "Client: Turn Ended. Awaiting host turn-start via command stream.";
+		endTurnLocked = true; // Prevent clicking button again
+		return;
 	}
+	ofLogNotice("Turn") << "Continuing with turn advancement...";
 
 	if (players.empty()) return;
 
@@ -17968,6 +17835,11 @@ void ofApp::continueNewTurn() {
 	turnStartFrame = (int)simulationFrame;
 	ofLogNotice("Timer") << "Turn start deferred until visuals complete for player " << startingPlayer.playerID;
 	turnDurationFrames = getActiveTurnDurationFrames();
+	turnTimerPaused = false;
+	turnTimerPausedRemainingFrames = 0;
+	opponentDecisionTimerActive = false;
+	opponentDecisionStartFrame = 0;
+	opponentDecisionPlayerIndex = -1;
 
 	// FIX: Snap visual position instantly to the new unit so it doesn't "fly" across the board
 	playerVisualPos = gridToWorld(startingPlayer.x, startingPlayer.y);
@@ -20356,9 +20228,10 @@ void ofApp::executeInputCommand(const InputCommandPacket & cmd) {
 			Player & tpCaster = players[currentPlayerIndex];
 			glm::vec2 casterTile = { (float)tpCaster.x, (float)tpCaster.y };
 			glm::vec2 targetTile = { (float)destX, (float)destY };
-			float maxDistUnits = std::max(0.0f, (float)interactionDiceRoll / 5.0f);
-			float neededDistUnits = getFaceToFaceDistance(casterTile, targetTile);
-			bool inRange = (maxDistUnits >= neededDistUnits - 0.001f);
+			long long maxRangeHalfTiles = ((long long)interactionDiceRoll * 2LL) / 5LL;
+			long long maxDistSq = maxRangeHalfTiles * maxRangeHalfTiles;
+			long long distSq = getFaceToFaceDistanceSquaredScaled(casterTile, targetTile);
+			bool inRange = (maxDistSq >= distSq);
 
 			bool isWall = board[destX][destY].hasWall;
 			bool isOccupied = board[destX][destY].hasPlayer && !(destX == tpCaster.x && destY == tpCaster.y);
@@ -21279,14 +21152,10 @@ bool ofApp::processEffectOp(EffectOp & op) {
 			if (victim) {
 				int dmg = currentEffectSequence.blackboard[0];
 
-				// Use central damage applicator so target-based modifiers (phasing, form
-				// accumulation, visuals) are handled in one place.
-				applyDamageTo(*victim, dmg, DAMAGE_PHYSICAL, currentPlayerIndex);
-
-				// --- DISPLACEMENT LOGIC ---
+				// Use central damage applicator so target-based modifiers stay consistent.
 				glm::ivec2 pushDest1 = wallNewPos + magicHandPushDir;
-				glm::ivec2 side1, side2;
-
+				glm::ivec2 side1 = wallNewPos;
+				glm::ivec2 side2 = wallNewPos;
 				if (magicHandPushDir.x != 0) {
 					side1 = wallNewPos + glm::ivec2(0, 1);
 					side2 = wallNewPos + glm::ivec2(0, -1);
@@ -21300,7 +21169,6 @@ bool ofApp::processEffectOp(EffectOp & op) {
 					if (board[p.x][p.y].hasWall || board[p.x][p.y].hasPlayer) return false;
 					return true;
 				};
-
 				glm::ivec2 finalDest = { -1, -1 };
 
 				if (isValid(pushDest1))
@@ -21382,10 +21250,11 @@ bool ofApp::processEffectOp(EffectOp & op) {
 		int rangeRoll = currentEffectSequence.blackboard[0];
 		Player & caster = players[currentPlayerIndex];
 		glm::vec2 casterTile = { (float)caster.x, (float)caster.y };
-		float maxDistUnits = rangeRoll / 5.0f;
-		float neededDist = getFaceToFaceDistance(casterTile, interactionTargetTile);
+		long long maxRangeHalfTiles = ((long long)rangeRoll * 2LL) / 5LL;
+		long long maxDistSq = maxRangeHalfTiles * maxRangeHalfTiles;
+		long long neededDistSq = getFaceToFaceDistanceSquaredScaled(casterTile, interactionTargetTile);
 
-		if (maxDistUnits >= neededDist - 0.001f) {
+		if (maxDistSq >= neededDistSq) {
 			// Direct hit
 			fireballImpactTile = interactionTargetTile;
 			int targetIdx = -1;
@@ -21447,8 +21316,8 @@ bool ofApp::processEffectOp(EffectOp & op) {
 			glm::vec2 impactTile;
 			std::vector<glm::vec2> path = getLineOfSightPath(casterTile2 + 0.5f, interactionTargetTile + 0.5f);
 			for (const auto & step : path) {
-				float distToStep = getFaceToFaceDistance(casterTile2, step);
-				if (distToStep > maxDistUnits) break;
+				long long stepDistSq = getFaceToFaceDistanceSquaredScaled(casterTile2, step);
+				if (stepDistSq > maxDistSq) break;
 				if (isTileWall((int)step.x, (int)step.y)) {
 					impactTile = step;
 					hitWall = true;
@@ -21456,6 +21325,7 @@ bool ofApp::processEffectOp(EffectOp & op) {
 				}
 			}
 			if (!hitWall) {
+				float maxDistUnits = (float)maxRangeHalfTiles / 2.0f;
 				glm::vec2 impactPos = casterTile2 + (dir * maxDistUnits);
 				impactTile = { floor(impactPos.x), floor(impactPos.y) };
 			}
@@ -22210,11 +22080,12 @@ bool ofApp::processEffectOp(EffectOp & op) {
 		int rangeRoll = currentEffectSequence.blackboard[0];
 		Player & caster = players[currentPlayerIndex];
 		glm::vec2 casterTile = { (float)caster.x, (float)caster.y };
-		float maxDistUnits = rangeRoll / 5.0f;
-		float neededDist = getFaceToFaceDistance(casterTile, interactionTargetTile);
+		long long maxRangeHalfTiles = ((long long)rangeRoll * 2LL) / 5LL;
+		long long maxDistSq = maxRangeHalfTiles * maxRangeHalfTiles;
+		long long neededDistSq = getFaceToFaceDistanceSquaredScaled(casterTile, interactionTargetTile);
 
 		glm::ivec2 impactTile = { -1, -1 };
-		if (maxDistUnits >= neededDist - 0.001f) {
+		if (maxDistSq >= neededDistSq) {
 			impactTile = glm::ivec2((int)interactionTargetTile.x, (int)interactionTargetTile.y);
 		} else {
 			glm::vec2 dir = interactionTargetTile - casterTile;
@@ -22222,8 +22093,8 @@ bool ofApp::processEffectOp(EffectOp & op) {
 			bool hitWall = false;
 			std::vector<glm::vec2> path = getLineOfSightPath(casterTile + 0.5f, interactionTargetTile + 0.5f);
 			for (const auto & step : path) {
-				float distToStep = getFaceToFaceDistance(casterTile, step);
-				if (distToStep > maxDistUnits) break;
+				long long stepDistSq = getFaceToFaceDistanceSquaredScaled(casterTile, step);
+				if (stepDistSq > maxDistSq) break;
 				if (isTileWall((int)step.x, (int)step.y)) {
 					impactTile = glm::ivec2((int)step.x, (int)step.y);
 					hitWall = true;
@@ -22231,6 +22102,7 @@ bool ofApp::processEffectOp(EffectOp & op) {
 				}
 			}
 			if (!hitWall) {
+				float maxDistUnits = (float)maxRangeHalfTiles / 2.0f;
 				glm::vec2 impactPos = casterTile + (dir * maxDistUnits);
 				impactTile = glm::ivec2((int)floor(impactPos.x), (int)floor(impactPos.y));
 			}
@@ -22278,10 +22150,10 @@ bool ofApp::processEffectOp(EffectOp & op) {
 			for (size_t i = 0; i < players.size(); ++i) {
 				Player & p = players[i];
 				if (p.x == currentCardOutcome.primaryTarget.x && p.y == currentCardOutcome.primaryTarget.y) continue;
-				float centerDistFeet = glm::distance(glm::vec2(currentCardOutcome.primaryTarget.x, currentCardOutcome.primaryTarget.y), glm::vec2(p.x, p.y)) * 5.0f;
-				float neededFeetRaw = std::max(0.0f, centerDistFeet - 2.5f);
-				int neededFeet = (int)floor(neededFeetRaw + 1e-4f);
-				if (neededFeet <= aoeRadiusFeet) {
+				long long aoeRadiusHalfTiles = ((long long)aoeRadiusFeet * 2LL) / 5LL;
+				long long aoeRadiusSq = aoeRadiusHalfTiles * aoeRadiusHalfTiles;
+				long long aoeDistSq = getFaceToFaceDistanceSquaredScaled(glm::vec2((float)currentCardOutcome.primaryTarget.x, (float)currentCardOutcome.primaryTarget.y), glm::vec2((float)p.x, (float)p.y));
+				if (aoeDistSq <= aoeRadiusSq) {
 					auto losPath = getLineOfSightPath(glm::vec2(currentCardOutcome.primaryTarget.x, currentCardOutcome.primaryTarget.y) + glm::vec2(0.5f, 0.5f), glm::vec2(p.x, p.y) + glm::vec2(0.5f, 0.5f));
 					bool blockedByWall = false;
 					for (const auto & step : losPath) {
@@ -22387,10 +22259,10 @@ bool ofApp::processEffectOp(EffectOp & op) {
 		for (size_t i = 0; i < players.size(); ++i) {
 			Player & p = players[i];
 			if (p.x == currentCardOutcome.primaryTarget.x && p.y == currentCardOutcome.primaryTarget.y) continue;
-			float centerDistFeet = glm::distance(glm::vec2(currentCardOutcome.primaryTarget.x, currentCardOutcome.primaryTarget.y), glm::vec2(p.x, p.y)) * 5.0f;
-			float neededFeetRaw = std::max(0.0f, centerDistFeet - 2.5f);
-			int neededFeet = (int)floor(neededFeetRaw + 1e-4f);
-			if (neededFeet <= aoeRadiusFeet) {
+			long long aoeRadiusHalfTiles = ((long long)aoeRadiusFeet * 2LL) / 5LL;
+			long long aoeRadiusSq = aoeRadiusHalfTiles * aoeRadiusHalfTiles;
+			long long aoeDistSq = getFaceToFaceDistanceSquaredScaled(glm::vec2((float)currentCardOutcome.primaryTarget.x, (float)currentCardOutcome.primaryTarget.y), glm::vec2((float)p.x, (float)p.y));
+			if (aoeDistSq <= aoeRadiusSq) {
 				auto losPath = getLineOfSightPath(glm::vec2(currentCardOutcome.primaryTarget.x, currentCardOutcome.primaryTarget.y) + glm::vec2(0.5f, 0.5f), glm::vec2(p.x, p.y) + glm::vec2(0.5f, 0.5f));
 				bool blockedByWall = false;
 				for (const auto & step : losPath) {
@@ -22637,12 +22509,12 @@ bool ofApp::processEffectOp(EffectOp & op) {
 		int rangeRoll = currentEffectSequence.blackboard[0];
 		Player & caster = players[currentPlayerIndex];
 		glm::vec2 casterTile = { (float)caster.x, (float)caster.y };
-
-		float maxDistUnits = rangeRoll / 5.0f;
-		float neededDist = getFaceToFaceDistance(casterTile, interactionTargetTile);
+		long long maxRangeHalfTiles = ((long long)rangeRoll * 2LL) / 5LL;
+		long long maxDistSq = maxRangeHalfTiles * maxRangeHalfTiles;
+		long long neededDistSq = getFaceToFaceDistanceSquaredScaled(casterTile, interactionTargetTile);
 
 		glm::ivec2 impactTile = { -1, -1 };
-		if (maxDistUnits >= neededDist - 0.001f) {
+		if (maxDistSq >= neededDistSq) {
 			impactTile = glm::ivec2((int)interactionTargetTile.x, (int)interactionTargetTile.y);
 		} else {
 			glm::vec2 dir = interactionTargetTile - casterTile;
@@ -22650,8 +22522,8 @@ bool ofApp::processEffectOp(EffectOp & op) {
 			bool hitWall = false;
 			std::vector<glm::vec2> path = getLineOfSightPath(casterTile + 0.5f, interactionTargetTile + 0.5f);
 			for (const auto & step : path) {
-				float distToStep = getFaceToFaceDistance(casterTile, step);
-				if (distToStep > maxDistUnits) break;
+				long long stepDistSq = getFaceToFaceDistanceSquaredScaled(casterTile, step);
+				if (stepDistSq > maxDistSq) break;
 				if (isTileWall((int)step.x, (int)step.y)) {
 					impactTile = glm::ivec2((int)step.x, (int)step.y);
 					hitWall = true;
@@ -22659,6 +22531,7 @@ bool ofApp::processEffectOp(EffectOp & op) {
 				}
 			}
 			if (!hitWall) {
+				float maxDistUnits = (float)maxRangeHalfTiles / 2.0f;
 				glm::vec2 impactPos = casterTile + (dir * maxDistUnits);
 				impactTile = glm::ivec2((int)floor(impactPos.x), (int)floor(impactPos.y));
 			}
@@ -22877,10 +22750,8 @@ bool ofApp::processEffectOp(EffectOp & op) {
 		int rangeRoll = currentEffectSequence.blackboard[0];
 		Player & caster = players[currentPlayerIndex];
 		glm::vec2 casterTile = { (float)caster.x, (float)caster.y };
-		float maxDistUnits = rangeRoll / 5.0f;
-		float neededDistUnits = getFaceToFaceDistance(casterTile, interactionTargetTile);
 
-		ofLogNotice("ShootArrow") << "Rolled Range: " << rangeRoll << "ft. Needed: " << (neededDistUnits * 5.0f) << "ft.";
+		ofLogNotice("ShootArrow") << "Rolled Range: " << rangeRoll << "ft.";
 
 		// Destroy top card from caster's deck (always)
 		currentCardOutcome.destroyedCardType = CARD_NONE;
@@ -22908,7 +22779,11 @@ bool ofApp::processEffectOp(EffectOp & op) {
 			ofLogNotice("ShootArrow") << "Destroyed top card after range roll: '" << destroyed.name << "'.";
 		}
 
-		if (maxDistUnits >= neededDistUnits - 0.01f) {
+		long long maxRangeHalfTiles = ((long long)rangeRoll * 2LL) / 5LL;
+		long long maxDistSq = maxRangeHalfTiles * maxRangeHalfTiles;
+		long long neededDistSq = getFaceToFaceDistanceSquaredScaled(casterTile, interactionTargetTile);
+
+		if (maxDistSq >= neededDistSq) {
 			// Hit: spawn tracer and queue damage roll (1d6)
 			{
 				glm::vec2 hitGrid = interactionTargetTile + glm::vec2(0.5f, 0.5f);
@@ -29994,9 +29869,8 @@ TargetInfo ofApp::isLosTargetValid(glm::vec2 casterTile, glm::vec2 targetTile, f
 	long long distScaledSq = 0;
 	distScaledSq = getFaceToFaceDistanceSquaredScaled(casterTile, targetTile);
 
-	// Convert maxRangeFeet to tiles and then to scaled units (half-tile units)
-	double maxRangeTiles = maxRangeFeet / 5.0; // tiles
-	long long maxRangeScaled = (long long)std::floor(maxRangeTiles * 2.0 + 1e-6); // scaled (half-tile)
+	// Convert maxRangeFeet to scaled half-tile units using integer math.
+	long long maxRangeScaled = ((long long)maxRangeFeet * 2LL) / 5LL;
 
 	if (distScaledSq > maxRangeScaled * maxRangeScaled) {
 		result.reason = INVALID_OUT_OF_RANGE;
@@ -31982,13 +31856,13 @@ void ofApp::drawDraftScreen() {
 		float btnW = std::clamp(220.0f * uiScale, 140.0f, 320.0f);
 		float btnH = std::clamp(60.0f * uiScale, 40.0f, 96.0f);
 		float btnX = (ofGetWidth() - btnW) / 2.0f;
-		// Place Accept button directly below the centered cards with a small gap
-		float gapBelowCards = std::clamp(12.0f * uiScale, 8.0f, 32.0f);
+		// Ensure a generous gap so the cards never touch the button
+		float gapBelowCards = 40.0f * uiScale;
 		float btnY = startY + cardH + gapBelowCards;
-		// But clamp to avoid overlapping the player's hand area
-		ofRectangle handAreaRect = computeHandAreaRect((float)ofGetWidth(), (float)ofGetHeight());
-		float minAllowedBtnY = handAreaRect.y - btnH - std::clamp(8.0f * uiScale, 6.0f, 16.0f);
-		if (btnY > minAllowedBtnY) btnY = minAllowedBtnY;
+
+		// Allow the button to move much further down the screen
+		float maxAllowedBtnY = ofGetHeight() - btnH - (20.0f * uiScale);
+		if (btnY > maxAllowedBtnY) btnY = maxAllowedBtnY;
 
 		// Animate Accept button with its UI state
 		float acceptScale = 1.0f;
@@ -32243,8 +32117,8 @@ void ofApp::getDraftCardMetrics(bool clampTop, float & outCardW, float & outCard
 	float totalWidth = outCardW * 3.0f + outSpacing * 2.0f;
 	outStartX = (ofGetWidth() - totalWidth) / 2.0f;
 
-	// Center the row vertically with a small downward offset so the prompt text has room.
-	outStartY = (ofGetHeight() - outCardH) / 2.0f + (30.0f * scale);
+	// Push the cards lower on the screen.
+	outStartY = (ofGetHeight() - outCardH) / 2.0f + (25.0f * scale);
 }
 
 void ofApp::scheduleDraftPickedMove(const DraftPickedMove & mv) {
@@ -32256,7 +32130,49 @@ void ofApp::updateDraftUiAnimations() {
 }
 
 void ofApp::drawPauseMenu() {
-	// Minimal placeholder for pause menu drawing to satisfy link.
+	ofPushStyle();
+	ofEnableBlendMode(OF_BLENDMODE_ALPHA);
+	ofSetColor(0, 0, 0, 180);
+	ofDrawRectangle(0, 0, ofGetWidth(), ofGetHeight());
+
+	ofSetColor(ofColor::white);
+	std::string title = "PAUSED";
+	ofRectangle titleBox = titleFont.getStringBoundingBox(title, 0, 0);
+	titleFont.drawString(title, ofGetWidth() / 2.0f - titleBox.getWidth() / 2.0f, ofGetHeight() * 0.25f);
+
+	auto drawBtn = [&](const ofRectangle & r, const std::string & txt, int index) {
+		if (r.width <= 0 || r.height <= 0) return;
+		if (pauseMenuHoveredIndex == index) {
+			ofSetColor(ofColor::lightGray);
+		} else {
+			ofSetColor(ofColor::white);
+		}
+		ofDrawRectRounded(r, 12.0f);
+
+		ofSetColor(ofColor::black);
+		ofNoFill();
+		ofSetLineWidth(2.0f);
+		ofDrawRectRounded(r, 12.0f);
+		ofFill();
+
+		ofSetColor(ofColor::black);
+		ofRectangle tb = uiFont.getStringBoundingBox(txt, 0, 0);
+		uiFont.drawString(txt, r.getCenter().x - tb.getWidth() / 2.0f, r.getCenter().y + tb.getHeight() / 2.0f);
+	};
+
+	if (!isMultiplayer) {
+		drawBtn(pauseMenuResumeButton, "Resume", 0);
+		drawBtn(pauseMenuSaveButton, "Save Game", 1);
+		drawBtn(pauseMenuLoadButton, "Load Game", 2);
+		drawBtn(pauseMenuSettingsButton, "Settings", 3);
+		drawBtn(pauseMenuQuitButton, "Quit to Menu", 4);
+	} else {
+		drawBtn(pauseMenuResumeButton, "Resume", 0);
+		drawBtn(pauseMenuSettingsButton, "Settings", 1);
+		drawBtn(pauseMenuQuitButton, "Disconnect", 2);
+	}
+
+	ofPopStyle();
 }
 //--------------------------------------------------------------
 void ofApp::drawTrainMenuUI() {
