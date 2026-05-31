@@ -34,8 +34,7 @@ static int legacyCardTypeToSummonKind(CardType t);
 
 // Path constants
 
-// Legacy `pending*` macros have been migrated; use `networkPending.*`
-// fields directly. The old macro aliases were removed.
+// Pending macros migrated; use `networkPending.*` fields.
 
 void ofApp::triggerCameraShake(float intensity, float duration) {
 	cameraShakeIntensity = intensity;
@@ -818,7 +817,7 @@ static void drawArcCenteredTextScaledOutlined(const ofTrueTypeFont & font,
 	}
 }
 
-// Legacy text-drawing helpers removed; consolidated rendering utilities are used instead.
+// Text-drawing helpers consolidated into rendering utilities.
 
 static float bestUniformWrappedTextScale(const ofTrueTypeFont & font,
 	const std::vector<std::string> & texts,
@@ -4495,7 +4494,7 @@ void ofApp::update() {
 			}
 		}
 
-		// NOTE: Removed a legacy timer-path that simulated a mouse click to
+		// NOTE: Removed legacy timer-path that simulated a mouse click.
 		// auto-accept draft picks. That path bypassed the proper lockstep
 		// send/queue flow and could leave the client stuck if command IDs
 		// weren't assigned. The timer now only sets `draftAcceptLocked = true`
@@ -4562,7 +4561,7 @@ void ofApp::beginInitiativeDrafting(int winnerIndex) {
 	generateDraftOptions(1);
 	// Host no longer needs to send PKT_DRAFT_STATE here; the command stream
 	// (CMD_DRAFT_ACTION / CMD_ACCEPT_DRAFT) is authoritative and keeps peers
-	// in sync. If a legacy packet arrives, it's ignored by the client-side handler.
+	// in sync. Legacy packets are ignored by the client-side handler.
 }
 //--------------------------------------------------------------
 // Start a visual shuffle animation for the given player's deck
@@ -17626,8 +17625,7 @@ void ofApp::continueNewTurn() {
 		return;
 	}
 
-	// CLIENT: legacy waiting for host TurnStart removed — clients now derive
-	// AP/turn-start from the deterministic command stream (CMD_END_TURN/CMD_*).
+	// CLIENT: legacy TurnStart wait removed — clients derive turn-start from lockstep commands.
 
 	// --- AP ROLL LOGIC ---
 
@@ -32591,6 +32589,295 @@ long long ofApp::calculateChecksum() {
 	// `currentAP`, which are already included above.
 
 	return (long long)h;
+}
+// Public harness wrapper
+bool ofApp::harnessLoadAndPrintChecksum(const std::string & path) {
+	if (loadGameStateFromFile(path)) {
+		long long chk = calculateChecksum();
+		std::cout << "Loaded " << path << " checksum=" << chk << std::endl;
+		return true;
+	}
+	return false;
+}
+// Auto-advance a small number of turns by sending deterministic CMD_END_TURN
+// commands as the current player. This runs simulation ticks until the
+// turn advances or a safety cap is reached for each advancement.
+void ofApp::harnessAutoAdvanceTurns(int turns) {
+	for (int t = 0; t < turns; ++t) {
+		int startTurn = globalTurnCounter;
+		// Determine current owner index
+		int ownerIdx = currentPlayerIndex;
+		if (ownerIdx < 0 || ownerIdx >= (int)players.size()) {
+			ofLogNotice("Harness") << "No valid current player; stopping harness advance.";
+			break;
+		}
+
+		int ownerPlayerID = players[ownerIdx].playerID;
+
+		// Temporarily set local player id so sendInputCommand stamps the packet correctly
+		int prevLocal = myLocalPlayerID;
+		myLocalPlayerID = ownerPlayerID;
+
+		InputCommandPacket endCmd = {};
+		endCmd.type = PKT_INPUT_COMMAND;
+		endCmd.playerID = ownerPlayerID; // will be overwritten by sendInputCommand, but keep for clarity
+		endCmd.seq = 0;
+		endCmd.commandId = 0; // let sendInputCommand assign canonical id
+		endCmd.turnNumber = globalTurnCounter;
+		endCmd.commandType = CMD_END_TURN;
+
+		// Try smart actions: 1) attempt to play any hand card at likely targets
+		// 2) attempt to move toward nearest enemy 3) fallback to END_TURN
+		bool actionIssued = false;
+		Player & owner = players[ownerIdx];
+
+		// Build candidate targets: self tile, enemy tiles, adjacent tiles around enemies
+		std::vector<std::pair<int, int>> candidates;
+		candidates.emplace_back(owner.x, owner.y);
+		for (size_t i = 0; i < players.size(); ++i) {
+			if ((int)i == ownerIdx) continue;
+			if (players[i].health <= 0) continue;
+			candidates.emplace_back(players[i].x, players[i].y);
+			// adjacents
+			const int dx[4] = { 0, 1, 0, -1 };
+			const int dy[4] = { -1, 0, 1, 0 };
+			for (int k = 0; k < 4; ++k) {
+				int nx = players[i].x + dx[k];
+				int ny = players[i].y + dy[k];
+				if (nx >= 0 && nx < BOARD_WIDTH && ny >= 0 && ny < BOARD_HEIGHT) candidates.emplace_back(nx, ny);
+			}
+		}
+
+		// Try to play multiple cards per turn (up to a small cap).
+		// Build a small loop: pick the best-scoring playable card+target, play it, resolve menus, and repeat.
+		int playsThisTurn = 0;
+		const int kMaxPlaysPerTurn = 4;
+		while (playsThisTurn < kMaxPlaysPerTurn) {
+			// Refresh owner reference (hand may have changed)
+			int curOwnerIdx = findPlayerIndexByID(owner.playerID);
+			if (curOwnerIdx < 0) break;
+			Player & curOwner = players[curOwnerIdx];
+
+			struct CandidatePlay {
+				int cardIndex;
+				int tx;
+				int ty;
+				double score;
+			};
+			std::vector<CandidatePlay> candidatesPlays;
+
+			// Consider each card and candidate target; validate using calculateTargetHighlights
+			for (int ci = 0; ci < (int)curOwner.hand.size(); ++ci) {
+				const Card & c = curOwner.hand[ci];
+				int cost = getEffectiveCardCostForPlayer(curOwner, c);
+				if (cost > curOwner.ap) continue;
+
+				// Run target highlight calc in harness context to set board[x][y].isTargetable
+				int prevCardIndex = interactingCardIndex;
+				int prevState = (int)cardInteractionState;
+				interactingCardIndex = ci;
+				calculateTargetHighlights(ci);
+				// Score heuristic: prefer damage/heal/block/draw
+				double baseScore = 0.0;
+				baseScore += (double)c.baseDamage;
+				baseScore += 0.5 * (double)c.damageDiceNum * (double)(c.damageDiceSides > 0 ? (c.damageDiceSides + 1) / 2.0 : 0.0);
+				baseScore += 1.2 * (double)(c.healAmount + c.baseHeal);
+				baseScore += 0.8 * (double)c.blockAmount + 0.8 * (double)c.wardAmount + 0.6 * (double)c.apGain;
+				baseScore += 0.4 * (double)c.drawCount;
+
+				// If card is self-targeting and caster is valid, add candidate
+				if (c.targeting == TARGET_SELF) {
+					candidatesPlays.push_back({ ci, curOwner.x, curOwner.y, baseScore * 0.9 + 0.1 });
+				}
+
+				// Add any board tile previously computed as targetable
+				for (int tx = 0; tx < BOARD_WIDTH; ++tx) {
+					for (int ty = 0; ty < BOARD_HEIGHT; ++ty) {
+						if (!board[tx][ty].isTargetable) continue;
+						double score = baseScore;
+						// prefer enemy-occupied targets
+						if (board[tx][ty].hasPlayer) score += 2.0;
+						candidatesPlays.push_back({ ci, tx, ty, score });
+					}
+				}
+
+				// restore
+				interactingCardIndex = prevCardIndex;
+				cardInteractionState = (CardInteractionState)prevState;
+			}
+
+			if (candidatesPlays.empty()) break;
+
+			// pick best candidate
+			std::sort(candidatesPlays.begin(), candidatesPlays.end(), [](const CandidatePlay & a, const CandidatePlay & b) { return a.score > b.score; });
+			CandidatePlay best = candidatesPlays.front();
+
+			// Re-validate owner still has that card index (hand may have shifted). If not, try to find card by type.
+			int playCardIndex = best.cardIndex;
+			if (playCardIndex < 0 || playCardIndex >= (int)players[ownerIdx].hand.size()) {
+				// try to find equivalent type in hand
+				bool found = false;
+				for (int i = 0; i < (int)players[ownerIdx].hand.size(); ++i) {
+					if (players[ownerIdx].hand[i].type == players[ownerIdx].hand[best.cardIndex < (int)players[ownerIdx].hand.size() ? best.cardIndex : 0].type) {
+						playCardIndex = i;
+						found = true;
+						break;
+					}
+				}
+				if (!found) break;
+			}
+
+			InputCommandPacket playCmd = {};
+			playCmd.type = PKT_INPUT_COMMAND;
+			playCmd.seq = 0;
+			playCmd.commandId = 0;
+			playCmd.turnNumber = globalTurnCounter;
+			playCmd.commandType = CMD_PLAY_CARD;
+			playCmd.params[0] = playCardIndex; // card index
+			playCmd.params[1] = best.tx;
+			playCmd.params[2] = best.ty;
+
+			ofLogNotice("Harness") << "Harness: choosing PLAY_CARD idx=" << playCmd.params[0] << " target=(" << best.tx << "," << best.ty << ") score=" << best.score;
+			sendInputCommand(playCmd, true);
+
+			// Run ticks to let play resolve. Also auto-resolve simple menus deterministically.
+			int safety = 0;
+			while (safety < 60 && globalTurnCounter == startTurn) {
+				simulationTick();
+				// If a menu appeared, auto-resolve it with a deterministic choice
+				if (cardInteractionState == CARD_INTERACTION_STATE_MENU) {
+					int choice = 1; // default choice id
+					switch (interactingCardType) {
+					case CARD_BURST_OF_LIGHT:
+						// prefer damage unless target is self
+						if (interactionTargetIndex == currentPlayerIndex)
+							choice = 2;
+						else
+							choice = 1;
+						break;
+					case CARD_WISDOM_BOON:
+						choice = 1;
+						break; // prefer damage
+					case CARD_DOUBLE_HANDED:
+						choice = 1;
+						break; // prefer punches
+					case CARD_AMNESIA:
+						choice = 1;
+						break; // self-path
+					case CARD_DISPEL:
+						choice = 2;
+						break; // purge by default
+					case CARD_MAGIC_BLAST:
+						choice = 1;
+						break;
+					default:
+						choice = 1;
+						break;
+					}
+
+					InputCommandPacket menuCmd = {};
+					menuCmd.type = PKT_INPUT_COMMAND;
+					menuCmd.playerID = myLocalPlayerID;
+					menuCmd.seq = 0;
+					menuCmd.commandId = nextCommandId++;
+					menuCmd.turnNumber = globalTurnCounter;
+					menuCmd.commandType = CMD_MENU_CHOICE;
+					menuCmd.params[0] = interactingCardType;
+					menuCmd.params[1] = interactionTargetIndex;
+					menuCmd.params[2] = choice;
+					menuCmd.params[3] = interactingCardIndex;
+					strncpy(menuCmd.stringData, interactingCardName.c_str(), sizeof(menuCmd.stringData) - 1);
+					menuCmd.stringData[sizeof(menuCmd.stringData) - 1] = '\0';
+					ofLogNotice("Harness") << "Harness: auto-resolving menu for card=" << interactingCardType << " choice=" << choice;
+					sendInputCommand(menuCmd, true);
+				}
+				safety++;
+			}
+
+			// Check if play had observable effect (hand/AP changed or player moved/died)
+			int newOwnerIdx = findPlayerIndexByID(owner.playerID);
+			if (newOwnerIdx >= 0) {
+				Player & newOwner = players[newOwnerIdx];
+				if ((int)newOwner.hand.size() < (int)curOwner.hand.size() || newOwner.ap != curOwner.ap) {
+					playsThisTurn++;
+					actionIssued = true;
+					// continue attempting more plays
+					continue;
+				}
+			} else {
+				// owner removed
+				actionIssued = true;
+				break;
+			}
+
+			// If we reach here no meaningful change occurred; stop attempting plays
+			break;
+		}
+
+		// If no card played, try to move toward nearest enemy
+		if (!actionIssued) {
+			int bestDist = 100000;
+			int tx = -1, ty = -1;
+			for (size_t i = 0; i < players.size(); ++i) {
+				if ((int)i == ownerIdx) continue;
+				if (players[i].health <= 0) continue;
+				int d = abs(players[i].x - owner.x) + abs(players[i].y - owner.y);
+				if (d < bestDist) {
+					bestDist = d;
+					tx = players[i].x;
+					ty = players[i].y;
+				}
+			}
+			if (tx != -1) {
+				InputCommandPacket mv = {};
+				mv.type = PKT_INPUT_COMMAND;
+				mv.seq = 0;
+				mv.commandId = 0;
+				mv.turnNumber = globalTurnCounter;
+				mv.commandType = CMD_MOVE_UNIT;
+				mv.params[0] = owner.x;
+				mv.params[1] = owner.y;
+				mv.params[2] = tx;
+				mv.params[3] = ty;
+				ofLogNotice("Harness") << "Harness: attempting MOVE_UNIT to (" << tx << "," << ty << ")";
+				sendInputCommand(mv, true);
+				int safety = 0;
+				while (safety < 30 && globalTurnCounter == startTurn) {
+					simulationTick();
+					safety++;
+				}
+				int newIdx = findPlayerIndexByID(owner.playerID);
+				if (newIdx >= 0) {
+					Player & newOwner = players[newIdx];
+					if (newOwner.x != owner.x || newOwner.y != owner.y) {
+						actionIssued = true;
+						ofLogNotice("Harness") << "Harness: MOVE_UNIT succeeded.";
+					}
+				} else {
+					actionIssued = true; // owner removed
+				}
+			}
+		}
+
+		if (!actionIssued) {
+			ofLogNotice("Harness") << "Harness: no action possible; sending END_TURN for playerID=" << ownerPlayerID << " at turn=" << globalTurnCounter;
+			sendInputCommand(endCmd, true);
+		}
+
+		// Restore local player id
+		myLocalPlayerID = prevLocal;
+
+		// Run deterministic ticks until turn increments or safety cap (500 ticks)
+		int safety = 0;
+		while (globalTurnCounter == startTurn && safety < 500) {
+			simulationTick();
+			safety++;
+		}
+		ofLogNotice("Harness") << "Harness: advanced from turn " << startTurn << " to " << globalTurnCounter << " (ticks=" << safety << ")";
+		// Small deterministic post-advance tick to stabilize effects
+		for (int k = 0; k < 3; ++k)
+			simulationTick();
+	}
 }
 //--------------------------------------------------------------
 void ofApp::applyMovement(int playerIndex, int targetX, int targetY, int newAP, const std::vector<glm::vec2> * pathOverride) {

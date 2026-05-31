@@ -972,6 +972,13 @@ public:
 
 	long long calculateChecksum();
 
+	// Helper for external harness to load a save and print its checksum
+	bool harnessLoadAndPrintChecksum(const std::string & path);
+
+	// Harness helper: auto-advance `turns` turns by submitting deterministic END_TURN commands.
+	// Useful for checksum simulations in headless mode.
+	void harnessAutoAdvanceTurns(int turns);
+
 	// Reliable send tracking for legacy packets removed: lockstep commands used instead
 	void sendSnapshotToClient();
 	std::string buildSnapshotString();
