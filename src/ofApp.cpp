@@ -18618,7 +18618,7 @@ void ofApp::handleCardMenuClick(const std::string & buttonId) {
 		return;
 	}
 
-	if (isMultiplayer && !isExecutingLockstepCommand) {
+	if (!isExecutingLockstepCommand) {
 		int choice = 0;
 		bool choiceNeedsTarget = false;
 		switch (interactingCardType) {
@@ -18686,8 +18686,10 @@ void ofApp::handleCardMenuClick(const std::string & buttonId) {
 			strncpy(cmd.stringData, card.name.c_str(), sizeof(cmd.stringData) - 1);
 			cmd.stringData[sizeof(cmd.stringData) - 1] = '\0';
 			queueInputCommand(cmd);
-			// Notify opponents that the menu closed (visual sync)
-			sendMenuState(0, -1, -1, -1);
+			if (isMultiplayer) {
+				// Notify opponents that the menu closed (visual sync)
+				sendMenuState(0, -1, -1, -1);
+			}
 			resetCardInteraction();
 			return;
 		}
@@ -24563,7 +24565,7 @@ bool ofApp::executeCardByType(const Card & playedCard, int cardIndex, int target
 	// Prevent falling back to legacy per-card menu handlers for menu-first cards.
 	// These are now handled by the generic engine and `handleCardMenuClick`
 	// (called under `CMD_MENU_CHOICE`) so skip legacy switch bodies here.
-	if (playedCard.type == CARD_BURST_OF_LIGHT || playedCard.type == CARD_WISDOM_BOON || playedCard.type == CARD_DOUBLE_HANDED || playedCard.type == CARD_DISPEL || playedCard.type == CARD_MAGIC_BLAST) {
+	if (playedCard.type == CARD_BURST_OF_LIGHT || playedCard.type == CARD_WISDOM_BOON || playedCard.type == CARD_DOUBLE_HANDED || playedCard.type == CARD_DISPEL || playedCard.type == CARD_MAGIC_BLAST || playedCard.type == CARD_TRAIN || playedCard.type == CARD_AMNESIA) {
 		return true;
 	}
 
