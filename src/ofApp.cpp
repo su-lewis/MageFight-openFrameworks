@@ -19455,19 +19455,13 @@ void ofApp::simulationTick() {
 					std::vector<int> raw2;
 					int r2 = resolveDiceRollDetailed(1, 6, raw2);
 
-					glm::vec3 visPos = gridToWorld(players[currentPlayerIndex].x, players[currentPlayerIndex].y) + glm::vec3(0, 1.0f, 0);
-					queueVisualDiceRoll(visPos, 1, 6, raw1, r1, PURPOSE_DEBUG, currentPlayerIndex, 1.2f);
-					queueVisualDiceRoll(visPos, 1, 6, raw2, r2, PURPOSE_DEBUG, currentPlayerIndex, 1.2f);
-
-					currentEffectSequence.blackboard[0] = r1;
-					currentEffectSequence.blackboard[1] = r2;
-
-					EffectOp ap = {};
-					ap.type = EffectOpType::APPLY_INITIATIVE_REROLL;
-					queueEffect(ap);
+					int safeIdx = (currentPlayerIndex >= 0 && currentPlayerIndex < (int)players.size()) ? currentPlayerIndex : 0;
+					glm::vec3 visPos = gridToWorld(players[safeIdx].x, players[safeIdx].y) + glm::vec3(0, 1.0f, 0);
+					queueVisualDiceRoll(visPos, 1, 6, raw1, r1, PURPOSE_DEBUG, safeIdx, 1.2f);
+					queueVisualDiceRoll(visPos, 1, 6, raw2, r2, PURPOSE_DEBUG, safeIdx, 1.2f);
 
 					initiativeTimerFrames = 0;
-					ofLogNotice("Initiative") << "Tie! Rerolling (decision-time authoritative rolls queued)...";
+					ofLogNotice("Initiative") << "Tie! Rerolling (dice queued directly)...";
 				}
 			}
 		}
@@ -21450,35 +21444,6 @@ bool ofApp::processEffectOp(EffectOp & op) {
 			ofLogNotice("Paralysis") << "Tails! Player remains paralyzed and skips turn.";
 			p.paralysisHeadsCount = 0;
 			startNewTurn();
-		}
-
-		opComplete = true;
-		break;
-	}
-
-	case EffectOpType::APPLY_INITIATIVE_REROLL: {
-		// Read two authoritative reroll results from blackboard slots 0 and 1
-		int p1Roll = currentEffectSequence.blackboard[0];
-		int p2Roll = currentEffectSequence.blackboard[1];
-
-		// Clear visual dice created for these rerolls
-		activeDiceRolls.clear();
-
-		if (p1Roll > p2Roll) {
-			draftingCameraLockedToClient = (isMultiplayer && myLocalPlayerID == 1);
-			beginInitiativeDrafting(0);
-			ofLogNotice("Initiative") << "Player 1 goes first";
-			// No PKT_DRAFT_STATE send needed here; both peers will generate drafts deterministically.
-			ofLogNotice("Initiative") << "Initiative: queued deterministic draft start for player " << draftPlayerIndex << " (no PKT_DRAFT_STATE sent).";
-		} else if (p2Roll > p1Roll) {
-			draftPlayerIndex = 1; // P2 Wins
-			beginInitiativeDrafting(1);
-			ofLogNotice("Initiative") << "Player 2 goes first";
-			// No PKT_DRAFT_STATE send needed here; both peers will generate drafts deterministically.
-			ofLogNotice("Initiative") << "Initiative: queued deterministic draft start for player " << draftPlayerIndex << " (no PKT_DRAFT_STATE sent).";
-		} else {
-			// Tie: decision-time must perform rerolls. Do not call RNG here.
-			ofLogNotice("Initiative") << "Tie detected in APPLY_INITIATIVE_REROLL — awaiting decision-time reroll.";
 		}
 
 		opComplete = true;
