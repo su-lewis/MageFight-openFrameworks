@@ -6967,7 +6967,9 @@ void ofApp::updateGameLogic() {
 						}
 					} else {
 						// Multiple dice - show individual rolls in order, then total
-						if (checkPurpose == PURPOSE_EARTHQUAKE_DISTANCE || checkPurpose == PURPOSE_EARTHQUAKE_DAMAGE) {
+						if (currentState == STATE_INITIATIVE_ROLL) {
+							resultText = "";
+						} else if (checkPurpose == PURPOSE_EARTHQUAKE_DISTANCE || checkPurpose == PURPOSE_EARTHQUAKE_DAMAGE) {
 							// FIX: Do not sum or show global UI text for individual earthquake rolls
 							resultText = "";
 						} else {
@@ -31358,16 +31360,41 @@ void ofApp::drawDraftScreen() {
 	float alpha = appearT;
 
 	if (alpha > 0.001f && !draftAcceptApplied) {
+		int shadowA = (int)(255.0f * alpha);
+		int fgA = (int)(255.0f * alpha);
+
+		// Determine class tier text
+		std::string classTierText = "";
+		ofColor classTierColor = ofColor::white;
+		if (!isInGameDraft) {
+			if (draftStage == 0) {
+				classTierText = "Class 1";
+				classTierColor = ofColor(205, 127, 50); // Bronze
+			} else if (draftStage == 1) {
+				classTierText = "Class 2";
+				classTierColor = ofColor(192, 192, 192); // Silver
+			}
+		}
+
+		// Calculate Y positions from the bottom up so they cannot overlap.
+		float lineHeight = titleFont.getLineHeight() * scale;
+		float textSpacing = 15.0f * uiScale;
+		float currentY = startY - std::clamp(20.0f * uiScale, 15.0f, 40.0f) - lineHeight;
+
+		float classTy = 0.0f;
+		if (!classTierText.empty()) {
+			classTy = currentY;
+			currentY -= (lineHeight + textSpacing);
+		}
+
+		float instrTy = currentY;
+		currentY -= (lineHeight + textSpacing);
+
+		float ty = currentY;
+
 		ofRectangle headerBox = titleFont.getStringBoundingBox(header, 0, 0);
 		float scaledW = headerBox.width * scale;
 		float tx = (ofGetWidth() / 2.0f) - (scaledW / 2.0f);
-		// Position header above the centered draft card area with a small gap
-		float cardTopY = startY;
-		float gapAboveCards = std::clamp(12.0f * uiScale, 8.0f, 32.0f);
-		float ty = cardTopY - (titleFont.getLineHeight() * scale) - gapAboveCards;
-
-		int shadowA = (int)(255.0f * alpha);
-		int fgA = (int)(255.0f * alpha);
 
 		ofPushMatrix();
 		ofTranslate(tx, ty);
@@ -31382,7 +31409,6 @@ void ofApp::drawDraftScreen() {
 		// Instruction line below header: place just above the cards with a small gap
 		ofRectangle instrBox = titleFont.getStringBoundingBox(instr, 0, 0);
 		float instrTx = (ofGetWidth() / 2.0f) - (instrBox.width * scale / 2.0f);
-		float instrTy = ty + titleFont.getLineHeight() * scale + std::clamp(6.0f * uiScale, 4.0f, 16.0f);
 		ofPushMatrix();
 		ofTranslate(instrTx, instrTy);
 		ofScale(scale, scale);
@@ -31392,26 +31418,17 @@ void ofApp::drawDraftScreen() {
 		titleFont.drawString(instr, 0, 0);
 		ofPopMatrix();
 
-		// Class tier text below prompt (above cards)
-		std::string classTierText = "";
-		ofColor classTierColor = ofColor::white;
-		if (!isInGameDraft) {
-			if (draftStage == 0) {
-				classTierText = "Class 1";
-				classTierColor = ofColor(205, 127, 50); // Bronze
-			} else if (draftStage == 1) {
-				classTierText = "Class 2";
-				classTierColor = ofColor(192, 192, 192); // Silver
-			}
-		}
 		if (!classTierText.empty()) {
 			ofRectangle classBox = titleFont.getStringBoundingBox(classTierText, 0, 0);
-			float classTx = (ofGetWidth() / 2.0f) - (classBox.width / 2.0f);
-			float classTy = instrTy + titleFont.getLineHeight() + std::clamp(8.0f * uiScale, 6.0f, 20.0f);
+			float classTx = (ofGetWidth() / 2.0f) - (classBox.width * scale / 2.0f);
 			ofSetColor(0, 0, 0, shadowA);
-			titleFont.drawString(classTierText, classTx + 2, classTy + 2);
+			ofPushMatrix();
+			ofTranslate(classTx, classTy);
+			ofScale(scale, scale);
+			titleFont.drawString(classTierText, 2.0f / scale, 2.0f / scale);
 			ofSetColor(ofColor(classTierColor.r, classTierColor.g, classTierColor.b, fgA));
-			titleFont.drawString(classTierText, classTx, classTy);
+			titleFont.drawString(classTierText, 0, 0);
+			ofPopMatrix();
 		}
 	}
 
@@ -31828,15 +31845,15 @@ void ofApp::getDraftCardMetrics(bool clampTop, float & outCardW, float & outCard
 	float scale = screenScale * std::clamp(settingsUIScale, 0.75f, 1.25f);
 
 	// Make cards much more prominent so the draft UI reads clearly.
-	outCardW = kCardPixelWidth * 0.55f * scale;
-	outCardH = kCardPixelHeight * 0.55f * scale;
+	outCardW = kCardPixelWidth * 0.80f * scale;
+	outCardH = kCardPixelHeight * 0.80f * scale;
 	outSpacing = outCardW * 0.15f;
 
 	float totalWidth = outCardW * 3.0f + outSpacing * 2.0f;
 	outStartX = (ofGetWidth() - totalWidth) / 2.0f;
 
-	// Center the row vertically.
-	outStartY = (ofGetHeight() - outCardH) / 2.0f;
+	// Center the row vertically with a small downward offset so the prompt text has room.
+	outStartY = (ofGetHeight() - outCardH) / 2.0f + (30.0f * scale);
 }
 
 void ofApp::scheduleDraftPickedMove(const DraftPickedMove & mv) {
