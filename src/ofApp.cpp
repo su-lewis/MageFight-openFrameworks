@@ -31485,6 +31485,7 @@ void ofApp::drawDraftScreen() {
 				float elapsedSec = nowSec - startSec;
 				float durationSec = (draftAnimAppearFrames > 0) ? (draftAnimAppearFrames / (float)turnTimerFramesPerSecond) : 0.0001f;
 				float t = (durationSec > 0.0f) ? (elapsedSec / durationSec) : 1.0f;
+				t = std::clamp(t, 0.0f, 1.0f);
 				t = t * t * (3.0f - 2.0f * t);
 				if (t >= 1.0f) {
 					ui.currentScale = ui.targetScale;
@@ -31497,6 +31498,7 @@ void ofApp::drawDraftScreen() {
 				float elapsedSec = nowSec - startSec;
 				float durationSec = (draftAnimVanishFrames > 0) ? (draftAnimVanishFrames / (float)turnTimerFramesPerSecond) : 0.0001f;
 				float t = (durationSec > 0.0f) ? (elapsedSec / durationSec) : 1.0f;
+				t = std::clamp(t, 0.0f, 1.0f);
 				t = t * t * (3.0f - 2.0f * t);
 				if (t >= 1.0f) {
 					ui.currentScale = ui.targetScale;
@@ -31637,6 +31639,7 @@ void ofApp::drawDraftScreen() {
 			float elapsedSec = nowSec - startSec;
 			float durationSec = (draftAnimAppearFrames > 0) ? (draftAnimAppearFrames / (float)turnTimerFramesPerSecond) : 0.0001f;
 			float at = (durationSec > 0.0f) ? (elapsedSec / durationSec) : 1.0f;
+			at = std::clamp(at, 0.0f, 1.0f);
 			if (at >= 1.0f) {
 				draftAcceptUI.currentScale = draftAcceptUI.targetScale;
 				draftAcceptUI.state = DRAFT_ANIM_IDLE;
@@ -31649,6 +31652,7 @@ void ofApp::drawDraftScreen() {
 			float elapsedSec = nowSec - startSec;
 			float durationSec = (draftAnimVanishFrames > 0) ? (draftAnimVanishFrames / (float)turnTimerFramesPerSecond) : 0.0001f;
 			float vt = (durationSec > 0.0f) ? (elapsedSec / durationSec) : 1.0f;
+			vt = std::clamp(vt, 0.0f, 1.0f);
 			if (vt >= 1.0f) {
 				draftAcceptUI.currentScale = draftAcceptUI.targetScale;
 				draftAcceptUI.hidden = true;
